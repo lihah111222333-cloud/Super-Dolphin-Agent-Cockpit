@@ -12,9 +12,9 @@ var Module = fx.Module("turn",
 	fx.Provide(
 		fx.Annotate(
 			NewServiceWithPromptAssemblyAndTurnContext,
-			// p20.2 §5 step 1：skill.Service 按 optional 注入；P21 observation.Contract
-			// 同样 optional。依赖图尚未准备好时不会阻塞 turn 模块启动，PrepareTurn
-			// 的 hydrate / observation 步骤在对应依赖 nil 时自动跳过。
+			// p20.2 鈯?step 1锛歴kill.Service 鎸?optional 娉ㄥ叆锛汸21 observation.Contract
+			// 鍚屾牱 optional銆備緷璧栧浘灏氭湭鍑嗗濂芥椂涓嶄細闃诲 turn 妯″潡鍚姩锛孭repareTurn
+			// 鐨?hydrate / observation 姝ラ鍦ㄥ搴斾緷璧?nil 鏃惰嚜鍔ㄨ烦杩囥€?
 			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`),
 		),
 		fx.Annotate(
@@ -24,6 +24,17 @@ var Module = fx.Module("turn",
 		fx.Annotate(
 			NewTurnHandlers,
 			fx.ParamTags("", `optional:"true"`, "", `optional:"true"`, `optional:"true"`, `optional:"true"`),
+		),
+		// P0b Step 2: trajectory collector. observation.Contract is
+		// optional so deployments without observation still wire turn
+		// successfully; the collector tolerates a nil contract.
+		fx.Annotate(
+			NewTrajectoryCollector,
+			fx.ParamTags(`optional:"true"`, `optional:"true"`),
+		),
+		fx.Annotate(
+			NewTrajectorySubscribers,
+			fx.ParamTags("", `optional:"true"`, `optional:"true"`),
 		),
 	),
 	fx.Invoke(registerTurnServiceLifecycle),
