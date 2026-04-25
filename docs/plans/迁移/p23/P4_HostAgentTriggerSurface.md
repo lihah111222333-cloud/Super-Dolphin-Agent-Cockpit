@@ -6,7 +6,7 @@
 
 ## 目标
 
-MCP 工具 `task_create_dag` 接受新可选参数 `auto_start: true`（语法糖：创建后立即 `dag.Start(...)`）；DAG terminal 事件通过既有 hook consumer 链路回到主 agent；100% 向后兼容旧调用方。
+MCP 工具 `task_create_dag` 接受新可选参数 `auto_start: true`（语法糖：创建后立即调用 `cmd/mcp-orch/orchestration/dag_start.go:StartDAG`）；DAG terminal 事件通过既有 hook consumer 链路回到主 agent；100% 向后兼容旧调用方。
 
 ## 现状校准（事实层）
 
@@ -25,7 +25,7 @@ MCP 工具 `task_create_dag` 接受新可选参数 `auto_start: true`（语法�
 | _待补_ | _待补_ | _待补_ |
 
 **已知关键改动方向**：
-- `task_create_dag` schema 加 `auto_start: bool` 字段；server 端创建成功后立即调 `dag.Start(...)`，trigger 默认 `auto`
+- `task_create_dag` schema 加 `auto_start: bool` 字段；server 端创建成功后立即调 `StartDAG(ctx, dagKey, triggerMeta)`，trigger 默认 `auto`
 - 不引入新 hook event；DAG terminal 通过既有 hook consumer 回流到 agent
 - 旧调用方不传 `auto_start` 仍按当前隐式期望工作（旧 DAG 默认 `auto`）
 
@@ -36,7 +36,7 @@ MCP 工具 `task_create_dag` 接受新可选参数 `auto_start: true`（语法�
 
 ## 依赖
 
-- P3 已合入（trigger 枚举 + `dag.Start` 共享入口）
+- P3 已合入（trigger 枚举 + `cmd/mcp-orch/orchestration/dag_start.go:StartDAG` 共享入口）
 
 ## 风险
 

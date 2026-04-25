@@ -108,7 +108,7 @@
 
 ### 5. `gap-arbiter`（已收）
 
-**结论**：推荐方案 **C（默认 A，opt-in B）**；A 必须是独立 `dagArbiterActor`，**不能**塞进 hook consumer 同步执行。
+**结论**：推荐方案 **C（默认 runtime arbiter，judge opt-in）**；runtime arbiter 必须是独立 `dagArbiterActor`，**不能**塞进 hook consumer 同步执行。
 
 **关键事实（基础设施考证）**：仓库内**没有**可直接复用的"非 agent 形态轻量 LLM 调用"。三个候选：
 
@@ -126,7 +126,7 @@
 |---|---|---|---|---|---|---|
 | A runtime arbiter | 中（需 actor 化） | 最低 | 高（最多 1000 次 LLM/DAG） | 中 | hook 同步慢路径冲突 | 默认 |
 | B judge node | 最高 | 高 | 高 + agent 启动成本 | 低/中 | 依赖 verifier fan-in 表达 | opt-in |
-| C 混合（默认 A + opt-in B） | 高 | 低 | 可控 | 最高 | 可控 | **推荐** |
+| C 混合（默认 runtime arbiter + judge opt-in） | 高 | 低 | 可控 | 最高 | 可控 | **推荐** |
 
 **arbiter 关键设计建议**：
 1. A 形态：`terminal hook → enqueue arbiter job → dagArbiterActor → 调 LLM → 写 verdict`，**不是** hook 内同步 chat completion
@@ -345,7 +345,7 @@
 - **codex / claude structured output 锚点**：codex 仓库未见 OpenAI JSON mode / function calling 锚点（不能宣称 hard guarantee）；claude 有 `tool_use` 事件解析（`internal/provider/claudecli/factory.go:148-168`）但 CLI 只通过 `--mcp-config` 接工具（`transport_config.go:185-203`），未见"output_tool schema 强制返回"入口
 - **fallback 代价**：只能 prompt 要求 JSON + runtime validate；无 hard guarantee
 - **archtest 例外**：P13 hook 内同步 schema validate 需 archtest 例外（**已写入 P23 阶段 0 ⑤**）：只允许 parse + validate + enqueue / 轻量 CAS，禁网络 / LLM / 阻塞循环
-- **共享 sanitize**：抽 `cmd/mcp-orch/orchestration/llm/light/sanitize.go` 给 P8 arbiter / P12 swarm / P13 repair_prompt 共用
+- **共享 sanitize**：抽 `cmd/mcp-orch/orchestration/runtime/arbiter_sanitize.go` 给 P8 arbiter / P12 swarm / P13 repair_prompt 共用
 - **合入关系**：P12 不能与 P8 独立并行，必须 P8 + 轻量 LLM 后；P13 可在 P8 sanitize 合入后独立
 
 ### 9. `impl-scale-P9-P10-P11` 摘要
@@ -411,7 +411,7 @@
 5. **`internal/llm/light/*` 落点**：改为 `cmd/mcp-orch/orchestration/llm/light/*`（只服务 DAG arbiter，未来其它模块需要再升级到 `internal/platform/llm/light`）
 6. **P13 hook 同步 schema validate 例外**：写入 P23 阶段 0 ⑤（archtest `dag_hook_tap_enqueue_only` 白名单：parse + validate + enqueue，禁网络 / LLM / 阻塞循环）
 7. **archtest 清单**：从 5 项扩到 14 项，全部列入 README §"守卫与 archtest"
-8. **共享 sanitize layer**：抽 `cmd/mcp-orch/orchestration/llm/light/sanitize.go` 给 P8 / P12 / P13 共用
+8. **共享 sanitize layer**：抽 `cmd/mcp-orch/orchestration/runtime/arbiter_sanitize.go` 给 P8 / P12 / P13 共用
 
 ### 9.2 未修正的关键缺口（必须在 P0 启动前补 / 或在 README 风险段标记）
 
@@ -845,3 +845,98 @@ Rollout 侧指出 README 依赖拓扑漏边（P12 依赖 P9、P10 依赖 P7–P9
 | a10 | dependency topology、migration checklist、阶段0/P0 | 本轮修拓扑并补 gate | `README.md`、`COMPLIANCE_GATES.md` |
 
 未直接写成代码级实现的项（容量数字最终值、PromQL、provider 实测、CI workflow、具体 SQL preflight）仍为 owner 开工前 gate，不在文档仲裁阶段伪造实现结果。
+
+## §59 第三轮交叉审查摘要 - a1 architecture
+
+指出 P8 方案 C 曾残留旧 A/B 表述、`verdict_lost` status 白名单不清、COMPLIANCE L6 可选与后段 hard 依赖冲突。裁决：统一方案 C 文案；P8 是唯一 status 扩展；L6 改为 P7 前 hard。
+
+## §60 第三轮交叉审查摘要 - a2 UI/template
+
+指出 P10 DDL 混用 `CREATE INDEX CONCURRENTLY`、cost preview 暴露 provider 原始 quota、legend 混淆 phase/status。裁决：拆 no-transaction 索引；UI 只显 capacity verdict；新增 `display_state` 合成规则。
+
+## §61 第三轮交叉审查摘要 - a3 growth/iteration
+
+指出 P11 旧 80% 公式、`fixed_point` 默认化、ledger/depth 未同步 DDL。裁决：预算按 total/ledger charged count；v1 convergence 只保确定性条件；补 reservation table 与 node `growth_depth`。
+
+## §62 第三轮交叉审查摘要 - a4 swarm/verdict
+
+确认 P12 quorum/audit 已有方向，但索引 migration 仍混事务；P8/P12 不得隐式 judge fallback。裁决：P12 索引拆 no-transaction；judge 仅 schema opt-in。
+
+## §63 第三轮交叉审查摘要 - a5 RPC/external
+
+指出 P6 endpoint matrix 漏 `task/dag/create`，archtest 只盯 middleware，audit fail-closed/spool DDL 不足。裁决：补 compat method matrix、三入口 identity + service guard archtest、audit spool。
+
+## §64 第三轮交叉审查摘要 - a6 JSON/finance
+
+指出 P13 DDL 未同步 hash-chain/schema draft，redaction-before-validation 语义错误，sanitize 路径冲突。裁决：补审计字段；拆 validation/audit 两路径；统一 runtime sanitize 路径。
+
+## §65 第三轮交叉审查摘要 - a7 liveness
+
+指出 README 仍像 watcher 写 `observe_lost`，P7 字段需求与“无 migration”冲突。裁决：watcher 只产 candidate，`dagReconcileActor` 写终态；P7 若字段不能承载必须独立 migration。
+
+## §66 第三轮交叉审查摘要 - a8 verification flow
+
+指出 P8 verifier binding/durable job queue 未同步 DDL，P13 valid path 应进入 P8 verify。裁决：P8 DDL 补 verify fields/job queue 要求；P13 valid 后按 verify.enabled 分流。
+
+## §67 第三轮交叉审查摘要 - a9 scale scheduling
+
+指出 P9 缺 backpressure/shutdown action matrix 与容量默认。裁决：补 hook/launcher/DB/queue/budget/SIGTERM 矩阵和默认 queue/page/archive/drain 参数。
+
+## §68 第三轮交叉审查摘要 - a10 rollout/compliance
+
+指出 P0/P9 SKIP LOCKED ownership 冲突、阶段 0“三件冻结”旧口径、CONCURRENTLY 分拆仍易误导。裁决：P0/P1 owns first claim；P9 只调优；阶段 0 改最小 checklist。
+
+## 裁决 15 - 第三轮交叉审查仲裁
+
+1. ❌ P8 方案口径：最终只称“方案 C：默认 runtime arbiter + judge opt-in + verdict_lost 不降级”。旧 A/B 名称仅可出现在历史修正说明。
+2. ❌ status 枚举：P0 五态为基础；P8 是唯一可扩 `verdict_lost` 的 forward-only PR；其它后段状态全部走独立列。
+3. ❌ migration：活表 `CREATE INDEX CONCURRENTLY` 必须拆 no-transaction migration，不能与 ALTER/CREATE TABLE 同文件事务混写。
+4. ❌ P7：`observe_lost` 只由 `dagReconcileActor` 写；watcher/recovery scan 只产候选。
+5. ❌ P11：无限迭代必须 ledger/reservation + node depth；预算 80% 按 total/ledger charged count，不按 pending+running。
+6. ❌ P13：金融 JSON validation 先对内存 parsed raw 校验，再将错误/摘要 redacted 后审计/repair；不持久化未脱敏 raw。
+7. 🆕 P6/P10/P9 的 UI/RPC/规模默认升为必修；具体实现参数仍由 owner 在 PR 中实测校准。
+
+## §69 第三轮跨切片冲突仲裁矩阵
+
+| 冲突 | 仲裁 | 影响落盘 |
+|---|---|---|
+| P8 `verdict_lost` vs 主 status 冻结 | P8 优先，但白名单唯一；其余切片不得扩 status | README / P0 / P8 |
+| P7 liveness watcher vs P0 watcher 职责 | P0 watcher 只 claim/scan；P7/P2 reconcile 负责证据与终态 | README / P7 |
+| P11 growth backpressure vs P9 fairness | P11 用 ledger 硬预算，P9 用 token bucket/queue 控速率 | README / P9 / P11 |
+| P13 redaction vs schema validation 正确性 | 校验内存原值，审计/repair 只用 redacted 派生物 | P13 |
+| P6 cost/security vs P10 可视化 | 安全优先；UI 展 verdict/风险档，不暴露 provider 原始 quota | P10 |
+| P0/P1 ready claim vs P9 scale | P0/P1 先实现 SKIP LOCKED；P9 不重复造 runtime claim | README / P9 |
+
+## §70 第四轮复审摘要（原 10 agent）
+
+第四轮 10 份报告全部到达。共识：P8/P12/P13 审计 hash-chain 必须直接并入 DDL；COMPLIANCE 21 archtest 必须变成单一 authoritative 表；P13 provider structured output 要拆 agent turn path 与 arbiter light path；P8/P12/P13 repair 预算必须共用 node 级 combined chain；P10/P13/P12 依赖与金融 preset 需显式 feature gate。
+
+## 裁决 16 - 第四轮复审仲裁
+
+1. ❌ **archtest 单一权威表**：COMPLIANCE 改为 21 行 authoritative 表，README 只摘要；P6 external guard 保持一个 archtest key、两个 Go test 函数。
+2. ❌ **P5 入口名**：全部统一为 `cmd/mcp-orch/orchestration/dag_start.go:StartDAG`，禁止 `dag.Start` 旧名。
+3. ❌ **P13 provider path**：agent final answer 的 output schema 适配走 provider/launcher turn 请求路径；`llm/light/*` 只服务 P8/P12 arbiter verdict。
+4. ❌ **审计 hash-chain 入 DDL**：`dag_arbiter_calls`、`dag_swarm_consensus`、`dag_output_validations` 的 hash-chain 字段必须写进草案而非只留待办。
+5. ❌ **combined repair budget**：P8/P13/P12 repair 共用 node 级 `repair_chain_id + combined_repair_round/combined_repair_max`，swarm dissent repair 也扣同一链。
+6. ⚠️ **可执行细节不硬塞**：LLM token bucket 算法、PromQL/fallback 脚本、provider 文件精确落点、100k partition 方案留 owner PR；本文只冻结边界与阻塞条件。
+
+## §71 第四轮跨切片冲突仲裁矩阵
+
+| 冲突 | 仲裁 | 落盘 |
+|---|---|---|
+| P6 archtest 拆两个函数 vs 21 项总数 | 保持一个 key `dag_external_rpc_guard`，映射两个 test funcs | README / COMPLIANCE |
+| P13 agent output vs P8/P12 arbiter light JSON mode | 路径分离；runtime validate 是 hard guarantee | P13 |
+| P12 swarm 金融 preset vs P13 依赖 | 金融 swarm preset 依赖 P12；未合入时 feature-gate 隐藏 | P13 / P10 / P12 |
+| P11 runtime budget vs structural growth budget | `max_runtime_sec` 移到 convergence/execution budget；growth_budget 只控结构 | P11 |
+| CI 缺失 vs P0 前 hard gate | 允许 manual hard fallback，但缺命令输出/reviewer 签收禁止 merge | COMPLIANCE |
+
+## 裁决 17 - 第五轮复审仲裁
+
+1. ❌ **archtest 双权威**：README 不再维护完整 21 行 archtest 表；执行清单唯一来源是 COMPLIANCE 的 21 项 authoritative 表。
+2. ❌ **P13/P12 依赖**：非 swarm JSON validation 不依赖 P12；金融 `unanimous swarm` preset hard depends on P12，未合入时 UI/API/template 必须隐藏 swarm 字段。
+3. ❌ **P13 parse mode**：解析流程必须按 `output_validation.parse_mode`，金融 strict 禁 json5/jsonpath/markdown wrapper 容错。
+4. ❌ **审计 hash-chain 形状**：P12 `dag_swarm_consensus` 补 `chain_scope`，与 P8/P13 hash-chain 字段对齐。
+5. ⚠️ **verify job archtest**：不扩 21 项总数；将 `TestDAGVerifyJobsDurable` / `TestDAGVerifyJobClaimRetryDeadLetter` 并入 shared launcher key，将 `TestDAGVerifierTerminalUsesVerifyTurnFence` 并入 terminal fence key。
+6. ⚠️ **P6 rate/tenant**：冻结 JSON-RPC rate-limit code `-32029`；create tenant 来源必须来自 authenticated caller authorized tenant。
+7. ⚠️ **P9 durable outbox**：terminal/reconcile/validation outbox 必须有 retention、replay batch、watermark、dead-letter、dedup key；100k 明确非 v1 目标。
+8. ⚠️ **cost approval**：COMPLIANCE 增中央 cost approval gate，service 层 hard block 优先于 UI 二次确认。

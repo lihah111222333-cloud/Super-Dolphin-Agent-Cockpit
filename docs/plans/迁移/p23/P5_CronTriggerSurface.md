@@ -45,8 +45,13 @@ ALTER TABLE public.cron_jobs ADD COLUMN target_dag_key TEXT NOT NULL DEFAULT '';
 ALTER TABLE public.cron_jobs ADD COLUMN target_dag_trigger_meta JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE public.cron_job_runs ADD COLUMN target_dag_key TEXT NOT NULL DEFAULT '';
 
+```
+
+**0066_dag_trigger_cron_index_no_tx.sql**（no-transaction，禁止 `BEGIN/COMMIT`）：
+
+```sql
 -- deterministic idempotency：同一 cron_job 在同一时点不能重复触发同一 DAG
-CREATE UNIQUE INDEX IF NOT EXISTS uq_cron_run_dag_trigger
+CREATE UNIQUE INDEX CONCURRENTLY uq_cron_run_dag_trigger
     ON public.cron_job_runs (job_id, scheduled_at, target_dag_key)
     WHERE target_dag_key <> '';
 ```
@@ -56,7 +61,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_cron_run_dag_trigger
 ## 依赖
 
 - p21 P1b 已合入（cron 模块本身 runner / lease / submit-window 状态机）
-- P3 已合入（`dag.Start` 共享入口）
+- P3 已合入（`cmd/mcp-orch/orchestration/dag_start.go:StartDAG` 共享入口）
 
 ## 风险
 

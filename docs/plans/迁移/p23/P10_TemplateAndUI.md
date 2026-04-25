@@ -89,7 +89,7 @@
 | 模板 service | `cmd/mcp-orch/orchestration/template_service.go` [NEW] | 模板 → DAG 实例化（拷贝 snapshot）+ 参数渲染 |
 | 模板 RPC | `cmd/mcp-orch/orchestration/rpc.go`（扩展） | `dag/template/*` + `dag/instantiate` + `dag/edit_node` + `dag/edit_dag` |
 | 编辑权限 fence | `cmd/mcp-orch/sql/queries/task_dag_node_runtime.sql`（扩展） | CAS：`UPDATE ... WHERE status='pending'` 拒绝跳态写入 |
-| UI 模板库 tab | `internal/ui/wails/dag/templates_page.go` [NEW] + 前端 React/Vue 组件 | 列表 / 详情 / 搜索 / fork |
+| UI 模板库 tab | Wails bridge `internal/ui/wails/dag/templates_page.go` [NEW] + 真实前端目录/框架组件（owner 开工前用代码事实填写） | 列表 / 详情 / 搜索 / fork |
 | UI 任务列表 tab | `internal/ui/wails/dag/instances_page.go` [NEW] + 前端组件 | 列表 / 状态 / 关联模板 |
 | UI 编辑器 | `internal/ui/wails/dag/editor/*` [NEW] + 前端 mermaid 集成 | 拓扑可视化 + 节点表单 + 编辑权限矩阵 |
 | 鉴权 | 复用 P6 `WithCallerIdentity` middleware | 模板 / 任务的 owner / tenant 鉴权 |
@@ -138,6 +138,11 @@ CREATE INDEX IF NOT EXISTS idx_dag_templates_owner_tenant
     ON public.dag_templates (owner_id, tenant_id, scope);
 
 -- 活表 task_dags 上的索引必须使用 CREATE INDEX CONCURRENTLY，放入单独 no-transaction migration
+```
+
+**`0069_dag_template_index_no_tx.sql`**（no-transaction，禁止 `BEGIN/COMMIT`）：
+
+```sql
 CREATE INDEX CONCURRENTLY idx_task_dag_template
     ON public.task_dags (template_key, template_version)
     WHERE template_key <> '';
@@ -147,17 +152,17 @@ CREATE INDEX CONCURRENTLY idx_task_dag_template
 
 - P3 已合入（`owner_id / tenant_id / scope` 字段已就位）
 - P6 已合入（外部 RPC AuthN/AuthZ；UI 调用方需鉴权）
-- P0–P2 / P7–P9 schema 稳定（模板 schema 必须能表达所有 P0–P9 引入的字段，特别是 `nodes[].verify` / `last_activity_at` 相关）
+- P0–P2 / P7–P13 schema freeze（模板 schema 必须能表达 P7–P13 引入字段；若 P11–P13 未合入，字段必须以 feature gate 隐藏但保留 schema extension slot）
 
 ## 风险
 
 - **模板演进**：模板修改后已实例化任务**不**应受影响（实例化时拷贝 snapshot；模板版本号递增 + revision history 表）
 - **编辑已运行 DAG**：必须区分"已推进节点"（只读）vs"未推进节点"（可编辑）；CAS fence 拒绝跳态写入
-- **schema 维度膨胀**：模板 schema 必须支持 P7/P8/P9 全部新字段（`last_activity_at` 不需要进 schema 但 `verify.*` 必须支持）；模板兼容性测试要覆盖
+- **schema 维度膨胀**：模板 schema 必须支持 P7–P13 全部新字段（`last_activity_at` 不需要进 schema，但 `verify.*` / growth / swarm / output_schema 必须支持或 feature-gated）；模板兼容性测试要覆盖
 - **UI 选型**：mermaid 渐进式低风险但拓扑能力弱（不支持自由布局）；d3 是重组件但能力强；推荐 v1 mermaid → v2 视需求换 d3，由 owner 选型
 - **多人编辑冲突**：v1 不做实时协作；同一模板被多人同时编辑时按 last-write-wins + revision history 提供回滚；UI 上加 "正在编辑" 提示但不强锁
 - **参数注入安全**：`{{...}}` 渲染必须 escape 用户输入；不允许参数值里带 prompt injection 进 verifier / launcher
-- **fork 链路爆炸**：模板 fork 可能形成 N 个变体；v1 不做 lineage tracking，由 owner 自行命名管理
+- **fork 链路爆炸**：模板 fork 可能形成 N 个变体；v1 最小只记录 `forked_from_template_key/version/revision_id` 供审计，不做 lineage 图谱；若缺这些字段，UI 必须明确显示“不支持审计 lineage”
 
 ## 必测项
 
@@ -184,8 +189,8 @@ CREATE INDEX CONCURRENTLY idx_task_dag_template
 - **错误 catalog（a7）**：把 `ErrCallerIdentityRequired` / `ErrNodeAlreadyRunning` / `verdict_lost` / schema validation error 映射成人话说明 + 下一步修复入口；不得只展示内部枚举。
 - **模板 preview / diff / lineage（a7+a5）**：模板实例化前展示参数预览、版本 diff、`schema_hash`；v1 可不做 fork lineage 图，但必须保存 fork 来源字段或写明不支持审计链。
 - **WS 实时事件（a7）**：任务列表 / 详情页订阅 DAG / verify / repair / budget 事件，agent 创建后实时出现，Start CTA 只在 manual/draft 状态显示。
-- **金融预设可发现性（a7+a10）**：模板库提供“金融预设” badge，展示 `unanimous + additionalProperties=false + audit_log=true` 的合规说明。
-- **cost preview UI（a10 必修）**：模板页 / 实例化页 / Start 前显示预计 nodes、swarm members、repair rounds、arbiter calls、token、base/max/p95 $/DAG、$/月、provider RPM/TPM/concurrency 是否足够；超过 tenant/subscription 预算阈值必须 approval 或 hard block，二次确认不能替代授权。
+- **金融预设可发现性（a7+a10）**：模板库提供“金融预设” badge，展示 `unanimous + additionalProperties=false + audit_log=true + parse_mode=strict + schema_draft=2020-12 + hash-chain` 的合规说明。
+- **cost preview UI（a10 必修）**：模板页 / 实例化页 / Start 前显示预计 nodes、swarm members、repair rounds、arbiter calls、token、base/max/p95 $/DAG、$/月、provider capacity verdict（足够/不足/需审批/阻断）；超过 tenant/subscription 预算阈值必须 approval 或 hard block，二次确认不能替代授权。
 - **当前 UI 接通项（a7 必修）**：`DataPage` 增 `select` 事件，DAG 列表卡片可点击/键盘进入详情；`DagDetailModal` 必须调用 `dashboard/dagDetail` 填充真实 nodes，并显示 Start CTA / 只读锁 / 状态 legend。
 - **成本/权限边界**：Start CTA 依赖 P3 `dag/start` 和 P9 `dag/cost_preview`；P10 不得在缺 P6 caller identity / tenant filter 时开放跨 tenant 模板列表。
 
@@ -198,18 +203,23 @@ CREATE INDEX CONCURRENTLY idx_task_dag_template
 | `draft`（派生态，不是主 status） | 未启动，可配置 | DAG/node 可编辑 | Start / Save as template |
 | `pending` | 等待依赖 | node 可编辑 | 等待或调整依赖 |
 | `running` | 执行中 | 只读 | 查看 activity |
-| `pending_verify/verifying` | 校验中 | 只读 | 查看 verifier |
-| `repairing` | 修复中 | 只读 | 查看反馈 |
+| `pending_verify/verifying` | 校验中（source=`verify_phase`） | 只读 | 查看 verifier |
+| `repairing` | 修复中（source=`verify_phase/output_validation_phase`） | 只读 | 查看反馈 |
+| `validating_output` | JSON 输出校验中（source=`output_validation_phase`） | 只读 | 查看校验详情 |
+| `validation_repairing` | JSON 输出修复中（source=`output_validation_phase`） | 只读 | 查看 schema 错误 |
+| `idle_watch` | 活性观察中（source=`activity_state`） | 只读 | 查看 activity |
+| `relaunching` | 自动重拉中（source=`activity_state`） | 只读 | 查看 relaunch 原因 |
+| `backpressured` | 背压中（source=`growth_capped`/P9 signals） | 只读 | 查看容量/预算 |
 | `done` | 完成 | 只读 | 查看结果 |
 | `failed` | 失败 | 只读 | 查看错误/重试入口 |
 | `observe_lost` | 观察丢失 | 只读 | 运维恢复/人工处理 |
 | `verdict_lost` | 裁决不可得 | 只读 | 重试 arbiter / 人工处理 |
 
-`draft = trigger=manual AND started_at IS NULL AND no running nodes`，仅 UI 派生态，不得写入 `task_dag_nodes.status`。
+`display_state = status + verify_phase + output_validation_phase + activity_state + growth_capped`；legend 展示的是 UI display state，不得污染主 `task_dag_nodes.status`。`draft = trigger=manual AND started_at IS NULL AND no running nodes`，仅 UI 派生态，不得写入 `task_dag_nodes.status`。
 
 ### 表单字段注册表
 
-P10 owner 必须按分组注册字段：launch、depends_on、verify(P8)、activity/idle(P7)、scale/cost(P9)、growth_budget/convergence(P11)、swarm(P12)、output_schema/output_validation(P13)。每项写默认值、校验、人话帮助、是否高级选项。用户不得直接编辑 raw JSON/YAML 作为唯一入口。
+P10 owner 必须按分组注册字段：launch、depends_on、verify(P8)、activity/idle(P7)、scale/cost(P9)、growth_budget/convergence(P11)、swarm(P12)、output_schema/output_validation(P13)。字段注册表必须是可验收 schema：`field_key/source_schema_path/default/validator/help/advanced/sensitive/editable_when/error_catalog_key/feature_gate`。用户不得直接编辑 raw JSON/YAML 作为唯一入口。
 
 ### cost preview 保密边界
 

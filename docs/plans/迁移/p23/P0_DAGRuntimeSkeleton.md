@@ -37,11 +37,11 @@
 **0063_dag_state_machine.sql** 草案（待 owner 细化）：
 - `task_dag_nodes` 加 `assigned_agent_id TEXT NOT NULL DEFAULT ''`
 - `task_dag_nodes` 加 `last_activity_at TIMESTAMPTZ`（P23 阶段 0 ⑤ 预留）
-- `task_dag_nodes.status` 加 CHECK 约束 `('pending','running','done','failed','observe_lost')`
+- `task_dag_nodes.status` 加 P0 基础 CHECK 约束 `('pending','running','done','failed','observe_lost')`；仅 P8 可在 0067 forward-only 扩 terminal `verdict_lost`，其它后段不得扩主 status
 
 ## 依赖
 
-- 阶段 0 三件冻结全部完成（migration 编号 / state machine 契约 / RunnerModule 角色）
+- 阶段 0 最小 checklist 全部完成（migration 编号 / state machine 契约 / RunnerModule 角色 / trigger enum / 扩展点契约 + compliance checklist）
 - P22 archtest 守卫已落地（runtime ownership 不允许 callback 内长跑）
 
 ## 风险
