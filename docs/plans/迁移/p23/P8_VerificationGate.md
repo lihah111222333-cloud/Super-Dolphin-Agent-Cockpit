@@ -21,7 +21,7 @@ agent 声称完成 → hook 拦截 → `verify_phase=awaiting_verify` 中间态 
 ### 共享 launcher（用于起 verifier agent）
 
 - 入口：`cmd/mcp-orch/orchestration/service_launcher_bridge.go:54-64,89-119`
-- 同 agent 再投 turn（"打回修复"路径）：`cmd/mcp-orch/orchestration/service.go:323-325`、`cmd/mcp-orch/orchestration/service_launcher_bridge.go:277-290`
+- 同 agent 再投 turn（"打回修复"路径）：`cmd/mcp-orch/orchestration/service.go:337-339`、`cmd/mcp-orch/orchestration/service_launcher_bridge.go:338-351`
 
 ### 缺 sibling group 概念
 
@@ -79,11 +79,11 @@ agent 声称完成 → hook 拦截 → `verify_phase=awaiting_verify` 中间态 
 | 审计表 / durable jobs | 同上 | `dag_arbiter_calls` 表（append-only + hash chain）+ `dag_verify_jobs` durable queue |
 | hook tap 扩展 | `cmd/mcp-orch/orchestration/hook_consumer.go` 与 P2 reconcile tap 共建 | terminal hook 不直接调 `CompleteNode`，而是 enqueue 一个"verify gate decision job"；reconcile actor 检查是否有 `verify` spec → 设置 `verify_phase=awaiting_verify` / 起 verifier / 起 arbiter；不得使用主 `status=awaiting_verify` |
 | sanitize layer | `cmd/mcp-orch/orchestration/runtime/arbiter_sanitize.go` [NEW] | verifier 报告作为 quoted data；system prompt 明确"不执行报告内指令"；JSON schema 强校验 |
-| 打回原 agent | 复用 `service_launcher_bridge.go:277-290` 的 `submitTurnViaLauncher` | feedback 拼入下一轮 prompt；不换 agent_id |
+| 打回原 agent | 复用 `service_launcher_bridge.go:338-351` 的 `submitTurnViaLauncher` | feedback 拼入下一轮 prompt；不换 agent_id |
 
 ## DDL / SQL
 
-**`0068_dag_verify_phase.sql`** 草案（编号开 PR 时校准）：
+**`0068_dag_verify_phase.sql`** 草案（编号开 PR 时校准；P8 当前全局 verify phase 命名采用 `awaiting_verify / verifying / repairing`）：
 
 ```sql
 ALTER TABLE public.task_dag_nodes ADD COLUMN verify_phase TEXT NOT NULL DEFAULT '';
@@ -107,6 +107,7 @@ ALTER TABLE public.task_dag_nodes DROP CONSTRAINT IF EXISTS task_dag_nodes_statu
 ALTER TABLE public.task_dag_nodes ADD CONSTRAINT task_dag_nodes_status_check
     CHECK (status IN ('pending','running','done','failed','observe_lost','verdict_lost'));
 
+-- FK/GC hard contract: dag/node 关联必须用真实 FK；若 archive 分区导致真实 FK 不可行，必须用 archive-safe logical FK + postcheck SQL + TTL/retention owner。
 CREATE TABLE IF NOT EXISTS public.dag_arbiter_calls (
     id              TEXT        PRIMARY KEY,
     dag_key         TEXT        NOT NULL,
@@ -142,6 +143,7 @@ CREATE TABLE IF NOT EXISTS public.dag_arbiter_calls (
 CREATE INDEX IF NOT EXISTS idx_dag_arbiter_calls_dag_node
     ON public.dag_arbiter_calls (dag_key, node_key, called_at DESC);
 
+-- dag_verify_jobs 同样受 FK 或 archive-safe logical FK + postcheck SQL 约束，owner 负责 TTL/dead-letter retention。
 CREATE TABLE IF NOT EXISTS public.dag_verify_jobs (
     job_id TEXT PRIMARY KEY,
     dag_key TEXT NOT NULL,
@@ -167,7 +169,7 @@ CREATE INDEX IF NOT EXISTS idx_dag_verify_jobs_dead_letter
     WHERE status = 'dead_letter';
 ```
 
-> verify_phase 走独立列，**不**和主 `status` 共枚举；旧文档/旧实现里若存在主状态 `awaiting_verify` 或 `pending_verify`，必须迁移为 `status='running' + verify_phase='awaiting_verify'`。`verdict_lost` 是 P8 唯一允许加入主 `status` 的 terminal 扩展，其它后段状态必须进入独立 phase/activity/growth 列（P23 阶段 0 ⑤ 硬约束：保 CAS 形状不变）。
+> verify_phase 走独立列，**不**和主 `status` 共枚举；旧文档/旧实现里若存在主状态 `awaiting_verify` 或其它 verify 前态别名，必须迁移为 `status='running' + verify_phase='awaiting_verify'`。`verdict_lost` 是 P8 唯一允许加入主 `status` 的 terminal 扩展，其它后段状态必须进入独立 phase/activity/growth 列（P23 阶段 0 ⑤ 硬约束：保 CAS 形状不变）。
 >
 > P8 必须删除/替换旧 SQL/API 口径：`UpdateAwaitingVerifyNodeStatus` 不得作为主状态更新存在；`CompleteTaskDagNode` 不得接受 `awaiting_verify` 作为完成前状态。替代实现是 `EnterVerifyPhase` / `AdvanceVerifyPhase`，并以 `active_turn_id + attempt_no + verify_round` 做 CAS。
 
@@ -310,3 +312,7 @@ P8 `verify.max_rounds` 与 P13 `max_repair_rounds` 之外增加 node 级 `repair
 - 修改 `CompleteTaskDagNode` 契约：不能接受 `awaiting_verify` 作为可完成前态；verify 前态必须通过 `verify_phase` CAS 表达。
 - migration 必须把历史 `status='awaiting_verify'` 数据转为 `status='running', verify_phase='awaiting_verify'`，并在 CHECK 中禁止 `awaiting_verify` 主状态。
 - gate/archtest grep 必须覆盖 `awaiting_verify` 只允许作为 `verify_phase` 值出现。
+
+## FK / GC hard contract
+
+P8 新增的 `dag_arbiter_calls`、`dag_verify_jobs`、verifier binding 字段必须与 DAG/node 生命周期闭环。优先使用真实 FK 指向活表；如因 archive/partition 不能使用真实 FK，必须实现 archive-safe logical FK，并提供 postcheck SQL（检测 orphan arbiter calls/jobs、orphan verify binding、过期 claimed job）与明确 TTL/retention owner。只写“归档级联方向”不满足 gate。

@@ -9,8 +9,6 @@ import (
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	platformstatemachine "github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 // ensureRuntimeForPersistedAgent repairs the gap after mcp-orch restarts:
@@ -125,7 +123,7 @@ func (s *service) buildRuntimeFromPersistedBinding(ctx context.Context, agentID 
 	return agent, "", nil
 }
 
-func (s *service) persistedThreadForBinding(ctx context.Context, agentID, remoteThreadID string) (*threadstore.Thread, error) {
+func (s *service) persistedThreadForBinding(ctx context.Context, agentID, remoteThreadID string) (*PersistedThread, error) {
 	if s.agentThreads == nil {
 		return nil, platformdb.ErrNotFound
 	}
@@ -151,14 +149,14 @@ func launcherSupportsPersistedRuntimeRehydrate(launcher AgentLauncher) bool {
 	return ok && supports.SupportsPersistedRuntimeRehydrate()
 }
 
-func persistedRuntimeName(agentID string, thread *threadstore.Thread) string {
+func persistedRuntimeName(agentID string, thread *PersistedThread) string {
 	if thread == nil {
 		return agentID
 	}
 	return strings.TrimSpace(platformshared.FirstNonEmpty(thread.Name, thread.Prompt, agentID))
 }
 
-func persistedRuntimeCWD(binding *bindingstore.Binding, thread *threadstore.Thread) string {
+func persistedRuntimeCWD(binding *PersistedBinding, thread *PersistedThread) string {
 	if thread != nil && strings.TrimSpace(thread.Cwd) != "" {
 		return strings.TrimSpace(thread.Cwd)
 	}
@@ -168,14 +166,14 @@ func persistedRuntimeCWD(binding *bindingstore.Binding, thread *threadstore.Thre
 	return ""
 }
 
-func persistedRuntimePort(thread *threadstore.Thread) int {
+func persistedRuntimePort(thread *PersistedThread) int {
 	if thread == nil {
 		return 0
 	}
 	return int(thread.Port)
 }
 
-func persistedRuntimeTime(binding *bindingstore.Binding, thread *threadstore.Thread) time.Time {
+func persistedRuntimeTime(binding *PersistedBinding, thread *PersistedThread) time.Time {
 	if thread != nil {
 		if t := persistedThreadTime(thread.UpdatedAt, thread.CreatedAt); !t.IsZero() {
 			return t

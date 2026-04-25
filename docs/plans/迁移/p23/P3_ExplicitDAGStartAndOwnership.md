@@ -22,7 +22,9 @@
 
 `StartDAG` 首步读取 `CallerIdentityFromContext(ctx)`；缺失、未认证、tenant 未授权或 scope 不匹配时 hard fail `ErrCallerIdentityRequired` / `ErrTenantUnauthorized`，并写失败 audit（若 audit 主表不可写则按 P6 fail-closed/spool）。鉴权通过后再执行 idempotency、状态 CAS、wakeup enqueue。
 
-Start idempotency 使用统一表 `dag_start_requests`（或名称等价但字段/约束等价）：唯一 scope 为 `(tenant_id, dag_key, trigger_source, trigger_instance_key)`；同 key 同 `params_hash` 返回已有结果，不同 hash 返回 conflict。`trigger_source ∈ {manual, auto, cron, external, host}`；`trigger_instance_key` 由触发源确定（manual/UI request id、host tool call id、cron tick deterministic key、external idempotency key）。
+Start idempotency 使用统一表 `dag_start_requests`（或名称等价但字段/约束等价）：唯一 scope 为 `(tenant_id, dag_key, trigger_source, trigger_instance_key)`；同 key 同 `params_hash` 返回已有结果，不同 hash 返回 conflict。`schedule.trigger ∈ {manual, auto, cron, external}`。
+
+运行时 `trigger_source ∈ {manual, auto, cron, external, host}`；`trigger_instance_key` 由触发源确定（manual/UI request id、host tool call id、cron tick deterministic key、external idempotency key）。
 
 ## 改动清单
 
@@ -40,7 +42,8 @@ Start idempotency 使用统一表 `dag_start_requests`（或名称等价但字�
 - 共享入口 `cmd/mcp-orch/orchestration/dag_start.go` 的 `StartDAG(ctx, dagKey, triggerMeta)`：所有触发源汇流，包含鉴权 + idempotency；**新建文件不膨胀 `dag.go`**
 - `0066_dag_owner_tenant.sql`：加 `owner_id / tenant_id / scope`，迁移 `created_by`
 - `trigger_meta.caller_identity` 写进 `dag.last_trigger_at` + `dag.last_trigger_by`
-- trigger 枚举落地：`schedule.trigger ∈ {manual, auto, cron, external, host}` schema 强校验
+- trigger 枚举落地：`schedule.trigger ∈ {manual, auto, cron, external}` schema 强校验。
+- `host` 只作为 runtime `trigger_source`，不得进入 schedule enum。
 
 ## DDL / SQL
 
@@ -76,3 +79,7 @@ Start idempotency 使用统一表 `dag_start_requests`（或名称等价但字�
 - `dag-entry-audit` 报告（外部 RPC / 鉴权缺口）
 
 
+
+## StartDAG idempotency / active-run 口径
+
+P3 v1 采用同源去重：`dag_start_requests` 唯一键为 `(tenant_id, dag_key, trigger_source, trigger_instance_key)`；同 key 同 `params_hash` 返回已有结果，不同 hash 返回 conflict。不同来源（例如 cron 与 external）默认不跨源互斥，因此不得写“cron + external 一定不双跑”的测试。若产品需要跨源互斥，必须显式启用 optional active-run lease（`tenant_id, dag_key` scoped，带 lease TTL/owner/fence），并让 P5/P6 同时走该 lease。

@@ -16,6 +16,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools"
 	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
@@ -74,12 +75,87 @@ func newQueries(pool *pgxpool.Pool) *sqlc.Queries {
 	return sqlc.New(pool)
 }
 
-func newAgentThreadStore(pool *pgxpool.Pool) threadstore.Store {
-	return threadstore.NewStoreFromPool(pool)
+// threadStoreAdapter wraps internal/store/thread.Store and converts its
+// types to the orchestration-local PersistedThread DTO so the orchestration
+// subpackage never imports internal/store/* (modularity-convention §2.4).
+type threadStoreAdapter struct {
+	inner threadstore.Store
 }
 
-func newAgentBindingStore(pool *pgxpool.Pool) bindingstore.Store {
-	return bindingstore.NewStore(internalsqlc.New(pool))
+func (a threadStoreAdapter) ListAll(ctx context.Context) ([]orchestration.PersistedThread, error) {
+	threads, err := a.inner.ListAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]orchestration.PersistedThread, len(threads))
+	for i, t := range threads {
+		out[i] = toPersistedThread(t)
+	}
+	return out, nil
+}
+
+func (a threadStoreAdapter) GetByThreadID(ctx context.Context, threadID string) (*orchestration.PersistedThread, error) {
+	t, err := a.inner.GetByThreadID(ctx, threadID)
+	if err != nil {
+		return nil, err
+	}
+	if t == nil {
+		return nil, nil
+	}
+	pt := toPersistedThread(*t)
+	return &pt, nil
+}
+
+func toPersistedThread(t threadstore.Thread) orchestration.PersistedThread {
+	return orchestration.PersistedThread{
+		ThreadID:      t.ThreadID,
+		AgentID:       t.AgentID,
+		ParentAgentID: t.ParentAgentID,
+		Name:          t.Name,
+		Prompt:        t.Prompt,
+		Cwd:           t.Cwd,
+		Status:        t.Status,
+		Port:          t.Port,
+		PID:           t.PID,
+		CreatedAt:     t.CreatedAt,
+		UpdatedAt:     t.UpdatedAt,
+		PendingLaunch: t.PendingLaunch,
+	}
+}
+
+// bindingStoreAdapter wraps internal/store/binding.Store and converts its
+// types to the orchestration-local PersistedBinding DTO (modularity-convention §2.4).
+type bindingStoreAdapter struct {
+	inner bindingstore.Store
+}
+
+func (a bindingStoreAdapter) GetByAgentID(ctx context.Context, agentID string) (*orchestration.PersistedBinding, error) {
+	b, err := a.inner.GetByAgentID(ctx, agentID)
+	if err != nil {
+		return nil, err
+	}
+	if b == nil {
+		return nil, nil
+	}
+	pb := orchestration.PersistedBinding{
+		AgentID:          b.AgentID,
+		Provider:         b.Provider,
+		ProviderThreadID: b.ProviderThreadID,
+		CodexThreadID:    b.CodexThreadID,
+		Cwd:              b.Cwd,
+		Archived:         b.Archived,
+		CreatedAt:        b.CreatedAt,
+		UpdatedAt:        b.UpdatedAt,
+	}
+	return &pb, nil
+}
+
+func newAgentThreadStore(pool *pgxpool.Pool) orchestration.AgentThreadStore {
+	return threadStoreAdapter{inner: threadstore.NewStoreFromPool(pool)}
+}
+
+func newAgentBindingStore(pool *pgxpool.Pool) orchestration.AgentBindingStore {
+	return bindingStoreAdapter{inner: bindingstore.NewStore(internalsqlc.New(pool))}
 }
 
 func registerPoolLifecycle(lc fx.Lifecycle, logger *slog.Logger, pool *pgxpool.Pool) {

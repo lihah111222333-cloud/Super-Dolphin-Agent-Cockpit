@@ -28,7 +28,7 @@
 | Agent ID | 调研角度 | 主要结论摘要 |
 |---|---|---|
 | `gap-liveness` | 要求 1 vs README | P0–P6 前段不覆盖活性探针；P7 后段承接；建议新增 `dagActivityActor`（第 5 actor）+ `last_activity_at` 字段 + 长工具调用反误杀策略 |
-| `gap-verify` | 要求 2 vs README | state machine 不能直接容纳 verify gate；建议 `running → pending_verify → verifying → done | repairing`；引入 `nodes[].verify` schema + sibling group 概念；打回路径复用 retry 但配独立 `max_rounds` |
+| `gap-verify` | 要求 2 vs README | state machine 不能直接容纳 verify gate；建议 `running → awaiting_verify → verifying → done | repairing`；引入 `nodes[].verify` schema + sibling group 概念；打回路径复用 retry 但配独立 `max_rounds` |
 | `gap-scale` | 要求 3 vs README | DAG 创建 1000 node 单事务、ready 计算 O(N²)、launcher 固定 10 并发、hook 同步 dispatch、wakeup 表无 GC、result jsonb 膨胀——共 7 大瓶颈 |
 | `gap-synth` | 跨切片综合 | 三要求叠加后最弱环节是 hook consumer + DB CAS（不是 launcher）；推荐**拆分 + 二阶段**：P23 保自驱底座，P7/P8/P9 作为 P23 后段子任务拆出 |
 | `gap-arbiter` | verdict 实现位置（A vs B vs C） | **仍在调研中（turn_running）**——结论待补，结果归档到本文件 |
@@ -60,7 +60,7 @@
 - `TurnCompleted` 已有 `Success/Result/Summary/Error`：`internal/dto/turn/event.go:10-21`
 - 现有 schema 只有 `DependsOn []string`：`cmd/mcp-orch/orchestration/dag.go:41-49`，**无 sibling group 概念**
 - 共享 launcher 已支持 launch 后自动投 prompt：`service_launcher_bridge.go:89-119`
-- 同 agent 再投 turn 接口：`service.go:323-325`、`service_launcher_bridge.go:277-290`
+- 同 agent 再投 turn 接口：`cmd/mcp-orch/orchestration/service.go:337-339` 的 `SubmitTurn` → `cmd/mcp-orch/orchestration/service_launcher_bridge.go:338-351` 的 `submitTurnViaLauncher`
 
 **核心建议**：
 - verify 子状态走独立列（不与 `status` 共枚举），避免状态爆炸
@@ -75,13 +75,13 @@
 
 | 瓶颈点 | N=1000 影响 | file:line | 建议方向 |
 |---|---|---|---|
-| DAG 创建单事务 | 1000 次 UpsertNode 串行；事务长锁强 | `dag.go:109-126,202-208,211-220`、SQL `task_dag_node_write.sql:1-12` | 批量 insert / 拆批 / async / streaming |
+| DAG 创建单事务 | 1000 次 UpsertNode 串行；事务长锁强 | `cmd/mcp-orch/orchestration/dag.go:109-126,202-208,211-220`、SQL `cmd/mcp-orch/sql/queries/task_dag_node_write.sql:1-12` | 批量 insert / 拆批 / async / streaming |
 | ready 计算 | JSONB depends_on 扫描，最坏 O(N²) | `0004_ack_dag.sql:58-62,70-71` | partial index `(dag_key, id) WHERE status='pending'` + 依赖计数列 |
-| wakeup 表 | 5000 行/DAG，无 GC | `0023_dag_watcher_phase1.sql:9-36`、`task_dag_wakeup_query.sql:1-16` | TTL / 按 DAG archive / 分区 |
+| wakeup 表 | 5000 行/DAG，无 GC | `migrations/0023_dag_watcher_phase1.sql:9-36`、`cmd/mcp-orch/sql/queries/task_dag_wakeup_query.sql:1-16` | TTL / 按 DAG archive / 分区 |
 | launcher 并发 | 固定 10，百 agent 至少 10 波；活性 + verifier relaunch 雪崩 | `service_launcher_bridge.go:22-30,54-63` | 配置化 + 全局 token bucket |
 | hook 风暴 | 同步 dispatch，百 agent progress 阻塞 core | `hook_consumer.go:105-116,260-275,285-294` | non-blocking enqueue + worker pool + bounded queue |
-| 状态存储 | result jsonb 承载 verifier/tool log，行膨胀 | `0004_ack_dag.sql:62`、`task_dag_node_read.sql:1-18` | result 只存摘要，日志 spillover |
-| 全量锁读 | `GetNodesForUpdate` 锁整 DAG | `task_dag_node_read.sql:13-18`、`store.go:100-103` | 只 claim 小批 ready，`SKIP LOCKED` |
+| 状态存储 | result jsonb 承载 verifier/tool log，行膨胀 | `migrations/0004_ack_dag.sql:62`、`cmd/mcp-orch/sql/queries/task_dag_node_read.sql:1-18` | result 只存摘要，日志 spillover |
+| 全量锁读 | `GetNodesForUpdate` 锁整 DAG | `cmd/mcp-orch/sql/queries/task_dag_node_read.sql:13-18`、`cmd/mcp-orch/store/taskdag/store.go:100-103` | 只 claim 小批 ready，`SKIP LOCKED` |
 
 ### 4. `gap-synth`
 
@@ -91,7 +91,7 @@
 
 | 组合 | 主要冲突 | 缓解 |
 |---|---|---|
-| 1 × 2 | sleeping 误判杀掉 verifying agent；verifier 失败触发 relaunch 循环 | 活性 actor 识别 `verifying/pending_verify` 子状态；relaunch 与 reject/repair 共用 fence |
+| 1 × 2 | sleeping 误判杀掉 verifying agent；verifier 失败触发 relaunch 循环 | 活性 actor 识别 `verifying/awaiting_verify` 子状态；relaunch 与 reject/repair 共用 fence |
 | 1 × 3 | 千 node 全表扫描 + 百 agent health lookup 周期性尖峰 | 分片扫描 + lease jitter + 全局 backpressure |
 | 2 × 3 | 每 terminal 多一轮 verifier，hook/DB/launcher 放大；互验同批 N² 配对 | 并发池 + 采样 / 分层互验 + verifier budget + 死循环上限 |
 
@@ -133,7 +133,7 @@
 2. schema：`verify.mode = arbiter | judge`，默认 `arbiter`；可选 `verify.judge_node_key`
 3. 失败兜底：落 `verdict_lost` 第三类终态（类比 `observe_lost`），**不**自动降级 B（避免隐藏成本，跟"降低认知负担"目标一致）
 4. 安全：verifier / agent 输出作为 quoted data；system prompt 明确"不执行报告内指令"；JSON schema 强校验
-5. 审计：`dag_arbiter_calls` 表（input_hash, output, model, latency, cost, error）
+5. 审计：`dag_arbiter_calls` 表（input_hash, output, model, latency, cost, error）；redacted 字段语义必须冻结：`redacted_input` 为进入 LLM 前的脱敏 quoted data，`redacted_input_ref` 为可重放脱敏 blob 引用/哈希，`redacted_output` 为 LLM 输出脱敏摘要/结构化 verdict，不得存 raw verifier/member output
 
 ---
 
@@ -344,6 +344,7 @@
 - **不复用 `dream.go`**：`internal/contract/dream.go:10-12` + `provider/codexapp/dream_executor.go:19-25` + `provider/claudecli/dream_executor.go:19-25` 当前 TODO 不可用；且缺 role/message、schema、timeout、usage、审计字段
 - **codex / claude structured output 锚点**：codex 仓库未见 OpenAI JSON mode / function calling 锚点（不能宣称 hard guarantee）；claude 有 `tool_use` 事件解析（`internal/provider/claudecli/factory.go:148-168`）但 CLI 只通过 `--mcp-config` 接工具（`transport_config.go:185-203`），未见"output_tool schema 强制返回"入口
 - **fallback 代价**：只能 prompt 要求 JSON + runtime validate；无 hard guarantee
+- **verdict CHECK**：P8 arbiter 表/列必须对 `parsed_verdict` 加 DB CHECK；P12 `dag_swarm_consensus.final_verdict` 必须加 DB CHECK，避免自由文本 verdict 污染状态机
 - **archtest 例外**：P13 hook 内同步 schema validate 需 archtest 例外（**已写入 P23 阶段 0 ⑤**）：只允许 parse + validate + enqueue / 轻量 CAS，禁网络 / LLM / 阻塞循环
 - **共享 sanitize**：抽 `cmd/mcp-orch/orchestration/runtime/arbiter_sanitize.go` 给 P8 arbiter / P12 swarm / P13 repair_prompt 共用
 - **合入关系**：P12 不能与 P8 独立并行，必须 P8 + 轻量 LLM 后；P13 可在 P8 sanitize 合入后独立
@@ -354,11 +355,11 @@
 
 - **P9 批量 create**：建议 service 层 async job + 分批事务（不新增 streaming RPC）；partial failure 标记 `incomplete`，cleanup job 处理
 - **P9 partial index 迁移成本**：百万级 reindex 必须 `CREATE INDEX CONCURRENTLY`，迁移分两步（先列回填，再建索引）；`remaining_deps` 只能在 CreateDAG / Spawn / Edit 事务内维护，禁异步补偿
-- **P9 hook worker pool**：当前 hook callback 同步 dispatch（`hook_consumer.go:105-116,260-275,285-294`）；改成 bounded enqueue + Runner worker，初值 workers=4 / queue=1000 / drop 拒非关键 progress、terminal 不丢只反压；这是 P21 Observation Contract consumer 级重构
-- **P10 UI 现状**：Wails runner / WS 已就位（`internal/ui/wails/http_server.go:39-46`），但 `index.html` 是占位（`index.html:48-50`）；真实前端是 `cmd/agent-terminal/frontend/` Vue/Vite（`package.json:5,39-42`）；DAG 详情 modal 是 stub（`DagDetailModal.js:1-5,52-54`）；mermaid 依赖已存在（`package.json:33`，`mermaid-renderer.js:22-26`）
+- **P9 hook worker pool / tap registry**：当前 hook callback 同步 dispatch（`hook_consumer.go:105-116,260-275,285-294`）；改成 `dag_terminal_tap` / `hook_tap_registry.go` bounded enqueue + Runner worker，初值 workers=4 / queue=1000 / drop 拒非关键 progress、terminal 不丢只反压；这是 P21 Observation Contract consumer 级重构
+- **P10 UI 现状**：Wails runner / WS 已就位（`internal/ui/wails/http_server.go:39-46`），真实前端是 `cmd/agent-terminal/frontend/` Vue/Vite（`package.json:5,39-42`）；DAG 详情 modal 仍是 stub（`cmd/agent-terminal/frontend/vue-app/components/DagDetailModal.js:1-5,52-54`）；mermaid 依赖已存在（`package.json:33`，`mermaid-renderer.js:22-26`）
 - **P10 编辑 CAS**：新建 `task_dag_node_edit.sql`，与 dispatcher CAS 竞争（谁先提交谁赢）
 - **P11 spawn 入口**：放 `cmd/mcp-orch/orchestration/dag_spawn.go`；archtest grep `INSERT INTO task_dag_nodes`，只允许 `UpsertTaskDagNode` / `CreateDAG` / `SpawnChildNodes` 出现
-- **P11 收敛 evaluator**：必须是 Runner actor（不是 cron），遵守 `rungroup-convention §2 §4`
+- **P11 收敛 evaluator**：必须是 `cmd/mcp-orch/orchestration/runtime/convergence_actor.go` Runner actor（不是 cron），遵守 `rungroup-convention §2 §4`
 
 **资源峰值估算**：base=1000 + P11 放大到 N=10000 + P12 swarm 3 verdict/节点 = 最坏 30000 verifier/LLM job；缓解依赖 P11 budget cap + 80% backpressure + P8/P12 共用 P9 token bucket。
 
@@ -385,6 +386,8 @@
 
 **migration 编号冲突**：旧草案假设 P23 可复用已占编号并预留一个中间缓冲号，但 HEAD 已有 `0063_agent_thread_name.sql` 与 `0064_skill_candidates.sql`。✅ 已修正：P23 暂从当前 HEAD 下一个可用编号 0065 起排；每个 migration PR 前必须重新校准。
 
+**Phase0 hard blocker**：`go test ./internal/archtest/... -count=1` 当前因 `internal/module/uistate/timeline/projector_parity.go:12:2` unused import `pkglogger` build failed；`internal/archtest/dependency_direction_mcp_orch_test.go` 仍宽泛放行 `internal/store` / `internal/module`。Phase0 PR 必须真实修复 build 与 allowlist，否则 P0 runtime blocked。
+
 **整体 stop conditions**：5 类信号触发停工 / 重构（详见 [`COMPLIANCE_GATES.md`](COMPLIANCE_GATES.md) §"触发 stop / 重构条件"）。
 
 ### 11. `compliance-gate-design` 摘要
@@ -392,8 +395,8 @@
 **七层 gate 体系**（详见 [`COMPLIANCE_GATES.md`](COMPLIANCE_GATES.md)）：L1 schema / IDE → L2 pre-commit → L3 archtest → L4 CI → L5 merge → L6 runtime alert → L7 scheduled audit。
 
 **关键缺口**：
-- 仓库**无** `.github/workflows/`：CI gate 当前不存在，必须先建；未建前只能用可核验 manual hard fallback（PR 固定区块贴 commit SHA + 命令完整输出 + reviewer `P23-manual-gate: verified` 签收）
-- `internal/platform/metrics/metrics.go` 只有 counter 声明，**无** promhttp exporter / `/metrics` 暴露面：P7 前必须补 promhttp，或落地可执行 scheduled-audit fallback
+- 仓库**无** `.github/workflows/`，且仓库内尚无 PR template：CI gate 当前不存在；Phase0 gate PR 必须新增 CI workflow，或新增 PR template / 等价可核验机制承载 commit SHA、命令完整输出、reviewer `P23-manual-gate: verified` 签收
+- `internal/platform/metrics/metrics.go` 只有 counter 声明，**无** promhttp exporter / `/metrics` 暴露面，且无 executable scheduled-audit artifact：P7 前必须补 promhttp，或落地脚本/命令卡 artifact
 - Scheduled audit 设计完整，但实施依赖 L4/L6 先就位
 
 **实施成本** + **防御能力**评估：L1 + L3 + L4 必须做（合规底座）；L2 + L5 推荐；L6 + L7 可选。
@@ -415,17 +418,17 @@
 
 ### 9.2 未修正的关键缺口（必须在 P0 启动前补 / 或在 README 风险段标记）
 
-9. **CI workflow 不存在**：仓库无 `.github/workflows/`。L4 gate 需要先建 workflow；未建前只能走可核验 manual hard fallback（commit SHA + 完整输出 + reviewer 签收）。已写入 COMPLIANCE_GATES。
-10. **runtime metrics / alert 缺口**：仓库只有 counter 声明，无 promhttp exporter / alert 链路。P9 SLO + P11 budget alert + P6 audit fail alert 都依赖此能力——P7 前必须补 promhttp exporter，或落地可执行 scheduled-audit fallback。已写入 COMPLIANCE_GATES / README 风险段。
+9. **CI/manual fallback 载体不存在**：仓库无 `.github/workflows/`，仓库内尚无 PR template。L4 gate 需要先建 workflow；未建前 Phase0 gate PR 必须新增 PR template 或等价可核验机制（commit SHA + 完整输出 + reviewer 签收）。已写入 COMPLIANCE_GATES。
+10. **runtime metrics / alert 缺口**：仓库只有 counter 声明，无 promhttp exporter / alert 链路，也无 executable scheduled-audit artifact。P9 SLO + P11 budget alert + P6 audit fail alert 都依赖此能力——P7 前必须补 promhttp exporter，或落地脚本/命令卡 artifact。已写入 COMPLIANCE_GATES / README 风险段。
 11. **P9 hook worker pool 是 P21 Observation Contract 级重构**：terminal precedence / 归因不能变。owner 启动前必须读 P21 Canonical Turn Observation Contract。已写入 README 风险段。
 - **旁支 Low：根 README conflict marker**：如根 `README.md` 存在 conflict marker，只记录为 P23 外旁支低风险；本修订任务不改根 README，也不作为 P23 gate blocker。
 
 ### 9.3 整体合规风险评级：**高**
 
-理由：14 子任务跨切片复杂度 + 现有合规基础设施缺口（无 CI / 无 alert / archtest 14 项需新建）。
+理由：14 子任务跨切片复杂度 + 现有合规基础设施缺口（无 CI / 无 PR template / 无 alert artifact / archtest 当前 build failed / P23 21 项 archtest skeleton 需 Phase0 新建）。
 
 **三条最关键守门动作**：
-1. 先落 P23 archtest 骨架 + migration sequence guard（L3）—— 不让 P0 之后再补规则
+1. 先修复 archtest build failed + 落 P23 21 项 archtest skeleton + migration sequence guard（L3）—— 当前 `go test ./internal/archtest/...` 因 `projector_parity.go` unused import 失败；Phase0 不绿则 P0 runtime blocked
 2. 已落 P3 / P5 / P8 落点修正（README + stub 已修）
 3. P8 / P9 / P12 / P13 共用 quota + sanitize + output-before-verify 三联门（L4 merge hard gate）
 
@@ -465,7 +468,7 @@ rollout 面包含足，但可执行度不够：migration 编号/拓扑仍不一�
 
 ## 15. `a10-economics` 摘要
 
-金融场景月度成本估算（1000 DAG × 1000 node × swarm 3 member × 3k input + 2k output）：GPT-5.4 ≈ \$112,500/月；Claude Sonnet 4.6 ≈ \$117,000/月。存储粗估 13MB/DAG，活表 13GB/月，DB 膨胀 3×≈40GB。**最严重 3 项成本爆炸**：(1) P12 swarm × P11 growth 叠乘（1000 → 10000 node × 3 = 30000 LLM job 峰值）；(2) 无全局 token bucket / subscription 映射，verifier+swarm+launcher 分队列会雪崩；(3) 热表膨胀（`result jsonb` + arbiter / validation 多表写盘叠加） + UI 全量渲染。P0–P13 工程日 ROI 排名：P0/P1/P2/P3/P6/P9 是必做，P8/P13/P7/P11 推荐，P12/P5/P4 可选，P10 推荐但贵（3–5d）。
+金融场景月度成本估算（1000 DAG × 1000 node × swarm 3 member × 3k input + 2k output）：GPT-5.4 ≈ \$112,500/月；Claude Sonnet 4.6 ≈ \$117,000/月。存储粗估 13MB/DAG，活表 13GB/月，DB 膨胀 3×≈40GB。**最严重 3 项成本爆炸**：(1) P12 swarm × P11 growth 叠乘（1000 → 10000 node × 3 = 30000 LLM job 峰值）；(2) 无全局 token bucket / subscription 映射，verifier+swarm+launcher 分队列会雪崩；(3) 热表膨胀（`result jsonb` + arbiter / validation 多表写盘叠加） + UI 全量渲染。P0–P13 优先级口径：P0/P1/P2/P3/P6/P9 是必做，P8/P13/P7/P11 推荐，P12/P5/P4 可选，P10 推荐但需控制 UI scope。
 
 ---
 
@@ -582,7 +585,7 @@ P10 保留三故事与 UX 原则，但错误 catalog、preview/diff/lineage、WS
 3. **P13 hook 热路径裁决**：a3 性能优先于原“同步完整 validate”写法；但 a4/a5 的 terminal 前校验不降级。最终方案：hook bounded parse/enqueue，`outputValidationActor` worker 在 terminal/verify 前完成 validate。
 4. **安全与成本冲突**：a4 append-only/hash-chain/redaction 优先，a10 成本通过 P9 archive、P10 cost preview、token bucket hard stop 缓解，不取消审计。
 5. **UX 与安全冲突**：P10 cost/quota preview 只展示预算、预计 token、RPM/TPM 是否足够，不暴露内部 quota 策略细节；AuthN/tenant filter 优先。
-6. **operability hard gate 截止**：P0 前必须有 CI/manual hard fallback 与 promhttp/scheduled-audit fallback 明确方案；P7 前 exporter 或可执行 fallback 不就位则 P7–P13 runtime alert 依赖项阻塞。
+6. **operability hard gate 截止**：Phase0 gate PR 必须新增 CI 或 PR template/等价可核验 fallback 载体；P0 前必须有 promhttp/scheduled-audit artifact 明确方案；P7 前 exporter 或脚本/命令卡 artifact 不就位则 P7–P13 runtime alert 依赖项阻塞。
 
 ## 跨切片冲突仲裁矩阵
 

@@ -77,11 +77,15 @@
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
 | swarm actor | `cmd/mcp-orch/orchestration/runtime/swarm_arbiter_actor.go` [NEW] | 第 7 actor；必走 `group:"runners"` Fx tag（a1 调研 medium）；并行调 N LLM；consensus 聚合；Runner.Run(ctx) + interrupt/drain |
-| schema 扩展 | `cmd/mcp-orch/tools/task_tools.go`（扩展） | `verify.arbiter_swarm.members[] / consensus / parallel / timeout_sec` |
+| schema provider | `cmd/mcp-orch/tools/dag_schema_registry.go` + `cmd/mcp-orch/tools/dag_schema_swarm.go` [NEW] | 注册 `verify.arbiter_swarm.members[] / consensus / parallel / timeout_sec`；不直接并行改 `task_tools.go` |
 | consensus 算法库 | `cmd/mcp-orch/orchestration/runtime/consensus.go` [NEW] | majority / unanimous / weighted 三套策略 |
 | dissent 处理器 | `cmd/mcp-orch/orchestration/runtime/dissent_handler.go` [NEW] | 三种 dissent_action 实现 |
 | 审计扩展 | `0072_dag_swarm_consensus.sql` [NEW]（编号校准） | `dag_swarm_consensus` 聚合表；`dag_arbiter_calls` 加 `swarm_round_id` 列 |
 | archtest | `internal/archtest/dag_swarm_test.go` [NEW] | swarm 必须经统一 actor，不绕路 |
+
+### schema / actor write-set 拆分
+
+P12 swarm schema 通过 `cmd/mcp-orch/tools/dag_schema_registry.go` 的 swarm provider 注册；不得直接并行改 `task_tools.go`。长跑 actor 固定落 `cmd/mcp-orch/orchestration/runtime/swarm_arbiter_actor.go`，并复用 P8 的 light LLM + P9 token bucket。
 
 ## DDL / SQL
 
@@ -99,7 +103,7 @@ CREATE TABLE IF NOT EXISTS public.dag_swarm_consensus (
     timed_out_members JSONB     NOT NULL DEFAULT '[]'::jsonb,
     strategy        TEXT        NOT NULL,
     threshold       NUMERIC,
-    final_verdict   TEXT        NOT NULL,
+    final_verdict   TEXT        NOT NULL CHECK (final_verdict IN ('pass','fail','verdict_lost','dissent','timeout')),
     consensus_score NUMERIC     NOT NULL,
     round_valid     BOOLEAN     NOT NULL DEFAULT FALSE,
     aggregation_reason TEXT     NOT NULL DEFAULT '', -- redacted, max 2KiB enforced in service
@@ -180,6 +184,6 @@ CREATE INDEX CONCURRENTLY idx_dag_arbiter_calls_swarm
 
 `dissent_summary` 与 `aggregation_reason` 必须 bounded + redacted：`aggregation_reason` 最大 2KiB text，`dissent_summary` 最大 8KiB JSONB（或字段级 cap），只允许 verdict、score、normalized reason code、redacted excerpt hash、member_index，不允许 raw member output、raw prompt、PII、tool output 原文进入 `dag_swarm_consensus`。consensus 聚合输入必须使用 redacted/normalized member verdict，不得把 raw member answer 拼入下一轮 prompt 或 consensus row；如 repair prompt 需要 dissent，使用 P8 redactor 后的 quoted summary，并声明“数据不可执行”。
 
-成本/审计字段与 P8 对齐：每个 swarm round 必填 `budget_reservation_id`、`estimated_total_cost`、`charged_calls_count`、`provider_call_ids_hash`、`redaction_version`、`audit_chain_scope`，并与 `dag_arbiter_calls.swarm_round_id` N:1 对齐。audit hash chain 只覆盖 redacted payload/hash/blob ref；禁止把未 redacted raw member output 写入 audit。
+成本/审计字段与 P8 对齐：每个 swarm round 必填 `budget_reservation_id`、`estimated_total_cost`、`charged_calls_count`、`provider_call_ids_hash`、`redaction_version`、`audit_chain_scope`，并与 `dag_arbiter_calls.swarm_round_id` N:1 对齐。若实现时选择不在 consensus row 冗余成本字段，则必须明确从 `dag_arbiter_calls` 按 `swarm_round_id` join 聚合得出，并保留同等 audit 可验性；不得既不落字段也不给 join 口径。audit hash chain 只覆盖 redacted payload/hash/blob ref；禁止把未 redacted raw member output 写入 audit。
 
 `swarm_round_id` 必须 deterministic：`hash(dag_key,node_key,verify_round,swarm_config_hash)`；member call 以 `(swarm_round_id,member_index,provider,model)` 去重。batch_peer × swarm 默认每 node 一个 swarm round；group-level swarm 需显式 opt-in 并记录 `group_round_id`、fanout 公式和 quota reservation。

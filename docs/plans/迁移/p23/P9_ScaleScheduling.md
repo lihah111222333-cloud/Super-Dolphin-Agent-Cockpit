@@ -55,7 +55,7 @@ P9 提供统一容量控制层：ready claim 小批 `SKIP LOCKED`、bounded queu
 - `remaining_deps INTEGER NOT NULL DEFAULT 0` 已裁决前移到 P0 `0065_dag_state_machine.sql`；P9 不再占用事务 migration 做该列，避免与 `CREATE INDEX CONCURRENTLY` 编号冲突
 - 加 partial index（单独 PR）：`CREATE INDEX CONCURRENTLY idx_task_dag_nodes_pending ON task_dag_nodes (dag_key, remaining_deps, id) WHERE status='pending'`；该 migration 文件不得包 `BEGIN/COMMIT`，需与回填列事务 migration 拆开
 - 补 tenant/fence 复合索引：`(tenant_id, dag_key, status, remaining_deps)` 与 `(dag_key, node_key, active_turn_id)`，抵消 a4/a5 filter + turn fence 热点
-- 新增归档表 `task_dags_archive` / `task_dag_nodes_archive`（或按 DAG 分区），并定义 DAG→node/wakeup/arbiter/output_validation 归档级联校验
+- 新增归档表 `task_dags_archive` / `task_dag_nodes_archive`（或按 DAG 分区），并定义 DAG→node/wakeup/arbiter/output_validation 归档级联校验。所有跨表关联必须采用 FK；archive 分区无法真实 FK 时，必须采用 archive-safe logical FK + postcheck SQL + TTL/retention owner。
 
 ## 依赖
 
@@ -117,7 +117,7 @@ P9 提供统一容量控制层：ready claim 小批 `SKIP LOCKED`、bounded queu
 
 ### metrics / audit fallback 前置要求
 
-P7/P11/P12/P13 依赖 P9 指标做安全决策。P9 owner 必须先接 `promhttp` 指标；若 deployment 禁用 promhttp，则启用 scheduled-audit fallback，周期写 `dag_scheduler_health`（或等价）包含 hook lag、launcher lag、ready depth、DB p99、budget usage、last_sample_at。两者都缺失时，自动 relaunch、dynamic spawn、swarm fanout、strict JSON repair fanout 必须 feature-gate off。
+全局 verify phase 命名采用 P8 `awaiting_verify / verifying / repairing`；P9 backpressure/metrics 不得引入旧 verify 前态别名。P7/P11/P12/P13 依赖 P9 指标做安全决策。P9 owner 必须先接 `promhttp` 指标；若 deployment 禁用 promhttp，则启用 scheduled-audit fallback，周期写 `dag_scheduler_health`（或等价）包含 hook lag、launcher lag、ready depth、DB p99、budget usage、last_sample_at。两者都缺失时，自动 relaunch、dynamic spawn、swarm fanout、strict JSON repair fanout 必须 feature-gate off。
 
 ### batch create API
 
@@ -125,7 +125,7 @@ P7/P11/P12/P13 依赖 P9 指标做安全决策。P9 owner 必须先接 `promhttp
 
 ### spillover / archive / pagination
 
-`result` 活表只保 summary + blob ref；blob key 包含 tenant/dag/node/turn/hash，写入前 redaction，TTL/GC 与 archive 级联。DAG detail 默认 `include_result=false`、字段投影、cursor pagination；archive union 必须定义跨表排序 cursor，默认查活表，用户显式 include_archive 才 union。
+`result` 活表只保 summary + blob ref；blob key 包含 tenant/dag/node/turn/hash，写入前 redaction，TTL/GC 与 archive 级联；owner 必须提供 orphan postcheck SQL 与 retention owner。DAG detail 默认 `include_result=false`、字段投影、cursor pagination；archive union 必须定义跨表排序 cursor，默认查活表，用户显式 include_archive 才 union。
 
 ## Backpressure / Shutdown Action Matrix（第三轮仲裁必修）
 

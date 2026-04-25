@@ -20,10 +20,10 @@
 
 Dispatcher 只接管 P0 watcher claim 后的 launch/bind 半程，采用 durable launch-intent 状态机：
 
-1. watcher 已把 node CAS 到 `running` 并写入 `active_wakeup_id`；dispatcher 不重新计算 ready，不把 node 回退到 `pending`。
-2. dispatcher claim wakeup 后，在短事务内 upsert `dag_launch_intents`，唯一幂等键为 `(dag_key,node_key,attempt_no,wakeup_id)` 或其 deterministic hash `idempotency_key`。
+1. watcher 已把 node CAS 到 `running` 并写入 `active_wakeup_id BIGINT`；dispatcher 不重新计算 ready，不把 node 回退到 `pending`。
+2. dispatcher claim wakeup 后，在短事务内 upsert `dag_launch_intents`，唯一幂等键为 `(dag_key,node_key,attempt_no,wakeup_id BIGINT)` 或其 deterministic hash `idempotency_key`。
 3. `launch_intent` 已持久化后才允许调用外部 launcher；DB 事务不得包住 launcher 调用。
-4. launcher 返回 accepted（已有或新建 agent/turn）后，dispatcher 调 `BindRunningNodeTurn` CAS：`WHERE dag_key=? AND node_key=? AND status='running' AND active_wakeup_id=? AND attempt_no=? AND active_turn_id=''`，写入 `assigned_agent_id` / `active_turn_id`。
+4. 共享 launcher wrapper 返回 accepted 结构 `{agent_id, thread_id, turn_id, accepted_at}`（或返回 deterministic `ExpectedTurnID` 且后续 first-turn 必须使用它）后，dispatcher 调 `BindRunningNodeTurn` CAS：`WHERE dag_key=? AND node_key=? AND status='running' AND active_wakeup_id=? AND attempt_no=? AND active_turn_id=''`，写入 `assigned_agent_id` / `active_turn_id`。
 5. `BindRunningNodeTurn` 0 rows 不是重试覆盖信号；必须读取 node 当前 fence，若已绑定同 idempotency_key 的 turn 则 ack，否则标记 stale/conflict 交 reconcile。
 
 ## 改动清单
@@ -31,11 +31,11 @@ Dispatcher 只接管 P0 watcher claim 后的 launch/bind 半程，采用 durable
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
 | dispatcher actor | `cmd/mcp-orch/orchestration/dag_dispatcher_actor.go` | 消费 due wakeup，持久化 launch intent，调用 launcher，执行 `BindRunningNodeTurn` |
-| launch intent DDL/SQL | `migrations/<p23>_dag_launch_intents.sql`、`cmd/mcp-orch/sql/queries/task_dag_launch_intent.sql` | `idempotency_key` 唯一、status 枚举、crash recovery 查询 |
+| launch intent DDL/SQL | `migrations/0065_dag_state_machine.sql`（首选并入；拆分时仅允许 `0065a/0065b` no-conflict）+ `cmd/mcp-orch/sql/queries/task_dag_launch_intent.sql` | `idempotency_key` 唯一、status 枚举、crash recovery 查询 |
 | store/service contract | `cmd/mcp-orch/store/taskdag/*`、`cmd/mcp-orch/orchestration/dag_launch_intent.go` | `UpsertLaunchIntent` / `MarkLauncherAccepted` / `BindRunningNodeTurn` / stale conflict 处理 |
 
 **已知关键改动方向**：
-- `dagDispatcherActor.Run(ctx)` 主循环：`ClaimDueWakeups` → 持久化 `launch_intent`（deterministic idempotency key）→ 调 launcher 或 submit turn（幂等返回 agent/turn）→ `BindRunningNodeTurn` CAS → `MarkWakeupSent/acked`
+- `dagDispatcherActor.Run(ctx)` 主循环：`ClaimDueWakeups` → 持久化 `launch_intent`（deterministic idempotency key）→ 调 launcher 或 submit turn（幂等返回 `{agent_id, thread_id, turn_id, accepted_at}` 或 deterministic `ExpectedTurnID`）→ `BindRunningNodeTurn` CAS → `MarkWakeupSent/acked`
 - 新增 `nodes[].launch` schema → launcher 调用：把 launch spec 映射到 `LaunchAgent` request
 - `assigned_agent_id/active_turn_id` 不能假装在 launcher 前已知；P1 采用三阶段可恢复协议：`launch_intent` 持久化 + deterministic idempotency key → 外部 launcher 幂等调用 → `BindRunningNodeTurn` CAS 写入 `assigned_agent_id/active_turn_id`（除非 `relaunch_on_retry=true`，否则不可覆盖）
 - launcher 并发上限提取成 config 参数（P23 阶段 0 ⑤）
@@ -47,21 +47,23 @@ Dispatcher 只接管 P0 watcher claim 后的 launch/bind 半程，采用 durable
 | 字段 | 契约 |
 |---|---|
 | `launch_intent_id TEXT PRIMARY KEY` | deterministic，可由 `idempotency_key` 派生 |
-| `idempotency_key TEXT NOT NULL UNIQUE` | 至少覆盖 `dag_key,node_key,attempt_no,wakeup_id`；dispatcher/launcher 重试共用 |
+| `idempotency_key TEXT NOT NULL UNIQUE` | 至少覆盖 `dag_key,node_key,attempt_no,wakeup_id`（其中 `wakeup_id BIGINT`）；dispatcher/launcher 重试共用 |
 | `dag_key TEXT NOT NULL` / `node_key TEXT NOT NULL` | 目标 node |
 | `attempt_no INTEGER NOT NULL` | 与 node 当前 attempt fence 一致 |
-| `wakeup_id TEXT NOT NULL` | 必须等于 node.`active_wakeup_id` |
+| `wakeup_id BIGINT NOT NULL` | 必须等于 node.`active_wakeup_id`；禁止 TEXT，现有 `task_dag_wakeups.id BIGSERIAL` / store int64 是权威类型 |
 | `status TEXT NOT NULL` | `persisted` / `launcher_accepted` / `agent_started` / `turn_bound` / `failed` / `stale` |
 | `launcher_request JSONB NOT NULL` | redacted launch spec snapshot |
 | `assigned_agent_id TEXT NOT NULL DEFAULT ''` | launcher accepted 后写 |
-| `active_turn_id TEXT NOT NULL DEFAULT ''` | first turn accepted/started 后写 |
+| `thread_id TEXT NOT NULL DEFAULT ''` | launcher wrapper accepted response 必须返回，不从 hook 反推 |
+| `active_turn_id TEXT NOT NULL DEFAULT ''` | launcher wrapper accepted response 必须返回 `turn_id`，或返回 deterministic `ExpectedTurnID` 并保证实际 first turn 使用该 id；禁止等 hook 到达后猜测 |
+| `accepted_at TIMESTAMPTZ` | launcher accepted 时间，来自 wrapper 返回结构 |
 | `launcher_error TEXT NOT NULL DEFAULT ''` | failed/stale 说明 |
 | `created_at/updated_at/accepted_at/bound_at/failed_at TIMESTAMPTZ` | recovery 与审计 |
 
 `status` 枚举含义：
 
 - `persisted`：intent 已落库，尚未确认 launcher accepted；crash recovery 重新用同一 `idempotency_key` 调 launcher 或查询 launcher 幂等结果。
-- `launcher_accepted`：launcher 接受请求并返回 agent/turn 标识，但 node 尚未 CAS bind；recovery 直接重放 `BindRunningNodeTurn`。
+- `launcher_accepted`：launcher 接受请求并返回 `{agent_id, thread_id, turn_id, accepted_at}` 或 deterministic `ExpectedTurnID`，但 node 尚未 CAS bind；recovery 直接重放 `BindRunningNodeTurn`。
 - `agent_started`：可选中间态，表示 agent/session 已启动但 first turn 尚未绑定；recovery 继续读取/补投 turn，不能创建第二个 agent。
 - `turn_bound`：`BindRunningNodeTurn` CAS 成功，wakeup 可 ack。
 - `failed`：launcher 明确失败或超过 dispatcher retry，交 P2/P7 reconcile 以 fenced failure/observe_lost 处理。
@@ -98,6 +100,10 @@ Dispatcher 只接管 P0 watcher claim 后的 launch/bind 半程，采用 durable
 
 ## watcher / dispatcher SQL 契约摘要
 
-- watcher: `ClaimReadyNodes` 只做 `pending → running`、`attempt_no+1`、`active_wakeup_id`；不得写 `assigned_agent_id` / `active_turn_id`。
-- dispatcher: `BindRunningNodeTurn` 是唯一写 `assigned_agent_id` / `active_turn_id` 的 P1 SQL；必须带 `active_wakeup_id` + `attempt_no` CAS。
+- watcher: `ClaimReadyNodes` 只做 `pending → running`、`attempt_no+1`、`active_wakeup_id BIGINT`；不得写 `assigned_agent_id` / `active_turn_id`。
+- dispatcher: `BindRunningNodeTurn` 是唯一写 `assigned_agent_id` / `active_turn_id` 的 P1 SQL；必须带 `active_wakeup_id BIGINT` + `attempt_no` CAS。
 - recovery: 先按 `idempotency_key` 查 intent，再查 launcher 幂等结果，最后才决定重放 bind 或标记 failed/stale；禁止盲目再 launch。
+
+## DDL 编号与 wakeup 类型冻结
+
+P1 不再保留占位 migration。`dag_launch_intents` 首选并入 P0 `0065_dag_state_machine.sql`；若实现 PR 必须拆分，只能采用 `0065a_dag_launch_intents.sql` / `0065b_dag_terminal_events.sql` 这类 no-conflict 命名，并在 PR 描述贴 migrations 最大编号校准。`wakeup_id` 与 `active_wakeup_id` 全链路为 `BIGINT`/Go `int64`，对应既有 `task_dag_wakeups.id BIGSERIAL`；任何 TEXT wakeup fence 方案禁止。

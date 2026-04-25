@@ -372,12 +372,24 @@ func startRemoteThreadWithDynamicTools(ctx context.Context, t *transport, req dt
 }
 
 func startRemoteThreadWithParams(ctx context.Context, t *transport, req dto.StartSessionRequest, params threadStartParams) (startResult, error) {
+	configKeys := sortedConfigKeys(req.Config)
+	if strings.TrimSpace(params.Effort) == "" {
+		pkglogger.Warn("codexapp: thread/start effort missing",
+			"agent_id", strings.TrimSpace(req.AgentID),
+			"cwd", params.Cwd,
+			"model", params.Model,
+			"approval_policy", params.ApprovalPolicy,
+			"config_keys", configKeys,
+			"expected_config_key", "effort",
+		)
+	}
 	pkglogger.Info("codexapp: thread/start request",
 		"agent_id", strings.TrimSpace(req.AgentID),
 		"cwd", params.Cwd,
 		"model", params.Model,
+		"effort", params.Effort,
 		"approval_policy", params.ApprovalPolicy,
-		"config_keys", sortedConfigKeys(req.Config),
+		"config_keys", configKeys,
 		"has_env", hasAnyConfigKey(req.Config, "env"),
 		"has_mcp", hasAnyConfigKey(req.Config, "mcp", "mcpConfig", "mcp_config", "mcpServers", "mcp_servers"),
 		"has_hooks", hasAnyConfigKey(req.Config, "hooks", "hookConfig", "hook_config"),
