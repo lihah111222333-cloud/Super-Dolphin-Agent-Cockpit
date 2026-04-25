@@ -8,6 +8,7 @@ import (
 
 type OrchestrationStub struct {
 	LaunchAgentFunc           func(context.Context, contract.LaunchRequest) error
+	LaunchAgentSnapshotFunc   func(context.Context, contract.LaunchRequest) (contract.AgentSnapshot, error)
 	ListAgentsFunc            func(context.Context) ([]contract.AgentSnapshot, error)
 	StopAgentFunc             func(context.Context, string) error
 	SubmitTurnFunc            func(context.Context, contract.TurnSubmission) error
@@ -31,6 +32,19 @@ func (s *OrchestrationStub) LaunchAgent(ctx context.Context, req contract.Launch
 		return s.LaunchAgentFunc(ctx, req)
 	}
 	return nil
+}
+
+func (s *OrchestrationStub) LaunchAgentSnapshot(ctx context.Context, req contract.LaunchRequest) (contract.AgentSnapshot, error) {
+	if s.LaunchAgentSnapshotFunc != nil {
+		return s.LaunchAgentSnapshotFunc(ctx, req)
+	}
+	if err := s.LaunchAgent(ctx, req); err != nil {
+		return contract.AgentSnapshot{}, err
+	}
+	if s.SnapshotFunc != nil {
+		return s.Snapshot(ctx, req.AgentID)
+	}
+	return contract.AgentSnapshot{ID: req.AgentID, AgentID: req.AgentID, State: "launching"}, nil
 }
 
 func (s *OrchestrationStub) ListAgents(ctx context.Context) ([]contract.AgentSnapshot, error) {

@@ -205,3 +205,46 @@ func TestLaunchHandlerReassignsDuplicateAgentIDBeforeAsyncLaunch(t *testing.T) {
 		t.Fatal("async LaunchAgent was not called within 5s")
 	}
 }
+
+func TestLaunchHandlerReturnsFinalPersistedAgentID(t *testing.T) {
+	originalExecutable := osExecutable
+	osExecutable = func() (string, error) { return "/tmp/mcp-orch", nil }
+	defer func() { osExecutable = originalExecutable }()
+
+	handler := HandleLaunchAgent(&golden.OrchestrationStub{
+		LaunchAgentSnapshotFunc: func(_ context.Context, req contract.LaunchRequest) (contract.AgentSnapshot, error) {
+			return contract.AgentSnapshot{
+				ID:       req.AgentID,
+				AgentID:  "agent-final",
+				ThreadID: "thread-final",
+				State:    "idle",
+			}, nil
+		},
+	})
+
+	input, err := json.Marshal(LaunchAgentInput{
+		AgentID:  "agent-requested",
+		Name:     "worker",
+		Provider: "codex",
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	result, err := handler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("HandleLaunchAgent() error = %v", err)
+	}
+	resultMap, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("HandleLaunchAgent() result type = %T, want map[string]any", result)
+	}
+	if resultMap["agent_id"] != "agent-final" {
+		t.Fatalf("returned agent_id = %v, want final persisted id", resultMap["agent_id"])
+	}
+	if resultMap["launch_id"] != "agent-requested" {
+		t.Fatalf("returned launch_id = %v, want original reserved runtime id", resultMap["launch_id"])
+	}
+	if resultMap["thread_id"] != "thread-final" {
+		t.Fatalf("returned thread_id = %v, want thread-final", resultMap["thread_id"])
+	}
+}

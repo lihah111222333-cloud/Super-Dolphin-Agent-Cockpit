@@ -89,7 +89,10 @@ func (s *service) prepareStartRequest(ctx context.Context, req StartRequest) (St
 	}
 	req = s.injectParentCodexIdentityForStart(ctx, req)
 	req = s.injectDefaultCodexIdentityForStart(req)
-	agentID, releaseAgentID := s.reserveUniqueStartAgentID(ctx, req, agentID, callerProvidedID)
+	agentID, releaseAgentID, err := s.reserveUniqueStartAgentID(ctx, req, agentID, callerProvidedID)
+	if err != nil {
+		return req, "", nil, err
+	}
 	if releaseAgentID == nil {
 		return req, "", nil, errors.New("thread: reserve agent_id failed")
 	}

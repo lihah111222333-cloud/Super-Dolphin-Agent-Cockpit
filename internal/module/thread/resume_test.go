@@ -582,6 +582,8 @@ type stubThreadStore struct {
 	thread              *threadstore.Thread
 	upsert              threadstore.UpsertParams
 	upsertErr           error
+	existsErr           error
+	countChildrenErr    error
 	status              threadstore.UpdateStatusParams
 	promptSnapshot      *threadstore.PromptSnapshot
 	promptSnapshotError error
@@ -680,10 +682,16 @@ func (s *stubThreadStore) ListCwdsByPrefix(context.Context, string) ([]threadsto
 }
 
 func (s *stubThreadStore) CountChildren(context.Context, string) (int64, error) {
+	if s.countChildrenErr != nil {
+		return 0, s.countChildrenErr
+	}
 	return 0, nil
 }
 
 func (s *stubThreadStore) Exists(_ context.Context, threadID string) (bool, error) {
+	if s.existsErr != nil {
+		return false, s.existsErr
+	}
 	if s.thread != nil && s.thread.ThreadID == threadID {
 		return true, nil
 	}

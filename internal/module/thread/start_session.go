@@ -37,7 +37,7 @@ func (s *service) reserveUniqueStartAgentID(
 	req StartRequest,
 	candidate string,
 	callerProvidedID bool,
-) (string, func()) {
+) (string, func(), error) {
 	candidate = strings.TrimSpace(candidate)
 	parentID := strings.TrimSpace(req.ParentAgentID)
 	if candidate == "" {
@@ -51,8 +51,12 @@ func (s *service) reserveUniqueStartAgentID(
 	if parentID != "" && !callerProvidedID {
 		return s.reserveNextChildAgentIDLocked(ctx, parentID)
 	}
-	if release := s.reserveAgentIDIfAvailableLocked(ctx, candidate); release != nil {
-		return candidate, release
+	release, err := s.reserveAgentIDIfAvailableLocked(ctx, candidate)
+	if err != nil {
+		return "", nil, err
+	}
+	if release != nil {
+		return candidate, release, nil
 	}
 	if parentID != "" {
 		return s.reserveNextChildAgentIDLocked(ctx, parentID)
@@ -60,39 +64,55 @@ func (s *service) reserveUniqueStartAgentID(
 	return s.reserveGeneratedRootAgentIDLocked(ctx)
 }
 
-func (s *service) reserveNextChildAgentIDLocked(ctx context.Context, parentID string) (string, func()) {
+func (s *service) reserveNextChildAgentIDLocked(ctx context.Context, parentID string) (string, func(), error) {
 	base := int64(0)
 	if s.threadStore != nil {
-		if count, err := s.threadStore.CountChildren(ctx, parentID); err == nil && count > 0 {
+		if count, err := s.threadStore.CountChildren(ctx, parentID); err != nil {
+			return "", nil, fmt.Errorf("thread: count child agent_ids for %q: %w", parentID, err)
+		} else if count > 0 {
 			base = count
 		}
 	}
 	for i := 0; i < maxAgentIDReservationRetries; i++ {
 		candidate := shared.NewChildAgentID(parentID, int(base)+1+i)
-		if release := s.reserveAgentIDIfAvailableLocked(ctx, candidate); release != nil {
-			return candidate, release
+		release, err := s.reserveAgentIDIfAvailableLocked(ctx, candidate)
+		if err != nil {
+			return "", nil, err
+		}
+		if release != nil {
+			return candidate, release, nil
 		}
 	}
 	return s.reserveGeneratedRootAgentIDLocked(ctx)
 }
 
-func (s *service) reserveGeneratedRootAgentIDLocked(ctx context.Context) (string, func()) {
+func (s *service) reserveGeneratedRootAgentIDLocked(ctx context.Context) (string, func(), error) {
 	for i := 0; i < maxAgentIDReservationRetries; i++ {
 		candidate := shared.NewAgentID()
-		if release := s.reserveAgentIDIfAvailableLocked(ctx, candidate); release != nil {
-			return candidate, release
+		release, err := s.reserveAgentIDIfAvailableLocked(ctx, candidate)
+		if err != nil {
+			return "", nil, err
+		}
+		if release != nil {
+			return candidate, release, nil
 		}
 	}
-	candidate := shared.NewAgentID()
-	return candidate, s.reserveAgentIDLocked(candidate)
+	return "", nil, fmt.Errorf("thread: reserve generated agent_id exhausted after %d attempts", maxAgentIDReservationRetries)
 }
 
-func (s *service) reserveAgentIDIfAvailableLocked(ctx context.Context, agentID string) func() {
+func (s *service) reserveAgentIDIfAvailableLocked(ctx context.Context, agentID string) (func(), error) {
 	agentID = strings.TrimSpace(agentID)
-	if agentID == "" || s.agentIDInUseLocked(ctx, agentID) {
-		return nil
+	if agentID == "" {
+		return nil, nil
 	}
-	return s.reserveAgentIDLocked(agentID)
+	inUse, err := s.agentIDInUseLocked(ctx, agentID)
+	if err != nil {
+		return nil, err
+	}
+	if inUse {
+		return nil, nil
+	}
+	return s.reserveAgentIDLocked(agentID), nil
 }
 
 func (s *service) reserveAgentIDLocked(agentID string) func() {
@@ -105,25 +125,29 @@ func (s *service) reserveAgentIDLocked(agentID string) func() {
 	}
 }
 
-func (s *service) agentIDInUseLocked(ctx context.Context, agentID string) bool {
+func (s *service) agentIDInUseLocked(ctx context.Context, agentID string) (bool, error) {
 	if _, ok := s.agentIDReservations[agentID]; ok {
-		return true
+		return true, nil
 	}
 	if s.threadStore != nil {
-		if exists, err := s.threadStore.Exists(ctx, agentID); err == nil && exists {
-			return true
+		exists, err := s.threadStore.Exists(ctx, agentID)
+		if err != nil {
+			return true, fmt.Errorf("thread: check agent_id %q in thread store: %w", agentID, err)
+		}
+		if exists {
+			return true, nil
 		}
 	}
 	if s.bindingStore != nil {
 		binding, err := s.bindingStore.GetByAgentID(ctx, agentID)
 		if err == nil && binding != nil {
-			return true
+			return true, nil
 		}
 		if err != nil && !platformdb.IsNotFound(err) {
-			return false
+			return true, fmt.Errorf("thread: check agent_id %q in binding store: %w", agentID, err)
 		}
 	}
-	return false
+	return false, nil
 }
 
 func trimStartRequest(req StartRequest) StartRequest {
