@@ -250,12 +250,14 @@ func smokeHome(t *testing.T) string {
 	return dir
 }
 
-// TestPoolRoutingAgentIDBlankStillWorks guards against an empty
-// AgentID accidentally short-circuiting identity resolution; the
-// codex-pool path must be keyed on codexHome, not on the agent id.
-func TestPoolRoutingAgentIDBlankStillWorks(t *testing.T) {
+// TestPoolRoutingAgentIDBlankFailsClosed guards the session lifecycle key:
+// pool-backed Codex sessions must have an owning agent id so archive/stop can
+// reclaim the exact app-server process group and sidecars.
+func TestPoolRoutingAgentIDBlankFailsClosed(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
+	spawnCalls := atomic.Int32{}
 	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
+		spawnCalls.Add(1)
 		return newFakeServer("ws://127.0.0.1:1234"), nil
 	}, PoolConfig{Capacity: 1})
 	defer pool.Close(context.Background())
@@ -267,16 +269,15 @@ func TestPoolRoutingAgentIDBlankStillWorks(t *testing.T) {
 		"codexModelProvider": "mp",
 	}
 	opts, err := d.resolveSessionOptions(context.Background(), dto.StartSessionRequest{AgentID: "", Config: cfg})
-	if err != nil {
-		t.Fatalf("err = %v", err)
+	if err == nil || !strings.Contains(err.Error(), "pool owner agentID is empty") {
+		t.Fatalf("err = %v, want empty owner failure", err)
 	}
-	if len(opts) != 1 {
-		t.Fatalf("empty agent id must still route through pool, got %d opts", len(opts))
+	if opts != nil {
+		t.Fatalf("empty agent id must not return options, got %d", len(opts))
 	}
-	// Apply + release to keep pool invariant tidy.
-	var so sessionOptions
-	opts[0](&so)
-	so.poolRelease()
+	if spawnCalls.Load() != 0 {
+		t.Fatalf("spawner should not fire on empty agent id, called %d times", spawnCalls.Load())
+	}
 }
 
 // ensure json types round-trip for the tests above; keeps the import

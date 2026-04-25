@@ -68,22 +68,22 @@ func newPoolForTest(t *testing.T, spawner Spawner, cfg PoolConfig) (*ServerPool,
 	return p, &now
 }
 
-func canonicalHome(t *testing.T, identity providershared.CodexIdentity) string {
+func poolKeyFor(t *testing.T, identity providershared.CodexIdentity, owner string) poolEntryKey {
 	t.Helper()
-	home, _, _, err := normalizePoolIdentity(identity)
+	home, key, provider, err := normalizePoolIdentity(identity)
 	if err != nil {
 		t.Fatalf("normalizePoolIdentity: %v", err)
 	}
-	return home
+	return poolEntryKey{home: home, instanceKey: key, modelProvider: provider, ownerKey: owner}
 }
 
-func entryForHome(t *testing.T, p *ServerPool, home string) *poolEntry {
+func entryForKey(t *testing.T, p *ServerPool, key poolEntryKey) *poolEntry {
 	t.Helper()
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	entry := p.entries[home]
+	entry := p.entries[key]
 	if entry == nil {
-		t.Fatalf("entry %q missing", home)
+		t.Fatalf("entry %#v missing", key)
 	}
 	return entry
 }
@@ -120,8 +120,7 @@ func TestServerPoolAcquireHappyPathSpawnAndRelease(t *testing.T) {
 	defer p.Close(context.Background())
 
 	id := identityFor(t, "glm")
-	home := canonicalHome(t, id)
-	srv, release, err := p.Acquire(context.Background(), id)
+	srv, release, err := p.Acquire(context.Background(), id, "agent-1")
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
@@ -131,7 +130,7 @@ func TestServerPoolAcquireHappyPathSpawnAndRelease(t *testing.T) {
 	if spawnCalls.Load() != 1 {
 		t.Fatalf("spawn calls = %d, want 1", spawnCalls.Load())
 	}
-	entry := entryForHome(t, p, home)
+	entry := entryForKey(t, p, poolKeyFor(t, id, "agent-1"))
 	if entry.server != srv {
 		t.Fatal("stored server mismatch")
 	}
@@ -161,11 +160,11 @@ func TestServerPoolAcquireAliveCacheHitReusesServer(t *testing.T) {
 	defer p.Close(context.Background())
 
 	id := identityFor(t, "glm")
-	srv1, rel1, err := p.Acquire(context.Background(), id)
+	srv1, rel1, err := p.Acquire(context.Background(), id, "agent-1")
 	if err != nil {
 		t.Fatalf("first Acquire: %v", err)
 	}
-	srv2, rel2, err := p.Acquire(context.Background(), id)
+	srv2, rel2, err := p.Acquire(context.Background(), id, "agent-1")
 	if err != nil {
 		t.Fatalf("second Acquire: %v", err)
 	}
@@ -179,7 +178,7 @@ func TestServerPoolAcquireAliveCacheHitReusesServer(t *testing.T) {
 	defer rel1()
 }
 
-func TestServerPoolAcquireRejectsSameHomeKeyDifferentModelProvider(t *testing.T) {
+func TestServerPoolAcquireSameIdentityDifferentOwnersIsolated(t *testing.T) {
 	t.Parallel()
 	spawnCalls := atomic.Int32{}
 	spawner := func(_ context.Context, home string) (SpawnedServer, error) {
@@ -190,7 +189,42 @@ func TestServerPoolAcquireRejectsSameHomeKeyDifferentModelProvider(t *testing.T)
 	defer p.Close(context.Background())
 
 	id := identityFor(t, "glm")
-	first, release, err := p.Acquire(context.Background(), id)
+	srv1, rel1, err := p.Acquire(context.Background(), id, "agent-1")
+	if err != nil {
+		t.Fatalf("first Acquire: %v", err)
+	}
+	srv2, rel2, err := p.Acquire(context.Background(), id, "agent-2")
+	if err != nil {
+		t.Fatalf("second Acquire: %v", err)
+	}
+	if srv1 == srv2 {
+		t.Fatal("different owners must not share the same app-server")
+	}
+	if spawnCalls.Load() != 2 {
+		t.Fatalf("spawn calls = %d, want 2", spawnCalls.Load())
+	}
+	rel1()
+	if p.Size() != 1 {
+		t.Fatalf("pool size after releasing one owner = %d, want 1", p.Size())
+	}
+	rel2()
+	if p.Size() != 0 {
+		t.Fatalf("pool size after releasing both owners = %d, want 0", p.Size())
+	}
+}
+
+func TestServerPoolAcquireSameHomeKeyDifferentModelProviderIsolated(t *testing.T) {
+	t.Parallel()
+	spawnCalls := atomic.Int32{}
+	spawner := func(_ context.Context, home string) (SpawnedServer, error) {
+		spawnCalls.Add(1)
+		return newFakeServer("ws://" + filepath.Base(home)), nil
+	}
+	p, _ := newPoolForTest(t, spawner, PoolConfig{Capacity: 4})
+	defer p.Close(context.Background())
+
+	id := identityFor(t, "glm")
+	first, release, err := p.Acquire(context.Background(), id, "agent-1")
 	if err != nil {
 		t.Fatalf("first Acquire: %v", err)
 	}
@@ -201,19 +235,20 @@ func TestServerPoolAcquireRejectsSameHomeKeyDifferentModelProvider(t *testing.T)
 
 	conflicting := id
 	conflicting.ModelProvider = id.ModelProvider + "-other"
-	server, release2, err := p.Acquire(context.Background(), conflicting)
-	if !errors.Is(err, ErrInvalidIdentity) {
-		t.Fatalf("want ErrInvalidIdentity for same home/key different model provider, got %v", err)
-	}
-	if err == nil || !contains(err.Error(), "model provider") {
-		t.Fatalf("want model provider conflict detail, got %v", err)
+	server, release2, err := p.Acquire(context.Background(), conflicting, "agent-1")
+	if err != nil {
+		t.Fatalf("conflicting Acquire: %v", err)
 	}
 	if server != nil {
-		t.Fatalf("conflicting identity returned non-nil server: %#v", server)
+		if server == first {
+			t.Fatal("different model providers must not share the same server")
+		}
+	} else {
+		t.Fatal("conflicting identity returned nil server")
 	}
 	release2()
-	if spawnCalls.Load() != 1 {
-		t.Fatalf("conflicting identity must fail closed before spawn; spawn calls = %d", spawnCalls.Load())
+	if spawnCalls.Load() != 2 {
+		t.Fatalf("spawn calls = %d, want 2 isolated servers", spawnCalls.Load())
 	}
 }
 
@@ -230,14 +265,14 @@ func TestServerPoolAcquireDeadCacheRespawnsServer(t *testing.T) {
 	defer p.Close(context.Background())
 
 	id := identityFor(t, "glm")
-	srv1, rel1, err := p.Acquire(context.Background(), id)
+	srv1, rel1, err := p.Acquire(context.Background(), id, "agent-1")
 	if err != nil {
 		t.Fatalf("first Acquire: %v", err)
 	}
 	rel1()
 	current.alive.Store(false)
 
-	srv2, rel2, err := p.Acquire(context.Background(), id)
+	srv2, rel2, err := p.Acquire(context.Background(), id, "agent-1")
 	if err != nil {
 		t.Fatalf("second Acquire: %v", err)
 	}
@@ -259,7 +294,7 @@ func TestServerPoolAcquireClosedPoolReturnsNoopRelease(t *testing.T) {
 	if err := p.Close(context.Background()); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	server, release, err := p.Acquire(context.Background(), identityFor(t, "glm"))
+	server, release, err := p.Acquire(context.Background(), identityFor(t, "glm"), "agent-1")
 	if !errors.Is(err, ErrPoolClosed) {
 		t.Fatalf("want ErrPoolClosed, got %v", err)
 	}
@@ -274,7 +309,7 @@ func TestServerPoolAcquireNilSpawnerReturnsInvalidIdentity(t *testing.T) {
 	t.Parallel()
 	p, _ := newPoolForTest(t, nil, PoolConfig{Capacity: 4})
 
-	server, release, err := p.Acquire(context.Background(), identityFor(t, "glm"))
+	server, release, err := p.Acquire(context.Background(), identityFor(t, "glm"), "agent-1")
 	if !errors.Is(err, ErrInvalidIdentity) {
 		t.Fatalf("want ErrInvalidIdentity, got %v", err)
 	}
@@ -303,7 +338,7 @@ func TestServerPoolAcquireNormalizeIdentityError(t *testing.T) {
 		ModelProvider: "model-provider-glm",
 	}
 	_, _, _, wantErr := normalizePoolIdentity(id)
-	server, release, err := p.Acquire(context.Background(), id)
+	server, release, err := p.Acquire(context.Background(), id, "agent-1")
 	if err == nil {
 		t.Fatal("Acquire unexpectedly succeeded")
 	}
@@ -343,13 +378,13 @@ func TestServerPoolAcquireCapacityFullEvictsLRU(t *testing.T) {
 
 	id1 := identityFor(t, "glm")
 	id2 := identityFor(t, "qwen")
-	srv1, rel1, err := p.Acquire(context.Background(), id1)
+	srv1, rel1, err := p.Acquire(context.Background(), id1, "agent-1")
 	if err != nil {
 		t.Fatalf("first Acquire: %v", err)
 	}
 	rel1()
 
-	srv2, rel2, err := p.Acquire(context.Background(), id2)
+	srv2, rel2, err := p.Acquire(context.Background(), id2, "agent-2")
 	if err != nil {
 		t.Fatalf("second Acquire: %v", err)
 	}
@@ -380,11 +415,11 @@ func TestServerPoolAcquireCapacityFullAllBusyReturnsErrPoolExhausted(t *testing.
 	p, _ := newPoolForTest(t, spawner, PoolConfig{Capacity: 1})
 	defer p.Close(context.Background())
 
-	_, rel1, err := p.Acquire(context.Background(), identityFor(t, "glm"))
+	_, rel1, err := p.Acquire(context.Background(), identityFor(t, "glm"), "agent-1")
 	if err != nil {
 		t.Fatalf("first Acquire: %v", err)
 	}
-	server, rel2, err := p.Acquire(context.Background(), identityFor(t, "qwen"))
+	server, rel2, err := p.Acquire(context.Background(), identityFor(t, "qwen"), "agent-2")
 	if !errors.Is(err, ErrPoolExhausted) {
 		t.Fatalf("want ErrPoolExhausted, got %v", err)
 	}
@@ -404,8 +439,7 @@ func TestServerPoolAcquireSpawnErrorCreatesBackoffSlot(t *testing.T) {
 	defer p.Close(context.Background())
 
 	id := identityFor(t, "glm")
-	home := canonicalHome(t, id)
-	server, release, err := p.Acquire(context.Background(), id)
+	server, release, err := p.Acquire(context.Background(), id, "agent-1")
 	if err == nil {
 		t.Fatal("Acquire unexpectedly succeeded")
 	}
@@ -414,7 +448,7 @@ func TestServerPoolAcquireSpawnErrorCreatesBackoffSlot(t *testing.T) {
 	}
 	release()
 
-	entry := entryForHome(t, p, home)
+	entry := entryForKey(t, p, poolKeyFor(t, id, "agent-1"))
 	if entry.server != nil {
 		t.Fatal("spawn error should not store a live server")
 	}
@@ -440,19 +474,18 @@ func TestServerPoolAcquireSpawnErrorPreservesExistingSlot(t *testing.T) {
 	defer p.Close(context.Background())
 
 	id := identityFor(t, "glm")
-	home := canonicalHome(t, id)
-	_, _, err := p.Acquire(context.Background(), id)
+	_, _, err := p.Acquire(context.Background(), id, "agent-1")
 	if err == nil {
 		t.Fatal("first Acquire unexpectedly succeeded")
 	}
-	firstEntry := entryForHome(t, p, home)
+	firstEntry := entryForKey(t, p, poolKeyFor(t, id, "agent-1"))
 	*nowRef = nowRef.Add(2 * time.Minute)
 
-	_, _, err = p.Acquire(context.Background(), id)
+	_, _, err = p.Acquire(context.Background(), id, "agent-1")
 	if err == nil {
 		t.Fatal("second Acquire unexpectedly succeeded")
 	}
-	secondEntry := entryForHome(t, p, home)
+	secondEntry := entryForKey(t, p, poolKeyFor(t, id, "agent-1"))
 	if firstEntry != secondEntry {
 		t.Fatal("spawn error on existing entry should preserve the slot")
 	}
@@ -472,11 +505,11 @@ func TestServerPoolAcquireBackoffActiveReturnsWrappedError(t *testing.T) {
 	defer p.Close(context.Background())
 
 	id := identityFor(t, "glm")
-	_, _, err := p.Acquire(context.Background(), id)
+	_, _, err := p.Acquire(context.Background(), id, "agent-1")
 	if err == nil {
 		t.Fatal("first Acquire unexpectedly succeeded")
 	}
-	server, release, err := p.Acquire(context.Background(), id)
+	server, release, err := p.Acquire(context.Background(), id, "agent-1")
 	if !errors.Is(err, ErrSpawnBackoff) {
 		t.Fatalf("want ErrSpawnBackoff, got %v", err)
 	}
@@ -507,14 +540,13 @@ func TestServerPoolAcquireBackoffExpiredRetriesSpawn(t *testing.T) {
 	defer p.Close(context.Background())
 
 	id := identityFor(t, "glm")
-	home := canonicalHome(t, id)
-	_, _, err := p.Acquire(context.Background(), id)
+	_, _, err := p.Acquire(context.Background(), id, "agent-1")
 	if err == nil {
 		t.Fatal("first Acquire unexpectedly succeeded")
 	}
 	*nowRef = nowRef.Add(2 * time.Minute)
 
-	server, release, err := p.Acquire(context.Background(), id)
+	server, release, err := p.Acquire(context.Background(), id, "agent-1")
 	if err != nil {
 		t.Fatalf("second Acquire after backoff: %v", err)
 	}
@@ -522,7 +554,7 @@ func TestServerPoolAcquireBackoffExpiredRetriesSpawn(t *testing.T) {
 	if server != recovered {
 		t.Fatal("backoff expiry should allow a fresh spawn")
 	}
-	entry := entryForHome(t, p, home)
+	entry := entryForKey(t, p, poolKeyFor(t, id, "agent-1"))
 	if entry.spawnErr != nil {
 		t.Fatalf("spawnErr = %v, want nil", entry.spawnErr)
 	}
@@ -542,7 +574,7 @@ func TestServerPoolEvictIdleRemovesStaleEntries(t *testing.T) {
 	}, PoolConfig{Capacity: 4, IdleTimeout: 10 * time.Minute, SpawnBackoff: time.Hour})
 	defer p.Close(context.Background())
 
-	_, _, err := p.Acquire(context.Background(), identityFor(t, "glm"))
+	_, _, err := p.Acquire(context.Background(), identityFor(t, "glm"), "agent-1")
 	if err == nil {
 		t.Fatal("Acquire unexpectedly succeeded")
 	}
@@ -568,8 +600,8 @@ func TestServerPoolCloseTearsEverythingDown(t *testing.T) {
 	}
 	p, _ := newPoolForTest(t, spawner, PoolConfig{Capacity: 4})
 
-	_, _, _ = p.Acquire(context.Background(), identityFor(t, "glm"))
-	_, _, _ = p.Acquire(context.Background(), identityFor(t, "qwen"))
+	_, _, _ = p.Acquire(context.Background(), identityFor(t, "glm"), "agent-1")
+	_, _, _ = p.Acquire(context.Background(), identityFor(t, "qwen"), "agent-2")
 	if err := p.Close(context.Background()); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
@@ -598,26 +630,34 @@ func contains(s, sub string) bool {
 	return false
 }
 
-func TestServerPoolAcquireRejectsSameHomeDifferentInstanceKey(t *testing.T) {
+func TestServerPoolAcquireSameHomeDifferentInstanceKeyIsolated(t *testing.T) {
 	t.Parallel()
+	spawnCalls := atomic.Int32{}
 	p, _ := newPoolForTest(t, func(_ context.Context, home string) (SpawnedServer, error) {
+		spawnCalls.Add(1)
 		return newFakeServer("ws://" + filepath.Base(home)), nil
 	}, PoolConfig{Capacity: 2})
 	defer p.Close(context.Background())
 
 	id := identityFor(t, "glm")
-	_, release, err := p.Acquire(context.Background(), id)
+	first, release, err := p.Acquire(context.Background(), id, "agent-1")
 	if err != nil {
 		t.Fatalf("first Acquire: %v", err)
 	}
 	defer release()
 	id.InstanceKey = "qwen"
-	server, rel2, err := p.Acquire(context.Background(), id)
-	if !errors.Is(err, ErrInvalidIdentity) {
-		t.Fatalf("second Acquire err = %v, want ErrInvalidIdentity", err)
+	server, rel2, err := p.Acquire(context.Background(), id, "agent-1")
+	if err != nil {
+		t.Fatalf("second Acquire: %v", err)
 	}
-	if server != nil {
-		t.Fatalf("server = %#v, want nil", server)
+	if server == nil {
+		t.Fatal("server = nil, want isolated server")
+	}
+	if server == first {
+		t.Fatal("different instance keys must not share the same server")
+	}
+	if spawnCalls.Load() != 2 {
+		t.Fatalf("spawn calls = %d, want 2", spawnCalls.Load())
 	}
 	rel2()
 }
@@ -636,7 +676,7 @@ func TestServerPoolSpawnerRunsOutsideMutex(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, release, err := p.Acquire(context.Background(), identityFor(t, "glm"))
+		_, release, err := p.Acquire(context.Background(), identityFor(t, "glm"), "agent-1")
 		if release != nil {
 			release()
 		}

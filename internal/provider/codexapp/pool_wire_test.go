@@ -94,7 +94,7 @@ func TestPoolEvictRunnerTicks(t *testing.T) {
 
 	// A spawn failure leaves a refcount-free backoff slot for the idle runner
 	// to clean up. Successful sessions are closed immediately on final release.
-	_, _, err := pool.Acquire(context.Background(), identityFor(t, "glm"))
+	_, _, err := pool.Acquire(context.Background(), identityFor(t, "glm"), "agent-1")
 	if err == nil {
 		t.Fatal("Acquire unexpectedly succeeded")
 	}

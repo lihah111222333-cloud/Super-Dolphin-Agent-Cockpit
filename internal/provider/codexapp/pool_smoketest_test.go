@@ -11,7 +11,7 @@
 // pipeline ignores the tag so CI stays binary-free.
 //
 // What the smoke proves:
-//   * NewTransportSpawner really launches an app-server per codexHome
+//   * NewTransportSpawner really launches an app-server per owning session
 //   * ServerPool.Acquire returns distinct SpawnedServer URLs for two
 //     distinct identities (the core multi-provider claim)
 //   * Close tears both children down without leaking processes
@@ -61,12 +61,12 @@ func TestServerPoolMultiProviderSmoke(t *testing.T) {
 	idA := providershared.CodexIdentity{Home: homeA, InstanceKey: "A", ModelProvider: "mp-a"}
 	idB := providershared.CodexIdentity{Home: homeB, InstanceKey: "B", ModelProvider: "mp-b"}
 
-	srvA, relA, err := pool.Acquire(ctx, idA)
+	srvA, relA, err := pool.Acquire(ctx, idA, "agent-a")
 	if err != nil {
 		t.Fatalf("Acquire A: %v", err)
 	}
 	defer relA()
-	srvB, relB, err := pool.Acquire(ctx, idB)
+	srvB, relB, err := pool.Acquire(ctx, idB, "agent-b")
 	if err != nil {
 		t.Fatalf("Acquire B: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestServerPoolMultiProviderSmoke(t *testing.T) {
 	}
 
 	// Second Acquire of identity A must hit the same cached server.
-	srvA2, relA2, err := pool.Acquire(ctx, idA)
+	srvA2, relA2, err := pool.Acquire(ctx, idA, "agent-a")
 	if err != nil {
 		t.Fatalf("Acquire A (second): %v", err)
 	}

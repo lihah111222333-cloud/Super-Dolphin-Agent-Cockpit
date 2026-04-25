@@ -56,7 +56,8 @@ func (d *driver) resolveSessionOptions(ctx context.Context, req dto.StartSession
 		}
 		return nil, fmt.Errorf("codex identity required: %w", err)
 	}
-	server, release, acquireErr := d.pool.Acquire(ctx, identity)
+	owner := strings.TrimSpace(req.AgentID)
+	server, release, acquireErr := d.pool.Acquire(ctx, identity, owner)
 	if acquireErr != nil {
 		return nil, acquireErr
 	}
@@ -70,6 +71,7 @@ func (d *driver) resolveSessionOptions(ctx context.Context, req dto.StartSession
 			slog.String("agent_id", strings.TrimSpace(req.AgentID)),
 			slog.String("codex_home", identity.Home),
 			slog.String("instance_key", identity.InstanceKey),
+			slog.String("owner", owner),
 			slog.String("server_url", url),
 		)
 	}
@@ -92,7 +94,8 @@ func (d *driver) resolveResumeOptions(ctx context.Context, req dto.ResumeSession
 		}
 		return nil, errors.New("codex identity required for resume")
 	}
-	server, release, err := d.pool.Acquire(ctx, identity)
+	owner := strings.TrimSpace(req.AgentID)
+	server, release, err := d.pool.Acquire(ctx, identity, owner)
 	if err != nil {
 		return nil, err
 	}
@@ -106,6 +109,7 @@ func (d *driver) resolveResumeOptions(ctx context.Context, req dto.ResumeSession
 			slog.String("agent_id", strings.TrimSpace(req.AgentID)),
 			slog.String("codex_home", identity.Home),
 			slog.String("instance_key", identity.InstanceKey),
+			slog.String("owner", owner),
 			slog.String("server_url", url),
 		)
 	}

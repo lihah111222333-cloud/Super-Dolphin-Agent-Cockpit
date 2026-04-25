@@ -61,6 +61,10 @@ func TestStopInterruptsTurnAndCleansThreadState(t *testing.T) {
 	if session.closeCalls != 1 {
 		t.Fatalf("session close calls = %d, want 1", session.closeCalls)
 	}
+	sessions := svc.sessions.(*stubThreadSessions)
+	if !reflect.DeepEqual(sessions.removed, []string{"agent-1"}) {
+		t.Fatalf("removed sessions = %#v, want [agent-1]", sessions.removed)
+	}
 	wantCleanup := map[string]struct{}{
 		"agent-1:thread_stopped":           {},
 		"thread-1:thread_stopped":          {},
@@ -114,6 +118,42 @@ func TestStopUsesPublicThreadIDForStatusUpdateWhenProviderDiffers(t *testing.T) 
 	}
 }
 
+func TestStopRemovesSessionByGenerationWhenAvailable(t *testing.T) {
+	t.Parallel()
+
+	sessions := &stubThreadSessions{
+		agentID:    "agent-1",
+		session:    &stubThreadSession{threadID: "thread-1"},
+		generation: 7,
+	}
+	svc := &service{
+		bindingStore: &stubThreadBindingStore{binding: &bindingstore.Binding{
+			AgentID:          "agent-1",
+			Provider:         "codex",
+			ProviderThreadID: "provider-thread-1",
+			CodexThreadID:    "thread-1",
+		}},
+		threadStore: &stubThreadStore{thread: &threadstore.Thread{
+			ThreadID: "thread-1",
+			AgentID:  "agent-1",
+			Status:   statusCreated,
+		}},
+		sessions:      sessions,
+		turns:         &stubTurnService{},
+		orchestration: &stubThreadOrchestration{},
+	}
+
+	if err := svc.Stop(context.Background(), "agent-1"); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+	if !reflect.DeepEqual(sessions.removedGenerations, []uint64{7}) {
+		t.Fatalf("removed generations = %#v, want [7]", sessions.removedGenerations)
+	}
+	if len(sessions.removed) != 0 {
+		t.Fatalf("removed current sessions = %#v, want none", sessions.removed)
+	}
+}
+
 func TestArchiveStopsManagedAgentBeforeArchiving(t *testing.T) {
 	t.Parallel()
 
@@ -134,10 +174,11 @@ func TestArchiveStopsManagedAgentBeforeArchiving(t *testing.T) {
 		calls:           &calls,
 	}
 	session := &stubThreadSession{threadID: "thread-1", calls: &calls}
+	sessions := &stubThreadSessions{agentID: "agent-1", session: session, calls: &calls}
 	svc := &service{
 		bindingStore:  bindingStore,
 		threadStore:   threadStore,
-		sessions:      &stubThreadSessions{agentID: "agent-1", session: session},
+		sessions:      sessions,
 		turns:         turns,
 		orchestration: orch,
 	}
@@ -156,6 +197,9 @@ func TestArchiveStopsManagedAgentBeforeArchiving(t *testing.T) {
 	}
 	if session.closeCalls != 1 {
 		t.Fatalf("session close calls = %d, want 1", session.closeCalls)
+	}
+	if !reflect.DeepEqual(sessions.removed, []string{"agent-1"}) {
+		t.Fatalf("removed sessions = %#v, want [agent-1]", sessions.removed)
 	}
 	if callIndex(calls, "agent_stop:agent-1") > callIndex(calls, "thread_status:thread-1:archived") {
 		t.Fatalf("call order = %#v, want stop before archive status update", calls)
@@ -188,10 +232,11 @@ func TestDeleteStopsManagedAgentBeforeDeleting(t *testing.T) {
 		calls:           &calls,
 	}
 	session := &stubThreadSession{threadID: "thread-1", calls: &calls}
+	sessions := &stubThreadSessions{agentID: "agent-1", session: session, calls: &calls}
 	svc := &service{
 		bindingStore:  bindingStore,
 		threadStore:   threadStore,
-		sessions:      &stubThreadSessions{agentID: "agent-1", session: session},
+		sessions:      sessions,
 		turns:         turns,
 		orchestration: orch,
 	}
@@ -210,6 +255,9 @@ func TestDeleteStopsManagedAgentBeforeDeleting(t *testing.T) {
 	}
 	if session.closeCalls != 1 {
 		t.Fatalf("session close calls = %d, want 1", session.closeCalls)
+	}
+	if !reflect.DeepEqual(sessions.removed, []string{"agent-1"}) {
+		t.Fatalf("removed sessions = %#v, want [agent-1]", sessions.removed)
 	}
 	if callIndex(calls, "agent_stop:agent-1") > callIndex(calls, "binding_delete:agent-1") {
 		t.Fatalf("call order = %#v, want stop before binding delete", calls)
@@ -339,8 +387,12 @@ func (s *stubThreadBindingStore) UpdateAgentCwd(context.Context, bindingstore.Up
 }
 
 type stubThreadSessions struct {
-	agentID string
-	session contract.Session
+	agentID            string
+	session            contract.Session
+	generation         uint64
+	removed            []string
+	removedGenerations []uint64
+	calls              *[]string
 }
 
 func (s *stubThreadSessions) GetSession(agentID string) (contract.Session, error) {
@@ -349,7 +401,23 @@ func (s *stubThreadSessions) GetSession(agentID string) (contract.Session, error
 	}
 	return nil, errors.New("not found")
 }
-func (s *stubThreadSessions) RemoveSession(string) {}
+func (s *stubThreadSessions) RemoveSession(agentID string) {
+	s.removed = append(s.removed, agentID)
+	recordCall(s.calls, "session_remove:"+agentID)
+}
+func (s *stubThreadSessions) SessionGeneration(agentID string) uint64 {
+	if agentID != s.agentID {
+		return 0
+	}
+	return s.generation
+}
+func (s *stubThreadSessions) RemoveSessionGeneration(agentID string, generation uint64) {
+	if agentID != s.agentID {
+		return
+	}
+	s.removedGenerations = append(s.removedGenerations, generation)
+	recordCall(s.calls, "session_remove_generation:"+agentID)
+}
 
 type stubThreadSession struct {
 	threadID   string

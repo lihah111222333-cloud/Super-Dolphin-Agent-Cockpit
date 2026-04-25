@@ -66,7 +66,8 @@ var (
 	ErrInvalidIdentity = errors.New("codexapp: invalid codex identity")
 )
 
-// ServerPool manages one SpawnedServer per canonicalized codexHome.
+// ServerPool manages one SpawnedServer per canonicalized codex identity and
+// owning agent.
 // It is safe for concurrent use.
 //
 // Semantics:
@@ -77,13 +78,13 @@ var (
 //     ErrPoolExhausted. Clients should treat that as a fail-fast
 //     rather than block, because unbounded queueing hides real
 //     capacity mismatches.
-//   - Release decrements the entry refCount. When the last session
-//     releases a server, the entry is removed and the owned process group is
-//     closed; Codex MCP/LSP sidecars inherit that group and are reclaimed with
-//     the app-server.
-//   - Spawn failures stamp the codexHome with a backoff window so
-//     rapid retries don't thrash the underlying child-process
-//     machinery; the cached error is returned until SpawnBackoff
+//   - Release decrements the entry refCount. When the owning session releases
+//     a server, the entry is removed and the owned process group is closed;
+//     Codex MCP/LSP sidecars inherit that group and are reclaimed with the
+//     app-server.
+//   - Spawn failures stamp the identity+owner entry with a backoff window so
+//     rapid retries don't thrash the underlying child-process machinery; the
+//     cached error is returned until SpawnBackoff
 //     elapses.
 //   - Close tears every entry down and refuses subsequent Get calls.
 type ServerPool struct {
@@ -93,14 +94,23 @@ type ServerPool struct {
 	now     func() time.Time
 
 	mu      sync.Mutex
-	entries map[string]*poolEntry
+	entries map[poolEntryKey]*poolEntry
 	closed  bool
 }
 
-type poolEntry struct {
+type poolEntryKey struct {
 	home          string
 	instanceKey   string
 	modelProvider string
+	ownerKey      string
+}
+
+type poolEntry struct {
+	key           poolEntryKey
+	home          string
+	instanceKey   string
+	modelProvider string
+	ownerKey      string
 	server        SpawnedServer
 	lastUsed      time.Time
 	refCount      int
@@ -129,7 +139,7 @@ func NewServerPool(logger *slog.Logger, spawner Spawner, cfg PoolConfig) *Server
 		spawner: spawner,
 		cfg:     cfg,
 		now:     time.Now,
-		entries: make(map[string]*poolEntry),
+		entries: make(map[poolEntryKey]*poolEntry),
 	}
 }
 
@@ -141,13 +151,18 @@ func NewServerPool(logger *slog.Logger, spawner Spawner, cfg PoolConfig) *Server
 //
 // A nil server + non-nil error is always returned together; the
 // release callback is a safe no-op in that case.
-func (p *ServerPool) Acquire(ctx context.Context, identity providershared.CodexIdentity) (SpawnedServer, func(), error) {
+func (p *ServerPool) Acquire(ctx context.Context, identity providershared.CodexIdentity, ownerKey string) (SpawnedServer, func(), error) {
 	home, key, provider, err := normalizePoolIdentity(identity)
 	if err != nil {
 		return nil, noopRelease, err
 	}
+	ownerKey = strings.TrimSpace(ownerKey)
+	if ownerKey == "" {
+		return nil, noopRelease, fmt.Errorf("%w: pool owner agentID is empty", ErrInvalidIdentity)
+	}
+	entryKey := poolEntryKey{home: home, instanceKey: key, modelProvider: provider, ownerKey: ownerKey}
 	p.mu.Lock()
-	fastPath := p.acquireFastPathLocked(home, key, provider)
+	fastPath := p.acquireFastPathLocked(entryKey)
 	if fastPath.done {
 		p.mu.Unlock()
 		return fastPath.server, fastPath.release, fastPath.err
@@ -170,13 +185,13 @@ func (p *ServerPool) Acquire(ctx context.Context, identity providershared.CodexI
 	server, err := p.spawner(ctx, home)
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	entry := p.entries[home]
+	entry := p.entries[entryKey]
 	if err != nil {
-		p.recordSpawnErrorLocked(entry, home, key, provider, err, spawnAt)
+		p.recordSpawnErrorLocked(entry, entryKey, err, spawnAt)
 		return nil, noopRelease, fmt.Errorf("codexapp: spawn %q: %w", home, err)
 	}
-	p.storeSpawnedLocked(entry, home, key, provider, server, spawnAt)
-	return server, p.releaser(home), nil
+	p.storeSpawnedLocked(entry, entryKey, server, spawnAt)
+	return server, p.releaser(entryKey), nil
 }
 
 func noopRelease() {}
@@ -190,7 +205,7 @@ type acquireFastPathResult struct {
 	done    bool
 }
 
-func (p *ServerPool) acquireFastPathLocked(home, key, provider string) acquireFastPathResult {
+func (p *ServerPool) acquireFastPathLocked(entryKey poolEntryKey) acquireFastPathResult {
 	result := acquireFastPathResult{release: noopRelease}
 	if p.closed {
 		result.err = ErrPoolClosed
@@ -203,18 +218,8 @@ func (p *ServerPool) acquireFastPathLocked(home, key, provider string) acquireFa
 		return result
 	}
 	result.now = p.now()
-	result.entry = p.entries[home]
+	result.entry = p.entries[entryKey]
 	if result.entry == nil {
-		return result
-	}
-	if result.entry.instanceKey != "" && result.entry.instanceKey != key {
-		result.err = fmt.Errorf("%w: codexHome %q already bound to instance key %q", ErrInvalidIdentity, home, result.entry.instanceKey)
-		result.done = true
-		return result
-	}
-	if result.entry.modelProvider != "" && result.entry.modelProvider != provider {
-		result.err = fmt.Errorf("%w: codexHome %q instance key %q already bound to model provider %q", ErrInvalidIdentity, home, key, result.entry.modelProvider)
-		result.done = true
 		return result
 	}
 	// Live entry: happy path.
@@ -222,7 +227,7 @@ func (p *ServerPool) acquireFastPathLocked(home, key, provider string) acquireFa
 		result.entry.refCount++
 		result.entry.lastUsed = result.now
 		result.server = result.entry.server
-		result.release = p.releaser(home)
+		result.release = p.releaser(entryKey)
 		result.done = true
 		return result
 	}
@@ -250,22 +255,22 @@ func (p *ServerPool) ensureCapacityLocked(entry *poolEntry, now time.Time) error
 	return ErrPoolExhausted
 }
 
-func (p *ServerPool) recordSpawnErrorLocked(entry *poolEntry, home, key, provider string, err error, now time.Time) {
+func (p *ServerPool) recordSpawnErrorLocked(entry *poolEntry, entryKey poolEntryKey, err error, now time.Time) {
 	// Record the failure for backoff. Preserve the existing
 	// entry slot if one exists so backoff state persists.
 	if entry == nil {
-		entry = &poolEntry{home: home, instanceKey: key, modelProvider: provider}
-		p.entries[home] = entry
+		entry = newPoolEntry(entryKey)
+		p.entries[entryKey] = entry
 	}
 	entry.spawnErr = err
 	entry.backoffUntil = now.Add(p.cfg.SpawnBackoff)
 	entry.lastUsed = now
 }
 
-func (p *ServerPool) storeSpawnedLocked(entry *poolEntry, home, key, provider string, server SpawnedServer, now time.Time) {
+func (p *ServerPool) storeSpawnedLocked(entry *poolEntry, entryKey poolEntryKey, server SpawnedServer, now time.Time) {
 	if entry == nil {
-		entry = &poolEntry{home: home, instanceKey: key, modelProvider: provider}
-		p.entries[home] = entry
+		entry = newPoolEntry(entryKey)
+		p.entries[entryKey] = entry
 	}
 	entry.server = server
 	entry.spawnErr = nil
@@ -274,17 +279,27 @@ func (p *ServerPool) storeSpawnedLocked(entry *poolEntry, home, key, provider st
 	entry.lastUsed = now
 }
 
-// releaser returns the per-home release callback used by Acquire. When the
+func newPoolEntry(entryKey poolEntryKey) *poolEntry {
+	return &poolEntry{
+		key:           entryKey,
+		home:          entryKey.home,
+		instanceKey:   entryKey.instanceKey,
+		modelProvider: entryKey.modelProvider,
+		ownerKey:      entryKey.ownerKey,
+	}
+}
+
+// releaser returns the per-owner release callback used by Acquire. When the
 // final session releases an entry we remove it immediately and close the
 // app-server process group. That makes archive/trash reclaim the app-server
 // and its MCP/LSP sidecars without waiting for the periodic idle runner.
 // The callback is idempotent on the "already released" branch: an extra call
 // after deletion is a no-op.
-func (p *ServerPool) releaser(home string) func() {
+func (p *ServerPool) releaser(entryKey poolEntryKey) func() {
 	return func() {
 		var server SpawnedServer
 		p.mu.Lock()
-		entry := p.entries[home]
+		entry := p.entries[entryKey]
 		if entry == nil {
 			p.mu.Unlock()
 			return
@@ -295,11 +310,11 @@ func (p *ServerPool) releaser(home string) func() {
 		entry.lastUsed = p.now()
 		if entry.refCount == 0 && entry.server != nil {
 			server = entry.server
-			delete(p.entries, home)
+			delete(p.entries, entryKey)
 		}
 		p.mu.Unlock()
 		if server != nil {
-			closeWithTimeout(server, 2*time.Second, p.logger, home)
+			closeWithTimeout(server, 2*time.Second, p.logger, entryKey)
 		}
 	}
 }
@@ -313,18 +328,18 @@ func (p *ServerPool) releaser(home string) func() {
 // would stall every other Acquire. Production SpawnedServer.Close
 // implementations must respect that deadline.
 func (p *ServerPool) evictLRULocked(now time.Time) bool {
-	var oldestKey string
+	var oldestKey poolEntryKey
 	var oldestTime time.Time
 	for key, entry := range p.entries {
 		if entry.refCount > 0 {
 			continue
 		}
-		if oldestKey == "" || entry.lastUsed.Before(oldestTime) {
+		if oldestKey == (poolEntryKey{}) || entry.lastUsed.Before(oldestTime) {
 			oldestKey = key
 			oldestTime = entry.lastUsed
 		}
 	}
-	if oldestKey == "" {
+	if oldestKey == (poolEntryKey{}) {
 		return false
 	}
 	entry := p.entries[oldestKey]
@@ -333,7 +348,8 @@ func (p *ServerPool) evictLRULocked(now time.Time) bool {
 		go closeWithTimeout(entry.server, 2*time.Second, p.logger, oldestKey)
 	}
 	p.logger.Debug("codexapp: pool evicted entry",
-		slog.String("codex_home", oldestKey),
+		slog.String("codex_home", oldestKey.home),
+		slog.String("owner", oldestKey.ownerKey),
 		slog.Time("last_used", oldestTime),
 	)
 	_ = now // reserved for future idle-gc metrics
@@ -415,8 +431,9 @@ func (p *ServerPool) Size() int {
 // providershared.ResolveCodexIdentity is already canonicalized; we re-run
 // CanonicalizeCodexHome here when callers pass raw input so the pool remains
 // the single authority on home->entry binding. P22 P1a requires the full
-// identity triple to fail closed: no pool entry may silently collapse two
-// providers that share the same home + instance key.
+// identity triple to fail closed: the pool key includes all three fields, so no
+// entry may silently collapse two providers that share the same home + instance
+// key.
 func normalizePoolIdentity(identity providershared.CodexIdentity) (home, key, provider string, err error) {
 	raw := strings.TrimSpace(identity.Home)
 	if raw == "" {
@@ -441,12 +458,13 @@ func normalizePoolIdentity(identity providershared.CodexIdentity) (home, key, pr
 // pool never blocks an eviction on a slow child process. Logged at
 // debug level because the failure rarely indicates real trouble —
 // shutdown ordering races commonly surface as transient Close errors.
-func closeWithTimeout(server SpawnedServer, timeout time.Duration, logger *slog.Logger, key string) {
+func closeWithTimeout(server SpawnedServer, timeout time.Duration, logger *slog.Logger, key poolEntryKey) {
 	ctx, cancel := withTimeout(context.Background(), timeout)
 	defer cancel()
 	if err := server.Close(ctx); err != nil {
 		logger.Debug("codexapp: pool close entry failed",
-			slog.String("codex_home", key),
+			slog.String("codex_home", key.home),
+			slog.String("owner", key.ownerKey),
 			slog.String("error", err.Error()),
 		)
 	}
