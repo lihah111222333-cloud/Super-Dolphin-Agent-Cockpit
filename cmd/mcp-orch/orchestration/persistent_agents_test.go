@@ -9,6 +9,7 @@ import (
 	"time"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
@@ -149,6 +150,44 @@ func TestListAgentsIncludesPersistedReportBody(t *testing.T) {
 	}
 }
 
+func TestSubmitTurnRehydratesPersistedAgentRuntimeAfterPeerRestart(t *testing.T) {
+	launcher := &persistedRuntimeTestLauncher{}
+	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
+	svc.agentBindings = fakeAgentBindingStore{binding: &bindingstore.Binding{
+		AgentID:       "agent-1",
+		Provider:      "codex",
+		CodexThreadID: "provider-thread-1",
+		Cwd:           "/repo",
+		CreatedAt:     1710000000,
+		UpdatedAt:     1710000100,
+	}}
+	svc.agentThreads = fakeAgentThreadStore{threads: []threadstore.Thread{
+		{
+			ThreadID:  "provider-thread-1",
+			AgentID:   "agent-1",
+			Name:      "display one",
+			Cwd:       "/repo",
+			Status:    "created",
+			CreatedAt: 1710000000,
+			UpdatedAt: 1710000100,
+		},
+	}}
+
+	if err := svc.SubmitTurn(context.Background(), TurnSubmission{AgentID: "agent-1"}); err != nil {
+		t.Fatalf("SubmitTurn() error = %v", err)
+	}
+	if launcher.submittedRemoteThreadID != "provider-thread-1" {
+		t.Fatalf("submitted remote thread = %q, want provider-thread-1", launcher.submittedRemoteThreadID)
+	}
+	snapshot, err := svc.Snapshot(context.Background(), "agent-1")
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	if snapshot.State != agentdto.StateTurnStarting || snapshot.ActiveTurnID != "turn-1" {
+		t.Fatalf("Snapshot() = %#v, want rehydrated accepted turn", snapshot)
+	}
+}
+
 func TestGetReportRejectsRemoteThreadID(t *testing.T) {
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	svc.agents["agent-1"] = &agentRuntime{
@@ -197,4 +236,47 @@ func mustWritePersistedAgentReportFile(t *testing.T, cwd, agentID, name, report 
 	if err := os.WriteFile(path, []byte(report), 0o644); err != nil {
 		t.Fatalf("WriteFile(persisted report) error = %v", err)
 	}
+}
+
+type fakeAgentBindingStore struct {
+	binding *bindingstore.Binding
+	err     error
+}
+
+func (s fakeAgentBindingStore) GetByAgentID(_ context.Context, agentID string) (*bindingstore.Binding, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	if s.binding == nil || s.binding.AgentID != agentID {
+		return nil, errAgentNotFound
+	}
+	binding := *s.binding
+	return &binding, nil
+}
+
+type persistedRuntimeTestLauncher struct {
+	submittedAgentID        string
+	submittedRemoteThreadID string
+}
+
+func (l *persistedRuntimeTestLauncher) Launch(context.Context, *agentRuntime, LaunchRequest) (LaunchResult, error) {
+	return LaunchResult{}, nil
+}
+
+func (l *persistedRuntimeTestLauncher) Stop(context.Context, *agentRuntime) error {
+	return nil
+}
+
+func (l *persistedRuntimeTestLauncher) SubmitTurn(_ context.Context, agent *agentRuntime, _ TurnSubmission) (string, error) {
+	l.submittedAgentID = agent.id
+	l.submittedRemoteThreadID = agent.remoteThreadID
+	return "turn-1", nil
+}
+
+func (l *persistedRuntimeTestLauncher) IsRunning(_ context.Context, agent *agentRuntime) bool {
+	return agent != nil && agent.remoteThreadID != ""
+}
+
+func (l *persistedRuntimeTestLauncher) SupportsPersistedRuntimeRehydrate() bool {
+	return true
 }

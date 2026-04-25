@@ -22,6 +22,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	platformstatemachine "github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
+	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -79,6 +80,7 @@ type service struct {
 	dagStore               taskdag.Store
 	recoveryStore          recoveryTurnStore
 	agentThreads           AgentThreadStore
+	agentBindings          AgentBindingStore
 	machineCfg             platformstatemachine.Config
 	processExitWaitTimeout time.Duration
 	// exitMonitor is the P22 P3 single owner of every locally-launched
@@ -98,8 +100,9 @@ type serviceParams struct {
 	Launcher       AgentLauncher
 	SessionCleaner SessionCleaner
 	TurnStarter    TurnStarter
-	DAGStore       taskdag.Store    `optional:"true"`
-	AgentThreads   AgentThreadStore `optional:"true"`
+	DAGStore       taskdag.Store     `optional:"true"`
+	AgentThreads   AgentThreadStore  `optional:"true"`
+	AgentBindings  AgentBindingStore `optional:"true"`
 }
 
 type recoveryTurnStore interface {
@@ -113,6 +116,14 @@ type AgentThreadStore interface {
 }
 
 func ProvideAgentThreadStore(store threadstore.Store) AgentThreadStore {
+	return store
+}
+
+type AgentBindingStore interface {
+	GetByAgentID(ctx context.Context, agentID string) (*bindingstore.Binding, error)
+}
+
+func ProvideAgentBindingStore(store bindingstore.Store) AgentBindingStore {
 	return store
 }
 
@@ -203,6 +214,7 @@ func NewService(
 func ProvideService(p serviceParams) *service {
 	svc := NewService(p.Logger, p.EventBus, p.Launcher, p.SessionCleaner, p.TurnStarter, p.DAGStore)
 	svc.agentThreads = p.AgentThreads
+	svc.agentBindings = p.AgentBindings
 	return svc
 }
 
