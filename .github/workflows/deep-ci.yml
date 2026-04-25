@@ -1,7 +1,6 @@
 name: Deep CI
 
 on:
-  pull_request:
   push:
     branches: [main]
   schedule:
@@ -59,7 +58,7 @@ jobs:
 
   playwright:
     name: Playwright
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 60
 
     defaults:
