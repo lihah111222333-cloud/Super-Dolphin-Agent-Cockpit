@@ -109,6 +109,7 @@ func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*Tool
 
 	peer := peers[0].Peer
 	snapshot := h.beginToolDiffSnapshot(ctx, req)
+	req = h.injectManagedLaunchContext(ctx, req)
 	h.warnManagedLaunchConfigTrace(ctx, req)
 
 	var resp peerToolCallResponse
@@ -132,6 +133,92 @@ func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*Tool
 	result := adaptMCPResponse(resp)
 	h.emitToolDiff(ctx, req, snapshot)
 	return result, nil
+}
+
+func (h *Handler) injectManagedLaunchContext(ctx context.Context, req ToolCallRequest) ToolCallRequest {
+	if strings.TrimSpace(req.Name) != "orchestration_launch_agent" {
+		return req
+	}
+	binding, ok := h.resolveCurrentToolCallBinding(ctx, req)
+	if !ok || strings.TrimSpace(binding.AgentID) == "" {
+		return req
+	}
+	args := decodeToolArguments(req.Arguments)
+	if args == nil {
+		args = make(map[string]any)
+	}
+	changed := false
+	if mapString(args, "parent_id") == "" {
+		args["parent_id"] = binding.AgentID
+		changed = true
+	}
+	if mapString(args, "cwd") == "" && strings.TrimSpace(binding.CWD) != "" {
+		args["cwd"] = strings.TrimSpace(binding.CWD)
+		changed = true
+	}
+	if !changed {
+		return req
+	}
+	raw, err := json.Marshal(args)
+	if err != nil {
+		h.warn("toolbridge: orchestration_launch_agent context injection failed",
+			"agent_id", binding.AgentID,
+			"error", err)
+		return req
+	}
+	req.Arguments = raw
+	h.warn("toolbridge: orchestration_launch_agent inherited context",
+		"agent_id", binding.AgentID,
+		"provider_thread_id", binding.ProviderThreadID,
+		"injected_parent_id", mapString(args, "parent_id"),
+		"injected_cwd", mapString(args, "cwd"),
+		"has_codex_home", strings.TrimSpace(binding.CodexHome) != "",
+		"has_codex_instance_key", strings.TrimSpace(binding.CodexInstanceKey) != "",
+		"has_codex_model_provider", strings.TrimSpace(binding.CodexModelProvider) != "",
+	)
+	return req
+}
+
+func (h *Handler) resolveCurrentToolCallBinding(ctx context.Context, req ToolCallRequest) (toolCallBinding, bool) {
+	if h == nil || h.bindingStore == nil {
+		return toolCallBinding{}, false
+	}
+	lookup, ok := h.bindingStore.(toolCallBindingLookup)
+	if !ok {
+		return toolCallBinding{}, false
+	}
+	if agentID := strings.TrimSpace(req.AgentID); agentID != "" {
+		if binding, ok := lookupToolCallBindingByAgent(ctx, lookup, agentID); ok {
+			return binding, true
+		}
+	}
+	threadID := strings.TrimSpace(req.ThreadID)
+	if threadID == "" {
+		return toolCallBinding{}, false
+	}
+	if binding, ok := lookupToolCallBindingByAgent(ctx, lookup, threadID); ok {
+		return binding, true
+	}
+	if binding, ok := lookupToolCallBindingByProviderThread(ctx, lookup, "codex", threadID); ok {
+		return binding, true
+	}
+	return toolCallBinding{}, false
+}
+
+func lookupToolCallBindingByAgent(ctx context.Context, lookup toolCallBindingLookup, agentID string) (toolCallBinding, bool) {
+	binding, err := lookup.GetBindingByAgent(ctx, strings.TrimSpace(agentID))
+	if err != nil {
+		return toolCallBinding{}, false
+	}
+	return binding, strings.TrimSpace(binding.AgentID) != ""
+}
+
+func lookupToolCallBindingByProviderThread(ctx context.Context, lookup toolCallBindingLookup, provider, threadID string) (toolCallBinding, bool) {
+	binding, err := lookup.GetBindingByProviderThread(ctx, strings.TrimSpace(provider), strings.TrimSpace(threadID))
+	if err != nil {
+		return toolCallBinding{}, false
+	}
+	return binding, strings.TrimSpace(binding.AgentID) != ""
 }
 
 func (h *Handler) spawnAgentPolicyMessage(ctx context.Context, req ToolCallRequest) (string, error) {

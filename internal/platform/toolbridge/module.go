@@ -97,13 +97,62 @@ func provideThreadConfigOverrideStore(store threadstore.Store) threadConfigOverr
 	return threadConfigOverrideAdapter{inner: store}
 }
 
+type agentThreadLookupAdapter struct {
+	inner bindingstore.Store
+}
+
+func (a agentThreadLookupAdapter) GetThreadByAgent(ctx context.Context, agentID string) (string, error) {
+	if a.inner == nil {
+		return "", nil
+	}
+	return a.inner.GetThreadByAgent(ctx, agentID)
+}
+
+func (a agentThreadLookupAdapter) GetBindingByAgent(ctx context.Context, agentID string) (toolCallBinding, error) {
+	if a.inner == nil {
+		return toolCallBinding{}, nil
+	}
+	binding, err := a.inner.GetByAgentID(ctx, agentID)
+	if err != nil || binding == nil {
+		return toolCallBinding{}, err
+	}
+	return toolCallBindingFromStore(binding), nil
+}
+
+func (a agentThreadLookupAdapter) GetBindingByProviderThread(ctx context.Context, provider, providerThreadID string) (toolCallBinding, error) {
+	if a.inner == nil {
+		return toolCallBinding{}, nil
+	}
+	binding, err := a.inner.GetByProviderThread(ctx, provider, providerThreadID)
+	if err != nil || binding == nil {
+		return toolCallBinding{}, err
+	}
+	return toolCallBindingFromStore(binding), nil
+}
+
+func toolCallBindingFromStore(binding *bindingstore.Binding) toolCallBinding {
+	if binding == nil {
+		return toolCallBinding{}
+	}
+	return toolCallBinding{
+		AgentID:            strings.TrimSpace(binding.AgentID),
+		Provider:           strings.TrimSpace(binding.Provider),
+		ProviderThreadID:   strings.TrimSpace(binding.ProviderThreadID),
+		CodexThreadID:      strings.TrimSpace(binding.CodexThreadID),
+		CWD:                strings.TrimSpace(binding.Cwd),
+		CodexHome:          strings.TrimSpace(binding.CodexHome),
+		CodexInstanceKey:   strings.TrimSpace(binding.CodexInstanceKey),
+		CodexModelProvider: strings.TrimSpace(binding.CodexModelProvider),
+	}
+}
+
 // provideAgentThreadLookup is the fx bridge from the concrete
-// bindingstore.Store to the agentThreadLookup port (see ports.go).
-// bindingstore.Store already implements GetThreadByAgent with the exact
-// signature the port requires, so no runtime conversion is needed —
-// this provider exists solely so fx can resolve the port type by name.
+// bindingstore.Store to the toolbridge-local narrow ports (see ports.go).
 func provideAgentThreadLookup(store bindingstore.Store) agentThreadLookup {
-	return store
+	if store == nil {
+		return nil
+	}
+	return agentThreadLookupAdapter{inner: store}
 }
 
 func bindCodexHandlers(mgr *codexapp.ServerManager, factory *codexapp.DriverFactory, h *Handler) {
