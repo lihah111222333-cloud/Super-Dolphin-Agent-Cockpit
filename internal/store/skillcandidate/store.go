@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
@@ -14,8 +13,8 @@ import (
 )
 
 const (
-	entity         = "skill_candidate"
-	defaultLimit   = int32(50)
+	entity       = "skill_candidate"
+	defaultLimit = int32(50)
 )
 
 // querier is the narrow subset of *sqlc.Queries the store consumes.
@@ -106,7 +105,7 @@ func (s *store) Insert(ctx context.Context, p InsertParams) (Candidate, error) {
 func (s *store) GetByID(ctx context.Context, id int64) (Candidate, error) {
 	row, err := s.q.GetSkillCandidateByID(ctx, id)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if platformdb.IsNotFound(err) {
 			return Candidate{}, wrap(platformdb.ErrNotFound, "get_by_id")
 		}
 		return Candidate{}, wrap(err, "get_by_id")
@@ -151,7 +150,7 @@ func (s *store) Approve(ctx context.Context, id int64, approvedBy, reason string
 		Reason:     reason,
 	})
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if platformdb.IsNotFound(err) {
 			return Candidate{}, wrap(platformdb.ErrConflict, "approve")
 		}
 		return Candidate{}, wrap(err, "approve")
@@ -165,7 +164,7 @@ func (s *store) Reject(ctx context.Context, id int64, reason string) (Candidate,
 		Reason: reason,
 	})
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if platformdb.IsNotFound(err) {
 			return Candidate{}, wrap(platformdb.ErrConflict, "reject")
 		}
 		return Candidate{}, wrap(err, "reject")
@@ -176,7 +175,7 @@ func (s *store) Reject(ctx context.Context, id int64, reason string) (Candidate,
 func (s *store) MarkPromoted(ctx context.Context, id int64) (Candidate, error) {
 	row, err := s.q.MarkSkillCandidatePromoted(ctx, id)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if platformdb.IsNotFound(err) {
 			return Candidate{}, wrap(platformdb.ErrConflict, "mark_promoted")
 		}
 		return Candidate{}, wrap(err, "mark_promoted")
@@ -195,7 +194,7 @@ func (s *store) LookupApproval(ctx context.Context, scope, slug, contentHash, re
 		RepoFingerprint: repoFingerprint,
 	})
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if platformdb.IsNotFound(err) {
 			return nil, nil
 		}
 		return nil, wrap(err, "lookup_approval")

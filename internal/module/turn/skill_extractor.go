@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/skillcandidate"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -122,99 +123,134 @@ func (e *DefaultExtractor) Extract(ctx context.Context, t Trajectory) (*Extracte
 	if e == nil {
 		return nil, errors.New("extractor: nil receiver")
 	}
-	// 1. evaluator gate
+	if !e.readyToExtract(t) {
+		return nil, nil
+	}
+	prompt, err := e.redactedTrajectoryPrompt(t)
+	if err != nil {
+		return nil, err
+	}
+	rawSkillMd, err := e.executeDream(ctx, t, prompt)
+	if err != nil {
+		if errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	cleaned, err := e.redactDreamOutput(t, rawSkillMd)
+	if err != nil {
+		return nil, err
+	}
+	extracted := newExtractedSkill(t, cleaned)
+	inserted, err := e.insertExtractedSkill(ctx, t, extracted)
+	if err != nil {
+		return extracted, err
+	}
+	if inserted {
+		e.Metrics.incPromoted()
+	}
+	return extracted, nil
+}
+
+func (e *DefaultExtractor) readyToExtract(t Trajectory) bool {
 	verdict := e.evaluator.Evaluate(t)
 	if !verdict.Eligible {
 		e.logger.Debug("extractor: trajectory ineligible", "turn_id", t.TurnID, "reason", verdict.Reason)
-		return nil, nil
+		return false
 	}
 	if e.dream == nil {
 		e.Metrics.incDreamNotConfigured()
 		e.logger.Info("extractor: dream executor not configured, skipping", "turn_id", t.TurnID)
-		return nil, nil
+		return false
 	}
 	if e.store == nil {
 		e.logger.Warn("extractor: skill candidate store not wired, skipping", "turn_id", t.TurnID)
-		return nil, nil
+		return false
 	}
+	return true
+}
 
-	// 2. The trajectory itself may carry secrets (tool args / results). We
-	// redact BEFORE the prompt is shipped to the LLM so a leaky LLM cannot
-	// reflect raw secrets back into SKILL.md.
+func (e *DefaultExtractor) redactedTrajectoryPrompt(t Trajectory) (string, error) {
 	prompt, err := e.buildRedactedPrompt(t)
 	if err != nil {
 		e.Metrics.incRedactionFailed()
 		e.logger.Error("extractor: prompt redaction failed", "turn_id", t.TurnID, "error", err)
-		return nil, err
+		return "", err
 	}
+	return prompt, nil
+}
 
-	// 3. ExecuteDream with a per-call timeout independent from the runner ctx.
-	callCtx, cancel := context.WithTimeout(ctx, extractTimeout)
+func (e *DefaultExtractor) executeDream(ctx context.Context, t Trajectory, prompt string) (string, error) {
+	callCtx, cancel := platformconfig.WithTimeout(ctx, extractTimeout)
 	defer cancel()
 	rawSkillMd, err := e.dream.ExecuteDream(callCtx, prompt)
 	if err != nil {
-		if errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
-			e.Metrics.incDreamNotConfigured()
-			e.logger.Info("extractor: dream executor not configured at call time", "turn_id", t.TurnID)
-			return nil, nil
-		}
-		e.Metrics.incDreamFailed()
-		e.logger.Warn("extractor: dream execute failed", "turn_id", t.TurnID, "error", err)
-		return nil, err
+		e.recordDreamError(t, err)
+		return "", err
 	}
+	return rawSkillMd, nil
+}
 
-	// 4. Mandatory second-pass redaction against the LLM output.
-	cleaned, hits, err := e.redactor.Redact(rawSkillMd)
+func (e *DefaultExtractor) recordDreamError(t Trajectory, err error) {
+	if errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
+		e.Metrics.incDreamNotConfigured()
+		e.logger.Info("extractor: dream executor not configured at call time", "turn_id", t.TurnID)
+		return
+	}
+	e.Metrics.incDreamFailed()
+	e.logger.Warn("extractor: dream execute failed", "turn_id", t.TurnID, "error", err)
+}
+
+func (e *DefaultExtractor) redactDreamOutput(t Trajectory, rawSkillMd string) (string, error) {
+	cleaned, _, err := e.redactor.Redact(rawSkillMd)
 	if err != nil {
 		e.Metrics.incRedactionFailed()
 		e.logger.Error("extractor: post-llm redaction errored, dropping", "turn_id", t.TurnID, "error", err)
-		return nil, err
+		return "", err
 	}
-	// 5. Residual scan: re-run the redactor on the cleaned text. If a
-	// pattern fires again the first pass left a secret behind (or the
-	// stub redactor is misbehaving) - drop the candidate.
+	if err := e.rejectResidualSecrets(t, cleaned); err != nil {
+		return "", err
+	}
+	return cleaned, nil
+}
+
+func (e *DefaultExtractor) rejectResidualSecrets(t Trajectory, cleaned string) error {
 	_, residualHits, err := e.redactor.Redact(cleaned)
 	if err != nil {
 		e.Metrics.incRedactionFailed()
-		return nil, err
+		return err
 	}
-	if len(residualHits) > 0 {
-		e.Metrics.incResidualSecret()
-		e.logger.Error("extractor: residual secret after first pass, dropping",
-			"turn_id", t.TurnID, "hits", residualHits)
-		return nil, fmt.Errorf("extractor: residual secret hits %v", residualHits)
+	if len(residualHits) == 0 {
+		return nil
 	}
+	e.Metrics.incResidualSecret()
+	e.logger.Error("extractor: residual secret after first pass, dropping",
+		"turn_id", t.TurnID, "hits", residualHits)
+	return fmt.Errorf("extractor: residual secret hits %v", residualHits)
+}
 
-	// 6. content_hash + sample. content_hash gates dedup at the DB; sample
-	// is the truncated preview the review gate displays.
+func newExtractedSkill(t Trajectory, cleaned string) *ExtractedSkill {
 	sum := sha256.Sum256([]byte(cleaned))
 	contentHash := hex.EncodeToString(sum[:])
-	sample := cleaned
-	if len(sample) > redactedSampleLimit {
-		sample = sample[:redactedSampleLimit]
-	}
-
-	// 7. repo_fingerprint scopes the dedup unique key to the project.
-	fingerprint := RepoFingerprint(t.Cwd)
-
-	// 8. slug: simplified placeholder derived from the turn id so the
-	// (scope, slug, content_hash, repo_fingerprint) unique key stays
-	// stable across re-runs. Future: parse the LLM's frontmatter.
-	slug := slugFromTrajectory(t)
-
-	extracted := &ExtractedSkill{
-		Slug:            slug,
+	return &ExtractedSkill{
+		Slug:            slugFromTrajectory(t),
 		SKILLMd:         cleaned,
 		ContentHash:     contentHash,
-		Sample:          sample,
+		Sample:          truncateRedactedSample(cleaned),
 		Scope:           skillcandidate.ScopeProject,
-		RepoFingerprint: fingerprint,
+		RepoFingerprint: RepoFingerprint(t.Cwd),
 	}
+}
 
-	// 9. Store.Insert. Dedup hits are NOT errors - they mean the same
-	// (scope, slug, content_hash, repo_fingerprint) is already pending
-	// review. Other failures bubble up so the runner logs them.
-	_, err = e.store.Insert(ctx, skillcandidate.InsertParams{
+func truncateRedactedSample(sample string) string {
+	if len(sample) > redactedSampleLimit {
+		return sample[:redactedSampleLimit]
+	}
+	return sample
+}
+
+func (e *DefaultExtractor) insertExtractedSkill(ctx context.Context, t Trajectory, extracted *ExtractedSkill) (bool, error) {
+	_, err := e.store.Insert(ctx, skillcandidate.InsertParams{
 		Scope:           extracted.Scope,
 		Slug:            extracted.Slug,
 		ContentHash:     extracted.ContentHash,
@@ -222,19 +258,17 @@ func (e *DefaultExtractor) Extract(ctx context.Context, t Trajectory) (*Extracte
 		SkillMD:         extracted.SKILLMd,
 		RedactedSample:  extracted.Sample,
 	})
-	if err != nil {
-		if isUniqueViolation(err) {
-			e.Metrics.incDedupHit()
-			e.logger.Info("extractor: candidate dedup hit, ignoring", "turn_id", t.TurnID, "slug", slug)
-			return extracted, nil
-		}
-		e.Metrics.incInsertFailed()
-		e.logger.Error("extractor: candidate insert failed", "turn_id", t.TurnID, "error", err)
-		return extracted, err
+	if err == nil {
+		return true, nil
 	}
-	e.Metrics.incPromoted()
-	_ = hits // hits is reserved for future per-pattern metric labels.
-	return extracted, nil
+	if isUniqueViolation(err) {
+		e.Metrics.incDedupHit()
+		e.logger.Info("extractor: candidate dedup hit, ignoring", "turn_id", t.TurnID, "slug", extracted.Slug)
+		return false, nil
+	}
+	e.Metrics.incInsertFailed()
+	e.logger.Error("extractor: candidate insert failed", "turn_id", t.TurnID, "error", err)
+	return false, err
 }
 
 // isUniqueViolation accepts both the platformdb.ErrConflict sentinel that
