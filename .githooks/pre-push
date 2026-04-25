@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# pre-push — 推送前跑 make ci-l0（约 13 秒）
+# Bypass: git push --no-verify
+set -e
+
+echo "[pre-push] make ci-l0..."
+
+# 用临时文件捕获输出，过滤 ld 链接器噪声后再展示，最后看真实 RC
+LOG=$(mktemp -t pre-push.XXXXXX)
+trap 'rm -f "$LOG"' EXIT
+
+if make ci-l0 >"$LOG" 2>&1; then
+  # 通过：仍展示输出（去 ld warning 噪声），让用户看到通过的包
+  grep -v '^ld: warning:' "$LOG" || true
+  echo "✅ pre-push OK"
+  exit 0
+else
+  rc=$?
+fi
+
+# 失败：吐出去噪后的日志 + 拒绝 push，并保留 make 的失败码
+grep -v '^ld: warning:' "$LOG" >&2 || true
+echo "" >&2
+echo "❌ ci-l0 未通过，push 已拒绝" >&2
+echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git push --no-verify" >&2
+exit "$rc"

@@ -1,38 +1,22 @@
-# super-agent-v3 代码地图
-
-<<<<<<< Updated upstream
 # testsync
 
 Migration from go-agent-v2, started 2026-03-19.
-=======
-> 由自动索引脚本维护，当前覆盖 11 卷核心模块。
->>>>>>> Stashed changes
 
-## 阅读边界提示
+## Clone 后必做
 
-- **02**：先看 sidecar / registry / bootstrap / tools 暴露；不展开 `internal/module/{memory,prompt,thread}` 的内部组装链。
-- **07**：先看 `internal/module` 的职责切面、消费面与入口边界；07 已拆成读侧/写侧两份子卷。
-- **10**：先看 store / sql / migrations 的持久化 contract 与实现，回答“是否落库、落到哪里”。
-- **11**：再看 `start / resume / fork` 中 memory / prompt / thread / prompt snapshot / provider bridge 的运行态串联，回答“运行时到底怎么接上”。
+```bash
+make install-hooks
+```
 
-## 目录
+这会把本仓库的 `core.hooksPath` 指到 `.githooks`，让本地 `git commit` / `git push` 自动跑 pre-commit 与 pre-push 检查。紧急绕过只能用 `--no-verify`，且违反常态规约，必须事后补检查。
 
-| # | 文件 | 覆盖区域 |
-|---|------|---------|
-| 01 | [01-terminal-ui.md](01-terminal-ui.md) | 终端入口与UI层 (cmd/agent-terminal + internal/ui) |
-| 02 | [02-mcp-orch.md](02-mcp-orch.md) | 编排侧车、registry 与工具暴露 (cmd/mcp-orch) |
-| 03 | [03-mcp-lsp-ida.md](03-mcp-lsp-ida.md) | LSP/IDA服务器 (cmd/mcp-lsp + cmd/mcp-ida) |
-| 04 | [04-app-contract.md](04-app-contract.md) | App核心与契约层 (internal/app + internal/contract) |
-| 05 | [05-dto.md](05-dto.md) | DTO数据传输对象 (internal/dto) |
-| 06 | [06-mcpserver.md](06-mcpserver.md) | MCP Server框架 (internal/mcpserver) |
-| 07 | [07-module.md](07-module.md) | 业务模块职责、消费面与入口边界（拆卷索引） |
-| 07A | [07-module-read.md](07-module-read.md) | dashboard / lspgui（现状核对）/ skill |
-| 07B | [07-module-write.md](07-module-write.md) | thread / turn / uistate |
-| 08 | [08-platform.md](08-platform.md) | 平台基础设施 (internal/platform) |
-| 09 | [09-provider.md](09-provider.md) | AI Provider集成 (internal/provider) |
-| 10 | [10-store.md](10-store.md) | 数据存储与 SQL 持久化 (internal/store + sql/queries + migrations) |
-| 11 | [11-memory-prompt-thread.md](11-memory-prompt-thread.md) | Memory / Prompt / Thread 启动/恢复语义链路（含 prompt snapshot / provider bridge） |
+## 代码地图
 
-## 生成时间
+完整代码地图见 [`docs/doc/codemap/README.md`](docs/doc/codemap/README.md)。常用入口：
 
-2026-04-20
+- [终端入口与 UI 层](docs/doc/codemap/01-terminal-ui.md)
+- [MCP Orchestration](docs/doc/codemap/02-mcp-orch.md)
+- [App 核心与契约层](docs/doc/codemap/04-app-contract.md)
+- [业务模块层](docs/doc/codemap/07-module.md)
+- [Platform 基础设施层](docs/doc/codemap/08-platform.md)
+- [Provider 集成层](docs/doc/codemap/09-provider.md)
