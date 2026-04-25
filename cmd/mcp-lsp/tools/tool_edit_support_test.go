@@ -1,10 +1,14 @@
 package tools
 
 import (
+	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 )
 
@@ -76,5 +80,95 @@ func TestApplyTextEditsNormalizesInsertedCRLF(t *testing.T) {
 	}
 	if updated != "x\ny\nb\n" {
 		t.Fatalf("updated mismatch: %q", updated)
+	}
+}
+
+func TestReplaceRangeAppliesUnsupportedTextFilesWithoutLSPManager(t *testing.T) {
+	tests := []struct {
+		name    string
+		file    string
+		content string
+		old     string
+		new     string
+		want    string
+	}{
+		{
+			name:    "markdown",
+			file:    "plan.md",
+			content: "# Title\n\nold markdown line\n",
+			old:     "old markdown line",
+			new:     "new markdown line",
+			want:    "# Title\n\nnew markdown line\n",
+		},
+		{
+			name:    "plaintext",
+			file:    "notes.txt",
+			content: "first\nold text\nlast\n",
+			old:     "old text",
+			new:     "new text",
+			want:    "first\nnew text\nlast\n",
+		},
+		{
+			name:    "json",
+			file:    "config.json",
+			content: "{\n  \"mode\": \"old\"\n}\n",
+			old:     "  \"mode\": \"old\"",
+			new:     "  \"mode\": \"new\"",
+			want:    "{\n  \"mode\": \"new\"\n}\n",
+		},
+		{
+			name:    "yaml",
+			file:    "config.yaml",
+			content: "server:\n  port: 8080\nfeatures:\n  dag: false\n",
+			old:     "  dag: false",
+			new:     "  dag: true",
+			want:    "server:\n  port: 8080\nfeatures:\n  dag: true\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), tt.file)
+			if err := os.WriteFile(path, []byte(tt.content), 0o600); err != nil {
+				t.Fatalf("write fixture: %v", err)
+			}
+			handler := NewEditHandler(&structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
+			input, err := json.Marshal(EditRequest{
+				Action:   "replace_range",
+				FilePath: path,
+				Edits: []ReplaceEdit{{
+					OldString: tt.old,
+					NewString: tt.new,
+				}},
+			})
+			if err != nil {
+				t.Fatalf("marshal input: %v", err)
+			}
+
+			got, err := handler(context.Background(), input)
+			if err != nil {
+				t.Fatalf("replace_range returned error: %v", err)
+			}
+			result, ok := got.(replaceRangeResult)
+			if !ok {
+				t.Fatalf("result type = %T, want replaceRangeResult", got)
+			}
+			if !result.Success || !result.Applied || result.Status != "applied" {
+				t.Fatalf("unexpected result: %#v", result)
+			}
+			if result.LSPSync {
+				t.Fatalf("LSPSync = true, want false without LSP manager")
+			}
+			if !strings.Contains(result.Warning, "LSP sync skipped") {
+				t.Fatalf("warning = %q, want LSP sync skipped", result.Warning)
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read updated file: %v", err)
+			}
+			if string(raw) != tt.want {
+				t.Fatalf("updated content mismatch:\nwant %q\ngot  %q", tt.want, string(raw))
+			}
+		})
 	}
 }

@@ -77,7 +77,7 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 	if err != nil {
 		return nil, err
 	}
-	manager, err := h.registry.GetManagerForFile(ctx, path)
+	manager, managerWarning, err := h.replaceRangeManager(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +96,8 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 				Applied:              false,
 				Persisted:            false,
 				RequiresApply:        false,
-				DiagnosticGeneration: manager.CurrentDiagnosticGeneration(),
+				Warning:              managerWarning,
+				DiagnosticGeneration: managerDiagnosticGeneration(manager),
 			},
 		}, nil
 	}
@@ -104,10 +105,14 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 	if err := os.WriteFile(path, []byte(updatedContent), file.mode); err != nil {
 		return h.replaceFailure(ctx, manager, path, content, req.Line, err), nil
 	}
-	lspSync, warning, err := h.syncDocument(ctx, manager, path, updatedContent, normalizeEditVersion(req.Version))
-	if err != nil {
-		_ = os.WriteFile(path, []byte(file.raw), file.mode)
-		return h.replaceFailure(ctx, manager, path, content, plan.functionLookupLine, err), nil
+	lspSync := false
+	warning := managerWarning
+	if manager != nil {
+		lspSync, warning, err = h.syncDocument(ctx, manager, path, updatedContent, normalizeEditVersion(req.Version))
+		if err != nil {
+			_ = os.WriteFile(path, []byte(file.raw), file.mode)
+			return h.replaceFailure(ctx, manager, path, content, plan.functionLookupLine, err), nil
+		}
 	}
 	functionCtx := h.lookupFunctionContext(ctx, manager, path, plan.functionLookupLine, plan.updatedContent)
 	return replaceRangeResult{
@@ -141,6 +146,17 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 	}, nil
 }
 
+func (h EditHandler) replaceRangeManager(ctx context.Context, path string) (lspmanager.Manager, string, error) {
+	manager, err := h.registry.GetManagerForFile(ctx, path)
+	if err == nil {
+		return manager, "", nil
+	}
+	if errors.Is(err, lspmanager.ErrUnsupportedLanguage) {
+		return nil, fmt.Sprintf("LSP sync skipped: %v", err), nil
+	}
+	return nil, "", err
+}
+
 func (h EditHandler) replaceFailure(ctx context.Context, manager lspmanager.Manager, path string, content string, line int, err error) replaceRangeFailure {
 	functionCtx := h.lookupFunctionContext(ctx, manager, path, line, content)
 	return replaceRangeFailure{
@@ -151,7 +167,7 @@ func (h EditHandler) replaceFailure(ctx context.Context, manager lspmanager.Mana
 		FuncStart:            functionCtx.Start,
 		FuncEnd:              functionCtx.End,
 		FuncBody:             functionCtx.Body,
-		DiagnosticGeneration: manager.CurrentDiagnosticGeneration(),
+		DiagnosticGeneration: managerDiagnosticGeneration(manager),
 	}
 }
 
@@ -262,6 +278,9 @@ func withRollbackWarning(err error, rollbackErr error) error {
 }
 
 func (h EditHandler) lookupFunctionContext(ctx context.Context, manager lspmanager.Manager, path string, line int, content string) functionContext {
+	if manager == nil {
+		return functionContext{}
+	}
 	if line <= 0 {
 		return functionContext{}
 	}
@@ -275,6 +294,13 @@ func (h EditHandler) lookupFunctionContext(ctx context.Context, manager lspmanag
 	}
 	body := functionBody(content, start, end)
 	return functionContext{Start: start, End: end, Body: body}
+}
+
+func managerDiagnosticGeneration(manager lspmanager.Manager) uint64 {
+	if manager == nil {
+		return 0
+	}
+	return manager.CurrentDiagnosticGeneration()
 }
 
 func buildReplacePlan(content string, req EditRequest) (replacePlan, error) {
