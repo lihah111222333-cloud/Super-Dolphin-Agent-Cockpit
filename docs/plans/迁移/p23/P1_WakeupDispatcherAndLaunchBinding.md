@@ -12,7 +12,7 @@
 
 - 共享 launcher 入口：`cmd/mcp-orch/tools/orchestration_tools.go:38-57` → `cmd/mcp-orch/orchestration/service.go:299-301` → `cmd/mcp-orch/orchestration/service_launcher_bridge.go:54-64`
 - prompt 自动投递路径：`cmd/mcp-orch/orchestration/service_launcher_bridge.go:89-119`（已确认 first-turn 路径存在）
-- launcher 并发上限：`cmd/mcp-orch/orchestration/service_launcher_bridge.go:22-30`（`maxConcurrentLaunches=10`）
+- launcher：`cmd/mcp-orch/orchestration/service_launcher_bridge.go` 当前无固定并发上限
 - wakeup 表 SQL：`migrations/0023_dag_watcher_phase1.sql:9-30`、`cmd/mcp-orch/sql/queries/task_dag_wakeup_query.sql`
 - node→agent 绑定 SQL：`task_dag_node_runtime.sql:1-11`（绑定 turn 需 running + wakeup fence）
 
@@ -38,7 +38,7 @@ Dispatcher 只接管 P0 watcher claim 后的 launch/bind 半程，采用 durable
 - `dagDispatcherActor.Run(ctx)` 主循环：`ClaimDueWakeups` → 持久化 `launch_intent`（deterministic idempotency key）→ 调 launcher 或 submit turn（幂等返回 `{agent_id, thread_id, turn_id, accepted_at}` 或 deterministic `ExpectedTurnID`）→ `BindRunningNodeTurn` CAS → `MarkWakeupSent/acked`
 - 新增 `nodes[].launch` schema → launcher 调用：把 launch spec 映射到 `LaunchAgent` request
 - `assigned_agent_id/active_turn_id` 不能假装在 launcher 前已知；P1 采用三阶段可恢复协议：`launch_intent` 持久化 + deterministic idempotency key → 外部 launcher 幂等调用 → `BindRunningNodeTurn` CAS 写入 `assigned_agent_id/active_turn_id`（除非 `relaunch_on_retry=true`，否则不可覆盖）
-- launcher 并发上限提取成 config 参数（P23 阶段 0 ⑤）
+- launcher 如需容量治理，应走后续显式 quota 设计，不能恢复硬编码并发上限
 
 ## DDL / SQL
 

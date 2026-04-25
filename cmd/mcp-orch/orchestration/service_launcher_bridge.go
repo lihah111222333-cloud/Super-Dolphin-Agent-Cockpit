@@ -26,23 +26,9 @@ type launchedAgent struct {
 }
 
 const (
-	maxLaunchRetries      = 3
-	launchRetryBase       = 2 * time.Second
-	maxConcurrentLaunches = 10
+	maxLaunchRetries = 3
+	launchRetryBase  = 2 * time.Second
 )
-
-// launchSemaphore limits the number of concurrent agent launches to avoid
-// overwhelming the shared codex app-server with too many thread/start RPCs.
-var launchSemaphore = make(chan struct{}, maxConcurrentLaunches)
-
-func acquireLaunchSlot(ctx context.Context) error {
-	select {
-	case launchSemaphore <- struct{}{}:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
 
 func waitRetryBackoff(ctx context.Context, attempt int, agentID string, prevErr error) error {
 	delay := time.Duration(attempt) * launchRetryBase
@@ -79,10 +65,6 @@ func (s *service) LaunchAgentSnapshot(ctx context.Context, req LaunchRequest) (A
 }
 
 func (s *service) launchAgentUntilStarted(ctx context.Context, req LaunchRequest) (launchedAgent, error) {
-	if err := acquireLaunchSlot(ctx); err != nil {
-		return launchedAgent{}, err
-	}
-	defer func() { <-launchSemaphore }()
 	attempt, handled, err := s.prepareLauncherLaunch(ctx, req)
 	if handled || err != nil {
 		return launchedAgent{}, err

@@ -30,13 +30,8 @@ type SpawnedServer interface {
 type Spawner func(ctx context.Context, home string) (SpawnedServer, error)
 
 // PoolConfig sets the ServerPool's runtime knobs. Zero fields fall
-// back to plan-documented defaults.
+// back to defaults.
 type PoolConfig struct {
-	// Capacity caps the number of simultaneously live servers. A Get
-	// that would exceed the cap evicts the least-recently-used idle
-	// entry; if nothing is evictable it returns ErrPoolExhausted so
-	// callers surface the pressure instead of silently queueing.
-	Capacity int
 	// IdleTimeout is the duration after which an unused non-session entry
 	// becomes eligible for eviction. Session-owned servers are closed as soon
 	// as their last release runs so archived agents reclaim app-server, MCP,
@@ -49,10 +44,9 @@ type PoolConfig struct {
 	SpawnBackoff time.Duration
 }
 
-// Plan-documented defaults. Exposed so tests / callers can reference
-// them without hand-coding magic numbers.
+// Defaults exposed so tests / callers can reference them without
+// hand-coding magic numbers.
 const (
-	DefaultPoolCapacity     = 16
 	DefaultPoolIdleTimeout  = 30 * time.Minute
 	DefaultPoolSpawnBackoff = 2 * time.Minute
 )
@@ -60,7 +54,6 @@ const (
 // Sentinel errors for pool failure modes. Callers branch on these for
 // retry / failover decisions.
 var (
-	ErrPoolExhausted   = errors.New("codexapp: server pool capacity exhausted")
 	ErrSpawnBackoff    = errors.New("codexapp: spawn backoff active for codexHome")
 	ErrPoolClosed      = errors.New("codexapp: server pool is closed")
 	ErrInvalidIdentity = errors.New("codexapp: invalid codex identity")
@@ -73,11 +66,8 @@ var (
 // Semantics:
 //   - Get resolves the identity (canonicalizes codexHome), returns
 //     the existing entry when present and alive, otherwise spawns a
-//     fresh one. Capacity pressure evicts the least-recently-used
-//     idle entry; if every entry is still in use the call returns
-//     ErrPoolExhausted. Clients should treat that as a fail-fast
-//     rather than block, because unbounded queueing hides real
-//     capacity mismatches.
+//     fresh one. The pool does not cap the number of simultaneously
+//     live servers.
 //   - Release decrements the entry refCount. When the owning session releases
 //     a server, the entry is removed and the owned process group is closed;
 //     Codex MCP/LSP sidecars inherit that group and are reclaimed with the
@@ -125,9 +115,6 @@ func NewServerPool(logger *slog.Logger, spawner Spawner, cfg PoolConfig) *Server
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
-	if cfg.Capacity <= 0 {
-		cfg.Capacity = DefaultPoolCapacity
-	}
 	if cfg.IdleTimeout <= 0 {
 		cfg.IdleTimeout = DefaultPoolIdleTimeout
 	}
@@ -146,8 +133,8 @@ func NewServerPool(logger *slog.Logger, spawner Spawner, cfg PoolConfig) *Server
 // Acquire returns the SpawnedServer bound to the identity, spawning a
 // new one if necessary. The returned release function MUST be called
 // exactly once when the caller is done with the server — it updates
-// the entry's refCount + lastUsed so LRU eviction sees accurate
-// utilisation.
+// the entry's refCount + lastUsed so idle eviction sees accurate
+// utilization.
 //
 // A nil server + non-nil error is always returned together; the
 // release callback is a safe no-op in that case.
@@ -167,15 +154,8 @@ func (p *ServerPool) Acquire(ctx context.Context, identity providershared.CodexI
 		p.mu.Unlock()
 		return fastPath.server, fastPath.release, fastPath.err
 	}
-	// Respect spawn backoff before we try to expand capacity.
+	// Respect spawn backoff before spawning.
 	if err := p.checkBackoffLocked(fastPath.entry, fastPath.now); err != nil {
-		p.mu.Unlock()
-		return nil, noopRelease, err
-	}
-	// Capacity pressure: try to evict the LRU idle entry. If no entry
-	// is evictable (everything is refcounted), surface
-	// ErrPoolExhausted so the caller fails fast.
-	if err := p.ensureCapacityLocked(fastPath.entry, fastPath.now); err != nil {
 		p.mu.Unlock()
 		return nil, noopRelease, err
 	}
@@ -245,16 +225,6 @@ func (p *ServerPool) checkBackoffLocked(entry *poolEntry, now time.Time) error {
 	return fmt.Errorf("%w: %v", ErrSpawnBackoff, entry.spawnErr)
 }
 
-func (p *ServerPool) ensureCapacityLocked(entry *poolEntry, now time.Time) error {
-	if entry != nil || len(p.entries) < p.cfg.Capacity {
-		return nil
-	}
-	if p.evictLRULocked(now) {
-		return nil
-	}
-	return ErrPoolExhausted
-}
-
 func (p *ServerPool) recordSpawnErrorLocked(entry *poolEntry, entryKey poolEntryKey, err error, now time.Time) {
 	// Record the failure for backoff. Preserve the existing
 	// entry slot if one exists so backoff state persists.
@@ -317,43 +287,6 @@ func (p *ServerPool) releaser(entryKey poolEntryKey) func() {
 			closeWithTimeout(server, 2*time.Second, p.logger, entryKey)
 		}
 	}
-}
-
-// evictLRULocked selects the oldest idle entry (refCount == 0) and
-// closes it. Returns true when an entry was evicted, false when every
-// entry is in use.
-//
-// MUST be called with p.mu held. Close is invoked with a short
-// background context because the pool lock is held; a blocking Close
-// would stall every other Acquire. Production SpawnedServer.Close
-// implementations must respect that deadline.
-func (p *ServerPool) evictLRULocked(now time.Time) bool {
-	var oldestKey poolEntryKey
-	var oldestTime time.Time
-	for key, entry := range p.entries {
-		if entry.refCount > 0 {
-			continue
-		}
-		if oldestKey == (poolEntryKey{}) || entry.lastUsed.Before(oldestTime) {
-			oldestKey = key
-			oldestTime = entry.lastUsed
-		}
-	}
-	if oldestKey == (poolEntryKey{}) {
-		return false
-	}
-	entry := p.entries[oldestKey]
-	delete(p.entries, oldestKey)
-	if entry.server != nil {
-		go closeWithTimeout(entry.server, 2*time.Second, p.logger, oldestKey)
-	}
-	p.logger.Debug("codexapp: pool evicted entry",
-		slog.String("codex_home", oldestKey.home),
-		slog.String("owner", oldestKey.ownerKey),
-		slog.Time("last_used", oldestTime),
-	)
-	_ = now // reserved for future idle-gc metrics
-	return true
 }
 
 // EvictIdle closes every entry whose lastUsed is older than

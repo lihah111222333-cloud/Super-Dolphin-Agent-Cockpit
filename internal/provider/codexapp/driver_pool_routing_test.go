@@ -47,7 +47,7 @@ func TestPoolRoutingEnabledByDefault(t *testing.T) {
 		spawnCalls.Add(1)
 		return newFakeServer("ws://127.0.0.1:9999"), nil
 	}
-	pool := NewServerPool(slog.Default(), spawner, PoolConfig{Capacity: 2})
+	pool := NewServerPool(slog.Default(), spawner, PoolConfig{})
 	defer pool.Close(context.Background())
 	d := newRoutingDriver(t, pool)
 
@@ -76,7 +76,7 @@ func TestPoolRoutingExplicitlyDisabledUsesLegacyPath(t *testing.T) {
 	spawner := func(context.Context, string) (SpawnedServer, error) {
 		return newFakeServer("ws://should-not-be-called"), nil
 	}
-	pool := NewServerPool(slog.Default(), spawner, PoolConfig{Capacity: 2})
+	pool := NewServerPool(slog.Default(), spawner, PoolConfig{})
 	defer pool.Close(context.Background())
 	d := newRoutingDriver(t, pool)
 
@@ -102,7 +102,7 @@ func TestResolveSessionOptionsFailsClosedOnIdentityError(t *testing.T) {
 		spawnCalls.Add(1)
 		return newFakeServer("ws://unused"), nil
 	}
-	pool := NewServerPool(slog.Default(), spawner, PoolConfig{Capacity: 2})
+	pool := NewServerPool(slog.Default(), spawner, PoolConfig{})
 	defer pool.Close(context.Background())
 	d := newRoutingDriver(t, pool)
 
@@ -128,7 +128,7 @@ func TestPoolRoutingSuccessPath(t *testing.T) {
 	spawner := func(context.Context, string) (SpawnedServer, error) {
 		return fake, nil
 	}
-	pool := NewServerPool(slog.Default(), spawner, PoolConfig{Capacity: 2})
+	pool := NewServerPool(slog.Default(), spawner, PoolConfig{})
 	defer pool.Close(context.Background())
 	d := newRoutingDriver(t, pool)
 
@@ -157,15 +157,14 @@ func TestPoolRoutingSuccessPath(t *testing.T) {
 	}
 }
 
-// TestPoolRoutingSurfacesPoolError asserts ErrPoolExhausted etc. are
-// not swallowed: backpressure must reach StartSession so retry /
-// observability sees it.
+// TestPoolRoutingSurfacesPoolError asserts pool acquire errors are
+// not swallowed: retry / observability must see them.
 func TestPoolRoutingSurfacesPoolError(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
 	spawner := func(context.Context, string) (SpawnedServer, error) {
 		return nil, errors.New("spawn blew up")
 	}
-	pool := NewServerPool(slog.Default(), spawner, PoolConfig{Capacity: 1, SpawnBackoff: 1})
+	pool := NewServerPool(slog.Default(), spawner, PoolConfig{SpawnBackoff: 1})
 	defer pool.Close(context.Background())
 	d := newRoutingDriver(t, pool)
 
@@ -183,7 +182,7 @@ func TestPoolRoutingInvalidConfigTypeFailsClosed(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
 	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
 		return newFakeServer("ws://unused"), nil
-	}, PoolConfig{Capacity: 1})
+	}, PoolConfig{})
 	defer pool.Close(context.Background())
 	d := newRoutingDriver(t, pool)
 
@@ -259,7 +258,7 @@ func TestPoolRoutingAgentIDBlankFailsClosed(t *testing.T) {
 	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
 		spawnCalls.Add(1)
 		return newFakeServer("ws://127.0.0.1:1234"), nil
-	}, PoolConfig{Capacity: 1})
+	}, PoolConfig{})
 	defer pool.Close(context.Background())
 	d := newRoutingDriver(t, pool)
 
@@ -290,7 +289,7 @@ func TestResumeSessionUsesPoolWhenBindingHasIdentity(t *testing.T) {
 	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
 		spawnCalls.Add(1)
 		return newFakeServer("ws://127.0.0.1:4321"), nil
-	}, PoolConfig{Capacity: 1})
+	}, PoolConfig{})
 	defer pool.Close(context.Background())
 	d := newRoutingDriver(t, pool)
 
@@ -323,7 +322,7 @@ func TestResumeSessionFailsClosedWhenPoolEnabledAndIdentityMissing(t *testing.T)
 	pool := NewServerPool(slog.Default(), func(context.Context, string) (SpawnedServer, error) {
 		spawnCalls.Add(1)
 		return newFakeServer("ws://unused"), nil
-	}, PoolConfig{Capacity: 1})
+	}, PoolConfig{})
 	defer pool.Close(context.Background())
 	d := newRoutingDriver(t, pool)
 

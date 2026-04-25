@@ -59,7 +59,7 @@ func identityFor(t *testing.T, key string) providershared.CodexIdentity {
 }
 
 // newPoolForTest returns a pool whose clock is pinned so tests can
-// assert LRU + backoff semantics without sleeping.
+// assert idle eviction + backoff semantics without sleeping.
 func newPoolForTest(t *testing.T, spawner Spawner, cfg PoolConfig) (*ServerPool, *time.Time) {
 	t.Helper()
 	p := NewServerPool(slog.Default(), spawner, cfg)
@@ -88,15 +88,6 @@ func entryForKey(t *testing.T, p *ServerPool, key poolEntryKey) *poolEntry {
 	return entry
 }
 
-func waitForClose(t *testing.T, closed <-chan struct{}) {
-	t.Helper()
-	select {
-	case <-closed:
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for async close")
-	}
-}
-
 func waitForFakeClosed(t *testing.T, server *fakeServer) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -116,7 +107,7 @@ func TestServerPoolAcquireHappyPathSpawnAndRelease(t *testing.T) {
 		spawnCalls.Add(1)
 		return newFakeServer("ws://" + filepath.Base(home)), nil
 	}
-	p, _ := newPoolForTest(t, spawner, PoolConfig{Capacity: 4})
+	p, _ := newPoolForTest(t, spawner, PoolConfig{})
 	defer p.Close(context.Background())
 
 	id := identityFor(t, "glm")
@@ -156,7 +147,7 @@ func TestServerPoolAcquireAliveCacheHitReusesServer(t *testing.T) {
 		spawnCalls.Add(1)
 		return newFakeServer("ws://" + filepath.Base(home)), nil
 	}
-	p, _ := newPoolForTest(t, spawner, PoolConfig{Capacity: 4})
+	p, _ := newPoolForTest(t, spawner, PoolConfig{})
 	defer p.Close(context.Background())
 
 	id := identityFor(t, "glm")
@@ -185,7 +176,7 @@ func TestServerPoolAcquireSameIdentityDifferentOwnersIsolated(t *testing.T) {
 		spawnCalls.Add(1)
 		return newFakeServer("ws://" + filepath.Base(home)), nil
 	}
-	p, _ := newPoolForTest(t, spawner, PoolConfig{Capacity: 4})
+	p, _ := newPoolForTest(t, spawner, PoolConfig{})
 	defer p.Close(context.Background())
 
 	id := identityFor(t, "glm")
@@ -220,7 +211,7 @@ func TestServerPoolAcquireSameHomeKeyDifferentModelProviderIsolated(t *testing.T
 		spawnCalls.Add(1)
 		return newFakeServer("ws://" + filepath.Base(home)), nil
 	}
-	p, _ := newPoolForTest(t, spawner, PoolConfig{Capacity: 4})
+	p, _ := newPoolForTest(t, spawner, PoolConfig{})
 	defer p.Close(context.Background())
 
 	id := identityFor(t, "glm")
@@ -261,7 +252,7 @@ func TestServerPoolAcquireDeadCacheRespawnsServer(t *testing.T) {
 		current = newFakeServer("ws://" + filepath.Base(home))
 		return current, nil
 	}
-	p, _ := newPoolForTest(t, spawner, PoolConfig{Capacity: 4})
+	p, _ := newPoolForTest(t, spawner, PoolConfig{})
 	defer p.Close(context.Background())
 
 	id := identityFor(t, "glm")
@@ -289,7 +280,7 @@ func TestServerPoolAcquireClosedPoolReturnsNoopRelease(t *testing.T) {
 	t.Parallel()
 	p, _ := newPoolForTest(t, func(_ context.Context, home string) (SpawnedServer, error) {
 		return newFakeServer("ws://" + filepath.Base(home)), nil
-	}, PoolConfig{Capacity: 4})
+	}, PoolConfig{})
 
 	if err := p.Close(context.Background()); err != nil {
 		t.Fatalf("Close: %v", err)
@@ -307,7 +298,7 @@ func TestServerPoolAcquireClosedPoolReturnsNoopRelease(t *testing.T) {
 
 func TestServerPoolAcquireNilSpawnerReturnsInvalidIdentity(t *testing.T) {
 	t.Parallel()
-	p, _ := newPoolForTest(t, nil, PoolConfig{Capacity: 4})
+	p, _ := newPoolForTest(t, nil, PoolConfig{})
 
 	server, release, err := p.Acquire(context.Background(), identityFor(t, "glm"), "agent-1")
 	if !errors.Is(err, ErrInvalidIdentity) {
@@ -329,7 +320,7 @@ func TestServerPoolAcquireNormalizeIdentityError(t *testing.T) {
 		spawnCalls.Add(1)
 		return newFakeServer("ws://unexpected"), nil
 	}
-	p, _ := newPoolForTest(t, spawner, PoolConfig{Capacity: 4})
+	p, _ := newPoolForTest(t, spawner, PoolConfig{})
 	defer p.Close(context.Background())
 
 	id := providershared.CodexIdentity{
@@ -354,26 +345,14 @@ func TestServerPoolAcquireNormalizeIdentityError(t *testing.T) {
 	release()
 }
 
-func TestServerPoolAcquireCapacityFullEvictsLRU(t *testing.T) {
+func TestServerPoolAcquireDoesNotApplyCapacityLimit(t *testing.T) {
 	t.Parallel()
 	spawnCalls := atomic.Int32{}
-	firstClosed := make(chan struct{})
-	firstCloseOnce := atomic.Bool{}
-	var firstServer SpawnedServer
 	spawner := func(_ context.Context, home string) (SpawnedServer, error) {
-		call := spawnCalls.Add(1)
-		server := newFakeServer("ws://" + filepath.Base(home))
-		if call == 1 {
-			server.closeHook = func() {
-				if firstCloseOnce.CompareAndSwap(false, true) {
-					close(firstClosed)
-				}
-			}
-			firstServer = server
-		}
-		return server, nil
+		spawnCalls.Add(1)
+		return newFakeServer("ws://" + filepath.Base(home)), nil
 	}
-	p, _ := newPoolForTest(t, spawner, PoolConfig{Capacity: 1})
+	p, _ := newPoolForTest(t, spawner, PoolConfig{})
 	defer p.Close(context.Background())
 
 	id1 := identityFor(t, "glm")
@@ -382,7 +361,6 @@ func TestServerPoolAcquireCapacityFullEvictsLRU(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Acquire: %v", err)
 	}
-	rel1()
 
 	srv2, rel2, err := p.Acquire(context.Background(), id2, "agent-2")
 	if err != nil {
@@ -390,29 +368,26 @@ func TestServerPoolAcquireCapacityFullEvictsLRU(t *testing.T) {
 	}
 	defer rel2()
 	if srv2 == nil {
-		t.Fatal("eviction path returned nil server")
+		t.Fatal("second Acquire returned nil server")
 	}
 	if srv1 == srv2 {
-		t.Fatal("eviction path should spawn a different server")
+		t.Fatal("separate identities should spawn different servers")
 	}
 	if spawnCalls.Load() != 2 {
 		t.Fatalf("spawn calls = %d, want 2", spawnCalls.Load())
 	}
-	if p.Size() != 1 {
-		t.Fatalf("pool size = %d, want 1", p.Size())
+	if p.Size() != 2 {
+		t.Fatalf("pool size = %d, want 2 busy entries", p.Size())
 	}
-	waitForClose(t, firstClosed)
-	if firstServer == nil {
-		t.Fatal("first server was never created")
-	}
+	rel1()
 }
 
-func TestServerPoolAcquireCapacityFullAllBusyReturnsErrPoolExhausted(t *testing.T) {
+func TestServerPoolAcquireAllowsMultipleBusyEntries(t *testing.T) {
 	t.Parallel()
 	spawner := func(_ context.Context, home string) (SpawnedServer, error) {
 		return newFakeServer("ws://" + filepath.Base(home)), nil
 	}
-	p, _ := newPoolForTest(t, spawner, PoolConfig{Capacity: 1})
+	p, _ := newPoolForTest(t, spawner, PoolConfig{})
 	defer p.Close(context.Background())
 
 	_, rel1, err := p.Acquire(context.Background(), identityFor(t, "glm"), "agent-1")
@@ -420,11 +395,14 @@ func TestServerPoolAcquireCapacityFullAllBusyReturnsErrPoolExhausted(t *testing.
 		t.Fatalf("first Acquire: %v", err)
 	}
 	server, rel2, err := p.Acquire(context.Background(), identityFor(t, "qwen"), "agent-2")
-	if !errors.Is(err, ErrPoolExhausted) {
-		t.Fatalf("want ErrPoolExhausted, got %v", err)
+	if err != nil {
+		t.Fatalf("second Acquire: %v", err)
 	}
-	if server != nil {
-		t.Fatalf("ErrPoolExhausted returned non-nil server: %#v", server)
+	if server == nil {
+		t.Fatal("second Acquire returned nil server")
+	}
+	if p.Size() != 2 {
+		t.Fatalf("pool size = %d, want 2", p.Size())
 	}
 	rel2()
 	rel1()
@@ -435,7 +413,7 @@ func TestServerPoolAcquireSpawnErrorCreatesBackoffSlot(t *testing.T) {
 	spawnErr := errors.New("port taken")
 	p, nowRef := newPoolForTest(t, func(_ context.Context, _ string) (SpawnedServer, error) {
 		return nil, spawnErr
-	}, PoolConfig{Capacity: 4, SpawnBackoff: time.Minute})
+	}, PoolConfig{SpawnBackoff: time.Minute})
 	defer p.Close(context.Background())
 
 	id := identityFor(t, "glm")
@@ -470,7 +448,7 @@ func TestServerPoolAcquireSpawnErrorPreservesExistingSlot(t *testing.T) {
 	p, nowRef := newPoolForTest(t, func(_ context.Context, _ string) (SpawnedServer, error) {
 		spawnCalls.Add(1)
 		return nil, spawnErr
-	}, PoolConfig{Capacity: 4, SpawnBackoff: time.Minute})
+	}, PoolConfig{SpawnBackoff: time.Minute})
 	defer p.Close(context.Background())
 
 	id := identityFor(t, "glm")
@@ -501,7 +479,7 @@ func TestServerPoolAcquireBackoffActiveReturnsWrappedError(t *testing.T) {
 	p, _ := newPoolForTest(t, func(_ context.Context, _ string) (SpawnedServer, error) {
 		spawnCalls.Add(1)
 		return nil, spawnErr
-	}, PoolConfig{Capacity: 4, SpawnBackoff: time.Minute})
+	}, PoolConfig{SpawnBackoff: time.Minute})
 	defer p.Close(context.Background())
 
 	id := identityFor(t, "glm")
@@ -536,7 +514,7 @@ func TestServerPoolAcquireBackoffExpiredRetriesSpawn(t *testing.T) {
 		}
 		recovered = newFakeServer("ws://" + filepath.Base(home))
 		return recovered, nil
-	}, PoolConfig{Capacity: 4, SpawnBackoff: time.Minute})
+	}, PoolConfig{SpawnBackoff: time.Minute})
 	defer p.Close(context.Background())
 
 	id := identityFor(t, "glm")
@@ -571,7 +549,7 @@ func TestServerPoolEvictIdleRemovesStaleEntries(t *testing.T) {
 	spawnErr := errors.New("port taken")
 	p, nowRef := newPoolForTest(t, func(context.Context, string) (SpawnedServer, error) {
 		return nil, spawnErr
-	}, PoolConfig{Capacity: 4, IdleTimeout: 10 * time.Minute, SpawnBackoff: time.Hour})
+	}, PoolConfig{IdleTimeout: 10 * time.Minute, SpawnBackoff: time.Hour})
 	defer p.Close(context.Background())
 
 	_, _, err := p.Acquire(context.Background(), identityFor(t, "glm"), "agent-1")
@@ -598,7 +576,7 @@ func TestServerPoolCloseTearsEverythingDown(t *testing.T) {
 		created = append(created, server)
 		return server, nil
 	}
-	p, _ := newPoolForTest(t, spawner, PoolConfig{Capacity: 4})
+	p, _ := newPoolForTest(t, spawner, PoolConfig{})
 
 	_, _, _ = p.Acquire(context.Background(), identityFor(t, "glm"), "agent-1")
 	_, _, _ = p.Acquire(context.Background(), identityFor(t, "qwen"), "agent-2")
@@ -636,7 +614,7 @@ func TestServerPoolAcquireSameHomeDifferentInstanceKeyIsolated(t *testing.T) {
 	p, _ := newPoolForTest(t, func(_ context.Context, home string) (SpawnedServer, error) {
 		spawnCalls.Add(1)
 		return newFakeServer("ws://" + filepath.Base(home)), nil
-	}, PoolConfig{Capacity: 2})
+	}, PoolConfig{})
 	defer p.Close(context.Background())
 
 	id := identityFor(t, "glm")
@@ -671,7 +649,7 @@ func TestServerPoolSpawnerRunsOutsideMutex(t *testing.T) {
 		_ = p.Size()
 		return newFakeServer("ws://" + filepath.Base(home)), nil
 	}
-	p, _ = newPoolForTest(t, spawner, PoolConfig{Capacity: 1})
+	p, _ = newPoolForTest(t, spawner, PoolConfig{})
 	defer p.Close(context.Background())
 
 	done := make(chan error, 1)

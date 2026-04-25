@@ -19,7 +19,7 @@
 |---|---|---|
 | 实例键解析 | `internal/provider/shared/config_helpers.go` | 新增 `ResolveCodexIdentity(config map[string]any) (..., error)`，严格解析 `codexHome/codexInstanceKey/codexModelProvider`，并返回对应 sentinel error |
 | 启动载荷透传 | `internal/module/thread/start_session_helpers.go` | 继续复用 `ModelProvider + Config` 链路，但实例选择只能从 `req.Config` 的专用 key 读取，不新增 router 字段 |
-| app-server 池化 | `internal/provider/codexapp/{module.go,server_pool.go [NEW]}` | 将单例 `ServerManager` 改为按 canonicalized `codexHome` 管理的池；pool 必须显式带 **容量上限 `CODEXAPP_POOL_MAX`（默认 16）**、**空闲 LRU shutdown（默认 30 min）**、**spawn 失败指数退避（base 5s / cap 2m）**；超上限返回 `ErrPoolExhausted`，不得无界扩张 |
+| app-server 池化 | `internal/provider/codexapp/{module.go,server_pool.go [NEW]}` | 将单例 `ServerManager` 改为按 canonicalized `codexHome` 管理的池；pool 不设置容量上限，只保留 **空闲 shutdown（默认 30 min）**、**spawn 失败指数退避（base 5s / cap 2m）** |
 | 会话建连 | `internal/provider/codexapp/{driver.go,session.go}` | `StartSession/ResumeSession` 按 identity 取对应 server URL；不要在 `newDriver()` 冻结单个 `serverURL` |
 | 环境注入 | `internal/provider/codexapp/transport_process.go` | `spawnLocal()` 走 **allowlist-style env**：先把继承环境裁剪到 `PATH/HOME/USER/LANG/LC_*/TZ/SSL_CERT_*/TMPDIR` 等白名单，再**显式**追加 `CODEX_HOME=<canonicalized path>`；禁止 `append(os.Environ(), ...)` 直通宿主，避免宿主 `CODEX_*` 变量串到 child |
 | Rollout 历史 | `internal/provider/codexapp/history_rollout.go`、`session.RolloutPath()`、`internal/platform/historyjsonl/*` | rollout 搜索目录必须从选中的 `codexHome` 反推，不能再写死 legacy home |
@@ -50,9 +50,9 @@ func (p *ServerPool) get(ctx context.Context, config map[string]any) (*ServerMan
         return nil, err
     }
     // ident.Home 已 canonicalized；不存在必须 ErrCodexHomeNotFound
-    mgr, err := p.ensureWithinCapacity(ident) // 含 pool 上限 + LRU idle shutdown + spawn backoff
+    mgr, err := p.getOrSpawn(ident) // 含 idle shutdown + spawn backoff
     if err != nil {
-        return nil, err // 可能为 ErrPoolExhausted / ErrSpawnBackoff
+        return nil, err // 可能为 ErrSpawnBackoff
     }
     return mgr.startWithHome(ctx, ident.Home)
 }
@@ -87,5 +87,5 @@ func (m *ServerManager) spawnLocal(ctx context.Context, home string) (*exec.Cmd,
 - `approvalPolicy=never` 必须验证只对白名单 provider / sandbox / tool 组合放行；不能被误解为所有审批都自动通过。
 - binding immutable trigger：验证对 `codex_home / codex_instance_key / codex_model_provider` 任一列做 UPDATE 必被 trigger 拒绝；旧字段（agent_id / provider / provider_thread_id）行为不回退。
 - `codexHome` 目录不存在：验证启动期 / resolve 期都返回 `ErrCodexHomeNotFound`，**不**自动 mkdir，也**不** fallback 到默认 home。
-- ServerPool 生命周期：验证 `CODEXAPP_POOL_MAX` 超限返回 `ErrPoolExhausted`；空闲 manager 在 idle 超时后被回收；spawn 失败命中指数退避，短时间内重复 get 不会连打底层进程。
+- ServerPool 生命周期：验证无容量上限；空闲 manager 在 idle 超时后被回收；spawn 失败命中指数退避，短时间内重复 get 不会连打底层进程。
 - allowlist env：验证 `cmd.Env` 不含宿主 `CODEX_XXX` / `PATH` 以外未声明变量；`CODEX_HOME` 必定由 pool 注入为 canonicalized realpath。

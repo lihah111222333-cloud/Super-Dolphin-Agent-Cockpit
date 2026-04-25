@@ -111,7 +111,7 @@ DAG 模块当前是「只存不跑」：
    - hook consumer（`cmd/mcp-orch/orchestration/hook_consumer.go:96-220`）的 P2 reconcile tap 必须是 **enqueue-only**：不允许在 callback 内做长跑、重 DB 查询、派生 launch；只允许投一条 enqueue 给 actor。这是 P8 verifier gate 的硬前置（verifier 拉起必须独立 actor，不在 callback 内）。
    - **P13 schema validate 例外（2026-04-25 交叉验证裁决）**：hook tap 只允许 bounded parse / payload size cap / enqueue；完整 JSON schema validate 必须在 `outputValidationActor` worker 中执行，并且在写 terminal status、进入 P8 verify 前完成。archtest `dag_hook_tap_enqueue_only` 只对白名单轻量 parse + enqueue 放行，禁止网络 / LLM / 重 DB 查询 / 全量 schema validate。
    - P23 冻结的 state machine `pending → running → done | failed | observe_lost` 描述为「**执行子状态机**」（execution sub-state machine）：上层 P8 会在 `running` 与 `done` 之间插入 `awaiting_verify / verifying / repairing` 等业务子状态，但**不**破坏 P23 的 SQL CAS 形状——子状态走独立列 `verify_phase`（P8 加），不和 `status` 共枚举，CAS `WHERE current_status = $expected` 仍然成立。P8 会扩 `status` CHECK 约束加入 `verdict_lost` 第三类终态（类比 `observe_lost`），仍属合规扩展，不算破坏 CAS 形状。
-   - launcher 并发上限 `maxConcurrentLaunches=10`（`cmd/mcp-orch/orchestration/service_launcher_bridge.go:22-30`）必须**配置化**（提取成 `cmd/mcp-orch` config 参数），P23 不改默认值；P9 升级为全局 token bucket 时不需要再做一次代码迁移。
+   - launcher 当前无固定并发上限（`cmd/mcp-orch/orchestration/service_launcher_bridge.go`）；后续若引入容量治理，必须走显式 quota / token bucket 设计，不能恢复硬编码上限。
    - launcher 全局 quota 的占用方在 P8 引入 verifier 后必须包含 verifier launch；不允许 verifier 走独立 quota 通道（防止 P9 规模下 launcher 双队列雪崩）。
 
 ## 实施路线图
@@ -343,7 +343,7 @@ P12 ─► P13 financial swarm preset  # 仅金融 unanimous swarm preset hard d
 
 - 批量 create：`task_create_dag` 在 N>50 时拆批 / async / streaming（避免单事务 1000 次 UpsertNode）
 - ready 索引：`task_dag_nodes` 使用 P0 前移的 `remaining_deps` 或等价依赖计数，并在 P9 加 `WHERE status='pending'` partial index（避免每次扫 JSONB `depends_on`）
-- launcher 全局 token bucket：替换固定 `maxConcurrentLaunches=10`，按 `min(DAG max_concurrency, 全局 quota, provider quota)` 取下界；verifier launch 共用同一 quota，**不**另起通道
+- launcher 全局 token bucket：当前无固定并发上限；若未来需要 quota，按 `min(DAG max_concurrency, 全局 quota, provider quota)` 取下界；verifier launch 共用同一 quota，**不**另起通道
 - hook consumer worker pool：bounded queue + drop / lag 指标，core hook 线程只 enqueue
 - wakeup / lease / archive：DAG 终态后按 TTL 归档；node `result` 字段只存摘要，详细日志 spillover 外部 storage
 - 容量模型 + SLO 指标：`dag_node_per_second` / `dag_launcher_queue_lag_seconds` / `dag_hook_consumer_lag_seconds` / `dag_wakeup_age_seconds`（p99 由查询计算）

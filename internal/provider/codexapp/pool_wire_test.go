@@ -86,7 +86,6 @@ func TestPoolEvictRunnerTicks(t *testing.T) {
 		return nil, spawnErr
 	}
 	pool, clock := newPoolForTest(t, spawner, PoolConfig{
-		Capacity:     4,
 		IdleTimeout:  time.Millisecond,
 		SpawnBackoff: time.Second,
 	})

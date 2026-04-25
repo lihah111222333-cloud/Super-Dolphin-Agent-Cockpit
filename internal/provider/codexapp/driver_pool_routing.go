@@ -35,8 +35,8 @@ const poolRoutingEnvVar = "CODEXAPP_USE_POOL"
 //     persisted bindings resumable while new starts carry explicit identity.
 //  5. Valid identity + available pool -> Acquire a SpawnedServer and
 //     attach its URL + release to the session via withPoolServer.
-//     ErrPoolExhausted / ErrSpawnBackoff are surfaced to the caller
-//     so backpressure is visible at the StartSession seam.
+//     ErrSpawnBackoff is surfaced to the caller so retry pressure is
+//     visible at the StartSession seam.
 func (d *driver) resolveSessionOptions(ctx context.Context, req dto.StartSessionRequest) ([]sessionOption, error) {
 	if d == nil || d.pool == nil {
 		return []sessionOption(nil), nil
