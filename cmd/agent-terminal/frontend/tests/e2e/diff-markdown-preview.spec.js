@@ -60,8 +60,8 @@ test('diff markdown preview repairs desktop bridge mojibake', async ({ page }) =
   await fileRef.click();
 
   const diffPanel = page.locator('#diff-panel');
-  const previewCard = diffPanel.locator('.diff-media-card .chat-item-markdown.agent-markdown-root');
-  await expect(diffPanel).toContainText('文档预览');
+  const previewCard = diffPanel.locator('.diff-media-card.chat-item-markdown');
+  await expect(diffPanel).toContainText('Markdown 预览');
   await expect(previewCard).toContainText('标题');
   await expect(previewCard).toContainText('桌面端中文预览正常。');
   await expect(previewCard).toContainText('第一项');

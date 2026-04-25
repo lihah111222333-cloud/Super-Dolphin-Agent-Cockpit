@@ -90,9 +90,7 @@ func normalizeSkillsChanged(next uidto.SkillsChanged) uidto.SkillsChanged {
 	if next.Action != "" {
 		next.Actions = appendUniqueSkillsChangedActions(next.Actions, next.Action)
 	}
-	next.Action = skillChangedActionSummary(next.Actions)
-	next.Count = len(next.Actions)
-	return next
+	return syncSkillsChangedActionSummary(next)
 }
 
 func normalizeSkillsChangedAction(action string) string {
@@ -112,22 +110,21 @@ func normalizeSkillsChangedAction(action string) string {
 }
 
 func mergeSkillsChanged(current, next uidto.SkillsChanged) uidto.SkillsChanged {
-	if shouldReplaceSkillsChanged(current, next) {
+	if current.Count == 0 {
+		return next
+	}
+	// P0b Step 6: cross-scope or cross-cwd events must not merge; the new event
+	// fully replaces the buffered one (override path - simpler than a multi-event queue).
+	if !skillsChangedMergeable(current, next) {
 		return next
 	}
 	current = mergeSkillsChangedMetadata(current, next)
-	current.Name = mergeSkillsChangedName(current.Name, next.Name)
 	current.Actions = appendUniqueSkillsChangedActions(current.Actions, next.Actions...)
-	current.Action = skillChangedActionSummary(current.Actions)
-	current.Count = len(current.Actions)
-	return current
+	return syncSkillsChangedActionSummary(current)
 }
 
-func shouldReplaceSkillsChanged(current, next uidto.SkillsChanged) bool {
-	if current.Count == 0 {
-		return true
-	}
-	return current.Scope != next.Scope || current.Cwd != next.Cwd
+func skillsChangedMergeable(current, next uidto.SkillsChanged) bool {
+	return current.Scope == next.Scope && current.Cwd == next.Cwd
 }
 
 func mergeSkillsChangedMetadata(current, next uidto.SkillsChanged) uidto.SkillsChanged {
@@ -137,21 +134,23 @@ func mergeSkillsChangedMetadata(current, next uidto.SkillsChanged) uidto.SkillsC
 	if next.SkillsDir != "" {
 		current.SkillsDir = next.SkillsDir
 	}
+	if current.Name == "" || next.Name == "" || current.Name != next.Name {
+		current.Name = ""
+	}
 	return current
 }
 
-func mergeSkillsChangedName(currentName, nextName string) string {
-	if currentName == "" || nextName == "" || currentName != nextName {
-		return ""
+func syncSkillsChangedActionSummary(ev uidto.SkillsChanged) uidto.SkillsChanged {
+	switch len(ev.Actions) {
+	case 0:
+		ev.Action = ""
+	case 1:
+		ev.Action = ev.Actions[0]
+	default:
+		ev.Action = ""
 	}
-	return currentName
-}
-
-func skillChangedActionSummary(actions []string) string {
-	if len(actions) == 1 {
-		return actions[0]
-	}
-	return ""
+	ev.Count = len(ev.Actions)
+	return ev
 }
 
 func appendUniqueSkillsChangedActions(dst []string, actions ...string) []string {

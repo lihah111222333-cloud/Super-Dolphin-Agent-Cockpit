@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
@@ -87,7 +89,7 @@ func (s *stubQuerier) LookupSkillCandidateApproval(ctx context.Context, a sqlc.L
 	if s.lookupFn != nil {
 		return s.lookupFn(ctx, a)
 	}
-	return sqlc.SkillCandidate{}, platformdb.ErrNotFound
+	return sqlc.SkillCandidate{}, pgx.ErrNoRows
 }
 
 // ----- Insert -----
@@ -137,11 +139,12 @@ func TestStore_Insert_Roundtrip(t *testing.T) {
 	}
 }
 
-func TestStore_Insert_WrapsConflict(t *testing.T) {
+func TestStore_Insert_WrapsUniqueViolation(t *testing.T) {
 	t.Parallel()
+	pgErr := &pgconn.PgError{Code: "23505", Message: "duplicate key"}
 	stub := &stubQuerier{
 		insertFn: func(context.Context, sqlc.InsertSkillCandidateParams) (sqlc.SkillCandidate, error) {
-			return sqlc.SkillCandidate{}, platformdb.ErrConflict
+			return sqlc.SkillCandidate{}, pgErr
 		},
 	}
 	s := newStoreForTest(stub)
@@ -164,7 +167,7 @@ func TestStore_LookupApproval_Miss_ReturnsNilNil(t *testing.T) {
 	t.Parallel()
 	stub := &stubQuerier{
 		lookupFn: func(context.Context, sqlc.LookupSkillCandidateApprovalParams) (sqlc.SkillCandidate, error) {
-			return sqlc.SkillCandidate{}, platformdb.ErrNotFound
+			return sqlc.SkillCandidate{}, pgx.ErrNoRows
 		},
 	}
 	s := newStoreForTest(stub)
@@ -215,7 +218,7 @@ func TestStore_LookupApproval_DistinctRepoFingerprintIsolation(t *testing.T) {
 	stub := &stubQuerier{
 		lookupFn: func(_ context.Context, a sqlc.LookupSkillCandidateApprovalParams) (sqlc.SkillCandidate, error) {
 			calls = append(calls, a)
-			return sqlc.SkillCandidate{}, platformdb.ErrNotFound
+			return sqlc.SkillCandidate{}, pgx.ErrNoRows
 		},
 	}
 	s := newStoreForTest(stub)
@@ -261,7 +264,7 @@ func TestStore_Approve_NoRowsMapsToConflict(t *testing.T) {
 	t.Parallel()
 	stub := &stubQuerier{
 		approveFn: func(context.Context, sqlc.ApproveSkillCandidateParams) (sqlc.SkillCandidate, error) {
-			return sqlc.SkillCandidate{}, platformdb.ErrNotFound
+			return sqlc.SkillCandidate{}, pgx.ErrNoRows
 		},
 	}
 	s := newStoreForTest(stub)
@@ -311,7 +314,7 @@ func TestStore_Reject_NoRowsMapsToConflict(t *testing.T) {
 	t.Parallel()
 	stub := &stubQuerier{
 		rejectFn: func(context.Context, sqlc.RejectSkillCandidateParams) (sqlc.SkillCandidate, error) {
-			return sqlc.SkillCandidate{}, platformdb.ErrNotFound
+			return sqlc.SkillCandidate{}, pgx.ErrNoRows
 		},
 	}
 	s := newStoreForTest(stub)
@@ -330,7 +333,7 @@ func TestStore_MarkPromoted_NoRowsMapsToConflict(t *testing.T) {
 	t.Parallel()
 	stub := &stubQuerier{
 		promoteFn: func(context.Context, int64) (sqlc.SkillCandidate, error) {
-			return sqlc.SkillCandidate{}, platformdb.ErrNotFound
+			return sqlc.SkillCandidate{}, pgx.ErrNoRows
 		},
 	}
 	s := newStoreForTest(stub)
@@ -394,7 +397,7 @@ func TestStore_GetByID_NoRowsMapsToNotFound(t *testing.T) {
 	t.Parallel()
 	stub := &stubQuerier{
 		getByIDFn: func(context.Context, int64) (sqlc.SkillCandidate, error) {
-			return sqlc.SkillCandidate{}, platformdb.ErrNotFound
+			return sqlc.SkillCandidate{}, pgx.ErrNoRows
 		},
 	}
 	s := newStoreForTest(stub)

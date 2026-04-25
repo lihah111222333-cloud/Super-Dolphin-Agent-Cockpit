@@ -82,10 +82,9 @@ test('skills page supports search, edit subfiles, create, import, and delete', a
   await page.getByTestId('skills-editor-trigger-input').fill('api, rpc');
   await page.getByTestId('skills-save-button').click();
 
-  const skillSaveCalls = await readMethodCalls(page, 'skills/local/write');
-  const mainSkillSaveCall = skillSaveCalls.find((item) => item?.params?.path === 'backend-pro');
-  expect(mainSkillSaveCall?.params?.path).toBe('backend-pro');
-  expect(mainSkillSaveCall?.params?.content).toContain('新的后端摘要');
+  const skillSaveCalls = await readMethodCalls(page, 'skills/config/write');
+  expect(skillSaveCalls[0]?.params?.name).toBe('backend-pro');
+  expect(skillSaveCalls[0]?.params?.content).toContain('新的后端摘要');
 
   await page.getByTestId('skills-editor-close-button').click();
   await page.getByTestId('skills-create-button').click();
