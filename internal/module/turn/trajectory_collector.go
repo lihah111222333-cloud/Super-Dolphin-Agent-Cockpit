@@ -19,11 +19,11 @@ import (
 // in-memory only and meant to be consumed by Step 3 evaluator / Step 4
 // extractor; it is never persisted by this layer.
 type Trajectory struct {
-	TurnID         string
-	LocalTurnID    string
-	ThreadID       string
-	AgentID        string
-	SessionID      string
+	TurnID      string
+	LocalTurnID string
+	ThreadID    string
+	AgentID     string
+	SessionID   string
 	// Cwd is left empty by the collector: it has no view of the agent's
 	// working directory. Step 4 extractor backfills this via ThreadID.
 	Cwd            string
@@ -249,22 +249,13 @@ func (c *Collector) onToolCallBegin(ev tooldto.ToolCallBegin) {
 
 func (c *Collector) onToolCallEnd(ev tooldto.ToolCallEnd) {
 	callID := strings.TrimSpace(ev.CallID)
-	turnID := strings.TrimSpace(ev.TurnID)
 	if callID == "" {
 		return
 	}
-	if c.contract != nil {
-		if !c.contract.Dedupe(observation.DedupeKey{CallID: callID, Key: "end-traj"}) {
-			return
-		}
+	if !c.acceptToolCallEnd(callID) {
+		return
 	}
-	if turnID == "" && c.contract != nil {
-		// Defensive: ToolCallEnd without TurnID should resolve via the
-		// observation attribution map.
-		if owner, ok := c.contract.LookupCall(callID); ok {
-			turnID = owner
-		}
-	}
+	turnID := c.toolCallEndTurnID(callID, ev.TurnID)
 	if turnID == "" {
 		return
 	}
@@ -291,6 +282,29 @@ func (c *Collector) onToolCallEnd(ev tooldto.ToolCallEnd) {
 	if tc.Name == "" {
 		tc.Name = strings.TrimSpace(ev.ToolName)
 	}
+}
+
+func (c *Collector) acceptToolCallEnd(callID string) bool {
+	if c.contract == nil {
+		return true
+	}
+	return c.contract.Dedupe(observation.DedupeKey{CallID: callID, Key: "end-traj"})
+}
+
+func (c *Collector) toolCallEndTurnID(callID, rawTurnID string) string {
+	turnID := strings.TrimSpace(rawTurnID)
+	if turnID != "" {
+		return turnID
+	}
+	if c.contract == nil {
+		return ""
+	}
+	// Defensive: ToolCallEnd without TurnID should resolve via the
+	// observation attribution map.
+	if owner, ok := c.contract.LookupCall(callID); ok {
+		return owner
+	}
+	return ""
 }
 
 func (c *Collector) onToolDiffUpdated(ev tooldto.ToolDiffUpdated) {
@@ -337,36 +351,45 @@ func (c *Collector) materializeLocked(p *partialTrajectory) Trajectory {
 		StartedAt:   p.startedAt,
 	}
 	if c.contract != nil {
-		if t, ok := c.contract.Terminal(p.turnID); ok {
-			tj.TerminalState = string(t.Kind)
-			if t.Success != nil {
-				v := *t.Success
-				tj.Success = &v
-			}
-		}
-		if ts, ok := c.contract.Timestamps(p.turnID); ok {
-			if !ts.StartedAt.IsZero() {
-				tj.StartedAt = ts.StartedAt
-			}
-			tj.EndedAt = ts.CompletedAt
-		}
-		if snap, ok := c.contract.Tokens(p.turnID); ok && snap.Observed {
-			tj.TokenUsage = &TokenSnapshot{
-				InputTokens:         int(snap.Input),
-				OutputTokens:        int(snap.Output),
-				TotalTokens:         int(snap.Total),
-				ContextWindowTokens: int(snap.ContextWindowTokens),
-			}
-		}
-		tj.SkillsSelected = c.contract.SkillsSelected(p.turnID)
+		c.applyContractSnapshot(&tj, p.turnID)
 	}
-	tj.ToolCalls = make([]ToolCall, 0, len(p.callOrder))
+	tj.ToolCalls = materializeToolCalls(p)
+	return tj
+}
+
+func (c *Collector) applyContractSnapshot(tj *Trajectory, turnID string) {
+	if t, ok := c.contract.Terminal(turnID); ok {
+		tj.TerminalState = string(t.Kind)
+		if t.Success != nil {
+			v := *t.Success
+			tj.Success = &v
+		}
+	}
+	if ts, ok := c.contract.Timestamps(turnID); ok {
+		if !ts.StartedAt.IsZero() {
+			tj.StartedAt = ts.StartedAt
+		}
+		tj.EndedAt = ts.CompletedAt
+	}
+	if snap, ok := c.contract.Tokens(turnID); ok && snap.Observed {
+		tj.TokenUsage = &TokenSnapshot{
+			InputTokens:         int(snap.Input),
+			OutputTokens:        int(snap.Output),
+			TotalTokens:         int(snap.Total),
+			ContextWindowTokens: int(snap.ContextWindowTokens),
+		}
+	}
+	tj.SkillsSelected = c.contract.SkillsSelected(turnID)
+}
+
+func materializeToolCalls(p *partialTrajectory) []ToolCall {
+	toolCalls := make([]ToolCall, 0, len(p.callOrder))
 	for _, id := range p.callOrder {
 		if tc, ok := p.toolCalls[id]; ok && tc != nil {
-			tj.ToolCalls = append(tj.ToolCalls, *tc)
+			toolCalls = append(toolCalls, *tc)
 		}
 	}
-	return tj
+	return toolCalls
 }
 
 func (c *Collector) ensurePartialLocked(turnID string) *partialTrajectory {
