@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -556,6 +558,40 @@ type singleHandleLauncher struct {
 func (l *singleHandleLauncher) Launch(_ context.Context, _ string) (peerHandle, error) {
 	l.once.Do(func() { l.h.markRegistered() })
 	return l.h, nil
+}
+
+// Regression: on Windows the peer binaries are .exe but defaultPeerNames
+// returns "mcp-orch" / "mcp-lsp" without a suffix. findPeerBinary used to
+// stat the literal name only, so on Windows it always missed the file
+// and toolbridge had no peers — sessions failed with
+// "toolbridge: no active peer".
+func TestFindPeerBinary_WindowsAddsExeSuffix(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if runtime.GOOS == "windows" {
+		exe := filepath.Join(dir, "mcp-orch.exe")
+		if err := os.WriteFile(exe, []byte("stub"), 0o755); err != nil {
+			t.Fatalf("seed exe: %v", err)
+		}
+		got, ok := findPeerBinary([]string{dir}, "mcp-orch")
+		if !ok || got != exe {
+			t.Fatalf("want %q, got %q ok=%v", exe, got, ok)
+		}
+		// And: caller already passing the .exe must still work.
+		got, ok = findPeerBinary([]string{dir}, "mcp-orch.exe")
+		if !ok || got != exe {
+			t.Fatalf("explicit .exe: want %q, got %q ok=%v", exe, got, ok)
+		}
+	} else {
+		bin := filepath.Join(dir, "mcp-orch")
+		if err := os.WriteFile(bin, []byte("stub"), 0o755); err != nil {
+			t.Fatalf("seed bin: %v", err)
+		}
+		got, ok := findPeerBinary([]string{dir}, "mcp-orch")
+		if !ok || got != bin {
+			t.Fatalf("want %q, got %q ok=%v", bin, got, ok)
+		}
+	}
 }
 
 func waitUntil(t *testing.T, timeout time.Duration, cond func() bool, msg string) {
