@@ -32,6 +32,10 @@ type jsonRPCMessage struct {
 	Error   *jsonRPCError   `json:"error,omitempty"`
 }
 
+type initializeRPCResult struct {
+	CodexHome string `json:"codexHome"`
+}
+
 type RawMessage struct {
 	ID     json.RawMessage
 	Method string
@@ -193,6 +197,7 @@ func (t *transport) readInitializeMessage(ctx context.Context, ws *websocket.Con
 	if err != nil {
 		return err
 	}
+	t.captureInitializeCodexHome(data)
 	// P15 debug: log the initialize response to verify experimentalApi accepted
 	if len(data) < 2000 {
 		pkglogger.Info("codexapp: initialize response", "data", string(data))
@@ -201,6 +206,28 @@ func (t *transport) readInitializeMessage(ctx context.Context, ws *websocket.Con
 	}
 	t.dispatchReadMessage(ctx, data, nil)
 	return nil
+}
+
+func (t *transport) captureInitializeCodexHome(data []byte) {
+	if t == nil || len(data) == 0 {
+		return
+	}
+	var msg jsonRPCMessage
+	if err := json.Unmarshal(data, &msg); err != nil || len(msg.Result) == 0 {
+		return
+	}
+	var result initializeRPCResult
+	if err := json.Unmarshal(msg.Result, &result); err != nil {
+		return
+	}
+	home := strings.TrimSpace(result.CodexHome)
+	if home == "" {
+		return
+	}
+	t.codexHome.Store(home)
+	pkglogger.Warn("codexapp: initialize codexHome captured",
+		"server_url", t.serverURL,
+		"codex_home", home)
 }
 
 func initializeReadDeadline(ctx context.Context) time.Time {

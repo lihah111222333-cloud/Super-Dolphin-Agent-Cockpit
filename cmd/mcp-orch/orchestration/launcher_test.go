@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -275,6 +276,35 @@ func TestService_LaunchWithRemote(t *testing.T) {
 	agent := svc.agents["agent-1"]
 	if agent.cmd != nil || agent.remoteThreadID != "thread-1" || agent.remoteAgentID != "remote-1" || agent.state != agentdto.StateIdle {
 		t.Fatalf("agent = %#v", agent)
+	}
+}
+
+func TestService_LaunchWithRemoteSubmitsInitialPrompt(t *testing.T) {
+	var turnReq map[string]any
+	svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{
+		"thread/start": handler.New(func(_ context.Context, _ map[string]any) (map[string]any, error) {
+			return map[string]any{"thread": map[string]any{"id": "thread-1"}, "agentId": "remote-1"}, nil
+		}),
+		"turn/start": handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
+			turnReq = req
+			return map[string]any{"turn_id": "turn-initial"}, nil
+		}),
+	}), nil, nil, nil)
+	if err := svc.LaunchAgent(context.Background(), LaunchRequest{
+		AgentID: "agent-1",
+		Name:    "worker-agent",
+		Prompt:  "please inspect the launch path",
+		Command: []string{"ignored"},
+	}); err != nil {
+		t.Fatalf("LaunchAgent() error = %v", err)
+	}
+	agent := svc.agents["agent-1"]
+	rawInput, _ := json.Marshal(turnReq["input"])
+	if turnReq["thread_id"] != "thread-1" || !strings.Contains(string(rawInput), "please inspect the launch path") {
+		t.Fatalf("turn/start request = %#v", turnReq)
+	}
+	if agent.activeTurnID != "turn-initial" || agent.state != agentdto.StateTurnStarting {
+		t.Fatalf("agent after launch prompt = %#v", agent)
 	}
 }
 

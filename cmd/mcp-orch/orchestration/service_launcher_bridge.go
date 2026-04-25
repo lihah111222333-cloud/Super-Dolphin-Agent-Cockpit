@@ -8,6 +8,7 @@ import (
 	"time"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -72,7 +73,10 @@ func (s *service) launchWithRetry(ctx context.Context, attempt launcherLaunchAtt
 		}
 		result, launchErr := s.launcher.Launch(ctx, &attempt.launching, req)
 		if launchErr == nil {
-			return s.finishLauncherLaunch(ctx, attempt, result, nil)
+			if err := s.finishLauncherLaunch(ctx, attempt, result, nil); err != nil {
+				return err
+			}
+			return s.submitInitialLaunchPrompt(ctx, attempt.agentID, result, req)
 		}
 		lastErr = launchErr
 		if !isRetryableLaunchError(launchErr) {
@@ -80,6 +84,39 @@ func (s *service) launchWithRetry(ctx context.Context, attempt launcherLaunchAtt
 		}
 	}
 	return s.finishLauncherLaunch(ctx, attempt, LaunchResult{}, lastErr)
+}
+
+func (s *service) submitInitialLaunchPrompt(ctx context.Context, agentID string, result LaunchResult, req LaunchRequest) error {
+	prompt := strings.TrimSpace(req.Prompt)
+	if prompt == "" {
+		pkglogger.Warn("orchestration: launch prompt auto-submit skipped",
+			"agent_id", agentID, "reason", "empty_prompt")
+		return nil
+	}
+	threadID := strings.TrimSpace(result.ThreadID)
+	submission := TurnSubmission{
+		AgentID:  agentID,
+		ThreadID: threadID,
+		Inputs: []shareddto.InputItem{{
+			Type:    "text",
+			Content: prompt,
+		}},
+	}
+	pkglogger.Warn("orchestration: launch prompt auto-submit begin",
+		"agent_id", agentID,
+		"thread_id", threadID,
+		"prompt_len", len([]rune(prompt)))
+	if err := s.submitTurnViaLauncher(ctx, submission); err != nil {
+		pkglogger.Warn("orchestration: launch prompt auto-submit failed",
+			"agent_id", agentID,
+			"thread_id", threadID,
+			"error", err)
+		return err
+	}
+	pkglogger.Warn("orchestration: launch prompt auto-submit accepted",
+		"agent_id", agentID,
+		"thread_id", threadID)
+	return nil
 }
 
 func (s *service) prepareLauncherLaunch(ctx context.Context, req LaunchRequest) (launcherLaunchAttempt, bool, error) {

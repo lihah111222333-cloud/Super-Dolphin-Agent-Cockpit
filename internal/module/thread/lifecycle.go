@@ -87,6 +87,7 @@ func (s *service) prepareStartRequest(ctx context.Context, req StartRequest) (St
 	if err != nil {
 		return req, "", err
 	}
+	req = s.injectParentCodexIdentityForStart(ctx, req)
 	// Collision-safe agent ID: only apply when the caller didn't provide
 	// an explicit ID. For child agents derive a sequential suffix from
 	// the parent; for root agents verify uniqueness and retry.
@@ -283,6 +284,8 @@ func (s *service) persistStartedSession(
 		s.stopAgent(ctx, agentID)
 		return StartResult{}, err
 	}
+	codexHome := shared.FirstNonEmpty(identity.Home, sessionRuntimeConfigString(session, "codexHome"))
+	s.logStartedSessionCodexIdentity(req, agentID, codexHome, identity, session)
 	state := newThreadState(threadStateStartKind, threadStateFields{
 		AgentID:            agentID,
 		ParentAgentID:      req.ParentAgentID,
@@ -297,7 +300,7 @@ func (s *service) persistStartedSession(
 		RolloutPath:        session.RolloutPath(),
 		SessionUUID:        session.ThreadID(),
 		ConfigOverride:     configOverride,
-		CodexHome:          identity.Home,
+		CodexHome:          codexHome,
 		CodexInstanceKey:   identity.InstanceKey,
 		CodexModelProvider: identity.ModelProvider,
 		CreatedAt:          time.Now().Unix(),
@@ -403,23 +406,35 @@ func (s *service) persistResumedSession(
 	session contract.Session,
 ) (ResumeResult, error) {
 	model := shared.FirstNonEmpty(req.Model, state.Model)
+	codexHome := shared.FirstNonEmpty(state.CodexHome, sessionRuntimeConfigString(session, "codexHome"))
+	if s.logger != nil {
+		s.logger.Warn("thread: persist resumed session codex identity",
+			"agent_id", req.AgentID,
+			"provider", req.Provider,
+			"codex_home", codexHome,
+			"session_runtime_codex_home", sessionRuntimeConfigString(session, "codexHome"),
+			"rollout_path", shared.FirstNonEmpty(state.RolloutPath, session.RolloutPath()))
+	}
 	threadState := newThreadState(threadStateResumeKind, threadStateFields{
-		RequestedThreadID: req.ThreadID,
-		PublicThreadID:    state.PublicThreadID,
-		ProviderThreadID:  shared.FirstNonEmpty(req.ProviderThreadID, session.ThreadID()),
-		AgentID:           req.AgentID,
-		ParentAgentID:     state.ParentAgentID,
-		AgentType:         state.AgentType,
-		AgentMemoryScope:  state.AgentMemoryScope,
-		Provider:          req.Provider,
-		CWD:               req.CWD,
-		Model:             model,
-		Name:              displayName,
-		Prompt:            displayName,
-		RolloutPath:       shared.FirstNonEmpty(state.RolloutPath, session.RolloutPath()),
-		SessionUUID:       shared.FirstNonEmpty(state.SessionUUID, session.ThreadID()),
-		ConfigOverride:    shared.CloneRawMessage(state.ConfigOverrideRaw),
-		CreatedAt:         state.CreatedAt,
+		RequestedThreadID:  req.ThreadID,
+		PublicThreadID:     state.PublicThreadID,
+		ProviderThreadID:   shared.FirstNonEmpty(req.ProviderThreadID, session.ThreadID()),
+		AgentID:            req.AgentID,
+		ParentAgentID:      state.ParentAgentID,
+		AgentType:          state.AgentType,
+		AgentMemoryScope:   state.AgentMemoryScope,
+		Provider:           req.Provider,
+		CWD:                req.CWD,
+		Model:              model,
+		Name:               displayName,
+		Prompt:             displayName,
+		RolloutPath:        shared.FirstNonEmpty(state.RolloutPath, session.RolloutPath()),
+		SessionUUID:        shared.FirstNonEmpty(state.SessionUUID, session.ThreadID()),
+		ConfigOverride:     shared.CloneRawMessage(state.ConfigOverrideRaw),
+		CodexHome:          codexHome,
+		CodexInstanceKey:   state.CodexInstanceKey,
+		CodexModelProvider: state.CodexModelProvider,
+		CreatedAt:          state.CreatedAt,
 	})
 	publicThreadID := threadState.PublicThreadID
 	providerThreadID := threadState.ProviderThreadID

@@ -13,6 +13,7 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/historyjsonl"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
@@ -55,6 +56,93 @@ func enrichFromSessionConfig(session contract.Session, reqModel, reqCWD string) 
 		port = p
 	}
 	return model, resolveRelativeCWD(cwd), port
+}
+
+func sessionRuntimeConfigString(session contract.Session, key string) string {
+	rc, ok := session.(interface{ RuntimeConfigSnapshot() map[string]any })
+	if !ok {
+		return ""
+	}
+	cfg := rc.RuntimeConfigSnapshot()
+	if cfg == nil {
+		return ""
+	}
+	value, _ := cfg[strings.TrimSpace(key)].(string)
+	return strings.TrimSpace(value)
+}
+
+func (s *service) injectParentCodexIdentityForStart(ctx context.Context, req StartRequest) StartRequest {
+	parentID := strings.TrimSpace(req.ParentAgentID)
+	if parentID == "" || s.bindingStore == nil {
+		return req
+	}
+	parentBinding, err := s.bindingStore.GetByAgentID(ctx, parentID)
+	if err != nil || parentBinding == nil {
+		if s.logger != nil {
+			s.logger.Warn("thread: child start parent codex identity lookup failed",
+				"agent_id", req.AgentID,
+				"parent_agent_id", parentID,
+				"error", err)
+		}
+		return req
+	}
+	var injected bool
+	req.Config, injected = injectParentCodexIdentity(req.Config, parentBinding)
+	if s.logger != nil {
+		s.logger.Warn("thread: child start parent codex identity lookup",
+			"agent_id", req.AgentID,
+			"parent_agent_id", parentID,
+			"injected", injected,
+			"parent_has_codex_home", strings.TrimSpace(parentBinding.CodexHome) != "",
+			"parent_has_codex_instance_key", strings.TrimSpace(parentBinding.CodexInstanceKey) != "",
+			"parent_has_codex_model_provider", strings.TrimSpace(parentBinding.CodexModelProvider) != "")
+	}
+	return req
+}
+
+func injectParentCodexIdentity(cfg map[string]any, parent *bindingstore.Binding) (map[string]any, bool) {
+	home := strings.TrimSpace(parent.CodexHome)
+	instanceKey := strings.TrimSpace(parent.CodexInstanceKey)
+	modelProvider := strings.TrimSpace(parent.CodexModelProvider)
+	if home == "" || instanceKey == "" || modelProvider == "" {
+		return cfg, false
+	}
+	if cfg == nil {
+		cfg = make(map[string]any)
+	}
+	injected := false
+	if firstConfigString(cfg, "codexHome") == "" {
+		cfg["codexHome"] = home
+		injected = true
+	}
+	if firstConfigString(cfg, "codexInstanceKey") == "" {
+		cfg["codexInstanceKey"] = instanceKey
+		injected = true
+	}
+	if firstConfigString(cfg, "codexModelProvider") == "" {
+		cfg["codexModelProvider"] = modelProvider
+		injected = true
+	}
+	return cfg, injected
+}
+
+func (s *service) logStartedSessionCodexIdentity(
+	req StartRequest,
+	agentID,
+	codexHome string,
+	identity providershared.CodexIdentity,
+	session contract.Session,
+) {
+	if s.logger == nil {
+		return
+	}
+	s.logger.Warn("thread: persist started session codex identity",
+		"agent_id", agentID,
+		"provider", req.Provider,
+		"codex_home", codexHome,
+		"has_strict_identity", identity.Home != "" && identity.InstanceKey != "" && identity.ModelProvider != "",
+		"session_runtime_codex_home", sessionRuntimeConfigString(session, "codexHome"),
+		"rollout_path", session.RolloutPath())
 }
 
 // resolveRelativeCWD converts "." or empty to the process working directory.

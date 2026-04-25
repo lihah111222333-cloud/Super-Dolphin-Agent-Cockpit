@@ -176,6 +176,28 @@ func (s *session) runtimeConfigString(key string) string {
 	return strings.TrimSpace(v)
 }
 
+func (s *session) ensureRuntimeCodexHomeFromInitialize(reason string) {
+	if s == nil || s.transport == nil {
+		return
+	}
+	if existing := s.runtimeConfigString("codexHome"); existing != "" {
+		return
+	}
+	home := strings.TrimSpace(s.transport.InitializeCodexHome())
+	if home == "" {
+		pkglogger.Warn("codexapp: runtime codexHome injection skipped",
+			"agent_id", s.agentID,
+			"reason", "initialize_missing_codex_home",
+			"stage", reason)
+		return
+	}
+	s.setRuntimeConfigValue("codexHome", home)
+	pkglogger.Warn("codexapp: runtime codexHome injected from initialize",
+		"agent_id", s.agentID,
+		"codex_home", home,
+		"stage", reason)
+}
+
 func (s *session) setRuntimeConfigValue(key string, value any) {
 	if strings.TrimSpace(key) == "" {
 		return
