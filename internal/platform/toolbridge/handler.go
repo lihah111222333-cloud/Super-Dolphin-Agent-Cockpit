@@ -38,6 +38,7 @@ type Handler struct {
 	diffFallback *diffFallbackTracker
 	bindingStore agentThreadLookup
 	threadStore  threadConfigOverrideStore
+	preferences  uiPreferenceReader
 	cfg          *platformconfig.Config
 	logger       *pkglogger.Logger
 }
@@ -64,6 +65,7 @@ func NewHandler(in handlerIn) *Handler {
 		diffFallback: in.DiffFallback,
 		bindingStore: in.BindingStore,
 		threadStore:  in.ThreadStore,
+		preferences:  in.Preferences,
 		cfg:          in.Config,
 		logger:       logger,
 	}
@@ -147,15 +149,12 @@ func (h *Handler) injectManagedLaunchContext(ctx context.Context, req ToolCallRe
 	if args == nil {
 		args = make(map[string]any)
 	}
-	changed := false
-	if mapString(args, "parent_id") == "" {
-		args["parent_id"] = binding.AgentID
-		changed = true
-	}
-	if mapString(args, "cwd") == "" && strings.TrimSpace(binding.CWD) != "" {
-		args["cwd"] = strings.TrimSpace(binding.CWD)
-		changed = true
-	}
+	provider, model, effort := h.resolveManagedLaunchDefaults(ctx, binding, args)
+	changed := setArgStringIfMissing(args, "parent_id", binding.AgentID)
+	changed = setArgStringIfMissing(args, "cwd", binding.CWD) || changed
+	changed = setArgStringIfMissing(args, "provider", provider) || changed
+	changed = setArgStringIfMissing(args, "model", model) || changed
+	changed = setArgStringIfMissing(args, "effort", effort) || changed
 	if !changed {
 		return req
 	}
@@ -172,11 +171,109 @@ func (h *Handler) injectManagedLaunchContext(ctx context.Context, req ToolCallRe
 		"provider_thread_id", binding.ProviderThreadID,
 		"injected_parent_id", mapString(args, "parent_id"),
 		"injected_cwd", mapString(args, "cwd"),
+		"injected_provider", mapString(args, "provider"),
+		"injected_model", mapString(args, "model"),
+		"injected_effort", mapString(args, "effort"),
 		"has_codex_home", strings.TrimSpace(binding.CodexHome) != "",
 		"has_codex_instance_key", strings.TrimSpace(binding.CodexInstanceKey) != "",
 		"has_codex_model_provider", strings.TrimSpace(binding.CodexModelProvider) != "",
 	)
 	return req
+}
+
+func (h *Handler) resolveManagedLaunchDefaults(ctx context.Context, binding toolCallBinding, args map[string]any) (string, string, string) {
+	model, effort := h.resolveManagedLaunchModelEffortFromParent(ctx, binding)
+	provider, prefModel, prefEffort := h.resolveManagedLaunchDefaultsFromPreferences(ctx, binding, args)
+	return provider, firstNonEmptyString(model, prefModel), firstNonEmptyString(effort, prefEffort)
+}
+
+func (h *Handler) resolveManagedLaunchModelEffortFromParent(ctx context.Context, binding toolCallBinding) (string, string) {
+	for _, threadID := range []string{binding.AgentID, binding.CodexThreadID, binding.ProviderThreadID} {
+		stored, ok := h.readStoredThreadRuntime(ctx, threadID)
+		if !ok {
+			continue
+		}
+		runtime := stored.Runtime
+		model := firstNonEmptyString(stored.Model, mapString(runtime, "model"))
+		effort := firstNonEmptyString(stored.Effort, mapString(runtime, "effort"))
+		if model != "" || effort != "" {
+			return model, effort
+		}
+	}
+	return "", ""
+}
+
+func (h *Handler) resolveManagedLaunchDefaultsFromPreferences(ctx context.Context, binding toolCallBinding, args map[string]any) (string, string, string) {
+	prefs, ok := h.readMergedUIPreferences(ctx, firstNonEmptyString(mapString(args, "cwd"), binding.CWD))
+	if !ok {
+		return "", "", ""
+	}
+	provider := normalizeProviderPreferenceScope(firstNonEmptyString(
+		mapString(args, "provider"),
+		preferenceString(prefs, "settings.provider.active"),
+		binding.Provider,
+	))
+	model := preferenceString(prefs, "settings.provider."+provider+".model")
+	effort := preferenceString(prefs, "settings.provider."+provider+".effort")
+	defaultModel, defaultEffort := defaultProviderLaunchConfig(provider)
+	return provider, firstNonEmptyString(model, defaultModel), firstNonEmptyString(effort, defaultEffort)
+}
+
+func (h *Handler) readMergedUIPreferences(ctx context.Context, cwd string) (map[string]any, bool) {
+	if h == nil || h.preferences == nil {
+		return nil, false
+	}
+	prefs, err := h.preferences.GetMergedPreferences(ctx, strings.TrimSpace(cwd))
+	if err != nil {
+		h.warn("toolbridge: read UI preferences for launch defaults failed",
+			"cwd", strings.TrimSpace(cwd),
+			"error", err)
+		return nil, false
+	}
+	return prefs, true
+}
+
+func preferenceString(values map[string]any, key string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	value, ok := values[key]
+	if !ok {
+		return ""
+	}
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(text)
+}
+
+func normalizeProviderPreferenceScope(provider string) string {
+	normalized := strings.ToLower(strings.TrimSpace(provider))
+	switch {
+	case normalized == "claude" || strings.Contains(normalized, "claude"):
+		return "claude"
+	case normalized == "codex" || normalized == "openai" || normalized == "":
+		return "codex"
+	default:
+		return normalized
+	}
+}
+
+func defaultProviderLaunchConfig(provider string) (string, string) {
+	if normalizeProviderPreferenceScope(provider) == "claude" {
+		return "sonnet", "high"
+	}
+	return "gpt-5.5", "xhigh"
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func (h *Handler) resolveCurrentToolCallBinding(ctx context.Context, req ToolCallRequest) (toolCallBinding, bool) {
@@ -405,6 +502,18 @@ func mapString(values map[string]any, key string) string {
 		return ""
 	}
 	return strings.TrimSpace(text)
+}
+
+func setArgStringIfMissing(values map[string]any, key, value string) bool {
+	if mapString(values, key) != "" {
+		return false
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	values[key] = value
+	return true
 }
 
 func allowDefaultPersistentSubagentFallback() bool {

@@ -15,6 +15,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
+	uipreferencestore "github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
@@ -38,6 +39,7 @@ var Module = fx.Module("toolbridge",
 		// and performs the actual row → ConfigOverride projection.
 		provideAgentThreadLookup,
 		provideThreadConfigOverrideStore,
+		provideUIPreferenceReader,
 		// P22 P2 Finding 9: proxy HTTP serve loop owned by run.Group via the
 		// root group:"runners" aggregation. registerProxyLifecycle keeps only
 		// the listener setup + addr publish; ServeProxy runs inside
@@ -65,6 +67,7 @@ type handlerIn struct {
 	// ThreadStore is satisfied via provideThreadConfigOverrideStore.
 	BindingStore agentThreadLookup
 	ThreadStore  threadConfigOverrideStore `optional:"true"`
+	Preferences  uiPreferenceReader        `optional:"true"`
 	Config       *platformconfig.Config    `optional:"true"`
 	Logger       *pkglogger.Logger         `optional:"true"`
 }
@@ -95,6 +98,44 @@ func provideThreadConfigOverrideStore(store threadstore.Store) threadConfigOverr
 		return nil
 	}
 	return threadConfigOverrideAdapter{inner: store}
+}
+
+type uiPreferenceReaderAdapter struct {
+	inner uipreferencestore.Store
+}
+
+func (a uiPreferenceReaderAdapter) GetMergedPreferences(ctx context.Context, cwd string) (map[string]any, error) {
+	if a.inner == nil {
+		return nil, nil
+	}
+	rows, err := a.inner.List(ctx, strings.TrimSpace(cwd))
+	if err != nil {
+		return nil, err
+	}
+	values := map[string]any{}
+	for _, row := range rows {
+		key := strings.TrimSpace(row.Key)
+		if key == "" {
+			continue
+		}
+		values[key] = decodeToolbridgePreferenceValue(row.Value)
+	}
+	return values, nil
+}
+
+func provideUIPreferenceReader(store uipreferencestore.Store) uiPreferenceReader {
+	if store == nil {
+		return nil
+	}
+	return uiPreferenceReaderAdapter{inner: store}
+}
+
+func decodeToolbridgePreferenceValue(raw json.RawMessage) any {
+	var value any
+	if err := json.Unmarshal(raw, &value); err == nil {
+		return value
+	}
+	return strings.TrimSpace(string(raw))
 }
 
 type agentThreadLookupAdapter struct {

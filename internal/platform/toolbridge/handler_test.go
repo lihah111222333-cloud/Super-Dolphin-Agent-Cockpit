@@ -68,6 +68,24 @@ func (s *stubThreadStore) GetConfigOverride(_ context.Context, threadID string) 
 	return s.thread.ConfigOverride, nil
 }
 
+type stubUIPreferenceReader struct {
+	values map[string]any
+	cwds   []string
+	err    error
+}
+
+func (s *stubUIPreferenceReader) GetMergedPreferences(_ context.Context, cwd string) (map[string]any, error) {
+	s.cwds = append(s.cwds, cwd)
+	if s.err != nil {
+		return nil, s.err
+	}
+	out := make(map[string]any, len(s.values))
+	for key, value := range s.values {
+		out[key] = value
+	}
+	return out, nil
+}
+
 func (p *stubPeer) Notify(context.Context, string, any) error { return nil }
 
 func (p *stubPeer) Callback(ctx context.Context, method string, params any, result any) error {
@@ -311,9 +329,161 @@ func TestToolBridge_OrchestrationLaunchInheritsParentContextFromProviderThread(t
 	}
 }
 
+func TestToolBridge_OrchestrationLaunchInheritsParentModelEffort(t *testing.T) {
+	args := mustRawJSON(t, map[string]any{
+		"name":     "idle-agent",
+		"provider": "codex",
+	})
+	wantArgs := mustRawJSON(t, map[string]any{
+		"cwd":       "/repo/project",
+		"effort":    "xhigh",
+		"model":     "gpt-5.5",
+		"name":      "idle-agent",
+		"parent_id": "agent-parent",
+		"provider":  "codex",
+	})
+	h, _ := newHandlerForTest(newToolCallPeer(t, "orchestration_launch_agent", wantArgs, "launching", nil))
+	h.bindingStore = &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
+		"agent-parent": {
+			AgentID: "agent-parent",
+			CWD:     "/repo/project",
+		},
+	}}
+	h.threadStore = &toolCallThreadStoreStub{row: &threadstore.Thread{
+		ThreadID:       "agent-parent",
+		ConfigOverride: json.RawMessage(`{"model":"gpt-5.5","effort":"xhigh"}`),
+	}}
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:      "orchestration_launch_agent",
+		Arguments: args,
+		AgentID:   "agent-parent",
+	})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	assertSingleTextItem(t, got, "launching", true)
+}
+
+func TestToolBridge_OrchestrationLaunchFallsBackToUIPreferences(t *testing.T) {
+	args := mustRawJSON(t, map[string]any{
+		"name":     "idle-agent",
+		"provider": "codex",
+	})
+	wantArgs := mustRawJSON(t, map[string]any{
+		"cwd":       "/repo/project",
+		"effort":    "high",
+		"model":     "gpt-5.4",
+		"name":      "idle-agent",
+		"parent_id": "agent-parent",
+		"provider":  "codex",
+	})
+	prefs := &stubUIPreferenceReader{values: map[string]any{
+		"settings.provider.codex.model":  "gpt-5.4",
+		"settings.provider.codex.effort": "high",
+	}}
+	h, _ := newHandlerForTest(newToolCallPeer(t, "orchestration_launch_agent", wantArgs, "launching", nil))
+	h.bindingStore = &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
+		"agent-parent": {
+			AgentID: "agent-parent",
+			CWD:     "/repo/project",
+		},
+	}}
+	h.threadStore = &toolCallThreadStoreStub{}
+	h.preferences = prefs
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:      "orchestration_launch_agent",
+		Arguments: args,
+		AgentID:   "agent-parent",
+	})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	assertSingleTextItem(t, got, "launching", true)
+	if len(prefs.cwds) != 1 || prefs.cwds[0] != "/repo/project" {
+		t.Fatalf("GetMergedPreferences() cwds = %#v, want [/repo/project]", prefs.cwds)
+	}
+}
+
+func TestToolBridge_OrchestrationLaunchFillsMissingProviderFromUIPreferences(t *testing.T) {
+	args := mustRawJSON(t, map[string]any{
+		"name": "idle-agent",
+	})
+	wantArgs := mustRawJSON(t, map[string]any{
+		"cwd":       "/repo/project",
+		"effort":    "high",
+		"model":     "sonnet",
+		"name":      "idle-agent",
+		"parent_id": "agent-parent",
+		"provider":  "claude",
+	})
+	prefs := &stubUIPreferenceReader{values: map[string]any{
+		"settings.provider.active":        "claude",
+		"settings.provider.claude.model":  "sonnet",
+		"settings.provider.claude.effort": "high",
+	}}
+	h, _ := newHandlerForTest(newToolCallPeer(t, "orchestration_launch_agent", wantArgs, "launching", nil))
+	h.bindingStore = &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
+		"agent-parent": {
+			AgentID:  "agent-parent",
+			Provider: "codex",
+			CWD:      "/repo/project",
+		},
+	}}
+	h.threadStore = &toolCallThreadStoreStub{}
+	h.preferences = prefs
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:      "orchestration_launch_agent",
+		Arguments: args,
+		AgentID:   "agent-parent",
+	})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	assertSingleTextItem(t, got, "launching", true)
+}
+
+func TestToolBridge_OrchestrationLaunchUsesProviderDefaultsWhenUIPreferencesUnset(t *testing.T) {
+	args := mustRawJSON(t, map[string]any{
+		"name":     "idle-agent",
+		"provider": "codex",
+	})
+	wantArgs := mustRawJSON(t, map[string]any{
+		"cwd":       "/repo/project",
+		"effort":    "xhigh",
+		"model":     "gpt-5.5",
+		"name":      "idle-agent",
+		"parent_id": "agent-parent",
+		"provider":  "codex",
+	})
+	h, _ := newHandlerForTest(newToolCallPeer(t, "orchestration_launch_agent", wantArgs, "launching", nil))
+	h.bindingStore = &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
+		"agent-parent": {
+			AgentID: "agent-parent",
+			CWD:     "/repo/project",
+		},
+	}}
+	h.threadStore = &toolCallThreadStoreStub{}
+	h.preferences = &stubUIPreferenceReader{}
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:      "orchestration_launch_agent",
+		Arguments: args,
+		AgentID:   "agent-parent",
+	})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	assertSingleTextItem(t, got, "launching", true)
+}
+
 func TestToolBridge_OrchestrationLaunchPreservesExplicitParentContext(t *testing.T) {
 	args := mustRawJSON(t, map[string]any{
 		"cwd":       "/explicit",
+		"effort":    "medium",
+		"model":     "gpt-5.2",
 		"name":      "idle-agent",
 		"parent_id": "agent-explicit",
 		"provider":  "codex",
@@ -324,6 +494,14 @@ func TestToolBridge_OrchestrationLaunchPreservesExplicitParentContext(t *testing
 			AgentID: "agent-parent",
 			CWD:     "/repo/project",
 		},
+	}}
+	h.threadStore = &toolCallThreadStoreStub{row: &threadstore.Thread{
+		ThreadID:       "agent-parent",
+		ConfigOverride: json.RawMessage(`{"model":"gpt-5.5","effort":"xhigh"}`),
+	}}
+	h.preferences = &stubUIPreferenceReader{values: map[string]any{
+		"settings.provider.codex.model":  "gpt-5.4",
+		"settings.provider.codex.effort": "high",
 	}}
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
