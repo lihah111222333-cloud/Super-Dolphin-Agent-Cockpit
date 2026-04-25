@@ -30,6 +30,7 @@ func (s *service) listPersistedAgentSnapshots(ctx context.Context) ([]AgentSnaps
 		if _, exists := seen[snapshot.AgentID]; exists {
 			continue
 		}
+		attachPersistedAgentReport(&snapshot)
 		seen[snapshot.AgentID] = struct{}{}
 		snapshots = append(snapshots, snapshot)
 	}
@@ -61,6 +62,7 @@ func (s *service) persistedAgentSnapshotByThreadID(ctx context.Context, agentID 
 	}
 	snapshot, ok := snapshotFromPersistedThread(*thread)
 	if ok && sameAgentID(snapshot.AgentID, agentID) {
+		attachPersistedAgentReport(&snapshot)
 		return snapshot, true, nil
 	}
 	return AgentSnapshot{}, false, nil
@@ -74,6 +76,7 @@ func (s *service) persistedAgentSnapshotByList(ctx context.Context, agentID stri
 	for _, thread := range threads {
 		snapshot, ok := snapshotFromPersistedThread(thread)
 		if ok && sameAgentID(snapshot.AgentID, agentID) {
+			attachPersistedAgentReport(&snapshot)
 			return snapshot, true, nil
 		}
 	}
@@ -197,4 +200,15 @@ func snapshotKey(snapshot AgentSnapshot) string {
 
 func sameAgentID(left, right string) bool {
 	return strings.EqualFold(strings.TrimSpace(left), strings.TrimSpace(right))
+}
+
+func attachPersistedAgentReport(snapshot *AgentSnapshot) {
+	if snapshot == nil {
+		return
+	}
+	report, err := readPersistedAgentReportFile(agentReportFileRecordFromSnapshot(*snapshot))
+	if err != nil {
+		return
+	}
+	snapshot.LastReport = normalizeDisplayReportText(report)
 }

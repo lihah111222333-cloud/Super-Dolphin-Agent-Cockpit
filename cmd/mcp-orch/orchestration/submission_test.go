@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"runtime"
 	"strings"
@@ -269,6 +271,35 @@ func TestHandleReportEventExtractsNestedItemText(t *testing.T) {
 	}
 	if got.Report != "ORCH_OK" {
 		t.Fatalf("Report = %q, want ORCH_OK", got.Report)
+	}
+}
+
+func TestHandleReportEventPersistsReportToAgentCWD(t *testing.T) {
+	t.Parallel()
+
+	cwd := t.TempDir()
+	svc := &service{agents: map[string]*agentRuntime{"agent-1": {
+		id:   "agent-1",
+		name: "display one",
+		cwd:  cwd,
+	}}}
+	got, err := svc.HandleReportEvent(context.Background(), ReportEvent{
+		AgentID:   "agent-1",
+		EventType: "item/completed",
+		Report:    " final body \n",
+	})
+	if err != nil {
+		t.Fatalf("HandleReportEvent() error = %v", err)
+	}
+	if got.Report != "final body" {
+		t.Fatalf("Report = %q, want final body", got.Report)
+	}
+	raw, err := os.ReadFile(filepath.Join(cwd, ".agnet", "report", "agent-1+display one"))
+	if err != nil {
+		t.Fatalf("ReadFile(persisted report) error = %v", err)
+	}
+	if string(raw) != "final body" {
+		t.Fatalf("persisted report = %q, want final body", string(raw))
 	}
 }
 
