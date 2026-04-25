@@ -89,7 +89,7 @@ function upsertOptimisticUserTimelineItem(ctx, threadId, userText, attachments) 
     const current = existing[matchingIndex];
     const currentAttachments = Array.isArray(current?.attachments) ? current.attachments : [];
     if (sameOptimisticAttachmentList(currentAttachments, normalizedAttachments)) {
-      ctx.logWarn('ui', 'chat.send.optimistic_skip', {
+      if (typeof ctx.logDebug === 'function') ctx.logDebug('ui', 'chat.send.optimistic_skip', {
         thread_id: threadId,
         reason: 'matching_user_message_exists',
         text_preview: userText.slice(0, 80),
@@ -105,7 +105,7 @@ function upsertOptimisticUserTimelineItem(ctx, threadId, userText, attachments) 
     else delete nextItem.attachments;
     nextTimeline[matchingIndex] = Object.freeze(nextItem);
     ctx.state.timelinesByThread = { ...ctx.state.timelinesByThread, [threadId]: nextTimeline };
-    ctx.logWarn('ui', 'chat.send.optimistic_attachments_merged', {
+    if (typeof ctx.logDebug === 'function') ctx.logDebug('ui', 'chat.send.optimistic_attachments_merged', {
       thread_id: threadId,
       item_id: (current?.id || '').toString(),
       attachment_count: normalizedAttachments.length,
@@ -123,7 +123,7 @@ function upsertOptimisticUserTimelineItem(ctx, threadId, userText, attachments) 
   if (frozenAttachments) optimisticItem.attachments = frozenAttachments;
   const frozenItem = Object.freeze(optimisticItem);
   ctx.state.timelinesByThread = { ...ctx.state.timelinesByThread, [threadId]: [...existing, frozenItem] };
-  ctx.logWarn('ui', 'chat.send.optimistic_insert', {
+  if (typeof ctx.logDebug === 'function') ctx.logDebug('ui', 'chat.send.optimistic_insert', {
     thread_id: threadId,
     item_id: frozenItem.id,
     text_preview: userText.slice(0, 80),
@@ -195,9 +195,10 @@ export function saveActiveCmdThread(ctx, id) {
 
 export async function renameThread(ctx, threadId, name) {
   const { callAPI, logWarn } = ctx;
+  const logDebug = typeof ctx.logDebug === 'function' ? ctx.logDebug : () => {};
   const id = (threadId || '').toString();
   const nextName = (name || '').toString().trim();
-  logWarn('ui', 'renameThread.triggered', { threadId: id, name: nextName });
+  logDebug('ui', 'renameThread.triggered', { threadId: id, name: nextName });
   if (!id || !nextName) return;
 
   if (Array.isArray(ctx.state.threads)) {
@@ -211,8 +212,8 @@ export async function renameThread(ctx, threadId, name) {
 
   try {
     const res = await callAPI('thread/name/set', { threadId: id, name: nextName });
-    logWarn('ui', 'renameThread.api.success', { res });
-    logWarn('ui', 'renameThread.sync.complete');
+    logDebug('ui', 'renameThread.api.success', { res });
+    logDebug('ui', 'renameThread.sync.complete');
   } catch (error) {
     logWarn('thread', 'rename.remote.failed', { thread_id: id, error });
     throw error;
@@ -570,6 +571,7 @@ export async function recoverThread(ctx, threadId) {
 
 export async function sendMessage(ctx, threadId, prompt, attachments = [], options = {}) {
   const { callAPI, logInfo, logWarn } = ctx;
+  const logDebug = typeof ctx.logDebug === 'function' ? ctx.logDebug : () => {};
   const text = (prompt || '').trim();
   const hasAttachments = attachments.length > 0;
   if (!threadId || (!text && !hasAttachments)) return;
@@ -666,7 +668,7 @@ export async function sendMessage(ctx, threadId, prompt, attachments = [], optio
     // Timeline refresh is handled by event-driven hydration:
     //   turn/completed → MessagesPage → historyHydrationSignal → loadMessages
     const afterLen = Array.isArray(ctx.state.timelinesByThread?.[threadId]) ? ctx.state.timelinesByThread[threadId].length : 0;
-    logWarn('ui', 'chat.send.timeline_diff', { thread_id: threadId, beforeLen, afterLen });
+    logDebug('ui', 'chat.send.timeline_diff', { thread_id: threadId, beforeLen, afterLen });
     logInfo('thread', 'send.done', { thread_id: threadId, duration_ms: Math.round(perfNow() - start) });
   } catch (error) {
     logWarn('thread', 'send.failed', { thread_id: threadId, error, duration_ms: Math.round(perfNow() - start) });

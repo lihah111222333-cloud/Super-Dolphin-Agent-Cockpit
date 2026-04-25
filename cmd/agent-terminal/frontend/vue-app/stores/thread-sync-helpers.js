@@ -271,7 +271,7 @@ export async function refreshSidebarState(ctx) {
 }
 
 export async function loadMessages(ctx, threadId, limit = 300, options = {}) {
-  const { callAPI, logInfo, logWarn } = ctx;
+  const { callAPI, logDebug, logInfo, logWarn } = ctx;
   const id = normalizeThreadID(threadId);
   if (!id) return;
   const syncRuntime = options?.syncRuntime !== false;
@@ -285,7 +285,7 @@ export async function loadMessages(ctx, threadId, limit = 300, options = {}) {
     const start = perfNow();
     try {
       const res = await callAPI('thread/messages', { threadId: id, limit });
-      const immediateTimelineApplied = applyImmediateTimelineFromMessages({ threadId: id, response: res, state: ctx.state, normalizeThreadID, freezeTimelineItemsAtomic: ctx.freezeTimelineItemsAtomic, logInfo, logWarn });
+      const immediateTimelineApplied = applyImmediateTimelineFromMessages({ threadId: id, response: res, state: ctx.state, normalizeThreadID, freezeTimelineItemsAtomic: ctx.freezeTimelineItemsAtomic, logDebug, logInfo, logWarn });
       const loadedAt = Date.now();
       if (immediateTimelineApplied) ctx.threadHistoryLoadedAtByThread.set(id, loadedAt);
       if (syncRuntime) {
@@ -311,14 +311,20 @@ async function syncThreadHistoryAtomic(ctx, threadId) {
   const id = normalizeThreadID(threadId);
   if (!id) return null;
   const loadedAtBefore = Number(ctx.threadHistoryLoadedAtByThread.get(id) || 0);
-  ctx.logWarn('thread', 'syncThreadHistoryAtomic.start', { thread_id: id, loaded_at_before: loadedAtBefore });
+  if (typeof ctx.logDebug === 'function') {
+    ctx.logDebug('thread', 'syncThreadHistoryAtomic.start', { thread_id: id, loaded_at_before: loadedAtBefore });
+  }
   await syncThreadState(ctx, id, { markHistoryLoaded: false });
   const loadedAtAfter = Number(ctx.threadHistoryLoadedAtByThread.get(id) || 0);
   if (loadedAtAfter > loadedAtBefore) {
-    ctx.logWarn('thread', 'syncThreadHistoryAtomic.skipped', { thread_id: id, loaded_at_after: loadedAtAfter });
+    if (typeof ctx.logDebug === 'function') {
+      ctx.logDebug('thread', 'syncThreadHistoryAtomic.skipped', { thread_id: id, loaded_at_after: loadedAtAfter });
+    }
     return null;
   }
-  ctx.logWarn('thread', 'syncThreadHistoryAtomic.loading_messages', { thread_id: id });
+  if (typeof ctx.logDebug === 'function') {
+    ctx.logDebug('thread', 'syncThreadHistoryAtomic.loading_messages', { thread_id: id });
+  }
   return loadMessages(ctx, id, 300, { syncRuntime: false });
 }
 

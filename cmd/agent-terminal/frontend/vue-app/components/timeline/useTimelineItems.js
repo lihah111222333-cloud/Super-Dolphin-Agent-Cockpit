@@ -64,7 +64,10 @@ function resolvePlanTimelineKey(item) {
   return text.length > 32 ? text.substring(0, 32) : text;
 }
 
-import { logWarn } from '../../services/log.js';
+import { logDebug, logWarn } from '../../services/log.js';
+
+const TIMELINE_RENDER_DEBUG_MS = 4;
+const TIMELINE_RENDER_WARN_MS = 16;
 
 function getItemKey(item, index) {
   if (!item) return `idx-${index}`;
@@ -131,9 +134,12 @@ export function useTimelineItems(props) {
       index += 1;
     }
     const elapsed = performance.now() - start;
-    if (elapsed > 1.0 || result.length > 50) {
-      logWarn('ui', 'chat.render.timeline.perf', { 
-        duration_ms: Math.round(elapsed * 100) / 100, 
+    if (elapsed > TIMELINE_RENDER_DEBUG_MS) {
+      const log = elapsed > TIMELINE_RENDER_WARN_MS ? logWarn : logDebug;
+      log('ui', 'chat.render.timeline.perf', {
+        duration_ms: Math.round(elapsed * 100) / 100,
+        debug_threshold_ms: TIMELINE_RENDER_DEBUG_MS,
+        warn_threshold_ms: TIMELINE_RENDER_WARN_MS,
         source_items: all.length,
         merged_items: result.length
       });

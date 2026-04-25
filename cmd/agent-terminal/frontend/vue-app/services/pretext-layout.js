@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { logWarn, logError } from './log.js';
+import { logDebug, logWarn, logError } from './log.js';
 
 // ── 模块级状态 ──
 let resolvedFontShorthand = null;
@@ -53,14 +53,14 @@ function resolveMonoFont() {
     if (namedFonts.length === 0) {
       // [FIX] Don't permanently disable — CSS may not be loaded yet.
       // Return false so caller can retry.
-      logWarn('ui', 'pretext.font.probe_generic_only', { fontFamily: families });
+      logDebug('ui', 'pretext.font.probe_generic_only', { fontFamily: families });
       return false;
     }
 
     resolvedFontShorthand = candidateFont;
     measuredLineHeight = parseFloat(cs.lineHeight) || (parseFloat(cs.fontSize) * 1.7);
     fontVersion += 1;
-    logWarn('ui', 'pretext.font.resolved', { font: resolvedFontShorthand, lineHeight: measuredLineHeight, namedFonts });
+    logDebug('ui', 'pretext.font.resolved', { font: resolvedFontShorthand, lineHeight: measuredLineHeight, namedFonts });
 
     preparedCache.clear();
     if (pretextModule?.clearCache) {
@@ -82,7 +82,7 @@ async function loadPretext() {
   if (loadFailed || pretextModule) return;
   try {
     pretextModule = await import('@chenglou/pretext');
-    logWarn('ui', 'pretext.module.loaded', { version: pretextModule?.version || '0.0.4' });
+    logDebug('ui', 'pretext.module.loaded', { version: pretextModule?.version || '0.0.4' });
     if (onInvalidate) onInvalidate();
   } catch (err) {
     loadFailed = true;
@@ -151,7 +151,7 @@ export function observeContainerWidth() {
   containerObserver.observe(el);
   observedElement = el;
   cachedContainerWidth = el.clientWidth;
-  logWarn('ui', 'pretext.container.observed', { width: cachedContainerWidth });
+  logDebug('ui', 'pretext.container.observed', { width: cachedContainerWidth });
 
   if (containerCheckInterval === null) {
     containerCheckInterval = setInterval(() => {
@@ -213,7 +213,7 @@ export function measureTailHeight(tailText) {
     const h = pretextModule.layout(prepared, maxWidth, measuredLineHeight).height;
     if (h > 0 && !loggedErrors.has('first_measure')) {
       loggedErrors.add('first_measure');
-      logWarn('ui', 'pretext.measure.first_success', { height: h, maxWidth, lineHeight: measuredLineHeight });
+      logDebug('ui', 'pretext.measure.first_success', { height: h, maxWidth, lineHeight: measuredLineHeight });
     }
     return h;
   } catch (err) {

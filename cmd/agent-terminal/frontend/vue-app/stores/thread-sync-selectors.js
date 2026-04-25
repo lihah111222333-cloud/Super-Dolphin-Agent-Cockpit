@@ -13,7 +13,9 @@ export function getThreadTimeline(ctx, threadId) {
   // Ensure we don't render truncated snapshot data before the full history is loaded
   const hasHistory = ctx.threadHistoryLoadedAtByThread ? ctx.threadHistoryLoadedAtByThread.has(threadId) : false;
   if (!hasHistory) {
-    ctx.logWarn('ui', 'chat.timeline.shielded_empty', { thread_id: threadId, items_len: items.length });
+    if (typeof ctx.logDebug === 'function') {
+      ctx.logDebug('ui', 'chat.timeline.shielded_empty', { thread_id: threadId, items_len: items.length });
+    }
     return [];
   }
   if (items.length === 0) return items;
@@ -77,19 +79,25 @@ export function shouldReloadThreadHistory(ctx, threadId) {
   }
   const loadedAt = Number(ctx.threadHistoryLoadedAtByThread.get(id) || 0);
   if (!Number.isFinite(loadedAt) || loadedAt <= 0) {
-    ctx.logWarn('thread', 'shouldReloadThreadHistory.true.not_loaded', { thread_id: id });
+    if (typeof ctx.logDebug === 'function') {
+      ctx.logDebug('thread', 'shouldReloadThreadHistory.true.not_loaded', { thread_id: id });
+    }
     return true;
   }
   if (status !== 'idle') {
     const elapsed = Date.now() - loadedAt;
     const streamingTtl = 1000; // Poll history every 1s during streaming
     const shouldReload = elapsed > streamingTtl;
-    ctx.logWarn('thread', 'shouldReloadThreadHistory.streaming_check', { thread_id: id, elapsed, ttl: streamingTtl, should_reload: shouldReload });
+    if (typeof ctx.logDebug === 'function') {
+      ctx.logDebug('thread', 'shouldReloadThreadHistory.streaming_check', { thread_id: id, elapsed, ttl: streamingTtl, should_reload: shouldReload });
+    }
     return shouldReload;
   }
   const elapsed = Date.now() - loadedAt;
   const ttl = ctx.THREAD_HISTORY_FRESH_TTL_MS;
   const shouldReload = elapsed > ttl;
-  ctx.logWarn('thread', 'shouldReloadThreadHistory.ttl_check', { thread_id: id, elapsed, ttl, should_reload: shouldReload });
+  if (typeof ctx.logDebug === 'function') {
+    ctx.logDebug('thread', 'shouldReloadThreadHistory.ttl_check', { thread_id: id, elapsed, ttl, should_reload: shouldReload });
+  }
   return shouldReload;
 }

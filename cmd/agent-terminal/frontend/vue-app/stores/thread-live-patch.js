@@ -320,7 +320,8 @@ export function applyRuntimeThreadPatch(ctx, evt, threadId, options = {}) {
   if (Number.isFinite(sequence) && sequence > 0) recordThreadPatchMeta(ctx, id, payload.source, sequence, now);
   if (Array.isArray(payload.timelineItems) && payload.timelineItems.length > 0) {
     const userItems = payload.timelineItems.filter(i => i?.kind === 'user');
-    ctx.logWarn('thread', 'patch.timeline_items_applied', {
+    const log = needsRecovery ? ctx.logWarn : ctx.logDebug;
+    if (typeof log === 'function') log('thread', 'patch.timeline_items_applied', {
       thread_id: id,
       source: (payload.source || '').toString(),
       sequence,
