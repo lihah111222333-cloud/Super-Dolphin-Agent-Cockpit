@@ -12,7 +12,8 @@ export function getThreadTimeline(ctx, threadId) {
   const items = ctx.state.timelinesByThread[threadId] || [];
   // Ensure we don't render truncated snapshot data before the full history is loaded
   const hasHistory = ctx.threadHistoryLoadedAtByThread ? ctx.threadHistoryLoadedAtByThread.has(threadId) : false;
-  if (!hasHistory) {
+  const hasLivePatch = ctx.threadLivePatchSeenByThread ? ctx.threadLivePatchSeenByThread.has(threadId) : false;
+  if (!hasHistory && !hasLivePatch) {
     if (typeof ctx.logDebug === 'function') {
       ctx.logDebug('ui', 'chat.timeline.shielded_empty', { thread_id: threadId, items_len: items.length });
     }

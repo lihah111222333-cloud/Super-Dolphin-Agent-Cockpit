@@ -46,6 +46,7 @@ test.describe('thread/messages duplicate load regression', () => {
   test('bootstrap + selected-thread watch dedupe the same history load', async ({ page }) => {
     await page.addInitScript(({ callApiId, buildInfoId, threadId, assistantText }) => {
       const clone = (value) => JSON.parse(JSON.stringify(value));
+      const messageHistoryByThread = { [threadId]: [] };
       const state = {
         callLog: [],
         threadMessagesCalls: 0,
@@ -100,8 +101,8 @@ test.describe('thread/messages duplicate load regression', () => {
               return clone(state.snapshot);
             case 'thread/messages': {
               state.threadMessagesCalls += 1;
-              const nextTimeline = Array.isArray(state.snapshot.timelinesByThread[threadId])
-                ? clone(state.snapshot.timelinesByThread[threadId])
+              const nextTimeline = Array.isArray(messageHistoryByThread[threadId])
+                ? clone(messageHistoryByThread[threadId])
                 : [];
               nextTimeline.push({
                 id: 'assistant-' + state.threadMessagesCalls,
@@ -109,7 +110,7 @@ test.describe('thread/messages duplicate load regression', () => {
                 text: assistantText,
                 ts: nowISO(state.threadMessagesCalls),
               });
-              state.snapshot.timelinesByThread[threadId] = nextTimeline;
+              messageHistoryByThread[threadId] = nextTimeline;
               return {
                 total: nextTimeline.length,
                 messages: nextTimeline.map((item, index) => ({
@@ -172,6 +173,15 @@ test.describe('thread/messages duplicate load regression', () => {
 
     await page.addInitScript(({ callApiId, buildInfoId, sourceId, targetId, targetAssistantText }) => {
       const clone = (value) => JSON.parse(JSON.stringify(value));
+      const messageHistoryByThread = {
+        [sourceId]: clone([{
+          id: 'source-assistant-1',
+          kind: 'assistant',
+          text: '源线程已有首屏历史',
+          ts: new Date(Date.UTC(2026, 2, 6, 8, 40, 0)).toISOString(),
+        }]),
+        [targetId]: [],
+      };
       const state = {
         callLog: [],
         phase: 'bootstrap',
@@ -189,12 +199,7 @@ test.describe('thread/messages duplicate load regression', () => {
           statusHeadersByThread: {},
           statusDetailsByThread: {},
           timelinesByThread: {
-            [sourceId]: [{
-              id: 'source-assistant-1',
-              kind: 'assistant',
-              text: '源线程已有首屏历史',
-              ts: new Date(Date.UTC(2026, 2, 6, 8, 40, 0)).toISOString(),
-            }],
+            [sourceId]: clone(messageHistoryByThread[sourceId]),
             [targetId]: [],
           },
           diffTextByThread: {},
@@ -257,8 +262,8 @@ test.describe('thread/messages duplicate load regression', () => {
                 state.threadMessagesCallsAfterSwitch += 1;
               }
               const requestedId = (params?.threadId || state.snapshot.activeThreadId || '').toString().trim();
-              const nextTimeline = Array.isArray(state.snapshot.timelinesByThread[requestedId])
-                ? clone(state.snapshot.timelinesByThread[requestedId])
+              const nextTimeline = Array.isArray(messageHistoryByThread[requestedId])
+                ? clone(messageHistoryByThread[requestedId])
                 : [];
               if (requestedId === targetId && nextTimeline.length === 0) {
                 nextTimeline.push({
@@ -267,7 +272,7 @@ test.describe('thread/messages duplicate load regression', () => {
                   text: targetAssistantText,
                   ts: new Date(Date.UTC(2026, 2, 6, 8, 41, 0)).toISOString(),
                 });
-                state.snapshot.timelinesByThread[requestedId] = nextTimeline;
+                messageHistoryByThread[requestedId] = nextTimeline;
               }
               return {
                 total: nextTimeline.length,
@@ -318,13 +323,13 @@ test.describe('thread/messages duplicate load regression', () => {
       }
     });
 
-    const targetButton = page.locator('.thread-rail-item[role="button"]').filter({ hasText: '目标线程' }).first();
+    const targetButton = page.locator(`.thread-rail-item[data-thread-id="${targetId}"]`).first();
     await expect(targetButton).toBeVisible();
     await targetButton.click();
 
     await expect.poll(async () => {
       return page.evaluate(() => globalThis.__AO_E2E_BACKEND_STATE__?.threadMessagesCallsAfterSwitch || 0);
-    }, { timeout: 10_000 }).toBe(2);
+    }, { timeout: 10_000 }).toBe(1);
     await expect.poll(async () => {
       return page.evaluate(() => globalThis.__AO_E2E_BACKEND_STATE__?.uiStateGetCallsAfterSwitch || 0);
     }, { timeout: 10_000 }).toBe(1);

@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -118,12 +119,7 @@ func (w *pushNotificationWorker) Enqueue(notifications []eventsurface.Notificati
 	// the queue never carries a batch whose first entry is unusable. The
 	// legacy expander can technically emit a zero-method refresh if the
 	// source method slips past trim, and we want to catch that early.
-	filtered := notifications[:0:len(notifications)]
-	for _, n := range notifications {
-		if strings.TrimSpace(n.Method) != "" {
-			filtered = append(filtered, n)
-		}
-	}
+	filtered := clonePushNotifications(notifications)
 	if len(filtered) == 0 {
 		return
 	}
@@ -225,4 +221,85 @@ func (w *pushNotificationWorker) dispatch(req pushRequest) {
 		w.server.NotifyAll(w.pushCtx, w.bridge, n.Method, n.Payload)
 		w.notifySentTotal.Add(1)
 	}
+}
+
+func clonePushNotifications(notifications []eventsurface.Notification) []eventsurface.Notification {
+	filtered := make([]eventsurface.Notification, 0, len(notifications))
+	for _, n := range notifications {
+		if strings.TrimSpace(n.Method) == "" {
+			continue
+		}
+		filtered = append(filtered, eventsurface.Notification{
+			Method:  n.Method,
+			Payload: clonePushPayload(n.Payload),
+		})
+	}
+	return filtered
+}
+
+func clonePushPayload(payload any) any {
+	if payload == nil {
+		return nil
+	}
+	cloned := clonePushValue(reflect.ValueOf(payload))
+	if !cloned.IsValid() {
+		return nil
+	}
+	return cloned.Interface()
+}
+
+func clonePushValue(value reflect.Value) reflect.Value {
+	if !value.IsValid() {
+		return reflect.Value{}
+	}
+	switch value.Kind() {
+	case reflect.Interface:
+		return clonePushInterface(value)
+	case reflect.Map:
+		return clonePushMap(value)
+	case reflect.Slice:
+		return clonePushSlice(value)
+	case reflect.Array:
+		return clonePushArray(value)
+	default:
+		return value
+	}
+}
+
+func clonePushInterface(value reflect.Value) reflect.Value {
+	if value.IsNil() {
+		return reflect.Zero(value.Type())
+	}
+	return clonePushValue(value.Elem())
+}
+
+func clonePushMap(value reflect.Value) reflect.Value {
+	if value.IsNil() {
+		return reflect.Zero(value.Type())
+	}
+	out := reflect.MakeMapWithSize(value.Type(), value.Len())
+	iter := value.MapRange()
+	for iter.Next() {
+		out.SetMapIndex(clonePushValue(iter.Key()), clonePushValue(iter.Value()))
+	}
+	return out
+}
+
+func clonePushSlice(value reflect.Value) reflect.Value {
+	if value.IsNil() {
+		return reflect.Zero(value.Type())
+	}
+	out := reflect.MakeSlice(value.Type(), value.Len(), value.Len())
+	for i := 0; i < value.Len(); i++ {
+		out.Index(i).Set(clonePushValue(value.Index(i)))
+	}
+	return out
+}
+
+func clonePushArray(value reflect.Value) reflect.Value {
+	out := reflect.New(value.Type()).Elem()
+	for i := 0; i < value.Len(); i++ {
+		out.Index(i).Set(clonePushValue(value.Index(i)))
+	}
+	return out
 }

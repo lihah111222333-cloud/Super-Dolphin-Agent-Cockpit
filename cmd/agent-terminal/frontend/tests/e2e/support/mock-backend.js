@@ -727,7 +727,10 @@ function browserInstaller({
         }
         case 'thread/messages': {
           const threadId = (params.threadId || '').toString();
-          const timeline = asArray(state.timelinesByThread[threadId]);
+          const timeline = asArray(state.timelinesByThread[threadId]).filter((item) => {
+            const kind = (item?.kind || '').toString().trim();
+            return kind === 'assistant' || kind === 'user';
+          });
           return {
             total: timeline.length,
             messages: timeline.map((item, index) => ({
@@ -877,12 +880,32 @@ function browserInstaller({
         }
         case 'skills/local/write': {
           const path = normalizePath(params.path || '');
+          const content = (params.content || '').toString();
+          const isMainSkillWrite = path && !path.includes('/');
+          if (isMainSkillWrite) {
+            const skillName = (params.path || '').toString().trim();
+            const parsed = parseSkillContent(content);
+            const dir = normalizePath(`/mock-skills/${parsed.name || skillName}`);
+            ensureSkillFile(`${dir}/SKILL.md`, content, {
+              summary: parsed.summary,
+              summary_source: parsed.summary ? 'frontmatter' : '',
+            });
+            upsertSkillCard({
+              name: parsed.name || skillName,
+              dir,
+              description: parsed.description,
+              summary: parsed.summary,
+              triggerWords: parsed.triggerWords,
+              forceWords: parsed.forceWords,
+            });
+            return { ok: true, path: `${dir}/SKILL.md` };
+          }
           const current = asObject(state.skillFileContents[path]);
           state.skillFileContents[path] = {
             ...current,
-            content: (params.content || '').toString(),
+            content,
           };
-          return { ok: true };
+          return { ok: true, path };
         }
         case 'skills/config/write': {
           const name = (params.name || '').toString().trim();

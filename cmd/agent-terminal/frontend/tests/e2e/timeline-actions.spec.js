@@ -257,11 +257,13 @@ test('tool ticker remains visible on hover and preserves collapsed-tool summary'
   const presence = page.locator('.chat-status-presence').first();
   await expect(ticker).toBeVisible();
   await expect(ticker).toContainText('lsp_grep');
+  await expect(ticker).toContainText('code_run');
   await expect(presence).toHaveAttribute('title', /已收起 2 个工具调用/);
 
   await ticker.hover();
   await page.waitForTimeout(300);
   await expect(ticker).toContainText('lsp_grep');
+  await expect(ticker).toContainText('code_run');
 
   await presence.hover();
   const popover = page.locator('.chat-thinking-hover-popover').first();

@@ -132,4 +132,63 @@ describe('applyRuntimeSnapshot timeline guard', () => {
     expect(state.partial).toBe(false);
   });
 
+  it('ignores dialog items from runtime snapshot while preserving history and runtime items', () => {
+    const localTimeline = Object.freeze([
+      Object.freeze({ id: 'thread-1-history-1', kind: 'user', text: '继续诊断', ts: '2026-03-08T00:00:00Z' }),
+      Object.freeze({ id: 'thread-1-history-2', kind: 'assistant', text: '已收到', ts: '2026-03-08T00:00:01Z' }),
+    ]);
+    const state = {
+      threads: [{ id: 'thread-1', name: 'thread-1', state: 'running' }],
+      statuses: { 'thread-1': 'running' },
+      statusHeadersByThread: { 'thread-1': '思考中' },
+      statusDetailsByThread: { 'thread-1': '' },
+      interruptibleByThread: { 'thread-1': true },
+      timelinesByThread: { 'thread-1': localTimeline },
+      diffTextByThread: {},
+      diffRevisionByThread: {},
+      tokenUsageByThread: {},
+      agentMetaById: {},
+      agentRuntimeById: {},
+      activityStatsByThread: {},
+      alertsByThread: {},
+      activeThreadId: 'thread-1',
+      activeCmdThreadId: '',
+    };
+
+    const remoteSnapshot = {
+      threads: [{ id: 'thread-1', name: 'thread-1', state: 'running' }],
+      statuses: { 'thread-1': 'running' },
+      statusHeadersByThread: { 'thread-1': '思考中' },
+      statusDetailsByThread: { 'thread-1': '' },
+      interruptibleByThread: { 'thread-1': true },
+      timelinesByThread: {
+        'thread-1': [
+          { id: 'assistant-live-1', kind: 'assistant', text: '已收到', ts: '2026-03-08T00:00:01Z' },
+          { id: 'tool-1', kind: 'tool', tool: 'code_run', preview: 'npm run build', ts: '2026-03-08T00:00:02Z' },
+        ],
+      },
+      diffTextByThread: {},
+      diffRevisionByThread: {},
+      tokenUsageByThread: {},
+      agentMetaById: {},
+      agentRuntimeById: {},
+      activityStatsByThread: {},
+      alertsByThread: {},
+      activeThreadId: 'thread-1',
+      activeCmdThreadId: '',
+    };
+
+    applyRuntimeSnapshot(state, remoteSnapshot, {
+      requestedThreadId: 'thread-1',
+      allowActiveSelectionPatch: false,
+      loadedRevisionByThread: new Map(),
+    });
+
+    expect(state.timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ id: 'thread-1-history-1', kind: 'user', text: '继续诊断' }),
+      expect.objectContaining({ id: 'thread-1-history-2', kind: 'assistant', text: '已收到' }),
+      expect.objectContaining({ id: 'tool-1', kind: 'tool', tool: 'code_run' }),
+    ]);
+  });
+
 });

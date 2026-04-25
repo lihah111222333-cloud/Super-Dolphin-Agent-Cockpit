@@ -71,7 +71,18 @@ describe('sendMessage optimistic user message', () => {
     const ctx = buildCtx({
       state: {
         timelinesByThread: {
-          'thread-1': [{ id: 'existing-user', kind: 'user', text: 'hello world', ts: '2026-03-10T12:00:00Z' }],
+          'thread-1': [{
+            id: 'existing-user',
+            kind: 'user',
+            text: 'hello world',
+            ts: '2026-03-10T12:00:00Z',
+            attachments: [{
+              kind: 'file',
+              name: 'notes.txt',
+              path: '/tmp/notes.txt',
+              previewUrl: '',
+            }],
+          }],
         },
       },
     });
@@ -87,12 +98,52 @@ describe('sendMessage optimistic user message', () => {
       id: 'existing-user',
       kind: 'user',
       text: 'hello world',
-      attachments: [expect.objectContaining({
-        kind: 'image',
-        name: 'shot.png',
-        path: '/tmp/shot.png',
-        previewUrl: 'file:///tmp/shot.png',
-      })],
+      attachments: [
+        expect.objectContaining({
+          kind: 'file',
+          name: 'notes.txt',
+          path: '/tmp/notes.txt',
+          previewUrl: '',
+        }),
+        expect.objectContaining({
+          kind: 'image',
+          name: 'shot.png',
+          path: '/tmp/shot.png',
+          previewUrl: 'file:///tmp/shot.png',
+        }),
+      ],
     })]);
+  });
+
+  it('does not add a duplicate optimistic item when the matching user already has the attachment', async () => {
+    const ctx = buildCtx({
+      state: {
+        timelinesByThread: {
+          'thread-1': [{
+            id: 'existing-user',
+            kind: 'user',
+            text: 'hello world',
+            ts: '2026-03-10T12:00:00Z',
+            attachments: [{
+              kind: 'image',
+              name: 'shot.png',
+              path: '/tmp/shot.png',
+              previewUrl: 'file:///tmp/shot.png',
+            }],
+          }],
+        },
+      },
+    });
+
+    await sendMessage(ctx, 'thread-1', 'hello world', [{
+      kind: 'image',
+      name: 'shot.png',
+      path: '/tmp/shot.png',
+      previewUrl: 'file:///tmp/shot.png',
+    }]);
+
+    const timeline = ctx.state.timelinesByThread['thread-1'];
+    expect(timeline).toHaveLength(1);
+    expect(timeline[0]).toEqual(expect.objectContaining({ id: 'existing-user' }));
   });
 });

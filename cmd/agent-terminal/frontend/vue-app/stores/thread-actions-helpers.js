@@ -63,6 +63,24 @@ function cloneOptimisticAttachments(attachments) {
   return out;
 }
 
+function optimisticAttachmentDedupeKey(attachment) {
+  const normalized = normalizeOptimisticAttachment(attachment);
+  if (!normalized) return '';
+  return `${normalized.kind}:${normalized.path || normalized.previewUrl}`;
+}
+
+function mergeOptimisticAttachments(existingAttachments, incomingAttachments) {
+  const seen = new Set();
+  const out = [];
+  for (const item of [...cloneOptimisticAttachments(existingAttachments), ...incomingAttachments]) {
+    const key = optimisticAttachmentDedupeKey(item);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
 function sameOptimisticAttachment(left, right) {
   return (left?.kind || '') === (right?.kind || '')
     && (left?.name || '') === (right?.name || '')
@@ -89,14 +107,25 @@ function upsertOptimisticUserTimelineItem(ctx, threadId, userText, attachments) 
   const existing = Array.isArray(ctx.state.timelinesByThread?.[threadId]) ? ctx.state.timelinesByThread[threadId] : [];
   const normalizedAttachments = cloneOptimisticAttachments(attachments);
   const frozenAttachments = freezeOptimisticAttachments(normalizedAttachments);
-  const matchingIndex = userText
-    ? existing.findIndex((item) => item?.kind === 'user' && (item?.text || '').trim() === userText && (item?.id || '').toString().includes('-optimistic-'))
-    : -1;
+  const matchingIndex = existing.findIndex((item) => {
+    if (item?.kind !== 'user' || (item?.text || '').trim() !== userText) return false;
+    if (normalizedAttachments.length > 0) return true;
+    return userText && (item?.id || '').toString().includes('-optimistic-');
+  });
 
   if (matchingIndex >= 0) {
     const current = existing[matchingIndex];
+    if (normalizedAttachments.length === 0) {
+      if (typeof ctx.logDebug === 'function') ctx.logDebug('ui', 'chat.send.optimistic_skip', {
+        thread_id: threadId,
+        reason: 'matching_user_message_exists',
+        text_preview: userText.slice(0, 80),
+      });
+      return;
+    }
     const currentAttachments = Array.isArray(current?.attachments) ? current.attachments : [];
-    if (sameOptimisticAttachmentList(currentAttachments, normalizedAttachments)) {
+    const mergedAttachments = mergeOptimisticAttachments(currentAttachments, normalizedAttachments);
+    if (sameOptimisticAttachmentList(currentAttachments, mergedAttachments)) {
       if (typeof ctx.logDebug === 'function') ctx.logDebug('ui', 'chat.send.optimistic_skip', {
         thread_id: threadId,
         reason: 'matching_user_message_exists',
@@ -109,14 +138,15 @@ function upsertOptimisticUserTimelineItem(ctx, threadId, userText, attachments) 
       ...current,
       text: userText,
     };
-    if (frozenAttachments) nextItem.attachments = frozenAttachments;
+    const frozenMergedAttachments = freezeOptimisticAttachments(mergedAttachments);
+    if (frozenMergedAttachments) nextItem.attachments = frozenMergedAttachments;
     else delete nextItem.attachments;
     nextTimeline[matchingIndex] = Object.freeze(nextItem);
     ctx.state.timelinesByThread = { ...ctx.state.timelinesByThread, [threadId]: nextTimeline };
     if (typeof ctx.logDebug === 'function') ctx.logDebug('ui', 'chat.send.optimistic_attachments_merged', {
       thread_id: threadId,
       item_id: (current?.id || '').toString(),
-      attachment_count: normalizedAttachments.length,
+      attachment_count: mergedAttachments.length,
       text_preview: userText.slice(0, 80),
     });
     return;

@@ -315,6 +315,9 @@ export function applyRuntimeThreadPatch(ctx, evt, threadId, options = {}) {
   setAlertsEntry(ctx.state, id, payload.alerts, hasAlerts);
 
   const timelineResult = applyTimelineDelta(ctx.state, id, payload);
+  if (timelineResult.changed && ctx.threadLivePatchSeenByThread) {
+    ctx.threadLivePatchSeenByThread.set(id, true);
+  }
   const sequenceGap = Number.isFinite(sequence) && sequence > 0 && previousSequence > 0 && sequence !== previousSequence + 1;
   const needsRecovery = hasRecover || hasRefreshRequired || sequenceGap || timelineResult.needsRecovery;
   if (Number.isFinite(sequence) && sequence > 0) recordThreadPatchMeta(ctx, id, payload.source, sequence, now);

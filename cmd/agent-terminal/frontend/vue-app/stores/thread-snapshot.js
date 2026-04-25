@@ -194,15 +194,35 @@ function pruneTouchedThreadPayloadCache(keepThreadIDs) {
  * - Preserve ALL missing local items (tools, reasoning, files) to prevent UI flicker
  *   caused by delayed backend DB flushes racing with live websocket stream patches.
  */
+function getDialogDedupeSignature(item) {
+  const kind = (item?.kind || '').toString().trim();
+  if (kind !== 'assistant' && kind !== 'user') return '';
+  const text = (item?.text || '').toString().trim();
+  if (!text) return '';
+  const ts = (item?.ts || '').toString().trim();
+  return ts ? `${kind}|${ts}|${text}` : `${kind}||${text}`;
+}
+
 function mergeTimelineWithLocalItems(newItems, oldItems, threadId, requestedThreadId, logWarn) {
   if (!Array.isArray(oldItems) || oldItems.length === 0 || newItems.length === 0) return newItems;
-  const newIds = new Set(newItems.map((i) => i?.id).filter(Boolean));
+  const oldDialogSignatures = new Set(oldItems.map(getDialogDedupeSignature).filter(Boolean));
+  const dedupedNewItems = newItems.filter((item) => !oldDialogSignatures.has(getDialogDedupeSignature(item)));
+  const newIds = new Set(dedupedNewItems.map((i) => i?.id).filter(Boolean));
   // Dialog items (user/assistant) are now sourced exclusively from the
   // thread/messages history RPC path. The uistate snapshot never carries
   // dialog items, so mergeTimelineWithLocalItems only has to reconcile
   // non-dialog items (tools, plan, turn markers) plus strip optimistic
   // holders once any remote dialog is visible on the thread.
   const remoteHasDialog = newItems.some((i) => i?.kind === 'user' || i?.kind === 'assistant');
+  if (dedupedNewItems.length !== newItems.length) {
+    logDebug('thread', 'snapshot.timeline.dialog_items_deduped', {
+      thread_id: threadId,
+      requested_thread_id: requestedThreadId,
+      deduped_count: newItems.length - dedupedNewItems.length,
+      old_timeline_len: oldItems.length,
+      new_timeline_len: newItems.length,
+    });
+  }
 
   const localItems = oldItems.filter((i) => {
     if (newIds.has(i?.id)) return false;
@@ -224,7 +244,7 @@ function mergeTimelineWithLocalItems(newItems, oldItems, threadId, requestedThre
         });
       }
     }
-    return newItems;
+    return dedupedNewItems;
   }
 
   logDebug('thread', 'snapshot.timeline.local_items_preserved', {
@@ -238,7 +258,7 @@ function mergeTimelineWithLocalItems(newItems, oldItems, threadId, requestedThre
     old_timeline_len: oldItems.length,
   });
 
-  const mergedItems = [...newItems, ...localItems];
+  const mergedItems = [...dedupedNewItems, ...localItems];
   mergedItems.sort((a, b) => {
     const tsA = (a && a.ts) ? String(a.ts) : '';
     const tsB = (b && b.ts) ? String(b.ts) : '';
@@ -643,6 +663,8 @@ function finalizeRuntimeSnapshotPatch({
     ['timelinesByThread', patch.timelinesByThread || state.timelinesByThread],
     ['diffTextByThread', patch.diffTextByThread || state.diffTextByThread],
     ['diffRevisionByThread', patch.diffRevisionByThread || state.diffRevisionByThread],
+    ['statusDetailsByThread', patch.statusDetailsByThread || state.statusDetailsByThread],
+    ['agentRuntimeById', patch.agentRuntimeById || state.agentRuntimeById],
   ];
   for (const [key, value] of pruneCandidateMaps) {
     const pruned = pruneThreadPayloadMap(value, keepThreadIDs, key);

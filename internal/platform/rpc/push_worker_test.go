@@ -68,14 +68,14 @@ func (f *fakePushBroadcaster) observed() []fakePushCall {
 // in docs/plans/迁移/p22/P2_BusRuntimeDecoupling.md:415.
 //
 // Contract (dual invariant):
-//   1. The worker must use the cancellable pushCtx passed by Stop, not
-//      `context.Background()` as the pre-P2 callback path did.
-//   2. Legacy expansion semantics (thread/started → thread/started +
-//      ui/thread/changed + ui/sidebar/changed) must arrive at NotifyAll
-//      in the exact order the expander produced them. The worker batches
-//      one push-request per bus event and drains it serially, so the
-//      source notification and its legacy-refresh companions must stay
-//      together + in-order.
+//  1. The worker must use the cancellable pushCtx passed by Stop, not
+//     `context.Background()` as the pre-P2 callback path did.
+//  2. Legacy expansion semantics (thread/started → thread/started +
+//     ui/thread/changed + ui/sidebar/changed) must arrive at NotifyAll
+//     in the exact order the expander produced them. The worker batches
+//     one push-request per bus event and drains it serially, so the
+//     source notification and its legacy-refresh companions must stay
+//     together + in-order.
 func TestRPCPushQueuePreservesLegacyExpansion(t *testing.T) {
 	t.Parallel()
 
@@ -194,11 +194,12 @@ func TestRPCPushWorkerEnqueueNonBlocking(t *testing.T) {
 		entered: make(chan struct{}),
 		block:   make(chan struct{}),
 	}
+	var unblock sync.Once
 	bridge := &PushBridge{logger: pkglogger.Get()}
 	worker := newPushNotificationWorker(broadcaster, bridge, pkglogger.Get())
 	worker.Start()
 	defer func() {
-		close(broadcaster.block)
+		unblock.Do(func() { close(broadcaster.block) })
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		_ = worker.Stop(ctx)
@@ -248,5 +249,77 @@ func TestRPCPushWorkerEmptyNotificationDropped(t *testing.T) {
 	}
 	if got := len(broadcaster.observed()); got != 0 {
 		t.Errorf("NotifyAll invoked for blank batches: %d, want 0", got)
+	}
+}
+
+func TestRPCPushWorkerSnapshotsMutablePayload(t *testing.T) {
+	t.Parallel()
+
+	broadcaster := &fakePushBroadcaster{
+		entered: make(chan struct{}),
+		block:   make(chan struct{}),
+	}
+	var unblock sync.Once
+	bridge := &PushBridge{logger: pkglogger.Get()}
+	worker := newPushNotificationWorker(broadcaster, bridge, pkglogger.Get())
+	worker.Start()
+	defer func() {
+		unblock.Do(func() { close(broadcaster.block) })
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = worker.Stop(ctx)
+	}()
+
+	payload := map[string]any{
+		"thread_id": "before",
+		"nested":    map[string]any{"count": 1},
+		"items":     []any{"before", map[string]any{"state": "before"}},
+	}
+
+	worker.Enqueue([]eventsurface.Notification{{
+		Method:  eventsurface.MethodThreadStarted,
+		Payload: payload,
+	}})
+
+	payload["thread_id"] = "after"
+	payload["nested"].(map[string]any)["count"] = 2
+	payload["items"].([]any)[0] = "after"
+	payload["items"].([]any)[1].(map[string]any)["state"] = "after"
+
+	unblock.Do(func() { close(broadcaster.block) })
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if worker.NotifySentTotal() == 1 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := worker.NotifySentTotal(); got != 1 {
+		t.Fatalf("NotifySentTotal = %d, want 1", got)
+	}
+
+	calls := broadcaster.observed()
+	if len(calls) != 1 {
+		t.Fatalf("NotifyAll call count = %d, want 1", len(calls))
+	}
+	got, ok := calls[0].payload.(map[string]any)
+	if !ok {
+		t.Fatalf("payload type = %T, want map[string]any", calls[0].payload)
+	}
+	if got["thread_id"] != "before" {
+		t.Fatalf("payload thread_id = %#v, want snapshot value %q", got["thread_id"], "before")
+	}
+	nested, _ := got["nested"].(map[string]any)
+	if nested["count"] != 1 {
+		t.Fatalf("payload nested.count = %#v, want snapshot value %d", nested["count"], 1)
+	}
+	items, _ := got["items"].([]any)
+	if items[0] != "before" {
+		t.Fatalf("payload items[0] = %#v, want snapshot value %q", items[0], "before")
+	}
+	itemMap, _ := items[1].(map[string]any)
+	if itemMap["state"] != "before" {
+		t.Fatalf("payload items[1].state = %#v, want snapshot value %q", itemMap["state"], "before")
 	}
 }
