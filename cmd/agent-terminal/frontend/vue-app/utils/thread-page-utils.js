@@ -238,11 +238,23 @@ export function shouldForceThreadSelectionScroll(freshness, pendingApplied = fal
   return Boolean(freshness?.requestedHistory || freshness?.forcedHistoryReload);
 }
 
+function nowMs() {
+  return (typeof performance !== 'undefined' && typeof performance.now === 'function')
+    ? performance.now()
+    : Date.now();
+}
+
+function markCardPerf(perf, stage, startedAt, fields = {}) {
+  if (!perf || typeof perf.mark !== 'function') return;
+  perf.mark(stage, nowMs() - startedAt, fields);
+}
+
 /**
  * @param {BuildVisibleChatThreadCardsOptions | null | undefined} opts
  * @returns {VisibleChatThreadCardState}
  */
 export function buildVisibleChatThreadCards(opts) {
+  const totalStart = nowMs();
   const {
     threads = [],
     selectedThreadId = '',
@@ -256,12 +268,15 @@ export function buildVisibleChatThreadCards(opts) {
     interruptibleOf,
     routingOf,
     pendingLaunchOf,
+    perf,
   } = opts || {};
 
+  const normalizeStart = nowMs();
   const safeThreads = Array.isArray(threads) ? threads : [];
   const safePinnedMap = pinnedMap && typeof pinnedMap === 'object' ? pinnedMap : {};
   const safeArchivedMap = archivedMap && typeof archivedMap === 'object' ? archivedMap : {};
   const safeRuntimeById = runtimeById && typeof runtimeById === 'object' ? runtimeById : {};
+  markCardPerf(perf, 'normalize_inputs', normalizeStart, { source_count: safeThreads.length });
 
   /**
    * @param {ThreadCardSource} thread
@@ -274,26 +289,81 @@ export function buildVisibleChatThreadCards(opts) {
     return Number.isFinite(archivedAt) && archivedAt > 0;
   }
 
-  const activeThreads = safeThreads.filter((thread) => !isArchivedThread(thread));
-  const archivedThreads = safeThreads.filter((thread) => isArchivedThread(thread));
+  const partitionStart = nowMs();
+  const activeThreads = [];
+  const archivedThreads = [];
+  for (const thread of safeThreads) {
+    if (isArchivedThread(thread)) archivedThreads.push(thread);
+    else activeThreads.push(thread);
+  }
   const visibleThreads = showArchived ? archivedThreads : activeThreads;
+  markCardPerf(perf, 'partition_threads', partitionStart, {
+    source_count: safeThreads.length,
+    active_count: activeThreads.length,
+    archived_count: archivedThreads.length,
+    visible_count: visibleThreads.length,
+    show_archived: Boolean(showArchived),
+  });
 
+  let displayNameCalls = 0;
+  let statusCalls = 0;
+  let statusHeaderCalls = 0;
+  let interruptibleCalls = 0;
+  let routingCalls = 0;
+  let pendingLaunchCalls = 0;
+  let runtimeHits = 0;
+  const cardStart = nowMs();
   const cards = visibleThreads.map((thread) => {
     const threadId = (thread?.id || '').toString();
-    const displayName = (typeof displayNameOf === 'function' ? displayNameOf(thread) : '') || threadId;
+    let displayName = '';
+    if (typeof displayNameOf === 'function') {
+      displayNameCalls += 1;
+      displayName = displayNameOf(thread);
+    }
+    displayName = displayName || threadId;
     const pinnedAt = Number(safePinnedMap[threadId]) || 0;
     const archivedAt = Number(safeArchivedMap[threadId]) || 0;
     const isArchived = Number.isFinite(archivedAt) && archivedAt > 0;
     const runtime = safeRuntimeById[threadId];
+    if (runtime) runtimeHits += 1;
     const cwdMismatch = Boolean(runtime?.cwdMismatch);
     const cwdMismatchReason = cwdMismatch ? ((runtime?.cwdMismatchReason || '').toString()) : '';
+    let routing = {};
+    if (typeof routingOf === 'function') {
+      routingCalls += 1;
+      routing = routingOf(threadId) || {};
+    }
+    let pendingLaunch = false;
+    if (typeof pendingLaunchOf === 'function') {
+      pendingLaunchCalls += 1;
+      pendingLaunch = Boolean(pendingLaunchOf(threadId));
+    }
+    let status = 'idle';
+    let statusHeader = '已归档';
+    let interruptible = false;
+    if (!isArchived) {
+      if (typeof statusOf === 'function') {
+        statusCalls += 1;
+        status = statusOf(threadId);
+      }
+      if (typeof statusHeaderOf === 'function') {
+        statusHeaderCalls += 1;
+        statusHeader = statusHeaderOf(threadId) || '等待指示';
+      } else {
+        statusHeader = '等待指示';
+      }
+      if (typeof interruptibleOf === 'function') {
+        interruptibleCalls += 1;
+        interruptible = interruptibleOf(threadId);
+      }
+    }
     return {
       id: threadId,
       name: displayName,
       showId: displayName === threadId,
-      status: isArchived ? 'idle' : (typeof statusOf === 'function' ? statusOf(threadId) : 'idle'),
-      statusHeader: isArchived ? '已归档' : ((typeof statusHeaderOf === 'function' ? statusHeaderOf(threadId) : '') || '等待指示'),
-      interruptible: isArchived ? false : (typeof interruptibleOf === 'function' ? interruptibleOf(threadId) : false),
+      status,
+      statusHeader,
+      interruptible,
       pinnedAt,
       archivedAt,
       isArchived,
@@ -306,25 +376,32 @@ export function buildVisibleChatThreadCards(opts) {
       // Routing metadata captured by startThread (see stores/thread-actions-
       // helpers.js getThreadRouting). Empty when: thread started before the
       // router shipped, router did not match, or caller omitted routingOf.
-      agentKey: (typeof routingOf === 'function'
-        ? ((routingOf(threadId) || {}).agentKey || '')
-        : '').toString().trim(),
+      agentKey: ((routing.agentKey || '')).toString().trim(),
       // Human-readable persona label ("SQL 与数据建模专家" or "候选池 · N 条")
       // surfaced by thread/start or turn/start; the badge shows this rather
       // than the opaque slug so users recognize which prompt is active.
-      agentTitle: (typeof routingOf === 'function'
-        ? ((routingOf(threadId) || {}).agentTitle || '')
-        : '').toString().trim(),
-      promptKey: (typeof routingOf === 'function'
-        ? ((routingOf(threadId) || {}).promptKey || '')
-        : '').toString().trim(),
+      agentTitle: ((routing.agentTitle || '')).toString().trim(),
+      promptKey: ((routing.promptKey || '')).toString().trim(),
       // C1 pending-launch: thread row exists but provider CLI has not been
       // forked yet (awaiting first turn). Card renders a "待启动" marker and
       // the send button shows a "启动中…" state on the first send.
-      pendingLaunch: typeof pendingLaunchOf === 'function'
-        ? Boolean(pendingLaunchOf(threadId))
-        : false,
+      pendingLaunch,
     };
+  });
+  markCardPerf(perf, 'build_cards', cardStart, {
+    visible_count: visibleThreads.length,
+    card_count: cards.length,
+    runtime_hits: runtimeHits,
+    display_name_calls: displayNameCalls,
+    status_calls: statusCalls,
+    status_header_calls: statusHeaderCalls,
+    interruptible_calls: interruptibleCalls,
+    routing_calls: routingCalls,
+    pending_launch_calls: pendingLaunchCalls,
+  });
+  markCardPerf(perf, 'total_build_visible_cards', totalStart, {
+    source_count: safeThreads.length,
+    card_count: cards.length,
   });
 
   return {

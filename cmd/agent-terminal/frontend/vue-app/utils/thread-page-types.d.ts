@@ -47,6 +47,10 @@ export type VisibleChatThreadCard = {
   cwdMismatch: boolean;
   cwdMismatchReason: string;
   provider: string;
+  agentKey: string;
+  agentTitle: string;
+  promptKey: string;
+  pendingLaunch: boolean;
 };
 
 export type BuildVisibleChatThreadCardsOptions = {
@@ -61,6 +65,11 @@ export type BuildVisibleChatThreadCardsOptions = {
   statusOf?: (threadId: string) => string;
   statusHeaderOf?: (threadId: string) => string;
   interruptibleOf?: (threadId: string) => boolean;
+  routingOf?: (threadId: string) => { agentKey?: string; agentTitle?: string; promptKey?: string } | null | undefined;
+  pendingLaunchOf?: (threadId: string) => boolean;
+  perf?: {
+    mark?: (stage: string, durationMs: number, fields?: Record<string, any>) => void;
+  };
 };
 
 export type VisibleChatThreadCardState = {

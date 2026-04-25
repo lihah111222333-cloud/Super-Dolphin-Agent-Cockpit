@@ -14,6 +14,28 @@ import { createPinnedPlanState } from './useThreadCards.pinned-plan.js';
  * @typedef {import('../utils/thread-page-types').ProcessActivityItem} ProcessActivityItem
  */
 
+const CARD_RENDER_WARN_MS = 16;
+const CARD_RENDER_DEBUG_MS = 4;
+const CARD_RENDER_SAMPLE_LIMIT = 8;
+
+function roundPerfMs(value) {
+  return Math.round(Number(value || 0) * 100) / 100;
+}
+
+function createCardPerfCollector() {
+  const marks = [];
+  return {
+    marks,
+    mark(stage, durationMs, fields = {}) {
+      marks.push({
+        stage,
+        duration_ms: roundPerfMs(durationMs),
+        ...fields,
+      });
+    },
+  };
+}
+
 function processActivityId(item, kind, index) {
   return (item.id || `${kind}-${index}`).toString();
 }
@@ -157,6 +179,8 @@ function createVisibleChatThreadCardState(props, deps) {
   const threadCardCache = new Map();
   const visibleChatThreadCardState = computed(() => {
     const start = performance.now();
+    const buildStart = performance.now();
+    const perf = createCardPerfCollector();
     const raw = buildVisibleChatThreadCards({
       threads: chatThreadOptions.value,
       selectedThreadId: selectedThreadId.value,
@@ -170,16 +194,27 @@ function createVisibleChatThreadCardState(props, deps) {
       statusOf: (threadId) => normalizeStatus(props.threadStore.getThreadStatus(threadId)),
       statusHeaderOf: (threadId) => getThreadStatusHeader(threadId),
       interruptibleOf: (threadId) => isThreadInterruptible(threadId),
+      perf,
     });
+    const buildDuration = performance.now() - buildStart;
 
     let recycleCount = 0;
+    let newCardCount = 0;
+    let changedCardCount = 0;
+    let fieldCompareCount = 0;
+    const changedSamples = [];
+    const recycleStart = performance.now();
+    const cacheSizeBefore = threadCardCache.size;
     const recycledCards = raw.cards.map((card) => {
       const cached = threadCardCache.get(card.id);
       if (cached) {
         let isSame = true;
+        let changedKey = '';
         for (const key in card) {
+          fieldCompareCount += 1;
           if (card[key] !== cached[key]) {
             isSame = false;
+            changedKey = key;
             break;
           }
         }
@@ -187,18 +222,42 @@ function createVisibleChatThreadCardState(props, deps) {
           recycleCount += 1;
           return cached;
         }
+        changedCardCount += 1;
+        if (changedSamples.length < CARD_RENDER_SAMPLE_LIMIT) {
+          changedSamples.push({ id: card.id, key: changedKey || 'unknown' });
+        }
+      } else {
+        newCardCount += 1;
+        if (changedSamples.length < CARD_RENDER_SAMPLE_LIMIT) {
+          changedSamples.push({ id: card.id, key: 'new' });
+        }
       }
       threadCardCache.set(card.id, card);
       return card;
     });
+    const recycleDuration = performance.now() - recycleStart;
 
     const elapsed = performance.now() - start;
-    if (elapsed > 1.5 || raw.cards.length > 0) {
+    if (elapsed > CARD_RENDER_DEBUG_MS) {
       import('../services/log.js').then((m) => {
-        m.logWarn('ui', 'chat.render.cards.perf', {
-          duration_ms: Math.round(elapsed * 100) / 100,
+        const log = elapsed > CARD_RENDER_WARN_MS ? m.logWarn : m.logDebug;
+        log('ui', 'chat.render.cards.perf', {
+          duration_ms: roundPerfMs(elapsed),
+          warn_threshold_ms: CARD_RENDER_WARN_MS,
+          build_duration_ms: roundPerfMs(buildDuration),
+          recycle_duration_ms: roundPerfMs(recycleDuration),
+          phase_marks: perf.marks,
+          source_threads: Array.isArray(chatThreadOptions.value) ? chatThreadOptions.value.length : 0,
           total_cards: raw.cards.length,
+          active_count: raw.activeCount,
+          archived_count: raw.archivedCount,
           recycled_cards: recycleCount,
+          new_cards: newCardCount,
+          changed_cards: changedCardCount,
+          field_compares: fieldCompareCount,
+          cache_size_before: cacheSizeBefore,
+          cache_size_after: threadCardCache.size,
+          changed_samples: changedSamples,
         });
       });
     }

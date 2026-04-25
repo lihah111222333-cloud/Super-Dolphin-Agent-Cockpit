@@ -821,4 +821,47 @@ describe('buildVisibleChatThreadCards', () => {
         expect(result.cards[0].status).toBe('idle');
         expect(result.cards[0].statusHeader).toBe('已归档');
     });
+
+    it('records card build perf phases and avoids repeated routing lookups', () => {
+        const marks = [];
+        let routingCalls = 0;
+        const result = buildVisibleChatThreadCards({
+            threads: [
+                { id: 'thread-1', name: 'One' },
+                { id: 'thread-2', name: 'Two' },
+            ],
+            runtimeById: { 'thread-1': { provider: 'codex' } },
+            routingOf(threadId) {
+                routingCalls += 1;
+                return { agentKey: `agent:${threadId}`, agentTitle: 'Agent', promptKey: 'prompt/default' };
+            },
+            pendingLaunchOf: (threadId) => threadId === 'thread-2',
+            perf: {
+                mark(stage, durationMs, fields) {
+                    marks.push({ stage, durationMs, fields });
+                },
+            },
+        });
+
+        expect(result.cards).toHaveLength(2);
+        expect(routingCalls).toBe(2);
+        expect(result.cards[0]).toEqual(expect.objectContaining({
+            agentKey: 'agent:thread-1',
+            agentTitle: 'Agent',
+            promptKey: 'prompt/default',
+        }));
+        expect(result.cards[1]).toEqual(expect.objectContaining({ pendingLaunch: true }));
+        expect(marks.map((item) => item.stage)).toEqual([
+            'normalize_inputs',
+            'partition_threads',
+            'build_cards',
+            'total_build_visible_cards',
+        ]);
+        expect(marks.find((item) => item.stage === 'build_cards').fields).toEqual(expect.objectContaining({
+            card_count: 2,
+            routing_calls: 2,
+            pending_launch_calls: 2,
+            runtime_hits: 1,
+        }));
+    });
 });
