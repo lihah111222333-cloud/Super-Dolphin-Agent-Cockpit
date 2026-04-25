@@ -84,6 +84,29 @@ func TestBuildAllowlistedSpawnEnvTolerantOfMalformed(t *testing.T) {
 	}
 }
 
+// Regression: Windows uses "Path" instead of "PATH". A case-sensitive
+// allowlist used to drop it, leaving the spawned cmd.exe with no PATH
+// and breaking node lookup for npm-shimmed CLIs.
+func TestBuildAllowlistedSpawnEnvCaseInsensitive(t *testing.T) {
+	t.Parallel()
+	parent := []string{
+		"Path=C:\\Program Files\\nodejs;C:\\Windows",
+		"TeMp=C:\\Users\\a\\AppData\\Local\\Temp",
+		"Bogus=should-drop",
+	}
+	got := buildAllowlistedSpawnEnv(parent, nil)
+	text := strings.Join(got, "\n")
+	if !strings.Contains(text, "Path=C:\\Program Files\\nodejs;C:\\Windows") {
+		t.Errorf("Windows-style Path should propagate: %v", got)
+	}
+	if !strings.Contains(text, "TeMp=C:\\Users\\a\\AppData\\Local\\Temp") {
+		t.Errorf("mixed-case TEMP should propagate: %v", got)
+	}
+	if strings.Contains(text, "Bogus=") {
+		t.Errorf("non-allowlisted key still dropped: %v", got)
+	}
+}
+
 func TestBuildAllowlistedSpawnEnvIgnoresEmptyOverrideKey(t *testing.T) {
 	t.Parallel()
 	got := buildAllowlistedSpawnEnv(nil, map[string]string{"": "ignored", "  ": "also", "OK": "v"})
