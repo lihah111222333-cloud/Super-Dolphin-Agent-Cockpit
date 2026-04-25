@@ -10,13 +10,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	commandcardstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/commandcard"
 	promptstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools"
 	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
@@ -106,6 +106,14 @@ func (a threadStoreAdapter) GetByThreadID(ctx context.Context, threadID string) 
 	return &pt, nil
 }
 
+func (a threadStoreAdapter) UpdateStatus(ctx context.Context, params orchestration.PersistedThreadStatusUpdate) error {
+	return a.inner.UpdateStatus(ctx, threadstore.UpdateStatusParams{
+		ThreadID:  params.ThreadID,
+		Status:    params.Status,
+		UpdatedAt: params.UpdatedAt,
+	})
+}
+
 func toPersistedThread(t threadstore.Thread) orchestration.PersistedThread {
 	return orchestration.PersistedThread{
 		ThreadID:      t.ThreadID,
@@ -148,6 +156,14 @@ func (a bindingStoreAdapter) GetByAgentID(ctx context.Context, agentID string) (
 		UpdatedAt:        b.UpdatedAt,
 	}
 	return &pb, nil
+}
+
+func (a bindingStoreAdapter) SetArchived(ctx context.Context, params orchestration.PersistedBindingArchiveUpdate) error {
+	return a.inner.SetArchived(ctx, bindingstore.SetArchivedParams{
+		AgentID:   params.AgentID,
+		Archived:  params.Archived,
+		UpdatedAt: params.UpdatedAt,
+	})
 }
 
 func newAgentThreadStore(pool *pgxpool.Pool) orchestration.AgentThreadStore {

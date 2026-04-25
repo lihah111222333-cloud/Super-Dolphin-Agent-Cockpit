@@ -179,6 +179,45 @@ func TestListAgentsHandlerFiltersCommaSeparatedState(t *testing.T) {
 	}
 }
 
+func TestStopAgentHandlerArchivesWhenSupported(t *testing.T) {
+	svc := &archiveCapableOrchestrationStub{}
+	handler := HandleStopAgent(svc)
+
+	result, err := handler(context.Background(), json.RawMessage(`{"agent_id":" agent-1 "}`))
+	if err != nil {
+		t.Fatalf("HandleStopAgent() error = %v", err)
+	}
+	if svc.archivedAgentID != "agent-1" {
+		t.Fatalf("archived agent = %q, want agent-1", svc.archivedAgentID)
+	}
+	if svc.stoppedAgentID != "" {
+		t.Fatalf("stopped agent = %q, want ArchiveAgent path only", svc.stoppedAgentID)
+	}
+	got, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("HandleStopAgent() result type = %T, want map[string]any", result)
+	}
+	if got["success"] != true || got["agent_id"] != "agent-1" || got["archived"] != true {
+		t.Fatalf("HandleStopAgent() result = %#v, want success archived agent-1", got)
+	}
+}
+
+type archiveCapableOrchestrationStub struct {
+	golden.OrchestrationStub
+	archivedAgentID string
+	stoppedAgentID  string
+}
+
+func (s *archiveCapableOrchestrationStub) ArchiveAgent(_ context.Context, agentID string) error {
+	s.archivedAgentID = agentID
+	return nil
+}
+
+func (s *archiveCapableOrchestrationStub) StopAgent(_ context.Context, agentID string) error {
+	s.stoppedAgentID = agentID
+	return nil
+}
+
 func TestLaunchHandlerAllowsMCPOrchExecutable(t *testing.T) {
 	originalExecutable := osExecutable
 	osExecutable = func() (string, error) { return "/tmp/mcp-orch", nil }
