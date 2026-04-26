@@ -11,6 +11,7 @@ import (
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -273,9 +274,13 @@ func (h *MemoryLifecycleHooks) resolveDreamExtractFunc() (ExtractFunc, error) {
 }
 
 func (h *MemoryLifecycleHooks) launchAutoDreamTask(taskCtx context.Context, threadID string, plan autoDreamExecutionPlan) {
-	go func() {
+	// SafeGo wraps the task with panic recovery + structured logging so a
+	// crash in consolidator does not bring down the process. Mirrors the
+	// pattern in team/team_sync_watcher.go:76. Without this, a panic in
+	// the background dream task would propagate to runtime and abort.
+	runtimesafe.SafeGo(taskCtx, h.logger, "memory.autoDream.task", func(ctx context.Context) {
 		defer h.finishDreamTask()
-		err := h.consolidator.consolidateWithOptions(taskCtx, plan.root, plan.extractFn, consolidationRunOptions{
+		err := h.consolidator.consolidateWithOptions(ctx, plan.root, plan.extractFn, consolidationRunOptions{
 			cfg:            h.cfg,
 			now:            h.now,
 			runtimeContext: buildConsolidationRuntimeContext("background auto-dream stop hook", plan.sessionCount, plan.lastSuccess, threadID),
@@ -292,7 +297,7 @@ func (h *MemoryLifecycleHooks) launchAutoDreamTask(taskCtx context.Context, thre
 		// Consolidation rewrote MEMORY.md; flush the prompt cache so the
 		// next AssembleStart picks up the consolidated index.
 		h.invalidateMemorySections()
-	}()
+	})
 }
 
 func (h *MemoryLifecycleHooks) isGateOpen(meta threadRuntimeMetadata) bool {

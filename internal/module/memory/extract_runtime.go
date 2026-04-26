@@ -211,6 +211,14 @@ func (h *MemoryLifecycleHooks) DrainPendingExtraction(ctx context.Context) error
 	if h == nil {
 		return nil
 	}
+	// Set drainClosed under drainMu before Wait(): any concurrent
+	// enqueueBackgroundExtraction holding drainMu will finish its Add(1)
+	// before we proceed, and any new enqueue arriving after will read
+	// drainClosed=true and skip Add. Without this guard, Add(1) racing
+	// with Wait() on a counter that just hit zero panics.
+	h.drainMu.Lock()
+	h.drainClosed = true
+	h.drainMu.Unlock()
 	done := make(chan struct{})
 	go func() {
 		h.extractWG.Wait()
@@ -264,7 +272,20 @@ func (h *MemoryLifecycleHooks) enqueueBackgroundExtraction(threadID string, hand
 	if !start {
 		return
 	}
+	// Guard Add(1) against a concurrent Drain: if drainClosed is set,
+	// the service is closing and Add() would race Wait(). Drop silently.
+	// Important: state.markPending above already flipped state.inProgress
+	// to true; if we drop the enqueue we MUST roll back the state flag,
+	// otherwise ExtractionState.inProgress stays true forever and any
+	// future enqueue for this thread is silently rejected by markPending.
+	h.drainMu.Lock()
+	if h.drainClosed {
+		h.drainMu.Unlock()
+		state.finish()
+		return
+	}
 	h.extractWG.Add(1)
+	h.drainMu.Unlock()
 	go h.runBackgroundExtraction(threadID, state)
 }
 

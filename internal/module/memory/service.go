@@ -60,6 +60,19 @@ type MemoryLifecycleHooks struct {
 	handledTurnInputs map[string]struct{}
 	extractWG         sync.WaitGroup
 
+	// drainMu + drainClosed guard the extractWG against the classic
+	// sync.WaitGroup race: once DrainPendingExtraction calls Wait(),
+	// concurrent Add(1) from a new enqueueBackgroundExtraction can panic
+	// with "WaitGroup is reused before previous Wait has returned".
+	// drainClosed is set monotonically in Drain (close-path semantics);
+	// new enqueues entering after Drain are dropped. Field is named
+	// `drainClosed` (not `drainPending`) to avoid confusion with the
+	// unrelated `drainPending()` method on nestedIngestWorker /
+	// teamSyncCoordinator in the same package, which empty a queue
+	// rather than flag a close.
+	drainMu     sync.Mutex
+	drainClosed bool
+
 	dreamMu   sync.Mutex
 	dreamTask *dreamTaskState
 }
