@@ -75,6 +75,12 @@ type MemoryLifecycleHooks struct {
 
 	dreamMu   sync.Mutex
 	dreamTask *dreamTaskState
+
+	// crossScopeWarned dedups cross-scope same-name warns emitted by
+	// writeIntent (Phase 4.1a 子项 3.3): each name is logged at most
+	// once per process to avoid log spam on repeated explicit writes
+	// against the same entry. Key: entry.Name (string).
+	crossScopeWarned sync.Map
 }
 
 var saveIntentPatterns = []*regexp.Regexp{
@@ -281,7 +287,62 @@ func (h *MemoryLifecycleHooks) writeIntent(ctx context.Context, threadID string,
 	if err != nil {
 		return err
 	}
+	primaryScope, secondaryScope := scopeNamesForIntentStores(entry.Type, secondary != nil)
+	h.warnCrossScopeSameName(entry.Name, store, primary, secondary, primaryScope, secondaryScope)
 	return upsertStructuredMemory(store, entry, options)
+}
+
+// warnCrossScopeSameName logs a single warn (dedup'd by name) when the
+// same-name entry exists in BOTH the selected store and the other store
+// of the (primary, secondary) pair. Combined mode invariant: explicit
+// writes pick one scope, but if the entry already exists in the other
+// scope under the same name, future retrieval may surface either copy
+// depending on ranking. The warn signals this divergence to operators
+// without blocking the write. Phase 4.1a 子项 3.3.
+func (h *MemoryLifecycleHooks) warnCrossScopeSameName(name string, selected, primary, secondary memoryStructuredStore, primaryScope, secondaryScope string) {
+	if h == nil || h.logger == nil {
+		return
+	}
+	var (
+		other              memoryStructuredStore
+		selScope, oppScope string
+	)
+	switch selected {
+	case primary:
+		other, selScope, oppScope = secondary, primaryScope, secondaryScope
+	case secondary:
+		other, selScope, oppScope = primary, secondaryScope, primaryScope
+	}
+	if other == nil {
+		return
+	}
+	if _, err := other.Read(name); err != nil {
+		return
+	}
+	if _, loaded := h.crossScopeWarned.LoadOrStore(name, struct{}{}); loaded {
+		return
+	}
+	h.logger.Warn("memory cross-scope same-name entry detected",
+		"name", name,
+		"selected_scope", selScope,
+		"other_scope", oppScope,
+		"note", "explicit write went to selected store; same-name entry exists in the other scope",
+	)
+}
+
+// scopeNamesForIntentStores returns the scope tag corresponding to the
+// (primary, secondary) pair returned by intentDiskStores. Mirrors the
+// routing logic at intentDiskStores: when no team store is available,
+// primary is always private; otherwise primary depends on
+// defaultTeamMemoryType. Phase 4.1a 子项 3.3.
+func scopeNamesForIntentStores(memoryType MemoryType, hasSecondary bool) (primaryScope, secondaryScope string) {
+	if !hasSecondary {
+		return "private", ""
+	}
+	if defaultTeamMemoryType(memoryType) {
+		return "team", "private"
+	}
+	return "private", "team"
 }
 
 func (h *MemoryLifecycleHooks) deleteIntent(ctx context.Context, threadID string, intent ForgetIntent) error {
