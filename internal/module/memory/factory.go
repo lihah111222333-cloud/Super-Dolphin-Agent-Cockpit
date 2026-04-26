@@ -2,13 +2,11 @@ package memory
 
 import (
 	"context"
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolresults"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 )
@@ -56,29 +54,12 @@ func newAutoDreamSchedulerProvider(p autoDreamSchedulerProviderParams) *autoDrea
 
 func newNestedIngestWorkerProvider(p nestedIngestWorkerProviderParams) *nestedIngestWorker {
 	if p.NestedRuntime != nil {
-		p.NestedRuntime.SetToolReadCacheRoot(nestedToolReadCacheRoot())
+		// Empty cache root (host without UserCacheDir nor TempDir) disables
+		// persistedPath reads via NestedRuntime.SetToolReadCacheRoot's
+		// empty-root contract — fail-closed.
+		p.NestedRuntime.SetToolReadCacheRoot(toolresults.CacheDir())
 	}
 	return newNestedIngestWorker(p.NestedRuntime, pkglogger.Get())
-}
-
-// nestedToolReadCacheRoot returns the persisted tool-result cache root that
-// NestedRuntime contains its ToolCallEnd persistedPath reads against (P24
-// cache-root-threading). The path is duplicated from
-// internal/module/turn/tool_result_storage.go's toolResultStorageDir() because
-// memory.Module sits below turn in the platform dependency order (see
-// internal/app/modules.go) and importing turn here would invert it. Keep the
-// two computations in lock-step. An empty return disables persistedPath reads
-// outright via SetToolReadCacheRoot's empty-root contract — fail-closed if the
-// host has neither UserCacheDir nor TempDir.
-func nestedToolReadCacheRoot() string {
-	base, err := os.UserCacheDir()
-	if err != nil || strings.TrimSpace(base) == "" {
-		base = os.TempDir()
-	}
-	if strings.TrimSpace(base) == "" {
-		return ""
-	}
-	return filepath.Join(base, "super-agent-v3", "tool-results")
 }
 
 func newTeamSyncCoordinatorProvider(p teamSyncCoordinatorProviderParams) *teamSyncCoordinator {
