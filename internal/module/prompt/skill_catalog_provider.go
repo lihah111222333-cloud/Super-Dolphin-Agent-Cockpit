@@ -18,7 +18,7 @@ import (
 // ============================================================================
 //
 // 任务清单（§4 Phase 8 + §3.3 + §3.7）：
-//   - 按 trust 分组：Core（user/signed）/ Redacted（project + unapproved）/
+//   - 按 trust 分组：Core（user/project/signed）/ Redacted（unknown/invalid + unapproved）/
 //     Native（Claude CLI 原生接管）/ Manual-only（disable-model-invocation=true）
 //   - 对 untrusted skill 不暴露作者原始 description/summary，用固定模板提示
 //   - token 预算截断
@@ -46,7 +46,7 @@ type NativeSkillDetector interface {
 }
 
 // skillCatalogRedactionTemplate 是 P20.1 §3.3 规定的固定占位模板。
-// 对 untrusted + unapproved 的 project skill 使用——不暴露作者原始 metadata，
+// 对 untrusted/异常 + unapproved skill 使用——不暴露作者原始 metadata，
 // 避免攻击者通过 summary/description 做指令注入。
 const skillCatalogRedactionTemplate = "Untrusted project skill. Metadata hidden until approval. " +
 	"To inspect details, request approval and call `skill_expand_body(\"%s\")`."
@@ -352,7 +352,7 @@ func (p SkillCatalogProvider) collectNativeNames(input SectionContext) map[strin
 // skillManifestGroups 是按语义分组的 skill 列表。
 type skillManifestGroups struct {
 	Core       []skillpkg.SkillInfo // trusted/approved：完整元数据
-	Redacted   []skillpkg.SkillInfo // project + unapproved：占位符
+	Redacted   []skillpkg.SkillInfo // unknown/invalid + unapproved：占位符
 	Native     []skillpkg.SkillInfo // Claude CLI 原生接管
 	ManualOnly []skillpkg.SkillInfo // disable-model-invocation=true
 }
@@ -364,12 +364,12 @@ func (g skillManifestGroups) isEmpty() bool {
 // groupSkillsForManifest 按优先级分组（P20.1 §3.3 红线 A：untrusted 元数据净化）：
 //
 //  1. native 命中 → Native 组（最高优先级：provider 接管 body，harness 只标注存在）
-//  2. Trust=Project/Unknown → Redacted 组（净化优先级 > DisableModelInvocation）
-//     ⏱ 关键安全不变量：untrusted skill 无论是否标 disable-model-invocation，
+//  2. Trust=Unknown/invalid → Redacted 组（净化优先级 > DisableModelInvocation）
+//     ⏱ 关键安全不变量：确定不可信/异常 skill 无论是否标 disable-model-invocation，
 //     其 name + description + summary 都不得以明文或 "/" slash 提示的形式
 //     出现，否则攻击者通过 .agent/skills/evil 的恶意 frontmatter 可绕过净化。
-//  3. 剩下 trusted (User/Signed) + DisableModelInvocation=true → ManualOnly
-//  4. 剩下 trusted (User/Signed) → Core
+//  3. 剩下本地/可信 (User/Project/Signed) + DisableModelInvocation=true → ManualOnly
+//  4. 剩下本地/可信 (User/Project/Signed) → Core
 //
 // 同一 skill 仅进入一个组。排序在每组内按 Name 字典序。
 func groupSkillsForManifest(infos []skillpkg.SkillInfo, nativeNames map[string]struct{}) skillManifestGroups {
@@ -436,11 +436,12 @@ func catalogApprovalRequests(info skillpkg.SkillInfo, cwd string) []contract.Art
 	return []contract.ArtifactApprovalRequest{metadata, body}
 }
 
-// isUntrustedScope 判定 Trust 是否属于“非 User/Signed”。Project / Unknown / 任何
-// 未知非合法值均视为 untrusted（默认最保守）。仅 TrustUser、TrustSigned 解锁。
+// isUntrustedScope 判定 Trust 是否属于“确定不可信/异常来源”。
+// 本地用户级 / 项目级 skill（TrustUser / TrustProject）和已签名 skill 均展示 metadata；
+// Unknown / 任何未知非合法值仍视为 untrusted（默认最保守）。
 func isUntrustedScope(t skillpkg.TrustScope) bool {
 	switch t {
-	case skillpkg.TrustUser, skillpkg.TrustSigned:
+	case skillpkg.TrustUser, skillpkg.TrustProject, skillpkg.TrustSigned:
 		return false
 	}
 	return true
