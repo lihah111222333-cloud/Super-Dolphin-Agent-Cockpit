@@ -18,14 +18,13 @@ func TestPlanFreezeRegistryAutoFixes(t *testing.T) {
 		}
 	}
 
-	prev := explicitFreezeRegistry
 	// 2026-04-17 默认守卫放宽到 MaxFileLines=600 后，fixture 也需配套抬升，
 	// 确保 shrink 分支设计意图（Limit > default 且 default < observed < Limit）仍能被触发。
 	const shrinkFreezeLimit = MaxFileLines + 200 // 800
 	const shrinkObserved = MaxFileLines + 100    // 700
 	const deleteFreezeLimit = MaxFileLines + 50  // 650
 	const deleteObserved = MaxFileLines - 200    // 400 <= 600 触发 delete
-	explicitFreezeRegistry = []explicitFreeze{
+	registry := []explicitFreeze{
 		{
 			Path:       "internal/module/memory",
 			Kind:       ViolationFile,
@@ -43,16 +42,13 @@ func TestPlanFreezeRegistryAutoFixes(t *testing.T) {
 			RemoveWhen: "done",
 		},
 	}
-	t.Cleanup(func() {
-		explicitFreezeRegistry = prev
-	})
 
 	stats := map[string]*packageStat{
 		"internal/module/memory": {MaxFileLines: shrinkObserved},
 		"internal/module/thread": {MaxFileLines: deleteObserved},
 	}
 
-	fixes, next := planFreezeRegistryAutoFixes(repoRoot, []string{"internal"}, stats)
+	fixes, next := planFreezeRegistryAutoFixesForEntries(repoRoot, []string{"internal"}, stats, registry)
 	if len(fixes) != 2 {
 		t.Fatalf("planFreezeRegistryAutoFixes() fixes = %d, want 2", len(fixes))
 	}
