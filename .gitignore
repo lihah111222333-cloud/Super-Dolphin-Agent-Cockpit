@@ -60,6 +60,9 @@ Thumbs.db
 # Keep agent workflows tracked for team collaboration
 !/.agent/workflows/
 !/.agent/workflows/**
+# Keep agent skills tracked for team collaboration
+!/.agent/skills/
+!/.agent/skills/**
 # Local Claude harness state (settings, scheduled-task locks, per-user memory stores)
 /.claude/
 /.code_exec/
