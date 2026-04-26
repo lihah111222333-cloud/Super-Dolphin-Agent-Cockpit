@@ -14,9 +14,7 @@ import (
 )
 
 func TestHandleSystemInitRawStartsLogWatcherAndUsesRuntimeContextWindow(t *testing.T) {
-	oldPollInterval := defaultSessionLogWatcherPollInterval
-	defaultSessionLogWatcherPollInterval = 10 * time.Millisecond
-	defer func() { defaultSessionLogWatcherPollInterval = oldPollInterval }()
+	defer swapDefaultSessionLogWatcherPollIntervalForTest(10 * time.Millisecond)()
 
 	dir := t.TempDir()
 	sessionID := "session-1"
