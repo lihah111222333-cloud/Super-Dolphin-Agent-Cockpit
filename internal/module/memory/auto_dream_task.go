@@ -57,16 +57,24 @@ func (h *MemoryLifecycleHooks) KillDreamTask() error {
 	return nil
 }
 
-func (h *MemoryLifecycleHooks) startDreamTask(threadID string) (context.Context, bool) {
+func (h *MemoryLifecycleHooks) startDreamTask(parent context.Context, threadID string) (context.Context, bool) {
 	if h == nil {
 		return nil, false
+	}
+	if parent == nil {
+		parent = context.Background()
+	}
+	select {
+	case <-parent.Done():
+		return nil, false
+	default:
 	}
 	h.dreamMu.Lock()
 	defer h.dreamMu.Unlock()
 	if h.dreamTask != nil {
 		return nil, false
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(parent)
 	h.dreamTask = &dreamTaskState{
 		threadID: threadID,
 		phase:    dreamTaskPhaseStarting,
@@ -177,7 +185,7 @@ func (h *MemoryLifecycleHooks) maybeScheduleAutoDream(ctx context.Context, threa
 	if err != nil || !ok {
 		return false, err
 	}
-	taskCtx, started := h.startDreamTask(threadID)
+	taskCtx, started := h.startDreamTask(ctx, threadID)
 	if !started {
 		return false, nil
 	}

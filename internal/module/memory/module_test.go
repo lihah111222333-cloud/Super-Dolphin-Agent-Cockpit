@@ -126,7 +126,7 @@ func TestAutoDreamServiceExposesDreamTaskLifecycle(t *testing.T) {
 		NewMemoryExtractor(),
 		NewManifestBuilder(),
 	)
-	taskCtx, started := hooks.startDreamTask("thread-1")
+	taskCtx, started := hooks.startDreamTask(context.Background(), "thread-1")
 	if !started {
 		t.Fatal("startDreamTask() = false, want true")
 	}
@@ -156,6 +156,37 @@ func TestAutoDreamServiceExposesDreamTaskLifecycle(t *testing.T) {
 	}
 	if err := svc.KillDreamTask(); !errors.Is(err, ErrDreamTaskNotRunning) {
 		t.Fatalf("KillDreamTask() after finish error = %v, want %v", err, ErrDreamTaskNotRunning)
+	}
+}
+
+func TestAutoDreamTaskInheritsParentCancellation(t *testing.T) {
+	hooks := newMemoryLifecycleHooks(
+		&Config{Enabled: true, RootDir: newTestMemoryRoot(t)},
+		NewAutoDreamConsolidator(NewMemoryExtractor()),
+		nil,
+		nil,
+		nil,
+		nil,
+		NewMemoryExtractor(),
+		NewManifestBuilder(),
+	)
+	parent, cancelParent := context.WithCancel(context.Background())
+	taskCtx, started := hooks.startDreamTask(parent, "thread-1")
+	if !started {
+		t.Fatal("startDreamTask() = false, want true")
+	}
+	cancelParent()
+	select {
+	case <-taskCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("parent cancellation did not cancel dream task context")
+	}
+	hooks.finishDreamTask()
+
+	canceledParent, cancelCanceledParent := context.WithCancel(context.Background())
+	cancelCanceledParent()
+	if taskCtx, started := hooks.startDreamTask(canceledParent, "thread-2"); started || taskCtx != nil {
+		t.Fatalf("startDreamTask(canceled parent) = (%v, %v), want nil, false", taskCtx, started)
 	}
 }
 
