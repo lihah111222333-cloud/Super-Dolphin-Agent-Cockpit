@@ -180,29 +180,57 @@ func (s *session) ForceComplete(ctx context.Context, req dto.ForceCompleteReques
 	if err := shared.CheckCtx(ctx); err != nil {
 		return err
 	}
-	if err := s.transport.signalProcess(sigInterrupt); err != nil {
-		return err
+	providerID := strings.TrimSpace(req.ProviderID)
+	tr, handle, turnID := s.forceCompleteTarget(providerID)
+	if handle == nil || turnID == "" {
+		return nil
 	}
-	s.forceCompleteTurn(strings.TrimSpace(req.ProviderID))
+	if tr != nil {
+		if err := tr.signalProcess(sigInterrupt); err != nil {
+			return err
+		}
+	}
+	s.forceCompleteTurn(handle, turnID)
 	return nil
 }
 
-func (s *session) forceCompleteTurn(turnID string) {
-	if turnID == "" {
-		turnID = currentTurnID(s.activeTurnHandle())
+func (s *session) forceCompleteTarget(providerID string) (*transport, *turnHandle, string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	handle := s.activeTurn
+	turnID := currentTurnID(handle)
+	if handle == nil || turnID == "" {
+		return s.transport, nil, ""
 	}
-	if turnID == "" {
+	if providerID != "" && turnID != providerID {
+		return s.transport, nil, ""
+	}
+	return s.transport, handle, turnID
+}
+
+func (s *session) forceCompleteTurn(target *turnHandle, turnID string) {
+	if target == nil || turnID == "" {
 		return
 	}
-	s.suppressTurn(turnID)
-	s.dispatch(s.turnRawEvent("turn:complete", turnID, map[string]any{
+	var complete dto.RawProviderEvent
+	s.mu.Lock()
+	if s.activeTurn != target || currentTurnID(s.activeTurn) != turnID {
+		s.mu.Unlock()
+		return
+	}
+	if s.suppressedTurns == nil {
+		s.suppressedTurns = map[string]struct{}{}
+	}
+	s.suppressedTurns[turnID] = struct{}{}
+	complete = s.turnRawEventLocked("turn:complete", turnID, map[string]any{
 		"success": true,
 		"status":  "completed",
 		"reason":  "force_complete",
-	}))
-	if handle := s.takeActiveTurn(turnID); handle != nil {
-		handle.finish(nil)
-	}
+	})
+	handle := s.takeActiveTurnLocked()
+	s.mu.Unlock()
+	s.dispatch(complete)
+	handle.finish(nil)
 }
 
 func (s *session) activeTurnHandle() *turnHandle {

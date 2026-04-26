@@ -133,7 +133,7 @@ func (r *sessionResolver) resolveThreadSession(ctx context.Context, threadID str
 	if err != nil {
 		return nil, contract.ErrSessionNotFound
 	}
-	return r.autoResumeSession(ctx, binding)
+	return r.autoResumeSession(ctx, binding, ref.ThreadID, threadID)
 }
 
 func (r *sessionResolver) resolveProviderThreadSession(ctx context.Context, threadID string) (contract.Session, error) {
@@ -169,7 +169,7 @@ func (r *sessionResolver) resolveProviderThreadSession(ctx context.Context, thre
 // autoResumeSession rebuilds a runtime session from a persisted binding.
 // This is the key recovery path after application restart: the DB has the
 // thread UUID but the in-memory SessionManager is empty.
-func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *bindingstore.Binding) (contract.Session, error) {
+func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *bindingstore.Binding, publicThreadID ...string) (contract.Session, error) {
 	if binding == nil {
 		return nil, contract.ErrSessionNotFound
 	}
@@ -185,12 +185,26 @@ func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *bindin
 		return nil, fmt.Errorf("resolve session: %w", err)
 	}
 
+	threadID := ""
+	for _, candidate := range publicThreadID {
+		if trimmed := strings.TrimSpace(candidate); trimmed != "" {
+			threadID = trimmed
+			break
+		}
+	}
+	if threadID == "" {
+		threadID = strings.TrimSpace(binding.CodexThreadID)
+	}
+
 	req := dto.ResumeSessionRequest{
-		Provider:         provider,
-		AgentID:          binding.AgentID,
-		ThreadID:         binding.AgentID,
-		ProviderThreadID: binding.ProviderThreadID,
-		CWD:              binding.Cwd,
+		Provider:           provider,
+		AgentID:            binding.AgentID,
+		ThreadID:           threadID,
+		ProviderThreadID:   binding.ProviderThreadID,
+		CWD:                binding.Cwd,
+		CodexHome:          binding.CodexHome,
+		CodexInstanceKey:   binding.CodexInstanceKey,
+		CodexModelProvider: binding.CodexModelProvider,
 	}
 	pkglogger.Warn("resolve session: auto-resume binding snapshot from DB",
 		"agent_id", binding.AgentID,
