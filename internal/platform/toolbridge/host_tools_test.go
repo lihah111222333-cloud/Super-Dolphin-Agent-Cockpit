@@ -1,10 +1,14 @@
 package toolbridge
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +18,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
+	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
 	"github.com/anthropic-ai/super-agent-v3/pkg/skilltool"
 )
 
@@ -163,6 +168,43 @@ func TestSkillHostTools_CallReadResource_PassesPath(t *testing.T) {
 	}
 	if _, ok := out.(skillpkg.ReadResourceResult); !ok {
 		t.Fatalf("output type = %T", out)
+	}
+}
+
+func TestHostSkillToolCall_EmitsApprovalAndCacheMetrics(t *testing.T) {
+	skillmetrics.ResetForTesting()
+	t.Cleanup(skillmetrics.ResetForTesting)
+
+	projectRoot := t.TempDir()
+	skillDir := filepath.Join(projectRoot, ".agent", "skills", "demo")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll skill dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: demo\nsummary: demo summary\n---\nbody\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile SKILL.md: %v", err)
+	}
+
+	h := NewSkillHostTools(skillpkg.NewService(projectRoot))
+	_, err := h.CallHostTool(context.Background(), HostToolCall{
+		Name:      skilltool.ToolNameExpandBody,
+		Arguments: json.RawMessage(`{"name":"demo"}`),
+		CWD:       projectRoot,
+		AgentID:   "agent-metrics",
+		ThreadID:  "thread-metrics",
+		TurnID:    "turn-metrics",
+		CallID:    "call-metrics",
+	})
+	var required skillpkg.SkillApprovalRequiredError
+	if !errors.As(err, &required) {
+		t.Fatalf("CallHostTool() error = %T %[1]v, want SkillApprovalRequiredError", err)
+	}
+
+	snap := skillmetrics.Read()
+	if snap.SkillExpandInvokeRate != 1 {
+		t.Fatalf("SkillExpandInvokeRate = %d, want 1", snap.SkillExpandInvokeRate)
+	}
+	if snap.ArtifactApprovalMissTotal != 1 {
+		t.Fatalf("ArtifactApprovalMissTotal = %d, want 1", snap.ArtifactApprovalMissTotal)
 	}
 }
 
@@ -458,6 +500,34 @@ func TestListToolsForCodex_HostToolsSurviveOrchFailure_LSPReady(t *testing.T) {
 	}
 	if len(got) != 2 || got[0].Name != skilltool.ToolNameExpandBody || got[1].Name != "lsp_hover" {
 		t.Fatalf("tools = %+v, want host + lsp", got)
+	}
+}
+
+func TestListToolsForCodex_LogsDegradedPeer(t *testing.T) {
+	host := &stubHostToolRegistry{tools: []common.MCPTool{{Name: skilltool.ToolNameExpandBody, Description: "host skill"}}}
+	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+		dto.ClientKindOrch: {listToolsPeer(nil, errors.New("orch down"))},
+		dto.ClientKindLSP:  {listToolsPeer([]common.MCPTool{{Name: "lsp_hover", Description: "lsp"}}, nil)},
+	}}
+	var logs bytes.Buffer
+	h := &Handler{
+		registry:  registry,
+		hostTools: host,
+		logger:    slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+	}
+
+	got, err := h.ListToolsForCodex(context.Background())
+	if err != nil {
+		t.Fatalf("ListToolsForCodex() error = %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("tools = %+v, want host + surviving peer", got)
+	}
+	text := logs.String()
+	for _, want := range []string{"toolbridge dynamic tools peer degraded", "client_kind=orch", "orch down"} {
+		if !bytes.Contains([]byte(text), []byte(want)) {
+			t.Fatalf("degraded peer log missing %q in %s", want, text)
+		}
 	}
 }
 
