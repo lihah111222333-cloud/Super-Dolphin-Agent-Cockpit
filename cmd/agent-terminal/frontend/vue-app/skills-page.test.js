@@ -356,7 +356,7 @@ describe('SkillsPage', () => {
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'skills/local/importDir') {
         return {
-          skills: [{ name: 'ImportedSkill', skill_file: '/imports/ImportedSkill/SKILL.md' }],
+          imported: [{ name: 'ImportedSkill', skill_file: '/imports/ImportedSkill/SKILL.md' }],
           failures: [],
         };
       }
@@ -418,7 +418,7 @@ describe('SkillsPage', () => {
     expect(vm.notice.level).toBe('info');
     expect(vm.notice.message).toContain('将覆盖已有技能');
 
-    resolveImport({ skills: [], failures: [] });
+    resolveImport({ imported: [], failures: [] });
     await importTask;
     expect(vm.notice.message).toContain('未导入任何技能目录');
   });
@@ -441,7 +441,7 @@ describe('SkillsPage', () => {
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'skills/local/importDir') {
         return {
-          skills: [{ name: 'ImportedSkill', skill_file: '/imports/ImportedSkill/SKILL.md' }],
+          imported: [{ name: 'ImportedSkill', skill_file: '/imports/ImportedSkill/SKILL.md' }],
           failures: [{ source: '/imports/BadSkill', error: 'broken archive' }],
         };
       }
@@ -469,7 +469,7 @@ describe('SkillsPage', () => {
   it('shows an info notice when import finishes without any skills', async () => {
     const { vm } = createSkillsPage();
     apiMock.selectProjectDirs.mockResolvedValue(['/imports/EmptySkill']);
-    apiMock.callAPI.mockResolvedValueOnce({ skills: [], failures: [] });
+    apiMock.callAPI.mockResolvedValueOnce({ imported: [], failures: [] });
 
     await vm.onUploadSkill({ type: 'click' });
 
@@ -482,7 +482,7 @@ describe('SkillsPage', () => {
     const { vm } = createSkillsPage();
     vm.importScope.value = 'system';
     apiMock.selectProjectDirs.mockResolvedValue(['/imports/SystemSkill']);
-    apiMock.callAPI.mockResolvedValueOnce({ skills: [], failures: [] });
+    apiMock.callAPI.mockResolvedValueOnce({ imported: [], failures: [] });
 
     await vm.onUploadSkill({ type: 'click' });
 
