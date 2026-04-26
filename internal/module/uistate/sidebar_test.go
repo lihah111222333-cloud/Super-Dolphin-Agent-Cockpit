@@ -10,6 +10,7 @@ import (
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	"github.com/kelindar/event"
 )
 
@@ -312,5 +313,60 @@ func mustReceiveProjectionUpdated(t *testing.T, ch <-chan uidto.UIProjectionUpda
 	case <-time.After(time.Second):
 		t.Fatal("expected UIProjectionUpdated event")
 		return uidto.UIProjectionUpdated{}
+	}
+}
+
+func TestSummarizeThreadsProjectsArchivedStatus(t *testing.T) {
+	t.Parallel()
+
+	got := summarizeThreads([]thread.Ref{{ID: "thread-archived", Name: "Archived", AgentID: "agent-1", Status: " archived "}})
+	if len(got) != 1 || got[0].State != "archived" {
+		t.Fatalf("summarizeThreads() = %#v, want state archived", got)
+	}
+}
+
+func TestGetSidebarProjectsDBArchivedStatusIntoArchivesMap(t *testing.T) {
+	t.Parallel()
+
+	svc, _, err := NewService(nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	svc.state.Threads = []ThreadSummary{{ID: "thread-archived", Name: "Archived", State: "archived"}}
+
+	sidebar, err := svc.GetSidebar(context.Background())
+	if err != nil {
+		t.Fatalf("GetSidebar() error = %v", err)
+	}
+	if got := sidebar.ThreadArchivesChat["thread-archived"]; got <= 0 {
+		t.Fatalf("ThreadArchivesChat[thread-archived] = %d, want > 0", got)
+	}
+}
+
+func TestProjectArchivedThreadStatusDropsStalePreferenceWhenDBIsNotArchived(t *testing.T) {
+	threads := []ThreadSummary{{ID: "t1", State: "created"}}
+	archived := map[string]int64{"t1": 12345}
+	got := projectArchivedThreadStatus(threads, archived)
+	if _, ok := got["t1"]; ok {
+		t.Fatalf("ThreadArchivesChat[t1] = %d, want absent (DB state=created should drop stale archived preference)", got["t1"])
+	}
+}
+
+func TestProjectArchivedThreadStatusKeepsPreferenceWhenStateAbsent(t *testing.T) {
+	// No corresponding ThreadSummary entry → preference fallback preserved.
+	threads := []ThreadSummary{}
+	archived := map[string]int64{"t1": 99}
+	got := projectArchivedThreadStatus(threads, archived)
+	if got["t1"] != 99 {
+		t.Fatalf("ThreadArchivesChat[t1] = %d, want 99 (preference fallback when DB state absent)", got["t1"])
+	}
+}
+
+func TestProjectArchivedThreadStatusForcesArchivedWhenDBSaysArchived(t *testing.T) {
+	threads := []ThreadSummary{{ID: "t1", State: "archived"}}
+	archived := map[string]int64{}
+	got := projectArchivedThreadStatus(threads, archived)
+	if got["t1"] < 1 {
+		t.Fatalf("ThreadArchivesChat[t1] = %d, want >= 1 (DB archived must force entry)", got["t1"])
 	}
 }

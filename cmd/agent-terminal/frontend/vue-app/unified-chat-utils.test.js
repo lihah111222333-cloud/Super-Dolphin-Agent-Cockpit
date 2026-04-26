@@ -822,6 +822,31 @@ describe('buildVisibleChatThreadCards', () => {
         expect(result.cards[0].statusHeader).toBe('已归档');
     });
 
+    it('treats thread.state==archived as archived without preference timestamp', () => {
+        const result = buildVisibleChatThreadCards({
+            threads: [{ id: 'thread-archived', name: 'Archived', state: 'archived' }],
+            archivedMap: {},
+            showArchived: true,
+        });
+
+        expect(result.activeCount).toBe(0);
+        expect(result.archivedCount).toBe(1);
+        expect(result.cards.map((item) => item.id)).toEqual(['thread-archived']);
+    });
+
+    it('hides thread.state==archived from active list', () => {
+        const result = buildVisibleChatThreadCards({
+            threads: [{ id: 'thread-archived', name: 'Archived', state: 'archived' }],
+            archivedMap: {},
+            showArchived: false,
+        });
+
+        expect(result.activeCount).toBe(0);
+        expect(result.archivedCount).toBe(1);
+        expect(result.cards).toEqual([]);
+    });
+
+
     it('records card build perf phases and avoids repeated routing lookups', () => {
         const marks = [];
         let routingCalls = 0;

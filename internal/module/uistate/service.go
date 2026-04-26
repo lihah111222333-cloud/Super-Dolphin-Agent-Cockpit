@@ -124,6 +124,7 @@ func summarizeThreads(items []thread.Ref) []ThreadSummary {
 			ID:      strings.TrimSpace(item.ID),
 			Name:    strings.TrimSpace(item.Name),
 			AgentID: strings.TrimSpace(item.AgentID),
+			State:   strings.TrimSpace(item.Status),
 		})
 	}
 	return out

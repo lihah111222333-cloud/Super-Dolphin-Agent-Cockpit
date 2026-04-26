@@ -273,7 +273,11 @@ func (s *historyTestThreadStore) GetByPort(context.Context, int32) (*threadstore
 }
 
 func (s *historyTestThreadStore) ListAll(context.Context) ([]threadstore.Thread, error) {
-	return nil, nil
+	out := make([]threadstore.Thread, 0, len(s.threads))
+	for _, thread := range s.threads {
+		out = append(out, thread)
+	}
+	return out, nil
 }
 
 func (s *historyTestThreadStore) ListRunning(context.Context) ([]threadstore.Thread, error) {

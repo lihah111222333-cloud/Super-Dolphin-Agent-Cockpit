@@ -228,6 +228,7 @@ type Ref struct {
 	ID      string `json:"id"`
 	Name    string `json:"name,omitempty"`
 	AgentID string `json:"agent_id,omitempty"`
+	Status  string `json:"status,omitempty"`
 }
 
 type ReadHistoryThread struct {

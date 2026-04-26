@@ -48,7 +48,7 @@ func TestNewThreadHandlersDispatchList(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubThreadService{
-		listResult: []Ref{{ID: "thread-1", Name: "demo", AgentID: "agent-1"}},
+		listResult: []Ref{{ID: "thread-1", Name: "demo", AgentID: "agent-1", Status: "archived"}},
 	}
 	server := newThreadTestServer(stub)
 	raw, err := server.Dispatch(context.Background(), "thread/list", json.RawMessage(`{}`))
@@ -59,7 +59,7 @@ func TestNewThreadHandlersDispatchList(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("Unmarshal(thread/list) error = %v", err)
 	}
-	if len(got) != 1 || got[0].ID != "thread-1" || stub.listCalls != 1 {
+	if len(got) != 1 || got[0].ID != "thread-1" || got[0].Status != "archived" || stub.listCalls != 1 {
 		t.Fatalf("Dispatch(thread/list) = %#v, calls=%d", got, stub.listCalls)
 	}
 }
