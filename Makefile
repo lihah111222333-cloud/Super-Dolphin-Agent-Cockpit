@@ -100,17 +100,25 @@ ida-test-heavy:
 	go run ./cmd/ida-test-orchestrator --include-heavy-fork
 
 
+# protocol-sync-check: RPC smoke coverage + protocol freeze guards.
+# Keeps mcp-orch launcher method aliases, report protocol, and toolbridge protocol
+# from silently drifting after shared constants / split files move around.
 protocol-sync-check: rpc-regression-check
-	@echo "[protocol-sync-check] deprecated compatibility alias: legacy protocolsync/apiserver checks were retired"
+	@echo "[protocol-sync-check] protocol freeze guards"
+	$(TEST_WITH_GUARD) ./internal/archtest -run 'Test(OrchestrationLauncherProtocolFreeze|OrchestrationReportProtocolFreeze|ToolbridgeProtocolFreezeContractGuard)$$' -count=1
 
+# rpc-regression-check: fast JSON-RPC package regression used by protocol gates.
 rpc-regression-check:
 	@echo "[rpc-regression-check] platform/rpc quick regression"
 	$(TEST_WITH_GUARD) ./internal/platform/rpc/... -count=1
 
+# codemap-check is intentionally read-only: it fails if generated codemap state
+# is stale. Use codemap-refresh when docs/doc/codemap/ai-index.json should change.
 codemap-check:
-	go run scripts/codemap_index.go
-	@echo "✅ codemap ai-index.json refreshed"
+	go run scripts/codemap_index.go --check
+	@echo "✅ codemap generated files are up to date"
 
+# codemap-refresh rewrites docs/doc/codemap/ai-index.json from current sources.
 codemap-refresh:
 	go run scripts/codemap_index.go
 	@echo "✅ codemap ai-index.json refreshed"

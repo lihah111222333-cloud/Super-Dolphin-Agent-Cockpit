@@ -6,7 +6,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -70,11 +72,52 @@ type rawRef struct {
 const maxRefsPerFile = 20
 
 func main() {
+	check := flag.Bool("check", false, "verify docs/doc/codemap generated files without modifying the worktree")
+	flag.Parse()
+
 	root := "."
-	if len(os.Args) > 1 {
-		root = os.Args[1]
+	if flag.NArg() > 0 {
+		root = flag.Arg(0)
 	}
 	codemapDir := filepath.Join(root, "docs", "doc", "codemap")
+	outPath := filepath.Join(codemapDir, "ai-index.json")
+	readmePath := filepath.Join(codemapDir, "README.md")
+
+	generatedAt := time.Now().Format("2006-01-02")
+	if *check {
+		if existing, ok := existingGeneratedAt(outPath); ok {
+			generatedAt = existing
+		}
+	}
+
+	idx, readmeCodemaps := buildIndex(root, codemapDir, generatedAt)
+	data, err := json.Marshal(idx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "marshal: %v\n", err)
+		os.Exit(1)
+	}
+
+	if *check {
+		checkGeneratedFiles(outPath, data, readmePath, readmeCodemaps, idx.GeneratedAt)
+		fmt.Printf("ai-index.json: %d files, %d total refs, %d sections, %d codemaps (up to date)\n",
+			len(idx.Files), countRefs(idx.Files), len(idx.SectionIndex), len(idx.Codemaps))
+		return
+	}
+
+	if err := os.WriteFile(outPath, data, 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "write: %v\n", err)
+		os.Exit(1)
+	}
+	if err := codemapindex.SyncREADME(readmePath, readmeCodemaps, idx.GeneratedAt); err != nil {
+		fmt.Fprintf(os.Stderr, "sync readme: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("ai-index.json: %d files, %d total refs, %d sections, %d codemaps\n",
+		len(idx.Files), countRefs(idx.Files), len(idx.SectionIndex), len(idx.Codemaps))
+}
+
+func buildIndex(root, codemapDir, generatedAt string) (Index, []codemapindex.ReadmeCodemap) {
 	mds := loadCodemaps(codemapDir)
 
 	// Build raw refs (still using section title strings).
@@ -88,30 +131,87 @@ func main() {
 	idx := Index{
 		Version:      "1.0",
 		Generator:    codemapindex.GeneratorAnchor,
-		GeneratedAt:  time.Now().Format("2006-01-02"),
+		GeneratedAt:  generatedAt,
 		Description:  "代码地图索引：源码文件→md段落行范围（自动生成 make codemap-refresh）",
 		SectionIndex: secIndex,
 		Codemaps:     codemaps,
 		Files:        filesIndex,
 	}
+	return idx, readmeCodemaps
+}
 
-	outPath := filepath.Join(codemapDir, "ai-index.json")
-	data, _ := json.Marshal(idx)
-	if err := os.WriteFile(outPath, data, 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "write: %v\n", err)
+func checkGeneratedFiles(indexPath string, indexData []byte, readmePath string, readmeCodemaps []codemapindex.ReadmeCodemap, generatedAt string) {
+	stale := false
+	if !sameFileContent(indexPath, indexData) {
+		stale = true
+	}
+	expectedREADME, err := renderSyncedREADME(readmePath, readmeCodemaps, generatedAt)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "codemap-check: render README: %v\n", err)
 		os.Exit(1)
 	}
-	if err := codemapindex.SyncREADME(filepath.Join(codemapDir, "README.md"), readmeCodemaps, idx.GeneratedAt); err != nil {
-		fmt.Fprintf(os.Stderr, "sync readme: %v\n", err)
+	if !sameFileContent(readmePath, expectedREADME) {
+		stale = true
+	}
+	if stale {
+		fmt.Fprintln(os.Stderr, "codemap-check: generated files are stale; run `make codemap-refresh`")
 		os.Exit(1)
 	}
+}
 
+func sameFileContent(path string, want []byte) bool {
+	got, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "codemap-check: read %s: %v\n", path, err)
+		return false
+	}
+	if bytes.Equal(got, want) {
+		return true
+	}
+	fmt.Fprintf(os.Stderr, "codemap-check: %s differs from generated output\n", path)
+	return false
+}
+
+func renderSyncedREADME(readmePath string, codemaps []codemapindex.ReadmeCodemap, generatedAt string) ([]byte, error) {
+	current, err := os.ReadFile(readmePath)
+	if err != nil {
+		return nil, err
+	}
+	tmpDir, err := os.MkdirTemp("", "codemap-readme-check-*")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(tmpDir)
+	tmpPath := filepath.Join(tmpDir, "README.md")
+	if err := os.WriteFile(tmpPath, current, 0644); err != nil {
+		return nil, err
+	}
+	if err := codemapindex.SyncREADME(tmpPath, codemaps, generatedAt); err != nil {
+		return nil, err
+	}
+	return os.ReadFile(tmpPath)
+}
+
+func existingGeneratedAt(indexPath string) (string, bool) {
+	data, err := os.ReadFile(indexPath)
+	if err != nil {
+		return "", false
+	}
+	var idx struct {
+		GeneratedAt string `json:"generated_at"`
+	}
+	if err := json.Unmarshal(data, &idx); err != nil || strings.TrimSpace(idx.GeneratedAt) == "" {
+		return "", false
+	}
+	return strings.TrimSpace(idx.GeneratedAt), true
+}
+
+func countRefs(files map[string]*FileEntry) int {
 	totalRefs := 0
-	for _, f := range filesIndex {
+	for _, f := range files {
 		totalRefs += len(f.Refs)
 	}
-	fmt.Printf("ai-index.json: %d files, %d total refs, %d sections, %d codemaps\n",
-		len(filesIndex), totalRefs, len(secIndex), len(idx.Codemaps))
+	return totalRefs
 }
 
 func loadCodemaps(codemapDir string) []parsedMD {
