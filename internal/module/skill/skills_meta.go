@@ -24,7 +24,6 @@ type skillScanRootKind uint8
 const (
 	skillScanRootProject skillScanRootKind = iota + 1
 	skillScanRootSystemGlobal
-	skillScanRootSystemLegacy
 )
 
 type skillScanRoot struct {
@@ -59,15 +58,12 @@ func (s *service) scanSkills(cwd string) ([]skillRecord, error) {
 }
 
 func (s *service) scanSkillRoots(cwd string) []skillScanRoot {
-	roots := make([]skillScanRoot, 0, 3)
+	roots := make([]skillScanRoot, 0, 2)
 	if projectRoot := strings.TrimSpace(s.projectSkillsRootForCWD(cwd)); projectRoot != "" {
 		roots = append(roots, skillScanRoot{path: projectRoot, kind: skillScanRootProject})
 	}
 	if systemRoot := s.systemGlobalSkillsRoot(); systemRoot != "" {
 		roots = append(roots, skillScanRoot{path: systemRoot, kind: skillScanRootSystemGlobal})
-	}
-	if legacyRoot := strings.TrimSpace(s.legacySystemSkillsRoot(cwd)); legacyRoot != "" {
-		roots = append(roots, skillScanRoot{path: legacyRoot, kind: skillScanRootSystemLegacy})
 	}
 	return roots
 }

@@ -15,7 +15,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	auditstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/skillcandidate"
 )
@@ -184,21 +183,9 @@ func (s *service) systemGlobalSkillsRoot() string {
 	return strings.TrimSpace(s.root)
 }
 
-func (s *service) legacySystemSkillsRoot(cwd string) string {
-	root := s.systemGlobalSkillsRoot()
-	if root == "" {
-		return ""
-	}
-	projectKey := platformshared.ProjectKeyFromCwd(cwd)
-	if projectKey == "" {
-		return ""
-	}
-	return filepath.Join(root, projectKey, "by-id")
-}
-
 func (s *service) allSkillRoots(cwd string) []string {
-	roots := make([]string, 0, 3)
-	seen := make(map[string]struct{}, 3)
+	roots := make([]string, 0, 2)
+	seen := make(map[string]struct{}, 2)
 	appendUniqueSkillRoot := func(root string) {
 		root = strings.TrimSpace(root)
 		if root == "" {
@@ -213,7 +200,6 @@ func (s *service) allSkillRoots(cwd string) []string {
 	}
 	appendUniqueSkillRoot(s.projectSkillsRootForCWD(cwd))
 	appendUniqueSkillRoot(s.systemGlobalSkillsRoot())
-	appendUniqueSkillRoot(s.legacySystemSkillsRoot(cwd))
 	return roots
 }
 
