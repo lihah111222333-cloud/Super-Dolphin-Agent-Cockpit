@@ -29,6 +29,7 @@ type ToolCallRequest struct {
 	Arguments  json.RawMessage `json:"arguments"`
 	AgentID    string          `json:"agentId,omitempty"`
 	ThreadID   string          `json:"threadId,omitempty"`
+	TurnID     string          `json:"turnId,omitempty"`
 	CallID     string          `json:"callId,omitempty"`
 	ClientKind string          `json:"clientKind,omitempty"`
 }

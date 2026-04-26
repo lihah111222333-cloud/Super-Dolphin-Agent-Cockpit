@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
+	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
@@ -26,6 +27,7 @@ var proxyAddr atomic.Value
 var Module = fx.Module("toolbridge",
 	fx.Provide(
 		NewHandler,
+		provideHostToolRegistry,
 		provideWorkDirResolver,
 		provideDiffEmitter,
 		newDiffFallbackTracker,
@@ -70,6 +72,22 @@ type handlerIn struct {
 	Preferences  uiPreferenceReader        `optional:"true"`
 	Config       *platformconfig.Config    `optional:"true"`
 	Logger       *pkglogger.Logger         `optional:"true"`
+	// HostTools 是 fx optional 字段：agent-terminal 图中由 provideHostToolRegistry 填入
+	// SkillHostTools；测试或未来 no-provider 图可保持 nil，Handler 走 nil-safe peer fallback。
+	// 注意：当前 mcp-orch / mcp-lsp standalone 不加载 toolbridge.Module。
+	HostTools HostToolRegistry `optional:"true"`
+}
+
+// provideHostToolRegistry 把 agent-terminal fx 图中已有的 skill.Service 包装成
+// HostToolRegistry。当前输入不是 optional；standalone 进程若未来也加载
+// toolbridge.Module，必须先把 skill.Service 输入改成 optional fx.In 或提供 noop registry。
+//
+// 本函数返回 HostToolRegistry 接口（不是具体类型），避免 fx 装配端要求 Handler 依赖 *SkillHostTools。
+func provideHostToolRegistry(svc skillpkg.Service) HostToolRegistry {
+	if svc == nil {
+		return nil
+	}
+	return NewSkillHostTools(svc)
 }
 
 // threadConfigOverrideAdapter wraps the production threadstore.Store so

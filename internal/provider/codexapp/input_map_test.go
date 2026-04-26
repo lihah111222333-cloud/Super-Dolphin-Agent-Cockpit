@@ -17,8 +17,10 @@ func TestBuildTurnStartParams(t *testing.T) {
 			{Type: "text", Content: "hello"},
 		},
 		Skills: []dto.SkillRef{
-			{Name: "planner", Prompt: "use the planner"},
-			{Name: " reviewer "},
+			// P20.18 Phase 1.5 v2 (B 路)：显式 Mode=Full 以 opt-out 默认 Summary override，
+			// 保留 P20.2 §4 的 v1 envelope 渲染语义。
+			{Name: "planner", Mode: dto.SkillModeFull, Prompt: "use the planner"},
+			{Name: " reviewer ", Mode: dto.SkillModeFull},
 		},
 		TurnAssembly: dto.TurnAssembly{UserContext: map[string]string{
 			"currentDate": "Today's date is 2026-04-15.",
@@ -109,8 +111,9 @@ func TestBuildTurnSteerParams(t *testing.T) {
 			{Type: "text", Content: "hello"},
 		},
 		Skills: []dto.SkillRef{
-			{Name: "planner", Prompt: "use the planner"},
-			{Name: " reviewer "},
+			// P20.18 Phase 1.5 v2 (B 路)：显式 Mode=Full 以 opt-out 默认 Summary override。
+			{Name: "planner", Mode: dto.SkillModeFull, Prompt: "use the planner"},
+			{Name: " reviewer ", Mode: dto.SkillModeFull},
 		},
 		TurnAssembly: dto.TurnAssembly{UserContext: map[string]string{
 			"currentDate": "Today's date is 2026-04-15.",

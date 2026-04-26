@@ -60,10 +60,32 @@ func bodyArtifactLocator(anchor string) string {
 	return "SKILL.md#" + anchor
 }
 
-func (s *service) requireArtifactApproval(ctx context.Context, info SkillInfo, kind, locator, contentHash, cwd, method string) error {
-	if info.Trust == TrustProject || info.Trust == TrustUser {
-		return nil
+type artifactApprovalCallMetadata struct {
+	AgentID  string
+	ThreadID string
+	TurnID   string
+	CallID   string
+}
+
+func expandBodyApprovalMetadata(p ExpandBodyParams) artifactApprovalCallMetadata {
+	return artifactApprovalCallMetadata{
+		AgentID:  strings.TrimSpace(p.AgentID),
+		ThreadID: strings.TrimSpace(p.ThreadID),
+		TurnID:   strings.TrimSpace(p.TurnID),
+		CallID:   strings.TrimSpace(p.CallID),
 	}
+}
+
+func readResourceApprovalMetadata(p ReadResourceParams) artifactApprovalCallMetadata {
+	return artifactApprovalCallMetadata{
+		AgentID:  strings.TrimSpace(p.AgentID),
+		ThreadID: strings.TrimSpace(p.ThreadID),
+		TurnID:   strings.TrimSpace(p.TurnID),
+		CallID:   strings.TrimSpace(p.CallID),
+	}
+}
+
+func (s *service) requireArtifactApproval(ctx context.Context, info SkillInfo, kind, locator, contentHash, cwd, method string, meta artifactApprovalCallMetadata) error {
 	if info.Trust.Trusted() {
 		return nil
 	}
@@ -71,7 +93,30 @@ func (s *service) requireArtifactApproval(ctx context.Context, info SkillInfo, k
 	if approved {
 		return nil
 	}
-	return SkillApprovalRequiredError{Request: s.buildArtifactApprovalRequest(info, kind, locator, contentHash, cwd, method)}
+	req := s.buildArtifactApprovalRequest(info, kind, locator, contentHash, cwd, method, meta)
+	if s.approvalRequester == nil {
+		return SkillApprovalRequiredError{Request: req}
+	}
+	decision, err := s.approvalRequester.RequestApproval(ctx, req)
+	if err != nil {
+		return err
+	}
+	if decision.Approved == nil || !*decision.Approved {
+		return deniedSkillApproval(decision)
+	}
+	if s.approval == nil {
+		return errSkillApprovalProjectCacheMissing
+	}
+	_, err = s.approval.ApproveArtifact(ApprovalRequest{
+		RepoFingerprint: RepoFingerprint(cwd),
+		Name:            info.Name,
+		ArtifactKind:    kind,
+		ArtifactLocator: locator,
+		ContentHash:     contentHash,
+		Trust:           info.Trust,
+		ApprovedBy:      approvalApprovedBy(decision),
+	})
+	return err
 }
 
 func contractArtifactApprovalRequest(info SkillInfo, kind, locator, contentHash, cwd string) contract.ArtifactApprovalRequest {
@@ -84,7 +129,11 @@ func contractArtifactApprovalRequest(info SkillInfo, kind, locator, contentHash,
 	}
 }
 
-func (s *service) buildArtifactApprovalRequest(info SkillInfo, kind, locator, contentHash, cwd, method string) contract.ApprovalRequest {
+func (s *service) buildArtifactApprovalRequest(info SkillInfo, kind, locator, contentHash, cwd, method string, meta artifactApprovalCallMetadata) contract.ApprovalRequest {
+	callID := strings.TrimSpace(meta.CallID)
+	if callID == "" {
+		callID = s.nextApprovalCallID(info.Name)
+	}
 	payload := map[string]any{
 		"name":             info.Name,
 		"artifact_kind":    kind,
@@ -94,10 +143,25 @@ func (s *service) buildArtifactApprovalRequest(info SkillInfo, kind, locator, co
 		"trust":            info.Trust,
 		"skills_dir":       info.Dir,
 		"project_root":     strings.TrimSpace(cwd),
+		"toolName":         method,
+		"sourceMethod":     method,
+		"callId":           callID,
+	}
+	if value := strings.TrimSpace(meta.AgentID); value != "" {
+		payload["agentId"] = value
+	}
+	if value := strings.TrimSpace(meta.ThreadID); value != "" {
+		payload["threadId"] = value
+	}
+	if value := strings.TrimSpace(meta.TurnID); value != "" {
+		payload["turnId"] = value
 	}
 	return contract.ApprovalRequest{
-		CallID:       s.nextApprovalCallID(info.Name),
+		CallID:       callID,
 		ToolName:     method,
+		AgentID:      strings.TrimSpace(meta.AgentID),
+		ThreadID:     strings.TrimSpace(meta.ThreadID),
+		TurnID:       strings.TrimSpace(meta.TurnID),
 		Reason:       "skill artifact requires approval",
 		Kind:         "skill_artifact",
 		SourceMethod: method,
@@ -133,7 +197,7 @@ func (s *service) ExpandBody(ctx context.Context, p ExpandBodyParams) (ExpandBod
 	if err != nil {
 		return ExpandBodyResult{}, err
 	}
-	if err := s.requireArtifactApproval(ctx, rec.info, ArtifactKindBody, locator, rec.info.ContentHash, cwd, "skill_expand_body"); err != nil {
+	if err := s.requireArtifactApproval(ctx, rec.info, ArtifactKindBody, locator, rec.info.ContentHash, cwd, "skill_expand_body", expandBodyApprovalMetadata(p)); err != nil {
 		return ExpandBodyResult{}, err
 	}
 	data, err := readSkillFileData(rec.path)
@@ -247,7 +311,7 @@ func (s *service) ReadResource(ctx context.Context, p ReadResourceParams) (ReadR
 	content, truncated := truncateBytes(string(data), resolveMaxBytes(p.MaxBytes))
 	resourceHash := fullSHA256Hex(data)
 	total := int64(len(data))
-	if err := s.requireArtifactApproval(ctx, rec.info, ArtifactKindResource, relPath, resourceHash, cwd, "skill_read_resource"); err != nil {
+	if err := s.requireArtifactApproval(ctx, rec.info, ArtifactKindResource, relPath, resourceHash, cwd, "skill_read_resource", readResourceApprovalMetadata(p)); err != nil {
 		return ReadResourceResult{}, err
 	}
 	version := resourceHash
