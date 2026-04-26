@@ -817,3 +817,93 @@ a410ab2 docs(session-summary,会话习惯): archive RPC + sidebar projection 闭
 - §10.51 union 字段不能作 DB 真值判定（ThreadSummary.State 反模式）
 - §10.52 P21 严格模式 + 前端偏好未 forward 的双重 bug 模式
 - §10.53 push 前必跑相关测试套（hotfix push 后 7 fail 反弹）
+
+## 13. 2026-04-27 skill 批量导入 + P20.1 上游基线回收闭环（本次追加）
+
+> 会话范围：围绕 project skill 批量导入、`.agent/skills/` 目录形态、5 路 review 戳穿、4 路 fix、2 路 follow-up、以及 Claude Code / OpenAI Codex 官方 skills 设计调研完成一次收口；本 docs-only turn 只记录结论，不新增 commit / push。
+
+### 13.1 会话范围
+
+- 主线 1：`skills/local/importDir` 的“选容器目录”语义从单目录整树复制，收敛为批量导入/扁平化方向。
+- 主线 2：5 路 review 对 import、event、trust、approval、rollout/archtest 联动做独立复核，按 §10.18 一票 BLOCK 定调。
+- 主线 3：4 路 fix 分别处理批量导入、目录迁移、event buffer、P20.1 trust/approval 回收。
+- 主线 4：2 路 follow-up 继续盯 `archtest thread=31` 与 `rollout_markers` v1 regex / Unicode 联动，确保不是本轮隐藏 blocker。
+- 主线 5：上游 CLI 官方调研补齐：Claude Code Skills、OpenAI Codex Skills、agentskills.io 三方都没有 catalog redact / artifact approval 设计。
+- 会话性质：先修真实 UX/数据形态，再回头审视 P20.1 原安全设计是否与上游基线冲突。
+- 本次最终拍板：`.agent/skills/` 是用户自己导入的项目资产，与 `src` 同信任度；不要对已导入本地 skill 追加二次审批。
+
+### 13.2 5 个 BLOCK 全部解锁清单
+
+| BLOCK | 戳穿点 | 解锁结论 |
+|---|---|---|
+| B1 | 单选容器目录会导成 `.agent/skills/skills/<sub>/SKILL.md`，目录形态错误 | 批量导入语义明确：容器目录应展开直接子 skill；已有 14 个 project skill 扁平化承接 |
+| B2 | `copySkillDir` 整树复制 + `Name` 只适合 single source，batch 下会制造套娃 | single / batch 语义分离；batch 下不让一个 `Name` 套多个 child |
+| B3 | `events.go` cross-scope/cwd buffer override 注释自承 quick fix，可能吞掉同批不同 scope/cwd 事件 | V2 reviewer 独立 LSP 戳穿后列入 harden；后续以 scope + cwd 维度保留事件语义 |
+| B4 | P20.1 §3 catalog redact 把用户已导入 project skill 当 untrusted，违背上游 CLI 官方基线 | 改为仅 `TrustUnknown` / 非法 trust redact；`TrustProject` / `TrustUser` catalog 直接展示 metadata |
+| B5 | P20.1 §4 artifact approval 对本地 project/user `ExpandBody` / `ReadResource` 额外弹审批 | 改为 project/user 读取直接放行；只保留 unknown-source approval 与 system 写盘 review |
+
+### 13.3 上游 CLI 官方设计调研结论
+
+- Claude Code Skills 官方路径为 `~/.claude/skills/<skill>/SKILL.md` 顶层扁平组织。
+- Claude Code 文档要求 name 为 ASCII lowercase + hyphens（max 64），`description` 始终在上下文，invoke 时注入完整 `SKILL.md`。
+- Claude Code 官方文档零提及 trust / approval / redact；没有“本地 skill catalog 先隐藏作者 metadata”的设计。
+- OpenAI Codex Skills 官方支持 `~/.agents/skills`、`$CWD/.agents/skills` 等多层搜索路径。
+- OpenAI Codex 官方 progressive disclosure 是 catalog 先注入 metadata + path，再按需读取完整 skill；约束是 context 预算（约 2% / 8000 chars hard limit），不是审批流。
+- OpenAI Codex 官方文档同样零提及 trust / approval / redact；本地导入即按用户资产处理。
+- agentskills.io 作为开放标准也没有要求 catalog redaction 或 per-artifact approval。
+- 归纳：上游共同基线是“用户安装/放入本地 skill root 即信任”，V3 不应默认把本地 project/user skill 当供应链攻击面处理。
+
+### 13.4 P20.1 §3 / §4 修订决策
+
+- §3 历史正文保留，作为 2026-04-19 安全 hardening 设计记录。
+- §3 新基线：`TrustProject` / `TrustUser` / `TrustSigned` 不再 redact；catalog 直接展示 `name + description + summary`。
+- §3 保守边界：只有 `TrustUnknown`、无效 trust 或未来无法归因来源仍 redacted，避免异常来源静默进 system prompt。
+- §3 实施锚点：`internal/module/prompt/skill_catalog_provider.go:442 isUntrustedScope`。
+- §4 历史正文保留，作为 artifact approval 方案记录。
+- §4 新基线：`ExpandBody` / `ReadResource` 对 `TrustProject` / `TrustUser` 直接放行，仅 unknown-source 才走 approval。
+- §4 保留项：`RequireSkillSystemReview` 写盘闸门保留；`ApprovalCache` 框架保留供 audit / unknown / 未来远端来源复用。
+- §4 实施锚点：`internal/module/skill/skills_expand.go:64-66 requireArtifactApproval` short-circuit。
+
+### 13.5 9 commits 序列（fix*5 + refactor + chore + docs*2）
+
+1. `fix(skill)`: 修 `skills/local/importDir` 对容器目录的 batch 展开语义。
+2. `fix(skill)`: 修 batch partial failure / single source 兼容 / `Name` override 边界。
+3. `fix(skill/events)`: 修同批不同 scope/cwd 的 SkillsChanged buffer override 风险。
+4. `fix(prompt)`: catalog redact 收紧为仅 `TrustUnknown` / 非法 trust。
+5. `fix(skill)`: `ExpandBody` / `ReadResource` 对 `TrustProject` / `TrustUser` approval short-circuit。
+6. `refactor(skill)`: import helpers 从过大的 `skills_fs.go` 拆分，避免 archtest code-size drift。
+7. `chore(skills)`: 扁平化并跟踪 `.agent/skills/` 下 14 个 imported project skills。
+8. `docs(codemap)`: refresh `docs/doc/codemap/ai-index.json` 与相关索引。
+9. `docs(session/P20.1)`: 记录 §13、§10.54-56 与 P20.1 §3/§4 修订说明。
+
+> 注：本节记录本会话逻辑 commit 序列；本 docs-only turn 禁止 commit / push，最终 hash 以主 agent 集中处理后的 `git log` 为准。
+
+### 13.6 follow-up
+
+- `archtest thread=31`：继续作为 follow-up 观察项，避免本轮 helper 拆分或 thread 相关 test 文件数触发守卫漂移。
+- `rollout_markers` v1 regex / Unicode 联动：继续核对 marker v1 正则、skill name ASCII 约束与展示层 Unicode 描述之间的边界。
+- 两项均不改变本轮 P20.1 §3/§4 决策：redact/approval 只针对 trust 来源，不针对展示字符集或 marker parser。
+- 若 follow-up 发现新风险，按 §10.43 追加 drift note；禁止回改本节历史账。
+
+### 13.7 协作统计
+
+- Review：5 路独立 review，覆盖 import 语义、event 语义、trust/redact、artifact approval、rollout/archtest 联动。
+- Fix：4 路 fix，分别承接后端 import、数据扁平化、event harden、P20.1 trust/approval 回收。
+- Follow-up：2 路，分别盯 `archtest thread=31` 与 `rollout_markers` v1 regex / Unicode。
+- Research：1 份上游 CLI 官方调研，结论反向推翻 V3 单边过度设计。
+- 异常态 1：V2 reviewer 在“不修代码”的复核任务中读到 `events.go` 注释自承 quick fix，戳穿真 bug。
+- 异常态 2：codex CLI launch 失败不是业务代码问题，而是 `~/.codex/config.toml:5 model_catalog_json` 指向丢失文件。
+- 异常态 3：P20.1 原 §3/§4 曾把“安全 hardening”误当默认 UX，需用上游官方基线校正。
+
+### 13.8 最近 10 条对话摘要（本会话）
+
+1. 用户要求继续围绕 skill 批量导入闭环，强调纯文档收口由主 agent 集中处理。
+2. 主 agent 复核 `tmp/research-import-dir-batch.md`，确认 importDir 单容器目录会生成 `.agent/skills/skills/` 套娃。
+3. 5 路 review 继续查 import、event、trust、approval、rollout/archtest，按一票 BLOCK 规则打回。
+4. V2 reviewer 独立读 `events.go:112-120` 注释，抓到 `(override path - simpler than a multi-event queue)` 自承 quick fix。
+5. 4 路 fix 承接 batch import、event buffer、trust redact、artifact approval short-circuit。
+6. 上游调研核对 Claude Code Skills 官方文档：顶层扁平、本地 skill、零 trust/approval/redact。
+7. 上游调研核对 OpenAI Codex Skills 官方文档：多层 skill root、progressive disclosure、零 trust/approval/redact。
+8. 老公拍板：用户自己导入即信任，`.agent/skills/` 与 `src` 同信任度，不要二次审批。
+9. 追加 follow-up：`archtest thread=31` 与 `rollout_markers` v1 regex / Unicode 联动单独盯，不阻塞 P20.1 §3/§4 回收。
+10. 本 docs-only turn 落盘 P20.1 修订记录、session-summary §13、会话习惯 §10.54-56；不改代码、不跑测试、不 commit/push。
