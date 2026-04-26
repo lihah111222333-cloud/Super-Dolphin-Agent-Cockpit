@@ -11,10 +11,30 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
-var defaultSessionLogWatcherPollInterval = 500 * time.Millisecond
+const fallbackSessionLogWatcherPollInterval = 500 * time.Millisecond
+
+var defaultSessionLogWatcherPollIntervalNanos atomic.Int64
+
+func init() {
+	defaultSessionLogWatcherPollIntervalNanos.Store(int64(fallbackSessionLogWatcherPollInterval))
+}
+
+func defaultSessionLogWatcherPollInterval() time.Duration {
+	d := time.Duration(defaultSessionLogWatcherPollIntervalNanos.Load())
+	if d <= 0 {
+		return fallbackSessionLogWatcherPollInterval
+	}
+	return d
+}
+
+func swapDefaultSessionLogWatcherPollIntervalForTest(d time.Duration) func() {
+	old := defaultSessionLogWatcherPollIntervalNanos.Swap(int64(d))
+	return func() { defaultSessionLogWatcherPollIntervalNanos.Store(old) }
+}
 
 type sessionLogWatcherConfig struct {
 	Logger       *slog.Logger
@@ -59,7 +79,7 @@ var errSessionLogWatcherStopped = errors.New("claudecli: session log watcher sto
 
 func newSessionLogWatcher(cfg sessionLogWatcherConfig) *sessionLogWatcher {
 	if cfg.PollInterval <= 0 {
-		cfg.PollInterval = defaultSessionLogWatcherPollInterval
+		cfg.PollInterval = defaultSessionLogWatcherPollInterval()
 	}
 	return &sessionLogWatcher{
 		logger:       cfg.Logger,

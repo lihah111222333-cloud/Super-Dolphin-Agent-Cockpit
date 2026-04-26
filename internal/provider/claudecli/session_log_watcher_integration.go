@@ -99,7 +99,7 @@ func (s *session) prepareLogWatcherStart(tr *transport) (logWatcherStartState, b
 func (s *session) newCurrentLogWatcher(tr *transport, state logWatcherStartState) *sessionLogWatcher {
 	return newSessionLogWatcher(sessionLogWatcherConfig{
 		Logger:       s.logger,
-		PollInterval: defaultSessionLogWatcherPollInterval,
+		PollInterval: defaultSessionLogWatcherPollInterval(),
 		ResolvePath: func() (string, error) {
 			return state.history.sessionPath(state.identity.sessionID)
 		},

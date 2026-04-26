@@ -301,8 +301,15 @@ func (t *transport) ensureProcessAlive() (int, error) {
 	if t == nil || t.cmd == nil || t.cmd.Process == nil {
 		return 0, nil
 	}
-	if state := t.cmd.ProcessState; state != nil && state.Exited() {
+	// Do not read cmd.ProcessState here: os/exec.Cmd.Wait writes that field,
+	// and callers such as Running/signalProcess can race with the wait goroutine
+	// under -race. The transport-owned done channel is the synchronization point;
+	// if Wait has not closed it yet, returning the pid is safe and any late signal
+	// will be normalized by the caller when the process is already gone.
+	select {
+	case <-t.done:
 		return 0, nil
+	default:
 	}
 	pid := t.cmd.Process.Pid
 	if pid <= 0 {
