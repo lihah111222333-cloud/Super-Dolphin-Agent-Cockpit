@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -11,6 +13,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
@@ -38,6 +41,11 @@ type Handler struct {
 	preferences  uiPreferenceReader
 	cfg          *platformconfig.Config
 	logger       *pkglogger.Logger
+	// hostTools 是可选依赖：当宿主进程同时含 skill module + toolbridge（即 agent-terminal）
+	// 时，该字段被填充为 SkillHostTools，提供 skill_expand_body / skill_read_resource 两个
+	// 本进程直跑的工具。字段保持 nil-safe：测试或未来无 HostToolRegistry 的 toolbridge
+	// 图会退回 peer 路径；当前 mcp-orch / mcp-lsp standalone 不加载 toolbridge.Module。
+	hostTools HostToolRegistry
 }
 
 type activePeerRegistry interface {
@@ -65,6 +73,7 @@ func NewHandler(in handlerIn) *Handler {
 		preferences:  in.Preferences,
 		cfg:          in.Config,
 		logger:       logger,
+		hostTools:    in.HostTools,
 	}
 }
 
@@ -80,39 +89,60 @@ func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*Tool
 	if h == nil || h.registry == nil {
 		return nil, ErrNoPeerAvailable
 	}
-	if blocked, err := h.spawnAgentPolicyMessage(ctx, req); err != nil {
-		return nil, err
-	} else if blocked != "" {
-		return &ToolCallResult{
-			Success: false,
-			ContentItems: []ToolCallContentItem{{
-				Type: "inputText",
-				Text: blocked,
-			}},
-		}, nil
+	if result, handled, err := h.routePrePeerToolCall(ctx, req); handled || err != nil {
+		return result, err
 	}
 	clientKind, err := resolveToolClientKind(req)
 	if err != nil {
 		return nil, err
 	}
-	peers := h.registry.FindActiveByKind(clientKind)
-	if len(peers) == 0 {
-		return nil, ErrNoPeerAvailable
+	peer, err := h.selectActiveToolPeer(clientKind)
+	if err != nil {
+		return nil, err
 	}
-	if len(peers) > 1 {
+	return h.callPeerTool(ctx, peer.Peer, req)
+}
+
+func (h *Handler) routePrePeerToolCall(ctx context.Context, req ToolCallRequest) (*ToolCallResult, bool, error) {
+	blocked, err := h.spawnAgentPolicyMessage(ctx, req)
+	if err != nil {
+		return nil, false, err
+	}
+	if blocked != "" {
+		return toolCallTextResult(false, blocked), true, nil
+	}
+	// Host-direct 分支：当 hostTools 声明该工具名存在时，本进程同步执行，不走 peer
+	// callback。dedup 优先级：hostTools 先查、命中即返回、不再查 peer——与 ListToolsForCodex
+	// 的聚合顺序一致，避免同名工具双面路由产生不一致行为。
+	if h.hostTools != nil && h.hostTools.HasTool(req.Name) {
+		result, err := h.callHostTool(ctx, req)
+		return result, true, err
+	}
+	return nil, false, nil
+}
+
+func (h *Handler) selectActiveToolPeer(clientKind string) (*mcpcontrol.ToolInstance, error) {
+	peers := h.registry.FindActiveByKind(clientKind)
+	switch len(peers) {
+	case 0:
+		return nil, ErrNoPeerAvailable
+	case 1:
+		return peers[0], nil
+	default:
 		return nil, ErrAmbiguousPeer
 	}
+}
 
+func (h *Handler) callPeerTool(ctx context.Context, peer mcpcontrol.Peer, req ToolCallRequest) (*ToolCallResult, error) {
 	callCtx, cancel := platformconfig.WithPeerTimeout(ctx, toolCallTimeout)
 	defer cancel()
 
-	peer := peers[0].Peer
 	snapshot := h.beginToolDiffSnapshot(ctx, req)
 	req = h.injectManagedLaunchContext(ctx, req)
 	h.warnManagedLaunchConfigTrace(ctx, req)
 
 	var resp peerToolCallResponse
-	err = peer.Callback(callCtx, ProxyMethodToolsCall, map[string]any{
+	err := peer.Callback(callCtx, ProxyMethodToolsCall, map[string]any{
 		"name":              req.Name,
 		"arguments":         req.Arguments,
 		MetadataKeyAgentID:  req.AgentID,
@@ -120,18 +150,22 @@ func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*Tool
 		MetadataKeyCallID:   req.CallID,
 	}, &resp)
 	if err != nil {
-		return &ToolCallResult{
-			Success: false,
-			ContentItems: []ToolCallContentItem{{
-				Type: "inputText",
-				Text: err.Error(),
-			}},
-		}, nil
+		return toolCallTextResult(false, err.Error()), nil
 	}
 
 	result := adaptMCPResponse(resp)
 	h.emitToolDiff(ctx, req, snapshot)
 	return result, nil
+}
+
+func toolCallTextResult(success bool, text string) *ToolCallResult {
+	return &ToolCallResult{
+		Success: success,
+		ContentItems: []ToolCallContentItem{{
+			Type: "inputText",
+			Text: text,
+		}},
+	}
 }
 
 func (h *Handler) injectManagedLaunchContext(ctx context.Context, req ToolCallRequest) ToolCallRequest {
@@ -613,15 +647,191 @@ func normalizeToolbridgeSessionFlagName(name string) string {
 	return replacer.Replace(name)
 }
 
+type peerToolsListOutcome struct {
+	clientKind string
+	tools      []common.MCPTool
+	err        error
+}
+
+func (h *Handler) listPeerToolsForCodex(ctx context.Context, kinds ...string) []peerToolsListOutcome {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if len(kinds) == 0 {
+		return nil
+	}
+	type indexedOutcome struct {
+		index   int
+		outcome peerToolsListOutcome
+	}
+	ch := make(chan indexedOutcome, len(kinds))
+	for index, kind := range kinds {
+		go func() {
+			tools, err := h.listPeerTools(ctx, kind)
+			ch <- indexedOutcome{
+				index: index,
+				outcome: peerToolsListOutcome{
+					clientKind: kind,
+					tools:      tools,
+					err:        err,
+				},
+			}
+		}()
+	}
+	out := make([]peerToolsListOutcome, len(kinds))
+	for range kinds {
+		result := <-ch
+		out[result.index] = result.outcome
+	}
+	return out
+}
+
+func joinPeerToolErrors(outcomes []peerToolsListOutcome) error {
+	errs := make([]error, 0, len(outcomes))
+	for _, outcome := range outcomes {
+		if outcome.err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", outcome.clientKind, outcome.err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 func (h *Handler) ListToolsForCodex(ctx context.Context) ([]codexprotocol.DynamicToolSchema, error) {
-	orchTools, err := h.listPeerTools(ctx, dto.ClientKindOrch)
-	if err != nil {
-		return nil, err
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	lspTools, err := h.listPeerTools(ctx, dto.ClientKindLSP)
-	if err != nil {
-		return nil, err
+	// Host-direct 工具优先加入列表：dedup 遵守“先加入者胜出”原则，同名 peer 工具会被忽略。
+	// 这保证调用阶段 hostTools.HasTool 命中与列表阶段优先级一致。
+	var hostTools []common.MCPTool
+	if h != nil && h.hostTools != nil {
+		hostTools = h.hostTools.ListHostTools()
 	}
-	merged := append(append([]common.MCPTool(nil), orchTools...), lspTools...)
-	return toCodexDynamicTools(merged), nil
+	merged := append([]common.MCPTool(nil), hostTools...)
+	peerSucceeded := false
+	outcomes := h.listPeerToolsForCodex(ctx, dto.ClientKindOrch, dto.ClientKindLSP)
+	for _, outcome := range outcomes {
+		if outcome.err != nil {
+			if h != nil {
+				h.warn("toolbridge dynamic tools peer degraded", "client_kind", outcome.clientKind, "error", outcome.err)
+			}
+			continue
+		}
+		peerSucceeded = true
+		merged = append(merged, outcome.tools...)
+	}
+	if len(merged) == 0 && !peerSucceeded {
+		if err := joinPeerToolErrors(outcomes); err != nil {
+			return nil, fmt.Errorf("toolbridge: no dynamic tools available: %w", err)
+		}
+		return nil, ErrNoPeerAvailable
+	}
+	return toCodexDynamicTools(dedupToolsByName(merged)), nil
+}
+
+// dedupToolsByName 按 name 去重，保留首次出现的入口（所以调用时要把 host-direct
+// 放在列表最前）。补 host_tools 的 dedup 优先级语义。
+func dedupToolsByName(in []common.MCPTool) []common.MCPTool {
+	seen := make(map[string]struct{}, len(in))
+	out := make([]common.MCPTool, 0, len(in))
+	for _, t := range in {
+		if _, ok := seen[t.Name]; ok {
+			continue
+		}
+		seen[t.Name] = struct{}{}
+		out = append(out, t)
+	}
+	return out
+}
+
+// callHostTool 是 routeToolCall 的 host-direct 分支：在调用 hostTools.CallHostTool 之前
+// 从 agentID 解析 cwd，打包返回值为 ToolCallResult，路径上与 peer 分支对齐。
+func (h *Handler) callHostTool(ctx context.Context, req ToolCallRequest) (*ToolCallResult, error) {
+	cwd := h.resolveAgentCWD(ctx, req.AgentID)
+	result, err := h.hostTools.CallHostTool(ctx, HostToolCall{
+		Name:      req.Name,
+		Arguments: req.Arguments,
+		CWD:       cwd,
+		AgentID:   strings.TrimSpace(req.AgentID),
+		ThreadID:  strings.TrimSpace(req.ThreadID),
+		TurnID:    strings.TrimSpace(req.TurnID),
+		CallID:    strings.TrimSpace(req.CallID),
+	})
+	if err != nil {
+		return hostToolErrorResult(req, err), nil
+	}
+	payload, mErr := json.Marshal(result)
+	if mErr != nil {
+		return nil, mErr
+	}
+	return &ToolCallResult{
+		Success: true,
+		ContentItems: []ToolCallContentItem{{
+			Type: "inputText",
+			Text: string(payload),
+		}},
+	}, nil
+}
+
+func hostToolErrorResult(req ToolCallRequest, err error) *ToolCallResult {
+	envelope := map[string]any{
+		"kind":  "host_tool_error",
+		"tool":  strings.TrimSpace(req.Name),
+		"error": err.Error(),
+	}
+	var required skillpkg.SkillApprovalRequiredError
+	switch {
+	case errors.As(err, &required):
+		envelope["kind"] = "approval_required"
+		envelope["approval"] = approvalRequestEnvelope(required.Request)
+	case isSkillApprovalDenied(err):
+		envelope["kind"] = "approval_denied"
+	}
+	payload, marshalErr := json.Marshal(envelope)
+	if marshalErr != nil {
+		payload = []byte(err.Error())
+	}
+	return &ToolCallResult{
+		Success: false,
+		ContentItems: []ToolCallContentItem{{
+			Type: "inputText",
+			Text: string(payload),
+		}},
+	}
+}
+
+type skillApprovalDeniedMarker interface {
+	SkillApprovalDenied() bool
+}
+
+func isSkillApprovalDenied(err error) bool {
+	var marker skillApprovalDeniedMarker
+	return errors.As(err, &marker) && marker.SkillApprovalDenied()
+}
+
+func approvalRequestEnvelope(req contract.ApprovalRequest) map[string]any {
+	return map[string]any{
+		"callId":       strings.TrimSpace(req.CallID),
+		"approvalId":   strings.TrimSpace(req.ApprovalID),
+		"toolName":     strings.TrimSpace(req.ToolName),
+		"agentId":      strings.TrimSpace(req.AgentID),
+		"threadId":     strings.TrimSpace(req.ThreadID),
+		"turnId":       strings.TrimSpace(req.TurnID),
+		"reason":       strings.TrimSpace(req.Reason),
+		"kind":         strings.TrimSpace(req.Kind),
+		"sourceMethod": strings.TrimSpace(req.SourceMethod),
+		"payload":      req.Payload,
+	}
+}
+
+// resolveAgentCWD 包装 WorkDirResolver 调用，失败时返回空串（下游 service 会返 ErrMissingCWD，
+// 该错误会被 callHostTool 打包成带说明的失败 ToolCallResult）。resolver 为 nil 同理空串。
+func (h *Handler) resolveAgentCWD(ctx context.Context, agentID string) string {
+	if h == nil || h.resolver == nil {
+		return ""
+	}
+	cwd, err := h.resolver.ResolveAgentCWD(ctx, agentID)
+	if err != nil {
+		return ""
+	}
+	return cwd
 }
