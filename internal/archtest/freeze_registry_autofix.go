@@ -54,9 +54,13 @@ func AutoRepairFreezeRegistry(opts CheckOptions) ([]FreezeRegistryAutoFix, error
 }
 
 func planFreezeRegistryAutoFixes(repoRoot string, scanRoots []string, stats map[string]*packageStat) ([]FreezeRegistryAutoFix, []explicitFreeze) {
+	return planFreezeRegistryAutoFixesForEntries(repoRoot, scanRoots, stats, explicitFreezeRegistry)
+}
+
+func planFreezeRegistryAutoFixesForEntries(repoRoot string, scanRoots []string, stats map[string]*packageStat, entries []explicitFreeze) ([]FreezeRegistryAutoFix, []explicitFreeze) {
 	fixes := make([]FreezeRegistryAutoFix, 0)
-	next := make([]explicitFreeze, 0, len(explicitFreezeRegistry))
-	for _, entry := range explicitFreezeRegistry {
+	next := make([]explicitFreeze, 0, len(entries))
+	for _, entry := range entries {
 		fix, keep, updated := planFreezeRegistryAutoFix(repoRoot, scanRoots, stats, entry)
 		if fix.Action != "" {
 			fixes = append(fixes, fix)
@@ -89,27 +93,19 @@ func planFreezeRegistryAutoFix(repoRoot string, scanRoots []string, stats map[st
 		}, false, explicitFreeze{}
 	}
 	if observed < entry.Limit {
+		oldLimit := entry.Limit
 		entry.Limit = observed
 		return FreezeRegistryAutoFix{
 			Path:         entry.Path,
 			Kind:         kind,
 			Action:       "shrink",
-			OldLimit:     explicitFreezeRegistryLimit(entry.Path, entry.Kind),
+			OldLimit:     oldLimit,
 			NewLimit:     observed,
 			Observed:     observed,
 			DefaultLimit: defaultLimit,
 		}, true, entry
 	}
 	return FreezeRegistryAutoFix{}, true, entry
-}
-
-func explicitFreezeRegistryLimit(path string, kind ViolationKind) int {
-	for _, entry := range explicitFreezeRegistry {
-		if entry.Path == path && entry.Kind == kind {
-			return entry.Limit
-		}
-	}
-	return 0
 }
 
 func rewriteFreezeRegistrySource(repoRoot string, entries []explicitFreeze) error {
