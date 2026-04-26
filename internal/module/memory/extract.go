@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+
+	parse "github.com/anthropic-ai/super-agent-v3/internal/module/memory/parse"
 )
 
 const (
@@ -19,10 +21,7 @@ const (
 	extractedMemoryNameMaxLen = 96
 )
 
-var (
-	htmlCommentLinePattern = regexp.MustCompile(`<!--.*?-->`)
-	includePattern         = regexp.MustCompile(`(?:^|\s)@((?:[^\s\\]|\\ )+)`)
-)
+var includePattern = regexp.MustCompile(`(?:^|\s)@((?:[^\s\\]|\\ )+)`)
 
 type ExtractFunc func(ctx context.Context, prompt string) (string, error)
 
@@ -52,14 +51,6 @@ type extractEnvelope struct {
 type markdownFenceState struct {
 	open   bool
 	marker byte
-}
-
-type htmlCommentStripState struct {
-	fence          markdownFenceState
-	builder        strings.Builder
-	pendingComment strings.Builder
-	stripped       bool
-	inComment      bool
 }
 
 func NewMemoryExtractor() *MemoryExtractor {
@@ -312,11 +303,6 @@ func ParseMemoryFile(path string) (*ParsedMemory, error) {
 	return &parsed, nil
 }
 
-func StripHTMLComments(content string) string {
-	stripped, _ := stripHTMLComments(content)
-	return stripped
-}
-
 func ExtractIncludes(content string) []string {
 	if !strings.Contains(content, "@") {
 		return nil
@@ -348,13 +334,13 @@ func ExtractIncludes(content string) []string {
 }
 
 func parseMemoryFileContent(path, rawContent string) ParsedMemory {
-	content := stripUTF8BOM(rawContent)
+	content := parse.StripUTF8BOM(rawContent)
 	parsed := ParsedMemory{Content: content}
-	if frontmatter, body, ok := splitMemoryFrontmatter(content); ok {
+	if frontmatter, body, ok := parse.SplitFrontmatter(content); ok {
 		parsed.Frontmatter = parseMemoryFrontmatter(frontmatter)
 		parsed.Content = body
 	}
-	parsed.Content = StripHTMLComments(parsed.Content)
+	parsed.Content = parse.StripHTMLComments(parsed.Content)
 	parsed.Includes = ExtractIncludes(parsed.Content)
 	parsed.Content = truncateParsedMemoryContent(path, parsed.Content)
 	if parsed.Content != rawContent {
@@ -362,71 +348,6 @@ func parseMemoryFileContent(path, rawContent string) ParsedMemory {
 		parsed.ContentDiffersFromDisk = true
 	}
 	return parsed
-}
-
-func stripHTMLComments(content string) (string, bool) {
-	if !strings.Contains(content, "<!--") {
-		return content, false
-	}
-	state := &htmlCommentStripState{}
-	for _, line := range strings.SplitAfter(content, "\n") {
-		state.processLine(line)
-	}
-	if state.inComment {
-		state.builder.WriteString(state.pendingComment.String())
-	}
-	return state.builder.String(), state.stripped
-}
-
-func (s *htmlCommentStripState) processLine(line string) {
-	if s.processPendingLine(line) {
-		return
-	}
-	if lineInMarkdownFence(&s.fence, line) {
-		s.builder.WriteString(line)
-		return
-	}
-	if !startsHTMLCommentBlock(line) {
-		s.builder.WriteString(line)
-		return
-	}
-	if s.stripInlineComment(line) {
-		return
-	}
-	s.pendingComment.WriteString(line)
-	s.inComment = true
-}
-
-func (s *htmlCommentStripState) processPendingLine(line string) bool {
-	if !s.inComment {
-		return false
-	}
-	s.pendingComment.WriteString(line)
-	_, residue, ok := strings.Cut(line, "-->")
-	if !ok {
-		return true
-	}
-	s.stripped = true
-	appendNonEmptyLine(&s.builder, residue)
-	s.pendingComment.Reset()
-	s.inComment = false
-	return true
-}
-
-func (s *htmlCommentStripState) stripInlineComment(line string) bool {
-	if !strings.Contains(line, "-->") {
-		return false
-	}
-	s.stripped = true
-	appendNonEmptyLine(&s.builder, htmlCommentLinePattern.ReplaceAllString(line, ""))
-	return true
-}
-
-func appendNonEmptyLine(builder *strings.Builder, line string) {
-	if strings.TrimSpace(line) == "" {
-		return
-	}
-	builder.WriteString(line)
 }
 
 func truncateParsedMemoryContent(path, content string) string {
@@ -438,10 +359,6 @@ func truncateParsedMemoryContent(path, content string) string {
 		return ""
 	}
 	return TruncateEntrypointContent(trimmed).Content
-}
-
-func startsHTMLCommentBlock(line string) bool {
-	return strings.HasPrefix(strings.TrimLeft(line, " \t"), "<!--")
 }
 
 func normalizeIncludePath(path string) string {

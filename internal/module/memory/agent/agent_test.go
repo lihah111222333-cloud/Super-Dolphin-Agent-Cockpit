@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	parse "github.com/anthropic-ai/super-agent-v3/internal/module/memory/parse"
 )
 
 func TestAgentMemoryManagerGetAgentMemoryDirScopeIsolation(t *testing.T) {
@@ -273,8 +274,8 @@ func TestTruncateAgentMemoryContentTracksOriginalCodeUnitCount(t *testing.T) {
 		lines[i] = line
 	}
 	trimmedByLines := strings.Join(lines[:agentMemoryMaxLines], "\n")
-	if jsStringLength(trimmedByLines) > agentMemoryMaxCodeUnits {
-		t.Fatalf("test setup invalid: %d > %d", jsStringLength(trimmedByLines), agentMemoryMaxCodeUnits)
+	if parse.JSStringLength(trimmedByLines) > agentMemoryMaxCodeUnits {
+		t.Fatalf("test setup invalid: %d > %d", parse.JSStringLength(trimmedByLines), agentMemoryMaxCodeUnits)
 	}
 
 	result := truncateAgentMemoryContent(strings.Join(lines, "\n"))
@@ -347,7 +348,7 @@ func assertEmptyAgentMemoryEntrypoint(t *testing.T, dir string) {
 	if err != nil {
 		t.Fatalf("ReadFile(MEMORY.md) error = %v", err)
 	}
-	if strings.TrimSpace(stripUTF8BOM(string(content))) != "" {
+	if strings.TrimSpace(parse.StripUTF8BOM(string(content))) != "" {
 		t.Fatalf("MEMORY.md = %q, want empty entrypoint", string(content))
 	}
 }

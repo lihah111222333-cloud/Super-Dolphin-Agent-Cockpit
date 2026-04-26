@@ -8,6 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	parse "github.com/anthropic-ai/super-agent-v3/internal/module/memory/parse"
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 	"golang.org/x/text/unicode/norm"
 )
@@ -175,8 +176,6 @@ func nonEmpty(parts []string) []string {
 	return out
 }
 
-func stripUTF8BOM(content string) string { return strings.TrimPrefix(content, "\uFEFF") }
-
 func canonicalName(raw string) string {
 	return strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(raw))), " ")
 }
@@ -202,12 +201,13 @@ func truncateAgentMemoryContent(raw string) agentMemoryTruncation {
 		return agentMemoryTruncation{}
 	}
 	lines := strings.Split(trimmed, "\n")
+	codeUnits := parse.JSStringLength(trimmed)
 	result := agentMemoryTruncation{
 		content:          trimmed,
 		lineCount:        len(lines),
-		codeUnitCount:    jsStringLength(trimmed),
+		codeUnitCount:    codeUnits,
 		wasLineTruncated: len(lines) > entrypointMaxLines,
-		wasByteTruncated: jsStringLength(trimmed) > entrypointMaxCodeUnits,
+		wasByteTruncated: codeUnits > entrypointMaxCodeUnits,
 	}
 	if !result.wasLineTruncated && !result.wasByteTruncated {
 		return result
@@ -215,8 +215,8 @@ func truncateAgentMemoryContent(raw string) agentMemoryTruncation {
 	if result.wasLineTruncated {
 		trimmed = strings.Join(lines[:entrypointMaxLines], "\n")
 	}
-	if jsStringLength(trimmed) > entrypointMaxCodeUnits {
-		trimmed = truncateAtCodeUnitLimit(trimmed, entrypointMaxCodeUnits)
+	if parse.JSStringLength(trimmed) > entrypointMaxCodeUnits {
+		trimmed = parse.TruncateAtCodeUnitLimit(trimmed, entrypointMaxCodeUnits)
 	}
 	result.content = trimmed + "\n\n> WARNING: MEMORY.md is " + truncateAgentMemoryReason(result) + ". Only part of it was loaded. Keep index entries to one line under ~200 chars; move detail into topic files."
 	return result
@@ -231,49 +231,6 @@ func truncateAgentMemoryReason(result agentMemoryTruncation) string {
 	default:
 		return fmt.Sprintf("%d lines and %s", result.lineCount, formatEntrypointSize(result.codeUnitCount))
 	}
-}
-
-func truncateAtCodeUnitLimit(content string, limit int) string {
-	if limit <= 0 {
-		return ""
-	}
-	if jsStringLength(content) <= limit {
-		return content
-	}
-	bytePos, codeUnits, lastNewline := 0, 0, -1
-	for bytePos < len(content) {
-		r, size := utf8.DecodeRuneInString(content[bytePos:])
-		if units := utf16CodeUnits(r); codeUnits+units > limit {
-			break
-		} else {
-			if r == '\n' {
-				lastNewline = bytePos
-			}
-			codeUnits += units
-			bytePos += size
-		}
-	}
-	if lastNewline > 0 {
-		return content[:lastNewline]
-	}
-	return content[:bytePos]
-}
-
-func jsStringLength(content string) int {
-	count := 0
-	for bytePos := 0; bytePos < len(content); {
-		r, size := utf8.DecodeRuneInString(content[bytePos:])
-		count += utf16CodeUnits(r)
-		bytePos += size
-	}
-	return count
-}
-
-func utf16CodeUnits(r rune) int {
-	if r > 0xFFFF {
-		return 2
-	}
-	return 1
 }
 
 func formatEntrypointSize(size int) string {
