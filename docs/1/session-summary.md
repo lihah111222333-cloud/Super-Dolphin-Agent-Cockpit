@@ -651,3 +651,96 @@ runtime 传回 `claude-opus-4-7[1m]` → canonicalize 到 `opus[1m]` → 下拉�
 - 前端 2 条 size-guard 超限函数老债可单起 refactor
 
 
+
+---
+
+## 11. 2026-04-26 mcp-orch ArchiveAgent 跨进程 RPC 路由 + sidebar DB-canonical 投影闭环（本次追加）
+
+> 会话范围：用户报"主 agent 通过 stop 回收两个子 agent，agent 没进回收站、仍在 agent 列表"；3 轮调研方向校正后定位真根因为 mcp-orch.ArchiveAgent 调远端 thread/stop（应当调 thread/archive）；单 agent 串行做完主线 + 副线 + DB canonical 三态语义；3 路独立复审；§10.18 一票 BLOCK 定调修 P1+P2。
+
+### 11.1 真根因诊断链（3 轮调研方向校正）
+
+| 假设 | 派调研 | 戳穿证据 |
+|---|---|---|
+| H1: mcp-orch s.agents 内存 stale | research-archive-write/read-path | 用户反馈"重启后还在" → 推翻内存假设 |
+| H2: ListAgents merge overlay 让 runtime stale state 覆盖 persisted archived | 同上 | 重启后内存清空仍在列表 → 推翻 read overlay 假设 |
+| H3: mcp-orch ArchiveAgent 调远端 RPC 错路由（thread/stop 而非 thread/archive） | research-launcher-thread-archive-rpc + research-thread-list-archived-filter | mcp-orch 真 log `/private/tmp/mcp-orch-PID.log` 显示 archive log 全 fire ✓；但 archive 后主程序 service.Stop 把 status 反写为 stopped ✓ 真根因锁定 |
+
+### 11.2 双层 bug
+
+| Layer | Bug |
+|---|---|
+| 跨进程语义错位 | mcp-orch.ArchiveAgent → remoteLauncher.Stop → RPC `thread/stop` → 主程序 service.Stop 反写 status='stopped'，跳过 service.Archive 完整流程（cleanup scratchpad/turns + publishThreadStopped(archived) + setBindingArchived） |
+| 前后端语义错位 | 前端 sidebar 不调 thread/list 调 ui/sidebar/get；ThreadSummary.State 后端从不写 DB status；前端归档分组只看 archivedThreadAtById preference map（GUI 点归档才写）；mcp-orch archive 不经前端 setThreadArchived → preference 无 timestamp → 重启后仍在主列表 |
+
+### 11.3 实施（单 agent 串行 / 3 commits + 1 docs commit）
+
+```
+8926185 refactor(store,binding): expose pool-backed binding store constructor
+        - cmd/mcp-orch/runtime.go 不再 import internal/store/sqlc
+        - internal/store/binding/module.go 加 NewStoreFromPool facade
+        - 顺手清 TestSqlcBoundary 既有违规
+
+0311501 fix(orchestration): mcp-orch ArchiveAgent now invokes thread/archive RPC
+        - launcher_protocol.go 加 LauncherMethodThreadArchive
+        - AgentLauncher interface 加 Archive 方法（4 实现 fan-out，无 sub-interface fallback）
+        - service_launcher_bridge.go 新增 archiveAgentViaLauncher (bool, error)
+        - archive.go: remoteArchived=true 时跳过本地 archivePersistedArchiveTarget 双写
+        - 保留 archivePersistedArchiveTarget 函数体作 runtime missing fallback（§10.31）
+        - archtest freeze 加 "thread/archive"
+        - 测试: TestRemoteLauncher_Archive + TestArchiveAgentInvokesLauncherArchiveNotStop
+          （断言 Archive called / Stop not called / 远端成功后本地 UpdateStatus/SetArchived 0 调用）
+
+7bbdd70 fix(thread,uistate,frontend): project DB archived status into sidebar
+        - thread.Ref + toRef 加 Status 字段
+        - uistate.summarizeThreads 投影 Ref.Status → ThreadSummary.State
+        - preferences.projectArchivedThreadStatus DB-canonical 三态语义:
+          * State=="archived" → 强制 archive entry（DB 真值）
+          * State 非空且非 archived → delete stale preference timestamp（DB 真值反向覆盖）
+          * State 空 → preference 兜底
+        - sidebar_compat.normalizeSidebarStatus 保留 archived（防 GetSidebar derived status 重写 idle）
+        - 前端 isArchivedThread 加 state/status==='archived' 兜底
+        - 测试: TestProjectArchivedThreadStatus{DropsStalePreference,KeepsWhenStateAbsent,ForcesArchived}
+          + 前端 'thread.state==archived' 双侧测试
+```
+
+### 11.4 协作统计
+
+- 4 路调研: research-archive-write-path-cleanup（弃，方向错）/ research-archive-read-path-overlay（弃，方向错）/ research-launcher-thread-archive-rpc（采纳）/ research-thread-list-archived-filter（采纳，戳出 P1 union vs DB canonical 漏洞）
+- 1 路 fix-agent 串行: fix-archive-rpc-and-sidebar-projection（自审 + 修订 P1 + commit 拆分 P2）
+- 3 路独立复审: fix 自审 + 主线复审（research-launcher-...）+ 副线复审（research-thread-list-...） — §10.18 一票 BLOCK 定调判 ⚠️ 1 处 NEEDS-FIX，主 agent 派回 fix-agent 修 P1+P2
+
+### 11.5 4 commits 全绿验收
+
+- `go test ./internal/module/uistate/... -run TestProjectArchivedThreadStatus` 3 PASS
+- `go build ./...` 静默 OK
+- `go test ./... -count=1` 全 ok
+- `TestCodeSizeGuard` PASS
+- `TestOrchestrationLauncherProtocolFreeze` PASS（freeze 含 thread/archive）
+- `lsp_grep` 真值: thread/stop 在 archive.go=0 / stopAgentViaLauncher 在 archive.go=0 / thread/archive 在 launcher_protocol.go=1 / Archive 在 freeze=1 / "delete(out, id)" 在 preferences.go=1 / "DB authoritative" 注释=2
+
+### 11.6 本会话新发现教训（已落盘 §10.48-50）
+
+- §10.48 跨进程 RPC 路由错位陷阱：同一 status 字段被两层覆盖时，写顺序决定 winner；远端 stop RPC 必须区分 stop/archive 不同语义
+- §10.49 mcp-orch 子进程 log 路径分离：`agent-terminal-*.log` 是 GUI 主程序，`/private/tmp/mcp-orch-PID.log` 才是 mcp-orch；查 RPC handler 行为必须看后者
+- §10.50 调研方向被 LSP 引导错位的早期校正：用户一句"重启后还在"立即推翻内存假设；主 agent 派调研前应主动问"重启后还在吗 / DB 真值是什么"
+
+### 11.7 下一步建议
+
+- push 4 commits（含本 docs commit）到 origin/main
+- unarchive 对偶路径 DB canonical 已修，无需追加
+- sidebar_compat normalizeSidebarStatus 的 stopped/expired 仍归一为 idle；如未来要 inactive bucket 需另开议题
+- vitest.config.js include 改 `**/*.test.js`（轻微维护风险，不阻塞）
+
+### 11.8 最近 10 条对话摘要（本会话）
+
+1. 老公贴主 agent JSON："stop 回收两个 agent 没回收到回收站"
+2. 主 agent 定位 4 个静默断点（断点 ②③④ 静默吞错 + ① type assertion）
+3. 派 add-archive-failloud-warn-logs（已落 13 处 log）
+4. 老公"已重新编译并再次回收" → 调试发现 archive log 0 命中（误判 mcp-orch 进程未生效）
+5. 老公提示"应该是 RPC 调用主程序回收的，对应链路打印了 log 吗"
+6. 老公"用的是 v3 编译脚本" → 主 agent 误判 v2 进程 → 老公纠正
+7. 老公"重启后 agent 还在啊，就反应不是内存"
+8. 主 agent 找到 mcp-orch 真 log `/private/tmp/mcp-orch-PID.log`，archive 全 fire；定位 thread/stop vs thread/archive 错路由
+9. 老公"sopt 没有正确调用主程序的停止 rpc 端点" → 真根因锁定
+10. 派 4 路调研 + 1 路 fix-agent + 3 路复审 + P1 + P2 + docs 落盘 → push 4 commits
