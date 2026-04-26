@@ -43,13 +43,15 @@ const (
 // render per-agent MEMORY.md.
 //
 // Note: this Config intentionally does NOT carry a Harness field, unlike the
-// parent memory.Config (see config.go::Harness). Agent-memory loading is
-// harness-agnostic — there is no overlay-suppression gate keyed off the
-// underlying CLI harness here, so freezing harness identity at construction
-// time would add a field with no readers. If a future feature needs to gate
-// agent-memory behaviour on harness identity, add the field here AND treat
-// it as immutable post-construction (mirroring the contract on memory.Config
-// .Harness) so a mid-run os.Setenv cannot flip the decision silently.
+// parent memory.Config (see config.go::Harness). Harness-keyed overlay
+// suppression for agent-memory injection IS enforced — but it is sourced
+// from the parent memory.Config.Harness via the GateResolver interface
+// (see PromptProvider.Resolve calling gates.SuppressForOverlay), not
+// duplicated here. Storing it twice would risk drift between the parent
+// snapshot and the agent-scoped copy. If a future feature needs an
+// agent-only gate independent of the parent snapshot, add the field here
+// AND treat it as immutable post-construction (mirroring the contract on
+// memory.Config.Harness) so a mid-run os.Setenv cannot flip the decision.
 type Config struct {
 	RootDir         string
 	ProjectRoot     string
@@ -70,6 +72,14 @@ type PromptBuilder interface {
 
 type GateResolver interface {
 	AutoEnabled(buildCtx contract.BuildCtx) bool
+	// SuppressForOverlay reports whether the underlying CLI harness already
+	// runs its own complete memory pipeline and our providers should step
+	// aside. Mirrors MemoryGateSnapshot.SuppressForOverlay so child-agent
+	// MEMORY.md injection respects the same overlay gating as the root
+	// MemoryEntrypointProvider; otherwise claude_code overlay would suppress
+	// the parent prompt entrypoint while still injecting agent-scope
+	// MEMORY.md into spawned children.
+	SuppressForOverlay(buildCtx contract.BuildCtx) bool
 }
 
 type Manager struct {
@@ -265,6 +275,9 @@ func (p *PromptProvider) Resolve(_ context.Context, input contract.SectionContex
 		return nil, nil
 	}
 	if !p.gates.AutoEnabled(input.BuildCtx) {
+		return nil, nil
+	}
+	if p.gates.SuppressForOverlay(input.BuildCtx) {
 		return nil, nil
 	}
 	meta, ok := ResolveChildAgentStart(input)

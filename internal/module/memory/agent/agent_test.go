@@ -436,3 +436,35 @@ func validateMemoryWritePathForTest(root, file string) (string, error) {
 	}
 	return candidate, nil
 }
+
+type fakeGate struct {
+	auto     bool
+	suppress bool
+}
+
+func (g fakeGate) AutoEnabled(contract.BuildCtx) bool       { return g.auto }
+func (g fakeGate) SuppressForOverlay(contract.BuildCtx) bool { return g.suppress }
+
+// TestPromptProviderResolveSuppressedByOverlay closes the regression that R3
+// flagged: under claude_code overlay the root MemoryEntrypointProvider drops
+// MEMORY.md, but PromptProvider used to keep injecting agent-scope MEMORY.md
+// into spawned children, producing the parent-suppressed / child-injected
+// split. The Resolve path now consults SuppressForOverlay before reaching
+// child-agent metadata extraction.
+func TestPromptProviderResolveSuppressedByOverlay(t *testing.T) {
+	p := NewPromptProvider(&Config{}, &Manager{}, fakeGate{auto: true, suppress: true}, nil)
+	got, err := p.Resolve(context.Background(), contract.SectionContext{
+		Start: &contract.StartInput{
+			ParentAgentID:    "agent-root",
+			AgentType:        "worker",
+			AgentMemoryScope: "project",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if got != nil {
+		t.Fatalf("Resolve() returned content under overlay suppression: %q", *got)
+	}
+}
+
