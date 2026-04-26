@@ -65,7 +65,7 @@ func (t *transport) Call(ctx context.Context, method string, params any) (json.R
 	pc := &pendingCall{done: make(chan struct{})}
 	t.pending.Store(key, pc)
 	defer t.pending.Delete(key)
-	if err := t.writeJSON(jsonRPCRequest{JSONRPC: "2.0", ID: id, Method: method, Params: sanitizeProviderPayload(params)}); err != nil {
+	if err := t.writeJSON(jsonRPCRequest{JSONRPC: "2.0", ID: id, Method: method, Params: sanitizeProviderPayload(method, params)}); err != nil {
 		return nil, err
 	}
 	select {
@@ -84,12 +84,12 @@ func (t *transport) Notify(method string, params any) error {
 		JSONRPC string `json:"jsonrpc"`
 		Method  string `json:"method"`
 		Params  any    `json:"params,omitempty"`
-	}{JSONRPC: "2.0", Method: method, Params: sanitizeProviderPayload(params)})
+	}{JSONRPC: "2.0", Method: method, Params: sanitizeProviderPayload(method, params)})
 }
 
 // sanitizeProviderPayload filters out internal-only Go side tracking fields
 // before the payload is dispatched to the python proxy, satisfying strict Pydantic extra='forbid' validation.
-func sanitizeProviderPayload(payload any) any {
+func sanitizeProviderPayload(method string, payload any) any {
 	if payload == nil {
 		return nil
 	}
@@ -98,10 +98,23 @@ func sanitizeProviderPayload(payload any) any {
 		return payload
 	}
 	safe := make(map[string]any, len(m))
+	preserveApprovalRequestID := strings.TrimSpace(method) == "approval/respond"
 	for k, v := range m {
 		// Strip internal tracking keys that are not part of the provider's API.
 		switch k {
-		case "request_id", "requestId", "uiType", "uiText", "uiCommand", "uiFiles", "uiExitCode", "internal", "worker":
+		case "request_id":
+			if preserveApprovalRequestID {
+				if _, exists := safe["requestId"]; !exists {
+					safe["requestId"] = v
+				}
+			}
+			continue
+		case "requestId":
+			if preserveApprovalRequestID {
+				safe["requestId"] = v
+			}
+			continue
+		case "uiType", "uiText", "uiCommand", "uiFiles", "uiExitCode", "internal", "worker":
 			continue
 		}
 		safe[k] = v

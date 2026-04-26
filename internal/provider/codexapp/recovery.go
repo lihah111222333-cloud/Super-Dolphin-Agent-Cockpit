@@ -193,6 +193,10 @@ func (s *session) completeRecoveryReplay(reason string) error {
 	s.mu.Lock()
 	s.suppressed = make(map[string]struct{})
 	s.mu.Unlock()
+	// The app-server/proxy may reset approval request IDs across reconnects.
+	// Drop completed/in-flight approval de-dupe state so a post-recovery request
+	// cannot inherit a stale decision from the previous transport generation.
+	s.clearProcessedApprovals()
 	if err := s.resumeThreadAfterRecovery(s.ctx); err != nil {
 		return s.failRecovery(reason, err)
 	}

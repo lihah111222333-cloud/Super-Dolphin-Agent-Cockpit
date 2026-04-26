@@ -21,30 +21,31 @@ import (
 )
 
 type session struct {
-	agentID            string
-	threadID           atomic.Value
-	approvalPolicy     atomic.Value
-	transport          *transport
-	manager            *ServerManager
-	caps               dto.CapabilitySet
-	recovery           *recoveryManager
-	history            *rolloutReader
-	logger             *slog.Logger
-	dispatcher         *unified.EventDispatcher
-	approvals          *rpc.ApprovalManager
-	ctx                context.Context
-	cancel             context.CancelFunc
-	mu                 sync.Mutex
-	approvalMu         sync.Mutex
-	recoveryMu         sync.Mutex
-	lastReadAt         atomic.Int64
-	recoveryCount      atomic.Int32
-	turns              map[string]*turnHandle
-	activeTurnID       string
-	pendingTurn        *turnReplayState
-	suppressed         map[string]struct{}
-	processedApprovals map[string]*processedApprovalEntry
-	runtimeConfig      map[string]any
+	agentID              string
+	threadID             atomic.Value
+	approvalPolicy       atomic.Value
+	transport            *transport
+	manager              *ServerManager
+	caps                 dto.CapabilitySet
+	recovery             *recoveryManager
+	history              *rolloutReader
+	logger               *slog.Logger
+	dispatcher           *unified.EventDispatcher
+	approvals            *rpc.ApprovalManager
+	approvalDecisionHook func(context.Context, rpc.ApprovalRequest) (contract.ApprovalDecision, error)
+	ctx                  context.Context
+	cancel               context.CancelFunc
+	mu                   sync.Mutex
+	approvalMu           sync.Mutex
+	recoveryMu           sync.Mutex
+	lastReadAt           atomic.Int64
+	recoveryCount        atomic.Int32
+	turns                map[string]*turnHandle
+	activeTurnID         string
+	pendingTurn          *turnReplayState
+	suppressed           map[string]struct{}
+	processedApprovals   map[string]*processedApprovalEntry
+	runtimeConfig        map[string]any
 	// poolRelease is set when the session was acquired from the P21
 	// ServerPool (multi-provider Codex path). It decrements the entry's
 	// refCount and closes the app-server process group when this was the last
@@ -343,10 +344,17 @@ func (s *session) ForceComplete(ctx context.Context, req dto.ForceCompleteReques
 	if err != nil {
 		return err
 	}
-	if _, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "turn/forceComplete", map[string]any{"threadId": threadID}); err != nil {
+	turnID, ok := s.forceCompleteTargetTurnID(req.ProviderID)
+	if !ok {
+		return nil
+	}
+	if _, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "turn/forceComplete", map[string]any{
+		"threadId": threadID,
+		"turnId":   turnID,
+	}); err != nil {
 		return err
 	}
-	s.forceCompleteTurn(strings.TrimSpace(req.ProviderID))
+	s.forceCompleteTurn(turnID)
 	return nil
 }
 
@@ -529,10 +537,22 @@ func (s *session) takeTurn(turnID string) *turnHandle {
 	return h
 }
 
-func (s *session) forceCompleteTurn(turnID string) {
-	if turnID == "" {
-		turnID = strings.TrimSpace(s.activeTurnID)
+func (s *session) forceCompleteTargetTurnID(providerID string) (string, bool) {
+	if s == nil {
+		return "", false
 	}
+	requested := strings.TrimSpace(providerID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	active := strings.TrimSpace(s.activeTurnID)
+	if requested != "" {
+		return requested, requested == active
+	}
+	return active, active != ""
+}
+
+func (s *session) forceCompleteTurn(turnID string) {
+	turnID = strings.TrimSpace(turnID)
 	if turnID == "" {
 		return
 	}

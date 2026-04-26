@@ -2,6 +2,8 @@ package codexapp
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strconv"
@@ -30,22 +32,26 @@ func (s *session) handleApprovalRequest(method string, params json.RawMessage) {
 		return
 	}
 	payload := append(json.RawMessage(nil), params...)
-	runtimesafe.SafeGo(s.ctx, s.logger, "codexapp.session.toolApprovalRequest", func(context.Context) {
-		if err := s.requestToolApproval(strings.TrimSpace(method), payload); err != nil && s.logger != nil {
+	runtimesafe.SafeGo(s.ctx, s.logger, "codexapp.session.toolApprovalRequest", func(ctx context.Context) {
+		if err := s.requestToolApprovalWithContext(ctx, strings.TrimSpace(method), payload); err != nil && s.logger != nil {
 			s.logger.Warn("codexapp: approval request failed", "method", method, "error", err)
 		}
 	})
 }
 
 func (s *session) requestToolApproval(method string, params json.RawMessage) error {
+	return s.requestToolApprovalWithContext(s.ctx, method, params)
+}
+
+func (s *session) requestToolApprovalWithContext(ctx context.Context, method string, params json.RawMessage) error {
 	req, requestID, ok := s.buildApprovalRequest(method, decodeEventPayload(params))
 	if !ok {
 		return nil
 	}
-	key := processedApprovalKey(req.CallID, requestID)
+	key := processedApprovalRequestKey(req, requestID)
 	entry, owner := s.beginProcessedApproval(key)
 	if !owner {
-		decision, err := waitProcessedApproval(entry)
+		decision, err := s.waitProcessedApproval(ctx, entry)
 		if err != nil {
 			return err
 		}
@@ -62,6 +68,9 @@ func (s *session) requestToolApproval(method string, params json.RawMessage) err
 func (s *session) requestApprovalDecision(req rpc.ApprovalRequest) (contract.ApprovalDecision, error) {
 	ctx, cancel := approvalDecisionContext(s.ctx)
 	defer cancel()
+	if s != nil && s.approvalDecisionHook != nil {
+		return s.approvalDecisionHook(ctx, req)
+	}
 	if isRequestUserInputMethod(req.SourceMethod) {
 		req.Kind = "request_user_input"
 		return s.approvals.RequestUserInput(ctx, nil, nil, req)
@@ -200,15 +209,87 @@ func processedApprovalKey(callID string, requestID int64) string {
 		return ""
 	}
 	id := strconv.FormatInt(requestID, 10)
-	return shared.FirstNonEmpty(callID, id) + ":" + id
+	if callID = strings.TrimSpace(callID); callID != "" {
+		return callID + ":" + id
+	}
+	return id
 }
 
-func waitProcessedApproval(entry *processedApprovalEntry) (contract.ApprovalDecision, error) {
+func processedApprovalRequestKey(req rpc.ApprovalRequest, requestID int64) string {
+	if requestID <= 0 {
+		return ""
+	}
+	fingerprint := approvalRequestFingerprint(req, requestID)
+	if fingerprint == "" {
+		return processedApprovalKey(req.CallID, requestID)
+	}
+	return strconv.FormatInt(requestID, 10) + ":" + fingerprint
+}
+
+func approvalRequestFingerprint(req rpc.ApprovalRequest, requestID int64) string {
+	payload := normalizeApprovalFingerprintPayload(req.Payload)
+	envelope := map[string]any{
+		"requestId": requestID,
+		"method":    strings.TrimSpace(req.SourceMethod),
+		"payload":   payload,
+	}
+	raw, err := json.Marshal(envelope)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
+func normalizeApprovalFingerprintPayload(payload map[string]any) any {
+	out := make(map[string]any, len(payload))
+	for key, child := range payload {
+		switch strings.TrimSpace(key) {
+		case "callId", "call_id", "approvalId", "approval_id":
+			continue
+		default:
+			out[key] = normalizeApprovalFingerprintValue(child)
+		}
+	}
+	return out
+}
+
+func normalizeApprovalFingerprintValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for key, child := range typed {
+			out[key] = normalizeApprovalFingerprintValue(child)
+		}
+		return out
+	case []any:
+		out := make([]any, len(typed))
+		for i, child := range typed {
+			out[i] = normalizeApprovalFingerprintValue(child)
+		}
+		return out
+	default:
+		return value
+	}
+}
+
+func (s *session) waitProcessedApproval(ctx context.Context, entry *processedApprovalEntry) (contract.ApprovalDecision, error) {
 	if entry == nil {
 		return contract.ApprovalDecision{}, nil
 	}
-	<-entry.ready
-	return cloneApprovalDecision(entry.decision), entry.err
+	ctx = shared.NonNilContext(ctx)
+	sessionCtx := context.Background()
+	if s != nil {
+		sessionCtx = shared.NonNilContext(s.ctx)
+	}
+	select {
+	case <-entry.ready:
+		return cloneApprovalDecision(entry.decision), entry.err
+	case <-ctx.Done():
+		return contract.ApprovalDecision{}, ctx.Err()
+	case <-sessionCtx.Done():
+		return contract.ApprovalDecision{}, sessionCtx.Err()
+	}
 }
 
 func isApprovalBridgeMethod(method string) bool {
