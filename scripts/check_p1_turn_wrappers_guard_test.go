@@ -111,9 +111,18 @@ func TestCheckP1TurnWrappersScript_Guardrails(t *testing.T) {
 			wantStderr: []string{"broken.go: parse error:"},
 		},
 		{
-			name:       "fails when internal apiserver root is missing",
+			name: "fails when not run from repository root",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				if err := os.Remove(filepath.Join(root, "go.mod")); err != nil {
+					t.Fatalf("remove sandbox go.mod: %v", err)
+				}
+			},
 			wantErr:    true,
-			wantStderr: []string{"walk internal/apiserver:"},
+			wantStderr: []string{"go.mod not found", "repository root"},
+		},
+		{
+			name: "skips when legacy internal apiserver root is missing",
 		},
 	}
 
@@ -161,88 +170,88 @@ func TestCheckP1TurnWrappersMain_ShapeAndOwnership(t *testing.T) {
 		t.Fatalf("parse %s: %v", scriptPath, err)
 	}
 
-	var mainDecl *ast.FuncDecl
-	for _, decl := range file.Decls {
-		fd, ok := decl.(*ast.FuncDecl)
-		if !ok || fd.Name == nil || fd.Name.Name != "main" {
-			continue
-		}
-		if mainDecl != nil {
-			t.Fatalf("found duplicate main in %s", scriptPath)
-		}
-		mainDecl = fd
-	}
-	if mainDecl == nil {
-		t.Fatalf("main not found in %s", scriptPath)
-	}
+	mainDecl := findCheckP1FuncDecl(t, file, "main")
 	if mainDecl.Type.Params != nil && len(mainDecl.Type.Params.List) > 0 {
 		t.Fatalf("main params = %#v, want no params", mainDecl.Type.Params.List)
 	}
 	if mainDecl.Type.Results != nil && len(mainDecl.Type.Results.List) > 0 {
 		t.Fatalf("main results = %#v, want no results", mainDecl.Type.Results.List)
 	}
+	if !checkP1FuncCalls(mainDecl, "os", "Exit") {
+		t.Fatal("main should keep os.Exit failure path")
+	}
 
-	var (
-		sawWalkDir    bool
-		walkRoot      string
-		sawParseFile  bool
-		sawExit       bool
-		exitCodeValue string
-	)
-	ast.Inspect(mainDecl.Body, func(n ast.Node) bool {
+	collectDecl := findCheckP1FuncDecl(t, file, "collectP1TurnWrapperViolations")
+	if !checkP1FuncCalls(collectDecl, "filepath", "WalkDir") {
+		t.Fatal("collectP1TurnWrapperViolations should keep filepath.WalkDir")
+	}
+	if !checkP1FuncReferencesIdent(collectDecl, "legacyWalkRoot") {
+		t.Fatal("collectP1TurnWrapperViolations should use legacyWalkRoot")
+	}
+
+	parseDecl := findCheckP1FuncDecl(t, file, "parseAndCheckP1WrapperFile")
+	if !checkP1FuncCalls(parseDecl, "parser", "ParseFile") {
+		t.Fatal("parseAndCheckP1WrapperFile should keep parser.ParseFile")
+	}
+}
+
+func findCheckP1FuncDecl(t *testing.T, file *ast.File, name string) *ast.FuncDecl {
+	t.Helper()
+	var found *ast.FuncDecl
+	for _, decl := range file.Decls {
+		fd, ok := decl.(*ast.FuncDecl)
+		if !ok || fd.Name == nil || fd.Name.Name != name {
+			continue
+		}
+		if found != nil {
+			t.Fatalf("found duplicate %s", name)
+		}
+		found = fd
+	}
+	if found == nil {
+		t.Fatalf("%s not found", name)
+	}
+	return found
+}
+
+func checkP1FuncCalls(fn *ast.FuncDecl, pkgName, funcName string) bool {
+	found := false
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
 			return true
 		}
 		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok {
+		if !ok || sel.Sel.Name != funcName {
 			return true
 		}
 		pkgIdent, ok := sel.X.(*ast.Ident)
-		if !ok {
-			return true
-		}
-		switch pkgIdent.Name + "." + sel.Sel.Name {
-		case "filepath.WalkDir":
-			sawWalkDir = true
-			if len(call.Args) > 0 {
-				if lit, ok := call.Args[0].(*ast.BasicLit); ok {
-					walkRoot = strings.Trim(lit.Value, "\"")
-				}
-			}
-		case "parser.ParseFile":
-			sawParseFile = true
-		case "os.Exit":
-			sawExit = true
-			if len(call.Args) > 0 {
-				if lit, ok := call.Args[0].(*ast.BasicLit); ok {
-					exitCodeValue = lit.Value
-				}
-			}
+		if ok && pkgIdent.Name == pkgName {
+			found = true
 		}
 		return true
 	})
+	return found
+}
 
-	if !sawWalkDir {
-		t.Fatal("main should keep filepath.WalkDir")
-	}
-	if walkRoot != "internal/apiserver" {
-		t.Fatalf("WalkDir root = %q, want %q", walkRoot, "internal/apiserver")
-	}
-	if !sawParseFile {
-		t.Fatal("main should keep parser.ParseFile")
-	}
-	if !sawExit {
-		t.Fatal("main should keep os.Exit failure path")
-	}
-	if exitCodeValue != "1" {
-		t.Fatalf("os.Exit arg = %q, want %q", exitCodeValue, "1")
-	}
+func checkP1FuncReferencesIdent(fn *ast.FuncDecl, name string) bool {
+	found := false
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		ident, ok := n.(*ast.Ident)
+		if ok && ident.Name == name {
+			found = true
+		}
+		return true
+	})
+	return found
 }
 
 func prepareCheckP1TurnWrappersSandbox(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module sandbox\n"), 0o644); err != nil {
+		t.Fatalf("write sandbox go.mod: %v", err)
+	}
 	source := locateCheckP1TurnWrappersSource(t)
 	data, err := os.ReadFile(source)
 	if err != nil {

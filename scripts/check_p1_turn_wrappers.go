@@ -20,44 +20,93 @@ var targetFuncs = map[string]struct{}{
 	"trackedTurnTerminalFromEvent":      {},
 }
 
-const maxThinFuncLines = 8
+const (
+	maxThinFuncLines = 8
+	legacyWalkRoot   = "internal/apiserver"
+	legacySkipDir    = "internal/apiserver/codexadapter"
+)
 
 func main() {
+	violations := collectP1TurnWrapperViolations()
+	if len(violations) == 0 {
+		return
+	}
+	for _, v := range violations {
+		fmt.Fprintln(os.Stderr, "FAIL:", v)
+	}
+	os.Exit(1)
+}
+
+func collectP1TurnWrapperViolations() []string {
+	if err := requireRepoRootMarker(); err != nil {
+		return []string{err.Error()}
+	}
+	if skip, violation := legacyRootMissing(); skip {
+		return nil
+	} else if violation != "" {
+		return []string{violation}
+	}
+
 	fset := token.NewFileSet()
 	var violations []string
-	skipDir := filepath.Clean("internal/apiserver/codexadapter")
+	if err := filepath.WalkDir(legacyWalkRoot, visitP1TurnWrapperPath(fset, &violations)); err != nil {
+		violations = append(violations, fmt.Sprintf("walk %s: %v", legacyWalkRoot, err))
+	}
+	return violations
+}
 
-	if err := filepath.WalkDir("internal/apiserver", func(path string, d fs.DirEntry, walkErr error) error {
+func requireRepoRootMarker() error {
+	if _, err := os.Stat("go.mod"); err != nil {
+		return fmt.Errorf("go.mod not found; run check_p1_turn_wrappers.go from repository root: %w", err)
+	}
+	return nil
+}
+
+func legacyRootMissing() (bool, string) {
+	_, err := os.Stat(legacyWalkRoot)
+	if err == nil {
+		return false, ""
+	}
+	if os.IsNotExist(err) {
+		return true, ""
+	}
+	return false, fmt.Sprintf("stat %s: %v", legacyWalkRoot, err)
+}
+
+func visitP1TurnWrapperPath(fset *token.FileSet, violations *[]string) fs.WalkDirFunc {
+	return func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
-			violations = append(violations, fmt.Sprintf("walk %s: %v", path, walkErr))
+			*violations = append(*violations, fmt.Sprintf("walk %s: %v", path, walkErr))
 			return nil
 		}
-		if d.IsDir() {
-			if filepath.Clean(path) == skipDir {
-				return filepath.SkipDir
-			}
+		if isLegacySkipDir(path, d) {
+			return filepath.SkipDir
+		}
+		if shouldSkipP1WrapperPath(path, d) {
 			return nil
 		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
-		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-		if err != nil {
-			violations = append(violations, fmt.Sprintf("%s: parse error: %v", path, err))
-			return nil
-		}
-		violations = append(violations, checkParsedFileWrappers(fset, path, file)...)
+		*violations = append(*violations, parseAndCheckP1WrapperFile(fset, path)...)
 		return nil
-	}); err != nil {
-		violations = append(violations, fmt.Sprintf("walk internal/apiserver: %v", err))
 	}
+}
 
-	if len(violations) > 0 {
-		for _, v := range violations {
-			fmt.Fprintln(os.Stderr, "FAIL:", v)
-		}
-		os.Exit(1)
+func isLegacySkipDir(path string, d fs.DirEntry) bool {
+	return d != nil && d.IsDir() && filepath.Clean(path) == filepath.Clean(legacySkipDir)
+}
+
+func shouldSkipP1WrapperPath(path string, d fs.DirEntry) bool {
+	if d == nil || d.IsDir() {
+		return true
 	}
+	return !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go")
+}
+
+func parseAndCheckP1WrapperFile(fset *token.FileSet, path string) []string {
+	file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+	if err != nil {
+		return []string{fmt.Sprintf("%s: parse error: %v", path, err)}
+	}
+	return checkParsedFileWrappers(fset, path, file)
 }
 
 func checkParsedFileWrappers(fset *token.FileSet, path string, file *ast.File) []string {
