@@ -419,14 +419,25 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   // 完全对旧 payload 做 additive 兼容；名称与 send path 对齐（selectedSkills /
   // manualSkillSelection）。backend 的 rpc_types.go 同时兼容 snake_case 别名。
   const payload = { cwd, modelProvider };
+  // Provider model/effort forwarding: caller override > settings preference.
+  // Without this the backend startParams.Model / Effort stay empty and codex
+  // provider falls back to its own defaults — which forces every new thread
+  // to hit the P1a identity check 'codexHome is required' instead of using
+  // the model/effort the user picked in Settings (e.g. gpt-5.5 / xhigh).
+  const optionsModelTrimmed = (typeof options?.model === 'string' ? options.model.trim() : '');
+  const optionsEffortTrimmed = (typeof options?.effort === 'string' ? options.effort.trim() : '');
+  const effectiveModel = optionsModelTrimmed || providerModel || '';
+  const effectiveEffort = optionsEffortTrimmed || providerEffort || '';
+  if (effectiveModel) payload.model = effectiveModel;
+  if (effectiveEffort) payload.effort = effectiveEffort;
   logWarn('thread', 'start.config.trace', {
     cwd,
     model_provider: modelProvider,
     provider_scope: providerScope,
     provider_pref_model: providerModel,
     provider_pref_effort: providerEffort,
-    options_model: (options?.model || '').toString(),
-    options_effort: (options?.effort || '').toString(),
+    options_model: optionsModelTrimmed,
+    options_effort: optionsEffortTrimmed,
     payload_model: (payload.model || '').toString(),
     payload_effort: (payload.effort || '').toString(),
     note: 'diagnostic: provider prefs are observed here; payload forwarding is logged separately by backend',
