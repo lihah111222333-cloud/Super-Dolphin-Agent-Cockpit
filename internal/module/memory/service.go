@@ -628,16 +628,18 @@ func selectExplicitWriteStore(name string, primary, secondary memoryStructuredSt
 	return nil, errors.New("memory store is nil")
 }
 
+// upsertStructuredMemory writes the entry atomically via the store's
+// UpsertStructured implementation, which acquires the disk store lock
+// once for the full check-and-write sequence. Phase 自有.1a replaced the
+// previous Create-then-Update pattern, where two independent lock
+// acquisitions left a window for a racing writer to convert a
+// Create-failed-with-AlreadyExists into an Update that overwrote
+// concurrently-written content.
 func upsertStructuredMemory(store memoryStructuredStore, entry MemoryWriteRequest, options WriteOptions) error {
 	if store == nil {
 		return errors.New("memory store is nil")
 	}
-	if _, err := store.CreateStructured(entry, options); err == nil {
-		return nil
-	} else if !errors.Is(err, ErrMemoryAlreadyExists) {
-		return err
-	}
-	_, err := store.UpdateStructured(entry, options)
+	_, err := store.UpsertStructured(entry, options)
 	return err
 }
 
