@@ -29,26 +29,31 @@ func (s *service) ArchiveAgent(ctx context.Context, agentID string) error {
 	}
 	pkglogger.Info("archive: ArchiveAgent begin", "agent_id", agentID)
 	target, resolveErr := s.resolvePersistedArchiveTarget(ctx, agentID)
-	stopErr := s.stopArchiveTarget(ctx, agentID, target, resolveErr)
-	if stopErr != nil && !errors.Is(stopErr, errAgentNotFound) {
-		return stopErr
+	remoteArchived, archiveErr := s.stopArchiveTarget(ctx, agentID, target, resolveErr)
+	if archiveErr != nil && !errors.Is(archiveErr, errAgentNotFound) {
+		return archiveErr
 	}
 	if resolveErr != nil {
 		return resolveErr
 	}
 
-	archived, err := s.archivePersistedArchiveTarget(ctx, target)
-	if err != nil {
-		return err
+	archived := remoteArchived
+	if !remoteArchived {
+		var err error
+		archived, err = s.archivePersistedArchiveTarget(ctx, target)
+		if err != nil {
+			return err
+		}
 	}
-	if !archived && stopErr != nil {
-		return stopErr
+	if !archived && archiveErr != nil {
+		return archiveErr
 	}
 	pkglogger.Info("archive: ArchiveAgent done",
 		"agent_id", agentID,
 		"binding_found", target.bindingFound,
 		"thread_id", target.threadID,
-		"archived", archived)
+		"archived", archived,
+		"remote_archived", remoteArchived)
 	return nil
 }
 
@@ -63,13 +68,13 @@ func normalizeArchiveAgentArgs(ctx context.Context, agentID string) (context.Con
 	return ctx, agentID, nil
 }
 
-func (s *service) stopArchiveTarget(ctx context.Context, requestedAgentID string, target persistedArchiveTarget, resolveErr error) error {
+func (s *service) stopArchiveTarget(ctx context.Context, requestedAgentID string, target persistedArchiveTarget, resolveErr error) (bool, error) {
 	stopAgentID := strings.TrimSpace(requestedAgentID)
 	if resolveErr == nil && strings.TrimSpace(target.agentID) != "" {
 		stopAgentID = strings.TrimSpace(target.agentID)
 	}
 	s.ensureRuntimeForPersistedAgent(ctx, stopAgentID)
-	return s.stopAgentViaLauncher(ctx, stopAgentID, "archived")
+	return s.archiveAgentViaLauncher(ctx, stopAgentID, "archived")
 }
 
 func (s *service) archivePersistedArchiveTarget(ctx context.Context, target persistedArchiveTarget) (bool, error) {

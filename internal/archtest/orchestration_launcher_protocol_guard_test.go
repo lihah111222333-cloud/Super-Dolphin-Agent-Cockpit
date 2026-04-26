@@ -32,6 +32,7 @@ func TestOrchestrationLauncherProtocolFreeze(t *testing.T) {
 	frozen := []string{
 		"\"thread/start\"",
 		"\"thread/stop\"",
+		"\"thread/archive\"",
 		"\"thread/name/set\"",
 		"\"turn/start\"",
 	}
