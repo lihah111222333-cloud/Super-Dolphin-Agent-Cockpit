@@ -85,6 +85,23 @@ func TestRemoteLauncher_LaunchStop(t *testing.T) {
 	}
 }
 
+func TestRemoteLauncher_Archive(t *testing.T) {
+	var archived map[string]any
+	launcher := remoteLocalLauncher(t, handler.Map{
+		"thread/archive": handler.New(func(_ context.Context, req map[string]any) (struct{}, error) {
+			archived = req
+			return struct{}{}, nil
+		}),
+	})
+	agent := &agentRuntime{id: "agent-1", remoteThreadID: "thread-1"}
+	if err := launcher.Archive(context.Background(), agent); err != nil {
+		t.Fatalf("Archive() error = %v", err)
+	}
+	if archived["thread_id"] != "thread-1" {
+		t.Fatalf("Archive() archived=%#v, want thread_id thread-1", archived)
+	}
+}
+
 func TestRemoteLauncher_LaunchUsesExplicitNameOnly(t *testing.T) {
 	var started map[string]any
 	launcher := remoteLocalLauncher(t, handler.Map{

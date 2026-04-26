@@ -22,6 +22,7 @@ import (
 type AgentLauncher interface {
 	Launch(ctx context.Context, agent *agentRuntime, req LaunchRequest) (LaunchResult, error)
 	Stop(ctx context.Context, agent *agentRuntime) error
+	Archive(ctx context.Context, agent *agentRuntime) error
 	SubmitTurn(ctx context.Context, agent *agentRuntime, submission TurnSubmission) (string, error)
 	IsRunning(ctx context.Context, agent *agentRuntime) bool
 }
@@ -72,6 +73,10 @@ func (l *localLauncher) Stop(_ context.Context, agent *agentRuntime) error {
 		return nil
 	}
 	return stopProcess(agent.cmd)
+}
+
+func (l *localLauncher) Archive(ctx context.Context, agent *agentRuntime) error {
+	return l.Stop(ctx, agent)
 }
 
 func (l *localLauncher) SubmitTurn(ctx context.Context, _ *agentRuntime, submission TurnSubmission) (string, error) {
@@ -214,6 +219,15 @@ func (r *remoteLauncher) Stop(ctx context.Context, agent *agentRuntime) error {
 		return nil
 	}
 	_, err := rpcCall[struct{}](ctx, r, LauncherMethodThreadStop, map[string]string{LauncherParamThreadID: agent.remoteThreadID})
+	return err
+}
+
+func (r *remoteLauncher) Archive(ctx context.Context, agent *agentRuntime) error {
+	if agent == nil || agent.remoteThreadID == "" {
+		return nil
+	}
+	_, err := rpcCall[struct{}](ctx, r, LauncherMethodThreadArchive,
+		map[string]string{LauncherParamThreadID: agent.remoteThreadID})
 	return err
 }
 

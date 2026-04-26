@@ -279,6 +279,34 @@ func (s *service) stopAgentViaLauncher(ctx context.Context, agentID, reason stri
 	return nil
 }
 
+// archiveAgentViaLauncher invokes the remote thread/archive RPC for the
+// given agent. Returns (true, nil) when the remote archive flow ran (the
+// main app already did UpdateStatus(archived) + SetArchived + cleanup +
+// publish). Returns (false, nil) when there is no live runtime and the
+// caller should fall back to the persisted DB write path.
+func (s *service) archiveAgentViaLauncher(ctx context.Context, agentID, reason string) (bool, error) {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return false, errAgentNotFound
+	}
+	if !s.shouldStopViaLauncher(ctx, agentID) {
+		// No live runtime: caller does persisted-only fallback.
+		return false, nil
+	}
+	agent, launchSeq, err := s.prepareLauncherStop(ctx, agentID, reason)
+	if err != nil {
+		return false, err
+	}
+	if agent == nil {
+		return false, nil
+	}
+	if err := s.launcher.Archive(ctx, agent); err != nil {
+		return false, err
+	}
+	s.exitMonitor.Emit(agentID, launchSeq, nil)
+	return true, nil
+}
+
 func (s *service) shouldStopViaLauncher(ctx context.Context, agentID string) bool {
 	shouldStop := false
 	_ = s.withAgentReadLocked(agentID, func(agent *agentRuntime) error {

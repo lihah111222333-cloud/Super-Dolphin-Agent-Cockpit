@@ -273,6 +273,10 @@ func (l *persistedRuntimeTestLauncher) Stop(context.Context, *agentRuntime) erro
 	return nil
 }
 
+func (l *persistedRuntimeTestLauncher) Archive(context.Context, *agentRuntime) error {
+	return nil
+}
+
 func (l *persistedRuntimeTestLauncher) SubmitTurn(_ context.Context, agent *agentRuntime, _ TurnSubmission) (string, error) {
 	l.submittedAgentID = agent.id
 	l.submittedRemoteThreadID = agent.remoteThreadID

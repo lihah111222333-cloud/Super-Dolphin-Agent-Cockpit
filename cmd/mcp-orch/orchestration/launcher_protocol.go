@@ -24,6 +24,11 @@ const (
 	// LauncherMethodThreadStop closes a remote thread previously
 	// opened by LauncherMethodThreadStart.
 	LauncherMethodThreadStop = "thread/stop"
+	// LauncherMethodThreadArchive archives a remote thread previously
+	// opened by LauncherMethodThreadStart, performing the full archive
+	// flow on the main app side (status=archived, binding archived,
+	// scratchpad/turn cleanup, archived event publish).
+	LauncherMethodThreadArchive = "thread/archive"
 	// LauncherMethodThreadNameSet updates the display name of a
 	// remote thread. Optional; only explicit rename callers should use
 	// this path. Launch and turn submission must not infer names from
@@ -50,7 +55,8 @@ const (
 )
 
 // Request parameter keys for LauncherMethodThreadStop /
-// LauncherMethodThreadNameSet / LauncherMethodTurnStart.
+// LauncherMethodThreadArchive / LauncherMethodThreadNameSet /
+// LauncherMethodTurnStart.
 const (
 	LauncherParamThreadID             = "thread_id"
 	LauncherParamInput                = "input"
