@@ -71,8 +71,8 @@ func TestResolveClaudeMdSourcesOrdersLayersAndPreservesRuleMetadata(t *testing.T
 		mustResolvedClaudePath(t, filepath.Join(cwd, "CLAUDE.local.md")),
 		mustResolvedClaudePath(t, filepath.Join(addDir, "CLAUDE.md")),
 		mustResolvedClaudePath(t, filepath.Join(addDir, ".claude", "rules", "extra.md")),
-		mustResolvedClaudePath(t, memoryIndexPath(autoRoot)),
-		mustResolvedClaudePath(t, memoryIndexPath(teamRoot)),
+		// Phase 1.6: AutoMem / TeamMem MEMORY.md no longer flow through nested
+		// ClaudeMd; MemoryEntrypointProvider owns prompt-time injection.
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("ResolveClaudeMdSources() paths = %#v, want %#v", got, want)
@@ -193,7 +193,13 @@ func TestFilterInjectedMemoryFilesNestedWorktreeSkipsCheckedInAncestorsOnly(t *t
 	}
 }
 
-func TestCombinedClaudeMdSourcesSkipTeamEntrypointWhenKairosActive(t *testing.T) {
+// Phase 1.6 removed AutoMem / TeamMem from nested ClaudeMd candidates,
+// so this test (which previously asserted that the team entrypoint was
+// dropped under Kairos while auto was retained) no longer applies — neither
+// auto nor team flow through nested. MemoryEntrypointProvider now owns the
+// prompt-time MEMORY.md injection and runs the gate-based suppression
+// (Kairos still suppresses team via gate.InjectTeamMemIndex).
+func TestCombinedClaudeMdSourcesNoLongerInjectsAutoOrTeamMemoryFiles(t *testing.T) {
 	base := t.TempDir()
 	repoRoot := filepath.Join(base, "repo")
 	autoRoot := filepath.Join(base, "automem")
@@ -217,11 +223,11 @@ func TestCombinedClaudeMdSourcesSkipTeamEntrypointWhenKairosActive(t *testing.T)
 	buildCtx := contract.BuildCtx{GitRoot: repoRoot, CWD: repoRoot}
 	provider := NewClaudeMdSourcesProvider(deps, stubTeamMemoryManager{path: teamRoot}, nil)
 	sources := provider.ResolveClaudeMdSources(context.Background(), buildCtx)
-	if hasSourceType(sources, sourceTypeTeamMem) {
-		t.Fatalf("ResolveClaudeMdSources() unexpectedly retained %q source under Kairos: %#v", sourceTypeTeamMem, sources)
+	if hasSourceType(sources, sourceTypeAutoMem) {
+		t.Fatalf("ResolveClaudeMdSources() unexpectedly contained %q source after Phase 1.6: %#v", sourceTypeAutoMem, sources)
 	}
-	if !hasSourceType(sources, sourceTypeAutoMem) {
-		t.Fatalf("ResolveClaudeMdSources() missing %q source under Kairos: %#v", sourceTypeAutoMem, sources)
+	if hasSourceType(sources, sourceTypeTeamMem) {
+		t.Fatalf("ResolveClaudeMdSources() unexpectedly contained %q source after Phase 1.6: %#v", sourceTypeTeamMem, sources)
 	}
 }
 

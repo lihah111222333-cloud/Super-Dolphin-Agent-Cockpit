@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
@@ -32,6 +31,12 @@ func (h *MemoryLifecycleHooks) onTurnCompleted(ctx context.Context, evt turndto.
 	}
 	h.onTurnEnd(ctx, evt)
 	handled := h.consumeTurnTracking(evt.ThreadID, evt.TurnID)
+	if handled {
+		// A tool wrote into the auto-mem path during this turn; the
+		// MEMORY.md entrypoint we cached at session start may no longer
+		// match disk, so invalidate so the next AssembleStart re-renders.
+		h.invalidateMemorySections()
+	}
 	if !h.shouldExtractThread(ctx, evt) {
 		return
 	}
@@ -356,14 +361,10 @@ func (h *MemoryLifecycleHooks) saveExtractedMemories(items []ExtractedMemory, op
 }
 
 func (h *MemoryLifecycleHooks) invalidateMemorySections() {
-	if h == nil || h.sections == nil {
+	if h == nil {
 		return
 	}
-	h.sections.InvalidateSections(
-		contract.InvalidateMemoryWrite,
-		contract.DynamicSectionMemory,
-		contract.DynamicSectionMemoryContext,
-	)
+	invalidateDurableMemorySections(h.sections)
 }
 
 func (h *MemoryLifecycleHooks) extractorOrDefault() *MemoryExtractor {

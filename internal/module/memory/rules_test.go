@@ -230,7 +230,7 @@ func TestChildAgentStartUsesDedicatedAgentMemoryPrompt(t *testing.T) {
 		if err := registerPromptProviders(promptProviderParams{
 			Registry:      svc,
 			Provider:      NewRulesProvider(cfg, NewMemoryRuleEngine(), nil),
-			AgentProvider: NewAgentMemoryPromptProvider(cfg, manager, nil),
+			AgentProvider: NewAgentMemoryPromptProvider(cfg, manager, nil).inner,
 		}); err != nil {
 			t.Fatalf("registerPromptProviders() error = %v", err)
 		}
@@ -275,7 +275,9 @@ func TestAgentMemoryPromptProviderEnsuresProjectScopeDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
-	if text == nil || !strings.Contains(*text, emptyAgentMemoryPrompt) {
+	// emptyAgentMemoryPrompt lives in the agent subpackage now; assert on a
+	// stable substring of its rendered placeholder text instead.
+	if text == nil || !strings.Contains(*text, "Your MEMORY.md is currently empty") {
 		t.Fatalf("Resolve() = %#v, want empty agent-memory placeholder", text)
 	}
 	dir, err := manager.GetAgentMemoryDir("Worker", MemoryScopeProject)
@@ -287,75 +289,12 @@ func TestAgentMemoryPromptProviderEnsuresProjectScopeDir(t *testing.T) {
 	}
 }
 
-func TestMemoryContextProviderInjectsEntrypointIntoTurnUserContext(t *testing.T) {
-	cfg := &Config{Enabled: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}
-	root, err := resolvedStoreRoot(cfg.RootDir, cfg.ProjectRoot, cfg.AutoMemPathOverride)
-	if err != nil {
-		t.Fatalf("resolvedStoreRoot() error = %v", err)
-	}
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		t.Fatalf("MkdirAll(%q) error = %v", root, err)
-	}
-	body := "- [Project preference](project-preference.md) — use concise commit messages."
-	if err := os.WriteFile(memoryIndexPath(root), []byte(body), 0o644); err != nil {
-		t.Fatalf("WriteFile(MEMORY.md) error = %v", err)
-	}
-
-	provider := NewContextProvider(cfg)
-	if provider.SectionName() != prompt.DynamicSectionMemoryContext {
-		t.Fatalf("SectionName() = %q, want %q", provider.SectionName(), prompt.DynamicSectionMemoryContext)
-	}
-	turn, err := provider.Resolve(context.Background(), prompt.SectionContext{
-		Turn: &prompt.TurnInput{ThreadID: "thread-1", UserText: "review notes"},
-	})
-	if err != nil {
-		t.Fatalf("Resolve(turn) error = %v", err)
-	}
-	if turn == nil {
-		t.Fatal("Resolve(turn) = nil, want MEMORY.md fallback text")
-	}
-	for _, snippet := range []string{"Contents of MEMORY.md:", body} {
-		if !strings.Contains(*turn, snippet) {
-			t.Fatalf("turn text missing %q:\n%s", snippet, *turn)
-		}
-	}
-
-	start, err := provider.Resolve(context.Background(), prompt.SectionContext{Start: &prompt.StartInput{}})
-	if err != nil {
-		t.Fatalf("Resolve(start) error = %v", err)
-	}
-	if start != nil {
-		t.Fatalf("Resolve(start) = %#v, want nil", start)
-	}
-}
-
-func TestMemoryContextProviderSkipsEntrypointFallbackWhenInjectMemoryIndexDisabled(t *testing.T) {
-	cfg := &Config{Enabled: true, SkipIndex: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}
-	root, err := resolvedStoreRoot(cfg.RootDir, cfg.ProjectRoot, cfg.AutoMemPathOverride)
-	if err != nil {
-		t.Fatalf("resolvedStoreRoot() error = %v", err)
-	}
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		t.Fatalf("MkdirAll(%q) error = %v", root, err)
-	}
-	if err := os.WriteFile(memoryIndexPath(root), []byte("- [fallback](fallback.md) — old index"), 0o644); err != nil {
-		t.Fatalf("WriteFile(MEMORY.md) error = %v", err)
-	}
-	provider := NewContextProvider(cfg)
-	turn, err := provider.Resolve(context.Background(), prompt.SectionContext{Turn: &prompt.TurnInput{
-		ThreadID: "thread-3",
-		UserText: "review plan",
-	}})
-	if err != nil {
-		t.Fatalf("Resolve() error = %v", err)
-	}
-	if turn != nil && strings.Contains(*turn, "Contents of MEMORY.md:") {
-		t.Fatalf("turn text unexpectedly fell back to MEMORY.md:\n%s", *turn)
-	}
-	if turn != nil && strings.TrimSpace(*turn) != "" {
-		t.Fatalf("turn text = %q, want nil/empty fail-soft result", *turn)
-	}
-}
+// Phase 1.5 removed loadMemoryIndexFallback. MEMORY.md injection is now
+// handled exclusively by MemoryEntrypointProvider at session start; the
+// turn-time MemoryContextProvider.Resolve is a no-op. The two tests that
+// previously asserted turn-time fallback behaviour (Inject + Skip flavors)
+// were dropped here; equivalent coverage lives in entrypoint_provider_test.go
+// (TestMemoryContextProviderResolveAlwaysReturnsNil et al.).
 
 func TestCombinedRulesProviderUsesDynamicSectionMemory(t *testing.T) {
 	withTeamMemoryRuntimeReady(t, true)

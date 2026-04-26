@@ -283,9 +283,15 @@ func (h *MemoryLifecycleHooks) launchAutoDreamTask(taskCtx context.Context, thre
 				h.setDreamTaskPhase(dreamTaskPhaseUpdating)
 			},
 		})
-		if err != nil && h.logger != nil && !errors.Is(err, context.Canceled) {
-			h.logger.Warn("memory auto-dream execution failed", "thread_id", threadID, "error", err)
+		if err != nil {
+			if h.logger != nil && !errors.Is(err, context.Canceled) {
+				h.logger.Warn("memory auto-dream execution failed", "thread_id", threadID, "error", err)
+			}
+			return
 		}
+		// Consolidation rewrote MEMORY.md; flush the prompt cache so the
+		// next AssembleStart picks up the consolidated index.
+		h.invalidateMemorySections()
 	}()
 }
 

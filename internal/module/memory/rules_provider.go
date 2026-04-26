@@ -2,14 +2,14 @@ package memory
 
 import (
 	"context"
-	"errors"
-	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	retrievalpkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/retrieval"
 )
 
 var (
@@ -18,6 +18,102 @@ var (
 	_ contract.InvalidationAwareProvider = (*MemoryContextProvider)(nil)
 	_ contract.TurnContextProvider       = (*MemoryContextProvider)(nil)
 )
+
+type ManifestBuilder = retrievalpkg.ManifestBuilder
+type RelevantMemoryFinder = retrievalpkg.RelevantMemoryFinder
+type PrefetchManager = retrievalpkg.PrefetchManager
+type PrefetchHandle = retrievalpkg.PrefetchHandle
+type transcriptSnippet = retrievalpkg.TranscriptSnippet
+
+const (
+	defaultManifestFileLimit         = retrievalpkg.DefaultManifestFileLimit
+	defaultRelevantMemoryBudgetBytes = retrievalpkg.DefaultRelevantMemoryBudgetBytes
+	defaultRelevantMemoryLimit       = retrievalpkg.DefaultRelevantMemoryLimit
+	defaultRelevantMemoryCandidates  = retrievalpkg.DefaultRelevantMemoryCandidates
+	prefetchStatePending             = retrievalpkg.PrefetchStatePending
+	prefetchStateReady               = retrievalpkg.PrefetchStateReady
+	prefetchStateConsumed            = retrievalpkg.PrefetchStateConsumed
+	prefetchStateDiscarded           = retrievalpkg.PrefetchStateDiscarded
+)
+
+func NewManifestBuilder() *ManifestBuilder {
+	return retrievalpkg.NewManifestBuilder()
+}
+
+func ScanHeadersSafe(memoryRoot string) ([]MemoryEntry, error) {
+	return retrievalpkg.ScanHeadersSafe(memoryRoot)
+}
+
+func NewPrefetchManager(memoryRoot string) *PrefetchManager {
+	return retrievalpkg.NewPrefetchManager(memoryRoot)
+}
+
+func freezeRelevantMemoryAttachments(entries []MemoryEntry, now time.Time) []dto.AttachmentEnvelope {
+	return retrievalpkg.FreezeRelevantMemoryAttachments(entries, now)
+}
+
+func freezeTranscriptInputs(snippets []transcriptSnippet) []shareddto.InputItem {
+	return retrievalpkg.FreezeTranscriptInputs(snippets)
+}
+
+func memoryHeader(now time.Time, entry MemoryEntry) string {
+	return retrievalpkg.MemoryHeader(now, entry)
+}
+
+func shouldSearchPastContextQuery(query string) bool {
+	return retrievalpkg.ShouldSearchPastContextQuery(query)
+}
+
+func memoryRetrievalLowConfidence(query string, entries []MemoryEntry) bool {
+	return retrievalpkg.MemoryRetrievalLowConfidence(query, entries)
+}
+
+func searchTranscriptSnippets(query string, messages []dto.Message, budget int) []transcriptSnippet {
+	return retrievalpkg.SearchTranscriptSnippets(query, messages, budget)
+}
+
+func memoryRenderBody(entry MemoryEntry) string {
+	return retrievalpkg.MemoryRenderBody(entry)
+}
+
+func searchTerms(query string) (string, []string) {
+	normalized := CanonicalName(query)
+	if normalized == "" {
+		return "", nil
+	}
+	seen := map[string]struct{}{normalized: {}}
+	terms := []string{normalized}
+	for _, part := range strings.Fields(normalized) {
+		if part == "" {
+			continue
+		}
+		if _, ok := seen[part]; ok {
+			continue
+		}
+		seen[part] = struct{}{}
+		terms = append(terms, part)
+	}
+	return normalized, terms
+}
+
+func contextErr(ctx context.Context) error {
+	if ctx == nil {
+		return nil
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return nil
+	}
+}
+
+func minInt(left, right int) int {
+	if left < right {
+		return left
+	}
+	return right
+}
 
 type MemoryRulesProvider struct {
 	cfg    *Config
@@ -48,6 +144,9 @@ func (p *MemoryRulesProvider) Resolve(_ context.Context, input contract.SectionC
 		return nil, nil
 	}
 	gate := ResolveMemoryGate(input.BuildCtx, p.cfg)
+	if gate.SuppressForOverlay() {
+		return nil, nil
+	}
 	opts := MemoryRuleOptions{
 		SkipIndex:                gate.SkipIndex,
 		SearchPastContextEnabled: gate.SearchPastContextEnabled,
@@ -162,21 +261,14 @@ func (p *MemoryContextProvider) SectionName() string {
 	return contract.DynamicSectionMemoryContext
 }
 
-func (p *MemoryContextProvider) Resolve(_ context.Context, input contract.SectionContext) (*string, error) {
-	if p == nil || input.Turn == nil {
-		return nil, nil
-	}
-	if !memoryProductEnabled(p.cfg) {
-		return nil, nil
-	}
-	gate := ResolveMemoryGate(input.BuildCtx, p.cfg)
-	if !gate.AutoEnabled && !gate.InjectMemoryIndex && !gate.EnableRelevantPrefetch {
-		return nil, nil
-	}
-	if !gate.InjectMemoryIndex {
-		return nil, nil
-	}
-	return p.loadMemoryIndexFallback()
+// Resolve is intentionally a no-op since Phase 1.5: the durable MEMORY.md
+// entrypoint is now injected exclusively by MemoryEntrypointProvider at
+// session start. Per-turn relevant memory and search-past-context attachments
+// are surfaced via PrepareTurnContext, not the dynamic-section pipeline. The
+// provider is still registered so future per-turn dynamic sections can attach
+// here without re-plumbing the section list.
+func (p *MemoryContextProvider) Resolve(_ context.Context, _ contract.SectionContext) (*string, error) {
+	return nil, nil
 }
 
 func (p *MemoryContextProvider) PrepareTurnInputs(
@@ -424,25 +516,6 @@ func (p *MemoryContextProvider) searchPastContext(
 	return searchTranscriptSnippets(query, messages, defaultRelevantMemoryBudgetBytes/2)
 }
 
-func (p *MemoryContextProvider) loadMemoryIndexFallback() (*string, error) {
-	if p == nil || strings.TrimSpace(p.memoryRoot) == "" {
-		return nil, nil
-	}
-	content, err := os.ReadFile(memoryIndexPath(p.memoryRoot))
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
-		}
-		return nil, nil
-	}
-	trimmed := strings.TrimSpace(stripUTF8BOM(string(content)))
-	if trimmed == "" {
-		return nil, nil
-	}
-	text := "# MEMORY.md\nContents of MEMORY.md:\n" + TruncateEntrypointContent(trimmed).Content
-	return &text, nil
-}
-
 func (p *MemoryContextProvider) turnStateLocked(threadID string) *prefetchTurnState {
 	if p.turns == nil {
 		p.turns = map[string]*prefetchTurnState{}
@@ -469,7 +542,7 @@ func registerPromptProviders(p promptProviderParams) error {
 		}
 	}
 	if p.Registry != nil {
-		providers := []contract.DynamicSectionProvider{p.Provider, p.AgentProvider, p.ContextProvider}
+		providers := []contract.DynamicSectionProvider{p.Provider, p.EntrypointProvider, p.AgentProvider, p.ContextProvider}
 		for _, provider := range providers {
 			if provider == nil {
 				continue

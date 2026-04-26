@@ -152,7 +152,13 @@ func (s *service) RunConsolidation(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return s.consolidator.consolidateWithOptions(ctx, root, nil, s.consolidationRunOptions(ctx, root))
+	if err := s.consolidator.consolidateWithOptions(ctx, root, nil, s.consolidationRunOptions(ctx, root)); err != nil {
+		return err
+	}
+	if s.dreamHooks != nil {
+		s.dreamHooks.invalidateMemorySections()
+	}
+	return nil
 }
 
 func (s *service) GetDreamTaskStatus() DreamTaskSnapshot {
@@ -271,7 +277,11 @@ func (h *MemoryLifecycleHooks) deleteIntent(ctx context.Context, threadID string
 	if err != nil {
 		return err
 	}
-	return deleteMemoryAcrossStores(intent.Query, options, primary, secondary)
+	if err := deleteMemoryAcrossStores(intent.Query, options, primary, secondary); err != nil {
+		return err
+	}
+	h.invalidateMemorySections()
+	return nil
 }
 
 func (h *MemoryLifecycleHooks) diskStore() (memoryWriteStore, error) {
