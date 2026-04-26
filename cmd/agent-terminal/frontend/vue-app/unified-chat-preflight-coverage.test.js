@@ -338,12 +338,12 @@ describe('UnifiedChatPage preflight coverage', () => {
 
   it('covers copySelectedThreadId fallback identity, provider and log-path branches', async () => {
     vi.useFakeTimers(); provider.useClaude = true; vi.setSystemTime(new Date('2026-03-09T01:02:03Z')); vi.mocked(resolveThreadIdentity).mockResolvedValueOnce({ providerThreadId: 'provider-2', port: 9911 }); vi.mocked(callAPI).mockImplementation(async (method) => {
-      if (method === 'thread/config/get') return { effective: { model: 'gpt-5.5' } };
+      if (method === 'thread/config/get') return { effective: { model: 'gpt-5.5', effort: 'high' } };
       if (method === 'ui/preferences/get') throw new Error('pref failed');
       return {};
     });
     const { vm } = await createVm({ selectedId: 'thread-active', active: '/Users/mima0000/Desktop/wj/go-agent-v2', runtime: { 'thread-active': { providerThreadId: '', port: undefined, provider: '', cwd: '', logPath: '' } } }); await vm.copySelectedThreadId();
-    expect(resolveThreadIdentity).toHaveBeenCalledWith('thread-active'); const payload = JSON.parse(vi.mocked(copyTextToClipboard).mock.calls[0][0]); expect(payload.providerThreadId).toBe('provider-2'); expect(payload.uuid).toBe('provider-2'); expect(payload.port).toBe(9911); expect(payload.provider).toBe('claude'); expect(payload.model).toBe('gpt-5.5'); expect(payload.cwd).toBe('/Users/mima0000/Desktop/wj/go-agent-v2'); expect(payload['log-path']).toBe('~/.multi-agent/log/go-agent-v2/'); expect(payload.copiedAt).toBe('2026-03-09 09:02:03 UTC+8');
+    expect(resolveThreadIdentity).toHaveBeenCalledWith('thread-active'); const payload = JSON.parse(vi.mocked(copyTextToClipboard).mock.calls[0][0]); expect(payload.providerThreadId).toBe('provider-2'); expect(payload.uuid).toBe('provider-2'); expect(payload.port).toBe(9911); expect(payload.provider).toBe('claude'); expect(payload.model).toBe('gpt-5.5'); expect(payload.effort).toBe('high'); expect(payload.cwd).toBe('/Users/mima0000/Desktop/wj/go-agent-v2'); expect(payload['log-path']).toBe('~/.multi-agent/log/go-agent-v2/'); expect(payload.copiedAt).toBe('2026-03-09 09:02:03 UTC+8');
   });
 
   it('covers copySelectedThreadId clipboard failure state reset', async () => {

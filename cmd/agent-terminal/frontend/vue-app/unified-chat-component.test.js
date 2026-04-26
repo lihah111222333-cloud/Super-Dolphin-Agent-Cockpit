@@ -326,6 +326,7 @@ describe('UnifiedChatPage.setup chat rail integration', () => {
           providerThreadId: 'provider-thread-1',
           port: 4501,
           provider: 'claude',
+          effort: 'max',
           cwd: '/Users/mima0000/Desktop/wj/go-agent-v2',
           logPath: '/Users/mima0000/Desktop/wj/go-agent-v2/agent-terminal-2026-03-08-1.log',
         },
@@ -346,6 +347,7 @@ describe('UnifiedChatPage.setup chat rail integration', () => {
       expect(copyTextToClipboard).toHaveBeenCalledTimes(1);
       const payload = JSON.parse(copyTextToClipboard.mock.calls[0][0]);
       expect(payload.cwd).toBe('/Users/mima0000/Desktop/wj/go-agent-v2');
+      expect(payload.effort).toBe('max');
       expect(payload['log-path']).toBe('/Users/mima0000/Desktop/wj/go-agent-v2/agent-terminal-2026-03-08-1.log');
       expect(payload.copiedAt).toBe('2026-03-08 14:41:26 UTC+8');
     } finally {

@@ -89,6 +89,37 @@ export function useCopyThreadInfo(deps) {
     }
   }
 
+  async function resolveAgentEffort(threadId, agentProvider, runtime, thread, storeRuntime) {
+    const directEffort = pickString(
+      runtime?.effort,
+      runtime?.reasoningEffort,
+      runtime?.reasoning_effort,
+      storeRuntime?.effort,
+      storeRuntime?.reasoningEffort,
+      storeRuntime?.reasoning_effort,
+      thread?.effort,
+      thread?.effectiveEffort,
+      thread?.effective?.effort,
+      thread?.config?.effective?.effort,
+    );
+    if (directEffort) return directEffort;
+    try {
+      const config = typeof threadStore?.getThreadConfig === 'function'
+        ? await threadStore.getThreadConfig(threadId)
+        : await callAPI('thread/config/get', { threadId });
+      const effectiveEffort = pickString(config?.effective?.effort);
+      if (effectiveEffort) return effectiveEffort;
+    } catch {
+      // ignore thread config lookup failure
+    }
+    try {
+      const effortPref = await callAPI('ui/preferences/get', { key: `settings.provider.${agentProvider}.effort` });
+      return pickString(effortPref);
+    } catch {
+      return '';
+    }
+  }
+
   async function copySelectedThreadId() {
     const threadId = (selectedThreadId.value || '').toString();
     if (!threadId) return;
@@ -117,6 +148,7 @@ export function useCopyThreadInfo(deps) {
       : {});
     const agentProvider = pickString(runtime.provider, storeRuntime.provider) || (useClaudeProvider.value ? 'claude' : 'codex');
     const agentModel = await resolveAgentModel(threadId, agentProvider, runtime, thread, storeRuntime);
+    const agentEffort = await resolveAgentEffort(threadId, agentProvider, runtime, thread, storeRuntime);
     const currentCwd = pickString(
       runtime.cwd,
       storeRuntime.cwd,
@@ -140,6 +172,7 @@ export function useCopyThreadInfo(deps) {
 
       provider: agentProvider,
       model: agentModel || null,
+      effort: agentEffort || null,
       port: resolvedPort,
       cwd: currentCwd || null,
       'log-path': resolvedLogPath || buildCwdLogPath(currentCwd),
