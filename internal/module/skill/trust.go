@@ -6,35 +6,47 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
-// skillNamePattern 是 skill name 的白名单正则：仅小写字母 + 数字 + 连字符，1~64 字符。
-// 严格范式对齐 Claude Code Skills、MCP tool name 规范，并能从根本上仓塞路径逾越、控制字符、
-// 空格、`..`、`/`、`\` 等注入向量。若未来需要放宽（如支持下划线）在此统一扩展。
-var skillNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
-
 // ErrInvalidSkillName 是 name 校验失败统一返回的哨兵错误，调用方可用 errors.Is 检查。
 var ErrInvalidSkillName = errors.New("invalid skill name")
 
-// validateSkillName 统一校验 skill name 标识符合法性。通过返回规范化后的名字（球除首尾空白）、
+// validateSkillName 统一校验 skill name 标识符合法性。通过返回规范化后的名字（剥除首尾空白）、
 // 不通过时返回 ErrInvalidSkillName 包装的错误。调用点：
 //   - ReadLocal 的 path-based 入口不直接调用（它走 resolveSkillPath）。
 //   - P20 Phase 6 新增的 `Service.Expand(ctx, name, ...)` 必须先调用，
-//     拒绝包含 `/`, `\`, `..` 或非法字符的 name。
+//     拒绝包含 `/`, `\`, `..`、控制字符或危险字符的 name。
 //   - 单测 / RPC 参数射来的 name 亦应经此关。
+//
+// 白名单：Unicode letter/digit + '-' + '_'，长度上限 64 rune，首字符必须是
+// Unicode letter/digit（不能以 '-' 或 '_' 开头）。
 func validateSkillName(name string) (string, error) {
-	normalized := strings.TrimSpace(name)
-	if normalized == "" {
-		return "", errors.Join(ErrInvalidSkillName, errors.New("name is empty"))
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", ErrInvalidSkillName
 	}
-	if !skillNamePattern.MatchString(normalized) {
-		return "", errors.Join(ErrInvalidSkillName, errors.New("name must match ^[a-z0-9][a-z0-9-]{0,63}$"))
+	if utf8.RuneCountInString(name) > 64 {
+		return "", ErrInvalidSkillName
 	}
-	return normalized, nil
+	runes := []rune(name)
+	if !unicode.IsLetter(runes[0]) && !unicode.IsDigit(runes[0]) {
+		return "", ErrInvalidSkillName
+	}
+	for _, r := range runes {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			continue
+		}
+		if r == '-' || r == '_' {
+			continue
+		}
+		return "", ErrInvalidSkillName
+	}
+	return name, nil
 }
 
 // ============================================================================

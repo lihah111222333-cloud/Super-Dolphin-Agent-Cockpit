@@ -91,7 +91,7 @@ func TestCreateSkillRejectsInvalidName(t *testing.T) {
 
 	svc, projectRoot, _ := newCreateSkillService(t)
 
-	cases := []string{"", "   ", "Name-With-Upper", "../escape", "bad/slash", "bad name"}
+	cases := []string{"", "   ", "_bad", "../escape", "bad/slash", "bad name"}
 	for _, name := range cases {
 		name := name
 		t.Run(name, func(t *testing.T) {

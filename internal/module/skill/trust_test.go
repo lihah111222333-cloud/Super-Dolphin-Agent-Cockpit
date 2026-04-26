@@ -18,20 +18,21 @@ func TestValidateSkillName(t *testing.T) {
 		{"a", true, "a"},
 		{"a1", true, "a1"},
 		{"a-b-c-123", true, "a-b-c-123"},
+		{"Foo", true, "Foo"},         // Unicode letter：大写 ASCII 兼容
+		{"foo_bar", true, "foo_bar"}, // 下划线允许（首字符除外）
 
 		// 非法场景
 		{"", false, ""},
 		{"   ", false, ""},
-		{"Foo", false, ""},       // 大写
-		{"foo_bar", false, ""},   // 下划线
-		{"foo/bar", false, ""},   // 路径分隔
-		{"foo\\bar", false, ""},  // windows 分隔
-		{"../etc", false, ""},    // 路径逃逸
-		{"foo bar", false, ""},   // 空格
-		{"foo.md", false, ""},    // 点号
-		{"-foo", false, ""},      // 连字符开头
-		{"foo:bar", false, ""},   // 冒号
-		{"\x00abc", false, ""},   // 控制字符
+		{"foo/bar", false, ""},  // 路径分隔
+		{"foo\\bar", false, ""}, // windows 分隔
+		{"../etc", false, ""},   // 路径逃逸
+		{"foo bar", false, ""},  // 空格
+		{"foo.md", false, ""},   // 点号
+		{"-foo", false, ""},     // 连字符开头
+		{"_foo", false, ""},     // 下划线开头
+		{"foo:bar", false, ""},  // 冒号
+		{"\x00abc", false, ""},  // 控制字符
 	}
 	for _, c := range cases {
 		t.Run(c.in, func(t *testing.T) {
@@ -70,17 +71,17 @@ func TestValidateSkillName(t *testing.T) {
 
 func TestParseTrustScope(t *testing.T) {
 	cases := map[string]TrustScope{
-		"user":       TrustUser,
-		"trusted":    TrustUser,
-		"  User  ":   TrustUser,
-		"project":    TrustProject,
-		"untrusted":  TrustProject,
-		"workspace":  TrustProject,
-		"signed":     TrustSigned,
-		"verified":   TrustSigned,
-		"":           TrustUnknown,
-		"random":     TrustUnknown,
-		"admin":      TrustUnknown,
+		"user":      TrustUser,
+		"trusted":   TrustUser,
+		"  User  ":  TrustUser,
+		"project":   TrustProject,
+		"untrusted": TrustProject,
+		"workspace": TrustProject,
+		"signed":    TrustSigned,
+		"verified":  TrustSigned,
+		"":          TrustUnknown,
+		"random":    TrustUnknown,
+		"admin":     TrustUnknown,
 	}
 	for in, want := range cases {
 		t.Run(in, func(t *testing.T) {
@@ -177,11 +178,11 @@ func TestNormalizeArtifactLocator_Body(t *testing.T) {
 		{"", "SKILL.md", true},
 		{"SKILL.md", "SKILL.md", true},
 		{"SKILL.md#Usage", "SKILL.md#Usage", true},
-		{"SKILL.md#", "SKILL.md", true},           // 空 anchor 视同无 anchor
+		{"SKILL.md#", "SKILL.md", true}, // 空 anchor 视同无 anchor
 		{"  SKILL.md#Overview  ", "SKILL.md#Overview", true},
-		{"README.md", "", false},                  // 非 SKILL.md
-		{"SKILL.md#../evil", "", false},           // anchor 含 ..
-		{"SKILL.md#a/b", "", false},               // anchor 含 /
+		{"README.md", "", false},        // 非 SKILL.md
+		{"SKILL.md#../evil", "", false}, // anchor 含 ..
+		{"SKILL.md#a/b", "", false},     // anchor 含 /
 	}
 	for _, c := range cases {
 		got, err := NormalizeArtifactLocator(ArtifactKindBody, c.in)
@@ -211,9 +212,9 @@ func TestNormalizeArtifactLocator_Resource(t *testing.T) {
 		{"./references/api.md", "references/api.md", true}, // Clean 去掉 ./
 		{"references//api.md", "references/api.md", true},  // Clean 压缩
 		{"", "", false},
-		{"/abs/path", "", false},                // 绝对路径
-		{"../etc/passwd", "", false},            // 路径逃逸
-		{"references/../../escape", "", false},  // 中间 ..
+		{"/abs/path", "", false},               // 绝对路径
+		{"../etc/passwd", "", false},           // 路径逃逸
+		{"references/../../escape", "", false}, // 中间 ..
 		{"..", "", false},
 	}
 	for _, c := range cases {
