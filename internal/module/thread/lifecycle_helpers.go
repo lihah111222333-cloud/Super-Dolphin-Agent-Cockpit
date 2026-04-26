@@ -458,7 +458,12 @@ func toRef(thread threadstore.Thread) Ref {
 	if name == "" {
 		name = shared.FirstNonEmpty(strings.TrimSpace(thread.ThreadID), strings.TrimSpace(thread.AgentID))
 	}
-	return Ref{ID: strings.TrimSpace(thread.ThreadID), Name: name, AgentID: strings.TrimSpace(thread.AgentID)}
+	return Ref{
+		ID:      strings.TrimSpace(thread.ThreadID),
+		Name:    name,
+		AgentID: strings.TrimSpace(thread.AgentID),
+		Status:  strings.TrimSpace(thread.Status),
+	}
 }
 
 func normalizeThreadID(threadID string) (string, error) {

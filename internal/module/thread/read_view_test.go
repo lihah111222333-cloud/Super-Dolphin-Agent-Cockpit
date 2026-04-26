@@ -107,3 +107,28 @@ func TestReadMessagesFallsBackToPersistedRolloutWithoutSession(t *testing.T) {
 		t.Fatalf("ReadMessages() = %#v, want %#v", got, want)
 	}
 }
+
+func TestListProjectsPersistedStatusIntoRef(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(
+		silentLogger(),
+		&historyTestThreadStore{threads: map[string]threadstore.Thread{
+			"thread-archived": {ThreadID: "thread-archived", AgentID: "agent-archived", Prompt: "demo", Status: "archived"},
+		}},
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+
+	got, err := svc.List(context.Background())
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "thread-archived" || got[0].Status != "archived" {
+		t.Fatalf("List() = %#v, want archived status projected", got)
+	}
+}

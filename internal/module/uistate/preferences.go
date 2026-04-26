@@ -134,8 +134,8 @@ func applyPreferencesToState(state *UIState, prefs *Preferences) {
 	state.ViewPrefsChat = shared.CloneJSONMap(prefs.ViewPrefs.Chat)
 	state.ViewPrefsCmd = shared.CloneJSONMap(prefs.ViewPrefs.Cmd)
 	state.ThreadPinsChat = cloneTimestampMap(prefs.ThreadPins.Chat)
-	state.ThreadArchivesChat = cloneTimestampMap(prefs.ThreadArchives.Chat)
-	state.Groups = buildThreadGroups(state.Threads, prefs.ThreadPins.Chat, prefs.ThreadArchives.Chat)
+	state.ThreadArchivesChat = projectArchivedThreadStatus(state.Threads, prefs.ThreadArchives.Chat)
+	state.Groups = buildThreadGroups(state.Threads, prefs.ThreadPins.Chat, state.ThreadArchivesChat)
 }
 
 func applyPreferencesToSidebar(sidebar *Sidebar, prefs *Preferences) {
@@ -148,8 +148,32 @@ func applyPreferencesToSidebar(sidebar *Sidebar, prefs *Preferences) {
 	sidebar.ViewPrefsChat = shared.CloneJSONMap(prefs.ViewPrefs.Chat)
 	sidebar.ViewPrefsCmd = shared.CloneJSONMap(prefs.ViewPrefs.Cmd)
 	sidebar.ThreadPinsChat = cloneTimestampMap(prefs.ThreadPins.Chat)
-	sidebar.ThreadArchivesChat = cloneTimestampMap(prefs.ThreadArchives.Chat)
-	sidebar.Groups = buildThreadGroups(sidebar.Threads, prefs.ThreadPins.Chat, prefs.ThreadArchives.Chat)
+	sidebar.ThreadArchivesChat = projectArchivedThreadStatus(sidebar.Threads, prefs.ThreadArchives.Chat)
+	sidebar.Groups = buildThreadGroups(sidebar.Threads, prefs.ThreadPins.Chat, sidebar.ThreadArchivesChat)
+}
+
+func projectArchivedThreadStatus(threads []ThreadSummary, archived map[string]int64) map[string]int64 {
+	out := cloneTimestampMap(archived)
+	for _, thread := range threads {
+		id := strings.TrimSpace(thread.ID)
+		if id == "" {
+			continue
+		}
+		state := strings.ToLower(strings.TrimSpace(thread.State))
+		switch {
+		case state == "archived":
+			// DB authoritative: archived. Force entry in map.
+			if out[id] < 1 {
+				out[id] = 1
+			}
+		case state != "":
+			// DB authoritative: NOT archived. Drop any stale preference timestamp.
+			delete(out, id)
+		case state == "":
+			// Fall back to preference (already in `out` from cloneTimestampMap).
+		}
+	}
+	return out
 }
 
 func deriveMainAgentID(agents []AgentSummary, current string) string {

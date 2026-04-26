@@ -340,6 +340,8 @@ func normalizeSidebarStatus(raw string) string {
 		return "waiting"
 	case "syncing", "recovering":
 		return "syncing"
+	case "archived":
+		return "archived"
 	case "error", "failed":
 		return "error"
 	default:
