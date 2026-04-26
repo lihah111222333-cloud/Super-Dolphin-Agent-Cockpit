@@ -43,9 +43,13 @@ type UIState struct {
 	Groups                   []ThreadGroup                           `json:"groups,omitempty"`
 }
 type ThreadSummary struct {
-	ID              string `json:"id"`
-	Name            string `json:"name,omitempty"`
-	AgentID         string `json:"agent_id,omitempty"`
+	ID      string `json:"id"`
+	Name    string `json:"name,omitempty"`
+	AgentID string `json:"agent_id,omitempty"`
+	// LifecycleStatus is the DB lifecycle truth (created/stopped/archived).
+	// State remains the UI/runtime union field and may be overwritten by
+	// deriveThreadStatuses, so archive projection must not rely on State alone.
+	LifecycleStatus string `json:"lifecycleStatus,omitempty"`
 	State           string `json:"state,omitempty"`
 	ThreadStatus    string `json:"threadStatus,omitempty"`
 	AgentState      string `json:"agentState,omitempty"`
@@ -86,11 +90,11 @@ type TurnSummary struct {
 }
 
 type TokenUsage struct {
-	InputTokens         int `json:"inputTokens"`
-	OutputTokens        int `json:"outputTokens"`
-	TotalTokens         int `json:"totalTokens"`
-	UsedTokens          int `json:"usedTokens"`
-	ContextWindowTokens int `json:"contextWindowTokens,omitempty"`
+	InputTokens         int     `json:"inputTokens"`
+	OutputTokens        int     `json:"outputTokens"`
+	TotalTokens         int     `json:"totalTokens"`
+	UsedTokens          int     `json:"usedTokens"`
+	ContextWindowTokens int     `json:"contextWindowTokens,omitempty"`
 	UsedPercent         float64 `json:"usedPercent,omitempty"`
 }
 
@@ -320,6 +324,7 @@ func upsertThreadSummary(items []ThreadSummary, next ThreadSummary) []ThreadSumm
 func mergeThreadSummary(dst *ThreadSummary, src ThreadSummary) {
 	dst.Name = chooseString(src.Name, dst.Name)
 	dst.AgentID = chooseString(src.AgentID, dst.AgentID)
+	dst.LifecycleStatus = chooseString(src.LifecycleStatus, dst.LifecycleStatus)
 	dst.State = chooseString(src.State, dst.State)
 	dst.ThreadStatus = chooseString(src.ThreadStatus, dst.ThreadStatus)
 	dst.AgentState = chooseString(src.AgentState, dst.AgentState)

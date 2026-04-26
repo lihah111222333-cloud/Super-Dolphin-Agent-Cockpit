@@ -81,6 +81,7 @@ func (s *service) Unarchive(ctx context.Context, threadID string) error {
 	if err := s.setBindingArchived(ctx, threadID, false); err != nil {
 		return err
 	}
+	s.publishThreadStopped(threadID, "", statusCreated, "unarchived")
 	// Evict the zombie session left by Archive (transport closed, context
 	// canceled) so that the next resolve path creates a fresh session via
 	// autoResumeSession, reconnecting to the same provider thread UUID

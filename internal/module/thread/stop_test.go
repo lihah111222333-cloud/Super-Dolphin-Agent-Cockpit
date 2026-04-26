@@ -11,6 +11,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
@@ -209,6 +210,38 @@ func TestArchiveStopsManagedAgentBeforeArchiving(t *testing.T) {
 	}
 	if callIndex(calls, "turn_cleanup:thread-1:thread_archived") == -1 {
 		t.Fatalf("cleanup calls = %#v, want thread_archived cleanup", calls)
+	}
+}
+
+func TestUnarchivePublishesCreatedLifecycleEvent(t *testing.T) {
+	t.Parallel()
+
+	bindingStore := &stubThreadBindingStore{
+		binding: &bindingstore.Binding{AgentID: "agent-1", CodexThreadID: "thread-1"},
+	}
+	threadStore := &recordingThreadStore{
+		stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-1", AgentID: "agent-1", Status: statusArchived}},
+	}
+	var stopped threaddto.Stopped
+	svc := &service{
+		bindingStore: bindingStore,
+		threadStore:  threadStore,
+		emitStopped: func(evt threaddto.Stopped) {
+			stopped = evt
+		},
+	}
+
+	if err := svc.Unarchive(context.Background(), "thread-1"); err != nil {
+		t.Fatalf("Unarchive() error = %v", err)
+	}
+	if threadStore.status.Status != statusCreated {
+		t.Fatalf("thread status = %#v, want created", threadStore.status)
+	}
+	if len(bindingStore.archived) != 1 || bindingStore.archived[0].Archived {
+		t.Fatalf("archived bindings = %#v, want false", bindingStore.archived)
+	}
+	if stopped.ThreadID != "thread-1" || stopped.Status != statusCreated || stopped.Reason != "unarchived" {
+		t.Fatalf("stopped event = %#v, want thread created/unarchived", stopped)
 	}
 }
 

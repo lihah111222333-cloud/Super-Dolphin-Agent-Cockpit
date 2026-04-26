@@ -299,7 +299,7 @@ export function buildVisibleChatThreadCards(opts) {
   function isArchivedThread(thread) {
     const threadId = (thread?.id || '').toString();
     if (!threadId) return false;
-    const rawState = (thread?.state || thread?.status || thread?.threadStatus || '').toString().trim().toLowerCase();
+    const rawState = (thread?.lifecycleStatus || thread?.state || thread?.status || thread?.threadStatus || '').toString().trim().toLowerCase();
     if (rawState === 'archived') return true;
     const archivedAt = Number(safeArchivedMap[threadId]) || 0;
     return Number.isFinite(archivedAt) && archivedAt > 0;

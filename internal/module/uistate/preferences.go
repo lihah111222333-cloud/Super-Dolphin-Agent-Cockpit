@@ -153,21 +153,9 @@ func applyPreferencesToSidebar(sidebar *Sidebar, prefs *Preferences) {
 }
 
 // projectArchivedThreadStatus merges DB-side archived status into the
-// preference-driven archive map. Currently union-only:
-//
-//   - State=="archived"  -> force entry (DB authoritative for archive ON)
-//   - any other State    -> DO NOT mutate the map
-//
-// Why not delete on State!=archived? ThreadSummary.State is a union field:
-// summarizeThreads writes DB lifecycle status (archived/created/...) but
-// deriveThreadStatuses (sidebar_compat.go:234) overwrites it with runtime
-// state (idle/running/...). Treating non-archived runtime state as a DB
-// signal to drop preference timestamps caused archived threads to bounce
-// back to the active list within seconds (HEAD~1 regression).
-//
-// TODO: a future patch should introduce ThreadSummary.LifecycleStatus as a
-// dedicated DB-status field so the unarchive opposite (drop stale
-// preference when DB is no longer archived) can be handled safely.
+// preference-driven archive map. LifecycleStatus is the DB lifecycle truth;
+// State is only a fallback for old in-memory/test snapshots because it is a
+// runtime/UI union field overwritten by deriveThreadStatuses.
 func projectArchivedThreadStatus(threads []ThreadSummary, archived map[string]int64) map[string]int64 {
 	out := cloneTimestampMap(archived)
 	for _, thread := range threads {
@@ -175,7 +163,11 @@ func projectArchivedThreadStatus(threads []ThreadSummary, archived map[string]in
 		if id == "" {
 			continue
 		}
-		if !strings.EqualFold(strings.TrimSpace(thread.State), "archived") {
+		lifecycle := strings.TrimSpace(thread.LifecycleStatus)
+		if lifecycle == "" {
+			lifecycle = strings.TrimSpace(thread.State)
+		}
+		if !strings.EqualFold(lifecycle, "archived") {
 			continue
 		}
 		if out[id] < 1 {
