@@ -744,3 +744,76 @@ runtime 传回 `claude-opus-4-7[1m]` → canonicalize 到 `opus[1m]` → 下拉�
 8. 主 agent 找到 mcp-orch 真 log `/private/tmp/mcp-orch-PID.log`，archive 全 fire；定位 thread/stop vs thread/archive 错路由
 9. 老公"sopt 没有正确调用主程序的停止 rpc 端点" → 真根因锁定
 10. 派 4 路调研 + 1 路 fix-agent + 3 路复审 + P1 + P2 + docs 落盘 → push 4 commits
+
+---
+
+## 12. 2026-04-26 archive 闭环后续 hotfix 系列（本次追加）
+
+> 会话范围：§11 push 后用户重启 GUI 立即触发 4 个回归/暴露的债，主 agent 串行追加 4 个 hotfix commits 收口。
+
+### 12.1 暴露的 4 个问题 + commit 对应
+
+| # | 用户报告 | 真根因 | Commit |
+|---|---|---|---|
+| Q1 | 归档 thread "过 1 分钟又蹦出来" | P1 三态语义判定基于 `ThreadSummary.State` 这个 union 字段；`deriveThreadStatuses` 把 archived 覆盖为 idle/running 后，下一轮 `applyPreferencesToSidebar` 命中 `state != ""` 分支 delete archive map entry | `b46fbcd fix(uistate): rollback projectArchivedThreadStatus to union-only` |
+| Q2 | 重启 GUI 后无法启动新 agent: `codex identity required: codexHome is required` | P21 P1a identity 强校验默认拒绝缺 codexHome 的 thread/start；run-debug.sh 没设 `CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME=1` opt-in 让 ~/.codex 兜底 | `cc1b6ea chore(run-debug): default opt-in CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME=1` |
+| Q3 | 用户：前端选了 codex/gpt-5.5 应该 forward 给后端 | `thread-actions-helpers.js:421` startThread 已读 `providerModel`+`providerEffort` 但**没放进 payload**；line 432 注释自承"diagnostic only" — payload 缺 model/effort 导致后端 startParams.Model/Effort 永远空 | `1385b9e fix(frontend): forward provider model/effort to thread/start payload` |
+| Q4 | 1385b9e push 后 7 个 startThread 测试 strict-equality FAIL | 测试 mock 对 unrecognised provider key fallback 返回 'codex'/'claude-3.7-sonnet'，被 startThread 误当 model/effort 注入 payload，破坏 `toHaveBeenCalledWith` strict 断言 | `467bb34 test(thread-store): mock provider model/effort prefs as empty in startThread cases` |
+
+### 12.2 关键代码改动
+
+**Q1 hotfix（preferences.go:155-184）**：
+
+```go
+// union-only：State == archived 强制进 archive map；非 archived 不动 map
+// 副作用：unarchive 对偶残留 preference 暂时无法清理（unarchive 路径未对外暴露，影响 0）
+// TODO: 给 ThreadSummary 加 LifecycleStatus 专用字段（与 union 的 State 分开）
+```
+
+**Q2 hotfix（run-debug.sh:467+）**：
+
+```bash
+export CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME="${CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME:-1}"
+```
+
+**Q3 hotfix（thread-actions-helpers.js:422+）**：
+
+```js
+const effectiveModel = optionsModelTrimmed || providerModel || '';
+const effectiveEffort = optionsEffortTrimmed || providerEffort || '';
+if (effectiveModel) payload.model = effectiveModel;
+if (effectiveEffort) payload.effort = effectiveEffort;
+```
+
+**Q4 测试 mock 补丁**：8 个 mock 都加 `if (payload?.key === 'settings.provider.<scope>.model') return '';` guard。
+
+### 12.3 验收
+
+- thread-store.actions.test.js: 19/19 PASS ✓
+- 全前端 vitest: 753 tests, 9 fail（与本次 hotfix 无关，runtime/patch/sync 流的预存债，可能跟用户 dirty 3 文件 useCopyThreadInfo / unified-chat-component / unified-chat-preflight-coverage 相关）
+- archtest: TestCodeSizeGuard PASS
+
+### 12.4 push 历史（今日完整 8 commits）
+
+```
+467bb34 test(thread-store): mock provider model/effort prefs as empty in startThread cases
+1385b9e fix(frontend): forward provider model/effort to thread/start payload
+cc1b6ea chore(run-debug): default opt-in CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME=1
+b46fbcd fix(uistate): rollback projectArchivedThreadStatus to union-only
+a410ab2 docs(session-summary,会话习惯): archive RPC + sidebar projection 闭环 §11 + §10.48-50
+7bbdd70 fix(thread,uistate,frontend): project DB archived status into sidebar
+0311501 fix(orchestration): mcp-orch ArchiveAgent now invokes thread/archive RPC
+8926185 refactor(store,binding): expose pool-backed binding store constructor
+```
+
+### 12.5 留尾债（不阻塞）
+
+- ThreadSummary 加 `LifecycleStatus` 专用字段（让 unarchive 对偶能安全删 preference）— 见 preferences.go TODO
+- 9 个预存 fail 测试（runtime/patch/sync/streaming）单独排查
+- 3 个 dirty 文件归属确认（用户独立改动，未混入今日 commits）
+
+### 12.6 本次新教训（已落盘 §10.51-53）
+
+- §10.51 union 字段不能作 DB 真值判定（ThreadSummary.State 反模式）
+- §10.52 P21 严格模式 + 前端偏好未 forward 的双重 bug 模式
+- §10.53 push 前必跑相关测试套（hotfix push 后 7 fail 反弹）
