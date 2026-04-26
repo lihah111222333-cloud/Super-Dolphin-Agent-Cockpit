@@ -446,18 +446,39 @@ func TestResolveMaxBytes(t *testing.T) {
 	}
 }
 
-func TestExpandBodyRequiresApprovalForUntrustedSkill(t *testing.T) {
+func TestExpandBody_LocalSkillSkipsApproval(t *testing.T) {
 	svc, _ := newExpandTestService(t)
 	projectRoot := svc.projectSkillsRootForCWD(svc.projectRoot)
-	content := "---\nname: needs-approval\n---\nsecret body"
-	writeExpandTestSkill(t, projectRoot, "needs-approval", content)
+	content := "---\nname: local-project\n---\nlocal body"
+	writeExpandTestSkill(t, projectRoot, "local-project", content)
 	cache, err := NewApprovalCache(filepath.Join(t.TempDir(), "approvals.json"))
 	if err != nil {
 		t.Fatalf("NewApprovalCache: %v", err)
 	}
 	svc.approval = cache
 
-	_, err = svc.ExpandBody(expandTestContext(svc), ExpandBodyParams{Name: "needs-approval"})
+	res, err := svc.ExpandBody(expandTestContext(svc), ExpandBodyParams{Name: "local-project"})
+	if err != nil {
+		t.Fatalf("local project ExpandBody should skip approval: %v", err)
+	}
+	if !strings.Contains(res.Content, "local body") {
+		t.Fatalf("content = %q", res.Content)
+	}
+	if _, ok := cache.Lookup("local-project", skillContentHash(content)); ok {
+		t.Fatalf("local project read should not create or require approval entries")
+	}
+}
+
+func TestRequireArtifactApproval_UntrustedStillRequires(t *testing.T) {
+	svc, _ := newExpandTestService(t)
+	cache, err := NewApprovalCache(filepath.Join(t.TempDir(), "approvals.json"))
+	if err != nil {
+		t.Fatalf("NewApprovalCache: %v", err)
+	}
+	svc.approval = cache
+
+	info := SkillInfo{Name: "needs-approval", Trust: TrustUnknown, ContentHash: "hash-v1"}
+	err = svc.requireArtifactApproval(expandTestContext(svc), info, ArtifactKindBody, "SKILL.md", info.ContentHash, svc.projectRoot, "skill_expand_body")
 	if !errors.Is(err, errSkillApprovalRequired) {
 		t.Fatalf("expected approval required, got %v", err)
 	}
@@ -474,30 +495,26 @@ func TestExpandBodyRequiresApprovalForUntrustedSkill(t *testing.T) {
 		Name:            "needs-approval",
 		ArtifactKind:    ArtifactKindBody,
 		ArtifactLocator: "SKILL.md",
-		ContentHash:     skillContentHash(content),
-		Trust:           TrustProject,
+		ContentHash:     info.ContentHash,
+		Trust:           TrustUnknown,
 		ApprovedBy:      "test",
 	}); err != nil {
 		t.Fatalf("ApproveArtifact: %v", err)
 	}
-	res, err := svc.ExpandBody(expandTestContext(svc), ExpandBodyParams{Name: "needs-approval"})
-	if err != nil {
-		t.Fatalf("approved ExpandBody: %v", err)
-	}
-	if !strings.Contains(res.Content, "secret body") {
-		t.Fatalf("content = %q", res.Content)
+	if err := svc.requireArtifactApproval(expandTestContext(svc), info, ArtifactKindBody, "SKILL.md", info.ContentHash, svc.projectRoot, "skill_expand_body"); err != nil {
+		t.Fatalf("approved untrusted artifact should pass: %v", err)
 	}
 }
 
-func TestReadResourceRequiresResourceApproval(t *testing.T) {
+func TestReadResource_LocalSkillSkipsApproval(t *testing.T) {
 	svc, _ := newExpandTestService(t)
 	projectRoot := svc.projectSkillsRootForCWD(svc.projectRoot)
-	dir := writeExpandTestSkill(t, projectRoot, "res-approval", "---\nname: res-approval\n---\nbody")
+	dir := writeExpandTestSkill(t, projectRoot, "local-res", "---\nname: local-res\n---\nbody")
 	refDir := filepath.Join(dir, "references")
 	if err := os.MkdirAll(refDir, 0o755); err != nil {
 		t.Fatalf("mkdir ref: %v", err)
 	}
-	resource := "resource secret"
+	resource := "resource local"
 	if err := os.WriteFile(filepath.Join(refDir, "api.md"), []byte(resource), 0o644); err != nil {
 		t.Fatalf("write resource: %v", err)
 	}
@@ -507,26 +524,35 @@ func TestReadResourceRequiresResourceApproval(t *testing.T) {
 	}
 	svc.approval = cache
 
-	_, err = svc.ReadResource(expandTestContext(svc), ReadResourceParams{Name: "res-approval", Path: "references/api.md"})
-	if !errors.Is(err, errSkillApprovalRequired) {
-		t.Fatalf("expected approval required, got %v", err)
-	}
-	if _, err := cache.ApproveArtifact(ApprovalRequest{
-		RepoFingerprint: RepoFingerprint(svc.projectRoot),
-		Name:            "res-approval",
-		ArtifactKind:    ArtifactKindResource,
-		ArtifactLocator: "references/api.md",
-		ContentHash:     skillContentHash(resource),
-		Trust:           TrustProject,
-		ApprovedBy:      "test",
-	}); err != nil {
-		t.Fatalf("ApproveArtifact resource: %v", err)
-	}
-	res, err := svc.ReadResource(expandTestContext(svc), ReadResourceParams{Name: "res-approval", Path: "references/api.md"})
+	res, err := svc.ReadResource(expandTestContext(svc), ReadResourceParams{Name: "local-res", Path: "references/api.md"})
 	if err != nil {
-		t.Fatalf("approved ReadResource: %v", err)
+		t.Fatalf("local project ReadResource should skip approval: %v", err)
 	}
 	if res.Content != resource {
 		t.Fatalf("resource content = %q", res.Content)
+	}
+	if _, ok := cache.LookupArtifact(ApprovalRequest{
+		RepoFingerprint: RepoFingerprint(svc.projectRoot),
+		Name:            "local-res",
+		ArtifactKind:    ArtifactKindResource,
+		ArtifactLocator: "references/api.md",
+		ContentHash:     skillContentHash(resource),
+	}); ok {
+		t.Fatalf("local project resource read should not create or require approval entries")
+	}
+}
+
+func TestRequireArtifactApproval_UntrustedResourceStillRequires(t *testing.T) {
+	svc, _ := newExpandTestService(t)
+	cache, err := NewApprovalCache(filepath.Join(t.TempDir(), "approvals.json"))
+	if err != nil {
+		t.Fatalf("NewApprovalCache: %v", err)
+	}
+	svc.approval = cache
+
+	info := SkillInfo{Name: "res-approval", Trust: TrustUnknown, ContentHash: "skill-hash"}
+	err = svc.requireArtifactApproval(expandTestContext(svc), info, ArtifactKindResource, "references/api.md", "resource-hash", svc.projectRoot, "skill_read_resource")
+	if !errors.Is(err, errSkillApprovalRequired) {
+		t.Fatalf("expected approval required, got %v", err)
 	}
 }

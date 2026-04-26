@@ -61,6 +61,9 @@ func bodyArtifactLocator(anchor string) string {
 }
 
 func (s *service) requireArtifactApproval(ctx context.Context, info SkillInfo, kind, locator, contentHash, cwd, method string) error {
+	if info.Trust == TrustProject || info.Trust == TrustUser {
+		return nil
+	}
 	if info.Trust.Trusted() {
 		return nil
 	}
@@ -111,8 +114,9 @@ func (s *service) buildArtifactApprovalRequest(info SkillInfo, kind, locator, co
 //   - anchor 找不到：fmt.Errorf("anchor not found: ...")
 //   - 文件过大超硬上限：fmt.Errorf("skill file too large: ...")
 //
-// 未受信任项目级 skill 在读取正文前必须命中 artifact-level approval；
-// trusted user/signed skill 仍按 P20.1 默认信任策略直接放行。
+// 本地项目级/用户级 skill 读取正文不需要 approval；仅确定不可信/异常来源
+// 在读取正文前必须命中 artifact-level approval。trusted signed skill 仍按
+// P20.1 默认信任策略直接放行。
 func (s *service) ExpandBody(ctx context.Context, p ExpandBodyParams) (ExpandBodyResult, error) {
 	// P20.1 Phase 10 Step C: 计入每次调用（含失败路径），类似 rate counter。
 	skillmetrics.IncSkillExpandInvoke()
@@ -214,7 +218,8 @@ func shortSHA256Hex(data []byte) string {
 // 被 JSON 序列化器按 UTF-8 校验转义为 \ufffd，不在本工具的爆护方案内。
 // 未来如需支持二进制可扩展为 base64 encoding 或新工具 skill_read_asset。
 //
-// 未受信任项目级 skill resource 按 resource 文件自身 hash 做 artifact-level approval。
+// 本地项目级/用户级 skill resource 不需要 approval；仅确定不可信/异常来源
+// 按 resource 文件自身 hash 做 artifact-level approval。
 func (s *service) ReadResource(ctx context.Context, p ReadResourceParams) (ReadResourceResult, error) {
 	// P20.1 Phase 10 Step C: 与 ExpandBody 合计 SkillExpandInvokeRate。
 	skillmetrics.IncSkillExpandInvoke()
