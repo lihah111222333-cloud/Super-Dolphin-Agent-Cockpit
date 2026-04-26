@@ -365,6 +365,44 @@ func TestToolBridge_OrchestrationLaunchInheritsParentModelEffort(t *testing.T) {
 	assertSingleTextItem(t, got, "launching", true)
 }
 
+func TestToolBridge_OrchestrationLaunchExplicitProviderDoesNotInheritMismatchedParentModelEffort(t *testing.T) {
+	args := mustRawJSON(t, map[string]any{
+		"name":     "idle-agent",
+		"provider": "claude",
+	})
+	wantArgs := mustRawJSON(t, map[string]any{
+		"cwd":       "/repo/project",
+		"effort":    "high",
+		"model":     "sonnet",
+		"name":      "idle-agent",
+		"parent_id": "agent-parent",
+		"provider":  "claude",
+	})
+	h, _ := newHandlerForTest(newToolCallPeer(t, "orchestration_launch_agent", wantArgs, "launching", nil))
+	h.bindingStore = &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
+		"agent-parent": {
+			AgentID:  "agent-parent",
+			Provider: "codex",
+			CWD:      "/repo/project",
+		},
+	}}
+	h.threadStore = &toolCallThreadStoreStub{row: &threadstore.Thread{
+		ThreadID:       "agent-parent",
+		ConfigOverride: json.RawMessage(`{"model":"gpt-5.5","effort":"xhigh"}`),
+	}}
+	h.preferences = &stubUIPreferenceReader{}
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:      "orchestration_launch_agent",
+		Arguments: args,
+		AgentID:   "agent-parent",
+	})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	assertSingleTextItem(t, got, "launching", true)
+}
+
 func TestToolBridge_OrchestrationLaunchFallsBackToUIPreferences(t *testing.T) {
 	args := mustRawJSON(t, map[string]any{
 		"name":     "idle-agent",

@@ -208,12 +208,19 @@ func HandleStopAgent(svc contract.OrchestrationService) ToolHandler {
 		}
 		archived := false
 		if archiver, ok := svc.(agentArchiver); ok {
+			pkglogger.Info("orchestration_stop_agent: dispatching to ArchiveAgent (recycle path)",
+				"agent_id", agentID)
 			if err := archiver.ArchiveAgent(ctx, agentID); err != nil {
 				return nil, err
 			}
 			archived = true
-		} else if err := svc.StopAgent(ctx, agentID); err != nil {
-			return nil, err
+		} else {
+			pkglogger.Warn("orchestration_stop_agent: service does not implement agentArchiver; falling back to bare StopAgent (NO recycle-bin marking)",
+				"agent_id", agentID,
+				"svc_type", fmt.Sprintf("%T", svc))
+			if err := svc.StopAgent(ctx, agentID); err != nil {
+				return nil, err
+			}
 		}
 		return successResult(map[string]any{"agent_id": agentID, "archived": archived}), nil
 	})

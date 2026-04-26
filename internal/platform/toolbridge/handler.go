@@ -175,8 +175,9 @@ func (h *Handler) injectManagedLaunchContext(ctx context.Context, req ToolCallRe
 }
 
 func (h *Handler) resolveManagedLaunchDefaults(ctx context.Context, binding toolCallBinding, args map[string]any) (string, string, string) {
-	model, effort := h.resolveManagedLaunchModelEffortFromParent(ctx, binding)
 	provider, prefModel, prefEffort := h.resolveManagedLaunchDefaultsFromPreferences(ctx, binding, args)
+	model, effort := h.resolveManagedLaunchModelEffortFromParent(ctx, binding)
+	model, effort = compatibleManagedLaunchModelEffort(provider, model, effort)
 	return provider, firstNonEmptyString(model, prefModel), firstNonEmptyString(effort, prefEffort)
 }
 
@@ -258,6 +259,45 @@ func defaultProviderLaunchConfig(provider string) (string, string) {
 		return "sonnet", "high"
 	}
 	return "gpt-5.5", "xhigh"
+}
+
+func compatibleManagedLaunchModelEffort(provider, model, effort string) (string, string) {
+	provider = normalizeProviderPreferenceScope(provider)
+	model = strings.TrimSpace(model)
+	effort = strings.TrimSpace(effort)
+	if model != "" && !managedLaunchModelCompatible(provider, model) {
+		return "", ""
+	}
+	if effort != "" && !managedLaunchEffortCompatible(provider, effort) {
+		effort = ""
+	}
+	return model, effort
+}
+
+func managedLaunchModelCompatible(provider, model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	if model == "" {
+		return true
+	}
+	if normalizeProviderPreferenceScope(provider) == "claude" {
+		return model == "best" || model == "opus" || model == "opus[1m]" ||
+			model == "sonnet" || model == "sonnet[1m]" || model == "haiku" ||
+			strings.HasPrefix(model, "claude-")
+	}
+	return strings.HasPrefix(model, "gpt-")
+}
+
+func managedLaunchEffortCompatible(provider, effort string) bool {
+	switch strings.ToLower(strings.TrimSpace(effort)) {
+	case "high", "medium", "low":
+		return true
+	case "max":
+		return normalizeProviderPreferenceScope(provider) == "claude"
+	case "xhigh", "minimal", "none":
+		return normalizeProviderPreferenceScope(provider) != "claude"
+	default:
+		return false
+	}
 }
 
 func firstNonEmptyString(values ...string) string {

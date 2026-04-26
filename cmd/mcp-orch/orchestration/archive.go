@@ -8,6 +8,7 @@ import (
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 const persistedThreadStatusArchived = "archived"
@@ -26,6 +27,7 @@ func (s *service) ArchiveAgent(ctx context.Context, agentID string) error {
 	if err != nil {
 		return err
 	}
+	pkglogger.Info("archive: ArchiveAgent begin", "agent_id", agentID)
 	target, resolveErr := s.resolvePersistedArchiveTarget(ctx, agentID)
 	stopErr := s.stopArchiveTarget(ctx, agentID, target, resolveErr)
 	if stopErr != nil && !errors.Is(stopErr, errAgentNotFound) {
@@ -42,6 +44,11 @@ func (s *service) ArchiveAgent(ctx context.Context, agentID string) error {
 	if !archived && stopErr != nil {
 		return stopErr
 	}
+	pkglogger.Info("archive: ArchiveAgent done",
+		"agent_id", agentID,
+		"binding_found", target.bindingFound,
+		"thread_id", target.threadID,
+		"archived", archived)
 	return nil
 }
 
@@ -67,24 +74,38 @@ func (s *service) stopArchiveTarget(ctx context.Context, requestedAgentID string
 
 func (s *service) archivePersistedArchiveTarget(ctx context.Context, target persistedArchiveTarget) (bool, error) {
 	if target.threadID == "" && !target.bindingFound {
+		pkglogger.Warn("archive: nothing to archive (binding=missing, thread=missing); runtime stopped but DB unchanged",
+			"agent_id", target.agentID)
 		return false, nil
 	}
 	now := time.Now().Unix()
 	if target.threadID != "" && s.agentThreads != nil {
+		pkglogger.Info("archive: marking thread archived",
+			"thread_id", target.threadID,
+			"agent_id", target.agentID)
 		if err := s.agentThreads.UpdateStatus(ctx, PersistedThreadStatusUpdate{
 			ThreadID:  target.threadID,
 			Status:    persistedThreadStatusArchived,
 			UpdatedAt: now,
 		}); err != nil {
+			pkglogger.Warn("archive: thread UpdateStatus failed",
+				"thread_id", target.threadID,
+				"agent_id", target.agentID,
+				"error", err)
 			return false, err
 		}
 	}
 	if target.bindingFound && target.agentID != "" && s.agentBindings != nil {
+		pkglogger.Info("archive: marking binding archived",
+			"agent_id", target.agentID)
 		if err := s.agentBindings.SetArchived(ctx, PersistedBindingArchiveUpdate{
 			AgentID:   target.agentID,
 			Archived:  true,
 			UpdatedAt: now,
 		}); err != nil {
+			pkglogger.Warn("archive: binding SetArchived failed",
+				"agent_id", target.agentID,
+				"error", err)
 			return false, err
 		}
 	}
@@ -128,10 +149,16 @@ func (s *service) resolvePersistedArchiveTarget(ctx context.Context, agentID str
 
 func (s *service) lookupPersistedArchiveBinding(ctx context.Context, agentID string) (*PersistedBinding, error) {
 	if s == nil || s.agentBindings == nil || strings.TrimSpace(agentID) == "" {
+		if s != nil && s.agentBindings == nil && strings.TrimSpace(agentID) != "" {
+			pkglogger.Warn("archive: agentBindings store unavailable (fx optional injection nil); cannot mark archived",
+				"agent_id", strings.TrimSpace(agentID))
+		}
 		return nil, nil
 	}
 	binding, err := s.agentBindings.GetByAgentID(ctx, strings.TrimSpace(agentID))
 	if archiveLookupNotFound(err) {
+		pkglogger.Warn("archive: binding lookup not found",
+			"agent_id", strings.TrimSpace(agentID))
 		return nil, nil
 	}
 	if err != nil {
@@ -142,6 +169,8 @@ func (s *service) lookupPersistedArchiveBinding(ctx context.Context, agentID str
 
 func (s *service) lookupPersistedArchiveThread(ctx context.Context, agentID, hintedThreadID string) (*PersistedThread, error) {
 	if s == nil || s.agentThreads == nil {
+		pkglogger.Warn("archive: agentThreads store unavailable (fx optional injection nil); cannot update thread status",
+			"agent_id", agentID)
 		return nil, nil
 	}
 	if thread, err := s.lookupPersistedArchiveThreadByIDs(ctx, archiveThreadLookupCandidates(agentID, hintedThreadID)); thread != nil || err != nil {
@@ -174,6 +203,9 @@ func (s *service) lookupPersistedArchiveThreadByList(ctx context.Context, agentI
 			return &found, nil
 		}
 	}
+	pkglogger.Debug("archive: thread not found by id+list scan",
+		"agent_id", agentID,
+		"thread_count", len(threads))
 	return nil, nil
 }
 
