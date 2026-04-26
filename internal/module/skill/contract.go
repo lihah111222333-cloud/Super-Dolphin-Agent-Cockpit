@@ -102,6 +102,8 @@ type Service interface {
 	// It is a thin wrapper over WriteLocal(..., scope=project) and rejects
 	// requests missing cwd with ErrMissingCWD.
 	CreateSkill(ctx context.Context, p createSkillParams) (any, error)
+	// ImportLocalDir supports mode=auto|single|batch; auto preserves single
+	// skill imports and expands container directories into direct child skills.
 	ImportLocalDir(ctx context.Context, p importSkillDirParams) (any, error)
 	DeleteLocal(ctx context.Context, name string) (any, error)
 	ReadRemote(ctx context.Context, url string) (any, error)
