@@ -47,6 +47,14 @@ type GateSnapshot struct {
 	SkipProjectLocalClaudeMd bool
 	InjectMemoryIndex        bool
 	InjectTeamMemIndex       bool
+	// SuppressForOverlay mirrors MemoryGateSnapshot.SuppressForOverlay() into
+	// the nested-package gate so claudeMd source loading lets the underlying
+	// CLI harness's native CLAUDE.md handling take over (claude_code overlay).
+	// Today the rendered claudeMd output is dropped before reaching providers
+	// (start_session_helpers.go drops UserContext / UserContextText), so this
+	// short-circuit is defense-in-depth: if a provider ever re-consumes
+	// UserContextText, claude_code overlay must not double-inject CLAUDE.md.
+	SuppressForOverlay bool
 }
 
 type Dependencies struct {
@@ -169,7 +177,7 @@ func ResolveClaudeMdSources(ctx context.Context, cfg ClaudeMdResolveConfig) []Cl
 }
 
 func shouldDisableClaudeMdSources(gate GateSnapshot) bool {
-	return gate.DisableClaudeMds || (gate.BareMode && !gate.HasAdditionalDirsForBare)
+	return gate.SuppressForOverlay || gate.DisableClaudeMds || (gate.BareMode && !gate.HasAdditionalDirsForBare)
 }
 
 func FilterInjectedMemoryFiles(sources []ClaudeMdSource, buildCtx contract.BuildCtx, gate GateSnapshot, excludes []string) []ClaudeMdSource {

@@ -215,6 +215,7 @@ func provideNestedDependencies(cfg *Config) nestedpkg.Dependencies {
 				SkipProjectLocalClaudeMd: snapshot.SkipProjectLocalClaudeMd,
 				InjectMemoryIndex:        snapshot.InjectMemoryIndex,
 				InjectTeamMemIndex:       snapshot.InjectTeamMemIndex,
+				SuppressForOverlay:       snapshot.SuppressForOverlay(),
 			}
 		},
 		AutoMemRoot: func(buildCtx contract.BuildCtx) string {
