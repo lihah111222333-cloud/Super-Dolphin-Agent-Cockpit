@@ -12,7 +12,6 @@ package parse
 import (
 	"bufio"
 	"io"
-	"regexp"
 	"strings"
 	"unicode/utf8"
 )
@@ -115,7 +114,6 @@ func SplitFrontmatter(content string) (string, string, bool) {
 	}
 }
 
-var htmlCommentLinePattern = regexp.MustCompile(`<!--.*?-->`)
 
 // StripHTMLComments removes Claude Code editor scaffolding HTML comments
 // while preserving content semantics that downstream parsers depend on.
@@ -130,22 +128,51 @@ var htmlCommentLinePattern = regexp.MustCompile(`<!--.*?-->`)
 //     authors deliberately include in prose.
 //   - Comments inside fenced code blocks (``` or ~~~) are preserved so that
 //     documentation can render literal HTML comment examples.
-//   - An UNCLOSED `<!--` is treated as plain content (not silently dropped)
-//     so a malformed file cannot smuggle hidden directives into the prompt
-//     by pretending the rest of the file is one giant comment.
+//   - Content inside `<![CDATA[ ... ]]>` blocks (single- or multi-line)
+//     is preserved verbatim; a `<!--` appearing inside an open CDATA span
+//     is NOT treated as a comment opener. Once `]]>` closes the CDATA,
+//     normal scanning resumes.
+//   - HTML5 forbids nesting `<!-- <!-- --> -->`; the first `-->` closes
+//     the comment and the trailing `-->` survives as plain text. The
+//     scanner mirrors that behaviour rather than implementing real
+//     nesting depth tracking.
+//   - An UNCLOSED `<!--` (or `<![CDATA[`) is treated as plain content
+//     (not silently dropped) so a malformed file cannot smuggle hidden
+//     directives into the prompt by pretending the rest of the file is
+//     one giant comment.
 func StripHTMLComments(content string) string {
-	stripped, _ := stripHTMLCommentsScan(content)
-	return stripped
+	// Iterate to a fixed point. A single pass can produce a string whose
+	// removed-then-rejoined neighbour bytes accidentally compose a new
+	// `<!-- ... -->` (e.g. residue `<!` followed by `---->` after a
+	// closed `<!---->` is dropped between them). Re-running until the
+	// scanner reports no further strips guarantees idempotence:
+	// StripHTMLComments(StripHTMLComments(x)) == StripHTMLComments(x).
+	// Termination: every productive iteration removes at least one byte,
+	// so the loop runs at most len(content) times.
+	for {
+		next, stripped := stripHTMLCommentsScan(content)
+		if !stripped {
+			return next
+		}
+		if next == content {
+			return next
+		}
+		content = next
+	}
 }
 
 func stripHTMLCommentsScan(content string) (string, bool) {
-	if !strings.Contains(content, "<!--") {
+	// Fast path: no comment opener and no CDATA opener anywhere in the
+	// input means there is nothing to strip and nothing to shield.
+	if !strings.Contains(content, "<!--") && !strings.Contains(content, "<![CDATA[") {
 		return content, false
 	}
 	state := &htmlCommentStripState{}
 	for _, line := range strings.SplitAfter(content, "\n") {
 		state.processLine(line)
 	}
+	// Unclosed `<!--` at EOF: surface the buffered text as plain content
+	// so a truncated comment cannot swallow the rest of the file.
 	if state.inComment {
 		state.builder.WriteString(state.pendingComment.String())
 	}
@@ -163,14 +190,27 @@ type htmlCommentStripState struct {
 	pendingComment strings.Builder
 	stripped       bool
 	inComment      bool
+	inCDATA        bool
 }
 
 func (s *htmlCommentStripState) processLine(line string) {
+	// CDATA dominates: while inside a CDATA span no comment scanning
+	// runs, so a `<!--` token between `<![CDATA[` and `]]>` survives.
+	if s.inCDATA {
+		s.builder.WriteString(line)
+		if strings.Contains(line, "]]>") {
+			s.inCDATA = false
+		}
+		return
+	}
 	if s.processPendingLine(line) {
 		return
 	}
 	if lineInMarkdownFence(&s.fence, line) {
 		s.builder.WriteString(line)
+		return
+	}
+	if s.openCDATAIfUnclosed(line) {
 		return
 	}
 	if !startsHTMLCommentBlock(line) {
@@ -189,24 +229,101 @@ func (s *htmlCommentStripState) processPendingLine(line string) bool {
 		return false
 	}
 	s.pendingComment.WriteString(line)
+	// HTML5 does not nest comments; the first `-->` closes the span. We
+	// keep the residue after that token as plain content so a stray
+	// `--> trailing -->` becomes ` trailing -->` rather than vanishing.
 	_, residue, ok := strings.Cut(line, "-->")
 	if !ok {
 		return true
 	}
 	s.stripped = true
-	appendNonEmptyLine(&s.builder, residue)
 	s.pendingComment.Reset()
 	s.inComment = false
+	s.emitCommentResidue(residue)
 	return true
 }
 
+// openCDATAIfUnclosed handles a line that begins (or contains) a CDATA
+// opener whose `]]>` close lives on a later line. The whole line is
+// emitted verbatim and the scanner switches to inCDATA so the next line
+// short-circuits comment scanning. Returns true if it took ownership of
+// the line. CDATA spans that open and close on the same line are not
+// special-cased here: comment stripping ignores mid-line `<!--` anyway,
+// so a single-line CDATA carrying a fake comment is already preserved.
+func (s *htmlCommentStripState) openCDATAIfUnclosed(line string) bool {
+	idx := strings.Index(line, "<![CDATA[")
+	if idx < 0 {
+		return false
+	}
+	if strings.Contains(line[idx+len("<![CDATA["):], "]]>") {
+		return false
+	}
+	s.builder.WriteString(line)
+	s.inCDATA = true
+	return true
+}
+
+// stripInlineComment is invoked when the line begins (after leading
+// whitespace) with `<!--` AND contains a `-->` somewhere later on the
+// same line. It peels off the leading `<!-- ... -->` and hands the tail
+// to emitCommentResidue, which itself recursively strips any further
+// already-closed `<!-- ... -->` segments hiding inside the residue. The
+// double pass is what gives StripHTMLComments idempotence: without it,
+// fuzz inputs like `<!----><!--0\n-->0` and `<!--\n--> <!--0-->` would
+// leave a residual `<!--...-->` that a second call would then drop.
 func (s *htmlCommentStripState) stripInlineComment(line string) bool {
 	if !strings.Contains(line, "-->") {
 		return false
 	}
 	s.stripped = true
-	appendNonEmptyLine(&s.builder, htmlCommentLinePattern.ReplaceAllString(line, ""))
+	trimmed := strings.TrimLeft(line, " \t")
+	afterOpen := trimmed[len("<!--"):]
+	_, residue, ok := strings.Cut(afterOpen, "-->")
+	if !ok {
+		// strings.Contains(line, "-->") was true above, so the only way Cut
+		// can fail is if the `-->` lives inside the leading whitespace —
+		// impossible because TrimLeft removed it. Defensive fallback: treat
+		// the line as an unclosed opener.
+		s.pendingComment.WriteString(line)
+		s.inComment = true
+		return true
+	}
+	s.emitCommentResidue(residue)
 	return true
+}
+
+// emitCommentResidue handles the tail produced after a `-->` close. It
+// silently drops any further already-closed `<!-- ... -->` segments
+// hiding in the tail (they would otherwise re-trigger stripInlineComment
+// on a second pass and break idempotence) and, if the tail ends on an
+// unclosed `<!--`, transitions the scanner into inComment with the open
+// span buffered. The non-comment text in between is preserved so authors
+// do not lose words tucked between scaffolding markers.
+func (s *htmlCommentStripState) emitCommentResidue(residue string) {
+	var plain strings.Builder
+	pos := 0
+	for {
+		idx := strings.Index(residue[pos:], "<!--")
+		if idx < 0 {
+			plain.WriteString(residue[pos:])
+			appendNonEmptyLine(&s.builder, plain.String())
+			return
+		}
+		absIdx := pos + idx
+		afterOpen := absIdx + len("<!--")
+		closeIdx := strings.Index(residue[afterOpen:], "-->")
+		if closeIdx < 0 {
+			// Tail opens an unclosed comment: keep the plain prefix, buffer
+			// the open span so the next line either closes or surfaces it.
+			plain.WriteString(residue[pos:absIdx])
+			appendNonEmptyLine(&s.builder, plain.String())
+			s.pendingComment.WriteString(residue[absIdx:])
+			s.inComment = true
+			return
+		}
+		plain.WriteString(residue[pos:absIdx])
+		pos = afterOpen + closeIdx + len("-->")
+	}
 }
 
 func appendNonEmptyLine(builder *strings.Builder, line string) {
