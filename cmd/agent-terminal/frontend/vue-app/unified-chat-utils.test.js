@@ -834,6 +834,19 @@ describe('buildVisibleChatThreadCards', () => {
         expect(result.cards.map((item) => item.id)).toEqual(['thread-archived']);
     });
 
+
+    it('treats thread.lifecycleStatus==archived as archived after runtime state overlay', () => {
+        const result = buildVisibleChatThreadCards({
+            threads: [{ id: 'thread-archived', name: 'Archived', lifecycleStatus: 'archived', state: 'idle', threadStatus: 'idle' }],
+            archivedMap: {},
+            showArchived: false,
+        });
+
+        expect(result.activeCount).toBe(0);
+        expect(result.archivedCount).toBe(1);
+        expect(result.cards).toEqual([]);
+    });
+
     it('hides thread.state==archived from active list', () => {
         const result = buildVisibleChatThreadCards({
             threads: [{ id: 'thread-archived', name: 'Archived', state: 'archived' }],

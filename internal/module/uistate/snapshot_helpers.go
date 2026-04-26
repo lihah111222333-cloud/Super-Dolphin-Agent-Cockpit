@@ -59,11 +59,15 @@ func markThreadStopped(items []ThreadSummary, threadID, status string) []ThreadS
 		if items[i].ID != threadID {
 			continue
 		}
-		items[i].AgentID = ""
+		if !strings.EqualFold(status, "created") {
+			items[i].AgentID = ""
+		}
+		items[i].LifecycleStatus = status
 		items[i].State = status
+		items[i].ThreadStatus = status
 		return items
 	}
-	return append(items, ThreadSummary{ID: threadID, State: status})
+	return append(items, ThreadSummary{ID: threadID, LifecycleStatus: status, State: status})
 }
 func recentTurnTime(value TurnSummary) time.Time {
 	if value.CompletedAt != nil {

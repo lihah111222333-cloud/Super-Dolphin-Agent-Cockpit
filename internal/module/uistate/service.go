@@ -120,11 +120,13 @@ func buildInitialState(ctx context.Context, threads thread.Service, agents contr
 func summarizeThreads(items []thread.Ref) []ThreadSummary {
 	out := make([]ThreadSummary, 0, len(items))
 	for _, item := range items {
+		status := strings.TrimSpace(item.Status)
 		out = append(out, ThreadSummary{
-			ID:      strings.TrimSpace(item.ID),
-			Name:    strings.TrimSpace(item.Name),
-			AgentID: strings.TrimSpace(item.AgentID),
-			State:   strings.TrimSpace(item.Status),
+			ID:              strings.TrimSpace(item.ID),
+			Name:            strings.TrimSpace(item.Name),
+			AgentID:         strings.TrimSpace(item.AgentID),
+			LifecycleStatus: status,
+			State:           status,
 		})
 	}
 	return out

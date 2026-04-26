@@ -320,8 +320,8 @@ func TestSummarizeThreadsProjectsArchivedStatus(t *testing.T) {
 	t.Parallel()
 
 	got := summarizeThreads([]thread.Ref{{ID: "thread-archived", Name: "Archived", AgentID: "agent-1", Status: " archived "}})
-	if len(got) != 1 || got[0].State != "archived" {
-		t.Fatalf("summarizeThreads() = %#v, want state archived", got)
+	if len(got) != 1 || got[0].State != "archived" || got[0].LifecycleStatus != "archived" {
+		t.Fatalf("summarizeThreads() = %#v, want state/lifecycle archived", got)
 	}
 }
 
@@ -349,6 +349,58 @@ func TestGetSidebarProjectsDBArchivedStatusIntoArchivesMap(t *testing.T) {
 // runtime State!="archived" as a signal to drop preference timestamps.
 // A future ThreadSummary.LifecycleStatus split will let unarchive drop
 // stale preference safely.
+
+func TestApplyThreadStoppedUnarchiveClearsLifecycleArchive(t *testing.T) {
+	t.Parallel()
+
+	svc, _, err := NewService(nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	svc.state.Threads = []ThreadSummary{{
+		ID:              "thread-1",
+		AgentID:         "agent-1",
+		LifecycleStatus: "archived",
+		State:           "archived",
+	}}
+	svc.applyThreadStopped(threaddto.Stopped{ThreadID: "thread-1", Status: "created", Reason: "unarchived"})
+
+	sidebar, err := svc.GetSidebar(context.Background())
+	if err != nil {
+		t.Fatalf("GetSidebar() error = %v", err)
+	}
+	if got := sidebar.ThreadArchivesChat["thread-1"]; got != 0 {
+		t.Fatalf("ThreadArchivesChat[thread-1] = %d, want 0 after unarchive", got)
+	}
+	if got := sidebar.Threads[0].AgentID; got != "agent-1" {
+		t.Fatalf("AgentID = %q, want preserved agent-1", got)
+	}
+}
+
+func TestGetSidebarProjectsLifecycleArchivedAfterRuntimeStateDerivation(t *testing.T) {
+	t.Parallel()
+
+	svc, _, err := NewService(nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	svc.state.Threads = []ThreadSummary{{
+		ID:              "thread-archived",
+		Name:            "Archived",
+		LifecycleStatus: "archived",
+		State:           "idle",
+		ThreadStatus:    "idle",
+	}}
+
+	sidebar, err := svc.GetSidebar(context.Background())
+	if err != nil {
+		t.Fatalf("GetSidebar() error = %v", err)
+	}
+	if got := sidebar.ThreadArchivesChat["thread-archived"]; got <= 0 {
+		t.Fatalf("ThreadArchivesChat[thread-archived] = %d, want > 0 from lifecycle archived", got)
+	}
+}
+
 func TestProjectArchivedThreadStatusKeepsPreferenceWhenStateIsNotArchived(t *testing.T) {
 	threads := []ThreadSummary{{ID: "t1", State: "created"}}
 	archived := map[string]int64{"t1": 12345}

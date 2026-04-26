@@ -23,6 +23,10 @@ export type ThreadSelectionFreshnessOptions = {
 export type ThreadCardSource = {
   id?: string;
   name?: string;
+  lifecycleStatus?: string;
+  state?: string;
+  status?: string;
+  threadStatus?: string;
 };
 
 export type ThreadRuntimeInfo = {
