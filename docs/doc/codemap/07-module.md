@@ -23,27 +23,12 @@
 ```mermaid
 flowchart LR
     RPC[RPC / Frontend / Orchestration] --> MOD[internal/module/*]
-<<<<<<< Updated upstream
     MOD --> DASH[dashboard\n读模型聚合]
     MOD --> SKILL[skill\n技能扫描/渐进披露/本地 FS]
     MOD --> THREAD[thread\n线程生命周期]
     MOD --> TURN[turn\n回合编排]
     MOD --> UISTATE[uistate\nUI 投影]
     MOD --> LSPGUI[lspgui\n当前仓内缺失]
-=======
-    MOD --> DASH[dashboard
-读模型聚合]
-    MOD --> SKILL[skill
-技能扫描/渐进披露/本地 FS]
-    MOD --> THREAD[thread
-线程生命周期]
-    MOD --> TURN[turn
-回合编排]
-    MOD --> UISTATE[uistate
-UI 投影]
-    MOD --> LSPGUI[lspgui
-当前仓内缺失]
->>>>>>> Stashed changes
     DASH --> STORE[(stores)]
     SKILL --> FS[(skills roots)]
     THREAD --> CONTRACT[contract + store + provider]
@@ -66,7 +51,6 @@ UI 投影]
 
 - 07A 先把 `dashboard / skill` 按当前代码真值重写，并把 `lspgui` 标注为缺口。
 - 07B 预留给 `thread / turn / uistate` 深化；此页仅作为稳定入口，便于 README / 外链继续指向 `07-module.md`。
-<<<<<<< Updated upstream
 
 ## 6. 拆卷映射表
 
@@ -96,7 +80,7 @@ UI 投影]
 
 ## 10. 常见误导
 
-- `07-module.md` 现在只有 53 行，**不代表业务模块内容少**；真实正文已进 `07-module-read.md` / `07-module-write.md`。
+- `07-module.md` 现在只是稳定索引页，**不代表业务模块内容少**；真实正文已进 `07-module-read.md` / `07-module-write.md`。
 - `dashboard/prompts` 已不是旧版“简单 page-field wrapper”；真实入口是 ctx 带 `cwd` 后再过滤。
 - `skill` 不只剩 legacy `skills/*`；host 侧已新增 `skill/list` / `skill/expand`。
 - `lspgui` 在当前仓内并不存在；看到旧文档提它时，一律以 `07-module-read.md` §3 为准。
@@ -110,5 +94,3 @@ UI 投影]
 | `skill/list` | [07-module-read.md](07-module-read.md) §4.3、§4.4 |
 | `skill/expand` | [07-module-read.md](07-module-read.md) §4.3、§4.5 |
 | `thread/start` / `turn/start` / blank-thread `sendMessage` | [07-module-write.md](07-module-write.md) §2.4 A、§3.4、§5 |
-=======
->>>>>>> Stashed changes
