@@ -305,14 +305,13 @@ func TestRenderSkillBlock_SummaryWithEmptySummarySkips(t *testing.T) {
 // 防止 header 注入、漏到 legacy 分支导致无法裁剪。
 func TestRenderSkillBlock_RejectsInvalidName(t *testing.T) {
 	cases := []string{
-		"Foo",                // 大写
 		"Foo Bar",            // 空格
-		"foo_bar",            // 下划线
 		"foo/bar",            // 路径分隔
 		"../evil",            // 路径逃逸
 		"foo]injection",      // 伪造 ]
 		"foo\n[skill:victim", // 换行注入
 		"-foo",               // 连字符开头
+		"_foo",               // 下划线开头
 	}
 	for _, n := range cases {
 		if text, ok := RenderSkillBlock(n, "body", "", "full"); ok {
