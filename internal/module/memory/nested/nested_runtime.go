@@ -1,7 +1,6 @@
 package nested
 
 import (
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -17,8 +16,9 @@ const nestedGlobalThreadKey = "_global"
 type NestedRuntime struct {
 	deps Dependencies
 
-	mu       sync.Mutex
-	sessions map[string]*nestedSessionState
+	mu                sync.Mutex
+	sessions          map[string]*nestedSessionState
+	toolReadCacheRoot string // P24 cache-root-threading: SafeReadEntrypoint root for ToolCallEnd persistedPath; empty disables persisted-output reads. Set once at module init via SetToolReadCacheRoot, then treated read-only under r.mu.
 }
 
 type nestedSessionState struct {
@@ -34,6 +34,21 @@ func NewNestedRuntime(deps Dependencies) *NestedRuntime {
 		deps:     deps,
 		sessions: map[string]*nestedSessionState{},
 	}
+}
+
+// SetToolReadCacheRoot threads the persisted tool-result cache root through to
+// readNestedPersistedToolOutput so the slow-path os read is contained against a
+// known root via shared.SafeReadEntrypoint instead of trusting the
+// `persistedPath` field on ToolCallEnd to already be safe. Empty root disables
+// persisted-output reads entirely (the helper falls back to the in-memory
+// preview). See docs/plans/迁移/p24记忆优化/p24记忆优化.md.
+func (r *NestedRuntime) SetToolReadCacheRoot(root string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.toolReadCacheRoot = strings.TrimSpace(root)
 }
 
 func (r *NestedRuntime) OnThreadStart(threadID string) {
@@ -128,7 +143,7 @@ func (r *NestedRuntime) AddToolReadResult(threadID, toolName, result, persistedP
 	if strings.TrimSpace(state.BuildCtx.CWD) == "" && strings.TrimSpace(state.BuildCtx.GitRoot) == "" {
 		return
 	}
-	for _, trigger := range extractNestedReadToolPaths(toolName, result, persistedPath) {
+	for _, trigger := range extractNestedReadToolPaths(r.toolReadCacheRoot, toolName, result, persistedPath) {
 		normalized, ok := r.normalizeTrigger(state.BuildCtx, trigger)
 		if ok {
 			state.PendingTriggers[normalized] = struct{}{}
@@ -311,33 +326,65 @@ func cloneNestedBuildCtx(buildCtx contract.BuildCtx) contract.BuildCtx {
 	}
 }
 
-func extractNestedReadToolPaths(toolName, preview, persistedPath string) []string {
+func extractNestedReadToolPaths(cacheRoot, toolName, preview, persistedPath string) []string {
 	if !isNestedReadTool(toolName) {
 		return nil
 	}
-	raw := strings.TrimSpace(preview)
-	if path := strings.TrimSpace(persistedPath); path != "" {
-		// P22 P2 Finding 10: this os.ReadFile runs on the nestedIngestWorker
-		// goroutine (via AddToolReadResult), not on the bus callback path.
-		if content, err := os.ReadFile(path); err == nil && strings.TrimSpace(string(content)) != "" {
-			raw = string(content)
-		}
-	}
+	raw := nestedReadToolRaw(cacheRoot, preview, persistedPath)
 	if strings.TrimSpace(raw) == "" {
 		return nil
 	}
+	return nestedReadToolContentPaths(raw)
+}
+
+func nestedReadToolRaw(cacheRoot, preview, persistedPath string) string {
+	if content, ok := readNestedPersistedToolOutput(cacheRoot, persistedPath); ok {
+		return content
+	}
+	return strings.TrimSpace(preview)
+}
+
+// readNestedPersistedToolOutput reads a persisted ToolCallEnd payload via
+// shared.SafeReadEntrypoint so the read is contained against the tool-result
+// cache root threaded in by SetToolReadCacheRoot at module init. P22 P2
+// Finding 10 still applies: this read runs on the nestedIngestWorker
+// goroutine, not on the bus callback path. P24 cache-root-threading: an
+// empty cacheRoot disables persisted-output reads outright (caller falls
+// back to the in-memory preview); SafeReadEntrypoint also rejects any
+// persistedPath that resolves outside cacheRoot, so a forged
+// `/etc/passwd`-style PersistedPath on ToolCallEnd cannot trick the worker
+// into reading from the CWD or above. See
+// docs/plans/迁移/p24记忆优化/p24记忆优化.md.
+func readNestedPersistedToolOutput(cacheRoot, persistedPath string) (string, bool) {
+	root := strings.TrimSpace(cacheRoot)
+	path := strings.TrimSpace(persistedPath)
+	if root == "" || path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return "", false
+	}
+	content, _, err := shared.SafeReadEntrypoint(root, path)
+	if err != nil {
+		return "", false
+	}
+	raw := string(content)
+	return raw, strings.TrimSpace(raw) != ""
+}
+
+func nestedReadToolContentPaths(raw string) []string {
 	paths := make(map[string]struct{}, 4)
 	for line := range strings.SplitSeq(strings.ReplaceAll(raw, "\r\n", "\n"), "\n") {
-		trimmed := strings.TrimSpace(line)
-		if !strings.HasPrefix(trimmed, "Contents of ") || !strings.HasSuffix(trimmed, ":") {
-			continue
-		}
-		path := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "Contents of "), ":"))
-		if path != "" {
+		if path := nestedReadToolContentPath(line); path != "" {
 			paths[path] = struct{}{}
 		}
 	}
 	return sortedNestedKeys(paths)
+}
+
+func nestedReadToolContentPath(line string) string {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "Contents of ") || !strings.HasSuffix(trimmed, ":") {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "Contents of "), ":"))
 }
 
 func isNestedReadTool(toolName string) bool {
