@@ -45,6 +45,7 @@ type ReplaceEdit struct {
 
 type EditHandler struct {
 	registry lspmanager.Registry
+	root     string
 }
 
 type editEnvelope struct {
@@ -64,6 +65,10 @@ type editEnvelope struct {
 
 func NewEditHandler(registry lspmanager.Registry) middleware.Handler {
 	return wrapToolHandler("lsp_edit", middleware.TierNormal, EditHandler{registry: registry}.Handle)
+}
+
+func NewEditHandlerWithRoot(root string, registry lspmanager.Registry) middleware.Handler {
+	return wrapToolHandler("lsp_edit", middleware.TierNormal, EditHandler{registry: registry, root: resolveRoot(root)}.Handle)
 }
 
 func HandleEdit(ctx context.Context, registry lspmanager.Registry, params json.RawMessage) (any, error) {
@@ -95,14 +100,7 @@ func (h EditHandler) Handle(ctx context.Context, params json.RawMessage) (any, e
 }
 
 func (h EditHandler) handleRename(ctx context.Context, req EditRequest) (any, error) {
-	if strings.TrimSpace(req.NewName) == "" {
-		return nil, errors.New("new_name is required for rename")
-	}
-	path, position, err := resolveFilePositionRequest(filePositionParams{
-		FilePath: req.FilePath,
-		Line:     req.Line,
-		Column:   req.Column,
-	})
+	path, position, err := h.resolveRenameRequest(req)
 	if err != nil {
 		return nil, err
 	}
@@ -127,6 +125,9 @@ func (h EditHandler) handleRename(ctx context.Context, req EditRequest) (any, er
 		}, nil
 	}
 	if !persistToDisk(req.PersistToDisk) {
+		if err := validateWorkspaceEditPaths(h.root, workspaceEdit); err != nil {
+			return nil, err
+		}
 		return editEnvelope{
 			Success:              true,
 			Action:               "rename",
@@ -162,12 +163,35 @@ func (h EditHandler) handleRename(ctx context.Context, req EditRequest) (any, er
 	}, nil
 }
 
+func (h EditHandler) resolveRenameRequest(req EditRequest) (string, protocol.Position, error) {
+	if strings.TrimSpace(req.NewName) == "" {
+		return "", protocol.Position{}, errors.New("new_name is required for rename")
+	}
+	path, err := resolveWorkspacePath(h.root, req.FilePath)
+	if err != nil {
+		return "", protocol.Position{}, err
+	}
+	position, err := requirePosition(req.Line, req.Column)
+	if err != nil {
+		return "", protocol.Position{}, err
+	}
+	return path, position, nil
+}
+
+func (h EditHandler) resolveFilePositionRequest(req EditRequest) (string, protocol.Position, error) {
+	path, err := resolveWorkspacePath(h.root, req.FilePath)
+	if err != nil {
+		return "", protocol.Position{}, err
+	}
+	position, err := requirePosition(req.Line, req.Column)
+	if err != nil {
+		return "", protocol.Position{}, err
+	}
+	return path, position, nil
+}
+
 func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any, error) {
-	path, position, err := resolveFilePositionRequest(filePositionParams{
-		FilePath: req.FilePath,
-		Line:     req.Line,
-		Column:   req.Column,
-	})
+	path, position, err := h.resolveFilePositionRequest(req)
 	if err != nil {
 		return nil, err
 	}
@@ -179,11 +203,14 @@ func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any
 	if err != nil {
 		return nil, err
 	}
+	if err := validateCodeActionWorkspaceEditPaths(h.root, actions); err != nil {
+		return nil, err
+	}
 	return format.CodeActionResults(actions), nil
 }
 
 func (h EditHandler) handleFormat(ctx context.Context, req EditRequest) (any, error) {
-	path, err := resolveFilePath(req.FilePath)
+	path, err := resolveWorkspacePath(h.root, req.FilePath)
 	if err != nil {
 		return nil, err
 	}

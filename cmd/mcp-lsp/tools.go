@@ -55,7 +55,7 @@ func newToolHandlers(m *Manager) (ToolHandlers, error) {
 		"lsp_xref":       ToolHandler(tools.NewXRefHandler(m.registry)),
 		"lsp_grep":       ToolHandler(tools.NewGrepHandler(cfg)),
 		"lsp_structure":  ToolHandler(tools.NewStructureHandler(m.registry)),
-		"lsp_edit":       ToolHandler(tools.NewEditHandler(m.registry)),
+		"lsp_edit":       ToolHandler(tools.NewEditHandlerWithRoot(m.root, m.registry)),
 		"lsp_completion": ToolHandler(tools.NewCompletionHandler(m.registry)),
 		"code_run":       ToolHandler(codeRunH),
 		"code_run_test":  ToolHandler(codeRunTestH),

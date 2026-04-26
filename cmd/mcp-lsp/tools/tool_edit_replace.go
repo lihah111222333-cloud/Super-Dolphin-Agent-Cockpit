@@ -69,7 +69,7 @@ type functionContext struct {
 }
 
 func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (any, error) {
-	path, err := resolveFilePath(req.FilePath)
+	path, err := resolveWorkspacePath(h.root, req.FilePath)
 	if err != nil {
 		return nil, err
 	}
@@ -110,8 +110,8 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 	if manager != nil {
 		lspSync, warning, err = h.syncDocument(ctx, manager, path, updatedContent, normalizeEditVersion(req.Version))
 		if err != nil {
-			_ = os.WriteFile(path, []byte(file.raw), file.mode)
-			return h.replaceFailure(ctx, manager, path, content, plan.functionLookupLine, err), nil
+			rollbackErr := os.WriteFile(path, []byte(file.raw), file.mode)
+			return h.replaceFailure(ctx, manager, path, content, plan.functionLookupLine, withRollbackError(err, rollbackErr)), nil
 		}
 	}
 	functionCtx := h.lookupFunctionContext(ctx, manager, path, plan.functionLookupLine, plan.updatedContent)
@@ -172,7 +172,7 @@ func (h EditHandler) replaceFailure(ctx context.Context, manager lspmanager.Mana
 }
 
 func (h EditHandler) applyWorkspaceEdit(ctx context.Context, manager lspmanager.Manager, workspaceEdit *protocol.WorkspaceEdit, version int) (applyWorkspaceEditResult, error) {
-	originals, updated, err := loadWorkspaceEditUpdates(workspaceEdit)
+	originals, updated, err := loadWorkspaceEditUpdates(h.root, workspaceEdit)
 	if err != nil {
 		return applyWorkspaceEditResult{}, err
 	}
@@ -181,11 +181,11 @@ func (h EditHandler) applyWorkspaceEdit(ctx context.Context, manager lspmanager.
 	}
 	written, err := writeWorkspaceEditFiles(originals, updated)
 	if err != nil {
-		return applyWorkspaceEditResult{}, withRollbackWarning(err, restoreFiles(originals, updated))
+		return applyWorkspaceEditResult{}, withRollbackError(err, restoreFiles(originals, updated))
 	}
 	lspSync, warning, err := h.syncDocuments(ctx, manager, written, version)
 	if err != nil {
-		return applyWorkspaceEditResult{}, withRollbackWarning(err, restoreFiles(originals, updated))
+		return applyWorkspaceEditResult{}, withRollbackError(err, restoreFiles(originals, updated))
 	}
 	return applyWorkspaceEditResult{
 		AppliedCount: len(updated),
@@ -194,8 +194,25 @@ func (h EditHandler) applyWorkspaceEdit(ctx context.Context, manager lspmanager.
 	}, nil
 }
 
-func loadWorkspaceEditUpdates(workspaceEdit *protocol.WorkspaceEdit) (map[string]editableFile, map[string]string, error) {
-	files, err := collectWorkspaceEdits(workspaceEdit)
+func validateWorkspaceEditPaths(root string, workspaceEdit *protocol.WorkspaceEdit) error {
+	_, err := collectWorkspaceEdits(root, workspaceEdit)
+	return err
+}
+
+func validateCodeActionWorkspaceEditPaths(root string, actions []protocol.CodeActionResult) error {
+	for _, result := range actions {
+		if result.CodeAction == nil || result.CodeAction.Edit == nil {
+			continue
+		}
+		if err := validateWorkspaceEditPaths(root, result.CodeAction.Edit); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func loadWorkspaceEditUpdates(root string, workspaceEdit *protocol.WorkspaceEdit) (map[string]editableFile, map[string]string, error) {
+	files, err := collectWorkspaceEdits(root, workspaceEdit)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -267,14 +284,14 @@ func (h EditHandler) syncDocument(ctx context.Context, manager lspmanager.Manage
 	return true, "", nil
 }
 
-func withRollbackWarning(err error, rollbackErr error) error {
+func withRollbackError(err error, rollbackErr error) error {
 	if err == nil {
 		return rollbackErr
 	}
 	if rollbackErr == nil {
 		return err
 	}
-	return fmt.Errorf("%w; rollback warning: %v", err, rollbackErr)
+	return fmt.Errorf("%w; rollback failed: %v", err, rollbackErr)
 }
 
 func (h EditHandler) lookupFunctionContext(ctx context.Context, manager lspmanager.Manager, path string, line int, content string) functionContext {
