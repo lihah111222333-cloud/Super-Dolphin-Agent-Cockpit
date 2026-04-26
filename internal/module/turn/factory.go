@@ -63,7 +63,7 @@ func buildPrepareInput(spec prepareInputSpec, skills prepareSkillSpec, session p
 		Prompt:                       spec.Prompt,
 		Images:                       append([]string(nil), spec.Images...),
 		Files:                        append([]string(nil), spec.Files...),
-		Skills:                       normalizeSkillNames(skills.Selected, skills.Derived),
+		Skills:                       normalizePrepareSkillRefs(skills, spec.ManualSkillSelection),
 		CandidateSkills:              cloneSkillRefs(spec.CandidateSkills),
 		ManualSkillSelection:         spec.ManualSkillSelection,
 		Provider:                     strings.TrimSpace(spec.Provider),
@@ -400,16 +400,37 @@ func buildInterruptResult(status TurnStatus, envelope turnInterruptEnvelope) tur
 	return result
 }
 
+func normalizePrepareSkillRefs(skills prepareSkillSpec, manualSkillSelection bool) []dto.SkillRef {
+	selectedSource := dto.SkillSourceUnspecified
+	if manualSkillSelection {
+		selectedSource = dto.SkillSourceManual
+	}
+	return normalizeSkillRefs(
+		normalizeSkillNamesWithSource(selectedSource, skills.Selected),
+		normalizeSkillNamesWithSource(dto.SkillSourceUnspecified, skills.Derived),
+	)
+}
+
 func normalizeSkillNames(groups ...[]string) []dto.SkillRef {
 	refGroups := make([][]dto.SkillRef, 0, len(groups))
 	for _, names := range groups {
-		refs := make([]dto.SkillRef, 0, len(names))
-		for _, raw := range names {
-			refs = append(refs, dto.SkillRef{Name: raw})
-		}
-		refGroups = append(refGroups, refs)
+		refGroups = append(refGroups, normalizeSkillNamesWithSource(dto.SkillSourceUnspecified, names))
 	}
 	return normalizeSkillRefs(refGroups...)
+}
+
+func normalizeSkillNamesWithSource(source dto.SkillSource, names []string) []dto.SkillRef {
+	refs := make([]dto.SkillRef, 0, len(names))
+	for _, raw := range names {
+		// 保留 Mode=Unspecified 作为 provider-aware default marker：codexapp
+		// 在 adapter 层切 Summary，legacy provider 继续通过 Effective() 得到 Full。
+		ref := dto.SkillRef{Name: raw}
+		if source != dto.SkillSourceUnspecified {
+			ref.Source = source
+		}
+		refs = append(refs, ref)
+	}
+	return refs
 }
 
 func decodeLegacyTurnParams[T any, L any](

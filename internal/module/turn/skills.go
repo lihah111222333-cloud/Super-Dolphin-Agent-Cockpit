@@ -12,6 +12,17 @@ import (
 
 type skillResolver struct{}
 
+// DefaultSkillMode returns the legacy provider-neutral effective default.
+//
+// Phase 1.5 intentionally keeps newly selected / hydrated SkillRef values at
+// Mode=Unspecified so provider adapters can apply their own defaults: codexapp
+// turns that marker into Summary, while legacy consumers still get Full through
+// SkillMode.Effective(). Future Phase 3 can move this chokepoint earlier once
+// Summary is the cross-provider default.
+func DefaultSkillMode() dto.SkillMode {
+	return dto.SkillModeFull
+}
+
 func (r *skillResolver) Resolve(selected []dto.SkillRef, candidates []dto.SkillRef, prompt string) []dto.SkillRef {
 	explicit := normalizeSkillRefs(selected)
 	autoCandidates := normalizeSkillRefs(candidates)
@@ -187,7 +198,7 @@ func matchesSkillPrompt(prompt string, skillName string) bool {
 //
 // p20.17 §7：`ErrMissingCWD`（契约违反）必须 fail-fast 传回，由 PrepareTurn
 // 失败暴露；其他 scan 失败仍保持容忍（原 p20.2 行为），不阻断 turn 启动。
-func (s *service) hydrateSkillRefs(ctx context.Context, refs []dto.SkillRef) ([]dto.SkillRef, error) {
+func (s *service) hydrateSkillRefs(ctx context.Context, refs []dto.SkillRef, manualSkillSelection bool) ([]dto.SkillRef, error) {
 	if s == nil || s.skillLookup == nil || len(refs) == 0 {
 		return refs, nil
 	}
@@ -204,9 +215,10 @@ func (s *service) hydrateSkillRefs(ctx context.Context, refs []dto.SkillRef) ([]
 	if len(index) == 0 {
 		return refs, nil
 	}
+	policy := skillHydrationPolicy{ManualSkillSelection: manualSkillSelection}
 	out := make([]dto.SkillRef, 0, len(refs))
 	for _, ref := range refs {
-		out = append(out, s.applyHydration(scopedCtx, ref, index))
+		out = append(out, s.applyHydration(scopedCtx, ref, index, policy))
 	}
 	return out, nil
 }
@@ -258,32 +270,56 @@ func skillInfoIndex(infos []skillpkg.SkillInfo) map[string]skillpkg.SkillInfo {
 	return index
 }
 
+type skillHydrationPolicy struct {
+	ManualSkillSelection bool
+}
+
+func (p skillHydrationPolicy) allowUntrustedMetadata(ref dto.SkillRef) bool {
+	return p.ManualSkillSelection && ref.Source == dto.SkillSourceManual
+}
+
+func allowHydratedSummary(info skillpkg.SkillInfo, ref dto.SkillRef, policy skillHydrationPolicy) bool {
+	if info.Trust.Trusted() {
+		return true
+	}
+	return policy.allowUntrustedMetadata(ref)
+}
+
+func allowHydratedPrompt(info skillpkg.SkillInfo) bool {
+	return info.Trust.Trusted()
+}
+
 // applyHydration 对单个 SkillRef 执行字段补全。未命中 lookup 的 ref 原样
 // 返回；命中后按以下优先级填充空字段，旧值不覆写：
-//   - Summary 空 + SkillInfo.Summary 非空 → 拷回
 //   - Version 空 + SkillInfo.ContentHash 非空 → 前 12 位 hex
-//   - Prompt 空 → 试读 `<dir>/SKILL.md`，失败保留空串
-//   - Source == Unspecified → SkillSourceManual
-func (s *service) applyHydration(ctx context.Context, ref dto.SkillRef, index map[string]skillpkg.SkillInfo) dto.SkillRef {
+//   - trusted 或真实手选授权的 untrusted：Summary 空 + SkillInfo.Summary 非空 → 拷回
+//   - trusted：Prompt 空 → 试读 `<dir>/SKILL.md`，失败保留空串
+//
+// PR-4 安全不变量：untrusted project/unknown skill 的作者 summary 只有在
+// ManualSkillSelection=true 且 ref.Source=manual 时才允许 hydrate。legacy
+// Source=Unspecified、trigger、force 等来源不得因为 name-only hydration 看到 summary。
+// untrusted full body 不在 selected hydration 中注入；必须继续走 skill_expand_body + approval。
+func (s *service) applyHydration(ctx context.Context, ref dto.SkillRef, index map[string]skillpkg.SkillInfo, policy skillHydrationPolicy) dto.SkillRef {
 	name := strings.ToLower(strings.TrimSpace(ref.Name))
 	info, ok := index[name]
 	if !ok {
 		return ref
 	}
-	if strings.TrimSpace(ref.Summary) == "" && strings.TrimSpace(info.Summary) != "" {
-		ref.Summary = info.Summary
-	}
 	if strings.TrimSpace(ref.Version) == "" && info.ContentHash != "" {
 		ref.Version = shortSkillHash(info.ContentHash)
 	}
-	if strings.TrimSpace(ref.Prompt) == "" {
+	if allowHydratedSummary(info, ref, policy) && strings.TrimSpace(ref.Summary) == "" && strings.TrimSpace(info.Summary) != "" {
+		ref.Summary = info.Summary
+	}
+	if allowHydratedPrompt(info) && strings.TrimSpace(ref.Prompt) == "" {
 		if body := s.readSkillBody(ctx, info.Dir); body != "" {
 			ref.Prompt = body
 		}
 	}
-	if ref.Source == dto.SkillSourceUnspecified {
-		ref.Source = dto.SkillSourceManual
-	}
+	// Mode intentionally stays untouched. Mode=Unspecified is the provider-neutral
+	// default marker: codexapp maps it to Summary in its adapter, while legacy
+	// consumers still resolve it as Full via SkillMode.Effective(). Source is also
+	// preserved: callers must set Source=manual explicitly for real manual selection.
 	return ref
 }
 
