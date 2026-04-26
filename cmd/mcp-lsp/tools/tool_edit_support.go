@@ -12,6 +12,7 @@ import (
 	editpkg "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/edit"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type lineEndingStyle string
@@ -61,20 +62,20 @@ func resolveMatchMode(content string, hunk editpkg.Hunk, fallback string) string
 	return string(mode)
 }
 
-func collectWorkspaceEdits(workspaceEdit *protocol.WorkspaceEdit) (map[string][]protocol.TextEdit, error) {
+func collectWorkspaceEdits(root string, workspaceEdit *protocol.WorkspaceEdit) (map[string][]protocol.TextEdit, error) {
 	byFile := make(map[string][]protocol.TextEdit)
 	if workspaceEdit == nil {
 		return byFile, nil
 	}
 	for uri, edits := range workspaceEdit.Changes {
-		path, err := resolveWorkspacePath(uri)
+		path, err := resolveWorkspacePath(root, uri)
 		if err != nil {
 			return nil, err
 		}
 		byFile[path] = append(byFile[path], edits...)
 	}
 	for _, doc := range workspaceEdit.DocumentChanges {
-		path, err := resolveWorkspacePath(doc.TextDocument.URI)
+		path, err := resolveWorkspacePath(root, doc.TextDocument.URI)
 		if err != nil {
 			return nil, err
 		}
@@ -160,14 +161,34 @@ func runeOffset(line string, character int) (int, error) {
 }
 
 func resolveFilePath(path string) (string, error) {
-	filePath, err := requireFilePath(path)
+	return resolveWorkspacePath("", path)
+}
+
+func resolveWorkspacePath(root string, uri string) (string, error) {
+	filePath, err := requireFilePath(uri)
 	if err != nil {
 		return "", err
 	}
-	if strings.HasPrefix(filePath, "file://") {
-		return format.AbsolutePathFromURI(filePath)
+	if strings.HasPrefix(strings.TrimSpace(filePath), "file://") {
+		resolved, err := format.AbsolutePathFromURI(filePath)
+		if err != nil {
+			return "", err
+		}
+		filePath = resolved
 	}
-	absPath, err := filepath.Abs(filePath)
+	return resolveWorkspaceEditPath(root, filePath)
+}
+
+func resolveWorkspaceEditPath(root string, filePath string) (string, error) {
+	trimmed := strings.TrimSpace(filePath)
+	if trimmed == "" {
+		return "", errors.New("file_path is required")
+	}
+	candidate := trimmed
+	if root != "" && !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(root, candidate)
+	}
+	absPath, err := filepath.Abs(candidate)
 	if err != nil {
 		return "", fmt.Errorf("resolve absolute path: %w", err)
 	}
@@ -175,14 +196,21 @@ func resolveFilePath(path string) (string, error) {
 	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
 		cleaned = filepath.Clean(resolved)
 	}
-	return cleaned, nil
-}
-
-func resolveWorkspacePath(uri string) (string, error) {
-	if strings.HasPrefix(strings.TrimSpace(uri), "file://") {
-		return format.AbsolutePathFromURI(uri)
+	if root == "" {
+		return cleaned, nil
 	}
-	return resolveFilePath(uri)
+	rootPath, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve workspace root: %w", err)
+	}
+	rootPath = filepath.Clean(rootPath)
+	if resolved, err := filepath.EvalSymlinks(rootPath); err == nil {
+		rootPath = filepath.Clean(resolved)
+	}
+	if !platformshared.ContainsPath(rootPath, cleaned) {
+		return "", fmt.Errorf("path %q is outside workspace root %q", cleaned, rootPath)
+	}
+	return cleaned, nil
 }
 
 func readFileWithMode(path string) (editableFile, error) {

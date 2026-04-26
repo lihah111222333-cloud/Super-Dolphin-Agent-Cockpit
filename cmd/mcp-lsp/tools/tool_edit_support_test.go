@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -170,5 +171,378 @@ func TestReplaceRangeAppliesUnsupportedTextFilesWithoutLSPManager(t *testing.T) 
 				t.Fatalf("updated content mismatch:\nwant %q\ngot  %q", tt.want, string(raw))
 			}
 		})
+	}
+}
+
+func TestRenameRejectsPathOutsideWorkspaceRootBeforeLSPRequest(t *testing.T) {
+	root := t.TempDir()
+	outsideDir := t.TempDir()
+	outside := filepath.Join(outsideDir, "outside.go")
+	if err := os.WriteFile(outside, []byte("package main\n\nvar oldName = 1\n"), 0o600); err != nil {
+		t.Fatalf("write outside fixture: %v", err)
+	}
+	registry := &structureTestRegistry{fileManager: &structureTestManager{}}
+	handler := NewEditHandlerWithRoot(root, registry)
+	input, err := json.Marshal(EditRequest{
+		Action:   "rename",
+		FilePath: outside,
+		Line:     3,
+		Column:   5,
+		NewName:  "newName",
+	})
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+
+	_, err = handler(context.Background(), input)
+	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
+		t.Fatalf("rename error = %v, want outside workspace root", err)
+	}
+	if registry.gotFilePath != "" {
+		t.Fatalf("GetManagerForFile called with %q; want no LSP request for outside root", registry.gotFilePath)
+	}
+}
+
+func TestReplaceRangeRejectsPathOutsideWorkspaceRoot(t *testing.T) {
+	root := t.TempDir()
+	outsideDir := t.TempDir()
+	outside := filepath.Join(outsideDir, "outside.txt")
+	if err := os.WriteFile(outside, []byte("old\n"), 0o600); err != nil {
+		t.Fatalf("write outside fixture: %v", err)
+	}
+	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
+	input, err := json.Marshal(EditRequest{
+		Action:   "replace_range",
+		FilePath: outside,
+		Edits:    []ReplaceEdit{{OldString: "old", NewString: "new"}},
+	})
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+
+	_, err = handler(context.Background(), input)
+	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
+		t.Fatalf("replace_range error = %v, want outside workspace root", err)
+	}
+	raw, readErr := os.ReadFile(outside)
+	if readErr != nil {
+		t.Fatalf("read outside fixture: %v", readErr)
+	}
+	if string(raw) != "old\n" {
+		t.Fatalf("outside file was modified: %q", raw)
+	}
+}
+
+func TestReplaceRangeRejectsSymlinkEscapingWorkspaceRoot(t *testing.T) {
+	root := t.TempDir()
+	outsideDir := t.TempDir()
+	outside := filepath.Join(outsideDir, "target.txt")
+	if err := os.WriteFile(outside, []byte("old\n"), 0o600); err != nil {
+		t.Fatalf("write outside fixture: %v", err)
+	}
+	link := filepath.Join(root, "link.txt")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
+	input, err := json.Marshal(EditRequest{
+		Action:   "replace_range",
+		FilePath: link,
+		Edits:    []ReplaceEdit{{OldString: "old", NewString: "new"}},
+	})
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+
+	_, err = handler(context.Background(), input)
+	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
+		t.Fatalf("replace_range error = %v, want outside workspace root", err)
+	}
+	raw, readErr := os.ReadFile(outside)
+	if readErr != nil {
+		t.Fatalf("read outside fixture: %v", readErr)
+	}
+	if string(raw) != "old\n" {
+		t.Fatalf("outside symlink target was modified: %q", raw)
+	}
+}
+
+func TestWorkspaceEditRejectsPathOutsideWorkspaceRoot(t *testing.T) {
+	root := t.TempDir()
+	outsideDir := t.TempDir()
+	outside := filepath.Join(outsideDir, "outside.txt")
+	if err := os.WriteFile(outside, []byte("old\n"), 0o600); err != nil {
+		t.Fatalf("write outside fixture: %v", err)
+	}
+	edit := &protocol.WorkspaceEdit{Changes: map[string][]protocol.TextEdit{
+		fileURI(outside): {{
+			Range: protocol.Range{
+				Start: protocol.Position{Line: 0, Character: 0},
+				End:   protocol.Position{Line: 0, Character: 3},
+			},
+			NewText: "new",
+		}},
+	}}
+
+	_, _, err := loadWorkspaceEditUpdates(root, edit)
+	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
+		t.Fatalf("load workspace edit error = %v, want outside workspace root", err)
+	}
+}
+
+func TestWorkspaceEditRejectsSymlinkEscapingWorkspaceRoot(t *testing.T) {
+	root := t.TempDir()
+	outsideDir := t.TempDir()
+	outside := filepath.Join(outsideDir, "target.txt")
+	if err := os.WriteFile(outside, []byte("old\n"), 0o600); err != nil {
+		t.Fatalf("write outside fixture: %v", err)
+	}
+	link := filepath.Join(root, "link.txt")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	edit := &protocol.WorkspaceEdit{Changes: map[string][]protocol.TextEdit{
+		fileURI(link): {{
+			Range: protocol.Range{
+				Start: protocol.Position{Line: 0, Character: 0},
+				End:   protocol.Position{Line: 0, Character: 3},
+			},
+			NewText: "new",
+		}},
+	}}
+
+	_, _, err := loadWorkspaceEditUpdates(root, edit)
+	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
+		t.Fatalf("load workspace edit error = %v, want outside workspace root", err)
+	}
+	raw, readErr := os.ReadFile(outside)
+	if readErr != nil {
+		t.Fatalf("read outside fixture: %v", readErr)
+	}
+	if string(raw) != "old\n" {
+		t.Fatalf("outside symlink target was modified: %q", raw)
+	}
+}
+
+type editFailureManager struct {
+	structureTestManager
+	didChangeErr  error
+	didChangeHook func(uri string)
+}
+
+func (m *editFailureManager) DidChange(_ context.Context, uri string, _ int, _ []protocol.TextDocumentContentChangeEvent) error {
+	if m.didChangeHook != nil {
+		m.didChangeHook(uri)
+	}
+	return m.didChangeErr
+}
+
+func TestReplaceRangeSyncFailureReportsRollbackFailure(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "sample.go")
+	if err := os.WriteFile(path, []byte("package main\n\nfunc f() { old() }\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	manager := &editFailureManager{
+		didChangeErr: errors.New("lsp sync boom"),
+		didChangeHook: func(uri string) {
+			if err := os.Remove(uri); err != nil {
+				t.Fatalf("remove updated file before rollback: %v", err)
+			}
+			if err := os.Mkdir(uri, 0o700); err != nil {
+				t.Fatalf("replace file with directory before rollback: %v", err)
+			}
+		},
+	}
+	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileManager: manager})
+	input, err := json.Marshal(EditRequest{
+		Action:    "replace_range",
+		FilePath:  path,
+		Line:      3,
+		Column:    12,
+		EndLine:   3,
+		EndColumn: 17,
+		NewText:   "new()",
+	})
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+
+	got, err := handler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("replace_range returned transport error: %v", err)
+	}
+	result, ok := got.(replaceRangeFailure)
+	if !ok {
+		t.Fatalf("result type = %T, want replaceRangeFailure", got)
+	}
+	if result.Success {
+		t.Fatalf("Success = true, want false")
+	}
+	if !strings.Contains(result.Error, "lsp sync boom") || !strings.Contains(result.Error, "rollback failed") {
+		t.Fatalf("error = %q, want sync and rollback failure details", result.Error)
+	}
+}
+
+func TestApplyWorkspaceEditSyncFailureReportsRollbackFailure(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "sample.go")
+	if err := os.WriteFile(path, []byte("old\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	manager := &editFailureManager{
+		didChangeErr: errors.New("lsp sync boom"),
+		didChangeHook: func(uri string) {
+			if err := os.Remove(uri); err != nil {
+				t.Fatalf("remove updated file before rollback: %v", err)
+			}
+			if err := os.Mkdir(uri, 0o700); err != nil {
+				t.Fatalf("replace file with directory before rollback: %v", err)
+			}
+		},
+	}
+	edit := &protocol.WorkspaceEdit{Changes: map[string][]protocol.TextEdit{
+		fileURI(path): {{
+			Range: protocol.Range{
+				Start: protocol.Position{Line: 0, Character: 0},
+				End:   protocol.Position{Line: 0, Character: 3},
+			},
+			NewText: "new",
+		}},
+	}}
+
+	_, err := (EditHandler{root: root}).applyWorkspaceEdit(context.Background(), manager, edit, defaultEditVersion)
+	if err == nil {
+		t.Fatalf("applyWorkspaceEdit error = nil, want sync/rollback failure")
+	}
+	if !strings.Contains(err.Error(), "lsp sync boom") || !strings.Contains(err.Error(), "rollback failed") {
+		t.Fatalf("error = %q, want sync and rollback failure details", err.Error())
+	}
+}
+
+type editRootBoundaryManager struct {
+	structureTestManager
+	renameEdit  *protocol.WorkspaceEdit
+	codeActions []protocol.CodeActionResult
+	formatEdits []protocol.TextEdit
+}
+
+func (m *editRootBoundaryManager) Rename(context.Context, string, protocol.Position, string) (*protocol.WorkspaceEdit, error) {
+	return m.renameEdit, nil
+}
+
+func (m *editRootBoundaryManager) CodeAction(context.Context, string, protocol.Range, []string) ([]protocol.CodeActionResult, error) {
+	return m.codeActions, nil
+}
+
+func (m *editRootBoundaryManager) Format(context.Context, string, protocol.FormattingOptions) ([]protocol.TextEdit, error) {
+	return m.formatEdits, nil
+}
+
+func TestCodeActionRejectsPathOutsideWorkspaceRootBeforeLSPRequest(t *testing.T) {
+	root := t.TempDir()
+	outsideDir := t.TempDir()
+	outside := filepath.Join(outsideDir, "outside.go")
+	if err := os.WriteFile(outside, []byte("package main\n"), 0o600); err != nil {
+		t.Fatalf("write outside fixture: %v", err)
+	}
+	registry := &structureTestRegistry{fileManager: &structureTestManager{}}
+	handler := NewEditHandlerWithRoot(root, registry)
+	input, err := json.Marshal(EditRequest{Action: "code_action", FilePath: outside, Line: 1, Column: 1})
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+
+	_, err = handler(context.Background(), input)
+	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
+		t.Fatalf("code_action error = %v, want outside workspace root", err)
+	}
+	if registry.gotFilePath != "" {
+		t.Fatalf("GetManagerForFile called with %q; want no LSP request for outside root", registry.gotFilePath)
+	}
+}
+
+func TestFormatRejectsPathOutsideWorkspaceRootBeforeLSPRequest(t *testing.T) {
+	root := t.TempDir()
+	outsideDir := t.TempDir()
+	outside := filepath.Join(outsideDir, "outside.go")
+	if err := os.WriteFile(outside, []byte("package main\n"), 0o600); err != nil {
+		t.Fatalf("write outside fixture: %v", err)
+	}
+	registry := &structureTestRegistry{fileManager: &structureTestManager{}}
+	handler := NewEditHandlerWithRoot(root, registry)
+	input, err := json.Marshal(EditRequest{Action: "format", FilePath: outside})
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+
+	_, err = handler(context.Background(), input)
+	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
+		t.Fatalf("format error = %v, want outside workspace root", err)
+	}
+	if registry.gotFilePath != "" {
+		t.Fatalf("GetManagerForFile called with %q; want no LSP request for outside root", registry.gotFilePath)
+	}
+}
+
+func TestPreparedRenameRejectsWorkspaceEditOutsideWorkspaceRoot(t *testing.T) {
+	root := t.TempDir()
+	inside := filepath.Join(root, "inside.go")
+	if err := os.WriteFile(inside, []byte("package main\n\nvar oldName = 1\n"), 0o600); err != nil {
+		t.Fatalf("write inside fixture: %v", err)
+	}
+	outsideDir := t.TempDir()
+	outside := filepath.Join(outsideDir, "outside.go")
+	if err := os.WriteFile(outside, []byte("package main\n"), 0o600); err != nil {
+		t.Fatalf("write outside fixture: %v", err)
+	}
+	persist := false
+	manager := &editRootBoundaryManager{renameEdit: &protocol.WorkspaceEdit{Changes: map[string][]protocol.TextEdit{
+		fileURI(outside): {{
+			Range:   protocol.Range{Start: protocol.Position{Line: 0, Character: 0}, End: protocol.Position{Line: 0, Character: 0}},
+			NewText: "// unsafe\n",
+		}},
+	}}}
+	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileManager: manager})
+	input, err := json.Marshal(EditRequest{Action: "rename", FilePath: inside, Line: 3, Column: 5, NewName: "newName", PersistToDisk: &persist})
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+
+	_, err = handler(context.Background(), input)
+	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
+		t.Fatalf("prepared rename error = %v, want outside workspace root", err)
+	}
+}
+
+func TestCodeActionRejectsReturnedWorkspaceEditOutsideWorkspaceRoot(t *testing.T) {
+	root := t.TempDir()
+	inside := filepath.Join(root, "inside.go")
+	if err := os.WriteFile(inside, []byte("package main\n"), 0o600); err != nil {
+		t.Fatalf("write inside fixture: %v", err)
+	}
+	outsideDir := t.TempDir()
+	outside := filepath.Join(outsideDir, "outside.go")
+	if err := os.WriteFile(outside, []byte("package main\n"), 0o600); err != nil {
+		t.Fatalf("write outside fixture: %v", err)
+	}
+	manager := &editRootBoundaryManager{codeActions: []protocol.CodeActionResult{{CodeAction: &protocol.CodeAction{
+		Title: "unsafe",
+		Edit: &protocol.WorkspaceEdit{Changes: map[string][]protocol.TextEdit{
+			fileURI(outside): {{
+				Range:   protocol.Range{Start: protocol.Position{Line: 0, Character: 0}, End: protocol.Position{Line: 0, Character: 0}},
+				NewText: "// unsafe\n",
+			}},
+		}},
+	}}}}
+	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileManager: manager})
+	input, err := json.Marshal(EditRequest{Action: "code_action", FilePath: inside, Line: 1, Column: 1})
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+
+	_, err = handler(context.Background(), input)
+	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
+		t.Fatalf("code_action returned edit error = %v, want outside workspace root", err)
 	}
 }
