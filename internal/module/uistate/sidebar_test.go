@@ -343,12 +343,18 @@ func TestGetSidebarProjectsDBArchivedStatusIntoArchivesMap(t *testing.T) {
 	}
 }
 
-func TestProjectArchivedThreadStatusDropsStalePreferenceWhenDBIsNotArchived(t *testing.T) {
+// HEAD~1 regression rollback: union-only projection retains preference
+// when ThreadSummary.State is non-archived. ThreadSummary.State is a
+// union field (DB lifecycle vs runtime), so we cannot safely treat
+// runtime State!="archived" as a signal to drop preference timestamps.
+// A future ThreadSummary.LifecycleStatus split will let unarchive drop
+// stale preference safely.
+func TestProjectArchivedThreadStatusKeepsPreferenceWhenStateIsNotArchived(t *testing.T) {
 	threads := []ThreadSummary{{ID: "t1", State: "created"}}
 	archived := map[string]int64{"t1": 12345}
 	got := projectArchivedThreadStatus(threads, archived)
-	if _, ok := got["t1"]; ok {
-		t.Fatalf("ThreadArchivesChat[t1] = %d, want absent (DB state=created should drop stale archived preference)", got["t1"])
+	if got["t1"] != 12345 {
+		t.Fatalf("ThreadArchivesChat[t1] = %d, want 12345 preserved (union-only projection until LifecycleStatus is split)", got["t1"])
 	}
 }
 
