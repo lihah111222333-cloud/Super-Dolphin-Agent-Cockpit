@@ -1,0 +1,12 @@
+{
+  "agentId": "agent-1",
+  "codexHome": "/Users/test/.codex",
+  "codexInstanceKey": "codex-instance-key-1",
+  "codexModelProvider": "openai",
+  "configOverride": {},
+  "cwd": "/repo",
+  "promptSnapshot": {},
+  "provider": "codex",
+  "providerThreadId": "provider-thread-1",
+  "threadId": "public-thread-1"
+}
