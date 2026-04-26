@@ -131,6 +131,8 @@ describe('thread store actions', () => {
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'ui/preferences/get') {
         if (payload?.key === 'settings.activePromptKey') return '';
+        if (payload?.key === 'settings.provider.claude.model') return '';
+        if (payload?.key === 'settings.provider.claude.effort') return '';
         return 'claude-3.7-sonnet';
       }
       if (method === 'thread/start') return { thread: { id: 'thread-new' } };
@@ -153,6 +155,8 @@ describe('thread store actions', () => {
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'ui/preferences/get') {
         if (payload?.key === 'settings.activePromptKey') return '';
+        if (payload?.key === 'settings.provider.codex.model') return '';
+        if (payload?.key === 'settings.provider.codex.effort') return '';
         return 'codex';
       }
       if (method === 'thread/start') return { thread: { id: 'thread-task' } };
@@ -186,6 +190,8 @@ describe('thread store actions', () => {
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'ui/preferences/get') {
         if (payload?.key === 'settings.activePromptKey') return '';
+        if (payload?.key === 'settings.provider.codex.model') return '';
+        if (payload?.key === 'settings.provider.codex.effort') return '';
         return 'codex';
       }
       if (method === 'thread/start') return { thread: { id: 'thread-seeded' } };
@@ -223,6 +229,8 @@ describe('thread store actions', () => {
       if (method === 'ui/preferences/get') {
         prefCalls.push(payload);
         if (payload?.key === 'settings.activePromptKey') return 'main/launch-fav';
+        if (payload?.key === 'settings.provider.codex.model') return '';
+        if (payload?.key === 'settings.provider.codex.effort') return '';
         return 'codex';
       }
       if (method === 'thread/start') return { thread: { id: 'thread-pinned' } };
@@ -247,6 +255,8 @@ describe('thread store actions', () => {
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'ui/preferences/get') {
         if (payload?.key === 'settings.activePromptKey') return 'main/should-be-ignored';
+        if (payload?.key === 'settings.provider.codex.model') return '';
+        if (payload?.key === 'settings.provider.codex.effort') return '';
         return 'codex';
       }
       if (method === 'thread/start') return { thread: { id: 'thread-pinned-explicit' } };
@@ -274,6 +284,8 @@ describe('thread store actions', () => {
           activePromptLookups += 1;
           return 'main/should-be-ignored';
         }
+        if (payload?.key === 'settings.provider.codex.model') return '';
+        if (payload?.key === 'settings.provider.codex.effort') return '';
         return 'codex';
       }
       if (method === 'thread/start') return { thread: { id: 'thread-pinned-by-agent' } };
@@ -299,6 +311,8 @@ describe('thread store actions', () => {
       if (method === 'ui/preferences/get') {
         if (payload?.key === 'settings.classifierEnabled') return true;
         if (payload?.key === 'settings.activePromptKey') return '';
+        if (payload?.key === 'settings.provider.codex.model') return '';
+        if (payload?.key === 'settings.provider.codex.effort') return '';
         return 'codex';
       }
       if (method === 'thread/start') return { thread: { id: 'thread-classified' } };
@@ -364,6 +378,8 @@ describe('thread store actions', () => {
       if (method === 'ui/preferences/get') {
         if (payload?.key === 'settings.classifierEnabled') return false;
         if (payload?.key === 'settings.activePromptKey') return '';
+        if (payload?.key === 'settings.provider.codex.model') return '';
+        if (payload?.key === 'settings.provider.codex.effort') return '';
         return 'codex';
       }
       if (method === 'thread/start') return { thread: { id: 'thread-no-classify' } };
