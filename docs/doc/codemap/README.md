@@ -1,11 +1,7 @@
 # super-agent-v3 代码地图
 
-<<<<<<< Updated upstream
 > 由自动索引脚本维护，当前覆盖 17 卷核心模块。
 > 版本 / 生成时间：2026-04-20。  
-=======
-> 由自动索引脚本维护，当前覆盖 15 卷核心模块。
->>>>>>> Stashed changes
 
 ## 阅读边界提示
 
@@ -17,7 +13,6 @@
 ## 目录
 
 | # | 文件 | 覆盖区域 |
-<<<<<<< Updated upstream
 | 01 | [01-terminal-ui-go.md](01-terminal-ui-go.md) | super-agent-v3 代码地图：终端入口与 UI 层（Go / Wails） |
 | 01 | [01-terminal-ui-vue.md](01-terminal-ui-vue.md) | super-agent-v3 代码地图：终端入口与 UI 层（Vue 前端） |
 | 01 | [01-terminal-ui.md](01-terminal-ui.md) | 终端入口与 UI 层拆卷索引 |
