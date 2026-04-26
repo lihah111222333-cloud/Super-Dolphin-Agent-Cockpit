@@ -490,7 +490,7 @@ func (s *service) persistThreadState(ctx context.Context, state threadState, upd
 		return errors.New("thread and agent ids are required")
 	}
 	if s.logger != nil {
-		s.logger.Warn("thread: persistThreadState binding snapshot",
+		s.logger.Debug("thread: persistThreadState binding snapshot",
 			"agent_id", state.AgentID,
 			"parent_agent_id", state.ParentAgentID,
 			"agent_type", state.AgentType,

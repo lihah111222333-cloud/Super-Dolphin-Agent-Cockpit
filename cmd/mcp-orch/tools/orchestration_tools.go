@@ -65,7 +65,7 @@ func HandleLaunchAgent(svc contract.OrchestrationService) ToolHandler {
 		if err != nil {
 			return nil, err
 		}
-		pkglogger.Warn("orchestration_launch_agent: request config trace",
+		pkglogger.Debug("orchestration_launch_agent: request config trace",
 			"agent_id", req.AgentID,
 			"name", strings.TrimSpace(in.Name),
 			"provider", strings.TrimSpace(in.Provider),

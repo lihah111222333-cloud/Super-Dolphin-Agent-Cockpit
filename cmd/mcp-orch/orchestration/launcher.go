@@ -165,7 +165,7 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 	displayName := managedAgentLaunchDisplayName(req.Name)
 	model := shared.FirstTrimmed(envValue(req.Env, "AGENT_MODEL"), commandFlagValue(launchCommandArgs(req.Command), "--model"))
 	effort := shared.FirstTrimmed(envValue(req.Env, "AGENT_EFFORT"), commandFlagValue(launchCommandArgs(req.Command), "--effort"))
-	pkglogger.Warn("remoteLauncher: thread/start config trace",
+	pkglogger.Debug("remoteLauncher: thread/start config trace",
 		"agent_id", agent.id,
 		"provider", launchProvider(req),
 		"model", model,

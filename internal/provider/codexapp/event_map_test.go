@@ -55,3 +55,56 @@ func TestTranslateCodexEventWarnsOnUnknownRawEvent(t *testing.T) {
 		t.Fatalf("warn output = %q, want raw event type", output)
 	}
 }
+
+func TestTranslateCodexEventSuppressesAccountRateLimitsUpdated(t *testing.T) {
+	var buf bytes.Buffer
+	old := pkglogger.Get()
+	pkglogger.InitWithConsoleWriter(&buf)
+	t.Cleanup(func() { pkglogger.SetForTest(old) })
+
+	translateCodexEvent(dto.RawProviderEvent{
+		EventType: "account/rateLimits/updated",
+		Data:      map[string]any{"foo": "bar"},
+	}, func(any) {
+		t.Fatal("rate limit update should not publish typed event")
+	})
+
+	if output := buf.String(); strings.Contains(output, "unknown raw event") {
+		t.Fatalf("output = %q, want no unknown raw event warning", output)
+	}
+}
+
+func TestTranslateCodexEventMCPStartupStatusOnlyWarnsOnFailures(t *testing.T) {
+	var buf bytes.Buffer
+	old := pkglogger.Get()
+	pkglogger.InitWithConsoleWriter(&buf)
+	t.Cleanup(func() { pkglogger.SetForTest(old) })
+
+	translateCodexEvent(dto.RawProviderEvent{
+		EventType: "mcpServer/startupStatus/updated",
+		Data: map[string]any{
+			"name":   "filesystem",
+			"status": "ready",
+		},
+	}, func(any) {
+		t.Fatal("mcp startup status should not publish typed event")
+	})
+	if output := buf.String(); strings.Contains(output, "mcp server startup status") {
+		t.Fatalf("ready output = %q, want debug-only/no info warning", output)
+	}
+
+	translateCodexEvent(dto.RawProviderEvent{
+		EventType: "mcpServer/startupStatus/updated",
+		Data: map[string]any{
+			"name":   "filesystem",
+			"status": "failed",
+			"error":  "boom",
+		},
+	}, func(any) {
+		t.Fatal("mcp startup status should not publish typed event")
+	})
+	output := buf.String()
+	if !strings.Contains(output, "mcp server startup status") || !strings.Contains(output, "failed") {
+		t.Fatalf("failed output = %q, want warning", output)
+	}
+}

@@ -120,7 +120,7 @@ func logStartRPCReceived(p startParams) {
 		"has_base_instructions", strings.TrimSpace(p.BaseInstructions) != "",
 		"defer_spawn", p.DeferSpawn,
 		"selected_skills_n", len(p.SelectedSkills))
-	pkglogger.Warn("thread/start: config trace",
+	pkglogger.Debug("thread/start: config trace",
 		"agent_id", p.AgentID,
 		"provider", p.Provider,
 		"model_provider", p.ModelProvider,

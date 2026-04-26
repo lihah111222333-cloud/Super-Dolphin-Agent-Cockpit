@@ -278,7 +278,7 @@ func (s *service) startSession(ctx context.Context, req StartRequest, input cont
 		}
 	}
 	config := buildStartSessionConfig(req, input, assembly)
-	pkglogger.Warn("thread/start: provider session config trace",
+	pkglogger.Debug("thread/start: provider session config trace",
 		"agent_id", agentID,
 		"provider", req.Provider,
 		"req_model", req.Model,
