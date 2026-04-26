@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 func TestListSkillsScopesByRequestCWD(t *testing.T) {
@@ -25,8 +23,7 @@ func TestListSkillsScopesByRequestCWD(t *testing.T) {
 	}
 	writeTestSkill(t, filepath.Join(projectA, ".agent", "skills"), "local-a", "# local a")
 	writeTestSkill(t, filepath.Join(projectB, ".agent", "skills"), "local-b", "# local b")
-	writeScopedSystemSkill(t, systemRoot, projectA, "shared", "---\nname: shared\nsummary: from-a\n---\nA")
-	writeScopedSystemSkill(t, systemRoot, projectB, "shared", "---\nname: shared\nsummary: from-b\n---\nB")
+	writeScopedSystemSkill(t, systemRoot, projectA, "shared", "---\nname: shared\nsummary: global\n---\nA")
 
 	svc := &service{
 		root:              systemRoot,
@@ -54,8 +51,31 @@ func TestListSkillsScopesByRequestCWD(t *testing.T) {
 	if containsString(names, "local-b") {
 		t.Fatalf("scoped names leaked project B local skill: %v", names)
 	}
-	if got := summaries["shared"]; got != "from-a" {
-		t.Fatalf("shared summary = %q, want from-a", got)
+	if got := summaries["shared"]; got != "global" {
+		t.Fatalf("shared summary = %q, want global", got)
+	}
+
+	skills, err = svc.ListSkills(WithCWD(context.Background(), projectB))
+	if err != nil {
+		t.Fatalf("ListSkills project B: %v", err)
+	}
+	names = names[:0]
+	summaries = map[string]string{}
+	for _, item := range skills {
+		names = append(names, item.Name)
+		summaries[item.Name] = item.Summary
+	}
+	if len(skills) != 2 {
+		t.Fatalf("len(project B skills) = %d, want 2 (%v)", len(skills), names)
+	}
+	if !containsString(names, "local-b") || !containsString(names, "shared") {
+		t.Fatalf("project B names = %v, want local-b + shared", names)
+	}
+	if containsString(names, "local-a") {
+		t.Fatalf("project B names leaked project A local skill: %v", names)
+	}
+	if got := summaries["shared"]; got != "global" {
+		t.Fatalf("project B shared summary = %q, want global", got)
 	}
 }
 
@@ -123,35 +143,36 @@ func TestAllSkillServiceMethodsRequireCWD(t *testing.T) {
 	}
 }
 
-func TestExpandBodyScopesDuplicateSkillNameByCWD(t *testing.T) {
+func TestExpandBodySystemSkillSharedAcrossCWD(t *testing.T) {
 	t.Parallel()
 
 	systemRoot := t.TempDir()
 	projectA := filepath.Join(t.TempDir(), "wj", "langgraph")
 	projectB := filepath.Join(t.TempDir(), "wj", "go-agent-v2")
-	writeScopedSystemSkill(t, systemRoot, projectA, "shared", "---\nname: shared\nsummary: from-a\n---\n## Body\nproject-a")
-	writeScopedSystemSkill(t, systemRoot, projectB, "shared", "---\nname: shared\nsummary: from-b\n---\n## Body\nproject-b")
+	writeScopedSystemSkill(t, systemRoot, projectA, "shared", "---\nname: shared\nsummary: global\n---\n## Body\nglobal")
 	svc := &service{root: systemRoot, http: &http.Client{}}
 
-	got, err := svc.ExpandBody(WithCWD(context.Background(), projectB), ExpandBodyParams{Name: "shared"})
-	if err != nil {
-		t.Fatalf("ExpandBody scoped: %v", err)
-	}
-	if !strings.Contains(got.Content, "project-b") || strings.Contains(got.Content, "project-a") {
-		t.Fatalf("ExpandBody content = %q, want only project-b", got.Content)
+	for _, cwd := range []string{projectA, projectB} {
+		got, err := svc.ExpandBody(WithCWD(context.Background(), cwd), ExpandBodyParams{Name: "shared"})
+		if err != nil {
+			t.Fatalf("ExpandBody(%s): %v", cwd, err)
+		}
+		if !strings.Contains(got.Content, "global") {
+			t.Fatalf("ExpandBody(%s) content = %q, want global system skill", cwd, got.Content)
+		}
 	}
 }
 
 func writeScopedSystemSkill(t *testing.T, systemRoot, cwd, name, content string) string {
 	t.Helper()
-	projectKey := platformshared.ProjectKeyFromCwd(cwd)
-	dir := filepath.Join(systemRoot, projectKey, "by-id", name)
+	_ = cwd
+	dir := filepath.Join(systemRoot, name)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("mkdir scoped skill: %v", err)
+		t.Fatalf("mkdir system skill: %v", err)
 	}
 	path := filepath.Join(dir, skillMainFile)
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write scoped skill: %v", err)
+		t.Fatalf("write system skill: %v", err)
 	}
 	return path
 }

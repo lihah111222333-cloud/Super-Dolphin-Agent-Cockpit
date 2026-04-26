@@ -200,7 +200,7 @@ func TestSkillExpandHostRPCResponseShape(t *testing.T) {
 	}
 }
 
-func TestSkillsListHostRPCScopesByCWD(t *testing.T) {
+func TestSkillsListHostRPCUsesCWDForProjectSkillsAndSharesSystem(t *testing.T) {
 	t.Parallel()
 
 	systemRoot := t.TempDir()
@@ -233,8 +233,30 @@ func TestSkillsListHostRPCScopesByCWD(t *testing.T) {
 	if err := json.Unmarshal(rawScoped, &scoped); err != nil {
 		t.Fatalf("json.Unmarshal scoped: %v", err)
 	}
-	if len(scoped.Skills) != 1 || scoped.Skills[0].Name != "shared-a" {
-		t.Fatalf("scoped skills = %#v, want only shared-a", scoped.Skills)
+	scopedNames := make(map[string]bool, len(scoped.Skills))
+	for _, item := range scoped.Skills {
+		scopedNames[item.Name] = true
+	}
+	if len(scoped.Skills) != 2 || !scopedNames["shared-a"] || !scopedNames["shared-b"] || scopedNames["local-b"] {
+		t.Fatalf("project A skills = %#v, want shared-a + shared-b and no project B local", scoped.Skills)
+	}
+
+	rawProjectB, err := server.Dispatch(context.Background(), "skills/list", json.RawMessage(`{"cwd":"`+projectB+`"}`))
+	if err != nil {
+		t.Fatalf("Dispatch project B skills/list: %v", err)
+	}
+	var projectBList struct {
+		Skills []skillListItem `json:"skills"`
+	}
+	if err := json.Unmarshal(rawProjectB, &projectBList); err != nil {
+		t.Fatalf("json.Unmarshal project B: %v", err)
+	}
+	projectBNames := make(map[string]bool, len(projectBList.Skills))
+	for _, item := range projectBList.Skills {
+		projectBNames[item.Name] = true
+	}
+	if len(projectBList.Skills) != 3 || !projectBNames["local-b"] || !projectBNames["shared-a"] || !projectBNames["shared-b"] {
+		t.Fatalf("project B skills = %#v, want local-b + shared-a + shared-b", projectBList.Skills)
 	}
 
 	_, err = server.Dispatch(context.Background(), "skills/list", json.RawMessage(`{}`))
@@ -247,14 +269,13 @@ func TestSkillsListHostRPCScopesByCWD(t *testing.T) {
 	}
 }
 
-func TestSkillExpandHostRPCScopesByCWD(t *testing.T) {
+func TestSkillExpandHostRPCSharesSystemSkillAcrossCWD(t *testing.T) {
 	t.Parallel()
 
 	systemRoot := t.TempDir()
 	projectA := filepath.Join(t.TempDir(), "wj", "langgraph")
 	projectB := filepath.Join(t.TempDir(), "wj", "go-agent-v2")
-	writeScopedSystemSkill(t, systemRoot, projectA, "shared", "---\nname: shared\nsummary: from-a\n---\nproject-a")
-	writeScopedSystemSkill(t, systemRoot, projectB, "shared", "---\nname: shared\nsummary: from-b\n---\nproject-b")
+	writeScopedSystemSkill(t, systemRoot, projectA, "shared", "---\nname: shared\nsummary: global\n---\nglobal-body")
 	svc := &service{root: systemRoot, http: &http.Client{}}
 	server := newSkillRPCTestServer(t, svc)
 
@@ -266,8 +287,8 @@ func TestSkillExpandHostRPCScopesByCWD(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("json.Unmarshal skill/expand: %v", err)
 	}
-	if got.Name != "shared" || got.Summary != "from-b" || got.Content != "---\nname: shared\nsummary: from-b\n---\nproject-b" {
-		t.Fatalf("scoped expand result = %#v", got)
+	if got.Name != "shared" || got.Summary != "global" || got.Content != "---\nname: shared\nsummary: global\n---\nglobal-body" {
+		t.Fatalf("global system expand result = %#v", got)
 	}
 }
 
