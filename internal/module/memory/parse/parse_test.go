@@ -253,6 +253,19 @@ func TestStripHTMLCommentsCases(t *testing.T) {
 		{"multiline_block", "before\n<!-- start\nbody\nend -->\nafter\n", "before\nafter\n"},
 		{"unclosed_eof_kept_as_content", "before\n<!-- never closed", "before\n<!-- never closed"},
 		{"empty", "", ""},
+		// HTML5 forbids nested comments — the first --> closes; trailing
+		// `--> outer -->` survives as plain text on the close line.
+		{"nested_attempt_first_close_wins", "<!-- outer <!-- inner --> outer -->\n", " outer -->\n"},
+		{"nested_attempt_multiline", "<!-- outer\n<!-- inner\n--> rest -->\n", " rest -->\n"},
+		// CDATA shields its body from comment scanning.
+		{"cdata_multiline_protects_comment", "before\n<![CDATA[\n<!-- not a comment -->\n]]>\nafter\n", "before\n<![CDATA[\n<!-- not a comment -->\n]]>\nafter\n"},
+		{"cdata_singleline_keeps_inline_comment", "<![CDATA[ <!-- preserved --> ]]>\n", "<![CDATA[ <!-- preserved --> ]]>\n"},
+		{"cdata_unclosed_eof_kept", "head\n<![CDATA[\n<!-- looks like comment -->\n", "head\n<![CDATA[\n<!-- looks like comment -->\n"},
+		// Fenced code blocks preserve inline-styled comment lines.
+		{"fence_protects_comment", "```\n<!-- not stripped -->\n```\n", "```\n<!-- not stripped -->\n```\n"},
+		{"fence_tilde_protects_comment", "~~~\n<!-- preserved -->\n~~~\n", "~~~\n<!-- preserved -->\n~~~\n"},
+		// Two consecutive multi-line comments back-to-back: both dropped.
+		{"two_block_comments", "a\n<!-- one\nstill one -->\nmid\n<!-- two\nstill two -->\nz\n", "a\nmid\nz\n"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -261,4 +274,43 @@ func TestStripHTMLCommentsCases(t *testing.T) {
 			}
 		})
 	}
+}
+
+// FuzzStripHTMLComments exercises the scanner with arbitrary byte streams
+// and pins two invariants that hold regardless of malformed input:
+//
+//  1. The function never panics.
+//  2. It is idempotent: stripping twice yields the same output as
+//     stripping once. Without idempotence, downstream cache layers that
+//     re-feed already-stripped content would observe drifting hashes.
+//
+// Run with `go test -fuzz=FuzzStripHTMLComments ./internal/module/memory/parse/`
+// to extend coverage; the corpus seeds below cover the historical edge
+// cases (nested attempts, CDATA, fence interactions, unclosed openers).
+func FuzzStripHTMLComments(f *testing.F) {
+	seeds := []string{
+		"",
+		"plain text\n",
+		"<!-- a -->\n",
+		"prefix <!-- inline --> suffix\n",
+		"<!-- outer <!-- inner --> outer -->\n",
+		"<!-- multi\nline\n--> tail\n",
+		"<!-- never closed",
+		"<![CDATA[ <!-- shielded --> ]]>\n",
+		"<![CDATA[\n<!-- shielded -->\n]]>\n",
+		"<![CDATA[\nstill open",
+		"```\n<!-- in fence -->\n```\n",
+		"~~~\n<!-- in tilde -->\n~~~\n",
+		"<!-- a -->\n<!-- b -->\n<!-- c -->\n",
+	}
+	for _, seed := range seeds {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, content string) {
+		once := StripHTMLComments(content)
+		twice := StripHTMLComments(once)
+		if once != twice {
+			t.Fatalf("StripHTMLComments not idempotent\ninput  = %q\nonce   = %q\ntwice  = %q", content, once, twice)
+		}
+	})
 }
