@@ -70,12 +70,28 @@ func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 func logCodexMCPStartupStatus(eventType string, payload map[string]any) bool {
 	switch strings.TrimSpace(eventType) {
 	case "mcpServer/startupStatus/update", "mcpServer/startupStatus/updated":
-		pkglogger.Get().Info("codexapp: mcp server startup status",
+		status := stringValue(payload, "status")
+		errMsg := stringValue(payload, "error", "message")
+		attrs := []any{
 			"agent_id", payloadAgentID(payload),
 			"name", stringValue(payload, "name"),
-			"status", stringValue(payload, "status"),
-			"error", stringValue(payload, "error", "message"),
-		)
+			"status", status,
+			"error", errMsg,
+		}
+		if isCodexMCPStartupFailureStatus(status) || strings.TrimSpace(errMsg) != "" {
+			pkglogger.Get().Warn("codexapp: mcp server startup status", attrs...)
+		} else {
+			pkglogger.Get().Debug("codexapp: mcp server startup status", attrs...)
+		}
+		return true
+	default:
+		return false
+	}
+}
+
+func isCodexMCPStartupFailureStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "error", "failed", "failure":
 		return true
 	default:
 		return false
@@ -89,6 +105,7 @@ func shouldWarnUnknownRawEvent(eventType string, payload map[string]any) bool {
 		"item/plan/delta", "item_plan_delta", "agent/event/item_plan_delta",
 		"item/plan/updated", "item_plan_updated", "agent/event/item_plan_updated",
 		"thread/tokenUsage/updated",
+		"account/rateLimits/updated",
 		"tool:use_begin", "tool:use_end":
 		return false
 	}

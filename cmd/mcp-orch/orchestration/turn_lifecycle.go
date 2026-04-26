@@ -359,6 +359,10 @@ func logTurnCompletionFailure(
 	if recoverErr != nil && !errors.Is(recoverErr, errTurnNotActive) && !errors.Is(recoverErr, errAgentNotFound) {
 		attrs = append(attrs, "recovery_error", recoverErr)
 	}
+	if errors.Is(completeErr, errAgentNotFound) || errors.Is(completeErr, errTurnNotActive) {
+		logger.Debug("orchestration: failed to handle turn completion", attrs...)
+		return
+	}
 	logger.Warn("orchestration: failed to handle turn completion", attrs...)
 }
 
@@ -380,6 +384,10 @@ func logTurnInterruptedFailure(
 	}
 	if recoverErr != nil && !errors.Is(recoverErr, errTurnNotActive) && !errors.Is(recoverErr, errAgentNotFound) {
 		attrs = append(attrs, "recovery_error", recoverErr)
+	}
+	if errors.Is(interruptErr, errAgentNotFound) || errors.Is(interruptErr, errTurnNotActive) {
+		logger.Debug("orchestration: failed to handle turn interruption", attrs...)
+		return
 	}
 	logger.Warn("orchestration: failed to handle turn interruption", attrs...)
 }

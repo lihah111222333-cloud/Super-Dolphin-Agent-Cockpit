@@ -474,7 +474,7 @@ func (h *Handler) warnManagedLaunchConfigTrace(ctx context.Context, req ToolCall
 	threadID, _ := h.resolveToolCallThreadID(ctx, req)
 	stored, ok := h.readStoredThreadRuntime(ctx, threadID)
 	runtime := stored.Runtime
-	h.warn("toolbridge: orchestration_launch_agent config trace",
+	h.debug("toolbridge: orchestration_launch_agent config trace",
 		"agent_id", strings.TrimSpace(req.AgentID),
 		"thread_id", threadID,
 		"args_provider", mapString(args, "provider"),

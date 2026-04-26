@@ -54,7 +54,7 @@ func (s *LogSink) bindAgent(dispatcher *event.Dispatcher, logger *pkglogger.Logg
 func (s *LogSink) bindThread(dispatcher *event.Dispatcher, logger *pkglogger.Logger) {
 	s.subs.Add(logEvent[threaddto.Started](dispatcher, logger))
 	s.subs.Add(logEvent[threaddto.Stopped](dispatcher, logger))
-	s.subs.Add(logEvent[threaddto.MessagesPage](dispatcher, logger))
+	s.subs.Add(logDebugEvent[threaddto.MessagesPage](dispatcher, logger))
 }
 
 func (s *LogSink) bindTurn(dispatcher *event.Dispatcher, logger *pkglogger.Logger) {
@@ -67,8 +67,8 @@ func (s *LogSink) bindTurn(dispatcher *event.Dispatcher, logger *pkglogger.Logge
 	s.subs.Add(logDebugEvent[turndto.TurnOutputDelta](dispatcher, logger))
 	s.subs.Add(logDebugEvent[turndto.PlanDelta](dispatcher, logger))
 	s.subs.Add(logEvent[turndto.PlanUpdated](dispatcher, logger))
-	s.subs.Add(logEvent[turndto.ItemStarted](dispatcher, logger))
-	s.subs.Add(logEvent[turndto.ItemCompleted](dispatcher, logger))
+	s.subs.Add(logDebugEvent[turndto.ItemStarted](dispatcher, logger))
+	s.subs.Add(logDebugEvent[turndto.ItemCompleted](dispatcher, logger))
 }
 
 func (s *LogSink) bindTool(dispatcher *event.Dispatcher, logger *pkglogger.Logger) {

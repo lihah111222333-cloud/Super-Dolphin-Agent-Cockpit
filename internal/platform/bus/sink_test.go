@@ -10,7 +10,9 @@ import (
 	"time"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
+	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/kelindar/event"
 )
@@ -52,12 +54,24 @@ func TestLogSinkHighFrequencyEventsUseDebugLevel(t *testing.T) {
 	t.Cleanup(sink.Close)
 
 	event.Publish(dispatcher, agentdto.StateChanged{})
+	event.Publish(dispatcher, threaddto.MessagesPage{})
+	event.Publish(dispatcher, turndto.ItemStarted{})
+	event.Publish(dispatcher, turndto.ItemCompleted{})
 	event.Publish(dispatcher, tooldto.ToolCallBegin{})
 	event.Publish(dispatcher, uidto.UITokensUpdated{})
 
-	entries := waitForBusLogEntries(t, &buf, 3)
+	entries := waitForBusLogEntries(t, &buf, 6)
 	if got := levelForEvent(t, entries, "StateChanged"); got != "INFO" {
 		t.Fatalf("StateChanged level = %q, want %q", got, "INFO")
+	}
+	if got := levelForEvent(t, entries, "MessagesPage"); got != "DEBUG" {
+		t.Fatalf("MessagesPage level = %q, want %q", got, "DEBUG")
+	}
+	if got := levelForEvent(t, entries, "ItemStarted"); got != "DEBUG" {
+		t.Fatalf("ItemStarted level = %q, want %q", got, "DEBUG")
+	}
+	if got := levelForEvent(t, entries, "ItemCompleted"); got != "DEBUG" {
+		t.Fatalf("ItemCompleted level = %q, want %q", got, "DEBUG")
 	}
 	if got := levelForEvent(t, entries, "ToolCallBegin"); got != "DEBUG" {
 		t.Fatalf("ToolCallBegin level = %q, want %q", got, "DEBUG")

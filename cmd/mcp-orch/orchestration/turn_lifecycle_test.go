@@ -1,7 +1,11 @@
 package orchestration
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -172,6 +176,36 @@ func TestHandleTurnCompletedEventConvergesAfterInterrupt(t *testing.T) {
 	}
 	if !snapshot.updatedAt.Equal(interruptAt) {
 		t.Fatalf("updatedAt = %s, want %s", snapshot.updatedAt, interruptAt)
+	}
+}
+
+func TestLogTurnCompletionFailureDowngradesAgentNotFound(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	logTurnCompletionFailure(logger, completedEvent("agent-1", "thread-1", "turn-1", false, ""), errAgentNotFound, false, nil)
+
+	output := buf.String()
+	if !strings.Contains(output, "level=DEBUG") {
+		t.Fatalf("output = %q, want DEBUG", output)
+	}
+	if strings.Contains(output, "level=WARN") {
+		t.Fatalf("output = %q, want no WARN", output)
+	}
+}
+
+func TestLogTurnCompletionFailureKeepsUnexpectedErrorsWarn(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	logTurnCompletionFailure(logger, completedEvent("agent-1", "thread-1", "turn-1", false, ""), errors.New("boom"), false, nil)
+
+	if output := buf.String(); !strings.Contains(output, "level=WARN") {
+		t.Fatalf("output = %q, want WARN", output)
 	}
 }
 
