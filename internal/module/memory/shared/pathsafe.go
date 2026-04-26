@@ -9,10 +9,22 @@ import (
 	"path/filepath"
 	"strings"
 
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"golang.org/x/text/unicode/norm"
 )
 
-var ErrInvalidMemoryRoot = errors.New("invalid memory root")
+var (
+	ErrInvalidMemoryRoot = errors.New("invalid memory root")
+
+	// SafeReadEntrypoint sentinel errors. Callers can match with errors.Is
+	// to distinguish failure modes that previously collapsed into a single
+	// boolean. Wraps os.ErrNotExist so legacy `errors.Is(err, os.ErrNotExist)`
+	// checks continue to work for the missing-file case.
+	ErrSafeReadNotFound    = fmt.Errorf("safe read: not found: %w", os.ErrNotExist)
+	ErrSafeReadContainment = errors.New("safe read: path escapes root")
+	ErrSafeReadIsDir       = errors.New("safe read: target is a directory")
+	ErrSafeReadBrokenLink  = errors.New("safe read: broken symlink or unreadable parent")
+)
 
 func ValidateMemoryRoot(raw string) (string, error) {
 	raw = norm.NFC.String(strings.TrimSpace(raw))
@@ -162,4 +174,103 @@ func isRootOrNearRoot(path string) bool {
 	}
 	trimmed = strings.TrimPrefix(trimmed, string(os.PathSeparator))
 	return !strings.Contains(trimmed, string(os.PathSeparator))
+}
+
+// SafeReadEntrypoint resolves root and the candidate path through symlinks,
+// confirms the resolved file lives under the resolved root, then reads its
+// bytes and returns os.FileInfo for the resolved file. On failure it
+// returns (nil, nil, err) where err is one of the sentinels above
+// (matchable via errors.Is) or a wrapped os error preserving Is-chain
+// semantics for permission/IO categories.
+//
+// Failure mapping:
+//   - root EvalSymlinks fails       -> ErrSafeReadBrokenLink (wraps cause)
+//   - indexPath Lstat ENOENT        -> ErrSafeReadNotFound
+//   - indexPath EvalSymlinks fails  -> ErrSafeReadBrokenLink (wraps cause)
+//   - parent dir EvalSymlinks fails -> ErrSafeReadBrokenLink (wraps cause)
+//   - resolved path escapes root    -> ErrSafeReadContainment
+//   - resolved path Stat ENOENT     -> ErrSafeReadNotFound
+//   - resolved path is a directory  -> ErrSafeReadIsDir
+//   - ReadFile fails                -> wrapped cause (errors.Is for ErrPermission etc still works)
+//
+// This is the single defense-in-depth read primitive for memory-system
+// entrypoints (MEMORY.md, agent memory entrypoints, nested CLAUDE.md).
+// TOCTOU between Lstat/EvalSymlinks and ReadFile is best-effort — see
+// later phases for the os.OpenRoot-based replacement.
+func SafeReadEntrypoint(root, indexPath string) ([]byte, os.FileInfo, error) {
+	rootReal, err := safeReadRoot(root)
+	if err != nil {
+		return nil, nil, err
+	}
+	candidate, err := safeReadCandidate(indexPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !platformshared.ContainsPath(rootReal, candidate) {
+		return nil, nil, ErrSafeReadContainment
+	}
+	return readSafeResolvedFile(candidate)
+}
+
+func safeReadRoot(root string) (string, error) {
+	rootReal, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", safeReadBrokenLinkOrNotFound("root", err)
+	}
+	return rootReal, nil
+}
+
+func safeReadCandidate(indexPath string) (string, error) {
+	info, err := os.Lstat(indexPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", ErrSafeReadNotFound
+		}
+		return "", err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return safeReadSymlinkTarget(indexPath)
+	}
+	return safeReadRegularPath(indexPath)
+}
+
+func safeReadSymlinkTarget(indexPath string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(indexPath)
+	if err != nil {
+		return "", safeReadBrokenLinkOrNotFound("target", err)
+	}
+	return resolved, nil
+}
+
+func safeReadRegularPath(indexPath string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(filepath.Dir(indexPath))
+	if err != nil {
+		return "", safeReadBrokenLinkOrNotFound("parent", err)
+	}
+	return filepath.Join(resolved, filepath.Base(indexPath)), nil
+}
+
+func safeReadBrokenLinkOrNotFound(label string, err error) error {
+	if errors.Is(err, os.ErrNotExist) {
+		return ErrSafeReadNotFound
+	}
+	return fmt.Errorf("%w: %s: %w", ErrSafeReadBrokenLink, label, err)
+}
+
+func readSafeResolvedFile(candidate string) ([]byte, os.FileInfo, error) {
+	resolvedInfo, err := os.Stat(candidate)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil, ErrSafeReadNotFound
+		}
+		return nil, nil, err
+	}
+	if resolvedInfo.IsDir() {
+		return nil, nil, ErrSafeReadIsDir
+	}
+	raw, err := os.ReadFile(candidate)
+	if err != nil {
+		return nil, nil, err
+	}
+	return raw, resolvedInfo, nil
 }
