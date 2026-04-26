@@ -22,6 +22,7 @@ type importSkillDirParams struct {
 	Path  string   `json:"path"`
 	Paths []string `json:"paths,omitempty"`
 	Name  string   `json:"name,omitempty"`
+	Mode  string   `json:"mode,omitempty"`
 	Scope string   `json:"scope,omitempty"`
 	CWD   string   `json:"cwd,omitempty"`
 }

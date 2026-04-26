@@ -317,11 +317,11 @@ func (s *service) ImportLocalDir(ctx context.Context, p importSkillDirParams) (a
 	if err != nil {
 		return nil, err
 	}
-	sources, err := validateImportLocalDirParams(p)
+	sources, mode, err := validateImportLocalDirParams(p)
 	if err != nil {
 		return nil, err
 	}
-	results, failures := s.importSources(sources, p.Name, cwd, p.Scope)
+	results, failures := s.importSources(sources, p.Name, cwd, p.Scope, mode)
 	response := buildImportLocalDirResponse(sources, results, failures)
 	if len(results) > 0 {
 		name := strings.TrimSpace(p.Name)
@@ -334,18 +334,25 @@ func (s *service) ImportLocalDir(ctx context.Context, p importSkillDirParams) (a
 	return response, nil
 }
 
-func validateImportLocalDirParams(p importSkillDirParams) ([]string, error) {
+func validateImportLocalDirParams(p importSkillDirParams) ([]string, string, error) {
+	mode, err := normalizeImportMode(p.Mode)
+	if err != nil {
+		return nil, "", err
+	}
+	if mode == importModeBatch && strings.TrimSpace(p.Name) != "" {
+		return nil, "", errors.New("name is not allowed in batch mode")
+	}
 	sources, err := collectImportSources(p.Path, p.Paths)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if len(sources) == 0 {
-		return nil, errors.New("path or paths is required")
+		return nil, "", errors.New("path or paths is required")
 	}
 	if len(sources) > 1 && strings.TrimSpace(p.Name) != "" {
-		return nil, errors.New("name is only supported for single directory import")
+		return nil, "", errors.New("name is only supported for single directory import")
 	}
-	return sources, nil
+	return sources, mode, nil
 }
 
 func buildImportLocalDirResponse(sources []string, results []map[string]any, failures []map[string]any) map[string]any {
@@ -473,153 +480,6 @@ func listSkillFiles(dir string, entries []os.DirEntry) []map[string]any {
 		return strings.ToLower(files[i]["name"].(string)) < strings.ToLower(files[j]["name"].(string))
 	})
 	return files
-}
-
-func collectImportSources(primary string, extra []string) ([]string, error) {
-	raw := append([]string{primary}, extra...)
-	sources := make([]string, 0, len(raw))
-	for _, item := range raw {
-		item = strings.TrimSpace(item)
-		if item == "" {
-			continue
-		}
-		if matches, err := filepath.Glob(item); err == nil && len(matches) > 0 {
-			sources = append(sources, matches...)
-			continue
-		}
-		sources = append(sources, item)
-	}
-	return uniqStrings(sources), nil
-}
-
-func (s *service) importSources(sources []string, singleName, cwd, scope string) ([]map[string]any, []map[string]any) {
-	results := make([]map[string]any, 0, len(sources))
-	failures := make([]map[string]any, 0)
-	for _, source := range sources {
-		name := singleName
-		if len(sources) > 1 {
-			name = filepath.Base(source)
-		}
-		result, err := s.importSource(source, name, cwd, scope)
-		if err != nil {
-			failures = append(failures, map[string]any{"source": source, "error": err.Error()})
-			continue
-		}
-		results = append(results, result)
-	}
-	return results, failures
-}
-
-func (s *service) importSource(source, name, cwd, scope string) (map[string]any, error) {
-	resolvedSource, err := validateImportSource(source)
-	if err != nil {
-		return nil, err
-	}
-	normalizedScope, err := normalizeSkillScope(scope)
-	if err != nil {
-		return nil, err
-	}
-	targetName := strings.TrimSpace(name)
-	if targetName == "" {
-		targetName = filepath.Base(resolvedSource)
-	}
-	if err := RequireSkillSystemReview(normalizedScope, skillSlug(targetName), skillDirContentHash(resolvedSource), RepoFingerprint(cwd), "", ""); err != nil {
-		return nil, err
-	}
-	root, err := s.prepareScopedSkillsRoot(cwd, scope)
-	if err != nil {
-		return nil, err
-	}
-	if err := ensureSourceOutsideRoots(s.allSkillRoots(cwd), resolvedSource, source); err != nil {
-		return nil, err
-	}
-	targetDir := filepath.Join(root, skillSlug(targetName))
-	if err := ensureSkillDirAbsent(targetDir, targetName); err != nil {
-		return nil, err
-	}
-	files, bytes, err := copySkillDir(resolvedSource, targetDir)
-	if err != nil {
-		return nil, err
-	}
-	return map[string]any{"name": targetName, "dir": targetDir, "skill_file": filepath.Join(targetDir, skillMainFile), "source": resolvedSource, "files": files, "bytes": bytes}, nil
-}
-
-func validateImportSource(source string) (string, error) {
-	source = strings.TrimSpace(source)
-	if source == "" {
-		return "", errors.New("path is required")
-	}
-	resolved, err := canonicalProjectPath(source)
-	if err != nil {
-		return "", err
-	}
-	info, err := os.Stat(resolved)
-	if err != nil {
-		return "", err
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("path is not a directory: %s", resolved)
-	}
-	return resolved, nil
-}
-
-// ensureSourceOutsideRoots 防止将任一技能根内的目录再套娃导入成新技能。
-func ensureSourceOutsideRoots(roots []string, resolvedSource, originalSource string) error {
-	for _, root := range roots {
-		rootPath, err := canonicalProjectPath(root)
-		if err != nil {
-			continue
-		}
-		outside, err := pathEscapesRoot(rootPath, resolvedSource)
-		if err != nil {
-			continue
-		}
-		if !outside {
-			return fmt.Errorf("source is inside skills root: %s", originalSource)
-		}
-	}
-	return nil
-}
-
-func ensureSkillDirAbsent(targetDir, targetName string) error {
-	_, err := os.Stat(targetDir)
-	if err == nil {
-		return fmt.Errorf("skill already exists: %s", targetName)
-	}
-	if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
-}
-
-func copySkillDir(source, target string) (int, int64, error) {
-	files, total := 0, int64(0)
-	err := filepath.WalkDir(source, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		rel, err := filepath.Rel(source, path)
-		if err != nil {
-			return err
-		}
-		if rel == "." {
-			return os.Mkdir(target, 0o755)
-		}
-		dst := filepath.Join(target, rel)
-		if entry.IsDir() {
-			return os.MkdirAll(dst, 0o755)
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("symlink is not allowed: %s", rel)
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		files, total = files+1, total+int64(len(data))
-		return os.WriteFile(dst, data, 0o644)
-	})
-	return files, total, err
 }
 
 func canonicalProjectPath(path string) (string, error) {
