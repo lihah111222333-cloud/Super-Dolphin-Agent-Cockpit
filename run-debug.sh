@@ -464,6 +464,13 @@ export ENABLE_MEMORY_SYSTEM="${ENABLE_MEMORY_SYSTEM:-1}"
 export ENABLE_MEMORY_TOOLS="${ENABLE_MEMORY_TOOLS:-1}"
 export MULTI_AGENT_MEMORY_FEATURE_TEAMMEM="${MULTI_AGENT_MEMORY_FEATURE_TEAMMEM:-1}"
 
+# Codex legacy default-home opt-in. P21 P1a 把 codex identity 缺失改成硬
+# 报错；如果前端 thread/start payload 没显式传 codexHome，后端
+# injectDefaultCodexIdentityForStart 只在该 env 为 "1" 时回落 ~/.codex。
+# 默认 opt-in 让 dev 启动 GUI 后能直接对话；想关闭走 P1a 严格模式时
+# `export CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME=0` 即可。
+export CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME="${CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME:-1}"
+
 if [ "$MODE" = "debug" ]; then
   if [ -n "$VITE_DEV_URL" ]; then
     echo "▶ 启动 debug 模式 (前端热更新 → $VITE_DEV_URL)..."
