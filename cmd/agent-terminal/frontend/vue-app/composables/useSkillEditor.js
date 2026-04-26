@@ -145,8 +145,10 @@ function createImportActions(props, emit, deps, state, readers) {
         state.setNotice('info', `将覆盖已有技能：${summarizeItems(overwriteNames)}，继续导入中...`);
       }
 
-       const imported = await importSkills(resolveSkillsCwd(props), folderPaths, state.importScope.value);
-      const importedSkills = Array.isArray(imported?.skills) ? imported.skills : [];
+      const imported = await importSkills(resolveSkillsCwd(props), folderPaths, state.importScope.value);
+      const importedSkills = Array.isArray(imported?.imported)
+        ? imported.imported
+        : (Array.isArray(imported?.skills) ? imported.skills : []);
       const failures = Array.isArray(imported?.failures) ? imported.failures : [];
       state.importFailures.value = failures.map((item) => {
         const source = (item?.source || '').toString().trim();

@@ -917,8 +917,11 @@ function browserInstaller({
         }
         case 'skills/local/importDir': {
           if (state.importResult) {
-            const payload = clone(state.importResult) || { skills: [], failures: [] };
-            asArray(payload.skills).forEach((item) => {
+            const payload = clone(state.importResult) || { imported: [], failures: [] };
+            const imported = asArray(payload.imported).length > 0 ? asArray(payload.imported) : asArray(payload.skills);
+            const normalizedPayload = { ...payload, imported };
+            delete normalizedPayload.skills;
+            asArray(normalizedPayload.imported).forEach((item) => {
               if (item?.skill_file) {
                 const parsedName = (item?.name || basename(dirname(item.skill_file))).toString();
                 ensureSkillFile(item.skill_file, `---\nname: "${parsedName}"\nsummary: "${parsedName} 摘要"\n---\n\n## ${parsedName}`,
@@ -933,10 +936,10 @@ function browserInstaller({
                 });
               }
             });
-            return payload;
+            return normalizedPayload;
           }
           const importedSkills = asArray(params.paths).map((item) => buildImportedSkill(item));
-          return { skills: importedSkills, failures: [] };
+          return { imported: importedSkills, failures: [] };
         }
         case 'ui/code/open': {
           const path = (params.filePath || params.path || '').toString();
