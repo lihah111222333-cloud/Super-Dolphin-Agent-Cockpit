@@ -48,7 +48,17 @@ func (s *service) scheduleSkillsChanged(next uidto.SkillsChanged) {
 	next = normalizeSkillsChanged(next)
 
 	s.skillsChangedMu.Lock()
-	s.skillsChangedNext = mergeSkillsChanged(s.skillsChangedNext, next)
+	if s.skillsChangedNext.Count == 0 {
+		s.skillsChangedNext = next
+	} else if skillsChangedMergeable(s.skillsChangedNext, next) {
+		s.skillsChangedNext = mergeSkillsChanged(s.skillsChangedNext, next)
+	} else {
+		// P0b F12: cross-scope or cross-cwd events cannot share one payload.
+		// Queue the buffered event for this debounce flush and start a fresh
+		// buffer for next so subscribers can attribute both mutations.
+		s.skillsChangedQueue = append(s.skillsChangedQueue, s.skillsChangedNext)
+		s.skillsChangedNext = next
+	}
 	s.skillsChangedSeq++
 	seq := s.skillsChangedSeq
 	s.skillsChangedMu.Unlock()
@@ -65,6 +75,8 @@ func (s *service) flushSkillsChanged(seq uint64) {
 		s.skillsChangedMu.Unlock()
 		return
 	}
+	queue := s.skillsChangedQueue
+	s.skillsChangedQueue = nil
 	next := s.skillsChangedNext
 	s.skillsChangedNext = uidto.SkillsChanged{}
 	emit := s.emitSkillsChanged
@@ -73,7 +85,12 @@ func (s *service) flushSkillsChanged(seq uint64) {
 	if emit == nil {
 		return
 	}
-	emit(next)
+	for _, ev := range queue {
+		emit(ev)
+	}
+	if next.Count > 0 {
+		emit(next)
+	}
 }
 
 func normalizeSkillsChanged(next uidto.SkillsChanged) uidto.SkillsChanged {
@@ -113,8 +130,9 @@ func mergeSkillsChanged(current, next uidto.SkillsChanged) uidto.SkillsChanged {
 	if current.Count == 0 {
 		return next
 	}
-	// P0b Step 6: cross-scope or cross-cwd events must not merge; the new event
-	// fully replaces the buffered one (override path - simpler than a multi-event queue).
+	// P0b F12: scheduleSkillsChanged must handle cross-scope/cwd events by
+	// enqueueing current before starting next. Keep this fallback for any legacy
+	// direct callers, but new code should only call merge for mergeable events.
 	if !skillsChangedMergeable(current, next) {
 		return next
 	}

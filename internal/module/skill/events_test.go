@@ -197,9 +197,9 @@ func TestServiceEmitsScopedSkillsChangedSystem(t *testing.T) {
 	}
 }
 
-// P0b Step 6: cross-scope events must not merge into one — the override path
-// in mergeSkillsChanged forces the second event to fully replace the first.
-func TestServiceCrossScopeOverridesMerge(t *testing.T) {
+// P0b F12: cross-scope events must flush as separate events so subscribers can
+// attribute each mutation; overriding the first event would drop data.
+func TestServiceCrossScopeFlushesBothEvents(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	defer func() { _ = dispatcher.Close() }()
 
@@ -217,18 +217,111 @@ func TestServiceCrossScopeOverridesMerge(t *testing.T) {
 	svc.publishSkillsChanged(ctx, "local_write", "first", skillScopeProject)
 	svc.publishSkillsChanged(context.Background(), "remote_write", "second", skillScopeSystem)
 
+	first := mustReceiveSkillsChanged(t, got)
+	if first.Scope != "project" {
+		t.Fatalf("first scope = %q, want project; ev=%#v", first.Scope, first)
+	}
+	if first.Name != "first" {
+		t.Fatalf("first name = %q, want first; ev=%#v", first.Name, first)
+	}
+	if first.Cwd != projectRoot {
+		t.Fatalf("first cwd = %q, want %q; ev=%#v", first.Cwd, projectRoot, first)
+	}
+	if first.Count != 1 || first.Action != "write" {
+		t.Fatalf("first action/count mismatch; ev=%#v", first)
+	}
+
+	second := mustReceiveSkillsChanged(t, got)
+	if second.Scope != "system" {
+		t.Fatalf("second scope = %q, want system; ev=%#v", second.Scope, second)
+	}
+	if second.Name != "second" {
+		t.Fatalf("second name = %q, want second; ev=%#v", second.Name, second)
+	}
+	if second.Cwd != "" {
+		t.Fatalf("second cwd = %q, want empty (system); ev=%#v", second.Cwd, second)
+	}
+	if second.Count != 1 || second.Action != "write" {
+		t.Fatalf("second action/count mismatch; ev=%#v", second)
+	}
+
+	select {
+	case extra := <-got:
+		t.Fatalf("unexpected extra skills changed event = %#v", extra)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// P0b F12: same-scope but cross-cwd project events must flush separately.
+func TestServiceCrossCwdFlushesBothEvents(t *testing.T) {
+	dispatcher := event.NewDispatcher()
+	defer func() { _ = dispatcher.Close() }()
+
+	got := make(chan uidto.SkillsChanged, 2)
+	cancel := event.Subscribe(dispatcher, func(ev uidto.SkillsChanged) { got <- ev })
+	defer cancel()
+
+	projectRootA := t.TempDir()
+	projectRootB := t.TempDir()
+	svc := NewService(projectRootA).(*service)
+	svc.root = t.TempDir()
+	svc.projectSkillsRoot = defaultProjectSkillsRoot(projectRootA)
+	svc.bindDispatcher(dispatcher)
+
+	svc.publishSkillsChanged(skillTestContext(projectRootA), "local_write", "first", skillScopeProject)
+	svc.publishSkillsChanged(skillTestContext(projectRootB), "import_dir", "second", skillScopeProject)
+
+	first := mustReceiveSkillsChanged(t, got)
+	if first.Scope != "project" || first.Cwd != projectRootA || first.Name != "first" {
+		t.Fatalf("first event mismatch; ev=%#v want scope=project cwd=%q name=first", first, projectRootA)
+	}
+	if first.Count != 1 || first.Action != "write" {
+		t.Fatalf("first action/count mismatch; ev=%#v", first)
+	}
+
+	second := mustReceiveSkillsChanged(t, got)
+	if second.Scope != "project" || second.Cwd != projectRootB || second.Name != "second" {
+		t.Fatalf("second event mismatch; ev=%#v want scope=project cwd=%q name=second", second, projectRootB)
+	}
+	if second.Count != 1 || second.Action != "import" {
+		t.Fatalf("second action/count mismatch; ev=%#v", second)
+	}
+
+	select {
+	case extra := <-got:
+		t.Fatalf("unexpected extra skills changed event = %#v", extra)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// P0b F12: events in the same (Scope, Cwd) bucket should still coalesce.
+func TestServiceMergeableEventsStillCoalesce(t *testing.T) {
+	dispatcher := event.NewDispatcher()
+	defer func() { _ = dispatcher.Close() }()
+
+	got := make(chan uidto.SkillsChanged, 2)
+	cancel := event.Subscribe(dispatcher, func(ev uidto.SkillsChanged) { got <- ev })
+	defer cancel()
+
+	projectRoot := t.TempDir()
+	svc := NewService(projectRoot).(*service)
+	svc.root = t.TempDir()
+	svc.projectSkillsRoot = defaultProjectSkillsRoot(projectRoot)
+	svc.bindDispatcher(dispatcher)
+
+	ctx := skillTestContext(projectRoot)
+	svc.publishSkillsChanged(ctx, "local_write", "first", skillScopeProject)
+	svc.publishSkillsChanged(ctx, "import_dir", "second", skillScopeProject)
+
 	ev := mustReceiveSkillsChanged(t, got)
-	if ev.Scope != "system" {
-		t.Fatalf("override scope = %q, want system; ev=%#v", ev.Scope, ev)
+	if ev.Scope != "project" || ev.Cwd != projectRoot {
+		t.Fatalf("scope/cwd mismatch; ev=%#v want scope=project cwd=%q", ev, projectRoot)
 	}
-	if ev.Name != "second" {
-		t.Fatalf("override name = %q, want second", ev.Name)
+	if ev.Name != "" || ev.Action != "" || ev.Count != 2 {
+		t.Fatalf("coalesced summary mismatch; ev=%#v", ev)
 	}
-	if ev.Cwd != "" {
-		t.Fatalf("override cwd = %q, want empty (system)", ev.Cwd)
-	}
-	if ev.Count != 1 {
-		t.Fatalf("override count = %d, want 1 (no merge)", ev.Count)
+	if !reflect.DeepEqual(ev.Actions, []string{"write", "import"}) {
+		t.Fatalf("coalesced actions mismatch; ev=%#v", ev)
 	}
 
 	select {

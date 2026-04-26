@@ -26,16 +26,17 @@ const (
 )
 
 type service struct {
-	root              string
-	projectRoot       string
-	projectSkillsRoot string
-	http              *http.Client
-	approvalRequester contract.ApprovalRequester
-	readConfigState   func(context.Context, string) (any, error)
-	emitSkillsChanged skillsChangedEmitter
-	skillsChangedMu   sync.Mutex
-	skillsChangedNext uidto.SkillsChanged
-	skillsChangedSeq  uint64
+	root               string
+	projectRoot        string
+	projectSkillsRoot  string
+	http               *http.Client
+	approvalRequester  contract.ApprovalRequester
+	readConfigState    func(context.Context, string) (any, error)
+	emitSkillsChanged  skillsChangedEmitter
+	skillsChangedMu    sync.Mutex
+	skillsChangedNext  uidto.SkillsChanged
+	skillsChangedQueue []uidto.SkillsChanged
+	skillsChangedSeq   uint64
 	// approval 是 P20 Phase 1 新增的审批缓存指针。Phase 1 不涉及调用，预留给 Phase 6
 	// skill_expand RPC 集成时使用 (s.approval.Lookup / Approve / Revoke)。初始化失败时
 	// 降级为 nil；调用方必须先 nil-check。
