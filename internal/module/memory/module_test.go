@@ -74,6 +74,22 @@ func TestServiceEnsureRootUsesAutoMemPathOverride(t *testing.T) {
 	}
 }
 
+func TestServiceRunConsolidationWithoutHooks(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "memory-root")
+	consolidator := newAutoDreamConsolidator(NewMemoryExtractor(), func(context.Context, string) (string, error) {
+		return "", nil
+	})
+	svc := NewService(
+		&Config{RootDir: root},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		consolidator,
+		nil,
+	)
+	if err := svc.RunConsolidation(context.Background()); err != nil {
+		t.Fatalf("RunConsolidation() error = %v", err)
+	}
+}
+
 func TestRootManagerEnsureRootDelegatesToService(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root-manager")
 	svc := NewService(

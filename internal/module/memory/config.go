@@ -28,6 +28,7 @@ const (
 	envFeatureKairos               = "MULTI_AGENT_MEMORY_FEATURE_KAIROS"
 	envFeatureTeamMemory           = "MULTI_AGENT_MEMORY_FEATURE_TEAMMEM"
 	envFeatureSearchPastContext    = "MULTI_AGENT_MEMORY_FEATURE_SEARCH_PAST_CONTEXT"
+	envHarnessKind                 = "MULTI_AGENT_HARNESS_CLI"
 )
 
 var (
@@ -79,6 +80,17 @@ type Config struct {
 	Features                   MemoryFeatureFlags
 	Kairos                     KairosConfig
 	NestedMemory               NestedMemoryConfig
+	// Harness records the underlying CLI harness identified at startup. It
+	// is frozen here so a mid-run os.Setenv on `MULTI_AGENT_HARNESS_CLI`
+	// cannot flip overlay suppression silently.
+	//
+	// Production code MUST construct Config through NewConfig so this field
+	// is populated. The empty-string fallback (resolve from live env at
+	// gate time) exists ONLY to keep `&Config{}` literals in tests
+	// painless; it is NOT a supported production default. Reviewers should
+	// treat any new production callsite that bypasses NewConfig and reads
+	// the empty-Harness fallback as a bug. See gate.go::resolveHarnessFromConfig.
+	Harness MemoryHarness
 }
 
 type MemoryPathClass string
@@ -109,6 +121,7 @@ func NewConfig(platformCfg *platformconfig.Config) *Config {
 		},
 		Kairos:       KairosConfig{Enabled: kairosEnabled},
 		NestedMemory: NestedMemoryConfig{Enabled: false},
+		Harness:      resolveMemoryHarness(),
 	}
 	if root := firstNonEmptyEnv(envMemoryRoot, envClaudeRemoteMemoryDir); root != "" {
 		cfg.RootDir = root

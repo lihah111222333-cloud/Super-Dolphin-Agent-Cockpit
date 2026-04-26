@@ -106,3 +106,31 @@ func TestBoundary_RuntimeExtrasExcludesStaticSections(t *testing.T) {
 		}
 	}
 }
+
+// TestBoundary_MemorySectionRelativeOrder pins the order in which the four
+// memory-related dynamic slots are scheduled. Rules (`memory`) must come
+// before the rendered MEMORY.md (`memory_entrypoint`) so the model sees how
+// to use memory before seeing the raw index. AgentMemory and MemoryContext
+// follow. A regression that swaps these would silently confuse the model
+// ("index without rules") and is otherwise unguarded — spec order is the
+// only source of truth, see Phase 1 plan section 13.
+func TestBoundary_MemorySectionRelativeOrder(t *testing.T) {
+	wantOrder := []string{
+		DynamicSectionMemory,
+		DynamicSectionMemoryEntrypoint,
+		DynamicSectionAgentMemory,
+		DynamicSectionMemoryContext,
+	}
+	prev := -1
+	for _, name := range wantOrder {
+		spec, ok := dynamicSectionSpecForName(name)
+		if !ok {
+			t.Fatalf("section %q missing from dynamic spec list", name)
+		}
+		if spec.order <= prev {
+			t.Fatalf("section %q order=%d not strictly greater than previous (=%d); want order memory < memory_entrypoint < agent_memory < memory_context",
+				name, spec.order, prev)
+		}
+		prev = spec.order
+	}
+}
