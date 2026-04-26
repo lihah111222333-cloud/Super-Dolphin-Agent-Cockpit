@@ -24,7 +24,6 @@ import (
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	internalsqlc "github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -171,7 +170,7 @@ func newAgentThreadStore(pool *pgxpool.Pool) orchestration.AgentThreadStore {
 }
 
 func newAgentBindingStore(pool *pgxpool.Pool) orchestration.AgentBindingStore {
-	return bindingStoreAdapter{inner: bindingstore.NewStore(internalsqlc.New(pool))}
+	return bindingStoreAdapter{inner: bindingstore.NewStoreFromPool(pool)}
 }
 
 func registerPoolLifecycle(lc fx.Lifecycle, logger *slog.Logger, pool *pgxpool.Pool) {
