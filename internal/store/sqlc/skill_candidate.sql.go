@@ -129,17 +129,19 @@ func (q *Queries) InsertSkillCandidate(ctx context.Context, arg InsertSkillCandi
 const listPendingSkillCandidates = `-- name: ListPendingSkillCandidates :many
 SELECT id, scope, slug, content_hash, repo_fingerprint, status, skill_md, approved_by, approved_at, reason, redacted_sample, created_at FROM skill_candidates
 WHERE status = 'pending_review'
-ORDER BY created_at ASC, id ASC
-LIMIT $1 OFFSET $2
+  AND repo_fingerprint = $1
+ORDER BY created_at DESC, id DESC
+LIMIT $2 OFFSET $3
 `
 
 type ListPendingSkillCandidatesParams struct {
-	Limit  int32 `db:"limit" json:"limit"`
-	Offset int32 `db:"offset" json:"offset"`
+	RepoFingerprint string `db:"repo_fingerprint" json:"repo_fingerprint"`
+	Limit           int32  `db:"limit" json:"limit"`
+	Offset          int32  `db:"offset" json:"offset"`
 }
 
 func (q *Queries) ListPendingSkillCandidates(ctx context.Context, arg ListPendingSkillCandidatesParams) ([]SkillCandidate, error) {
-	rows, err := q.db.Query(ctx, listPendingSkillCandidates, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, listPendingSkillCandidates, arg.RepoFingerprint, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -237,6 +239,36 @@ func (q *Queries) MarkSkillCandidatePromoted(ctx context.Context, id int64) (Ski
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const markSkillCandidatesSuperseded = `-- name: MarkSkillCandidatesSuperseded :execrows
+UPDATE skill_candidates
+SET status = 'superseded'
+WHERE scope = $1
+  AND slug = $2
+  AND repo_fingerprint = $3
+  AND id <> $4
+  AND status = 'pending_review'
+`
+
+type MarkSkillCandidatesSupersededParams struct {
+	Scope           string `db:"scope" json:"scope"`
+	Slug            string `db:"slug" json:"slug"`
+	RepoFingerprint string `db:"repo_fingerprint" json:"repo_fingerprint"`
+	ID              int64  `db:"id" json:"id"`
+}
+
+func (q *Queries) MarkSkillCandidatesSuperseded(ctx context.Context, arg MarkSkillCandidatesSupersededParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markSkillCandidatesSuperseded,
+		arg.Scope,
+		arg.Slug,
+		arg.RepoFingerprint,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const rejectSkillCandidate = `-- name: RejectSkillCandidate :one

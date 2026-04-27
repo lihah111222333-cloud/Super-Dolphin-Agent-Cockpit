@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	parse "github.com/anthropic-ai/super-agent-v3/internal/module/memory/parse"
 )
 
 var ErrConsolidationAgentMemoryPath = errors.New("dream cannot access agent memory path")
@@ -114,7 +116,7 @@ func loadConsolidationIndexDocument(root string, cfg *Config) (consolidationDocu
 		}
 		return consolidationDocument{}, err
 	}
-	content := strings.TrimSpace(stripUTF8BOM(string(raw)))
+	content := strings.TrimSpace(parse.StripUTF8BOM(string(raw)))
 	if content == "" {
 		content = "(empty)"
 	}
@@ -180,7 +182,7 @@ func readConsolidationLogDocument(root string, cfg *Config, path string, d os.Di
 	}
 	return consolidationDocument{
 		Path:    relativeMemoryPath(root, validatedPath),
-		Content: strings.TrimSpace(stripUTF8BOM(string(raw))),
+		Content: strings.TrimSpace(parse.StripUTF8BOM(string(raw))),
 	}, true, nil
 }
 

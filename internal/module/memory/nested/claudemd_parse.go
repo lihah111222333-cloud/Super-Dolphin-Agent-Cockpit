@@ -3,19 +3,19 @@ package nested
 import (
 	"encoding/json"
 	"os"
-	"regexp"
 	"strings"
 
+	parse "github.com/anthropic-ai/super-agent-v3/internal/module/memory/parse"
 	"golang.org/x/text/unicode/norm"
 )
 
 func parseClaudeRuleContent(content string) (claudeRuleMetadata, string) {
-	frontmatter, body, ok := splitMemoryFrontmatter(stripUTF8BOM(content))
+	frontmatter, body, ok := parse.SplitFrontmatter(parse.StripUTF8BOM(content))
 	if !ok {
-		return claudeRuleMetadata{}, strings.TrimSpace(StripHTMLComments(content))
+		return claudeRuleMetadata{}, strings.TrimSpace(parse.StripHTMLComments(content))
 	}
 	metadata := parseClaudeRuleMetadata(frontmatter)
-	return metadata, strings.TrimSpace(StripHTMLComments(body))
+	return metadata, strings.TrimSpace(parse.StripHTMLComments(body))
 }
 
 func parseBoolEnv(key string, fallback bool) bool {
@@ -85,137 +85,4 @@ func parseStringList(raw string) []string {
 		}
 	}
 	return normalizeStringSlice(values)
-}
-
-func splitMemoryFrontmatter(content string) (string, string, bool) {
-	content = strings.ReplaceAll(content, "\r\n", "\n")
-	if !strings.HasPrefix(content, "---\n") {
-		return "", content, false
-	}
-	frontmatter, tail, ok := strings.Cut(content[4:], "\n---")
-	if !ok {
-		return "", content, false
-	}
-	return frontmatter, strings.TrimPrefix(tail, "\n"), true
-}
-
-func stripUTF8BOM(content string) string {
-	return strings.TrimPrefix(content, "\uFEFF")
-}
-
-var htmlCommentLinePattern = regexp.MustCompile(`<!--.*?-->`)
-
-func StripHTMLComments(content string) string {
-	stripped, _ := stripHTMLComments(content)
-	return stripped
-}
-
-func stripHTMLComments(content string) (string, bool) {
-	if !strings.Contains(content, "<!--") {
-		return content, false
-	}
-	state := &htmlCommentStripState{}
-	for _, line := range strings.SplitAfter(content, "\n") {
-		state.processLine(line)
-	}
-	if state.inComment {
-		state.builder.WriteString(state.pendingComment.String())
-	}
-	return state.builder.String(), state.stripped
-}
-
-type markdownFenceState struct {
-	open   bool
-	marker byte
-}
-
-type htmlCommentStripState struct {
-	fence          markdownFenceState
-	builder        strings.Builder
-	pendingComment strings.Builder
-	stripped       bool
-	inComment      bool
-}
-
-func (s *htmlCommentStripState) processLine(line string) {
-	if s.processPendingLine(line) {
-		return
-	}
-	if lineInMarkdownFence(&s.fence, line) {
-		s.builder.WriteString(line)
-		return
-	}
-	if !startsHTMLCommentBlock(line) {
-		s.builder.WriteString(line)
-		return
-	}
-	if s.stripInlineComment(line) {
-		return
-	}
-	s.pendingComment.WriteString(line)
-	s.inComment = true
-}
-
-func (s *htmlCommentStripState) processPendingLine(line string) bool {
-	if !s.inComment {
-		return false
-	}
-	s.pendingComment.WriteString(line)
-	_, residue, ok := strings.Cut(line, "-->")
-	if !ok {
-		return true
-	}
-	s.stripped = true
-	appendNonEmptyLine(&s.builder, residue)
-	s.pendingComment.Reset()
-	s.inComment = false
-	return true
-}
-
-func (s *htmlCommentStripState) stripInlineComment(line string) bool {
-	if !strings.Contains(line, "-->") {
-		return false
-	}
-	s.stripped = true
-	appendNonEmptyLine(&s.builder, htmlCommentLinePattern.ReplaceAllString(line, ""))
-	return true
-}
-
-func appendNonEmptyLine(builder *strings.Builder, line string) {
-	if strings.TrimSpace(line) == "" {
-		return
-	}
-	builder.WriteString(line)
-}
-
-func startsHTMLCommentBlock(line string) bool {
-	return strings.HasPrefix(strings.TrimLeft(line, " \t"), "<!--")
-}
-
-func lineInMarkdownFence(state *markdownFenceState, line string) bool {
-	marker, ok := markdownFenceMarker(line)
-	if state.open {
-		if ok && marker == state.marker {
-			state.open = false
-			state.marker = 0
-		}
-		return true
-	}
-	if !ok {
-		return false
-	}
-	state.open = true
-	state.marker = marker
-	return true
-}
-
-func markdownFenceMarker(line string) (byte, bool) {
-	trimmed := strings.TrimLeft(line, " \t")
-	if strings.HasPrefix(trimmed, "```") {
-		return '`', true
-	}
-	if strings.HasPrefix(trimmed, "~~~") {
-		return '~', true
-	}
-	return 0, false
 }

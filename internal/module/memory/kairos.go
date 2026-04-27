@@ -144,10 +144,19 @@ func kairosIntentTexts(evt turndto.TurnCompleted) []string {
 }
 
 func (h *MemoryLifecycleHooks) writeDetectedIntent(ctx context.Context, evt turndto.TurnCompleted, intent SaveIntent) error {
-	if written, err := h.tryAppendKairosDailyLog(ctx, evt, intent); written || err != nil {
+	written, err := h.tryAppendKairosDailyLog(ctx, evt, intent)
+	if err != nil {
 		return err
 	}
-	return h.writeIntent(ctx, evt.ThreadID, intent)
+	if written {
+		h.invalidateMemorySections()
+		return nil
+	}
+	if err := h.writeIntent(ctx, evt.ThreadID, intent); err != nil {
+		return err
+	}
+	h.invalidateMemorySections()
+	return nil
 }
 
 func (h *MemoryLifecycleHooks) tryAppendKairosDailyLog(ctx context.Context, evt turndto.TurnCompleted, intent SaveIntent) (bool, error) {

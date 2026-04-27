@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type claudeRuleMetadata struct {
@@ -58,8 +59,15 @@ func resolveClaudeMdCandidates(cfg ClaudeMdResolveConfig, gate GateSnapshot) []c
 	if !gate.BareMode || gate.HasAdditionalDirsForBare {
 		appendAdditionalDirClaudeMdCandidates(&candidates, seen, cfg)
 	}
-	appendMemoryEntrypointCandidate(&candidates, seen, sourceTypeAutoMem, sourceOriginAutoMem, autoMemRoot(cfg), "")
-	appendMemoryEntrypointCandidate(&candidates, seen, sourceTypeTeamMem, sourceOriginTeamMem, strings.TrimSpace(cfg.TeamMemPath), strings.TrimSpace(cfg.TeamMemEntrypoint))
+	// Phase 1.6: AutoMem / TeamMem MEMORY.md are NOT appended here anymore.
+	// MemoryEntrypointProvider (in the parent memory package) is the sole
+	// owner of the prompt-injected MEMORY.md; duplicating it through the
+	// ClaudeMd source pipeline produced double injection with divergent
+	// stripping rules (frontmatter was stripped only on the entrypoint path).
+	//
+	// Do NOT re-add via nested unless sanitization (BOM / frontmatter / HTML
+	// comments / truncation) and team secret scanning are unified with
+	// MemoryEntrypointProvider; otherwise the divergence regresses.
 	return candidates
 }
 
@@ -112,21 +120,6 @@ func appendRuleCandidates(candidates *[]claudeMdCandidate, seen map[string]struc
 	}
 }
 
-func appendMemoryEntrypointCandidate(candidates *[]claudeMdCandidate, seen map[string]struct{}, sourceType, origin, root, entrypoint string) {
-	root = strings.TrimSpace(root)
-	entrypoint = strings.TrimSpace(entrypoint)
-	if root == "" && entrypoint != "" {
-		root = filepath.Dir(entrypoint)
-	}
-	if root == "" {
-		return
-	}
-	if entrypoint == "" {
-		entrypoint = memoryIndexPath(root)
-	}
-	appendClaudeMdCandidateAtPath(candidates, seen, entrypoint, sourceType, origin, cleanClaudeMdPath(root), "", false)
-}
-
 func appendClaudeMdCandidateAtPath(candidates *[]claudeMdCandidate, seen map[string]struct{}, path, sourceType, origin, baseDir, ruleScope string, isRule bool) {
 	appendClaudeMdCandidate(candidates, seen, claudeMdCandidate{Path: path, Type: sourceType, Origin: origin, BaseDir: baseDir, RuleScope: ruleScope, IsRule: isRule})
 }
@@ -135,6 +128,24 @@ func appendClaudeMdCandidate(candidates *[]claudeMdCandidate, seen map[string]st
 	resolvedPath, digest, ok := resolveClaudeMdCandidatePath(candidate.Path)
 	if !ok {
 		return
+	}
+	// Phase 2.1.B: resolveClaudeMdCandidatePath EvalSymlinks the path but
+	// does NOT confirm the resolved location stays inside the candidate's
+	// intended base. A symlink at <baseDir>/CLAUDE.md pointing at
+	// /etc/passwd would otherwise enqueue an out-of-base file for nested
+	// injection. Resolve BaseDir through symlinks too (e.g. macOS /var
+	// -> /private/var) so the containment compare uses two canonical
+	// paths, then reject candidates whose resolved path escapes the
+	// resolved BaseDir. loadStandardClaudeMdSource performs the same check
+	// at load time as defense-in-depth.
+	if candidate.BaseDir != "" {
+		resolvedBase := candidate.BaseDir
+		if evaled, err := filepath.EvalSymlinks(candidate.BaseDir); err == nil {
+			resolvedBase = evaled
+		}
+		if !platformshared.ContainsPath(resolvedBase, resolvedPath) {
+			return
+		}
 	}
 	if _, exists := seen[resolvedPath]; exists {
 		return
@@ -240,10 +251,6 @@ func defaultUserClaudeMdRoot() string {
 		return ""
 	}
 	return cleanClaudeMdPath(filepath.Join(home, ".claude"))
-}
-
-func autoMemRoot(cfg ClaudeMdResolveConfig) string {
-	return cfg.Dependencies.autoMemRoot(cfg.BuildCtx)
 }
 
 func resolveTeamMemPath(team contract.TeamMemoryManager, buildCtx contract.BuildCtx) string {

@@ -23,13 +23,19 @@ type approveCandidateRPCParams struct {
 type rejectCandidateRPCParams struct {
 	CandidateID int64  `json:"candidate_id"`
 	Reason      string `json:"reason,omitempty"`
+	CWD         string `json:"cwd,omitempty"`
+}
+
+type getCandidateRPCParams struct {
+	CandidateID int64 `json:"candidate_id"`
 }
 
 type listPendingCandidatesRPCParams struct {
-	Limit  int32 `json:"limit,omitempty"`
-	Offset int32 `json:"offset,omitempty"`
+	Limit  int32  `json:"limit,omitempty"`
+	Offset int32  `json:"offset,omitempty"`
+	CWD    string `json:"cwd,omitempty"`
 }
 
 type listPendingCandidatesRPCResult struct {
-	Candidates []Candidate `json:"candidates"`
+	Candidates []CandidateListItem `json:"candidates"`
 }

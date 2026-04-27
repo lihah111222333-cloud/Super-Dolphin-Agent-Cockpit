@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -83,7 +84,7 @@ func TestBuildUIMemorySnapshotIncludesDurableAndAgentMemories(t *testing.T) {
 		t.Fatalf("WriteFile(user agent MEMORY.md) error = %v", err)
 	}
 
-	snapshot, err := buildUIMemorySnapshot(context.Background(), newServiceWithConsolidator(cfg, nil, nil, nil), projectRoot)
+	snapshot, err := buildUIMemorySnapshot(context.Background(), newServiceWithConsolidator(cfg, nil, nil, nil), nil, projectRoot)
 	if err != nil {
 		t.Fatalf("buildUIMemorySnapshot() error = %v", err)
 	}
@@ -297,7 +298,13 @@ func (s stubSharedFileReader) List(context.Context, sharedfilestore.ListFilter) 
 	return nil, nil
 }
 
+// recordingSectionInvalidator implements contract.SectionInvalidator with
+// the documented concurrent-safe contract; the mutex was added in Phase
+// 2.0.1 to match production behaviour. UI RPC paths fan out under the
+// shared section invalidator without external synchronization, so this
+// stub has to too.
 type recordingSectionInvalidator struct {
+	mu    sync.Mutex
 	calls []recordedInvalidateCall
 }
 
@@ -307,6 +314,8 @@ type recordedInvalidateCall struct {
 }
 
 func (r *recordingSectionInvalidator) InvalidateSections(reason contract.InvalidateReason, names ...string) uint64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.calls = append(r.calls, recordedInvalidateCall{reason: reason, names: append([]string(nil), names...)})
 	return uint64(len(r.calls))
 }

@@ -1,12 +1,10 @@
 package turn
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"path/filepath"
 	"regexp"
-	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/repofingerprint"
 )
 
 // Redactor is the second-pass redactor used by the skill extractor. Redact
@@ -45,8 +43,21 @@ func NewDefaultRedactor() *DefaultRedactor {
 	}{
 		{"bearer_token", `(?i)Bearer\s+[A-Za-z0-9\-._~+/]+=*`},
 		{"jwt", `eyJ[A-Za-z0-9_=\-]+\.[A-Za-z0-9_=\-]+\.?[A-Za-z0-9_.+/=\-]*`},
+		{"anthropic_api_key", `\bsk-ant-[A-Za-z0-9_-]{20,}\b`},
+		{"openai_api_key", `\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b`},
+		{"github_token", `\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{20,}\b`},
+		{"slack_token", `\bxox[baprs]-[A-Za-z0-9-]{10,}\b`},
+		{"aws_access_key_id", `\b(?:AKIA|ASIA)[A-Z0-9]{16}\b`},
+		{"google_api_key", `\bAIza[0-9A-Za-z_-]{35}\b`},
+		{"stripe_secret_key", `\bsk_(?:live|test)_[0-9A-Za-z]{16,}\b`},
+		{"npm_token", `\bnpm_[A-Za-z0-9]{36}\b`},
+		{"pypi_token", `\bpypi-[A-Za-z0-9_-]{20,}\b`},
+		{"private_key_header", `-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----`},
+		{"age_sops_header", `-----BEGIN AGE ENCRYPTED FILE-----`},
+		{"uri_credentials", `(?i)\b[a-z][a-z0-9+.-]*://[^/\s:@]+:[^/\s@]+@`},
+		{"ssh_public_key", `\bssh-(?:rsa|ed25519) [A-Za-z0-9+/=]{40,}`},
 		// credential env name followed by '=' or ':'; value runs to the next whitespace.
-		{"credential_env", `(?i)\b(OPENAI_API_KEY|ANTHROPIC_API_KEY|AWS_(?:SECRET_)?ACCESS_KEY(?:_ID)?|GITHUB_TOKEN|HF_TOKEN|HUGGINGFACE_TOKEN)\s*[=:]\s*\S+`},
+		{"credential_env", `(?i)\b(OPENAI_API_KEY|ANTHROPIC_API_KEY|AWS_(?:SECRET_)?ACCESS_KEY(?:_ID)?|GITHUB_TOKEN|HF_TOKEN|HUGGINGFACE_TOKEN|SLACK_(?:BOT_)?TOKEN|STRIPE_SECRET_KEY|GOOGLE_API_KEY|NPM_TOKEN|PYPI_TOKEN|DATABASE_URL|SENTRY_AUTH_TOKEN|DATABRICKS_TOKEN|AZURE_CLIENT_SECRET)\s*[=:]\s*\S+`},
 		// HTTP cookie header (Cookie / Set-Cookie).
 		{"http_cookie", `(?i)\b(?:Cookie|Set-Cookie)\s*:\s*[^\r\n]+`},
 		// Generic long hex / base64 blobs (32+ chars). long_hex is listed
@@ -86,23 +97,11 @@ func (r *DefaultRedactor) Redact(input string) (string, []string, error) {
 	return out, hits, nil
 }
 
-// RepoFingerprint derives a short, stable scope key from cwd: filepath.Abs
-// then sha256, kept to the first 12 hex chars. Empty / whitespace cwd
-// returns the empty string. The Step 5 review gate refuses an empty
-// fingerprint when scope == project, so leaking the empty value cannot
-// silently widen the scope. The function is colocated here so Step 5 can
-// share it without an import cycle.
+// RepoFingerprint derives the canonical 128-bit repo scope key. It delegates
+// to internal/platform/repofingerprint so turn, skill, cron, and insight code
+// share one implementation. Empty / whitespace cwd returns the empty string.
 func RepoFingerprint(cwd string) string {
-	cwd = strings.TrimSpace(cwd)
-	if cwd == "" {
-		return ""
-	}
-	abs, err := filepath.Abs(cwd)
-	if err != nil {
-		abs = cwd
-	}
-	sum := sha256.Sum256([]byte(abs))
-	return hex.EncodeToString(sum[:])[:12]
+	return repofingerprint.MustCompute(cwd)
 }
 
 // Compile-time assertion that *DefaultRedactor satisfies Redactor.

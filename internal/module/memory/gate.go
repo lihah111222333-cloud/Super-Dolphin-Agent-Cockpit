@@ -17,6 +17,19 @@ const (
 	AutoMemPathSourceEnv      AutoMemPathSource = "env"
 )
 
+// MemoryHarness identifies which underlying CLI harness Super-Dolphin is
+// embedded in. Values are intentionally internal — UI surfaces never receive
+// or display them. The dimension exists so memory providers can step aside
+// when the underlying CLI already runs its own equivalent memory pipeline
+// (overlay mode).
+type MemoryHarness string
+
+const (
+	MemoryHarnessGeneric    MemoryHarness = "generic"
+	MemoryHarnessClaudeCode MemoryHarness = "claude_code"
+	MemoryHarnessCodex      MemoryHarness = "codex"
+)
+
 type MemoryGateSnapshot struct {
 	AutoEnabled               bool
 	ForceEnabledByEnvFalsy    bool
@@ -34,12 +47,28 @@ type MemoryGateSnapshot struct {
 	TeamMemEnabled            bool
 	InjectMemoryIndex         bool
 	InjectTeamMemIndex        bool
-	EnableRelevantPrefetch    bool
-	SearchPastContextEnabled  bool
-	RequestedMemoryMode       MemoryMode
-	EffectiveMemoryMode       MemoryMode
-	AutoMemPathSource         AutoMemPathSource
-	TrustedAutoMemPathSource  TrustedPathSettingSource
+	// InjectPromptEntrypoint gates whether MemoryEntrypointProvider injects
+	// the rendered MEMORY.md block into the start prompt. Today it tracks
+	// InjectMemoryIndex (so suppression behaves identically), but it is its
+	// own field so future overlay-light modes can disable just the prompt
+	// entrypoint while keeping the underlying memory store live.
+	InjectPromptEntrypoint   bool
+	EnableRelevantPrefetch   bool
+	SearchPastContextEnabled bool
+	RequestedMemoryMode      MemoryMode
+	EffectiveMemoryMode      MemoryMode
+	AutoMemPathSource        AutoMemPathSource
+	TrustedAutoMemPathSource TrustedPathSettingSource
+	Harness                  MemoryHarness
+}
+
+// SuppressForOverlay reports whether Super-Dolphin's memory providers should
+// step aside because the underlying CLI already runs its own complete memory
+// pipeline. Today this fires only when the harness is identified as
+// claude_code; the dimension is shaped so additional overlay-capable
+// harnesses can be added without re-plumbing call sites.
+func (s MemoryGateSnapshot) SuppressForOverlay() bool {
+	return s.Harness == MemoryHarnessClaudeCode
 }
 
 type RelevantPrefetchSurfacedState struct {
@@ -53,8 +82,10 @@ func resolveMemoryGate(buildCtx contract.BuildCtx, cfg *Config) MemoryGateSnapsh
 	snapshot.RequestedMemoryMode = selectRequestedMemoryMode(snapshot)
 	snapshot.KairosActive = snapshot.AutoEnabled && snapshot.RequestedMemoryMode == MemoryModeKairos
 	snapshot.EffectiveMemoryMode = effectiveMemoryMode(snapshot.RequestedMemoryMode)
-	snapshot.InjectMemoryIndex = snapshot.AutoEnabled && !snapshot.SkipIndex
-	snapshot.InjectTeamMemIndex = snapshot.AutoEnabled && snapshot.TeamMemEnabled && !snapshot.SkipIndex && !snapshot.KairosActive
+	overlay := snapshot.SuppressForOverlay()
+	snapshot.InjectMemoryIndex = snapshot.AutoEnabled && !snapshot.SkipIndex && !overlay
+	snapshot.InjectTeamMemIndex = snapshot.AutoEnabled && snapshot.TeamMemEnabled && !snapshot.SkipIndex && !snapshot.KairosActive && !overlay
+	snapshot.InjectPromptEntrypoint = snapshot.InjectMemoryIndex
 	snapshot.EnableRelevantPrefetch = resolveRelevantPrefetchGate(snapshot)
 	return snapshot
 }
@@ -83,6 +114,31 @@ func baseMemoryGateSnapshot(buildCtx contract.BuildCtx, cfg *Config) MemoryGateS
 		SearchPastContextEnabled:  resolveFeatureFlag(buildCtx, cfg.Features.SearchPastContext, "search_past_context", "searchPastContext"),
 		AutoMemPathSource:         pathSource,
 		TrustedAutoMemPathSource:  trustedSource,
+		Harness:                   resolveHarnessFromConfig(cfg),
+	}
+}
+
+// resolveHarnessFromConfig prefers the value frozen at NewConfig time and
+// falls back to a live env read only when cfg.Harness is empty. The contract
+// for that fallback (tests-only, never relied on by production code) is
+// documented at the Config.Harness field declaration; do not duplicate it
+// here.
+func resolveHarnessFromConfig(cfg *Config) MemoryHarness {
+	if cfg != nil && cfg.Harness != "" {
+		return cfg.Harness
+	}
+	return resolveMemoryHarness()
+}
+
+func resolveMemoryHarness() MemoryHarness {
+	raw := strings.ToLower(strings.TrimSpace(os.Getenv(envHarnessKind)))
+	switch raw {
+	case "claude_code", "claude-code", "claudecode":
+		return MemoryHarnessClaudeCode
+	case "codex":
+		return MemoryHarnessCodex
+	default:
+		return MemoryHarnessGeneric
 	}
 }
 
@@ -114,6 +170,9 @@ func resolveFeatureFlag(buildCtx contract.BuildCtx, enabled bool, names ...strin
 
 func resolveRelevantPrefetchGate(snapshot MemoryGateSnapshot) bool {
 	if !snapshot.AutoEnabled {
+		return false
+	}
+	if snapshot.SuppressForOverlay() {
 		return false
 	}
 	return snapshot.SkipIndex

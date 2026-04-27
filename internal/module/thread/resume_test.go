@@ -859,17 +859,25 @@ func (s *stubBindingStore) GetByProviderThread(_ context.Context, provider, prov
 func (s *stubBindingStore) Upsert(_ context.Context, params bindingstore.UpsertParams) error {
 	s.upsert = params
 	s.upserts = append(s.upserts, params)
+	// fixture 与 production sqlc Upsert 15 字段对齐，防止 verifyThreadBinding
+	// 下游读到空字段产生 mismatch。B-4.7 仅修 prompt 模块 fixture，
+	// reviewer 反审指出本 fixture 同样漂移，本 commit 补全。
 	s.binding = &bindingstore.Binding{
 		AgentID:            params.AgentID,
 		Provider:           params.Provider,
 		ProviderThreadID:   params.ProviderThreadID,
 		CodexThreadID:      params.CodexThreadID,
+		RolloutPath:        params.RolloutPath,
 		Cwd:                params.Cwd,
-		CreatedAt:          params.CreatedAt,
-		UpdatedAt:          params.UpdatedAt,
+		ParentAgentID:      params.ParentAgentID,
+		AgentType:          params.AgentType,
+		AgentMemoryScope:   params.AgentMemoryScope,
+		SessionUUID:        params.SessionUUID,
 		CodexHome:          params.CodexHome,
 		CodexInstanceKey:   params.CodexInstanceKey,
 		CodexModelProvider: params.CodexModelProvider,
+		CreatedAt:          params.CreatedAt,
+		UpdatedAt:          params.UpdatedAt,
 	}
 	return nil
 }

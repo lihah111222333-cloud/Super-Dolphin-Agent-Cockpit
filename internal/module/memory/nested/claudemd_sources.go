@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"os"
 	"strings"
 	"sync"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+
+	parse "github.com/anthropic-ai/super-agent-v3/internal/module/memory/parse"
+	memshared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 )
 
 const (
@@ -45,6 +47,14 @@ type GateSnapshot struct {
 	SkipProjectLocalClaudeMd bool
 	InjectMemoryIndex        bool
 	InjectTeamMemIndex       bool
+	// SuppressForOverlay mirrors MemoryGateSnapshot.SuppressForOverlay() into
+	// the nested-package gate so claudeMd source loading lets the underlying
+	// CLI harness's native CLAUDE.md handling take over (claude_code overlay).
+	// Today the rendered claudeMd output is dropped before reaching providers
+	// (start_session_helpers.go drops UserContext / UserContextText), so this
+	// short-circuit is defense-in-depth: if a provider ever re-consumes
+	// UserContextText, claude_code overlay must not double-inject CLAUDE.md.
+	SuppressForOverlay bool
 }
 
 type Dependencies struct {
@@ -167,7 +177,7 @@ func ResolveClaudeMdSources(ctx context.Context, cfg ClaudeMdResolveConfig) []Cl
 }
 
 func shouldDisableClaudeMdSources(gate GateSnapshot) bool {
-	return gate.DisableClaudeMds || (gate.BareMode && !gate.HasAdditionalDirsForBare)
+	return gate.SuppressForOverlay || gate.DisableClaudeMds || (gate.BareMode && !gate.HasAdditionalDirsForBare)
 }
 
 func FilterInjectedMemoryFiles(sources []ClaudeMdSource, buildCtx contract.BuildCtx, gate GateSnapshot, excludes []string) []ClaudeMdSource {
@@ -251,25 +261,32 @@ func loadClaudeMdSources(ctx context.Context, candidates []claudeMdCandidate) []
 }
 
 func loadClaudeMdSource(candidate claudeMdCandidate) (ClaudeMdSource, bool) {
-	switch candidate.Type {
-	case sourceTypeAutoMem, sourceTypeTeamMem:
-		return loadMemoryClaudeMdSource(candidate)
-	default:
-		return loadStandardClaudeMdSource(candidate)
-	}
+	// Phase 1.6 removed AutoMem / TeamMem MEMORY.md from the nested
+	// ClaudeMd candidate set, so loadMemoryClaudeMdSource is no longer
+	// reachable from production. The shared filter (shouldSkipInjectedSource)
+	// also rejects those source types defensively. All remaining nested
+	// sources go through loadStandardClaudeMdSource.
+	return loadStandardClaudeMdSource(candidate)
 }
 
 func loadStandardClaudeMdSource(candidate claudeMdCandidate) (ClaudeMdSource, bool) {
-	raw, err := os.ReadFile(candidate.Path)
+	// Phase 2.1.A: defense-in-depth read. Even though appendClaudeMdCandidate
+	// already verified the candidate path stays under BaseDir post-EvalSymlinks,
+	// re-check at load time so a symlink swapped between candidate-time and
+	// load-time still cannot redirect the read outside BaseDir.
+	if candidate.BaseDir == "" {
+		return ClaudeMdSource{}, false
+	}
+	raw, _, err := memshared.SafeReadEntrypoint(candidate.BaseDir, candidate.Path)
 	if err != nil {
 		return ClaudeMdSource{}, false
 	}
-	content := stripUTF8BOM(string(raw))
+	content := parse.StripUTF8BOM(string(raw))
 	metadata := claudeRuleMetadata{}
 	if candidate.IsRule {
 		metadata, content = parseClaudeRuleContent(content)
 	} else {
-		content = strings.TrimSpace(StripHTMLComments(content))
+		content = strings.TrimSpace(parse.StripHTMLComments(content))
 	}
 	if strings.TrimSpace(content) == "" {
 		return ClaudeMdSource{}, false
@@ -285,25 +302,5 @@ func loadStandardClaudeMdSource(candidate claudeMdCandidate) (ClaudeMdSource, bo
 		BaseDir:     candidate.BaseDir,
 		RuleScope:   candidate.RuleScope,
 		Digest:      candidate.Digest,
-	}, true
-}
-
-func loadMemoryClaudeMdSource(candidate claudeMdCandidate) (ClaudeMdSource, bool) {
-	raw, err := os.ReadFile(candidate.Path)
-	if err != nil {
-		return ClaudeMdSource{}, false
-	}
-	content := strings.TrimSpace(StripHTMLComments(stripUTF8BOM(string(raw))))
-	if content == "" {
-		return ClaudeMdSource{}, false
-	}
-	return ClaudeMdSource{
-		Path:      candidate.Path,
-		Content:   content,
-		Type:      candidate.Type,
-		Origin:    candidate.Origin,
-		BaseDir:   candidate.BaseDir,
-		RuleScope: candidate.RuleScope,
-		Digest:    candidate.Digest,
 	}, true
 }

@@ -250,7 +250,7 @@ func truncateRedactedSample(sample string) string {
 }
 
 func (e *DefaultExtractor) insertExtractedSkill(ctx context.Context, t Trajectory, extracted *ExtractedSkill) (bool, error) {
-	_, err := e.store.Insert(ctx, skillcandidate.InsertParams{
+	created, err := e.store.Insert(ctx, skillcandidate.InsertParams{
 		Scope:           extracted.Scope,
 		Slug:            extracted.Slug,
 		ContentHash:     extracted.ContentHash,
@@ -259,6 +259,11 @@ func (e *DefaultExtractor) insertExtractedSkill(ctx context.Context, t Trajector
 		RedactedSample:  extracted.Sample,
 	})
 	if err == nil {
+		if _, supersedeErr := e.store.MarkSuperseded(ctx, extracted.Scope, extracted.Slug, extracted.RepoFingerprint, created.ID); supersedeErr != nil {
+			e.Metrics.incInsertFailed()
+			e.logger.Error("extractor: candidate supersede failed", "turn_id", t.TurnID, "error", supersedeErr)
+			return false, supersedeErr
+		}
 		return true, nil
 	}
 	if isUniqueViolation(err) {

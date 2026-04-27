@@ -69,7 +69,7 @@ type TokenSnapshot struct {
 // observation -> collector -> downstream consumer.
 type Collector struct {
 	mu       sync.Mutex
-	contract observation.Contract
+	contract observation.ObservationReader
 	logger   *pkglogger.Logger
 
 	// turnID -> partial trajectory accumulated until terminal arrives.
@@ -103,7 +103,7 @@ type partialTrajectory struct {
 // when observation is not wired in the deployment; in that case the
 // collector still accepts events but materialized trajectories carry no
 // terminal / token / skills data.
-func NewTrajectoryCollector(contract observation.Contract, logger *pkglogger.Logger) *Collector {
+func NewTrajectoryCollector(contract observation.ObservationReader, logger *pkglogger.Logger) *Collector {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -216,19 +216,6 @@ func (c *Collector) onToolCallBegin(ev tooldto.ToolCallBegin) {
 	if callID == "" || turnID == "" {
 		return
 	}
-	if c.contract != nil {
-		// AttributeCall is idempotent against repeated identical writes,
-		// and observation's own subscriber may run before or after this
-		// one depending on dispatcher fan-out order. Calling here keeps
-		// LookupCall correct regardless of ordering.
-		c.contract.AttributeCall(callID, turnID)
-		// Use a collector-private dedupe key so observation's own
-		// (callID, "") gate is not consumed and still gates its
-		// IncrementToolCalls path.
-		if !c.contract.Dedupe(observation.DedupeKey{CallID: callID, Key: "begin-traj"}) {
-			return
-		}
-	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if _, done := c.drained[turnID]; done {
@@ -250,9 +237,6 @@ func (c *Collector) onToolCallBegin(ev tooldto.ToolCallBegin) {
 func (c *Collector) onToolCallEnd(ev tooldto.ToolCallEnd) {
 	callID := strings.TrimSpace(ev.CallID)
 	if callID == "" {
-		return
-	}
-	if !c.acceptToolCallEnd(callID) {
 		return
 	}
 	turnID := c.toolCallEndTurnID(callID, ev.TurnID)
@@ -282,13 +266,6 @@ func (c *Collector) onToolCallEnd(ev tooldto.ToolCallEnd) {
 	if tc.Name == "" {
 		tc.Name = strings.TrimSpace(ev.ToolName)
 	}
-}
-
-func (c *Collector) acceptToolCallEnd(callID string) bool {
-	if c.contract == nil {
-		return true
-	}
-	return c.contract.Dedupe(observation.DedupeKey{CallID: callID, Key: "end-traj"})
 }
 
 func (c *Collector) toolCallEndTurnID(callID, rawTurnID string) string {
@@ -407,7 +384,7 @@ func (c *Collector) ensurePartialLocked(turnID string) *partialTrajectory {
 // SubscribeTrajectory mounts every collector handler onto dispatcher and
 // returns a single cancel that tears them all down. dispatcher==nil or
 // c==nil yields a no-op cancel.
-func SubscribeTrajectory(dispatcher *event.Dispatcher, c *Collector, contract observation.Contract, logger *pkglogger.Logger) context.CancelFunc {
+func SubscribeTrajectory(dispatcher *event.Dispatcher, c *Collector, contract observation.ObservationReader, logger *pkglogger.Logger) context.CancelFunc {
 	if dispatcher == nil || c == nil {
 		return func() {}
 	}
@@ -432,7 +409,7 @@ func SubscribeTrajectory(dispatcher *event.Dispatcher, c *Collector, contract ob
 // NewTrajectorySubscribers is the fx provider that exposes the collector's
 // bus subscriptions through the platform SubscriberGroup. It mirrors
 // observation.NewObservationSubscribers; BusModule owns lifecycle.
-func NewTrajectorySubscribers(c *Collector, contract observation.Contract, logger *pkglogger.Logger) platformbus.SubscriberResult {
+func NewTrajectorySubscribers(c *Collector, contract observation.ObservationReader, logger *pkglogger.Logger) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
 		Spec: platformbus.SubscriberSpec{
 			EventType:     "turn.trajectory",

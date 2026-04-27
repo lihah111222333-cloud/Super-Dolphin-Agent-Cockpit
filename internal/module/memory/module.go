@@ -34,12 +34,13 @@ type RootManager struct {
 type promptProviderParams struct {
 	fx.In
 
-	Registry          contract.DynamicSectionRegistrar         `optional:"true"`
-	ClaudeMdRegistrar contract.ClaudeMdSourceProviderRegistrar `optional:"true"`
-	ClaudeMdProvider  contract.ClaudeMdSourceProvider          `optional:"true"`
-	Provider          *MemoryRulesProvider                     `optional:"true"`
-	AgentProvider     *memagent.PromptProvider                 `optional:"true"`
-	ContextProvider   *MemoryContextProvider                   `optional:"true"`
+	Registry           contract.DynamicSectionRegistrar         `optional:"true"`
+	ClaudeMdRegistrar  contract.ClaudeMdSourceProviderRegistrar `optional:"true"`
+	ClaudeMdProvider   contract.ClaudeMdSourceProvider          `optional:"true"`
+	Provider           *MemoryRulesProvider                     `optional:"true"`
+	EntrypointProvider *MemoryEntrypointProvider                `optional:"true"`
+	AgentProvider      *memagent.PromptProvider                 `optional:"true"`
+	ContextProvider    *MemoryContextProvider                   `optional:"true"`
 }
 
 type memoryHandlerDeps struct {
@@ -49,6 +50,7 @@ type memoryHandlerDeps struct {
 	SharedFiles        sharedfilestore.Reader      `optional:"true"`
 	SharedFilesDeleter sharedfilestore.Deleter     `optional:"true"`
 	Sections           contract.SectionInvalidator `optional:"true"`
+	Logger             *slog.Logger                `optional:"true"`
 }
 
 type historySource interface {
@@ -213,6 +215,7 @@ func provideNestedDependencies(cfg *Config) nestedpkg.Dependencies {
 				SkipProjectLocalClaudeMd: snapshot.SkipProjectLocalClaudeMd,
 				InjectMemoryIndex:        snapshot.InjectMemoryIndex,
 				InjectTeamMemIndex:       snapshot.InjectTeamMemIndex,
+				SuppressForOverlay:       snapshot.SuppressForOverlay(),
 			}
 		},
 		AutoMemRoot: func(buildCtx contract.BuildCtx) string {
@@ -266,6 +269,7 @@ var Module = fx.Module("memory",
 		NewMemoryHandlers,
 		NewMemoryRuleEngine,
 		NewRulesProvider,
+		NewEntrypointProvider,
 		NewContextProvider,
 		AsTurnContextProvider,
 		provideDreamExtractFunc,

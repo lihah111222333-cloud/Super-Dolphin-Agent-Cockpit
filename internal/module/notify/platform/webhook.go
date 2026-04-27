@@ -20,9 +20,10 @@ const DefaultTimeout = 10 * time.Second
 // ErrDisallowedScheme / ErrDisallowedAddress / ErrInvalidURL surface
 // SSRF-relevant rejections so callers / tests can branch on them.
 var (
-	ErrDisallowedScheme  = errors.New("notify: only https scheme is allowed")
-	ErrDisallowedAddress = errors.New("notify: target address is disallowed")
-	ErrInvalidURL        = errors.New("notify: invalid webhook url")
+	ErrDisallowedScheme    = errors.New("notify: only https scheme is allowed")
+	ErrDisallowedAddress   = errors.New("notify: target address is disallowed")
+	ErrInvalidURL          = errors.New("notify: invalid webhook url")
+	ErrIPv6ZoneIDForbidden = errors.New("notify: ipv6 zone id is forbidden")
 )
 
 // WebhookClientConfig is an optional knob bag for NewWebhookClient.
@@ -94,7 +95,7 @@ func NewWebhookClient(cfg WebhookClientConfig) *WebhookClient {
 				if err := validateHTTPSURL(req.URL); err != nil {
 					return err
 				}
-				return nil
+				return validateRedirectTarget(req.Context(), req.URL, cfg.AllowPrivateCIDR)
 			},
 		},
 		userAgent:        ua,
@@ -155,6 +156,35 @@ func validateHTTPSURL(u *url.URL) error {
 	}
 	if strings.TrimSpace(u.Host) == "" {
 		return fmt.Errorf("%w: empty host", ErrInvalidURL)
+	}
+	if strings.Contains(u.Hostname(), "%") {
+		return fmt.Errorf("%w: %s", ErrIPv6ZoneIDForbidden, u.Hostname())
+	}
+	return nil
+}
+
+func validateRedirectTarget(ctx context.Context, u *url.URL, allowPrivateCIDR bool) error {
+	if err := validateHTTPSURL(u); err != nil {
+		return err
+	}
+	host := strings.TrimSpace(u.Hostname())
+	if host == "" {
+		return fmt.Errorf("%w: empty host", ErrInvalidURL)
+	}
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+	if err != nil {
+		return err
+	}
+	if len(ips) == 0 {
+		return fmt.Errorf("%w: %s resolved no addresses", ErrDisallowedAddress, host)
+	}
+	if allowPrivateCIDR {
+		return nil
+	}
+	for _, ip := range ips {
+		if isBlockedIP(ip) {
+			return fmt.Errorf("%w: %s", ErrDisallowedAddress, ip.String())
+		}
 	}
 	return nil
 }
