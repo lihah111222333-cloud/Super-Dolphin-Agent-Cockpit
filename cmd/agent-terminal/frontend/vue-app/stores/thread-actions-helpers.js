@@ -9,6 +9,7 @@ import {
   PREF_ARCHIVED_THREADS_CHAT,
 } from './thread-preference.model.js';
 import { _optimisticThreadIds, OPTIMISTIC_LEAK_GUARD_MS } from './thread-optimistic.js';
+import { CODEX_IDENTITY_DEFAULTS, normalizeProviderConfigValue } from '../provider-config-options.js';
 
 function isSessionNotAvailableError(err) {
   const msg = (err?.message || err?.cause?.message || '').toString().toLowerCase();
@@ -31,6 +32,19 @@ function providerPreferenceScope(provider) {
   if (value === 'codex') return 'codex';
   if (value === 'claude' || value.startsWith('claude-')) return 'claude';
   return value;
+}
+
+function normalizeCodexIdentityValue(value, fallback) {
+  if (typeof value === 'boolean') return fallback;
+  return normalizeProviderConfigValue(value) || fallback;
+}
+
+function buildCodexIdentityConfig(home, instanceKey, modelProvider) {
+  return {
+    codexHome: normalizeCodexIdentityValue(home, CODEX_IDENTITY_DEFAULTS.codexHome),
+    codexInstanceKey: normalizeCodexIdentityValue(instanceKey, CODEX_IDENTITY_DEFAULTS.codexInstanceKey),
+    codexModelProvider: normalizeCodexIdentityValue(modelProvider, CODEX_IDENTITY_DEFAULTS.codexModelProvider),
+  };
 }
 
 function normalizeOptimisticAttachment(attachment) {
@@ -409,16 +423,31 @@ export async function startThread(ctx, cwd = '.', options = {}) {
     throw new Error('startThread: settings.provider.active preference is empty — cannot determine provider. Please select a provider in Settings.');
   }
   const providerScope = providerPreferenceScope(modelProvider);
-  const [providerModelPref, providerEffortPref] = providerScope ? await Promise.all([
+  const isCodexProvider = providerScope === 'codex';
+  const [
+    providerModelPref,
+    providerEffortPref,
+    codexHomePref,
+    codexInstanceKeyPref,
+    codexModelProviderPref,
+  ] = providerScope ? await Promise.all([
     getPref({ key: `settings.provider.${providerScope}.model`, cwd }),
     getPref({ key: `settings.provider.${providerScope}.effort`, cwd }),
-  ]) : [undefined, undefined];
-  const providerModel = typeof providerModelPref === 'string' ? providerModelPref.trim() : '';
-  const providerEffort = typeof providerEffortPref === 'string' ? providerEffortPref.trim() : '';
+    isCodexProvider ? getPref({ key: 'settings.provider.codex.codexHome', cwd }) : Promise.resolve(undefined),
+    isCodexProvider ? getPref({ key: 'settings.provider.codex.codexInstanceKey', cwd }) : Promise.resolve(undefined),
+    isCodexProvider ? getPref({ key: 'settings.provider.codex.codexModelProvider', cwd }) : Promise.resolve(undefined),
+  ]) : [undefined, undefined, undefined, undefined, undefined];
+  const providerModel = normalizeProviderConfigValue(providerModelPref);
+  const providerEffort = normalizeProviderConfigValue(providerEffortPref);
   // p20.3 §4.3：launch payload 可携带 UI 已知的 skill 选择。空数组 / false 不下发，
   // 完全对旧 payload 做 additive 兼容；名称与 send path 对齐（selectedSkills /
   // manualSkillSelection）。backend 的 rpc_types.go 同时兼容 snake_case 别名。
   const payload = { cwd, modelProvider };
+  if (isCodexProvider) {
+    // Codex pool routing is strict by default; always make the identity
+    // explicit in thread/start instead of relying on process-level env fallback.
+    payload.config = buildCodexIdentityConfig(codexHomePref, codexInstanceKeyPref, codexModelProviderPref);
+  }
   // Provider model/effort forwarding: caller override > settings preference.
   // Without this the backend startParams.Model / Effort stay empty and codex
   // provider falls back to its own defaults — which forces every new thread
