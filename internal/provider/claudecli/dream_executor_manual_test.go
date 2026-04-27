@@ -4,7 +4,8 @@
 // 端到端验证 dream_executor wrapper 链路。
 //
 // 跑法：
-//   go test -tags=manual -run TestManualClaudeDreamPipeline -v ./internal/provider/claudecli/
+//
+//	go test -tags=manual -run TestManualClaudeDreamPipeline -v ./internal/provider/claudecli/
 //
 // 不带 -tags=manual 不会编译，CI 自动跳过。
 package claudecli
@@ -15,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/pkg/dreammetrics"
 )
 
 // minimalConsolidationPrompt 模拟 consolidation_prompt.go 的 JSON 契约要求。
@@ -34,6 +37,9 @@ func TestManualClaudeDreamPipeline(t *testing.T) {
 	// 5min timeout 与 dispatcher 默认对齐
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+
+	dreammetrics.ResetForTesting()
+	t.Cleanup(dreammetrics.ResetForTesting)
 
 	// 使用生产构造器（commander=nil → NewRealCommander，binary 走 resolveBinaryPath）
 	exec := newDreamExecutor(nil, "", "")
@@ -62,6 +68,9 @@ func TestManualClaudeDreamPipeline(t *testing.T) {
 		t.Fatalf("expected valid JSON envelope, got parse error: %v\nraw: %s", err, got)
 	}
 	t.Logf("parsed envelope: memories=%d items", len(envelope.Memories))
+	if got := dreammetrics.TokensInput(); got == 0 {
+		t.Errorf("TokensInput() = %d, want > 0 (claude usage should be recorded)", got)
+	}
 
 	// 验证 3: parseExtractedMemories 兼容（使用 memory 模块的真实 parser 验证 JSON 契约）
 	// 注：parseExtractedMemories 在 internal/module/memory，这里只验证 JSON 结构兼容性
