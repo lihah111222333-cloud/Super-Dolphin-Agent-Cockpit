@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/dreamexec"
+	"github.com/anthropic-ai/super-agent-v3/pkg/dreammetrics"
 )
 
 const (
@@ -65,7 +66,9 @@ func (e dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string,
 		return "", err
 	}
 	// codex exec 是 non-interactive 子命令（见 `codex --help` "Commands: exec"）
-	args := []string{"exec"}
+	// --json 输出 JSONL stream（含 agent_message + turn.completed.usage），供
+	// dreamexec.Run 自动探测后走 ExtractCodexJSONL；usage 由 OnUsage 路由到 dreammetrics。
+	args := []string{"exec", "--json"}
 	if e.model != "" {
 		args = append(args, "--model", e.model)
 	}
@@ -75,6 +78,9 @@ func (e dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string,
 		Prompt:         prompt,
 		MaxStdoutBytes: dreamMaxStdoutBytes,
 		MaxRetries:     dreamMaxRetries,
+		OnUsage: func(usage dreamexec.TokenUsage) {
+			dreammetrics.AddTokens(usage.InputTokens, usage.OutputTokens, usage.CacheReadTokens)
+		},
 	})
 	if err != nil {
 		if errors.Is(err, dreamexec.ErrBinaryNotAvailable) {

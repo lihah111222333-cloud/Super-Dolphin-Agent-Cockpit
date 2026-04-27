@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/dreamexec"
+	"github.com/anthropic-ai/super-agent-v3/pkg/dreammetrics"
 )
 
 // capturingCommander 记录最后一次调用的 binary/args/input。
@@ -54,8 +55,14 @@ func TestCodexDreamExecutor_SuccessReturnsExtractedJSON(t *testing.T) {
 	if c.lastInput != "consolidate" {
 		t.Errorf("input: got %q, want 'consolidate'", c.lastInput)
 	}
-	if len(c.lastArgs) != 1 || c.lastArgs[0] != "exec" {
-		t.Errorf("args without model: got %v, want [exec]", c.lastArgs)
+	wantArgs := []string{"exec", "--json"}
+	if len(c.lastArgs) != len(wantArgs) {
+		t.Fatalf("args without model: got %v, want %v", c.lastArgs, wantArgs)
+	}
+	for i, want := range wantArgs {
+		if c.lastArgs[i] != want {
+			t.Errorf("args[%d]: got %q, want %q", i, c.lastArgs[i], want)
+		}
 	}
 }
 
@@ -65,7 +72,7 @@ func TestCodexDreamExecutor_ModelEnvAddsArgs(t *testing.T) {
 	if _, err := exec.ExecuteDream(context.Background(), "p"); err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
-	want := []string{"exec", "--model", "gpt-5-codex"}
+	want := []string{"exec", "--json", "--model", "gpt-5-codex"}
 	if len(c.lastArgs) != len(want) {
 		t.Fatalf("args: got %v, want %v", c.lastArgs, want)
 	}
@@ -73,6 +80,26 @@ func TestCodexDreamExecutor_ModelEnvAddsArgs(t *testing.T) {
 		if c.lastArgs[i] != a {
 			t.Fatalf("args[%d]: got %q, want %q", i, c.lastArgs[i], a)
 		}
+	}
+}
+
+// TestCodexDreamExecutor_JSONLUsageIncrementsDreamMetrics 验证完整流路：
+// JSONL stream -> dreamexec 探测 -> ExtractCodexJSONL -> OnUsage -> dreammetrics.AddTokens。
+// codex usage 语义：input_tokens 已含 cached（OpenAI 惯例），无 cache_creation。
+func TestCodexDreamExecutor_JSONLUsageIncrementsDreamMetrics(t *testing.T) {
+	dreammetrics.ResetForTesting()
+	t.Cleanup(dreammetrics.ResetForTesting)
+	jsonl := "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"{\\\"memories\\\":[]}\"}}\n" +
+		"{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":10,\"cached_input_tokens\":3,\"output_tokens\":5}}\n"
+	c := &capturingCommander{outputs: []string{jsonl}}
+	exec := newDreamExecutor(c, "codex", "")
+	if _, err := exec.ExecuteDream(context.Background(), "p"); err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	// TokensInput = input_tokens (=10)、TokensOutput = output_tokens (=5)、TokensCacheRead = cached_input_tokens (=3)
+	snap := dreammetrics.Read()
+	if snap.TokensInputTotal != 10 || snap.TokensOutputTotal != 5 || snap.TokensCacheReadTotal != 3 {
+		t.Fatalf("dream token metrics = %+v, want input=10 output=5 cacheRead=3", snap)
 	}
 }
 
