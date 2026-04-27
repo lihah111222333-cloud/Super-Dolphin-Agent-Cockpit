@@ -528,10 +528,10 @@ Phase 3 硬性 red gates（任一不满足不得正式化 Summary default policy
    - cwd_missing：任一 5min 窗口非零需要 WARN 或 ticket，因为它通常表示 agentId/cwd binding 漂移。
    - approval_required：持续堆积且无 approved/denied/timeout 结论时报警，避免 UI approval 链断开后模型反复调用。
    - enrich_failure：非零即报警或至少 WARN，因为它代表 tool call params 协议漂移。
-3. **P25-HIGH-02c：默认 discovery smoke**
+3. ✅ **P25-HIGH-02c：默认 discovery smoke**（2026-04-27 已落地）
    - `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=false`：默认不注册全量 catalog，只保留 selected/name-only path。
    - `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=true`：`SkillCatalogProvider` 渲染 Core / Native / Manual-only / Untrusted 分组；untrusted metadata redaction 回归必须保持绿。
-   - 验收：`TestSkillProgressiveDisclosure_DefaultDisabled`、`TestSkillProgressiveDisclosure_EnableFlagRendersCatalog`、`TestSkillCatalogProvider_GroupsNativeTrustedRedacted` 或等价测试。
+   - 验收：`TestSkillProgressiveDisclosure_DefaultDisabled`、`TestSkillProgressiveDisclosure_EnableFlagRendersCatalog`、`TestSkillCatalogProvider_GroupsNativeTrustedRedacted` 已覆盖。
 4. **P25-HIGH-02d：rollout observation 记录模板**
    - 记录字段：日期、版本/commit、开关状态、总 calls、ok/error/cwd_missing/approval_required、enrich_failure、人工 smoke 结论、回滚演练结果。
    - 观察窗口：默认策略切换前至少 30 天；若无真实流量，必须标记为“无样本”，不能把 0 error 当 99% 成功率。
@@ -744,7 +744,7 @@ shadowed_by，避免同名冲突静默消失。仍保留的长期选项是为 ho
 
 仍保留 red gates / 决策项：
 
-- [ ] **BUSINESS BLOCKED**：全量 skill discovery 默认未启用；`ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=false` 时模型只能看到 selected/name-only skill，不会默认获得完整 catalog。默认开启需等待 discovery / observability / rollout gates。
+- [ ] **BUSINESS BLOCKED**：全量 skill discovery 默认未启用；`ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=false` 时模型只能看到 selected/name-only skill，不会默认获得完整 catalog。默认开启的 discovery smoke 已补，仍需 observability / rollout gates。
 - [ ] **BUSINESS BLOCKED**：显式 Full 仍 eager 注入完整 body；这是兼容设计，但产品/迁移策略需确认是否允许长期存在。
 - [ ] **VALIDATION REMAINS**：claudecli Phase 2 same-binary stdio MCP child 最小实现已落地，两个 provider 的模型可见 skill tool 语义已有代码级 parity；内存 stdio、真实 agent-terminal 二进制 `Content-Length initialize -> tools/list -> tools/call -> EOF`、Claude-like parent stdin EOF / context cancel / no-orphan lifecycle、真实二进制 initialize / tools/list / tools/call / stdin EOF latency budget 已有单测 smoke。真实 Claude CLI `--mcp-config` E2E 已有 opt-in 测试，未认证环境会跳过；业务 PR-ready 仍必须补已认证环境下的真实 Claude CLI tool-call E2E 与放量观测。
 - [ ] **ROLL-OUT BLOCKED**：Prometheus collector 声明已接入 default gatherer，但 promhttp `/metrics` 暴露端点、alerting 与 rollout observation 未完成。Phase 3 默认策略前仍需 error-rate > 5% 持续 5min 告警、30 天成功率观察。
