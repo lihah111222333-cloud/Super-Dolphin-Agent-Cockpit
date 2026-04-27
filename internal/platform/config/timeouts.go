@@ -6,18 +6,19 @@ import (
 )
 
 const (
-	LaunchTimeout          = 30 * time.Second
-	StartupTimeout         = 30 * time.Second
-	ShutdownTimeout        = 15 * time.Second
-	InitialThreadIDTimeout = 5 * time.Second
-	SessionCloseTimeout    = 5 * time.Second
-	HealthCheckPeriod      = 5 * time.Second
-	StallDetectDelay       = 90 * time.Second
-	DBQueryTimeout         = 10 * time.Second
-	TxCleanupTimeout       = 1 * time.Second
-	RPCRequestTimeout      = 30 * time.Second
-	InterruptSettleTimeout = 6 * time.Second
-	AsyncLaunchTimeout     = 60 * time.Second
+	LaunchTimeout             = 30 * time.Second
+	StartupTimeout            = 30 * time.Second
+	ShutdownTimeout           = 15 * time.Second
+	InitialThreadIDTimeout    = 5 * time.Second
+	SessionCloseTimeout       = 5 * time.Second
+	HealthCheckPeriod         = 5 * time.Second
+	StallDetectDelay          = 90 * time.Second
+	DBQueryTimeout            = 10 * time.Second
+	TxCleanupTimeout          = 1 * time.Second
+	RPCRequestTimeout         = 30 * time.Second
+	InterruptSettleTimeout    = 6 * time.Second
+	AsyncLaunchTimeout        = 60 * time.Second
+	DreamConsolidationTimeout = 5 * time.Minute
 )
 
 func WithTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
