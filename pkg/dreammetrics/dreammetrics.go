@@ -14,11 +14,19 @@ package dreammetrics
 import "sync/atomic"
 
 var (
-	successTotal             atomic.Uint64
-	providerSkippedTotal     atomic.Uint64
-	providerFailedTotal      atomic.Uint64
-	allNotConfiguredTotal    atomic.Uint64
-	promptOversizeTotal      atomic.Uint64
+	successTotal          atomic.Uint64
+	providerSkippedTotal  atomic.Uint64
+	providerFailedTotal   atomic.Uint64
+	allNotConfiguredTotal atomic.Uint64
+	promptOversizeTotal   atomic.Uint64
+
+	// token counter（P3 backlog Step 1）— Step 2 接入 dream provider 解析出的 usage 后
+	// 通过 AddTokens 上报；Step 1 阶段 dispatcher 还拿不到 usage，counter 暂停留在 0。
+	// 语义与主线 session_log_watcher.parseLogLineUsage 一致：inputTokens 已含 cacheCreation，
+	// 不单独计；cacheRead 单列是因为它是命中缓存的成本/时延优化信号，与新 token 不同性质。
+	tokensInputTotal     atomic.Uint64
+	tokensOutputTotal    atomic.Uint64
+	tokensCacheReadTotal atomic.Uint64
 )
 
 // IncSuccess 单次 dream 蒸馏成功（dispatcher 命中某 provider 返回非 nil 结果）+1。
@@ -52,14 +60,35 @@ func IncPromptOversize() { promptOversizeTotal.Add(1) }
 // PromptOversize 读当前值。
 func PromptOversize() uint64 { return promptOversizeTotal.Load() }
 
-// Snapshot 一次性读 5 个 counter 的快照，顺序稳定，仅用于诊断 / 测试。
+// AddTokens 累加单次 dream 成功的 token usage。
+// 聚合 API（而非分 3 个 Inc）：input/output/cacheRead 是一次 LLM 调用同时产出，
+// 分开上报容易在 provider 解析路径上遗漏对齐。0 值参数隐式 no-op。
+func AddTokens(input, output, cacheRead uint64) {
+	tokensInputTotal.Add(input)
+	tokensOutputTotal.Add(output)
+	tokensCacheReadTotal.Add(cacheRead)
+}
+
+// TokensInput 读当前累计值。
+func TokensInput() uint64 { return tokensInputTotal.Load() }
+
+// TokensOutput 读当前累计值。
+func TokensOutput() uint64 { return tokensOutputTotal.Load() }
+
+// TokensCacheRead 读当前累计值。
+func TokensCacheRead() uint64 { return tokensCacheReadTotal.Load() }
+
+// Snapshot 一次性读全部 counter 的快照，顺序稳定，仅用于诊断 / 测试。
 // 快照非原子——期间可能有并发自增，这是可接受的。
 type Snapshot struct {
-	SuccessTotal           uint64
-	ProviderSkippedTotal   uint64
-	ProviderFailedTotal    uint64
-	AllNotConfiguredTotal  uint64
-	PromptOversizeTotal    uint64
+	SuccessTotal          uint64
+	ProviderSkippedTotal  uint64
+	ProviderFailedTotal   uint64
+	AllNotConfiguredTotal uint64
+	PromptOversizeTotal   uint64
+	TokensInputTotal      uint64
+	TokensOutputTotal     uint64
+	TokensCacheReadTotal  uint64
 }
 
 // Read 读当前 snapshot。
@@ -70,6 +99,9 @@ func Read() Snapshot {
 		ProviderFailedTotal:   providerFailedTotal.Load(),
 		AllNotConfiguredTotal: allNotConfiguredTotal.Load(),
 		PromptOversizeTotal:   promptOversizeTotal.Load(),
+		TokensInputTotal:      tokensInputTotal.Load(),
+		TokensOutputTotal:     tokensOutputTotal.Load(),
+		TokensCacheReadTotal:  tokensCacheReadTotal.Load(),
 	}
 }
 
@@ -80,4 +112,7 @@ func ResetForTesting() {
 	providerFailedTotal.Store(0)
 	allNotConfiguredTotal.Store(0)
 	promptOversizeTotal.Store(0)
+	tokensInputTotal.Store(0)
+	tokensOutputTotal.Store(0)
+	tokensCacheReadTotal.Store(0)
 }
