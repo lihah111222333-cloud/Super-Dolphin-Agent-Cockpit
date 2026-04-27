@@ -1,7 +1,7 @@
 # P25 Skill 优化：从 eager 注入到 progressive-disclosure
 
-> 创建时间：2026-04-25 | 最近核对：2026-04-27（Phase 2 same-binary MCP child + host-direct observability 状态复核）
-> 状态：🟡 codexapp 普通 name-only/selected skill 路径已可走 Summary + host-direct；claudecli same-binary MCP child 最小实现与 host-direct 基础 observability 已落地；仍非 harness 级 PR-ready（真实 Claude CLI 已认证 E2E、Phase 3 policy、生产 Prometheus/Alertmanager smoke 通过与 30 天 rollout observation 待完成）
+> 创建时间：2026-04-25 | 最近核对：2026-04-28（PR-6 rollout observability review-ready + 执行落地边界复核）
+> 状态：🟡 codexapp 普通 name-only/selected skill 路径已可走 Summary + host-direct；claudecli same-binary MCP child 最小实现与 host-direct 基础 observability 已落地；PR-6 observability / evidence / rollout guard 已可评审；默认上线仍未完成（真实 production smoke、30 天 observation、authenticated Claude CLI E2E 与 Phase 3 policy 待完成）
 > 关联文档：`docs/plans/迁移/p20/p20.18-host-direct-skill-tool-exposure.md`、
 >           `docs/plans/迁移/p20/p20.11-mcp-skill-tools.md`（已废弃）、
 >           `docs/plans/迁移/p20/p20.5-skill-catalog-provider.md`、
@@ -50,6 +50,9 @@
 
 > 2026-04-27 PR-4/PR-5 更新：selected metadata / redaction 决策、resume / recovery skill tools
 > 已落地并有回归覆盖；当前推荐下一步从 PR-6 默认 discovery / rollout observability 开始。
+>
+> 2026-04-28 PR-6 更新：rollout observability / evidence / guard 已落地并可评审；继续推进时应执行
+> 生产 smoke、30 天 observation 与 authenticated Claude CLI E2E evidence，不是合并分支、默认开启或删除 override。
 
 | 优先级 | 推荐 PR | 目标 | 关键文件 / 模块 | 必过验收 |
 |---:|---|---|---|---|
@@ -58,7 +61,7 @@
 | P0 ✅ | PR-3：模型视角 E2E（已落地） | 证明模型能看到工具、调用 `skill_expand_body`、拿结果继续回答 | `internal/provider/codexapp/dynamic_skill_tools_e2e_test.go`、fake / controlled app-server | 已锁：`thread/start dynamicTools -> model tool call(skill_expand_body) -> tool result -> final answer`；approved/denied 模型视角结构化结果均覆盖 |
 | P0 ✅ | PR-4：selected metadata / redaction 决策（已落地） | 收敛 untrusted selected summary 可见性策略 | `internal/module/turn/skills.go`、`internal/module/prompt/skill_catalog_provider.go` | 已锁：untrusted summary 只限真实 `ManualSkillSelection=true && source=manual`；legacy `Source=Unspecified` / trigger / force 不授权；catalog redaction 不泄露作者 metadata |
 | P0 ✅ | PR-5：resume / recovery skill tools（已落地） | 证明 resume/recovery 后 skill tools 仍可用 | `internal/provider/codexapp/{driver,recovery}.go` | 已锁：app-server 保留 start-time dynamicTools；`thread/resume` 不携带 dynamicTools；resume/recovery 后模型仍能调用 `skill_expand_body` |
-| P1 | PR-6：默认 discovery / rollout observability | 为默认 progressive-disclosure 放量做准备 | `internal/module/prompt/config.go`、`internal/platform/toolbridge`、`pkg/skillmetrics` | 默认开启前必须有 discovery / observability / rollout gates；redaction 回归保持绿；补 exporter / alerting / 30 天 rollout observation |
+| P1 ✅ | PR-6：默认 discovery / rollout observability（observability guard 已落地 / 可评审） | 为默认 progressive-disclosure 放量做准备，但不切默认行为 | `internal/module/prompt/config.go`、`internal/platform/metrics`、`internal/ui/wails/http_server.go`、`docs/plans/迁移/p25skill优化/skill-progressive-disclosure-*` | 已补 exporter、local `/metrics`、alert/scrape config、smoke/report/gate/preflight/evidence bundle/collector/default-switch guard/PR-6 verifier；仍需真实 production smoke、30 天 observation 与 authenticated Claude CLI E2E 作为 Phase 3 gate |
 
 ---
 
@@ -253,7 +256,7 @@ bug 详情：
 - 运行时分支 nil-safe：`Handler.hostTools=nil` 时，所有工具调用走原 peer 路径
 - 注意：`provideHostToolRegistry(svc skillpkg.Service)` 当前不是 Fx optional input；如果未来 standalone 也加载 `toolbridge.Module`，需要先把 `skill.Service` 输入改成 optional Fx 参数，或提供 noop registry
 
-### 3.4 可观测性现状（🟡 基础已补，导出 / 告警待做）
+### 3.4 可观测性现状（🟡 基础已补，真实 evidence 待跑）
 
 当前实现已补上 host-direct 最小观测闭环：
 
@@ -527,11 +530,11 @@ Phase 3 硬性 red gates（任一不满足不得正式化 Summary default policy
 5. **PR-5：resume / recovery skill tools**（✅ 2026-04-27 已落地）
    - 已证明 app-server 保留 start-time dynamicTools；`thread/resume` 不携带 dynamicTools 字段；
      resume/recovery 后模型仍能调用 `skill_expand_body`。
-6. **PR-6：默认 discovery / rollout observability**（当前下一步）
+6. **PR-6：默认 discovery / rollout observability**（✅ 2026-04-28 observability guard 已落地 / 可评审）
    - PR-1 / PR-2 / PR-3 / PR-4 / PR-5 与 host-direct 基础 observability 已落地；默认开启前仍保持
      `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=false`。
-   - 默认放量前还需运行 production smoke script 并按 observation 模板累计 30 天真实记录：至少能从外部系统观察
-     host tool success/error、cwd_missing、approval_required、enrich failure 与 artifact approval/cache 信号。
+   - 已补 production smoke / report / 30-day gate / Phase 3 preflight / evidence bundle collector / default-switch guard / PR-6 verifier。
+   - 继续推进的执行项是按 §5.5.5 运行真实 production smoke、累计 30 天 observation，并收集 authenticated Claude CLI E2E evidence；不得把该执行项替换成分支合并、默认开启或删除 override。
 
 ### 5.5 PR-6 执行 runbook：默认 discovery / rollout observability
 
@@ -642,12 +645,74 @@ git diff --check
 - 把真实 Claude CLI opt-in skip 当作已认证 E2E 通过。
 - PR-6 混入 Phase 3 default policy 删除 override；这会把观测 PR 变成行为切换 PR，回滚面过大。
 
+#### 5.5.5 PR-6 后真实 rollout evidence 落地清单（执行文档）
+
+> 本节是 PR-6 代码 / artifact 落地后的执行清单。它只收集真实 evidence，**不**自动合并分支、
+> **不**默认开启 `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE`，也**不**删除 `overrideSkillsToSummary`。
+> 任何 `git merge` / `git rebase` / `gh pr merge` / main 同步动作都必须由 owner 明确确认后再做。
+
+1. **应用观测 artifact 到目标环境**
+   - 部署包含 `/metrics` route 的构建，确认本地 HTTP asset server 暴露 `127.0.0.1:4511/metrics` 或等价生产 URL。
+   - 将 `skill-progressive-disclosure-alerts.yml` 与 `skill-progressive-disclosure-prometheus.yml` 的 `rule_files` / `scrape_configs` 合入目标 Prometheus 配置。
+   - Prometheus reload 后，确认 target job 名称为 `super-dolphin-skill-progressive-disclosure`（或通过 `SKILL_PD_PROMETHEUS_JOB` 覆盖）。
+2. **运行 production smoke，并保存原始输出**
+
+   ```bash
+   SUPER_DOLPHIN_METRICS_URL="http://127.0.0.1:4511/metrics" \
+   PROMETHEUS_URL="http://127.0.0.1:9090" \
+   ALERTMANAGER_URL="http://127.0.0.1:9093" \
+   docs/plans/迁移/p25skill优化/skill-progressive-disclosure-rollout-smoke.sh \
+     | tee "/tmp/p25-skill-rollout-smoke-$(date +%F).txt"
+   ```
+
+   - 只有脚本输出 `P25-HIGH-02g rollout smoke passed.` 才能把 production smoke 写为 `PASS`。
+   - 如果 `/metrics` 或 Prometheus target 未接入，记录 `FAIL` / `SKIP(not applied)`，decision 必须 `hold`。
+3. **生成 daily observation row**
+
+   ```bash
+   SKILL_PD_RUN_ROLLOUT_SMOKE=true \
+   SKILL_PD_MANUAL_SMOKE_RESULT="PASS" \
+   SKILL_PD_ROLLBACK_DRILL_RESULT="PASS" \
+   SKILL_PD_DECISION="continue" \
+   PROMETHEUS_URL="http://127.0.0.1:9090" \
+   docs/plans/迁移/p25skill优化/skill-progressive-disclosure-rollout-report.sh \
+     | tee "/tmp/p25-skill-rollout-report-$(date +%F).md"
+   ```
+
+   - `SKILL_PD_MANUAL_SMOKE_RESULT=PASS` 与 `SKILL_PD_ROLLBACK_DRILL_RESULT=PASS` 只能在人工 smoke / rollback drill 实际完成后填写。
+   - `SKILL_PD_RUN_ROLLOUT_SMOKE=true` 时不要手填 `SKILL_PD_PROMETHEUS_SMOKE_RESULT=PASS`；让脚本按 production smoke 真实退出码写 PASS / FAIL。
+   - `Total host tool calls=0` 时必须保留 `SKIP(no samples)` / `hold`，不能把 no-sample 当成功率。
+   - 将输出中的 markdown row 追加到 `skill-progressive-disclosure-rollout-observation.md` 的 daily table，原始报告作为 evidence 附件保存。
+4. **30 天样本满足后运行 rollout gate**
+
+   ```bash
+   SKILL_PD_OBSERVATION_FILE="docs/plans/迁移/p25skill优化/skill-progressive-disclosure-rollout-observation.md" \
+   SKILL_PD_REQUIRED_SAMPLE_DAYS=30 \
+   docs/plans/迁移/p25skill优化/skill-progressive-disclosure-rollout-gate.sh
+   ```
+
+   - gate 输出必须包含 `P25-HIGH-02i rollout gate passed`、`sample_days=30`（或更多）、`rollback_drill_pass=true`。
+   - no-sample row 不计入 sample day；cwd_missing / approval_required / enrich_failure 没有 accepted incident / fix note 时 fail closed。
+5. **收集 Phase 3 evidence bundle（默认策略 PR 前置，不在 PR-6 内完成）**
+
+   ```bash
+   SKILL_PD_BUNDLE_OUT_DIR="/tmp/p25-skill-phase3-evidence-$(date +%F)" \
+   SKILL_PD_PRODUCTION_SMOKE_EVIDENCE="/path/to/production-smoke-evidence.md" \
+   SKILL_PD_CLAUDECLI_E2E_EVIDENCE="/path/to/claudecli-e2e-evidence.md" \
+   SKILL_PD_OBSERVATION_FILE="docs/plans/迁移/p25skill优化/skill-progressive-disclosure-rollout-observation.md" \
+   docs/plans/迁移/p25skill优化/skill-progressive-disclosure-phase3-evidence-collect.sh
+   ```
+
+   - production evidence 必须声明 `Evidence type: production-smoke`、`P25-HIGH-02g smoke passed.`、`real traffic is non-zero`，且 `Total host tool calls` 为正数。
+   - Claude evidence 必须声明 `Evidence type: authenticated-claudecli-e2e`、`Authenticated environment: true`，包含 `TestMcpSkillMode_ClaudeCLIManagedSameBinarySkillE2E` 与 `PASS`，且不得包含 `SKIP`。
+   - collector 通过只代表 Phase 3 前置 evidence 齐备；默认开启 / override 删除仍必须另起 Phase 3 PR。
+
 ### 5.6 Planned test names / 验收矩阵（补充）
 
-> 本节原是后续实现 PR 的 **planned test names**。截至 2026-04-27，PR-1 / PR-2 / PR-3 / PR-4 / PR-5
-> 已由 planned 提升为实际回归测试；PR-6 以后仍是派单测试名建议。若实现时包名 / helper 名称调整，可改测试名，
-> 但不得降低验收语义：approval 必须真实闭环，DynamicTools 必须可降级但不丢 peer，模型视角 E2E
-> 必须证明 tool result 回到模型路径，resume/recovery 后 skill tools 必须仍可调用。
+> 本节原是后续实现 PR 的 **planned test names**。截至 2026-04-28，PR-1 / PR-2 / PR-3 / PR-4 / PR-5 / PR-6
+> 已由 planned 提升为实际回归测试；后续 Phase 3 默认策略 PR 与 authenticated Claude CLI E2E 仍是派单测试名建议。
+> 若实现时包名 / helper 名称调整，可改测试名，但不得降低验收语义：approval 必须真实闭环，DynamicTools
+> 必须可降级但不丢 peer，模型视角 E2E 必须证明 tool result 回到模型路径，resume/recovery 后 skill tools 必须仍可调用。
 
 | PR | 建议测试入口 | Planned test names | 必须锁住的验收语义 |
 |---|---|---|---|
@@ -933,7 +998,7 @@ Release governance / 风险 gate 只作为发布管理补充，不盖过上述�
 
 详见 §6.7。落地选项二选一即可。
 
-### 10.5 基础可观测性已补（HIGH，运维：导出 / 告警待做）
+### 10.5 基础可观测性已补（HIGH，运维：真实 evidence 待跑）
 
 详见 §3.4。Phase 1 原先“生产静默坏掉无信号”的问题已收敛为：
 
