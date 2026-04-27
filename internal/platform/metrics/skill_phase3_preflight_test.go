@@ -143,6 +143,7 @@ func TestSkillProgressiveDisclosurePhase3EvidenceTemplates(t *testing.T) {
 				"P25-HIGH-02g smoke passed.",
 				"real traffic is non-zero",
 				"skill-progressive-disclosure-rollout-smoke.sh",
+				"skill-progressive-disclosure-production-smoke-evidence-generate.sh",
 			},
 		},
 		{
