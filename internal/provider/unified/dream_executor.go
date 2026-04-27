@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -12,6 +13,11 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
+
+// dreamProviderOrderEnv 是 failover 顺序覆盖环境变量。
+// CSV 格式（如 "codex,claude"），列出的 provider 按指定顺序在前，
+// 未列出的按字母序补后。未识别的 provider 名忽略。
+const dreamProviderOrderEnv = "DREAM_PROVIDER_ORDER"
 
 // defaultDreamTimeout 是 dispatcher 兜底的单次 dream 蒸馏超时。
 // 上层 ctx 若已有更短 deadline，context.WithTimeout 取较近者，本常量不会覆盖。
@@ -53,9 +59,49 @@ func NewDreamExecutor(providers []contract.DreamExecutorProvider, logger *slog.L
 		}
 		resolver.executors[name] = provider.Executor
 	}
-	sort.Strings(resolver.order)
+	override := os.Getenv(dreamProviderOrderEnv)
+	resolver.order = resolveProviderOrder(resolver.order, override)
 	logger.Debug("dream executor registered", "providers", resolver.order)
+	if strings.TrimSpace(override) != "" {
+		logger.Info("dream provider order overridden",
+			"env", override,
+			"resolved", resolver.order,
+		)
+	}
 	return resolver
+}
+
+// resolveProviderOrder 解析 DREAM_PROVIDER_ORDER 覆盖。override 空 → 全部字母序。
+// 非空时列出且已注册的 provider 按 CSV 顺序在前，剩下的字母序补后。
+// 未识别名/重复名/空项均忽略。纯函数便于单测。
+func resolveProviderOrder(registered []string, override string) []string {
+	out := append([]string(nil), registered...)
+	if strings.TrimSpace(override) == "" {
+		sort.Strings(out)
+		return out
+	}
+	inSet := make(map[string]bool, len(out))
+	for _, n := range out {
+		inSet[n] = true
+	}
+	used := make(map[string]bool, len(out))
+	var ordered []string
+	for raw := range strings.SplitSeq(override, ",") {
+		n := strings.TrimSpace(raw)
+		if n == "" || !inSet[n] || used[n] {
+			continue
+		}
+		ordered = append(ordered, n)
+		used[n] = true
+	}
+	var rest []string
+	for _, n := range out {
+		if !used[n] {
+			rest = append(rest, n)
+		}
+	}
+	sort.Strings(rest)
+	return append(ordered, rest...)
 }
 
 func (e *dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string, error) {
