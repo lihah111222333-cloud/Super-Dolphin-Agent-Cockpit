@@ -51,13 +51,22 @@ type MemoryLifecycleHooks struct {
 	logger              *slog.Logger
 	timeNow             func() time.Time
 
+	// stateMu serialises all reads and writes of the six maps below.
+	// The plain map choice (vs sync.Map) is intentional: this is a
+	// coarse-grained mutex over the whole turn/extraction bookkeeping
+	// surface, and ExtractionState values carry their own mu for
+	// finer-grained field protection once a *ExtractionState reference
+	// has been resolved under stateMu (the maps never delete entries
+	// that other goroutines may still hold a reference to, so the
+	// reference itself stays valid after stateMu is released).
+	// New callers MUST hold stateMu while touching any of these maps.
 	stateMu           sync.Mutex
-	states            map[string]*ExtractionState
-	activeTurns       map[string]string
-	callTurns         map[string]toolCallScope
-	turnWrites        map[string]map[string]struct{}
-	turnInputs        map[string]string
-	handledTurnInputs map[string]struct{}
+	states            map[string]*ExtractionState    // guarded by stateMu
+	activeTurns       map[string]string              // guarded by stateMu
+	callTurns         map[string]toolCallScope       // guarded by stateMu
+	turnWrites        map[string]map[string]struct{} // guarded by stateMu
+	turnInputs        map[string]string              // guarded by stateMu
+	handledTurnInputs map[string]struct{}            // guarded by stateMu
 	extractWG         sync.WaitGroup
 
 	// drainMu + drainClosed guard the extractWG against the classic
