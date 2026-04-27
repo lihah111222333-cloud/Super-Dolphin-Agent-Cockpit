@@ -1,6 +1,7 @@
 package nested
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -149,5 +150,73 @@ func underRoot(root string) func(string) bool {
 	root = cleanClaudeMdPath(root)
 	return func(path string) bool {
 		return nestedContainsPath(root, path)
+	}
+}
+
+// TestNestedRuntimePersistedToolReadHonorsCacheRoot verifies the P24
+// cache-root-threading happy path: a persistedPath under the configured
+// SetToolReadCacheRoot is read via shared.SafeReadEntrypoint and its
+// `Contents of <path>:` line surfaces as a pending trigger.
+func TestNestedRuntimePersistedToolReadHonorsCacheRoot(t *testing.T) {
+	cacheRoot := t.TempDir()
+	persistedPath := filepath.Join(cacheRoot, "tool-output.txt")
+	if err := os.WriteFile(persistedPath, []byte("Contents of /repo/service/main.go:\npackage main\n"), 0o600); err != nil {
+		t.Fatalf("write persisted tool output: %v", err)
+	}
+	runtime := NewNestedRuntime(newTestDependencies(testDepsOptions{}))
+	runtime.SetToolReadCacheRoot(cacheRoot)
+	buildCtx := contract.BuildCtx{GitRoot: "/repo", CWD: "/repo/service"}
+	runtime.ObserveBuildContext("thread-1", buildCtx)
+	// Empty preview forces the helper to fall back to the persisted file; if
+	// the SafeReadEntrypoint plumbing is wrong the test fails because no
+	// trigger is produced.
+	runtime.AddToolReadResult("thread-1", "Read", "", persistedPath)
+	pending := runtime.ConsumePending("thread-1", buildCtx)
+	want := "/repo/service/main.go"
+	if len(pending) != 1 || pending[0] != want {
+		t.Fatalf("ConsumePending(persisted in cacheRoot) = %#v, want [%q]", pending, want)
+	}
+}
+
+// TestNestedRuntimePersistedToolReadRejectsOutsideCacheRoot verifies the P24
+// cache-root-threading containment guarantee: a persistedPath that resolves
+// outside SetToolReadCacheRoot is rejected by shared.SafeReadEntrypoint and
+// the helper falls back to the in-memory preview (here empty), so no trigger
+// surfaces.
+func TestNestedRuntimePersistedToolReadRejectsOutsideCacheRoot(t *testing.T) {
+	cacheRoot := t.TempDir()
+	outsideRoot := t.TempDir()
+	outsidePath := filepath.Join(outsideRoot, "forged-output.txt")
+	if err := os.WriteFile(outsidePath, []byte("Contents of /repo/service/main.go:\npackage main\n"), 0o600); err != nil {
+		t.Fatalf("write forged tool output: %v", err)
+	}
+	runtime := NewNestedRuntime(newTestDependencies(testDepsOptions{}))
+	runtime.SetToolReadCacheRoot(cacheRoot)
+	buildCtx := contract.BuildCtx{GitRoot: "/repo", CWD: "/repo/service"}
+	runtime.ObserveBuildContext("thread-1", buildCtx)
+	runtime.AddToolReadResult("thread-1", "Read", "", outsidePath)
+	if got := runtime.ConsumePending("thread-1", buildCtx); len(got) != 0 {
+		t.Fatalf("ConsumePending(persisted outside cacheRoot) = %#v, want none (forged path must be rejected)", got)
+	}
+}
+
+// TestNestedRuntimePersistedToolReadFailsClosedWhenCacheRootUnset verifies the
+// P24 fail-closed contract: if SetToolReadCacheRoot was never called the
+// helper refuses to read any persistedPath even when the file would be
+// otherwise valid, so a misconfigured deployment cannot accidentally re-open
+// the unbounded read.
+func TestNestedRuntimePersistedToolReadFailsClosedWhenCacheRootUnset(t *testing.T) {
+	dir := t.TempDir()
+	persistedPath := filepath.Join(dir, "tool-output.txt")
+	if err := os.WriteFile(persistedPath, []byte("Contents of /repo/service/main.go:\npackage main\n"), 0o600); err != nil {
+		t.Fatalf("write persisted tool output: %v", err)
+	}
+	runtime := NewNestedRuntime(newTestDependencies(testDepsOptions{}))
+	// Intentionally do NOT call SetToolReadCacheRoot.
+	buildCtx := contract.BuildCtx{GitRoot: "/repo", CWD: "/repo/service"}
+	runtime.ObserveBuildContext("thread-1", buildCtx)
+	runtime.AddToolReadResult("thread-1", "Read", "", persistedPath)
+	if got := runtime.ConsumePending("thread-1", buildCtx); len(got) != 0 {
+		t.Fatalf("ConsumePending(unset cacheRoot) = %#v, want none (must fail closed)", got)
 	}
 }

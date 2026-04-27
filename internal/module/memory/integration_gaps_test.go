@@ -6,12 +6,9 @@ package memory
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	nestedpkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/nested"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 )
 
@@ -39,7 +36,7 @@ func TestAgentMemoryInjectedOnSubAgentStart(t *testing.T) {
 	if err := registerPromptProviders(promptProviderParams{
 		Registry:      assembly,
 		Provider:      NewRulesProvider(cfg, NewMemoryRuleEngine(), nil),
-		AgentProvider: NewAgentMemoryPromptProvider(cfg, manager, nil),
+		AgentProvider: NewAgentMemoryPromptProvider(cfg, manager, nil).inner,
 	}); err != nil {
 		t.Fatalf("registerPromptProviders() error = %v", err)
 	}
@@ -68,103 +65,14 @@ func TestAgentMemoryInjectedOnSubAgentStart(t *testing.T) {
 	}
 }
 
-func TestRegisterPromptProvidersInjectsTeamMemoryIntoTurnUserContext(t *testing.T) {
-	withTeamMemoryRuntimeReady(t, true)
-	projectRoot := t.TempDir()
-	autoRoot := filepath.Join(t.TempDir(), "automem")
-	teamRoot := filepath.Join(autoRoot, teamMemoryRootDirName)
-	for _, dir := range []string{autoRoot, teamRoot} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatalf("MkdirAll(%q) error = %v", dir, err)
-		}
-	}
-	const teamBody = "- [Team](team.md) — shared memory"
-	if err := os.WriteFile(memoryIndexPath(teamRoot), []byte(teamBody), 0o644); err != nil {
-		t.Fatalf("WriteFile(team MEMORY.md) error = %v", err)
-	}
-
-	cfg := &Config{
-		Enabled:             true,
-		RootDir:             t.TempDir(),
-		ProjectRoot:         projectRoot,
-		AutoMemPathOverride: autoRoot,
-		Features:            MemoryFeatureFlags{TeamMemory: true},
-	}
-	teamManager := NewTeamMemoryManager(cfg)
-	assembly := prompt.NewService(&prompt.Config{}, nil)
-	if err := registerPromptProviders(promptProviderParams{
-		Registry:          assembly,
-		ClaudeMdRegistrar: assembly,
-		ClaudeMdProvider:  nestedpkg.NewClaudeMdSourcesProvider(provideNestedDependencies(cfg), teamManager, nil),
-	}); err != nil {
-		t.Fatalf("registerPromptProviders() error = %v", err)
-	}
-
-	turn, err := assembly.AssembleTurn(context.Background(), prompt.TurnInput{
-		ThreadID: "thread-1",
-		GitRoot:  projectRoot,
-		CWD:      projectRoot,
-	})
-	if err != nil {
-		t.Fatalf("AssembleTurn() error = %v", err)
-	}
-	for _, snippet := range []string{
-		"<team-memory-content source=\"shared\">",
-		teamBody,
-	} {
-		if !strings.Contains(turn.UserContextText, snippet) {
-			t.Fatalf("UserContextText missing %q:\n%s", snippet, turn.UserContextText)
-		}
-	}
-}
-
-func TestRegisterPromptProvidersSkipsTeamMemoryTurnLaneWhenKairosActive(t *testing.T) {
-	withTeamMemoryRuntimeReady(t, true)
-	projectRoot := t.TempDir()
-	autoRoot := filepath.Join(t.TempDir(), "automem")
-	teamRoot := filepath.Join(autoRoot, teamMemoryRootDirName)
-	for _, dir := range []string{autoRoot, teamRoot} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatalf("MkdirAll(%q) error = %v", dir, err)
-		}
-	}
-	if err := os.WriteFile(memoryIndexPath(teamRoot), []byte("- [Team](team.md) — shared memory"), 0o644); err != nil {
-		t.Fatalf("WriteFile(team MEMORY.md) error = %v", err)
-	}
-
-	cfg := &Config{
-		Enabled:             true,
-		RootDir:             t.TempDir(),
-		ProjectRoot:         projectRoot,
-		AutoMemPathOverride: autoRoot,
-		Features:            MemoryFeatureFlags{TeamMemory: true, Kairos: true},
-	}
-	assembly := prompt.NewService(&prompt.Config{}, nil)
-	if err := registerPromptProviders(promptProviderParams{
-		Registry:          assembly,
-		ClaudeMdRegistrar: assembly,
-		ClaudeMdProvider:  nestedpkg.NewClaudeMdSourcesProvider(provideNestedDependencies(cfg), NewTeamMemoryManager(cfg), nil),
-	}); err != nil {
-		t.Fatalf("registerPromptProviders() error = %v", err)
-	}
-
-	turn, err := assembly.AssembleTurn(context.Background(), prompt.TurnInput{
-		ThreadID:     "thread-2",
-		GitRoot:      projectRoot,
-		CWD:          projectRoot,
-		SessionFlags: map[string]bool{"memory_kairos": true},
-	})
-	if err != nil {
-		t.Fatalf("AssembleTurn() error = %v", err)
-	}
-	if strings.Contains(turn.UserContextText, "<team-memory-content source=\"shared\">") {
-		t.Fatalf("UserContextText unexpectedly contains team memory under Kairos:\n%s", turn.UserContextText)
-	}
-	gate := ResolveMemoryGate(contract.BuildCtx{GitRoot: projectRoot, CWD: projectRoot, SessionFlags: map[string]bool{"memory_kairos": true}}, cfg)
-	if !gate.KairosActive || gate.InjectTeamMemIndex {
-		t.Fatalf("ResolveMemoryGate() = %+v, want KairosActive=true and InjectTeamMemIndex=false", gate)
-	}
-}
+// Phase 1.6 removed nested ClaudeMd injection of AutoMem / TeamMem MEMORY.md.
+// MemoryEntrypointProvider (in the parent memory package) is now the sole
+// prompt-time injector. Two e2e cases that asserted the old turn-time team
+// injection (`TestRegisterPromptProvidersInjectsTeamMemoryIntoTurnUserContext`
+// and `TestRegisterPromptProvidersSkipsTeamMemoryTurnLaneWhenKairosActive`)
+// were dropped in Phase 1.7 since they tested removed behaviour. Equivalent
+// coverage for entrypoint injection lives in
+// `internal/module/memory/entrypoint_provider_test.go`.
 
 func findResolvedSection(sections []prompt.ResolvedPromptSection, name string) (prompt.ResolvedPromptSection, bool) {
 	for _, section := range sections {

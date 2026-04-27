@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	parse "github.com/anthropic-ai/super-agent-v3/internal/module/memory/parse"
 	retrievalpkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/retrieval"
 )
 
@@ -27,7 +28,7 @@ func TestStripHTMLCommentsRemovesBlockCommentsAndKeepsCodeFences(t *testing.T) {
 		"",
 	}, "\n")
 
-	got := StripHTMLComments(content)
+	got := parse.StripHTMLComments(content)
 	want := strings.Join([]string{
 		"Keep this.",
 		"Use <!-- inline --> comments carefully.",
@@ -45,7 +46,7 @@ func TestStripHTMLCommentsRemovesBlockCommentsAndKeepsCodeFences(t *testing.T) {
 
 func TestStripHTMLCommentsKeepsUnclosedComment(t *testing.T) {
 	content := "Keep\n<!-- unclosed\nstill here\n"
-	if got := StripHTMLComments(content); got != content {
+	if got := parse.StripHTMLComments(content); got != content {
 		t.Fatalf("StripHTMLComments() with unclosed comment = %q, want original %q", got, content)
 	}
 }

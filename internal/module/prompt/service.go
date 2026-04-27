@@ -37,6 +37,11 @@ type Service interface {
 	Config() Config
 }
 
+// Compile-time assertion: *service satisfies contract.SectionInvalidator.
+// The interface declares concurrent-safe semantics; *service backs that
+// with the cache mutex (see cache.go) and the dynamicMu RWMutex.
+var _ contract.SectionInvalidator = (*service)(nil)
+
 type service struct {
 	cfg              *Config
 	logger           *slog.Logger

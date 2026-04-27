@@ -38,6 +38,9 @@ func TestBuildBaseUserContextSkipsConditionalAndWrapsTeamMemory(t *testing.T) {
 		"<system-reminder>",
 		"# claudeMd",
 		"Contents of /repo/CLAUDE.md:",
+		// Phase 2.1.D：project 源必须被 fence 包裹
+		"<untrusted-claude-md>",
+		"</untrusted-claude-md>",
 		"<team-memory-content source=\"shared\">",
 		"Shared team memory",
 		"# currentDate",

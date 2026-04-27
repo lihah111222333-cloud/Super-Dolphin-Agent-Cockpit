@@ -6,6 +6,7 @@ import (
 
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolresults"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 )
@@ -52,6 +53,12 @@ func newAutoDreamSchedulerProvider(p autoDreamSchedulerProviderParams) *autoDrea
 }
 
 func newNestedIngestWorkerProvider(p nestedIngestWorkerProviderParams) *nestedIngestWorker {
+	if p.NestedRuntime != nil {
+		// Empty cache root (host without UserCacheDir nor TempDir) disables
+		// persistedPath reads via NestedRuntime.SetToolReadCacheRoot's
+		// empty-root contract — fail-closed.
+		p.NestedRuntime.SetToolReadCacheRoot(toolresults.CacheDir())
+	}
 	return newNestedIngestWorker(p.NestedRuntime, pkglogger.Get())
 }
 
