@@ -3,6 +3,8 @@ package codexapp
 import (
 	"encoding/json"
 	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
 )
 
 // enrichToolCallParams 把 session 的 agentID 注入到 codex item/tool/call 的 msg.Params 中。
@@ -25,6 +27,7 @@ func enrichToolCallParams(msg RawMessage, agentID string) RawMessage {
 	}
 	var payload map[string]json.RawMessage
 	if err := json.Unmarshal(msg.Params, &payload); err != nil {
+		skillmetrics.IncEnrichFailure()
 		return msg
 	}
 	if payload == nil {
@@ -32,12 +35,14 @@ func enrichToolCallParams(msg RawMessage, agentID string) RawMessage {
 	}
 	encoded, err := json.Marshal(agentID)
 	if err != nil {
+		skillmetrics.IncEnrichFailure()
 		return msg
 	}
 	payload["agentId"] = encoded
 	delete(payload, "agent_id")
 	raw, err := json.Marshal(payload)
 	if err != nil {
+		skillmetrics.IncEnrichFailure()
 		return msg
 	}
 	enriched := msg

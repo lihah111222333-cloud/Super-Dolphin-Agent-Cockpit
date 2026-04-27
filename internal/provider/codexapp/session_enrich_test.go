@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
 )
 
 // rawParams 帮助构造 RawMessage with given params.
@@ -74,10 +76,15 @@ func TestEnrichToolCallParams_EmptyParams(t *testing.T) {
 // TestEnrichToolCallParams_BadJSON params 不是合法 JSON object → 原样返回，不报错。
 // fail-soft 契约：本函数不应让一个 bad payload 升级成 panic。
 func TestEnrichToolCallParams_BadJSON(t *testing.T) {
+	skillmetrics.ResetForTesting()
+	t.Cleanup(skillmetrics.ResetForTesting)
 	msg := RawMessage{Method: "item/tool/call", ID: json.RawMessage(`1`), Params: json.RawMessage(`not-json`)}
 	out := enrichToolCallParams(msg, "agent-1")
 	if string(out.Params) != "not-json" {
 		t.Fatalf("bad json should be passed through, got %s", out.Params)
+	}
+	if got := skillmetrics.EnrichFailures(); got != 1 {
+		t.Fatalf("EnrichFailures = %d, want 1", got)
 	}
 }
 

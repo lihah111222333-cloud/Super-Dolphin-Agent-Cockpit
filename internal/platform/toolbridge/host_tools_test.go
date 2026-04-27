@@ -341,6 +341,8 @@ func TestCallHostTool_ApprovalDeniedReturnsStructuredResult(t *testing.T) {
 }
 
 func TestCallHostTool_ApprovalRequiredFallbackReturnsStructuredResult(t *testing.T) {
+	skillmetrics.ResetForTesting()
+	t.Cleanup(skillmetrics.ResetForTesting)
 	approvalReq := contract.ApprovalRequest{
 		CallID:       "call-1",
 		ToolName:     skilltool.ToolNameExpandBody,
@@ -382,6 +384,9 @@ func TestCallHostTool_ApprovalRequiredFallbackReturnsStructuredResult(t *testing
 	if !ok || payload["artifact_kind"] != skillpkg.ArtifactKindBody || payload["callId"] != "call-1" {
 		t.Fatalf("approval payload = %#v", approval["payload"])
 	}
+	if snap := skillmetrics.Read(); snap.HostToolCallApprovalReqTotal != 1 {
+		t.Fatalf("HostToolCallApprovalReqTotal = %d, want 1 (snapshot %+v)", snap.HostToolCallApprovalReqTotal, snap)
+	}
 }
 
 func TestRouteToolCall_HostToolBypassesPeer_UsesResolvedCWD(t *testing.T) {
@@ -418,6 +423,74 @@ func TestRouteToolCall_HostToolBypassesPeer_UsesResolvedCWD(t *testing.T) {
 	}
 	if len(registry.gotKinds) != 0 {
 		t.Fatalf("peer registry was consulted despite host-direct match: %+v", registry.gotKinds)
+	}
+}
+
+func TestCallHostTool_ObservabilityCountersAndLogs(t *testing.T) {
+	skillmetrics.ResetForTesting()
+	t.Cleanup(skillmetrics.ResetForTesting)
+	host := &stubHostToolRegistry{
+		hasToolName: skilltool.ToolNameExpandBody,
+		result:      skillpkg.ExpandBodyResult{Name: "foo", Content: "body"},
+	}
+	resolver := &stubCWDResolver{cwd: "/resolved/cwd"}
+	var logs bytes.Buffer
+	h := &Handler{
+		resolver:  resolver,
+		hostTools: host,
+		logger:    slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+	}
+
+	got, err := h.callHostTool(context.Background(), ToolCallRequest{
+		Name:    skilltool.ToolNameExpandBody,
+		AgentID: "agent-obs",
+		CallID:  "call-obs",
+	})
+	if err != nil {
+		t.Fatalf("callHostTool() error = %v", err)
+	}
+	if got == nil || !got.Success {
+		t.Fatalf("callHostTool() result = %#v, want success", got)
+	}
+	if snap := skillmetrics.Read(); snap.HostToolCallOKTotal != 1 {
+		t.Fatalf("HostToolCallOKTotal = %d, want 1 (snapshot %+v)", snap.HostToolCallOKTotal, snap)
+	}
+	text := logs.String()
+	for _, want := range []string{"toolbridge host-direct tool call", "tool=skill_expand_body", "agent_id=agent-obs", "call_id=call-obs", "outcome=ok"} {
+		if !bytes.Contains([]byte(text), []byte(want)) {
+			t.Fatalf("host-direct log missing %q in %s", want, text)
+		}
+	}
+}
+
+func TestCallHostTool_CWDMissingCounterAndWarn(t *testing.T) {
+	skillmetrics.ResetForTesting()
+	t.Cleanup(skillmetrics.ResetForTesting)
+	host := &stubHostToolRegistry{
+		hasToolName: skilltool.ToolNameExpandBody,
+		err:         skillpkg.ErrMissingCWD,
+	}
+	var logs bytes.Buffer
+	h := &Handler{
+		hostTools: host,
+		logger:    slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+	}
+
+	got, err := h.callHostTool(context.Background(), ToolCallRequest{Name: skilltool.ToolNameExpandBody, AgentID: "agent-missing"})
+	if err != nil {
+		t.Fatalf("callHostTool() error = %v", err)
+	}
+	if got == nil || got.Success {
+		t.Fatalf("callHostTool() result = %#v, want structured failure", got)
+	}
+	if snap := skillmetrics.Read(); snap.HostToolCallCWDMissingTotal != 1 {
+		t.Fatalf("HostToolCallCWDMissingTotal = %d, want 1 (snapshot %+v)", snap.HostToolCallCWDMissingTotal, snap)
+	}
+	text := logs.String()
+	for _, want := range []string{"toolbridge host-direct cwd missing before call", "agent_id=agent-missing", "outcome=cwd_missing"} {
+		if !bytes.Contains([]byte(text), []byte(want)) {
+			t.Fatalf("cwd-missing observability log missing %q in %s", want, text)
+		}
 	}
 }
 
@@ -595,6 +668,34 @@ func TestListToolsForCodex_DedupKeepsHostBeforePeer(t *testing.T) {
 	}
 	if len(got) != 2 || got[0].Name != "dupe" || got[0].Description != "host wins" || got[1].Name != "lsp_hover" {
 		t.Fatalf("tools = %+v, want host duplicate first and lsp second", got)
+	}
+}
+
+func TestListToolsForCodex_LogsShadowedPeerTool(t *testing.T) {
+	host := &stubHostToolRegistry{tools: []common.MCPTool{{Name: "dupe", Description: "host wins"}}}
+	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+		dto.ClientKindOrch: {listToolsPeer([]common.MCPTool{{Name: "dupe", Description: "peer loses"}}, nil)},
+		dto.ClientKindLSP:  {listToolsPeer([]common.MCPTool{{Name: "lsp_hover", Description: "lsp"}}, nil)},
+	}}
+	var logs bytes.Buffer
+	h := &Handler{
+		registry:  registry,
+		hostTools: host,
+		logger:    slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+	}
+
+	got, err := h.ListToolsForCodex(context.Background())
+	if err != nil {
+		t.Fatalf("ListToolsForCodex() error = %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("tools = %+v, want deduped host + lsp", got)
+	}
+	text := logs.String()
+	for _, want := range []string{"toolbridge dynamic tool shadowed by earlier source", "tool=dupe", "source=orch", "shadowed_by=host"} {
+		if !bytes.Contains([]byte(text), []byte(want)) {
+			t.Fatalf("shadow log missing %q in %s", want, text)
+		}
 	}
 }
 
