@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/pkg/dreammetrics"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -116,6 +117,7 @@ func (e *dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string
 			"size_bytes", len(prompt),
 			"max_bytes", e.maxPromptBytes,
 		)
+		dreammetrics.IncPromptOversize()
 		return "", fmt.Errorf("dream prompt too large: %d bytes exceeds %d", len(prompt), e.maxPromptBytes)
 	}
 	if e.timeout > 0 {
@@ -132,18 +134,22 @@ func (e *dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string
 		result, err := executor.ExecuteDream(ctx, prompt)
 		if err == nil {
 			e.logger.Info("dream executor succeeded", "provider", name, "size_bytes", len(result))
+			dreammetrics.IncSuccess()
 			return result, nil
 		}
 		if errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
 			e.logger.Debug("dream executor skipped (not configured)", "provider", name)
+			dreammetrics.IncProviderSkipped()
 			lastNotConfigured = err
 			continue
 		}
 		e.logger.Warn("dream executor failed", "provider", name, "error", err)
+		dreammetrics.IncProviderFailed()
 		return "", err
 	}
 	if lastNotConfigured != nil {
 		e.logger.Warn("all dream executors not configured", "providers", e.order)
+		dreammetrics.IncAllNotConfigured()
 		return "", lastNotConfigured
 	}
 	return "", fmt.Errorf("%w: no provider dream executors registered", contract.ErrDreamExecutorNotConfigured)
