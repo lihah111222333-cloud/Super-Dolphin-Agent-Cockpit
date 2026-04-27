@@ -34,6 +34,8 @@ func TestSkillProgressiveDisclosureRolloutObservationTemplateArtifact(t *testing
 		"no-sample rows",
 		"skill-progressive-disclosure-rollout-status.sh",
 		"next",
+		"skill-progressive-disclosure-rollout-daily.sh",
+		"report -> append -> status",
 		"skill-progressive-disclosure-rollout-gate.sh",
 		"30-day rollout gate verifier",
 		"Rollback drill result",
