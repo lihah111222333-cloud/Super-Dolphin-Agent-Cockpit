@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/dreamexec"
+	"github.com/anthropic-ai/super-agent-v3/pkg/dreammetrics"
 )
 
 // capturingCommander 记录最后一次调用的 binary/args/input，并按预设序列返回。
@@ -54,8 +55,14 @@ func TestClaudeDreamExecutor_SuccessReturnsExtractedJSON(t *testing.T) {
 	if c.lastInput != "consolidate" {
 		t.Errorf("input: got %q, want 'consolidate'", c.lastInput)
 	}
-	if len(c.lastArgs) != 1 || c.lastArgs[0] != "-p" {
-		t.Errorf("args without model: got %v, want [-p]", c.lastArgs)
+	wantArgs := []string{"-p", "--output-format", "json"}
+	if len(c.lastArgs) != len(wantArgs) {
+		t.Fatalf("args without model: got %v, want %v", c.lastArgs, wantArgs)
+	}
+	for i, want := range wantArgs {
+		if c.lastArgs[i] != want {
+			t.Errorf("args[%d]: got %q, want %q", i, c.lastArgs[i], want)
+		}
 	}
 }
 
@@ -65,7 +72,7 @@ func TestClaudeDreamExecutor_ModelEnvAddsArgs(t *testing.T) {
 	if _, err := exec.ExecuteDream(context.Background(), "p"); err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
-	want := []string{"-p", "--model", "claude-sonnet-4-5"}
+	want := []string{"-p", "--output-format", "json", "--model", "claude-sonnet-4-5"}
 	if len(c.lastArgs) != len(want) {
 		t.Fatalf("args: got %v, want %v", c.lastArgs, want)
 	}
@@ -73,6 +80,23 @@ func TestClaudeDreamExecutor_ModelEnvAddsArgs(t *testing.T) {
 		if c.lastArgs[i] != a {
 			t.Fatalf("args[%d]: got %q, want %q", i, c.lastArgs[i], a)
 		}
+	}
+}
+
+// TestClaudeDreamExecutor_EnvelopeUsageIncrementsDreamMetrics 验证完整流路：
+// envelope JSON 输出 -> dreamexec 探测 -> ExtractClaudeEnvelope -> OnUsage 路由 -> dreammetrics.AddTokens。
+// fixture 使用小数量便于验证：input=1+2+3=6、output=4、cacheRead=3。
+func TestClaudeDreamExecutor_EnvelopeUsageIncrementsDreamMetrics(t *testing.T) {
+	dreammetrics.ResetForTesting()
+	t.Cleanup(dreammetrics.ResetForTesting)
+	c := &capturingCommander{outputs: []string{`{"type":"result","is_error":false,"result":"{\"memories\":[]}","usage":{"input_tokens":1,"cache_creation_input_tokens":2,"cache_read_input_tokens":3,"output_tokens":4}}`}}
+	exec := newDreamExecutor(c, "claude", "")
+	if _, err := exec.ExecuteDream(context.Background(), "p"); err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	snap := dreammetrics.Read()
+	if snap.TokensInputTotal != 6 || snap.TokensOutputTotal != 4 || snap.TokensCacheReadTotal != 3 {
+		t.Fatalf("dream token metrics = %+v, want input=6 output=4 cacheRead=3", snap)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/dreamexec"
+	"github.com/anthropic-ai/super-agent-v3/pkg/dreammetrics"
 )
 
 // dreamModelEnv 是 dream 调用 claude 时可选的 model env override。未设则走 binary 默认 model。
@@ -53,7 +54,9 @@ func (e dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string,
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	args := []string{"-p"}
+	// --output-format json 让 claude -p 输出 envelope JSON（含 result + usage），
+	// dreamexec.Run 自动探测后走 ExtractClaudeEnvelope，usage 由 OnUsage 路由到 dreammetrics。
+	args := []string{"-p", "--output-format", "json"}
 	if e.model != "" {
 		args = append(args, "--model", e.model)
 	}
@@ -63,6 +66,9 @@ func (e dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string,
 		Prompt:         prompt,
 		MaxStdoutBytes: dreamMaxStdoutBytes,
 		MaxRetries:     dreamMaxRetries,
+		OnUsage: func(usage dreamexec.TokenUsage) {
+			dreammetrics.AddTokens(usage.InputTokens, usage.OutputTokens, usage.CacheReadTokens)
+		},
 	})
 	if err != nil {
 		if errors.Is(err, dreamexec.ErrBinaryNotAvailable) {
