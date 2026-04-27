@@ -268,9 +268,11 @@ bug 详情：
 - DynamicTools dedup 时若 peer 工具被 host 同名工具 shadow，会打一行 WARN（含 peer 来源）。
 - approval-required / denied 已返回结构化 result，不再只有普通 `err.Error()` 文本。
 
-仍未完成的是**导出与告警层**：这些 Go counters 目前仍是 in-process snapshot 模式；
-Prometheus / OTel exporter、error-rate > 5% 持续 5min 告警、30 天放量观察仍属于 Phase 3 前
-rollout gate。
+PR-6 第一段已补 **Prometheus collector 声明层**：`internal/platform/metrics/skill.go` 把
+`pkg/skillmetrics` 的 snapshot 包装成 `prometheus.CounterFunc`，其中 `host_tool_calls_total{outcome}`
+保留 `ok|cwd_missing|approval_required|error` 维度，`enrich_failures_total` 也可由默认 gatherer 读取。
+仍未完成的是**暴露端点 / 告警 / 放量层**：仓库目前仍无 promhttp `/metrics` 挂载，error-rate > 5%
+持续 5min 告警、30 天放量观察仍属于 Phase 3 前 rollout gate。
 
 详见 §10.5。
 
@@ -517,10 +519,10 @@ Phase 3 硬性 red gates（任一不满足不得正式化 Summary default policy
 
 #### 5.5.2 推荐执行顺序
 
-1. **P25-HIGH-02a：导出当前 counters**
-   - 输入：`pkg/skillmetrics.Snapshot()` 中的 `HostToolCallsTotal{outcome}`、`EnrichFailuresTotal`、approval/cache 相关 counters（若仍缺则先补同包 atomic counter）。
-   - 输出：Prometheus / OTel / dashboard snapshot 三选一；必须能按 `outcome=ok|cwd_missing|approval_required|error` 分组。
-   - 验收：新增 `TestSkillMetricsExporterSnapshotIncludesHostToolOutcomes` 或等价测试，证明外部读到的数值与 `pkg/skillmetrics` snapshot 一致。
+1. ✅ **P25-HIGH-02a：导出当前 counters**（2026-04-27 已落地）
+   - 输入：`pkg/skillmetrics.Read()` 中的 `HostToolCall*`、`EnrichFailuresTotal`、artifact approval / MCP child counters。
+   - 输出：`internal/platform/metrics/skill.go` 注册 Prometheus `CounterFunc`；`host_tool_calls_total{outcome=ok|cwd_missing|approval_required|error}` 保留 outcome 维度，`enrich_failures_total`、`skill_artifact_approval_miss_total`、`skill_mcp_*` 等同步可 gather。
+   - 验收：`TestSkillMetricsExporterSnapshotIncludesHostToolOutcomes` 已证明 Prometheus 读取值与 `pkg/skillmetrics` snapshot 一致。
 2. **P25-HIGH-02b：告警规则与降级触发**
    - error-rate：`host_tool_calls_total{outcome!="ok"} / host_tool_calls_total` > 5% 持续 5min。
    - cwd_missing：任一 5min 窗口非零需要 WARN 或 ticket，因为它通常表示 agentId/cwd binding 漂移。
@@ -537,7 +539,7 @@ Phase 3 硬性 red gates（任一不满足不得正式化 Summary default policy
 #### 5.5.3 PR-6 必过命令
 
 ```bash
-go test ./pkg/skillmetrics -count=1
+go test ./pkg/skillmetrics ./internal/platform/metrics -count=1
 go test ./internal/platform/toolbridge -run 'Test.*(Observability|Metrics|ListToolsForCodex|CallHostTool)' -count=1
 go test ./internal/module/prompt -run 'Test(SkillProgressiveDisclosure|SkillCatalogProvider)' -count=1
 go test ./internal/module/turn -run TestApplyHydration_UntrustedSummary -count=1
@@ -546,7 +548,7 @@ git diff --check
 
 #### 5.5.4 不得合入的 red flags
 
-- 只新增日志、不新增可被外部系统读取的指标或 snapshot。
+- 只新增日志、不新增可被 Prometheus default gatherer 或等价外部系统读取的指标 / snapshot。
 - 只把 `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE` 默认打开，却没有 30 天观察起点和 rollback trigger。
 - exporter 只统计 total，不保留 `outcome` 维度，导致 cwd_missing / approval_required / error 无法区分。
 - 把真实 Claude CLI opt-in skip 当作已认证 E2E 通过。
@@ -567,7 +569,7 @@ git diff --check
 | PR-3 模型视角 E2E | `go test ./internal/provider/codexapp -run TestDynamicSkillTools_ModelE2E -count=1` | `TestDynamicSkillTools_ModelE2E_ExpandBodyResultReturnsToModel`、`TestDynamicSkillTools_ModelE2E_ApprovalApprovedContinuesFinalAnswer`、`TestDynamicSkillTools_ModelE2E_ApprovalDeniedReturnsStructuredToolResult` | fake / controlled app-server 证明 `thread/start dynamicTools -> model dynamic_tool_call(skill_expand_body) -> approval/cache/read -> tool result -> final answer`；只断言 schema 存在不得通过 |
 | PR-4 selected metadata / redaction | `go test ./internal/module/turn -run TestApplyHydration_UntrustedSummary -count=1`；`go test ./internal/module/prompt -run 'Test(SkillCatalogProvider_Untrusted|GroupSkillsForManifest_Untrusted|IsUntrustedScope)' -count=1` | `TestApplyHydration_UntrustedSummary_RedactedWhenSourceUnspecified`、`TestApplyHydration_UntrustedSummary_AllowsOnlyRealManualSelection`、`TestApplyHydration_UntrustedSummary_RedactedForTriggerAndForce`、`TestSkillCatalogProvider_UntrustedRenderedAsRedactedPlaceholder`、`TestSkillCatalogProvider_UntrustedDisableModelInvocation_NoLeak`、`TestGroupSkillsForManifest_UntrustedGoesToRedactedNotManualOnly`、`TestIsUntrustedScope` | 若允许 untrusted selected summary，只能限真实 `ManualSkillSelection=true && source=manual`；legacy `Source=Unspecified` / trigger / force 不得当授权；catalog redaction 继续成立 |
 | PR-5 resume / recovery skill tools | `go test ./internal/provider/codexapp -run 'Test(Resume|Recovery).*DynamicSkillTools' -count=1` | `TestResumeSession_DynamicSkillToolsStillCallable`、`TestRecoveryResume_DynamicSkillToolsStillCallable`、`TestThreadResume_AppServerRetainsStartDynamicTools`、`TestThreadResume_DynamicToolsWireCompatibilityIsExplicit` | 先证明 app-server 是否保留 start-time tools；若需要扩 `thread/resume`，必须证明 app-server 接受 / 显式处理该字段；验收以 resume/recovery 后模型仍能调用 skill tools 为准 |
-| PR-6 discovery / observability | `go test ./internal/module/prompt -run 'Test(SkillProgressiveDisclosure|SkillCatalogProvider)' -count=1`；`go test ./internal/platform/toolbridge -run 'Test.*Observability|Test.*Metrics' -count=1` | `TestSkillProgressiveDisclosure_DefaultDisabled`、`TestSkillProgressiveDisclosure_EnableFlagRendersCatalog`、`TestSkillCatalogProvider_GroupsNativeTrustedRedacted`、`TestListToolsForCodex_LogsDegradedPeer`、`TestHostSkillToolCall_EmitsApprovalAndCacheMetrics` | 默认仍为 disabled；enable=true 时 catalog 分组与 untrusted redaction 正确；放量前能观察 degraded peer、host tool success/error、approval requested/approved/denied/timeout、artifact cache hit/miss |
+| PR-6 discovery / observability | `go test ./pkg/skillmetrics ./internal/platform/metrics -count=1`；`go test ./internal/module/prompt -run 'Test(SkillProgressiveDisclosure|SkillCatalogProvider)' -count=1`；`go test ./internal/platform/toolbridge -run 'Test.*Observability|Test.*Metrics' -count=1` | `TestSkillMetricsExporterSnapshotIncludesHostToolOutcomes`、`TestSkillProgressiveDisclosure_DefaultDisabled`、`TestSkillProgressiveDisclosure_EnableFlagRendersCatalog`、`TestSkillCatalogProvider_GroupsNativeTrustedRedacted`、`TestListToolsForCodex_LogsDegradedPeer`、`TestHostSkillToolCall_EmitsApprovalAndCacheMetrics` | 默认仍为 disabled；enable=true 时 catalog 分组与 untrusted redaction 正确；放量前能通过 Prometheus default gatherer 或等价出口观察 degraded peer、host tool success/error、approval requested/approved/denied/timeout、artifact cache hit/miss |
 | Claude Phase 2 MCP child | `go test ./internal/provider/claudecli -run 'TestSkillMCP(Server|Mode)_(ToolsListStaticNoHostRPC|ExpandBodyLazyCallsHostRPC|ReadResourceLazyCallsHostRPC|RejectsModelRuntimeFields|FirstTurnWithoutSkillDoesNotCallExpandRPC|ApprovalRequiredReturnsStructuredEnvelope|ObservabilityCounters|StartupLatencyBudget|StdioSmokeInitializeListCallAndEOF)|TestSkillHostRPCClient_ValidatesHostResponse|TestTransportConfig_SameBinarySkillServerMCPConfig' -count=1`；`go test ./cmd/agent-terminal -run '^TestMcpSkillMode_(DoesNotStartFullApp|RealBinaryFramedStdioSmokeAndEOF|RealBinaryLatencyBudget|ClaudeLikeParentLifecycleEOFCancelAndNoOrphan|ClaudeCLIManagedSameBinarySkillE2E)$' -count=1` | `TestSkillMCPServer_ToolsListStaticNoHostRPC`、`TestSkillMCPServer_ExpandBodyLazyCallsHostRPC`、`TestSkillMCPServer_ReadResourceLazyCallsHostRPC`、`TestSkillMCPServer_RejectsModelRuntimeFields`、`TestSkillMCPServer_FirstTurnWithoutSkillDoesNotCallExpandRPC`、`TestSkillMCPServer_ApprovalRequiredReturnsStructuredEnvelope`、`TestSkillMCPServer_ObservabilityCounters`、`TestSkillMCPMode_StdioSmokeInitializeListCallAndEOF`、`TestSkillHostRPCClient_ValidatesHostResponse`、`TestMcpSkillMode_DoesNotStartFullApp`、`TestMcpSkillMode_RealBinaryFramedStdioSmokeAndEOF`、`TestMcpSkillMode_RealBinaryLatencyBudget`、`TestMcpSkillMode_ClaudeLikeParentLifecycleEOFCancelAndNoOrphan`、`TestMcpSkillMode_ClaudeCLIManagedSameBinarySkillE2E`、`TestTransportConfig_SameBinarySkillServerMCPConfig`、`TestSkillMCPServer_StartupLatencyBudget` | `initialize/tools/list` 只返回静态 `skill_expand_body` / `skill_read_resource` schema，不扫 skill、不读 `SKILL.md`、不调 host RPC、不触发 approval；第一次 `tools/call` 才 lazy 调父进程；stdio smoke 覆盖内存 server 与真实 agent-terminal 二进制 `Content-Length initialize -> tools/list -> tools/call -> EOF`；普通首轮不使用 skill 时不得发生 expand/read RPC；runtime env 不继承伪造 `GO_AGENT_SKILL_MCP_*` / per-turn turnID；`--mcp-skill-mode` 不进入完整 Fx/Wails，startup / 真实二进制 latency smoke 有明确耗时预算；skill MCP child emits success/error/approval_required counters，真实 Claude CLI 未认证环境按 opt-in 测试 skip |
 
 提交或合并前的最小验证命令建议：
@@ -745,7 +747,7 @@ shadowed_by，避免同名冲突静默消失。仍保留的长期选项是为 ho
 - [ ] **BUSINESS BLOCKED**：全量 skill discovery 默认未启用；`ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=false` 时模型只能看到 selected/name-only skill，不会默认获得完整 catalog。默认开启需等待 discovery / observability / rollout gates。
 - [ ] **BUSINESS BLOCKED**：显式 Full 仍 eager 注入完整 body；这是兼容设计，但产品/迁移策略需确认是否允许长期存在。
 - [ ] **VALIDATION REMAINS**：claudecli Phase 2 same-binary stdio MCP child 最小实现已落地，两个 provider 的模型可见 skill tool 语义已有代码级 parity；内存 stdio、真实 agent-terminal 二进制 `Content-Length initialize -> tools/list -> tools/call -> EOF`、Claude-like parent stdin EOF / context cancel / no-orphan lifecycle、真实二进制 initialize / tools/list / tools/call / stdin EOF latency budget 已有单测 smoke。真实 Claude CLI `--mcp-config` E2E 已有 opt-in 测试，未认证环境会跳过；业务 PR-ready 仍必须补已认证环境下的真实 Claude CLI tool-call E2E 与放量观测。
-- [ ] **ROLL-OUT BLOCKED**：metrics exporter / alerting / rollout observation 未完成。当前只是 in-process counters + 日志，Phase 3 默认策略前仍需 Prometheus / OTel 或等价导出、error-rate > 5% 持续 5min 告警、30 天成功率观察。
+- [ ] **ROLL-OUT BLOCKED**：Prometheus collector 声明已接入 default gatherer，但 promhttp `/metrics` 暴露端点、alerting 与 rollout observation 未完成。Phase 3 默认策略前仍需 error-rate > 5% 持续 5min 告警、30 天成功率观察。
 - [ ] **BUSINESS BLOCKED**：Phase 3 provider default policy / override 删除还没有可量化验收证据（CI job / test command / smoke checklist / rollout observation）。
 
 Release governance / 风险 gate 只作为发布管理补充，不盖过上述业务能力判断：
@@ -817,8 +819,8 @@ Release governance / 风险 gate 只作为发布管理补充，不盖过上述�
 
 详见 §3.4。Phase 1 原先“生产静默坏掉无信号”的问题已收敛为：
 
-- 已补：`host_tool_calls_total{outcome}` 对应 Go counters、`enrich_failures_total` counter、host-direct INFO 日志、cwd_missing WARN、peer shadow WARN。
-- 后续：Phase 3 正式化 Summary default policy / 删除 override 前，仍需补 Prometheus / OTel 或等价导出、error-rate 告警与 30 天 rollout observation，才能把 99% 成功率从人工判断升级为可执行 gate。
+- 已补：`host_tool_calls_total{outcome}` 对应 Go counters + Prometheus `CounterFunc` collector、`enrich_failures_total` collector、host-direct INFO 日志、cwd_missing WARN、peer shadow WARN。
+- 后续：Phase 3 正式化 Summary default policy / 删除 override 前，仍需补 promhttp `/metrics` 暴露端点或等价 dashboard 接入、error-rate 告警与 30 天 rollout observation，才能把 99% 成功率从人工判断升级为可执行 gate。
 - 定位：这是 rollout support，不是当前 codexapp 普通路径代码级能力的 blocker；当前业务主 blocker 仍是真实 Claude CLI 已认证 E2E、resume/recovery、redaction/default discovery 与 Phase 3 provider policy。
 
 ### 10.6 Mode override 在 caller 而非 sink（MED，可维护性）
