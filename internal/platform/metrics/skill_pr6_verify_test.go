@@ -32,6 +32,7 @@ func TestSkillProgressiveDisclosurePR6VerifyScriptArtifact(t *testing.T) {
 		"skill-progressive-disclosure-phase3-evidence-collect.sh",
 		"skill-progressive-disclosure-phase3-evidence-status.sh",
 		"skill-progressive-disclosure-phase3-evidence-ready-collect.sh",
+		"skill-progressive-disclosure-phase3-handoff-report.sh",
 		"skill-progressive-disclosure-default-switch-guard.sh",
 		"script is not executable",
 		"go test ./pkg/skillmetrics ./internal/platform/metrics -count=1",
@@ -42,7 +43,7 @@ func TestSkillProgressiveDisclosurePR6VerifyScriptArtifact(t *testing.T) {
 		"go test ./internal/ui/wails",
 		"git diff --check",
 		"P25-HIGH-02o PR-6 verification passed.",
-		"report / append / status / daily / production-evidence / claudecli-e2e-evidence / gate / preflight / evidence bundle / evidence collect / phase3-evidence-status / phase3-ready-collect",
+		"report / append / status / daily / production-evidence / claudecli-e2e-evidence / gate / preflight / evidence bundle / evidence collect / phase3-evidence-status / phase3-ready-collect / phase3-handoff-report",
 		"does not enable ENABLE_SKILL_PROGRESSIVE_DISCLOSURE",
 	}
 	for _, token := range required {
