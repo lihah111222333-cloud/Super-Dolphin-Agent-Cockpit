@@ -289,19 +289,21 @@ Prometheus `/api/v1/query` 生成 observation row，支持可选串行运行 pro
 no-sample rule 与 `artifact_approval_miss` 备注。
 PR-6 第六段已补 **daily observation append helper**：
 `docs/plans/迁移/p25skill优化/skill-progressive-disclosure-rollout-append.sh` 会把 report row 安全追加到 observation 文件，重复日期、`TODO(...)`、no-sample 却 continue、continue 但 smoke / rollback 非 PASS 均 fail closed，避免 30 天记录靠手工复制错列。
-PR-6 第七段已补 **30-day rollout gate verifier**：
+PR-6 第七段已补 **rollout status / next-step helper**：
+`docs/plans/迁移/p25skill优化/skill-progressive-disclosure-rollout-status.sh` 会读取 observation 文件并输出 sample days、no-sample days、non-ok rate、blockers 与 `Next phase actions`，让下一阶段执行项随 evidence 状态一起输出。
+PR-6 第八段已补 **30-day rollout gate verifier**：
 `docs/plans/迁移/p25skill优化/skill-progressive-disclosure-rollout-gate.sh` 会解析 observation markdown row，
 在样本天数不足、manual / production smoke 非 PASS、rollback drill 缺失、non-ok rate 超阈值、或 no-sample 试图闭 gate 时 fail closed。
-PR-6 第八段已补 **Phase 3 default-policy preflight gate**：
+PR-6 第九段已补 **Phase 3 default-policy preflight gate**：
 `docs/plans/迁移/p25skill优化/skill-progressive-disclosure-phase3-preflight.sh` 会串起 rollout gate、production smoke evidence、authenticated Claude CLI E2E evidence，作为默认策略正式化 / override 删除前的 fail-closed 检查。
-PR-6 第九段已补 **preflight evidence templates**：production smoke evidence 必须声明 `Evidence type: production-smoke` 且 `Total host tool calls` 为正数；Claude CLI E2E evidence 必须声明 authenticated 且不得含 `SKIP`。
-PR-6 第十段已补 **Phase 3 evidence bundle verifier**：
+PR-6 第十段已补 **preflight evidence templates**：production smoke evidence 必须声明 `Evidence type: production-smoke` 且 `Total host tool calls` 为正数；Claude CLI E2E evidence 必须声明 authenticated 且不得含 `SKIP`。
+PR-6 第十一段已补 **Phase 3 evidence bundle verifier**：
 `docs/plans/迁移/p25skill优化/skill-progressive-disclosure-phase3-evidence-bundle.sh` 要求 production smoke evidence、Claude E2E evidence、rollout observation、rollout gate output 与 preflight output 收束在同一 bundle 目录并统一校验，避免人工贴错 evidence。
-PR-6 第十一段已补 **default-switch static guard**：
+PR-6 第十二段已补 **default-switch static guard**：
 `docs/plans/迁移/p25skill优化/skill-progressive-disclosure-default-switch-guard.sh` 会在当前 PR 中 fail closed，确认 `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE` 默认仍为 false、`overrideSkillsToSummary` 仍存在且两处 caller 未被删、Phase 3 gates 仍在。
-PR-6 第十二段已补 **Phase 3 evidence bundle collector**：
+PR-6 第十三段已补 **Phase 3 evidence bundle collector**：
 `docs/plans/迁移/p25skill优化/skill-progressive-disclosure-phase3-evidence-collect.sh` 会把已填写 evidence 复制成标准 bundle 文件名，串行运行 rollout gate、Phase 3 preflight 与 bundle verifier，并默认生成 manifest，减少人工组包错误；它仍不启用默认开关、不删除 override。
-PR-6 第十三段已补 **one-command PR-6 verification wrapper**：
+PR-6 第十四段已补 **one-command PR-6 verification wrapper**：
 `docs/plans/迁移/p25skill优化/skill-progressive-disclosure-pr6-verify.sh` 串起脚本语法 / 可执行位检查、default-switch guard、focused PR-6 tests 与 `git diff --check`，作为提交前防漏跑入口；它同样不启用默认开关、不删除 override。
 仍未完成的是**生产执行 / 放量层**：生产 Prometheus/Alertmanager 仍需运行 smoke 并把结果附到 observation 行，
 30 天真实放量观察仍属于 Phase 3 前 rollout gate。
@@ -622,15 +624,20 @@ Phase 3 硬性 red gates（任一不满足不得正式化 Summary default policy
     - artifact：`docs/plans/迁移/p25skill优化/skill-progressive-disclosure-rollout-append.sh`。
     - 功能：把 `skill-progressive-disclosure-rollout-report.sh` 生成的 daily row 安全追加到 rollout observation 文件，避免手工复制错列；重复日期、`TODO(...)`、no-sample 却 decision=continue、continue 但 manual/prometheus/rollback 非 PASS 都会 fail closed。
     - 验收：`TestSkillProgressiveDisclosureRolloutAppendScriptArtifact` 锁定 helper token；`TestSkillProgressiveDisclosureRolloutAppendScriptPassDuplicateAndNoSampleFail` 实跑脚本锁定 append pass、重复日期 fail 与 `SKILL_PD_APPEND_REQUIRE_REAL_SAMPLE=true` no-sample fail；PR-6 verifier 会检查脚本可执行与 `bash -n`。
+17. ✅ **P25-HIGH-02q：rollout status / next-step helper**（2026-04-28 已落地）
+    - artifact：`docs/plans/迁移/p25skill优化/skill-progressive-disclosure-rollout-status.sh`。
+    - 功能：读取 observation 文件，输出 sample_days / remaining_sample_days / no_sample_days / non_ok_rate / rollback_drill_pass / blockers，并在 `Next phase actions` 中明确下一步是继续收样本、运行 rollout gate，还是收集 Phase 3 evidence bundle。
+    - 验收：`TestSkillProgressiveDisclosureRolloutStatusScriptArtifact` 锁定 status token；`TestSkillProgressiveDisclosureRolloutStatusScriptNextActions` 实跑脚本锁定样本不足与样本齐备两种 next-step 输出；PR-6 verifier 会检查脚本可执行与 `bash -n`。
 
 #### 5.5.3 PR-6 必过命令
 
 ```bash
 go test ./pkg/skillmetrics ./internal/platform/metrics -count=1
-go test ./internal/platform/metrics -run 'Test(SkillProgressiveDisclosure(AlertRulesArtifact|RolloutObservationTemplateArtifact|PrometheusConfigArtifact|RolloutSmokeScriptArtifact|RolloutReportScriptArtifact|RolloutReportScriptNoSampleRule|RolloutAppendScriptArtifact|RolloutAppendScriptPassDuplicateAndNoSampleFail|RolloutGateScriptArtifact|RolloutGateScriptPassAndNoSampleFail|Phase3PreflightScriptArtifact|Phase3PreflightScriptPassAndMissingEvidenceFail|Phase3EvidenceTemplates|Phase3EvidenceBundleScriptArtifact|Phase3EvidenceBundleScriptPassAndMissingFileFail|Phase3EvidenceCollectScriptArtifact|Phase3EvidenceCollectPassAndMissingEvidenceFail|PR6VerifyScriptArtifact|PR6VerifyScriptSkipGoTestsSmoke|DefaultSwitchGuardScriptArtifact|DefaultSwitchGuardPassAndDefaultTrueFail)|MetricsHandlerServesSkillHostToolCounters|RegisterHTTPHandlersMountsMetricsPath)' -count=1
+go test ./internal/platform/metrics -run 'Test(SkillProgressiveDisclosure(AlertRulesArtifact|RolloutObservationTemplateArtifact|PrometheusConfigArtifact|RolloutSmokeScriptArtifact|RolloutReportScriptArtifact|RolloutReportScriptNoSampleRule|RolloutAppendScriptArtifact|RolloutAppendScriptPassDuplicateAndNoSampleFail|RolloutStatusScriptArtifact|RolloutStatusScriptNextActions|RolloutGateScriptArtifact|RolloutGateScriptPassAndNoSampleFail|Phase3PreflightScriptArtifact|Phase3PreflightScriptPassAndMissingEvidenceFail|Phase3EvidenceTemplates|Phase3EvidenceBundleScriptArtifact|Phase3EvidenceBundleScriptPassAndMissingFileFail|Phase3EvidenceCollectScriptArtifact|Phase3EvidenceCollectPassAndMissingEvidenceFail|PR6VerifyScriptArtifact|PR6VerifyScriptSkipGoTestsSmoke|DefaultSwitchGuardScriptArtifact|DefaultSwitchGuardPassAndDefaultTrueFail)|MetricsHandlerServesSkillHostToolCounters|RegisterHTTPHandlersMountsMetricsPath)' -count=1
 bash -n docs/plans/迁移/p25skill优化/skill-progressive-disclosure-rollout-smoke.sh
 bash -n docs/plans/迁移/p25skill优化/skill-progressive-disclosure-rollout-report.sh
 bash -n docs/plans/迁移/p25skill优化/skill-progressive-disclosure-rollout-append.sh
+bash -n docs/plans/迁移/p25skill优化/skill-progressive-disclosure-rollout-status.sh
 bash -n docs/plans/迁移/p25skill优化/skill-progressive-disclosure-rollout-gate.sh
 bash -n docs/plans/迁移/p25skill优化/skill-progressive-disclosure-phase3-preflight.sh
 bash -n docs/plans/迁移/p25skill优化/skill-progressive-disclosure-phase3-evidence-bundle.sh
@@ -694,8 +701,19 @@ git diff --check
    - `SKILL_PD_RUN_ROLLOUT_SMOKE=true` 时不要手填 `SKILL_PD_PROMETHEUS_SMOKE_RESULT=PASS`；让脚本按 production smoke 真实退出码写 PASS / FAIL。
    - `skill-progressive-disclosure-rollout-append.sh` 会拒绝重复日期、`TODO(...)`、no-sample 却 decision=continue、continue 但 manual/prometheus/rollback 非 PASS 的行。
    - `Total host tool calls=0` 时必须保留 `SKIP(no samples)` / `hold`，不能把 no-sample 当成功率；若当天必须只收真实样本，可设置 `SKILL_PD_APPEND_REQUIRE_REAL_SAMPLE=true`。
-   - 追加后的 observation 文件可进入 30-day gate；原始 report / smoke 输出仍应作为 evidence 附件保存。
-4. **30 天样本满足后运行 rollout gate**
+   - 追加后的 observation 文件可进入 status / 30-day gate；原始 report / smoke 输出仍应作为 evidence 附件保存。
+4. **输出 rollout status 与下阶段动作**
+
+   ```bash
+   SKILL_PD_OBSERVATION_FILE="docs/plans/迁移/p25skill优化/skill-progressive-disclosure-rollout-observation.md" \
+   SKILL_PD_REQUIRED_SAMPLE_DAYS=30 \
+   docs/plans/迁移/p25skill优化/skill-progressive-disclosure-rollout-status.sh
+   ```
+
+   - status 输出必须包含 `sample_days`、`remaining_sample_days`、`blocker_count` 与 `Next phase actions`。
+   - 若样本不足，下一阶段是继续 production smoke / report / append；若样本满足，下一阶段是 rollout gate、production evidence、authenticated Claude CLI E2E evidence 与 evidence bundle collect。
+   - status helper 只读 observation，不合并分支、不默认开启、不删除 override。
+5. **30 天样本满足后运行 rollout gate**
 
    ```bash
    SKILL_PD_OBSERVATION_FILE="docs/plans/迁移/p25skill优化/skill-progressive-disclosure-rollout-observation.md" \
@@ -705,7 +723,7 @@ git diff --check
 
    - gate 输出必须包含 `P25-HIGH-02i rollout gate passed`、`sample_days=30`（或更多）、`rollback_drill_pass=true`。
    - no-sample row 不计入 sample day；cwd_missing / approval_required / enrich_failure 没有 accepted incident / fix note 时 fail closed。
-5. **收集 Phase 3 evidence bundle（默认策略 PR 前置，不在 PR-6 内完成）**
+6. **收集 Phase 3 evidence bundle（默认策略 PR 前置，不在 PR-6 内完成）**
 
    ```bash
    SKILL_PD_BUNDLE_OUT_DIR="/tmp/p25-skill-phase3-evidence-$(date +%F)" \
@@ -734,7 +752,7 @@ git diff --check
 | PR-3 模型视角 E2E | `go test ./internal/provider/codexapp -run TestDynamicSkillTools_ModelE2E -count=1` | `TestDynamicSkillTools_ModelE2E_ExpandBodyResultReturnsToModel`、`TestDynamicSkillTools_ModelE2E_ApprovalApprovedContinuesFinalAnswer`、`TestDynamicSkillTools_ModelE2E_ApprovalDeniedReturnsStructuredToolResult` | fake / controlled app-server 证明 `thread/start dynamicTools -> model dynamic_tool_call(skill_expand_body) -> approval/cache/read -> tool result -> final answer`；只断言 schema 存在不得通过 |
 | PR-4 selected metadata / redaction | `go test ./internal/module/turn -run TestApplyHydration_UntrustedSummary -count=1`；`go test ./internal/module/prompt -run 'Test(SkillCatalogProvider_Untrusted|GroupSkillsForManifest_Untrusted|IsUntrustedScope)' -count=1` | `TestApplyHydration_UntrustedSummary_RedactedWhenSourceUnspecified`、`TestApplyHydration_UntrustedSummary_AllowsOnlyRealManualSelection`、`TestApplyHydration_UntrustedSummary_RedactedForTriggerAndForce`、`TestSkillCatalogProvider_UntrustedRenderedAsRedactedPlaceholder`、`TestSkillCatalogProvider_UntrustedDisableModelInvocation_NoLeak`、`TestGroupSkillsForManifest_UntrustedGoesToRedactedNotManualOnly`、`TestIsUntrustedScope` | 若允许 untrusted selected summary，只能限真实 `ManualSkillSelection=true && source=manual`；legacy `Source=Unspecified` / trigger / force 不得当授权；catalog redaction 继续成立 |
 | PR-5 resume / recovery skill tools | `go test ./internal/provider/codexapp -run 'Test(Resume|Recovery).*DynamicSkillTools' -count=1` | `TestResumeSession_DynamicSkillToolsStillCallable`、`TestRecoveryResume_DynamicSkillToolsStillCallable`、`TestThreadResume_AppServerRetainsStartDynamicTools`、`TestThreadResume_DynamicToolsWireCompatibilityIsExplicit` | 先证明 app-server 是否保留 start-time tools；若需要扩 `thread/resume`，必须证明 app-server 接受 / 显式处理该字段；验收以 resume/recovery 后模型仍能调用 skill tools 为准 |
-| PR-6 discovery / observability | `go test ./pkg/skillmetrics ./internal/platform/metrics -count=1`；`go test ./internal/module/prompt -run 'Test(SkillProgressiveDisclosure|SkillCatalogProvider)' -count=1`；`go test ./internal/platform/toolbridge -run 'Test.*Observability|Test.*Metrics' -count=1` | `TestSkillMetricsExporterSnapshotIncludesHostToolOutcomes`、`TestSkillProgressiveDisclosureAlertRulesArtifact`、`TestSkillProgressiveDisclosureRolloutObservationTemplateArtifact`、`TestSkillProgressiveDisclosurePrometheusConfigArtifact`、`TestSkillProgressiveDisclosureRolloutSmokeScriptArtifact`、`TestSkillProgressiveDisclosureRolloutReportScriptArtifact`、`TestSkillProgressiveDisclosureRolloutReportScriptNoSampleRule`、`TestSkillProgressiveDisclosureRolloutAppendScriptArtifact`、`TestSkillProgressiveDisclosureRolloutAppendScriptPassDuplicateAndNoSampleFail`、`TestSkillProgressiveDisclosureRolloutGateScriptArtifact`、`TestSkillProgressiveDisclosureRolloutGateScriptPassAndNoSampleFail`、`TestSkillProgressiveDisclosurePhase3PreflightScriptArtifact`、`TestSkillProgressiveDisclosurePhase3PreflightScriptPassAndMissingEvidenceFail`、`TestSkillProgressiveDisclosurePhase3EvidenceTemplates`、`TestSkillProgressiveDisclosurePhase3EvidenceBundleScriptArtifact`、`TestSkillProgressiveDisclosurePhase3EvidenceBundleScriptPassAndMissingFileFail`、`TestSkillProgressiveDisclosurePhase3EvidenceCollectScriptArtifact`、`TestSkillProgressiveDisclosurePhase3EvidenceCollectPassAndMissingEvidenceFail`、`TestSkillProgressiveDisclosurePR6VerifyScriptArtifact`、`TestSkillProgressiveDisclosurePR6VerifyScriptSkipGoTestsSmoke`、`TestSkillProgressiveDisclosureDefaultSwitchGuardScriptArtifact`、`TestSkillProgressiveDisclosureDefaultSwitchGuardPassAndDefaultTrueFail`、`TestSkillProgressiveDisclosure_DefaultDisabled`、`TestSkillProgressiveDisclosure_EnableFlagRendersCatalog`、`TestSkillCatalogProvider_GroupsNativeTrustedRedacted`、`TestListToolsForCodex_LogsDegradedPeer`、`TestHostSkillToolCall_EmitsApprovalAndCacheMetrics` | 默认仍为 disabled；enable=true 时 catalog 分组与 untrusted redaction 正确；放量前能通过 Prometheus default gatherer 或等价出口观察 degraded peer、host tool success/error、approval requested/approved/denied/timeout、artifact cache hit/miss，并有 Prometheus scrape/rule-loading config artifact、production smoke script、daily observation report script、daily observation append helper、30-day rollout gate verifier、Phase 3 preflight gate、evidence templates、evidence bundle verifier、evidence bundle collector、one-command PR-6 verification wrapper、default-switch static guard 与 30 天 observation 模板锁住 no-sample 规则 |
+| PR-6 discovery / observability | `go test ./pkg/skillmetrics ./internal/platform/metrics -count=1`；`go test ./internal/module/prompt -run 'Test(SkillProgressiveDisclosure|SkillCatalogProvider)' -count=1`；`go test ./internal/platform/toolbridge -run 'Test.*Observability|Test.*Metrics' -count=1` | `TestSkillMetricsExporterSnapshotIncludesHostToolOutcomes`、`TestSkillProgressiveDisclosureAlertRulesArtifact`、`TestSkillProgressiveDisclosureRolloutObservationTemplateArtifact`、`TestSkillProgressiveDisclosurePrometheusConfigArtifact`、`TestSkillProgressiveDisclosureRolloutSmokeScriptArtifact`、`TestSkillProgressiveDisclosureRolloutReportScriptArtifact`、`TestSkillProgressiveDisclosureRolloutReportScriptNoSampleRule`、`TestSkillProgressiveDisclosureRolloutAppendScriptArtifact`、`TestSkillProgressiveDisclosureRolloutAppendScriptPassDuplicateAndNoSampleFail`、`TestSkillProgressiveDisclosureRolloutStatusScriptArtifact`、`TestSkillProgressiveDisclosureRolloutStatusScriptNextActions`、`TestSkillProgressiveDisclosureRolloutGateScriptArtifact`、`TestSkillProgressiveDisclosureRolloutGateScriptPassAndNoSampleFail`、`TestSkillProgressiveDisclosurePhase3PreflightScriptArtifact`、`TestSkillProgressiveDisclosurePhase3PreflightScriptPassAndMissingEvidenceFail`、`TestSkillProgressiveDisclosurePhase3EvidenceTemplates`、`TestSkillProgressiveDisclosurePhase3EvidenceBundleScriptArtifact`、`TestSkillProgressiveDisclosurePhase3EvidenceBundleScriptPassAndMissingFileFail`、`TestSkillProgressiveDisclosurePhase3EvidenceCollectScriptArtifact`、`TestSkillProgressiveDisclosurePhase3EvidenceCollectPassAndMissingEvidenceFail`、`TestSkillProgressiveDisclosurePR6VerifyScriptArtifact`、`TestSkillProgressiveDisclosurePR6VerifyScriptSkipGoTestsSmoke`、`TestSkillProgressiveDisclosureDefaultSwitchGuardScriptArtifact`、`TestSkillProgressiveDisclosureDefaultSwitchGuardPassAndDefaultTrueFail`、`TestSkillProgressiveDisclosure_DefaultDisabled`、`TestSkillProgressiveDisclosure_EnableFlagRendersCatalog`、`TestSkillCatalogProvider_GroupsNativeTrustedRedacted`、`TestListToolsForCodex_LogsDegradedPeer`、`TestHostSkillToolCall_EmitsApprovalAndCacheMetrics` | 默认仍为 disabled；enable=true 时 catalog 分组与 untrusted redaction 正确；放量前能通过 Prometheus default gatherer 或等价出口观察 degraded peer、host tool success/error、approval requested/approved/denied/timeout、artifact cache hit/miss，并有 Prometheus scrape/rule-loading config artifact、production smoke script、daily observation report script、daily observation append helper、rollout status / next-step helper、30-day rollout gate verifier、Phase 3 preflight gate、evidence templates、evidence bundle verifier、evidence bundle collector、one-command PR-6 verification wrapper、default-switch static guard 与 30 天 observation 模板锁住 no-sample 规则 |
 | Claude Phase 2 MCP child | `go test ./internal/provider/claudecli -run 'TestSkillMCP(Server|Mode)_(ToolsListStaticNoHostRPC|ExpandBodyLazyCallsHostRPC|ReadResourceLazyCallsHostRPC|RejectsModelRuntimeFields|FirstTurnWithoutSkillDoesNotCallExpandRPC|ApprovalRequiredReturnsStructuredEnvelope|ObservabilityCounters|StartupLatencyBudget|StdioSmokeInitializeListCallAndEOF)|TestSkillHostRPCClient_ValidatesHostResponse|TestTransportConfig_SameBinarySkillServerMCPConfig' -count=1`；`go test ./cmd/agent-terminal -run '^TestMcpSkillMode_(DoesNotStartFullApp|RealBinaryFramedStdioSmokeAndEOF|RealBinaryLatencyBudget|ClaudeLikeParentLifecycleEOFCancelAndNoOrphan|ClaudeCLIManagedSameBinarySkillE2E)$' -count=1` | `TestSkillMCPServer_ToolsListStaticNoHostRPC`、`TestSkillMCPServer_ExpandBodyLazyCallsHostRPC`、`TestSkillMCPServer_ReadResourceLazyCallsHostRPC`、`TestSkillMCPServer_RejectsModelRuntimeFields`、`TestSkillMCPServer_FirstTurnWithoutSkillDoesNotCallExpandRPC`、`TestSkillMCPServer_ApprovalRequiredReturnsStructuredEnvelope`、`TestSkillMCPServer_ObservabilityCounters`、`TestSkillMCPMode_StdioSmokeInitializeListCallAndEOF`、`TestSkillHostRPCClient_ValidatesHostResponse`、`TestMcpSkillMode_DoesNotStartFullApp`、`TestMcpSkillMode_RealBinaryFramedStdioSmokeAndEOF`、`TestMcpSkillMode_RealBinaryLatencyBudget`、`TestMcpSkillMode_ClaudeLikeParentLifecycleEOFCancelAndNoOrphan`、`TestMcpSkillMode_ClaudeCLIManagedSameBinarySkillE2E`、`TestTransportConfig_SameBinarySkillServerMCPConfig`、`TestSkillMCPServer_StartupLatencyBudget` | `initialize/tools/list` 只返回静态 `skill_expand_body` / `skill_read_resource` schema，不扫 skill、不读 `SKILL.md`、不调 host RPC、不触发 approval；第一次 `tools/call` 才 lazy 调父进程；stdio smoke 覆盖内存 server 与真实 agent-terminal 二进制 `Content-Length initialize -> tools/list -> tools/call -> EOF`；普通首轮不使用 skill 时不得发生 expand/read RPC；runtime env 不继承伪造 `GO_AGENT_SKILL_MCP_*` / per-turn turnID；`--mcp-skill-mode` 不进入完整 Fx/Wails，startup / 真实二进制 latency smoke 有明确耗时预算；skill MCP child emits success/error/approval_required counters，真实 Claude CLI 未认证环境按 opt-in 测试 skip |
 
 提交或合并前的最小验证命令建议：
@@ -847,6 +865,7 @@ PR-6 observability 后续追加 artifact / guard / endpoint：
 - `docs/plans/迁移/p25skill优化/skill-progressive-disclosure-rollout-smoke.sh`
 - `docs/plans/迁移/p25skill优化/skill-progressive-disclosure-rollout-report.sh`
 - `docs/plans/迁移/p25skill优化/skill-progressive-disclosure-rollout-append.sh`
+- `docs/plans/迁移/p25skill优化/skill-progressive-disclosure-rollout-status.sh`
 - `docs/plans/迁移/p25skill优化/skill-progressive-disclosure-rollout-gate.sh`
 - `docs/plans/迁移/p25skill优化/skill-progressive-disclosure-phase3-preflight.sh`
 - `docs/plans/迁移/p25skill优化/skill-progressive-disclosure-production-smoke-evidence.md`
@@ -863,6 +882,7 @@ PR-6 observability 后续追加 artifact / guard / endpoint：
 - `internal/platform/metrics/skill_rollout_smoke_test.go`
 - `internal/platform/metrics/skill_rollout_report_test.go`
 - `internal/platform/metrics/skill_rollout_append_test.go`
+- `internal/platform/metrics/skill_rollout_status_test.go`
 - `internal/platform/metrics/skill_rollout_gate_test.go`
 - `internal/platform/metrics/skill_phase3_preflight_test.go`
 - `internal/platform/metrics/skill_phase3_evidence_bundle_test.go`
@@ -1017,7 +1037,7 @@ Release governance / 风险 gate 只作为发布管理补充，不盖过上述�
 详见 §3.4。Phase 1 原先“生产静默坏掉无信号”的问题已收敛为：
 
 - 已补：`host_tool_calls_total{outcome}` 对应 Go counters + Prometheus `CounterFunc` collector、`enrich_failures_total` collector、local `/metrics` endpoint、scrape/rule-loading config artifact、production smoke script、daily observation report generator、30-day rollout gate verifier、Phase 3 preflight gate、evidence templates、evidence bundle verifier、evidence bundle collector、one-command PR-6 verification wrapper、default-switch static guard、host-direct INFO 日志、cwd_missing WARN、peer shadow WARN。
-- 后续：Phase 3 正式化 Summary default policy / 删除 override 前，仍需在生产运行 smoke 并把结果附到 observation 行，再基于已落地的 observation 模板 / report script / append script / gate script / preflight script / evidence templates / evidence bundle script / evidence collect script 完成 30 天真实 rollout observation 与 authenticated Claude CLI E2E evidence，才能把 99% 成功率从人工判断升级为可执行 gate。
+- 后续：Phase 3 正式化 Summary default policy / 删除 override 前，仍需在生产运行 smoke 并把结果附到 observation 行，再基于已落地的 observation 模板 / report script / append script / status script / gate script / preflight script / evidence templates / evidence bundle script / evidence collect script 完成 30 天真实 rollout observation 与 authenticated Claude CLI E2E evidence，才能把 99% 成功率从人工判断升级为可执行 gate。
 - 定位：这是 rollout support，不是当前 codexapp 普通路径代码级能力的 blocker；当前业务主 blocker 仍是真实 Claude CLI 已认证 E2E、resume/recovery、redaction/default discovery 与 Phase 3 provider policy。
 
 ### 10.6 Mode override 在 caller 而非 sink（MED，可维护性）

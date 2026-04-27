@@ -14,6 +14,9 @@ Optional helpers:
 - `docs/plans/迁移/p25skill优化/skill-progressive-disclosure-rollout-append.sh`
   appends one generated daily observation row, fails closed on duplicate dates or
   incomplete evidence, and prevents no-sample rows from being marked continue.
+- `docs/plans/迁移/p25skill优化/skill-progressive-disclosure-rollout-status.sh`
+  summarizes sampled days, no-sample rows, non-ok rate, blockers, and the next
+  phase actions before running the 30-day rollout gate.
 - `docs/plans/迁移/p25skill优化/skill-progressive-disclosure-rollout-gate.sh`
   is the 30-day rollout gate verifier; it fails closed on no-sample rows,
   missing smoke PASS results, rollback trigger drift, or non-ok rate threshold
