@@ -1,0 +1,40 @@
+# Prometheus scrape/rule-loading artifact for P25 skill progressive-disclosure rollout.
+# Status: P25-HIGH-02f config artifact. This is the minimal local scrape config
+# that wires the Super-Dolphin desktop HTTP metrics endpoint to the alert rules.
+#
+# Apply / validation checklist before Phase 3 default policy:
+#   1. Start agent-terminal with the local HTTP asset server enabled.
+#   2. Confirm http://127.0.0.1:4511/metrics returns host_tool_calls_total.
+#   3. Load this config, or merge the rule_files + scrape_configs blocks into the
+#      production Prometheus config.
+#   4. Confirm Prometheus Targets shows the job as UP.
+#   5. Confirm the four alerts from skill-progressive-disclosure-alerts.yml are
+#      present in Prometheus Rules and routed to Alertmanager.
+#   6. Run skill-progressive-disclosure-rollout-smoke.sh and attach its output to
+#      the rollout observation row.
+#   7. Start the 30-day observation record only after steps 2-6 are green.
+
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+rule_files:
+  - skill-progressive-disclosure-alerts.yml
+
+scrape_configs:
+  - job_name: super-dolphin-skill-progressive-disclosure
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets:
+          - 127.0.0.1:4511
+        labels:
+          component: skill-progressive-disclosure
+          service: super-dolphin
+          rollout_gate: p25skill-pr6
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - 127.0.0.1:9093
