@@ -142,6 +142,19 @@ export const MemoryCenterPage = {
     const agentScopes = computed(() => ensureArray(props.model?.agentScopes));
     const currentCwd = computed(() => firstNonEmpty(overview.value.projectRoot));
     const systemDisabled = computed(() => overview.value.enabled === false);
+    const autoDreamRuntimeEnabled = computed(() => overview.value.autoDreamEnabled === true);
+    const autoDreamIntent = computed(() => {
+      const v = overview.value.autoDreamIntent;
+      return v === true ? true : v === false ? false : null;
+    });
+    const autoDreamEnabled = computed(() => (
+      autoDreamIntent.value === null ? autoDreamRuntimeEnabled.value : autoDreamIntent.value
+    ));
+    const autoDreamStatusLabel = computed(() => (autoDreamEnabled.value ? '已开启' : '已关闭'));
+    const autoDreamPendingRestart = computed(() => (
+      autoDreamIntent.value !== null && autoDreamIntent.value !== autoDreamRuntimeEnabled.value
+    ));
+    const autoDreamToggling = ref(false);
     const showAllScopes = ref(false);
 
     const privateEntries = computed(() => ensureArray(privateMemory.value?.entries));
@@ -170,6 +183,21 @@ export const MemoryCenterPage = {
     }
 
     function setBusy(path) { busyPath.value = path || ''; }
+
+    async function toggleAutoDream() {
+      if (autoDreamToggling.value) return;
+      const next = !autoDreamEnabled.value;
+      autoDreamToggling.value = true;
+      try {
+        await callAPI('ui/memory/auto-dream/set-intent', { enabled: next });
+        setNotice('warning', `自动沉淀已切换为${next ? '开启' : '关闭'} — 重启 agent-terminal 后生效`);
+        emit('refresh');
+      } catch (error) {
+        setNotice('error', `切换自动沉淀失败：${(error && error.message) || String(error || '')}`);
+      } finally {
+        autoDreamToggling.value = false;
+      }
+    }
 
     const memoryEditor = useDurableMemoryEditor({ currentCwd, setNotice, setBusy, emit });
     const agentEditor = useAgentMemoryEditor({ currentCwd, setNotice, setBusy, emit });
@@ -270,6 +298,11 @@ export const MemoryCenterPage = {
       guideCollapsed,
       refreshing,
       systemDisabled,
+      autoDreamEnabled,
+      autoDreamStatusLabel,
+      autoDreamPendingRestart,
+      autoDreamToggling,
+      toggleAutoDream,
       showAllScopes,
       visibleAgentScopes,
       hiddenEmptyScopeCount,
@@ -374,6 +407,32 @@ export const MemoryCenterPage = {
               </article>
             </div>
           </div>
+        </div>
+
+        <div class="data-card-vue memory-center-auto-card" data-testid="memory-center-auto-dream-card">
+          <div class="memory-center-auto-card-head">
+            <div class="memory-center-auto-title">自动沉淀</div>
+            <div class="memory-center-auto-card-actions">
+              <span
+                class="jr-badge"
+                :class="autoDreamEnabled ? 'jr-badge-success' : 'jr-badge-default'"
+                data-testid="memory-center-auto-dream-status"
+              >{{ autoDreamStatusLabel }}</span>
+              <button
+                type="button"
+                class="memory-center-auto-toggle"
+                :disabled="autoDreamToggling"
+                @click="toggleAutoDream"
+                data-testid="memory-center-auto-dream-toggle"
+              >{{ autoDreamEnabled ? '关闭' : '开启' }}</button>
+            </div>
+          </div>
+          <div class="memory-center-auto-text">对话结束后，帮你把重要内容整理进长期记忆</div>
+          <div
+            v-if="autoDreamPendingRestart"
+            class="memory-center-auto-pending"
+            data-testid="memory-center-auto-dream-pending"
+          >已保存切换，重启 agent-terminal 后生效</div>
         </div>
 
         <div v-if="notice.message" class="settings-prompt-notice memory-notice-fade" :class="'is-' + notice.level" data-testid="memory-center-notice">{{ notice.message }}</div>

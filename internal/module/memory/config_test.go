@@ -97,6 +97,38 @@ func TestSkeletonConfigsDefaultDisabledAndPlaceholderHelpers(t *testing.T) {
 	}
 }
 
+func TestNewConfigAutoDreamIntentOverridesEnv(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(envMemoryRoot, root)
+	t.Setenv(envClaudeRemoteMemoryDir, "")
+	t.Setenv(envMemoryExtractOnStop, "")
+
+	// Without an intent file, env default (false) wins.
+	cfg := NewConfig(&platformconfig.Config{ProjectRoot: t.TempDir()})
+	if cfg.ExtractOnStop {
+		t.Fatalf("ExtractOnStop = true, want false (no intent, no env)")
+	}
+
+	// Persisted intent=true overrides env-default false.
+	if err := WriteAutoDreamIntent(root, true); err != nil {
+		t.Fatalf("WriteAutoDreamIntent(true) error = %v", err)
+	}
+	cfg = NewConfig(&platformconfig.Config{ProjectRoot: t.TempDir()})
+	if !cfg.ExtractOnStop {
+		t.Fatalf("ExtractOnStop = false, want true (intent=true should override env)")
+	}
+
+	// Persisted intent=false overrides env=true.
+	if err := WriteAutoDreamIntent(root, false); err != nil {
+		t.Fatalf("WriteAutoDreamIntent(false) error = %v", err)
+	}
+	t.Setenv(envMemoryExtractOnStop, "true")
+	cfg = NewConfig(&platformconfig.Config{ProjectRoot: t.TempDir()})
+	if cfg.ExtractOnStop {
+		t.Fatalf("ExtractOnStop = true, want false (intent=false should override env=true)")
+	}
+}
+
 func TestConfigIsMemoryEnabledHonorsGateConditions(t *testing.T) {
 	tests := []struct {
 		name string
