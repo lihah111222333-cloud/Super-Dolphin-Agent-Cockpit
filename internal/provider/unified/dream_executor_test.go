@@ -54,6 +54,21 @@ func newDreamExecutorWithTimeout(t *testing.T, providers []contract.DreamExecuto
 	return impl
 }
 
+// newDreamExecutorWithMaxPromptBytes 仅供测试调小 prompt size cap。
+func newDreamExecutorWithMaxPromptBytes(t *testing.T, providers []contract.DreamExecutorProvider, maxBytes int, logger *slog.Logger) contract.DreamExecutor {
+	t.Helper()
+	if logger == nil {
+		logger = newSilentLogger()
+	}
+	d := NewDreamExecutor(providers, logger)
+	impl, ok := d.(*dreamExecutor)
+	if !ok {
+		t.Fatalf("expected *dreamExecutor, got %T", d)
+	}
+	impl.maxPromptBytes = maxBytes
+	return impl
+}
+
 func newSilentLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
@@ -340,6 +355,59 @@ func TestDreamExecutor_RespectsCallerDeadlineWhenShorter(t *testing.T) {
 	}
 }
 
+func TestDreamExecutor_PromptExceedsSizeLimit(t *testing.T) {
+	calls := []string{}
+	mu := &sync.Mutex{}
+	providers := []contract.DreamExecutorProvider{
+		{Name: "claude", Executor: &fakeDreamExecutor{name: "claude", result: "unreachable", calls: &calls, mu: mu}},
+	}
+	d := newDreamExecutorWithMaxPromptBytes(t, providers, 100, nil)
+	oversized := strings.Repeat("x", 101)
+
+	_, err := d.ExecuteDream(context.Background(), oversized)
+	if err == nil || !strings.Contains(err.Error(), "dream prompt too large") {
+		t.Fatalf("expected size cap error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "101") || !strings.Contains(err.Error(), "100") {
+		t.Fatalf("expected error to include sizes (101/100), got %v", err)
+	}
+	if len(calls) != 0 {
+		t.Fatalf("expected provider not called when size cap exceeded, got %v", calls)
+	}
+}
+
+func TestDreamExecutor_PromptAtSizeLimitAccepts(t *testing.T) {
+	providers := []contract.DreamExecutorProvider{
+		{Name: "claude", Executor: &fakeDreamExecutor{result: "ok"}},
+	}
+	d := newDreamExecutorWithMaxPromptBytes(t, providers, 100, nil)
+	atLimit := strings.Repeat("x", 100)
+
+	got, err := d.ExecuteDream(context.Background(), atLimit)
+	if err != nil {
+		t.Fatalf("expected boundary value to pass, got %v", err)
+	}
+	if got != "ok" {
+		t.Fatalf("expected 'ok', got %q", got)
+	}
+}
+
+func TestDreamExecutor_ZeroMaxPromptBytesSkipsCheck(t *testing.T) {
+	providers := []contract.DreamExecutorProvider{
+		{Name: "claude", Executor: &fakeDreamExecutor{result: "ok"}},
+	}
+	d := newDreamExecutorWithMaxPromptBytes(t, providers, 0, nil)
+	huge := strings.Repeat("x", 1024*1024) // 1MB 远超默认 256KB
+
+	got, err := d.ExecuteDream(context.Background(), huge)
+	if err != nil {
+		t.Fatalf("expected size cap disabled to pass, got %v", err)
+	}
+	if got != "ok" {
+		t.Fatalf("expected 'ok', got %q", got)
+	}
+}
+
 func TestDreamExecutor_LogsKeyEvents(t *testing.T) {
 	t.Run("success path emits Info with provider and size_bytes", func(t *testing.T) {
 		logger, buf := newCapturingLogger()
@@ -389,6 +457,24 @@ func TestDreamExecutor_LogsKeyEvents(t *testing.T) {
 			"dream executor failed",
 			"provider=claude",
 			"provider boom",
+		)
+	})
+
+	t.Run("prompt size cap emits Warn with size_bytes and max_bytes", func(t *testing.T) {
+		logger, buf := newCapturingLogger()
+		providers := []contract.DreamExecutorProvider{
+			{Name: "claude", Executor: &fakeDreamExecutor{result: "unreachable"}},
+		}
+		d := newDreamExecutorWithMaxPromptBytes(t, providers, 50, logger)
+		oversized := strings.Repeat("x", 60)
+		if _, err := d.ExecuteDream(context.Background(), oversized); err == nil {
+			t.Fatalf("expected size cap error, got nil")
+		}
+		assertLogContains(t, buf.String(),
+			"level=WARN",
+			"dream prompt exceeds size limit",
+			"size_bytes=60",
+			"max_bytes=50",
 		)
 	})
 }
