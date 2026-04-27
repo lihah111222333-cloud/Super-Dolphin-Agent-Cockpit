@@ -355,6 +355,63 @@ func TestDreamExecutor_RespectsCallerDeadlineWhenShorter(t *testing.T) {
 	}
 }
 
+func TestResolveProviderOrder(t *testing.T) {
+	registered := []string{"claude", "codex"}
+	cases := []struct {
+		name     string
+		override string
+		want     []string
+	}{
+		{"empty falls back to alphabetical", "", []string{"claude", "codex"}},
+		{"whitespace-only falls back to alphabetical", "   ", []string{"claude", "codex"}},
+		{"explicit reverses default", "codex,claude", []string{"codex", "claude"}},
+		{"partial puts listed first then alphabetical", "codex", []string{"codex", "claude"}},
+		{"unknown names ignored", "ghost,codex,phantom", []string{"codex", "claude"}},
+		{"duplicates collapsed first-wins", "codex,claude,codex", []string{"codex", "claude"}},
+		{"whitespace trimmed around tokens", "  codex  ,  claude  ", []string{"codex", "claude"}},
+		{"empty tokens skipped", "codex,,,claude", []string{"codex", "claude"}},
+		{"all unknown collapses to alphabetical", "ghost,phantom", []string{"claude", "codex"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := resolveProviderOrder(registered, tc.override)
+			if !equalStrings(got, tc.want) {
+				t.Fatalf("override=%q: got %v, want %v", tc.override, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestResolveProviderOrder_NewOrderDoesNotMutateInput(t *testing.T) {
+	registered := []string{"claude", "codex"}
+	orig := append([]string(nil), registered...)
+	_ = resolveProviderOrder(registered, "codex,claude")
+	if !equalStrings(registered, orig) {
+		t.Fatalf("resolveProviderOrder mutated input: got %v, want %v", registered, orig)
+	}
+}
+
+func TestDreamExecutor_EnvOverridesAlphabeticalOrder(t *testing.T) {
+	t.Setenv(dreamProviderOrderEnv, "codex,claude")
+	calls := []string{}
+	mu := &sync.Mutex{}
+	providers := []contract.DreamExecutorProvider{
+		{Name: "claude", Executor: &fakeDreamExecutor{name: "claude", result: "claude-out", calls: &calls, mu: mu}},
+		{Name: "codex", Executor: &fakeDreamExecutor{name: "codex", result: "codex-out", calls: &calls, mu: mu}},
+	}
+	d := NewDreamExecutor(providers, newSilentLogger())
+	got, err := d.ExecuteDream(context.Background(), "p")
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if got != "codex-out" {
+		t.Fatalf("expected env-ordered codex to win, got %q", got)
+	}
+	if !equalStrings(calls, []string{"codex"}) {
+		t.Fatalf("expected only codex called (env order), got %v", calls)
+	}
+}
+
 func TestDreamExecutor_PromptExceedsSizeLimit(t *testing.T) {
 	calls := []string{}
 	mu := &sync.Mutex{}
@@ -475,6 +532,21 @@ func TestDreamExecutor_LogsKeyEvents(t *testing.T) {
 			"dream prompt exceeds size limit",
 			"size_bytes=60",
 			"max_bytes=50",
+		)
+	})
+
+	t.Run("env-overridden order emits Info at registration", func(t *testing.T) {
+		t.Setenv(dreamProviderOrderEnv, "codex,claude")
+		logger, buf := newCapturingLogger()
+		providers := []contract.DreamExecutorProvider{
+			{Name: "claude", Executor: &fakeDreamExecutor{result: "unused"}},
+			{Name: "codex", Executor: &fakeDreamExecutor{result: "unused"}},
+		}
+		_ = NewDreamExecutor(providers, logger)
+		assertLogContains(t, buf.String(),
+			"level=INFO",
+			"dream provider order overridden",
+			"env=codex,claude",
 		)
 	})
 }
