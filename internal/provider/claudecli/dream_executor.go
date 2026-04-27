@@ -2,25 +2,85 @@ package claudecli
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/dreamexec"
 )
 
-type dreamExecutor struct{}
+// dreamModelEnv 是 dream 调用 claude 时可选的 model env override。未设则走 binary 默认 model。
+const dreamModelEnv = "DREAM_CLAUDE_MODEL"
+
+// dreamMaxStdoutBytes 与 dispatcher prompt size cap 对齐，dream 输出不应超 256KB。
+const dreamMaxStdoutBytes int64 = 256 * 1024
+
+// dreamMaxRetries: parse 失败重试一次就足够，dispatcher failover 兑底第二 provider。
+const dreamMaxRetries = 1
+
+type dreamExecutor struct {
+	commander dreamexec.Commander
+	binary    string
+	model     string
+}
+
+// newDreamExecutor 构造 dream provider。commander==nil 走 NewRealCommander，
+// binary 为空走 resolveBinaryPath()，便于测试注入。
+func newDreamExecutor(commander dreamexec.Commander, binary, model string) dreamExecutor {
+	if commander == nil {
+		commander = dreamexec.NewRealCommander()
+	}
+	if strings.TrimSpace(binary) == "" {
+		binary = resolveBinaryPath()
+	}
+	return dreamExecutor{
+		commander: commander,
+		binary:    binary,
+		model:     strings.TrimSpace(model),
+	}
+}
 
 func provideDreamExecutorProvider() contract.DreamExecutorProvider {
 	return contract.DreamExecutorProvider{
 		Name:     "claude",
-		Executor: dreamExecutor{},
+		Executor: newDreamExecutor(nil, "", os.Getenv(dreamModelEnv)),
 	}
 }
 
-func (dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string, error) {
+func (e dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	_ = prompt
-	// TODO: wire Claude session/turn execution to run dream consolidation prompts.
-	return "", fmt.Errorf("%w: provider claude dream executor not configured", contract.ErrDreamExecutorNotConfigured)
+	args := []string{"-p"}
+	if e.model != "" {
+		args = append(args, "--model", e.model)
+	}
+	raw, err := dreamexec.Run(ctx, e.commander, dreamexec.RunOptions{
+		Binary:         e.binary,
+		Args:           args,
+		Prompt:         prompt,
+		MaxStdoutBytes: dreamMaxStdoutBytes,
+		MaxRetries:     dreamMaxRetries,
+	})
+	if err != nil {
+		if isBinaryNotFound(err) {
+			return "", fmt.Errorf("%w: claude binary %q not found", contract.ErrDreamExecutorNotConfigured, e.binary)
+		}
+		return "", err
+	}
+	return raw, nil
+}
+
+// isBinaryNotFound 判别错误是否源于 binary 不存在，映射到 ErrDreamExecutorNotConfigured
+// 让 dispatcher 指劣 failover 试下一个 provider。
+func isBinaryNotFound(err error) bool {
+	if errors.Is(err, exec.ErrNotFound) {
+		return true
+	}
+	// dreamexec.realCommander 用 fmt.Errorf %w 包裹，errors.Is 应能 unwrap。
+	// 兑底检查错误字串决 PATH not found 场景（exec.LookPath 未走到这里）。
+	return strings.Contains(err.Error(), "executable file not found")
 }
