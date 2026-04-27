@@ -37,23 +37,24 @@ func ExtractFirstJSONObject(s string) (string, error) {
 	if start < 0 {
 		return "", errors.New("no JSON object found (no '{' in input)")
 	}
+	end := findBalancedJSONEnd(s, start)
+	if end < 0 {
+		return "", errors.New("unbalanced JSON object (missing '}')")
+	}
+	return s[start:end], nil
+}
+
+// findBalancedJSONEnd 从 start ('{') 开始扫描，返回配对 '}' 后一位下标（exclusive）。
+// 识别 JSON 字符串词法（转义符 + 引号），字符串内的 { } 不计入 depth。
+// 未找到配对返回 -1。
+func findBalancedJSONEnd(s string, start int) int {
 	depth := 0
 	inString := false
 	escaped := false
 	for i := start; i < len(s); i++ {
 		ch := s[i]
 		if inString {
-			if escaped {
-				escaped = false
-				continue
-			}
-			if ch == '\\' {
-				escaped = true
-				continue
-			}
-			if ch == '"' {
-				inString = false
-			}
+			inString, escaped = stepStringState(ch, escaped)
 			continue
 		}
 		switch ch {
@@ -64,9 +65,24 @@ func ExtractFirstJSONObject(s string) (string, error) {
 		case '}':
 			depth--
 			if depth == 0 {
-				return s[start : i+1], nil
+				return i + 1
 			}
 		}
 	}
-	return "", errors.New("unbalanced JSON object (missing '}')")
+	return -1
+}
+
+// stepStringState 推进字符串内部状态机：由 (escaped) 状态决定下一个 (inString, escaped)。
+// 只在 inString=true 调用；返回后 ch 被消费。
+func stepStringState(ch byte, escaped bool) (inString bool, nextEscaped bool) {
+	if escaped {
+		return true, false
+	}
+	if ch == '\\' {
+		return true, true
+	}
+	if ch == '"' {
+		return false, false
+	}
+	return true, false
 }

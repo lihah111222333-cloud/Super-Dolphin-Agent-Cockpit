@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/pkg/dreammetrics"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -21,10 +22,11 @@ import (
 const dreamProviderOrderEnv = "DREAM_PROVIDER_ORDER"
 
 // defaultDreamTimeout 是 dispatcher 兜底的单次 dream 蒸馏超时。
-// 上层 ctx 若已有更短 deadline，context.WithTimeout 取较近者，本常量不会覆盖。
+// 上层 ctx 若已有更短 deadline，platformconfig.WithTimeout 取较近者，本常量不会覆盖。
 // 上层 auto_dream_task.go startDreamTask 当前只 cancel 不带 deadline，
 // 此处兜底防止单次真 LLM 调用无界 hang。
-const defaultDreamTimeout = 5 * time.Minute
+// 实际值集中在 platform/config/timeouts.go (TimeoutLocality 规范)。
+const defaultDreamTimeout = platformconfig.DreamConsolidationTimeout
 
 // defaultMaxPromptBytes 是 dispatcher 兜底的单次 prompt 大小上限（256KB ≈ 64k UTF-8 字符，
 // 约占 200k token context window 的 32%）。
@@ -106,11 +108,25 @@ func resolveProviderOrder(registered []string, override string) []string {
 }
 
 func (e *dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string, error) {
+	if err := e.preflight(prompt); err != nil {
+		return "", err
+	}
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
+	if e.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = platformconfig.WithTimeout(ctx, e.timeout)
+		defer cancel()
+	}
+	return e.runFailover(ctx, prompt)
+}
+
+// preflight 检查入参 prompt + size cap。ctx 检查放在 ExecuteDream
+// 避免 preflight 依赖 ctx（主要责任是输入质量守门）。
+func (e *dreamExecutor) preflight(prompt string) error {
 	if strings.TrimSpace(prompt) == "" {
-		return "", fmt.Errorf("dream prompt is empty")
+		return fmt.Errorf("dream prompt is empty")
 	}
 	if e.maxPromptBytes > 0 && len(prompt) > e.maxPromptBytes {
 		e.logger.Warn("dream prompt exceeds size limit",
@@ -118,13 +134,14 @@ func (e *dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string
 			"max_bytes", e.maxPromptBytes,
 		)
 		dreammetrics.IncPromptOversize()
-		return "", fmt.Errorf("dream prompt too large: %d bytes exceeds %d", len(prompt), e.maxPromptBytes)
+		return fmt.Errorf("dream prompt too large: %d bytes exceeds %d", len(prompt), e.maxPromptBytes)
 	}
-	if e.timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, e.timeout)
-		defer cancel()
-	}
+	return nil
+}
+
+// runFailover 依次调用注册的 provider，遇 NotConfigured 跳过，
+// 遇真错误立即短路，全链路未配置返回最后一个 NotConfigured。
+func (e *dreamExecutor) runFailover(ctx context.Context, prompt string) (string, error) {
 	var lastNotConfigured error
 	for _, name := range e.order {
 		executor := e.executors[name]
