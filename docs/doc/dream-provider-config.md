@@ -9,7 +9,7 @@
 ```
 Config.Enabled                = false  (config.go:108)
 Config.ExtractOnStop          = false  (config.go:115)
-ResolveMemoryGate.AutoEnabled = 受 settings 层级控制 (config.go:160)
+ResolveMemoryGate.AutoEnabled = 受 settings + CLAUDE_CODE_DISABLE_AUTO_MEMORY 控制 (gate.go:74,102)
 ```
 
 3 重守门 + 全 false → 不会有「用户被静默扣 tokens」风险。
@@ -33,12 +33,14 @@ export DREAM_CODEX_BIN=/usr/local/bin/codex
 
 ## 完整 env vars 矩阵
 
-### 启用守门（2 项）
+### 启用守门（4 项）
 
 | Env | 默认 | 含义 |
 |---|---|---|
 | `ENABLE_MEMORY_SYSTEM` | `0` | 记忆系统总开关 |
+| `ENABLE_MEMORY_TOOLS` | `0` | 暴露 memory tools 给 LLM（独立于总开关，config.go:109） |
 | `MULTI_AGENT_MEMORY_EXTRACT_ON_STOP` | `0` | thread.stopped 触发自动 dream consolidation |
+| `CLAUDE_CODE_DISABLE_AUTO_MEMORY` | `unset` | 设为任意值后第 3 重守门强制关闭 AutoEnabled |
 
 ### Dream provider 配置（5 项）
 
@@ -52,8 +54,10 @@ export DREAM_CODEX_BIN=/usr/local/bin/codex
 
 ### 凭据要求
 
-- **claude**: `~/.claude` OAuth 凭据（运行 `claude login` 一次）
-- **codex**: `~/.codex` OAuth 凭据（运行 `codex login` 一次）
+- **claude**: `~/.claude` OAuth（`claude login`）
+- **codex**: `~/.codex` OAuth（`codex login`）或 `OPENAI_API_KEY` env
+- **codex multi-profile**: `CODEX_HOME` env override 路径；binding 层记录 `CodexInstanceKey` + `CodexModelProvider` 区分多 profile (GLM / Kimi / OpenAI)
+- dream 子进程继承启动用户环境变量 + home 目录，无额外 dream-specific auth
 
 ## 触发条件
 
@@ -107,11 +111,13 @@ dispatcher 5 日志点（`*slog.Logger`）：
 
 | 症状 | 原因 | 处理 |
 |---|---|---|
-| 永远不触发 dream | 任一 env var 默认 false 未开 | 检查 `ENABLE_MEMORY_SYSTEM` + `MULTI_AGENT_MEMORY_EXTRACT_ON_STOP` |
-| 日志全部 `(not configured)` | binary 不在 PATH 或未登录 | `claude login` / `codex login` 或设 `*_CLI_BIN` |
-| 日志 `dream prompt exceeds size limit` | memory 累积超 256KB | 触发 follow-up（C 类 memory GC）/ 临时清理 topic 文件 |
-| dream 跑超 5min | LLM 真 hang 或网络问题 | dispatcher timeout 自动 cancel 子进程；检查网络 |
-| metrics `ProviderFailedTotal` 上升 | rate limit / quota / auth | 检查 `~/.claude` / `~/.codex` 凭据；查看 logger Warn 错误内容 |
+| 永远不触发 dream | 任一默认 false env 未开 / `CLAUDE_CODE_DISABLE_AUTO_MEMORY` 被设 | 检查 4 项启用守门 |
+| 日志全部 `(not configured)` | binary 不在 PATH 或未登录 | `claude login` / `codex login` 或设 `CLAUDE_CLI_BIN` / `DREAM_CODEX_BIN` |
+| `binary not available: <path>` | `*_CLI_BIN` env 写错 / binary 不存在 | 检查 env 路径 + `which` 验证 |
+| 日志 `dream prompt exceeds size limit` | memory 累积超 256KB silent fail (PromptOversizeTotal++) | 调 `dreammetrics.PromptOversize` / 清理 topic 文件 |
+| `DREAM_PROVIDER_ORDER` 不生效 | 未识别名被静默忽略 | 检查启动时 `dream provider order overridden` Info 日志的 `resolved` 字段 |
+| dream 跑超 5min | LLM 真 hang / 网络 | dispatcher timeout 自动 cancel；检查网络 / quota |
+| metrics `ProviderFailedTotal` 上升 | rate limit / quota / auth / network | 检查 `~/.claude` / `~/.codex` 凭据 + logger Warn 错误内容 |
 
 ## 引用代码
 
