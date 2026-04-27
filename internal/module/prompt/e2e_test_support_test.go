@@ -135,7 +135,26 @@ func (s *capturingBindingStore) GetByProviderThread(_ context.Context, provider,
 
 func (s *capturingBindingStore) Upsert(_ context.Context, params bindingstore.UpsertParams) error {
 	s.upsert = params
-	s.binding = &bindingstore.Binding{AgentID: params.AgentID, Provider: params.Provider, ProviderThreadID: params.ProviderThreadID, CodexThreadID: params.CodexThreadID, Cwd: params.Cwd, SessionUUID: params.SessionUUID, CreatedAt: params.CreatedAt, UpdatedAt: params.UpdatedAt}
+	// fixture 必须与 production sqlc Upsert 字段对齐，防止 verifyThreadBinding
+	// 因漏写 codex_home / instance_key / agent_type / agent_memory_scope 等
+	// optional 字段在未来 StartRequest 注入对应 Config 时炸（B-4.7 latent fix）
+	s.binding = &bindingstore.Binding{
+		AgentID:            params.AgentID,
+		Provider:           params.Provider,
+		ProviderThreadID:   params.ProviderThreadID,
+		CodexThreadID:      params.CodexThreadID,
+		RolloutPath:        params.RolloutPath,
+		Cwd:                params.Cwd,
+		ParentAgentID:      params.ParentAgentID,
+		AgentType:          params.AgentType,
+		AgentMemoryScope:   params.AgentMemoryScope,
+		SessionUUID:        params.SessionUUID,
+		CodexHome:          params.CodexHome,
+		CodexInstanceKey:   params.CodexInstanceKey,
+		CodexModelProvider: params.CodexModelProvider,
+		CreatedAt:          params.CreatedAt,
+		UpdatedAt:          params.UpdatedAt,
+	}
 	return nil
 }
 
