@@ -247,3 +247,137 @@ func TestRun_ContextCanceledBeforeFirstCallReturnsCtxErr(t *testing.T) {
 		t.Fatalf("expected 0 calls when ctx canceled before run, got %d", c.calls)
 	}
 }
+
+// ---------- 自动 dispatch + OnUsage 集成测试 ----------
+
+// claudeEnvelopeIntegrationFixture 是带 ```json fence 包裹的 result 字段。路径：
+// envelope -> ExtractClaudeEnvelope -> result text -> StripJSONFences -> ExtractFirstJSONObject。
+const claudeEnvelopeIntegrationFixture = `{"type":"result","is_error":false,"result":"` +
+	"```json\\n{\\\"memories\\\":[{\\\"content\\\":\\\"x\\\"}]}\\n```" +
+	`","usage":{"input_tokens":6,"cache_creation_input_tokens":7409,"cache_read_input_tokens":16153,"output_tokens":8}}`
+
+func TestRun_AutoDispatchClaudeEnvelopeAndOnUsage(t *testing.T) {
+	var captured TokenUsage
+	c := &fakeCommander{outputs: []string{claudeEnvelopeIntegrationFixture}}
+	got, err := Run(context.Background(), c, RunOptions{
+		Binary: "claude", Prompt: "p", MaxStdoutBytes: 4096,
+		OnUsage: func(u TokenUsage) { captured = u },
+	})
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if !strings.Contains(got, `"memories"`) {
+		t.Fatalf("expected JSON object with 'memories', got %q", got)
+	}
+	// 6 + 7409 + 16153 = 23568
+	if captured.InputTokens != 23568 || captured.OutputTokens != 8 || captured.CacheReadTokens != 16153 {
+		t.Fatalf("OnUsage capture mismatch: %+v", captured)
+	}
+}
+
+func TestRun_AutoDispatchCodexJSONLAndOnUsage(t *testing.T) {
+	jsonl := "{\"type\":\"thread.started\"}\n" +
+		"{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"{\\\"memories\\\":[{\\\"content\\\":\\\"y\\\"}]}\"}}\n" +
+		"{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":11920,\"cached_input_tokens\":5504,\"output_tokens\":92}}\n"
+	var captured TokenUsage
+	c := &fakeCommander{outputs: []string{jsonl}}
+	got, err := Run(context.Background(), c, RunOptions{
+		Binary: "codex", Prompt: "p", MaxStdoutBytes: 4096,
+		OnUsage: func(u TokenUsage) { captured = u },
+	})
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if !strings.Contains(got, `"memories"`) {
+		t.Fatalf("expected JSON object with 'memories', got %q", got)
+	}
+	if captured.InputTokens != 11920 || captured.OutputTokens != 92 || captured.CacheReadTokens != 5504 {
+		t.Fatalf("OnUsage capture mismatch: %+v", captured)
+	}
+}
+
+func TestRun_OnUsageNotCalledForPlainTextFallback(t *testing.T) {
+	// 既不像 envelope 也不像 JSONL，走 fallback。OnUsage 不该被调用。
+	called := false
+	c := &fakeCommander{outputs: []string{`{"memories":[{"content":"plain"}]}`}}
+	got, err := Run(context.Background(), c, RunOptions{
+		Binary: "any", Prompt: "p", MaxStdoutBytes: 1024,
+		OnUsage: func(TokenUsage) { called = true },
+	})
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if !strings.Contains(got, `"memories"`) {
+		t.Fatalf("expected fallback to extract JSON, got %q", got)
+	}
+	if called {
+		t.Errorf("OnUsage should not be called for plain-text fallback")
+	}
+}
+
+func TestRun_AutoDispatchClaudeEnvelopeIsErrorRetries(t *testing.T) {
+	// is_error=true 的 envelope 走 structuredErr 分支，触发 retry。
+	bad := `{"type":"result","is_error":true,"result":""}`
+	good := `{"type":"result","is_error":false,"result":"{\"memories\":[]}","usage":{"input_tokens":1,"output_tokens":2}}`
+	c := &fakeCommander{outputs: []string{bad, good}}
+	got, err := Run(context.Background(), c, RunOptions{
+		Binary: "claude", Prompt: "p", MaxStdoutBytes: 1024, MaxRetries: 1,
+	})
+	if err != nil {
+		t.Fatalf("expected retry to succeed, got %v", err)
+	}
+	if got != `{"memories":[]}` {
+		t.Fatalf("got %q", got)
+	}
+	if c.calls != 2 {
+		t.Fatalf("expected 2 calls (1 fail + 1 retry), got %d", c.calls)
+	}
+}
+
+func TestLooksLikeClaudeEnvelope(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{"real envelope", `{"type":"result","is_error":false,"result":"x"}`, true},
+		{"only type=result", `{"type":"result"}`, true},
+		{"only is_error key", `{"is_error":false}`, true},
+		{"only result key", `{"result":"x"}`, true},
+		{"plain memories JSON", `{"memories":[]}`, false},
+		{"jsonl line", `{"type":"thread.started"}`, false},
+		{"not JSON", `hello`, false},
+		{"empty", ``, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := looksLikeClaudeEnvelope([]byte(tc.in)); got != tc.want {
+				t.Errorf("got %v, want %v for %q", got, tc.want, tc.in)
+			}
+		})
+	}
+}
+
+func TestLooksLikeCodexJSONL(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{"thread.started line", `{"type":"thread.started"}`, true},
+		{"item.completed line", `{"type":"item.completed","item":{"type":"agent_message","text":"x"}}`, true},
+		{"turn.completed only", `{"type":"turn.completed"}`, true},
+		{"with stdin prefix", "Reading prompt from stdin...\n{\"type\":\"thread.started\"}\n", true},
+		{"plain memories JSON", `{"memories":[]}`, false},
+		{"claude envelope", `{"type":"result","is_error":false,"result":"x"}`, false},
+		{"non JSON", `not json`, false},
+		{"empty", ``, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := looksLikeCodexJSONL([]byte(tc.in)); got != tc.want {
+				t.Errorf("got %v, want %v for %q", got, tc.want, tc.in)
+			}
+		})
+	}
+}
