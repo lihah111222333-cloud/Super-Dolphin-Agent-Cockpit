@@ -48,17 +48,17 @@
 顺序派单，planned test names / 验收矩阵见 §5.5；前置 PR 未完成前，不建议把
 `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE` 默认打开。
 
-> 2026-04-26 PR-1/PR-2/PR-3 更新：Approval 主闭环、DynamicTools partial degradation、
-> 模型视角 E2E 已落地；当前推荐下一步从 PR-4 selected metadata / redaction 决策开始。
+> 2026-04-27 PR-4/PR-5 更新：selected metadata / redaction 决策、resume / recovery skill tools
+> 已落地并有回归覆盖；当前推荐下一步从 PR-6 默认 discovery / rollout observability 开始。
 
 | 优先级 | 推荐 PR | 目标 | 关键文件 / 模块 | 必过验收 |
 |---:|---|---|---|---|
 | P0 ✅ | PR-1：Approval 主闭环 + metadata 传递（已落地） | project skill 首次展开触发 UI approval，approved 后可继续读取 | `internal/platform/toolbridge/{handler,host_tools}.go`、`internal/module/skill/{skills_expand,service,approval}.go` | 已锁：`agentId/threadId/turnId/callId/cwd/toolName` 进入 approval payload；approved/denied/timeout fail closed；`ApproveArtifact` 按 body/resource/path/repo 隔离 |
 | P0 ✅ | PR-2：DynamicTools partial degradation（已落地） | host skill tools 不被 orch/lsp peer readiness 拖死，同时尽量保留 peer tools | `internal/platform/toolbridge/handler.go`、`internal/platform/toolbridge/host_tools_test.go` | 已锁：host tools 先收集；orch/lsp 并发等待；成功 peer 合并；双 peer 失败但 host 存在仍返回 host；无 host 且 peer 全失败才 error |
 | P0 ✅ | PR-3：模型视角 E2E（已落地） | 证明模型能看到工具、调用 `skill_expand_body`、拿结果继续回答 | `internal/provider/codexapp/dynamic_skill_tools_e2e_test.go`、fake / controlled app-server | 已锁：`thread/start dynamicTools -> model tool call(skill_expand_body) -> tool result -> final answer`；approved/denied 模型视角结构化结果均覆盖 |
-| P1 | PR-4：selected metadata / redaction 决策 | 收敛 untrusted selected summary 可见性策略 | `internal/module/turn/skills.go`、`internal/module/prompt/skill_catalog_provider.go` | 若允许 summary，只限真实 `ManualSkillSelection=true && source=manual`；legacy `Source=Unspecified` 不得误授权 |
-| P1 | PR-5：resume / recovery skill tools | 证明或修复 resume/recovery 后 skill tools 可用 | `internal/provider/codexapp/{driver,recovery}.go` | 先验证 app-server 是否保留 / 接受 resume dynamicTools；不允许只靠 params 加字段验收 |
-| P2 | PR-6：默认 discovery / observability | 为默认 progressive-disclosure 放量做准备 | `internal/module/prompt/config.go`、`internal/platform/toolbridge`、`pkg/skillmetrics` | 默认开启前必须有 approval / DynamicTools / E2E / observability gates；补 degraded、host-call、approval、artifact cache 日志 / 指标 |
+| P0 ✅ | PR-4：selected metadata / redaction 决策（已落地） | 收敛 untrusted selected summary 可见性策略 | `internal/module/turn/skills.go`、`internal/module/prompt/skill_catalog_provider.go` | 已锁：untrusted summary 只限真实 `ManualSkillSelection=true && source=manual`；legacy `Source=Unspecified` / trigger / force 不授权；catalog redaction 不泄露作者 metadata |
+| P0 ✅ | PR-5：resume / recovery skill tools（已落地） | 证明 resume/recovery 后 skill tools 仍可用 | `internal/provider/codexapp/{driver,recovery}.go` | 已锁：app-server 保留 start-time dynamicTools；`thread/resume` 不携带 dynamicTools；resume/recovery 后模型仍能调用 `skill_expand_body` |
+| P1 | PR-6：默认 discovery / rollout observability | 为默认 progressive-disclosure 放量做准备 | `internal/module/prompt/config.go`、`internal/platform/toolbridge`、`pkg/skillmetrics` | 默认开启前必须有 discovery / observability / rollout gates；redaction 回归保持绿；补 exporter / alerting / 30 天 rollout observation |
 
 ---
 
@@ -106,7 +106,7 @@
 | Skill service | cwd-scoped roots、scan/list、ExpandBody/ReadResource、trust/content hash、artifact approval cache、SkillsChanged event | skill 层能力完整；project skill 首次展开已接 `ApprovalRequester` 主闭环，fallback approval-required 也会结构化返回 |
 | RPC / Approval | `ApprovalManager` 支持 pending 去重、恢复、request_user_input、bus 事件 | approval 基础设施已存在；P25 不应重造审批，只需把 host-direct skill error 接入现有 approval bridge |
 | MCP / Toolbridge | mcpcontrol registry/heartbeat/fanout；toolbridge list/call/proxy/diff；host-direct SkillHostTools | tool 暴露/调用主干成立；host skill tools 已具备 partial degradation、structured result/error、基础 metrics 与 INFO/WARN 日志 |
-| Codex provider | shared app-server、WS transport、dynamicTools thread/start、approval bridge、recovery/pending replay | codexapp 是当前可落地 provider；缺 resume/recovery 后 DynamicTools 可用性证明 |
+| Codex provider | shared app-server、WS transport、dynamicTools thread/start、approval bridge、recovery/pending replay | codexapp 是当前可落地 provider；resume/recovery 后 DynamicTools 可用性已有回归证明，`thread/resume` 暂不扩 dynamicTools 字段 |
 | Claude provider | manifest / MCP config / native skill injection port / eager skill render / same-binary skill MCP child 最小链路 | Phase 2 最小实现已落地；仍缺真实 Claude CLI E2E、stdio smoke / lifecycle 与放量观测证明 |
 | UI / Observability / Ops | uistate、dashboard、turnobservation、cachekeepalive、pidregistry、cron/notify/insight | 发布支撑设施已有；P25 已补 host-direct 基础 metrics / 日志 / structured approval result，仍缺 exporter/alerting、catalog refresh 策略与默认放量观察 |
 
@@ -114,9 +114,9 @@
 
 1. **不要扩一套新架构**：优先复用 `ApprovalManager`、`SkillCatalogProvider`、`toolbridge`、
    `turnobservation`、provider recovery 等现有设施。
-2. **业务闭环优先级高于代码链路存在**：selected/name-only Summary render 已打通，
-   但 project-scope approval、全量 discovery、resume/recovery、observability 未闭环前，
-   不得标记为 harness 级 PR-ready。
+2. **业务闭环优先级高于代码链路存在**：selected/name-only Summary render、project-scope approval、
+   untrusted metadata redaction、resume/recovery 与 host-direct 基础 observability 已关闭；全量 discovery、
+   exporter / alerting / rollout observation 与 Phase 3 policy 未闭环前，不得标记为默认放量 PR-ready。
 3. **保持文档地图卫生再继续大规模派单**：`docs/doc/codemap` 历史残留 conflict markers
    已清理，当前不再是 P25 Phase 2 / Phase 3 前置 blocker；后续若重新生成 codemap，仍必须把
    行首 `^<<<<<<<` / `^=======$` / `^>>>>>>>` 检查纳入 smoke；详见 §10.9。
@@ -279,27 +279,21 @@ rollout gate。
 以下缺口不是单纯治理 / 文档卫生问题，而是决定 P25 能否从“代码级链路打通”升级为
 “业务能力 PR-ready”的主链路判断：
 
-1. **project-scope skill 首次展开没有 approval 闭环**：项目级 skill 默认 `TrustProject`，
-   `skill_expand_body` / `skill_read_resource` 命中 `SkillApprovalRequiredError` 时，
-   `toolbridge.callHostTool` 目前只把错误包装成普通 `success=false + inputText`，
-   不触发 UI approval，也不返回机器可识别的 `kind="approval_required"`。
-   因此当前 host-direct 展开能力对 trusted / preapproved skill 可顺利工作，
-   但对普通 `.agent/skills` 首次展开仍会卡在非结构化失败文本。
-2. **selected skill Summary 与 catalog redaction 策略不一致**：`SkillCatalogProvider`
-   对 untrusted project skill 会隐藏作者原始 description / summary；但 selected/name-only
-   路径会经 `hydrateSkillRefs -> applyHydration` 把 `SkillInfo.Summary` 填入 `SkillRef`，
-   再由 codexapp Summary render 写给模型。需产品决策：手选 project skill 是否等价于
-   允许暴露 summary；否则应补 metadata approval / redaction gate。
+1. ✅ **project-scope skill 首次展开 approval 闭环已关闭**：`skill_expand_body` / `skill_read_resource`
+   cache miss 会进入 `ApprovalRequester` 主路径；approved 后写 `ApproveArtifact`，denied / timeout fail closed；
+   no-requester fallback 返回结构化 `kind="approval_required"`，不再把错误当普通文本。
+2. ✅ **selected skill Summary 与 catalog redaction 策略已收敛**：untrusted project skill 的作者 metadata
+   只在真实手选 `ManualSkillSelection=true && source=manual` 时暴露；legacy `Source=Unspecified`、trigger、force
+   均不得因为 hydration 误授权。`SkillCatalogProvider` 仍对 unknown/invalid trust 做 redacted placeholder。
 3. **全量 skill discovery 默认未启用**：`ENABLE_SKILL_PROGRESSIVE_DISCLOSURE` 当前默认
    `false`，`SkillCatalogProvider` 默认不注册。因此已打通的是 selected/name-only skill
    的 Summary path，不是“模型默认看到全量 skill catalog 并自主发现”的业务能力。
-4. **host skill tools 暴露被 orch/lsp peer readiness 绑定**：`ListToolsForCodex` 先等待
-   orch / lsp peer，再合并 host tools。任一 peer list 失败都会导致
-   `skill_expand_body` / `skill_read_resource` 也无法暴露。业务上需要 host-only partial
-   degradation，或用跨层测试证明启动顺序稳定。
-5. **resume / recovery 后 DynamicTools 可用性未证明**：`thread/start` 携带 dynamicTools，
-   但 `thread/resume` params 没有 dynamicTools 字段。需要 E2E 证明 app-server 会保留工具
-   schema，或在 resume/recovery 后重新注册 / 恢复 skill tools。
+4. ✅ **host skill tools host-only partial degradation 已关闭**：`ListToolsForCodex` 先收集 host tools，
+   orch / lsp peer 并发等待；单 peer 失败只降级记录，双 peer 失败但 host 存在仍返回 host；无 host 且
+   双 peer 失败才返回错误，同名工具由 host 优先并打 shadow WARN。
+5. ✅ **resume / recovery 后 DynamicTools 可用性已证明**：`thread/start` 继续携带 dynamicTools，
+   `thread/resume` 明确不携带 dynamicTools；回归测试证明 app-server 会保留 start-time dynamicTools，
+   resume/recovery 后模型仍能调用 `skill_expand_body`。
 6. **resource 能力限定为文本资源**：`skill_read_resource` 当前返回 string，适合
    `references/*.md`、脚本等文本；二进制 asset（图片、模板、压缩包等）仍需 base64
    或独立 `skill_read_asset` 方案。
@@ -339,16 +333,19 @@ rollout gate。
 
 ## 4. 测试现状
 
-### 4.1 新增测试（共 32 个）
+### 4.1 核心回归测试矩阵（截至 2026-04-27）
 
-| 包 / 区域 | 测试数 | 覆盖范围 |
-|---|---:|---|
-| `pkg/skilltool` | 4 | tool name / required / no-cwd / property type / additionalProperties / marshal |
-| `internal/platform/toolbridge` | 10 | SkillHostTools / dedup |
-| `internal/provider/codexapp` Mode override | 8 | 6 个 helper 单测 + `TestBuildTurnStartParams_AppliesSummaryOverride` + `TestPrepareTurnToBuildTurnStartParams_NameOnlySkillUsesSummary` |
-| `internal/provider/codexapp` enrich | 6 | agentId 注入 / 覆盖外部 `agentId` 与 `agent_id` / fail-soft |
-| `internal/module/turn` | 4 | Unspecified marker / hydration preserves Mode / explicit Mode 不被覆盖 |
-| **合计** | **32** | 30 个 leaf/unit + 2 个 codexapp 入口/真实路径集成断言 |
+> 测试数随 PR-1~PR-5 持续增长，本节不再维护易过期的总数，只记录业务 gate 对应的回归入口。
+
+| 包 / 区域 | 代表测试 | 覆盖范围 |
+|---|---|---|
+| `pkg/skilltool` | `schema_test.go` | tool name / required / no-cwd / property type / additionalProperties / marshal |
+| `internal/platform/toolbridge` | `TestCallHostTool_*`、`TestListToolsForCodex_*`、`TestRouteToolCall_HostToolBypassesPeer_UsesResolvedCWD` | SkillHostTools、approval structured result、host metrics/logs、peer partial degradation、host shadow dedup |
+| `internal/provider/codexapp` Mode override / enrich | `TestOverrideSkillsToSummary_*`、`TestEnrichToolCallParams_*` | `Mode=Unspecified` → Summary 临时 override、agentId 注入 / 覆盖外部 alias / fail-soft |
+| `internal/provider/codexapp` 模型视角 / resume | `dynamic_skill_tools_e2e_test.go`、`TestResumeSession_DynamicSkillToolsStillCallable`、`TestRecoveryResume_DynamicSkillToolsStillCallable` | DynamicTools → model tool call → result 回模型；resume/recovery 后 skill tools 仍可用 |
+| `internal/module/turn` | `TestApplyHydration_UntrustedSummary_*` | Unspecified marker、hydration preserves Mode、untrusted selected summary 只限真实手选 |
+| `internal/module/prompt` | `TestSkillCatalogProvider_Untrusted*`、`TestGroupSkillsForManifest_UntrustedGoesToRedactedNotManualOnly` | catalog redaction、untrusted + disable-model-invocation 不泄露 metadata / 不落 Manual-only |
+| `internal/provider/claudecli` / `cmd/agent-terminal` | `TestSkillMCPServer_*`、`TestMcpSkillMode_*`、`TestTransportConfig_SameBinarySkillServerMCPConfig` | same-binary stdio MCP child、static tools/list、lazy host RPC、真实二进制 smoke / lifecycle / latency |
 
 ### 4.2 全套测试状态
 
@@ -357,38 +354,20 @@ rollout gate。
 > 作为 fallback。以下代码块保持可直接复制执行，不在命令行尾部混入状态符号。
 
 ```bash
-go build ./...
-go build -buildvcs=false ./...
-go test ./pkg/skilltool/ -count=1
-go test ./internal/platform/toolbridge/ -count=1
-go test ./internal/provider/codexapp/ -run '^(TestEnrichToolCallParams_.*|TestOverrideSkillsToSummary_.*|TestBuildTurnStartParams_AppliesSummaryOverride|TestPrepareTurnToBuildTurnStartParams_NameOnlySkillUsesSummary)$' -count=1
-go test ./internal/provider/claudecli/ -run Skill -count=1
-go test ./internal/module/turn/ -count=1
-go test ./internal/module/skill/ -count=1
-go test ./internal/module/cron/ -count=1
-go test ./internal/dto/provider/ -count=1
+go test ./internal/archtest -run TestCodeSizeGuard -count=1
+go test ./internal/module/skill ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/module/turn ./internal/module/prompt ./pkg/skillmetrics ./internal/provider/claudecli ./cmd/agent-terminal ./internal/provider/unified ./internal/dto/provider ./internal/provider/manifestbuilder -count=1
+git diff --check
 ```
 
 ### 4.3 已知测试覆盖盲点（建议后续补）
 
 | 缺口 | 当前状态 | 建议 |
 |---|---|---|
-| codexapp 普通 name-only selected skill 路径 Summary | 已有 `PrepareTurn→skill.Service hydrate→buildTurnStartParams` 小集成验证 | 保留为已覆盖，不再列为业务 blocker；后续用模型 E2E 验真 |
-| codexapp `ListToolsForCodex` 真实包含 `skill_expand_body` / `skill_read_resource` | 缺跨层断言 | 补 toolbridge / codexapp 小集成 |
-| `routeToolCall → callHostTool → SkillHostTools.CallHostTool` 串联 | 只有叶子节点单测 | 补 `TestRouteToolCall_HostToolBypassesPeer_UsesResolvedCWD` |
-| `onInboundMessage` 实际把 `s.agentID` 覆盖写入 canonical `agentId`、删除 `agent_id` alias，并把 enriched params 交给 toolHandler | 目前主要测 helper | 补 `TestOnInboundMessage_EnrichesToolCallParams_OverridesAgentID` |
-| `buildTurnSteerParams` override | 有代码路径，缺默认 Summary 断言 | 补 `TestBuildTurnSteerParams_AppliesSummaryOverride` |
-| claudecli 负面断言 | 只跑 `-run Skill`，未证明 eager Full 不受 override / provider-aware marker 影响 | 补 claudecli 保持 Full/eager 的 contract test |
-| DynamicTools 真实 skill tools | 现有测试偏 fake tool / leaf | 补真实 skill tools dynamicTools 测试，断言 `ListToolsForCodex` 真含 `skill_expand_body` / `skill_read_resource` |
-| DynamicTools host-only 降级 | host skill tools 仍被 orch/lsp peer readiness 绑定 | 补并发 peer list partial-degradation 测试：orch fail/lsp ok、lsp fail/orch ok、双 peer fail+host ok、无 host+双 peer fail 才 error；禁止串行 10s+10s 或秒回 host-only |
-| 模型视角 E2E | 缺 | 真 app-server + fake/controlled model tool call：DynamicTools → skill_expand_body → approval/cache/read → result 回模型继续推理；只断言 schema 存在不算闭环 |
-| project skill approval 闭环 | `ExpandBody` / `ReadResource` 能返回 `SkillApprovalRequiredError`，但 host-direct 只转成普通失败文本，且未把 `agentId/threadId/callId` 传入 skill approval payload | 补 service 内部 `ApprovalRequester` 主路径、host-direct metadata 传递、`ApproveArtifact` cache 写入、approved/denied/timeout E2E；`SkillApprovalRequiredError` 仅作 no-requester fallback |
-| selected path untrusted metadata 策略 | selected/name-only Summary 可能暴露 project skill summary，未复用 catalog redaction；`applyHydration` 会把 `Source=Unspecified` 补成 `manual` | 补产品决策 + contract test：若允许 summary，只能限真实 `ManualSkillSelection=true && source=manual`；legacy unspecified / trigger / force 默认不得当作 metadata 授权 |
-| resume/recovery 后 skill tools | `thread/start` 有 dynamicTools，`thread/resume` 未携带 dynamicTools | 先补 app-server 行为证明：resume/recovery 后工具是否保留、resume 是否接受 dynamicTools；若不保留再实现重新注册，不能只以 params 加字段作为验收 |
 | schema description 文案漂移 | 已锁 tool name / required / no-cwd / property type / additionalProperties / marshal，未锁完整 description 文案 | 如需对外契约冻结，可补 description golden |
 | v1 writerFormat Summary mode | 未验证空 body 渲染是否误导模型 | 补 `RenderSkillBlockV1` Summary 集成 |
 | `ReadResource` traversal | 依赖 `internal/module/skill` 防护，host-direct 无独立断言 | 补跨层 contract test；同时确认 symlink / EvalSymlinks 失败路径不逃逸 |
 | resource binary asset | 当前 `skill_read_resource` 返回 string，主要覆盖文本资源 | 若业务需要图片/模板/压缩包，补 base64 或 `skill_read_asset` 工具 |
+| 真实 Claude CLI 已认证 tool-call E2E | opt-in 测试已存在；未认证环境会 skip | 在有 Claude CLI 认证的环境跑 `TestMcpSkillMode_ClaudeCLIManagedSameBinarySkillE2E` 并记录延迟 / orphan child 观测 |
 
 ---
 
@@ -510,24 +489,24 @@ Phase 3 硬性 red gates（任一不满足不得正式化 Summary default policy
      app-server / 模型路径，approved 后继续产出 final answer delta。
    - 验收已覆盖：`ExpandBodyResultReturnsToModel`、`ApprovalApprovedContinuesFinalAnswer`、
      `ApprovalDeniedReturnsStructuredToolResult`；不再只是断言 schema 存在。
-4. **PR-4：selected metadata / redaction 决策**
-   - 明确 untrusted selected summary 策略。若允许暴露，必须限定真实手选；legacy
-     `Source=Unspecified` 不得因 hydration 默认补 `manual` 而被误授权。
-5. **PR-5：resume / recovery skill tools**
-   - 先证明 app-server 是否保留 start-time dynamic tools；若不保留，再设计 resume/recovery
-     重新注册或扩 app-server schema。
-6. **PR-6：默认 discovery / rollout observability**
-   - PR-1 / PR-2 / PR-3 与 host-direct 基础 observability 已落地；PR-4 / PR-5 之前仍保持
+4. **PR-4：selected metadata / redaction 决策**（✅ 2026-04-27 已落地）
+   - untrusted selected summary 只允许真实手选 `ManualSkillSelection=true && source=manual`；legacy
+     `Source=Unspecified` / trigger / force 不得因 hydration 误授权；catalog redaction 继续不泄露作者 metadata。
+5. **PR-5：resume / recovery skill tools**（✅ 2026-04-27 已落地）
+   - 已证明 app-server 保留 start-time dynamicTools；`thread/resume` 不携带 dynamicTools 字段；
+     resume/recovery 后模型仍能调用 `skill_expand_body`。
+6. **PR-6：默认 discovery / rollout observability**（当前下一步）
+   - PR-1 / PR-2 / PR-3 / PR-4 / PR-5 与 host-direct 基础 observability 已落地；默认开启前仍保持
      `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=false`。
    - 默认放量前还需补 exporter / alerting / rollout observation：至少能从外部系统观察
      host tool success/error、cwd_missing、approval_required、enrich failure 与 artifact approval/cache 信号。
 
 ### 5.5 Planned test names / 验收矩阵（补充）
 
-> 本节是后续实现 PR 的 **planned test names**。2026-04-26 起，PR-1 / PR-2 / PR-3 已由
-> planned 提升为实际回归测试；PR-4 以后仍是派单测试名建议。若实现时包名 / helper 名称调整，可改测试名，
+> 本节原是后续实现 PR 的 **planned test names**。截至 2026-04-27，PR-1 / PR-2 / PR-3 / PR-4 / PR-5
+> 已由 planned 提升为实际回归测试；PR-6 以后仍是派单测试名建议。若实现时包名 / helper 名称调整，可改测试名，
 > 但不得降低验收语义：approval 必须真实闭环，DynamicTools 必须可降级但不丢 peer，模型视角 E2E
-> 必须证明 tool result 回到模型路径。
+> 必须证明 tool result 回到模型路径，resume/recovery 后 skill tools 必须仍可调用。
 
 | PR | 建议测试入口 | Planned test names | 必须锁住的验收语义 |
 |---|---|---|---|
@@ -535,7 +514,7 @@ Phase 3 硬性 red gates（任一不满足不得正式化 Summary default policy
 | PR-1 host-direct metadata / structured result | `go test ./internal/platform/toolbridge -run 'Test(CallHostTool|RouteToolCall)' -count=1` | `TestCallHostTool_PassesApprovalMetadata`、`TestCallHostTool_ApprovalDeniedReturnsStructuredResult`、`TestCallHostTool_ApprovalRequiredFallbackReturnsStructuredResult`、`TestRouteToolCall_HostToolBypassesPeer_UsesResolvedCWD` | `agentId/threadId/callId/cwd/toolName` 进入 approval payload；no-requester fallback 是结构化 `kind=approval_required`，不是普通 `err.Error()` 文本；host-direct 命中不访问 peer |
 | PR-2 DynamicTools partial degradation | `go test ./internal/platform/toolbridge -run TestListToolsForCodex -count=1` | `TestListToolsForCodex_HostToolsSurviveOrchFailure_LSPReady`、`TestListToolsForCodex_HostToolsSurviveLSPFailure_OrchReady`、`TestListToolsForCodex_HostOnlyWhenBothPeersFail`、`TestListToolsForCodex_ReturnsErrorWhenNoHostAndPeersFail`、`TestListToolsForCodex_DedupKeepsHostBeforePeer`、`TestListToolsForCodex_PeerWaitIsConcurrent` | host tools 先收集；orch/lsp 并发等待且最长一个 `peerReadyTimeout`；单 peer 成功必须被保留；双 peer 失败但 host 存在仍返回 host；只有无 host 且 peer 全失败才 error |
 | PR-3 模型视角 E2E | `go test ./internal/provider/codexapp -run TestDynamicSkillTools_ModelE2E -count=1` | `TestDynamicSkillTools_ModelE2E_ExpandBodyResultReturnsToModel`、`TestDynamicSkillTools_ModelE2E_ApprovalApprovedContinuesFinalAnswer`、`TestDynamicSkillTools_ModelE2E_ApprovalDeniedReturnsStructuredToolResult` | fake / controlled app-server 证明 `thread/start dynamicTools -> model dynamic_tool_call(skill_expand_body) -> approval/cache/read -> tool result -> final answer`；只断言 schema 存在不得通过 |
-| PR-4 selected metadata / redaction | `go test ./internal/module/turn -run TestApplyHydration_UntrustedSummary -count=1`；`go test ./internal/module/prompt -run TestSkillCatalogProvider -count=1` | `TestApplyHydration_UntrustedSummary_RedactedWhenSourceUnspecified`、`TestApplyHydration_UntrustedSummary_AllowsOnlyRealManualSelection`、`TestApplyHydration_UntrustedSummary_RedactedForTriggerAndForce`、`TestSkillCatalogProvider_UntrustedProjectSkillRedacted` | 若允许 untrusted selected summary，只能限真实 `ManualSkillSelection=true && source=manual`；legacy `Source=Unspecified` 经 hydration 补成的 manual 不得当授权；catalog redaction 继续成立 |
+| PR-4 selected metadata / redaction | `go test ./internal/module/turn -run TestApplyHydration_UntrustedSummary -count=1`；`go test ./internal/module/prompt -run 'Test(SkillCatalogProvider_Untrusted|GroupSkillsForManifest_Untrusted|IsUntrustedScope)' -count=1` | `TestApplyHydration_UntrustedSummary_RedactedWhenSourceUnspecified`、`TestApplyHydration_UntrustedSummary_AllowsOnlyRealManualSelection`、`TestApplyHydration_UntrustedSummary_RedactedForTriggerAndForce`、`TestSkillCatalogProvider_UntrustedRenderedAsRedactedPlaceholder`、`TestSkillCatalogProvider_UntrustedDisableModelInvocation_NoLeak`、`TestGroupSkillsForManifest_UntrustedGoesToRedactedNotManualOnly`、`TestIsUntrustedScope` | 若允许 untrusted selected summary，只能限真实 `ManualSkillSelection=true && source=manual`；legacy `Source=Unspecified` / trigger / force 不得当授权；catalog redaction 继续成立 |
 | PR-5 resume / recovery skill tools | `go test ./internal/provider/codexapp -run 'Test(Resume|Recovery).*DynamicSkillTools' -count=1` | `TestResumeSession_DynamicSkillToolsStillCallable`、`TestRecoveryResume_DynamicSkillToolsStillCallable`、`TestThreadResume_AppServerRetainsStartDynamicTools`、`TestThreadResume_DynamicToolsWireCompatibilityIsExplicit` | 先证明 app-server 是否保留 start-time tools；若需要扩 `thread/resume`，必须证明 app-server 接受 / 显式处理该字段；验收以 resume/recovery 后模型仍能调用 skill tools 为准 |
 | PR-6 discovery / observability | `go test ./internal/module/prompt -run 'Test(SkillProgressiveDisclosure|SkillCatalogProvider)' -count=1`；`go test ./internal/platform/toolbridge -run 'Test.*Observability|Test.*Metrics' -count=1` | `TestSkillProgressiveDisclosure_DefaultDisabled`、`TestSkillProgressiveDisclosure_EnableFlagRendersCatalog`、`TestSkillCatalogProvider_GroupsNativeTrustedRedacted`、`TestListToolsForCodex_LogsDegradedPeer`、`TestHostSkillToolCall_EmitsApprovalAndCacheMetrics` | 默认仍为 disabled；enable=true 时 catalog 分组与 untrusted redaction 正确；放量前能观察 degraded peer、host tool success/error、approval requested/approved/denied/timeout、artifact cache hit/miss |
 | Claude Phase 2 MCP child | `go test ./internal/provider/claudecli -run 'TestSkillMCP(Server|Mode)_(ToolsListStaticNoHostRPC|ExpandBodyLazyCallsHostRPC|ReadResourceLazyCallsHostRPC|RejectsModelRuntimeFields|FirstTurnWithoutSkillDoesNotCallExpandRPC|ApprovalRequiredReturnsStructuredEnvelope|ObservabilityCounters|StartupLatencyBudget|StdioSmokeInitializeListCallAndEOF)|TestSkillHostRPCClient_ValidatesHostResponse|TestTransportConfig_SameBinarySkillServerMCPConfig' -count=1`；`go test ./cmd/agent-terminal -run '^TestMcpSkillMode_(DoesNotStartFullApp|RealBinaryFramedStdioSmokeAndEOF|RealBinaryLatencyBudget|ClaudeLikeParentLifecycleEOFCancelAndNoOrphan|ClaudeCLIManagedSameBinarySkillE2E)$' -count=1` | `TestSkillMCPServer_ToolsListStaticNoHostRPC`、`TestSkillMCPServer_ExpandBodyLazyCallsHostRPC`、`TestSkillMCPServer_ReadResourceLazyCallsHostRPC`、`TestSkillMCPServer_RejectsModelRuntimeFields`、`TestSkillMCPServer_FirstTurnWithoutSkillDoesNotCallExpandRPC`、`TestSkillMCPServer_ApprovalRequiredReturnsStructuredEnvelope`、`TestSkillMCPServer_ObservabilityCounters`、`TestSkillMCPMode_StdioSmokeInitializeListCallAndEOF`、`TestSkillHostRPCClient_ValidatesHostResponse`、`TestMcpSkillMode_DoesNotStartFullApp`、`TestMcpSkillMode_RealBinaryFramedStdioSmokeAndEOF`、`TestMcpSkillMode_RealBinaryLatencyBudget`、`TestMcpSkillMode_ClaudeLikeParentLifecycleEOFCancelAndNoOrphan`、`TestMcpSkillMode_ClaudeCLIManagedSameBinarySkillE2E`、`TestTransportConfig_SameBinarySkillServerMCPConfig`、`TestSkillMCPServer_StartupLatencyBudget` | `initialize/tools/list` 只返回静态 `skill_expand_body` / `skill_read_resource` schema，不扫 skill、不读 `SKILL.md`、不调 host RPC、不触发 approval；第一次 `tools/call` 才 lazy 调父进程；stdio smoke 覆盖内存 server 与真实 agent-terminal 二进制 `Content-Length initialize -> tools/list -> tools/call -> EOF`；普通首轮不使用 skill 时不得发生 expand/read RPC；runtime env 不继承伪造 `GO_AGENT_SKILL_MCP_*` / per-turn turnID；`--mcp-skill-mode` 不进入完整 Fx/Wails，startup / 真实二进制 latency smoke 有明确耗时预算；skill MCP child emits success/error/approval_required counters，真实 Claude CLI 未认证环境按 opt-in 测试 skip |
@@ -686,7 +665,7 @@ shadowed_by，避免同名冲突静默消失。仍保留的长期选项是为 ho
 > **当前 owner**：（待认领）。这是 release 管理问题，不改变 §9.2 的业务能力判断。
 > 后续进入 Phase 3 默认切换 / exporter-alerting 放量 PR 前，再补 Responsible / Accountable / Consulted / Informed 即可；本文不把 owner 缺失作为当前能力主 blocker。
 >
-> **最后更新**：2026-04-27 / Phase 2 same-binary MCP child 与 host-direct observability 复核；codexapp selected/name-only Summary、project approval 闭环、模型视角 E2E、partial degradation、基础 observability 已关闭；全量 discovery、resume/recovery、真实 Claude CLI 已认证 E2E、Phase 3 policy 与 rollout 导出/告警仍待闭环。
+> **最后更新**：2026-04-27 / Phase 2 same-binary MCP child、selected metadata redaction、resume/recovery 与 host-direct observability 复核；codexapp selected/name-only Summary、project approval 闭环、模型视角 E2E、partial degradation、resume/recovery、基础 observability 已关闭；全量 discovery、真实 Claude CLI 已认证 E2E、Phase 3 policy 与 rollout 导出/告警仍待闭环。
 
 ### 9.2 业务能力 Definition of Done
 
@@ -706,13 +685,13 @@ shadowed_by，避免同名冲突静默消失。仍保留的长期选项是为 ho
 - [x] **BUSINESS CLOSED**：模型视角 E2E 已落地。fake / controlled app-server 已证明真实 DynamicTools 包含 skill tools、模型发 `skill_expand_body`、approval/cache/read 结果回到模型并继续产出 final answer；不再只是断言 schema 存在。
 - [x] **BUSINESS CLOSED**：project-scope skill 首次展开 approval 主闭环已落地。`skill.Service` cache miss 会调 `ApprovalRequester`；approved 后写 `ApproveArtifact`；denied / timeout fail closed；host-direct metadata 会进入 approval payload；no-requester fallback 返回结构化 `kind="approval_required"`。
 - [x] **BUSINESS CLOSED**：DynamicTools partial degradation 已落地。host skill tools 先收集，orch/lsp peer 并发等待；单 peer 成功保留、双 peer 失败但 host 存在仍返回 host；同名 peer 被 host shadow 时有 WARN。
+- [x] **BUSINESS CLOSED**：selected/name-only Summary 与 catalog redaction 策略已收敛。untrusted selected summary 只限真实手选；legacy unspecified / trigger / force 不授权；catalog 对 unknown/invalid trust 继续 redacted。
+- [x] **BUSINESS CLOSED**：resume / recovery 后 skill tools 可用性已证明。app-server 保留 start-time dynamicTools，`thread/resume` 不携带 dynamicTools 字段；resume/recovery 后模型仍能调用 `skill_expand_body`。
 - [x] **BUSINESS CLOSED**：host-direct 基础观测已落地。已有 `host_tool_calls_total{outcome}` 对应 Go counters、`enrich_failures_total` counter、host-direct INFO 日志、cwd_missing WARN、approval/error structured result。仍未包含 Prometheus / OTel exporter、error-rate 告警与 30 天放量观察。
 
 仍保留 red gates / 决策项：
 
-- [ ] **BUSINESS BLOCKED**：selected/name-only Summary 与 `SkillCatalogProvider` 的 untrusted metadata redaction 策略不一致；需明确真实手选是否允许 summary，且不能把 legacy `Source=Unspecified` 经 hydration 补成的 `manual` 当作授权。
-- [ ] **BUSINESS BLOCKED**：全量 skill discovery 默认未启用；`ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=false` 时模型只能看到 selected/name-only skill，不会默认获得完整 catalog。默认开启需等待 discovery / redaction / observability / rollout gates。
-- [ ] **BUSINESS BLOCKED**：resume / recovery 后 `skill_expand_body` / `skill_read_resource` 是否仍可用未验证；`thread/resume` 不携带 dynamicTools 字段，但扩字段前必须先证明 app-server 是否保留 / 是否接受 resume dynamicTools。
+- [ ] **BUSINESS BLOCKED**：全量 skill discovery 默认未启用；`ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=false` 时模型只能看到 selected/name-only skill，不会默认获得完整 catalog。默认开启需等待 discovery / observability / rollout gates。
 - [ ] **BUSINESS BLOCKED**：显式 Full 仍 eager 注入完整 body；这是兼容设计，但产品/迁移策略需确认是否允许长期存在。
 - [ ] **VALIDATION REMAINS**：claudecli Phase 2 same-binary stdio MCP child 最小实现已落地，两个 provider 的模型可见 skill tool 语义已有代码级 parity；内存 stdio、真实 agent-terminal 二进制 `Content-Length initialize -> tools/list -> tools/call -> EOF`、Claude-like parent stdin EOF / context cancel / no-orphan lifecycle、真实二进制 initialize / tools/list / tools/call / stdin EOF latency budget 已有单测 smoke。真实 Claude CLI `--mcp-config` E2E 已有 opt-in 测试，未认证环境会跳过；业务 PR-ready 仍必须补已认证环境下的真实 Claude CLI tool-call E2E 与放量观测。
 - [ ] **ROLL-OUT BLOCKED**：metrics exporter / alerting / rollout observation 未完成。当前只是 in-process counters + 日志，Phase 3 默认策略前仍需 Prometheus / OTel 或等价导出、error-rate > 5% 持续 5min 告警、30 天成功率观察。
