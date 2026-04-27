@@ -7,6 +7,9 @@ package skillcandidate
 
 import (
 	"context"
+	"errors"
+	"regexp"
+	"strings"
 	"time"
 )
 
@@ -24,6 +27,18 @@ const (
 	ScopeProject = "project"
 	ScopeSystem  = "system"
 )
+
+var (
+	ErrInvalidRepoFingerprint = errors.New("invalid repo fingerprint")
+	ErrCandidateNotFound      = errors.New("skill candidate not found")
+	ErrCandidateStateMismatch = errors.New("skill candidate state mismatch")
+)
+
+var repoFingerprintPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
+
+func IsValidRepoFingerprint(fp string) bool {
+	return repoFingerprintPattern.MatchString(strings.TrimSpace(fp))
+}
 
 // Candidate is the domain DTO. ApprovedAt is *time.Time so callers can
 // distinguish "never approved" from "approved at the zero time".
@@ -63,7 +78,8 @@ type InsertParams struct {
 type Store interface {
 	Insert(ctx context.Context, p InsertParams) (Candidate, error)
 	GetByID(ctx context.Context, id int64) (Candidate, error)
-	ListPending(ctx context.Context, limit, offset int32) ([]Candidate, error)
+	ListPending(ctx context.Context, repoFingerprint string, limit, offset int32) ([]Candidate, error)
+	MarkSuperseded(ctx context.Context, scope, slug, repoFingerprint string, keepID int64) (int64, error)
 	Approve(ctx context.Context, id int64, approvedBy, reason string, approvedAt time.Time) (Candidate, error)
 	Reject(ctx context.Context, id int64, reason string) (Candidate, error)
 	MarkPromoted(ctx context.Context, id int64) (Candidate, error)

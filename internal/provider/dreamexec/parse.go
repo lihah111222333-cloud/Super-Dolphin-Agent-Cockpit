@@ -109,8 +109,9 @@ func stepStringState(ch byte, escaped bool) (inString bool, nextEscaped bool) {
 // claudeEnvelope 是 claude -p --output-format json 输出的包络结构。
 // 实例（仅列 dream 使用到的字段）：
 // {"type":"result","is_error":false,"result":"...text...",
-//  "usage":{"input_tokens":6,"cache_creation_input_tokens":7409,
-//           "cache_read_input_tokens":16153,"output_tokens":8,...}, ...}
+//
+//	"usage":{"input_tokens":6,"cache_creation_input_tokens":7409,
+//	         "cache_read_input_tokens":16153,"output_tokens":8,...}, ...}
 type claudeEnvelope struct {
 	Type    string `json:"type"`
 	IsError bool   `json:"is_error"`
@@ -168,11 +169,12 @@ type codexJSONLEvent struct {
 // ExtractCodexJSONL 解析 codex exec --json 的 JSONL stream，返回模型 agent_message 文本 + token usage。
 //
 // 事件流示例：
-//   {"type":"thread.started",...}
-//   {"type":"turn.started"}
-//   {"type":"item.completed","item":{"type":"reasoning","text":"..."}}     <- 跳过
-//   {"type":"item.completed","item":{"type":"agent_message","text":"..."}} <- 提取
-//   {"type":"turn.completed","usage":{...}}                                <- 提取
+//
+//	{"type":"thread.started",...}
+//	{"type":"turn.started"}
+//	{"type":"item.completed","item":{"type":"reasoning","text":"..."}}     <- 跳过
+//	{"type":"item.completed","item":{"type":"agent_message","text":"..."}} <- 提取
+//	{"type":"turn.completed","usage":{...}}                                <- 提取
 //
 // 取最后一个 agent_message 事件的 text（dream 是 single-turn，通常只一个）。
 // usage 字段名与 claude 不同：input_tokens 已含 cached（OpenAI 惯例），无 cache_creation。
@@ -183,28 +185,8 @@ func ExtractCodexJSONL(raw []byte) (string, TokenUsage, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(raw))
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
-		line := bytes.TrimSpace(scanner.Bytes())
-		if len(line) == 0 || line[0] != '{' {
-			continue
-		}
-		var ev codexJSONLEvent
-		if err := json.Unmarshal(line, &ev); err != nil {
-			// 跳过无法解析的行（可能是前缀 "Reading prompt from stdin..." 类提示）
-			continue
-		}
-		switch ev.Type {
-		case "item.completed":
-			if ev.Item != nil && ev.Item.Type == "agent_message" {
-				lastAgentText = ev.Item.Text
-			}
-		case "turn.completed":
-			if ev.Usage != nil {
-				usage = TokenUsage{
-					InputTokens:     ev.Usage.InputTokens,
-					OutputTokens:    ev.Usage.OutputTokens,
-					CacheReadTokens: ev.Usage.CachedInputTokens,
-				}
-			}
+		if ev, ok := decodeCodexJSONLEvent(scanner.Bytes()); ok {
+			applyCodexJSONLEvent(ev, &lastAgentText, &usage)
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -214,6 +196,45 @@ func ExtractCodexJSONL(raw []byte) (string, TokenUsage, error) {
 		return "", TokenUsage{}, errors.New("dreamexec: no agent_message in codex jsonl")
 	}
 	return lastAgentText, usage, nil
+}
+
+func decodeCodexJSONLEvent(rawLine []byte) (codexJSONLEvent, bool) {
+	line := bytes.TrimSpace(rawLine)
+	if len(line) == 0 || line[0] != '{' {
+		return codexJSONLEvent{}, false
+	}
+	var ev codexJSONLEvent
+	if err := json.Unmarshal(line, &ev); err != nil {
+		return codexJSONLEvent{}, false
+	}
+	return ev, true
+}
+
+func applyCodexJSONLEvent(ev codexJSONLEvent, lastAgentText *string, usage *TokenUsage) {
+	switch ev.Type {
+	case "item.completed":
+		applyCodexCompletedItem(ev, lastAgentText)
+	case "turn.completed":
+		applyCodexUsage(ev, usage)
+	}
+}
+
+func applyCodexCompletedItem(ev codexJSONLEvent, lastAgentText *string) {
+	if ev.Item == nil || ev.Item.Type != "agent_message" {
+		return
+	}
+	*lastAgentText = ev.Item.Text
+}
+
+func applyCodexUsage(ev codexJSONLEvent, usage *TokenUsage) {
+	if ev.Usage == nil {
+		return
+	}
+	*usage = TokenUsage{
+		InputTokens:     ev.Usage.InputTokens,
+		OutputTokens:    ev.Usage.OutputTokens,
+		CacheReadTokens: ev.Usage.CachedInputTokens,
+	}
 }
 
 // extractStructuredCLIResult 探测 raw stdout 是否为已知 CLI 结构化输出（claude envelope / codex JSONL），

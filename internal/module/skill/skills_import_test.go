@@ -154,7 +154,7 @@ func TestImportLocalDir_BatchPublishesSkillsChangedEvent(t *testing.T) {
 		t.Fatalf("ImportLocalDir() error = %v", err)
 	}
 	ev := mustReceiveSkillsChanged(t, got)
-	if ev.Action != "import" || ev.Count != 1 || ev.Scope != "project" || ev.Cwd != projectRoot {
+	if ev.Action != "import" || ev.Count != 1 || ev.Scope != "project" || ev.Cwd != "" || ev.RepoFingerprint != RepoFingerprint(projectRoot) || ev.RelativePath != "." {
 		t.Fatalf("skills changed event = %#v", ev)
 	}
 	if !reflect.DeepEqual(ev.Actions, []string{"import"}) {

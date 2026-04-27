@@ -2,6 +2,7 @@ package skill
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -29,18 +30,16 @@ func (s *service) publishSkillsChanged(ctx context.Context, action, name, scope 
 		return
 	}
 	normalizedScope := strings.TrimSpace(scope)
-	cwd := ""
-	if normalizedScope == skillScopeProject {
-		cwd = cwdFromContext(ctx)
-	}
+	repoFingerprint, relativePath := s.skillsChangedLocation(ctx, normalizedScope)
 	s.scheduleSkillsChanged(uidto.SkillsChanged{
-		EventHeader: shared.EventHeader{Timestamp: time.Now()},
-		SkillsDir:   strings.TrimSpace(s.root),
-		Name:        strings.TrimSpace(name),
-		Action:      normalizeSkillsChangedAction(action),
-		Count:       1,
-		Scope:       normalizedScope,
-		Cwd:         cwd,
+		EventHeader:     shared.EventHeader{Timestamp: time.Now()},
+		SkillsDir:       strings.TrimSpace(s.root),
+		Name:            strings.TrimSpace(name),
+		Action:          normalizeSkillsChangedAction(action),
+		Count:           1,
+		Scope:           normalizedScope,
+		RepoFingerprint: repoFingerprint,
+		RelativePath:    relativePath,
 	})
 }
 
@@ -93,14 +92,41 @@ func (s *service) flushSkillsChanged(seq uint64) {
 	}
 }
 
+func (s *service) skillsChangedLocation(ctx context.Context, scope string) (string, string) {
+	if scope != skillScopeProject {
+		return "", ""
+	}
+	cwd := cwdFromContext(ctx)
+	fp := RepoFingerprint(cwd)
+	if fp == "" {
+		return "", ""
+	}
+	root := strings.TrimSpace(s.projectRoot)
+	if root == "" {
+		root = cwd
+	}
+	canonicalRoot, rootErr := canonicalProjectPath(root)
+	canonicalCWD, cwdErr := canonicalProjectPath(cwd)
+	if rootErr != nil || cwdErr != nil {
+		return fp, "."
+	}
+	rel, err := filepath.Rel(canonicalRoot, canonicalCWD)
+	if err != nil || rel == "" || rel == "." || strings.HasPrefix(rel, "..") {
+		return fp, "."
+	}
+	return fp, rel
+}
+
 func normalizeSkillsChanged(next uidto.SkillsChanged) uidto.SkillsChanged {
 	next.SkillsDir = strings.TrimSpace(next.SkillsDir)
 	next.Name = strings.TrimSpace(next.Name)
 	next.Scope = strings.TrimSpace(next.Scope)
-	next.Cwd = strings.TrimSpace(next.Cwd)
-	// P0b Step 6: system-scope events never carry Cwd; enforce here.
+	next.RepoFingerprint = strings.TrimSpace(next.RepoFingerprint)
+	next.RelativePath = strings.TrimSpace(next.RelativePath)
+	next.Cwd = ""
 	if next.Scope != skillScopeProject {
-		next.Cwd = ""
+		next.RepoFingerprint = ""
+		next.RelativePath = ""
 	}
 	next.Action = normalizeSkillsChangedAction(next.Action)
 	next.Actions = appendUniqueSkillsChangedActions(nil, next.Actions...)
@@ -142,7 +168,9 @@ func mergeSkillsChanged(current, next uidto.SkillsChanged) uidto.SkillsChanged {
 }
 
 func skillsChangedMergeable(current, next uidto.SkillsChanged) bool {
-	return current.Scope == next.Scope && current.Cwd == next.Cwd
+	return current.Scope == next.Scope &&
+		current.RepoFingerprint == next.RepoFingerprint &&
+		current.RelativePath == next.RelativePath
 }
 
 func mergeSkillsChangedMetadata(current, next uidto.SkillsChanged) uidto.SkillsChanged {

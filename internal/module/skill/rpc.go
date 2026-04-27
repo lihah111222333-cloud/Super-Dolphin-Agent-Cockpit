@@ -10,6 +10,7 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/repofingerprint"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
@@ -55,6 +56,8 @@ func skillRPCError(err error) error {
 		return jrpc2.Errorf(jrpc2.InternalError, "%s", err.Error())
 	case errors.Is(err, ErrCandidateApprovedByRequired),
 		errors.Is(err, ErrCandidateMissingFingerprint),
+		errors.Is(err, ErrCallerFingerprintRequired),
+		errors.Is(err, ErrRepoFingerprintMismatch),
 		errors.Is(err, ErrCandidateNotPending):
 		return jrpc2.Errorf(jrpc2.InvalidParams, "%s", err.Error())
 	default:
@@ -118,6 +121,7 @@ func skillLocalHandlers(svc Service) handler.Map {
 		// the local-skills namespace because approvals always promote into a
 		// project-scope SKILL.md via CreateSkill.
 		"skills/candidate/list/pending": rpc.StrictHandler(skillCandidateListPendingHandler(svc)),
+		"skills/candidate/get":          rpc.StrictHandler(skillCandidateGetHandler(svc)),
 		"skills/candidate/approve":      rpc.StrictHandler(skillCandidateApproveHandler(svc)),
 		"skills/candidate/reject":       rpc.StrictHandler(skillCandidateRejectHandler(svc)),
 	}
@@ -320,10 +324,15 @@ func skillCandidateApproveHandler(svc Service) func(context.Context, approveCand
 		if err != nil {
 			return nil, err
 		}
+		callerFP, err := repofingerprint.Compute(p.CWD)
+		if err != nil {
+			return nil, skillRPCError(ErrCallerFingerprintRequired)
+		}
 		result, err := svc.ApproveCandidate(scopedCtx, ApproveCandidateParams{
-			CandidateID: p.CandidateID,
-			ApprovedBy:  p.ApprovedBy,
-			Reason:      p.Reason,
+			CandidateID:           p.CandidateID,
+			ApprovedBy:            p.ApprovedBy,
+			Reason:                p.Reason,
+			CallerRepoFingerprint: callerFP,
 		})
 		if err != nil {
 			return nil, skillRPCError(err)
@@ -332,22 +341,44 @@ func skillCandidateApproveHandler(svc Service) func(context.Context, approveCand
 	}
 }
 
-// skillCandidateRejectHandler does not require cwd because reject only
-// updates the candidate row; no on-disk write occurs.
 func skillCandidateRejectHandler(svc Service) func(context.Context, rejectCandidateRPCParams) (any, error) {
 	return func(ctx context.Context, p rejectCandidateRPCParams) (any, error) {
-		if err := svc.RejectCandidate(ctx, p.CandidateID, p.Reason); err != nil {
+		if err := requireRequestCWD(p.CWD); err != nil {
+			return nil, err
+		}
+		callerFP, err := repofingerprint.Compute(p.CWD)
+		if err != nil {
+			return nil, skillRPCError(ErrCallerFingerprintRequired)
+		}
+		if err := svc.RejectCandidate(ctx, RejectCandidateParams{CandidateID: p.CandidateID, Reason: p.Reason, CallerRepoFingerprint: callerFP}); err != nil {
 			return nil, skillRPCError(err)
 		}
 		return map[string]bool{"ok": true}, nil
 	}
 }
 
+func skillCandidateGetHandler(svc Service) func(context.Context, getCandidateRPCParams) (any, error) {
+	return func(ctx context.Context, p getCandidateRPCParams) (any, error) {
+		row, err := svc.GetCandidateByID(ctx, p.CandidateID)
+		if err != nil {
+			return nil, skillRPCError(err)
+		}
+		return row, nil
+	}
+}
+
 // skillCandidateListPendingHandler is a read-only paginated list. The
-// returned Candidate values are projections that exclude SkillMD.
+// returned CandidateListItem values exclude SkillMD and RedactedSample.
 func skillCandidateListPendingHandler(svc Service) func(context.Context, listPendingCandidatesRPCParams) (any, error) {
 	return func(ctx context.Context, p listPendingCandidatesRPCParams) (any, error) {
-		rows, err := svc.ListPendingCandidates(ctx, p.Limit, p.Offset)
+		if err := requireRequestCWD(p.CWD); err != nil {
+			return nil, err
+		}
+		callerFP, err := repofingerprint.Compute(p.CWD)
+		if err != nil {
+			return nil, skillRPCError(ErrCallerFingerprintRequired)
+		}
+		rows, err := svc.ListPendingCandidates(ctx, callerFP, p.Limit, p.Offset)
 		if err != nil {
 			return nil, skillRPCError(err)
 		}

@@ -151,4 +151,10 @@ func TestCreateSkillPublishesSkillsChanged(t *testing.T) {
 	if !reflect.DeepEqual(ev.Actions, []string{"write"}) {
 		t.Fatalf("skills changed event actions = %#v", ev.Actions)
 	}
+	if ev.Cwd != "" {
+		t.Fatalf("skills changed event leaked absolute cwd: %#v", ev)
+	}
+	if ev.RepoFingerprint == "" || ev.RelativePath == "" {
+		t.Fatalf("skills changed event missing repo fingerprint / relative path: %#v", ev)
+	}
 }

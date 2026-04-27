@@ -26,28 +26,27 @@
 - orch 侧 P2 / P1b / 任何需要观察 core terminal turn 的业务模块，必须在 hook consumer 处理链上装 tap，而不是向 `cmd/mcp-orch` 本地 bus 上寻找重发后的 core 事件——该重发流在该返回 0 命中。
 - orch 本地 bus（`cmd/mcp-orch/orchestration/events.go`）只承载 orch 自己产生的事件（DAG / task / wakeup），不双向桥接 core。
 
-## 阶段 0：前置冻结（阻塞所有 track）
+## 阶段 0：前置冻结（已落地）
 
-阶段 0 是短平快的共享契约 PR，必须先合入，否则后续任一 track 都会踩坑：
+阶段 0 的共享契约已经冻结，后续 track 必须复用，不允许绕过：
 
-1. **migration 编号校准**：仓内当前最大已占用编号是 `migrations/0044_drop_router_priority.sql`。本期新建的 migration 必须从 `0045` 起算，统一口径如下：
-   - `0045_cron_jobs.sql`（P1b）
-   - `0046_session_insights.sql`（P3）
-   - `0047_skill_candidates.sql`（P0b）
-   - `0048_binding_codex_identity.sql`（P1a，新增 `codex_home / codex_instance_key / codex_model_provider` 并扩展 immutable trigger）
-   编号相互独立但口径统一；实施时每次开 PR 都再跑 `ls migrations/` 校准一次。任何 plan 里出现 `0044_cron_jobs` / `0045_session_insights` 都是**旧口径**，需按本表改写。
-2. **Canonical Turn Observation Contract 冻结**：P0b owner 单独出一个契约 PR，先落下面六件事的 interface + 测试夹具，不带任何 consumer：`local↔provider turn id` 映射、`call_id → turn_id` 映射、`skills_selected`、token snapshot 归一、terminal precedence、raw/typed 去重键。P3 / P0b extractor / P0a candidate 都必须消费同一份契约。
-3. **codex identity 解析冻结**：`internal/provider/shared/config_helpers.go` 先合入 `ResolveCodexIdentity(config) (CodexIdentity, error)`，含 canonicalize 流水线（home/env 展开 → `filepath.Clean` → `filepath.EvalSymlinks`）与 strict 解析（unknown key / 非法 alias 直接 fail fast）。P1a 本体改动与 P1b cron 的 `config` 校验都依赖这一签名稳定。
+1. **migration 编号校准**：当前实际 skill candidate migration 为 `0064_skill_candidates.sql`；本轮后续预占：
+   - `0065_skill_candidates_promotion.sql`（promotion retry 字段）
+   - `0066_skill_candidates_repo_fp_widen.sql`（repo_fingerprint 列宽）
+   - `0067_cron_jobs_approval_policy.sql`（cron approval_policy_json）
+   - `0068_skill_candidates_audit_retention.sql`（审计保留）
+2. **Canonical Turn Observation Contract 冻结**：observation 已拆分 `ObservationReader` / `ObservationWriter`；trajectory collector 只依赖 Reader，并由 `internal/archtest/trajectory_readonly_test.go` 阻断写方法回归。
+3. **ResolveCodexIdentity 冻结**：`internal/provider/shared/codex_identity.go` 的 `ResolveCodexIdentity(config) (CodexIdentity, error)` 是 Phase 0 共享契约。T-00 之后任何破坏 input keys、canonicalization、sentinel errors 或 output fields 的修改必须先走 ADR。
 
 ## 实施路线图
 
 | 优先级 | 特性 | 描述 | 当前状态 |
 |---|---|---|---|
 | **[P0](P0_SelfLearningSkill.md)** | 自学习 Skill 闭环 | P0a 先交付 host-side create；P0b 负责共享 observation 层与自动提炼闭环 | ⏳ observation owner |
-| **[P1a](P1a_MultiProviderCodex.md)** | 多 Provider Codex 实例 | 以 `codexHome/codexInstanceKey/codexModelProvider` 作为实例 identity，并落到 binding 恢复面 | ⏳ identity 定稿 |
-| **[P1b](P1b_CronScheduledTasks.md)** | Cron 定时任务 | core-only 持久化调度，tick / lease / crash-recovery 全部按 `runner.actors`（historical role naming；active Fx tag: `group:"runners"`） 落地 | 🔲 未开动 |
-| **[P2](P2_MultiPlatformNotifications.md)** | 多平台通知 | 平台库共享，core / orch 各装一套 subscriber + runner | 🔲 未开动 |
-| **[P3](P3_SessionInsights.md)** | Session Insights 遥测 | API-only 聚合指标，消费 P0b observation 输出 | 🔲 依赖 P0b |
+| **[P1a](P1a_MultiProviderCodex.md)** | 多 Provider Codex 实例 | 以 `codexHome/codexInstanceKey/codexModelProvider` 作为实例 identity，并落到 binding 恢复面 | ✅ 已实现 |
+| **[P1b](P1b_CronScheduledTasks.md)** | Cron 定时任务 | core-only 持久化调度已大体接线；剩 approval_policy allow-list / turn 集成收口 | ⚠️ ~95% |
+| **[P2](P2_MultiPlatformNotifications.md)** | 多平台通知 | webhook 平台适配器与 SSRF 防护已落；redirect 重校验已补 | ⚠️ ~40%+ |
+| **[P3](P3_SessionInsights.md)** | Session Insights 遥测 | store/flusher/dashboard insights route 已落地 | ⚠️ ~70% |
 
 ## 依赖拓扑
 
@@ -98,3 +97,8 @@ Canonical Turn Observation Contract：共享 observation 层统一产出 local t
 - signed skill 验签在 P22 前都只能视为“待验证态”；P21 不允许因为 frontmatter 写了 `trust: signed` 就跳过审批、脱敏或人工 review。
 - `P2` 的 alias 解析不能落入默认链：`NOTIFY_DEFAULT_CHANNEL` 只允许显式 opt-in，默认缺失时应 `drop/error`，不做 silent fallback。
 - 文档若未明确 UI 交付，默认按 API-only 解释；若未来要做 UI，必须显式补 `DashboardPage`、`ui/dashboard/get?page=...` 与前端导航 / 页面接线。
+
+## 修复清单
+
+- [fix01.md](./fix01.md)
+- [fix01.v2.md](./fix01.v2.md)
