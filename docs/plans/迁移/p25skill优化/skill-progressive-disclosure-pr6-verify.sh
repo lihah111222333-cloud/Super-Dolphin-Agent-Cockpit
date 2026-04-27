@@ -39,6 +39,7 @@ SCRIPTS=(
   "${SCRIPT_DIR}/skill-progressive-disclosure-phase3-evidence-bundle.sh"
   "${SCRIPT_DIR}/skill-progressive-disclosure-phase3-evidence-collect.sh"
   "${SCRIPT_DIR}/skill-progressive-disclosure-phase3-evidence-status.sh"
+  "${SCRIPT_DIR}/skill-progressive-disclosure-phase3-evidence-ready-collect.sh"
   "${SCRIPT_DIR}/skill-progressive-disclosure-default-switch-guard.sh"
 )
 
@@ -75,7 +76,7 @@ fi
 cat <<'EOF_SUMMARY'
 P25-HIGH-02o PR-6 verification passed.
 Verified:
-- rollout / smoke / report / append / status / daily / production-evidence / claudecli-e2e-evidence / gate / preflight / evidence bundle / evidence collect / phase3-evidence-status / default-switch scripts parse with bash -n and are executable.
+- rollout / smoke / report / append / status / daily / production-evidence / claudecli-e2e-evidence / gate / preflight / evidence bundle / evidence collect / phase3-evidence-status / phase3-ready-collect / default-switch scripts parse with bash -n and are executable.
 - default-switch guard confirms ENABLE_SKILL_PROGRESSIVE_DISCLOSURE stays default false and overrideSkillsToSummary remains present.
 - focused PR-6 regression tests passed unless explicitly skipped by SKILL_PD_PR6_VERIFY_SKIP_GO_TESTS=true.
 - git diff --check passed unless explicitly skipped by SKILL_PD_PR6_VERIFY_SKIP_GIT_DIFF_CHECK=true.
