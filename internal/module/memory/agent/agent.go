@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	parse "github.com/anthropic-ai/super-agent-v3/internal/module/memory/parse"
+	memshared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
@@ -37,6 +39,19 @@ const (
 	MemoryScopeLocal   = contract.MemoryScopeLocal
 )
 
+// Config carries the inputs the agent-memory subsystem needs to locate and
+// render per-agent MEMORY.md.
+//
+// Note: this Config intentionally does NOT carry a Harness field, unlike the
+// parent memory.Config (see config.go::Harness). Harness-keyed overlay
+// suppression for agent-memory injection IS enforced — but it is sourced
+// from the parent memory.Config.Harness via the GateResolver interface
+// (see PromptProvider.Resolve calling gates.SuppressForOverlay), not
+// duplicated here. Storing it twice would risk drift between the parent
+// snapshot and the agent-scoped copy. If a future feature needs an
+// agent-only gate independent of the parent snapshot, add the field here
+// AND treat it as immutable post-construction (mirroring the contract on
+// memory.Config.Harness) so a mid-run os.Setenv cannot flip the decision.
 type Config struct {
 	RootDir         string
 	ProjectRoot     string
@@ -57,6 +72,14 @@ type PromptBuilder interface {
 
 type GateResolver interface {
 	AutoEnabled(buildCtx contract.BuildCtx) bool
+	// SuppressForOverlay reports whether the underlying CLI harness already
+	// runs its own complete memory pipeline and our providers should step
+	// aside. Mirrors MemoryGateSnapshot.SuppressForOverlay so child-agent
+	// MEMORY.md injection respects the same overlay gating as the root
+	// MemoryEntrypointProvider; otherwise claude_code overlay would suppress
+	// the parent prompt entrypoint while still injecting agent-scope
+	// MEMORY.md into spawned children.
+	SuppressForOverlay(buildCtx contract.BuildCtx) bool
 }
 
 type Manager struct {
@@ -150,8 +173,13 @@ func (m *Manager) LoadAgentMemoryPrompt(agentType string, scope MemoryScope) (st
 	return result.prompt, nil
 }
 
-func loadAgentMemoryEntrypoint(path string) entrypointLoadResult {
-	raw, err := os.ReadFile(path)
+// loadAgentMemoryEntrypoint reads an agent's MEMORY.md under the supplied
+// scope root. It uses memshared.SafeReadEntrypoint so a symlinked or
+// path-traversal-escaped entrypoint cannot redirect the reader to a file
+// outside scopeRoot. Any failure (missing file, broken symlink, containment
+// violation) collapses into the existing "unreadable" branch.
+func loadAgentMemoryEntrypoint(scopeRoot, path string) entrypointLoadResult {
+	raw, _, err := memshared.SafeReadEntrypoint(scopeRoot, path)
 	if err != nil {
 		return entrypointLoadResult{
 			content:    emptyAgentMemoryPrompt,
@@ -159,7 +187,7 @@ func loadAgentMemoryEntrypoint(path string) entrypointLoadResult {
 			unreadable: true,
 		}
 	}
-	trimmed := strings.TrimSpace(stripUTF8BOM(string(raw)))
+	trimmed := strings.TrimSpace(parse.StripUTF8BOM(string(raw)))
 	if trimmed == "" {
 		return entrypointLoadResult{content: emptyAgentMemoryPrompt}
 	}
@@ -212,7 +240,11 @@ func (m *Manager) loadAgentMemoryPrompt(agentType string, scope MemoryScope) (lo
 	if err != nil {
 		return loadResult{}, err
 	}
-	entrypointResult := loadAgentMemoryEntrypoint(entrypoint)
+	scopeRoot, err := m.GetAgentMemoryScopeRoot(scope)
+	if err != nil {
+		return loadResult{}, err
+	}
+	entrypointResult := loadAgentMemoryEntrypoint(scopeRoot, entrypoint)
 	extraGuidelines := append(scopeGuidelines(scope), cloneStrings(m.config().ExtraGuidelines)...)
 	rules := ""
 	if m.builder != nil {
@@ -243,6 +275,9 @@ func (p *PromptProvider) Resolve(_ context.Context, input contract.SectionContex
 		return nil, nil
 	}
 	if !p.gates.AutoEnabled(input.BuildCtx) {
+		return nil, nil
+	}
+	if p.gates.SuppressForOverlay(input.BuildCtx) {
 		return nil, nil
 	}
 	meta, ok := ResolveChildAgentStart(input)

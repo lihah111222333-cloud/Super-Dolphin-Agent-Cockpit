@@ -343,6 +343,8 @@ func combinedSaveRules(skipIndex bool, autoDir, teamDir string) []string {
 		"Organize memories semantically by topic, not chronologically.",
 		"Update or remove memories that turn out to be wrong or outdated.",
 		"Do not write duplicate memories. First check whether an existing memory should be updated instead.",
+		// Phase 4.1a 子项 3.1 (combined-only cross-scope same-name pre-check):
+		"When saving a `feedback` in combined mode, first scan the already-injected `MEMORY.md` indexes for any same-name `feedback` in the other scope. If found, prefer updating the team version (it overrides private for project-wide guidance) or rename to avoid conflict.",
 	}
 	if skipIndex {
 		return append([]string{
@@ -365,6 +367,9 @@ func combinedAccessRules() []string {
 		"Visibility is decided by runtime `sanitize + resolve + authorize`; knowing a `name`, `path`, or `@agent` does not grant access.",
 		"`scope` is an ACL boundary, not a fifth memory type.",
 		"Treat `deny`, `not_visible`, and `local_unavailable` as unavailable; do not retry via another root or scope.",
+		// Phase 4.1a 子项 1+2 (combined-only type-specific access guidance):
+		"Read `feedback` memory to guide behavior so the user — and the next contributor working on this project — does not need to repeat the same working guidance twice.",
+		"Read `project` memory when shared decisions, owners, or affected modules might shape your answer; flag breaking changes for collaborators when a project memory says they are affected.",
 	}
 }
 

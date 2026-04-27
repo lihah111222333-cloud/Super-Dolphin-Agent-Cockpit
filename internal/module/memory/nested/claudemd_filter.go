@@ -8,12 +8,21 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-func shouldSkipInjectedSource(source ClaudeMdSource, gate GateSnapshot) bool {
+func shouldSkipInjectedSource(source ClaudeMdSource, _ GateSnapshot) bool {
+	// Phase 1.6 removed AutoMem / TeamMem from the nested ClaudeMd candidate
+	// set. If those types still appear in a future regression, reject them
+	// here outright — nested no longer owns prompt-time MEMORY.md injection.
+	// The GateSnapshot parameter is retained on the signature so callers
+	// don't need updating if a future per-source gate is reintroduced.
+	//
+	// Defense-in-depth; the full rationale lives in
+	// claudemd_candidates.go::resolveClaudeMdCandidates. (Note: secret
+	// scanning happens at the entrypoint provider, not at this filter —
+	// the rationale comment over there mentions both, but only sanitization
+	// parity is enforced here.)
 	switch source.Type {
-	case sourceTypeAutoMem:
-		return !gate.InjectMemoryIndex
-	case sourceTypeTeamMem:
-		return !gate.InjectMemoryIndex || !gate.InjectTeamMemIndex
+	case sourceTypeAutoMem, sourceTypeTeamMem:
+		return true
 	default:
 		return false
 	}

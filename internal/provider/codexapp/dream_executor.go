@@ -2,25 +2,91 @@ package codexapp
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/dreamexec"
+	"github.com/anthropic-ai/super-agent-v3/pkg/dreammetrics"
 )
 
-type dreamExecutor struct{}
+const (
+	// dreamBinaryEnv 覆盖 codex binary 路径，未设走 PATH 默认 "codex"。
+	dreamBinaryEnv = "DREAM_CODEX_BIN"
+	// dreamModelEnv dream 调用 codex 可选 model override。
+	dreamModelEnv = "DREAM_CODEX_MODEL"
+	// defaultCodexBin 默认 binary 名。
+	defaultCodexBin = "codex"
+	// dreamMaxStdoutBytes 与 dispatcher prompt cap 对齐。
+	dreamMaxStdoutBytes int64 = 256 * 1024
+	// dreamMaxRetries: parse 失败重试一次，dispatcher failover 兑底。
+	dreamMaxRetries = 1
+)
+
+type dreamExecutor struct {
+	commander dreamexec.Commander
+	binary    string
+	model     string
+}
+
+// newDreamExecutor 构造 dream provider。commander==nil 走 NewRealCommander，
+// binary 为空走 resolveDreamBinary()。
+func newDreamExecutor(commander dreamexec.Commander, binary, model string) dreamExecutor {
+	if commander == nil {
+		commander = dreamexec.NewRealCommander()
+	}
+	if strings.TrimSpace(binary) == "" {
+		binary = resolveDreamBinary()
+	}
+	return dreamExecutor{
+		commander: commander,
+		binary:    binary,
+		model:     strings.TrimSpace(model),
+	}
+}
+
+func resolveDreamBinary() string {
+	if bin := strings.TrimSpace(os.Getenv(dreamBinaryEnv)); bin != "" {
+		return bin
+	}
+	return defaultCodexBin
+}
 
 func provideDreamExecutorProvider() contract.DreamExecutorProvider {
 	return contract.DreamExecutorProvider{
 		Name:     "codex",
-		Executor: dreamExecutor{},
+		Executor: newDreamExecutor(nil, "", os.Getenv(dreamModelEnv)),
 	}
 }
 
-func (dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string, error) {
+func (e dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	_ = prompt
-	// TODO: wire Codex session/turn execution to run dream consolidation prompts.
-	return "", fmt.Errorf("%w: provider codex dream executor not configured", contract.ErrDreamExecutorNotConfigured)
+	// codex exec 是 non-interactive 子命令（见 `codex --help` "Commands: exec"）
+	// --json 输出 JSONL stream（含 agent_message + turn.completed.usage），供
+	// dreamexec.Run 自动探测后走 ExtractCodexJSONL；usage 由 OnUsage 路由到 dreammetrics。
+	args := []string{"exec", "--json"}
+	if e.model != "" {
+		args = append(args, "--model", e.model)
+	}
+	raw, err := dreamexec.Run(ctx, e.commander, dreamexec.RunOptions{
+		Binary:         e.binary,
+		Args:           args,
+		Prompt:         prompt,
+		MaxStdoutBytes: dreamMaxStdoutBytes,
+		MaxRetries:     dreamMaxRetries,
+		OnUsage: func(usage dreamexec.TokenUsage) {
+			dreammetrics.AddTokens(usage.InputTokens, usage.OutputTokens, usage.CacheReadTokens)
+		},
+	})
+	if err != nil {
+		if errors.Is(err, dreamexec.ErrBinaryNotAvailable) {
+			return "", fmt.Errorf("%w: codex binary %q not available", contract.ErrDreamExecutorNotConfigured, e.binary)
+		}
+		return "", err
+	}
+	return raw, nil
 }

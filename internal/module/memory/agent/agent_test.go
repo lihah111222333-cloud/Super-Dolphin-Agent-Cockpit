@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	parse "github.com/anthropic-ai/super-agent-v3/internal/module/memory/parse"
 )
 
 func TestAgentMemoryManagerGetAgentMemoryDirScopeIsolation(t *testing.T) {
@@ -273,8 +274,8 @@ func TestTruncateAgentMemoryContentTracksOriginalCodeUnitCount(t *testing.T) {
 		lines[i] = line
 	}
 	trimmedByLines := strings.Join(lines[:agentMemoryMaxLines], "\n")
-	if jsStringLength(trimmedByLines) > agentMemoryMaxCodeUnits {
-		t.Fatalf("test setup invalid: %d > %d", jsStringLength(trimmedByLines), agentMemoryMaxCodeUnits)
+	if parse.JSStringLength(trimmedByLines) > agentMemoryMaxCodeUnits {
+		t.Fatalf("test setup invalid: %d > %d", parse.JSStringLength(trimmedByLines), agentMemoryMaxCodeUnits)
 	}
 
 	result := truncateAgentMemoryContent(strings.Join(lines, "\n"))
@@ -347,7 +348,7 @@ func assertEmptyAgentMemoryEntrypoint(t *testing.T, dir string) {
 	if err != nil {
 		t.Fatalf("ReadFile(MEMORY.md) error = %v", err)
 	}
-	if strings.TrimSpace(stripUTF8BOM(string(content))) != "" {
+	if strings.TrimSpace(parse.StripUTF8BOM(string(content))) != "" {
 		t.Fatalf("MEMORY.md = %q, want empty entrypoint", string(content))
 	}
 }
@@ -435,3 +436,35 @@ func validateMemoryWritePathForTest(root, file string) (string, error) {
 	}
 	return candidate, nil
 }
+
+type fakeGate struct {
+	auto     bool
+	suppress bool
+}
+
+func (g fakeGate) AutoEnabled(contract.BuildCtx) bool       { return g.auto }
+func (g fakeGate) SuppressForOverlay(contract.BuildCtx) bool { return g.suppress }
+
+// TestPromptProviderResolveSuppressedByOverlay closes the regression that R3
+// flagged: under claude_code overlay the root MemoryEntrypointProvider drops
+// MEMORY.md, but PromptProvider used to keep injecting agent-scope MEMORY.md
+// into spawned children, producing the parent-suppressed / child-injected
+// split. The Resolve path now consults SuppressForOverlay before reaching
+// child-agent metadata extraction.
+func TestPromptProviderResolveSuppressedByOverlay(t *testing.T) {
+	p := NewPromptProvider(&Config{}, &Manager{}, fakeGate{auto: true, suppress: true}, nil)
+	got, err := p.Resolve(context.Background(), contract.SectionContext{
+		Start: &contract.StartInput{
+			ParentAgentID:    "agent-root",
+			AgentType:        "worker",
+			AgentMemoryScope: "project",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if got != nil {
+		t.Fatalf("Resolve() returned content under overlay suppression: %q", *got)
+	}
+}
+

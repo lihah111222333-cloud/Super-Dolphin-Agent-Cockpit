@@ -210,6 +210,10 @@ func (r agentGateResolver) AutoEnabled(buildCtx contract.BuildCtx) bool {
 	return ResolveMemoryGate(buildCtx, memoryConfig(r.cfg)).AutoEnabled
 }
 
+func (r agentGateResolver) SuppressForOverlay(buildCtx contract.BuildCtx) bool {
+	return ResolveMemoryGate(buildCtx, memoryConfig(r.cfg)).SuppressForOverlay()
+}
+
 // ==== team-memory bridge ====
 
 type TeamMemoryManager = teampkg.TeamMemoryManager

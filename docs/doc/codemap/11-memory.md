@@ -22,7 +22,7 @@
 
 **改错补充**：
 - root 装配不是抽象概念：`module.go:218-245` 明确逐个挂载 `memagent` / `nestedpkg` / `retrievalpkg` / `teampkg`，而不是继续按旧单体包理解。
-- auto-dream 订阅已进 root lifecycle：`registerMemoryHooks()` 的 `OnStart` 会调 `registerLifecycleSubscriptions()`，后者再串 `registerAutoDreamSubscriptions()`（`internal/module/memory/module.go:369-400`）。
+- auto-dream 订阅已进 root lifecycle：`registerMemoryHooks()` 的 `OnStart` 会调 `registerLifecycleSubscriptions()`，后者再串 `registerAutoDreamSubscriptions()`（`internal/module/memory/module.go:369-400`）。触发后的 dispatcher / provider / 子进程 / failover 真实现拆到 [`12-dream-pipeline.md`](12-dream-pipeline.md)，extractFn 是两卷的边界点。
 - root compat bridge 当前收敛为 `domain_bridges.go + retrieval_bridge.go`；`domain_bridges.go:5` 已明确说明它把 earlier agent/team bridge 合并到单文件，本卷不再按旧桥接文件树记载。
 
 ## 3. P18.3 / P18.4 / P19 B-1 收口口径

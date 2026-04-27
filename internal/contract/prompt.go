@@ -99,6 +99,7 @@ const (
 	DynamicSectionMemory               = "memory"
 	DynamicSectionAgentMemory          = "agent_memory"
 	DynamicSectionMemoryContext        = "memory_context"
+	DynamicSectionMemoryEntrypoint     = "memory_entrypoint"
 	DynamicSectionEnvInfoSimple        = "env_info_simple"
 	DynamicSectionLanguage             = "language"
 	DynamicSectionMCPInstructions      = "mcp_instructions"
@@ -122,13 +123,13 @@ const (
 const PromptAssemblySnapshotVersion = 2
 
 type StartInput struct {
-	ThreadID                     string
-	ParentAgentID                string
-	AgentType                    string
-	AgentMemoryScope             string
-	Name                         string
-	Prompt                       string
-	BaseInstructions             string
+	ThreadID         string
+	ParentAgentID    string
+	AgentType        string
+	AgentMemoryScope string
+	Name             string
+	Prompt           string
+	BaseInstructions string
 	// BaseInstructionBlocks carries ordered, region-tagged fragments sourced
 	// from prompt_template_sections. When non-empty, the assembler merges
 	// them into the resolved section list (static → CachedPrefix, dynamic →
@@ -242,6 +243,12 @@ type InvalidationAwareProvider interface {
 	OnPromptInvalidate(reason InvalidateReason)
 }
 
+// SectionInvalidator drops cached entries for the named sections, returning
+// the new generation number. Implementations MUST be safe for concurrent
+// use: callers fan out from background goroutines (auto-dream, extractor,
+// turn-tracking) without external synchronization. The shipped
+// prompt.Service implementation guards its cache with a mutex; downstream
+// implementations that wrap or replace it must preserve that guarantee.
 type SectionInvalidator interface {
 	InvalidateSections(reason InvalidateReason, names ...string) uint64
 }

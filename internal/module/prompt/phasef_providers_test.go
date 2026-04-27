@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 
@@ -39,7 +40,7 @@ func TestOutputStyleProviderSkipsNonRenderableConfig(t *testing.T) {
 	keepCodingInstructions := false
 	text, err := provider.Resolve(context.Background(), SectionContext{BuildCtx: BuildCtx{
 		OutputStyleConfig: &contract.OutputStyleConfig{
-			Source:                  "user-config",
+			Source:                 "user-config",
 			KeepCodingInstructions: &keepCodingInstructions,
 		},
 	}})
@@ -136,5 +137,60 @@ func TestInputScopedSectionKeysAgentMemoryByScope(t *testing.T) {
 	}
 	if keyProject == keyLocal {
 		t.Fatalf("different agent-memory scopes reused cache key: %q", keyProject)
+	}
+}
+
+func TestInputScopedSectionKeysMemoryByGateInputs(t *testing.T) {
+	section := PromptSection{Name: DynamicSectionMemory, CachePolicy: InputScoped}
+	base := SectionContext{
+		Start: &StartInput{},
+		BuildCtx: BuildCtx{
+			CWD:                          "/repo",
+			GitRoot:                      "/repo",
+			SessionFlags:                 map[string]bool{"auto_memory_enabled": false},
+			AdditionalWorkingDirectories: []string{"/repo/extra"},
+		},
+	}
+	keyA, ok := sectionInputCacheKey(section, base)
+	if !ok {
+		t.Fatal("sectionInputCacheKey() cacheable = false, want true")
+	}
+	keyA2, _ := sectionInputCacheKey(section, SectionContext{
+		Start:    &StartInput{},
+		Turn:     &TurnInput{UserText: "noise"},
+		BuildCtx: base.BuildCtx,
+	})
+	keyB, _ := sectionInputCacheKey(section, SectionContext{
+		Start: &StartInput{},
+		BuildCtx: BuildCtx{
+			CWD:                          "/repo",
+			GitRoot:                      "/repo",
+			SessionFlags:                 map[string]bool{"auto_memory_enabled": true},
+			AdditionalWorkingDirectories: []string{"/repo/extra"},
+		},
+	})
+	if keyA != keyA2 {
+		t.Fatalf("same memory gate inputs key mismatch: first=%q second=%q", keyA, keyA2)
+	}
+	if keyA == keyB {
+		t.Fatalf("different memory gate inputs reused cache key: %q", keyA)
+	}
+}
+
+func TestInputScopedSectionKeysMemoryEntrypointByHarnessEnv(t *testing.T) {
+	section := PromptSection{Name: DynamicSectionMemoryEntrypoint, CachePolicy: InputScoped}
+	buildCtx := BuildCtx{CWD: "/repo", GitRoot: "/repo", SessionFlags: map[string]bool{"team_memory": true}}
+	t.Setenv("MULTI_AGENT_HARNESS_CLI", "")
+	keyA, ok := sectionInputCacheKey(section, SectionContext{Start: &StartInput{}, BuildCtx: buildCtx})
+	if !ok {
+		t.Fatal("sectionInputCacheKey() cacheable = false, want true")
+	}
+	t.Setenv("MULTI_AGENT_HARNESS_CLI", "claude_code")
+	keyB, _ := sectionInputCacheKey(section, SectionContext{Start: &StartInput{}, BuildCtx: buildCtx})
+	if keyA == keyB {
+		t.Fatalf("different harness env reused cache key: %q", keyA)
+	}
+	if got := os.Getenv("MULTI_AGENT_HARNESS_CLI"); got != "claude_code" {
+		t.Fatalf("env harness = %q, want claude_code", got)
 	}
 }

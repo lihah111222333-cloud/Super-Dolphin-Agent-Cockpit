@@ -2,6 +2,7 @@ package unified
 
 import (
 	"context"
+	"log/slog"
 
 	"go.uber.org/fx"
 
@@ -19,6 +20,7 @@ type dreamExecutorParams struct {
 	fx.In
 
 	Providers []contract.DreamExecutorProvider `group:"dream_executors"`
+	Logger    *slog.Logger                     `optional:"true"`
 }
 
 var Module = fx.Module("provider.unified",
@@ -37,7 +39,7 @@ var Module = fx.Module("provider.unified",
 )
 
 func provideDreamExecutor(p dreamExecutorParams) contract.DreamExecutor {
-	return NewDreamExecutor(p.Providers)
+	return NewDreamExecutor(p.Providers, p.Logger)
 }
 
 func registerSessionShutdown(lc fx.Lifecycle, sessions *SessionManager) {
