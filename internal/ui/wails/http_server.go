@@ -9,6 +9,7 @@ import (
 	"time"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/metrics"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
@@ -19,6 +20,12 @@ type httpAssetServer struct {
 	addr    string
 	handler http.Handler
 	server  *rpc.Server
+}
+
+func registerHTTPAssetRoutes(mux *http.ServeMux, server *rpc.Server, assetHandler http.Handler) {
+	metrics.RegisterHTTPHandlers(mux)
+	mux.Handle("/wails/ws", rpc.WSHandler(server, nil))
+	mux.Handle("/", assetHandler)
 }
 
 // NewHTTPAssetServer creates a Runner that serves the embedded frontend
@@ -38,8 +45,7 @@ func NewHTTPAssetServer(p httpAssetServerParams) httpAssetRunnerResult {
 
 func (s *httpAssetServer) Run(ctx context.Context) error {
 	mux := http.NewServeMux()
-	mux.Handle("/wails/ws", rpc.WSHandler(s.server, nil))
-	mux.Handle("/", s.handler)
+	registerHTTPAssetRoutes(mux, s.server, s.handler)
 
 	srv := &http.Server{
 		Addr:         s.addr,
