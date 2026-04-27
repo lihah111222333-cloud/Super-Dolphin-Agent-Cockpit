@@ -19,9 +19,20 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os/exec"
 	"strings"
 )
+
+// ErrBinaryNotAvailable 是 dispatcher 识别 binary 未安装 / 路径不存在的哨兵 error。
+// claudecli/codexapp 用 errors.Is 检测后映射到 contract.ErrDreamExecutorNotConfigured
+// 让 dispatcher 跳过本 provider 走 failover。
+//
+// 覆盖三种场景：
+//   - PATH 查找失败 (exec.ErrNotFound)
+//   - 绝对路径不存在 (*os.PathError + syscall.ENOENT → fs.ErrNotExist)
+//   - 兑底字符串检查（未来 stdlib 变化后的防御）
+var ErrBinaryNotAvailable = errors.New("dreamexec: binary not available")
 
 // Commander 抽象一次性子进程执行，便于测试注入 fake。
 type Commander interface {
@@ -61,6 +72,10 @@ func (realCommander) Run(ctx context.Context, binary string, args []string, inpu
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, ctxErr
 		}
+		// binary 不可用（PATH 未找到 / 绝对路径不存在）转为哨兵 error
+		if isBinaryNotAvailable(err) {
+			return nil, fmt.Errorf("%w: %s: %v", ErrBinaryNotAvailable, binary, err)
+		}
 		// 退出码错误携带 stderr 预览
 		stderrPreview := strings.TrimSpace(stderrBuf.String())
 		if stderrPreview != "" {
@@ -73,6 +88,19 @@ func (realCommander) Run(ctx context.Context, binary string, args []string, inpu
 		return nil, fmt.Errorf("dreamexec: %s stdout exceeded %d bytes", binary, maxStdoutBytes)
 	}
 	return stdoutBuf.Bytes(), nil
+}
+
+// isBinaryNotAvailable 识别 binary 不可用场景：
+//   - exec.ErrNotFound: PATH 查找失败（相对名）
+//   - fs.ErrNotExist: 绝对路径 fork/exec 换取 ENOENT（*os.PathError）
+//   - 字符串 fallback: 防 stdlib 未来变化
+func isBinaryNotAvailable(err error) bool {
+	if errors.Is(err, exec.ErrNotFound) || errors.Is(err, fs.ErrNotExist) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "executable file not found") ||
+		strings.Contains(msg, "no such file or directory")
 }
 
 // limitedWriter 是带 max 上限的 io.Writer，超过 max 后丢弃但不报错。
@@ -128,7 +156,7 @@ func Run(ctx context.Context, c Commander, opts RunOptions) (string, error) {
 
 	var lastParseErr error
 	attempts := opts.MaxRetries + 1
-	for i := 0; i < attempts; i++ {
+	for range attempts {
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}

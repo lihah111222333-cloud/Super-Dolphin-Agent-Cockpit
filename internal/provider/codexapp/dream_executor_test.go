@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/dreamexec"
 )
 
 // capturingCommander 记录最后一次调用的 binary/args/input。
@@ -76,26 +76,17 @@ func TestCodexDreamExecutor_ModelEnvAddsArgs(t *testing.T) {
 	}
 }
 
-func TestCodexDreamExecutor_BinaryNotFoundMapsToNotConfigured(t *testing.T) {
-	cases := []struct {
-		name string
-		err  error
-	}{
-		{"errors.Is exec.ErrNotFound", fmt.Errorf("dreamexec: codex exited: %w", exec.ErrNotFound)},
-		{"raw string fallback", errors.New("exec: \"codex\": executable file not found in $PATH")},
+func TestCodexDreamExecutor_BinaryNotAvailableMapsToNotConfigured(t *testing.T) {
+	// dreamexec.realCommander 在 binary 不可用时包裹为 ErrBinaryNotAvailable。
+	notAvail := fmt.Errorf("%w: codex: fork/exec /nonexistent/codex: no such file or directory", dreamexec.ErrBinaryNotAvailable)
+	c := &capturingCommander{errs: []error{notAvail}}
+	exec := newDreamExecutor(c, "codex", "")
+	_, err := exec.ExecuteDream(context.Background(), "p")
+	if !errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
+		t.Fatalf("expected ErrDreamExecutorNotConfigured, got %v", err)
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			c := &capturingCommander{errs: []error{tc.err}}
-			exec := newDreamExecutor(c, "codex", "")
-			_, err := exec.ExecuteDream(context.Background(), "p")
-			if !errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
-				t.Fatalf("expected ErrDreamExecutorNotConfigured, got %v", err)
-			}
-			if !strings.Contains(err.Error(), "binary") {
-				t.Errorf("expected error to mention binary, got %v", err)
-			}
-		})
+	if !strings.Contains(err.Error(), "binary") {
+		t.Errorf("expected error to mention binary, got %v", err)
 	}
 }
 

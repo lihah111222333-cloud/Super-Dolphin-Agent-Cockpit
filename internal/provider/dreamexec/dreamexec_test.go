@@ -72,11 +72,26 @@ func TestRealCommander_StdoutExceedsMaxReportsError(t *testing.T) {
 	}
 }
 
-func TestRealCommander_BinaryNotFoundReportsError(t *testing.T) {
+func TestRealCommander_BinaryNotFoundReportsErrBinaryNotAvailable(t *testing.T) {
 	c := NewRealCommander()
 	_, err := c.Run(context.Background(), "this-binary-does-not-exist-dream-test", nil, "", 1024)
 	if err == nil {
 		t.Fatalf("expected binary-not-found error, got nil")
+	}
+	if !errors.Is(err, ErrBinaryNotAvailable) {
+		t.Fatalf("expected ErrBinaryNotAvailable (PATH lookup), got %v", err)
+	}
+}
+
+func TestRealCommander_AbsolutePathNotExistReportsErrBinaryNotAvailable(t *testing.T) {
+	skipIfWindows(t)
+	c := NewRealCommander()
+	_, err := c.Run(context.Background(), "/nonexistent/dream/binary/path", nil, "", 1024)
+	if err == nil {
+		t.Fatalf("expected binary-not-found error, got nil")
+	}
+	if !errors.Is(err, ErrBinaryNotAvailable) {
+		t.Fatalf("expected ErrBinaryNotAvailable (absolute path missing), got %v", err)
 	}
 }
 
