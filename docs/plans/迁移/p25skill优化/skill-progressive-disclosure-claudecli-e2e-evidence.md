@@ -30,7 +30,9 @@ Skip status: TODO
 
 ## Raw E2E output
 
-Paste the complete authenticated Claude CLI test output here.
+Use `skill-progressive-disclosure-claudecli-e2e-evidence-generate.sh` to generate this file from complete authenticated Claude CLI test output whenever possible.
+
+Paste the complete authenticated Claude CLI test output here only when manually filling reviewed evidence.
 
 ```text
 TODO

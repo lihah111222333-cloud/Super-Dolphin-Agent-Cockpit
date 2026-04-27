@@ -156,6 +156,7 @@ func TestSkillProgressiveDisclosurePhase3EvidenceTemplates(t *testing.T) {
 				"TestMcpSkillMode_ClaudeCLIManagedSameBinarySkillE2E",
 				"PASS",
 				"must not contain `SKIP`",
+				"skill-progressive-disclosure-claudecli-e2e-evidence-generate.sh",
 			},
 		},
 	}
