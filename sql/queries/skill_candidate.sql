@@ -16,8 +16,9 @@ SELECT * FROM skill_candidates WHERE id = $1;
 -- name: ListPendingSkillCandidates :many
 SELECT * FROM skill_candidates
 WHERE status = 'pending_review'
-ORDER BY created_at ASC, id ASC
-LIMIT $1 OFFSET $2;
+  AND repo_fingerprint = $1
+ORDER BY created_at DESC, id DESC
+LIMIT $2 OFFSET $3;
 
 -- name: ApproveSkillCandidate :one
 UPDATE skill_candidates
@@ -40,6 +41,15 @@ UPDATE skill_candidates
 SET status = 'promoted'
 WHERE id = $1 AND status = 'approved'
 RETURNING *;
+
+-- name: MarkSkillCandidatesSuperseded :execrows
+UPDATE skill_candidates
+SET status = 'superseded'
+WHERE scope = $1
+  AND slug = $2
+  AND repo_fingerprint = $3
+  AND id <> $4
+  AND status = 'pending_review';
 
 -- name: LookupSkillCandidateApproval :one
 SELECT * FROM skill_candidates

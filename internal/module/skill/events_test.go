@@ -147,7 +147,7 @@ func TestSkillsChangedJSONBackwardCompatibleEmptyScope(t *testing.T) {
 	}
 }
 
-// P0b Step 6: project-scope WriteLocal emits Scope="project" + Cwd populated.
+// P0b F12: project-scope WriteLocal emits Scope="project" with repo fingerprint and no absolute cwd.
 func TestServiceEmitsScopedSkillsChangedProject(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	defer func() { _ = dispatcher.Close() }()
@@ -169,8 +169,11 @@ func TestServiceEmitsScopedSkillsChangedProject(t *testing.T) {
 	if ev.Scope != "project" {
 		t.Fatalf("scope = %q, want project; ev=%#v", ev.Scope, ev)
 	}
-	if ev.Cwd != projectRoot {
-		t.Fatalf("cwd = %q, want %q", ev.Cwd, projectRoot)
+	if ev.Cwd != "" {
+		t.Fatalf("cwd leaked absolute path: %#v", ev)
+	}
+	if ev.RepoFingerprint != RepoFingerprint(projectRoot) || ev.RelativePath != "." {
+		t.Fatalf("repo location mismatch; ev=%#v", ev)
 	}
 }
 
@@ -224,8 +227,11 @@ func TestServiceCrossScopeFlushesBothEvents(t *testing.T) {
 	if first.Name != "first" {
 		t.Fatalf("first name = %q, want first; ev=%#v", first.Name, first)
 	}
-	if first.Cwd != projectRoot {
-		t.Fatalf("first cwd = %q, want %q; ev=%#v", first.Cwd, projectRoot, first)
+	if first.Cwd != "" {
+		t.Fatalf("first cwd leaked absolute path; ev=%#v", first)
+	}
+	if first.RepoFingerprint != RepoFingerprint(projectRoot) || first.RelativePath != "." {
+		t.Fatalf("first repo location mismatch; ev=%#v", first)
 	}
 	if first.Count != 1 || first.Action != "write" {
 		t.Fatalf("first action/count mismatch; ev=%#v", first)
@@ -252,7 +258,7 @@ func TestServiceCrossScopeFlushesBothEvents(t *testing.T) {
 	}
 }
 
-// P0b F12: same-scope but cross-cwd project events must flush separately.
+// P0b F12: same-scope but cross-repo project events must flush separately.
 func TestServiceCrossCwdFlushesBothEvents(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	defer func() { _ = dispatcher.Close() }()
@@ -272,16 +278,16 @@ func TestServiceCrossCwdFlushesBothEvents(t *testing.T) {
 	svc.publishSkillsChanged(skillTestContext(projectRootB), "import_dir", "second", skillScopeProject)
 
 	first := mustReceiveSkillsChanged(t, got)
-	if first.Scope != "project" || first.Cwd != projectRootA || first.Name != "first" {
-		t.Fatalf("first event mismatch; ev=%#v want scope=project cwd=%q name=first", first, projectRootA)
+	if first.Scope != "project" || first.Cwd != "" || first.RepoFingerprint != RepoFingerprint(projectRootA) || first.RelativePath != "." || first.Name != "first" {
+		t.Fatalf("first event mismatch; ev=%#v want scope=project fp=%q rel=. name=first", first, RepoFingerprint(projectRootA))
 	}
 	if first.Count != 1 || first.Action != "write" {
 		t.Fatalf("first action/count mismatch; ev=%#v", first)
 	}
 
 	second := mustReceiveSkillsChanged(t, got)
-	if second.Scope != "project" || second.Cwd != projectRootB || second.Name != "second" {
-		t.Fatalf("second event mismatch; ev=%#v want scope=project cwd=%q name=second", second, projectRootB)
+	if second.Scope != "project" || second.Cwd != "" || second.RepoFingerprint != RepoFingerprint(projectRootB) || second.RelativePath != "." || second.Name != "second" {
+		t.Fatalf("second event mismatch; ev=%#v want scope=project fp=%q rel=. name=second", second, RepoFingerprint(projectRootB))
 	}
 	if second.Count != 1 || second.Action != "import" {
 		t.Fatalf("second action/count mismatch; ev=%#v", second)
@@ -294,7 +300,7 @@ func TestServiceCrossCwdFlushesBothEvents(t *testing.T) {
 	}
 }
 
-// P0b F12: events in the same (Scope, Cwd) bucket should still coalesce.
+// P0b F12: events in the same (Scope, RepoFingerprint, RelativePath) bucket should still coalesce.
 func TestServiceMergeableEventsStillCoalesce(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	defer func() { _ = dispatcher.Close() }()
@@ -314,8 +320,8 @@ func TestServiceMergeableEventsStillCoalesce(t *testing.T) {
 	svc.publishSkillsChanged(ctx, "import_dir", "second", skillScopeProject)
 
 	ev := mustReceiveSkillsChanged(t, got)
-	if ev.Scope != "project" || ev.Cwd != projectRoot {
-		t.Fatalf("scope/cwd mismatch; ev=%#v want scope=project cwd=%q", ev, projectRoot)
+	if ev.Scope != "project" || ev.Cwd != "" || ev.RepoFingerprint != RepoFingerprint(projectRoot) || ev.RelativePath != "." {
+		t.Fatalf("scope/repo location mismatch; ev=%#v want scope=project fp=%q rel=.", ev, RepoFingerprint(projectRoot))
 	}
 	if ev.Name != "" || ev.Action != "" || ev.Count != 2 {
 		t.Fatalf("coalesced summary mismatch; ev=%#v", ev)

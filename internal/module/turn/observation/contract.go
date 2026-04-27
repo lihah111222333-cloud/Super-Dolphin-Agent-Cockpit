@@ -102,89 +102,39 @@ type Timestamps struct {
 	CompletedAt time.Time
 }
 
+// ObservationReader is the read-only facet consumed by trajectory collectors,
+// insight flushers, and extractors. It deliberately excludes mutation and
+// dedupe methods.
+type ObservationReader interface {
+	ResolveLocalTurn(providerID string) (localID string, ok bool)
+	ResolveProviderTurn(localID string) (providerID string, ok bool)
+	LookupCall(callID string) (localTurnID string, ok bool)
+	Tokens(localTurnID string) (TokenSnapshot, bool)
+	Terminal(localTurnID string) (Terminal, bool)
+	SkillsSelected(localTurnID string) []string
+	Counts(localTurnID string) (Counts, bool)
+	Timestamps(localTurnID string) (Timestamps, bool)
+}
+
+// ObservationWriter is the mutation facet owned by observation subscribers and
+// turn internals. Downstream consumers must not depend on this interface.
+type ObservationWriter interface {
+	MapTurn(localID, providerID string) (ok bool)
+	AttributeCall(callID, localTurnID string) (ok bool)
+	RecordTokens(localTurnID string, snap TokenSnapshot) TokenSnapshot
+	RecordTerminal(localTurnID string, t Terminal) Terminal
+	SetSkillsSelected(localTurnID string, slugs []string)
+	Dedupe(key DedupeKey) bool
+	IncrementToolCalls(localTurnID string) int32
+	IncrementToolFailures(localTurnID string) int32
+	IncrementApprovalRequests(localTurnID string) int32
+	RecordStartedAt(localTurnID string, at time.Time)
+	RecordCompletedAt(localTurnID string, at time.Time)
+}
+
 // Contract is the facade that observation owners write to and consumers read
 // from. All methods are safe for concurrent use.
 type Contract interface {
-	// MapTurn records the bidirectional local <-> provider turn id mapping.
-	// Returns true if the mapping was accepted. An existing mapping cannot be
-	// silently rewritten: attempting to re-bind either side to a different
-	// value returns false.
-	MapTurn(localID, providerID string) (ok bool)
-
-	// ResolveLocalTurn returns the local id bound to a provider id.
-	ResolveLocalTurn(providerID string) (localID string, ok bool)
-
-	// ResolveProviderTurn returns the provider id bound to a local id.
-	ResolveProviderTurn(localID string) (providerID string, ok bool)
-
-	// AttributeCall binds a tool call id to its owning local turn id.
-	// ToolDiffUpdated in particular has no turn_id field, so consumers must
-	// consult this mapping instead of guessing.
-	AttributeCall(callID, localTurnID string) (ok bool)
-
-	// LookupCall returns the local turn id associated with a call id.
-	LookupCall(callID string) (localTurnID string, ok bool)
-
-	// RecordTokens merges snap with any prior snapshot for the turn.
-	// Non-zero prior fields are preserved when snap's corresponding field is
-	// zero. Returns the merged snapshot currently stored.
-	RecordTokens(localTurnID string, snap TokenSnapshot) TokenSnapshot
-
-	// Tokens reads the currently stored snapshot.
-	Tokens(localTurnID string) (TokenSnapshot, bool)
-
-	// RecordTerminal applies a terminal event under precedence rules:
-	// interrupted/aborted is sticky and cannot be displaced by a later
-	// completed/failed. Returns the effective terminal after applying.
-	RecordTerminal(localTurnID string, t Terminal) Terminal
-
-	// Terminal reads the effective terminal of a turn.
-	Terminal(localTurnID string) (Terminal, bool)
-
-	// SetSkillsSelected records the skill slugs chosen by the PrepareTurn
-	// resolver. "Selected" means prepared for injection; it does not imply
-	// the model actually invoked the skill.
-	SetSkillsSelected(localTurnID string, slugs []string)
-
-	// SkillsSelected returns a defensive copy of the recorded selection.
-	SkillsSelected(localTurnID string) []string
-
-	// Dedupe returns true the first time a key is seen (and records it),
-	// false on subsequent calls. An empty key is treated as always unique:
-	// observation refuses to swallow events that arrive without any
-	// identifying field.
-	Dedupe(key DedupeKey) bool
-
-	// IncrementToolCalls bumps the per-turn tool_calls counter by one and
-	// returns the post-increment value. Callers that need to avoid
-	// double-counting a retried ToolCallBegin should gate the call with
-	// Dedupe(DedupeKey{CallID: ...}) first.
-	IncrementToolCalls(localTurnID string) int32
-
-	// IncrementToolFailures bumps the per-turn tool_failures counter by one.
-	IncrementToolFailures(localTurnID string) int32
-
-	// IncrementApprovalRequests bumps the per-turn approval_requests counter
-	// by one and flips ApprovalRequestsObserved to true. The Claude path
-	// never emits these events, so absence of calls keeps observed=false —
-	// which lets downstream queries filter unobserved turns out of average /
-	// percentile metrics.
-	IncrementApprovalRequests(localTurnID string) int32
-
-	// Counts returns the observed counts for a turn. ok=false when no
-	// counter has been recorded.
-	Counts(localTurnID string) (Counts, bool)
-
-	// RecordStartedAt stores the first non-zero start time for a turn.
-	// Subsequent calls are no-ops so a late TurnInputReceived cannot drag
-	// the recorded start forward.
-	RecordStartedAt(localTurnID string, at time.Time)
-
-	// RecordCompletedAt stores the most-recent non-zero completion time.
-	// Latest-write-wins because terminal events can fire multiple times in
-	// the race between TurnInterrupted and TurnCompleted.
-	RecordCompletedAt(localTurnID string, at time.Time)
-
-	// Timestamps returns the stored StartedAt / CompletedAt pair.
-	Timestamps(localTurnID string) (Timestamps, bool)
+	ObservationReader
+	ObservationWriter
 }

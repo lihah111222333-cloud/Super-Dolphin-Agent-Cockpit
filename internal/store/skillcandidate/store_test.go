@@ -14,17 +14,21 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
+const validStoreFP = "0123456789abcdef0123456789abcdef"
+const validStoreFPB = "fedcba9876543210fedcba9876543210"
+
 // stubQuerier is a recording test double that satisfies the store's
 // internal querier interface. Each *Fn defaults to a benign return so
 // individual tests only wire what they exercise.
 type stubQuerier struct {
-	insertFn      func(context.Context, sqlc.InsertSkillCandidateParams) (sqlc.SkillCandidate, error)
-	getByIDFn     func(context.Context, int64) (sqlc.SkillCandidate, error)
-	listPendingFn func(context.Context, sqlc.ListPendingSkillCandidatesParams) ([]sqlc.SkillCandidate, error)
-	approveFn     func(context.Context, sqlc.ApproveSkillCandidateParams) (sqlc.SkillCandidate, error)
-	rejectFn      func(context.Context, sqlc.RejectSkillCandidateParams) (sqlc.SkillCandidate, error)
-	promoteFn     func(context.Context, int64) (sqlc.SkillCandidate, error)
-	lookupFn      func(context.Context, sqlc.LookupSkillCandidateApprovalParams) (sqlc.SkillCandidate, error)
+	insertFn         func(context.Context, sqlc.InsertSkillCandidateParams) (sqlc.SkillCandidate, error)
+	getByIDFn        func(context.Context, int64) (sqlc.SkillCandidate, error)
+	listPendingFn    func(context.Context, sqlc.ListPendingSkillCandidatesParams) ([]sqlc.SkillCandidate, error)
+	markSupersededFn func(context.Context, sqlc.MarkSkillCandidatesSupersededParams) (int64, error)
+	approveFn        func(context.Context, sqlc.ApproveSkillCandidateParams) (sqlc.SkillCandidate, error)
+	rejectFn         func(context.Context, sqlc.RejectSkillCandidateParams) (sqlc.SkillCandidate, error)
+	promoteFn        func(context.Context, int64) (sqlc.SkillCandidate, error)
+	lookupFn         func(context.Context, sqlc.LookupSkillCandidateApprovalParams) (sqlc.SkillCandidate, error)
 }
 
 func (s *stubQuerier) InsertSkillCandidate(ctx context.Context, a sqlc.InsertSkillCandidateParams) (sqlc.SkillCandidate, error) {
@@ -56,6 +60,13 @@ func (s *stubQuerier) ListPendingSkillCandidates(ctx context.Context, a sqlc.Lis
 		return s.listPendingFn(ctx, a)
 	}
 	return nil, nil
+}
+
+func (s *stubQuerier) MarkSkillCandidatesSuperseded(ctx context.Context, a sqlc.MarkSkillCandidatesSupersededParams) (int64, error) {
+	if s.markSupersededFn != nil {
+		return s.markSupersededFn(ctx, a)
+	}
+	return 0, nil
 }
 
 func (s *stubQuerier) ApproveSkillCandidate(ctx context.Context, a sqlc.ApproveSkillCandidateParams) (sqlc.SkillCandidate, error) {
@@ -118,7 +129,7 @@ func TestStore_Insert_Roundtrip(t *testing.T) {
 		Scope:           "  project  ",
 		Slug:            "  use-cron-helper  ",
 		ContentHash:     "  sha256:abc  ",
-		RepoFingerprint: "fp:repo-1",
+		RepoFingerprint: validStoreFP,
 		SkillMD:         "# Skill\n",
 		RedactedSample:  "trace-snippet",
 	})
@@ -128,7 +139,7 @@ func TestStore_Insert_Roundtrip(t *testing.T) {
 	if got.Scope != "project" || got.Slug != "use-cron-helper" || got.ContentHash != "sha256:abc" {
 		t.Fatalf("trim mismatch: %+v", got)
 	}
-	if got.RepoFingerprint != "fp:repo-1" {
+	if got.RepoFingerprint != validStoreFP {
 		t.Fatalf("RepoFingerprint must NOT be trimmed: got %q", got.RepoFingerprint)
 	}
 	if c.ID != 42 || c.Status != StatusPendingReview || c.SkillMD != "# Skill\n" {
@@ -148,7 +159,7 @@ func TestStore_Insert_WrapsUniqueViolation(t *testing.T) {
 		},
 	}
 	s := newStoreForTest(stub)
-	_, err := s.Insert(context.Background(), InsertParams{Scope: "project", Slug: "x", ContentHash: "h", RepoFingerprint: "fp"})
+	_, err := s.Insert(context.Background(), InsertParams{Scope: "project", Slug: "x", ContentHash: "h", RepoFingerprint: validStoreFP})
 	if err == nil {
 		t.Fatal("expected error from unique violation")
 	}
@@ -171,7 +182,7 @@ func TestStore_LookupApproval_Miss_ReturnsNilNil(t *testing.T) {
 		},
 	}
 	s := newStoreForTest(stub)
-	got, err := s.LookupApproval(context.Background(), "project", "slug", "hash", "fp")
+	got, err := s.LookupApproval(context.Background(), "project", "slug", "hash", validStoreFP)
 	if err != nil {
 		t.Fatalf("LookupApproval error = %v", err)
 	}
@@ -197,7 +208,7 @@ func TestStore_LookupApproval_Hit_ReturnsCandidate(t *testing.T) {
 		},
 	}
 	s := newStoreForTest(stub)
-	got, err := s.LookupApproval(context.Background(), "project", "slug", "hash", "fp")
+	got, err := s.LookupApproval(context.Background(), "project", "slug", "hash", validStoreFP)
 	if err != nil {
 		t.Fatalf("LookupApproval error = %v", err)
 	}
@@ -222,20 +233,35 @@ func TestStore_LookupApproval_DistinctRepoFingerprintIsolation(t *testing.T) {
 		},
 	}
 	s := newStoreForTest(stub)
-	if _, err := s.LookupApproval(context.Background(), "project", "slug", "hash", "fp:repo-A"); err != nil {
+	if _, err := s.LookupApproval(context.Background(), "project", "slug", "hash", validStoreFP); err != nil {
 		t.Fatalf("call A error = %v", err)
 	}
-	if _, err := s.LookupApproval(context.Background(), "project", "slug", "hash", ""); err != nil {
+	if _, err := s.LookupApproval(context.Background(), "project", "slug", "hash", validStoreFPB); err != nil {
 		t.Fatalf("call B error = %v", err)
 	}
 	if len(calls) != 2 {
 		t.Fatalf("expected 2 stub calls, got %d", len(calls))
 	}
-	if calls[0].RepoFingerprint != "fp:repo-A" {
-		t.Fatalf("first call RepoFingerprint = %q, want fp:repo-A", calls[0].RepoFingerprint)
+	if calls[0].RepoFingerprint != validStoreFP {
+		t.Fatalf("first call RepoFingerprint = %q, want validStoreFP", calls[0].RepoFingerprint)
 	}
-	if calls[1].RepoFingerprint != "" {
-		t.Fatalf("second call RepoFingerprint must stay literal empty, got %q", calls[1].RepoFingerprint)
+	if calls[1].RepoFingerprint != validStoreFPB {
+		t.Fatalf("second call RepoFingerprint = %q, want validStoreFPB", calls[1].RepoFingerprint)
+	}
+}
+
+func TestStore_LookupApproval_ProjectRejectsInvalidFingerprint(t *testing.T) {
+	t.Parallel()
+	stub := &stubQuerier{
+		lookupFn: func(context.Context, sqlc.LookupSkillCandidateApprovalParams) (sqlc.SkillCandidate, error) {
+			t.Fatal("query must not execute for invalid repo fingerprint")
+			return sqlc.SkillCandidate{}, nil
+		},
+	}
+	s := newStoreForTest(stub)
+	_, err := s.LookupApproval(context.Background(), "project", "slug", "hash", "")
+	if !errors.Is(err, ErrInvalidRepoFingerprint) {
+		t.Fatalf("err = %v, want ErrInvalidRepoFingerprint", err)
 	}
 }
 
@@ -260,7 +286,7 @@ func TestStore_Approve_RequiresApprovedBy(t *testing.T) {
 	}
 }
 
-func TestStore_Approve_NoRowsMapsToConflict(t *testing.T) {
+func TestStore_Approve_NoRowsExistingCandidateMapsToStateMismatch(t *testing.T) {
 	t.Parallel()
 	stub := &stubQuerier{
 		approveFn: func(context.Context, sqlc.ApproveSkillCandidateParams) (sqlc.SkillCandidate, error) {
@@ -270,10 +296,27 @@ func TestStore_Approve_NoRowsMapsToConflict(t *testing.T) {
 	s := newStoreForTest(stub)
 	_, err := s.Approve(context.Background(), 1, "alice", "lgtm", time.Unix(1700000000, 0).UTC())
 	if err == nil {
-		t.Fatal("expected error when row missing or wrong status")
+		t.Fatal("expected error when status mismatches")
 	}
-	if !errors.Is(err, platformdb.ErrConflict) {
-		t.Fatalf("expected ErrConflict, got %v", err)
+	if !errors.Is(err, ErrCandidateStateMismatch) {
+		t.Fatalf("expected ErrCandidateStateMismatch, got %v", err)
+	}
+}
+
+func TestStore_Approve_NoRowsMissingCandidateMapsToNotFound(t *testing.T) {
+	t.Parallel()
+	stub := &stubQuerier{
+		approveFn: func(context.Context, sqlc.ApproveSkillCandidateParams) (sqlc.SkillCandidate, error) {
+			return sqlc.SkillCandidate{}, pgx.ErrNoRows
+		},
+		getByIDFn: func(context.Context, int64) (sqlc.SkillCandidate, error) {
+			return sqlc.SkillCandidate{}, pgx.ErrNoRows
+		},
+	}
+	s := newStoreForTest(stub)
+	_, err := s.Approve(context.Background(), 1, "alice", "lgtm", time.Unix(1700000000, 0).UTC())
+	if !errors.Is(err, ErrCandidateNotFound) {
+		t.Fatalf("expected ErrCandidateNotFound, got %v", err)
 	}
 }
 
@@ -310,7 +353,7 @@ func TestStore_Approve_ForwardsApprovedAt(t *testing.T) {
 
 // ----- Reject -----
 
-func TestStore_Reject_NoRowsMapsToConflict(t *testing.T) {
+func TestStore_Reject_NoRowsExistingCandidateMapsToStateMismatch(t *testing.T) {
 	t.Parallel()
 	stub := &stubQuerier{
 		rejectFn: func(context.Context, sqlc.RejectSkillCandidateParams) (sqlc.SkillCandidate, error) {
@@ -320,16 +363,16 @@ func TestStore_Reject_NoRowsMapsToConflict(t *testing.T) {
 	s := newStoreForTest(stub)
 	_, err := s.Reject(context.Background(), 1, "noisy")
 	if err == nil {
-		t.Fatal("expected error when row missing or wrong status")
+		t.Fatal("expected error when status mismatches")
 	}
-	if !errors.Is(err, platformdb.ErrConflict) {
-		t.Fatalf("expected ErrConflict, got %v", err)
+	if !errors.Is(err, ErrCandidateStateMismatch) {
+		t.Fatalf("expected ErrCandidateStateMismatch, got %v", err)
 	}
 }
 
 // ----- MarkPromoted -----
 
-func TestStore_MarkPromoted_NoRowsMapsToConflict(t *testing.T) {
+func TestStore_MarkPromoted_NoRowsExistingCandidateMapsToStateMismatch(t *testing.T) {
 	t.Parallel()
 	stub := &stubQuerier{
 		promoteFn: func(context.Context, int64) (sqlc.SkillCandidate, error) {
@@ -341,8 +384,47 @@ func TestStore_MarkPromoted_NoRowsMapsToConflict(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when status != approved")
 	}
-	if !errors.Is(err, platformdb.ErrConflict) {
-		t.Fatalf("expected ErrConflict, got %v", err)
+	if !errors.Is(err, ErrCandidateStateMismatch) {
+		t.Fatalf("expected ErrCandidateStateMismatch, got %v", err)
+	}
+}
+
+// ----- MarkSuperseded -----
+
+func TestStore_MarkSuperseded_Passthrough(t *testing.T) {
+	t.Parallel()
+	var got sqlc.MarkSkillCandidatesSupersededParams
+	stub := &stubQuerier{
+		markSupersededFn: func(_ context.Context, a sqlc.MarkSkillCandidatesSupersededParams) (int64, error) {
+			got = a
+			return 2, nil
+		},
+	}
+	s := newStoreForTest(stub)
+	rows, err := s.MarkSuperseded(context.Background(), " project ", " demo ", validStoreFP, 7)
+	if err != nil {
+		t.Fatalf("MarkSuperseded error = %v", err)
+	}
+	if rows != 2 {
+		t.Fatalf("rows = %d, want 2", rows)
+	}
+	if got.Scope != "project" || got.Slug != "demo" || got.RepoFingerprint != validStoreFP || got.ID != 7 {
+		t.Fatalf("params = %+v", got)
+	}
+}
+
+func TestStore_MarkSuperseded_RejectsInvalidProjectFingerprint(t *testing.T) {
+	t.Parallel()
+	stub := &stubQuerier{
+		markSupersededFn: func(context.Context, sqlc.MarkSkillCandidatesSupersededParams) (int64, error) {
+			t.Fatal("query must not execute for invalid repo fingerprint")
+			return 0, nil
+		},
+	}
+	s := newStoreForTest(stub)
+	_, err := s.MarkSuperseded(context.Background(), "project", "demo", "bad", 7)
+	if !errors.Is(err, ErrInvalidRepoFingerprint) {
+		t.Fatalf("err = %v, want ErrInvalidRepoFingerprint", err)
 	}
 }
 
@@ -358,11 +440,29 @@ func TestStore_ListPending_DefaultLimit(t *testing.T) {
 		},
 	}
 	s := newStoreForTest(stub)
-	if _, err := s.ListPending(context.Background(), 0, 0); err != nil {
+	if _, err := s.ListPending(context.Background(), validStoreFP, 0, 0); err != nil {
 		t.Fatalf("ListPending error = %v", err)
 	}
 	if got.Limit != defaultLimit {
 		t.Fatalf("default Limit = %d, want %d", got.Limit, defaultLimit)
+	}
+	if got.RepoFingerprint != validStoreFP {
+		t.Fatalf("RepoFingerprint = %q, want validStoreFP", got.RepoFingerprint)
+	}
+}
+
+func TestStore_ListPending_RejectsInvalidFingerprint(t *testing.T) {
+	t.Parallel()
+	stub := &stubQuerier{
+		listPendingFn: func(context.Context, sqlc.ListPendingSkillCandidatesParams) ([]sqlc.SkillCandidate, error) {
+			t.Fatal("query must not execute for invalid repo fingerprint")
+			return nil, nil
+		},
+	}
+	s := newStoreForTest(stub)
+	_, err := s.ListPending(context.Background(), "not-a-fp", 10, 0)
+	if !errors.Is(err, ErrInvalidRepoFingerprint) {
+		t.Fatalf("err = %v, want ErrInvalidRepoFingerprint", err)
 	}
 }
 
@@ -379,7 +479,7 @@ func TestStore_ListPending_PassthroughPagination(t *testing.T) {
 		},
 	}
 	s := newStoreForTest(stub)
-	rows, err := s.ListPending(context.Background(), 25, 100)
+	rows, err := s.ListPending(context.Background(), validStoreFP, 25, 100)
 	if err != nil {
 		t.Fatalf("ListPending error = %v", err)
 	}

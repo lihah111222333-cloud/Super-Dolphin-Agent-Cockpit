@@ -29,13 +29,15 @@ type UITokensUpdated struct {
 // SkillsChanged reports local skill inventory mutations.
 type SkillsChanged struct {
 	shared.EventHeader
-	SkillsDir string   `json:"skillsDir,omitempty"`
-	Name      string   `json:"name,omitempty"`
-	Action    string   `json:"action,omitempty"`
-	Actions   []string `json:"actions,omitempty"`
-	Count     int      `json:"count,omitempty"`
-	Scope     string   `json:"scope,omitempty"` // P0b Step 6: "project" | "system"
-	Cwd       string   `json:"cwd,omitempty"`   // P0b Step 6: project root (scope=project only)
+	SkillsDir       string   `json:"skillsDir,omitempty"`
+	Name            string   `json:"name,omitempty"`
+	Action          string   `json:"action,omitempty"`
+	Actions         []string `json:"actions,omitempty"`
+	Count           int      `json:"count,omitempty"`
+	Scope           string   `json:"scope,omitempty"`            // "project" | "system"
+	RepoFingerprint string   `json:"repo_fingerprint,omitempty"` // project scope only
+	RelativePath    string   `json:"relative_path,omitempty"`    // project scope only, relative to repo root
+	Cwd             string   `json:"cwd,omitempty"`              // deprecated: intentionally left empty to avoid leaking host paths
 }
 
 // UIPreferencesChanged reports a persisted preference mutation.

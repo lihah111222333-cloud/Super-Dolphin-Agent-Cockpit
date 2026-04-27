@@ -148,55 +148,87 @@ type RunOptions struct {
 //     则拿到 result text + usage；usage 非零且 OnUsage 非 nil 时调用 callback。
 //  2. 结构化路径上用 result text 走 StripJSONFences + ExtractFirstJSONObject。
 //  3. fallback（未识别为任一 CLI 格式）走原始路径：raw text 直接走 fence strip + JSON 提取。
+//
 // 子进程错误（exit code / ctx 取消）透传 dispatcher failover，不 retry。
 func Run(ctx context.Context, c Commander, opts RunOptions) (string, error) {
-	if c == nil {
-		return "", errors.New("dreamexec: commander is nil")
-	}
-	if strings.TrimSpace(opts.Prompt) == "" {
-		return "", errors.New("dreamexec: prompt is empty")
-	}
-	if opts.MaxStdoutBytes <= 0 {
-		return "", fmt.Errorf("dreamexec: MaxStdoutBytes must be positive, got %d", opts.MaxStdoutBytes)
-	}
-	if opts.MaxRetries < 0 {
-		return "", fmt.Errorf("dreamexec: MaxRetries must be non-negative, got %d", opts.MaxRetries)
+	if err := validateRunOptions(c, opts); err != nil {
+		return "", err
 	}
 
 	var lastParseErr error
 	attempts := opts.MaxRetries + 1
 	for range attempts {
-		if err := ctx.Err(); err != nil {
-			return "", err
-		}
-		raw, err := c.Run(ctx, opts.Binary, opts.Args, opts.Prompt, opts.MaxStdoutBytes)
-		if err != nil {
-			// 子进程错误：透传，不 retry（dispatcher failover 接管）
-			return "", err
-		}
-		resultText, usage, structured, structuredErr := extractStructuredCLIResult(raw)
+		obj, usage, err := runDreamAttempt(ctx, c, opts)
 		if usage != (TokenUsage{}) && opts.OnUsage != nil {
 			opts.OnUsage(usage)
 		}
-		if structuredErr != nil {
-			lastParseErr = structuredErr
-			continue
-		}
-		if structured {
-			obj, parseErr := ExtractFirstJSONObject(StripJSONFences(resultText))
-			if parseErr == nil {
-				return obj, nil
-			}
-			lastParseErr = parseErr
-			continue
-		}
-
-		stripped := StripJSONFences(string(raw))
-		obj, parseErr := ExtractFirstJSONObject(stripped)
-		if parseErr == nil {
+		if err == nil {
 			return obj, nil
 		}
-		lastParseErr = parseErr
+		if !isParseFailure(err) {
+			return "", err
+		}
+		lastParseErr = err
 	}
 	return "", fmt.Errorf("dreamexec: failed to extract JSON after %d attempt(s): %w", attempts, lastParseErr)
+}
+
+func validateRunOptions(c Commander, opts RunOptions) error {
+	if c == nil {
+		return errors.New("dreamexec: commander is nil")
+	}
+	if strings.TrimSpace(opts.Prompt) == "" {
+		return errors.New("dreamexec: prompt is empty")
+	}
+	if opts.MaxStdoutBytes <= 0 {
+		return fmt.Errorf("dreamexec: MaxStdoutBytes must be positive, got %d", opts.MaxStdoutBytes)
+	}
+	if opts.MaxRetries < 0 {
+		return fmt.Errorf("dreamexec: MaxRetries must be non-negative, got %d", opts.MaxRetries)
+	}
+	return nil
+}
+
+func runDreamAttempt(ctx context.Context, c Commander, opts RunOptions) (string, TokenUsage, error) {
+	if err := ctx.Err(); err != nil {
+		return "", TokenUsage{}, err
+	}
+	raw, err := c.Run(ctx, opts.Binary, opts.Args, opts.Prompt, opts.MaxStdoutBytes)
+	if err != nil {
+		return "", TokenUsage{}, err
+	}
+	obj, usage, err := extractDreamJSONObject(raw)
+	if err != nil {
+		return "", usage, parseAttemptError{err: err}
+	}
+	return obj, usage, nil
+}
+
+func extractDreamJSONObject(raw []byte) (string, TokenUsage, error) {
+	resultText, usage, structured, err := extractStructuredCLIResult(raw)
+	if err != nil {
+		return "", usage, err
+	}
+	if structured {
+		obj, err := extractJSONObjectFromText(resultText)
+		return obj, usage, err
+	}
+	obj, err := extractJSONObjectFromText(string(raw))
+	return obj, usage, err
+}
+
+func extractJSONObjectFromText(text string) (string, error) {
+	return ExtractFirstJSONObject(StripJSONFences(text))
+}
+
+type parseAttemptError struct {
+	err error
+}
+
+func (e parseAttemptError) Error() string { return e.err.Error() }
+func (e parseAttemptError) Unwrap() error { return e.err }
+
+func isParseFailure(err error) bool {
+	var parseErr parseAttemptError
+	return errors.As(err, &parseErr)
 }
