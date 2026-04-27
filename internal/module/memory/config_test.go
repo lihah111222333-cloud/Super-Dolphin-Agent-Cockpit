@@ -390,3 +390,80 @@ func TestShouldStartRelevantMemoryPrefetchHonorsRuntimeGate(t *testing.T) {
 		t.Fatal("ShouldStartRelevantMemoryPrefetch(no headroom) = true, want false")
 	}
 }
+
+func TestResolveMemoryGateHarnessFromEnv(t *testing.T) {
+	cases := []struct {
+		name string
+		env  string
+		want MemoryHarness
+	}{
+		{name: "unset_defaults_to_generic", env: "", want: MemoryHarnessGeneric},
+		{name: "claude_code_canonical", env: "claude_code", want: MemoryHarnessClaudeCode},
+		{name: "claude_code_dash_form", env: "claude-code", want: MemoryHarnessClaudeCode},
+		{name: "claude_code_uppercase", env: "CLAUDE_CODE", want: MemoryHarnessClaudeCode},
+		{name: "codex", env: "codex", want: MemoryHarnessCodex},
+		{name: "unknown_falls_back_to_generic", env: "gemini", want: MemoryHarnessGeneric},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(envHarnessKind, tc.env)
+			gate := ResolveMemoryGate(contract.BuildCtx{}, &Config{Enabled: true})
+			if gate.Harness != tc.want {
+				t.Fatalf("ResolveMemoryGate(%q).Harness = %q, want %q", tc.env, gate.Harness, tc.want)
+			}
+		})
+	}
+}
+
+func TestResolveMemoryGateOverlaySuppressesIndexAndPrefetch(t *testing.T) {
+	t.Setenv(envHarnessKind, "claude_code")
+	cfg := &Config{
+		Enabled:   true,
+		SkipIndex: true, // would normally enable prefetch via SkipIndex branch
+		Features:  MemoryFeatureFlags{TeamMemory: true},
+	}
+	gate := ResolveMemoryGate(contract.BuildCtx{}, cfg)
+	if !gate.SuppressForOverlay() {
+		t.Fatalf("SuppressForOverlay() = false, want true for claude_code harness")
+	}
+	if gate.InjectMemoryIndex {
+		t.Fatalf("overlay InjectMemoryIndex = true, want false")
+	}
+	if gate.InjectTeamMemIndex {
+		t.Fatalf("overlay InjectTeamMemIndex = true, want false")
+	}
+	if gate.EnableRelevantPrefetch {
+		t.Fatalf("overlay EnableRelevantPrefetch = true, want false")
+	}
+}
+
+func TestResolveMemoryGateGenericKeepsPrefetchAndIndex(t *testing.T) {
+	t.Setenv(envHarnessKind, "")
+	cfg := &Config{
+		Enabled:   true,
+		SkipIndex: true,
+		Features:  MemoryFeatureFlags{TeamMemory: true},
+	}
+	gate := ResolveMemoryGate(contract.BuildCtx{}, cfg)
+	if gate.SuppressForOverlay() {
+		t.Fatalf("SuppressForOverlay() = true, want false for default generic harness")
+	}
+	if !gate.EnableRelevantPrefetch {
+		t.Fatalf("generic EnableRelevantPrefetch = false, want true (skipIndex branch)")
+	}
+}
+
+func TestMemoryRulesProviderSuppressedInOverlay(t *testing.T) {
+	t.Setenv(envHarnessKind, "claude_code")
+	provider := NewRulesProvider(&Config{
+		Enabled:  true,
+		Features: MemoryFeatureFlags{},
+	}, NewMemoryRuleEngine(), nil)
+	text, err := provider.Resolve(context.Background(), contract.SectionContext{Start: &contract.StartInput{}})
+	if err != nil {
+		t.Fatalf("MemoryRulesProvider.Resolve() error = %v", err)
+	}
+	if text != nil {
+		t.Fatalf("MemoryRulesProvider.Resolve() = %q, want nil under overlay", *text)
+	}
+}

@@ -71,8 +71,8 @@ func TestResolveClaudeMdSourcesOrdersLayersAndPreservesRuleMetadata(t *testing.T
 		mustResolvedClaudePath(t, filepath.Join(cwd, "CLAUDE.local.md")),
 		mustResolvedClaudePath(t, filepath.Join(addDir, "CLAUDE.md")),
 		mustResolvedClaudePath(t, filepath.Join(addDir, ".claude", "rules", "extra.md")),
-		mustResolvedClaudePath(t, memoryIndexPath(autoRoot)),
-		mustResolvedClaudePath(t, memoryIndexPath(teamRoot)),
+		// Phase 1.6: AutoMem / TeamMem MEMORY.md no longer flow through nested
+		// ClaudeMd; MemoryEntrypointProvider owns prompt-time injection.
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("ResolveClaudeMdSources() paths = %#v, want %#v", got, want)
@@ -193,7 +193,13 @@ func TestFilterInjectedMemoryFilesNestedWorktreeSkipsCheckedInAncestorsOnly(t *t
 	}
 }
 
-func TestCombinedClaudeMdSourcesSkipTeamEntrypointWhenKairosActive(t *testing.T) {
+// Phase 1.6 removed AutoMem / TeamMem from nested ClaudeMd candidates,
+// so this test (which previously asserted that the team entrypoint was
+// dropped under Kairos while auto was retained) no longer applies — neither
+// auto nor team flow through nested. MemoryEntrypointProvider now owns the
+// prompt-time MEMORY.md injection and runs the gate-based suppression
+// (Kairos still suppresses team via gate.InjectTeamMemIndex).
+func TestCombinedClaudeMdSourcesNoLongerInjectsAutoOrTeamMemoryFiles(t *testing.T) {
 	base := t.TempDir()
 	repoRoot := filepath.Join(base, "repo")
 	autoRoot := filepath.Join(base, "automem")
@@ -217,11 +223,11 @@ func TestCombinedClaudeMdSourcesSkipTeamEntrypointWhenKairosActive(t *testing.T)
 	buildCtx := contract.BuildCtx{GitRoot: repoRoot, CWD: repoRoot}
 	provider := NewClaudeMdSourcesProvider(deps, stubTeamMemoryManager{path: teamRoot}, nil)
 	sources := provider.ResolveClaudeMdSources(context.Background(), buildCtx)
-	if hasSourceType(sources, sourceTypeTeamMem) {
-		t.Fatalf("ResolveClaudeMdSources() unexpectedly retained %q source under Kairos: %#v", sourceTypeTeamMem, sources)
+	if hasSourceType(sources, sourceTypeAutoMem) {
+		t.Fatalf("ResolveClaudeMdSources() unexpectedly contained %q source after Phase 1.6: %#v", sourceTypeAutoMem, sources)
 	}
-	if !hasSourceType(sources, sourceTypeAutoMem) {
-		t.Fatalf("ResolveClaudeMdSources() missing %q source under Kairos: %#v", sourceTypeAutoMem, sources)
+	if hasSourceType(sources, sourceTypeTeamMem) {
+		t.Fatalf("ResolveClaudeMdSources() unexpectedly contained %q source after Phase 1.6: %#v", sourceTypeTeamMem, sources)
 	}
 }
 
@@ -371,3 +377,47 @@ func runGit(t *testing.T, dir string, args ...string) {
 		t.Fatalf("git %v in %q error = %v\n%s", args, dir, err, string(out))
 	}
 }
+
+// TestResolveClaudeMdSourcesSuppressedByOverlay locks the defense-in-depth
+// short-circuit added after the session-wide double-injection audit: when the
+// underlying CLI harness already loads CLAUDE.md natively (claude_code
+// overlay), GateSnapshot.SuppressForOverlay must drop every claudeMd source so
+// any future re-enablement of UserContextText cannot double-inject CLAUDE.md
+// alongside the harness's own copy.
+func TestResolveClaudeMdSourcesSuppressedByOverlay(t *testing.T) {
+	base := t.TempDir()
+	managedRoot := filepath.Join(base, "managed")
+	userRoot := filepath.Join(base, "user")
+	repoRoot := filepath.Join(base, "repo")
+	for _, dir := range []string{managedRoot, userRoot, repoRoot} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q) error = %v", dir, err)
+		}
+	}
+	writeClaudeFile(t, filepath.Join(managedRoot, "CLAUDE.md"), "managed base")
+	writeClaudeFile(t, filepath.Join(userRoot, "CLAUDE.md"), "user base")
+	writeClaudeFile(t, filepath.Join(repoRoot, "CLAUDE.md"), "project base")
+
+	cfg := ClaudeMdResolveConfig{
+		BuildCtx:     contract.BuildCtx{GitRoot: repoRoot, CWD: repoRoot},
+		ManagedRoots: []string{managedRoot},
+		UserRoot:     userRoot,
+	}
+
+	// Counter-baseline: without overlay, sources load normally.
+	cfg.Dependencies = newTestDependencies(testDepsOptions{})
+	if got := ResolveClaudeMdSources(context.Background(), cfg); len(got) == 0 {
+		t.Fatalf("counter-baseline: ResolveClaudeMdSources() = empty, want non-empty (overlay off)")
+	}
+
+	// Overlay on: every source must be dropped.
+	cfg.Dependencies = newTestDependencies(testDepsOptions{
+		gate: func(contract.BuildCtx) GateSnapshot {
+			return GateSnapshot{SuppressForOverlay: true}
+		},
+	})
+	if got := ResolveClaudeMdSources(context.Background(), cfg); len(got) != 0 {
+		t.Fatalf("ResolveClaudeMdSources() under SuppressForOverlay = %#v, want nil/empty", got)
+	}
+}
+

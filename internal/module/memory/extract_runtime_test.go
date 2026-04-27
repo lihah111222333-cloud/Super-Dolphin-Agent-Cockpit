@@ -300,11 +300,22 @@ func TestMemoryLifecycleHooksExtractAndSaveInvalidatesPromptSections(t *testing.
 	if err != nil {
 		t.Fatalf("ExtractAndSave() error = %v", err)
 	}
-	if invalidator.reason != contract.InvalidateMemoryWrite {
-		t.Fatalf("InvalidateSections() reason = %q, want %q", invalidator.reason, contract.InvalidateMemoryWrite)
+	reason, gotNames := invalidator.snapshot()
+	if reason != contract.InvalidateMemoryWrite {
+		t.Fatalf("InvalidateSections() reason = %q, want %q", reason, contract.InvalidateMemoryWrite)
 	}
-	if len(invalidator.names) != 2 || invalidator.names[0] != contract.DynamicSectionMemory || invalidator.names[1] != contract.DynamicSectionMemoryContext {
-		t.Fatalf("InvalidateSections() names = %#v", invalidator.names)
+	wantNames := []string{
+		contract.DynamicSectionMemory,
+		contract.DynamicSectionMemoryContext,
+		contract.DynamicSectionMemoryEntrypoint,
+	}
+	if len(gotNames) != len(wantNames) {
+		t.Fatalf("InvalidateSections() names = %#v, want %#v", gotNames, wantNames)
+	}
+	for i, want := range wantNames {
+		if gotNames[i] != want {
+			t.Fatalf("InvalidateSections() names[%d] = %q, want %q", i, gotNames[i], want)
+		}
 	}
 }
 
@@ -372,15 +383,32 @@ func (s *mutableHistoryStub) setMessages(messages []providerdto.Message) {
 	s.messages = append([]providerdto.Message(nil), messages...)
 }
 
+// sectionInvalidatorStub mirrors the concurrency contract that
+// `contract.SectionInvalidator` declares (see prompt.go): test-time fan-out
+// from background goroutines (auto-dream, extractor, turn-tracking) hits
+// this stub without external synchronization, so the stub itself must be
+// race-free. The mutex was added in Phase 2.0.1 after a code review noted
+// the contract was overstated repo-wide.
 type sectionInvalidatorStub struct {
+	mu     sync.Mutex
 	reason contract.InvalidateReason
 	names  []string
 }
 
 func (s *sectionInvalidatorStub) InvalidateSections(reason contract.InvalidateReason, names ...string) uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.reason = reason
 	s.names = append([]string(nil), names...)
 	return 1
+}
+
+// snapshot returns a copy of the captured state under the mutex; callers
+// in tests can inspect it without re-locking.
+func (s *sectionInvalidatorStub) snapshot() (contract.InvalidateReason, []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.reason, append([]string(nil), s.names...)
 }
 
 func turnStartedEvent(threadID, turnID string) turndto.TurnStarted {

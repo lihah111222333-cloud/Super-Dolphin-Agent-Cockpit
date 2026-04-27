@@ -1,10 +1,13 @@
 package turn
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolresults"
 )
 
 type ToolResultMeta struct {
@@ -57,12 +60,14 @@ func persistToolResult(meta ToolResultMeta, raw string) string {
 }
 
 func toolResultStorageDir() (string, error) {
-	base, err := os.UserCacheDir()
-	if err != nil || strings.TrimSpace(base) == "" {
-		base = os.TempDir()
+	dir := toolresults.CacheDir()
+	if dir == "" {
+		return "", errors.New("tool-results: cache base unavailable")
 	}
-	dir := filepath.Join(base, "super-agent-v3", "tool-results")
-	return dir, os.MkdirAll(dir, 0o755)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	return dir, nil
 }
 
 func toolResultFileName(meta ToolResultMeta) string {

@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	memshared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2/handler"
 )
@@ -89,7 +91,22 @@ type UIAgentMemoryDetail struct {
 	Path      string    `json:"path,omitempty"`
 	Content   string    `json:"content,omitempty"`
 	UpdatedAt time.Time `json:"updatedAt,omitempty"`
+	// WriteCommittedReadbackFailed is a tri-state flag for write-then-read:
+	//   nil   = readback did not occur (read-only paths; field omitted in JSON)
+	//   true  = readback ran but failed (containment, broken symlink, IO race);
+	//           Content/Path/UpdatedAt are echoed from the request, downstream
+	//           consumers (KAIROS, consolidation) MUST re-read from disk before
+	//           trusting the snapshot.
+	//   false = readback ran and succeeded; snapshot is authoritative.
+	// Phase 2.1.AB.6 P1 #3: bool→*bool so save success path can explicitly
+	// distinguish itself from read-only paths.
+	WriteCommittedReadbackFailed *bool `json:"writeCommittedReadbackFailed,omitempty"`
 }
+
+// boolPtr is a shorthand for taking the address of a bool literal,
+// used by saveUIAgentMemory to fill the tri-state
+// WriteCommittedReadbackFailed field.
+func boolPtr(b bool) *bool { return &b }
 
 type UISharedFileDetail struct {
 	Path      string    `json:"path"`
@@ -143,11 +160,13 @@ func registerUIMemoryMutationHandlers(p memoryHandlerDeps) handler.Map {
 func getUIMemoryEntry(ctx context.Context, deps memoryHandlerDeps, req uiMemoryEntryGetParams) (UIMemoryEntryDetail, error) {
 	root, target, err := resolveUIMemoryTargetRoot(ctx, deps.Service, req.CWD, req.Target)
 	if err != nil {
-		return UIMemoryEntryDetail{}, err
+		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "durable_memory_resolve_root",
+			errDurableMemoryReadFailed, err, "target", req.Target)
 	}
 	entry, relPath, err := readUIMemoryEntryByPath(root, target, req.Path)
 	if err != nil {
-		return UIMemoryEntryDetail{}, err
+		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "durable_memory_read",
+			errDurableMemoryReadFailed, err, "target", target, "path", req.Path)
 	}
 	return toUIMemoryEntryDetail(target, root, relPath, entry), nil
 }
@@ -155,23 +174,27 @@ func getUIMemoryEntry(ctx context.Context, deps memoryHandlerDeps, req uiMemoryE
 func upsertUIMemoryEntry(ctx context.Context, deps memoryHandlerDeps, req uiMemoryEntryUpsertParams) (UIMemoryEntryDetail, error) {
 	root, target, err := resolveUIMemoryTargetRoot(ctx, deps.Service, req.CWD, req.Target)
 	if err != nil {
-		return UIMemoryEntryDetail{}, err
+		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "durable_memory_resolve_root",
+			errDurableMemorySaveFailed, err, "target", req.Target)
 	}
 	store, err := newDiskStore(root)
 	if err != nil {
-		return UIMemoryEntryDetail{}, err
+		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "durable_memory_open_store",
+			errDurableMemorySaveFailed, err, "target", target)
 	}
 	writeReq, err := buildUIWriteRequest(req.Name, req.Description, req.Type, req.Content)
 	if err != nil {
-		return UIMemoryEntryDetail{}, err
+		return UIMemoryEntryDetail{}, err // pure validation, no path
 	}
 	if err := applyUIMemoryUpsert(store, root, target, req.ExistingPath, writeReq); err != nil {
-		return UIMemoryEntryDetail{}, err
+		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "durable_memory_upsert",
+			errDurableMemorySaveFailed, err, "target", target, "name", writeReq.Name)
 	}
 	invalidateDurableMemorySections(deps.Sections)
 	entry, relPath, err := readUIMemoryEntryByName(root, writeReq.Name)
 	if err != nil {
-		return UIMemoryEntryDetail{}, err
+		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "durable_memory_read_back",
+			errDurableMemoryReadFailed, err, "target", target, "name", writeReq.Name)
 	}
 	return toUIMemoryEntryDetail(target, root, relPath, entry), nil
 }
@@ -186,10 +209,10 @@ func applyUIMemoryUpsert(store *diskStore, root, target, existingPath string, wr
 		return err
 	}
 	if existing.CanonicalName != CanonicalName(writeReq.Name) {
-		return errors.New("现有 durable memory 暂不支持改名；如需改名请删除后重建")
+		return publicValidationErr("现有 durable memory 暂不支持改名；如需改名请删除后重建")
 	}
 	if ParseMemoryType(string(existing.Type())) != writeReq.Type {
-		return errors.New("现有 durable memory 暂不支持改类型；如需改类型请删除后重建")
+		return publicValidationErr("现有 durable memory 暂不支持改类型；如需改类型请删除后重建")
 	}
 	_, err = store.UpdateStructured(writeReq, WriteOptions{})
 	return err
@@ -198,18 +221,22 @@ func applyUIMemoryUpsert(store *diskStore, root, target, existingPath string, wr
 func deleteUIMemoryEntry(ctx context.Context, deps memoryHandlerDeps, req uiMemoryEntryDeleteParams) error {
 	root, target, err := resolveUIMemoryTargetRoot(ctx, deps.Service, req.CWD, req.Target)
 	if err != nil {
-		return err
+		return redactIfPathBearing(deps.Logger, "durable_memory_resolve_root",
+			errDurableMemoryDeleteFailed, err, "target", req.Target)
 	}
 	entry, _, err := readUIMemoryEntryByPath(root, target, req.Path)
 	if err != nil {
-		return err
+		return redactIfPathBearing(deps.Logger, "durable_memory_read",
+			errDurableMemoryDeleteFailed, err, "target", target, "path", req.Path)
 	}
 	store, err := newDiskStore(root)
 	if err != nil {
-		return err
+		return redactIfPathBearing(deps.Logger, "durable_memory_open_store",
+			errDurableMemoryDeleteFailed, err, "target", target)
 	}
 	if err := store.Delete(entry.Frontmatter.Name, WriteOptions{}); err != nil {
-		return err
+		return redactIfPathBearing(deps.Logger, "durable_memory_delete",
+			errDurableMemoryDeleteFailed, err, "target", target, "name", entry.Frontmatter.Name)
 	}
 	invalidateDurableMemorySections(deps.Sections)
 	return nil
@@ -220,7 +247,7 @@ func getUIAgentMemory(ctx context.Context, deps memoryHandlerDeps, req uiAgentMe
 	if err != nil {
 		return UIAgentMemoryDetail{}, err
 	}
-	detail, err := readUIAgentMemory(manager, scope, req.AgentType)
+	detail, err := readUIAgentMemory(deps.Logger, manager, scope, req.AgentType)
 	if err != nil {
 		return UIAgentMemoryDetail{}, err
 	}
@@ -234,14 +261,18 @@ func deleteUIAgentMemory(ctx context.Context, deps memoryHandlerDeps, req uiAgen
 	}
 	agentType := strings.TrimSpace(req.AgentType)
 	if agentType == "" {
-		return errors.New("agentType is required")
+		return publicValidationErr("agentType is required")
 	}
 	entrypoint, err := manager.GetAgentMemoryEntrypoint(agentType, scope)
 	if err != nil {
 		return err
 	}
 	if err := os.Remove(entrypoint); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+		// os.Remove returns *os.PathError whose text embeds the
+		// absolute entrypoint path; redact before returning to RPC.
+		return redactRPCError(deps.Logger, "agent_memory_delete",
+			errAgentMemoryDeleteFailed, err,
+			"scope", string(scope), "agent_type", agentType)
 	}
 	// Best-effort: drop the now-empty agent-type directory so the scope scan
 	// no longer surfaces the agent as an existing (empty) entry. Ignore errors
@@ -260,20 +291,52 @@ func saveUIAgentMemory(ctx context.Context, deps memoryHandlerDeps, req uiAgentM
 	}
 	agentType := strings.TrimSpace(req.AgentType)
 	if agentType == "" {
-		return UIAgentMemoryDetail{}, errors.New("agentType is required")
+		return UIAgentMemoryDetail{}, publicValidationErr("agentType is required")
 	}
 	if err := manager.EnsureAgentMemoryDir(agentType, scope); err != nil {
-		return UIAgentMemoryDetail{}, err
+		// EnsureAgentMemoryDir wraps os.MkdirAll which produces
+		// *os.PathError with the agent-memory subtree path; redact.
+		return UIAgentMemoryDetail{}, redactRPCError(deps.Logger, "agent_memory_ensure_dir",
+			errAgentMemorySaveFailed, err,
+			"scope", string(scope), "agent_type", agentType)
 	}
 	entrypoint, err := manager.GetAgentMemoryEntrypoint(agentType, scope)
 	if err != nil {
 		return UIAgentMemoryDetail{}, err
 	}
 	if err := os.WriteFile(entrypoint, []byte(strings.ReplaceAll(req.Content, "\r\n", "\n")), 0o644); err != nil {
-		return UIAgentMemoryDetail{}, err
+		// os.WriteFile returns *os.PathError; redact entrypoint path.
+		return UIAgentMemoryDetail{}, redactRPCError(deps.Logger, "agent_memory_save",
+			errAgentMemorySaveFailed, err,
+			"scope", string(scope), "agent_type", agentType)
 	}
 	invalidateAgentMemorySections(deps.Sections)
-	return readUIAgentMemory(manager, scope, agentType)
+	// Phase 2.1.AB.4: the bytes have been written. If the read-back step
+	// fails (containment, broken symlink, IO race), the SAVE itself still
+	// succeeded — returning errAgentMemoryReadFailed here would mislead
+	// the UI into thinking the write didn't land. Synthesise a minimal
+	// detail from the request so the UI reflects what was just saved, and
+	// set WriteCommittedReadbackFailed so downstream consumers can tell
+	// the difference between "fresh from disk" and "echoed from request".
+	// The redacted readback failure is logged at Warn for operator visibility.
+	detail, err := readUIAgentMemory(deps.Logger, manager, scope, agentType)
+	if err != nil {
+		redactRPCError(deps.Logger, "agent_memory_save_readback",
+			errAgentMemoryReadFailed, err,
+			"scope", string(scope), "agent_type", agentType)
+		return UIAgentMemoryDetail{
+			Scope:                        string(scope),
+			AgentType:                    agentType,
+			Path:                         filepath.ToSlash(filepath.Base(filepath.Dir(entrypoint)) + "/" + filepath.Base(entrypoint)),
+			Content:                      strings.ReplaceAll(req.Content, "\r\n", "\n"),
+			UpdatedAt:                    time.Now().UTC(),
+			WriteCommittedReadbackFailed: boolPtr(true),
+		}, nil
+	}
+	// Phase 2.1.AB.6 P1 #3: explicit false on save success path so the
+	// tri-state stays distinguishable from nil (read-only paths).
+	detail.WriteCommittedReadbackFailed = boolPtr(false)
+	return detail, nil
 }
 
 func getUISharedFile(ctx context.Context, deps memoryHandlerDeps, req uiSharedFileGetParams) (UISharedFileDetail, error) {
@@ -282,7 +345,7 @@ func getUISharedFile(ctx context.Context, deps memoryHandlerDeps, req uiSharedFi
 	}
 	path := strings.TrimSpace(req.Path)
 	if path == "" {
-		return UISharedFileDetail{}, errors.New("path is required")
+		return UISharedFileDetail{}, publicValidationErr("path is required")
 	}
 	item, err := deps.SharedFiles.Get(ctx, path)
 	if err != nil {
@@ -302,7 +365,7 @@ func deleteUISharedFile(ctx context.Context, deps memoryHandlerDeps, req uiShare
 	}
 	path := strings.TrimSpace(req.Path)
 	if path == "" {
-		return false, errors.New("path is required")
+		return false, publicValidationErr("path is required")
 	}
 	count, err := deps.SharedFilesDeleter.Delete(ctx, path)
 	if err != nil {
@@ -335,7 +398,7 @@ func promoteSharedFileToMemory(ctx context.Context, deps memoryHandlerDeps, req 
 
 func resolveUIMemoryTargetRoot(ctx context.Context, svc Service, cwd, rawTarget string) (string, string, error) {
 	if svc == nil {
-		return "", "", errors.New("memory service is not configured")
+		return "", "", publicValidationErr("memory service is not configured")
 	}
 	cfg := svc.Config()
 	projectRoot := strings.TrimSpace(cwd)
@@ -355,7 +418,7 @@ func resolveUIMemoryTargetRoot(ctx context.Context, svc Service, cwd, rawTarget 
 		root, err := configuredTeamMemRoot(&cfg, buildCtx)
 		return root, target, err
 	default:
-		return "", "", fmt.Errorf("unknown memory target %q", rawTarget)
+		return "", "", publicValidationErr(fmt.Sprintf("unknown memory target %q", rawTarget))
 	}
 }
 
@@ -371,7 +434,7 @@ func normalizeUIMemoryTarget(raw string) string {
 func buildUIWriteRequest(name, description, rawType, content string) (MemoryWriteRequest, error) {
 	memoryType := ParseMemoryType(rawType)
 	if !memoryType.IsKnown() {
-		return MemoryWriteRequest{}, errors.New("type must be one of user|feedback|project|reference")
+		return MemoryWriteRequest{}, publicValidationErr("type must be one of user|feedback|project|reference")
 	}
 	req := MemoryWriteRequest{
 		Name:        strings.TrimSpace(name),
@@ -380,13 +443,13 @@ func buildUIWriteRequest(name, description, rawType, content string) (MemoryWrit
 		Body:        strings.TrimSpace(strings.ReplaceAll(content, "\r\n", "\n")),
 	}
 	if strings.TrimSpace(req.Name) == "" {
-		return MemoryWriteRequest{}, errors.New("name is required")
+		return MemoryWriteRequest{}, publicValidationErr("name is required")
 	}
 	if strings.TrimSpace(req.Description) == "" {
-		return MemoryWriteRequest{}, errors.New("description is required")
+		return MemoryWriteRequest{}, publicValidationErr("description is required")
 	}
 	if strings.TrimSpace(req.Body) == "" {
-		return MemoryWriteRequest{}, errors.New("content is required")
+		return MemoryWriteRequest{}, publicValidationErr("content is required")
 	}
 	return req, nil
 }
@@ -394,10 +457,10 @@ func buildUIWriteRequest(name, description, rawType, content string) (MemoryWrit
 func readUIMemoryEntryByPath(root, target, relPath string) (MemoryEntry, string, error) {
 	relPath = strings.TrimSpace(relPath)
 	if relPath == "" {
-		return MemoryEntry{}, "", errors.New("path is required")
+		return MemoryEntry{}, "", publicValidationErr("path is required")
 	}
 	if target == "private" && strings.HasPrefix(filepath.ToSlash(relPath), "team/") {
-		return MemoryEntry{}, "", errors.New("private durable memory cannot access team/ paths")
+		return MemoryEntry{}, "", publicValidationErr("private durable memory cannot access team/ paths")
 	}
 	validated, err := ValidateMemoryReadPath(root, relPath)
 	if err != nil {
@@ -457,25 +520,48 @@ func normalizeUIAgentScope(raw string) MemoryScope {
 	}
 }
 
-func readUIAgentMemory(manager *AgentMemoryManager, scope MemoryScope, agentType string) (UIAgentMemoryDetail, error) {
+func readUIAgentMemory(logger *slog.Logger, manager *AgentMemoryManager, scope MemoryScope, agentType string) (UIAgentMemoryDetail, error) {
 	agentType = strings.TrimSpace(agentType)
 	if agentType == "" {
-		return UIAgentMemoryDetail{}, errors.New("agentType is required")
+		return UIAgentMemoryDetail{}, publicValidationErr("agentType is required")
 	}
 	entrypoint, err := manager.GetAgentMemoryEntrypoint(agentType, scope)
 	if err != nil {
 		return UIAgentMemoryDetail{}, err
 	}
-	raw, err := os.ReadFile(entrypoint)
+	scopeRoot, err := manager.GetAgentMemoryScopeRoot(scope)
 	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			return UIAgentMemoryDetail{}, err
-		}
-		raw = nil
+		return UIAgentMemoryDetail{}, err
 	}
+	// SafeReadEntrypoint enforces symlink-resolved containment under
+	// scopeRoot before reading. Phase 2.1.AB.2: route through the
+	// shared isUserVisibleNotFound predicate so the boundary rule lives
+	// in one place (ui_rpc.go; AB.2 originally placed it in ui_error_policy.go,
+	// AB.5 #7 split + folded the predicate back into ui_rpc.go), and redact non-NotFound errors
+	// before they cross the JSON-RPC boundary so OS error strings (which
+	// embed absolute paths under macOS / Linux) cannot leak the
+	// agent-memory layout into the UI's error.message.
+	raw, info, err := memshared.SafeReadEntrypoint(scopeRoot, entrypoint)
 	var updatedAt time.Time
-	if info, statErr := os.Stat(entrypoint); statErr == nil {
+	switch {
+	case err == nil:
 		updatedAt = info.ModTime()
+	case isUserVisibleNotFound(err):
+		raw = nil
+	case isContainmentRejection(err):
+		// Containment failure is surfaced to the user as "empty" (same
+		// shape as NotFound so the editor view stays usable), but it is
+		// an attack signal — a symlink resolved outside the agent-memory
+		// scope. Log at Warn with the redacted cause so operators see it
+		// in observability before the public response swallows it.
+		redactRPCError(logger, "agent_memory_read_containment",
+			errAgentMemoryReadFailed, err,
+			"scope", string(scope), "agent_type", agentType)
+		raw = nil
+	default:
+		return UIAgentMemoryDetail{}, redactRPCError(logger, "agent_memory_read",
+			errAgentMemoryReadFailed, err,
+			"scope", string(scope), "agent_type", agentType)
 	}
 	return UIAgentMemoryDetail{
 		Scope:     string(scope),
@@ -494,6 +580,7 @@ func invalidateDurableMemorySections(invalidator contract.SectionInvalidator) {
 		contract.InvalidateMemoryWrite,
 		contract.DynamicSectionMemory,
 		contract.DynamicSectionMemoryContext,
+		contract.DynamicSectionMemoryEntrypoint,
 	)
 }
 

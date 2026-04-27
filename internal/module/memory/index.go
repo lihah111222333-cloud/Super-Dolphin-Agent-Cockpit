@@ -1,16 +1,16 @@
 package memory
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+
+	parse "github.com/anthropic-ai/super-agent-v3/internal/module/memory/parse"
 )
 
 const (
@@ -26,7 +26,7 @@ type MemoryIndexEntry struct {
 }
 
 func ParseMemoryIndex(content string) ([]MemoryIndexEntry, error) {
-	content = stripUTF8BOM(content)
+	content = parse.StripUTF8BOM(content)
 	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
 	entries := make([]MemoryIndexEntry, 0, len(lines))
 	for _, line := range lines {
@@ -43,10 +43,6 @@ func ParseMemoryIndex(content string) ([]MemoryIndexEntry, error) {
 	return entries, nil
 }
 
-func stripUTF8BOM(content string) string {
-	return strings.TrimPrefix(content, "\uFEFF")
-}
-
 func ReadMemoryIndex(path string) ([]MemoryIndexEntry, error) {
 	validatedPath, err := ValidateMemoryReadPath(filepath.Dir(path), path)
 	if err != nil {
@@ -59,53 +55,8 @@ func ReadMemoryIndex(path string) ([]MemoryIndexEntry, error) {
 	return ParseMemoryIndex(string(content))
 }
 
-func readMemoryEntryHeader(path string) (MemoryEntry, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return MemoryEntry{}, err
-	}
-	defer func() { _ = file.Close() }()
-
-	header, err := readFrontmatterHeader(file)
-	if err != nil {
-		return MemoryEntry{}, err
-	}
-	info, err := file.Stat()
-	if err != nil {
-		return MemoryEntry{}, err
-	}
-	entry := parseMemoryHeader(path, header)
-	entry.FilePath = path
-	entry.UpdatedAt = info.ModTime()
-	entry.CanonicalName = CanonicalName(entry.Frontmatter.Name)
-	return normalizeLoadedEntry(entry), nil
-}
-
-func readFrontmatterHeader(r io.Reader) (string, error) {
-	scanner := bufio.NewScanner(io.LimitReader(r, manifestHeaderScanLimit))
-	scanner.Buffer(make([]byte, 0, 4096), manifestHeaderScanLimit)
-	var builder strings.Builder
-	openMarkers := 0
-	for scanner.Scan() {
-		line := scanner.Text()
-		builder.WriteString(line)
-		builder.WriteByte('\n')
-		if strings.TrimSpace(line) == "---" {
-			openMarkers++
-			if openMarkers >= 2 {
-				break
-			}
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return "", err
-	}
-	return builder.String(), nil
-}
-
 func parseMemoryHeader(path, header string) MemoryEntry {
-	content := stripUTF8BOM(header)
-	frontmatter, _, ok := splitMemoryFrontmatter(content)
+	frontmatter, _, ok := parse.SplitFrontmatter(header)
 	if !ok {
 		return MemoryEntry{FilePath: path}
 	}
@@ -293,18 +244,6 @@ func parseIndexLine(line string) (MemoryIndexEntry, error) {
 	entry.Hook = hook
 	entry.CanonicalName = CanonicalName(entry.Title)
 	return entry, nil
-}
-
-func splitMemoryFrontmatter(content string) (string, string, bool) {
-	content = strings.ReplaceAll(content, "\r\n", "\n")
-	if !strings.HasPrefix(content, "---\n") {
-		return "", content, false
-	}
-	frontmatter, tail, ok := strings.Cut(content[4:], "\n---")
-	if !ok {
-		return "", content, false
-	}
-	return frontmatter, strings.TrimPrefix(tail, "\n"), true
 }
 
 func parseMemoryFrontmatter(frontmatter string) MemoryFrontmatter {

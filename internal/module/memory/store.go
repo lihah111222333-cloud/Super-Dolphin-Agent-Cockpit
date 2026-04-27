@@ -46,6 +46,12 @@ type memoryStructuredStore interface {
 	Read(name string) (MemoryEntry, error)
 	CreateStructured(req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error)
 	UpdateStructured(req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error)
+	// UpsertStructured writes the entry atomically inside a single disk
+	// store lock acquisition (Phase 自有.1a). Replaces the legacy
+	// Create-then-Update pattern in upsertStructuredMemory which had a
+	// two-phase locking window where another writer could race in between
+	// the failed Create and the follow-up Update, producing a lost update.
+	UpsertStructured(req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error)
 	Delete(name string, opts ...WriteOptions) error
 }
 
@@ -115,6 +121,40 @@ func (s *diskStore) Update(entry MemoryEntry, opts ...WriteOptions) (MemoryEntry
 
 func (s *diskStore) UpdateStructured(req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error) {
 	return s.Update(buildMemoryEntryFromWriteRequest(req), opts...)
+}
+
+// UpsertStructured writes the entry atomically inside a single
+// withDiskStoreLock acquisition: prepare → acquire lock →
+// writePreparedMemoryFile → updateIndexAfterMutation → release lock.
+// Skips validateMutationMode entirely — upsert always writes regardless
+// of pre-existence. Phase 自有.1a: closes the Create-then-Update RMW
+// window in upsertStructuredMemory where two independent lock
+// acquisitions allowed a racing writer to flip Create-failed-with-
+// AlreadyExists into an Update that silently overwrote a concurrently-
+// written entry from another goroutine / process.
+func (s *diskStore) UpsertStructured(req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error) {
+	return s.upsertWrite(buildMemoryEntryFromWriteRequest(req), resolveWriteOptions(opts))
+}
+
+func (s *diskStore) upsertWrite(entry MemoryEntry, options WriteOptions) (MemoryEntry, error) {
+	root, err := s.rootOrError()
+	if err != nil {
+		return MemoryEntry{}, err
+	}
+	prepared, err := prepareWritableEntry(entry, false)
+	if err != nil {
+		return MemoryEntry{}, err
+	}
+	var written MemoryEntry
+	err = withDiskStoreLock(root, func() error {
+		var werr error
+		written, werr = writePreparedMemoryFile(root, prepared, s.guard)
+		if werr != nil {
+			return werr
+		}
+		return updateIndexAfterMutation(root, options)
+	})
+	return written, err
 }
 
 func (s *diskStore) Delete(name string, opts ...WriteOptions) error {

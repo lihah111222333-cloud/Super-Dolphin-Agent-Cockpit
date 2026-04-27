@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -127,6 +128,42 @@ func TestCheckRedirectEnforcesHTTPSAgain(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "https") {
 		t.Fatalf("error should mention scheme rejection, got %v", err)
+	}
+}
+
+func TestRedirectTargetRejectsLoopbackBeforeDial(t *testing.T) {
+	t.Parallel()
+	u, err := url.Parse("https://127.0.0.1/hook")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = validateRedirectTarget(context.Background(), u, false)
+	if !errors.Is(err, ErrDisallowedAddress) {
+		t.Fatalf("want ErrDisallowedAddress, got %v", err)
+	}
+}
+
+func TestRedirectTargetRejectsIPv6ZoneID(t *testing.T) {
+	t.Parallel()
+	u, err := url.Parse("https://[fe80::1%25lo0]/hook")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = validateRedirectTarget(context.Background(), u, true)
+	if !errors.Is(err, ErrIPv6ZoneIDForbidden) {
+		t.Fatalf("want ErrIPv6ZoneIDForbidden, got %v", err)
+	}
+}
+
+func TestWebhookTransportDisablesEnvProxy(t *testing.T) {
+	t.Parallel()
+	c := NewWebhookClient(WebhookClientConfig{})
+	tr, ok := c.http.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("transport type = %T", c.http.Transport)
+	}
+	if tr.Proxy != nil {
+		t.Fatal("webhook transport must disable env proxy by keeping Proxy nil")
 	}
 }
 

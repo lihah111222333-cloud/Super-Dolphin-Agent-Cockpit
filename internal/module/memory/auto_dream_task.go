@@ -11,6 +11,7 @@ import (
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -56,16 +57,24 @@ func (h *MemoryLifecycleHooks) KillDreamTask() error {
 	return nil
 }
 
-func (h *MemoryLifecycleHooks) startDreamTask(threadID string) (context.Context, bool) {
+func (h *MemoryLifecycleHooks) startDreamTask(parent context.Context, threadID string) (context.Context, bool) {
 	if h == nil {
 		return nil, false
+	}
+	if parent == nil {
+		parent = context.Background()
+	}
+	select {
+	case <-parent.Done():
+		return nil, false
+	default:
 	}
 	h.dreamMu.Lock()
 	defer h.dreamMu.Unlock()
 	if h.dreamTask != nil {
 		return nil, false
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(parent)
 	h.dreamTask = &dreamTaskState{
 		threadID: threadID,
 		phase:    dreamTaskPhaseStarting,
@@ -176,7 +185,7 @@ func (h *MemoryLifecycleHooks) maybeScheduleAutoDream(ctx context.Context, threa
 	if err != nil || !ok {
 		return false, err
 	}
-	taskCtx, started := h.startDreamTask(threadID)
+	taskCtx, started := h.startDreamTask(ctx, threadID)
 	if !started {
 		return false, nil
 	}
@@ -273,9 +282,13 @@ func (h *MemoryLifecycleHooks) resolveDreamExtractFunc() (ExtractFunc, error) {
 }
 
 func (h *MemoryLifecycleHooks) launchAutoDreamTask(taskCtx context.Context, threadID string, plan autoDreamExecutionPlan) {
-	go func() {
+	// SafeGo wraps the task with panic recovery + structured logging so a
+	// crash in consolidator does not bring down the process. Mirrors the
+	// pattern in team/team_sync_watcher.go:76. Without this, a panic in
+	// the background dream task would propagate to runtime and abort.
+	runtimesafe.SafeGo(taskCtx, h.logger, "memory.autoDream.task", func(ctx context.Context) {
 		defer h.finishDreamTask()
-		err := h.consolidator.consolidateWithOptions(taskCtx, plan.root, plan.extractFn, consolidationRunOptions{
+		err := h.consolidator.consolidateWithOptions(ctx, plan.root, plan.extractFn, consolidationRunOptions{
 			cfg:            h.cfg,
 			now:            h.now,
 			runtimeContext: buildConsolidationRuntimeContext("background auto-dream stop hook", plan.sessionCount, plan.lastSuccess, threadID),
@@ -283,10 +296,16 @@ func (h *MemoryLifecycleHooks) launchAutoDreamTask(taskCtx context.Context, thre
 				h.setDreamTaskPhase(dreamTaskPhaseUpdating)
 			},
 		})
-		if err != nil && h.logger != nil && !errors.Is(err, context.Canceled) {
-			h.logger.Warn("memory auto-dream execution failed", "thread_id", threadID, "error", err)
+		if err != nil {
+			if h.logger != nil && !errors.Is(err, context.Canceled) {
+				h.logger.Warn("memory auto-dream execution failed", "thread_id", threadID, "error", err)
+			}
+			return
 		}
-	}()
+		// Consolidation rewrote MEMORY.md; flush the prompt cache so the
+		// next AssembleStart picks up the consolidated index.
+		h.invalidateMemorySections()
+	})
 }
 
 func (h *MemoryLifecycleHooks) isGateOpen(meta threadRuntimeMetadata) bool {

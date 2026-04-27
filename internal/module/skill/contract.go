@@ -21,6 +21,8 @@ var (
 	ErrCandidateNotPending         = errors.New("skill candidate is not pending review")
 	ErrCandidateMissingFingerprint = errors.New("project-scope candidate requires repo fingerprint")
 	ErrCandidateApprovedByRequired = errors.New("approved_by is required")
+	ErrCallerFingerprintRequired   = errors.New("caller repo fingerprint is required")
+	ErrRepoFingerprintMismatch     = errors.New("candidate repo fingerprint does not match caller")
 )
 
 // WithCWD scopes a skill request to a specific cwd. Empty cwd is a no-op so
@@ -60,9 +62,16 @@ func RequireCWD(ctx context.Context) (string, error) {
 // required (sentinel ErrCandidateApprovedByRequired); Reason is free-form
 // reviewer text persisted alongside the approval.
 type ApproveCandidateParams struct {
-	CandidateID int64
-	ApprovedBy  string
-	Reason      string
+	CandidateID           int64
+	ApprovedBy            string
+	Reason                string
+	CallerRepoFingerprint string
+}
+
+type RejectCandidateParams struct {
+	CandidateID           int64
+	Reason                string
+	CallerRepoFingerprint string
 }
 
 // ApproveResult is the return shape for Service.ApproveCandidate. OK
@@ -88,6 +97,19 @@ type Candidate struct {
 	ApprovedAt      *time.Time `json:"approved_at,omitempty"`
 	Reason          string     `json:"reason,omitempty"`
 	RedactedSample  string     `json:"redacted_sample,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+}
+
+type CandidateListItem struct {
+	ID              int64      `json:"id"`
+	Scope           string     `json:"scope"`
+	Slug            string     `json:"slug"`
+	ContentHash     string     `json:"content_hash"`
+	RepoFingerprint string     `json:"repo_fingerprint"`
+	Status          string     `json:"status"`
+	ApprovedBy      string     `json:"approved_by,omitempty"`
+	ApprovedAt      *time.Time `json:"approved_at,omitempty"`
+	Reason          string     `json:"reason,omitempty"`
 	CreatedAt       time.Time  `json:"created_at"`
 }
 
@@ -126,16 +148,17 @@ type Service interface {
 	ApproveCandidate(ctx context.Context, p ApproveCandidateParams) (ApproveResult, error)
 	// RejectCandidate (P0b Step 5): mark a pending candidate as rejected
 	// with reviewer-supplied reason. No on-disk artifact is created.
-	RejectCandidate(ctx context.Context, id int64, reason string) error
+	RejectCandidate(ctx context.Context, p RejectCandidateParams) error
 	// ListPendingCandidates (P0b Step 5): paginate candidates currently
 	// awaiting review. Result excludes SkillMD (Candidate is a
 	// projection).
-	ListPendingCandidates(ctx context.Context, limit, offset int32) ([]Candidate, error)
+	ListPendingCandidates(ctx context.Context, callerRepoFingerprint string, limit, offset int32) ([]CandidateListItem, error)
 	// LookupApproval (P0b Step 5): probe the approval cache by the
 	// (scope, slug, content_hash, repo_fingerprint) tuple. Returns
 	// (nil, nil) on miss; literal repo_fingerprint matching keeps
 	// approvals isolated per project.
-	LookupApproval(ctx context.Context, scope, slug, contentHash, repoFingerprint string) (*Candidate, error)
+	LookupApproval(ctx context.Context, scope, slug, contentHash, repoFingerprint string) (*CandidateListItem, error)
+	GetCandidateByID(ctx context.Context, id int64) (*Candidate, error)
 	SkillRevision() uint64
 	TrustRevision() uint64
 }
