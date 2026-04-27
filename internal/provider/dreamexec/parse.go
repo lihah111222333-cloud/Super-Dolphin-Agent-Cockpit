@@ -215,3 +215,63 @@ func ExtractCodexJSONL(raw []byte) (string, TokenUsage, error) {
 	}
 	return lastAgentText, usage, nil
 }
+
+// extractStructuredCLIResult 探测 raw stdout 是否为已知 CLI 结构化输出（claude envelope / codex JSONL），
+// 是则调用对应 Extract* 返回 result text + usage；否则返回 structured=false 让调用方走 fallback。
+//
+// 返回语义：
+//   - structured=true + err=nil: 成功提取，调用方以 result 为 text 走 ExtractFirstJSONObject
+//   - structured=true + err!=nil: 识别出了格式但解析失败（如 envelope is_error=true），错误透传走 retry
+//   - structured=false: 未识别为任一 CLI 格式，调用方 fallback 到原始 raw text 路径
+func extractStructuredCLIResult(raw []byte) (result string, usage TokenUsage, structured bool, err error) {
+	if looksLikeClaudeEnvelope(raw) {
+		result, usage, err := ExtractClaudeEnvelope(raw)
+		return result, usage, true, err
+	}
+	if looksLikeCodexJSONL(raw) {
+		result, usage, err := ExtractCodexJSONL(raw)
+		return result, usage, true, err
+	}
+	return "", TokenUsage{}, false, nil
+}
+
+// looksLikeClaudeEnvelope 按 envelope 探针字段判别：root 位是单个 JSON 对象，含 type/result/is_error 之一。
+func looksLikeClaudeEnvelope(raw []byte) bool {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return false
+	}
+	var probe struct {
+		Type    string           `json:"type"`
+		IsError *bool            `json:"is_error"`
+		Result  *json.RawMessage `json:"result"`
+		Usage   *json.RawMessage `json:"usage"`
+	}
+	if err := json.Unmarshal(trimmed, &probe); err != nil {
+		return false
+	}
+	return probe.Result != nil || probe.IsError != nil || probe.Type == "result" || probe.Type == "error"
+}
+
+// looksLikeCodexJSONL 按 JSONL stream 探针：有至少一行 JSON 含 codex 特定 type 枚举。
+func looksLikeCodexJSONL(raw []byte) bool {
+	scanner := bufio.NewScanner(bytes.NewReader(raw))
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 || line[0] != '{' {
+			continue
+		}
+		var probe struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(line, &probe); err != nil {
+			continue
+		}
+		switch probe.Type {
+		case "thread.started", "turn.started", "turn.completed", "item.completed":
+			return true
+		}
+	}
+	return false
+}

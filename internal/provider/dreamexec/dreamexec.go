@@ -135,11 +135,20 @@ type RunOptions struct {
 	Prompt         string
 	MaxStdoutBytes int64 // 必须 > 0
 	MaxRetries     int   // fence/JSON 解析失败时 retry 次数（建议 0 或 1）
+
+	// OnUsage 在 Run 检测到结构化 CLI 输出（claude envelope / codex JSONL）并提取到非零
+	// usage 时被调用。Step 2 入口：wrapper 传入 dreammetrics.AddTokens 路由。
+	// nil 或收到零值 usage 时不调用（守门 fallback 路径不污染 counter）。
+	OnUsage func(TokenUsage)
 }
 
-// Run 执行 commander.Run，按 LLM 输出常见格式做 fence strip + JSON 提取，
-// 解析失败时 retry MaxRetries 次。子进程错误（exit code / ctx 取消）直接透传。
-// 返回值是 sanitized JSON 字符串（保证 ExtractFirstJSONObject 通过）。
+// Run 执行 commander.Run，推断子进程输出格式后提取 JSON，解析失败时 retry MaxRetries 次。
+// 调度顺序：
+//  1. extractStructuredCLIResult 探测 raw 是否为 claude envelope / codex JSONL。是且解析成功
+//     则拿到 result text + usage；usage 非零且 OnUsage 非 nil 时调用 callback。
+//  2. 结构化路径上用 result text 走 StripJSONFences + ExtractFirstJSONObject。
+//  3. fallback（未识别为任一 CLI 格式）走原始路径：raw text 直接走 fence strip + JSON 提取。
+// 子进程错误（exit code / ctx 取消）透传 dispatcher failover，不 retry。
 func Run(ctx context.Context, c Commander, opts RunOptions) (string, error) {
 	if c == nil {
 		return "", errors.New("dreamexec: commander is nil")
@@ -165,6 +174,23 @@ func Run(ctx context.Context, c Commander, opts RunOptions) (string, error) {
 			// 子进程错误：透传，不 retry（dispatcher failover 接管）
 			return "", err
 		}
+		resultText, usage, structured, structuredErr := extractStructuredCLIResult(raw)
+		if usage != (TokenUsage{}) && opts.OnUsage != nil {
+			opts.OnUsage(usage)
+		}
+		if structuredErr != nil {
+			lastParseErr = structuredErr
+			continue
+		}
+		if structured {
+			obj, parseErr := ExtractFirstJSONObject(StripJSONFences(resultText))
+			if parseErr == nil {
+				return obj, nil
+			}
+			lastParseErr = parseErr
+			continue
+		}
+
 		stripped := StripJSONFences(string(raw))
 		obj, parseErr := ExtractFirstJSONObject(stripped)
 		if parseErr == nil {
