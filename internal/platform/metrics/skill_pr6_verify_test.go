@@ -24,6 +24,7 @@ func TestSkillProgressiveDisclosurePR6VerifyScriptArtifact(t *testing.T) {
 		"skill-progressive-disclosure-rollout-append.sh",
 		"skill-progressive-disclosure-rollout-status.sh",
 		"skill-progressive-disclosure-rollout-daily.sh",
+		"skill-progressive-disclosure-production-smoke-evidence-generate.sh",
 		"skill-progressive-disclosure-rollout-gate.sh",
 		"skill-progressive-disclosure-phase3-preflight.sh",
 		"skill-progressive-disclosure-phase3-evidence-bundle.sh",
@@ -38,7 +39,7 @@ func TestSkillProgressiveDisclosurePR6VerifyScriptArtifact(t *testing.T) {
 		"go test ./internal/ui/wails",
 		"git diff --check",
 		"P25-HIGH-02o PR-6 verification passed.",
-		"report / append / status / daily / gate",
+		"report / append / status / daily / production-evidence / gate",
 		"does not enable ENABLE_SKILL_PROGRESSIVE_DISCLOSURE",
 	}
 	for _, token := range required {
