@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -66,21 +65,10 @@ func (e dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string,
 		MaxRetries:     dreamMaxRetries,
 	})
 	if err != nil {
-		if isBinaryNotFound(err) {
-			return "", fmt.Errorf("%w: claude binary %q not found", contract.ErrDreamExecutorNotConfigured, e.binary)
+		if errors.Is(err, dreamexec.ErrBinaryNotAvailable) {
+			return "", fmt.Errorf("%w: claude binary %q not available", contract.ErrDreamExecutorNotConfigured, e.binary)
 		}
 		return "", err
 	}
 	return raw, nil
-}
-
-// isBinaryNotFound 判别错误是否源于 binary 不存在，映射到 ErrDreamExecutorNotConfigured
-// 让 dispatcher 指劣 failover 试下一个 provider。
-func isBinaryNotFound(err error) bool {
-	if errors.Is(err, exec.ErrNotFound) {
-		return true
-	}
-	// dreamexec.realCommander 用 fmt.Errorf %w 包裹，errors.Is 应能 unwrap。
-	// 兑底检查错误字串决 PATH not found 场景（exec.LookPath 未走到这里）。
-	return strings.Contains(err.Error(), "executable file not found")
 }
