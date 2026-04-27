@@ -24,7 +24,7 @@
 > codexapp provider 入口会把该 marker 转为 Summary，因此 codexapp 普通 selected skill /
 > name-only hydrate 路径已能得到 summary + `skill_expand_body` pointer。
 > 但这仍不是 harness 级默认 progressive-disclosure 完成：显式 Full 仍 eager，
-> claudecli 仍通过 `SkillMode.Effective()` 回到 Full，且缺模型视角 E2E / 可观测性闭环。
+> claudecli 默认仍通过 `SkillMode.Effective()` 回到 Full；真实 Claude CLI 已认证 E2E、默认 discovery 放量观测与 Phase 3 policy 仍未闭环。
 
 ### 0.3 进度标记
 
@@ -45,7 +45,7 @@
 
 当前最短业务闭环不是继续扩新架构，而是把已有 `skill.Service`、`ApprovalManager`、
 `toolbridge`、`codexapp DynamicTools` 与 prompt/turn 设施编排成可验收链路。推荐按下表
-顺序派单，planned test names / 验收矩阵见 §5.5；前置 PR 未完成前，不建议把
+顺序派单，planned test names / 验收矩阵见 §5.6；前置 PR 未完成前，不建议把
 `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE` 默认打开。
 
 > 2026-04-27 PR-4/PR-5 更新：selected metadata / redaction 决策、resume / recovery skill tools
@@ -164,10 +164,10 @@
 | `internal/provider/codexapp/session_turn.go` | 已改造 | `buildTurnStartParams` / `buildTurnSteerParams` 入口调 override |
 
 为什么需要：单纯全局切 Summary 曾会让 claudecli 项目级 skill body 在 Phase 2 前完全消失。
-当前 claudecli same-binary skill MCP child 已有最小实现，但真实 Claude CLI E2E、stdio lifecycle、provider-aware default policy 与放量观测尚未闭环；因此本阶段仍只在 codexapp 入口保留临时 override，
+当前 claudecli same-binary skill MCP child 已有最小实现，内存 stdio / 真实 agent-terminal 二进制 smoke / lifecycle / latency 均已覆盖；但真实 Claude CLI 已认证 E2E、provider-aware default policy 与放量观测尚未闭环。因此本阶段仍只在 codexapp 入口保留临时 override，
 并且 **只覆盖 `Mode=Unspecified`**；显式 Full / Summary / None 仍保留调用方意图。当前普通 selected skill / name-only hydrate 路径已不再提前物化 Full，因此会以 Unspecified marker 进入 codexapp 并转 Summary。claudecli 在 Phase 3 前仍通过 `SkillMode.Effective()` 保持 Full/eager 兼容，同时额外具备 Phase 2 skill MCP tool 链路供验证。
 
-**预期删除时机**：Phase 2 / provider-aware default policy / 模型视角 E2E 全部闭环后，
+**预期删除时机**：真实 Claude CLI 已认证 E2E / provider-aware default policy / rollout observability 全部闭环后，
 PR-B 删除 override 文件和 caller，再校验 Go 源码中零命中。代码 agent 应使用 `lsp_grep(text_search)` 检索 `overrideSkillsToSummary`；人类本地复核可用等价 shell 检索。
 
 ### 2.4 Phase 1 关键 bug 修复：agentId 注入
@@ -501,7 +501,58 @@ Phase 3 硬性 red gates（任一不满足不得正式化 Summary default policy
    - 默认放量前还需补 exporter / alerting / rollout observation：至少能从外部系统观察
      host tool success/error、cwd_missing、approval_required、enrich failure 与 artifact approval/cache 信号。
 
-### 5.5 Planned test names / 验收矩阵（补充）
+### 5.5 PR-6 执行 runbook：默认 discovery / rollout observability
+
+> 目标：把“默认 discovery / observability”从一句 backlog 拆成可派单执行项。PR-6 仍**不**直接打开
+> `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE` 默认值；它只补齐默认切换前必须有的外部可观测、告警、放量和回滚证据。
+
+#### 5.5.1 范围边界
+
+| 类别 | 内容 |
+|---|---|
+| In scope | exporter / snapshot API、error-rate 告警规则、rollout observation 记录模板、默认 discovery 灰度开关 smoke、catalog redaction 回归保持绿 |
+| Out of scope | 删除 `overrideSkillsToSummary`、修改 `SkillMode.Effective()`、默认打开 `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE`、改变 claudecli eager Full 基线 |
+| 进入条件 | PR-1~PR-5 回归绿；host-direct in-process counters 与 INFO/WARN 日志已存在；真实 Claude CLI E2E 若未认证，只能标 red gate 未关闭 |
+| 退出条件 | 外部系统能观察 host skill tool success/error/cwd_missing/approval_required/enrich_failure；有可执行 rollback trigger；30 天观察起点可登记 |
+
+#### 5.5.2 推荐执行顺序
+
+1. **P25-HIGH-02a：导出当前 counters**
+   - 输入：`pkg/skillmetrics.Snapshot()` 中的 `HostToolCallsTotal{outcome}`、`EnrichFailuresTotal`、approval/cache 相关 counters（若仍缺则先补同包 atomic counter）。
+   - 输出：Prometheus / OTel / dashboard snapshot 三选一；必须能按 `outcome=ok|cwd_missing|approval_required|error` 分组。
+   - 验收：新增 `TestSkillMetricsExporterSnapshotIncludesHostToolOutcomes` 或等价测试，证明外部读到的数值与 `pkg/skillmetrics` snapshot 一致。
+2. **P25-HIGH-02b：告警规则与降级触发**
+   - error-rate：`host_tool_calls_total{outcome!="ok"} / host_tool_calls_total` > 5% 持续 5min。
+   - cwd_missing：任一 5min 窗口非零需要 WARN 或 ticket，因为它通常表示 agentId/cwd binding 漂移。
+   - approval_required：持续堆积且无 approved/denied/timeout 结论时报警，避免 UI approval 链断开后模型反复调用。
+   - enrich_failure：非零即报警或至少 WARN，因为它代表 tool call params 协议漂移。
+3. **P25-HIGH-02c：默认 discovery smoke**
+   - `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=false`：默认不注册全量 catalog，只保留 selected/name-only path。
+   - `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=true`：`SkillCatalogProvider` 渲染 Core / Native / Manual-only / Untrusted 分组；untrusted metadata redaction 回归必须保持绿。
+   - 验收：`TestSkillProgressiveDisclosure_DefaultDisabled`、`TestSkillProgressiveDisclosure_EnableFlagRendersCatalog`、`TestSkillCatalogProvider_GroupsNativeTrustedRedacted` 或等价测试。
+4. **P25-HIGH-02d：rollout observation 记录模板**
+   - 记录字段：日期、版本/commit、开关状态、总 calls、ok/error/cwd_missing/approval_required、enrich_failure、人工 smoke 结论、回滚演练结果。
+   - 观察窗口：默认策略切换前至少 30 天；若无真实流量，必须标记为“无样本”，不能把 0 error 当 99% 成功率。
+
+#### 5.5.3 PR-6 必过命令
+
+```bash
+go test ./pkg/skillmetrics -count=1
+go test ./internal/platform/toolbridge -run 'Test.*(Observability|Metrics|ListToolsForCodex|CallHostTool)' -count=1
+go test ./internal/module/prompt -run 'Test(SkillProgressiveDisclosure|SkillCatalogProvider)' -count=1
+go test ./internal/module/turn -run TestApplyHydration_UntrustedSummary -count=1
+git diff --check
+```
+
+#### 5.5.4 不得合入的 red flags
+
+- 只新增日志、不新增可被外部系统读取的指标或 snapshot。
+- 只把 `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE` 默认打开，却没有 30 天观察起点和 rollback trigger。
+- exporter 只统计 total，不保留 `outcome` 维度，导致 cwd_missing / approval_required / error 无法区分。
+- 把真实 Claude CLI opt-in skip 当作已认证 E2E 通过。
+- PR-6 混入 Phase 3 default policy 删除 override；这会把观测 PR 变成行为切换 PR，回滚面过大。
+
+### 5.6 Planned test names / 验收矩阵（补充）
 
 > 本节原是后续实现 PR 的 **planned test names**。截至 2026-04-27，PR-1 / PR-2 / PR-3 / PR-4 / PR-5
 > 已由 planned 提升为实际回归测试；PR-6 以后仍是派单测试名建议。若实现时包名 / helper 名称调整，可改测试名，
@@ -541,16 +592,16 @@ git diff --check
 源于 P20.11 废弃文档：mcp-orch 是独立进程，注册 skill 工具会陷入"重复实现"
 或"bootstrap 反向 IPC"两个不可接受选择。正确路径是 codexapp 宿主进程内 host-direct + provider 暴露；claudecli B3 仍允许受控的 same-binary child → host RPC client 回调，但 child 不得复制 / 持有 `skill.Service`。
 
-### 6.2 Phase 2 推迟（不在本 PR 完成）
+### 6.2 Phase 2 分离执行（已落地最小链路，仍保留真实 E2E gate）
 
 reviewer 3 验证：claudecli 子进程的 B1/B2/B3 是真三岔路，选错回滚成本高。
-本 PR 不打算扩范围做 Phase 2，留给独立 PR + 单独评审。
+因此 Phase 2 被拆成独立实现：B3 same-binary stdio MCP child 已落地并有 smoke / lifecycle / latency 单测；真实 Claude CLI 已认证 tool-call E2E、托管 child orphan 观测与放量指标仍作为 Phase 3 前 red gate。
 
 ### 6.3 Phase 1.5 引入（codexapp Unspecified override）
 
 不引入则 Phase 1 只完成工具链能力，缺少让 `Mode=Unspecified` 请求走 Summary 的入口。
 该 override **只转换 Unspecified**；显式 Full / Summary / None 一律尊重。随后代码层已把普通 selected skill / name-only hydrate / cron 路径收敛为保留 Unspecified marker，因此 codexapp 普通路径现在会走 Summary。
-但它仍是 codexapp-only 临时兼容层，不是“整个 harness 默认 progressive-disclosure 已业务交付”的证明：claudecli 仍通过 `SkillMode.Effective()` 保持 Full/eager，模型视角 E2E 与可观测性也未闭环。代码注释明确标记“Phase 1.5 临时”，Phase 3 删除或替换为正式 provider default policy。
+但它仍是 codexapp-only 临时兼容层，不是“整个 harness 默认 progressive-disclosure 已业务交付”的证明：claudecli 默认仍通过 `SkillMode.Effective()` 保持 Full/eager；真实 Claude CLI 已认证 E2E、外部可观测 / 告警 / 30 天 rollout 与 Phase 3 policy 仍未闭环。代码注释明确标记“Phase 1.5 临时”，Phase 3 删除或替换为正式 provider default policy。
 
 ### 6.4 agentId enrichment（修复方式）
 
@@ -676,7 +727,7 @@ shadowed_by，避免同名冲突静默消失。仍保留的长期选项是为 ho
 - [x] 明确 Phase 1.5 只覆盖 codexapp `Mode=Unspecified` 临时路径，不改变显式 Full / Summary / None。
 - [x] 明确 claudecli 仍通过 `SkillMode.Effective()` 保持 Full/eager，Phase 2 same-binary MCP child 只是工具链最小链路，不等于默认策略已切换。
 - [x] 历史测试数量口径已说明；后续实际测试集合已扩展到 PR-1/2/3、Phase 2 MCP child 与 observability 回归。
-- [x] 已知测试盲点已重新拆分：模型视角 E2E / approval / partial degradation / observability 基础已关闭；真实 Claude CLI、resume/recovery、default policy 与 rollout 导出/告警仍保留。
+- [x] 已知测试盲点已重新拆分：模型视角 E2E / approval / partial degradation / resume-recovery / observability 基础已关闭；真实 Claude CLI 已认证 E2E、default policy 与 rollout 导出/告警仍保留。
 
 若要升级为**业务能力 PR-ready**，当前状态拆成“已关闭缺口”和“仍保留 red gates”：
 
