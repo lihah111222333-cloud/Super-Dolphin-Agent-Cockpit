@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
@@ -18,19 +19,39 @@ type fakeDreamExecutor struct {
 	name   string
 	result string
 	err    error
+	sleep  time.Duration
 	calls  *[]string
 	mu     *sync.Mutex
 }
 
 func (f *fakeDreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string, error) {
-	_ = ctx
 	_ = prompt
 	if f.calls != nil && f.mu != nil {
 		f.mu.Lock()
 		*f.calls = append(*f.calls, f.name)
 		f.mu.Unlock()
 	}
+	if f.sleep > 0 {
+		select {
+		case <-time.After(f.sleep):
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
 	return f.result, f.err
+}
+
+// newDreamExecutorWithTimeout 构造 dispatcher 后用反射式断言注入 timeout，
+// 仅供测试调小 dispatcher deadline。生产构造走 NewDreamExecutor + defaultDreamTimeout。
+func newDreamExecutorWithTimeout(t *testing.T, providers []contract.DreamExecutorProvider, timeout time.Duration) contract.DreamExecutor {
+	t.Helper()
+	d := NewDreamExecutor(providers, newSilentLogger())
+	impl, ok := d.(*dreamExecutor)
+	if !ok {
+		t.Fatalf("expected *dreamExecutor, got %T", d)
+	}
+	impl.timeout = timeout
+	return impl
 }
 
 func newSilentLogger() *slog.Logger {
@@ -274,6 +295,48 @@ func assertLogContains(t *testing.T, out string, wants ...string) {
 		if !strings.Contains(out, w) {
 			t.Fatalf("expected log to contain %q, got:\n%s", w, out)
 		}
+	}
+}
+
+func TestDreamExecutor_DispatcherTimeoutCancelsLongRunningProvider(t *testing.T) {
+	slow := &fakeDreamExecutor{sleep: 500 * time.Millisecond, result: "should-not-finish"}
+	d := newDreamExecutorWithTimeout(t,
+		[]contract.DreamExecutorProvider{{Name: "claude", Executor: slow}},
+		30*time.Millisecond,
+	)
+
+	start := time.Now()
+	_, err := d.ExecuteDream(context.Background(), "p")
+	elapsed := time.Since(start)
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context.DeadlineExceeded, got %v", err)
+	}
+	if elapsed > 200*time.Millisecond {
+		t.Fatalf("expected dispatcher timeout ~30ms, took %v", elapsed)
+	}
+}
+
+func TestDreamExecutor_RespectsCallerDeadlineWhenShorter(t *testing.T) {
+	slow := &fakeDreamExecutor{sleep: 500 * time.Millisecond, result: "should-not-finish"}
+	d := newDreamExecutorWithTimeout(t,
+		[]contract.DreamExecutorProvider{{Name: "claude", Executor: slow}},
+		200*time.Millisecond,
+	)
+
+	// 上层 ctx 已有更短 deadline，应该胜出（context.WithTimeout 取较近者）
+	callerCtx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err := d.ExecuteDream(callerCtx, "p")
+	elapsed := time.Since(start)
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context.DeadlineExceeded, got %v", err)
+	}
+	if elapsed > 150*time.Millisecond {
+		t.Fatalf("expected caller deadline ~30ms to win, took %v", elapsed)
 	}
 }
 
