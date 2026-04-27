@@ -157,7 +157,8 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 	}
 	userText := s.assembler.PromptText(input)
 	s.cleanupStaleToolResults(threadID, input)
-	mcp := s.manifest.Build(input)
+	localID := platformshared.NewID("turn")
+	mcp := s.manifest.Build(input, threadID)
 	synthetic := s.syntheticMemoryContext(ctx, session, input, threadID, userText, mcp)
 	resolvedSkills := s.skills.Resolve(input.Skills, candidateSkills, userText)
 	assembledInputs := s.assembler.Assemble(input)
@@ -165,7 +166,7 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 		assembledInputs = append(synthetic.Inputs, assembledInputs...)
 	}
 	req := dto.TurnRequest{
-		LocalID:              platformshared.NewID("turn"),
+		LocalID:              localID,
 		ThreadID:             threadID,
 		Inputs:               assembledInputs,
 		Skills:               resolvedSkills,

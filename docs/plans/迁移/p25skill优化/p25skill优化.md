@@ -1,7 +1,7 @@
 # P25 Skill 优化：从 eager 注入到 progressive-disclosure
 
-> 创建时间：2026-04-25 | 最近核对：2026-04-26（harness 架构/设施盘点 + skill 当前实现复核）
-> 状态：🟡 codexapp 普通 name-only/selected skill 路径已可走 Summary + host-direct；P25 当前定位为业务交接文档 / 能力差距清单，仍非 harness 级 PR-ready 验收文档
+> 创建时间：2026-04-25 | 最近核对：2026-04-27（Phase 2 same-binary MCP child + host-direct observability 状态复核）
+> 状态：🟡 codexapp 普通 name-only/selected skill 路径已可走 Summary + host-direct；claudecli same-binary MCP child 最小实现与 host-direct 基础 observability 已落地；仍非 harness 级 PR-ready（真实 Claude CLI 已认证 E2E、resume/recovery、redaction/default discovery、Phase 3 policy 与 rollout 导出/告警待完成）
 > 关联文档：`docs/plans/迁移/p20/p20.18-host-direct-skill-tool-exposure.md`、
 >           `docs/plans/迁移/p20/p20.11-mcp-skill-tools.md`（已废弃）、
 >           `docs/plans/迁移/p20/p20.5-skill-catalog-provider.md`、
@@ -37,8 +37,8 @@
 | **Phase 1：toolbridge host-direct 分支** | ✅ 完成 | 10 测试覆盖 SkillHostTools / dedup |
 | **Phase 1.5：codexapp Mode override** | ✅ 完成 | 6 helper 测试 + 2 个入口/真实路径测试；仅处理 `Mode=Unspecified`，见 p20.18 §11 |
 | **Phase 1 关键 bug 修复：agentId 注入** | ✅ 完成 | session.go enrichment + 6 测试（trust 姿态见 §10.1） |
-| **可观测性 / 安全加固** | ⚠️ 未做 | 见 §3.4 / §10 |
-| **Phase 2：claudecli stdio MCP server** | ⏸ 推迟到独立 PR | B3 进程模型对齐 p20.18 §4.2；命名/调用路径补充见 p20.18 §4.3（见 §5.1） |
+| **可观测性 / 安全加固** | 🟡 基础已补 | host-direct counters / INFO/WARN / structured result 已落地；exporter / alerting / 30 天 rollout observation 待做，见 §3.4 / §10 |
+| **Phase 2：claudecli stdio MCP server** | 🟡 最小实现已落地 | B3 same-binary child、`--mcp-config` skill server、stdio smoke、真实二进制 lifecycle 与 latency budget 已覆盖；真实 Claude CLI 已认证 tool-call E2E / 放量观测仍是 red gate（见 §5.1 / §5.3） |
 | **Phase 3：正式化 provider default policy + override 删除** | ⏸ Phase 2 / E2E 后再做 | 不再是单纯改 `DefaultSkillMode()`；见 §5.2 |
 
 ### 0.4 执行摘要 / 当前推荐 PR 队列
@@ -71,7 +71,7 @@
    已被官方废弃（`docs/plans/迁移/p20/p20.11-mcp-skill-tools.md`），架构错位。
 2. 替代路径是 **P20.18**（toolbridge 宿主直跑 + 独立 stdio MCP server），
    工作量约 700 行。
-3. 最终决定：本 PR 落 Phase 1 + 1.5（codexapp host-direct 工具链 + `Mode=Unspecified` 临时 override），Phase 2 留给独立 PR；当前 codexapp 普通路径已有代码级 Summary 验证，但 harness 级默认 progressive-disclosure 仍未达到业务 PR-ready。
+3. 最终决定：Phase 1 + 1.5 先落 codexapp host-direct 工具链 + `Mode=Unspecified` 临时 override；当前 Phase 2 same-binary stdio MCP child 最小实现也已落地并补了 stdio smoke 单测。codexapp / claudecli 都具备代码级工具链，但 harness 级默认 progressive-disclosure 仍未达到业务 PR-ready。
 
 ---
 
@@ -103,12 +103,12 @@
 | Contract / Provider 边界 | `contract.Session`、`TurnHandle`、`SessionResolver`、`ApprovalRequester/Responder`、`PromptAssemblyService`、`SkillInjectionPort`、`group:"drivers"` | provider 扩展点已存在，P25 应在 adapter / policy 层闭环，不应反向耦合 turn/thread |
 | Thread / Turn | thread 管 start/resume/fork/recover/archive 与 prompt snapshot；turn 管 PrepareTurn、hydrate、manifest、memory context、tracker | selected/name-only skill 进入 `dto.TurnRequest` 的链路已具备；缺的是后续 provider/tool/approval 闭环 |
 | Prompt assembly | static + dynamic sections、snapshot、cache policy、`skill_catalog` slot | `SkillCatalogProvider` 能承载全量 discovery，但默认灰度关闭，不能把 selected path 写成全量 catalog 已上线 |
-| Skill service | cwd-scoped roots、scan/list、ExpandBody/ReadResource、trust/content hash、artifact approval cache、SkillsChanged event | skill 层能力完整；project skill 首次展开会正确报 approval required，但 host-direct 未消费成 UI approval 流 |
+| Skill service | cwd-scoped roots、scan/list、ExpandBody/ReadResource、trust/content hash、artifact approval cache、SkillsChanged event | skill 层能力完整；project skill 首次展开已接 `ApprovalRequester` 主闭环，fallback approval-required 也会结构化返回 |
 | RPC / Approval | `ApprovalManager` 支持 pending 去重、恢复、request_user_input、bus 事件 | approval 基础设施已存在；P25 不应重造审批，只需把 host-direct skill error 接入现有 approval bridge |
-| MCP / Toolbridge | mcpcontrol registry/heartbeat/fanout；toolbridge list/call/proxy/diff；host-direct SkillHostTools | tool 暴露/调用主干成立，但 host skill tools 被 peer readiness 绑定，且 result/error 未结构化 |
+| MCP / Toolbridge | mcpcontrol registry/heartbeat/fanout；toolbridge list/call/proxy/diff；host-direct SkillHostTools | tool 暴露/调用主干成立；host skill tools 已具备 partial degradation、structured result/error、基础 metrics 与 INFO/WARN 日志 |
 | Codex provider | shared app-server、WS transport、dynamicTools thread/start、approval bridge、recovery/pending replay | codexapp 是当前可落地 provider；缺 resume/recovery 后 DynamicTools 可用性证明 |
-| Claude provider | manifest / MCP config / native skill injection port / eager skill render | 仍是 parity 短板；Phase 2 same-binary skill MCP child 未实现 |
-| UI / Observability / Ops | uistate、dashboard、turnobservation、cachekeepalive、pidregistry、cron/notify/insight | 发布支撑设施已有；P25 仍缺 host-direct metrics、structured approval result、catalog refresh 策略 |
+| Claude provider | manifest / MCP config / native skill injection port / eager skill render / same-binary skill MCP child 最小链路 | Phase 2 最小实现已落地；仍缺真实 Claude CLI E2E、stdio smoke / lifecycle 与放量观测证明 |
+| UI / Observability / Ops | uistate、dashboard、turnobservation、cachekeepalive、pidregistry、cron/notify/insight | 发布支撑设施已有；P25 已补 host-direct 基础 metrics / 日志 / structured approval result，仍缺 exporter/alerting、catalog refresh 策略与默认放量观察 |
 
 复核后的策略约束：
 
@@ -163,9 +163,9 @@
 | `internal/provider/codexapp/skill_mode_override_test.go` ✨ | 已落地 | 8 测试：6 个 helper 单测 + `buildTurnStartParams` 入口断言 + `PrepareTurn→skill.Service hydrate→buildTurnStartParams` 普通路径断言 |
 | `internal/provider/codexapp/session_turn.go` | 已改造 | `buildTurnStartParams` / `buildTurnSteerParams` 入口调 override |
 
-为什么需要：单纯全局切 Summary 会让 claudecli 项目级 skill body 在 Phase 2 前完全消失
-（claudecli 的 host-direct / skill MCP 路径未实现）。本阶段只在 codexapp 入口提供临时 override，
-并且 **只覆盖 `Mode=Unspecified`**；显式 Full / Summary / None 仍保留调用方意图。当前普通 selected skill / name-only hydrate 路径已不再提前物化 Full，因此会以 Unspecified marker 进入 codexapp 并转 Summary。claudecli 不动，仍通过 `SkillMode.Effective()` 保持 Full/eager。
+为什么需要：单纯全局切 Summary 曾会让 claudecli 项目级 skill body 在 Phase 2 前完全消失。
+当前 claudecli same-binary skill MCP child 已有最小实现，但真实 Claude CLI E2E、stdio lifecycle、provider-aware default policy 与放量观测尚未闭环；因此本阶段仍只在 codexapp 入口保留临时 override，
+并且 **只覆盖 `Mode=Unspecified`**；显式 Full / Summary / None 仍保留调用方意图。当前普通 selected skill / name-only hydrate 路径已不再提前物化 Full，因此会以 Unspecified marker 进入 codexapp 并转 Summary。claudecli 在 Phase 3 前仍通过 `SkillMode.Effective()` 保持 Full/eager 兼容，同时额外具备 Phase 2 skill MCP tool 链路供验证。
 
 **预期删除时机**：Phase 2 / provider-aware default policy / 模型视角 E2E 全部闭环后，
 PR-B 删除 override 文件和 caller，再校验 Go 源码中零命中。代码 agent 应使用 `lsp_grep(text_search)` 检索 `overrideSkillsToSummary`；人类本地复核可用等价 shell 检索。
@@ -225,9 +225,9 @@ bug 详情：
 
 当前限制：
 1. 显式 Full 仍 eager 注入，这是兼容设计，不被 override 覆盖
-2. 还缺真实模型视角 E2E：模型看到 DynamicTools、主动调用 skill_expand_body、结果回到模型继续推理
-3. host-direct metrics/logging/structured approval result 未上线
-4. claudecli parity 未完成
+2. codexapp 模型视角 E2E 已落地：fake app-server 证明 DynamicTools → skill_expand_body → tool result → final answer
+3. host-direct 基础 metrics / INFO/WARN 日志 / structured approval-or-error result 已上线，仍缺 exporter/alerting 与 30 天放量观察
+4. claudecli same-binary MCP child 最小 parity 已落地，仍缺已认证真实 Claude CLI tool-call E2E / 托管 child orphan 观测
 ```
 
 因此，准确口径是：codexapp 普通路径已具备 progressive-disclosure 的代码级能力，
@@ -242,7 +242,7 @@ bug 详情：
 2. SkillRef.Mode 可保持 Unspecified，但 claudecli render 通过 SkillMode.Effective()
    把 Unspecified 解释为 Full
 3. system prompt eager 注入完整 SKILL.md body（与改造前一致）
-4. claudecli 不挂 toolbridge host-direct 分支（独立进程），Phase 2 same-binary stdio MCP child 未实现
+4. claudecli 不挂 toolbridge host-direct 分支（独立进程），已通过 Phase 2 same-binary stdio MCP child 暴露 `skill_expand_body` / `skill_read_resource` 最小链路；Phase 3 默认策略切换前仍保留 Full/eager 兼容
 ```
 
 ### 3.3 mcp-orch standalone 进程
@@ -253,26 +253,24 @@ bug 详情：
 - 运行时分支 nil-safe：`Handler.hostTools=nil` 时，所有工具调用走原 peer 路径
 - 注意：`provideHostToolRegistry(svc skillpkg.Service)` 当前不是 Fx optional input；如果未来 standalone 也加载 `toolbridge.Module`，需要先把 `skill.Service` 输入改成 optional Fx 参数，或提供 noop registry
 
-### 3.4 可观测性现状（⚠️ 未做）
+### 3.4 可观测性现状（🟡 基础已补，导出 / 告警待做）
 
-当前实现 **零 metrics、零 host-direct 命中日志**：
+当前实现已补上 host-direct 最小观测闭环：
 
-- `host_tools.go` 没有 logger 字段
-- `handler.callHostTool` 不记录命中 / 耗时 / 结果
-- `resolveAgentCWD` 失败时只把 `""` + `ErrMissingCWD` 回给模型，无 WARN 日志、
-  无 agentId / tool 上下文，模型大概率陷入 "cwd is required → 重试" 循环
-- `dedupToolsByName` 静默吞掉同名 peer 工具，无告警
-- `enrichToolCallParams` 解码失败 fail-soft 但无 metric，未来协议变更可能静默 100% 失败
+- `pkg/skillmetrics` 新增 `host_tool_calls_total{outcome}` 对应的 Go counters：
+  `ok` / `cwd_missing` / `approval_required` / `error`。
+- `pkg/skillmetrics` 新增 `enrich_failures_total` counter；`enrichToolCallParams`
+  JSON decode / marshal fail-soft 时会计数，避免协议漂移静默 100% 失败。
+- `handler.callHostTool` 每次 host-direct 命中打一行 INFO 日志，包含 tool / agentId /
+  threadId / callId / outcome / duration_ms。
+- `resolveAgentCWD` 失败导致 cwd 为空时，会在真正调用 host tool 前打一行 WARN，包含
+  tool / agentId / threadId / callId，并将 outcome 归类为 `cwd_missing`。
+- DynamicTools dedup 时若 peer 工具被 host 同名工具 shadow，会打一行 WARN（含 peer 来源）。
+- approval-required / denied 已返回结构化 result，不再只有普通 `err.Error()` 文本。
 
-**Phase 1 在生产上若静默坏掉（svc nil / cwd 全空 / approval 一直 required），
-当前没有任何信号能感知**。建议在合入 Phase 1 的同一窗口补：
-
-- counter `host_tool_calls_total{tool, outcome}`（outcome=ok / cwd_missing /
-  approval_required / error）
-- counter `enrich_failures_total`
-- 每次 host-direct 命中记一行 INFO 日志（含 tool / agentId / 耗时）
-- error-rate > 5% 持续 5min 触发告警
-- `dedupToolsByName` 在 shadow 同名 peer 时 `h.warn` 一次（带 peer 来源）
+仍未完成的是**导出与告警层**：这些 Go counters 目前仍是 in-process snapshot 模式；
+Prometheus / OTel exporter、error-rate > 5% 持续 5min 告警、30 天放量观察仍属于 Phase 3 前
+rollout gate。
 
 详见 §10.5。
 
@@ -400,6 +398,8 @@ go test ./internal/dto/provider/ -count=1
 
 详见 `docs/plans/迁移/p20/p20.18-host-direct-skill-tool-exposure.md` §4.2 / §4.3 / §11。
 
+**当前实现状态（2026-04-27）**：B3 最小实现已落地：`agent-terminal --mcp-skill-mode` same-binary stdio MCP child、manifest `launch_kind="same-binary-skill"`、Claude `--mcp-config` skill server、静态 `tools/list`、lazy host RPC、runtime cwd/agentID/threadID 注入、per-turn turnID 不进 manifest/env、approval-required 结构化 envelope、stdio `initialize -> tools/list -> tools/call -> EOF` smoke 均已有单测覆盖。真实 Claude CLI E2E / orphan child 进程观测 / 放量指标仍按 §5.3 red gates 执行，未完成前不得删除 codexapp 临时 override。
+
 **推荐方案 B3**（same-binary stdio MCP 子进程 + host RPC client）：
 - 复用 agent-terminal 二进制 + `--mcp-skill-mode` 子命令。
 - 子进程跑 stdio MCP server，**通过 host RPC（`skills/expandBody` / `skills/readResource`
@@ -409,26 +409,43 @@ go test ./internal/dto/provider/ -count=1
   UI 事件丢失（进程模型见 p20.18 §4.2，命名/调用路径见 §4.3）。
 - claudecli 在 manifest 中注册该 stdio server 到 `--mcp-config`。
 
+**Provider-specific transport / shared semantic contract（必须保持）：**
+- `codexapp` 继续走 `thread/start DynamicTools + parent host-direct`：`ListToolsForCodex()` 把
+  `skill_expand_body` / `skill_read_resource` 作为 host tools 下发，模型 tool call 回到父进程同进程
+  `SkillHostTools -> skill.Service`。
+- `claudecli` 不能复用 Codex DynamicTools；Phase 2 只通过 `--mcp-config` 挂
+  `agent-terminal --mcp-skill-mode` stdio MCP child。child 只做代理：Claude CLI ⇄ MCP child ⇄ 父进程
+  host RPC ⇄ 父进程 `skill.Service`。
+- 两个 provider 必须共享模型可见契约：工具名、schema、结构化结果、approval 语义、cwd/agentID/threadID
+  runtime 注入规则一致；差异只允许存在于 transport 层。
+
 **Phase 2 实施 runbook（必须在开工前拆成任务）：**
 1. 在 agent-terminal 启动早期增加 `--mcp-skill-mode` 短路入口，必须早于完整 Fx / Wails app 启动。
 2. manifestbuilder 增加 same-binary skill server 表达，并让 `transport_config` 放行
    `agent-terminal --mcp-skill-mode`。
 3. 父进程提供 host RPC：`skills/expandBody` / `skills/readResource` / approval wait wrapper。
 4. 子进程只持有 RPC client，不 import / new 一套独立 `internal/module/skill.Service`。
-5. cwd / agentID / threadID / sessionID 只允许来自父进程 spawn 时注入的 env / argv / RPC 上下文，
+5. **启动期轻量边界（首轮延迟红线）**：MCP `initialize` / `tools/list` 只能返回静态 schema
+   `skill_expand_body` / `skill_read_resource`；不得扫描 skill roots、不得读取任何 `SKILL.md`、不得调用
+   `skills/expandBody` / `skills/readResource`、不得触发 approval / audit / candidateStore / `skill.Service`、
+   不得阻塞父进程 RPC。
+6. host RPC client 应 lazy 使用：child 启动和 `tools/list` 阶段不连接 / 不探活父进程；第一次
+   `tools/call` 才按需调用父进程 RPC。普通首轮对话若模型未调用 skill 工具，不得发生 expand/read RPC。
+7. cwd / agentID / threadID 只允许来自父进程 spawn 时注入的 env / argv / RPC 上下文，per-turn turnID 不得进入稳定 MCP manifest/env，
    禁止子进程重新猜测或从模型参数信任读取。
-6. 审批流：子进程命中 `SkillApprovalRequiredError` 时，经 RPC 阻塞等待父进程 UI 决议
+8. 审批流：子进程命中 `SkillApprovalRequiredError` 时，经 RPC 阻塞等待父进程 UI 决议
    （建议 timeout 30s），并返回结构化 `kind="approval_required"` / `approved|denied|timeout`。
-7. 补 E2E：trusted/preapproved happy path、approval_required、cwd 注入、manifest 启动、
-   子进程生命周期清理、claudecli 负面兼容。
+9. 补 E2E：trusted/preapproved happy path、approval_required、cwd 注入、manifest 启动、
+   静态 `tools/list`、lazy host RPC、首轮无 skill tool-call 不触发 expand/read、子进程生命周期清理、
+   claudecli 负面兼容。
 
-**Blocking decisions（未拍板不得开工）：**
-- 子进程是否允许 import `internal/module/skill` 的类型定义；即使允许，也不得持有独立 service 实例。
-- approval-required 的结构化协议字段、UI 等待语义和 timeout 行为。
-- host RPC 是否新增 blocking wrapper，还是复用现有 async approval channel。
-- manifestbuilder 的 Kind / transport_config 扩展方式。
-- same-binary 子进程入口与主 app/Fx/Wails 生命周期的短路边界。
-- cwd / agentID / threadID / sessionID 的唯一真值来源。
+**Blocking decisions（2026-04-27 已收敛为实现约束）：**
+- 子进程不 import / new `internal/module/skill.Service`；只持有轻量 host RPC client。
+- approval-required 使用 host RPC `-31002` + error data 透传为 `kind="approval_required"` envelope；approved 走正常 result，denied/timeout fail closed 并保持结构化错误 envelope。
+- host RPC 复用现有 blocking `skills/expandBody` / `skills/readResource` 调用，不新增 bootstrap 全栈。
+- manifestbuilder 使用 `MCPLaunchKind` / `LaunchKindSameBinarySkill`，claudecli `transport_config` 仅对该 marker 放行 same-binary command。
+- same-binary 子进程入口为 `cmd/agent-terminal` 早期 `--mcp-skill-mode` 短路，命中后不得进入完整 app/Fx/Wails。
+- cwd / agentID / threadID 只来自父进程注入的 canonical env / manifest runtime；per-turn turnID 不进入 MCP manifest/env；不信任模型参数。
 
 **预估工作量（修订）**：~600 行 ± 150（含测试 + manifestbuilder 改动）。
 参照锚点：mcp-orch stdio runtime 脚手架 ≥150 行、tool adapter + RPC client +
@@ -464,7 +481,7 @@ cwd 注入测试 ≈150 行。
 - 产品明确要求 progressive-disclosure 默认启用（provider-aware 或全局 Summary policy）。
 
 Phase 3 硬性 red gates（任一不满足不得正式化 Summary default policy / 删除 override）：
-- Phase 2 claudecli stdio MCP server E2E 通过。
+- Phase 2 claudecli stdio MCP server 真实 Claude CLI E2E 通过；单测已覆盖静态 `tools/list`、lazy host RPC、首轮无 skill tool-call 不触发 expand/read、`--mcp-skill-mode` 不启动完整 Fx/Wails、startup latency、内存 stdio smoke 与真实 agent-terminal 二进制 `Content-Length initialize -> tools/list -> tools/call -> EOF` smoke；上线前仍需 Claude CLI 真实托管 child 场景 / orphan PID 观测。
 - host-direct metrics / INFO 日志 / error-rate 告警已上线，不能再凭人工猜测 99% 成功率。
 - approval E2E 已闭环，含 approved / denied / timeout。
 - rollback / degrade playbook 已演练：能在一个小 PR 内回到 Full/eager；若 Phase 2 已落地，还必须覆盖 claudecli same-binary child 禁用、退出和临时 mcp-config 清理。
@@ -499,10 +516,11 @@ Phase 3 硬性 red gates（任一不满足不得正式化 Summary default policy
 5. **PR-5：resume / recovery skill tools**
    - 先证明 app-server 是否保留 start-time dynamic tools；若不保留，再设计 resume/recovery
      重新注册或扩 app-server schema。
-6. **PR-6：默认 discovery / observability**
-   - PR-1~PR-5 之前保持 `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=false`；放量前补 dynamic tools
-     degraded、host tool success/error、approval requested/approved/denied/timeout、artifact
-     cache hit/miss 的日志 / 指标。
+6. **PR-6：默认 discovery / rollout observability**
+   - PR-1 / PR-2 / PR-3 与 host-direct 基础 observability 已落地；PR-4 / PR-5 之前仍保持
+     `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=false`。
+   - 默认放量前还需补 exporter / alerting / rollout observation：至少能从外部系统观察
+     host tool success/error、cwd_missing、approval_required、enrich failure 与 artifact approval/cache 信号。
 
 ### 5.5 Planned test names / 验收矩阵（补充）
 
@@ -520,6 +538,7 @@ Phase 3 硬性 red gates（任一不满足不得正式化 Summary default policy
 | PR-4 selected metadata / redaction | `go test ./internal/module/turn -run TestApplyHydration_UntrustedSummary -count=1`；`go test ./internal/module/prompt -run TestSkillCatalogProvider -count=1` | `TestApplyHydration_UntrustedSummary_RedactedWhenSourceUnspecified`、`TestApplyHydration_UntrustedSummary_AllowsOnlyRealManualSelection`、`TestApplyHydration_UntrustedSummary_RedactedForTriggerAndForce`、`TestSkillCatalogProvider_UntrustedProjectSkillRedacted` | 若允许 untrusted selected summary，只能限真实 `ManualSkillSelection=true && source=manual`；legacy `Source=Unspecified` 经 hydration 补成的 manual 不得当授权；catalog redaction 继续成立 |
 | PR-5 resume / recovery skill tools | `go test ./internal/provider/codexapp -run 'Test(Resume|Recovery).*DynamicSkillTools' -count=1` | `TestResumeSession_DynamicSkillToolsStillCallable`、`TestRecoveryResume_DynamicSkillToolsStillCallable`、`TestThreadResume_AppServerRetainsStartDynamicTools`、`TestThreadResume_DynamicToolsWireCompatibilityIsExplicit` | 先证明 app-server 是否保留 start-time tools；若需要扩 `thread/resume`，必须证明 app-server 接受 / 显式处理该字段；验收以 resume/recovery 后模型仍能调用 skill tools 为准 |
 | PR-6 discovery / observability | `go test ./internal/module/prompt -run 'Test(SkillProgressiveDisclosure|SkillCatalogProvider)' -count=1`；`go test ./internal/platform/toolbridge -run 'Test.*Observability|Test.*Metrics' -count=1` | `TestSkillProgressiveDisclosure_DefaultDisabled`、`TestSkillProgressiveDisclosure_EnableFlagRendersCatalog`、`TestSkillCatalogProvider_GroupsNativeTrustedRedacted`、`TestListToolsForCodex_LogsDegradedPeer`、`TestHostSkillToolCall_EmitsApprovalAndCacheMetrics` | 默认仍为 disabled；enable=true 时 catalog 分组与 untrusted redaction 正确；放量前能观察 degraded peer、host tool success/error、approval requested/approved/denied/timeout、artifact cache hit/miss |
+| Claude Phase 2 MCP child | `go test ./internal/provider/claudecli -run 'TestSkillMCP(Server|Mode)_(ToolsListStaticNoHostRPC|ExpandBodyLazyCallsHostRPC|ReadResourceLazyCallsHostRPC|RejectsModelRuntimeFields|FirstTurnWithoutSkillDoesNotCallExpandRPC|ApprovalRequiredReturnsStructuredEnvelope|ObservabilityCounters|StartupLatencyBudget|StdioSmokeInitializeListCallAndEOF)|TestSkillHostRPCClient_ValidatesHostResponse|TestTransportConfig_SameBinarySkillServerMCPConfig' -count=1`；`go test ./cmd/agent-terminal -run '^TestMcpSkillMode_(DoesNotStartFullApp|RealBinaryFramedStdioSmokeAndEOF|RealBinaryLatencyBudget|ClaudeLikeParentLifecycleEOFCancelAndNoOrphan|ClaudeCLIManagedSameBinarySkillE2E)$' -count=1` | `TestSkillMCPServer_ToolsListStaticNoHostRPC`、`TestSkillMCPServer_ExpandBodyLazyCallsHostRPC`、`TestSkillMCPServer_ReadResourceLazyCallsHostRPC`、`TestSkillMCPServer_RejectsModelRuntimeFields`、`TestSkillMCPServer_FirstTurnWithoutSkillDoesNotCallExpandRPC`、`TestSkillMCPServer_ApprovalRequiredReturnsStructuredEnvelope`、`TestSkillMCPServer_ObservabilityCounters`、`TestSkillMCPMode_StdioSmokeInitializeListCallAndEOF`、`TestSkillHostRPCClient_ValidatesHostResponse`、`TestMcpSkillMode_DoesNotStartFullApp`、`TestMcpSkillMode_RealBinaryFramedStdioSmokeAndEOF`、`TestMcpSkillMode_RealBinaryLatencyBudget`、`TestMcpSkillMode_ClaudeLikeParentLifecycleEOFCancelAndNoOrphan`、`TestMcpSkillMode_ClaudeCLIManagedSameBinarySkillE2E`、`TestTransportConfig_SameBinarySkillServerMCPConfig`、`TestSkillMCPServer_StartupLatencyBudget` | `initialize/tools/list` 只返回静态 `skill_expand_body` / `skill_read_resource` schema，不扫 skill、不读 `SKILL.md`、不调 host RPC、不触发 approval；第一次 `tools/call` 才 lazy 调父进程；stdio smoke 覆盖内存 server 与真实 agent-terminal 二进制 `Content-Length initialize -> tools/list -> tools/call -> EOF`；普通首轮不使用 skill 时不得发生 expand/read RPC；runtime env 不继承伪造 `GO_AGENT_SKILL_MCP_*` / per-turn turnID；`--mcp-skill-mode` 不进入完整 Fx/Wails，startup / 真实二进制 latency smoke 有明确耗时预算；skill MCP child emits success/error/approval_required counters，真实 Claude CLI 未认证环境按 opt-in 测试 skip |
 
 提交或合并前的最小验证命令建议：
 
@@ -529,6 +548,8 @@ go test ./internal/platform/toolbridge -run 'Test(ListToolsForCodex|CallHostTool
 go test ./internal/provider/codexapp -run 'Test(DynamicSkillTools|Resume|Recovery)' -count=1
 go test ./internal/module/turn -run TestApplyHydration_UntrustedSummary -count=1
 go test ./internal/module/prompt -run 'Test(SkillProgressiveDisclosure|SkillCatalogProvider)' -count=1
+go test ./pkg/skillmetrics ./internal/provider/claudecli -run 'TestCountersIncrementAndSnapshot|TestResetForTestingZeroes|TestSkillMCP(Server|Mode)_(ToolsListStaticNoHostRPC|ExpandBodyLazyCallsHostRPC|ReadResourceLazyCallsHostRPC|RejectsModelRuntimeFields|FirstTurnWithoutSkillDoesNotCallExpandRPC|ApprovalRequiredReturnsStructuredEnvelope|ObservabilityCounters|StartupLatencyBudget|StdioSmokeInitializeListCallAndEOF)|TestSkillHostRPCClient_ValidatesHostResponse|TestTransportConfig_SameBinarySkillServerMCPConfig' -count=1
+go test ./cmd/agent-terminal -run '^TestMcpSkillMode_(DoesNotStartFullApp|RealBinaryFramedStdioSmokeAndEOF|RealBinaryLatencyBudget|ClaudeLikeParentLifecycleEOFCancelAndNoOrphan|ClaudeCLIManagedSameBinarySkillE2E)$' -count=1
 git diff --check
 ```
 
@@ -580,9 +601,8 @@ reviewer 3 验证：claudecli 子进程的 B1/B2/B3 是真三岔路，选错回�
 - 非 tool/call 消息走原路径，不影响主链路
 - enrichment 只是补字段，失败回退到 "模型看见 cwd is required" 是可接受降级
 
-代价：当前没有任何指标 / 日志感知 enrich 失败次数——若未来 codex 协议变更导致
-`msg.Params` 解码恒挂，会静默退化为 100% 失败。建议补 §3.4 中的 metric，加一个
-`enrich_failures_total` counter。
+当前已补 `enrich_failures_total` counter：若未来 codex 协议变更导致
+`msg.Params` 解码恒挂，至少能从 in-process snapshot / 后续 exporter 发现异常；函数本身仍保持 fail-soft，不把坏 payload 升级成主链路错误。
 
 ### 6.7 dedup 优先级 hostTools > peer（静默）
 
@@ -590,11 +610,9 @@ reviewer 3 验证：claudecli 子进程的 B1/B2/B3 是真三岔路，选错回�
 - mcp-orch / mcp-lsp 都是远端进程，命名冲突时 host 内嵌实现性能 / 安全更优
 - fail-fast 会让任何一个第三方 server 注册同名工具就阻塞 thread/start
 
-代价：被 shadow 的 peer 工具静默消失，无日志。结合当前 host 工具命名为通用前缀
-（`skill_expand_body` / `skill_read_resource`），第三方冲突概率不算低。建议：
-- dedup 时若发现 host shadow peer，至少 `h.warn` 一次（含 peer 来源）
-- 或者为 host 工具加强制前缀（如 `host__skill_expand_body`），代价是改 schema +
-  系统 prompt 元指令
+当前已补 shadow WARN：dedup 时若 peer 工具被 host 同名工具 shadow，会记录 tool / source /
+shadowed_by，避免同名冲突静默消失。仍保留的长期选项是为 host 工具加强制前缀
+（如 `host__skill_expand_body`），但代价是改 schema + 系统 prompt 元指令。
 
 ---
 
@@ -666,9 +684,9 @@ reviewer 3 验证：claudecli 子进程的 B1/B2/B3 是真三岔路，选错回�
 ### 9.1 Owner / RACI
 
 > **当前 owner**：（待认领）。这是 release 管理问题，不改变 §9.2 的业务能力判断。
-> 后续进入 Phase 2 / Phase 3 实现或默认切换 PR 前，再补 Responsible / Accountable / Consulted / Informed 即可；本文不把 owner 缺失作为业务能力主 blocker。
+> 后续进入 Phase 3 默认切换 / exporter-alerting 放量 PR 前，再补 Responsible / Accountable / Consulted / Informed 即可；本文不把 owner 缺失作为当前能力主 blocker。
 >
-> **最后更新**：2026-04-26 / harness + skill 业务能力复核；codexapp selected/name-only Summary 渲染已代码级打通，project approval 闭环 / 全量 discovery / provider parity / 模型视角 E2E / observability 仍待闭环。
+> **最后更新**：2026-04-27 / Phase 2 same-binary MCP child 与 host-direct observability 复核；codexapp selected/name-only Summary、project approval 闭环、模型视角 E2E、partial degradation、基础 observability 已关闭；全量 discovery、resume/recovery、真实 Claude CLI 已认证 E2E、Phase 3 policy 与 rollout 导出/告警仍待闭环。
 
 ### 9.2 业务能力 Definition of Done
 
@@ -677,43 +695,49 @@ reviewer 3 验证：claudecli 子进程的 B1/B2/B3 是真三岔路，选错回�
 - [x] 不再声称整个 harness 默认 progressive-disclosure 已生产生效。
 - [x] 明确 codexapp 普通 name-only / selected skill 路径已有代码级 Summary 验证。
 - [x] 明确 Phase 1.5 只覆盖 codexapp `Mode=Unspecified` 临时路径，不改变显式 Full / Summary / None。
-- [x] 明确 claudecli 仍通过 `SkillMode.Effective()` 保持 Full/eager，Phase 2 未落地。
-- [x] 测试数量统一为 32，并解释 30 leaf/unit + 2 个 codexapp 入口/真实路径集成断言。
-- [x] 已知测试盲点列出跨层 / 模型视角 E2E 缺口，没有把 leaf/helper 测试包装成业务闭环。
+- [x] 明确 claudecli 仍通过 `SkillMode.Effective()` 保持 Full/eager，Phase 2 same-binary MCP child 只是工具链最小链路，不等于默认策略已切换。
+- [x] 历史测试数量口径已说明；后续实际测试集合已扩展到 PR-1/2/3、Phase 2 MCP child 与 observability 回归。
+- [x] 已知测试盲点已重新拆分：模型视角 E2E / approval / partial degradation / observability 基础已关闭；真实 Claude CLI、resume/recovery、default policy 与 rollout 导出/告警仍保留。
 
-若要升级为**业务能力 PR-ready**，至少还缺：
+若要升级为**业务能力 PR-ready**，当前状态拆成“已关闭缺口”和“仍保留 red gates”：
 
-- [ ] **BUSINESS BLOCKED**：缺模型视角 E2E：真实 DynamicTools 包含 skill tools、模型发 `skill_expand_body`、approval/cache/read 结果回到模型并可继续推理；只断言 schema 存在不算闭环。
-- [ ] **BUSINESS BLOCKED**：project-scope skill 首次展开没有 approval 主闭环；当前 host-direct 只返回非结构化失败文本，且未把 `agentId/threadId/callId` 传入 skill approval payload。PR-ready 必须由 skill service 调 `ApprovalRequester`，approved 后写 `ApproveArtifact`，覆盖 approved/denied/timeout。
+已关闭 / 已有回归覆盖：
+
+- [x] **BUSINESS CLOSED**：模型视角 E2E 已落地。fake / controlled app-server 已证明真实 DynamicTools 包含 skill tools、模型发 `skill_expand_body`、approval/cache/read 结果回到模型并继续产出 final answer；不再只是断言 schema 存在。
+- [x] **BUSINESS CLOSED**：project-scope skill 首次展开 approval 主闭环已落地。`skill.Service` cache miss 会调 `ApprovalRequester`；approved 后写 `ApproveArtifact`；denied / timeout fail closed；host-direct metadata 会进入 approval payload；no-requester fallback 返回结构化 `kind="approval_required"`。
+- [x] **BUSINESS CLOSED**：DynamicTools partial degradation 已落地。host skill tools 先收集，orch/lsp peer 并发等待；单 peer 成功保留、双 peer 失败但 host 存在仍返回 host；同名 peer 被 host shadow 时有 WARN。
+- [x] **BUSINESS CLOSED**：host-direct 基础观测已落地。已有 `host_tool_calls_total{outcome}` 对应 Go counters、`enrich_failures_total` counter、host-direct INFO 日志、cwd_missing WARN、approval/error structured result。仍未包含 Prometheus / OTel exporter、error-rate 告警与 30 天放量观察。
+
+仍保留 red gates / 决策项：
+
 - [ ] **BUSINESS BLOCKED**：selected/name-only Summary 与 `SkillCatalogProvider` 的 untrusted metadata redaction 策略不一致；需明确真实手选是否允许 summary，且不能把 legacy `Source=Unspecified` 经 hydration 补成的 `manual` 当作授权。
-- [ ] **BUSINESS BLOCKED**：全量 skill discovery 默认未启用；`ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=false` 时模型只能看到 selected/name-only skill，不会默认获得完整 catalog。默认开启需等待 approval / DynamicTools / E2E / observability gates。
-- [ ] **BUSINESS BLOCKED**：DynamicTools 暴露与 orch/lsp peer readiness 强耦合；host skill tools 需要并发 peer wait 的 partial-degradation 证明，不能串行 10s+10s，也不能秒回 host-only 导致本轮 session 缺 lsp/orch tools。
+- [ ] **BUSINESS BLOCKED**：全量 skill discovery 默认未启用；`ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=false` 时模型只能看到 selected/name-only skill，不会默认获得完整 catalog。默认开启需等待 discovery / redaction / observability / rollout gates。
 - [ ] **BUSINESS BLOCKED**：resume / recovery 后 `skill_expand_body` / `skill_read_resource` 是否仍可用未验证；`thread/resume` 不携带 dynamicTools 字段，但扩字段前必须先证明 app-server 是否保留 / 是否接受 resume dynamicTools。
 - [ ] **BUSINESS BLOCKED**：显式 Full 仍 eager 注入完整 body；这是兼容设计，但产品/迁移策略需确认是否允许长期存在。
-- [ ] **BUSINESS BLOCKED**：claudecli Phase 2 same-binary stdio MCP child 未实现，两个 provider 尚未达到 progressive-disclosure parity。
-- [ ] **BUSINESS BLOCKED**：host-direct metrics / INFO 日志 / structured approval-or-error result 未上线，默认放量不可观测。
+- [ ] **VALIDATION REMAINS**：claudecli Phase 2 same-binary stdio MCP child 最小实现已落地，两个 provider 的模型可见 skill tool 语义已有代码级 parity；内存 stdio、真实 agent-terminal 二进制 `Content-Length initialize -> tools/list -> tools/call -> EOF`、Claude-like parent stdin EOF / context cancel / no-orphan lifecycle、真实二进制 initialize / tools/list / tools/call / stdin EOF latency budget 已有单测 smoke。真实 Claude CLI `--mcp-config` E2E 已有 opt-in 测试，未认证环境会跳过；业务 PR-ready 仍必须补已认证环境下的真实 Claude CLI tool-call E2E 与放量观测。
+- [ ] **ROLL-OUT BLOCKED**：metrics exporter / alerting / rollout observation 未完成。当前只是 in-process counters + 日志，Phase 3 默认策略前仍需 Prometheus / OTel 或等价导出、error-rate > 5% 持续 5min 告警、30 天成功率观察。
 - [ ] **BUSINESS BLOCKED**：Phase 3 provider default policy / override 删除还没有可量化验收证据（CI job / test command / smoke checklist / rollout observation）。
 
 Release governance / 风险 gate 只作为发布管理补充，不盖过上述业务能力判断：
 
-- [ ] **RELEASE FOLLOW-UP**：agentId trust / 可观测性等风险需在对应实现或默认切换 PR 中确认跟随处理；不把 owner / 签核缺失写成本文档的主 blocker。
+- [ ] **RELEASE FOLLOW-UP**：§9 owner / RACI、默认放量监控人和 rollout 值守机制仍需在默认切换 PR 中指派；不把 owner / 签核缺失写成当前能力主 blocker。
 
 ### 9.3 Rollback / degrade playbook
 
 若 codexapp Summary / host-direct 路径线上异常：
 
-1. **当前可用触发条件（observability 未上线前）**：人工 smoke 失败、用户报告 skill body 不可展开、可复现 tool response 错误、`cwd is required` 在手工日志 / 返回体中批量出现。
-2. **自动化触发条件（P25-HIGH-02 observability 落地后才可用）**：host-direct error-rate > 5% 持续 5min、approval_required 无法闭环告警、`enrich_failures_total` 异常增长。在 metrics / INFO 日志 / 告警上线前，不得宣称自动化 rollback gate 可执行。
+1. **当前可用触发条件（exporter / 告警未上线前）**：人工 smoke 失败、用户报告 skill body 不可展开、可复现 tool response 错误、host-direct INFO/WARN 日志里 `cwd_missing` / `approval_required` / `error` outcome 异常集中、或 in-process snapshot 中 `host_tool_calls_total{outcome!="ok"}` / `enrich_failures_total` 异常增长。
+2. **自动化触发条件（P25-HIGH-02 导出与告警落地后才可用）**：host-direct error-rate > 5% 持续 5min、approval_required 无法闭环告警、`enrich_failures_total` 异常增长。在 Prometheus / OTel 或等价导出与告警上线前，不得宣称自动化 rollback gate 可执行。
 3. **Phase 1.5-only 最小回滚 PR**：在 `internal/provider/codexapp/session_turn.go` 临时移除 / noop `overrideSkillsToSummary` 调用，只覆盖 `Mode=Unspecified → Summary` 这条临时路径，使 Unspecified 恢复 eager Full；保留 host tools 代码。
 4. **显式 Summary / 工具异常降级**：若已有显式 `Mode=Summary` 流量或 host tool 本身异常，临时在 `internal/platform/toolbridge/host_tools.go` / `ListToolsForCodex` 暴露层移除 `skill_expand_body` / `skill_read_resource`，或在入口把该流量强制转 Full，避免模型反复调用坏工具。
 5. **Phase 2 claudecli child 降级（若已落地）**：禁用 manifest 中 `skill` server / `LaunchKindSameBinarySkill` 生成，重启 Claude session 让新 `--mcp-config` 生效；确认 child 收到 stdin EOF 后退出，清理临时 `--mcp-config` 文件，并检查是否存在 orphan child / PID 泄漏。
 6. **Phase 3 回滚点**：若已正式化 provider default policy，关闭 codexapp Summary 默认或恢复对应 policy helper；若未来调整过 `SkillMode.Effective()` / provider render default，也必须同步回滚到 Unspecified→Full 兼容语义。
-7. **不动 claudecli 当前 eager Full 基线**：Phase 2 未落地前，claudecli eager Full 是降级参考；Phase 2 落地后，只允许按上一条禁用 skill MCP server，不在同一 PR 中同时改变 claudecli 默认行为与 child lifecycle。
+7. **不动 claudecli 当前 eager Full 基线**：Phase 2 same-binary child 已落地后，claudecli eager Full 仍是 provider default policy 切换前的降级参考；只允许按上一条禁用 skill MCP server，不在同一 PR 中同时改变 claudecli 默认行为与 child lifecycle。
 8. **验证命令**：回滚前后复跑 §4.2 的 codexapp / claudecli / toolbridge / turn 最小测试，并手工 smoke：Mode=Unspecified、显式 Full、显式 Summary 三类 system prompt 均符合预期；Phase 2 已落地时还要附 child 退出 / 临时配置清理证据。
 
 ### 9.4 Non-goals（当前 PR 不做）
 
-- 不实现 claudecli Phase 2 stdio MCP server。
+- 不正式切换 claudecli 默认 skill render 策略；Phase 2 stdio MCP server 仅作为最小工具链落地，真实 Claude CLI E2E / lifecycle 观测仍是上线前置。
 - 不正式化全局 Summary default policy，也不调整 `SkillMode.Effective()` 的 Unspecified→Full 兼容语义。
 - 不恢复 p20.11 mcp-orch 注册 skill tools 路线。
 - 不改变 claudecli eager Full 行为。
@@ -759,12 +783,13 @@ Release governance / 风险 gate 只作为发布管理补充，不盖过上述�
 
 详见 §6.7。落地选项二选一即可。
 
-### 10.5 零可观测性（HIGH，运维）
+### 10.5 基础可观测性已补（HIGH，运维：导出 / 告警待做）
 
-详见 §3.4。Phase 1 在生产静默坏掉无信号。
+详见 §3.4。Phase 1 原先“生产静默坏掉无信号”的问题已收敛为：
 
-- 后续：Phase 3 正式化 Summary default policy / 删除 override 前，补基础 metrics / INFO 日志 / error-rate 告警，至少能观察 `host_tool_calls_total`、`enrich_failures_total` 与 host-direct 命中情况。
-- 定位：这是 rollout support，不是当前 codexapp 普通路径代码级能力的 blocker；当前业务主 blocker 仍是模型视角 E2E、claudecli parity 与默认放量可观测性。
+- 已补：`host_tool_calls_total{outcome}` 对应 Go counters、`enrich_failures_total` counter、host-direct INFO 日志、cwd_missing WARN、peer shadow WARN。
+- 后续：Phase 3 正式化 Summary default policy / 删除 override 前，仍需补 Prometheus / OTel 或等价导出、error-rate 告警与 30 天 rollout observation，才能把 99% 成功率从人工判断升级为可执行 gate。
+- 定位：这是 rollout support，不是当前 codexapp 普通路径代码级能力的 blocker；当前业务主 blocker 仍是真实 Claude CLI 已认证 E2E、resume/recovery、redaction/default discovery 与 Phase 3 provider policy。
 
 ### 10.6 Mode override 在 caller 而非 sink（MED，可维护性）
 
