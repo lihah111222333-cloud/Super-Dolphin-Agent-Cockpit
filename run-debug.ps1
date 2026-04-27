@@ -349,6 +349,13 @@ if (-not $env:ENABLE_MEMORY_SYSTEM)               { $env:ENABLE_MEMORY_SYSTEM = 
 if (-not $env:ENABLE_MEMORY_TOOLS)                { $env:ENABLE_MEMORY_TOOLS  = '1' }
 if (-not $env:MULTI_AGENT_MEMORY_FEATURE_TEAMMEM) { $env:MULTI_AGENT_MEMORY_FEATURE_TEAMMEM = '1' }
 
+# Codex legacy default-home opt-in（与 sh 一致）。P21 P1a 把 codex identity
+# 缺失改成硬报错；前端 thread/start payload 没显式传 codexHome 时，后端
+# injectDefaultCodexIdentityForStart 只在该 env 为 "1" 时回落 ~/.codex。
+# 默认 opt-in 让 dev 启动 GUI 后能直接对话；想关闭走 P1a 严格模式时
+# `$env:CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME = '0'` 即可。
+if (-not $env:CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME) { $env:CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME = '1' }
+
 $ExtraArgs = $args
 
 try {
