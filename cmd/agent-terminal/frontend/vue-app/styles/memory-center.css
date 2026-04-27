@@ -189,6 +189,69 @@
   display: none;
 }
 
+.memory-center-auto-card {
+  gap: 8px;
+  padding: 12px 14px;
+  border-color: color-mix(in srgb, var(--primary-dim) 36%, var(--border));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--primary) 8%, transparent), transparent 58%),
+    var(--surface);
+}
+
+.memory-center-auto-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.memory-center-auto-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.memory-center-auto-text {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.memory-center-auto-card-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.memory-center-auto-toggle {
+  appearance: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2, var(--surface));
+  color: var(--text);
+  font-size: 12px;
+  padding: 2px 10px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.memory-center-auto-toggle:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--primary) 60%, var(--border));
+  background: color-mix(in srgb, var(--primary) 10%, var(--surface));
+}
+
+.memory-center-auto-toggle:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.memory-center-auto-pending {
+  margin-top: 4px;
+  color: var(--warning, #d99a3a);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
 .memory-center-guide-grid {
   display: grid;
   gap: 10px;
