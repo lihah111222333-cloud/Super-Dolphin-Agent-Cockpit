@@ -177,7 +177,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 		s.runtime.Start()
 	}
 	baseInstructions, developerInstructions := startAssemblyInstructions(req)
-	s.setRuntimeConfig(req.Config)
+	s.setRuntimeConfig(canonicalStartRuntimeConfig(req.Config))
 	s.ensureRuntimeCodexHomeFromInitialize("start")
 	if baseInstructions != "" {
 		s.setRuntimeConfigValue("baseInstructions", baseInstructions)

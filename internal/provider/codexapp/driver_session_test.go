@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -251,6 +253,93 @@ func TestDriverStartSessionInjectsInitializeCodexHome(t *testing.T) {
 	defer closeCodexTestSession(t, s)
 	if cfg := s.RuntimeConfigSnapshot(); cfg["codexHome"] != home {
 		t.Fatalf("runtime codexHome = %#v, want %q; cfg=%#v", cfg["codexHome"], home, cfg)
+	}
+}
+
+func TestDriverStartSessionCanonicalizesRuntimeCodexHome(t *testing.T) {
+	home := t.TempDir()
+	codexHome := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexHome, 0o755); err != nil {
+		t.Fatalf("mkdir codex home: %v", err)
+	}
+	t.Setenv("HOME", home)
+	wantHome, err := filepath.EvalSymlinks(codexHome)
+	if err != nil {
+		t.Fatalf("canonicalize test codex home: %v", err)
+	}
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		for {
+			_, rawBytes, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var msg jsonRPCMessage
+			if err := json.Unmarshal(rawBytes, &msg); err != nil || len(msg.ID) == 0 {
+				continue
+			}
+			var result json.RawMessage
+			switch msg.Method {
+			case "initialize":
+				result = mustJSON(map[string]any{"codexHome": wantHome})
+			case "thread/start":
+				result = mustJSON(map[string]any{
+					"thread": map[string]any{"id": "provider-thread-canonical", "cwd": "/repo"},
+					"model":  "gpt-5.5",
+				})
+			default:
+				result = mustJSON(map[string]any{"ok": true})
+			}
+			resp, err := json.Marshal(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      json.RawMessage(append([]byte(nil), msg.ID...)),
+				"result":  json.RawMessage(append([]byte(nil), result...)),
+			})
+			if err != nil {
+				t.Fatalf("marshal response: %v", err)
+			}
+			if err := conn.WriteMessage(websocket.TextMessage, resp); err != nil {
+				return
+			}
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	config := map[string]any{
+		"codexHome":          "~/.codex",
+		"codexInstanceKey":   "default",
+		"codexModelProvider": "openai",
+	}
+	d := &driver{
+		serverURL: "ws" + strings.TrimPrefix(server.URL, "http"),
+		listTools: func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+			return nil, nil
+		},
+	}
+	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
+		Provider: "codex",
+		AgentID:  "agent-canonical",
+		CWD:      "/repo",
+		Config:   config,
+	})
+	if err != nil {
+		t.Fatalf("StartSession() error = %v", err)
+	}
+	s, ok := got.(*session)
+	if !ok {
+		t.Fatalf("StartSession() type = %T, want *session", got)
+	}
+	defer closeCodexTestSession(t, s)
+	if gotHome := s.RuntimeConfigSnapshot()["codexHome"]; gotHome != wantHome {
+		t.Fatalf("runtime codexHome = %#v, want %q", gotHome, wantHome)
+	}
+	if config["codexHome"] != "~/.codex" {
+		t.Fatalf("StartSession mutated input config codexHome = %#v", config["codexHome"])
 	}
 }
 
