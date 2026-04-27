@@ -4,7 +4,8 @@
 // 端到端验证 dream_executor wrapper 链路。
 //
 // 跑法：
-//   go test -tags=manual -run TestManualCodexDreamPipeline -v ./internal/provider/codexapp/
+//
+//	go test -tags=manual -run TestManualCodexDreamPipeline -v ./internal/provider/codexapp/
 //
 // 不带 -tags=manual 不会编译，CI 自动跳过。
 package codexapp
@@ -15,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/pkg/dreammetrics"
 )
 
 // minimalConsolidationPrompt 与 claudecli 端到端手测对称，
@@ -33,6 +36,9 @@ Now output the JSON:`
 func TestManualCodexDreamPipeline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+
+	dreammetrics.ResetForTesting()
+	t.Cleanup(dreammetrics.ResetForTesting)
 
 	exec := newDreamExecutor(nil, "", "")
 	t.Logf("dream executor: binary=%q, model=%q", exec.binary, exec.model)
@@ -58,6 +64,9 @@ func TestManualCodexDreamPipeline(t *testing.T) {
 		t.Fatalf("expected valid JSON envelope, got parse error: %v\nraw: %s", err, got)
 	}
 	t.Logf("parsed envelope: memories=%d items", len(envelope.Memories))
+	if got := dreammetrics.TokensInput(); got == 0 {
+		t.Errorf("TokensInput() = %d, want > 0 (codex usage should be recorded)", got)
+	}
 }
 
 func truncate(s string, max int) string {

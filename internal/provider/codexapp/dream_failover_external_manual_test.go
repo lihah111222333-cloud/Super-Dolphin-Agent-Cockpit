@@ -3,7 +3,8 @@
 // Package codexapp_test 端到端 manual test：验证 dispatcher 真 failover。
 //
 // 跑法：
-//   go test -tags=manual -run TestManualDispatcherFailover -v ./internal/provider/codexapp/
+//
+//	go test -tags=manual -run TestManualDispatcherFailover -v ./internal/provider/codexapp/
 //
 // 测试场景：
 //   - claudecli 故意指向不存在的 binary → 触发 ErrDreamExecutorNotConfigured
@@ -84,6 +85,9 @@ func TestManualDispatcherFailover(t *testing.T) {
 	}
 	if snap.AllNotConfiguredTotal != 0 {
 		t.Errorf("AllNotConfiguredTotal: got %d, want 0 (codex succeeded)", snap.AllNotConfiguredTotal)
+	}
+	if got := dreammetrics.TokensInput(); got == 0 {
+		t.Errorf("TokensInput() = %d, want > 0 (codex usage should be recorded)", got)
 	}
 }
 

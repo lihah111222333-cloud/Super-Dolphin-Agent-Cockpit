@@ -6,7 +6,8 @@
 // → 真 dispatcher.ExecuteDream → 真 LLM 调用 → parseExtractedMemories → 写盘。
 //
 // 跑法（需要真 ~/.claude 或 ~/.codex 凭据 + 对应 binary 在 PATH）：
-//   go test -tags=manual -run TestManualAutoDreamE2EPipeline -v ./internal/module/memory/
+//
+//	go test -tags=manual -run TestManualAutoDreamE2EPipeline -v ./internal/module/memory/
 //
 // 对照 B-4.4 dispatcher failover e2e 是 dispatcher 一段，本 test 覆盖
 // stop hook 触发段 + consolidator + 写盘段，两者拼起来等同生产路径。
@@ -111,6 +112,9 @@ func TestManualAutoDreamE2EPipeline(t *testing.T) {
 	}
 	if snap.AllNotConfiguredTotal != 0 {
 		t.Errorf("AllNotConfiguredTotal: got %d, want 0", snap.AllNotConfiguredTotal)
+	}
+	if got := dreammetrics.TokensInput(); got == 0 {
+		t.Errorf("TokensInput() = %d, want > 0 (dream usage should be recorded)", got)
 	}
 
 	// 10. 验证 memory entries 真被写到磁盘
