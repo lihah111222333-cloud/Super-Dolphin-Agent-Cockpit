@@ -523,11 +523,13 @@ Phase 3 硬性 red gates（任一不满足不得正式化 Summary default policy
    - 输入：`pkg/skillmetrics.Read()` 中的 `HostToolCall*`、`EnrichFailuresTotal`、artifact approval / MCP child counters。
    - 输出：`internal/platform/metrics/skill.go` 注册 Prometheus `CounterFunc`；`host_tool_calls_total{outcome=ok|cwd_missing|approval_required|error}` 保留 outcome 维度，`enrich_failures_total`、`skill_artifact_approval_miss_total`、`skill_mcp_*` 等同步可 gather。
    - 验收：`TestSkillMetricsExporterSnapshotIncludesHostToolOutcomes` 已证明 Prometheus 读取值与 `pkg/skillmetrics` snapshot 一致。
-2. **P25-HIGH-02b：告警规则与降级触发**
-   - error-rate：`host_tool_calls_total{outcome!="ok"} / host_tool_calls_total` > 5% 持续 5min。
-   - cwd_missing：任一 5min 窗口非零需要 WARN 或 ticket，因为它通常表示 agentId/cwd binding 漂移。
-   - approval_required：持续堆积且无 approved/denied/timeout 结论时报警，避免 UI approval 链断开后模型反复调用。
-   - enrich_failure：非零即报警或至少 WARN，因为它代表 tool call params 协议漂移。
+2. ✅ **P25-HIGH-02b：告警规则与降级触发**（2026-04-27 已落地 rule artifact）
+   - artifact：`docs/plans/迁移/p25skill优化/skill-progressive-disclosure-alerts.yml`。
+   - error-rate：`SkillHostToolHighErrorRate` 规则锁定 `host_tool_calls_total{outcome!="ok"} / host_tool_calls_total` > 5% 持续 5min。
+   - cwd_missing：`SkillHostToolCWDMissing` 规则锁定 5min 窗口非零即告警，因为它通常表示 agentId/cwd binding 漂移。
+   - approval_required：`SkillHostToolApprovalRequiredStuck` 规则锁定 approval_required 增长但 ok 不增长的 10min 窗口，避免 UI approval 链断开后模型反复调用。
+   - enrich_failure：`SkillToolEnrichFailures` 规则锁定 `enrich_failures_total` 非零告警，因为它代表 tool call params 协议漂移。
+   - 验收：`TestSkillProgressiveDisclosureAlertRulesArtifact` 固定 alert 名称、关键 PromQL 与 rollback runbook 引用。
 3. ✅ **P25-HIGH-02c：默认 discovery smoke**（2026-04-27 已落地）
    - `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=false`：默认不注册全量 catalog，只保留 selected/name-only path。
    - `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=true`：`SkillCatalogProvider` 渲染 Core / Native / Manual-only / Untrusted 分组；untrusted metadata redaction 回归必须保持绿。
@@ -540,6 +542,7 @@ Phase 3 硬性 red gates（任一不满足不得正式化 Summary default policy
 
 ```bash
 go test ./pkg/skillmetrics ./internal/platform/metrics -count=1
+go test ./internal/platform/metrics -run TestSkillProgressiveDisclosureAlertRulesArtifact -count=1
 go test ./internal/platform/toolbridge -run 'Test.*(Observability|Metrics|ListToolsForCodex|CallHostTool)' -count=1
 go test ./internal/module/prompt -run 'Test(SkillProgressiveDisclosure|SkillCatalogProvider)' -count=1
 go test ./internal/module/turn -run TestApplyHydration_UntrustedSummary -count=1
@@ -747,7 +750,7 @@ shadowed_by，避免同名冲突静默消失。仍保留的长期选项是为 ho
 - [ ] **BUSINESS BLOCKED**：全量 skill discovery 默认未启用；`ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=false` 时模型只能看到 selected/name-only skill，不会默认获得完整 catalog。默认开启的 discovery smoke 已补，仍需 observability / rollout gates。
 - [ ] **BUSINESS BLOCKED**：显式 Full 仍 eager 注入完整 body；这是兼容设计，但产品/迁移策略需确认是否允许长期存在。
 - [ ] **VALIDATION REMAINS**：claudecli Phase 2 same-binary stdio MCP child 最小实现已落地，两个 provider 的模型可见 skill tool 语义已有代码级 parity；内存 stdio、真实 agent-terminal 二进制 `Content-Length initialize -> tools/list -> tools/call -> EOF`、Claude-like parent stdin EOF / context cancel / no-orphan lifecycle、真实二进制 initialize / tools/list / tools/call / stdin EOF latency budget 已有单测 smoke。真实 Claude CLI `--mcp-config` E2E 已有 opt-in 测试，未认证环境会跳过；业务 PR-ready 仍必须补已认证环境下的真实 Claude CLI tool-call E2E 与放量观测。
-- [ ] **ROLL-OUT BLOCKED**：Prometheus collector 声明已接入 default gatherer，但 promhttp `/metrics` 暴露端点、alerting 与 rollout observation 未完成。Phase 3 默认策略前仍需 error-rate > 5% 持续 5min 告警、30 天成功率观察。
+- [ ] **ROLL-OUT BLOCKED**：Prometheus collector 声明与 alert rules artifact 已落地，但 promhttp `/metrics` 暴露端点 / scrape target、规则加载到 Prometheus/Alertmanager、rollout observation 未完成。Phase 3 默认策略前仍需 30 天成功率观察。
 - [ ] **BUSINESS BLOCKED**：Phase 3 provider default policy / override 删除还没有可量化验收证据（CI job / test command / smoke checklist / rollout observation）。
 
 Release governance / 风险 gate 只作为发布管理补充，不盖过上述业务能力判断：
@@ -820,7 +823,7 @@ Release governance / 风险 gate 只作为发布管理补充，不盖过上述�
 详见 §3.4。Phase 1 原先“生产静默坏掉无信号”的问题已收敛为：
 
 - 已补：`host_tool_calls_total{outcome}` 对应 Go counters + Prometheus `CounterFunc` collector、`enrich_failures_total` collector、host-direct INFO 日志、cwd_missing WARN、peer shadow WARN。
-- 后续：Phase 3 正式化 Summary default policy / 删除 override 前，仍需补 promhttp `/metrics` 暴露端点或等价 dashboard 接入、error-rate 告警与 30 天 rollout observation，才能把 99% 成功率从人工判断升级为可执行 gate。
+- 后续：Phase 3 正式化 Summary default policy / 删除 override 前，仍需补 promhttp `/metrics` 暴露端点或等价 dashboard 接入、把 alert rules artifact 加载到 Prometheus/Alertmanager，并完成 30 天 rollout observation，才能把 99% 成功率从人工判断升级为可执行 gate。
 - 定位：这是 rollout support，不是当前 codexapp 普通路径代码级能力的 blocker；当前业务主 blocker 仍是真实 Claude CLI 已认证 E2E、resume/recovery、redaction/default discovery 与 Phase 3 provider policy。
 
 ### 10.6 Mode override 在 caller 而非 sink（MED，可维护性）

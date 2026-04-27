@@ -1,0 +1,64 @@
+# Prometheus alert rules for P25 skill progressive-disclosure rollout.
+# Status: P25-HIGH-02b rule artifact. Loading/evaluation requires a promhttp
+# /metrics endpoint or equivalent Prometheus scrape target (tracked separately).
+groups:
+  - name: skill-progressive-disclosure
+    interval: 30s
+    rules:
+      - alert: SkillHostToolHighErrorRate
+        expr: |
+          (
+            sum(rate(host_tool_calls_total{outcome!="ok"}[5m]))
+            /
+            clamp_min(sum(rate(host_tool_calls_total[5m])), 1)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          component: skill-progressive-disclosure
+          owner: skill
+        annotations:
+          summary: "Host-direct skill tool error rate is above 5%"
+          description: "Non-ok host tool outcomes exceeded 5% over 5m. Check cwd_missing, approval_required, and error outcomes before enabling default progressive disclosure."
+          runbook: "Rollback to eager Full or disable host skill tools per p25skill优化.md §9.3."
+
+      - alert: SkillHostToolCWDMissing
+        expr: |
+          sum(increase(host_tool_calls_total{outcome="cwd_missing"}[5m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+          component: skill-progressive-disclosure
+          owner: skill
+        annotations:
+          summary: "Host-direct skill tool call is missing cwd"
+          description: "cwd_missing usually means agentId/cwd binding drift. Investigate toolbridge binding resolution before rollout."
+          runbook: "Check toolbridge host-direct logs for agent_id/thread_id/call_id, then follow p25skill优化.md §9.3 rollback guidance if repeated."
+
+      - alert: SkillHostToolApprovalRequiredStuck
+        expr: |
+          sum(increase(host_tool_calls_total{outcome="approval_required"}[10m])) > 0
+          and
+          sum(increase(host_tool_calls_total{outcome="ok"}[10m])) == 0
+        for: 10m
+        labels:
+          severity: warning
+          component: skill-progressive-disclosure
+          owner: skill
+        annotations:
+          summary: "Skill approvals appear stuck"
+          description: "approval_required outcomes are increasing but no ok host tool calls completed in the same 10m window. The UI approval bridge may be broken or unattended."
+          runbook: "Verify approval UI, ApprovalManager, and artifact cache. Do not enable default Summary policy until approval closes."
+
+      - alert: SkillToolEnrichFailures
+        expr: |
+          increase(enrich_failures_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          component: skill-progressive-disclosure
+          owner: skill
+        annotations:
+          summary: "Codex skill tool-call enrichment failed"
+          description: "enrich_failures_total increased, indicating tool call params schema drift or marshal/decode failure."
+          runbook: "Inspect codexapp tool-call params enrichment logs; rollback Summary default if models cannot call skill_expand_body reliably."
