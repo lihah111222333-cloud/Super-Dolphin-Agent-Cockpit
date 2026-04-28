@@ -244,7 +244,19 @@ func (t *transport) spawnLocal(ctx context.Context) error {
 	proc := newLocalProcess(cmd, stderr)
 	proc.guard = attachProcessGuard(cmd)
 	proc.waitAsync()
-	go t.collectProcessStderr(proc, stderr)
+	go func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				pkglogger.Error("codexapp: recovered collectProcessStderr panic", "panic", rec)
+				select {
+				case <-proc.stderrDone:
+				default:
+					close(proc.stderrDone)
+				}
+			}
+		}()
+		t.collectProcessStderr(proc, stderr)
+	}()
 	serverURL, err := proc.waitForListenURL(ctx)
 	if err != nil {
 		_ = proc.signal(sigForceKill)
@@ -259,7 +271,14 @@ func (t *transport) spawnLocal(ctx context.Context) error {
 	t.process = proc
 	t.processErr = nil
 	t.stateMu.Unlock()
-	go t.watchLocalProcess(proc)
+	go func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				pkglogger.Error("codexapp: recovered watchLocalProcess panic", "panic", rec)
+			}
+		}()
+		t.watchLocalProcess(proc)
+	}()
 	return nil
 }
 

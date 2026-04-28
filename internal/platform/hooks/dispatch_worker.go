@@ -86,7 +86,14 @@ func (w *hookDispatchWorker) Start() {
 			close(w.doneCh)
 			return
 		}
-		go w.runWorker()
+		go func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					pkglogger.Error("hooks: recovered dispatch_worker panic", "panic", rec)
+				}
+			}()
+			w.runWorker()
+		}()
 	})
 }
 

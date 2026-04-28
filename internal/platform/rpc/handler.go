@@ -97,6 +97,25 @@ func CapabilityGate(cap string, resolver CapabilityResolver) Middleware {
 	}
 }
 
+// CapabilityErrorMapper intercepts runtime contract.CapabilityError values
+// returned from handler functions and maps them to the standard -31004
+// CodeCapabilityGate RPC error. This complements CapabilityGate (pre-call
+// check) by catching errors from provider methods that discover capability
+// gaps at execution time rather than at dispatch time.
+func CapabilityErrorMapper() Middleware {
+	return func(next handler.Func) handler.Func {
+		return handler.Func(func(ctx context.Context, req *jrpc2.Request) (any, error) {
+			resp, err := next(ctx, req)
+			if err != nil {
+				if rpcErr := MapCapabilityError(err); rpcErr != nil {
+					return nil, rpcErr
+				}
+			}
+			return resp, err
+		})
+	}
+}
+
 func resolveCapabilities(ctx context.Context, resolver CapabilityResolver) (dto.CapabilitySet, error) {
 	if resolver == nil {
 		return nil, errors.New("thread capability resolver is not configured")
