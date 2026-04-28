@@ -212,6 +212,51 @@ func (s *service) ListJobRuns(ctx context.Context, jobID string, limit int32) ([
 	return out, nil
 }
 
+// RunOnce schedules a manual trigger by bumping next_run_at to now.
+// The scheduler tick (default 10s) picks it up at the next cycle and
+// drives the job through the same three-phase atomic protocol as a
+// normal due trigger — idempotency_key + dedupe_key are still
+// generated at submit time, so concurrent ticks can't double-fire.
+//
+// Note: a job whose next_retry_at is set in the future (i.e. retry
+// pending) will still wait for that delay, since
+// scheduler.claimOneDueJob ranks by COALESCE(next_retry_at, next_run_at).
+func (s *service) RunOnce(ctx context.Context, jobID string) (Job, error) {
+	jobID = strings.TrimSpace(jobID)
+	if jobID == "" {
+		return Job{}, errors.New("cron: id is required")
+	}
+	row, err := s.store.GetJobByID(ctx, jobID)
+	if err != nil {
+		if errors.Is(err, cronstore.ErrJobNotFound) {
+			return Job{}, ErrNotFound
+		}
+		return Job{}, err
+	}
+	now := s.now().UTC()
+	if err := s.store.UpdateJobSchedule(ctx, cronstore.UpdateJobScheduleParams{
+		ID:            row.ID,
+		Name:          row.Name,
+		Prompt:        row.Prompt,
+		ScheduleType:  row.ScheduleType,
+		ScheduleExpr:  row.ScheduleExpr,
+		Timezone:      row.Timezone,
+		Provider:      row.Provider,
+		Model:         row.Model,
+		CWD:           row.CWD,
+		Config:        row.Config,
+		Skills:        row.Skills,
+		NotifyChannel: row.NotifyChannel,
+		Enabled:       row.Enabled,
+		NextRunAt:     now,
+		MaxAttempts:   row.MaxAttempts,
+		UpdatedAt:     now,
+	}); err != nil {
+		return Job{}, err
+	}
+	return s.GetJob(ctx, row.ID)
+}
+
 // ----- validation helpers -----
 
 func (s *service) validateCreate(req *CreateJobRequest) error {

@@ -25,6 +25,7 @@ type Service interface {
 	SetJobEnabled(ctx context.Context, id string, enabled bool) error
 	DeleteJob(ctx context.Context, id string) error
 	ListJobRuns(ctx context.Context, jobID string, limit int32) ([]Run, error)
+	RunOnce(ctx context.Context, jobID string) (Job, error)
 }
 
 // Sentinel errors exposed for RPC mapping.

@@ -56,6 +56,7 @@ describe('CronPanel contract', () => {
     expect(CronPanel.template).toContain('cron-refresh-button');
     expect(CronPanel.template).toContain('cron-new-button');
     expect(CronPanel.template).toContain("'cron-view-' + idx");
+    expect(CronPanel.template).toContain("'cron-runonce-' + idx");
     expect(CronPanel.template).toContain("'cron-edit-' + idx");
     expect(CronPanel.template).toContain('<CronJobDetail');
     expect(CronPanel.components).toHaveProperty('CronJobForm');

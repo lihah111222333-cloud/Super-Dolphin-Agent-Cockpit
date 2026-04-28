@@ -9,6 +9,7 @@ const cronApiMock = vi.hoisted(() => ({
   deleteJob: vi.fn(),
   setJobEnabled: vi.fn(),
   listJobRuns: vi.fn(),
+  runOnce: vi.fn(),
   mapCronRpcError: vi.fn((err) => ({
     code: 0,
     kind: 'unknown',
@@ -122,6 +123,16 @@ describe('cron store CRUD + optimistic updates', () => {
     cronApiMock.updateJob.mockRejectedValueOnce(new Error('rejected'));
     await expect(store.updateJob('j1', { name: 'after' })).rejects.toThrow('rejected');
     expect(store.state.jobs[0]).toEqual({ id: 'j1', name: 'before', enabled: true });
+  });
+
+  it('runOnce upserts the returned job', async () => {
+    cronApiMock.runOnce.mockResolvedValueOnce({ id: 'j1', name: 'demo', next_run_at: 'now' });
+    const store = useCronStore();
+    store.state.jobs = [{ id: 'j1', name: 'demo', next_run_at: 'tomorrow' }];
+    const job = await store.runOnce('j1');
+    expect(job.next_run_at).toBe('now');
+    expect(store.state.jobs[0].next_run_at).toBe('now');
+    expect(cronApiMock.runOnce).toHaveBeenCalledWith('j1');
   });
 
   it('loadRuns stores runs and tracks per-job loading flag', async () => {
