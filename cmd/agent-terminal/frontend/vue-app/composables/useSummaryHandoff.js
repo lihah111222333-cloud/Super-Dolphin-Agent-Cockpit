@@ -86,13 +86,76 @@ function itemToLine(item) {
   return `[${tag}] ${text}`;
 }
 
+// 进度段最少需要的 timeline 长度。短 timeline（<5）通常没什么工具风暴，
+// 主摘要本身就涵盖一切，没必要再拼一段。
+const PROGRESS_MIN_TIMELINE = 5;
+// 进度段在 timeline 尾部的扫描窗口。再往前的内容已不算「最近」。
+const PROGRESS_TAIL_SCAN = 40;
+// 进度段总字数上限，防止三个字段都顶满时尾巴过长。
+const PROGRESS_SECTION_LIMIT = 2000;
+
+function findLastMatch(items, predicate) {
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (predicate(items[i])) return items[i];
+  }
+  return null;
+}
+
+/**
+ * 在主摘要之外额外抽出「最近进展」段，作为独立锚点贴在末尾。
+ * 与 main 摘要的「最近 N 条」解耦：即便尾部全是 tool/command 风暴，
+ * 这里仍能保留：
+ *   - 最近 1 条 user 消息（任务诉求）
+ *   - 最近 1 条有实质内容的 assistant 文本（当前思路 / 阶段性结论）
+ *   - 最近 ≤3 条 plan（如果有）
+ * 三个字段独立 clip，互不挤压。
+ * @param {Array<object>} items
+ * @returns {string}
+ */
+function extractProgressSection(items) {
+  if (!Array.isArray(items) || items.length < PROGRESS_MIN_TIMELINE) return '';
+  const tail = items.slice(-PROGRESS_TAIL_SCAN);
+
+  const lastUser = findLastMatch(tail, (it) => {
+    if (!it || typeof it !== 'object') return false;
+    if ((it.role || '').toString().toLowerCase() !== 'user') return false;
+    return Boolean(clipField(it.text || it.content));
+  });
+  const lastAssistant = findLastMatch(tail, (it) => {
+    if (!it || typeof it !== 'object') return false;
+    if ((it.role || '').toString().toLowerCase() !== 'assistant') return false;
+    // 长度门槛过滤掉「好的」「明白了」这类没有进度信息的短答复。
+    const text = clipField(it.text || it.content, 600);
+    return text.length >= 40;
+  });
+  const lastPlans = tail
+    .filter((it) => it && (it.kind || '').toString().toLowerCase() === 'plan')
+    .slice(-3);
+
+  const lines = [];
+  if (lastUser) {
+    lines.push(`• 最近用户诉求：${clipField(lastUser.text || lastUser.content, 400)}`);
+  }
+  if (lastAssistant) {
+    lines.push(`• 助手当前思路：${clipField(lastAssistant.text || lastAssistant.content, 600)}`);
+  }
+  for (const plan of lastPlans) {
+    const text = clipField(plan.text || plan.content, 300);
+    if (!text) continue;
+    const flag = plan.done ? '已完成' : '进行中';
+    lines.push(`• 进度【${flag}】：${text}`);
+  }
+  return truncateSummaryText(lines.join('\n'), PROGRESS_SECTION_LIMIT);
+}
+
 /**
  * 把 thread timeline 抽成纯文本摘要（兜底版，截断式）。
  * 选取策略：
  *   - 最早 1 条（锐化任务起点）
  *   - 所有 plan 节点（进度心智）
  *   - 最近 N 条（近期上下文）
- * 后者三类去重、按出现顺序拼接，再按总字数截断。
+ * 三类去重、按出现顺序拼接，再按总字数截断。
+ * 末尾追加「最近进展」锚点段（仅当 timeline ≥ 5 条），与主摘要解耦避免被工具风暴挤掉。
  * @param {Array<object>} timelineItems
  * @param {{ recentCount?: number, charLimit?: number }} [opts]
  * @returns {string}
@@ -133,7 +196,9 @@ export function extractTimelineSummary(timelineItems, opts = {}) {
   const tail = items.slice(Math.max(0, items.length - recentCount));
   for (const item of tail) tryAdd(item);
 
-  return truncateSummaryText(picked.join('\n\n'), charLimit);
+  const main = truncateSummaryText(picked.join('\n\n'), charLimit);
+  const progress = extractProgressSection(items);
+  return progress ? `${main}\n\n## 最近进展\n${progress}` : main;
 }
 
 /**
