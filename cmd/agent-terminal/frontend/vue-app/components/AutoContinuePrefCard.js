@@ -46,18 +46,22 @@ export const AutoContinuePrefCard = {
         </span>
       </div>
       <div class="data-row-vue">
-        <label class="auto-continue-pref-toggle" style="display:inline-flex; align-items:center; gap:8px; cursor:pointer;">
+        <label class="auto-continue-pref-toggle">
           <input
             type="checkbox"
+            class="auto-continue-pref-input"
             data-testid="auto-continue-pref-checkbox"
-            :checked="enabledRef.value"
+            :checked="enabledRef"
             :disabled="saving"
             @change="onToggle"
           />
-          <span>{{ enabledRef.value ? '已启用' : '已关闭' }}</span>
-          <span v-if="saving" style="opacity:0.7;">保存中…</span>
+          <span class="auto-continue-pref-track" aria-hidden="true">
+            <span class="auto-continue-pref-thumb"></span>
+          </span>
+          <span class="auto-continue-pref-status">{{ enabledRef ? '开启' : '关闭' }}</span>
+          <span v-if="saving" class="auto-continue-pref-saving">保存中…</span>
         </label>
-        <span v-if="error" data-testid="auto-continue-pref-error" style="color:var(--color-danger,#c33); margin-left:12px;">{{ error }}</span>
+        <span v-if="error" data-testid="auto-continue-pref-error" class="auto-continue-pref-error">{{ error }}</span>
       </div>
     </div>
   `,
