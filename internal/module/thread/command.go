@@ -144,7 +144,7 @@ func sendInterruptCommand(
 }
 
 func lowFrequencyCommandError(command string) error {
-	return fmt.Errorf("TODO(P9): implement typed thread handler for %s", command)
+	return fmt.Errorf("command %s is not yet supported in the current session", command)
 }
 
 func newFriendlyCapabilityError(capability, provider, message string) error {
