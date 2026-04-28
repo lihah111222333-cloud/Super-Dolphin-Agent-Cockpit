@@ -115,7 +115,14 @@ func (w *sessionRecoveryWorker) Start() {
 			close(w.doneCh)
 			return
 		}
-		go w.runWorker()
+		go func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					pkglogger.Error("thread: recovered session_recovery_worker panic", "panic", rec)
+				}
+			}()
+			w.runWorker()
+		}()
 	})
 }
 
@@ -223,7 +230,12 @@ func (w *sessionRecoveryWorker) drainPending() {
 	for _, ev := range batch {
 		w.inflight.Add(1)
 		go func(ev agentdto.AgentFailed) {
-			defer w.inflight.Done()
+			defer func() {
+				if rec := recover(); rec != nil {
+					pkglogger.Error("thread: recovered session_recovery per-event panic", "panic", rec)
+				}
+				w.inflight.Done()
+			}()
 			w.recoverer.processSessionRecovery(w.ctx, ev)
 			w.processedTotal.Add(1)
 		}(ev)
