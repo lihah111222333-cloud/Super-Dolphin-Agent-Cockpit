@@ -1,10 +1,11 @@
 // CronPanel: P1b-UI v1, 作为「任务」页的子 tab 渲染。
 // 仅覆盖列表 / 启停 / 删除三件事；表单 / 详情 / cron 表达式预览
 // 留给后续 PR（详见 docs/plans/迁移/p21/P1b_CronUI.md）。
-import { onMounted, onBeforeUnmount, computed } from '../../lib/vue.esm-browser.prod.js';
+import { onMounted, onBeforeUnmount, computed, ref } from '../../lib/vue.esm-browser.prod.js';
 import { useCronStore } from '../stores/cron.js';
 import { mapCronRpcError } from '../services/cron-api.js';
 import { logDebug, logInfo, logWarn } from '../services/log.js';
+import { CronJobForm } from '../components/cron/CronJobForm.js';
 
 function formatSchedule(job) {
   const expr = (job?.schedule_expr || '').toString();
@@ -30,12 +31,36 @@ function formatLastRun(job) {
 
 export const CronPanel = {
   name: 'CronPanel',
+  components: { CronJobForm },
   setup() {
     const store = useCronStore();
 
     const jobs = computed(() => store.state.jobs);
     const loading = computed(() => store.state.loading.list);
     const errorMessage = computed(() => store.state.error.list);
+
+    // view = 'list' | 'form'; editingJob = null 表示创建。
+    const view = ref('list');
+    const editingJob = ref(null);
+
+    function openCreate() {
+      editingJob.value = null;
+      view.value = 'form';
+    }
+    function openEdit(job) {
+      editingJob.value = job;
+      view.value = 'form';
+    }
+    function closeForm() {
+      view.value = 'list';
+      editingJob.value = null;
+    }
+    async function onSaved() {
+      closeForm();
+      try { await store.loadJobs(); } catch (err) {
+        logWarn('cron-panel', 'reload.failed', { message: (err && err.message) || String(err) });
+      }
+    }
 
     async function refresh() {
       try {
@@ -94,11 +119,29 @@ export const CronPanel = {
       formatSchedule,
       formatRetryBudget,
       formatLastRun,
+      view,
+      editingJob,
+      openCreate,
+      openEdit,
+      closeForm,
+      onSaved,
     };
   },
   template: `
     <div class="cron-panel" data-testid="cron-panel">
+      <CronJobForm
+        v-if="view === 'form'"
+        :editing-job="editingJob"
+        @cancel="closeForm"
+        @saved="onSaved"
+      />
+      <template v-else>
       <div class="cron-panel-toolbar">
+        <button
+          class="btn btn-primary btn-xs"
+          data-testid="cron-new-button"
+          @click="openCreate"
+        >新建定时任务</button>
         <button
           class="btn btn-ghost btn-xs"
           data-testid="cron-refresh-button"
@@ -166,12 +209,18 @@ export const CronPanel = {
           <div class="data-actions-vue">
             <button
               class="btn btn-ghost btn-xs"
+              :data-testid="'cron-edit-' + idx"
+              @click="openEdit(job)"
+            >编辑</button>
+            <button
+              class="btn btn-ghost btn-xs"
               :data-testid="'cron-delete-' + idx"
               @click="onDelete(job)"
             >删除</button>
           </div>
         </article>
       </div>
+      </template>
     </div>
   `,
 };
