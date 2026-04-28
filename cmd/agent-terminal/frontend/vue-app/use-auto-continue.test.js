@@ -23,8 +23,20 @@ vi.mock('./composables/useContextUsageThresholds.js', () => {
     _resetContextUsageThresholdsForTest: () => { r.value = [70, 85, 95]; },
   };
 });
+vi.mock('./composables/useAutoContinuePref.js', () => {
+  const p = ref(true);
+  return {
+    useAutoContinuePref: () => p,
+    loadAutoContinuePref: vi.fn().mockResolvedValue(true),
+    saveAutoContinuePref: vi.fn(),
+    isValidAutoContinuePref: () => true,
+    _resetAutoContinuePrefForTest: () => { p.value = true; },
+    _setAutoContinuePrefForTest: (v) => { p.value = v; },
+  };
+});
 
 const { logInfo, logWarn, logError } = await import('./services/log.js');
+const prefMod = await import('./composables/useAutoContinuePref.js');
 const { useAutoContinue } = await import('./composables/useAutoContinue.js');
 
 function makeStore(initial = {}) {
@@ -337,6 +349,71 @@ describe('useAutoContinue · retryAutoContinue', () => {
 });
 
 // ─────────────────────────────────────── inflight 并发保护 ──────────────────────
+
+// Phase 1.5·偏好开关
+describe('useAutoContinue · pref gating', () => {
+  it('does NOT emit signal nor call action when pref=false', async () => {
+    prefMod._setAutoContinuePrefForTest(false);
+    const store = makeStore({
+      tokenUsageByThread: { t1: { usedPercent: 50 } },
+      agentRuntimeById: { t1: { taskId: 'A' } },
+    });
+    start(store);
+    store.state.tokenUsageByThread = { t1: { usedPercent: 99 } };
+    await flushAll();
+    expect(continueTaskById).not.toHaveBeenCalled();
+    expect(store.compactThread).not.toHaveBeenCalled();
+    // signal 也不应 emit（避免“看似在做事”的日志）
+    const signalCalls = vi.mocked(logInfo).mock.calls.filter((args) => args[1] === 'auto_continue.signal');
+    expect(signalCalls).toHaveLength(0);
+    prefMod._setAutoContinuePrefForTest(true); // 恢复
+  });
+
+  it('does NOT trigger on status_error when pref=false', async () => {
+    prefMod._setAutoContinuePrefForTest(false);
+    const store = makeStore({
+      statuses: { t1: 'idle' },
+      agentRuntimeById: { t1: { taskId: 'A' } },
+    });
+    start(store);
+    store.state.statuses = { t1: 'error' };
+    await flushAll();
+    expect(store.recoverThread).not.toHaveBeenCalled();
+    expect(continueTaskById).not.toHaveBeenCalled();
+    prefMod._setAutoContinuePrefForTest(true);
+  });
+
+  it('toggling pref false → true makes next signal trigger normally', async () => {
+    prefMod._setAutoContinuePrefForTest(false);
+    const store = makeStore({
+      tokenUsageByThread: { t1: { usedPercent: 50 } },
+      agentRuntimeById: { t1: { taskId: 'A' } },
+    });
+    start(store);
+    // pref off：跨入 critical 不触发
+    store.state.tokenUsageByThread = { t1: { usedPercent: 99 } };
+    await flushAll();
+    expect(continueTaskById).not.toHaveBeenCalled();
+    // pref on：跳出再跳入 → 触发
+    prefMod._setAutoContinuePrefForTest(true);
+    store.state.tokenUsageByThread = { t1: { usedPercent: 70 } };
+    await flushAll();
+    store.state.tokenUsageByThread = { t1: { usedPercent: 99 } };
+    await flushAll();
+    expect(continueTaskById).toHaveBeenCalledTimes(1);
+  });
+
+  it('retryAutoContinue is NOT gated by pref (用户主动入口不受偏好控制)', async () => {
+    prefMod._setAutoContinuePrefForTest(false);
+    const store = makeStore({});
+    const cont = vi.fn().mockResolvedValue('retried-ok');
+    const { retryAutoContinue } = start(store, { continueTaskById: cont });
+    const id = await retryAutoContinue('t1');
+    expect(id).toBe('retried-ok');
+    expect(cont).toHaveBeenCalledWith('t1');
+    prefMod._setAutoContinuePrefForTest(true);
+  });
+});
 
 describe('useAutoContinue · inflight protection', () => {
   it('skips concurrent invocation on same thread', async () => {
