@@ -88,7 +88,14 @@ func (w *agentLaunchedWorker) Start() {
 			close(w.doneCh)
 			return
 		}
-		go w.runWorker()
+		go func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					pkglogger.Error("thread: recovered agent_launched_worker panic", "panic", rec)
+				}
+			}()
+			w.runWorker()
+		}()
 	})
 }
 

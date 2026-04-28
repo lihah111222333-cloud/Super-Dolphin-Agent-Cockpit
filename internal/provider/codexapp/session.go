@@ -200,7 +200,10 @@ func (s *session) onInboundMessage(ctx context.Context, resp Responder, msg RawM
 	if toolHandler := s.manager.getToolHandler(); len(msg.ID) != 0 && toolHandler != nil && isToolCallMethod(msg.Method) {
 		runtimesafe.SafeGo(s.ctx, s.logger, "codexapp.session.toolCall", func(_ context.Context) {
 			result, err := toolHandler(ctx, msg)
-			_ = resp.RespondWithID(msg.ID, result, err)
+			if respErr := resp.RespondWithID(msg.ID, result, err); respErr != nil {
+				s.logger.Warn("codexapp: tool call respond failed",
+					"agent_id", s.agentID, "method", msg.Method, "error", respErr)
+			}
 		})
 		return
 	}
@@ -209,7 +212,10 @@ func (s *session) onInboundMessage(ctx context.Context, resp Responder, msg RawM
 		return
 	}
 	if len(msg.ID) != 0 {
-		_ = resp.RespondWithID(msg.ID, nil, fmt.Errorf("method not supported: %s", msg.Method))
+		if respErr := resp.RespondWithID(msg.ID, nil, fmt.Errorf("method not supported: %s", msg.Method)); respErr != nil {
+			s.logger.Warn("codexapp: unsupported method respond failed",
+				"agent_id", s.agentID, "method", msg.Method, "error", respErr)
+		}
 		return
 	}
 	s.onNotification(msg.Method, msg.Params)

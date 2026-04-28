@@ -12,6 +12,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type claudeRuleMetadata struct {
@@ -206,7 +207,7 @@ func ruleMarkdownFiles(root string) []string {
 		return nil
 	}
 	files := make([]string, 0, 8)
-	_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+	if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil || entry == nil || entry.IsDir() {
 			return nil
 		}
@@ -214,7 +215,9 @@ func ruleMarkdownFiles(root string) []string {
 			files = append(files, cleanClaudeMdPath(path))
 		}
 		return nil
-	})
+	}); err != nil {
+		pkglogger.Warn("nested: rule markdown walk failed", "root", root, "error", err)
+	}
 	sort.Strings(files)
 	return files
 }

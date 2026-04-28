@@ -140,7 +140,8 @@ func newFXApp(options ...fx.Option) *fx.App {
 	base := []fx.Option{
 		Module,
 		fx.Invoke(BindRuntime),
-		// Caller-side start/stop deadlines are applied where App.Start/App.Stop are invoked.
+		fx.StartTimeout(platformconfig.StartupTimeout),
+		fx.StopTimeout(platformconfig.ShutdownTimeout),
 	}
 	base = append(base, options...)
 	return fx.New(base...)
@@ -166,7 +167,8 @@ func newDesktopFXApp(options ...fx.Option) *fx.App {
 		Module,
 		uiwails.Module,
 		fx.Invoke(BindRuntime),
-		// Caller-side start/stop deadlines are applied where App.Start/App.Stop are invoked.
+		fx.StartTimeout(platformconfig.StartupTimeout),
+		fx.StopTimeout(platformconfig.ShutdownTimeout),
 	}
 	base = append(base, options...)
 	return fx.New(base...)

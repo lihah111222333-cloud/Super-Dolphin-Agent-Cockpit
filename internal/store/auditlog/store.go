@@ -8,13 +8,21 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
+// querier is the narrow subset of *sqlc.Queries this store calls.
+type querier interface {
+	ListAuditEvents(ctx context.Context, arg sqlc.ListAuditEventsParams) ([]sqlc.ListAuditEventsRow, error)
+	InsertAuditEvent(ctx context.Context, arg sqlc.InsertAuditEventParams) error
+}
+
 type store struct {
-	q *sqlc.Queries
+	q querier
 }
 
 func NewStore(q *sqlc.Queries) Store {
 	return &store{q: q}
 }
+
+func newStoreForTest(q querier) Store { return &store{q: q} }
 
 func (s *store) List(ctx context.Context, filter ListFilter) ([]AuditEvent, error) {
 	rows, err := s.q.ListAuditEvents(ctx, sqlc.ListAuditEventsParams{

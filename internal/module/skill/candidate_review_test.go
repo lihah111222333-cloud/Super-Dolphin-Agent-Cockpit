@@ -16,19 +16,21 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/skillcandidate"
 )
 
+const validReviewFP = "0123456789abcdef0123456789abcdef"
+
 // fakeCandidateStore is a minimal in-memory skillcandidate.Store double
 // scoped to a single review-gate test. Each *Fn override lets the test
 // inject the exact behaviour it cares about; sensible defaults keep
 // individual cases short.
 type fakeCandidateStore struct {
-	mu        sync.Mutex
-	getByID   func(int64) (skillcandidate.Candidate, error)
-	approve   func(int64, string, string, time.Time) (skillcandidate.Candidate, error)
-	reject    func(int64, string) (skillcandidate.Candidate, error)
-	promote   func(int64) (skillcandidate.Candidate, error)
-	listFn    func(int32, int32) ([]skillcandidate.Candidate, error)
-	lookupFn  func(scope, slug, hash, fp string) (*skillcandidate.Candidate, error)
-	approveCalls  []struct {
+	mu           sync.Mutex
+	getByID      func(int64) (skillcandidate.Candidate, error)
+	approve      func(int64, string, string, time.Time) (skillcandidate.Candidate, error)
+	reject       func(int64, string) (skillcandidate.Candidate, error)
+	promote      func(int64) (skillcandidate.Candidate, error)
+	listFn       func(int32, int32) ([]skillcandidate.Candidate, error)
+	lookupFn     func(scope, slug, hash, fp string) (*skillcandidate.Candidate, error)
+	approveCalls []struct {
 		ID         int64
 		ApprovedBy string
 		Reason     string
@@ -55,11 +57,15 @@ func (f *fakeCandidateStore) GetByID(_ context.Context, id int64) (skillcandidat
 	return skillcandidate.Candidate{}, errors.New("GetByID not configured")
 }
 
-func (f *fakeCandidateStore) ListPending(_ context.Context, limit, offset int32) ([]skillcandidate.Candidate, error) {
+func (f *fakeCandidateStore) ListPending(_ context.Context, _ string, limit, offset int32) ([]skillcandidate.Candidate, error) {
 	if f.listFn != nil {
 		return f.listFn(limit, offset)
 	}
 	return nil, nil
+}
+
+func (f *fakeCandidateStore) MarkSuperseded(context.Context, string, string, string, int64) (int64, error) {
+	return 0, nil
 }
 
 func (f *fakeCandidateStore) Approve(_ context.Context, id int64, approvedBy, reason string, at time.Time) (skillcandidate.Candidate, error) {
@@ -197,14 +203,67 @@ func TestReview_ProjectScopeRequiresRepoFingerprint(t *testing.T) {
 	}
 	svc, projectRoot := newReviewService(t, cs, nil)
 	_, err := svc.ApproveCandidate(skillTestContext(projectRoot), ApproveCandidateParams{
-		CandidateID: 7,
-		ApprovedBy:  "alice",
+		CandidateID:           7,
+		ApprovedBy:            "alice",
+		CallerRepoFingerprint: validReviewFP,
 	})
 	if !errors.Is(err, ErrCandidateMissingFingerprint) {
 		t.Fatalf("err = %v, want ErrCandidateMissingFingerprint", err)
 	}
 	if len(cs.approveCalls) != 0 {
 		t.Fatalf("store.Approve must not be invoked when fingerprint missing: %d calls", len(cs.approveCalls))
+	}
+}
+
+func TestReview_RejectsRepoFingerprintMismatch(t *testing.T) {
+	t.Parallel()
+	cs := &fakeCandidateStore{
+		getByID: func(id int64) (skillcandidate.Candidate, error) {
+			return skillcandidate.Candidate{
+				ID:              id,
+				Scope:           skillcandidate.ScopeProject,
+				Slug:            "demo",
+				RepoFingerprint: validReviewFP,
+				Status:          skillcandidate.StatusPendingReview,
+				SkillMD:         "# demo\n",
+			}, nil
+		},
+	}
+	svc, projectRoot := newReviewService(t, cs, nil)
+	_, err := svc.ApproveCandidate(skillTestContext(projectRoot), ApproveCandidateParams{
+		CandidateID:           8,
+		ApprovedBy:            "alice",
+		CallerRepoFingerprint: "fedcba9876543210fedcba9876543210",
+	})
+	if !errors.Is(err, ErrRepoFingerprintMismatch) {
+		t.Fatalf("err = %v, want ErrRepoFingerprintMismatch", err)
+	}
+	if len(cs.approveCalls) != 0 {
+		t.Fatalf("store.Approve must not be invoked on repo mismatch: %d calls", len(cs.approveCalls))
+	}
+}
+
+func TestReview_RequiresCallerRepoFingerprint(t *testing.T) {
+	t.Parallel()
+	cs := &fakeCandidateStore{
+		getByID: func(id int64) (skillcandidate.Candidate, error) {
+			return skillcandidate.Candidate{
+				ID:              id,
+				Scope:           skillcandidate.ScopeProject,
+				Slug:            "demo",
+				RepoFingerprint: validReviewFP,
+				Status:          skillcandidate.StatusPendingReview,
+				SkillMD:         "# demo\n",
+			}, nil
+		},
+	}
+	svc, projectRoot := newReviewService(t, cs, nil)
+	_, err := svc.ApproveCandidate(skillTestContext(projectRoot), ApproveCandidateParams{CandidateID: 9, ApprovedBy: "alice"})
+	if !errors.Is(err, ErrCallerFingerprintRequired) {
+		t.Fatalf("err = %v, want ErrCallerFingerprintRequired", err)
+	}
+	if len(cs.approveCalls) != 0 {
+		t.Fatalf("store.Approve must not be invoked without caller fingerprint: %d calls", len(cs.approveCalls))
 	}
 }
 
@@ -216,7 +275,7 @@ func TestReview_NotPendingCannotApprove(t *testing.T) {
 				ID:              id,
 				Scope:           skillcandidate.ScopeProject,
 				Slug:            "demo",
-				RepoFingerprint: "fp",
+				RepoFingerprint: validReviewFP,
 				Status:          skillcandidate.StatusApproved, // already past pending
 				SkillMD:         "# demo\n",
 			}, nil
@@ -224,8 +283,9 @@ func TestReview_NotPendingCannotApprove(t *testing.T) {
 	}
 	svc, projectRoot := newReviewService(t, cs, nil)
 	_, err := svc.ApproveCandidate(skillTestContext(projectRoot), ApproveCandidateParams{
-		CandidateID: 1,
-		ApprovedBy:  "alice",
+		CandidateID:           1,
+		ApprovedBy:            "alice",
+		CallerRepoFingerprint: validReviewFP,
 	})
 	if !errors.Is(err, ErrCandidateNotPending) {
 		t.Fatalf("err = %v, want ErrCandidateNotPending", err)
@@ -245,7 +305,7 @@ func TestReview_HappyPathCallsCreateSkillAndAudit(t *testing.T) {
 				ID:              id,
 				Scope:           skillcandidate.ScopeProject,
 				Slug:            slug,
-				RepoFingerprint: "fp:repo-1",
+				RepoFingerprint: validReviewFP,
 				Status:          skillcandidate.StatusPendingReview,
 				SkillMD:         md,
 				ContentHash:     "sha:1",
@@ -255,9 +315,10 @@ func TestReview_HappyPathCallsCreateSkillAndAudit(t *testing.T) {
 	as := &fakeAuditStore{}
 	svc, projectRoot := newReviewService(t, cs, as)
 	res, err := svc.ApproveCandidate(skillTestContext(projectRoot), ApproveCandidateParams{
-		CandidateID: 11,
-		ApprovedBy:  "alice",
-		Reason:      "lgtm",
+		CandidateID:           11,
+		ApprovedBy:            "alice",
+		CallerRepoFingerprint: validReviewFP,
+		Reason:                "lgtm",
 	})
 	if err != nil {
 		t.Fatalf("ApproveCandidate error = %v", err)
@@ -290,7 +351,7 @@ func TestReview_HappyPathCallsCreateSkillAndAudit(t *testing.T) {
 	if err := json.Unmarshal(as.inserts[0].Extra, &extra); err != nil {
 		t.Fatalf("audit extra json: %v", err)
 	}
-	if extra["slug"] != slug || extra["content_hash"] != "sha:1" || extra["repo_fingerprint"] != "fp:repo-1" {
+	if extra["slug"] != slug || extra["content_hash"] != "sha:1" || extra["repo_fingerprint"] != validReviewFP {
 		t.Fatalf("audit extra = %+v", extra)
 	}
 	if extra["approved_by"] != "alice" {
@@ -306,7 +367,7 @@ func TestReview_CreateSkillFailureKeepsApproved(t *testing.T) {
 				ID:              id,
 				Scope:           skillcandidate.ScopeProject,
 				Slug:            "Bad/Slug", // CreateSkill rejects via validateSkillName.
-				RepoFingerprint: "fp",
+				RepoFingerprint: validReviewFP,
 				Status:          skillcandidate.StatusPendingReview,
 				SkillMD:         "# bad\n",
 			}, nil
@@ -315,9 +376,10 @@ func TestReview_CreateSkillFailureKeepsApproved(t *testing.T) {
 	as := &fakeAuditStore{}
 	svc, projectRoot := newReviewService(t, cs, as)
 	_, err := svc.ApproveCandidate(skillTestContext(projectRoot), ApproveCandidateParams{
-		CandidateID: 9,
-		ApprovedBy:  "alice",
-		Reason:      "try",
+		CandidateID:           9,
+		ApprovedBy:            "alice",
+		CallerRepoFingerprint: validReviewFP,
+		Reason:                "try",
 	})
 	if err == nil {
 		t.Fatal("expected CreateSkill failure to surface as error")
@@ -339,6 +401,15 @@ func TestReview_CreateSkillFailureKeepsApproved(t *testing.T) {
 func TestReview_RejectWritesAudit(t *testing.T) {
 	t.Parallel()
 	cs := &fakeCandidateStore{
+		getByID: func(id int64) (skillcandidate.Candidate, error) {
+			return skillcandidate.Candidate{
+				ID:              id,
+				Scope:           skillcandidate.ScopeProject,
+				Slug:            "noisy",
+				Status:          skillcandidate.StatusPendingReview,
+				RepoFingerprint: validReviewFP,
+			}, nil
+		},
 		reject: func(id int64, reason string) (skillcandidate.Candidate, error) {
 			return skillcandidate.Candidate{
 				ID:     id,
@@ -351,7 +422,7 @@ func TestReview_RejectWritesAudit(t *testing.T) {
 	}
 	as := &fakeAuditStore{}
 	svc, _ := newReviewService(t, cs, as)
-	if err := svc.RejectCandidate(context.Background(), 4, "duplicate"); err != nil {
+	if err := svc.RejectCandidate(context.Background(), RejectCandidateParams{CandidateID: 4, Reason: "duplicate", CallerRepoFingerprint: validReviewFP}); err != nil {
 		t.Fatalf("RejectCandidate error = %v", err)
 	}
 	if len(cs.rejectCalls) != 1 || cs.rejectCalls[0].Reason != "duplicate" {
@@ -362,6 +433,39 @@ func TestReview_RejectWritesAudit(t *testing.T) {
 	}
 	if as.inserts[0].Detail != "duplicate" {
 		t.Fatalf("audit detail = %q, want %q", as.inserts[0].Detail, "duplicate")
+	}
+}
+
+func TestReview_ListPendingExcludesRedactedSample(t *testing.T) {
+	t.Parallel()
+	cs := &fakeCandidateStore{
+		listFn: func(limit, offset int32) ([]skillcandidate.Candidate, error) {
+			return []skillcandidate.Candidate{{
+				ID:              42,
+				Scope:           skillcandidate.ScopeProject,
+				Slug:            "demo",
+				ContentHash:     "sha:demo",
+				RepoFingerprint: validReviewFP,
+				Status:          skillcandidate.StatusPendingReview,
+				RedactedSample:  "should-not-leave-list",
+				CreatedAt:       time.Unix(1700000000, 0).UTC(),
+			}}, nil
+		},
+	}
+	svc, _ := newReviewService(t, cs, nil)
+	rows, err := svc.ListPendingCandidates(context.Background(), validReviewFP, 10, 0)
+	if err != nil {
+		t.Fatalf("ListPendingCandidates error = %v", err)
+	}
+	if len(rows) != 1 || rows[0].Slug != "demo" {
+		t.Fatalf("rows = %+v", rows)
+	}
+	body, err := json.Marshal(rows)
+	if err != nil {
+		t.Fatalf("marshal rows: %v", err)
+	}
+	if strings.Contains(string(body), "redacted_sample") || strings.Contains(string(body), "should-not-leave-list") {
+		t.Fatalf("list response leaked RedactedSample: %s", body)
 	}
 }
 
@@ -402,7 +506,7 @@ func TestReview_SignedSkillStillRequiresApproval(t *testing.T) {
 				ID:              id,
 				Scope:           skillcandidate.ScopeProject,
 				Slug:            slug,
-				RepoFingerprint: "fp",
+				RepoFingerprint: validReviewFP,
 				Status:          skillcandidate.StatusPendingReview,
 				SkillMD:         md,
 				ContentHash:     "sha:signed",
@@ -412,8 +516,9 @@ func TestReview_SignedSkillStillRequiresApproval(t *testing.T) {
 	as := &fakeAuditStore{}
 	svc, projectRoot := newReviewService(t, cs, as)
 	res, err := svc.ApproveCandidate(skillTestContext(projectRoot), ApproveCandidateParams{
-		CandidateID: 21,
-		ApprovedBy:  "alice",
+		CandidateID:           21,
+		ApprovedBy:            "alice",
+		CallerRepoFingerprint: validReviewFP,
 	})
 	if err != nil {
 		t.Fatalf("ApproveCandidate signed: %v", err)

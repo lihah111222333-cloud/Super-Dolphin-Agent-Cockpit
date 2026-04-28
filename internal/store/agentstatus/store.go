@@ -8,13 +8,23 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
+// querier is the narrow subset of *sqlc.Queries this store calls.
+// Splitting it out keeps unit tests free of a live pool.
+type querier interface {
+	UpsertAgentStatus(ctx context.Context, arg sqlc.UpsertAgentStatusParams) (sqlc.AgentStatus, error)
+	GetAgentStatus(ctx context.Context, agentID string) (sqlc.AgentStatus, error)
+	ListAgentStatuses(ctx context.Context, status string) ([]sqlc.AgentStatus, error)
+}
+
 type store struct {
-	q *sqlc.Queries
+	q querier
 }
 
 func NewStore(q *sqlc.Queries) Store {
 	return &store{q: q}
 }
+
+func newStoreForTest(q querier) Store { return &store{q: q} }
 
 func (s *store) Upsert(ctx context.Context, params UpsertParams) (*AgentStatus, error) {
 	row, err := s.q.UpsertAgentStatus(ctx, sqlc.UpsertAgentStatusParams{

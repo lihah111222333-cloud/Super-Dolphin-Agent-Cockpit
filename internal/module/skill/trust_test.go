@@ -144,9 +144,9 @@ func TestRepoFingerprint_StableForSamePath(t *testing.T) {
 	if a != b {
 		t.Fatalf("fingerprint not stable for same path: %q vs %q", a, b)
 	}
-	// 16 hex chars = 64 bits
-	if len(a) != 16 {
-		t.Fatalf("fingerprint should be 16 hex chars, got %d: %q", len(a), a)
+	// 32 hex chars = 128 bits
+	if len(a) != 32 {
+		t.Fatalf("fingerprint should be 32 hex chars, got %d: %q", len(a), a)
 	}
 }
 

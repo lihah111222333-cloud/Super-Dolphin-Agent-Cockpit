@@ -235,7 +235,16 @@ func (s *PeerSupervisor) Run(ctx context.Context) error {
 		}
 		s.trackPeer(h)
 		wg.Add(1)
-		go s.superviseOne(ctx, name, h, &wg)
+		go func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					s.logger.Error("peer_supervisor: recovered superviseOne panic",
+						"peer", name, "panic", rec)
+					wg.Done()
+				}
+			}()
+			s.superviseOne(ctx, name, h, &wg)
+		}()
 	}
 
 	<-ctx.Done()

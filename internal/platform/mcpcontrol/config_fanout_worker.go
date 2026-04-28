@@ -102,7 +102,14 @@ func (w *configFanoutWorker) Start() {
 			close(w.doneCh)
 			return
 		}
-		go w.runWorker()
+		go func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					pkglogger.Error("mcpcontrol: recovered config_fanout_worker panic", "panic", rec)
+				}
+			}()
+			w.runWorker()
+		}()
 	})
 }
 

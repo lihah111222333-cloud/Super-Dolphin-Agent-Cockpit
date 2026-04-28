@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -112,8 +113,8 @@ func (r *SessionRuntime) Start() {
 		// on recovery does not race with wg.Wait).
 		r.spawnReader()
 		r.wg.Add(2)
-		go r.runHealthLoop()
-		go r.runRecoveryWorker()
+		go r.safeRunHealthLoop()
+		go r.safeRunRecoveryWorker()
 	})
 }
 
@@ -198,8 +199,13 @@ func (r *SessionRuntime) DroppedSignalsTotal() int64     { return r.droppedSigna
 // Health loop
 // -----------------------------------------------------------------------------
 
-func (r *SessionRuntime) runHealthLoop() {
+func (r *SessionRuntime) safeRunHealthLoop() {
 	defer r.wg.Done()
+	defer r.recoverWorkerPanic("session_runtime.healthLoop")
+	r.runHealthLoop()
+}
+
+func (r *SessionRuntime) runHealthLoop() {
 	ticker := time.NewTicker(r.healthInterval)
 	defer ticker.Stop()
 	for {
@@ -245,8 +251,13 @@ func (r *SessionRuntime) tickHealth() {
 // Recovery worker
 // -----------------------------------------------------------------------------
 
-func (r *SessionRuntime) runRecoveryWorker() {
+func (r *SessionRuntime) safeRunRecoveryWorker() {
 	defer r.wg.Done()
+	defer r.recoverWorkerPanic("session_runtime.recoveryWorker")
+	r.runRecoveryWorker()
+}
+
+func (r *SessionRuntime) runRecoveryWorker() {
 	for {
 		select {
 		case <-r.stopCh:
@@ -292,6 +303,7 @@ func (r *SessionRuntime) spawnReader() bool {
 	r.readerCancel = cancel
 	go func() {
 		defer close(done)
+		defer r.recoverWorkerPanic("session_runtime.reader")
 		r.s.transport.ReadLoop(readCtx, r.s.onInboundMessage)
 		r.logger.Warn("codexapp: read loop exited",
 			"agent_id", r.s.agentID,
@@ -351,3 +363,18 @@ func (r *SessionRuntime) waitReaderDone() {
 // runtimeErrStopped is returned by attemptRecovery when the runtime has been
 // stopped mid-flight (e.g. Close raced with a callTransport retry).
 var runtimeErrStopped = errors.New("codexapp: session runtime stopped")
+
+// recoverWorkerPanic catches any panic from a session runtime worker goroutine,
+// logging it with structured context so the process stays alive. This replaces
+// what would otherwise be a fatal crash from an unrecovered panic.
+func (r *SessionRuntime) recoverWorkerPanic(label string) {
+	if rec := recover(); rec != nil {
+		r.logger.Error("codexapp: recovered worker panic",
+			"label", label,
+			"agent_id", r.s.agentID,
+			"thread_id", r.s.ThreadID(),
+			"panic", rec,
+			"stack", string(debug.Stack()),
+		)
+	}
+}

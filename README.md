@@ -1,22 +1,82 @@
-# testsync
+# Super Agent v3
 
-Migration from go-agent-v2, started 2026-03-19.
+Multi-agent orchestration platform for AI-assisted development. Provides session management, tool execution, cron scheduling, and memory systems with real-time event streaming.
 
-## Clone 后必做
+> Migration from go-agent-v2, started 2026-03-19.
 
-```bash
-make install-hooks
+## Architecture
+
+```
+cmd/
+├── agent-terminal/      # Frontend + HTTP server (Vue.js SPA)
+├── mcp-orch/            # MCP orchestration peer (agent lifecycle, DAG, cron)
+└── mcp-lsp/             # MCP LSP peer (gopls integration, code intelligence)
+
+internal/
+├── contract/            # Cross-module interfaces & DTOs
+├── module/              # Business logic (turn, prompt, cron, memory, skill)
+├── platform/            # Infrastructure (db, rpc, config, runtime safety)
+├── provider/            # AI provider adapters (Claude CLI, Codex)
+└── store/               # Data access layer (sqlc-generated)
+
+pkg/                     # Reusable public libraries
 ```
 
-这会把本仓库的 `core.hooksPath` 指到 `.githooks`，让本地 `git commit` / `git push` 自动跑 pre-commit 与 pre-push 检查。紧急绕过只能用 `--no-verify`，且违反常态规约，必须事后补检查。
+## Quick Start
 
-## 代码地图
+### Prerequisites
 
-完整代码地图见 [`docs/doc/codemap/README.md`](docs/doc/codemap/README.md)。常用入口：
+- Go 1.23+
+- PostgreSQL (for store layer)
+- Node.js 20+ (for frontend)
 
-- [终端入口与 UI 层](docs/doc/codemap/01-terminal-ui.md)
+### Clone & Setup
+
+```bash
+git clone <repo-url> && cd super-agent-v3
+make install-hooks   # Required: enables pre-commit & pre-push checks
+```
+
+### Build & Run
+
+```bash
+make build-plain           # Build all (without Frida)
+make run-plain             # Run server
+make build-agent-terminal  # Build terminal UI
+```
+
+### Test
+
+```bash
+make test                  # Full test suite
+go test ./... -count=1     # Direct Go test
+go test -bench=. ./...     # Run benchmarks
+```
+
+## Code Quality
+
+| Metric | Value |
+|--------|-------|
+| Test Coverage | 67.4% |
+| Architecture Tests | 50+ (internal/archtest) |
+| Linter | golangci-lint (see .golangci.yml) |
+| CI | GitHub Actions (see .github/workflows/ci.yml) |
+
+### Git Hooks
+
+`make install-hooks` sets `core.hooksPath` to `.githooks`, enabling automatic pre-commit and pre-push checks. Bypass with `--no-verify` only in emergencies — violations must be fixed retroactively.
+
+## Code Map
+
+Full code map: [`docs/doc/codemap/README.md`](docs/doc/codemap/README.md). Key sections:
+
+- [Terminal Entry & UI Layer](docs/doc/codemap/01-terminal-ui.md)
 - [MCP Orchestration](docs/doc/codemap/02-mcp-orch.md)
-- [App 核心与契约层](docs/doc/codemap/04-app-contract.md)
-- [业务模块层](docs/doc/codemap/07-module.md)
-- [Platform 基础设施层](docs/doc/codemap/08-platform.md)
-- [Provider 集成层](docs/doc/codemap/09-provider.md)
+- [App Core & Contract Layer](docs/doc/codemap/04-app-contract.md)
+- [Business Modules](docs/doc/codemap/07-module.md)
+- [Platform Infrastructure](docs/doc/codemap/08-platform.md)
+- [Provider Integration](docs/doc/codemap/09-provider.md)
+
+## License
+
+Proprietary — Anthropic, Inc.

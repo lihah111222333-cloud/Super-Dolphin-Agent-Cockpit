@@ -166,7 +166,14 @@ func (l *WailsLifecycle) requestBackendShutdown() {
 		l.NotifyBackendFailed()
 		return
 	}
-	go shutdown()
+	go func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				pkglogger.Error("wails: recovered shutdown callback panic", "panic", rec)
+			}
+		}()
+		shutdown()
+	}()
 }
 
 func (l *WailsLifecycle) flushPendingQuit() {
@@ -185,7 +192,14 @@ func (l *WailsLifecycle) invokeQuit() {
 		l.pendingQuit.Store(true)
 		return
 	}
-	go quit()
+	go func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				pkglogger.Error("wails: recovered quit callback panic", "panic", rec)
+			}
+		}()
+		quit()
+	}()
 }
 
 func (l *WailsLifecycle) loadQuit() func() {

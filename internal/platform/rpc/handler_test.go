@@ -238,3 +238,21 @@ func TestCapabilityThreadHandlerRejectsUnsupportedCapability(t *testing.T) {
 		t.Fatalf("rpcErr.Code = %v, want %v", rpcErr.Code, jrpc2.Code(CodeCapabilityGate))
 	}
 }
+
+func TestThreadHandlerMapsRuntimeCapabilityErrorToGateCode(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer()
+	server.Register(handler.Map{"thread/failcap": ThreadHandler(func(ctx context.Context, _ threadAliasParams) (string, error) {
+		return "", contract.NewCapabilityError("thread.list", "claude")
+	})})
+
+	_, err := server.Dispatch(context.Background(), "thread/failcap", json.RawMessage(`{"threadId":"thread-1"}`))
+	var rpcErr *jrpc2.Error
+	if !errors.As(err, &rpcErr) {
+		t.Fatalf("Dispatch() error = %T, want *jrpc2.Error", err)
+	}
+	if rpcErr.Code != jrpc2.Code(CodeCapabilityGate) {
+		t.Fatalf("rpcErr.Code = %v, want %v (CodeCapabilityGate)", rpcErr.Code, jrpc2.Code(CodeCapabilityGate))
+	}
+}

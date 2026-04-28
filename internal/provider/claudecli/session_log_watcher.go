@@ -82,7 +82,16 @@ func (w *sessionLogWatcher) start() {
 	}
 	w.started = true
 	w.mu.Unlock()
-	go w.pollLoop()
+	go func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				if w.logger != nil {
+					w.logger.Error("claudecli: recovered session_log_watcher panic", "panic", rec)
+				}
+			}
+		}()
+		w.pollLoop()
+	}()
 }
 
 func (w *sessionLogWatcher) stopAndWait() {
