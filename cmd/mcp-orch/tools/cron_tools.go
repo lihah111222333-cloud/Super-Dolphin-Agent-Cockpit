@@ -224,31 +224,39 @@ func HandleCronListRuns(store cronstore.Store) ToolHandler {
 // and normalizeConfig so the cron tool stays in lock-step with the host
 // service. Any change to the service-layer guard must also be reflected here.
 func normalizeCronCreate(in cronCreateInput) (cronstore.CreateJobParams, error) {
-	name := strings.TrimSpace(in.Name)
-	if name == "" {
-		return cronstore.CreateJobParams{}, errors.New("name is required")
+	if err := validateCronCreateInput(in); err != nil {
+		return cronstore.CreateJobParams{}, err
 	}
-	prompt := in.Prompt
-	if strings.TrimSpace(prompt) == "" {
-		return cronstore.CreateJobParams{}, errors.New("prompt is required")
+	return buildCronCreateParams(in)
+}
+
+func validateCronCreateInput(in cronCreateInput) error {
+	if strings.TrimSpace(in.Name) == "" {
+		return errors.New("name is required")
 	}
-	scheduleExpr := strings.TrimSpace(in.ScheduleExpr)
-	if scheduleExpr == "" {
-		return cronstore.CreateJobParams{}, errors.New("schedule_expr is required")
+	if strings.TrimSpace(in.Prompt) == "" {
+		return errors.New("prompt is required")
 	}
-	cwd := strings.TrimSpace(in.CWD)
-	if cwd == "" {
-		return cronstore.CreateJobParams{}, errors.New("cwd is required")
+	if strings.TrimSpace(in.ScheduleExpr) == "" {
+		return errors.New("schedule_expr is required")
+	}
+	if strings.TrimSpace(in.CWD) == "" {
+		return errors.New("cwd is required")
 	}
 	if in.MaxAttempts < 0 {
-		return cronstore.CreateJobParams{}, errors.New("max_attempts must be >= 0")
+		return errors.New("max_attempts must be >= 0")
 	}
+	provider := strings.TrimSpace(in.Provider)
+	if provider != "" && provider != cronProviderCodex {
+		return fmt.Errorf("provider %q not supported in v1 (only 'codex')", in.Provider)
+	}
+	return nil
+}
+
+func buildCronCreateParams(in cronCreateInput) (cronstore.CreateJobParams, error) {
 	provider := strings.TrimSpace(in.Provider)
 	if provider == "" {
 		provider = cronProviderCodex
-	}
-	if provider != cronProviderCodex {
-		return cronstore.CreateJobParams{}, fmt.Errorf("provider %q not supported in v1 (only 'codex')", in.Provider)
 	}
 	cfg := in.Config
 	if cfg == nil {
@@ -270,13 +278,9 @@ func normalizeCronCreate(in cronCreateInput) (cronstore.CreateJobParams, error) 
 		enabled = *in.Enabled
 	}
 	now := time.Now().UTC()
-	nextRun := now.Add(cronDefaultInitialLag)
-	if strings.TrimSpace(in.NextRunAt) != "" {
-		t, perr := time.Parse(time.RFC3339, in.NextRunAt)
-		if perr != nil {
-			return cronstore.CreateJobParams{}, fmt.Errorf("next_run_at must be RFC3339: %w", perr)
-		}
-		nextRun = t
+	nextRun, err := resolveCronNextRun(in.NextRunAt, now)
+	if err != nil {
+		return cronstore.CreateJobParams{}, err
 	}
 	scheduleType := strings.TrimSpace(in.ScheduleType)
 	if scheduleType == "" {
@@ -284,14 +288,14 @@ func normalizeCronCreate(in cronCreateInput) (cronstore.CreateJobParams, error) 
 	}
 	return cronstore.CreateJobParams{
 		ID:            uuid.NewString(),
-		Name:          name,
-		Prompt:        prompt,
+		Name:          strings.TrimSpace(in.Name),
+		Prompt:        in.Prompt,
 		ScheduleType:  scheduleType,
-		ScheduleExpr:  scheduleExpr,
+		ScheduleExpr:  strings.TrimSpace(in.ScheduleExpr),
 		Timezone:      strings.TrimSpace(in.Timezone),
 		Provider:      provider,
 		Model:         strings.TrimSpace(in.Model),
-		CWD:           cwd,
+		CWD:           strings.TrimSpace(in.CWD),
 		Config:        configBytes,
 		Skills:        skillsBytes,
 		NotifyChannel: strings.TrimSpace(in.NotifyChannel),
@@ -301,6 +305,18 @@ func normalizeCronCreate(in cronCreateInput) (cronstore.CreateJobParams, error) 
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}, nil
+}
+
+func resolveCronNextRun(raw string, now time.Time) (time.Time, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return now.Add(cronDefaultInitialLag), nil
+	}
+	t, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("next_run_at must be RFC3339: %w", err)
+	}
+	return t, nil
 }
 
 func marshalCronSkills(skills []string) ([]byte, error) {
