@@ -20,10 +20,13 @@ func ErrNotImplemented(msg string) error {
 //	if rpcErr := rpc.MapCapabilityError(err); rpcErr != nil {
 //	    return rpcErr
 //	}
+//
+// The RPC error message uses err.Error() (not the unwrapped CapabilityError)
+// to preserve user-friendly messages from wrapper types.
 func MapCapabilityError(err error) *jrpc2.Error {
 	var capErr *contract.CapabilityError
 	if errors.As(err, &capErr) {
-		return jrpc2.Errorf(jrpc2.Code(CodeCapabilityGate), "%s", capErr.Error())
+		return jrpc2.Errorf(jrpc2.Code(CodeCapabilityGate), "%s", err.Error())
 	}
 	return nil
 }
