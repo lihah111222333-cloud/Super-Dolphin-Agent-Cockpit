@@ -23,6 +23,20 @@ function previewTaskHandoff(content, limit = 2400) {
   return truncateSummaryText(content, limit);
 }
 
+// 从任意 thread runtime 对象抽 task 描述；runtime 没有 taskId 返 null。
+// 抽出为独立 helper 是为了让 activeTask（selected thread）和 continueTaskById（任意 thread）复用同一套字段映射逻辑。
+export function buildTaskFromRuntime(runtime, fallbackTitle = '') {
+  const safeRuntime = runtime && typeof runtime === 'object' ? runtime : {};
+  const taskId = firstNonEmpty(safeRuntime.taskId, safeRuntime.task_id);
+  if (!taskId) return null;
+  return {
+    taskId,
+    title: firstNonEmpty(safeRuntime.taskTitle, safeRuntime.task_title, fallbackTitle, '当前任务'),
+    handoffFile: firstNonEmpty(safeRuntime.handoffFile, safeRuntime.handoff_file),
+    ownerThreadId: firstNonEmpty(safeRuntime.ownerThreadId, safeRuntime.owner_thread_id),
+  };
+}
+
 function buildContinueTaskConfig(task) {
   return {
     taskId: task.taskId,
@@ -98,17 +112,7 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
   });
   const continueBusy = ref(false);
 
-  const activeTask = computed(() => {
-    const runtime = activeRuntime.value && typeof activeRuntime.value === 'object' ? activeRuntime.value : {};
-    const taskId = firstNonEmpty(runtime.taskId, runtime.task_id);
-    if (!taskId) return null;
-    return {
-      taskId,
-      title: firstNonEmpty(runtime.taskTitle, runtime.task_title, activeThread.value?.name, '当前任务'),
-      handoffFile: firstNonEmpty(runtime.handoffFile, runtime.handoff_file),
-      ownerThreadId: firstNonEmpty(runtime.ownerThreadId, runtime.owner_thread_id),
-    };
-  });
+  const activeTask = computed(() => buildTaskFromRuntime(activeRuntime.value, activeThread.value?.name));
 
   async function loadTaskHandoff() {
     const task = activeTask.value;
@@ -141,13 +145,24 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
     }
   }
 
-  async function continueTask() {
-    const task = activeTask.value;
-    if (!task || continueBusy.value) return '';
+  // 为任意 source thread 起一个续接 thread。Phase 1.3+ 的自动调度走这条路径，
+  // 与 selected thread 动作表现一致：没 taskId 跳过，正在进行中的 fork 不重发。
+  async function continueTaskById(sourceThreadId) {
+    const threadId = (sourceThreadId || '').toString().trim();
+    if (!threadId || continueBusy.value) return '';
+    const runtime = threadStore?.state?.agentRuntimeById?.[threadId];
+    const task = buildTaskFromRuntime(runtime);
+    if (!task) {
+      logWarn('ui', 'taskHandoff.continue.skipped', {
+        source_thread_id: threadId,
+        reason: 'no_task_id',
+      });
+      return '';
+    }
     continueBusy.value = true;
     try {
       logInfo('ui', 'taskHandoff.continue.start', {
-        source_thread_id: selectedThreadId.value || '',
+        source_thread_id: threadId,
         task_id: task.taskId,
       });
       const id = await threadStore.startThread(
@@ -157,10 +172,9 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
           task,
         }),
       );
-
       if (id) {
         logInfo('ui', 'taskHandoff.continue.done', {
-          source_thread_id: selectedThreadId.value || '',
+          source_thread_id: threadId,
           next_thread_id: id,
           task_id: task.taskId,
         });
@@ -168,7 +182,7 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
       return id;
     } catch (error) {
       logWarn('ui', 'taskHandoff.continue.failed', {
-        source_thread_id: selectedThreadId.value || '',
+        source_thread_id: threadId,
         task_id: task.taskId,
         error: toErrorMessage(error),
       });
@@ -176,6 +190,11 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
     } finally {
       continueBusy.value = false;
     }
+  }
+
+  // selected thread 上的按钮路径，委托给 continueTaskById。
+  async function continueTask() {
+    return continueTaskById(selectedThreadId.value || '');
   }
 
   async function startNewTaskFromHandoff() {
@@ -267,6 +286,7 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
     continueTaskBusy: computed(() => continueBusy.value),
     refreshTaskHandoff: loadTaskHandoff,
     continueCurrentTask: continueTask,
+    continueTaskById,
     startNewTaskFromHandoff,
     continueCurrentTaskInNewWindow: continueTaskInNewWindow,
   };
