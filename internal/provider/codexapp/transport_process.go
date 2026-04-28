@@ -97,10 +97,15 @@ func (p *localProcess) waitErrValue() error {
 
 func (p *localProcess) waitAsync() {
 	go func() {
-		err := p.cmd.Wait()
-		p.exited.Store(true)
-		p.setWaitErr(err)
-		close(p.done)
+		defer func() {
+			if rec := recover(); rec != nil {
+				pkglogger.Error("codexapp: recovered waitAsync panic",
+					"pid", p.pid(), "panic", rec)
+			}
+			p.exited.Store(true)
+			close(p.done)
+		}()
+		p.setWaitErr(p.cmd.Wait())
 	}()
 }
 

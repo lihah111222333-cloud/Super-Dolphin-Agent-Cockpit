@@ -95,7 +95,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	pkglogger.Info("mcp: server run started", "server", s.name)
 	results := make(chan readResult, 1)
-	go s.readLoop(results)
+	s.startReadLoop(results)
 	for {
 		select {
 		case <-ctx.Done():
@@ -132,6 +132,18 @@ func (s *Server) Run(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+func (s *Server) startReadLoop(results chan<- readResult) {
+	go func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				pkglogger.Error("mcp: recovered server readLoop panic",
+					"server", s.name, "panic", rec)
+			}
+		}()
+		s.readLoop(results)
+	}()
 }
 
 func (s *Server) readLoop(results chan<- readResult) {

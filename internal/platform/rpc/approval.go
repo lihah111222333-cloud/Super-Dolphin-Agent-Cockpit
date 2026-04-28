@@ -192,7 +192,16 @@ func (m *ApprovalManager) ensureDispatch(bridge *PushBridge, server *jrpc2.Serve
 	if ctx == nil {
 		return false, nil
 	}
-	go m.dispatchApproval(ctx, bridge, server, pending, method, params)
+	go func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				m.logger.Error("rpc: recovered approval dispatch panic",
+					"call_id", pending.callID, "panic", rec)
+				m.failPending(pending, errors.New("approval dispatch panicked"))
+			}
+		}()
+		m.dispatchApproval(ctx, bridge, server, pending, method, params)
+	}()
 	return true, nil
 }
 

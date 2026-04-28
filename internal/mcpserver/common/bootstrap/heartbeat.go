@@ -24,7 +24,15 @@ func (c *Client) startHeartbeatLocked() {
 	}
 	hbCtx, cancel := context.WithCancel(c.rootCtx)
 	c.hbCancel = cancel
-	go c.runHeartbeat(hbCtx)
+	go func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				pkglogger.Error("bootstrap: recovered heartbeat panic",
+					"instance_id", c.instanceID, "panic", rec)
+			}
+		}()
+		c.runHeartbeat(hbCtx)
+	}()
 }
 
 func (c *Client) runHeartbeat(ctx context.Context) {

@@ -24,7 +24,15 @@ func (c *Client) handleStop(stopped *jrpc2.Client, err error) {
 		"lease_key", c.currentLease(),
 		"error", err,
 	)
-	go c.reconnectLoop(rootCtx)
+	go func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				pkglogger.Error("bootstrap: recovered reconnectLoop panic",
+					"instance_id", c.instanceID, "panic", rec)
+			}
+		}()
+		c.reconnectLoop(rootCtx)
+	}()
 }
 
 func (c *Client) markDisconnected(stopped *jrpc2.Client) (context.Context, bool) {
