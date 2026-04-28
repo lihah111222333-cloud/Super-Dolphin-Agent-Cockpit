@@ -125,7 +125,7 @@ export function useForkThread(ctx) {
         source_thread_id: sourceThreadId,
         error: error.value,
       });
-      throw err;
+      return '';
     } finally {
       submitting.value = false;
     }
