@@ -25,7 +25,7 @@ func TestNewRegistryIncludesMemoryTool(t *testing.T) {
 	registry := newRegistry(nil, nil, nil, nil, nil, stubRegistryMemoryService{read: func(_ context.Context, req contract.MemoryReadRequest) (contract.MemoryReadResult, error) {
 		gotReq = req
 		return contract.MemoryReadResult{IndexHit: true}, nil
-	}}, nil)
+	}})
 
 	tool, ok := registry.Lookup("memory_read")
 	if !ok {
@@ -52,7 +52,7 @@ func TestNewRegistryIncludesMemoryTool(t *testing.T) {
 }
 
 func TestBuildBootstrapConfigAdvertisesMemoryCapability(t *testing.T) {
-	cfg := buildBootstrapConfig(nil, nil, newRegistry(nil, nil, nil, nil, nil, stubRegistryMemoryService{}, nil))
+	cfg := buildBootstrapConfig(nil, nil, newRegistry(nil, nil, nil, nil, nil, stubRegistryMemoryService{}))
 	if !slices.Contains(cfg.Capabilities, "tools/memory") {
 		t.Fatalf("Capabilities = %#v, want tools/memory", cfg.Capabilities)
 	}
