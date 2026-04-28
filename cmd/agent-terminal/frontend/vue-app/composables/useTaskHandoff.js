@@ -1,6 +1,7 @@
 import { computed, reactive, ref, watch } from '../../lib/vue.esm-browser.prod.js';
 import { callAPI } from '../services/api.js';
 import { logInfo, logWarn } from '../services/log.js';
+import { truncateSummaryText } from './useSummaryHandoff.js';
 
 function firstNonEmpty(...values) {
   for (const value of values) {
@@ -18,9 +19,8 @@ function toErrorMessage(error) {
 }
 
 function previewTaskHandoff(content, limit = 2400) {
-  const text = (content || '').toString().trim();
-  if (!text) return '';
-  return text.length > limit ? `${text.slice(0, limit)}…` : text;
+  // 委托到共享工具，保证 useTaskHandoff 和 useForkThread 的截断行为完全一致。
+  return truncateSummaryText(content, limit);
 }
 
 function buildContinueTaskConfig(task) {

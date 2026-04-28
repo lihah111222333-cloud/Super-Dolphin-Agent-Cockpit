@@ -22,6 +22,8 @@ export const ComposerBar = {
     compactSuccessCount: { type: Number, default: 0 },
     tokenInline: { type: String, default: '' },
     tokenTooltip: { type: String, default: '' },
+    // 'normal' | 'warn' | 'danger' | 'critical'：带颜色提示 tokenInline。
+    tokenLevel: { type: String, default: 'normal' },
     skillMatches: { type: Array, default: () => [] },
     skillMatchesLoading: { type: Boolean, default: false },
     selectedSkillNames: { type: Array, default: () => [] },
@@ -39,6 +41,7 @@ export const ComposerBar = {
   emits: [
     'send', 'interrupt', 'compact', 'toggle-skill', 'select-all-skills', 'clear-skills',
     'update-thread-config-model', 'update-thread-config-effort', 'save-thread-config', 'restore-thread-config-inherit',
+    'open-fork-draft',
   ],
   setup(props, { emit }) {
     const {
@@ -372,11 +375,28 @@ export const ComposerBar = {
               </svg>
               <span v-if="compactResultText && !compacting" style="color: inherit;">{{ compactResultText }}</span>
               <span v-else-if="compacting" class="loading-shimmer">更新中…</span>
-              <span v-else-if="tokenInline">
+              <span
+                v-else-if="tokenInline"
+                :class="['composer-token-inline', tokenLevel && tokenLevel !== 'normal' ? ('is-token-' + tokenLevel) : '']"
+              >
                 {{ tokenInline }}
                 <span v-if="compactSuccessCount > 0" style="color: var(--success, #4ade80); margin-left: 4px; font-weight: 600;">{{ compactSuccessCount }}</span>
               </span>
               <span v-else-if="compactSuccessCount > 0" style="color: var(--success, #4ade80); font-weight: 600;">{{ compactSuccessCount }}</span>
+            </button>
+            <button
+              type="button"
+              class="composer-token-chip composer-fork-chip"
+              data-testid="composer-fork-button"
+              :disabled="disabled || !threadId"
+              :title="!threadId ? '选中一个会话后才能继承新建' : '以当前会话为背景新建一个继承对话'"
+              @click="$emit('open-fork-draft')"
+              style="cursor: pointer; display: inline-flex; justify-content: center; align-items: center; border: 1px solid transparent; background: rgba(255, 255, 255, 0.04); transition: background 0.2s; box-sizing: border-box; flex: 1;"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" style="width:13px;height:13px;opacity:0.7;margin-right:4px;">
+                <path d="M6 5v6a3 3 0 0 0 3 3h9M18 14l-3-3m3 3l-3 3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <span>继承新建</span>
             </button>
 
             <div

@@ -40,7 +40,7 @@ type SessionRuntime struct {
 	stopOnce    sync.Once
 	stopped     atomic.Bool
 	stopCh      chan struct{}
-	drainCh    chan struct{}
+	drainCh     chan struct{}
 
 	wg sync.WaitGroup
 
@@ -191,9 +191,9 @@ func (r *SessionRuntime) NotifyRecovery(source, reason string) {
 
 // RecoverySignalsTotal / RecoveryCoalescedTotal / DroppedSignalsTotal expose
 // the internal counters for test assertions and future metric hookup (P2).
-func (r *SessionRuntime) RecoverySignalsTotal() int64    { return r.recoverySignalTotal.Load() }
-func (r *SessionRuntime) RecoveryCoalescedTotal() int64  { return r.recoveryCoalescedTotal.Load() }
-func (r *SessionRuntime) DroppedSignalsTotal() int64     { return r.droppedSignalTotal.Load() }
+func (r *SessionRuntime) RecoverySignalsTotal() int64   { return r.recoverySignalTotal.Load() }
+func (r *SessionRuntime) RecoveryCoalescedTotal() int64 { return r.recoveryCoalescedTotal.Load() }
+func (r *SessionRuntime) DroppedSignalsTotal() int64    { return r.droppedSignalTotal.Load() }
 
 // -----------------------------------------------------------------------------
 // Health loop

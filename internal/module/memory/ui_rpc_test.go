@@ -19,6 +19,7 @@ func TestBuildUIMemorySnapshotIncludesDurableAndAgentMemories(t *testing.T) {
 	cfg := &Config{
 		Enabled:             true,
 		EnableTools:         true,
+		ExtractOnStop:       true,
 		RootDir:             t.TempDir(),
 		ProjectRoot:         projectRoot,
 		AutoMemPathOverride: privateRoot,
@@ -88,8 +89,8 @@ func TestBuildUIMemorySnapshotIncludesDurableAndAgentMemories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildUIMemorySnapshot() error = %v", err)
 	}
-	if !snapshot.Overview.Enabled || !snapshot.Overview.ToolsEnabled {
-		t.Fatalf("Overview = %#v, want enabled tools-enabled snapshot", snapshot.Overview)
+	if !snapshot.Overview.Enabled || !snapshot.Overview.ToolsEnabled || !snapshot.Overview.AutoDreamEnabled {
+		t.Fatalf("Overview = %#v, want enabled tools-enabled auto-dream snapshot", snapshot.Overview)
 	}
 	if got := len(snapshot.Private.Entries); got != 1 {
 		t.Fatalf("len(private entries) = %d, want 1", got)
@@ -118,6 +119,76 @@ func TestBuildUIMemorySnapshotIncludesDurableAndAgentMemories(t *testing.T) {
 	}
 	if !projectFound || !userFound {
 		t.Fatalf("AgentScopes = %#v, want project Writer and user Reviewer entries", snapshot.AgentScopes)
+	}
+}
+
+func TestBuildUIMemorySnapshotAutoDreamReflectsConfigGates(t *testing.T) {
+	projectRoot := t.TempDir()
+	privateRoot := filepath.Join(t.TempDir(), "private")
+	if err := os.MkdirAll(privateRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(privateRoot) error = %v", err)
+	}
+
+	cases := []struct {
+		name          string
+		enabled       bool
+		extractOnStop bool
+		wantAuto      bool
+	}{
+		{"all-on", true, true, true},
+		{"extract-on-stop-off", true, false, false},
+		{"system-off", false, true, false},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{
+				Enabled:             tc.enabled,
+				EnableTools:         true,
+				ExtractOnStop:       tc.extractOnStop,
+				RootDir:             t.TempDir(),
+				ProjectRoot:         projectRoot,
+				AutoMemPathOverride: privateRoot,
+			}
+			snapshot, err := buildUIMemorySnapshot(context.Background(), newServiceWithConsolidator(cfg, nil, nil, nil), nil, projectRoot)
+			if err != nil {
+				t.Fatalf("buildUIMemorySnapshot() error = %v", err)
+			}
+			if got := snapshot.Overview.AutoDreamEnabled; got != tc.wantAuto {
+				t.Fatalf("Overview.AutoDreamEnabled = %v, want %v (cfg=%+v)", got, tc.wantAuto, cfg)
+			}
+			if snapshot.Overview.AutoDreamIntent != nil {
+				t.Fatalf("Overview.AutoDreamIntent = %v, want nil with no persisted intent", *snapshot.Overview.AutoDreamIntent)
+			}
+		})
+	}
+}
+
+func TestBuildUIMemorySnapshotSurfacesPersistedAutoDreamIntent(t *testing.T) {
+	projectRoot := t.TempDir()
+	privateRoot := filepath.Join(t.TempDir(), "private")
+	if err := os.MkdirAll(privateRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(privateRoot) error = %v", err)
+	}
+	root := t.TempDir()
+	if err := WriteAutoDreamIntent(root, true); err != nil {
+		t.Fatalf("WriteAutoDreamIntent error = %v", err)
+	}
+	cfg := &Config{
+		Enabled:             true,
+		EnableTools:         true,
+		ExtractOnStop:       false, // intent overrides this only via NewConfig; here we just check surfacing.
+		RootDir:             root,
+		ProjectRoot:         projectRoot,
+		AutoMemPathOverride: privateRoot,
+	}
+	snapshot, err := buildUIMemorySnapshot(context.Background(), newServiceWithConsolidator(cfg, nil, nil, nil), nil, projectRoot)
+	if err != nil {
+		t.Fatalf("buildUIMemorySnapshot() error = %v", err)
+	}
+	if snapshot.Overview.AutoDreamIntent == nil || *snapshot.Overview.AutoDreamIntent != true {
+		t.Fatalf("Overview.AutoDreamIntent = %v, want *true", snapshot.Overview.AutoDreamIntent)
 	}
 }
 

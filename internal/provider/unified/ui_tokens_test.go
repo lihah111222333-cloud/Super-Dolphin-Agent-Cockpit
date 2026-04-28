@@ -46,9 +46,9 @@ func TestPublishUITokensUpdatedSupportsLegacyUsagePayload(t *testing.T) {
 		"threadId": "thread-legacy",
 		"turnId":   "turn-legacy",
 		"usage": map[string]any{
-			"inputTokens":        11,
-			"outputTokens":       6,
-			"totalTokens":        17,
+			"inputTokens":         11,
+			"outputTokens":        6,
+			"totalTokens":         17,
 			"contextWindowTokens": 128,
 		},
 	})

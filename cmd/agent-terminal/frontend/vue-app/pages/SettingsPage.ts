@@ -5,6 +5,12 @@ import { ProviderSettings } from './settings/ProviderSettings.ts';
 import { LspPromptSettings } from './settings/LspPromptSettings.ts';
 import { BuiltinToolsSettings } from './settings/BuiltinToolsSettings.ts';
 import { useSettingsScope } from './settings/useSettingsScope.ts';
+import {
+  loadContextUsageThresholds,
+  saveContextUsageThresholds,
+  isValidThresholds,
+  useContextUsageThresholds,
+} from '../composables/useContextUsageThresholds.js';
 
 type SettingsBuildInfo = { version?: string; runtime?: string; buildTime?: string; commit?: string };
 type SettingsProjectStore = { state?: { active?: string } } | null;
@@ -30,6 +36,56 @@ function setupSettingsPage(props: SettingsPageProps, { emit }: { emit: (event: '
   const stallThreshold = ref(MIN_TURN_TIMEOUT_SEC) as { value: number };
   const stallLoading = ref(false) as { value: boolean };
   const stallNotice = reactive({ level: 'info', message: '' }) as SettingsNoticeState;
+
+  // Phase 1: 上下文警报阈值（warn / danger / critical）
+  const ctxThresholdsRef = useContextUsageThresholds();
+  const ctxWarn = ref(ctxThresholdsRef.value[0]) as { value: number };
+  const ctxDanger = ref(ctxThresholdsRef.value[1]) as { value: number };
+  const ctxCritical = ref(ctxThresholdsRef.value[2]) as { value: number };
+  const ctxLoading = ref(false) as { value: boolean };
+  const ctxNotice = reactive({ level: 'info', message: '' }) as SettingsNoticeState;
+
+  function syncCtxLocalsFromShared(): void {
+    ctxWarn.value = ctxThresholdsRef.value[0];
+    ctxDanger.value = ctxThresholdsRef.value[1];
+    ctxCritical.value = ctxThresholdsRef.value[2];
+  }
+
+  async function loadContextThresholds(): Promise<void> {
+    ctxLoading.value = true;
+    try {
+      await loadContextUsageThresholds();
+      syncCtxLocalsFromShared();
+      ctxNotice.level = 'info';
+      ctxNotice.message = '';
+    } catch (error: any) {
+      ctxNotice.level = 'error';
+      ctxNotice.message = `加载失败：${error?.message || error}`;
+    } finally {
+      ctxLoading.value = false;
+    }
+  }
+
+  async function saveContextThresholds(): Promise<void> {
+    const next = [Number(ctxWarn.value), Number(ctxDanger.value), Number(ctxCritical.value)];
+    if (!isValidThresholds(next)) {
+      ctxNotice.level = 'error';
+      ctxNotice.message = '三个阈值必须在 (0, 100) 之间，且严格升序（例 70 / 85 / 95）';
+      return;
+    }
+    ctxLoading.value = true;
+    try {
+      await saveContextUsageThresholds(next);
+      ctxNotice.level = 'info';
+      ctxNotice.message = `已保存：${next.join(' / ')}%（立即生效）`;
+      syncCtxLocalsFromShared();
+    } catch (error: any) {
+      ctxNotice.level = 'error';
+      ctxNotice.message = `保存失败：${error?.message || error}`;
+    } finally {
+      ctxLoading.value = false;
+    }
+  }
 
   function formatLogTime(value: string | number | Date | null | undefined): string {
     if (!value) return '--:--:--';
@@ -111,6 +167,7 @@ function setupSettingsPage(props: SettingsPageProps, { emit }: { emit: (event: '
     logInfo('page', 'settings.mounted', {});
     refreshLogPanel();
     loadStallSettings();
+    loadContextThresholds();
     logRefreshTimer = window.setInterval(refreshLogPanel, 1000);
   });
   watch(
@@ -142,6 +199,13 @@ function setupSettingsPage(props: SettingsPageProps, { emit }: { emit: (event: '
     stallNotice,
     loadStallSettings,
     saveStallThreshold,
+    ctxWarn,
+    ctxDanger,
+    ctxCritical,
+    ctxLoading,
+    ctxNotice,
+    loadContextThresholds,
+    saveContextThresholds,
   };
 }
 
@@ -194,6 +258,26 @@ export const SettingsPage = {
           </div>
           <div v-if="stallNotice.message" class="settings-prompt-notice" data-testid="settings-stall-notice" :class="'is-' + stallNotice.level">
             {{ stallNotice.message }}
+          </div>
+        </div>
+
+        <div class="section-header">CONTEXT USAGE ALERT</div>
+        <div class="data-card-vue" data-testid="settings-ctx-thresholds-card">
+          <div class="data-row-vue">
+            <strong>上下文使用率警报阈值</strong>
+            <span>分别对应 warn / danger / critical 三档颜色与顶部横幅</span>
+          </div>
+          <div class="settings-stall-row">
+            <input type="number" class="settings-stall-input" data-testid="settings-ctx-warn-input" v-model.number="ctxWarn" min="1" max="99" :disabled="ctxLoading" />
+            <span class="settings-stall-unit">% warn</span>
+            <input type="number" class="settings-stall-input" data-testid="settings-ctx-danger-input" v-model.number="ctxDanger" min="1" max="99" :disabled="ctxLoading" />
+            <span class="settings-stall-unit">% danger</span>
+            <input type="number" class="settings-stall-input" data-testid="settings-ctx-critical-input" v-model.number="ctxCritical" min="1" max="99" :disabled="ctxLoading" />
+            <span class="settings-stall-unit">% critical</span>
+            <button class="btn btn-primary btn-toolbar-sm" data-testid="settings-ctx-thresholds-save-button" @click="saveContextThresholds" :disabled="ctxLoading">保存</button>
+          </div>
+          <div v-if="ctxNotice.message" class="settings-prompt-notice" data-testid="settings-ctx-thresholds-notice" :class="'is-' + ctxNotice.level">
+            {{ ctxNotice.message }}
           </div>
         </div>
 

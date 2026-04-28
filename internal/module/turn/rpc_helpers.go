@@ -163,7 +163,6 @@ func applyTurnStartConfig(ctx context.Context, session contract.Session, p turnS
 // lives in internal/contract as contract.PendingLaunchSpawner; turn only
 // consumes it.
 
-
 func collectTurnStartUserInput(p turnStartParams) string {
 	if text := strings.TrimSpace(p.Prompt); text != "" {
 		return text
@@ -286,7 +285,6 @@ func turnForceCompleteHandler(svc Service, resolver contract.SessionResolver) ha
 		})
 	})
 }
-
 
 func approvalRespondHandler(approver contract.ApprovalResponder) handler.Func {
 	return rpc.StrictHandler(func(ctx context.Context, p approvalRespondParams) (any, error) {

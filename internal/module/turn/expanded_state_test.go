@@ -183,8 +183,8 @@ func TestExpandedArtifactState_ShortHashCollisionStrictCompare(t *testing.T) {
 // 条目，保留 fresh 条目，并支持 turnIdx 倒退时保留全部条目。
 func TestExpandedArtifactState_CompactStale(t *testing.T) {
 	s := NewExpandedArtifactState(5)
-	s.MarkArtifact("old", "body", "SKILL.md", "h1", 0)   // 0 turn
-	s.MarkArtifact("mid", "body", "SKILL.md", "h2", 3)   // 3 turn
+	s.MarkArtifact("old", "body", "SKILL.md", "h1", 0)  // 0 turn
+	s.MarkArtifact("mid", "body", "SKILL.md", "h2", 3)  // 3 turn
 	s.MarkArtifact("new", "body", "SKILL.md", "h3", 10) // 10 turn
 
 	// 当前 turn=10，old(10-0=10>=5) 和 mid(10-3=7>=5) 应被清除，new 保留

@@ -39,15 +39,15 @@ const (
 
 // Sentinel errors exposed so upper layers can errors.Is against them.
 var (
-	ErrJobNotFound            = errors.New("cron: job not found")
-	ErrJobRunNotFound         = errors.New("cron: job run not found")
-	ErrClaimTokenMismatch     = errors.New("cron: claim token mismatch (lease lost)")
+	ErrJobNotFound             = errors.New("cron: job not found")
+	ErrJobRunNotFound          = errors.New("cron: job run not found")
+	ErrClaimTokenMismatch      = errors.New("cron: claim token mismatch (lease lost)")
 	ErrStatusTransitionRefused = errors.New("cron: status transition refused (CAS mismatch)")
-	ErrEmptyID                = errors.New("cron: id is required")
-	ErrEmptyCWD               = errors.New("cron: cwd is required")
-	ErrEmptyProvider          = errors.New("cron: provider is required")
-	ErrEmptyScheduleExpr      = errors.New("cron: schedule_expr is required")
-	ErrEmptyClaimToken        = errors.New("cron: claim_token is required")
+	ErrEmptyID                 = errors.New("cron: id is required")
+	ErrEmptyCWD                = errors.New("cron: cwd is required")
+	ErrEmptyProvider           = errors.New("cron: provider is required")
+	ErrEmptyScheduleExpr       = errors.New("cron: schedule_expr is required")
+	ErrEmptyClaimToken         = errors.New("cron: claim_token is required")
 )
 
 // Store is the persistence surface. Return values always clone sqlc rows
@@ -142,23 +142,23 @@ type Run struct {
 
 // CreateJobParams is the input for Store.CreateJob.
 type CreateJobParams struct {
-	ID             string
-	Name           string
-	Prompt         string
-	ScheduleType   string
-	ScheduleExpr   string
-	Timezone       string
-	Provider       string
-	Model          string
-	CWD            string
-	Config         json.RawMessage
-	Skills         json.RawMessage
-	NotifyChannel  string
-	Enabled        bool
-	NextRunAt      time.Time
-	MaxAttempts    int32
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID            string
+	Name          string
+	Prompt        string
+	ScheduleType  string
+	ScheduleExpr  string
+	Timezone      string
+	Provider      string
+	Model         string
+	CWD           string
+	Config        json.RawMessage
+	Skills        json.RawMessage
+	NotifyChannel string
+	Enabled       bool
+	NextRunAt     time.Time
+	MaxAttempts   int32
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // UpdateJobScheduleParams is the input for Store.UpdateJobSchedule.

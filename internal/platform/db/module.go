@@ -3,11 +3,11 @@ package db
 import (
 	"context"
 	"fmt"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -27,21 +27,21 @@ func NewPool(cfg *config.Config) (*pgxpool.Pool, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if err := ensureDatabaseExists(poolCfg.ConnConfig.Database, cfg.DatabaseURL); err != nil {
 		return nil, err
 	}
-	
+
 	poolCfg.MaxConns = 100
 	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if err := autoMigrate(context.Background(), pool, cfg.ProjectRoot); err != nil {
 		return nil, err
 	}
-	
+
 	return pool, nil
 }
 
@@ -51,7 +51,7 @@ func ensureDatabaseExists(targetDB, databaseURL string) error {
 		return err
 	}
 	connConfig.Database = "postgres" // connect to default db
-	
+
 	conn, err := pgx.ConnectConfig(context.Background(), connConfig)
 	if err != nil {
 		return err // if postgres db doesn't exist or other error, return
@@ -63,10 +63,10 @@ func ensureDatabaseExists(targetDB, databaseURL string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	if !exists {
 		// CREATE DATABASE cannot run inside a transaction block in postgres
-		if _, err := conn.Exec(context.Background(), `CREATE DATABASE "` + targetDB + `"`); err != nil {
+		if _, err := conn.Exec(context.Background(), `CREATE DATABASE "`+targetDB+`"`); err != nil {
 			return err
 		}
 	}

@@ -46,7 +46,9 @@ func (a *App) CallAPI(method string, params json.RawMessage) (any, error) {
 	if len(params) == 0 {
 		params = json.RawMessage("{}")
 	}
-	params = stripFrontendMeta(params)
+	if method != "ui/log" {
+		params = stripFrontendMeta(params)
+	}
 	result, err := a.dispatch(a.callContext(), method, params)
 	if err != nil {
 		return nil, err

@@ -500,6 +500,9 @@ export const AppRoot = {
       taskTraceFields: TASK_TRACE_FIELDS,
       commandFields: COMMAND_FIELDS,
       memoryFields: MEMORY_FIELDS,
+      inheritedChatPayload,
+      startInheritedChatFromSharedFile,
+      clearInheritedChatPayload: () => { inheritedChatPayload.value = null; },
       tasksItems,
       tasksFields,
       windowCwd,
@@ -527,6 +530,8 @@ export const AppRoot = {
           :thread-store="threadStore"
           :window-cwd="windowCwd"
           :cwd-display="currentCwdDisplay"
+          :inherited-chat-payload="inheritedChatPayload"
+          @clear-inherited-chat="clearInheritedChatPayload"
         />
 
         <SystemPromptPage
@@ -592,6 +597,7 @@ export const AppRoot = {
           :cwd="threadScopeCwd"
           @open-memory-center="page = 'memory-center'"
           @refresh="refreshDashboardByPage('memory')"
+          @start-inherited-chat="startInheritedChatFromSharedFile"
         />
 
         <SettingsPage

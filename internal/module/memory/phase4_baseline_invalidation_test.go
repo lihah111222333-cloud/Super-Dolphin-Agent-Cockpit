@@ -205,4 +205,3 @@ func TestPhase4BaselineSaveUIAgentMemoryDoesNotInvalidateDurableSections(t *test
 		contract.DynamicSectionMemoryEntrypoint,
 	)
 }
-

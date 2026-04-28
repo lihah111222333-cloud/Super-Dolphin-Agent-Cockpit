@@ -30,6 +30,7 @@ const (
 //     user/system 指令
 //   - ZWSP（U+200B）插入 fence 关键字防 attacker 在 entry.Content 里塞
 //     `</relevantMemoryFenceTag>` 逃逸 fence
+//
 // 与项目 CLAUDE.md fence 不混用（标签名不同），保持各自独立 trust-boundary。
 const (
 	relevantMemoryFenceTag = "untrusted-relevant-memory"

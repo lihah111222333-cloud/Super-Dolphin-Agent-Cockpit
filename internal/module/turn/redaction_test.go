@@ -135,4 +135,3 @@ func BenchmarkRedact_MultipleSecrets(b *testing.B) {
 		r.Redact(input)
 	}
 }
-

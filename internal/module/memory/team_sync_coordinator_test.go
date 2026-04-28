@@ -288,5 +288,3 @@ func TestTeamSyncCoordinatorStopDrainsPending(t *testing.T) {
 		t.Errorf("StopSession total = %d, want 1", got)
 	}
 }
-
-

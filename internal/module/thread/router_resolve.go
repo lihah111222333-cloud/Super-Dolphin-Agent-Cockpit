@@ -13,7 +13,6 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-
 func shouldSkipRoutedPrompt(s *service, req *StartRequest) bool {
 	switch {
 	case req == nil:
@@ -487,5 +486,3 @@ func buildMatchWhenCtx(req *StartRequest) contract.BuildCtx {
 		SessionFlags: req.SessionFlags,
 	}
 }
-
-
