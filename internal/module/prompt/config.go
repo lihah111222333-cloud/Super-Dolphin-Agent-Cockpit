@@ -21,9 +21,9 @@ const (
 	// sole source of truth for the static system prompt instead of having
 	// mergeTemplateSections layer on top of built-ins.
 	envDisableBuiltinStaticSections = "DISABLE_BUILTIN_STATIC_SECTIONS"
-	// P20.1 Phase 10 — skill progressive disclosure 灰度开关与预算。
-	// 默认开启：侧边栏 launch skill 选择（LaunchSkillNames / ForceLaunchSkills）
-	// 需要 SkillCatalogProvider 被注册才能到达 BaseInstructions。
+	// P20.1 Phase 10 — skill progressive disclosure 开关与预算。
+	// 默认开启：与上游 CLI 官方基线对齐（Claude Code description always in context +
+	// Codex progressive disclosure 默认开启）。Phase 10 灰度试点结束。
 	// 显式设 ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=false 可回到旧语义：
 	// SkillCatalogProvider 不注入，skill_catalog dynamic slot 渲染为空；
 	// 上游旧 skill_expand_body / skill_read_resource 工具仍可通过 skill.Service 调用。
@@ -58,9 +58,9 @@ func NewConfig(_ *platformconfig.Config) *Config {
 		EnableRegistry:                  parseBoolEnv(envEnablePromptRegistry, false),
 		EnableAssembly:                  parseBoolEnv(envEnablePromptAssembly, false),
 		EnableSystemContextCacheBreaker: parseBoolEnv(envEnableSystemContextCacheBreaker, false),
-		// Phase 10 defaults：灰度默认关闭；显式开启后才注册 SkillCatalogProvider。
+		// Phase 10 default：默认注册 SkillCatalogProvider；显式 false 可 opt-out。
 		// meta-instructions 默认开启（Phase 9 行为）。
-		EnableSkillProgressiveDisclosure: parseBoolEnv(envEnableSkillProgressiveDisclosure, false),
+		EnableSkillProgressiveDisclosure: parseBoolEnv(envEnableSkillProgressiveDisclosure, true),
 		SkillCatalogTokenBudget:          parseIntEnv(envSkillCatalogTokenBudget, 0),
 		EmitSkillCatalogMetaInstructions: parseBoolEnv(envSkillCatalogMetaInstructions, true),
 		SkillWriterFormat:                parseSkillWriterFormat(envSkillWriterFormat, "legacy"),
@@ -68,7 +68,13 @@ func NewConfig(_ *platformconfig.Config) *Config {
 }
 
 func parseBoolEnv(key string, fallback bool) bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	raw, ok := os.LookupEnv(key)
+	// Preserve legacy/automation opt-out for an explicitly present empty Phase 10 flag;
+	// an unset flag still falls through to fallback.
+	if key == envEnableSkillProgressiveDisclosure && ok && strings.TrimSpace(raw) == "" {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "1", "true", "yes", "on":
 		return true
 	case "0", "false", "no", "off":

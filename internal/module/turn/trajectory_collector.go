@@ -15,6 +15,11 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// maxDrainedEntries caps the drained dedup map. When exceeded, the map is
+// cleared. A duplicate terminal arriving after 10k+ turns is astronomically
+// unlikely, so this is a safe trade-off vs unbounded memory growth.
+const maxDrainedEntries = 10_000
+
 // Trajectory is the per-turn fact aggregate produced by the collector. It is
 // in-memory only and meant to be consumed by Step 3 evaluator / Step 4
 // extractor; it is never persisted by this layer.
@@ -81,11 +86,10 @@ type Collector struct {
 
 	// drained tracks turns whose trajectory has already been emitted, so
 	// a late-arriving second terminal event (e.g. TurnCompleted after
-	// TurnInterrupted) does not re-emit.
-	//
-	// TODO: this map grows unbounded for the lifetime of the process. A
-	// future change should bound it (LRU / TTL). Step 2 keeps the simple
-	// form because the collector is restarted with the fx app.
+	// TurnInterrupted) does not re-emit. Bounded to maxDrainedEntries;
+	// when the limit is reached, the map is cleared. This is acceptable
+	// because a duplicate terminal arriving after 10k+ turns is
+	// astronomically unlikely in practice.
 	drained map[string]struct{}
 }
 
@@ -207,6 +211,11 @@ func (c *Collector) onTurnTerminal(turnID string) {
 	traj := c.materializeLocked(p)
 	c.completed = append(c.completed, traj)
 	delete(c.partials, turnID)
+	if len(c.drained) >= maxDrainedEntries {
+		c.logger.Warn("trajectory_collector: drained map exceeded limit, clearing",
+			"limit", maxDrainedEntries, "size", len(c.drained))
+		c.drained = make(map[string]struct{}, 64)
+	}
 	c.drained[turnID] = struct{}{}
 }
 

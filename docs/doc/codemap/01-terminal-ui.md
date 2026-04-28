@@ -1,11 +1,11 @@
 # super-agent-v3 代码地图：终端入口与 UI 层
 
-> 本卷已按 `docs/契约/modularity-convention.md` §2.4 拆分：原文件 1020 行，超出单文件 ≤600 行约束。
+> 本卷已按 `docs/契约/modularity-convention.md` §2.4 拆分：原文件 1021 行，超出单文件 ≤600 行约束。
 
 ## 分卷索引
 
 - [01-terminal-ui-go.md](01-terminal-ui-go.md) — Go 桌面端 / Wails 运行时 / 内置 RPC / 多窗口 / 代码预览
-- [01-terminal-ui-vue.md](01-terminal-ui-vue.md) — Vue 前端占位卷（A01b 负责补完）
+- [01-terminal-ui-vue.md](01-terminal-ui-vue.md) — super-agent-v3 代码地图：终端入口与 UI 层（Vue 前端）
 
 ## 阅读顺序
 
@@ -16,6 +16,7 @@
 
 - 本轮 A01a 只深化 Go/Wails 后端，不展开 Vue 前端细节。
 - 旧版混合文档中的 Vue 章节已迁出到独立分卷，由 A01b 接手。
+
 ## 拆卷映射表
 
 | 卷 | 重点章节 | 讲什么 |

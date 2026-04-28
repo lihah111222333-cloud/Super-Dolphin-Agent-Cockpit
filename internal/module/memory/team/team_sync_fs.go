@@ -143,7 +143,7 @@ func writeTeamSyncFile(path, content string) error {
 
 func pruneEmptyTeamDirs(root string) error {
 	var dirs []string
-	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err == nil && d.IsDir() && path != root {
 			dirs = append(dirs, path)
 		}
@@ -157,6 +157,9 @@ func pruneEmptyTeamDirs(root string) error {
 				return err
 			}
 		}
+	}
+	if walkErr != nil {
+		return walkErr
 	}
 	return nil
 }

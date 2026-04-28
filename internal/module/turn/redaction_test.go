@@ -108,3 +108,31 @@ func containsHit(hits []string, want string) bool {
 	}
 	return false
 }
+
+// Benchmarks — DefaultRedactor.Redact runs on every turn's content, applying
+// 20+ regex patterns. These benchmarks capture both the fast path (no secret
+// present) and the worst case (multiple secret types in a single input).
+
+func BenchmarkRedact_NoMatch(b *testing.B) {
+	r := NewDefaultRedactor()
+	input := "This is a perfectly normal piece of text with no secrets, API keys, or tokens. " +
+		"It just talks about building software and deploying to production. " +
+		"No credentials were harmed in the making of this benchmark."
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		r.Redact(input)
+	}
+}
+
+func BenchmarkRedact_MultipleSecrets(b *testing.B) {
+	r := NewDefaultRedactor()
+	input := "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.sig " +
+		"with key sk-ant-abcdefghijklmnopqrstuvwxyz1234567890 " +
+		"and github token ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA " +
+		"connecting to postgres://alice:secret@example.com/db"
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		r.Redact(input)
+	}
+}
+

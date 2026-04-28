@@ -116,7 +116,7 @@ func (s *service) finishTurnStartSuccess(ctx context.Context, work turnWork, sta
 			return
 		}
 	}
-	_ = s.withAgentLocked(work.agentID, func(agent *agentRuntime) error {
+	if lockErr := s.withAgentLocked(work.agentID, func(agent *agentRuntime) error {
 		if agent.activeTurnID != currentTurnID {
 			return nil
 		}
@@ -124,11 +124,14 @@ func (s *service) finishTurnStartSuccess(ctx context.Context, work turnWork, sta
 			s.logger.Warn("orchestration: failed to mark turn running", "agent_id", agent.id, "turn_id", currentTurnID, "error", err)
 		}
 		return nil
-	})
+	}); lockErr != nil {
+		s.logger.Warn("orchestration: finish turn start success lock failed",
+			"agent_id", work.agentID, "turn_id", currentTurnID, "error", lockErr)
+	}
 }
 
 func (s *service) finishTurnStartFailure(ctx context.Context, work turnWork, startErr error) {
-	_ = s.withAgentLocked(work.agentID, func(agent *agentRuntime) error {
+	if lockErr := s.withAgentLocked(work.agentID, func(agent *agentRuntime) error {
 		if agent.activeTurnID != work.turnID {
 			return nil
 		}
@@ -141,7 +144,10 @@ func (s *service) finishTurnStartFailure(ctx context.Context, work turnWork, sta
 			s.logger.Warn("orchestration: failed to reset turn after start error", "agent_id", agent.id, "turn_id", work.turnID, "error", err)
 		}
 		return nil
-	})
+	}); lockErr != nil {
+		s.logger.Warn("orchestration: finish turn start failure lock failed",
+			"agent_id", work.agentID, "turn_id", work.turnID, "error", lockErr)
+	}
 }
 
 func (s *service) stopAgentLocked(ctx context.Context, agent *agentRuntime, reason string) error {
@@ -222,7 +228,10 @@ func (s *service) startProcessLocked(ctx context.Context, agent *agentRuntime) e
 	agent.startedAt = now
 	agent.updatedAt = now
 	if err := s.commitLaunchSuccessLocked(ctx, agent); err != nil {
-		_ = stopProcess(cmd)
+		if stopErr := stopProcess(cmd); stopErr != nil {
+			s.logger.Warn("orchestration: rollback stop process failed",
+				"agent_id", agent.id, "error", stopErr)
+		}
 		agent.cmd = nil
 		return err
 	}

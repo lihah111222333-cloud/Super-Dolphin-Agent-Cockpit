@@ -105,11 +105,11 @@ func approvalRequestedAt(pending *pendingApproval) time.Time {
 	if pending == nil {
 		return shared.FirstEventTime()
 	}
-	return shared.ResolveEventTime(context.TODO(), pending.request.Payload, pending.createdAt)
+	return shared.ResolveEventTime(context.Background(), pending.request.Payload, pending.createdAt)
 }
 
 func approvalResolvedAt(decision contract.ApprovalDecision) time.Time {
-	return shared.ResolveEventTime(context.TODO(), approvalDecisionPayload(decision))
+	return shared.ResolveEventTime(context.Background(), approvalDecisionPayload(decision))
 }
 
 func approvalRequestTime(req ApprovalRequest) time.Time {

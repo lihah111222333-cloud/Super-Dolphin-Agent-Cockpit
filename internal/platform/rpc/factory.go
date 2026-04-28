@@ -99,8 +99,8 @@ func (c approvalMethodCatalogSpec) isPushMethod(method string) bool {
 }
 
 func baseThreadHandler[Req, Resp any](fn func(context.Context, Req) (Resp, error), extras ...Middleware) handler.Func {
-	mws := make([]Middleware, 0, 2+len(extras))
-	mws = append(mws, Validate(), ThreadScope())
+	mws := make([]Middleware, 0, 3+len(extras))
+	mws = append(mws, CapabilityErrorMapper(), Validate(), ThreadScope())
 	mws = append(mws, extras...)
 	return Wrap(mws...)(StrictHandler(fn))
 }
