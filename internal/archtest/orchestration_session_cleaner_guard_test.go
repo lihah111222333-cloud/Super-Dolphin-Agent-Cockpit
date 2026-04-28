@@ -18,10 +18,10 @@ import (
 // removeSession).
 //
 // The guard enforces two invariants by file-text scan:
-//   1. cmd/mcp-orch/orchestration does not re-declare `type
-//      generationAwareSessionCleaner interface` in any production file.
-//   2. cmd/mcp-orch/orchestration does not perform the
-//      `.(generationAwareSessionCleaner)` type assertion.
+//  1. cmd/mcp-orch/orchestration does not re-declare `type
+//     generationAwareSessionCleaner interface` in any production file.
+//  2. cmd/mcp-orch/orchestration does not perform the
+//     `.(generationAwareSessionCleaner)` type assertion.
 //
 // Historical references in comments are allowed (the migration note in
 // process_lifecycle.go documents the removal for future readers).

@@ -115,7 +115,7 @@ func sanitizeScratchpadPath(raw string) string {
 		return slug
 	}
 	hash := sha256.Sum256([]byte(normalized))
-		return "project-" + hex.EncodeToString(hash[:4])
+	return "project-" + hex.EncodeToString(hash[:4])
 }
 
 func cleanupManagedScratchpadDir(dir string) error {

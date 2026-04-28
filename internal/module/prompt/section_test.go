@@ -130,7 +130,7 @@ func TestStaticSectionsIdentitySkipsOutputStyleFramingForNonRenderableConfig(t *
 		content, err := section.Compute(context.Background(), SectionContext{
 			BuildCtx: BuildCtx{
 				OutputStyleConfig: &contract.OutputStyleConfig{
-					Source:                  "user-config",
+					Source:                 "user-config",
 					KeepCodingInstructions: &keepCodingInstructions,
 				},
 			},

@@ -60,7 +60,6 @@ func (f *fakeFanoutNotifier) NotifyConfigChanged(ctx context.Context, topic stri
 	return ctx.Err()
 }
 
-
 func (f *fakeFanoutNotifier) calls() []fakeFanoutCall {
 	f.mu.Lock()
 	defer f.mu.Unlock()

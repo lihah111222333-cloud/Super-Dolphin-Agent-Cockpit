@@ -78,7 +78,6 @@ type builtinToolsWriteParams struct {
 	Cwd     string `json:"cwd,omitempty"`
 }
 
-
 func readBuiltinTools(ctx context.Context, prefs uipreference.Store, cwd string) (*builtinToolsReadResult, error) {
 	disabled, err := effectiveDisabledBuiltinToolSet(ctx, prefs, cwd)
 	if err != nil {

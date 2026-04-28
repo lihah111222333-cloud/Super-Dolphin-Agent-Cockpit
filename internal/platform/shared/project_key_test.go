@@ -76,11 +76,11 @@ func TestSanitizeSkillProjectKey_MatchesDiskNames(t *testing.T) {
 	t.Parallel()
 
 	cases := map[string]string{
-		"/Users/mima0000":                                         "Users_mima0000",
-		"/Users/mima0000/Desktop/wj/langgraph":                    "wj_langgraph",
-		"/Volumes/bot/super-agent-v3":                             "bot_super-agent-v3",
+		"/Users/mima0000":                      "Users_mima0000",
+		"/Users/mima0000/Desktop/wj/langgraph": "wj_langgraph",
+		"/Volumes/bot/super-agent-v3":          "bot_super-agent-v3",
 		"/Users/mima0000/Desktop/wj/go-agent-v2/cmd/agent-terminal/frontend": "agent-terminal_frontend",
-		"/Users/mima0000/Desktop/wj/super-agent-v3":              "wj_super-agent-v3",
+		"/Users/mima0000/Desktop/wj/super-agent-v3":                          "wj_super-agent-v3",
 	}
 	for raw, want := range cases {
 		if got := SanitizeSkillProjectKey(raw); got != want {

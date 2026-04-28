@@ -244,4 +244,3 @@ func TestPhase4BaselineLaunchAutoDreamTaskFailureDoesNotInvalidate(t *testing.T)
 		t.Fatalf("dream failure path leaked invalidate: reason=%q names=%#v", reason, names)
 	}
 }
-

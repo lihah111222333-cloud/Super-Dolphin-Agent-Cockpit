@@ -16,18 +16,18 @@ import (
 // S3d's import-direction refactor.
 //
 // The guard enforces three invariants by file-text scan:
-//   1. handler.go / proxy.go / diff_fallback.go no longer contain the
-//      bare magic strings they used pre-S3b. Those strings must come
-//      from protocol_contract.go constants.
-//   2. proxy.go preserves the fail-closed `default` branch that returns
-//      jsonRPCCodeMethodMiss for unknown methods (P4
-//      §fallback / §fail-closed: no silent ACK for unknown compatibility
-//      methods; test name matches P4 §TDD line 257
-//      TestToolbridgeCompatibilityFallbackRemoved).
-//   3. protocol_contract.go itself declares every constant the other
-//      files reference, preventing a silent split where someone adds
-//      a new magic string that passes the above checks only because it
-//      is not yet named.
+//  1. handler.go / proxy.go / diff_fallback.go no longer contain the
+//     bare magic strings they used pre-S3b. Those strings must come
+//     from protocol_contract.go constants.
+//  2. proxy.go preserves the fail-closed `default` branch that returns
+//     jsonRPCCodeMethodMiss for unknown methods (P4
+//     §fallback / §fail-closed: no silent ACK for unknown compatibility
+//     methods; test name matches P4 §TDD line 257
+//     TestToolbridgeCompatibilityFallbackRemoved).
+//  3. protocol_contract.go itself declares every constant the other
+//     files reference, preventing a silent split where someone adds
+//     a new magic string that passes the above checks only because it
+//     is not yet named.
 func TestToolbridgeProtocolFreezeContractGuard(t *testing.T) {
 	t.Parallel()
 	root := repoRootForGuardTests(t)

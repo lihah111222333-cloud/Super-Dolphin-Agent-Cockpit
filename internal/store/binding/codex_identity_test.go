@@ -149,7 +149,7 @@ func TestListAgentThreadBindingsSurfacesCodexIdentity(t *testing.T) {
 
 // TestUpsertSQLPreservesCodexIdentityOnEmpty asserts the migration 0048
 // discipline: the ON CONFLICT DO UPDATE SET clause for each codex identity
-// column uses the "'' preserves existing value" CASE. A caller passing ''
+// column uses the "” preserves existing value" CASE. A caller passing ”
 // must not clobber an already-populated identity. The immutable trigger then
 // catches any attempt to rewrite a non-empty value with a different
 // non-empty one; that side is covered by the migration SQL lint below.

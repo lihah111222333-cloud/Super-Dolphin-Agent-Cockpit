@@ -180,8 +180,8 @@ func TestJSStringLengthCases(t *testing.T) {
 		{"empty", "", 0},
 		{"ascii", "hello", 5},
 		{"bmp_chinese", "你好", 2},
-		{"emoji_supplementary", "😀", 2},     // U+1F600 → surrogate pair = 2 UTF-16 units
-		{"mixed", "a你😀", 1 + 1 + 2},         // ascii + bmp + surrogate pair
+		{"emoji_supplementary", "😀", 2}, // U+1F600 → surrogate pair = 2 UTF-16 units
+		{"mixed", "a你😀", 1 + 1 + 2},     // ascii + bmp + surrogate pair
 		{"crlf", "a\r\nb", 4},
 	}
 	for _, c := range cases {
@@ -225,7 +225,7 @@ func TestTruncateAtCodeUnitLimitCases(t *testing.T) {
 		{"exact_limit", "hello", 5, "hello"},
 		{"ascii_truncate", "hello world", 5, "hello"},
 		{"truncate_at_newline_boundary", "line1\nline2\nline3", 12, "line1\nline2"},
-		{"newline_at_zero_position", "\nrest", 1, ""}, // lastNewline >= 0 boundary fix
+		{"newline_at_zero_position", "\nrest", 1, ""},     // lastNewline >= 0 boundary fix
 		{"surrogate_pair_keeps_emoji", "ab😀cd", 4, "ab😀"}, // emoji = 2 units; 4-unit limit fits ab+emoji exactly
 		{"surrogate_pair_drops_emoji", "ab😀cd", 3, "ab"},  // 3-unit limit cannot fit emoji's 2 units
 		{"empty", "", 5, ""},

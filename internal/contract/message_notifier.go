@@ -13,11 +13,11 @@ import (
 // This contract is deliberately narrower than the three existing notify
 // surfaces (ToolNotifier / PushBridge / platform/rpc push) so the three
 // fanout models stay separately reasoned about. In particular:
-//   * TryEnqueue is non-blocking. Callback-style subscribers on a bus
+//   - TryEnqueue is non-blocking. Callback-style subscribers on a bus
 //     can call it directly without risking backpressure onto publish.
-//   * Implementations own retry / rate-limit / timeout policy. Callers
+//   - Implementations own retry / rate-limit / timeout policy. Callers
 //     must not assume delivery success from a nil return.
-//   * Secrets (webhook URL / HMAC key) never flow through NotifyRequest;
+//   - Secrets (webhook URL / HMAC key) never flow through NotifyRequest;
 //     callers pass only the alias and the resolver looks the secret up.
 type MessageNotifier interface {
 	TryEnqueue(ctx context.Context, req NotifyRequest) error

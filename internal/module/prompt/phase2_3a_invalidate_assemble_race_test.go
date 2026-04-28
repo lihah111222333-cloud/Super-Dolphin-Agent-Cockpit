@@ -239,14 +239,14 @@ func TestPhase2_3aSingleflightInvalidateNoStaleStore(t *testing.T) {
 
 // TestPhase2_3aInvalidateRoutingContract — 两路 invalidate 路由契约：
 //
-//  - `service.Invalidate(ctx, reason)` (assembler.go:137) = 全清模式：同时
-//    advance prompt.cache 和 userContextCache 的 generation。防御性 reset。
+//   - `service.Invalidate(ctx, reason)` (assembler.go:137) = 全清模式：同时
+//     advance prompt.cache 和 userContextCache 的 generation。防御性 reset。
 //
-//  - `service.InvalidateSections(reason, names...)` (invalidation.go:15) =
-//    section-fine-grained：仅 advance prompt.cache。userContextCache **不动**
-//    —— 它是 content-aware sources-keyed（baseUserContextCacheKey 用
-//    sourceDigest 作为 key 的一部分），source content 变化时 cacheKey 自动
-//    变化 → lookup miss → 重新 compute。不需要靠 generation invalidate。
+//   - `service.InvalidateSections(reason, names...)` (invalidation.go:15) =
+//     section-fine-grained：仅 advance prompt.cache。userContextCache **不动**
+//     —— 它是 content-aware sources-keyed（baseUserContextCacheKey 用
+//     sourceDigest 作为 key 的一部分），source content 变化时 cacheKey 自动
+//     变化 → lookup miss → 重新 compute。不需要靠 generation invalidate。
 //
 // 本测试守住这个分工。如果未来重构让 InvalidateSections 也去清
 // userContextCache.Generation，需先评估是否使 content-aware 机制冗余；本

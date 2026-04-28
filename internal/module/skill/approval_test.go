@@ -349,21 +349,21 @@ func TestApprovalCache_ApproveArtifact_AnchorIsolation(t *testing.T) {
 	if _, err := cache.ApproveArtifact(ApprovalRequest{
 		Name: "foo", ArtifactKind: ArtifactKindBody,
 		ArtifactLocator: "SKILL.md#Usage",
-		ContentHash: hash, Trust: TrustProject,
+		ContentHash:     hash, Trust: TrustProject,
 	}); err != nil {
 		t.Fatalf("approve: %v", err)
 	}
 	if _, ok := cache.LookupArtifact(ApprovalRequest{
 		Name: "foo", ArtifactKind: ArtifactKindBody,
 		ArtifactLocator: "SKILL.md", // 无 anchor 应 miss
-		ContentHash: hash,
+		ContentHash:     hash,
 	}); ok {
 		t.Fatalf("different anchor MUST miss")
 	}
 	if _, ok := cache.LookupArtifact(ApprovalRequest{
 		Name: "foo", ArtifactKind: ArtifactKindBody,
 		ArtifactLocator: "SKILL.md#Usage", // 同 anchor 必命
-		ContentHash: hash,
+		ContentHash:     hash,
 	}); !ok {
 		t.Fatalf("same anchor should hit")
 	}
@@ -388,7 +388,7 @@ func TestApprovalCache_ApproveArtifact_InvalidLocatorRejected(t *testing.T) {
 	_, err := cache.ApproveArtifact(ApprovalRequest{
 		Name: "foo", ArtifactKind: ArtifactKindResource,
 		ArtifactLocator: "../../etc/passwd",
-		ContentHash: hash, Trust: TrustProject,
+		ContentHash:     hash, Trust: TrustProject,
 	})
 	if err == nil {
 		t.Fatalf("path escape in resource locator MUST be rejected")
