@@ -299,12 +299,28 @@ function createPageForkThread(props, ctx) {
   };
 }
 
-function createPageAutoContinue(props, taskHandoff) {
+function createPageAutoContinue(props, taskHandoff, selectedThreadId) {
   const r = useAutoContinue({
     threadStore: props.threadStore,
     continueTaskById: taskHandoff.continueTaskById,
   });
-  return { autoContinueFailedByThread: r.failedAutoContinueByThread, autoContinueRetry: r.retryAutoContinue };
+  const activeAutoContinueFailed = computed(
+    () => r.failedAutoContinueByThread.value.get((selectedThreadId.value || '').toString().trim()) || null,
+  );
+  const autoContinueRetrying = ref(false);
+  async function onRetryAutoContinue() {
+    const id = (selectedThreadId.value || '').toString().trim();
+    if (!id || autoContinueRetrying.value) return;
+    autoContinueRetrying.value = true;
+    try { await r.retryAutoContinue(id); }
+    catch (_e) { /* 已在 useAutoContinue 内 logWarn */ }
+    finally { autoContinueRetrying.value = false; }
+  }
+  return {
+    autoContinueFailedByThread: r.failedAutoContinueByThread,
+    autoContinueRetry: r.retryAutoContinue,
+    activeAutoContinueFailed, autoContinueRetrying, onRetryAutoContinue,
+  };
 }
 
 function createPageTaskHandoff(props, ctx) {
@@ -587,7 +603,7 @@ export const UnifiedChatPage = {
 
     const copyThreadInfo = createPageCopyThreadInfo(selectedThreadId, activeProjectCwd, threadCards, activeThread, activeStatus, useClaudeProvider, props);
     const taskHandoff = createPageTaskHandoff(props, { selectedThreadId, activeThread, activeRuntime: threadCards.activeRuntime, isCmd });
-    const autoContinue = createPageAutoContinue(props, taskHandoff);
+    const autoContinue = createPageAutoContinue(props, taskHandoff, selectedThreadId);
     const forkPage = createPageForkThread(props, { composer, selectedThreadId, activeThread, isCmd, emit: typeof setupCtx?.emit === 'function' ? setupCtx.emit : () => {} });
     const tokenLevelByThreadId = createPageTokenLevels(props, threads);
 

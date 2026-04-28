@@ -1,18 +1,31 @@
 // @ts-nocheck
 // 顶部警示横幅：当前活跃会话上下文使用率跨过阈值（warn/danger/critical）时展示。
+// Phase 1.4d：自动续接失败时也会显示重试入口（即使 token level=normal，例如 status_error 触发的失败）。
 // 状态由父级 (UnifiedChatPage) 传入；本组件本身不持有状态。
+
+const AUTO_CONTINUE_REASON_LABEL = Object.freeze({
+  compact_then_continue_failed: '上下文压缩与自动续接均失败',
+  continue_failed: '自动续接失败',
+  recover_then_continue_failed: '进程恢复与自动续接均失败',
+  gated_thread_already_continued: '此 thread 已自动续接过 1 次',
+  gated_global_fuse_blown: '系统级自动续接保险丝已触发',
+});
+
 export const ContextUsageBanner = {
   name: 'ContextUsageBanner',
   props: {
-    // 'normal' | 'warn' | 'danger' | 'critical'。normal 时不渲染。
     level: { type: String, default: 'normal' },
     usedPercent: { type: Number, default: 0 },
     usedTokens: { type: Number, default: 0 },
     contextWindow: { type: Number, default: 0 },
     canCompact: { type: Boolean, default: true },
     compacting: { type: Boolean, default: false },
+    // Phase 1.4d：自动续接失败信息。null = 无失败。
+    // 形状：{ kind, last_action, reason, error_message, ts }
+    failedInfo: { type: Object, default: null },
+    retrying: { type: Boolean, default: false },
   },
-  emits: ['compact', 'fork'],
+  emits: ['compact', 'fork', 'retry-auto-continue'],
   setup(props, { emit }) {
     function levelLabel() {
       if (props.level === 'critical') return '严重';
@@ -20,43 +33,83 @@ export const ContextUsageBanner = {
       if (props.level === 'warn') return '提醒';
       return '';
     }
+    function failedReasonLabel() {
+      if (!props.failedInfo) return '';
+      return AUTO_CONTINUE_REASON_LABEL[props.failedInfo.reason] || '自动续接失败';
+    }
+    function failedErrorSnippet() {
+      const msg = (props.failedInfo && props.failedInfo.error_message) || '';
+      return msg.toString().slice(0, 120);
+    }
+    function showTokenSection() { return props.level && props.level !== 'normal'; }
+    function showFailedSection() { return Boolean(props.failedInfo); }
+    function visible() { return showTokenSection() || showFailedSection(); }
     function onCompact() {
       if (props.compacting || !props.canCompact) return;
       emit('compact');
     }
     function onFork() { emit('fork'); }
-    return { levelLabel, onCompact, onFork };
+    function onRetry() {
+      if (props.retrying) return;
+      emit('retry-auto-continue');
+    }
+    return {
+      levelLabel, failedReasonLabel, failedErrorSnippet,
+      showTokenSection, showFailedSection, visible,
+      onCompact, onFork, onRetry,
+    };
   },
   template: `
     <div
-      v-if="level && level !== 'normal'"
+      v-if="visible()"
       class="context-usage-banner"
-      :class="'is-token-' + level"
+      :class="showTokenSection() ? ('is-token-' + level) : 'is-auto-continue-failed'"
       role="alert"
       data-testid="context-usage-banner"
     >
-      <span class="context-usage-banner-icon" aria-hidden="true">⚠</span>
-      <span class="context-usage-banner-msg">
-        上下文使用率
-        <strong>{{ Math.round(Number(usedPercent) || 0) }}%</strong>
-        <span v-if="contextWindow > 0" style="opacity: 0.75; margin-left: 4px;">
-          ({{ usedTokens }} / {{ contextWindow }} tokens)
+      <template v-if="showTokenSection()">
+        <span class="context-usage-banner-icon" aria-hidden="true">⚠</span>
+        <span class="context-usage-banner-msg">
+          上下文使用率
+          <strong>{{ Math.round(Number(usedPercent) || 0) }}%</strong>
+          <span v-if="contextWindow > 0" style="opacity: 0.75; margin-left: 4px;">
+            ({{ usedTokens }} / {{ contextWindow }} tokens)
+          </span>
+          — {{ levelLabel() }}，建议压缩上下文或新建继承会话以避免触发自动截断。
         </span>
-        — {{ levelLabel() }}，建议压缩上下文或新建继承会话以避免触发自动截断。
-      </span>
-      <button
-        type="button"
-        class="btn btn-ghost btn-xs context-usage-banner-action"
-        :disabled="!canCompact || compacting"
-        :title="!canCompact ? '当前 agent 不支持上下文压缩' : (compacting ? '正在压缩…' : '触发上下文压缩')"
-        @click="onCompact"
-      >{{ compacting ? '压缩中…' : '压缩上下文' }}</button>
-      <button
-        type="button"
-        class="btn btn-primary btn-xs context-usage-banner-action"
-        title="以当前会话为背景新建一个继承对话"
-        @click="onFork"
-      >新建继承会话</button>
+        <button
+          type="button"
+          class="btn btn-ghost btn-xs context-usage-banner-action"
+          :disabled="!canCompact || compacting"
+          :title="!canCompact ? '当前 agent 不支持上下文压缩' : (compacting ? '正在压缩…' : '触发上下文压缩')"
+          @click="onCompact"
+        >{{ compacting ? '压缩中…' : '压缩上下文' }}</button>
+        <button
+          type="button"
+          class="btn btn-primary btn-xs context-usage-banner-action"
+          title="以当前会话为背景新建一个继承对话"
+          @click="onFork"
+        >新建继承会话</button>
+      </template>
+      <div
+        v-if="showFailedSection()"
+        class="context-usage-banner-failed"
+        data-testid="auto-continue-failed-row"
+      >
+        <span class="context-usage-banner-icon" aria-hidden="true">⚡</span>
+        <span class="context-usage-banner-msg">
+          后台自动续接失败：<strong>{{ failedReasonLabel() }}</strong>
+          <span v-if="failedErrorSnippet()" style="opacity: 0.75; margin-left: 6px;">— {{ failedErrorSnippet() }}</span>
+        </span>
+        <button
+          type="button"
+          class="btn btn-primary btn-xs context-usage-banner-action"
+          data-testid="auto-continue-retry-btn"
+          :disabled="retrying"
+          :title="retrying ? '重试中…' : '手动重试起一个继承对话'"
+          @click="onRetry"
+        >{{ retrying ? '重试中…' : '一键重试' }}</button>
+      </div>
     </div>
   `,
 };
