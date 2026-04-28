@@ -100,7 +100,14 @@ func (w *nestedIngestWorker) Start() {
 			close(w.doneCh)
 			return
 		}
-		go w.runWorker()
+		go func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					pkglogger.Error("memory: recovered nested_ingest_worker panic", "panic", rec)
+				}
+			}()
+			w.runWorker()
+		}()
 	})
 }
 

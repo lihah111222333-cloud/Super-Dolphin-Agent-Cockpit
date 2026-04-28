@@ -15,9 +15,21 @@ func TestRedactor_AllPatterns(t *testing.T) {
 	}{
 		{"bearer", "Authorization: Bearer abc.def-secret_value", "bearer_token", "abc.def-secret_value"},
 		{"jwt", "token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.signature", "jwt", "eyJhbGciOiJIUzI1NiJ9"},
+		{"openai_key", "api key sk-proj-abcdefghijklmnopqrstuvwxyz1234567890", "openai_api_key", "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"},
+		{"anthropic_key", "key sk-ant-abcdefghijklmnopqrstuvwxyz1234567890", "anthropic_api_key", "sk-ant-abcdefghijklmnopqrstuvwxyz1234567890"},
+		{"github_direct", "token ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "github_token", "ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+		{"slack_token", "xoxb-123456789012-abcdefghijklmnop", "slack_token", "xoxb-123456789012-abcdefghijklmnop"},
+		{"aws_key_id", "AWS id AKIAIOSFODNN7EXAMPLE", "aws_access_key_id", "AKIAIOSFODNN7EXAMPLE"},
+		{"google_api_key", "AIzaSyD-abcdefghijklmnopqrstuvwxyz12345", "google_api_key", "AIzaSyD-abcdefghijklmnopqrstuvwxyz12345"},
+		{"stripe_secret", "sk_live_abcdefghijklmnopqrstuvwxyz", "stripe_secret_key", "sk_live_abcdefghijklmnopqrstuvwxyz"},
+		{"npm_token", "npm_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ", "npm_token", "npm_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ"},
+		{"pypi_token", "pypi-abcdefghijklmnopqrstuvwxyz1234567890", "pypi_token", "pypi-abcdefghijklmnopqrstuvwxyz1234567890"},
+		{"private_key_header", "-----BEGIN OPENSSH PRIVATE KEY-----", "private_key_header", "OPENSSH PRIVATE"},
+		{"age_sops_header", "-----BEGIN AGE ENCRYPTED FILE-----", "age_sops_header", "AGE ENCRYPTED"},
+		{"uri_credentials", "postgres://alice:secret@example.com/db", "uri_credentials", "alice:secret@"},
+		{"ssh_public_key", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKabcdefghijklmnopqrstuvwx1234567890", "ssh_public_key", "AAAAC3NzaC1lZDI1NTE5"},
 		{"openai_env", "export OPENAI_API_KEY=sk-1234567890abcdef", "credential_env", "sk-1234567890abcdef"},
 		{"anthropic_env", "ANTHROPIC_API_KEY: sk-ant-xxxxx", "credential_env", "sk-ant-xxxxx"},
-		{"github_token", "GITHUB_TOKEN=ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "credential_env", "ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
 		{"cookie", "Cookie: session=abc; csrf=xyz", "http_cookie", "session=abc"},
 		{"set_cookie", "Set-Cookie: foo=bar; Path=/", "http_cookie", "foo=bar"},
 		{"long_base64", "key=dGVzdHRlc3R0ZXN0dGVzdHRlc3R0ZXN0dGVzdHRlc3R0ZXN0", "long_base64", "dGVzdHRlc3R0ZXN0dGVzdHRlc3R0ZXN0dGVzdHRlc3R0ZXN0"},
@@ -74,8 +86,8 @@ func TestRepoFingerprint_DeterministicAndScoped(t *testing.T) {
 	if a != RepoFingerprint("/tmp/repo-a") {
 		t.Fatalf("not deterministic")
 	}
-	if len(a) != 12 {
-		t.Fatalf("fingerprint length should be 12, got %d", len(a))
+	if len(a) != 32 {
+		t.Fatalf("fingerprint length should be 32, got %d", len(a))
 	}
 }
 
@@ -96,3 +108,31 @@ func containsHit(hits []string, want string) bool {
 	}
 	return false
 }
+
+// Benchmarks — DefaultRedactor.Redact runs on every turn's content, applying
+// 20+ regex patterns. These benchmarks capture both the fast path (no secret
+// present) and the worst case (multiple secret types in a single input).
+
+func BenchmarkRedact_NoMatch(b *testing.B) {
+	r := NewDefaultRedactor()
+	input := "This is a perfectly normal piece of text with no secrets, API keys, or tokens. " +
+		"It just talks about building software and deploying to production. " +
+		"No credentials were harmed in the making of this benchmark."
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		r.Redact(input)
+	}
+}
+
+func BenchmarkRedact_MultipleSecrets(b *testing.B) {
+	r := NewDefaultRedactor()
+	input := "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.sig " +
+		"with key sk-ant-abcdefghijklmnopqrstuvwxyz1234567890 " +
+		"and github token ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA " +
+		"connecting to postgres://alice:secret@example.com/db"
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		r.Redact(input)
+	}
+}
+

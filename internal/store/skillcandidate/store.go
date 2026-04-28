@@ -23,6 +23,7 @@ type querier interface {
 	InsertSkillCandidate(ctx context.Context, arg sqlc.InsertSkillCandidateParams) (sqlc.SkillCandidate, error)
 	GetSkillCandidateByID(ctx context.Context, id int64) (sqlc.SkillCandidate, error)
 	ListPendingSkillCandidates(ctx context.Context, arg sqlc.ListPendingSkillCandidatesParams) ([]sqlc.SkillCandidate, error)
+	MarkSkillCandidatesSuperseded(ctx context.Context, arg sqlc.MarkSkillCandidatesSupersededParams) (int64, error)
 	ApproveSkillCandidate(ctx context.Context, arg sqlc.ApproveSkillCandidateParams) (sqlc.SkillCandidate, error)
 	RejectSkillCandidate(ctx context.Context, arg sqlc.RejectSkillCandidateParams) (sqlc.SkillCandidate, error)
 	MarkSkillCandidatePromoted(ctx context.Context, id int64) (sqlc.SkillCandidate, error)
@@ -87,6 +88,16 @@ func fromRow(r sqlc.SkillCandidate) Candidate {
 	}
 }
 
+func (s *store) transitionNoRowsError(ctx context.Context, id int64, op string) error {
+	if _, err := s.q.GetSkillCandidateByID(ctx, id); err != nil {
+		if platformdb.IsNotFound(err) {
+			return wrap(ErrCandidateNotFound, op)
+		}
+		return wrap(err, op)
+	}
+	return wrap(ErrCandidateStateMismatch, op)
+}
+
 func (s *store) Insert(ctx context.Context, p InsertParams) (Candidate, error) {
 	row, err := s.q.InsertSkillCandidate(ctx, sqlc.InsertSkillCandidateParams{
 		Scope:           strings.TrimSpace(p.Scope),
@@ -113,7 +124,11 @@ func (s *store) GetByID(ctx context.Context, id int64) (Candidate, error) {
 	return fromRow(row), nil
 }
 
-func (s *store) ListPending(ctx context.Context, limit, offset int32) ([]Candidate, error) {
+func (s *store) ListPending(ctx context.Context, repoFingerprint string, limit, offset int32) ([]Candidate, error) {
+	repoFingerprint = strings.TrimSpace(repoFingerprint)
+	if !IsValidRepoFingerprint(repoFingerprint) {
+		return nil, wrap(ErrInvalidRepoFingerprint, "list_pending")
+	}
 	if limit <= 0 {
 		limit = defaultLimit
 	}
@@ -121,8 +136,9 @@ func (s *store) ListPending(ctx context.Context, limit, offset int32) ([]Candida
 		offset = 0
 	}
 	rows, err := s.q.ListPendingSkillCandidates(ctx, sqlc.ListPendingSkillCandidatesParams{
-		Limit:  limit,
-		Offset: offset,
+		RepoFingerprint: repoFingerprint,
+		Limit:           limit,
+		Offset:          offset,
 	})
 	if err != nil {
 		return nil, wrap(err, "list_pending")
@@ -132,6 +148,25 @@ func (s *store) ListPending(ctx context.Context, limit, offset int32) ([]Candida
 		out = append(out, fromRow(r))
 	}
 	return out, nil
+}
+
+func (s *store) MarkSuperseded(ctx context.Context, scope, slug, repoFingerprint string, keepID int64) (int64, error) {
+	scope = strings.TrimSpace(scope)
+	slug = strings.TrimSpace(slug)
+	repoFingerprint = strings.TrimSpace(repoFingerprint)
+	if scope == ScopeProject && !IsValidRepoFingerprint(repoFingerprint) {
+		return 0, wrap(ErrInvalidRepoFingerprint, "mark_superseded")
+	}
+	rows, err := s.q.MarkSkillCandidatesSuperseded(ctx, sqlc.MarkSkillCandidatesSupersededParams{
+		Scope:           scope,
+		Slug:            slug,
+		RepoFingerprint: repoFingerprint,
+		ID:              keepID,
+	})
+	if err != nil {
+		return 0, wrap(err, "mark_superseded")
+	}
+	return rows, nil
 }
 
 // Approve transitions pending_review -> approved. The query's WHERE
@@ -151,7 +186,7 @@ func (s *store) Approve(ctx context.Context, id int64, approvedBy, reason string
 	})
 	if err != nil {
 		if platformdb.IsNotFound(err) {
-			return Candidate{}, wrap(platformdb.ErrConflict, "approve")
+			return Candidate{}, s.transitionNoRowsError(ctx, id, "approve")
 		}
 		return Candidate{}, wrap(err, "approve")
 	}
@@ -165,7 +200,7 @@ func (s *store) Reject(ctx context.Context, id int64, reason string) (Candidate,
 	})
 	if err != nil {
 		if platformdb.IsNotFound(err) {
-			return Candidate{}, wrap(platformdb.ErrConflict, "reject")
+			return Candidate{}, s.transitionNoRowsError(ctx, id, "reject")
 		}
 		return Candidate{}, wrap(err, "reject")
 	}
@@ -176,7 +211,7 @@ func (s *store) MarkPromoted(ctx context.Context, id int64) (Candidate, error) {
 	row, err := s.q.MarkSkillCandidatePromoted(ctx, id)
 	if err != nil {
 		if platformdb.IsNotFound(err) {
-			return Candidate{}, wrap(platformdb.ErrConflict, "mark_promoted")
+			return Candidate{}, s.transitionNoRowsError(ctx, id, "mark_promoted")
 		}
 		return Candidate{}, wrap(err, "mark_promoted")
 	}
@@ -187,6 +222,10 @@ func (s *store) MarkPromoted(ctx context.Context, id int64) (Candidate, error) {
 // matched by literal value (including the empty string) so callers
 // cannot accidentally cross-pollinate decisions across projects.
 func (s *store) LookupApproval(ctx context.Context, scope, slug, contentHash, repoFingerprint string) (*Candidate, error) {
+	repoFingerprint = strings.TrimSpace(repoFingerprint)
+	if strings.TrimSpace(scope) == ScopeProject && !IsValidRepoFingerprint(repoFingerprint) {
+		return nil, wrap(ErrInvalidRepoFingerprint, "lookup_approval")
+	}
 	row, err := s.q.LookupSkillCandidateApproval(ctx, sqlc.LookupSkillCandidateApprovalParams{
 		Scope:           scope,
 		Slug:            slug,

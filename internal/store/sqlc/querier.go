@@ -152,6 +152,7 @@ type Querier interface {
 	//
 	MarkCronJobFinished(ctx context.Context, arg MarkCronJobFinishedParams) (int64, error)
 	MarkSkillCandidatePromoted(ctx context.Context, id int64) (SkillCandidate, error)
+	MarkSkillCandidatesSuperseded(ctx context.Context, arg MarkSkillCandidatesSupersededParams) (int64, error)
 	MarkTurnDedupeTerminal(ctx context.Context, arg MarkTurnDedupeTerminalParams) error
 	// Runtime SQL template from V2 DBQueryStore.Query:
 	// WITH q AS (<runtime read-only SQL>) SELECT * FROM q LIMIT $1;

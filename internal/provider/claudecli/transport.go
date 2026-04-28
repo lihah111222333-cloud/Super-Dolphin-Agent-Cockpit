@@ -82,7 +82,18 @@ func newTransport(binary string, args []string, cwd string, env []string) (*tran
 		stderr:  stderr,
 		done:    make(chan struct{}),
 	}
-	go tr.wait()
+	go func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				select {
+				case <-tr.done:
+				default:
+					close(tr.done)
+				}
+			}
+		}()
+		tr.wait()
+	}()
 	return tr, nil
 }
 

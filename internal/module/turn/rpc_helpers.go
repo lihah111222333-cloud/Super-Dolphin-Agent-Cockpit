@@ -287,11 +287,6 @@ func turnForceCompleteHandler(svc Service, resolver contract.SessionResolver) ha
 	})
 }
 
-func reviewStartHandler() handler.Func {
-	return rpc.ThreadHandler(func(ctx context.Context, p threadIDOnlyParams) (any, error) {
-		return nil, rpc.ErrNotImplemented("review/start is not yet implemented")
-	})
-}
 
 func approvalRespondHandler(approver contract.ApprovalResponder) handler.Func {
 	return rpc.StrictHandler(func(ctx context.Context, p approvalRespondParams) (any, error) {

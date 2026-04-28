@@ -1,8 +1,6 @@
 package skill
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -10,6 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/repofingerprint"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
@@ -75,29 +74,9 @@ func validArtifactKinds() map[string]bool {
 // IsValidArtifactKind 导出给 RPC / test 使用。
 func IsValidArtifactKind(kind string) bool { return validArtifactKinds()[kind] }
 
-// RepoFingerprint 生成项目根目录的稳定指纹，作为审批缓存 key 的第一维数据——
-// 同一个用户机器上两个不同项目即使侥存相同 name+hash 的 skill，也应走各自审批。
-//
-// 策略：
-//   - 空/空白输入 → 返回空串（等价旧版的全局审批缓存，Phase 1 向后兼容）。
-//   - 项目路径→ absolute + filepath.Clean + EvalSymlinks，然后 sha256 hex[:16]
-//     作为稳定 ID。使用 hex[:16]（64 bits）对个人设备碰撞概率安全。
-//   - 未来如需增强谁谁性，可在此治反为 git remote URL + HEAD（不强制 git repo）。
+// RepoFingerprint 生成项目根目录的稳定 128-bit 指纹，作为审批缓存 key 的第一维数据。
 func RepoFingerprint(projectRoot string) string {
-	projectRoot = strings.TrimSpace(projectRoot)
-	if projectRoot == "" {
-		return ""
-	}
-	abs, err := filepath.Abs(projectRoot)
-	if err != nil {
-		return ""
-	}
-	abs = filepath.Clean(abs)
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		abs = resolved
-	}
-	sum := sha256.Sum256([]byte(abs))
-	return hex.EncodeToString(sum[:])[:16]
+	return repofingerprint.MustCompute(projectRoot)
 }
 
 // NormalizeArtifactLocator 将 kind + 原始 locator 规范化为审批 key 中的稳定字符串。

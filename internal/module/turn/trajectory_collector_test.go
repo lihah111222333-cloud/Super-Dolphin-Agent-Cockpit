@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation"
 )
 
@@ -59,7 +59,7 @@ func TestTrajectoryCollector_DedupesRawAndTyped(t *testing.T) {
 	c.onTurnStarted(turndto.TurnStarted{TurnHeader: makeTurnHeader("T1", "th-1", "ag-1", now)})
 	c.onToolCallBegin(begin)
 	c.onToolCallEnd(end)
-	// Second pair: should be deduped via observation.Dedupe begin-traj/end-traj.
+	// Second pair: should be idempotent in the collector's own call map.
 	c.onToolCallBegin(begin)
 	c.onToolCallEnd(end)
 
@@ -85,7 +85,8 @@ func TestTrajectoryCollector_AttributesToolDiffViaCallIDMap(t *testing.T) {
 		ToolCallHeader: makeToolHeader("T1", "th-1", "ag-1", "C1", "fs.write", now),
 	})
 
-	// Sanity: observation has the binding.
+	mem.AttributeCall("C1", "T1")
+	// Sanity: observation has the binding supplied by the observation writer.
 	if owner, ok := mem.LookupCall("C1"); !ok || owner != "T1" {
 		t.Fatalf("LookupCall = (%q,%v); want (T1,true)", owner, ok)
 	}

@@ -271,13 +271,7 @@ func (p *PromptProvider) unavailable() bool {
 }
 
 func (p *PromptProvider) Resolve(_ context.Context, input contract.SectionContext) (*string, error) {
-	if p.unavailable() {
-		return nil, nil
-	}
-	if !p.gates.AutoEnabled(input.BuildCtx) {
-		return nil, nil
-	}
-	if p.gates.SuppressForOverlay(input.BuildCtx) {
+	if !p.shouldResolve(input) {
 		return nil, nil
 	}
 	meta, ok := ResolveChildAgentStart(input)
@@ -285,50 +279,55 @@ func (p *PromptProvider) Resolve(_ context.Context, input contract.SectionContex
 		return nil, nil
 	}
 	if err := p.manager.EnsureAgentMemoryDir(meta.AgentType, meta.Scope); err != nil {
-		if p.logger != nil {
-			p.logger.Warn("agent memory prompt preload failed",
-				"memory_type", "agent",
-				"agent_type", meta.AgentType,
-				"scope", string(meta.Scope),
-				"scope_display", ScopeDisplay(meta.Scope),
-				"status", agentMemoryFailureStatus(meta.Scope, err),
-				"error", err,
-			)
-		}
+		p.logAgentMemoryFailure("agent memory prompt preload failed", meta, err)
 		return nil, nil
 	}
 	result, err := p.manager.loadAgentMemoryPrompt(meta.AgentType, meta.Scope)
 	if err != nil {
-		if p.logger != nil {
-			p.logger.Warn("agent memory prompt load failed",
-				"memory_type", "agent",
-				"agent_type", meta.AgentType,
-				"scope", string(meta.Scope),
-				"scope_display", ScopeDisplay(meta.Scope),
-				"status", agentMemoryFailureStatus(meta.Scope, err),
-				"error", err,
-			)
-		}
+		p.logAgentMemoryFailure("agent memory prompt load failed", meta, err)
 		return nil, nil
 	}
 	text := strings.TrimSpace(result.prompt)
 	if text == "" {
 		return nil, nil
 	}
-	if p.logger != nil {
-		p.logger.Info("agent memory prompt loaded",
-			"memory_type", "agent",
-			"agent_type", meta.AgentType,
-			"scope", string(meta.Scope),
-			"scope_display", ScopeDisplay(meta.Scope),
-			"content_length", result.contentLength,
-			"line_count", result.lineCount,
-			"was_truncated", result.wasTruncated,
-			"was_byte_truncated", result.wasByteTruncated,
-			"status", agentMemorySuccessStatus(result),
-		)
-	}
+	p.logAgentMemoryLoaded(meta, result)
 	return &text, nil
+}
+
+func (p *PromptProvider) shouldResolve(input contract.SectionContext) bool {
+	return !p.unavailable() && p.gates.AutoEnabled(input.BuildCtx) && !p.gates.SuppressForOverlay(input.BuildCtx)
+}
+
+func (p *PromptProvider) logAgentMemoryFailure(message string, meta ChildStart, err error) {
+	if p.logger == nil {
+		return
+	}
+	p.logger.Warn(message,
+		"memory_type", "agent",
+		"agent_type", meta.AgentType,
+		"scope", string(meta.Scope),
+		"scope_display", ScopeDisplay(meta.Scope),
+		"status", agentMemoryFailureStatus(meta.Scope, err),
+		"error", err,
+	)
+}
+
+func (p *PromptProvider) logAgentMemoryLoaded(meta ChildStart, result loadResult) {
+	if p.logger == nil {
+		return
+	}
+	p.logger.Info("agent memory prompt loaded",
+		"memory_type", "agent",
+		"agent_type", meta.AgentType,
+		"scope", string(meta.Scope),
+		"scope_display", ScopeDisplay(meta.Scope),
+		"content_length", result.contentLength,
+		"line_count", result.lineCount,
+		"was_truncated", result.wasTruncated,
+		"was_byte_truncated", result.wasByteTruncated,
+		"status", agentMemorySuccessStatus(result),
+	)
 }
 
 func ensureAgentMemoryDir(dir, entrypoint string) error {

@@ -1,5 +1,9 @@
 package shared
 
+// Phase 0 shared contract: ResolveCodexIdentity is consumed by cron, thread,
+// provider routing, dashboard insight, and notification flows. Do not make
+// breaking changes to the input keys, canonicalization pipeline, sentinel
+// errors, or output fields without an ADR and coordinated downstream updates.
 import (
 	"errors"
 	"fmt"

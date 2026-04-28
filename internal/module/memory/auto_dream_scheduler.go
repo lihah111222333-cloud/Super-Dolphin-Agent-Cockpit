@@ -90,7 +90,14 @@ func (s *autoDreamScheduler) Start() {
 			close(s.doneCh)
 			return
 		}
-		go s.runWorker()
+		go func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					pkglogger.Error("memory: recovered auto_dream_scheduler worker panic", "panic", rec)
+				}
+			}()
+			s.runWorker()
+		}()
 	})
 }
 

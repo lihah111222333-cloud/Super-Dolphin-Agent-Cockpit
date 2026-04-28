@@ -32,7 +32,11 @@ func (f *fakeDreamExecutor) ExecuteDream(_ context.Context, prompt string) (stri
 
 // fakeStore records every Insert and lets a test override its return.
 type fakeStore struct {
-	inserts   []skillcandidate.InsertParams
+	inserts        []skillcandidate.InsertParams
+	supersedeCalls []struct {
+		Scope, Slug, RepoFingerprint string
+		KeepID                       int64
+	}
 	insertErr error
 }
 
@@ -55,8 +59,15 @@ func (s *fakeStore) Insert(_ context.Context, p skillcandidate.InsertParams) (sk
 func (s *fakeStore) GetByID(context.Context, int64) (skillcandidate.Candidate, error) {
 	return skillcandidate.Candidate{}, errors.New("not used")
 }
-func (s *fakeStore) ListPending(context.Context, int32, int32) ([]skillcandidate.Candidate, error) {
+func (s *fakeStore) ListPending(context.Context, string, int32, int32) ([]skillcandidate.Candidate, error) {
 	return nil, nil
+}
+func (s *fakeStore) MarkSuperseded(_ context.Context, scope, slug, repoFingerprint string, keepID int64) (int64, error) {
+	s.supersedeCalls = append(s.supersedeCalls, struct {
+		Scope, Slug, RepoFingerprint string
+		KeepID                       int64
+	}{scope, slug, repoFingerprint, keepID})
+	return 0, nil
 }
 func (s *fakeStore) Approve(context.Context, int64, string, string, time.Time) (skillcandidate.Candidate, error) {
 	return skillcandidate.Candidate{}, errors.New("not used")
@@ -127,6 +138,12 @@ func TestExtractor_GoldenRedactsSecrets(t *testing.T) {
 	}
 	if e.Metrics.Promoted != 1 {
 		t.Fatalf("expected 1 Promoted, got %d", e.Metrics.Promoted)
+	}
+	if len(store.supersedeCalls) != 1 {
+		t.Fatalf("expected 1 supersede call, got %d", len(store.supersedeCalls))
+	}
+	if store.supersedeCalls[0].Scope != extracted.Scope || store.supersedeCalls[0].Slug != extracted.Slug || store.supersedeCalls[0].RepoFingerprint != extracted.RepoFingerprint || store.supersedeCalls[0].KeepID != 1 {
+		t.Fatalf("supersede call = %+v, extracted = %+v", store.supersedeCalls[0], extracted)
 	}
 }
 
