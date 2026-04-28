@@ -12,11 +12,13 @@ import { WorkspaceChatPanel } from '../components/unified-chat/WorkspaceChatPane
 import { DiffPanel } from '../components/DiffPanel.js';
 import { ComposerBar } from '../components/ComposerBar.js';
 import { ContextUsageBanner } from '../components/ContextUsageBanner.js';
+import { ComposerForkDraftCard } from '../components/ComposerForkDraftCard.js';
 import { LaunchSkillPicker } from '../components/LaunchSkillPicker.js';
 import { ActivityPanel } from '../components/ActivityPanel.js';
 import { PathChoiceModal } from '../components/PathChoiceModal.js';
 import { normalizeStatus } from '../services/status.js';
 import { logInfo, logWarn } from '../services/log.js';
+import { callAPI } from '../services/api.js';
 import { observeContainerWidth, disconnectContainerObserver } from '../services/pretext-layout.js';
 import { useComposerStore } from '../stores/composer.js';
 import { useProviderMode } from '../composables/useProviderMode.js';
@@ -38,6 +40,7 @@ import { useFileRefPreview } from '../composables/useFileRefPreview.js';
 import { useCopyThreadInfo } from '../composables/useCopyThreadInfo.js';
 import { useFileDrop } from '../composables/useFileDrop.js';
 import { useTaskHandoff } from '../composables/useTaskHandoff.js';
+import { useForkThread } from '../composables/useForkThread.js';
 import { getTokenLevel } from '../utils/format-utils.js';
 import { useContextUsageThresholds } from '../composables/useContextUsageThresholds.js';
 import { usePageLifecycle } from '../composables/usePageLifecycle.js';
@@ -160,6 +163,13 @@ function attachPageNonEnumerableState(exposed, ctx) {
     isPreviewDirty: { value: ctx.isPreviewDirty, enumerable: false, configurable: true },
     isStatusTimerModalPaused: { value: ctx.isStatusTimerModalPaused, enumerable: false, configurable: true },
     tokenLevelByThreadId: { value: ctx.tokenLevelByThreadId, enumerable: false, configurable: true },
+    // Phase 2 fork-draft
+    forkSubmitting: { value: ctx.forkSubmitting, enumerable: false, configurable: true },
+    forkError: { value: ctx.forkError, enumerable: false, configurable: true },
+    submitForkThread: { value: ctx.submitForkThread, enumerable: false, configurable: true },
+    openForkDraftFromUI: { value: ctx.openForkDraftFromUI, enumerable: false, configurable: true },
+    forkSourceThreadName: { value: ctx.forkSourceThreadName, enumerable: false, configurable: true },
+    forkAvailableSharedFiles: { value: ctx.forkAvailableSharedFiles, enumerable: false, configurable: true },
   });
 }
 
@@ -214,6 +224,78 @@ function createPageFileRefPreview(props, ctx) {
     requestPathChoice: ctx.requestPathChoice,
     confirmAbandonDirtyPreview: ctx.confirmAbandonDirtyPreview,
   });
+}
+
+async function fetchSharedFilesForFork(props) {
+  const cwdRaw = (props.projectStore?.state?.active || '').toString().trim();
+  const params = (cwdRaw && cwdRaw !== '.') ? { page: 'memory', cwd: cwdRaw } : { page: 'memory' };
+  try {
+    const res = await callAPI('ui/dashboard/get', params);
+    return Array.isArray(res?.memory) ? res.memory : [];
+  } catch (err) {
+    logWarn('ui', 'forkDraft.shared_files.refresh_failed', { error: (err && err.message) || String(err) });
+    return [];
+  }
+}
+
+function createPageForkThread(props, ctx) {
+  const forkThread = useForkThread({
+    threadStore: props.threadStore,
+    projectStore: props.projectStore,
+    composer: ctx.composer,
+    selectedThreadId: ctx.selectedThreadId,
+    activeThread: ctx.activeThread,
+    isCmd: ctx.isCmd,
+  });
+  // 卡片打开时拉一次共享文件列表，供内联选择器使用。
+  // 初始为 null 表示“未拉过”，拉后是数组（可为空）；这让卡片能区分 加载中 / 空库。
+  const availableSharedFiles = ref(null);
+  watch(() => ctx.composer?.forkDraft?.active, async (active) => {
+    if (!active) return;
+    availableSharedFiles.value = null; // 重置为 loading，保证重复打开也有 loading 闪一下
+    availableSharedFiles.value = await fetchSharedFilesForFork(props);
+  });
+  const forkSourceThreadName = computed(() => {
+    const t = ctx.activeThread.value;
+    return (t?.name || t?.id || '').toString();
+  });
+  async function submitForkThread() {
+    try {
+      const newId = await forkThread.submit();
+      if (newId) {
+        if (typeof props.threadStore.saveActiveThread === 'function' && !ctx.isCmd.value) {
+          props.threadStore.saveActiveThread(newId);
+        } else if (typeof props.threadStore.saveActiveCmdThread === 'function' && ctx.isCmd.value) {
+          props.threadStore.saveActiveCmdThread(newId);
+        }
+      }
+    } catch (_e) { /* error 已在 forkThread.error 上报 */ }
+  }
+  function openForkDraftFromUI(origin) {
+    if (!ctx.selectedThreadId.value) return;
+    ctx.composer.openForkDraft({ origin: origin || 'composer-bar' });
+  }
+  // 跨页 payload：SharedFilesPage 点「用此文件新建对话」 → app.js 设 payload
+  watch(
+    () => props.inheritedChatPayload,
+    (next) => {
+      if (!next || typeof next !== 'object') return;
+      const path = (next.sharedFilePath || '').toString().trim();
+      ctx.composer.openForkDraft({ origin: 'shared-files', sharedFilePath: path });
+      if (typeof ctx.emit === 'function') ctx.emit('clear-inherited-chat');
+    },
+    // SharedFilesPage 会先设置 payload 再把 page 切到 chat；UnifiedChatPage
+    // 重新 mount 时 payload 已经存在，所以这里必须 immediate 才能消费跨页意图。
+    { immediate: true, flush: 'post' },
+  );
+  return {
+    submitting: forkThread.submitting,
+    error: forkThread.error,
+    submit: submitForkThread,
+    open: openForkDraftFromUI,
+    sourceThreadName: forkSourceThreadName,
+    availableSharedFiles,
+  };
 }
 
 function createPageTaskHandoff(props, ctx) {
@@ -311,6 +393,7 @@ export const UnifiedChatPage = {
     DiffPanel,
     ComposerBar,
     ContextUsageBanner,
+    ComposerForkDraftCard,
     LaunchSkillPicker,
     ActivityPanel,
     PathChoiceModal,
@@ -323,7 +406,10 @@ export const UnifiedChatPage = {
     windowCwd: { type: String, default: '' },
     /** 完整展示文本 */
     cwdDisplay: { type: String, default: '' },
+    /** Phase 2: 跨页面在 SharedFilesPage 点「用此文件新建对话」后传入的 payload，只读 */
+    inheritedChatPayload: { type: Object, default: null },
   },
+  emits: ['clear-inherited-chat'],
   /**
    * @param {{
    *  projectStore: any,
@@ -331,15 +417,11 @@ export const UnifiedChatPage = {
    *  mode?: string,
    * }} props
    */
-  setup(props) {
+  setup(props, setupCtx = {}) {
     const composer = useComposerStore();
     const composerBarRef = ref(null);
     const presenceAnchorRef = ref(null);
     const workspaceRef = ref(null);
-
-
-
-
     const isCmd = computed(() => props.mode === 'cmd');
     const modeKey = computed(() => (isCmd.value ? 'cmd' : 'chat'));
     const showWorkspace = computed(() => true);
@@ -495,12 +577,8 @@ export const UnifiedChatPage = {
     });
 
     const copyThreadInfo = createPageCopyThreadInfo(selectedThreadId, activeProjectCwd, threadCards, activeThread, activeStatus, useClaudeProvider, props);
-    const taskHandoff = createPageTaskHandoff(props, {
-      selectedThreadId,
-      activeThread,
-      activeRuntime: threadCards.activeRuntime,
-      isCmd,
-    });
+    const taskHandoff = createPageTaskHandoff(props, { selectedThreadId, activeThread, activeRuntime: threadCards.activeRuntime, isCmd });
+    const forkPage = createPageForkThread(props, { composer, selectedThreadId, activeThread, isCmd, emit: typeof setupCtx?.emit === 'function' ? setupCtx.emit : () => {} });
     const tokenLevelByThreadId = createPageTokenLevels(props, threads);
 
     bindPageThreadSelection(props, {
@@ -579,6 +657,13 @@ export const UnifiedChatPage = {
       isAtBottom, scheduleScrollToBottom, scrollToTop, resetScrollState,
     });
     attachPageNonEnumerableState(exposed, {
+      // Phase 2 fork-draft 靠这里暴露给模板，不进契约表
+      forkSubmitting: forkPage.submitting,
+      forkError: forkPage.error,
+      submitForkThread: forkPage.submit,
+      openForkDraftFromUI: forkPage.open,
+      forkSourceThreadName: forkPage.sourceThreadName,
+      forkAvailableSharedFiles: forkPage.availableSharedFiles,
       tokenLevelByThreadId,
       launchSkillSelectionEnabled,
       launchAvailableSkills,

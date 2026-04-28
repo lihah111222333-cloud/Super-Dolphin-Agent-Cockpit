@@ -176,10 +176,52 @@ describe('UnifiedChatPage.setup public contract', () => {
      ]);
      expect(vm).not.toHaveProperty('resolvePathChoice');
 
-     // PN integration: non-enumerable properties must also be present
-     expect(vm).toHaveProperty('isPreviewDirty');
-     expect(vm).toHaveProperty('onPreviewDirtyChange');
-     expect(vm).toHaveProperty('isStatusTimerModalPaused');
-     expect(vm).toHaveProperty('onTimelineCitationClick');
-   });
+      // PN integration: non-enumerable properties must also be present
+      expect(vm).toHaveProperty('isPreviewDirty');
+      expect(vm).toHaveProperty('onPreviewDirtyChange');
+      expect(vm).toHaveProperty('isStatusTimerModalPaused');
+      expect(vm).toHaveProperty('onTimelineCitationClick');
+    });
+
+  // 回归守护：attachPageNonEnumerableState 是个白名单 helper——两边（defineProperties 与调用方 ctx）
+  // 不同步会静默丢字段，导致「@click 按钮点了没反应」之类的难定位 bug（Phase 2 中抱过两次）。
+  // 任何新增的非枚举字段都必须在下面列表中，测试会验证它们都被赋了值（不是 undefined）。
+  it('locks the non-enumerable bag of setup return (launch-skill, preview, fork-draft handles)', () => {
+    const vm = UnifiedChatPage.setup({ threadStore: makeThreadStore(), projectStore: makeProjectStore(), mode: 'chat' });
+    const expectedNonEnumerableKeys = [
+      // launch-skill picker (已有)
+      'launchSkillSelectionEnabled',
+      'launchSkillPickerSkills',
+      'launchProjectSkills',
+      'launchSystemSkills',
+      'launchSkillScopeTabsEnabled',
+      'launchSkillScope',
+      'launchSkillMatches',
+      'launchSelectedSkillNames',
+      'launchSkillSelectionLoading',
+      'toggleLaunchSelectedSkill',
+      'clearLaunchSelectedSkills',
+      'setLaunchSkillScope',
+      'selectAllLaunchSuggestedSkills',
+      'refreshLaunchSkillSelection',
+      // preview / status (已有)
+      'onTimelineCitationClick',
+      'onPreviewDirtyChange',
+      'isPreviewDirty',
+      'isStatusTimerModalPaused',
+      // Phase 2 fork-draft (新增)
+      'forkSubmitting',
+      'forkError',
+      'submitForkThread',
+      'openForkDraftFromUI',
+      'forkSourceThreadName',
+      'forkAvailableSharedFiles',
+      'tokenLevelByThreadId',
+    ];
+    for (const key of expectedNonEnumerableKeys) {
+      // 存在 + 不是 undefined——后者抓「接线遗漏」场景（defineProperty 注册了但调用方不传）
+      expect(vm, `vm should have non-enumerable key "${key}"`).toHaveProperty(key);
+      expect(vm[key], `vm.${key} should not be undefined (white-list mismatch?)`).not.toBeUndefined();
+    }
+  });
 });
