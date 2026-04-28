@@ -147,6 +147,67 @@ describe('extractTimelineSummary', () => {
   });
 });
 
+describe('extractTimelineSummary · progress section', () => {
+  // 构造一个以「工具风暴」结尾的 timeline，验证进度段能从被挤压的中间抓出 user/assistant。
+  function buildToolStormTimeline() {
+    const items = [
+      { id: 'u-init', role: 'user', text: '帮我重构 utils/format-utils.js 里的 token 分级函数' },
+      { id: 'a-mid', role: 'assistant', text: '我已经读了 format-utils.js，准备把 getTokenLevel 拆成两个分函数并补上阈值参数。' },
+    ];
+    for (let i = 0; i < 15; i++) {
+      items.push({ id: `t${i}`, kind: 'tool', tool: 'Read', preview: `file${i}.js` });
+    }
+    return items;
+  }
+
+  it('appends a progress section that survives a tool storm tail', () => {
+    const result = extractTimelineSummary(buildToolStormTimeline());
+    expect(result).toContain('## 最近进展');
+    expect(result).toContain('最近用户诉求');
+    expect(result).toContain('重构 utils/format-utils.js');
+    expect(result).toContain('助手当前思路');
+    expect(result).toContain('getTokenLevel 拆成两个分函数');
+  });
+
+  it('skips short assistant replies (<40 chars) when picking current thinking', () => {
+    const items = [
+      { id: 'u1', role: 'user', text: '重构 X' },
+      { id: 'a1', role: 'assistant', text: '已理解，详细分析后设计了三步拆分方案。' }, // 足够长
+      { id: 'a2', role: 'assistant', text: '好的' }, // 太短应跳过
+      { id: 't1', kind: 'tool', tool: 'Read', preview: 'a.js' },
+      { id: 't2', kind: 'tool', tool: 'Edit', preview: 'b.js' },
+    ];
+    const result = extractTimelineSummary(items);
+    expect(result).toContain('## 最近进展');
+    // 应选中长的 a1，不是最后一条 a2
+    expect(result).toContain('详细分析后设计了三步拆分方案');
+    // a2 「好的」不该出现在「助手当前思路」行里
+    expect(result).not.toMatch(/助手当前思路：好的/);
+  });
+
+  it('does NOT append progress section for short timelines (<5 items)', () => {
+    const items = [
+      { id: 'u1', role: 'user', text: '你好' },
+      { id: 'a1', role: 'assistant', text: '你好，需要我做什么？' },
+    ];
+    const result = extractTimelineSummary(items);
+    expect(result).not.toContain('## 最近进展');
+  });
+
+  it('includes recent plan items in progress section with done flag', () => {
+    const items = [{ id: 'u-init', role: 'user', text: 'task start' }];
+    for (let i = 0; i < 10; i++) {
+      items.push({ id: `t${i}`, kind: 'tool', tool: 'Bash', preview: `step ${i}` });
+    }
+    items.push({ id: 'p-done', kind: 'plan', text: '实现 thresholds 设置 UI', done: true });
+    items.push({ id: 'p-active', kind: 'plan', text: '接入 banner 事件路由', done: false });
+    const result = extractTimelineSummary(items);
+    expect(result).toContain('## 最近进展');
+    expect(result).toContain('进度【已完成】：实现 thresholds 设置 UI');
+    expect(result).toContain('进度【进行中】：接入 banner 事件路由');
+  });
+});
+
 describe('buildSeedInstructionsFromSummary', () => {
   it('returns empty string when both summary and sharedFiles empty', () => {
     expect(buildSeedInstructionsFromSummary('')).toBe('');
