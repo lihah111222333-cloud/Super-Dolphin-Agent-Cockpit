@@ -23,7 +23,7 @@ jobs:
       - name: Build
         run: go build ./...
       - name: Test
-        run: go test ./... -count=1 -timeout 180s
+        run: ./scripts/test_with_guard.sh ./... -count=1 -timeout 180s
 
   lint:
     runs-on: ubuntu-latest

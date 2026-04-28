@@ -1,6 +1,7 @@
 package wails
 
 import (
+	"context"
 	"encoding/json"
 	"hash/fnv"
 	"testing"
@@ -39,6 +40,52 @@ func TestFrontendMethodIDsMatchBackendFQN(t *testing.T) {
 			t.Errorf("method %s: FQN %q → got ID %d, want %d (frontend hardcoded); update METHOD_IDS in api.js",
 				method, fqn, gotID, wantID)
 		}
+	}
+}
+
+func TestCallAPIPreservesFrontendMetaForUILog(t *testing.T) {
+	var captured json.RawMessage
+	app := &App{dispatch: func(_ context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
+		if method != "ui/log" {
+			t.Fatalf("method = %q, want ui/log", method)
+		}
+		captured = append(json.RawMessage(nil), params...)
+		return json.RawMessage(`{"ok":true}`), nil
+	}}
+
+	_, err := app.CallAPI("ui/log", json.RawMessage(`{"entries":[],"_aoClientKind":"desktop-wails","_aoClientRoute":"/chat"}`))
+	if err != nil {
+		t.Fatalf("CallAPI(ui/log) error = %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(captured, &got); err != nil {
+		t.Fatalf("captured params are invalid JSON: %v", err)
+	}
+	if got["_aoClientKind"] != "desktop-wails" || got["_aoClientRoute"] != "/chat" {
+		t.Fatalf("captured meta = %#v, want _aoClientKind/_aoClientRoute preserved", got)
+	}
+}
+
+func TestCallAPIStripsFrontendMetaForStrictRoutes(t *testing.T) {
+	var captured json.RawMessage
+	app := &App{dispatch: func(_ context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
+		captured = append(json.RawMessage(nil), params...)
+		return json.RawMessage(`{"ok":true}`), nil
+	}}
+
+	_, err := app.CallAPI("ui/selectFiles", json.RawMessage(`{"defaultPath":"/tmp","_aoClientKind":"desktop-wails","_aoClientRoute":"/chat"}`))
+	if err != nil {
+		t.Fatalf("CallAPI(ui/selectFiles) error = %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(captured, &got); err != nil {
+		t.Fatalf("captured params are invalid JSON: %v", err)
+	}
+	if _, ok := got["_aoClientKind"]; ok {
+		t.Fatalf("captured params still contain _aoClientKind: %#v", got)
+	}
+	if got["defaultPath"] != "/tmp" {
+		t.Fatalf("captured params = %#v, want defaultPath preserved", got)
 	}
 }
 

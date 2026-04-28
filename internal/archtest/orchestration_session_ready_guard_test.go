@@ -18,11 +18,11 @@ import (
 //
 // The guard enforces two invariants by file-text scan so the side-channel
 // cannot silently reappear:
-//   1. cmd/mcp-orch/orchestration does not re-declare `type
-//      sessionReadyWaiter interface`. Historical comments that mention
-//      the old name are permitted (the migration note in helpers.go).
-//   2. cmd/mcp-orch/orchestration/helpers.go does not perform the
-//      `.(sessionReadyWaiter)` type assertion.
+//  1. cmd/mcp-orch/orchestration does not re-declare `type
+//     sessionReadyWaiter interface`. Historical comments that mention
+//     the old name are permitted (the migration note in helpers.go).
+//  2. cmd/mcp-orch/orchestration/helpers.go does not perform the
+//     `.(sessionReadyWaiter)` type assertion.
 func TestOrchestrationSessionReadyWaiterContractGuard(t *testing.T) {
 	t.Parallel()
 	root := repoRootForGuardTests(t)

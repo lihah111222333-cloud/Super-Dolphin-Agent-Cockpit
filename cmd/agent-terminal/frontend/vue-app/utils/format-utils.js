@@ -87,6 +87,54 @@ export function formatTokenTooltip(usage) {
   ].join('\n');
 }
 
+/**
+ * 默认上下文用量警报阈值（百分比）。
+ * 顺序固定：warn → danger → critical。
+ * 后续若需用户可配，从 settings (`contextUsageAlerts.thresholds`) 读出后传给 getTokenLevelFromPercent。
+ */
+export const DEFAULT_CONTEXT_USAGE_THRESHOLDS = Object.freeze([70, 85, 95]);
+
+/**
+ * 把上下文使用百分比映射到告警等级。
+ * @param {number} percent 0~100 的使用百分比
+ * @param {ReadonlyArray<number>} [thresholds] 升序的 3 档阈值；非法或缺省时回退默认
+ * @returns {'normal'|'warn'|'danger'|'critical'}
+ */
+export function getTokenLevelFromPercent(percent, thresholds) {
+  const pct = Number(percent);
+  if (!Number.isFinite(pct) || pct <= 0) return 'normal';
+  const candidate = Array.isArray(thresholds) && thresholds.length
+    ? thresholds.map((value) => Number(value)).filter((value) => Number.isFinite(value) && value > 0)
+    : [];
+  const normalized = (candidate.length >= 1 ? candidate : DEFAULT_CONTEXT_USAGE_THRESHOLDS.slice())
+    .slice(0, 3)
+    .sort((a, b) => a - b);
+  if (normalized.length === 0) return 'normal';
+  if (normalized.length >= 3 && pct >= normalized[2]) return 'critical';
+  if (normalized.length >= 2 && pct >= normalized[1]) return 'danger';
+  if (pct >= normalized[0]) return 'warn';
+  return 'normal';
+}
+
+/**
+ * 从 tokenUsage 对象推导告警等级。优先用 usedPercent；否则用 usedTokens / contextWindowTokens 算。
+ * @param {{usedPercent?: number, usedTokens?: number, contextWindowTokens?: number} | null | undefined} usage
+ * @param {ReadonlyArray<number>} [thresholds]
+ * @returns {'normal'|'warn'|'danger'|'critical'}
+ */
+export function getTokenLevel(usage, thresholds) {
+  if (!usage || typeof usage !== 'object') return 'normal';
+  const usedPercent = Number(usage.usedPercent);
+  if (Number.isFinite(usedPercent) && usedPercent > 0) {
+    return getTokenLevelFromPercent(usedPercent, thresholds);
+  }
+  const used = Number(usage.usedTokens);
+  const limit = Number(usage.contextWindowTokens);
+  if (!Number.isFinite(used) || used <= 0) return 'normal';
+  if (!Number.isFinite(limit) || limit <= 0) return 'normal';
+  return getTokenLevelFromPercent((used / limit) * 100, thresholds);
+}
+
 export function formatElapsedCompact(elapsedSeconds) {
   const seconds = Math.max(0, Math.floor(Number(elapsedSeconds) || 0));
   if (seconds < 60) return `${seconds}s`;

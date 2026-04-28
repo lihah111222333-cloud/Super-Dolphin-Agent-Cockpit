@@ -42,6 +42,7 @@ const PUBLIC_API_KEYS = [
   'handleAgentEvent',
   'handleBridgeEvent',
   'loadMessages',
+  'markHistoryLoaded',
   'promptRenameThread',
   'recoverThread',
   'refreshSidebarState',

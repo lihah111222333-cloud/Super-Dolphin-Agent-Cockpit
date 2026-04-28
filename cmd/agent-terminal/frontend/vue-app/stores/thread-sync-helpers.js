@@ -77,14 +77,14 @@ function applyRegressionGuardToSnapshot(ctx, res, threadId) {
   const timeline = res.timelinesByThread[threadId];
   const localTimeline = Array.isArray(ctx.state.timelinesByThread?.[threadId]) ? ctx.state.timelinesByThread[threadId] : [];
   
-  // Dialog items are exclusively sourced from thread/messages history.
-  // The raw snapshot timeline from the backend no longer contains dialog items.
-  // Therefore, we must exclude dialog items from local length when comparing.
+  // Dialog items are primarily sourced from thread/messages history, but they
+  // still count as local context that a tiny runtime snapshot must not dilute.
   const localNonDialogLen = localTimeline.filter((it) => it?.kind !== 'user' && it?.kind !== 'assistant').length;
+  const localComparableLen = Math.max(localTimeline.length, localNonDialogLen);
 
-  const regressionByCount = localNonDialogLen > 5 && timeline.length > 0
-    && timeline.length < localNonDialogLen * 0.3
-    && (localNonDialogLen - timeline.length) > 10;
+  const regressionByCount = localComparableLen > 5 && timeline.length > 0
+    && timeline.length < localComparableLen * 0.3
+    && (localComparableLen - timeline.length) > 10;
 
   if (regressionByCount) {
     let guardType = 'count_mismatch';
@@ -191,6 +191,7 @@ export async function syncThreadState(ctx, threadId, options = {}) {
     const snapshotRequest = beginRuntimeSnapshotRequest(ctx, id);
     try {
       const res = await callAPI('ui/state/get', ctx.withPreferenceScope({ threadId: id, includeDiff: false }));
+      applyRegressionGuardToSnapshot(ctx, res, id);
       const timeline = Array.isArray(res?.timelinesByThread?.[id]) ? res.timelinesByThread[id] : [];
       const diffRevision = normalizeDiffRevision(res?.diffRevisionByThread?.[id]);
       const localTimelineLen = Array.isArray(ctx.state.timelinesByThread?.[id]) ? ctx.state.timelinesByThread[id].length : 0;
@@ -217,6 +218,9 @@ export async function syncThreadState(ctx, threadId, options = {}) {
         void ctx.syncThreadDiffState(id).catch((error) => {
           logWarn('thread', 'state.sync.diff.background_failed', { thread_id: id, reason: 'thread_sync', error });
         });
+      }
+      if (options?.markHistoryLoaded !== false && Array.isArray(res?.timelinesByThread?.[id]) && res.timelinesByThread[id].length > 0) {
+        ctx.threadHistoryLoadedAtByThread.set(id, Date.now());
       }
       logInfo('thread', 'state.sync.thread.applied', { thread_id: id, diff_revision: normalizeDiffRevision(ctx.state.diffRevisionByThread?.[id]), duration_ms: Math.round(perfNow() - start) });
       return res || {};

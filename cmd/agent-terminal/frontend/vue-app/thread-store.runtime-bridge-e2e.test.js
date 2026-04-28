@@ -102,6 +102,7 @@ describe('thread patch desktop bridge integration', () => {
     const threadId = 'thread-live-bridge';
     store.state.activeThreadId = threadId;
     store.state.threads = [{ id: threadId, name: 'Live', state: 'running' }];
+    store.markHistoryLoaded(threadId);
     apiMock.callAPI.mockImplementation(async () => ({}));
 
     const unsubscribe = onBridgeEvent((evt) => {

@@ -154,7 +154,28 @@ func registerUIMemoryMutationHandlers(p memoryHandlerDeps) handler.Map {
 			}
 			return map[string]any{"deleted": deleted}, nil
 		}),
+		"ui/memory/auto-dream/set-intent": rpc.StrictHandler(func(ctx context.Context, req uiAutoDreamIntentParams) (map[string]any, error) {
+			return setAutoDreamIntent(ctx, p, req)
+		}),
 	}
+}
+
+type uiAutoDreamIntentParams struct {
+	Enabled bool `json:"enabled"`
+}
+
+func setAutoDreamIntent(_ context.Context, p memoryHandlerDeps, req uiAutoDreamIntentParams) (map[string]any, error) {
+	if p.Service == nil {
+		return nil, errors.New("memory service is not configured")
+	}
+	rootDir := strings.TrimSpace(p.Service.Config().RootDir)
+	if rootDir == "" {
+		return nil, errors.New("memory root dir is empty")
+	}
+	if err := WriteAutoDreamIntent(rootDir, req.Enabled); err != nil {
+		return nil, fmt.Errorf("persist auto-dream intent: %w", err)
+	}
+	return map[string]any{"ok": true, "enabled": req.Enabled}, nil
 }
 
 func getUIMemoryEntry(ctx context.Context, deps memoryHandlerDeps, req uiMemoryEntryGetParams) (UIMemoryEntryDetail, error) {

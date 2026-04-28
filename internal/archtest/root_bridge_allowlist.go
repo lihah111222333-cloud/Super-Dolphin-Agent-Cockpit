@@ -12,9 +12,9 @@ import (
 //
 //   - DefinitionPath: file that defines the bridge function
 //   - CallSitePath:   file that references it via fx.Invoke(...) / OnStart(...)
-//                     (equal to DefinitionPath when co-located; kept as a
-//                     separate field so one column never carries two
-//                     semantics — see P0 §收口口径 clarification)
+//     (equal to DefinitionPath when co-located; kept as a
+//     separate field so one column never carries two
+//     semantics — see P0 §收口口径 clarification)
 //   - Symbol:         bridge function name
 //   - BridgeShape:    one of rootBridgeShape{App,Orch,Sidecar}Root
 //   - ExceptionClass: rootBridgeExceptionPermanent|Temporary

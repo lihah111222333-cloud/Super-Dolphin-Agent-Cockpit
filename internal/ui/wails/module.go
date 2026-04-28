@@ -168,5 +168,3 @@ func bindEventBridge(lc fx.Lifecycle, bridge *EventBridge) {
 		},
 	})
 }
-
-

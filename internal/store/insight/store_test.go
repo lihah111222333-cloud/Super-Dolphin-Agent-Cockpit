@@ -19,12 +19,12 @@ import (
 // consumes. Each *Fn defaults to a safe no-op return when not wired by a
 // specific test.
 type insightQuerierStub struct {
-	upsertFn          func(context.Context, sqlc.UpsertSessionInsightParams) (sqlc.SessionInsight, error)
-	getByLocalFn      func(context.Context, sqlc.GetSessionInsightByLocalTurnParams) (sqlc.SessionInsight, error)
-	listByThreadFn    func(context.Context, sqlc.ListSessionInsightsByThreadParams) ([]sqlc.SessionInsight, error)
-	listRecentFn      func(context.Context, int32) ([]sqlc.SessionInsight, error)
-	listApprovalFn    func(context.Context, sqlc.ListObservedApprovalRequestsParams) ([]sqlc.ListObservedApprovalRequestsRow, error)
-	listTokenTurnsFn  func(context.Context, sqlc.ListObservedTokenTurnsParams) ([]sqlc.ListObservedTokenTurnsRow, error)
+	upsertFn         func(context.Context, sqlc.UpsertSessionInsightParams) (sqlc.SessionInsight, error)
+	getByLocalFn     func(context.Context, sqlc.GetSessionInsightByLocalTurnParams) (sqlc.SessionInsight, error)
+	listByThreadFn   func(context.Context, sqlc.ListSessionInsightsByThreadParams) ([]sqlc.SessionInsight, error)
+	listRecentFn     func(context.Context, int32) ([]sqlc.SessionInsight, error)
+	listApprovalFn   func(context.Context, sqlc.ListObservedApprovalRequestsParams) ([]sqlc.ListObservedApprovalRequestsRow, error)
+	listTokenTurnsFn func(context.Context, sqlc.ListObservedTokenTurnsParams) ([]sqlc.ListObservedTokenTurnsRow, error)
 }
 
 func (s *insightQuerierStub) UpsertSessionInsight(ctx context.Context, a sqlc.UpsertSessionInsightParams) (sqlc.SessionInsight, error) {

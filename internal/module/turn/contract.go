@@ -73,7 +73,7 @@ type PrepareInput struct {
 	// submitted" can still resolve the turn via
 	// Service.LookupByDedupeKey instead of double-submitting. Empty
 	// means "no dedupe tracking" (the default; non-cron callers).
-	DedupeKey                    string
+	DedupeKey string
 }
 
 type TurnStatus struct {

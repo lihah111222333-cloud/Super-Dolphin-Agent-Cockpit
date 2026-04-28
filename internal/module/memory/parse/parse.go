@@ -114,7 +114,6 @@ func SplitFrontmatter(content string) (string, string, bool) {
 	}
 }
 
-
 // StripHTMLComments removes Claude Code editor scaffolding HTML comments
 // while preserving content semantics that downstream parsers depend on.
 // Specifically:

@@ -16,14 +16,14 @@ import (
 // Module wires the core-side notify stack into the Fx tree.
 //
 // Provides:
-//   * platform.Resolver parsed from NotifyConfig.ChannelsJSON (empty
+//   - platform.Resolver parsed from NotifyConfig.ChannelsJSON (empty
 //     JSON is a no-op resolver; every TryEnqueue returns
 //     ErrNotifyAliasNotFound without trying to reach any network).
-//   * *platform.WebhookClient configured with AllowPrivateCIDR /
+//   - *platform.WebhookClient configured with AllowPrivateCIDR /
 //     Timeout honoring NotifyConfig.
-//   * *Notifier, exposed both as *Notifier (for metrics) and as the
+//   - *Notifier, exposed both as *Notifier (for metrics) and as the
 //     contract.MessageNotifier interface (for downstream consumers).
-//   * *Flusher, published into the shared group:"runners" slice so
+//   - *Flusher, published into the shared group:"runners" slice so
 //     platformrunner.RunGroup drives it with the rest of the core
 //     Runners.
 //

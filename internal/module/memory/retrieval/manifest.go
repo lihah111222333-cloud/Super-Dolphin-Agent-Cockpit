@@ -13,7 +13,9 @@ const DefaultManifestFileLimit = 200
 
 type ManifestBuilder struct{ MaxFiles int }
 
-func NewManifestBuilder() *ManifestBuilder { return &ManifestBuilder{MaxFiles: DefaultManifestFileLimit} }
+func NewManifestBuilder() *ManifestBuilder {
+	return &ManifestBuilder{MaxFiles: DefaultManifestFileLimit}
+}
 
 func (b *ManifestBuilder) BuildManifest(memoryRoot string) ([]MemoryEntry, error) {
 	entries, err := ScanHeadersSafe(memoryRoot)

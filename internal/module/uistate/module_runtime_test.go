@@ -35,9 +35,9 @@ func TestApplyTaskRuntimeToThreadRuntime_Pin(t *testing.T) {
 			want:       map[string]map[string]any{"thread-2": {"taskId": "keep"}},
 		},
 		{
-			name:      "blank thread id skips runtime config lookup",
-			svc:       &service{runtimeConfig: &runtimeConfigLookupStub{cfg: map[string]any{"taskId": "task-1"}}},
-			thread:    ThreadSummary{ID: "   "},
+			name:   "blank thread id skips runtime config lookup",
+			svc:    &service{runtimeConfig: &runtimeConfigLookupStub{cfg: map[string]any{"taskId": "task-1"}}},
+			thread: ThreadSummary{ID: "   "},
 			runtimeMap: map[string]map[string]any{
 				"thread-3": {"taskId": "keep"},
 			},
@@ -62,9 +62,9 @@ func TestApplyTaskRuntimeToThreadRuntime_Pin(t *testing.T) {
 			wantReads:  []string{"thread-5"},
 		},
 		{
-			name:   "creates runtime entry from canonical keys",
-			svc:    &service{runtimeConfig: &runtimeConfigLookupStub{cfg: map[string]any{"taskId": "task-1", "taskTitle": "Title", "handoffFile": "handoff.md", "ownerThreadId": "thread-parent"}}},
-			thread: ThreadSummary{ID: "thread-6"},
+			name:       "creates runtime entry from canonical keys",
+			svc:        &service{runtimeConfig: &runtimeConfigLookupStub{cfg: map[string]any{"taskId": "task-1", "taskTitle": "Title", "handoffFile": "handoff.md", "ownerThreadId": "thread-parent"}}},
+			thread:     ThreadSummary{ID: "thread-6"},
 			runtimeMap: map[string]map[string]any{},
 			want: map[string]map[string]any{
 				"thread-6": {

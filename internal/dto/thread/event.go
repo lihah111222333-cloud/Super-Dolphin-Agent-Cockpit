@@ -81,7 +81,7 @@ type Updated struct {
 // the per-thread routing badge that thread/start could not surface, since
 // pending_launch threads defer routing to the first turn.
 type SpawnRouting struct {
-	AgentKey   string `json:"agent_key,omitempty"`
+	AgentKey string `json:"agent_key,omitempty"`
 	// AgentTitle is the human-readable persona label ("SQL 与数据建模专家") so
 	// the UI does not have to re-map slugs to names.
 	AgentTitle      string `json:"agent_title,omitempty"`

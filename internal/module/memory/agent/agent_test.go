@@ -442,7 +442,7 @@ type fakeGate struct {
 	suppress bool
 }
 
-func (g fakeGate) AutoEnabled(contract.BuildCtx) bool       { return g.auto }
+func (g fakeGate) AutoEnabled(contract.BuildCtx) bool        { return g.auto }
 func (g fakeGate) SuppressForOverlay(contract.BuildCtx) bool { return g.suppress }
 
 // TestPromptProviderResolveSuppressedByOverlay closes the regression that R3
@@ -467,4 +467,3 @@ func TestPromptProviderResolveSuppressedByOverlay(t *testing.T) {
 		t.Fatalf("Resolve() returned content under overlay suppression: %q", *got)
 	}
 }
-

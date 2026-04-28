@@ -34,6 +34,8 @@ type UIMemorySnapshot struct {
 type UIMemoryOverview struct {
 	Enabled             bool   `json:"enabled"`
 	ToolsEnabled        bool   `json:"toolsEnabled"`
+	AutoDreamEnabled    bool   `json:"autoDreamEnabled"`
+	AutoDreamIntent     *bool  `json:"autoDreamIntent,omitempty"`
 	RootDir             string `json:"rootDir,omitempty"`
 	ProjectRoot         string `json:"projectRoot,omitempty"`
 	PrivateRoot         string `json:"privateRoot,omitempty"`
@@ -86,6 +88,8 @@ func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger
 	if gitRoot, err := FindCanonicalGitRoot(ctx, projectRoot); err == nil && strings.TrimSpace(gitRoot) != "" {
 		buildCtx.GitRoot = strings.TrimSpace(gitRoot)
 	}
+	gate := ResolveMemoryGate(buildCtx, &cfg)
+	intent, _ := ReadAutoDreamIntent(cfg.RootDir)
 
 	privateRoot, privateErr := resolvedStoreRoot(cfg.RootDir, projectRoot, cfg.AutoMemPathOverride)
 	privateSection := loadUIMemoryScope(logger, "Private durable memory", privateRoot, privateErr, true)
@@ -105,6 +109,8 @@ func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger
 		Overview: UIMemoryOverview{
 			Enabled:             cfg.Enabled,
 			ToolsEnabled:        cfg.EnableTools,
+			AutoDreamEnabled:    cfg.Enabled && cfg.ExtractOnStop && gate.AutoEnabled,
+			AutoDreamIntent:     intent,
 			RootDir:             strings.TrimSpace(cfg.RootDir),
 			ProjectRoot:         projectRoot,
 			PrivateRoot:         strings.TrimSpace(privateRoot),

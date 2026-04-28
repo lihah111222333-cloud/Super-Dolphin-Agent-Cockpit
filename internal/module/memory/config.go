@@ -126,6 +126,9 @@ func NewConfig(platformCfg *platformconfig.Config) *Config {
 	if root := firstNonEmptyEnv(envMemoryRoot, envClaudeRemoteMemoryDir); root != "" {
 		cfg.RootDir = root
 	}
+	if intent, err := ReadAutoDreamIntent(cfg.RootDir); err == nil && intent != nil {
+		cfg.ExtractOnStop = *intent
+	}
 	return cfg
 }
 
