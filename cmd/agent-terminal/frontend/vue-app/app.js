@@ -3,6 +3,7 @@ import { callAPI, getBuildInfo, onAgentEvent, onBridgeEvent, onAppWillQuit } fro
 import { SidebarNav } from './components/SidebarNav.js';
 import { ProjectModal } from './components/ProjectModal.js';
 import { DagDetailModal } from './components/DagDetailModal.js';
+import { DagsPage } from './pages/DagsPage.js';
 import { useDagDetail } from './composables/useDagDetail.js';
 import { UnifiedChatPage } from './pages/UnifiedChatPage.js';
 import { ensureThreadSelectionFresh, requestHistoryLoad } from './utils/thread-page-utils.js';
@@ -237,6 +238,7 @@ export const AppRoot = {
     ProjectModal,
     UnifiedChatPage,
     DataPage,
+    DagsPage,
     SkillsPage,
     TasksPage,
     CommandsPage,
@@ -537,15 +539,10 @@ export const AppRoot = {
           :window-cwd="windowCwd"
         />
 
-        <DataPage
+        <DagsPage
           v-else-if="page === 'dags'"
-          page-id="dags"
-          title="DAG 管理"
-          icon="D"
           :items="dashboard.dags"
           :fields="dagsFields"
-          empty-text="暂无 DAG"
-          clickable
           @select="dagDetail.open"
         />
 

@@ -15,6 +15,7 @@ import { ref, watch } from '../../lib/vue.esm-browser.prod.js';
 import { logInfo, logWarn, logError } from '../services/log.js';
 import { getTokenLevel } from '../utils/format-utils.js';
 import { useContextUsageThresholds } from './useContextUsageThresholds.js';
+import { useAutoContinuePref } from './useAutoContinuePref.js';
 import { createAutoContinueGate } from './auto-continue-gating.js';
 
 const FORK_RETRY_DELAY_MS = 1500;
@@ -261,6 +262,7 @@ function watchTokenLevel(ctx) {
         if (newLevel !== 'critical') continue;
         const taskId = getTaskId(runtimeMap[threadId]);
         if (!taskId) continue;
+        if (!ctx.prefRef.value) continue; // Phase 1.5：偏好关 → 跳过整条链（不 emit signal，不调动作）
         logInfo('ui', 'auto_continue.signal', {
           source_thread_id: threadId, task_id: taskId, kind: 'token_critical', level: newLevel,
         });
@@ -285,6 +287,7 @@ function watchStatus(ctx) {
         if (status !== 'error') continue;
         const taskId = getTaskId(runtimeMap[threadId]);
         if (!taskId) continue;
+        if (!ctx.prefRef.value) continue; // Phase 1.5：偏好关 → 跳过整条链
         logInfo('ui', 'auto_continue.signal', {
           source_thread_id: threadId, task_id: taskId, kind: 'status_error', status,
         });
@@ -342,6 +345,7 @@ export function useAutoContinue(opts) {
     }),
     sleepFn: opts.sleepFn || ((ms) => new Promise((r) => setTimeout(r, ms))),
     thresholds: useContextUsageThresholds(),
+    prefRef: useAutoContinuePref(),
     gate: createAutoContinueGate(),
     prevLevelByThread: new Map(),
     prevStatusByThread: new Map(),
