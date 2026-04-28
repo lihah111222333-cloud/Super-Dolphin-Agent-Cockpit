@@ -175,7 +175,7 @@ func TestCreateJobValidatesRequiredFields(t *testing.T) {
 	}
 
 	cases := []struct {
-		name  string
+		name   string
 		mutate func(*CreateJobParams)
 		want   error
 	}{

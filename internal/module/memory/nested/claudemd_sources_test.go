@@ -420,4 +420,3 @@ func TestResolveClaudeMdSourcesSuppressedByOverlay(t *testing.T) {
 		t.Fatalf("ResolveClaudeMdSources() under SuppressForOverlay = %#v, want nil/empty", got)
 	}
 }
-

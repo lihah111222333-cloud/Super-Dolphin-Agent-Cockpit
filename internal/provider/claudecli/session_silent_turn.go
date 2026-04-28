@@ -104,4 +104,3 @@ func (s *session) timeoutSilentTurn(localID string) error {
 	}
 	return errors.New("claudecli: keepalive timeout")
 }
-

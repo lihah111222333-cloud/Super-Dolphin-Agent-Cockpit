@@ -135,4 +135,3 @@ func TestPhaseB10_FreezeRelevantMemoryAttachmentsEmptyBodySkipsAttachment(t *tes
 		t.Fatalf("len(FreezeRelevantMemoryAttachments()) = %d, want 0 for empty body", len(attachments))
 	}
 }
-

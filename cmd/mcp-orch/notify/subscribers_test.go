@@ -11,8 +11,8 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	taskdto "github.com/anthropic-ai/super-agent-v3/internal/dto/task"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	taskdto "github.com/anthropic-ai/super-agent-v3/internal/dto/task"
 )
 
 // recordingMessageNotifier implements contract.MessageNotifier so the

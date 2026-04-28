@@ -68,14 +68,14 @@ func (f *fakePushBroadcaster) observed() []fakePushCall {
 // in docs/plans/迁移/p22/P2_BusRuntimeDecoupling.md:415.
 //
 // Contract (dual invariant):
-//   1. The worker must use the cancellable pushCtx passed by Stop, not
-//      `context.Background()` as the pre-P2 callback path did.
-//   2. Legacy expansion semantics (thread/started → thread/started +
-//      ui/thread/changed + ui/sidebar/changed) must arrive at NotifyAll
-//      in the exact order the expander produced them. The worker batches
-//      one push-request per bus event and drains it serially, so the
-//      source notification and its legacy-refresh companions must stay
-//      together + in-order.
+//  1. The worker must use the cancellable pushCtx passed by Stop, not
+//     `context.Background()` as the pre-P2 callback path did.
+//  2. Legacy expansion semantics (thread/started → thread/started +
+//     ui/thread/changed + ui/sidebar/changed) must arrive at NotifyAll
+//     in the exact order the expander produced them. The worker batches
+//     one push-request per bus event and drains it serially, so the
+//     source notification and its legacy-refresh companions must stay
+//     together + in-order.
 func TestRPCPushQueuePreservesLegacyExpansion(t *testing.T) {
 	t.Parallel()
 

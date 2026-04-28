@@ -111,7 +111,6 @@ func MergeRuntimeUserContext(base, extras map[string]string) map[string]string {
 	return merged
 }
 
-
 // includeRuntimeExtraSection decides whether a resolved section's content
 // should be mirrored into the userContext `runtimeExtras` entry that feeds
 // the synthetic user meta message. The filter excludes:

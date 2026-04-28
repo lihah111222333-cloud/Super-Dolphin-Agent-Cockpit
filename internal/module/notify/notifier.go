@@ -55,10 +55,10 @@ func NewNotifier(logger *slog.Logger, resolver platform.Resolver, capacity int) 
 
 // TryEnqueue validates the request and non-blocking enqueues it.
 // Returns:
-//   * contract.ErrNotifyAliasNotFound when the alias is empty or not
+//   - contract.ErrNotifyAliasNotFound when the alias is empty or not
 //     configured — callers must treat this as a misconfiguration, not
 //     a transient failure.
-//   * contract.ErrNotifyQueueFull when the bounded channel is full —
+//   - contract.ErrNotifyQueueFull when the bounded channel is full —
 //     the flusher is behind or stuck; caller drops the signal.
 func (n *Notifier) TryEnqueue(ctx context.Context, req contract.NotifyRequest) error {
 	if n == nil {

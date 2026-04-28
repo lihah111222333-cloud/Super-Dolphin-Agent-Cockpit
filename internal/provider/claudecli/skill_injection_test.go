@@ -69,7 +69,6 @@ func TestBuildSkillList_EmptyWhenAllFiltered(t *testing.T) {
 // P20.1 Phase 7 SkillInjectionPort (claudecli)
 // ============================================================================
 
-
 // TestClaudecliNativeScanRequiresCWD is the P22 P4 fail-closed guard for
 // the native-scan authoritative root path: an empty or whitespace-only
 // cwd must produce contract.ErrMissingCWD, not a silent nil. Pre-P22 the
