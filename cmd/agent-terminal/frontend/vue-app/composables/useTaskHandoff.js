@@ -159,24 +159,33 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
       });
       return '';
     }
+    // Phase 1.4b：焦点判断。source thread 是当前选中的 → 焦点跟随到新 thread（与“以此新建
+    // 任务”按钮表现一致）；source 在后台起的续接（自动调度器路径）不抢焦点，避免打断用户
+    // 在别处的工作。
+    const sameAsSelected = (selectedThreadId.value || '').toString().trim() === threadId;
     continueBusy.value = true;
     try {
       logInfo('ui', 'taskHandoff.continue.start', {
         source_thread_id: threadId,
         task_id: task.taskId,
+        focus_followed: sameAsSelected,
       });
       const id = await threadStore.startThread(
         projectStore?.state?.active || '.',
-        buildContinueTaskOptions({
-          focusMode: isCmd.value ? 'cmd' : 'chat',
-          task,
-        }),
+        {
+          ...buildContinueTaskOptions({
+            focusMode: isCmd.value ? 'cmd' : 'chat',
+            task,
+          }),
+          skipSaveActive: !sameAsSelected,
+        },
       );
       if (id) {
         logInfo('ui', 'taskHandoff.continue.done', {
           source_thread_id: threadId,
           next_thread_id: id,
           task_id: task.taskId,
+          focus_followed: sameAsSelected,
         });
       }
       return id;
