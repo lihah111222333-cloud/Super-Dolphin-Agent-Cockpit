@@ -55,7 +55,6 @@ sequenceDiagram
     T-->>C: JSON-RPC response
 ```
 
-<<<<<<< Updated upstream
 ```mermaid
 sequenceDiagram
   participant C as MCP client
@@ -73,9 +72,6 @@ sequenceDiagram
 ```
 
 ### 1.2 Bootstrap 生命周期调用链
-=======
-### 2.2 代码锚点
->>>>>>> Stashed changes
 
 - transport decode：`internal/mcpserver/common/stdio.go` — `ReadMessage`、`ensureMode`、`readRaw`、`readFramed`
 - server entry：`internal/mcpserver/common/server.go` — `Run`、`readLoop`、`handleMessage`、`dispatch`
@@ -105,7 +101,6 @@ sequenceDiagram
 
 ### 3.2 `internal/mcpserver/common/bootstrap/`
 
-<<<<<<< Updated upstream
 - `client.go`
   - `bootstrap.Client` 与 `Config` 定义。
   - 对外暴露构造函数 `New()`，以及核心方法 `Start / Context / EmitEvent / Log / RequestApproval / Report / Close`。
@@ -367,17 +362,6 @@ sequenceDiagram
   - `code_run`：snippet 运行 / 项目 shell 命令。
 - `tool_coderuntest.go`
   - `code_run_test`：指定 Go 测试函数运行。
-=======
-| 文件 | 关键符号 | 职责 |
-|---|---|---|
-| `client.go` | `Client`、`Config`、`Start`、`Context`、`Report`、`RequestApproval` | 生命周期主入口；持有 lease / conn / queue / hooks state |
-| `lifecycle.go` | `connectAndRegister`、`registerConn`、`handleCallback`、`dispatchRequest` | TCP+jrpc2 建链、register、控制面回调分发 |
-| `heartbeat.go` | `runHeartbeat`、`sendHeartbeat`、`refreshLease` | heartbeat、lease 刷新、动态 heartbeat interval |
-| `reconnect.go` | `handleStop`、`reconnectLoop` | 断线标记、指数退避重连、恢复后补发 |
-| `report_queue.go` | `enqueueReport`、`flushQueuedReportsWithConn` | 离线报告队列与重放 |
-| `hooks.go` | `HookConfig`、`SubscribeHooks`、`ResolveHook`、`PendingHooks`、`replayHookSubscriptions` | hook callback 入口 + 重连 replay |
-| `env.go` | `ReadBootConfig`、`normalizeConfig`、`envContext` | 环境变量启动配置、boot snapshot、离线 context fallback |
->>>>>>> Stashed changes
 
 ---
 
@@ -385,7 +369,6 @@ sequenceDiagram
 
 > `internal/mcpserver/**` 未定义独立 `Middleware` 接口；下表里的“中间件”都是**内联挂载点**，不是可插拔链。
 
-<<<<<<< Updated upstream
 | 类型 | 位置 | 作用 |
 |---|---|---|
 | `ToolProvider` | `common/server.go` | MCP Server 与真实工具实现之间的唯一稳定抽象：`ListTools` + `CallTool` |
@@ -466,9 +449,6 @@ sequenceDiagram
 ## 4.2 工具能力总表
 
 | 工具 | 实现入口 | 动作/能力 | 主要依赖 |
-=======
-| 横切项 | 职责 | 挂载点 | 依赖 |
->>>>>>> Stashed changes
 |---|---|---|---|
 | logging | 记录 server start/stop、tools/call begin/done/slow、bootstrap reconnect/hook replay/report drop | `common/server.go`、`common/http_transport.go`、`bootstrap/*` 中的 `pkglogger.*` | `pkg/logger` |
 | auth / lease | register 时带 `SessionToken`，后续 `Context/Approval/Report/Heartbeat` 全依赖 `LeaseKey` | `bootstrap/registerConn`、`RequestApproval`、`Report`、`sendHeartbeat` | `internal/dto/mcp`、`jrpc2` |
@@ -581,7 +561,6 @@ graph TD
 
 ## 9. 结论
 
-<<<<<<< Updated upstream
 ## 6.1 MCP stdio transport（`common/stdio.go`）
 
 `StdioTransport` 同时支持两种输入协议：
@@ -755,9 +734,3 @@ graph TD
 | common server | 新 sidecar / binary 需要暴露 MCP 工具 | 1) 实现 `ToolProvider` 2) 选择 `NewServer()` 或 `NewHTTPServer()` 3) 在 runner/Fx 装配里入组 | `type ToolProvider interface`@`internal/mcpserver/common/server.go`；`registryToolProvider`@`cmd/mcp-lsp/fx.go` | grep `NewServer` / `NewHTTPServer` builder |
 | callback | peer 需要承接 `tools/list` / `tools/call` / `ctl/shutdown` / `ctl/config/changed` 等回调 | 1) 扩 `bootstrap.Config` 2) 在启动装配时填充回调 3) 由 `handleCallback()` + `dispatchRequest()` 接住 | `handleCallback()` / `dispatchRequest()`@`internal/mcpserver/common/bootstrap/lifecycle.go` | grep callback route + 常量名 |
 | middleware | tool 需要 timeout / budget 治理 | 1) 在 `middleware/` 增补中间件 2) 经 `wrapToolHandler()` 挂链 3) 需要输出裁剪时显式接 `WithOutputBudget()` | `wrapToolHandler()`@`cmd/mcp-lsp/tools/factory.go`；`WithOutputBudget()`@`cmd/mcp-lsp/middleware/budget.go` | `tool_middleware_test.go` / 相关 tool 测试 |
-=======
-- `internal/mcpserver` 现在是**薄框架**：入站只做 MCP transport + JSON-RPC dispatch，出站只做 control-plane lifecycle。
-- 真实“中间件链”并不存在；横切能力以内联 logging / lease / buffering / recovery 方式散落在 `common` 与 `bootstrap`。
-- `ToolProvider` 是唯一稳定扩展点；`ToolRegistry` 的强实现位于 control plane，而不是本卷。
-- `internal/mcpserver/lsp/` 与 gopls 集成尚未落地，本卷不能把旧 LSP 实现当成当前目录事实。
->>>>>>> Stashed changes
