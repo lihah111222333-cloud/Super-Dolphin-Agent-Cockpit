@@ -97,7 +97,7 @@ Canonical Turn Observation Contract：共享 observation 层统一产出 local t
 - P0 的 system-scope 自学习写入必须走显式 review gate：未获批不得写；审批/缓存键必须至少带 `skill slug + content hash + repo fingerprint(project_root/cwd)`，防止跨项目复用旧审批。
 - signed skill 验签在 P22 前都只能视为“待验证态”；P21 不允许因为 frontmatter 写了 `trust: signed` 就跳过审批、脱敏或人工 review。
 - `P2` 的 alias 解析不能落入默认链：`NOTIFY_DEFAULT_CHANNEL` 只允许显式 opt-in，默认缺失时应 `drop/error`，不做 silent fallback。
-- 文档若未明确 UI 交付，默认按 API-only 解释；若未来要做 UI，必须显式补 `DashboardPage`、`ui/dashboard/get?page=...` 与前端导航 / 页面接线。**P1b 的 UI 交付已显式拆出为 [P1b-UI](P1b_CronUI.md)**：在 `cmd/agent-terminal/frontend/vue-app` 下增定时任务页，并补一条 wails 事件 `cron.job.run_state_changed`，复用 `internal/ui/wails/bridge.EventBridge.publish` 透传。
+- 文档若未明确 UI 交付，默认按 API-only 解释；若未来要做 UI，必须显式补 `DashboardPage`、`ui/dashboard/get?page=...` 与前端导航 / 页面接线。**P1b 的 UI 交付已显式拆出为 [P1b-UI](P1b_CronUI.md)**：定时任务不独立一栏，作为 `任务` 页的子 tab（`tasksSubTab='cron'`）渲染 `pages/CronPanel.js`；并补一条 wails 事件 `cron.job.run_state_changed`，复用 `internal/ui/wails/bridge.EventBridge.publish` 透传。
 
 ## 修复清单
 
