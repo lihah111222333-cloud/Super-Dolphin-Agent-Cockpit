@@ -24,6 +24,7 @@ export const ContextUsageBanner = {
     // 形状：{ kind, last_action, reason, error_message, ts }
     failedInfo: { type: Object, default: null },
     retrying: { type: Boolean, default: false },
+    retryError: { type: String, default: '' }, // R2 fix：一键重试失败反馈
   },
   emits: ['compact', 'fork', 'retry-auto-continue'],
   setup(props, { emit }) {
@@ -109,6 +110,7 @@ export const ContextUsageBanner = {
           :title="retrying ? '重试中…' : '手动重试起一个继承对话'"
           @click="onRetry"
         >{{ retrying ? '重试中…' : '一键重试' }}</button>
+        <span v-if="retryError" data-testid="auto-continue-retry-error" style="color:var(--color-danger,#c33); margin-left:8px;">{{ retryError }}</span>
       </div>
     </div>
   `,

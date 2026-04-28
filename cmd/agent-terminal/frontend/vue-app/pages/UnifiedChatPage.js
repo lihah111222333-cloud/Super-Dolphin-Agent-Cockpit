@@ -308,18 +308,20 @@ function createPageAutoContinue(props, taskHandoff, selectedThreadId) {
     () => r.failedAutoContinueByThread.value.get((selectedThreadId.value || '').toString().trim()) || null,
   );
   const autoContinueRetrying = ref(false);
+  const autoContinueRetryError = ref(''); // R2 fix：失败反馈不再吃掉
   async function onRetryAutoContinue() {
     const id = (selectedThreadId.value || '').toString().trim();
     if (!id || autoContinueRetrying.value) return;
     autoContinueRetrying.value = true;
+    autoContinueRetryError.value = '';
     try { await r.retryAutoContinue(id); }
-    catch (_e) { /* 已在 useAutoContinue 内 logWarn */ }
+    catch (err) { autoContinueRetryError.value = (err && err.message) || String(err); }
     finally { autoContinueRetrying.value = false; }
   }
   return {
     autoContinueFailedByThread: r.failedAutoContinueByThread,
     autoContinueRetry: r.retryAutoContinue,
-    activeAutoContinueFailed, autoContinueRetrying, onRetryAutoContinue,
+    activeAutoContinueFailed, autoContinueRetrying, autoContinueRetryError, onRetryAutoContinue,
   };
 }
 

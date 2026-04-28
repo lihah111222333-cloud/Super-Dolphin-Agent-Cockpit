@@ -150,6 +150,22 @@ describe('ContextUsageBanner · emits', () => {
   });
 });
 
+// R2 fix：retryError prop 渲染
+describe('ContextUsageBanner · R2 retry error display', () => {
+  it('declares retryError prop with empty default', () => {
+    expect(ContextUsageBanner.props.retryError.default).toBe('');
+  });
+
+  it('template references auto-continue-retry-error testid', () => {
+    expect(ContextUsageBanner.template).toContain('auto-continue-retry-error');
+  });
+
+  it('template renders retryError span only when value is truthy', () => {
+    // 验证模板中 v-if="retryError" 存在
+    expect(ContextUsageBanner.template).toContain('v-if="retryError"');
+  });
+});
+
 describe('ContextUsageBanner · component shape', () => {
   it('declares all expected props with defaults', () => {
     expect(ContextUsageBanner.props.failedInfo.default).toBe(null);
