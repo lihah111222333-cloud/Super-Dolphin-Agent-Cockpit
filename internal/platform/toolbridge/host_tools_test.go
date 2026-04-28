@@ -460,6 +460,59 @@ func TestRouteToolCall_HostToolBypassesPeer_UsesResolvedCWD(t *testing.T) {
 	}
 }
 
+func TestCallHostTool_SanitizesSuccessfulSkillPaths(t *testing.T) {
+	cwd := filepath.Join(t.TempDir(), "repo")
+	host := &stubHostToolRegistry{
+		hasToolName: skilltool.ToolNameExpandBody,
+		result: skillpkg.ExpandBodyResult{
+			Name:    "foo",
+			Path:    filepath.Join(cwd, ".agent", "skills", "foo", "SKILL.md"),
+			Content: "body",
+		},
+	}
+	h := &Handler{resolver: &stubCWDResolver{cwd: cwd}, hostTools: host}
+
+	got, err := h.callHostTool(context.Background(), ToolCallRequest{Name: skilltool.ToolNameExpandBody, AgentID: "agent-path"})
+	if err != nil {
+		t.Fatalf("callHostTool() error = %v", err)
+	}
+	envelope := decodeToolResultEnvelope(t, got)
+	path, _ := envelope["path"].(string)
+	if path != ".agent/skills/foo/SKILL.md" {
+		t.Fatalf("sanitized path = %q, want cwd-relative path", path)
+	}
+	if strings.Contains(path, cwd) {
+		t.Fatalf("sanitized path leaked cwd %q in %q", cwd, path)
+	}
+}
+
+func TestCallHostTool_SanitizesSuccessfulResourceSkillDir(t *testing.T) {
+	cwd := filepath.Join(t.TempDir(), "repo")
+	host := &stubHostToolRegistry{
+		hasToolName: skilltool.ToolNameReadResource,
+		result: skillpkg.ReadResourceResult{
+			Name:     "foo",
+			SkillDir: filepath.Join(cwd, ".agent", "skills", "foo"),
+			Path:     "references/api.md",
+			Content:  "resource",
+		},
+	}
+	h := &Handler{resolver: &stubCWDResolver{cwd: cwd}, hostTools: host}
+
+	got, err := h.callHostTool(context.Background(), ToolCallRequest{Name: skilltool.ToolNameReadResource, AgentID: "agent-resource"})
+	if err != nil {
+		t.Fatalf("callHostTool() error = %v", err)
+	}
+	envelope := decodeToolResultEnvelope(t, got)
+	skillDir, _ := envelope["skill_dir"].(string)
+	if skillDir != ".agent/skills/foo" {
+		t.Fatalf("sanitized skill_dir = %q, want cwd-relative skill dir", skillDir)
+	}
+	if strings.Contains(skillDir, cwd) {
+		t.Fatalf("sanitized skill_dir leaked cwd %q in %q", cwd, skillDir)
+	}
+}
+
 func TestCallHostTool_ObservabilityCountersAndLogs(t *testing.T) {
 	skillmetrics.ResetForTesting()
 	t.Cleanup(skillmetrics.ResetForTesting)
