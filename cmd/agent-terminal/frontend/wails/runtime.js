@@ -263,11 +263,22 @@ async function rpcCall(method, params = {}) {
   }
 
   return new Promise((resolve, reject) => {
-    pendingCalls.set(String(id), { resolve, reject });
+    const callId = String(id);
+    const timer = setTimeout(() => {
+      if (pendingCalls.has(callId)) {
+        pendingCalls.delete(callId);
+        reject(new Error(`runtime shim: rpc call timeout (30s) for ${methodName}`));
+      }
+    }, 30000);
+    pendingCalls.set(callId, {
+      resolve: (value) => { clearTimeout(timer); resolve(value); },
+      reject: (error) => { clearTimeout(timer); reject(error); },
+    });
     try {
       activeSocket.send(JSON.stringify(request));
     } catch (error) {
-      pendingCalls.delete(String(id));
+      clearTimeout(timer);
+      pendingCalls.delete(callId);
       reject(toError(error, 'runtime shim: websocket send failed'));
     }
   });
