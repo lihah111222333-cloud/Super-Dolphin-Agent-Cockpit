@@ -3,7 +3,10 @@ import { callAPI, getBuildInfo, onAgentEvent, onBridgeEvent, onAppWillQuit } fro
 import { SidebarNav } from './components/SidebarNav.js';
 import { ProjectModal } from './components/ProjectModal.js';
 import { DagDetailModal } from './components/DagDetailModal.js';
+import { CronJobModal } from './components/CronJobModal.js';
+import { CronRunsModal } from './components/CronRunsModal.js';
 import { useDagDetail } from './composables/useDagDetail.js';
+import { useCronJobs } from './composables/useCronJobs.js';
 import { UnifiedChatPage } from './pages/UnifiedChatPage.js';
 import { ensureThreadSelectionFresh, requestHistoryLoad } from './utils/thread-page-utils.js';
 import { DataPage } from './pages/DataPage.js';
@@ -244,6 +247,8 @@ export const AppRoot = {
     SystemPromptPage,
     MemoryCenterPage,
     SharedFilesPage,
+    CronJobModal,
+    CronRunsModal,
   },
   setup() {
     const projectStore = useProjectStore();
@@ -261,7 +266,8 @@ export const AppRoot = {
       inheritedChatPayload.value = { sharedFilePath: path, ts: Date.now() };
       page.value = 'chat';
     }
-    const tasksSubTab = ref('acks');
+    const tasksSubTab = ref('cron');
+    const cron = useCronJobs();
     const buildInfo = reactive({});
     const runtimeConfig = reactive({ cwd: '' });
 
@@ -349,6 +355,7 @@ export const AppRoot = {
       await refreshMemoryCenterState(memoryCenter, (threadScopeCwd.value || '').toString().trim());
     }
 
+
     async function refreshChatPageOnEnter() {
       if (chatPageRefreshPromise) return chatPageRefreshPromise;
       chatPageRefreshPromise = refreshChatPageData(threadStore);
@@ -422,6 +429,11 @@ export const AppRoot = {
             console.warn('refresh page failed: memory-center', error);
           });
           return;
+        }
+        if (next === 'tasks') {
+          cron.refresh().catch((error) => {
+            console.warn('refresh cron jobs failed', error);
+          });
         }
         refreshDashboardByPage(next).catch((error) => {
           console.warn(`refresh page failed: ${next}`, error);
@@ -512,6 +524,7 @@ export const AppRoot = {
       runCommandCard,
       dagDetail,
       openDagChat,
+      cron,
     };
   },
   template: `
@@ -554,7 +567,17 @@ export const AppRoot = {
           :tasks-sub-tab="tasksSubTab"
           :items="tasksItems"
           :fields="tasksFields"
+          :cron-jobs="cron.state.jobs"
+          :cron-loading="cron.state.loading"
+          :cron-error="cron.state.error"
+          :cron-toggling-id="cron.state.togglingId"
           @update:tasks-sub-tab="tasksSubTab = $event"
+          @cron-refresh="cron.refresh"
+          @cron-create="cron.openCreate"
+          @cron-edit="cron.openEdit"
+          @cron-delete="cron.remove"
+          @cron-toggle="cron.toggle"
+          @cron-view-runs="cron.openRuns"
         />
 
         <SkillsPage
@@ -596,6 +619,25 @@ export const AppRoot = {
       </main>
 
       <ProjectModal :store="projectStore" />
+      <CronJobModal
+        :show="cron.state.modalShow"
+        :mode="cron.state.modalMode"
+        :job="cron.state.modalJob"
+        :defaults="{ cwd: activeProjectCwd || windowCwd }"
+        :submitting="cron.state.modalSubmitting"
+        :error-text="cron.state.modalError"
+        @close="cron.closeModal"
+        @submit="cron.submitModal"
+      />
+      <CronRunsModal
+        :show="cron.state.runsShow"
+        :job="cron.state.runsJob"
+        :runs="cron.state.runs"
+        :loading="cron.state.runsLoading"
+        :error-text="cron.state.runsError"
+        @close="cron.closeRuns"
+        @refresh="cron.refreshRuns"
+      />
       <DagDetailModal
         :show="dagDetail.state.show"
         :loading="dagDetail.state.loading"
