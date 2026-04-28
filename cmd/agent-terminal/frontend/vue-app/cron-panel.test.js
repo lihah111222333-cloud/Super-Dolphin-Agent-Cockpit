@@ -5,6 +5,13 @@ vi.mock('./services/log.js', () => ({
   logDebug: vi.fn(),
   logInfo: vi.fn(),
   logWarn: vi.fn(),
+  logError: vi.fn(),
+  registerLogBridgeSink: vi.fn(),
+}));
+
+vi.mock('./services/api.js', () => ({
+  selectProjectDir: vi.fn().mockResolvedValue(''),
+  onBridgeEvent: vi.fn(() => () => {}),
 }));
 
 const cronApiMock = vi.hoisted(() => ({
@@ -47,6 +54,23 @@ describe('CronPanel contract', () => {
     expect(CronPanel.template).toContain('cron-empty-state');
     expect(CronPanel.template).toContain('cron-list');
     expect(CronPanel.template).toContain('cron-refresh-button');
+    expect(CronPanel.template).toContain('cron-new-button');
+    expect(CronPanel.template).toContain("'cron-edit-' + idx");
+    expect(CronPanel.components).toHaveProperty('CronJobForm');
+  });
+
+  it('exposes view + form action helpers from setup()', () => {
+    const vm = CronPanel.setup();
+    expect(vm.view.value).toBe('list');
+    expect(vm.editingJob.value).toBeNull();
+    vm.openCreate();
+    expect(vm.view.value).toBe('form');
+    expect(vm.editingJob.value).toBeNull();
+    vm.closeForm();
+    expect(vm.view.value).toBe('list');
+    vm.openEdit({ id: 'j1', name: 'demo' });
+    expect(vm.view.value).toBe('form');
+    expect(vm.editingJob.value).toEqual({ id: 'j1', name: 'demo' });
   });
 
   it('formatSchedule / formatRetryBudget / formatLastRun handle empty + populated jobs', () => {
