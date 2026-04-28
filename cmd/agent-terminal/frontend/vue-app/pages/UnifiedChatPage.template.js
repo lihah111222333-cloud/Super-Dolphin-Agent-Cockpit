@@ -188,6 +188,7 @@ export const template = `
                   :compacting="compacting"
                   :failed-info="activeAutoContinueFailed"
                   :retrying="autoContinueRetrying"
+                  :retry-error="autoContinueRetryError"
                   @compact="compactCurrent"
                   @fork="openForkDraftFromUI('context-banner')"
                   @retry-auto-continue="onRetryAutoContinue"

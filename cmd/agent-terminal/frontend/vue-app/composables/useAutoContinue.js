@@ -156,12 +156,13 @@ async function handleTokenCritical(ctx, threadId, taskId) {
         return;
       }
     }
-    // Pre-reservation：fork 发起前先计费，避免并发场景下 21 个 thread 同时跳闸。失败也不回滚 ——
-    // per-thread 闸就是要“试过一次之后不再重试”，事后由 1.4d 用户一键重试入口处理。
+    // Pre-reservation：fork 发起前先计费（防并发 21 thread 同时跳闸）。
+    // R1 fix：自然治愈路径下回滚 per-thread 闸，避免 “未真 fork 但 thread 被锁”。
     ctx.gate.recordContinue({ threadId });
     const fork = await forkWithRetry(ctx, threadId, taskId, 'token_critical',
       () => getCurrentLevel(ctx, threadId) === 'critical');
     if (fork.ok) {
+      if (fork.recovered) ctx.gate.releaseThreadContinue({ threadId });
       clearFailure(ctx, threadId);
       return;
     }
@@ -192,14 +193,14 @@ async function tryRecover(ctx, threadId, taskId) {
     }
     return { handled: false };
   }
+  // R4 fix：pre-reservation——check 通过后立即 record，避免 21 个并发 recover 同时 check时 globalLog 还是空。
+  ctx.gate.recordRecover({ threadId });
   try {
     await ctx.threadStore.recoverThread(threadId);
-    ctx.gate.recordRecover({ threadId });
     clearFailure(ctx, threadId);
     logInfo('ui', 'auto_continue.recover.done', { source_thread_id: threadId, task_id: taskId });
     return { handled: true };
   } catch (err) {
-    ctx.gate.recordRecover({ threadId });
     logWarn('ui', 'auto_continue.recover.failed', {
       source_thread_id: threadId, task_id: taskId, ...classifyError(err),
     });
@@ -228,6 +229,7 @@ async function handleStatusError(ctx, threadId, taskId) {
     const fork = await forkWithRetry(ctx, threadId, taskId, 'status_error',
       () => getCurrentStatus(ctx, threadId) === 'error');
     if (fork.ok) {
+      if (fork.recovered) ctx.gate.releaseThreadContinue({ threadId });
       clearFailure(ctx, threadId);
       return;
     }

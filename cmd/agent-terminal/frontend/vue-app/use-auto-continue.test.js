@@ -71,6 +71,7 @@ beforeEach(() => {
   vi.mocked(logInfo).mockReset();
   vi.mocked(logWarn).mockReset();
   vi.mocked(logError).mockReset();
+  prefMod._resetAutoContinuePrefForTest(); // R3 fix：avoid case-to-case pref leakage
 });
 afterEach(() => { stopFn(); vi.restoreAllMocks(); });
 
@@ -414,6 +415,54 @@ describe('useAutoContinue · pref gating', () => {
     prefMod._setAutoContinuePrefForTest(true);
   });
 });
+
+// R1 fix：自然治愈路径下 per-thread 闸回滚
+describe('useAutoContinue · R1 release on natural recovery', () => {
+  it('after recovered=true, same thread can trigger again later', async () => {
+    const store = makeStore({
+      tokenUsageByThread: { t1: { usedPercent: 50 } },
+      agentRuntimeById: { t1: { taskId: 'A' } },
+    });
+    // 第一次 fork 失败 + sleep 期间恢复 → recovered=true
+    let firstAttempt = true;
+    const cont = vi.fn(() => {
+      if (firstAttempt) { firstAttempt = false; return Promise.reject(new Error('first fail')); }
+      return Promise.resolve('next-id');
+    });
+    const sleep = vi.fn(async () => { store.state.tokenUsageByThread = { t1: { usedPercent: 60 } }; });
+    start(store, { continueTaskById: cont, sleepFn: sleep });
+    store.state.tokenUsageByThread = { t1: { usedPercent: 99 } };
+    await flushAll();
+    // recovered，闸门应该 release 了 —— 下次 critical 应能重新触发
+    store.state.tokenUsageByThread = { t1: { usedPercent: 70 } };
+    await flushAll();
+    store.state.tokenUsageByThread = { t1: { usedPercent: 99 } };
+    await flushAll();
+    expect(cont).toHaveBeenCalledTimes(2); // 首次失败 + recovery 后第二次重新触发
+  });
+});
+
+// R4 fix：status_error 路径上的全局保险丝
+describe('useAutoContinue · R4 global fuse on status_error', () => {
+  it('blows fuse + alerts when many threads turn error simultaneously', async () => {
+    const runtimes = {}; const statuses = {};
+    for (let i = 0; i < 21; i++) {
+      runtimes['t' + i] = { taskId: 'task-' + i };
+      statuses['t' + i] = 'idle';
+    }
+    const store = makeStore({ statuses, agentRuntimeById: runtimes });
+    const a = vi.fn();
+    start(store, { alertFn: a });
+    const next = {};
+    for (let i = 0; i < 21; i++) next['t' + i] = 'error';
+    store.state.statuses = next;
+    await flushAll();
+    // 第 21 个 thread 的 recover gate 应该 fuseBlown → 触发 alert
+    expect(a).toHaveBeenCalledTimes(1);
+    expect(logError).toHaveBeenCalledWith('ui', 'auto_continue.fuse_blown', { reason: 'global_fuse_blown' });
+  });
+});
+
 
 describe('useAutoContinue · inflight protection', () => {
   it('skips concurrent invocation on same thread', async () => {

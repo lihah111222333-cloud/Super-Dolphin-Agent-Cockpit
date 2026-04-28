@@ -22,7 +22,7 @@ const { AutoContinuePrefCard } = await import('./components/AutoContinuePrefCard
 beforeEach(() => {
   vi.mocked(prefMod.saveAutoContinuePref).mockReset().mockResolvedValue(undefined);
   vi.mocked(logWarn).mockReset();
-  prefMod._setAutoContinuePrefForTest(true);
+  prefMod._setAutoContinuePrefForTest(true); // R3 fix：明确重置 default
 });
 afterEach(() => { vi.restoreAllMocks(); });
 

@@ -53,6 +53,13 @@ export function createAutoContinueGate() {
     globalLog.push(now());
   }
 
+  // Phase 1.4c review fix (R1)：自然治愈路径下回滚 per-thread 闸，
+  // 但保留 globalLog 中的记录（pre-reservation 防并发跳闸仍有意义）。
+  function releaseThreadContinue(req) {
+    const threadId = (req && req.threadId) || '';
+    if (threadId) continuedSourceThreadIds.delete(threadId);
+  }
+
   function recordRecover(_req) {
     globalLog.push(now());
   }
@@ -68,7 +75,7 @@ export function createAutoContinueGate() {
     if (typeof fn === 'function') now = fn;
   }
 
-  return { check, recordContinue, recordRecover, snapshot, _setNowForTest };
+  return { check, recordContinue, releaseThreadContinue, recordRecover, snapshot, _setNowForTest };
 }
 
 export const _AUTO_CONTINUE_GATE_CONSTANTS = Object.freeze({
