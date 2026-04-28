@@ -148,13 +148,19 @@ func TestSkillMCPServer_ReadResourceLazyCallsHostRPC(t *testing.T) {
 func TestSkillMCPServer_RejectsModelRuntimeFields(t *testing.T) {
 	t.Parallel()
 
-	fake := &fakeSkillHostRPC{}
+	// 移除 DisallowUnknownFields 后，LLM 发送的额外字段（包括运行时字段如 cwd）
+	// 应被静默忽略，由 provider 注入真实的运行时值。
+	fake := &fakeSkillHostRPC{result: json.RawMessage(`{}`)}
 	provider := newSkillMCPToolProvider(skillMCPRuntime{CWD: "/repo"}, fake)
-	if _, err := provider.CallTool(context.Background(), skilltool.ToolNameExpandBody, json.RawMessage(`{"name":"demo","cwd":"/evil"}`)); err == nil {
-		t.Fatal("CallTool() error = nil, want unknown runtime field rejection")
+	if _, err := provider.CallTool(context.Background(), skilltool.ToolNameExpandBody, json.RawMessage(`{"name":"demo","cwd":"/evil"}`)); err != nil {
+		t.Fatalf("CallTool() error = %v, want extra fields silently ignored", err)
 	}
-	if fake.calls != 0 {
-		t.Fatalf("host RPC calls after invalid args = %d, want 0", fake.calls)
+	if fake.calls != 1 {
+		t.Fatalf("host RPC calls = %d, want 1", fake.calls)
+	}
+	// 关键：注入的 cwd 应该是运行时值 /repo 而非 LLM 传入的 /evil。
+	if fake.lastParams["cwd"] != "/repo" {
+		t.Fatalf("cwd = %v, want /repo (runtime-injected, not model-provided)", fake.lastParams["cwd"])
 	}
 }
 
@@ -189,9 +195,11 @@ func TestSkillMCPServer_ObservabilityCounters(t *testing.T) {
 		t.Fatalf("approval CallTool() error = %v", err)
 	}
 
+	// 移除 DisallowUnknownFields 后，额外字段不再触发 decode error。
+	// 改用 unknown tool name 作为 error 路径的覆盖。
 	invalid := newSkillMCPToolProvider(skillMCPRuntime{CWD: "/repo"}, &fakeSkillHostRPC{})
-	if _, err := invalid.CallTool(context.Background(), skilltool.ToolNameExpandBody, json.RawMessage(`{"name":"demo","cwd":"/evil"}`)); err == nil {
-		t.Fatal("invalid CallTool() error = nil, want unknown field rejection")
+	if _, err := invalid.CallTool(context.Background(), "nonexistent_tool", json.RawMessage(`{"name":"demo"}`)); err == nil {
+		t.Fatal("invalid CallTool() error = nil, want unknown tool rejection")
 	}
 
 	snap := skillmetrics.Read()
@@ -331,7 +339,7 @@ func TestSkillHostRPCClient_ValidatesHostResponse(t *testing.T) {
 		response string
 		wantErr  string
 	}{
-		{name: "unknown response field", response: `{"jsonrpc":"2.0","id":1,"result":{},"extra":true}`, wantErr: "unknown field"},
+		{name: "extra response field tolerated", response: `{"jsonrpc":"2.0","id":1,"result":{},"extra":true}`, wantErr: ""},
 		{name: "invalid jsonrpc", response: `{"jsonrpc":"1.0","id":1,"result":{}}`, wantErr: "invalid host rpc jsonrpc version"},
 		{name: "mismatched id", response: `{"jsonrpc":"2.0","id":2,"result":{}}`, wantErr: "host rpc response id = 2, want 1"},
 		{name: "host error", response: `{"jsonrpc":"2.0","id":1,"error":{"code":-31002,"message":"approval required","data":{"CallID":"call-1"}}}`, wantErr: "approval required"},
@@ -342,6 +350,12 @@ func TestSkillHostRPCClient_ValidatesHostResponse(t *testing.T) {
 			t.Parallel()
 			addr := startSkillHostRPCTestServer(t, tt.response)
 			_, err := (skillHostRPCClient{addr: addr}).Call(context.Background(), skillExpandBodyRPCMethod, map[string]any{"name": "demo"})
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Call() error = %v, want nil", err)
+				}
+				return
+			}
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("Call() error = %v, want containing %q", err, tt.wantErr)
 			}

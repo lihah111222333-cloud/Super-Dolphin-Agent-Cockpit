@@ -239,7 +239,6 @@ func decodeSkillToolArgs(raw json.RawMessage, out any) error {
 		trimmed = []byte("{}")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(trimmed))
-	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(out); err != nil {
 		return fmt.Errorf("skill mcp: decode arguments: %w", err)
 	}
@@ -295,7 +294,6 @@ func (c skillHostRPCClient) Call(ctx context.Context, method string, params any)
 
 	var resp skillJSONRPCResponse
 	decoder := json.NewDecoder(bufio.NewReader(conn))
-	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&resp); err != nil {
 		return nil, fmt.Errorf("skill mcp: read host rpc response: %w", err)
 	}

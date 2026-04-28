@@ -40,6 +40,7 @@ export async function loadContextUsageThresholds() {
       }
     } catch (err) {
       logWarn('ui', 'contextUsageThresholds.load_failed', { error: (err && err.message) || String(err) });
+      loadPromise = null; // 允许后续重试，避免冷启动失败后永远锁定默认值
     }
     return tokenThresholds.value;
   })();
