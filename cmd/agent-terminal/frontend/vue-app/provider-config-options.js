@@ -2,6 +2,12 @@ export function normalizeProviderConfigValue(value) {
   return (value || '').toString().trim();
 }
 
+export const CODEX_IDENTITY_DEFAULTS = Object.freeze({
+  codexHome: '~/.codex',
+  codexInstanceKey: 'default',
+  codexModelProvider: 'openai',
+});
+
 // Claude CLI accepts both short aliases (opus/sonnet/haiku resolve to latest
 // version on Anthropic's side) and explicit version slugs (claude-opus-4-6[1m]).
 // 4.7 options use short aliases (they auto-track latest); 4.6 options use
