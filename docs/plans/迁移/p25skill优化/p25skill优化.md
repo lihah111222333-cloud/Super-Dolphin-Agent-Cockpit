@@ -405,7 +405,7 @@ docs/plans/迁移/p25skill优化/skill-progressive-disclosure-pr6-verify.sh
 |---|---|---|
 | schema description 文案漂移 | 已锁 tool name / required / no-cwd / property type / additionalProperties / marshal，未锁完整 description 文案 | 如需对外契约冻结，可补 description golden |
 | v1 writerFormat Summary mode | 未验证空 body 渲染是否误导模型 | 补 `RenderSkillBlockV1` Summary 集成 |
-| `ReadResource` traversal | 依赖 `internal/module/skill` 防护，host-direct 无独立断言 | 补跨层 contract test；同时确认 symlink / EvalSymlinks 失败路径不逃逸 |
+| `ReadResource` traversal | 已补 `internal/module/skill` symlink / EvalSymlinks 失败防护与 host-direct 跨层断言 | `go test ./internal/module/skill -run 'TestReadResource_(SymlinkEscapeRejected|BrokenSymlinkRejectedBeforeRead)$' -count=1`；`go test ./internal/platform/toolbridge -run '^TestSkillHostTools_CallReadResource_RejectsSymlinkEscape$' -count=1` |
 | resource binary asset | 当前 `skill_read_resource` 返回 string，主要覆盖文本资源 | 若业务需要图片/模板/压缩包，补 base64 或 `skill_read_asset` 工具 |
 | 真实 Claude CLI 已认证 tool-call E2E | opt-in 测试已存在；未认证环境会 skip | 在有 Claude CLI 认证的环境跑 `TestMcpSkillMode_ClaudeCLIManagedSameBinarySkillE2E` 并记录延迟 / orphan child 观测 |
 
@@ -1113,7 +1113,7 @@ Release governance / 风险 gate 只作为发布管理补充，不盖过上述�
 
 本节集中收口 2026-04-26 多 agent review 发现的问题；业务能力 blockers 以 §9.2 为准。
 本节只保留会影响后续实现、默认切换或发布观察的风险提示，避免让治理事项压过业务能力判断。
-其中 §10.1 已在本轮闭包修复，其余大多仍是当前 PR 范围外风险。
+其中 §10.1 / §10.2 已闭包修复，其余大多仍是当前 PR 范围外风险。
 
 ### 10.1 agentId trust 姿态反向（HIGH，安全，已修）
 
@@ -1124,14 +1124,12 @@ Release governance / 风险 gate 只作为发布管理补充，不盖过上述�
 - Release note：当前 worktree 已包含修复；若后续拆 PR 导致修复未随当前 PR 合入，不得默认切换 Summary。
 - 验收：`go test ./internal/provider/codexapp -run Enrich -count=1` 通过；review 确认 codexapp `onInboundMessage` enriched path 覆盖 canonical `agentId` 并 strip `agent_id` 后再进入 toolHandler。注意：legacy / 非 codexapp-enriched 调用仍可能被 `decodeToolCallRequest` alias 兼容读取 `agent_id`，不得把本 gate 扩大解释为全仓 alias 移除。
 
-### 10.2 ReadResource 路径 traversal 未在 host-direct 层独立断言（MED，安全）
+### 10.2 ReadResource 路径 traversal 防护补强（MED，安全，已修）
 
-- 位置：依赖 `internal/module/skill/skills_expand.go` 的 `resolveResourceTarget`
-- 风险：`EvalSymlinks` 失败时回退到字面路径，`os.ReadFile` 仍跟符号链接读出
-  skillDir 之外的文件；trust=user/signed skill 不需审批，攻击面来自被植入
-  恶意 symlink 的 skill 包
-- 建议：`EvalSymlinks` 错误直接报错 + `os.Lstat` 二次确认 / `securejoin.SecureJoin`；
-  并在 host-direct 层加跨层 contract test
+- 位置：`internal/module/skill/skills_expand.go` 的 `resolveResourceTarget`，以及 host-direct `SkillHostTools.CallHostTool` → `skill.Service.ReadResource` 跨层路径。
+- 原风险：`EvalSymlinks` 失败时回退到字面路径，`os.ReadFile` 仍可能跟随符号链接读出 skillDir 之外的文件；trust=user/signed skill 不需审批，攻击面来自被植入恶意 symlink 的 skill 包。
+- 本轮修复：`resolveResourceTarget` 现在对 skillDir 与 resource target 的 `EvalSymlinks` 失败直接报错，不再 fallback 到字面路径；成功解析后继续用 `ContainsPath(skillDir, target)` 拦截逃逸。
+- 验收：`TestReadResource_SymlinkEscapeRejected`、`TestReadResource_BrokenSymlinkRejectedBeforeRead`、`TestSkillHostTools_CallReadResource_RejectsSymlinkEscape` 锁定 service 层与 host-direct 跨层路径。
 
 ### 10.3 host-direct 错误体未结构化（MED）
 

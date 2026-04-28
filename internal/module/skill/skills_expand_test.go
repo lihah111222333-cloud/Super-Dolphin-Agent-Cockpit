@@ -255,6 +255,43 @@ func TestReadResource_PathEscapeRejected(t *testing.T) {
 	}
 }
 
+func TestReadResource_SymlinkEscapeRejected(t *testing.T) {
+	svc, root := newExpandTestService(t)
+	dir := writeExpandTestSkill(t, root, "foo", "---\nname: foo\ntrust: user\n---\nbody")
+	refDir := filepath.Join(dir, "references")
+	if err := os.MkdirAll(refDir, 0o755); err != nil {
+		t.Fatalf("mkdir references: %v", err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside.md")
+	if err := os.WriteFile(outside, []byte("SECRET_OUTSIDE"), 0o644); err != nil {
+		t.Fatalf("write outside: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(refDir, "outside.md")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	_, err := svc.ReadResource(expandTestContext(svc), ReadResourceParams{Name: "foo", Path: "references/outside.md"})
+	if err == nil || !strings.Contains(err.Error(), "escapes skill dir") {
+		t.Fatalf("symlink escape error = %v, want escapes skill dir", err)
+	}
+}
+
+func TestReadResource_BrokenSymlinkRejectedBeforeRead(t *testing.T) {
+	svc, root := newExpandTestService(t)
+	dir := writeExpandTestSkill(t, root, "foo", "---\nname: foo\ntrust: user\n---\nbody")
+	refDir := filepath.Join(dir, "references")
+	if err := os.MkdirAll(refDir, 0o755); err != nil {
+		t.Fatalf("mkdir references: %v", err)
+	}
+	missingTarget := filepath.Join(t.TempDir(), "missing.md")
+	if err := os.Symlink(missingTarget, filepath.Join(refDir, "broken.md")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	_, err := svc.ReadResource(expandTestContext(svc), ReadResourceParams{Name: "foo", Path: "references/broken.md"})
+	if err == nil || !strings.Contains(err.Error(), "resolve resource path symlinks") {
+		t.Fatalf("broken symlink error = %v, want resolve resource path symlinks", err)
+	}
+}
+
 func TestReadResource_EmptyPathRejected(t *testing.T) {
 	svc, root := newExpandTestService(t)
 	writeExpandTestSkill(t, root, "foo", "---\nname: foo\n---\nbody")
