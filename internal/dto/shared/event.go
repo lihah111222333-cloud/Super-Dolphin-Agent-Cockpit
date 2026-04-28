@@ -35,6 +35,8 @@ const (
 	EventTypeTaskWakeupDispatched  uint32 = 1302
 	EventTypeTaskWakeupCompleted   uint32 = 1303
 
+	EventTypeCronJobRunStateChanged uint32 = 1400
+
 	EventTypeThreadStarted      uint32 = 1350
 	EventTypeThreadStopped      uint32 = 1351
 	EventTypeThreadMessagesPage uint32 = 1352

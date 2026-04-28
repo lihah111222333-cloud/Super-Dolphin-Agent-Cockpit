@@ -23,7 +23,7 @@
 - **API 封装**：新增 `services/cron-api.js`，对 7 个 RPC 做薄包装 + 类型注释，**唯一**调用方是 store。禁止组件直接 `callAPI('cronjob/...')`。
 - **Store**：新增 `stores/cron.js`，holds `jobs: Job[]`、`runsByJob: Map<jobId, Run[]>`、`loading / error`；提供 `loadJobs / createJob / updateJob / setEnabled / deleteJob / loadRuns` 异步 action。所有写操作走乐观更新 + 失败回滚（参考 `stores/threads.js` 的写法）。
 - **Cron 解析**：用 `cron-parser` npm 包算"未来 5 次触发"和提交时的 `next_run_at`。**当前 `cmd/agent-terminal/frontend/package.json` 没有该依赖**，必须在本期作为 PR 一部分新增 `cron-parser` 到 dependencies；不要手写 cron 解析。Vite 6（`cmd/agent-terminal/frontend/vite.config.js`）会正常打包该依赖。前端始终在用户本地浏览器算，并以 timezone 字段一并传后端，便于后端 phase 2b 复算时口径一致。
-- **实时刷新**：列表页**不**轮询；订阅 wails event `cron.job.run_state_changed` → 收到后增量刷新对应 row。**事实：当前 `internal/module/cron/subscribers.go:1-41` 仅订阅内部 `platformbus`，并没有任何 `EmitEvent` 调用 / wails 桥透传**——本期必须新写桥点（详见下文"事件桥"段）。降级策略：事件桥失败 / 不可用时回退到打开页面时一次性 `cronjob/list` + 用户手动刷新按钮。
+- **实时刷新**：列表页**不**轮询；订阅 wails event `cron/job/runStateChanged` → 收到后增量刷新对应 row。事件链路（已落地）：scheduler 在 7 个 CAS-success 转换点 publish `crondto.JobRunStateChanged` → eventsurface bindCron → EventBridge → wails；详见下文"事件桥"段。降级策略：事件桥失败 / 不可用时回退到打开页面时一次性 `cronjob/list` + 用户手动刷新按钮。
 - **错误展示**：`cron-api.js` 把 jrpc2 error 解析回 `{ code, kind, message }`；`kind` 取值由 message 文本匹配得出：`cwd_required`（`cron: cwd is required`）/ `invalid_config`（`cron: config is invalid for provider`，**即 codex identity 三字段缺失**）/ `provider_unsupported`（`cron: provider not supported in v1...`）/ `name_required` / `prompt_required` / `schedule_required` / `invalid_max_attempts` / `not_found` / `unknown`，在表单层映射到具体字段红框，而不是 toast。
 
 ## 改动清单
@@ -32,7 +32,7 @@
 |---|---|---|
 | 路由 | `cmd/agent-terminal/frontend/vue-app/pages/TasksPage.js` | 增 `tasks-subtab-cron` 子 tab；sub-tab=cron 时渲染 `<CronPanel />`；**不动** `app.js` `NAV_ITEMS` |
 | API 包装 | `cmd/agent-terminal/frontend/vue-app/services/cron-api.js` [NEW] | `listJobs / getJob / createJob / updateJob / deleteJob / setEnabled / listRuns`；统一 `mapCronRpcError(err)` |
-| Store | `cmd/agent-terminal/frontend/vue-app/stores/cron.js` [NEW] | reactive jobs / runs；乐观更新 + 失败回滚；订阅 wails 事件 `cron.job.run_state_changed` |
+| Store | `cmd/agent-terminal/frontend/vue-app/stores/cron.js` [NEW] | reactive jobs / runs；乐观更新 + 失败回滚；订阅 wails 事件 `cron/job/runStateChanged` |
 | 面板壳 | `cmd/agent-terminal/frontend/vue-app/pages/CronPanel.js` [NEW] | 作为 `任务` 页子 tab 渲染；view 切换 / breadcrumb / 全局错误条 |
 | 列表 | `cmd/agent-terminal/frontend/vue-app/components/cron/CronJobList.js` [NEW] | 见下文"列表页"；含搜索 / 状态筛选 / 启停 toggle / 删除确认 |
 | 表单 | `cmd/agent-terminal/frontend/vue-app/components/cron/CronJobForm.js` [NEW] | 创建 + 编辑同组件；按"基本 / 调度 / Provider 身份 / 执行策略"四段；联动校验 |
@@ -40,7 +40,7 @@
 | 身份控件 | `cmd/agent-terminal/frontend/vue-app/components/cron/ProviderIdentityField.js` [NEW] | 复用 P1a binding identity（`codexHome / codexInstanceKey / codexModelProvider`）三字段，单选预设 + 手填回退 |
 | 详情 | `cmd/agent-terminal/frontend/vue-app/components/cron/CronJobDetail.js` [NEW] | 元信息 + 当前 claim + 历史 runs |
 | Run 行 | `cmd/agent-terminal/frontend/vue-app/components/cron/CronJobRunRow.js` [NEW] | 6 态色板 + `observe_lost` 单独提示；点击 `turn_id` 跳 chat |
-| 桥事件 | `internal/module/cron/subscribers.go` + 注入 `internal/ui/wails/bridge.EventBridge` + 视情况补 `eventsurface` 注册项 | 在 cron 现有 `subscribeCronProgress` / `subscribeCronTerminalEvents` 回调内调 `EventBridge.publish("cron.job.run_state_changed", payload)`，复用 `bridge.go:66-79` → `lifecycle.go:128-136` 的既有透传链；见"事件桥"段 |
+| 桥事件 | `internal/dto/cron/event.go` [NEW] + `internal/module/cron/scheduler.go` (publishRunState) + `internal/platform/eventsurface/bind.go` (bindCron) + `internal/module/cron/module.go` (fx Dispatcher 注入) | DTO + scheduler 在 7 个 CAS-success 转换点 publish；eventsurface 转成 `cron/job/runStateChanged` 由既有 EventBridge 自动透传 |
 | 测试 | 各 `*.test.js` 同目录伴随 | 至少覆盖：cron-parser 边界、表单字段联动校验、6 态色板、错误映射、store 乐观更新与回滚 |
 
 > `[NEW]` 表示目标新增路径，当前仓库尚不存在。
@@ -129,15 +129,17 @@
 
 ## 事件桥（前后端共同改动）
 
-仓内已有标准桥实现，**不要**自己写新的 emitter helper：
+**真实路径（已落地）**：cron 不应直接调用 `EventBridge.publish`。`bridge.publish` 是内部回调，由 `eventsurface.Bind(dispatcher, _, b.publish)` 在 `Start()` 里挂上（见 `bridge.go:35-49`）。正确的链路是 **DTO → dispatcher → eventsurface → bridge → wails**：
 
-- `internal/ui/wails/bridge.go:15-22` 定义 `EventBridge`；其 `publish(method, payload)`（line 66-79）会调 `eventsurface.ExpandNotifications()` 把内部事件展开成多条对外通知，然后调 `lifecycle.EmitEvent(name, payload)`（`internal/ui/wails/lifecycle.go:128-136`）真正打到 wails runtime。
-- 本期需要做的事：
-  1. 在 cron 的 run state 推进点（`internal/module/cron/subscribers.go` 的 `subscribeCronProgress` / `subscribeCronTerminalEvents` 回调里）调 `EventBridge.publish("cron.job.run_state_changed", payload)`；这要求把 `*EventBridge` 通过 fx 注入到 cron subscribers，与 `notify` 模块的注入方式对齐。
-  2. 如果 `eventsurface` 注册表里没有 `cron.job.run_state_changed`，要补一条注册项（`eventsurface` 是 publish 展开通知的真值表；漏注册会让事件被丢弃）。
-- 事件 payload 约定：`{ job_id, run_id, status, turn_id?, error? }`，`status ∈ pending|submitting|submitted|running|finished|failed|observe_lost`。
+1. **DTO**：`internal/dto/cron/event.go` 定义 `JobRunStateChanged{ JobID, RunID, Status, TurnID, Error, ScheduledAt }`，`Type()` 返回 `EventTypeCronJobRunStateChanged = 1400`（`internal/dto/shared/event.go:38`）。
+2. **Scheduler 发布**：`*Scheduler` 通过 `WithDispatcher(d)` 注入 `*event.Dispatcher`；7 个 CAS-success 转换点（pending / submitting / submitted / running / finished / failed / observe_lost）调 `s.publishRunState(...)` 把 `JobRunStateChanged` 发到 dispatcher。
+3. **eventsurface 注册**：`internal/platform/eventsurface/bind.go` 的 `bindCron(...)` 订阅 `crondto.JobRunStateChanged`，转 publish 为 `MethodCronJobRunStateChanged = "cron/job/runStateChanged"`，payload 是扁平 map（`bind.go:460+` 的 `cronJobRunStateChangedPayload`）。
+4. **EventBridge** 已经把 `publish` 接进 `eventsurface.Bind`，自动展开 + `lifecycle.EmitEvent(bridgeEventName, {type, payload})` 透传到 wails。
+5. **fx 接线**：`internal/module/cron/module.go` 的 `provideScheduler` 用 fx.In + `Dispatcher *event.Dispatcher` 可选注入；不存在 dispatcher 时（如 mcp-orch peer 或测试）自动 no-op。
 
-前端：`stores/cron.js` 在初始化时通过 `services/api.js:466-482` 暴露的 `onBridgeEvent(callback)` 监听；callback 内根据 `evt.name === 'cron.job.run_state_changed'` 分发，触发增量刷新对应 job 的 runs。降级路径：事件不可用时回退到"打开详情时一次拉取 runs"。
+事件 payload 约定：`{ job_id, run_id, status, turn_id?, error?, scheduled_at? }`，`status ∈ pending|submitting|submitted|running|finished|failed|observe_lost`。
+
+前端：`stores/cron.js` 在初始化时通过 `services/api.js:466-482` 暴露的 `onBridgeEvent(callback)` 监听；callback 内根据 `evt.name === 'cron/job/runStateChanged'` 分发，触发增量刷新对应 job 的 runs。降级路径：事件不可用时回退到"打开详情时一次拉取 runs"。
 
 ## v1 范围切割
 
@@ -163,4 +165,4 @@
 
 1. **`next_run_at` 自动从 `schedule_expr` 算**：当前 host RPC 把这件事推给前端，多端实现极易出现口径漂移（不同浏览器 ICU 数据不一致 / 有 / 无 `cron-parser` 升级）。建议 phase 2b 尽早接 `robfig/cron` 之类后端解析器。
 2. **`cronjob/runOnce`**："立即触发"在用户调试任务时是高频需求；必须复用 P1b 的三步原子协议生成 `idempotency_key + dedupe_key`，不能简单走旁路。
-3. **wails event 透传**：`cron.job.run_state_changed` 这一前端订阅约定需要后端正式接进 emitter；目前仓内已有 `bus.subscribers` 形态，但缺前端可消费的事件桥。
+3. ~~**wails event 透传**：已落地（`internal/dto/cron/event.go` + scheduler.publishRunState + eventsurface.bindCron）。~~
