@@ -348,12 +348,15 @@ func readResourceData(target, relPath string) ([]byte, error) {
 func resolveResourceTarget(dir, relPath string) (target, skillDir string, err error) {
 	skillDir = filepath.Clean(dir)
 	// EvalSymlinks 规范化 skillDir（macOS /tmp → /private/tmp 之类 symlink 场景）。
-	if resolved, resolveErr := filepath.EvalSymlinks(skillDir); resolveErr == nil {
-		skillDir = resolved
+	resolvedSkillDir, resolveErr := filepath.EvalSymlinks(skillDir)
+	if resolveErr != nil {
+		return "", "", fmt.Errorf("resolve skill dir symlinks: %w", resolveErr)
 	}
-	target = filepath.Clean(filepath.Join(skillDir, relPath))
-	if resolved, resolveErr := filepath.EvalSymlinks(target); resolveErr == nil {
-		target = resolved
+	skillDir = resolvedSkillDir
+	joined := filepath.Clean(filepath.Join(skillDir, relPath))
+	target, resolveErr = filepath.EvalSymlinks(joined)
+	if resolveErr != nil {
+		return "", "", fmt.Errorf("resolve resource path symlinks: %s: %w", relPath, resolveErr)
 	}
 	if !platformshared.ContainsPath(skillDir, target) {
 		return "", "", fmt.Errorf("resource path escapes skill dir: %s", relPath)

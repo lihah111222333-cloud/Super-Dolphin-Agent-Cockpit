@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -168,6 +169,39 @@ func TestSkillHostTools_CallReadResource_PassesPath(t *testing.T) {
 	}
 	if _, ok := out.(skillpkg.ReadResourceResult); !ok {
 		t.Fatalf("output type = %T", out)
+	}
+}
+
+func TestSkillHostTools_CallReadResource_RejectsSymlinkEscape(t *testing.T) {
+	projectRoot := t.TempDir()
+	skillDir := filepath.Join(projectRoot, ".agent", "skills", "demo", "references")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll skill dir: %v", err)
+	}
+	body := "---\nname: demo\nsummary: demo summary\ntrust: user\n---\nbody\n"
+	if err := os.WriteFile(filepath.Join(projectRoot, ".agent", "skills", "demo", "SKILL.md"), []byte(body), 0o644); err != nil {
+		t.Fatalf("WriteFile SKILL.md: %v", err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside.md")
+	if err := os.WriteFile(outside, []byte("SECRET_OUTSIDE"), 0o644); err != nil {
+		t.Fatalf("WriteFile outside: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(skillDir, "outside.md")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	h := NewSkillHostTools(skillpkg.NewService(projectRoot))
+	_, err := h.CallHostTool(context.Background(), HostToolCall{
+		Name:      skilltool.ToolNameReadResource,
+		Arguments: json.RawMessage(`{"name":"demo","path":"references/outside.md"}`),
+		CWD:       projectRoot,
+		AgentID:   "agent-symlink",
+		ThreadID:  "thread-symlink",
+		TurnID:    "turn-symlink",
+		CallID:    "call-symlink",
+	})
+	if err == nil || !strings.Contains(err.Error(), "escapes skill dir") {
+		t.Fatalf("CallHostTool symlink escape error = %v, want escapes skill dir", err)
 	}
 }
 
