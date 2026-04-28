@@ -134,7 +134,7 @@ function extractProgressSection(items) {
     return text.length >= 40;
   });
   const lastPlans = tail
-    .filter((it) => it && (it.kind || '').toString().toLowerCase() === 'plan')
+    .filter((it) => it && itemRoleOrKind(it) === 'plan')
     .slice(-3);
 
   const lines = [];
@@ -195,7 +195,7 @@ export function extractTimelineSummary(timelineItems, opts = {}) {
   tryAdd(items[0]);
   // 所有 plan 节点
   for (const item of items) {
-    if ((item?.kind || '').toString().toLowerCase() === 'plan') tryAdd(item);
+    if (itemRoleOrKind(item) === 'plan') tryAdd(item);
   }
   // 最近 N 条
   const tail = items.slice(Math.max(0, items.length - recentCount));
