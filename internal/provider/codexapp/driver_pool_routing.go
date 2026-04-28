@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"strconv"
 	"strings"
@@ -74,6 +75,22 @@ func (d *driver) resolveSessionOptions(ctx context.Context, req dto.StartSession
 		)
 	}
 	return []sessionOption{withPoolServer(url, release)}, nil
+}
+
+func canonicalStartRuntimeConfig(config map[string]any) map[string]any {
+	if len(config) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(config))
+	maps.Copy(out, config)
+	identity, err := providershared.ResolveCodexIdentity(config)
+	if err != nil {
+		return out
+	}
+	out["codexHome"] = identity.Home
+	out["codexInstanceKey"] = identity.InstanceKey
+	out["codexModelProvider"] = identity.ModelProvider
+	return out
 }
 
 func (d *driver) resolveResumeOptions(ctx context.Context, req dto.ResumeSessionRequest) ([]sessionOption, error) {
