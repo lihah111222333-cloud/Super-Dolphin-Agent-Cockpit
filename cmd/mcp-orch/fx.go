@@ -48,7 +48,6 @@ func run() error {
 			newQueries,
 			newAgentThreadStore,
 			newAgentBindingStore,
-			newCronStore,
 			memory.NewConfig,
 			memory.NewService,
 			func(store storeworkspace.Store, dispatcher *event.Dispatcher) workspace.Service {
@@ -111,7 +110,7 @@ func buildBootstrapConfig(shutdowner fx.Shutdowner, hookAfter contract.Bootstrap
 	}
 	cfg.Capabilities = []string{
 		"tools/orchestration", "tools/task", "tools/workspace",
-		"tools/prompt", "tools/command", "tools/shared_file", "tools/memory", "tools/cron",
+		"tools/prompt", "tools/command", "tools/shared_file", "tools/memory",
 	}
 	cfg.Subscriptions = []string{"config/agent", "config/thread"}
 	cfg.FinalReport = func() *mcp.ReportRequest {
