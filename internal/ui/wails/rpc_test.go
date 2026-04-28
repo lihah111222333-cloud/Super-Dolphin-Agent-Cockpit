@@ -3,6 +3,7 @@ package wails
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
@@ -17,6 +18,8 @@ func TestNewRPCHandlersRegistersNativeDialogRoutes(t *testing.T) {
 		"ui/selectProjectDir",
 		"ui/selectProjectDirs",
 		"ui/selectFiles",
+		"ui/buildInfo",
+		"ui/saveClipboardImage",
 		"ui/log",
 		"ui/windowBootstrap/get",
 		"ui/openNewWindow",
@@ -52,6 +55,34 @@ func TestUILogRouteAcceptsClientMetaAndCountsEntries(t *testing.T) {
 	}
 	if !result.OK || result.Ingested != 2 {
 		t.Fatalf("ui/log result = %#v, want ok=true ingested=2", result)
+	}
+}
+
+func TestSaveClipboardImageRouteReturnsPath(t *testing.T) {
+	t.Parallel()
+
+	server := newWailsRPCServer(t, &App{})
+	raw, err := server.Dispatch(context.Background(), "ui/saveClipboardImage", json.RawMessage(`{
+		"base64Payload":"aGVsbG8=",
+		"_aoClientKind":"web-debug-shim",
+		"_aoClientRoute":"/chat"
+	}`))
+	if err != nil {
+		t.Fatalf("Dispatch(ui/saveClipboardImage) error = %v", err)
+	}
+
+	var result struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatalf("Unmarshal(ui/saveClipboardImage) error = %v", err)
+	}
+	if result.Path == "" {
+		t.Fatal("ui/saveClipboardImage path is empty")
+	}
+	defer os.Remove(result.Path)
+	if got, err := os.ReadFile(result.Path); err != nil || string(got) != "hello" {
+		t.Fatalf("saved clipboard image = %q, %v; want hello, nil", string(got), err)
 	}
 }
 

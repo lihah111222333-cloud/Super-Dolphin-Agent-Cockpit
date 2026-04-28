@@ -1,11 +1,7 @@
 # super-agent-v3 代码地图
 
-<<<<<<< Updated upstream
-> 由自动索引脚本维护，当前覆盖 17 卷核心模块。
-> 版本 / 生成时间：2026-04-20。  
-=======
-> 由自动索引脚本维护，当前覆盖 15 卷核心模块。
->>>>>>> Stashed changes
+> 由自动索引脚本维护，当前覆盖 18 卷核心模块。
+> 版本 / 生成时间：2026-04-28。
 
 ## 阅读边界提示
 
@@ -17,7 +13,7 @@
 ## 目录
 
 | # | 文件 | 覆盖区域 |
-<<<<<<< Updated upstream
+|---|---|---|
 | 01 | [01-terminal-ui-go.md](01-terminal-ui-go.md) | super-agent-v3 代码地图：终端入口与 UI 层（Go / Wails） |
 | 01 | [01-terminal-ui-vue.md](01-terminal-ui-vue.md) | super-agent-v3 代码地图：终端入口与 UI 层（Vue 前端） |
 | 01 | [01-terminal-ui.md](01-terminal-ui.md) | 终端入口与 UI 层拆卷索引 |
@@ -35,7 +31,8 @@
 | 11 | [11-memory-prompt-thread.md](11-memory-prompt-thread.md) | 入口索引（已拆卷：`11-memory.md` + `11-prompt-thread.md`） |
 | 11 | [11-memory.md](11-memory.md) | 11A Memory 代码地图 |
 | 11 | [11-prompt-thread.md](11-prompt-thread.md) | 11B Prompt / Thread 代码地图 |
+| 12 | [12-dream-pipeline.md](12-dream-pipeline.md) | 12 Dream Pipeline 代码地图 |
 
 ## 生成时间
 
-2026-04-26
+2026-04-28

@@ -90,7 +90,10 @@ function upsertOptimisticUserTimelineItem(ctx, threadId, userText, attachments) 
   const normalizedAttachments = cloneOptimisticAttachments(attachments);
   const frozenAttachments = freezeOptimisticAttachments(normalizedAttachments);
   const matchingIndex = userText
-    ? existing.findIndex((item) => item?.kind === 'user' && (item?.text || '').trim() === userText && (item?.id || '').toString().includes('-optimistic-'))
+    ? existing.findIndex((item) => item?.kind === 'user' && (item?.text || '').trim() === userText && (
+      (item?.id || '').toString().includes('-optimistic-')
+      || normalizedAttachments.length > 0
+    ))
     : -1;
 
   if (matchingIndex >= 0) {
