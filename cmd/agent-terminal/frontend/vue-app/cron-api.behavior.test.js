@@ -18,6 +18,7 @@ import {
   deleteJob,
   setJobEnabled,
   listJobRuns,
+  runOnce,
 } from './services/cron-api.js';
 
 beforeEach(() => {
@@ -112,6 +113,15 @@ describe('cron-api RPC wrappers', () => {
     expect(apiMock.callAPI).toHaveBeenLastCalledWith('cronjob/setEnabled', { id: 'j1', enabled: true });
 
     await expect(setJobEnabled('j1', 'yes')).rejects.toBeInstanceOf(TypeError);
+  });
+
+  it('runOnce calls cronjob/runOnce with id', async () => {
+    apiMock.callAPI.mockResolvedValueOnce({ id: 'j1', name: 'demo', next_run_at: 'now' });
+    const out = await runOnce('j1');
+    expect(out).toEqual({ id: 'j1', name: 'demo', next_run_at: 'now' });
+    expect(apiMock.callAPI).toHaveBeenLastCalledWith('cronjob/runOnce', { id: 'j1' });
+
+    await expect(runOnce('')).rejects.toBeInstanceOf(TypeError);
   });
 
   it('listJobRuns omits limit when not a positive int', async () => {

@@ -98,6 +98,19 @@ export const CronPanel = {
       }
     }
 
+    async function onRunOnce(job) {
+      logInfo('cron-panel', 'runOnce.click', { id: job.id });
+      try {
+        await store.runOnce(job.id);
+      } catch (err) {
+        const mapped = mapCronRpcError(err);
+        logWarn('cron-panel', 'runOnce.failed', { id: job.id, kind: mapped.kind });
+        if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+          window.alert(`立即触发失败：${mapped.message}`);
+        }
+      }
+    }
+
     async function onDelete(job) {
       if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
         const ok = window.confirm(`确认删除定时任务 "${job.name || job.id}"？该操作不可撤销。`);
@@ -130,6 +143,7 @@ export const CronPanel = {
       errorMessage,
       refresh,
       onToggleEnabled,
+      onRunOnce,
       onDelete,
       formatSchedule,
       formatRetryBudget,
@@ -237,6 +251,11 @@ export const CronPanel = {
               :data-testid="'cron-view-' + idx"
               @click="openDetail(job)"
             >查看</button>
+            <button
+              class="btn btn-ghost btn-xs"
+              :data-testid="'cron-runonce-' + idx"
+              @click="onRunOnce(job)"
+            >立即触发</button>
             <button
               class="btn btn-ghost btn-xs"
               :data-testid="'cron-edit-' + idx"

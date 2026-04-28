@@ -73,6 +73,11 @@ export async function deleteJob(id) {
   await callAPI('cronjob/delete', { id });
 }
 
+export async function runOnce(id) {
+  ensureNonEmptyString(id, 'runOnce.id');
+  return callAPI('cronjob/runOnce', { id });
+}
+
 export async function setJobEnabled(id, enabled) {
   ensureNonEmptyString(id, 'setJobEnabled.id');
   if (typeof enabled !== 'boolean') {

@@ -394,3 +394,79 @@ func jsonMap(m map[string]any) json.RawMessage {
 // go-test cwd.
 var _ = filepath.Join
 var _ = os.TempDir
+
+// ----- RunOnce -----
+
+func TestRunOnceBumpsNextRunAtPreservingOtherFields(t *testing.T) {
+	t.Parallel()
+	now := time.Unix(1_700_000_000, 0).UTC()
+
+	job := cronstore.Job{
+		ID:            "job-1",
+		Name:          "daily",
+		Prompt:        "check",
+		ScheduleType:  "cron",
+		ScheduleExpr:  "0 9 * * *",
+		Timezone:      "Asia/Seoul",
+		Provider:      "codex",
+		Model:         "gpt-5",
+		CWD:           "/repo",
+		Config:        []byte(`{"codexHome":"/x"}`),
+		Skills:        []byte(`["a"]`),
+		NotifyChannel: "slack.default",
+		Enabled:       true,
+		NextRunAt:     now.Add(24 * time.Hour),
+		MaxAttempts:   3,
+	}
+
+	var got cronstore.UpdateJobScheduleParams
+	store := &fakeStore{
+		getByIDFn: func(_ context.Context, id string) (cronstore.Job, error) {
+			if id != "job-1" {
+				t.Fatalf("unexpected id %q", id)
+			}
+			return job, nil
+		},
+		updateFn: func(_ context.Context, p cronstore.UpdateJobScheduleParams) error {
+			got = p
+			return nil
+		},
+	}
+	svc := newTestService(t, store)
+	if _, err := svc.RunOnce(context.Background(), "job-1"); err != nil {
+		t.Fatalf("RunOnce error: %v", err)
+	}
+	if !got.NextRunAt.Equal(now) {
+		t.Fatalf("NextRunAt = %v, want %v", got.NextRunAt, now)
+	}
+	// Other fields must round-trip from the stored row unchanged.
+	if got.Name != job.Name || got.ScheduleExpr != job.ScheduleExpr ||
+		got.Timezone != job.Timezone || got.Provider != job.Provider ||
+		got.Model != job.Model || got.CWD != job.CWD ||
+		got.NotifyChannel != job.NotifyChannel || got.Enabled != job.Enabled ||
+		got.MaxAttempts != job.MaxAttempts {
+		t.Fatalf("RunOnce mutated unrelated fields: %+v", got)
+	}
+}
+
+func TestRunOnceReturnsErrNotFound(t *testing.T) {
+	t.Parallel()
+	store := &fakeStore{
+		getByIDFn: func(context.Context, string) (cronstore.Job, error) {
+			return cronstore.Job{}, cronstore.ErrJobNotFound
+		},
+	}
+	svc := newTestService(t, store)
+	_, err := svc.RunOnce(context.Background(), "missing")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("want ErrNotFound, got %v", err)
+	}
+}
+
+func TestRunOnceRejectsEmptyID(t *testing.T) {
+	t.Parallel()
+	svc := newTestService(t, nil)
+	if _, err := svc.RunOnce(context.Background(), "  "); err == nil {
+		t.Fatal("RunOnce should reject blank id")
+	}
+}

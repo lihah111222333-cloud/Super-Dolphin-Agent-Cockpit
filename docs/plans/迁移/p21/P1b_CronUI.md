@@ -14,7 +14,7 @@
 - **错误码全部折叠成 `InvalidParams`**：`internal/module/cron/rpc.go:209-234` 的 `mapRPCError` 把 7 个 validation sentinel 一律映射为 `jrpc2.InvalidParams`，**只有 `ErrNotFound` 走独立 not-found 码**。前端不能靠 jrpc2 code 区分 kind，必须按 message 文本前缀（所有 cron error message 以 `cron: ` 开头）匹配；建议 `cron-api.js` 用一张 `messagePrefix → kind` 映射表。
 - **状态机**：runs 的状态固定为 `pending → submitting → submitted → running → finished | failed | observe_lost`，详见 P1b 文档"Crash-window idempotency state machine"段。`observe_lost` 是不可自动恢复终态。
 - **前端壳**：Vue 3 + 组合式风格；Sidebar 入口集中在 `cmd/agent-terminal/frontend/vue-app/app.js:29-39` 的 `NAV_ITEMS`；JSON-RPC 通道是 `services/api.js` 的 `callAPI(method, params)`（`services/api.js:234`）。
-- **不存在 `cronjob/runOnce`**：本期手动触发暂不做，UI 不出该按钮；后续若后端补，再加 row action。
+- **`cronjob/runOnce` 已落地**（service.RunOnce → host RPC `cronjob/runOnce`）：通过 bumping next_run_at=now 让 scheduler 在下一个 tick（默认 ≤10s）拉起，复用现有三步原子协议生成 idempotency_key/dedupe_key；UI 行内出"立即触发"按钮。
 
 ## 推荐架构
 
@@ -72,7 +72,7 @@
 | CWD | `cwd` | 截断 + 完整路径 tooltip |
 | 上次状态 | `last_status` + `last_run_at` | 6 态色板 |
 | 失败 / 预算 | `failure_count / max_attempts` | `max_attempts=0` 显示"不重试" |
-| 操作 | 编辑 / 删除（双击确认） | 不出"立即触发"，因为 `runOnce` 后端未实现 |
+| 操作 | 立即触发 / 编辑 / 删除（双击确认） | "立即触发"调 `cronjob/runOnce`，bump next_run_at=now 由下一个 tick 拉起 |
 
 ## 创建 / 编辑表单（CronJobForm）
 
@@ -147,7 +147,7 @@
 
 **v1 暂不做**：
 - agent-visible 的 cron 工具（P1b 后端文档明确 v1 不开放给模型）
-- "立即触发"按钮（需要后端补 `cronjob/runOnce`）
+- ~~"立即触发"按钮（需要后端补 `cronjob/runOnce`）~~ 已落地
 - approval allow-list 可视化编辑（依赖后端 T-13）
 - 跨用户 / 团队 / 多角色权限视图
 
@@ -164,5 +164,5 @@
 ## 给后端的反馈（不在前端 PR 内）
 
 1. **`next_run_at` 自动从 `schedule_expr` 算**：当前 host RPC 把这件事推给前端，多端实现极易出现口径漂移（不同浏览器 ICU 数据不一致 / 有 / 无 `cron-parser` 升级）。建议 phase 2b 尽早接 `robfig/cron` 之类后端解析器。
-2. **`cronjob/runOnce`**："立即触发"在用户调试任务时是高频需求；必须复用 P1b 的三步原子协议生成 `idempotency_key + dedupe_key`，不能简单走旁路。
+2. ~~**`cronjob/runOnce`**："立即触发"在用户调试任务时是高频需求；必须复用 P1b 的三步原子协议生成 `idempotency_key + dedupe_key`，不能简单走旁路。~~ 已落地：service.RunOnce 走 UpdateJobSchedule(next_run_at=now)，让现有 tick 流程接管，三步原子协议（dedupe_key 等）由 scheduler.driveJob 现有路径生成。
 3. ~~**wails event 透传**：已落地（`internal/dto/cron/event.go` + scheduler.publishRunState + eventsurface.bindCron）。~~

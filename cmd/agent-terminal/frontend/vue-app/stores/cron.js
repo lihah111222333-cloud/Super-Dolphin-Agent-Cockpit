@@ -113,6 +113,13 @@ async function deleteJob(id) {
   }
 }
 
+async function runOnce(id) {
+  const job = await cronApi.runOnce(id);
+  upsertJob(job);
+  logInfo('cron', 'job.runOnce', { id });
+  return job;
+}
+
 async function loadRuns(jobId, limit = 0) {
   state.loading.runs = { ...state.loading.runs, [jobId]: true };
   state.error.runs = { ...state.error.runs, [jobId]: '' };
@@ -190,6 +197,7 @@ export function useCronStore() {
     updateJob,
     setJobEnabled,
     deleteJob,
+    runOnce,
     loadRuns,
     attachBridge,
     detachBridge,
