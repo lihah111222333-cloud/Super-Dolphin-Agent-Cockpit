@@ -44,8 +44,8 @@
 |---|---|---|---|
 | **[P0](P0_SelfLearningSkill.md)** | 自学习 Skill 闭环 | P0a 先交付 host-side create；P0b 负责共享 observation 层与自动提炼闭环 | ⏳ observation owner |
 | **[P1a](P1a_MultiProviderCodex.md)** | 多 Provider Codex 实例 | 以 `codexHome/codexInstanceKey/codexModelProvider` 作为实例 identity，并落到 binding 恢复面 | ✅ 已实现 |
-| **[P1b](P1b_CronScheduledTasks.md)** | Cron 定时任务 | core-only 持久化调度已大体接线；剩 approval_policy allow-list / turn 集成收口 | ⚠️ ~95% |
-| **[P1b-UI](P1b_CronUI.md)** | Cron 定时任务前端 | 复用已就绪的 `cronjob/*` 7 个 RPC，补 Vue 列表 / 表单 / 详情 / wails 事件桥；依赖 P1b 未变动 | 🔲 未启动 |
+| **[P1b](P1b_CronScheduledTasks.md)** | Cron 定时任务 | DDL / RPC / 状态机 / 事件桥 / TurnServiceAdapter (T-12) 均已落地；剩 approval_policy allow-list (T-13) | ⚠️ ~98% |
+| **[P1b-UI](P1b_CronUI.md)** | Cron 定时任务前端 | 任务页子 tab 下的列表 / 表单 / 详情 / wails 事件订阅 / 立即触发均已落地；复用 8 个 `cronjob/*` RPC 和 `cron/job/runStateChanged` 事件桥 | ✅ 已实现 |
 | **[P2](P2_MultiPlatformNotifications.md)** | 多平台通知 | webhook 平台适配器与 SSRF 防护已落；redirect 重校验已补 | ⚠️ ~40%+ |
 | **[P3](P3_SessionInsights.md)** | Session Insights 遥测 | store/flusher/dashboard insights route 已落地 | ⚠️ ~70% |
 
