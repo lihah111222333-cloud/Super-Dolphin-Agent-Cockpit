@@ -794,6 +794,180 @@ button.composer-token-chip:hover:not(:disabled):not(.is-success):not(.is-error) 
   flex-shrink: 0;
 }
 
+/* ========== ComposerForkDraftCard (Phase 2a) ========== */
+.composer-fork-draft-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  margin: 0 0 6px 0;
+  border-radius: var(--radius-sm, 5px);
+  border: 1px solid rgba(180, 185, 195, 0.32);
+  background: rgba(180, 185, 195, 0.06);
+  font-size: 12px;
+}
+.composer-fork-draft-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.composer-fork-draft-title {
+  font-weight: 700;
+  color: var(--text);
+}
+.composer-fork-draft-source {
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+.composer-fork-draft-pct {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.composer-fork-draft-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.composer-fork-draft-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.composer-fork-draft-label {
+  color: var(--text-muted);
+}
+.composer-fork-draft-value {
+  color: var(--text);
+}
+.composer-fork-draft-files {
+  list-style: none;
+  margin: 4px 0 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.composer-fork-draft-files li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 4px;
+}
+.composer-fork-draft-file-path {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.composer-fork-draft-empty {
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 2px 0;
+}
+.composer-fork-draft-error {
+  color: var(--error, #ff6764);
+  background: rgba(255, 103, 100, 0.08);
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.composer-fork-draft-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* Composer 「继承新建」按钮内 chip 与 compact chip 同款，但稍偏强调色 */
+.composer-fork-chip {
+  border-color: rgba(180, 185, 195, 0.28) !important;
+}
+.composer-fork-chip:hover:not(:disabled) {
+  border-color: rgba(180, 185, 195, 0.55) !important;
+  background: rgba(255, 255, 255, 0.09) !important;
+}
+
+/* ========== ForkDraftCard inline shared-file picker ========== */
+.composer-fork-draft-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  margin-top: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(180, 185, 195, 0.18);
+  border-radius: 4px;
+}
+.composer-fork-draft-picker-input {
+  width: 100%;
+  padding: 4px 6px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(180, 185, 195, 0.22);
+  border-radius: 3px;
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+}
+.composer-fork-draft-picker-input:focus {
+  outline: none;
+  border-color: rgba(180, 185, 195, 0.5);
+}
+.composer-fork-draft-picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.composer-fork-draft-picker-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  font-size: 12px;
+}
+.composer-fork-draft-picker-item:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.composer-fork-draft-picker-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.composer-fork-draft-picker-path {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.composer-fork-draft-picker-meta {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.composer-fork-draft-picker-empty {
+  padding: 6px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 /* ========== ThreadRail context-usage badge ========== */
 .thread-context-usage-badge {
   display: inline-flex;

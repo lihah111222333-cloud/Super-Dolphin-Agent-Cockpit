@@ -100,7 +100,7 @@ export const SharedFilesPage = {
     files: { type: Array, default: () => [] },
     cwd: { type: String, default: '' },
   },
-  emits: ['open-memory-center', 'refresh'],
+  emits: ['open-memory-center', 'refresh', 'start-inherited-chat'],
   setup(props, { emit }) {
     const notice = reactive({ level: 'info', message: '' });
     const viewing = ref(false);
@@ -356,6 +356,12 @@ export const SharedFilesPage = {
       changeSort,
       handleRefresh,
       openMemoryCenter: () => emit('open-memory-center'),
+      // Phase 2: 跨页面「用此文件新建对话」
+      startInheritedChat: (file) => {
+        const path = (file?.path || '').toString().trim();
+        if (!path) return;
+        emit('start-inherited-chat', { sharedFilePath: path });
+      },
     };
   },
   template: `
@@ -540,6 +546,12 @@ export const SharedFilesPage = {
                 :disabled="deletingPath === item.path"
                 @click="askDelete(item)"
               >{{ deletingPath === item.path ? '删除中...' : '删除' }}</button>
+              <button
+                class="btn btn-ghost btn-xs"
+                :data-testid="'shared-files-fork-' + idx"
+                :title="'以此文件为背景新建一个继承对话'"
+                @click="startInheritedChat(item)"
+              >用此文件新建对话</button>
             </div>
           </article>
         </div>

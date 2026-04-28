@@ -8,6 +8,52 @@ const state = reactive({
   attaching: false,
 });
 
+// Phase 2: 「新建继承对话」卡片状态。独立于 composer 输入状态，主要处理：
+// - 卡片是否展开
+// - 预挂载的共享文件路径列表（内容提交时才拉）
+// - 仅记录启动来源（供日志，不影响逻辑）
+const forkDraft = reactive({
+  active: false,
+  sharedFilePaths: /** @type {string[]} */ ([]),
+  origin: '',
+});
+
+function openForkDraft(options = {}) {
+  forkDraft.active = true;
+  forkDraft.origin = (options?.origin || '').toString().trim();
+  const seedPath = (options?.sharedFilePath || '').toString().trim();
+  if (seedPath && !forkDraft.sharedFilePaths.includes(seedPath)) {
+    forkDraft.sharedFilePaths.push(seedPath);
+  }
+  logInfo('composer', 'forkDraft.opened', { origin: forkDraft.origin, seed_path: seedPath, total: forkDraft.sharedFilePaths.length });
+}
+
+function closeForkDraft() {
+  forkDraft.active = false;
+  forkDraft.sharedFilePaths = [];
+  forkDraft.origin = '';
+  logDebug('composer', 'forkDraft.closed', {});
+}
+
+function addForkSharedFile(path) {
+  const value = (path || '').toString().trim();
+  if (!value) return false;
+  if (forkDraft.sharedFilePaths.includes(value)) return false;
+  forkDraft.sharedFilePaths.push(value);
+  logInfo('composer', 'forkDraft.shared_file.added', { path: value, total: forkDraft.sharedFilePaths.length });
+  return true;
+}
+
+function removeForkSharedFile(path) {
+  const value = (path || '').toString().trim();
+  if (!value) return false;
+  const idx = forkDraft.sharedFilePaths.indexOf(value);
+  if (idx < 0) return false;
+  forkDraft.sharedFilePaths.splice(idx, 1);
+  logInfo('composer', 'forkDraft.shared_file.removed', { path: value, total: forkDraft.sharedFilePaths.length });
+  return true;
+}
+
 function clearComposer() {
   const attachmentCount = state.attachments.length;
   state.text = '';
@@ -302,6 +348,11 @@ export function useComposerStore() {
     attachByPaths,
     handlePaste,
     handleDrop,
-
+    // Phase 2: forkDraft
+    forkDraft,
+    openForkDraft,
+    closeForkDraft,
+    addForkSharedFile,
+    removeForkSharedFile,
   };
 }

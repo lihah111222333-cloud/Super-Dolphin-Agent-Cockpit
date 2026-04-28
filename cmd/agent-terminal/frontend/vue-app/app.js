@@ -251,6 +251,16 @@ export const AppRoot = {
 
     const page = ref('chat');
     const isExiting = ref(false);
+    // Phase 2: 跨页面「用此文件新建对话」传递通道
+    const inheritedChatPayload = ref(/** @type {{ sharedFilePath?: string } | null} */ (null));
+    function startInheritedChatFromSharedFile(payload) {
+      if (!payload || typeof payload !== 'object') return;
+      const path = (payload.sharedFilePath || '').toString().trim();
+      if (!path) return;
+      // 每次创建新引用，watch 必触发
+      inheritedChatPayload.value = { sharedFilePath: path, ts: Date.now() };
+      page.value = 'chat';
+    }
     const tasksSubTab = ref('acks');
     const buildInfo = reactive({});
     const runtimeConfig = reactive({ cwd: '' });
@@ -488,6 +498,9 @@ export const AppRoot = {
       taskTraceFields: TASK_TRACE_FIELDS,
       commandFields: COMMAND_FIELDS,
       memoryFields: MEMORY_FIELDS,
+      inheritedChatPayload,
+      startInheritedChatFromSharedFile,
+      clearInheritedChatPayload: () => { inheritedChatPayload.value = null; },
       tasksItems,
       tasksFields,
       windowCwd,
@@ -514,6 +527,8 @@ export const AppRoot = {
           :thread-store="threadStore"
           :window-cwd="windowCwd"
           :cwd-display="currentCwdDisplay"
+          :inherited-chat-payload="inheritedChatPayload"
+          @clear-inherited-chat="clearInheritedChatPayload"
         />
 
         <SystemPromptPage
@@ -569,6 +584,7 @@ export const AppRoot = {
           :cwd="threadScopeCwd"
           @open-memory-center="page = 'memory-center'"
           @refresh="refreshDashboardByPage('memory')"
+          @start-inherited-chat="startInheritedChatFromSharedFile"
         />
 
         <SettingsPage

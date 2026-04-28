@@ -187,6 +187,20 @@ export const template = `
                   :can-compact="canCompact"
                   :compacting="compacting"
                   @compact="compactCurrent"
+                  @fork="openForkDraftFromUI('context-banner')"
+                />
+                <ComposerForkDraftCard
+                  v-if="!isCmd"
+                  :fork-draft="composer.forkDraft"
+                  :submitting="forkSubmitting"
+                  :error="forkError"
+                  :source-thread-name="forkSourceThreadName"
+                  :context-used-percent="(activeTokenUsage && activeTokenUsage.usedPercent) || 0"
+                  :available-shared-files="forkAvailableSharedFiles"
+                  @close="composer.closeForkDraft()"
+                  @submit="submitForkThread"
+                  @add-shared-file="composer.addForkSharedFile($event)"
+                  @remove-shared-file="composer.removeForkSharedFile($event)"
                 />
                 <ComposerBar
                   ref="composerBarRef"
@@ -227,6 +241,7 @@ export const template = `
                   @send="send"
                   @interrupt="interruptCurrent"
                   @compact="compactCurrent"
+                  @open-fork-draft="openForkDraftFromUI('composer-bar')"
                 />
               </div>
               <div v-if="!isCmd" class="workspace-bottom-side">
