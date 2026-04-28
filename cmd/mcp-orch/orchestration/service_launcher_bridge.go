@@ -135,7 +135,10 @@ func (s *service) submitInitialLaunchPromptAsync(agentID string, result LaunchRe
 	go func() {
 		bgCtx, cancel := platformconfig.WithTimeout(context.Background(), platformconfig.AsyncLaunchTimeout)
 		defer cancel()
-		_ = s.submitInitialLaunchPrompt(bgCtx, agentID, result, req)
+		if err := s.submitInitialLaunchPrompt(bgCtx, agentID, result, req); err != nil {
+			pkglogger.Warn("orchestration: async launch prompt failed",
+				"agent_id", agentID, "error", err)
+		}
 	}()
 }
 
@@ -204,7 +207,10 @@ func (s *service) finishLauncherLaunch(ctx context.Context, attempt launcherLaun
 
 func (s *service) discardStaleLaunchResult(ctx context.Context, launching *agentRuntime, launchErr error) error {
 	if launchErr == nil {
-		_ = s.launcher.Stop(ctx, launching)
+		if stopErr := s.launcher.Stop(ctx, launching); stopErr != nil {
+			pkglogger.Warn("orchestration: discard stale launch stop failed",
+				"agent_id", launching.id, "error", stopErr)
+		}
 	}
 	return launchErr
 }
@@ -214,7 +220,10 @@ func (s *service) failLauncherLaunchLocked(ctx context.Context, agent, launching
 	s.mu.Unlock()
 	// Clean up any residual resources on the launching copy (remote thread, etc.).
 	if launching != nil && s.launcher != nil {
-		_ = s.launcher.Stop(ctx, launching)
+		if stopErr := s.launcher.Stop(ctx, launching); stopErr != nil {
+			pkglogger.Warn("orchestration: fail launch cleanup stop failed",
+				"agent_id", launching.id, "error", stopErr)
+		}
 	}
 	return err
 }
@@ -225,7 +234,10 @@ func (s *service) completeLauncherLaunchLocked(ctx context.Context, agent, launc
 	if err := s.rekeyLaunchedAgentLocked(agent); err != nil {
 		commitErr := s.commitLaunchFailureLocked(ctx, agent, err)
 		s.mu.Unlock()
-		_ = s.launcher.Stop(ctx, launching)
+		if stopErr := s.launcher.Stop(ctx, launching); stopErr != nil {
+			pkglogger.Warn("orchestration: rekey failure cleanup stop failed",
+				"agent_id", launching.id, "error", stopErr)
+		}
 		return commitErr
 	}
 	if err := s.commitLaunchSuccessLocked(ctx, agent); err != nil {
@@ -233,7 +245,10 @@ func (s *service) completeLauncherLaunchLocked(ctx context.Context, agent, launc
 		agent.threadID = ""
 		resetRuntimeStateLocked(agent)
 		s.mu.Unlock()
-		_ = s.launcher.Stop(ctx, launching)
+		if stopErr := s.launcher.Stop(ctx, launching); stopErr != nil {
+			pkglogger.Warn("orchestration: commit success failure cleanup stop failed",
+				"agent_id", launching.id, "error", stopErr)
+		}
 		return err
 	}
 	s.mu.Unlock()
@@ -309,13 +324,16 @@ func (s *service) archiveAgentViaLauncher(ctx context.Context, agentID, reason s
 
 func (s *service) shouldStopViaLauncher(ctx context.Context, agentID string) bool {
 	shouldStop := false
-	_ = s.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
+	if err := s.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
 		if s.launcher == nil || agent.cmd != nil {
 			return nil
 		}
 		shouldStop = s.launcher.IsRunning(ctx, agent)
 		return nil
-	})
+	}); err != nil {
+		pkglogger.Warn("orchestration: shouldStopViaLauncher read failed",
+			"agent_id", agentID, "error", err)
+	}
 	return shouldStop
 }
 
