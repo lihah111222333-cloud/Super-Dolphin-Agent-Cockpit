@@ -1,4 +1,7 @@
 export function normalizeProviderConfigValue(value) {
+  if (value && typeof value === 'object' && 'value' in value) {
+    return (value.value || '').toString().trim();
+  }
   return (value || '').toString().trim();
 }
 
