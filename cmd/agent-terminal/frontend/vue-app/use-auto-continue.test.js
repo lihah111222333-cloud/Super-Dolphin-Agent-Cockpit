@@ -2,6 +2,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { reactive, nextTick, ref } from '../lib/vue.esm-browser.prod.js';
 
+// fork 重试链（compact → sleep → healthcheck → fork → record）需多个 microtask。
+async function flushAll(rounds = 25) {
+  for (let i = 0; i < rounds; i++) {
+    await Promise.resolve();
+    await nextTick();
+  }
+}
+
 vi.mock('./services/log.js', () => ({
   logInfo: vi.fn(), logWarn: vi.fn(), logDebug: vi.fn(), logError: vi.fn(),
 }));
@@ -16,7 +24,7 @@ vi.mock('./composables/useContextUsageThresholds.js', () => {
   };
 });
 
-const { logInfo } = await import('./services/log.js');
+const { logInfo, logWarn, logError } = await import('./services/log.js');
 const { useAutoContinue } = await import('./composables/useAutoContinue.js');
 
 function makeStore(initial = {}) {
@@ -26,167 +34,328 @@ function makeStore(initial = {}) {
       statuses: { ...(initial.statuses || {}) },
       agentRuntimeById: { ...(initial.agentRuntimeById || {}) },
     }),
+    compactThread: initial.compactThread || vi.fn().mockResolvedValue(undefined),
+    recoverThread: initial.recoverThread || vi.fn().mockResolvedValue(undefined),
   };
 }
 
 let stopFn = () => {};
-beforeEach(() => { vi.mocked(logInfo).mockReset(); });
+let alertFn;
+let sleepFn;
+let continueTaskById;
+
+function start(store, overrides = {}) {
+  alertFn = overrides.alertFn || vi.fn();
+  sleepFn = overrides.sleepFn || vi.fn().mockResolvedValue(undefined);
+  continueTaskById = overrides.continueTaskById || vi.fn().mockResolvedValue('new-thread-id');
+  const r = useAutoContinue({
+    threadStore: store, continueTaskById, alertFn, sleepFn,
+  });
+  stopFn = r.stop;
+  return r;
+}
+
+beforeEach(() => {
+  vi.mocked(logInfo).mockReset();
+  vi.mocked(logWarn).mockReset();
+  vi.mocked(logError).mockReset();
+});
 afterEach(() => { stopFn(); vi.restoreAllMocks(); });
 
-describe('useAutoContinue · token level signals', () => {
-  it('emits token_critical when task thread crosses normal -> critical', async () => {
+// ─────────────────────────────────────── signal 埋点（沿用 1.3 行为） ────────────
+
+describe('useAutoContinue · token signals', () => {
+  it('emits signal + does NOT touch non-task thread', async () => {
     const store = makeStore({
       tokenUsageByThread: { t1: { usedPercent: 50 } },
-      agentRuntimeById: { t1: { taskId: 'task-A' } },
+      agentRuntimeById: { t1: {} },
     });
-    ({ stop: stopFn } = useAutoContinue({ threadStore: store }));
-
-    store.state.tokenUsageByThread = { t1: { usedPercent: 96 } };
-    await nextTick();
-
-    expect(logInfo).toHaveBeenCalledWith('ui', 'auto_continue.signal', {
-      source_thread_id: 't1', task_id: 'task-A', kind: 'token_critical', level: 'critical',
-    });
-    expect(logInfo).toHaveBeenCalledTimes(1);
-  });
-
-  it('does NOT emit when non-task thread crosses into critical', async () => {
-    const store = makeStore({
-      tokenUsageByThread: { t1: { usedPercent: 50 } },
-      agentRuntimeById: { t1: {} }, // no taskId
-    });
-    ({ stop: stopFn } = useAutoContinue({ threadStore: store }));
-
+    start(store);
     store.state.tokenUsageByThread = { t1: { usedPercent: 99 } };
     await nextTick();
-
-    expect(logInfo).not.toHaveBeenCalled();
+    expect(continueTaskById).not.toHaveBeenCalled();
+    expect(store.compactThread).not.toHaveBeenCalled();
   });
 
-  it('does NOT re-emit when already critical (critical -> critical)', async () => {
-    const store = makeStore({
-      tokenUsageByThread: { t1: { usedPercent: 96 } }, // primed as critical
-      agentRuntimeById: { t1: { taskId: 'task-A' } },
-    });
-    ({ stop: stopFn } = useAutoContinue({ threadStore: store }));
-
-    store.state.tokenUsageByThread = { t1: { usedPercent: 98 } }; // still critical
-    await nextTick();
-
-    expect(logInfo).not.toHaveBeenCalled();
-  });
-
-  it('re-emits after dropping out of critical and crossing back', async () => {
+  it('does NOT re-fire when already critical', async () => {
     const store = makeStore({
       tokenUsageByThread: { t1: { usedPercent: 96 } },
-      agentRuntimeById: { t1: { taskId: 'task-A' } },
+      agentRuntimeById: { t1: { taskId: 'A' } },
     });
-    ({ stop: stopFn } = useAutoContinue({ threadStore: store }));
-
-    store.state.tokenUsageByThread = { t1: { usedPercent: 75 } }; // warn
+    start(store);
+    store.state.tokenUsageByThread = { t1: { usedPercent: 98 } };
     await nextTick();
-    store.state.tokenUsageByThread = { t1: { usedPercent: 99 } }; // critical again
-    await nextTick();
-
-    expect(logInfo).toHaveBeenCalledTimes(1);
-    expect(logInfo).toHaveBeenCalledWith('ui', 'auto_continue.signal', expect.objectContaining({
-      source_thread_id: 't1', kind: 'token_critical',
-    }));
-  });
-
-  it('does NOT emit on initial prime even if already critical', async () => {
-    const store = makeStore({
-      tokenUsageByThread: { t1: { usedPercent: 99 } },
-      agentRuntimeById: { t1: { taskId: 'task-A' } },
-    });
-    ({ stop: stopFn } = useAutoContinue({ threadStore: store }));
-    await nextTick();
-
-    expect(logInfo).not.toHaveBeenCalled();
+    expect(continueTaskById).not.toHaveBeenCalled();
   });
 });
 
-describe('useAutoContinue · status signals', () => {
-  it('emits status_error when task thread goes idle -> error', async () => {
+// ─────────────────────────────────────── token_critical decision ────────────────
+
+describe('useAutoContinue · token_critical decision', () => {
+  it('canCompact + compact success → no fork', async () => {
+    const store = makeStore({
+      tokenUsageByThread: { t1: { usedPercent: 50 } },
+      agentRuntimeById: { t1: { taskId: 'A', capabilities: ['context_compact'] } },
+    });
+    const { failedAutoContinueByThread } = start(store);
+    store.state.tokenUsageByThread = { t1: { usedPercent: 99 } };
+    await nextTick();
+    await nextTick();
+    expect(store.compactThread).toHaveBeenCalledWith('t1');
+    expect(continueTaskById).not.toHaveBeenCalled();
+    expect(failedAutoContinueByThread.value.has('t1')).toBe(false);
+  });
+
+  it('not canCompact → directly fork', async () => {
+    const store = makeStore({
+      tokenUsageByThread: { t1: { usedPercent: 50 } },
+      agentRuntimeById: { t1: { taskId: 'A', capabilities: [] } },
+    });
+    start(store);
+    store.state.tokenUsageByThread = { t1: { usedPercent: 99 } };
+    await flushAll();
+    expect(store.compactThread).not.toHaveBeenCalled();
+    expect(continueTaskById).toHaveBeenCalledWith('t1');
+  });
+
+  it('compact fails + still critical → fork tries', async () => {
+    const store = makeStore({
+      tokenUsageByThread: { t1: { usedPercent: 50 } },
+      agentRuntimeById: { t1: { taskId: 'A', capabilities: ['context_compact'] } },
+      compactThread: vi.fn().mockRejectedValue(new Error('compact rpc dead')),
+    });
+    start(store);
+    store.state.tokenUsageByThread = { t1: { usedPercent: 99 } };
+    await flushAll();
+    expect(store.compactThread).toHaveBeenCalled();
+    expect(continueTaskById).toHaveBeenCalledWith('t1');
+  });
+
+  it('compact fails + thread已自然恢复 → skip fork', async () => {
+    let resolveCompact;
+    const compactPromise = new Promise((_, reject) => { resolveCompact = reject; });
+    const store = makeStore({
+      tokenUsageByThread: { t1: { usedPercent: 50 } },
+      agentRuntimeById: { t1: { taskId: 'A', capabilities: ['context_compact'] } },
+      compactThread: vi.fn(() => compactPromise),
+    });
+    start(store);
+    store.state.tokenUsageByThread = { t1: { usedPercent: 99 } };
+    await nextTick();
+    // 在 compact 还在 pending 时手动让 thread 跌回 warn
+    store.state.tokenUsageByThread = { t1: { usedPercent: 75 } };
+    resolveCompact(new Error('boom'));
+    await flushAll();
+    expect(continueTaskById).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────── fork retry & healthcheck ───────────────
+
+describe('useAutoContinue · fork retry / healthcheck', () => {
+  it('fork first fails + retry succeeds → no failure recorded', async () => {
+    const store = makeStore({
+      tokenUsageByThread: { t1: { usedPercent: 50 } },
+      agentRuntimeById: { t1: { taskId: 'A' } },
+    });
+    let calls = 0;
+    const cont = vi.fn(() => {
+      calls += 1;
+      return calls === 1 ? Promise.reject(new Error('flap')) : Promise.resolve('next-id');
+    });
+    const { failedAutoContinueByThread } = start(store, { continueTaskById: cont });
+    store.state.tokenUsageByThread = { t1: { usedPercent: 99 } };
+    await flushAll();
+    expect(cont).toHaveBeenCalledTimes(2);
+    expect(failedAutoContinueByThread.value.has('t1')).toBe(false);
+    expect(sleepFn).toHaveBeenCalledWith(1500);
+  });
+
+  it('fork first fails + healthcheck recovered before retry → skip retry', async () => {
+    const store = makeStore({
+      tokenUsageByThread: { t1: { usedPercent: 50 } },
+      agentRuntimeById: { t1: { taskId: 'A' } },
+    });
+    const cont = vi.fn().mockRejectedValueOnce(new Error('first'));
+    const sleep = vi.fn(async () => {
+      // 在 sleep 期间外部恢复
+      store.state.tokenUsageByThread = { t1: { usedPercent: 60 } };
+    });
+    start(store, { continueTaskById: cont, sleepFn: sleep });
+    store.state.tokenUsageByThread = { t1: { usedPercent: 99 } };
+    await flushAll();
+    expect(cont).toHaveBeenCalledTimes(1); // 只一次，retry 被 healthcheck 跳过
+  });
+
+  it('fork double-fail → failedMap recorded with continue_failed', async () => {
+    const store = makeStore({
+      tokenUsageByThread: { t1: { usedPercent: 50 } },
+      agentRuntimeById: { t1: { taskId: 'A' } },
+    });
+    const cont = vi.fn().mockRejectedValue(new Error('always dead'));
+    const { failedAutoContinueByThread } = start(store, { continueTaskById: cont });
+    store.state.tokenUsageByThread = { t1: { usedPercent: 99 } };
+    await flushAll();
+    expect(cont).toHaveBeenCalledTimes(2);
+    const failed = failedAutoContinueByThread.value.get('t1');
+    expect(failed).toBeTruthy();
+    expect(failed.kind).toBe('token_critical');
+    expect(failed.reason).toBe('continue_failed');
+    expect(failed.error_message).toBe('always dead');
+  });
+});
+
+// ─────────────────────────────────────── per-thread gate & fuse ─────────────────
+
+describe('useAutoContinue · gating', () => {
+  it('per-thread 1 次闸：second token_critical on same thread is gated', async () => {
+    const store = makeStore({
+      tokenUsageByThread: { t1: { usedPercent: 50 } },
+      agentRuntimeById: { t1: { taskId: 'A' } },
+    });
+    const { failedAutoContinueByThread } = start(store);
+    // 第一次跨入 critical
+    store.state.tokenUsageByThread = { t1: { usedPercent: 99 } };
+    await flushAll();
+    expect(continueTaskById).toHaveBeenCalledTimes(1);
+    // 跌回 warn 再跨入 → 应该被 per-thread 闸挡
+    store.state.tokenUsageByThread = { t1: { usedPercent: 70 } };
+    await nextTick();
+    store.state.tokenUsageByThread = { t1: { usedPercent: 99 } };
+    await flushAll();
+    expect(continueTaskById).toHaveBeenCalledTimes(1); // 没增加
+    const failed = failedAutoContinueByThread.value.get('t1');
+    expect(failed.reason).toBe('gated_thread_already_continued');
+  });
+
+  it('global fuse: 第 21 次触发 alert + logError', async () => {
+    const runtimes = {};
+    const usage = {};
+    for (let i = 0; i < 21; i++) {
+      runtimes['t' + i] = { taskId: 'task-' + i };
+      usage['t' + i] = { usedPercent: 50 };
+    }
+    const store = makeStore({ tokenUsageByThread: usage, agentRuntimeById: runtimes });
+    const a = vi.fn();
+    start(store, { alertFn: a });
+    const next = {};
+    for (let i = 0; i < 21; i++) next['t' + i] = { usedPercent: 99 };
+    store.state.tokenUsageByThread = next;
+    await flushAll();
+    expect(a).toHaveBeenCalledTimes(1);
+    expect(logError).toHaveBeenCalledWith('ui', 'auto_continue.fuse_blown', { reason: 'global_fuse_blown' });
+  });
+
+  it('global fuse alert is fired once even if more signals come', async () => {
+    const runtimes = {}; const usage = {};
+    for (let i = 0; i < 22; i++) {
+      runtimes['t' + i] = { taskId: 'task-' + i };
+      usage['t' + i] = { usedPercent: 50 };
+    }
+    const store = makeStore({ tokenUsageByThread: usage, agentRuntimeById: runtimes });
+    const a = vi.fn();
+    start(store, { alertFn: a });
+    const next = {};
+    for (let i = 0; i < 22; i++) next['t' + i] = { usedPercent: 99 };
+    store.state.tokenUsageByThread = next;
+    await flushAll();
+    expect(a).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─────────────────────────────────────── status_error decision ──────────────────
+
+describe('useAutoContinue · status_error decision', () => {
+  it('recover success → no fork', async () => {
     const store = makeStore({
       statuses: { t1: 'idle' },
-      agentRuntimeById: { t1: { taskId: 'task-A' } },
+      agentRuntimeById: { t1: { taskId: 'A' } },
     });
-    ({ stop: stopFn } = useAutoContinue({ threadStore: store }));
-
+    const { failedAutoContinueByThread } = start(store);
     store.state.statuses = { t1: 'error' };
-    await nextTick();
-
-    expect(logInfo).toHaveBeenCalledWith('ui', 'auto_continue.signal', {
-      source_thread_id: 't1', task_id: 'task-A', kind: 'status_error', status: 'error',
-    });
-    expect(logInfo).toHaveBeenCalledTimes(1);
+    await flushAll();
+    expect(store.recoverThread).toHaveBeenCalledWith('t1');
+    expect(continueTaskById).not.toHaveBeenCalled();
+    expect(failedAutoContinueByThread.value.has('t1')).toBe(false);
   });
 
-  it('does NOT re-emit when error -> error', async () => {
-    const store = makeStore({
-      statuses: { t1: 'error' }, // primed
-      agentRuntimeById: { t1: { taskId: 'task-A' } },
-    });
-    ({ stop: stopFn } = useAutoContinue({ threadStore: store }));
-
-    store.state.statuses = { t1: 'error' };
-    await nextTick();
-
-    expect(logInfo).not.toHaveBeenCalled();
-  });
-
-  it('does NOT emit when non-task thread goes to error', async () => {
+  it('recover fails + still error → fork', async () => {
     const store = makeStore({
       statuses: { t1: 'idle' },
-      agentRuntimeById: { t1: {} }, // no taskId
+      agentRuntimeById: { t1: { taskId: 'A' } },
+      recoverThread: vi.fn().mockRejectedValue(new Error('recover dead')),
     });
-    ({ stop: stopFn } = useAutoContinue({ threadStore: store }));
-
+    start(store);
     store.state.statuses = { t1: 'error' };
-    await nextTick();
-
-    expect(logInfo).not.toHaveBeenCalled();
+    await flushAll();
+    expect(store.recoverThread).toHaveBeenCalled();
+    expect(continueTaskById).toHaveBeenCalledWith('t1');
   });
 
-  it('emits again on transient: error -> idle -> error', async () => {
+  it('recover fails + thread 自然恢复 → skip fork', async () => {
+    let rejectRecover;
+    const p = new Promise((_, reject) => { rejectRecover = reject; });
     const store = makeStore({
-      statuses: { t1: 'error' },
-      agentRuntimeById: { t1: { taskId: 'task-A' } },
+      statuses: { t1: 'idle' },
+      agentRuntimeById: { t1: { taskId: 'A' } },
+      recoverThread: vi.fn(() => p),
     });
-    ({ stop: stopFn } = useAutoContinue({ threadStore: store }));
-
+    start(store);
+    store.state.statuses = { t1: 'error' };
+    await nextTick();
     store.state.statuses = { t1: 'idle' };
-    await nextTick();
-    store.state.statuses = { t1: 'error' };
-    await nextTick();
-
-    expect(logInfo).toHaveBeenCalledTimes(1);
-    expect(logInfo).toHaveBeenCalledWith('ui', 'auto_continue.signal', expect.objectContaining({
-      source_thread_id: 't1', kind: 'status_error',
-    }));
+    rejectRecover(new Error('boom'));
+    await flushAll();
+    expect(continueTaskById).not.toHaveBeenCalled();
   });
 });
 
-describe('useAutoContinue · multi-thread', () => {
-  it('emits per-thread independently', async () => {
+// ─────────────────────────────────────── retryAutoContinue ──────────────────────
+
+describe('useAutoContinue · retryAutoContinue', () => {
+  it('clears failedMap when continueTaskById succeeds', async () => {
     const store = makeStore({
-      tokenUsageByThread: { t1: { usedPercent: 50 }, t2: { usedPercent: 50 } },
-      agentRuntimeById: {
-        t1: { taskId: 'task-A' },
-        t2: { taskId: 'task-B' },
-      },
+      tokenUsageByThread: { t1: { usedPercent: 50 } },
+      agentRuntimeById: { t1: { taskId: 'A' } },
     });
-    ({ stop: stopFn } = useAutoContinue({ threadStore: store }));
+    const cont = vi.fn().mockRejectedValueOnce(new Error('a')).mockRejectedValueOnce(new Error('b')).mockResolvedValueOnce('retried-id');
+    const { failedAutoContinueByThread, retryAutoContinue } = start(store, { continueTaskById: cont });
+    store.state.tokenUsageByThread = { t1: { usedPercent: 99 } };
+    await flushAll();
+    expect(failedAutoContinueByThread.value.has('t1')).toBe(true);
+    const id = await retryAutoContinue('t1');
+    expect(id).toBe('retried-id');
+    expect(failedAutoContinueByThread.value.has('t1')).toBe(false);
+  });
 
-    store.state.tokenUsageByThread = {
-      t1: { usedPercent: 99 },
-      t2: { usedPercent: 99 },
-    };
+  it('rethrows when continueTaskById throws', async () => {
+    const store = makeStore({});
+    const cont = vi.fn().mockRejectedValue(new Error('explicit retry fail'));
+    const { retryAutoContinue } = start(store, { continueTaskById: cont });
+    await expect(retryAutoContinue('t-x')).rejects.toThrow('explicit retry fail');
+  });
+});
+
+// ─────────────────────────────────────── inflight 并发保护 ──────────────────────
+
+describe('useAutoContinue · inflight protection', () => {
+  it('skips concurrent invocation on same thread', async () => {
+    let releaseFirst;
+    const cont = vi.fn(() => new Promise((resolve) => { releaseFirst = resolve; }));
+    const store = makeStore({
+      tokenUsageByThread: { t1: { usedPercent: 50 } },
+      agentRuntimeById: { t1: { taskId: 'A' } },
+    });
+    start(store, { continueTaskById: cont });
+    // 第一次 critical
+    store.state.tokenUsageByThread = { t1: { usedPercent: 99 } };
     await nextTick();
-
-    expect(logInfo).toHaveBeenCalledTimes(2);
-    expect(logInfo).toHaveBeenCalledWith('ui', 'auto_continue.signal', expect.objectContaining({ source_thread_id: 't1', task_id: 'task-A' }));
-    expect(logInfo).toHaveBeenCalledWith('ui', 'auto_continue.signal', expect.objectContaining({ source_thread_id: 't2', task_id: 'task-B' }));
+    // 还在 inflight 时再跨入（先跌出再进）
+    store.state.tokenUsageByThread = { t1: { usedPercent: 70 } };
+    await nextTick();
+    store.state.tokenUsageByThread = { t1: { usedPercent: 99 } };
+    await nextTick();
+    expect(cont).toHaveBeenCalledTimes(1); // inflight 阻挡
+    releaseFirst('done');
   });
 });

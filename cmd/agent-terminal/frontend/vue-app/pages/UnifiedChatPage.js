@@ -299,6 +299,14 @@ function createPageForkThread(props, ctx) {
   };
 }
 
+function createPageAutoContinue(props, taskHandoff) {
+  const r = useAutoContinue({
+    threadStore: props.threadStore,
+    continueTaskById: taskHandoff.continueTaskById,
+  });
+  return { autoContinueFailedByThread: r.failedAutoContinueByThread, autoContinueRetry: r.retryAutoContinue };
+}
+
 function createPageTaskHandoff(props, ctx) {
   return useTaskHandoff({
     threadStore: props.threadStore,
@@ -579,7 +587,7 @@ export const UnifiedChatPage = {
 
     const copyThreadInfo = createPageCopyThreadInfo(selectedThreadId, activeProjectCwd, threadCards, activeThread, activeStatus, useClaudeProvider, props);
     const taskHandoff = createPageTaskHandoff(props, { selectedThreadId, activeThread, activeRuntime: threadCards.activeRuntime, isCmd });
-    useAutoContinue({ threadStore: props.threadStore });
+    const autoContinue = createPageAutoContinue(props, taskHandoff);
     const forkPage = createPageForkThread(props, { composer, selectedThreadId, activeThread, isCmd, emit: typeof setupCtx?.emit === 'function' ? setupCtx.emit : () => {} });
     const tokenLevelByThreadId = createPageTokenLevels(props, threads);
 
@@ -667,6 +675,7 @@ export const UnifiedChatPage = {
       forkSourceThreadName: forkPage.sourceThreadName,
       forkAvailableSharedFiles: forkPage.availableSharedFiles,
       tokenLevelByThreadId,
+      ...autoContinue,
       launchSkillSelectionEnabled,
       launchAvailableSkills,
       launchProjectSkills,
