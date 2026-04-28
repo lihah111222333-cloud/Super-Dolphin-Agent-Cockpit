@@ -3,6 +3,7 @@ package wails
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -64,7 +65,14 @@ func (s *httpAssetServer) Run(ctx context.Context) error {
 	s.logger.Info("http asset server listening", "addr", listener.Addr().String())
 
 	errCh := make(chan error, 1)
-	go func() { errCh <- srv.Serve(listener) }()
+	go func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				errCh <- fmt.Errorf("http asset server panic: %v", rec)
+			}
+		}()
+		errCh <- srv.Serve(listener)
+	}()
 
 	select {
 	case err := <-errCh:

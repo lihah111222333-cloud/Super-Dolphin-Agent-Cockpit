@@ -52,6 +52,12 @@ func (h *HTTPServer) Start(ctx context.Context, listenAddr string) (string, erro
 
 	h.server = &http.Server{Handler: mux}
 	go func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				pkglogger.Error("mcp http: recovered serve panic",
+					"server", h.name, "panic", rec)
+			}
+		}()
 		if err := h.server.Serve(ln); err != nil && err != http.ErrServerClosed {
 			pkglogger.Warn("mcp http: serve error", "server", h.name, "error", err)
 		}

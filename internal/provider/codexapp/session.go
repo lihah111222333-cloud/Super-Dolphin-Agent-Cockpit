@@ -204,8 +204,11 @@ func (s *session) onInboundMessage(ctx context.Context, resp Responder, msg RawM
 		// 不 enrich 会 100% 失败。这里把 session 持有的 agentID 覆盖写入 msg.Params 后再转发。
 		enriched := enrichToolCallParams(msg, s.agentID)
 		runtimesafe.SafeGo(s.ctx, s.logger, "codexapp.session.toolCall", func(_ context.Context) {
-			result, err := toolHandler(ctx, enriched)
-			_ = resp.RespondWithID(msg.ID, result, err)
+			result, err := toolHandler(ctx, msg)
+			if respErr := resp.RespondWithID(msg.ID, result, err); respErr != nil {
+				s.logger.Warn("codexapp: tool call respond failed",
+					"agent_id", s.agentID, "method", msg.Method, "error", respErr)
+			}
 		})
 		return
 	}
@@ -214,7 +217,10 @@ func (s *session) onInboundMessage(ctx context.Context, resp Responder, msg RawM
 		return
 	}
 	if len(msg.ID) != 0 {
-		_ = resp.RespondWithID(msg.ID, nil, fmt.Errorf("method not supported: %s", msg.Method))
+		if respErr := resp.RespondWithID(msg.ID, nil, fmt.Errorf("method not supported: %s", msg.Method)); respErr != nil {
+			s.logger.Warn("codexapp: unsupported method respond failed",
+				"agent_id", s.agentID, "method", msg.Method, "error", respErr)
+		}
 		return
 	}
 	s.onNotification(msg.Method, msg.Params)

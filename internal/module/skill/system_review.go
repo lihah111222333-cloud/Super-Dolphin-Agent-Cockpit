@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 // ErrSkillSystemReviewRequired is returned before any system-scope skill write
@@ -55,7 +57,7 @@ func skillContentHash(content string) string {
 
 func skillDirContentHash(root string) string {
 	var parts []string
-	_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+	if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil || entry.IsDir() {
 			return nil
 		}
@@ -72,7 +74,9 @@ func skillDirContentHash(root string) string {
 		}
 		parts = append(parts, filepath.ToSlash(rel)+"\x00"+skillContentHash(string(data)))
 		return nil
-	})
+	}); err != nil {
+		pkglogger.Warn("skill: dir content hash walk failed", "root", root, "error", err)
+	}
 	sort.Strings(parts)
 	return skillContentHash(strings.Join(parts, "\x00"))
 }
