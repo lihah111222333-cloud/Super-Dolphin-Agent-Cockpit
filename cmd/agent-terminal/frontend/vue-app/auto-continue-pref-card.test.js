@@ -97,4 +97,12 @@ describe('AutoContinuePrefCard · component shape', () => {
   it('mentions the boundary 不影响普通对话 in template', () => {
     expect(AutoContinuePrefCard.template).toContain('不影响普通对话');
   });
+
+  // Regression：Vue 3 setup return 中的 ref 会被 template 自动 unwrap，
+  // 误访问 .value 将得到 undefined，导致 :checked 永远为 false。
+  // 原始 1.5 提交引入过此 bug（手动验证时发现“勾选后立即反跳”）。
+  it('template uses enabledRef directly (Vue setup auto-unwrap)', () => {
+    expect(AutoContinuePrefCard.template).not.toContain('enabledRef.value');
+    expect(AutoContinuePrefCard.template).toContain(':checked="enabledRef"');
+  });
 });
