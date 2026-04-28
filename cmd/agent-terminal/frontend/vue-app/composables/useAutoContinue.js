@@ -15,7 +15,7 @@ import { ref, watch } from '../../lib/vue.esm-browser.prod.js';
 import { logInfo, logWarn, logError } from '../services/log.js';
 import { getTokenLevel } from '../utils/format-utils.js';
 import { useContextUsageThresholds } from './useContextUsageThresholds.js';
-import { useAutoContinuePref } from './useAutoContinuePref.js';
+import { useAutoContinuePref, useAutoContinuePrefReady } from './useAutoContinuePref.js';
 import { createAutoContinueGate } from './auto-continue-gating.js';
 
 const FORK_RETRY_DELAY_MS = 1500;
@@ -33,10 +33,23 @@ function getCapabilities(runtime) {
   return caps.map((c) => (c || '').toString().trim().toLowerCase()).filter(Boolean);
 }
 
+// R8 fix：原仅取 err.message。如代码/状态可提取也包进去，便于 debug 后台失败。
 function classifyError(err) {
   if (!err) return { error_message: '' };
-  const msg = (err && typeof err === 'object' && err.message) ? err.message : String(err);
-  return { error_message: msg.toString().slice(0, 200) };
+  const obj = (err && typeof err === 'object') ? err : null;
+  const msg = (obj && obj.message) ? obj.message : String(err);
+  const out = { error_message: msg.toString().slice(0, 200) };
+  const code = obj && (obj.code != null ? obj.code : obj.status);
+  if (code != null && code !== '') out.error_code = String(code).slice(0, 50);
+  return out;
+}
+
+// R7 fix：清理孤儿 thread 条目（防 Map 无限增长）。next 是当前 store 中的有效 key 集。
+function cleanupOrphanKeys(map, next) {
+  if (!next || typeof next !== 'object') return;
+  for (const key of map.keys()) {
+    if (!Object.prototype.hasOwnProperty.call(next, key)) map.delete(key);
+  }
 }
 
 function recordFailure(ctx, threadId, info) {
@@ -255,6 +268,7 @@ function watchTokenLevel(ctx) {
     () => ctx.threadStore?.state?.tokenUsageByThread,
     (next) => {
       if (!next || typeof next !== 'object') return;
+      cleanupOrphanKeys(ctx.prevLevelByThread, next); // R7 fix
       const runtimeMap = (ctx.threadStore?.state?.agentRuntimeById) || {};
       for (const threadId of Object.keys(next)) {
         const newLevel = getTokenLevel(next[threadId], ctx.thresholds.value);
@@ -264,7 +278,8 @@ function watchTokenLevel(ctx) {
         if (newLevel !== 'critical') continue;
         const taskId = getTaskId(runtimeMap[threadId]);
         if (!taskId) continue;
-        if (!ctx.prefRef.value) continue; // Phase 1.5：偏好关 → 跳过整条链（不 emit signal，不调动作）
+        if (!ctx.prefReadyRef.value) continue; // R6 fix：偏好未 load 完不触发（避免 default 误触发）
+        if (!ctx.prefRef.value) continue; // Phase 1.5：偏好关 → 跳过整条链
         logInfo('ui', 'auto_continue.signal', {
           source_thread_id: threadId, task_id: taskId, kind: 'token_critical', level: newLevel,
         });
@@ -280,6 +295,7 @@ function watchStatus(ctx) {
     () => ctx.threadStore?.state?.statuses,
     (next) => {
       if (!next || typeof next !== 'object') return;
+      cleanupOrphanKeys(ctx.prevStatusByThread, next); // R7 fix
       const runtimeMap = (ctx.threadStore?.state?.agentRuntimeById) || {};
       for (const threadId of Object.keys(next)) {
         const status = next[threadId];
@@ -289,7 +305,8 @@ function watchStatus(ctx) {
         if (status !== 'error') continue;
         const taskId = getTaskId(runtimeMap[threadId]);
         if (!taskId) continue;
-        if (!ctx.prefRef.value) continue; // Phase 1.5：偏好关 → 跳过整条链
+        if (!ctx.prefReadyRef.value) continue; // R6 fix
+        if (!ctx.prefRef.value) continue;
         logInfo('ui', 'auto_continue.signal', {
           source_thread_id: threadId, task_id: taskId, kind: 'status_error', status,
         });
@@ -348,6 +365,7 @@ export function useAutoContinue(opts) {
     sleepFn: opts.sleepFn || ((ms) => new Promise((r) => setTimeout(r, ms))),
     thresholds: useContextUsageThresholds(),
     prefRef: useAutoContinuePref(),
+    prefReadyRef: useAutoContinuePrefReady(),
     gate: createAutoContinueGate(),
     prevLevelByThread: new Map(),
     prevStatusByThread: new Map(),
