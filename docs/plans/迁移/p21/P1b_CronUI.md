@@ -18,8 +18,8 @@
 
 ## 推荐架构
 
-- **路由层**：在 `NAV_ITEMS` 增加一项 `{ key: 'cron', label: '定时任务' }`，复用现有 `page` 单状态切页机制（不引入路由库）。
-- **页面切片**：单页内部 `view ∈ { 'list', 'detail' }`，`selectedJobId` 配套；与现有 `chat` / `dags` 页面同形，无需 history API。
+- **路由层**：**不** 在 `NAV_ITEMS` 加独立一栏。定时任务作为 `任务` 页的第三个子 tab（`tasksSubTab ∈ 'acks' | 'traces' | 'cron'`）；`pages/TasksPage.js` 在 sub-tab 切到 `cron` 时渲染 `<CronPanel />`。不引入路由库。
+- **页面切片**：`CronPanel` 内部 `view ∈ { 'list', 'detail' }`，`selectedJobId` 配套；无需 history API。
 - **API 封装**：新增 `services/cron-api.js`，对 7 个 RPC 做薄包装 + 类型注释，**唯一**调用方是 store。禁止组件直接 `callAPI('cronjob/...')`。
 - **Store**：新增 `stores/cron.js`，holds `jobs: Job[]`、`runsByJob: Map<jobId, Run[]>`、`loading / error`；提供 `loadJobs / createJob / updateJob / setEnabled / deleteJob / loadRuns` 异步 action。所有写操作走乐观更新 + 失败回滚（参考 `stores/threads.js` 的写法）。
 - **Cron 解析**：用 `cron-parser` npm 包算"未来 5 次触发"和提交时的 `next_run_at`。**当前 `cmd/agent-terminal/frontend/package.json` 没有该依赖**，必须在本期作为 PR 一部分新增 `cron-parser` 到 dependencies；不要手写 cron 解析。Vite 6（`cmd/agent-terminal/frontend/vite.config.js`）会正常打包该依赖。前端始终在用户本地浏览器算，并以 timezone 字段一并传后端，便于后端 phase 2b 复算时口径一致。
@@ -30,10 +30,10 @@
 
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
-| 路由 | `cmd/agent-terminal/frontend/vue-app/app.js` | `NAV_ITEMS` 加 `cron` 项；render 分支挂载 `<CronPage />`；新增 `<keep-alive>` 视情况复用 |
+| 路由 | `cmd/agent-terminal/frontend/vue-app/pages/TasksPage.js` | 增 `tasks-subtab-cron` 子 tab；sub-tab=cron 时渲染 `<CronPanel />`；**不动** `app.js` `NAV_ITEMS` |
 | API 包装 | `cmd/agent-terminal/frontend/vue-app/services/cron-api.js` [NEW] | `listJobs / getJob / createJob / updateJob / deleteJob / setEnabled / listRuns`；统一 `mapCronRpcError(err)` |
 | Store | `cmd/agent-terminal/frontend/vue-app/stores/cron.js` [NEW] | reactive jobs / runs；乐观更新 + 失败回滚；订阅 wails 事件 `cron.job.run_state_changed` |
-| 页面壳 | `cmd/agent-terminal/frontend/vue-app/components/cron/CronPage.js` [NEW] | view 切换 / breadcrumb / 全局错误条 |
+| 面板壳 | `cmd/agent-terminal/frontend/vue-app/pages/CronPanel.js` [NEW] | 作为 `任务` 页子 tab 渲染；view 切换 / breadcrumb / 全局错误条 |
 | 列表 | `cmd/agent-terminal/frontend/vue-app/components/cron/CronJobList.js` [NEW] | 见下文"列表页"；含搜索 / 状态筛选 / 启停 toggle / 删除确认 |
 | 表单 | `cmd/agent-terminal/frontend/vue-app/components/cron/CronJobForm.js` [NEW] | 创建 + 编辑同组件；按"基本 / 调度 / Provider 身份 / 执行策略"四段；联动校验 |
 | 调度控件 | `cmd/agent-terminal/frontend/vue-app/components/cron/ScheduleField.js` [NEW] | cron 表达式 + 时区选择 + 未来 5 次本地预览；用 `cron-parser` |
