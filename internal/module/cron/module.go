@@ -3,6 +3,7 @@ package cron
 import (
 	"log/slog"
 
+	"github.com/kelindar/event"
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -78,11 +79,26 @@ func provideTurnSubmitter(p turnSubmitterParams) TurnSubmitter {
 	return adapter
 }
 
-func provideScheduler(logger *slog.Logger, store cronstore.Store, submitter TurnSubmitter, cfg SchedulerConfig) *Scheduler {
+type schedulerParams struct {
+	fx.In
+
+	Logger     *slog.Logger
+	Store      cronstore.Store
+	Submitter  TurnSubmitter
+	Cfg        SchedulerConfig
+	Dispatcher *event.Dispatcher `optional:"true"`
+}
+
+func provideScheduler(p schedulerParams) *Scheduler {
+	logger := p.Logger
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
-	return NewScheduler(logger, store, submitter, cfg)
+	s := NewScheduler(logger, p.Store, p.Submitter, p.Cfg)
+	if p.Dispatcher != nil {
+		s.WithDispatcher(p.Dispatcher)
+	}
+	return s
 }
 
 func provideTickActor(logger *slog.Logger, s *Scheduler) platformrunner.Runner {

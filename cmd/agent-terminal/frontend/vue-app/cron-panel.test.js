@@ -40,7 +40,7 @@ const storeMock = vi.hoisted(() => ({
 
 vi.mock('./stores/cron.js', () => ({
   useCronStore: () => storeMock,
-  CRON_BRIDGE_EVENT_NAME: 'cron.job.run_state_changed',
+  CRON_BRIDGE_EVENT_NAME: 'cron/job/runStateChanged',
 }));
 
 import { CronPanel } from './pages/CronPanel.js';

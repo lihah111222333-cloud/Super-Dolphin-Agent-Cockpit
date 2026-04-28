@@ -7,7 +7,7 @@ import * as cronApi from '../services/cron-api.js';
 import { onBridgeEvent } from '../services/api.js';
 import { logDebug, logInfo, logWarn } from '../services/log.js';
 
-export const CRON_BRIDGE_EVENT_NAME = 'cron.job.run_state_changed';
+export const CRON_BRIDGE_EVENT_NAME = 'cron/job/runStateChanged';
 
 const state = reactive({
   jobs: [],

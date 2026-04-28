@@ -6,6 +6,7 @@ import (
 	"time"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	crondto "github.com/anthropic-ai/super-agent-v3/internal/dto/cron"
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	taskdto "github.com/anthropic-ai/super-agent-v3/internal/dto/task"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
@@ -332,5 +333,44 @@ func mustReceivePublished(t *testing.T, ch <-chan publishedEvent) publishedEvent
 	case <-time.After(time.Second):
 		t.Fatal("expected published event")
 		return publishedEvent{}
+	}
+}
+
+
+func TestBindPublishesCronJobRunStateChanged(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := event.NewDispatcher()
+	defer func() { _ = dispatcher.Close() }()
+
+	got := make(chan publishedEvent, 1)
+	cancels := Bind(dispatcher, nil, func(method string, payload any) {
+		got <- publishedEvent{method: method, payload: payload}
+	})
+	defer cancelAll(cancels)
+
+	now := time.Unix(1710000000, 0).UTC()
+	event.Publish(dispatcher, crondto.JobRunStateChanged{
+		EventHeader: shared.EventHeader{Timestamp: now},
+		JobID:       "job-1",
+		RunID:       "run-1",
+		Status:      "running",
+		TurnID:      "turn-1",
+		ScheduledAt: now,
+	})
+
+	ev := mustReceivePublished(t, got)
+	if ev.method != MethodCronJobRunStateChanged {
+		t.Fatalf("method = %q, want %q", ev.method, MethodCronJobRunStateChanged)
+	}
+	payload := payloadMap(ev.payload)
+	if payload["job_id"] != "job-1" || payload["run_id"] != "run-1" {
+		t.Fatalf("payload ids = %#v", payload)
+	}
+	if payload["status"] != "running" || payload["turn_id"] != "turn-1" {
+		t.Fatalf("payload status/turn_id = %#v", payload)
+	}
+	if _, ok := payload["scheduled_at"].(string); !ok {
+		t.Fatalf("scheduled_at missing or non-string in %#v", payload)
 	}
 }
