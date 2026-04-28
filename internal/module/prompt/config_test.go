@@ -5,15 +5,24 @@ import (
 	"testing"
 )
 
-func TestNewConfig_SkillProgressiveDisclosureDefaultsTrue(t *testing.T) {
+func TestNewConfig_SkillProgressiveDisclosureDefaultsFalse(t *testing.T) {
 	restoreEnv(t, envEnableSkillProgressiveDisclosure)
 	if err := os.Unsetenv(envEnableSkillProgressiveDisclosure); err != nil {
 		t.Fatalf("unset %s: %v", envEnableSkillProgressiveDisclosure, err)
 	}
 
 	cfg := NewConfig(nil)
+	if cfg.EnableSkillProgressiveDisclosure {
+		t.Fatal("EnableSkillProgressiveDisclosure default = true, want false")
+	}
+}
+
+func TestNewConfig_SkillProgressiveDisclosureRespectsExplicitTrue(t *testing.T) {
+	t.Setenv(envEnableSkillProgressiveDisclosure, "true")
+
+	cfg := NewConfig(nil)
 	if !cfg.EnableSkillProgressiveDisclosure {
-		t.Fatal("EnableSkillProgressiveDisclosure default = false, want true")
+		t.Fatal("EnableSkillProgressiveDisclosure with env=true = false, want true")
 	}
 }
 

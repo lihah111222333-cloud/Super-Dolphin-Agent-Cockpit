@@ -14,6 +14,7 @@ import (
 type stubApprovalRequester struct {
 	mu        sync.Mutex
 	calls     []contract.ApprovalRequest
+	errs      []error
 	decisions []contract.ApprovalDecision
 }
 
@@ -21,6 +22,13 @@ func (s *stubApprovalRequester) RequestApproval(_ context.Context, req contract.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.calls = append(s.calls, req)
+	if len(s.errs) > 0 {
+		err := s.errs[0]
+		s.errs = s.errs[1:]
+		if err != nil {
+			return contract.ApprovalDecision{}, err
+		}
+	}
 	if len(s.decisions) == 0 {
 		return approvedSkillDecision(nil), nil
 	}
@@ -58,6 +66,24 @@ func newApprovalFlowService(t *testing.T) (*service, string, *stubApprovalReques
 	svc.approval = cache
 	svc.approvalRequester = requester
 	return svc, skillsRoot, requester
+}
+
+func TestLookupArtifactApproval_NilCacheReturnsFalse(t *testing.T) {
+	svc := NewService(t.TempDir()).(*service)
+	svc.approval = nil
+	approved, err := svc.LookupArtifactApproval(context.Background(), contract.ArtifactApprovalRequest{
+		RepoFingerprint: "repo",
+		Name:            "demo",
+		ArtifactKind:    ArtifactKindBody,
+		ArtifactLocator: "SKILL.md",
+		ContentHash:     "hash",
+	})
+	if err != nil {
+		t.Fatalf("LookupArtifactApproval() error = %v", err)
+	}
+	if approved {
+		t.Fatal("LookupArtifactApproval() approved = true, want false for nil cache")
+	}
 }
 
 func TestExpandWithApprovalTrustedBypass(t *testing.T) {
@@ -139,7 +165,7 @@ func TestExpandWithApprovalSectionAndResourceStayPerCall(t *testing.T) {
 		{Name: "demo", Section: "references/api.md", ApprovalScope: "project"},
 	} {
 		before := requester.callCount()
-		for i := 0; i < 2; i++ {
+		for range 2 {
 			if _, err := svc.expandWithApproval(skillTestContext(svc.projectRoot), tc); err != nil {
 				t.Fatalf("expandWithApproval(%q) error = %v", tc.Section, err)
 			}
@@ -157,7 +183,7 @@ func TestExpandWithApprovalSessionScopeStaysInMemory(t *testing.T) {
 	svc, root, requester := newApprovalFlowService(t)
 	writeExpandTestSkill(t, root, "demo", "---\nname: demo\n---\nsession only")
 	requester.decisions = []contract.ApprovalDecision{approvedSkillDecision(map[string]any{"approval_scope": "session"})}
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		if _, err := svc.expandWithApproval(skillTestContext(svc.projectRoot), skillExpandParams{Name: "demo", ApprovalScope: "session"}); err != nil {
 			t.Fatalf("expandWithApproval() error = %v", err)
 		}

@@ -107,6 +107,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	launchConfig := configFromMap(req.Config)
 	manifest := manifestbuilder.BuildManifest(dto.ManifestContext{
 		AgentID:       strings.TrimSpace(req.AgentID),
+		ThreadID:      strings.TrimSpace(req.AgentID),
 		CWD:           strings.TrimSpace(req.CWD),
 		ThreadCaps:    copyCapabilities(claudeCapabilities),
 		BinaryDir:     providershared.ResolveBinaryDir(req.CWD, req.Config),
@@ -131,6 +132,7 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	snapshot := req.PromptSnapshot
 	manifest := manifestbuilder.BuildManifest(dto.ManifestContext{
 		AgentID:       strings.TrimSpace(req.AgentID),
+		ThreadID:      strings.TrimSpace(req.ThreadID),
 		CWD:           strings.TrimSpace(req.CWD),
 		ThreadCaps:    copyCapabilities(claudeCapabilities),
 		BinaryDir:     providershared.ResolveBinaryDir(req.CWD, nil),

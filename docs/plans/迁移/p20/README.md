@@ -1,7 +1,7 @@
 # P20 Skill 渐进披露迁移拆分
 
-> 创建时间：2026-04-19 | 更新时间：2026-04-20 | 状态：**critical-path + α 组全部关闭 / 13 of 16 已完成或实质完成 / 1 废弃 / 2 待做**
-> 当前 authoritative 文档：`README.md`、`status-checkpoint-2026-04-19.md`、`source-refs-appendix.md`、各 `p20.X-*.md`，以及上层修订文档 `../p20.1-skill-progressive-disclosure-hardening.md` / `../p20.1-hardening-implementation-checklist.md`
+> 创建时间：2026-04-19 | 更新时间：2026-04-26 | 状态：**critical-path + α 组全部关闭 / p20.18 Phase 0/1/1.5 已在 P25 worktree 落地 / Phase 2+3 待做**
+> 当前 authoritative 文档：`README.md`、`status-checkpoint-2026-04-19.md`、`source-refs-appendix.md`、各 `p20.X-*.md`，以及上层修订文档 `../p20.1-skill-progressive-disclosure-hardening.md` / `../p20.1-hardening-implementation-checklist.md` / `../p25skill优化/p25skill优化.md`
 > 历史总纲留档：`p20-original-plan.md`
 
 ## 最新施工快照（2026-04-20 第十一轮 · α 组收口）
@@ -14,6 +14,7 @@
 - ~~P20.13（审批缓存接线，前置核查已完成结论 **NEEDS-DOC-FIX**，需先修订任务单）曾标 **仍未开工**、~~ P20.16（集成测试，等所有前置合入）。
   - ⚠️ HEAD 2026-04-25 drift：P20.13 已实施待终验（commit `7a1f49c`，2026-04-24 接入生产 `skill/expand` approval 链；任务单已同步 NEEDS-DOC-FIX 3 处）。
 - **已废弃**：P20.11（MCP 工具）— skill 是宿主独有能力。
+- **2026-04-26 P25 drift**：P20.18 Phase 0/1/1.5 已在独立 worktree 落地；codexapp host-direct 能力链已接线，普通 name-only/selected skill 路径已代码级验证可走 Summary；harness 级 PR-ready 仍待 Phase 2 claudecli stdio MCP server、模型视角 E2E、observability/approval 结构化。
 - **验证**：`go build ./...` ✅；`go test ./internal/archtest/...` ✅；`go test ./...` ✅；`vitest` 前端全绿。
 
 ---
@@ -24,7 +25,7 @@
 
 ## 实施边界（给开工同学）
 
-- authoritative 口径只认本目录 `README.md`、`source-refs-appendix.md`、`status-checkpoint-2026-04-19.md` 与各 `p20.X-*.md`，以及上层 `../p20.1-skill-progressive-disclosure-hardening.md` / `../p20.1-hardening-implementation-checklist.md`。
+- authoritative 口径只认本目录 `README.md`、`source-refs-appendix.md`、`status-checkpoint-2026-04-19.md` 与各 `p20.X-*.md`，以及上层 `../p20.1-skill-progressive-disclosure-hardening.md` / `../p20.1-hardening-implementation-checklist.md` / `../p25skill优化/p25skill优化.md`。
 - P20 不做“顺手重构”；写集只允许落在任务单显式列出的包/目录内。
 - launch 主链 authoritative path：`frontend thread/start` → `internal/module/thread` → `contract.StartInput` / `dto.StartSessionRequest` → `provider start`。
 - per-turn 主链 authoritative path：`Composer / useSkillPreview` → `thread/send` → `internal/module/turn` → `provider skill inject / rollout trim`。
@@ -44,12 +45,15 @@
 | `p20.8` | resolver 决策矩阵 + expanded TTL | ⚠️ 基础已落地 | `3fbed75`/`b12df84` | `expanded_state.go` 数据结构已落地；resolver 矩阵升级 + runtime matcher 待完成 |
 | `p20.9` | rollout marker 扩容与共享 trim | ⚠️ 读端已落地 | `e5947dc`/`25af3d7`/`9f0f4bd` | `rollout_markers.go` 读端 helper 已落地；provider 读端切换 + 写端分流待 p20.6/7 |
 | `p20.10` | `skill/list` + `skill/expand` host RPC | ✅ 本轮完成 | 待合入 | name-based DTO；legacy `skills/*` 共存；skill 包 prod 新增 0 |
-| `p20.11` | ~~MCP `skill_list` / `skill_expand` tool 注册~~ | 🚫 已废弃 | — | skill 是宿主独有能力，不属于编排层；子进程在宿主中运行，skill 通过提示词触发 |
+| `p20.11` | ~~MCP `skill_list` / `skill_expand` tool 注册~~ | 🚫 已废弃 | — | skill 是宿主独有能力，不由 mcp-orch 持有；模型可调工具暴露改由 p20.18 的 codexapp host-direct / claudecli stdio 子进程承接 |
 | `p20.12` | config + policy + metrics 基础设施 | ✅ 被 P20.1 Phase 10 吸收 | `00b073f`/`9f0f4bd` | env flag + token budget + 5 counter 落在 `prompt/config.go` + `pkg/skillmetrics/` |
 | `p20.13` | `(name,hash)` 审批缓存生产化接线 | 🟡 已实施待终验 | `7a1f49c` | 2026-04-24 落入生产 `skill/expand` approval 链；任务单已同步 NEEDS-DOC-FIX 3 处 |
 | `p20.14` | 前端 LaunchSkillPicker | ✅ 本轮完成 | 待合入 | 字段级 feature gate；feature-off 恢复旧 blank-thread 行为 |
 | `p20.15` | 前端 SystemPromptPage 404 降级 + 后端 dashboard cwd scope | ✅ 本轮完成 | 待合入 | detector 仅结构化白名单；dashboard handler 吃 `{cwd}` 活化 context |
 | `p20.16` | 集成测试与尾部收口 | ❌ 未开工 | — | 全部前置任务完成后 |
+| `p20.18` | provider 暴露 host RPC 为模型可调工具（填 P20.11 废弃后留下的责任真空） | 🟡 Phase 0/1/1.5 已落地，Phase 2/3 待做 | 当前分支待合入 | codexapp 普通路径已代码级验证 Summary + host-direct；harness 级 PR-ready 仍缺 claudecli stdio MCP、模型视角 E2E、observability/approval 结构化；详见 `p20.18-host-direct-skill-tool-exposure.md` 与 `../p25skill优化/p25skill优化.md` |
+
+> 表中 “16 / 16” 为最初拆分总数；p20.18 为后续补丁任务，未纳入历史 16 单主 DAG，但逻辑依赖 `p20.10` host RPC / `skill.Service`，并作为 Phase 3 provider default policy / override 删除的硬前置。
 
 ## 2. 依赖图（DAG，无环）
 
@@ -72,6 +76,8 @@ flowchart LR
 
   P2010[p20.10]
   P2010 --> P2013[p20.13]
+  P2010 --> P2018[p20.18<br/>Phase 2/3]
+  P2018 --> DEFAULT[provider default policy<br/>Summary / override deletion]
   P206 --> P2013
 
   P201 --> P2016[p20.16]
@@ -91,24 +97,28 @@ flowchart LR
   P2015 --> P2016
 ```
 
-## 依赖图合规 ✅
+## 依赖图合规 / 历史校验
 
-- 2026-04-19 本地按 Mermaid 边做 DAG 校验：**无环**。
-- 修订依赖边：`p20.10 → p20.13`、`p20.6 → p20.13`、`p20.6 → p20.9`、`p20.7 → p20.9`、`p20.3 → p20.14`；`p20.10 → p20.11` 已随 P20.11 废弃移除。
-- 解释：`p20.9` 的**读端独立**，但写端切换必须随 `p20.6/p20.7` provider 单合入；`p20.11` 只依赖 `p20.10` 的 `skill.Service.Expand(...)` / host RPC 消费点，而 `p20.13` 还要额外等待 `p20.6` 固定审批事件链 / `skill/requestApproval` 兼容面；`p20.14` 只依赖 launch-time contract 打通（`p20.3`），不再错误挂到 `p20.4`（见 `docs/plans/迁移/p20/p20.11-mcp-skill-tools.md:3,9-11,29-32`、`docs/plans/迁移/p20/p20.13-approval-cache-wiring.md:3,16-18,67-71`、`docs/plans/迁移/p20/p20.14-frontend-launch-skill-ui.md:3,17-20`）。
+- 2026-04-19 本地按 Mermaid 边做 DAG 校验：原 16 单主 DAG **无环**。
+- 2026-04-26 P25 drift 后补依赖边：`p20.10 → p20.18`、`p20.18 → provider-default-policy/Summary`；按当前边集结构复审无明显环，但如把本 README 用作 PR-ready gate，需重新跑自动 DAG 校验并贴证据。
+- 修订依赖边：`p20.10 → p20.13`、`p20.10 → p20.18`、`p20.18 → provider-default-policy/Summary`、`p20.6 → p20.13`、`p20.6 → p20.9`、`p20.7 → p20.9`、`p20.3 → p20.14`；`p20.10 → p20.11` 已随 P20.11 废弃移除。
+- 解释：`p20.9` 的**读端独立**，但写端切换必须随 `p20.6/p20.7` provider 单合入；`p20.18` 依赖 `p20.10` 的 host RPC / `skill.Service` 消费点，并作为后续 Summary default policy / override 删除的硬前置；`p20.11` 已废弃；`p20.13` 还要额外等待 `p20.6` 固定审批事件链 / `skill/requestApproval` 兼容面；`p20.14` 只依赖 launch-time contract 打通（`p20.3`），不再错误挂到 `p20.4`（见 `docs/plans/迁移/p20/p20.18-host-direct-skill-tool-exposure.md`、`docs/plans/迁移/p20/p20.13-approval-cache-wiring.md:3,16-18,67-71`、`docs/plans/迁移/p20/p20.14-frontend-launch-skill-ui.md:3,17-20`）。
 
-## 3. 可并行分组（修订后）
+## 3. 历史可并行分组（2026-04-19 记录，非当前待派清单）
 
-- **α（立即可派）**：`p20.9`（仅读端） / `p20.10` / `p20.12`（已缩到 1 文件） / `p20.15`，以及**带 archtest 前置核查**的 `p20.1`
+- **α（历史立即可派，当前多项已收口）**：`p20.9`（仅读端） / `p20.10` / `p20.12`（已缩到 1 文件） / `p20.15`，以及**带 archtest 前置核查**的 `p20.1`
 - **critical**：`p20.2`（PrepareTurn hydrate + codex fallback） → `p20.3` → `p20.4`
 - **β（`p20.4` 完成）**：`p20.5` / `p20.6` / `p20.7`
 - **γ（`p20.2` 完成）**：`p20.8`
 - **γ'（`p20.3` 完成）**：`p20.14`
 - ~~**δ（`p20.10` 完成）**：`p20.11`~~ — 已废弃
 - **ε（`p20.10` + `p20.6` 完成）**：`p20.13`
+- **ζ（`p20.10` 完成，P25 worktree 已部分落地）**：`p20.18` Phase 2 claudecli stdio MCP server；Phase 3 provider default policy / override 删除另设 red gates
 - **终**：`p20.16`
 
-## 4. Agent 派发表（含包归属 / 预算 / 难度 / 优先级）
+## 4. Agent 派发表（历史记录，含包归属 / 预算 / 难度 / 优先级）
+
+> ⚠️ 本节是 2026-04-19 拆单时的历史派发表；表内“当前 / 安全 / 仅允 +N”等包预算结论不代表 2026-04-26 P25 worktree 真值。若用于开工或 PR-ready gate，必须先按 §5.1 重新跑包计数与 archtest / freeze 校验。
 
 | 任务单 | 主包/主目录 | 预算 | 难度 | 优先级 | 包预算结论 |
 |---|---|---|---|---|---|
@@ -129,7 +139,7 @@ flowchart LR
 | `p20.15` | frontend `SystemPromptPage` | ≤4 文件 | L | P1 | 不需要 feature flag；`dashboard/prompts` 仅 list-only 旁路 |
 | `p20.16` | 多包测试 / frontend test / MCP test | ≤10 文件 | H | P0-终验 | 测试文件不计入包文件守卫；文件清单需与子单一致（≤10-15 硬上限） |
 
-### 4.1 建议调度顺序
+### 4.1 历史建议调度顺序
 1. 先跑 `p20.1` 的 archtest 权威核查，同时起 `p20.2` critical 首段。
 2. 并行派 α：`p20.9`（读端）/ `p20.10` / `p20.12` / `p20.15`；`p20.1` 在确认方案 B 后并入实施。
 3. `p20.2` 合入后立即分叉：`p20.3` 与 `p20.8`。
@@ -139,25 +149,11 @@ flowchart LR
 
 ## 5. 合规结论
 
-### 5.1 包文件预算（2026-04-19 第十轮修正）
+### 5.1 包文件预算 / freeze registry（历史参考）
 
-- **`internal/module/prompt`**：当前实际 **`27` 个 prod `.go` 文件**（较原 archtest 真值 `26` 新增了 `skill_catalog_provider.go`，且 `skill_catalog` fx wiring 已并入 `module.go`）；`p20.1` 采用方案 B，P20 后续 **不再增加 prompt prod 文件**。
-- **`internal/module/skill`**：当前 **`18` 个 prod `.go` 文件**（working-set 含 test 共约 30+）；archtest prod 口径安全。
-- **`internal/module/thread`**：当前 **`25` 个 prod `.go` 文件**（未变）；**禁止新增 prod 文件**。
-- **`internal/provider/claudecli`**：当前 **`25`**（较原 `24` 新增了 `skill_inject.go`，P20.1 Phase 7）；**已用满 +1 配额，不再允许新增**。
-- **`internal/module/turn`**：当前 **`23`**（较原 `22` 新增了 `expanded_state.go`，P20.1 Phase 5）；`p20.8` resolver 矩阵升级后预计 `24`，安全。
-- **`internal/provider/codexapp`**：当前 **`20`**（较原 `19` 新增了 `skill_inject.go`，P20.1 Phase 7）；安全。
-- **`internal/contract`**：当前 **`16`**（较原 `15` 新增了 `skill_injection.go`，P20.1 Phase 7）；安全。
-- **effective lines**：本轮受影响包都显著低于 `10000`；当前真正的硬边界是 `prompt/thread/claudecli` 的**包文件数**而非行数。
+> 本 README 只保留结论，不继续维护 2026-04-19 的具体包计数 / freeze 数字。Phase 2 开工前必须以当时源码重新跑包计数、archtest / freeze 校验；若 `p20.18` 新增 claudecli 文件，需要在任务单中说明豁免、更新守卫，或合并到既有文件。
 
-### 5.2 freeze registry 预估总影响（修订后）
-
-- 当前显式 freeze 仅有 `internal/module/memory:27` 与 `internal/module/prompt:27`（`internal/archtest/freeze_registry.go:19-35`）。
-- ⚠️ **注意**：`prompt` 实际已为 `27` 个 prod 文件（P20.1 Phase 8/10 新增 `skill_catalog_provider.go`，`skill_catalog` fx wiring 已并入 `module.go`）；freeze guard 需同步保持 `27`，否则 archtest 将 fail。
-- 其它 P20 相关包在当前写集假设下**不需要新增 freeze entry**。
-- 若未来另开单坚持新增 `internal/module/prompt/rpc.go`，需重新走 A/C 方案与 freeze 评审；不属于当前 README 默认路径。
-
-### 5.3 架构口径
+### 5.2 架构口径
 
 - `p20.3/p20.4` 是 launch contract 的 authoritative owner：`frontend` 只能传字段，真正消费必须落在 `thread + contract + provider start path`。
 - `p20.2/p20.8/p20.6/p20.7/p20.9` 是 per-turn chain 的 authoritative owner：`turn` 返回结构化 `SkillRef`，provider 只负责 provider-specific render / inject / trim。
@@ -195,7 +191,7 @@ flowchart LR
 
 ```
 
-> 守卫结论：允许 `turn → skill.Service`、`thread → promptAssembly → provider DTO`、`mcp-orch → skill.Service`；不允许 `provider ↔ prompt` 成环，也不允许 `cmd/mcp-orch` 通过宿主 RPC handler map 反向耦合 `internal/module/*`。
+> 守卫结论：允许 `turn → skill.Service`、`thread → promptAssembly → provider DTO`；允许 mcp-orch 经既有 facade/store 处理非 skill 宿主能力。skill 工具暴露由 provider host-direct / claudecli stdio 子进程承接，不允许 `cmd/mcp-orch` 直接持有 skill tools，也不允许 `provider ↔ prompt` 成环。
 
 ## 7. 必读文档
 
@@ -205,4 +201,5 @@ flowchart LR
 4. `status-checkpoint-2026-04-19.md` — 当前落地真相 / 两个 Bug / 优先级
 5. `source-refs-appendix.md` — 经 LSP 复核后的全量锚点索引与合规结论
 6. `docs/plans/迁移/p18/README.md` — 风格基线
-7. `docs/会话习惯.md` — 仓库契约 / agent 派单规范 / LSP 强制要求
+7. `../p25skill优化/p25skill优化.md` — P25 skill progressive-disclosure Phase 0/1/1.5 落地与 Phase 2/3 gate
+8. `docs/1/会话习惯.md` — 仓库契约 / agent 派单规范 / LSP 强制要求

@@ -432,6 +432,14 @@ func manifestServer(bin dto.MCPBinary, cwd string) (string, map[string]any, bool
 		return "", nil, false
 	}
 
+	if bin.LaunchKind == dto.LaunchKindSameBinarySkill {
+		server, ok := buildSameBinarySkillServer(bin, cwd)
+		if !ok {
+			return "", nil, false
+		}
+		return name, server, true
+	}
+
 	// HTTP mode: peer process already running, just point Claude at the URL.
 	if strings.TrimSpace(bin.Type) == "http" && strings.TrimSpace(bin.URL) != "" {
 		server := map[string]any{
@@ -476,6 +484,75 @@ func buildStdioServer(bin dto.MCPBinary, cwd string) (map[string]any, bool) {
 		server["cwd"] = cwd
 	}
 	return server, true
+}
+
+func buildSameBinarySkillServer(bin dto.MCPBinary, cwd string) (map[string]any, bool) {
+	command := currentExecutablePath()
+	if command == "" && len(bin.Command) > 0 {
+		command = strings.TrimSpace(bin.Command[0])
+	}
+	if command == "" {
+		return nil, false
+	}
+	args := []string{"--mcp-skill-mode"}
+	env := cloneStringMap(bin.Env)
+	scrubSkillRuntimeEnv(env)
+	cwd = strings.TrimSpace(cwd)
+	if cwd != "" {
+		env[dto.MCPEnvSkillCWD] = cwd
+	}
+	fillRuntimeEnvFromControlEnv(env, dto.MCPEnvSkillAgentID, "GO_AGENT_CTL_AGENT_ID")
+	fillRuntimeEnvFromControlEnv(env, dto.MCPEnvSkillThreadID, "GO_AGENT_CTL_THREAD_ID")
+	server := map[string]any{
+		"command": command,
+		"args":    args,
+	}
+	if len(env) > 0 {
+		server["env"] = env
+	}
+	applyAutoApprove(server, bin.AutoApprove)
+	if cwd != "" {
+		server["cwd"] = cwd
+	}
+	return server, true
+}
+
+func scrubSkillRuntimeEnv(env map[string]string) {
+	delete(env, dto.MCPEnvSkillCWD)
+	delete(env, dto.MCPEnvSkillAgentID)
+	delete(env, dto.MCPEnvSkillThreadID)
+	delete(env, "GO_AGENT_SKILL_MCP_TURN_ID")
+}
+
+func currentExecutablePath() string {
+	path, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(path)
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return map[string]string{}
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
+}
+
+func fillRuntimeEnvFromControlEnv(env map[string]string, target string, sources ...string) {
+	if strings.TrimSpace(env[target]) != "" {
+		return
+	}
+	for _, source := range sources {
+		if value := strings.TrimSpace(env[source]); value != "" {
+			env[target] = value
+			return
+		}
+	}
 }
 
 func applyAutoApprove(server map[string]any, autoApprove []string) {

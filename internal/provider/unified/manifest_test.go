@@ -12,10 +12,10 @@ import (
 func TestBuildManifest_DefaultFamilies(t *testing.T) {
 	binaryDir := "/tmp/default-bin"
 	got := manifestbuilder.BuildManifest(dto.ManifestContext{BinaryDir: binaryDir})
-	if len(got.Binaries) != 2 || got.Binaries[0].Name != "lsp" || got.Binaries[1].Name != "orch" {
+	if len(got.Binaries) != 3 || got.Binaries[0].Name != "lsp" || got.Binaries[1].Name != "orch" || got.Binaries[2].Name != "skill" {
 		t.Fatalf("unexpected default manifest: %+v", got.Binaries)
 	}
-	for _, bin := range got.Binaries {
+	for _, bin := range got.Binaries[:2] {
 		if len(bin.Command) == 0 {
 			t.Errorf("binary %q has empty Command", bin.Name)
 		}
@@ -23,11 +23,14 @@ func TestBuildManifest_DefaultFamilies(t *testing.T) {
 			t.Errorf("binary %q Command should contain BinaryDir", bin.Name)
 		}
 	}
+	if got.Binaries[2].LaunchKind != dto.LaunchKindSameBinarySkill {
+		t.Fatalf("skill launch kind = %q, want %q", got.Binaries[2].LaunchKind, dto.LaunchKindSameBinarySkill)
+	}
 }
 
 func TestBuildManifest_WithIDA(t *testing.T) {
 	got := manifestbuilder.BuildManifest(dto.ManifestContext{ThreadCaps: dto.CapabilitySet{"ida": true}})
-	if len(got.Binaries) != 3 || got.Binaries[2].Name != "ida" {
+	if len(got.Binaries) != 4 || got.Binaries[2].Name != "ida" || got.Binaries[3].Name != "skill" {
 		t.Fatalf("unexpected ida manifest: %+v", got.Binaries)
 	}
 }
@@ -38,10 +41,13 @@ func TestBuildManifest_BinaryPaths(t *testing.T) {
 		filepath.Join("/tmp/bin", "mcp-lsp"),
 		filepath.Join("/tmp/bin", "mcp-orch"),
 	}
-	for i, binary := range got.Binaries {
+	for i, binary := range got.Binaries[:2] {
 		if len(binary.Command) != 1 || binary.Command[0] != want[i] {
 			t.Fatalf("unexpected binary command: %+v", got.Binaries)
 		}
+	}
+	if got.Binaries[2].LaunchKind != dto.LaunchKindSameBinarySkill {
+		t.Fatalf("skill launch kind = %q", got.Binaries[2].LaunchKind)
 	}
 }
 
@@ -51,10 +57,13 @@ func TestBuildManifest_EmptyBinaryDirUsesRelativeCommands(t *testing.T) {
 		filepath.Join("", "mcp-lsp"),
 		filepath.Join("", "mcp-orch"),
 	}
-	for i, binary := range got.Binaries {
+	for i, binary := range got.Binaries[:2] {
 		if len(binary.Command) != 1 || binary.Command[0] != want[i] {
 			t.Fatalf("unexpected binary command: %+v", got.Binaries)
 		}
+	}
+	if got.Binaries[2].LaunchKind != dto.LaunchKindSameBinarySkill {
+		t.Fatalf("skill launch kind = %q", got.Binaries[2].LaunchKind)
 	}
 }
 
@@ -69,13 +78,16 @@ func TestBuildManifest_UsesProxyHTTPAddr(t *testing.T) {
 		"http://127.0.0.1:39001/mcp/orch/agent-1",
 		"http://127.0.0.1:39001/mcp/ida/agent-1",
 	}
-	for i, binary := range got.Binaries {
+	for i, binary := range got.Binaries[:3] {
 		if binary.Type != "http" || binary.URL != want[i] {
 			t.Fatalf("unexpected proxy binary: %+v", got.Binaries)
 		}
 		if len(binary.Command) != 0 {
 			t.Fatalf("binary %q command = %#v, want nil", binary.Name, binary.Command)
 		}
+	}
+	if got.Binaries[3].Name != "skill" || got.Binaries[3].LaunchKind != dto.LaunchKindSameBinarySkill {
+		t.Fatalf("unexpected skill binary under proxy mode: %+v", got.Binaries[3])
 	}
 }
 
@@ -173,6 +185,38 @@ func TestBuildManifest_NormalizesControlEnvNames(t *testing.T) {
 				t.Fatalf("binary %q env = %#v, want no legacy key %q", bin.Name, bin.Env, legacy)
 			}
 		}
+	}
+}
+
+func TestBuildManifest_SkillRuntimeEnvIsScrubbedAndRebuiltFromContext(t *testing.T) {
+	got := manifestbuilder.BuildManifest(dto.ManifestContext{
+		AgentID:  "agent-canonical",
+		ThreadID: "thread-canonical",
+		CWD:      "/repo",
+		Env: map[string]string{
+			"GO_AGENT_CTL_AGENT_ID":      "agent-env",
+			"GO_AGENT_CTL_THREAD_ID":     "thread-env",
+			dto.MCPEnvSkillCWD:           "/evil",
+			dto.MCPEnvSkillAgentID:       "agent-evil",
+			dto.MCPEnvSkillThreadID:      "thread-evil",
+			"GO_AGENT_SKILL_MCP_TURN_ID": "turn-evil",
+		},
+	})
+	if len(got.Binaries) == 0 {
+		t.Fatal("expected manifest binaries")
+	}
+	skill := got.Binaries[len(got.Binaries)-1]
+	if skill.Name != "skill" {
+		t.Fatalf("last binary = %#v, want skill", skill)
+	}
+	if skill.Env[dto.MCPEnvSkillCWD] != "/repo" || skill.Env[dto.MCPEnvSkillAgentID] != "agent-canonical" || skill.Env[dto.MCPEnvSkillThreadID] != "thread-canonical" {
+		t.Fatalf("skill env = %#v, want canonical skill runtime env", skill.Env)
+	}
+	if skill.Env["GO_AGENT_CTL_AGENT_ID"] != "agent-canonical" || skill.Env["GO_AGENT_CTL_THREAD_ID"] != "thread-canonical" {
+		t.Fatalf("skill control env = %#v, want canonical agent/thread", skill.Env)
+	}
+	if _, ok := skill.Env["GO_AGENT_SKILL_MCP_TURN_ID"]; ok {
+		t.Fatalf("skill env = %#v, want no per-turn runtime env", skill.Env)
 	}
 }
 

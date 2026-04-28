@@ -150,6 +150,7 @@ func TestCodexStartSession_PreservesUserConfigFields_E2E(t *testing.T) {
 type codexRPCRecorder struct {
 	mu                sync.Mutex
 	callCount         map[string]int
+	methodParams      map[string][]map[string]any
 	threadStartParams map[string]any
 }
 
@@ -160,11 +161,18 @@ func (r *codexRPCRecorder) record(method string, raw json.RawMessage) {
 		r.callCount = make(map[string]int)
 	}
 	r.callCount[method]++
-	if method != "thread/start" || len(raw) == 0 {
+	if len(raw) == 0 {
 		return
 	}
 	var params map[string]any
 	if err := json.Unmarshal(raw, &params); err != nil {
+		return
+	}
+	if r.methodParams == nil {
+		r.methodParams = make(map[string][]map[string]any)
+	}
+	r.methodParams[method] = append(r.methodParams[method], cloneAnyMap(params))
+	if method != "thread/start" {
 		return
 	}
 	r.threadStartParams = cloneAnyMap(params)
@@ -180,6 +188,16 @@ func (r *codexRPCRecorder) threadStartParamsSnapshot() map[string]any {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return cloneAnyMap(r.threadStartParams)
+}
+
+func (r *codexRPCRecorder) paramsSnapshot(method string, index int) map[string]any {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	params := r.methodParams[method]
+	if index < 0 || index >= len(params) {
+		return nil
+	}
+	return cloneAnyMap(params[index])
 }
 
 func startCodexRPCServer(t *testing.T, recorder *codexRPCRecorder) string {
@@ -210,8 +228,11 @@ func startCodexRPCServer(t *testing.T, recorder *codexRPCRecorder) string {
 				continue
 			}
 			result := map[string]any{"ok": true}
-			if msg.Method == "thread/start" {
+			switch msg.Method {
+			case "thread/start":
 				result = map[string]any{"thread": map[string]any{"id": "provider-thread-1"}}
+			case "turn/start":
+				result = map[string]any{"turn": map[string]any{"id": "provider-turn-1"}}
 			}
 			resp, err := json.Marshal(map[string]any{
 				"jsonrpc": "2.0",

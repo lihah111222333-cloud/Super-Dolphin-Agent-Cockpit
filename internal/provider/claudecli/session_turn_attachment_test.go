@@ -52,3 +52,20 @@ func TestComposeTurnTextPrependsSystemContextBeforeUserContext(t *testing.T) {
 		t.Fatalf("composeTurnText() = %q, want %q", got, want)
 	}
 }
+
+func TestBuildSkillPromptTextV1SummaryModeWithEmptyBody(t *testing.T) {
+	t.Setenv("SKILL_WRITER_FORMAT", "v1")
+
+	got := buildSkillPromptText([]dto.SkillRef{{
+		Name:    "rpc-tracing",
+		Mode:    dto.SkillModeSummary,
+		Summary: "Trace JSON-RPC flow.",
+	}})
+	want := "[skill:rpc-tracing::summary@v1]\n" +
+		"摘要: Trace JSON-RPC flow.\n" +
+		"使用方式: Call skill_expand_body(\"rpc-tracing\") for full body\n" +
+		"[/skill:rpc-tracing::summary@v1]"
+	if got != want {
+		t.Fatalf("v1 summary skill prompt with empty body:\ngot  %q\nwant %q", got, want)
+	}
+}
