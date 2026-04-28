@@ -294,6 +294,10 @@ func (c skillHostRPCClient) Call(ctx context.Context, method string, params any)
 
 	var resp skillJSONRPCResponse
 	decoder := json.NewDecoder(bufio.NewReader(conn))
+	// Host RPC responses are a controlled internal protocol — unknown fields
+	// indicate a serialization mismatch that should fail loudly, unlike
+	// LLM-provided tool arguments where extra fields are expected.
+	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&resp); err != nil {
 		return nil, fmt.Errorf("skill mcp: read host rpc response: %w", err)
 	}

@@ -339,7 +339,7 @@ func TestSkillHostRPCClient_ValidatesHostResponse(t *testing.T) {
 		response string
 		wantErr  string
 	}{
-		{name: "extra response field tolerated", response: `{"jsonrpc":"2.0","id":1,"result":{},"extra":true}`, wantErr: ""},
+		{name: "unknown response field", response: `{"jsonrpc":"2.0","id":1,"result":{},"extra":true}`, wantErr: "unknown field"},
 		{name: "invalid jsonrpc", response: `{"jsonrpc":"1.0","id":1,"result":{}}`, wantErr: "invalid host rpc jsonrpc version"},
 		{name: "mismatched id", response: `{"jsonrpc":"2.0","id":2,"result":{}}`, wantErr: "host rpc response id = 2, want 1"},
 		{name: "host error", response: `{"jsonrpc":"2.0","id":1,"error":{"code":-31002,"message":"approval required","data":{"CallID":"call-1"}}}`, wantErr: "approval required"},
@@ -350,12 +350,6 @@ func TestSkillHostRPCClient_ValidatesHostResponse(t *testing.T) {
 			t.Parallel()
 			addr := startSkillHostRPCTestServer(t, tt.response)
 			_, err := (skillHostRPCClient{addr: addr}).Call(context.Background(), skillExpandBodyRPCMethod, map[string]any{"name": "demo"})
-			if tt.wantErr == "" {
-				if err != nil {
-					t.Fatalf("Call() error = %v, want nil", err)
-				}
-				return
-			}
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("Call() error = %v, want containing %q", err, tt.wantErr)
 			}
