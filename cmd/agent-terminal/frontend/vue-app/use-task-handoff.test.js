@@ -243,6 +243,53 @@ describe('useTaskHandoff.continueTaskById', () => {
     expect(id).toBe('second-id');
     expect(calls).toBe(2);
   });
+
+  // Phase 1.4b：焦点判断
+  it('passes skipSaveActive=true when source differs from selected (后台不抢焦点)', async () => {
+    const ctx = makeCtx({
+      selectedThreadId: 'other-selected',
+      agentRuntimeById: { 'task-thread': { taskId: 't-bg', taskTitle: '后台任务' } },
+    });
+    const { continueTaskById } = useTaskHandoff(ctx);
+    await continueTaskById('task-thread');
+    const [, opts] = ctx.threadStore.startThread.mock.calls[0];
+    expect(opts.skipSaveActive).toBe(true);
+    expect(logInfo).toHaveBeenCalledWith('ui', 'taskHandoff.continue.start', expect.objectContaining({
+      focus_followed: false,
+    }));
+    expect(logInfo).toHaveBeenCalledWith('ui', 'taskHandoff.continue.done', expect.objectContaining({
+      focus_followed: false,
+    }));
+  });
+
+  it('passes skipSaveActive=false when source matches selected (焦点跟随)', async () => {
+    const ctx = makeCtx({
+      selectedThreadId: 'task-thread',
+      agentRuntimeById: { 'task-thread': { taskId: 't-fg', taskTitle: '前台任务' } },
+    });
+    const { continueTaskById } = useTaskHandoff(ctx);
+    await continueTaskById('task-thread');
+    const [, opts] = ctx.threadStore.startThread.mock.calls[0];
+    expect(opts.skipSaveActive).toBe(false);
+    expect(logInfo).toHaveBeenCalledWith('ui', 'taskHandoff.continue.start', expect.objectContaining({
+      focus_followed: true,
+    }));
+  });
+
+  it('preserves config / focusMode / name when wrapping with skipSaveActive', async () => {
+    const ctx = makeCtx({
+      selectedThreadId: 'other',
+      agentRuntimeById: { 'task-thread': { taskId: 't-cfg', taskTitle: '配置保留', handoffFile: 'h.md' } },
+    });
+    const { continueTaskById } = useTaskHandoff(ctx);
+    await continueTaskById('task-thread');
+    const [, opts] = ctx.threadStore.startThread.mock.calls[0];
+    expect(opts.focusMode).toBe('chat');
+    expect(opts.name).toBe('配置保留');
+    expect(opts.config.taskId).toBe('t-cfg');
+    expect(opts.config.continueTask).toBe(true);
+    expect(opts.config.autoTaskHandoff).toBe(true);
+  });
 });
 
 describe('useTaskHandoff.continueCurrentTask (wrapper)', () => {
