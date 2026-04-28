@@ -6,6 +6,7 @@ import (
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
 	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 )
 
 type Dependencies struct {
@@ -15,6 +16,7 @@ type Dependencies struct {
 	CommandCard   commandcardstore.Store
 	SharedFile    sharedfilestore.Store
 	Memory        contract.MemoryService
+	Cron          cronstore.Store
 }
 
 type Registry struct {
@@ -29,6 +31,7 @@ func NewRegistry(deps Dependencies) Registry {
 	tools = append(tools, commandToolDefinitions(deps.CommandCard)...)
 	tools = append(tools, sharedFileToolDefinitions(deps.SharedFile)...)
 	tools = append(tools, memoryToolDefinitions(deps.Memory)...)
+	tools = append(tools, cronToolDefinitions(deps.Cron)...)
 	byName := make(map[string]ToolDefinition, len(tools))
 	for _, tool := range tools {
 		byName[tool.Name] = tool
