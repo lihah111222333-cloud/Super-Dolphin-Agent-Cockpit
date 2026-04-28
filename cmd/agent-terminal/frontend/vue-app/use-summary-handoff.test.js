@@ -148,11 +148,14 @@ describe('extractTimelineSummary', () => {
 });
 
 describe('extractTimelineSummary · progress section', () => {
-  // 构造一个以「工具风暴」结尾的 timeline，验证进度段能从被挤压的中间抓出 user/assistant。
+  // 真实 timeline 由 historyMessageToTimelineItem 生成（thread-history-ui.js:186-193），
+  // 形状是 { id, kind: 'user'|'assistant', text, ts }——不带 role 字段。
+  // 之前的 fixture 用 `role:` 与生产脱钩，导致进度段抽取在生产里静默失效（07e3220 回归）。
+  // 下方所有 fixture 一律按生产形状构造。
   function buildToolStormTimeline() {
     const items = [
-      { id: 'u-init', role: 'user', text: '帮我重构 utils/format-utils.js 里的 token 分级函数' },
-      { id: 'a-mid', role: 'assistant', text: '我已经读了 format-utils.js，准备把 getTokenLevel 拆成两个分函数并补上阈值参数。' },
+      { id: 'u-init', kind: 'user', text: '帮我重构 utils/format-utils.js 里的 token 分级函数', ts: '2026-04-28T10:00:00Z' },
+      { id: 'a-mid', kind: 'assistant', text: '我已经读了 format-utils.js，准备把 getTokenLevel 拆成两个分函数并补上阈值参数。', ts: '2026-04-28T10:00:01Z' },
     ];
     for (let i = 0; i < 15; i++) {
       items.push({ id: `t${i}`, kind: 'tool', tool: 'Read', preview: `file${i}.js` });
@@ -171,9 +174,9 @@ describe('extractTimelineSummary · progress section', () => {
 
   it('skips short assistant replies (<40 chars) when picking current thinking', () => {
     const items = [
-      { id: 'u1', role: 'user', text: '重构 X' },
-      { id: 'a1', role: 'assistant', text: '已理解，详细分析后设计了三步拆分方案。' }, // 足够长
-      { id: 'a2', role: 'assistant', text: '好的' }, // 太短应跳过
+      { id: 'u1', kind: 'user', text: '重构 X', ts: '2026-04-28T10:00:00Z' },
+      { id: 'a1', kind: 'assistant', text: '已理解，详细分析后设计了三步拆分方案。', ts: '2026-04-28T10:00:01Z' }, // 足够长
+      { id: 'a2', kind: 'assistant', text: '好的', ts: '2026-04-28T10:00:02Z' }, // 太短应跳过
       { id: 't1', kind: 'tool', tool: 'Read', preview: 'a.js' },
       { id: 't2', kind: 'tool', tool: 'Edit', preview: 'b.js' },
     ];
@@ -187,15 +190,15 @@ describe('extractTimelineSummary · progress section', () => {
 
   it('does NOT append progress section for short timelines (<5 items)', () => {
     const items = [
-      { id: 'u1', role: 'user', text: '你好' },
-      { id: 'a1', role: 'assistant', text: '你好，需要我做什么？' },
+      { id: 'u1', kind: 'user', text: '你好', ts: '2026-04-28T10:00:00Z' },
+      { id: 'a1', kind: 'assistant', text: '你好，需要我做什么？', ts: '2026-04-28T10:00:01Z' },
     ];
     const result = extractTimelineSummary(items);
     expect(result).not.toContain('## 最近进展');
   });
 
   it('includes recent plan items in progress section with done flag', () => {
-    const items = [{ id: 'u-init', role: 'user', text: 'task start' }];
+    const items = [{ id: 'u-init', kind: 'user', text: 'task start', ts: '2026-04-28T10:00:00Z' }];
     for (let i = 0; i < 10; i++) {
       items.push({ id: `t${i}`, kind: 'tool', tool: 'Bash', preview: `step ${i}` });
     }
@@ -205,6 +208,39 @@ describe('extractTimelineSummary · progress section', () => {
     expect(result).toContain('## 最近进展');
     expect(result).toContain('进度【已完成】：实现 thresholds 设置 UI');
     expect(result).toContain('进度【进行中】：接入 banner 事件路由');
+  });
+
+  // 回归测试：旧 fixture 用 role 让进度段抽取在生产里失效。这条用 thread-history-ui.js 真实输出形态，
+  // 防止以后再脱钩。
+  it('extracts user / assistant from production-shape items (kind only, no role)', () => {
+    const items = [
+      { id: 'thread-history-1', kind: 'user', text: '排查 fork 摘要里没有进度段的问题', ts: '2026-04-28T10:00:00Z' },
+      { id: 'thread-history-2', kind: 'assistant', text: '已确认 historyMessageToTimelineItem 只产出 kind 不产出 role，定位到 extractProgressSection 的谓词只看 role 所以漏。', ts: '2026-04-28T10:00:01Z' },
+      { id: 'thread-history-3', kind: 'user', text: '修复并加回归测试', ts: '2026-04-28T10:00:02Z' },
+      { id: 't1', kind: 'tool', tool: 'Read', preview: 'useSummaryHandoff.js' },
+      { id: 't2', kind: 'tool', tool: 'Edit', preview: 'useSummaryHandoff.js' },
+    ];
+    const result = extractTimelineSummary(items);
+    expect(result).toContain('## 最近进展');
+    expect(result).toContain('最近用户诉求');
+    expect(result).toContain('修复并加回归测试');
+    expect(result).toContain('助手当前思路');
+    expect(result).toContain('historyMessageToTimelineItem');
+  });
+
+  // 双字段（既有 role 也有 kind）兼容性：以 role 优先，确保旧 fixture 仍可被识别。
+  it('also accepts items that carry both role and kind (legacy fixture compatibility)', () => {
+    const items = [
+      { id: 'u1', role: 'user', kind: 'user', text: '同时带 role 和 kind 的消息也要被识别' },
+      { id: 'a1', role: 'assistant', kind: 'assistant', text: '这是一段足够长的助手回复，用来通过 40 字符的进度段长度门槛过滤。' },
+      { id: 't1', kind: 'tool', tool: 'Read', preview: 'a.js' },
+      { id: 't2', kind: 'tool', tool: 'Read', preview: 'b.js' },
+      { id: 't3', kind: 'tool', tool: 'Read', preview: 'c.js' },
+    ];
+    const result = extractTimelineSummary(items);
+    expect(result).toContain('## 最近进展');
+    expect(result).toContain('同时带 role 和 kind 的消息');
+    expect(result).toContain('40 字符的进度段长度门槛');
   });
 });
 

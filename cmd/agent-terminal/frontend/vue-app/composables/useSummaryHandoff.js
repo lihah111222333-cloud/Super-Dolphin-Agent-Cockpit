@@ -101,6 +101,13 @@ function findLastMatch(items, predicate) {
   return null;
 }
 
+// 真实 timeline item 用 `kind` 标识用户/助手；早期 fixture 用过 `role`。两者都兼容，
+// 避免 fixture 与生产数据形状脱钩导致进展段抽取静默失效（见 07e3220 回归）。
+function itemRoleOrKind(item) {
+  if (!item || typeof item !== 'object') return '';
+  return ((item.role || item.kind || '') + '').toString().trim().toLowerCase();
+}
+
 /**
  * 在主摘要之外额外抽出「最近进展」段，作为独立锚点贴在末尾。
  * 与 main 摘要的「最近 N 条」解耦：即便尾部全是 tool/command 风暴，
@@ -117,13 +124,11 @@ function extractProgressSection(items) {
   const tail = items.slice(-PROGRESS_TAIL_SCAN);
 
   const lastUser = findLastMatch(tail, (it) => {
-    if (!it || typeof it !== 'object') return false;
-    if ((it.role || '').toString().toLowerCase() !== 'user') return false;
+    if (itemRoleOrKind(it) !== 'user') return false;
     return Boolean(clipField(it.text || it.content));
   });
   const lastAssistant = findLastMatch(tail, (it) => {
-    if (!it || typeof it !== 'object') return false;
-    if ((it.role || '').toString().toLowerCase() !== 'assistant') return false;
+    if (itemRoleOrKind(it) !== 'assistant') return false;
     // 长度门槛过滤掉「好的」「明白了」这类没有进度信息的短答复。
     const text = clipField(it.text || it.content, 600);
     return text.length >= 40;
