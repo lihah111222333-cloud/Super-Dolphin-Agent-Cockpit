@@ -22,6 +22,8 @@ export const ComposerBar = {
     compactSuccessCount: { type: Number, default: 0 },
     tokenInline: { type: String, default: '' },
     tokenTooltip: { type: String, default: '' },
+    // 'normal' | 'warn' | 'danger' | 'critical'：带颜色提示 tokenInline。
+    tokenLevel: { type: String, default: 'normal' },
     skillMatches: { type: Array, default: () => [] },
     skillMatchesLoading: { type: Boolean, default: false },
     selectedSkillNames: { type: Array, default: () => [] },
@@ -372,7 +374,10 @@ export const ComposerBar = {
               </svg>
               <span v-if="compactResultText && !compacting" style="color: inherit;">{{ compactResultText }}</span>
               <span v-else-if="compacting" class="loading-shimmer">更新中…</span>
-              <span v-else-if="tokenInline">
+              <span
+                v-else-if="tokenInline"
+                :class="['composer-token-inline', tokenLevel && tokenLevel !== 'normal' ? ('is-token-' + tokenLevel) : '']"
+              >
                 {{ tokenInline }}
                 <span v-if="compactSuccessCount > 0" style="color: var(--success, #4ade80); margin-left: 4px; font-weight: 600;">{{ compactSuccessCount }}</span>
               </span>

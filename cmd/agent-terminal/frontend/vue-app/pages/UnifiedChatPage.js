@@ -11,6 +11,7 @@ import { CmdOverviewPanel } from '../components/unified-chat/CmdOverviewPanel.js
 import { WorkspaceChatPanel } from '../components/unified-chat/WorkspaceChatPanel.js';
 import { DiffPanel } from '../components/DiffPanel.js';
 import { ComposerBar } from '../components/ComposerBar.js';
+import { ContextUsageBanner } from '../components/ContextUsageBanner.js';
 import { LaunchSkillPicker } from '../components/LaunchSkillPicker.js';
 import { ActivityPanel } from '../components/ActivityPanel.js';
 import { PathChoiceModal } from '../components/PathChoiceModal.js';
@@ -37,6 +38,8 @@ import { useFileRefPreview } from '../composables/useFileRefPreview.js';
 import { useCopyThreadInfo } from '../composables/useCopyThreadInfo.js';
 import { useFileDrop } from '../composables/useFileDrop.js';
 import { useTaskHandoff } from '../composables/useTaskHandoff.js';
+import { getTokenLevel } from '../utils/format-utils.js';
+import { useContextUsageThresholds } from '../composables/useContextUsageThresholds.js';
 import { usePageLifecycle } from '../composables/usePageLifecycle.js';
 import { createThreadConfigController } from '../composables/useThreadConfigController.js';
 
@@ -156,6 +159,25 @@ function attachPageNonEnumerableState(exposed, ctx) {
     onPreviewDirtyChange: { value: ctx.onPreviewDirtyChange, enumerable: false, configurable: true },
     isPreviewDirty: { value: ctx.isPreviewDirty, enumerable: false, configurable: true },
     isStatusTimerModalPaused: { value: ctx.isStatusTimerModalPaused, enumerable: false, configurable: true },
+    tokenLevelByThreadId: { value: ctx.tokenLevelByThreadId, enumerable: false, configurable: true },
+  });
+}
+
+function createPageTokenLevels(props, threads) {
+  // 为侧边栏所有会话计算 token 警报等级 map。仅在 tokenUsageByThread / 阈值变动时重算。
+  const thresholds = useContextUsageThresholds();
+  return computed(() => {
+    const out = {};
+    const list = Array.isArray(threads.value) ? threads.value : [];
+    if (list.length === 0) return out;
+    if (typeof props.threadStore?.getThreadTokenUsage !== 'function') return out;
+    for (const thread of list) {
+      const id = (thread?.id || '').toString();
+      if (!id) continue;
+      const level = getTokenLevel(props.threadStore.getThreadTokenUsage(id), thresholds.value);
+      if (level !== 'normal') out[id] = level;
+    }
+    return out;
   });
 }
 
@@ -288,6 +310,7 @@ export const UnifiedChatPage = {
     WorkspaceChatPanel,
     DiffPanel,
     ComposerBar,
+    ContextUsageBanner,
     LaunchSkillPicker,
     ActivityPanel,
     PathChoiceModal,
@@ -478,6 +501,7 @@ export const UnifiedChatPage = {
       activeRuntime: threadCards.activeRuntime,
       isCmd,
     });
+    const tokenLevelByThreadId = createPageTokenLevels(props, threads);
 
     bindPageThreadSelection(props, {
       selectedThreadId, pendingFileRefFocus, focusedDiffPath, focusedDiffLine, fallbackDiffText,
@@ -555,6 +579,7 @@ export const UnifiedChatPage = {
       isAtBottom, scheduleScrollToBottom, scrollToTop, resetScrollState,
     });
     attachPageNonEnumerableState(exposed, {
+      tokenLevelByThreadId,
       launchSkillSelectionEnabled,
       launchAvailableSkills,
       launchProjectSkills,

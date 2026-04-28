@@ -727,3 +727,102 @@ button.composer-token-chip:hover:not(:disabled):not(.is-success):not(.is-error) 
 .composer-skill-selector-item.selected {
   box-shadow: inset 0 0 0 1px rgba(74, 222, 128, 0.4);
 }
+
+/* ========== context usage alert (Phase 1) ========== */
+
+/* Composer 内联 token 文字按等级着色 */
+.composer-token-inline.is-token-warn {
+  color: var(--warning, #ff8549);
+}
+.composer-token-inline.is-token-danger {
+  color: var(--error, #ff6764);
+  font-weight: 600;
+}
+.composer-token-inline.is-token-critical {
+  color: #ffd7d7;
+  background: rgba(88, 27, 27, 0.6);
+  padding: 0 4px;
+  border-radius: 4px;
+  font-weight: 700;
+  animation: context-usage-critical-pulse 1.6s ease-in-out infinite;
+}
+@keyframes context-usage-critical-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 103, 100, 0); }
+  50% { box-shadow: 0 0 0 2px rgba(255, 103, 100, 0.35); }
+}
+
+/* 顶部 ContextUsageBanner */
+.context-usage-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  margin: 0 0 6px 0;
+  border-radius: var(--radius-sm, 5px);
+  font-size: 12px;
+  line-height: 1.4;
+  border: 1px solid transparent;
+}
+.context-usage-banner.is-token-warn {
+  background: rgba(255, 133, 73, 0.10);
+  border-color: rgba(255, 133, 73, 0.45);
+  color: var(--warning, #ff8549);
+}
+.context-usage-banner.is-token-danger {
+  background: rgba(255, 103, 100, 0.12);
+  border-color: rgba(255, 103, 100, 0.55);
+  color: var(--error, #ff6764);
+}
+.context-usage-banner.is-token-critical {
+  background: rgba(255, 103, 100, 0.18);
+  border-color: rgba(255, 103, 100, 0.75);
+  color: #ffd7d7;
+}
+.context-usage-banner-icon {
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 1;
+}
+.context-usage-banner-msg {
+  flex: 1;
+  min-width: 0;
+}
+.context-usage-banner-msg strong {
+  font-weight: 700;
+}
+.context-usage-banner-action {
+  flex-shrink: 0;
+}
+
+/* ========== ThreadRail context-usage badge ========== */
+.thread-context-usage-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  margin-left: 4px;
+  font-size: 11px;
+  line-height: 1;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  cursor: help;
+  user-select: none;
+}
+.thread-context-usage-badge.is-token-warn {
+  color: var(--warning, #ff8549);
+  border-color: rgba(255, 133, 73, 0.45);
+  background: rgba(255, 133, 73, 0.08);
+}
+.thread-context-usage-badge.is-token-danger {
+  color: var(--error, #ff6764);
+  border-color: rgba(255, 103, 100, 0.55);
+  background: rgba(255, 103, 100, 0.10);
+}
+.thread-context-usage-badge.is-token-critical {
+  color: #ffd7d7;
+  border-color: rgba(255, 103, 100, 0.85);
+  background: rgba(255, 103, 100, 0.20);
+  font-weight: 700;
+}

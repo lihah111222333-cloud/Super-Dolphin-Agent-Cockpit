@@ -33,6 +33,7 @@ export const template = `
           :editing-alias="editingAlias"
           :renaming-thread-id="renamingThreadId"
           :set-rename-input-ref="setRenameInputRef"
+          :token-level-by-thread-id="tokenLevelByThreadId"
           @open-new-window="openNewWindow"
           @toggle-archived-thread-list="toggleArchivedThreadList"
           @select-thread="selectThread"
@@ -177,6 +178,16 @@ export const template = `
                   @clear="clearLaunchSelectedSkills"
                   @refresh="refreshLaunchSkillSelection"
                 />
+                <ContextUsageBanner
+                  v-if="!isCmd && selectedThreadId"
+                  :level="activeTokenLevel"
+                  :used-percent="(activeTokenUsage && activeTokenUsage.usedPercent) || 0"
+                  :used-tokens="(activeTokenUsage && activeTokenUsage.usedTokens) || 0"
+                  :context-window="(activeTokenUsage && activeTokenUsage.contextWindowTokens) || 0"
+                  :can-compact="canCompact"
+                  :compacting="compacting"
+                  @compact="compactCurrent"
+                />
                 <ComposerBar
                   ref="composerBarRef"
                   :is-cmd="isCmd"
@@ -191,6 +202,7 @@ export const template = `
                   :compact-success-count="compactSuccessCount"
                   :token-inline="activeTokenInline"
                   :token-tooltip="activeTokenTooltip"
+                  :token-level="activeTokenLevel"
                   :disabled="false"
                   :skill-matches="composerSkillMatches"
                   :skill-matches-loading="composerSkillPreviewLoading"

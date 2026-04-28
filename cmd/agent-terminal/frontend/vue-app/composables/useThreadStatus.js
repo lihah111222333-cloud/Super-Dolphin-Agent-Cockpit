@@ -9,7 +9,11 @@ import {
   formatTokenInline,
   formatTokenTooltip,
   formatElapsedCompact,
+  getTokenLevel,
 } from '../utils/format-utils.js';
+import { useContextUsageThresholds } from './useContextUsageThresholds.js';
+
+const TOKEN_LEVEL_RANK = Object.freeze({ normal: 0, warn: 1, danger: 2, critical: 3 });
 
 /**
  * @param {object} props
@@ -76,6 +80,38 @@ export function useThreadStatus(props, selectedThreadId, activeStatus, showPathC
   });
   const activeTokenInline = computed(() => formatTokenInline(activeTokenUsage.value));
   const activeTokenTooltip = computed(() => formatTokenTooltip(activeTokenUsage.value));
+  // Phase 1 settings: 阈值从用户偏好读，改变后下一次 computed 重算自动生效。
+  const tokenThresholds = useContextUsageThresholds();
+  const activeTokenLevel = computed(() => getTokenLevel(activeTokenUsage.value, tokenThresholds.value));
+
+  // 记录每个 thread 最后一次上报过的告警等级，避免同一个阈值重复刷屏。
+  // 不走 store state——这只是一次性跨阈值信号，不需要跨会话持久化。
+  const lastReportedLevelByThread = new Map();
+  watch(
+    () => ({
+      threadId: (selectedThreadId.value || '').toString().trim(),
+      level: activeTokenLevel.value,
+      usage: activeTokenUsage.value,
+    }),
+    ({ threadId, level, usage }) => {
+      if (!threadId) return;
+      const prev = lastReportedLevelByThread.get(threadId) || 'normal';
+      if (prev === level) return;
+      lastReportedLevelByThread.set(threadId, level);
+      const prevRank = TOKEN_LEVEL_RANK[prev] || 0;
+      const nextRank = TOKEN_LEVEL_RANK[level] || 0;
+      if (nextRank <= prevRank) return; // 仅在“跳高”时上报，“退低”（例如 compact 后）静默。
+      logInfo('thread', 'context_usage.level_crossed', {
+        thread_id: threadId,
+        level,
+        prev_level: prev,
+        used_percent: Number(usage?.usedPercent) || 0,
+        used_tokens: Number(usage?.usedTokens) || 0,
+        context_window: Number(usage?.contextWindowTokens) || 0,
+      });
+    },
+    { immediate: true },
+  );
   const activeActivityStats = computed(() => {
     if (typeof props.threadStore.getThreadActivityStats !== 'function') return {};
     return props.threadStore.getThreadActivityStats(selectedThreadId.value);
@@ -214,6 +250,7 @@ export function useThreadStatus(props, selectedThreadId, activeStatus, showPathC
     displayStatusText,
     activeTokenInline,
     activeTokenTooltip,
+    activeTokenLevel,
     activeActivityStats,
     activeAlerts,
     activeStatusMeta,
