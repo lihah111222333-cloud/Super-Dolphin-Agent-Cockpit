@@ -90,6 +90,103 @@ func TestPromptConfigDefaultsProgressiveDisclosureOff(t *testing.T) {
 	}
 }
 
+func TestSkillProgressiveDisclosure_DefaultDisabled(t *testing.T) {
+	t.Setenv(envEnableSkillProgressiveDisclosure, "")
+	cfg := NewConfig(nil)
+	reg := &fakeDynamicRegistrar{}
+	provider := NewSkillCatalogProvider(fakeFxSkillLister{}, nil, 0)
+
+	err := RegisterSkillCatalogProviderIfEnabled(registerSkillCatalogDeps{
+		Cfg:       cfg,
+		Registrar: reg,
+		Provider:  provider,
+		Skills:    fakeFxSkillLister{},
+	})
+	if err != nil {
+		t.Fatalf("RegisterSkillCatalogProviderIfEnabled() error = %v", err)
+	}
+	if len(reg.registered) != 0 {
+		t.Fatalf("default disabled: want no skill catalog registration, got %v", reg.registered)
+	}
+}
+
+func TestSkillProgressiveDisclosure_EnableFlagRendersCatalog(t *testing.T) {
+	t.Setenv(envEnableSkillProgressiveDisclosure, "true")
+	cfg := NewConfig(nil)
+	reg := &fakeDynamicRegistrar{}
+	provider := NewSkillCatalogProvider(
+		fakeSkillLister{infos: []skillpkg.SkillInfo{{
+			Name:        "demo-skill",
+			Description: "visible description",
+			Summary:     "visible summary",
+			Trust:       skillpkg.TrustUser,
+		}}},
+		nil,
+		0,
+	)
+
+	err := RegisterSkillCatalogProviderIfEnabled(registerSkillCatalogDeps{
+		Cfg:       cfg,
+		Registrar: reg,
+		Provider:  provider,
+		Skills:    fakeFxSkillLister{},
+	})
+	if err != nil {
+		t.Fatalf("RegisterSkillCatalogProviderIfEnabled() error = %v", err)
+	}
+	if len(reg.registered) != 1 || reg.registered[0] != DynamicSectionSkillCatalog {
+		t.Fatalf("enabled: want [%s], got %v", DynamicSectionSkillCatalog, reg.registered)
+	}
+
+	out, err := provider.Resolve(context.Background(), baseCtx("/repo"))
+	if err != nil || out == nil {
+		t.Fatalf("Resolve() err=%v out=%v", err, out)
+	}
+	text := *out
+	if !strings.Contains(text, "### Core") || !strings.Contains(text, "visible description") || !strings.Contains(text, "visible summary") {
+		t.Fatalf("enabled catalog should render trusted skill metadata, got %q", text)
+	}
+}
+
+func TestSkillProgressiveDisclosure_EnableFlagRegistersIntoAssembler(t *testing.T) {
+	cfg := &Config{EnableSkillProgressiveDisclosure: true, EmitSkillCatalogMetaInstructions: false}
+	svc := NewService(cfg, nil)
+	provider := NewSkillCatalogProviderWithOptions(
+		fakeSkillLister{infos: []skillpkg.SkillInfo{{
+			Name:        "demo-skill",
+			Description: "visible description",
+			Summary:     "visible summary",
+			Trust:       skillpkg.TrustUser,
+		}}},
+		nil,
+		12000,
+		SkillCatalogOptions{EmitMetaInstructions: false},
+	)
+
+	err := RegisterSkillCatalogProviderIfEnabled(registerSkillCatalogDeps{
+		Cfg:       cfg,
+		Registrar: svc,
+		Provider:  provider,
+		Skills:    fakeFxSkillLister{},
+	})
+	if err != nil {
+		t.Fatalf("RegisterSkillCatalogProviderIfEnabled() error = %v", err)
+	}
+	assembly, err := svc.AssembleStart(context.Background(), StartInput{
+		BaseInstructions: "legacy base",
+		Provider:         "codex",
+		CWD:              "/repo",
+	})
+	if err != nil {
+		t.Fatalf("AssembleStart() error = %v", err)
+	}
+	for _, want := range []string{"legacy base", "demo-skill", "visible description", "visible summary"} {
+		if !strings.Contains(assembly.BaseInstructions, want) {
+			t.Fatalf("BaseInstructions missing %q after enabled registration:\n%s", want, assembly.BaseInstructions)
+		}
+	}
+}
+
 // fakeDynamicRegistrar 记录每次 RegisterDynamicProvider 的调用，供灰度断言。
 type fakeDynamicRegistrar struct {
 	registered []string

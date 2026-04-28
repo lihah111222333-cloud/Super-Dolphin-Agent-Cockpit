@@ -198,8 +198,13 @@ func withPoolServer(url string, release func()) sessionOption {
 func (s *session) onInboundMessage(ctx context.Context, resp Responder, msg RawMessage) {
 	s.noteReadActivity()
 	if toolHandler := s.manager.getToolHandler(); len(msg.ID) != 0 && toolHandler != nil && isToolCallMethod(msg.Method) {
+		// P20.18 Phase 1：Codex 发的 item/tool/call params 只含 name + arguments，不包含
+		// agentId（agent 是宿主概念 codex 不知道）。旧的 peer-routed 工具不需 agentId，但
+		// host-direct 分支（skill_expand_body / skill_read_resource）需要从 agentId 解析 cwd，
+		// 不 enrich 会 100% 失败。这里把 session 持有的 agentID 覆盖写入 msg.Params 后再转发。
+		enriched := enrichToolCallParams(msg, s.agentID)
 		runtimesafe.SafeGo(s.ctx, s.logger, "codexapp.session.toolCall", func(_ context.Context) {
-			result, err := toolHandler(ctx, msg)
+			result, err := toolHandler(ctx, enriched)
 			if respErr := resp.RespondWithID(msg.ID, result, err); respErr != nil {
 				s.logger.Warn("codexapp: tool call respond failed",
 					"agent_id", s.agentID, "method", msg.Method, "error", respErr)

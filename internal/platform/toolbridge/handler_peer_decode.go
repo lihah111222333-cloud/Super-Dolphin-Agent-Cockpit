@@ -96,6 +96,7 @@ func decodeToolCallRequest(params json.RawMessage) (ToolCallRequest, error) {
 		Arguments:  firstRaw(payload, "arguments", "args"),
 		AgentID:    firstString(payload, "agentId", "agent_id"),
 		ThreadID:   firstString(payload, "threadId", "thread_id"),
+		TurnID:     firstString(payload, "turnId", "turn_id"),
 		CallID:     firstString(payload, "callId", "call_id"),
 		ClientKind: firstString(payload, "clientKind", "client_kind", "family"),
 	}
@@ -104,6 +105,9 @@ func decodeToolCallRequest(params json.RawMessage) (ToolCallRequest, error) {
 	}
 	if req.ThreadID == "" {
 		req.ThreadID = nestedString(payload, "thread", "id")
+	}
+	if req.TurnID == "" {
+		req.TurnID = nestedString(payload, "turn", "id")
 	}
 	if req.CallID == "" {
 		req.CallID = nestedString(payload, "item", "callId", "call_id")

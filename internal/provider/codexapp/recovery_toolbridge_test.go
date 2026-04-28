@@ -285,3 +285,73 @@ func TestToolBridge_Recovery_ResumeToolCall(t *testing.T) {
 		t.Fatalf("thread/resume count = %d, want 1", threadResumes)
 	}
 }
+
+func TestRecoveryResume_DynamicSkillToolsStillCallable(t *testing.T) {
+	toolCalls := make(chan RawMessage, 1)
+	responses := make(chan jsonRPCMessage, 1)
+	connections := make(chan *websocket.Conn, 2)
+	manager := &ServerManager{}
+	manager.SetToolHandler(func(ctx context.Context, msg RawMessage) (any, error) {
+		select {
+		case toolCalls <- msg:
+		default:
+		}
+		return map[string]any{"ok": true, "phase": "recovered-skill"}, nil
+	})
+
+	var mu sync.Mutex
+	var writeMu sync.Mutex
+	initializeCount, threadResumes := 0, 0
+	server := startRecoveryToolBridgeServer(t, connections, responses, &mu, &writeMu, &initializeCount, &threadResumes)
+	defer server.Close()
+
+	s, err := newSession(context.Background(), pkglogger.Get(), "ws"+strings.TrimPrefix(server.URL, "http"), "agent-1", nil, nil, manager)
+	if err != nil {
+		t.Fatalf("newSession() error = %v", err)
+	}
+	s.runtime.Start()
+	defer closeCodexTestSession(t, s)
+	first := waitCodexTestConn(t, connections)
+	s.setThreadID("thread-1")
+	stopReadLoopForReconnect(t, s)
+	reconnectCtx, reconnectCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer reconnectCancel()
+	if err := s.recovery.Reconnect(reconnectCtx); err != nil {
+		t.Fatalf("Reconnect() error = %v", err)
+	}
+	second := waitCodexTestConn(t, connections)
+	if first == second {
+		t.Fatal("reconnect did not establish a new websocket connection")
+	}
+	if s.runtime != nil && !s.runtime.restartReader() {
+		t.Fatal("runtime.restartReader() returned false")
+	}
+	if err := s.resumeThreadAfterRecovery(s.ctx); err != nil {
+		t.Fatalf("resumeThreadAfterRecovery() error = %v", err)
+	}
+	sendCodexToolCall(t, &writeMu, second, 89, testDynamicSkillExpandBodyToolName, map[string]any{"name": "demo"})
+	select {
+	case msg := <-toolCalls:
+		if msg.Method != "item/tool/call" {
+			t.Fatalf("tool method = %q, want item/tool/call", msg.Method)
+		}
+		var params map[string]any
+		if err := json.Unmarshal(msg.Params, &params); err != nil {
+			t.Fatalf("json.Unmarshal(tool params) error = %v", err)
+		}
+		if stringValue(params, "name") != testDynamicSkillExpandBodyToolName {
+			t.Fatalf("tool name = %#v, want %s", params["name"], testDynamicSkillExpandBodyToolName)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for resumed dynamic skill tool call")
+	}
+	assertToolResponse(t, responses, "89")
+	mu.Lock()
+	defer mu.Unlock()
+	if initializeCount != 2 {
+		t.Fatalf("initialize count = %d, want 2", initializeCount)
+	}
+	if threadResumes != 1 {
+		t.Fatalf("thread/resume count = %d, want 1", threadResumes)
+	}
+}

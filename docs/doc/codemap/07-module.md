@@ -80,7 +80,7 @@ flowchart LR
 
 ## 10. 常见误导
 
-- `07-module.md` 现在只有 53 行，**不代表业务模块内容少**；真实正文已进 `07-module-read.md` / `07-module-write.md`。
+- `07-module.md` 现在只是稳定索引页，**不代表业务模块内容少**；真实正文已进 `07-module-read.md` / `07-module-write.md`。
 - `dashboard/prompts` 已不是旧版“简单 page-field wrapper”；真实入口是 ctx 带 `cwd` 后再过滤。
 - `skill` 不只剩 legacy `skills/*`；host 侧已新增 `skill/list` / `skill/expand`。
 - `lspgui` 在当前仓内并不存在；看到旧文档提它时，一律以 `07-module-read.md` §3 为准。

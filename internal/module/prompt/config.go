@@ -58,9 +58,10 @@ func NewConfig(_ *platformconfig.Config) *Config {
 		EnableRegistry:                  parseBoolEnv(envEnablePromptRegistry, false),
 		EnableAssembly:                  parseBoolEnv(envEnablePromptAssembly, false),
 		EnableSystemContextCacheBreaker: parseBoolEnv(envEnableSystemContextCacheBreaker, false),
-		// Phase 10 default：默认注册 SkillCatalogProvider；显式 false 可 opt-out。
+		// Phase 3 rollout gate 尚未收齐 production smoke / 30 天 observation，
+		// SkillCatalogProvider 仍保持默认关闭；显式 true 才可 canary opt-in。
 		// meta-instructions 默认开启（Phase 9 行为）。
-		EnableSkillProgressiveDisclosure: parseBoolEnv(envEnableSkillProgressiveDisclosure, true),
+		EnableSkillProgressiveDisclosure: parseBoolEnv(envEnableSkillProgressiveDisclosure, false),
 		SkillCatalogTokenBudget:          parseIntEnv(envSkillCatalogTokenBudget, 0),
 		EmitSkillCatalogMetaInstructions: parseBoolEnv(envSkillCatalogMetaInstructions, true),
 		SkillWriterFormat:                parseSkillWriterFormat(envSkillWriterFormat, "legacy"),

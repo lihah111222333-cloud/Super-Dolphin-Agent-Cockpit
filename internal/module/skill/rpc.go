@@ -51,7 +51,12 @@ func skillRPCError(err error) error {
 	case errors.Is(err, ErrInvalidSkillName), errors.Is(err, errInvalidSkillExpandParam), errors.Is(err, ErrInvalidSkillScope):
 		return jrpc2.Errorf(jrpc2.InvalidParams, "%s", err.Error())
 	case errors.Is(err, errSkillApprovalRequired):
-		return jrpc2.Errorf(-31002, "%s", err.Error())
+		rpcErr := jrpc2.Errorf(-31002, "%s", err.Error())
+		var required SkillApprovalRequiredError
+		if errors.As(err, &required) {
+			return rpcErr.WithData(required.Request)
+		}
+		return rpcErr
 	case errors.Is(err, ErrSkillSystemReviewRequired), errors.Is(err, errSkillApprovalDenied), errors.Is(err, errSkillApprovalRequesterUnavailable), errors.Is(err, errSkillApprovalProjectCacheMissing):
 		return jrpc2.Errorf(jrpc2.InternalError, "%s", err.Error())
 	case errors.Is(err, ErrCandidateApprovedByRequired),

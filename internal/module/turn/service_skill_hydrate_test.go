@@ -59,6 +59,7 @@ func TestPrepareTurnHydratesNameOnlySkill(t *testing.T) {
 			Summary:     "debug helpers",
 			Description: "Debug triggers",
 			ContentHash: "0123456789abcdef0123456789abcdef",
+			Trust:       skillpkg.TrustUser,
 		}},
 		bodies: map[string]string{
 			filepath.Join(dir, "SKILL.md"): "full debug body",
@@ -68,7 +69,7 @@ func TestPrepareTurnHydratesNameOnlySkill(t *testing.T) {
 	session := &stubSession{threadID: "thread-hydrate"}
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
 		Prompt:               "please investigate",
-		Skills:               []dto.SkillRef{{Name: "debug"}},
+		Skills:               []dto.SkillRef{{Name: "debug", Source: dto.SkillSourceManual}},
 		ManualSkillSelection: true,
 		CWD:                  "/repo",
 	})
@@ -105,6 +106,7 @@ func TestPrepareTurnPreservesSummaryWhenBodyMissing(t *testing.T) {
 			Dir:         "/tmp/skills/rpc-tracing",
 			Summary:     "trace bus/router flow",
 			ContentHash: "deadbeefdeadbeefdeadbeef",
+			Trust:       skillpkg.TrustUser,
 		}},
 		// no bodies registered → ReadLocal returns error
 		readErrors: map[string]error{
@@ -115,7 +117,7 @@ func TestPrepareTurnPreservesSummaryWhenBodyMissing(t *testing.T) {
 	session := &stubSession{threadID: "thread-nobody"}
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
 		Prompt:               "trace the event flow",
-		Skills:               []dto.SkillRef{{Name: "rpc-tracing"}},
+		Skills:               []dto.SkillRef{{Name: "rpc-tracing", Source: dto.SkillSourceManual}},
 		ManualSkillSelection: true,
 		CWD:                  "/repo",
 	})
@@ -193,7 +195,7 @@ func TestHydrateSkillRefsListSkillsErrorReturnsOriginal(t *testing.T) {
 	lookup := &stubSkillLookup{listErr: errors.New("boom")}
 	svc := newService(silentLogger(), nil, nil, lookup, nil).(*service)
 	original := []dto.SkillRef{{Name: "debug"}}
-	out, _ := svc.hydrateSkillRefs(skillpkg.WithCWD(context.Background(), "/repo"), original)
+	out, _ := svc.hydrateSkillRefs(skillpkg.WithCWD(context.Background(), "/repo"), original, false)
 	if len(out) != 1 || out[0].Name != "debug" || out[0].Prompt != "" {
 		t.Fatalf("ListSkills error must preserve input, got %+v", out)
 	}
