@@ -186,8 +186,11 @@ export const template = `
                   :context-window="(activeTokenUsage && activeTokenUsage.contextWindowTokens) || 0"
                   :can-compact="canCompact"
                   :compacting="compacting"
+                  :failed-info="activeAutoContinueFailed"
+                  :retrying="autoContinueRetrying"
                   @compact="compactCurrent"
                   @fork="openForkDraftFromUI('context-banner')"
+                  @retry-auto-continue="onRetryAutoContinue"
                 />
                 <ComposerForkDraftCard
                   v-if="!isCmd"
