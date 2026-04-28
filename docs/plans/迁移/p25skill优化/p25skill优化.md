@@ -1113,7 +1113,7 @@ Release governance / 风险 gate 只作为发布管理补充，不盖过上述�
 
 本节集中收口 2026-04-26 多 agent review 发现的问题；业务能力 blockers 以 §9.2 为准。
 本节只保留会影响后续实现、默认切换或发布观察的风险提示，避免让治理事项压过业务能力判断。
-其中 §10.1 / §10.2 已闭包修复，其余大多仍是当前 PR 范围外风险。
+其中 §10.1 / §10.2 / §10.3 已闭包修复，其余大多仍是当前 PR 范围外风险。
 
 ### 10.1 agentId trust 姿态反向（HIGH，安全，已修）
 
@@ -1131,14 +1131,12 @@ Release governance / 风险 gate 只作为发布管理补充，不盖过上述�
 - 本轮修复：`resolveResourceTarget` 现在对 skillDir 与 resource target 的 `EvalSymlinks` 失败直接报错，不再 fallback 到字面路径；成功解析后继续用 `ContainsPath(skillDir, target)` 拦截逃逸。
 - 验收：`TestReadResource_SymlinkEscapeRejected`、`TestReadResource_BrokenSymlinkRejectedBeforeRead`、`TestSkillHostTools_CallReadResource_RejectsSymlinkEscape` 锁定 service 层与 host-direct 跨层路径。
 
-### 10.3 host-direct 错误体未结构化（MED）
+### 10.3 host-direct result 路径脱敏与结构化错误（MED，已修）
 
-- 位置：`internal/platform/toolbridge/handler.go:719-742` `callHostTool`
-- 现状：把 `ExpandBodyResult` 整体 `json.Marshal` 塞进 `inputText`，含绝对 `Path`，
-  泄露宿主文件系统结构；审批失败的错误体只有 `err.Error()` 文本，缺
-  `kind="approval_required"` 标识
-- 建议：与 peer 路径一致使用 MCP content item；序列化前 strip / cwd-relative 化
-  `Path`；专门识别 `SkillApprovalRequiredError` 返回结构化结果
+- 位置：`internal/platform/toolbridge/handler_host_tools.go` 的 `callHostTool` / `hostToolErrorResult`。
+- 原风险：成功结果直接把 `ExpandBodyResult` / `ReadResourceResult` 整体 `json.Marshal` 塞进 `inputText`，其中 `Path` / `SkillDir` 可能泄露宿主绝对路径；审批失败若退化成普通 `err.Error()` 文本，模型侧也难以识别 `approval_required`。
+- 本轮修复：成功结果在序列化前经 `sanitizeHostToolResult` 脱敏，`ExpandBodyResult.Path` 与 `ReadResourceResult.SkillDir` 均转为 cwd-relative；若不在 cwd 下则只保留 basename。审批 required / denied 继续返回结构化 envelope（`kind="approval_required"` / `kind="approval_denied"`）。
+- 验收：`TestCallHostTool_SanitizesSuccessfulSkillPaths`、`TestCallHostTool_SanitizesSuccessfulResourceSkillDir`、`TestCallHostTool_ApprovalRequiredFallbackReturnsStructuredResult`、`TestCallHostTool_ApprovalDeniedReturnsStructuredResult`。
 
 ### 10.4 dedup 静默吞 peer / host 工具命名前缀（MED）
 

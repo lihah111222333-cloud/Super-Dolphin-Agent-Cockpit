@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -176,7 +177,7 @@ func (h *Handler) callHostTool(ctx context.Context, req ToolCallRequest) (*ToolC
 		outcome = hostToolErrorOutcome(err)
 		return hostToolErrorResult(req, err), nil
 	}
-	payload, mErr := json.Marshal(result)
+	payload, mErr := json.Marshal(sanitizeHostToolResult(result, cwd))
 	if mErr != nil {
 		return nil, mErr
 	}
@@ -188,6 +189,43 @@ func (h *Handler) callHostTool(ctx context.Context, req ToolCallRequest) (*ToolC
 			Text: string(payload),
 		}},
 	}, nil
+}
+
+func sanitizeHostToolResult(result any, cwd string) any {
+	switch typed := result.(type) {
+	case skillpkg.ExpandBodyResult:
+		typed.Path = hostToolRelativePath(cwd, typed.Path)
+		return typed
+	case skillpkg.ReadResourceResult:
+		typed.SkillDir = hostToolRelativePath(cwd, typed.SkillDir)
+		return typed
+	default:
+		return result
+	}
+}
+
+func hostToolRelativePath(cwd, path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" || !filepath.IsAbs(path) {
+		return path
+	}
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" {
+		return filepath.Base(path)
+	}
+	base, err := filepath.EvalSymlinks(filepath.Clean(cwd))
+	if err != nil {
+		base = filepath.Clean(cwd)
+	}
+	target, err := filepath.EvalSymlinks(filepath.Clean(path))
+	if err != nil {
+		target = filepath.Clean(path)
+	}
+	rel, err := filepath.Rel(base, target)
+	if err != nil || rel == "." || rel == "" || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." || filepath.IsAbs(rel) {
+		return filepath.Base(path)
+	}
+	return filepath.ToSlash(rel)
 }
 
 func hostToolErrorOutcome(err error) string {
