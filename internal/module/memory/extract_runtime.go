@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"errors"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 const backgroundExtractTimeout = 5 * time.Second
@@ -286,7 +288,23 @@ func (h *MemoryLifecycleHooks) enqueueBackgroundExtraction(threadID string, hand
 	}
 	h.extractWG.Add(1)
 	h.drainMu.Unlock()
-	go h.runBackgroundExtraction(threadID, state)
+	go func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				logger := pkglogger.Get()
+				if h.logger != nil {
+					logger = h.logger
+				}
+				logger.Error("memory: recovered background extraction panic",
+					"thread_id", threadID,
+					"panic", rec,
+					"stack", string(debug.Stack()),
+				)
+				state.fail(errors.New("memory: background extraction panicked"))
+			}
+		}()
+		h.runBackgroundExtraction(threadID, state)
+	}()
 }
 
 func (h *MemoryLifecycleHooks) runBackgroundExtraction(threadID string, state *ExtractionState) {

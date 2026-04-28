@@ -97,7 +97,14 @@ func (c *teamSyncCoordinator) Start() {
 			close(c.doneCh)
 			return
 		}
-		go c.runWorker()
+		go func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					pkglogger.Error("memory: recovered team_sync_coordinator worker panic", "panic", rec)
+				}
+			}()
+			c.runWorker()
+		}()
 	})
 }
 
