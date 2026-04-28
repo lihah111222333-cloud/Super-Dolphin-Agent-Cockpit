@@ -20,7 +20,6 @@ func NewTurnHandlers(
 		"turn/steer":         turnSteerHandler(svc, resolver, capResolver, runtimeReader),
 		"turn/interrupt":     turnInterruptHandler(svc, resolver),
 		"turn/forceComplete": turnForceCompleteHandler(svc, resolver),
-		"review/start":       reviewStartHandler(),
 		"approval/respond":   approvalRespondHandler(approver),
 	}}
 }
