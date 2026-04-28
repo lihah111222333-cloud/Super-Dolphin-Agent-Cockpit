@@ -25,13 +25,16 @@ vi.mock('./composables/useContextUsageThresholds.js', () => {
 });
 vi.mock('./composables/useAutoContinuePref.js', () => {
   const p = ref(true);
+  const ready = ref(true); // R6 fix：测试默认 pref 已 ready，避免所有 case 被跳过
   return {
     useAutoContinuePref: () => p,
+    useAutoContinuePrefReady: () => ready,
     loadAutoContinuePref: vi.fn().mockResolvedValue(true),
     saveAutoContinuePref: vi.fn(),
     isValidAutoContinuePref: () => true,
-    _resetAutoContinuePrefForTest: () => { p.value = true; },
+    _resetAutoContinuePrefForTest: () => { p.value = true; ready.value = true; },
     _setAutoContinuePrefForTest: (v) => { p.value = v; },
+    _setAutoContinuePrefReadyForTest: (v) => { ready.value = v; },
   };
 });
 
@@ -413,6 +416,65 @@ describe('useAutoContinue · pref gating', () => {
     expect(id).toBe('retried-ok');
     expect(cont).toHaveBeenCalledWith('t1');
     prefMod._setAutoContinuePrefForTest(true);
+  });
+});
+
+// R6 fix：pref 未 load 完不触发
+describe('useAutoContinue · R6 pref-ready gating', () => {
+  it('does NOT trigger when prefReady=false (avoids default-true misfire)', async () => {
+    prefMod._setAutoContinuePrefReadyForTest(false);
+    const store = makeStore({
+      tokenUsageByThread: { t1: { usedPercent: 50 } },
+      agentRuntimeById: { t1: { taskId: 'A' } },
+    });
+    start(store);
+    store.state.tokenUsageByThread = { t1: { usedPercent: 99 } };
+    await flushAll();
+    expect(continueTaskById).not.toHaveBeenCalled();
+    // ready 之后，跳出再跳入 → 能触发
+    prefMod._setAutoContinuePrefReadyForTest(true);
+    store.state.tokenUsageByThread = { t1: { usedPercent: 70 } };
+    await flushAll();
+    store.state.tokenUsageByThread = { t1: { usedPercent: 99 } };
+    await flushAll();
+    expect(continueTaskById).toHaveBeenCalledTimes(1);
+  });
+});
+
+// R7 fix：孤儿清理
+describe('useAutoContinue · R7 orphan cleanup', () => {
+  it('removes prevLevelByThread entries when thread disappears from store', async () => {
+    const store = makeStore({
+      tokenUsageByThread: { t1: { usedPercent: 50 }, t2: { usedPercent: 50 } },
+      agentRuntimeById: { t1: { taskId: 'A' }, t2: { taskId: 'B' } },
+    });
+    const r = start(store);
+    // 移除 t2 后，watch 回调应清理
+    store.state.tokenUsageByThread = { t1: { usedPercent: 60 } };
+    await flushAll();
+    // 看 ctx 内部 Map（只能间接验证：同名 t2 重新进入 critical 应被当“初次跳入”​​触发，
+    // 而不是被 “之前 prev 为 normal” 路径获识）
+    store.state.tokenUsageByThread = { t1: { usedPercent: 60 }, t2: { usedPercent: 99 } };
+    await flushAll();
+    expect(continueTaskById).toHaveBeenCalledWith('t2');
+  });
+});
+
+// R8 fix：classifyError 提取 error.code
+describe('useAutoContinue · R8 classifyError code extraction', () => {
+  it('records error_code along with error_message', async () => {
+    const store = makeStore({
+      tokenUsageByThread: { t1: { usedPercent: 50 } },
+      agentRuntimeById: { t1: { taskId: 'A' } },
+    });
+    const err = Object.assign(new Error('rpc shutdown'), { code: 'E_SHUTDOWN' });
+    const cont = vi.fn().mockRejectedValue(err);
+    const { failedAutoContinueByThread } = start(store, { continueTaskById: cont });
+    store.state.tokenUsageByThread = { t1: { usedPercent: 99 } };
+    await flushAll();
+    const failed = failedAutoContinueByThread.value.get('t1');
+    expect(failed.error_message).toBe('rpc shutdown');
+    expect(failed.error_code).toBe('E_SHUTDOWN');
   });
 });
 

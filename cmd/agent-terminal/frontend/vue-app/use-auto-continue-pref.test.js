@@ -11,6 +11,7 @@ const {
   loadAutoContinuePref,
   saveAutoContinuePref,
   useAutoContinuePref,
+  useAutoContinuePrefReady,
   _resetAutoContinuePrefForTest,
 } = await import('./composables/useAutoContinuePref.js');
 
@@ -86,6 +87,25 @@ describe('saveAutoContinuePref', () => {
     expect(callAPI).toHaveBeenCalledWith('ui/preferences/set', { key: 'taskHandoff.autoContinueOnAlert', value: false });
     const ref = useAutoContinuePref();
     expect(ref.value).toBe(false);
+  });
+});
+
+// R6 fix：ready 信号
+describe('useAutoContinuePrefReady', () => {
+  it('starts as false; flips to true after load completes (success)', async () => {
+    vi.mocked(callAPI).mockResolvedValueOnce(false);
+    const ready = useAutoContinuePrefReady();
+    expect(ready.value).toBe(false);
+    await loadAutoContinuePref();
+    expect(ready.value).toBe(true);
+  });
+
+  it('flips to true even when load API rejects (so scheduler can still start)', async () => {
+    vi.mocked(callAPI).mockRejectedValueOnce(new Error('boom'));
+    const ready = useAutoContinuePrefReady();
+    expect(ready.value).toBe(false);
+    await loadAutoContinuePref();
+    expect(ready.value).toBe(true);
   });
 });
 

@@ -10,6 +10,8 @@ const DEFAULT_AUTO_CONTINUE = true;
 
 // 模块单例 ref：所有调用方共享同一个引用，SettingsPage 保存后立即同步。
 const autoContinueOnAlert = ref(DEFAULT_AUTO_CONTINUE);
+// R6 fix：应用启动后 load 未完成前，useAutoContinue watch 需知道“偏好还没加载完”以避免用 default 误触发。
+const autoContinuePrefReady = ref(false);
 let loadPromise = null;
 
 /**
@@ -37,6 +39,8 @@ export async function loadAutoContinuePref() {
       }
     } catch (err) {
       logWarn('ui', 'autoContinuePref.load_failed', { error: (err && err.message) || String(err) });
+    } finally {
+      autoContinuePrefReady.value = true; // R6 fix：记住“已完成首次加载尝试”，即使失败也让调度器能启动。
     }
     return autoContinueOnAlert.value;
   })();
@@ -64,8 +68,18 @@ export function useAutoContinuePref() {
   return autoContinueOnAlert;
 }
 
+/**
+ * R6 fix：返回“偏好是否已尝试加载过”的 ref。useAutoContinue watch 在 false 时跳过触发，
+ * 避免“用户上次关了 → 启动未 load 完 → 用 default true 误触发 1 次”。
+ */
+export function useAutoContinuePrefReady() {
+  if (!loadPromise) loadAutoContinuePref();
+  return autoContinuePrefReady;
+}
+
 // 仅供测试使用：重置内部状态以便不同 case 间隔离。
 export function _resetAutoContinuePrefForTest() {
   autoContinueOnAlert.value = DEFAULT_AUTO_CONTINUE;
+  autoContinuePrefReady.value = false;
   loadPromise = null;
 }
