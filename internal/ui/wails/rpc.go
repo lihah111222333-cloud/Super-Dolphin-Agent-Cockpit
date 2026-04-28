@@ -60,6 +60,11 @@ type selectFilesParams struct {
 	clientMetaParams
 }
 
+type saveClipboardImageParams struct {
+	Base64Payload string `json:"base64Payload"`
+	clientMetaParams
+}
+
 type openNewWindowParams struct {
 	Group       string         `json:"group,omitempty"`
 	N           int            `json:"n,omitempty"`
@@ -90,6 +95,16 @@ func NewRPCHandlers(app *App, cfg *config.Config, uiState contract.UIProjectStat
 		}),
 		"ui/copyText": rpc.StrictHandler(func(ctx context.Context, p copyTextParams) (any, error) {
 			return handleCopyText(app, strings.TrimSpace(p.Text))
+		}),
+		"ui/buildInfo": rpc.StrictHandler(func(ctx context.Context, _ clientMetaParams) (any, error) {
+			return currentBuildInfo(), nil
+		}),
+		"ui/saveClipboardImage": rpc.StrictHandler(func(ctx context.Context, p saveClipboardImageParams) (any, error) {
+			path, err := app.SaveClipboardImage(p.Base64Payload)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]string{"path": path}, nil
 		}),
 		"ui/log": rpc.StrictHandler(func(ctx context.Context, p map[string]any) (any, error) {
 			return handleUILog(ctx, p), nil
