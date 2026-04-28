@@ -1,6 +1,7 @@
 package skill
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -277,9 +279,9 @@ func shortSHA256Hex(data []byte) string {
 //   - 归一化后再与 skill dir join，os.Stat + platformshared.ContainsPath 二次验证
 //   - 按 maxBytes 截断
 //
-// 内容类型：Content 以 Go string 返回，**仅保证 UTF-8 文本文件正确性**
+// 内容类型：Content 以 Go string 返回，**仅支持 UTF-8 文本文件**
 // （references/*.md、scripts/*.sh 等）。二进制资源（assets/*.png 等）会
-// 被 JSON 序列化器按 UTF-8 校验转义为 \ufffd，不在本工具的爆护方案内。
+// fail closed，避免 JSON 序列化时被 UTF-8 替换字符静默污染。
 // 未来如需支持二进制可扩展为 base64 encoding 或新工具 skill_read_asset。
 //
 // 本地项目级/用户级 skill resource 不需要 approval；仅确定不可信/异常来源
@@ -341,7 +343,21 @@ func readResourceData(target, relPath string) ([]byte, error) {
 	if stat.Size() > maxSkillFileBytes {
 		return nil, fmt.Errorf("resource file too large: %s is %d bytes, limit %d", relPath, stat.Size(), maxSkillFileBytes)
 	}
-	return os.ReadFile(target)
+	data, err := os.ReadFile(target)
+	if err != nil {
+		return nil, err
+	}
+	if isBinaryResourceData(data) {
+		return nil, fmt.Errorf("resource file is binary or non-UTF-8 text: %s; skill_read_resource supports text resources only", relPath)
+	}
+	return data, nil
+}
+
+func isBinaryResourceData(data []byte) bool {
+	if len(data) == 0 {
+		return false
+	}
+	return !utf8.Valid(data) || bytes.IndexByte(data, 0) >= 0
 }
 
 // resolveResourceTarget 解析 symlink、规范化路径并验证 target 未逃逸 skill 目录。

@@ -345,6 +345,36 @@ func TestReadResource_EmptyFile(t *testing.T) {
 	}
 }
 
+func TestReadResource_BinaryFileRejected(t *testing.T) {
+	svc, root := newExpandTestService(t)
+	dir := writeExpandTestSkill(t, root, "foo", "---\nname: foo\ntrust: user\n---\nbody")
+	assetDir := filepath.Join(dir, "assets")
+	if err := os.MkdirAll(assetDir, 0o755); err != nil {
+		t.Fatalf("mkdir assets: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(assetDir, "pixel.png"), []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a}, 0o644); err != nil {
+		t.Fatalf("write binary asset: %v", err)
+	}
+
+	_, err := svc.ReadResource(expandTestContext(svc), ReadResourceParams{Name: "foo", Path: "assets/pixel.png"})
+	if err == nil || !strings.Contains(err.Error(), "text resources only") {
+		t.Fatalf("binary resource error = %v, want text resources only", err)
+	}
+}
+
+func TestReadResource_NULTextRejected(t *testing.T) {
+	svc, root := newExpandTestService(t)
+	dir := writeExpandTestSkill(t, root, "foo", "---\nname: foo\ntrust: user\n---\nbody")
+	if err := os.WriteFile(filepath.Join(dir, "nul.txt"), []byte("hello\x00world"), 0o644); err != nil {
+		t.Fatalf("write nul text: %v", err)
+	}
+
+	_, err := svc.ReadResource(expandTestContext(svc), ReadResourceParams{Name: "foo", Path: "nul.txt"})
+	if err == nil || !strings.Contains(err.Error(), "text resources only") {
+		t.Fatalf("NUL resource error = %v, want text resources only", err)
+	}
+}
+
 // TestReadResource_VersionReflectsResourceContent P20.1 Phase 6 审核第 2 轮
 // 发现的 bug：ReadResource 的 Version 必须反映读取到的资源文件 hash，
 // 不能错用 SKILL.md hash——否则资源文件改动时调用方无法感知。

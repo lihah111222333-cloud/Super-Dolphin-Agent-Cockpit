@@ -213,19 +213,30 @@ func hostToolRelativePath(cwd, path string) string {
 	if cwd == "" {
 		return filepath.Base(path)
 	}
-	base, err := filepath.EvalSymlinks(filepath.Clean(cwd))
+	base := hostToolCleanPath(cwd)
+	target := hostToolCleanPath(path)
+	return hostToolSafeRelativePath(base, target, path)
+}
+
+func hostToolCleanPath(path string) string {
+	cleaned := filepath.Clean(path)
+	resolved, err := filepath.EvalSymlinks(cleaned)
 	if err != nil {
-		base = filepath.Clean(cwd)
+		return cleaned
 	}
-	target, err := filepath.EvalSymlinks(filepath.Clean(path))
-	if err != nil {
-		target = filepath.Clean(path)
-	}
+	return resolved
+}
+
+func hostToolSafeRelativePath(base, target, fallback string) string {
 	rel, err := filepath.Rel(base, target)
-	if err != nil || rel == "." || rel == "" || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." || filepath.IsAbs(rel) {
-		return filepath.Base(path)
+	if err != nil || !hostToolRelativePathAllowed(rel) {
+		return filepath.Base(fallback)
 	}
 	return filepath.ToSlash(rel)
+}
+
+func hostToolRelativePathAllowed(rel string) bool {
+	return rel != "." && rel != "" && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }
 
 func hostToolErrorOutcome(err error) string {
