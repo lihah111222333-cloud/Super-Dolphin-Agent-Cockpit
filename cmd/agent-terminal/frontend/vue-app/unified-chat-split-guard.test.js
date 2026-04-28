@@ -180,6 +180,7 @@ describe('UnifiedChatPage split guard coverage', () => {
         continueTask: true,
         autoTaskHandoff: true,
       },
+      skipSaveActive: false,
     });
   });
 
