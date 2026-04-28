@@ -6,6 +6,7 @@ import { useCronStore } from '../stores/cron.js';
 import { mapCronRpcError } from '../services/cron-api.js';
 import { logDebug, logInfo, logWarn } from '../services/log.js';
 import { CronJobForm } from '../components/cron/CronJobForm.js';
+import { CronJobDetail } from '../components/cron/CronJobDetail.js';
 
 function formatSchedule(job) {
   const expr = (job?.schedule_expr || '').toString();
@@ -31,7 +32,7 @@ function formatLastRun(job) {
 
 export const CronPanel = {
   name: 'CronPanel',
-  components: { CronJobForm },
+  components: { CronJobForm, CronJobDetail },
   setup() {
     const store = useCronStore();
 
@@ -39,9 +40,10 @@ export const CronPanel = {
     const loading = computed(() => store.state.loading.list);
     const errorMessage = computed(() => store.state.error.list);
 
-    // view = 'list' | 'form'; editingJob = null 表示创建。
+    // view = 'list' | 'form' | 'detail'; editingJob = null 表示创建。
     const view = ref('list');
     const editingJob = ref(null);
+    const viewingJobId = ref('');
 
     function openCreate() {
       editingJob.value = null;
@@ -51,9 +53,22 @@ export const CronPanel = {
       editingJob.value = job;
       view.value = 'form';
     }
+    function openDetail(job) {
+      viewingJobId.value = job?.id || '';
+      view.value = 'detail';
+    }
     function closeForm() {
       view.value = 'list';
       editingJob.value = null;
+    }
+    function backToList() {
+      view.value = 'list';
+      viewingJobId.value = '';
+      editingJob.value = null;
+    }
+    function editFromDetail(job) {
+      editingJob.value = job;
+      view.value = 'form';
     }
     async function onSaved() {
       closeForm();
@@ -121,9 +136,13 @@ export const CronPanel = {
       formatLastRun,
       view,
       editingJob,
+      viewingJobId,
       openCreate,
       openEdit,
+      openDetail,
       closeForm,
+      backToList,
+      editFromDetail,
       onSaved,
     };
   },
@@ -134,6 +153,12 @@ export const CronPanel = {
         :editing-job="editingJob"
         @cancel="closeForm"
         @saved="onSaved"
+      />
+      <CronJobDetail
+        v-else-if="view === 'detail'"
+        :job-id="viewingJobId"
+        @back="backToList"
+        @edit="editFromDetail"
       />
       <template v-else>
       <div class="cron-panel-toolbar">
@@ -207,6 +232,11 @@ export const CronPanel = {
             <span>{{ formatRetryBudget(job) }}</span>
           </div>
           <div class="data-actions-vue">
+            <button
+              class="btn btn-ghost btn-xs"
+              :data-testid="'cron-view-' + idx"
+              @click="openDetail(job)"
+            >查看</button>
             <button
               class="btn btn-ghost btn-xs"
               :data-testid="'cron-edit-' + idx"

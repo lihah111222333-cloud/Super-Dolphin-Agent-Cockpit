@@ -55,22 +55,42 @@ describe('CronPanel contract', () => {
     expect(CronPanel.template).toContain('cron-list');
     expect(CronPanel.template).toContain('cron-refresh-button');
     expect(CronPanel.template).toContain('cron-new-button');
+    expect(CronPanel.template).toContain("'cron-view-' + idx");
     expect(CronPanel.template).toContain("'cron-edit-' + idx");
+    expect(CronPanel.template).toContain('<CronJobDetail');
     expect(CronPanel.components).toHaveProperty('CronJobForm');
+    expect(CronPanel.components).toHaveProperty('CronJobDetail');
   });
 
-  it('exposes view + form action helpers from setup()', () => {
+  it('exposes view + form + detail action helpers from setup()', () => {
     const vm = CronPanel.setup();
     expect(vm.view.value).toBe('list');
     expect(vm.editingJob.value).toBeNull();
+    expect(vm.viewingJobId.value).toBe('');
+
     vm.openCreate();
     expect(vm.view.value).toBe('form');
     expect(vm.editingJob.value).toBeNull();
+
     vm.closeForm();
     expect(vm.view.value).toBe('list');
+
     vm.openEdit({ id: 'j1', name: 'demo' });
     expect(vm.view.value).toBe('form');
     expect(vm.editingJob.value).toEqual({ id: 'j1', name: 'demo' });
+
+    vm.openDetail({ id: 'j2' });
+    expect(vm.view.value).toBe('detail');
+    expect(vm.viewingJobId.value).toBe('j2');
+
+    vm.editFromDetail({ id: 'j2', name: 'two' });
+    expect(vm.view.value).toBe('form');
+    expect(vm.editingJob.value).toEqual({ id: 'j2', name: 'two' });
+
+    vm.backToList();
+    expect(vm.view.value).toBe('list');
+    expect(vm.viewingJobId.value).toBe('');
+    expect(vm.editingJob.value).toBeNull();
   });
 
   it('formatSchedule / formatRetryBudget / formatLastRun handle empty + populated jobs', () => {
