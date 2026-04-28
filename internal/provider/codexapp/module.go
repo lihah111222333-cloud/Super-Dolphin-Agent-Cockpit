@@ -290,6 +290,10 @@ func cleanResidualProcesses() {
 // buildSkillPromptInput 按 P20.1 Phase 4 规格渲染 skill 注入块，并补 P20.2 §4
 // 兜底：non-None skill 始终以 `skills:\n- name` 名单形式出现在模型上下文。
 //
+// P20.18 Phase 1.5：这里是 codexapp skill prompt sink，必须自行套用
+// overrideSkillsToSummary；caller 侧保留同一 override 只是显式 belt-and-suspenders。
+// 新入口若直接调用 buildSkillPromptInput / turnInputsFromRequest，也不能绕过 Summary 默认策略。
+//
 // 两段结构（与 claudecli buildSkillSection 对称）：
 //  1. name-list：所有 Mode.Effective()!=None 的 skill 名都会列出，即便 render
 //     因 Prompt/Summary 为空而返回 ok=false —— 避免手动选中的 skill 在
@@ -299,6 +303,7 @@ func cleanResidualProcesses() {
 //     - v1            → [skill:name::mode@v1]\n...\n[/skill:name::mode@v1]
 //     - Mode=None / 非法值 → 跳过（与 name-list 一起剥离，对齐 claudecli buildSkillList）。
 func buildSkillPromptInput(skills []dto.SkillRef) (turnInputItem, bool) {
+	skills = overrideSkillsToSummary(skills)
 	writerFormat := skillWriterFormat()
 	listLines := make([]string, 0, len(skills)+1)
 	listLines = append(listLines, "skills:")

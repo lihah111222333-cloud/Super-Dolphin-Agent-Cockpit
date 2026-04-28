@@ -35,7 +35,7 @@ const DescriptionExpandBody = "Read the body of an installed skill (SKILL.md) by
 const DescriptionReadResource = "Read a resource file co-located with an installed skill " +
 	"(e.g. references/foo.md, scripts/bar.sh). Pass the skill `name` plus the relative `path` " +
 	"inside the skill directory. Path traversal (..) and absolute paths are rejected. Binary " +
-	"files are not guaranteed to round-trip cleanly through this tool. Trust=project skills " +
+	"or non-UTF-8 files are rejected; this tool returns text only. Trust=project skills " +
 	"require user approval on first call."
 
 // ExpandBodyInputSchema 是 skill_expand_body 的 InputSchema（JSON Schema draft-7 子集）。

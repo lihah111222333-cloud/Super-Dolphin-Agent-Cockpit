@@ -53,7 +53,6 @@ func TestMcpSkillMode_ClaudeCLIManagedSameBinarySkillE2E(t *testing.T) {
 		"After the tool returns, print exactly DONE and no extra text.",
 	}, " ")
 	args := []string{
-		"--bare",
 		"-p", prompt,
 		"--output-format", "stream-json",
 		"--verbose",
@@ -66,6 +65,9 @@ func TestMcpSkillMode_ClaudeCLIManagedSameBinarySkillE2E(t *testing.T) {
 		"--debug-file", debugLogPath,
 		"--max-budget-usd", "0.05",
 		"--system-prompt", "You are a deterministic integration test runner. When asked to call an MCP tool, call it exactly as requested.",
+	}
+	if strings.TrimSpace(os.Getenv("CLAUDE_CLI_E2E_BARE")) == "1" {
+		args = append([]string{"--bare"}, args...)
 	}
 	if model := strings.TrimSpace(os.Getenv("CLAUDE_CLI_E2E_MODEL")); model != "" {
 		args = append(args, "--model", model)

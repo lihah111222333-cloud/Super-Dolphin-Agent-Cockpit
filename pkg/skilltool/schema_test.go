@@ -92,3 +92,51 @@ func TestSchemasMarshalAsJSON(t *testing.T) {
 		}
 	}
 }
+
+func TestToolDescriptionsAreGolden(t *testing.T) {
+	wantExpand := "Read the body of an installed skill (SKILL.md) by name. " +
+		"Use this when a skill is listed in the system prompt but its full content is not yet " +
+		"in context. Optionally pass an `anchor` (Markdown H2/H3 heading) to fetch only that " +
+		"section. The host returns frontmatter-stripped body text; large files are truncated to " +
+		"`max_bytes` (server may apply its own cap). Trust=project skills require user approval " +
+		"on first call; the tool will return an approval-required error in that case."
+	if DescriptionExpandBody != wantExpand {
+		t.Fatalf("DescriptionExpandBody changed:\ngot  %q\nwant %q", DescriptionExpandBody, wantExpand)
+	}
+
+	wantRead := "Read a resource file co-located with an installed skill " +
+		"(e.g. references/foo.md, scripts/bar.sh). Pass the skill `name` plus the relative `path` " +
+		"inside the skill directory. Path traversal (..) and absolute paths are rejected. Binary " +
+		"or non-UTF-8 files are rejected; this tool returns text only. Trust=project skills " +
+		"require user approval on first call."
+	if DescriptionReadResource != wantRead {
+		t.Fatalf("DescriptionReadResource changed:\ngot  %q\nwant %q", DescriptionReadResource, wantRead)
+	}
+}
+
+func TestInputSchemaDescriptionsAreGolden(t *testing.T) {
+	expand := ExpandBodyInputSchema()
+	assertSchemaDescription(t, expand, "name", "Skill name as listed in the available-skills section of the system prompt.")
+	assertSchemaDescription(t, expand, "anchor", "Optional Markdown H2/H3 heading to slice. Empty/omitted returns the full body.")
+	assertSchemaDescription(t, expand, "max_bytes", "Optional cap on returned body bytes. Server enforces its own ceiling.")
+
+	read := ReadResourceInputSchema()
+	assertSchemaDescription(t, read, "name", "Skill name owning the resource file.")
+	assertSchemaDescription(t, read, "path", "Relative path inside the skill directory (e.g. `references/usage.md`). Absolute paths and `..` segments are rejected.")
+	assertSchemaDescription(t, read, "max_bytes", "Optional cap on returned content bytes. Server enforces its own ceiling.")
+}
+
+func assertSchemaDescription(t *testing.T, schema map[string]any, property string, want string) {
+	t.Helper()
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("schema properties missing or wrong type: %T", schema["properties"])
+	}
+	prop, ok := props[property].(map[string]any)
+	if !ok {
+		t.Fatalf("property %q missing or wrong type: %T", property, props[property])
+	}
+	if got := prop["description"]; got != want {
+		t.Fatalf("property %q description changed:\ngot  %q\nwant %q", property, got, want)
+	}
+}

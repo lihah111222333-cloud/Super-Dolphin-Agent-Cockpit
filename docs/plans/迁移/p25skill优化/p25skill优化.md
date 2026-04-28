@@ -53,6 +53,9 @@
 >
 > 2026-04-28 PR-6 更新：rollout observability / evidence / guard 已落地并可评审；继续推进时应执行
 > 生产 smoke、30 天 observation 与 authenticated Claude CLI E2E evidence，不是合并分支、默认开启或删除 override。
+>
+> 2026-04-28 canary readiness 更新：Codexapp progressive-disclosure 业务链路已补
+> `TestCodexProgressiveDisclosureCanaryReadiness_E2E` 回归；该测试只锁 canary readiness，不改变默认开关。
 
 | 优先级 | 推荐 PR | 目标 | 关键文件 / 模块 | 必过验收 |
 |---:|---|---|---|---|
@@ -136,7 +139,7 @@
 | `pkg/skilltool/schema_test.go` ✨ | 已落地 | 4 测试：tool 命名 / required / cwd 不暴露 / property type / additionalProperties / JSON 序列化 |
 
 设计要点：
-- 纯数据，零 internal 依赖（设计约束：`pkg/skilltool` 不得 import `internal/`；当前代码事实成立，但还需补 archtest guard，见 §10.8）
+- 纯数据，零 internal 依赖（已由 `TestSkillToolPackageImportBoundary` 锁定：`pkg/skilltool` 不得 import `internal/`；见 §10.8）
 - cwd 字段**不暴露给模型**——由 host runtime 注入
 
 ### 2.2 Phase 1：toolbridge host-direct 分支
@@ -371,19 +374,22 @@ PR-6 第十五段已补 **one-command PR-6 verification wrapper**：
 
 ## 4. 测试现状
 
-### 4.1 核心回归测试矩阵（截至 2026-04-27）
+### 4.1 核心回归测试矩阵（截至 2026-04-28）
 
 > 测试数随 PR-1~PR-5 持续增长，本节不再维护易过期的总数，只记录业务 gate 对应的回归入口。
 
 | 包 / 区域 | 代表测试 | 覆盖范围 |
 |---|---|---|
-| `pkg/skilltool` | `schema_test.go` | tool name / required / no-cwd / property type / additionalProperties / marshal |
+| `pkg/skilltool` | `schema_test.go`、`TestToolDescriptionsAreGolden`、`TestInputSchemaDescriptionsAreGolden` | tool name / required / no-cwd / property type / additionalProperties / marshal / tool + property description golden |
+| `internal/module/skill` | `TestReadResource_*`、`TestReadResource_BinaryFileRejected`、`TestReadResource_NULTextRejected` | `ReadResource` path traversal / symlink escape / text-only resource policy / version hash / truncation |
 | `internal/platform/toolbridge` | `TestCallHostTool_*`、`TestListToolsForCodex_*`、`TestRouteToolCall_HostToolBypassesPeer_UsesResolvedCWD` | SkillHostTools、approval structured result、host metrics/logs、peer partial degradation、host shadow dedup |
-| `internal/provider/codexapp` Mode override / enrich | `TestOverrideSkillsToSummary_*`、`TestEnrichToolCallParams_*` | `Mode=Unspecified` → Summary 临时 override、agentId 注入 / 覆盖外部 alias / fail-soft |
+| `internal/provider/codexapp` Mode override / enrich | `TestOverrideSkillsToSummary_*`、`TestBuildSkillPromptInput_UnspecifiedModeUsesSummaryDefault`、`TestEnrichToolCallParams_*` | `Mode=Unspecified` → Summary 临时 override；sink-level `buildSkillPromptInput` 防新入口绕过；agentId 注入 / 覆盖外部 alias / fail-soft |
 | `internal/provider/codexapp` 模型视角 / resume | `dynamic_skill_tools_e2e_test.go`、`TestResumeSession_DynamicSkillToolsStillCallable`、`TestRecoveryResume_DynamicSkillToolsStillCallable` | DynamicTools → model tool call → result 回模型；resume/recovery 后 skill tools 仍可用 |
+| `internal/provider/e2e` Codex canary readiness | `TestCodexProgressiveDisclosureCanaryReadiness_E2E` | feature flag 注册 → skill catalog 注入 → codexapp Summary override → DynamicTools 暴露 → host-direct `skill_expand_body` 真实读取完整 body；证明 canary 业务链路可回归 |
 | `internal/module/turn` | `TestApplyHydration_UntrustedSummary_*` | Unspecified marker、hydration preserves Mode、untrusted selected summary 只限真实手选 |
 | `internal/module/prompt` | `TestSkillCatalogProvider_Untrusted*`、`TestGroupSkillsForManifest_UntrustedGoesToRedactedNotManualOnly` | catalog redaction、untrusted + disable-model-invocation 不泄露 metadata / 不落 Manual-only |
-| `internal/provider/claudecli` / `cmd/agent-terminal` | `TestSkillMCPServer_*`、`TestMcpSkillMode_*`、`TestTransportConfig_SameBinarySkillServerMCPConfig` | same-binary stdio MCP child、static tools/list、lazy host RPC、真实二进制 smoke / lifecycle / latency |
+| `internal/provider/claudecli` / `cmd/agent-terminal` | `TestSkillMCPServer_*`、`TestMcpSkillMode_*`、`TestTransportConfig_SameBinarySkillServerMCPConfig`、`TestBuildSkillPromptTextV1SummaryModeWithEmptyBody` | same-binary stdio MCP child、static tools/list、lazy host RPC、真实二进制 smoke / lifecycle / latency；v1 writer Summary 空 body 不退化为 Full / 不误导模型 |
+| `internal/archtest` | `TestSkillRefFullModeLiteralGuard`、`TestSkillToolPackageImportBoundary`、`TestMCPOrchDoesNotImportSkillTool`、`TestCodeSizeGuard` | 禁止生产代码里直接写 `dto.SkillRef{Mode: dto.SkillModeFull}` raw literal；强制 `pkg/skilltool` 不 import `internal/`、`cmd/mcp-orch` 不 import `pkg/skilltool`；保持 code-size guard 绿色 |
 
 ### 4.2 全套测试状态
 
@@ -393,20 +399,20 @@ PR-6 第十五段已补 **one-command PR-6 verification wrapper**：
 
 ```bash
 go test ./internal/archtest -run TestCodeSizeGuard -count=1
-go test ./internal/module/skill ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/module/turn ./internal/module/prompt ./pkg/skillmetrics ./internal/provider/claudecli ./cmd/agent-terminal ./internal/provider/unified ./internal/dto/provider ./internal/provider/manifestbuilder -count=1
+go test ./internal/module/skill ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/provider/e2e ./internal/module/turn ./internal/module/prompt ./pkg/skillmetrics ./internal/provider/claudecli ./cmd/agent-terminal ./internal/provider/unified ./internal/dto/provider ./internal/provider/manifestbuilder -count=1
 git diff --check
 # optional one-command equivalent / final local pre-submit wrapper:
 docs/plans/迁移/p25skill优化/skill-progressive-disclosure-pr6-verify.sh
 ```
 
-### 4.3 已知测试覆盖盲点（建议后续补）
+### 4.3 已知测试覆盖盲点（含已补闭包）
 
 | 缺口 | 当前状态 | 建议 |
 |---|---|---|
-| schema description 文案漂移 | 已锁 tool name / required / no-cwd / property type / additionalProperties / marshal，未锁完整 description 文案 | 如需对外契约冻结，可补 description golden |
-| v1 writerFormat Summary mode | 未验证空 body 渲染是否误导模型 | 补 `RenderSkillBlockV1` Summary 集成 |
+| schema description 文案漂移 | 已补 `TestToolDescriptionsAreGolden` / `TestInputSchemaDescriptionsAreGolden`，锁住 tool-level 与 property-level description 文案 | `go test ./pkg/skilltool -run 'Test(ToolDescriptionsAreGolden|InputSchemaDescriptionsAreGolden)$' -count=1` |
+| v1 writerFormat Summary mode | 已补 `RenderSkillBlockV1` 纯函数、codexapp writer 与 claudecli writer 的 Summary 空 body 集成覆盖 | `go test ./internal/module/skill -run '^TestRenderSkillBlockV1_SummaryMode$' -count=1`；`go test ./internal/provider/codexapp -run '^TestBuildSkillPromptInput_V1SummaryMode$' -count=1`；`go test ./internal/provider/claudecli -run '^TestBuildSkillPromptTextV1SummaryModeWithEmptyBody$' -count=1` |
 | `ReadResource` traversal | 已补 `internal/module/skill` symlink / EvalSymlinks 失败防护与 host-direct 跨层断言 | `go test ./internal/module/skill -run 'TestReadResource_(SymlinkEscapeRejected|BrokenSymlinkRejectedBeforeRead)$' -count=1`；`go test ./internal/platform/toolbridge -run '^TestSkillHostTools_CallReadResource_RejectsSymlinkEscape$' -count=1` |
-| resource binary asset | 当前 `skill_read_resource` 返回 string，主要覆盖文本资源 | 若业务需要图片/模板/压缩包，补 base64 或 `skill_read_asset` 工具 |
+| resource binary asset | 已明确 `skill_read_resource` 为 text-only：invalid UTF-8 / NUL / 二进制资源 fail closed，避免 JSON `\ufffd` 静默污染 | `go test ./internal/module/skill -run '^TestReadResource_(BinaryFileRejected|NULTextRejected)$' -count=1`；若未来业务需要图片/压缩包，再新增 base64 或 `skill_read_asset` |
 | 真实 Claude CLI 已认证 tool-call E2E | opt-in 测试已存在；未认证环境会 skip | 在有 Claude CLI 认证的环境跑 `TestMcpSkillMode_ClaudeCLIManagedSameBinarySkillE2E` 并记录延迟 / orphan child 观测 |
 
 ---
@@ -794,6 +800,8 @@ git diff --check
    ```
 
    - generator 会拒绝未显式认证、原始输出包含 skip / unauthenticated / FAIL 标记、缺少 `--- PASS: TestMcpSkillMode_ClaudeCLIManagedSameBinarySkillE2E` 或缺少独立 `PASS` 行的 output；不能把 opt-in skip 当已认证通过。
+   - 2026-04-28 14:16（Asia/Shanghai）本机已按 `RUN_CLAUDE_CLI_E2E=1` 尝试真实 Claude CLI E2E；Claude CLI 可执行文件存在（`claude 2.1.119`），但测试输出 `SKIP: claude CLI is installed but not authenticated`。本次只证明环境阻塞，**不得**生成 authenticated evidence；需先完成 `claude auth` / `claude setup-token` 或提供有效 `ANTHROPIC_API_KEY` 后重跑。
+   - 2026-04-28 14:41（Asia/Shanghai）`claude auth` 后重跑 authenticated E2E：默认 Opus 运行已通过 OAuth 认证并完成 MCP tool-call，但因 `--max-budget-usd 0.05` 安全预算触发 `error_max_budget_usd`（raw: `/tmp/p25-skill-claudecli-e2e-2026-04-28-143944.txt`），不得作为 evidence；随后使用 `RUN_CLAUDE_CLI_E2E=1 CLAUDE_CLI_E2E_MODEL=claude-sonnet-4-5` 重跑真实 E2E PASS（raw: `/tmp/p25-skill-claudecli-e2e-sonnet-2026-04-28-144126.txt`），已生成 `skill-progressive-disclosure-claudecli-e2e-evidence.md`。
 8. **输出 Phase 3 evidence readiness status（默认策略 PR 前置，不在 PR-6 内完成）**
 
    ```bash
@@ -854,7 +862,7 @@ git diff --check
 | PR-3 模型视角 E2E | `go test ./internal/provider/codexapp -run TestDynamicSkillTools_ModelE2E -count=1` | `TestDynamicSkillTools_ModelE2E_ExpandBodyResultReturnsToModel`、`TestDynamicSkillTools_ModelE2E_ApprovalApprovedContinuesFinalAnswer`、`TestDynamicSkillTools_ModelE2E_ApprovalDeniedReturnsStructuredToolResult` | fake / controlled app-server 证明 `thread/start dynamicTools -> model dynamic_tool_call(skill_expand_body) -> approval/cache/read -> tool result -> final answer`；只断言 schema 存在不得通过 |
 | PR-4 selected metadata / redaction | `go test ./internal/module/turn -run TestApplyHydration_UntrustedSummary -count=1`；`go test ./internal/module/prompt -run 'Test(SkillCatalogProvider_Untrusted|GroupSkillsForManifest_Untrusted|IsUntrustedScope)' -count=1` | `TestApplyHydration_UntrustedSummary_RedactedWhenSourceUnspecified`、`TestApplyHydration_UntrustedSummary_AllowsOnlyRealManualSelection`、`TestApplyHydration_UntrustedSummary_RedactedForTriggerAndForce`、`TestSkillCatalogProvider_UntrustedRenderedAsRedactedPlaceholder`、`TestSkillCatalogProvider_UntrustedDisableModelInvocation_NoLeak`、`TestGroupSkillsForManifest_UntrustedGoesToRedactedNotManualOnly`、`TestIsUntrustedScope` | 若允许 untrusted selected summary，只能限真实 `ManualSkillSelection=true && source=manual`；legacy `Source=Unspecified` / trigger / force 不得当授权；catalog redaction 继续成立 |
 | PR-5 resume / recovery skill tools | `go test ./internal/provider/codexapp -run 'Test(Resume|Recovery).*DynamicSkillTools' -count=1` | `TestResumeSession_DynamicSkillToolsStillCallable`、`TestRecoveryResume_DynamicSkillToolsStillCallable`、`TestThreadResume_AppServerRetainsStartDynamicTools`、`TestThreadResume_DynamicToolsWireCompatibilityIsExplicit` | 先证明 app-server 是否保留 start-time tools；若需要扩 `thread/resume`，必须证明 app-server 接受 / 显式处理该字段；验收以 resume/recovery 后模型仍能调用 skill tools 为准 |
-| PR-6 discovery / observability | `go test ./pkg/skillmetrics ./internal/platform/metrics -count=1`；`go test ./internal/module/prompt -run 'Test(SkillProgressiveDisclosure|SkillCatalogProvider)' -count=1`；`go test ./internal/platform/toolbridge -run 'Test.*Observability|Test.*Metrics' -count=1` | `TestSkillMetricsExporterSnapshotIncludesHostToolOutcomes`、`TestSkillProgressiveDisclosureAlertRulesArtifact`、`TestSkillProgressiveDisclosureRolloutObservationTemplateArtifact`、`TestSkillProgressiveDisclosurePrometheusConfigArtifact`、`TestSkillProgressiveDisclosureRolloutSmokeScriptArtifact`、`TestSkillProgressiveDisclosureRolloutReportScriptArtifact`、`TestSkillProgressiveDisclosureRolloutReportScriptNoSampleRule`、`TestSkillProgressiveDisclosureRolloutAppendScriptArtifact`、`TestSkillProgressiveDisclosureRolloutAppendScriptPassDuplicateAndNoSampleFail`、`TestSkillProgressiveDisclosureRolloutStatusScriptArtifact`、`TestSkillProgressiveDisclosureRolloutStatusScriptNextActions`、`TestSkillProgressiveDisclosureRolloutDailyScriptArtifact`、`TestSkillProgressiveDisclosureRolloutDailyScriptRunsReportAppendStatus`、`TestSkillProgressiveDisclosureClaudeCLIE2EEvidenceGenerateScriptArtifact`、`TestSkillProgressiveDisclosureClaudeCLIE2EEvidenceGeneratePassAndFailClosed`、`TestSkillProgressiveDisclosurePhase3EvidenceStatusScriptArtifact`、`TestSkillProgressiveDisclosurePhase3EvidenceStatusReadyAndMissing`、`TestSkillProgressiveDisclosurePhase3EvidenceReadyCollectScriptArtifact`、`TestSkillProgressiveDisclosurePhase3EvidenceReadyCollectPassAndStatusFail`、`TestSkillProgressiveDisclosurePhase3HandoffReportScriptArtifact`、`TestSkillProgressiveDisclosurePhase3HandoffReportPassAndMissingFileFail`、`TestSkillProgressiveDisclosureRolloutGateScriptArtifact`、`TestSkillProgressiveDisclosureRolloutGateScriptPassAndNoSampleFail`、`TestSkillProgressiveDisclosurePhase3PreflightScriptArtifact`、`TestSkillProgressiveDisclosurePhase3PreflightScriptPassAndMissingEvidenceFail`、`TestSkillProgressiveDisclosurePhase3EvidenceTemplates`、`TestSkillProgressiveDisclosurePhase3EvidenceBundleScriptArtifact`、`TestSkillProgressiveDisclosurePhase3EvidenceBundleScriptPassAndMissingFileFail`、`TestSkillProgressiveDisclosurePhase3EvidenceCollectScriptArtifact`、`TestSkillProgressiveDisclosurePhase3EvidenceCollectPassAndMissingEvidenceFail`、`TestSkillProgressiveDisclosurePR6VerifyScriptArtifact`、`TestSkillProgressiveDisclosurePR6VerifyScriptSkipGoTestsSmoke`、`TestSkillProgressiveDisclosureDefaultSwitchGuardScriptArtifact`、`TestSkillProgressiveDisclosureDefaultSwitchGuardPassAndDefaultTrueFail`、`TestSkillProgressiveDisclosure_DefaultDisabled`、`TestSkillProgressiveDisclosure_EnableFlagRendersCatalog`、`TestSkillCatalogProvider_GroupsNativeTrustedRedacted`、`TestListToolsForCodex_LogsDegradedPeer`、`TestHostSkillToolCall_EmitsApprovalAndCacheMetrics` | 默认仍为 disabled；enable=true 时 catalog 分组与 untrusted redaction 正确；放量前能通过 Prometheus default gatherer 或等价出口观察 degraded peer、host tool success/error、approval requested/approved/denied/timeout、artifact cache hit/miss，并有 Prometheus scrape/rule-loading config artifact、production smoke script、daily observation report script、daily observation append helper、rollout status / next-step helper、one-command daily rollout helper、production smoke evidence generator、authenticated Claude CLI E2E evidence generator、Phase 3 evidence readiness status helper、one-command Phase 3 evidence ready collect helper、Phase 3 handoff report helper、30-day rollout gate verifier、Phase 3 preflight gate、evidence templates、evidence bundle verifier、evidence bundle collector、one-command PR-6 verification wrapper、default-switch static guard 与 30 天 observation 模板锁住 no-sample 规则 |
+| PR-6 discovery / observability | `go test ./pkg/skillmetrics ./internal/platform/metrics -count=1`；`go test ./internal/module/prompt -run 'Test(SkillProgressiveDisclosure|SkillCatalogProvider)' -count=1`；`go test ./internal/platform/toolbridge -run 'Test.*Observability|Test.*Metrics' -count=1`；`go test ./internal/provider/e2e -run '^TestCodexProgressiveDisclosureCanaryReadiness_E2E$' -count=1` | `TestSkillMetricsExporterSnapshotIncludesHostToolOutcomes`、`TestSkillProgressiveDisclosureAlertRulesArtifact`、`TestSkillProgressiveDisclosureRolloutObservationTemplateArtifact`、`TestSkillProgressiveDisclosurePrometheusConfigArtifact`、`TestSkillProgressiveDisclosureRolloutSmokeScriptArtifact`、`TestSkillProgressiveDisclosureRolloutReportScriptArtifact`、`TestSkillProgressiveDisclosureRolloutReportScriptNoSampleRule`、`TestSkillProgressiveDisclosureRolloutAppendScriptArtifact`、`TestSkillProgressiveDisclosureRolloutAppendScriptPassDuplicateAndNoSampleFail`、`TestSkillProgressiveDisclosureRolloutStatusScriptArtifact`、`TestSkillProgressiveDisclosureRolloutStatusScriptNextActions`、`TestSkillProgressiveDisclosureRolloutDailyScriptArtifact`、`TestSkillProgressiveDisclosureRolloutDailyScriptRunsReportAppendStatus`、`TestSkillProgressiveDisclosureClaudeCLIE2EEvidenceGenerateScriptArtifact`、`TestSkillProgressiveDisclosureClaudeCLIE2EEvidenceGeneratePassAndFailClosed`、`TestSkillProgressiveDisclosurePhase3EvidenceStatusScriptArtifact`、`TestSkillProgressiveDisclosurePhase3EvidenceStatusReadyAndMissing`、`TestSkillProgressiveDisclosurePhase3EvidenceReadyCollectScriptArtifact`、`TestSkillProgressiveDisclosurePhase3EvidenceReadyCollectPassAndStatusFail`、`TestSkillProgressiveDisclosurePhase3HandoffReportScriptArtifact`、`TestSkillProgressiveDisclosurePhase3HandoffReportPassAndMissingFileFail`、`TestSkillProgressiveDisclosureRolloutGateScriptArtifact`、`TestSkillProgressiveDisclosureRolloutGateScriptPassAndNoSampleFail`、`TestSkillProgressiveDisclosurePhase3PreflightScriptArtifact`、`TestSkillProgressiveDisclosurePhase3PreflightScriptPassAndMissingEvidenceFail`、`TestSkillProgressiveDisclosurePhase3EvidenceTemplates`、`TestSkillProgressiveDisclosurePhase3EvidenceBundleScriptArtifact`、`TestSkillProgressiveDisclosurePhase3EvidenceBundleScriptPassAndMissingFileFail`、`TestSkillProgressiveDisclosurePhase3EvidenceCollectScriptArtifact`、`TestSkillProgressiveDisclosurePhase3EvidenceCollectPassAndMissingEvidenceFail`、`TestSkillProgressiveDisclosurePR6VerifyScriptArtifact`、`TestSkillProgressiveDisclosurePR6VerifyScriptSkipGoTestsSmoke`、`TestSkillProgressiveDisclosureDefaultSwitchGuardScriptArtifact`、`TestSkillProgressiveDisclosureDefaultSwitchGuardPassAndDefaultTrueFail`、`TestSkillProgressiveDisclosure_DefaultDisabled`、`TestSkillProgressiveDisclosure_EnableFlagRendersCatalog`、`TestSkillCatalogProvider_GroupsNativeTrustedRedacted`、`TestListToolsForCodex_LogsDegradedPeer`、`TestHostSkillToolCall_EmitsApprovalAndCacheMetrics`、`TestCodexProgressiveDisclosureCanaryReadiness_E2E` | 默认仍为 disabled；enable=true 时 catalog 分组与 untrusted redaction 正确；Codex canary readiness 必须证明 feature flag 注册、skill catalog 注入、Summary override、DynamicTools 暴露与 host-direct expand body 全链路闭环；放量前能通过 Prometheus default gatherer 或等价出口观察 degraded peer、host tool success/error、approval requested/approved/denied/timeout、artifact cache hit/miss，并有 Prometheus scrape/rule-loading config artifact、production smoke script、daily observation report script、daily observation append helper、rollout status / next-step helper、one-command daily rollout helper、production smoke evidence generator、authenticated Claude CLI E2E evidence generator、Phase 3 evidence readiness status helper、one-command Phase 3 evidence ready collect helper、Phase 3 handoff report helper、30-day rollout gate verifier、Phase 3 preflight gate、evidence templates、evidence bundle verifier、evidence bundle collector、one-command PR-6 verification wrapper、default-switch static guard 与 30 天 observation 模板锁住 no-sample 规则 |
 | Claude Phase 2 MCP child | `go test ./internal/provider/claudecli -run 'TestSkillMCP(Server|Mode)_(ToolsListStaticNoHostRPC|ExpandBodyLazyCallsHostRPC|ReadResourceLazyCallsHostRPC|RejectsModelRuntimeFields|FirstTurnWithoutSkillDoesNotCallExpandRPC|ApprovalRequiredReturnsStructuredEnvelope|ObservabilityCounters|StartupLatencyBudget|StdioSmokeInitializeListCallAndEOF)|TestSkillHostRPCClient_ValidatesHostResponse|TestTransportConfig_SameBinarySkillServerMCPConfig' -count=1`；`go test ./cmd/agent-terminal -run '^TestMcpSkillMode_(DoesNotStartFullApp|RealBinaryFramedStdioSmokeAndEOF|RealBinaryLatencyBudget|ClaudeLikeParentLifecycleEOFCancelAndNoOrphan|ClaudeCLIManagedSameBinarySkillE2E)$' -count=1` | `TestSkillMCPServer_ToolsListStaticNoHostRPC`、`TestSkillMCPServer_ExpandBodyLazyCallsHostRPC`、`TestSkillMCPServer_ReadResourceLazyCallsHostRPC`、`TestSkillMCPServer_RejectsModelRuntimeFields`、`TestSkillMCPServer_FirstTurnWithoutSkillDoesNotCallExpandRPC`、`TestSkillMCPServer_ApprovalRequiredReturnsStructuredEnvelope`、`TestSkillMCPServer_ObservabilityCounters`、`TestSkillMCPMode_StdioSmokeInitializeListCallAndEOF`、`TestSkillHostRPCClient_ValidatesHostResponse`、`TestMcpSkillMode_DoesNotStartFullApp`、`TestMcpSkillMode_RealBinaryFramedStdioSmokeAndEOF`、`TestMcpSkillMode_RealBinaryLatencyBudget`、`TestMcpSkillMode_ClaudeLikeParentLifecycleEOFCancelAndNoOrphan`、`TestMcpSkillMode_ClaudeCLIManagedSameBinarySkillE2E`、`TestTransportConfig_SameBinarySkillServerMCPConfig`、`TestSkillMCPServer_StartupLatencyBudget` | `initialize/tools/list` 只返回静态 `skill_expand_body` / `skill_read_resource` schema，不扫 skill、不读 `SKILL.md`、不调 host RPC、不触发 approval；第一次 `tools/call` 才 lazy 调父进程；stdio smoke 覆盖内存 server 与真实 agent-terminal 二进制 `Content-Length initialize -> tools/list -> tools/call -> EOF`；普通首轮不使用 skill 时不得发生 expand/read RPC；runtime env 不继承伪造 `GO_AGENT_SKILL_MCP_*` / per-turn turnID；`--mcp-skill-mode` 不进入完整 Fx/Wails，startup / 真实二进制 latency smoke 有明确耗时预算；skill MCP child emits success/error/approval_required counters，真实 Claude CLI 未认证环境按 opt-in 测试 skip |
 
 提交或合并前的最小验证命令建议：
@@ -1006,6 +1014,22 @@ PR-6 observability 后续追加 artifact / guard / endpoint：
 - `internal/ui/wails/http_server.go`
 - `internal/ui/wails/http_server_test.go`
 
+Codex canary readiness / 后续安全加固追加：
+- `internal/provider/e2e/codex_skill_canary_test.go`
+- `internal/provider/e2e/codex_mcp_test.go`
+- `internal/provider/codexapp/module.go`
+- `internal/provider/codexapp/skill_injection_test.go`
+- `internal/archtest/skill_ref_default_policy_guard_test.go`
+- `internal/archtest/freeze_registry.go`
+- `internal/provider/claudecli/session_turn_attachment_test.go`
+- `internal/module/prompt/skill_catalog_fx_test.go`
+- `internal/module/skill/skills_expand.go`
+- `internal/module/skill/skills_expand_test.go`
+- `pkg/skilltool/schema.go`
+- `pkg/skilltool/schema_test.go`
+- `internal/platform/toolbridge/handler_host_tools.go`
+- `internal/platform/toolbridge/host_tools_test.go`
+
 说明：本节只列文件，不再维护精确行数；行数已在多轮 refactor / review 后漂移，提交前如需审计请用脚本重新生成。
 
 ---
@@ -1150,24 +1174,26 @@ Release governance / 风险 gate 只作为发布管理补充，不盖过上述�
 - 后续：Phase 3 正式化 Summary default policy / 删除 override 前，仍需在生产运行 smoke 并把结果附到 observation 行，再基于已落地的 observation 模板 / report script / append script / status script / daily script / production smoke evidence generator / gate script / preflight script / evidence templates / evidence bundle script / evidence collect script 完成 30 天真实 rollout observation 与 authenticated Claude CLI E2E evidence，才能把 99% 成功率从人工判断升级为可执行 gate。
 - 定位：这是 rollout support，不是当前 codexapp 普通路径代码级能力的 blocker；当前业务主 blocker 仍是真实 Claude CLI 已认证 E2E、resume/recovery、redaction/default discovery 与 Phase 3 provider policy。
 
-### 10.6 Mode override 在 caller 而非 sink（MED，可维护性）
+### 10.6 Mode override 在 caller 而非 sink（MED，可维护性，已修）
 
-- 位置：`internal/provider/codexapp/session_turn.go:42, 57`
-- 风险：`overrideSkillsToSummary` 仅在 `buildTurnStartParams` / `buildTurnSteerParams`
-  调用。当前普通路径已有 `PrepareTurn -> buildTurnStartParams` 测试覆盖；但未来若新 RPC / 入口直接调 `turnInputsFromRequest` 或 `buildSkillPromptInput` 忘了先 override，skill 会以 Full 重新泄漏。当前仍是"约定优于强制"。
-- 建议：Phase 3 把 provider default policy 下沉为显式 helper / sink-level policy，或把 override 下沉到 `turnInputsFromRequest` / `buildSkillPromptInput` 内部，关闭新入口绕过窗口
+- 位置：`internal/provider/codexapp/session_turn.go:42, 57` 与 `internal/provider/codexapp/module.go` 的 `buildSkillPromptInput`。
+- 原风险：`overrideSkillsToSummary` 仅在 `buildTurnStartParams` / `buildTurnSteerParams` 调用；未来若新 RPC / 入口直接调 `turnInputsFromRequest` 或 `buildSkillPromptInput` 忘了先 override，skill 会以 Full 重新泄漏。
+- 本轮修复：`buildSkillPromptInput` 作为 codexapp skill prompt sink 现在会再次套用 `overrideSkillsToSummary`；caller 侧保留同一 override 作为显式 belt-and-suspenders，新入口直调 sink 也无法绕过 Summary 默认策略。
+- 验收：`TestBuildSkillPromptInput_UnspecifiedModeUsesSummaryDefault` 锁住 Mode=Unspecified 只渲染 Summary + `skill_expand_body` pointer，且不泄漏 full body。
 
-### 10.7 SkillRef 默认策略静态检查缺失（MED）
+### 10.7 SkillRef 默认策略静态检查缺失（MED，已修）
 
-- 现状：当前恰恰需要允许普通路径构造 `dto.SkillRef{Name: x}`，让 `Mode=Unspecified` 作为 provider-aware default marker 流到 provider adapter；因此不能再简单禁止所有字面量构造。
-- 风险：未来新代码可能把“默认 Full”重新显式写回 `dto.SkillRef{Mode: SkillModeFull}`，绕过 codexapp Summary 默认；也可能在 provider 边界外误用 Unspecified，造成语义不清。
-- 建议：补 archtest / lint 规则时按语义检查：禁止把 `SkillModeFull` 当默认值硬编码；显式 Full 必须有注释或 helper；新增 provider default policy helper 后，禁止绕过该 helper。
+- 原现状：当前恰恰需要允许普通路径构造 `dto.SkillRef{Name: x}`，让 `Mode=Unspecified` 作为 provider-aware default marker 流到 provider adapter；因此不能简单禁止所有字面量构造。
+- 原风险：未来新代码可能把“默认 Full”重新显式写回 `dto.SkillRef{Mode: SkillModeFull}`，绕过 codexapp Summary 默认；也可能在 provider 边界外误用 Unspecified，造成语义不清。
+- 本轮修复：新增 `internal/archtest/skill_ref_default_policy_guard_test.go`，扫描非测试生产 Go 文件，禁止 raw `dto.SkillRef{Mode: dto.SkillModeFull}` composite literal。测试文件仍可显式构造 Full；生产代码若确需显式 Full，必须经 helper / policy path 表达，不得把 Full 当默认硬编码。
+- 附带收敛：为保证 full archtest 绿色，拆分 `hostToolRelativePath` 降低 CC，并给 `internal/provider/codexapp` 增加带 owner / remove_when 的 package-count freeze（31），等 Phase 3 policy consolidation 后回收。
+- 验收：`go test ./internal/archtest -run '^TestSkillRefFullModeLiteralGuard$' -count=1`；`go test ./internal/archtest -count=1`。
 
-### 10.8 跨文档遗留
+### 10.8 跨文档遗留（边界 guard 已补）
 
 - `docs/plans/迁移/p20/README.md` 已增 `p20.18` 反链，指向 `p20.18-host-direct-skill-tool-exposure.md` 作为 Mode=Summary 端到端能力硬前置。
 - `docs/plans/迁移/p20/README.md` 已同步 p20.18 部分完成状态，并在必读文档中加入本文档反链。后续只需在 p20.18 Phase 2 / Phase 3 状态变化时同步 README 状态 / 关闭提交。
-- `pkg/skilltool` 不 import `internal/`、`cmd/mcp-orch` 不 import `pkg/skilltool` 当前只是设计约束 + 代码事实；未发现对应 archtest guard。若要把它作为 CI gate，需补 archtest 后再在文档中标“已强制”。
+- `pkg/skilltool` 不 import `internal/` 已由 `TestSkillToolPackageImportBoundary` 强制；`cmd/mcp-orch` 不 import `pkg/skilltool` 已由 `TestMCPOrchDoesNotImportSkillTool` 强制，避免 standalone orchestration 侧意外暴露 host skill schemas。
 
 ### 10.9 codemap 冲突标记清理记录（已完成，文档地图可靠性）
 

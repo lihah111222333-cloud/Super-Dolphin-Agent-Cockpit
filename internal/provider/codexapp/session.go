@@ -204,7 +204,7 @@ func (s *session) onInboundMessage(ctx context.Context, resp Responder, msg RawM
 		// 不 enrich 会 100% 失败。这里把 session 持有的 agentID 覆盖写入 msg.Params 后再转发。
 		enriched := enrichToolCallParams(msg, s.agentID)
 		runtimesafe.SafeGo(s.ctx, s.logger, "codexapp.session.toolCall", func(_ context.Context) {
-			result, err := toolHandler(ctx, msg)
+			result, err := toolHandler(ctx, enriched)
 			if respErr := resp.RespondWithID(msg.ID, result, err); respErr != nil {
 				s.logger.Warn("codexapp: tool call respond failed",
 					"agent_id", s.agentID, "method", msg.Method, "error", respErr)

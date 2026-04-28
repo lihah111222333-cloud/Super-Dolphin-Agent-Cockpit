@@ -128,24 +128,28 @@ func TestBuildSkillPromptInput_MixedModes(t *testing.T) {
 	}
 }
 
-// TestBuildSkillPromptInput_LegacyPayloadEmptyModeUsesFull 向后兼容：
-// 旧 payload {name, prompt}（Mode="" 空值）→ 按 Full 注入，name-list 同时出现。
-func TestBuildSkillPromptInput_LegacyPayloadEmptyModeUsesFull(t *testing.T) {
+// TestBuildSkillPromptInput_UnspecifiedModeUsesSummaryDefault 锁定 codexapp sink-level
+// 默认策略：即便新入口直接调用 buildSkillPromptInput，Mode=Unspecified 也只能渲染
+// Summary + tool pointer，不得回退为 Full/eager body。
+func TestBuildSkillPromptInput_UnspecifiedModeUsesSummaryDefault(t *testing.T) {
 	skills := []dto.SkillRef{
-		{Name: "legacy", Prompt: "old body"}, // Mode 未设置
+		{Name: "legacy", Prompt: "FULL_BODY_NEVER_HERE", Summary: "short summary"}, // Mode 未设置
 	}
 	item, ok := buildSkillPromptInput(skills)
 	if !ok {
-		t.Fatalf("legacy payload should inject as Full")
+		t.Fatalf("unspecified mode should inject summary default")
 	}
-	want := "skills:\n- legacy\n\n[skill:legacy]\nold body"
+	want := "skills:\n- legacy\n\n[skill:legacy]\n摘要: short summary\n使用方式: Call skill_expand_body(\"legacy\") for full body"
 	if item.Text != want {
-		t.Fatalf("legacy payload output:\ngot  %q\nwant %q", item.Text, want)
+		t.Fatalf("unspecified mode summary output:\ngot  %q\nwant %q", item.Text, want)
+	}
+	if strings.Contains(item.Text, "FULL_BODY_NEVER_HERE") {
+		t.Fatalf("unspecified mode leaked full body: %q", item.Text)
 	}
 }
 
 // TestBuildSkillPromptInput_NameListFallbackWhenBodyMissing P20.2 §4：
-// 所有 skill 正文缺失（仅 Name）时不再 silent drop，而是以 `skills:\n- name` 名单单独注入。
+// 所有 skill 正文 / summary 缺失（仅 Name）时不再 silent drop，而是以 `skills:\n- name` 名单单独注入。
 func TestBuildSkillPromptInput_NameListFallbackWhenBodyMissing(t *testing.T) {
 	skills := []dto.SkillRef{
 		{Name: "planner"},
@@ -165,7 +169,7 @@ func TestBuildSkillPromptInput_NameListFallbackWhenBodyMissing(t *testing.T) {
 // None 与非法 mode 的 skill 既不进 name-list也不进 block；仅 Full/Summary skill 出现在名单里。
 func TestBuildSkillPromptInput_NameListFallbackSkipsNoneAndInvalid(t *testing.T) {
 	skills := []dto.SkillRef{
-		{Name: "visible"},                         // legacy Full → name-list ok
+		{Name: "visible"},                         // codexapp Summary default；无 summary 时 name-list fallback ok
 		{Name: "hidden", Mode: dto.SkillModeNone}, // 剩 name-list 也要跳
 		{Name: "bogus", Mode: "banana"},           // invalid 同理
 		{Name: "sumonly", Mode: dto.SkillModeSummary, Summary: "s"},
