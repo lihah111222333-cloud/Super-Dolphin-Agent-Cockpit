@@ -1,6 +1,5 @@
 # 04 App 核心与契约层代码地图
 
-<<<<<<< Updated upstream
 > 扫描范围：`internal/app/*.go` 与 `internal/contract/*.go`。交叉核对实现包：`internal/platform/rpc`、`internal/platform/hooks`、`internal/platform/mcpcontrol`、`internal/provider/unified`、`internal/provider/claudecli`、`internal/provider/codexapp`、`internal/module/thread`、`internal/module/turn`、`internal/module/dashboard`、`internal/module/uistate`、`internal/ui/wails`、`cmd/mcp-orch`。
 
 ## 1. 模块概述
@@ -30,10 +29,6 @@
 - 按能力域拆分：`approval`、`errors`、`hooks`、`mcp_control`、`memory`、`orchestration`、`prompt`、`provider`、`runtime_reporter`、`session_resolver`、`skill_injection`、`team_memory`、`thread_metadata`，以及与 prompt / memory 边界配套的 `dream`、`frc`、`prompt_attachment`。
 
 一句话：**`app` 负责“怎么装”，`contract` 负责“装出来的东西如何说话”。**
-=======
-> 扫描范围：`internal/app/*.go`、`internal/contract/*.go`。交叉核对实现包：`internal/platform/{rpc,hooks,mcpcontrol,cachekeepalive}`、`internal/provider/{unified,claudecli,codexapp}`、`internal/module/{thread,turn,prompt,memory}`、`internal/store/{hookstore,thread}`、`internal/ui/wails`、`cmd/mcp-orch/{fx.go,runtime.go,orchestration,memory}`。
-> 切线：**04 只记录 root Fx 组装、稳定契约、桥接绑定；07 讲 `internal/module/*` 的实现细节；09 讲 `internal/provider/*` 的 driver/session/transport 细节。**
->>>>>>> Stashed changes
 
 ---
 
@@ -93,7 +88,6 @@ flowchart TD
 
 ### 1.2 启动变体
 
-<<<<<<< Updated upstream
 | 文件 | 作用 |
 | --- | --- |
 | `approval.go` | 工具调用审批契约：`ApprovalResponder`、`ApprovalRequester`、`ApprovalRequest`、`ApprovalDecision`。 |
@@ -109,20 +103,6 @@ flowchart TD
 | `skill_injection.go` | provider skill 注入桥：`SkillInjectionPort`。 |
 | `team_memory.go` | team-memory 只读桥：`TeamMemoryManager`。 |
 | `thread_metadata.go` | memory 侧线程元数据桥：`ThreadMetadataStore`、`ThreadMetadata`。 |
-=======
-- `NewApp/newFXApp`：`app.Module + fx.Invoke(BindRuntime)`。
-- `RunDesktop/newDesktopFXApp`：`app.Module + uiwails.Module + fx.Invoke(BindRuntime)`，再 `fx.Populate(&wailsApp, &lifecycle)`。
-- `BindRuntime` 统一消费 `group:"runners"`；当前固定来源：`AsRPCRunner(*rpc.Server)`，桌面态再叠加 `uiwails.NewHTTPAssetServer()`。
-- `app.Module` 明确**不嵌入** `cmd/mcp-orch/orchestration.Module`；这与 `docs/契约/modularity-convention.md` §2.4 的 MCP binary 边界一致。
-
-### 1.3 `app` 里真正保留的桥接职责
-
-| bridge | `app` 内实现 | 上游依赖 | 下游消费者 | 说明 |
-|---|---|---|---|---|
-| `thread.OrchestrationFacade` | `newThreadOrchestrationFacade` | `contract.OrchestrationService` `optional:"true"` | `internal/module/thread` | 大编排接口裁成 thread 只要的 `Launch/Stop/Recover/BindSessionGeneration`；无 orchestration 时退化为 noop。 |
-| `contract.RuntimeReporter` | `newRuntimeReporter` | `contract.OrchestrationService` `optional:"true"` | `internal/provider/{claudecli,codexapp}` | 只暴露 `ReportRuntime`；有 service 时转调 `UpdateRuntime`，无 service 时 debug noop。 |
-| `group:"runners"` | `AsRPCRunner` | `*rpc.Server` | `BindRuntime` | 纯 Fx 结果适配，不承载业务语义。 |
->>>>>>> Stashed changes
 
 ---
 
@@ -167,7 +147,6 @@ flowchart TD
 | `TeamMemoryManager` | `GetTeamMemPath(buildCtx ...BuildCtx) string; GetTeamMemEntrypoint(buildCtx ...BuildCtx) string` | Module：`internal/module/memory/nested` | `internal/module/memory/team` (`TeamMemoryManager`) |
 | `ThreadMetadataStore` | `GetByThreadID(ctx context.Context, threadID string) (*ThreadMetadata, error); ListAll(ctx context.Context) ([]ThreadMetadata, error)` | Module：`internal/module/memory/team` | `internal/store/thread` (`metadataStoreAdapter`) |
 
-<<<<<<< Updated upstream
 | 接口 | 定义文件 | 核心职责 | 生产实现者 | Fx / 备注 |
 | --- | --- | --- | --- | --- |
 | `ApprovalResponder` | `approval.go` | 响应工具审批结果 | `*internal/platform/rpc.ApprovalManager` | 由 `internal/platform/rpc.Module` 导出。 |
@@ -230,15 +209,6 @@ flowchart TD
   - `ErrAgentNotFound`
   - `ErrHookReviewPermissionDenied`
   - `ErrHookReviewNotFound`
-=======
-### 2.3 Provider runtime 契约
-
-| 接口 | 方法签名 | 使用者（RPC / Module / Store / 其它） | 实现所在包 |
-|---|---|---|---|
-| `Driver` | `Name() string; StartSession(ctx context.Context, req dto.StartSessionRequest) (Session, error); ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (Session, error)` | Provider：`internal/provider/unified` registry/client/session_resolver | `internal/provider/{claudecli,codexapp}` |
-| `Session` | `ThreadID() string; RolloutPath() string; Capabilities() dto.CapabilitySet; StartTurn(...); Interrupt(...); ForceComplete(...); ListThreads(...); ForkThread(...); ReadHistory(...); Configure(...); Close(...); ForceStop() error` | Module：`internal/module/{thread,turn}`；RPC：`platform/rpc`；Provider：`internal/provider/unified` | `internal/provider/{claudecli,codexapp}` |
-| `TurnHandle` | `LocalID() string; ProviderID() string; Done() <-chan struct{}; Err() error` | Module：`internal/module/turn` tracker/service | `internal/provider/{claudecli,codexapp}` |
->>>>>>> Stashed changes
 
 ---
 
@@ -296,7 +266,6 @@ var Module = fx.Module("provider.unified",
 )
 ```
 
-<<<<<<< Updated upstream
 #### B17 组件依赖图
 
 ```mermaid
@@ -456,11 +425,6 @@ platform/mcpcontrol.ToolRegistry
 ## 5. 关键函数 / 方法签名
 
 ### 5.1 `internal/app/app.go`
-=======
-### 5.2 多实现 fan-in：`fx.Group`
-
-适合“多 provider、多插件、多桥接端口”场景；新增实现时**不改消费者**。
->>>>>>> Stashed changes
 
 ```go
 // producer
@@ -492,7 +456,6 @@ fx.Provide(
 )
 ```
 
-<<<<<<< Updated upstream
 ### 5.3 `internal/app/runner.go`
 
 ```go
@@ -891,6 +854,3 @@ store/thread
 - 已补全此前文档未展开的依赖注入链：`group:"drivers" -> unified.Registry -> Client / SessionManager / SessionResolver -> thread / turn / rpc`，以及 `SessionGeneration -> BindSessionGeneration -> generation-aware session cleaner` 这条链路。  
 - 已澄清适配器模式的真实落点：`newThreadOrchestrationFacade` 与 `newRuntimeReporter` 是薄适配层；`AsRPCRunner` 只是 Fx 结果包装，不属于业务语义适配。  
 - 已核对 `internal/app/modules.go`：根模块清单与文档一致，仍然 **不内嵌 orchestration module**；桌面态仅通过 optional 依赖和 noop 适配器感知 orchestration。  
-=======
-这就是 `app` 与 `cmd/mcp-orch` 的切线：**04 记录同一 contract 在不同 Fx 图的绑定差异；实现逻辑仍各自留在模块包。**
->>>>>>> Stashed changes
