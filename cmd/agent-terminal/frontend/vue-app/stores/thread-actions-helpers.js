@@ -277,8 +277,8 @@ export async function setThreadConfig(ctx, threadId, config = {}) {
   const id = (threadId || '').toString().trim();
   if (!id) return null;
   const cwd = typeof ctx.getPreferenceScopeCwd === 'function' ? ctx.getPreferenceScopeCwd() : '';
-  const model = (config?.model || '').toString();
-  const effort = (config?.effort || '').toString();
+  const model = normalizeProviderConfigValue(config?.model) || '';
+  const effort = normalizeProviderConfigValue(config?.effort) || '';
   const start = perfNow();
   logInfo('thread', 'config.set.start', { thread_id: id, cwd, requested_model: model, requested_effort: effort });
   try {
