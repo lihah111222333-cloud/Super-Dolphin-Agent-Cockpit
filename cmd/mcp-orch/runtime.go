@@ -24,6 +24,7 @@ import (
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
+	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -233,6 +234,7 @@ func newRegistry(
 	command commandcardstore.Store,
 	sharedFile sharedfilestore.Store,
 	memory contract.MemoryService,
+	cron cronstore.Store,
 ) tools.Registry {
 	return tools.NewRegistry(tools.Dependencies{
 		Orchestration: orchestration,
@@ -241,7 +243,12 @@ func newRegistry(
 		CommandCard:   command,
 		SharedFile:    sharedFile,
 		Memory:        memory,
+		Cron:          cron,
 	})
+}
+
+func newCronStore(pool *pgxpool.Pool) cronstore.Store {
+	return cronstore.NewStoreFromPool(pool)
 }
 
 func newStdioRunner(registry tools.Registry) platformrunner.Runner {
