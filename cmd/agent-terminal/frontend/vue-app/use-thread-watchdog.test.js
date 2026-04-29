@@ -12,7 +12,7 @@ vi.mock("./services/log.js", () => ({
 vi.mock("./services/api.js", () => ({ callAPI: vi.fn() }));
 
 import { ref } from '../lib/vue.esm-browser.prod.js';
-import { useThreadWatchdog, _USE_THREAD_WATCHDOG_CONSTANTS as K } from './composables/useThreadWatchdog.js';
+import { useThreadWatchdog, normalizeStuckEntry, _USE_THREAD_WATCHDOG_CONSTANTS as K } from './composables/useThreadWatchdog.js';
 
 function makeStore(init = {}) {
   return {
@@ -429,5 +429,49 @@ describe('useThreadWatchdog · Phase 1.7f 累计上限兜底', () => {
 
   it('CUMULATIVE_POKE_LIMIT 数值锁定（防回归）', () => {
     expect(K.CUMULATIVE_POKE_LIMIT).toBe(5);
+  });
+});
+
+
+describe('normalizeStuckEntry · Phase 1.7d banner 渲染派生', () => {
+  it('null/undefined → null', () => {
+    expect(normalizeStuckEntry(null)).toBeNull();
+    expect(normalizeStuckEntry(undefined)).toBeNull();
+  });
+
+  it('object {kind:normal} 直接透传', () => {
+    const entry = { kind: 'normal', stuckSinceTs: 1000 };
+    expect(normalizeStuckEntry(entry)).toBe(entry);
+  });
+
+  it('object {kind:cumulative_limit} 直接透传（含 count）', () => {
+    const entry = { kind: 'cumulative_limit', count: 5, stuckSinceTs: 2000 };
+    expect(normalizeStuckEntry(entry)).toBe(entry);
+  });
+
+  it('historical number → 升级为 {kind:normal, stuckSinceTs}', () => {
+    expect(normalizeStuckEntry(1234)).toEqual({ kind: 'normal', stuckSinceTs: 1234 });
+  });
+
+  it('其他类型 → null', () => {
+    expect(normalizeStuckEntry('string')).toBeNull();
+    expect(normalizeStuckEntry(true)).toBeNull();
+  });
+
+  it('与 watchdog markStuck 写入形状对齐（regression: 1.7f 升级 value 后 1.7d banner 仍可解析）', () => {
+    const sendMessage = vi.fn();
+    const store = makeStore({
+      lastBackendEventAtByThread: { t1: 1000 },
+      statuses: { t1: 'thinking' },
+      agentRuntimeById: { t1: {} },  // 普通对话（无 taskId）→ markStuck 路径
+    });
+    const wd = useThreadWatchdog({ threadStore: store, sendMessage });
+    wd._setNowForTest(() => K.STALL_THRESHOLD_MS + 5000);
+    wd._scanForTest();
+    const entry = wd.stuckByThread.value.get('t1');
+    const normalized = normalizeStuckEntry(entry);
+    expect(normalized).not.toBeNull();
+    expect(normalized.kind).toBe('normal');
+    expect(typeof normalized.stuckSinceTs).toBe('number');
   });
 });

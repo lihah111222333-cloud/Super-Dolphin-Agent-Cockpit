@@ -181,6 +181,19 @@ export function useThreadWatchdog(opts = {}) {
   };
 }
 
+// Phase 1.7d: 派生 stuckInfo 给 ContextUsageBanner 渲染。
+// stuckByThread 的 value 形状：
+//   - { kind: 'normal', stuckSinceTs }            - watchdog 自动戳分流
+//   - { kind: 'cumulative_limit', count, stuckSinceTs }  - 累计上限兜底
+//   - 历史兼容：number（旧 timestamp，1.7f 之前形状）
+// 返回 null 表示「该 thread 当前无 stuck 状态」。
+export function normalizeStuckEntry(entry) {
+  if (!entry) return null;
+  if (typeof entry === 'object') return entry;
+  if (typeof entry === 'number') return { kind: 'normal', stuckSinceTs: entry };
+  return null;
+}
+
 export const _USE_THREAD_WATCHDOG_CONSTANTS = Object.freeze({
   WORKING_STATUS_SET,
   SCAN_INTERVAL_MS,

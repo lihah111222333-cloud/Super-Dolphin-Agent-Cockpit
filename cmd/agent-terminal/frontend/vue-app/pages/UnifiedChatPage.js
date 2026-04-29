@@ -41,7 +41,7 @@ import { useCopyThreadInfo } from '../composables/useCopyThreadInfo.js';
 import { useFileDrop } from '../composables/useFileDrop.js';
 import { useTaskHandoff } from '../composables/useTaskHandoff.js';
 import { useAutoContinue } from '../composables/useAutoContinue.js';
-import { useThreadWatchdog } from '../composables/useThreadWatchdog.js';
+import { useThreadWatchdog, normalizeStuckEntry } from '../composables/useThreadWatchdog.js';
 import { useAutoContinueStatePersistence } from '../composables/useAutoContinueStatePersistence.js';
 import { useForkThread } from '../composables/useForkThread.js';
 import { getTokenLevel } from '../utils/format-utils.js';
@@ -352,8 +352,7 @@ function createPageThreadWatchdog(props, threadStore, selectedThreadId, persiste
   const activeStuckInfo = computed(() => {
     const tid = (selectedThreadId.value || '').toString().trim();
     if (!tid) return null;
-    const stuckTs = wd.stuckByThread.value.get(tid);
-    return typeof stuckTs === 'number' ? { stuckSinceTs: stuckTs } : null;
+    return normalizeStuckEntry(wd.stuckByThread.value.get(tid));
   });
   const pokingStuckThread = ref(false);
   async function onRetryStuckThread() {
