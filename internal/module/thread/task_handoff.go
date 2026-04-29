@@ -331,6 +331,33 @@ func (s *service) EnsureHandoffExists(ctx context.Context, taskID string) error 
 	return nil
 }
 
+// FlushAndVerifyTaskHandoff 实现 Service.FlushAndVerifyTaskHandoff —— Phase
+// 1.8d fork 前预检的双保险：先 flush worker pending（等 turn 写盘）然后
+// stat handoff 文件存在性。任一失败返回带关键字 "handoff_flush_failed" /
+// "handoff_missing" 的 error，让前端 classifyError 识别 permanent 不重试。
+func (s *service) FlushAndVerifyTaskHandoff(ctx context.Context, threadID, taskID string) error {
+	if s == nil {
+		return errors.New("thread service unavailable")
+	}
+	threadID = strings.TrimSpace(threadID)
+	taskID = strings.TrimSpace(taskID)
+	if threadID == "" {
+		return errors.New("threadId required")
+	}
+	if taskID == "" {
+		return errors.New("taskId required")
+	}
+	if s.taskHandoffWorker != nil {
+		if err := s.taskHandoffWorker.FlushForThread(ctx, threadID); err != nil {
+			return fmt.Errorf("handoff_flush_failed: thread %q flush worker: %w", threadID, err)
+		}
+	}
+	if err := s.EnsureHandoffExists(ctx, taskID); err != nil {
+		return fmt.Errorf("handoff_missing: %w", err)
+	}
+	return nil
+}
+
 func normalizeTaskHandoffPath(raw string) string {
 	raw = strings.TrimSpace(strings.ReplaceAll(raw, "\\", "/"))
 	if raw == "" {

@@ -696,3 +696,43 @@ describe("useAutoContinue · Phase 1.8b 永久错误识别", () => {
     expect(sleepSpy).toHaveBeenCalled();
   });
 });
+
+describe("useAutoContinue · Phase 1.8d handoff 预检 permanent 识别", () => {
+  it("handoff_flush_failed 抛错 → permanent_handoff_flush_failed 不重试", async () => {
+    const store = makeStore({
+      statuses: { t1: "thinking" },
+      tokenUsageByThread: { t1: { usedPercent: 50 } },
+      agentRuntimeById: { t1: { taskId: "T1", capabilities: [] } },
+    });
+    const sleepSpy = vi.fn().mockResolvedValue(undefined);
+    const r = start(store, {
+      sleepFn: sleepSpy,
+      continueTaskById: vi.fn().mockRejectedValue(new Error("handoff_flush_failed: thread \"t1\" flush worker: timeout")),
+    });
+    store.state.tokenUsageByThread = { t1: { usedPercent: 99 } };
+    await nextTick();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(sleepSpy).not.toHaveBeenCalled();
+    const fail = r.failedAutoContinueByThread.value.get("t1");
+    expect(fail && fail.permanent_reason).toBe("permanent_handoff_flush_failed");
+  });
+
+  it("handoff_missing 抛错 → permanent_handoff_missing 不重试", async () => {
+    const store = makeStore({
+      statuses: { t1: "thinking" },
+      tokenUsageByThread: { t1: { usedPercent: 50 } },
+      agentRuntimeById: { t1: { taskId: "T1", capabilities: [] } },
+    });
+    const sleepSpy = vi.fn().mockResolvedValue(undefined);
+    const r = start(store, {
+      sleepFn: sleepSpy,
+      continueTaskById: vi.fn().mockRejectedValue(new Error("handoff_missing: handoff file \"handoff/tasks/T1.md\" not found")),
+    });
+    store.state.tokenUsageByThread = { t1: { usedPercent: 99 } };
+    await nextTick();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(sleepSpy).not.toHaveBeenCalled();
+    const fail = r.failedAutoContinueByThread.value.get("t1");
+    expect(fail && fail.permanent_reason).toBe("permanent_handoff_missing");
+  });
+});

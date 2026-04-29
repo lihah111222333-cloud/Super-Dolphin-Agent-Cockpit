@@ -41,6 +41,11 @@ const PERMANENT_ERROR_PATTERNS = Object.freeze([
   { reason: 'permanent_quota_exhausted',     match: /quota_exhausted|insufficient_quota|usage limit|out of credits/i },
   { reason: 'permanent_payment_required',    match: /402|payment_required|subscription expired/i },
   { reason: 'permanent_context_length_exceeded', match: /context_length_exceeded|context length exceeded|maximum context|prompt is too long/i },
+  // Phase 1.8d fork 前预检失败：worker flush 超时 / handoff 文件不存在；
+  // 后端 ui/task/flush_and_verify 抛错时 message 含这俩关键字。重试解决不了
+  // "文件不存在" / "writer 卡住"，标 permanent 跳过 retry。
+  { reason: 'permanent_handoff_flush_failed', match: /handoff_flush_failed/i },
+  { reason: 'permanent_handoff_missing',      match: /handoff_missing/i },
 ]);
 
 function classifyPermanentError(err) {

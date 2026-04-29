@@ -170,6 +170,22 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
         task_id: task.taskId,
         focus_followed: sameAsSelected,
       });
+      // Phase 1.8d fork 前预检：worker.FlushForThread + EnsureHandoffExists
+      // 任一失败抛 error message 含 handoff_flush_failed / handoff_missing
+      // 关键字，外层 useAutoContinue.classifyError 识别为 permanent 不重试。
+      try {
+        await callAPI('ui/task/flush_and_verify', {
+          threadId,
+          taskId: task.taskId,
+        });
+      } catch (preflightError) {
+        logWarn('ui', 'taskHandoff.continue.preflight_failed', {
+          source_thread_id: threadId,
+          task_id: task.taskId,
+          error: toErrorMessage(preflightError),
+        });
+        throw preflightError;
+      }
       const id = await threadStore.startThread(
         projectStore?.state?.active || '.',
         {

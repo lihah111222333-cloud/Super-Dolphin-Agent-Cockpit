@@ -46,6 +46,12 @@ type Service interface {
 	SendCommand(ctx context.Context, threadID, command, args string) (any, error)
 	SetName(ctx context.Context, threadID, name string) error
 	Delete(ctx context.Context, threadID string) error
+	// FlushAndVerifyTaskHandoff 是 Phase 1.8d fork 前预检：
+	// (a) FlushForThread —— 等待该 thread 所有 pending handoff turn 写完
+	// (b) EnsureHandoffExists —— stat handoff 文件确认存在
+	// 任一失败返回的 error message 含 "handoff_flush_failed" 或
+	// "handoff_missing" 关键字，让前端识别为 permanent 不重试。
+	FlushAndVerifyTaskHandoff(ctx context.Context, threadID, taskID string) error
 }
 
 type StartRequest struct {
