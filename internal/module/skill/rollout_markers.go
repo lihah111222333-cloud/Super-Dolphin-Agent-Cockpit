@@ -13,7 +13,7 @@ import (
 //
 // 捕获组：1=name, 2=mode, 3=version。
 // name 规则对齐 validateSkillName（仅小写字母/数字/连字符，1-64 字符）；
-// mode 接受任意小写字母串，交给 SkillMode.Valid 检查；version 数字。
+// mode 接受任意小写字母串作为 rollout marker 标签；version 数字。
 var skillBlockHeaderNewFormat = regexp.MustCompile(`^\[skill:([a-z0-9][a-z0-9-]{0,63})::([a-z]+)@v(\d+)\]\s*$`)
 
 // skillBlockFooterNewFormat 匹配新格式结束标志。Phase 3 暂不做"仅剥此块保留
@@ -67,7 +67,7 @@ const (
 
 // SkillBlockHeader 是注入 skill 块头部的解析结果。
 //
-// Mode 用原始字符串而非 dto.SkillMode——由上游调用方（codexapp/claudecli）自行
+// Mode 用原始字符串作为 rollout 标签——由上游调用方（codexapp/claudecli）自行
 // 转换。这样避免 `internal/module/skill` 反向依赖 `internal/dto/provider`（后者
 // 在导入图上处于更高层）。有效值："full" / "summary" / "none"。
 type SkillBlockHeader struct {

@@ -9,8 +9,6 @@ func TestCountersIncrementAndSnapshot(t *testing.T) {
 	ResetForTesting()
 	t.Cleanup(ResetForTesting)
 
-	IncSkillInvalidMode()
-	IncSkillInvalidMode()
 	IncUntrustedManifestRedaction()
 	IncTrimCorruptionFallback()
 	IncArtifactApprovalMiss()
@@ -31,9 +29,6 @@ func TestCountersIncrementAndSnapshot(t *testing.T) {
 	IncEnrichFailure()
 	IncEnrichFailure()
 
-	if v := SkillInvalidMode(); v != 2 {
-		t.Fatalf("SkillInvalidMode want 2, got %d", v)
-	}
 	if v := UntrustedManifestRedaction(); v != 1 {
 		t.Fatalf("UntrustedManifestRedaction want 1, got %d", v)
 	}
@@ -75,8 +70,7 @@ func TestCountersIncrementAndSnapshot(t *testing.T) {
 	}
 
 	snap := Read()
-	if snap.SkillInvalidModeTotal != 2 ||
-		snap.UntrustedManifestRedactionTotal != 1 ||
+	if snap.UntrustedManifestRedactionTotal != 1 ||
 		snap.TrimCorruptionFallbackCount != 1 ||
 		snap.ArtifactApprovalMissTotal != 3 ||
 		snap.SkillExpandInvokeRate != 1 ||
@@ -94,7 +88,6 @@ func TestCountersIncrementAndSnapshot(t *testing.T) {
 }
 
 func TestResetForTestingZeroes(t *testing.T) {
-	IncSkillInvalidMode()
 	IncSkillExpandInvoke()
 	IncSkillMCPToolCall()
 	IncSkillMCPToolSuccess()

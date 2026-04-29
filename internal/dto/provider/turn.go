@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
 )
 
 type TurnRequest struct {
@@ -33,76 +32,24 @@ type InputItem = shareddto.InputItem
 
 // SkillRef 是 turn / steer 请求中携带的 skill 引用。
 //
-// P20 Phase 2 扩展历史：之前只有 {Name, Prompt}，无法表达“摘要注入”与“全文注入”的分支。
-// 新增的 Mode/Summary/Version/Source 全部 omitempty：旧 server 反序列化与忽略未知字段，
-// 新 server 反序列化旧 payload 时 Mode 为空字串，等价于 Full 行为兼容旧语义。
+// P2/P3 cutover 之后，注入模式不再由 Mode 字段驱动：
+//   - Codex 走 base instructions L1-C 元数据 + skill_read_section 动态工具按需取节
+//   - Claude 走原生 .claude/skills/ 目录 + CLI 自动加载
+//   - 旧 Mode/Effective() 三态已无生产消费方，spec §11 同步清理。
 //
 // 字段语义：
-//   - Name：skill 标识符，对齐 validateSkillName 白名单（在 Phase 6 skill_expand 入口校验）。
-//   - Version：skill 版本或内容 hash（可选）；Phase 7 Resolver 用于去重键 `name@version`。
-//   - Mode：注入模式；Full = Prompt 填全文；Summary = Summary 填摘要指针；None = 跳过。
-//     空值等价 Full（向后兼容旧 payload）。
-//   - Prompt：全文 SKILL.md body。P20 方案文档称之为 Body，为不破坏 wire format
-//     实施上保留字段名 Prompt 与 JSON tag `prompt`；语义上等价 Body。
-//   - Summary：Mode=Summary 时填入的摘要文本（≤ 160c）。
+//   - Name：skill 标识符。
+//   - Version：skill 版本或内容 hash（可选）；用于去重键 `name@version`。
+//   - Prompt：全文 SKILL.md body（仅 hydration 路径用作 fallback 容器；
+//     codex/claude provider 都不再消费此字段拼 turn input）。
+//   - Summary：摘要文本（manifest L1-C 描述与 hydration 输出）。
 //   - Source：决策来源，供观测性日志划分 manual/force/trigger/expand/native。
 type SkillRef struct {
 	Name    string      `json:"name"`
 	Version string      `json:"version,omitempty"`
-	Mode    SkillMode   `json:"mode,omitempty"`
 	Prompt  string      `json:"prompt,omitempty"`
 	Summary string      `json:"summary,omitempty"`
 	Source  SkillSource `json:"source,omitempty"`
-}
-
-// SkillMode 拼接到 turn input 时的注入模式。空值等价 SkillModeFull（向后兼容旧 payload）。
-type SkillMode string
-
-const (
-	// SkillModeUnspecified 空值，实际按 Full 处理。
-	SkillModeUnspecified SkillMode = ""
-	// SkillModeFull 注入完整 Prompt（SKILL.md body）。
-	SkillModeFull SkillMode = "full"
-	// SkillModeSummary 仅注入 Summary + `skill_expand` 指针（Phase 4 实现）。
-	SkillModeSummary SkillMode = "summary"
-	// SkillModeNone 不注入任何内容（例如 Claude 原生 skill 由 CLI 自动注入）。
-	SkillModeNone SkillMode = "none"
-)
-
-// Valid 拒绝未知模式字符串。空值视为合法（后兼容）。
-func (m SkillMode) Valid() bool {
-	switch m {
-	case SkillModeUnspecified, SkillModeFull, SkillModeSummary, SkillModeNone:
-		return true
-	}
-	return false
-}
-
-// Effective 规范化原始值为 Phase 4 写端可用的枚举字面量。
-//
-// 策略（P20.1 §3.5 加固后）：
-//   - Unspecified （空字符串）→ Full：兼容旧 payload `{name, prompt}`（旧代码没有
-//     mode 字段，正常路径应走全文注入）。
-//   - Full / Summary / None → 返回原值。
-//   - 其他非法值（如 wire 中 `mode: "banana"` / 伪造 `mode: "skip"`）→ **保守降级为 None**，
-//     不注入任何内容；同时调用方应记录 warn 日志 / `skill_invalid_mode_total` 指标
-//     （指标将在 Phase 10 被接入，当前仅布置语义）。
-//
-// 这相比 P20 原“失败展开 Full”语义更保守——避免恶意 payload 通过伪造 mode 值让未审
-// 批的 skill 全文被强制注入。调用方如需失败隐藏，应显式传 SkillModeNone。
-func (m SkillMode) Effective() SkillMode {
-	switch m {
-	case SkillModeUnspecified:
-		return SkillModeFull
-	case SkillModeFull, SkillModeSummary, SkillModeNone:
-		return m
-	default:
-		// P20.1 Phase 10 Step C：非法 mode 字面量计数。计数点放在降级分支
-		// ——确保每次真正触发 "unknown mode → None" 时才 +1，
-		// 空值 / 合法值 不干扰计数。
-		skillmetrics.IncSkillInvalidMode()
-		return SkillModeNone
-	}
 }
 
 // SkillSource 追踪 SkillRef 的决策来源，供日志 / 断点 / 断言使用。

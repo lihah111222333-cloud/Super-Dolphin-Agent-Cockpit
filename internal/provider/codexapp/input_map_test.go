@@ -17,8 +17,8 @@ func TestBuildTurnStartParams(t *testing.T) {
 		Skills: []dto.SkillRef{
 			// Skill metadata is now injected into baseInstructions (P3 Task 5);
 			// per-turn skill body inlining is removed. SelectedSkills still forwarded.
-			{Name: "planner", Mode: dto.SkillModeFull, Prompt: "use the planner"},
-			{Name: " reviewer ", Mode: dto.SkillModeFull},
+			{Name: "planner", Prompt: "use the planner"},
+			{Name: " reviewer "},
 		},
 		TurnAssembly: dto.TurnAssembly{UserContext: map[string]string{
 			"currentDate": "Today's date is 2026-04-15.",
@@ -107,8 +107,8 @@ func TestBuildTurnSteerParams(t *testing.T) {
 		},
 		Skills: []dto.SkillRef{
 			// Skill metadata is now in baseInstructions; no per-turn body injection.
-			{Name: "planner", Mode: dto.SkillModeFull, Prompt: "use the planner"},
-			{Name: " reviewer ", Mode: dto.SkillModeFull},
+			{Name: "planner", Prompt: "use the planner"},
+			{Name: " reviewer "},
 		},
 		TurnAssembly: dto.TurnAssembly{UserContext: map[string]string{
 			"currentDate": "Today's date is 2026-04-15.",
