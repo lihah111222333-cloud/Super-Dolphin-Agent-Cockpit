@@ -45,6 +45,9 @@ export const ContextUsageBanner = {
     threadIsTask: { type: Boolean, default: false },
     // Phase 2.2b：promote-task RPC in-flight，按钮 disable + 改文案。
     promotingTask: { type: Boolean, default: false },
+    // Phase 2.2b：promote-task RPC 上一次错误（usePromoteTask.lastError）。
+    // 非空时按钮旁边显示，与 retryError 一致风格。
+    promoteTaskError: { type: String, default: '' },
   },
   emits: ['compact', 'fork', 'retry-auto-continue', 'retry-stuck-thread', 'force-stuck-thread', 'mark-stuck-done', 'promote-task'],
   setup(props, { emit }) {
@@ -205,6 +208,12 @@ export const ContextUsageBanner = {
             :title="promotingTask ? '升级中…' : '升级为自动化任务后，类似情况会自动续接，不再需要手动点继续'"
             @click="onPromoteTask"
           >{{ promotingTask ? '升级中…' : '升级为自动化任务' }}</button>
+          <span
+            v-if="!threadIsTask && promoteTaskError"
+            data-testid="thread-stuck-promote-error"
+            :title="promoteTaskError"
+            style="color:var(--color-danger,#c33); margin-left:8px; font-size:11px;"
+          >升级失败：{{ promoteTaskError }}</span>
         </template>
         <template v-else>
           <button

@@ -219,4 +219,13 @@ describe('ContextUsageBanner · Phase 2.2b promote-task button', () => {
     onPromoteTask();
     expect(emit).not.toHaveBeenCalled();
   });
+
+  it('declares promoteTaskError prop with empty default', () => {
+    expect(ContextUsageBanner.props.promoteTaskError.default).toBe('');
+  });
+
+  it('template renders promote-task error span only when threadIsTask=false AND error present', () => {
+    expect(ContextUsageBanner.template).toContain('thread-stuck-promote-error');
+    expect(ContextUsageBanner.template).toContain('v-if="!threadIsTask && promoteTaskError"');
+  });
 });
