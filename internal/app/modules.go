@@ -11,6 +11,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/feedback"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/insight"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/nativefilter"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/notify"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill"
@@ -59,6 +60,7 @@ var Module = fx.Options(
 	skill.Module,
 	skillforge.Module,
 	skilllibrary.Module,
+	nativefilter.Module,
 	fx.Provide(provideSkillLibraryConfig),
 	thread.Module,
 	turn.Module,
