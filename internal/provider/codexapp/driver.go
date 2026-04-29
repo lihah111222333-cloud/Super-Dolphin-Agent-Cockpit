@@ -13,6 +13,7 @@ import (
 
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
@@ -30,6 +31,7 @@ type DriverFactory struct {
 	manager         *ServerManager
 	pool            *ServerPool
 	listTools       func(context.Context) ([]codexprotocol.DynamicToolSchema, error)
+	skillStore      *skilllibrary.Store
 }
 
 type driver struct {
@@ -41,7 +43,10 @@ type driver struct {
 	manager         *ServerManager
 	pool            *ServerPool
 	listTools       func(context.Context) ([]codexprotocol.DynamicToolSchema, error)
+	skillStore      *skilllibrary.Store
 }
+
+const defaultManifestBudget = 8192
 
 var _ contract.Driver = (*driver)(nil)
 
@@ -97,6 +102,7 @@ func NewDriverFactory(
 	reporter contract.RuntimeReporter,
 	manager *ServerManager,
 	pool *ServerPool,
+	skillStore *skilllibrary.Store,
 ) *DriverFactory {
 	factory := &DriverFactory{
 		logger:          logger,
@@ -105,11 +111,12 @@ func NewDriverFactory(
 		reporter:        reporter,
 		manager:         manager,
 		pool:            pool,
+		skillStore:      skillStore,
 	}
 	factory.DriverFactory = contract.DriverFactory{
 		Name: "codex",
 		Create: func() contract.Driver {
-			return newDriver(logger, dispatcher, approvals, reporter, manager, pool, factory.currentListTools())
+			return newDriver(logger, dispatcher, approvals, reporter, manager, pool, factory.skillStore, factory.currentListTools())
 		},
 	}
 	return factory
@@ -133,7 +140,7 @@ func (f *DriverFactory) currentListTools() func(context.Context) ([]codexprotoco
 	return f.listTools
 }
 
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager, pool *ServerPool, listTools ...func(context.Context) ([]codexprotocol.DynamicToolSchema, error)) contract.Driver {
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager, pool *ServerPool, skillStore *skilllibrary.Store, listTools ...func(context.Context) ([]codexprotocol.DynamicToolSchema, error)) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -154,6 +161,7 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, ap
 		manager:         manager,
 		pool:            pool,
 		listTools:       listToolsFn,
+		skillStore:      skillStore,
 	}
 }
 
@@ -176,7 +184,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	if s.runtime != nil {
 		s.runtime.Start()
 	}
-	baseInstructions, developerInstructions := startAssemblyInstructions(req)
+	baseInstructions, developerInstructions := d.startAssemblyInstructions(req)
 	s.setRuntimeConfig(canonicalStartRuntimeConfig(req.Config))
 	s.ensureRuntimeCodexHomeFromInitialize("start")
 	if baseInstructions != "" {
@@ -256,7 +264,7 @@ func resumeRemoteThread(ctx context.Context, t *transport, req dto.ResumeSession
 	return decodeThreadID(raw, resumeID)
 }
 
-func startAssemblyInstructions(req dto.StartSessionRequest) (string, string) {
+func (d *driver) startAssemblyInstructions(req dto.StartSessionRequest) (string, string) {
 	base := strings.TrimSpace(shared.FirstNonEmpty(
 		req.StartAssembly.BaseInstructions,
 		req.StartAssembly.Snapshot.BaseInstructions,
@@ -268,6 +276,20 @@ func startAssemblyInstructions(req dto.StartSessionRequest) (string, string) {
 		configString(req.Config, "developerInstructions"),
 		configString(req.Config, "developer_instructions"),
 	))
+	if d != nil && d.skillStore != nil {
+		if entries, err := d.skillStore.List(); err == nil && len(entries) > 0 {
+			manifest := buildSkillManifest(entries, defaultManifestBudget)
+			if manifest != "" {
+				if base != "" {
+					base = manifest + "\n\n" + base
+				} else {
+					base = manifest
+				}
+			}
+		}
+		// err from List() is logged-and-ignored: skill manifest is best-effort,
+		// session start should not fail because the library is unreadable.
+	}
 	return base, developer
 }
 

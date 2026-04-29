@@ -304,8 +304,8 @@ func resolveApprovalPolicy(cfg map[string]any) string {
 	return "never"
 }
 
-func buildThreadStartParams(req dto.StartSessionRequest) threadStartParams {
-	baseInstructions, developerInstructions := startAssemblyInstructions(req)
+func (d *driver) buildThreadStartParams(req dto.StartSessionRequest) threadStartParams {
+	baseInstructions, developerInstructions := d.startAssemblyInstructions(req)
 	return threadStartParams{
 		Cwd:                   strings.TrimSpace(req.CWD),
 		Model:                 strings.TrimSpace(req.Model),
@@ -339,7 +339,7 @@ func (d *driver) startDynamicSession(ctx context.Context, s *session, req dto.St
 		"tool_count", len(tools),
 		"tool_names", names,
 	)
-	result, err := startRemoteThreadWithDynamicTools(ctx, s.transport, req, tools)
+	result, err := d.startRemoteThreadWithDynamicTools(ctx, s.transport, req, tools)
 	if err != nil {
 		cleanupFailedSession(s, "force stop failed on start error")
 		return nil, err
@@ -362,8 +362,8 @@ func (d *driver) finishStartedSession(s *session, result startResult) contract.S
 	return s
 }
 
-func startRemoteThreadWithDynamicTools(ctx context.Context, t *transport, req dto.StartSessionRequest, tools []codexprotocol.DynamicToolSchema) (startResult, error) {
-	params := buildThreadStartParams(req)
+func (d *driver) startRemoteThreadWithDynamicTools(ctx context.Context, t *transport, req dto.StartSessionRequest, tools []codexprotocol.DynamicToolSchema) (startResult, error) {
+	params := d.buildThreadStartParams(req)
 	params.DynamicTools = tools
 	// dynamicTools schema is exposed to the model by the codex app-server
 	// itself — no need to duplicate tool names in developerInstructions
