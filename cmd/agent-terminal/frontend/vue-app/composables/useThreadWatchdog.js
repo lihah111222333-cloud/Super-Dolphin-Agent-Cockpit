@@ -60,6 +60,14 @@ export function useThreadWatchdog(opts = {}) {
   });
   // 1.7c：偏好 ref（模块单例，直接读 .value）。允许 opts 注入便于单测。
   const prefRef = opts.prefRef || useThreadWatchdogPref();
+  // Phase 1.7f 持久化：每次 cumulativePokeCount 变化时调一下；持久化协调
+  // （5s 节流 + 写共享文件）由 useAutoContinueStatePersistence 实现，watchdog
+  // 自身不引入 RPC 依赖。
+  const onStateChange = typeof opts.onStateChange === 'function' ? opts.onStateChange : null;
+  function notifyStateChange(tid) {
+    if (!onStateChange || !tid) return;
+    try { onStateChange(tid); } catch (_) { /* never break scan */ }
+  }
 
   function pokeTaskThread(tid, taskId, elapsed) {
     const prev = cumulativePokeCountByThread.value.get(tid) || 0;
@@ -70,6 +78,8 @@ export function useThreadWatchdog(opts = {}) {
         thread_id: tid, task_id: taskId, count: prev, limit: CUMULATIVE_POKE_LIMIT,
       });
       stuckByThread.value.set(tid, { kind: 'cumulative_limit', count: prev, stuckSinceTs: now() });
+      // 累计已封顶——计数不再增长但仍持久化当前状态（便于刷新后保留 cumulative_limit 语义）
+      notifyStateChange(tid);
       return;
     }
     cumulativePokeCountByThread.value.set(tid, next);
@@ -77,6 +87,7 @@ export function useThreadWatchdog(opts = {}) {
       thread_id: tid, task_id: taskId, stall_ms: elapsed, count: next, source: 'watchdog',
     });
     safeSendMessage(sendMessage, tid);
+    notifyStateChange(tid);
   }
 
   function markStuck(tid, ts, elapsed) {
@@ -146,6 +157,7 @@ export function useThreadWatchdog(opts = {}) {
   function resetCumulativePokeCount(tid) {
     if (!tid) return;
     cumulativePokeCountByThread.value.delete(tid);
+    notifyStateChange(tid);
   }
   function clearStuck(tid) {
     if (!tid) return;
