@@ -25,16 +25,30 @@ const FAMILY_WINDOW_MAX = 5;                  // Phase 4.2 启用，数值待落
  *   _setNowForTest: (fn: () => number) => void,
  * }}
  */
-export function createAutoContinueGate() {
+export function createAutoContinueGate(options = {}) {
+  const onFuseRecovered = typeof options.onFuseRecovered === 'function' ? options.onFuseRecovered : null;
   const continuedSourceThreadIds = new Set();   // per-thread 1 次
   const familyCounters = new Map();              // rootTaskId/ParentAgentID -> number[]（Phase 4.2 启用，本 step 仅占位）
   const globalLog = [];                          // 全局保险丝时间戳
+  let armed = false;                              // 上一轮 fuse 触发后自愈监测：true 时下次 prune 触发 onFuseRecovered
 
   let now = () => Date.now();
 
   function pruneGlobal(currentTs) {
     const cutoff = currentTs - GLOBAL_WINDOW_MS;
     while (globalLog.length > 0 && globalLog[0] < cutoff) globalLog.shift();
+    if (armed && globalLog.length < GLOBAL_WINDOW_MAX) {
+      armed = false;
+      if (onFuseRecovered) {
+        try {
+          onFuseRecovered({
+            globalCount: globalLog.length,
+            windowMs: GLOBAL_WINDOW_MS,
+            windowMax: GLOBAL_WINDOW_MAX,
+          });
+        } catch (_) { /* never break gate */ }
+      }
+    }
   }
 
   function check(req) {
@@ -47,6 +61,7 @@ export function createAutoContinueGate() {
     }
     pruneGlobal(ts);
     if (globalLog.length >= GLOBAL_WINDOW_MAX) {
+      armed = true;
       return { allow: false, reason: 'global_fuse_blown', fuseBlown: true };
     }
     return { allow: true };

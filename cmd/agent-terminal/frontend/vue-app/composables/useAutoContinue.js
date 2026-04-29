@@ -366,7 +366,17 @@ export function useAutoContinue(opts) {
     thresholds: useContextUsageThresholds(),
     prefRef: useAutoContinuePref(),
     prefReadyRef: useAutoContinuePrefReady(),
-    gate: createAutoContinueGate(),
+    gate: createAutoContinueGate({
+      onFuseRecovered: ({ globalCount, windowMs, windowMax }) => {
+        logInfo('ui', 'auto_continue.fuse_recovered', {
+          global_count: globalCount,
+          window_ms: windowMs,
+          window_max: windowMax,
+        });
+        // 自愈后允许下次跳闸重新 alert（fuseAlertedRef 一次性 reset）。
+        ctx.fuseAlertedRef.value = false;
+      },
+    }),
     prevLevelByThread: new Map(),
     prevStatusByThread: new Map(),
     inflight: new Set(),

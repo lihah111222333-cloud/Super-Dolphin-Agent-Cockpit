@@ -89,3 +89,39 @@ describe('createAutoContinueGate · Phase 1.4a-fix 数值锁定（防回归）',
     expect(r).toEqual({ allow: false, reason: 'global_fuse_blown', fuseBlown: true });
   });
 });
+
+describe('createAutoContinueGate · Phase 1.8e 自愈日志回调', () => {
+  it('滑窗自愈时调 onFuseRecovered（单次，不重复）', () => {
+    const calls = [];
+    const g = createAutoContinueGate({ onFuseRecovered: (info) => calls.push(info) });
+    let t = 1_000_000;
+    g._setNowForTest(() => t);
+    for (let i = 0; i < 15; i++) g.recordContinue({ threadId: `t${i}` });
+    // 触发 fuseBlown（设 armed = true）
+    expect(g.check({ kind: 'continue', threadId: 'tx' }).fuseBlown).toBe(true);
+    expect(calls.length).toBe(0); // 还在窗内，未自愈
+    // 跨过滑窗 → 下次 check 触发自愈
+    t += K.GLOBAL_WINDOW_MS + 1;
+    expect(g.check({ kind: 'continue', threadId: 'ty' }).allow).toBe(true);
+    expect(calls.length).toBe(1);
+    expect(calls[0].globalCount).toBe(0);
+    expect(calls[0].windowMs).toBe(K.GLOBAL_WINDOW_MS);
+    expect(calls[0].windowMax).toBe(K.GLOBAL_WINDOW_MAX);
+    // 后续 check 不再重复触发
+    g.check({ kind: 'continue', threadId: 'tz' });
+    expect(calls.length).toBe(1);
+  });
+
+  it('回调抛错不会破坏闸门', () => {
+    const g = createAutoContinueGate({
+      onFuseRecovered: () => { throw new Error('boom'); },
+    });
+    let t = 2_000_000;
+    g._setNowForTest(() => t);
+    for (let i = 0; i < 15; i++) g.recordContinue({ threadId: `t${i}` });
+    g.check({ kind: 'continue', threadId: 'tx' }); // armed = true
+    t += K.GLOBAL_WINDOW_MS + 1;
+    // 不应该 throw
+    expect(() => g.check({ kind: 'continue', threadId: 'ty' })).not.toThrow();
+  });
+});
