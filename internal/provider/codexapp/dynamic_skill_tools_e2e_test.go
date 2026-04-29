@@ -149,7 +149,7 @@ func runDynamicSkillToolsModelE2E(t *testing.T, scenario dynamicSkillModelScenar
 
 	recorder := newDynamicSkillModelRecorder()
 	t.Setenv("CODEX_APP_SERVER_URL", startDynamicSkillModelServer(t, recorder, scenario.finalDelta))
-	drv := newDriver(nil, dispatcher, nil, nil, manager, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+	drv := newDriver(nil, dispatcher, nil, nil, manager, nil, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 		return []codexprotocol.DynamicToolSchema{{
 			Name:        skilltool.ToolNameExpandBody,
 			Description: skilltool.DescriptionExpandBody,

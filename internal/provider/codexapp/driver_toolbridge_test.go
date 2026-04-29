@@ -36,7 +36,7 @@ func TestToolBridge_StartSession_UsesDynamicTools(t *testing.T) {
 	manager := &ServerManager{}
 
 	listToolsCalls := 0
-	got, ok := newDriver(nil, nil, nil, nil, manager, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+	got, ok := newDriver(nil, nil, nil, nil, manager, nil, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 		listToolsCalls++
 		return []codexprotocol.DynamicToolSchema{{
 			Name:        "tool.echo",
@@ -45,7 +45,7 @@ func TestToolBridge_StartSession_UsesDynamicTools(t *testing.T) {
 		}}, nil
 	}).(*driver)
 	if !ok {
-		t.Fatalf("newDriver() type = %T, want *driver", newDriver(nil, nil, nil, nil, manager, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+		t.Fatalf("newDriver() type = %T, want *driver", newDriver(nil, nil, nil, nil, manager, nil, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 			return nil, nil
 		}))
 	}

@@ -30,9 +30,9 @@ func (s *stubRuntimeReporter) ReportRuntime(_ context.Context, report contract.R
 
 func TestNewDriverUsesEnvServerURLAndName(t *testing.T) {
 	t.Setenv("CODEX_APP_SERVER_URL", " ws://127.0.0.1:9123 ")
-	got, ok := newDriver(nil, nil, nil, nil, nil, nil).(*driver)
+	got, ok := newDriver(nil, nil, nil, nil, nil, nil, nil).(*driver)
 	if !ok {
-		t.Fatalf("newDriver() type = %T, want *driver", newDriver(nil, nil, nil, nil, nil, nil))
+		t.Fatalf("newDriver() type = %T, want *driver", newDriver(nil, nil, nil, nil, nil, nil, nil))
 	}
 	if got.logger == nil {
 		t.Fatal("newDriver() logger = nil")
@@ -48,7 +48,7 @@ func TestNewDriverUsesEnvServerURLAndName(t *testing.T) {
 func TestNewDriverFactoryCreateReturnsCodexDriver(t *testing.T) {
 	t.Parallel()
 
-	factory := NewDriverFactory(nil, nil, nil, nil, nil, nil)
+	factory := NewDriverFactory(nil, nil, nil, nil, nil, nil, nil)
 	if factory.Name != "codex" {
 		t.Fatalf("factory.Name = %q, want codex", factory.Name)
 	}
@@ -64,7 +64,7 @@ func TestNewDriverFactoryCreateReturnsCodexDriver(t *testing.T) {
 func TestDriverReportRuntimeUsesParsedServerURLPort(t *testing.T) {
 	reporter := &stubRuntimeReporter{}
 	t.Setenv("CODEX_APP_SERVER_URL", " ws://127.0.0.1:9123/ws ")
-	got := newDriver(nil, nil, nil, reporter, nil, nil).(*driver)
+	got := newDriver(nil, nil, nil, reporter, nil, nil, nil).(*driver)
 	got.reportRuntime(" agent-1 ")
 	if reporter.calls != 1 {
 		t.Fatalf("ReportRuntime() calls = %d, want 1", reporter.calls)
@@ -128,7 +128,7 @@ func TestSessionCapabilitiesReturnsClone(t *testing.T) {
 func TestBuildThreadStartParamsUsesStartAssemblyInstructions(t *testing.T) {
 	t.Parallel()
 
-	params := buildThreadStartParams(dto.StartSessionRequest{
+	params := (&driver{}).buildThreadStartParams(dto.StartSessionRequest{
 		CWD:          " /repo ",
 		Model:        " gpt-5.5 ",
 		Instructions: "legacy instructions",

@@ -13,8 +13,11 @@ import (
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"go.uber.org/fx"
 )
@@ -22,7 +25,7 @@ import (
 var Module = fx.Module("provider.codexapp",
 	fx.Provide(
 		NewServerManager,
-		NewDriverFactory,
+		provideDriverFactory,
 		fx.Annotate(provideContractDriverFactory, fx.ResultTags(`group:"drivers"`)),
 		fx.Annotate(provideDreamExecutorProvider, fx.ResultTags(`group:"dream_executors"`)),
 		// P21 Track B pool 基础设施：ServerPool + 周期 EvictIdle Runner。
@@ -44,6 +47,25 @@ var Module = fx.Module("provider.codexapp",
 // Split out so the fx.Annotate above can type the result as platformrunner.Runner.
 func provideDefaultPeerSupervisor(mgr *ServerManager, logger *slog.Logger) platformrunner.Runner {
 	return NewPeerSupervisor(mgr, logger)
+}
+
+// DriverFactoryParams holds the fx-injected dependencies for NewDriverFactory.
+// SkillStore is optional so the codexapp module works even when skilllibrary
+// is not wired into the application graph (e.g., standalone tests).
+type DriverFactoryParams struct {
+	fx.In
+
+	Logger     *slog.Logger
+	Dispatcher *unified.EventDispatcher
+	Approvals  *rpc.ApprovalManager
+	Reporter   contract.RuntimeReporter
+	Manager    *ServerManager
+	Pool       *ServerPool
+	SkillStore *skilllibrary.Store `optional:"true"`
+}
+
+func provideDriverFactory(p DriverFactoryParams) *DriverFactory {
+	return NewDriverFactory(p.Logger, p.Dispatcher, p.Approvals, p.Reporter, p.Manager, p.Pool, p.SkillStore)
 }
 
 func provideContractDriverFactory(factory *DriverFactory) contract.DriverFactory {
