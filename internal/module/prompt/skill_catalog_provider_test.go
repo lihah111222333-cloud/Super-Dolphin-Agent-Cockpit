@@ -180,6 +180,46 @@ func TestSkillCatalogProvider_DisableModelInvocationLandsInManualOnly(t *testing
 	}
 }
 
+func TestSkillCatalogProvider_GroupsNativeTrustedRedacted(t *testing.T) {
+	infos := []skillpkg.SkillInfo{
+		{Name: "trusted-one", Trust: skillpkg.TrustUser, Description: "trusted desc"},
+		{Name: "native-foo", Trust: skillpkg.TrustUser, Description: "native desc"},
+		{Name: "project-one", Trust: skillpkg.TrustProject, Description: "project visible", Summary: "project summary"},
+		{Name: "untrusted-one", Trust: skillpkg.TrustUnknown, Description: "SECRET_LEAK", Summary: "SECRET_SUMMARY"},
+		{Name: "manual-only", Trust: skillpkg.TrustUser, Description: "manual desc", DisableModelInvocation: true},
+	}
+	p := NewSkillCatalogProvider(
+		fakeSkillLister{infos: infos},
+		fakeNativeDetector{names: []string{"native-foo"}},
+		0,
+	)
+	out, err := p.Resolve(context.Background(), baseCtx("/proj"))
+	if err != nil || out == nil {
+		t.Fatalf("Resolve: err=%v out=%v", err, out)
+	}
+	text := *out
+	for _, section := range []string{"### Core", "### Native", "### Manual-only", "### Untrusted"} {
+		if !strings.Contains(text, section) {
+			t.Fatalf("missing section %s in %q", section, text)
+		}
+	}
+	if !strings.Contains(text, "trusted desc") || !strings.Contains(text, "project visible") || !strings.Contains(text, "project summary") {
+		t.Fatalf("trusted/project metadata should render: %q", text)
+	}
+	if !strings.Contains(text, "native-foo") || !strings.Contains(text, "body auto-loaded by Claude CLI native mechanism") {
+		t.Fatalf("native skill should render as Claude-native entry: %q", text)
+	}
+	if !strings.Contains(text, "manual-only") || !strings.Contains(text, "### Manual-only") || !strings.Contains(text, "invoke via `/manual-only`") {
+		t.Fatalf("manual-only trusted skill should render without model invocation: %q", text)
+	}
+	if strings.Contains(text, "SECRET_LEAK") || strings.Contains(text, "SECRET_SUMMARY") {
+		t.Fatalf("redacted metadata leaked: %q", text)
+	}
+	if !strings.Contains(text, `skill_expand_body("untrusted-one")`) {
+		t.Fatalf("redacted skill should point to skill_expand_body: %q", text)
+	}
+}
+
 func TestSkillCatalogProvider_MixedGroupsPreserveOrder(t *testing.T) {
 	infos := []skillpkg.SkillInfo{
 		{Name: "trusted-one", Trust: skillpkg.TrustUser, Description: "t1"},

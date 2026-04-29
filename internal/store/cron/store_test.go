@@ -76,6 +76,9 @@ func (s *cronQuerierStub) SetCronJobEnabled(ctx context.Context, a sqlc.SetCronJ
 	}
 	return nil
 }
+func (s *cronQuerierStub) PatchCronJobNextRunAt(ctx context.Context, a sqlc.PatchCronJobNextRunAtParams) error {
+	return nil
+}
 func (s *cronQuerierStub) ClaimDueJobs(ctx context.Context, a sqlc.ClaimDueJobsParams) ([]sqlc.CronJob, error) {
 	if s.claimFn != nil {
 		return s.claimFn(ctx, a)
@@ -158,6 +161,12 @@ func (s *cronQuerierStub) ListUnresolvedCronJobRuns(ctx context.Context) ([]sqlc
 	if s.listUnresolvedFn != nil {
 		return s.listUnresolvedFn(ctx)
 	}
+	return nil, nil
+}
+func (s *cronQuerierStub) GetRunningCronJobRunByTurnID(ctx context.Context, turnID string) (sqlc.CronJobRun, error) {
+	return sqlc.CronJobRun{}, platformdb.ErrNotFound
+}
+func (s *cronQuerierStub) ListCronJobsClaimedBy(ctx context.Context, claimedBy string) ([]sqlc.CronJob, error) {
 	return nil, nil
 }
 

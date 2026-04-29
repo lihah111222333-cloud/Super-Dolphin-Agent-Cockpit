@@ -47,6 +47,7 @@ type fakeStore struct {
 	updateFn        func(context.Context, cronstore.UpdateJobScheduleParams) error
 	setEnabledFn    func(context.Context, string, bool, time.Time) error
 	listRunsByJobFn func(context.Context, string, int32) ([]cronstore.Run, error)
+	patchNextRunAtFn func(context.Context, string, time.Time, time.Time) error
 }
 
 func (f *fakeStore) CreateJob(ctx context.Context, p cronstore.CreateJobParams) (cronstore.Job, error) {
@@ -55,6 +56,13 @@ func (f *fakeStore) CreateJob(ctx context.Context, p cronstore.CreateJobParams) 
 	}
 	return cronstore.Job{ID: p.ID, Name: p.Name, Provider: p.Provider, CWD: p.CWD}, nil
 }
+func (f *fakeStore) PatchNextRunAt(ctx context.Context, id string, nextRunAt time.Time, now time.Time) error {
+	if f.patchNextRunAtFn != nil {
+		return f.patchNextRunAtFn(ctx, id, nextRunAt, now)
+	}
+	return nil
+}
+
 func (f *fakeStore) GetJobByID(ctx context.Context, id string) (cronstore.Job, error) {
 	if f.getByIDFn != nil {
 		return f.getByIDFn(ctx, id)
@@ -394,3 +402,90 @@ func jsonMap(m map[string]any) json.RawMessage {
 // go-test cwd.
 var _ = filepath.Join
 var _ = os.TempDir
+
+// ----- RunOnce -----
+
+func TestRunOnceBumpsNextRunAtPreservingOtherFields(t *testing.T) {
+	t.Parallel()
+	now := time.Unix(1_700_000_000, 0).UTC()
+
+	job := cronstore.Job{
+		ID:            "job-1",
+		Name:          "daily",
+		Prompt:        "check",
+		ScheduleType:  "cron",
+		ScheduleExpr:  "0 9 * * *",
+		Timezone:      "Asia/Seoul",
+		Provider:      "codex",
+		Model:         "gpt-5",
+		CWD:           "/repo",
+		Config:        []byte(`{"codexHome":"/x"}`),
+		Skills:        []byte(`["a"]`),
+		NotifyChannel: "slack.default",
+		Enabled:       true,
+		NextRunAt:     now.Add(24 * time.Hour),
+		MaxAttempts:   3,
+	}
+
+	var gotID string
+	var gotNextRunAt time.Time
+	store := &fakeStore{
+		getByIDFn: func(_ context.Context, id string) (cronstore.Job, error) {
+			if id != "job-1" {
+				t.Fatalf("unexpected id %q", id)
+			}
+			return job, nil
+		},
+		patchNextRunAtFn: func(_ context.Context, id string, nextRunAt time.Time, _ time.Time) error {
+			gotID = id
+			gotNextRunAt = nextRunAt
+			return nil
+		},
+	}
+	svc := newTestService(t, store)
+	if _, err := svc.RunOnce(context.Background(), "job-1"); err != nil {
+		t.Fatalf("RunOnce error: %v", err)
+	}
+	if gotID != "job-1" {
+		t.Fatalf("PatchNextRunAt id = %q, want job-1", gotID)
+	}
+	if !gotNextRunAt.Equal(now) {
+		t.Fatalf("NextRunAt = %v, want %v", gotNextRunAt, now)
+	}
+}
+
+func TestRunOnceReturnsErrNotFound(t *testing.T) {
+	t.Parallel()
+	store := &fakeStore{
+		getByIDFn: func(context.Context, string) (cronstore.Job, error) {
+			return cronstore.Job{}, cronstore.ErrJobNotFound
+		},
+	}
+	svc := newTestService(t, store)
+	_, err := svc.RunOnce(context.Background(), "missing")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("want ErrNotFound, got %v", err)
+	}
+}
+
+func TestRunOnceRejectsEmptyID(t *testing.T) {
+	t.Parallel()
+	svc := newTestService(t, nil)
+	if _, err := svc.RunOnce(context.Background(), "  "); err == nil {
+		t.Fatal("RunOnce should reject blank id")
+	}
+}
+
+func TestRunOnceRejectsDisabledJob(t *testing.T) {
+	t.Parallel()
+	store := &fakeStore{
+		getByIDFn: func(context.Context, string) (cronstore.Job, error) {
+			return cronstore.Job{ID: "job-1", Enabled: false}, nil
+		},
+	}
+	svc := newTestService(t, store)
+	_, err := svc.RunOnce(context.Background(), "job-1")
+	if !errors.Is(err, ErrJobDisabled) {
+		t.Fatalf("want ErrJobDisabled, got %v", err)
+	}
+}

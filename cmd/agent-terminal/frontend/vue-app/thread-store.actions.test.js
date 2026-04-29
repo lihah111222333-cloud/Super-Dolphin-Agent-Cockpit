@@ -21,6 +21,7 @@ vi.mock('./services/log.js', () => ({
   logWarn: logMock.logWarn,
 }));
 
+import { CODEX_IDENTITY_DEFAULTS } from './provider-config-options.js';
 import { useThreadStore } from './stores/threads.js';
 import {
   cancelCompactWaiter,
@@ -57,6 +58,32 @@ function buildSnapshot({
     activeCmdThreadId: '',
 
   };
+}
+
+function mockStartPreference(payload, {
+  provider = 'codex',
+  activePromptKey = '',
+  classifierEnabled = false,
+  model = '',
+  effort = '',
+  codexHome = undefined,
+  codexInstanceKey = undefined,
+  codexModelProvider = undefined,
+} = {}) {
+  const key = payload?.key;
+  if (key === 'settings.provider.active') return provider;
+  if (key === 'settings.activePromptKey') return activePromptKey;
+  if (key === 'settings.classifierEnabled') return classifierEnabled;
+  if (key === 'settings.provider.codex.codexHome') return codexHome;
+  if (key === 'settings.provider.codex.codexInstanceKey') return codexInstanceKey;
+  if (key === 'settings.provider.codex.codexModelProvider') return codexModelProvider;
+  if (typeof key === 'string' && key.startsWith('settings.provider.') && key.endsWith('.model')) return model;
+  if (typeof key === 'string' && key.startsWith('settings.provider.') && key.endsWith('.effort')) return effort;
+  return undefined;
+}
+
+function codexIdentityConfig(overrides = {}) {
+  return { ...CODEX_IDENTITY_DEFAULTS, ...overrides };
 }
 
 function resetThreadStore(store) {
@@ -101,9 +128,7 @@ async function startThreadUntilSync(store, res, runtime = {}) {
   store.state.agentRuntimeById = runtime;
   apiMock.callAPI.mockImplementation(async (method, payload) => {
     if (method === 'ui/preferences/get') {
-      if (payload?.key === 'settings.activePromptKey') return '';
-      if (payload?.key === 'settings.provider.active') return 'codex';
-      return false;
+      return mockStartPreference(payload, { provider: 'codex' });
     }
     if (method === 'config/builtinTools/read') return {};
     if (method === 'thread/start') return res;
@@ -130,10 +155,7 @@ describe('thread store actions', () => {
     const store = useThreadStore();
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'ui/preferences/get') {
-        if (payload?.key === 'settings.activePromptKey') return '';
-        if (payload?.key === 'settings.provider.claude.model') return '';
-        if (payload?.key === 'settings.provider.claude.effort') return '';
-        return 'claude-3.7-sonnet';
+        return mockStartPreference(payload, { provider: 'claude-3.7-sonnet' });
       }
       if (method === 'thread/start') return { thread: { id: 'thread-new' } };
       if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-new', activeThreadId: '' });
@@ -154,10 +176,7 @@ describe('thread store actions', () => {
     const store = useThreadStore();
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'ui/preferences/get') {
-        if (payload?.key === 'settings.activePromptKey') return '';
-        if (payload?.key === 'settings.provider.codex.model') return '';
-        if (payload?.key === 'settings.provider.codex.effort') return '';
-        return 'codex';
+        return mockStartPreference(payload, { provider: 'codex' });
       }
       if (method === 'thread/start') return { thread: { id: 'thread-task' } };
       if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-task', activeThreadId: '' });
@@ -177,11 +196,11 @@ describe('thread store actions', () => {
     expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', {
       cwd: '/repo',
       modelProvider: 'codex',
-      config: {
+      config: codexIdentityConfig({
         taskId: 'task-demo',
         handoffFile: 'handoff/tasks/task-demo.md',
         continueTask: true,
-      },
+      }),
     });
   });
 
@@ -189,10 +208,7 @@ describe('thread store actions', () => {
     const store = useThreadStore();
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'ui/preferences/get') {
-        if (payload?.key === 'settings.activePromptKey') return '';
-        if (payload?.key === 'settings.provider.codex.model') return '';
-        if (payload?.key === 'settings.provider.codex.effort') return '';
-        return 'codex';
+        return mockStartPreference(payload, { provider: 'codex' });
       }
       if (method === 'thread/start') return { thread: { id: 'thread-seeded' } };
       if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-seeded', activeThreadId: '' });
@@ -215,11 +231,114 @@ describe('thread store actions', () => {
       modelProvider: 'codex',
       name: 'Memory Center Refactor · 新任务',
       baseInstructions: '来源任务：Memory Center Refactor',
-      config: {
+      config: codexIdentityConfig({
         taskTitle: 'Memory Center Refactor · 新任务',
         autoTaskHandoff: true,
-      },
+      }),
     });
+  });
+
+
+  it('normalizes object-shaped provider model preferences before thread/start', async () => {
+    const store = useThreadStore();
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get') {
+        return mockStartPreference(payload, { provider: 'claude', model: { value: 'sonnet', label: 'Sonnet 4.7' }, effort: 'high' });
+      }
+      if (method === 'thread/start') return { thread: { id: 'thread-claude' } };
+      if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-claude', activeThreadId: '' });
+      if (method === 'ui/preferences/set') return {};
+      return {};
+    });
+
+    await store.startThread('/repo', {});
+    await flushAsync();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', expect.objectContaining({
+      cwd: '/repo',
+      modelProvider: 'claude',
+      model: 'sonnet',
+      effort: 'high',
+    }));
+  });
+
+  it('does not forward accidental model artifact strings before thread/start', async () => {
+    const store = useThreadStore();
+    let startPayload = null;
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get') {
+        return mockStartPreference(payload, { provider: 'claude', model: undefined, effort: 'high' });
+      }
+      if (method === 'thread/start') { startPayload = payload; return { thread: { id: 'thread-claude-safe' } }; }
+      if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-claude-safe', activeThreadId: '' });
+      if (method === 'ui/preferences/set') return {};
+      return {};
+    });
+
+    await store.startThread('/repo', {});
+    await flushAsync();
+
+    expect(startPayload.model).toBeUndefined();
+    expect(JSON.stringify(startPayload)).not.toContain('[object Object]');
+  });
+
+  it('forwards codex identity from provider preferences before thread/start', async () => {
+    const store = useThreadStore();
+    let startPayload = null;
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get') {
+        return mockStartPreference(payload, {
+          provider: 'codex',
+          model: 'gpt-5.5',
+          effort: 'xhigh',
+          codexHome: '/Users/mac/.codex',
+          codexInstanceKey: 'primary',
+          codexModelProvider: 'openai-compatible',
+        });
+      }
+      if (method === 'thread/start') { startPayload = payload; return { thread: { id: 'thread-codex-identity' } }; }
+      if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-codex-identity', activeThreadId: '' });
+      if (method === 'ui/preferences/set') return {};
+      return {};
+    });
+
+    await store.startThread('/repo', {});
+    await flushAsync();
+
+    expect(startPayload).toEqual(expect.objectContaining({
+      cwd: '/repo',
+      modelProvider: 'codex',
+      model: 'gpt-5.5',
+      effort: 'xhigh',
+      config: {
+        codexHome: '/Users/mac/.codex',
+        codexInstanceKey: 'primary',
+        codexModelProvider: 'openai-compatible',
+      },
+    }));
+  });
+
+  it('normalizes object-shaped thread config before thread/config/set', async () => {
+    const store = useThreadStore();
+    let configPayload = null;
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'thread/config/set') {
+        configPayload = payload;
+        return {
+          threadId: 'thread-1',
+          override: { model: payload.model, effort: payload.effort },
+          effective: { model: payload.model, effort: payload.effort },
+        };
+      }
+      return {};
+    });
+
+    await store.setThreadConfig('thread-1', {
+      model: { value: 'sonnet', label: 'Sonnet 4.7' },
+      effort: { value: 'high' },
+    });
+
+    expect(configPayload).toEqual({ threadId: 'thread-1', model: 'sonnet', effort: 'high' });
   });
 
   it('startThread reads cwd-scoped activePromptKey preference and forwards prompt_key', async () => {
@@ -228,10 +347,7 @@ describe('thread store actions', () => {
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'ui/preferences/get') {
         prefCalls.push(payload);
-        if (payload?.key === 'settings.activePromptKey') return 'main/launch-fav';
-        if (payload?.key === 'settings.provider.codex.model') return '';
-        if (payload?.key === 'settings.provider.codex.effort') return '';
-        return 'codex';
+        return mockStartPreference(payload, { provider: 'codex', activePromptKey: 'main/launch-fav' });
       }
       if (method === 'thread/start') return { thread: { id: 'thread-pinned' } };
       if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-pinned', activeThreadId: '' });
@@ -246,6 +362,7 @@ describe('thread store actions', () => {
     expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', {
       cwd: '/repo-x',
       modelProvider: 'codex',
+      config: codexIdentityConfig(),
       prompt_key: 'main/launch-fav',
     });
   });
@@ -254,10 +371,7 @@ describe('thread store actions', () => {
     const store = useThreadStore();
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'ui/preferences/get') {
-        if (payload?.key === 'settings.activePromptKey') return 'main/should-be-ignored';
-        if (payload?.key === 'settings.provider.codex.model') return '';
-        if (payload?.key === 'settings.provider.codex.effort') return '';
-        return 'codex';
+        return mockStartPreference(payload, { provider: 'codex', activePromptKey: 'main/should-be-ignored' });
       }
       if (method === 'thread/start') return { thread: { id: 'thread-pinned-explicit' } };
       if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-pinned-explicit', activeThreadId: '' });
@@ -271,6 +385,7 @@ describe('thread store actions', () => {
     expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', {
       cwd: '/repo',
       modelProvider: 'codex',
+      config: codexIdentityConfig(),
       prompt_key: 'main/explicit-pin',
     });
   });
@@ -282,11 +397,8 @@ describe('thread store actions', () => {
       if (method === 'ui/preferences/get') {
         if (payload?.key === 'settings.activePromptKey') {
           activePromptLookups += 1;
-          return 'main/should-be-ignored';
         }
-        if (payload?.key === 'settings.provider.codex.model') return '';
-        if (payload?.key === 'settings.provider.codex.effort') return '';
-        return 'codex';
+        return mockStartPreference(payload, { provider: 'codex', activePromptKey: 'main/should-be-ignored' });
       }
       if (method === 'thread/start') return { thread: { id: 'thread-pinned-by-agent' } };
       if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-pinned-by-agent', activeThreadId: '' });
@@ -301,6 +413,7 @@ describe('thread store actions', () => {
     expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', {
       cwd: '/repo',
       modelProvider: 'codex',
+      config: codexIdentityConfig(),
       agent_key: 'sql_expert',
     });
   });
@@ -309,11 +422,7 @@ describe('thread store actions', () => {
     const store = useThreadStore();
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'ui/preferences/get') {
-        if (payload?.key === 'settings.classifierEnabled') return true;
-        if (payload?.key === 'settings.activePromptKey') return '';
-        if (payload?.key === 'settings.provider.codex.model') return '';
-        if (payload?.key === 'settings.provider.codex.effort') return '';
-        return 'codex';
+        return mockStartPreference(payload, { provider: 'codex', classifierEnabled: true });
       }
       if (method === 'thread/start') return { thread: { id: 'thread-classified' } };
       if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-classified', activeThreadId: '' });
@@ -327,6 +436,7 @@ describe('thread store actions', () => {
     expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', {
       cwd: '/repo',
       modelProvider: 'codex',
+      config: codexIdentityConfig(),
       use_classifier: true,
     });
   });
@@ -376,11 +486,7 @@ describe('thread store actions', () => {
     const store = useThreadStore();
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'ui/preferences/get') {
-        if (payload?.key === 'settings.classifierEnabled') return false;
-        if (payload?.key === 'settings.activePromptKey') return '';
-        if (payload?.key === 'settings.provider.codex.model') return '';
-        if (payload?.key === 'settings.provider.codex.effort') return '';
-        return 'codex';
+        return mockStartPreference(payload, { provider: 'codex' });
       }
       if (method === 'thread/start') return { thread: { id: 'thread-no-classify' } };
       if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-no-classify', activeThreadId: '' });

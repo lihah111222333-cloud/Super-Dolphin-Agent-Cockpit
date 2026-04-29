@@ -351,7 +351,21 @@ export const ComposerBar = {
           @keydown.esc.exact="onEscape"
         ></textarea>
         <div class="composer-top-actions" style="align-items: flex-end;">
-          <div style="display: flex; flex-direction: column; gap: 4px; align-items: stretch; margin-left: auto;">
+          <div style="display: flex; flex-direction: column; gap: 4px; align-items: flex-end; margin-left: auto;">
+            <div style="display: flex; gap: 4px; align-items: center;">
+              <button
+                type="button"
+                class="composer-token-chip composer-fork-chip"
+                data-testid="composer-fork-button"
+                :disabled="disabled || !threadId"
+                :title="!threadId ? '选中一个会话后才能继承新建' : '以当前会话为背景新建一个继承对话'"
+                @click="$emit('open-fork-draft')"
+                style="cursor: pointer; display: inline-flex; justify-content: center; align-items: center; border: 1px solid transparent; background: rgba(255, 255, 255, 0.04); transition: background 0.2s; box-sizing: border-box; width: 22px; height: 22px; padding: 0;"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" style="width:11px;height:11px;opacity:0.7;">
+                  <path d="M6 5v6a3 3 0 0 0 3 3h9M18 14l-3-3m3 3l-3 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </button>
             <button
               class="composer-token-chip"
               data-testid="composer-compact-button"
@@ -361,7 +375,7 @@ export const ComposerBar = {
               :aria-label="!canCompact ? '当前 agent 不支持上下文压缩' : (compacting ? '正在暂停并压缩上下文，等待压缩返回结果' : (tokenTooltip ? ('压缩上下文，' + tokenTooltip) : '压缩上下文'))"
               :disabled="disabled || !threadId || compacting || !canCompact"
               @click="onCompact"
-              style="cursor: pointer; display: inline-flex; justify-content: center; align-items: center; border: 1px solid transparent; background: rgba(255, 255, 255, 0.04); transition: background 0.2s; box-sizing: border-box; flex: 1;"
+              style="cursor: pointer; display: inline-flex; justify-content: center; align-items: center; border: 1px solid transparent; background: rgba(255, 255, 255, 0.04); transition: background 0.2s; box-sizing: border-box;"
             >
               <svg class="composer-compact-icon" viewBox="0 0 24 24" aria-hidden="true" style="width:13px;height:13px;opacity:0.6;margin-right:4px; margin-top:-1px;">
                 <path
@@ -384,26 +398,13 @@ export const ComposerBar = {
               </span>
               <span v-else-if="compactSuccessCount > 0" style="color: var(--success, #4ade80); font-weight: 600;">{{ compactSuccessCount }}</span>
             </button>
-            <button
-              type="button"
-              class="composer-token-chip composer-fork-chip"
-              data-testid="composer-fork-button"
-              :disabled="disabled || !threadId"
-              :title="!threadId ? '选中一个会话后才能继承新建' : '以当前会话为背景新建一个继承对话'"
-              @click="$emit('open-fork-draft')"
-              style="cursor: pointer; display: inline-flex; justify-content: center; align-items: center; border: 1px solid transparent; background: rgba(255, 255, 255, 0.04); transition: background 0.2s; box-sizing: border-box; flex: 1;"
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true" style="width:13px;height:13px;opacity:0.7;margin-right:4px;">
-                <path d="M6 5v6a3 3 0 0 0 3 3h9M18 14l-3-3m3 3l-3 3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
-              <span>继承新建</span>
-            </button>
+            </div>
 
             <div
               v-if="threadConfigVisible && threadConfigEditable"
               class="composer-thread-config-wrap"
               ref="threadConfigWrapRef"
-              style="position: relative; display: flex; width: 100%;"
+              style="position: relative; display: flex;"
             >
               <button
                 class="composer-token-chip composer-thread-config-btn"
@@ -414,7 +415,7 @@ export const ComposerBar = {
                 :disabled="threadConfigLoading"
                 aria-label="线程执行配置"
                 :title="threadConfigLoading ? '加载中...' : '线程执行配置'"
-                style="cursor: pointer; display: inline-flex; align-items: center; justify-content: center; border: 1px solid transparent; background: rgba(255, 255, 255, 0.04); transition: background 0.2s; box-sizing: border-box; flex: 1; width: 100%; height: 22px;"
+                style="cursor: pointer; display: inline-flex; align-items: center; justify-content: center; border: 1px solid transparent; background: rgba(255, 255, 255, 0.04); transition: background 0.2s; box-sizing: border-box; height: 22px;"
               >
                 <svg class="composer-compact-icon" viewBox="0 0 24 24" aria-hidden="true" style="width:13px;height:13px;opacity:0.6;margin-right:2px; margin-top:-1px;">
                   <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>

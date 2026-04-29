@@ -16,9 +16,10 @@ func newManifestBuilder(binaryDir string) *manifestBuilder {
 	return &manifestBuilder{binaryDir: strings.TrimSpace(binaryDir)}
 }
 
-func (b *manifestBuilder) Build(input PrepareInput) dto.MCPManifest {
+func (b *manifestBuilder) Build(input PrepareInput, threadID string) dto.MCPManifest {
 	return manifestbuilder.BuildManifest(dto.ManifestContext{
 		AgentID:       input.AgentID,
+		ThreadID:      threadID,
 		CWD:           input.CWD,
 		ThreadCaps:    input.ThreadCaps,
 		BinaryDir:     b.binaryDirFor(input.BinaryDir),

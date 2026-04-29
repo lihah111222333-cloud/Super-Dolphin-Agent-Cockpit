@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
+	"time"
 
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	crondto "github.com/anthropic-ai/super-agent-v3/internal/dto/cron"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	taskdto "github.com/anthropic-ai/super-agent-v3/internal/dto/task"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
@@ -68,7 +70,8 @@ const (
 	MethodAgentRecovering       = "agent/recovering"
 	MethodAgentFailed           = "agent/failed"
 	MethodAgentRuntimeReported  = "agent/runtime/reported"
-	MethodTaskNodeStatusChanged = "task/node/statusChanged"
+	MethodTaskNodeStatusChanged    = "task/node/statusChanged"
+	MethodCronJobRunStateChanged   = "cron/job/runStateChanged"
 )
 
 type PublishFunc func(method string, payload any)
@@ -89,6 +92,7 @@ func Bind(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish Publis
 	cancels = append(cancels, bindUI(dispatcher, logger, publish)...)
 	cancels = append(cancels, bindAgentLifecycle(dispatcher, logger, publish)...)
 	cancels = append(cancels, bindTask(dispatcher, logger, publish)...)
+	cancels = append(cancels, bindCron(dispatcher, logger, publish)...)
 	return cancels
 }
 
@@ -441,6 +445,29 @@ func projectionUpdatedPayload(ev uidto.UIProjectionUpdated) map[string]any {
 	}
 	if tid := strings.TrimSpace(ev.ThreadID); tid != "" {
 		payload["threadId"] = tid
+	}
+	return payload
+}
+
+
+func bindCron(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish PublishFunc) []context.CancelFunc {
+	return []context.CancelFunc{
+		bus.ResilientSubscribe(dispatcher, func(ev crondto.JobRunStateChanged) {
+			publish(MethodCronJobRunStateChanged, cronJobRunStateChangedPayload(ev))
+		}, logger),
+	}
+}
+
+func cronJobRunStateChangedPayload(ev crondto.JobRunStateChanged) map[string]any {
+	payload := map[string]any{
+		"job_id": strings.TrimSpace(ev.JobID),
+		"run_id": strings.TrimSpace(ev.RunID),
+		"status": strings.TrimSpace(ev.Status),
+	}
+	setString(payload, "turn_id", ev.TurnID)
+	setString(payload, "error", ev.Error)
+	if !ev.ScheduledAt.IsZero() {
+		payload["scheduled_at"] = ev.ScheduledAt.UTC().Format(time.RFC3339)
 	}
 	return payload
 }

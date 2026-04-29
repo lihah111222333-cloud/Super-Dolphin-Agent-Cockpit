@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kelindar/event"
 
 	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -205,10 +206,11 @@ func (c SchedulerConfig) withDefaults() SchedulerConfig {
 // is driven by the tick actor (ticks) and the lease actor (heartbeats);
 // tests can drive it directly via RunTick / RenewLeases.
 type Scheduler struct {
-	logger    *slog.Logger
-	store     cronstore.Store
-	submitter TurnSubmitter
-	cfg       SchedulerConfig
+	logger     *slog.Logger
+	store      cronstore.Store
+	submitter  TurnSubmitter
+	cfg        SchedulerConfig
+	dispatcher *event.Dispatcher
 
 	// clock + uuid are overridable for deterministic tests.
 	now   func() time.Time
@@ -234,6 +236,7 @@ func NewScheduler(logger *slog.Logger, store cronstore.Store, submitter TurnSubm
 		newID:     func() string { return uuid.NewString() },
 	}
 }
+
 
 // ClaimToken returns a new UUID usable as a claim_token. Exported so the
 // tick actor can generate fresh tokens without reaching into unexported
@@ -292,7 +295,7 @@ func (s *Scheduler) driveJob(ctx context.Context, job cronstore.Job) error {
 	if err != nil {
 		return err
 	}
-	if err := s.markRunSubmitting(ctx, run.ID); err != nil {
+	if err := s.markRunSubmitting(ctx, job.ID, run.ID, scheduledAt); err != nil {
 		return err
 	}
 	startResult, err := s.submitter.StartTurn(ctx, buildStartTurnRequest(job, run.ID, dedupe, scheduledAt))
@@ -328,16 +331,23 @@ func (s *Scheduler) createPendingRun(ctx context.Context, job cronstore.Job, sch
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	})
+	if err == nil {
+		s.publishRunState(job.ID, run.ID, cronstore.StatusPending, "", "", scheduledAt)
+	}
 	return run, dedupe, err
 }
 
-func (s *Scheduler) markRunSubmitting(ctx context.Context, runID string) error {
-	return s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
+func (s *Scheduler) markRunSubmitting(ctx context.Context, jobID, runID string, scheduledAt time.Time) error {
+	if err := s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
 		ID:             runID,
 		ExpectedStatus: cronstore.StatusPending,
 		NextStatus:     cronstore.StatusSubmitting,
 		UpdatedAt:      s.now().UTC(),
-	})
+	}); err != nil {
+		return err
+	}
+	s.publishRunState(jobID, runID, cronstore.StatusSubmitting, "", "", scheduledAt)
+	return nil
 }
 
 func buildStartTurnRequest(job cronstore.Job, runID, dedupe string, scheduledAt time.Time) StartTurnRequest {
@@ -379,6 +389,7 @@ func (s *Scheduler) persistSubmittedTurn(ctx context.Context, job cronstore.Job,
 	}); err != nil {
 		return err
 	}
+	s.publishRunState(job.ID, run.ID, cronstore.StatusSubmitted, result.TurnID, "", run.ScheduledAt)
 	return s.store.SetActiveTurn(ctx, cronstore.SetActiveTurnParams{
 		ID:           job.ID,
 		ClaimToken:   job.ClaimToken,
@@ -393,12 +404,16 @@ func (s *Scheduler) observeStartedTurn(ctx context.Context, job cronstore.Job, r
 	if err := s.submitter.Observe(ctx, result.TurnID); err != nil {
 		return s.finalizeObserveLost(ctx, job, run, result, err)
 	}
-	return s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
+	if err := s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
 		ID:             run.ID,
 		ExpectedStatus: cronstore.StatusSubmitted,
 		NextStatus:     cronstore.StatusRunning,
 		UpdatedAt:      s.now().UTC(),
-	})
+	}); err != nil {
+		return err
+	}
+	s.publishRunState(job.ID, run.ID, cronstore.StatusRunning, result.TurnID, "", run.ScheduledAt)
+	return nil
 }
 
 func (s *Scheduler) finalizeFailure(ctx context.Context, job cronstore.Job, run cronstore.Run, scheduledAt time.Time, startErr error) error {
@@ -407,19 +422,10 @@ func (s *Scheduler) finalizeFailure(ctx context.Context, job cronstore.Job, run 
 	// Record the failed run transition. A CAS error here is not fatal
 	// (the subsequent MarkFailed owns the job-level state transition)
 	// but we log it so DB hiccups during finalize are observable.
-	if err := s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
-		ID:             run.ID,
-		ExpectedStatus: cronstore.StatusSubmitting,
-		NextStatus:     cronstore.StatusFailed,
-		Error:          startErr.Error(),
-		UpdatedAt:      now,
-	}); err != nil {
-		s.logger.Warn("cron: CAS submitting->failed failed",
-			slog.String("job_id", job.ID),
-			slog.String("run_id", run.ID),
-			slog.String("error", err.Error()),
-		)
-	}
+	s.casLogPublish(ctx, cronstore.CASRunStatusParams{
+		ID: run.ID, ExpectedStatus: cronstore.StatusSubmitting, NextStatus: cronstore.StatusFailed,
+		Error: startErr.Error(), UpdatedAt: now,
+	}, "submitting->failed", job.ID, run.ID, cronstore.StatusFailed, "", startErr.Error(), scheduledAt)
 	return s.store.MarkFailed(ctx, cronstore.MarkFailedParams{
 		ID:          job.ID,
 		ClaimToken:  job.ClaimToken,
@@ -435,20 +441,10 @@ func (s *Scheduler) finalizeFailure(ctx context.Context, job cronstore.Job, run 
 
 func (s *Scheduler) finalizeObserveLost(ctx context.Context, job cronstore.Job, run cronstore.Run, result StartTurnResult, observeErr error) error {
 	now := s.now().UTC()
-	if err := s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
-		ID:             run.ID,
-		ExpectedStatus: cronstore.StatusSubmitted,
-		NextStatus:     cronstore.StatusObserveLost,
-		Error:          observeErr.Error(),
-		UpdatedAt:      now,
-	}); err != nil {
-		s.logger.Warn("cron: CAS submitted->observe_lost failed",
-			slog.String("job_id", job.ID),
-			slog.String("run_id", run.ID),
-			slog.String("turn_id", result.TurnID),
-			slog.String("error", err.Error()),
-		)
-	}
+	s.casLogPublish(ctx, cronstore.CASRunStatusParams{
+		ID: run.ID, ExpectedStatus: cronstore.StatusSubmitted, NextStatus: cronstore.StatusObserveLost,
+		Error: observeErr.Error(), UpdatedAt: now,
+	}, "submitted->observe_lost", job.ID, run.ID, cronstore.StatusObserveLost, result.TurnID, observeErr.Error(), run.ScheduledAt)
 	return s.store.MarkFailed(ctx, cronstore.MarkFailedParams{
 		ID:          job.ID,
 		ClaimToken:  job.ClaimToken,
@@ -472,45 +468,34 @@ func (s *Scheduler) CompleteTurn(ctx context.Context, turnID string, success boo
 	if turnID == "" {
 		return nil
 	}
-	runs, err := s.store.ListUnresolvedRuns(ctx)
+	run, err := s.store.GetRunningRunByTurnID(ctx, turnID)
+	if err != nil {
+		if errors.Is(err, cronstore.ErrJobRunNotFound) {
+			// No running run for this turn — benign duplicate or
+			// already resolved by crash recovery.
+			return nil
+		}
+		return err
+	}
+	job, err := s.store.GetJobByID(ctx, run.JobID)
 	if err != nil {
 		return err
 	}
-	for _, run := range runs {
-		if run.TurnID != turnID || run.Status != cronstore.StatusRunning {
-			continue
-		}
-		job, err := s.store.GetJobByID(ctx, run.JobID)
-		if err != nil {
-			return err
-		}
-		if success {
-			return s.markFinished(ctx, job, run, turnID, run.ScheduledAt)
-		}
-		if strings.TrimSpace(terminalErr) == "" {
-			terminalErr = "cron: turn terminal failure"
-		}
-		return s.markTerminalFailed(ctx, job, run, terminalErr)
+	if success {
+		return s.markFinished(ctx, job, run, turnID, run.ScheduledAt)
 	}
-	return nil
+	if strings.TrimSpace(terminalErr) == "" {
+		terminalErr = "cron: turn terminal failure"
+	}
+	return s.markTerminalFailed(ctx, job, run, terminalErr)
 }
 
 func (s *Scheduler) markTerminalFailed(ctx context.Context, job cronstore.Job, run cronstore.Run, terminalErr string) error {
 	now := s.now().UTC()
-	if err := s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
-		ID:             run.ID,
-		ExpectedStatus: cronstore.StatusRunning,
-		NextStatus:     cronstore.StatusFailed,
-		Error:          terminalErr,
-		UpdatedAt:      now,
-	}); err != nil {
-		s.logger.Warn("cron: CAS running->failed failed",
-			slog.String("job_id", job.ID),
-			slog.String("run_id", run.ID),
-			slog.String("turn_id", run.TurnID),
-			slog.String("error", err.Error()),
-		)
-	}
+	s.casLogPublish(ctx, cronstore.CASRunStatusParams{
+		ID: run.ID, ExpectedStatus: cronstore.StatusRunning, NextStatus: cronstore.StatusFailed,
+		Error: terminalErr, UpdatedAt: now,
+	}, "running->failed", job.ID, run.ID, cronstore.StatusFailed, run.TurnID, terminalErr, run.ScheduledAt)
 	return s.store.MarkFailed(ctx, cronstore.MarkFailedParams{
 		ID:          job.ID,
 		ClaimToken:  job.ClaimToken,
@@ -526,19 +511,9 @@ func (s *Scheduler) markTerminalFailed(ctx context.Context, job cronstore.Job, r
 
 func (s *Scheduler) markFinished(ctx context.Context, job cronstore.Job, run cronstore.Run, turnID string, scheduledAt time.Time) error {
 	now := s.now().UTC()
-	if err := s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
-		ID:             run.ID,
-		ExpectedStatus: cronstore.StatusRunning,
-		NextStatus:     cronstore.StatusFinished,
-		UpdatedAt:      now,
-	}); err != nil {
-		s.logger.Warn("cron: CAS running->finished failed",
-			slog.String("job_id", job.ID),
-			slog.String("run_id", run.ID),
-			slog.String("turn_id", turnID),
-			slog.String("error", err.Error()),
-		)
-	}
+	s.casLogPublish(ctx, cronstore.CASRunStatusParams{
+		ID: run.ID, ExpectedStatus: cronstore.StatusRunning, NextStatus: cronstore.StatusFinished, UpdatedAt: now,
+	}, "running->finished", job.ID, run.ID, cronstore.StatusFinished, turnID, "", scheduledAt)
 	nextRunAt, err := ComputeNextRunAt(job.ScheduleExpr, job.Timezone, now)
 	if err != nil || nextRunAt.IsZero() {
 		// Preserve the current NextRunAt so a parse regression doesn't
@@ -577,15 +552,12 @@ func (s *Scheduler) nextRetry(job cronstore.Job, now time.Time) time.Time {
 // scheduler gets to claim the job next tick, which is the intended
 // recovery path.
 func (s *Scheduler) RenewLeases(ctx context.Context) error {
-	jobs, err := s.store.ListJobs(ctx)
+	jobs, err := s.store.ListJobsClaimedBy(ctx, s.cfg.ClaimedBy)
 	if err != nil {
 		return err
 	}
 	now := s.now().UTC()
 	for _, job := range jobs {
-		if job.ClaimedBy != s.cfg.ClaimedBy || job.ClaimToken == "" {
-			continue
-		}
 		err := s.store.RenewLease(ctx, cronstore.LeaseParams{
 			ID:             job.ID,
 			ClaimToken:     job.ClaimToken,
@@ -721,13 +693,13 @@ func (s *Scheduler) ExtendClaimForTurnProgress(ctx context.Context, turnID strin
 	if strings.TrimSpace(turnID) == "" {
 		return nil
 	}
-	jobs, err := s.store.ListJobs(ctx)
+	jobs, err := s.store.ListJobsClaimedBy(ctx, s.cfg.ClaimedBy)
 	if err != nil {
 		return err
 	}
 	now := s.now().UTC()
 	for _, job := range jobs {
-		if job.ClaimedBy != s.cfg.ClaimedBy || job.ActiveTurnID != turnID || job.ClaimToken == "" {
+		if job.ActiveTurnID != turnID {
 			continue
 		}
 		return s.store.ExtendClaim(ctx, cronstore.LeaseParams{ID: job.ID, ClaimToken: job.ClaimToken, LeaseExpiresAt: now.Add(s.cfg.LeaseTTL), Now: now})

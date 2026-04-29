@@ -31,6 +31,8 @@ type recordingCronStore struct {
 	listJobsFn       func(context.Context) ([]cronstore.Job, error)
 	getJobFn         func(context.Context, string) (cronstore.Job, error)
 	listUnresolvedFn func(context.Context) ([]cronstore.Run, error)
+	getRunningRunByTurnIDFn func(context.Context, string) (cronstore.Run, error)
+	listJobsClaimedByFn     func(context.Context, string) ([]cronstore.Job, error)
 
 	casCalls []cronstore.CASRunStatusParams
 }
@@ -110,6 +112,9 @@ func (s *recordingCronStore) UpdateJobSchedule(context.Context, cronstore.Update
 func (s *recordingCronStore) SetJobEnabled(context.Context, string, bool, time.Time) error {
 	return nil
 }
+func (s *recordingCronStore) PatchNextRunAt(context.Context, string, time.Time, time.Time) error {
+	return nil
+}
 func (s *recordingCronStore) ExtendClaim(context.Context, cronstore.LeaseParams) error { return nil }
 func (s *recordingCronStore) ReleaseClaim(context.Context, string, string, time.Time) error {
 	return nil
@@ -126,6 +131,46 @@ func (s *recordingCronStore) ListRunsByJob(context.Context, string, int32) ([]cr
 func (s *recordingCronStore) ListUnresolvedRuns(ctx context.Context) ([]cronstore.Run, error) {
 	if s.listUnresolvedFn != nil {
 		return s.listUnresolvedFn(ctx)
+	}
+	return nil, nil
+}
+func (s *recordingCronStore) GetRunningRunByTurnID(ctx context.Context, turnID string) (cronstore.Run, error) {
+	if s.getRunningRunByTurnIDFn != nil {
+		return s.getRunningRunByTurnIDFn(ctx, turnID)
+	}
+	// Default: delegate to listUnresolvedFn for backwards compat with tests
+	// that set up listUnresolvedFn.
+	if s.listUnresolvedFn != nil {
+		runs, err := s.listUnresolvedFn(ctx)
+		if err != nil {
+			return cronstore.Run{}, err
+		}
+		for _, run := range runs {
+			if run.TurnID == turnID && run.Status == cronstore.StatusRunning {
+				return run, nil
+			}
+		}
+	}
+	return cronstore.Run{}, cronstore.ErrJobRunNotFound
+}
+func (s *recordingCronStore) ListJobsClaimedBy(ctx context.Context, claimedBy string) ([]cronstore.Job, error) {
+	if s.listJobsClaimedByFn != nil {
+		return s.listJobsClaimedByFn(ctx, claimedBy)
+	}
+	// Default: delegate to listJobsFn for backwards compat with tests
+	// that set up listJobsFn, filtering by claimedBy.
+	if s.listJobsFn != nil {
+		all, err := s.listJobsFn(ctx)
+		if err != nil {
+			return nil, err
+		}
+		var out []cronstore.Job
+		for _, j := range all {
+			if j.ClaimedBy == claimedBy && j.ClaimToken != "" {
+				out = append(out, j)
+			}
+		}
+		return out, nil
 	}
 	return nil, nil
 }

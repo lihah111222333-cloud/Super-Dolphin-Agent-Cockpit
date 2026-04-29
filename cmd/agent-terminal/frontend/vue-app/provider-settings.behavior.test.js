@@ -9,7 +9,7 @@ vi.mock('./services/api.js', () => ({
   callAPI: apiMock.callAPI,
 }));
 
-import { EFFORT_MODES_BY_PROVIDER, MODEL_OPTIONS_BY_PROVIDER } from './provider-config-options.js';
+import { CODEX_IDENTITY_DEFAULTS, EFFORT_MODES_BY_PROVIDER, MODEL_OPTIONS_BY_PROVIDER } from './provider-config-options.js';
 import { ProviderSettings } from './pages/settings/ProviderSettings.ts';
 
 function deferred() {
@@ -67,6 +67,80 @@ describe('ProviderSettings behavior', () => {
       label: 'claude-sonnet-4-6-20260401',
     });
     expect(vm.providerEffortOptions.value.some((item) => item.value === 'max')).toBe(false);
+  });
+
+
+  it('normalizes object-shaped model preferences before saving', async () => {
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method !== 'ui/preferences/get') return null;
+      switch (payload.key) {
+        case 'settings.provider.active': return 'claude';
+        case 'settings.provider.claude.model': return { value: 'sonnet', label: 'Sonnet 4.7' };
+        case 'settings.provider.claude.effort': return 'max';
+        default: return null;
+      }
+    });
+
+    const { vm } = createProviderSettings();
+    await vm.loadProviderSettings();
+
+    expect(vm.providerModel.value).toBe('sonnet');
+    expect(vm.effortMode.value).toBe('high');
+
+    vm.sandboxMode.value = 'readOnly';
+    apiMock.callAPI.mockClear();
+    apiMock.callAPI.mockResolvedValue({ ok: true });
+    await vm.saveProviderSettings();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/preferences/set', {
+      key: 'settings.provider.claude.model',
+      value: 'sonnet',
+      cwd: '/repo',
+    });
+  });
+
+  it('loads and saves codex identity preferences with explicit defaults', async () => {
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method !== 'ui/preferences/get') return { ok: true };
+      switch (payload.key) {
+        case 'settings.provider.active': return 'codex';
+        case 'settings.provider.codex.codexHome': return '/Users/mac/.codex';
+        case 'settings.provider.codex.codexInstanceKey': return 'primary';
+        case 'settings.provider.codex.codexModelProvider': return 'openai-compatible';
+        default: return null;
+      }
+    });
+
+    const { vm } = createProviderSettings();
+    await vm.loadProviderSettings();
+
+    expect(vm.codexHome.value).toBe('/Users/mac/.codex');
+    expect(vm.codexInstanceKey.value).toBe('primary');
+    expect(vm.codexModelProvider.value).toBe('openai-compatible');
+
+    vm.codexHome.value = '';
+    vm.codexInstanceKey.value = '';
+    vm.codexModelProvider.value = '';
+    vm.sandboxMode.value = 'readOnly';
+    apiMock.callAPI.mockClear();
+    apiMock.callAPI.mockResolvedValue({ ok: true });
+    await vm.saveProviderSettings();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/preferences/set', {
+      key: 'settings.provider.codex.codexHome',
+      value: CODEX_IDENTITY_DEFAULTS.codexHome,
+      cwd: '/repo',
+    });
+    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/preferences/set', {
+      key: 'settings.provider.codex.codexInstanceKey',
+      value: CODEX_IDENTITY_DEFAULTS.codexInstanceKey,
+      cwd: '/repo',
+    });
+    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/preferences/set', {
+      key: 'settings.provider.codex.codexModelProvider',
+      value: CODEX_IDENTITY_DEFAULTS.codexModelProvider,
+      cwd: '/repo',
+    });
   });
 
   it('switches model and effort lists by provider', () => {
