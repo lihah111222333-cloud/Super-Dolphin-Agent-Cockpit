@@ -63,35 +63,10 @@ func BuildManifest(ctx dto.ManifestContext) dto.MCPManifest {
 	return dto.MCPManifest{Binaries: bins}
 }
 
-func appendSkillMCPServer(bins []dto.MCPBinary, ctx dto.ManifestContext, env map[string]string, autoApprove []string) []dto.MCPBinary {
-	skillEnv := cloneManifestEnv(env)
-	scrubSkillRuntimeEnv(skillEnv)
-	if cwd := strings.TrimSpace(ctx.CWD); cwd != "" {
-		skillEnv[dto.MCPEnvSkillCWD] = cwd
-	}
-	if agentID := strings.TrimSpace(ctx.AgentID); agentID != "" {
-		skillEnv["GO_AGENT_CTL_AGENT_ID"] = agentID
-		skillEnv[dto.MCPEnvSkillAgentID] = agentID
-	}
-	if threadID := strings.TrimSpace(ctx.ThreadID); threadID != "" {
-		skillEnv["GO_AGENT_CTL_THREAD_ID"] = threadID
-		skillEnv[dto.MCPEnvSkillThreadID] = threadID
-	} else if threadID := strings.TrimSpace(skillEnv["GO_AGENT_CTL_THREAD_ID"]); threadID != "" {
-		skillEnv[dto.MCPEnvSkillThreadID] = threadID
-	}
-	return append(bins, dto.MCPBinary{
-		Name:        "skill",
-		LaunchKind:  dto.LaunchKindSameBinarySkill,
-		Env:         skillEnv,
-		AutoApprove: append([]string(nil), autoApprove...),
-	})
-}
-
-func scrubSkillRuntimeEnv(env map[string]string) {
-	delete(env, dto.MCPEnvSkillCWD)
-	delete(env, dto.MCPEnvSkillAgentID)
-	delete(env, dto.MCPEnvSkillThreadID)
-	delete(env, "GO_AGENT_SKILL_MCP_TURN_ID")
+func appendSkillMCPServer(bins []dto.MCPBinary, _ dto.ManifestContext, _ map[string]string, _ []string) []dto.MCPBinary {
+	// Skill MCP server removed in P2 Task 5; native discovery via <workspace>/.claude/skills handles
+	// skill loading. This function is a no-op stub until Task 8 removes it entirely.
+	return bins
 }
 
 func cloneManifestEnv(in map[string]string) map[string]string {
