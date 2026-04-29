@@ -1,6 +1,7 @@
 package skillforge
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -56,6 +57,9 @@ Body
 	if err == nil {
 		t.Fatal("Parse should fail without frontmatter")
 	}
+	if !errors.Is(err, ErrMissingFrontmatter) {
+		t.Errorf("err = %v, want errors.Is ErrMissingFrontmatter", err)
+	}
 }
 
 func TestParse_NoH2SectionsIsAllowed(t *testing.T) {
@@ -74,5 +78,61 @@ Just intro text, no H2.
 	}
 	if len(got.Sections) != 0 {
 		t.Errorf("len(Sections) = %d, want 0", len(got.Sections))
+	}
+}
+
+func TestParse_EdgeCases(t *testing.T) {
+	cases := []struct {
+		name      string
+		src       string
+		wantName  string
+		wantSects int
+	}{
+		{
+			name:      "CRLF line endings",
+			src:       "---\r\nname: x\r\ndescription: d\r\n---\r\n# x\r\n\r\n## A\r\n\r\nbody A\r\n\r\n## B\r\n\r\nbody B\r\n",
+			wantName:  "x",
+			wantSects: 2,
+		},
+		{
+			name:      "colon in quoted value",
+			src:       "---\nname: x\ndescription: \"use, e.g., this:that\"\n---\n# x\n",
+			wantName:  "x",
+			wantSects: 0,
+		},
+		{
+			name:      "zero-length frontmatter",
+			src:       "---\n---\n# Body only\n",
+			wantName:  "",
+			wantSects: 0,
+		},
+		{
+			name:      "H2 with empty body",
+			src:       "---\nname: x\ndescription: d\n---\n# x\n\n## A\n## B\n",
+			wantName:  "x",
+			wantSects: 2,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := Parse(tc.src)
+			if err != nil {
+				t.Fatalf("Parse error: %v", err)
+			}
+			if got.Name != tc.wantName {
+				t.Errorf("Name = %q, want %q", got.Name, tc.wantName)
+			}
+			if len(got.Sections) != tc.wantSects {
+				t.Errorf("len(Sections) = %d, want %d", len(got.Sections), tc.wantSects)
+			}
+		})
+	}
+	// Verify "colon in quoted value" actually preserves the colon
+	ps, err := Parse("---\nname: x\ndescription: \"use, e.g., this:that\"\n---\n# x\n")
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if ps.Description != "use, e.g., this:that" {
+		t.Errorf("Description = %q, want %q", ps.Description, "use, e.g., this:that")
 	}
 }
