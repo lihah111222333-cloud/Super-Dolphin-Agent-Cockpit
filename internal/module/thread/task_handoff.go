@@ -25,6 +25,8 @@ const (
 	taskConfigKeyContinueSnake    = "continue_task"
 	taskConfigKeyAuto             = "autoTaskHandoff"
 	taskConfigKeyAutoSnake        = "auto_task_handoff"
+	taskConfigKeyRoot             = "rootTaskId"
+	taskConfigKeyRootSnake        = "root_task_id"
 	systemTaskHandoffUpdatedBy    = "system_handoff"
 	taskHandoffPrefix             = "handoff/tasks/"
 	taskHandoffReadLimitChars     = 4096
