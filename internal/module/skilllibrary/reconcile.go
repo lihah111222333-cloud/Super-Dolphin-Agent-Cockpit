@@ -47,18 +47,37 @@ func (r *Reconciler) ReconcileOne(name string) error {
 }
 
 // ReconcileAll 全量对账：构建所有 enabled skill 到 cache，并清理孤儿条目。
+// 启动时先跑 spec §4.4 startup recovery，把上一次 publish 中断遗留的
+// .tmp-*/.bak-* 残骸处理掉，避免后续 removeOrphans 把唯一可工作版本（仅存在于
+// .bak-* 备份中）当孤儿删除。
 func (r *Reconciler) ReconcileAll() (*ReconcileReport, error) {
 	if err := os.MkdirAll(r.cacheDir, 0o755); err != nil {
 		return nil, fmt.Errorf("skilllibrary: mkdir cache: %w", err)
 	}
+	report := &ReconcileReport{}
+	r.recoverStaging(report)
 	libEntries, err := r.store.List()
 	if err != nil {
 		return nil, fmt.Errorf("skilllibrary: list library: %w", err)
 	}
-	report := &ReconcileReport{}
 	libNames := r.buildLibrary(libEntries, report)
 	r.removeOrphans(libNames, report)
 	return report, nil
+}
+
+// recoverStaging 调用 skillforge.RecoverStaging 处理 publish 中断残骸；
+// 恢复期错误并入 report.Errors，不阻断后续 reconcile 流程。
+// skillforge 自身的 fatal 错误（如 ReadDir 权限失败）会冒到 report.Errors，
+// 由调用方决定是否当致命处理。
+func (r *Reconciler) recoverStaging(report *ReconcileReport) {
+	rec, err := skillforge.RecoverStaging(r.cacheDir)
+	if err != nil {
+		report.Errors = append(report.Errors, fmt.Errorf("skilllibrary: recover staging: %w", err))
+		return
+	}
+	for _, e := range rec.Errors {
+		report.Errors = append(report.Errors, e)
+	}
 }
 
 // buildLibrary forges all enabled skills and removes disabled ones from cache.
