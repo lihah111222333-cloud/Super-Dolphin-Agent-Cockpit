@@ -12,17 +12,6 @@ import (
 
 type skillResolver struct{}
 
-// DefaultSkillMode returns the legacy provider-neutral effective default.
-//
-// Phase 1.5 intentionally keeps newly selected / hydrated SkillRef values at
-// Mode=Unspecified so provider adapters can apply their own defaults: codexapp
-// turns that marker into Summary, while legacy consumers still get Full through
-// SkillMode.Effective(). Future Phase 3 can move this chokepoint earlier once
-// Summary is the cross-provider default.
-func DefaultSkillMode() dto.SkillMode {
-	return dto.SkillModeFull
-}
-
 func (r *skillResolver) Resolve(selected []dto.SkillRef, candidates []dto.SkillRef, prompt string) []dto.SkillRef {
 	explicit := normalizeSkillRefs(selected)
 	autoCandidates := normalizeSkillRefs(candidates)
@@ -130,56 +119,6 @@ func mergePromptText(prompt, extra string) string {
 		return prompt
 	}
 	return prompt + "\n" + extra
-}
-
-// ApplyNativeSkillOverride 对命中 nativeNames 的 SkillRef 强制覆盖为
-// Mode=SkillModeNone + Source=SkillSourceNative。其他字段原样保留。
-//
-// P20.1 §4 Phase 7 + §0.5 实验 B 的核心退化策略：
-//   - Claude Code CLI 会自动加载 `.claude/skills/<name>/SKILL.md`、无 flag 可关
-//   - harness 若再注入同名 skill body 会造成双倍 token + 版本漂移
-//   - 对策：通过 SkillInjectionPort.DetectNativeSkills(cwd) 拿到原生名单，
-//     本函数将这些 skill 降为 Mode=None（不注入 body）+ Source=Native
-//     （提示下游 L1 清单标注来源为 “Claude native”）。
-//
-// nativeNames 为空或 refs 为空时原样返回。name 匹配大小写不敏感，
-// 经 trim。调用方应在 skillResolver.Resolve() 之后、写回 dto.TurnRequest
-// 前调用（service 层 Phase 8 fx 集成时接线）。
-//
-// Source 覆盖决策（重要）：
-// 若用户在 UI 手动勾选了某个 skill（上游给 Source=SkillSourceManual），而同
-// 名 skill 恰好在 `.claude/skills/` 里被 Claude CLI 原生接管，本函数会
-// **覆盖 Source 为 Native**。这是 P20.1 §4 明文要求的行为——因为一旦 Mode=None，
-// harness 就不再注入 body：从“harness 内部责任归属”的视角，Source=Manual 是前提“
-// harness 正在代用户注入”，不再注入时维持 Manual 就不准确。用户“想要 foo”
-// 这个意图仍然会被满足（Claude CLI 原生照样注入），只是“谁注入”变了。
-//
-// 若未来需保留“用户显式勾选 vs 自动检测”的分组，建议另加独立字段
-// （如 dto.SkillRef.UserSelected bool），而不是动 Source 枚举语义。
-func ApplyNativeSkillOverride(refs []dto.SkillRef, nativeNames []string) []dto.SkillRef {
-	if len(nativeNames) == 0 || len(refs) == 0 {
-		return refs
-	}
-	native := make(map[string]struct{}, len(nativeNames))
-	for _, n := range nativeNames {
-		normalized := strings.ToLower(strings.TrimSpace(n))
-		if normalized == "" {
-			continue
-		}
-		native[normalized] = struct{}{}
-	}
-	if len(native) == 0 {
-		return refs
-	}
-	out := make([]dto.SkillRef, len(refs))
-	for i, ref := range refs {
-		if _, hit := native[strings.ToLower(strings.TrimSpace(ref.Name))]; hit {
-			ref.Mode = dto.SkillModeNone
-			ref.Source = dto.SkillSourceNative
-		}
-		out[i] = ref
-	}
-	return out
 }
 
 func matchesSkillPrompt(prompt string, skillName string) bool {
@@ -316,10 +255,9 @@ func (s *service) applyHydration(ctx context.Context, ref dto.SkillRef, index ma
 			ref.Prompt = body
 		}
 	}
-	// Mode intentionally stays untouched. Mode=Unspecified is the provider-neutral
-	// default marker: codexapp maps it to Summary in its adapter, while legacy
-	// consumers still resolve it as Full via SkillMode.Effective(). Source is also
-	// preserved: callers must set Source=manual explicitly for real manual selection.
+	// Source 保留不动：调用方必须显式置 Source=manual 才表示真正的 manual 选择。
+	// Mode 字段已在 spec §11 cutover 后删除，注入模式由 provider adapter 自行决定
+	// （codex 走 manifest L1-C + skill_read_section，claude 走 native skills）。
 	return ref
 }
 

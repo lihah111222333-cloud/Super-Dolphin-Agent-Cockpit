@@ -1,7 +1,7 @@
 // Package skillmetrics provides atomic counters for P20.1 skill observability.
 //
 // 独立出 leaf 包的原因：
-//   - 计数点分散在 dto/provider（SkillMode.Effective）、internal/module/skill
+//   - 计数点分散在 internal/module/skill
 //     （ApprovalCache / ExpandBody / ReadResource）、internal/module/prompt
 //     （SkillCatalogProvider 的 Redacted 计数）以及 rollout_markers；
 //   - 这些位置不可以反向 import internal/module/skill（dto 层会成环）；
@@ -14,7 +14,6 @@ package skillmetrics
 import "sync/atomic"
 
 var (
-	skillInvalidModeTotal           atomic.Uint64
 	untrustedManifestRedactionTotal atomic.Uint64
 	trimCorruptionFallbackCount     atomic.Uint64
 	artifactApprovalMissTotal       atomic.Uint64
@@ -29,12 +28,6 @@ var (
 	hostToolCallErrorTotal          atomic.Uint64
 	enrichFailuresTotal             atomic.Uint64
 )
-
-// IncSkillInvalidMode dto.SkillMode.Effective() 遇到未知值降级到 None 时 +1。
-func IncSkillInvalidMode() { skillInvalidModeTotal.Add(1) }
-
-// SkillInvalidMode 读当前值。
-func SkillInvalidMode() uint64 { return skillInvalidModeTotal.Load() }
 
 // IncUntrustedManifestRedaction SkillCatalogProvider 为 Redacted 分组每新增一条 +1。
 func IncUntrustedManifestRedaction() { untrustedManifestRedactionTotal.Add(1) }
@@ -164,7 +157,6 @@ func EnrichFailures() uint64 { return enrichFailuresTotal.Load() }
 // Snapshot 一次性读 counter 快照，顺序稳定，仅用于诊断 / 测试。
 // 快照非原子——期间可能有并发自增，这是可接受的。
 type Snapshot struct {
-	SkillInvalidModeTotal           uint64
 	UntrustedManifestRedactionTotal uint64
 	TrimCorruptionFallbackCount     uint64
 	ArtifactApprovalMissTotal       uint64
@@ -183,7 +175,6 @@ type Snapshot struct {
 // Read 读当前 snapshot。
 func Read() Snapshot {
 	return Snapshot{
-		SkillInvalidModeTotal:           skillInvalidModeTotal.Load(),
 		UntrustedManifestRedactionTotal: untrustedManifestRedactionTotal.Load(),
 		TrimCorruptionFallbackCount:     trimCorruptionFallbackCount.Load(),
 		ArtifactApprovalMissTotal:       artifactApprovalMissTotal.Load(),
@@ -202,7 +193,6 @@ func Read() Snapshot {
 
 // ResetForTesting 仅测试用：全部 counter 归零。
 func ResetForTesting() {
-	skillInvalidModeTotal.Store(0)
 	untrustedManifestRedactionTotal.Store(0)
 	trimCorruptionFallbackCount.Store(0)
 	artifactApprovalMissTotal.Store(0)

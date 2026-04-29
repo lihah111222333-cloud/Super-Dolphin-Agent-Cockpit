@@ -7,14 +7,6 @@ import (
 )
 
 var (
-	SkillInvalidModeTotal = promauto.NewCounterFunc(
-		prometheus.CounterOpts{
-			Name: "skill_invalid_mode_total",
-			Help: "Number of invalid skill modes conservatively downgraded.",
-		},
-		func() float64 { return float64(skillmetrics.SkillInvalidMode()) },
-	)
-
 	SkillUntrustedManifestRedactionTotal = promauto.NewCounterFunc(
 		prometheus.CounterOpts{
 			Name: "skill_untrusted_manifest_redaction_total",

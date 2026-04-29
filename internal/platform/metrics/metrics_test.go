@@ -16,7 +16,6 @@ func TestSkillMetricsExporterSnapshotIncludesHostToolOutcomes(t *testing.T) {
 	skillmetrics.ResetForTesting()
 	t.Cleanup(skillmetrics.ResetForTesting)
 
-	skillmetrics.IncSkillInvalidMode()
 	skillmetrics.IncUntrustedManifestRedaction()
 	skillmetrics.IncTrimCorruptionFallback()
 	skillmetrics.IncArtifactApprovalMiss()
@@ -38,7 +37,6 @@ func TestSkillMetricsExporterSnapshotIncludesHostToolOutcomes(t *testing.T) {
 		got  float64
 		want float64
 	}{
-		{name: "skill_invalid_mode_total", got: testutil.ToFloat64(SkillInvalidModeTotal), want: 1},
 		{name: "skill_untrusted_manifest_redaction_total", got: testutil.ToFloat64(SkillUntrustedManifestRedactionTotal), want: 1},
 		{name: "skill_trim_corruption_fallback_count", got: testutil.ToFloat64(SkillTrimCorruptionFallbackCount), want: 1},
 		{name: "skill_artifact_approval_miss_total", got: testutil.ToFloat64(SkillArtifactApprovalMissTotal), want: 1},
