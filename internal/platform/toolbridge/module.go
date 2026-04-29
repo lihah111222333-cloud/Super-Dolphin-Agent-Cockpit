@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/fbsd"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
@@ -84,17 +85,22 @@ type handlerIn struct {
 // handlerIn to keep the injection surface explicit.
 type skillLibCfgIn struct {
 	fx.In
-	Cfg skilllibrary.Config `optional:"true"`
+	Cfg     skilllibrary.Config `optional:"true"`
+	Tracker *fbsd.Tracker       `optional:"true"`
 }
 
 // provideSkillReadSectionTool constructs a *SkillReadSectionTool from the
 // skilllibrary.Config CacheDir. When Config is zero-value (standalone mode
 // without skilllibrary), returns nil; callers must be nil-safe.
+//
+// P6: also injects optional fbsd.Tracker; when present + feature flag on,
+// every successful skill_read_section Call records a CallEvent for tier
+// ranking. Tracker nil → no打点（向后兼容）。
 func provideSkillReadSectionTool(in skillLibCfgIn) *SkillReadSectionTool {
 	if strings.TrimSpace(in.Cfg.CacheDir) == "" {
 		return nil
 	}
-	return NewSkillReadSectionTool(in.Cfg.CacheDir)
+	return NewSkillReadSectionTool(in.Cfg.CacheDir, in.Tracker)
 }
 
 // provideHostToolRegistry builds the Codex-facing HostToolRegistry backed by
