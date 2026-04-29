@@ -29,7 +29,7 @@ func TestInterfaceIsolationBudgets(t *testing.T) {
 		{relPath: "cmd/mcp-orch/store/taskdag/contract.go", name: "RunningNodeStore", maxMethods: 6, maxEmbedded: 1},
 		{relPath: "cmd/mcp-orch/store/taskdag/contract.go", name: "WakeupStore", maxMethods: 10, maxEmbedded: 0},
 		{relPath: "cmd/mcp-orch/store/taskdag/contract.go", name: "WorkerLeaseStore", maxMethods: 3, maxEmbedded: 0},
-		{relPath: "internal/module/skill/contract.go", name: "Service", maxMethods: 0, maxEmbedded: 13},
+		{relPath: "internal/module/skill/contract.go", name: "Service", maxMethods: 0, maxEmbedded: 12},
 		{relPath: "cmd/mcp-lsp/gopls/manager.go", name: "Manager", maxMethods: 0, maxEmbedded: 3},
 		{relPath: "cmd/mcp-lsp/manager/manager.go", name: "Manager", maxMethods: 0, maxEmbedded: 8},
 	}
@@ -90,7 +90,6 @@ func TestSkillServiceConsumersUseNarrowPorts(t *testing.T) {
 		{relPath: "internal/module/dashboard/module.go", structName: "serviceParams", fieldName: "Skills", want: "skillmodule.SkillLister"},
 		// skillCatalogProviderDeps + registerSkillCatalogDeps removed in skill refactor P2 Task 7;
 		// SkillCatalogProvider is gone, Claude uses native discovery via workspace symlink instead.
-		{relPath: "internal/platform/toolbridge/host_tools.go", structName: "SkillHostTools", fieldName: "svc", want: "skillpkg.SkillHostToolReader"},
 	}
 	var violations []string
 	for _, check := range checks {
