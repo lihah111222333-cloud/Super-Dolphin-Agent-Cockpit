@@ -17,6 +17,19 @@ const ringBuffer = [];
 const bridgeQueue = [];
 let bridgeFlushScheduled = false;
 let bridgeSink = null;
+const levelListeners = new Set();
+
+function notifyLevelListeners(level) {
+  if (levelListeners.size === 0) return;
+  // snapshot to avoid mutation during iteration if a listener unsubscribes
+  for (const cb of Array.from(levelListeners)) {
+    try {
+      cb(level);
+    } catch {
+      // ignore listener errors so a faulty subscriber cannot poison others
+    }
+  }
+}
 
 function resolveInitialLevel() {
   try {
@@ -169,17 +182,36 @@ export function readLogLevel() {
   return getLogLevel();
 }
 
-function setLogLevel(level) {
+export function setLogLevel(level) {
   const normalized = normalizeLevel(level);
   if (!normalized) return false;
+  const previous = currentLevel;
   currentLevel = normalized;
   try {
     localStorage.setItem(STORAGE_KEY, normalized);
   } catch {
     // ignore
   }
+  if (previous !== normalized) {
+    notifyLevelListeners(normalized);
+  }
   logInfo('log', 'level.changed', { level: normalized });
   return true;
+}
+
+export function onLogLevelChange(callback) {
+  if (typeof callback !== 'function') return () => {};
+  levelListeners.add(callback);
+  return () => {
+    levelListeners.delete(callback);
+  };
+}
+
+function applyExternalLevel(value) {
+  const normalized = normalizeLevel(value);
+  if (!normalized || normalized === currentLevel) return;
+  currentLevel = normalized;
+  notifyLevelListeners(normalized);
 }
 
 function getLogBuffer() {
@@ -212,5 +244,12 @@ if (typeof window !== 'undefined') {
     getBuffer: getLogBuffer,
     clearBuffer: clearLogBuffer,
     setBridgeSink: registerLogBridgeSink,
+    onLevelChange: onLogLevelChange,
   };
+  if (typeof window.addEventListener === 'function') {
+    window.addEventListener('storage', (event) => {
+      if (!event || event.key !== STORAGE_KEY) return;
+      applyExternalLevel(event.newValue);
+    });
+  }
 }
