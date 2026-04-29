@@ -201,13 +201,21 @@ func (r *fakeDynamicRegistrar) RegisterDynamicProvider(p contract.DynamicSection
 	return nil
 }
 
-// fakeFxSkillLister 最小 skill.Service 替身（仅 ListSkills 被测试路径用到）。
+// fakeFxSkillLister 最小 skill catalog source 替身。
 // 与 skill_catalog_provider_test.go 的 fakeSkillLister 隔离命名，避免 duplicated declaration。
-type fakeFxSkillLister struct{ skillpkg.Service }
+type fakeFxSkillLister struct{}
 
 func (fakeFxSkillLister) ListSkills(_ context.Context) ([]skillpkg.SkillInfo, error) {
 	return nil, nil
 }
+
+func (fakeFxSkillLister) LookupArtifactApproval(context.Context, contract.ArtifactApprovalRequest) (bool, error) {
+	return false, nil
+}
+
+func (fakeFxSkillLister) ApprovalRevision() uint64 { return 0 }
+func (fakeFxSkillLister) SkillRevision() uint64    { return 0 }
+func (fakeFxSkillLister) TrustRevision() uint64    { return 0 }
 
 func TestRegisterSkillCatalogProviderIfEnabled_FlagOff_Skips(t *testing.T) {
 	reg := &fakeDynamicRegistrar{}

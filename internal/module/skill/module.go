@@ -15,7 +15,13 @@ import (
 // is the only trigger; we still need a thread.Started subscriber that
 // performs auto-match + binds the result onto the session at runtime.
 var Module = fx.Module("skill",
-	fx.Provide(newService),
+	fx.Provide(
+		newService,
+		ProvideSkillLister,
+		ProvideSkillCatalogSource,
+		ProvideSkillHydrationSource,
+		ProvideSkillHostToolReader,
+	),
 	fx.Provide(NewSkillHandlers),
 	// P0b Step 5: late-bind the candidate review gate dependencies.
 	// Both stores are optional so this Module keeps building when the
@@ -34,6 +40,14 @@ func newService(cfg *platformconfig.Config, dispatcher *event.Dispatcher) Servic
 	}
 	return svc
 }
+
+func ProvideSkillLister(svc Service) SkillLister { return svc }
+
+func ProvideSkillCatalogSource(svc Service) SkillCatalogSource { return svc }
+
+func ProvideSkillHydrationSource(svc Service) SkillHydrationSource { return svc }
+
+func ProvideSkillHostToolReader(svc Service) SkillHostToolReader { return svc }
 
 // candidateStoreParams collects the optional review-gate dependencies.
 // Marked optional so this Invoke does not force every fx graph (CLI

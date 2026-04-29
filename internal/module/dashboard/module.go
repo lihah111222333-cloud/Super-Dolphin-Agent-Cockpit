@@ -31,7 +31,7 @@ type serviceParams struct {
 	CommandCards  commandcardstore.Reader
 	Prompts       promptstore.Reader
 	SharedFiles   sharedfilestore.Reader
-	Skills        skillmodule.Service
+	Skills        skillmodule.SkillLister
 }
 
 type dashboardHandlersParams struct {

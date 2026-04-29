@@ -313,12 +313,12 @@ flowchart TD
    - 显式 `selectedSkills`：RPC 直接传入
    - `input.type=skill`：`buildTurnStartInputs()` 会抽出来并并入显式技能：`internal/module/turn/rpc_helpers.go:46-60`
    - `CandidateSkills`：只在 service 层字段存在；`ManualSkillSelection=true` 时会被清空，不再 auto-match：`internal/module/turn/service.go:128-136`
-4. **技能 hydrate** 是 turn 对 `module/skill.Service` 的唯一直接业务依赖：
-   - 注入点是 `NewServiceWithPromptAssemblyAndTurnContext(...)` 的第 4 个参数；`fx` 也标成 `optional:"true"`，缺失时 `skillLookup==nil` 直接跳过 hydrate：`internal/module/turn/service.go:63-78`、`internal/module/turn/module.go:9-27`
-   - `PrepareTurn` 实际在 `service.go:127` 先把 ctx 包成 `skillpkg.WithCWD(ctx, input.CWD)`，再调用 `hydrateSkillRefs(...)`
+4. **技能 hydrate** 是 turn 对 `module/skill.SkillHydrationSource` 窄端口的唯一直接业务依赖：
+   - 注入点是 `NewServiceWithPromptAssemblyAndTurnContext(...)` 的第 4 个参数，类型为 `skillpkg.SkillHydrationSource`；`fx` 也标成 `optional:"true"`，缺失时 `skillLookup==nil` 直接跳过 hydrate：`internal/module/turn/service.go:25-30,80-95`、`internal/module/turn/module.go:12-19`
+   - `PrepareTurn` 实际在 `service.go:141-146` 先把 ctx 包成 `skillpkg.WithCWD(ctx, input.CWD)`，再调用 `hydrateSkillRefs(...)`
    - 只给 name-only manual skill 补 `Prompt/Summary/Version`
-   - 入口：`internal/module/turn/skills.go:186-217`
-5. **turn assembly** 是 turn 侧 prompt 拼装边界，不等于 thread/start 的 start assembly；`PrepareTurn` 在 `internal/module/turn/service.go:151` 调 `prepareTurnAssembly(...)`，其定义在 `internal/module/turn/prompt_assembly.go:13-43`
+   - 入口：`internal/module/turn/skills.go:201-241`，正文读取走 `ReadLocal`：`skills.go:326-339`
+5. **turn assembly** 是 turn 侧 prompt 拼装边界，不等于 thread/start 的 start assembly；`PrepareTurn` 在 `internal/module/turn/service.go:176` 调 `prepareTurnAssembly(...)`，其定义在 `internal/module/turn/prompt_assembly.go:13-43`
 6. **memory context** 通过 `TurnContextProvider` 可选注入，不让 `turn` 直接依赖 memory 实现：`internal/module/turn/service_memory.go:11-34`
 
 ### 3.5 启动、转向、中断、强制完成
@@ -380,7 +380,7 @@ tracker 只保存 **本地真相**：
 ### 3.7 依赖特点
 
 - **contract**：`Session`、`TurnHandle`、`SessionResolver`、`ApprovalResponder`
-- **module**：可选依赖 `skill.Service`（仅手选技能 hydrate），不直接依赖 thread/uistate
+- **module**：可选依赖 `skillpkg.SkillHydrationSource`（仅手选技能 hydrate），不直接依赖完整 `skill.Service` / thread / uistate
 - **store**：无直接 store 依赖；运行态主要靠 session + tracker
 - **provider boundary**：所有 provider 差异都被 contract/session interface 吞掉
 
@@ -394,9 +394,9 @@ tracker 只保存 **本地真相**：
 - `turn/start` handler：`internal/module/turn/rpc_helpers.go:159-182`
 - `buildRPCPrepareInput`：`internal/module/turn/rpc_helpers.go:19-44`
 - `skillResolver.Resolve`：`internal/module/turn/skills.go:14-40`
-- `PrepareTurn -> hydrateSkillRefs`：`internal/module/turn/service.go:127`
-- `hydrateSkillRefs`：`internal/module/turn/skills.go:186-217`
-- `PrepareTurn -> prepareTurnAssembly`：`internal/module/turn/service.go:151`
+- `PrepareTurn -> hydrateSkillRefs`：`internal/module/turn/service.go:141-146`
+- `hydrateSkillRefs`：`internal/module/turn/skills.go:201-241`
+- `PrepareTurn -> prepareTurnAssembly`：`internal/module/turn/service.go:176`
 - `prepareTurnAssembly`：`internal/module/turn/prompt_assembly.go:13-43`
 - `orchestrationTurnStarter.StartTurn`：`internal/module/turn/orchestration_starter.go:61-93`
 
@@ -587,7 +587,7 @@ sequenceDiagram
 3. `thread/start` RPC 把它们归一化为 `LaunchSkillNames/ForceLaunchSkills`：`internal/module/thread/rpc.go:94-148`
 4. `buildStartAssemblyInput()` / `startSession()` 继续把 launch skill 载荷往 start chain 透传：`internal/module/thread/start_session_helpers.go:37-72`、`internal/module/thread/start_session.go:142-166`
 5. 随后同一次 `performSend()` 再调 `sendMessage()`；真正组 `turn/start` payload 并调用后端的是 `thread-actions-helpers.js:423-442`（函数整体在 `:380-463`），这里会把 **turn 侧** `selectedSkills/manualSkillSelection/cwd` 放进 request，session 缺失时还会先 `recoverThread()` 再重试
-6. `turn/start` handler 组 `PrepareInput`，再由 `PrepareTurn()` 产出真正的 `dto.TurnRequest`，其中 `prepareTurnAssembly(...)` 的对接点正是 `service.go:151`：`internal/module/turn/rpc_helpers.go:159-182`、`internal/module/turn/service.go:116-160`
+6. `turn/start` handler 组 `PrepareInput`，再由 `PrepareTurn()` 产出真正的 `dto.TurnRequest`，其中 `prepareTurnAssembly(...)` 的对接点正是 `service.go:176`：`internal/module/turn/rpc_helpers.go:159-182`、`internal/module/turn/service.go:135-186`
 
 ### 5.1 这条链里有两套“技能”语义
 
@@ -615,6 +615,6 @@ sequenceDiagram
 
 | 场景 | 步骤 | 锚点 | 验证 |
 |---|---|---|---|
-| blank-thread 首发消息 | 1) `performSend()` blank-thread 分支起线程 2) `threadStore.sendMessage()` 组 `turn/start` payload 3) `turnStartHandler -> PrepareTurn -> prepareTurnAssembly` | `useThreadActions.js:139-158` / `thread-actions-helpers.js:423-442` / `internal/module/turn/rpc_helpers.go:159-182` / `internal/module/turn/service.go:151` | `service_test.go` / 前端首发联调 |
-| 手选 skill hydrate | 1) 保持 `skill.Service` 可选注入 2) `PrepareTurn` 里 `hydrateSkillRefs` 先跑 3) 再交 `skillResolver.Resolve` + `prepareTurnAssembly` | `internal/module/turn/module.go:9-27` / `internal/module/turn/service.go:127` / `internal/module/turn/skills.go:186-217` | `service_skill_hydrate_test.go` |
+| blank-thread 首发消息 | 1) `performSend()` blank-thread 分支起线程 2) `threadStore.sendMessage()` 组 `turn/start` payload 3) `turnStartHandler -> PrepareTurn -> prepareTurnAssembly` | `useThreadActions.js:139-158` / `thread-actions-helpers.js:423-442` / `internal/module/turn/rpc_helpers.go:159-182` / `internal/module/turn/service.go:176` | `service_test.go` / 前端首发联调 |
+| 手选 skill hydrate | 1) 保持 `skillpkg.SkillHydrationSource` 可选注入 2) `PrepareTurn` 里 `hydrateSkillRefs` 先跑 3) 再交 `skillResolver.Resolve` + `prepareTurnAssembly` | `internal/module/turn/module.go:12-19` / `internal/module/turn/service.go:141-146` / `internal/module/turn/skills.go:201-241` | `service_skill_hydrate_test.go` |
 | 线程/回合事件进 sidebar/timeline | 1) 上游 emit typed event 2) `registerProjections` 装订阅 3) `registerProjectionSubscriptions` + `timeline.RegisterSubscriptions` 落状态与 timeline 4) `threadPatchLocked`/timeline patch 推 UI | `internal/module/uistate/module.go:46-66` / `internal/module/uistate/projector.go:17-60` / `internal/module/uistate/timeline/projector.go:16-45` | `sidebar_test.go` / `timeline_test.go` |

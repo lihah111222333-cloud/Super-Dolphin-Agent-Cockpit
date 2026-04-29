@@ -1,6 +1,6 @@
 # 04 App 核心与契约层代码地图
 
-> 扫描范围：`internal/app/*.go` 与 `internal/contract/*.go`。交叉核对实现包：`internal/platform/rpc`、`internal/platform/hooks`、`internal/platform/mcpcontrol`、`internal/provider/unified`、`internal/provider/claudecli`、`internal/provider/codexapp`、`internal/module/thread`、`internal/module/turn`、`internal/module/dashboard`、`internal/module/uistate`、`internal/ui/wails`、`cmd/mcp-orch`。
+> 扫描范围：`internal/app/*.go` 与 `internal/contract/*.go`。交叉核对实现包：`internal/platform/{rpc,hooks,mcpcontrol,toolbridge}`、`internal/provider/{unified,claudecli,codexapp}`、`internal/module/{dashboard,feedback,memory,prompt,skill,thread,turn,uistate}`、`internal/module/turn/observation`、`internal/module/{cron,notify,insight}`、`internal/ui/wails`、`cmd/mcp-orch`。
 
 ## 1. 模块概述
 
@@ -26,7 +26,8 @@
 - 把 provider / thread / turn / hooks / mcpcontrol / orchestration 之间的依赖压缩为接口依赖；
 - 把 RPC、sqlc、provider transport、standalone orchestration 这类易变实现隔离到外层；
 - 允许桌面态在 **没有 orchestration service** 时，依靠 `optional:"true"` + noop 适配器完成大部分组装；
-- 按能力域拆分：`approval`、`errors`、`hooks`、`mcp_control`、`memory`、`orchestration`、`prompt`、`provider`、`runtime_reporter`、`session_resolver`、`skill_injection`、`team_memory`、`thread_metadata`，以及与 prompt / memory 边界配套的 `dream`、`frc`、`prompt_attachment`。
+- 按能力域拆分：`approval`、`hooks`、`mcp_control`、`orchestration`、`prompt`、`provider`、`runtime_reporter`、`session_resolver`、`skill_injection`、`memory/team/thread_metadata`，以及 `agent_state`、`bootstrap_hook`、`dream`、`frc`、`message_notifier`、`pending_launch_spawner`、`prompt_attachment`、`toolbridge_runtime_required`、`ui_project_state` 等桥接/模型/helper。
+- **58f19fa 接口隔离维护口径**：不要把单一模块拥有的超大 `Service` / `Store` 端口继续抬进 `internal/contract`；`internal/module/skill/contract.go`、`cmd/mcp-orch/store/taskdag/contract.go` 等 owner-local narrow ports 由模块自身维护，04 只记录它们和 app/root graph 的边界关系。
 
 一句话：**`app` 负责“怎么装”，`contract` 负责“装出来的东西如何说话”。**
 
@@ -56,18 +57,25 @@ flowchart TD
   store --> s4["store.binding"]
   store --> s5["store.buslog"]
   store --> s6["store.commandcard"]
-  store --> s7["store.cwdlock"]
-  store --> s8["store.dbquery"]
-  store --> s9["store.hookstore"]
-  store --> s10["store.interaction"]
-  store --> s11["store.prompt"]
-  store --> s12["store.sharedfile"]
-  store --> s13["store.systemlog"]
-  store --> s14["store.tasktrace"]
-  store --> s15["store.thread"]
-  store --> s16["store.topologyapproval"]
-  store --> s17["store.uipreference"]
+  store --> s7["store.cron"]
+  store --> s8["store.cwdlock"]
+  store --> s9["store.dbquery"]
+  store --> s10["store.feedback"]
+  store --> s11["store.hookstore"]
+  store --> s12["store.insight"]
+  store --> s13["store.interaction"]
+  store --> s14["store.prompt"]
+  store --> s15["store.routingtest"]
+  store --> s16["store.sharedfile"]
+  store --> s17["store.skillcandidate"]
+  store --> s18["store.systemlog"]
+  store --> s19["store.tasktrace"]
+  store --> s20["store.thread"]
+  store --> s21["store.topologyapproval"]
+  store --> s22["store.turndedupe"]
+  store --> s23["store.uipreference"]
   app --> dashboard["dashboard.Module\nfx.Options"]
+  app --> feedback["feedback.Module"]
   app --> memory["memory.Module"]
   memory --> mema["memory-agent.Module"]
   memory --> memn["memory.nested.Module"]
@@ -77,6 +85,10 @@ flowchart TD
   app --> skill["skill.Module"]
   app --> thread["thread.Module"]
   app --> turn["turn.Module"]
+  app --> turnobs["turnobservation.Module"]
+  app --> cron["cron.Module"]
+  app --> notify["notify.Module"]
+  app --> insight["insight.Module"]
   app --> uistate["uistate.Module\nfx.Options"]
   app --> unified["provider.unified.Module"]
   app --> claude["provider.claudecli.Module"]
@@ -86,23 +98,32 @@ flowchart TD
   app -. not embedded .-> orch["cmd/mcp-orch/orchestration.Module"]
 ```
 
-### 1.2 启动变体
+### 1.2 `internal/contract` 文件速览
 
 | 文件 | 作用 |
 | --- | --- |
+| `agent_state.go` | UI / lifecycle 共享的 agent active-state 判定 helper。 |
 | `approval.go` | 工具调用审批契约：`ApprovalResponder`、`ApprovalRequester`、`ApprovalRequest`、`ApprovalDecision`。 |
+| `bootstrap_hook.go` | bootstrap 后置 hook handler 类型。 |
+| `dream.go` | dream executor 契约与未配置哨兵错误。 |
 | `errors.go` | 通用哨兵错误：`ErrSessionNotFound`。 |
+| `frc.go` | FRC 配置模型与默认窗口参数。 |
 | `hooks.go` | Hook 管理、生命周期、审批持久化契约；定义 hook 相关错误。 |
 | `mcp_control.go` | MCP 控制面注册/通知/回调/组合控制面的契约与 `ToolInstance` 快照。 |
 | `memory.go` | memory 只读契约：`MemoryService`、`MemoryReadRequest/Result`、scope/type 枚举。 |
+| `message_notifier.go` | 跨模块通知消息、等级与队列/alias 错误。 |
 | `orchestration.go` | agent orchestration 的总边界：生命周期、turn、runtime、report、DAG。 |
+| `pending_launch_spawner.go` | pending launch 二段式唤醒/补偿入口。 |
 | `prompt.go` | system prompt 组装契约：`PromptAssemblyService`、`DynamicSectionRegistrar`、`SectionInvalidator`、`BuildCtx`、`StartInput/TurnInput`。 |
+| `prompt_attachment.go` | relevant-memory attachment envelope 的 normalize/render helper。 |
 | `provider.go` | provider 三层抽象：`Driver` / `Session` / `TurnHandle`。 |
 | `runtime_reporter.go` | provider 向 orchestration 回报 runtime 元信息的最小契约。 |
 | `session_resolver.go` | 由 threadID 解析运行中或可恢复 session 的契约。 |
 | `skill_injection.go` | provider skill 注入桥：`SkillInjectionPort`。 |
 | `team_memory.go` | team-memory 只读桥：`TeamMemoryManager`。 |
 | `thread_metadata.go` | memory 侧线程元数据桥：`ThreadMetadataStore`、`ThreadMetadata`。 |
+| `toolbridge_runtime_required.go` | toolbridge runtime fail-closed 的哨兵错误。 |
+| `ui_project_state.go` | Wails/UI 侧读取 project state 的 facade 与快照模型。 |
 
 ---
 
@@ -272,7 +293,7 @@ var Module = fx.Module("provider.unified",
 graph TD
   app[app.Module] --> core[config db bus rpc hooks]
   app --> infra[mcpcontrol runner statemachine store]
-  app --> biz[dashboard lspgui skill thread turn uistate]
+  app --> biz[dashboard feedback memory prompt skill thread turn turnobservation cron notify insight uistate]
   app --> provider[unified claudecli codexapp toolbridge]
   app --> bridge[AsRPCRunner facades reporters]
 ```
@@ -729,10 +750,16 @@ type SessionResolver interface {
 **业务模块层**
 
 - `dashboard.Module`
-- `lspgui.Module`
+- `feedback.Module`
+- `memory.Module`
+- `prompt.Module`
 - `skill.Module`
 - `thread.Module`
 - `turn.Module`
+- `turnobservation.Module`
+- `cron.Module`
+- `notify.Module`
+- `insight.Module`
 - `uistate.Module`
 
 **Provider / 集成层**
@@ -776,7 +803,7 @@ type SessionResolver interface {
 
 ### 6.4 关键依赖结论
 
-1. **`contract` 是真正的横向边界层。** provider、thread、turn、rpc、hooks、mcpcontrol、dashboard、uistate、wails、`cmd/mcp-orch` 都通过它解耦。  
+1. **`contract` 是全局横向边界层，但不是所有接口的收容所。** provider、thread、turn、rpc、hooks、mcpcontrol、dashboard、uistate、wails、`cmd/mcp-orch` 仍通过稳定契约解耦；58f19fa 后，skill/taskdag 这类 owner-local 超大端口应拆在 owning package 的窄接口里。
 2. **`app` 是根组装层，不是业务层。** 它只决定“装哪些模块、以什么生命周期运行”。  
 3. **桌面端对 orchestration 是可选依赖。** `contract.OrchestrationService` 缺失时，通过 `noopRuntimeReporter` 与 `noopThreadOrchestrationFacade` 保证 provider / thread 仍可构造。  
 4. **provider 装配采用 `group:"drivers"`。** 新增 provider 只需追加一个 `contract.DriverFactory`，无需改 thread / turn / rpc 调用链。  
@@ -822,6 +849,9 @@ module/prompt
   ├─ AsPromptAssemblyService ------> contract.PromptAssemblyService -> thread / turn / memory
   └─ NativeSkillDetector <--------- group:"skill_injection_ports" <----- claudecli / codexapp
 
+module/skill
+  └─ Service aggregate -> SkillLister / SkillCatalogSource / SkillHydrationSource / SkillHostToolReader -> dashboard / prompt / turn / toolbridge
+
 platform/rpc
   └─ approvalRequester -----------> contract.ApprovalRequester -> skill
 
@@ -834,8 +864,9 @@ store/thread
 | 包 | 测试文件 | 核心 Test* | freeze |
 | --- | --- | --- | --- |
 | `app` | `runner_test.go` | `TestBindRuntimeDrainsExtractionBeforeCancel` | — |
+| `archtest` | `interface_isolation_guard_test.go` | `TestInterfaceIsolationBudgets`、`TestSkillServiceConsumersUseNarrowPorts`、`TestTaskDAGStoreConsumersUseNarrowPort` | 58f19fa 接口隔离预算 |
 
-补充：`04` 这卷自身没有额外 freeze 豁免；与组装边界最相关的跨卷 guard 仍是 `internal/archtest/code_size_guard_test.go` + `internal/archtest/freeze_registry.go` 中对 `internal/module/prompt` 的 `27` 文件冻结。
+补充：`04` 这卷自身没有额外 freeze 豁免；当前 `internal/archtest/freeze_registry.go:19-28` 只给 `internal/provider/codexapp` 留有 P25 临时预算，接口隔离另由 `internal/archtest/interface_isolation_guard_test.go` 管住。
 
 ## 9. 常见修改路径（how-to）
 
@@ -844,6 +875,7 @@ store/thread
 | 根 Module | 新模块 / provider / platform 启动接线 | 1. 先在 owning `Module` 内导出 provider；2. 再把模块纳入 `internal/app/modules.go`；3. 如需跨边界收口，再补 `fx.Provide` adapter（如 `AsRPCRunner` / facade / reporter）。 | `internal/app/modules.go`、`AsRPCRunner` | `lsp_grep` `modules.go`；必要时跑 `internal/app/runner_test.go` |
 | RPC 收编 | 新模块需要暴露 JSON-RPC / Wails RPC | 1. 返回 `rpc.HandlerMapResult`；2. 在模块侧提供 `New*Handlers`；3. 由 `internal/platform/rpc.registerAllHandlers` 统一收编。 | `internal/platform/rpc/module.go`、`registerAllHandlers` | `internal/platform/rpc/server_minimal_test.go` |
 | freeze | 适配层膨胀 / bridge 临时收口触发架构 guard | 1. 优先把 helper / adapter 收回 owning module；2. 对照 `freeze_registry.go` 找当前真值；3. 用 `TestCodeSizeGuard` 校验是否需要同步调整 freeze。 | `internal/archtest/freeze_registry.go`、`internal/archtest/code_size_guard_test.go` | `go test ./internal/archtest -run TestCodeSizeGuard` |
+| 接口隔离 / 窄端口 | 某个 `Service` / `Store` 方法集继续膨胀，或消费者只需要子集能力 | 1. 先在 owning package 拆 module-local narrow port；2. Fx assembly 层提供 aggregate -> narrow port adapter；3. 不把局部端口抬到 `internal/contract`，除非至少两个上层领域都需要稳定公共语义。 | `internal/module/skill/contract.go`、`cmd/mcp-orch/store/taskdag/contract.go`、`internal/archtest/interface_isolation_guard_test.go` | `go test ./internal/archtest -run 'TestInterfaceIsolation|TestSkillService|TestTaskDAG'` |
 
 ## 审查补遗
 
@@ -854,3 +886,4 @@ store/thread
 - 已补全此前文档未展开的依赖注入链：`group:"drivers" -> unified.Registry -> Client / SessionManager / SessionResolver -> thread / turn / rpc`，以及 `SessionGeneration -> BindSessionGeneration -> generation-aware session cleaner` 这条链路。  
 - 已澄清适配器模式的真实落点：`newThreadOrchestrationFacade` 与 `newRuntimeReporter` 是薄适配层；`AsRPCRunner` 只是 Fx 结果包装，不属于业务语义适配。  
 - 已核对 `internal/app/modules.go`：根模块清单与文档一致，仍然 **不内嵌 orchestration module**；桌面态仅通过 optional 依赖和 noop 适配器感知 orchestration。  
+- 2026-04-29 已按接口隔离提交 58f19fa 同步维护口径：`skill.Service` / `taskdag.Store` 的拆分真值在 owner-local `contract.go` 与 `interface_isolation_guard_test.go`，04 不再把这类局部端口描述成 `internal/contract` 的扩展面。

@@ -108,8 +108,8 @@ func (p *updateNodeParams) UnmarshalJSON(data []byte) error {
 
 func (s *service) CreateDAG(ctx context.Context, req CreateDAGRequest) (DAGDetail, error) {
 	var detail DAGDetail
-	err := s.withDAGStore(func(store taskdag.Store) error {
-		return store.WithTx(ctx, func(txStore taskdag.Store) error {
+	err := s.withDAGStore(func(store taskdag.OrchestrationStore) error {
+		return store.WithTx(ctx, func(txStore taskdag.DAGMutationStore) error {
 			dag, dagErr := upsertDAG(ctx, txStore, req)
 			if dagErr != nil {
 				return dagErr
@@ -133,7 +133,7 @@ func (s *service) CreateDAG(ctx context.Context, req CreateDAGRequest) (DAGDetai
 
 func (s *service) GetDAG(ctx context.Context, dagKey string) (DAGDetail, error) {
 	var detail DAGDetail
-	err := s.withDAGStore(func(store taskdag.Store) error {
+	err := s.withDAGStore(func(store taskdag.OrchestrationStore) error {
 		loaded, loadErr := loadDAGDetail(ctx, store, dagKey)
 		if loadErr != nil {
 			return loadErr
@@ -146,7 +146,7 @@ func (s *service) GetDAG(ctx context.Context, dagKey string) (DAGDetail, error) 
 
 func (s *service) ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAGSummary, error) {
 	var summaries []DAGSummary
-	err := s.withDAGStore(func(store taskdag.Store) error {
+	err := s.withDAGStore(func(store taskdag.OrchestrationStore) error {
 		dags, listErr := store.ListDAGs(ctx, taskdag.ListDAGsFilter{
 			Status:  strings.TrimSpace(filter.Status),
 			Keyword: strings.TrimSpace(filter.Keyword),
@@ -170,7 +170,7 @@ func (s *service) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequ
 		return DAGNode{}, err
 	}
 	var result DAGNode
-	err = s.withDAGStore(func(store taskdag.Store) error {
+	err = s.withDAGStore(func(store taskdag.OrchestrationStore) error {
 		node, updateErr := store.UpdateNodeStatus(ctx, input)
 		if updateErr != nil {
 			return updateErr
@@ -184,7 +184,7 @@ func (s *service) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequ
 	return result, nil
 }
 
-func upsertDAG(ctx context.Context, store taskdag.Store, req CreateDAGRequest) (*taskdag.DAG, error) {
+func upsertDAG(ctx context.Context, store taskdag.DAGMutationStore, req CreateDAGRequest) (*taskdag.DAG, error) {
 	dagKey := strings.TrimSpace(req.DagKey)
 	if dagKey == "" {
 		return nil, errors.New("dag key is required")
@@ -199,7 +199,7 @@ func upsertDAG(ctx context.Context, store taskdag.Store, req CreateDAGRequest) (
 	})
 }
 
-func upsertDAGNodes(ctx context.Context, store taskdag.Store, dagKey string, nodes []CreateDAGNodeRequest) error {
+func upsertDAGNodes(ctx context.Context, store taskdag.DAGMutationStore, dagKey string, nodes []CreateDAGNodeRequest) error {
 	for _, node := range nodes {
 		if _, err := store.UpsertNode(ctx, dagNodeFromRequest(dagKey, node)); err != nil {
 			return err
@@ -208,7 +208,7 @@ func upsertDAGNodes(ctx context.Context, store taskdag.Store, dagKey string, nod
 	return nil
 }
 
-func loadDAGDetail(ctx context.Context, store taskdag.Store, dagKey string) (DAGDetail, error) {
+func loadDAGDetail(ctx context.Context, store taskdag.DAGDetailStore, dagKey string) (DAGDetail, error) {
 	dag, err := store.GetDAG(ctx, strings.TrimSpace(dagKey))
 	if err != nil {
 		return DAGDetail{}, err

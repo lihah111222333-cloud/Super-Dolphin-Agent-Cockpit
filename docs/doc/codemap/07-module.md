@@ -41,7 +41,7 @@ flowchart LR
 | 模块 | 定位 | 主要消费者 |
 |---|---|---|
 | `dashboard` | 运维/只读聚合页、日志、DAG、Agent 详情 | Wails/前端、诊断页 |
-| `skill` | 本地技能目录、渐进披露、匹配预览、受限命令执行 | prompt、turn、dashboard、host RPC |
+| `skill` | 本地技能目录、渐进披露、匹配预览、受限命令执行；`Service` 仅保留兼容聚合面 | prompt(`SkillCatalogSource`)、turn(`SkillHydrationSource`)、dashboard(`SkillLister`)、toolbridge(`SkillHostToolReader`)、host RPC |
 | `thread` | 线程启动/恢复/fork/归档/配置 | RPC、uistate、turn |
 | `turn` | 回合输入组装、启动/打断/强制完成 | RPC、thread、provider |
 | `uistate` | UIState / Sidebar / Timeline / Preferences 投影 | Wails 前端 |
@@ -77,12 +77,13 @@ flowchart LR
 
 - **2026-04-17**：07 从单卷改成“稳定索引 + 读侧 / 写侧双卷”，本页不再承载正文。
 - **2026-04-20**：07A/07B 按当前代码真值重写，补回 `dashboard/prompts` cwd、`skill/list` / `skill/expand`、`lspgui` 缺席、thread/turn/uistate 真链路。
+- **2026-04-29**：接口隔离后，`skill.Service` 是兼容聚合接口；跨模块消费改按 `SkillLister` / `SkillCatalogSource` / `SkillHydrationSource` / `SkillHostToolReader` 等窄端口描述。
 
 ## 10. 常见误导
 
 - `07-module.md` 现在只是稳定索引页，**不代表业务模块内容少**；真实正文已进 `07-module-read.md` / `07-module-write.md`。
 - `dashboard/prompts` 已不是旧版“简单 page-field wrapper”；真实入口是 ctx 带 `cwd` 后再过滤。
-- `skill` 不只剩 legacy `skills/*`；host 侧已新增 `skill/list` / `skill/expand`。
+- `skill` 不只剩 legacy `skills/*`；host 侧已新增 `skill/list` / `skill/expand`，跨模块不要再按完整 `skill.Service` 胖接口理解。
 - `lspgui` 在当前仓内并不存在；看到旧文档提它时，一律以 `07-module-read.md` §3 为准。
 
 ## 11. 新增符号入口

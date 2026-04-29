@@ -25,12 +25,9 @@ import (
 // skillHydrationPort 是 turn service 平时读取 skill 元数据/正文的最小入口。
 //
 // p20.2 §5 step 2：PrepareTurn 前置需要把 name-only skill 补全为
-// `{Prompt, Summary, Version}`。但为了让测试不必拉起整个 skill 模块，
-// 这里只声明具体依赖的两个方法；skill.Service 自动满足。
-type skillHydrationPort interface {
-	ListSkills(ctx context.Context) ([]skillpkg.SkillInfo, error)
-	ReadLocal(ctx context.Context, path string) (any, error)
-}
+// `{Prompt, Summary, Version}`。该端口已上移到 skill 模块，避免 turn
+// 构造器继续依赖完整 skill.Service。
+type skillHydrationPort = skillpkg.SkillHydrationSource
 
 type service struct {
 	logger                 *slog.Logger
@@ -87,7 +84,7 @@ func NewServiceWithPromptAssemblyAndTurnContext(
 	logger *slog.Logger,
 	promptAssembly contract.PromptAssemblyService,
 	turnContextProvider contract.TurnContextProvider,
-	skillSvc skillpkg.Service,
+	skillSvc skillpkg.SkillHydrationSource,
 	observation turnobservation.Contract,
 ) Service {
 	var lookup skillHydrationPort

@@ -29,7 +29,7 @@ Layer 2 provider 适配层
 
 Layer 3 runtime 桥接层
   prompt snapshot / StartAssembly / binding store / thread store
-  rpc.ApprovalManager / toolbridge / pidregistry / ServerManager / local process
+  rpc.ApprovalManager / toolbridge(dynamic tools; host-direct skills via SkillHostToolReader) / pidregistry / ServerManager / local process
 ```
 
 - `unified.Module` 负责注册 `Registry / Client / SessionManager / SessionResolver / EventDispatcher`，并在 `OnStop` 统一 `CloseAll()`。锚点：`internal/provider/unified/module.go:24`、`internal/provider/unified/session.go:110-127`。
@@ -47,7 +47,7 @@ Layer 3 runtime 桥接层
 | 会话管理 | `SessionManager.Register()` 以 agentID 管在线 session | 同左；session 内部再自管 `turns/pendingTurn/recovery` |
 | 事件入口 | `startReadLoop()` 逐行 decode CLI 输出 | `startReadLoop()` 读 WS，notification 进入 `onNotification()` |
 
-锚点：Claude `internal/provider/claudecli/driver.go:106-175`、`internal/provider/claudecli/transport_config.go:34-55`、`internal/provider/claudecli/transport.go:34-64`；Codex `internal/provider/codexapp/driver.go:157-198`、`internal/provider/codexapp/session.go:63-105`、`internal/provider/codexapp/transport.go:39-53`、`internal/provider/codexapp/transport_process.go:217-265`。
+锚点：Claude `internal/provider/claudecli/driver.go:106-175`、`internal/provider/claudecli/transport_config.go:34-55`、`internal/provider/claudecli/transport.go:34-64`；Codex `internal/provider/codexapp/driver.go:162-227`、`internal/provider/codexapp/session.go:63-105`、`internal/provider/codexapp/transport.go:39-53`、`internal/provider/codexapp/transport_process.go:217-265`。
 
 ### 1.3 时序图 A：Claude start / resume
 
@@ -126,7 +126,7 @@ transport break / health failure
 | Provider | Session 生命周期 | Event 映射表（provider 事件 → 内部 DTO） | 审批通道 | 中断通道 |
 |---|---|---|---|---|
 | Claude CLI | `StartSession`/`ResumeSession` -> `launchCLIWithManifest` -> placeholder session -> `startReadLoop` -> `awaitResolvedThreadID`。<br>`StartTurn` 前若 transport 不可用、model/effort 改变、manifest 改变，则 `restartIfNeededLocked()` 触发 **重启 CLI + --resume**。<br>`Configure()` 仅支持 model/effort staged override；`Close/ForceStop` 直接结束 CLI。<br>锚点：`internal/provider/claudecli/driver.go:106-175`、`internal/provider/claudecli/session_turn.go:170-199`、`internal/provider/claudecli/session_log_watcher_integration.go:165-181`、`internal/provider/claudecli/session_config.go:17-34`。 | `agent:launched -> AgentLaunched`；`system:init -> AgentRuntimeReported`；`agent:state_changed -> StateChanged`；`agent:stopped -> AgentStopped`；`agent:failed -> AgentFailed`；`turn:started -> TurnStarted`；`turn:input_received -> TurnInputReceived`；`assistant:message_delta -> TurnOutputDelta`；`turn:interrupted -> TurnInterrupted`；`turn:complete -> TurnCompleted`；`tool:use_begin/end -> ToolCallBegin/End`。<br>锚点：`internal/provider/claudecli/event_map.go:25-42`、`internal/provider/claudecli/event_map.go:60-90`、`internal/provider/claudecli/event_map.go:92-138`、`internal/provider/claudecli/event_map.go:140-168`。 | 无 provider->UI 审批回调桥。Claude 只把 `approvalPolicy` 映射成 CLI `--permission-mode`；运行时 `ReadConfig()` 可回报 approvals，但没有 `ApprovalManager` 回调链。<br>锚点：`internal/provider/claudecli/transport_config.go:102-121`、`internal/provider/claudecli/session_config.go:138-159`。 | `Interrupt()` 本地摘走 `activeTurn`，补发 `turn:interrupted`，随后对旧 transport `SIGINT`，最多等 2 秒，不退出则 `SIGKILL`；下一 turn 触发 restart。`ForceComplete()` 先 `SIGINT`，再本地补 `turn:complete{reason=force_complete}`。<br>锚点：`internal/provider/claudecli/session.go:228-278`、`internal/provider/claudecli/session_interrupt_cleanup.go:34-48`、`internal/provider/claudecli/session_config.go:170-197`。 |
-| Codex App | `StartSession`/`ResumeSession` 先 `newSession()` 建 WS 与 read/health loop，再 `thread/start` 或 `thread/resume`。<br>`StartTurn` 记 `turns + activeTurnID + pendingTurn`。<br>连接异常时 `attemptRecovery()` 做 `reconnect + thread/resume + replayPendingTurn`。<br>`Configure()` 中 model/effort 只存本地 runtimeConfig，在下一次 `turn/start` 带出；personality/approvals 走 slash-config RPC。<br>锚点：`internal/provider/codexapp/driver.go:157-198`、`internal/provider/codexapp/session.go:170-205`、`internal/provider/codexapp/recovery.go:122-205`、`internal/provider/codexapp/support.go:121-164`。 | `thread/started|session.configured -> AgentLaunched`；`thread/status/changed -> StateChanged`；`shutdown.complete|shutdown_complete -> AgentStopped`；`recovery.attempt -> AgentRecovering`；`connection.dead -> AgentFailed`；`turn/completed|turn.completed|turn/aborted|turn.aborted -> TurnCompleted`；`turn/interrupted|turn.interrupted -> TurnInterrupted`；`turn/started|turn.started -> TurnStarted`；`message.delta/reasoning.delta/exec_output_delta -> TurnOutputDelta`；approval bridge methods -> `ToolApprovalRequested`；`item/tool/call|dynamic_tool_call|tool.call.begin -> ToolCallBegin`；`item/completed|tool.call.end -> ToolCallEnd`；`approval/resolved -> ToolApprovalResolved`；`turn/diff/updated -> ToolDiffUpdated`。<br>锚点：`internal/provider/codexapp/event_map.go:44-66`、`internal/provider/codexapp/event_map.go:114-146`、`internal/provider/codexapp/event_map.go:148-198`、`internal/provider/codexapp/event_map.go:248-302`。 | approval request methods 在 `approvalBridgeMethods` 中集中定义；`onNotification()` 对 approval 事件默认 **不再 dispatch raw**，而是 `handleApprovalRequest()` -> `buildApprovalRequest()` -> `ApprovalManager.RequestApproval/RequestUserInput()` -> `approval/respond`。重复请求按 `callID+requestID` 去重。<br>锚点：`internal/provider/codexapp/factory.go:41`、`internal/provider/codexapp/session_approval.go:28-70`、`internal/provider/codexapp/session_approval.go:148-191`、`internal/provider/codexapp/session_approval.go:222-240`。 | `Interrupt()` 直接发 `turn/interrupt`；`ForceComplete()` 发 `turn/forceComplete` 后本地补 `turn/completed{reason=force_complete}` 并 suppress 后续真实终态；恢复后 `replayPendingTurn()` 会更新同一 `TurnHandle` 的 provider turn id。<br>锚点：`internal/provider/codexapp/session.go:220-243`、`internal/provider/codexapp/session.go:368-385`、`internal/provider/codexapp/recovery.go:185-205`。 |
+| Codex App | `StartSession`/`ResumeSession` 先 `newSession()` 建 WS 与 read/health loop，再 `thread/start` 或 `thread/resume`。<br>`StartTurn` 记 `turns + activeTurnID + pendingTurn`。<br>连接异常时 `attemptRecovery()` 做 `reconnect + thread/resume + replayPendingTurn`。<br>`Configure()` 中 model/effort 只存本地 runtimeConfig，在下一次 `turn/start` 带出；personality/approvals 走 slash-config RPC。<br>锚点：`internal/provider/codexapp/driver.go:162-227`、`internal/provider/codexapp/session.go:170-205`、`internal/provider/codexapp/recovery.go:122-205`、`internal/provider/codexapp/support.go:109-162`。 | `thread/started|session.configured -> AgentLaunched`；`thread/status/changed -> StateChanged`；`shutdown.complete|shutdown_complete -> AgentStopped`；`recovery.attempt -> AgentRecovering`；`connection.dead -> AgentFailed`；`turn/completed|turn.completed|turn/aborted|turn.aborted -> TurnCompleted`；`turn/interrupted|turn.interrupted -> TurnInterrupted`；`turn/started|turn.started -> TurnStarted`；`message.delta/reasoning.delta/exec_output_delta -> TurnOutputDelta`；approval bridge methods -> `ToolApprovalRequested`；`item/tool/call|dynamic_tool_call|tool.call.begin -> ToolCallBegin`；`item/completed|tool.call.end -> ToolCallEnd`；`approval/resolved -> ToolApprovalResolved`；`turn/diff/updated -> ToolDiffUpdated`。<br>锚点：`internal/provider/codexapp/event_map.go:44-66`、`internal/provider/codexapp/event_map.go:114-146`、`internal/provider/codexapp/event_map.go:148-198`、`internal/provider/codexapp/event_map.go:248-302`。 | approval request methods 在 `approvalBridgeMethods` 中集中定义；`onNotification()` 对 approval 事件默认 **不再 dispatch raw**，而是 `handleApprovalRequest()` -> `buildApprovalRequest()` -> `ApprovalManager.RequestApproval/RequestUserInput()` -> `approval/respond`。重复请求按 `callID+requestID` 去重。<br>锚点：`internal/provider/codexapp/factory.go:41`、`internal/provider/codexapp/session_approval.go:28-70`、`internal/provider/codexapp/session_approval.go:148-191`、`internal/provider/codexapp/session_approval.go:222-240`。 | `Interrupt()` 直接发 `turn/interrupt`；`ForceComplete()` 发 `turn/forceComplete` 后本地补 `turn/completed{reason=force_complete}` 并 suppress 后续真实终态；恢复后 `replayPendingTurn()` 会更新同一 `TurnHandle` 的 provider turn id。<br>锚点：`internal/provider/codexapp/session.go:220-243`、`internal/provider/codexapp/session.go:368-385`、`internal/provider/codexapp/recovery.go:185-205`。 |
 
 ---
 
@@ -135,7 +135,7 @@ transport break / health failure
 | 契约 | 具体实现 / 提供者 | Fx 装配 | 主要消费者 | 与 provider 的绑定关系 |
 |---|---|---|---|---|
 | `contract.SessionResolver` | `*unified.sessionResolver` | `unified.Module` 提供 `NewSessionResolver`。锚点：`internal/provider/unified/module.go:24`、`internal/provider/unified/session_resolver.go:44-56`。 | `rpc.NewCapabilityResolver`、`turn.NewTurnHandlers`。锚点：`internal/platform/rpc/handler.go:22-40`、`internal/module/turn/rpc.go:10-24`。 | `sessionResolver` 本身不实现 provider 细节；真正恢复时通过 `registry.Resolve(provider)` 调用 `driver.ResumeSession()`，因此间接绑定 `claude/codex` 两个 driver。锚点：`internal/provider/unified/session_resolver.go:172-222`。 |
-| `contract.ApprovalResponder` | `*rpc.ApprovalManager` | `rpc.Module` 中显式 `func(m *ApprovalManager) contract.ApprovalResponder { return m }`。锚点：`internal/platform/rpc/module.go:25`、`internal/platform/rpc/approval.go:29`。 | turn RPC `approval/respond`。锚点：`internal/module/turn/rpc.go:10-24`、`internal/module/turn/rpc_helpers.go:249-262`。 | provider 层没有新的实现：Claude 不消费该接口；Codex 直接注入同一个 concrete `*rpc.ApprovalManager` 做 outbound approval bridge，因此它与契约实现是 **同源对象、双入口**。锚点：`internal/provider/codexapp/driver.go:91-112`、`internal/provider/codexapp/session_approval.go:62-70`。 |
+| `contract.ApprovalResponder` | `*rpc.ApprovalManager` | `rpc.Module` 中显式 `func(m *ApprovalManager) contract.ApprovalResponder { return m }`。锚点：`internal/platform/rpc/module.go:25`、`internal/platform/rpc/approval.go:29`。 | turn RPC `approval/respond`。锚点：`internal/module/turn/rpc.go:10-24`、`internal/module/turn/rpc_helpers.go:249-262`。 | provider 层没有新的实现：Claude 不消费该接口；Codex 直接注入同一个 concrete `*rpc.ApprovalManager` 做 outbound approval bridge，因此它与契约实现是 **同源对象、双入口**。锚点：`internal/provider/codexapp/driver.go:93-121`、`internal/provider/codexapp/session_approval.go:62-70`。 |
 
 可直接按 04 卷理解为两条桥：
 
@@ -152,13 +152,13 @@ rpc.NewApprovalManager -(concrete injection)-> codex provider approval bridge
 ### 5.1 provider bridge 已统一承接 prompt snapshot 的核心字段
 
 - thread 层在 `startSession()` / `resumeSession()` 统一把 `StartAssembly`、`PromptSnapshot` 转成 provider DTO，但当前主链稳定透传的是 `DisplayName / BaseInstructions / DeveloperInstructions / Provider / Version / Hash / Generation` 这组核心字段。锚点：`internal/module/thread/start_session.go:142-194`、`internal/module/thread/start_session_helpers.go:96-116`。
-- Claude `resolveStartAssembly()` 会补齐 `BaseInstructions / DeveloperInstructions / Snapshot.Provider / Snapshot.Version`；Codex 则把相同信息变成 `thread/start` / `thread/resume` 参数。锚点：`internal/provider/claudecli/config.go:52-69`、`internal/provider/codexapp/support.go:247-261`、`internal/provider/codexapp/driver.go:244-253`。
+- Claude `resolveStartAssembly()` 会补齐 `BaseInstructions / DeveloperInstructions / Snapshot.Provider / Snapshot.Version`；Codex 则把相同信息变成 `thread/start` / `thread/resume` 参数。锚点：`internal/provider/claudecli/config.go:52-69`、`internal/provider/codexapp/support.go:307-320`、`internal/provider/codexapp/driver.go:278-287`。
 
 ### 5.2 Claude parity 的当前物化方式
 
 - Claude provider 代码本身支持 boundary：若 snapshot 携带 `CachedPrefix / UncachedTail`，`transport_config.go` 会拆成多个 `--system-prompt` block。锚点：`internal/provider/claudecli/transport_config.go:139-162`。
 - 但 thread 主链当前 **没有** 把 `Boundary / SectionSnapshot` 从 contract snapshot 抄到 provider DTO；因此这部分更像“provider-ready、bridge 未全接通”，不能直接当成 thread 主链已落地。锚点：`internal/dto/provider/session.go:29`、`internal/dto/provider/session.go:41`、`internal/module/thread/start_session_helpers.go:96-116`。
-- Codex 不走 CLI block，而是把同一组 prompt 字段放进 `thread/start` / `thread/resume` JSON-RPC 参数。锚点：`internal/provider/codexapp/support.go:247-261`、`internal/provider/codexapp/driver.go:244-253`。
+- Codex 不走 CLI block，而是把同一组 prompt 字段放进 `thread/start` / `thread/resume` JSON-RPC 参数。锚点：`internal/provider/codexapp/support.go:307-320`、`internal/provider/codexapp/driver.go:278-287`。
 
 ### 5.3 per-turn 注入已收口到 session-start carrier
 
@@ -169,8 +169,8 @@ rpc.NewApprovalManager -(concrete injection)-> codex provider approval bridge
 ### 5.4 仍需记住的 provider 差异
 
 - Claude 仍是“CLI manifest + `--resume` + stdio event decode”；memory/prompt parity 不改变其 transport 模型。锚点：`internal/provider/claudecli/transport_config.go:34-55`。
-- Codex 的 dynamic tools 由 app-server 自己暴露给模型，源码注释明确 **不再把工具目录重复塞进 `developerInstructions`**。锚点：`internal/provider/codexapp/support.go:305-312`。
-- Codex model/effort 也没有 `thread/config/set` RPC；它们保存在 runtimeConfig，并在下一次 `turn/start` 带出。锚点：`internal/provider/codexapp/support.go:121-132`、`internal/provider/codexapp/session.go:175-188`。
+- Codex 的 dynamic tools 由 app-server 自己暴露给模型，源码注释明确 **不再把工具目录重复塞进 `developerInstructions`**。锚点：`internal/provider/codexapp/support.go:365-370`。
+- Codex model/effort 也没有 `thread/config/set` RPC；它们保存在 runtimeConfig，并在下一次 `turn/start` 带出。锚点：`internal/provider/codexapp/support.go:124-132`、`internal/provider/codexapp/session.go:175-188`。
 
 ---
 
@@ -186,8 +186,8 @@ rpc.NewApprovalManager -(concrete injection)-> codex provider approval bridge
 
 1. 旧文档写 Claude “当前不会传 `--model`”；代码实际会在 `buildCLIArgs()` 中追加 `--model`。锚点：`internal/provider/claudecli/transport_config.go:109`。
 2. 旧文档写 Claude 会把 `approval_policy / sandbox / effort` 作为 `--system-prompt` 元数据拼进去；代码实际只拼 `summary / personality`，权限与 effort 走独立 flag。锚点：`internal/provider/claudecli/transport_config.go:111-112`、`internal/provider/claudecli/transport_config.go:144-145`。
-3. 旧文档写 Codex 会把 dynamic tools 文本再注入 `DeveloperInstructions`；代码注释明确“不再重复塞进 developerInstructions”。锚点：`internal/provider/codexapp/support.go:305-312`。
-4. 旧文档写 Codex `Configure()` 走 `thread/config/set`；代码实际注明 app-server **没有** 这个 RPC，model/effort 只存本地 runtimeConfig。锚点：`internal/provider/codexapp/support.go:121-132`。
+3. 旧文档写 Codex 会把 dynamic tools 文本再注入 `DeveloperInstructions`；代码注释明确“不再重复塞进 developerInstructions”。锚点：`internal/provider/codexapp/support.go:365-370`。
+4. 旧文档写 Codex `Configure()` 走 `thread/config/set`；代码实际注明 app-server **没有** 这个 RPC，model/effort 只存本地 runtimeConfig。锚点：`internal/provider/codexapp/support.go:124-132`。
 5. P18.4 cache boundary 的 provider schema 已存在，Claude adapter 也支持，但 thread 主链当前未把 `Boundary / SectionSnapshot` 抄进 provider DTO；因此“boundary 已全链路生效”仍不成立。锚点：`internal/dto/provider/session.go:29`、`internal/dto/provider/session.go:41`、`internal/module/thread/start_session_helpers.go:96-116`。
 
 ---
@@ -262,7 +262,7 @@ sequenceDiagram
   SE->>WS: replayPendingTurn()
 ```
 
-- `newSession()` 负责建立 transport、构造 `session`、启动 read loop 与 health loop；driver 只做 runtimeConfig 初始化和 `thread/start|resume`。锚点：`internal/provider/codexapp/session.go:63-105`、`internal/provider/codexapp/driver.go:157-198`。
+- `newSession()` 负责建立 transport、构造 `session`、启动 read loop 与 health loop；driver 只做 runtimeConfig 初始化和 `thread/start|resume`。锚点：`internal/provider/codexapp/session.go:63-105`、`internal/provider/codexapp/driver.go:162-227`。
 - `attemptRecovery()` 不是“重连一下就完”，而是 `Reconnect -> waitReadLoopStopped -> startReadLoop -> resumeThreadAfterRecovery -> replayPendingTurn` 的完整恢复链。锚点：`internal/provider/codexapp/recovery.go:122-163`、`internal/provider/codexapp/recovery.go:165-205`。
 - `dispatch()` 会把 payload 里的 provider `threadId` 改写成 public `agentID`，这正是 UI 不生成重复 agent 节点的关键。锚点：`internal/provider/codexapp/session.go:302-325`。
 
@@ -455,23 +455,24 @@ sequenceDiagram
 
 | 分组 | 文件 | 作用 | 锚点 |
 |---|---|---|---|
-| 装配 | `module.go` | 提供 `ServerManager`、`DriverFactory`、dream executor provider、skill port，并在 `OnStart/OnStop` 管共享 app-server | `internal/provider/codexapp/module.go:24-36`、`internal/provider/codexapp/module.go:45-86`、`internal/provider/codexapp/module.go:120-209` |
-| driver | `driver.go` | `DriverFactory`、`driver`、`StartSession / ResumeSession`、`startAssemblyInstructions()`、resume 参数组装 | `internal/provider/codexapp/driver.go:23-42`、`internal/provider/codexapp/driver.go:91-112`、`internal/provider/codexapp/driver.go:157-198`、`internal/provider/codexapp/driver.go:214-253` |
+| 装配 | `module.go` | 提供 `ServerManager`、`DriverFactory`、dream executor provider、skill injection port（prompt 侧空 native detector，不是 `skill.Service` 依赖），并在 `OnStart/OnStop` 管共享 app-server | `internal/provider/codexapp/module.go:23-45`、`internal/provider/codexapp/module.go:64-90`、`internal/provider/codexapp/module.go:126-276` |
+| driver | `driver.go` | `DriverFactory`、`driver`、`StartSession / ResumeSession`、`startAssemblyInstructions()`、resume 参数组装 | `internal/provider/codexapp/driver.go:23-42`、`internal/provider/codexapp/driver.go:93-121`、`internal/provider/codexapp/driver.go:162-227`、`internal/provider/codexapp/driver.go:259-287` |
 | session 核心 | `session.go` | session 状态、read/health loop、turn map、runtimeConfig、dispatch threadId 改写 | `internal/provider/codexapp/session.go:22-50`、`internal/provider/codexapp/session.go:63-105`、`internal/provider/codexapp/session.go:136-205`、`internal/provider/codexapp/session.go:302-325` |
 | recovery | `recovery.go` | reconnect、health check、thread/resume、pending turn replay | `internal/provider/codexapp/recovery.go:18-35`、`internal/provider/codexapp/recovery.go:122-163`、`internal/provider/codexapp/recovery.go:165-205`、`internal/provider/codexapp/recovery.go:308-344` |
 | approval bridge | `session_approval.go` | approval/request_user_input 桥接、去重、decision 回写、`onNotification()` | `internal/provider/codexapp/session_approval.go:28-70`、`internal/provider/codexapp/session_approval.go:91-137`、`internal/provider/codexapp/session_approval.go:148-190`、`internal/provider/codexapp/session_approval.go:222-272` |
-| support | `support.go` | `configureThread()`、runtimeConfig、`buildThreadStartParams()`、dynamicTools thread/start | `internal/provider/codexapp/support.go:106-164`、`internal/provider/codexapp/support.go:166-186`、`internal/provider/codexapp/support.go:247-261`、`internal/provider/codexapp/support.go:263-337` |
+| support | `support.go` | `configureThread()`、runtimeConfig、`buildThreadStartParams()`、dynamicTools thread/start | `internal/provider/codexapp/support.go:109-162`、`internal/provider/codexapp/support.go:157-188`、`internal/provider/codexapp/support.go:307-320`、`internal/provider/codexapp/support.go:365-420` |
 | transport | `transport.go` | transport 结构、WS connect/call/notify/read loop、reconnect | `internal/provider/codexapp/transport.go:25-37`、`internal/provider/codexapp/transport.go:39-53`、`internal/provider/codexapp/transport.go:55-86`、`internal/provider/codexapp/transport.go:134-158` |
 | local process | `transport_process.go` | 本地 `codex app-server` 拉起、listen URL 解析、stderr 收集、进程观察 | `internal/provider/codexapp/transport_process.go:21-36`、`internal/provider/codexapp/transport_process.go:141-177`、`internal/provider/codexapp/transport_process.go:217-265`、`internal/provider/codexapp/transport_process.go:267-311` |
 | RPC helpers | `factory.go` | method set、timeout call helper、shutdown 流、payload 解码 | `internal/provider/codexapp/factory.go:32-55`、`internal/provider/codexapp/factory.go:57-61`、`internal/provider/codexapp/factory.go:156-214`、`internal/provider/codexapp/factory.go:216-235` |
 | turn 输入 | `session_turn.go` | `turn/start` 输入模型、skills/attachments/input item 映射 | `internal/provider/codexapp/session_turn.go:13-21`、`internal/provider/codexapp/session_turn.go:38-50`、`internal/provider/codexapp/session_turn.go:77-94` |
 | 翻译 | `event_map.go` | Codex raw event -> agent/turn/tool DTO | `internal/provider/codexapp/event_map.go:20-24`、`internal/provider/codexapp/event_map.go:44-66`、`internal/provider/codexapp/event_map.go:114-146`、`internal/provider/codexapp/event_map.go:148-302` |
-| 技能 | `skill_inject.go` | Codex skill port：不探测 native skills，只声明 token 预算 | `internal/provider/codexapp/skill_inject.go:11-38` |
+| 技能 | `skill_inject.go` | Codex skill injection port：不探测 native skills，只声明 token 预算 | `internal/provider/codexapp/skill_inject.go:11-40` |
 
 ### 11.2 关键类型
 
 - `DriverFactory`：自身既是 fx 单例，又包装出 `contract.DriverFactory{Name:"codex", Create:...}`；dynamic tools 的 provider 通过 `SetListTools()` 注入。锚点：`internal/provider/codexapp/driver.go:23-31`、`internal/provider/codexapp/driver.go:91-121`。
-- `ServerManager`：共享 `codex app-server` 的 owner；session 只借它的 `ServerURL()`，不会共享 WS。锚点：`internal/provider/codexapp/module.go:49-65`、`internal/provider/codexapp/module.go:88-109`。
+- Provider 不直接依赖胖 `skill.Service`：Codex 只接收 `toolbridge` 注入的 list/call handler；host-direct `skill_expand_body` / `skill_read_resource` 在 `platform/toolbridge.provideHostToolRegistry(skill.SkillHostToolReader)` 装配，并经同一个 dynamic tools 通道暴露。锚点：`internal/platform/toolbridge/module.go:81-90`、`internal/platform/toolbridge/module.go:217-222`、`internal/module/skill/contract.go:169-177`。
+- `ServerManager`：共享 `codex app-server` 的 owner；session 只借它的 `ServerURL()`，不会共享 WS。锚点：`internal/provider/codexapp/module.go:64-79`、`internal/provider/codexapp/module.go:140-175`。
 - `session`：比 Claude 更像 RPC client runtime，内部有 `transport / recovery / approvals / readLoop / runtimeConfig / turns / pendingTurn`。锚点：`internal/provider/codexapp/session.go:22-50`。
 - `threadStartParams / threadResumeParams`：是 start/resume JSON-RPC 的精确 schema，也是 prompt parity 的 Codex 物化面。锚点：`internal/provider/codexapp/driver.go:64-89`。
 - `recoveryManager`：只有 `CheckHealth()` 和 `Reconnect()`，真正恢复编排仍在 `session.attemptRecovery()`。锚点：`internal/provider/codexapp/recovery.go:18-23`、`internal/provider/codexapp/recovery.go:37-61`。
@@ -482,17 +483,17 @@ sequenceDiagram
 
 #### 11.3.1 `StartSession`
 
-1. `newSession()` 建立 transport，优先用 `CODEX_APP_SERVER_URL`，否则在 `manager.Running()` 时复用 shared server URL，再不行才本地 `spawnLocal()`。锚点：`internal/provider/codexapp/driver.go:132-153`、`internal/provider/codexapp/session.go:72-80`、`internal/provider/codexapp/transport.go:39-53`。
-2. `startAssemblyInstructions()` 从 `StartAssembly.BaseInstructions / Snapshot.BaseInstructions / req.Instructions` 和 developer instructions 里做优先级合并。锚点：`internal/provider/codexapp/driver.go:225-237`。
-3. `setRuntimeConfig()` + `setApprovalPolicy()` 先把本地 runtimeConfig 填好，再进入 dynamic tool 启动链。锚点：`internal/provider/codexapp/driver.go:162-171`、`internal/provider/codexapp/session.go:136-167`。
-4. `startDynamicSession()` 调 `listTools()` 拿动态工具 schema，写入 `threadStartParams.DynamicTools` 后发 `thread/start`。锚点：`internal/provider/codexapp/support.go:263-337`。
+1. `resolveSessionOptions()` 先决定 pool / legacy shared server 路由，`StartSession()` 再调用 `newSessionWithOptions()` 建 transport。锚点：`internal/provider/codexapp/driver_pool_routing.go:38-77`、`internal/provider/codexapp/driver.go:162-189`、`internal/provider/codexapp/session.go:92-105`、`internal/provider/codexapp/transport.go:39-53`。
+2. `startAssemblyInstructions()` 从 `StartAssembly.BaseInstructions / Snapshot.BaseInstructions / req.Instructions` 和 developer instructions 里做优先级合并。锚点：`internal/provider/codexapp/driver.go:259-271`。
+3. `setRuntimeConfig()` + `setApprovalPolicy()` 先把本地 runtimeConfig 填好，再进入 dynamic tool 启动链。锚点：`internal/provider/codexapp/driver.go:162-189`、`internal/provider/codexapp/session.go:136-167`。
+4. `startDynamicSession()` 调 `listTools()` 拿动态工具 schema，写入 `threadStartParams.DynamicTools` 后发 `thread/start`。锚点：`internal/provider/codexapp/support.go:365-420`。
 
 #### 11.3.2 `ResumeSession`
 
-1. 先 `newSession()` 重建 WS client。锚点：`internal/provider/codexapp/driver.go:174-178`。
-2. 再 `resumeRemoteThread()` 发 `thread/resume`；`resumeID` 优先 `ProviderThreadID`，退化才用 `ThreadID`。锚点：`internal/provider/codexapp/driver.go:214-223`。
-3. `buildThreadResumeParams()` 只携带 `cwd/model/baseInstructions/developerInstructions/effort`，approval policy 通过恢复配置另行回补。锚点：`internal/provider/codexapp/driver.go:244-253`。
-4. `restoreApprovalPolicy()` 尝试 `thread/config/get`；失败则回退本地 approvalPolicy。锚点：`internal/provider/codexapp/support.go:339-367`。
+1. 先 `resolveResumeOptions()` + `newSessionWithOptions()` 重建 WS client。锚点：`internal/provider/codexapp/driver_pool_routing.go:79-113`、`internal/provider/codexapp/driver.go:192-197`。
+2. 再 `resumeRemoteThread()` 发 `thread/resume`；`resumeID` 优先 `ProviderThreadID`，退化才用 `ThreadID`。锚点：`internal/provider/codexapp/driver.go:208-225`。
+3. `buildThreadResumeParams()` 只携带 `cwd/model/baseInstructions/developerInstructions/effort`，approval policy 通过恢复配置另行回补。锚点：`internal/provider/codexapp/driver.go:278-287`。
+4. `restoreApprovalPolicy()` 尝试 `thread/config/get`；失败则回退本地 approvalPolicy。锚点：`internal/provider/codexapp/support.go:422-449`。
 
 #### 11.3.3 `attemptRecovery()` 明确是完整恢复，不是轻量重连
 
@@ -518,10 +519,10 @@ sequenceDiagram
 
 ### 11.5 Codex 启动参数与 turn 输入：prompt parity 的真实落点
 
-- `buildThreadStartParams()` 才是 Codex session-start prompt carrier：`cwd/model/modelProvider/baseInstructions/developerInstructions/approvalPolicy/personality/summary/effort/sandbox` 全在这里。锚点：`internal/provider/codexapp/support.go:247-261`。
-- `startRemoteThreadWithDynamicTools()` 明确说明：dynamic tools 已由 app-server 暴露给模型，**不再把工具目录重复塞进 `developerInstructions`**。锚点：`internal/provider/codexapp/support.go:305-312`。
+- `buildThreadStartParams()` 才是 Codex session-start prompt carrier：`cwd/model/modelProvider/baseInstructions/developerInstructions/approvalPolicy/personality/summary/effort/sandbox` 全在这里。锚点：`internal/provider/codexapp/support.go:307-320`。
+- `startRemoteThreadWithDynamicTools()` 明确说明：dynamic tools 已由 app-server 暴露给模型，**不再把工具目录重复塞进 `developerInstructions`**。锚点：`internal/provider/codexapp/support.go:365-370`。
 - `session_turn.go` 里也注明：per-turn 的 system-reminder / SystemContext 已迁到 `thread/start` 的 `baseInstructions`。锚点：`internal/provider/codexapp/session_turn.go:77-94`。
-- `buildSkillPromptInput()` 是 Codex 技能注入正文的唯一入口；Codex 没有 Claude 那样的 native skill 避让逻辑。锚点：`internal/provider/codexapp/module.go:237-248`、`internal/provider/codexapp/skill_inject.go:11-33`。
+- `buildSkillPromptInput()` 是 Codex prompt 侧技能注入正文的唯一入口；它只渲染 provider turn input，不是 host-direct tool 读取口，也不要求 provider 持有胖 `skill.Service`。锚点：`internal/provider/codexapp/module.go:292-346`、`internal/provider/codexapp/skill_inject.go:11-40`。
 
 ### 11.6 Codex event map 与 transport 细节
 
@@ -536,10 +537,10 @@ sequenceDiagram
 
 ### 11.7 Codex 文档/代码不符项
 
-1. **没有 `thread/config/set` RPC**：model/effort 只写本地 runtimeConfig，并在下一次 `turn/start` 带出去。锚点：`internal/provider/codexapp/support.go:121-132`、`internal/provider/codexapp/session.go:175-183`。
+1. **没有 `thread/config/set` RPC**：model/effort 只写本地 runtimeConfig，并在下一次 `turn/start` 带出去。锚点：`internal/provider/codexapp/support.go:124-132`、`internal/provider/codexapp/session.go:175-183`。
 2. **approval 不是普通 raw event 流的一部分**：只要 `approvals != nil`，approval bridge method 默认不会进入 `dispatch(raw)`。锚点：`internal/provider/codexapp/session_approval.go:234-239`。
-3. **dynamic tools 不回填 developerInstructions**：这不是遗漏，而是显式节省上下文窗口的设计。锚点：`internal/provider/codexapp/support.go:305-312`。
-4. **resume 后 approval policy 要二次恢复**：`thread/resume` 的 params 不携带完整 config，需要 `restoreApprovalPolicy()` 再读一次 `thread/config/get`。锚点：`internal/provider/codexapp/driver.go:174-198`、`internal/provider/codexapp/support.go:339-367`。
+3. **dynamic tools 不回填 developerInstructions**：这不是遗漏，而是显式节省上下文窗口的设计。锚点：`internal/provider/codexapp/support.go:365-370`。
+4. **resume 后 approval policy 要二次恢复**：`thread/resume` 的 params 不携带完整 config，需要 `restoreApprovalPolicy()` 再读一次 `thread/config/get`。锚点：`internal/provider/codexapp/driver.go:192-227`、`internal/provider/codexapp/support.go:422-449`。
 
 ---
 
@@ -605,7 +606,7 @@ sequenceDiagram
 
 - 这个包不是 provider runtime 的一部分，而是“启动协议真值”回归层。锚点：`internal/provider/e2e/doc.go:1-9`。
 - Claude e2e 关心 manifest 文件内容，不关心真实 CLI 执行。锚点：`internal/provider/e2e/claude_mcp_test.go:32-97`。
-- Codex e2e 通过 mock RPC server 观察 `thread/start` 参数，验证 dynamic tools、approvalPolicy、prompt instructions、sandbox 等是否在 JSON-RPC 请求里出现。锚点：`internal/provider/e2e/codex_mcp_test.go:20-71`、`internal/provider/codexapp/support.go:247-337`。
+- Codex e2e 通过 mock RPC server 观察 `thread/start` 参数，验证 dynamic tools、approvalPolicy、prompt instructions、sandbox 等是否在 JSON-RPC 请求里出现。锚点：`internal/provider/e2e/codex_mcp_test.go:20-71`、`internal/provider/codexapp/support.go:307-420`。
 
 ---
 
@@ -625,7 +626,7 @@ sequenceDiagram
 | `StartTurn` | `session.go + session_turn.go` | `session.go + session_turn.go` | Claude 直接发 CLI stream-json；Codex 发 `turn/start` RPC。锚点：`internal/contract/provider.go:24`、`internal/provider/claudecli/session.go:170-207`、`internal/provider/codexapp/session.go:170-205` |
 | `Interrupt` | 本地摘 active turn + `SIGINT/KILL` transport | 发 `turn/interrupt` RPC | Claude 是进程级中断，Codex 是协议级中断。锚点：`internal/provider/claudecli/session.go:228-278`、`internal/provider/codexapp/session.go:220-230` |
 | `ForceComplete` | `SIGINT` 后本地补 `turn:complete` | `turn/forceComplete` 后本地补 `turn/completed` | 两侧都用 suppress 防止真实终态重复。锚点：`internal/provider/claudecli/session_config.go:170-197`、`internal/provider/codexapp/session.go:233-243`、`internal/provider/codexapp/session.go:368-385` |
-| `Configure` | 仅 staged `model/effort`，靠 restart 生效 | `model/effort` 只写 runtimeConfig；personality/approvals 走 slash RPC | 这正是两侧 runtime config 模式差异。锚点：`internal/provider/claudecli/session_config.go:17-34`、`internal/provider/codexapp/support.go:106-164` |
+| `Configure` | 仅 staged `model/effort`，靠 restart 生效 | `model/effort` 只写 runtimeConfig；personality/approvals 走 slash RPC | 这正是两侧 runtime config 模式差异。锚点：`internal/provider/claudecli/session_config.go:17-34`、`internal/provider/codexapp/support.go:109-162` |
 
 ### 13.3 event 映射补总表
 
@@ -640,16 +641,16 @@ sequenceDiagram
 
 ### 13.4 `buildThreadStartParams()` 是 Codex 的 prompt / config 装配关键点
 
-- `buildThreadStartParams(req)` 把 `StartAssembly` 与 runtime config 真正压成 `thread/start` 参数；这是 Codex 启动口的“config 汇流点”。锚点：`internal/provider/codexapp/support.go:247-261`。
-- `DeveloperInstructions` 来源不是 dynamic tools 目录拼接，而是 `startAssemblyInstructions(req)` 的优先级合并结果。锚点：`internal/provider/codexapp/driver.go:225-237`、`internal/provider/codexapp/support.go:247-255`。
-- 这也解释了“Codex 不把 dynamic tools 塞回 developerInstructions”：工具 schema 已在 `DynamicTools` 字段里。锚点：`internal/provider/codexapp/support.go:305-312`。
+- `buildThreadStartParams(req)` 把 `StartAssembly` 与 runtime config 真正压成 `thread/start` 参数；这是 Codex 启动口的“config 汇流点”。锚点：`internal/provider/codexapp/support.go:307-320`。
+- `DeveloperInstructions` 来源不是 dynamic tools 目录拼接，而是 `startAssemblyInstructions(req)` 的优先级合并结果。锚点：`internal/provider/codexapp/driver.go:259-271`、`internal/provider/codexapp/support.go:307-318`。
+- 这也解释了“Codex 不把 dynamic tools 塞回 developerInstructions”：工具 schema 已在 `DynamicTools` 字段里。锚点：`internal/provider/codexapp/support.go:365-370`。
 
 ### 13.5 P18.3 / P18.4 memory parity 当前落点
 
 | carrier | thread 层来源 | Claude 落点 | Codex 落点 | 当前缺口 |
 |---|---|---|---|---|
-| `BaseInstructions` | `resolveStartPromptAssembly()` / `toProviderStartAssembly()` | `--system-prompt` base block | `thread/start.baseInstructions` | 已通。锚点：`internal/module/thread/start_session_helpers.go:96-103`、`internal/provider/claudecli/transport_config.go:157-162`、`internal/provider/codexapp/support.go:247-254` |
-| `DeveloperInstructions` | 同上 | `--system-prompt` developer block | `thread/start.developerInstructions` | 已通。锚点：`internal/module/thread/start_session_helpers.go:96-103`、`internal/provider/claudecli/transport_config.go:139-155`、`internal/provider/codexapp/driver.go:225-237` |
+| `BaseInstructions` | `resolveStartPromptAssembly()` / `toProviderStartAssembly()` | `--system-prompt` base block | `thread/start.baseInstructions` | 已通。锚点：`internal/module/thread/start_session_helpers.go:96-103`、`internal/provider/claudecli/transport_config.go:157-162`、`internal/provider/codexapp/support.go:307-314` |
+| `DeveloperInstructions` | 同上 | `--system-prompt` developer block | `thread/start.developerInstructions` | 已通。锚点：`internal/module/thread/start_session_helpers.go:96-103`、`internal/provider/claudecli/transport_config.go:139-155`、`internal/provider/codexapp/driver.go:259-271` |
 | `PromptSnapshot.Provider/Version/Hash/Generation` | `toProviderPromptSnapshot()` | Claude session snapshot/config | Codex resume/start runtimeConfig | 已通。锚点：`internal/module/thread/start_session_helpers.go:106-116` |
 | `Boundary` | DTO schema 已有 | Claude adapter 可拆成 repeated `--system-prompt` block | Codex schema 未显式使用 boundary block | **thread helper 未透传**。锚点：`internal/dto/provider/session.go:21-35`、`internal/provider/claudecli/transport_config.go:157-162`、`internal/module/thread/start_session_helpers.go:106-116` |
 | `SectionSnapshot` | DTO schema 已有 | Claude adapter 可读 snapshot | Codex 当前未消费 | **thread helper 未透传**。锚点：`internal/dto/provider/session.go:34`、`internal/module/thread/start_session_helpers.go:106-116` |
@@ -659,8 +660,8 @@ sequenceDiagram
 
 1. Claude CLI 参数层真实带 `--model`，旧文误写“无模型 flag”。锚点：`internal/provider/claudecli/transport_config.go:102-113`。
 2. Claude `--system-prompt` 元数据只拼 `summary/personality`，approval/sandbox/effort 均独立传递。锚点：`internal/provider/claudecli/transport_config.go:109-118`、`internal/provider/claudecli/transport_config.go:139-155`。
-3. Codex dynamic tools 不回填 `developerInstructions`。锚点：`internal/provider/codexapp/support.go:305-312`。
-4. Codex 不存在 `thread/config/set` RPC。锚点：`internal/provider/codexapp/support.go:121-132`。
+3. Codex dynamic tools 不回填 `developerInstructions`。锚点：`internal/provider/codexapp/support.go:365-370`。
+4. Codex 不存在 `thread/config/set` RPC。锚点：`internal/provider/codexapp/support.go:124-132`。
 5. `Boundary/SectionSnapshot` schema 虽在 provider DTO 中，但 `thread/start_session_helpers.go` 当前未透传。锚点：`internal/dto/provider/session.go:29`、`internal/dto/provider/session.go:34`、`internal/module/thread/start_session_helpers.go:106-116`。
 
 ---
@@ -671,9 +672,9 @@ sequenceDiagram
 
 | 场景 | 触发 | 三步 | 锚点 | 验证 |
 |---|---|---|---|---|
-| `driver` | 引入新 backend | 1) 提供 `NewDriverFactory` + `Module`；2) 以 `group:"drivers"` 注册；3) 视需要接入 reporter / pid / skill / dream executor | `internal/provider/claudecli/module.go:14-31`、`internal/provider/codexapp/module.go:24-36`、`internal/provider/unified/registry.go:15-25` | `registry.Resolve(newProvider)` 可命中；`StartSession` 冒烟 |
+| `driver` | 引入新 backend | 1) 提供 `NewDriverFactory` + `Module`；2) 以 `group:"drivers"` 注册；3) 视需要接入 reporter / pid / skill injection port / dream executor；host-direct skill tools 归 `platform/toolbridge` 窄端口装配 | `internal/provider/claudecli/module.go:14-31`、`internal/provider/codexapp/module.go:23-45`、`internal/provider/unified/registry.go:15-25` | `registry.Resolve(newProvider)` 可命中；`StartSession` 冒烟 |
 | `raw event` | provider 有新 raw event 需要进 bus/UI | 1) provider 自己写 translator；2) `RegisterTranslators()` 注入 `EventDispatcher`；3) 如需公共 UI token 则先调 `PublishUITokensUpdated()` | `internal/provider/unified/event_map.go:91-124`、`internal/provider/claudecli/event_map.go:18-42`、`internal/provider/codexapp/event_map.go:20-66` | `event_map_test.go` / bus typed event 断言 |
-| `start/resume` | 新增 provider config/snapshot/carrier | 1) 先扩 `dto.StartSessionRequest/ResumeSessionRequest`；2) thread 层 `buildStartSessionConfig()/toProviderPromptSnapshot()` 透传；3) provider `StartSession/ResumeSession` 真正消费 | `internal/dto/provider/session.go:55-84`、`internal/module/thread/start_session_helpers.go:134-180`、`internal/provider/claudecli/driver.go:106-158`、`internal/provider/codexapp/driver.go:157-198` | `driver_session_test.go` / `resume` 冒烟 / grep 三层字段 |
+| `start/resume` | 新增 provider config/snapshot/carrier | 1) 先扩 `dto.StartSessionRequest/ResumeSessionRequest`；2) thread 层 `buildStartSessionConfig()/toProviderPromptSnapshot()` 透传；3) provider `StartSession/ResumeSession` 真正消费 | `internal/dto/provider/session.go:55-84`、`internal/module/thread/start_session_helpers.go:134-180`、`internal/provider/claudecli/driver.go:106-158`、`internal/provider/codexapp/driver.go:162-227` | `driver_session_test.go` / `resume` 冒烟 / grep 三层字段 |
 
 ### 14.2 测试入口 + freeze 表（6 子包）
 
