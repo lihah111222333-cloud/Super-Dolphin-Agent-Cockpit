@@ -14,10 +14,11 @@ import (
 )
 
 type fakeTaskDAGDB struct {
-	mu      sync.Mutex
-	now     time.Time
-	wakeups map[int64]sqlc.TaskDagWakeup
-	nodes   map[string]sqlc.TaskDagNode
+	mu        sync.Mutex
+	now       time.Time
+	wakeups   map[int64]sqlc.TaskDagWakeup
+	nodes     map[string]sqlc.TaskDagNode
+	wakeupSeq int64
 }
 
 func newFakeTaskDAGDB(now time.Time) *fakeTaskDAGDB {
@@ -45,6 +46,8 @@ func (db *fakeTaskDAGDB) Exec(_ context.Context, sql string, args ...any) (pgcon
 		return updateTag(db.failWakeup(args...))
 	case strings.Contains(sql, "ReclaimStaleDispatchingTaskDagWakeups"):
 		return updateTag(db.reclaimStaleWakeups())
+	case strings.Contains(sql, "EnqueueTaskDagWakeup"):
+		return updateTag(db.enqueueWakeup(args...))
 	default:
 		return pgconn.CommandTag{}, fmt.Errorf("unexpected Exec call: %s", firstLine(sql))
 	}
@@ -54,14 +57,22 @@ func (db *fakeTaskDAGDB) Query(_ context.Context, sql string, args ...any) (pgx.
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
-	if !strings.Contains(sql, "ClaimDueTaskDagWakeups") {
+	switch {
+	case strings.Contains(sql, "ClaimDueTaskDagWakeups"):
+		rows, err := db.claimDueWakeups(args...)
+		if err != nil {
+			return nil, err
+		}
+		return &stubTaskDAGRows{rows: rows}, nil
+	case strings.Contains(sql, "ListTaskDagNodes"):
+		rows, err := db.listTaskDagNodes(args...)
+		if err != nil {
+			return nil, err
+		}
+		return &stubTaskDAGRows{rows: rows}, nil
+	default:
 		return nil, fmt.Errorf("unexpected Query call: %s", firstLine(sql))
 	}
-	rows, err := db.claimDueWakeups(args...)
-	if err != nil {
-		return nil, err
-	}
-	return &stubTaskDAGRows{rows: rows}, nil
 }
 
 func (db *fakeTaskDAGDB) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {
@@ -350,6 +361,87 @@ func (db *fakeTaskDAGDB) completeNode(args ...any) ([]any, error) {
 	row.UpdatedAt = timestamptzValue(db.now)
 	db.nodes[key] = row
 	return taskDagNodeValues(row), nil
+}
+
+func (db *fakeTaskDAGDB) enqueueWakeup(args ...any) (int64, error) {
+	if len(args) != 6 {
+		return 0, fmt.Errorf("enqueue args len = %d, want 6", len(args))
+	}
+	dagKey, ok := args[0].(string)
+	if !ok {
+		return 0, fmt.Errorf("dag key arg = %T", args[0])
+	}
+	nodeKey, ok := args[1].(string)
+	if !ok {
+		return 0, fmt.Errorf("node key arg = %T", args[1])
+	}
+	wakeupKind, ok := args[2].(string)
+	if !ok {
+		return 0, fmt.Errorf("wakeup_kind arg = %T", args[2])
+	}
+	targetAgentID, ok := args[3].(string)
+	if !ok {
+		return 0, fmt.Errorf("target_agent_id arg = %T", args[3])
+	}
+	payload, ok := args[4].([]byte)
+	if !ok {
+		return 0, fmt.Errorf("payload arg = %T", args[4])
+	}
+	idempotencyKey, ok := args[5].(string)
+	if !ok {
+		return 0, fmt.Errorf("idempotency_key arg = %T", args[5])
+	}
+	// Simulate `ON CONFLICT (idempotency_key) DO NOTHING` by scanning existing rows.
+	for _, existing := range db.wakeups {
+		if existing.IdempotencyKey == idempotencyKey {
+			return 0, nil
+		}
+	}
+	db.wakeupSeq++
+	id := db.wakeupSeq
+	db.wakeups[id] = sqlc.TaskDagWakeup{
+		ID:             id,
+		DagKey:         dagKey,
+		NodeKey:        nodeKey,
+		WakeupKind:     wakeupKind,
+		TargetAgentID:  targetAgentID,
+		PromptPayload:  append([]byte(nil), payload...),
+		IdempotencyKey: idempotencyKey,
+		Status:         "pending",
+		NextRetryAt:    timestamptzValue(db.now),
+		CreatedAt:      timestamptzValue(db.now),
+		UpdatedAt:      timestamptzValue(db.now),
+	}
+	return 1, nil
+}
+
+func (db *fakeTaskDAGDB) listTaskDagNodes(args ...any) ([][]any, error) {
+	if len(args) != 1 {
+		return nil, fmt.Errorf("list nodes args len = %d, want 1", len(args))
+	}
+	dagKey, ok := args[0].(string)
+	if !ok {
+		return nil, fmt.Errorf("dag key arg = %T", args[0])
+	}
+	keys := make([]string, 0, len(db.nodes))
+	for k, row := range db.nodes {
+		if row.DagKey != dagKey {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		left, right := db.nodes[keys[i]], db.nodes[keys[j]]
+		if !left.CreatedAt.Time.Equal(right.CreatedAt.Time) {
+			return left.CreatedAt.Time.Before(right.CreatedAt.Time)
+		}
+		return left.ID < right.ID
+	})
+	rows := make([][]any, 0, len(keys))
+	for _, k := range keys {
+		rows = append(rows, taskDagNodeValues(db.nodes[k]))
+	}
+	return rows, nil
 }
 
 func matchesClaimFence(row sqlc.TaskDagWakeup, claimedAt sqlc.Timestamptz, claimedBy string, leaseExpiresAt sqlc.Timestamptz, now time.Time) bool {

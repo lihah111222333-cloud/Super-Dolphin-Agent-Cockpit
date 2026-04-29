@@ -22,6 +22,7 @@ type Store interface {
 	UpdateRunningNodeStatus(ctx context.Context, input RunningNodeStatusUpdate) (*Node, error)
 	UpdateAwaitingVerifyNodeStatus(ctx context.Context, input AwaitingVerifyNodeStatusUpdate) (*Node, error)
 	CompleteNode(ctx context.Context, input CompleteNodeInput) (*Node, error)
+	CompleteNodeAndScheduleDownstream(ctx context.Context, input CompleteNodeInput) (*CompleteNodeWithDownstreamResult, error)
 	UpdateNodeStatusFlexible(ctx context.Context, input FlexibleNodeStatusUpdate) (*Node, error)
 	EnqueueWakeup(ctx context.Context, input EnqueueWakeupInput) (int64, error)
 	ClaimDueWakeups(ctx context.Context, input ClaimDueWakeupsInput) ([]Wakeup, error)
@@ -85,6 +86,42 @@ type CompleteNodeInput struct {
 	Result  json.RawMessage
 	DagKey  string
 	NodeKey string
+}
+
+// CompleteNodeWithDownstreamResult is returned by
+// CompleteNodeAndScheduleDownstream. Node is the freshly completed node row;
+// ScheduledDownstream lists every downstream node for which a wakeup row was
+// inserted (i.e. ON CONFLICT-skipped duplicates are excluded so callers can
+// rely on the slice length reflecting newly-inserted rows only).
+type CompleteNodeWithDownstreamResult struct {
+	Node                *Node
+	ScheduledDownstream []ScheduledDownstreamWakeup
+}
+
+// ScheduledDownstreamWakeup describes a wakeup row enqueued as the side-effect
+// of completing an upstream node.
+type ScheduledDownstreamWakeup struct {
+	DagKey         string
+	NodeKey        string
+	TargetAgentID  string
+	IdempotencyKey string
+}
+
+// DownstreamWakeupPayload is the JSON shape written into
+// task_dag_wakeups.prompt_payload by CompleteNodeAndScheduleDownstream. Phase
+// 3.4 only populates AgentID + UpstreamOutputs; Phase 3.9 will fill in the
+// dispatcher-side prompt-rewriting that consumes UpstreamOutputs.
+type DownstreamWakeupPayload struct {
+	AgentID         string                  `json:"agent_id,omitempty"`
+	UpstreamOutputs []DownstreamUpstreamRef `json:"upstream_outputs,omitempty"`
+}
+
+// DownstreamUpstreamRef points the downstream node at the producing upstream
+// node's output artifact path. Path follows plan §3.4 convention
+// `dag/<dagKey>/<prevKey>/output.json`.
+type DownstreamUpstreamRef struct {
+	NodeKey string `json:"node_key"`
+	Path    string `json:"path"`
 }
 
 type FlexibleNodeStatusUpdate struct {
