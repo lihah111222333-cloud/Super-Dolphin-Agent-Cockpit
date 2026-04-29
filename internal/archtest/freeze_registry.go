@@ -20,7 +20,7 @@ var explicitFreezeRegistry = []explicitFreeze{
 	{
 		Path:       "internal/provider/codexapp",
 		Kind:       ViolationPackageCount,
-		Limit:      32,
+		Limit:      31,
 		Reason:     "P25 skill progressive-disclosure keeps codexapp adapter split across driver/session/recovery/dynamic-tool tests until Phase 3 policy consolidation; +2 for buildSkillManifest L1-C renderer (P3 Task 4)",
 		Owner:      "P25 skill rollout",
 		RemoveWhen: "Phase 3 provider default policy removes temporary override/evidence scaffolding or codexapp package is split below default package file budget",
