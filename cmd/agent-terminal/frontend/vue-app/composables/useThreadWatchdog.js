@@ -17,6 +17,8 @@
 
 import { ref } from '../../lib/vue.esm-browser.prod.js';
 import { logInfo } from '../services/log.js';
+import { createThreadWatchdogGate } from './thread-watchdog-gating.js';
+import { useThreadWatchdogPref } from './useThreadWatchdogPref.js';
 
 const WORKING_STATUS_SET = new Set(['thinking', 'responding', 'running', 'editing', 'syncing']);
 const SCAN_INTERVAL_MS = 60_000;
@@ -44,6 +46,17 @@ export function useThreadWatchdog(opts = {}) {
   let scanIntervalMs = SCAN_INTERVAL_MS;
   let stallThresholdMs = STALL_THRESHOLD_MS;
 
+  // 1.7c：watchdog 自身的节流闸门（per-thread 60s/1 + 全局 5min/10）
+  const gate = createThreadWatchdogGate({
+    onFuseRecovered: ({ globalCount, windowMs, windowMax }) => {
+      logInfo('ui', 'thread_watchdog.fuse_recovered', {
+        global_count: globalCount, window_ms: windowMs, window_max: windowMax,
+      });
+    },
+  });
+  // 1.7c：偏好 ref（模块单例，直接读 .value）。允许 opts 注入便于单测。
+  const prefRef = opts.prefRef || useThreadWatchdogPref();
+
   function pokeTaskThread(tid, taskId, elapsed) {
     logInfo('ui', 'thread_watchdog.poke.task_auto', {
       thread_id: tid, task_id: taskId, stall_ms: elapsed,
@@ -63,6 +76,18 @@ export function useThreadWatchdog(opts = {}) {
     const elapsed = ts - lastTs;
     if (elapsed <= stallThresholdMs) return;
     threadStore.state.lastEventTsByThread[tid] = ts;
+    if (!prefRef.value) {
+      logInfo('ui', 'thread_watchdog.skipped_by_pref', { thread_id: tid });
+      return;
+    }
+    const gateResult = gate.check({ threadId: tid });
+    if (!gateResult.allow) {
+      logInfo('ui', 'thread_watchdog.skipped_by_gate', {
+        thread_id: tid, reason: gateResult.reason, fuse_blown: Boolean(gateResult.fuseBlown),
+      });
+      return;
+    }
+    gate.recordPoke({ threadId: tid });
     const runtime = (threadStore.state.agentRuntimeById || {})[tid] || {};
     const taskId = (runtime.taskId || '').toString().trim();
     if (taskId) pokeTaskThread(tid, taskId, elapsed);

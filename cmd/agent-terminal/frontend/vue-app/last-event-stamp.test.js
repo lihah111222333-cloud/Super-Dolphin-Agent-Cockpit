@@ -60,3 +60,16 @@ describe('Phase 1.7a · lastEventTsByThread 戳点', () => {
     expect(Object.keys(store.state.lastEventTsByThread)).toEqual([]);
   });
 });
+
+describe('Phase 1.7c · 戳点尊重 watchdog 偏好', () => {
+  it('偏好默认 true 时戳点照常写（默认 pref ready=true 后）', async () => {
+    // 默认 mockResolvedValue 是 undefined → 不是 boolean → 保持默认 true。
+    // 给点时间让 lazy load 完成（模块单例首次调用懒触发）。
+    store.handleBridgeEvent({
+      method: 'item/agentMessage/delta',
+      payload: { threadId: 'thread-pref-on' },
+    });
+    // 默认偏好 true，应写戳。
+    expect(typeof store.state.lastEventTsByThread['thread-pref-on']).toBe('number');
+  });
+});
