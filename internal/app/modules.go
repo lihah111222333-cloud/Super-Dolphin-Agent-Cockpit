@@ -8,6 +8,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/cron"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/dashboard"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/fbsd"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/feedback"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/insight"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory"
@@ -61,6 +62,7 @@ var Module = fx.Options(
 	skillforge.Module,
 	skilllibrary.Module,
 	nativefilter.Module,
+	fbsd.Module,
 	fx.Provide(provideSkillLibraryConfig),
 	thread.Module,
 	turn.Module,
