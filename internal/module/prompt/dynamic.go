@@ -25,7 +25,6 @@ const (
 	DynamicSectionNumericLengthAnchors = contract.DynamicSectionNumericLengthAnchors
 	DynamicSectionTokenBudget          = contract.DynamicSectionTokenBudget
 	DynamicSectionBrief                = contract.DynamicSectionBrief
-	DynamicSectionSkillCatalog         = contract.DynamicSectionSkillCatalog
 )
 
 type DynamicSectionProvider = contract.DynamicSectionProvider

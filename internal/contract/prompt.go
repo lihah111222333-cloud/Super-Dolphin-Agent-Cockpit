@@ -110,9 +110,6 @@ const (
 	DynamicSectionNumericLengthAnchors = "numeric_length_anchors"
 	DynamicSectionTokenBudget          = "token_budget"
 	DynamicSectionBrief                = "brief"
-	// DynamicSectionSkillCatalog P20.1 Phase 8：L1 skill manifest 清单，按 trust
-	// 分组渲染（Core / Redacted / Native / Manual-only），符合 §3.3 安全投影原则。
-	DynamicSectionSkillCatalog = "skill_catalog"
 )
 
 // PromptAssemblySnapshotVersion bumps on cache-layout-breaking changes.
