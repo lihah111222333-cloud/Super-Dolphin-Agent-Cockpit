@@ -287,6 +287,75 @@ func loggerOrDefault(logger *slog.Logger) *slog.Logger {
 	return pkglogger.Get()
 }
 
+// RegisterWakeupDispatcherIn lets fx inject taskdag.Store as an optional
+// dependency. Tests that do not bring up the taskdag module skip the
+// dispatcher entirely; production wiring (cmd/mcp-orch/fx.go) always
+// includes taskdagstore.Module so the dispatcher runs.
+type RegisterWakeupDispatcherIn struct {
+	fx.In
+
+	Lifecycle fx.Lifecycle
+	Store     taskdag.Store `optional:"true"`
+	Service   *service
+	Logger    *slog.Logger `optional:"true"`
+}
+
+// RegisterWakeupDispatcher (Phase 3.2) starts the wakeup dispatcher main
+// loop on app start and stops it on app stop. The dispatcher claims due
+// wakeups via taskdag.Store, hands each off to *service.LaunchAgent, and
+// drives state transitions (MarkWakeupSent / RetryWakeup / FailWakeup).
+//
+// Wired with fx.Invoke from cmd/mcp-orch/fx.go so the orchestration module
+// can compose it. taskdag.Store is optional: when missing the dispatcher
+// is skipped (for tests that don't bring up the dag store).
+func RegisterWakeupDispatcher(in RegisterWakeupDispatcherIn) error {
+	logger := in.Logger
+	if logger == nil {
+		logger = pkglogger.Get()
+	}
+	if in.Store == nil {
+		logger.Info("orchestration: wakeup dispatcher disabled (no taskdag store provided)")
+		return nil
+	}
+	dispatcher, err := NewWakeupDispatcher(in.Store, in.Service, logger, WakeupDispatcherConfig{})
+	if err != nil {
+		return err
+	}
+	var (
+		cancel context.CancelFunc
+		done   = make(chan struct{})
+	)
+	in.Lifecycle.Append(fx.Hook{
+		OnStart: func(context.Context) error {
+			var runCtx context.Context
+			runCtx, cancel = context.WithCancel(context.Background())
+			go func() {
+				defer close(done)
+				if runErr := dispatcher.Run(runCtx); runErr != nil && !errors.Is(runErr, context.Canceled) {
+					logger.Warn("orchestration: wakeup dispatcher exited",
+						"claimed_by", dispatcher.ClaimedBy(),
+						"error", runErr)
+				}
+			}()
+			return nil
+		},
+		OnStop: func(stopCtx context.Context) error {
+			if cancel != nil {
+				cancel()
+			}
+			select {
+			case <-done:
+			case <-stopCtx.Done():
+				logger.Warn("orchestration: wakeup dispatcher stop timeout",
+					"claimed_by", dispatcher.ClaimedBy(),
+					"error", stopCtx.Err())
+			}
+			return nil
+		},
+	})
+	return nil
+}
+
 func withEventTime(ctx context.Context, timestamp time.Time) context.Context {
 	return platformshared.WithEventTime(ctx, timestamp)
 }

@@ -26,6 +26,7 @@ func TestParentFxStartup(t *testing.T) {
 		),
 		fx.Invoke(orchestration.RegisterTurnLifecycle),
 		fx.Invoke(orchestration.RegisterApprovalLifecycle),
+		fx.Invoke(orchestration.RegisterWakeupDispatcher),
 	)
 	app := fx.New(fx.NopLogger, orchAssembly, fx.Supply(slog.New(slog.NewTextHandler(io.Discard, nil))), fx.Supply(event.NewDispatcher()), fx.Provide(newNoopSessionCleaner, newNoopTurnStarter, func(lc fx.Lifecycle, turnStarter orchestration.TurnStarter, logger *slog.Logger) orchestration.AgentLauncher {
 		return orchestration.NewLocalLauncher(turnStarter, logger)
