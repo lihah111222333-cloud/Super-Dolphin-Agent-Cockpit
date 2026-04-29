@@ -73,6 +73,100 @@ func TestBuildProcessTree(t *testing.T) {
 	}
 }
 
+func TestBuildProcessAncestry(t *testing.T) {
+	allProcs := map[int]int{
+		10:  1,
+		100: 10,
+		101: 100,
+		20:  1,
+		300: 300,
+	}
+
+	ancestry := buildProcessAncestry(101, allProcs)
+	for _, want := range []int{101, 100, 10} {
+		if _, ok := ancestry[want]; !ok {
+			t.Errorf("ancestry rooted at 101 should contain PID %d", want)
+		}
+	}
+	for _, notWant := range []int{1, 20, 300} {
+		if _, ok := ancestry[notWant]; ok {
+			t.Errorf("ancestry rooted at 101 should NOT contain PID %d", notWant)
+		}
+	}
+
+	cycle := buildProcessAncestry(300, allProcs)
+	if len(cycle) != 1 {
+		t.Fatalf("cycle ancestry should contain only one PID, got %d", len(cycle))
+	}
+	if _, ok := cycle[300]; !ok {
+		t.Fatal("cycle ancestry should contain PID 300")
+	}
+}
+
+func TestBuildRuntimeProtectionSetCombinesTreeAndAncestry(t *testing.T) {
+	allProcs := map[int]int{
+		10:  1,
+		100: 10,
+		101: 100,
+		102: 101,
+		20:  1,
+	}
+
+	protected := buildRuntimeProtectionSet(101, allProcs)
+	for _, want := range []int{10, 100, 101, 102} {
+		if _, ok := protected[want]; !ok {
+			t.Fatalf("protection set should contain PID %d; got %#v", want, protected)
+		}
+	}
+	if _, ok := protected[20]; ok {
+		t.Fatalf("protection set should not contain unrelated PID 20; got %#v", protected)
+	}
+}
+
+func TestFilterOrphanAppServersSkipsCurrentAncestry(t *testing.T) {
+	allProcs := map[int]int{
+		10:  1,  // existing app-server ancestor
+		100: 10, // shell/tool runner
+		101: 100,
+		20:  1, // real orphan app-server
+		99:  1, // another live application
+		30:  99,
+	}
+	protected := buildProcessTree(101, allProcs)
+	for pid := range buildProcessAncestry(101, allProcs) {
+		protected[pid] = struct{}{}
+	}
+
+	orphans := filterOrphanAppServers([]appServerProcessInfo{
+		{pid: 10, ppid: 1},
+		{pid: 20, ppid: 1},
+		{pid: 30, ppid: 99},
+		{pid: 101, ppid: 100},
+	}, protected)
+	if len(orphans) != 1 || orphans[0].pid != 20 {
+		t.Fatalf("filterOrphanAppServers() = %#v, want only PID 20", orphans)
+	}
+}
+
+func TestFilterOrphanMCPProcessesSkipsCurrentAncestry(t *testing.T) {
+	allProcs := map[int]int{
+		10:  1,  // existing mcp ancestor
+		100: 10, // shell/tool runner
+		101: 100,
+		20:  1, // real orphan mcp
+	}
+	protected := buildRuntimeProtectionSet(101, allProcs)
+
+	orphans := filterOrphanMCPProcesses([]mcpProcessInfo{
+		{pid: 10, ppid: 1, binary: "mcp-orch"},
+		{pid: 20, ppid: 1, binary: "mcp-lsp"},
+		{pid: 101, ppid: 100, binary: "mcp-orch"},
+	}, protected)
+	if len(orphans) != 1 || orphans[0].pid != 20 {
+		t.Fatalf("filterOrphanMCPProcesses() = %#v, want only PID 20", orphans)
+	}
+}
+
 func TestCleanOrphanedMCPProcessesSkipsSelf(t *testing.T) {
 	myPID := os.Getpid()
 	// Ensure our own PID is never killed.

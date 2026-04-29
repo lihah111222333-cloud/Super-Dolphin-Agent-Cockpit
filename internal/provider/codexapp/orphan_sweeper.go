@@ -1,7 +1,6 @@
 package codexapp
 
 import (
-	"os"
 	"time"
 
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -16,13 +15,17 @@ import (
 // once for the grace period before SIGKILL'ing survivors. This keeps cleanup
 // time constant (~5s) regardless of how many orphans exist.
 func cleanOrphanedAppServers() int {
+	return cleanOrphanedAppServersWithProtectedPIDs(nil)
+}
+
+func cleanOrphanedAppServersWithProtectedPIDs(extraProtectedPIDs map[int]struct{}) int {
 	allProcs, appServerProcs := discoverAppServerProcesses()
 	if len(appServerProcs) == 0 {
 		return 0
 	}
 
-	myTree := buildProcessTree(os.Getpid(), allProcs)
-	orphans := filterOrphanAppServers(appServerProcs, myTree)
+	protected := mergeProtectedPIDs(buildCurrentRuntimeProtectionSet(allProcs), extraProtectedPIDs)
+	orphans := filterOrphanAppServers(appServerProcs, protected)
 	if len(orphans) == 0 {
 		return 0
 	}
@@ -41,6 +44,11 @@ func filterOrphanAppServers(procs []appServerProcessInfo, myTree map[int]struct{
 	orphans := make([]appServerProcessInfo, 0, len(procs))
 	for _, proc := range procs {
 		if proc.pid <= 1 {
+			continue
+		}
+		// A process with a live non-init parent belongs to another running
+		// application/tool runner, not to stale orphan cleanup.
+		if proc.ppid > 1 {
 			continue
 		}
 		if _, inTree := myTree[proc.pid]; !inTree {
