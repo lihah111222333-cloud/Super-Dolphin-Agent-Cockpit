@@ -1,6 +1,7 @@
 package skillforge
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -95,5 +96,37 @@ func mustContain(t *testing.T, path, want string) {
 	}
 	if !strings.Contains(string(b), want) {
 		t.Errorf("file %s: want substring %q, got %q", path, want, string(b))
+	}
+}
+
+func TestAtomicWriteSkill_RestoresOldTargetWhenPublishFails(t *testing.T) {
+	tmp := t.TempDir()
+	first := &RenderResult{SkillMD: "v1"}
+	second := &RenderResult{SkillMD: "v2"}
+	if err := AtomicWriteSkill(tmp, "x", first); err != nil {
+		t.Fatal(err)
+	}
+
+	target := filepath.Join(tmp, "x")
+	origRename := renamePath
+	t.Cleanup(func() { renamePath = origRename })
+	renamePath = func(oldPath, newPath string) error {
+		// 仅拦截 publish (tmp→target)；backup→target 的 restore 必须放行
+		if newPath == target && strings.Contains(filepath.Base(oldPath), ".tmp-") {
+			return errors.New("publish failed")
+		}
+		return origRename(oldPath, newPath)
+	}
+
+	if err := AtomicWriteSkill(tmp, "x", second); err == nil {
+		t.Fatal("expected publish failure")
+	}
+	// 关键断言：旧 v1 必须恢复，不能被丢
+	b, err := os.ReadFile(filepath.Join(target, "SKILL.md"))
+	if err != nil {
+		t.Fatalf("old target lost: %v", err)
+	}
+	if string(b) != "v1" {
+		t.Fatalf("old target content corrupted: %q", string(b))
 	}
 }
