@@ -101,7 +101,9 @@ func (s *service) launchWithRetry(ctx context.Context, attempt launcherLaunchAtt
 			return launchedAgent{agentID: shared.FirstTrimmed(result.RemoteAgentID, attempt.agentID), result: result}, nil
 		}
 		lastErr = launchErr
-		if !isRetryableLaunchError(launchErr) {
+		// Phase 1.8b: permanent 直接跳出避免烧配额；transient/unknown 继续退避
+		// 重试（unknown 视作 transient 是保守选择，避免误杀新型瞬态错误）。
+		if classifyLaunchError(launchErr) == launchClassPermanent {
 			break
 		}
 	}
@@ -515,33 +517,71 @@ func bindLaunchResult(agent *agentRuntime, result LaunchResult) {
 	}
 }
 
-// isRetryableLaunchError returns true for transient errors that may succeed
-// on a subsequent attempt (timeout, connection refused, transport unavailable,
-// or rate limited responses such as HTTP 429).
-func isRetryableLaunchError(err error) bool {
+// launchErrorClass 把 launch error 分成三类，让 launchWithRetry 决定是
+// 继续重试 (transient/unknown) 还是直接跳出 (permanent)。值类型为 typed
+// string 让 switch 编译期检查并方便日志/前端 reason 字段对齐。
+type launchErrorClass string
+
+const (
+	launchClassTransient launchErrorClass = "transient"
+	launchClassPermanent launchErrorClass = "permanent"
+	launchClassUnknown   launchErrorClass = "unknown"
+)
+
+// permanentLaunchPatterns 与前端 useAutoContinue.PERMANENT_ERROR_PATTERNS
+// 同源（5 类永久错误：401/403/quota/payment/context_length）。命中任一关键字
+// 即视为 permanent，launchRetry 直接跳出循环不重试。两层各持一份是因为
+// jrpc2 line protocol 让后端不能拿到 HTTP envelope；上游错误在哪一层先撞到
+// 就在哪一层先识别。
+var permanentLaunchPatterns = []string{
+	// permanent_unauthenticated
+	"401", "unauthoriz", "invalid api key", "invalid_api_key",
+	// permanent_forbidden
+	"403", "forbidden", "permission denied",
+	// permanent_quota_exhausted
+	"quota_exhausted", "insufficient_quota", "usage limit", "out of credits",
+	// permanent_payment_required
+	"402", "payment_required", "subscription expired",
+	// permanent_context_length_exceeded
+	"context_length_exceeded", "context length exceeded", "maximum context", "prompt is too long",
+}
+
+// transientLaunchPatterns 是已知的瞬态故障关键字（连接级 / 超时 / 启动竞态）。
+// 命中则归 transient 让 launchRetry 退避后重试。和 isRateLimited（429）一起
+// 构成 transient 集合。
+var transientLaunchPatterns = []string{
+	"deadline exceeded",
+	"connection refused",
+	"transport unavailable",
+	"empty thread id",
+	"timed out",
+	"i/o timeout",
+}
+
+// classifyLaunchError 把 launch error 分类。permanent 优先级最高（即使消息里
+// 同时含 transient 关键字，permanent 仍胜出——例如 "401 timeout"）。
+func classifyLaunchError(err error) launchErrorClass {
 	if err == nil {
-		return false
+		return launchClassTransient
 	}
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-		return true
-	}
-	if isRateLimited(err) {
-		return true
-	}
-	msg := err.Error()
-	for _, pattern := range []string{
-		"deadline exceeded",
-		"connection refused",
-		"transport unavailable",
-		"empty thread id",
-		"timed out",
-		"i/o timeout",
-	} {
-		if strings.Contains(strings.ToLower(msg), pattern) {
-			return true
+	msg := strings.ToLower(err.Error())
+	for _, pattern := range permanentLaunchPatterns {
+		if strings.Contains(msg, pattern) {
+			return launchClassPermanent
 		}
 	}
-	return false
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return launchClassTransient
+	}
+	if isRateLimited(err) {
+		return launchClassTransient
+	}
+	for _, pattern := range transientLaunchPatterns {
+		if strings.Contains(msg, pattern) {
+			return launchClassTransient
+		}
+	}
+	return launchClassUnknown
 }
 
 // isRateLimited reports whether err looks like an HTTP 429 / rate limit
