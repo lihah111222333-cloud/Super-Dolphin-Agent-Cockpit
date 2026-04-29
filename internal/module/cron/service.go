@@ -351,11 +351,21 @@ func marshalSkills(skills []string) ([]byte, error) {
 func toJob(row cronstore.Job) Job {
 	var skills []string
 	if len(row.Skills) > 0 {
-		_ = json.Unmarshal(row.Skills, &skills)
+		if err := json.Unmarshal(row.Skills, &skills); err != nil {
+			slog.Warn("cron: corrupt skills json in job row",
+				slog.String("job_id", row.ID),
+				slog.String("error", err.Error()),
+			)
+		}
 	}
 	var config any
 	if len(row.Config) > 0 {
-		_ = json.Unmarshal(row.Config, &config)
+		if err := json.Unmarshal(row.Config, &config); err != nil {
+			slog.Warn("cron: corrupt config json in job row",
+				slog.String("job_id", row.ID),
+				slog.String("error", err.Error()),
+			)
+		}
 	}
 	return Job{
 		ID:              row.ID,

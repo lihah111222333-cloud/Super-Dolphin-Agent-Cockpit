@@ -83,6 +83,14 @@ type Store interface {
 	GetRunByDedupeKey(ctx context.Context, dedupeKey string) (Run, error)
 	ListRunsByJob(ctx context.Context, jobID string, limit int32) ([]Run, error)
 	ListUnresolvedRuns(ctx context.Context) ([]Run, error)
+
+	// GetRunningRunByTurnID returns the single run in 'running' state for
+	// the given turn ID. Returns ErrJobRunNotFound when no such row exists.
+	GetRunningRunByTurnID(ctx context.Context, turnID string) (Run, error)
+
+	// ListJobsClaimedBy returns only jobs currently claimed by the given
+	// scheduler identity (claimed_by = claimedBy AND claim_token <> '').
+	ListJobsClaimedBy(ctx context.Context, claimedBy string) ([]Job, error)
 }
 
 // Job is the domain DTO for a cron_jobs row. Time fields are zero when the

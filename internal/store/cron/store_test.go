@@ -160,6 +160,12 @@ func (s *cronQuerierStub) ListUnresolvedCronJobRuns(ctx context.Context) ([]sqlc
 	}
 	return nil, nil
 }
+func (s *cronQuerierStub) GetRunningCronJobRunByTurnID(ctx context.Context, turnID string) (sqlc.CronJobRun, error) {
+	return sqlc.CronJobRun{}, platformdb.ErrNotFound
+}
+func (s *cronQuerierStub) ListCronJobsClaimedBy(ctx context.Context, claimedBy string) ([]sqlc.CronJob, error) {
+	return nil, nil
+}
 
 // ----- CreateJob validation -----
 
