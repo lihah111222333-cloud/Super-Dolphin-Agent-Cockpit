@@ -7,15 +7,30 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 )
 
-func NewDriverFactory(logger *slog.Logger, dispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string) contract.DriverFactory {
+// driverFactoryParams collects the fx dependencies for NewDriverFactory.
+// skilllibrary.Config is marked optional so test fixtures that do not provide
+// it still compile and wire correctly.
+type driverFactoryParams struct {
+	fx.In
+
+	Logger         *slog.Logger
+	Dispatcher     *unified.EventDispatcher
+	Reporter       contract.RuntimeReporter
+	Reg            *pidregistry.Registry
+	ProxyAddrFn    func() string
+	SkillLibConfig skilllibrary.Config `optional:"true"`
+}
+
+func NewDriverFactory(p driverFactoryParams) contract.DriverFactory {
 	return contract.DriverFactory{
 		Name: "claude",
 		Create: func() contract.Driver {
-			return newDriver(logger, dispatcher, reporter, reg, proxyAddrFn)
+			return newDriver(p.Logger, p.Dispatcher, p.Reporter, p.Reg, p.ProxyAddrFn, p.SkillLibConfig.CacheDir)
 		},
 	}
 }

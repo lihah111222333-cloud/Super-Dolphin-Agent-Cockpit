@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/cliadapter"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -31,6 +32,7 @@ type driver struct {
 	reporter        contract.RuntimeReporter
 	pidRegistry     *pidregistry.Registry
 	proxyAddrFn     func() string
+	skillCacheDir   string
 }
 
 type startSpec struct {
@@ -84,7 +86,7 @@ func (d *driver) proxyHTTPAddr() string {
 	return strings.TrimSpace(d.proxyAddrFn())
 }
 
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string) contract.Driver {
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string, skillCacheDir string) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -98,6 +100,7 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, re
 		reporter:        reporter,
 		pidRegistry:     reg,
 		proxyAddrFn:     proxyAddrFn,
+		skillCacheDir:   skillCacheDir,
 	}
 }
 
@@ -186,6 +189,18 @@ func (d *driver) prepareSessionStart(spec startSpec) (preparedStartSession, erro
 	requestedConfig.PromptSnapshot = spec.startAssembly.Snapshot
 	launchModel := claudeLaunchDisplayModel(requestedModel, history)
 	launchConfig := canonicalizeClaudeLaunchConfig(launchModel, requestedConfig)
+	// Before launchCLI, mount the shared skill cache into the workspace so
+	// Claude CLI's native discovery picks up our skills.
+	if d.skillCacheDir != "" && spec.cwd != "" {
+		if err := cliadapter.SetupWorkspaceSkills(spec.cwd, d.skillCacheDir); err != nil {
+			// fail-open: log and continue. Skill discovery failure should not
+			// block the user's main session.
+			if d.logger != nil {
+				d.logger.Warn("workspace skill symlink setup failed",
+					"cwd", spec.cwd, "cache", d.skillCacheDir, "err", err)
+			}
+		}
+	}
 	tr, cleanup, err := launchCLI(
 		d.binaryPath,
 		spec.cwd,
