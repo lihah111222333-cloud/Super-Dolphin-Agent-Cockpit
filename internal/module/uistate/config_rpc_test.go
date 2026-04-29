@@ -355,3 +355,11 @@ func (*configThreadServiceStub) SendCommand(context.Context, string, string, str
 func (*configThreadServiceStub) SetName(context.Context, string, string) error { return nil }
 
 func (*configThreadServiceStub) Delete(context.Context, string) error { return nil }
+
+func (*configThreadServiceStub) FlushAndVerifyTaskHandoff(context.Context, string, string) error {
+	return nil
+}
+
+func (*configThreadServiceStub) PromoteTaskFromThread(context.Context, string) (thread.PromoteTaskResult, error) {
+	return thread.PromoteTaskResult{}, nil
+}

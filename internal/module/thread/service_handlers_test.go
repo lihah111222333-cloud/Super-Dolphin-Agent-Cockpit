@@ -34,10 +34,10 @@ func TestNewThreadHandlersRegistersExpectedRoutes(t *testing.T) {
 	t.Parallel()
 
 	got := NewThreadHandlers(&stubThreadService{}, nil).Handlers
-	if len(got) != 33 {
-		t.Fatalf("len(Handlers) = %d, want 33", len(got))
+	if len(got) != 34 {
+		t.Fatalf("len(Handlers) = %d, want 34", len(got))
 	}
-	for _, method := range []string{"thread/start", "thread/stop", "thread/list", "thread/model/set", "thread/clear", "thread/realtime/start", "thread/handoff", "ui/task/flush_and_verify"} {
+	for _, method := range []string{"thread/start", "thread/stop", "thread/list", "thread/model/set", "thread/clear", "thread/realtime/start", "thread/handoff", "ui/task/flush_and_verify", "ui/thread/promote-task"} {
 		if _, ok := got[method]; !ok {
 			t.Fatalf("Handlers missing %q", method)
 		}
@@ -368,6 +368,9 @@ type stubThreadService struct {
 	sendCommandResult    any
 	handoffReq           HandoffRequest
 	handoffResult        HandoffResult
+	promoteThread        string
+	promoteResult        PromoteTaskResult
+	promoteErr           error
 }
 
 func (s *stubThreadService) Start(_ context.Context, req StartRequest) (StartResult, error) {
@@ -438,6 +441,10 @@ func (s *stubThreadService) FlushAndVerifyTaskHandoff(_ context.Context, threadI
 	s.flushAndVerifyThread = threadID
 	s.flushAndVerifyTask = taskID
 	return s.flushAndVerifyErr
+}
+func (s *stubThreadService) PromoteTaskFromThread(_ context.Context, threadID string) (PromoteTaskResult, error) {
+	s.promoteThread = threadID
+	return s.promoteResult, s.promoteErr
 }
 
 func (s *stubThreadService) List(context.Context) ([]Ref, error) {

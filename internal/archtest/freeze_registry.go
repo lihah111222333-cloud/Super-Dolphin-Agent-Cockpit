@@ -33,6 +33,14 @@ var explicitFreezeRegistry = []explicitFreeze{
 		Owner:      "Phase 1.6 上下文继承与预警",
 		RemoveWhen: "Phase 2.x promote-task 引入后把 sharedfile RPC 与 promote 路由合并到一个文件，让 internal/module/memory 包非测试文件回落 ≤30；或主文件 ui_rpc_mutations.go 拆分使新增 RPC 可直接 inline 于主文件",
 	},
+	{
+		Path:       "internal/module/thread",
+		Kind:       ViolationPackageCount,
+		Limit:      31,
+		Reason:     "Phase 2.1 promote-task RPC 新增 promote_task.go（service 实现 + idempotent + emitThreadPromotedTask 触发 projector 刷新）。task_handoff.go 已 620 行无法 inline 新代码，被迫拆出独立文件",
+		Owner:      "Phase 2.1 上下文继承与预警 · promote-task",
+		RemoveWhen: "task_handoff.go 拆分（render / worker / 持久化各自独立）后把 promote_task 内联回精简版 task_handoff.go；或 Phase 2.x 收尾时把 promote_task 与 ensureTaskHandoffShell 合并到一个 task_lifecycle.go",
+	},
 }
 
 func freezeRegistryIntegrityViolations() []Violation {
