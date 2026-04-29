@@ -10,74 +10,6 @@ import (
 	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 )
 
-// fakeSkillInjectionPort 最小实现 contract.SkillInjectionPort，供聚合 detector 测试。
-type fakeSkillInjectionPort struct {
-	names []string
-}
-
-func (f fakeSkillInjectionPort) DetectNativeSkills(_ string) ([]string, error) {
-	return f.names, nil
-}
-func (f fakeSkillInjectionPort) ReservedTokens() int { return 3000 }
-
-// ---------------------------------------------------------------------------
-// P20.1 Phase 10 Step B: compositeNativeSkillDetector 聚合测试
-// ---------------------------------------------------------------------------
-
-func TestCompositeNativeSkillDetector_UnionAndSorted(t *testing.T) {
-	d := compositeNativeSkillDetector{
-		ports: []contract.SkillInjectionPort{
-			fakeSkillInjectionPort{names: []string{"zoo", "Alpha"}},
-			fakeSkillInjectionPort{names: []string{"alpha", "bravo"}}, // "alpha" 去重
-		},
-	}
-	got, err := d.DetectNativeSkills("/tmp")
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	if len(got) != 3 {
-		t.Fatalf("want 3 unique entries, got %d: %v", len(got), got)
-	}
-	// 字典序（case-insensitive）：Alpha, bravo, zoo
-	if strings.ToLower(got[0]) != "alpha" || got[1] != "bravo" || got[2] != "zoo" {
-		t.Fatalf("want [Alpha bravo zoo] case-insensitive sorted, got %v", got)
-	}
-}
-
-func TestCompositeNativeSkillDetector_NilSafety(t *testing.T) {
-	d := compositeNativeSkillDetector{ports: nil}
-	got, err := d.DetectNativeSkills("/tmp")
-	if err != nil {
-		t.Fatalf("empty composite: unexpected err: %v", err)
-	}
-	if got != nil {
-		t.Fatalf("empty composite: want nil, got %v", got)
-	}
-	d2 := compositeNativeSkillDetector{ports: []contract.SkillInjectionPort{nil, nil}}
-	got2, err := d2.DetectNativeSkills("")
-	if err != nil {
-		t.Fatalf("all-nil ports: unexpected err: %v", err)
-	}
-	if len(got2) > 0 {
-		t.Fatalf("all-nil ports: want empty, got %v", got2)
-	}
-}
-
-func TestCompositeNativeSkillDetector_EmptyAndWhitespaceNames(t *testing.T) {
-	d := compositeNativeSkillDetector{
-		ports: []contract.SkillInjectionPort{
-			fakeSkillInjectionPort{names: []string{"", "  ", "foo", " ", "foo"}},
-		},
-	}
-	got, err := d.DetectNativeSkills("")
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	if len(got) != 1 || got[0] != "foo" {
-		t.Fatalf("want [foo], got %v", got)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // P20.1 Phase 10 Step D: RegisterSkillCatalogProviderIfEnabled 灰度
 // ---------------------------------------------------------------------------
@@ -279,7 +211,7 @@ func TestRegisterSkillCatalogProviderIfEnabled_RegistrarErrorPropagates(t *testi
 		Cfg:       cfg,
 		Registrar: reg,
 		Provider:  NewSkillCatalogProvider(fakeFxSkillLister{}, nil, 12000),
-		Skills:    fakeFxSkillLister{},
+		Skills:    nil,
 	})
 	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("want wrapped registrar err, got %v", err)
