@@ -17,6 +17,9 @@ func ExtractSummary(body string, maxRunes int) string {
 	if strings.TrimSpace(body) == "" {
 		return ""
 	}
+	if maxRunes <= 0 {
+		return ""
+	}
 	first := firstParagraph(body)
 	if first == "" {
 		return ""
@@ -40,9 +43,8 @@ func ExtractSummary(body string, maxRunes int) string {
 	}
 	out = strings.TrimSpace(out)
 	if utf8.RuneCountInString(out) > maxRunes {
-		ellipsis := "…"
-		ellipsisLen := utf8.RuneLen('…') // 3 bytes
-		out = truncateRunes(out, maxRunes-ellipsisLen) + ellipsis
+		// 留出 1 个 rune 给 "…"
+		out = truncateRunes(out, maxRunes-1) + "…"
 	}
 	return out
 }
@@ -71,6 +73,9 @@ func firstParagraph(body string) string {
 }
 
 func truncateRunes(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
 	if utf8.RuneCountInString(s) <= n {
 		return s
 	}
