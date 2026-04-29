@@ -2,11 +2,14 @@
 // Phase 1.7b 单测：useThreadWatchdog · 事件停滞检测 + 双分流。
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('./services/log.js', () => ({
+vi.mock("./services/log.js", () => ({
+  logDebug: vi.fn(),
   logInfo: vi.fn(),
   logWarn: vi.fn(),
   logError: vi.fn(),
 }));
+
+vi.mock("./services/api.js", () => ({ callAPI: vi.fn() }));
 
 import { useThreadWatchdog, _USE_THREAD_WATCHDOG_CONSTANTS as K } from './composables/useThreadWatchdog.js';
 
@@ -174,5 +177,57 @@ describe('useThreadWatchdog · 健壮性', () => {
     expect(() => wd._scanForTest()).not.toThrow();
     // 两个 thread 都尝试调 sendMessage
     expect(sendMessage).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('useThreadWatchdog · Phase 1.7c 集成（注入 prefRef）', () => {
+  it('pref.value=false 时 scan 不触发任何动作', () => {
+    const sendMessage = vi.fn();
+    const store = makeStore({
+      lastEventTsByThread: { t1: now - K.STALL_THRESHOLD_MS - 1 },
+      statuses: { t1: 'thinking' },
+      agentRuntimeById: { t1: { taskId: 'task' } },
+    });
+    const prefRef = { value: false };
+    const wd = useThreadWatchdog({ threadStore: store, sendMessage, prefRef });
+    wd._setNowForTest(() => now);
+    wd._scanForTest();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(wd.stuckByThread.value.has('t1')).toBe(false);
+  });
+
+  it('pref.value=true 时正常触发', () => {
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const store = makeStore({
+      lastEventTsByThread: { t1: now - K.STALL_THRESHOLD_MS - 1 },
+      statuses: { t1: 'thinking' },
+      agentRuntimeById: { t1: { taskId: 'task' } },
+    });
+    const prefRef = { value: true };
+    const wd = useThreadWatchdog({ threadStore: store, sendMessage, prefRef });
+    wd._setNowForTest(() => now);
+    wd._scanForTest();
+    expect(sendMessage).toHaveBeenCalledWith('t1', '继续');
+  });
+
+  it('gate per-thread 节流：60s 内同 thread 第二次触发被 skip', () => {
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const store = makeStore({
+      lastEventTsByThread: { t1: now - K.STALL_THRESHOLD_MS - 1 },
+      statuses: { t1: 'thinking' },
+      agentRuntimeById: { t1: { taskId: 'task' } },
+    });
+    const prefRef = { value: true };
+    const wd = useThreadWatchdog({ threadStore: store, sendMessage, prefRef });
+    let cur = now;
+    wd._setNowForTest(() => cur);
+    wd._scanForTest();
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    // 60s 内人为模拟 stall 重新触发：lastEvent 重置后再过 stall 阈值
+    cur += 30_000;
+    store.state.lastEventTsByThread.t1 = cur - K.STALL_THRESHOLD_MS - 1;
+    wd._scanForTest();
+    // gate 节流命中（60s 内已戳过）→ sendMessage 不再调
+    expect(sendMessage).toHaveBeenCalledTimes(1);
   });
 });
