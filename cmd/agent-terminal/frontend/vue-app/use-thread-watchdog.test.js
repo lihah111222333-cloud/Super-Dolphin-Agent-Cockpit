@@ -11,6 +11,7 @@ vi.mock("./services/log.js", () => ({
 
 vi.mock("./services/api.js", () => ({ callAPI: vi.fn() }));
 
+import { ref } from '../lib/vue.esm-browser.prod.js';
 import { useThreadWatchdog, _USE_THREAD_WATCHDOG_CONSTANTS as K } from './composables/useThreadWatchdog.js';
 
 function makeStore(init = {}) {
@@ -157,6 +158,60 @@ describe('useThreadWatchdog · setInterval lifecycle', () => {
       wd.stop();
       vi.advanceTimersByTime(5000);
       expect(wd.stuckByThread.value.size).toBe(stuckCountBefore);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('useThreadWatchdog · Phase 1.7e 偏好切换联动 timer 启停', () => {
+  it('pref=true 调 start → timer 跑；pref 切 false → 自动 stop（不再扫描）', () => {
+    vi.useFakeTimers();
+    try {
+      const sendMessage = vi.fn();
+      const store = makeStore({
+        lastBackendEventAtByThread: { t1: 1000 },
+        statuses: { t1: 'thinking' },
+        agentRuntimeById: { t1: {} },
+      });
+      const prefRef = ref(true);
+      const wd = useThreadWatchdog({ threadStore: store, sendMessage, prefRef });
+      wd._setNowForTest(() => K.STALL_THRESHOLD_MS + 5000);
+      wd._setIntervalsForTest({ scanMs: 1000, stallMs: K.STALL_THRESHOLD_MS });
+      wd.start();
+      vi.advanceTimersByTime(2500);
+      expect(wd.stuckByThread.value.has('t1')).toBe(true);
+      // pref 切 false → watch 触发 stop → 后续 timer 不再扫
+      wd.clearStuck('t1');
+      prefRef.value = false;
+      vi.advanceTimersByTime(5000);
+      expect(wd.stuckByThread.value.has('t1')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('pref=false 时 start() 跳过开 timer；pref 切 true 后自动 start', () => {
+    vi.useFakeTimers();
+    try {
+      const sendMessage = vi.fn();
+      const store = makeStore({
+        lastBackendEventAtByThread: { t1: 1000 },
+        statuses: { t1: 'thinking' },
+        agentRuntimeById: { t1: {} },
+      });
+      const prefRef = ref(false);
+      const wd = useThreadWatchdog({ threadStore: store, sendMessage, prefRef });
+      wd._setNowForTest(() => K.STALL_THRESHOLD_MS + 5000);
+      wd._setIntervalsForTest({ scanMs: 1000, stallMs: K.STALL_THRESHOLD_MS });
+      // 即使调 start()，pref=false 时也不开 timer
+      wd.start();
+      vi.advanceTimersByTime(3000);
+      expect(wd.stuckByThread.value.has('t1')).toBe(false);
+      // pref 切 true → watch 触发 start
+      prefRef.value = true;
+      vi.advanceTimersByTime(2500);
+      expect(wd.stuckByThread.value.has('t1')).toBe(true);
     } finally {
       vi.useRealTimers();
     }
