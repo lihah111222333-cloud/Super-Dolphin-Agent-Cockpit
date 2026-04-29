@@ -5,13 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
@@ -294,7 +292,8 @@ func buildAttachmentText(attachments []dto.AttachmentEnvelope) string {
 }
 
 func buildTurnText(req dto.TurnRequest) string {
-	parts := make([]string, 0, len(req.Inputs)+len(req.Skills)+2)
+	parts := make([]string, 0, len(req.Inputs)+2)
+
 	attachmentHints := make([]string, 0, len(req.Inputs))
 	for _, input := range req.Inputs {
 		appendTurnInput(&parts, &attachmentHints, input)
@@ -305,82 +304,10 @@ func buildTurnText(req dto.TurnRequest) string {
 				strings.Join(attachmentHints, "\n"),
 		}, parts...)
 	}
-	if section := buildSkillSection(req.Skills); section != "" {
-		parts = append(parts, section)
-	}
 	if len(req.OutputSchema) > 0 {
 		parts = append(parts, "output_schema:\n"+strings.TrimSpace(string(req.OutputSchema)))
 	}
 	return strings.TrimSpace(strings.Join(parts, "\n\n"))
-}
-
-func buildSkillSection(skills []dto.SkillRef) string {
-	sections := make([]string, 0, 2)
-	if list := buildSkillList(skills); list != "" {
-		sections = append(sections, list)
-	}
-	if prompt := buildSkillPromptText(skills); prompt != "" {
-		sections = append(sections, prompt)
-	}
-	return strings.Join(sections, "\n\n")
-}
-
-// buildSkillList 列出要传递给模型的 skill 名字。
-//
-// P20.1 §3.3 加固：按 Mode.Effective() 过滤——Mode=None 的 skill 本就不注入正文，
-// 名字也不应出现在这份列表里（避免模型看到 "有 skill foo" 但上下文里找不到其内容）。
-func buildSkillList(skills []dto.SkillRef) string {
-	lines := []string{"skills:"}
-	for _, skill := range skills {
-		name := strings.TrimSpace(skill.Name)
-		if name == "" {
-			continue
-		}
-		// Mode.Effective() 规范化为 Full/Summary/None；None 和非法值不曝露给模型。
-		if skill.Mode.Effective() == dto.SkillModeNone {
-			continue
-		}
-		lines = append(lines, "- "+name)
-	}
-	if len(lines) == 1 {
-		return ""
-	}
-	return strings.Join(lines, "\n")
-}
-
-// buildSkillPromptText 按 SKILL_WRITER_FORMAT 渲染 skill 注入块（与 codexapp 对称）。
-//   - legacy（默认） → [skill:name]\n<body> / [skill:name]\n摘要: ...\n使用方式: ...
-//   - v1            → [skill:name::mode@v1]\n...\n[/skill:name::mode@v1]
-//   - Mode=None / 非法值 → 跳过不注入（保守降级）。
-func buildSkillPromptText(skills []dto.SkillRef) string {
-	writerFormat := skillWriterFormat()
-	sections := make([]string, 0, len(skills))
-	for _, skill := range skills {
-		if skill.Mode.Effective() == dto.SkillModeNone {
-			continue
-		}
-		block, ok := renderSkillPromptBlock(skill, writerFormat)
-		if !ok {
-			continue
-		}
-		sections = append(sections, block)
-	}
-	return strings.Join(sections, "\n\n")
-}
-
-func renderSkillPromptBlock(skill dto.SkillRef, writerFormat string) (string, bool) {
-	if writerFormat == "v1" {
-		block := skillpkg.RenderSkillBlockV1(skill.Name, skill.Prompt, skill.Summary, string(skill.Mode), "1")
-		return block, block != ""
-	}
-	return skillpkg.RenderLegacySkillBlock(skill.Name, skill.Prompt, skill.Summary, string(skill.Mode))
-}
-
-func skillWriterFormat() string {
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("SKILL_WRITER_FORMAT")), "v1") {
-		return "v1"
-	}
-	return "legacy"
 }
 
 func appendTurnInput(parts *[]string, attachmentHints *[]string, input dto.InputItem) {
