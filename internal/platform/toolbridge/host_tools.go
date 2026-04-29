@@ -41,6 +41,10 @@ type HostToolRegistry interface {
 // SkillHostTools 把 skill.SkillHostToolReader 的 ExpandBody / ReadResource 包装成两个 host-direct
 // 工具：skill_expand_body / skill_read_resource。schema 来自 pkg/skilltool（避免 schema
 // 在 toolbridge / claudecli 两边漂移）。
+//
+// NOTE: SkillHostTools is kept for use by existing tests and the legacy skill module.
+// The Codex-facing DynamicTools list no longer exposes skill_expand_body / skill_read_resource;
+// it now exposes skill_read_section via SkillReadSectionRegistry (see below).
 type SkillHostTools struct {
 	svc skillpkg.SkillHostToolReader
 }
@@ -129,6 +133,102 @@ func (s *SkillHostTools) CallHostTool(ctx context.Context, call HostToolCall) (a
 		return s.svc.ReadResource(scopedCtx, p)
 	}
 	return nil, fmt.Errorf("host tools: unknown tool %q", call.Name)
+}
+
+// SkillReadSectionRegistry implements HostToolRegistry exposing only
+// skill_read_section to the Codex-facing DynamicTools list.
+//
+// This replaces the previous SkillHostTools-based registration for Codex.
+// skill_expand_body and skill_read_resource are no longer listed here;
+// they remain functional via SkillHostTools for legacy usage.
+type SkillReadSectionRegistry struct {
+	tool *SkillReadSectionTool
+}
+
+// NewSkillReadSectionRegistry wraps tool in a HostToolRegistry. Returns nil
+// when tool is nil (fx optional-inject guard).
+func NewSkillReadSectionRegistry(tool *SkillReadSectionTool) *SkillReadSectionRegistry {
+	if tool == nil {
+		return nil
+	}
+	return &SkillReadSectionRegistry{tool: tool}
+}
+
+// ensure interface compliance.
+var _ HostToolRegistry = (*SkillReadSectionRegistry)(nil)
+
+// skillReadSectionInputSchema returns the JSON Schema for skill_read_section.
+func skillReadSectionInputSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"name": map[string]any{
+				"type":        "string",
+				"description": "Skill name as listed in the available-skills section of the system prompt.",
+			},
+			"anchor": map[string]any{
+				"type":        "string",
+				"description": "Section anchor (slug of the Markdown H2/H3 heading) to fetch.",
+			},
+			"max_bytes": map[string]any{
+				"type":        "integer",
+				"description": "Optional cap on returned body bytes. Server enforces its own ceiling.",
+				"minimum":     1,
+			},
+		},
+		"required":             []string{"name", "anchor"},
+		"additionalProperties": false,
+	}
+}
+
+const descriptionReadSection = "Read a reference section from an installed skill's cache. " +
+	"Pass the skill `name` and the section `anchor` (slug of its Markdown H2/H3 heading). " +
+	"The host reads <cacheDir>/<name>/references/<NN-anchor>.md directly without an MCP round-trip. " +
+	"Optionally cap the result to `max_bytes`."
+
+// ListHostTools returns the single skill_read_section tool schema.
+func (r *SkillReadSectionRegistry) ListHostTools() []common.MCPTool {
+	if r == nil {
+		return nil
+	}
+	schema, _ := json.Marshal(skillReadSectionInputSchema())
+	return []common.MCPTool{
+		{
+			Name:        ToolNameReadSection,
+			Description: descriptionReadSection,
+			InputSchema: schema,
+		},
+	}
+}
+
+// HasTool returns true only for skill_read_section.
+func (r *SkillReadSectionRegistry) HasTool(name string) bool {
+	return r != nil && name == ToolNameReadSection
+}
+
+// SkillReadSectionResult is the structured return value for a skill_read_section
+// host-direct call. Wrapping the raw body in a struct ensures json.Marshal in
+// callHostTool succeeds regardless of the markdown file content.
+type SkillReadSectionResult struct {
+	Body string `json:"body"`
+}
+
+// CallHostTool executes skill_read_section via SkillReadSectionTool.Call.
+// CWD is not needed for cache-based reads; arguments are passed through directly.
+// The raw file bytes are wrapped in SkillReadSectionResult so callHostTool can
+// json.Marshal the result without requiring the markdown content to be valid JSON.
+func (r *SkillReadSectionRegistry) CallHostTool(ctx context.Context, call HostToolCall) (any, error) {
+	if r == nil || r.tool == nil {
+		return nil, fmt.Errorf("host tools: skill_read_section tool not configured")
+	}
+	if call.Name != ToolNameReadSection {
+		return nil, fmt.Errorf("host tools: unknown tool %q", call.Name)
+	}
+	raw, err := r.tool.Call(ctx, call.Arguments)
+	if err != nil {
+		return nil, err
+	}
+	return SkillReadSectionResult{Body: string(raw)}, nil
 }
 
 // decodeArgs 把 JSON 参数解码到目标结构。空 / null arguments 视为空 object。
