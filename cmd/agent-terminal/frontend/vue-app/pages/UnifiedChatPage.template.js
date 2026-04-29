@@ -34,6 +34,7 @@ export const template = `
           :renaming-thread-id="renamingThreadId"
           :set-rename-input-ref="setRenameInputRef"
           :token-level-by-thread-id="tokenLevelByThreadId"
+          :failed-auto-continue-by-thread-id="failedAutoContinueByThreadId"
           @open-new-window="openNewWindow"
           @toggle-archived-thread-list="toggleArchivedThreadList"
           @select-thread="selectThread"
