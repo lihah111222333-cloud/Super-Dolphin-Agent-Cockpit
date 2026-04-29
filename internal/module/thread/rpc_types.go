@@ -80,6 +80,29 @@ type flushAndVerifyParams struct {
 	TaskID   string `json:"taskId"`
 }
 
+// promoteTaskParams is the RPC payload for ui/thread/promote-task (Phase
+// 2.1). Accepts both threadId (camelCase, the canonical UI field) and
+// thread_id (snake_case, the platform-wide RPC convention) so callers do
+// not have to remember which side of the protocol fence they sit on.
+type promoteTaskParams struct {
+	ThreadID string `json:"threadId"`
+}
+
+func (p *promoteTaskParams) UnmarshalJSON(data []byte) error {
+	var both struct {
+		ThreadIDCamel string `json:"threadId"`
+		ThreadIDSnake string `json:"thread_id"`
+	}
+	if err := json.Unmarshal(data, &both); err != nil {
+		return err
+	}
+	p.ThreadID = strings.TrimSpace(both.ThreadIDCamel)
+	if p.ThreadID == "" {
+		p.ThreadID = strings.TrimSpace(both.ThreadIDSnake)
+	}
+	return nil
+}
+
 func (p *startParams) UnmarshalJSON(data []byte) error {
 	type raw startParams
 	var current raw

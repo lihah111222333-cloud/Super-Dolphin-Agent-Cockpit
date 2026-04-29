@@ -482,6 +482,25 @@ func (s *service) emitThreadModelUpdated(threadID string, model *string) {
 	s.emitUpdated(threaddto.Updated{EventHeader: shareddto.EventHeader{Timestamp: time.Now()}, ThreadID: strings.TrimSpace(threadID), Model: model})
 }
 
+// emitThreadPromotedTask publishes a thread/updated event with no model /
+// name payload purely to make the uistate projector rerun
+// refreshThreadPatchLocked for this thread. The refresh re-evaluates
+// applyTaskRuntimeToThreadRuntime, which now finds taskId / handoffFile /
+// taskTitle in the persisted runtime config and pushes them into
+// agentRuntimeById on the frontend. Phase 2.1: without this nudge the
+// frontend would not see the new task fields until the next natural
+// thread/updated or sidebar refresh.
+func (s *service) emitThreadPromotedTask(threadID string) {
+	if s == nil || s.emitUpdated == nil {
+		return
+	}
+	tid := strings.TrimSpace(threadID)
+	if tid == "" {
+		return
+	}
+	s.emitUpdated(threaddto.Updated{EventHeader: shareddto.EventHeader{Timestamp: time.Now()}, ThreadID: tid})
+}
+
 func (s *service) normalizeThreadConfig(
 	ctx context.Context,
 	threadID string,

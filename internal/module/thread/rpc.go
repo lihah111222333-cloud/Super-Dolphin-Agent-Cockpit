@@ -84,6 +84,19 @@ func NewThreadHandlers(svc Service, capResolver rpc.CapabilityResolver) rpc.Hand
 			return map[string]any{"ok": true}, nil
 		}),
 
+		// Phase 2.1: promote a normal thread to a task thread. Frontend
+		// surfaces this from the thread config panel ("作为自动化任务运行")
+		// and from the watchdog stuck-banner upgrade button. Idempotent on
+		// the backend so repeated clicks return the existing taskId rather
+		// than overwrite handoff state.
+		"ui/thread/promote-task": rpc.StrictHandler(func(ctx context.Context, p promoteTaskParams) (any, error) {
+			result, err := svc.PromoteTaskFromThread(ctx, p.ThreadID)
+			if err != nil {
+				return nil, err
+			}
+			return buildPromoteTaskResponse(result), nil
+		}),
+
 		// thread/debugMemory 当前返回 Go runtime.MemStats。
 		// TODO(P7): V2 返回的是 agent 进程内存快照（通过 provider），不是宿主进程 stats。
 		// P7 补齐 provider-level memory stats 后替换此实现。
@@ -229,6 +242,30 @@ func buildStartResponse(result StartResult) map[string]any {
 	if result.HandoffFile != "" {
 		response["handoff_file"] = result.HandoffFile
 		response["handoffFile"] = result.HandoffFile
+	}
+	return response
+}
+
+func buildPromoteTaskResponse(result PromoteTaskResult) map[string]any {
+	response := map[string]any{
+		"thread_id":    result.ThreadID,
+		"threadId":     result.ThreadID,
+		"task_id":      result.TaskID,
+		"taskId":       result.TaskID,
+		"already_task": result.AlreadyTask,
+		"alreadyTask":  result.AlreadyTask,
+	}
+	if result.TaskTitle != "" {
+		response["task_title"] = result.TaskTitle
+		response["taskTitle"] = result.TaskTitle
+	}
+	if result.HandoffFile != "" {
+		response["handoff_file"] = result.HandoffFile
+		response["handoffFile"] = result.HandoffFile
+	}
+	if result.HandoffShellWarning != "" {
+		response["handoff_shell_warning"] = result.HandoffShellWarning
+		response["handoffShellWarning"] = result.HandoffShellWarning
 	}
 	return response
 }
