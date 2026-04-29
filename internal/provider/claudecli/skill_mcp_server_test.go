@@ -15,17 +15,39 @@ import (
 )
 
 type fakeSkillHostRPC struct {
-	calls      int
-	lastMethod string
-	lastParams map[string]any
-	result     json.RawMessage
-	err        error
+	calls       int
+	reportCalls int
+	lastMethod  string
+	lastParams  map[string]any
+	lastReport  map[string]any
+	reportCh    chan map[string]any
+	reportBlock <-chan struct{}
+	result      json.RawMessage
+	err         error
 }
 
-func (f *fakeSkillHostRPC) Call(_ context.Context, method string, params any) (json.RawMessage, error) {
+func (f *fakeSkillHostRPC) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	raw, _ := json.Marshal(params)
+	if method == skillmetrics.SkillMCPReportMethod {
+		if f.reportBlock != nil {
+			select {
+			case <-f.reportBlock:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		f.reportCalls++
+		_ = json.Unmarshal(raw, &f.lastReport)
+		if f.reportCh != nil {
+			select {
+			case f.reportCh <- f.lastReport:
+			default:
+			}
+		}
+		return json.RawMessage(`{"ok":true}`), nil
+	}
 	f.calls++
 	f.lastMethod = method
-	raw, _ := json.Marshal(params)
 	_ = json.Unmarshal(raw, &f.lastParams)
 	if f.err != nil {
 		return nil, f.err
@@ -208,6 +230,90 @@ func TestSkillMCPServer_ObservabilityCounters(t *testing.T) {
 	}
 }
 
+func TestSkillMCPServer_ReportsOutcomeToHostRPC(t *testing.T) {
+	reports := make(chan map[string]any, 1)
+	fake := &fakeSkillHostRPC{
+		result:   json.RawMessage(`{"name":"demo","content":"body"}`),
+		reportCh: reports,
+	}
+	provider := newSkillMCPToolProvider(skillMCPRuntime{
+		CWD:      "/repo",
+		AgentID:  "agent-1",
+		ThreadID: "thread-1",
+	}, fake)
+
+	if _, err := provider.CallTool(context.Background(), skilltool.ToolNameExpandBody, json.RawMessage(`{"name":"demo"}`)); err != nil {
+		t.Fatalf("CallTool() error = %v", err)
+	}
+	var report map[string]any
+	select {
+	case report = <-reports:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for async metric report")
+	}
+	if fake.reportCalls != 1 {
+		t.Fatalf("metric report calls = %d, want 1", fake.reportCalls)
+	}
+	if report["outcome"] != skillmetrics.SkillMCPOutcomeSuccess || report["agentId"] != "agent-1" || report["threadId"] != "thread-1" {
+		t.Fatalf("metric report params = %#v", report)
+	}
+}
+
+func TestSkillMCPServer_MetricReportDoesNotBlockToolResult(t *testing.T) {
+	blockReport := make(chan struct{})
+	fake := &fakeSkillHostRPC{
+		result:      json.RawMessage(`{"name":"demo","content":"body"}`),
+		reportBlock: blockReport,
+	}
+	provider := newSkillMCPToolProvider(skillMCPRuntime{CWD: "/repo"}, fake)
+
+	start := time.Now()
+	if _, err := provider.CallTool(context.Background(), skilltool.ToolNameExpandBody, json.RawMessage(`{"name":"demo"}`)); err != nil {
+		close(blockReport)
+		t.Fatalf("CallTool() error = %v", err)
+	}
+	elapsed := time.Since(start)
+	close(blockReport)
+	if elapsed > 200*time.Millisecond {
+		t.Fatalf("CallTool() waited for metric report; elapsed=%s", elapsed)
+	}
+}
+
+func TestSkillHostRPCClient_CallRespectsContextDeadlineWhileReading(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen() error = %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+
+	accepted := make(chan struct{})
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		close(accepted)
+		_, _ = io.Copy(io.Discard, conn)
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err = (skillHostRPCClient{addr: ln.Addr().String()}).Call(ctx, skillExpandBodyRPCMethod, map[string]any{"name": "demo"})
+	if err == nil {
+		t.Fatal("Call() error = nil, want context deadline/read timeout")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("Call() ignored context deadline; elapsed=%s err=%v", elapsed, err)
+	}
+	select {
+	case <-accepted:
+	default:
+		t.Fatal("server did not accept test connection")
+	}
+}
+
 func TestSkillMCPServer_ApprovalRequiredReturnsStructuredEnvelope(t *testing.T) {
 	t.Parallel()
 
@@ -249,7 +355,7 @@ func TestSkillMCPServer_StartupLatencyBudget(t *testing.T) {
 }
 
 func TestSkillMCPMode_StdioSmokeInitializeListCallAndEOF(t *testing.T) {
-	requests := make(chan skillJSONRPCRequest, 1)
+	requests := make(chan skillJSONRPCRequest, 2)
 	addr := startSkillHostRPCRecordingServer(t, requests, `{"jsonrpc":"2.0","id":1,"result":{"name":"demo","content":"body","total_bytes":4}}`)
 	t.Setenv("GO_AGENT_CTL_RPC_ADDR", addr)
 	t.Setenv("GO_AGENT_SKILL_MCP_CWD", "/repo")
@@ -294,23 +400,38 @@ func TestSkillMCPMode_StdioSmokeInitializeListCallAndEOF(t *testing.T) {
 		t.Fatalf("tools/call text = %q, want host RPC result body", text)
 	}
 
-	select {
-	case req := <-requests:
-		if req.Method != skillExpandBodyRPCMethod {
-			t.Fatalf("host RPC method = %q, want %q", req.Method, skillExpandBodyRPCMethod)
+	seen := map[string]map[string]any{}
+	for len(seen) < 2 {
+		select {
+		case req := <-requests:
+			var params map[string]any
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				t.Fatalf("host RPC params invalid JSON: %v", err)
+			}
+			seen[req.Method] = params
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for host RPC requests; seen=%#v", seen)
 		}
-		var params map[string]any
-		if err := json.Unmarshal(req.Params, &params); err != nil {
-			t.Fatalf("host RPC params invalid JSON: %v", err)
-		}
-		if params["cwd"] != "/repo" || params["agentId"] != "agent-1" || params["threadId"] != "thread-1" {
-			t.Fatalf("host RPC runtime params = %#v", params)
-		}
-		if params["name"] != "demo" || params["anchor"] != "Usage" {
-			t.Fatalf("host RPC model params = %#v", params)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for host RPC request")
+	}
+	expandParams, ok := seen[skillExpandBodyRPCMethod]
+	if !ok {
+		t.Fatalf("missing host RPC %s; seen=%#v", skillExpandBodyRPCMethod, seen)
+	}
+	if expandParams["cwd"] != "/repo" || expandParams["agentId"] != "agent-1" || expandParams["threadId"] != "thread-1" {
+		t.Fatalf("host RPC runtime params = %#v", expandParams)
+	}
+	if expandParams["name"] != "demo" || expandParams["anchor"] != "Usage" {
+		t.Fatalf("host RPC model params = %#v", expandParams)
+	}
+	reportParams, ok := seen[skillmetrics.SkillMCPReportMethod]
+	if !ok {
+		t.Fatalf("missing metric report RPC; seen=%#v", seen)
+	}
+	if reportParams["tool"] != skilltool.ToolNameExpandBody || reportParams["method"] != skillExpandBodyRPCMethod || reportParams["outcome"] != skillmetrics.SkillMCPOutcomeSuccess {
+		t.Fatalf("metric report params = %#v", reportParams)
+	}
+	if reportParams["agentId"] != "agent-1" || reportParams["threadId"] != "thread-1" {
+		t.Fatalf("metric report runtime params = %#v", reportParams)
 	}
 }
 
@@ -383,16 +504,20 @@ func startSkillHostRPCRecordingServer(t *testing.T, requests chan<- skillJSONRPC
 	}
 	t.Cleanup(func() { _ = ln.Close() })
 	go func() {
-		conn, err := ln.Accept()
-		if err != nil {
-			return
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(conn net.Conn) {
+				defer conn.Close()
+				var req skillJSONRPCRequest
+				if err := json.NewDecoder(conn).Decode(&req); err == nil {
+					requests <- req
+				}
+				_, _ = conn.Write([]byte(response + "\n"))
+			}(conn)
 		}
-		defer conn.Close()
-		var req skillJSONRPCRequest
-		if err := json.NewDecoder(conn).Decode(&req); err == nil {
-			requests <- req
-		}
-		_, _ = conn.Write([]byte(response + "\n"))
 	}()
 	return ln.Addr().String()
 }

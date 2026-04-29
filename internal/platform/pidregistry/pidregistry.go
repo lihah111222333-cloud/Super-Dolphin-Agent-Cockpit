@@ -110,12 +110,20 @@ type staleOrphan struct {
 // All orphaned processes are SIGTERM'd concurrently, then we wait once for
 // the grace period before SIGKILL'ing survivors.
 func CleanupStale() int {
+	return CleanupStaleWithProtectedPIDs(nil)
+}
+
+// CleanupStaleWithProtectedPIDs is like CleanupStale but skips protected PIDs.
+// Callers should pass the current runtime process tree plus its ancestry so a
+// stale registry from a dead parent cannot kill the live runtime that is doing
+// the cleanup.
+func CleanupStaleWithProtectedPIDs(protectedPIDs map[int]struct{}) int {
 	staleFiles := findStaleRegistryFiles()
 	if len(staleFiles) == 0 {
 		return 0
 	}
 
-	orphans := collectStaleOrphans(staleFiles)
+	orphans := collectStaleOrphans(staleFiles, protectedPIDs)
 	if len(orphans) == 0 {
 		cleanupStaleFiles(staleFiles)
 		return 0
@@ -133,13 +141,17 @@ func CleanupStale() int {
 }
 
 // collectStaleOrphans gathers alive PIDs from stale registry files.
-func collectStaleOrphans(staleFiles []staleFile) []staleOrphan {
+func collectStaleOrphans(staleFiles []staleFile, protectedPIDs map[int]struct{}) []staleOrphan {
 	var orphans []staleOrphan
 	for _, sf := range staleFiles {
 		for _, child := range sf.Children {
-			if child.PID > 1 && isProcessAlive(child.PID) {
-				orphans = append(orphans, staleOrphan{pid: child.PID, kind: child.Kind})
+			if child.PID <= 1 || !isProcessAlive(child.PID) {
+				continue
 			}
+			if _, protected := protectedPIDs[child.PID]; protected {
+				continue
+			}
+			orphans = append(orphans, staleOrphan{pid: child.PID, kind: child.Kind})
 		}
 	}
 	return orphans

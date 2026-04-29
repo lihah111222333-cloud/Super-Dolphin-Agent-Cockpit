@@ -191,10 +191,11 @@ func (m *ServerManager) cleanupStaleProcesses() {
 }
 
 func (m *ServerManager) cleanupStaleProcessesOnce() {
+	protected := currentRuntimeProtectionSet()
 	// Clean up processes registered by dead app instances via PID registry.
 	// This is precise (only kills processes we actually spawned) and fast
 	// (batch SIGTERM with a single grace period wait).
-	if killed := pidregistry.CleanupStale(); killed > 0 {
+	if killed := pidregistry.CleanupStaleWithProtectedPIDs(protected); killed > 0 {
 		pkglogger.Info("server_manager: cleaned stale registry processes at startup",
 			"killed", killed)
 	}
@@ -202,11 +203,11 @@ func (m *ServerManager) cleanupStaleProcessesOnce() {
 	// Legacy fallback: also scan for orphaned processes that predate the
 	// PID registry (e.g. from older builds). This can be removed once all
 	// running builds include the PID registry.
-	if killed := cleanOrphanedMCPProcesses(nil); killed > 0 {
+	if killed := cleanOrphanedMCPProcesses(protected); killed > 0 {
 		pkglogger.Info("server_manager: cleaned orphaned MCP processes at startup",
 			"killed", killed)
 	}
-	if killed := cleanOrphanedAppServers(); killed > 0 {
+	if killed := cleanOrphanedAppServersWithProtectedPIDs(protected); killed > 0 {
 		pkglogger.Info("server_manager: cleaned orphaned app-server processes at startup",
 			"killed", killed)
 	}
@@ -277,11 +278,12 @@ func (m *ServerManager) stop(ctx context.Context) error {
 
 // cleanResidualProcesses sweeps any MCP or app-server orphans after shutdown.
 func cleanResidualProcesses() {
-	if killed := cleanOrphanedMCPProcesses(nil); killed > 0 {
+	protected := currentRuntimeProtectionSet()
+	if killed := cleanOrphanedMCPProcesses(protected); killed > 0 {
 		pkglogger.Info("server_manager: cleaned residual MCP processes at shutdown",
 			"killed", killed)
 	}
-	if killed := cleanOrphanedAppServers(); killed > 0 {
+	if killed := cleanOrphanedAppServersWithProtectedPIDs(protected); killed > 0 {
 		pkglogger.Info("server_manager: cleaned residual app-server processes at shutdown",
 			"killed", killed)
 	}
@@ -370,27 +372,17 @@ type mcpProcessInfo struct {
 // orphans from a previous run (crash, SIGKILL, run-debug restart, etc.).
 //
 // Returns the number of processes killed.
-func cleanOrphanedMCPProcesses(skipPIDs map[int]struct{}) int {
+func cleanOrphanedMCPProcesses(extraProtectedPIDs map[int]struct{}) int {
 	allProcs, mcpProcs := discoverProcesses()
 	if len(mcpProcs) == 0 {
 		return 0
 	}
 
-	myTree := buildProcessTree(os.Getpid(), allProcs)
+	protected := mergeProtectedPIDs(buildCurrentRuntimeProtectionSet(allProcs), extraProtectedPIDs)
+	orphans := filterOrphanMCPProcesses(mcpProcs, protected)
 
 	killed := 0
-	for _, proc := range mcpProcs {
-		if proc.pid <= 1 {
-			continue
-		}
-		if len(skipPIDs) > 0 {
-			if _, skip := skipPIDs[proc.pid]; skip {
-				continue
-			}
-		}
-		if _, inTree := myTree[proc.pid]; inTree {
-			continue
-		}
+	for _, proc := range orphans {
 		if err := killMCPProcess(proc.pid); err != nil {
 			pkglogger.Warn("orphan cleanup: kill failed",
 				"binary", proc.binary, "pid", proc.pid, "ppid", proc.ppid,
@@ -405,6 +397,20 @@ func cleanOrphanedMCPProcesses(skipPIDs map[int]struct{}) int {
 		pkglogger.Info("orphan cleanup: summary", "total_killed", killed)
 	}
 	return killed
+}
+
+func filterOrphanMCPProcesses(procs []mcpProcessInfo, protectedPIDs map[int]struct{}) []mcpProcessInfo {
+	orphans := make([]mcpProcessInfo, 0, len(procs))
+	for _, proc := range procs {
+		if proc.pid <= 1 {
+			continue
+		}
+		if _, protected := protectedPIDs[proc.pid]; protected {
+			continue
+		}
+		orphans = append(orphans, proc)
+	}
+	return orphans
 }
 
 // discoverProcesses returns:
@@ -459,6 +465,36 @@ func matchMCPBinary(fields []string) string {
 	return ""
 }
 
+func currentRuntimeProtectionSet() map[int]struct{} {
+	allProcs, _ := discoverProcesses()
+	return buildCurrentRuntimeProtectionSet(allProcs)
+}
+
+func buildCurrentRuntimeProtectionSet(allProcs map[int]int) map[int]struct{} {
+	return buildRuntimeProtectionSet(os.Getpid(), allProcs)
+}
+
+func buildRuntimeProtectionSet(rootPID int, allProcs map[int]int) map[int]struct{} {
+	protected := buildProcessTree(rootPID, allProcs)
+	for pid := range buildProcessAncestry(rootPID, allProcs) {
+		protected[pid] = struct{}{}
+	}
+	return protected
+}
+
+func mergeProtectedPIDs(protected, extra map[int]struct{}) map[int]struct{} {
+	if len(extra) == 0 {
+		return protected
+	}
+	if protected == nil {
+		protected = make(map[int]struct{}, len(extra))
+	}
+	for pid := range extra {
+		protected[pid] = struct{}{}
+	}
+	return protected
+}
+
 // buildProcessTree returns all PIDs that are descendants of rootPID
 // (including rootPID itself). Uses a children-map + BFS for O(N) traversal.
 func buildProcessTree(rootPID int, allProcs map[int]int) map[int]struct{} {
@@ -481,6 +517,27 @@ func buildProcessTree(rootPID int, allProcs map[int]int) map[int]struct{} {
 		}
 	}
 	return tree
+}
+
+// buildProcessAncestry returns all PIDs on rootPID's parent chain (including
+// rootPID itself, excluding PID 1). It is used by orphan cleanup to avoid
+// killing an ancestor app-server when this binary is launched from an existing
+// tool runner: killing that ancestor's descendants can kill the current process.
+func buildProcessAncestry(rootPID int, allProcs map[int]int) map[int]struct{} {
+	ancestry := make(map[int]struct{}, 8)
+	for pid := rootPID; pid > 1; {
+		if _, seen := ancestry[pid]; seen {
+			break
+		}
+		ancestry[pid] = struct{}{}
+
+		ppid, ok := allProcs[pid]
+		if !ok || ppid <= 1 || ppid == pid {
+			break
+		}
+		pid = ppid
+	}
+	return ancestry
 }
 
 // killMCPProcess is implemented per-platform in process_unix.go /

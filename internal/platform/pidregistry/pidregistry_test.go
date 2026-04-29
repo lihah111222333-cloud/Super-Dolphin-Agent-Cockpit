@@ -191,3 +191,22 @@ func TestRegistryPath(t *testing.T) {
 		t.Errorf("registryPath(12345) = %q, want %q", path, expected)
 	}
 }
+
+func TestCollectStaleOrphansSkipsProtectedPIDs(t *testing.T) {
+	myPID := os.Getpid()
+	staleFiles := []staleFile{{
+		registryFile: registryFile{
+			AppPID: 99999999,
+			Children: []ChildInfo{
+				{PID: myPID, Kind: "codex-app-server"},
+				{PID: 99999998, Kind: "dead-child"},
+			},
+		},
+	}}
+	got := collectStaleOrphans(staleFiles, map[int]struct{}{myPID: {}})
+	for _, orphan := range got {
+		if orphan.pid == myPID {
+			t.Fatalf("collectStaleOrphans() included protected current PID: %#v", got)
+		}
+	}
+}

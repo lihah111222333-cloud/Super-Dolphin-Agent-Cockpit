@@ -90,11 +90,47 @@ func IncSkillMCPApprovalRequired() { skillMCPApprovalRequiredTotal.Add(1) }
 func SkillMCPApprovalRequired() uint64 { return skillMCPApprovalRequiredTotal.Load() }
 
 const (
+	SkillMCPReportMethod            = "metrics/skillMCPTool/report"
+	SkillMCPOutcomeSuccess          = "success"
+	SkillMCPOutcomeApprovalRequired = "approval_required"
+	SkillMCPOutcomeError            = "error"
+	SkillMCPOutcomeInvalidRequest   = "invalid_request"
+
 	HostToolOutcomeOK               = "ok"
 	HostToolOutcomeCWDMissing       = "cwd_missing"
 	HostToolOutcomeApprovalRequired = "approval_required"
 	HostToolOutcomeError            = "error"
 )
+
+// IncSkillMCPToolOutcome records one same-binary skill MCP child tool call and
+// its final outcome in the parent process. Unknown outcomes are conservatively
+// counted as errors.
+func IncSkillMCPToolOutcome(outcome string) string {
+	normalized := NormalizeSkillMCPToolOutcome(outcome)
+	skillMCPToolCallTotal.Add(1)
+	switch normalized {
+	case SkillMCPOutcomeSuccess:
+		skillMCPToolSuccessTotal.Add(1)
+	case SkillMCPOutcomeApprovalRequired:
+		skillMCPApprovalRequiredTotal.Add(1)
+	default:
+		skillMCPToolErrorTotal.Add(1)
+	}
+	return normalized
+}
+
+func NormalizeSkillMCPToolOutcome(outcome string) string {
+	switch outcome {
+	case SkillMCPOutcomeSuccess:
+		return SkillMCPOutcomeSuccess
+	case SkillMCPOutcomeApprovalRequired:
+		return SkillMCPOutcomeApprovalRequired
+	case SkillMCPOutcomeError, SkillMCPOutcomeInvalidRequest:
+		return SkillMCPOutcomeError
+	default:
+		return SkillMCPOutcomeError
+	}
+}
 
 // IncHostToolCallOutcome 记录 codexapp host-direct skill tool 调用结果。
 // Go 内部用固定 counter，导出层可映射为 host_tool_calls_total{outcome=...}。
