@@ -6,8 +6,12 @@ import (
 	"strings"
 )
 
+const maxSectionTitleRunes = 80
+
 // 文件系统非法字符（POSIX + Windows 共集，含全角冒号）替换为 "-"。
-var illegalFilenameChars = regexp.MustCompile(`[/\\:\*\?"<>\|\x{FF1A}]`)
+var illegalFilenameChars = regexp.MustCompile(`[/\\:\*\?\"<>\|\x{FF1A}]`)
+
+var multiDash = regexp.MustCompile(`-{2,}`)
 
 // SectionFilename 按 N1 规则生成 references/<NN-标题>.md 的文件名（仅文件名部分，不含目录）。
 //
@@ -17,8 +21,13 @@ var illegalFilenameChars = regexp.MustCompile(`[/\\:\*\?"<>\|\x{FF1A}]`)
 func SectionFilename(index int, title string) string {
 	t := strings.TrimSpace(title)
 	t = illegalFilenameChars.ReplaceAllString(t, "-")
-	if rc := []rune(t); len(rc) > 80 {
-		t = string(rc[:80])
+	t = multiDash.ReplaceAllString(t, "-")
+	t = strings.Trim(t, "-")
+	if t == "" {
+		t = "untitled"
+	}
+	if rc := []rune(t); len(rc) > maxSectionTitleRunes {
+		t = string(rc[:maxSectionTitleRunes])
 	}
 	return fmt.Sprintf("%02d-%s.md", index, t)
 }
