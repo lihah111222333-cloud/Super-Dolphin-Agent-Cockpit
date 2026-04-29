@@ -192,12 +192,15 @@ export const template = `
                   :retry-error="autoContinueRetryError"
                   :stuck-info="activeStuckInfo"
                   :poking-stuck="pokingStuckThread"
+                  :thread-is-task="threadIsTask"
+                  :promoting-task="promotingTask"
                   @retry-stuck-thread="onRetryStuckThread"
                   @force-stuck-thread="onForceStuckThread"
                   @mark-stuck-done="onMarkStuckDone"
                   @compact="compactCurrent"
                   @fork="openForkDraftFromUI('context-banner')"
                   @retry-auto-continue="onRetryAutoContinue"
+                  @promote-task="onPromoteTaskRequested"
                 />
                 <ComposerForkDraftCard
                   v-if="!isCmd"
@@ -241,6 +244,9 @@ export const template = `
                    :thread-config-notice-level="threadConfigUi.noticeLevel"
                    :thread-config-meta="threadConfigUi.meta"
                    :router-preview="routerPreview"
+                   :thread-is-task="threadIsTask"
+                   :promoting-task="promotingTask"
+                   :thread-task-id="threadTaskId"
                    @update-thread-config-model="updateThreadConfigModel"
                   @update-thread-config-effort="updateThreadConfigEffort"
                   @save-thread-config="saveThreadConfigDraft"
@@ -252,6 +258,7 @@ export const template = `
                   @interrupt="interruptCurrent"
                   @compact="compactCurrent"
                   @open-fork-draft="openForkDraftFromUI('composer-bar')"
+                  @promote-task="onPromoteTaskRequested"
                 />
               </div>
               <div v-if="!isCmd" class="workspace-bottom-side">

@@ -40,6 +40,7 @@ import { useFileRefPreview } from '../composables/useFileRefPreview.js';
 import { useCopyThreadInfo } from '../composables/useCopyThreadInfo.js';
 import { useFileDrop } from '../composables/useFileDrop.js';
 import { useTaskHandoff } from '../composables/useTaskHandoff.js';
+import { usePromoteTask } from '../composables/usePromoteTask.js';
 import { useAutoContinue } from '../composables/useAutoContinue.js';
 import { useThreadWatchdog, normalizeStuckEntry } from '../composables/useThreadWatchdog.js';
 import { useAutoContinueStatePersistence } from '../composables/useAutoContinueStatePersistence.js';
@@ -445,6 +446,46 @@ function createPageTaskHandoff(props, ctx) {
   });
 }
 
+// Phase 2.2 · 把普通 thread 升级为 task thread。两个入口（ComposerBar 配置面板
+// 「升级为自动化任务」按钮 + ContextUsageBanner 卡住时升级按钮）共用同一个
+// composable + handler，busy/error 状态共享。后端 RPC 是幂等的，但前端仍然防
+// 重复点击，避免日志吵。
+function createPagePromoteTask(props, threadStore, selectedThreadId, threadWatchdog) {
+  const promote = usePromoteTask();
+  // threadIsTask / threadTaskId 来自当前 selectedThreadId 的 runtime。
+  const threadTaskId = computed(() => {
+    const tid = (selectedThreadId.value || '').toString().trim();
+    if (!tid) return '';
+    const rt = threadStore?.state?.agentRuntimeById?.[tid];
+    if (!rt || typeof rt !== 'object') return '';
+    return ((rt.taskId || rt.task_id) || '').toString().trim();
+  });
+  const threadIsTask = computed(() => Boolean(threadTaskId.value));
+
+  async function onPromoteTaskRequested() {
+    const tid = (selectedThreadId.value || '').toString().trim();
+    if (!tid) return;
+    try {
+      const result = await promote.promoteTaskFromThread(tid);
+      // 成功后 banner 卡住状态可以直接清掉：升级以后 watchdog 转 task 路径，
+      // banner 提示也就不再适用。失败则保留状态让用户重试。
+      if (result && threadWatchdog && threadWatchdog.stuckByThread && threadWatchdog.stuckByThread.value) {
+        threadWatchdog.stuckByThread.value.delete(tid);
+      }
+    } catch (_) {
+      // composable 已 logWarn；UI 反馈交给 lastError prop 让用户感知。
+    }
+  }
+
+  return {
+    promotingTask: promote.promoting,
+    promoteTaskLastError: promote.lastError,
+    threadIsTask,
+    threadTaskId,
+    onPromoteTaskRequested,
+  };
+}
+
 function createPageCopyThreadInfo(selectedThreadId, activeProjectCwd, threadCards, activeThread, activeStatus, useClaudeProvider, props) {
   return useCopyThreadInfo({
     selectedThreadId,
@@ -718,6 +759,7 @@ export const UnifiedChatPage = {
     const autoContinue = persistedAutoContinue.autoContinue;
     const threadWatchdog = persistedAutoContinue.threadWatchdog;
     const forkPage = createPageForkThread(props, { composer, selectedThreadId, activeThread, isCmd, emit: typeof setupCtx?.emit === 'function' ? setupCtx.emit : () => {} });
+    const promoteTask = createPagePromoteTask(props, props.threadStore, selectedThreadId, threadWatchdog);
     const tokenLevelByThreadId = createPageTokenLevels(props, threads);
 
     bindPageThreadSelection(props, {
@@ -809,6 +851,7 @@ export const UnifiedChatPage = {
       tokenLevelByThreadId,
       ...autoContinue,
       ...threadWatchdog,
+      ...promoteTask,
       launchSkillSelectionEnabled,
       launchAvailableSkills,
       launchProjectSkills,
