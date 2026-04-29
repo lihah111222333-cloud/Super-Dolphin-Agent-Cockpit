@@ -41,6 +41,7 @@ import { useCopyThreadInfo } from '../composables/useCopyThreadInfo.js';
 import { useFileDrop } from '../composables/useFileDrop.js';
 import { useTaskHandoff } from '../composables/useTaskHandoff.js';
 import { useAutoContinue } from '../composables/useAutoContinue.js';
+import { useThreadWatchdog } from '../composables/useThreadWatchdog.js';
 import { useForkThread } from '../composables/useForkThread.js';
 import { getTokenLevel } from '../utils/format-utils.js';
 import { useContextUsageThresholds } from '../composables/useContextUsageThresholds.js';
@@ -335,6 +336,39 @@ function createPageAutoContinue(props, taskHandoff, selectedThreadId) {
   };
 }
 
+function createPageThreadWatchdog(props, threadStore, selectedThreadId) {
+  const wd = useThreadWatchdog({
+    threadStore,
+    sendMessage: (tid, prompt) => threadStore.sendMessage(tid, prompt, [], {}),
+  });
+  wd.start();
+  // composable lifecycle 与组件绑定：UnifiedChatPage onBeforeUnmount 调 stop。
+  const activeStuckInfo = computed(() => {
+    const tid = (selectedThreadId.value || '').toString().trim();
+    if (!tid) return null;
+    const stuckTs = wd.stuckByThread.value.get(tid);
+    return typeof stuckTs === 'number' ? { stuckSinceTs: stuckTs } : null;
+  });
+  const pokingStuckThread = ref(false);
+  async function onRetryStuckThread() {
+    const id = (selectedThreadId.value || '').toString().trim();
+    if (!id || pokingStuckThread.value) return;
+    pokingStuckThread.value = true;
+    try {
+      await threadStore.sendMessage(id, '继续', [], {});
+      wd.stuckByThread.value.delete(id);
+    } catch (_) { /* 错误显示靠现有 thread status，不在 banner 重弹 */ }
+    finally { pokingStuckThread.value = false; }
+  }
+  return {
+    threadWatchdogStop: wd.stop,
+    stuckByThread: wd.stuckByThread,
+    activeStuckInfo,
+    pokingStuckThread,
+    onRetryStuckThread,
+  };
+}
+
 function createPageTaskHandoff(props, ctx) {
   return useTaskHandoff({
     threadStore: props.threadStore,
@@ -616,6 +650,8 @@ export const UnifiedChatPage = {
     const copyThreadInfo = createPageCopyThreadInfo(selectedThreadId, activeProjectCwd, threadCards, activeThread, activeStatus, useClaudeProvider, props);
     const taskHandoff = createPageTaskHandoff(props, { selectedThreadId, activeThread, activeRuntime: threadCards.activeRuntime, isCmd });
     const autoContinue = createPageAutoContinue(props, taskHandoff, selectedThreadId);
+  const threadWatchdog = createPageThreadWatchdog(props, props.threadStore, selectedThreadId);
+  onBeforeUnmount(() => { threadWatchdog.threadWatchdogStop(); });
     const forkPage = createPageForkThread(props, { composer, selectedThreadId, activeThread, isCmd, emit: typeof setupCtx?.emit === 'function' ? setupCtx.emit : () => {} });
     const tokenLevelByThreadId = createPageTokenLevels(props, threads);
 
@@ -704,6 +740,7 @@ export const UnifiedChatPage = {
       forkAvailableSharedFiles: forkPage.availableSharedFiles,
       tokenLevelByThreadId,
       ...autoContinue,
+      ...threadWatchdog,
       launchSkillSelectionEnabled,
       launchAvailableSkills,
       launchProjectSkills,

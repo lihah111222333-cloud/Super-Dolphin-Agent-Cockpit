@@ -25,8 +25,10 @@ export const ContextUsageBanner = {
     failedInfo: { type: Object, default: null },
     retrying: { type: Boolean, default: false },
     retryError: { type: String, default: '' }, // R2 fix：一键重试失败反馈
+    stuckInfo: { type: Object, default: null },
+    pokingStuck: { type: Boolean, default: false },
   },
-  emits: ['compact', 'fork', 'retry-auto-continue'],
+  emits: ['compact', 'fork', 'retry-auto-continue', 'retry-stuck-thread'],
   setup(props, { emit }) {
     function levelLabel() {
       if (props.level === 'critical') return '严重';
@@ -44,7 +46,16 @@ export const ContextUsageBanner = {
     }
     function showTokenSection() { return props.level && props.level !== 'normal'; }
     function showFailedSection() { return Boolean(props.failedInfo); }
-    function visible() { return showTokenSection() || showFailedSection(); }
+    function showStuckSection() { return Boolean(props.stuckInfo); }
+    function visible() { return showTokenSection() || showFailedSection() || showStuckSection(); }
+    function stuckDurationLabel() {
+      const stuckTs = Number(props.stuckInfo && props.stuckInfo.stuckSinceTs) || 0;
+      if (!stuckTs) return '一段时间';
+      const sec = Math.max(0, Math.round((Date.now() - stuckTs) / 1000));
+      if (sec < 60) return sec + ' 秒';
+      const min = Math.round(sec / 60);
+      return min + ' 分钟';
+    }
     function onCompact() {
       if (props.compacting || !props.canCompact) return;
       emit('compact');
@@ -54,10 +65,14 @@ export const ContextUsageBanner = {
       if (props.retrying) return;
       emit('retry-auto-continue');
     }
+    function onRetryStuck() {
+      if (props.pokingStuck) return;
+      emit('retry-stuck-thread');
+    }
     return {
       levelLabel, failedReasonLabel, failedErrorSnippet,
-      showTokenSection, showFailedSection, visible,
-      onCompact, onFork, onRetry,
+      showTokenSection, showFailedSection, showStuckSection, stuckDurationLabel, visible,
+      onCompact, onFork, onRetry, onRetryStuck,
     };
   },
   template: `
@@ -111,6 +126,24 @@ export const ContextUsageBanner = {
           @click="onRetry"
         >{{ retrying ? '重试中…' : '一键重试' }}</button>
         <span v-if="retryError" data-testid="auto-continue-retry-error" style="color:var(--color-danger,#c33); margin-left:8px;">{{ retryError }}</span>
+      </div>
+      <div
+        v-if="showStuckSection()"
+        class="context-usage-banner-stuck"
+        data-testid="thread-stuck-row"
+      >
+        <span class="context-usage-banner-icon" aria-hidden="true">⏱</span>
+        <span class="context-usage-banner-msg">
+          agent 似乎卡住 <strong>{{ stuckDurationLabel() }}</strong> — 后端事件流停滞，可手动发送一句“继续”。
+        </span>
+        <button
+          type="button"
+          class="btn btn-primary btn-xs context-usage-banner-action"
+          data-testid="thread-stuck-poke-btn"
+          :disabled="pokingStuck"
+          :title="pokingStuck ? '发送中…' : '发送一句继续促 agent 推进'"
+          @click="onRetryStuck"
+        >{{ pokingStuck ? '发送中…' : '继续' }}</button>
       </div>
     </div>
   `,
