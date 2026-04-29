@@ -73,6 +73,13 @@ type handoffParams struct {
 	InitialMessage string `json:"initial_message,omitempty"`
 }
 
+// flushAndVerifyParams is the RPC payload for ui/task/flush_and_verify
+// （Phase 1.8d fork 前预检）。
+type flushAndVerifyParams struct {
+	ThreadID string `json:"threadId"`
+	TaskID   string `json:"taskId"`
+}
+
 func (p *startParams) UnmarshalJSON(data []byte) error {
 	type raw startParams
 	var current raw
