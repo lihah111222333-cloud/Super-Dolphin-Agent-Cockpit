@@ -88,8 +88,8 @@ func TestSkillServiceConsumersUseNarrowPorts(t *testing.T) {
 	}{
 		{relPath: "internal/module/dashboard/service.go", structName: "service", fieldName: "skills", want: "skillmodule.SkillLister"},
 		{relPath: "internal/module/dashboard/module.go", structName: "serviceParams", fieldName: "Skills", want: "skillmodule.SkillLister"},
-		{relPath: "internal/module/prompt/module.go", structName: "skillCatalogProviderDeps", fieldName: "Skills", want: "skillpkg.SkillCatalogSource"},
-		{relPath: "internal/module/prompt/module.go", structName: "registerSkillCatalogDeps", fieldName: "Skills", want: "skillpkg.SkillCatalogSource"},
+		// skillCatalogProviderDeps + registerSkillCatalogDeps removed in skill refactor P2 Task 7;
+		// SkillCatalogProvider is gone, Claude uses native discovery via workspace symlink instead.
 		{relPath: "internal/platform/toolbridge/host_tools.go", structName: "SkillHostTools", fieldName: "svc", want: "skillpkg.SkillHostToolReader"},
 	}
 	var violations []string
