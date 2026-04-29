@@ -547,3 +547,61 @@ describe('useAutoContinue · inflight protection', () => {
     releaseFirst('done');
   });
 });
+
+describe('useAutoContinue · Phase 1.8a manualAbort 抑制位', () => {
+  it('markManualAbort 后 status="error" 时不调 recoverThread / continueTaskById', async () => {
+    const recoverThread = vi.fn().mockResolvedValue(undefined);
+    const store = makeStore({
+      statuses: { t1: 'idle' },
+      agentRuntimeById: { t1: { taskId: 'T1' } },
+      recoverThread,
+    });
+    const r = start(store);
+    r.markManualAbort('t1');
+    store.state.statuses = { t1: 'error' };
+    await nextTick();
+    expect(recoverThread).not.toHaveBeenCalled();
+    expect(continueTaskById).not.toHaveBeenCalled();
+  });
+
+  it('clearManualAbort 后下次 status=error 恢复正常 F2', async () => {
+    const recoverThread = vi.fn().mockResolvedValue(undefined);
+    const store = makeStore({
+      statuses: { t1: 'idle' },
+      agentRuntimeById: { t1: { taskId: 'T1' } },
+      recoverThread,
+    });
+    const r = start(store);
+    r.markManualAbort('t1');
+    r.clearManualAbort('t1');
+    store.state.statuses = { t1: 'error' };
+    await nextTick();
+    expect(recoverThread).toHaveBeenCalled();
+  });
+
+  it('userRetry 自动清抑制位（用户主动 = 已知情同意续接）', async () => {
+    const recoverThread = vi.fn().mockResolvedValue(undefined);
+    const store = makeStore({
+      statuses: { t1: 'idle' },
+      agentRuntimeById: { t1: { taskId: 'T1' } },
+      recoverThread,
+    });
+    const r = start(store);
+    r.markManualAbort('t1');
+    // mock failedRef 让 userRetry 有 entry
+    r.failedAutoContinueByThread.value.set('t1', { kind: 'status_error' });
+    await r.retryAutoContinue('t1').catch(() => {});
+    // 之后 status=error 应触发 F2
+    store.state.statuses = { t1: 'error' };
+    await nextTick();
+    expect(recoverThread).toHaveBeenCalled();
+  });
+
+  it('markManualAbort 空字符串 / 空 threadId 是 no-op', () => {
+    const store = makeStore({});
+    const r = start(store);
+    expect(() => r.markManualAbort('')).not.toThrow();
+    expect(() => r.markManualAbort(null)).not.toThrow();
+    expect(() => r.clearManualAbort('')).not.toThrow();
+  });
+});
