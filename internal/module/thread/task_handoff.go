@@ -138,6 +138,32 @@ func (s *service) loadInheritedTaskHandoff(ctx context.Context, sourceThreadID s
 	return taskHandoffMetaFromThread(row)
 }
 
+// resolveRootTaskId 沿 OwnerThreadID 链反查到顶端 thread，返回其 taskId（= rootTaskId）。
+// 顶端 = 第一个没有 OwnerThreadID 的 thread。深度上限 10 防循环 / 异常长链。
+// 任何错误（空入参 / store 错 / 顶端无 taskId / 深度超限）一律返回空字符串。
+func (s *service) resolveRootTaskId(ctx context.Context, ownerThreadID string) string {
+	if s == nil || s.threadStore == nil {
+		return ""
+	}
+	cur := strings.TrimSpace(ownerThreadID)
+	for i := 0; i < 10; i++ {
+		if cur == "" {
+			return ""
+		}
+		row, err := s.threadStore.GetByThreadID(ctx, cur)
+		if err != nil || row == nil {
+			return ""
+		}
+		nextOwner := strings.TrimSpace(row.OwnerThreadID)
+		if nextOwner == "" {
+			stored := decodeStoredThreadConfig(row.ConfigOverride)
+			return firstConfigString(stored.Runtime, taskConfigKeyID, taskConfigKeyIDSnake)
+		}
+		cur = nextOwner
+	}
+	return ""
+}
+
 func mergeTaskHandoffStart(
 	req StartRequest,
 	explicit taskHandoffMeta,
