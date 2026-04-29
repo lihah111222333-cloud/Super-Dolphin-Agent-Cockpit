@@ -28,7 +28,7 @@ export const ContextUsageBanner = {
     stuckInfo: { type: Object, default: null },
     pokingStuck: { type: Boolean, default: false },
   },
-  emits: ['compact', 'fork', 'retry-auto-continue', 'retry-stuck-thread'],
+  emits: ['compact', 'fork', 'retry-auto-continue', 'retry-stuck-thread', 'force-stuck-thread', 'mark-stuck-done'],
   setup(props, { emit }) {
     function levelLabel() {
       if (props.level === 'critical') return '严重';
@@ -69,10 +69,23 @@ export const ContextUsageBanner = {
       if (props.pokingStuck) return;
       emit('retry-stuck-thread');
     }
+    function onForceStuck() {
+      if (props.pokingStuck) return;
+      emit('force-stuck-thread');
+    }
+    function onMarkStuckDone() { emit('mark-stuck-done'); }
+    function isCumulativeLimit() {
+      return Boolean(props.stuckInfo && props.stuckInfo.kind === 'cumulative_limit');
+    }
+    function cumulativeCountLabel() {
+      const c = Number(props.stuckInfo && props.stuckInfo.count) || 0;
+      return c > 0 ? c : '多';
+    }
     return {
       levelLabel, failedReasonLabel, failedErrorSnippet,
       showTokenSection, showFailedSection, showStuckSection, stuckDurationLabel, visible,
-      onCompact, onFork, onRetry, onRetryStuck,
+      isCumulativeLimit, cumulativeCountLabel,
+      onCompact, onFork, onRetry, onRetryStuck, onForceStuck, onMarkStuckDone,
     };
   },
   template: `
@@ -130,20 +143,43 @@ export const ContextUsageBanner = {
       <div
         v-if="showStuckSection()"
         class="context-usage-banner-stuck"
+        :class="isCumulativeLimit() ? 'is-cumulative-limit' : 'is-normal'"
         data-testid="thread-stuck-row"
       >
         <span class="context-usage-banner-icon" aria-hidden="true">⏱</span>
-        <span class="context-usage-banner-msg">
+        <span v-if="isCumulativeLimit()" class="context-usage-banner-msg">
+          watchdog 已尝试推进 <strong>{{ cumulativeCountLabel() }} 次</strong> 仍未完成，已停止自动戳—建议人工介入（检查 agent 是否卡在某個回合）。
+        </span>
+        <span v-else class="context-usage-banner-msg">
           agent 似乎卡住 <strong>{{ stuckDurationLabel() }}</strong> — 后端事件流停滞，可手动发送一句“继续”。
         </span>
-        <button
-          type="button"
-          class="btn btn-primary btn-xs context-usage-banner-action"
-          data-testid="thread-stuck-poke-btn"
-          :disabled="pokingStuck"
-          :title="pokingStuck ? '发送中…' : '发送一句继续促 agent 推进'"
-          @click="onRetryStuck"
-        >{{ pokingStuck ? '发送中…' : '继续' }}</button>
+        <template v-if="!isCumulativeLimit()">
+          <button
+            type="button"
+            class="btn btn-primary btn-xs context-usage-banner-action"
+            data-testid="thread-stuck-poke-btn"
+            :disabled="pokingStuck"
+            :title="pokingStuck ? '发送中…' : '发送一句继续促 agent 推进'"
+            @click="onRetryStuck"
+          >{{ pokingStuck ? '发送中…' : '继续' }}</button>
+        </template>
+        <template v-else>
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs context-usage-banner-action"
+            data-testid="thread-stuck-force-btn"
+            :disabled="pokingStuck"
+            title="忽略累计上限再戳一次"
+            @click="onForceStuck"
+          >再戳一次（force）</button>
+          <button
+            type="button"
+            class="btn btn-primary btn-xs context-usage-banner-action"
+            data-testid="thread-stuck-mark-done-btn"
+            title="标记已完成，清空累计与卡住状态"
+            @click="onMarkStuckDone"
+          >标记完成</button>
+        </template>
       </div>
     </div>
   `,

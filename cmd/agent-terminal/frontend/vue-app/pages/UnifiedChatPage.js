@@ -357,8 +357,23 @@ function createPageThreadWatchdog(props, threadStore, selectedThreadId) {
     try {
       await threadStore.sendMessage(id, '继续', [], {});
       wd.stuckByThread.value.delete(id);
-    } catch (_) { /* 错误显示靠现有 thread status，不在 banner 重弹 */ }
+    } catch (_) { /* swallow */ }
     finally { pokingStuckThread.value = false; }
+  }
+  async function onForceStuckThread() {
+    // 累计上限时用户强制再戳一次：clear cumulative count + clear stuck 后再戳。
+    const id = (selectedThreadId.value || '').toString().trim();
+    if (!id || pokingStuckThread.value) return;
+    wd.resetCumulativePokeCount(id);
+    wd.clearStuck(id);
+    await onRetryStuckThread();
+  }
+  function onMarkStuckDone() {
+    // 标记完成：清空累计 + 卡住状态，不发消息。
+    const id = (selectedThreadId.value || '').toString().trim();
+    if (!id) return;
+    wd.resetCumulativePokeCount(id);
+    wd.clearStuck(id);
   }
   return {
     threadWatchdogStop: wd.stop,
@@ -366,6 +381,8 @@ function createPageThreadWatchdog(props, threadStore, selectedThreadId) {
     activeStuckInfo,
     pokingStuckThread,
     onRetryStuckThread,
+    onForceStuckThread,
+    onMarkStuckDone,
   };
 }
 
