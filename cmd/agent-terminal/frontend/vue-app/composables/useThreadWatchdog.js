@@ -23,6 +23,7 @@ import { useThreadWatchdogPref } from './useThreadWatchdogPref.js';
 const WORKING_STATUS_SET = new Set(['thinking', 'responding', 'running', 'editing', 'syncing']);
 const SCAN_INTERVAL_MS = 60_000;
 const STALL_THRESHOLD_MS = 180_000;
+const CUMULATIVE_POKE_LIMIT = 5;  // Phase 1.7f：per-thread 累计戳 ≥ 此值后停止自动戳，等用户介入
 
 function isWorkingStatus(status) {
   return WORKING_STATUS_SET.has((status || '').toString().toLowerCase());
@@ -40,6 +41,9 @@ export function useThreadWatchdog(opts = {}) {
   const threadStore = opts.threadStore || null;
   const sendMessage = typeof opts.sendMessage === 'function' ? opts.sendMessage : null;
   const stuckByThread = ref(new Map());
+  // Phase 1.7f：per-thread 累计戳次数（区分 watchdog 自动戳 vs 用户主动）；
+  // 持久化（写共享文件）暂未实现，进程重启后重置——followup。
+  const cumulativePokeCountByThread = ref(new Map());
 
   let timer = null;
   let now = () => Date.now();
@@ -58,15 +62,26 @@ export function useThreadWatchdog(opts = {}) {
   const prefRef = opts.prefRef || useThreadWatchdogPref();
 
   function pokeTaskThread(tid, taskId, elapsed) {
+    const prev = cumulativePokeCountByThread.value.get(tid) || 0;
+    const next = prev + 1;
+    if (next > CUMULATIVE_POKE_LIMIT) {
+      // 累计上限触达：停止自动戳，升级 stuckByThread 让 banner 显示"建议人工介入"
+      logInfo('ui', 'thread_watchdog.cumulative_limit', {
+        thread_id: tid, task_id: taskId, count: prev, limit: CUMULATIVE_POKE_LIMIT,
+      });
+      stuckByThread.value.set(tid, { kind: 'cumulative_limit', count: prev, stuckSinceTs: now() });
+      return;
+    }
+    cumulativePokeCountByThread.value.set(tid, next);
     logInfo('ui', 'thread_watchdog.poke.task_auto', {
-      thread_id: tid, task_id: taskId, stall_ms: elapsed,
+      thread_id: tid, task_id: taskId, stall_ms: elapsed, count: next, source: 'watchdog',
     });
     safeSendMessage(sendMessage, tid);
   }
 
   function markStuck(tid, ts, elapsed) {
     logInfo('ui', 'thread_watchdog.stuck', { thread_id: tid, stall_ms: elapsed });
-    stuckByThread.value.set(tid, ts);
+    stuckByThread.value.set(tid, { kind: 'normal', stuckSinceTs: ts });
   }
 
   function processThread(tid, lastTs, ts) {
@@ -111,11 +126,23 @@ export function useThreadWatchdog(opts = {}) {
     if (timer != null) { clearInterval(timer); timer = null; }
   }
 
+  function resetCumulativePokeCount(tid) {
+    if (!tid) return;
+    cumulativePokeCountByThread.value.delete(tid);
+  }
+  function clearStuck(tid) {
+    if (!tid) return;
+    stuckByThread.value.delete(tid);
+  }
+
   return {
     stuckByThread,
+    cumulativePokeCountByThread,
+    resetCumulativePokeCount,
+    clearStuck,
     start,
     stop,
-    _setNowForTest: (fn) => { if (typeof fn === 'function') now = fn; },
+    _setNowForTest: (fn) => { if (typeof fn === "function") { now = fn; gate._setNowForTest(fn); } },
     _scanForTest: () => scan(),
     _setIntervalsForTest: ({ scanMs, stallMs } = {}) => {
       if (typeof scanMs === 'number') scanIntervalMs = scanMs;
@@ -128,4 +155,5 @@ export const _USE_THREAD_WATCHDOG_CONSTANTS = Object.freeze({
   WORKING_STATUS_SET,
   SCAN_INTERVAL_MS,
   STALL_THRESHOLD_MS,
+  CUMULATIVE_POKE_LIMIT,
 });

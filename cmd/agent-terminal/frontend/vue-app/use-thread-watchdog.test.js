@@ -109,7 +109,7 @@ describe('useThreadWatchdog · 双分流', () => {
     wd._scanForTest();
     expect(sendMessage).not.toHaveBeenCalled();
     expect(wd.stuckByThread.value.has('t1')).toBe(true);
-    expect(wd.stuckByThread.value.get('t1')).toBe(now);
+    expect(wd.stuckByThread.value.get('t1')).toEqual({ kind: 'normal', stuckSinceTs: now });
   });
 });
 
@@ -229,5 +229,82 @@ describe('useThreadWatchdog · Phase 1.7c 集成（注入 prefRef）', () => {
     wd._scanForTest();
     // gate 节流命中（60s 内已戳过）→ sendMessage 不再调
     expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useThreadWatchdog · Phase 1.7f 累计上限兜底', () => {
+  it('累计戳 < 5 次正常调 sendMessage', () => {
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const store = makeStore({
+      lastEventTsByThread: { t1: now - K.STALL_THRESHOLD_MS - 1 },
+      statuses: { t1: 'thinking' },
+      agentRuntimeById: { t1: { taskId: 'task' } },
+    });
+    const prefRef = { value: true };
+    const wd = useThreadWatchdog({ threadStore: store, sendMessage, prefRef });
+    let cur = now;
+    wd._setNowForTest(() => cur);
+    // 跑 5 次扫描；每次推进时间避开 gate 节流（>60s）+ 重新设 stall
+    for (let i = 0; i < 5; i++) {
+      cur += 70_000; // 越过 per-thread gate 60s
+      store.state.lastEventTsByThread.t1 = cur - K.STALL_THRESHOLD_MS - 1;
+      wd._scanForTest();
+    }
+    expect(sendMessage).toHaveBeenCalledTimes(5);
+    expect(wd.cumulativePokeCountByThread.value.get('t1')).toBe(5);
+  });
+
+  it('累计戳 >= 5 次后停止自动戳，写 cumulative_limit', () => {
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const store = makeStore({
+      lastEventTsByThread: { t1: now - K.STALL_THRESHOLD_MS - 1 },
+      statuses: { t1: 'thinking' },
+      agentRuntimeById: { t1: { taskId: 'task' } },
+    });
+    const prefRef = { value: true };
+    const wd = useThreadWatchdog({ threadStore: store, sendMessage, prefRef });
+    let cur = now;
+    wd._setNowForTest(() => cur);
+    // 跑 6 次扫描
+    for (let i = 0; i < 6; i++) {
+      cur += 70_000;
+      store.state.lastEventTsByThread.t1 = cur - K.STALL_THRESHOLD_MS - 1;
+      wd._scanForTest();
+    }
+    // 第 6 次应该被累计上限挡住
+    expect(sendMessage).toHaveBeenCalledTimes(K.CUMULATIVE_POKE_LIMIT);
+    const stuck = wd.stuckByThread.value.get('t1');
+    expect(stuck.kind).toBe('cumulative_limit');
+    expect(stuck.count).toBe(K.CUMULATIVE_POKE_LIMIT);
+  });
+
+  it('resetCumulativePokeCount 清计数让 thread 可继续戳', () => {
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const store = makeStore({
+      lastEventTsByThread: { t1: now - K.STALL_THRESHOLD_MS - 1 },
+      statuses: { t1: 'thinking' },
+      agentRuntimeById: { t1: { taskId: 'task' } },
+    });
+    const prefRef = { value: true };
+    const wd = useThreadWatchdog({ threadStore: store, sendMessage, prefRef });
+    let cur = now;
+    wd._setNowForTest(() => cur);
+    for (let i = 0; i < 6; i++) {
+      cur += 70_000;
+      store.state.lastEventTsByThread.t1 = cur - K.STALL_THRESHOLD_MS - 1;
+      wd._scanForTest();
+    }
+    expect(sendMessage).toHaveBeenCalledTimes(K.CUMULATIVE_POKE_LIMIT);
+    // 用户主动 reset
+    wd.resetCumulativePokeCount('t1');
+    wd.clearStuck('t1');
+    cur += 70_000;
+    store.state.lastEventTsByThread.t1 = cur - K.STALL_THRESHOLD_MS - 1;
+    wd._scanForTest();
+    expect(sendMessage).toHaveBeenCalledTimes(K.CUMULATIVE_POKE_LIMIT + 1);
+  });
+
+  it('CUMULATIVE_POKE_LIMIT 数值锁定（防回归）', () => {
+    expect(K.CUMULATIVE_POKE_LIMIT).toBe(5);
   });
 });
