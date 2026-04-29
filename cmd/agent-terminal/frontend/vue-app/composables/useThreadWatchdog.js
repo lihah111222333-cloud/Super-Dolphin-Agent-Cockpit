@@ -6,13 +6,13 @@
 //
 // 触发条件：
 //   status ∈ working类（thinking/responding/running/editing/syncing） &&
-//   now - lastEventTsByThread[tid] > STALL_THRESHOLD_MS
+//   now - lastBackendEventAtByThread[tid] > STALL_THRESHOLD_MS
 //
 // 双分流：
 //   有 runtime.taskId（task thread）→ 自动调 sendMessage(tid, "继续") + log task_auto
 //   无 taskId（普通对话）→ 写 stuckByThread.set(tid, now) 留给 1.7d banner 渲染
 //
-// 触发后立即 lastEventTsByThread[tid] = now 重置（节流闸：60s 内不会再戳同 thread）。
+// 触发后立即 lastBackendEventAtByThread[tid] = now 重置（节流闸：60s 内不会再戳同 thread）。
 // 闸门 / 偏好 / 累计兜底由后续 1.7c / 1.7e / 1.7f 加。
 
 import { ref } from '../../lib/vue.esm-browser.prod.js';
@@ -90,7 +90,9 @@ export function useThreadWatchdog(opts = {}) {
     if (!isWorkingStatus(status)) return;
     const elapsed = ts - lastTs;
     if (elapsed <= stallThresholdMs) return;
-    threadStore.state.lastEventTsByThread[tid] = ts;
+    // Phase 1.7b: 不再重置 lastBackendEventAtByThread —— 节流由 gate 私有
+    // lastPokeTsByThread 负责（thread-watchdog-gating.js）；保留真实 backend
+    // 事件时间，让"180s 没收到事件"的判断不被 watchdog 自己的戳污染。
     if (!prefRef.value) {
       logInfo('ui', 'thread_watchdog.skipped_by_pref', { thread_id: tid });
       return;
@@ -112,7 +114,7 @@ export function useThreadWatchdog(opts = {}) {
   function scan() {
     if (!threadStore || !threadStore.state) return;
     const ts = now();
-    const lastMap = threadStore.state.lastEventTsByThread || {};
+    const lastMap = threadStore.state.lastBackendEventAtByThread || {};
     for (const tid of Object.keys(lastMap)) {
       processThread(tid, Number(lastMap[tid]) || 0, ts);
     }
