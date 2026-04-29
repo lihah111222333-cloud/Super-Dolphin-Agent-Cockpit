@@ -10,15 +10,13 @@ import (
 )
 
 func TestBuildTurnStartParams(t *testing.T) {
-	t.Setenv("SKILL_WRITER_FORMAT", "v1")
-
 	req := dto.TurnRequest{
 		Inputs: []dto.InputItem{
 			{Type: "text", Content: "hello"},
 		},
 		Skills: []dto.SkillRef{
-			// P20.18 Phase 1.5 v2 (B 路)：显式 Mode=Full 以 opt-out 默认 Summary override，
-			// 保留 P20.2 §4 的 v1 envelope 渲染语义。
+			// Skill metadata is now injected into baseInstructions (P3 Task 5);
+			// per-turn skill body inlining is removed. SelectedSkills still forwarded.
 			{Name: "planner", Mode: dto.SkillModeFull, Prompt: "use the planner"},
 			{Name: " reviewer ", Mode: dto.SkillModeFull},
 		},
@@ -31,11 +29,10 @@ func TestBuildTurnStartParams(t *testing.T) {
 	}
 
 	got := buildTurnStartParams("thread-1", req)
-	// P20.2 §4：name-list 与 block 同时出现；reviewer 没 body 也不会再被 silent drop。
-	skillText := "skills:\n- planner\n- reviewer\n\n[skill:planner::full@v1]\nuse the planner\n[/skill:planner::full@v1]"
+	// No per-turn skill block: Input contains only the user text.
 	want := turnStartParams{
 		ThreadID:             "thread-1",
-		Input:                []turnInputItem{{Type: "text", Text: skillText, Content: skillText}, {Type: "text", Text: "hello", Content: "hello"}},
+		Input:                []turnInputItem{{Type: "text", Text: "hello", Content: "hello"}},
 		SelectedSkills:       []string{"planner", "reviewer"},
 		ManualSkillSelection: true,
 		Model:                "gpt-5.5",
@@ -103,15 +100,13 @@ func testAttachmentTime() time.Time {
 }
 
 func TestBuildTurnSteerParams(t *testing.T) {
-	t.Setenv("SKILL_WRITER_FORMAT", "v1")
-
 	req := dto.SteerRequest{
 		ExpectedTurnID: " turn-1 ",
 		Inputs: []dto.InputItem{
 			{Type: "text", Content: "hello"},
 		},
 		Skills: []dto.SkillRef{
-			// P20.18 Phase 1.5 v2 (B 路)：显式 Mode=Full 以 opt-out 默认 Summary override。
+			// Skill metadata is now in baseInstructions; no per-turn body injection.
 			{Name: "planner", Mode: dto.SkillModeFull, Prompt: "use the planner"},
 			{Name: " reviewer ", Mode: dto.SkillModeFull},
 		},
@@ -122,12 +117,11 @@ func TestBuildTurnSteerParams(t *testing.T) {
 	}
 
 	got := buildTurnSteerParams("thread-1", req)
-	// P20.2 §4：name-list 与 block 同时出现。
-	skillText := "skills:\n- planner\n- reviewer\n\n[skill:planner::full@v1]\nuse the planner\n[/skill:planner::full@v1]"
+	// No per-turn skill block: input contains only the user text.
 	want := map[string]any{
 		"threadId":             "thread-1",
 		"expectedTurnId":       "turn-1",
-		"input":                []turnInputItem{{Type: "text", Text: skillText, Content: skillText}, {Type: "text", Text: "hello", Content: "hello"}},
+		"input":                []turnInputItem{{Type: "text", Text: "hello", Content: "hello"}},
 		"selectedSkills":       []string{"planner", "reviewer"},
 		"manualSkillSelection": true,
 	}

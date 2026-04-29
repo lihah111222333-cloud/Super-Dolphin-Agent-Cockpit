@@ -37,11 +37,7 @@ type turnStartResult struct {
 
 func buildTurnStartParams(threadID string, req dto.TurnRequest) turnStartParams {
 	selectedSkills := selectedSkillNames(req.Skills)
-	// P20.18 Phase 1.5：codexapp 路径只把 Mode=Unspecified 默认翻为 Summary，
-	// 开启 progressive-disclosure；显式 Full / Summary / None 一律尊重。
-	// claudecli 路径不走本函数，保持 Full/eager 原状。详见 skill_mode_override.go 上下文。
-	skills := overrideSkillsToSummary(req.Skills)
-	inputs := turnInputsFromRequest(req.Inputs, skills, req.TurnAssembly)
+	inputs := turnInputsFromRequest(req.Inputs, req.Skills, req.TurnAssembly)
 	return turnStartParams{
 		ThreadID:             threadID,
 		Input:                inputs,
@@ -54,12 +50,10 @@ func buildTurnStartParams(threadID string, req dto.TurnRequest) turnStartParams 
 }
 
 func buildTurnSteerParams(threadID string, req dto.SteerRequest) map[string]any {
-	// P20.18 Phase 1.5：与 buildTurnStartParams 同理，只把 Unspecified 默认翻为 Summary。
-	skills := overrideSkillsToSummary(req.Skills)
 	params := map[string]any{
 		"threadId":       threadID,
 		"expectedTurnId": strings.TrimSpace(req.ExpectedTurnID),
-		"input":          turnInputsFromRequest(req.Inputs, skills, req.TurnAssembly),
+		"input":          turnInputsFromRequest(req.Inputs, req.Skills, req.TurnAssembly),
 	}
 	if selectedSkills := selectedSkillNames(req.Skills); len(selectedSkills) > 0 {
 		params["selectedSkills"] = selectedSkills
@@ -96,9 +90,6 @@ func selectedSkillNames(skills []dto.SkillRef) []string {
 
 func turnInputsFromRequest(inputs []dto.InputItem, skills []dto.SkillRef, assembly dto.TurnAssembly) []turnInputItem {
 	items := make([]turnInputItem, 0, len(inputs)+len(assembly.Attachments)+3)
-	if skillPrompt, ok := buildSkillPromptInput(skills); ok {
-		items = append(items, skillPrompt)
-	}
 	// NOTE: system-reminder (currentDate, runtimeExtras) and SystemContext (git status)
 	// are now injected once via baseInstructions in thread/start.
 	// Removed per-turn RenderUserContextMessage and FormatSystemContextBlock to save tokens.
