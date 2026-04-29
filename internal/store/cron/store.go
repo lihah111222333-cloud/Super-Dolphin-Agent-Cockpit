@@ -19,6 +19,7 @@ type querier interface {
 	DeleteCronJob(ctx context.Context, id string) error
 	UpdateCronJobSchedule(ctx context.Context, arg sqlc.UpdateCronJobScheduleParams) error
 	SetCronJobEnabled(ctx context.Context, arg sqlc.SetCronJobEnabledParams) error
+	PatchCronJobNextRunAt(ctx context.Context, arg sqlc.PatchCronJobNextRunAtParams) error
 	ClaimDueJobs(ctx context.Context, arg sqlc.ClaimDueJobsParams) ([]sqlc.CronJob, error)
 	RenewLease(ctx context.Context, arg sqlc.RenewLeaseParams) (int64, error)
 	ExtendClaim(ctx context.Context, arg sqlc.ExtendClaimParams) (int64, error)
@@ -206,6 +207,18 @@ func (s *store) SetJobEnabled(ctx context.Context, id string, enabled bool, now 
 		UpdatedAt: ts(now),
 		ID:        id,
 	}), "set_job_enabled")
+}
+
+func (s *store) PatchNextRunAt(ctx context.Context, id string, nextRunAt time.Time, now time.Time) error {
+	id, err := requireID(id)
+	if err != nil {
+		return wrap(err, "patch_next_run_at")
+	}
+	return wrap(s.q.PatchCronJobNextRunAt(ctx, sqlc.PatchCronJobNextRunAtParams{
+		NextRunAt: ts(nextRunAt),
+		UpdatedAt: ts(now),
+		ID:        id,
+	}), "patch_next_run_at")
 }
 
 // ----- claim / lease -----

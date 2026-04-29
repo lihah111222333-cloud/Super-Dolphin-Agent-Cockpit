@@ -69,6 +69,14 @@ SET enabled    = sqlc.arg(enabled),
     updated_at = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id);
 
+-- name: PatchCronJobNextRunAt :exec
+-- Narrow update used by RunOnce: only touches next_run_at + updated_at
+-- without overwriting any other field, avoiding a read-modify-write race.
+UPDATE cron_jobs
+SET next_run_at = sqlc.arg(next_run_at),
+    updated_at  = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id);
+
 -- Claim / lease -----------------------------------------------------
 
 -- ClaimDueJobs marks up to `limit` due rows as claimed by `claimed_by`.

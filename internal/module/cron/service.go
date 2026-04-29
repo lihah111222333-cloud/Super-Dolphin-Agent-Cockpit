@@ -234,24 +234,10 @@ func (s *service) RunOnce(ctx context.Context, jobID string) (Job, error) {
 		return Job{}, err
 	}
 	now := s.now().UTC()
-	if err := s.store.UpdateJobSchedule(ctx, cronstore.UpdateJobScheduleParams{
-		ID:            row.ID,
-		Name:          row.Name,
-		Prompt:        row.Prompt,
-		ScheduleType:  row.ScheduleType,
-		ScheduleExpr:  row.ScheduleExpr,
-		Timezone:      row.Timezone,
-		Provider:      row.Provider,
-		Model:         row.Model,
-		CWD:           row.CWD,
-		Config:        row.Config,
-		Skills:        row.Skills,
-		NotifyChannel: row.NotifyChannel,
-		Enabled:       row.Enabled,
-		NextRunAt:     now,
-		MaxAttempts:   row.MaxAttempts,
-		UpdatedAt:     now,
-	}); err != nil {
+	if !row.Enabled {
+		return Job{}, ErrJobDisabled
+	}
+	if err := s.store.PatchNextRunAt(ctx, row.ID, now, now); err != nil {
 		return Job{}, err
 	}
 	return s.GetJob(ctx, row.ID)

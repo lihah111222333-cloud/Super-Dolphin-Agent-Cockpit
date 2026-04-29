@@ -76,6 +76,9 @@ func (s *cronQuerierStub) SetCronJobEnabled(ctx context.Context, a sqlc.SetCronJ
 	}
 	return nil
 }
+func (s *cronQuerierStub) PatchCronJobNextRunAt(ctx context.Context, a sqlc.PatchCronJobNextRunAtParams) error {
+	return nil
+}
 func (s *cronQuerierStub) ClaimDueJobs(ctx context.Context, a sqlc.ClaimDueJobsParams) ([]sqlc.CronJob, error) {
 	if s.claimFn != nil {
 		return s.claimFn(ctx, a)

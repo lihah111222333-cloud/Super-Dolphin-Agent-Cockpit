@@ -47,6 +47,7 @@ type fakeStore struct {
 	updateFn        func(context.Context, cronstore.UpdateJobScheduleParams) error
 	setEnabledFn    func(context.Context, string, bool, time.Time) error
 	listRunsByJobFn func(context.Context, string, int32) ([]cronstore.Run, error)
+	patchNextRunAtFn func(context.Context, string, time.Time, time.Time) error
 }
 
 func (f *fakeStore) CreateJob(ctx context.Context, p cronstore.CreateJobParams) (cronstore.Job, error) {
@@ -55,6 +56,13 @@ func (f *fakeStore) CreateJob(ctx context.Context, p cronstore.CreateJobParams) 
 	}
 	return cronstore.Job{ID: p.ID, Name: p.Name, Provider: p.Provider, CWD: p.CWD}, nil
 }
+func (f *fakeStore) PatchNextRunAt(ctx context.Context, id string, nextRunAt time.Time, now time.Time) error {
+	if f.patchNextRunAtFn != nil {
+		return f.patchNextRunAtFn(ctx, id, nextRunAt, now)
+	}
+	return nil
+}
+
 func (f *fakeStore) GetJobByID(ctx context.Context, id string) (cronstore.Job, error) {
 	if f.getByIDFn != nil {
 		return f.getByIDFn(ctx, id)
@@ -419,7 +427,8 @@ func TestRunOnceBumpsNextRunAtPreservingOtherFields(t *testing.T) {
 		MaxAttempts:   3,
 	}
 
-	var got cronstore.UpdateJobScheduleParams
+	var gotID string
+	var gotNextRunAt time.Time
 	store := &fakeStore{
 		getByIDFn: func(_ context.Context, id string) (cronstore.Job, error) {
 			if id != "job-1" {
@@ -427,8 +436,9 @@ func TestRunOnceBumpsNextRunAtPreservingOtherFields(t *testing.T) {
 			}
 			return job, nil
 		},
-		updateFn: func(_ context.Context, p cronstore.UpdateJobScheduleParams) error {
-			got = p
+		patchNextRunAtFn: func(_ context.Context, id string, nextRunAt time.Time, _ time.Time) error {
+			gotID = id
+			gotNextRunAt = nextRunAt
 			return nil
 		},
 	}
@@ -436,16 +446,11 @@ func TestRunOnceBumpsNextRunAtPreservingOtherFields(t *testing.T) {
 	if _, err := svc.RunOnce(context.Background(), "job-1"); err != nil {
 		t.Fatalf("RunOnce error: %v", err)
 	}
-	if !got.NextRunAt.Equal(now) {
-		t.Fatalf("NextRunAt = %v, want %v", got.NextRunAt, now)
+	if gotID != "job-1" {
+		t.Fatalf("PatchNextRunAt id = %q, want job-1", gotID)
 	}
-	// Other fields must round-trip from the stored row unchanged.
-	if got.Name != job.Name || got.ScheduleExpr != job.ScheduleExpr ||
-		got.Timezone != job.Timezone || got.Provider != job.Provider ||
-		got.Model != job.Model || got.CWD != job.CWD ||
-		got.NotifyChannel != job.NotifyChannel || got.Enabled != job.Enabled ||
-		got.MaxAttempts != job.MaxAttempts {
-		t.Fatalf("RunOnce mutated unrelated fields: %+v", got)
+	if !gotNextRunAt.Equal(now) {
+		t.Fatalf("NextRunAt = %v, want %v", gotNextRunAt, now)
 	}
 }
 
@@ -468,5 +473,19 @@ func TestRunOnceRejectsEmptyID(t *testing.T) {
 	svc := newTestService(t, nil)
 	if _, err := svc.RunOnce(context.Background(), "  "); err == nil {
 		t.Fatal("RunOnce should reject blank id")
+	}
+}
+
+func TestRunOnceRejectsDisabledJob(t *testing.T) {
+	t.Parallel()
+	store := &fakeStore{
+		getByIDFn: func(context.Context, string) (cronstore.Job, error) {
+			return cronstore.Job{ID: "job-1", Enabled: false}, nil
+		},
+	}
+	svc := newTestService(t, store)
+	_, err := svc.RunOnce(context.Background(), "job-1")
+	if !errors.Is(err, ErrJobDisabled) {
+		t.Fatalf("want ErrJobDisabled, got %v", err)
 	}
 }

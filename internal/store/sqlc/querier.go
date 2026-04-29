@@ -162,6 +162,9 @@ type Querier interface {
 	MarkSkillCandidatePromoted(ctx context.Context, id int64) (SkillCandidate, error)
 	MarkSkillCandidatesSuperseded(ctx context.Context, arg MarkSkillCandidatesSupersededParams) (int64, error)
 	MarkTurnDedupeTerminal(ctx context.Context, arg MarkTurnDedupeTerminalParams) error
+	// Narrow update used by RunOnce: only touches next_run_at + updated_at
+	// without overwriting any other field, avoiding a read-modify-write race.
+	PatchCronJobNextRunAt(ctx context.Context, arg PatchCronJobNextRunAtParams) error
 	// Runtime SQL template from V2 DBQueryStore.Query:
 	// WITH q AS (<runtime read-only SQL>) SELECT * FROM q LIMIT $1;
 	// A true sqlc query cannot represent a runtime-supplied SELECT shape, so this

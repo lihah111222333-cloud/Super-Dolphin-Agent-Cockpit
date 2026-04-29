@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
+	"time"
 
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
@@ -466,7 +467,7 @@ func cronJobRunStateChangedPayload(ev crondto.JobRunStateChanged) map[string]any
 	setString(payload, "turn_id", ev.TurnID)
 	setString(payload, "error", ev.Error)
 	if !ev.ScheduledAt.IsZero() {
-		payload["scheduled_at"] = ev.ScheduledAt.UTC().Format("2006-01-02T15:04:05.000Z")
+		payload["scheduled_at"] = ev.ScheduledAt.UTC().Format(time.RFC3339)
 	}
 	return payload
 }

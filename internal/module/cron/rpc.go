@@ -235,6 +235,7 @@ func mapRPCError(err error) error {
 		errors.Is(err, ErrInvalidMaxAttempts),
 		errors.Is(err, ErrInvalidConfig),
 		errors.Is(err, ErrProviderNotSupported),
+		errors.Is(err, ErrJobDisabled),
 		errors.Is(err, cronstore.ErrEmptyID),
 		errors.Is(err, cronstore.ErrEmptyCWD),
 		errors.Is(err, cronstore.ErrEmptyProvider),

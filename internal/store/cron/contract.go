@@ -60,6 +60,10 @@ type Store interface {
 	UpdateJobSchedule(ctx context.Context, params UpdateJobScheduleParams) error
 	SetJobEnabled(ctx context.Context, id string, enabled bool, now time.Time) error
 
+	// PatchNextRunAt is a narrow update that only touches next_run_at +
+	// updated_at, used by RunOnce to avoid a full-row read-modify-write.
+	PatchNextRunAt(ctx context.Context, id string, nextRunAt time.Time, now time.Time) error
+
 	// ClaimDueJobs atomically selects + marks up to limit rows where
 	// COALESCE(next_retry_at, next_run_at) <= now and the claim is either
 	// unheld or expired. leaseTTL sets lease_expires_at = now + leaseTTL.

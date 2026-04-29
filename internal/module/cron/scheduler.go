@@ -295,7 +295,7 @@ func (s *Scheduler) driveJob(ctx context.Context, job cronstore.Job) error {
 	if err != nil {
 		return err
 	}
-	if err := s.markRunSubmitting(ctx, run.ID); err != nil {
+	if err := s.markRunSubmitting(ctx, job.ID, run.ID, scheduledAt); err != nil {
 		return err
 	}
 	startResult, err := s.submitter.StartTurn(ctx, buildStartTurnRequest(job, run.ID, dedupe, scheduledAt))
@@ -337,7 +337,7 @@ func (s *Scheduler) createPendingRun(ctx context.Context, job cronstore.Job, sch
 	return run, dedupe, err
 }
 
-func (s *Scheduler) markRunSubmitting(ctx context.Context, runID string) error {
+func (s *Scheduler) markRunSubmitting(ctx context.Context, jobID, runID string, scheduledAt time.Time) error {
 	if err := s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
 		ID:             runID,
 		ExpectedStatus: cronstore.StatusPending,
@@ -346,7 +346,7 @@ func (s *Scheduler) markRunSubmitting(ctx context.Context, runID string) error {
 	}); err != nil {
 		return err
 	}
-	s.publishRunState("", runID, cronstore.StatusSubmitting, "", "", time.Time{})
+	s.publishRunState(jobID, runID, cronstore.StatusSubmitting, "", "", scheduledAt)
 	return nil
 }
 
