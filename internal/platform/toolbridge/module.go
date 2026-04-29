@@ -78,12 +78,12 @@ type handlerIn struct {
 	HostTools HostToolRegistry `optional:"true"`
 }
 
-// provideHostToolRegistry 把 agent-terminal fx 图中已有的 skill.Service 包装成
+// provideHostToolRegistry 把 agent-terminal fx 图中已有的 skill host-tool 窄端口包装成
 // HostToolRegistry。当前输入不是 optional；standalone 进程若未来也加载
-// toolbridge.Module，必须先把 skill.Service 输入改成 optional fx.In 或提供 noop registry。
+// toolbridge.Module，必须先把该输入改成 optional fx.In 或提供 noop registry。
 //
 // 本函数返回 HostToolRegistry 接口（不是具体类型），避免 fx 装配端要求 Handler 依赖 *SkillHostTools。
-func provideHostToolRegistry(svc skillpkg.Service) HostToolRegistry {
+func provideHostToolRegistry(svc skillpkg.SkillHostToolReader) HostToolRegistry {
 	if svc == nil {
 		return nil
 	}

@@ -18,7 +18,7 @@ func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 // Unlike V2's DAG-specific WithDAGTx helper, it does not pre-lock the DAG row
 // or node rows with FOR UPDATE; callers must explicitly use the *_ForUpdate
 // accessors inside the transaction when they need serialized DAG mutation.
-func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error {
+func (s *store) WithTx(ctx context.Context, fn func(txStore DAGMutationStore) error) error {
 	return wrapTaskDAGError(sqlc.WithTx(ctx, s.q, func(txq *sqlc.Queries) error {
 		return fn(&store{q: txq})
 	}), "with_tx", "task_dag")

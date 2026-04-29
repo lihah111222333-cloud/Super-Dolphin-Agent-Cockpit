@@ -470,7 +470,7 @@ func lookupAgentBySeqLocked(
 	return agent, nil
 }
 
-func (s *service) withDAGStore(fn func(taskdag.Store) error) error {
+func (s *service) withDAGStore(fn func(taskdag.OrchestrationStore) error) error {
 	if s == nil || s.dagStore == nil {
 		return errors.New("dag store is not configured")
 	}
