@@ -948,3 +948,50 @@ func TestBackfillResumeRootTaskId(t *testing.T) {
 		}
 	})
 }
+
+func TestEnsureHandoffExists(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil sharedFiles returns error", func(t *testing.T) {
+		t.Parallel()
+		svc := &service{}
+		err := svc.EnsureHandoffExists(context.Background(), "task-X")
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+	})
+
+	t.Run("empty taskID returns error", func(t *testing.T) {
+		t.Parallel()
+		svc := &service{sharedFiles: &stubSharedFileStore{}}
+		err := svc.EnsureHandoffExists(context.Background(), "")
+		if err == nil {
+			t.Fatalf("expected error for empty taskId")
+		}
+	})
+
+	t.Run("handoff file exists returns nil", func(t *testing.T) {
+		t.Parallel()
+		files := &stubSharedFileStore{files: map[string]sharedfilestore.SharedFile{
+			"handoff/tasks/task-A.md": {Path: "handoff/tasks/task-A.md", Content: "# Handoff"},
+		}}
+		svc := &service{sharedFiles: files}
+		err := svc.EnsureHandoffExists(context.Background(), "task-A")
+		if err != nil {
+			t.Fatalf("expected nil, got %v", err)
+		}
+	})
+
+	t.Run("handoff file missing returns wrapped error", func(t *testing.T) {
+		t.Parallel()
+		files := &stubSharedFileStore{files: map[string]sharedfilestore.SharedFile{}}
+		svc := &service{sharedFiles: files}
+		err := svc.EnsureHandoffExists(context.Background(), "task-Z")
+		if err == nil {
+			t.Fatalf("expected error for missing file")
+		}
+		if !strings.Contains(err.Error(), "handoff/tasks/task-Z.md") {
+			t.Fatalf("error should contain path; got %v", err)
+		}
+	})
+}
