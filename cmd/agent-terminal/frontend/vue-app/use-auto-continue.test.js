@@ -605,3 +605,41 @@ describe('useAutoContinue · Phase 1.8a manualAbort 抑制位', () => {
     expect(() => r.clearManualAbort('')).not.toThrow();
   });
 });
+
+describe("useAutoContinue · Phase 1.8b 永久错误识别", () => {
+  it("permanent_unauthenticated 时 fork 不重试（sleepFn 不调）", async () => {
+    const store = makeStore({
+      statuses: { t1: "thinking" },
+      tokenUsageByThread: { t1: { usedPercent: 50 } },
+      agentRuntimeById: { t1: { taskId: "T1", capabilities: [] } },
+    });
+    const sleepSpy = vi.fn().mockResolvedValue(undefined);
+    const r = start(store, {
+      sleepFn: sleepSpy,
+      continueTaskById: vi.fn().mockRejectedValue(new Error("401 invalid_api_key")),
+    });
+    store.state.tokenUsageByThread = { t1: { usedPercent: 99 } };
+    await nextTick();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(sleepSpy).not.toHaveBeenCalled();
+    const fail = r.failedAutoContinueByThread.value.get("t1");
+    expect(fail && fail.permanent_reason).toBe("permanent_unauthenticated");
+  });
+
+  it("非永久错误（连接拒绝）走 retry 路径", async () => {
+    const store = makeStore({
+      statuses: { t1: "thinking" },
+      tokenUsageByThread: { t1: { usedPercent: 50 } },
+      agentRuntimeById: { t1: { taskId: "T1", capabilities: [] } },
+    });
+    const sleepSpy = vi.fn().mockResolvedValue(undefined);
+    const r = start(store, {
+      sleepFn: sleepSpy,
+      continueTaskById: vi.fn().mockRejectedValueOnce(new Error("connection refused")).mockResolvedValue("new-id"),
+    });
+    store.state.tokenUsageByThread = { t1: { usedPercent: 99 } };
+    await nextTick();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(sleepSpy).toHaveBeenCalled();
+  });
+});

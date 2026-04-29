@@ -33,6 +33,28 @@ function getCapabilities(runtime) {
   return caps.map((c) => (c || '').toString().trim().toLowerCase()).filter(Boolean);
 }
 
+// Phase 1.8b：识别 5 类永久错误（不应自动重试，应让用户处理）。
+// 命中返回 'permanent_<type>'；未命中返回空字符串。
+const PERMANENT_ERROR_PATTERNS = Object.freeze([
+  { reason: 'permanent_unauthenticated',     match: /401|unauthoriz|invalid api key|invalid_api_key/i },
+  { reason: 'permanent_forbidden',           match: /403|forbidden|permission denied/i },
+  { reason: 'permanent_quota_exhausted',     match: /quota_exhausted|insufficient_quota|usage limit|out of credits/i },
+  { reason: 'permanent_payment_required',    match: /402|payment_required|subscription expired/i },
+  { reason: 'permanent_context_length_exceeded', match: /context_length_exceeded|context length exceeded|maximum context|prompt is too long/i },
+]);
+
+function classifyPermanentError(err) {
+  if (!err) return '';
+  const obj = (err && typeof err === 'object') ? err : null;
+  const msg = (obj && obj.message) ? obj.message : String(err);
+  const code = obj && (obj.code != null ? obj.code : obj.status);
+  const haystack = String(msg) + ' ' + String(code != null ? code : '');
+  for (const p of PERMANENT_ERROR_PATTERNS) {
+    if (p.match.test(haystack)) return p.reason;
+  }
+  return '';
+}
+
 // R8 fix：原仅取 err.message。如代码/状态可提取也包进去，便于 debug 后台失败。
 function classifyError(err) {
   if (!err) return { error_message: '' };
@@ -41,6 +63,9 @@ function classifyError(err) {
   const out = { error_message: msg.toString().slice(0, 200) };
   const code = obj && (obj.code != null ? obj.code : obj.status);
   if (code != null && code !== '') out.error_code = String(code).slice(0, 50);
+  // Phase 1.8b：永久错误识别
+  const permanent = classifyPermanentError(err);
+  if (permanent) out.permanent_reason = permanent;
   return out;
 }
 
@@ -114,9 +139,17 @@ async function forkWithRetry(ctx, threadId, taskId, kind, stillNeedsContinue) {
     });
     return first;
   }
+  const firstClass = classifyError(first.error);
   logWarn('ui', 'auto_continue.continue.failed', {
-    source_thread_id: threadId, task_id: taskId, kind, retry: false, ...classifyError(first.error),
+    source_thread_id: threadId, task_id: taskId, kind, retry: false, ...firstClass,
   });
+  // Phase 1.8b：永久错误不重试 —— 直接返回 first（带 permanent_reason）让调用方写 reason。
+  if (firstClass.permanent_reason) {
+    logInfo('ui', 'auto_continue.permanent_error.skip_retry', {
+      source_thread_id: threadId, task_id: taskId, reason: firstClass.permanent_reason,
+    });
+    return first;
+  }
   await ctx.sleepFn(FORK_RETRY_DELAY_MS);
   if (!stillNeedsContinue()) {
     logInfo('ui', 'auto_continue.skipped_after_recovered', {
