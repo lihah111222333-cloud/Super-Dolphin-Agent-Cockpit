@@ -59,6 +59,8 @@ function recordFailure(ctx, threadId, info) {
 }
 
 function clearFailure(ctx, threadId) {
+  // Phase 1.8a：fork 成功后顺手清抑制位（用户意图已被新 thread 替代）。
+  if (ctx.manualAbortByThread) ctx.manualAbortByThread.value.delete(threadId);
   if (!ctx.failedRef.value.has(threadId)) return;
   const next = new Map(ctx.failedRef.value);
   next.delete(threadId);
@@ -223,7 +225,11 @@ async function tryRecover(ctx, threadId, taskId) {
 
 async function handleStatusError(ctx, threadId, taskId) {
   if (ctx.inflight.has(threadId)) return;
-  if (getCurrentStatus(ctx, threadId) !== 'error') return;
+  if (getCurrentStatus(ctx, threadId) !== "error") return;
+  if (ctx.manualAbortByThread && ctx.manualAbortByThread.value.has(threadId)) {
+    logInfo("ui", "auto_continue.skipped_manual_abort", { source_thread_id: threadId, task_id: taskId });
+    return;
+  }
   ctx.inflight.add(threadId);
   try {
     if (typeof ctx.threadStore?.recoverThread === 'function') {
@@ -329,6 +335,8 @@ function primeState(ctx) {
 }
 
 async function userRetry(ctx, threadId) {
+  // Phase 1.8a：用户主动点重试 → 抑制位失效。
+  if (ctx.manualAbortByThread) ctx.manualAbortByThread.value.delete(threadId);
   const id = (threadId || '').toString().trim();
   if (!id) return '';
   if (typeof ctx.continueTaskById !== 'function') {
@@ -382,6 +390,7 @@ export function useAutoContinue(opts) {
     inflight: new Set(),
     failedRef: ref(new Map()),
     fuseAlertedRef: ref(false),
+    manualAbortByThread: ref(new Map()),
   };
   primeState(ctx);
   const stopToken = watchTokenLevel(ctx);
@@ -390,5 +399,17 @@ export function useAutoContinue(opts) {
     stop() { stopToken(); stopStatus(); },
     failedAutoContinueByThread: ctx.failedRef,
     retryAutoContinue: (threadId) => userRetry(ctx, threadId),
+    // Phase 1.8a：让外部（stopThread / startThread / fork）显式标记或清除抑制位。
+    markManualAbort: (threadId) => {
+      const id = (threadId || '').toString().trim();
+      if (!id) return;
+      ctx.manualAbortByThread.value.set(id, Date.now());
+      logInfo('ui', 'auto_continue.manual_abort_marked', { thread_id: id });
+    },
+    clearManualAbort: (threadId) => {
+      const id = (threadId || '').toString().trim();
+      if (!id) return;
+      ctx.manualAbortByThread.value.delete(id);
+    },
   };
 }

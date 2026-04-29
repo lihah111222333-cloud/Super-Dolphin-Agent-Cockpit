@@ -680,7 +680,10 @@ export const UnifiedChatPage = {
     const selectThread = (threadId) => selectThreadInPage(selectedThreadId, props.threadStore, threadId);
     const inlineRename = useInlineRename(props, threadCards.visibleChatThreadCards, selectThread);
 
-    const threadActions = createPageThreadActions(props, {
+    // Phase 1.8a：把 autoContinue.markManualAbort 注入到 useThreadActions（需 createPageAutoContinue 在前）。
+    const threadActionsProps = Object.create(props);
+    threadActionsProps.markManualAbort = autoContinue.markManualAbort;
+    const threadActions = createPageThreadActions(threadActionsProps, {
       selectedThreadId, modeKey, isCmd, composer, layoutMode, cmdCardCols,
       compacting: threadStatus.compacting, isThreadInterruptible: threadStatus.isThreadInterruptible,
       beginInlineRename: inlineRename.beginInlineRename, scheduleScrollToBottom,
