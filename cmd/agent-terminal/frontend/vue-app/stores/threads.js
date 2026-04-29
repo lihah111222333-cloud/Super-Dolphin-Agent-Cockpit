@@ -40,7 +40,7 @@ const runtimeRootState = reactive({
   timelinesByThread: {}, diffTextByThread: {}, diffRevisionByThread: {},
   tokenUsageByThread: {}, agentMetaById: {}, agentRuntimeById: {}, mainAgentId: '', mainAgentState: '', partial: false,
   activityStatsByThread: {}, alertsByThread: {}, skillRevision: 0,
-  lastEventTsByThread: {}, // Phase 1.7a watchdog 戳点
+  lastBackendEventAtByThread: {}, // Phase 1.7a watchdog 戳点
 });
 for (const key of THREAD_STORE_RUNTIME_STATE_KEYS) {
   Object.defineProperty(state, key, {

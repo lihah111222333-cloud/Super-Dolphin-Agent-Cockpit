@@ -350,7 +350,7 @@ export function handleBridgeEvent(ctx, evt) {
   if (eventThreadId) {
     const stampTid = normalizeThreadID(eventThreadId);
     if (stampTid) {
-      const map = ctx.state.lastEventTsByThread || (ctx.state.lastEventTsByThread = {});
+      const map = ctx.state.lastBackendEventAtByThread || (ctx.state.lastBackendEventAtByThread = {});
       map[stampTid] = Date.now();
     }
   }
