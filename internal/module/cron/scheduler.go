@@ -468,27 +468,26 @@ func (s *Scheduler) CompleteTurn(ctx context.Context, turnID string, success boo
 	if turnID == "" {
 		return nil
 	}
-	runs, err := s.store.ListUnresolvedRuns(ctx)
+	run, err := s.store.GetRunningRunByTurnID(ctx, turnID)
+	if err != nil {
+		if errors.Is(err, cronstore.ErrJobRunNotFound) {
+			// No running run for this turn — benign duplicate or
+			// already resolved by crash recovery.
+			return nil
+		}
+		return err
+	}
+	job, err := s.store.GetJobByID(ctx, run.JobID)
 	if err != nil {
 		return err
 	}
-	for _, run := range runs {
-		if run.TurnID != turnID || run.Status != cronstore.StatusRunning {
-			continue
-		}
-		job, err := s.store.GetJobByID(ctx, run.JobID)
-		if err != nil {
-			return err
-		}
-		if success {
-			return s.markFinished(ctx, job, run, turnID, run.ScheduledAt)
-		}
-		if strings.TrimSpace(terminalErr) == "" {
-			terminalErr = "cron: turn terminal failure"
-		}
-		return s.markTerminalFailed(ctx, job, run, terminalErr)
+	if success {
+		return s.markFinished(ctx, job, run, turnID, run.ScheduledAt)
 	}
-	return nil
+	if strings.TrimSpace(terminalErr) == "" {
+		terminalErr = "cron: turn terminal failure"
+	}
+	return s.markTerminalFailed(ctx, job, run, terminalErr)
 }
 
 func (s *Scheduler) markTerminalFailed(ctx context.Context, job cronstore.Job, run cronstore.Run, terminalErr string) error {
@@ -553,15 +552,12 @@ func (s *Scheduler) nextRetry(job cronstore.Job, now time.Time) time.Time {
 // scheduler gets to claim the job next tick, which is the intended
 // recovery path.
 func (s *Scheduler) RenewLeases(ctx context.Context) error {
-	jobs, err := s.store.ListJobs(ctx)
+	jobs, err := s.store.ListJobsClaimedBy(ctx, s.cfg.ClaimedBy)
 	if err != nil {
 		return err
 	}
 	now := s.now().UTC()
 	for _, job := range jobs {
-		if job.ClaimedBy != s.cfg.ClaimedBy || job.ClaimToken == "" {
-			continue
-		}
 		err := s.store.RenewLease(ctx, cronstore.LeaseParams{
 			ID:             job.ID,
 			ClaimToken:     job.ClaimToken,
@@ -697,13 +693,13 @@ func (s *Scheduler) ExtendClaimForTurnProgress(ctx context.Context, turnID strin
 	if strings.TrimSpace(turnID) == "" {
 		return nil
 	}
-	jobs, err := s.store.ListJobs(ctx)
+	jobs, err := s.store.ListJobsClaimedBy(ctx, s.cfg.ClaimedBy)
 	if err != nil {
 		return err
 	}
 	now := s.now().UTC()
 	for _, job := range jobs {
-		if job.ClaimedBy != s.cfg.ClaimedBy || job.ActiveTurnID != turnID || job.ClaimToken == "" {
+		if job.ActiveTurnID != turnID {
 			continue
 		}
 		return s.store.ExtendClaim(ctx, cronstore.LeaseParams{ID: job.ID, ClaimToken: job.ClaimToken, LeaseExpiresAt: now.Add(s.cfg.LeaseTTL), Now: now})

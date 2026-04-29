@@ -397,6 +397,40 @@ func (q *Queries) GetCronJobRunByID(ctx context.Context, id string) (CronJobRun,
 	return i, err
 }
 
+const getRunningCronJobRunByTurnID = `-- name: GetRunningCronJobRunByTurnID :one
+SELECT id, job_id, scheduled_at, idempotency_key, dedupe_key, thread_id,
+       agent_id, turn_id, submitted_at, status, error, created_at,
+       updated_at
+FROM cron_job_runs
+WHERE turn_id = $1 AND status = 'running'
+LIMIT 1
+`
+
+// Used by CompleteTurn to locate the active run for a completed turn without
+// scanning all unresolved rows. turn_id is indexed by the dedupe_key B-tree
+// and the status guard ensures only one row can match (at most one run per
+// turn can be in 'running').
+func (q *Queries) GetRunningCronJobRunByTurnID(ctx context.Context, turnID string) (CronJobRun, error) {
+	row := q.db.QueryRow(ctx, getRunningCronJobRunByTurnID, turnID)
+	var i CronJobRun
+	err := row.Scan(
+		&i.ID,
+		&i.JobID,
+		&i.ScheduledAt,
+		&i.IdempotencyKey,
+		&i.DedupeKey,
+		&i.ThreadID,
+		&i.AgentID,
+		&i.TurnID,
+		&i.SubmittedAt,
+		&i.Status,
+		&i.Error,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const insertCronJobRun = `-- name: InsertCronJobRun :one
 
 INSERT INTO cron_job_runs (
@@ -516,6 +550,73 @@ ORDER BY created_at DESC, id DESC
 
 func (q *Queries) ListCronJobs(ctx context.Context) ([]CronJob, error) {
 	rows, err := q.db.Query(ctx, listCronJobs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CronJob{}
+	for rows.Next() {
+		var i CronJob
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Prompt,
+			&i.ScheduleType,
+			&i.ScheduleExpr,
+			&i.Timezone,
+			&i.Provider,
+			&i.Model,
+			&i.Cwd,
+			&i.Config,
+			&i.Skills,
+			&i.NotifyChannel,
+			&i.Enabled,
+			&i.NextRunAt,
+			&i.LastScheduledAt,
+			&i.LastRunAt,
+			&i.ClaimedAt,
+			&i.ClaimedBy,
+			&i.LeaseExpiresAt,
+			&i.ClaimToken,
+			&i.ThreadID,
+			&i.AgentID,
+			&i.ActiveTurnID,
+			&i.LastTurnID,
+			&i.FailureCount,
+			&i.MaxAttempts,
+			&i.NextRetryAt,
+			&i.LastStatus,
+			&i.LastErrorAt,
+			&i.LastError,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCronJobsClaimedBy = `-- name: ListCronJobsClaimedBy :many
+SELECT id, name, prompt, schedule_type, schedule_expr, timezone, provider,
+       model, cwd, config, skills, notify_channel, enabled, next_run_at,
+       last_scheduled_at, last_run_at, claimed_at, claimed_by,
+       lease_expires_at, claim_token, thread_id, agent_id, active_turn_id,
+       last_turn_id, failure_count, max_attempts, next_retry_at,
+       last_status, last_error_at, last_error, created_at, updated_at
+FROM cron_jobs
+WHERE claimed_by = $1 AND claim_token <> ''
+ORDER BY id ASC
+`
+
+// Used by RenewLeases / ExtendClaimForTurnProgress to fetch only the jobs
+// owned by this scheduler instance, avoiding a full-table scan of cron_jobs.
+func (q *Queries) ListCronJobsClaimedBy(ctx context.Context, claimedBy string) ([]CronJob, error) {
+	rows, err := q.db.Query(ctx, listCronJobsClaimedBy, claimedBy)
 	if err != nil {
 		return nil, err
 	}

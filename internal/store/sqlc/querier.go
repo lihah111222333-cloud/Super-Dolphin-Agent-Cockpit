@@ -70,6 +70,11 @@ type Querier interface {
 	// from hit.
 	GetLiveTurnDedupe(ctx context.Context, dedupeKey string) (TurnDedupeRegistry, error)
 	GetPromptTemplate(ctx context.Context, promptKey string) (GetPromptTemplateRow, error)
+	// Used by CompleteTurn to locate the active run for a completed turn without
+	// scanning all unresolved rows. turn_id is indexed by the dedupe_key B-tree
+	// and the status guard ensures only one row can match (at most one run per
+	// turn can be in 'running').
+	GetRunningCronJobRunByTurnID(ctx context.Context, turnID string) (CronJobRun, error)
 	GetSessionInsightByLocalTurn(ctx context.Context, arg GetSessionInsightByLocalTurnParams) (SessionInsight, error)
 	GetSharedFile(ctx context.Context, path string) (SharedFile, error)
 	GetSkillCandidateByID(ctx context.Context, id int64) (SkillCandidate, error)
@@ -106,6 +111,9 @@ type Querier interface {
 	ListCommandCards(ctx context.Context, arg ListCommandCardsParams) ([]ListCommandCardsRow, error)
 	ListCronJobRunsByJob(ctx context.Context, arg ListCronJobRunsByJobParams) ([]CronJobRun, error)
 	ListCronJobs(ctx context.Context) ([]CronJob, error)
+	// Used by RenewLeases / ExtendClaimForTurnProgress to fetch only the jobs
+	// owned by this scheduler instance, avoiding a full-table scan of cron_jobs.
+	ListCronJobsClaimedBy(ctx context.Context, claimedBy string) ([]CronJob, error)
 	ListEnabledPromptRoutingTests(ctx context.Context) ([]PromptRoutingTest, error)
 	ListInteractions(ctx context.Context, arg ListInteractionsParams) ([]AgentInteraction, error)
 	// ListObservedApprovalRequests returns the per-thread approval_requests
