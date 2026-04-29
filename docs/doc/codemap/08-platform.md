@@ -576,6 +576,8 @@
 - `ToolCallRequest`
 - `ToolCallResult`
 - `diffFallbackTracker`
+- `HostToolRegistry`
+- `SkillHostTools`
 
 **关键 API**
 
@@ -583,10 +585,13 @@
 - `HandleToolCall(ctx, codexapp.RawMessage)`
 - `ListToolsForCodex(ctx)`
 - `ServeProxy(ln)`
+- `NewSkillHostTools(skill.SkillHostToolReader)`
 
 **文件导览**
 
-- `handler.go`：tool call 解析、peer 路由、`tools/list` 汇总、`beginToolDiffSnapshot()` / `emitToolDiff()`
+- `handler.go`：tool call 解析、peer 路由、`beginToolDiffSnapshot()` / `emitToolDiff()`
+- `handler_host_tools.go`：host-direct 工具列表合并、去重/shadow warning、`callHostTool()`、结果脱敏与 metrics
+- `host_tools.go`：`skill.SkillHostToolReader` -> `skill_expand_body` / `skill_read_resource` 的窄端口包装
 - `diff_gen.go`：Phase 1 snapshot 触发条件、`emitToolDiff()`、`shouldTrackDiff()`
 - `diff_fallback.go`：`diffFallbackTracker`、`handleToolCallEnd()`、`shouldFallbackDiffTool()`
 - `proxy.go`：HTTP JSON-RPC proxy，支持 `initialize` / `notifications/initialized` / `tools/list` / `tools/call`
@@ -596,15 +601,16 @@
 
 - `decodeToolCallRequest()` 会兼容多种字段别名，并能从嵌套 `item` / `thread` 结构里补出 `name/threadId/callId`
 - `classifyTool()` 目前把 `lsp_*`、`code_run`、`code_run_test` 路由到 `ClientKindLSP`，其余走 `ClientKindOrch`
-- `routeToolCall()` 通过 `mcpcontrol.ToolRegistry.FindActiveByKind()` 找活跃 peer；0 个报 `ErrNoPeerAvailable`，多个报 `ErrAmbiguousPeer`
+- host-direct 分支先于 peer 路由：`routePrePeerToolCall()` 命中 `HostToolRegistry.HasTool()` 时，`callHostTool()` 直接调用 `SkillHostTools`；toolbridge 只消费 `skill.SkillHostToolReader`（`ExpandBody/ReadResource`），不依赖完整 `skill.Service`
+- `routeToolCall()` 对非 host-direct 工具通过 `mcpcontrol.ToolRegistry.FindActiveByKind()` 找活跃 peer；0 个报 `ErrNoPeerAvailable`，多个报 `ErrAmbiguousPeer`
 - 对 `tools/call` 的 peer callback 若返回错误，不会上抛 Go error，而是转换成 `ToolCallResult{Success:false}` 返给 Provider
-- `ListToolsForCodex()` 会分别等待 orch / lsp peer 就绪（默认最多 10s、300ms 轮询），调用各自的 `tools/list`，再转换成 `codexapp.DynamicToolSchema`
+- `ListToolsForCodex()` 先加入 host-direct skill tools，再并发等待 orch / lsp peer 就绪（默认最多 10s、300ms 轮询），同名工具保留先出现者并记录 shadow warning，最后转换成 `codexapp.DynamicToolSchema`
 - `tools/call` peer callback 的 timeout 是 `toolCallTimeout = 120s`
-- 当前 `tools/list` 只取每类 client kind 的第一个活跃 peer；而 `tools/call` 则要求同类 peer 唯一
+- peer 侧 `tools/list` 只取每类 client kind 的第一个活跃 peer；而 peer `tools/call` 则要求同类 peer 唯一；host-direct skill 工具不参与 peer 唯一性判定
 - Phase 1 只有 `lsp_edit(rename/replace_range)` 会在调用前进入 `beginToolDiffSnapshot()`；`code_run` / `code_run_test` 走 bus 侧 fallback
 - `emitToolDiff()` 成功发出 `ToolDiffUpdated` 后会 `MarkSeen(callID)`，避免 fallback 重复补发
 - `diffFallbackTracker.handleToolCallEnd()` 会在 `ToolCallEnd` 上检查 `shouldFallbackDiffTool()`，命中时走 `difftracker.EmitCurrentGitDiff()`
-- `toolbridge.Module` 会额外装配 `provideDiffEmitter()`、`bindCodexHandlers()`、`registerDiffFallbackLifecycle()`、`registerProxyLifecycle()`
+- `toolbridge.Module` 会额外装配 `provideHostToolRegistry()`、`provideDiffEmitter()`、`bindCodexHandlers()`、`registerDiffFallbackLifecycle()`、`registerProxyLifecycle()`
 - `ServeProxy()` 会校验 family 与 tool 分类一致性；`lookupProxyThreadID()` 则通过 binding store 给 proxy 补 thread 语义
 
 ---
@@ -886,6 +892,10 @@ Codex session 收到 inbound tool request
   -> ServerManager.getToolHandler()
   -> toolbridge.Handler.HandleToolCall()
   -> decodeToolCallRequest()
+  -> routePrePeerToolCall()
+       ├─ host-direct skill tool: callHostTool() -> SkillHostTools.CallHostTool()
+       │   -> skill.SkillHostToolReader.ExpandBody/ReadResource
+       └─ non-host tool continues to peer route
   -> beginToolDiffSnapshot() [仅 `lsp_edit(rename/replace_range)`]
   -> mcpcontrol.ToolRegistry.FindActiveByKind()
   -> 选中 MCP peer，发起 peer.Callback("tools/call")
@@ -914,17 +924,17 @@ Codex session 收到 inbound tool request
 - `cmd/mcp-orch/fx.go` 在 bootstrap config 中显式注册：
   - `OnToolsList`
   - `OnToolsCall`
-- proxy 模式下同样不是直调内部 Go 对象，而是仍然回到 `routeToolCall()` -> `mcpcontrol.ToolRegistry.FindActiveByKind()` -> peer callback 这条路径
-- 也就是说，toolbridge 面向的是一组**注册到 mcpcontrol 的外部工具 peer**，而不是直接调用内部 Go 对象
+- proxy 模式下，非 host-direct 工具仍然回到 `routeToolCall()` -> `mcpcontrol.ToolRegistry.FindActiveByKind()` -> peer callback 这条路径
+- `skill_expand_body` / `skill_read_resource` 是显式例外：它们由 host 进程内 `SkillHostTools` 执行，依赖 `skill.SkillHostToolReader` 窄端口；其余工具仍面向一组**注册到 mcpcontrol 的外部工具 peer**，而不是直接调用内部 Go 对象
 
 ### 6.3 路由规则
 
 - `classifyTool(name)` 决定应该找哪类 peer：
   - `lsp_*`、`code_run`、`code_run_test` -> `ClientKindLSP`
   - 其他 -> `ClientKindOrch`
-- `routeToolCall()` 要求同类活跃 peer 唯一；否则直接 fail fast
-- `ListToolsForCodex()` 会分别等待 orch / lsp peer 就绪后再调 `tools/list`；默认最多等待 10 秒，每 300ms 轮询一次
-- `tools/list` 当前只使用每类 client kind 的第一个活跃 peer
+- 非 host-direct 的 `routeToolCall()` peer 路径要求同类活跃 peer 唯一；否则直接 fail fast
+- `ListToolsForCodex()` 会先加入 host-direct skill tools，再分别等待 orch / lsp peer 就绪后调 `tools/list`；默认最多等待 10 秒，每 300ms 轮询一次
+- peer `tools/list` 当前只使用每类 client kind 的第一个活跃 peer；host-direct 与 peer 同名时保留 host 入口并记录 shadow warning
 - `ServeProxy()` 还会校验 URL family 与 tool 归属是否一致，避免把 `orch` tool 误打到 `lsp` family
 
 ### 6.4 与 difftracker 的耦合
@@ -941,7 +951,7 @@ Codex session 收到 inbound tool request
 - 已找到 peer 但 `tools/call` callback 失败时，会返回 `Success=false` 的 `ToolCallResult` 给 Provider，而不是直接上抛异常
 - diff 发射是 best-effort：无论是 `emitToolDiff()` 还是 fallback 失败，都只记 warning，不影响主工具结果
 
-**结论**：`toolbridge` 不是工具执行器，而是 **Provider 协议层 与 MCP 工具进程层之间的转接器**。
+**结论**：`toolbridge` 不是通用工具执行器；除 host-direct skill reader 两个窄端口工具外，它主要是 **Provider 协议层 与 MCP 工具进程层之间的转接器**。
 
 ---
 
@@ -1031,7 +1041,7 @@ Codex session 收到 inbound tool request
 |---|---|---|---|
 | bus 链 | 1. DTO 2. emit/publish 3. `ResilientSubscribe()` 4. `eventsurface.Bind()` | `ResilientSubscribe` @ `internal/platform/bus/resilient.go` | bus tests / `bind_test.go` |
 | push/approval | 1. `HandlerMapResult` 2. `registerAllHandlers()` 3. `bindApprovalLifecycle()` | `bindApprovalLifecycle` @ `internal/platform/rpc/module.go` | `approval_lifecycle_test.go` |
-| toolbridge | 1. `handler.go` 2. `bindCodexHandlers()` 3. `provideDiffEmitter()` / `registerProxyLifecycle()` | `registerProxyLifecycle` @ `internal/platform/toolbridge/module.go` | `handler_test.go` / `phase1_diff_test.go` / `diff_fallback_test.go` |
+| toolbridge | 1. `handler.go` / `handler_host_tools.go` 2. `provideHostToolRegistry()` 3. `bindCodexHandlers()` 4. `provideDiffEmitter()` / `registerProxyLifecycle()` | `provideHostToolRegistry` / `registerProxyLifecycle` @ `internal/platform/toolbridge/module.go` | `handler_test.go` / `host_tools_test.go` / `phase1_diff_test.go` / `diff_fallback_test.go` |
 
 ---
 
@@ -1041,7 +1051,7 @@ platform 层不是单一“工具包”，而是一组彼此协作的基础设�
 
 - `bus + eventsurface + rpc` 负责**事件传播与对外推送**
 - `hooks + mcpcontrol` 负责**外部进程协作与控制面治理**
-- `toolbridge + difftracker` 负责**Provider 到 MCP tool 的执行桥与改动回流**
+- `toolbridge + difftracker` 负责**Provider 到 MCP/host tool 的执行桥与改动回流**
 - `config + db + shared + runner + statemachine + pidregistry + rlimit + runtimesafe` 负责**基础运行时语义**
 - `cachekeepalive + historyjsonl` 负责**长会话维持与 Provider 历史旁路**
 

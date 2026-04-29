@@ -1,13 +1,13 @@
 # 12 Dream Pipeline 代码地图
 
 > 拆卷说明：dream consolidation pipeline 横跨 `internal/provider/{unified,claudecli,codexapp,dreamexec}` 与 `pkg/dreammetrics` 多个包，独立于 `11-memory.md`（root memory 写侧 / retrieval / nested 主链）成卷。
-> 当前口径：以 2026-04-27 HEAD 为准。
+> 当前口径：以 2026-04-29 HEAD 为准。
 > 与 `11-memory.md` 的边界：本卷只写 dispatcher → provider → binary → write 这条 dream 真实现链路；触发段（thread.stopped → registerAutoDreamSubscriptions → maybeScheduleAutoDream → SafeGo → consolidateWithOptions → extractFn）在 `11-memory.md §5` 已有说明。
 
 ## 1. 这卷回答什么
 
 - thread.stopped 事件最终如何变成磁盘 memory 整合：dispatcher 选 provider → 调真 LLM → 解 JSON → 写盘。
-- dispatcher 层 4 项底盘保障：5min timeout / 256KB prompt cap / DREAM_PROVIDER_ORDER env / 5 atomic metrics counter。
+- dispatcher 层 4 项底盘保障：5min timeout / 256KB prompt cap / DREAM_PROVIDER_ORDER env / 5 outcome + 3 token atomic metrics counters。
 - 双 provider failover 真链路：claudecli `claude -p` + codexapp `codex exec` 各自 thin wrapper + 共享 `dreamexec` 子进程层。
 - 测试金字塔：单元 → provider 单 e2e → dispatcher failover e2e → stop hook → write 完整 e2e。
 
@@ -18,18 +18,18 @@
 3. **provider 是 thin wrapper**：claudecli/codexapp 各 ~85 行，核心子进程边界（exec / stdin / stdout cap / stderr 收集 / fence strip / JSON 提取 / retry）抽到 `dreamexec` 公共包。
 4. **binary not available 哨兵 error 集中**：`dreamexec.ErrBinaryNotAvailable` 覆盖 PATH 查找失败 + 绝对路径不存在 + 字符串 fallback 三种场景，provider 层用 `errors.Is` 简化判断。
 5. **timeout 集中管理**：`DreamConsolidationTimeout = 5 * time.Minute` 在 `platform/config/timeouts.go`（TimeoutLocality 规范），dispatcher 通过 `platformconfig.WithTimeout` wrapper 注入。
-6. **metrics in-process**：`pkg/dreammetrics` 5 个 `atomic.Uint64` counter，仿 `pkg/skillmetrics` 模式，未接 Prometheus exporter（C 类长期路线）。
+6. **metrics in-process**：`pkg/dreammetrics` 现在是 8 个 `atomic.Uint64` counter（5 个 outcome + 3 个 token usage），仿 `pkg/skillmetrics` 模式，未接 Prometheus exporter（C 类长期路线）。
 
 ## 3. 真实包图与职责
 
 | 路径 | 职责 | 核心锚点 |
 |---|---|---|
-| `internal/provider/unified/dream_executor.go` | dispatcher: failover / timeout / size cap / metrics / 日志 | `:108 ExecuteDream` `:127 preflight` `:144 runFailover` |
-| `internal/provider/dreamexec/dreamexec.go` | 公共子进程层 + Commander 接口 + Run 整合 | `:35 Commander` `:43 NewRealCommander` `:143 Run` |
-| `internal/provider/dreamexec/parse.go` | JSON fence 移除 + balanced object 提取 | `:11 StripJSONFences` `:35 ExtractFirstJSONObject` `:50 findBalancedJSONEnd` |
+| `internal/provider/unified/dream_executor.go` | dispatcher: failover / timeout / size cap / metrics / 日志 | `:110 ExecuteDream` `:127 preflight` `:144 runFailover` |
+| `internal/provider/dreamexec/dreamexec.go` | 公共子进程层 + Commander 接口 + Run 整合 | `:38 Commander` `:52 NewRealCommander` `:153 Run` |
+| `internal/provider/dreamexec/parse.go` | JSON fence 移除 + balanced object 提取 | `:30 StripJSONFences` `:54 ExtractFirstJSONObject` `:69 findBalancedJSONEnd` |
 | `internal/provider/claudecli/dream_executor.go` | claude `-p` batch 真实现 | `:53 ExecuteDream` `:32 newDreamExecutor` |
 | `internal/provider/codexapp/dream_executor.go` | codex `exec` batch 真实现 | `:64 ExecuteDream` `:36 newDreamExecutor` |
-| `pkg/dreammetrics/dreammetrics.go` | 5 atomic counter + Snapshot + ResetForTesting | `:17 5 atomic` `:65 Snapshot` |
+| `pkg/dreammetrics/dreammetrics.go` | 8 atomic counter（5 outcome + 3 token）+ Snapshot/Read + ResetForTesting | `:17 outcome atomic` `:27 token atomic` `:83 Snapshot` `:95 Read` |
 | `internal/platform/config/timeouts.go` | timeout 常量集中 | `:21 DreamConsolidationTimeout` |
 | `internal/contract/dream.go` | DreamExecutor 接口 + ErrDreamExecutorNotConfigured 哨兵 | `:8 sentinel` `:10 接口` |
 
@@ -37,12 +37,12 @@
 
 ```
 thread.stopped event (event bus)
-  → registerAutoDreamSubscriptions (auto_dream.go:174)
-  → scheduler.Enqueue (auto_dream_scheduler.go:100)
-  → runWorker → process (auto_dream_scheduler.go:160,172)
-  → hooks.maybeScheduleAutoDream (auto_dream.go:179)
-    ├─ autoDreamThreadEligible (kairos / agent gate)
-    ├─ prepareAutoDreamExecution (24h 节流 / sessionCount ≥ 5 / extractFn 注入)
+  → registerAutoDreamSubscriptions (auto_dream_task.go:170)
+  → scheduler.Enqueue (auto_dream_scheduler.go:107)
+  → runWorker → process (auto_dream_scheduler.go:167,179)
+  → hooks.maybeScheduleAutoDream (auto_dream_task.go:179)
+    ├─ autoDreamThreadEligible (kairos / agent gate, auto_dream_task.go:196)
+    ├─ prepareAutoDreamExecution (24h 节流 / sessionCount ≥ 5 / extractFn 注入, auto_dream_task.go:215)
     ├─ startDreamTask + 单例锁 dreamMu (auto_dream_task.go:60)
     └─ launchAutoDreamTask + SafeGo (auto_dream_task.go:284-289)
        → consolidator.consolidateWithOptions (auto_dream.go:52)
@@ -84,8 +84,8 @@ unified.dreamExecutor.ExecuteDream (dispatcher 入口)
 |---|---|---|
 | 5min timeout | `platformconfig.WithTimeout(ctx, defaultDreamTimeout)`，0 时跳过（测试可注入） | `dream_executor.go:117-121` |
 | 256KB prompt cap | `len(prompt) > maxPromptBytes` fail-fast，`Warn + IncPromptOversize` | `dream_executor.go:131-138` |
-| DREAM_PROVIDER_ORDER env | `resolveProviderOrder(registered, override)` 纯函数：列出已注册的按 CSV 顺序在前，剩余字母序补后 | `dream_executor.go:77` |
-| 5 metrics counter | `Success / ProviderSkipped / ProviderFailed / AllNotConfigured / PromptOversize` | `pkg/dreammetrics/dreammetrics.go:17-21` |
+| DREAM_PROVIDER_ORDER env | `resolveProviderOrder(registered, override)` 纯函数：列出已注册的按 CSV 顺序在前，剩余字母序补后 | `dream_executor.go:80` |
+| 8 metrics counter | outcome: `Success / ProviderSkipped / ProviderFailed / AllNotConfigured / PromptOversize`；token: `TokensInput / TokensOutput / TokensCacheRead` | `pkg/dreammetrics/dreammetrics.go:17-29` |
 
 ## 6. Provider 真实现矩阵
 
@@ -138,7 +138,7 @@ unified.dreamExecutor.ExecuteDream (dispatcher 入口)
 |---|---|---|
 | B-2 | dispatcher 单元测试 + 5 结构化日志点 + capturing logger 测试 | `unified/dream_executor_test.go` 16+ case |
 | B-3.1 | 5min dispatcher timeout 注入 | `defaultDreamTimeout` + `platformconfig.WithTimeout` |
-| B-3.2 | 5 metrics counter（仿 skillmetrics） | `pkg/dreammetrics` |
+| B-3.2 | 5 outcome metrics counter（仿 skillmetrics）；后续已增 3 个 token counter | `pkg/dreammetrics` |
 | B-3.3 | DREAM_PROVIDER_ORDER env 解析（最小版本） | `resolveProviderOrder` 纯函数 |
 | B-3.4 | 256KB prompt size cap | `defaultMaxPromptBytes` |
 | B-4.1 | dreamexec 公共子进程层 | `internal/provider/dreamexec/` |

@@ -1,7 +1,8 @@
 # super-agent-v3 代码地图：终端入口与 UI 层（Vue 前端）
 
 > 范围：`cmd/agent-terminal/frontend/vue-app/`
-> 关联后端卷：[`01-terminal-ui-go.md`](01-terminal-ui-go.md)
+> 关联后端卷：[`01-terminal-ui-go.md`](01-terminal-ui-go.md)；backend contract / module-local 窄端口看 [`04-app-contract.md`](04-app-contract.md)
+> 维护提示：本卷仅维护 Vue 入口、页面、store 与 composable；58f19fa 接口隔离未改前端入口，后端端口归属不要在本卷展开。
 
 ## 1. 入口与总装点
 

@@ -318,19 +318,20 @@
 
 #### B. provider 构造层
 
-- `internal/module/prompt/module.go:80-98` 的 `NewSkillCatalogProviderFx()`：
+- `internal/module/prompt/module.go:122-149` 的 `NewSkillCatalogProviderFx()` / deps：
+  - 通过 `skillpkg.SkillCatalogSource` 窄端口接 skill 侧能力（`ListSkills` + approval + skill/trust revision），不是直接依赖完整 `skill.Service`
   - 取 `Cfg.SkillCatalogTokenBudget`
   - 折算 char budget
   - 决定是否输出 meta instructions
-- `internal/module/prompt/skill_catalog_provider.go:107-151` 的 `Resolve()`：
-  - `ListSkills(skill.WithCWD(ctx, input.BuildCtx.CWD))`
+- `internal/module/prompt/skill_catalog_provider.go:147-155` 的 `Resolve()`：
+  - `ListSkills(skillpkg.WithCWD(ctx, input.BuildCtx.CWD))`
   - 应用 launch-time selected skills
   - 合并 native detector 结果
   - 按 trust 分组渲染 manifest
 
 #### C. gray registration 层
 
-- `internal/module/prompt/module.go:108-136` 的 `RegisterSkillCatalogProviderIfEnabled()`：
+- `internal/module/prompt/module.go:143-179` 的 `RegisterSkillCatalogProviderIfEnabled()`：
   - `Cfg == nil` 或 flag off -> skip
   - `Skills == nil` -> skip
   - `Registrar == nil` -> skip
@@ -1452,7 +1453,7 @@ flowchart LR
 - [ ] `resolveStartPromptAssembly()` 已写成 start 真入口。
 - [ ] 已明确说明仓内无 `resolveTurnPromptAssembly`，turn 真入口是 `prepareTurnAssembly()`。
 - [ ] `dynamicSectionSpecs` 已按 16 个 slot 列全，不再写“固定 5 个”。
-- [ ] skill catalog 已覆盖 slot、provider、gray flag、native detector、cwd-aware `ListSkills`。
+- [ ] skill catalog 已覆盖 slot、provider、gray flag、native detector、cwd-aware `ListSkills`，并写明 provider 通过 `SkillCatalogSource` 窄端口消费 skill。
 
 ### 13.2 Thread 生命周期 checklist
 

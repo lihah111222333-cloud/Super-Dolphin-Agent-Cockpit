@@ -224,6 +224,7 @@ sequenceDiagram
 - `transport_conn.go`
   - 启动子进程、读写 `Content-Length` framed 消息、收集 stderr（8KB ring buffer）、关闭/kill/等待退出。
 - `manager.go`
+  - `gopls.Manager` 现在只组合三段端口：`ClientEnsurer + lspmanager.Manager + BackgroundRunnerProvider`；具体 LSP 能力来自 `lspmanager.Manager`，不再在本接口里直铺方法签名。
   - `manager` 主结构：workspace root、workspace->client 映射、diagnostics generation、logger、pool。
   - 构造时会规范化 root，并初始化 `ManagerPool`。
 - `factory.go`
@@ -285,7 +286,7 @@ sequenceDiagram
 
 ### `manager/`：语言路由层
 - `manager.go`
-  - 定义对工具层暴露的统一 `Manager` 接口。
+  - 定义对工具层暴露的统一 `Manager` 接口；当前由 `LifecycleManager/NavigationManager/XRefManager/StructureManager/CompletionManager/EditManager/DocumentLifecycleManager/DiagnosticsManager` 八个小接口嵌入组成。
 - `registry.go`
   - `dynamicRegistry` 按文件扩展名/基础名识别语言。
   - `GetManagerForFile/GetManagerForLanguage` 在返回 manager 前可触发 installer。
@@ -402,7 +403,7 @@ sequenceDiagram
 
 | 类型 | 位置 | 作用 |
 |---|---|---|
-| `manager.Manager` | `cmd/mcp-lsp/manager/manager.go` | 对工具层暴露统一 LSP 能力接口 |
+| `manager.Manager` | `cmd/mcp-lsp/manager/manager.go` | 对工具层暴露统一 LSP 能力接口；当前聚合 8 个细分端口，非直铺方法签名 |
 | `manager.Registry` | `cmd/mcp-lsp/manager/registry.go` | 按文件/语言路由 manager，并聚合 diagnostics |
 | `installer.Provider` | `cmd/mcp-lsp/installer/installer.go` | 确保语言服务器 binary 可用 |
 | `middleware.Handler` | `cmd/mcp-lsp/middleware/logging.go` | 工具处理器统一签名 |
@@ -413,6 +414,9 @@ sequenceDiagram
 | 类型 | 位置 | 作用 |
 |---|---|---|
 | `gopls.Client` | `gopls/client.go` | 单个 LSP 子进程客户端抽象 |
+| `gopls.Manager` | `gopls/manager.go` | 对外组合 `ClientEnsurer + lspmanager.Manager + BackgroundRunnerProvider` |
+| `ClientEnsurer` | `gopls/manager.go` | 只暴露 `EnsureClient()`，作为惰性拉起 LSP client 的端口 |
+| `BackgroundRunnerProvider` | `gopls/manager.go` | 只暴露 recycler 等后台 runner 入口 |
 | `ClientFactory` | `gopls/manager.go` | 注入具体 LSP binary 的 client 构造器 |
 | `manager` | `gopls/manager.go` | workspace -> client 管理核心 |
 | `workspaceClient` | `gopls/manager.go` | 一个 workspace 对应一个 LSP client |
