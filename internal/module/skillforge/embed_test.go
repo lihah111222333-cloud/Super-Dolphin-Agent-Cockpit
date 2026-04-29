@@ -24,7 +24,7 @@ func TestEmbeddedSkillsAccessor(t *testing.T) {
 }
 
 func TestReadEmbeddedSkill_RejectsPathTraversal(t *testing.T) {
-	cases := []string{"../etc/passwd", "foo/bar", "foo\\bar", "..", "."}
+	cases := []string{"../etc/passwd", "foo/bar", "foo\\bar", "..", ".", ""}
 	for _, n := range cases {
 		if _, err := ReadEmbeddedSkill(n); err == nil {
 			t.Errorf("ReadEmbeddedSkill(%q) should error", n)
