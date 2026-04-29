@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/module/fbsd"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 )
 
@@ -14,13 +15,19 @@ const ToolNameReadSection = "skill_read_section"
 // SkillReadSectionTool reads a reference section file from the skill cache directory.
 // It calls skilllibrary.ReadSection to locate <cacheDir>/<name>/references/<NN-anchor>.md
 // by anchor suffix, and optionally truncates the result to max_bytes.
+//
+// P6: when tracker is non-nil and enabled, every successful Call records a
+// CallEvent (skill name + anchor) for FBSD frequency-based tier ranking.
 type SkillReadSectionTool struct {
 	cacheDir string
+	tracker  *fbsd.Tracker // nil-safe, optional
 }
 
 // NewSkillReadSectionTool constructs a SkillReadSectionTool that serves files from cacheDir.
-func NewSkillReadSectionTool(cacheDir string) *SkillReadSectionTool {
-	return &SkillReadSectionTool{cacheDir: cacheDir}
+// tracker is optional (nil-safe); when non-nil and feature flag enabled, FBSD打点 happens
+// after every successful Call.
+func NewSkillReadSectionTool(cacheDir string, tracker *fbsd.Tracker) *SkillReadSectionTool {
+	return &SkillReadSectionTool{cacheDir: cacheDir, tracker: tracker}
 }
 
 // skillReadSectionArgs holds the JSON-decoded arguments for a skill_read_section call.
@@ -47,5 +54,8 @@ func (t *SkillReadSectionTool) Call(_ context.Context, raw json.RawMessage) (jso
 	if a.MaxBytes > 0 && len(body) > a.MaxBytes {
 		body = body[:a.MaxBytes]
 	}
+	// P6 FBSD 打点：成功 ReadSection 后异步记录调用频次。tracker 为 nil 或
+	// disabled 时 Record 内部 no-op。
+	t.tracker.Record(a.Name, a.Anchor)
 	return json.RawMessage(body), nil
 }
