@@ -13,7 +13,7 @@
 - `mcp-lsp` 是完整 MCP 工具服务：**stdio MCP server 始终开启**，**HTTP MCP server 仅在 peer mode 开启**。
 - `mcp-lsp` 的工具面固定为 9 个，其中 LSP 家族 7 个：`lsp_file`、`lsp_inspect`、`lsp_xref`、`lsp_grep`、`lsp_structure`、`lsp_edit`、`lsp_completion`；另有 `code_run`、`code_run_test`。
 - `mcp-lsp` 的真正 handler 全在 `cmd/mcp-lsp/tools/*`；传输层统一落在 `internal/mcpserver/common/server.go:92` 与 `internal/mcpserver/common/http_transport.go:40`。
-- **首个真正依赖语言服务器的工具调用**会懒触发：`registry.GetManagerForFile/GetManagerForLanguage` → `installer.EnsureInstalled` → `gopls.manager.ensureClient` → `client.Initialize` / `initialized`。
+- **首个真正依赖语言服务器的工具调用**会懒触发：`registry.GetManagerForFile/GetManagerForLanguage` → `installer.EnsureInstalled` → `gopls.Manager.EnsureClient`（`ClientEnsurer`）→ `client.Initialize` / `initialized`。
 - `mcp-ida` 当前只有 `tools/ida` bootstrap 能力，没有本地 `tools/list` / `tools/call`、没有 schema / manifest / handler 映射，也没有 stdio/HTTP MCP tool server。
 - `ast_search`、`semantic_tokens`、markdown/json/yaml 文档符号 fallback 都属于 **LSP toolchain**；当前 **不属于** `mcp-ida` 暴露面。
 
@@ -224,8 +224,8 @@ sequenceDiagram
 | generic manager 口径 | `createGenericManager()` 并不区分“专用 manager 类型”；所有语言都复用 `gopls.NewManager(Config{ClientFactory: ...})`，差别只在 binary / args / initOpts。 | `cmd/mcp-lsp/runtime.go:107`、`cmd/mcp-lsp/runtime.go:112`、`cmd/mcp-lsp/runtime.go:114`、`cmd/mcp-lsp/runtime.go:127` |
 | file → languageID | 文件型工具进入 `registry.GetManagerForFile()` 后，先跑 `DetectLanguageID(filePath)`：优先 basename 映射 `go.mod/go.sum/go.work`，再看扩展名映射，最后才 fallback 为去点扩展名。 | `cmd/mcp-lsp/manager/registry.go:16`、`cmd/mcp-lsp/manager/registry.go:22`、`cmd/mcp-lsp/manager/registry.go:76`、`cmd/mcp-lsp/manager/registry.go:130` |
 | language → manager | `GetManagerForLanguage()` 只 lower-case + trim，再查已注册 manager；如果没注册，直接 `ErrUnsupportedLanguage`，不会进入安装。 | `cmd/mcp-lsp/manager/registry.go:96`、`cmd/mcp-lsp/manager/registry.go:103` |
-| manager 二次检测 | 进入 gopls manager 后，`resolveDocumentRef()` 在调用方没显式给 languageID 时会再次 `DetectLanguageID(absPath)`；随后 `resolveProjectRoot()` 按 Go/JSTS/Java 选择 workspace root。 | `cmd/mcp-lsp/gopls/manager.go:167`、`cmd/mcp-lsp/gopls/manager.go:186`、`cmd/mcp-lsp/gopls/manager.go:196` |
-| 惰性 client 初始化 | `EnsureClient()` → `ensureClientForFile/Language()` → `ensureClient()` → `createAndRegisterClient()` → `client.Initialize()` + `initialized`，这才是真正拉起外部语言服务器的点。 | `cmd/mcp-lsp/gopls/manager_lifecycle.go:17`、`cmd/mcp-lsp/gopls/manager_lifecycle.go:92`、`cmd/mcp-lsp/gopls/manager_lifecycle.go:104`、`cmd/mcp-lsp/gopls/manager_lifecycle.go:218`、`cmd/mcp-lsp/gopls/manager_lifecycle.go:247`、`cmd/mcp-lsp/gopls/client.go:98`、`cmd/mcp-lsp/gopls/client.go:119` |
+| manager 二次检测 | 进入 gopls manager 后，`resolveDocumentRef()` 在调用方没显式给 languageID 时会再次 `DetectLanguageID(absPath)`；随后 `resolveProjectRoot()` 按 Go/JSTS/Java 选择 workspace root。 | `cmd/mcp-lsp/gopls/manager.go:151`、`:180`、`:193` |
+| 惰性 client 初始化 | `gopls.Manager` 先由 `ClientEnsurer + lspmanager.Manager + BackgroundRunnerProvider` 组合出对外端口；`EnsureClient()` → `ensureClientForFile/ensureClientForLanguage()` → `ensureClient()` → `createAndRegisterClient()` → `client.Initialize()` + `initialized`，这才是真正拉起外部语言服务器的点。 | `cmd/mcp-lsp/gopls/manager.go:36`、`:42`、`:46`、`cmd/mcp-lsp/gopls/manager_lifecycle.go:30`、`:105`、`:117`、`:231`、`:260`、`cmd/mcp-lsp/gopls/client.go:98`、`:119` |
 | workspace symbol 特例 | `lsp_structure.workspace_symbol` 是唯一可直接走 `language` 的 tool action：`resolveWorkspaceSymbolManager()` 强制 `file_path` 与 `language` 二选一；language 模式走 `GetManagerForLanguage()`，file 模式仍会经 `DetectLanguageID()`。 | `cmd/mcp-lsp/tools/tool_structure.go:68`、`cmd/mcp-lsp/tools/tool_structure.go:75`、`cmd/mcp-lsp/tools/tool_structure.go:84`、`cmd/mcp-lsp/tools/tool_structure.go:91` |
 | 非 registry 旁路 | `lsp_grep.text_search` / `ast_search` 都是搜索子系统直连：前者本地 walk，后者 `sg`，不经过 `manager.Registry`。 | `cmd/mcp-lsp/tools/tool_grep.go:73`、`cmd/mcp-lsp/search/searchutil.go:64`、`cmd/mcp-lsp/search/searchutil.go:84` |
 
@@ -305,10 +305,11 @@ sequenceDiagram
 
 1. **stdio 与 HTTP 只是两种 MCP transport，工具注册与 handler 完全共用。** 真正差异只有入口 runner、discovery file 和 HTTP `POST /mcp` 包装。
 2. **下游语言服务器 handshake 是惰性的。** `mcp-lsp` 启动时并不会一次性初始化全部语言服务器，只有首个相关工具调用才触发 `Initialize` / `initialized`。
-3. **`ast_search` 是“搜索子系统能力”，不是 LSP server 能力。** 它依赖 `sg`，不依赖 `manager.Registry`。
-4. **`semantic_tokens` 是“结构子系统能力”，但依赖具体语言服务器是否支持。** handler 只做请求与裁剪，不自行生成 token。
-5. **manager 基座已有 markdown/json/yaml 文档符号 fallback，但 cmd 层没把这些语言注册进 registry。** 这就是“能力已写、工具面未完全打通”的真实断点。
-6. **`mcp-ida` 当前不应被视为“对等工具服务器”。** 它在今天的代码面只是控制面注册 + 生命周期代理，尚未拥有 LSP 那种本地工具面。
+3. **Manager 端口已完成接口隔离。** `manager.Manager` 聚合细分 LSP 能力端口，`gopls.Manager` 再组合 `ClientEnsurer`、`lspmanager.Manager` 与 `BackgroundRunnerProvider`，不要按旧的直铺方法签名理解。
+4. **`ast_search` 是“搜索子系统能力”，不是 LSP server 能力。** 它依赖 `sg`，不依赖 `manager.Registry`。
+5. **`semantic_tokens` 是“结构子系统能力”，但依赖具体语言服务器是否支持。** handler 只做请求与裁剪，不自行生成 token。
+6. **manager 基座已有 markdown/json/yaml 文档符号 fallback，但 cmd 层没把这些语言注册进 registry。** 这就是“能力已写、工具面未完全打通”的真实断点。
+7. **`mcp-ida` 当前不应被视为“对等工具服务器”。** 它在今天的代码面只是控制面注册 + 生命周期代理，尚未拥有 LSP 那种本地工具面。
 
 ---
 

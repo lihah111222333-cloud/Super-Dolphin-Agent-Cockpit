@@ -9,8 +9,8 @@
 
 读侧模块只做两类事：
 
-1. **聚合已有只读数据**：`dashboard` 把 orchestration + stores + `skill.Service` 拼成页面化查询面。
-2. **暴露技能元数据与按需展开**：`skill` 一边维护技能目录/本地文件，一边给 host / prompt / turn 提供渐进披露能力。
+1. **聚合已有只读数据**：`dashboard` 把 orchestration + stores + `skillmodule.SkillLister` 窄端口拼成页面化查询面。
+2. **暴露技能元数据与按需展开**：`skill` 一边维护技能目录/本地文件，一边保留 `Service` 兼容聚合面，并向 dashboard / prompt / turn / toolbridge 提供窄端口。
 
 ```mermaid
 flowchart LR
@@ -18,11 +18,11 @@ flowchart LR
     UI --> SKILL[skill]
     DASH --> ORCH[contract.OrchestrationService]
     DASH --> STORES[(agentstatus/ailog/auditlog/buslog/commandcard/dbquery/prompt/sharedfile/tasktrace)]
-    DASH --> SKILL
+    DASH -->|SkillLister| SKILL
     SKILL --> ROOTS[(project .agent/skills\n+ ~/.multi-agent/skills)]
     SKILL --> EVENTS[uidto.SkillsChanged]
-    PROMPT[prompt.SkillCatalogProvider] --> SKILL
-    TURN[turn hydrateSkillRefs] --> SKILL
+    PROMPT[prompt.SkillCatalogProvider] -->|SkillCatalogSource| SKILL
+    TURN[turn hydrateSkillRefs] -->|SkillHydrationSource| SKILL
 ```
 
 ### 1.1 跨卷一致性备忘
@@ -33,8 +33,8 @@ flowchart LR
 
 ### 1.2 模块间主线关系（补）
 
-- `dashboard` 站在 UI / RPC 查询面，向下只聚合 orchestration、stores 与 `skill.Service`，本身不持有技能内容。
-- `skill` 同时是 host-facing RPC 提供者与共享技能清单源；`prompt` / `turn` / `dashboard` 都复用它的 `ListSkills`。
+- `dashboard` 站在 UI / RPC 查询面，向下只聚合 orchestration、stores 与 `skillmodule.SkillLister`，本身不持有技能内容。
+- `skill.Service` 现在是兼容聚合接口；`prompt` 走 `SkillCatalogSource`，`turn` 走 `SkillHydrationSource`，`dashboard` 走 `SkillLister`，`toolbridge` 走 `SkillHostToolReader`。
 - `uistate` 虽不在本卷展开，但它和 `thread` / `bus` 的 projection 链一起构成 dashboard 之外的另一条读侧 UI 面。
 
 ### 1.3 依赖图
@@ -43,9 +43,9 @@ flowchart LR
 graph TD
   dash[dashboard] --> orch[orchestration]
   dash --> stores[stores]
-  dash --> skill[skill]
-  prompt[prompt.SkillCatalogProvider] --> skill
-  turn[turn hydrateSkillRefs] --> skill
+  dash -->|SkillLister| skill[skill]
+  prompt[prompt.SkillCatalogProvider] -->|SkillCatalogSource| skill
+  turn[turn hydrateSkillRefs] -->|SkillHydrationSource| skill
   thread[thread] --> turn
   uistate[uistate] --> thread
   uistate --> bus[bus]
@@ -62,7 +62,7 @@ graph TD
 - **Fx 装配**：`module.go:19-54`
   - 注入 `contract.OrchestrationService`
   - 注入 `agentstatus / ailog / auditlog / buslog / commandcard / dbquery / prompt / sharedfile / systemlog / tasktrace`
-  - 注入 `skill.Service`
+  - 注入 `skillmodule.SkillLister`（不是完整 `skill.Service`）
   - `fx.Provide(NewDashboardHandlers)` 暴露 RPC
 - **RPC 面**：`rpc.go:82-147`
   - 页面聚合：`ui/dashboard/get`
@@ -128,7 +128,7 @@ sequenceDiagram
 |---|---|---|---|
 | `agents` | `populateDashboardAgents` | `orchestration.ListAgents` | `service.go:listAgents` |
 | `tasks` | `populateDashboardTaskTraces` | `tasktrace.Store.List` | 固定 `Limit=100` |
-| `skills` | `populateDashboardSkills` | `skill.Service.ListSkills` | 直接复用技能扫描层 |
+| `skills` | `populateDashboardSkills` | `skillmodule.SkillLister.ListSkills` | 只读窄端口复用技能扫描层 |
 | `commands` | `populateDashboardCommandCards` + `populateDashboardPrompts` | `commandcard.Reader.List` + `prompt.Reader.List` | 两路并发 |
 | `memory` | `populateDashboardMemory` | `sharedfile.Reader.List` | 固定 `Limit=500` |
 
@@ -137,7 +137,7 @@ sequenceDiagram
 - `dashboard/commandCards` 只是 `GetDashboardPage("commands")` 后取 `page.CommandCards`。
 - `dashboard/prompts` **不是**简单的 page-field wrapper：`rpc.go:102-108` 会先写入 `withDashboardPromptScopeCWD(ctx, p.Cwd)`，再返回 `page.Prompts`。
 - `dashboard/sharedFiles` 只是 `GetDashboardPage("memory")` 后取 `page.Memory`，返回 key 为 `files`。
-- `dashboard/skills` 也会继承同一份 `{cwd}`：`rpc.go:113-115` → `ui_page.go:136-140` → `skill.Service.ListSkills(skill.WithCWD(...))`。
+- `dashboard/skills` 也会继承同一份 `{cwd}`：`rpc.go:113-115` → `ui_page.go:158-162` → `skillmodule.SkillLister.ListSkills(skillmodule.WithCWD(...))`。
 
 ### 2.4 `dashboard/prompts` 的 `{cwd}` 过滤接线
 
@@ -207,7 +207,7 @@ flowchart TD
     UIPAGE --> PAGE[GetDashboardPage]
     PAGE --> AG[orchestration.ListAgents]
     PAGE --> TT[tasktrace.Store.List]
-    PAGE --> SK[skill.Service.ListSkills]
+    PAGE --> SK[skillmodule.SkillLister.ListSkills]
     PAGE --> CC[commandcard.Reader.List]
     PAGE --> PR[prompt.Reader.List]
     PAGE --> SF[sharedfile.Reader.List]
@@ -220,7 +220,7 @@ flowchart TD
 
 | 文件 | 作用 |
 |---|---|
-| `module.go` | Fx 注入 orchestration / stores / `skill.Service`，并提供 RPC handlers。 |
+| `module.go` | Fx 注入 orchestration / stores / `skillmodule.SkillLister`，并提供 RPC handlers。 |
 | `rpc.go` | `ui/dashboard/get` 与各细分 `dashboard/*` 路由。 |
 | `service.go` | `GetDashboard` / `GetAgentDetail` / `GetLogs` / `Query` / cwd-scope ctx helper。 |
 | `ui_page.go` | `DashboardPage`、loader switch、页内并发装配、prompt tag 过滤。 |
@@ -255,7 +255,7 @@ flowchart TD
 `skill` 同时承担四类职责：
 
 1. **技能目录扫描**：系统根 + 项目根双根模型。
-2. **渐进披露**：给 host 暴露 `skill/list` / `skill/expand`；给 prompt/tooling 暴露 `skills/expandBody` / `skills/readResource`。
+2. **渐进披露**：给 host 暴露 `skill/list` / `skill/expand`；给 toolbridge host tools 暴露 `skill_expand_body` / `skill_read_resource`，底层走 `SkillHostToolReader`。
 3. **legacy 技能文件面**：`skills/local/*`、`skills/remote/*`、`skills/config/*`、`skills/match/preview` 继续保留。
 4. **受限命令执行与事件**：`command/exec` + `uidto.SkillsChanged` debounce 发布。
 
@@ -263,11 +263,12 @@ Fx 装配见 `module.go:15-30`：
 
 - `newService(cfg, dispatcher)` 从 `platform/config.Config.ProjectRoot` 注入构造期 project root
 - 若底层 `Service` 是具体 `*service`，再 `bindDispatcher(dispatcher)` 开启 `SkillsChanged` 事件发射器
+- `fx.Provide(ProvideSkillLister / ProvideSkillCatalogSource / ProvideSkillHydrationSource / ProvideSkillHostToolReader)` 暴露跨模块窄端口
 - `fx.Provide(NewSkillHandlers)` 暴露 host RPC
 
 ### 4.2 根目录与 `cwd` 作用域
 
-`skill.Service` 的作用域不是全局常量，而是 **构造期 projectRoot + 请求期 cwd** 的叠加：
+`skill.Service` 兼容聚合面及其窄端口的作用域不是全局常量，而是 **构造期 projectRoot + 请求期 cwd** 的叠加：
 
 - `contract.go:12-25`：`WithCWD(ctx, cwd)` / `cwdFromContext(ctx)`
 - `service.go:97-123`：`skillRoots(cwd)` / `projectSkillsRootForCWD(cwd)`
@@ -300,7 +301,7 @@ Fx 装配见 `module.go:15-30`：
 DTO / caller 链补充：
 
 - `rpc_skill_types.go:80-95` 当前显式定义 `skillListResult` / `skillExpandParams`，host 返回结构与 legacy `skills/list` 已分流。
-- `expandSkillWithApproval@rpc.go:276-280` 在 `svc` 不是具体 `*service` 时，会回落到接口方法 `Service.Expand(ctx, p)`；`lsp_xref(references)` 对 `skill/contract.go:60` 显示当前 prod caller 就是这条 fallback，其他命中都在测试。
+- `expandSkillWithApproval@rpc.go:315-320` 在 `svc` 不是具体 `*service` 时，会回落到兼容聚合接口的 `Service.Expand(ctx, p)`；跨模块消费者不应依赖这条 legacy expand 面。
 
 与 legacy `skills/list` 的区别：
 
@@ -309,9 +310,9 @@ DTO / caller 链补充：
 
 `skill/list` 的 prod caller / 消费者可由 `lsp_xref(references)` 追到：
 
-- `dashboard/ui_page.go:136-140`：技能页直接复用 `skill.Service.ListSkills`
-- `prompt/skill_catalog_provider.go:111-152`：skill catalog 生成 L1 manifest 时直接调 `ListSkills`
-- `turn/skills.go:186-217`：hydrate 手动 skill ref 时也调 `ListSkills`
+- `dashboard/ui_page.go:158-162`：技能页通过 `skillmodule.SkillLister.ListSkills` 读取元数据
+- `prompt/module.go:122-149` + `skill_catalog_provider.go:147-155`：skill catalog 通过 `skillpkg.SkillCatalogSource` 读取 `ListSkills`，并复用 approval / revision
+- `turn/service.go:80-95` + `turn/skills.go:201-241,326-339`：hydrate 手动 skill ref 通过 `skillpkg.SkillHydrationSource` 调 `ListSkills` / `ReadLocal`
 - `skills_match.go:43-50`：`skills/match/preview` 内部先列全量 skills 再做 local matcher
 
 ### 4.4 `skill/list` 读取链
@@ -320,7 +321,7 @@ DTO / caller 链补充：
 sequenceDiagram
     participant C as RPC caller
     participant H as skill/list handler
-    participant S as skill.Service.ListSkills
+    participant S as SkillLister.ListSkills
     participant SCAN as scanSkills
     participant ROOT as skillRoots(cwd)
     participant PARSE as parseSkillRecord/parseSkillInfo
@@ -409,29 +410,29 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    SK[skill.Service]
-    DASH[dashboard skills page] -->|ListSkills| SK
-    PROMPT[prompt.SkillCatalogProvider] -->|ListSkills| SK
-    TURN[turn hydrateSkillRefs] -->|ListSkills| SK
-    MATCH[skills/match/preview] -->|ListSkills + configured state| SK
-    TOOLS[skill_expand_body / skill_read_resource] -->|ExpandBody / ReadResource| SK
-    HOST[skill/list / skill/expand] -->|host RPC| SK
+    SK[skill module\nService aggregate + narrow ports]
+    DASH[dashboard skills page] -->|SkillLister.ListSkills| SK
+    PROMPT[prompt.SkillCatalogProvider] -->|SkillCatalogSource.ListSkills + approval/revision| SK
+    TURN[turn hydrateSkillRefs] -->|SkillHydrationSource.ListSkills/ReadLocal| SK
+    MATCH[skills/match/preview] -->|internal ListSkills + configured state| SK
+    TOOLS[toolbridge host tools] -->|SkillHostToolReader.ExpandBody/ReadResource| SK
+    HOST[skill/list / skill/expand] -->|Service aggregate host RPC| SK
     EVENTS[SkillsChanged event bus] <-->|publish| SK
 ```
 
 注意：
 
-- `prompt.SkillCatalogProvider` 不是独立缓存源：`prompt/skill_catalog_provider.go:107-152` 的 `Resolve()` 真实调用 `ListSkills(skillpkg.WithCWD(ctx, input.BuildCtx.CWD))`；dashboard 技能页（`ui_page.go:136-140` + `rpc.go:113-115`）与 turn hydration（`turn/skills.go:186-217`）共用这条扫描真值。
+- `prompt.SkillCatalogProvider` 不是独立缓存源：`prompt/module.go:122-149` 注入 `skillpkg.SkillCatalogSource`，`skill_catalog_provider.go:147-155` 的 `Resolve()` 真实调用 `ListSkills(skillpkg.WithCWD(ctx, input.BuildCtx.CWD))`；dashboard 技能页（`ui_page.go:158-162` + `rpc.go:113-115`）与 turn hydration（`turn/skills.go:201-241`）共用这条扫描真值。
 - `prompt` 侧的 progressive disclosure 现在通过 `internal/module/prompt/module.go:14-26` 直接注册 `NewCompositeNativeSkillDetector` / `NewSkillCatalogProviderFx` / `RegisterSkillCatalogProviderIfEnabled`；**不再存在单独的 skill-catalog Fx wiring 文件**。
-- `turn` 只消费 `ListSkills` 做 hydration，不会直接走 `skill/expand` RPC。
-- `dashboard` 仅把 `ListSkills` 当作只读列表来源，不参与 approval / resource read。
+- `turn` 只消费 `SkillHydrationSource.ListSkills/ReadLocal` 做 hydration，不会直接走 `skill/expand` RPC，也不依赖完整 `skill.Service`。
+- `dashboard` 仅把 `SkillLister.ListSkills` 当作只读列表来源，不参与 approval / resource read。
 
 ### 4.9 文件地图
 
 | 文件 | 作用 |
 |---|---|
 | `module.go` | Fx 装配、dispatcher 绑定。 |
-| `contract.go` | `WithCWD`、`Service` 接口。 |
+| `contract.go` | `WithCWD`、`Service` 兼容聚合接口，以及 `SkillCommandExecutor` / `SkillLister` / `SkillCatalogSource` / `SkillHydrationSource` / `SkillHostToolReader` / `SkillRevisionSource` / `TrustRevisionSource` 窄端口。 |
 | `rpc.go` | 新旧 RPC 共存入口。 |
 | `service.go` | roots、approval cache、approval requester、cwd-scoped root 决策。 |
 | `skills_meta.go` | 扫描 `SKILL.md`、frontmatter 解析、默认 trust / content hash。 |
@@ -450,7 +451,7 @@ flowchart LR
 1. `dashboard/prompts` 的 `{cwd}` 作用域已经接到 **prod handler**；`withDashboardPromptScopeCWD` 不再只是测试 helper。
 2. `promptstore.ListFilter.CWD` 只在 contract 层露出；当前 store 实现未真正下推过滤，实际筛选仍在 `dashboard/ui_page.go`。
 3. `skill/list` / `skill/expand` 是新增 host-facing 渐进披露口；legacy `skills/*` 族没有删除。
-4. 旧的独立 skill-catalog Fx wiring 已并入 `internal/module/prompt/module.go`。
+4. 旧的独立 skill-catalog Fx wiring 已并入 `internal/module/prompt/module.go`；prompt/turn/dashboard/toolbridge 均应按 skill 窄端口理解，不再按完整 `skill.Service` 消费。
 5. `lspgui` 在当前仓内 **无源码目录**；旧 codemap 对它的实现级描述已过时。
 
 ---

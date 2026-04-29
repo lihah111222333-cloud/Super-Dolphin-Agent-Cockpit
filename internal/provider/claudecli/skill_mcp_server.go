@@ -1,7 +1,6 @@
 package claudecli
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -150,6 +149,7 @@ func (p *skillMCPToolProvider) CallTool(ctx context.Context, name string, args j
 	method, params, err := p.hostRPCRequest(name, args)
 	if err != nil {
 		skillmetrics.IncSkillMCPToolError()
+		p.reportSkillMCPToolMetric(name, "", skillmetrics.SkillMCPOutcomeError, time.Since(started))
 		pkglogger.Warn("skill mcp: tool call rejected",
 			"tool", name,
 			"outcome", "invalid_request",
@@ -162,11 +162,12 @@ func (p *skillMCPToolProvider) CallTool(ctx context.Context, name string, args j
 	if err != nil {
 		envelope := skillMCPToolErrorEnvelope(name, err)
 		outcome := skillMCPEnvelopeKind(envelope)
-		if outcome == "approval_required" {
+		if outcome == skillmetrics.SkillMCPOutcomeApprovalRequired {
 			skillmetrics.IncSkillMCPApprovalRequired()
 		} else {
 			skillmetrics.IncSkillMCPToolError()
 		}
+		p.reportSkillMCPToolMetric(name, method, outcome, time.Since(started))
 		attrs := []any{
 			"tool", name,
 			"method", method,
@@ -180,6 +181,7 @@ func (p *skillMCPToolProvider) CallTool(ctx context.Context, name string, args j
 		return envelope, nil
 	}
 	skillmetrics.IncSkillMCPToolSuccess()
+	p.reportSkillMCPToolMetric(name, method, skillmetrics.SkillMCPOutcomeSuccess, time.Since(started))
 	pkglogger.Info("skill mcp: tool call completed",
 		"tool", name,
 		"method", method,
@@ -198,6 +200,34 @@ func (p *skillMCPToolProvider) hostRPC() skillHostRPCCaller {
 		return p.caller
 	}
 	return skillHostRPCClient{addr: p.runtime.RPCAddr}
+}
+
+func (p *skillMCPToolProvider) reportSkillMCPToolMetric(tool, method, outcome string, elapsed time.Duration) {
+	if strings.TrimSpace(p.runtime.RPCAddr) == "" && p.caller == nil {
+		return
+	}
+	params := map[string]any{
+		"tool":       strings.TrimSpace(tool),
+		"method":     strings.TrimSpace(method),
+		"outcome":    skillmetrics.NormalizeSkillMCPToolOutcome(strings.TrimSpace(outcome)),
+		"agentId":    strings.TrimSpace(p.runtime.AgentID),
+		"threadId":   strings.TrimSpace(p.runtime.ThreadID),
+		"elapsed_ms": elapsed.Milliseconds(),
+	}
+	go p.sendSkillMCPToolMetric(tool, method, outcome, params)
+}
+
+func (p *skillMCPToolProvider) sendSkillMCPToolMetric(tool, method, outcome string, params map[string]any) {
+	reportCtx, cancel := platformconfig.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if _, err := p.hostRPC().Call(reportCtx, skillmetrics.SkillMCPReportMethod, params); err != nil {
+		pkglogger.Warn("skill mcp: metric report failed",
+			"tool", tool,
+			"method", method,
+			"outcome", outcome,
+			"error", err,
+		)
+	}
 }
 
 func (p *skillMCPToolProvider) hostRPCRequest(name string, args json.RawMessage) (string, map[string]any, error) {
@@ -277,6 +307,9 @@ func (c skillHostRPCClient) Call(ctx context.Context, method string, params any)
 		return nil, fmt.Errorf("skill mcp: dial host rpc: %w", err)
 	}
 	defer conn.Close()
+	if deadline, ok := callCtx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
+	}
 
 	rawParams, err := json.Marshal(params)
 	if err != nil {
@@ -292,13 +325,8 @@ func (c skillHostRPCClient) Call(ctx context.Context, method string, params any)
 		return nil, fmt.Errorf("skill mcp: write host rpc request: %w", err)
 	}
 
-	var resp skillJSONRPCResponse
-	decoder := json.NewDecoder(bufio.NewReader(conn))
-	// Host RPC responses are a controlled internal protocol — unknown fields
-	// indicate a serialization mismatch that should fail loudly, unlike
-	// LLM-provided tool arguments where extra fields are expected.
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&resp); err != nil {
+	resp, err := readSkillHostRPCResponse(decoderStream{dec: json.NewDecoder(conn), enc: json.NewEncoder(conn)})
+	if err != nil {
 		return nil, fmt.Errorf("skill mcp: read host rpc response: %w", err)
 	}
 	if strings.TrimSpace(resp.JSONRPC) != "2.0" {
@@ -311,6 +339,68 @@ func (c skillHostRPCClient) Call(ctx context.Context, method string, params any)
 		return nil, resp.Error
 	}
 	return append(json.RawMessage(nil), resp.Result...), nil
+}
+
+type decoderStream struct {
+	dec *json.Decoder
+	enc *json.Encoder
+}
+
+func readSkillHostRPCResponse(stream decoderStream) (skillJSONRPCResponse, error) {
+	for {
+		var raw json.RawMessage
+		if err := stream.dec.Decode(&raw); err != nil {
+			return skillJSONRPCResponse{}, err
+		}
+		probe := probeSkillHostRPCMessage(raw)
+		if strings.TrimSpace(probe.Method) != "" {
+			if !emptyJSONRPCID(probe.ID) && stream.enc != nil {
+				_ = stream.enc.Encode(map[string]any{
+					"jsonrpc": "2.0",
+					"id":      json.RawMessage(append([]byte(nil), probe.ID...)),
+					"error": map[string]any{
+						"code":    -32601,
+						"message": "method not found",
+					},
+				})
+			}
+			continue
+		}
+		return decodeSkillHostRPCResponse(raw)
+	}
+}
+
+func probeSkillHostRPCMessage(raw json.RawMessage) struct {
+	ID     json.RawMessage `json:"id"`
+	Method string          `json:"method"`
+} {
+	var probe struct {
+		ID     json.RawMessage `json:"id"`
+		Method string          `json:"method"`
+	}
+	_ = json.Unmarshal(raw, &probe)
+	return probe
+}
+
+func decodeSkillHostRPCResponse(raw json.RawMessage) (skillJSONRPCResponse, error) {
+	var resp skillJSONRPCResponse
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&resp); err != nil {
+		return skillJSONRPCResponse{}, err
+	}
+	if err := decoder.Decode(new(struct{})); err != io.EOF {
+		if err == nil {
+			return skillJSONRPCResponse{}, io.ErrUnexpectedEOF
+		}
+		return skillJSONRPCResponse{}, err
+	}
+	return resp, nil
+}
+
+func emptyJSONRPCID(id json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(id)
+	return len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null"))
 }
 
 func skillMCPToolErrorEnvelope(tool string, err error) map[string]any {

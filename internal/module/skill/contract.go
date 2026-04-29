@@ -113,11 +113,71 @@ type CandidateListItem struct {
 	CreatedAt       time.Time  `json:"created_at"`
 }
 
+// Service is the backwards-compatible aggregate for the skill module itself
+// and the RPC handler surface. Cross-module consumers should depend on the
+// narrow ports below instead of this full method set.
 type Service interface {
 	contract.ApprovalSource
+	SkillCommandExecutor
+	SkillLister
+	SkillHydrationSource
+	skillLocalMutationStore
+	skillRemoteStore
+	skillConfigStore
+	skillPreviewer
+	skillLegacyExpander
+	SkillHostToolReader
+	skillCandidateReviewer
+	SkillRevisionSource
+	TrustRevisionSource
+}
+
+type SkillCommandExecutor interface {
 	ExecCommand(ctx context.Context, command string, args []string, cwd string, env map[string]string) (ExecResult, error)
+}
+
+// SkillLister is the read-only skill catalog port used by dashboard and prompt
+// consumers that only need skill metadata.
+type SkillLister interface {
 	ListSkills(ctx context.Context) ([]SkillInfo, error)
+}
+
+type SkillRevisionSource interface {
+	SkillRevision() uint64
+}
+
+type TrustRevisionSource interface {
+	TrustRevision() uint64
+}
+
+// SkillCatalogSource is the prompt catalog provider's complete skill-side
+// dependency: metadata listing, approval probing, and revision invalidation.
+type SkillCatalogSource interface {
+	SkillLister
+	contract.ApprovalSource
+	SkillRevisionSource
+	TrustRevisionSource
+}
+
+// SkillHydrationSource is the turn service's minimal dependency for resolving
+// name-only skill references before provider submission.
+type SkillHydrationSource interface {
+	SkillLister
 	ReadLocal(ctx context.Context, path string) (any, error)
+}
+
+// SkillHostToolReader is the host-direct toolbridge dependency for
+// skill_expand_body / skill_read_resource.
+type SkillHostToolReader interface {
+	// ExpandBody (P20.1 Phase 6): read SKILL.md body by name with optional
+	// Markdown anchor slicing.
+	ExpandBody(ctx context.Context, p ExpandBodyParams) (ExpandBodyResult, error)
+	// ReadResource (P20.1 Phase 6): read a resource file from the skill
+	// directory by name + relative path.
+	ReadResource(ctx context.Context, p ReadResourceParams) (ReadResourceResult, error)
+}
+
+type skillLocalMutationStore interface {
 	ListLocalFiles(ctx context.Context, p listSkillFilesParams) (any, error)
 	WriteLocal(ctx context.Context, path, content string, scope ...string) (any, error)
 	// CreateSkill is the host-side project-scope self-learning entry point.
@@ -128,19 +188,28 @@ type Service interface {
 	// skill imports and expands container directories into direct child skills.
 	ImportLocalDir(ctx context.Context, p importSkillDirParams) (any, error)
 	DeleteLocal(ctx context.Context, name string) (any, error)
+}
+
+type skillRemoteStore interface {
 	ReadRemote(ctx context.Context, url string) (any, error)
 	WriteRemote(ctx context.Context, name, content string) (any, error)
+}
+
+type skillConfigStore interface {
 	ReadConfig(ctx context.Context, agentID string) (any, error)
 	WriteSkillContent(ctx context.Context, name, content string) (any, error)
 	WriteSummary(ctx context.Context, name, summary string) (any, error)
+}
+
+type skillPreviewer interface {
 	MatchPreview(ctx context.Context, agentID, threadID, text string, input []UserInput) (any, error)
+}
+
+type skillLegacyExpander interface {
 	Expand(ctx context.Context, p skillExpandParams) (skillExpandResult, error)
-	// ExpandBody (P20.1 Phase 6): read SKILL.md body by name with optional
-	// Markdown anchor slicing.
-	ExpandBody(ctx context.Context, p ExpandBodyParams) (ExpandBodyResult, error)
-	// ReadResource (P20.1 Phase 6): read a resource file from the skill
-	// directory by name + relative path.
-	ReadResource(ctx context.Context, p ReadResourceParams) (ReadResourceResult, error)
+}
+
+type skillCandidateReviewer interface {
 	// ApproveCandidate (P0b Step 5): promote a pending candidate to a
 	// project-scope SKILL.md via CreateSkill. The caller ctx must carry
 	// cwd (use WithCWD); CreateSkill will reject with ErrMissingCWD
@@ -159,6 +228,4 @@ type Service interface {
 	// approvals isolated per project.
 	LookupApproval(ctx context.Context, scope, slug, contentHash, repoFingerprint string) (*CandidateListItem, error)
 	GetCandidateByID(ctx context.Context, id int64) (*Candidate, error)
-	SkillRevision() uint64
-	TrustRevision() uint64
 }

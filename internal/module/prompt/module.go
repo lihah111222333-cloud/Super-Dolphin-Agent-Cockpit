@@ -122,8 +122,8 @@ func NewCompositeNativeSkillDetector(p NewCompositeNativeSkillDetectorParams) Na
 type skillCatalogProviderDeps struct {
 	fx.In
 	Cfg      *Config
-	Skills   skillpkg.Service    `optional:"true"`
-	Detector NativeSkillDetector `optional:"true"`
+	Skills   skillpkg.SkillCatalogSource `optional:"true"`
+	Detector NativeSkillDetector         `optional:"true"`
 }
 
 func NewSkillCatalogProviderFx(deps skillCatalogProviderDeps) SkillCatalogProvider {
@@ -145,7 +145,7 @@ type registerSkillCatalogDeps struct {
 	Cfg       *Config
 	Registrar contract.DynamicSectionRegistrar
 	Provider  SkillCatalogProvider
-	Skills    skillpkg.Service `optional:"true"`
+	Skills    skillpkg.SkillCatalogSource `optional:"true"`
 }
 
 func RegisterSkillCatalogProviderIfEnabled(deps registerSkillCatalogDeps) error {
