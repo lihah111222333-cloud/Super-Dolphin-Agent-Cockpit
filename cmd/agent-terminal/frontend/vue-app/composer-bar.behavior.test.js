@@ -98,6 +98,7 @@ function createComposerBar(overrides = {}, emit = vi.fn()) {
     threadIsTask: overrides.threadIsTask ?? false,
     promotingTask: overrides.promotingTask ?? false,
     threadTaskId: overrides.threadTaskId ?? '',
+    promoteTaskError: overrides.promoteTaskError ?? '',
   };
   const vm = ComposerBar.setup(props, { emit });
   return { props, emit, vm };
@@ -724,5 +725,14 @@ describe('ComposerBar behavior', () => {
     vm.onPromoteTask();
     const calls = emit.mock.calls.filter(([name]) => name === 'promote-task');
     expect(calls).toHaveLength(0);
+  });
+
+  it('declares promoteTaskError prop with empty default', () => {
+    expect(ComposerBar.props.promoteTaskError.default).toBe('');
+  });
+
+  it('template renders promote error row with proper testid', () => {
+    expect(ComposerBar.template).toContain('thread-config-promote-error');
+    expect(ComposerBar.template).toContain('v-if="promoteTaskError"');
   });
 });

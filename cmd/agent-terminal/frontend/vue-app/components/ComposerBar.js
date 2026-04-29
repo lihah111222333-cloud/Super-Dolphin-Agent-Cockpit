@@ -44,6 +44,9 @@ export const ComposerBar = {
     promotingTask: { type: Boolean, default: false },
     // Phase 2.2a：已是任务时显示当前 taskId 让用户确认是哪条任务。
     threadTaskId: { type: String, default: '' },
+    // Phase 2.2a：promote-task RPC 上一次错误（usePromoteTask.lastError）。
+    // 非空时按钮下方显示一行红字反馈，让用户知道为什么没升级成功。
+    promoteTaskError: { type: String, default: '' },
   },
   emits: [
     'send', 'interrupt', 'compact', 'toggle-skill', 'select-all-skills', 'clear-skills',
@@ -499,9 +502,14 @@ export const ComposerBar = {
                   <span style="font-size: 10px; color: var(--text-muted); opacity: 0.7; line-height: 1.4;">
                     单向升级：升级后不能改回普通对话；不影响普通对话的他人会话。
                   </span>
+                  <span
+                    v-if="promoteTaskError"
+                    data-testid="thread-config-promote-error"
+                    :title="promoteTaskError"
+                    style="font-size: 10px; color: var(--error, #f87171); line-height: 1.35;"
+                  >升级失败：{{ promoteTaskError }}</span>
                 </template>
               </div>
-              <div v-if="!threadConfigInherited" class="project-dropdown-divider" style="margin: 4px 0px;"></div>
               <div v-if="!threadConfigInherited" style="padding: 6px 14px 10px; display: flex; justify-content: center;">
                 <button
                   class="btn btn-ghost btn-xs"
