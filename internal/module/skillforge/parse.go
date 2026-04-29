@@ -93,26 +93,99 @@ func parseFrontmatter(text string) map[string]string {
 }
 
 // splitH2 splits the body text into sections on H2 headings ("## ").
+// Lines inside fenced code blocks (``` or ~~~) are never treated as headings,
+// so example markdown inside SKILL.md does not split the section unexpectedly.
+// Closing-suffix form "## Title ##" is normalized to just "Title".
 func splitH2(body string) []Section {
 	lines := strings.Split(body, "\n")
 	var sections []Section
 	var cur *Section
+	fence := &fenceTracker{}
 	for _, ln := range lines {
-		if strings.HasPrefix(ln, "## ") {
-			if cur != nil {
-				cur.Body = strings.TrimSpace(cur.Body)
-				sections = append(sections, *cur)
-			}
-			cur = &Section{Title: strings.TrimSpace(strings.TrimPrefix(ln, "## "))}
-			continue
-		}
-		if cur != nil {
-			cur.Body += ln + "\n"
-		}
+		cur = applyH2Line(ln, fence, cur, &sections)
 	}
 	if cur != nil {
 		cur.Body = strings.TrimSpace(cur.Body)
 		sections = append(sections, *cur)
 	}
 	return sections
+}
+
+// applyH2Line dispatches one input line through the fence/heading state machine
+// and returns the (possibly new) current Section pointer. Pulled out of
+// splitH2 to keep that function under the repository CC=10 limit.
+func applyH2Line(ln string, fence *fenceTracker, cur *Section, sections *[]Section) *Section {
+	if fence.update(ln) {
+		if cur != nil {
+			cur.Body += ln + "\n"
+		}
+		return cur
+	}
+	if !fence.inside() {
+		if title, ok := parseH2Heading(ln); ok {
+			if cur != nil {
+				cur.Body = strings.TrimSpace(cur.Body)
+				*sections = append(*sections, *cur)
+			}
+			return &Section{Title: title}
+		}
+	}
+	if cur != nil {
+		cur.Body += ln + "\n"
+	}
+	return cur
+}
+
+// fenceTracker tracks whether the parser is currently inside a fenced code
+// block and which marker (``` or ~~~) opened it, so a tilde fence inside a
+// backtick fence does not accidentally close the outer fence.
+type fenceTracker struct {
+	in     bool
+	marker string
+}
+
+// update consumes one line. Returns true if the line was a fence open/close,
+// false otherwise.
+func (f *fenceTracker) update(line string) bool {
+	marker, ok := fenceLine(line)
+	if !ok {
+		return false
+	}
+	if !f.in {
+		f.in = true
+		f.marker = marker
+	} else if marker == f.marker {
+		f.in = false
+		f.marker = ""
+	}
+	return true
+}
+
+func (f *fenceTracker) inside() bool { return f.in }
+
+// fenceLine reports whether ln opens or closes a fenced code block. Markers
+// (``` and ~~~) are tracked separately so a tilde fence inside a backtick
+// fence does not accidentally close the outer fence.
+func fenceLine(line string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	switch {
+	case strings.HasPrefix(trimmed, "```"):
+		return "```", true
+	case strings.HasPrefix(trimmed, "~~~"):
+		return "~~~", true
+	default:
+		return "", false
+	}
+}
+
+// parseH2Heading recognizes lines like "## Title" and "## Title ##" while
+// rejecting H3+ lines such as "### Foo". Trailing closing "##" is stripped.
+func parseH2Heading(line string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "## ") || strings.HasPrefix(trimmed, "###") {
+		return "", false
+	}
+	title := strings.TrimSpace(strings.TrimPrefix(trimmed, "## "))
+	title = strings.TrimSpace(strings.TrimSuffix(title, "##"))
+	return title, title != ""
 }
