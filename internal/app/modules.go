@@ -1,6 +1,9 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
+
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/cron"
@@ -11,6 +14,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/notify"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skillforge"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	turnobservation "github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation"
@@ -52,6 +57,9 @@ var Module = fx.Options(
 	memory.Module,
 	prompt.Module,
 	skill.Module,
+	skillforge.Module,
+	skilllibrary.Module,
+	fx.Provide(provideSkillLibraryConfig),
 	thread.Module,
 	turn.Module,
 	turnobservation.Module,
@@ -75,6 +83,15 @@ var Module = fx.Options(
 		newRuntimeReporter,
 	),
 )
+
+func provideSkillLibraryConfig() skilllibrary.Config {
+	home, _ := os.UserHomeDir()
+	return skilllibrary.Config{
+		LibraryDir:     filepath.Join(home, ".multi-agent", "skills-library"),
+		CacheDir:       filepath.Join(home, ".multi-agent", "skills-cache"),
+		HarnessVersion: "dev",
+	}
+}
 
 func AsRPCRunner(server *rpc.Server) RunnerResult {
 	return RunnerResult{Runner: server}
