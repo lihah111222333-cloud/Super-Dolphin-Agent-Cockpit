@@ -59,27 +59,58 @@ func TestComputeRetryBackoff(t *testing.T) {
 	}
 }
 
-func TestIsRetryableLaunchErrorIncludesRateLimit(t *testing.T) {
+func TestClassifyLaunchError(t *testing.T) {
 	cases := []struct {
 		name string
 		err  error
-		want bool
+		want launchErrorClass
 	}{
-		{"nil -> false", nil, false},
-		{"context deadline -> true", context.DeadlineExceeded, true},
-		{"context canceled -> true", context.Canceled, true},
-		{"rate limit -> true", errors.New("rate limit exceeded"), true},
-		{"http 429 -> true", errors.New("upstream http 429"), true},
-		{"too many requests -> true", errors.New("Too Many Requests"), true},
-		{"connection refused -> true", errors.New("connection refused"), true},
-		{"empty thread id -> true", errors.New("empty thread id"), true},
-		{"random permanent -> false", errors.New("invalid_api_key"), false},
-		{"401 unauthorized -> false (1.8b territory)", errors.New("401 unauthorized"), false},
+		// nil 当 transient（保守 default：让重试逻辑遇到 nil 不主动跳出）
+		{"nil -> transient", nil, launchClassTransient},
+		// transient · context cancellation / timeout
+		{"context deadline -> transient", context.DeadlineExceeded, launchClassTransient},
+		{"context canceled -> transient", context.Canceled, launchClassTransient},
+		{"deadline exceeded msg -> transient", errors.New("deadline exceeded"), launchClassTransient},
+		// transient · 连接级 / 启动竞态
+		{"connection refused -> transient", errors.New("connection refused"), launchClassTransient},
+		{"transport unavailable -> transient", errors.New("transport unavailable"), launchClassTransient},
+		{"empty thread id -> transient", errors.New("empty thread id"), launchClassTransient},
+		{"i/o timeout -> transient", errors.New("i/o timeout"), launchClassTransient},
+		{"timed out -> transient", errors.New("timed out"), launchClassTransient},
+		// transient · rate limit (1.8c)
+		{"rate limit -> transient", errors.New("rate limit exceeded"), launchClassTransient},
+		{"http 429 -> transient", errors.New("upstream http 429"), launchClassTransient},
+		{"too many requests -> transient", errors.New("Too Many Requests"), launchClassTransient},
+		// permanent · 401
+		{"401 unauthorized -> permanent", errors.New("401 unauthorized"), launchClassPermanent},
+		{"invalid api key -> permanent", errors.New("invalid api key"), launchClassPermanent},
+		{"invalid_api_key -> permanent", errors.New("invalid_api_key"), launchClassPermanent},
+		// permanent · 403
+		{"403 forbidden -> permanent", errors.New("403 forbidden"), launchClassPermanent},
+		{"permission denied -> permanent", errors.New("permission denied"), launchClassPermanent},
+		// permanent · quota
+		{"quota_exhausted -> permanent", errors.New("quota_exhausted"), launchClassPermanent},
+		{"insufficient_quota -> permanent", errors.New("insufficient_quota"), launchClassPermanent},
+		{"usage limit -> permanent", errors.New("daily usage limit reached"), launchClassPermanent},
+		{"out of credits -> permanent", errors.New("out of credits"), launchClassPermanent},
+		// permanent · payment
+		{"402 payment required -> permanent", errors.New("402 payment_required"), launchClassPermanent},
+		{"subscription expired -> permanent", errors.New("subscription expired"), launchClassPermanent},
+		// permanent · context_length
+		{"context_length_exceeded -> permanent", errors.New("context_length_exceeded"), launchClassPermanent},
+		{"context length exceeded msg -> permanent", errors.New("context length exceeded"), launchClassPermanent},
+		{"maximum context -> permanent", errors.New("maximum context tokens"), launchClassPermanent},
+		{"prompt is too long -> permanent", errors.New("prompt is too long"), launchClassPermanent},
+		// permanent 优先级高于 transient（同时含两类关键字时归 permanent）
+		{"401 + timeout -> permanent", errors.New("401 unauthorized after i/o timeout"), launchClassPermanent},
+		// unknown · 不在任何已知关键字列表里
+		{"random unknown -> unknown", errors.New("some_unrecognized_failure"), launchClassUnknown},
+		{"empty msg -> unknown", errors.New(""), launchClassUnknown},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := isRetryableLaunchError(tc.err); got != tc.want {
-				t.Fatalf("isRetryableLaunchError(%v) = %v, want %v", tc.err, got, tc.want)
+			if got := classifyLaunchError(tc.err); got != tc.want {
+				t.Fatalf("classifyLaunchError(%v) = %q, want %q", tc.err, got, tc.want)
 			}
 		})
 	}
