@@ -28,13 +28,26 @@ type launchedAgent struct {
 const (
 	maxLaunchRetries = 3
 	launchRetryBase  = 2 * time.Second
+	// rateLimitBackoff is the wait used when the previous launch error looks
+	// like an HTTP 429 / rate limit. The launcher uses jrpc2 over a line
+	// protocol so we cannot read Retry-After; this fixed default still beats
+	// the linear path by ~30x and is consistent with provider docs (60s).
+	rateLimitBackoff = 60 * time.Second
 )
 
+func computeRetryBackoff(attempt int, prevErr error) time.Duration {
+	if isRateLimited(prevErr) {
+		return rateLimitBackoff
+	}
+	return time.Duration(attempt) * launchRetryBase
+}
+
 func waitRetryBackoff(ctx context.Context, attempt int, agentID string, prevErr error) error {
-	delay := time.Duration(attempt) * launchRetryBase
+	delay := computeRetryBackoff(attempt, prevErr)
 	pkglogger.Info("orchestration: retrying launch",
 		"agent_id", agentID, "attempt", attempt+1,
-		"prev_error", prevErr, "backoff", delay)
+		"prev_error", prevErr, "backoff", delay,
+		"rate_limited", isRateLimited(prevErr))
 	select {
 	case <-time.After(delay):
 		return nil
@@ -503,12 +516,16 @@ func bindLaunchResult(agent *agentRuntime, result LaunchResult) {
 }
 
 // isRetryableLaunchError returns true for transient errors that may succeed
-// on a subsequent attempt (timeout, connection refused, transport unavailable).
+// on a subsequent attempt (timeout, connection refused, transport unavailable,
+// or rate limited responses such as HTTP 429).
 func isRetryableLaunchError(err error) bool {
 	if err == nil {
 		return false
 	}
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	if isRateLimited(err) {
 		return true
 	}
 	msg := err.Error()
@@ -521,6 +538,31 @@ func isRetryableLaunchError(err error) bool {
 		"i/o timeout",
 	} {
 		if strings.Contains(strings.ToLower(msg), pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+// isRateLimited reports whether err looks like an HTTP 429 / rate limit
+// response. We cannot read Retry-After (jrpc2 line protocol strips it), so we
+// match common substrings the upstream surfaces in its error message.
+func isRateLimited(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	for _, pattern := range []string{
+		"rate limit",
+		"rate-limit",
+		"rate_limit",
+		"too many requests",
+		"http 429",
+		" 429 ",
+		"status 429",
+		"status: 429",
+	} {
+		if strings.Contains(msg, pattern) {
 			return true
 		}
 	}
