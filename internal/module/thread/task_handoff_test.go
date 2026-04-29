@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -660,6 +661,105 @@ func TestResolveTaskHandoffStart_Pin(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			meta, sourceThreadID := tt.svc.resolveTaskHandoffStart(context.Background(), &tt.req)
 			tt.assert(t, meta, sourceThreadID)
+		})
+	}
+}
+
+func TestResolveRootTaskId(t *testing.T) {
+	t.Parallel()
+
+	makeThread := func(t *testing.T, threadID, ownerThreadID string, runtime map[string]any) *threadstore.Thread {
+		t.Helper()
+		return &threadstore.Thread{
+			ThreadID:      threadID,
+			OwnerThreadID: ownerThreadID,
+			ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{
+				Runtime: runtime,
+			}),
+		}
+	}
+
+	tests := []struct {
+		name           string
+		ownerThreadID  string
+		threadByID     map[string]*threadstore.Thread
+		nilThreadStore bool
+		want           string
+	}{
+		{
+			name:          "empty owner returns empty",
+			ownerThreadID: "",
+			threadByID:    map[string]*threadstore.Thread{},
+			want:          "",
+		},
+		{
+			name:           "nil threadStore returns empty",
+			ownerThreadID:  "thread-A",
+			nilThreadStore: true,
+			want:           "",
+		},
+		{
+			name:          "store ErrNotFound returns empty",
+			ownerThreadID: "thread-missing",
+			threadByID:    map[string]*threadstore.Thread{},
+			want:          "",
+		},
+		{
+			name:          "single layer (owner is root) returns its taskId",
+			ownerThreadID: "thread-A",
+			threadByID: map[string]*threadstore.Thread{
+				"thread-A": makeThread(t, "thread-A", "", map[string]any{
+					taskConfigKeyID: "task-root",
+				}),
+			},
+			want: "task-root",
+		},
+		{
+			name:          "two layers traverses to root",
+			ownerThreadID: "thread-mid",
+			threadByID: map[string]*threadstore.Thread{
+				"thread-mid":  makeThread(t, "thread-mid", "thread-root", map[string]any{taskConfigKeyID: "task-mid"}),
+				"thread-root": makeThread(t, "thread-root", "", map[string]any{taskConfigKeyID: "task-root"}),
+			},
+			want: "task-root",
+		},
+		{
+			name:          "depth limit 10 cuts off cyclic chain",
+			ownerThreadID: "thread-1",
+			threadByID: func() map[string]*threadstore.Thread {
+				m := map[string]*threadstore.Thread{}
+				// 12 个 thread 形成 1 → 2 → 3 ... → 12，没有顶端
+				for i := 1; i <= 12; i++ {
+					curID := fmt.Sprintf("thread-%d", i)
+					nextID := fmt.Sprintf("thread-%d", i+1)
+					m[curID] = makeThread(t, curID, nextID, map[string]any{taskConfigKeyID: "task-fake"})
+				}
+				return m
+			}(),
+			want: "",
+		},
+		{
+			name:          "root with no taskId returns empty",
+			ownerThreadID: "thread-A",
+			threadByID: map[string]*threadstore.Thread{
+				"thread-A": makeThread(t, "thread-A", "", map[string]any{}),
+			},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var svc *service
+			if tt.nilThreadStore {
+				svc = &service{}
+			} else {
+				svc = &service{threadStore: &stubThreadStore{threadByID: tt.threadByID}}
+			}
+			got := svc.resolveRootTaskId(context.Background(), tt.ownerThreadID)
+			if got != tt.want {
+				t.Fatalf("resolveRootTaskId() = %q, want %q", got, tt.want)
+			}
 		})
 	}
 }
