@@ -11,6 +11,11 @@ const logMock = vi.hoisted(() => ({
   logWarn: vi.fn(),
   readLogBuffer: vi.fn(() => []),
   readLogLevel: vi.fn(() => 'info'),
+  // P1+: onLogLevelChange + setLogLevel are now imported by SettingsPage
+  // (UI LOG select hot-update). Tests that drive onMounted / change events
+  // must see real function placeholders, not undefined.
+  onLogLevelChange: vi.fn(() => () => {}),
+  setLogLevel: vi.fn(() => true),
 }));
 
 const settingsScopeMock = vi.hoisted(() => ({
@@ -29,6 +34,8 @@ vi.mock('./services/log.js', () => ({
   logWarn: logMock.logWarn,
   readLogBuffer: logMock.readLogBuffer,
   readLogLevel: logMock.readLogLevel,
+  onLogLevelChange: logMock.onLogLevelChange,
+  setLogLevel: logMock.setLogLevel,
 }));
 
 vi.mock('./pages/settings/ProviderSettings.ts', () => ({
@@ -37,6 +44,10 @@ vi.mock('./pages/settings/ProviderSettings.ts', () => ({
 
 vi.mock('./pages/settings/LspPromptSettings.ts', () => ({
   LspPromptSettings: { name: 'LspPromptSettings' },
+}));
+
+vi.mock('./pages/settings/BuiltinToolsSettings.ts', () => ({
+  BuiltinToolsSettings: { name: 'BuiltinToolsSettings' },
 }));
 
 vi.mock('./pages/settings/useSettingsScope.ts', () => ({
@@ -139,5 +150,45 @@ describe('SettingsPage behavior', () => {
     await vm.saveStallThreshold();
     expect(apiMock.callAPI).toHaveBeenCalledWith('ui/preferences/set', { key: 'stallThresholdSec', value: 90, cwd: '/repo' });
     expect(vm.stallNotice.message).toContain('已保存');
+  });
+
+  it('exposes log level options and applyLogLevelChange to the template', () => {
+    const { vm } = createSettingsPage();
+    expect(Array.isArray(vm.LOG_LEVEL_OPTIONS)).toBe(true);
+    expect(vm.LOG_LEVEL_OPTIONS.map((o) => o.value)).toEqual(['debug', 'info', 'warn', 'error']);
+    expect(typeof vm.applyLogLevelChange).toBe('function');
+  });
+
+  it('applyLogLevelChange forwards to setLogLevel and updates local logLevel', () => {
+    const { vm } = createSettingsPage();
+    vm.logLevel.value = 'info';
+    logMock.setLogLevel.mockReturnValueOnce(true);
+
+    vm.applyLogLevelChange('debug');
+
+    expect(logMock.setLogLevel).toHaveBeenCalledWith('debug');
+    expect(vm.logLevel.value).toBe('debug');
+  });
+
+  it('applyLogLevelChange resyncs from readLogLevel when setLogLevel rejects the value', () => {
+    const { vm } = createSettingsPage();
+    vm.logLevel.value = 'info';
+    logMock.setLogLevel.mockReturnValueOnce(false);
+    logMock.readLogLevel.mockReturnValueOnce('warn');
+
+    vm.applyLogLevelChange('garbage');
+
+    expect(vm.logLevel.value).toBe('warn');
+  });
+
+  it('SettingsPage.template compiles cleanly via the runtime Vue compiler', async () => {
+    // Guard against TypeScript-only syntax (e.g. `as HTMLSelectElement`)
+    // leaking into the template string. Vue runtime compiler parses
+    // template expressions as plain JS and would throw at mount time,
+    // silently breaking whole page sections. Behavior tests only call
+    // setup(), so they don't catch this class of bug — this case does.
+    const vue = await import('../lib/vue.esm-browser.prod.js');
+    expect(typeof vue.compile).toBe('function');
+    expect(() => vue.compile(SettingsPage.template)).not.toThrow();
   });
 });
