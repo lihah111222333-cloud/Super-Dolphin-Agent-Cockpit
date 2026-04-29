@@ -12,4 +12,5 @@ type Config struct {
 var Module = fx.Module("skilllibrary",
 	fx.Provide(func(c Config) *Store { return NewStore(c.LibraryDir) }),
 	fx.Provide(func(s *Store, c Config) *Reconciler { return NewReconciler(s, c.CacheDir) }),
+	fx.Invoke(runStartup),
 )
