@@ -39,6 +39,7 @@ type taskHandoffMeta struct {
 	TaskTitle   string
 	HandoffFile string
 	Continue    bool
+	RootTaskID  string
 }
 
 type taskHandoffRenderSeed struct {
@@ -54,6 +55,14 @@ func (s *service) prepareTaskHandoffStart(ctx context.Context, req *StartRequest
 	meta, sourceThreadID := s.resolveTaskHandoffStart(ctx, req)
 	if meta.TaskID == "" {
 		return nil
+	}
+	if meta.RootTaskID == "" {
+		if sourceThreadID != "" {
+			meta.RootTaskID = s.resolveRootTaskId(ctx, sourceThreadID)
+		}
+		if meta.RootTaskID == "" {
+			meta.RootTaskID = meta.TaskID
+		}
 	}
 	applyTaskHandoffConfig(req, meta)
 	inheritTaskHandoffOwner(req, sourceThreadID)
@@ -84,6 +93,9 @@ func applyTaskHandoffConfig(req *StartRequest, meta taskHandoffMeta) {
 	req.Config[taskConfigKeyHandoffFile] = meta.HandoffFile
 	if meta.Continue {
 		req.Config[taskConfigKeyContinue] = true
+	}
+	if meta.RootTaskID != "" {
+		req.Config[taskConfigKeyRoot] = meta.RootTaskID
 	}
 }
 
@@ -175,6 +187,7 @@ func mergeTaskHandoffStart(
 	meta.TaskTitle = resolveTaskHandoffTitle(req, meta.TaskTitle, inherited.TaskTitle)
 	meta.HandoffFile = resolveTaskHandoffFile(meta.TaskID, meta.HandoffFile, inherited.HandoffFile)
 	meta.Continue = meta.Continue || shouldContinueTaskHandoff(sourceThreadID, meta.TaskID, inherited.TaskID)
+	meta.RootTaskID = firstNonEmptyTaskString(meta.RootTaskID, inherited.RootTaskID)
 	return autoTaskHandoffMeta(req, meta)
 }
 
@@ -231,6 +244,7 @@ func taskHandoffMetaFromRuntimeConfig(cfg map[string]any) taskHandoffMeta {
 		TaskTitle:   firstConfigString(cfg, taskConfigKeyTitle, taskConfigKeyTitleSnake),
 		HandoffFile: normalizeTaskHandoffPath(firstConfigString(cfg, taskConfigKeyHandoffFile, taskConfigKeyHandoffFileSnake)),
 		Continue:    firstConfigBool(cfg, taskConfigKeyContinue, taskConfigKeyContinueSnake),
+		RootTaskID:  firstConfigString(cfg, taskConfigKeyRoot, taskConfigKeyRootSnake),
 	}
 }
 
