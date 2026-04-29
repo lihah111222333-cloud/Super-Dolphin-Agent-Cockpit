@@ -346,6 +346,7 @@ func (s *service) lookupSession(agentID string) (contract.Session, error) {
 type resumeState struct {
 	AgentID            string
 	ParentAgentID      string
+	OwnerThreadID      string
 	AgentType          string
 	AgentMemoryScope   string
 	Provider           string
@@ -399,6 +400,7 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	state.CodexHome = shared.FirstNonEmpty(state.CodexHome, req.CodexHome)
 	state.CodexInstanceKey = shared.FirstNonEmpty(state.CodexInstanceKey, req.CodexInstanceKey)
 	state.CodexModelProvider = shared.FirstNonEmpty(state.CodexModelProvider, req.CodexModelProvider)
+	state.ConfigOverrideRaw = s.backfillResumeRootTaskId(ctx, state.OwnerThreadID, state.ConfigOverrideRaw)
 	return req, state, nil
 }
 
@@ -528,6 +530,7 @@ func (s *service) lookupResumeState(ctx context.Context, threadID string) resume
 	if err == nil && thread != nil {
 		state.AgentID = strings.TrimSpace(thread.AgentID)
 		state.ParentAgentID = strings.TrimSpace(thread.ParentAgentID)
+		state.OwnerThreadID = strings.TrimSpace(thread.OwnerThreadID)
 		state.AgentType = strings.TrimSpace(thread.AgentType)
 		state.AgentMemoryScope = strings.TrimSpace(thread.AgentMemoryScope)
 		state.PublicThreadID = strings.TrimSpace(thread.ThreadID)

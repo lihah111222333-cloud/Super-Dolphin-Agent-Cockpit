@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"encoding/json"
 	"path"
 	"strings"
 	"time"
@@ -174,6 +175,39 @@ func (s *service) resolveRootTaskId(ctx context.Context, ownerThreadID string) s
 		cur = nextOwner
 	}
 	return ""
+}
+
+// backfillResumeRootTaskId: lifecycle.Resume 兼容 4.1c 之前创建的旧 task thread。
+// 若 ConfigOverride.Runtime 已有 taskId 但缺 rootTaskId，按 ownerThreadID 链反查或
+// fallback 自身 taskId 补回字段并重新编码 raw。任何错误一律返回原 raw。
+func (s *service) backfillResumeRootTaskId(ctx context.Context, ownerThreadID string, raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return raw
+	}
+	stored := decodeStoredThreadConfig(raw)
+	taskID := firstConfigString(stored.Runtime, taskConfigKeyID, taskConfigKeyIDSnake)
+	if taskID == "" {
+		return raw
+	}
+	if rootID := firstConfigString(stored.Runtime, taskConfigKeyRoot, taskConfigKeyRootSnake); rootID != "" {
+		return raw
+	}
+	rootTaskID := ""
+	if owner := strings.TrimSpace(ownerThreadID); owner != "" {
+		rootTaskID = s.resolveRootTaskId(ctx, owner)
+	}
+	if rootTaskID == "" {
+		rootTaskID = taskID
+	}
+	if stored.Runtime == nil {
+		stored.Runtime = map[string]any{}
+	}
+	stored.Runtime[taskConfigKeyRoot] = rootTaskID
+	encoded, err := encodeStoredThreadConfig(stored)
+	if err != nil {
+		return raw
+	}
+	return encoded
 }
 
 func mergeTaskHandoffStart(
