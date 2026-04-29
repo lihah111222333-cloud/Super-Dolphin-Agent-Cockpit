@@ -95,6 +95,9 @@ function createComposerBar(overrides = {}, emit = vi.fn()) {
     threadConfigNotice: overrides.threadConfigNotice ?? '',
     threadConfigNoticeLevel: overrides.threadConfigNoticeLevel ?? 'info',
     threadConfigMeta: overrides.threadConfigMeta ?? { override: {}, effective: {} },
+    threadIsTask: overrides.threadIsTask ?? false,
+    promotingTask: overrides.promotingTask ?? false,
+    threadTaskId: overrides.threadTaskId ?? '',
   };
   const vm = ComposerBar.setup(props, { emit });
   return { props, emit, vm };
@@ -683,5 +686,43 @@ describe('ComposerBar behavior', () => {
 
   it('binds textarea ref as a callback ref in the template', () => {
     expect(ComposerBar.template).toContain(':ref="setComposerInputRef"');
+  });
+
+  // Phase 2.2a · 配置面板加「升级为自动化任务」单向按钮
+  it('declares promote-task in emits + threadIsTask / promotingTask / threadTaskId props', () => {
+    expect(ComposerBar.emits).toContain('promote-task');
+    expect(ComposerBar.props.threadIsTask.default).toBe(false);
+    expect(ComposerBar.props.promotingTask.default).toBe(false);
+    expect(ComposerBar.props.threadTaskId.default).toBe('');
+  });
+
+  it('template renders promote button + already-task row with proper testids', () => {
+    expect(ComposerBar.template).toContain('thread-config-promote-btn');
+    expect(ComposerBar.template).toContain('thread-config-promote-already');
+    expect(ComposerBar.template).toContain('@click="onPromoteTask"');
+    expect(ComposerBar.template).toContain('v-if="threadIsTask"');
+  });
+
+  it('onPromoteTask emits when not already a task and not in flight', () => {
+    const emit = vi.fn();
+    const { vm } = createComposerBar({ threadIsTask: false, promotingTask: false }, emit);
+    vm.onPromoteTask();
+    expect(emit).toHaveBeenCalledWith('promote-task');
+  });
+
+  it('onPromoteTask does NOT emit when threadIsTask=true', () => {
+    const emit = vi.fn();
+    const { vm } = createComposerBar({ threadIsTask: true }, emit);
+    vm.onPromoteTask();
+    const calls = emit.mock.calls.filter(([name]) => name === 'promote-task');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('onPromoteTask does NOT emit when promotingTask=true (in-flight)', () => {
+    const emit = vi.fn();
+    const { vm } = createComposerBar({ promotingTask: true }, emit);
+    vm.onPromoteTask();
+    const calls = emit.mock.calls.filter(([name]) => name === 'promote-task');
+    expect(calls).toHaveLength(0);
   });
 });

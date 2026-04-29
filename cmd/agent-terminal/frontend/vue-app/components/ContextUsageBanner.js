@@ -41,8 +41,12 @@ export const ContextUsageBanner = {
     retryError: { type: String, default: '' }, // R2 fix：一键重试失败反馈
     stuckInfo: { type: Object, default: null },
     pokingStuck: { type: Boolean, default: false },
+    // Phase 2.2b：thread 是否已经是自动化任务。已是 task 的不显示"升级"按钮。
+    threadIsTask: { type: Boolean, default: false },
+    // Phase 2.2b：promote-task RPC in-flight，按钮 disable + 改文案。
+    promotingTask: { type: Boolean, default: false },
   },
-  emits: ['compact', 'fork', 'retry-auto-continue', 'retry-stuck-thread', 'force-stuck-thread', 'mark-stuck-done'],
+  emits: ['compact', 'fork', 'retry-auto-continue', 'retry-stuck-thread', 'force-stuck-thread', 'mark-stuck-done', 'promote-task'],
   setup(props, { emit }) {
     function levelLabel() {
       if (props.level === 'critical') return '严重';
@@ -98,6 +102,12 @@ export const ContextUsageBanner = {
       emit('force-stuck-thread');
     }
     function onMarkStuckDone() { emit('mark-stuck-done'); }
+    function onPromoteTask() {
+      // Phase 2.2b：未升级 + 不在 in-flight 才允许触发；已是 task 的入口在
+      // Phase 2.2a 配置面板那条线（这里只是 banner 的机会入口，痛点瞬间转化）。
+      if (props.promotingTask || props.threadIsTask) return;
+      emit('promote-task');
+    }
     function isCumulativeLimit() {
       return Boolean(props.stuckInfo && props.stuckInfo.kind === 'cumulative_limit');
     }
@@ -109,7 +119,7 @@ export const ContextUsageBanner = {
       levelLabel, failedReasonLabel, failedErrorSnippet, isPermanentFailure,
       showTokenSection, showFailedSection, showStuckSection, stuckDurationLabel, visible,
       isCumulativeLimit, cumulativeCountLabel,
-      onCompact, onFork, onRetry, onRetryStuck, onForceStuck, onMarkStuckDone,
+      onCompact, onFork, onRetry, onRetryStuck, onForceStuck, onMarkStuckDone, onPromoteTask,
     };
   },
   template: `
@@ -186,6 +196,15 @@ export const ContextUsageBanner = {
             :title="pokingStuck ? '发送中…' : '发送一句继续促 agent 推进'"
             @click="onRetryStuck"
           >{{ pokingStuck ? '发送中…' : '继续' }}</button>
+          <button
+            v-if="!threadIsTask"
+            type="button"
+            class="btn btn-ghost btn-xs context-usage-banner-action"
+            data-testid="thread-stuck-promote-btn"
+            :disabled="promotingTask"
+            :title="promotingTask ? '升级中…' : '升级为自动化任务后，类似情况会自动续接，不再需要手动点继续'"
+            @click="onPromoteTask"
+          >{{ promotingTask ? '升级中…' : '升级为自动化任务' }}</button>
         </template>
         <template v-else>
           <button

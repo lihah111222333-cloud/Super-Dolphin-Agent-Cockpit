@@ -37,11 +37,18 @@ export const ComposerBar = {
     threadConfigNotice: { type: String, default: '' },
     threadConfigNoticeLevel: { type: String, default: 'info' },
     threadConfigMeta: { type: Object, default: () => ({ override: {}, effective: {} }) },
+    // Phase 2.2a：thread 是否已升级为自动化任务（runtime.taskId 非空）。
+    // 决定下拉里渲染的是「升级」按钮还是「已是任务」状态行。
+    threadIsTask: { type: Boolean, default: false },
+    // Phase 2.2a：promote-task RPC in-flight，按钮 disable + 改文案。
+    promotingTask: { type: Boolean, default: false },
+    // Phase 2.2a：已是任务时显示当前 taskId 让用户确认是哪条任务。
+    threadTaskId: { type: String, default: '' },
   },
   emits: [
     'send', 'interrupt', 'compact', 'toggle-skill', 'select-all-skills', 'clear-skills',
     'update-thread-config-model', 'update-thread-config-effort', 'save-thread-config', 'restore-thread-config-inherit',
-    'open-fork-draft',
+    'open-fork-draft', 'promote-task',
   ],
   setup(props, { emit }) {
     const {
@@ -75,6 +82,13 @@ export const ComposerBar = {
     });
     function hasReadyInput() {
       return props.composer.canSend.value;
+    }
+
+    // Phase 2.2a · 配置面板基础入口。已是 task 或 RPC in-flight 时不发；
+    // 单向升级（plan §2.2a「UI 必须只展示单向升级语义」），不提供取消 toggle。
+    function onPromoteTask() {
+      if (props.promotingTask || props.threadIsTask) return;
+      emit('promote-task');
     }
 
     const showLegacySkillSelector = computed(() => {
@@ -267,6 +281,7 @@ export const ComposerBar = {
       onClearSkills,
       threadConfigInlineNotice,
       threadConfigInlineNoticeColor,
+      onPromoteTask,
 
       ...interrupt,
       ...dragDrop,
@@ -460,6 +475,31 @@ export const ComposerBar = {
                     <option v-for="m in threadConfigEffortOptions" :key="m.value" :value="m.value">{{ m.label }}</option>
                   </select>
                 </label>
+              </div>
+              <div class="project-dropdown-divider" style="margin: 4px 0px;"></div>
+              <div
+                class="composer-thread-promote-section"
+                style="padding: 8px 14px; display: flex; flex-direction: column; gap: 6px;"
+              >
+                <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">自动化任务</span>
+                <div v-if="threadIsTask" data-testid="thread-config-promote-already" style="font-size: 11px; color: var(--text-muted); line-height: 1.45;">
+                  已是自动化任务<span v-if="threadTaskId" style="opacity:0.7; margin-left:4px;">（{{ threadTaskId }}）</span>
+                  <div style="opacity: 0.65; margin-top: 2px;">token 满 / 状态出错时会自动续接，不再需要手动点继续。</div>
+                </div>
+                <template v-else>
+                  <button
+                    class="btn btn-ghost btn-xs"
+                    type="button"
+                    data-testid="thread-config-promote-btn"
+                    :disabled="promotingTask"
+                    :title="promotingTask ? '升级中…' : '把当前对话升级为自动化任务，后续 token 满 / 状态出错时自动续接（单向操作，本期不支持取消）'"
+                    @click="onPromoteTask"
+                    style="font-size: 11px; opacity: 0.85;"
+                  >{{ promotingTask ? '升级中…' : '升级为自动化任务' }}</button>
+                  <span style="font-size: 10px; color: var(--text-muted); opacity: 0.7; line-height: 1.4;">
+                    单向升级：升级后不能改回普通对话；不影响普通对话的他人会话。
+                  </span>
+                </template>
               </div>
               <div v-if="!threadConfigInherited" class="project-dropdown-divider" style="margin: 4px 0px;"></div>
               <div v-if="!threadConfigInherited" style="padding: 6px 14px 10px; display: flex; justify-content: center;">

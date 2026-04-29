@@ -184,3 +184,39 @@ describe('ContextUsageBanner · component shape', () => {
     expect(ContextUsageBanner.template).toContain("@click=\"onRetry\"");
   });
 });
+
+// Phase 2.2b · banner stuck section 升级为自动化任务按钮
+describe('ContextUsageBanner · Phase 2.2b promote-task button', () => {
+  it('declares promote-task in emits + threadIsTask / promotingTask props', () => {
+    expect(ContextUsageBanner.emits).toContain('promote-task');
+    expect(ContextUsageBanner.props.threadIsTask.default).toBe(false);
+    expect(ContextUsageBanner.props.promotingTask.default).toBe(false);
+  });
+
+  it('template renders promote-task button only when not already a task', () => {
+    expect(ContextUsageBanner.template).toContain('thread-stuck-promote-btn');
+    expect(ContextUsageBanner.template).toContain('v-if="!threadIsTask"');
+    expect(ContextUsageBanner.template).toContain('@click="onPromoteTask"');
+  });
+
+  it('onPromoteTask emits when not already task and not in flight', () => {
+    const emit = vi.fn();
+    const { onPromoteTask } = instantiate({ threadIsTask: false, promotingTask: false }, emit);
+    onPromoteTask();
+    expect(emit).toHaveBeenCalledWith('promote-task');
+  });
+
+  it('onPromoteTask does NOT emit when threadIsTask=true', () => {
+    const emit = vi.fn();
+    const { onPromoteTask } = instantiate({ threadIsTask: true, promotingTask: false }, emit);
+    onPromoteTask();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('onPromoteTask does NOT emit when promotingTask=true (in flight)', () => {
+    const emit = vi.fn();
+    const { onPromoteTask } = instantiate({ threadIsTask: false, promotingTask: true }, emit);
+    onPromoteTask();
+    expect(emit).not.toHaveBeenCalled();
+  });
+});
