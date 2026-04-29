@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/module/fbsd"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skillforge"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 )
@@ -49,10 +51,7 @@ func buildSkillManifest(entries []skilllibrary.SkillEntry, budgetChars int) stri
 }
 
 func renderL1CBlock(e skilllibrary.SkillEntry) string {
-	desc := ""
-	if ps, err := skillforge.Parse(e.SkillMD); err == nil {
-		desc = ps.Description
-	}
+	desc := descriptionOf(e)
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("- %s — %s\n", e.Meta.Name, desc))
 	if len(e.Meta.SectionSummaries) > 0 {
@@ -65,6 +64,58 @@ func renderL1CBlock(e skilllibrary.SkillEntry) string {
 	return b.String()
 }
 
+// descriptionOf 从 SKILL.md frontmatter 提取 description，失败返回空串。
+func descriptionOf(e skilllibrary.SkillEntry) string {
+	ps, err := skillforge.Parse(e.SkillMD)
+	if err != nil {
+		return ""
+	}
+	return ps.Description
+}
+
+// renderWarmBlock 是 L1-B 渲染：name + desc + 节标题列表（无摘要）。适用于
+// FBSD Warm tier。
+func renderWarmBlock(e skilllibrary.SkillEntry) string {
+	desc := descriptionOf(e)
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("- %s — %s\n", e.Meta.Name, desc))
+	if len(e.Meta.SectionSummaries) > 0 {
+		anchors := sortedKeys(e.Meta.SectionSummaries)
+		b.WriteString("  节: [" + strings.Join(anchors, ", ") + "]\n")
+	}
+	return b.String()
+}
+
+// renderColdBlock 是 L1-A 渲染：仅 name + desc。适用于 FBSD Cold tier。
+func renderColdBlock(e skilllibrary.SkillEntry) string {
+	return fmt.Sprintf("- %s: %s\n", e.Meta.Name, descriptionOf(e))
+}
+
+// buildSkillManifestFBSD 是开启 SUPER_DOLPHIN_SKILL_FBSD 后的渲染入口：
+// AssignTiers 后按 Hot/Warm/Cold/Frozen 分块输出，Frozen tier 不出现于 manifest。
+// tracker / entries 为空 → 返回空字符串（调用方负责 fallback 走 buildSkillManifest）。
+func buildSkillManifestFBSD(entries []skilllibrary.SkillEntry, tracker *fbsd.Tracker, cfg fbsd.TierConfig, now time.Time) string {
+	if len(entries) == 0 || tracker == nil {
+		return ""
+	}
+	wsStats, glStats := tracker.Snapshot()
+	assignments := fbsd.AssignTiers(entries, wsStats, glStats, cfg, now)
+	var b strings.Builder
+	b.WriteString(skillManifestHeader)
+	for _, a := range assignments {
+		switch a.Tier {
+		case fbsd.TierHot:
+			b.WriteString(renderL1CBlock(a.Skill))
+		case fbsd.TierWarm:
+			b.WriteString(renderWarmBlock(a.Skill))
+		case fbsd.TierCold:
+			b.WriteString(renderColdBlock(a.Skill))
+			// TierFrozen: 不输出任何内容
+		}
+	}
+	return b.String()
+}
+
 func sortedKeys(m map[string]string) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
@@ -72,4 +123,14 @@ func sortedKeys(m map[string]string) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// renderSkillManifest 在 driver 维度选择走 FBSD tier 渲染还是 P3 单 tier。
+// SUPER_DOLPHIN_SKILL_FBSD=on 且 tracker 注入成功时走 buildSkillManifestFBSD；
+// 其他情况向后兼容到 buildSkillManifest（spec §12 P6 灰度规范）。
+func (d *driver) renderSkillManifest(entries []skilllibrary.SkillEntry) string {
+	if d != nil && d.tracker != nil && d.tracker.Enabled() {
+		return buildSkillManifestFBSD(entries, d.tracker, fbsd.EnvTierConfig(), time.Now())
+	}
+	return buildSkillManifest(entries, defaultManifestBudget)
 }
