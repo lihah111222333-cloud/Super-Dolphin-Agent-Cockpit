@@ -435,6 +435,52 @@ func TestSkillMCPMode_StdioSmokeInitializeListCallAndEOF(t *testing.T) {
 	}
 }
 
+func TestSkillMCPMode_SkipsHostNotificationBeforeToolResult(t *testing.T) {
+	requests := make(chan skillJSONRPCRequest, 1)
+	response := strings.Join([]string{
+		`{"jsonrpc":"2.0","method":"ui/thread/patch","params":{"items":[{"kind":"approval"}]}}`,
+		`{"jsonrpc":"2.0","id":1,"result":{"name":"demo","content":"body","total_bytes":4}}`,
+	}, "\n")
+	addr := startSkillHostRPCRecordingServer(t, requests, response)
+	t.Setenv("GO_AGENT_CTL_RPC_ADDR", addr)
+	t.Setenv("GO_AGENT_SKILL_MCP_CWD", "/repo")
+	t.Setenv("GO_AGENT_SKILL_MCP_AGENT_ID", "agent-1")
+	t.Setenv("GO_AGENT_SKILL_MCP_THREAD_ID", "thread-1")
+
+	stdin := strings.NewReader(strings.Join([]string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"skill_expand_body","arguments":{"name":"demo"}}}`,
+	}, "\n") + "\n")
+	var stdout bytes.Buffer
+	if err := RunSkillMCPMode(context.Background(), stdin, &stdout); err != nil {
+		t.Fatalf("RunSkillMCPMode() error = %v", err)
+	}
+
+	responses := decodeSkillMCPResponses(t, stdout.Bytes())
+	if len(responses) != 2 {
+		t.Fatalf("responses len = %d, want 2; raw=%s", len(responses), stdout.String())
+	}
+	callResult, _ := responses[1]["result"].(map[string]any)
+	content, _ := callResult["content"].([]any)
+	if len(content) != 1 {
+		t.Fatalf("tools/call result = %#v, want one text content item", callResult)
+	}
+	textItem, _ := content[0].(map[string]any)
+	text, _ := textItem["text"].(string)
+	if !strings.Contains(text, `"content":"body"`) || strings.Contains(text, "host_tool_error") {
+		t.Fatalf("tools/call text = %q, want host notification skipped and final body returned", text)
+	}
+
+	select {
+	case req := <-requests:
+		if req.Method != skillExpandBodyRPCMethod {
+			t.Fatalf("host RPC method = %q, want %q", req.Method, skillExpandBodyRPCMethod)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for host RPC request")
+	}
+}
+
 func decodeSkillMCPResponses(t *testing.T, raw []byte) []map[string]any {
 	t.Helper()
 	dec := json.NewDecoder(bytes.NewReader(raw))
@@ -466,7 +512,6 @@ func TestSkillHostRPCClient_ValidatesHostResponse(t *testing.T) {
 		{name: "host error", response: `{"jsonrpc":"2.0","id":1,"error":{"code":-31002,"message":"approval required","data":{"CallID":"call-1"}}}`, wantErr: "approval required"},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			addr := startSkillHostRPCTestServer(t, tt.response)
@@ -475,6 +520,23 @@ func TestSkillHostRPCClient_ValidatesHostResponse(t *testing.T) {
 				t.Fatalf("Call() error = %v, want containing %q", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestSkillHostRPCClient_SkipsHostNotificationBeforeResponse(t *testing.T) {
+	t.Parallel()
+
+	response := strings.Join([]string{
+		`{"jsonrpc":"2.0","method":"ui/thread/patch","params":{"items":[{"kind":"approval"}]}}`,
+		`{"jsonrpc":"2.0","id":1,"result":{"name":"demo","content":"body"}}`,
+	}, "\n")
+	addr := startSkillHostRPCTestServer(t, response)
+	raw, err := (skillHostRPCClient{addr: addr}).Call(context.Background(), skillExpandBodyRPCMethod, map[string]any{"name": "demo"})
+	if err != nil {
+		t.Fatalf("Call() error = %v, want notification skipped", err)
+	}
+	if !bytes.Contains(raw, []byte(`"content":"body"`)) {
+		t.Fatalf("Call() result = %s, want final response result", string(raw))
 	}
 }
 
