@@ -15,6 +15,18 @@ vi.mock('./composables/useAutoContinuePref.js', () => {
   };
 });
 
+vi.mock('./composables/useThreadWatchdogPref.js', () => {
+  const r = ref(true);
+  return {
+    useThreadWatchdogPref: () => r,
+    useThreadWatchdogPrefReady: () => ref(true),
+    loadThreadWatchdogPref: vi.fn().mockResolvedValue(true),
+    saveThreadWatchdogPref: vi.fn().mockResolvedValue(undefined),
+    isValidThreadWatchdogPref: () => true,
+    _resetThreadWatchdogPrefForTest: () => { r.value = true; },
+  };
+});
+
 const prefMod = await import('./composables/useAutoContinuePref.js');
 const { logWarn } = await import('./services/log.js');
 const { AutoContinuePrefCard } = await import('./components/AutoContinuePrefCard.js');
