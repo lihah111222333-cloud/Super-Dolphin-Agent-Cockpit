@@ -67,8 +67,9 @@ func (f *Filter) Apply(workspaceDir string) error {
 	if err != nil {
 		return fmt.Errorf("nativefilter: list skill entries: %w", err)
 	}
-	extra := AggregateReplacesNative(entries, "claude")
-	body, err := BuildClaudeSettings(base, extra)
+	denyExtra := AggregateReplacesNative(entries, "claude")
+	allowExtra := AggregateAllowedTools(entries)
+	body, err := BuildClaudeSettings(base, denyExtra, allowExtra)
 	if err != nil {
 		return err
 	}

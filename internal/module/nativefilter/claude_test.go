@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 )
 
 func parseDeny(t *testing.T, raw []byte) []string {
@@ -27,7 +29,7 @@ func TestBuildClaudeSettings_MergesDenyList(t *testing.T) {
 		},
 	}
 	extra := []string{"simplify", "init"}
-	out, err := BuildClaudeSettings(base, extra)
+	out, err := BuildClaudeSettings(base, extra, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +49,7 @@ func TestBuildClaudeSettings_MergesDenyList(t *testing.T) {
 }
 
 func TestBuildClaudeSettings_EmptyAllRendersEmptyArray(t *testing.T) {
-	out, err := BuildClaudeSettings(Config{}, nil)
+	out, err := BuildClaudeSettings(Config{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +66,7 @@ func TestBuildClaudeSettings_EmptyAllRendersEmptyArray(t *testing.T) {
 func TestBuildClaudeSettings_DeduplicatesAcrossLists(t *testing.T) {
 	// base.disabled_skills 含 "x"；extra 也含 "x"；输出只保留一份 Skill:x
 	base := Config{Claude: ClaudeConfig{DisabledSkills: []string{"x"}}}
-	out, err := BuildClaudeSettings(base, []string{"x", "y"})
+	out, err := BuildClaudeSettings(base, []string{"x", "y"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +87,7 @@ func TestBuildClaudeSettings_DeduplicatesAcrossLists(t *testing.T) {
 
 func TestBuildClaudeSettings_UsesColonSyntax(t *testing.T) {
 	// 实测确认正确语法是 Skill:name 冒号，不是 Skill(name) 圆括号
-	out, _ := BuildClaudeSettings(Config{Claude: ClaudeConfig{DisabledSkills: []string{"foo"}}}, nil)
+	out, _ := BuildClaudeSettings(Config{Claude: ClaudeConfig{DisabledSkills: []string{"foo"}}}, nil, nil)
 	got := parseDeny(t, out)
 	if len(got) != 1 || got[0] != "Skill:foo" {
 		t.Errorf("expected [\"Skill:foo\"] (colon syntax), got %v", got)
@@ -98,9 +100,63 @@ func TestBuildClaudeSettings_UsesColonSyntax(t *testing.T) {
 
 func TestBuildClaudeSettings_EmptyStringsFiltered(t *testing.T) {
 	base := Config{Claude: ClaudeConfig{DisabledSkills: []string{""}, DisabledTools: []string{""}}}
-	out, _ := BuildClaudeSettings(base, []string{""})
+	out, _ := BuildClaudeSettings(base, []string{""}, nil)
 	got := parseDeny(t, out)
 	if len(got) != 0 {
 		t.Errorf("empty strings should be filtered, got %v", got)
+	}
+}
+
+func TestBuildClaudeSettings_RendersAllowlistWhenNonEmpty(t *testing.T) {
+	base := Config{Claude: ClaudeConfig{AllowedTools: []string{"Read", "Edit"}}}
+	allowExtra := []string{"Bash", "Read"} // Read 重复
+	out, err := BuildClaudeSettings(base, nil, allowExtra)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Permissions struct {
+			Allow []string `json:"allow"`
+		} `json:"permissions"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"Read", "Edit", "Bash"}
+	if len(got.Permissions.Allow) != len(want) {
+		t.Fatalf("allow len = %d, want %d: %v", len(got.Permissions.Allow), len(want), got.Permissions.Allow)
+	}
+	for i, w := range want {
+		if got.Permissions.Allow[i] != w {
+			t.Errorf("allow[%d] = %q, want %q", i, got.Permissions.Allow[i], w)
+		}
+	}
+}
+
+func TestBuildClaudeSettings_OmitsAllowFieldWhenEmpty(t *testing.T) {
+	out, err := BuildClaudeSettings(Config{}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), `"allow"`) {
+		t.Errorf("empty allow should not output the field, got: %s", out)
+	}
+}
+
+func TestAggregateAllowedTools_DedupsAndSorts(t *testing.T) {
+	entries := []skilllibrary.SkillEntry{
+		{Meta: &skilllibrary.SkillMeta{Name: "a", AllowedTools: []string{"Read", "Bash"}}},
+		{Meta: &skilllibrary.SkillMeta{Name: "b", AllowedTools: []string{"Bash", "Edit"}}},
+		{Meta: &skilllibrary.SkillMeta{Name: "c", Disabled: true, AllowedTools: []string{"Skip"}}},
+	}
+	got := AggregateAllowedTools(entries)
+	want := []string{"Bash", "Edit", "Read"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i, w := range want {
+		if got[i] != w {
+			t.Errorf("got[%d] = %q, want %q", i, got[i], w)
+		}
 	}
 }
