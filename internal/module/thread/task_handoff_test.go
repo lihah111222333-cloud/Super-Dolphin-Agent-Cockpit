@@ -868,3 +868,83 @@ func TestPrepareTaskHandoffStart_RootTaskId(t *testing.T) {
 		}
 	})
 }
+
+func TestBackfillResumeRootTaskId(t *testing.T) {
+	t.Parallel()
+
+	makeThread := func(t *testing.T, threadID, ownerThreadID string, runtime map[string]any) *threadstore.Thread {
+		t.Helper()
+		return &threadstore.Thread{
+			ThreadID:      threadID,
+			OwnerThreadID: ownerThreadID,
+			ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{
+				Runtime: runtime,
+			}),
+		}
+	}
+
+	mustEncode := func(t *testing.T, runtime map[string]any) []byte {
+		t.Helper()
+		return mustStoredThreadConfigRaw(t, storedThreadConfig{Runtime: runtime})
+	}
+
+	t.Run("empty raw returns unchanged", func(t *testing.T) {
+		t.Parallel()
+		svc := &service{threadStore: &stubThreadStore{}}
+		got := svc.backfillResumeRootTaskId(context.Background(), "", nil)
+		if got != nil {
+			t.Fatalf("got = %v, want nil", got)
+		}
+	})
+
+	t.Run("no taskId returns unchanged", func(t *testing.T) {
+		t.Parallel()
+		svc := &service{threadStore: &stubThreadStore{}}
+		raw := mustEncode(t, map[string]any{"otherKey": "value"})
+		got := svc.backfillResumeRootTaskId(context.Background(), "thread-X", raw)
+		if string(got) != string(raw) {
+			t.Fatalf("got mutated, want unchanged")
+		}
+	})
+
+	t.Run("already has rootTaskId returns unchanged", func(t *testing.T) {
+		t.Parallel()
+		svc := &service{threadStore: &stubThreadStore{}}
+		raw := mustEncode(t, map[string]any{
+			taskConfigKeyID:   "task-X",
+			taskConfigKeyRoot: "task-already-set",
+		})
+		got := svc.backfillResumeRootTaskId(context.Background(), "thread-X", raw)
+		if string(got) != string(raw) {
+			t.Fatalf("got mutated, want unchanged")
+		}
+	})
+
+	t.Run("missing rootTaskId with resolvable owner chain", func(t *testing.T) {
+		t.Parallel()
+		threadByID := map[string]*threadstore.Thread{
+			"thread-root": makeThread(t, "thread-root", "", map[string]any{taskConfigKeyID: "task-root"}),
+		}
+		svc := &service{threadStore: &stubThreadStore{threadByID: threadByID}}
+		raw := mustEncode(t, map[string]any{taskConfigKeyID: "task-mid"})
+		got := svc.backfillResumeRootTaskId(context.Background(), "thread-root", raw)
+		stored := decodeStoredThreadConfig(got)
+		if rootID := firstConfigString(stored.Runtime, taskConfigKeyRoot, taskConfigKeyRootSnake); rootID != "task-root" {
+			t.Fatalf("rootTaskId = %q, want task-root", rootID)
+		}
+		if taskID := firstConfigString(stored.Runtime, taskConfigKeyID, taskConfigKeyIDSnake); taskID != "task-mid" {
+			t.Fatalf("taskId mutated to %q, want task-mid", taskID)
+		}
+	})
+
+	t.Run("missing rootTaskId without owner falls back to self taskId", func(t *testing.T) {
+		t.Parallel()
+		svc := &service{threadStore: &stubThreadStore{}}
+		raw := mustEncode(t, map[string]any{taskConfigKeyID: "task-self"})
+		got := svc.backfillResumeRootTaskId(context.Background(), "", raw)
+		stored := decodeStoredThreadConfig(got)
+		if rootID := firstConfigString(stored.Runtime, taskConfigKeyRoot, taskConfigKeyRootSnake); rootID != "task-self" {
+			t.Fatalf("rootTaskId = %q, want fallback task-self", rootID)
+		}
+	})
+}
