@@ -3,6 +3,8 @@ package thread
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"path"
 	"strings"
 	"time"
@@ -301,6 +303,32 @@ func defaultTaskHandoffPath(taskID string) string {
 		return ""
 	}
 	return taskHandoffPrefix + path.Base(taskID) + ".md"
+}
+
+// EnsureHandoffExists verifies that the handoff document for the given
+// taskID exists in shared file store. Phase 1.8d fork-pre-check：fork 前
+// 一并调 worker.FlushForThread + EnsureHandoffExists 防 "文件不存在 / 陈旧"
+// 两类问题（共识 4 修法 4）。
+func (s *service) EnsureHandoffExists(ctx context.Context, taskID string) error {
+	if s == nil || s.sharedFiles == nil {
+		return errors.New("shared files store unavailable")
+	}
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return errors.New("taskId required")
+	}
+	p := defaultTaskHandoffPath(taskID)
+	if p == "" {
+		return fmt.Errorf("invalid handoff path for taskId %q", taskID)
+	}
+	file, err := s.sharedFiles.Get(ctx, p)
+	if err != nil {
+		return fmt.Errorf("handoff file %q not found: %w", p, err)
+	}
+	if file == nil {
+		return fmt.Errorf("handoff file %q not found", p)
+	}
+	return nil
 }
 
 func normalizeTaskHandoffPath(raw string) string {

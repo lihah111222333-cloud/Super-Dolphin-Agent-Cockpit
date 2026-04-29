@@ -206,6 +206,36 @@ func (w *taskHandoffWorker) drainPending() {
 	}
 }
 
+// FlushForThread synchronously processes the pending refresh entry for
+// the given threadID, if any. Used by Phase 1.8d fork-pre-check to ensure
+// the handoff document on disk reflects the most recent turn before a
+// continuation thread reads it (handoff worker is otherwise async / event-
+// driven, last-write-wins). Returns nil if no pending entry exists, or
+// the refresher error if the synchronous refresh fails. ctx controls timeout.
+func (w *taskHandoffWorker) FlushForThread(ctx context.Context, threadID string) error {
+	if w == nil || w.refresher == nil {
+		return nil
+	}
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return nil
+	}
+	w.mu.Lock()
+	seed, ok := w.pending[threadID]
+	if ok {
+		delete(w.pending, threadID)
+	}
+	w.mu.Unlock()
+	if !ok {
+		return nil
+	}
+	if err := w.refresher.refreshTaskHandoffFromThread(ctx, threadID, seed); err != nil {
+		return err
+	}
+	w.processedTotal.Add(1)
+	return nil
+}
+
 type taskHandoffPendingEntry struct {
 	threadID string
 	seed     taskHandoffRenderSeed
