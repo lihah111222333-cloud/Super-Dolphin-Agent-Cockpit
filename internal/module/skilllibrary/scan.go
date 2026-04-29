@@ -36,11 +36,17 @@ func Scan(libraryDir string) ([]SkillEntry, error) {
 		dir := filepath.Join(libraryDir, e.Name())
 		skillBytes, err := os.ReadFile(filepath.Join(dir, "SKILL.md"))
 		if err != nil {
-			continue // SKILL.md missing or unreadable
+			if !os.IsNotExist(err) {
+				return nil, fmt.Errorf("skilllibrary: read SKILL.md in %s: %w", dir, err)
+			}
+			continue
 		}
 		meta, err := ReadMeta(dir)
 		if err != nil {
-			continue // missing/invalid sidecar
+			if !os.IsNotExist(err) {
+				return nil, fmt.Errorf("skilllibrary: read meta in %s: %w", dir, err)
+			}
+			continue
 		}
 		out = append(out, SkillEntry{Dir: dir, SkillMD: string(skillBytes), Meta: meta})
 	}
