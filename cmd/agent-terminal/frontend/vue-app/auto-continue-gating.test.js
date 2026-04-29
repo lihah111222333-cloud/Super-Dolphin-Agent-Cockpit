@@ -71,3 +71,21 @@ describe('createAutoContinueGate · snapshot', () => {
     expect(gate.snapshot()).toEqual({ continuedThreads: 2, globalCount: 3 });
   });
 });
+
+describe('createAutoContinueGate · Phase 1.4a-fix 数值锁定（防回归）', () => {
+  it('全局闸滑窗常量为 5min/15（原 60s/20，详 §4.3 慢失控数值算式）', () => {
+    expect(K.GLOBAL_WINDOW_MS).toBe(5 * 60 * 1000);
+    expect(K.GLOBAL_WINDOW_MAX).toBe(15);
+  });
+
+  it('族维度常量 5min/5 已为 Phase 4.2 预留', () => {
+    expect(K.FAMILY_WINDOW_MS).toBe(5 * 60 * 1000);
+    expect(K.FAMILY_WINDOW_MAX).toBe(5);
+  });
+
+  it('5min 内累计 15 次记录后第 16 次触发保险丝', () => {
+    for (let i = 0; i < 15; i++) gate.recordContinue({ threadId: `t${i}` });
+    const r = gate.check({ kind: 'continue', threadId: 'tx' });
+    expect(r).toEqual({ allow: false, reason: 'global_fuse_blown', fuseBlown: true });
+  });
+});
