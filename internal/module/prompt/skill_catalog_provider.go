@@ -24,7 +24,7 @@ import (
 //   - token 预算截断
 //   - CacheByName + provider 内部 revision 控制失效
 //
-// provider 接 SkillLister + NativeSkillDetector + ApprovalSource；approval/revision
+// provider 接 SkillLister + ApprovalSource；approval/revision
 // 均进入 L1 manifest 投影与本地缓存 key，避免批准后同 session 陈旧。
 
 // SkillLister 是 prompt provider 对 skill 扫描结果的消费契约。
@@ -36,11 +36,11 @@ type SkillLister interface {
 type skillRevisionSource interface{ SkillRevision() uint64 }
 type trustRevisionSource interface{ TrustRevision() uint64 }
 
-// NativeSkillDetector 是 prompt provider 对 Phase 7 SkillInjectionPort 的消费契约。
-// 返回 provider 原生机制（如 Claude CLI `.claude/skills/`）已接管的 skill 名列表。
+// NativeSkillDetector is kept for backward-compatibility with existing test
+// code (Task 7 deletes those test files). New code should not use this
+// interface — native skill discovery is now handled by Claude CLI itself.
 //
-// P22 P4 契约与 contract.SkillInjectionPort 对齐：需要 cwd 的实现在缺 cwd 时
-// 返回 (nil, contract.ErrMissingCWD)，而不再静默返回 nil。
+// Deprecated: will be removed in Task 7.
 type NativeSkillDetector interface {
 	DetectNativeSkills(cwd string) ([]string, error)
 }
@@ -61,11 +61,10 @@ const defaultSkillCatalogCharBudget = 12000 // ≈ 3000 tokens
 
 // SkillCatalogProvider 实现 DynamicSectionProvider 接口，生成 L1 manifest。
 //
-// 线程安全：字段仅在构造期赋值后只读，Resolve() 纯函数（ListSkills/DetectNativeSkills
-// 自身线程安全由实现保证）。
+// 线程安全：字段仅在构造期赋值后只读，Resolve() 纯函数（ListSkills 自身线程安全
+// 由实现保证）。
 type SkillCatalogProvider struct {
 	skills               SkillLister
-	nativePort           NativeSkillDetector
 	approvalSource       contract.ApprovalSource
 	charBudget           int  // 0 = 使用 defaultSkillCatalogCharBudget
 	emitMetaInstructions bool // 尾部是否追加元指令（P20.1 Phase 9）
@@ -92,18 +91,17 @@ type skillCatalogCacheKey struct {
 
 var _ DynamicSectionProvider = SkillCatalogProvider{}
 
-// NewSkillCatalogProvider 构造 provider。nativePort 可为 nil（codexapp 无原生机制
-// 的场景等价传 nil），将跳过 Native 分组。charBudget ≤0 用默认 12000。
+// NewSkillCatalogProvider 构造 provider。nativePort 参数已废弃，保留仅供
+// 现有测试兼容（Task 7 将删除测试文件和本文件）。charBudget ≤0 用默认 12000。
 //
 // 默认开启元指令（P20.1 Phase 9 行为）。如需关闭用 NewSkillCatalogProviderWithOptions。
-func NewSkillCatalogProvider(skills SkillLister, nativePort NativeSkillDetector, charBudget int) SkillCatalogProvider {
-	return NewSkillCatalogProviderWithApproval(skills, nativePort, nil, charBudget)
+func NewSkillCatalogProvider(skills SkillLister, _ NativeSkillDetector, charBudget int) SkillCatalogProvider {
+	return NewSkillCatalogProviderWithApproval(skills, nil, nil, charBudget)
 }
 
-func NewSkillCatalogProviderWithApproval(skills SkillLister, nativePort NativeSkillDetector, approval contract.ApprovalSource, charBudget int) SkillCatalogProvider {
+func NewSkillCatalogProviderWithApproval(skills SkillLister, _ NativeSkillDetector, approval contract.ApprovalSource, charBudget int) SkillCatalogProvider {
 	return SkillCatalogProvider{
 		skills:               skills,
-		nativePort:           nativePort,
 		approvalSource:       approval,
 		charBudget:           charBudget,
 		emitMetaInstructions: true,
@@ -120,14 +118,13 @@ type SkillCatalogOptions struct {
 }
 
 // NewSkillCatalogProviderWithOptions 带选项的构造口。Phase 10 config 可直接映射。
-func NewSkillCatalogProviderWithOptions(skills SkillLister, nativePort NativeSkillDetector, charBudget int, opts SkillCatalogOptions) SkillCatalogProvider {
-	return NewSkillCatalogProviderWithOptionsAndApproval(skills, nativePort, nil, charBudget, opts)
+func NewSkillCatalogProviderWithOptions(skills SkillLister, _ NativeSkillDetector, charBudget int, opts SkillCatalogOptions) SkillCatalogProvider {
+	return NewSkillCatalogProviderWithOptionsAndApproval(skills, nil, nil, charBudget, opts)
 }
 
-func NewSkillCatalogProviderWithOptionsAndApproval(skills SkillLister, nativePort NativeSkillDetector, approval contract.ApprovalSource, charBudget int, opts SkillCatalogOptions) SkillCatalogProvider {
+func NewSkillCatalogProviderWithOptionsAndApproval(skills SkillLister, _ NativeSkillDetector, approval contract.ApprovalSource, charBudget int, opts SkillCatalogOptions) SkillCatalogProvider {
 	return SkillCatalogProvider{
 		skills:               skills,
-		nativePort:           nativePort,
 		approvalSource:       approval,
 		charBudget:           charBudget,
 		emitMetaInstructions: opts.EmitMetaInstructions,
@@ -167,17 +164,14 @@ func (p SkillCatalogProvider) Resolve(ctx context.Context, input SectionContext)
 
 	// P20.4: launch-time 选中的 skill 名（经 StartRequest → StartInput → BuildCtx）。
 	// force=true 时 infos 先按白名单高选，其余隐藏；force=false 仅排序置顶。
-	// 空白名单（未走 p20.3 launch picker 的  会话）完全回落原有全量行为。
+	// 空白名单（未走 p20.3 launch picker 的  会话）完全回落原有全量行为。
 	infos = applyLaunchSkillSelection(infos, input.BuildCtx.LaunchSkillNames, input.BuildCtx.ForceLaunchSkills)
 	if len(infos) == 0 {
 		return nil, nil
 	}
 
-	// 收集 native skill 名
-	nativeNames := p.collectNativeNames(input)
-
-	// 分组
-	groups := p.groupSkillsForManifest(ctx, infos, nativeNames, input.BuildCtx.CWD)
+	// 分组（no native names — native discovery is now handled by Claude CLI itself）
+	groups := p.groupSkillsForManifest(ctx, infos, nil, input.BuildCtx.CWD)
 	if groups.isEmpty() {
 		return nil, nil
 	}
@@ -319,36 +313,6 @@ func (p SkillCatalogProvider) storeCached(key skillCatalogCacheKey, text *string
 	p.cache.valid = true
 }
 
-// collectNativeNames 调 nativePort（若有）拿到原生 skill 名集合，返回 lower 归一化 map。
-// 仅用当前 cwd（session 工作目录，从 BuildCtx 取）。
-//
-// P22 P4 契约：在 empty-cwd 时 upstream 已经在这里提前 short-circuit——这不是
-// fallback，而是 provider 层将 "没有项目根" 视为 "不显示原生模块 catalog" 的终态选择。
-// 一旦 cwd 不为空则将请求转给 port；port 返回的 error（例如 ErrMissingCWD，
-// 虽然理论上不会发生）也被吸收为 "无原生名单"，避免在 prompt 渲染热路径上抛出或充斥。
-func (p SkillCatalogProvider) collectNativeNames(input SectionContext) map[string]struct{} {
-	if p.nativePort == nil {
-		return nil
-	}
-	cwd := strings.TrimSpace(input.BuildCtx.CWD)
-	if cwd == "" {
-		return nil
-	}
-	names, err := p.nativePort.DetectNativeSkills(cwd)
-	if err != nil || len(names) == 0 {
-		return nil
-	}
-	set := make(map[string]struct{}, len(names))
-	for _, n := range names {
-		normalized := strings.ToLower(strings.TrimSpace(n))
-		if normalized == "" {
-			continue
-		}
-		set[normalized] = struct{}{}
-	}
-	return set
-}
-
 // skillManifestGroups 是按语义分组的 skill 列表。
 type skillManifestGroups struct {
 	Core       []skillpkg.SkillInfo // trusted/approved：完整元数据
@@ -436,7 +400,7 @@ func catalogApprovalRequests(info skillpkg.SkillInfo, cwd string) []contract.Art
 	return []contract.ArtifactApprovalRequest{metadata, body}
 }
 
-// isUntrustedScope 判定 Trust 是否属于“确定不可信/异常来源”。
+// isUntrustedScope 判定 Trust 是否属于"确定不可信/异常来源"。
 // 本地用户级 / 项目级 skill（TrustUser / TrustProject）和已签名 skill 均展示 metadata；
 // Unknown / 任何未知非合法值仍视为 untrusted（默认最保守）。
 func isUntrustedScope(t skillpkg.TrustScope) bool {

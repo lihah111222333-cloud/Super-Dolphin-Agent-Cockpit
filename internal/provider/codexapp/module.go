@@ -12,7 +12,6 @@ import (
 
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
@@ -26,9 +25,6 @@ var Module = fx.Module("provider.codexapp",
 		NewDriverFactory,
 		fx.Annotate(provideContractDriverFactory, fx.ResultTags(`group:"drivers"`)),
 		fx.Annotate(provideDreamExecutorProvider, fx.ResultTags(`group:"dream_executors"`)),
-		// P20.1 Phase 10: codexapp 无原生 skill 机制，但仍注册空实现进聚合 group
-		// ——保持 detector 成员不因 provider 组合误差而缺失。
-		fx.Annotate(NewSkillInjectionPort, fx.ResultTags(promptpkg.SkillInjectionPortGroupTag)),
 		// P21 Track B pool 基础设施：ServerPool + 周期 EvictIdle Runner。
 		// Codex sessions with an explicit identity route through this pool so
 		// session shutdown owns the app-server process group and sidecars.

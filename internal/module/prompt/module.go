@@ -2,8 +2,6 @@ package prompt
 
 import (
 	"log/slog"
-	"sort"
-	"strings"
 
 	"go.uber.org/fx"
 
@@ -24,7 +22,6 @@ var Module = fx.Module("prompt",
 		AsDynamicSectionRegistrar,
 		AsSectionInvalidator,
 		registerPromptHandlers,
-		NewCompositeNativeSkillDetector,
 		NewSkillCatalogProviderFx,
 		newPromptClassifier,
 	),
@@ -56,84 +53,20 @@ func NewServiceFx(p ServiceFxParams) Service {
 	return NewService(p.Cfg, p.Logger, WithPromptHintSources(p.Prefs, p.SharedFiles))
 }
 
-const SkillInjectionPortGroupTag = `group:"skill_injection_ports"`
-
-type compositeNativeSkillDetector struct {
-	ports []contract.SkillInjectionPort
-}
-
-// DetectNativeSkills unions every registered port's detected skill names.
-// P22 P4 fail-closed contract: if any port returns contract.ErrMissingCWD
-// (meaning cwd was required but missing), the composite propagates that
-// error instead of silently falling back to "no native skills" — the
-// caller must know the input was incomplete. Non-ErrMissingCWD errors are
-// treated as port-local failures and are also propagated so the caller
-// can decide whether to proceed with a partial result (policy lives at
-// the call site, not here).
-func (d compositeNativeSkillDetector) DetectNativeSkills(cwd string) ([]string, error) {
-	if len(d.ports) == 0 {
-		return nil, nil
-	}
-	cwd = strings.TrimSpace(cwd)
-	seen := make(map[string]struct{}, 8)
-	out := make([]string, 0, 8)
-	for _, port := range d.ports {
-		if port == nil {
-			continue
-		}
-		names, err := port.DetectNativeSkills(cwd)
-		if err != nil {
-			return nil, err
-		}
-		for _, name := range names {
-			key := strings.ToLower(strings.TrimSpace(name))
-			if key == "" {
-				continue
-			}
-			if _, ok := seen[key]; ok {
-				continue
-			}
-			seen[key] = struct{}{}
-			out = append(out, strings.TrimSpace(name))
-		}
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		return strings.ToLower(out[i]) < strings.ToLower(out[j])
-	})
-	return out, nil
-}
-
-type NewCompositeNativeSkillDetectorParams struct {
-	fx.In
-	Ports []contract.SkillInjectionPort `group:"skill_injection_ports"`
-}
-
-func NewCompositeNativeSkillDetector(p NewCompositeNativeSkillDetectorParams) NativeSkillDetector {
-	filtered := make([]contract.SkillInjectionPort, 0, len(p.Ports))
-	for _, port := range p.Ports {
-		if port == nil {
-			continue
-		}
-		filtered = append(filtered, port)
-	}
-	return compositeNativeSkillDetector{ports: filtered}
-}
-
 type skillCatalogProviderDeps struct {
 	fx.In
-	Cfg      *Config
-	Skills   skillpkg.SkillCatalogSource `optional:"true"`
-	Detector NativeSkillDetector         `optional:"true"`
+	Cfg    *Config
+	Skills skillpkg.Service `optional:"true"`
 }
 
 func NewSkillCatalogProviderFx(deps skillCatalogProviderDeps) SkillCatalogProvider {
 	if deps.Cfg == nil {
-		return NewSkillCatalogProviderWithApproval(deps.Skills, deps.Detector, deps.Skills, 0)
+		return NewSkillCatalogProviderWithApproval(deps.Skills, nil, deps.Skills, 0)
 	}
 	charBudget := deps.Cfg.SkillCatalogTokenBudget * 4
 	return NewSkillCatalogProviderWithOptionsAndApproval(
 		deps.Skills,
-		deps.Detector,
+		nil,
 		deps.Skills,
 		charBudget,
 		SkillCatalogOptions{EmitMetaInstructions: deps.Cfg.EmitSkillCatalogMetaInstructions},
