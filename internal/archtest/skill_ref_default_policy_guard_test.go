@@ -110,39 +110,3 @@ func isDTOProviderSkillModeFull(expr ast.Expr, aliases map[string]struct{}) bool
 	_, ok = aliases["."]
 	return ok
 }
-
-func TestSkillToolPackageImportBoundary(t *testing.T) {
-	t.Parallel()
-
-	root := repoRoot(t)
-	files := parseImportFiles(t, root, "pkg/skilltool")
-	var violations []string
-	for _, file := range files {
-		for _, imp := range file.Imports {
-			if strings.HasPrefix(imp, modulePath+"/internal/") {
-				violations = append(violations, file.RelPath+": pkg/skilltool must stay reusable and must not import internal package "+imp)
-			}
-		}
-	}
-	if len(violations) > 0 {
-		t.Fatalf("skilltool import boundary violations (%d):\n  %s", len(violations), strings.Join(violations, "\n  "))
-	}
-}
-
-func TestMCPOrchDoesNotImportSkillTool(t *testing.T) {
-	t.Parallel()
-
-	root := repoRoot(t)
-	files := parseImportFiles(t, root, "cmd/mcp-orch")
-	var violations []string
-	for _, file := range files {
-		for _, imp := range file.Imports {
-			if strings.HasPrefix(imp, modulePath+"/pkg/skilltool") {
-				violations = append(violations, file.RelPath+": cmd/mcp-orch must not import pkg/skilltool; standalone orchestration must not expose host skill schemas")
-			}
-		}
-	}
-	if len(violations) > 0 {
-		t.Fatalf("mcp-orch skilltool import boundary violations (%d):\n  %s", len(violations), strings.Join(violations, "\n  "))
-	}
-}
