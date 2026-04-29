@@ -136,3 +136,62 @@ func TestParse_EdgeCases(t *testing.T) {
 		t.Errorf("Description = %q, want %q", ps.Description, "use, e.g., this:that")
 	}
 }
+
+func TestParse_IgnoresH2InsideFencedCode(t *testing.T) {
+	src := "---\nname: fenced\ndescription: fenced sample\n---\n\n# Fenced\n\n## Real\n\nBody before fence.\n\n```md\n## Fake\n\nnot a real section\n```\n\nBody after fence.\n"
+	got, err := Parse(src)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if len(got.Sections) != 1 {
+		t.Fatalf("len(Sections) = %d, want 1 (fenced ## Fake must not split)", len(got.Sections))
+	}
+	if got.Sections[0].Title != "Real" {
+		t.Fatalf("section title = %q, want Real", got.Sections[0].Title)
+	}
+	if !strings.Contains(got.Sections[0].Body, "## Fake") {
+		t.Errorf("fenced ## Fake should remain in Body, got: %q", got.Sections[0].Body)
+	}
+	if strings.Contains(got.Sections[0].Title, "Fake") {
+		t.Errorf("fenced ## Fake leaked into Title: %q", got.Sections[0].Title)
+	}
+}
+
+func TestParse_StripsClosingHashSuffix(t *testing.T) {
+	src := "---\nname: closing\ndescription: x\n---\n\n## Title With Closing ##\n\nBody.\n"
+	got, err := Parse(src)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if len(got.Sections) != 1 {
+		t.Fatalf("len(Sections) = %d, want 1", len(got.Sections))
+	}
+	if got.Sections[0].Title != "Title With Closing" {
+		t.Errorf("Title = %q, want %q", got.Sections[0].Title, "Title With Closing")
+	}
+}
+
+func TestParse_IgnoresH3Lines(t *testing.T) {
+	src := "---\nname: h3only\ndescription: x\n---\n\n## H2\n\n### nested h3\n\nbody\n"
+	got, err := Parse(src)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if len(got.Sections) != 1 {
+		t.Fatalf("len(Sections) = %d, want 1 (H3 must not split)", len(got.Sections))
+	}
+	if got.Sections[0].Title != "H2" {
+		t.Errorf("Title = %q, want H2", got.Sections[0].Title)
+	}
+}
+
+func TestParse_TildeFenceAlsoSkipped(t *testing.T) {
+	src := "---\nname: tilde\ndescription: x\n---\n\n## Real\n\n~~~\n## Fake\n~~~\n\nafter\n"
+	got, err := Parse(src)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if len(got.Sections) != 1 || got.Sections[0].Title != "Real" {
+		t.Fatalf("tilde fence not skipped: %+v", got.Sections)
+	}
+}
