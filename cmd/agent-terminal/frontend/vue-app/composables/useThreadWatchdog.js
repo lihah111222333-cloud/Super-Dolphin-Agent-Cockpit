@@ -15,7 +15,7 @@
 // 触发后立即 lastBackendEventAtByThread[tid] = now 重置（节流闸：60s 内不会再戳同 thread）。
 // 闸门 / 偏好 / 累计兜底由后续 1.7c / 1.7e / 1.7f 加。
 
-import { ref } from '../../lib/vue.esm-browser.prod.js';
+import { ref, watch } from '../../lib/vue.esm-browser.prod.js';
 import { logInfo } from '../services/log.js';
 import { createThreadWatchdogGate } from './thread-watchdog-gating.js';
 import { useThreadWatchdogPref } from './useThreadWatchdogPref.js';
@@ -122,11 +122,26 @@ export function useThreadWatchdog(opts = {}) {
 
   function start() {
     if (timer != null) return;
+    // Phase 1.7e: pref=false 时不开 timer（避免空轮询；pref 切回 true 时由
+    // 下面的 watch 自动 start）。
+    if (prefRef && prefRef.value === false) return;
     timer = setInterval(scan, scanIntervalMs);
   }
   function stop() {
     if (timer != null) { clearInterval(timer); timer = null; }
   }
+
+  // Phase 1.7e: 偏好变化触发 watchdog 启停。仅当 prefRef 是真正的 vue ref
+  // （能被 reactive 系统追踪）时才生效；测试里传 plain object 不响应也无害——
+  // 单测会显式断言 start/stop 行为。
+  let stopWatchPref = null;
+  try {
+    stopWatchPref = watch(
+      () => Boolean(prefRef && prefRef.value),
+      (val) => { if (val) start(); else stop(); },
+      { flush: 'sync' },
+    );
+  } catch (_) { /* effect scope 缺失或 watch 不可用时降级为静态行为 */ }
 
   function resetCumulativePokeCount(tid) {
     if (!tid) return;
@@ -150,6 +165,7 @@ export function useThreadWatchdog(opts = {}) {
       if (typeof scanMs === 'number') scanIntervalMs = scanMs;
       if (typeof stallMs === 'number') stallThresholdMs = stallMs;
     },
+    _disposeForTest: () => { try { stopWatchPref && stopWatchPref(); } catch (_) {} stop(); },
   };
 }
 
