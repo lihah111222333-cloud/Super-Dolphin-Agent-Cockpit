@@ -1,3 +1,7 @@
+// Package skillforge parses SKILL.md files and renders them into
+// a slim entrypoint plus per-section reference files for cache
+// projection. It is the pure transformation layer of the skill
+// subsystem; library management lives in skilllibrary.
 package skillforge
 
 import (
@@ -27,20 +31,30 @@ var ErrMissingFrontmatter = errors.New("skillforge: SKILL.md must start with ---
 const bom = "\xef\xbb\xbf"
 
 // Parse parses the full content of a SKILL.md file into a ParsedSkill.
-// The frontmatter must start with "---\n" and end with "\n---\n".
+// The frontmatter must start with "---\n" and end with "\n---\n" or "---\n" at the
+// very beginning of rest (zero-length frontmatter).
 // H2 sections are identified by lines beginning with "## ".
 func Parse(src string) (*ParsedSkill, error) {
 	src = strings.TrimPrefix(src, bom)
+	src = strings.ReplaceAll(src, "\r\n", "\n")
 	if !strings.HasPrefix(src, "---\n") {
 		return nil, ErrMissingFrontmatter
 	}
 	rest := strings.TrimPrefix(src, "---\n")
-	end := strings.Index(rest, "\n---\n")
-	if end < 0 {
-		return nil, ErrMissingFrontmatter
+
+	var fmText, body string
+	if strings.HasPrefix(rest, "---\n") {
+		// zero-length frontmatter: opening --- immediately followed by closing ---
+		fmText = ""
+		body = strings.TrimPrefix(rest, "---\n")
+	} else {
+		end := strings.Index(rest, "\n---\n")
+		if end < 0 {
+			return nil, ErrMissingFrontmatter
+		}
+		fmText = rest[:end]
+		body = rest[end+len("\n---\n"):]
 	}
-	fmText := rest[:end]
-	body := rest[end+len("\n---\n"):]
 
 	fm := parseFrontmatter(fmText)
 	ps := &ParsedSkill{
@@ -67,7 +81,12 @@ func parseFrontmatter(text string) map[string]string {
 		}
 		k := strings.TrimSpace(line[:idx])
 		v := strings.TrimSpace(line[idx+1:])
-		v = strings.Trim(v, `"'`)
+		if len(v) >= 2 {
+			first, last := v[0], v[len(v)-1]
+			if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
+				v = v[1 : len(v)-1]
+			}
+		}
 		out[k] = v
 	}
 	return out
