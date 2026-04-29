@@ -81,9 +81,15 @@ func (r *Reconciler) buildLibrary(entries []SkillEntry, report *ReconcileReport)
 }
 
 // removeOrphans deletes cache directories that have no corresponding library entry.
+// ReadDir errors (e.g. permission denied) are surfaced to report.Errors instead
+// of being silently dropped; fs.ErrNotExist is treated as "no orphans to clean"
+// and returns quietly.
 func (r *Reconciler) removeOrphans(libNames map[string]struct{}, report *ReconcileReport) {
 	cacheEntries, err := os.ReadDir(r.cacheDir)
 	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			report.Errors = append(report.Errors, fmt.Errorf("skilllibrary: read cache dir: %w", err))
+		}
 		return
 	}
 	for _, e := range cacheEntries {

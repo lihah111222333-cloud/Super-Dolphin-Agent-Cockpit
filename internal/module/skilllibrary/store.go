@@ -1,7 +1,9 @@
 package skilllibrary
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -55,6 +57,10 @@ func (s *Store) Uninstall(name string) error {
 
 // Get 读单个 skill；返回 fs.ErrNotExist 表示 skill 不存在。
 // 空 name 返回验证错误，与 Install / Uninstall 保持一致。
+// Get 读取单个 skill 的完整条目。错误规约：
+//   - 空 name → 普通 error
+//   - SKILL.md 或 sidecar 不存在 → fs.ErrNotExist 直透（保持 errors.Is 兼容）
+//   - 其他 IO 错误 → wrap "skilllibrary: get <name> ..." 前缀 + skill 名上下文
 func (s *Store) Get(name string) (*SkillEntry, error) {
 	if name == "" {
 		return nil, fmt.Errorf("skilllibrary: get empty name")
@@ -62,11 +68,17 @@ func (s *Store) Get(name string) (*SkillEntry, error) {
 	dir := filepath.Join(s.root, name)
 	skillBytes, err := os.ReadFile(filepath.Join(dir, "SKILL.md"))
 	if err != nil {
-		return nil, err
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("skilllibrary: get %q SKILL.md: %w", name, err)
 	}
 	meta, err := ReadMeta(dir)
 	if err != nil {
-		return nil, err
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("skilllibrary: get %q meta: %w", name, err)
 	}
 	return &SkillEntry{Dir: dir, SkillMD: string(skillBytes), Meta: meta}, nil
 }
