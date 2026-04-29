@@ -25,8 +25,6 @@ func TestSkillProgressiveDisclosurePrometheusConfigArtifact(t *testing.T) {
 		"Prometheus Targets shows the job as UP",
 		"Prometheus Rules",
 		"Alertmanager",
-		"skill-progressive-disclosure-rollout-smoke.sh",
-		"30-day observation record",
 		"alerting:",
 		"127.0.0.1:9093",
 	}

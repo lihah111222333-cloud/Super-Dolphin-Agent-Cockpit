@@ -1,7 +1,20 @@
 # P25 Skill 优化：从 eager 注入到 progressive-disclosure
 
-> 创建时间：2026-04-25 | 最近核对：2026-04-28（PR-6 rollout observability review-ready + 执行落地边界复核）
-> 状态：🟡 codexapp 普通 name-only/selected skill 路径已可走 Summary + host-direct；claudecli same-binary MCP child 最小实现与 host-direct 基础 observability 已落地；PR-6 observability / evidence / rollout guard 已可评审；默认上线仍未完成（真实 production smoke、30 天 observation、authenticated Claude CLI E2E 与 Phase 3 policy 待完成）
+> 创建时间：2026-04-25 | 最近核对：2026-04-29（Phase 4 close patch）
+> 状态：✅ Phase 4 close。2026-04-29 默认 `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=true` 已进 `main`；phase 3 rollout/evidence helper 及其 go test 已清理；production 侧 prometheus.yml + alerts.yml + 对应 go test 作为长期可观测面保留。剩余 out-of-scope 项（删除 `overrideSkillsToSummary` / `SkillMode.Effective()` / claudecli eager Full 基线）仍依赖 claudecli stdio MCP server Phase 2 + `turn.DefaultSkillMode()` 营造，不在本 PR 范围。
+>
+> ## Phase 4 close patch (2026-04-29)
+>
+> 本节后续原文保留作为历史路线图，以下条目需叠加读：
+>
+> - **默认开关**：`internal/module/prompt/config.go` 已翻为 `parseBoolEnv(envEnableSkillProgressiveDisclosure, true)`；`run-debug.sh` 顶部仍保留 `export ENABLE_SKILL_PROGRESSIVE_DISCLOSURE="${...:-1}"` belt-and-suspenders，未来任意启动路径都会带上。希望回滚到旧语义：显式 `export ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=false`。
+> - **已删除资产**：`skill-progressive-disclosure-default-switch-guard.sh` / `skill-progressive-disclosure-pr6-verify.sh` / phase3-evidence-{bundle,collect,ready-collect,status,handoff-report,preflight}.sh / rollout-{append,daily,gate,report,smoke,status}.sh / claudecli-e2e-evidence-generate.sh / production-smoke-evidence-generate.sh + 同名 go test；3 个 evidence 模板 .md（rollout-observation / claudecli-e2e-evidence / production-smoke-evidence）。本文中后续出现的对这些资产的引用皆为历史记录。
+> - **保留资产**：`skill-progressive-disclosure-prometheus.yml` + `skill-progressive-disclosure-alerts.yml` + 对应 `skill_alert_rules_test.go` / `skill_prometheus_config_test.go`，作为生产 Prometheus 可观测面。Prometheus.yml 头注释已清理 phase 3 准备步骤引用。
+> - **保留 hardening 设计谈判 trail**：`docs/plans/迁移/p20.1-*` 系列、`docs/plans/迁移/p20/post-p20-followups.md` 顽部都加了同一叠加读补丁。
+>
+> 下文 PR-6 / Phase 3 / Out-of-scope 表格里仍会出现“默认 false / 30 天 observation / pr6-verify”这些描述：它们记录 P25 设计阶段的 fail-closed 初衷与验收 gate，但资产本身已在本 PR 中删除，FA 请以本补丁为准。
+>
+> 原状态行存档：🟡 codexapp 普通 name-only/selected skill 路径已可走 Summary + host-direct；claudecli same-binary MCP child 最小实现与 host-direct 基础 observability 已落地；PR-6 observability / evidence / rollout guard 已可评审；默认上线仍未完成（真实 production smoke、30 天 observation、authenticated Claude CLI E2E 与 Phase 3 policy 待完成）。
 > 关联文档：`docs/plans/迁移/p20/p20.18-host-direct-skill-tool-exposure.md`、
 >           `docs/plans/迁移/p20/p20.11-mcp-skill-tools.md`（已废弃）、
 >           `docs/plans/迁移/p20/p20.5-skill-catalog-provider.md`、
@@ -558,7 +571,7 @@ Phase 3 硬性 red gates（任一不满足不得正式化 Summary default policy
 | 类别 | 内容 |
 |---|---|
 | In scope | exporter / snapshot API、error-rate 告警规则、rollout observation 记录模板、默认 discovery 灰度开关 smoke、catalog redaction 回归保持绿 |
-| Out of scope | 删除 `overrideSkillsToSummary`、修改 `SkillMode.Effective()`、默认打开 `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE`、改变 claudecli eager Full 基线 |
+| Out of scope | 删除 `overrideSkillsToSummary`、修改 `SkillMode.Effective()`、改变 claudecli eager Full 基线（默认打开 `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE` **已在 Phase 4 close 中完成，见文顶补丁**） |
 | 进入条件 | PR-1~PR-5 回归绿；host-direct in-process counters 与 INFO/WARN 日志已存在；真实 Claude CLI E2E 若未认证，只能标 red gate 未关闭 |
 | 退出条件 | 外部系统能观察 host skill tool success/error/cwd_missing/approval_required/enrich_failure；有可执行 rollback trigger；30 天观察起点可登记 |
 

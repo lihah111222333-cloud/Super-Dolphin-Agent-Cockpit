@@ -82,15 +82,15 @@ func TestCompositeNativeSkillDetector_EmptyAndWhitespaceNames(t *testing.T) {
 // P20.1 Phase 10 Step D: RegisterSkillCatalogProviderIfEnabled 灰度
 // ---------------------------------------------------------------------------
 
-func TestPromptConfigDefaultsProgressiveDisclosureOff(t *testing.T) {
+func TestPromptConfigDefaultsProgressiveDisclosureOn(t *testing.T) {
 	t.Setenv(envEnableSkillProgressiveDisclosure, "")
 	cfg := NewConfig(nil)
-	if cfg.EnableSkillProgressiveDisclosure {
-		t.Fatal("EnableSkillProgressiveDisclosure default = true, want false")
+	if !cfg.EnableSkillProgressiveDisclosure {
+		t.Fatal("EnableSkillProgressiveDisclosure default = false, want true (P25 Phase 4 close)")
 	}
 }
 
-func TestSkillProgressiveDisclosure_DefaultDisabled(t *testing.T) {
+func TestSkillProgressiveDisclosure_DefaultEnabled(t *testing.T) {
 	t.Setenv(envEnableSkillProgressiveDisclosure, "")
 	cfg := NewConfig(nil)
 	reg := &fakeDynamicRegistrar{}
@@ -105,8 +105,8 @@ func TestSkillProgressiveDisclosure_DefaultDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RegisterSkillCatalogProviderIfEnabled() error = %v", err)
 	}
-	if len(reg.registered) != 0 {
-		t.Fatalf("default disabled: want no skill catalog registration, got %v", reg.registered)
+	if len(reg.registered) != 1 || reg.registered[0] != DynamicSectionSkillCatalog {
+		t.Fatalf("default enabled (P25 Phase 4): want skill catalog registered once, got %v", reg.registered)
 	}
 }
 

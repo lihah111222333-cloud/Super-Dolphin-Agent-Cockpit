@@ -1,5 +1,8 @@
 # P20 收官后隐患跟踪（5 条）
 
+> [P25 Phase 4 close amendment · 2026-04-29]
+> 隐患 1（双 SkillCatalogProvider 并存）里论述的“默认生产环境（`ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=false`） → prompt-side no-op”场景在 P25 Phase 4 close 后不再是默认路径：默认已翻为 `true`，双 fx 注册竞争场景现为默认路径。什麼时候处理 “专单 p21.x-cleanup-prompt-side-catalog” 的优先级随之提升。其余隐患 2-5 不受影响。
+>
 > 创建时间：2026-04-20 | 状态：P20 整套 16 单已合流完成，本文档记录**不阻塞上线**但需后续专单清理的隐患
 > 关联文档：`README.md`、`status-checkpoint-2026-04-19.md` 第十四轮
 > authoritative 原则：每条隐患**只在此处 single source of truth**；后续开新单时在本文档勾选"已关闭"而非另建重复 checklist

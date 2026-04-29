@@ -342,7 +342,7 @@
 
 | env | 作用 | 默认 |
 |---|---|---|
-| `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE` | 是否注册 `SkillCatalogProvider` | `false` |
+| `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE` | 是否注册 `SkillCatalogProvider` | `true`（P25 Phase 4 close 后翻转；显式 `false` 仍可回滚） |
 | `SKILL_CATALOG_TOKEN_BUDGET` | token 预算 | `0` -> provider 默认 |
 | `SKILL_CATALOG_META_INSTRUCTIONS` | 是否追加 “How to use skills” 元指令 | `true` |
 
