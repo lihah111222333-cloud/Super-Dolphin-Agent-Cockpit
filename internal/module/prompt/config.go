@@ -58,10 +58,11 @@ func NewConfig(_ *platformconfig.Config) *Config {
 		EnableRegistry:                  parseBoolEnv(envEnablePromptRegistry, false),
 		EnableAssembly:                  parseBoolEnv(envEnablePromptAssembly, false),
 		EnableSystemContextCacheBreaker: parseBoolEnv(envEnableSystemContextCacheBreaker, false),
-		// Phase 3 rollout gate 尚未收齐 production smoke / 30 天 observation，
-		// SkillCatalogProvider 仍保持默认关闭；显式 true 才可 canary opt-in。
+		// P25 Phase 4 收尾：30 天 observation / production smoke / claudecli E2E
+		// evidence 全部归档，SkillCatalogProvider 默认开启；显式设
+		// ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=false 仍可回到旧语义供回滚使用。
 		// meta-instructions 默认开启（Phase 9 行为）。
-		EnableSkillProgressiveDisclosure: parseBoolEnv(envEnableSkillProgressiveDisclosure, false),
+		EnableSkillProgressiveDisclosure: parseBoolEnv(envEnableSkillProgressiveDisclosure, true),
 		SkillCatalogTokenBudget:          parseIntEnv(envSkillCatalogTokenBudget, 0),
 		EmitSkillCatalogMetaInstructions: parseBoolEnv(envSkillCatalogMetaInstructions, true),
 		SkillWriterFormat:                parseSkillWriterFormat(envSkillWriterFormat, "legacy"),
@@ -69,12 +70,7 @@ func NewConfig(_ *platformconfig.Config) *Config {
 }
 
 func parseBoolEnv(key string, fallback bool) bool {
-	raw, ok := os.LookupEnv(key)
-	// Preserve legacy/automation opt-out for an explicitly present empty Phase 10 flag;
-	// an unset flag still falls through to fallback.
-	if key == envEnableSkillProgressiveDisclosure && ok && strings.TrimSpace(raw) == "" {
-		return false
-	}
+	raw := os.Getenv(key)
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "1", "true", "yes", "on":
 		return true

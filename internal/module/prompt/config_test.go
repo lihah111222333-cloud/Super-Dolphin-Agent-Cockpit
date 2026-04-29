@@ -5,15 +5,15 @@ import (
 	"testing"
 )
 
-func TestNewConfig_SkillProgressiveDisclosureDefaultsFalse(t *testing.T) {
+func TestNewConfig_SkillProgressiveDisclosureDefaultsTrue(t *testing.T) {
 	restoreEnv(t, envEnableSkillProgressiveDisclosure)
 	if err := os.Unsetenv(envEnableSkillProgressiveDisclosure); err != nil {
 		t.Fatalf("unset %s: %v", envEnableSkillProgressiveDisclosure, err)
 	}
 
 	cfg := NewConfig(nil)
-	if cfg.EnableSkillProgressiveDisclosure {
-		t.Fatal("EnableSkillProgressiveDisclosure default = true, want false")
+	if !cfg.EnableSkillProgressiveDisclosure {
+		t.Fatal("EnableSkillProgressiveDisclosure default = false, want true (P25 Phase 4 close)")
 	}
 }
 
