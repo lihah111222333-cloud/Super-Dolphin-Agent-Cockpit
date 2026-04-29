@@ -18,6 +18,7 @@ const ERROR_KIND_BY_PREFIX = Object.freeze([
   ['cron: config is invalid for provider', 'invalid_config'],
   ['cron: provider not supported', 'provider_unsupported'],
   ['cron: job not found', 'not_found'],
+  ['cron: cannot trigger disabled job', 'job_disabled'],
 ]);
 
 export function mapCronRpcError(err) {

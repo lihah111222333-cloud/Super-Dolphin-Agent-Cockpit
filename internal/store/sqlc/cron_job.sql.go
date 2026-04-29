@@ -808,6 +808,26 @@ func (q *Queries) MarkCronJobFinished(ctx context.Context, arg MarkCronJobFinish
 	return result.RowsAffected(), nil
 }
 
+const patchCronJobNextRunAt = `-- name: PatchCronJobNextRunAt :exec
+UPDATE cron_jobs
+SET next_run_at = $1,
+    updated_at  = $2
+WHERE id = $3
+`
+
+type PatchCronJobNextRunAtParams struct {
+	NextRunAt pgtype.Timestamptz `db:"next_run_at" json:"next_run_at"`
+	UpdatedAt pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+	ID        string             `db:"id" json:"id"`
+}
+
+// Narrow update used by RunOnce: only touches next_run_at + updated_at
+// without overwriting any other field, avoiding a read-modify-write race.
+func (q *Queries) PatchCronJobNextRunAt(ctx context.Context, arg PatchCronJobNextRunAtParams) error {
+	_, err := q.db.Exec(ctx, patchCronJobNextRunAt, arg.NextRunAt, arg.UpdatedAt, arg.ID)
+	return err
+}
+
 const releaseClaim = `-- name: ReleaseClaim :execrows
 UPDATE cron_jobs
 SET claimed_by       = '',

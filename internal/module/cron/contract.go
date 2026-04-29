@@ -38,6 +38,7 @@ var (
 	ErrInvalidMaxAttempts   = errors.New("cron: max_attempts must be >= 0")
 	ErrInvalidConfig        = errors.New("cron: config is invalid for provider")
 	ErrNotFound             = errors.New("cron: job not found")
+	ErrJobDisabled          = errors.New("cron: cannot trigger disabled job")
 )
 
 // CreateJobRequest is the validated input for CreateJob. NextRunAt is
@@ -141,5 +142,6 @@ type Store interface {
 	DeleteJob(ctx context.Context, id string) error
 	UpdateJobSchedule(ctx context.Context, params cronstore.UpdateJobScheduleParams) error
 	SetJobEnabled(ctx context.Context, id string, enabled bool, now time.Time) error
+	PatchNextRunAt(ctx context.Context, id string, nextRunAt time.Time, now time.Time) error
 	ListRunsByJob(ctx context.Context, jobID string, limit int32) ([]cronstore.Run, error)
 }

@@ -112,6 +112,9 @@ func (s *recordingCronStore) UpdateJobSchedule(context.Context, cronstore.Update
 func (s *recordingCronStore) SetJobEnabled(context.Context, string, bool, time.Time) error {
 	return nil
 }
+func (s *recordingCronStore) PatchNextRunAt(context.Context, string, time.Time, time.Time) error {
+	return nil
+}
 func (s *recordingCronStore) ExtendClaim(context.Context, cronstore.LeaseParams) error { return nil }
 func (s *recordingCronStore) ReleaseClaim(context.Context, string, string, time.Time) error {
 	return nil
