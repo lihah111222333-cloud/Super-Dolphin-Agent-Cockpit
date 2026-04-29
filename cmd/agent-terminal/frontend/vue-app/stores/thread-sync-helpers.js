@@ -342,6 +342,15 @@ export function handleBridgeEvent(ctx, evt) {
   const eventName = eventMethod || eventBridgeType || '';
   const sourceLower = toNormalizedEventString(evt?.source || evt?.params?.source || evt?.payload?.source || evt?.data?.source);
   let eventThreadId = getBridgeEventThreadId(evt);
+  // Phase 1.7a：watchdog 戳点 —— 任何带 threadId 的后端事件都刷新 lastEventTs，
+  // useThreadWatchdog (Phase 1.7b) 据此判断 thread 事件源是否停滞。
+  if (eventThreadId) {
+    const stampTid = normalizeThreadID(eventThreadId);
+    if (stampTid) {
+      const map = ctx.state.lastEventTsByThread || (ctx.state.lastEventTsByThread = {});
+      map[stampTid] = Date.now();
+    }
+  }
   if (isSkillsChangedSignal) {
     ctx.state.skillRevision = Number(ctx.state.skillRevision || 0) + 1;
     logInfo('thread', 'skills.changed', { revision: ctx.state.skillRevision, skills_dir: (evt?.skillsDir || evt?.payload?.skillsDir || evt?.params?.skillsDir || '').toString() });

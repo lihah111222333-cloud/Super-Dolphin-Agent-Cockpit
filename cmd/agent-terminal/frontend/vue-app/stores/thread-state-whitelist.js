@@ -28,6 +28,8 @@ const RUNTIME_STATE_KEYS = Object.freeze([
   'activityStatsByThread',
   'alertsByThread',
   'skillRevision',
+  // Phase 1.7a：watchdog 戳点 —— 后端事件刷新时间戳
+  'lastEventTsByThread',
 ]);
 
 export const THREAD_STORE_UI_LOCAL_STATE_WHITELIST = UI_LOCAL_STATE_KEYS;
