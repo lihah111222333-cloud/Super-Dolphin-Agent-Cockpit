@@ -197,7 +197,7 @@
 | `type ToolDefinition` | `tools/types.go` | MCP tool 元信息：名字、描述、输入 schema、handler。 |
 | `type workspace.Service interface` | `workspace/contract.go` | workspace run 的 create/get/list/merge/abort/file 查询能力。 |
 | `type workspace.service struct` | `workspace/service.go` | workspace 领域实现，负责路径校验、bootstrap copy、merge、事件发送。 |
-| `type taskdag.Store interface` | `store/taskdag/contract.go` | DAG/node/wakeup/worker lease 的完整持久化接口。 |
+| `type taskdag.Store interface` | `store/taskdag/contract.go` | 兼容聚合持久化接口；真实消费面拆成 `OrchestrationStore` / `DAGMutationStore` / `DAGReadStore` / `DAGDetailStore` / `NodeStatusStore` / `RecoveryStore` / `RunningNodeStore` / `WakeupStore` / `WorkerLeaseStore`。 |
 | `type workspace.Store interface` | `store/workspace/contract.go` | `workspace_runs` / `workspace_run_files` 的持久化接口。 |
 | `type prompt.Store` / `commandcard.Store` / `sharedfile.Store` | `store/*/contract.go` | prompt / command / shared_file 资源查询与写入。 |
 | `type contract.MemoryService` | `internal/contract/memory.go` | `memory_read` 背后的只读契约；返回 `entry/sourcePath/indexHit/denyReason/degraded/source`。 |
@@ -387,7 +387,7 @@
 
 | 签名 | 作用 |
 |---|---|
-| `func NewService(logger *slog.Logger, eventBus *event.Dispatcher, launcher AgentLauncher, sessionCleaner SessionCleaner, turnStarter TurnStarter, dagStore taskdag.Store) *service` | 创建编排核心服务，初始化状态机配置和 agent map。 |
+| `func NewService(logger *slog.Logger, eventBus *event.Dispatcher, launcher AgentLauncher, sessionCleaner SessionCleaner, turnStarter TurnStarter, dagStore taskdag.OrchestrationStore) *service` | 创建编排核心服务，初始化状态机配置和 agent map；编排层只消费 `taskdag.OrchestrationStore` 窄端口。 |
 | `func (s *service) LaunchAgent(ctx context.Context, req LaunchRequest) error` | 统一入口：发起 agent 启动。 |
 | `func (s *service) SubmitTurn(ctx context.Context, req TurnSubmission) error` | 统一入口：提交 turn。 |
 | `func (s *service) StopAgent(ctx context.Context, agentID string) error` | 统一入口：停止 agent。 |
@@ -451,7 +451,7 @@
 
 | 签名 | 作用 |
 |---|---|
-| `func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error` | DAG / workspace / prompt 等 store 的事务封装。 |
+| `func (s *store) WithTx(ctx context.Context, fn func(txStore DAGMutationStore) error) error` | taskdag 事务封装，只向 DAG 创建流程暴露 tx 内 `DAGMutationStore`；workspace / prompt 仍各自使用自己的 `Store` callback。 |
 | `func sqlc.WithTx(ctx context.Context, q *Queries, fn func(txq *Queries) error) error` | sqlc 查询集的 pool-backed 事务封装。 |
 | `func sqlc.WithTxOrReuse(ctx context.Context, q *Queries, fn func(txq *Queries) error) error` | 已在事务中则复用，否则新开事务。 |
 | `func (s *store) UpsertDAG(ctx context.Context, dag DAG) (*DAG, error)` | DAG 主记录 upsert。 |

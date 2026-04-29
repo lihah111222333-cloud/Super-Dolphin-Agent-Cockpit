@@ -14,8 +14,8 @@
 
 ## 边界
 
-- 本轮 A01a 只深化 Go/Wails 后端，不展开 Vue 前端细节。
-- 旧版混合文档中的 Vue 章节已迁出到独立分卷，由 A01b 接手。
+- 本页只作 01 分卷索引；Go/Wails 后端与 Vue 前端正文分别在子卷维护。
+- 58f19fa 接口隔离未改变 01 的 UI/RPC 入口；若追到 `app.Module`、`internal/contract` 或 module-local 窄端口，请跳 [04-app-contract.md](04-app-contract.md)。
 
 ## 拆卷映射表
 
@@ -42,6 +42,7 @@
 
 - **2026-04-17**：01 从原单卷拆成 Go/Wails 与 Vue 两卷，本页改为稳定索引，旧外链继续落在这里。
 - **2026-04-20 补记**：把 blank-thread 首发、LaunchSkillPicker、dashboard/prompts 作用域跳转关系补回索引口径。
+- **2026-04-29 维护提示**：接口隔离提交 58f19fa 只影响后端端口归属；01 继续作为 Terminal/UI 入口索引，不承载 contract 真值。
 
 ## 常见误导
 
