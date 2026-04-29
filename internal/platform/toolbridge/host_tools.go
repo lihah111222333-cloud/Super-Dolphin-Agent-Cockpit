@@ -38,15 +38,15 @@ type HostToolRegistry interface {
 	CallHostTool(ctx context.Context, call HostToolCall) (any, error)
 }
 
-// SkillHostTools 把 skill.Service 的 ExpandBody / ReadResource 包装成两个 host-direct
+// SkillHostTools 把 skill.SkillHostToolReader 的 ExpandBody / ReadResource 包装成两个 host-direct
 // 工具：skill_expand_body / skill_read_resource。schema 来自 pkg/skilltool（避免 schema
 // 在 toolbridge / claudecli 两边漂移）。
 type SkillHostTools struct {
-	svc skillpkg.Service
+	svc skillpkg.SkillHostToolReader
 }
 
 // NewSkillHostTools 构造函数。svc 为 nil 时返回 nil，由 fx 注入后调用方自行 nil-check。
-func NewSkillHostTools(svc skillpkg.Service) *SkillHostTools {
+func NewSkillHostTools(svc skillpkg.SkillHostToolReader) *SkillHostTools {
 	if svc == nil {
 		return nil
 	}

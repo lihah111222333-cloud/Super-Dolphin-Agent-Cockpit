@@ -34,9 +34,16 @@ const (
 )
 
 type Manager interface {
-	EnsureClient(ctx context.Context, filePath, languageID string) (Client, error)
-	Close() error
+	ClientEnsurer
+	lspmanager.Manager
+	BackgroundRunnerProvider
+}
 
+type ClientEnsurer interface {
+	EnsureClient(ctx context.Context, filePath, languageID string) (Client, error)
+}
+
+type BackgroundRunnerProvider interface {
 	// BackgroundRunner returns the long-running owner(s) for this
 	// manager's background work (currently the ManagerPool recycler).
 	// The root `group:"runners"` aggregation drives them via ctx; nil
@@ -44,38 +51,6 @@ type Manager interface {
 	// P22 P2 gopls-S1 — docs/plans/迁移/p22/P2_BusRuntimeDecoupling.md
 	// §480-494.
 	BackgroundRunner() platformrunner.Runner
-
-	Definition(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error)
-	Implementation(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error)
-	TypeDefinition(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error)
-	Hover(ctx context.Context, uri string, position protocol.Position) (*protocol.HoverResult, error)
-	SignatureHelp(ctx context.Context, uri string, position protocol.Position) (*protocol.SignatureHelpResult, error)
-
-	References(ctx context.Context, uri string, position protocol.Position, includeDeclaration bool) ([]protocol.LocationResult, error)
-	CallHierarchy(ctx context.Context, uri string, position protocol.Position, direction string) ([]protocol.CallHierarchyResult, error)
-	TypeHierarchy(ctx context.Context, uri string, position protocol.Position, direction string) ([]protocol.TypeHierarchyResult, error)
-
-	DocumentSymbol(ctx context.Context, uri string) ([]protocol.DocumentSymbol, error)
-	WorkspaceSymbol(ctx context.Context, query string, languageID string) ([]protocol.WorkspaceSymbolResult, error)
-	FoldingRange(ctx context.Context, uri string) ([]protocol.FoldingRange, error)
-	SemanticTokens(ctx context.Context, uri string) (*protocol.SemanticTokensResult, error)
-
-	Completion(ctx context.Context, uri string, position protocol.Position) (*protocol.CompletionList, error)
-	Rename(ctx context.Context, uri string, position protocol.Position, newName string) (*protocol.WorkspaceEdit, error)
-	CodeAction(ctx context.Context, uri string, rng protocol.Range, only []string) ([]protocol.CodeActionResult, error)
-	Format(ctx context.Context, uri string, options protocol.FormattingOptions) ([]protocol.TextEdit, error)
-
-	DidOpen(ctx context.Context, uri, languageID string, version int, text string) error
-	DidChange(ctx context.Context, uri string, version int, changes []protocol.TextDocumentContentChangeEvent) error
-	DidClose(ctx context.Context, uri string) error
-	BootstrapDocument(ctx context.Context, uri string) error
-	BootstrapDocumentOpenOnly(ctx context.Context, uri string) error
-
-	Diagnostics(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, error)
-	WaitDiagnosticsStable(ctx context.Context, uris []string) error
-
-	CurrentDiagnosticGeneration() uint64
-	AdvanceDiagnosticGeneration() uint64
 }
 
 type ClientFactory interface {

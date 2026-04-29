@@ -44,7 +44,7 @@ type service struct {
 	commandCards  commandcardstore.Reader
 	prompts       promptstore.Reader
 	sharedFiles   sharedfilestore.Reader
-	skills        skillmodule.Service
+	skills        skillmodule.SkillLister
 	startedAt     time.Time
 }
 
@@ -64,7 +64,7 @@ func NewService(
 	commandCards commandcardstore.Reader,
 	prompts promptstore.Reader,
 	sharedFiles sharedfilestore.Reader,
-	skills skillmodule.Service,
+	skills skillmodule.SkillLister,
 ) Service {
 	return &service{
 		orchestration: orchestrationSvc,

@@ -75,7 +75,7 @@ type service struct {
 	launcher               AgentLauncher
 	sessionCleaner         SessionCleaner
 	turnStarter            TurnStarter
-	dagStore               taskdag.Store
+	dagStore               taskdag.OrchestrationStore
 	recoveryStore          recoveryTurnStore
 	agentThreads           AgentThreadStore
 	agentBindings          AgentBindingStore
@@ -98,14 +98,13 @@ type serviceParams struct {
 	Launcher       AgentLauncher
 	SessionCleaner SessionCleaner
 	TurnStarter    TurnStarter
-	DAGStore       taskdag.Store     `optional:"true"`
-	AgentThreads   AgentThreadStore  `optional:"true"`
-	AgentBindings  AgentBindingStore `optional:"true"`
+	DAGStore       taskdag.OrchestrationStore `optional:"true"`
+	AgentThreads   AgentThreadStore           `optional:"true"`
+	AgentBindings  AgentBindingStore          `optional:"true"`
 }
 
 type recoveryTurnStore interface {
-	ListRunningNodesByAssignee(ctx context.Context, assignee string) ([]taskdag.Node, error)
-	GetWakeup(ctx context.Context, id int64) (*taskdag.Wakeup, error)
+	taskdag.RecoveryStore
 }
 
 type agentRuntime struct {
@@ -162,10 +161,14 @@ func NewService(
 	launcher AgentLauncher,
 	sessionCleaner SessionCleaner,
 	turnStarter TurnStarter,
-	dagStore taskdag.Store,
+	dagStore taskdag.OrchestrationStore,
 ) *service {
 	if logger == nil {
 		logger = pkglogger.Get()
+	}
+	var recoveryStore recoveryTurnStore
+	if store, ok := dagStore.(recoveryTurnStore); ok {
+		recoveryStore = store
 	}
 	return &service{
 		logger:         logger,
@@ -174,7 +177,7 @@ func NewService(
 		sessionCleaner: sessionCleaner,
 		turnStarter:    turnStarter,
 		dagStore:       dagStore,
-		recoveryStore:  dagStore,
+		recoveryStore:  recoveryStore,
 		machineCfg: platformstatemachine.Config{
 			Initial: agentdto.StateProvisioning,
 			States:  buildStatesFromDefinitions(agentdto.TransitionDefinitions),

@@ -23,10 +23,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/pkg/skilltool"
 )
 
-// stubSkillService 满足 skillpkg.Service 接口（仅本测试关心的两个方法），其余
-// 方法 panic——确保意外路径会立刻暴露。
+// stubSkillService 满足 skillpkg.SkillHostToolReader 窄接口。
 type stubSkillService struct {
-	skillpkg.Service
 	expandIn  skillpkg.ExpandBodyParams
 	expandOut skillpkg.ExpandBodyResult
 	expandErr error
