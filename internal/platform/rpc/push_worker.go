@@ -125,7 +125,7 @@ func (w *pushNotificationWorker) Enqueue(notifications []eventsurface.Notificati
 	// the queue never carries a batch whose first entry is unusable. The
 	// legacy expander can technically emit a zero-method refresh if the
 	// source method slips past trim, and we want to catch that early.
-	filtered := notifications[:0:len(notifications)]
+	filtered := make([]eventsurface.Notification, 0, len(notifications))
 	for _, n := range notifications {
 		if strings.TrimSpace(n.Method) != "" {
 			filtered = append(filtered, n)

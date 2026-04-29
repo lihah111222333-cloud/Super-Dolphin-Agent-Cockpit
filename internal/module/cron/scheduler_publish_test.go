@@ -3,6 +3,7 @@ package cron
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,13 +13,32 @@ import (
 	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 )
 
-func collectRunStateEvents(t *testing.T, dispatcher *event.Dispatcher) (capture *[]crondto.JobRunStateChanged, cleanup func()) {
+type eventCapture struct {
+	mu     sync.Mutex
+	events []crondto.JobRunStateChanged
+}
+
+func (c *eventCapture) add(ev crondto.JobRunStateChanged) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.events = append(c.events, ev)
+}
+
+func (c *eventCapture) get() []crondto.JobRunStateChanged {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]crondto.JobRunStateChanged, len(c.events))
+	copy(out, c.events)
+	return out
+}
+
+func collectRunStateEvents(t *testing.T, dispatcher *event.Dispatcher) (capture *eventCapture, cleanup func()) {
 	t.Helper()
-	out := []crondto.JobRunStateChanged{}
+	cap := &eventCapture{}
 	cancel := event.Subscribe(dispatcher, func(ev crondto.JobRunStateChanged) {
-		out = append(out, ev)
+		cap.add(ev)
 	})
-	return &out, cancel
+	return cap, cancel
 }
 
 func TestSchedulerPublishesHappyPathTransitions(t *testing.T) {
@@ -53,17 +73,18 @@ func TestSchedulerPublishesHappyPathTransitions(t *testing.T) {
 	// allow async event delivery to flush
 	time.Sleep(50 * time.Millisecond)
 
+	events := out.get()
 	wantStatuses := []string{"pending", "submitting", "submitted", "running"}
-	if len(*out) != len(wantStatuses) {
-		t.Fatalf("got %d events (statuses=%v); want %d", len(*out), statusesOf(*out), len(wantStatuses))
+	if len(events) != len(wantStatuses) {
+		t.Fatalf("got %d events (statuses=%v); want %d", len(events), statusesOf(events), len(wantStatuses))
 	}
 	for i, want := range wantStatuses {
-		if (*out)[i].Status != want {
-			t.Fatalf("event[%d].Status = %q, want %q", i, (*out)[i].Status, want)
+		if events[i].Status != want {
+			t.Fatalf("event[%d].Status = %q, want %q", i, events[i].Status, want)
 		}
 	}
-	if (*out)[2].TurnID != "turn-1" || (*out)[3].TurnID != "turn-1" {
-		t.Fatalf("submitted/running events should carry turn_id; got %+v", *out)
+	if events[2].TurnID != "turn-1" || events[3].TurnID != "turn-1" {
+		t.Fatalf("submitted/running events should carry turn_id; got %+v", events)
 	}
 }
 
@@ -94,13 +115,14 @@ func TestSchedulerPublishesFailedOnStartTurnError(t *testing.T) {
 	_ = s.RunTick(context.Background())
 	time.Sleep(50 * time.Millisecond)
 
-	statuses := statusesOf(*out)
+	events := out.get()
+	statuses := statusesOf(events)
 	// Expect: pending → submitting → failed
 	if len(statuses) != 3 || statuses[2] != "failed" {
 		t.Fatalf("statuses = %v; want pending/submitting/failed", statuses)
 	}
-	if (*out)[2].Error == "" {
-		t.Fatalf("failed event should carry error message; got %+v", (*out)[2])
+	if events[2].Error == "" {
+		t.Fatalf("failed event should carry error message; got %+v", events[2])
 	}
 }
 
