@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skillforge"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 )
 
@@ -48,7 +49,10 @@ func buildSkillManifest(entries []skilllibrary.SkillEntry, budgetChars int) stri
 }
 
 func renderL1CBlock(e skilllibrary.SkillEntry) string {
-	desc := extractDescriptionFromSkillMD(e.SkillMD)
+	desc := ""
+	if ps, err := skillforge.Parse(e.SkillMD); err == nil {
+		desc = ps.Description
+	}
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("- %s — %s\n", e.Meta.Name, desc))
 	if len(e.Meta.SectionSummaries) > 0 {
@@ -59,20 +63,6 @@ func renderL1CBlock(e skilllibrary.SkillEntry) string {
 		}
 	}
 	return b.String()
-}
-
-// extractDescriptionFromSkillMD 从瘦身 SKILL.md frontmatter 里提取 description。
-// 简化实现：前 10 行内查找 "description:"。
-func extractDescriptionFromSkillMD(src string) string {
-	for i, ln := range strings.Split(src, "\n") {
-		if i > 10 {
-			break
-		}
-		if strings.HasPrefix(ln, "description:") {
-			return strings.TrimSpace(strings.TrimPrefix(ln, "description:"))
-		}
-	}
-	return ""
 }
 
 func sortedKeys(m map[string]string) []string {

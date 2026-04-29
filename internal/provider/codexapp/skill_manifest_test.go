@@ -94,3 +94,46 @@ func TestBuildSkillManifest_NoSectionsSkillRendersOnlyName(t *testing.T) {
 		t.Error("missing description")
 	}
 }
+
+func TestBuildSkillManifest_HandlesQuotedDescription(t *testing.T) {
+	// 旧 extractDescriptionFromSkillMD 用 HasPrefix("description:") 简单截，
+	// 对带引号 + 含逗号的 description 静默丢字段。改用 skillforge.Parse 后必须
+	// 正确解析。
+	entries := []skilllibrary.SkillEntry{
+		{
+			Meta:    &skilllibrary.SkillMeta{Name: "x"},
+			SkillMD: "---\nname: x\ndescription: \"含逗号的描述, 测试解析\"\n---\n",
+		},
+	}
+	out := buildSkillManifest(entries, 8192)
+	if !strings.Contains(out, "含逗号的描述, 测试解析") {
+		t.Errorf("manifest 未正确解析带引号 description:\n%s", out)
+	}
+}
+
+func TestBuildSkillManifest_HandlesCRLFFrontmatter(t *testing.T) {
+	entries := []skilllibrary.SkillEntry{
+		{
+			Meta:    &skilllibrary.SkillMeta{Name: "y"},
+			SkillMD: "---\r\nname: y\r\ndescription: 有 CRLF 的描述\r\n---\r\n",
+		},
+	}
+	out := buildSkillManifest(entries, 8192)
+	if !strings.Contains(out, "有 CRLF 的描述") {
+		t.Errorf("manifest 未正确处理 CRLF frontmatter:\n%s", out)
+	}
+}
+
+func TestBuildSkillManifest_MalformedFrontmatterReturnsEmptyDesc(t *testing.T) {
+	// frontmatter 缺失也不应 panic，仅 description 为空。
+	entries := []skilllibrary.SkillEntry{
+		{
+			Meta:    &skilllibrary.SkillMeta{Name: "z"},
+			SkillMD: "no frontmatter at all",
+		},
+	}
+	out := buildSkillManifest(entries, 8192)
+	if !strings.Contains(out, "- z — \n") {
+		t.Errorf("malformed SkillMD 应渲染空 description:\n%s", out)
+	}
+}
