@@ -149,6 +149,7 @@ func (p *skillMCPToolProvider) CallTool(ctx context.Context, name string, args j
 	method, params, err := p.hostRPCRequest(name, args)
 	if err != nil {
 		skillmetrics.IncSkillMCPToolError()
+		p.reportSkillMCPToolMetric(name, "", skillmetrics.SkillMCPOutcomeError, time.Since(started))
 		pkglogger.Warn("skill mcp: tool call rejected",
 			"tool", name,
 			"outcome", "invalid_request",
@@ -161,11 +162,12 @@ func (p *skillMCPToolProvider) CallTool(ctx context.Context, name string, args j
 	if err != nil {
 		envelope := skillMCPToolErrorEnvelope(name, err)
 		outcome := skillMCPEnvelopeKind(envelope)
-		if outcome == "approval_required" {
+		if outcome == skillmetrics.SkillMCPOutcomeApprovalRequired {
 			skillmetrics.IncSkillMCPApprovalRequired()
 		} else {
 			skillmetrics.IncSkillMCPToolError()
 		}
+		p.reportSkillMCPToolMetric(name, method, outcome, time.Since(started))
 		attrs := []any{
 			"tool", name,
 			"method", method,
@@ -179,6 +181,7 @@ func (p *skillMCPToolProvider) CallTool(ctx context.Context, name string, args j
 		return envelope, nil
 	}
 	skillmetrics.IncSkillMCPToolSuccess()
+	p.reportSkillMCPToolMetric(name, method, skillmetrics.SkillMCPOutcomeSuccess, time.Since(started))
 	pkglogger.Info("skill mcp: tool call completed",
 		"tool", name,
 		"method", method,
@@ -197,6 +200,34 @@ func (p *skillMCPToolProvider) hostRPC() skillHostRPCCaller {
 		return p.caller
 	}
 	return skillHostRPCClient{addr: p.runtime.RPCAddr}
+}
+
+func (p *skillMCPToolProvider) reportSkillMCPToolMetric(tool, method, outcome string, elapsed time.Duration) {
+	if strings.TrimSpace(p.runtime.RPCAddr) == "" && p.caller == nil {
+		return
+	}
+	params := map[string]any{
+		"tool":       strings.TrimSpace(tool),
+		"method":     strings.TrimSpace(method),
+		"outcome":    skillmetrics.NormalizeSkillMCPToolOutcome(strings.TrimSpace(outcome)),
+		"agentId":    strings.TrimSpace(p.runtime.AgentID),
+		"threadId":   strings.TrimSpace(p.runtime.ThreadID),
+		"elapsed_ms": elapsed.Milliseconds(),
+	}
+	go p.sendSkillMCPToolMetric(tool, method, outcome, params)
+}
+
+func (p *skillMCPToolProvider) sendSkillMCPToolMetric(tool, method, outcome string, params map[string]any) {
+	reportCtx, cancel := platformconfig.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if _, err := p.hostRPC().Call(reportCtx, skillmetrics.SkillMCPReportMethod, params); err != nil {
+		pkglogger.Warn("skill mcp: metric report failed",
+			"tool", tool,
+			"method", method,
+			"outcome", outcome,
+			"error", err,
+		)
+	}
 }
 
 func (p *skillMCPToolProvider) hostRPCRequest(name string, args json.RawMessage) (string, map[string]any, error) {
@@ -276,6 +307,9 @@ func (c skillHostRPCClient) Call(ctx context.Context, method string, params any)
 		return nil, fmt.Errorf("skill mcp: dial host rpc: %w", err)
 	}
 	defer conn.Close()
+	if deadline, ok := callCtx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
+	}
 
 	rawParams, err := json.Marshal(params)
 	if err != nil {
