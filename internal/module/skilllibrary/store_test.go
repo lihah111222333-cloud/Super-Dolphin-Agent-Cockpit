@@ -1,6 +1,8 @@
 package skilllibrary
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -33,8 +35,15 @@ func TestStore_InstallAndUninstall(t *testing.T) {
 
 func TestStore_GetReturnsErrNotFound(t *testing.T) {
 	s := NewStore(t.TempDir())
-	if _, err := s.Get("missing"); !os.IsNotExist(err) {
-		t.Errorf("Get(missing): want IsNotExist, got %v", err)
+	if _, err := s.Get("missing"); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("Get(missing): want errors.Is fs.ErrNotExist, got %v", err)
+	}
+}
+
+func TestStore_GetEmptyNameRejected(t *testing.T) {
+	s := NewStore(t.TempDir())
+	if _, err := s.Get(""); err == nil {
+		t.Error("Get(empty name) should error")
 	}
 }
 
