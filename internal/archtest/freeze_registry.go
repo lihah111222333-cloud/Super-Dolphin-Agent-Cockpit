@@ -25,6 +25,14 @@ var explicitFreezeRegistry = []explicitFreeze{
 		Owner:      "P25 skill rollout",
 		RemoveWhen: "Phase 3 provider default policy removes temporary override/evidence scaffolding or codexapp package is split below default package file budget",
 	},
+	{
+		Path:       "internal/module/memory",
+		Kind:       ViolationPackageCount,
+		Limit:      32,
+		Reason:     "Phase 1.6 上下文继承与预警：新增 auto-continue state RPC 与 sharedfile RPC 因 600 行/文件守卫被迫各占独立文件（ui_rpc_sharedfile.go + ui_rpc_auto_continue_state.go），把 internal/module/memory 推到 32 个非测试文件",
+		Owner:      "Phase 1.6 上下文继承与预警",
+		RemoveWhen: "Phase 2.x promote-task 引入后把 sharedfile RPC 与 promote 路由合并到一个文件，让 internal/module/memory 包非测试文件回落 ≤30；或主文件 ui_rpc_mutations.go 拆分使新增 RPC 可直接 inline 于主文件",
+	},
 }
 
 func freezeRegistryIntegrityViolations() []Violation {
