@@ -139,69 +139,6 @@ func TestWriteManifestConfigAcceptsShortFamilyName(t *testing.T) {
 	}
 }
 
-func TestTransportConfig_SameBinarySkillServerMCPConfig(t *testing.T) {
-	t.Parallel()
-
-	manifest := dto.MCPManifest{Binaries: []dto.MCPBinary{
-		{
-			Name:       "skill",
-			LaunchKind: dto.LaunchKindSameBinarySkill,
-			Env: map[string]string{
-				"GO_AGENT_CTL_RPC_ADDR":      "127.0.0.1:9191",
-				"GO_AGENT_CTL_AGENT_ID":      "agent-env",
-				"GO_AGENT_CTL_THREAD_ID":     "thread-env",
-				dto.MCPEnvSkillCWD:           "/evil",
-				dto.MCPEnvSkillAgentID:       "agent-evil",
-				dto.MCPEnvSkillThreadID:      "thread-evil",
-				"GO_AGENT_SKILL_MCP_TURN_ID": "turn-evil",
-			},
-		},
-		{
-			Name:    "third-party",
-			Command: []string{"/tmp/bin/not-managed"},
-		},
-	}}
-	path, cleanup, err := writeManifestConfig(manifest, "/repo")
-	if err != nil {
-		t.Fatalf("writeManifestConfig() error = %v", err)
-	}
-	defer cleanup()
-
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("ReadFile(%q) error = %v", path, err)
-	}
-	var doc map[string]any
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		t.Fatalf("json.Unmarshal() error = %v", err)
-	}
-	servers, _ := doc["mcpServers"].(map[string]any)
-	skill, _ := servers["skill"].(map[string]any)
-	if skill == nil {
-		t.Fatalf("mcpServers = %#v, want skill server", servers)
-	}
-	if _, ok := servers["third-party"]; ok {
-		t.Fatalf("mcpServers = %#v, unmanaged server should still be rejected", servers)
-	}
-	if command, _ := skill["command"].(string); command == "" {
-		t.Fatalf("skill.command = %#v, want current executable", skill["command"])
-	}
-	args, _ := skill["args"].([]any)
-	if len(args) != 1 || args[0] != "--mcp-skill-mode" {
-		t.Fatalf("skill.args = %#v, want --mcp-skill-mode", skill["args"])
-	}
-	env, _ := skill["env"].(map[string]any)
-	if env[dto.MCPEnvSkillCWD] != "/repo" || env[dto.MCPEnvSkillAgentID] != "agent-env" || env[dto.MCPEnvSkillThreadID] != "thread-env" || env["GO_AGENT_CTL_RPC_ADDR"] != "127.0.0.1:9191" {
-		t.Fatalf("skill.env = %#v, want canonical host RPC/runtime env injection", env)
-	}
-	if _, ok := env["GO_AGENT_SKILL_MCP_TURN_ID"]; ok {
-		t.Fatalf("skill.env = %#v, want no per-turn skill runtime env", env)
-	}
-	if skill["cwd"] != "/repo" {
-		t.Fatalf("skill.cwd = %#v, want /repo", skill["cwd"])
-	}
-}
-
 func TestClaude_MCP_SmokeTest(t *testing.T) {
 	t.Parallel()
 

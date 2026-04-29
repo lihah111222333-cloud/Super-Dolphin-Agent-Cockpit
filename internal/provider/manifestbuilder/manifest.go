@@ -59,14 +59,7 @@ func BuildManifest(ctx dto.ManifestContext) dto.MCPManifest {
 			AutoApprove: append([]string(nil), autoApprove...),
 		})
 	}
-	bins = appendSkillMCPServer(bins, ctx, env, autoApprove)
 	return dto.MCPManifest{Binaries: bins}
-}
-
-func appendSkillMCPServer(bins []dto.MCPBinary, _ dto.ManifestContext, _ map[string]string, _ []string) []dto.MCPBinary {
-	// Skill MCP server removed in P2 Task 5; native discovery via <workspace>/.claude/skills handles
-	// skill loading. This function is a no-op stub until Task 8 removes it entirely.
-	return bins
 }
 
 func cloneManifestEnv(in map[string]string) map[string]string {

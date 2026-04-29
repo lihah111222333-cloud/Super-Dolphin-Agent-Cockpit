@@ -2,25 +2,16 @@ package provider
 
 type ToolFamily string
 
-type MCPLaunchKind string
-
 const (
 	FamilyLSP  ToolFamily = "lsp"
 	FamilyOrch ToolFamily = "orch"
 	FamilyIDA  ToolFamily = "ida"
-
-	LaunchKindSameBinarySkill MCPLaunchKind = "same-binary-skill"
-
-	MCPEnvSkillCWD      = "GO_AGENT_SKILL_MCP_CWD"
-	MCPEnvSkillAgentID  = "GO_AGENT_SKILL_MCP_AGENT_ID"
-	MCPEnvSkillThreadID = "GO_AGENT_SKILL_MCP_THREAD_ID"
 )
 
 type MCPBinary struct {
 	Name        string            `json:"name"`
-	Type        string            `json:"type,omitempty"` // "http" or "" (stdio)
-	URL         string            `json:"url,omitempty"`  // HTTP endpoint URL
-	LaunchKind  MCPLaunchKind     `json:"launch_kind,omitempty"`
+	Type        string            `json:"type,omitempty"`    // "http" or "" (stdio)
+	URL         string            `json:"url,omitempty"`     // HTTP endpoint URL
 	Command     []string          `json:"command,omitempty"` // stdio command
 	Env         map[string]string `json:"env,omitempty"`
 	AutoApprove []string          `json:"autoApprove,omitempty"`
