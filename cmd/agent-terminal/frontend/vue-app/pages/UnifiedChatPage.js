@@ -307,6 +307,15 @@ function createPageAutoContinue(props, taskHandoff, selectedThreadId) {
   const activeAutoContinueFailed = computed(
     () => r.failedAutoContinueByThread.value.get((selectedThreadId.value || '').toString().trim()) || null,
   );
+  // Phase 1.6 sidebar 失败标记：把 reactive Map 转 plain object 给 ThreadRailSidePanel
+  const failedAutoContinueByThreadId = computed(() => {
+    const map = r.failedAutoContinueByThread.value;
+    const out = {};
+    if (map && typeof map.entries === 'function') {
+      for (const [tid, info] of map.entries()) out[tid] = info;
+    }
+    return out;
+  });
   const autoContinueRetrying = ref(false);
   const autoContinueRetryError = ref(''); // R2 fix：失败反馈不再吃掉
   async function onRetryAutoContinue() {
@@ -322,6 +331,7 @@ function createPageAutoContinue(props, taskHandoff, selectedThreadId) {
     autoContinueFailedByThread: r.failedAutoContinueByThread,
     autoContinueRetry: r.retryAutoContinue,
     activeAutoContinueFailed, autoContinueRetrying, autoContinueRetryError, onRetryAutoContinue,
+    failedAutoContinueByThreadId,
   };
 }
 
