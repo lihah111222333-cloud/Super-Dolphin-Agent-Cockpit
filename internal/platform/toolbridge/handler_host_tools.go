@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -191,52 +190,11 @@ func (h *Handler) callHostTool(ctx context.Context, req ToolCallRequest) (*ToolC
 	}, nil
 }
 
-func sanitizeHostToolResult(result any, cwd string) any {
-	switch typed := result.(type) {
-	case skillpkg.ExpandBodyResult:
-		typed.Path = hostToolRelativePath(cwd, typed.Path)
-		return typed
-	case skillpkg.ReadResourceResult:
-		typed.SkillDir = hostToolRelativePath(cwd, typed.SkillDir)
-		return typed
-	default:
-		return result
-	}
-}
-
-func hostToolRelativePath(cwd, path string) string {
-	path = strings.TrimSpace(path)
-	if path == "" || !filepath.IsAbs(path) {
-		return path
-	}
-	cwd = strings.TrimSpace(cwd)
-	if cwd == "" {
-		return filepath.Base(path)
-	}
-	base := hostToolCleanPath(cwd)
-	target := hostToolCleanPath(path)
-	return hostToolSafeRelativePath(base, target, path)
-}
-
-func hostToolCleanPath(path string) string {
-	cleaned := filepath.Clean(path)
-	resolved, err := filepath.EvalSymlinks(cleaned)
-	if err != nil {
-		return cleaned
-	}
-	return resolved
-}
-
-func hostToolSafeRelativePath(base, target, fallback string) string {
-	rel, err := filepath.Rel(base, target)
-	if err != nil || !hostToolRelativePathAllowed(rel) {
-		return filepath.Base(fallback)
-	}
-	return filepath.ToSlash(rel)
-}
-
-func hostToolRelativePathAllowed(rel string) bool {
-	return rel != "." && rel != "" && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
+func sanitizeHostToolResult(result any, _ string) any {
+	// P4 Task 4: ExpandBodyResult / ReadResourceResult cases removed alongside the
+	// SkillHostTools struct. New host-direct results (e.g. SkillReadSectionResult) do
+	// not embed absolute paths, so no path scrubbing is required here for now.
+	return result
 }
 
 func hostToolErrorOutcome(err error) string {

@@ -98,9 +98,8 @@ func provideSkillReadSectionTool(in skillLibCfgIn) *SkillReadSectionTool {
 }
 
 // provideHostToolRegistry builds the Codex-facing HostToolRegistry backed by
-// SkillReadSectionRegistry (skill_read_section only). The old SkillHostTools
-// (skill_expand_body / skill_read_resource) are no longer included in the
-// Codex DynamicTools list.
+// SkillReadSectionRegistry. skill_read_section is the only host-direct tool
+// post-P4 (legacy SkillHostTools deleted in Task 4).
 //
 // Returns nil when tool is nil (no skilllibrary.Config provided); the Handler
 // and ListToolsForCodex are both nil-safe on HostToolRegistry.

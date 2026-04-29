@@ -7,9 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -20,259 +17,18 @@ import (
 	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
-	"github.com/anthropic-ai/super-agent-v3/pkg/skilltool"
 )
 
-// stubSkillService 满足 skillpkg.SkillHostToolReader 窄接口。
-type stubSkillService struct {
-	expandIn  skillpkg.ExpandBodyParams
-	expandOut skillpkg.ExpandBodyResult
-	expandErr error
-
-	resourceIn  skillpkg.ReadResourceParams
-	resourceOut skillpkg.ReadResourceResult
-	resourceErr error
-
-	cwdSeen string // 记录 ExpandBody/ReadResource 调用时 ctx 的 cwd
-}
-
-func (s *stubSkillService) ExpandBody(ctx context.Context, p skillpkg.ExpandBodyParams) (skillpkg.ExpandBodyResult, error) {
-	s.cwdSeen, _ = skillpkg.RequireCWD(ctx)
-	s.expandIn = p
-	if s.expandErr != nil {
-		return skillpkg.ExpandBodyResult{}, s.expandErr
-	}
-	return s.expandOut, nil
-}
-
-func (s *stubSkillService) ReadResource(ctx context.Context, p skillpkg.ReadResourceParams) (skillpkg.ReadResourceResult, error) {
-	s.cwdSeen, _ = skillpkg.RequireCWD(ctx)
-	s.resourceIn = p
-	if s.resourceErr != nil {
-		return skillpkg.ReadResourceResult{}, s.resourceErr
-	}
-	return s.resourceOut, nil
-}
-
-func TestNewSkillHostTools_NilService(t *testing.T) {
-	if got := NewSkillHostTools(nil); got != nil {
-		t.Fatalf("NewSkillHostTools(nil) must return nil, got %#v", got)
-	}
-}
-
-func TestSkillHostTools_ListHostTools_NamesAndCount(t *testing.T) {
-	stub := &stubSkillService{}
-	h := NewSkillHostTools(stub)
-	tools := h.ListHostTools()
-	if len(tools) != 2 {
-		t.Fatalf("expect 2 tools, got %d", len(tools))
-	}
-	names := map[string]bool{}
-	for _, tl := range tools {
-		names[tl.Name] = true
-	}
-	if !names[skilltool.ToolNameExpandBody] || !names[skilltool.ToolNameReadResource] {
-		t.Fatalf("missing tool names: %+v", names)
-	}
-}
-
-func TestSkillHostTools_HasTool(t *testing.T) {
-	h := NewSkillHostTools(&stubSkillService{})
-	if !h.HasTool(skilltool.ToolNameExpandBody) {
-		t.Fatalf("HasTool should match expand_body")
-	}
-	if !h.HasTool(skilltool.ToolNameReadResource) {
-		t.Fatalf("HasTool should match read_resource")
-	}
-	if h.HasTool("read_file") {
-		t.Fatalf("HasTool should NOT match peer tools")
-	}
-}
-
-func TestSkillHostTools_NilReceiver_HasToolReturnsFalse(t *testing.T) {
-	var h *SkillHostTools // typed nil
-	if h.HasTool(skilltool.ToolNameExpandBody) {
-		t.Fatalf("nil receiver must return false from HasTool")
-	}
-	if got := h.ListHostTools(); got != nil {
-		t.Fatalf("nil receiver must return nil from ListHostTools, got %v", got)
-	}
-}
-
-func TestCallHostTool_PassesApprovalMetadata(t *testing.T) {
-	stub := &stubSkillService{
-		expandOut: skillpkg.ExpandBodyResult{Name: "foo", Content: "body"},
-	}
-	h := NewSkillHostTools(stub)
-	// 模型可能（恶意/错误地）发了带 cwd 字段的 arguments；应被强制覆盖为 host 解析值。
-	args := json.RawMessage(`{"name":"foo","cwd":"/malicious/path"}`)
-	out, err := h.CallHostTool(context.Background(), HostToolCall{
-		Name:      skilltool.ToolNameExpandBody,
-		Arguments: args,
-		CWD:       "/real/cwd",
-		AgentID:   "agent-1",
-		ThreadID:  "thread-1",
-		TurnID:    "turn-1",
-		CallID:    "call-1",
-	})
-	if err != nil {
-		t.Fatalf("CallHostTool err: %v", err)
-	}
-	if stub.cwdSeen != "/real/cwd" {
-		t.Fatalf("ctx cwd = %q, want /real/cwd", stub.cwdSeen)
-	}
-	if stub.expandIn.CWD != "/real/cwd" {
-		t.Fatalf("params.CWD overridden to %q, want /real/cwd (model field must be ignored)", stub.expandIn.CWD)
-	}
-	if stub.expandIn.Name != "foo" {
-		t.Fatalf("name = %q", stub.expandIn.Name)
-	}
-	if stub.expandIn.AgentID != "agent-1" || stub.expandIn.ThreadID != "thread-1" || stub.expandIn.TurnID != "turn-1" || stub.expandIn.CallID != "call-1" {
-		t.Fatalf("metadata not propagated: %+v", stub.expandIn)
-	}
-	if res, ok := out.(skillpkg.ExpandBodyResult); !ok || res.Content != "body" {
-		t.Fatalf("output = %#v", out)
-	}
-}
-
-func TestSkillHostTools_CallReadResource_PassesPath(t *testing.T) {
-	stub := &stubSkillService{
-		resourceOut: skillpkg.ReadResourceResult{Name: "foo", Path: "ref.md", Content: "hi"},
-	}
-	h := NewSkillHostTools(stub)
-	// ReadResource 和 ExpandBody 一样必须忽略模型传入的 cwd，强制使用 host 解析出的 cwd。
-	args := json.RawMessage(`{"name":"foo","path":"references/ref.md","cwd":"/malicious/path"}`)
-	out, err := h.CallHostTool(context.Background(), HostToolCall{
-		Name:      skilltool.ToolNameReadResource,
-		Arguments: args,
-		CWD:       "/work",
-		AgentID:   "agent-r",
-		ThreadID:  "thread-r",
-		CallID:    "call-r",
-	})
-	if err != nil {
-		t.Fatalf("CallHostTool err: %v", err)
-	}
-	if stub.resourceIn.Path != "references/ref.md" {
-		t.Fatalf("path passed: %q", stub.resourceIn.Path)
-	}
-	if stub.resourceIn.CWD != "/work" {
-		t.Fatalf("params.CWD overridden to %q, want /work (model field must be ignored)", stub.resourceIn.CWD)
-	}
-	if stub.cwdSeen != "/work" {
-		t.Fatalf("ctx cwd = %q", stub.cwdSeen)
-	}
-	if stub.resourceIn.AgentID != "agent-r" || stub.resourceIn.ThreadID != "thread-r" || stub.resourceIn.CallID != "call-r" {
-		t.Fatalf("resource metadata not propagated: %+v", stub.resourceIn)
-	}
-	if _, ok := out.(skillpkg.ReadResourceResult); !ok {
-		t.Fatalf("output type = %T", out)
-	}
-}
-
-func TestSkillHostTools_CallReadResource_RejectsSymlinkEscape(t *testing.T) {
-	projectRoot := t.TempDir()
-	skillDir := filepath.Join(projectRoot, ".agent", "skills", "demo", "references")
-	if err := os.MkdirAll(skillDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll skill dir: %v", err)
-	}
-	body := "---\nname: demo\nsummary: demo summary\ntrust: user\n---\nbody\n"
-	if err := os.WriteFile(filepath.Join(projectRoot, ".agent", "skills", "demo", "SKILL.md"), []byte(body), 0o644); err != nil {
-		t.Fatalf("WriteFile SKILL.md: %v", err)
-	}
-	outside := filepath.Join(t.TempDir(), "outside.md")
-	if err := os.WriteFile(outside, []byte("SECRET_OUTSIDE"), 0o644); err != nil {
-		t.Fatalf("WriteFile outside: %v", err)
-	}
-	if err := os.Symlink(outside, filepath.Join(skillDir, "outside.md")); err != nil {
-		t.Skipf("symlink unsupported: %v", err)
-	}
-
-	h := NewSkillHostTools(skillpkg.NewService(projectRoot))
-	_, err := h.CallHostTool(context.Background(), HostToolCall{
-		Name:      skilltool.ToolNameReadResource,
-		Arguments: json.RawMessage(`{"name":"demo","path":"references/outside.md"}`),
-		CWD:       projectRoot,
-		AgentID:   "agent-symlink",
-		ThreadID:  "thread-symlink",
-		TurnID:    "turn-symlink",
-		CallID:    "call-symlink",
-	})
-	if err == nil || !strings.Contains(err.Error(), "escapes skill dir") {
-		t.Fatalf("CallHostTool symlink escape error = %v, want escapes skill dir", err)
-	}
-}
-
-func TestHostSkillToolCall_EmitsApprovalAndCacheMetrics(t *testing.T) {
-	skillmetrics.ResetForTesting()
-	t.Cleanup(skillmetrics.ResetForTesting)
-
-	projectRoot := t.TempDir()
-	skillDir := filepath.Join(projectRoot, ".agent", "skills", "demo")
-	if err := os.MkdirAll(skillDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll skill dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: demo\nsummary: demo summary\n---\nbody\n"), 0o644); err != nil {
-		t.Fatalf("WriteFile SKILL.md: %v", err)
-	}
-
-	h := NewSkillHostTools(skillpkg.NewService(projectRoot))
-	_, err := h.CallHostTool(context.Background(), HostToolCall{
-		Name:      skilltool.ToolNameExpandBody,
-		Arguments: json.RawMessage(`{"name":"demo"}`),
-		CWD:       projectRoot,
-		AgentID:   "agent-metrics",
-		ThreadID:  "thread-metrics",
-		TurnID:    "turn-metrics",
-		CallID:    "call-metrics",
-	})
-	var required skillpkg.SkillApprovalRequiredError
-	if !errors.As(err, &required) {
-		t.Fatalf("CallHostTool() error = %T %[1]v, want SkillApprovalRequiredError", err)
-	}
-
-	snap := skillmetrics.Read()
-	if snap.SkillExpandInvokeRate != 1 {
-		t.Fatalf("SkillExpandInvokeRate = %d, want 1", snap.SkillExpandInvokeRate)
-	}
-	if snap.ArtifactApprovalMissTotal != 1 {
-		t.Fatalf("ArtifactApprovalMissTotal = %d, want 1", snap.ArtifactApprovalMissTotal)
-	}
-}
-
-func TestSkillHostTools_CallUnknownTool(t *testing.T) {
-	h := NewSkillHostTools(&stubSkillService{})
-	_, err := h.CallHostTool(context.Background(), HostToolCall{Name: "skill_does_not_exist", CWD: "/cwd"})
-	if err == nil {
-		t.Fatalf("expect error for unknown tool")
-	}
-}
-
-func TestSkillHostTools_CallEmptyArgs(t *testing.T) {
-	stub := &stubSkillService{
-		expandOut: skillpkg.ExpandBodyResult{Name: ""},
-	}
-	h := NewSkillHostTools(stub)
-	// nil arguments + empty name 由 service 自己拒绝；但 host_tools 不应在解码阶段崩。
-	_, err := h.CallHostTool(context.Background(), HostToolCall{Name: skilltool.ToolNameExpandBody, CWD: "/cwd"})
-	if err != nil {
-		t.Fatalf("nil arguments path: %v", err)
-	}
-}
-
-func TestSkillHostTools_PropagatesServiceError(t *testing.T) {
-	want := errors.New("approval-required")
-	stub := &stubSkillService{expandErr: want}
-	h := NewSkillHostTools(stub)
-	_, err := h.CallHostTool(context.Background(), HostToolCall{
-		Name:      skilltool.ToolNameExpandBody,
-		Arguments: json.RawMessage(`{"name":"foo"}`),
-		CWD:       "/cwd",
-	})
-	if !errors.Is(err, want) {
-		t.Fatalf("err = %v, want wrapping %v", err, want)
-	}
-}
+// P4 Task 4: SkillHostTools struct and stubSkillService have been removed
+// alongside the skill_expand_body / skill_read_resource host tools. The
+// remaining tests cover generic dispatch (callHostTool / routeToolCall /
+// dedup / ListToolsForCodex) using a stubHostToolRegistry plus the
+// preserved SkillReadSectionRegistry.
+//
+// Tool-name string literals in this file ("skill_expand_body",
+// "skill_read_resource") are intentional fixtures—labels only, with no
+// backend wiring. They exercise the generic plumbing that the renamed
+// skill_read_section pipeline still relies on.
 
 func TestDedupToolsByName_FirstWins(t *testing.T) {
 	in := []common.MCPTool{
@@ -292,7 +48,6 @@ func TestDedupToolsByName_FirstWins(t *testing.T) {
 			t.Fatalf("out[%d].Name = %q, want %q", i, tl.Name, want[i])
 		}
 	}
-	// 首个 a 应被保留，描述为 "first"
 	if out[0].Description != "first" {
 		t.Fatalf("first-wins: out[0].Description = %q, want \"first\"", out[0].Description)
 	}
@@ -351,12 +106,12 @@ func (deniedHostToolError) SkillApprovalDenied() bool { return true }
 
 func TestCallHostTool_ApprovalDeniedReturnsStructuredResult(t *testing.T) {
 	host := &stubHostToolRegistry{
-		hasToolName: skilltool.ToolNameExpandBody,
+		hasToolName: "skill_expand_body",
 		err:         deniedHostToolError{},
 	}
 	h := &Handler{hostTools: host}
 
-	got, err := h.callHostTool(context.Background(), ToolCallRequest{Name: skilltool.ToolNameExpandBody})
+	got, err := h.callHostTool(context.Background(), ToolCallRequest{Name: "skill_expand_body"})
 	if err != nil {
 		t.Fatalf("callHostTool() error = %v", err)
 	}
@@ -364,7 +119,7 @@ func TestCallHostTool_ApprovalDeniedReturnsStructuredResult(t *testing.T) {
 	if got.Success {
 		t.Fatalf("Success = true, want false")
 	}
-	if envelope["kind"] != "approval_denied" || envelope["tool"] != skilltool.ToolNameExpandBody {
+	if envelope["kind"] != "approval_denied" || envelope["tool"] != "skill_expand_body" {
 		t.Fatalf("structured denied envelope = %#v", envelope)
 	}
 	if envelope["error"] == "" {
@@ -377,27 +132,27 @@ func TestCallHostTool_ApprovalRequiredFallbackReturnsStructuredResult(t *testing
 	t.Cleanup(skillmetrics.ResetForTesting)
 	approvalReq := contract.ApprovalRequest{
 		CallID:       "call-1",
-		ToolName:     skilltool.ToolNameExpandBody,
+		ToolName:     "skill_expand_body",
 		AgentID:      "agent-1",
 		ThreadID:     "thread-1",
 		TurnID:       "turn-1",
 		Reason:       "skill artifact requires approval",
 		Kind:         "skill_artifact",
-		SourceMethod: skilltool.ToolNameExpandBody,
+		SourceMethod: "skill_expand_body",
 		Payload: map[string]any{
 			"artifact_kind":    skillpkg.ArtifactKindBody,
 			"artifact_locator": "SKILL.md",
 			"callId":           "call-1",
-			"toolName":         skilltool.ToolNameExpandBody,
+			"toolName":         "skill_expand_body",
 		},
 	}
 	host := &stubHostToolRegistry{
-		hasToolName: skilltool.ToolNameExpandBody,
+		hasToolName: "skill_expand_body",
 		err:         skillpkg.SkillApprovalRequiredError{Request: approvalReq},
 	}
 	h := &Handler{hostTools: host}
 
-	got, err := h.callHostTool(context.Background(), ToolCallRequest{Name: skilltool.ToolNameExpandBody})
+	got, err := h.callHostTool(context.Background(), ToolCallRequest{Name: "skill_expand_body"})
 	if err != nil {
 		t.Fatalf("callHostTool() error = %v", err)
 	}
@@ -409,7 +164,7 @@ func TestCallHostTool_ApprovalRequiredFallbackReturnsStructuredResult(t *testing
 	if !ok {
 		t.Fatalf("approval envelope type = %T, envelope = %#v", envelope["approval"], envelope)
 	}
-	if envelope["kind"] != "approval_required" || approval["callId"] != "call-1" || approval["toolName"] != skilltool.ToolNameExpandBody || approval["agentId"] != "agent-1" || approval["threadId"] != "thread-1" || approval["turnId"] != "turn-1" {
+	if envelope["kind"] != "approval_required" || approval["callId"] != "call-1" || approval["toolName"] != "skill_expand_body" || approval["agentId"] != "agent-1" || approval["threadId"] != "thread-1" || approval["turnId"] != "turn-1" {
 		t.Fatalf("structured approval_required envelope = %#v", envelope)
 	}
 	payload, ok := approval["payload"].(map[string]any)
@@ -423,15 +178,15 @@ func TestCallHostTool_ApprovalRequiredFallbackReturnsStructuredResult(t *testing
 
 func TestRouteToolCall_HostToolBypassesPeer_UsesResolvedCWD(t *testing.T) {
 	host := &stubHostToolRegistry{
-		hasToolName: skilltool.ToolNameExpandBody,
-		result:      skillpkg.ExpandBodyResult{Name: "foo", Content: "body"},
+		hasToolName: "skill_expand_body",
+		result:      map[string]any{"name": "foo", "content": "body"},
 	}
 	resolver := &stubCWDResolver{cwd: "/resolved/cwd"}
 	registry := &stubRegistry{}
 	h := &Handler{registry: registry, resolver: resolver, hostTools: host}
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
-		Name:      skilltool.ToolNameExpandBody,
+		Name:      "skill_expand_body",
 		Arguments: json.RawMessage(`{"name":"foo"}`),
 		AgentID:   "agent-1",
 		ThreadID:  "thread-1",
@@ -458,65 +213,12 @@ func TestRouteToolCall_HostToolBypassesPeer_UsesResolvedCWD(t *testing.T) {
 	}
 }
 
-func TestCallHostTool_SanitizesSuccessfulSkillPaths(t *testing.T) {
-	cwd := filepath.Join(t.TempDir(), "repo")
-	host := &stubHostToolRegistry{
-		hasToolName: skilltool.ToolNameExpandBody,
-		result: skillpkg.ExpandBodyResult{
-			Name:    "foo",
-			Path:    filepath.Join(cwd, ".agent", "skills", "foo", "SKILL.md"),
-			Content: "body",
-		},
-	}
-	h := &Handler{resolver: &stubCWDResolver{cwd: cwd}, hostTools: host}
-
-	got, err := h.callHostTool(context.Background(), ToolCallRequest{Name: skilltool.ToolNameExpandBody, AgentID: "agent-path"})
-	if err != nil {
-		t.Fatalf("callHostTool() error = %v", err)
-	}
-	envelope := decodeToolResultEnvelope(t, got)
-	path, _ := envelope["path"].(string)
-	if path != ".agent/skills/foo/SKILL.md" {
-		t.Fatalf("sanitized path = %q, want cwd-relative path", path)
-	}
-	if strings.Contains(path, cwd) {
-		t.Fatalf("sanitized path leaked cwd %q in %q", cwd, path)
-	}
-}
-
-func TestCallHostTool_SanitizesSuccessfulResourceSkillDir(t *testing.T) {
-	cwd := filepath.Join(t.TempDir(), "repo")
-	host := &stubHostToolRegistry{
-		hasToolName: skilltool.ToolNameReadResource,
-		result: skillpkg.ReadResourceResult{
-			Name:     "foo",
-			SkillDir: filepath.Join(cwd, ".agent", "skills", "foo"),
-			Path:     "references/api.md",
-			Content:  "resource",
-		},
-	}
-	h := &Handler{resolver: &stubCWDResolver{cwd: cwd}, hostTools: host}
-
-	got, err := h.callHostTool(context.Background(), ToolCallRequest{Name: skilltool.ToolNameReadResource, AgentID: "agent-resource"})
-	if err != nil {
-		t.Fatalf("callHostTool() error = %v", err)
-	}
-	envelope := decodeToolResultEnvelope(t, got)
-	skillDir, _ := envelope["skill_dir"].(string)
-	if skillDir != ".agent/skills/foo" {
-		t.Fatalf("sanitized skill_dir = %q, want cwd-relative skill dir", skillDir)
-	}
-	if strings.Contains(skillDir, cwd) {
-		t.Fatalf("sanitized skill_dir leaked cwd %q in %q", cwd, skillDir)
-	}
-}
-
 func TestCallHostTool_ObservabilityCountersAndLogs(t *testing.T) {
 	skillmetrics.ResetForTesting()
 	t.Cleanup(skillmetrics.ResetForTesting)
 	host := &stubHostToolRegistry{
-		hasToolName: skilltool.ToolNameExpandBody,
-		result:      skillpkg.ExpandBodyResult{Name: "foo", Content: "body"},
+		hasToolName: "skill_expand_body",
+		result:      map[string]any{"name": "foo", "content": "body"},
 	}
 	resolver := &stubCWDResolver{cwd: "/resolved/cwd"}
 	var logs bytes.Buffer
@@ -527,7 +229,7 @@ func TestCallHostTool_ObservabilityCountersAndLogs(t *testing.T) {
 	}
 
 	got, err := h.callHostTool(context.Background(), ToolCallRequest{
-		Name:    skilltool.ToolNameExpandBody,
+		Name:    "skill_expand_body",
 		AgentID: "agent-obs",
 		CallID:  "call-obs",
 	})
@@ -552,7 +254,7 @@ func TestCallHostTool_CWDMissingCounterAndWarn(t *testing.T) {
 	skillmetrics.ResetForTesting()
 	t.Cleanup(skillmetrics.ResetForTesting)
 	host := &stubHostToolRegistry{
-		hasToolName: skilltool.ToolNameExpandBody,
+		hasToolName: "skill_expand_body",
 		err:         skillpkg.ErrMissingCWD,
 	}
 	var logs bytes.Buffer
@@ -561,7 +263,7 @@ func TestCallHostTool_CWDMissingCounterAndWarn(t *testing.T) {
 		logger:    slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	}
 
-	got, err := h.callHostTool(context.Background(), ToolCallRequest{Name: skilltool.ToolNameExpandBody, AgentID: "agent-missing"})
+	got, err := h.callHostTool(context.Background(), ToolCallRequest{Name: "skill_expand_body", AgentID: "agent-missing"})
 	if err != nil {
 		t.Fatalf("callHostTool() error = %v", err)
 	}
@@ -645,7 +347,7 @@ func blockingListToolsPeer(kind string, tools []common.MCPTool, started chan<- s
 }
 
 func TestListToolsForCodex_HostToolsSurviveOrchFailure_LSPReady(t *testing.T) {
-	host := &stubHostToolRegistry{tools: []common.MCPTool{{Name: skilltool.ToolNameExpandBody, Description: "host skill"}}}
+	host := &stubHostToolRegistry{tools: []common.MCPTool{{Name: "skill_expand_body", Description: "host skill"}}}
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 		dto.ClientKindOrch: {listToolsPeer(nil, errors.New("orch down"))},
 		dto.ClientKindLSP:  {listToolsPeer([]common.MCPTool{{Name: "lsp_hover", Description: "lsp"}}, nil)},
@@ -656,13 +358,13 @@ func TestListToolsForCodex_HostToolsSurviveOrchFailure_LSPReady(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListToolsForCodex() error = %v", err)
 	}
-	if len(got) != 2 || got[0].Name != skilltool.ToolNameExpandBody || got[1].Name != "lsp_hover" {
+	if len(got) != 2 || got[0].Name != "skill_expand_body" || got[1].Name != "lsp_hover" {
 		t.Fatalf("tools = %+v, want host + lsp", got)
 	}
 }
 
 func TestListToolsForCodex_LogsDegradedPeer(t *testing.T) {
-	host := &stubHostToolRegistry{tools: []common.MCPTool{{Name: skilltool.ToolNameExpandBody, Description: "host skill"}}}
+	host := &stubHostToolRegistry{tools: []common.MCPTool{{Name: "skill_expand_body", Description: "host skill"}}}
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 		dto.ClientKindOrch: {listToolsPeer(nil, errors.New("orch down"))},
 		dto.ClientKindLSP:  {listToolsPeer([]common.MCPTool{{Name: "lsp_hover", Description: "lsp"}}, nil)},
@@ -690,7 +392,7 @@ func TestListToolsForCodex_LogsDegradedPeer(t *testing.T) {
 }
 
 func TestListToolsForCodex_HostToolsSurviveLSPFailure_OrchReady(t *testing.T) {
-	host := &stubHostToolRegistry{tools: []common.MCPTool{{Name: skilltool.ToolNameExpandBody, Description: "host skill"}}}
+	host := &stubHostToolRegistry{tools: []common.MCPTool{{Name: "skill_expand_body", Description: "host skill"}}}
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 		dto.ClientKindOrch: {listToolsPeer([]common.MCPTool{{Name: "spawn_agent", Description: "orch"}}, nil)},
 		dto.ClientKindLSP:  {listToolsPeer(nil, errors.New("lsp down"))},
@@ -701,13 +403,13 @@ func TestListToolsForCodex_HostToolsSurviveLSPFailure_OrchReady(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListToolsForCodex() error = %v", err)
 	}
-	if len(got) != 2 || got[0].Name != skilltool.ToolNameExpandBody || got[1].Name != "spawn_agent" {
+	if len(got) != 2 || got[0].Name != "skill_expand_body" || got[1].Name != "spawn_agent" {
 		t.Fatalf("tools = %+v, want host + orch", got)
 	}
 }
 
 func TestListToolsForCodex_HostOnlyWhenBothPeersFail(t *testing.T) {
-	host := &stubHostToolRegistry{tools: []common.MCPTool{{Name: skilltool.ToolNameExpandBody, Description: "host skill"}}}
+	host := &stubHostToolRegistry{tools: []common.MCPTool{{Name: "skill_expand_body", Description: "host skill"}}}
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 		dto.ClientKindOrch: {listToolsPeer(nil, errors.New("orch down"))},
 		dto.ClientKindLSP:  {listToolsPeer(nil, errors.New("lsp down"))},
@@ -718,7 +420,7 @@ func TestListToolsForCodex_HostOnlyWhenBothPeersFail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListToolsForCodex() error = %v", err)
 	}
-	if len(got) != 1 || got[0].Name != skilltool.ToolNameExpandBody {
+	if len(got) != 1 || got[0].Name != "skill_expand_body" {
 		t.Fatalf("tools = %+v, want host only", got)
 	}
 }
@@ -932,7 +634,6 @@ func TestListToolsForCodex_HostToolIsReadSection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListToolsForCodex() error = %v", err)
 	}
-	// skill_read_section must be first (host priority); old tools must be absent.
 	if len(got) == 0 || got[0].Name != ToolNameReadSection {
 		t.Fatalf("tools = %+v, want skill_read_section as first tool", got)
 	}
