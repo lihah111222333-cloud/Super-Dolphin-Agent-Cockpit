@@ -64,7 +64,10 @@ const (
 )
 
 var (
-	errSkillApprovalDenied               = errors.New("skill expand approval denied")
+	// ErrSkillApprovalDenied lets host-direct callers structure approval-denied
+	// tool results without depending on package-private service internals.
+	ErrSkillApprovalDenied               = errors.New("skill expand approval denied")
+	errSkillApprovalDenied               = ErrSkillApprovalDenied
 	errSkillApprovalRequesterUnavailable = errors.New("skill approval requester is not configured")
 	errSkillApprovalProjectCacheMissing  = errors.New("project approval cache is not configured")
 	errSkillApprovalRequired             = errors.New("skill artifact approval required")
@@ -80,8 +83,24 @@ func (e SkillApprovalRequiredError) Error() string {
 
 func (e SkillApprovalRequiredError) Unwrap() error { return errSkillApprovalRequired }
 
+type skillApprovalDeniedError struct {
+	reason string
+}
+
+func (e skillApprovalDeniedError) Error() string {
+	reason := strings.TrimSpace(e.reason)
+	if reason == "" {
+		reason = "decline"
+	}
+	return fmt.Sprintf("%s: %s", errSkillApprovalDenied, reason)
+}
+
+func (e skillApprovalDeniedError) Unwrap() error { return errSkillApprovalDenied }
+
+func (e skillApprovalDeniedError) SkillApprovalDenied() bool { return true }
+
 func (s *service) LookupArtifactApproval(_ context.Context, req contract.ArtifactApprovalRequest) (bool, error) {
-	if s == nil {
+	if s == nil || s.approval == nil {
 		return false, nil
 	}
 	_, ok := s.approval.LookupArtifact(ApprovalRequest{
@@ -542,9 +561,5 @@ func approvalDecisionPayload(raw json.RawMessage) map[string]any {
 }
 
 func deniedSkillApproval(decision contract.ApprovalDecision) error {
-	reason := strings.TrimSpace(decision.Reason)
-	if reason == "" {
-		reason = "decline"
-	}
-	return fmt.Errorf("%w: %s", errSkillApprovalDenied, reason)
+	return skillApprovalDeniedError{reason: decision.Reason}
 }

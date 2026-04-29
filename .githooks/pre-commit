@@ -36,6 +36,13 @@ GOFMT_FILES=()
 PKG_CANDIDATES=()
 MISSING_FILES=()
 DIRTY_FILES=()
+HAS_FRONTEND_CHANGES=0
+
+add_frontend_path() {
+  case "$1" in
+    cmd/agent-terminal/frontend/*) HAS_FRONTEND_CHANGES=1 ;;
+  esac
+}
 
 is_go_path() {
   case "$1" in
@@ -115,22 +122,26 @@ while IFS= read -r -d '' status; do
       IFS= read -r -d '' new_path || { echo "❌ 解析 staged rename/copy new path 失败" >&2; exit 1; }
       add_pkg_for_path "$old_path"
       add_pkg_for_path "$new_path"
+      add_frontend_path "$new_path"
       add_gofmt_file "$new_path"
       check_worktree_matches_index "$new_path"
       ;;
     D)
       IFS= read -r -d '' path || { echo "❌ 解析 staged delete path 失败" >&2; exit 1; }
       add_pkg_for_path "$path"
+      add_frontend_path "$path"
       ;;
     A|M)
       IFS= read -r -d '' path || { echo "❌ 解析 staged path 失败" >&2; exit 1; }
       add_pkg_for_path "$path"
+      add_frontend_path "$path"
       add_gofmt_file "$path"
       check_worktree_matches_index "$path"
       ;;
     *)
       IFS= read -r -d '' path || { echo "❌ 解析 staged path 失败" >&2; exit 1; }
       add_pkg_for_path "$path"
+      add_frontend_path "$path"
       add_gofmt_file "$path"
       check_worktree_matches_index "$path"
       ;;
@@ -159,7 +170,7 @@ for p in "${PKG_CANDIDATES[@]}"; do
   done < <(git ls-files --others --exclude-standard -z -- "$pkg_dir")
 done
 
-if [ ${#GOFMT_FILES[@]} -eq 0 ] && [ ${#PKG_CANDIDATES[@]} -eq 0 ]; then
+if [ ${#GOFMT_FILES[@]} -eq 0 ] && [ ${#PKG_CANDIDATES[@]} -eq 0 ] && [ "$HAS_FRONTEND_CHANGES" -eq 0 ]; then
   exit 0
 fi
 
@@ -236,25 +247,53 @@ for p in "${PKG_CANDIDATES[@]}"; do
   exit 1
 done
 
-if [ ${#PKGS[@]} -eq 0 ]; then
-  echo "✅ pre-commit OK (no remaining Go packages)"
-  exit 0
+if [ ${#PKGS[@]} -gt 0 ]; then
+  # ── Backend Guard
+  echo "[pre-commit] backend codebase guard..."
+  if ! ./scripts/test_with_guard.sh --guard-only; then
+    echo "❌ 后端代码守卫未通过" >&2
+    echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
+    exit 1
+  fi
+
+  # ── go vet
+  echo "[pre-commit] go vet..."
+  if ! run_go_without_git_env go vet "${PKGS[@]}"; then
+    echo "❌ go vet 失败" >&2
+    echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
+    exit 1
+  fi
+
+  # ── go test -short
+  echo "[pre-commit] go test -short..."
+  if ! run_go_without_git_env go test -short -timeout 30s "${PKGS[@]}"; then
+    echo "❌ 短测失败" >&2
+    echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
+    exit 1
+  fi
 fi
 
-# ── go vet
-echo "[pre-commit] go vet..."
-if ! run_go_without_git_env go vet "${PKGS[@]}"; then
-  echo "❌ go vet 失败" >&2
-  echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
-  exit 1
-fi
+# ── Frontend Tests
+if [ "$HAS_FRONTEND_CHANGES" -eq 1 ]; then
+  echo "[pre-commit] frontend codebase guard..."
+  (
+    cd cmd/agent-terminal/frontend
+    if ! node scripts/size-guard.cjs; then
+      echo "❌ 前端代码守卫未通过" >&2
+      echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
+      exit 1
+    fi
+  )
 
-# ── go test -short
-echo "[pre-commit] go test -short..."
-if ! run_go_without_git_env go test -short -timeout 30s "${PKGS[@]}"; then
-  echo "❌ 短测失败" >&2
-  echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
-  exit 1
+  echo "[pre-commit] frontend tests..."
+  (
+    cd cmd/agent-terminal/frontend
+    if ! npx vitest run; then
+      echo "❌ 前端全仓测试失败" >&2
+      echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
+      exit 1
+    fi
+  )
 fi
 
 echo "✅ pre-commit OK"

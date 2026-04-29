@@ -245,6 +245,21 @@ function emitRPCNotification(method, params) {
   emitEvent(method, payload);
 }
 
+// Long-running backend operations need a generous timeout; fast UI calls keep
+// a short one to surface disconnects quickly. Methods are matched by substring
+// so new endpoints don't silently inherit the short default.
+const LONG_RPC_TIMEOUT_MS = 120_000;
+const SHORT_RPC_TIMEOUT_MS = 30_000;
+const LONG_RPC_PATTERNS = ['compact', 'summary', 'memory', 'dream', 'extract', 'state/get', 'fork', 'cron'];
+
+function rpcTimeoutMs(methodName) {
+  const lower = methodName.toLowerCase();
+  for (const pattern of LONG_RPC_PATTERNS) {
+    if (lower.includes(pattern)) return LONG_RPC_TIMEOUT_MS;
+  }
+  return SHORT_RPC_TIMEOUT_MS;
+}
+
 async function rpcCall(method, params = {}) {
   const methodName = (method || '').toString().trim();
   if (!methodName) throw new Error('runtime shim: rpc method is required');
@@ -262,12 +277,24 @@ async function rpcCall(method, params = {}) {
     throw new Error('runtime shim: websocket is not open');
   }
 
+  const timeoutMs = rpcTimeoutMs(methodName);
   return new Promise((resolve, reject) => {
-    pendingCalls.set(String(id), { resolve, reject });
+    const callId = String(id);
+    const timer = setTimeout(() => {
+      if (pendingCalls.has(callId)) {
+        pendingCalls.delete(callId);
+        reject(new Error(`runtime shim: rpc call timeout (${timeoutMs / 1000}s) for ${methodName}`));
+      }
+    }, timeoutMs);
+    pendingCalls.set(callId, {
+      resolve: (value) => { clearTimeout(timer); resolve(value); },
+      reject: (error) => { clearTimeout(timer); reject(error); },
+    });
     try {
       activeSocket.send(JSON.stringify(request));
     } catch (error) {
-      pendingCalls.delete(String(id));
+      clearTimeout(timer);
+      pendingCalls.delete(callId);
       reject(toError(error, 'runtime shim: websocket send failed'));
     }
   });

@@ -44,7 +44,8 @@
 |---|---|---|---|
 | **[P0](P0_SelfLearningSkill.md)** | 自学习 Skill 闭环 | P0a 先交付 host-side create；P0b 负责共享 observation 层与自动提炼闭环 | ⏳ observation owner |
 | **[P1a](P1a_MultiProviderCodex.md)** | 多 Provider Codex 实例 | 以 `codexHome/codexInstanceKey/codexModelProvider` 作为实例 identity，并落到 binding 恢复面 | ✅ 已实现 |
-| **[P1b](P1b_CronScheduledTasks.md)** | Cron 定时任务 | core-only 持久化调度已大体接线；剩 approval_policy allow-list / turn 集成收口 | ⚠️ ~95% |
+| **[P1b](P1b_CronScheduledTasks.md)** | Cron 定时任务 | DDL / RPC / 状态机 / 事件桥 / TurnServiceAdapter (T-12) 均已落地；剩 approval_policy allow-list (T-13) | ⚠️ ~98% |
+| **[P1b-UI](P1b_CronUI.md)** | Cron 定时任务前端 | 任务页子 tab 下的列表 / 表单 / 详情 / wails 事件订阅 / 立即触发均已落地；复用 8 个 `cronjob/*` RPC 和 `cron/job/runStateChanged` 事件桥 | ✅ 已实现 |
 | **[P2](P2_MultiPlatformNotifications.md)** | 多平台通知 | webhook 平台适配器与 SSRF 防护已落；redirect 重校验已补 | ⚠️ ~40%+ |
 | **[P3](P3_SessionInsights.md)** | Session Insights 遥测 | store/flusher/dashboard insights route 已落地 | ⚠️ ~70% |
 
@@ -96,7 +97,7 @@ Canonical Turn Observation Contract：共享 observation 层统一产出 local t
 - P0 的 system-scope 自学习写入必须走显式 review gate：未获批不得写；审批/缓存键必须至少带 `skill slug + content hash + repo fingerprint(project_root/cwd)`，防止跨项目复用旧审批。
 - signed skill 验签在 P22 前都只能视为“待验证态”；P21 不允许因为 frontmatter 写了 `trust: signed` 就跳过审批、脱敏或人工 review。
 - `P2` 的 alias 解析不能落入默认链：`NOTIFY_DEFAULT_CHANNEL` 只允许显式 opt-in，默认缺失时应 `drop/error`，不做 silent fallback。
-- 文档若未明确 UI 交付，默认按 API-only 解释；若未来要做 UI，必须显式补 `DashboardPage`、`ui/dashboard/get?page=...` 与前端导航 / 页面接线。
+- 文档若未明确 UI 交付，默认按 API-only 解释；若未来要做 UI，必须显式补 `DashboardPage`、`ui/dashboard/get?page=...` 与前端导航 / 页面接线。**P1b 的 UI 交付已显式拆出为 [P1b-UI](P1b_CronUI.md)**：定时任务不独立一栏，作为 `任务` 页的子 tab（`tasksSubTab='cron'`）渲染 `pages/CronPanel.js`；并补一条 wails 事件 `cron/job/runStateChanged`，复用 `internal/ui/wails/bridge.EventBridge.publish` 透传。
 
 ## 修复清单
 

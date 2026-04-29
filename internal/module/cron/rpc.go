@@ -65,6 +65,7 @@ func NewHandlers(svc Service) rpc.HandlerMapResult {
 		"cronjob/delete":     rpc.StrictHandler(deleteHandler(svc)),
 		"cronjob/setEnabled": rpc.StrictHandler(setEnabledHandler(svc)),
 		"cronjob/listRuns":   rpc.StrictHandler(listRunsHandler(svc)),
+		"cronjob/runOnce":    rpc.StrictHandler(runOnceHandler(svc)),
 	}}
 }
 
@@ -133,6 +134,16 @@ func listHandler(svc Service) func(context.Context, struct{}) (map[string]any, e
 			jobs = []Job{}
 		}
 		return map[string]any{"jobs": jobs}, nil
+	}
+}
+
+func runOnceHandler(svc Service) func(context.Context, cronIDParams) (Job, error) {
+	return func(ctx context.Context, p cronIDParams) (Job, error) {
+		job, err := svc.RunOnce(ctx, p.ID)
+		if err != nil {
+			return Job{}, mapRPCError(err)
+		}
+		return job, nil
 	}
 }
 
@@ -224,6 +235,7 @@ func mapRPCError(err error) error {
 		errors.Is(err, ErrInvalidMaxAttempts),
 		errors.Is(err, ErrInvalidConfig),
 		errors.Is(err, ErrProviderNotSupported),
+		errors.Is(err, ErrJobDisabled),
 		errors.Is(err, cronstore.ErrEmptyID),
 		errors.Is(err, cronstore.ErrEmptyCWD),
 		errors.Is(err, cronstore.ErrEmptyProvider),

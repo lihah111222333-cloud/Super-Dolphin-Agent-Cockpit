@@ -1,6 +1,7 @@
 package skill
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -60,10 +62,32 @@ func bodyArtifactLocator(anchor string) string {
 	return "SKILL.md#" + anchor
 }
 
-func (s *service) requireArtifactApproval(ctx context.Context, info SkillInfo, kind, locator, contentHash, cwd, method string) error {
-	if info.Trust == TrustProject || info.Trust == TrustUser {
-		return nil
+type artifactApprovalCallMetadata struct {
+	AgentID  string
+	ThreadID string
+	TurnID   string
+	CallID   string
+}
+
+func expandBodyApprovalMetadata(p ExpandBodyParams) artifactApprovalCallMetadata {
+	return artifactApprovalCallMetadata{
+		AgentID:  strings.TrimSpace(p.AgentID),
+		ThreadID: strings.TrimSpace(p.ThreadID),
+		TurnID:   strings.TrimSpace(p.TurnID),
+		CallID:   strings.TrimSpace(p.CallID),
 	}
+}
+
+func readResourceApprovalMetadata(p ReadResourceParams) artifactApprovalCallMetadata {
+	return artifactApprovalCallMetadata{
+		AgentID:  strings.TrimSpace(p.AgentID),
+		ThreadID: strings.TrimSpace(p.ThreadID),
+		TurnID:   strings.TrimSpace(p.TurnID),
+		CallID:   strings.TrimSpace(p.CallID),
+	}
+}
+
+func (s *service) requireArtifactApproval(ctx context.Context, info SkillInfo, kind, locator, contentHash, cwd, method string, meta artifactApprovalCallMetadata) error {
 	if info.Trust.Trusted() {
 		return nil
 	}
@@ -71,7 +95,30 @@ func (s *service) requireArtifactApproval(ctx context.Context, info SkillInfo, k
 	if approved {
 		return nil
 	}
-	return SkillApprovalRequiredError{Request: s.buildArtifactApprovalRequest(info, kind, locator, contentHash, cwd, method)}
+	req := s.buildArtifactApprovalRequest(info, kind, locator, contentHash, cwd, method, meta)
+	if s.approvalRequester == nil {
+		return SkillApprovalRequiredError{Request: req}
+	}
+	decision, err := s.approvalRequester.RequestApproval(ctx, req)
+	if err != nil {
+		return err
+	}
+	if decision.Approved == nil || !*decision.Approved {
+		return deniedSkillApproval(decision)
+	}
+	if s.approval == nil {
+		return errSkillApprovalProjectCacheMissing
+	}
+	_, err = s.approval.ApproveArtifact(ApprovalRequest{
+		RepoFingerprint: RepoFingerprint(cwd),
+		Name:            info.Name,
+		ArtifactKind:    kind,
+		ArtifactLocator: locator,
+		ContentHash:     contentHash,
+		Trust:           info.Trust,
+		ApprovedBy:      approvalApprovedBy(decision),
+	})
+	return err
 }
 
 func contractArtifactApprovalRequest(info SkillInfo, kind, locator, contentHash, cwd string) contract.ArtifactApprovalRequest {
@@ -84,7 +131,11 @@ func contractArtifactApprovalRequest(info SkillInfo, kind, locator, contentHash,
 	}
 }
 
-func (s *service) buildArtifactApprovalRequest(info SkillInfo, kind, locator, contentHash, cwd, method string) contract.ApprovalRequest {
+func (s *service) buildArtifactApprovalRequest(info SkillInfo, kind, locator, contentHash, cwd, method string, meta artifactApprovalCallMetadata) contract.ApprovalRequest {
+	callID := strings.TrimSpace(meta.CallID)
+	if callID == "" {
+		callID = s.nextApprovalCallID(info.Name)
+	}
 	payload := map[string]any{
 		"name":             info.Name,
 		"artifact_kind":    kind,
@@ -94,10 +145,25 @@ func (s *service) buildArtifactApprovalRequest(info SkillInfo, kind, locator, co
 		"trust":            info.Trust,
 		"skills_dir":       info.Dir,
 		"project_root":     strings.TrimSpace(cwd),
+		"toolName":         method,
+		"sourceMethod":     method,
+		"callId":           callID,
+	}
+	if value := strings.TrimSpace(meta.AgentID); value != "" {
+		payload["agentId"] = value
+	}
+	if value := strings.TrimSpace(meta.ThreadID); value != "" {
+		payload["threadId"] = value
+	}
+	if value := strings.TrimSpace(meta.TurnID); value != "" {
+		payload["turnId"] = value
 	}
 	return contract.ApprovalRequest{
-		CallID:       s.nextApprovalCallID(info.Name),
+		CallID:       callID,
 		ToolName:     method,
+		AgentID:      strings.TrimSpace(meta.AgentID),
+		ThreadID:     strings.TrimSpace(meta.ThreadID),
+		TurnID:       strings.TrimSpace(meta.TurnID),
 		Reason:       "skill artifact requires approval",
 		Kind:         "skill_artifact",
 		SourceMethod: method,
@@ -133,7 +199,7 @@ func (s *service) ExpandBody(ctx context.Context, p ExpandBodyParams) (ExpandBod
 	if err != nil {
 		return ExpandBodyResult{}, err
 	}
-	if err := s.requireArtifactApproval(ctx, rec.info, ArtifactKindBody, locator, rec.info.ContentHash, cwd, "skill_expand_body"); err != nil {
+	if err := s.requireArtifactApproval(ctx, rec.info, ArtifactKindBody, locator, rec.info.ContentHash, cwd, "skill_expand_body", expandBodyApprovalMetadata(p)); err != nil {
 		return ExpandBodyResult{}, err
 	}
 	data, err := readSkillFileData(rec.path)
@@ -213,9 +279,9 @@ func shortSHA256Hex(data []byte) string {
 //   - 归一化后再与 skill dir join，os.Stat + platformshared.ContainsPath 二次验证
 //   - 按 maxBytes 截断
 //
-// 内容类型：Content 以 Go string 返回，**仅保证 UTF-8 文本文件正确性**
+// 内容类型：Content 以 Go string 返回，**仅支持 UTF-8 文本文件**
 // （references/*.md、scripts/*.sh 等）。二进制资源（assets/*.png 等）会
-// 被 JSON 序列化器按 UTF-8 校验转义为 \ufffd，不在本工具的爆护方案内。
+// fail closed，避免 JSON 序列化时被 UTF-8 替换字符静默污染。
 // 未来如需支持二进制可扩展为 base64 encoding 或新工具 skill_read_asset。
 //
 // 本地项目级/用户级 skill resource 不需要 approval；仅确定不可信/异常来源
@@ -247,7 +313,7 @@ func (s *service) ReadResource(ctx context.Context, p ReadResourceParams) (ReadR
 	content, truncated := truncateBytes(string(data), resolveMaxBytes(p.MaxBytes))
 	resourceHash := fullSHA256Hex(data)
 	total := int64(len(data))
-	if err := s.requireArtifactApproval(ctx, rec.info, ArtifactKindResource, relPath, resourceHash, cwd, "skill_read_resource"); err != nil {
+	if err := s.requireArtifactApproval(ctx, rec.info, ArtifactKindResource, relPath, resourceHash, cwd, "skill_read_resource", readResourceApprovalMetadata(p)); err != nil {
 		return ReadResourceResult{}, err
 	}
 	version := resourceHash
@@ -277,19 +343,36 @@ func readResourceData(target, relPath string) ([]byte, error) {
 	if stat.Size() > maxSkillFileBytes {
 		return nil, fmt.Errorf("resource file too large: %s is %d bytes, limit %d", relPath, stat.Size(), maxSkillFileBytes)
 	}
-	return os.ReadFile(target)
+	data, err := os.ReadFile(target)
+	if err != nil {
+		return nil, err
+	}
+	if isBinaryResourceData(data) {
+		return nil, fmt.Errorf("resource file is binary or non-UTF-8 text: %s; skill_read_resource supports text resources only", relPath)
+	}
+	return data, nil
+}
+
+func isBinaryResourceData(data []byte) bool {
+	if len(data) == 0 {
+		return false
+	}
+	return !utf8.Valid(data) || bytes.IndexByte(data, 0) >= 0
 }
 
 // resolveResourceTarget 解析 symlink、规范化路径并验证 target 未逃逸 skill 目录。
 func resolveResourceTarget(dir, relPath string) (target, skillDir string, err error) {
 	skillDir = filepath.Clean(dir)
 	// EvalSymlinks 规范化 skillDir（macOS /tmp → /private/tmp 之类 symlink 场景）。
-	if resolved, resolveErr := filepath.EvalSymlinks(skillDir); resolveErr == nil {
-		skillDir = resolved
+	resolvedSkillDir, resolveErr := filepath.EvalSymlinks(skillDir)
+	if resolveErr != nil {
+		return "", "", fmt.Errorf("resolve skill dir symlinks: %w", resolveErr)
 	}
-	target = filepath.Clean(filepath.Join(skillDir, relPath))
-	if resolved, resolveErr := filepath.EvalSymlinks(target); resolveErr == nil {
-		target = resolved
+	skillDir = resolvedSkillDir
+	joined := filepath.Clean(filepath.Join(skillDir, relPath))
+	target, resolveErr = filepath.EvalSymlinks(joined)
+	if resolveErr != nil {
+		return "", "", fmt.Errorf("resolve resource path symlinks: %s: %w", relPath, resolveErr)
 	}
 	if !platformshared.ContainsPath(skillDir, target) {
 		return "", "", fmt.Errorf("resource path escapes skill dir: %s", relPath)

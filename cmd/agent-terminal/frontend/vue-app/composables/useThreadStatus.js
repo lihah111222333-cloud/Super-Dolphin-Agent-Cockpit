@@ -86,7 +86,9 @@ export function useThreadStatus(props, selectedThreadId, activeStatus, showPathC
 
   // 记录每个 thread 最后一次上报过的告警等级，避免同一个阈值重复刷屏。
   // 不走 store state——这只是一次性跨阈值信号，不需要跨会话持久化。
+  // 上限 64 条，防止长时间运行时 Map 无限增长。
   const lastReportedLevelByThread = new Map();
+  const LEVEL_MAP_CAP = 64;
   watch(
     () => ({
       threadId: (selectedThreadId.value || '').toString().trim(),
@@ -98,6 +100,11 @@ export function useThreadStatus(props, selectedThreadId, activeStatus, showPathC
       const prev = lastReportedLevelByThread.get(threadId) || 'normal';
       if (prev === level) return;
       lastReportedLevelByThread.set(threadId, level);
+      // 超过上限时淘汰最早的条目
+      if (lastReportedLevelByThread.size > LEVEL_MAP_CAP) {
+        const oldest = lastReportedLevelByThread.keys().next().value;
+        if (oldest !== undefined) lastReportedLevelByThread.delete(oldest);
+      }
       const prevRank = TOKEN_LEVEL_RANK[prev] || 0;
       const nextRank = TOKEN_LEVEL_RANK[level] || 0;
       if (nextRank <= prevRank) return; // 仅在“跳高”时上报，“退低”（例如 compact 后）静默。

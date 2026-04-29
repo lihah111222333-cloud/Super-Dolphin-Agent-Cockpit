@@ -133,6 +133,10 @@ type ExpandBodyParams struct {
 	Anchor   string `json:"anchor,omitempty"`
 	MaxBytes int64  `json:"max_bytes,omitempty"`
 	CWD      string `json:"cwd,omitempty"`
+	AgentID  string `json:"agentId,omitempty"`
+	ThreadID string `json:"threadId,omitempty"`
+	TurnID   string `json:"turnId,omitempty"`
+	CallID   string `json:"callId,omitempty"`
 }
 
 // ExpandBodyResult 是 skill_expand_body 的返回结构。
@@ -167,6 +171,10 @@ type ReadResourceParams struct {
 	Path     string `json:"path"`
 	MaxBytes int64  `json:"max_bytes,omitempty"`
 	CWD      string `json:"cwd,omitempty"`
+	AgentID  string `json:"agentId,omitempty"`
+	ThreadID string `json:"threadId,omitempty"`
+	TurnID   string `json:"turnId,omitempty"`
+	CallID   string `json:"callId,omitempty"`
 }
 
 // ReadResourceResult 是 skill_read_resource 的返回结构。

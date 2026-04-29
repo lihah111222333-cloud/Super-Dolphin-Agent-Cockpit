@@ -69,6 +69,14 @@ SET enabled    = sqlc.arg(enabled),
     updated_at = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id);
 
+-- name: PatchCronJobNextRunAt :exec
+-- Narrow update used by RunOnce: only touches next_run_at + updated_at
+-- without overwriting any other field, avoiding a read-modify-write race.
+UPDATE cron_jobs
+SET next_run_at = sqlc.arg(next_run_at),
+    updated_at  = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id);
+
 -- Claim / lease -----------------------------------------------------
 
 -- ClaimDueJobs marks up to `limit` due rows as claimed by `claimed_by`.
@@ -244,3 +252,28 @@ SELECT id, job_id, scheduled_at, idempotency_key, dedupe_key, thread_id,
 FROM cron_job_runs
 WHERE status IN ('submitting', 'submitted', 'running')
 ORDER BY created_at ASC, id ASC;
+
+-- name: GetRunningCronJobRunByTurnID :one
+-- Used by CompleteTurn to locate the active run for a completed turn without
+-- scanning all unresolved rows. turn_id is indexed by the dedupe_key B-tree
+-- and the status guard ensures only one row can match (at most one run per
+-- turn can be in 'running').
+SELECT id, job_id, scheduled_at, idempotency_key, dedupe_key, thread_id,
+       agent_id, turn_id, submitted_at, status, error, created_at,
+       updated_at
+FROM cron_job_runs
+WHERE turn_id = $1 AND status = 'running'
+LIMIT 1;
+
+-- name: ListCronJobsClaimedBy :many
+-- Used by RenewLeases / ExtendClaimForTurnProgress to fetch only the jobs
+-- owned by this scheduler instance, avoiding a full-table scan of cron_jobs.
+SELECT id, name, prompt, schedule_type, schedule_expr, timezone, provider,
+       model, cwd, config, skills, notify_channel, enabled, next_run_at,
+       last_scheduled_at, last_run_at, claimed_at, claimed_by,
+       lease_expires_at, claim_token, thread_id, agent_id, active_turn_id,
+       last_turn_id, failure_count, max_attempts, next_retry_at,
+       last_status, last_error_at, last_error, created_at, updated_at
+FROM cron_jobs
+WHERE claimed_by = $1 AND claim_token <> ''
+ORDER BY id ASC;

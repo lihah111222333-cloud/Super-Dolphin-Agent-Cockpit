@@ -60,6 +60,10 @@ type Store interface {
 	UpdateJobSchedule(ctx context.Context, params UpdateJobScheduleParams) error
 	SetJobEnabled(ctx context.Context, id string, enabled bool, now time.Time) error
 
+	// PatchNextRunAt is a narrow update that only touches next_run_at +
+	// updated_at, used by RunOnce to avoid a full-row read-modify-write.
+	PatchNextRunAt(ctx context.Context, id string, nextRunAt time.Time, now time.Time) error
+
 	// ClaimDueJobs atomically selects + marks up to limit rows where
 	// COALESCE(next_retry_at, next_run_at) <= now and the claim is either
 	// unheld or expired. leaseTTL sets lease_expires_at = now + leaseTTL.
@@ -83,6 +87,14 @@ type Store interface {
 	GetRunByDedupeKey(ctx context.Context, dedupeKey string) (Run, error)
 	ListRunsByJob(ctx context.Context, jobID string, limit int32) ([]Run, error)
 	ListUnresolvedRuns(ctx context.Context) ([]Run, error)
+
+	// GetRunningRunByTurnID returns the single run in 'running' state for
+	// the given turn ID. Returns ErrJobRunNotFound when no such row exists.
+	GetRunningRunByTurnID(ctx context.Context, turnID string) (Run, error)
+
+	// ListJobsClaimedBy returns only jobs currently claimed by the given
+	// scheduler identity (claimed_by = claimedBy AND claim_token <> '').
+	ListJobsClaimedBy(ctx context.Context, claimedBy string) ([]Job, error)
 }
 
 // Job is the domain DTO for a cron_jobs row. Time fields are zero when the
