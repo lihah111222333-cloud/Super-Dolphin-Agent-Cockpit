@@ -96,6 +96,8 @@ internal/module/skilllibrary/store.go             (Task 6b: Get 错误前缀)
 
 ## Task 4: 删 ExpandBody/ReadResource 方法 + pkg/skilltool 旧 schema + toolbridge SkillHostTools wrapper
 
+✅ **已完成**：commit `5ce5333`，净 −1943 LoC（15 个文件变动，2 个整删）。spec / code reviewer 均 APPROVED，pre-commit 守卫（CC ≤ 10／文件 ≤ 600／包 ≤ 30 文件 / 10000 行）全过。
+
 **新范围**（相比原计划扩展）：
 - 服务层（`internal/module/skill/skills_expand.go` + tests + 私有 helper）
 - pkg/skilltool 整包（旧工具 schema 不再被任何 fx provider 消费）
@@ -213,6 +215,8 @@ HostToolRegistry 接口保留（SkillReadSectionRegistry 仍实现）。"
 
 ## Task 5: extractDescriptionFromSkillMD 用 skillforge.Parse 替换
 
+✅ **已完成**：commit `6ddfad2`。原 helper 整函数删除，inline 到 `renderL1CBlock`；新增 3 个测试覆盖 quoted description / CRLF frontmatter / malformed SKILL.md 场景。
+
 **File:** `internal/provider/codexapp/skill_manifest.go`
 
 P3 OBSERVATION：当前 `extractDescriptionFromSkillMD` 用裸 `HasPrefix("description:")` 在前 10 行查找，对带 quoted value（含逗号）/ 前导空行 / BOM 的 frontmatter 静默丢字段。改用 `skillforge.Parse`（已在 Gap #2 commit 中加固 fenced/closing/CRLF 处理）。
@@ -264,6 +268,8 @@ skillforge.Parse（包含 P1 Gap #2 后已加固的 fenced/closing/CRLF 处理�
 ---
 
 ## Task 6: P1/P2 OBSERVATION 修复合并 commit
+
+✅ **已完成**：commit `d71d8ea`。含 6a `removeOrphans` 错误上报 + 6b `Store.Get` 错误前缀。原 6c 已在 Gap #3 commit `516410d` 合并。
 
 **Files**:
 - `internal/module/skilllibrary/reconcile.go` (`removeOrphans` 错误上报)
@@ -325,6 +331,8 @@ git commit -m "fix(skilllibrary): improve error handling in reconcile + store.Ge
 ---
 
 ## Task 7: P4 全测试 + 冒烟
+
+✅ **已完成**：`go test -short ./internal/...` 79 个包全 PASS、0 FAIL。`go build ./...` + `go vet ./...` 干净（仅 macOS SDK 链接警告，与本分支无关）。
 
 仅运行测试，不改代码。
 
