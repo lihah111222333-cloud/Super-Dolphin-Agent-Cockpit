@@ -85,7 +85,11 @@ function recordFailure(ctx, threadId, info) {
 
 function clearFailure(ctx, threadId) {
   // Phase 1.8a：fork 成功后顺手清抑制位（用户意图已被新 thread 替代）。
-  if (ctx.manualAbortByThread) ctx.manualAbortByThread.value.delete(threadId);
+  if (ctx.manualAbortByThread) {
+    const had = ctx.manualAbortByThread.value.has(threadId);
+    ctx.manualAbortByThread.value.delete(threadId);
+    if (had) ctx.notifyStateChange(threadId);
+  }
   if (!ctx.failedRef.value.has(threadId)) return;
   const next = new Map(ctx.failedRef.value);
   next.delete(threadId);
@@ -369,7 +373,11 @@ function primeState(ctx) {
 
 async function userRetry(ctx, threadId) {
   // Phase 1.8a：用户主动点重试 → 抑制位失效。
-  if (ctx.manualAbortByThread) ctx.manualAbortByThread.value.delete(threadId);
+  if (ctx.manualAbortByThread) {
+    const had = ctx.manualAbortByThread.value.has(threadId);
+    ctx.manualAbortByThread.value.delete(threadId);
+    if (had) ctx.notifyStateChange(threadId);
+  }
   const id = (threadId || '').toString().trim();
   if (!id) return '';
   if (typeof ctx.continueTaskById !== 'function') {
@@ -424,6 +432,14 @@ export function useAutoContinue(opts) {
     failedRef: ref(new Map()),
     fuseAlertedRef: ref(false),
     manualAbortByThread: ref(new Map()),
+    notifyStateChange: null,
+  };
+  // Phase 1.8a 持久化：state 变化时通知 useAutoContinueStatePersistence；节流写
+  // 共享文件由其负责。callsite 走 ctx 内部 helper，避免 mutate 处忘了通知。
+  const onStateChange = typeof opts.onStateChange === 'function' ? opts.onStateChange : null;
+  ctx.notifyStateChange = (tid) => {
+    if (!onStateChange || !tid) return;
+    try { onStateChange(tid); } catch (_) { /* never break interrupt path */ }
   };
   primeState(ctx);
   const stopToken = watchTokenLevel(ctx);
@@ -431,18 +447,23 @@ export function useAutoContinue(opts) {
   return {
     stop() { stopToken(); stopStatus(); },
     failedAutoContinueByThread: ctx.failedRef,
+    manualAbortByThread: ctx.manualAbortByThread,
     retryAutoContinue: (threadId) => userRetry(ctx, threadId),
     // Phase 1.8a：让外部（stopThread / startThread / fork）显式标记或清除抑制位。
-    markManualAbort: (threadId) => {
+    // value 形状升级到 { at, source } 以便持久化；旧 .has(threadId) 检查不受影响。
+    markManualAbort: (threadId, source) => {
       const id = (threadId || '').toString().trim();
       if (!id) return;
-      ctx.manualAbortByThread.value.set(id, Date.now());
-      logInfo('ui', 'auto_continue.manual_abort_marked', { thread_id: id });
+      const src = (source || 'ui_stop').toString();
+      ctx.manualAbortByThread.value.set(id, { at: Date.now(), source: src });
+      logInfo('ui', 'auto_continue.manual_abort_marked', { thread_id: id, source: src });
+      ctx.notifyStateChange(id);
     },
     clearManualAbort: (threadId) => {
       const id = (threadId || '').toString().trim();
       if (!id) return;
       ctx.manualAbortByThread.value.delete(id);
+      ctx.notifyStateChange(id);
     },
   };
 }

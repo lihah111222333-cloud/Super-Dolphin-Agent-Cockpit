@@ -42,6 +42,7 @@ import { useFileDrop } from '../composables/useFileDrop.js';
 import { useTaskHandoff } from '../composables/useTaskHandoff.js';
 import { useAutoContinue } from '../composables/useAutoContinue.js';
 import { useThreadWatchdog } from '../composables/useThreadWatchdog.js';
+import { useAutoContinueStatePersistence } from '../composables/useAutoContinueStatePersistence.js';
 import { useForkThread } from '../composables/useForkThread.js';
 import { getTokenLevel } from '../utils/format-utils.js';
 import { useContextUsageThresholds } from '../composables/useContextUsageThresholds.js';
@@ -300,10 +301,11 @@ function createPageForkThread(props, ctx) {
   };
 }
 
-function createPageAutoContinue(props, taskHandoff, selectedThreadId) {
+function createPageAutoContinue(props, taskHandoff, selectedThreadId, persistenceHook) {
   const r = useAutoContinue({
     threadStore: props.threadStore,
     continueTaskById: taskHandoff.continueTaskById,
+    onStateChange: typeof persistenceHook === 'function' ? persistenceHook : null,
   });
   const activeAutoContinueFailed = computed(
     () => r.failedAutoContinueByThread.value.get((selectedThreadId.value || '').toString().trim()) || null,
@@ -333,13 +335,17 @@ function createPageAutoContinue(props, taskHandoff, selectedThreadId) {
     autoContinueRetry: r.retryAutoContinue,
     activeAutoContinueFailed, autoContinueRetrying, autoContinueRetryError, onRetryAutoContinue,
     failedAutoContinueByThreadId,
+    markManualAbort: r.markManualAbort,
+    clearManualAbort: r.clearManualAbort,
+    manualAbortByThread: r.manualAbortByThread,
   };
 }
 
-function createPageThreadWatchdog(props, threadStore, selectedThreadId) {
+function createPageThreadWatchdog(props, threadStore, selectedThreadId, persistenceHook) {
   const wd = useThreadWatchdog({
     threadStore,
     sendMessage: (tid, prompt) => threadStore.sendMessage(tid, prompt, [], {}),
+    onStateChange: typeof persistenceHook === 'function' ? persistenceHook : null,
   });
   wd.start();
   // composable lifecycle 与组件绑定：UnifiedChatPage onBeforeUnmount 调 stop。
@@ -378,12 +384,55 @@ function createPageThreadWatchdog(props, threadStore, selectedThreadId) {
   return {
     threadWatchdogStop: wd.stop,
     stuckByThread: wd.stuckByThread,
+    cumulativePokeCountByThread: wd.cumulativePokeCountByThread,
+    resetCumulativePokeCount: wd.resetCumulativePokeCount,
     activeStuckInfo,
     pokingStuckThread,
     onRetryStuckThread,
     onForceStuckThread,
     onMarkStuckDone,
   };
+}
+
+function createPagePersistedAutoContinue(props, taskHandoff, selectedThreadId) {
+  // Phase 1.7f / 1.8a 持久化：协调 watchdog 累计计数 + manualAbort 抑制位写共享文件。
+  // closure 引用 autoContinue / threadWatchdog（创建顺序在后），调用时已赋值 OK。
+  let autoContinue; let threadWatchdog;
+  const persistence = useAutoContinueStatePersistence({
+    getStateSnapshot: (tid) => {
+      const abortInfo = autoContinue && autoContinue.manualAbortByThread && autoContinue.manualAbortByThread.value && autoContinue.manualAbortByThread.value.get(tid);
+      const pokeCount = threadWatchdog && threadWatchdog.cumulativePokeCountByThread && threadWatchdog.cumulativePokeCountByThread.value && threadWatchdog.cumulativePokeCountByThread.value.get(tid);
+      return {
+        manualAbortAt: (abortInfo && abortInfo.at) || 0,
+        manualAbortSource: (abortInfo && abortInfo.source) || null,
+        watchdogPokeCount: Number(pokeCount) || 0,
+      };
+    },
+    applyStateSnapshot: (tid, snap) => {
+      if (snap.manualAbortAt && autoContinue && autoContinue.manualAbortByThread && autoContinue.manualAbortByThread.value) {
+        autoContinue.manualAbortByThread.value.set(tid, {
+          at: Number(snap.manualAbortAt) || 0,
+          source: (snap.manualAbortSource || 'persisted').toString(),
+        });
+      }
+      const restoredCount = Number(snap.watchdogPokeCount) || 0;
+      if (restoredCount > 0 && threadWatchdog && threadWatchdog.cumulativePokeCountByThread && threadWatchdog.cumulativePokeCountByThread.value) {
+        threadWatchdog.cumulativePokeCountByThread.value.set(tid, restoredCount);
+      }
+    },
+  });
+  autoContinue = createPageAutoContinue(props, taskHandoff, selectedThreadId, persistence.scheduleWrite);
+  threadWatchdog = createPageThreadWatchdog(props, props.threadStore, selectedThreadId, persistence.scheduleWrite);
+  onBeforeUnmount(() => {
+    threadWatchdog.threadWatchdogStop();
+    persistence.disposeAll();
+  });
+  // selectedThreadId 变化时 lazy load 该 thread 的持久化 state（manualAbort + 累计计数）。
+  watch(selectedThreadId, (tid) => {
+    const id = (tid || '').toString().trim();
+    if (id) persistence.loadStateForThread(id);
+  }, { immediate: true });
+  return { autoContinue, threadWatchdog, persistence };
 }
 
 function createPageTaskHandoff(props, ctx) {
@@ -666,9 +715,9 @@ export const UnifiedChatPage = {
 
     const copyThreadInfo = createPageCopyThreadInfo(selectedThreadId, activeProjectCwd, threadCards, activeThread, activeStatus, useClaudeProvider, props);
     const taskHandoff = createPageTaskHandoff(props, { selectedThreadId, activeThread, activeRuntime: threadCards.activeRuntime, isCmd });
-    const autoContinue = createPageAutoContinue(props, taskHandoff, selectedThreadId);
-  const threadWatchdog = createPageThreadWatchdog(props, props.threadStore, selectedThreadId);
-  onBeforeUnmount(() => { threadWatchdog.threadWatchdogStop(); });
+    const persistedAutoContinue = createPagePersistedAutoContinue(props, taskHandoff, selectedThreadId);
+    const autoContinue = persistedAutoContinue.autoContinue;
+    const threadWatchdog = persistedAutoContinue.threadWatchdog;
     const forkPage = createPageForkThread(props, { composer, selectedThreadId, activeThread, isCmd, emit: typeof setupCtx?.emit === 'function' ? setupCtx.emit : () => {} });
     const tokenLevelByThreadId = createPageTokenLevels(props, threads);
 

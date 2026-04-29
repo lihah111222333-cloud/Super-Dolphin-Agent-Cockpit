@@ -604,6 +604,59 @@ describe('useAutoContinue · Phase 1.8a manualAbort 抑制位', () => {
     expect(() => r.markManualAbort(null)).not.toThrow();
     expect(() => r.clearManualAbort('')).not.toThrow();
   });
+
+  // Phase 1.8a 持久化触发：onStateChange 注入后，markManualAbort/clear 都
+  // 应通知一次。
+  it('markManualAbort/clear/userRetry/clearFailure 触发 onStateChange', async () => {
+    const onStateChange = vi.fn();
+    const store = makeStore({});
+    const r = useAutoContinue({
+      threadStore: store, continueTaskById: vi.fn(), alertFn: vi.fn(),
+      sleepFn: vi.fn().mockResolvedValue(undefined),
+      onStateChange,
+    });
+    try {
+      r.markManualAbort('t1', 'ui_stop');
+      expect(onStateChange).toHaveBeenCalledWith('t1');
+      onStateChange.mockClear();
+      r.clearManualAbort('t1');
+      expect(onStateChange).toHaveBeenCalledWith('t1');
+    } finally {
+      r.stop();
+    }
+  });
+
+  it('markManualAbort 升级 value 形状到 { at, source }', () => {
+    const store = makeStore({});
+    const r = start(store);
+    r.markManualAbort('t1', 'ui_stop');
+    const v = r.manualAbortByThread.value.get('t1');
+    expect(v).toMatchObject({ source: 'ui_stop' });
+    expect(typeof v.at).toBe('number');
+  });
+
+  it('markManualAbort source 默认 ui_stop 当不传', () => {
+    const store = makeStore({});
+    const r = start(store);
+    r.markManualAbort('t1');
+    expect(r.manualAbortByThread.value.get('t1').source).toBe('ui_stop');
+  });
+
+  it('onStateChange 抛异常不破坏 markManualAbort', () => {
+    const store = makeStore({});
+    const onStateChange = vi.fn().mockImplementation(() => { throw new Error('boom'); });
+    const r = useAutoContinue({
+      threadStore: store, continueTaskById: vi.fn(), alertFn: vi.fn(),
+      sleepFn: vi.fn().mockResolvedValue(undefined),
+      onStateChange,
+    });
+    try {
+      expect(() => r.markManualAbort('t1', 'ui_stop')).not.toThrow();
+      expect(r.manualAbortByThread.value.has('t1')).toBe(true);
+    } finally {
+      r.stop();
+    }
+  });
 });
 
 describe("useAutoContinue · Phase 1.8b 永久错误识别", () => {
