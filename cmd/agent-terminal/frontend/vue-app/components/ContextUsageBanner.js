@@ -9,7 +9,21 @@ const AUTO_CONTINUE_REASON_LABEL = Object.freeze({
   recover_then_continue_failed: '进程恢复与自动续接均失败',
   gated_thread_already_continued: '此 thread 已自动续接过 1 次',
   gated_global_fuse_blown: '系统级自动续接保险丝已触发',
+  // Phase 1.8b：5 类永久错误（重试无用，需用户处理）
+  permanent_unauthenticated: 'API key 无效或已过期 — 请重新配置',
+  permanent_forbidden: '权限被拒绝 — 检查账号权限',
+  permanent_quota_exhausted: '配额已耗尽 — 请充值或等待月度重置',
+  permanent_payment_required: '订阅已过期或支付失败 — 请检查账单',
+  permanent_context_length_exceeded: 'prompt 已超过上下文窗口上限 — 需要手动压缩或减少历史',
 });
+
+const PERMANENT_REASON_SET = new Set([
+  'permanent_unauthenticated',
+  'permanent_forbidden',
+  'permanent_quota_exhausted',
+  'permanent_payment_required',
+  'permanent_context_length_exceeded',
+]);
 
 export const ContextUsageBanner = {
   name: 'ContextUsageBanner',
@@ -38,7 +52,17 @@ export const ContextUsageBanner = {
     }
     function failedReasonLabel() {
       if (!props.failedInfo) return '';
+      // Phase 1.8b：永久错误优先用 permanent_reason 文案。
+      const permanent = props.failedInfo.permanent_reason;
+      if (permanent && AUTO_CONTINUE_REASON_LABEL[permanent]) {
+        return AUTO_CONTINUE_REASON_LABEL[permanent];
+      }
       return AUTO_CONTINUE_REASON_LABEL[props.failedInfo.reason] || '自动续接失败';
+    }
+    function isPermanentFailure() {
+      if (!props.failedInfo) return false;
+      const r = props.failedInfo.permanent_reason || '';
+      return PERMANENT_REASON_SET.has(r);
     }
     function failedErrorSnippet() {
       const msg = (props.failedInfo && props.failedInfo.error_message) || '';
@@ -82,7 +106,7 @@ export const ContextUsageBanner = {
       return c > 0 ? c : '多';
     }
     return {
-      levelLabel, failedReasonLabel, failedErrorSnippet,
+      levelLabel, failedReasonLabel, failedErrorSnippet, isPermanentFailure,
       showTokenSection, showFailedSection, showStuckSection, stuckDurationLabel, visible,
       isCumulativeLimit, cumulativeCountLabel,
       onCompact, onFork, onRetry, onRetryStuck, onForceStuck, onMarkStuckDone,
@@ -134,10 +158,10 @@ export const ContextUsageBanner = {
           type="button"
           class="btn btn-primary btn-xs context-usage-banner-action"
           data-testid="auto-continue-retry-btn"
-          :disabled="retrying"
-          :title="retrying ? '重试中…' : '手动重试起一个继承对话'"
+          :disabled="retrying || isPermanentFailure()"
+          :title="isPermanentFailure() ? '永久错误，重试无用 — 请按上面文案处理' : (retrying ? '重试中…' : '手动重试起一个继承对话')"
           @click="onRetry"
-        >{{ retrying ? '重试中…' : '一键重试' }}</button>
+        >{{ retrying ? '重试中…' : (isPermanentFailure() ? '需手动处理' : '一键重试') }}</button>
         <span v-if="retryError" data-testid="auto-continue-retry-error" style="color:var(--color-danger,#c33); margin-left:8px;">{{ retryError }}</span>
       </div>
       <div
