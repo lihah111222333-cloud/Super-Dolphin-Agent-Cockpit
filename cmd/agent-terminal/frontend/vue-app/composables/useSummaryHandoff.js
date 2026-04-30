@@ -7,7 +7,9 @@
 // - Phase 2a 摘要源是「前一段对话原文截断」，质量一般但稳定；Phase 2b 后端
 //   `thread/summarize` RPC 上线后，调用方只需把 LLM 摘要文本传进来即可，函数本身不变。
 
-const DEFAULT_SUMMARY_LIMIT = 2400;
+// fork 摘要总字数：从 2400 提到 4000，给 tool output / assistant 结论 / TodoWrite 内容
+// 装得下更多。Phase 2a 截断式仍是兜底，Phase 2b LLM 摘要上线后这个常量可调小。
+const DEFAULT_SUMMARY_LIMIT = 4000;
 
 /**
  * 把任意原始内容截断到指定字符数，加省略号；空内容返回空串。
@@ -21,8 +23,12 @@ export function truncateSummaryText(raw, limit = DEFAULT_SUMMARY_LIMIT) {
   return text.length > limit ? `${text.slice(0, limit)}…` : text;
 }
 
-// 单个 item 内部字段最多占多长（避免单条 tool / command output 吃掉整个摘要预算）。
+// 单个字段最多占多长。两档：
+// - PER_ITEM_FIELD_LIMIT 280：用于短字段（tool name / file 路径 / status 这类 label 性内容）
+// - LONG_FIELD_LIMIT 600：用于 tool output / command output / assistant 文本 / plan
+//   text / TodoWrite 内容这类「实质信息」字段；280 太抠会让 agent 看到的全是空壳。
 const PER_ITEM_FIELD_LIMIT = 280;
+const LONG_FIELD_LIMIT = 600;
 
 function clipField(value, limit = PER_ITEM_FIELD_LIMIT) {
   const text = (value || '').toString().replace(/\s+/g, ' ').trim();
@@ -49,14 +55,18 @@ function itemToLine(item) {
   // 优先走特定 kind 的抽取，其次才是通用 text/content。
   if (kind === 'tool') {
     const tool = clipField(item.tool, 56) || '未知工具';
-    const detail = clipField(item.preview) || clipField(item.file);
+    // 优先抽 output（实质结果），fallback preview，再 fallback file 路径——保证 tool 行
+    // 不再是 `[tool] lsp_file` 这种空壳，agent 看得到具体在 read 哪个文件 / 跑了什么。
+    const detail = clipField(item.output, LONG_FIELD_LIMIT)
+      || clipField(item.preview, LONG_FIELD_LIMIT)
+      || clipField(item.file);
     const status = item.status === 'failed' ? ' 失败' : '';
     return detail ? `[tool${status}] ${tool} · ${detail}` : `[tool${status}] ${tool}`;
   }
   if (kind === 'command') {
     const cmd = clipField(item.command, 96) || '未知命令';
     const exit = Number.isFinite(Number(item.exitCode)) ? ` (exit=${Number(item.exitCode)})` : '';
-    const out = clipField(item.output);
+    const out = clipField(item.output, LONG_FIELD_LIMIT);
     const status = item.status === 'failed' ? ' 失败' : '';
     return out ? `[cmd${status}] $ ${cmd}${exit} → ${out}` : `[cmd${status}] $ ${cmd}${exit}`;
   }
@@ -66,7 +76,9 @@ function itemToLine(item) {
     return `[file${status}] ${file}`;
   }
   if (kind === 'plan') {
-    const planText = clipField(item.text || item.content);
+    // plan kind 包含 TodoWrite 整个清单 / 阶段性结论文本，必须放宽到 LONG_FIELD_LIMIT
+    // 否则 agent 只能看到 TodoWrite 头一句话。
+    const planText = clipField(item.text || item.content, LONG_FIELD_LIMIT);
     if (!planText) return '';
     const flag = item.done ? ' 完成' : ' 进行中';
     return `[plan${flag}] ${planText}`;
@@ -81,7 +93,8 @@ function itemToLine(item) {
   }
 
   // 通用 fallback：user / assistant / system / 其他 拼 text/content。
-  const text = clipField(item.text || item.content);
+  // 用户诉求和 assistant 结论是承接关键，必须放宽到 LONG_FIELD_LIMIT。
+  const text = clipField(item.text || item.content, LONG_FIELD_LIMIT);
   if (!text) return '';
   return `[${tag}] ${text}`;
 }
