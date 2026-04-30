@@ -995,3 +995,42 @@ func TestEnsureHandoffExists(t *testing.T) {
 		}
 	})
 }
+
+// Phase 3.10a: handoff 模板末尾追加「Long-running Progress Protocol」段，
+// 让 agent 启动读 handoff 时能看到约定路径，配合前端 watchdog 识别 progress/done。
+func TestRenderTaskHandoffDocumentIncludesProgressProtocol(t *testing.T) {
+	t.Parallel()
+
+	t.Run("with task id renders progress and done paths", func(t *testing.T) {
+		t.Parallel()
+		meta := taskHandoffMeta{TaskID: "task_abc123", TaskTitle: "demo", HandoffFile: "handoff/tasks/task_abc123.md"}
+		doc := renderTaskHandoffDocument(meta, nil, taskHandoffRenderSeed{Status: "initialized"}, nil)
+		if !strings.Contains(doc, "## Long-running Progress Protocol") {
+			t.Fatalf("expected progress protocol heading, got:\n%s", doc)
+		}
+		if !strings.Contains(doc, "_internal/progress/task_abc123.md") {
+			t.Fatalf("expected progress path with real task id, got:\n%s", doc)
+		}
+		if !strings.Contains(doc, "_internal/done/task_abc123.md") {
+			t.Fatalf("expected done path with real task id, got:\n%s", doc)
+		}
+		// 协议段必须在 ## Risks 之后（约定为文档末尾固定段）
+		protocolIdx := strings.Index(doc, "## Long-running Progress Protocol")
+		risksIdx := strings.Index(doc, "## Risks")
+		if risksIdx == -1 || protocolIdx == -1 || protocolIdx <= risksIdx {
+			t.Fatalf("protocol must follow ## Risks; risks=%d protocol=%d", risksIdx, protocolIdx)
+		}
+	})
+
+	t.Run("empty task id omits protocol section to avoid broken paths", func(t *testing.T) {
+		t.Parallel()
+		meta := taskHandoffMeta{TaskID: "   ", TaskTitle: "untitled"}
+		doc := renderTaskHandoffDocument(meta, nil, taskHandoffRenderSeed{}, nil)
+		if strings.Contains(doc, "## Long-running Progress Protocol") {
+			t.Fatalf("expected no protocol section when task id blank, got:\n%s", doc)
+		}
+		if strings.Contains(doc, "_internal/progress/.md") || strings.Contains(doc, "_internal/done/.md") {
+			t.Fatalf("must not emit broken empty-id paths, got:\n%s", doc)
+		}
+	})
+}
