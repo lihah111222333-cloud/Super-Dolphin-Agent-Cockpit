@@ -186,7 +186,7 @@ func TestBuildSkillManifestFBSD_NilTrackerReturnsEmpty(t *testing.T) {
 	}
 }
 
-func TestRenderSkillManifest_FlagOffFallback(t *testing.T) {
+func TestRenderSkillManifest_TrackerUnavailableFallback(t *testing.T) {
 	// driver.tracker == nil 或 disabled → 走老 buildSkillManifest
 	d := &driver{}
 	entries := []skilllibrary.SkillEntry{
@@ -197,6 +197,6 @@ func TestRenderSkillManifest_FlagOffFallback(t *testing.T) {
 	}
 	out := d.renderSkillManifest(entries)
 	if !strings.Contains(out, "demo desc") {
-		t.Errorf("flag-off should still render description: %s", out)
+		t.Errorf("tracker unavailable should still render description: %s", out)
 	}
 }
