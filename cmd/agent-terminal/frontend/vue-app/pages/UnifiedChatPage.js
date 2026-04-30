@@ -174,6 +174,13 @@ function attachPageNonEnumerableState(exposed, ctx) {
     openForkDraftFromUI: { value: ctx.openForkDraftFromUI, enumerable: false, configurable: true },
     forkSourceThreadName: { value: ctx.forkSourceThreadName, enumerable: false, configurable: true },
     forkAvailableSharedFiles: { value: ctx.forkAvailableSharedFiles, enumerable: false, configurable: true },
+    // Phase 2.2 promote-task：spread 进 ctx 后仍需显式挂载到 exposed，否则模板里
+    // @promote-task="onPromoteTaskRequested" 解析为 undefined，emit 静默丢失。
+    onPromoteTaskRequested: { value: ctx.onPromoteTaskRequested, enumerable: false, configurable: true },
+    promotingTask: { value: ctx.promotingTask, enumerable: false, configurable: true },
+    promoteTaskLastError: { value: ctx.promoteTaskLastError, enumerable: false, configurable: true },
+    threadIsTask: { value: ctx.threadIsTask, enumerable: false, configurable: true },
+    threadTaskId: { value: ctx.threadTaskId, enumerable: false, configurable: true },
   });
 }
 
