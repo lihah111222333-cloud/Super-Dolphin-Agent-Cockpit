@@ -127,3 +127,79 @@ P5b 的代码逻辑无需修改；只需在 `nativefilter` 包注释里把 `Allo
 - 实测证实 `permissions.deny: ["Skill(name)"]` + `permissions.deny: ["<ToolName>"]` 真生效
 - ⇒ P5b 写出来的 settings.local.json **能真正影响** Claude CLI 子进程行为（在 deny 维度）
 - ⇒ spec §11 的 `ArtifactKind` 删除前置已部分满足（deny 路径），allow 路径需按方案 C 重新解读
+
+---
+
+## Codex 端实测（2026-04-30 续）
+
+**实测对象**：codex-cli 0.121.0（`/opt/homebrew/bin/codex`）
+
+### 候选机制实测结果
+
+| spec §8.3 列出的 codex 候选 | 实测结果 | 备注 |
+|---|---|---|
+| `--disabled-tools` flag | ❌ **不存在** | `codex --help` 无此 flag |
+| `--allowed-tools` flag | ❌ 不存在 | 无 |
+| `config.toml [tools] disabled = [...]` | ❌ **静默忽略** | `-c tools.disabled=["shell"]` 设置后，shell 工具仍可被模型调用输出 BASHRAN |
+| `config.toml [skills] disabled_skills = [...]` | ❌ 静默忽略 | 同上路径无效果 |
+
+### Codex CLI 唯一能用的过滤手段
+
+✅ **`features.<name>=false`**（等价 `--disable <feature>`）：
+- 实测 `--disable shell_tool` 真把 shell 工具从 toolset 移除
+- 模型自报：`this session exposes no shell/terminal execution tool`
+- 但仅对 **stable=true** 且**已注册为 feature flag** 的内置工具生效
+- `--disable view_image_tool` / `--disable plan_tool` 报 "Unknown feature flag"——`features list` 显示的 feature 名 ≠ `--disable` 接受的 feature 名（codex CLI 内部子集）
+
+✅ **`[mcp_servers]` 段可注入/屏蔽 MCP server**——但这屏蔽的是 MCP server 整个（不是 server 内某个 tool），且只对 codex 接入的外部 MCP server 有效，不能屏蔽 codex 原生工具。
+
+### 重大结论
+
+**spec §8 在 codex 端 codex-cli 0.121.0 上不可实现**：
+
+1. **没有"按 skill name 屏蔽 native skill"机制**——不像 Claude 的 `permissions.deny: ["Skill(name)"]`
+2. **没有"按工具名声明白名单/黑名单"机制**——`disabled_tools` 字段 codex CLI 不识别
+3. **唯一过滤维度是 feature flag**——粒度过粗（"禁整个 shell 家族"），且 flag 名集合内部隔离
+
+### 对 P5b-codex 的影响
+
+`internal/module/nativefilter.AggregateCodex` 函数输出当前定义为 `disabled_tools []string`。这个字段在 codex CLI 0.121.0 没有可写入的目标格式：
+- 写到 `~/.codex/config.toml` 的 `[tools] disabled` 段→codex 静默忽略
+- 写到 `[mcp_servers]` 段→语义不匹配（不是 MCP server 名）
+- 通过 `--disable` flag→只接受有限 feature 名集合
+
+**当前没有可行的接线方式**。两种选项：
+
+#### 方案 X — 放弃 codex 端 native filter（推荐）
+
+- `nativefilter.AggregateCodex` 保留作为数据形状占位，标 deprecated 注释
+- 不接 codex driver
+- spec §8 codex 段标 "deferred until codex CLI exposes declarative filter"
+- `SkillMeta.ReplacesNative["codex"]` 字段保留 parse，调用方应当忽略
+- 用户接受 codex 端没有 skill 安全过滤的现状（codex CLI 自己有 sandbox + approval policy 兜底）
+
+#### 方案 Y — 改 spec，让 codex 段语义对齐 feature flag
+
+- `SkillMeta.ReplacesNative["codex"]` 改成"要禁的 codex feature flag 名"
+- 例如：skill X 声明 `replaces_native.codex: ["shell_tool"]` = 该 skill 加载时关 codex shell 工具
+- AggregateCodex 输出改成 `disabled_features map[string]bool`
+- driver 启动前 codex 子进程时把这些 feature 设为 false（通过 `-c features.<name>=false` 或修改 `~/.codex/config.toml`）
+- 风险：feature flag 集合是 codex CLI 内部约定，可能在 codex 升级时改名/消失，强耦合
+
+### 推荐路径
+
+走 **方案 X**：把 codex 端 native filter 标 deferred，等 codex CLI 提供可声明的工具过滤机制后再开 P5d-codex。当前代码层只需：
+
+1. `nativefilter.AggregateCodex` godoc 加 deprecated 标记 + 实测背景
+2. 不在 codex driver 接线（已经如此，本来就没接）
+3. spec §8 主文档加一段说明 codex 段当前不可落地的原因
+
+### 副产物：spec §8 现状梳理
+
+| spec §8 字段/机制 | Claude 端 | Codex 端 |
+|---|---|---|
+| `permissions.deny: [Skill(name)]` | ✅ 实测生效 | ❌ codex CLI 无对应概念 |
+| `permissions.deny: [<ToolName>]` | ✅ 实测生效 | ❌ codex CLI 无对应概念 |
+| `permissions.allow: [...]` (auto-approve) | ✅ 实测生效（非严格白名单） | ❌ codex CLI 无对应概念 |
+| `--tools` 严格白名单 | ✅ 实测生效（CLI flag） | ❌ 无 |
+| `features.<name>=false` 粗粒度禁 | ❌ 无（builtin 工具靠 settings） | ✅ 实测生效（仅 stable feature） |
