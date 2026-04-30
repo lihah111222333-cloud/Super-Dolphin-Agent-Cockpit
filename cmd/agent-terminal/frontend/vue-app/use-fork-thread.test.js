@@ -13,7 +13,14 @@ vi.mock('./services/log.js', () => ({
 const { callAPI } = await import('./services/api.js');
 const { useForkThread } = await import('./composables/useForkThread.js');
 
-function makeCtx({ timeline = [], sharedFilePaths = [], threadName = 'src-thread' } = {}) {
+function makeCtx({
+  timeline = [],
+  sharedFilePaths = [],
+  threadName = 'src-thread',
+  sourceRuntime = null,
+  withSendMessage = true,
+  sendMessageImpl = null,
+} = {}) {
   const composer = {
     forkDraft: reactive({ active: true, sharedFilePaths: [...sharedFilePaths], origin: '' }),
     closeForkDraft: vi.fn(() => {
@@ -21,10 +28,16 @@ function makeCtx({ timeline = [], sharedFilePaths = [], threadName = 'src-thread
       composer.forkDraft.sharedFilePaths = [];
     }),
   };
+  const agentRuntimeById = {};
+  if (sourceRuntime) agentRuntimeById['src-thread'] = sourceRuntime;
   const threadStore = {
     getThreadTimeline: vi.fn(() => timeline),
     startThread: vi.fn(async () => 'new-thread-id'),
+    state: { agentRuntimeById },
   };
+  if (withSendMessage) {
+    threadStore.sendMessage = vi.fn(sendMessageImpl || (async () => {}));
+  }
   const projectStore = { state: reactive({ active: '/repo' }) };
   return {
     composer,
@@ -138,5 +151,64 @@ describe('useForkThread.submit', () => {
     resolveStart('thread-late');
     await first;
     expect(ctx.threadStore.startThread).toHaveBeenCalledOnce();
+  });
+
+  // ── Phase 4-fork-kickoff：agent 主动开场 ──
+
+  it('源是普通对话时 startThread 后调 sendMessage 发 kickoff（options.kickoff=true）', async () => {
+    const ctx = makeCtx({ timeline: [{ role: 'user', text: 'hi' }] });
+    const { submit } = useForkThread(ctx);
+    const id = await submit();
+    expect(id).toBe('new-thread-id');
+    expect(ctx.threadStore.sendMessage).toHaveBeenCalledOnce();
+    const [tid, prompt, attachments, options] = ctx.threadStore.sendMessage.mock.calls[0];
+    expect(tid).toBe('new-thread-id');
+    expect(prompt).toContain('上文摘要');
+    expect(prompt).toContain('下一步建议');
+    expect(attachments).toEqual([]);
+    expect(options.kickoff).toBe(true);
+  });
+
+  it('源是自动化任务（taskId === rootTaskId）时仍触发 kickoff', async () => {
+    // promote_task / launch_task 路径下 root thread 的 rootTaskId 与 taskId 相等
+    const ctx = makeCtx({
+      timeline: [{ role: 'user', text: 'hi' }],
+      sourceRuntime: { taskId: 'task_root_1', rootTaskId: 'task_root_1' },
+    });
+    const { submit } = useForkThread(ctx);
+    await submit();
+    expect(ctx.threadStore.sendMessage).toHaveBeenCalledOnce();
+  });
+
+  it('源是 DAG 子节点 / 子 agent（rootTaskId !== taskId）时跳过 kickoff', async () => {
+    const ctx = makeCtx({
+      timeline: [{ role: 'user', text: 'hi' }],
+      sourceRuntime: { taskId: 'task_node_b', rootTaskId: 'task_dag_root' },
+    });
+    const { submit } = useForkThread(ctx);
+    const id = await submit();
+    expect(id).toBe('new-thread-id'); // fork 主流程仍成功
+    expect(ctx.threadStore.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('kickoff sendMessage 抛错时 fork 主流程仍返回新 thread id', async () => {
+    const ctx = makeCtx({
+      timeline: [{ role: 'user', text: 'hi' }],
+      sendMessageImpl: async () => { throw new Error('rpc fail'); },
+    });
+    const { submit } = useForkThread(ctx);
+    const id = await submit();
+    expect(id).toBe('new-thread-id'); // 不破 fork
+    expect(ctx.composer.closeForkDraft).toHaveBeenCalledOnce();
+  });
+
+  it('threadStore 缺 sendMessage 时静默跳过 kickoff（向后兼容）', async () => {
+    const ctx = makeCtx({
+      timeline: [{ role: 'user', text: 'hi' }],
+      withSendMessage: false,
+    });
+    const { submit } = useForkThread(ctx);
+    const id = await submit();
+    expect(id).toBe('new-thread-id');
   });
 });
