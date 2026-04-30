@@ -6,26 +6,18 @@ import (
 	"time"
 )
 
-func TestNewTrackerFromEnv_RespectsFlag(t *testing.T) {
-	t.Setenv(envFlag, "on")
+// TestNewTrackerFromEnv_AlwaysEnabled 锁定 NewTrackerFromEnv 始终返回 enabled
+// tracker——历史灰度开关 SUPER_DOLPHIN_SKILL_FBSD 已删除。
+func TestNewTrackerFromEnv_AlwaysEnabled(t *testing.T) {
 	tr, err := NewTrackerFromEnv()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !tr.Enabled() {
-		t.Error("env=on should enable tracker")
+		t.Error("NewTrackerFromEnv should always return enabled tracker post-flag-removal")
 	}
 	// 立即 Flush 让 worker 退出（避免后台 goroutine 跑到 30s）
 	_ = tr.Flush(context.Background())
-
-	t.Setenv(envFlag, "")
-	tr2, err := NewTrackerFromEnv()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if tr2.Enabled() {
-		t.Error("env=\"\" should disable tracker")
-	}
 }
 
 func TestEnvTierConfig_OverridesDefault(t *testing.T) {
