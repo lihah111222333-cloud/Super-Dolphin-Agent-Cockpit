@@ -66,6 +66,8 @@ describe('thread-history-ui immediate hydration', () => {
     });
 
     expect(applied).toBe(true);
+    // Non-clipboard local paths can't be served by the Wails asset route, so
+    // previewUrl is left empty (the webview would block file:// anyway).
     expect(state.timelinesByThread['thread-image']).toEqual([expect.objectContaining({
       id: 'thread-image-history-1',
       kind: 'user',
@@ -75,7 +77,39 @@ describe('thread-history-ui immediate hydration', () => {
         kind: 'image',
         name: 'screenshot.png',
         path: '/tmp/screenshot.png',
-        previewUrl: 'file:///tmp/screenshot.png',
+        previewUrl: '',
+      })],
+    })]);
+  });
+
+  it('rehydrates clipboard image inputs through the /clipboard asset route', () => {
+    const state = { timelinesByThread: {} };
+    const applied = applyImmediateTimelineFromMessages({
+      threadId: 'thread-clip',
+      response: {
+        messages: [{
+          id: 1,
+          role: 'user',
+          content: 'look at this',
+          createdAt: '2026-03-10T12:00:00Z',
+          metadata: {
+            input: [{ type: 'localImage', path: '/var/folders/abc/T/clipboard-987654321.png' }],
+          },
+        }],
+      },
+      state,
+      normalizeThreadID: (value) => value,
+      freezeTimelineItemsAtomic: (items) => ({ changed: true, items }),
+      logInfo: vi.fn(),
+    });
+
+    expect(applied).toBe(true);
+    expect(state.timelinesByThread['thread-clip']).toEqual([expect.objectContaining({
+      kind: 'user',
+      attachments: [expect.objectContaining({
+        kind: 'image',
+        path: '/var/folders/abc/T/clipboard-987654321.png',
+        previewUrl: '/clipboard/clipboard-987654321.png',
       })],
     })]);
   });

@@ -30,13 +30,6 @@ function isHistoryImageInput(entry) {
   return inputType === 'image' || inputType === 'input_image' || inputType === 'local_image' || inputType === 'localimage';
 }
 
-function isRemoteImageSource(value) {
-  const raw = (value || '').toString().trim().toLowerCase();
-  return raw.startsWith('http://')
-    || raw.startsWith('https://')
-    || raw.startsWith('data:image/')
-    || raw.startsWith('file://');
-}
 
 function decodeFileURLToPath(rawValue) {
   const raw = (rawValue || '').toString().trim();
@@ -62,6 +55,29 @@ function basenameFromPath(rawValue) {
   return parts[parts.length - 1] || '';
 }
 
+// CLIPBOARD_ASSET_NAME_RE matches the basenames produced by the Go backend's
+// SaveClipboardImage (`clipboard-*.png`). Such files live in os.TempDir() and
+// are served by Wails' clipboard asset route at `/clipboard/<basename>`.
+const CLIPBOARD_ASSET_NAME_RE = /^clipboard-.+\.png$/i;
+
+function clipboardAssetURLForPath(path) {
+  const raw = (path || '').toString().trim();
+  if (!raw) return '';
+  const base = basenameFromPath(raw);
+  if (!base || !CLIPBOARD_ASSET_NAME_RE.test(base)) return '';
+  return `/clipboard/${encodeURIComponent(base)}`;
+}
+
+function historyPreviewUrl(source, path) {
+  if (source) {
+    const lower = source.toLowerCase();
+    if (lower.startsWith('http://') || lower.startsWith('https://') || lower.startsWith('data:image/')) {
+      return source;
+    }
+  }
+  return clipboardAssetURLForPath(path);
+}
+
 function buildHistoryImageAttachments(metadata) {
   const inputs = extractHistoryInputEntries(metadata);
   const attachments = [];
@@ -70,10 +86,10 @@ function buildHistoryImageAttachments(metadata) {
     if (!isHistoryImageInput(entry)) continue;
     const source = extractFirstString(entry, ['url', 'imageUrl', 'image_url', 'path', 'filePath', 'file_path']);
     const explicitName = extractFirstString(entry, ['name', 'fileName', 'filename', 'label', 'title']);
-    const previewUrl = source && isRemoteImageSource(source) ? source : '';
     const path = !source || source.toLowerCase().startsWith('data:image/')
       ? ''
       : (source.toLowerCase().startsWith('file://') ? decodeFileURLToPath(source) : source);
+    const previewUrl = historyPreviewUrl(source, path);
     const name = explicitName || basenameFromPath(path || source) || `image-${imageCount + 1}`;
     attachments.push({ kind: 'image', name, path, previewUrl });
     imageCount += 1;

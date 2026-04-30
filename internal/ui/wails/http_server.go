@@ -33,7 +33,7 @@ func registerHTTPAssetRoutes(mux *http.ServeMux, server *rpc.Server, assetHandle
 // assets and a WebSocket-based JRPC bridge on an HTTP port so that
 // the application is accessible from a regular web browser.
 func NewHTTPAssetServer(p httpAssetServerParams) httpAssetRunnerResult {
-	handler := AssetHandlerFrom(p.Frontend)
+	handler := withClipboardAssets(AssetHandlerFrom(p.Frontend))
 	return httpAssetRunnerResult{
 		Runner: &httpAssetServer{
 			logger:  p.Logger,
