@@ -693,6 +693,12 @@ export async function sendMessage(ctx, threadId, prompt, attachments = [], optio
   // 真实 timeline 不影响——同一文本永远命中过滤。
   if (options?.kickoff && text) {
     ctx.state.kickoffByThread = { ...ctx.state.kickoffByThread, [threadId]: text };
+    // 诊断日志：让 [AO] 能验证 kickoffByThread 真被写入 + text 是 trim 后准确文本
+    logInfo('thread', 'send.kickoff_marked', {
+      thread_id: threadId,
+      text_len: text.length,
+      text_preview: text.slice(0, 60),
+    });
   }
   const requestPayload = { threadId, input };
   const cwdValue = (options?.cwd || '').toString().trim();

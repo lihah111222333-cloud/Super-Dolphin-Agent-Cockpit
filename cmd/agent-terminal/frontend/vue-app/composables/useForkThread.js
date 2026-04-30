@@ -35,13 +35,30 @@ function isSubAgentRuntime(runtime) {
 // UI 有机会感知（review M1）。
 async function maybeSendKickoff(ctx, sourceThreadId, newThreadId) {
   const sourceRuntime = ctx.threadStore?.state?.agentRuntimeById?.[sourceThreadId];
+  const hasSendMessage = typeof ctx.threadStore?.sendMessage === 'function';
+  // 诊断日志：让生产 [AO] 能看到决策路径全状态。bug 报告「UI 没看到生效」
+  // 时第一时间能定位是 wiring 没接通 / sub-agent 误判 / sendMessage 未注入。
+  logInfo('ui', 'forkThread.kickoff_check', {
+    source_thread_id: sourceThreadId,
+    new_thread_id: newThreadId,
+    has_source_runtime: Boolean(sourceRuntime && typeof sourceRuntime === 'object'),
+    source_task_id: ((sourceRuntime?.taskId || sourceRuntime?.task_id) || '').toString(),
+    source_root_task_id: ((sourceRuntime?.rootTaskId || sourceRuntime?.root_task_id) || '').toString(),
+    is_sub_agent: isSubAgentRuntime(sourceRuntime),
+    has_send_message: hasSendMessage,
+  });
   if (isSubAgentRuntime(sourceRuntime)) {
     logInfo('ui', 'forkThread.kickoff_skipped_sub_agent', {
       source_thread_id: sourceThreadId, new_thread_id: newThreadId,
     });
     return '';
   }
-  if (typeof ctx.threadStore?.sendMessage !== 'function') return '';
+  if (!hasSendMessage) {
+    logWarn('ui', 'forkThread.kickoff_no_send_message', {
+      source_thread_id: sourceThreadId, new_thread_id: newThreadId,
+    });
+    return '';
+  }
   try {
     await ctx.threadStore.sendMessage(newThreadId, FORK_KICKOFF_PROMPT, [], { kickoff: true });
     logInfo('ui', 'forkThread.kickoff_sent', {
