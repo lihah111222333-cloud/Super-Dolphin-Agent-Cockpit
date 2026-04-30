@@ -16,7 +16,7 @@
 // 闸门 / 偏好 / 累计兜底由后续 1.7c / 1.7e / 1.7f 加。
 
 import { ref, watch } from '../../lib/vue.esm-browser.prod.js';
-import { logInfo } from '../services/log.js';
+import { logInfo, logWarn } from '../services/log.js';
 import { createThreadWatchdogGate } from './thread-watchdog-gating.js';
 import { useThreadWatchdogPref } from './useThreadWatchdogPref.js';
 
@@ -102,7 +102,14 @@ export function useThreadWatchdog(opts = {}) {
         cumulativePokeCountByThread.value.delete(tid);
         notifyStateChange(tid);
       }
-    } catch (_) { /* never break poke */ }
+    } catch (err) {
+      // useThreadProgressProtocol 内层已经把 NotFound 静默 / 其它 RPC 错误 logWarn 退化，
+      // 走到这层 catch 的应该是同步 throw / Promise rejection 之类意外。logWarn 一次
+      // 不让黑洞，仍按 skip:false fallback 旧累计上限路径，绝不破 watchdog scan。
+      logWarn('ui', 'thread_watchdog.progress_protocol_unexpected', {
+        thread_id: tid, task_id: taskId, error: (err && err.message) || String(err),
+      });
+    }
     return { skip: false };
   }
 

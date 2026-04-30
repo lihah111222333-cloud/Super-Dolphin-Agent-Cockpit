@@ -13,6 +13,7 @@ vi.mock("./services/api.js", () => ({ callAPI: vi.fn() }));
 
 import { ref } from '../lib/vue.esm-browser.prod.js';
 import { useThreadWatchdog, normalizeStuckEntry, _USE_THREAD_WATCHDOG_CONSTANTS as K } from './composables/useThreadWatchdog.js';
+import { logWarn } from './services/log.js';
 
 function makeStore(init = {}) {
   return {
@@ -549,6 +550,11 @@ describe('useThreadWatchdog · Phase 3.10b 长任务进度协议', () => {
     // RPC 抛错时 applyProgressProtocol 内 catch 静默；pokeTaskThreadCore 仍执行
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(wd.cumulativePokeCountByThread.value.get('t1')).toBe(1);
+    // applyProgressProtocol 顶层 catch 不再黑洞——意外异常会被 logWarn 一次让运维可见。
+    expect(logWarn).toHaveBeenCalledWith(
+      'ui', 'thread_watchdog.progress_protocol_unexpected',
+      expect.objectContaining({ thread_id: 't1', task_id: 'task_err' }),
+    );
   });
 });
 
