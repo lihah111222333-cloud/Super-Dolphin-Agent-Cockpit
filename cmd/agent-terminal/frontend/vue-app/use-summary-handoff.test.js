@@ -80,6 +80,35 @@ describe('extractTimelineSummary', () => {
     expect(result.endsWith('…')).toBe(true);
   });
 
+  // review P1 #3：picked 总长超 charLimit 时保留尾部（fork 意图 = 最近内容优先）
+  it('picked 超 charLimit 时保留尾部并加 … 前缀（fork 最近优先）', () => {
+    const items = [
+      // 首条 + 12 条尾部（每条短，便于精确算总长）
+      { id: 'u0', kind: 'user', text: 'EARLIEST_USER' },
+      ...Array.from({ length: 11 }, (_, i) => ({ id: `m${i}`, kind: 'assistant', text: `mid${i}_padding_padding` })),
+      { id: 'a-final', kind: 'assistant', text: 'LATEST_ASSISTANT_CONCLUSION' },
+    ];
+    // charLimit 设小，确保超额
+    const result = extractTimelineSummary(items, { charLimit: 80 });
+    // 主摘要部分（## 最近进展 之前）只断言尾部保留 + 头部被截。
+    // 进度段会基于完整 items 单独抽取，可能仍包含首条 user——那段不在主摘要 truncate 范围。
+    const mainPart = result.split('## 最近进展')[0];
+    expect(mainPart).toContain('LATEST_ASSISTANT_CONCLUSION');
+    expect(mainPart).not.toContain('EARLIEST_USER'); // 主摘要超额时舍弃头部
+    expect(mainPart.startsWith('…')).toBe(true);     // 主摘要前缀 … 标记截断
+  });
+
+  it('picked 不超 charLimit 时不加 … 前缀（不破不需要的场景）', () => {
+    const items = [
+      { id: 'u0', kind: 'user', text: 'short' },
+      { id: 'a0', kind: 'assistant', text: 'reply' },
+    ];
+    const result = extractTimelineSummary(items, { charLimit: 4000 });
+    expect(result.startsWith('…')).toBe(false);
+    expect(result).toContain('short');
+    expect(result).toContain('reply');
+  });
+
   it('formats tool item with name + preview + status', () => {
     const result = extractTimelineSummary([
       { id: 't1', kind: 'tool', tool: 'Read', preview: 'src/foo.js', status: 'ok' },

@@ -181,6 +181,16 @@ function extractProgressSection(items) {
  * @param {{ recentCount?: number, charLimit?: number }} [opts]
  * @returns {string}
  */
+// fork 摘要场景特化的 truncate：超额时保留尾部（picked 已按 [首条, 全 plan, 尾 N]
+// 排序，尾部是最近内容，对承接最有价值）。前缀 '…' 提示有截断。
+// task-handoff 仍用通用 truncateSummaryText（保留首部），语义不冲突。
+// review P1 #3 修复：之前 truncateSummaryText 一刀切保留首部，超 4000 时把
+// 「尾 12」最近内容截掉，跟 fork 意图相反。
+function clipPickedKeepTail(text, limit) {
+  if (!text || text.length <= limit) return text || '';
+  return '…' + text.slice(text.length - limit + 1);
+}
+
 export function extractTimelineSummary(timelineItems, opts = {}) {
   const { recentCount = 12, charLimit = DEFAULT_SUMMARY_LIMIT } = opts;
   const items = Array.isArray(timelineItems) ? timelineItems : [];
@@ -217,7 +227,7 @@ export function extractTimelineSummary(timelineItems, opts = {}) {
   const tail = items.slice(Math.max(0, items.length - recentCount));
   for (const item of tail) tryAdd(item);
 
-  const main = truncateSummaryText(picked.join('\n\n'), charLimit);
+  const main = clipPickedKeepTail(picked.join('\n\n'), charLimit);
   const progress = extractProgressSection(items);
   return progress ? `${main}\n\n## 最近进展\n${progress}` : main;
 }
