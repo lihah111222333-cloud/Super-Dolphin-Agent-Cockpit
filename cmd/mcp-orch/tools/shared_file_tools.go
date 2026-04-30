@@ -4,17 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path"
-	"strings"
 	"time"
 
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
+	sharedfilepath "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilepath"
 )
 
 const (
 	sharedFileUpdatedBy       = "agent"
 	maxSharedFileContentBytes = 10 << 20
-	systemHandoffPrefix       = "handoff/tasks/"
 )
 
 type sharedFileReadInput struct {
@@ -36,14 +34,12 @@ type sharedFileDTO struct {
 
 func HandleSharedFileRead(store sharedfilestore.Store) ToolHandler {
 	return makeHandler(store, "shared file store", func(ctx context.Context, in sharedFileReadInput) (sharedFileDTO, error) {
-		in.Path = normalizePath(in.Path)
 		return readSharedFile(ctx, store, in)
 	})
 }
 
 func HandleSharedFileWrite(store sharedfilestore.Store) ToolHandler {
 	return makeHandler(store, "shared file store", func(ctx context.Context, in sharedFileWriteInput) (sharedFileDTO, error) {
-		in.Path = normalizePath(in.Path)
 		return writeSharedFile(ctx, store, in)
 	})
 }
@@ -64,12 +60,16 @@ func readSharedFile(ctx context.Context, store sharedfilestore.Store, input shar
 	if err := requireDependency(store, "shared file store"); err != nil {
 		return sharedFileDTO{}, err
 	}
-	path, err := requireTrimmed(input.Path, "path")
+	rawPath, err := requireTrimmed(input.Path, "path")
 	if err != nil {
 		return sharedFileDTO{}, err
 	}
-	file, err := store.Get(ctx, path)
-	file, err = loadOrNotFound(file, err, "file", path)
+	cleaned, err := sharedfilepath.ValidateReadPath(rawPath)
+	if err != nil {
+		return sharedFileDTO{}, err
+	}
+	file, err := store.Get(ctx, cleaned)
+	file, err = loadOrNotFound(file, err, "file", cleaned)
 	if err != nil {
 		return sharedFileDTO{}, err
 	}
@@ -80,18 +80,19 @@ func writeSharedFile(ctx context.Context, store sharedfilestore.Store, input sha
 	if err := requireDependency(store, "shared file store"); err != nil {
 		return sharedFileDTO{}, err
 	}
-	path, err := requireTrimmed(input.Path, "path")
+	rawPath, err := requireTrimmed(input.Path, "path")
 	if err != nil {
 		return sharedFileDTO{}, err
 	}
-	if strings.HasPrefix(path, systemHandoffPrefix) {
-		return sharedFileDTO{}, fmt.Errorf("path %q is reserved for system task handoff files", path)
+	cleaned, err := sharedfilepath.ValidateAgentWritePath(rawPath)
+	if err != nil {
+		return sharedFileDTO{}, err
 	}
 	if len(input.Content) > maxSharedFileContentBytes {
 		return sharedFileDTO{}, fmt.Errorf("content exceeds %d byte limit", maxSharedFileContentBytes)
 	}
 	file, err := store.Upsert(ctx, sharedfilestore.UpsertParams{
-		Path:      path,
+		Path:      cleaned,
 		Content:   input.Content,
 		UpdatedBy: sharedFileUpdatedBy,
 	})
@@ -112,14 +113,4 @@ func sharedFileFromStore(file sharedfilestore.SharedFile) sharedFileDTO {
 		CreatedAt: file.CreatedAt,
 		UpdatedAt: file.UpdatedAt,
 	}
-}
-
-func normalizePath(p string) string {
-	p = strings.TrimSpace(p)
-	if p == "" {
-		return ""
-	}
-	p = strings.ReplaceAll(p, "\\", "/")
-	p = path.Clean(p)
-	return strings.TrimPrefix(p, "/")
 }

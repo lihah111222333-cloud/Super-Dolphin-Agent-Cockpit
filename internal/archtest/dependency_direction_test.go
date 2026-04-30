@@ -118,6 +118,7 @@ func assertStoreAndToolDependencyRules(t *testing.T, root string) {
 		}
 		allowed := []string{
 			internalPrefix("internal/platform/db"),
+			internalPrefix("internal/platform/sharedfilepath"),
 			internalPrefix("internal/store/sqlc"),
 			internalPrefix("internal/contract"),
 			internalPrefix("internal/dto"),

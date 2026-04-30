@@ -175,25 +175,6 @@ func TestHandleCommandGetTranslatesNotFound(t *testing.T) {
 	}
 }
 
-func TestNormalizePath(t *testing.T) {
-	tests := []struct {
-		name string
-		in   string
-		want string
-	}{
-		{name: "backslashes", in: `\a\b`, want: "a/b"},
-		{name: "duplicate slashes", in: "//a//b/", want: "a/b"},
-		{name: "dot segments", in: "./a/../b", want: "b"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := normalizePath(tt.in); got != tt.want {
-				t.Fatalf("normalizePath(%q) = %q, want %q", tt.in, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestHandleSharedFileReadNormalizesPathAndTranslatesNotFound(t *testing.T) {
 	var gotPath string
 	handler := HandleSharedFileRead(stubSharedFileStore{
@@ -203,12 +184,12 @@ func TestHandleSharedFileReadNormalizesPathAndTranslatesNotFound(t *testing.T) {
 		},
 	})
 
-	_, err := handler(context.Background(), mustRawInput(t, sharedFileReadInput{Path: ` \\config\\settings.json\\ `}))
-	if err == nil || err.Error() != "file config/settings.json not found" {
+	_, err := handler(context.Background(), mustRawInput(t, sharedFileReadInput{Path: ` handoff\\task-1\\settings.json\\ `}))
+	if err == nil || err.Error() != "file handoff/task-1/settings.json not found" {
 		t.Fatalf("HandleSharedFileRead() error = %v", err)
 	}
-	if gotPath != "config/settings.json" {
-		t.Fatalf("HandleSharedFileRead() path = %q, want %q", gotPath, "config/settings.json")
+	if gotPath != "handoff/task-1/settings.json" {
+		t.Fatalf("HandleSharedFileRead() path = %q, want %q", gotPath, "handoff/task-1/settings.json")
 	}
 }
 
@@ -229,14 +210,14 @@ func TestHandleSharedFileWriteNormalizesPath(t *testing.T) {
 	})
 
 	result, err := handler(context.Background(), mustRawInput(t, sharedFileWriteInput{
-		Path:    " ./config/../config/settings.json ",
+		Path:    " ./handoff/task-1/../task-1/settings.json ",
 		Content: "hello",
 	}))
 	if err != nil {
 		t.Fatalf("HandleSharedFileWrite() error = %v", err)
 	}
-	if got.Path != "config/settings.json" {
-		t.Fatalf("HandleSharedFileWrite() path = %q, want %q", got.Path, "config/settings.json")
+	if got.Path != "handoff/task-1/settings.json" {
+		t.Fatalf("HandleSharedFileWrite() path = %q, want %q", got.Path, "handoff/task-1/settings.json")
 	}
 	if got.UpdatedBy != sharedFileUpdatedBy {
 		t.Fatalf("HandleSharedFileWrite() updated_by = %q, want %q", got.UpdatedBy, sharedFileUpdatedBy)
@@ -245,8 +226,8 @@ func TestHandleSharedFileWriteNormalizesPath(t *testing.T) {
 	if !ok {
 		t.Fatalf("HandleSharedFileWrite() result type = %T, want sharedFileDTO", result)
 	}
-	if dto.Path != "config/settings.json" {
-		t.Fatalf("HandleSharedFileWrite() result path = %q, want %q", dto.Path, "config/settings.json")
+	if dto.Path != "handoff/task-1/settings.json" {
+		t.Fatalf("HandleSharedFileWrite() result path = %q, want %q", dto.Path, "handoff/task-1/settings.json")
 	}
 }
 
@@ -265,7 +246,7 @@ func TestHandleSharedFileWriteAllowsExactLimit(t *testing.T) {
 	})
 
 	_, err := handler(context.Background(), mustRawInput(t, sharedFileWriteInput{
-		Path:    "//config//settings.json/",
+		Path:    "handoff/task-1//settings.json/",
 		Content: content,
 	}))
 	if err != nil {
@@ -286,7 +267,7 @@ func TestHandleSharedFileWriteRejectsOversizeContent(t *testing.T) {
 	})
 
 	_, err := handler(context.Background(), mustRawInput(t, sharedFileWriteInput{
-		Path:    "config/settings.json",
+		Path:    "handoff/task-1/settings.json",
 		Content: strings.Repeat("a", maxSharedFileContentBytes+1),
 	}))
 	if err == nil || err.Error() != "content exceeds 10485760 byte limit" {
@@ -310,7 +291,7 @@ func TestHandleSharedFileWriteRejectsSystemHandoffPrefix(t *testing.T) {
 		Path:    "handoff/tasks/task-1.md",
 		Content: "do not overwrite",
 	}))
-	if err == nil || !strings.Contains(err.Error(), "reserved for system task handoff files") {
+	if err == nil || !strings.Contains(err.Error(), "reserved for system writes") {
 		t.Fatalf("HandleSharedFileWrite() error = %v", err)
 	}
 	if called {
