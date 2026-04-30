@@ -25,8 +25,12 @@ type BaseConfig struct {
 // ClaudeBase 对应 native-cli-filter.json 的 "claude" 段。
 //
 // AllowedTools 用 *[]string 区分两种语义：
-//   - nil（JSON null 或缺省）→ 不施加 allowlist
-//   - 非 nil（含空数组）     → 显式 allowlist，仅这些工具被放行
+//   - nil（JSON null 或缺省）→ 不施加 auto-approve 列表
+//   - 非 nil（含空数组）     → 显式 auto-approve 列表，列入的工具调用跳过审批弹框
+//
+// 注意：实测（spec §8.3 appendix）证实 Claude CLI 的 permissions.allow 是
+// auto-approve 而非严格白名单——未列入的工具仍可调用，只是会按默认审批策略
+// 走流程。spec §3.1 旧措辞 "工具白名单" 不准，已在 appendix 校正
 type ClaudeBase struct {
 	DisabledSkills []string  `json:"disabled_skills,omitempty"`
 	DisabledTools  []string  `json:"disabled_tools,omitempty"`
@@ -55,7 +59,9 @@ type ClaudePermissions struct {
 	// Deny 包含 base.disabled_tools 原始名 + base.disabled_skills 与
 	// skill.replaces_native.claude 经 Skill(name) wrap 后的名字。
 	Deny []string `json:"deny,omitempty"`
-	// Allow nil 表示不施加 allowlist；非 nil 时为合并后的工具白名单。
+	// Allow 写入 Claude CLI permissions.allow——auto-approve 列表，列入的
+	// 工具调用跳过审批弹框；并非严格白名单（实测见 spec §8.3 appendix）。
+	// nil = 未声明 auto-approve 列表；非 nil（含空切片）= 显式声明。
 	Allow []string `json:"allow,omitempty"`
 }
 
@@ -71,11 +77,15 @@ type CodexSettings struct {
 //  2. base.DisabledSkills + skill.ReplacesNative["claude"] 合并去重，
 //     再统一 wrap 成 "Skill(name)" 形式进 Deny。
 //
-// Allow 拼装规则（spec §3.1 + §8.1）：
+// Allow 拼装规则（spec §3.1 + §8.1，语义见 §8.3 appendix）：
 //  1. base.AllowedTools 为 nil 且无任何 active skill 声明 AllowedTools → Allow=nil
-//     （表示"不施加 allowlist"，与 base 原 null 语义一致）。
+//     （表示"未声明 auto-approve 列表"，与 base 原 null 语义一致）。
 //  2. 否则取并集（union）+ 去重 + 排序。多 skill 的语义是 OR——每个 skill 声明
-//     "我至少需要这些工具"，并集是允许工具的最小覆盖集。
+//     "我会用这些工具，请跳过审批"，并集是 auto-approve 工具集。
+//
+// 历史背景：spec §3.1 把 allowed_tools 描述为"白名单"，但 §8.3 实测证实
+// Claude CLI 的 permissions.allow 实际是 auto-approve 而非严格白名单。要严格
+// 收敛工具集需走 --tools CLI flag，不在本聚合器范围。
 //
 // Disabled=true 的 skill 一律忽略，不参与 ReplacesNative / AllowedTools 聚合。
 // 输出顺序稳定排序，便于 settings.json 内容稳定（避免空 diff）。
@@ -128,8 +138,9 @@ func AggregateCodex(base CodexBase, skills []SkillSummary) CodexSettings {
 	return CodexSettings{DisabledTools: disabled.sorted()}
 }
 
-// aggregateAllowedTools 实现 Allow 拼装规则，返回 (allow, hasAllow)。
-// hasAllow=false 表示"调用方应保留 Allow=nil"。
+// aggregateAllowedTools 实现 auto-approve 列表拼装，返回 (allow, hasAllow)。
+// hasAllow=false 表示"调用方应保留 Allow=nil"——既无 base 也无 skill 声明
+// auto-approve 列表，与 "不写 permissions.allow 字段" 等价。
 func aggregateAllowedTools(base *[]string, skills []SkillSummary) ([]string, bool) {
 	any := false
 	set := newStringSet()
@@ -153,7 +164,7 @@ func aggregateAllowedTools(base *[]string, skills []SkillSummary) ([]string, boo
 	}
 	out := set.sorted()
 	if out == nil {
-		// any=true 但没有任何非空 trim 后的工具名 → 显式 allowlist 但为空集
+		// any=true 但没有任何非空 trim 后的工具名 → 显式 auto-approve 但为空集
 		// （base.allowed_tools=[] 或全空白），调用方应当区分于 nil。
 		return []string{}, true
 	}

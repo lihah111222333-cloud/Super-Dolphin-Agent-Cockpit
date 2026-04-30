@@ -109,7 +109,7 @@
 - `origin`：决定信任级别 + UI 展示来源
 - `version_hash`：harness 升级时判断 builtin 是否需要重写
 - `signature`：marketplace 签名占位，本期不校验
-- `allowed_tools`：传给底层 CLI 的工具白名单
+- `allowed_tools`：传给底层 CLI 的 auto-approve 列表（实测：写入 `permissions.allow`，跳过审批弹框；非严格白名单——见 appendix-cli-test §3.1 校正）
 - `disable_model_invocation`：true 时仅 `/<name>` 显式触发
 - `pinned` / `disabled`：FBSD escape hatch，跳过频次降级
 - `replaces_native`：F1 native 过滤声明
