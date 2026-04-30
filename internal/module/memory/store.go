@@ -9,14 +9,21 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
+	"golang.org/x/text/unicode/norm"
 )
 
 const (
 	diskStoreLockFileName      = ".memory.lock"
 	diskStoreLockRetryInterval = 25 * time.Millisecond
 	diskStoreLockTimeout       = 5 * time.Second
+
+	// memoryFileBaseMaxBytes mirrors the legacy memory project-key budget, but
+	// filename truncation below must be UTF-8 aware because macOS rejects paths
+	// that split a multibyte rune with "illegal byte sequence".
+	memoryFileBaseMaxBytes = 96
 )
 
 var (
@@ -489,7 +496,57 @@ func memoryFileBase(name string) string {
 	if !hasSlugRune(name) {
 		return "mem-" + shared.ShortHash(CanonicalName(name))
 	}
-	return SanitizePath(name)
+	return memoryFileSlug(name)
+}
+
+func memoryFileSlug(raw string) string {
+	normalized := norm.NFC.String(strings.TrimSpace(raw))
+	var builder strings.Builder
+	lastDash := false
+	for _, r := range normalized {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsDigit(r):
+			builder.WriteRune(unicode.ToLower(r))
+			lastDash = false
+		case lastDash:
+		default:
+			builder.WriteByte('-')
+			lastDash = true
+		}
+	}
+	slug := strings.Trim(builder.String(), "-")
+	if slug == "" {
+		return "mem-" + shared.ShortHash(CanonicalName(raw))
+	}
+	if len(slug) <= memoryFileBaseMaxBytes {
+		return slug
+	}
+	prefix := strings.Trim(truncateUTF8Bytes(slug, memoryFileBaseMaxBytes-9), "-")
+	if prefix == "" {
+		prefix = "mem"
+	}
+	return prefix + "-" + shared.ShortHash(normalized)
+}
+
+func truncateUTF8Bytes(text string, maxBytes int) string {
+	if maxBytes <= 0 || strings.TrimSpace(text) == "" {
+		return ""
+	}
+	if len(text) <= maxBytes && utf8.ValidString(text) {
+		return text
+	}
+	var builder strings.Builder
+	for _, r := range text {
+		runeLen := utf8.RuneLen(r)
+		if runeLen < 0 {
+			runeLen = len(string(r))
+		}
+		if builder.Len()+runeLen > maxBytes {
+			break
+		}
+		builder.WriteRune(r)
+	}
+	return builder.String()
 }
 
 func hasSlugRune(text string) bool {
