@@ -89,34 +89,45 @@ export const template = `
           <section
             v-if="!isCmd && taskHandoffVisible"
             class="task-handoff-strip data-card-vue"
+            :class="{ 'task-handoff-strip-collapsed': !taskStripExpanded }"
             data-testid="task-handoff-strip"
           >
-            <div class="task-handoff-strip-head">
-              <div>
-                <div class="task-handoff-strip-title">任务摘要 · {{ activeTask?.title || '当前任务' }}</div>
-                <div class="task-handoff-strip-meta">
-                  <span v-if="taskHandoffUpdatedAt">更新于 {{ taskHandoffUpdatedAt }}</span>
-                  <span v-if="taskHandoffUpdatedBy">· 来源 {{ taskHandoffUpdatedBy }}</span>
+            <button
+              type="button"
+              class="task-handoff-strip-chip"
+              data-testid="task-handoff-strip-chip"
+              :aria-expanded="taskStripExpanded ? 'true' : 'false'"
+              @click="toggleTaskStrip"
+            >
+              <span class="task-handoff-strip-chip-icon" aria-hidden="true">⚡</span>
+              <span class="task-handoff-strip-chip-title">任务模式 · {{ activeTask?.title || '当前任务' }}</span>
+              <span v-if="taskHandoffUpdatedAt" class="task-handoff-strip-chip-meta">· 更新于 {{ taskHandoffUpdatedAt }}</span>
+              <span v-if="taskHandoffError" class="task-handoff-strip-chip-badge task-handoff-strip-chip-badge-error">!</span>
+              <span class="task-handoff-strip-chip-chevron" aria-hidden="true">{{ taskStripExpanded ? '▾' : '▸' }}</span>
+            </button>
+            <div v-if="taskStripExpanded" class="task-handoff-strip-body" data-testid="task-handoff-strip-body">
+              <div class="task-handoff-strip-head">
+                <div>
+                  <div class="task-handoff-strip-meta">
+                    <span v-if="taskHandoffUpdatedAt">更新于 {{ taskHandoffUpdatedAt }}</span>
+                    <span v-if="taskHandoffUpdatedBy">· 来源 {{ taskHandoffUpdatedBy }}</span>
+                  </div>
                 </div>
-
+                <div class="task-handoff-strip-actions">
+                  <button
+                    class="btn btn-primary btn-xs"
+                    data-testid="task-handoff-new-task"
+                    :disabled="continueTaskBusy || taskHandoffLoading || !taskHandoffPreview"
+                    @click="startNewTaskFromHandoff"
+                  >
+                    以此新建任务
+                  </button>
+                </div>
               </div>
-
-              <div class="task-handoff-strip-actions">
-                <button
-                  class="btn btn-primary btn-xs"
-                  data-testid="task-handoff-new-task"
-                  :disabled="continueTaskBusy || taskHandoffLoading || !taskHandoffPreview"
-                  @click="startNewTaskFromHandoff"
-                >
-                  以此新建任务
-                </button>
-              </div>
-
+              <div v-if="taskHandoffError" class="task-handoff-strip-error">{{ taskHandoffError }}</div>
+              <div v-else-if="taskHandoffLoading" class="task-handoff-strip-loading">正在加载任务接力摘要…</div>
+              <pre v-else class="task-handoff-strip-preview">{{ taskHandoffPreview || '当前任务已建立，但还没有可读的接力摘要。完成一轮工作后系统会自动生成。' }}</pre>
             </div>
-            <div v-if="taskHandoffError" class="task-handoff-strip-error">{{ taskHandoffError }}</div>
-            <div v-else-if="taskHandoffLoading" class="task-handoff-strip-loading">正在加载任务接力摘要…</div>
-            <pre v-else class="task-handoff-strip-preview">{{ taskHandoffPreview || '当前任务已建立，但还没有可读的接力摘要。完成一轮工作后系统会自动生成。' }}</pre>
-
           </section>
 
           <div v-if="showWorkspace" class="workspace-area">

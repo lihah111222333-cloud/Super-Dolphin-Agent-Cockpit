@@ -111,6 +111,11 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
     updatedAt: '',
   });
   const continueBusy = ref(false);
+  // Phase 2.3 任务条默认折叠：只显示 30px chip（标题 + 更新时间），点击才展开
+  // 详细接力摘要。切换 thread 或 task 变化时重置为折叠。load 错误
+  // 出现时自动展开让用户看到原因。外部（token 满 / watchdog stuck 等）可
+  // 调 expandTaskStrip(reason) 主动展开。
+  const expanded = ref(false);
 
   const activeTask = computed(() => buildTaskFromRuntime(activeRuntime.value, activeThread.value?.name));
 
@@ -294,10 +299,33 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
   watch(
     () => firstNonEmpty(activeTask.value?.taskId, activeTask.value?.handoffFile),
     () => {
+      // 切 thread / task 时重置为折叠：保证每进入一个任务都是默认紧凑 chip。
+      // sync flush 让重置随 activeRuntime 赋值同步发生，在测试里不需 nextTick 就
+      // 到位；load 调用本身是异步的不受影响。
+      expanded.value = false;
       loadTaskHandoff().catch(() => {});
     },
-    { immediate: true },
+    { immediate: true, flush: 'sync' },
   );
+
+  // load error 出现时自动展开：错误文案在详细体里，不展开看不到。error
+  // 被清空不会反向折起 —— 用户方例在演变间保持展开以看接下来成功的摘要。
+  watch(
+    () => state.error,
+    (err) => {
+      if (err) expanded.value = true;
+    },
+  );
+
+  function expandTaskStrip(_reason) {
+    expanded.value = true;
+  }
+  function collapseTaskStrip() {
+    expanded.value = false;
+  }
+  function toggleTaskStrip() {
+    expanded.value = !expanded.value;
+  }
 
   return {
     activeTask,
@@ -308,11 +336,15 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
     taskHandoffPreview: computed(() => previewTaskHandoff(state.content)),
     taskHandoffUpdatedAt: computed(() => state.updatedAt),
     taskHandoffUpdatedBy: computed(() => state.updatedBy),
+    taskStripExpanded: computed(() => expanded.value),
     continueTaskBusy: computed(() => continueBusy.value),
     refreshTaskHandoff: loadTaskHandoff,
     continueCurrentTask: continueTask,
     continueTaskById,
     startNewTaskFromHandoff,
     continueCurrentTaskInNewWindow: continueTaskInNewWindow,
+    expandTaskStrip,
+    collapseTaskStrip,
+    toggleTaskStrip,
   };
 }
