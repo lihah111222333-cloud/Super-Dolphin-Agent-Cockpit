@@ -431,16 +431,7 @@ func (s *session) dispatch(raw dto.RawProviderEvent) {
 	payload := decodeAnyPayload(raw.Data)
 	if len(payload) > 0 {
 		if agentID := strings.TrimSpace(s.agentID); agentID != "" {
-			if payloadAgentID(payload) == "" {
-				payload["agentId"] = agentID
-			}
-			// Always map the codex-internal threadId to our public agentId so
-			// downstream bus events use the correct thread identity. Without
-			// this, the UI sees the raw providerThreadId and creates a
-			// duplicate agent entry.
-			if tid, _ := payload["threadId"].(string); tid != "" && tid != agentID {
-				payload["threadId"] = agentID
-			}
+			s.remapEventIdentity(raw.EventType, payload, agentID)
 			raw.Data = payload
 		}
 		// Override contextWindowTokens when the Codex CLI uses fallback
@@ -451,6 +442,26 @@ func (s *session) dispatch(raw dto.RawProviderEvent) {
 		}
 	}
 	s.dispatcher.Dispatch(raw)
+}
+
+func (s *session) remapEventIdentity(eventType string, payload map[string]any, hostAgentID string) {
+	pid := payloadAgentID(payload)
+	tid := payloadThreadID(payload)
+	// Always forcefully remap both agent identity fields and thread identity
+	// fields to the host's public agentID. Codex/claudecli uses transient
+	// providerThreadIDs (UUIDs) which cause duplicate phantom cards in the UI.
+	if pid != "" && pid != hostAgentID && s.logger != nil {
+		s.logger.Warn("codexapp: remapped alien agent_id in event",
+			"event_type", eventType, "original", pid, "mapped", hostAgentID)
+	}
+	if tid != "" && tid != hostAgentID && s.logger != nil {
+		s.logger.Warn("codexapp: remapped alien thread_id in event",
+			"event_type", eventType, "original", tid, "mapped", hostAgentID)
+	}
+	payload["agentId"] = hostAgentID
+	payload["agent_id"] = hostAgentID
+	payload["threadId"] = hostAgentID
+	payload["thread_id"] = hostAgentID
 }
 
 // patchContextWindowInPayload ensures all nested locations where the Codex CLI

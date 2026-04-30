@@ -329,8 +329,14 @@ export function buildVisibleChatThreadCards(opts) {
   let pendingLaunchCalls = 0;
   let runtimeHits = 0;
   const cardStart = nowMs();
+  const seenIds = new Set();
   const cards = visibleThreads.map((thread) => {
     const threadId = (thread?.id || '').toString();
+    if (seenIds.has(threadId)) {
+      logWarn('ui', 'chat.cards.duplicate_thread', { thread_id: threadId, thread_name: thread?.name });
+    }
+    seenIds.add(threadId);
+
     let displayName = '';
     if (typeof displayNameOf === 'function') {
       displayNameCalls += 1;
