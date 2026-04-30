@@ -171,6 +171,15 @@ func (s *service) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequ
 	}
 	var result DAGNode
 	err = s.withDAGStore(func(store taskdag.OrchestrationStore) error {
+		// Phase 3.5w: status="done" 切到 CompleteNodeAndScheduleDownstream
+		// 让 store 同事务自动 enqueue 下游 ready 节点（生产路径自动 spawn）。
+		// 生产 dagStore 实际是 taskdag.Store（embed NodeFlowStore），type
+		// assertion 拿到该能力；测试 mock 落到普通 UpdateNodeStatus 不破。
+		if input.Status == "done" {
+			if flow, ok := store.(taskdag.NodeFlowStore); ok {
+				return s.completeNodeWithDownstream(ctx, flow, input, &result)
+			}
+		}
 		node, updateErr := store.UpdateNodeStatus(ctx, input)
 		if updateErr != nil {
 			return updateErr
@@ -182,6 +191,29 @@ func (s *service) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequ
 		return DAGNode{}, err
 	}
 	return result, nil
+}
+
+// completeNodeWithDownstream 走 store NodeFlowStore，3.5w 接通点。
+func (s *service) completeNodeWithDownstream(ctx context.Context, flow taskdag.NodeFlowStore, input taskdag.NodeStatusUpdate, result *DAGNode) error {
+	res, err := flow.CompleteNodeAndScheduleDownstream(ctx, taskdag.CompleteNodeInput{
+		Status:  input.Status,
+		Result:  input.Result,
+		DagKey:  input.DagKey,
+		NodeKey: input.NodeKey,
+	})
+	if err != nil {
+		return err
+	}
+	if res.Node != nil {
+		*result = dagNodeDTO(*res.Node)
+	}
+	if len(res.ScheduledDownstream) > 0 && s.logger != nil {
+		s.logger.Info("orchestration: scheduled downstream wakeups",
+			"dag_key", input.DagKey,
+			"completed_node", input.NodeKey,
+			"count", len(res.ScheduledDownstream))
+	}
+	return nil
 }
 
 func upsertDAG(ctx context.Context, store taskdag.DAGMutationStore, req CreateDAGRequest) (*taskdag.DAG, error) {

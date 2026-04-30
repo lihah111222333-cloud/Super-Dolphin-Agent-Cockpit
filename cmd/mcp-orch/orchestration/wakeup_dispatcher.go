@@ -264,6 +264,15 @@ func (d *WakeupDispatcher) markPermanentFail(ctx context.Context, w *taskdag.Wak
 }
 
 func (d *WakeupDispatcher) markTransientRetry(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, lastErr string, launchErr error) {
+	// Phase 3.5w: DAG-driven wakeup 走 metadata 决策（ResolveRetryPolicy）。
+	// 当前 attempt_count >= MaxAttempts 直接 fail + cascade 下游（按
+	// FailFast）；attempt_count 还没到上限走旧的 RetryWakeup 路径。
+	// 非 DAG wakeup（DagKey/NodeKey 空）走兼容路径，保留 SQL 8 paranoid。
+	if w.DagKey != "" && w.NodeKey != "" {
+		if d.tryDAGFailWithCascade(ctx, w, fence, lastErr, launchErr) {
+			return
+		}
+	}
 	rows, err := d.store.RetryWakeup(ctx, taskdag.RetryWakeupInput{
 		ID:             w.ID,
 		RetryInterval:  d.cfg.RetryInterval,
@@ -370,4 +379,70 @@ func (d *WakeupDispatcher) Tick(ctx context.Context) (int, error) {
 			"lease_expires_at", leaseAt)
 	}
 	return len(claimed), nil
+}
+
+// tryDAGFailWithCascade 是 Phase 3.5w 接通点之 (b)：DAG-driven wakeup launch
+// 失败时按 ResolveRetryPolicy 决定要不要直接 fail（达 MaxAttempts）+ 级联取消
+// 下游（按 FailFast）。返 true 表示已经走了 fail 路径调用方应直接返回；
+// false 表示还可 retry，走旧 RetryWakeup 路径。
+//
+// 退化策略：DAG metadata / node config 拿不到时返 false，让旧路径接管 —
+// 软策略不触发不影响生产路径，硬上限（SQL attempt_count<8）仍然兜底。
+func (d *WakeupDispatcher) tryDAGFailWithCascade(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, lastErr string, launchErr error) bool {
+	policy, ok := d.resolveDAGRetryPolicy(ctx, w.DagKey, w.NodeKey)
+	if !ok {
+		return false
+	}
+	if int(w.AttemptCount) < policy.MaxAttempts {
+		return false
+	}
+	d.markPermanentFail(ctx, w, fence, "max attempts reached: "+lastErr, launchErr)
+	flow, ok := d.store.(taskdag.NodeFlowStore)
+	if !ok {
+		d.logger.Warn("wakeup dispatcher: store missing NodeFlowStore, skip cascade",
+			"wakeup_id", w.ID, "dag_key", w.DagKey, "node_key", w.NodeKey)
+		return true
+	}
+	res, err := flow.FailNodeAndCancelDownstream(ctx, taskdag.FailNodeInput{
+		DagKey:   w.DagKey,
+		NodeKey:  w.NodeKey,
+		Reason:   lastErr,
+		FailFast: policy.FailFast,
+	})
+	if err != nil {
+		d.logger.Warn("wakeup dispatcher: fail-node cascade write failed",
+			"wakeup_id", w.ID, "dag_key", w.DagKey, "node_key", w.NodeKey, "error", err)
+		return true
+	}
+	d.logger.Warn("wakeup dispatcher: DAG node max attempts reached → failed",
+		"wakeup_id", w.ID,
+		"dag_key", w.DagKey,
+		"node_key", w.NodeKey,
+		"attempt_count", w.AttemptCount,
+		"max_attempts", policy.MaxAttempts,
+		"fail_fast", policy.FailFast,
+		"canceled_downstream", len(res.CanceledDownstream))
+	return true
+}
+
+// resolveDAGRetryPolicy 拉取 DAG metadata + node config 派生 RetryPolicy。
+// metadata/listNodes 任一报错返 (zero, false) 让调用方退化；node 不存在
+// 时仅基于 DAG 默认派生（仍返 true，policy 含 fail_fast）。
+func (d *WakeupDispatcher) resolveDAGRetryPolicy(ctx context.Context, dagKey, nodeKey string) (RetryPolicy, bool) {
+	dag, err := d.store.GetDAG(ctx, dagKey)
+	if err != nil || dag == nil {
+		return RetryPolicy{}, false
+	}
+	nodes, err := d.store.ListNodes(ctx, dagKey)
+	if err != nil {
+		return ResolveRetryPolicy(dag.Metadata, nil), true
+	}
+	var nodeConfig json.RawMessage
+	for _, n := range nodes {
+		if n.NodeKey == nodeKey {
+			nodeConfig = n.Config
+			break
+		}
+	}
+	return ResolveRetryPolicy(dag.Metadata, nodeConfig), true
 }
