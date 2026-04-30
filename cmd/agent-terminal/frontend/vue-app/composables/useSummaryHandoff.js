@@ -55,8 +55,11 @@ function itemToLine(item) {
   // 优先走特定 kind 的抽取，其次才是通用 text/content。
   if (kind === 'tool') {
     const tool = clipField(item.tool, 56) || '未知工具';
-    // 优先抽 output（实质结果），fallback preview，再 fallback file 路径——保证 tool 行
-    // 不再是 `[tool] lsp_file` 这种空壳，agent 看得到具体在 read 哪个文件 / 跑了什么。
+    // 注：截至本次改动，后端 PatchTimelineItem.Output 字段没有任何 producer 填——
+    // internal/module/uistate/timeline/projector_parity.go 只写 Preview = previewText(ev.Result)。
+    // 所以生产里实际生效的是 preview 这一支；output 作为未来 producer 填结构化结果时
+    // 的备用（如果填了会优先用，因为更接近原始数据）。file 路径作为最后兜底。
+    // LONG_FIELD_LIMIT 600 让 preview 不再被旧 280 狠截，agent 能看到完整工具结果片段。
     const detail = clipField(item.output, LONG_FIELD_LIMIT)
       || clipField(item.preview, LONG_FIELD_LIMIT)
       || clipField(item.file);
