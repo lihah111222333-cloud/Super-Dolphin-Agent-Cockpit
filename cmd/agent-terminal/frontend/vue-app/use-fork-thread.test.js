@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ref, reactive } from './lib/vue.esm-browser.prod.js';
+import { ref, reactive } from '../lib/vue.esm-browser.prod.js';
 
 vi.mock('./services/api.js', () => ({
   callAPI: vi.fn(),
