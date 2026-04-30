@@ -16,7 +16,7 @@
 // 闸门 / 偏好 / 累计兜底由后续 1.7c / 1.7e / 1.7f 加。
 
 import { ref, watch } from '../../lib/vue.esm-browser.prod.js';
-import { logInfo } from '../services/log.js';
+import { logInfo, logWarn } from '../services/log.js';
 import { createThreadWatchdogGate } from './thread-watchdog-gating.js';
 import { useThreadWatchdogPref } from './useThreadWatchdogPref.js';
 
@@ -69,7 +69,51 @@ export function useThreadWatchdog(opts = {}) {
     try { onStateChange(tid); } catch (_) { /* never break scan */ }
   }
 
-  function pokeTaskThread(tid, taskId, elapsed) {
+  // Phase 3.10b: 长任务进度协议读侧（可选）。注入对象需提供：
+  //   readProgressLineCount(taskId) -> Promise<number>
+  //   readDoneMarker(taskId)        -> Promise<boolean>
+  // 缺省 = null，watchdog 退化为旧累计上限逻辑（plan DoD：缺 progress 仍走累计上限）。
+  const progressProtocol = (opts.progressProtocol
+    && typeof opts.progressProtocol.readProgressLineCount === 'function'
+    && typeof opts.progressProtocol.readDoneMarker === 'function')
+    ? opts.progressProtocol : null;
+  // baseline = 上次 scan 看到的 progress 行数；增长 = agent 真在推进 → 重置 cumulative。
+  const progressBaselineByThread = new Map();
+
+  async function applyProgressProtocol(tid, taskId) {
+    if (!progressProtocol) return { skip: false };
+    try {
+      if (await progressProtocol.readDoneMarker(taskId)) {
+        logInfo('ui', 'thread_watchdog.done_observed', { thread_id: tid, task_id: taskId });
+        cumulativePokeCountByThread.value.delete(tid);
+        progressBaselineByThread.delete(tid);
+        stuckByThread.value.delete(tid);
+        notifyStateChange(tid);
+        return { skip: true }; // done.md 已存在 → 不再戳
+      }
+      const cur = await progressProtocol.readProgressLineCount(taskId);
+      const prev = progressBaselineByThread.get(tid) || 0;
+      progressBaselineByThread.set(tid, cur);
+      if (cur > prev) {
+        logInfo('ui', 'thread_watchdog.progress_advanced', {
+          thread_id: tid, task_id: taskId, prev, cur,
+        });
+        // 进度有增长 → 重置累计上限，让 agent 在还在干活时不被 5 次封顶错杀
+        cumulativePokeCountByThread.value.delete(tid);
+        notifyStateChange(tid);
+      }
+    } catch (err) {
+      // useThreadProgressProtocol 内层已经把 NotFound 静默 / 其它 RPC 错误 logWarn 退化，
+      // 走到这层 catch 的应该是同步 throw / Promise rejection 之类意外。logWarn 一次
+      // 不让黑洞，仍按 skip:false fallback 旧累计上限路径，绝不破 watchdog scan。
+      logWarn('ui', 'thread_watchdog.progress_protocol_unexpected', {
+        thread_id: tid, task_id: taskId, error: (err && err.message) || String(err),
+      });
+    }
+    return { skip: false };
+  }
+
+  function pokeTaskThreadCore(tid, taskId, elapsed) {
     const prev = cumulativePokeCountByThread.value.get(tid) || 0;
     const next = prev + 1;
     if (next > CUMULATIVE_POKE_LIMIT) {
@@ -80,7 +124,7 @@ export function useThreadWatchdog(opts = {}) {
       stuckByThread.value.set(tid, { kind: 'cumulative_limit', count: prev, stuckSinceTs: now() });
       // 累计已封顶——计数不再增长但仍持久化当前状态（便于刷新后保留 cumulative_limit 语义）
       notifyStateChange(tid);
-      return;
+      return;  // 注：baseline 留着不删；用户介入后若解除卡住，下次 progress 增量比对仍然有效
     }
     cumulativePokeCountByThread.value.set(tid, next);
     logInfo('ui', 'thread_watchdog.poke.task_auto', {
@@ -89,6 +133,15 @@ export function useThreadWatchdog(opts = {}) {
     safeSendMessage(sendMessage, tid);
     notifyStateChange(tid);
   }
+
+  // 无 progressProtocol 走同步快路径（保留 1.7f 旧行为，单测同步断言不变）；
+  // 有 protocol 时 fire-and-forget 走 async path，processThread 不 await。
+  async function pokeTaskThreadWithProtocol(tid, taskId, elapsed) {
+    const protocolResult = await applyProgressProtocol(tid, taskId);
+    if (protocolResult.skip) return;
+    pokeTaskThreadCore(tid, taskId, elapsed);
+  }
+  const pokeTaskThread = progressProtocol ? pokeTaskThreadWithProtocol : pokeTaskThreadCore;
 
   function markStuck(tid, ts, elapsed) {
     logInfo('ui', 'thread_watchdog.stuck', { thread_id: tid, stall_ms: elapsed });
@@ -157,6 +210,7 @@ export function useThreadWatchdog(opts = {}) {
   function resetCumulativePokeCount(tid) {
     if (!tid) return;
     cumulativePokeCountByThread.value.delete(tid);
+    progressBaselineByThread.delete(tid);
     notifyStateChange(tid);
   }
   function clearStuck(tid) {

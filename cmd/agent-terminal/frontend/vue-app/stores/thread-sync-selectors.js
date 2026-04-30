@@ -22,9 +22,16 @@ export function getThreadTimeline(ctx, threadId) {
     return [];
   }
   if (items.length === 0) return items;
-  // Fast path: if no structural items, return as-is to avoid allocation
-  if (!items.some((it) => STRUCTURAL_TIMELINE_KINDS.has(it?.kind))) return items;
-  return items.filter((it) => !STRUCTURAL_TIMELINE_KINDS.has(it?.kind));
+  // fork 继承对话 kickoff：当 kickoffByThread 记录这个 thread 的 kickoff text 时，
+  // 过滤匹配 text 的 user 消息（让 agent 看起来主动开场）；text 转 trim 比对避免空白差异。
+  const kickoffText = ((ctx.state.kickoffByThread || {})[threadId] || '').toString().trim();
+  const hasStructural = items.some((it) => STRUCTURAL_TIMELINE_KINDS.has(it?.kind));
+  if (!hasStructural && !kickoffText) return items;
+  return items.filter((it) => {
+    if (STRUCTURAL_TIMELINE_KINDS.has(it?.kind)) return false;
+    if (kickoffText && it?.kind === 'user' && (it?.text || '').toString().trim() === kickoffText) return false;
+    return true;
+  });
 }
 
 export function getThreadDiff(ctx, threadId) {

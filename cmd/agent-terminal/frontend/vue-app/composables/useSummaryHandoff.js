@@ -7,7 +7,9 @@
 // - Phase 2a 摘要源是「前一段对话原文截断」，质量一般但稳定；Phase 2b 后端
 //   `thread/summarize` RPC 上线后，调用方只需把 LLM 摘要文本传进来即可，函数本身不变。
 
-const DEFAULT_SUMMARY_LIMIT = 2400;
+// fork 摘要总字数：从 2400 提到 4000，给 tool output / assistant 结论 / TodoWrite 内容
+// 装得下更多。Phase 2a 截断式仍是兜底，Phase 2b LLM 摘要上线后这个常量可调小。
+const DEFAULT_SUMMARY_LIMIT = 4000;
 
 /**
  * 把任意原始内容截断到指定字符数，加省略号；空内容返回空串。
@@ -21,8 +23,12 @@ export function truncateSummaryText(raw, limit = DEFAULT_SUMMARY_LIMIT) {
   return text.length > limit ? `${text.slice(0, limit)}…` : text;
 }
 
-// 单个 item 内部字段最多占多长（避免单条 tool / command output 吃掉整个摘要预算）。
+// 单个字段最多占多长。两档：
+// - PER_ITEM_FIELD_LIMIT 280：用于短字段（tool name / file 路径 / status 这类 label 性内容）
+// - LONG_FIELD_LIMIT 600：用于 tool output / command output / assistant 文本 / plan
+//   text / TodoWrite 内容这类「实质信息」字段；280 太抠会让 agent 看到的全是空壳。
 const PER_ITEM_FIELD_LIMIT = 280;
+const LONG_FIELD_LIMIT = 600;
 
 function clipField(value, limit = PER_ITEM_FIELD_LIMIT) {
   const text = (value || '').toString().replace(/\s+/g, ' ').trim();
@@ -49,14 +55,21 @@ function itemToLine(item) {
   // 优先走特定 kind 的抽取，其次才是通用 text/content。
   if (kind === 'tool') {
     const tool = clipField(item.tool, 56) || '未知工具';
-    const detail = clipField(item.preview) || clipField(item.file);
+    // 注：截至本次改动，后端 PatchTimelineItem.Output 字段没有任何 producer 填——
+    // internal/module/uistate/timeline/projector_parity.go 只写 Preview = previewText(ev.Result)。
+    // 所以生产里实际生效的是 preview 这一支；output 作为未来 producer 填结构化结果时
+    // 的备用（如果填了会优先用，因为更接近原始数据）。file 路径作为最后兜底。
+    // LONG_FIELD_LIMIT 600 让 preview 不再被旧 280 狠截，agent 能看到完整工具结果片段。
+    const detail = clipField(item.output, LONG_FIELD_LIMIT)
+      || clipField(item.preview, LONG_FIELD_LIMIT)
+      || clipField(item.file);
     const status = item.status === 'failed' ? ' 失败' : '';
     return detail ? `[tool${status}] ${tool} · ${detail}` : `[tool${status}] ${tool}`;
   }
   if (kind === 'command') {
     const cmd = clipField(item.command, 96) || '未知命令';
     const exit = Number.isFinite(Number(item.exitCode)) ? ` (exit=${Number(item.exitCode)})` : '';
-    const out = clipField(item.output);
+    const out = clipField(item.output, LONG_FIELD_LIMIT);
     const status = item.status === 'failed' ? ' 失败' : '';
     return out ? `[cmd${status}] $ ${cmd}${exit} → ${out}` : `[cmd${status}] $ ${cmd}${exit}`;
   }
@@ -66,7 +79,9 @@ function itemToLine(item) {
     return `[file${status}] ${file}`;
   }
   if (kind === 'plan') {
-    const planText = clipField(item.text || item.content);
+    // plan kind 包含 TodoWrite 整个清单 / 阶段性结论文本，必须放宽到 LONG_FIELD_LIMIT
+    // 否则 agent 只能看到 TodoWrite 头一句话。
+    const planText = clipField(item.text || item.content, LONG_FIELD_LIMIT);
     if (!planText) return '';
     const flag = item.done ? ' 完成' : ' 进行中';
     return `[plan${flag}] ${planText}`;
@@ -81,7 +96,8 @@ function itemToLine(item) {
   }
 
   // 通用 fallback：user / assistant / system / 其他 拼 text/content。
-  const text = clipField(item.text || item.content);
+  // 用户诉求和 assistant 结论是承接关键，必须放宽到 LONG_FIELD_LIMIT。
+  const text = clipField(item.text || item.content, LONG_FIELD_LIMIT);
   if (!text) return '';
   return `[${tag}] ${text}`;
 }
@@ -165,6 +181,16 @@ function extractProgressSection(items) {
  * @param {{ recentCount?: number, charLimit?: number }} [opts]
  * @returns {string}
  */
+// fork 摘要场景特化的 truncate：超额时保留尾部（picked 已按 [首条, 全 plan, 尾 N]
+// 排序，尾部是最近内容，对承接最有价值）。前缀 '…' 提示有截断。
+// task-handoff 仍用通用 truncateSummaryText（保留首部），语义不冲突。
+// review P1 #3 修复：之前 truncateSummaryText 一刀切保留首部，超 4000 时把
+// 「尾 12」最近内容截掉，跟 fork 意图相反。
+function clipPickedKeepTail(text, limit) {
+  if (!text || text.length <= limit) return text || '';
+  return '…' + text.slice(text.length - limit + 1);
+}
+
 export function extractTimelineSummary(timelineItems, opts = {}) {
   const { recentCount = 12, charLimit = DEFAULT_SUMMARY_LIMIT } = opts;
   const items = Array.isArray(timelineItems) ? timelineItems : [];
@@ -201,7 +227,7 @@ export function extractTimelineSummary(timelineItems, opts = {}) {
   const tail = items.slice(Math.max(0, items.length - recentCount));
   for (const item of tail) tryAdd(item);
 
-  const main = truncateSummaryText(picked.join('\n\n'), charLimit);
+  const main = clipPickedKeepTail(picked.join('\n\n'), charLimit);
   const progress = extractProgressSection(items);
   return progress ? `${main}\n\n## 最近进展\n${progress}` : main;
 }

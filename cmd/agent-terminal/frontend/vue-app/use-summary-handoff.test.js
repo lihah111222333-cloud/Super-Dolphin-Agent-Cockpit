@@ -21,10 +21,10 @@ describe('truncateSummaryText', () => {
     expect(truncateSummaryText('abcdefghij', 5)).toBe('abcde…');
   });
 
-  it('uses default 2400 char limit', () => {
-    const long = 'x'.repeat(3000);
+  it('uses default 4000 char limit', () => {
+    const long = 'x'.repeat(5000);
     const result = truncateSummaryText(long);
-    expect(result.length).toBe(2401);
+    expect(result.length).toBe(4001);
     expect(result.endsWith('…')).toBe(true);
   });
 });
@@ -80,6 +80,35 @@ describe('extractTimelineSummary', () => {
     expect(result.endsWith('…')).toBe(true);
   });
 
+  // review P1 #3：picked 总长超 charLimit 时保留尾部（fork 意图 = 最近内容优先）
+  it('picked 超 charLimit 时保留尾部并加 … 前缀（fork 最近优先）', () => {
+    const items = [
+      // 首条 + 12 条尾部（每条短，便于精确算总长）
+      { id: 'u0', kind: 'user', text: 'EARLIEST_USER' },
+      ...Array.from({ length: 11 }, (_, i) => ({ id: `m${i}`, kind: 'assistant', text: `mid${i}_padding_padding` })),
+      { id: 'a-final', kind: 'assistant', text: 'LATEST_ASSISTANT_CONCLUSION' },
+    ];
+    // charLimit 设小，确保超额
+    const result = extractTimelineSummary(items, { charLimit: 80 });
+    // 主摘要部分（## 最近进展 之前）只断言尾部保留 + 头部被截。
+    // 进度段会基于完整 items 单独抽取，可能仍包含首条 user——那段不在主摘要 truncate 范围。
+    const mainPart = result.split('## 最近进展')[0];
+    expect(mainPart).toContain('LATEST_ASSISTANT_CONCLUSION');
+    expect(mainPart).not.toContain('EARLIEST_USER'); // 主摘要超额时舍弃头部
+    expect(mainPart.startsWith('…')).toBe(true);     // 主摘要前缀 … 标记截断
+  });
+
+  it('picked 不超 charLimit 时不加 … 前缀（不破不需要的场景）', () => {
+    const items = [
+      { id: 'u0', kind: 'user', text: 'short' },
+      { id: 'a0', kind: 'assistant', text: 'reply' },
+    ];
+    const result = extractTimelineSummary(items, { charLimit: 4000 });
+    expect(result.startsWith('…')).toBe(false);
+    expect(result).toContain('short');
+    expect(result).toContain('reply');
+  });
+
   it('formats tool item with name + preview + status', () => {
     const result = extractTimelineSummary([
       { id: 't1', kind: 'tool', tool: 'Read', preview: 'src/foo.js', status: 'ok' },
@@ -94,6 +123,56 @@ describe('extractTimelineSummary', () => {
       { id: 't1', kind: 'tool', tool: 'Bash', preview: 'rm /', status: 'failed' },
     ]);
     expect(result).toContain('[tool 失败]');
+  });
+
+  // Phase 4-fork-summary：tool item 必须把 output（实质结果）抽进摘要，
+  // 不能只抽 tool name 让 agent 看到 [tool] lsp_file 这种空壳
+  it('抽 tool.output（agent 主动开场需要的实质内容）', () => {
+    const result = extractTimelineSummary([
+      { id: 't1', kind: 'tool', tool: 'lsp_file', output: 'read src/foo.js → 230 lines, function getTokenLevel() at L42' },
+    ]);
+    expect(result).toContain('[tool]');
+    expect(result).toContain('lsp_file');
+    expect(result).toContain('getTokenLevel');
+    expect(result).toContain('L42');
+  });
+
+  it('tool 含 output + preview + file 时优先 output', () => {
+    const result = extractTimelineSummary([
+      { id: 't1', kind: 'tool', tool: 'Read', output: 'real result line', preview: 'preview only', file: 'src/foo.js' },
+    ]);
+    // output 是真理；preview/file 不应同时出现避免噪声
+    expect(result).toContain('real result line');
+    expect(result).not.toContain('preview only');
+  });
+
+  it('tool 长 output 被 LONG_FIELD_LIMIT 600 约束（不会被旧 280 狠截）', () => {
+    const longOutput = 'A'.repeat(550); // 550 < 600，应完整保留
+    const result = extractTimelineSummary([
+      { id: 't1', kind: 'tool', tool: 'Read', output: longOutput },
+    ]);
+    expect(result).toContain('A'.repeat(550)); // 完整保留 550 字（旧 280 会狠截）
+  });
+
+  it('plan / TodoWrite 长 text 不被旧 280 狠截（用 LONG_FIELD_LIMIT 600）', () => {
+    const longTodo = '## TodoWrite\n1. 改 A\n2. 修 B\n3. 测 C\n4. ' + 'X'.repeat(400);
+    const result = extractTimelineSummary([
+      { id: 'p1', kind: 'plan', text: longTodo, done: false },
+    ]);
+    expect(result).toContain('TodoWrite');
+    expect(result).toContain('改 A');
+    expect(result).toContain('修 B');
+    expect(result).toContain('测 C');
+  });
+
+  it('assistant 长结论不被旧 280 狠截（agent 承接需要完整结论）', () => {
+    const longConclusion = '上次结论：经过排查，问题在 useThreadProgressProtocol 的 NotFound 静默路径，' + 'X'.repeat(400);
+    const result = extractTimelineSummary([
+      { id: 'a1', kind: 'assistant', text: longConclusion },
+    ]);
+    expect(result).toContain('上次结论');
+    expect(result).toContain('useThreadProgressProtocol');
+    expect(result).toContain('NotFound');
   });
 
   it('formats command item with command + exitCode + truncated output', () => {
@@ -142,8 +221,10 @@ describe('extractTimelineSummary', () => {
     const result = extractTimelineSummary([
       { id: 'c1', kind: 'command', command: 'ls', output: 'X'.repeat(5000) },
     ]);
-    // PER_ITEM_FIELD_LIMIT 280 ± ellipsis means single line stays < ~400 chars, much under default 2400
-    expect(result.length).toBeLessThan(500);
+    // LONG_FIELD_LIMIT 600 ± ellipsis：单行 command output ≈ 700 chars，远低于
+    // DEFAULT_SUMMARY_LIMIT 4000；放宽 1000 留 buffer 反映 Phase 2a 取舍
+    expect(result.length).toBeLessThan(1000);
+    expect(result.length).toBeGreaterThan(550); // 验证确实拿到了 long-field 体量的输出
   });
 });
 
@@ -299,7 +380,7 @@ describe('buildSeedInstructionsFromSummary', () => {
   });
 
   it('truncates summary to default limit', () => {
-    const longSummary = 'x'.repeat(3000);
+    const longSummary = 'x'.repeat(5000); // 超过 4000 默认 limit 才能触发截断
     const out = buildSeedInstructionsFromSummary(longSummary);
     expect(out).toContain('xxxx');
     expect(out).toContain('…');

@@ -13,6 +13,77 @@ import {
   extractTimelineSummary,
 } from './useSummaryHandoff.js';
 
+// Phase 4-fork-kickoff：fork 出新对话后让 agent 自动开场。详见 useForkThread.submit。
+// 文案 B：明确指示 agent 基于 system 里塞的摘要总结进展并提建议；
+// 简短稳定，便于 timeline selector 用 text 匹配过滤这条 user 消息。
+const FORK_KICKOFF_PROMPT = '请基于上文摘要，简要总结上次进展并提出下一步建议。';
+
+// 子 agent thread（DAG 子节点 / 用户主动 spawn 的子 agent）不应触发 kickoff——
+// 用户根本不打开这些 thread 看，agent 主动开场是噪声。
+// 判定：runtime.rootTaskId 存在且 !== runtime.taskId（root thread 自身两者相等，见
+// internal/module/thread/promote_task.go::PromoteTaskFromThread）。
+function isSubAgentRuntime(runtime) {
+  if (!runtime || typeof runtime !== 'object') return false;
+  const taskId = (runtime.taskId || runtime.task_id || '').toString().trim();
+  const rootTaskId = (runtime.rootTaskId || runtime.root_task_id || '').toString().trim();
+  return Boolean(taskId && rootTaskId && rootTaskId !== taskId);
+}
+
+// 返回错误字符串（成功 / 跳过返回空字符串）。失败时 useForkThread.submit 会把这个
+// 错误暴露在 kickoffError ref 上——sendMessage 内部已经做 isSessionNotAvailableError
+// recover+retry 兜底，能走到这层 catch 说明 recover 也失败了，agent 真挂了，需要让
+// UI 有机会感知（review M1）。
+async function maybeSendKickoff(ctx, sourceThreadId, newThreadId) {
+  const sourceRuntime = ctx.threadStore?.state?.agentRuntimeById?.[sourceThreadId];
+  const hasSendMessage = typeof ctx.threadStore?.sendMessage === 'function';
+  // 诊断日志：让生产 [AO] 能看到决策路径全状态。bug 报告「UI 没看到生效」
+  // 时第一时间能定位是 wiring 没接通 / sub-agent 误判 / sendMessage 未注入。
+  logInfo('ui', 'forkThread.kickoff_check', {
+    source_thread_id: sourceThreadId,
+    new_thread_id: newThreadId,
+    has_source_runtime: Boolean(sourceRuntime && typeof sourceRuntime === 'object'),
+    source_task_id: ((sourceRuntime?.taskId || sourceRuntime?.task_id) || '').toString(),
+    source_root_task_id: ((sourceRuntime?.rootTaskId || sourceRuntime?.root_task_id) || '').toString(),
+    is_sub_agent: isSubAgentRuntime(sourceRuntime),
+    has_send_message: hasSendMessage,
+  });
+  if (isSubAgentRuntime(sourceRuntime)) {
+    logInfo('ui', 'forkThread.kickoff_skipped_sub_agent', {
+      source_thread_id: sourceThreadId, new_thread_id: newThreadId,
+    });
+    return '';
+  }
+  if (!hasSendMessage) {
+    logWarn('ui', 'forkThread.kickoff_no_send_message', {
+      source_thread_id: sourceThreadId, new_thread_id: newThreadId,
+    });
+    return '';
+  }
+  try {
+    await ctx.threadStore.sendMessage(newThreadId, FORK_KICKOFF_PROMPT, [], { kickoff: true });
+    logInfo('ui', 'forkThread.kickoff_sent', {
+      source_thread_id: sourceThreadId, new_thread_id: newThreadId,
+    });
+    return '';
+  } catch (kickoffErr) {
+    const msg = toErrorMessage(kickoffErr) || 'kickoff 发送失败';
+    // review P2 部分修：失败时清 kickoffByThread，让 timeline selector 不再过滤
+    // 这条 user message——agent 没主动开场时用户至少能看到 kickoff prompt 原文
+    // 出现在 timeline 头部，比「完全空白」更可定位。
+    const stateRef = ctx.threadStore?.state;
+    if (stateRef && stateRef.kickoffByThread && newThreadId) {
+      const next = { ...stateRef.kickoffByThread };
+      delete next[newThreadId];
+      stateRef.kickoffByThread = next;
+    }
+    logWarn('ui', 'forkThread.kickoff_failed', {
+      source_thread_id: sourceThreadId, new_thread_id: newThreadId,
+      error: msg,
+    });
+    return msg;
+  }
+}
+
 function toErrorMessage(error) {
   return ((error && typeof error === 'object' && typeof error.message === 'string' ? error.message : '') || String(error || '')).toString().trim();
 }
@@ -30,6 +101,9 @@ function toErrorMessage(error) {
 export function useForkThread(ctx) {
   const submitting = ref(false);
   const error = ref('');
+  // review M1：kickoff 失败与 fork 主流程错误分开。fork 主流程已成功（thread 已创建），
+  // kickoff 失败属于次要错误；混在 error 里会让 UI 误以为 fork 没成功。
+  const kickoffError = ref('');
 
   async function loadSharedFiles(paths) {
     const list = Array.isArray(paths) ? paths.filter(Boolean) : [];
@@ -78,6 +152,7 @@ export function useForkThread(ctx) {
     if (submitting.value) return '';
     submitting.value = true;
     error.value = '';
+    kickoffError.value = '';
     const sourceThreadId = (ctx.selectedThreadId.value || '').toString().trim();
     try {
       const summary = buildSummaryFromCurrentThread();
@@ -117,6 +192,8 @@ export function useForkThread(ctx) {
           shared_file_count: sharedFiles.length,
         });
         ctx.composer.closeForkDraft();
+        const kickoffMsg = await maybeSendKickoff(ctx, sourceThreadId, newThreadId);
+        if (kickoffMsg) kickoffError.value = kickoffMsg;
       }
       return newThreadId || '';
     } catch (err) {
@@ -134,6 +211,7 @@ export function useForkThread(ctx) {
   return {
     submitting,
     error,
+    kickoffError,
     submit,
   };
 }
