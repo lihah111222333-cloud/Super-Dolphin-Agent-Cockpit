@@ -152,6 +152,9 @@ export function buildUnifiedChatPageExposed(ctx) {
     refreshTaskHandoff: taskHandoff.refreshTaskHandoff,
     continueCurrentTask: taskHandoff.continueCurrentTask,
     startNewTaskFromHandoff: taskHandoff.startNewTaskFromHandoff,
+    // F1：kickoff 失败不走 main error，独立暴露 ref 让 banner/toast 能消费
+    // （当前 UI 还没接 banner，先留口子——跟 fork-thread 的 review M1 同款修补）。
+    taskHandoffKickoffError: taskHandoff.taskHandoffKickoffError,
     continueCurrentTaskInNewWindow: taskHandoff.continueCurrentTaskInNewWindow,
     toggleTaskStrip: taskHandoff.toggleTaskStrip,
     threadConfigUi,

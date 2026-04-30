@@ -160,7 +160,7 @@ describe('UnifiedChatPage.setup public contract', () => {
       'toggleComposerSelectedSkill', 'clearComposerSelectedSkills', 'selectAllComposerSuggestedSkills',
       'composerSkillMatchClass', 'composerSkillMatchReason', 'dragging', 'threadRailDragging',
       'activityPanelDragging', 'composerBarRef', 'presenceAnchorRef', 'workspaceRef', 'activeActivityStats',
-      'activeAlerts', 'activeProcessActivity', 'selectThread', 'launchOne', 'send', 'refreshTaskHandoff', 'continueCurrentTask', 'startNewTaskFromHandoff', 'continueCurrentTaskInNewWindow', 'toggleTaskStrip', 'threadConfigUi',
+      'activeAlerts', 'activeProcessActivity', 'selectThread', 'launchOne', 'send', 'refreshTaskHandoff', 'continueCurrentTask', 'startNewTaskFromHandoff', 'taskHandoffKickoffError', 'continueCurrentTaskInNewWindow', 'toggleTaskStrip', 'threadConfigUi',
       'updateThreadConfigModel', 'updateThreadConfigEffort', 'saveThreadConfigDraft', 'restoreThreadConfigInherit', 'useClaudeProvider',
        'toggleProviderMode', 'interruptCurrent', 'compactCurrent', 'recoverSelected',
        'setCmdLayout', 'setCmdCardCols', 'copySelectedThreadId', 'timelinePreview', 'diffPreview',
