@@ -373,11 +373,16 @@ go vet ./...
 
 按新 spec §10/§11/§12，下列项是后续 phase 的硬前置，P4 **必须明示**给后续工作者：
 
-1. **§10 `allowed_tools` enforcement**：sidecar `SkillMeta.AllowedTools` 当前只 parse 进数据结构，无任何 adapter / nativefilter 真正收敛 Claude / Codex 工具白名单。spec §10 明确"仅解析字段不算完成"。**P5 nativefilter / P4 之后的安全替代必须实现**。
-2. **§10 `~/.multi-agent/skills-trust.json` 迁移/废弃策略**：仓内目前未涉及 trust file 迁移；旧用户已批准/拒绝的决议必须由迁移逻辑显式 reconcile，不得默认丢弃。**P5 之前必须明确策略**（保留 / 迁移到 sidecar / 显式标记废弃）。
-3. **§10 marketplace `signature` 不实现前的 untrusted 处理**：sidecar `signature` 字段已存在但未校验。spec §10 明确"未实现签名前 marketplace 必须按 untrusted/local 处理，不得自动提升 trusted"。**marketplace install 路径上线前必须实现 signature 校验或硬约束 untrusted 行为**。
+1. **§10 `allowed_tools` enforcement** — ✅ **已完成**（commit `b3eee92`）。`nativefilter.AggregateAllowedTools` + `BuildClaudeSettings` `permissions.allow` allowlist 在运行时收敛 Claude 会话工具集。设计折中：Claude Code 2.1.119 的 permissions.allow 是 session 级 allowlist，不支持 per-skill 精确控制；本实现是全局并集近似，是现有 CLI 能力下能做到的最接近 spec 语义的严格收敛。
+2. **§10 `~/.multi-agent/skills-trust.json` 迁移/废弃策略** — ⏸️ **当前不需要迁移**：approval.go 由 spec §11 明确要求 P5+ 之前不删，旧 `skills-trust.json` cache 仍在用。但 codify 入 plan：当 ArtifactKind 删除被提上日程（P5+ 某阶段）时，**必须先实现**：
+   - 读旧 `skills-trust.json` cache（详见 `internal/module/skill/approval.go: NewApprovalCache`）
+   - 按 sidecar 新模型重新发现状态（SkillMeta.Origin / `EvaluateTrust`）与旧 cache 决议合并
+   - 写迁移标记避免重复迁移
+   - 不得默认丢弃旧用户决议。
+   本项本身不跳过 archtest 守卫（当前仅 codify）。
+3. **§10 marketplace `signature` 不实现前的 untrusted 处理** — ✅ **已完成**（commit `199a016`）。新增 `skilllibrary.EvaluateTrust(meta) TrustLevel` + `IsTrusted(meta) bool`：origin=marketplace 无论 signature 是否为空均返回 untrusted，走 ArtifactKind 审批 + AllowedTools 收敛路径，避免 "看起来已签名实际未验证" 安全错觉。未来签名校验落地后，本函数升级为对已验证 signature 返回 trusted。
 
-上述 3 项是 spec §11 把 ArtifactKind 标"延后删除（不得在 P4 之前抢删）"的前置条件——这意味着 ArtifactKind 删除最早 P5+ 才能动。
+§10 三项中两项已落地，第二项（trust file 迁移）**当前不是 blocking**：approval.go 仍在使用，等未来 ArtifactKind 删除 phase 上日程时再实现迁移函数。**ArtifactKind 删除现在可以 unblock**（§10-1 / §10-3 完成），但仍要等 §10-2 迁移函数实现后才安全删。
 
 ### 已知偏差（已 ship，无追溯空间）
 
