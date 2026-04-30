@@ -97,6 +97,12 @@ func parseHistoryLine(raw []byte) (Message, bool) {
 	metadata := json.RawMessage(nil)
 	if role == "user" {
 		text, metadata = normalizeHistoryUserContent(text)
+		// Vision turns persist images as native content blocks rather than the
+		// legacy `[Image: path]` text hint, so when the text-hint parser finds
+		// nothing we fall back to extracting metadata from the image blocks.
+		if len(metadata) == 0 {
+			metadata = extractImageContentBlocksMetadata(line.Message.Content)
+		}
 	}
 	if strings.TrimSpace(text) == "" && len(metadata) == 0 {
 		return Message{}, false
@@ -122,6 +128,61 @@ func extractHistoryText(items []historyContentItem) string {
 func normalizeHistoryUserContent(text string) (string, json.RawMessage) {
 	text, metadata := extractInjectedAttachmentMetadata(text)
 	return strings.TrimSpace(text), metadata
+}
+
+// extractImageContentBlocksMetadata reconstructs an InputItem-style metadata
+// payload from native Anthropic image content blocks. The original local
+// filesystem path is not preserved by claude CLI's history (only the inline
+// base64), so we emit a `data:` URL the frontend can render directly via
+// AttachmentPreview without going through the /clipboard asset route.
+func extractImageContentBlocksMetadata(items []historyContentItem) json.RawMessage {
+	inputs := make([]map[string]any, 0)
+	for _, item := range items {
+		if !strings.EqualFold(strings.TrimSpace(item.Type), "image") || item.Source == nil {
+			continue
+		}
+		record := historyImageInputFromSource(item.Source)
+		if record == nil {
+			continue
+		}
+		inputs = append(inputs, record)
+	}
+	if len(inputs) == 0 {
+		return nil
+	}
+	raw, err := json.Marshal(map[string]any{"input": inputs})
+	if err != nil {
+		return nil
+	}
+	return raw
+}
+
+func historyImageInputFromSource(source *historyImageSource) map[string]any {
+	if source == nil {
+		return nil
+	}
+	switch strings.ToLower(strings.TrimSpace(source.Type)) {
+	case "base64":
+		mediaType := strings.TrimSpace(source.MediaType)
+		data := strings.TrimSpace(source.Data)
+		if mediaType == "" || data == "" {
+			return nil
+		}
+		return map[string]any{
+			"type": "image",
+			"url":  "data:" + mediaType + ";base64," + data,
+		}
+	case "url":
+		url := strings.TrimSpace(source.URL)
+		if url == "" {
+			return nil
+		}
+		return map[string]any{
+			"type": "image",
+			"url":  url,
+		}
+	}
+	return nil
 }
 
 func extractInjectedAttachmentMetadata(text string) (string, json.RawMessage) {
