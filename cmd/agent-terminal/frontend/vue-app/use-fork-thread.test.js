@@ -191,15 +191,36 @@ describe('useForkThread.submit', () => {
     expect(ctx.threadStore.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('kickoff sendMessage 抛错时 fork 主流程仍返回新 thread id', async () => {
+  it('kickoff sendMessage 抛错时 fork 主流程仍返回新 thread id（review M1：kickoffError 被设）', async () => {
     const ctx = makeCtx({
       timeline: [{ role: 'user', text: 'hi' }],
       sendMessageImpl: async () => { throw new Error('rpc fail'); },
     });
-    const { submit } = useForkThread(ctx);
+    const { submit, error, kickoffError } = useForkThread(ctx);
     const id = await submit();
     expect(id).toBe('new-thread-id'); // 不破 fork
     expect(ctx.composer.closeForkDraft).toHaveBeenCalledOnce();
+    // M1：fork 主 error 不被污染，kickoff 错误单独 surface 给 UI
+    expect(error.value).toBe('');
+    expect(kickoffError.value).toContain('rpc fail');
+  });
+
+  it('多次 submit 之间 kickoffError 会被重置（避免上次失败错误被下次看到）', async () => {
+    let shouldFail = true;
+    const ctx = makeCtx({
+      timeline: [{ role: 'user', text: 'hi' }],
+      sendMessageImpl: async () => {
+        if (shouldFail) throw new Error('first attempt fail');
+      },
+    });
+    const { submit, kickoffError } = useForkThread(ctx);
+    await submit();
+    expect(kickoffError.value).toContain('first attempt fail');
+    // 第二次 fork 时 sendMessage 不抛——kickoffError 应被清零
+    shouldFail = false;
+    ctx.composer.forkDraft.active = true; // 重新开草稿模拟用户再点 fork
+    await submit();
+    expect(kickoffError.value).toBe('');
   });
 
   it('threadStore 缺 sendMessage 时静默跳过 kickoff（向后兼容）', async () => {

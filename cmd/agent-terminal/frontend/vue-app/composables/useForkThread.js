@@ -29,25 +29,32 @@ function isSubAgentRuntime(runtime) {
   return Boolean(taskId && rootTaskId && rootTaskId !== taskId);
 }
 
+// 返回错误字符串（成功 / 跳过返回空字符串）。失败时 useForkThread.submit 会把这个
+// 错误暴露在 kickoffError ref 上——sendMessage 内部已经做 isSessionNotAvailableError
+// recover+retry 兜底，能走到这层 catch 说明 recover 也失败了，agent 真挂了，需要让
+// UI 有机会感知（review M1）。
 async function maybeSendKickoff(ctx, sourceThreadId, newThreadId) {
   const sourceRuntime = ctx.threadStore?.state?.agentRuntimeById?.[sourceThreadId];
   if (isSubAgentRuntime(sourceRuntime)) {
     logInfo('ui', 'forkThread.kickoff_skipped_sub_agent', {
       source_thread_id: sourceThreadId, new_thread_id: newThreadId,
     });
-    return;
+    return '';
   }
-  if (typeof ctx.threadStore?.sendMessage !== 'function') return;
+  if (typeof ctx.threadStore?.sendMessage !== 'function') return '';
   try {
     await ctx.threadStore.sendMessage(newThreadId, FORK_KICKOFF_PROMPT, [], { kickoff: true });
     logInfo('ui', 'forkThread.kickoff_sent', {
       source_thread_id: sourceThreadId, new_thread_id: newThreadId,
     });
+    return '';
   } catch (kickoffErr) {
+    const msg = toErrorMessage(kickoffErr) || 'kickoff 发送失败';
     logWarn('ui', 'forkThread.kickoff_failed', {
       source_thread_id: sourceThreadId, new_thread_id: newThreadId,
-      error: toErrorMessage(kickoffErr),
+      error: msg,
     });
+    return msg;
   }
 }
 
@@ -68,6 +75,9 @@ function toErrorMessage(error) {
 export function useForkThread(ctx) {
   const submitting = ref(false);
   const error = ref('');
+  // review M1：kickoff 失败与 fork 主流程错误分开。fork 主流程已成功（thread 已创建），
+  // kickoff 失败属于次要错误；混在 error 里会让 UI 误以为 fork 没成功。
+  const kickoffError = ref('');
 
   async function loadSharedFiles(paths) {
     const list = Array.isArray(paths) ? paths.filter(Boolean) : [];
@@ -116,6 +126,7 @@ export function useForkThread(ctx) {
     if (submitting.value) return '';
     submitting.value = true;
     error.value = '';
+    kickoffError.value = '';
     const sourceThreadId = (ctx.selectedThreadId.value || '').toString().trim();
     try {
       const summary = buildSummaryFromCurrentThread();
@@ -155,7 +166,8 @@ export function useForkThread(ctx) {
           shared_file_count: sharedFiles.length,
         });
         ctx.composer.closeForkDraft();
-        await maybeSendKickoff(ctx, sourceThreadId, newThreadId);
+        const kickoffMsg = await maybeSendKickoff(ctx, sourceThreadId, newThreadId);
+        if (kickoffMsg) kickoffError.value = kickoffMsg;
       }
       return newThreadId || '';
     } catch (err) {
@@ -173,6 +185,7 @@ export function useForkThread(ctx) {
   return {
     submitting,
     error,
+    kickoffError,
     submit,
   };
 }
