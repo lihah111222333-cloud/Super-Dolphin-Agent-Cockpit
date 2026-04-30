@@ -11,15 +11,14 @@ import (
 	"go.uber.org/fx"
 )
 
-const envFlag = "SUPER_DOLPHIN_SKILL_FBSD"
-
 // Module 是 fbsd 的 fx wire-up 入口：Provide *Tracker + 注册 OnStop flush 钩子。
 var Module = fx.Module("fbsd",
 	fx.Provide(NewTrackerFromEnv),
 	fx.Invoke(registerFlush),
 )
 
-// NewTrackerFromEnv 从环境变量解析 enabled flag，构造 Tracker。
+// NewTrackerFromEnv 构造 Tracker。FBSD 默认始终启用——历史灰度开关
+// SUPER_DOLPHIN_SKILL_FBSD 已在用户决策（C 档清理）下删除。
 //
 // stats 文件路径：
 //   - 全局：~/.multi-agent/skills-stats.json
@@ -28,7 +27,6 @@ var Module = fx.Module("fbsd",
 // 当前 workspace ID 用 hostname 简化（spec §9.6 严格定义留 P6.x）；
 // multi-user / multi-project 同主机会混淆，建议未来改为 cwd hash。
 func NewTrackerFromEnv() (*Tracker, error) {
-	enabled := os.Getenv(envFlag) == "on"
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("fbsd: user home: %w", err)
@@ -39,7 +37,7 @@ func NewTrackerFromEnv() (*Tracker, error) {
 		host = "unknown"
 	}
 	wsPath := filepath.Join(home, ".multi-agent", "workspaces", host, "skills-stats.json")
-	return NewTracker(wsPath, globPath, enabled)
+	return NewTracker(wsPath, globPath, true)
 }
 
 // registerFlush 注册 fx OnStop 钩子，确保 harness 退出前 flush stats。

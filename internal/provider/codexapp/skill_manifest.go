@@ -91,7 +91,7 @@ func renderColdBlock(e skilllibrary.SkillEntry) string {
 	return fmt.Sprintf("- %s: %s\n", e.Meta.Name, descriptionOf(e))
 }
 
-// buildSkillManifestFBSD 是开启 SUPER_DOLPHIN_SKILL_FBSD 后的渲染入口：
+// buildSkillManifestFBSD 是 FBSD 频次降级渲染入口：
 // AssignTiers 后按 Hot/Warm/Cold/Frozen 分块输出，Frozen tier 不出现于 manifest。
 // tracker / entries 为空 → 返回空字符串（调用方负责 fallback 走 buildSkillManifest）。
 func buildSkillManifestFBSD(entries []skilllibrary.SkillEntry, tracker *fbsd.Tracker, cfg fbsd.TierConfig, now time.Time) string {
@@ -126,8 +126,8 @@ func sortedKeys(m map[string]string) []string {
 }
 
 // renderSkillManifest 在 driver 维度选择走 FBSD tier 渲染还是 P3 单 tier。
-// SUPER_DOLPHIN_SKILL_FBSD=on 且 tracker 注入成功时走 buildSkillManifestFBSD；
-// 其他情况向后兼容到 buildSkillManifest（spec §12 P6 灰度规范）。
+// tracker 注入成功时走 buildSkillManifestFBSD（默认路径）；
+// tracker 为 nil（fx optional 注入未提供）时回退到 buildSkillManifest 单 tier。
 func (d *driver) renderSkillManifest(entries []skilllibrary.SkillEntry) string {
 	if d != nil && d.tracker != nil && d.tracker.Enabled() {
 		return buildSkillManifestFBSD(entries, d.tracker, fbsd.EnvTierConfig(), time.Now())

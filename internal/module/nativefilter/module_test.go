@@ -8,22 +8,11 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 )
 
-// newTestFilter 构造一个绕过环境变量、可控的 Filter，便于单元测试。
-func newTestFilter(t *testing.T, store *skilllibrary.Store, baseFn func() (Config, error), enabled bool) *Filter {
+// newTestFilter 构造一个 baseFn 可控的 Filter，便于单元测试。
+// post-flag-removal: enabled 字段已删，所有 Filter 默认就是 active。
+func newTestFilter(t *testing.T, store *skilllibrary.Store, baseFn func() (Config, error)) *Filter {
 	t.Helper()
-	return &Filter{store: store, baseFn: baseFn, enabled: enabled}
-}
-
-func TestFilter_DisabledNoOp(t *testing.T) {
-	ws := t.TempDir()
-	f := newTestFilter(t, nil, func() (Config, error) { return Config{}, nil }, false)
-	if err := f.Apply(ws); err != nil {
-		t.Fatalf("disabled Filter.Apply should not error: %v", err)
-	}
-	// 不应写出 settings.json
-	if _, err := os.Stat(filepath.Join(ws, ".claude", "settings.json")); !os.IsNotExist(err) {
-		t.Errorf("disabled Apply must not create settings.json (err=%v)", err)
-	}
+	return &Filter{store: store, baseFn: baseFn}
 }
 
 func TestFilter_NilReceiverSafe(t *testing.T) {
@@ -31,22 +20,22 @@ func TestFilter_NilReceiverSafe(t *testing.T) {
 	if err := f.Apply("/anywhere"); err != nil {
 		t.Errorf("nil Filter.Apply must be no-op, got %v", err)
 	}
-	if f.Enabled() {
-		t.Errorf("nil Filter.Enabled must be false")
-	}
 }
 
+// TestFilter_NilStoreSafe 锁定 store=nil（fx optional 注入未提供）时 Apply 是 no-op
+// 不报错也不写文件——避免 mcp-orch standalone 模式或测试 fixture 把它当强依赖。
 func TestFilter_NilStoreSafe(t *testing.T) {
 	ws := t.TempDir()
-	f := newTestFilter(t, nil, func() (Config, error) { return Config{}, nil }, true)
+	f := newTestFilter(t, nil, func() (Config, error) { return Config{}, nil })
 	if err := f.Apply(ws); err != nil {
-		t.Errorf("nil store with enabled flag should no-op, got %v", err)
+		t.Errorf("nil store should no-op, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".claude", "settings.json")); !os.IsNotExist(err) {
+		t.Errorf("nil store Apply must not create settings.json (err=%v)", err)
 	}
 }
 
-func TestFilter_EnabledWritesSettings(t *testing.T) {
-	// 用真 skilllibrary.Store 的 fixture：临时 library 含一个 active skill
-	// 声明 ReplacesNative.claude=["simplify"]
+func TestFilter_WritesSettings(t *testing.T) {
 	libDir := t.TempDir()
 	store := skilllibrary.NewStore(libDir)
 	skillMD := []byte("---\nname: tdd-replacement\ndescription: x\n---\n# tdd\n")
@@ -64,7 +53,7 @@ func TestFilter_EnabledWritesSettings(t *testing.T) {
 	ws := t.TempDir()
 	f := newTestFilter(t, store, func() (Config, error) {
 		return Config{Claude: ClaudeConfig{DisabledSkills: []string{"init"}}}, nil
-	}, true)
+	})
 	if err := f.Apply(ws); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -77,21 +66,6 @@ func TestFilter_EnabledWritesSettings(t *testing.T) {
 	}
 	if !contains(body, "Skill:init") {
 		t.Errorf("expected Skill:init (from base config), got: %s", body)
-	}
-}
-
-func TestNewFilter_RespectsEnvFlag(t *testing.T) {
-	t.Setenv(envFlag, "on")
-	libDir := t.TempDir()
-	f := NewFilter(skilllibrary.NewStore(libDir))
-	if !f.Enabled() {
-		t.Errorf("env=on should enable filter")
-	}
-
-	t.Setenv(envFlag, "")
-	f2 := NewFilter(skilllibrary.NewStore(libDir))
-	if f2.Enabled() {
-		t.Errorf("env=\"\" should disable filter")
 	}
 }
 
