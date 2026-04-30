@@ -126,7 +126,6 @@ type Service interface {
 	skillConfigStore
 	skillPreviewer
 	skillLegacyExpander
-	SkillHostToolReader
 	skillCandidateReviewer
 	SkillRevisionSource
 	TrustRevisionSource
@@ -164,17 +163,6 @@ type SkillCatalogSource interface {
 type SkillHydrationSource interface {
 	SkillLister
 	ReadLocal(ctx context.Context, path string) (any, error)
-}
-
-// SkillHostToolReader is the host-direct toolbridge dependency for
-// skill_expand_body / skill_read_resource.
-type SkillHostToolReader interface {
-	// ExpandBody (P20.1 Phase 6): read SKILL.md body by name with optional
-	// Markdown anchor slicing.
-	ExpandBody(ctx context.Context, p ExpandBodyParams) (ExpandBodyResult, error)
-	// ReadResource (P20.1 Phase 6): read a resource file from the skill
-	// directory by name + relative path.
-	ReadResource(ctx context.Context, p ReadResourceParams) (ReadResourceResult, error)
 }
 
 type skillLocalMutationStore interface {

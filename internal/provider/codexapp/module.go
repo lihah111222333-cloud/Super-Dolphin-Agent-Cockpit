@@ -11,11 +11,12 @@ import (
 	"time"
 
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
-	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/fbsd"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"go.uber.org/fx"
 )
@@ -23,12 +24,9 @@ import (
 var Module = fx.Module("provider.codexapp",
 	fx.Provide(
 		NewServerManager,
-		NewDriverFactory,
+		provideDriverFactory,
 		fx.Annotate(provideContractDriverFactory, fx.ResultTags(`group:"drivers"`)),
 		fx.Annotate(provideDreamExecutorProvider, fx.ResultTags(`group:"dream_executors"`)),
-		// P20.1 Phase 10: codexapp 无原生 skill 机制，但仍注册空实现进聚合 group
-		// ——保持 detector 成员不因 provider 组合误差而缺失。
-		fx.Annotate(NewSkillInjectionPort, fx.ResultTags(promptpkg.SkillInjectionPortGroupTag)),
 		// P21 Track B pool 基础设施：ServerPool + 周期 EvictIdle Runner。
 		// Codex sessions with an explicit identity route through this pool so
 		// session shutdown owns the app-server process group and sidecars.
@@ -48,6 +46,26 @@ var Module = fx.Module("provider.codexapp",
 // Split out so the fx.Annotate above can type the result as platformrunner.Runner.
 func provideDefaultPeerSupervisor(mgr *ServerManager, logger *slog.Logger) platformrunner.Runner {
 	return NewPeerSupervisor(mgr, logger)
+}
+
+// DriverFactoryParams holds the fx-injected dependencies for NewDriverFactory.
+// SkillStore is optional so the codexapp module works even when skilllibrary
+// is not wired into the application graph (e.g., standalone tests).
+type DriverFactoryParams struct {
+	fx.In
+
+	Logger     *slog.Logger
+	Dispatcher *unified.EventDispatcher
+	Approvals  *rpc.ApprovalManager
+	Reporter   contract.RuntimeReporter
+	Manager    *ServerManager
+	Pool       *ServerPool
+	SkillStore *skilllibrary.Store `optional:"true"`
+	Tracker    *fbsd.Tracker       `optional:"true"`
+}
+
+func provideDriverFactory(p DriverFactoryParams) *DriverFactory {
+	return NewDriverFactory(p.Logger, p.Dispatcher, p.Approvals, p.Reporter, p.Manager, p.Pool, p.SkillStore, p.Tracker)
 }
 
 func provideContractDriverFactory(factory *DriverFactory) contract.DriverFactory {
@@ -287,70 +305,6 @@ func cleanResidualProcesses() {
 		pkglogger.Info("server_manager: cleaned residual app-server processes at shutdown",
 			"killed", killed)
 	}
-}
-
-// buildSkillPromptInput 按 P20.1 Phase 4 规格渲染 skill 注入块，并补 P20.2 §4
-// 兜底：non-None skill 始终以 `skills:\n- name` 名单形式出现在模型上下文。
-//
-// P20.18 Phase 1.5：这里是 codexapp skill prompt sink，必须自行套用
-// overrideSkillsToSummary；caller 侧保留同一 override 只是显式 belt-and-suspenders。
-// 新入口若直接调用 buildSkillPromptInput / turnInputsFromRequest，也不能绕过 Summary 默认策略。
-//
-// 两段结构（与 claudecli buildSkillSection 对称）：
-//  1. name-list：所有 Mode.Effective()!=None 的 skill 名都会列出，即便 render
-//     因 Prompt/Summary 为空而返回 ok=false —— 避免手动选中的 skill 在
-//     PrepareTurn 未完成 hydrate 时被 provider silent drop。
-//  2. block-sections：按 SKILL_WRITER_FORMAT 渲染：
-//     - legacy（默认） → [skill:name]\n<body> / [skill:name]\n摘要: ...\n使用方式: ...
-//     - v1            → [skill:name::mode@v1]\n...\n[/skill:name::mode@v1]
-//     - Mode=None / 非法值 → 跳过（与 name-list 一起剥离，对齐 claudecli buildSkillList）。
-func buildSkillPromptInput(skills []dto.SkillRef) (turnInputItem, bool) {
-	skills = overrideSkillsToSummary(skills)
-	writerFormat := skillWriterFormat()
-	listLines := make([]string, 0, len(skills)+1)
-	listLines = append(listLines, "skills:")
-	sections := make([]string, 0, len(skills))
-	for _, skill := range skills {
-		name := strings.TrimSpace(skill.Name)
-		if name == "" {
-			continue
-		}
-		// Mode.Effective()：None/invalid 既不进 name-list 也不进 block，
-		// 保持与 claudecli session_turn.go:339 buildSkillList 语义一致。
-		if skill.Mode.Effective() == dto.SkillModeNone {
-			continue
-		}
-		listLines = append(listLines, "- "+name)
-		if block, ok := renderSkillBlock(skill, writerFormat); ok {
-			sections = append(sections, block)
-		}
-	}
-	parts := make([]string, 0, 2)
-	if len(listLines) > 1 {
-		parts = append(parts, strings.Join(listLines, "\n"))
-	}
-	if len(sections) > 0 {
-		parts = append(parts, strings.Join(sections, "\n\n"))
-	}
-	if len(parts) == 0 {
-		return turnInputItem{}, false
-	}
-	return newTextTurnInput("text", strings.Join(parts, "\n\n")), true
-}
-
-func renderSkillBlock(skill dto.SkillRef, writerFormat string) (string, bool) {
-	if writerFormat == "v1" {
-		block := skillpkg.RenderSkillBlockV1(skill.Name, skill.Prompt, skill.Summary, string(skill.Mode), "1")
-		return block, block != ""
-	}
-	return skillpkg.RenderLegacySkillBlock(skill.Name, skill.Prompt, skill.Summary, string(skill.Mode))
-}
-
-func skillWriterFormat() string {
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("SKILL_WRITER_FORMAT")), "v1") {
-		return "v1"
-	}
-	return "legacy"
 }
 
 func resolveLocalTurnID(requested, fallback string) string {

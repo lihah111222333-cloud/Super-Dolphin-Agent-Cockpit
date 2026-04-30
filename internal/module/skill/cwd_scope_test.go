@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -119,46 +118,12 @@ func TestAllSkillServiceMethodsRequireCWD(t *testing.T) {
 				return err
 			},
 		},
-		{
-			name: "ExpandBody",
-			call: func() error {
-				_, err := svc.ExpandBody(context.Background(), ExpandBodyParams{Name: "demo"})
-				return err
-			},
-		},
-		{
-			name: "ReadResource",
-			call: func() error {
-				_, err := svc.ReadResource(context.Background(), ReadResourceParams{Name: "demo", Path: "ref.md"})
-				return err
-			},
-		},
 	}
 
 	for _, tc := range cases {
 		err := tc.call()
 		if !errors.Is(err, ErrMissingCWD) {
 			t.Fatalf("%s error = %v, want ErrMissingCWD", tc.name, err)
-		}
-	}
-}
-
-func TestExpandBodySystemSkillSharedAcrossCWD(t *testing.T) {
-	t.Parallel()
-
-	systemRoot := t.TempDir()
-	projectA := filepath.Join(t.TempDir(), "wj", "langgraph")
-	projectB := filepath.Join(t.TempDir(), "wj", "go-agent-v2")
-	writeScopedSystemSkill(t, systemRoot, projectA, "shared", "---\nname: shared\nsummary: global\n---\n## Body\nglobal")
-	svc := &service{root: systemRoot, http: &http.Client{}}
-
-	for _, cwd := range []string{projectA, projectB} {
-		got, err := svc.ExpandBody(WithCWD(context.Background(), cwd), ExpandBodyParams{Name: "shared"})
-		if err != nil {
-			t.Fatalf("ExpandBody(%s): %v", cwd, err)
-		}
-		if !strings.Contains(got.Content, "global") {
-			t.Fatalf("ExpandBody(%s) content = %q, want global system skill", cwd, got.Content)
 		}
 	}
 }

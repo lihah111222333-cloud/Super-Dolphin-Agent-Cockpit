@@ -2,7 +2,6 @@ package prompt
 
 import (
 	"os"
-	"strconv"
 	"strings"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
@@ -21,36 +20,12 @@ const (
 	// sole source of truth for the static system prompt instead of having
 	// mergeTemplateSections layer on top of built-ins.
 	envDisableBuiltinStaticSections = "DISABLE_BUILTIN_STATIC_SECTIONS"
-	// P20.1 Phase 10 — skill progressive disclosure 开关与预算。
-	// 默认开启：与上游 CLI 官方基线对齐（Claude Code description always in context +
-	// Codex progressive disclosure 默认开启）。Phase 10 灰度试点结束。
-	// 显式设 ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=false 可回到旧语义：
-	// SkillCatalogProvider 不注入，skill_catalog dynamic slot 渲染为空；
-	// 上游旧 skill_expand_body / skill_read_resource 工具仍可通过 skill.Service 调用。
-	envEnableSkillProgressiveDisclosure = "ENABLE_SKILL_PROGRESSIVE_DISCLOSURE"
-	// SKILL_CATALOG_TOKEN_BUDGET 单位为 token；provider 内部按 ≈4 chars/token 换算。
-	// 默认 3000 tokens ≈ 12000 chars，与 contract.SkillInjectionPort.ReservedTokens 默认一致。
-	envSkillCatalogTokenBudget = "SKILL_CATALOG_TOKEN_BUDGET"
-	// SKILL_CATALOG_META_INSTRUCTIONS 控制尾部是否追加 "How to use skills" 元指令。
-	// 默认 true（Phase 9 行为），设 false 可关闭。
-	envSkillCatalogMetaInstructions = "SKILL_CATALOG_META_INSTRUCTIONS"
-	// SKILL_WRITER_FORMAT 控制 provider 写端 legacy/v1 切换；默认 legacy。
-	envSkillWriterFormat = "SKILL_WRITER_FORMAT"
 )
 
 type Config struct {
 	EnableRegistry                  bool
 	EnableAssembly                  bool
 	EnableSystemContextCacheBreaker bool
-	// P20.1 Phase 10 grayscale：progressive disclosure 总开关。
-	EnableSkillProgressiveDisclosure bool
-	// SkillCatalogTokenBudget 单位 token；≤0 使用 provider 默认（3000 tokens）。
-	SkillCatalogTokenBudget int
-	// EmitSkillCatalogMetaInstructions 控制 manifest 尾部是否追加元指令。
-	EmitSkillCatalogMetaInstructions bool
-	// SkillWriterFormat 只反映当前 env 的有效值；provider 写端仍逐次 os.Getenv，
-	// 避免测试间缓存污染。
-	SkillWriterFormat string
 }
 
 func NewConfig(_ *platformconfig.Config) *Config {
@@ -58,14 +33,6 @@ func NewConfig(_ *platformconfig.Config) *Config {
 		EnableRegistry:                  parseBoolEnv(envEnablePromptRegistry, false),
 		EnableAssembly:                  parseBoolEnv(envEnablePromptAssembly, false),
 		EnableSystemContextCacheBreaker: parseBoolEnv(envEnableSystemContextCacheBreaker, false),
-		// P25 Phase 4 收尾：30 天 observation / production smoke / claudecli E2E
-		// evidence 全部归档，SkillCatalogProvider 默认开启；显式设
-		// ENABLE_SKILL_PROGRESSIVE_DISCLOSURE=false 仍可回到旧语义供回滚使用。
-		// meta-instructions 默认开启（Phase 9 行为）。
-		EnableSkillProgressiveDisclosure: parseBoolEnv(envEnableSkillProgressiveDisclosure, true),
-		SkillCatalogTokenBudget:          parseIntEnv(envSkillCatalogTokenBudget, 0),
-		EmitSkillCatalogMetaInstructions: parseBoolEnv(envSkillCatalogMetaInstructions, true),
-		SkillWriterFormat:                parseSkillWriterFormat(envSkillWriterFormat, "legacy"),
 	}
 }
 
@@ -76,30 +43,6 @@ func parseBoolEnv(key string, fallback bool) bool {
 		return true
 	case "0", "false", "no", "off":
 		return false
-	default:
-		return fallback
-	}
-}
-
-// parseIntEnv 解析整型环境变量；空值 / 无效值 / ≤0 → fallback。
-func parseIntEnv(key string, fallback int) int {
-	raw := strings.TrimSpace(os.Getenv(key))
-	if raw == "" {
-		return fallback
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil || n <= 0 {
-		return fallback
-	}
-	return n
-}
-
-func parseSkillWriterFormat(key, fallback string) string {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
-	case "v1":
-		return "v1"
-	case "", "legacy":
-		return fallback
 	default:
 		return fallback
 	}

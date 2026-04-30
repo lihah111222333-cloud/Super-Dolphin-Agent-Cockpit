@@ -240,8 +240,6 @@ func (a *TurnServiceAdapter) buildPrepareInput(req StartTurnRequest) turn.Prepar
 	skills := make([]providerdto.SkillRef, 0, len(req.Skills))
 	for _, s := range req.Skills {
 		if name := strings.TrimSpace(s); name != "" {
-			// 保留 Mode=Unspecified，由 provider adapter 决定默认注入模式：
-			// codexapp 切 Summary，legacy provider 仍通过 SkillMode.Effective() 取 Full。
 			skills = append(skills, providerdto.SkillRef{Name: name})
 		}
 	}

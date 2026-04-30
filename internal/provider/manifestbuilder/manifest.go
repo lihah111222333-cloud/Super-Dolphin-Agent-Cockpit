@@ -59,39 +59,7 @@ func BuildManifest(ctx dto.ManifestContext) dto.MCPManifest {
 			AutoApprove: append([]string(nil), autoApprove...),
 		})
 	}
-	bins = appendSkillMCPServer(bins, ctx, env, autoApprove)
 	return dto.MCPManifest{Binaries: bins}
-}
-
-func appendSkillMCPServer(bins []dto.MCPBinary, ctx dto.ManifestContext, env map[string]string, autoApprove []string) []dto.MCPBinary {
-	skillEnv := cloneManifestEnv(env)
-	scrubSkillRuntimeEnv(skillEnv)
-	if cwd := strings.TrimSpace(ctx.CWD); cwd != "" {
-		skillEnv[dto.MCPEnvSkillCWD] = cwd
-	}
-	if agentID := strings.TrimSpace(ctx.AgentID); agentID != "" {
-		skillEnv["GO_AGENT_CTL_AGENT_ID"] = agentID
-		skillEnv[dto.MCPEnvSkillAgentID] = agentID
-	}
-	if threadID := strings.TrimSpace(ctx.ThreadID); threadID != "" {
-		skillEnv["GO_AGENT_CTL_THREAD_ID"] = threadID
-		skillEnv[dto.MCPEnvSkillThreadID] = threadID
-	} else if threadID := strings.TrimSpace(skillEnv["GO_AGENT_CTL_THREAD_ID"]); threadID != "" {
-		skillEnv[dto.MCPEnvSkillThreadID] = threadID
-	}
-	return append(bins, dto.MCPBinary{
-		Name:        "skill",
-		LaunchKind:  dto.LaunchKindSameBinarySkill,
-		Env:         skillEnv,
-		AutoApprove: append([]string(nil), autoApprove...),
-	})
-}
-
-func scrubSkillRuntimeEnv(env map[string]string) {
-	delete(env, dto.MCPEnvSkillCWD)
-	delete(env, dto.MCPEnvSkillAgentID)
-	delete(env, dto.MCPEnvSkillThreadID)
-	delete(env, "GO_AGENT_SKILL_MCP_TURN_ID")
 }
 
 func cloneManifestEnv(in map[string]string) map[string]string {

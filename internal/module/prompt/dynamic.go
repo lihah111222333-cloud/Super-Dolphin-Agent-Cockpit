@@ -25,7 +25,6 @@ const (
 	DynamicSectionNumericLengthAnchors = contract.DynamicSectionNumericLengthAnchors
 	DynamicSectionTokenBudget          = contract.DynamicSectionTokenBudget
 	DynamicSectionBrief                = contract.DynamicSectionBrief
-	DynamicSectionSkillCatalog         = contract.DynamicSectionSkillCatalog
 )
 
 type DynamicSectionProvider = contract.DynamicSectionProvider
@@ -68,14 +67,6 @@ var dynamicSectionSpecs = []dynamicSectionSpec{
 	{name: DynamicSectionNumericLengthAnchors, order: 240, cachePolicy: CacheByName},
 	{name: DynamicSectionTokenBudget, order: 250, cachePolicy: CacheByName},
 	{name: DynamicSectionBrief, order: 260, cachePolicy: CacheByName},
-	// P20.1 Phase 10：skill_catalog L1 manifest slot。policy=Uncached 因为
-	// provider 每 Resolve 都会调 skill.Service.ListSkills 扫盘（内部已有去抖/
-	// revision 缓存），上层不需要 prompt cache 再二次缓存。
-	//
-	// 灰度：即使 skill_catalog 进入 spec 列表，若 Phase 10 SkillCatalogProvider
-	// 未按 cfg.EnableSkillProgressiveDisclosure 注册，resolveDynamicSection()
-	// 在 provider==nil 时返回 (nil, nil)，section 渲染为空 —— 等同关闭。
-	{name: DynamicSectionSkillCatalog, order: 280, cachePolicy: Uncached},
 }
 
 func (p DynamicTextProvider) SectionName() string {

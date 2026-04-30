@@ -16,15 +16,8 @@ func TestSkillMetricsExporterSnapshotIncludesHostToolOutcomes(t *testing.T) {
 	skillmetrics.ResetForTesting()
 	t.Cleanup(skillmetrics.ResetForTesting)
 
-	skillmetrics.IncSkillInvalidMode()
-	skillmetrics.IncUntrustedManifestRedaction()
 	skillmetrics.IncTrimCorruptionFallback()
 	skillmetrics.IncArtifactApprovalMiss()
-	skillmetrics.IncSkillExpandInvoke()
-	skillmetrics.IncSkillMCPToolCall()
-	skillmetrics.IncSkillMCPToolSuccess()
-	skillmetrics.IncSkillMCPToolError()
-	skillmetrics.IncSkillMCPApprovalRequired()
 	skillmetrics.IncHostToolCallOutcome(skillmetrics.HostToolOutcomeOK)
 	skillmetrics.IncHostToolCallOutcome(skillmetrics.HostToolOutcomeOK)
 	skillmetrics.IncHostToolCallOutcome(skillmetrics.HostToolOutcomeCWDMissing)
@@ -38,15 +31,8 @@ func TestSkillMetricsExporterSnapshotIncludesHostToolOutcomes(t *testing.T) {
 		got  float64
 		want float64
 	}{
-		{name: "skill_invalid_mode_total", got: testutil.ToFloat64(SkillInvalidModeTotal), want: 1},
-		{name: "skill_untrusted_manifest_redaction_total", got: testutil.ToFloat64(SkillUntrustedManifestRedactionTotal), want: 1},
 		{name: "skill_trim_corruption_fallback_count", got: testutil.ToFloat64(SkillTrimCorruptionFallbackCount), want: 1},
 		{name: "skill_artifact_approval_miss_total", got: testutil.ToFloat64(SkillArtifactApprovalMissTotal), want: 1},
-		{name: "skill_expand_invoke_rate", got: testutil.ToFloat64(SkillExpandInvokeRate), want: 1},
-		{name: "skill_mcp_tool_calls_total", got: testutil.ToFloat64(SkillMCPToolCallsTotal), want: 1},
-		{name: "skill_mcp_tool_success_total", got: testutil.ToFloat64(SkillMCPToolSuccessTotal), want: 1},
-		{name: "skill_mcp_tool_error_total", got: testutil.ToFloat64(SkillMCPToolErrorTotal), want: 1},
-		{name: "skill_mcp_approval_required_total", got: testutil.ToFloat64(SkillMCPApprovalRequiredTotal), want: 1},
 		{name: `host_tool_calls_total{outcome="ok"}`, got: testutil.ToFloat64(HostToolCallsOK), want: 2},
 		{name: `host_tool_calls_total{outcome="cwd_missing"}`, got: testutil.ToFloat64(HostToolCallsCWDMissing), want: 1},
 		{name: `host_tool_calls_total{outcome="approval_required"}`, got: testutil.ToFloat64(HostToolCallsApprovalRequired), want: 1},

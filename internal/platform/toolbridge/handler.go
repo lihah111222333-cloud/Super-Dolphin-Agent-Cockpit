@@ -35,10 +35,10 @@ type Handler struct {
 	preferences  uiPreferenceReader
 	cfg          *platformconfig.Config
 	logger       *pkglogger.Logger
-	// hostTools 是可选依赖：当宿主进程同时含 skill module + toolbridge（即 agent-terminal）
-	// 时，该字段被填充为 SkillHostTools，提供 skill_expand_body / skill_read_resource 两个
-	// 本进程直跑的工具。字段保持 nil-safe：测试或未来无 HostToolRegistry 的 toolbridge
-	// 图会退回 peer 路径；当前 mcp-orch / mcp-lsp standalone 不加载 toolbridge.Module。
+	// hostTools 是可选依赖：当宿主进程同时含 skilllibrary + toolbridge（即 agent-terminal）
+	// 时，该字段被填充为 SkillReadSectionRegistry，提供 skill_read_section 一个本进程
+	// 直跑的工具。字段保持 nil-safe：测试或未来无 HostToolRegistry 的 toolbridge 图会
+	// 退回 peer 路径；当前 mcp-orch / mcp-lsp standalone 不加载 toolbridge.Module。
 	hostTools HostToolRegistry
 }
 

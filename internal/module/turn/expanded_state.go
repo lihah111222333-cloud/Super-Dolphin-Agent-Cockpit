@@ -71,7 +71,7 @@ func (s *ExpandedArtifactState) TTL() int {
 // Mark 把一次注入记录写入 state。
 //
 // 从 SkillRef 提取 (name, version hash) 作为 artifact hash；Kind 与 Locator
-// 当前默认 body/SKILL.md（Phase 6 skill_expand_body / skill_read_resource
+// 当前默认 body/SKILL.md（artifact 审批入口；P3 cutover 之后 codex 走
 // 会传入更细的 kind/locator，但本 Phase 只做 body 场景的骨架）。
 func (s *ExpandedArtifactState) Mark(ref dto.SkillRef, turnIdx int) ExpandedArtifact {
 	if s == nil {
@@ -88,7 +88,8 @@ func (s *ExpandedArtifactState) Mark(ref dto.SkillRef, turnIdx int) ExpandedArti
 	return entry
 }
 
-// MarkArtifact 是 Phase 6 skill_expand_body / skill_read_resource 调用入口：
+// MarkArtifact 是 artifact 审批入口（codex 端走 skill_read_section host
+// tool；claude 端走 native skills + permissions.deny 收紧）：
 // 直接传 kind/locator/hash 可覆盖 body/SKILL.md 默认值。name 会被 trim+lower。
 func (s *ExpandedArtifactState) MarkArtifact(name, kind, locator, hash string, turnIdx int) ExpandedArtifact {
 	if s == nil {
@@ -231,7 +232,7 @@ func (s *ExpandedArtifactState) Snapshot() []ExpandedArtifact {
 }
 
 // ArtifactKey 是 P20.1 §3.6 的 map key 生成器，对外导出供 expanded state 的
-// 调用方（skill_expand_body / skill_read_resource 等 Phase 6 工具）构造一致
+// 调用方（artifact 审批相关工具，例如 codex 的 skill_read_section）构造一致
 // 的键。
 //
 // 格式：lower(name) + "::" + kind + "::" + locator + "@" + short(hash)

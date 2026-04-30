@@ -9,7 +9,8 @@ import (
 	"time"
 
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
-	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/fbsd"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
@@ -27,6 +28,7 @@ var proxyAddr atomic.Value
 var Module = fx.Module("toolbridge",
 	fx.Provide(
 		NewHandler,
+		provideSkillReadSectionTool,
 		provideHostToolRegistry,
 		provideWorkDirResolver,
 		provideDiffEmitter,
@@ -73,21 +75,42 @@ type handlerIn struct {
 	Config       *platformconfig.Config    `optional:"true"`
 	Logger       *pkglogger.Logger         `optional:"true"`
 	// HostTools 是 fx optional 字段：agent-terminal 图中由 provideHostToolRegistry 填入
-	// SkillHostTools；测试或未来 no-provider 图可保持 nil，Handler 走 nil-safe peer fallback。
+	// SkillReadSectionRegistry；测试或未来 no-provider 图可保持 nil，Handler 走 nil-safe peer fallback。
 	// 注意：当前 mcp-orch / mcp-lsp standalone 不加载 toolbridge.Module。
 	HostTools HostToolRegistry `optional:"true"`
 }
 
-// provideHostToolRegistry 把 agent-terminal fx 图中已有的 skill host-tool 窄端口包装成
-// HostToolRegistry。当前输入不是 optional；standalone 进程若未来也加载
-// toolbridge.Module，必须先把该输入改成 optional fx.In 或提供 noop registry。
+// skillLibCfgIn is a narrow fx.In struct used only to inject the optional
+// skilllibrary.Config into toolbridge providers. It is separate from
+// handlerIn to keep the injection surface explicit.
+type skillLibCfgIn struct {
+	fx.In
+	Cfg     skilllibrary.Config `optional:"true"`
+	Tracker *fbsd.Tracker       `optional:"true"`
+}
+
+// provideSkillReadSectionTool constructs a *SkillReadSectionTool from the
+// skilllibrary.Config CacheDir. When Config is zero-value (standalone mode
+// without skilllibrary), returns nil; callers must be nil-safe.
 //
-// 本函数返回 HostToolRegistry 接口（不是具体类型），避免 fx 装配端要求 Handler 依赖 *SkillHostTools。
-func provideHostToolRegistry(svc skillpkg.SkillHostToolReader) HostToolRegistry {
-	if svc == nil {
+// P6: also injects optional fbsd.Tracker; when present + feature flag on,
+// every successful skill_read_section Call records a CallEvent for tier
+// ranking. Tracker nil → no打点（向后兼容）。
+func provideSkillReadSectionTool(in skillLibCfgIn) *SkillReadSectionTool {
+	if strings.TrimSpace(in.Cfg.CacheDir) == "" {
 		return nil
 	}
-	return NewSkillHostTools(svc)
+	return NewSkillReadSectionTool(in.Cfg.CacheDir, in.Tracker)
+}
+
+// provideHostToolRegistry builds the Codex-facing HostToolRegistry backed by
+// SkillReadSectionRegistry. skill_read_section is the only host-direct tool
+// post-P4 (legacy SkillHostTools deleted in Task 4).
+//
+// Returns nil when tool is nil (no skilllibrary.Config provided); the Handler
+// and ListToolsForCodex are both nil-safe on HostToolRegistry.
+func provideHostToolRegistry(tool *SkillReadSectionTool) HostToolRegistry {
+	return NewSkillReadSectionRegistry(tool)
 }
 
 // threadConfigOverrideAdapter wraps the production threadstore.Store so
