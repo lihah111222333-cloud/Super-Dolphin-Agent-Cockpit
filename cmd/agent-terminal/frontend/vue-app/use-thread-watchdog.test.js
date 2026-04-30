@@ -433,6 +433,126 @@ describe('useThreadWatchdog · Phase 1.7f 累计上限兜底', () => {
 });
 
 
+// Phase 3.10b: 长任务进度协议接入 watchdog（pokeTaskThread 顶部判定）
+async function flushMicrotasks() {
+  // pokeTaskThread 在 progressProtocol 注入后变 async；scan 不 await。
+  // 等两轮微任务，让 readDoneMarker / readProgressLineCount 的 Promise 链全部 settle。
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+function makeProtocolStub({ done = false, progressLines = 0, throws = false } = {}) {
+  return {
+    readDoneMarker: vi.fn(async () => {
+      if (throws) throw new Error('rpc fail');
+      return done;
+    }),
+    readProgressLineCount: vi.fn(async () => {
+      if (throws) throw new Error('rpc fail');
+      return progressLines;
+    }),
+  };
+}
+
+describe('useThreadWatchdog · Phase 3.10b 长任务进度协议', () => {
+  it('done.md 命中 → 不戳 + 清 cumulative + 清 stuck', async () => {
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const store = makeStore({
+      lastBackendEventAtByThread: { t1: now - K.STALL_THRESHOLD_MS - 1 },
+      statuses: { t1: 'thinking' },
+      agentRuntimeById: { t1: { taskId: 'task_done' } },
+    });
+    const prefRef = { value: true };
+    const protocol = makeProtocolStub({ done: true });
+    const wd = useThreadWatchdog({ threadStore: store, sendMessage, prefRef, progressProtocol: protocol });
+    // 预先在 cumulative / stuck 留点状态，验证 done 命中会清掉
+    wd.cumulativePokeCountByThread.value.set('t1', 3);
+    wd.stuckByThread.value.set('t1', { kind: 'cumulative_limit', count: 3, stuckSinceTs: now });
+    let cur = now;
+    wd._setNowForTest(() => cur);
+    cur += 70_000;
+    store.state.lastBackendEventAtByThread.t1 = cur - K.STALL_THRESHOLD_MS - 1;
+    wd._scanForTest();
+    await flushMicrotasks();
+    expect(protocol.readDoneMarker).toHaveBeenCalledWith('task_done');
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(wd.cumulativePokeCountByThread.value.get('t1')).toBeUndefined();
+    expect(wd.stuckByThread.value.get('t1')).toBeUndefined();
+  });
+
+  it('progress 行数增长 → 重置 cumulative，让本应到 LIMIT 的 thread 继续戳', async () => {
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const store = makeStore({
+      lastBackendEventAtByThread: { t1: now - K.STALL_THRESHOLD_MS - 1 },
+      statuses: { t1: 'thinking' },
+      agentRuntimeById: { t1: { taskId: 'task_grow' } },
+    });
+    const prefRef = { value: true };
+    // 让 progress 每次 scan 都比上次多一行，模拟 agent 真在推进
+    let lines = 0;
+    const protocol = {
+      readDoneMarker: vi.fn(async () => false),
+      readProgressLineCount: vi.fn(async () => { lines += 1; return lines; }),
+    };
+    const wd = useThreadWatchdog({ threadStore: store, sendMessage, prefRef, progressProtocol: protocol });
+    let cur = now;
+    wd._setNowForTest(() => cur);
+    // 跑 7 次扫描；旧逻辑会在第 6 次被 LIMIT=5 卡住，progress 增长应让它继续
+    for (let i = 0; i < 7; i++) {
+      cur += 70_000;
+      store.state.lastBackendEventAtByThread.t1 = cur - K.STALL_THRESHOLD_MS - 1;
+      wd._scanForTest();
+      await flushMicrotasks();
+    }
+    expect(sendMessage).toHaveBeenCalledTimes(7);
+    expect(wd.stuckByThread.value.get('t1')).toBeUndefined();
+  });
+
+  it('progress 不变 → 累计照常 +1，最终触发 cumulative_limit', async () => {
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const store = makeStore({
+      lastBackendEventAtByThread: { t1: now - K.STALL_THRESHOLD_MS - 1 },
+      statuses: { t1: 'thinking' },
+      agentRuntimeById: { t1: { taskId: 'task_stale' } },
+    });
+    const prefRef = { value: true };
+    const protocol = makeProtocolStub({ done: false, progressLines: 0 });
+    const wd = useThreadWatchdog({ threadStore: store, sendMessage, prefRef, progressProtocol: protocol });
+    let cur = now;
+    wd._setNowForTest(() => cur);
+    for (let i = 0; i < 6; i++) {
+      cur += 70_000;
+      store.state.lastBackendEventAtByThread.t1 = cur - K.STALL_THRESHOLD_MS - 1;
+      wd._scanForTest();
+      await flushMicrotasks();
+    }
+    expect(sendMessage).toHaveBeenCalledTimes(K.CUMULATIVE_POKE_LIMIT);
+    expect(wd.stuckByThread.value.get('t1').kind).toBe('cumulative_limit');
+  });
+
+  it('protocol RPC 抛错 → 退化为旧累计路径，不破', async () => {
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const store = makeStore({
+      lastBackendEventAtByThread: { t1: now - K.STALL_THRESHOLD_MS - 1 },
+      statuses: { t1: 'thinking' },
+      agentRuntimeById: { t1: { taskId: 'task_err' } },
+    });
+    const prefRef = { value: true };
+    const protocol = makeProtocolStub({ throws: true });
+    const wd = useThreadWatchdog({ threadStore: store, sendMessage, prefRef, progressProtocol: protocol });
+    let cur = now;
+    wd._setNowForTest(() => cur);
+    cur += 70_000;
+    store.state.lastBackendEventAtByThread.t1 = cur - K.STALL_THRESHOLD_MS - 1;
+    wd._scanForTest();
+    await flushMicrotasks();
+    // RPC 抛错时 applyProgressProtocol 内 catch 静默；pokeTaskThreadCore 仍执行
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(wd.cumulativePokeCountByThread.value.get('t1')).toBe(1);
+  });
+});
+
+
 describe('normalizeStuckEntry · Phase 1.7d banner 渲染派生', () => {
   it('null/undefined → null', () => {
     expect(normalizeStuckEntry(null)).toBeNull();
