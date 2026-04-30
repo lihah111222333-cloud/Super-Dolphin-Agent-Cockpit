@@ -85,3 +85,5 @@ __pycache__/
 /.agnet/report/
 docs/doc/ai-index.json
 cmd/agent-terminal/frontend/node_modules
+# auto-managed by mcp-orch (Phase 3.8 sharedfile _internal)
+.agnet/shared/_internal/
