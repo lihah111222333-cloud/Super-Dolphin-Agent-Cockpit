@@ -170,3 +170,43 @@ func equalSortedStrings(a, b []string) bool {
 	}
 	return true
 }
+
+func TestBuiltinToolsReadIncludesProviderAndCodexNote(t *testing.T) {
+	t.Parallel()
+
+	prefs := &uiPreferenceStoreStub{}
+	server := newConfigTestServer(
+		&platformconfig.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: "/repo"},
+		prefs,
+		&sharedFileStoreStub{},
+		nil,
+	)
+
+	res := dispatchConfig[builtinToolsReadResult](t, server, "config/builtinTools/read", `{"cwd":"/repo"}`)
+
+	// Every tool view must carry its provider so the UI can group them.
+	for _, view := range res.Tools {
+		if view.Provider != BuiltinToolProviderClaude {
+			t.Errorf("tool %q provider = %q, want %q", view.ID, view.Provider, BuiltinToolProviderClaude)
+		}
+	}
+
+	// The codex provider note must be present so the UI can render an
+	// explanatory card under a Codex header even though codex tools are not
+	// individually disable-able from this project.
+	if len(res.ProviderNotes) == 0 {
+		t.Fatalf("expected at least one provider note (codex), got none")
+	}
+	var sawCodex bool
+	for _, note := range res.ProviderNotes {
+		if note.Provider == BuiltinToolProviderCodex {
+			sawCodex = true
+			if !strings.Contains(note.Note, "JSON-RPC") {
+				t.Errorf("codex note missing protocol explanation: %q", note.Note)
+			}
+		}
+	}
+	if !sawCodex {
+		t.Errorf("provider notes missing codex entry: %+v", res.ProviderNotes)
+	}
+}
