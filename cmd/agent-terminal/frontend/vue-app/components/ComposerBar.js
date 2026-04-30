@@ -530,12 +530,11 @@ export const ComposerBar = {
               :disabled="promotingTask"
               :title="promotingTask ? '升级中…' : '把当前对话升级为自动化任务（token 满 / 出错自动续接，单向）'"
               @click="onPromoteTask"
-              style="cursor: pointer; display: inline-flex; align-items: center; justify-content: center; border: 1px solid transparent; background: rgba(255, 255, 255, 0.04); transition: background 0.2s; box-sizing: border-box; height: 22px;"
             >
-              <svg viewBox="0 0 24 24" aria-hidden="true" style="width:13px;height:13px;opacity:0.6;margin-right:4px; margin-top:-1px;">
+              <svg viewBox="0 0 24 24" aria-hidden="true" class="composer-promote-chip-icon">
                 <path d="M12 4v16m-7-9l7-7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
-              <span>{{ promotingTask ? '升级中…' : '作为任务运行' }}</span>
+              <span>{{ promotingTask ? '升级中…' : '转为自动任务' }}</span>
             </button>
             <div
               v-if="threadConfigInlineNotice"

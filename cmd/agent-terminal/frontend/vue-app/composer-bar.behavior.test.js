@@ -740,7 +740,9 @@ describe('ComposerBar behavior', () => {
   // discoverability 差的问题）：跟时钟图标按钮同级，普通对话直接可见。
   it('template renders main-bar composer-promote-chip alongside thread-config-btn', () => {
     expect(ComposerBar.template).toContain('composer-promote-chip');
-    expect(ComposerBar.template).toContain('作为任务运行');
+    // Phase 2.4 文案从「作为任务运行」（被动陈述）改为「转为自动任务」（主动动作），
+    // 同时 chip 加上蓝色 outlined-primary 视觉跟 token chip / 模型 chip 区开。
+    expect(ComposerBar.template).toContain('转为自动任务');
     // 必须共用 onPromoteTask，避免双入口逻辑分叉。
     const chipBlock = ComposerBar.template.split('data-testid="composer-promote-chip"')[1] || '';
     expect(chipBlock.split('</button>')[0]).toContain('@click="onPromoteTask"');
