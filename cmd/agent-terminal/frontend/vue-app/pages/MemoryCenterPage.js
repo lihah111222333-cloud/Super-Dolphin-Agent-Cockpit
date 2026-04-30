@@ -473,6 +473,7 @@ export const MemoryCenterPage = {
               <div class="memory-entry-title-row">
                 <div class="memory-entry-title" :title="entry.name || '未命名条目'">{{ entry.name || '未命名条目' }}</div>
                 <span class="jr-badge" :class="typeBadgeClass(entry.type)">{{ entry.type || 'unknown' }}</span>
+                <span v-if="entry.source === 'dream'" class="jr-badge jr-badge-dream" title="由 Dream 自动巩固生成" data-testid="memory-center-private-dream-badge">梦境</span>
               </div>
               <div class="memory-entry-updated">{{ formatTimestamp(entry.updatedAt) }}</div>
             </div>

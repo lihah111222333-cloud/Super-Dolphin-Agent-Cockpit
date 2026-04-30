@@ -86,6 +86,8 @@ func parseMemoryFrontmatter(frontmatter string) MemoryFrontmatter {
 			parsed.Aliases = parseStringList(value)
 		case "search_keys":
 			parsed.SearchKeys = parseStringList(value)
+		case "source":
+			parsed.Source = parseScalar(value)
 		}
 	}
 	return parsed

@@ -75,3 +75,24 @@ func writeTestTopicFile(t *testing.T, path string, entry MemoryEntry) {
 		t.Fatalf("writeAtomicFile(%q) error = %v", path, err)
 	}
 }
+
+func TestMemoryFrontmatterSourceRoundTrip(t *testing.T) {
+	entry := MemoryEntry{
+		Frontmatter: MemoryFrontmatter{
+			Name:        "sample dream entry",
+			Description: "hook line",
+			Source:      "dream",
+		},
+		Content: "body content",
+	}
+	encoded := formatMemoryEntry(entry)
+	parsed := parseMemoryFrontmatter(encoded)
+	if parsed.Source != "dream" {
+		t.Fatalf("round-trip Source = %q, want %q", parsed.Source, "dream")
+	}
+	// 旧文件没有 source 字段时应回落为空。
+	legacy := "---\nname: \"legacy\"\ndescription: \"hook\"\n---\n"
+	if got := parseMemoryFrontmatter(legacy).Source; got != "" {
+		t.Fatalf("legacy frontmatter Source = %q, want empty", got)
+	}
+}

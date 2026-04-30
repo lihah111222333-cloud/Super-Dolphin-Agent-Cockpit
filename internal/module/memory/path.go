@@ -469,6 +469,7 @@ func buildConsolidatedMemoryEntry(item ExtractedMemory) MemoryEntry {
 			Description: description,
 			Type:        cloneMemoryType(item.Type),
 			SearchKeys:  normalizeStringSlice(item.Tags),
+			Source:      "dream",
 		},
 		Content: item.Content,
 	}
