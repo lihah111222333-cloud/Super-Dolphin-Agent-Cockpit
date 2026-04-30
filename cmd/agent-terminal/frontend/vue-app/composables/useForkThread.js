@@ -67,6 +67,15 @@ async function maybeSendKickoff(ctx, sourceThreadId, newThreadId) {
     return '';
   } catch (kickoffErr) {
     const msg = toErrorMessage(kickoffErr) || 'kickoff 发送失败';
+    // review P2 部分修：失败时清 kickoffByThread，让 timeline selector 不再过滤
+    // 这条 user message——agent 没主动开场时用户至少能看到 kickoff prompt 原文
+    // 出现在 timeline 头部，比「完全空白」更可定位。
+    const stateRef = ctx.threadStore?.state;
+    if (stateRef && stateRef.kickoffByThread && newThreadId) {
+      const next = { ...stateRef.kickoffByThread };
+      delete next[newThreadId];
+      stateRef.kickoffByThread = next;
+    }
     logWarn('ui', 'forkThread.kickoff_failed', {
       source_thread_id: sourceThreadId, new_thread_id: newThreadId,
       error: msg,
