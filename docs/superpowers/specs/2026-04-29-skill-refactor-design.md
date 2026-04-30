@@ -112,7 +112,10 @@
 - `allowed_tools`：传给底层 CLI 的 auto-approve 列表（实测：写入 `permissions.allow`，跳过审批弹框；非严格白名单——见 appendix-cli-test §3.1 校正）
 - `disable_model_invocation`：true 时仅 `/<name>` 显式触发
 - `pinned` / `disabled`：FBSD escape hatch，跳过频次降级
-- `replaces_native`：F1 native 过滤声明
+- `replaces_native`：F1 native 过滤声明（注意：codex 段当前不可落地——
+  spec §8.3 appendix 实测证实 codex-cli 0.121.0 无声明式工具过滤机制，
+  `replaces_native["codex"]` 字段保留 parse 但调用方应忽略；待 codex CLI 后续
+  版本提供机制后再激活）
 - `section_summaries`：覆盖 forge 自动生成的节摘要（P3 手写优先）
 
 ### 3.2 Cache 结构
@@ -392,6 +395,13 @@ def render_codex_l1(skills_with_tier, budget_chars=8192):
 - `toolbridge: skill_expand_body / skill_read_resource` 工具注册及实现
 
 ## 8. Native CLI 过滤层 (F1)
+
+> **codex 端 deferred**（spec §8.3 appendix 2026-04-30 实测）：codex-cli 0.121.0
+> 没有声明式工具过滤机制——`[tools] disabled` 字段静默忽略、无 `--disabled-tools`
+> flag、无按 skill name 屏蔽 native skill 的能力。本节 codex 段（`codex.disabled_tools`、
+> `replaces_native["codex"]`）字段定义保留作为数据形状占位，待 codex CLI 后续版本
+> 提供可声明的工具过滤机制（类似 Claude 的 `permissions.deny` 体系）后再激活；
+> Claude 端机制 P5b 已落地，详见 appendix。
 
 ### 8.1 配置位置
 

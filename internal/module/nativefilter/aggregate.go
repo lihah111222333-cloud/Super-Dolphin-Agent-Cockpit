@@ -38,6 +38,12 @@ type ClaudeBase struct {
 }
 
 // CodexBase 对应 "codex" 段。spec §8.1 当前只列 disabled_tools。
+//
+// 实测警告（spec §8.3 appendix codex 段，2026-04-30）：
+// codex-cli 0.121.0 没有声明式工具过滤机制——`config.toml [tools] disabled`
+// 字段被 codex 静默忽略，--disabled-tools flag 不存在，无 "按 skill name 屏蔽
+// native skill" 的能力。本类型字段保留作为数据形状占位，等未来 codex CLI
+// 提供可声明的工具过滤机制后再激活；当前调用方不应依赖其消费效果。
 type CodexBase struct {
 	DisabledTools []string `json:"disabled_tools,omitempty"`
 }
@@ -66,6 +72,10 @@ type ClaudePermissions struct {
 }
 
 // CodexSettings 对应 codex 子进程启动前需要写入的过滤集。
+//
+// Deprecated（spec §8.3 appendix）：codex-cli 0.121.0 没有可消费此结构的目标
+// 格式（disabled_tools 字段被 codex 静默忽略）。保留作为数据形状占位以备
+// 未来 codex CLI 提供机制后激活；当前不应被任何 driver 接线消费。
 type CodexSettings struct {
 	DisabledTools []string `json:"disabled_tools,omitempty"`
 }
@@ -122,6 +132,11 @@ func AggregateClaude(base ClaudeBase, skills []SkillSummary) ClaudeSettings {
 
 // AggregateCodex 聚合 codex 端的 disabled_tools。
 // base.DisabledTools + 每条 active skill 的 ReplacesNative["codex"] 合并去重排序。
+//
+// Deprecated（spec §8.3 appendix）：本函数输出当前在 codex-cli 0.121.0 上
+// 没有可写入的目标格式。spec §8 codex 段标 deferred，等待 codex CLI 后续
+// 版本提供声明式工具过滤机制（类似 Claude 的 permissions.deny 体系）。
+// 函数实现 + 测试保留，便于机制就绪时一行接通；调用方当前不应消费返回值。
 func AggregateCodex(base CodexBase, skills []SkillSummary) CodexSettings {
 	disabled := newStringSet()
 	for _, t := range base.DisabledTools {
