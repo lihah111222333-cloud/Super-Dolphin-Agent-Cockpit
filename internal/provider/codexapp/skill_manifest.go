@@ -23,7 +23,8 @@ const skillManifestTruncatedFooter = "\n（更多 skill 因 budget 截断省略�
 // 每个 skill 输出 name + description + 节索引（标题 + 摘要）。
 // 总长度超过 budgetChars 时按 skill 边界截尾，附加省略提示。
 //
-// FBSD 频次降级（spec §9）暂未实现；本期所有 skill 一律 L1-C。
+// 本函数走 L1-C 全量；FBSD tier 降级走 buildSkillManifestFBSD，由
+// renderSkillManifest 按 driver.tracker 是否就绪选路。
 func buildSkillManifest(entries []skilllibrary.SkillEntry, budgetChars int) string {
 	if len(entries) == 0 {
 		return ""
