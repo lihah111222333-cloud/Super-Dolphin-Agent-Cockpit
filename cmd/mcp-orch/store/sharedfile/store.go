@@ -5,6 +5,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	sharedfilepath "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilepath"
 )
 
 type store struct {
@@ -16,8 +17,12 @@ func NewStore(q *sqlc.Queries) Store {
 }
 
 func (s *store) Upsert(ctx context.Context, params UpsertParams) (*SharedFile, error) {
+	cleaned, err := sharedfilepath.ValidateWritePath(params.Path)
+	if err != nil {
+		return nil, wrapSharedFileError(err, "upsert")
+	}
 	row, err := s.q.UpsertSharedFile(ctx, sqlc.UpsertSharedFileParams{
-		Path:      params.Path,
+		Path:      cleaned,
 		Content:   params.Content,
 		UpdatedBy: params.UpdatedBy,
 	})
@@ -29,7 +34,11 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) (*SharedFile, e
 }
 
 func (s *store) Get(ctx context.Context, path string) (*SharedFile, error) {
-	row, err := s.q.GetSharedFile(ctx, path)
+	cleaned, err := sharedfilepath.ValidateReadPath(path)
+	if err != nil {
+		return nil, wrapSharedFileError(err, "get")
+	}
+	row, err := s.q.GetSharedFile(ctx, cleaned)
 	if err != nil {
 		return nil, wrapSharedFileError(err, "get")
 	}
@@ -53,7 +62,11 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]SharedFile, erro
 }
 
 func (s *store) Delete(ctx context.Context, path string) (int64, error) {
-	count, err := s.q.DeleteSharedFile(ctx, path)
+	cleaned, err := sharedfilepath.ValidateReadPath(path)
+	if err != nil {
+		return 0, wrapSharedFileError(err, "delete")
+	}
+	count, err := s.q.DeleteSharedFile(ctx, cleaned)
 	if err != nil {
 		return 0, wrapSharedFileError(err, "delete")
 	}
