@@ -94,14 +94,16 @@
 - `hook_consumer.go`：bootstrap `after` hooks 消费器；同步 thread/state/turn/item/process 事件。
 - `runtime.go`：runtime port/provider 上报、provider 归一化、snapshot 组装。
 - `report.go`：agent report 聚合、report requester 跟踪、终态事件判定与 drain。
-- `dag.go`：DAG create/get/list/update 的 service 层映射，兼容旧 JSON 字段别名。
+- `dag.go`：DAG create/get/list/update 的 service 层映射，兼容旧 JSON 字段别名；Phase 3.5w 起 `UpdateNodeStatus` 在 `status="done"` 分支 type-assert `taskdag.NodeFlowStore` 走 `CompleteNodeAndScheduleDownstream` 自动入队下游 wakeup（不能 type-assert 时回退旧路径，兼容 mock store 测试）。
 - `dag_retry_policy.go`：Phase 3.5 helper —— 把 DAG metadata `schedule.{default_retry, fail_fast}` + node `config.execution.retry` 解析为 `RetryPolicy{MaxAttempts, FailFast}`，给 dispatcher 决定 retry vs fail 用。
 - `rpc.go`：编排 JSON-RPC handler 映射；把 RPC 参数转成 `contract` 请求。
 - `rpc_types.go`：RPC 入参结构与旧字段兼容（如 `agentId` / `dagKey` / `selectedSkills` / `outputSchema`）。
 - `events.go`：封装 state / launched / stopped / recovering / failed / runtime / stalled / resumed 事件发布。
 - `factory.go`：事件 DTO 封装、agent 读写锁辅助、状态切换底层工具、legacy alias 解码。
 - `recover.go`：agent 恢复与基于 DAG wakeup 的 turn replay。
-- 测试文件：`execution_test.go`、`hook_consumer_test.go`、`launcher_test.go`、`recover_test.go`、`rpc_golden_test.go`、`runtime_report_test.go`、`runtime_test.go`、`stop_test.go`、`submission_test.go`、`turn_lifecycle_test.go`、`user_input_test.go`；`testdata/golden/turn-agent/rpc_samples.golden.json` 是 RPC golden fixture。
+- `wakeup_dispatcher.go`：Phase 3.1/3.2/3.5w/3.9 wakeup dispatcher。10s ticker 调 `taskdag.Store.ClaimDueWakeups` 拿到一批 `dispatching` wakeup，按 `buildLaunchRequestFromWakeup` 解 `taskdag.DownstreamWakeupPayload`（3.9 起把 `UpstreamOutputs` 的路径列表渲染成中文 prompt 注入下游 launch），调 `WakeupLauncher.LaunchAgent`；成功 → `MarkWakeupSent`；失败按 1.8b `classifyLaunchError` 分 transient/permanent，DAG-driven wakeup（DagKey/NodeKey 非空）走 `tryDAGFailWithCascade` → `resolveDAGRetryPolicy(GetDAG metadata + ListNodes node config → ResolveRetryPolicy)`，AttemptCount ≥ MaxAttempts 时 `markPermanentFail` + `FailNodeAndCancelDownstream(FailFast)`；非 DAG wakeup 走旧 `RetryWakeup`/`FailWakeup`。`buildLaunchRequestFromWakeup` 解不出 DownstreamWakeupPayload 时 fallback 到老式 `LaunchRequest` 形状（兼容手工 enqueue / 测试）。
+- `wakeup_reclaim.go`：Phase 3.3 wakeup lease 过期回收。独立 30s ticker 调 `taskdag.Store.ReclaimStaleDispatchingWakeups`，把 lease 过期的 `dispatching` wakeup 回收为 `pending`；与 dispatcher 解耦，store 错误不退出 loop（DB 抖动由下次 tick 吸收）。
+- 测试文件：`execution_test.go`、`hook_consumer_test.go`、`launcher_test.go`、`recover_test.go`、`rpc_golden_test.go`、`runtime_report_test.go`、`runtime_test.go`、`stop_test.go`、`submission_test.go`、`turn_lifecycle_test.go`、`user_input_test.go`、`wakeup_dispatcher_test.go`（dispatcher 决策分支 + 3.9 prompt 注入 4 case）、`wakeup_reclaim_test.go`（lease 过期回收 9 case）、`dag_complete_downstream_test.go`（service.UpdateNodeStatus done 分支 type-assert 路由 3 case）、`dag_retry_policy_test.go`（ResolveRetryPolicy 10 case）；`testdata/golden/turn-agent/rpc_samples.golden.json` 是 RPC golden fixture。
 
 ### `tools/`
 
@@ -434,6 +436,23 @@ sharedfile 三个 leaf helper 包不在 `cmd/mcp-orch/` 树下，但同时被 mc
 | `func handleToolApprovalRequestedEvent(svc *service, logger *slog.Logger, ev tooldto.ToolApprovalRequested)` / `func handleToolApprovalResolvedEvent(svc *service, logger *slog.Logger, ev tooldto.ToolApprovalResolved)` | 把审批类事件转换为 `awaiting_user_input` 状态流转。 |
 | `func recoverAgent(ctx context.Context, s *service, agent *agentRuntime) (bool, error)` | 停掉旧进程、重置状态、重启、必要时回放 DAG wakeup。 |
 | `func loadRecoveredTurnSubmission(ctx context.Context, s *service, agent *agentRuntime) (TurnSubmission, bool, error)` | 从 `task_dag_wakeups.prompt_payload` 恢复 turn payload。 |
+| `func (s *service) completeNodeWithDownstream(ctx context.Context, flow taskdag.NodeFlowStore, input taskdag.NodeStatusUpdate, result *DAGNode) error` | Phase 3.5w：service 层把 `UpdateNodeStatus(status="done")` 路由到 `CompleteNodeAndScheduleDownstream`，让生产路径自动 spawn 下游。 |
+
+### wakeup dispatcher / reclaim
+
+| 签名 | 作用 |
+|---|---|
+| `func NewWakeupDispatcher(store taskdag.Store, launcher WakeupLauncher, logger *slog.Logger, cfg WakeupDispatcherConfig) (*WakeupDispatcher, error)` | 构造 dispatcher；`WakeupDispatcherConfig{ClaimedBy, LeaseInterval, BatchLimit}`，零值由 `ConfigOrDefaults` 兜底。 |
+| `func (d *WakeupDispatcher) Run(ctx context.Context) error` | 10s ticker 主循环；每 tick 调一次 `ProcessBatch`；ctx 取消即退出，store 错误不中断循环。 |
+| `func (d *WakeupDispatcher) ProcessBatch(ctx context.Context) error` | 单批：`ClaimDueWakeups` → 对每条调 `handleClaimed`。 |
+| `func (d *WakeupDispatcher) handleClaimed(ctx, wakeup)` | 拆三个 mark helper（CC ≤ 5）：`markLaunched`(MarkWakeupSent) / `markPermanentFail`(classifyLaunchError 5 类关键字 → FailWakeup) / `markTransientRetry`(RetryWakeup with 2min 默认 backoff；rows=0 即 SQL `attempt_count<8` 上限触达 → 自动切 FailWakeup 防卡 dispatching)。 |
+| `func (d *WakeupDispatcher) tryDAGFailWithCascade(ctx, wakeup, lastErr) bool` | Phase 3.5w：DAG-driven wakeup（DagKey/NodeKey 非空）调 `resolveDAGRetryPolicy`，AttemptCount ≥ MaxAttempts 时 `markPermanentFail` + `FailNodeAndCancelDownstream(FailFast)`；返回 true 表示已接管，false 表示 fallback 到旧 `markTransientRetry`。 |
+| `func (d *WakeupDispatcher) resolveDAGRetryPolicy(ctx, dagKey, nodeKey) (RetryPolicy, error)` | `GetDAG` metadata + `ListNodes` node config → 调 `ResolveRetryPolicy(dagMetadata, nodeConfig)` 取 `RetryPolicy{MaxAttempts, FailFast}`。 |
+| `func buildLaunchRequestFromWakeup(wakeup taskdag.Wakeup) LaunchRequest` | Phase 3.9：优先解 `taskdag.DownstreamWakeupPayload`，`UpstreamOutputs` 非空时调 `renderUpstreamPromptHint` 渲染中文 prompt（"上游节点已完成，产出文件位于：…，请用 Read 工具读取"）写入 `LaunchRequest.Prompt`；`AgentID` 取 payload 优先 fallback `wakeup.TargetAgentID`。解码失败 fallback 老式 `LaunchRequest` 形状。 |
+| `func renderUpstreamPromptHint(refs []taskdag.DownstreamUpstreamRef) string` | 把 `[{NodeKey, Path}]` 渲染成"- node-X: path"列表 + Read 提示文案；空 path ref 静默跳过。 |
+| `func RegisterWakeupDispatcher(p WakeupDispatcherParams)` | fx hook：OnStart go Run + OnStop cancel 等 done；`taskdag.Store` optional，未注入时禁用。 |
+| `func NewWakeupReclaimer(store taskdag.Store, logger *slog.Logger, cfg WakeupReclaimerConfig) (*WakeupReclaimer, error)` | 构造 reclaim ticker；`Config.Interval` 默认 30s。 |
+| `func (r *WakeupReclaimer) Run(ctx context.Context) error` / `func (r *WakeupReclaimer) ReclaimOnce(ctx) (int64, error)` | 30s ticker 调 `ReclaimStaleDispatchingWakeups`；rows>0 打 info 让运维看节奏，rows=0 静默；store 错误不退出 loop。 |
 
 ### 工具与 workspace
 

@@ -216,15 +216,21 @@
   - 底层 sqlc 已有 `GetPromptTemplate / UpsertPromptTemplate / DeletePromptTemplate / InsertPromptVersion`，但仍没有单独的 `prompt version list` store 包装。
 
 ### 2.12 `sharedfile`
-- **文件**：`contract.go` / `store.go` / `module.go`
-- **职责**：共享文件读取。
+- **文件**：`contract.go` / `store.go` / `module.go` / `disk_integration_test.go`
+- **职责**：共享文件读 / 写 / 删 / 列；Phase 3.6 起改为**磁盘 source / DB 索引**模式（桌面端与 mcp-orch 双 store 同源）。
 - **contract**：
   - `Get(ctx context.Context, path string) (*SharedFile, error)`
   - `List(ctx context.Context, filter ListFilter) ([]SharedFile, error)`
+  - `Upsert(ctx context.Context, params UpsertParams) (*SharedFile, error)`（Upserter）
+  - `Delete(ctx context.Context, path string) (int64, error)`（Deleter）
 - **关键实现**：
-  - `Get`：按 `path` 精确读取。
-  - `List`：底层 SQL 使用 `ILIKE '%...%'`，是包含匹配而不是真前缀匹配。
+  - `Upsert`：先 `internal/platform/sharedfilepath.ValidateWritePath` 校验路径（Phase 3.7 白名单 + traversal/absolute reject），然后调 `internal/platform/sharedfilefs.WriteAtomic` 落盘 `<cwd>/.agnet/shared/<path>`（mkdir + tmp + fsync + rename + 目录 fsync）；正文 > `Config.InlineThresholdBytes`（默认 100KB）时 DB content 写空串、磁盘是真理来源；写盘前 best-effort 调 `sharedfilegitignore.Ensure` 追加 `.agnet/shared/_internal/` 到 `<cwd>/.gitignore`（Phase 3.8，per-process `sync.Once`，识别 leading slash / 无 trailing slash / 父目录通配等价形式）。
+  - `Get`：先 `ValidateReadPath`（不强制白名单兼容历史行），磁盘命中即覆盖 DB content（保留 DB 元数据 updated_by/timestamps）；磁盘 miss fallback DB（DB 也无 → notfound）。
+  - `Delete`：双层删（磁盘 RemoveDisk + DB 删行）。
+  - `List`：底层 SQL 使用 `ILIKE '%...%'`，是包含匹配而不是真前缀匹配；不扫磁盘（DB 索引视角）。
+  - `Config.CWD` 空 → 整体退化 DB-only（兼容遗留 caller / 测试）。
 - **表 / SQL**：`shared_files` / `sql/queries/shared_file.sql`
+- **平台依赖**：`internal/platform/sharedfilefs`（disk primitive）+ `internal/platform/sharedfilepath`（路径策略 + 5 个 sentinel error）+ `internal/platform/sharedfilegitignore`（Ensure helper）。
 - **备注**：`ListFilter.Prefix` 这个命名与实际 SQL 语义并不完全一致。
 
 ### 2.13 `systemlog`
@@ -856,7 +862,7 @@ var Module = fx.Module("store",
 | `hookstore` | `hookstore_resolve_test.go` | `TestResolvePendingReview` | `—` |
 | `interaction` | `store_test.go` | `TestCreateForwardsParamsAndMapsResult` | `—` |
 | `prompt` | `store_test.go` | `TestListForwardsAgentKeyKeywordAndLimit` | `—` |
-| `sharedfile` | `store_test.go` | `TestGetMapsRow` | `—` |
+| `sharedfile` | `store_test.go`、`disk_integration_test.go`（Phase 3.6 落盘 7 case：small inline / large DB 空 / disk hit override DB / disk miss fallback DB / 双 miss notfound / Delete 双删 / List 不扫盘） | `TestGetMapsRow` | `—` |
 | `systemlog` | `store_test.go` | `TestListForwardsAll9ColumnsAndLimit` | `—` |
 | `tasktrace` | `store_test.go` | `TestInsertForwardsAllColumnsAndMapsResult` | `—` |
 | `thread` | `store_test.go` | `TestUpsertPersistsConfigOverride` | `—` |
