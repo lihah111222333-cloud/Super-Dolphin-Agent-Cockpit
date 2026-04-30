@@ -15,7 +15,16 @@ import (
 // string array of canonical tool IDs.
 const builtinToolsDisabledKey = "config/builtinTools.disabled"
 
-// BuiltinToolDescriptor describes an upstream Claude CLI built-in tool so the
+// Provider identifiers for built-in tool grouping. Only "claude" is currently
+// disable-able from this project — codex's app-server JSON-RPC protocol does
+// not expose a per-turn tool filter, so codex tools are surfaced in the UI
+// only as an explanatory note (no entries in the registry).
+const (
+	BuiltinToolProviderClaude = "claude"
+	BuiltinToolProviderCodex  = "codex"
+)
+
+// BuiltinToolDescriptor describes an upstream CLI built-in tool so the
 // settings UI can render a friendly Chinese label and so the transport layer
 // can translate user preferences into the CLI's --disallowedTools flag.
 type BuiltinToolDescriptor struct {
@@ -23,26 +32,30 @@ type BuiltinToolDescriptor struct {
 	Label           string
 	Description     string
 	DefaultDisabled bool
+	// Provider is the upstream that hosts this tool. The settings UI groups
+	// the registry by Provider; the transport layer only consults entries
+	// whose Provider matches the running upstream.
+	Provider string
 }
 
 // builtinToolRegistry is the canonical list of upstream built-in tools the
 // user can toggle. Order controls the UI rendering order. Labels are Chinese
 // so the surfaced UI reads as "读文件" / "执行命令" rather than raw tool IDs.
 var builtinToolRegistry = []BuiltinToolDescriptor{
-	{ID: "Read", Label: "读文件", Description: "上游 Agent 直接读取工作区文件", DefaultDisabled: true},
-	{ID: "Write", Label: "写文件", Description: "上游 Agent 直接写入新文件", DefaultDisabled: true},
-	{ID: "Edit", Label: "编辑文件", Description: "上游 Agent 直接修改现有文件", DefaultDisabled: true},
-	{ID: "MultiEdit", Label: "批量编辑", Description: "一次调用内批量修改多个位置", DefaultDisabled: true},
-	{ID: "Bash", Label: "执行命令", Description: "在本地 shell 中执行任意命令", DefaultDisabled: true},
-	{ID: "Grep", Label: "代码搜索", Description: "使用上游内置 grep 在工作区查找", DefaultDisabled: true},
-	{ID: "Glob", Label: "文件匹配", Description: "按 glob 模式列出匹配文件", DefaultDisabled: true},
-	{ID: "LS", Label: "列目录", Description: "列出目录内容", DefaultDisabled: true},
-	{ID: "WebFetch", Label: "抓取网页", Description: "按 URL 拉取网页内容", DefaultDisabled: false},
-	{ID: "WebSearch", Label: "网页搜索", Description: "调用内置网页搜索", DefaultDisabled: false},
-	{ID: "TodoWrite", Label: "待办记录", Description: "写入上游自带的任务清单", DefaultDisabled: false},
-	{ID: "NotebookEdit", Label: "Notebook 编辑", Description: "编辑 Jupyter Notebook", DefaultDisabled: false},
-	{ID: "Task", Label: "派生子 Agent", Description: "派生子 Agent 执行任务", DefaultDisabled: false},
-	{ID: "ExitPlanMode", Label: "退出计划模式", Description: "离开 Plan Mode 审批界面", DefaultDisabled: false},
+	{ID: "Read", Label: "读文件", Description: "上游 Agent 直接读取工作区文件", DefaultDisabled: true, Provider: BuiltinToolProviderClaude},
+	{ID: "Write", Label: "写文件", Description: "上游 Agent 直接写入新文件", DefaultDisabled: true, Provider: BuiltinToolProviderClaude},
+	{ID: "Edit", Label: "编辑文件", Description: "上游 Agent 直接修改现有文件", DefaultDisabled: true, Provider: BuiltinToolProviderClaude},
+	{ID: "MultiEdit", Label: "批量编辑", Description: "一次调用内批量修改多个位置", DefaultDisabled: true, Provider: BuiltinToolProviderClaude},
+	{ID: "Bash", Label: "执行命令", Description: "在本地 shell 中执行任意命令", DefaultDisabled: true, Provider: BuiltinToolProviderClaude},
+	{ID: "Grep", Label: "代码搜索", Description: "使用上游内置 grep 在工作区查找", DefaultDisabled: true, Provider: BuiltinToolProviderClaude},
+	{ID: "Glob", Label: "文件匹配", Description: "按 glob 模式列出匹配文件", DefaultDisabled: true, Provider: BuiltinToolProviderClaude},
+	{ID: "LS", Label: "列目录", Description: "列出目录内容", DefaultDisabled: true, Provider: BuiltinToolProviderClaude},
+	{ID: "WebFetch", Label: "抓取网页", Description: "按 URL 拉取网页内容", DefaultDisabled: false, Provider: BuiltinToolProviderClaude},
+	{ID: "WebSearch", Label: "网页搜索", Description: "调用内置网页搜索", DefaultDisabled: false, Provider: BuiltinToolProviderClaude},
+	{ID: "TodoWrite", Label: "待办记录", Description: "写入上游自带的任务清单", DefaultDisabled: false, Provider: BuiltinToolProviderClaude},
+	{ID: "NotebookEdit", Label: "Notebook 编辑", Description: "编辑 Jupyter Notebook", DefaultDisabled: false, Provider: BuiltinToolProviderClaude},
+	{ID: "Task", Label: "派生子 Agent", Description: "派生子 Agent 执行任务", DefaultDisabled: false, Provider: BuiltinToolProviderClaude},
+	{ID: "ExitPlanMode", Label: "退出计划模式", Description: "离开 Plan Mode 审批界面", DefaultDisabled: false, Provider: BuiltinToolProviderClaude},
 }
 
 // builtinToolIndex maps each canonical tool ID to its descriptor for O(1)
@@ -65,11 +78,35 @@ type BuiltinToolView struct {
 	Label       string `json:"label"`
 	Description string `json:"description,omitempty"`
 	Enabled     bool   `json:"enabled"`
+	Provider    string `json:"provider,omitempty"`
+}
+
+// BuiltinToolProviderNote is a static informational card surfaced under a
+// provider header in the settings UI for upstreams whose built-in tools are
+// not disable-able through this project (i.e. codex). The frontend renders
+// it instead of a tool list so users still see the tools exist and why they
+// can't be flipped off here.
+type BuiltinToolProviderNote struct {
+	Provider string `json:"provider"`
+	Label    string `json:"label"`
+	Note     string `json:"note"`
 }
 
 // builtinToolsReadResult is the payload returned from config/builtinTools/read.
 type builtinToolsReadResult struct {
-	Tools []BuiltinToolView `json:"tools"`
+	Tools         []BuiltinToolView         `json:"tools"`
+	ProviderNotes []BuiltinToolProviderNote `json:"providerNotes,omitempty"`
+}
+
+// builtinToolProviderNotes is the static set of provider info cards the read
+// RPC surfaces to the UI. Currently a single codex card explaining the
+// protocol-level limitation.
+var builtinToolProviderNotes = []BuiltinToolProviderNote{
+	{
+		Provider: BuiltinToolProviderCodex,
+		Label:    "Codex 内置工具",
+		Note:     "Codex app-server 的 JSON-RPC 协议没有暴露 per-turn 工具开关，read_file / shell / apply_patch 等内置工具目前无法在项目侧禁用。要禁用需修改 ~/.codex/config.toml 或等待上游协议支持。",
+	},
 }
 
 type builtinToolsWriteParams struct {
@@ -91,9 +128,11 @@ func readBuiltinTools(ctx context.Context, prefs uipreference.Store, cwd string)
 			Label:       item.Label,
 			Description: item.Description,
 			Enabled:     !isDisabled,
+			Provider:    item.Provider,
 		})
 	}
-	return &builtinToolsReadResult{Tools: tools}, nil
+	notes := append([]BuiltinToolProviderNote(nil), builtinToolProviderNotes...)
+	return &builtinToolsReadResult{Tools: tools, ProviderNotes: notes}, nil
 }
 
 func writeBuiltinTool(ctx context.Context, prefs uipreference.Store, p builtinToolsWriteParams) (*builtinToolsReadResult, error) {
