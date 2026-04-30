@@ -80,6 +80,8 @@ function buildNewTaskSeedInstructions(task, content) {
 // timeline selector 会基于 kickoffByThread 过滤这条，避免用户看到。
 const TASK_HANDOFF_KICKOFF_PROMPT = '请基于上文任务接力摘要，简要总结上次进展并提出下一步建议。';
 
+// 返回错误字符串（成功 / 跳过返回空串）。调用方负责写回 kickoffError ref——
+// 跟 fork-thread 路径的 maybeSendKickoff 同样接口，为了让 UI 能设 banner/toast。
 async function maybeSendTaskKickoff(threadStore, newThreadId, task) {
   const hasSendMessage = typeof threadStore?.sendMessage === 'function';
   if (!hasSendMessage) {
@@ -87,7 +89,7 @@ async function maybeSendTaskKickoff(threadStore, newThreadId, task) {
       next_thread_id: newThreadId,
       task_id: task?.taskId || '',
     });
-    return;
+    return '';
   }
   try {
     await threadStore.sendMessage(newThreadId, TASK_HANDOFF_KICKOFF_PROMPT, [], { kickoff: true });
@@ -95,6 +97,7 @@ async function maybeSendTaskKickoff(threadStore, newThreadId, task) {
       next_thread_id: newThreadId,
       task_id: task?.taskId || '',
     });
+    return '';
   } catch (kickoffErr) {
     const msg = toErrorMessage(kickoffErr) || 'kickoff 发送失败';
     // review P2 教训：失败时清 kickoffByThread，避免 timeline selector 过滤这条
@@ -110,6 +113,7 @@ async function maybeSendTaskKickoff(threadStore, newThreadId, task) {
       task_id: task?.taskId || '',
       error: msg,
     });
+    return msg;
   }
 }
 
@@ -149,6 +153,10 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
     updatedAt: '',
   });
   const continueBusy = ref(false);
+  // F1：kickoff 失败不走 main error（fork 主流程已成功、新 thread 已创建切焦点，kickoff
+  // 是次要错误）。与 fork-thread 路径对齐独立暴露 ref，让 UI 能挥 banner/toast，
+  // 不依赖「看到 prompt 原文」这种间接反馈。
+  const kickoffError = ref('');
   // Phase 2.3 任务条默认折叠：只显示 30px chip（标题 + 更新时间），点击才展开
   // 详细接力摘要。切换 thread 或 task 变化时重置为折叠。load 错误
   // 出现时自动展开让用户看到原因。外部（token 满 / watchdog stuck 等）可
@@ -270,6 +278,7 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
     const content = (state.content || '').toString().trim();
     if (!task || !content || continueBusy.value) return '';
     continueBusy.value = true;
+    kickoffError.value = '';
     try {
       logInfo('ui', 'taskHandoff.new_task.start', {
         source_thread_id: selectedThreadId.value || '',
@@ -292,8 +301,10 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
         // 参照 fork-kickoff：startThread 默认 saveActive 已切焦点到新 thread，但这里必须主动发
         // 一条 user message，否则新 thread 只有 baseInstructions（任务接力摘要）作 system，
         // agent 不会主动说话——用户看到的就是「点了没生成对话」。kickoff 失败
-        // 不影响主流程返回 id，maybeSendTaskKickoff 内部自己 catch + logWarn。
-        await maybeSendTaskKickoff(threadStore, id, task);
+        // 不影响主流程返回 id，maybeSendTaskKickoff 内部自己 catch + logWarn，
+        // 返回 error msg 写回 kickoffError ref 供 UI banner 消费。
+        const kickoffMsg = await maybeSendTaskKickoff(threadStore, id, task);
+        if (kickoffMsg) kickoffError.value = kickoffMsg;
       }
       return id;
     } catch (error) {
@@ -381,6 +392,7 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
     taskHandoffUpdatedBy: computed(() => state.updatedBy),
     taskStripExpanded: computed(() => expanded.value),
     continueTaskBusy: computed(() => continueBusy.value),
+    taskHandoffKickoffError: computed(() => kickoffError.value),
     refreshTaskHandoff: loadTaskHandoff,
     continueCurrentTask: continueTask,
     continueTaskById,

@@ -455,4 +455,50 @@ describe('useTaskHandoff.startNewTaskFromHandoff kickoff', () => {
     await startNewTaskFromHandoff();
     expect(ctx.threadStore.state.kickoffByThread['other-thread']).toBe('other prompt');
   });
+
+  // F1：完善 fork 路径踩过的 review M1 同款坑——kickoff 失败要单独暴露 kickoffError ref
+  // 让 UI 能设 banner/toast，不能只靠「看到 prompt 原文」这种间接反馈。
+  // 与现有 taskHandoffError（load 错误）区分，单独叫 taskHandoffKickoffError。
+
+  it('kickoff 成功时 taskHandoffKickoffError 保持为空', async () => {
+    vi.mocked(callAPI).mockResolvedValueOnce({ content: '上次完成了什么…' });
+    const ctx = makeCtx({
+      runtime: { taskId: 't-new-5', taskTitle: 'success', handoffFile: 'handoff/t-new-5.md' },
+    });
+    const { startNewTaskFromHandoff, taskHandoffKickoffError } = useTaskHandoff(ctx);
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    await startNewTaskFromHandoff();
+    expect(taskHandoffKickoffError.value).toBe('');
+  });
+
+  it('kickoff 失败时 taskHandoffKickoffError 含错误原文（UI 可接警示）', async () => {
+    vi.mocked(callAPI).mockResolvedValueOnce({ content: '上次完成了什么…' });
+    const ctx = makeCtx({
+      runtime: { taskId: 't-new-6', taskTitle: 'errorSurface', handoffFile: 'handoff/t-new-6.md' },
+      sendMessageImpl: async () => { throw new Error('rpc detonated'); },
+    });
+    const { startNewTaskFromHandoff, taskHandoffKickoffError } = useTaskHandoff(ctx);
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    await startNewTaskFromHandoff();
+    expect(taskHandoffKickoffError.value).toContain('rpc detonated');
+  });
+
+  it('多次 startNewTaskFromHandoff 之间 taskHandoffKickoffError 会被重置（避免上次错误脱饱）', async () => {
+    let calls = 0;
+    vi.mocked(callAPI).mockResolvedValue({ content: '上次完成了什么…' });
+    const ctx = makeCtx({
+      runtime: { taskId: 't-new-7', taskTitle: 'reset', handoffFile: 'handoff/t-new-7.md' },
+      sendMessageImpl: async () => {
+        calls += 1;
+        if (calls === 1) throw new Error('first kickoff fail');
+      },
+    });
+    const { startNewTaskFromHandoff, taskHandoffKickoffError } = useTaskHandoff(ctx);
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    await startNewTaskFromHandoff();
+    expect(taskHandoffKickoffError.value).toContain('first kickoff fail');
+    // 第二次调用成功：error 应该为空（不脱饱上次的 'first kickoff fail'）
+    await startNewTaskFromHandoff();
+    expect(taskHandoffKickoffError.value).toBe('');
+  });
 });
