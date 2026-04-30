@@ -203,3 +203,53 @@ P5b 的代码逻辑无需修改；只需在 `nativefilter` 包注释里把 `Allo
 | `permissions.allow: [...]` (auto-approve) | ✅ 实测生效（非严格白名单） | ❌ codex CLI 无对应概念 |
 | `--tools` 严格白名单 | ✅ 实测生效（CLI flag） | ❌ 无 |
 | `features.<name>=false` 粗粒度禁 | ❌ 无（builtin 工具靠 settings） | ✅ 实测生效（仅 stable feature） |
+
+
+---
+
+## Known scope limitation: P5b 只覆盖 user-level skill (2026-04-30)
+
+真 desktop session smoke (commit `34ed147f` 集成测试 + 启动 binary 实跑) 揭示
+P5b 的 `applyNativeFilter` 当前只扫 user-level `~/.multi-agent/skills-library/`，
+**不扫项目级 `<cwd>/.agent/skills`**。
+
+### 数据源错位的真因
+
+仓里两条 skill scan 路径互不交叉：
+
+| 包 | 扫描路径 | 元数据来源 |
+|---|---|---|
+| `internal/module/skill` | user `~/.multi-agent/skills/` + project `<cwd>/.agent/skills` + cwd | SKILL.md frontmatter 直接解析 |
+| `internal/module/skilllibrary` | user `~/.multi-agent/skills-library/`（builtin seed / marketplace） | sidecar `.skill-meta.json` |
+
+P5b 当前用 `*skilllibrary.Store`（第二条），看不到项目 skill。
+
+### 决策三问 + 团队当前回答（2026-04-30）
+
+P5e 修复方案：把 P5b 的数据源从 `skilllibrary.Store` 切到 `*skill.Service`，
+后者扫两条路径，能拿到项目 skill 的 SKILL.md frontmatter 解析结果。
+
+是否做 P5e 的判据：
+
+| 问 | 内容 | 当前回答 |
+|---|---|---|
+| Q1 | 是否打算让人在项目 skill SKILL.md frontmatter 写 `allowed_tools` | 否 |
+| Q2 | 是否需要 untrusted 项目 skill 自动被工具限制（spec §10 安全模型） | 否 |
+| Q3 | 是否会用 `replaces_native: {claude: [...]}` 声明屏蔽 native skill | 否 |
+
+三问全否 → P5e 不做，标 known limitation 留 follow-up。
+
+### 重启 P5e 的触发条件
+
+任意一条改变：
+- 团队规范开始要求项目 skill 声明 `allowed_tools` 收紧权限
+- 安全模型升级到强制 untrusted 项目 skill 工具白名单
+- marketplace 引入第三方 skill，spec §10 必须真生效
+
+到时按 Q1/Q2/Q3 重新评估，必做就做 P5e。
+
+### 影响
+
+- 当前 P5b 对 builtin seed / marketplace skill 的 allowed_tools / replaces_native 生效
+- 对 project skill 的对应字段无效（即便用户填了也读不到）
+- 用户当前的 14 个项目 skill 都没填这俩字段，所以"无效"在事实上等于"无影响"

@@ -436,9 +436,16 @@ var _ contract.Driver = (*driver)(nil)
 // <workspace>/.claude/settings.local.json（spec §8）。
 //
 // 设计：fail-open。任何一步失败仅 warn 日志，不返回错误、不阻塞 session 启动。
-// 理由：本期 spec §8.3 实测验证未完成，settings 写入是否真被 Claude CLI 消费
-// 都属于 best-effort 加固层；fail-closed 反而会因 base config 读取失败 / store
-// 列出失败而拒绝整个 session 启动，得不偿失。
+// 理由：spec §8.3 实测虽证实 deny 路径生效（appendix），但 settings 写入仍是
+// best-effort 加固层；fail-closed 反而会因 base config 读取失败 / store 列出
+// 失败而拒绝整个 session 启动，得不偿失。
+//
+// **Scope limitation（已知）**：当前只扫 user-level skilllibrary
+// （`~/.multi-agent/skills-library/`），不扫项目级 `<cwd>/.agent/skills`。
+// 由 spec §8.3 appendix "Known scope limitation" 明确：项目 skill 当前不在
+// native filter 收紧范围内，因为团队规范不要求项目 skill 声明 allowed_tools /
+// replaces_native；如未来需要把项目 skill 纳入 P5b 强制限制，参考 P5e 决策
+// 三问（Q1/Q2/Q3）重启评估。
 //
 // skillStore 为 nil（fx optional 注入未提供）时整段 no-op，便于测试 fixture。
 func (d *driver) applyNativeFilter(workspace string) {

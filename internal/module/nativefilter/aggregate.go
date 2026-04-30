@@ -3,12 +3,16 @@
 //
 // 范围（P5 第一刀）：
 //   - 纯聚合 + 去重 + 稳定排序，不做 IO、不接 fx、不写文件、不动 provider 启动路径
-//   - 不假设 spec §8.3 验证已完成；输出的 deny / allow 字段直接对齐 spec §8.2
-//     的候选机制 (`permissions.deny: ["Skill(name)", "Read", ...]`)。真实 CLI 行为
-//     由后续接线 phase 实测后再决定是否调整字段名 / wrapper 形态。
+//   - spec §8.3 实测已落 appendix；deny 路径生效，allow 是 auto-approve
 //
-// 调用方负责把 internal/module/skilllibrary.SkillMeta 适配到 SkillSummary——
-// 本包不直接 import skilllibrary，保持 leaf 依赖图干净。
+// 调用方负责选择数据源 + 把 SkillMeta-like 结构适配到 SkillSummary——本包不
+// 直接 import skilllibrary，保持 leaf 依赖图干净。
+//
+// **当前消费方 scope**：claudecli driver.applyNativeFilter 只接 user-level
+// skilllibrary.Store.List()，不含项目级 `<cwd>/.agent/skills` 的 skill。
+// 这是有意决策（spec §8.3 appendix "Known scope limitation"），不是漏网。
+// 如未来需要把项目 skill 纳入聚合，调用方注入 *skill.Service 并把
+// SkillInfo 适配为 SkillSummary 即可，本聚合器无需改动。
 package nativefilter
 
 import (
