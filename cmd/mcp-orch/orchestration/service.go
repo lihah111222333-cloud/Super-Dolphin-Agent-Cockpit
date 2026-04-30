@@ -364,14 +364,6 @@ func resolveEventTime(ctx context.Context, fallbacks ...time.Time) time.Time {
 	return platformshared.ResolveEventTime(ctx, nil, fallbacks...)
 }
 
-type runtimeReporter struct {
-	svc Service
-}
-
-func (r runtimeReporter) ReportRuntime(ctx context.Context, report contract.RuntimeReport) error {
-	return r.svc.UpdateRuntime(ctx, report)
-}
-
 func (s *service) LaunchAgent(ctx context.Context, req LaunchRequest) error {
 	return s.launchAgentViaLauncher(ctx, req)
 }
