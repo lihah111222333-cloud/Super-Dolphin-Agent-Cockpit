@@ -303,6 +303,14 @@ func composeTurnContent(req dto.TurnRequest, tracker *imageHashTracker) []map[st
 		}
 		if blk != nil {
 			blocks = append(blocks, dedupedOrOriginalBlock(blk, tracker))
+			// Preserve any caller-provided caption text that came riding on
+			// the same image input. The frontend currently emits text in a
+			// separate {type:'text'} item, but other callers may inline a
+			// caption with the image; passing it through keeps that text in
+			// the prompt instead of silently dropping it.
+			if text := strings.TrimSpace(input.Content); text != "" {
+				passthrough = append(passthrough, dto.InputItem{Type: "text", Content: text})
+			}
 			continue
 		}
 		passthrough = append(passthrough, input)

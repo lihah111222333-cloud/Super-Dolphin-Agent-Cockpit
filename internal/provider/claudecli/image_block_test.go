@@ -327,3 +327,28 @@ func TestParseDataURLImageRejectsZeroBytes(t *testing.T) {
 		t.Fatalf("expected zero-bytes error for empty data URL")
 	}
 }
+
+func TestComposeTurnContentPreservesImageInputCaption(t *testing.T) {
+	// When an image input also carries a Content caption, the caption text
+	// must survive into the trailing text block — it must NOT be silently
+	// dropped just because the image bytes were extracted into their own
+	// content block.
+	path := mustWriteTempPNG(t)
+	blocks := composeTurnContent(dto.TurnRequest{
+		Inputs: []dto.InputItem{
+			{Type: "localImage", Path: path, Content: "caption attached to image"},
+		},
+	}, nil)
+	if len(blocks) != 2 {
+		t.Fatalf("len(blocks) = %d, want 2 (image + caption text)", len(blocks))
+	}
+	if blocks[0]["type"] != "image" {
+		t.Errorf("block[0] = %v, want image", blocks[0]["type"])
+	}
+	if blocks[1]["type"] != "text" {
+		t.Errorf("block[1] = %v, want text", blocks[1]["type"])
+	}
+	if got := blocks[1]["text"].(string); !strings.Contains(got, "caption attached to image") {
+		t.Errorf("caption lost: block[1].text = %q", got)
+	}
+}
