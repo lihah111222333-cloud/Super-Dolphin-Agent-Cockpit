@@ -4,12 +4,16 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/cliadapter"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/nativefilter"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -26,13 +30,15 @@ var claudeCapabilities = dto.CapabilitySet{
 }
 
 type driver struct {
-	logger          *slog.Logger
-	binaryPath      string
-	eventDispatcher *unified.EventDispatcher
-	reporter        contract.RuntimeReporter
-	pidRegistry     *pidregistry.Registry
-	proxyAddrFn     func() string
-	skillCacheDir   string
+	logger           *slog.Logger
+	binaryPath       string
+	eventDispatcher  *unified.EventDispatcher
+	reporter         contract.RuntimeReporter
+	pidRegistry      *pidregistry.Registry
+	proxyAddrFn      func() string
+	skillCacheDir    string
+	skillStore       *skilllibrary.Store
+	nativeFilterPath string
 }
 
 type startSpec struct {
@@ -86,7 +92,7 @@ func (d *driver) proxyHTTPAddr() string {
 	return strings.TrimSpace(d.proxyAddrFn())
 }
 
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string, skillCacheDir string) contract.Driver {
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string, skillCacheDir string, skillStore *skilllibrary.Store, nativeFilterPath string) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -94,13 +100,15 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, re
 		proxyAddrFn = func() string { return "" }
 	}
 	return &driver{
-		logger:          logger,
-		binaryPath:      resolveBinaryPath(),
-		eventDispatcher: eventDispatcher,
-		reporter:        reporter,
-		pidRegistry:     reg,
-		proxyAddrFn:     proxyAddrFn,
-		skillCacheDir:   skillCacheDir,
+		logger:           logger,
+		binaryPath:       resolveBinaryPath(),
+		eventDispatcher:  eventDispatcher,
+		reporter:         reporter,
+		pidRegistry:      reg,
+		proxyAddrFn:      proxyAddrFn,
+		skillCacheDir:    skillCacheDir,
+		skillStore:       skillStore,
+		nativeFilterPath: nativeFilterPath,
 	}
 }
 
@@ -200,6 +208,13 @@ func (d *driver) prepareSessionStart(spec startSpec) (preparedStartSession, erro
 					"cwd", spec.cwd, "cache", d.skillCacheDir, "err", err)
 			}
 		}
+	}
+	// spec §8 native-filter settings: aggregate active skills + base config
+	// into <workspace>/.claude/settings.local.json. fail-open——任何一步失败都
+	// 不阻塞 session 启动；P5b 阶段文件能否真被 Claude CLI 拾取仍待 spec §8.3
+	// 实测验证。
+	if spec.cwd != "" {
+		d.applyNativeFilter(spec.cwd)
 	}
 	tr, cleanup, err := launchCLI(
 		d.binaryPath,
@@ -416,3 +431,65 @@ func (d *driver) reportRuntime(agentID string) {
 }
 
 var _ contract.Driver = (*driver)(nil)
+
+// applyNativeFilter 把 active skills + base config 聚合写到
+// <workspace>/.claude/settings.local.json（spec §8）。
+//
+// 设计：fail-open。任何一步失败仅 warn 日志，不返回错误、不阻塞 session 启动。
+// 理由：本期 spec §8.3 实测验证未完成，settings 写入是否真被 Claude CLI 消费
+// 都属于 best-effort 加固层；fail-closed 反而会因 base config 读取失败 / store
+// 列出失败而拒绝整个 session 启动，得不偿失。
+//
+// skillStore 为 nil（fx optional 注入未提供）时整段 no-op，便于测试 fixture。
+func (d *driver) applyNativeFilter(workspace string) {
+	if d.skillStore == nil {
+		return
+	}
+	entries, err := d.skillStore.List()
+	if err != nil {
+		if d.logger != nil {
+			d.logger.Warn("native filter: skill list failed", "err", err)
+		}
+		return
+	}
+	summaries := make([]nativefilter.SkillSummary, 0, len(entries))
+	for _, e := range entries {
+		if e.Meta == nil {
+			continue
+		}
+		summaries = append(summaries, nativefilter.SkillSummary{
+			Name:           e.Meta.Name,
+			Disabled:       e.Meta.Disabled,
+			AllowedTools:   e.Meta.AllowedTools,
+			ReplacesNative: e.Meta.ReplacesNative,
+		})
+	}
+	base, err := nativefilter.LoadBaseConfig(d.nativeFilterPath)
+	if err != nil {
+		// 读 base config 失败时仍以空 base 继续 —— skill-side 决议（包含
+		// AllowedTools / ReplacesNative）仍然有价值，没必要因为基线文件坏掉
+		// 就完全放弃过滤。
+		if d.logger != nil {
+			d.logger.Warn("native filter: base config load failed",
+				"path", d.nativeFilterPath, "err", err)
+		}
+	}
+	settings := nativefilter.AggregateClaude(base.Claude, summaries)
+	if err := cliadapter.WriteClaudeSettingsLocal(workspace, settings); err != nil {
+		if d.logger != nil {
+			d.logger.Warn("native filter: settings write failed",
+				"workspace", workspace, "err", err)
+		}
+	}
+}
+
+// DefaultNativeFilterPath 返回 spec §8.1 约定的基线配置路径
+// `~/.multi-agent/native-cli-filter.json`。
+// HOME 拿不到时返回 ""，调用方用空路径触发 LoadBaseConfig 的 fail-open 分支。
+func DefaultNativeFilterPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".multi-agent", "native-cli-filter.json")
+}

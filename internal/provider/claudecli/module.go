@@ -17,19 +17,25 @@ import (
 type driverFactoryParams struct {
 	fx.In
 
-	Logger         *slog.Logger
-	Dispatcher     *unified.EventDispatcher
-	Reporter       contract.RuntimeReporter
-	Reg            *pidregistry.Registry
-	ProxyAddrFn    func() string
-	SkillLibConfig skilllibrary.Config `optional:"true"`
+	Logger           *slog.Logger
+	Dispatcher       *unified.EventDispatcher
+	Reporter         contract.RuntimeReporter
+	Reg              *pidregistry.Registry
+	ProxyAddrFn      func() string
+	SkillLibConfig   skilllibrary.Config `optional:"true"`
+	SkillStore       *skilllibrary.Store `optional:"true"`
+	NativeFilterPath string              `name:"native_filter_path" optional:"true"`
 }
 
 func NewDriverFactory(p driverFactoryParams) contract.DriverFactory {
+	nativePath := p.NativeFilterPath
+	if nativePath == "" {
+		nativePath = DefaultNativeFilterPath()
+	}
 	return contract.DriverFactory{
 		Name: "claude",
 		Create: func() contract.Driver {
-			return newDriver(p.Logger, p.Dispatcher, p.Reporter, p.Reg, p.ProxyAddrFn, p.SkillLibConfig.CacheDir)
+			return newDriver(p.Logger, p.Dispatcher, p.Reporter, p.Reg, p.ProxyAddrFn, p.SkillLibConfig.CacheDir, p.SkillStore, nativePath)
 		},
 	}
 }
