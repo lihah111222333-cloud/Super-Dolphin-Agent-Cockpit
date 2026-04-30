@@ -41,7 +41,7 @@ func TestVisionEndToEnd(t *testing.T) {
 			{Type: "localImage", Path: pngPath},
 			{Type: "text", Content: "In one word, what color dominates this image? Reply with just the word."},
 		},
-	})
+	}, nil)
 	if len(blocks) != 2 || blocks[0]["type"] != "image" {
 		t.Fatalf("unexpected blocks: %+v", blocks)
 	}
