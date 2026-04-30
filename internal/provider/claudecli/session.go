@@ -56,6 +56,7 @@ type session struct {
 	pendingRetry         *turnRetryState
 	activeToolCalls      map[string]string
 	suppressedTurns      map[string]struct{}
+	imageTracker         *imageHashTracker
 }
 
 type turnHandle struct {
@@ -210,7 +211,7 @@ func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
 	if err := shared.CheckCtx(ctx); err != nil {
 		return err
 	}
-	payload, err := buildSteerPayload(req)
+	payload, err := buildSteerPayload(req, s.imageTracker)
 	if err != nil {
 		return err
 	}
