@@ -96,6 +96,9 @@
 - `report.go`：agent report 聚合、report requester 跟踪、终态事件判定与 drain。
 - `dag.go`：DAG create/get/list/update 的 service 层映射，兼容旧 JSON 字段别名。
 - `dag_retry_policy.go`：Phase 3.5 helper —— 把 DAG metadata `schedule.{default_retry, fail_fast}` + node `config.execution.retry` 解析为 `RetryPolicy{MaxAttempts, FailFast}`，给 dispatcher 决定 retry vs fail 用。
+- `internal/platform/sharedfilefs/disk.go`：Phase 3.6 sharedfile disk primitive —— atomic tmp+fsync+rename / ResolveAbs sandbox / ReadDisk fallback；Config{CWD, InlineThresholdBytes} 注入。
+- `internal/platform/sharedfilepath/policy.go`：Phase 3.7 路径校验三入口（ValidateWritePath / ValidateAgentWritePath / ValidateReadPath）+ 5 sentinel errors。
+- `internal/platform/sharedfilegitignore/gitignore.go`：Phase 3.8 `.gitignore` 默认策略，per-process sync.Once，best-effort 由双 store 在写盘前调一次。
 - `rpc.go`：编排 JSON-RPC handler 映射；把 RPC 参数转成 `contract` 请求。
 - `rpc_types.go`：RPC 入参结构与旧字段兼容（如 `agentId` / `dagKey` / `selectedSkills` / `outputSchema`）。
 - `events.go`：封装 state / launched / stopped / recovering / failed / runtime / stalled / resumed 事件发布。
@@ -149,6 +152,8 @@
 - `taskdag/store.go`：DAG / node CRUD、running node 绑定、灵活状态更新、事务封装。
 - `taskdag/store_lease.go`：worker lease 抢占 / 续约 / 释放。
 - `taskdag/store_wakeup.go`：wakeup 入队 / claim / sent / retry / fail / bind turn / reclaim / 查询。
+- `sharedfile/store.go`：Phase 3.6 磁盘 source / DB 索引：Upsert 走 atomic write 落 `<cwd>/.agnet/shared/<path>`，正文超 InlineThresholdBytes（默认 100KB）时 DB content 写空串；Get 磁盘命中覆盖 DB content + 保留 DB 元数据，磁盘 miss fallback DB；Delete 双层删；Config.CWD 空 → 退化 DB-only。
+- `sharedfile/path_policy → internal/platform/sharedfilepath`：Phase 3.7 路径白名单（handoff/ dag/ inbox/ reports/ _internal/）+ traversal/absolute reject + agent system 保留段（handoff/tasks/）；read 路径不强制白名单兼容历史行。
 - `taskdag/*_test.go`：`scan_helpers_test.go`、`store_fencing_test.go`、`test_helpers_test.go`，覆盖 wakeup fencing、running node turn 绑定与 fake DB 扫描。
 - `workspace/contract.go`：workspace run / file 的持久化契约。
 - `workspace/module.go`：Fx provider。
