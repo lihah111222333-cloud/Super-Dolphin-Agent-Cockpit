@@ -16,16 +16,7 @@ type explicitFreeze struct {
 	RemoveWhen string
 }
 
-var explicitFreezeRegistry = []explicitFreeze{
-	{
-		Path:       "internal/provider/codexapp",
-		Kind:       ViolationPackageCount,
-		Limit:      31,
-		Reason:     "P25 skill progressive-disclosure keeps codexapp adapter split across driver/session/recovery/dynamic-tool tests until Phase 3 policy consolidation",
-		Owner:      "P25 skill rollout",
-		RemoveWhen: "Phase 3 provider default policy removes temporary override/evidence scaffolding or codexapp package is split below default package file budget",
-	},
-}
+var explicitFreezeRegistry = []explicitFreeze{}
 
 func freezeRegistryIntegrityViolations() []Violation {
 	seen := make(map[string]struct{}, len(explicitFreezeRegistry))

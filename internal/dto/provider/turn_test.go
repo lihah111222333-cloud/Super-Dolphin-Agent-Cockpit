@@ -6,9 +6,8 @@ import (
 	"testing"
 )
 
-// TestSkillRef_LegacyUnmarshalStillWorks 覆盖 P20 §6.1 向后兼容：
-// 旧 client 发送的 {name, prompt} payload 必须能被新 server 反序列化，
-// Mode 字段在零值下等价于 Full。
+// TestSkillRef_LegacyUnmarshalStillWorks 旧 client 发送的 {name, prompt} payload
+// 必须能被新 server 反序列化。Mode 字段已删除，Prompt 仍是有效字段。
 func TestSkillRef_LegacyUnmarshalStillWorks(t *testing.T) {
 	legacy := `{"name":"go-testing","prompt":"# Skill body\nrun go test"}`
 	var ref SkillRef
@@ -21,14 +20,30 @@ func TestSkillRef_LegacyUnmarshalStillWorks(t *testing.T) {
 	if !strings.Contains(ref.Prompt, "run go test") {
 		t.Fatalf("Prompt = %q", ref.Prompt)
 	}
-	if ref.Mode != SkillModeUnspecified {
-		t.Fatalf("legacy payload must yield Unspecified, got %q", ref.Mode)
-	}
-	if ref.Mode.Effective() != SkillModeFull {
-		t.Fatalf("Effective() of Unspecified should be Full")
-	}
 	if ref.Summary != "" || ref.Source != "" || ref.Version != "" {
 		t.Fatalf("new fields should be zero: %+v", ref)
+	}
+}
+
+// TestSkillRef_DropsRetiredModeFieldFromWire 旧 client 仍可能发送 `mode` 字段。
+// SkillRef 不再持有 Mode field，json unmarshaling 默认忽略未知字段，结果 ref 应当
+// 无任何与 mode 相关的状态；marshal 出来的 JSON 也不应再包含 `mode` key。
+// 这条测试守护"D commit 之后再有人加回 Mode 字段"的回归。
+func TestSkillRef_DropsRetiredModeFieldFromWire(t *testing.T) {
+	wire := []byte(`{"name":"foo","mode":"summary","prompt":"body"}`)
+	var ref SkillRef
+	if err := json.Unmarshal(wire, &ref); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if ref.Name != "foo" || ref.Prompt != "body" {
+		t.Fatalf("expected name+prompt preserved, got %+v", ref)
+	}
+	out, err := json.Marshal(ref)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if strings.Contains(string(out), `"mode"`) {
+		t.Fatalf("retired mode field should not reappear on marshal: %s", out)
 	}
 }
 
@@ -37,7 +52,6 @@ func TestSkillRef_NewPayloadRoundTrip(t *testing.T) {
 	original := SkillRef{
 		Name:    "lint-go",
 		Version: "v1.2",
-		Mode:    SkillModeSummary,
 		Summary: "golangci-lint runner with preset",
 		Source:  SkillSourceTrigger,
 	}
@@ -45,8 +59,7 @@ func TestSkillRef_NewPayloadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}
-	// 确认关键字段都落到 wire 上
-	for _, substr := range []string{`"name":"lint-go"`, `"version":"v1.2"`, `"mode":"summary"`, `"summary":"golangci`, `"source":"trigger"`} {
+	for _, substr := range []string{`"name":"lint-go"`, `"version":"v1.2"`, `"summary":"golangci`, `"source":"trigger"`} {
 		if !strings.Contains(string(data), substr) {
 			t.Fatalf("marshaled JSON missing %q: %s", substr, data)
 		}
@@ -71,7 +84,6 @@ func TestSkillRef_OmitemptyZeroValues(t *testing.T) {
 	if string(data) != want {
 		t.Fatalf("minimal payload = %s, want %s", data, want)
 	}
-	// 不应含新字段任何 key
 	for _, key := range []string{"version", "mode", "summary", "source", "prompt"} {
 		if strings.Contains(string(data), `"`+key+`"`) {
 			t.Fatalf("unexpected key %q in minimal payload: %s", key, data)
@@ -79,14 +91,12 @@ func TestSkillRef_OmitemptyZeroValues(t *testing.T) {
 	}
 }
 
-// TestSkillRef_OldServerReadsNewPayload 模拟“旧 server 接收新 client 发出的 payload”：
-// 旧 server 只认识 name/prompt，对 mode/summary/source/version 丢弃即可。Prompt 仍然
-// 可用，行为退化为 Full 注入。（我们用一个只有两字段的目标结构体模拟旧 server。）
+// TestSkillRef_OldServerReadsNewPayload 模拟"旧 server 接收新 client 发出的 payload"：
+// 旧 server 只认识 name/prompt，丢弃其它字段。
 func TestSkillRef_OldServerReadsNewPayload(t *testing.T) {
 	newPayload := SkillRef{
 		Name:    "foo",
 		Version: "v1",
-		Mode:    SkillModeFull,
 		Prompt:  "FULL BODY HERE",
 		Summary: "short desc",
 		Source:  SkillSourceForce,
@@ -108,74 +118,7 @@ func TestSkillRef_OldServerReadsNewPayload(t *testing.T) {
 	}
 }
 
-// TestSkillMode_Valid 覆盖枚举 Valid() 方法的合法/非法分支。
-func TestSkillMode_Valid(t *testing.T) {
-	valid := []SkillMode{SkillModeUnspecified, SkillModeFull, SkillModeSummary, SkillModeNone}
-	for _, m := range valid {
-		if !m.Valid() {
-			t.Fatalf("%q should be Valid", m)
-		}
-	}
-	invalid := []SkillMode{"banana", "FULL", "body", " full "}
-	for _, m := range invalid {
-		if m.Valid() {
-			t.Fatalf("%q should NOT be Valid", m)
-		}
-	}
-}
-
-// TestSkillMode_Effective 空值必须规范化为 Full，合法值保持不变。
-func TestSkillMode_Effective(t *testing.T) {
-	if SkillModeUnspecified.Effective() != SkillModeFull {
-		t.Fatalf("Unspecified → Full")
-	}
-	if SkillModeSummary.Effective() != SkillModeSummary {
-		t.Fatalf("Summary should stay")
-	}
-	if SkillModeNone.Effective() != SkillModeNone {
-		t.Fatalf("None should stay")
-	}
-}
-
-// TestSkillMode_EffectiveUnknownFallsBackToNone （P20.1 §3.5 修订）
-// 非空非法值 → None（保守降级），不再“失败展开 Full”。空值仍→ Full（legacy 兼容）。
-func TestSkillMode_EffectiveUnknownFallsBackToNone(t *testing.T) {
-	unknowns := []SkillMode{"banana", "FULL", "body", " full ", "partial", "skip"}
-	for _, m := range unknowns {
-		if got := m.Effective(); got != SkillModeNone {
-			t.Fatalf("Effective(%q) = %q, want None (P20.1 conservative downgrade)", m, got)
-		}
-	}
-	// 空值仍是 Full
-	if got := SkillModeUnspecified.Effective(); got != SkillModeFull {
-		t.Fatalf("Unspecified → Full (legacy compat), got %q", got)
-	}
-}
-
-// TestSkillRef_UnmarshalKeepsUnknownMode 确认反序列化本身保留原始未知 mode
-// （供诊断 / 对端调试），规范化由 Effective() 显式完成。
-//
-// P20.1 后 Effective("banana") → None（不注入），限定的稳定行为——防止未来有人
-// 在 UnmarshalJSON 里悄悄 rewrite（那样会丢失 raw mode 的观测性）。
-func TestSkillRef_UnmarshalKeepsUnknownMode(t *testing.T) {
-	data := []byte(`{"name":"foo","mode":"banana"}`)
-	var ref SkillRef
-	if err := json.Unmarshal(data, &ref); err != nil {
-		t.Fatalf("Unmarshal: %v", err)
-	}
-	if string(ref.Mode) != "banana" {
-		t.Fatalf("Mode should keep raw wire value for observability: got %q", ref.Mode)
-	}
-	if ref.Mode.Valid() {
-		t.Fatalf("unknown mode should NOT be Valid")
-	}
-	if ref.Mode.Effective() != SkillModeNone {
-		t.Fatalf("P20.1: Effective should conservatively downgrade to None for unknown mode")
-	}
-}
-
-// TestSkillSource_Valid 对称 TestSkillMode_Valid——确保未来延伸 SkillSource 枚举时
-// 什么值是合法的由 Valid() 单点控制，而不是散在各个 switch 里。
+// TestSkillSource_Valid 单点控制 SkillSource 合法值；未来扩展枚举走这里。
 func TestSkillSource_Valid(t *testing.T) {
 	valid := []SkillSource{SkillSourceUnspecified, SkillSourceManual, SkillSourceForce, SkillSourceTrigger, SkillSourceExpand, SkillSourceNative}
 	for _, s := range valid {
@@ -191,15 +134,14 @@ func TestSkillSource_Valid(t *testing.T) {
 	}
 }
 
-// TestSkillRef_SteerRequestEmbedding 对称 TurnRequest——确保 SteerRequest 路径上的 skills
-// 反序列化行为在 Phase 2 扩展后仍保留字段完整性。
+// TestSkillRef_SteerRequestEmbedding 确保 SteerRequest 路径上的 skills round-trip 完整。
 func TestSkillRef_SteerRequestEmbedding(t *testing.T) {
 	req := SteerRequest{
 		ThreadID:             "t1",
 		ExpectedTurnID:       "t1-turn-2",
 		ManualSkillSelection: true,
 		Skills: []SkillRef{
-			{Name: "a", Mode: SkillModeSummary, Summary: "hi", Source: SkillSourceManual},
+			{Name: "a", Summary: "hi", Source: SkillSourceManual},
 			{Name: "b", Version: "v2", Prompt: "body", Source: SkillSourceForce},
 		},
 	}
@@ -214,7 +156,7 @@ func TestSkillRef_SteerRequestEmbedding(t *testing.T) {
 	if len(back.Skills) != 2 {
 		t.Fatalf("skills len = %d", len(back.Skills))
 	}
-	if back.Skills[0].Source != SkillSourceManual || back.Skills[0].Mode != SkillModeSummary {
+	if back.Skills[0].Source != SkillSourceManual || back.Skills[0].Summary != "hi" {
 		t.Fatalf("skill[0] lost: %+v", back.Skills[0])
 	}
 	if back.Skills[1].Version != "v2" || back.Skills[1].Source != SkillSourceForce {
@@ -230,7 +172,7 @@ func TestSkillRef_TurnRequestEmbedding(t *testing.T) {
 	req := TurnRequest{
 		ThreadID: "t1",
 		Skills: []SkillRef{
-			{Name: "a", Mode: SkillModeSummary, Summary: "hi"},
+			{Name: "a", Summary: "hi"},
 			{Name: "b", Prompt: "body"},
 		},
 	}
@@ -248,7 +190,7 @@ func TestSkillRef_TurnRequestEmbedding(t *testing.T) {
 	if len(back.Skills) != 2 {
 		t.Fatalf("skills len = %d", len(back.Skills))
 	}
-	if back.Skills[0].Mode != SkillModeSummary || back.Skills[1].Mode != SkillModeUnspecified {
-		t.Fatalf("mode not preserved: %+v", back.Skills)
+	if back.Skills[0].Summary != "hi" || back.Skills[1].Prompt != "body" {
+		t.Fatalf("payload not preserved: %+v", back.Skills)
 	}
 }

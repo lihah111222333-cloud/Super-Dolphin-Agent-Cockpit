@@ -178,8 +178,6 @@ func skillRemoteHandlers(svc Service) handler.Map {
 func skillPreviewHandlers(svc Service) handler.Map {
 	return handler.Map{
 		"skills/match/preview": rpc.StrictHandler(skillMatchPreviewHandler(svc)),
-		"skills/expandBody":    rpc.StrictHandler(skillExpandBodyHandler(svc)),
-		"skills/readResource":  rpc.StrictHandler(skillReadResourceHandler(svc)),
 	}
 }
 
@@ -282,26 +280,6 @@ func skillMatchPreviewHandler(svc Service) func(context.Context, skillMatchPrevi
 			return nil, err
 		}
 		return svc.MatchPreview(scopedCtx, p.AgentID, p.ThreadID, p.Text, p.Input)
-	}
-}
-
-func skillExpandBodyHandler(svc Service) func(context.Context, ExpandBodyParams) (any, error) {
-	return func(ctx context.Context, p ExpandBodyParams) (any, error) {
-		scopedCtx, err := scopedSkillContext(ctx, p.CWD)
-		if err != nil {
-			return nil, err
-		}
-		return svc.ExpandBody(scopedCtx, p)
-	}
-}
-
-func skillReadResourceHandler(svc Service) func(context.Context, ReadResourceParams) (any, error) {
-	return func(ctx context.Context, p ReadResourceParams) (any, error) {
-		scopedCtx, err := scopedSkillContext(ctx, p.CWD)
-		if err != nil {
-			return nil, err
-		}
-		return svc.ReadResource(scopedCtx, p)
 	}
 }
 

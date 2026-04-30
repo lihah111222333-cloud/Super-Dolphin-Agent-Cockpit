@@ -29,7 +29,7 @@ func TestInterfaceIsolationBudgets(t *testing.T) {
 		{relPath: "cmd/mcp-orch/store/taskdag/contract.go", name: "RunningNodeStore", maxMethods: 6, maxEmbedded: 1},
 		{relPath: "cmd/mcp-orch/store/taskdag/contract.go", name: "WakeupStore", maxMethods: 10, maxEmbedded: 0},
 		{relPath: "cmd/mcp-orch/store/taskdag/contract.go", name: "WorkerLeaseStore", maxMethods: 3, maxEmbedded: 0},
-		{relPath: "internal/module/skill/contract.go", name: "Service", maxMethods: 0, maxEmbedded: 13},
+		{relPath: "internal/module/skill/contract.go", name: "Service", maxMethods: 0, maxEmbedded: 12},
 		{relPath: "cmd/mcp-lsp/gopls/manager.go", name: "Manager", maxMethods: 0, maxEmbedded: 3},
 		{relPath: "cmd/mcp-lsp/manager/manager.go", name: "Manager", maxMethods: 0, maxEmbedded: 8},
 	}
@@ -88,9 +88,8 @@ func TestSkillServiceConsumersUseNarrowPorts(t *testing.T) {
 	}{
 		{relPath: "internal/module/dashboard/service.go", structName: "service", fieldName: "skills", want: "skillmodule.SkillLister"},
 		{relPath: "internal/module/dashboard/module.go", structName: "serviceParams", fieldName: "Skills", want: "skillmodule.SkillLister"},
-		{relPath: "internal/module/prompt/module.go", structName: "skillCatalogProviderDeps", fieldName: "Skills", want: "skillpkg.SkillCatalogSource"},
-		{relPath: "internal/module/prompt/module.go", structName: "registerSkillCatalogDeps", fieldName: "Skills", want: "skillpkg.SkillCatalogSource"},
-		{relPath: "internal/platform/toolbridge/host_tools.go", structName: "SkillHostTools", fieldName: "svc", want: "skillpkg.SkillHostToolReader"},
+		// skillCatalogProviderDeps + registerSkillCatalogDeps removed in skill refactor P2 Task 7;
+		// SkillCatalogProvider is gone, Claude uses native discovery via workspace symlink instead.
 	}
 	var violations []string
 	for _, check := range checks {
@@ -109,11 +108,9 @@ func TestSkillServiceConsumersUseNarrowPorts(t *testing.T) {
 	} else if actual != "skillpkg.SkillHydrationSource" {
 		violations = append(violations, fmt.Sprintf("internal/module/turn/service.go: NewServiceWithPromptAssemblyAndTurnContext.skillSvc must depend on skillpkg.SkillHydrationSource, got %s", actual))
 	}
-	if actual, ok := functionParamType(t, root, "internal/platform/toolbridge/module.go", "provideHostToolRegistry", "svc"); !ok {
-		violations = append(violations, "internal/platform/toolbridge/module.go: provideHostToolRegistry.svc not found")
-	} else if actual != "skillpkg.SkillHostToolReader" {
-		violations = append(violations, fmt.Sprintf("internal/platform/toolbridge/module.go: provideHostToolRegistry.svc must depend on skillpkg.SkillHostToolReader, got %s", actual))
-	}
+	// provideHostToolRegistry.svc check removed in skill refactor P3 Task 3:
+	// provideHostToolRegistry no longer takes a SkillHostToolReader; the Codex tool
+	// registry now wraps SkillReadSectionTool via skilllibrary.Config.CacheDir.
 	failIfViolations(t, violations)
 }
 

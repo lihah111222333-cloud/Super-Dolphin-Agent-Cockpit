@@ -422,8 +422,6 @@ func normalizeSkillNames(groups ...[]string) []dto.SkillRef {
 func normalizeSkillNamesWithSource(source dto.SkillSource, names []string) []dto.SkillRef {
 	refs := make([]dto.SkillRef, 0, len(names))
 	for _, raw := range names {
-		// 保留 Mode=Unspecified 作为 provider-aware default marker：codexapp
-		// 在 adapter 层切 Summary，legacy provider 继续通过 Effective() 得到 Full。
 		ref := dto.SkillRef{Name: raw}
 		if source != dto.SkillSourceUnspecified {
 			ref.Source = source

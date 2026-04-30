@@ -21,7 +21,7 @@ func TestCodexStartSession_InjectsDynamicTools_E2E(t *testing.T) {
 	recorder := &codexRPCRecorder{}
 	t.Setenv("CODEX_APP_SERVER_URL", startCodexRPCServer(t, recorder))
 
-	factory := codexapp.NewDriverFactory(nil, nil, nil, nil, nil, nil)
+	factory := codexapp.NewDriverFactory(nil, nil, nil, nil, nil, nil, nil, nil)
 	factory.SetListTools(func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 		return []codexprotocol.DynamicToolSchema{{
 			Name:        "tool.echo",
@@ -74,7 +74,7 @@ func TestCodexStartSession_PreservesUserConfigFields_E2E(t *testing.T) {
 	recorder := &codexRPCRecorder{}
 	t.Setenv("CODEX_APP_SERVER_URL", startCodexRPCServer(t, recorder))
 
-	factory := codexapp.NewDriverFactory(nil, nil, nil, nil, nil, nil)
+	factory := codexapp.NewDriverFactory(nil, nil, nil, nil, nil, nil, nil, nil)
 	factory.SetListTools(func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 		return []codexprotocol.DynamicToolSchema{
 			{

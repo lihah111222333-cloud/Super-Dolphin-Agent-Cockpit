@@ -20,7 +20,6 @@ var Module = fx.Module("skill",
 		ProvideSkillLister,
 		ProvideSkillCatalogSource,
 		ProvideSkillHydrationSource,
-		ProvideSkillHostToolReader,
 	),
 	fx.Provide(NewSkillHandlers),
 	// P0b Step 5: late-bind the candidate review gate dependencies.
@@ -46,8 +45,6 @@ func ProvideSkillLister(svc Service) SkillLister { return svc }
 func ProvideSkillCatalogSource(svc Service) SkillCatalogSource { return svc }
 
 func ProvideSkillHydrationSource(svc Service) SkillHydrationSource { return svc }
-
-func ProvideSkillHostToolReader(svc Service) SkillHostToolReader { return svc }
 
 // candidateStoreParams collects the optional review-gate dependencies.
 // Marked optional so this Invoke does not force every fx graph (CLI

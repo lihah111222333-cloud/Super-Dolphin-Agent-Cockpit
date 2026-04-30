@@ -7,22 +7,6 @@ import (
 )
 
 var (
-	SkillInvalidModeTotal = promauto.NewCounterFunc(
-		prometheus.CounterOpts{
-			Name: "skill_invalid_mode_total",
-			Help: "Number of invalid skill modes conservatively downgraded.",
-		},
-		func() float64 { return float64(skillmetrics.SkillInvalidMode()) },
-	)
-
-	SkillUntrustedManifestRedactionTotal = promauto.NewCounterFunc(
-		prometheus.CounterOpts{
-			Name: "skill_untrusted_manifest_redaction_total",
-			Help: "Number of untrusted skill manifest entries redacted before model exposure.",
-		},
-		func() float64 { return float64(skillmetrics.UntrustedManifestRedaction()) },
-	)
-
 	SkillTrimCorruptionFallbackCount = promauto.NewCounterFunc(
 		prometheus.CounterOpts{
 			Name: "skill_trim_corruption_fallback_count",
@@ -37,46 +21,6 @@ var (
 			Help: "Number of skill artifact approval cache misses.",
 		},
 		func() float64 { return float64(skillmetrics.ArtifactApprovalMiss()) },
-	)
-
-	SkillExpandInvokeRate = promauto.NewCounterFunc(
-		prometheus.CounterOpts{
-			Name: "skill_expand_invoke_rate",
-			Help: "Raw count of skill ExpandBody and ReadResource invocations; dashboards derive rate().",
-		},
-		func() float64 { return float64(skillmetrics.SkillExpandInvoke()) },
-	)
-
-	SkillMCPToolCallsTotal = promauto.NewCounterFunc(
-		prometheus.CounterOpts{
-			Name: "skill_mcp_tool_calls_total",
-			Help: "Number of same-binary skill MCP child tools/call requests.",
-		},
-		func() float64 { return float64(skillmetrics.SkillMCPToolCall()) },
-	)
-
-	SkillMCPToolSuccessTotal = promauto.NewCounterFunc(
-		prometheus.CounterOpts{
-			Name: "skill_mcp_tool_success_total",
-			Help: "Number of same-binary skill MCP child tools/call requests that returned a host result successfully.",
-		},
-		func() float64 { return float64(skillmetrics.SkillMCPToolSuccess()) },
-	)
-
-	SkillMCPToolErrorTotal = promauto.NewCounterFunc(
-		prometheus.CounterOpts{
-			Name: "skill_mcp_tool_error_total",
-			Help: "Number of same-binary skill MCP child tools/call requests that failed with non-approval errors.",
-		},
-		func() float64 { return float64(skillmetrics.SkillMCPToolError()) },
-	)
-
-	SkillMCPApprovalRequiredTotal = promauto.NewCounterFunc(
-		prometheus.CounterOpts{
-			Name: "skill_mcp_approval_required_total",
-			Help: "Number of same-binary skill MCP child tools/call requests that returned approval_required.",
-		},
-		func() float64 { return float64(skillmetrics.SkillMCPApprovalRequired()) },
 	)
 
 	HostToolCallsOK = newHostToolCallsCounter(skillmetrics.HostToolOutcomeOK, skillmetrics.HostToolCallOK)
