@@ -75,6 +75,44 @@ function buildNewTaskSeedInstructions(task, content) {
   ].join('\n');
 }
 
+// “以此新建任务”后的 agent 自动开场 prompt。与 fork-kickoff 同样提供一次 user message，
+// 否则新 thread 只有 baseInstructions 作 system、没人说话 agent 不会主动响应。
+// timeline selector 会基于 kickoffByThread 过滤这条，避免用户看到。
+const TASK_HANDOFF_KICKOFF_PROMPT = '请基于上文任务接力摘要，简要总结上次进展并提出下一步建议。';
+
+async function maybeSendTaskKickoff(threadStore, newThreadId, task) {
+  const hasSendMessage = typeof threadStore?.sendMessage === 'function';
+  if (!hasSendMessage) {
+    logWarn('ui', 'taskHandoff.kickoff_no_send_message', {
+      next_thread_id: newThreadId,
+      task_id: task?.taskId || '',
+    });
+    return;
+  }
+  try {
+    await threadStore.sendMessage(newThreadId, TASK_HANDOFF_KICKOFF_PROMPT, [], { kickoff: true });
+    logInfo('ui', 'taskHandoff.kickoff_sent', {
+      next_thread_id: newThreadId,
+      task_id: task?.taskId || '',
+    });
+  } catch (kickoffErr) {
+    const msg = toErrorMessage(kickoffErr) || 'kickoff 发送失败';
+    // review P2 教训：失败时清 kickoffByThread，避免 timeline selector 过滤这条
+    // user message——至少让用户在新 thread 头部看到 prompt 原文，明白 agent 未开场。
+    const stateRef = threadStore?.state;
+    if (stateRef && stateRef.kickoffByThread && newThreadId) {
+      const next = { ...stateRef.kickoffByThread };
+      delete next[newThreadId];
+      stateRef.kickoffByThread = next;
+    }
+    logWarn('ui', 'taskHandoff.kickoff_failed', {
+      next_thread_id: newThreadId,
+      task_id: task?.taskId || '',
+      error: msg,
+    });
+  }
+}
+
 function buildNewTaskOptions({ focusMode, task, content }) {
   const title = buildNewTaskTitle(task?.title);
   return {
@@ -251,6 +289,11 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
           next_thread_id: id,
           source_task_id: task.taskId,
         });
+        // 参照 fork-kickoff：startThread 默认 saveActive 已切焦点到新 thread，但这里必须主动发
+        // 一条 user message，否则新 thread 只有 baseInstructions（任务接力摘要）作 system，
+        // agent 不会主动说话——用户看到的就是「点了没生成对话」。kickoff 失败
+        // 不影响主流程返回 id，maybeSendTaskKickoff 内部自己 catch + logWarn。
+        await maybeSendTaskKickoff(threadStore, id, task);
       }
       return id;
     } catch (error) {

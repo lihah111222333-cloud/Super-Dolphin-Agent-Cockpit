@@ -20,11 +20,16 @@ function makeCtx({
   threadName = 'src-thread',
   isCmd: isCmdValue = false,
   runtime = null,
+  withSendMessage = true,
+  sendMessageImpl = null,
 } = {}) {
   const threadStore = {
-    state: reactive({ agentRuntimeById }),
+    state: reactive({ agentRuntimeById, kickoffByThread: {} }),
     startThread: vi.fn(async () => 'new-thread-id'),
   };
+  if (withSendMessage) {
+    threadStore.sendMessage = vi.fn(sendMessageImpl || (async () => {}));
+  }
   const projectStore = { state: reactive({ active: '/repo' }) };
   return {
     threadStore,
@@ -374,4 +379,80 @@ describe('taskStripExpanded 默认折叠 + 事件展开', () => {
   // 改体：不直接断言 watch fire，而是靠上面几个 case 锁住 manual API（toggle/expand/collapse）
   // + load 错误自动展开这个同 watch 同机制的 case 间接证明 watcher 在测试
   // 环境里是工作的。
+});
+
+describe('useTaskHandoff.startNewTaskFromHandoff kickoff', () => {
+  // 用户报告：「自动化任务」点「以此新建任务」按钮没生成对话——侧栏 / 焦点其实切到
+  // 了新 thread（startThread 默认 saveActive），但新 thread 是空白的因为没有任何
+  // user message 触发 agent 开场。参照 fork-kickoff 模式：startThread 成功后主动发
+  // 一条 prompt 让 agent 基于 baseInstructions 总结接力摘要 + 提建议。
+
+  it('成功 startThread 后发 kickoff prompt（与 fork-kickoff 同款体验）', async () => {
+    vi.mocked(callAPI).mockResolvedValueOnce({ content: '上次完成了什么…' });
+    const ctx = makeCtx({
+      runtime: { taskId: 't-new-1', taskTitle: '迁移任务', handoffFile: 'handoff/t-new-1.md' },
+    });
+    const { startNewTaskFromHandoff } = useTaskHandoff(ctx);
+    // 等 immediate watch 触发的 loadTaskHandoff 完成（state.content 才会被填）
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    const id = await startNewTaskFromHandoff();
+    expect(id).toBe('new-thread-id');
+    expect(ctx.threadStore.sendMessage).toHaveBeenCalledOnce();
+    const [threadId, prompt, attachments, opts] = ctx.threadStore.sendMessage.mock.calls[0];
+    expect(threadId).toBe('new-thread-id');
+    expect(prompt).toContain('请基于上文任务接力摘要');
+    expect(Array.isArray(attachments)).toBe(true);
+    expect(opts).toEqual(expect.objectContaining({ kickoff: true }));
+    expect(logInfo).toHaveBeenCalledWith('ui', 'taskHandoff.kickoff_sent', expect.objectContaining({
+      next_thread_id: 'new-thread-id',
+      task_id: 't-new-1',
+    }));
+  });
+
+  it('threadStore 没 sendMessage 时仍返回 thread id 但 logWarn 跳过 kickoff', async () => {
+    vi.mocked(callAPI).mockResolvedValueOnce({ content: '上次完成了什么…' });
+    const ctx = makeCtx({
+      runtime: { taskId: 't-new-2', taskTitle: 'noSend', handoffFile: 'handoff/t-new-2.md' },
+      withSendMessage: false,
+    });
+    const { startNewTaskFromHandoff } = useTaskHandoff(ctx);
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    const id = await startNewTaskFromHandoff();
+    expect(id).toBe('new-thread-id');
+    expect(logWarn).toHaveBeenCalledWith('ui', 'taskHandoff.kickoff_no_send_message', expect.objectContaining({
+      next_thread_id: 'new-thread-id',
+    }));
+  });
+
+  it('kickoff 失败时清 kickoffByThread 让 timeline 不过滤 user prompt（review P2 教训）', async () => {
+    vi.mocked(callAPI).mockResolvedValueOnce({ content: '上次完成了什么…' });
+    const ctx = makeCtx({
+      runtime: { taskId: 't-new-3', taskTitle: 'kickFail', handoffFile: 'handoff/t-new-3.md' },
+      sendMessageImpl: async () => { throw new Error('rpc fail'); },
+    });
+    // 模拟 sendMessage 内部抛错前已写入 kickoffByThread（生产路径就是这个时序）
+    ctx.threadStore.state.kickoffByThread = { 'new-thread-id': 'pending-prompt' };
+    const { startNewTaskFromHandoff } = useTaskHandoff(ctx);
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    const id = await startNewTaskFromHandoff();
+    expect(id).toBe('new-thread-id'); // startThread 主流程仍成功，kickoff 是次要错误
+    expect(ctx.threadStore.state.kickoffByThread['new-thread-id']).toBeUndefined();
+    expect(logWarn).toHaveBeenCalledWith('ui', 'taskHandoff.kickoff_failed', expect.objectContaining({
+      next_thread_id: 'new-thread-id',
+      error: expect.stringContaining('rpc fail'),
+    }));
+  });
+
+  it('kickoff 失败时不动其它 thread 的 kickoffByThread entry', async () => {
+    vi.mocked(callAPI).mockResolvedValueOnce({ content: '上次完成了什么…' });
+    const ctx = makeCtx({
+      runtime: { taskId: 't-new-4', taskTitle: 'isolation', handoffFile: 'handoff/t-new-4.md' },
+      sendMessageImpl: async () => { throw new Error('rpc fail'); },
+    });
+    ctx.threadStore.state.kickoffByThread = { 'other-thread': 'other prompt' };
+    const { startNewTaskFromHandoff } = useTaskHandoff(ctx);
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    await startNewTaskFromHandoff();
+    expect(ctx.threadStore.state.kickoffByThread['other-thread']).toBe('other prompt');
+  });
 });
