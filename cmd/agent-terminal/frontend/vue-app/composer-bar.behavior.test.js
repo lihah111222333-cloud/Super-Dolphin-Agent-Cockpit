@@ -697,11 +697,14 @@ describe('ComposerBar behavior', () => {
     expect(ComposerBar.props.threadTaskId.default).toBe('');
   });
 
-  it('template renders promote button + already-task row with proper testids', () => {
-    expect(ComposerBar.template).toContain('thread-config-promote-btn');
+  it('template renders dropdown already-task row but no longer the duplicate promote button', () => {
+    // Phase 2.4 去重：dropdown 内「升级为自动化任务」按钮跟主条 chip 完全重复，
+    // 已删除；dropdown 只保留「状态查看」（已是任务 / 升级失败）这些不重复的信息。
+    expect(ComposerBar.template).not.toContain('thread-config-promote-btn');
     expect(ComposerBar.template).toContain('thread-config-promote-already');
-    expect(ComposerBar.template).toContain('@click="onPromoteTask"');
     expect(ComposerBar.template).toContain('v-if="threadIsTask"');
+    // 主条 chip 仍然是 onPromoteTask 唯一调用点
+    expect(ComposerBar.template).toContain('@click="onPromoteTask"');
   });
 
   it('onPromoteTask emits when not already a task and not in flight', () => {
@@ -732,8 +735,10 @@ describe('ComposerBar behavior', () => {
   });
 
   it('template renders promote error row with proper testid', () => {
+    // Phase 2.4 去重后：error span 跟「已是任务」在同一 section 里互斥（v-else-if），
+    // 主要为了 dropdown 空状态时整个 section 隐藏。
     expect(ComposerBar.template).toContain('thread-config-promote-error');
-    expect(ComposerBar.template).toContain('v-if="promoteTaskError"');
+    expect(ComposerBar.template).toContain('v-else-if="promoteTaskError"');
   });
 
   // ComposerBar 主条独立 chip 入口（解决 Phase 2.2a dropdown 内入口

@@ -479,8 +479,13 @@ export const ComposerBar = {
                   </select>
                 </label>
               </div>
-              <div class="project-dropdown-divider" style="margin: 4px 0px;"></div>
               <div
+                v-if="threadIsTask || promoteTaskError"
+                class="project-dropdown-divider"
+                style="margin: 4px 0px;"
+              ></div>
+              <div
+                v-if="threadIsTask || promoteTaskError"
                 class="composer-thread-promote-section"
                 style="padding: 8px 14px; display: flex; flex-direction: column; gap: 6px;"
               >
@@ -489,26 +494,12 @@ export const ComposerBar = {
                   已是自动化任务<span v-if="threadTaskId" style="opacity:0.7; margin-left:4px;">（{{ threadTaskId }}）</span>
                   <div style="opacity: 0.65; margin-top: 2px;">token 满 / 状态出错时会自动续接，不再需要手动点继续。</div>
                 </div>
-                <template v-else>
-                  <button
-                    class="btn btn-ghost btn-xs"
-                    type="button"
-                    data-testid="thread-config-promote-btn"
-                    :disabled="promotingTask"
-                    :title="promotingTask ? '升级中…' : '把当前对话升级为自动化任务，后续 token 满 / 状态出错时自动续接（单向操作，本期不支持取消）'"
-                    @click="onPromoteTask"
-                    style="font-size: 11px; opacity: 0.85;"
-                  >{{ promotingTask ? '升级中…' : '升级为自动化任务' }}</button>
-                  <span style="font-size: 10px; color: var(--text-muted); opacity: 0.7; line-height: 1.4;">
-                    单向升级：升级后不能改回普通对话；不影响普通对话的他人会话。
-                  </span>
-                  <span
-                    v-if="promoteTaskError"
-                    data-testid="thread-config-promote-error"
-                    :title="promoteTaskError"
-                    style="font-size: 10px; color: var(--error, #f87171); line-height: 1.35;"
-                  >升级失败：{{ promoteTaskError }}</span>
-                </template>
+                <span
+                  v-else-if="promoteTaskError"
+                  data-testid="thread-config-promote-error"
+                  :title="promoteTaskError"
+                  style="font-size: 10px; color: var(--error, #f87171); line-height: 1.35;"
+                >升级失败：{{ promoteTaskError }}</span>
               </div>
               <div v-if="!threadConfigInherited" style="padding: 6px 14px 10px; display: flex; justify-content: center;">
                 <button
