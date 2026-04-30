@@ -422,12 +422,39 @@ func removeMemoryFiles(root string, paths []string) error {
 }
 
 func writeConsolidatedMemories(root string, items []ExtractedMemory) error {
-	for _, item := range items {
-		if _, err := WriteMemoryFile(root, buildConsolidatedMemoryEntry(item)); err != nil {
+	entries, err := prepareConsolidatedMemoryEntries(root, items)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if _, err := WriteMemoryFile(root, entry); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func prepareConsolidatedMemoryEntries(root string, items []ExtractedMemory) ([]MemoryEntry, error) {
+	if len(items) == 0 {
+		return nil, nil
+	}
+	normalizedRoot, err := normalizeStoreRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]MemoryEntry, 0, len(items))
+	for _, item := range items {
+		entry := buildConsolidatedMemoryEntry(item)
+		prepared, err := prepareWritableEntry(entry, false)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := resolveMemoryFilePath(normalizedRoot, prepared); err != nil {
+			return nil, err
+		}
+		entries = append(entries, prepared)
+	}
+	return entries, nil
 }
 
 func buildConsolidatedMemoryEntry(item ExtractedMemory) MemoryEntry {

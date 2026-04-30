@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestDiskStoreCRUD(t *testing.T) {
@@ -69,6 +70,46 @@ func TestDiskStoreCRUD(t *testing.T) {
 	}
 	if string(content) != "" {
 		t.Fatalf("MEMORY.md = %q, want empty content", string(content))
+	}
+}
+
+func TestWriteMemoryFileLongChineseNameUsesUTF8SafeSlug(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	name := "用户要求-汇报今日工作-总结今日工作-写日报-时按固定四段简化输出不要包含额外解释"
+
+	written, err := WriteMemoryFile(root, testMemoryEntry(
+		name,
+		"长中文 memory 名称应生成合法 UTF-8 文件名",
+		MemoryTypeFeedback,
+		"汇报今日工作时按固定四段简化输出。\nWhy: 用户反复要求固定日报格式。\nHow to apply: 用户要求日报/今日工作总结时按该格式输出。",
+	))
+	if err != nil {
+		t.Fatalf("WriteMemoryFile(long Chinese name) error = %v", err)
+	}
+	base := filepath.Base(written.FilePath)
+	if !utf8.ValidString(base) {
+		t.Fatalf("WriteMemoryFile() base path is invalid UTF-8: %q", base)
+	}
+	if _, err := os.Stat(written.FilePath); err != nil {
+		t.Fatalf("Stat(%q) error = %v", written.FilePath, err)
+	}
+}
+
+func TestWriteConsolidatedMemoriesValidatesBatchBeforeWriting(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	err := writeConsolidatedMemories(root, []ExtractedMemory{
+		{Name: "Valid Topic", Type: MemoryTypeUser, Content: "Keep the valid memory."},
+		{Type: MemoryTypeUser},
+	})
+	if err == nil {
+		t.Fatal("writeConsolidatedMemories() error = nil, want validation error")
+	}
+	entries, scanErr := scanMemoryEntries(root)
+	if scanErr != nil {
+		t.Fatalf("scanMemoryEntries() error = %v", scanErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("scanMemoryEntries() entries = %d, want 0; first = %+v", len(entries), entries[0])
 	}
 }
 
