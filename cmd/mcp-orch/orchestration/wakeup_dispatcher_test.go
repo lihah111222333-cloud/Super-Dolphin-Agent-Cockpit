@@ -655,3 +655,92 @@ func TestDispatcherNonDAGWakeupKeepsLegacyRetry(t *testing.T) {
 		t.Fatalf("failNodeCalls = %d, want 0 (no DAG cascade for non-DAG wakeup)", len(store.failNodeCalls))
 	}
 }
+
+// Phase 3.9 新增：dispatcher 把上游产出路径注入下一节点 prompt。
+
+// TestBuildLaunchRequestPhase39_InjectsUpstreamOutputsIntoPrompt 验证：
+// payload 是 DownstreamWakeupPayload + UpstreamOutputs 非空时，prompt 含
+// 路径列表 + Read 提示文案。AgentID 取 payload 优先，fallback 到 wakeup。
+func TestBuildLaunchRequestPhase39_InjectsUpstreamOutputsIntoPrompt(t *testing.T) {
+	payload, err := json.Marshal(taskdag.DownstreamWakeupPayload{
+		AgentID: "agent-downstream",
+		UpstreamOutputs: []taskdag.DownstreamUpstreamRef{
+			{NodeKey: "node-A", Path: "dag/dag-x/node-A/output.json"},
+			{NodeKey: "node-B", Path: "dag/dag-x/node-B/output.json"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	req := buildLaunchRequestFromWakeup(taskdag.Wakeup{
+		TargetAgentID: "agent-fallback",
+		PromptPayload: payload,
+	})
+	if req.AgentID != "agent-downstream" {
+		t.Fatalf("AgentID = %q, want agent-downstream (payload override)", req.AgentID)
+	}
+	if !strings.Contains(req.Prompt, "node-A: dag/dag-x/node-A/output.json") {
+		t.Fatalf("Prompt missing node-A path:\n%s", req.Prompt)
+	}
+	if !strings.Contains(req.Prompt, "node-B: dag/dag-x/node-B/output.json") {
+		t.Fatalf("Prompt missing node-B path:\n%s", req.Prompt)
+	}
+	if !strings.Contains(req.Prompt, "Read") {
+		t.Fatalf("Prompt missing Read hint:\n%s", req.Prompt)
+	}
+}
+
+// TestBuildLaunchRequestPhase39_FallsBackToWakeupAgentWhenPayloadAgentEmpty:
+// payload 含 UpstreamOutputs 但 AgentID 空时退化用 wakeup.TargetAgentID。
+func TestBuildLaunchRequestPhase39_FallsBackToWakeupAgentWhenPayloadAgentEmpty(t *testing.T) {
+	payload, _ := json.Marshal(taskdag.DownstreamWakeupPayload{
+		UpstreamOutputs: []taskdag.DownstreamUpstreamRef{
+			{NodeKey: "X", Path: "dag/d/X/output.json"},
+		},
+	})
+	req := buildLaunchRequestFromWakeup(taskdag.Wakeup{
+		TargetAgentID: "agent-fallback",
+		PromptPayload: payload,
+	})
+	if req.AgentID != "agent-fallback" {
+		t.Fatalf("AgentID = %q, want fallback", req.AgentID)
+	}
+	if req.Prompt == "" {
+		t.Fatalf("Prompt empty, want render with X path")
+	}
+}
+
+// TestBuildLaunchRequestPhase39_LegacyPayloadStillWorks:
+// 老式 LaunchRequest payload（无 upstream_outputs）仍然走 fallback 解析路径。
+func TestBuildLaunchRequestPhase39_LegacyPayloadStillWorks(t *testing.T) {
+	// 仿照 TestBuildLaunchRequestFromWakeupDecodesJSONPayload 的形状。
+	legacy := `{"agent_id":"agent-legacy","prompt":"hello"}`
+	req := buildLaunchRequestFromWakeup(taskdag.Wakeup{
+		TargetAgentID: "agent-fallback",
+		PromptPayload: json.RawMessage(legacy),
+	})
+	// LaunchRequest JSON tag 不是 snake_case（看类型签名是大驼峰，json 默认大驼峰），
+	// 老 case 里测试拿到的是 fallback agent_id；这里只验证 Phase 3.9 新分支不破老路径。
+	if strings.Contains(req.Prompt, "上游节点已完成") {
+		t.Fatalf("legacy payload incorrectly routed to upstream prompt branch:\n%s", req.Prompt)
+	}
+}
+
+// TestRenderUpstreamPromptHint_SkipsEmptyPathRefs 验证渲染对 path 为空的 ref
+// 安静跳过（不留下 "- :" 这种空行垃圾）。
+func TestRenderUpstreamPromptHint_SkipsEmptyPathRefs(t *testing.T) {
+	prompt := renderUpstreamPromptHint([]taskdag.DownstreamUpstreamRef{
+		{NodeKey: "A", Path: "dag/d/A/output.json"},
+		{NodeKey: "B", Path: ""},
+		{NodeKey: "", Path: "dag/d/anon/output.json"},
+	})
+	if !strings.Contains(prompt, "A: dag/d/A/output.json") {
+		t.Fatalf("missing A entry:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "- B:") || strings.Contains(prompt, "- :") {
+		t.Fatalf("empty path ref leaked into prompt:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "- dag/d/anon/output.json") {
+		t.Fatalf("missing anon path entry:\n%s", prompt)
+	}
+}
