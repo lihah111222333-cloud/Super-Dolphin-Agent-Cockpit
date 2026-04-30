@@ -3,6 +3,9 @@ package claudecli
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -168,10 +171,17 @@ func historyImageInputFromSource(source *historyImageSource) map[string]any {
 		if mediaType == "" || data == "" {
 			return nil
 		}
-		return map[string]any{
+		record := map[string]any{
 			"type": "image",
 			"url":  "data:" + mediaType + ";base64," + data,
 		}
+		if h := sha256OfBase64Data(data); h != "" {
+			// sha256 lets the frontend correlate this image with `[image
+			// previously attached … sha256:abc…]` placeholders that follow on
+			// later turns and re-render the original preview in their bubble.
+			record["sha256"] = h
+		}
+		return record
 	case "url":
 		url := strings.TrimSpace(source.URL)
 		if url == "" {
@@ -183,6 +193,15 @@ func historyImageInputFromSource(source *historyImageSource) map[string]any {
 		}
 	}
 	return nil
+}
+
+func sha256OfBase64Data(data string) string {
+	decoded, err := base64.StdEncoding.DecodeString(data)
+	if err != nil || len(decoded) == 0 {
+		return ""
+	}
+	sum := sha256.Sum256(decoded)
+	return hex.EncodeToString(sum[:])
 }
 
 func extractInjectedAttachmentMetadata(text string) (string, json.RawMessage) {
