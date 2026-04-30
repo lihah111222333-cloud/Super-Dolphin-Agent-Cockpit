@@ -688,6 +688,12 @@ export async function sendMessage(ctx, threadId, prompt, attachments = [], optio
   const start = perfNow();
   const selectedSkills = Array.isArray(options?.selectedSkills) ? options.selectedSkills.map((item) => (item || '').toString().trim()).filter(Boolean) : [];
   const manualSkillSelection = Boolean(options?.manualSkillSelection);
+  // fork 继承对话 kickoff：把这条 user prompt 的 text 记到 kickoffByThread，timeline
+  // selector 看到匹配 text 的 user 消息会过滤掉，让 agent 视觉上主动开场。后端推回的
+  // 真实 timeline 不影响——同一文本永远命中过滤。
+  if (options?.kickoff && text) {
+    ctx.state.kickoffByThread = { ...ctx.state.kickoffByThread, [threadId]: text };
+  }
   const requestPayload = { threadId, input };
   const cwdValue = (options?.cwd || '').toString().trim();
   if (cwdValue) requestPayload.cwd = cwdValue;

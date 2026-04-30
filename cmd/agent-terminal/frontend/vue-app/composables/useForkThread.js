@@ -13,6 +13,44 @@ import {
   extractTimelineSummary,
 } from './useSummaryHandoff.js';
 
+// Phase 4-fork-kickoff：fork 出新对话后让 agent 自动开场。详见 useForkThread.submit。
+// 文案 B：明确指示 agent 基于 system 里塞的摘要总结进展并提建议；
+// 简短稳定，便于 timeline selector 用 text 匹配过滤这条 user 消息。
+const FORK_KICKOFF_PROMPT = '请基于上文摘要，简要总结上次进展并提出下一步建议。';
+
+// 子 agent thread（DAG 子节点 / 用户主动 spawn 的子 agent）不应触发 kickoff——
+// 用户根本不打开这些 thread 看，agent 主动开场是噪声。
+// 判定：runtime.rootTaskId 存在且 !== runtime.taskId（root thread 自身两者相等，见
+// internal/module/thread/promote_task.go::PromoteTaskFromThread）。
+function isSubAgentRuntime(runtime) {
+  if (!runtime || typeof runtime !== 'object') return false;
+  const taskId = (runtime.taskId || runtime.task_id || '').toString().trim();
+  const rootTaskId = (runtime.rootTaskId || runtime.root_task_id || '').toString().trim();
+  return Boolean(taskId && rootTaskId && rootTaskId !== taskId);
+}
+
+async function maybeSendKickoff(ctx, sourceThreadId, newThreadId) {
+  const sourceRuntime = ctx.threadStore?.state?.agentRuntimeById?.[sourceThreadId];
+  if (isSubAgentRuntime(sourceRuntime)) {
+    logInfo('ui', 'forkThread.kickoff_skipped_sub_agent', {
+      source_thread_id: sourceThreadId, new_thread_id: newThreadId,
+    });
+    return;
+  }
+  if (typeof ctx.threadStore?.sendMessage !== 'function') return;
+  try {
+    await ctx.threadStore.sendMessage(newThreadId, FORK_KICKOFF_PROMPT, [], { kickoff: true });
+    logInfo('ui', 'forkThread.kickoff_sent', {
+      source_thread_id: sourceThreadId, new_thread_id: newThreadId,
+    });
+  } catch (kickoffErr) {
+    logWarn('ui', 'forkThread.kickoff_failed', {
+      source_thread_id: sourceThreadId, new_thread_id: newThreadId,
+      error: toErrorMessage(kickoffErr),
+    });
+  }
+}
+
 function toErrorMessage(error) {
   return ((error && typeof error === 'object' && typeof error.message === 'string' ? error.message : '') || String(error || '')).toString().trim();
 }
@@ -117,6 +155,7 @@ export function useForkThread(ctx) {
           shared_file_count: sharedFiles.length,
         });
         ctx.composer.closeForkDraft();
+        await maybeSendKickoff(ctx, sourceThreadId, newThreadId);
       }
       return newThreadId || '';
     } catch (err) {
