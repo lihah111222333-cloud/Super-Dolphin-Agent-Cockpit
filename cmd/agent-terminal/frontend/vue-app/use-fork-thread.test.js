@@ -205,6 +205,30 @@ describe('useForkThread.submit', () => {
     expect(kickoffError.value).toContain('rpc fail');
   });
 
+  it('kickoff 失败时清 kickoffByThread 让 timeline 不过滤 user prompt（review P2 部分修）', async () => {
+    const ctx = makeCtx({
+      timeline: [{ role: 'user', text: 'hi' }],
+      sendMessageImpl: async () => { throw new Error('rpc fail'); },
+    });
+    // 模拟 sendMessage 在抛错前已经写入 kickoffByThread（生产路径就是这个时序）
+    ctx.threadStore.state.kickoffByThread = { 'new-thread-id': '请基于上文摘要…' };
+    const { submit } = useForkThread(ctx);
+    await submit();
+    // catch 路径应当 delete entry，避免 timeline selector 过滤这条 user message——
+    // 用户至少能看到 kickoff prompt 原文，比「完全空白」更可定位
+    expect(ctx.threadStore.state.kickoffByThread['new-thread-id']).toBeUndefined();
+  });
+
+  it('kickoff 成功时不动其它 thread 的 kickoffByThread entry', async () => {
+    const ctx = makeCtx({ timeline: [{ role: 'user', text: 'hi' }] });
+    // 别的 thread 已有 entry，本次 fork 成功不应误删
+    ctx.threadStore.state.kickoffByThread = { 'other-thread': 'other prompt' };
+    const { submit } = useForkThread(ctx);
+    await submit();
+    // 别 thread 不被动
+    expect(ctx.threadStore.state.kickoffByThread['other-thread']).toBe('other prompt');
+  });
+
   it('多次 submit 之间 kickoffError 会被重置（避免上次失败错误被下次看到）', async () => {
     let shouldFail = true;
     const ctx = makeCtx({

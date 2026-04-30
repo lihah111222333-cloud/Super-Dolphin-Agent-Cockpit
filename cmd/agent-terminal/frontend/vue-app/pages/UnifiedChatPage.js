@@ -303,6 +303,9 @@ function createPageForkThread(props, ctx) {
   return {
     submitting: forkThread.submitting,
     error: forkThread.error,
+    // review M1 收尾：暴露 kickoffError 给将来的 banner/toast 消费——草稿已关时
+    // 错误显示在新 thread 的 UI 上更合理；当前还没接 banner 系统，先留口子。
+    kickoffError: forkThread.kickoffError,
     submit: submitForkThread,
     open: openForkDraftFromUI,
     sourceThreadName: forkSourceThreadName,
