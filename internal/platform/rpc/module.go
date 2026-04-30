@@ -23,7 +23,6 @@ var Module = fx.Module("rpc",
 		NewCapabilityResolver,
 		provideWSRoute,
 		NewRPCPushSubscribers,
-		NewSkillMCPMetricHandlers,
 		newPushNotificationWorkerProvider,
 		func(m *ApprovalManager) contract.ApprovalResponder { return m },
 		func(m *ApprovalManager, bridge *PushBridge, server *Server) contract.ApprovalRequester {
