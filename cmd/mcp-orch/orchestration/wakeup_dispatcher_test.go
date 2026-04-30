@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -32,6 +33,49 @@ type dispatcherStubStore struct {
 	failCalls []taskdag.FailWakeupInput
 	failRows  int64
 	failErr   error
+
+	// Phase 3.5w: DAG-aware 决策需要的 stub 字段。默认 dagReply=nil 让
+	// resolveDAGRetryPolicy 退化到旧 RetryWakeup 路径，老用例不受影响。
+	dagReply      *taskdag.DAG
+	dagErr        error
+	nodesReply    []taskdag.Node
+	nodesErr      error
+	failNodeCalls []taskdag.FailNodeInput
+	failNodeReply *taskdag.FailNodeResult
+	failNodeErr   error
+	completeCalls []taskdag.CompleteNodeInput
+	completeReply *taskdag.CompleteNodeWithDownstreamResult
+	completeErr   error
+}
+
+func (s *dispatcherStubStore) GetDAG(_ context.Context, _ string) (*taskdag.DAG, error) {
+	return s.dagReply, s.dagErr
+}
+
+func (s *dispatcherStubStore) ListNodes(_ context.Context, _ string) ([]taskdag.Node, error) {
+	return s.nodesReply, s.nodesErr
+}
+
+func (s *dispatcherStubStore) FailNodeAndCancelDownstream(_ context.Context, input taskdag.FailNodeInput) (*taskdag.FailNodeResult, error) {
+	s.failNodeCalls = append(s.failNodeCalls, input)
+	if s.failNodeErr != nil {
+		return nil, s.failNodeErr
+	}
+	if s.failNodeReply != nil {
+		return s.failNodeReply, nil
+	}
+	return &taskdag.FailNodeResult{}, nil
+}
+
+func (s *dispatcherStubStore) CompleteNodeAndScheduleDownstream(_ context.Context, input taskdag.CompleteNodeInput) (*taskdag.CompleteNodeWithDownstreamResult, error) {
+	s.completeCalls = append(s.completeCalls, input)
+	if s.completeErr != nil {
+		return nil, s.completeErr
+	}
+	if s.completeReply != nil {
+		return s.completeReply, nil
+	}
+	return &taskdag.CompleteNodeWithDownstreamResult{}, nil
 }
 
 func (s *dispatcherStubStore) ClaimDueWakeups(_ context.Context, input taskdag.ClaimDueWakeupsInput) ([]taskdag.Wakeup, error) {
@@ -476,5 +520,227 @@ func TestWakeupDispatcherRunSurvivesClaimErrorAndContinues(t *testing.T) {
 	<-done
 	if len(store.claimCalls) < 2 {
 		t.Fatalf("Run gave up too early on claim error: only %d ticks", len(store.claimCalls))
+	}
+}
+
+// Phase 3.5w 新增：DAG-aware retry 决策。
+
+// makeDAGWakeup 是 makeClaimedWakeup 的 DAG 版：DagKey/NodeKey 非空让
+// markTransientRetry 走新加的 tryDAGFailWithCascade 决策路径。
+func makeDAGWakeup(id int64, dagKey, nodeKey, agent string, attempt int32, ts time.Time) taskdag.Wakeup {
+	w := makeClaimedWakeup(id, agent, attempt, ts)
+	w.DagKey = dagKey
+	w.NodeKey = nodeKey
+	return w
+}
+
+// dagDefaultRetryMetadata 构造一个 DAG metadata：default_retry=N，fail_fast 可选。
+func dagDefaultRetryMetadata(t *testing.T, defaultRetry int, failFast bool) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(map[string]any{
+		"schedule": map[string]any{
+			"default_retry": defaultRetry,
+			"fail_fast":     failFast,
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal metadata: %v", err)
+	}
+	return raw
+}
+
+// TestDispatcherDAGRetryRetriesUntilMaxAttempts 验证：default_retry=2 时 MaxAttempts=3，
+// AttemptCount=1（首次失败）应该继续走 RetryWakeup 不直接 fail。
+func TestDispatcherDAGRetryRetriesUntilMaxAttempts(t *testing.T) {
+	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
+	store := &dispatcherStubStore{
+		claimReply: []taskdag.Wakeup{makeDAGWakeup(20, "dag-x", "node-A", "agent-A", 1, now)},
+		dagReply: &taskdag.DAG{
+			DagKey:   "dag-x",
+			Metadata: dagDefaultRetryMetadata(t, 2, false),
+		},
+	}
+	launcher := &dispatcherStubLauncher{errs: []error{errors.New("connection refused")}}
+	d, _ := NewWakeupDispatcher(store, launcher, nil, WakeupDispatcherConfig{})
+	if _, err := d.ProcessBatch(context.Background()); err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	if len(store.retryCalls) != 1 {
+		t.Fatalf("retryCalls = %d, want 1 (still under MaxAttempts)", len(store.retryCalls))
+	}
+	if len(store.failCalls) != 0 {
+		t.Fatalf("failCalls = %d, want 0 (not yet exhausted)", len(store.failCalls))
+	}
+	if len(store.failNodeCalls) != 0 {
+		t.Fatalf("failNodeCalls = %d, want 0 (no cascade yet)", len(store.failNodeCalls))
+	}
+}
+
+// TestDispatcherDAGRetryFailsAtMaxAttemptsWithFailFastCascade 验证：
+// default_retry=0（MaxAttempts=1）+ fail_fast=true，AttemptCount=1（首次失败即达上限）
+// → markPermanentFail + FailNodeAndCancelDownstream(FailFast=true)，不再调 RetryWakeup。
+func TestDispatcherDAGRetryFailsAtMaxAttemptsWithFailFastCascade(t *testing.T) {
+	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
+	store := &dispatcherStubStore{
+		claimReply: []taskdag.Wakeup{makeDAGWakeup(21, "dag-y", "node-B", "agent-B", 1, now)},
+		dagReply: &taskdag.DAG{
+			DagKey:   "dag-y",
+			Metadata: dagDefaultRetryMetadata(t, 0, true),
+		},
+	}
+	launcher := &dispatcherStubLauncher{errs: []error{errors.New("network unreachable")}}
+	d, _ := NewWakeupDispatcher(store, launcher, nil, WakeupDispatcherConfig{})
+	if _, err := d.ProcessBatch(context.Background()); err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	if len(store.retryCalls) != 0 {
+		t.Fatalf("retryCalls = %d, want 0 (skipped at max)", len(store.retryCalls))
+	}
+	if len(store.failCalls) != 1 {
+		t.Fatalf("failCalls = %d, want 1 (permanent fail)", len(store.failCalls))
+	}
+	if len(store.failNodeCalls) != 1 {
+		t.Fatalf("failNodeCalls = %d, want 1 (cascade)", len(store.failNodeCalls))
+	}
+	if !store.failNodeCalls[0].FailFast {
+		t.Fatalf("FailNodeInput.FailFast = false, want true")
+	}
+	if store.failNodeCalls[0].DagKey != "dag-y" || store.failNodeCalls[0].NodeKey != "node-B" {
+		t.Fatalf("FailNodeInput key wrong: %+v", store.failNodeCalls[0])
+	}
+}
+
+// TestDispatcherDAGRetryFailsAtMaxAttemptsNoFailFast 验证 fail_fast=false 时仍调
+// FailNodeAndCancelDownstream（store 层根据 FailFast 自决是否级联，这里只验
+// dispatcher 把 FailFast=false 透传过去）。
+func TestDispatcherDAGRetryFailsAtMaxAttemptsNoFailFast(t *testing.T) {
+	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
+	store := &dispatcherStubStore{
+		claimReply: []taskdag.Wakeup{makeDAGWakeup(22, "dag-z", "node-C", "agent-C", 1, now)},
+		dagReply: &taskdag.DAG{
+			DagKey:   "dag-z",
+			Metadata: dagDefaultRetryMetadata(t, 0, false),
+		},
+	}
+	launcher := &dispatcherStubLauncher{errs: []error{errors.New("timeout")}}
+	d, _ := NewWakeupDispatcher(store, launcher, nil, WakeupDispatcherConfig{})
+	if _, err := d.ProcessBatch(context.Background()); err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	if len(store.failNodeCalls) != 1 {
+		t.Fatalf("failNodeCalls = %d, want 1", len(store.failNodeCalls))
+	}
+	if store.failNodeCalls[0].FailFast {
+		t.Fatalf("FailNodeInput.FailFast = true, want false")
+	}
+}
+
+// TestDispatcherNonDAGWakeupKeepsLegacyRetry 验证：Wakeup 没有 DagKey/NodeKey
+// 时（非 DAG 来源），新代码不应该走 DAG 决策；保持旧 RetryWakeup 路径。
+func TestDispatcherNonDAGWakeupKeepsLegacyRetry(t *testing.T) {
+	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
+	w := makeClaimedWakeup(23, "agent-D", 5, now) // DagKey/NodeKey 留空
+	store := &dispatcherStubStore{
+		claimReply: []taskdag.Wakeup{w},
+	}
+	launcher := &dispatcherStubLauncher{errs: []error{errors.New("connection refused")}}
+	d, _ := NewWakeupDispatcher(store, launcher, nil, WakeupDispatcherConfig{})
+	if _, err := d.ProcessBatch(context.Background()); err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	if len(store.retryCalls) != 1 {
+		t.Fatalf("retryCalls = %d, want 1 (legacy path)", len(store.retryCalls))
+	}
+	if len(store.failNodeCalls) != 0 {
+		t.Fatalf("failNodeCalls = %d, want 0 (no DAG cascade for non-DAG wakeup)", len(store.failNodeCalls))
+	}
+}
+
+// Phase 3.9 新增：dispatcher 把上游产出路径注入下一节点 prompt。
+
+// TestBuildLaunchRequestPhase39_InjectsUpstreamOutputsIntoPrompt 验证：
+// payload 是 DownstreamWakeupPayload + UpstreamOutputs 非空时，prompt 含
+// 路径列表 + Read 提示文案。AgentID 取 payload 优先，fallback 到 wakeup。
+func TestBuildLaunchRequestPhase39_InjectsUpstreamOutputsIntoPrompt(t *testing.T) {
+	payload, err := json.Marshal(taskdag.DownstreamWakeupPayload{
+		AgentID: "agent-downstream",
+		UpstreamOutputs: []taskdag.DownstreamUpstreamRef{
+			{NodeKey: "node-A", Path: "dag/dag-x/node-A/output.json"},
+			{NodeKey: "node-B", Path: "dag/dag-x/node-B/output.json"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	req := buildLaunchRequestFromWakeup(taskdag.Wakeup{
+		TargetAgentID: "agent-fallback",
+		PromptPayload: payload,
+	})
+	if req.AgentID != "agent-downstream" {
+		t.Fatalf("AgentID = %q, want agent-downstream (payload override)", req.AgentID)
+	}
+	if !strings.Contains(req.Prompt, "node-A: dag/dag-x/node-A/output.json") {
+		t.Fatalf("Prompt missing node-A path:\n%s", req.Prompt)
+	}
+	if !strings.Contains(req.Prompt, "node-B: dag/dag-x/node-B/output.json") {
+		t.Fatalf("Prompt missing node-B path:\n%s", req.Prompt)
+	}
+	if !strings.Contains(req.Prompt, "Read") {
+		t.Fatalf("Prompt missing Read hint:\n%s", req.Prompt)
+	}
+}
+
+// TestBuildLaunchRequestPhase39_FallsBackToWakeupAgentWhenPayloadAgentEmpty:
+// payload 含 UpstreamOutputs 但 AgentID 空时退化用 wakeup.TargetAgentID。
+func TestBuildLaunchRequestPhase39_FallsBackToWakeupAgentWhenPayloadAgentEmpty(t *testing.T) {
+	payload, _ := json.Marshal(taskdag.DownstreamWakeupPayload{
+		UpstreamOutputs: []taskdag.DownstreamUpstreamRef{
+			{NodeKey: "X", Path: "dag/d/X/output.json"},
+		},
+	})
+	req := buildLaunchRequestFromWakeup(taskdag.Wakeup{
+		TargetAgentID: "agent-fallback",
+		PromptPayload: payload,
+	})
+	if req.AgentID != "agent-fallback" {
+		t.Fatalf("AgentID = %q, want fallback", req.AgentID)
+	}
+	if req.Prompt == "" {
+		t.Fatalf("Prompt empty, want render with X path")
+	}
+}
+
+// TestBuildLaunchRequestPhase39_LegacyPayloadStillWorks:
+// 老式 LaunchRequest payload（无 upstream_outputs）仍然走 fallback 解析路径。
+func TestBuildLaunchRequestPhase39_LegacyPayloadStillWorks(t *testing.T) {
+	// 仿照 TestBuildLaunchRequestFromWakeupDecodesJSONPayload 的形状。
+	legacy := `{"agent_id":"agent-legacy","prompt":"hello"}`
+	req := buildLaunchRequestFromWakeup(taskdag.Wakeup{
+		TargetAgentID: "agent-fallback",
+		PromptPayload: json.RawMessage(legacy),
+	})
+	// LaunchRequest JSON tag 不是 snake_case（看类型签名是大驼峰，json 默认大驼峰），
+	// 老 case 里测试拿到的是 fallback agent_id；这里只验证 Phase 3.9 新分支不破老路径。
+	if strings.Contains(req.Prompt, "上游节点已完成") {
+		t.Fatalf("legacy payload incorrectly routed to upstream prompt branch:\n%s", req.Prompt)
+	}
+}
+
+// TestRenderUpstreamPromptHint_SkipsEmptyPathRefs 验证渲染对 path 为空的 ref
+// 安静跳过（不留下 "- :" 这种空行垃圾）。
+func TestRenderUpstreamPromptHint_SkipsEmptyPathRefs(t *testing.T) {
+	prompt := renderUpstreamPromptHint([]taskdag.DownstreamUpstreamRef{
+		{NodeKey: "A", Path: "dag/d/A/output.json"},
+		{NodeKey: "B", Path: ""},
+		{NodeKey: "", Path: "dag/d/anon/output.json"},
+	})
+	if !strings.Contains(prompt, "A: dag/d/A/output.json") {
+		t.Fatalf("missing A entry:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "- B:") || strings.Contains(prompt, "- :") {
+		t.Fatalf("empty path ref leaked into prompt:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "- dag/d/anon/output.json") {
+		t.Fatalf("missing anon path entry:\n%s", prompt)
 	}
 }

@@ -44,6 +44,7 @@ import { usePromoteTask } from '../composables/usePromoteTask.js';
 import { useAutoContinue } from '../composables/useAutoContinue.js';
 import { useThreadWatchdog, normalizeStuckEntry } from '../composables/useThreadWatchdog.js';
 import { useAutoContinueStatePersistence } from '../composables/useAutoContinueStatePersistence.js';
+import { useThreadProgressProtocol } from '../composables/useThreadProgressProtocol.js';
 import { useForkThread } from '../composables/useForkThread.js';
 import { getTokenLevel } from '../utils/format-utils.js';
 import { useContextUsageThresholds } from '../composables/useContextUsageThresholds.js';
@@ -302,6 +303,9 @@ function createPageForkThread(props, ctx) {
   return {
     submitting: forkThread.submitting,
     error: forkThread.error,
+    // review M1 收尾：暴露 kickoffError 给将来的 banner/toast 消费——草稿已关时
+    // 错误显示在新 thread 的 UI 上更合理；当前还没接 banner 系统，先留口子。
+    kickoffError: forkThread.kickoffError,
     submit: submitForkThread,
     open: openForkDraftFromUI,
     sourceThreadName: forkSourceThreadName,
@@ -350,10 +354,13 @@ function createPageAutoContinue(props, taskHandoff, selectedThreadId, persistenc
 }
 
 function createPageThreadWatchdog(props, threadStore, selectedThreadId, persistenceHook) {
+  // Phase 3.10b: 注入长任务进度协议读侧；watchdog 戳前对比 progress / done 决定是否重置上限或终止
+  const progressProtocol = useThreadProgressProtocol();
   const wd = useThreadWatchdog({
     threadStore,
     sendMessage: (tid, prompt) => threadStore.sendMessage(tid, prompt, [], {}),
     onStateChange: typeof persistenceHook === 'function' ? persistenceHook : null,
+    progressProtocol,
   });
   wd.start();
   // composable lifecycle 与组件绑定：UnifiedChatPage onBeforeUnmount 调 stop。

@@ -333,6 +333,68 @@ describe('streaming sync fix', () => {
     expect(result.length).toBe(2);
   });
 
+  // ─── Phase 4-fork-kickoff：kickoff user 消息按 text 过滤 ───
+
+  it('getThreadTimeline filters user message whose text matches kickoffByThread[threadId]', async () => {
+    const store = useThreadStore();
+    const threadId = 'thread-kickoff';
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'thread/messages') return { messages: [] };
+      return {};
+    });
+    await store.loadMessages(threadId, 300, { syncRuntime: false });
+    const kickoffText = '请基于上文摘要，简要总结上次进展并提出下一步建议。';
+    store.state.kickoffByThread = { [threadId]: kickoffText };
+    store.state.timelinesByThread[threadId] = [
+      { id: '1', kind: 'user', text: kickoffText, ts: '2026-01-01T00:00:00Z' },
+      { id: '2', kind: 'assistant', text: '上次聊到 X，建议继续 Y', ts: '2026-01-01T00:00:01Z' },
+      { id: '3', kind: 'user', text: '好的，继续', ts: '2026-01-01T00:00:02Z' },
+    ];
+
+    const visible = store.getThreadTimeline(threadId);
+    // kickoff user 被过滤；agent 响应 + 后续 user 消息保留
+    expect(visible.map((it) => it.id)).toEqual(['2', '3']);
+    expect(visible.some((it) => it.text === kickoffText)).toBe(false);
+  });
+
+  it('getThreadTimeline kickoff filter ignores text whitespace differences', async () => {
+    const store = useThreadStore();
+    const threadId = 'thread-kickoff-trim';
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'thread/messages') return { messages: [] };
+      return {};
+    });
+    await store.loadMessages(threadId, 300, { syncRuntime: false });
+    store.state.kickoffByThread = { [threadId]: '请基于上文摘要继续。' };
+    store.state.timelinesByThread[threadId] = [
+      // 后端推回时可能加 trailing newline / 空格——trim 后比对仍命中
+      { id: '1', kind: 'user', text: '  请基于上文摘要继续。\n  ', ts: '2026-01-01T00:00:00Z' },
+      { id: '2', kind: 'assistant', text: 'ok', ts: '2026-01-01T00:00:01Z' },
+    ];
+    const visible = store.getThreadTimeline(threadId);
+    expect(visible.map((it) => it.id)).toEqual(['2']);
+  });
+
+  it('getThreadTimeline kickoff filter does not affect threads without kickoff entry', async () => {
+    const store = useThreadStore();
+    const threadId = 'thread-no-kickoff';
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'thread/messages') return { messages: [] };
+      return {};
+    });
+    await store.loadMessages(threadId, 300, { syncRuntime: false });
+    // 另一个 thread 有 kickoff 不影响本 thread
+    store.state.kickoffByThread = { 'other-thread': '某 prompt' };
+    const items = [
+      { id: '1', kind: 'user', text: '某 prompt', ts: '2026-01-01T00:00:00Z' },
+      { id: '2', kind: 'assistant', text: 'hi', ts: '2026-01-01T00:00:01Z' },
+    ];
+    store.state.timelinesByThread[threadId] = items;
+    const visible = store.getThreadTimeline(threadId);
+    // 同 text 在别 thread 不会被误过滤
+    expect(visible.length).toBe(2);
+  });
+
   // ─── Integration: turn/completed still works ───
 
   it('turn/completed triggers immediate history hydration (not throttled)', async () => {

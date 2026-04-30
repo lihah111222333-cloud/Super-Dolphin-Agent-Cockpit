@@ -30,6 +30,9 @@ const RUNTIME_STATE_KEYS = Object.freeze([
   'skillRevision',
   // Phase 1.7a：watchdog 戳点 —— 后端事件刷新时间戳
   'lastBackendEventAtByThread',
+  // 「新建继承对话」kickoff message text，供 timeline selector 隐藏这条 user 消息
+  // 让 agent 视觉上主动开场。进程级 in-memory，刷新页面后 kickoff 自然显示成历史消息。
+  'kickoffByThread',
 ]);
 
 export const THREAD_STORE_UI_LOCAL_STATE_WHITELIST = UI_LOCAL_STATE_KEYS;

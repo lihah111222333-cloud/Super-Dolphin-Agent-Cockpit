@@ -543,6 +543,16 @@ func renderTaskHandoffDocument(meta taskHandoffMeta, row *threadstore.Thread, se
 		"## Risks",
 		"- This handoff is auto-generated from recent thread activity and may omit earlier context. Re-open the source thread when the next step depends on older details.",
 	)
+	// Phase 3.10a: 长任务进度协议。仅在 task_id 非空时追加，避免出现 _internal/progress/.md 这种坏路径。
+	if taskID := strings.TrimSpace(meta.TaskID); taskID != "" {
+		lines = append(lines,
+			"",
+			"## Long-running Progress Protocol",
+			"- 进展上报：每推进一步，请用 shared_file_write 向 `_internal/progress/"+taskID+".md` 追加一行（建议：ISO 时间戳 + 一句话描述）。",
+			"- 完成标记：任务真正完成时，写一份 `_internal/done/"+taskID+".md`（任意非空内容，系统仅检测文件存在）。",
+			"- 作用：前端 watchdog 据此识别「长任务还在推进」——progress 增长会重置自动续命累计上限，done 出现会终止自动续命。不遵守本协议仅退化为旧上限逻辑，不会让系统出错。",
+		)
+	}
 	return truncateTaskHandoffText(strings.Join(lines, "\n"), taskHandoffContentLimit)
 }
 
