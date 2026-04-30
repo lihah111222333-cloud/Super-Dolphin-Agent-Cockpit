@@ -340,9 +340,16 @@ function createCmdCards(props, deps) {
     const selId = selectedThreadId.value;
     const layout = layoutMode.value;
     activeTimeline.value;
+    const seenIds = new Set();
     return threads.value.map((thread) => {
-      const selected = thread.id === selId;
-      const runtime = props.threadStore.state.agentRuntimeById?.[thread.id];
+      const threadId = (thread?.id || '').toString();
+      if (seenIds.has(threadId)) {
+        import('../services/log.js').then((m) => m.logWarn('ui', 'chat.cards.duplicate_thread', { thread_id: threadId, thread_name: thread?.name }));
+      }
+      seenIds.add(threadId);
+
+      const selected = threadId === selId;
+      const runtime = props.threadStore.state.agentRuntimeById?.[threadId];
       const cwdMismatch = Boolean(runtime?.cwdMismatch);
       const card = {
         id: thread.id,
