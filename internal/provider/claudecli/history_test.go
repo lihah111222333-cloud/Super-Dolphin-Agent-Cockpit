@@ -53,3 +53,64 @@ func TestReadHistoryReturnsEmptyForNewSession(t *testing.T) {
 		t.Fatalf("ReadHistory() returned %d messages, want 0", len(msgs))
 	}
 }
+
+func TestParseHistoryLineExtractsImageContentBlocksMetadata(t *testing.T) {
+	// Vision turn shape: claude CLI persists native image content blocks
+	// alongside the user prompt. The history parser must surface those blocks
+	// as metadata.input so the frontend can render them after a restart.
+	raw := []byte(`{"type":"user","timestamp":"2026-04-30T14:00:00Z","message":{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AAAA"}},{"type":"text","text":"请看这张图"}]}}`)
+	msg, ok := parseHistoryLine(raw)
+	if !ok {
+		t.Fatalf("parseHistoryLine returned !ok for vision turn")
+	}
+	if msg.Role != "user" {
+		t.Errorf("role = %q, want user", msg.Role)
+	}
+	if msg.Content != "请看这张图" {
+		t.Errorf("content = %q, want vision prompt", msg.Content)
+	}
+	if len(msg.Metadata) == 0 {
+		t.Fatalf("metadata empty; want recovered image block input")
+	}
+	if got := string(msg.Metadata); got != `{"input":[{"type":"image","url":"data:image/png;base64,AAAA"}]}` {
+		t.Errorf("metadata mismatch:\n got %s", got)
+	}
+}
+
+func TestParseHistoryLineHandlesURLImageSource(t *testing.T) {
+	raw := []byte(`{"type":"user","message":{"role":"user","content":[{"type":"image","source":{"type":"url","url":"https://example.com/x.png"}},{"type":"text","text":"hi"}]}}`)
+	msg, ok := parseHistoryLine(raw)
+	if !ok {
+		t.Fatalf("parseHistoryLine returned !ok for url-source vision turn")
+	}
+	if got := string(msg.Metadata); got != `{"input":[{"type":"image","url":"https://example.com/x.png"}]}` {
+		t.Errorf("metadata mismatch:\n got %s", got)
+	}
+}
+
+func TestParseHistoryLineLegacyTextHintStillWorks(t *testing.T) {
+	// Pre-vision turns persisted attachment hints as plain text. The text-hint
+	// parser must still take precedence to avoid double-counting attachments.
+	raw := []byte(`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"The user has attached the following files. Use the Read tool to view them:\n[Image: /tmp/clipboard-old.png]\n\nplease describe"}]}}`)
+	msg, ok := parseHistoryLine(raw)
+	if !ok {
+		t.Fatalf("parseHistoryLine returned !ok for legacy hint")
+	}
+	if msg.Content != "please describe" {
+		t.Errorf("content = %q, want trimmed prompt", msg.Content)
+	}
+	if len(msg.Metadata) == 0 {
+		t.Fatalf("metadata empty for legacy text hint")
+	}
+}
+
+func TestParseHistoryLinePlainTextNoMetadata(t *testing.T) {
+	raw := []byte(`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hello"}]}}`)
+	msg, ok := parseHistoryLine(raw)
+	if !ok {
+		t.Fatalf("parseHistoryLine returned !ok for plain text")
+	}
+	if len(msg.Metadata) != 0 {
+		t.Errorf("plain text turn should have no metadata, got %s", msg.Metadata)
+	}
+}

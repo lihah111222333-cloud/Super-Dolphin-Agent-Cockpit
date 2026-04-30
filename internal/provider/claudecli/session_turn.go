@@ -12,6 +12,7 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 const (
@@ -167,8 +168,8 @@ func errorMessageFromTerminalReason(reason string) string {
 }
 
 func (s *session) prepareTurnLocked(ctx context.Context, req dto.TurnRequest) ([]byte, string, *turnHandle, error) {
-	text := composeTurnText(req)
-	if text == "" {
+	blocks := composeTurnContent(req)
+	if len(blocks) == 0 {
 		return nil, "", nil, errors.New("claudecli: empty turn input")
 	}
 	if err := ensureTurnAvailable(s.activeTurn); err != nil {
@@ -189,7 +190,7 @@ func (s *session) prepareTurnLocked(ctx context.Context, req dto.TurnRequest) ([
 	}
 	handle := newTurnHandle(localID, localID)
 	s.activeTurn = handle
-	payload, err := marshalTurnPayload(text)
+	payload, err := marshalTurnContentPayload(blocks)
 	if err != nil {
 		s.takeActiveTurnLocked()
 		return nil, "", nil, err
@@ -198,7 +199,7 @@ func (s *session) prepareTurnLocked(ctx context.Context, req dto.TurnRequest) ([
 }
 
 func buildSteerPayload(req dto.SteerRequest) ([]byte, error) {
-	text := composeTurnText(dto.TurnRequest{
+	blocks := composeTurnContent(dto.TurnRequest{
 		ThreadID:             req.ThreadID,
 		Inputs:               req.Inputs,
 		Skills:               req.Skills,
@@ -207,10 +208,10 @@ func buildSteerPayload(req dto.SteerRequest) ([]byte, error) {
 		OutputSchema:         req.OutputSchema,
 		Overrides:            req.Overrides,
 	})
-	if text == "" {
+	if len(blocks) == 0 {
 		return nil, errors.New("claudecli: empty steer input")
 	}
-	return marshalTurnPayload(text)
+	return marshalTurnContentPayload(blocks)
 }
 
 func (s *session) sendSteer(payload []byte, expectedTurnID string) (string, error) {
@@ -257,16 +258,60 @@ func validateExpectedTurn(expectedTurnID, activeTurnID string) error {
 }
 
 func marshalTurnPayload(text string) ([]byte, error) {
+	return marshalTurnContentPayload([]map[string]any{{
+		"type": "text",
+		"text": text,
+	}})
+}
+
+// marshalTurnContentPayload wraps an Anthropic-style content blocks array in
+// the claude CLI stream-json user-message envelope.
+func marshalTurnContentPayload(blocks []map[string]any) ([]byte, error) {
 	return json.Marshal(map[string]any{
 		"type": "user",
 		"message": map[string]any{
-			"role": "user",
-			"content": []map[string]any{{
-				"type": "text",
-				"text": text,
-			}},
+			"role":    "user",
+			"content": blocks,
 		},
 	})
+}
+
+// composeTurnContent splits image-typed inputs into native Anthropic image
+// content blocks and routes everything else through composeTurnText into a
+// single trailing text block. Image blocks are emitted first because the model
+// reads content in order and most prompts ask about the image afterwards.
+//
+// If an image cannot be encoded (oversize, read error, unsupported MIME), the
+// input falls through to the text-hint path so the turn is not lost.
+func composeTurnContent(req dto.TurnRequest) []map[string]any {
+	blocks := make([]map[string]any, 0, len(req.Inputs)+1)
+	passthrough := make([]dto.InputItem, 0, len(req.Inputs))
+	for _, input := range req.Inputs {
+		blk, err := imageBlockFromInput(input)
+		if err != nil {
+			pkglogger.Warn("claudecli: image attach degraded to text",
+				"err", err,
+				"path", input.Path,
+				"url", input.URL,
+			)
+			passthrough = append(passthrough, input)
+			continue
+		}
+		if blk != nil {
+			blocks = append(blocks, blk)
+			continue
+		}
+		passthrough = append(passthrough, input)
+	}
+	textReq := req
+	textReq.Inputs = passthrough
+	if text := composeTurnText(textReq); text != "" {
+		blocks = append(blocks, map[string]any{
+			"type": "text",
+			"text": text,
+		})
+	}
+	return blocks
 }
 
 func composeTurnText(req dto.TurnRequest) string {
