@@ -113,7 +113,7 @@ func NewWailsApplication(p applicationParams) *application.App {
 		Logger:      p.Logger,
 		Services:    []application.Service{p.Service},
 		Assets: application.AssetOptions{
-			Handler: AssetHandlerFrom(p.Frontend),
+			Handler: withClipboardAssets(AssetHandlerFrom(p.Frontend)),
 		},
 		ShouldQuit: p.Lifecycle.ShouldQuit,
 		OnShutdown: p.Lifecycle.OnShutdown,
