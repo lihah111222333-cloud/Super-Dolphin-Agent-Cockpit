@@ -735,4 +735,28 @@ describe('ComposerBar behavior', () => {
     expect(ComposerBar.template).toContain('thread-config-promote-error');
     expect(ComposerBar.template).toContain('v-if="promoteTaskError"');
   });
+
+  // ComposerBar 主条独立 chip 入口（解决 Phase 2.2a dropdown 内入口
+  // discoverability 差的问题）：跟时钟图标按钮同级，普通对话直接可见。
+  it('template renders main-bar composer-promote-chip alongside thread-config-btn', () => {
+    expect(ComposerBar.template).toContain('composer-promote-chip');
+    expect(ComposerBar.template).toContain('作为任务运行');
+    // 必须共用 onPromoteTask，避免双入口逻辑分叉。
+    const chipBlock = ComposerBar.template.split('data-testid="composer-promote-chip"')[1] || '';
+    expect(chipBlock.split('</button>')[0]).toContain('@click="onPromoteTask"');
+  });
+
+  it('main-bar promote chip is gated by !isCmd && threadId && !threadIsTask', () => {
+    // 普通对话（非命令模式 + 有 threadId + 还没升级）才显示；其他三种状态隐藏，
+    // 避免在不该出现的场景把 UI 撑乱（命令模式 / 空 thread / 已是任务）。
+    expect(ComposerBar.template).toContain('v-if="!isCmd && threadId && !threadIsTask"');
+  });
+
+  it('main-bar promote chip disabled bound to promotingTask', () => {
+    // 跟 dropdown 内按钮同样靠 promotingTask 防双击，busy 时按钮 disable + 文案改「升级中…」。
+    const chipBlock = ComposerBar.template.split('data-testid="composer-promote-chip"')[1] || '';
+    const upTo = chipBlock.split('</button>')[0];
+    expect(upTo).toContain(':disabled="promotingTask"');
+    expect(upTo).toContain("promotingTask ? '升级中…'");
+  });
 });
