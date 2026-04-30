@@ -95,6 +95,7 @@
 - `runtime.go`：runtime port/provider 上报、provider 归一化、snapshot 组装。
 - `report.go`：agent report 聚合、report requester 跟踪、终态事件判定与 drain。
 - `dag.go`：DAG create/get/list/update 的 service 层映射，兼容旧 JSON 字段别名。
+- `dag_retry_policy.go`：Phase 3.5 helper —— 把 DAG metadata `schedule.{default_retry, fail_fast}` + node `config.execution.retry` 解析为 `RetryPolicy{MaxAttempts, FailFast}`，给 dispatcher 决定 retry vs fail 用。
 - `rpc.go`：编排 JSON-RPC handler 映射；把 RPC 参数转成 `contract` 请求。
 - `rpc_types.go`：RPC 入参结构与旧字段兼容（如 `agentId` / `dagKey` / `selectedSkills` / `outputSchema`）。
 - `events.go`：封装 state / launched / stopped / recovering / failed / runtime / stalled / resumed 事件发布。
@@ -462,6 +463,7 @@
 | `func (s *store) UpdateAwaitingVerifyNodeStatus(ctx context.Context, input AwaitingVerifyNodeStatusUpdate) (*Node, error)` | 只匹配 `running` 节点，设置新状态 / result 并清空 active turn / wakeup，常用于 `running -> awaiting_verify`。 |
 | `func (s *store) CompleteNode(ctx context.Context, input CompleteNodeInput) (*Node, error)` | 把节点推进到终态，并清空 active turn/wakeup 绑定。 |
 | `func (s *store) CompleteNodeAndScheduleDownstream(ctx context.Context, input CompleteNodeInput) (*CompleteNodeWithDownstreamResult, error)` | Phase 3.4：在同事务内完成节点并对所有 ready 下游入队 wakeup（idempotency_key=`dag/<dagKey>/<nodeKey>/start`）。 |
+| `func (s *store) FailNodeAndCancelDownstream(ctx context.Context, input FailNodeInput) (*FailNodeResult, error)` | Phase 3.5：把节点标 failed；FailFast=true 时同事务内对所有 transitively-pending 下游 cascade 标 failed（已 running/done 节点不动）。 |
 | `func (s *store) UpdateNodeStatusFlexible(ctx context.Context, input FlexibleNodeStatusUpdate) (*Node, error)` | 无状态前置约束的通用节点状态更新。 |
 | `func (s *store) EnqueueWakeup(ctx context.Context, input EnqueueWakeupInput) (int64, error)` | 入队 wakeup。 |
 | `func (s *store) ClaimDueWakeups(ctx context.Context, input ClaimDueWakeupsInput) ([]Wakeup, error)` | 抢占可发送 wakeup。 |

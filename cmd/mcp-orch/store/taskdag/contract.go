@@ -23,6 +23,7 @@ type Store interface {
 	UpdateAwaitingVerifyNodeStatus(ctx context.Context, input AwaitingVerifyNodeStatusUpdate) (*Node, error)
 	CompleteNode(ctx context.Context, input CompleteNodeInput) (*Node, error)
 	CompleteNodeAndScheduleDownstream(ctx context.Context, input CompleteNodeInput) (*CompleteNodeWithDownstreamResult, error)
+	FailNodeAndCancelDownstream(ctx context.Context, input FailNodeInput) (*FailNodeResult, error)
 	UpdateNodeStatusFlexible(ctx context.Context, input FlexibleNodeStatusUpdate) (*Node, error)
 	EnqueueWakeup(ctx context.Context, input EnqueueWakeupInput) (int64, error)
 	ClaimDueWakeups(ctx context.Context, input ClaimDueWakeupsInput) ([]Wakeup, error)
@@ -122,6 +123,43 @@ type DownstreamWakeupPayload struct {
 type DownstreamUpstreamRef struct {
 	NodeKey string `json:"node_key"`
 	Path    string `json:"path"`
+}
+
+// FailNodeInput is consumed by FailNodeAndCancelDownstream when dispatcher
+// (or any caller) decides a node has exhausted its retry budget. Reason is
+// stored in the node's result column for forensic visibility; FailFast
+// chooses whether to cascade into still-pending downstream nodes.
+type FailNodeInput struct {
+	DagKey   string
+	NodeKey  string
+	Reason   string
+	FailFast bool
+}
+
+// FailNodeResult reports what the cascade actually touched. Node is the
+// freshly-failed primary node; CanceledDownstream lists every transitive
+// downstream node that was switched from `pending` to `failed` in the same
+// transaction (empty when FailFast=false or no pending downstream existed).
+type FailNodeResult struct {
+	Node               *Node
+	CanceledDownstream []CanceledDownstreamNode
+}
+
+// CanceledDownstreamNode describes a single downstream node that was
+// auto-failed because of a fail-fast cascade.
+type CanceledDownstreamNode struct {
+	DagKey  string
+	NodeKey string
+}
+
+// failNodeReason is the JSON shape written into task_dag_nodes.result when a
+// node is failed via FailNodeAndCancelDownstream. Kind="exhausted_retries"
+// for the primary node, Kind="cascade" for downstream nodes auto-failed by
+// fail-fast.
+type failNodeReason struct {
+	Kind         string `json:"kind"`
+	Reason       string `json:"reason,omitempty"`
+	CausedByNode string `json:"caused_by_node,omitempty"`
 }
 
 type FlexibleNodeStatusUpdate struct {

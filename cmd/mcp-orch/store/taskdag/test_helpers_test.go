@@ -86,6 +86,9 @@ func (db *fakeTaskDAGDB) QueryRow(_ context.Context, sql string, args ...any) pg
 	case strings.Contains(sql, "CompleteTaskDagNode"):
 		values, err := db.completeNode(args...)
 		return stubTaskDAGRow{values: values, err: err}
+	case strings.Contains(sql, "UpdateTaskDagNodeStatusFlexible"):
+		values, err := db.updateNodeStatusFlexible(args...)
+		return stubTaskDAGRow{values: values, err: err}
 	default:
 		return stubTaskDAGRow{err: fmt.Errorf("unexpected QueryRow call: %s", firstLine(sql))}
 	}
@@ -442,6 +445,38 @@ func (db *fakeTaskDAGDB) listTaskDagNodes(args ...any) ([][]any, error) {
 		rows = append(rows, taskDagNodeValues(db.nodes[k]))
 	}
 	return rows, nil
+}
+
+func (db *fakeTaskDAGDB) updateNodeStatusFlexible(args ...any) ([]any, error) {
+	if len(args) != 4 {
+		return nil, fmt.Errorf("flexible update args len = %d, want 4", len(args))
+	}
+	status, ok := args[0].(string)
+	if !ok {
+		return nil, fmt.Errorf("status arg = %T", args[0])
+	}
+	result, ok := args[1].([]byte)
+	if !ok {
+		return nil, fmt.Errorf("result arg = %T", args[1])
+	}
+	dagKey, ok := args[2].(string)
+	if !ok {
+		return nil, fmt.Errorf("dag key arg = %T", args[2])
+	}
+	nodeKey, ok := args[3].(string)
+	if !ok {
+		return nil, fmt.Errorf("node key arg = %T", args[3])
+	}
+	key := dagNodeKey(dagKey, nodeKey)
+	row, ok := db.nodes[key]
+	if !ok {
+		return nil, pgx.ErrNoRows
+	}
+	row.Status = status
+	row.Result = append([]byte(nil), result...)
+	row.UpdatedAt = timestamptzValue(db.now)
+	db.nodes[key] = row
+	return taskDagNodeValues(row), nil
 }
 
 func matchesClaimFence(row sqlc.TaskDagWakeup, claimedAt sqlc.Timestamptz, claimedBy string, leaseExpiresAt sqlc.Timestamptz, now time.Time) bool {
