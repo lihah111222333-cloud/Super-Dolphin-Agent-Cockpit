@@ -2,10 +2,19 @@ package sharedfile
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	sharedfilefs "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilefs"
+	sharedfilegitignore "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilegitignore"
+	sharedfilepath "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilepath"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
+
+// Phase 3.6 / 3C 落地后，桌面端 sharedfile store 与 mcp-orch 端共用同一份
+// 磁盘 source / DB 索引语义；详见 cmd/mcp-orch/store/sharedfile/store.go
+// 头部注释。Config.CWD 为空时退化到 DB-only（兼容老 fixture）。
 
 type querier interface {
 	GetSharedFile(ctx context.Context, path string) (sqlc.SharedFile, error)
@@ -15,37 +24,95 @@ type querier interface {
 }
 
 type store struct {
-	q querier
+	q   querier
+	cfg sharedfilefs.Config
 }
 
 func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 
+func NewStoreWithConfig(q *sqlc.Queries, cfg sharedfilefs.Config) Store {
+	return &store{q: q, cfg: cfg}
+}
+
 func (s *store) Get(ctx context.Context, path string) (*SharedFile, error) {
-	row, err := s.q.GetSharedFile(ctx, path)
+	cleaned, err := sharedfilepath.ValidateReadPath(path)
 	if err != nil {
 		return nil, platformdb.WrapStoreError(err, "get", "shared_file")
 	}
-	mapped := fromSQLCRow(row)
+	row, dbErr := s.q.GetSharedFile(ctx, cleaned)
+	mapped := SharedFile{}
+	dbHit := dbErr == nil
+	if dbHit {
+		mapped = fromSQLCRow(row)
+	} else if !errors.Is(dbErr, platformdb.ErrNotFound) {
+		return nil, platformdb.WrapStoreError(dbErr, "get", "shared_file")
+	}
+	if !s.cfg.Enabled() {
+		if !dbHit {
+			return nil, platformdb.WrapStoreError(dbErr, "get", "shared_file")
+		}
+		return &mapped, nil
+	}
+	abs, resolveErr := s.cfg.ResolveAbs(cleaned)
+	if resolveErr != nil {
+		return nil, platformdb.WrapStoreError(resolveErr, "get", "shared_file")
+	}
+	data, _, readErr := sharedfilefs.ReadDisk(abs)
+	if readErr == nil {
+		mapped.Path = cleaned
+		mapped.Content = string(data)
+		return &mapped, nil
+	}
+	if !errors.Is(readErr, fs.ErrNotExist) {
+		return nil, platformdb.WrapStoreError(readErr, "get", "shared_file")
+	}
+	if !dbHit {
+		return nil, platformdb.WrapStoreError(dbErr, "get", "shared_file")
+	}
 	return &mapped, nil
 }
 
 func (s *store) Upsert(ctx context.Context, params UpsertParams) (*SharedFile, error) {
+	cleaned, err := sharedfilepath.ValidateWritePath(params.Path)
+	if err != nil {
+		return nil, platformdb.WrapStoreError(err, "upsert", "shared_file")
+	}
+	dbContent, writeErr := writeDiskAndDecideInline(s.cfg, cleaned, params.Content)
+	if writeErr != nil {
+		return nil, platformdb.WrapStoreError(writeErr, "upsert", "shared_file")
+	}
 	row, err := s.q.UpsertSharedFile(ctx, sqlc.UpsertSharedFileParams{
-		Path:      params.Path,
-		Content:   params.Content,
+		Path:      cleaned,
+		Content:   dbContent,
 		UpdatedBy: params.UpdatedBy,
 	})
 	if err != nil {
 		return nil, platformdb.WrapStoreError(err, "upsert", "shared_file")
 	}
 	mapped := fromSQLCRow(row)
+	if mapped.Content == "" && len(params.Content) > 0 {
+		mapped.Content = params.Content
+	}
 	return &mapped, nil
 }
 
 func (s *store) Delete(ctx context.Context, path string) (int64, error) {
-	count, err := s.q.DeleteSharedFile(ctx, path)
+	cleaned, err := sharedfilepath.ValidateReadPath(path)
 	if err != nil {
 		return 0, platformdb.WrapStoreError(err, "delete", "shared_file")
+	}
+	count, err := s.q.DeleteSharedFile(ctx, cleaned)
+	if err != nil {
+		return 0, platformdb.WrapStoreError(err, "delete", "shared_file")
+	}
+	if s.cfg.Enabled() {
+		abs, resolveErr := s.cfg.ResolveAbs(cleaned)
+		if resolveErr != nil {
+			return count, platformdb.WrapStoreError(resolveErr, "delete", "shared_file")
+		}
+		if removeErr := sharedfilefs.RemoveDisk(abs); removeErr != nil {
+			return count, platformdb.WrapStoreError(removeErr, "delete", "shared_file")
+		}
 	}
 	return count, nil
 }
@@ -63,6 +130,29 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]SharedFile, erro
 		files = append(files, fromSQLCListRow(row))
 	}
 	return files, nil
+}
+
+func writeDiskAndDecideInline(cfg sharedfilefs.Config, cleanedRel, content string) (string, error) {
+	if !cfg.Enabled() {
+		return content, nil
+	}
+	abs, resolveErr := cfg.ResolveAbs(cleanedRel)
+	if resolveErr != nil {
+		return "", resolveErr
+	}
+	// Best-effort .gitignore hygiene (Phase 3.8): ensure
+	// `.agnet/shared/_internal/` is ignored. Sync.Once inside the helper
+	// makes the second-and-later calls free; failures are swallowed so
+	// the actual sharedfile write still proceeds — git hygiene is not a
+	// correctness invariant.
+	_ = sharedfilegitignore.Ensure(cfg.CWD, nil)
+	if writeErr := sharedfilefs.WriteAtomic(abs, []byte(content)); writeErr != nil {
+		return "", writeErr
+	}
+	if len(content) > cfg.ResolvedThreshold() {
+		return "", nil
+	}
+	return content, nil
 }
 
 func fromSQLCRow(row sqlc.SharedFile) SharedFile {

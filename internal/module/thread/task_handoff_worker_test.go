@@ -2,6 +2,8 @@ package thread
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -257,4 +259,63 @@ func TestTaskHandoffCallbackEnqueueOnly(t *testing.T) {
 	if got := svc.taskHandoffWorker.EnqueuedTotal(); got != 1 {
 		t.Errorf("EnqueuedTotal after onTurnCompleted = %d, want 1", got)
 	}
+}
+
+func TestTaskHandoffWorker_FlushForThread(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil worker is no-op", func(t *testing.T) {
+		t.Parallel()
+		var w *taskHandoffWorker
+		if err := w.FlushForThread(context.Background(), "t1"); err != nil {
+			t.Fatalf("expected nil, got %v", err)
+		}
+	})
+
+	t.Run("empty threadID is no-op", func(t *testing.T) {
+		t.Parallel()
+		w := newTaskHandoffWorker(&stubTaskHandoffRefresher{}, nil)
+		if err := w.FlushForThread(context.Background(), ""); err != nil {
+			t.Fatalf("expected nil, got %v", err)
+		}
+	})
+
+	t.Run("no pending entry returns nil immediately", func(t *testing.T) {
+		t.Parallel()
+		ref := &stubTaskHandoffRefresher{}
+		w := newTaskHandoffWorker(ref, nil)
+		if err := w.FlushForThread(context.Background(), "thread-no-pending"); err != nil {
+			t.Fatalf("expected nil, got %v", err)
+		}
+		if ref.count.Load() != 0 {
+			t.Fatalf("refresher called %d times, want 0", ref.count.Load())
+		}
+	})
+
+	t.Run("pending entry processed synchronously", func(t *testing.T) {
+		t.Parallel()
+		ref := &stubTaskHandoffRefresher{}
+		w := newTaskHandoffWorker(ref, nil)
+		w.Enqueue("thread-X", taskHandoffRenderSeed{SourceThreadID: "thread-X", Outcome: "test", Status: "active"})
+		if err := w.FlushForThread(context.Background(), "thread-X"); err != nil {
+			t.Fatalf("expected nil, got %v", err)
+		}
+		if ref.count.Load() != 1 {
+			t.Fatalf("refresher called %d times, want 1", ref.count.Load())
+		}
+		if w.ProcessedTotal() != 1 {
+			t.Fatalf("processedTotal = %d, want 1", w.ProcessedTotal())
+		}
+	})
+
+	t.Run("refresher error propagated", func(t *testing.T) {
+		t.Parallel()
+		ref := &stubTaskHandoffRefresher{errOut: errors.New("disk full")}
+		w := newTaskHandoffWorker(ref, nil)
+		w.Enqueue("thread-Y", taskHandoffRenderSeed{})
+		err := w.FlushForThread(context.Background(), "thread-Y")
+		if err == nil || !strings.Contains(err.Error(), "disk full") {
+			t.Fatalf("expected disk full error, got %v", err)
+		}
+	})
 }

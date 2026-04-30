@@ -722,6 +722,7 @@ func (s *stubSession) SetThreadName(_ context.Context, threadID, name string) er
 
 type stubThreadStore struct {
 	thread              *threadstore.Thread
+	threadByID          map[string]*threadstore.Thread
 	upsert              threadstore.UpsertParams
 	upsertErr           error
 	existsErr           error
@@ -733,6 +734,13 @@ type stubThreadStore struct {
 }
 
 func (s *stubThreadStore) GetByThreadID(_ context.Context, threadID string) (*threadstore.Thread, error) {
+	if s.threadByID != nil {
+		if t, ok := s.threadByID[threadID]; ok && t != nil {
+			thread := *t
+			return &thread, nil
+		}
+		return nil, platformdb.ErrNotFound
+	}
 	if s.thread == nil || (s.thread.ThreadID != "" && s.thread.ThreadID != threadID) {
 		return nil, platformdb.ErrNotFound
 	}

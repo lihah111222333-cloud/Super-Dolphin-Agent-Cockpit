@@ -1,6 +1,6 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from '../../lib/vue.esm-browser.prod.js';
 import { callAPI } from '../services/api.js';
-import { logError, logInfo, logWarn, readLogBuffer, readLogLevel } from '../services/log.js';
+import { logError, logInfo, logWarn, onLogLevelChange, readLogBuffer, readLogLevel, setLogLevel } from '../services/log.js';
 import { ProviderSettings } from './settings/ProviderSettings.ts';
 import { LspPromptSettings } from './settings/LspPromptSettings.ts';
 import { BuiltinToolsSettings } from './settings/BuiltinToolsSettings.ts';
@@ -21,6 +21,12 @@ type SettingsLogEntry = { seq?: string | number; ts?: string | number | Date; le
 function setupSettingsPage(props: SettingsPageProps, { emit }: { emit: (event: 'refresh') => void }) {
   const LOG_LIST_LIMIT = 14;
   const MIN_TURN_TIMEOUT_SEC = 30;
+  const LOG_LEVEL_OPTIONS = [
+    { value: 'debug', label: 'debug（最详细）' },
+    { value: 'info', label: 'info（默认）' },
+    { value: 'warn', label: 'warn' },
+    { value: 'error', label: 'error（仅错误）' },
+  ];
   const versionText = computed(() => `Agent Orchestrator ${props.buildInfo.version || 'dev'}`);
   const runtimeText = computed(() => props.buildInfo.runtime
     ? `Wails WebKit · Go Backend · ${props.buildInfo.runtime}`
@@ -32,6 +38,7 @@ function setupSettingsPage(props: SettingsPageProps, { emit }: { emit: (event: '
   const { activeProjectCwd, withProjectCwd } = useSettingsScope(props.projectStore);
 
   let logRefreshTimer = 0;
+  let unsubscribeLogLevel: () => void = () => {};
 
   const stallThreshold = ref(MIN_TURN_TIMEOUT_SEC) as { value: number };
   const stallLoading = ref(false) as { value: boolean };
@@ -98,6 +105,22 @@ function setupSettingsPage(props: SettingsPageProps, { emit }: { emit: (event: '
     logLevel.value = readLogLevel();
     const buffer = readLogBuffer() as SettingsLogEntry[];
     logEntries.value = buffer.slice(-LOG_LIST_LIMIT).reverse();
+  }
+
+  function applyLogLevelChange(next: string): void {
+    const trimmed = (next || '').toString().trim();
+    if (!trimmed || trimmed === logLevel.value) return;
+    const ok = setLogLevel(trimmed);
+    if (!ok) {
+      // setLogLevel rejected unknown values; resync local select to truth
+      logLevel.value = readLogLevel();
+      return;
+    }
+    // setLogLevel will fire onLogLevelChange which mirrors back into
+    // logLevel.value, but mirror eagerly so the <select> never blinks
+    // back to the old value during the next paint.
+    logLevel.value = trimmed;
+    logInfo('page', 'settings.logLevel.change', { level: trimmed });
   }
 
   function setStallNotice(level: string, message: string): void {
@@ -168,6 +191,14 @@ function setupSettingsPage(props: SettingsPageProps, { emit }: { emit: (event: '
     refreshLogPanel();
     loadStallSettings();
     loadContextThresholds();
+    // Subscribe to live log-level updates (covers cross-tab `storage`
+    // events, devtools `window.AOLog.setLevel`, and other consumers).
+    unsubscribeLogLevel = onLogLevelChange((level: string) => {
+      logLevel.value = level;
+    });
+    // logEntries is the ring buffer; still poll it (buffer churn is
+    // fast and not event-driven). logLevel itself no longer needs
+    // polling because onLogLevelChange covers every mutation path.
     logRefreshTimer = window.setInterval(refreshLogPanel, 1000);
   });
   watch(
@@ -181,6 +212,11 @@ function setupSettingsPage(props: SettingsPageProps, { emit }: { emit: (event: '
     if (logRefreshTimer) {
       window.clearInterval(logRefreshTimer);
     }
+    try {
+      unsubscribeLogLevel();
+    } catch {
+      // ignore: subscriber lifecycle is best-effort
+    }
     logInfo('page', 'settings.unmounted', {});
   });
 
@@ -191,6 +227,8 @@ function setupSettingsPage(props: SettingsPageProps, { emit }: { emit: (event: '
     commitText,
     logLevel,
     logEntries,
+    LOG_LEVEL_OPTIONS,
+    applyLogLevelChange,
     refresh,
     refreshLogPanel,
     formatLogTime,
@@ -290,6 +328,18 @@ export const SettingsPage = {
           <div class="data-row-vue">
             <strong>日志级别</strong>
             <span>{{ logLevel }}</span>
+          </div>
+          <div class="settings-stall-row" style="margin-top:8px; margin-bottom:12px">
+            <select
+              class="settings-stall-input"
+              data-testid="settings-log-level-select"
+              style="width:220px"
+              :value="logLevel"
+              @change="applyLogLevelChange($event.target.value)"
+            >
+              <option v-for="opt in LOG_LEVEL_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+            </select>
+            <span class="settings-stall-unit">立即生效（跨 tab 同步）</span>
           </div>
           <div class="settings-action-row">
             <button class="btn btn-secondary btn-toolbar-sm" data-testid="settings-log-refresh-button" @click="refreshLogPanel">刷新日志</button>

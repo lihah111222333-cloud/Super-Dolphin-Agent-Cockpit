@@ -95,6 +95,7 @@
 - `runtime.go`：runtime port/provider 上报、provider 归一化、snapshot 组装。
 - `report.go`：agent report 聚合、report requester 跟踪、终态事件判定与 drain。
 - `dag.go`：DAG create/get/list/update 的 service 层映射，兼容旧 JSON 字段别名。
+- `dag_retry_policy.go`：Phase 3.5 helper —— 把 DAG metadata `schedule.{default_retry, fail_fast}` + node `config.execution.retry` 解析为 `RetryPolicy{MaxAttempts, FailFast}`，给 dispatcher 决定 retry vs fail 用。
 - `rpc.go`：编排 JSON-RPC handler 映射；把 RPC 参数转成 `contract` 请求。
 - `rpc_types.go`：RPC 入参结构与旧字段兼容（如 `agentId` / `dagKey` / `selectedSkills` / `outputSchema`）。
 - `events.go`：封装 state / launched / stopped / recovering / failed / runtime / stalled / resumed 事件发布。
@@ -113,7 +114,7 @@
 - `workspace_tool_compat.go`：把 workspace service 输出适配成 MCP 兼容 DTO，补 `workspace_root` / `files_merged` / `finished_at` 等字段。
 - `prompt_tools.go`：prompt template list/get 工具；走通用 resource tool builder。
 - `command_tools.go`：command card list/get 工具；带固定 list limit（50）。
-- `shared_file_tools.go`：shared file read/write 工具；附带 path 归一化与 10 MiB 内容上限。
+- `shared_file_tools.go`：shared file read/write MCP 工具；保留 10 MiB 内容上限；read 走 `sharedfilepath.ValidateReadPath`，write 走 `sharedfilepath.ValidateAgentWritePath`（拒绝 `handoff/tasks/` 系统保留段）；3.7 起不再持有本地 `systemHandoffPrefix` / `normalizePath`。
 - `memory_tools.go`：唯一的 memory 工具出口 `memory_read`；schema 暴露 `name/path/scope/type`，handler 调 `contract.MemoryService.Read()`。
 - 测试文件：`handler_regression_test.go`、`orchestration_tools_test.go`、`parity_v2_test.go`、`workspace_tools_compat_test.go`。
 
@@ -140,8 +141,8 @@
 - `prompt/module.go`：Fx provider。
 - `prompt/store.go`：`prompt_templates` / `prompt_template_versions` 读写，支持事务 `WithTx()`。
 - `sharedfile/contract.go`：shared file 读写契约。
-- `sharedfile/module.go`：Fx provider。
-- `sharedfile/store.go`：`shared_files` CRUD。
+- `sharedfile/module.go`：Fx provider；从 `*platformconfig.Config` 派生 `sharedfilefs.Config{CWD: ProjectRoot, InlineThresholdBytes: 100KB}` 注入 store。
+- `sharedfile/store.go`：Phase 3.6 起改为磁盘 source / DB 索引 —— Upsert 走 `internal/platform/sharedfilefs.WriteAtomic` 落盘 `<cwd>/.agnet/shared/<path>`，正文超 InlineThresholdBytes 时 DB content 写空串；Get 磁盘命中覆盖 DB content（保留 DB 元数据），磁盘 miss fallback DB；Delete 双层删；List 不扫磁盘；写盘前 best-effort 调用 `sharedfilegitignore.Ensure` 追加 `.agnet/shared/_internal/` 到 `<cwd>/.gitignore`。Config.CWD 空 → 整体退化 DB-only。所有路径走 `internal/platform/sharedfilepath` 校验。
 - `taskdag/contract.go`：DAG / node / wakeup / worker lease 的完整持久化接口。
 - `taskdag/factory.go`：通用 query helper、interval 解析、wakeup fencing 辅助。
 - `taskdag/module.go`：Fx provider。
@@ -179,6 +180,14 @@
 - `task_ack.sql`：task ack SQL；当前已生成 sqlc，但还没有对应手写 store/tool 包装。
 
 ---
+
+### `internal/platform/sharedfile* (跨包共享)`
+
+sharedfile 三个 leaf helper 包不在 `cmd/mcp-orch/` 树下，但同时被 mcp-orch store 与桌面端 `internal/store/sharedfile` 复用，故在此一并登记：
+
+- `internal/platform/sharedfilepath/policy.go`：Phase 3.7 路径校验。`ValidateWritePath`（白名单 handoff/ dag/ inbox/ reports/ _internal/ + traversal/absolute reject）/ `ValidateAgentWritePath`（在 ValidateWritePath 上叠 `handoff/tasks/` 系统保留段）/ `ValidateReadPath`（仅 traversal/absolute；不强制白名单以兼容历史行）+ 5 个 sentinel error（`ErrPathEmpty` / `ErrPathAbsolute` / `ErrPathTraversal` / `ErrPathPrefixNotAllowed` / `ErrPathSystemReserved`）+ `IsSystemHandoffPath` helper。
+- `internal/platform/sharedfilefs/disk.go`：Phase 3.6 disk primitive。`Config{CWD, InlineThresholdBytes}`（CWD 空 → 上层退化 DB-only） / `ResolveAbs` 二次 sandbox 边界 / `WriteAtomic`（mkdir + tmp + fsync + rename + 目录 fsync） / `ReadDisk` / `RemoveDisk` / `ModTime`；`SandboxDir = ".agnet/shared"`；`DefaultInlineThresholdBytes = 100*1024`；不依赖 SQL，只做 IO。
+- `internal/platform/sharedfilegitignore/gitignore.go`：Phase 3.8 `.gitignore` 默认策略。`Ensure(cwd, *slog.Logger)` per-process `sync.Once` per cwd，识别 leading slash / 无 trailing slash / 父目录通配 `.agnet/shared/` 等价形式；写入走 tmp+fsync+rename；空 cwd no-op。接通点目前只在两个 sharedfile store 的 `writeDiskAndDecideInline` 写盘前 best-effort 调一次（失败被吞掉，不阻断 sharedfile 写）；plan §3.8 提到的 startThread 触发器尚未额外接通——若 thread 启动后从未写 sharedfile，`.gitignore` 不会被追加（接受退化）。
 
 ## 3. 核心类型 / 接口
 
@@ -461,6 +470,8 @@
 | `func (s *store) UpdateRunningNodeStatus(ctx context.Context, input RunningNodeStatusUpdate) (*Node, error)` | 只匹配 `pending` 节点，设置新状态 / result / active wakeup，常用于 `pending -> running`。 |
 | `func (s *store) UpdateAwaitingVerifyNodeStatus(ctx context.Context, input AwaitingVerifyNodeStatusUpdate) (*Node, error)` | 只匹配 `running` 节点，设置新状态 / result 并清空 active turn / wakeup，常用于 `running -> awaiting_verify`。 |
 | `func (s *store) CompleteNode(ctx context.Context, input CompleteNodeInput) (*Node, error)` | 把节点推进到终态，并清空 active turn/wakeup 绑定。 |
+| `func (s *store) CompleteNodeAndScheduleDownstream(ctx context.Context, input CompleteNodeInput) (*CompleteNodeWithDownstreamResult, error)` | Phase 3.4：在同事务内完成节点并对所有 ready 下游入队 wakeup（idempotency_key=`dag/<dagKey>/<nodeKey>/start`）。 |
+| `func (s *store) FailNodeAndCancelDownstream(ctx context.Context, input FailNodeInput) (*FailNodeResult, error)` | Phase 3.5：把节点标 failed；FailFast=true 时同事务内对所有 transitively-pending 下游 cascade 标 failed（已 running/done 节点不动）。 |
 | `func (s *store) UpdateNodeStatusFlexible(ctx context.Context, input FlexibleNodeStatusUpdate) (*Node, error)` | 无状态前置约束的通用节点状态更新。 |
 | `func (s *store) EnqueueWakeup(ctx context.Context, input EnqueueWakeupInput) (int64, error)` | 入队 wakeup。 |
 | `func (s *store) ClaimDueWakeups(ctx context.Context, input ClaimDueWakeupsInput) ([]Wakeup, error)` | 抢占可发送 wakeup。 |

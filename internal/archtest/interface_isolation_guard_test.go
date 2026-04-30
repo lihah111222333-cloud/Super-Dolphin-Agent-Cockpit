@@ -22,11 +22,12 @@ func TestInterfaceIsolationBudgets(t *testing.T) {
 
 	root := repoRoot(t)
 	budgets := []interfaceBudget{
-		{relPath: "cmd/mcp-orch/store/taskdag/contract.go", name: "Store", maxMethods: 0, maxEmbedded: 6},
+		{relPath: "cmd/mcp-orch/store/taskdag/contract.go", name: "Store", maxMethods: 0, maxEmbedded: 7},
 		{relPath: "cmd/mcp-orch/store/taskdag/contract.go", name: "OrchestrationStore", maxMethods: 0, maxEmbedded: 3},
 		{relPath: "cmd/mcp-orch/store/taskdag/contract.go", name: "DAGMutationStore", maxMethods: 2, maxEmbedded: 1},
 		{relPath: "cmd/mcp-orch/store/taskdag/contract.go", name: "DAGReadStore", maxMethods: 1, maxEmbedded: 1},
-		{relPath: "cmd/mcp-orch/store/taskdag/contract.go", name: "RunningNodeStore", maxMethods: 6, maxEmbedded: 1},
+		{relPath: "cmd/mcp-orch/store/taskdag/contract.go", name: "RunningNodeStore", maxMethods: 5, maxEmbedded: 1},
+		{relPath: "cmd/mcp-orch/store/taskdag/contract.go", name: "NodeFlowStore", maxMethods: 3, maxEmbedded: 0},
 		{relPath: "cmd/mcp-orch/store/taskdag/contract.go", name: "WakeupStore", maxMethods: 10, maxEmbedded: 0},
 		{relPath: "cmd/mcp-orch/store/taskdag/contract.go", name: "WorkerLeaseStore", maxMethods: 3, maxEmbedded: 0},
 		{relPath: "internal/module/skill/contract.go", name: "Service", maxMethods: 0, maxEmbedded: 12},

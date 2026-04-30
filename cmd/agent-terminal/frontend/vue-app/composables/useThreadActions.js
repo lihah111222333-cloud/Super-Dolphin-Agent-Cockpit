@@ -242,6 +242,11 @@ export function useThreadActions(props, deps) {
       thread_id: threadId,
       source: 'ui_stop',
     });
+    // Phase 1.8a：在 stopThread 之前先标抑制位，确保 F2 watcher 在 status='error'
+    // 跳变时已能识别为用户主动 stop。
+    if (typeof props.markManualAbort === 'function') {
+      try { props.markManualAbort(threadId, 'ui_stop'); } catch (_) { /* never break interrupt */ }
+    }
     try {
       const result = await props.threadStore.stopThread(threadId, { source: 'ui_stop' });
       const confirmed = Boolean(result?.confirmed);

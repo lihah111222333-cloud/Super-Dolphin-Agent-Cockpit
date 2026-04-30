@@ -15,6 +15,7 @@ type Store interface {
 	DAGMutationStore
 	DAGLockStore
 	RunningNodeStore
+	NodeFlowStore
 	WakeupStore
 	WorkerLeaseStore
 }
@@ -68,6 +69,16 @@ type RunningNodeStore interface {
 	UpdateRunningNodeStatus(ctx context.Context, input RunningNodeStatusUpdate) (*Node, error)
 	UpdateAwaitingVerifyNodeStatus(ctx context.Context, input AwaitingVerifyNodeStatusUpdate) (*Node, error)
 	CompleteNode(ctx context.Context, input CompleteNodeInput) (*Node, error)
+}
+
+// NodeFlowStore is the narrow port for DAG topology-aware node lifecycle
+// operations (complete + cancel-downstream coupling). Phase 3.4/3.5 added these
+// when CompleteNode/FailNode operations also need to schedule/cancel downstream
+// work atomically — splitting them out keeps RunningNodeStore focused on
+// standalone node updates and avoids the interface budget creep.
+type NodeFlowStore interface {
+	CompleteNodeAndScheduleDownstream(ctx context.Context, input CompleteNodeInput) (*CompleteNodeWithDownstreamResult, error)
+	FailNodeAndCancelDownstream(ctx context.Context, input FailNodeInput) (*FailNodeResult, error)
 	UpdateNodeStatusFlexible(ctx context.Context, input FlexibleNodeStatusUpdate) (*Node, error)
 }
 
@@ -137,6 +148,79 @@ type CompleteNodeInput struct {
 	Result  json.RawMessage
 	DagKey  string
 	NodeKey string
+}
+
+// CompleteNodeWithDownstreamResult is returned by
+// CompleteNodeAndScheduleDownstream. Node is the freshly completed node row;
+// ScheduledDownstream lists every downstream node for which a wakeup row was
+// inserted (i.e. ON CONFLICT-skipped duplicates are excluded so callers can
+// rely on the slice length reflecting newly-inserted rows only).
+type CompleteNodeWithDownstreamResult struct {
+	Node                *Node
+	ScheduledDownstream []ScheduledDownstreamWakeup
+}
+
+// ScheduledDownstreamWakeup describes a wakeup row enqueued as the side-effect
+// of completing an upstream node.
+type ScheduledDownstreamWakeup struct {
+	DagKey         string
+	NodeKey        string
+	TargetAgentID  string
+	IdempotencyKey string
+}
+
+// DownstreamWakeupPayload is the JSON shape written into
+// task_dag_wakeups.prompt_payload by CompleteNodeAndScheduleDownstream. Phase
+// 3.4 only populates AgentID + UpstreamOutputs; Phase 3.9 will fill in the
+// dispatcher-side prompt-rewriting that consumes UpstreamOutputs.
+type DownstreamWakeupPayload struct {
+	AgentID         string                  `json:"agent_id,omitempty"`
+	UpstreamOutputs []DownstreamUpstreamRef `json:"upstream_outputs,omitempty"`
+}
+
+// DownstreamUpstreamRef points the downstream node at the producing upstream
+// node's output artifact path. Path follows plan §3.4 convention
+// `dag/<dagKey>/<prevKey>/output.json`.
+type DownstreamUpstreamRef struct {
+	NodeKey string `json:"node_key"`
+	Path    string `json:"path"`
+}
+
+// FailNodeInput is consumed by FailNodeAndCancelDownstream when dispatcher
+// (or any caller) decides a node has exhausted its retry budget. Reason is
+// stored in the node's result column for forensic visibility; FailFast
+// chooses whether to cascade into still-pending downstream nodes.
+type FailNodeInput struct {
+	DagKey   string
+	NodeKey  string
+	Reason   string
+	FailFast bool
+}
+
+// FailNodeResult reports what the cascade actually touched. Node is the
+// freshly-failed primary node; CanceledDownstream lists every transitive
+// downstream node that was switched from `pending` to `failed` in the same
+// transaction (empty when FailFast=false or no pending downstream existed).
+type FailNodeResult struct {
+	Node               *Node
+	CanceledDownstream []CanceledDownstreamNode
+}
+
+// CanceledDownstreamNode describes a single downstream node that was
+// auto-failed because of a fail-fast cascade.
+type CanceledDownstreamNode struct {
+	DagKey  string
+	NodeKey string
+}
+
+// failNodeReason is the JSON shape written into task_dag_nodes.result when a
+// node is failed via FailNodeAndCancelDownstream. Kind="exhausted_retries"
+// for the primary node, Kind="cascade" for downstream nodes auto-failed by
+// fail-fast.
+type failNodeReason struct {
+	Kind         string `json:"kind"`
+	Reason       string `json:"reason,omitempty"`
+	CausedByNode string `json:"caused_by_node,omitempty"`
 }
 
 type FlexibleNodeStatusUpdate struct {
