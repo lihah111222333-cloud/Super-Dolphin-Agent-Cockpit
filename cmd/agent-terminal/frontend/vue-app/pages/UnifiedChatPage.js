@@ -44,6 +44,7 @@ import { usePromoteTask } from '../composables/usePromoteTask.js';
 import { useAutoContinue } from '../composables/useAutoContinue.js';
 import { useThreadWatchdog, normalizeStuckEntry } from '../composables/useThreadWatchdog.js';
 import { useAutoContinueStatePersistence } from '../composables/useAutoContinueStatePersistence.js';
+import { useThreadProgressProtocol } from '../composables/useThreadProgressProtocol.js';
 import { useForkThread } from '../composables/useForkThread.js';
 import { getTokenLevel } from '../utils/format-utils.js';
 import { useContextUsageThresholds } from '../composables/useContextUsageThresholds.js';
@@ -350,10 +351,13 @@ function createPageAutoContinue(props, taskHandoff, selectedThreadId, persistenc
 }
 
 function createPageThreadWatchdog(props, threadStore, selectedThreadId, persistenceHook) {
+  // Phase 3.10b: 注入长任务进度协议读侧；watchdog 戳前对比 progress / done 决定是否重置上限或终止
+  const progressProtocol = useThreadProgressProtocol();
   const wd = useThreadWatchdog({
     threadStore,
     sendMessage: (tid, prompt) => threadStore.sendMessage(tid, prompt, [], {}),
     onStateChange: typeof persistenceHook === 'function' ? persistenceHook : null,
+    progressProtocol,
   });
   wd.start();
   // composable lifecycle 与组件绑定：UnifiedChatPage onBeforeUnmount 调 stop。
