@@ -3,6 +3,7 @@ package wails
 import (
 	"context"
 	"log/slog"
+	"os"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -128,6 +129,7 @@ func NewWailsApplication(p applicationParams) *application.App {
 	})
 	wailsApp.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		p.Lifecycle.MarkFrontendReady()
+		go cleanupStaleClipboardImages(p.Logger, os.TempDir(), defaultClipboardRetention)
 	})
 	CreateMainWindow(wailsApp, title, debug)
 	return wailsApp
