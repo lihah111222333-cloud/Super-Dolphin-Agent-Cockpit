@@ -11,6 +11,7 @@ import (
 	"time"
 
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/fbsd"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
@@ -60,10 +61,11 @@ type DriverFactoryParams struct {
 	Manager    *ServerManager
 	Pool       *ServerPool
 	SkillStore *skilllibrary.Store `optional:"true"`
+	Tracker    *fbsd.Tracker       `optional:"true"`
 }
 
 func provideDriverFactory(p DriverFactoryParams) *DriverFactory {
-	return NewDriverFactory(p.Logger, p.Dispatcher, p.Approvals, p.Reporter, p.Manager, p.Pool, p.SkillStore)
+	return NewDriverFactory(p.Logger, p.Dispatcher, p.Approvals, p.Reporter, p.Manager, p.Pool, p.SkillStore, p.Tracker)
 }
 
 func provideContractDriverFactory(factory *DriverFactory) contract.DriverFactory {

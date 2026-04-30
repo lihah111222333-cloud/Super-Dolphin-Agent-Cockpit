@@ -1,10 +1,14 @@
 package codexapp
 
 import (
+	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/module/fbsd"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 )
 
@@ -135,5 +139,64 @@ func TestBuildSkillManifest_MalformedFrontmatterReturnsEmptyDesc(t *testing.T) {
 	out := buildSkillManifest(entries, 8192)
 	if !strings.Contains(out, "- z — \n") {
 		t.Errorf("malformed SkillMD 应渲染空 description:\n%s", out)
+	}
+}
+
+func TestBuildSkillManifestFBSD_RendersTiers(t *testing.T) {
+	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
+	hot := skilllibrary.SkillEntry{
+		Meta: &skilllibrary.SkillMeta{
+			Name:             "hot-skill",
+			Pinned:           true, // → 强制 Hot
+			SectionSummaries: map[string]string{"foo": "bar"},
+		},
+		SkillMD: "---\nname: hot-skill\ndescription: hot desc\n---\n",
+	}
+	frozen := skilllibrary.SkillEntry{
+		Meta:    &skilllibrary.SkillMeta{Name: "frozen-skill"}, // score=0 → Frozen
+		SkillMD: "---\nname: frozen-skill\ndescription: frozen desc\n---\n",
+	}
+
+	tracker, err := fbsd.NewTracker(filepath.Join(t.TempDir(), "ws.json"), filepath.Join(t.TempDir(), "gl.json"), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := fbsd.DefaultTierConfig()
+	out := buildSkillManifestFBSD([]skilllibrary.SkillEntry{hot, frozen}, tracker, cfg, now)
+
+	if !strings.Contains(out, "hot-skill") {
+		t.Errorf("hot tier should be rendered: %s", out)
+	}
+	if strings.Contains(out, "frozen-skill") {
+		t.Errorf("frozen tier should NOT be rendered: %s", out)
+	}
+	// hot 渲染含节索引（L1-C 形态）
+	if !strings.Contains(out, "节索引") {
+		t.Errorf("hot tier should render 节索引: %s", out)
+	}
+
+	_ = tracker.Flush(context.Background())
+}
+
+func TestBuildSkillManifestFBSD_NilTrackerReturnsEmpty(t *testing.T) {
+	entries := []skilllibrary.SkillEntry{{Meta: &skilllibrary.SkillMeta{Name: "x"}}}
+	if out := buildSkillManifestFBSD(entries, nil, fbsd.DefaultTierConfig(), time.Now()); out != "" {
+		t.Errorf("nil tracker should yield empty, got %s", out)
+	}
+}
+
+func TestRenderSkillManifest_FlagOffFallback(t *testing.T) {
+	// driver.tracker == nil 或 disabled → 走老 buildSkillManifest
+	d := &driver{}
+	entries := []skilllibrary.SkillEntry{
+		{
+			Meta:    &skilllibrary.SkillMeta{Name: "demo"},
+			SkillMD: "---\nname: demo\ndescription: demo desc\n---\n",
+		},
+	}
+	out := d.renderSkillManifest(entries)
+	if !strings.Contains(out, "demo desc") {
+		t.Errorf("flag-off should still render description: %s", out)
 	}
 }

@@ -13,6 +13,7 @@ import (
 
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/fbsd"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -32,6 +33,7 @@ type DriverFactory struct {
 	pool            *ServerPool
 	listTools       func(context.Context) ([]codexprotocol.DynamicToolSchema, error)
 	skillStore      *skilllibrary.Store
+	tracker         *fbsd.Tracker // P6 FBSD; optional, nil-safe
 }
 
 type driver struct {
@@ -44,6 +46,7 @@ type driver struct {
 	pool            *ServerPool
 	listTools       func(context.Context) ([]codexprotocol.DynamicToolSchema, error)
 	skillStore      *skilllibrary.Store
+	tracker         *fbsd.Tracker // P6 FBSD; optional, nil-safe
 }
 
 const defaultManifestBudget = 8192
@@ -103,6 +106,7 @@ func NewDriverFactory(
 	manager *ServerManager,
 	pool *ServerPool,
 	skillStore *skilllibrary.Store,
+	tracker *fbsd.Tracker,
 ) *DriverFactory {
 	factory := &DriverFactory{
 		logger:          logger,
@@ -112,11 +116,12 @@ func NewDriverFactory(
 		manager:         manager,
 		pool:            pool,
 		skillStore:      skillStore,
+		tracker:         tracker,
 	}
 	factory.DriverFactory = contract.DriverFactory{
 		Name: "codex",
 		Create: func() contract.Driver {
-			return newDriver(logger, dispatcher, approvals, reporter, manager, pool, factory.skillStore, factory.currentListTools())
+			return newDriver(logger, dispatcher, approvals, reporter, manager, pool, factory.skillStore, factory.tracker, factory.currentListTools())
 		},
 	}
 	return factory
@@ -140,7 +145,7 @@ func (f *DriverFactory) currentListTools() func(context.Context) ([]codexprotoco
 	return f.listTools
 }
 
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager, pool *ServerPool, skillStore *skilllibrary.Store, listTools ...func(context.Context) ([]codexprotocol.DynamicToolSchema, error)) contract.Driver {
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager, pool *ServerPool, skillStore *skilllibrary.Store, tracker *fbsd.Tracker, listTools ...func(context.Context) ([]codexprotocol.DynamicToolSchema, error)) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -162,6 +167,7 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, ap
 		pool:            pool,
 		listTools:       listToolsFn,
 		skillStore:      skillStore,
+		tracker:         tracker,
 	}
 }
 
@@ -278,7 +284,7 @@ func (d *driver) startAssemblyInstructions(req dto.StartSessionRequest) (string,
 	))
 	if d != nil && d.skillStore != nil {
 		if entries, err := d.skillStore.List(); err == nil && len(entries) > 0 {
-			manifest := buildSkillManifest(entries, defaultManifestBudget)
+			manifest := d.renderSkillManifest(entries)
 			if manifest != "" {
 				if base != "" {
 					base = manifest + "\n\n" + base

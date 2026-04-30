@@ -437,8 +437,10 @@ def build_claude_settings(workspace_dir):
     settings = {
         "permissions": {
             "deny": base.get("disabled_tools", []) + [
-                # native skill 屏蔽候选机制（实测后选定）
-                f"Skill({s})" for s in (base.get("disabled_skills", []) + extra_disabled_skills)
+                # native skill 屏蔽：Claude Code 2.1.119 实测确认采用冒号语法
+                # "Skill:<name>"；原验证表里的圆括号形式 "Skill(<name>)" 实测不生效。
+                # 实测详情见 docs/superpowers/specs/2026-04-29-skill-refactor-design-appendix-cli-test.md
+                f"Skill:{s}" for s in (base.get("disabled_skills", []) + extra_disabled_skills)
             ],
         }
     }
@@ -447,14 +449,21 @@ def build_claude_settings(workspace_dir):
 
 ### 8.3 实测验证清单（Phase 1 实施前必做）
 
-| 候选机制 | 验证方法 | 预期结果 |
-|---|---|---|
-| `permissions.deny: ["Skill(name)"]` | 写配置后启动 Claude CLI，看 `/skills` 输出 | 该 skill 不出现 |
-| `permissions.deny: ["Read"]` | 同上 | Read 工具调用被拒 |
-| `enabledPlugins: []` allowlist | 写配置 + 启动 | marketplace plugin 全消失 |
-| 同名 skill 优先级 | `<workspace>/.claude/skills/<n>` 与 `~/.claude/plugins/.../skills/<n>` 同名 | 看 Claude CLI 加载哪一份 |
-| Codex `config.toml [tools] disabled = [...]` | 翻 OpenAI codex 文档 + 实测 | 工具被屏蔽 |
-| Codex `--disabled-tools` flag | 启动参数实测 | 工具被屏蔽 |
+> **2026-04-30 实测完成**。完整结果记在 [`2026-04-29-skill-refactor-design-appendix-cli-test.md`](./2026-04-29-skill-refactor-design-appendix-cli-test.md)。
+> 下表保留原始候选机制与预期结果作为设计记录；**实测后的最终语法与主路径以 appendix 为准**。
+>
+> 关键 errata：原表写作 “`Skill(name)` 圆括号” 实测不生效；Claude Code 2.1.119 实际采用
+> 冒号语法 `permissions.deny: ["Skill:name"]`。P5 nativefilter 渲染已按冒号语法落地。
+
+| 候选机制 | 验证方法 | 预期结果 | 实测结论 |
+|---|---|---|---|
+| `permissions.deny: ["Skill:name"]` | 写配置后启动 Claude CLI，看 `/skills` 输出 | 该 skill 不出现 | ✅ 生效（运行时拦截；list 仍出现但调用被拒）——**P5 主路径** |
+| ~~`permissions.deny: ["Skill(name)"]`~~ | 圆括号语法 | 原望屏蔽 skill | ❌ 不生效（spec 写作错误） |
+| `permissions.deny: ["Read"]` | 同上 | Read 工具调用被拒 | ✅ 生效 |
+| `enabledPlugins: []` allowlist | 写配置 + 启动 | marketplace plugin 全消失 | ⏸️ 未跑（T1h 已确认主路径，本项作为 fallback 备选） |
+| 同名 skill 优先级 | `<workspace>/.claude/skills/<n>` 与 `~/.claude/plugins/.../skills/<n>` 同名 | 看 Claude CLI 加载哪一份 | ⏸️ 未跑（当前未观察到同名冲突） |
+| Codex `config.toml [tools] disabled = [...]` | 翻 OpenAI codex 文档 + 实测 | 工具被屏蔽 | ❌ codex 0.121.0 未发现等价机制；P5/P6 设计为 stub + TODO |
+| Codex `--disabled-tools` flag | 启动参数实测 | 工具被屏蔽 | ❌ codex 0.121.0 仅提供 `--disable <FEATURE>` (feature flag，不是工具屏蔽) |
 
 **Fallback 链**（按优先级）：
 1. `permissions.deny` 字段（声明式，最理想）
@@ -644,7 +653,7 @@ SKILL_FBSD_WS_WEIGHT=0.3             # workspace 数据权重（混合模式）
 
 ## 13. 风险与未决项 (Deferred)
 
-1. **Native CLI 屏蔽机制实测**：Claude CLI 的 `permissions.deny: ["Skill(name)"]` 是否生效需验证；Codex CLI 的工具屏蔽字段需查文档。验证结果决定 §8 fallback 链选哪一级。
+1. **Native CLI 屏蔽机制实测** — ✅ 已于 2026-04-30 实测完成。Claude 侧 `permissions.deny: ["Skill:name"]`（冒号）生效；圆括号语法不生效（spec 原文已 errata）。Codex 侧 0.121.0 未发现等价工具屏蔽机制，P5 nativefilter 设计为 `disabled_tools` schema 留字段但 enforcement 走 stub，未来实测后补。详见 [appendix](./2026-04-29-skill-refactor-design-appendix-cli-test.md)。
 2. **FBSD tier 阈值参数**：`SKILL_FBSD_*` 一系列默认值是初始拍脑袋值，正式跑起来后需根据真实数据 tune；spec 定义参数化结构，不锁死值。
 3. **Windows symlink fallback**：junction 在跨盘场景失败 → 退化到 hardlink-copy。具体 Go 抽象 IO 接口在 P1 期内提交时再细化。
 4. **商店 trust 模型**：`signature` 字段语义、签名算法、CA 链等留作未来 spec。
