@@ -168,7 +168,7 @@ func errorMessageFromTerminalReason(reason string) string {
 }
 
 func (s *session) prepareTurnLocked(ctx context.Context, req dto.TurnRequest) ([]byte, string, *turnHandle, error) {
-	blocks := composeTurnContent(req)
+	blocks := composeTurnContent(req, s.imageTracker)
 	if len(blocks) == 0 {
 		return nil, "", nil, errors.New("claudecli: empty turn input")
 	}
@@ -198,7 +198,7 @@ func (s *session) prepareTurnLocked(ctx context.Context, req dto.TurnRequest) ([
 	return payload, currentTurnID(handle), handle, nil
 }
 
-func buildSteerPayload(req dto.SteerRequest) ([]byte, error) {
+func buildSteerPayload(req dto.SteerRequest, tracker *imageHashTracker) ([]byte, error) {
 	blocks := composeTurnContent(dto.TurnRequest{
 		ThreadID:             req.ThreadID,
 		Inputs:               req.Inputs,
@@ -207,7 +207,7 @@ func buildSteerPayload(req dto.SteerRequest) ([]byte, error) {
 		ManualSkillSelection: req.ManualSkillSelection,
 		OutputSchema:         req.OutputSchema,
 		Overrides:            req.Overrides,
-	})
+	}, tracker)
 	if len(blocks) == 0 {
 		return nil, errors.New("claudecli: empty steer input")
 	}
@@ -283,7 +283,11 @@ func marshalTurnContentPayload(blocks []map[string]any) ([]byte, error) {
 //
 // If an image cannot be encoded (oversize, read error, unsupported MIME), the
 // input falls through to the text-hint path so the turn is not lost.
-func composeTurnContent(req dto.TurnRequest) []map[string]any {
+//
+// When tracker is non-nil, identical images sent earlier in the same session
+// (matched by sha256 of the raw bytes) are replaced with a small text
+// placeholder so the API does not re-process the same vision payload.
+func composeTurnContent(req dto.TurnRequest, tracker *imageHashTracker) []map[string]any {
 	blocks := make([]map[string]any, 0, len(req.Inputs)+1)
 	passthrough := make([]dto.InputItem, 0, len(req.Inputs))
 	for _, input := range req.Inputs {
@@ -298,7 +302,7 @@ func composeTurnContent(req dto.TurnRequest) []map[string]any {
 			continue
 		}
 		if blk != nil {
-			blocks = append(blocks, blk)
+			blocks = append(blocks, dedupedOrOriginalBlock(blk, tracker))
 			continue
 		}
 		passthrough = append(passthrough, input)
@@ -312,6 +316,24 @@ func composeTurnContent(req dto.TurnRequest) []map[string]any {
 		})
 	}
 	return blocks
+}
+
+// dedupedOrOriginalBlock returns a small text placeholder when the image
+// block's bytes have already been sent in this session, otherwise it returns
+// the original block (and records the bytes so future dupes hit the cache).
+func dedupedOrOriginalBlock(block map[string]any, tracker *imageHashTracker) map[string]any {
+	if tracker == nil {
+		return block
+	}
+	raw := imageBlockBytes(block)
+	if len(raw) == 0 {
+		return block
+	}
+	hash, isNew := tracker.markIfNew(raw)
+	if isNew {
+		return block
+	}
+	return dedupedImagePlaceholderBlock(hash)
 }
 
 func composeTurnText(req dto.TurnRequest) string {

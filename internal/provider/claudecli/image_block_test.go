@@ -150,7 +150,7 @@ func TestImageBlockNonImageInputReturnsNil(t *testing.T) {
 func TestComposeTurnContentTextOnly(t *testing.T) {
 	blocks := composeTurnContent(dto.TurnRequest{
 		Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
-	})
+	}, nil)
 	if len(blocks) != 1 {
 		t.Fatalf("len(blocks) = %d, want 1", len(blocks))
 	}
@@ -166,7 +166,7 @@ func TestComposeTurnContentImageOnly(t *testing.T) {
 	path := mustWriteTempPNG(t)
 	blocks := composeTurnContent(dto.TurnRequest{
 		Inputs: []dto.InputItem{{Type: "localImage", Path: path}},
-	})
+	}, nil)
 	if len(blocks) != 1 {
 		t.Fatalf("len(blocks) = %d, want 1", len(blocks))
 	}
@@ -182,7 +182,7 @@ func TestComposeTurnContentImageAndText(t *testing.T) {
 			{Type: "localImage", Path: path},
 			{Type: "text", Content: "describe this"},
 		},
-	})
+	}, nil)
 	if len(blocks) != 2 {
 		t.Fatalf("len(blocks) = %d, want 2", len(blocks))
 	}
@@ -206,7 +206,7 @@ func TestComposeTurnContentUnsupportedMIMEFallsBackToTextHint(t *testing.T) {
 	}
 	blocks := composeTurnContent(dto.TurnRequest{
 		Inputs: []dto.InputItem{{Type: "image", Path: path}},
-	})
+	}, nil)
 	if len(blocks) != 1 {
 		t.Fatalf("len(blocks) = %d, want 1 (text hint fallback)", len(blocks))
 	}
@@ -222,7 +222,7 @@ func TestComposeTurnContentMissingFileFallsBackToTextHint(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "ghost.png")
 	blocks := composeTurnContent(dto.TurnRequest{
 		Inputs: []dto.InputItem{{Type: "localImage", Path: missing}},
-	})
+	}, nil)
 	if len(blocks) != 1 {
 		t.Fatalf("len(blocks) = %d, want 1 (degrade to text)", len(blocks))
 	}
@@ -238,7 +238,7 @@ func TestMarshalTurnContentPayloadEnvelope(t *testing.T) {
 			{Type: "localImage", Path: path},
 			{Type: "text", Content: "hi"},
 		},
-	})
+	}, nil)
 	raw, err := marshalTurnContentPayload(blocks)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)

@@ -278,6 +278,7 @@ func (d *driver) newStartedSession(spec startSpec, started preparedStartSession)
 		cleanup:           started.cleanup,
 		pidRegistry:       d.pidRegistry,
 		suppressedTurns:   map[string]struct{}{},
+		imageTracker:      newImageHashTracker(),
 	}
 	s.applyConfiguredOverridesLocked(spec.configOverride, false)
 	if shouldMarkThreadReady(spec.threadID, publicThreadID) {
