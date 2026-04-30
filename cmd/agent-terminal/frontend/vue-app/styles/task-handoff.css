@@ -3,6 +3,94 @@
   gap: 12px;
 }
 
+/* Phase 2.3 任务条默认折叠：chip 常驻可见，点击才展开详细体。
+   折叠状态下取消 data-card-vue 的 padding 避免赏 chip 本身边距不一致。 */
+.task-handoff-strip-collapsed {
+  padding: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.task-handoff-strip-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.18s ease, border-color 0.18s ease;
+}
+.task-handoff-strip-chip:hover {
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  border-color: color-mix(in srgb, var(--border) 70%, var(--text) 30%);
+}
+.task-handoff-strip-chip:focus-visible {
+  outline: 2px solid color-mix(in srgb, #3b82f6 60%, transparent);
+  outline-offset: 1px;
+}
+
+.task-handoff-strip-chip-icon {
+  flex: 0 0 auto;
+  font-size: 13px;
+}
+
+.task-handoff-strip-chip-title {
+  flex: 0 1 auto;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.task-handoff-strip-chip-meta {
+  flex: 0 1 auto;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.task-handoff-strip-chip-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+.task-handoff-strip-chip-badge-error {
+  background: var(--danger, #f87171);
+  color: #fff;
+}
+
+.task-handoff-strip-chip-chevron {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.task-handoff-strip-body {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .task-handoff-strip-head {
   display: flex;
   align-items: flex-start;

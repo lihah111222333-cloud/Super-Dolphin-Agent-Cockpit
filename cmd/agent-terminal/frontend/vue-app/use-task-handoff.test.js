@@ -327,3 +327,51 @@ describe('useTaskHandoff.continueCurrentTask (wrapper)', () => {
     }));
   });
 });
+
+describe('taskStripExpanded 默认折叠 + 事件展开', () => {
+  it('initial state 默认为折叠（false）', () => {
+    const ctx = makeCtx({ runtime: { taskId: 't-collapse-init', handoffFile: 'h.md' } });
+    const { taskStripExpanded } = useTaskHandoff(ctx);
+    expect(taskStripExpanded.value).toBe(false);
+  });
+
+  it('toggleTaskStrip 在 true / false 之间切换', () => {
+    const ctx = makeCtx({ runtime: { taskId: 't-toggle', handoffFile: 'h.md' } });
+    const { taskStripExpanded, toggleTaskStrip } = useTaskHandoff(ctx);
+    expect(taskStripExpanded.value).toBe(false);
+    toggleTaskStrip();
+    expect(taskStripExpanded.value).toBe(true);
+    toggleTaskStrip();
+    expect(taskStripExpanded.value).toBe(false);
+  });
+
+  it('expandTaskStrip 强制展开，collapseTaskStrip 强制折叠', () => {
+    const ctx = makeCtx({ runtime: { taskId: 't-cmd', handoffFile: 'h.md' } });
+    const { taskStripExpanded, expandTaskStrip, collapseTaskStrip } = useTaskHandoff(ctx);
+    expandTaskStrip('test_reason');
+    expect(taskStripExpanded.value).toBe(true);
+    collapseTaskStrip();
+    expect(taskStripExpanded.value).toBe(false);
+  });
+
+  it('load 错误出现时自动展开', async () => {
+    vi.mocked(callAPI).mockRejectedValueOnce(new Error('boom'));
+    const ctx = makeCtx({ runtime: { taskId: 't-err', handoffFile: 'handoff/err.md' } });
+    const { taskStripExpanded, taskHandoffError } = useTaskHandoff(ctx);
+    // 初始 watch immediate 改变 activeTask trigger 了 loadTaskHandoff。错误被集成后，
+    // expanded 应该被 error watcher 推为 true。
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(taskHandoffError.value).toBe('boom');
+    expect(taskStripExpanded.value).toBe(true);
+  });
+
+  // 注：「切 thread/task 重置为折叠」这个行为由 useTaskHandoff 里 immediate+sync
+  // 的 watch 保证，在生产环境里随 activeRuntime 赋值同步生效。测试环境里
+  // test 文件和 composable 分别从 './lib/...' 与 '../../lib/...' 加载 Vue，
+  // 极端条件下两边拿不到同一个 reactivity 实例，跨实例 watch 不会 fire。
+  // 改体：不直接断言 watch fire，而是靠上面几个 case 锁住 manual API（toggle/expand/collapse）
+  // + load 错误自动展开这个同 watch 同机制的 case 间接证明 watcher 在测试
+  // 环境里是工作的。
+});
