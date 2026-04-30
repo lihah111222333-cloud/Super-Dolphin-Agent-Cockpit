@@ -34,10 +34,10 @@ func TestNewThreadHandlersRegistersExpectedRoutes(t *testing.T) {
 	t.Parallel()
 
 	got := NewThreadHandlers(&stubThreadService{}, nil).Handlers
-	if len(got) != 32 {
-		t.Fatalf("len(Handlers) = %d, want 32", len(got))
+	if len(got) != 34 {
+		t.Fatalf("len(Handlers) = %d, want 34", len(got))
 	}
-	for _, method := range []string{"thread/start", "thread/stop", "thread/list", "thread/model/set", "thread/clear", "thread/realtime/start", "thread/handoff"} {
+	for _, method := range []string{"thread/start", "thread/stop", "thread/list", "thread/model/set", "thread/clear", "thread/realtime/start", "thread/handoff", "ui/task/flush_and_verify", "ui/thread/promote-task"} {
 		if _, ok := got[method]; !ok {
 			t.Fatalf("Handlers missing %q", method)
 		}
@@ -339,32 +339,38 @@ func newThreadTestServer(svc Service) *rpcpkg.Server {
 }
 
 type stubThreadService struct {
-	startReq           StartRequest
-	startResult        StartResult
-	resumeReq          ResumeRequest
-	resumeResult       ResumeResult
-	forkThreadID       string
-	forkResult         ForkResult
-	recoverThreadID    string
-	recoverResult      RecoverResult
-	listResult         []Ref
-	listCalls          int
-	setConfigPatch     dto.ThreadConfigPatch
-	setConfigID        string
-	setConfigResp      dto.ThreadConfig
-	setModelID         string
-	setModelArg        string
-	setModelErr        error
-	readMessagesThread string
-	readMessagesLimit  int
-	readMessagesBefore string
-	readMessagesResult dto.ThreadMessagesResult
-	sendCommandThread  string
-	sendCommandName    string
-	sendCommandArgs    string
-	sendCommandResult  any
-	handoffReq         HandoffRequest
-	handoffResult      HandoffResult
+	startReq             StartRequest
+	startResult          StartResult
+	resumeReq            ResumeRequest
+	resumeResult         ResumeResult
+	forkThreadID         string
+	forkResult           ForkResult
+	recoverThreadID      string
+	recoverResult        RecoverResult
+	listResult           []Ref
+	listCalls            int
+	flushAndVerifyThread string
+	flushAndVerifyTask   string
+	flushAndVerifyErr    error
+	setConfigPatch       dto.ThreadConfigPatch
+	setConfigID          string
+	setConfigResp        dto.ThreadConfig
+	setModelID           string
+	setModelArg          string
+	setModelErr          error
+	readMessagesThread   string
+	readMessagesLimit    int
+	readMessagesBefore   string
+	readMessagesResult   dto.ThreadMessagesResult
+	sendCommandThread    string
+	sendCommandName      string
+	sendCommandArgs      string
+	sendCommandResult    any
+	handoffReq           HandoffRequest
+	handoffResult        HandoffResult
+	promoteThread        string
+	promoteResult        PromoteTaskResult
+	promoteErr           error
 }
 
 func (s *stubThreadService) Start(_ context.Context, req StartRequest) (StartResult, error) {
@@ -431,8 +437,63 @@ func (s *stubThreadService) SendCommand(_ context.Context, threadID, command, ar
 }
 func (s *stubThreadService) SetName(context.Context, string, string) error { return nil }
 func (s *stubThreadService) Delete(context.Context, string) error          { return nil }
+func (s *stubThreadService) FlushAndVerifyTaskHandoff(_ context.Context, threadID, taskID string) error {
+	s.flushAndVerifyThread = threadID
+	s.flushAndVerifyTask = taskID
+	return s.flushAndVerifyErr
+}
+func (s *stubThreadService) PromoteTaskFromThread(_ context.Context, threadID string) (PromoteTaskResult, error) {
+	s.promoteThread = threadID
+	return s.promoteResult, s.promoteErr
+}
 
 func (s *stubThreadService) List(context.Context) ([]Ref, error) {
 	s.listCalls++
 	return s.listResult, nil
+}
+
+func TestFlushAndVerifyDispatchHappy(t *testing.T) {
+	t.Parallel()
+	stub := &stubThreadService{}
+	server := newThreadTestServer(stub)
+	raw, err := server.Dispatch(context.Background(), "ui/task/flush_and_verify", json.RawMessage(`{"threadId":"thread-A","taskId":"task-X"}`))
+	if err != nil {
+		t.Fatalf("dispatch err = %v", err)
+	}
+	var resp map[string]any
+	if jerr := json.Unmarshal(raw, &resp); jerr != nil {
+		t.Fatalf("unmarshal: %v", jerr)
+	}
+	if resp["ok"] != true {
+		t.Fatalf("unexpected resp: %#v", resp)
+	}
+	if stub.flushAndVerifyThread != "thread-A" || stub.flushAndVerifyTask != "task-X" {
+		t.Fatalf("stub fields = %q / %q", stub.flushAndVerifyThread, stub.flushAndVerifyTask)
+	}
+}
+
+func TestFlushAndVerifyDispatchHandoffMissing(t *testing.T) {
+	t.Parallel()
+	stub := &stubThreadService{flushAndVerifyErr: errors.New("handoff_missing: not found")}
+	server := newThreadTestServer(stub)
+	_, err := server.Dispatch(context.Background(), "ui/task/flush_and_verify", json.RawMessage(`{"threadId":"t","taskId":"x"}`))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "handoff_missing") {
+		t.Fatalf("err missing keyword: %v", err)
+	}
+}
+
+func TestFlushAndVerifyDispatchFlushFailed(t *testing.T) {
+	t.Parallel()
+	stub := &stubThreadService{flushAndVerifyErr: errors.New("handoff_flush_failed: timeout")}
+	server := newThreadTestServer(stub)
+	_, err := server.Dispatch(context.Background(), "ui/task/flush_and_verify", json.RawMessage(`{"threadId":"t","taskId":"x"}`))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "handoff_flush_failed") {
+		t.Fatalf("err missing keyword: %v", err)
+	}
 }

@@ -562,7 +562,10 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   _optimisticThreadIds.set(id, Date.now() + OPTIMISTIC_LEAK_GUARD_MS);
   await ctx.syncRuntimeState();
   const focusMode = options?.focusMode === 'cmd' ? 'cmd' : 'chat';
-  if (focusMode === 'cmd') saveActiveCmdThread(ctx, id); else saveActiveThread(ctx, id);
+  // Phase 1.4b：自动续接调度器调用时传 skipSaveActive=true，新 thread 不抢用户当前焦点。
+  if (!options?.skipSaveActive) {
+    if (focusMode === 'cmd') saveActiveCmdThread(ctx, id); else saveActiveThread(ctx, id);
+  }
 
   logInfo('thread', 'start.done', {
     thread_id: id,

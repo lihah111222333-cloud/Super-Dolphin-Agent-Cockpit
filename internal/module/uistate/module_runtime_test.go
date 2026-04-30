@@ -63,7 +63,7 @@ func TestApplyTaskRuntimeToThreadRuntime_Pin(t *testing.T) {
 		},
 		{
 			name:       "creates runtime entry from canonical keys",
-			svc:        &service{runtimeConfig: &runtimeConfigLookupStub{cfg: map[string]any{"taskId": "task-1", "taskTitle": "Title", "handoffFile": "handoff.md", "ownerThreadId": "thread-parent"}}},
+			svc:        &service{runtimeConfig: &runtimeConfigLookupStub{cfg: map[string]any{"taskId": "task-1", "taskTitle": "Title", "handoffFile": "handoff.md", "ownerThreadId": "thread-parent", "rootTaskId": "task-root"}}},
 			thread:     ThreadSummary{ID: "thread-6"},
 			runtimeMap: map[string]map[string]any{},
 			want: map[string]map[string]any{
@@ -72,6 +72,7 @@ func TestApplyTaskRuntimeToThreadRuntime_Pin(t *testing.T) {
 					"taskTitle":     "Title",
 					"handoffFile":   "handoff.md",
 					"ownerThreadId": "thread-parent",
+					"rootTaskId":    "task-root",
 				},
 			},
 			wantReads: []string{"thread-6"},
@@ -83,6 +84,7 @@ func TestApplyTaskRuntimeToThreadRuntime_Pin(t *testing.T) {
 				"task_title":      42,
 				"handoff_file":    "  ",
 				"owner_thread_id": " owner-thread ",
+				"root_task_id":    " task-root-snake ",
 			}}},
 			thread: ThreadSummary{ID: "thread-7"},
 			runtimeMap: map[string]map[string]any{
@@ -99,6 +101,7 @@ func TestApplyTaskRuntimeToThreadRuntime_Pin(t *testing.T) {
 					"taskTitle":     "keep-title",
 					"handoffFile":   "keep-file",
 					"ownerThreadId": "owner-thread",
+					"rootTaskId":    "task-root-snake",
 					"stable":        true,
 				},
 			},

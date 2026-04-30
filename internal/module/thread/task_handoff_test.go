@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -662,4 +663,335 @@ func TestResolveTaskHandoffStart_Pin(t *testing.T) {
 			tt.assert(t, meta, sourceThreadID)
 		})
 	}
+}
+
+func TestResolveRootTaskId(t *testing.T) {
+	t.Parallel()
+
+	makeThread := func(t *testing.T, threadID, ownerThreadID string, runtime map[string]any) *threadstore.Thread {
+		t.Helper()
+		return &threadstore.Thread{
+			ThreadID:      threadID,
+			OwnerThreadID: ownerThreadID,
+			ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{
+				Runtime: runtime,
+			}),
+		}
+	}
+
+	tests := []struct {
+		name           string
+		ownerThreadID  string
+		threadByID     map[string]*threadstore.Thread
+		nilThreadStore bool
+		want           string
+	}{
+		{
+			name:          "empty owner returns empty",
+			ownerThreadID: "",
+			threadByID:    map[string]*threadstore.Thread{},
+			want:          "",
+		},
+		{
+			name:           "nil threadStore returns empty",
+			ownerThreadID:  "thread-A",
+			nilThreadStore: true,
+			want:           "",
+		},
+		{
+			name:          "store ErrNotFound returns empty",
+			ownerThreadID: "thread-missing",
+			threadByID:    map[string]*threadstore.Thread{},
+			want:          "",
+		},
+		{
+			name:          "single layer (owner is root) returns its taskId",
+			ownerThreadID: "thread-A",
+			threadByID: map[string]*threadstore.Thread{
+				"thread-A": makeThread(t, "thread-A", "", map[string]any{
+					taskConfigKeyID: "task-root",
+				}),
+			},
+			want: "task-root",
+		},
+		{
+			name:          "two layers traverses to root",
+			ownerThreadID: "thread-mid",
+			threadByID: map[string]*threadstore.Thread{
+				"thread-mid":  makeThread(t, "thread-mid", "thread-root", map[string]any{taskConfigKeyID: "task-mid"}),
+				"thread-root": makeThread(t, "thread-root", "", map[string]any{taskConfigKeyID: "task-root"}),
+			},
+			want: "task-root",
+		},
+		{
+			name:          "depth limit 10 cuts off cyclic chain",
+			ownerThreadID: "thread-1",
+			threadByID: func() map[string]*threadstore.Thread {
+				m := map[string]*threadstore.Thread{}
+				// 12 个 thread 形成 1 → 2 → 3 ... → 12，没有顶端
+				for i := 1; i <= 12; i++ {
+					curID := fmt.Sprintf("thread-%d", i)
+					nextID := fmt.Sprintf("thread-%d", i+1)
+					m[curID] = makeThread(t, curID, nextID, map[string]any{taskConfigKeyID: "task-fake"})
+				}
+				return m
+			}(),
+			want: "",
+		},
+		{
+			name:          "root with no taskId returns empty",
+			ownerThreadID: "thread-A",
+			threadByID: map[string]*threadstore.Thread{
+				"thread-A": makeThread(t, "thread-A", "", map[string]any{}),
+			},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var svc *service
+			if tt.nilThreadStore {
+				svc = &service{}
+			} else {
+				svc = &service{threadStore: &stubThreadStore{threadByID: tt.threadByID}}
+			}
+			got := svc.resolveRootTaskId(context.Background(), tt.ownerThreadID)
+			if got != tt.want {
+				t.Fatalf("resolveRootTaskId() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPrepareTaskHandoffStart_RootTaskId(t *testing.T) {
+	t.Parallel()
+
+	makeThread := func(t *testing.T, threadID, ownerThreadID string, runtime map[string]any) *threadstore.Thread {
+		t.Helper()
+		return &threadstore.Thread{
+			ThreadID:      threadID,
+			OwnerThreadID: ownerThreadID,
+			ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{
+				Runtime: runtime,
+			}),
+		}
+	}
+
+	t.Run("root task without OwnerThreadID falls back to self taskId", func(t *testing.T) {
+		t.Parallel()
+		svc := &service{
+			threadStore:  &stubThreadStore{},
+			sharedFiles:  &stubSharedFileStore{},
+			bindingStore: &stubBindingStore{},
+		}
+		req := StartRequest{AgentType: "worker", Name: "Root Task"}
+		if err := svc.prepareTaskHandoffStart(context.Background(), &req); err != nil {
+			t.Fatalf("prepareTaskHandoffStart() error = %v", err)
+		}
+		taskID := firstConfigString(req.Config, taskConfigKeyID, taskConfigKeyIDSnake)
+		rootID := firstConfigString(req.Config, taskConfigKeyRoot, taskConfigKeyRootSnake)
+		if taskID == "" || rootID != taskID {
+			t.Fatalf("rootTaskId = %q, want self taskId %q", rootID, taskID)
+		}
+	})
+
+	t.Run("sub-agent 1 layer: rootTaskId from owner taskId", func(t *testing.T) {
+		t.Parallel()
+		rootThread := makeThread(t, "thread-root", "", map[string]any{
+			taskConfigKeyID:    "task-root",
+			taskConfigKeyTitle: "Root Task",
+		})
+		svc := &service{
+			threadStore:  &stubThreadStore{thread: rootThread},
+			sharedFiles:  &stubSharedFileStore{},
+			bindingStore: &stubBindingStore{},
+		}
+		req := StartRequest{
+			OwnerThreadID: "thread-root",
+			AgentType:     "reviewer",
+			Name:          "Reviewer",
+		}
+		if err := svc.prepareTaskHandoffStart(context.Background(), &req); err != nil {
+			t.Fatalf("prepareTaskHandoffStart() error = %v", err)
+		}
+		if got := firstConfigString(req.Config, taskConfigKeyRoot, taskConfigKeyRootSnake); got != "task-root" {
+			t.Fatalf("rootTaskId = %q, want task-root", got)
+		}
+	})
+
+	t.Run("sub-agent 2 layers: traverses to root taskId", func(t *testing.T) {
+		t.Parallel()
+		threadByID := map[string]*threadstore.Thread{
+			"thread-mid":  makeThread(t, "thread-mid", "thread-root", map[string]any{taskConfigKeyID: "task-mid"}),
+			"thread-root": makeThread(t, "thread-root", "", map[string]any{taskConfigKeyID: "task-root"}),
+		}
+		svc := &service{
+			threadStore:  &stubThreadStore{threadByID: threadByID},
+			sharedFiles:  &stubSharedFileStore{},
+			bindingStore: &stubBindingStore{},
+		}
+		req := StartRequest{
+			OwnerThreadID: "thread-mid",
+			AgentType:     "deep",
+			Name:          "Deep Worker",
+		}
+		if err := svc.prepareTaskHandoffStart(context.Background(), &req); err != nil {
+			t.Fatalf("prepareTaskHandoffStart() error = %v", err)
+		}
+		if got := firstConfigString(req.Config, taskConfigKeyRoot, taskConfigKeyRootSnake); got != "task-root" {
+			t.Fatalf("rootTaskId = %q, want task-root (traversed from mid)", got)
+		}
+	})
+
+	t.Run("explicit rootTaskId in Config wins", func(t *testing.T) {
+		t.Parallel()
+		rootThread := makeThread(t, "thread-root", "", map[string]any{taskConfigKeyID: "task-root"})
+		svc := &service{
+			threadStore:  &stubThreadStore{thread: rootThread},
+			sharedFiles:  &stubSharedFileStore{},
+			bindingStore: &stubBindingStore{},
+		}
+		req := StartRequest{
+			OwnerThreadID: "thread-root",
+			AgentType:     "reviewer",
+			Name:          "Reviewer",
+			Config: map[string]any{
+				taskConfigKeyRoot: "task-explicit-override",
+			},
+		}
+		if err := svc.prepareTaskHandoffStart(context.Background(), &req); err != nil {
+			t.Fatalf("prepareTaskHandoffStart() error = %v", err)
+		}
+		if got := firstConfigString(req.Config, taskConfigKeyRoot, taskConfigKeyRootSnake); got != "task-explicit-override" {
+			t.Fatalf("rootTaskId = %q, want explicit override", got)
+		}
+	})
+}
+
+func TestBackfillResumeRootTaskId(t *testing.T) {
+	t.Parallel()
+
+	makeThread := func(t *testing.T, threadID, ownerThreadID string, runtime map[string]any) *threadstore.Thread {
+		t.Helper()
+		return &threadstore.Thread{
+			ThreadID:      threadID,
+			OwnerThreadID: ownerThreadID,
+			ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{
+				Runtime: runtime,
+			}),
+		}
+	}
+
+	mustEncode := func(t *testing.T, runtime map[string]any) []byte {
+		t.Helper()
+		return mustStoredThreadConfigRaw(t, storedThreadConfig{Runtime: runtime})
+	}
+
+	t.Run("empty raw returns unchanged", func(t *testing.T) {
+		t.Parallel()
+		svc := &service{threadStore: &stubThreadStore{}}
+		got := svc.backfillResumeRootTaskId(context.Background(), "", nil)
+		if got != nil {
+			t.Fatalf("got = %v, want nil", got)
+		}
+	})
+
+	t.Run("no taskId returns unchanged", func(t *testing.T) {
+		t.Parallel()
+		svc := &service{threadStore: &stubThreadStore{}}
+		raw := mustEncode(t, map[string]any{"otherKey": "value"})
+		got := svc.backfillResumeRootTaskId(context.Background(), "thread-X", raw)
+		if string(got) != string(raw) {
+			t.Fatalf("got mutated, want unchanged")
+		}
+	})
+
+	t.Run("already has rootTaskId returns unchanged", func(t *testing.T) {
+		t.Parallel()
+		svc := &service{threadStore: &stubThreadStore{}}
+		raw := mustEncode(t, map[string]any{
+			taskConfigKeyID:   "task-X",
+			taskConfigKeyRoot: "task-already-set",
+		})
+		got := svc.backfillResumeRootTaskId(context.Background(), "thread-X", raw)
+		if string(got) != string(raw) {
+			t.Fatalf("got mutated, want unchanged")
+		}
+	})
+
+	t.Run("missing rootTaskId with resolvable owner chain", func(t *testing.T) {
+		t.Parallel()
+		threadByID := map[string]*threadstore.Thread{
+			"thread-root": makeThread(t, "thread-root", "", map[string]any{taskConfigKeyID: "task-root"}),
+		}
+		svc := &service{threadStore: &stubThreadStore{threadByID: threadByID}}
+		raw := mustEncode(t, map[string]any{taskConfigKeyID: "task-mid"})
+		got := svc.backfillResumeRootTaskId(context.Background(), "thread-root", raw)
+		stored := decodeStoredThreadConfig(got)
+		if rootID := firstConfigString(stored.Runtime, taskConfigKeyRoot, taskConfigKeyRootSnake); rootID != "task-root" {
+			t.Fatalf("rootTaskId = %q, want task-root", rootID)
+		}
+		if taskID := firstConfigString(stored.Runtime, taskConfigKeyID, taskConfigKeyIDSnake); taskID != "task-mid" {
+			t.Fatalf("taskId mutated to %q, want task-mid", taskID)
+		}
+	})
+
+	t.Run("missing rootTaskId without owner falls back to self taskId", func(t *testing.T) {
+		t.Parallel()
+		svc := &service{threadStore: &stubThreadStore{}}
+		raw := mustEncode(t, map[string]any{taskConfigKeyID: "task-self"})
+		got := svc.backfillResumeRootTaskId(context.Background(), "", raw)
+		stored := decodeStoredThreadConfig(got)
+		if rootID := firstConfigString(stored.Runtime, taskConfigKeyRoot, taskConfigKeyRootSnake); rootID != "task-self" {
+			t.Fatalf("rootTaskId = %q, want fallback task-self", rootID)
+		}
+	})
+}
+
+func TestEnsureHandoffExists(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil sharedFiles returns error", func(t *testing.T) {
+		t.Parallel()
+		svc := &service{}
+		err := svc.EnsureHandoffExists(context.Background(), "task-X")
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+	})
+
+	t.Run("empty taskID returns error", func(t *testing.T) {
+		t.Parallel()
+		svc := &service{sharedFiles: &stubSharedFileStore{}}
+		err := svc.EnsureHandoffExists(context.Background(), "")
+		if err == nil {
+			t.Fatalf("expected error for empty taskId")
+		}
+	})
+
+	t.Run("handoff file exists returns nil", func(t *testing.T) {
+		t.Parallel()
+		files := &stubSharedFileStore{files: map[string]sharedfilestore.SharedFile{
+			"handoff/tasks/task-A.md": {Path: "handoff/tasks/task-A.md", Content: "# Handoff"},
+		}}
+		svc := &service{sharedFiles: files}
+		err := svc.EnsureHandoffExists(context.Background(), "task-A")
+		if err != nil {
+			t.Fatalf("expected nil, got %v", err)
+		}
+	})
+
+	t.Run("handoff file missing returns wrapped error", func(t *testing.T) {
+		t.Parallel()
+		files := &stubSharedFileStore{files: map[string]sharedfilestore.SharedFile{}}
+		svc := &service{sharedFiles: files}
+		err := svc.EnsureHandoffExists(context.Background(), "task-Z")
+		if err == nil {
+			t.Fatalf("expected error for missing file")
+		}
+		if !strings.Contains(err.Error(), "handoff/tasks/task-Z.md") {
+			t.Fatalf("error should contain path; got %v", err)
+		}
+	})
 }

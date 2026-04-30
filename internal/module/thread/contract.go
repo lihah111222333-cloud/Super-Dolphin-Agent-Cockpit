@@ -46,6 +46,34 @@ type Service interface {
 	SendCommand(ctx context.Context, threadID, command, args string) (any, error)
 	SetName(ctx context.Context, threadID, name string) error
 	Delete(ctx context.Context, threadID string) error
+	// FlushAndVerifyTaskHandoff 是 Phase 1.8d fork 前预检：
+	// (a) FlushForThread —— 等待该 thread 所有 pending handoff turn 写完
+	// (b) EnsureHandoffExists —— stat handoff 文件确认存在
+	// 任一失败返回的 error message 含 "handoff_flush_failed" 或
+	// "handoff_missing" 关键字，让前端识别为 permanent 不重试。
+	FlushAndVerifyTaskHandoff(ctx context.Context, threadID, taskID string) error
+	// PromoteTaskFromThread is Phase 2.1: promote a normal thread to a task
+	// thread. The backend mints taskId / handoffFile / taskTitle and writes
+	// them into the thread's stored runtime config (the next sidebar
+	// projection picks them up via applyTaskRuntimeToThreadRuntime so the
+	// frontend agentRuntimeById refreshes), and ensureTaskHandoffShell
+	// initializes the handoff document. Idempotent: when the thread is
+	// already a task thread the existing fields are returned with
+	// AlreadyTask=true and nothing is mutated.
+	PromoteTaskFromThread(ctx context.Context, threadID string) (PromoteTaskResult, error)
+}
+
+type PromoteTaskResult struct {
+	ThreadID    string `json:"thread_id"`
+	TaskID      string `json:"task_id"`
+	TaskTitle   string `json:"task_title,omitempty"`
+	HandoffFile string `json:"handoff_file,omitempty"`
+	AlreadyTask bool   `json:"already_task,omitempty"`
+	// HandoffShellWarning records a non-fatal handoff init failure: runtime
+	// config is already persisted, so the thread is a task thread; the
+	// downstream Phase 1.8d FlushAndVerify path will retry / surface the
+	// missing handoff document.
+	HandoffShellWarning string `json:"handoff_shell_warning,omitempty"`
 }
 
 type StartRequest struct {

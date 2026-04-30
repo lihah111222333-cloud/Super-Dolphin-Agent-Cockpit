@@ -2,6 +2,9 @@ package thread
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"path"
 	"strings"
 	"time"
@@ -25,6 +28,8 @@ const (
 	taskConfigKeyContinueSnake    = "continue_task"
 	taskConfigKeyAuto             = "autoTaskHandoff"
 	taskConfigKeyAutoSnake        = "auto_task_handoff"
+	taskConfigKeyRoot             = "rootTaskId"
+	taskConfigKeyRootSnake        = "root_task_id"
 	systemTaskHandoffUpdatedBy    = "system_handoff"
 	taskHandoffPrefix             = "handoff/tasks/"
 	taskHandoffReadLimitChars     = 4096
@@ -37,6 +42,7 @@ type taskHandoffMeta struct {
 	TaskTitle   string
 	HandoffFile string
 	Continue    bool
+	RootTaskID  string
 }
 
 type taskHandoffRenderSeed struct {
@@ -52,6 +58,14 @@ func (s *service) prepareTaskHandoffStart(ctx context.Context, req *StartRequest
 	meta, sourceThreadID := s.resolveTaskHandoffStart(ctx, req)
 	if meta.TaskID == "" {
 		return nil
+	}
+	if meta.RootTaskID == "" {
+		if sourceThreadID != "" {
+			meta.RootTaskID = s.resolveRootTaskId(ctx, sourceThreadID)
+		}
+		if meta.RootTaskID == "" {
+			meta.RootTaskID = meta.TaskID
+		}
 	}
 	applyTaskHandoffConfig(req, meta)
 	inheritTaskHandoffOwner(req, sourceThreadID)
@@ -82,6 +96,9 @@ func applyTaskHandoffConfig(req *StartRequest, meta taskHandoffMeta) {
 	req.Config[taskConfigKeyHandoffFile] = meta.HandoffFile
 	if meta.Continue {
 		req.Config[taskConfigKeyContinue] = true
+	}
+	if meta.RootTaskID != "" {
+		req.Config[taskConfigKeyRoot] = meta.RootTaskID
 	}
 }
 
@@ -136,6 +153,65 @@ func (s *service) loadInheritedTaskHandoff(ctx context.Context, sourceThreadID s
 	return taskHandoffMetaFromThread(row)
 }
 
+// resolveRootTaskId 沿 OwnerThreadID 链反查到顶端 thread，返回其 taskId（= rootTaskId）。
+// 顶端 = 第一个没有 OwnerThreadID 的 thread。深度上限 10 防循环 / 异常长链。
+// 任何错误（空入参 / store 错 / 顶端无 taskId / 深度超限）一律返回空字符串。
+func (s *service) resolveRootTaskId(ctx context.Context, ownerThreadID string) string {
+	if s == nil || s.threadStore == nil {
+		return ""
+	}
+	cur := strings.TrimSpace(ownerThreadID)
+	for i := 0; i < 10; i++ {
+		if cur == "" {
+			return ""
+		}
+		row, err := s.threadStore.GetByThreadID(ctx, cur)
+		if err != nil || row == nil {
+			return ""
+		}
+		nextOwner := strings.TrimSpace(row.OwnerThreadID)
+		if nextOwner == "" {
+			stored := decodeStoredThreadConfig(row.ConfigOverride)
+			return firstConfigString(stored.Runtime, taskConfigKeyID, taskConfigKeyIDSnake)
+		}
+		cur = nextOwner
+	}
+	return ""
+}
+
+// backfillResumeRootTaskId: lifecycle.Resume 兼容 4.1c 之前创建的旧 task thread。
+// 若 ConfigOverride.Runtime 已有 taskId 但缺 rootTaskId，按 ownerThreadID 链反查或
+// fallback 自身 taskId 补回字段并重新编码 raw。任何错误一律返回原 raw。
+func (s *service) backfillResumeRootTaskId(ctx context.Context, ownerThreadID string, raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return raw
+	}
+	stored := decodeStoredThreadConfig(raw)
+	taskID := firstConfigString(stored.Runtime, taskConfigKeyID, taskConfigKeyIDSnake)
+	if taskID == "" {
+		return raw
+	}
+	if rootID := firstConfigString(stored.Runtime, taskConfigKeyRoot, taskConfigKeyRootSnake); rootID != "" {
+		return raw
+	}
+	rootTaskID := ""
+	if owner := strings.TrimSpace(ownerThreadID); owner != "" {
+		rootTaskID = s.resolveRootTaskId(ctx, owner)
+	}
+	if rootTaskID == "" {
+		rootTaskID = taskID
+	}
+	if stored.Runtime == nil {
+		stored.Runtime = map[string]any{}
+	}
+	stored.Runtime[taskConfigKeyRoot] = rootTaskID
+	encoded, err := encodeStoredThreadConfig(stored)
+	if err != nil {
+		return raw
+	}
+	return encoded
+}
+
 func mergeTaskHandoffStart(
 	req StartRequest,
 	explicit taskHandoffMeta,
@@ -147,6 +223,7 @@ func mergeTaskHandoffStart(
 	meta.TaskTitle = resolveTaskHandoffTitle(req, meta.TaskTitle, inherited.TaskTitle)
 	meta.HandoffFile = resolveTaskHandoffFile(meta.TaskID, meta.HandoffFile, inherited.HandoffFile)
 	meta.Continue = meta.Continue || shouldContinueTaskHandoff(sourceThreadID, meta.TaskID, inherited.TaskID)
+	meta.RootTaskID = firstNonEmptyTaskString(meta.RootTaskID, inherited.RootTaskID)
 	return autoTaskHandoffMeta(req, meta)
 }
 
@@ -203,6 +280,7 @@ func taskHandoffMetaFromRuntimeConfig(cfg map[string]any) taskHandoffMeta {
 		TaskTitle:   firstConfigString(cfg, taskConfigKeyTitle, taskConfigKeyTitleSnake),
 		HandoffFile: normalizeTaskHandoffPath(firstConfigString(cfg, taskConfigKeyHandoffFile, taskConfigKeyHandoffFileSnake)),
 		Continue:    firstConfigBool(cfg, taskConfigKeyContinue, taskConfigKeyContinueSnake),
+		RootTaskID:  firstConfigString(cfg, taskConfigKeyRoot, taskConfigKeyRootSnake),
 	}
 }
 
@@ -225,6 +303,59 @@ func defaultTaskHandoffPath(taskID string) string {
 		return ""
 	}
 	return taskHandoffPrefix + path.Base(taskID) + ".md"
+}
+
+// EnsureHandoffExists verifies that the handoff document for the given
+// taskID exists in shared file store. Phase 1.8d fork-pre-check：fork 前
+// 一并调 worker.FlushForThread + EnsureHandoffExists 防 "文件不存在 / 陈旧"
+// 两类问题（共识 4 修法 4）。
+func (s *service) EnsureHandoffExists(ctx context.Context, taskID string) error {
+	if s == nil || s.sharedFiles == nil {
+		return errors.New("shared files store unavailable")
+	}
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return errors.New("taskId required")
+	}
+	p := defaultTaskHandoffPath(taskID)
+	if p == "" {
+		return fmt.Errorf("invalid handoff path for taskId %q", taskID)
+	}
+	file, err := s.sharedFiles.Get(ctx, p)
+	if err != nil {
+		return fmt.Errorf("handoff file %q not found: %w", p, err)
+	}
+	if file == nil {
+		return fmt.Errorf("handoff file %q not found", p)
+	}
+	return nil
+}
+
+// FlushAndVerifyTaskHandoff 实现 Service.FlushAndVerifyTaskHandoff —— Phase
+// 1.8d fork 前预检的双保险：先 flush worker pending（等 turn 写盘）然后
+// stat handoff 文件存在性。任一失败返回带关键字 "handoff_flush_failed" /
+// "handoff_missing" 的 error，让前端 classifyError 识别 permanent 不重试。
+func (s *service) FlushAndVerifyTaskHandoff(ctx context.Context, threadID, taskID string) error {
+	if s == nil {
+		return errors.New("thread service unavailable")
+	}
+	threadID = strings.TrimSpace(threadID)
+	taskID = strings.TrimSpace(taskID)
+	if threadID == "" {
+		return errors.New("threadId required")
+	}
+	if taskID == "" {
+		return errors.New("taskId required")
+	}
+	if s.taskHandoffWorker != nil {
+		if err := s.taskHandoffWorker.FlushForThread(ctx, threadID); err != nil {
+			return fmt.Errorf("handoff_flush_failed: thread %q flush worker: %w", threadID, err)
+		}
+	}
+	if err := s.EnsureHandoffExists(ctx, taskID); err != nil {
+		return fmt.Errorf("handoff_missing: %w", err)
+	}
+	return nil
 }
 
 func normalizeTaskHandoffPath(raw string) string {

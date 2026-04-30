@@ -24,7 +24,7 @@ func assertMCPOrchDependencyDirection(t *testing.T, root string) {
 			internalPrefix("internal/contract"), internalPrefix("internal/dto"), internalPrefix("internal/platform/config"),
 			internalPrefix("internal/platform/db"), internalPrefix("internal/platform/bus"), internalPrefix("internal/platform/runner"),
 			internalPrefix("internal/platform/rpc"), internalPrefix("internal/platform/runtimesafe"), internalPrefix("internal/platform/shared"), internalPrefix("internal/platform/statemachine"), internalPrefix("internal/platform/eventsurface"), internalPrefix("internal/platform/metrics"),
-			internalPrefix("internal/platform/rlimit"),
+			internalPrefix("internal/platform/rlimit"), internalPrefix("internal/platform/sharedfilefs"), internalPrefix("internal/platform/sharedfilegitignore"), internalPrefix("internal/platform/sharedfilepath"),
 			internalPrefix("internal/store"), internalPrefix("internal/mcpserver/common"), internalPrefix("internal/module"),
 		}
 		forbidden := []string{

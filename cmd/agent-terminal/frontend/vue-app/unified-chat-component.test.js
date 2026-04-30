@@ -598,7 +598,10 @@ describe('UnifiedChatPage.setup chat rail integration', () => {
 
     expect(vm.activeDiffFocusFile.value).toBe('src/existing.js');
     expect(vm.activeDiffText.value).toContain('+keep');
-    expect(callAPI).toHaveBeenCalledTimes(1);
+    // path-choice 验证：仅 cancel 后不应再调 ui/code/locate。其它非 locate
+    // 调用（如 Phase 1.7f/1.8a 的 ui/auto-continue/state/get lazy load）允许。
+    const locateCalls = vi.mocked(callAPI).mock.calls.filter(([m]) => m === 'ui/code/locate');
+    expect(locateCalls).toHaveLength(1);
   });
 
   it('settles pending path choice promise on component unmount', async () => {

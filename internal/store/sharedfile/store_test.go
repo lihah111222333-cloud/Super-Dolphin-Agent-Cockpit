@@ -52,7 +52,7 @@ func TestGetMapsRow(t *testing.T) {
 		getFn: func(_ context.Context, path string) (sqlc.SharedFile, error) {
 			captured = path
 			return sqlc.SharedFile{
-				Path:      "/docs/readme.md",
+				Path:      "dag/dag-1/readme.md",
 				Content:   "hello",
 				UpdatedBy: "alice",
 				CreatedAt: now,
@@ -60,14 +60,14 @@ func TestGetMapsRow(t *testing.T) {
 			}, nil
 		},
 	}}
-	got, err := s.Get(context.Background(), "/docs/readme.md")
+	got, err := s.Get(context.Background(), "dag/dag-1/readme.md")
 	if err != nil {
 		t.Fatalf("Get() unexpected error: %v", err)
 	}
-	if captured != "/docs/readme.md" {
+	if captured != "dag/dag-1/readme.md" {
 		t.Fatalf("Get() forwarded path = %q", captured)
 	}
-	if got == nil || got.Path != "/docs/readme.md" || got.Content != "hello" || got.UpdatedBy != "alice" {
+	if got == nil || got.Path != "dag/dag-1/readme.md" || got.Content != "hello" || got.UpdatedBy != "alice" {
 		t.Fatalf("Get() row mapped incorrectly: %+v", got)
 	}
 }
@@ -94,22 +94,22 @@ func TestListForwardsPrefixAndLimit(t *testing.T) {
 		listFn: func(_ context.Context, arg sqlc.ListSharedFilesParams) ([]sqlc.SharedFile, error) {
 			captured = arg
 			return []sqlc.SharedFile{
-				{Path: "/a/x.md", Content: "a", UpdatedBy: "u", CreatedAt: now, UpdatedAt: now},
-				{Path: "/a/y.md", Content: "b", UpdatedBy: "u", CreatedAt: now, UpdatedAt: now},
+				{Path: "dag/dag-1/x.md", Content: "a", UpdatedBy: "u", CreatedAt: now, UpdatedAt: now},
+				{Path: "dag/dag-1/y.md", Content: "b", UpdatedBy: "u", CreatedAt: now, UpdatedAt: now},
 			}, nil
 		},
 	}}
-	got, err := s.List(context.Background(), ListFilter{Prefix: "/a/", Limit: 20})
+	got, err := s.List(context.Background(), ListFilter{Prefix: "dag/dag-1/", Limit: 20})
 	if err != nil {
 		t.Fatalf("List() unexpected error: %v", err)
 	}
-	if captured.Column1 != "/a/" || captured.Limit != 20 {
+	if captured.Column1 != "dag/dag-1/" || captured.Limit != 20 {
 		t.Fatalf("List() forwarded wrong params: %+v", captured)
 	}
 	if len(got) != 2 {
 		t.Fatalf("List() len = %d, want 2", len(got))
 	}
-	if got[0].Path != "/a/x.md" || got[1].Path != "/a/y.md" {
+	if got[0].Path != "dag/dag-1/x.md" || got[1].Path != "dag/dag-1/y.md" {
 		t.Fatalf("List() rows mapped out of order: %+v", got)
 	}
 }
@@ -166,7 +166,7 @@ func TestUpsertWrapsQuerierError(t *testing.T) {
 			return sqlc.SharedFile{}, sentinel
 		},
 	}}
-	_, err := s.Upsert(context.Background(), UpsertParams{})
+	_, err := s.Upsert(context.Background(), UpsertParams{Path: "dag/dag-1/notes.md"})
 	if err == nil || !errors.Is(err, sentinel) {
 		t.Fatalf("Upsert() err = %v, want wrap of sentinel", err)
 	}
@@ -195,11 +195,11 @@ func TestDeleteForwardsPathAndReturnsCount(t *testing.T) {
 			return 1, nil
 		},
 	}}
-	count, err := s.Delete(context.Background(), "/docs/readme.md")
+	count, err := s.Delete(context.Background(), "dag/dag-1/readme.md")
 	if err != nil {
 		t.Fatalf("Delete() unexpected error: %v", err)
 	}
-	if captured != "/docs/readme.md" {
+	if captured != "dag/dag-1/readme.md" {
 		t.Fatalf("Delete() forwarded path = %q", captured)
 	}
 	if count != 1 {

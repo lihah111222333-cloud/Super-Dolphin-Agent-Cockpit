@@ -23,6 +23,20 @@ function previewTaskHandoff(content, limit = 2400) {
   return truncateSummaryText(content, limit);
 }
 
+// 从任意 thread runtime 对象抽 task 描述；runtime 没有 taskId 返 null。
+// 抽出为独立 helper 是为了让 activeTask（selected thread）和 continueTaskById（任意 thread）复用同一套字段映射逻辑。
+export function buildTaskFromRuntime(runtime, fallbackTitle = '') {
+  const safeRuntime = runtime && typeof runtime === 'object' ? runtime : {};
+  const taskId = firstNonEmpty(safeRuntime.taskId, safeRuntime.task_id);
+  if (!taskId) return null;
+  return {
+    taskId,
+    title: firstNonEmpty(safeRuntime.taskTitle, safeRuntime.task_title, fallbackTitle, '当前任务'),
+    handoffFile: firstNonEmpty(safeRuntime.handoffFile, safeRuntime.handoff_file),
+    ownerThreadId: firstNonEmpty(safeRuntime.ownerThreadId, safeRuntime.owner_thread_id),
+  };
+}
+
 function buildContinueTaskConfig(task) {
   return {
     taskId: task.taskId,
@@ -97,18 +111,13 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
     updatedAt: '',
   });
   const continueBusy = ref(false);
+  // Phase 2.3 任务条默认折叠：只显示 30px chip（标题 + 更新时间），点击才展开
+  // 详细接力摘要。切换 thread 或 task 变化时重置为折叠。load 错误
+  // 出现时自动展开让用户看到原因。外部（token 满 / watchdog stuck 等）可
+  // 调 expandTaskStrip(reason) 主动展开。
+  const expanded = ref(false);
 
-  const activeTask = computed(() => {
-    const runtime = activeRuntime.value && typeof activeRuntime.value === 'object' ? activeRuntime.value : {};
-    const taskId = firstNonEmpty(runtime.taskId, runtime.task_id);
-    if (!taskId) return null;
-    return {
-      taskId,
-      title: firstNonEmpty(runtime.taskTitle, runtime.task_title, activeThread.value?.name, '当前任务'),
-      handoffFile: firstNonEmpty(runtime.handoffFile, runtime.handoff_file),
-      ownerThreadId: firstNonEmpty(runtime.ownerThreadId, runtime.owner_thread_id),
-    };
-  });
+  const activeTask = computed(() => buildTaskFromRuntime(activeRuntime.value, activeThread.value?.name));
 
   async function loadTaskHandoff() {
     const task = activeTask.value;
@@ -141,34 +150,69 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
     }
   }
 
-  async function continueTask() {
-    const task = activeTask.value;
-    if (!task || continueBusy.value) return '';
+  // 为任意 source thread 起一个续接 thread。Phase 1.3+ 的自动调度走这条路径，
+  // 与 selected thread 动作表现一致：没 taskId 跳过，正在进行中的 fork 不重发。
+  async function continueTaskById(sourceThreadId) {
+    const threadId = (sourceThreadId || '').toString().trim();
+    if (!threadId || continueBusy.value) return '';
+    const runtime = threadStore?.state?.agentRuntimeById?.[threadId];
+    const task = buildTaskFromRuntime(runtime);
+    if (!task) {
+      logWarn('ui', 'taskHandoff.continue.skipped', {
+        source_thread_id: threadId,
+        reason: 'no_task_id',
+      });
+      return '';
+    }
+    // Phase 1.4b：焦点判断。source thread 是当前选中的 → 焦点跟随到新 thread（与“以此新建
+    // 任务”按钮表现一致）；source 在后台起的续接（自动调度器路径）不抢焦点，避免打断用户
+    // 在别处的工作。
+    const sameAsSelected = (selectedThreadId.value || '').toString().trim() === threadId;
     continueBusy.value = true;
     try {
       logInfo('ui', 'taskHandoff.continue.start', {
-        source_thread_id: selectedThreadId.value || '',
+        source_thread_id: threadId,
         task_id: task.taskId,
+        focus_followed: sameAsSelected,
       });
+      // Phase 1.8d fork 前预检：worker.FlushForThread + EnsureHandoffExists
+      // 任一失败抛 error message 含 handoff_flush_failed / handoff_missing
+      // 关键字，外层 useAutoContinue.classifyError 识别为 permanent 不重试。
+      try {
+        await callAPI('ui/task/flush_and_verify', {
+          threadId,
+          taskId: task.taskId,
+        });
+      } catch (preflightError) {
+        logWarn('ui', 'taskHandoff.continue.preflight_failed', {
+          source_thread_id: threadId,
+          task_id: task.taskId,
+          error: toErrorMessage(preflightError),
+        });
+        throw preflightError;
+      }
       const id = await threadStore.startThread(
         projectStore?.state?.active || '.',
-        buildContinueTaskOptions({
-          focusMode: isCmd.value ? 'cmd' : 'chat',
-          task,
-        }),
+        {
+          ...buildContinueTaskOptions({
+            focusMode: isCmd.value ? 'cmd' : 'chat',
+            task,
+          }),
+          skipSaveActive: !sameAsSelected,
+        },
       );
-
       if (id) {
         logInfo('ui', 'taskHandoff.continue.done', {
-          source_thread_id: selectedThreadId.value || '',
+          source_thread_id: threadId,
           next_thread_id: id,
           task_id: task.taskId,
+          focus_followed: sameAsSelected,
         });
       }
       return id;
     } catch (error) {
       logWarn('ui', 'taskHandoff.continue.failed', {
-        source_thread_id: selectedThreadId.value || '',
+        source_thread_id: threadId,
         task_id: task.taskId,
         error: toErrorMessage(error),
       });
@@ -176,6 +220,11 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
     } finally {
       continueBusy.value = false;
     }
+  }
+
+  // selected thread 上的按钮路径，委托给 continueTaskById。
+  async function continueTask() {
+    return continueTaskById(selectedThreadId.value || '');
   }
 
   async function startNewTaskFromHandoff() {
@@ -250,10 +299,33 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
   watch(
     () => firstNonEmpty(activeTask.value?.taskId, activeTask.value?.handoffFile),
     () => {
+      // 切 thread / task 时重置为折叠：保证每进入一个任务都是默认紧凑 chip。
+      // sync flush 让重置随 activeRuntime 赋值同步发生，在测试里不需 nextTick 就
+      // 到位；load 调用本身是异步的不受影响。
+      expanded.value = false;
       loadTaskHandoff().catch(() => {});
     },
-    { immediate: true },
+    { immediate: true, flush: 'sync' },
   );
+
+  // load error 出现时自动展开：错误文案在详细体里，不展开看不到。error
+  // 被清空不会反向折起 —— 用户方例在演变间保持展开以看接下来成功的摘要。
+  watch(
+    () => state.error,
+    (err) => {
+      if (err) expanded.value = true;
+    },
+  );
+
+  function expandTaskStrip(_reason) {
+    expanded.value = true;
+  }
+  function collapseTaskStrip() {
+    expanded.value = false;
+  }
+  function toggleTaskStrip() {
+    expanded.value = !expanded.value;
+  }
 
   return {
     activeTask,
@@ -264,10 +336,15 @@ export function useTaskHandoff({ threadStore, projectStore, selectedThreadId, ac
     taskHandoffPreview: computed(() => previewTaskHandoff(state.content)),
     taskHandoffUpdatedAt: computed(() => state.updatedAt),
     taskHandoffUpdatedBy: computed(() => state.updatedBy),
+    taskStripExpanded: computed(() => expanded.value),
     continueTaskBusy: computed(() => continueBusy.value),
     refreshTaskHandoff: loadTaskHandoff,
     continueCurrentTask: continueTask,
+    continueTaskById,
     startNewTaskFromHandoff,
     continueCurrentTaskInNewWindow: continueTaskInNewWindow,
+    expandTaskStrip,
+    collapseTaskStrip,
+    toggleTaskStrip,
   };
 }

@@ -145,6 +145,8 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 			),
 			fx.Invoke(orchestration.RegisterTurnLifecycle),
 			fx.Invoke(orchestration.RegisterApprovalLifecycle),
+			fx.Invoke(orchestration.RegisterWakeupDispatcher),
+			fx.Invoke(orchestration.RegisterWakeupReclaimer),
 		),
 		fx.Provide(func(lc fx.Lifecycle, turnStarter orchestration.TurnStarter, logger *slog.Logger) orchestration.AgentLauncher {
 			return buildLauncher(lc, turnStarter, logger, remoteAddr)

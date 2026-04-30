@@ -151,6 +151,7 @@ func (s *service) applyTaskRuntimeToThreadRuntime(ctx context.Context, thread Th
 	setRuntimeStringField(rt, cfg, "taskTitle", "taskTitle", "task_title")
 	setRuntimeStringField(rt, cfg, "handoffFile", "handoffFile", "handoff_file")
 	setRuntimeStringField(rt, cfg, "ownerThreadId", "ownerThreadId", "owner_thread_id")
+	setRuntimeStringField(rt, cfg, "rootTaskId", "rootTaskId", "root_task_id")
 }
 
 func setRuntimeStringField(rt map[string]any, cfg map[string]any, field string, keys ...string) {
