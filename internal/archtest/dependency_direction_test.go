@@ -120,6 +120,7 @@ func assertStoreAndToolDependencyRules(t *testing.T, root string) {
 			internalPrefix("internal/platform/config"),
 			internalPrefix("internal/platform/db"),
 			internalPrefix("internal/platform/sharedfilefs"),
+			internalPrefix("internal/platform/sharedfilegitignore"),
 			internalPrefix("internal/platform/sharedfilepath"),
 			internalPrefix("internal/store/sqlc"),
 			internalPrefix("internal/contract"),

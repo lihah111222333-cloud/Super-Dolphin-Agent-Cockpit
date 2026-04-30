@@ -7,6 +7,7 @@ import (
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	sharedfilefs "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilefs"
+	sharedfilegitignore "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilegitignore"
 	sharedfilepath "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilepath"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
@@ -139,6 +140,12 @@ func writeDiskAndDecideInline(cfg sharedfilefs.Config, cleanedRel, content strin
 	if resolveErr != nil {
 		return "", resolveErr
 	}
+	// Best-effort .gitignore hygiene (Phase 3.8): ensure
+	// `.agnet/shared/_internal/` is ignored. Sync.Once inside the helper
+	// makes the second-and-later calls free; failures are swallowed so
+	// the actual sharedfile write still proceeds — git hygiene is not a
+	// correctness invariant.
+	_ = sharedfilegitignore.Ensure(cfg.CWD, nil)
 	if writeErr := sharedfilefs.WriteAtomic(abs, []byte(content)); writeErr != nil {
 		return "", writeErr
 	}
