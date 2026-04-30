@@ -222,6 +222,9 @@ func formatMemoryEntry(entry MemoryEntry) string {
 	if len(frontmatter.SearchKeys) > 0 {
 		lines = append(lines, "search_keys: "+formatStringList(frontmatter.SearchKeys))
 	}
+	if frontmatter.Source != "" {
+		lines = append(lines, "source: "+strconv.Quote(frontmatter.Source))
+	}
 	lines = append(lines, "---", "", strings.TrimSpace(entry.Content), "")
 	return strings.Join(lines, "\n")
 }
@@ -267,6 +270,8 @@ func parseMemoryFrontmatter(frontmatter string) MemoryFrontmatter {
 			parsed.Aliases = parseStringList(value)
 		case "search_keys":
 			parsed.SearchKeys = parseStringList(value)
+		case "source":
+			parsed.Source = parseScalar(value)
 		}
 	}
 	return parsed

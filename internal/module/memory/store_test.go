@@ -113,6 +113,32 @@ func TestWriteConsolidatedMemoriesValidatesBatchBeforeWriting(t *testing.T) {
 	}
 }
 
+func TestWriteConsolidatedMemoriesPersistsDreamSource(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	if err := writeConsolidatedMemories(root, []ExtractedMemory{
+		{Name: "Dream Topic", Type: MemoryTypeProject, Content: "Auto-consolidated content."},
+	}); err != nil {
+		t.Fatalf("writeConsolidatedMemories() error = %v", err)
+	}
+	entries, err := scanMemoryEntries(root)
+	if err != nil {
+		t.Fatalf("scanMemoryEntries() error = %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("scanMemoryEntries() entries = %d, want 1", len(entries))
+	}
+	if entries[0].Frontmatter.Source != "dream" {
+		t.Fatalf("persisted Source = %q, want %q", entries[0].Frontmatter.Source, "dream")
+	}
+	raw, err := os.ReadFile(entries[0].FilePath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", entries[0].FilePath, err)
+	}
+	if !strings.Contains(string(raw), "source: \"dream\"") {
+		t.Fatalf("persisted file missing source line; got:\n%s", string(raw))
+	}
+}
+
 func TestDiskStoreReadStripsUTF8BOMFromTopicFile(t *testing.T) {
 	root := newTestMemoryRoot(t)
 	store := newTestDiskStore(t, root)
