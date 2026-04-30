@@ -91,10 +91,68 @@ function buildHistoryImageAttachments(metadata) {
       : (source.toLowerCase().startsWith('file://') ? decodeFileURLToPath(source) : source);
     const previewUrl = historyPreviewUrl(source, path);
     const name = explicitName || basenameFromPath(path || source) || `image-${imageCount + 1}`;
-    attachments.push({ kind: 'image', name, path, previewUrl });
+    const attachment = { kind: 'image', name, path, previewUrl };
+    const sha256 = extractFirstString(entry, ['sha256', 'hash']);
+    if (sha256) attachment.sha256 = sha256;
+    attachments.push(attachment);
     imageCount += 1;
   }
   return attachments;
+}
+
+// DEDUP_PLACEHOLDER_RE matches the placeholder text the claudecli provider
+// emits in place of repeated image content blocks. The 12-hex-char prefix is
+// the leading slice of sha256(rawBytes) chosen to fit a short visible hint
+// while remaining unique within a single session.
+const DEDUP_PLACEHOLDER_RE = /\[image previously attached in this session, sha256:([0-9a-f]+)…\]/g;
+
+// backfillDedupedImageAttachments walks a timeline forward, builds a
+// sha256-prefix -> attachment lookup from prior user images, and for any user
+// turn whose text carries `[image previously attached … sha256:abc…]`
+// placeholders, it clones the matching prior image attachment in and strips
+// the placeholder from the displayed text. This keeps the bubble preview
+// consistent with what the user sent even though the wire payload was
+// deduped down to a small text marker.
+function backfillDedupedImageAttachments(timeline) {
+  if (!Array.isArray(timeline) || timeline.length === 0) return timeline;
+  const byPrefix = new Map();
+  const recordPrefixesFor = (attachments) => {
+    if (!Array.isArray(attachments)) return;
+    for (const att of attachments) {
+      if (att?.kind !== 'image') continue;
+      const hash = (att.sha256 || '').toString().toLowerCase();
+      if (!hash) continue;
+      byPrefix.set(hash.slice(0, 12), att);
+    }
+  };
+  for (let i = 0; i < timeline.length; i += 1) {
+    const item = timeline[i];
+    if (item?.kind !== 'user') continue;
+    recordPrefixesFor(item.attachments);
+    const text = (item.text || '').toString();
+    if (!DEDUP_PLACEHOLDER_RE.test(text)) continue;
+    DEDUP_PLACEHOLDER_RE.lastIndex = 0; // reset because /g state is sticky
+    const seenAtt = new Set(Array.isArray(item.attachments) ? item.attachments : []);
+    const cloned = [];
+    let match;
+    while ((match = DEDUP_PLACEHOLDER_RE.exec(text)) !== null) {
+      const prior = byPrefix.get((match[1] || '').toLowerCase());
+      if (prior && !seenAtt.has(prior)) {
+        cloned.push(prior);
+        seenAtt.add(prior);
+      }
+    }
+    DEDUP_PLACEHOLDER_RE.lastIndex = 0;
+    const cleanedText = text
+      .replace(DEDUP_PLACEHOLDER_RE, '')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+    DEDUP_PLACEHOLDER_RE.lastIndex = 0;
+    const nextAttachments = [...(Array.isArray(item.attachments) ? item.attachments : []), ...cloned];
+    timeline[i] = { ...item, text: cleanedText, attachments: nextAttachments };
+  }
+  return timeline;
 }
 
 function stripImagePlaceholders(text, enabled) {
@@ -233,6 +291,10 @@ export function applyImmediateTimelineFromMessages({ threadId, response, state, 
   const orderedMessages = sortHistoryMessagesChronologically(messages);
   const timeline = orderedMessages.map((message, index) => historyMessageToTimelineItem(id, message, index)).filter(Boolean);
   if (timeline.length === 0) return false;
+  // Restore image previews on dedup-placeholder turns by cloning the prior
+  // matching image (matched by sha256 prefix) and stripping the placeholder
+  // text from display. Mutates `timeline` in place.
+  backfillDedupedImageAttachments(timeline);
   const existing = Array.isArray(state?.timelinesByThread?.[id]) ? state.timelinesByThread[id] : [];
   const existingDialogCount = countDialogTimelineItems(existing);
   const incomingDialogCount = countDialogTimelineItems(timeline);

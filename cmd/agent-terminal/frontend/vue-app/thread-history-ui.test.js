@@ -114,6 +114,79 @@ describe('thread-history-ui immediate hydration', () => {
     })]);
   });
 
+  it('backfills the deduped image preview onto a later turn that only has the sha256 placeholder', () => {
+    // Turn 1 carries the original base64 image with a sha256 hash. Turn 2's
+    // text contains only the dedup placeholder produced by the claudecli
+    // provider. The frontend must re-attach turn 1's image preview onto
+    // turn 2 and strip the placeholder text from the bubble body.
+    const fullHash = 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789';
+    const prefix = fullHash.slice(0, 12);
+    const state = { timelinesByThread: {} };
+    const applied = applyImmediateTimelineFromMessages({
+      threadId: 'thread-dedup',
+      response: {
+        messages: [
+          {
+            id: 1,
+            role: 'user',
+            content: 'first description',
+            createdAt: '2026-03-10T12:00:00Z',
+            metadata: {
+              input: [{ type: 'image', url: 'data:image/png;base64,AAAA', sha256: fullHash }],
+            },
+          },
+          {
+            id: 2,
+            role: 'user',
+            content: `[image previously attached in this session, sha256:${prefix}…]\n\nany change?`,
+            createdAt: '2026-03-10T12:01:00Z',
+          },
+        ],
+      },
+      state,
+      normalizeThreadID: (value) => value,
+      freezeTimelineItemsAtomic: (items) => ({ changed: true, items }),
+      logInfo: vi.fn(),
+    });
+
+    expect(applied).toBe(true);
+    const items = state.timelinesByThread['thread-dedup'];
+    expect(items).toHaveLength(2);
+    expect(items[1].text).toBe('any change?');
+    expect(items[1].attachments).toEqual([expect.objectContaining({
+      kind: 'image',
+      previewUrl: 'data:image/png;base64,AAAA',
+      sha256: fullHash,
+    })]);
+  });
+
+  it('leaves placeholder text intact when no prior image matches the sha256 prefix', () => {
+    const state = { timelinesByThread: {} };
+    const applied = applyImmediateTimelineFromMessages({
+      threadId: 'thread-orphan',
+      response: {
+        messages: [{
+          id: 1,
+          role: 'user',
+          content: '[image previously attached in this session, sha256:deadbeef0001…]\nstill here',
+          createdAt: '2026-03-10T12:00:00Z',
+        }],
+      },
+      state,
+      normalizeThreadID: (value) => value,
+      freezeTimelineItemsAtomic: (items) => ({ changed: true, items }),
+      logInfo: vi.fn(),
+    });
+
+    expect(applied).toBe(true);
+    const item = state.timelinesByThread['thread-orphan'][0];
+    // No prior image to clone; placeholder is still stripped from display
+    // (the user already saw the image earlier, just not in this thread state),
+    // but no attachment is fabricated.
+    expect(item.text).toBe('still here');
+    expect(item.attachments || []).toEqual([]);
+  });
+
   it('normalizes thread/messages pages to chronological timeline order', () => {
     const state = { timelinesByThread: {} };
     const applied = applyImmediateTimelineFromMessages({

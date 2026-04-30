@@ -2,6 +2,7 @@ package claudecli
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"testing"
 )
@@ -72,8 +73,27 @@ func TestParseHistoryLineExtractsImageContentBlocksMetadata(t *testing.T) {
 	if len(msg.Metadata) == 0 {
 		t.Fatalf("metadata empty; want recovered image block input")
 	}
-	if got := string(msg.Metadata); got != `{"input":[{"type":"image","url":"data:image/png;base64,AAAA"}]}` {
-		t.Errorf("metadata mismatch:\n got %s", got)
+	var md struct {
+		Input []map[string]any `json:"input"`
+	}
+	if err := json.Unmarshal(msg.Metadata, &md); err != nil {
+		t.Fatalf("metadata unmarshal: %v", err)
+	}
+	if len(md.Input) != 1 {
+		t.Fatalf("input len = %d, want 1", len(md.Input))
+	}
+	entry := md.Input[0]
+	if entry["type"] != "image" {
+		t.Errorf("input.type = %v, want image", entry["type"])
+	}
+	if entry["url"] != "data:image/png;base64,AAAA" {
+		t.Errorf("input.url = %v, want data: URL", entry["url"])
+	}
+	// sha256(\x00\x00\x00) = 709e80c884... so the recovered metadata.input
+	// must carry it, letting the frontend re-correlate dedup placeholders.
+	wantHash := "709e80c88487a2411e1ee4dfb9f22a861492d20c4765150c0c794abd70f8147c"
+	if entry["sha256"] != wantHash {
+		t.Errorf("input.sha256 = %v, want %s", entry["sha256"], wantHash)
 	}
 }
 
