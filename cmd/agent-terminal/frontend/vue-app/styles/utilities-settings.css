@@ -121,6 +121,93 @@
   opacity: 0.45;
 }
 
+/* Built-in tools accordion: per-provider collapsible group + a info-only
+   note card rendered when the provider has no configurable tools (codex). */
+.settings-builtin-tool-groups {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.settings-builtin-tool-group {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(33, 33, 33, 0.32);
+  overflow: hidden;
+}
+
+.settings-builtin-tool-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 11px;
+  background: transparent;
+  border: 0;
+  color: var(--text-pri);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-builtin-tool-group-head:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.settings-builtin-tool-group-head:focus-visible {
+  outline: 1px solid var(--primary);
+  outline-offset: -1px;
+}
+
+.settings-builtin-tool-group-chevron {
+  display: inline-block;
+  width: 10px;
+  font-size: 10px;
+  color: var(--text-muted);
+  transform: rotate(0deg);
+  transition: transform 120ms ease;
+}
+
+.settings-builtin-tool-group-chevron.is-open {
+  transform: rotate(90deg);
+}
+
+.settings-builtin-tool-group-name {
+  font-size: 12px;
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-builtin-tool-group-summary {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.settings-builtin-tool-group-body {
+  display: grid;
+  gap: 6px;
+  padding: 8px 11px 11px;
+  border-top: 1px solid var(--border);
+}
+
+.settings-builtin-tool-group-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+/* When checked = disabled, dim the row title to give the user a visual cue
+   that this tool is currently turned off and routed through the project's
+   MCP equivalent. Description text stays at full opacity so the explanation
+   remains readable. */
+.settings-prompt-toggle.is-disabled-tool .settings-prompt-toggle-title {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
 .settings-prompt-meta {
   font-size: 11px;
   color: var(--text-muted);

@@ -208,33 +208,31 @@ export const BuiltinToolsSettings = {
             </span>
           </button>
           <div v-if="isGroupExpanded(group.provider)" class="settings-builtin-tool-group-body">
-            <template v-if="group.tools.length > 0">
-              <label
-                v-for="tool in group.tools"
-                :key="tool.id"
-                class="settings-prompt-toggle"
-                :class="{ 'is-disabled-tool': !tool.enabled }"
-                :data-testid="'settings-builtin-tool-' + tool.id"
-              >
-                <div class="settings-prompt-toggle-copy">
-                  <span class="settings-prompt-toggle-title">{{ tool.label }}</span>
-                  <span class="settings-prompt-toggle-desc">
-                    {{ tool.description || tool.id }}<span v-if="tool.description" class="settings-builtin-tool-id"> · {{ tool.id }}</span>
-                  </span>
-                </div>
-                <input
-                  type="checkbox"
-                  class="settings-prompt-toggle-input"
-                  :data-testid="'settings-builtin-tool-input-' + tool.id"
-                  :checked="!tool.enabled"
-                  :disabled="loading || savingIds[tool.id]"
-                  @change="toggleBuiltinTool(tool)"
-                />
-              </label>
-            </template>
-            <p v-else class="settings-builtin-tool-group-note" :data-testid="'settings-builtin-tool-group-note-' + group.provider">
+            <p v-if="group.note" class="settings-builtin-tool-group-note" :data-testid="'settings-builtin-tool-group-note-' + group.provider">
               {{ group.note }}
             </p>
+            <label
+              v-for="tool in group.tools"
+              :key="tool.id"
+              class="settings-prompt-toggle"
+              :class="{ 'is-disabled-tool': !tool.enabled }"
+              :data-testid="'settings-builtin-tool-' + tool.id"
+            >
+              <div class="settings-prompt-toggle-copy">
+                <span class="settings-prompt-toggle-title">{{ tool.label }}</span>
+                <span class="settings-prompt-toggle-desc">
+                  {{ tool.description || tool.id }}<span v-if="tool.description" class="settings-builtin-tool-id"> · {{ tool.id }}</span>
+                </span>
+              </div>
+              <input
+                type="checkbox"
+                class="settings-prompt-toggle-input"
+                :data-testid="'settings-builtin-tool-input-' + tool.id"
+                :checked="!tool.enabled"
+                :disabled="loading || savingIds[tool.id]"
+                @change="toggleBuiltinTool(tool)"
+              />
+            </label>
           </div>
         </section>
       </div>
