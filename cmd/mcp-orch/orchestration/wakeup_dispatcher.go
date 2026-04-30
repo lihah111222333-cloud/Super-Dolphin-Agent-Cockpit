@@ -303,14 +303,25 @@ func (d *WakeupDispatcher) markTransientRetry(ctx context.Context, w *taskdag.Wa
 }
 
 // buildLaunchRequestFromWakeup 把 wakeup 行映射到 LaunchRequest。
-// PromptPayload 是 JSON：尝试解码成 LaunchRequest 形状（fields 非空才用），
-// 失败则只用 wakeup.TargetAgentID 启个最小请求。Phase 3.4 enqueue 路径
-// 还没接通时，生产环境不会真有 wakeup 流入；本函数主要给单测和 3.4 之后
-// 的真实数据形状预留入口。
+// Phase 3.9 接通后优先解 DownstreamWakeupPayload（DAG enqueue 形状）：
+// UpstreamOutputs 非空时把上游产出路径列表渲染进 prompt 让 agent 用 Read 读，
+// 不需 MCP shared_file_read。fallback 解 LaunchRequest 形状兼容手工 enqueue
+// 的非 DAG wakeup（面向测试 / 尚未接线场景）。两种 payload 不同型：DAG 形状
+// 只带 agent_id + upstream_outputs，LaunchRequest 形状不认识 upstream_outputs
+// 字段则静默丢弃，不互相污染。
 func buildLaunchRequestFromWakeup(w taskdag.Wakeup) LaunchRequest {
 	req := LaunchRequest{AgentID: strings.TrimSpace(w.TargetAgentID)}
 	payload := append(json.RawMessage(nil), w.PromptPayload...)
 	if len(payload) == 0 {
+		return req
+	}
+	// Phase 3.9: DAG-driven payload 优先。
+	var dag taskdag.DownstreamWakeupPayload
+	if err := json.Unmarshal(payload, &dag); err == nil && len(dag.UpstreamOutputs) > 0 {
+		if strings.TrimSpace(dag.AgentID) != "" {
+			req.AgentID = strings.TrimSpace(dag.AgentID)
+		}
+		req.Prompt = renderUpstreamPromptHint(dag.UpstreamOutputs)
 		return req
 	}
 	var parsed LaunchRequest
@@ -321,6 +332,32 @@ func buildLaunchRequestFromWakeup(w taskdag.Wakeup) LaunchRequest {
 		parsed.AgentID = req.AgentID
 	}
 	return parsed
+}
+
+// renderUpstreamPromptHint 渲染上游产出路径列表成下一节点 prompt。文案约定（plan
+// §3.9）：上游已完成 + 逐行列出 output 路径 + 提示用 Read 工具。agent 拿到
+// prompt 后用普通 Read 工具读 sharedfile 路径（sharedfile 是常规文件系统路径），
+// 不需交互 MCP。
+func renderUpstreamPromptHint(refs []taskdag.DownstreamUpstreamRef) string {
+	if len(refs) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("上游节点已完成，产出文件位于：\n")
+	for _, ref := range refs {
+		nodeKey := strings.TrimSpace(ref.NodeKey)
+		path := strings.TrimSpace(ref.Path)
+		if path == "" {
+			continue
+		}
+		if nodeKey != "" {
+			fmt.Fprintf(&b, "- %s: %s\n", nodeKey, path)
+		} else {
+			fmt.Fprintf(&b, "- %s\n", path)
+		}
+	}
+	b.WriteString("\n请用 Read 工具读取以上文件并继续完成本节点任务。")
+	return b.String()
 }
 
 // truncateWakeupError 截短 last_error 字段长度，避免极长 stack 撑爆 DB
