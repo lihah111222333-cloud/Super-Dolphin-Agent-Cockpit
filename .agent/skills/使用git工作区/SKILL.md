@@ -1,6 +1,7 @@
 ---
 name: 使用git工作区
 description: 开始需要与当前工作区隔离的功能工作，或执行实现计划前使用；通过智能目录选择和安全验证创建隔离的 git worktree
+aliases: ["@使用git工作区", "@Git工作树", "@git-worktrees"]
 ---
 
 # 使用 Git Worktree

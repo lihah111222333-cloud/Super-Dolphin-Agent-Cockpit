@@ -1,6 +1,7 @@
 ---
 name: 使用超能力
 description: 开始任何对话时使用；建立如何查找和使用技能，并要求在任何回应前调用 Skill 工具，包括澄清问题前
+aliases: ["@使用超能力", "@using-superpowers"]
 ---
 
 <SUBAGENT-STOP>
