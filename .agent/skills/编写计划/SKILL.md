@@ -1,6 +1,7 @@
 ---
 name: 编写计划
 description: 当你已有多步骤任务的规格或需求，并且准备碰代码前使用
+aliases: ["@编写计划", "@writing-plans"]
 ---
 
 # 编写计划

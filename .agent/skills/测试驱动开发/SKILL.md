@@ -1,6 +1,7 @@
 ---
 name: 测试驱动开发
 description: 实现任何功能或 bug 修复时，在编写实现代码前使用 (触发词：TDD)
+aliases: ["@测试驱动开发", "@tdd", "@TDD"]
 ---
 
 # 测试驱动开发（TDD）

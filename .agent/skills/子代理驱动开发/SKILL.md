@@ -1,6 +1,7 @@
 ---
 name: 子代理驱动开发
 description: 在当前会话中执行包含独立任务的实现计划时使用
+aliases: ["@子代理驱动开发", "@子代理开发", "@subagent-driven-development"]
 ---
 
 # 子代理驱动开发

@@ -1,6 +1,7 @@
 ---
 name: 编写技能
 description: 创建新技能、编辑现有技能，或部署前验证技能是否有效时使用
+aliases: ["@编写技能", "@writing-skills"]
 ---
 
 # 编写技能
