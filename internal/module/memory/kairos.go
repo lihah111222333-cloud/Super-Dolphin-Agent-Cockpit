@@ -2,17 +2,23 @@ package memory
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
+	"unicode"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/repofingerprint"
+	skillcandidatedto "github.com/anthropic-ai/super-agent-v3/internal/store/skillcandidate"
 )
 
 const dateChangeAttachmentKind = "date_change"
@@ -345,5 +351,249 @@ func buildDateChangeAttachment(memoryRoot string, now time.Time) dto.AttachmentE
 		Content:   fmt.Sprintf("The date has changed. Today's date is now %s. Do not mention this to the user explicitly; just use the new date for time-sensitive reasoning and KAIROS daily-log writes.", day),
 		MtimeMs:   now.UnixMilli(),
 		UpdatedAt: now.UTC().Format(time.RFC3339),
+	}
+}
+
+// FeedbackTracker accumulates feedback memories by topic key.
+// When count reaches threshold, the caller can trigger a skill proposal.
+type FeedbackTracker struct {
+	mu        sync.Mutex
+	threshold int
+	groups    map[string][]ExtractedMemory
+}
+
+func NewFeedbackTracker(threshold int) *FeedbackTracker {
+	if threshold < 2 {
+		threshold = 2
+	}
+	return &FeedbackTracker{
+		threshold: threshold,
+		groups:    make(map[string][]ExtractedMemory),
+	}
+}
+
+func (ft *FeedbackTracker) Record(topicKey string, mem ExtractedMemory) {
+	ft.mu.Lock()
+	defer ft.mu.Unlock()
+	ft.groups[topicKey] = append(ft.groups[topicKey], mem)
+}
+
+func (ft *FeedbackTracker) Count(topicKey string) int {
+	ft.mu.Lock()
+	defer ft.mu.Unlock()
+	return len(ft.groups[topicKey])
+}
+
+// ThresholdReached reports whether the topic has accumulated enough
+// feedback to trigger a skill proposal.
+func (ft *FeedbackTracker) ThresholdReached(topicKey string) bool {
+	return ft.Count(topicKey) >= ft.threshold
+}
+
+// GetGroup returns a snapshot of the feedback entries for a topic.
+func (ft *FeedbackTracker) GetGroup(topicKey string) []ExtractedMemory {
+	ft.mu.Lock()
+	defer ft.mu.Unlock()
+	src := ft.groups[topicKey]
+	cp := make([]ExtractedMemory, len(src))
+	copy(cp, src)
+	return cp
+}
+
+// MarkProposed clears the group for a topic after a proposal has been
+// generated, preventing duplicate proposals.
+func (ft *FeedbackTracker) MarkProposed(topicKey string) {
+	ft.mu.Lock()
+	defer ft.mu.Unlock()
+	delete(ft.groups, topicKey)
+}
+
+// FeedbackTopicSlug normalises a feedback memory name into a short,
+// stable topic key used for grouping related feedback.
+func FeedbackTopicSlug(name string) string {
+	lower := strings.ToLower(name)
+	var parts []string
+	var current []rune
+	for _, r := range lower {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			current = append(current, r)
+		} else if len(current) > 0 {
+			parts = append(parts, string(current))
+			current = current[:0]
+		}
+	}
+	if len(current) > 0 {
+		parts = append(parts, string(current))
+	}
+	filtered := filterFeedbackStopWords(parts)
+	if len(filtered) > 4 {
+		filtered = filtered[:4]
+	}
+	return strings.Join(filtered, "-")
+}
+
+var feedbackStopWords = map[string]bool{
+	"的": true, "是": true, "在": true, "了": true, "和": true,
+	"与": true, "或": true, "等": true, "时": true, "要": true,
+	"a": true, "an": true, "the": true, "to": true, "of": true,
+	"and": true, "or": true, "for": true, "with": true, "this": true,
+	"that": true, "from": true, "when": true, "must": true,
+}
+
+func filterFeedbackStopWords(words []string) []string {
+	var out []string
+	for _, w := range words {
+		if !feedbackStopWords[w] && len(w) > 0 {
+			out = append(out, w)
+		}
+	}
+	return out
+}
+
+func (ft *FeedbackTracker) LoadFromDir(rootDir string) int {
+	if rootDir == "" {
+		return 0
+	}
+	loaded := 0
+	for _, sub := range []string{"", "team", "feedback", filepath.Join("team", "feedback")} {
+		dir := rootDir
+		if sub != "" {
+			dir = filepath.Join(rootDir, sub)
+		}
+		loaded += ft.scanDirForFeedback(dir)
+	}
+	return loaded
+}
+
+func (ft *FeedbackTracker) scanDirForFeedback(dir string) int {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	loaded := 0
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") || e.Name() == "MEMORY.md" {
+			continue
+		}
+		if mem, ok := parseFeedbackFile(filepath.Join(dir, e.Name())); ok {
+			ft.Record(FeedbackTopicSlug(mem.Content), mem)
+			loaded++
+		}
+	}
+	return loaded
+}
+
+func parseFeedbackFile(path string) (ExtractedMemory, bool) {
+	parsed, err := ParseMemoryFile(path)
+	if err != nil || parsed == nil {
+		return ExtractedMemory{}, false
+	}
+	if parsed.Frontmatter.Type == nil || *parsed.Frontmatter.Type != MemoryTypeFeedback {
+		return ExtractedMemory{}, false
+	}
+	slug := FeedbackTopicSlug(parsed.Content)
+	if slug == "" {
+		return ExtractedMemory{}, false
+	}
+	return ExtractedMemory{Type: MemoryTypeFeedback, Content: parsed.Content}, true
+}
+
+// trackFeedbackIfApplicable is called after a successful memory write.
+// It records feedback-type intents and fires the threshold callback.
+func trackFeedbackIfApplicable(h *MemoryLifecycleHooks, intent SaveIntent) {
+	if h == nil || h.feedbackTracker == nil || intent.Type != MemoryTypeFeedback {
+		return
+	}
+	slug := FeedbackTopicSlug(intent.Content)
+	if slug == "" {
+		return
+	}
+	h.feedbackTracker.Record(slug, ExtractedMemory{Type: intent.Type, Content: intent.Content})
+	if h.feedbackTracker.ThresholdReached(slug) && h.onFeedbackThreshold != nil {
+		group := h.feedbackTracker.GetGroup(slug)
+		h.feedbackTracker.MarkProposed(slug)
+		go h.onFeedbackThreshold(slug, group)
+	}
+}
+
+// feedbackSkillPropose calls the dream executor to synthesise accumulated
+// feedback into a SKILL.md and inserts it as a pending_review candidate.
+func feedbackSkillPropose(
+	dream contract.DreamExecutor,
+	store candidateInsertStore,
+	logger *slog.Logger,
+	topicKey string,
+	group []ExtractedMemory,
+	projectRoot string,
+) {
+	defer func() {
+		if r := recover(); r != nil && logger != nil {
+			logger.Warn("feedback skill proposal panicked", "topic", topicKey, "recover", r)
+		}
+	}()
+
+	prompt := buildFeedbackProposalPrompt(topicKey, group)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	skillMD, err := dream.ExecuteDream(ctx, prompt)
+	if err != nil {
+		if logger != nil {
+			logger.Warn("feedback skill dream failed", "topic", topicKey, "error", err)
+		}
+		return
+	}
+
+	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(skillMD)))
+	insertCandidate(store, logger, ctx, topicKey, hash, skillMD, projectRoot, len(group))
+}
+
+func buildFeedbackProposalPrompt(topicKey string, group []ExtractedMemory) string {
+	var sb strings.Builder
+	sb.WriteString("你是一个技能提炼专家。以下是用户在多次协作中反复给出的同类反馈：\n\n")
+	for i, fb := range group {
+		fmt.Fprintf(&sb, "反馈 %d:\n%s\n\n", i+1, fb.Content)
+	}
+	sb.WriteString("请将这些反馈合成为一个 SKILL.md 文件。要求：\n")
+	sb.WriteString("1. 以 YAML frontmatter 开头，包含 name 和 description\n")
+	sb.WriteString("2. description 以 'Use when' 开头\n")
+	sb.WriteString("3. 正文用 H2 分节，每节一个规则\n")
+	sb.WriteString("4. 合并重复内容，保留所有独特要点\n\n")
+	sb.WriteString("直接输出 SKILL.md 内容，不要包裹 code fence。")
+	return sb.String()
+}
+
+func insertCandidate(
+	store candidateInsertStore,
+	logger *slog.Logger,
+	ctx context.Context,
+	topicKey, hash, skillMD, projectRoot string,
+	feedbackCount int,
+) {
+	sample := skillMD
+	if len(sample) > 1024 {
+		sample = sample[:1024]
+	}
+	repoFP := ""
+	if projectRoot != "" {
+		repoFP, _ = repofingerprint.Compute(projectRoot)
+	}
+	_, err := store.Insert(ctx, skillcandidatedto.InsertParams{
+		Scope:           "project",
+		Slug:            topicKey,
+		ContentHash:     hash,
+		RepoFingerprint: repoFP,
+		SkillMD:         skillMD,
+		RedactedSample:  sample,
+	})
+	if err != nil {
+		if logger != nil {
+			logger.Warn("feedback skill insert failed", "topic", topicKey, "error", err)
+		}
+		return
+	}
+	if logger != nil {
+		logger.Info("feedback skill candidate created", "topic", topicKey, "feedback_count", feedbackCount)
 	}
 }

@@ -50,6 +50,8 @@ type MemoryLifecycleHooks struct {
 	sections            sectionInvalidator
 	logger              *slog.Logger
 	timeNow             func() time.Time
+	feedbackTracker     *FeedbackTracker
+	onFeedbackThreshold func(topicKey string, group []ExtractedMemory)
 
 	// stateMu serialises all reads and writes of the six maps below.
 	// The plain map choice (vs sync.Map) is intentional: this is a
@@ -298,7 +300,11 @@ func (h *MemoryLifecycleHooks) writeIntent(ctx context.Context, threadID string,
 	}
 	primaryScope, secondaryScope := scopeNamesForIntentStores(entry.Type, secondary != nil)
 	h.warnCrossScopeSameName(entry.Name, store, primary, secondary, primaryScope, secondaryScope)
-	return upsertStructuredMemory(store, entry, options)
+	if writeErr := upsertStructuredMemory(store, entry, options); writeErr != nil {
+		return writeErr
+	}
+	trackFeedbackIfApplicable(h, intent)
+	return nil
 }
 
 // warnCrossScopeSameName logs a single warn (dedup'd by name) when the
