@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 )
@@ -18,7 +18,7 @@ import (
 const peerReadyTimeout = 10 * time.Second
 const peerPollInterval = 300 * time.Millisecond
 
-func (h *Handler) listPeerTools(ctx context.Context, clientKind string) ([]common.MCPTool, error) {
+func (h *Handler) listPeerTools(ctx context.Context, clientKind string) ([]mcpdto.MCPTool, error) {
 	if h == nil || h.registry == nil {
 		return nil, ErrNoPeerAvailable
 	}
@@ -67,7 +67,7 @@ func adaptMCPResponse(resp peerToolCallResponse) *ToolCallResult {
 	return &ToolCallResult{ContentItems: items, Success: true}
 }
 
-func toCodexDynamicTools(tools []common.MCPTool) []codexprotocol.DynamicToolSchema {
+func toCodexDynamicTools(tools []mcpdto.MCPTool) []codexprotocol.DynamicToolSchema {
 	out := make([]codexprotocol.DynamicToolSchema, 0, len(tools))
 	for _, tool := range tools {
 		schema := codexprotocol.DynamicToolSchema{
@@ -162,7 +162,7 @@ func decodeString(raw json.RawMessage) string {
 	return strings.TrimSpace(value)
 }
 
-func toolDeferLoading(tool common.MCPTool) bool {
+func toolDeferLoading(tool mcpdto.MCPTool) bool {
 	value := reflect.ValueOf(tool)
 	field := value.FieldByName("DeferLoading")
 	return field.IsValid() && field.Kind() == reflect.Bool && field.Bool()

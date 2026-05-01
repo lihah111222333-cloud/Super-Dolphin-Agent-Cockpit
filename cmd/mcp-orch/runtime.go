@@ -18,6 +18,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools"
 	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
@@ -257,15 +258,15 @@ func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client) platform
 	return bootstrapRunner{cfg: cfg, client: client}
 }
 
-func (p registryToolProvider) ListTools(context.Context) ([]common.MCPTool, error) {
+func (p registryToolProvider) ListTools(context.Context) ([]mcpdto.MCPTool, error) {
 	defs := p.registry.List()
-	toolsList := make([]common.MCPTool, 0, len(defs))
+	toolsList := make([]mcpdto.MCPTool, 0, len(defs))
 	for _, def := range defs {
 		schema, err := marshalInputSchema(def.InputSchema)
 		if err != nil {
 			return nil, err
 		}
-		toolsList = append(toolsList, common.MCPTool{
+		toolsList = append(toolsList, mcpdto.MCPTool{
 			Name:        def.Name,
 			Description: def.Description,
 			InputSchema: schema,

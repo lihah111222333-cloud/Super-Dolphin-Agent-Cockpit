@@ -8,6 +8,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/discovery"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -45,7 +46,7 @@ func (r *httpRunner) Run(ctx context.Context) error {
 	}
 
 	// Write discovery file so BuildManifest() can find this endpoint.
-	if err := common.WritePeerDiscovery(httpBinaryName, addr); err != nil {
+	if err := discovery.WritePeerDiscovery(httpBinaryName, addr); err != nil {
 		pkglogger.Warn("mcp-orch http: discovery write failed", "error", err)
 		// Non-fatal: Claude will fall back to stdio.
 	}
@@ -56,7 +57,7 @@ func (r *httpRunner) Run(ctx context.Context) error {
 	<-ctx.Done()
 
 	// Cleanup discovery file on shutdown.
-	_ = common.CleanupPeerDiscovery(httpBinaryName)
+	_ = discovery.CleanupPeerDiscovery(httpBinaryName)
 	stopCtx, cancel := platformconfig.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return srv.Stop(stopCtx)

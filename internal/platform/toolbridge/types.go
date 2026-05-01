@@ -8,7 +8,6 @@ import (
 	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
 const toolCallTimeout = 120 * time.Second
@@ -45,7 +44,7 @@ type ToolCallResult struct {
 }
 
 type peerToolsListResult struct {
-	Tools []common.MCPTool `json:"tools"`
+	Tools []dto.MCPTool `json:"tools"`
 }
 
 type peerToolCallResponse struct {

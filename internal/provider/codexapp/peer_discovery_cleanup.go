@@ -3,7 +3,7 @@ package codexapp
 import (
 	"os"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/discovery"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -14,7 +14,7 @@ import (
 func cleanPeerDiscoveryFiles() {
 	myPID := os.Getpid()
 	for _, binary := range []string{"mcp-orch", "mcp-lsp"} {
-		if err := common.CleanupDiscoveryFile(binary, myPID); err != nil {
+		if err := discovery.CleanupDiscoveryFile(binary, myPID); err != nil {
 			if !os.IsNotExist(err) {
 				pkglogger.Warn("peer discovery cleanup failed",
 					"binary", binary, "pid", myPID, "error", err)

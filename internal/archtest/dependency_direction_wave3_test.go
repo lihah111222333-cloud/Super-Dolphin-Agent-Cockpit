@@ -10,6 +10,12 @@ func TestWave3DependencyDirection(t *testing.T) {
 		}
 		assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/module/turn"), []string{internalPrefix("internal/provider/")})
 	})
+	t.Run("rule11b_module_turn_cannot_import_mcpserver", func(t *testing.T) {
+		if !dirExists(root, "internal/module/turn") {
+			t.Skip("directory not yet created")
+		}
+		assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/module/turn"), []string{internalPrefix("internal/mcpserver/")})
+	})
 	t.Run("rule12_unified_cannot_import_concrete_provider", func(t *testing.T) {
 		if !dirExists(root, "internal/provider/unified") {
 			t.Skip("directory not yet created")

@@ -7,6 +7,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/discovery"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -42,7 +43,7 @@ func (r *httpRunner) Run(ctx context.Context) error {
 		return err
 	}
 
-	if err := common.WritePeerDiscovery(httpLSPBinaryName, addr); err != nil {
+	if err := discovery.WritePeerDiscovery(httpLSPBinaryName, addr); err != nil {
 		pkglogger.Warn("mcp-lsp http: discovery write failed", "error", err)
 	}
 
@@ -51,7 +52,7 @@ func (r *httpRunner) Run(ctx context.Context) error {
 
 	<-ctx.Done()
 
-	_ = common.CleanupPeerDiscovery(httpLSPBinaryName)
+	_ = discovery.CleanupPeerDiscovery(httpLSPBinaryName)
 	stopCtx, cancel := platformconfig.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return srv.Stop(stopCtx)

@@ -10,7 +10,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
@@ -20,7 +19,7 @@ import (
 
 type peerToolsListOutcome struct {
 	clientKind string
-	tools      []common.MCPTool
+	tools      []dto.MCPTool
 	err        error
 }
 
@@ -73,7 +72,7 @@ func (h *Handler) ListToolsForCodex(ctx context.Context) ([]codexprotocol.Dynami
 	}
 	// Host-direct 工具优先加入列表：dedup 遵守“先加入者胜出”原则，同名 peer 工具会被忽略。
 	// 这保证调用阶段 hostTools.HasTool 命中与列表阶段优先级一致。
-	var hostTools []common.MCPTool
+	var hostTools []dto.MCPTool
 	if h != nil && h.hostTools != nil {
 		hostTools = h.hostTools.ListHostTools()
 	}
@@ -100,7 +99,7 @@ func (h *Handler) ListToolsForCodex(ctx context.Context) ([]codexprotocol.Dynami
 	return toCodexDynamicTools(merged), nil
 }
 
-func (h *Handler) appendDynamicToolsWithShadowWarning(dst []common.MCPTool, seen map[string]string, source string, tools []common.MCPTool) []common.MCPTool {
+func (h *Handler) appendDynamicToolsWithShadowWarning(dst []dto.MCPTool, seen map[string]string, source string, tools []dto.MCPTool) []dto.MCPTool {
 	if seen == nil {
 		seen = make(map[string]string, len(tools))
 	}
@@ -125,9 +124,9 @@ func (h *Handler) appendDynamicToolsWithShadowWarning(dst []common.MCPTool, seen
 
 // dedupToolsByName 按 name 去重，保留首次出现的入口（所以调用时要把 host-direct
 // 放在列表最前）。补 host_tools 的 dedup 优先级语义。
-func dedupToolsByName(in []common.MCPTool) []common.MCPTool {
+func dedupToolsByName(in []dto.MCPTool) []dto.MCPTool {
 	seen := make(map[string]struct{}, len(in))
-	out := make([]common.MCPTool, 0, len(in))
+	out := make([]dto.MCPTool, 0, len(in))
 	for _, t := range in {
 		if _, ok := seen[t.Name]; ok {
 			continue

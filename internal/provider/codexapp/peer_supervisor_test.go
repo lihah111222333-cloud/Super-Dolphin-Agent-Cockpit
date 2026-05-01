@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/discovery"
 )
 
 // ---------------------------------------------------------------------------
@@ -418,12 +418,12 @@ func TestPeerSupervisorDiscoveryFilesRemovedOnStop(t *testing.T) {
 	// has something concrete to remove. Use a unique per-test peer name so a
 	// parallel test run cannot race on the same /tmp path.
 	testPeerName := "test-peer-discovery"
-	if err := common.WriteDiscoveryFile(testPeerName, os.Getpid(), "127.0.0.1:65432"); err != nil {
+	if err := discovery.WriteDiscoveryFile(testPeerName, os.Getpid(), "127.0.0.1:65432"); err != nil {
 		t.Fatalf("seed discovery file: %v", err)
 	}
 
 	// Sanity: the file exists before supervisor runs.
-	addr, err := common.ReadDiscoveryAddr(testPeerName, os.Getpid())
+	addr, err := discovery.ReadDiscoveryAddr(testPeerName, os.Getpid())
 	if err != nil || addr != "127.0.0.1:65432" {
 		t.Fatalf("seeded discovery file missing: addr=%q err=%v", addr, err)
 	}
@@ -434,7 +434,7 @@ func TestPeerSupervisorDiscoveryFilesRemovedOnStop(t *testing.T) {
 		// (mcp-orch, mcp-lsp), so we install a test-specific hook to cover the
 		// seam without mutating production defaults.
 		WithPeerCleanupHook(func() {
-			_ = common.CleanupDiscoveryFile(testPeerName, os.Getpid())
+			_ = discovery.CleanupDiscoveryFile(testPeerName, os.Getpid())
 		}),
 	)
 	done := runSupervisor(ctx, s)
@@ -443,7 +443,7 @@ func TestPeerSupervisorDiscoveryFilesRemovedOnStop(t *testing.T) {
 	cancel()
 	<-done
 
-	if _, err := common.ReadDiscoveryAddr(testPeerName, os.Getpid()); err == nil {
+	if _, err := discovery.ReadDiscoveryAddr(testPeerName, os.Getpid()); err == nil {
 		t.Error("discovery file still exists after supervisor shutdown; cleanup hook did not run")
 	}
 }
