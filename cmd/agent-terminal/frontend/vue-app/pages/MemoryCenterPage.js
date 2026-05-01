@@ -23,10 +23,14 @@ function ensureObject(value) {
 }
 
 function formatTimestamp(value) {
-  if (!value) return '-';
+  if (!value) return '';
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString('zh-CN', { hour12: false });
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString('zh-CN', {
+    month: 'numeric', day: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+    hour12: false,
+  });
 }
 
 function firstNonEmpty(...values) {
@@ -39,6 +43,14 @@ function firstNonEmpty(...values) {
 
 function typeBadgeClass(type) {
   return TYPE_BADGE_CLASS[(type || '').toString()] || 'jr-badge-default';
+}
+
+function typeBadgeLabel(type) {
+  switch ((type || '').toString()) {
+    case 'user': case 'feedback': return '偏好';
+    case 'project': case 'reference': return '项目';
+    default: return type || '未知';
+  }
 }
 
 function filterEntries(list, needle) {
@@ -126,6 +138,48 @@ export const MemoryCenterPage = {
       autoDreamIntent.value !== null && autoDreamIntent.value !== autoDreamRuntimeEnabled.value
     ));
     const autoDreamToggling = ref(false);
+
+    const health = computed(() => overview.value.health || null);
+    const healthPrefPercent = computed(() => {
+      if (!health.value) return 0;
+      return Math.min(100, Math.round((health.value.preferenceCount / health.value.maxPerCategory) * 100));
+    });
+    const healthProjPercent = computed(() => {
+      if (!health.value) return 0;
+      return Math.min(100, Math.round((health.value.projectCount / health.value.maxPerCategory) * 100));
+    });
+
+    function healthBarClass(percent) {
+      if (percent >= 100) return 'health-bar-danger';
+      if (percent >= 80) return 'health-bar-warning';
+      return '';
+    }
+
+    function formatScore(score) {
+      return Math.round((score || 0) * 100) + '%';
+    }
+
+    const mergingGroup = ref(null); // 正在合并的组索引
+
+    async function mergeGroup(group, idx) {
+      if (mergingGroup.value !== null) return;
+      mergingGroup.value = idx;
+      try {
+        await callAPI('ui/memory/entry/merge', {
+          cwd: currentCwd.value,
+          targetA: group.targetA,
+          pathA: group.pathA,
+          targetB: group.targetB,
+          pathB: group.pathB,
+        });
+        setNotice('info', `已整合「${group.nameA}」与「${group.nameB}」`);
+        emit('refresh');
+      } catch (error) {
+        setNotice('error', `整合失败：${(error && error.message) || String(error || '')}`);
+      } finally {
+        mergingGroup.value = null;
+      }
+    }
 
     // --- Type-based grouping ---
     const preferenceEntries = computed(() => {
@@ -236,9 +290,17 @@ export const MemoryCenterPage = {
       autoDreamPendingRestart,
       autoDreamToggling,
       toggleAutoDream,
+      health,
+      healthPrefPercent,
+      healthProjPercent,
+      healthBarClass,
+      formatScore,
+      mergingGroup,
+      mergeGroup,
       formatTimestamp,
       statusLabel,
       typeBadgeClass,
+      typeBadgeLabel,
       typeDisplayName,
       clearSearch,
       toggleGuide,
@@ -294,7 +356,7 @@ export const MemoryCenterPage = {
                   class="jr-badge"
                   :class="systemDisabled ? 'jr-badge-error' : 'jr-badge-success'"
                   data-testid="memory-center-system-status"
-                >Memory 系统 · {{ systemDisabled ? '未启用' : '已启用' }}</span>
+                >记忆系统 · {{ systemDisabled ? '未启用' : '已启用' }}</span>
               </div>
               <div v-if="!guideCollapsed" class="memory-center-callout-subtitle">
                 仅保存值得跨会话复用的稳定内容；临时草稿请放到“共享文件”。
@@ -315,17 +377,6 @@ export const MemoryCenterPage = {
               <article class="memory-center-guide-card">
                 <div class="memory-center-guide-title">项目记忆</div>
                 <div class="memory-center-guide-text">保存项目上下文、架构决策等长期参考信息。</div>
-              </article>
-              <article class="memory-center-guide-card">
-                <div class="memory-center-guide-title">推荐用法</div>
-                <div class="memory-center-guide-text">临时协作内容先放共享文件；确认值得长期保留后，再整理成 durable memory，避免把计划、过程状态和噪音写进长期记忆。</div>
-              </article>
-              <article class="memory-center-guide-card">
-                <div class="memory-center-guide-title">任务接力摘要</div>
-                <div class="memory-center-guide-text">
-                  自动化任务的连续性摘要不写入 durable memory，而是由系统维护在共享文件的 <code>handoff/tasks/</code> 下。
-                  如果你想看任务交接内容，请去“共享文件”或聊天页顶部的任务连续性卡片。
-                </div>
               </article>
             </div>
           </div>
@@ -355,6 +406,57 @@ export const MemoryCenterPage = {
             class="memory-center-auto-pending"
             data-testid="memory-center-auto-dream-pending"
           >已保存切换，重启 agent-terminal 后生效</div>
+        </div>
+
+        <div v-if="health" class="data-card-vue memory-health-card" data-testid="memory-center-health-card">
+          <div class="memory-health-head">
+            <div class="memory-health-title">记忆健康</div>
+          </div>
+          <div class="memory-health-bars">
+            <div class="memory-health-row">
+              <span class="memory-health-label">偏好</span>
+              <div class="memory-health-track">
+                <div
+                  class="memory-health-fill"
+                  :class="healthBarClass(healthPrefPercent)"
+                  :style="{ width: healthPrefPercent + '%' }"
+                ></div>
+              </div>
+              <span class="memory-health-count">{{ health.preferenceCount }} / {{ health.maxPerCategory }}</span>
+            </div>
+            <div class="memory-health-row">
+              <span class="memory-health-label">项目</span>
+              <div class="memory-health-track">
+                <div
+                  class="memory-health-fill"
+                  :class="healthBarClass(healthProjPercent)"
+                  :style="{ width: healthProjPercent + '%' }"
+                ></div>
+              </div>
+              <span class="memory-health-count">{{ health.projectCount }} / {{ health.maxPerCategory }}</span>
+            </div>
+          </div>
+          <div v-if="health.similarGroups && health.similarGroups.length" class="memory-health-similar">
+            <div class="memory-health-similar-head">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="var(--warning, #d99a3a)" stroke-width="1.5" style="flex-shrink:0;margin-top:1px;">
+                <path d="M8 1.5L14.5 13H1.5Z" stroke-linejoin="round"/>
+                <path d="M8 6v3" stroke-linecap="round"/>
+                <circle cx="8" cy="11.5" r="0.5" fill="var(--warning, #d99a3a)"/>
+              </svg>
+              <span>{{ health.similarGroups.length }} 组条目内容相似，建议整理</span>
+            </div>
+            <div class="memory-health-similar-list">
+              <div v-for="(group, gi) in health.similarGroups" :key="gi" class="memory-health-similar-item">
+                <span class="memory-health-similar-names">「{{ group.nameA }}」与「{{ group.nameB }}」</span>
+                <span class="memory-health-similar-score">{{ formatScore(group.score) }}</span>
+                <button
+                  class="btn btn-secondary btn-xs memory-health-merge-btn"
+                  :disabled="mergingGroup !== null"
+                  @click="mergeGroup(group, gi)"
+                >{{ mergingGroup === gi ? '整合中...' : '整合' }}</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div v-if="notice.message" class="settings-prompt-notice memory-notice-fade" :class="'is-' + notice.level" data-testid="memory-center-notice">{{ notice.message }}</div>
@@ -389,23 +491,22 @@ export const MemoryCenterPage = {
             <div class="memory-entry-head">
               <div class="memory-entry-title-row">
                 <div class="memory-entry-title" :title="entry.name || '未命名条目'">{{ entry.name || '未命名条目' }}</div>
-                <span class="jr-badge" :class="typeBadgeClass(entry.type)">{{ entry.type || 'unknown' }}</span>
-                <span style="font-size:0.75em;opacity:0.6;margin-left:0.5em;">{{ entry._scope === 'team' ? '[Team]' : '[Private]' }}</span>
-                <span v-if="entry.source === 'dream'" class="jr-badge jr-badge-dream" title="由 Dream 自动巩固生成">梦境</span>
+                <span class="jr-badge" :class="typeBadgeClass(entry.type)">{{ typeBadgeLabel(entry.type) }}</span>
+                <span class="jr-badge jr-badge-scope">{{ entry._scope === 'team' ? '团队' : '私有' }}</span>
+                <span v-if="entry.source === 'dream'" class="jr-badge jr-badge-dream" title="由自动沉淀生成">梦境</span>
               </div>
-              <div class="memory-entry-updated">{{ formatTimestamp(entry.updatedAt) }}</div>
+              <div class="memory-entry-actions">
+                <button class="btn btn-secondary btn-xs" :data-testid="'memory-center-preference-edit-' + idx" :disabled="busyPath === entry._target + ':' + entry.path" @click="memoryEditor.openEdit(entry._target, entry)">
+                  {{ busyPath === entry._target + ':' + entry.path ? '加载中...' : '编辑' }}
+                </button>
+                <button class="btn btn-danger btn-xs" :data-testid="'memory-center-preference-delete-' + idx" @click="inlineDelete.ask(entry._target, entry)">删除</button>
+              </div>
             </div>
-            <div class="memory-entry-meta">
-              <span class="memory-entry-meta-path" :title="entry.path">{{ entry.path || '-' }}</span>
+            <div class="memory-entry-sub">
+              <span v-if="entry.description" class="memory-entry-description">{{ entry.description }}</span>
+              <span class="memory-entry-updated">{{ formatTimestamp(entry.updatedAt) }}</span>
             </div>
-            <div v-if="entry.description" class="memory-entry-description">{{ entry.description }}</div>
-            <pre class="memory-entry-preview">{{ entry.preview || '暂无预览' }}</pre>
-            <div class="memory-card-actions">
-              <button class="btn btn-secondary btn-xs" :data-testid="'memory-center-preference-edit-' + idx" :disabled="busyPath === entry._target + ':' + entry.path" @click="memoryEditor.openEdit(entry._target, entry)">
-                {{ busyPath === entry._target + ':' + entry.path ? '加载中...' : '编辑' }}
-              </button>
-              <button class="btn btn-danger btn-xs" :data-testid="'memory-center-preference-delete-' + idx" @click="inlineDelete.ask(entry._target, entry)">删除</button>
-            </div>
+            <pre class="memory-entry-preview" @click="$event.currentTarget.classList.toggle('is-expanded')">{{ entry.preview || '暂无预览' }}</pre>
           </article>
         </div>
 
@@ -436,22 +537,22 @@ export const MemoryCenterPage = {
             <div class="memory-entry-head">
               <div class="memory-entry-title-row">
                 <div class="memory-entry-title" :title="entry.name || '未命名条目'">{{ entry.name || '未命名条目' }}</div>
-                <span class="jr-badge" :class="typeBadgeClass(entry.type)">{{ entry.type || 'unknown' }}</span>
-                <span style="font-size:0.75em;opacity:0.6;margin-left:0.5em;">{{ entry._scope === 'team' ? '[Team]' : '[Private]' }}</span>
+                <span class="jr-badge" :class="typeBadgeClass(entry.type)">{{ typeBadgeLabel(entry.type) }}</span>
+                <span class="jr-badge jr-badge-scope">{{ entry._scope === 'team' ? '团队' : '私有' }}</span>
+                <span v-if="entry.source === 'dream'" class="jr-badge jr-badge-dream" title="由自动沉淀生成">梦境</span>
               </div>
-              <div class="memory-entry-updated">{{ formatTimestamp(entry.updatedAt) }}</div>
+              <div class="memory-entry-actions">
+                <button class="btn btn-secondary btn-xs" :data-testid="'memory-center-project-edit-' + idx" :disabled="busyPath === entry._target + ':' + entry.path" @click="memoryEditor.openEdit(entry._target, entry)">
+                  {{ busyPath === entry._target + ':' + entry.path ? '加载中...' : '编辑' }}
+                </button>
+                <button class="btn btn-danger btn-xs" :data-testid="'memory-center-project-delete-' + idx" @click="inlineDelete.ask(entry._target, entry)">删除</button>
+              </div>
             </div>
-            <div class="memory-entry-meta">
-              <span class="memory-entry-meta-path" :title="entry.path">{{ entry.path || '-' }}</span>
+            <div class="memory-entry-sub">
+              <span v-if="entry.description" class="memory-entry-description">{{ entry.description }}</span>
+              <span class="memory-entry-updated">{{ formatTimestamp(entry.updatedAt) }}</span>
             </div>
-            <div v-if="entry.description" class="memory-entry-description">{{ entry.description }}</div>
-            <pre class="memory-entry-preview">{{ entry.preview || '暂无预览' }}</pre>
-            <div class="memory-card-actions">
-              <button class="btn btn-secondary btn-xs" :data-testid="'memory-center-project-edit-' + idx" :disabled="busyPath === entry._target + ':' + entry.path" @click="memoryEditor.openEdit(entry._target, entry)">
-                {{ busyPath === entry._target + ':' + entry.path ? '加载中...' : '编辑' }}
-              </button>
-              <button class="btn btn-danger btn-xs" :data-testid="'memory-center-project-delete-' + idx" @click="inlineDelete.ask(entry._target, entry)">删除</button>
-            </div>
+            <pre class="memory-entry-preview" @click="$event.currentTarget.classList.toggle('is-expanded')">{{ entry.preview || '暂无预览' }}</pre>
           </article>
         </div>
       </div>
@@ -460,12 +561,12 @@ export const MemoryCenterPage = {
         <div class="modal-box memory-modal" role="dialog" aria-modal="true" data-testid="memory-center-inline-delete-modal">
           <div class="memory-modal-head">
             <div>
-              <div class="modal-title">删除 durable memory</div>
+              <div class="modal-title">删除记忆</div>
               <div class="memory-modal-tip">{{ inlineDelete.target.name }} · {{ inlineDelete.target.target }}</div>
             </div>
             <button class="btn btn-ghost" :disabled="inlineDelete.deleting" @click="inlineDelete.cancel">关闭</button>
           </div>
-          <div class="memory-form-helper">删除后对应的 topic file 也会被移除，无法恢复。如果后续可能重用，建议先“编辑”备份内容。</div>
+          <div class="memory-form-helper">删除后无法恢复。如果后续可能重用，建议先“编辑”备份内容。</div>
           <div class="memory-editor-actions">
             <button class="btn btn-ghost" :disabled="inlineDelete.deleting" @click="inlineDelete.cancel">取消</button>
             <button class="btn btn-danger" data-testid="memory-center-inline-delete-confirm" :disabled="inlineDelete.deleting" @click="inlineDelete.confirm">
@@ -479,8 +580,8 @@ export const MemoryCenterPage = {
         <div class="modal-box memory-modal" role="dialog" aria-modal="true" data-testid="memory-center-editor">
           <div class="memory-modal-head">
             <div>
-              <div class="modal-title">{{ memoryEditor.mode === 'edit' ? '编辑 durable memory' : '新建 durable memory' }}</div>
-              <div class="memory-modal-tip">{{ memoryEditor.form.target === 'team' ? 'Team durable memory' : 'Private durable memory' }}</div>
+              <div class="modal-title">{{ memoryEditor.mode === 'edit' ? '编辑记忆' : '新建记忆' }}</div>
+              <div class="memory-modal-tip">{{ memoryEditor.form.target === 'team' ? '团队记忆' : '私有记忆' }}</div>
             </div>
             <button class="btn btn-ghost" data-testid="memory-center-editor-close" @click="memoryEditor.close">关闭</button>
           </div>
@@ -488,8 +589,8 @@ export const MemoryCenterPage = {
             <div class="modal-input-flex">
               <label class="settings-inline-label">目标</label>
               <select v-model="memoryEditor.form.target" class="modal-input" data-testid="memory-center-editor-target" :disabled="memoryIdentityLocked">
-                <option value="private">Private</option>
-                <option value="team">Team</option>
+                <option value="private">私有</option>
+                <option value="team">团队</option>
               </select>
             </div>
             <div class="modal-input-flex">
@@ -513,7 +614,7 @@ export const MemoryCenterPage = {
             </div>
           </div>
           <div class="memory-form-helper" v-if="memoryIdentityLocked">
-            现有 durable memory 的名称和类型暂时锁定；如需改名或改类型，请删除后重建。
+            现有记忆的名称和类型暂时锁定；如需改名或改类型，请删除后重建。
           </div>
           <div class="modal-input-row">
             <div class="modal-input-flex">

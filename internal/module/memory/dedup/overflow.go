@@ -1,6 +1,7 @@
 package dedup
 
 import (
+	"sort"
 	"strings"
 	"unicode/utf8"
 )
@@ -40,6 +41,44 @@ func FindMostSimilarPair(entries []EntrySnapshot) (i, j int, score float64, foun
 		return 0, 0, 0, false
 	}
 	return bestI, bestJ, bestScore, true
+}
+
+// SimilarPair describes a pair of entries with high containment.
+type SimilarPair struct {
+	NameA  string
+	NameB  string
+	PathA  string
+	PathB  string
+	ScopeA string
+	ScopeB string
+	Score  float64 // 0~1
+}
+
+// FindSimilarPairs returns all pairs of entries whose containment score
+// is at least MinMergePairContainment.  Results are sorted by score descending.
+func FindSimilarPairs(entries []EntrySnapshot) []SimilarPair {
+	var pairs []SimilarPair
+	for a := 0; a < len(entries); a++ {
+		bigramsA := Bigrams(Normalize(entries[a].Content))
+		for b := a + 1; b < len(entries); b++ {
+			bigramsB := Bigrams(Normalize(entries[b].Content))
+			s := Containment(bigramsA, bigramsB)
+			if s >= MinMergePairContainment {
+				pairs = append(pairs, SimilarPair{
+					NameA:  entries[a].Name,
+					NameB:  entries[b].Name,
+					PathA:  entries[a].Path,
+					PathB:  entries[b].Path,
+					ScopeA: entries[a].Scope,
+					ScopeB: entries[b].Scope,
+					Score:  s,
+				})
+			}
+		}
+	}
+	// sort descending by score
+	sort.Slice(pairs, func(i, j int) bool { return pairs[i].Score > pairs[j].Score })
+	return pairs
 }
 
 // TruncateOldestParagraphs truncates content to at most maxRunes runes.

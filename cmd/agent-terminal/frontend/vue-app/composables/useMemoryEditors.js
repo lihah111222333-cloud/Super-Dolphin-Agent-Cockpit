@@ -4,13 +4,13 @@ import { callAPI } from '../services/api.js';
 export function memoryTemplateForType(type) {
   switch ((type || '').toString()) {
     case 'feedback':
-      return 'rule\nWhy: \nHow to apply: ';
+      return '规则\n原因：\n如何应用：';
     case 'project':
-      return 'fact\nWhy: \nHow to apply: ';
+      return '事实\n原因：\n如何应用：';
     case 'reference':
-      return 'Pointer: \nWhy it matters: ';
+      return '指向：\n为什么重要：';
     default:
-      return 'User preference: ';
+      return '用户偏好：';
   }
 }
 
@@ -33,7 +33,7 @@ export function resetMemoryForm(form, target = 'private') {
 }
 
 /**
- * Durable memory editor state + handlers (create / edit / save / delete / template fill).
+ * Memory editor state + handlers (create / edit / save / delete / template fill).
  *
  * Callers provide:
  *   - currentCwd: ref-like with .value
@@ -76,7 +76,7 @@ export function useDurableMemoryEditor({ currentCwd, setNotice, setBusy, emit })
       mode.value = 'edit';
       open.value = true;
     } catch (error) {
-      setNotice('error', `加载 durable memory 失败：${toErrorMessage(error)}`);
+      setNotice('error', `加载失败：${toErrorMessage(error)}`);
     } finally {
       setBusy('');
     }
@@ -110,10 +110,10 @@ export function useDurableMemoryEditor({ currentCwd, setNotice, setBusy, emit })
         content: form.content,
       });
       close();
-      setNotice('info', 'durable memory 已保存。');
+      setNotice('info', '已保存');
       emit('refresh');
     } catch (error) {
-      setNotice('error', `保存 durable memory 失败：${toErrorMessage(error)}`);
+      setNotice('error', `保存失败：${toErrorMessage(error)}`);
     } finally {
       saving.value = false;
     }
@@ -129,10 +129,10 @@ export function useDurableMemoryEditor({ currentCwd, setNotice, setBusy, emit })
         path: form.existingPath,
       });
       close();
-      setNotice('info', 'durable memory 已删除。');
+      setNotice('info', '已删除');
       emit('refresh');
     } catch (error) {
-      setNotice('error', `删除 durable memory 失败：${toErrorMessage(error)}`);
+      setNotice('error', `删除失败：${toErrorMessage(error)}`);
     } finally {
       deleting.value = false;
     }
@@ -149,7 +149,7 @@ export function useDurableMemoryEditor({ currentCwd, setNotice, setBusy, emit })
 }
 
 /**
- * Inline delete confirmation for durable memory cards.
+ * Inline delete confirmation for memory cards.
  * Pairs with a modal in the template driven by `target` being non-null.
  */
 export function useInlineDeleteConfirm({ currentCwd, setNotice, emit }) {
@@ -180,11 +180,11 @@ export function useInlineDeleteConfirm({ currentCwd, setNotice, emit }) {
         target: req.target,
         path: req.path,
       });
-      setNotice('info', `durable memory 已删除：${req.name}`);
+      setNotice('info', `已删除：${req.name}`);
       target.value = null;
       emit('refresh');
     } catch (error) {
-      setNotice('error', `删除 durable memory 失败：${toErrorMessage(error)}`);
+      setNotice('error', `删除失败：${toErrorMessage(error)}`);
     } finally {
       deleting.value = false;
     }
