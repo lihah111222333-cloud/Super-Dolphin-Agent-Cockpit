@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/creachadair/jrpc2/handler"
@@ -35,6 +36,9 @@ type PromptWriteRequest struct {
 	// other raw JSONB value is evaluated per EvaluateMatchWhen.
 	MatchWhen json.RawMessage
 	Priority  int
+	// Tags carries client-visible scene tags (e.g. ["代码审查","bug"]).
+	// Internal scope:// tags are managed separately and merged on write.
+	Tags json.RawMessage
 }
 
 // PromptSectionWriteRequest is the advanced-debug upsert payload. PromptKey
@@ -68,6 +72,7 @@ type promptWriteParams struct {
 	Cwd         string          `json:"cwd,omitempty"`
 	MatchWhen   json.RawMessage `json:"match_when,omitempty"`
 	Priority    int             `json:"priority,omitempty"`
+	Tags        json.RawMessage `json:"tags,omitempty"`
 }
 
 type promptDeleteParams struct {
@@ -120,6 +125,7 @@ type promptRPCItem struct {
 	UpdatedAt   time.Time       `json:"updatedAt"`
 	MatchWhen   json.RawMessage `json:"match_when,omitempty"`
 	Priority    int             `json:"priority,omitempty"`
+	Tags        json.RawMessage `json:"tags,omitempty"`
 }
 
 var _ contract.PromptAssemblyService = (*service)(nil)
@@ -183,6 +189,7 @@ func buildPromptHandlersWithService(promptSvc PromptService) rpc.HandlerMapResul
 				AgentType:   p.AgentType,
 				MatchWhen:   append(json.RawMessage(nil), p.MatchWhen...),
 				Priority:    p.Priority,
+				Tags:        p.Tags,
 			})
 			if err != nil {
 				return nil, err
@@ -272,7 +279,27 @@ func promptItemFromTemplate(template promptstore.PromptTemplate) promptRPCItem {
 		UpdatedAt:   template.UpdatedAt,
 		MatchWhen:   append(json.RawMessage(nil), template.MatchWhen...),
 		Priority:    template.Priority,
+		Tags:        filterVisibleTags(template.Tags),
 	}
+}
+
+// filterVisibleTags strips internal scope:// tags, returning only user-visible tags.
+func filterVisibleTags(raw json.RawMessage) json.RawMessage {
+	tags := promptTags(raw)
+	visible := make([]string, 0, len(tags))
+	for _, t := range tags {
+		if t = strings.TrimSpace(t); t != "" && !strings.HasPrefix(t, promptScopeTagPrefix) {
+			visible = append(visible, t)
+		}
+	}
+	if len(visible) == 0 {
+		return nil
+	}
+	encoded, err := json.Marshal(visible)
+	if err != nil {
+		return nil
+	}
+	return json.RawMessage(encoded)
 }
 
 func AsPromptRegistry(svc Service) PromptRegistry {
