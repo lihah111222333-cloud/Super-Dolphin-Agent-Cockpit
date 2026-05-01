@@ -5,6 +5,7 @@ export const SidebarNav = {
   props: {
     page: { type: String, required: true },
     items: { type: Array, required: true },
+    badges: { type: Object, default: () => ({}) },
   },
   emits: ['change'],
   setup(props, { emit }) {
@@ -32,6 +33,7 @@ export const SidebarNav = {
       >
         <span class="sb-icon" v-html="item.icon"></span>
         <span class="sb-label">{{ item.label }}</span>
+        <span v-if="badges[item.key]" class="sb-badge-dot" :title="badges[item.key] + ' 条待审批'"></span>
       </button>
       <div class="sidebar-spacer"></div>
     </nav>

@@ -37,3 +37,27 @@ export async function importSkills(cwd = '', paths = [], scope = '') {
     paths: Array.isArray(paths) ? paths : [],
   }, cwd), scope));
 }
+
+export async function listPendingCandidates(cwd = '', limit = 20, offset = 0) {
+  const raw = await callAPI('skills/candidate/list/pending', withOptionalCwd({ limit, offset }, cwd));
+  return Array.isArray(raw?.candidates) ? raw.candidates : [];
+}
+
+export async function getCandidate(candidateId) {
+  return callAPI('skills/candidate/get', { candidate_id: candidateId });
+}
+
+export async function approveCandidate(candidateId, approvedBy = '', reason = '', cwd = '') {
+  return callAPI('skills/candidate/approve', withOptionalCwd({
+    candidate_id: candidateId,
+    approved_by: trimString(approvedBy),
+    reason: trimString(reason),
+  }, cwd));
+}
+
+export async function rejectCandidate(candidateId, reason = '', cwd = '') {
+  return callAPI('skills/candidate/reject', withOptionalCwd({
+    candidate_id: candidateId,
+    reason: trimString(reason),
+  }, cwd));
+}

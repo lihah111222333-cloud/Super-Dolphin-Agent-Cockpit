@@ -1,5 +1,6 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from '../lib/vue.esm-browser.prod.js';
 import { callAPI, getBuildInfo, onAgentEvent, onBridgeEvent, onAppWillQuit } from './services/api.js';
+import { usePendingCandidates } from './composables/usePendingCandidates.js';
 import { SidebarNav } from './components/SidebarNav.js';
 import { ProjectModal } from './components/ProjectModal.js';
 import { DagDetailModal } from './components/DagDetailModal.js';
@@ -276,6 +277,10 @@ export const AppRoot = {
       commandCards: [],
       memory: [],
     });
+    const { pendingCandidates, sidebarBadges, refreshPendingCandidates } = usePendingCandidates(
+      () => (threadScopeCwd.value || '').toString().trim(),
+    );
+
     const memoryCenter = reactive({
       loading: false,
       error: '',
@@ -372,8 +377,11 @@ export const AppRoot = {
         const eventType = (evt?.type || evt?.params?.type || evt?.payload?.type || evt?.data?.type || '').toString().trim().toLowerCase();
         const method = (evt?.method || evt?.params?.method || evt?.payload?.method || evt?.data?.method || '').toString().trim().toLowerCase();
         const payload = evt?.payload || evt?.data || evt?.params || {};
-        if ((method === 'skills/changed' || eventType === 'skills/changed') && page.value === 'skills') {
-          refreshDashboardByPage('skills').catch((error) => { console.warn('refresh page failed: skills', error); });
+        if (method === 'skills/changed' || eventType === 'skills/changed') {
+          refreshPendingCandidates().catch(() => {});
+          if (page.value === 'skills') {
+            refreshDashboardByPage('skills').catch((error) => { console.warn('refresh page failed: skills', error); });
+          }
         }
         routeDagBridgeEvent(method, eventType, payload, { page, refreshDashboardByPage, dagDetail });
       });
@@ -402,6 +410,8 @@ export const AppRoot = {
         ensureThreadSelectionFresh(threadStore, threadStore.state.activeCmdThreadId, { reason: 'page-enter' }).catch(() => {});
       }
 
+      refreshPendingCandidates().catch(() => {});
+
       refreshTimer = setInterval(() => {
         threadStore.refreshSidebarState();
       }, REFRESH_INTERVAL_MS);
@@ -425,6 +435,7 @@ export const AppRoot = {
           });
           return;
         }
+        if (next === 'skills') refreshPendingCandidates().catch(() => {});
         refreshDashboardByPage(next).catch((error) => {
           console.warn(`refresh page failed: ${next}`, error);
         });
@@ -508,6 +519,9 @@ export const AppRoot = {
       windowCwd,
       activeProjectCwd,
       currentCwdDisplay,
+      sidebarBadges,
+      pendingCandidates,
+      refreshPendingCandidates,
       refreshBuildInfo,
       refreshDashboardByPage,
       refreshMemoryCenter,
@@ -518,7 +532,7 @@ export const AppRoot = {
   },
   template: `
     <div class="app-shell" data-testid="app-shell">
-      <SidebarNav :items="NAV_ITEMS" :page="page" @change="page = $event" />
+      <SidebarNav :items="NAV_ITEMS" :page="page" :badges="sidebarBadges" @change="page = $event" />
 
       <main id="content" :data-testid="'page-' + page">
 
@@ -558,7 +572,9 @@ export const AppRoot = {
           v-else-if="page === 'skills'"
           :skills="dashboard.skills"
           :project-store="projectStore"
+          :pending-candidates="pendingCandidates"
           @refresh-skills="refreshDashboardByPage('skills')"
+          @refresh-candidates="refreshPendingCandidates"
         />
 
         <CommandsPage

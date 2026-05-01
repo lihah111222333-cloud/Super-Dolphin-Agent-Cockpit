@@ -583,3 +583,58 @@
   opacity: 0.85;
   margin-bottom: 6px;
 }
+
+/* ── Candidate review ── */
+
+.skill-card-scope-pending {
+  background: color-mix(in srgb, #ef4444 15%, transparent);
+  color: #ef4444;
+  border-color: color-mix(in srgb, #ef4444 30%, transparent);
+}
+
+.skills-pending-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ef4444;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.skill-candidate-card {
+  border-left: 3px solid #ef4444;
+}
+
+.skill-candidate-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.skill-candidate-preview {
+  margin-top: 12px;
+  border: 1px solid var(--elevated);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.skill-candidate-preview-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--elevated);
+}
+
+.skill-candidate-preview-body {
+  padding: 12px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 400px;
+  overflow-y: auto;
+  color: var(--text);
+}

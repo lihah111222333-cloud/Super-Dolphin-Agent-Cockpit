@@ -2,6 +2,7 @@ import { computed, ref } from '../../lib/vue.esm-browser.prod.js';
 import { useSkillEditor } from '../composables/useSkillEditor.js';
 import { useSkillFileNavigation } from '../composables/useSkillFileNavigation.js';
 import { isSkillMainFilePath } from '../utils/skill-parser.js';
+import { approveCandidate, rejectCandidate, getCandidate } from '../services/skills-api.js';
 
 /** @typedef {{ name?: string, dir?: string, description?: string, summary?: string, trigger_words?: string[], force_words?: string[] }} SkillListItem */
 /** @typedef {{ name: string, dir: string, description: string, summary: string, triggerWords: string[], forceWords: string[] }} SkillCard */
@@ -19,8 +20,9 @@ export const SkillsPage = {
   props: {
     skills: { type: Array, default: () => [] },
     projectStore: { type: Object, default: null },
+    pendingCandidates: { type: Array, default: () => [] },
   },
-  emits: ['refresh-skills'],
+  emits: ['refresh-skills', 'refresh-candidates'],
   setup(props, { emit }) {
     const searchQuery = ref('');
     const scopeFilter = ref('all');
@@ -112,12 +114,67 @@ export const SkillsPage = {
       skillFiles: editor.skillFiles,
       sourcePath,
     });
+    const candidateActioning = ref(null);
+    const candidatePreview = ref(null);
+
+    function formatCandidateTime(ts) {
+      if (!ts) return '';
+      try { return new Date(ts).toLocaleString('zh-CN'); } catch { return ts; }
+    }
+
+    async function onApproveCandidate(item) {
+      candidateActioning.value = item.id;
+      try {
+        const cwd = (props.projectStore?.state?.active || '').toString().trim();
+        await approveCandidate(item.id, 'ui-user', '', cwd);
+        emit('refresh-candidates');
+        emit('refresh-skills');
+      } catch (e) {
+        console.warn('approve candidate failed', e);
+      } finally {
+        candidateActioning.value = null;
+      }
+    }
+
+    async function onRejectCandidate(item) {
+      candidateActioning.value = item.id;
+      try {
+        const cwd = (props.projectStore?.state?.active || '').toString().trim();
+        await rejectCandidate(item.id, '', cwd);
+        emit('refresh-candidates');
+      } catch (e) {
+        console.warn('reject candidate failed', e);
+      } finally {
+        candidateActioning.value = null;
+      }
+    }
+
+    async function onPreviewCandidate(item) {
+      try {
+        candidatePreview.value = await getCandidate(item.id);
+      } catch (e) {
+        console.warn('get candidate detail failed', e);
+        candidatePreview.value = null;
+      }
+    }
+
+    function closeCandidatePreview() {
+      candidatePreview.value = null;
+    }
+
     return {
       searchQuery,
       scopeFilter,
       scopeCounts,
       filteredSkillCards,
       skillCards,
+      candidateActioning,
+      candidatePreview,
+      formatCandidateTime,
+      onApproveCandidate,
+      onRejectCandidate,
+      onPreviewCandidate,
+      closeCandidatePreview,
       ...editor,
       ...fileNavigation,
     };
@@ -185,6 +242,18 @@ export const SkillsPage = {
                   <span>system</span>
                   <span class="skills-segmented-count">{{ scopeCounts.system }}</span>
                 </button>
+                <button
+                  type="button"
+                  class="skills-segmented-item"
+                  :class="{ active: scopeFilter === 'pending' }"
+                  data-testid="skills-scope-filter-pending"
+                  role="tab"
+                  @click="scopeFilter = 'pending'"
+                >
+                  <span class="skills-pending-dot" aria-hidden="true"></span>
+                  <span>待审批</span>
+                  <span class="skills-segmented-count">{{ pendingCandidates.length }}</span>
+                </button>
               </div>
               <div class="skills-segmented skills-import-scope" data-testid="skills-import-scope-group" role="group" aria-label="导入位置">
                 <span class="skills-segmented-label">导入位置</span>
@@ -200,7 +269,62 @@ export const SkillsPage = {
                 </label>
               </div>
             </div>
-            <div v-if="skillCards.length === 0" class="empty-state" data-testid="skills-empty-state">
+            <div v-if="scopeFilter === 'pending'" class="panel-body skills-list-panel" data-testid="candidates-panel">
+              <div v-if="pendingCandidates.length === 0" class="empty-state">
+                <h3>暂无待审批技能</h3>
+                <p>系统从你的反馈中提炼的技能候选会出现在这里。</p>
+              </div>
+              <div v-else class="skills-card-grid" data-testid="candidates-list">
+                <article
+                  v-for="item in pendingCandidates"
+                  :key="item.id"
+                  class="data-card-vue skill-card skill-candidate-card"
+                  :data-testid="'candidate-card-' + item.id"
+                >
+                  <div class="skill-card-header">
+                    <div class="skill-card-heading">
+                      <div class="skill-card-title">{{ item.slug }}</div>
+                      <div class="skill-card-path">{{ formatCandidateTime(item.created_at) }}</div>
+                    </div>
+                    <span class="skill-card-scope-tag skill-card-scope-pending">待审批</span>
+                  </div>
+                  <div class="skill-card-description">{{ item.scope }} scope</div>
+                  <div class="skill-candidate-actions">
+                    <button
+                      class="btn btn-primary btn-xs"
+                      :disabled="candidateActioning === item.id"
+                      :data-testid="'candidate-approve-' + item.id"
+                      @click="onApproveCandidate(item)"
+                    >
+                      {{ candidateActioning === item.id ? '处理中...' : '批准' }}
+                    </button>
+                    <button
+                      class="btn btn-ghost btn-xs btn-warning"
+                      :disabled="candidateActioning === item.id"
+                      :data-testid="'candidate-reject-' + item.id"
+                      @click="onRejectCandidate(item)"
+                    >
+                      拒绝
+                    </button>
+                    <button
+                      class="btn btn-ghost btn-xs"
+                      :data-testid="'candidate-preview-' + item.id"
+                      @click="onPreviewCandidate(item)"
+                    >
+                      预览
+                    </button>
+                  </div>
+                </article>
+              </div>
+              <div v-if="candidatePreview" class="skill-candidate-preview" data-testid="candidate-preview">
+                <div class="skill-candidate-preview-head">
+                  <strong>预览：{{ candidatePreview.slug }}</strong>
+                  <button class="btn btn-ghost btn-xs" @click="closeCandidatePreview">关闭</button>
+                </div>
+                <pre class="skill-candidate-preview-body">{{ candidatePreview.redacted_sample || '无内容' }}</pre>
+              </div>
+            </div>
+            <div v-else-if="skillCards.length === 0" class="empty-state" data-testid="skills-empty-state">
               <div class="es-icon skills-empty-icon">
                 <svg viewBox="0 0 24 24" width="32" height="32" aria-hidden="true">
                   <path fill="currentColor" d="M12 2 3 7v6c0 5 3.8 8.7 9 9 5.2-.3 9-4 9-9V7l-9-5zm0 2.2 7 3.9v4.9c0 4-2.9 6.9-7 7.2-4.1-.3-7-3.2-7-7.2V8.1l7-3.9zM11 8v4H7v2h4v4h2v-4h4v-2h-4V8h-2z"/>
