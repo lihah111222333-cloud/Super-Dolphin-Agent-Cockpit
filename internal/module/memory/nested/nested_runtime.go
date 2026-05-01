@@ -212,8 +212,6 @@ func (r *NestedRuntime) normalizeTrigger(buildCtx contract.BuildCtx, raw string)
 
 func (r *NestedRuntime) isDeniedTrigger(buildCtx contract.BuildCtx, path string) bool {
 	switch {
-	case r.deps.isAgentMemoryPath(path):
-		return true
 	case nestedContainsPath(r.deps.autoMemRoot(buildCtx), path):
 		return true
 	default:

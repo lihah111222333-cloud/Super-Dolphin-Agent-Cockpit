@@ -120,7 +120,6 @@ function browserInstaller({
       overview: {},
       private: { entries: [] },
       team: { entries: [] },
-      agentScopes: [],
     },
     threads: [],
     statuses: clone(asObject(source.statuses)) || {},
@@ -233,58 +232,6 @@ function browserInstaller({
       section.notice = section.notice || '当前目录下还没有可读的记忆条目。';
     }
     return { deleted: true };
-  }
-
-  function ensureAgentScope(scope) {
-    const scopeKey = (scope || 'project').toString().trim() || 'project';
-    const scopes = asArray(state.memoryCenter.agentScopes);
-    let item = scopes.find((entry) => (entry?.scope || '').toString().trim() === scopeKey);
-    if (!item) {
-      item = { scope: scopeKey, rootPath: '', notice: '', entries: [] };
-      scopes.push(item);
-      state.memoryCenter.agentScopes = scopes;
-    }
-    item.entries = clone(asArray(item.entries)) || [];
-    return item;
-  }
-
-  function getAgentEntry(scope, agentType) {
-    const scopeItem = ensureAgentScope(scope);
-    const normalizedAgentType = (agentType || '').toString().trim();
-    const index = scopeItem.entries.findIndex((item) => (item?.agentType || '').toString().trim() === normalizedAgentType);
-    return { scopeItem, index, entry: index >= 0 ? scopeItem.entries[index] : null };
-  }
-
-  function deleteAgentEntry(params) {
-    const agentType = (params.agentType || '').toString().trim();
-    const scope = (params.scope || 'project').toString().trim() || 'project';
-    if (!agentType) throw new Error('agentType is required');
-    const { scopeItem, index } = getAgentEntry(scope, agentType);
-    if (index >= 0) {
-      scopeItem.entries.splice(index, 1);
-    }
-    return { deleted: index >= 0 };
-  }
-
-  function saveAgentEntry(params) {
-    const normalizedAgentType = (params.agentType || '').toString().trim();
-    const content = (params.content || '').toString();
-    const scope = (params.scope || 'project').toString().trim() || 'project';
-    const { scopeItem, index } = getAgentEntry(scope, normalizedAgentType);
-    const next = {
-      agentType: normalizedAgentType,
-      path: `${normalizedAgentType}/MEMORY.md`,
-      content,
-      preview: memoryPreview(content),
-      updatedAt: isoClock(),
-    };
-    if (index >= 0) {
-      scopeItem.entries[index] = { ...scopeItem.entries[index], ...next };
-    } else {
-      scopeItem.entries.push(next);
-    }
-    scopeItem.notice = scopeItem.entries.length === 0 ? scopeItem.notice : '';
-    return clone(next);
   }
 
   function findSharedFile(path) {
@@ -642,32 +589,6 @@ function browserInstaller({
           return upsertMemoryEntry(params);
         case 'ui/memory/entry/delete':
           return deleteMemoryEntry(params);
-        case 'ui/memory/agent/get': {
-          const { entry } = getAgentEntry(params.scope, params.agentType);
-          if (!entry) {
-            return {
-              scope: (params.scope || 'project').toString(),
-              agentType: (params.agentType || '').toString(),
-              path: `${(params.agentType || '').toString().trim()}/MEMORY.md`,
-              content: '',
-              updatedAt: '',
-            };
-          }
-          return clone({
-            scope: (params.scope || 'project').toString(),
-            agentType: entry.agentType,
-            path: entry.path,
-            content: entry.content,
-            updatedAt: entry.updatedAt,
-          });
-        }
-        case 'ui/memory/agent/save':
-          return clone({
-            scope: (params.scope || 'project').toString(),
-            ...saveAgentEntry(params),
-          });
-        case 'ui/memory/agent/delete':
-          return clone(deleteAgentEntry(params));
         case 'ui/memory/shared-file/get': {
           const file = findSharedFile(params.path);
           if (!file) throw new Error(`shared file not found: ${params.path || ''}`);

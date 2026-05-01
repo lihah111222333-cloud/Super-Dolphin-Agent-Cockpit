@@ -94,6 +94,7 @@ type LaunchRequest struct {
 	AgentKey     string
 	MemoryScope  string
 	Cwd          string
+	Language     string
 	Command      []string
 	Env          []string
 }

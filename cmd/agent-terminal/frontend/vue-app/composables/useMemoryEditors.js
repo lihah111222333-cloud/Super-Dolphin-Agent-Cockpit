@@ -32,15 +32,6 @@ export function resetMemoryForm(form, target = 'private') {
   });
 }
 
-export function resetAgentForm(form, scope = 'project') {
-  Object.assign(form, {
-    scope,
-    agentType: '',
-    path: '',
-    content: '',
-  });
-}
-
 /**
  * Durable memory editor state + handlers (create / edit / save / delete / template fill).
  *
@@ -155,77 +146,6 @@ export function useDurableMemoryEditor({ currentCwd, setNotice, setBusy, emit })
   // Vue 3 only auto-unwraps refs that are returned directly from setup(); nested
   // refs inside a plain object require reactive() or explicit .value access.
   return reactive({ open, mode, saving, deleting, form, openCreate, openEdit, close, save, remove, fillTemplate });
-}
-
-/**
- * Agent-scoped MEMORY.md editor.
- */
-export function useAgentMemoryEditor({ currentCwd, setNotice, setBusy, emit }) {
-  const open = ref(false);
-  const saving = ref(false);
-  const form = reactive({});
-  resetAgentForm(form);
-
-  function openCreate(scope) {
-    resetAgentForm(form, scope || 'project');
-    open.value = true;
-  }
-
-  async function openEdit(scope, entry) {
-    const agentType = (entry?.agentType || '').toString().trim();
-    if (!agentType) return;
-    setBusy(`agent:${scope}:${agentType}`);
-    try {
-      const detail = await callAPI('ui/memory/agent/get', {
-        cwd: currentCwd.value,
-        scope,
-        agentType,
-      });
-      Object.assign(form, {
-        scope,
-        agentType: detail?.agentType || agentType,
-        path: detail?.path || '',
-        content: detail?.content || '',
-      });
-      open.value = true;
-    } catch (error) {
-      setNotice('error', `加载 Agent 记忆失败：${toErrorMessage(error)}`);
-    } finally {
-      setBusy('');
-    }
-  }
-
-  function close() {
-    open.value = false;
-    resetAgentForm(form, form.scope || 'project');
-  }
-
-  async function save() {
-    if (saving.value) return;
-    const agentType = (form.agentType || '').toString().trim();
-    if (!agentType) {
-      setNotice('error', '请先填写 Agent Type（例如：Writer）');
-      return;
-    }
-    saving.value = true;
-    try {
-      await callAPI('ui/memory/agent/save', {
-        cwd: currentCwd.value,
-        scope: form.scope,
-        agentType,
-        content: form.content,
-      });
-      close();
-      setNotice('info', 'Agent 记忆已保存。');
-      emit('refresh');
-    } catch (error) {
-      setNotice('error', `保存 Agent 记忆失败：${toErrorMessage(error)}`);
-    } finally {
-      saving.value = false;
-    }
-  }
-
-  return reactive({ open, saving, form, openCreate, openEdit, close, save });
 }
 
 /**

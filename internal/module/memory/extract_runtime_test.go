@@ -216,69 +216,6 @@ func TestMemoryLifecycleHooksFailureFreezesCursorUntilRetry(t *testing.T) {
 	}
 }
 
-func TestMemoryLifecycleHooksAgentMemoryPathExclusionDoesNotSuppressExtraction(t *testing.T) {
-	root := newTestMemoryRoot(t)
-	history := &mutableHistoryStub{
-		messages: []providerdto.Message{{Role: "user", Content: "Remember the worker-specific runbook."}},
-	}
-	hooks := newMemoryLifecycleHooks(
-		&Config{Enabled: true, ExtractOnStop: true, RootDir: root},
-		nil,
-		slog.New(slog.NewTextHandler(io.Discard, nil)),
-		history,
-		threadLookupStub{thread: &contract.ThreadMetadata{
-			ThreadID:       "thread-1",
-			ConfigOverride: mustStoredRuntimeConfig(t, map[string]any{"threadKind": "main"}),
-		}},
-		nil,
-		NewMemoryExtractor(),
-		NewManifestBuilder(),
-	)
-	manager := NewAgentMemoryManager(&Config{RootDir: root})
-	agentPath, err := manager.GetAgentMemoryEntrypoint("Worker", MemoryScopeUser)
-	if err != nil {
-		t.Fatalf("GetAgentMemoryEntrypoint() error = %v", err)
-	}
-
-	started := make(chan int, 1)
-	var mu sync.Mutex
-	calls := 0
-	prompts := make([]string, 0, 1)
-	hooks.extractFn = func(_ context.Context, prompt string) (string, error) {
-		mu.Lock()
-		calls++
-		prompts = append(prompts, prompt)
-		mu.Unlock()
-		started <- 1
-		return `{"memories":[{"content":"Remember the worker-specific runbook.","type":"project"}]}`, nil
-	}
-
-	hooks.onTurnStarted(turnStartedEvent("thread-1", "turn-1"))
-	hooks.onToolCallBegin(toolCallBeginEvent("thread-1", "turn-1", "call-1"))
-	hooks.onToolDiffUpdated(tooldto.ToolDiffUpdated{
-		ThreadID: "thread-1",
-		CallID:   "call-1",
-		Files:    []string{agentPath},
-	})
-	hooks.onTurnCompleted(context.Background(), turnCompletedEvent("thread-1", "turn-1"))
-	waitForStartedCall(t, started, 1)
-	if err := hooks.DrainPendingExtraction(context.Background()); err != nil {
-		t.Fatalf("DrainPendingExtraction() error = %v", err)
-	}
-	waitForCursor(t, hooks, "thread-1", 1)
-
-	mu.Lock()
-	gotCalls := calls
-	gotPrompts := append([]string(nil), prompts...)
-	mu.Unlock()
-	if gotCalls != 1 {
-		t.Fatalf("extractFn calls = %d, want 1", gotCalls)
-	}
-	if len(gotPrompts) != 1 || !strings.Contains(gotPrompts[0], "worker-specific runbook") {
-		t.Fatalf("extract prompt = %#v, want transcript content", gotPrompts)
-	}
-}
-
 func TestMemoryLifecycleHooksExtractAndSaveInvalidatesPromptSections(t *testing.T) {
 	root := newTestMemoryRoot(t)
 	invalidator := &sectionInvalidatorStub{}

@@ -66,17 +66,14 @@ func TestNestedRuntimeHardDeniesManagedRoots(t *testing.T) {
 	projectRoot := filepath.Join(base, "repo")
 	autoRoot := filepath.Join(base, "automem")
 	teamRoot := filepath.Join(autoRoot, "team")
-	agentRoot := filepath.Join(base, "agent", "worker")
 	deps := newTestDependencies(testDepsOptions{
-		autoMemRoot:       autoRoot,
-		teamRoot:          teamRoot,
-		isAgentMemoryPath: underRoot(agentRoot),
+		autoMemRoot: autoRoot,
+		teamRoot:    teamRoot,
 	})
 	runtime := NewNestedRuntime(deps)
 	buildCtx := contract.BuildCtx{GitRoot: projectRoot, CWD: projectRoot}
 	runtime.AddTriggers("thread-1", buildCtx, []string{
 		filepath.Join(autoRoot, "project.md"),
-		filepath.Join(agentRoot, "MEMORY.md"),
 		filepath.Join(teamRoot, "shared.md"),
 	})
 	if got := runtime.ConsumePending("thread-1", buildCtx); len(got) != 0 {
@@ -143,13 +140,6 @@ func TestNestedRuntimeAddsReadToolTriggersFromToolResult(t *testing.T) {
 	want := filepath.Join(buildCtx.CWD, "src", "main.go")
 	if len(pending) != 1 || pending[0] != want {
 		t.Fatalf("ConsumePending(read tool) = %#v, want [%q]", pending, want)
-	}
-}
-
-func underRoot(root string) func(string) bool {
-	root = cleanClaudeMdPath(root)
-	return func(path string) bool {
-		return nestedContainsPath(root, path)
 	}
 }
 

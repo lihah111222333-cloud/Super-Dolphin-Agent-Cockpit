@@ -13,6 +13,13 @@ type memoryReadInput struct {
 	Type  string `json:"type,omitempty"`
 }
 
+type memoryWriteInput struct {
+	Name        string `json:"name"`
+	Content     string `json:"content"`
+	Type        string `json:"type,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
 func HandleMemoryRead(svc contract.MemoryService) ToolHandler {
 	return makeHandler(svc, "memory service", func(ctx context.Context, in memoryReadInput) (contract.MemoryReadResult, error) {
 		return svc.Read(ctx, contract.MemoryReadRequest{
@@ -20,6 +27,21 @@ func HandleMemoryRead(svc contract.MemoryService) ToolHandler {
 			Path:  in.Path,
 			Scope: contract.ParseMemoryScope(in.Scope),
 			Type:  contract.ParseMemoryType(in.Type),
+		})
+	})
+}
+
+func HandleMemoryWrite(svc contract.MemoryService) ToolHandler {
+	return makeHandler(svc, "memory service", func(ctx context.Context, in memoryWriteInput) (contract.MemoryWriteResult, error) {
+		memType := contract.ParseMemoryType(in.Type)
+		if !memType.IsKnown() {
+			memType = contract.MemoryTypeFeedback
+		}
+		return svc.Write(ctx, contract.MemoryWriteRequest{
+			Name:        in.Name,
+			Content:     in.Content,
+			Type:        memType,
+			Description: in.Description,
 		})
 	})
 }
@@ -32,5 +54,11 @@ func memoryToolDefinitions(svc contract.MemoryService) []ToolDefinition {
 			"scope": EnumStringSchema("Memory scope.", "project", "user", "local"),
 			"type":  EnumStringSchema("Optional memory type filter.", "user", "feedback", "project", "reference"),
 		}), HandleMemoryRead(svc)),
+		defineTool("memory_write", "Save a memory entry. Use when you detect user preferences, corrections, decisions, or project context worth remembering.", ObjectSchema(map[string]Schema{
+			"name":        StringSchema("Short descriptive name for the memory entry."),
+			"content":     StringSchema("Memory content. For feedback/project types, include Why: and How to apply: sections."),
+			"type":        EnumStringSchema("Memory type.", "feedback", "project"),
+			"description": StringSchema("Optional one-line description (auto-generated from content if omitted)."),
+		}, "name", "content"), HandleMemoryWrite(svc)),
 	)
 }

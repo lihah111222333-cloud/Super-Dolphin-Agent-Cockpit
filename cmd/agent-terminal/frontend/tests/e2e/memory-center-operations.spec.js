@@ -44,23 +44,6 @@ test('memory center supports durable CRUD, agent memory save, and shared-file pr
         indexPath: '/tmp/memory/private/team/MEMORY.md',
         entries: [],
       },
-      agentScopes: [
-        {
-          scope: 'project',
-          rootPath: '/workspace/project-alpha/.claude/agent-memory',
-          entries: [],
-        },
-        {
-          scope: 'user',
-          rootPath: '/Users/test/.multi-agent/memory/agent-memory',
-          entries: [],
-        },
-        {
-          scope: 'local',
-          rootPath: '/workspace/project-alpha/.claude/agent-memory-local',
-          entries: [],
-        },
-      ],
     },
   });
 
@@ -69,27 +52,19 @@ test('memory center supports durable CRUD, agent memory save, and shared-file pr
   await page.getByTestId('nav-memory-center').click();
   await expect(page.getByTestId('memory-center-page')).toBeVisible();
 
-  await page.getByTestId('memory-center-private-create').click();
-  await page.getByTestId('memory-center-editor-type').selectOption('reference');
+  await page.getByTestId('memory-center-project-create').click();
   await page.getByTestId('memory-center-editor-name').fill('Release owner');
   await page.getByTestId('memory-center-editor-description').fill('Who owns production release decisions');
   await page.getByTestId('memory-center-editor-content').fill('Primary source is the production release runbook.');
   await page.getByTestId('memory-center-editor-save').click();
   await expect(page.getByTestId('memory-center-notice')).toContainText('durable memory 已保存');
-  await expect(page.getByTestId('memory-center-private-list')).toContainText('Release owner');
+  await expect(page.getByTestId('memory-center-project-list')).toContainText('Release owner');
 
-  await page.getByTestId('memory-center-private-edit-0').click();
+  await page.getByTestId('memory-center-project-edit-0').click();
   await expect(page.getByTestId('memory-center-editor')).toBeVisible();
   await page.getByTestId('memory-center-editor-delete').click();
   await expect(page.getByTestId('memory-center-notice')).toContainText('durable memory 已删除');
-  await expect(page.getByTestId('memory-center-private-empty')).toBeVisible();
-
-  await page.getByTestId('memory-center-agent-create-project').click();
-  await page.getByTestId('memory-center-agent-type').fill('Writer');
-  await page.getByTestId('memory-center-agent-content').fill('Remember the regression checklist for UI work.');
-  await page.getByTestId('memory-center-agent-save').click();
-  await expect(page.getByTestId('memory-center-notice')).toContainText('Agent 记忆已保存');
-  await expect(page.getByTestId('memory-center-agent-scopes')).toContainText('Writer');
+  await expect(page.getByTestId('memory-center-project-empty')).toBeVisible();
 
   await page.getByTestId('nav-memory').click();
   await expect(page.getByTestId('shared-files-page')).toBeVisible();
@@ -100,5 +75,5 @@ test('memory center supports durable CRUD, agent memory save, and shared-file pr
   await expect(page.getByTestId('shared-files-notice')).toContainText('已从共享文件创建 durable memory');
 
   await page.getByTestId('nav-memory-center').click();
-  await expect(page.getByTestId('memory-center-private-list')).toContainText('Core Grafana Dashboard');
+  await expect(page.getByTestId('memory-center-project-list')).toContainText('Core Grafana Dashboard');
 });

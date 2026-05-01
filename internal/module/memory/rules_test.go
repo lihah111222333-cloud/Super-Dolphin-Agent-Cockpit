@@ -37,10 +37,11 @@ func TestBuildMemoryLinesIncludesDeterministicCompleteSections(t *testing.T) {
 		"### 2. taxonomy",
 		"### 3. exclusions",
 		"### 4. save rules",
-		"### 5. access rules",
-		"### 6. trust rules",
-		"### 7. memory vs plan/tasks",
-		"### 8. searching past context",
+		"### 5. auto-detect signals",
+		"### 6. access rules",
+		"### 7. trust rules",
+		"### 8. memory vs plan/tasks",
+		"### 9. searching past context",
 	}
 	last := -1
 	for _, heading := range orderedHeadings {
@@ -88,7 +89,7 @@ func TestBuildMemoryLinesSkipIndexAndExtraGuidelines(t *testing.T) {
 	if !strings.Contains(text, "When `skipIndex` is enabled, write or update the topic file only") {
 		t.Fatalf("skipIndex rule missing from prompt:\n%s", text)
 	}
-	extraIndex := strings.Index(text, "### 8. extra guidelines")
+	extraIndex := strings.Index(text, "### 9. extra guidelines")
 	if extraIndex == -1 {
 		t.Fatalf("extra guidelines section missing from prompt:\n%s", text)
 	}
@@ -98,7 +99,7 @@ func TestBuildMemoryLinesSkipIndexAndExtraGuidelines(t *testing.T) {
 			t.Fatalf("extra guidelines section missing %q", snippet)
 		}
 	}
-	searchIndex := strings.Index(text, "### 9. searching past context")
+	searchIndex := strings.Index(text, "### 10. searching past context")
 	if searchIndex == -1 {
 		t.Fatalf("searching past context section missing from prompt:\n%s", text)
 	}
@@ -207,85 +208,6 @@ func TestMemoryRulesProviderRegistersStartOnlyDynamicSection(t *testing.T) {
 	}
 	if strings.Contains(turn.UserContextText, "### 1. memory system") {
 		t.Fatalf("UserContextText unexpectedly contains memory dynamic section:\n%s", turn.UserContextText)
-	}
-}
-
-func TestChildAgentStartUsesDedicatedAgentMemoryPrompt(t *testing.T) {
-	cfg := &Config{Enabled: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}
-	manager := NewAgentMemoryManager(cfg)
-	dir, err := manager.GetAgentMemoryDir("Worker", MemoryScopeProject)
-	if err != nil {
-		t.Fatalf("GetAgentMemoryDir() error = %v", err)
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("MkdirAll(%q) error = %v", dir, err)
-	}
-	const body = "Remember the preferred verification workflow."
-	if err := os.WriteFile(memoryIndexPath(dir), []byte(body), 0o644); err != nil {
-		t.Fatalf("WriteFile(MEMORY.md) error = %v", err)
-	}
-
-	newAssembly := func() prompt.Service {
-		svc := prompt.NewService(&prompt.Config{}, nil)
-		if err := registerPromptProviders(promptProviderParams{
-			Registry:      svc,
-			Provider:      NewRulesProvider(cfg, NewMemoryRuleEngine(), nil),
-			AgentProvider: NewAgentMemoryPromptProvider(cfg, manager, nil).inner,
-		}); err != nil {
-			t.Fatalf("registerPromptProviders() error = %v", err)
-		}
-		return svc
-	}
-
-	rootStart, err := newAssembly().AssembleStart(context.Background(), prompt.StartInput{})
-	if err != nil {
-		t.Fatalf("AssembleStart(root) error = %v", err)
-	}
-	if !strings.Contains(rootStart.BaseInstructions, "## "+prompt.DynamicSectionMemory) {
-		t.Fatalf("root BaseInstructions missing standard memory section:\n%s", rootStart.BaseInstructions)
-	}
-
-	childStart, err := newAssembly().AssembleStart(context.Background(), prompt.StartInput{
-		ParentAgentID:    "agent-root",
-		AgentType:        "Worker",
-		AgentMemoryScope: string(MemoryScopeProject),
-		Name:             "Worker",
-	})
-	if err != nil {
-		t.Fatalf("AssembleStart(child) error = %v", err)
-	}
-	if !strings.Contains(childStart.BaseInstructions, body) {
-		t.Fatalf("child BaseInstructions missing agent memory body:\n%s", childStart.BaseInstructions)
-	}
-	if strings.Contains(childStart.BaseInstructions, "## "+prompt.DynamicSectionMemory) {
-		t.Fatalf("child BaseInstructions unexpectedly reused root memory rules:\n%s", childStart.BaseInstructions)
-	}
-}
-
-func TestAgentMemoryPromptProviderEnsuresProjectScopeDir(t *testing.T) {
-	cfg := &Config{Enabled: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}
-	manager := NewAgentMemoryManager(cfg)
-	provider := NewAgentMemoryPromptProvider(cfg, manager, nil)
-
-	text, err := provider.Resolve(context.Background(), prompt.SectionContext{Start: &prompt.StartInput{
-		ParentAgentID:    "agent-root",
-		AgentType:        "Worker",
-		AgentMemoryScope: string(MemoryScopeProject),
-	}})
-	if err != nil {
-		t.Fatalf("Resolve() error = %v", err)
-	}
-	// emptyAgentMemoryPrompt lives in the agent subpackage now; assert on a
-	// stable substring of its rendered placeholder text instead.
-	if text == nil || !strings.Contains(*text, "Your MEMORY.md is currently empty") {
-		t.Fatalf("Resolve() = %#v, want empty agent-memory placeholder", text)
-	}
-	dir, err := manager.GetAgentMemoryDir("Worker", MemoryScopeProject)
-	if err != nil {
-		t.Fatalf("GetAgentMemoryDir() error = %v", err)
-	}
-	if _, err := os.Stat(dir); err != nil {
-		t.Fatalf("Stat(%q) error = %v", dir, err)
 	}
 }
 

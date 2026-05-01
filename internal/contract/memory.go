@@ -105,6 +105,20 @@ type MemoryReadResult struct {
 	Source     string       `json:"source,omitempty"`
 }
 
+type MemoryWriteRequest struct {
+	Name        string
+	Description string
+	Content     string
+	Type        MemoryType
+	Scope       MemoryScope
+}
+
+type MemoryWriteResult struct {
+	Path    string `json:"path"`
+	Skipped bool   `json:"skipped"`
+}
+
 type MemoryService interface {
 	Read(ctx context.Context, req MemoryReadRequest) (MemoryReadResult, error)
+	Write(ctx context.Context, req MemoryWriteRequest) (MemoryWriteResult, error)
 }

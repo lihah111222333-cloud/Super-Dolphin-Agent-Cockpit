@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -109,6 +110,158 @@ func writeMemoryFixture(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile(%q) error = %v", path, err)
 	}
+}
+
+func TestServiceWriteCreatesEntryAndUpdatesIndex(t *testing.T) {
+	svc := newTestMemoryService(t)
+	root := userScopeFixtureRoot(t)
+
+	// Write a feedback memory
+	result, err := svc.Write(context.Background(), contract.MemoryWriteRequest{
+		Name:    "use-chinese",
+		Content: "面向用户的正文一律用中文。commit message 用中文。代码保持英文。",
+		Type:    contract.MemoryTypeFeedback,
+		Scope:   contract.MemoryScopeUser,
+	})
+	if err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if result.Path == "" {
+		t.Fatal("Write() returned empty path")
+	}
+
+	// Verify file exists on disk
+	fullPath := filepath.Join(root, result.Path)
+	data, err := os.ReadFile(fullPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", fullPath, err)
+	}
+	content := string(data)
+	// Check frontmatter
+	if !containsAll(content, "name:", "type:", "feedback", "source: \"explicit\"") {
+		t.Fatalf("file missing expected frontmatter:\n%s", content)
+	}
+	// Check body content
+	if !containsAll(content, "面向用户", "commit message") {
+		t.Fatalf("file missing expected body content:\n%s", content)
+	}
+	// Check auto-added structured sections
+	if !containsAll(content, "Why:", "How to apply:") {
+		t.Fatalf("file missing auto-added Why/How to apply sections:\n%s", content)
+	}
+
+	// Verify MEMORY.md index updated
+	indexData, err := os.ReadFile(filepath.Join(root, memoryIndexFileName))
+	if err != nil {
+		t.Fatalf("ReadFile(MEMORY.md) error = %v", err)
+	}
+	if !strings.Contains(string(indexData), "use-chinese") {
+		t.Fatalf("MEMORY.md index missing entry:\n%s", string(indexData))
+	}
+
+	// Verify round-trip: read it back
+	readResult, err := svc.Read(context.Background(), contract.MemoryReadRequest{
+		Name:  "use-chinese",
+		Scope: contract.MemoryScopeUser,
+	})
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	if readResult.Entry == nil {
+		t.Fatal("Read() returned nil entry")
+	}
+	if readResult.Entry.Name != "use-chinese" {
+		t.Fatalf("Read().Name = %q, want %q", readResult.Entry.Name, "use-chinese")
+	}
+}
+
+func TestServiceWriteDeduplicatesSameName(t *testing.T) {
+	svc := newTestMemoryService(t)
+
+	// Write first version
+	r1, err := svc.Write(context.Background(), contract.MemoryWriteRequest{
+		Name:    "test-rule",
+		Content: "原始内容",
+		Type:    contract.MemoryTypeFeedback,
+		Scope:   contract.MemoryScopeUser,
+	})
+	if err != nil {
+		t.Fatalf("Write(1) error = %v", err)
+	}
+
+	// Write second version with same name
+	r2, err := svc.Write(context.Background(), contract.MemoryWriteRequest{
+		Name:    "test-rule",
+		Content: "更新后的内容",
+		Type:    contract.MemoryTypeFeedback,
+		Scope:   contract.MemoryScopeUser,
+	})
+	if err != nil {
+		t.Fatalf("Write(2) error = %v", err)
+	}
+
+	// Should write to same path (update, not duplicate)
+	if r1.Path != r2.Path {
+		t.Fatalf("second Write created new file: %q != %q", r1.Path, r2.Path)
+	}
+
+	// Read back should have new content
+	root := userScopeFixtureRoot(t)
+	data, err := os.ReadFile(filepath.Join(root, r2.Path))
+	if err != nil {
+		t.Fatalf("ReadFile error = %v", err)
+	}
+	if !strings.Contains(string(data), "更新后的内容") {
+		t.Fatalf("file has old content:\n%s", string(data))
+	}
+}
+
+func TestServiceWriteProjectType(t *testing.T) {
+	svc := newTestMemoryService(t)
+
+	result, err := svc.Write(context.Background(), contract.MemoryWriteRequest{
+		Name:    "tech-stack",
+		Content: "我们用的是 PostgreSQL 不是 MySQL。CI 跑在 GitHub Actions。",
+		Type:    contract.MemoryTypeProject,
+		Scope:   contract.MemoryScopeUser,
+	})
+	if err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if result.Path == "" {
+		t.Fatal("Write() returned empty path")
+	}
+	// Verify type is project
+	root := userScopeFixtureRoot(t)
+	data, err := os.ReadFile(filepath.Join(root, result.Path))
+	if err != nil {
+		t.Fatalf("ReadFile error = %v", err)
+	}
+	if !strings.Contains(string(data), "project") {
+		t.Fatalf("file missing project type:\n%s", string(data))
+	}
+}
+
+func TestServiceWriteEmptyNameReturnsError(t *testing.T) {
+	svc := newTestMemoryService(t)
+	_, err := svc.Write(context.Background(), contract.MemoryWriteRequest{
+		Name:    "",
+		Content: "some content",
+		Type:    contract.MemoryTypeFeedback,
+		Scope:   contract.MemoryScopeUser,
+	})
+	if err == nil {
+		t.Fatal("Write() with empty name should return error")
+	}
+}
+
+func containsAll(s string, substrs ...string) bool {
+	for _, sub := range substrs {
+		if !strings.Contains(s, sub) {
+			return false
+		}
+	}
+	return true
 }
 
 func assertMemoryEntry(t *testing.T, result contract.MemoryReadResult, want contract.MemoryEntry) {
