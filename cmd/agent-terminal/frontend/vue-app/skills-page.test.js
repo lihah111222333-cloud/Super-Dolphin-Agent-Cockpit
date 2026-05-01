@@ -91,6 +91,9 @@ describe('SkillsPage', () => {
       isEditingMainSkillFile: expect.anything(),
       skillBodyMarkdownHtml: expect.anything(),
       onDeleteSkill: expect.any(Function),
+      confirmSkillDelete: expect.any(Function),
+      cancelSkillDelete: expect.any(Function),
+      confirmDeleteTarget: expect.anything(),
       onCreateSkill: expect.any(Function),
       importScope: expect.anything(),
     }));
@@ -528,7 +531,10 @@ describe('SkillsPage', () => {
     vm.activeSkillFilePath.value = '/skills/deploy/SKILL.md';
     vm.isEditorOpen.value = true;
 
-    await vm.onDeleteSkill({ name: 'DeploySkill' });
+    vm.onDeleteSkill({ name: 'DeploySkill' });
+    expect(vm.confirmDeleteTarget.value).toEqual({ name: 'DeploySkill' });
+
+    await vm.confirmSkillDelete();
 
     expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/delete', { name: 'DeploySkill', cwd: '/repo' });
     expect(emit).toHaveBeenCalledWith('refresh-skills');
@@ -539,12 +545,15 @@ describe('SkillsPage', () => {
     expect(vm.notice.message).toContain('技能已删除');
   });
 
-  it('aborts deletion when the user cancels confirmation', async () => {
+  it('aborts deletion when the user cancels confirmation', () => {
     const { vm } = createSkillsPage();
-    globalThis.window.confirm = vi.fn(() => false);
 
-    await vm.onDeleteSkill({ name: 'DeploySkill' });
+    vm.onDeleteSkill({ name: 'DeploySkill' });
+    expect(vm.confirmDeleteTarget.value).toEqual({ name: 'DeploySkill' });
 
+    vm.cancelSkillDelete();
+
+    expect(vm.confirmDeleteTarget.value).toBe(null);
     expect(apiMock.callAPI).not.toHaveBeenCalled();
     expect(vm.deletingSkillName.value).toBe('');
   });
@@ -554,7 +563,8 @@ describe('SkillsPage', () => {
     const { vm } = createSkillsPage({}, emit);
     apiMock.callAPI.mockRejectedValueOnce(new Error('delete failed'));
 
-    await vm.onDeleteSkill({ name: 'DeploySkill' });
+    vm.onDeleteSkill({ name: 'DeploySkill' });
+    await vm.confirmSkillDelete();
 
     expect(vm.deletingSkillName.value).toBe('');
     expect(vm.notice.level).toBe('error');
