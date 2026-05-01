@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/dedup"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2/handler"
 )
@@ -74,6 +76,9 @@ func registerUIMemoryMutationHandlers(p memoryHandlerDeps) handler.Map {
 		}),
 		"ui/memory/auto-dream/set-intent": rpc.StrictHandler(func(ctx context.Context, req uiAutoDreamIntentParams) (map[string]any, error) {
 			return setAutoDreamIntent(ctx, p, req)
+		}),
+		"ui/memory/entry/merge": rpc.StrictHandler(func(ctx context.Context, req uiMemoryEntryMergeParams) (UIMemoryEntryDetail, error) {
+			return mergeUIMemoryEntries(ctx, p, req)
 		}),
 	}
 	for name, item := range registerAutoContinueStateHandlers(p) {
@@ -183,6 +188,17 @@ func deleteUIMemoryEntry(ctx context.Context, deps memoryHandlerDeps, req uiMemo
 	}
 	invalidateDurableMemorySections(deps.Sections)
 	return nil
+}
+
+func deleteAbsorbedEntry(logger *slog.Logger, root, target, name string) {
+	store, err := newDiskStore(root)
+	if err != nil {
+		logger.Warn("merge_delete_open_store_failed", "target", target, "name", name, "error", err)
+		return
+	}
+	if err := store.Delete(name); err != nil {
+		logger.Warn("merge_delete_absorbed_entry_failed", "target", target, "name", name, "error", err)
+	}
 }
 
 func resolveUIMemoryTargetRoot(ctx context.Context, svc Service, cwd, rawTarget string) (string, string, error) {
@@ -296,4 +312,79 @@ func invalidateDurableMemorySections(invalidator contract.SectionInvalidator) {
 		contract.DynamicSectionMemoryContext,
 		contract.DynamicSectionMemoryEntrypoint,
 	)
+}
+
+type uiMemoryEntryMergeParams struct {
+	CWD     string `json:"cwd,omitempty"`
+	TargetA string `json:"targetA"` // "private" or "team"
+	PathA   string `json:"pathA"`   // kept entry
+	TargetB string `json:"targetB"`
+	PathB   string `json:"pathB"` // absorbed entry (deleted after merge)
+}
+
+func mergeUIMemoryEntries(ctx context.Context, deps memoryHandlerDeps, req uiMemoryEntryMergeParams) (UIMemoryEntryDetail, error) {
+	// 1. Resolve roots for both entries
+	rootA, targetA, err := resolveUIMemoryTargetRoot(ctx, deps.Service, req.CWD, req.TargetA)
+	if err != nil {
+		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "merge_resolve_root_a",
+			errDurableMemorySaveFailed, err, "target", req.TargetA)
+	}
+	rootB, targetB, err := resolveUIMemoryTargetRoot(ctx, deps.Service, req.CWD, req.TargetB)
+	if err != nil {
+		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "merge_resolve_root_b",
+			errDurableMemorySaveFailed, err, "target", req.TargetB)
+	}
+
+	// 2. Read both entries
+	entryA, _, err := readUIMemoryEntryByPath(rootA, targetA, req.PathA)
+	if err != nil {
+		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "merge_read_a",
+			errDurableMemoryReadFailed, err, "target", targetA, "path", req.PathA)
+	}
+	entryB, _, err := readUIMemoryEntryByPath(rootB, targetB, req.PathB)
+	if err != nil {
+		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "merge_read_b",
+			errDurableMemoryReadFailed, err, "target", targetB, "path", req.PathB)
+	}
+
+	// 3. Merge content using dedup
+	mergedContent := dedup.MergeContent(string(entryA.Type()), entryA.Content, entryB.Content)
+
+	// Take longer description
+	mergedDesc := entryA.Frontmatter.Description
+	if len(entryB.Frontmatter.Description) > len(mergedDesc) {
+		mergedDesc = entryB.Frontmatter.Description
+	}
+
+	// 4. Build write request and update entry A
+	writeReq := MemoryWriteRequest{
+		Name:        entryA.Frontmatter.Name,
+		Description: mergedDesc,
+		Type:        ParseMemoryType(string(entryA.Type())),
+		Body:        mergedContent,
+	}
+
+	storeA, err := newDiskStore(rootA)
+	if err != nil {
+		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "merge_open_store_a",
+			errDurableMemorySaveFailed, err, "target", targetA)
+	}
+	if _, err := storeA.UpdateStructured(writeReq); err != nil {
+		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "merge_write_a",
+			errDurableMemorySaveFailed, err, "target", targetA, "name", writeReq.Name)
+	}
+
+	// 5. Delete entry B (non-fatal)
+	deleteAbsorbedEntry(deps.Logger, rootB, targetB, entryB.Frontmatter.Name)
+
+	// 6. Invalidate sections
+	invalidateDurableMemorySections(deps.Sections)
+
+	// 7. Read back merged entry and return
+	merged, mergedPath, err := readUIMemoryEntryByName(rootA, entryA.Frontmatter.Name)
+	if err != nil {
+		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "merge_read_back",
+			errDurableMemoryReadFailed, err, "target", targetA, "name", writeReq.Name)
+	}
+	return toUIMemoryEntryDetail(targetA, rootA, mergedPath, merged), nil
 }

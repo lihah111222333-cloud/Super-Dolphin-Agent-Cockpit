@@ -87,7 +87,7 @@ const EMPTY_MEMORY_CENTER = Object.freeze({
 
 const SHARED_FILES_TIPS = Object.freeze([
   '适合放命令输出摘录、待整理笔记、交接清单。',
-  '确认值得长期保留的内容，请转到“记忆中心”查看真正的 durable memory 与 Agent 记忆。',
+  '确认值得长期保留的内容，请转到“记忆中心”查看长期记忆。',
 ]);
 
 function resetMemoryCenterState(state) {

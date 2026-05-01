@@ -12,6 +12,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2/handler"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/dedup"
 	memshared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 )
 
@@ -28,15 +29,16 @@ type UIMemorySnapshot struct {
 }
 
 type UIMemoryOverview struct {
-	Enabled             bool   `json:"enabled"`
-	ToolsEnabled        bool   `json:"toolsEnabled"`
-	AutoDreamEnabled    bool   `json:"autoDreamEnabled"`
-	AutoDreamIntent     *bool  `json:"autoDreamIntent,omitempty"`
-	RootDir             string `json:"rootDir,omitempty"`
-	ProjectRoot         string `json:"projectRoot,omitempty"`
-	PrivateRoot         string `json:"privateRoot,omitempty"`
-	AutoMemPathOverride string `json:"autoMemPathOverride,omitempty"`
-	TeamFeatureEnabled  bool   `json:"teamFeatureEnabled"`
+	Enabled             bool            `json:"enabled"`
+	ToolsEnabled        bool            `json:"toolsEnabled"`
+	AutoDreamEnabled    bool            `json:"autoDreamEnabled"`
+	AutoDreamIntent     *bool           `json:"autoDreamIntent,omitempty"`
+	RootDir             string          `json:"rootDir,omitempty"`
+	ProjectRoot         string          `json:"projectRoot,omitempty"`
+	PrivateRoot         string          `json:"privateRoot,omitempty"`
+	AutoMemPathOverride string          `json:"autoMemPathOverride,omitempty"`
+	TeamFeatureEnabled  bool            `json:"teamFeatureEnabled"`
+	Health              *UIMemoryHealth `json:"health,omitempty"`
 }
 
 type UIMemoryScopeSection struct {
@@ -56,6 +58,23 @@ type UIMemoryEntry struct {
 	Preview     string    `json:"preview,omitempty"`
 	// Source 透传记忆条目的来源标记（如 "dream"），UI 据此渲染徽章。
 	Source string `json:"source,omitempty"`
+}
+
+type UIMemoryHealth struct {
+	PreferenceCount int              `json:"preferenceCount"`
+	ProjectCount    int              `json:"projectCount"`
+	MaxPerCategory  int              `json:"maxPerCategory"`
+	SimilarGroups   []UISimilarGroup `json:"similarGroups,omitempty"`
+}
+
+type UISimilarGroup struct {
+	NameA   string  `json:"nameA"`
+	NameB   string  `json:"nameB"`
+	PathA   string  `json:"pathA"`
+	PathB   string  `json:"pathB"`
+	TargetA string  `json:"targetA"`
+	TargetB string  `json:"targetB"`
+	Score   float64 `json:"score"`
 }
 
 func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger, cwd string) (UIMemorySnapshot, error) {
@@ -87,6 +106,8 @@ func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger
 		teamSection = loadUIMemoryScope(logger, "Team durable memory", teamRoot, err, false)
 	}
 
+	health := computeUIMemoryHealth(privateSection.Entries, teamSection.Entries)
+
 	return UIMemorySnapshot{
 		Overview: UIMemoryOverview{
 			Enabled:             cfg.Enabled,
@@ -98,10 +119,58 @@ func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger
 			PrivateRoot:         strings.TrimSpace(privateRoot),
 			AutoMemPathOverride: strings.TrimSpace(cfg.AutoMemPathOverride),
 			TeamFeatureEnabled:  cfg.Features.TeamMemory,
+			Health:              health,
 		},
 		Private: privateSection,
 		Team:    teamSection,
 	}, nil
+}
+
+func computeUIMemoryHealth(privateEntries, teamEntries []UIMemoryEntry) *UIMemoryHealth {
+	var prefCount, projCount int
+	snapshots := make([]dedup.EntrySnapshot, 0, len(privateEntries)+len(teamEntries))
+	for _, e := range privateEntries {
+		countByCategory(e.Type, &prefCount, &projCount)
+		snapshots = append(snapshots, toEntrySnapshot(e, "private"))
+	}
+	for _, e := range teamEntries {
+		countByCategory(e.Type, &prefCount, &projCount)
+		snapshots = append(snapshots, toEntrySnapshot(e, "team"))
+	}
+	health := &UIMemoryHealth{
+		PreferenceCount: prefCount,
+		ProjectCount:    projCount,
+		MaxPerCategory:  dedup.MaxEntriesPerType,
+	}
+	if pairs := dedup.FindSimilarPairs(snapshots); len(pairs) > 0 {
+		groups := make([]UISimilarGroup, 0, len(pairs))
+		for _, p := range pairs {
+			groups = append(groups, UISimilarGroup{
+				NameA: p.NameA, NameB: p.NameB,
+				PathA: p.PathA, PathB: p.PathB,
+				TargetA: p.ScopeA, TargetB: p.ScopeB,
+				Score: p.Score,
+			})
+		}
+		health.SimilarGroups = groups
+	}
+	return health
+}
+
+func countByCategory(entryType string, pref, proj *int) {
+	switch entryType {
+	case "user", "feedback":
+		*pref++
+	case "project", "reference":
+		*proj++
+	}
+}
+
+func toEntrySnapshot(e UIMemoryEntry, scope string) dedup.EntrySnapshot {
+	return dedup.EntrySnapshot{
+		Name: e.Name, Type: e.Type, Content: e.Preview,
+		Path: e.Path, Scope: scope,
+	}
 }
 
 func loadUIMemoryScope(logger *slog.Logger, label, root string, rootErr error, filterPrivateTeam bool) UIMemoryScopeSection {
