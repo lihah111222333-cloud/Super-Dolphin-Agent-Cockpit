@@ -380,13 +380,14 @@ func buildPromptTemplate(
 	cwd, key string,
 	current *promptstore.PromptTemplate,
 ) promptstore.PromptTemplate {
+	baseTags := clientTagsOrDefault(p.Tags, nil)
 	template := promptstore.PromptTemplate{
 		PromptKey:   key,
 		Title:       strings.TrimSpace(p.Name),
 		AgentKey:    promptAgentType(p.AgentType),
 		PromptText:  p.Content,
 		Variables:   json.RawMessage("{}"),
-		Tags:        withPromptScopeTag(json.RawMessage("[]"), promptScopeForWrite(current, cwd)),
+		Tags:        withPromptScopeTag(baseTags, promptScopeForWrite(current, cwd)),
 		Enabled:     true,
 		CreatedBy:   promptUpdatedBy,
 		UpdatedBy:   promptUpdatedBy,
@@ -400,11 +401,23 @@ func buildPromptTemplate(
 	template.CreatedBy = current.CreatedBy
 	template.ToolName = current.ToolName
 	template.Variables = append(json.RawMessage(nil), current.Variables...)
-	template.Tags = withPromptScopeTag(current.Tags, promptScopeForWrite(current, cwd))
+	template.Tags = withPromptScopeTag(clientTagsOrDefault(p.Tags, current.Tags), promptScopeForWrite(current, cwd))
 	if strings.TrimSpace(p.AgentType) == "" {
 		template.AgentKey = current.AgentKey
 	}
 	return template
+}
+
+// clientTagsOrDefault returns client-provided tags if present, otherwise falls
+// back to existing (for updates) or empty (for creates).
+func clientTagsOrDefault(clientTags json.RawMessage, existing json.RawMessage) json.RawMessage {
+	if len(clientTags) > 0 && string(clientTags) != "null" {
+		return clientTags
+	}
+	if len(existing) > 0 {
+		return existing
+	}
+	return json.RawMessage("[]")
 }
 
 func archivePrompt(ctx context.Context, store promptstore.Store, current promptstore.PromptTemplate) error {
