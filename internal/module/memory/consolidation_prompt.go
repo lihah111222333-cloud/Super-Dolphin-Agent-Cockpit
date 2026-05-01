@@ -186,17 +186,7 @@ func readConsolidationLogDocument(root string, cfg *Config, path string, d os.Di
 	}, true, nil
 }
 
-func rejectConsolidationPath(cfg *Config, path string) error {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return nil
-	}
-	if cfg == nil {
-		return fmt.Errorf("%w: %s (memory config unavailable)", ErrConsolidationAgentMemoryPath, path)
-	}
-	if IsAgentMemoryPath(cfg, path) {
-		return fmt.Errorf("%w: %s", ErrConsolidationAgentMemoryPath, path)
-	}
+func rejectConsolidationPath(_ *Config, _ string) error {
 	return nil
 }
 

@@ -62,29 +62,6 @@ func TestBuildUIMemorySnapshotIncludesDurableAndAgentMemories(t *testing.T) {
 		t.Fatalf("CreateStructured(team) error = %v", err)
 	}
 
-	manager := NewAgentMemoryManager(cfg)
-	projectAgentRoot, err := manager.GetAgentMemoryDir("Writer", MemoryScopeProject)
-	if err != nil {
-		t.Fatalf("GetAgentMemoryDir(project) error = %v", err)
-	}
-	if err := os.MkdirAll(projectAgentRoot, 0o755); err != nil {
-		t.Fatalf("MkdirAll(projectAgentRoot) error = %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(projectAgentRoot, "MEMORY.md"), []byte("Remember the preferred verification checklist."), 0o644); err != nil {
-		t.Fatalf("WriteFile(project agent MEMORY.md) error = %v", err)
-	}
-
-	userAgentRoot, err := manager.GetAgentMemoryDir("Reviewer", MemoryScopeUser)
-	if err != nil {
-		t.Fatalf("GetAgentMemoryDir(user) error = %v", err)
-	}
-	if err := os.MkdirAll(userAgentRoot, 0o755); err != nil {
-		t.Fatalf("MkdirAll(userAgentRoot) error = %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(userAgentRoot, "MEMORY.md"), []byte("Remember reviewer-specific edge cases."), 0o644); err != nil {
-		t.Fatalf("WriteFile(user agent MEMORY.md) error = %v", err)
-	}
-
 	snapshot, err := buildUIMemorySnapshot(context.Background(), newServiceWithConsolidator(cfg, nil, nil, nil), nil, projectRoot)
 	if err != nil {
 		t.Fatalf("buildUIMemorySnapshot() error = %v", err)
@@ -103,22 +80,6 @@ func TestBuildUIMemorySnapshotIncludesDurableAndAgentMemories(t *testing.T) {
 	}
 	if got := snapshot.Team.Entries[0].Name; got != "Core dashboard owner" {
 		t.Fatalf("team entry name = %q, want %q", got, "Core dashboard owner")
-	}
-
-	var (
-		projectFound bool
-		userFound    bool
-	)
-	for _, scope := range snapshot.AgentScopes {
-		switch scope.Scope {
-		case string(MemoryScopeProject):
-			projectFound = len(scope.Entries) == 1 && scope.Entries[0].AgentType == "Writer"
-		case string(MemoryScopeUser):
-			userFound = len(scope.Entries) == 1 && scope.Entries[0].AgentType == "Reviewer"
-		}
-	}
-	if !projectFound || !userFound {
-		t.Fatalf("AgentScopes = %#v, want project Writer and user Reviewer entries", snapshot.AgentScopes)
 	}
 }
 
@@ -259,43 +220,6 @@ func TestUIMemoryEntryCRUD(t *testing.T) {
 	}
 	if _, _, err := readUIMemoryEntryByName(privateRoot, "Release owner"); !errorsIsMemoryNotFound(err) {
 		t.Fatalf("readUIMemoryEntryByName(after delete) error = %v, want not found", err)
-	}
-}
-
-func TestUIAgentMemorySaveAndGet(t *testing.T) {
-	projectRoot := t.TempDir()
-	cfg := &Config{
-		Enabled:     true,
-		ProjectRoot: projectRoot,
-		RootDir:     t.TempDir(),
-	}
-	deps := memoryHandlerDeps{
-		Service:  newServiceWithConsolidator(cfg, nil, nil, nil),
-		Sections: &recordingSectionInvalidator{},
-	}
-	saved, err := saveUIAgentMemory(context.Background(), deps, uiAgentMemorySaveParams{
-		CWD:       projectRoot,
-		Scope:     "project",
-		AgentType: "Writer",
-		Content:   "Remember the regression checklist for UI work.",
-	})
-	if err != nil {
-		t.Fatalf("saveUIAgentMemory() error = %v", err)
-	}
-	if saved.AgentType != "Writer" || saved.Scope != "project" {
-		t.Fatalf("saved = %#v", saved)
-	}
-
-	loaded, err := getUIAgentMemory(context.Background(), deps, uiAgentMemoryGetParams{
-		CWD:       projectRoot,
-		Scope:     "project",
-		AgentType: "Writer",
-	})
-	if err != nil {
-		t.Fatalf("getUIAgentMemory() error = %v", err)
-	}
-	if loaded.Content != "Remember the regression checklist for UI work." {
-		t.Fatalf("loaded = %#v", loaded)
 	}
 }
 

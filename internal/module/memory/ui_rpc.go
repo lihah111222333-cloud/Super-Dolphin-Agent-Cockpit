@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -14,7 +12,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2/handler"
 
-	parse "github.com/anthropic-ai/super-agent-v3/internal/module/memory/parse"
 	memshared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 )
 
@@ -25,10 +22,9 @@ type uiMemoryGetParams struct {
 }
 
 type UIMemorySnapshot struct {
-	Overview    UIMemoryOverview     `json:"overview"`
-	Private     UIMemoryScopeSection `json:"private"`
-	Team        UIMemoryScopeSection `json:"team"`
-	AgentScopes []UIAgentMemoryScope `json:"agentScopes"`
+	Overview UIMemoryOverview     `json:"overview"`
+	Private  UIMemoryScopeSection `json:"private"`
+	Team     UIMemoryScopeSection `json:"team"`
 }
 
 type UIMemoryOverview struct {
@@ -62,21 +58,6 @@ type UIMemoryEntry struct {
 	Source string `json:"source,omitempty"`
 }
 
-type UIAgentMemoryScope struct {
-	Scope    string               `json:"scope"`
-	RootPath string               `json:"rootPath,omitempty"`
-	Notice   string               `json:"notice,omitempty"`
-	Entries  []UIAgentMemoryEntry `json:"entries"`
-}
-
-type UIAgentMemoryEntry struct {
-	AgentType string    `json:"agentType"`
-	Path      string    `json:"path,omitempty"`
-	UpdatedAt time.Time `json:"updatedAt,omitempty"`
-	Preview   string    `json:"preview,omitempty"`
-	Empty     bool      `json:"empty,omitempty"`
-}
-
 func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger, cwd string) (UIMemorySnapshot, error) {
 	if svc == nil {
 		return UIMemorySnapshot{}, errors.New("memory service is not configured")
@@ -106,7 +87,6 @@ func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger
 		teamSection = loadUIMemoryScope(logger, "Team durable memory", teamRoot, err, false)
 	}
 
-	agentScopes := loadUIAgentMemoryScopes(logger, cfg, projectRoot)
 	return UIMemorySnapshot{
 		Overview: UIMemoryOverview{
 			Enabled:             cfg.Enabled,
@@ -119,9 +99,8 @@ func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger
 			AutoMemPathOverride: strings.TrimSpace(cfg.AutoMemPathOverride),
 			TeamFeatureEnabled:  cfg.Features.TeamMemory,
 		},
-		Private:     privateSection,
-		Team:        teamSection,
-		AgentScopes: agentScopes,
+		Private: privateSection,
+		Team:    teamSection,
 	}, nil
 }
 
@@ -172,105 +151,6 @@ func loadUIMemoryScope(logger *slog.Logger, label, root string, rootErr error, f
 		section.Notice = firstNonEmptyUI(section.Notice, "当前目录下还没有可读的记忆条目。")
 	}
 	return section
-}
-
-func loadUIAgentMemoryScopes(logger *slog.Logger, cfg Config, projectRoot string) []UIAgentMemoryScope {
-	effective := cfg
-	if strings.TrimSpace(projectRoot) != "" {
-		effective.ProjectRoot = strings.TrimSpace(projectRoot)
-	}
-	manager := NewAgentMemoryManager(&effective)
-	scopes := []MemoryScope{MemoryScopeProject, MemoryScopeUser, MemoryScopeLocal}
-	items := make([]UIAgentMemoryScope, 0, len(scopes))
-	for _, scope := range scopes {
-		root, err := manager.GetAgentMemoryScopeRoot(scope)
-		item := UIAgentMemoryScope{
-			Scope:   string(scope),
-			Entries: []UIAgentMemoryEntry{},
-		}
-		if err != nil {
-			// Manager scope-root resolution may surface a *os.PathError
-			// with the on-disk template; redact before placing in Notice.
-			item.Notice = redactRPCError(logger, "agent_memory_scope_root",
-				errAgentMemoryScanFailed, err, "scope", string(scope)).Error()
-			items = append(items, item)
-			continue
-		}
-		item.RootPath = root
-		entries, readErr := scanUIAgentScope(logger, scope, root)
-		if readErr != nil {
-			item.Notice = readErr.Error()
-		} else {
-			item.Entries = entries
-			if len(entries) == 0 {
-				item.Notice = "当前 scope 下还没有可读的 MEMORY.md。"
-			}
-		}
-		items = append(items, item)
-	}
-	return items
-}
-
-func scanUIAgentScope(logger *slog.Logger, scope MemoryScope, root string) ([]UIAgentMemoryEntry, error) {
-	root = strings.TrimSpace(root)
-	if root == "" {
-		return nil, nil
-	}
-	dirs, err := os.ReadDir(root)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		// Phase 2.1.AB.3: os.ReadDir returns *os.PathError whose text
-		// embeds the absolute scope-root path. Redact before bubbling
-		// up so the snapshot Notice (rendered verbatim by the UI) does
-		// not leak the on-disk agent-memory layout.
-		return nil, redactRPCError(logger, "agent_memory_scope_scan",
-			errAgentMemoryScanFailed, err, "scope", string(scope))
-	}
-	items := make([]UIAgentMemoryEntry, 0, len(dirs))
-	for _, dir := range dirs {
-		if !dir.IsDir() {
-			continue
-		}
-		entryPath := filepath.Join(root, dir.Name(), memoryIndexFileName)
-		// SafeReadEntrypoint folds Stat + symlink-resolved containment +
-		// ReadFile into one defense-in-depth call. A child dir that is a
-		// symlink pointing outside the agent-memory root is rejected here
-		// rather than producing a UI entry from an attacker-chosen file.
-		raw, info, err := memshared.SafeReadEntrypoint(root, entryPath)
-		switch {
-		case err == nil:
-			// happy path; fall through to the append below
-		case isUserVisibleNotFound(err):
-			continue
-		case isContainmentRejection(err):
-			// Phase 2.1.AB.6 P0 #1: do not silently swallow a containment
-			// rejection on the scan path. The Warn-level redactRPCError
-			// preserves the attack signal in operator logs while still
-			// presenting an empty entry to the UI.
-			redactRPCError(logger, "agent_memory_scope_scan_containment",
-				errAgentMemoryScanFailed, err,
-				"scope", string(scope), "agent_type", dir.Name())
-			continue
-		default:
-			return nil, redactRPCError(logger, "agent_memory_scope_scan",
-				errAgentMemoryScanFailed, err,
-				"scope", string(scope), "agent_type", dir.Name())
-		}
-		content := strings.TrimSpace(parse.StripUTF8BOM(string(raw)))
-		items = append(items, UIAgentMemoryEntry{
-			AgentType: dir.Name(),
-			Path:      filepath.ToSlash(filepath.Join(dir.Name(), memoryIndexFileName)),
-			UpdatedAt: info.ModTime(),
-			Preview:   uiPreviewText(content),
-			Empty:     strings.TrimSpace(content) == "",
-		})
-	}
-	sort.Slice(items, func(i, j int) bool {
-		return strings.ToLower(items[i].AgentType) < strings.ToLower(items[j].AgentType)
-	})
-	return items, nil
 }
 
 func memoryEntryDisplayPath(root, path string) string {

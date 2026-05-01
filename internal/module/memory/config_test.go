@@ -225,15 +225,6 @@ func TestMemoryConstructorsUseIsMemoryEnabled(t *testing.T) {
 	if got := NewMemoryLifecycleHooks(memoryLifecycleHookParams{Config: cfg}).enabled; got {
 		t.Fatal("NewMemoryLifecycleHooks() kept memory enabled in simple mode")
 	}
-	agentText, err := NewAgentMemoryPromptProvider(cfg, NewAgentMemoryManager(cfg), nil).Resolve(context.Background(), contract.SectionContext{
-		Start: &contract.StartInput{ParentAgentID: "agent-root", AgentType: "Worker"},
-	})
-	if err != nil {
-		t.Fatalf("AgentMemoryPromptProvider.Resolve() error = %v", err)
-	}
-	if agentText != nil {
-		t.Fatalf("AgentMemoryPromptProvider.Resolve() = %#v, want nil in simple mode", agentText)
-	}
 }
 
 func TestResolveMemoryGateSupportsSettingsAndModeSelection(t *testing.T) {

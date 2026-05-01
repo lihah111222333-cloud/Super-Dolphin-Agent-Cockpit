@@ -232,11 +232,10 @@ func TestCombinedClaudeMdSourcesNoLongerInjectsAutoOrTeamMemoryFiles(t *testing.
 }
 
 type testDepsOptions struct {
-	nestedEnabled     bool
-	autoMemRoot       string
-	teamRoot          string
-	gate              func(contract.BuildCtx) GateSnapshot
-	isAgentMemoryPath func(string) bool
+	nestedEnabled bool
+	autoMemRoot   string
+	teamRoot      string
+	gate          func(contract.BuildCtx) GateSnapshot
 }
 
 func newTestDependencies(opts testDepsOptions) Dependencies {
@@ -266,7 +265,6 @@ func newTestDependencies(opts testDepsOptions) Dependencies {
 		TeamRoot: func(contract.BuildCtx) string {
 			return teamRoot
 		},
-		IsAgentMemoryPath: opts.isAgentMemoryPath,
 	}
 }
 

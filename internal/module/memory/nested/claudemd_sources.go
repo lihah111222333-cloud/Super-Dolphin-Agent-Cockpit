@@ -58,11 +58,10 @@ type GateSnapshot struct {
 }
 
 type Dependencies struct {
-	NestedEnabled     bool
-	Gate              func(contract.BuildCtx) GateSnapshot
-	AutoMemRoot       func(contract.BuildCtx) string
-	TeamRoot          func(contract.BuildCtx) string
-	IsAgentMemoryPath func(string) bool
+	NestedEnabled bool
+	Gate          func(contract.BuildCtx) GateSnapshot
+	AutoMemRoot   func(contract.BuildCtx) string
+	TeamRoot      func(contract.BuildCtx) string
 }
 
 func (d Dependencies) resolveGate(buildCtx contract.BuildCtx) GateSnapshot {
@@ -84,10 +83,6 @@ func (d Dependencies) teamRoot(buildCtx contract.BuildCtx) string {
 		return ""
 	}
 	return cleanClaudeMdPath(d.TeamRoot(buildCtx))
-}
-
-func (d Dependencies) isAgentMemoryPath(path string) bool {
-	return d.IsAgentMemoryPath != nil && d.IsAgentMemoryPath(path)
 }
 
 type ClaudeMdResolveConfig struct {

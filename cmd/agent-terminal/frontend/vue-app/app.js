@@ -83,7 +83,6 @@ const EMPTY_MEMORY_CENTER = Object.freeze({
   overview: {},
   private: { entries: [] },
   team: { entries: [] },
-  agentScopes: [],
 });
 
 const SHARED_FILES_TIPS = Object.freeze([
@@ -95,14 +94,12 @@ function resetMemoryCenterState(state) {
   state.overview = {};
   state.private = { entries: [] };
   state.team = { entries: [] };
-  state.agentScopes = [];
 }
 
 function applyMemoryCenterSnapshot(state, snapshot) {
   state.overview = snapshot?.overview || {};
   state.private = snapshot?.private || { entries: [] };
   state.team = snapshot?.team || { entries: [] };
-  state.agentScopes = Array.isArray(snapshot?.agentScopes) ? snapshot.agentScopes : [];
 }
 
 export function routeDagBridgeEvent(method, eventType, payload, deps) {
@@ -287,7 +284,6 @@ export const AppRoot = {
       overview: {},
       private: { entries: [] },
       team: { entries: [] },
-      agentScopes: [],
     });
 
     let refreshTimer;

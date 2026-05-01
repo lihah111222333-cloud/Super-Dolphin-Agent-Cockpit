@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -37,6 +38,176 @@ func (s *service) Read(ctx context.Context, req contract.MemoryReadRequest) (con
 	}
 	dto := entryToContract(entry, root)
 	return applyReadMetadata(contract.MemoryReadResult{Entry: &dto, SourcePath: dto.SourcePath, IndexHit: indexHit}, degraded, source), nil
+}
+
+func (s *service) Write(ctx context.Context, req contract.MemoryWriteRequest) (contract.MemoryWriteResult, error) {
+	name, content, err := s.validateWriteInput(req)
+	if err != nil {
+		return contract.MemoryWriteResult{}, err
+	}
+
+	root, err := s.resolveWriteRoot(ctx, req.Scope)
+	if err != nil {
+		return contract.MemoryWriteResult{}, err
+	}
+
+	memType := req.Type
+	if !memType.IsKnown() {
+		memType = contract.MemoryTypeFeedback
+	}
+	content = ensureStructuredSections(content, memType)
+
+	description := strings.TrimSpace(req.Description)
+	if description == "" {
+		description = firstNonEmptyLine(content)
+	}
+
+	targetPath, targetDir := s.resolveWriteTarget(root, name, memType)
+
+	if _, err := validateMemoryWritePath(root, targetPath); err != nil {
+		return contract.MemoryWriteResult{}, fmt.Errorf("%w: %v", contract.ErrMemoryPersist, err)
+	}
+
+	fileContent := buildFrontmatter(name, description, memType) + content
+	if err := atomicWrite(targetDir, targetPath, fileContent); err != nil {
+		return contract.MemoryWriteResult{}, fmt.Errorf("%w: %v", contract.ErrMemoryPersist, err)
+	}
+
+	_ = rebuildIndex(root)
+
+	relPath := relativePath(root, targetPath)
+	return contract.MemoryWriteResult{Path: relPath}, nil
+}
+
+func (s *service) validateWriteInput(req contract.MemoryWriteRequest) (string, string, error) {
+	if err := s.ensureEnabled(); err != nil {
+		return "", "", err
+	}
+	name := strings.TrimSpace(req.Name)
+	content := strings.TrimSpace(req.Content)
+	if name == "" || content == "" {
+		return "", "", fmt.Errorf("%w: name and content are required", contract.ErrMemoryInvalidParam)
+	}
+	return name, content, nil
+}
+
+func (s *service) resolveWriteRoot(ctx context.Context, rawScope contract.MemoryScope) (string, error) {
+	scope := sanitizeScope(rawScope)
+	root, denyReason, err := resolveScopeRoot(ctx, s.cfg, scope)
+	if err != nil {
+		return "", err
+	}
+	if denyReason != "" {
+		return "", fmt.Errorf("%w: %s", contract.ErrMemoryInvalidParam, denyReason)
+	}
+	return root, nil
+}
+
+func (s *service) resolveWriteTarget(root, name string, memType contract.MemoryType) (targetPath, targetDir string) {
+	slug := slugify(name)
+	typeDir := string(memType)
+	targetDir = filepath.Join(root, typeDir)
+	targetPath = filepath.Join(targetDir, slug+".md")
+
+	if existingPath := s.findExistingByName(root, name); existingPath != "" {
+		targetPath = existingPath
+		targetDir = filepath.Dir(targetPath)
+	}
+	return targetPath, targetDir
+}
+
+func (s *service) findExistingByName(root, name string) string {
+	entries, err := scanEntries(root)
+	if err != nil {
+		return ""
+	}
+	key := canonicalName(name)
+	for _, entry := range entries {
+		if entry.canonicalName == key {
+			return entry.filePath
+		}
+	}
+	return ""
+}
+
+func ensureStructuredSections(content string, memType contract.MemoryType) string {
+	if memType != contract.MemoryTypeFeedback && memType != contract.MemoryTypeProject {
+		return content
+	}
+	if !containsSection(content, "why") {
+		content += "\nWhy: agent auto-detected this as important context."
+	}
+	if !containsSection(content, "how to apply") {
+		content += "\nHow to apply: follow this guidance in future work."
+	}
+	return content
+}
+
+func containsSection(content, section string) bool {
+	lower := strings.ToLower(content)
+	return strings.Contains(lower, strings.ToLower(section)+":")
+}
+
+var slugRe = regexp.MustCompile(`[^a-z0-9]+`)
+
+func slugify(name string) string {
+	slug := strings.ToLower(strings.TrimSpace(name))
+	slug = slugRe.ReplaceAllString(slug, "-")
+	slug = strings.Trim(slug, "-")
+	if len(slug) > 60 {
+		slug = slug[:60]
+		slug = strings.TrimRight(slug, "-")
+	}
+	if slug == "" {
+		slug = "memory-entry"
+	}
+	return slug
+}
+
+func buildFrontmatter(name, description string, memType contract.MemoryType) string {
+	var b strings.Builder
+	b.WriteString("---\n")
+	b.WriteString(fmt.Sprintf("name: %q\n", name))
+	b.WriteString(fmt.Sprintf("description: %q\n", description))
+	b.WriteString(fmt.Sprintf("type: %q\n", string(memType)))
+	b.WriteString("source: \"explicit\"\n")
+	b.WriteString("---\n\n")
+	return b.String()
+}
+
+func atomicWrite(dir, path, content string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+func rebuildIndex(root string) error {
+	entries, err := scanEntries(root)
+	if err != nil {
+		return err
+	}
+	unique := uniqueEntries(entries)
+	var b strings.Builder
+	for _, entry := range unique {
+		rel := relativePath(root, entry.filePath)
+		hook := hookFromEntry(entry.entry)
+		if hook != "" {
+			b.WriteString(fmt.Sprintf("- [%s](%s) — %s\n", entry.entry.Name, rel, hook))
+		} else {
+			b.WriteString(fmt.Sprintf("- [%s](%s)\n", entry.entry.Name, rel))
+		}
+	}
+	indexPath := filepath.Join(root, memoryIndexFileName)
+	return os.WriteFile(indexPath, []byte(b.String()), 0o644)
 }
 
 func (s *service) prepareRead(ctx context.Context, req contract.MemoryReadRequest) (contract.MemoryReadRequest, string, string, error) {

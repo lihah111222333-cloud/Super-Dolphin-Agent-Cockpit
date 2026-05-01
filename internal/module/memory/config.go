@@ -98,7 +98,6 @@ type MemoryPathClass string
 const (
 	MemoryPathClassOther MemoryPathClass = "other"
 	MemoryPathClassAuto  MemoryPathClass = "auto"
-	MemoryPathClassAgent MemoryPathClass = "agent"
 )
 
 func NewConfig(platformCfg *platformconfig.Config) *Config {
@@ -152,10 +151,6 @@ func (c *Config) IsAutoMemPath(path string) bool {
 	return ClassifyMemoryPath(c, path) == MemoryPathClassAuto
 }
 
-func (c *Config) IsAgentMemoryPath(path string) bool {
-	return ClassifyMemoryPath(c, path) == MemoryPathClassAgent
-}
-
 func (c *Config) ClassifyMemoryPath(path string) MemoryPathClass {
 	return ClassifyMemoryPath(c, path)
 }
@@ -172,8 +167,6 @@ func ClassifyMemoryPath(cfg *Config, path string) MemoryPathClass {
 	switch {
 	case isAutoMemPath(cfg, path):
 		return MemoryPathClassAuto
-	case IsAgentMemoryPath(cfg, path):
-		return MemoryPathClassAgent
 	default:
 		return MemoryPathClassOther
 	}
@@ -181,13 +174,6 @@ func ClassifyMemoryPath(cfg *Config, path string) MemoryPathClass {
 
 func IsAutoMemoryPath(cfg *Config, path string) bool {
 	return ClassifyMemoryPath(cfg, path) == MemoryPathClassAuto
-}
-
-func IsAgentMemoryPath(cfg *Config, path string) bool {
-	if cfg == nil || strings.TrimSpace(path) == "" {
-		return false
-	}
-	return NewAgentMemoryManager(cfg).IsAgentMemoryPath(path)
 }
 
 func memoryProductEnabled(cfg *Config) bool {

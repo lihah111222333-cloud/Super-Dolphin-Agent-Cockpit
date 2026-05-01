@@ -10,7 +10,8 @@ import (
 )
 
 type stubMemoryService struct {
-	read func(context.Context, contract.MemoryReadRequest) (contract.MemoryReadResult, error)
+	read  func(context.Context, contract.MemoryReadRequest) (contract.MemoryReadResult, error)
+	write func(context.Context, contract.MemoryWriteRequest) (contract.MemoryWriteResult, error)
 }
 
 func (s stubMemoryService) Read(ctx context.Context, req contract.MemoryReadRequest) (contract.MemoryReadResult, error) {
@@ -18,6 +19,13 @@ func (s stubMemoryService) Read(ctx context.Context, req contract.MemoryReadRequ
 		return contract.MemoryReadResult{}, nil
 	}
 	return s.read(ctx, req)
+}
+
+func (s stubMemoryService) Write(ctx context.Context, req contract.MemoryWriteRequest) (contract.MemoryWriteResult, error) {
+	if s.write == nil {
+		return contract.MemoryWriteResult{}, nil
+	}
+	return s.write(ctx, req)
 }
 
 func TestMemoryReadToolReturnsContent(t *testing.T) {

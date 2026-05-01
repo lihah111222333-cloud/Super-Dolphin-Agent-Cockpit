@@ -24,7 +24,6 @@ function setupPage(overview = {}) {
       overview,
       private: { entries: [] },
       team: { entries: [] },
-      agentScopes: [],
     },
   };
   const vm = MemoryCenterPage.setup(props, { emit });

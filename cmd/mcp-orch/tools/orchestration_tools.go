@@ -33,6 +33,7 @@ type LaunchAgentInput struct {
 	Provider    string `json:"provider,omitempty"`
 	Model       string `json:"model,omitempty"`
 	Effort      string `json:"effort,omitempty"`
+	Language    string `json:"language,omitempty"`
 }
 
 type SendMessageInput struct {
@@ -276,6 +277,7 @@ func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefin
 			"provider":     EnumStringSchema("Provider for the launched agent. Defaults to codex when omitted.", "codex", "claude"),
 			"model":        StringSchema("Optional model identifier for the launched agent (e.g. 'sonnet', 'opus', 'claude-opus-4-7[1m]'). When omitted, the provider falls back to its own default (for claude: ~/.claude/settings.json `model`)."),
 			"effort":       StringSchema("Optional reasoning effort for the launched agent (e.g. xhigh/high/medium/low for codex, max/high/medium/low for claude)."),
+			"language":     StringSchema("Optional language tag for the launched agent (e.g. 'zh', 'en'). Propagated to BuildCtx.Language for prompt match_when / section enable_when evaluation."),
 		}, "name"), HandleLaunchAgent(svc)),
 		defineTool("orchestration_send_message", "Submit a text turn to an existing orchestration agent.", ObjectSchema(map[string]Schema{
 			"agent_id": StringSchema("Target orchestration agent ID."),
@@ -338,6 +340,7 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 		Cwd:         strings.TrimSpace(in.CWD),
 		Command:     []string{strings.TrimSpace(exe)},
 		Env:         launchEnv(provider, strings.TrimSpace(in.Model), strings.TrimSpace(in.Effort)),
+		Language:    strings.TrimSpace(in.Language),
 	}, nil
 }
 
