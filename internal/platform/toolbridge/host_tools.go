@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 )
 
 // HostToolRegistry 暴露由 host 进程**直接执行**（不走 mcp-orch / mcp-lsp peer）
@@ -28,7 +28,7 @@ type HostToolCall struct {
 
 type HostToolRegistry interface {
 	// ListHostTools 列出 host 直跑的工具，结果会与 peer 工具合并送给模型。
-	ListHostTools() []common.MCPTool
+	ListHostTools() []mcpdto.MCPTool
 	// HasTool 判断给定工具名是否由本 registry 处理。routeToolCall 用它做分支
 	// 决策，避免把 skill_* 工具误投到 peer。
 	HasTool(name string) bool
@@ -87,12 +87,12 @@ const descriptionReadSection = "Read a reference section from an installed skill
 	"Optionally cap the result to `max_bytes`."
 
 // ListHostTools returns the single skill_read_section tool schema.
-func (r *SkillReadSectionRegistry) ListHostTools() []common.MCPTool {
+func (r *SkillReadSectionRegistry) ListHostTools() []mcpdto.MCPTool {
 	if r == nil {
 		return nil
 	}
 	schema, _ := json.Marshal(skillReadSectionInputSchema())
-	return []common.MCPTool{
+	return []mcpdto.MCPTool{
 		{
 			Name:        ToolNameReadSection,
 			Description: descriptionReadSection,

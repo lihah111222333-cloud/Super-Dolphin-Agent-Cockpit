@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/discovery"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/manifestbuilder"
 )
 
@@ -38,7 +38,7 @@ func (b *manifestBuilder) binaryDirFor(binaryDir string) string {
 func discoverPeers() map[dto.ToolFamily]string {
 	addrs := make(map[dto.ToolFamily]string)
 	for _, fam := range []dto.ToolFamily{dto.FamilyLSP, dto.FamilyOrch} {
-		addr, err := common.DiscoverPeerHTTPAddr("mcp-" + string(fam))
+		addr, err := discovery.DiscoverPeerHTTPAddr("mcp-" + string(fam))
 		if err != nil || addr == "" {
 			continue
 		}

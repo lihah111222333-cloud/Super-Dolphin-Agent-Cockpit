@@ -13,7 +13,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
@@ -31,7 +30,7 @@ import (
 // skill_read_section pipeline still relies on.
 
 func TestDedupToolsByName_FirstWins(t *testing.T) {
-	in := []common.MCPTool{
+	in := []dto.MCPTool{
 		{Name: "a", Description: "first"},
 		{Name: "b"},
 		{Name: "a", Description: "second"}, // 重复，应被忽略
@@ -55,18 +54,18 @@ func TestDedupToolsByName_FirstWins(t *testing.T) {
 
 type stubHostToolRegistry struct {
 	hasToolName string
-	tools       []common.MCPTool
+	tools       []dto.MCPTool
 	result      any
 	err         error
 	calls       int
 	last        HostToolCall
 }
 
-func (s *stubHostToolRegistry) ListHostTools() []common.MCPTool {
+func (s *stubHostToolRegistry) ListHostTools() []dto.MCPTool {
 	if s == nil {
 		return nil
 	}
-	return append([]common.MCPTool(nil), s.tools...)
+	return append([]dto.MCPTool(nil), s.tools...)
 }
 
 func (s *stubHostToolRegistry) HasTool(name string) bool {
@@ -309,7 +308,7 @@ func (r *stubKindRegistry) FindActiveByKind(clientKind string) []*mcpcontrol.Too
 	return r.peers[clientKind]
 }
 
-func listToolsPeer(tools []common.MCPTool, err error) *mcpcontrol.ToolInstance {
+func listToolsPeer(tools []dto.MCPTool, err error) *mcpcontrol.ToolInstance {
 	return &mcpcontrol.ToolInstance{Peer: &stubPeer{callbackFn: func(_ context.Context, method string, _ any, result any) error {
 		if method != "tools/list" {
 			return fmt.Errorf("method = %q, want tools/list", method)
@@ -326,7 +325,7 @@ func listToolsPeer(tools []common.MCPTool, err error) *mcpcontrol.ToolInstance {
 	}}}
 }
 
-func blockingListToolsPeer(kind string, tools []common.MCPTool, started chan<- string, release <-chan struct{}) *mcpcontrol.ToolInstance {
+func blockingListToolsPeer(kind string, tools []dto.MCPTool, started chan<- string, release <-chan struct{}) *mcpcontrol.ToolInstance {
 	return &mcpcontrol.ToolInstance{Peer: &stubPeer{callbackFn: func(ctx context.Context, method string, _ any, result any) error {
 		if method != "tools/list" {
 			return fmt.Errorf("method = %q, want tools/list", method)
@@ -347,10 +346,10 @@ func blockingListToolsPeer(kind string, tools []common.MCPTool, started chan<- s
 }
 
 func TestListToolsForCodex_HostToolsSurviveOrchFailure_LSPReady(t *testing.T) {
-	host := &stubHostToolRegistry{tools: []common.MCPTool{{Name: "skill_expand_body", Description: "host skill"}}}
+	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: "skill_expand_body", Description: "host skill"}}}
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 		dto.ClientKindOrch: {listToolsPeer(nil, errors.New("orch down"))},
-		dto.ClientKindLSP:  {listToolsPeer([]common.MCPTool{{Name: "lsp_hover", Description: "lsp"}}, nil)},
+		dto.ClientKindLSP:  {listToolsPeer([]dto.MCPTool{{Name: "lsp_hover", Description: "lsp"}}, nil)},
 	}}
 	h := &Handler{registry: registry, hostTools: host}
 
@@ -364,10 +363,10 @@ func TestListToolsForCodex_HostToolsSurviveOrchFailure_LSPReady(t *testing.T) {
 }
 
 func TestListToolsForCodex_LogsDegradedPeer(t *testing.T) {
-	host := &stubHostToolRegistry{tools: []common.MCPTool{{Name: "skill_expand_body", Description: "host skill"}}}
+	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: "skill_expand_body", Description: "host skill"}}}
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 		dto.ClientKindOrch: {listToolsPeer(nil, errors.New("orch down"))},
-		dto.ClientKindLSP:  {listToolsPeer([]common.MCPTool{{Name: "lsp_hover", Description: "lsp"}}, nil)},
+		dto.ClientKindLSP:  {listToolsPeer([]dto.MCPTool{{Name: "lsp_hover", Description: "lsp"}}, nil)},
 	}}
 	var logs bytes.Buffer
 	h := &Handler{
@@ -392,9 +391,9 @@ func TestListToolsForCodex_LogsDegradedPeer(t *testing.T) {
 }
 
 func TestListToolsForCodex_HostToolsSurviveLSPFailure_OrchReady(t *testing.T) {
-	host := &stubHostToolRegistry{tools: []common.MCPTool{{Name: "skill_expand_body", Description: "host skill"}}}
+	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: "skill_expand_body", Description: "host skill"}}}
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
-		dto.ClientKindOrch: {listToolsPeer([]common.MCPTool{{Name: "spawn_agent", Description: "orch"}}, nil)},
+		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: "spawn_agent", Description: "orch"}}, nil)},
 		dto.ClientKindLSP:  {listToolsPeer(nil, errors.New("lsp down"))},
 	}}
 	h := &Handler{registry: registry, hostTools: host}
@@ -409,7 +408,7 @@ func TestListToolsForCodex_HostToolsSurviveLSPFailure_OrchReady(t *testing.T) {
 }
 
 func TestListToolsForCodex_HostOnlyWhenBothPeersFail(t *testing.T) {
-	host := &stubHostToolRegistry{tools: []common.MCPTool{{Name: "skill_expand_body", Description: "host skill"}}}
+	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: "skill_expand_body", Description: "host skill"}}}
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 		dto.ClientKindOrch: {listToolsPeer(nil, errors.New("orch down"))},
 		dto.ClientKindLSP:  {listToolsPeer(nil, errors.New("lsp down"))},
@@ -442,10 +441,10 @@ func TestListToolsForCodex_ReturnsErrorWhenNoHostAndPeersFail(t *testing.T) {
 }
 
 func TestListToolsForCodex_DedupKeepsHostBeforePeer(t *testing.T) {
-	host := &stubHostToolRegistry{tools: []common.MCPTool{{Name: "dupe", Description: "host wins"}}}
+	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: "dupe", Description: "host wins"}}}
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
-		dto.ClientKindOrch: {listToolsPeer([]common.MCPTool{{Name: "dupe", Description: "peer loses"}}, nil)},
-		dto.ClientKindLSP:  {listToolsPeer([]common.MCPTool{{Name: "lsp_hover", Description: "lsp"}}, nil)},
+		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: "dupe", Description: "peer loses"}}, nil)},
+		dto.ClientKindLSP:  {listToolsPeer([]dto.MCPTool{{Name: "lsp_hover", Description: "lsp"}}, nil)},
 	}}
 	h := &Handler{registry: registry, hostTools: host}
 
@@ -459,10 +458,10 @@ func TestListToolsForCodex_DedupKeepsHostBeforePeer(t *testing.T) {
 }
 
 func TestListToolsForCodex_LogsShadowedPeerTool(t *testing.T) {
-	host := &stubHostToolRegistry{tools: []common.MCPTool{{Name: "dupe", Description: "host wins"}}}
+	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: "dupe", Description: "host wins"}}}
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
-		dto.ClientKindOrch: {listToolsPeer([]common.MCPTool{{Name: "dupe", Description: "peer loses"}}, nil)},
-		dto.ClientKindLSP:  {listToolsPeer([]common.MCPTool{{Name: "lsp_hover", Description: "lsp"}}, nil)},
+		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: "dupe", Description: "peer loses"}}, nil)},
+		dto.ClientKindLSP:  {listToolsPeer([]dto.MCPTool{{Name: "lsp_hover", Description: "lsp"}}, nil)},
 	}}
 	var logs bytes.Buffer
 	h := &Handler{
@@ -490,8 +489,8 @@ func TestListToolsForCodex_PeerWaitIsConcurrent(t *testing.T) {
 	started := make(chan string, 2)
 	release := make(chan struct{})
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
-		dto.ClientKindOrch: {blockingListToolsPeer(dto.ClientKindOrch, []common.MCPTool{{Name: "spawn_agent"}}, started, release)},
-		dto.ClientKindLSP:  {blockingListToolsPeer(dto.ClientKindLSP, []common.MCPTool{{Name: "lsp_hover"}}, started, release)},
+		dto.ClientKindOrch: {blockingListToolsPeer(dto.ClientKindOrch, []dto.MCPTool{{Name: "spawn_agent"}}, started, release)},
+		dto.ClientKindLSP:  {blockingListToolsPeer(dto.ClientKindLSP, []dto.MCPTool{{Name: "lsp_hover"}}, started, release)},
 	}}
 	h := &Handler{registry: registry}
 	type result struct {
@@ -625,8 +624,8 @@ func TestListToolsForCodex_HostToolIsReadSection(t *testing.T) {
 	cacheDir := t.TempDir()
 	reg := NewSkillReadSectionRegistry(NewSkillReadSectionTool(cacheDir, nil))
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
-		dto.ClientKindOrch: {listToolsPeer([]common.MCPTool{{Name: "spawn_agent"}}, nil)},
-		dto.ClientKindLSP:  {listToolsPeer([]common.MCPTool{{Name: "lsp_hover"}}, nil)},
+		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: "spawn_agent"}}, nil)},
+		dto.ClientKindLSP:  {listToolsPeer([]dto.MCPTool{{Name: "lsp_hover"}}, nil)},
 	}}
 	h := &Handler{registry: registry, hostTools: reg}
 

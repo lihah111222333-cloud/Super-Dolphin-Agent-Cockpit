@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/skillcandidate"
 )
 
@@ -39,7 +40,7 @@ func (fp *FeedbackProposer) Propose(ctx context.Context, topicKey string, feedba
 
 	prompt := buildFeedbackProposalPrompt(topicKey, contents)
 
-	dreamCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	dreamCtx, cancel := platformconfig.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 
 	skillMD, err := fp.dream.ExecuteDream(dreamCtx, prompt)

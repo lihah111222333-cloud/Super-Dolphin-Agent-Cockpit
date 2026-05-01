@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -28,11 +29,10 @@ type ToolProvider interface {
 	CallTool(ctx context.Context, name string, args json.RawMessage) (any, error)
 }
 
-type MCPTool struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	InputSchema json.RawMessage `json:"inputSchema"`
-}
+// MCPTool is re-exported from the canonical DTO definition so that
+// ToolProvider and all mcpserver/common internal code can reference
+// it by short name without breaking the public API surface.
+type MCPTool = mcpdto.MCPTool
 
 type Server struct {
 	name      string

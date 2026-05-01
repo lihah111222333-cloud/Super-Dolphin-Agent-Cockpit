@@ -130,14 +130,14 @@ func provideLSPBackgroundRunners(m *Manager) []platformrunner.Runner {
 	return m.BackgroundRunners()
 }
 
-func (p registryToolProvider) ListTools(context.Context) ([]common.MCPTool, error) {
-	toolsList := make([]common.MCPTool, 0, len(p.defs))
+func (p registryToolProvider) ListTools(context.Context) ([]mcp.MCPTool, error) {
+	toolsList := make([]mcp.MCPTool, 0, len(p.defs))
 	for _, def := range p.defs {
 		schema, err := marshalInputSchema(def.Manifest.Schema)
 		if err != nil {
 			return nil, err
 		}
-		toolsList = append(toolsList, common.MCPTool{
+		toolsList = append(toolsList, mcp.MCPTool{
 			Name:        def.Manifest.Name,
 			Description: def.Manifest.Description,
 			InputSchema: schema,
