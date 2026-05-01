@@ -155,6 +155,18 @@ a,
   color: var(--text-sec);
 }
 
+.sb-badge-dot {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 0 2px var(--surface);
+  pointer-events: none;
+}
+
 .sidebar-spacer {
   flex: 1;
 }
