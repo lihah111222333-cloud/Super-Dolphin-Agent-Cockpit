@@ -111,20 +111,33 @@ export const CronPanel = {
       }
     }
 
-    async function onDelete(job) {
-      if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
-        const ok = window.confirm(`确认删除定时任务 "${job.name || job.id}"？该操作不可撤销。`);
-        if (!ok) return;
-      }
+    const confirmDeleteJob = ref(null);
+    const deletingJobId = ref('');
+    const deleteError = ref('');
+
+    function onDelete(job) {
+      confirmDeleteJob.value = job;
+      deleteError.value = '';
+    }
+
+    function cancelDeleteJob() {
+      confirmDeleteJob.value = null;
+    }
+
+    async function confirmDelete() {
+      const job = confirmDeleteJob.value;
+      if (!job) return;
+      confirmDeleteJob.value = null;
+      deletingJobId.value = job.id;
       logInfo('cron-panel', 'delete.click', { id: job.id });
       try {
         await store.deleteJob(job.id);
       } catch (err) {
         const mapped = mapCronRpcError(err);
         logWarn('cron-panel', 'delete.failed', { id: job.id, kind: mapped.kind });
-        if (typeof window !== 'undefined' && typeof window.alert === 'function') {
-          window.alert(`删除失败：${mapped.message}`);
-        }
+        deleteError.value = `删除失败：${mapped.message}`;
+      } finally {
+        deletingJobId.value = '';
       }
     }
 
@@ -145,6 +158,11 @@ export const CronPanel = {
       onToggleEnabled,
       onRunOnce,
       onDelete,
+      confirmDeleteJob,
+      deletingJobId,
+      deleteError,
+      cancelDeleteJob,
+      confirmDelete,
       formatSchedule,
       formatRetryBudget,
       formatLastRun,
@@ -270,6 +288,23 @@ export const CronPanel = {
         </article>
       </div>
       </template>
+      <div v-if="confirmDeleteJob" class="modal-overlay" data-testid="cron-delete-overlay" @click.self="cancelDeleteJob">
+        <div class="modal-box memory-modal" role="dialog" aria-modal="true" data-testid="cron-delete-modal">
+          <div class="memory-modal-head">
+            <div>
+              <div class="modal-title">删除定时任务</div>
+              <div class="memory-modal-tip">{{ confirmDeleteJob.name || confirmDeleteJob.id }}</div>
+            </div>
+            <button class="btn btn-ghost" data-testid="cron-delete-close" :disabled="Boolean(deletingJobId)" @click="cancelDeleteJob">关闭</button>
+          </div>
+          <div class="memory-form-helper">确认删除定时任务 “{{ confirmDeleteJob.name || confirmDeleteJob.id }}”？该操作不可撤销。</div>
+          <div v-if="deleteError" class="memory-form-helper" style="color:var(--color-danger,#f87171)">{{ deleteError }}</div>
+          <div class="memory-editor-actions">
+            <button class="btn btn-ghost" data-testid="cron-delete-cancel" :disabled="Boolean(deletingJobId)" @click="cancelDeleteJob">取消</button>
+            <button class="btn btn-danger" data-testid="cron-delete-confirm" :disabled="Boolean(deletingJobId)" @click="confirmDelete">{{ deletingJobId === confirmDeleteJob.id ? '删除中...' : '确认删除' }}</button>
+          </div>
+        </div>
+      </div>
     </div>
   `,
 };

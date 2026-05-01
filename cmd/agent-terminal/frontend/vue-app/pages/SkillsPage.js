@@ -544,6 +544,22 @@ export const SkillsPage = {
           </div>
         </div>
       </div>
+      <div v-if="confirmDeleteTarget" class="modal-overlay" data-testid="skills-delete-overlay" @click.self="cancelSkillDelete">
+        <div class="modal-box memory-modal" role="dialog" aria-modal="true" data-testid="skills-delete-modal">
+          <div class="memory-modal-head">
+            <div>
+              <div class="modal-title">删除技能</div>
+              <div class="memory-modal-tip">{{ confirmDeleteTarget.name }}</div>
+            </div>
+            <button class="btn btn-ghost" data-testid="skills-delete-close" :disabled="Boolean(deletingSkillName)" @click="cancelSkillDelete">关闭</button>
+          </div>
+          <div class="memory-form-helper">确定删除技能 “{{ confirmDeleteTarget.name }}” 吗？该操作会删除技能目录及其资源文件，无法恢复。</div>
+          <div class="memory-editor-actions">
+            <button class="btn btn-ghost" data-testid="skills-delete-cancel" :disabled="Boolean(deletingSkillName)" @click="cancelSkillDelete">取消</button>
+            <button class="btn btn-danger" data-testid="skills-delete-confirm" :disabled="Boolean(deletingSkillName)" @click="confirmSkillDelete">{{ isDeletingSkill(confirmDeleteTarget.name) ? '删除中...' : '确认删除' }}</button>
+          </div>
+        </div>
+      </div>
     </section>
   `,
 };

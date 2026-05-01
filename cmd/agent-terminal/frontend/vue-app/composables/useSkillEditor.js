@@ -240,13 +240,21 @@ function createEditorActions(props, emit, state, readers) {
     return (state.deletingSkillName.value || '').toLowerCase() === (name || '').toString().toLowerCase();
   }
 
-  async function onDeleteSkill(item) {
+  function onDeleteSkill(item) {
     const skillName = (item?.name || '').toString().trim();
     if (!skillName || state.deletingSkillName.value) return;
-    const confirmed = typeof window === 'undefined' || typeof window.confirm !== 'function'
-      ? true
-      : window.confirm(`确定删除技能 "${skillName}" 吗？\n该操作会删除技能目录及其资源文件。`);
-    if (!confirmed) return;
+    state.confirmDeleteTarget.value = item;
+  }
+
+  function cancelSkillDelete() {
+    state.confirmDeleteTarget.value = null;
+  }
+
+  async function confirmSkillDelete() {
+    const item = state.confirmDeleteTarget.value;
+    const skillName = (item?.name || '').toString().trim();
+    if (!skillName) return;
+    state.confirmDeleteTarget.value = null;
     state.deletingSkillName.value = skillName;
     try {
       await callAPI('skills/local/delete', withSkillsCwd(props, { name: skillName }));
@@ -354,6 +362,8 @@ function createEditorActions(props, emit, state, readers) {
     onEditSkill,
     isDeletingSkill,
     onDeleteSkill,
+    confirmSkillDelete,
+    cancelSkillDelete,
     onSaveSkill,
     closeEditor,
     startBodyEdit,
@@ -381,6 +391,7 @@ export function useSkillEditor(props, emit, deps) {
   const saving = ref(false);
   const uploading = ref(false);
   const deletingSkillName = ref('');
+  const confirmDeleteTarget = ref(null);
   const isEditorOpen = ref(false);
   const isBodyEditing = ref(false);
   const bodyEditorFocused = ref(false);
@@ -428,6 +439,7 @@ export function useSkillEditor(props, emit, deps) {
     saving,
     uploading,
     deletingSkillName,
+    confirmDeleteTarget,
     isEditorOpen,
     isBodyEditing,
     bodyEditorFocused,
@@ -490,6 +502,7 @@ export function useSkillEditor(props, emit, deps) {
     saving,
     uploading,
     deletingSkillName,
+    confirmDeleteTarget,
     isEditorOpen,
     isBodyEditing,
     bodyEditorFocused,
