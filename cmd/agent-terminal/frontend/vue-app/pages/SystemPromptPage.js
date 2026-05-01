@@ -1,21 +1,23 @@
 /**
- * SystemPromptPage — System 提示词管理页面
+ * SystemPromptPage — System 提示词管理页面（消费端重构版）
  *
  * 布局：
  *   ┌──────────────────────────────────────────┐
  *   │ Header: System 提示词管理    [CWD badge] │
  *   ├──────────────────────────────────────────┤
- *   │ Tabs: [主 Agent] [子 Agent]              │
+ *   │ RoleBar: [程序员] [产品经理] [设计师] …  │
  *   ├──────────────────────────────────────────┤
  *   │ Card Grid:                               │
  *   │  [+ 新建] [Card1] [Card2] [Card3] ...   │
  *   └──────────────────────────────────────────┘
  *
  * 点击卡片 → 模态编辑器（编辑 / 查看 prompt）
- * 类似 SkillsPage 的 CRUD 管理模式。
+ * 编辑器为单视图 + 可折叠的高级设置区。
  */
 // @ts-nocheck
 import {
+  h,
+  defineComponent,
   ref,
   reactive,
   computed,
@@ -26,6 +28,8 @@ import {
 import { callAPI, copyTextToClipboard } from '../services/api.js';
 import { logDebug, logInfo, logWarn } from '../services/log.js';
 import { SectionsEditor } from './SectionsEditor.js';
+import { TagInput } from '../components/TagInput.js';
+import { RoleBar } from '../components/RoleBar.js';
 
 // ── Helpers (outside setup to keep size-guard happy) ──────────
 
@@ -39,6 +43,13 @@ export const PREF_KEY_ACTIVE_PROMPT = 'settings.activePromptKey';
 // first-turn user input and auto-picks a prompt_template from the full
 // library. Ignored when PREF_KEY_ACTIVE_PROMPT is set — explicit pin wins.
 export const PREF_KEY_CLASSIFIER_ENABLED = 'settings.classifierEnabled';
+const PREF_KEY_ROLES = 'settings.promptRoles';
+
+const DEFAULT_ROLES = [
+  { key: 'coder', name: '程序员', icon: '💻' },
+  { key: 'pm', name: '产品经理', icon: '📋' },
+  { key: 'designer', name: '设计师', icon: '🎨' },
+];
 
 function resolveProjectCwd(projectStore) {
   return (projectStore?.state?.active || '').toString().trim();
@@ -117,7 +128,13 @@ export function isReadonlyFallbackListError(error) {
 
 /** Normalize a prompt item from API response. */
 function normalizePromptItem(raw, agentType) {
-  return {
+  const rawTags = (() => {
+    try {
+      const t = raw.tags || raw.Tags;
+      return Array.isArray(t) ? t : JSON.parse(t || '[]');
+    } catch { return []; }
+  })();
+  const item = {
     id: (raw?.id || raw?.prompt_key || generateId()).toString(),
     name: (raw?.name || raw?.title || raw?.prompt_key || '').toString(),
     content: (raw?.content || raw?.prompt_text || raw?.hint || '').toString(),
@@ -125,11 +142,11 @@ function normalizePromptItem(raw, agentType) {
     agentType: (raw?.agentType || raw?.agent_key || agentType || 'main').toString(),
     isDefault: Boolean(raw?.isDefault),
     createdAt: (raw?.createdAt || raw?.created_at || '').toString(),
-    // match_when 透传 —— 编辑弹窗重新打开时需要还原在表单里。null / 缺失
-    // 都保留为 null，代表「该模板不参与自动路由」，serializeMatchWhenForEditor 会处理。
     match_when: raw?.match_when ?? null,
     priority: Number.isFinite(Number(raw?.priority)) ? Number(raw.priority) : 0,
   };
+  item.tags = rawTags.filter(t => typeof t === 'string' && !t.startsWith('scope://'));
+  return item;
 }
 
 function normalizePromptList(items) {
@@ -147,9 +164,9 @@ function normalizeFallbackPromptList(items) {
   return normalized;
 }
 
-// 'all' 返回全部行；其他 activeTab 等值匹配行的 agentType (介面 agent_key)。
-function filterPromptCards(cards, activeTab) {
-  return activeTab === 'all' ? cards : cards.filter(c => c.agentType === activeTab);
+// 'all' 返回全部行；其他 activeRoleKey 等值匹配行的 agentType。
+function filterPromptCards(cards, activeRoleKey) {
+  return activeRoleKey === 'all' ? cards : cards.filter(c => c.agentType === activeRoleKey);
 }
 
 // serializeMatchWhenForEditor 把后端返回的 match_when（undefined / null / 对象 /
@@ -228,37 +245,37 @@ function createLaunchPromptActions(deps) {
   }
   async function applyActivePromptId(nextId, successMessage) {
     const cwd = getCwd();
-    if (!cwd) { setNotice('error', '当前作用域未确定，无法记录启动提示词'); return; }
+    if (!cwd) { setNotice('error', '当前作用域未确定，无法记录强制使用'); return; }
     try {
       await prefSet(cwd, PREF_KEY_ACTIVE_PROMPT, (nextId || '').toString());
       activePromptId.value = (nextId || '').toString();
       setNotice('info', successMessage);
     } catch (error) {
       logWarn('system-prompt', 'active.persist.failed', { error });
-      setNotice('error', `设置启动提示词失败：${toErrorMessage(error)}`);
+      setNotice('error', `设置强制使用失败：${toErrorMessage(error)}`);
     }
   }
   async function setLaunchPrompt(item) {
-    if (fallbackMode.value) { setReadonlyActionNotice('设为启动'); return; }
+    if (fallbackMode.value) { setReadonlyActionNotice('强制使用'); return; }
     const id = (item?.id || '').toString();
     if (!id || activatingId.value) return;
     activatingId.value = id;
-    try { await applyActivePromptId(id, `已设为启动提示词：${item?.name || id}`); }
+    try { await applyActivePromptId(id, `已设为强制使用：${item?.name || id}`); }
     finally { activatingId.value = ''; }
   }
   async function clearLaunchPrompt() {
-    if (fallbackMode.value) { setReadonlyActionNotice('取消启动'); return; }
+    if (fallbackMode.value) { setReadonlyActionNotice('取消强制'); return; }
     if (activatingId.value) return;
     activatingId.value = 'clear';
-    try { await applyActivePromptId('', '已取消启动提示词，新对话将使用默认路由'); }
+    try { await applyActivePromptId('', '已取消强制使用，新对话将使用默认路由'); }
     finally { activatingId.value = ''; }
   }
   return { loadActivePromptId, setLaunchPrompt, clearLaunchPrompt };
 }
 
-export const SystemPromptPage = {
+export const SystemPromptPage = defineComponent({
   name: 'SystemPromptPage',
-  components: { SectionsEditor },
+  components: { SectionsEditor, TagInput, RoleBar },
   props: {
     projectStore: { type: Object, default: null },
     threadStore: { type: Object, default: null },
@@ -266,9 +283,10 @@ export const SystemPromptPage = {
   },
   setup(props) {
     // ── State ────────────────────────────────────────
-    const activeTab = ref('main'); // 'main' | 'sub' | 'all'
+    const activeTab = ref('all');
+    const roles = ref([...DEFAULT_ROLES]);
     const currentScopeCwd = ref('');
-    const promptCards = ref([]); // all prompt cards
+    const promptCards = ref([]);
     const loading = ref(false);
     const notice = reactive({ level: 'info', message: '' });
     const fallbackMode = ref(false);
@@ -290,16 +308,24 @@ export const SystemPromptPage = {
     // the backend router auto-picks a prompt_template from the full library
     // via claude -p. Explicit activePromptId still wins backend-side.
     const classifierEnabled = ref(false);
-    const editingHasSections = ref(false); // sections>0 → 基础 tab 内容被 router 覆盖，锁住
-    // matchWhen/priority 供路由的 match_when 自动路由挡位；matchWhen 空串 → opt-out。
+    const editingHasSections = ref(false);
+    const advancedOpen = ref(false);
     const form = reactive({
       id: '', name: '', content: '', description: '',
-      // 从 'all' tab 编辑时回灰原 agent_key；新建留空 → savePrompt 兑底到 activeTab。
       agentKey: '',
+      tags: [],
       matchWhen: '', priority: 0,
     });
 
     // ── Computed ─────────────────────────────────────
+    const promptCounts = computed(() => {
+      const counts = {};
+      for (const card of promptCards.value) {
+        const key = card.agentType || 'uncategorized';
+        counts[key] = (counts[key] || 0) + 1;
+      }
+      return counts;
+    });
     const filteredCards = computed(() => filterPromptCards(promptCards.value, activeTab.value));
     const cwdDisplay = computed(() =>
       currentScopeCwd.value || props.windowCwd || '未知'
@@ -310,7 +336,7 @@ export const SystemPromptPage = {
     // Any state where the editor should be read-only matches exactly
     // `fallbackMode.value`.
     // 在 'all' tab 下创建会丢失 agent_key 归属（不知道应该存到 main 还是别的），
-    // 所以只让主/子 tab 创建。全部 tab 仅用于查看/编辑/删除/设为启动。
+    // 所以只让主/子 tab 创建。全部 tab 仅用于查看/编辑/删除/强制使用。
     const createDisabled = computed(() => fallbackMode.value || activeTab.value === 'all');
     const saveDisabled = computed(() => fallbackMode.value || saving.value);
     const deleteDisabled = computed(() => fallbackMode.value || Boolean(deletingId.value));
@@ -430,8 +456,16 @@ export const SystemPromptPage = {
           agentType: form.agentKey || (activeTab.value === 'all' ? 'main' : activeTab.value),
           priority: Number.isFinite(Number(form.priority)) ? Number(form.priority) : 0,
         };
-        const matchWhenErr = applyMatchWhenToPayload(payload, form.matchWhen);
-        if (matchWhenErr) { setNotice('error', matchWhenErr); saving.value = false; return; }
+        if (form.tags && form.tags.length > 0) {
+          payload.tags = JSON.stringify(form.tags);
+        }
+        const userMatchWhen = (form.matchWhen || '').trim();
+        if (userMatchWhen) {
+          const matchWhenErr = applyMatchWhenToPayload(payload, userMatchWhen);
+          if (matchWhenErr) { setNotice('error', matchWhenErr); saving.value = false; return; }
+        } else if (form.tags && form.tags.length > 0) {
+          payload.match_when = { tags_has: form.tags.length === 1 ? form.tags[0] : form.tags };
+        }
         await callAPI('prompts/write', withCwd(getCwd(), payload));
         await loadPrompts();
         editorOpen.value = false;
@@ -487,8 +521,9 @@ export const SystemPromptPage = {
     // ── Editor ──────────────────────────────────────
     function openCreate() {
       if (fallbackMode.value) { setReadonlyActionNotice('新建'); return; }
-      Object.assign(form, { id: '', name: '', content: '', description: '', agentKey: '', matchWhen: '', priority: 0 });
+      Object.assign(form, { id: '', name: '', content: '', description: '', agentKey: '', tags: [], matchWhen: '', priority: 0 });
       editingHasSections.value = false;
+      advancedOpen.value = false;
       editorMode.value = 'create'; editorOpen.value = true; editorTab.value = 'basic';
       setNotice('info', '');
       logDebug('system-prompt', 'editor.create');
@@ -498,10 +533,12 @@ export const SystemPromptPage = {
       Object.assign(form, {
         id: item.id || '', name: item.name || '', content: item.content || '',
         description: item.description || '', agentKey: (item.agentType || '').toString(),
+        tags: Array.isArray(item.tags) ? [...item.tags] : [],
         matchWhen: serializeMatchWhenForEditor(item.match_when),
         priority: Number.isFinite(Number(item.priority)) ? Number(item.priority) : 0,
       });
       editingHasSections.value = false;
+      advancedOpen.value = false;
       editorMode.value = 'edit'; editorOpen.value = true; editorTab.value = 'basic';
       setNotice('info', '');
       logDebug('system-prompt', 'editor.edit', { id: item.id });
@@ -535,10 +572,26 @@ export const SystemPromptPage = {
 
     const refreshPromptsSilently = () => refreshPromptsInBackground([loadPrompts, loadActivePromptId, loadClassifierEnabled]);
 
+    function roleIcon(agentType) {
+      const r = roles.value.find(x => x.key === agentType);
+      return r ? r.icon : '';
+    }
+
+    async function loadRoles() {
+      const saved = await prefGet(getCwd(), PREF_KEY_ROLES, 'roles', null);
+      if (saved && Array.isArray(saved)) roles.value = saved;
+    }
+
+    async function saveRoles(updated) {
+      roles.value = updated;
+      await prefSet(getCwd(), PREF_KEY_ROLES, updated);
+    }
+
     // ── Lifecycle ───────────────────────────────────
     onMounted(() => {
       logInfo('system-prompt', 'page.mounted');
       loadCurrentScopeCwd();
+      loadRoles();
       refreshPromptsSilently();
     });
 
@@ -552,19 +605,20 @@ export const SystemPromptPage = {
     );
 
     return {
-      activeTab, promptCards, filteredCards, loading,
+      activeTab, roles, promptCounts, saveRoles,
+      promptCards, filteredCards, loading,
       notice, fallbackMode, readonlyReason, fallbackSource,
       readonlyBannerMessage,
       editorOpen, editorMode, saving, deletingId,
       createDisabled, saveDisabled, deleteDisabled,
       activePromptId, activatingId, activateDisabled,
       classifierEnabled,
-      form, editingHasSections, cwdDisplay, currentProjectCwd,
+      form, editingHasSections, advancedOpen, cwdDisplay, currentProjectCwd,
       switchTab, loadPrompts, savePrompt, deletePrompt,
       copyPromptContent, openCreate, openEdit, closeEditor,
       setLaunchPrompt, clearLaunchPrompt, loadActivePromptId,
       toggleClassifier, loadClassifierEnabled,
-      truncate, countStats,
+      truncate, countStats, roleIcon,
       // Advanced-debug tab toggle (actual CRUD lives in <sections-editor>)
       editorTab, switchEditorTab,
     };
@@ -589,7 +643,7 @@ export const SystemPromptPage = {
         <div class="sp-routing-row">
           <label class="sp-toggle-card" data-testid="sp-classifier-toggle"
             :class="{ 'is-active': classifierEnabled }"
-            :title="'池为空时的兜底：新对话的第一条消息由 claude haiku 在全库自动选提示词（5-15 秒有较明显延迟）。候选池非空时会走多源注入，本开关不生效。显式「设为启动」始终优先。'">
+            :title="'池为空时的兜底：新对话的第一条消息由 claude haiku 在全库自动选提示词（5-15 秒有较明显延迟）。候选池非空时会走多源注入，本开关不生效。显式「强制使用」始终优先。'">
             <input type="checkbox" :checked="classifierEnabled"
               @change="toggleClassifier($event.target.checked)"
               data-testid="sp-classifier-checkbox" />
@@ -601,12 +655,16 @@ export const SystemPromptPage = {
 </div>
       </div>
 
-      <!-- Tabs -->
-      <div class="sub-tabs" data-testid="sp-tabs">
-        <button class="sub-tab" :class="{ active: activeTab === 'main' }" data-testid="sp-tab-main" @click="switchTab('main')">主 Agent</button>
-        <button class="sub-tab" :class="{ active: activeTab === 'sub' }" data-testid="sp-tab-sub" @click="switchTab('sub')">子 Agent</button>
-        <button class="sub-tab" :class="{ active: activeTab === 'all' }" data-testid="sp-tab-all" @click="switchTab('all')">全部</button>
-      </div>
+      <!-- Tabs: role-bar replaces hardcoded main/sub/all -->
+      <role-bar
+        :roles="roles"
+        :active-key="activeTab"
+        :prompt-counts="promptCounts"
+        :disabled="fallbackMode"
+        @select="switchTab"
+        @update:roles="saveRoles"
+        data-testid="sp-tabs"
+      />
 
       <!-- Card list -->
       <div class="section-header">
@@ -640,8 +698,8 @@ export const SystemPromptPage = {
               <polyline points="14 2 14 8 20 8"/>
             </svg>
           </div>
-          <h3>暂无{{ activeTab === 'main' ? '主 Agent' : (activeTab === 'sub' ? '子 Agent' : '') }}提示词</h3>
-          <p>{{ fallbackMode ? '当前为只读降级；待后端恢复后会自动恢复。' : (activeTab === 'all' ? '库里还没有提示词，先去主/子 Agent tab 创建' : '点击"新建提示词"开始创建') }}</p>
+          <h3>暂无提示词</h3>
+          <p>{{ fallbackMode ? '当前为只读降级；待后端恢复后会自动恢复。' : (activeTab === 'all' ? '先选择一个角色，然后点击“新建提示词”' : '点击“新建提示词”开始创建') }}</p>
         </div>
 
         <!-- Loading -->
@@ -661,15 +719,17 @@ export const SystemPromptPage = {
           >
             <div class="sp-card-header">
               <div class="sp-card-heading">
-                <div class="sp-card-title">{{ item.name || '未命名' }}</div>
+                <div class="sp-card-title"><span v-if="roleIcon(item.agentType)" class="sp-card-role-icon">{{ roleIcon(item.agentType) }}</span>{{ item.name || '未命名' }}</div>
                 <span v-if="item.isDefault" class="sp-card-badge is-default">默认</span>
-                <span v-if="activePromptId === item.id" class="sp-card-badge is-active" :data-testid="'sp-active-badge-' + idx">启动中</span>
+                <span v-if="activePromptId === item.id" class="sp-card-badge is-active" :data-testid="'sp-active-badge-' + idx">强制中</span>
                 <span v-if="activeTab === 'all' && item.agentType" class="sp-card-badge" :data-testid="'sp-agentkey-badge-' + idx">{{ item.agentType }}</span>
               </div>
             </div>
             <div v-if="item.description" class="sp-card-desc">{{ item.description }}</div>
+            <div v-if="item.tags && item.tags.length" class="sp-card-tags">
+              <span class="sp-card-tag" v-for="tag in item.tags" :key="tag">{{ tag }}</span>
+            </div>
             <div class="sp-card-preview">{{ truncate(item.content) }}</div>
-            <div class="sp-card-meta">{{ countStats(item.content).lines }} 行 · {{ countStats(item.content).chars }} 字符</div>
             <div class="sp-card-actions">
 <button class="btn btn-secondary btn-xs" :data-testid="'sp-edit-btn-' + idx" @click="openEdit(item)">{{ fallbackMode ? '查看' : '编辑' }}</button>
               <button class="btn btn-ghost btn-xs" :data-testid="'sp-copy-btn-' + idx" @click="copyPromptContent(item)">复制</button>
@@ -679,14 +739,14 @@ export const SystemPromptPage = {
                 :data-testid="'sp-clear-launch-btn-' + idx"
                 :disabled="activateDisabled"
                 @click="clearLaunchPrompt"
-              >{{ activatingId === 'clear' ? '处理中...' : '取消启动' }}</button>
+              >{{ activatingId === 'clear' ? '处理中...' : '取消强制' }}</button>
               <button
                 v-else
                 class="btn btn-ghost btn-xs"
                 :data-testid="'sp-set-launch-btn-' + idx"
                 :disabled="activateDisabled"
                 @click="setLaunchPrompt(item)"
-              >{{ activatingId === item.id ? '处理中...' : '设为启动' }}</button>
+              >{{ activatingId === item.id ? '处理中...' : '强制使用' }}</button>
               <button class="btn btn-ghost btn-xs btn-warning" :data-testid="'sp-delete-btn-' + idx" :disabled="deleteDisabled" @click="deletePrompt(item)">
                 {{ deletingId === item.id ? '删除中...' : '删除' }}
               </button>
@@ -713,27 +773,12 @@ export const SystemPromptPage = {
           <div class="sp-editor-head">
             <div>
               <div class="modal-title">{{ fallbackMode ? '查看提示词' : (editorMode === 'create' ? '新建提示词' : '编辑提示词') }}</div>
-              <div class="sp-editor-tip">{{ form.agentKey || (activeTab === 'main' ? '主 Agent' : (activeTab === 'sub' ? '子 Agent' : '未分类')) }} · 作用域 {{ cwdDisplay }}</div>
+              <div class="sp-editor-tip">{{ roleIcon(form.agentKey) }} {{ form.agentKey ? (roles.find(r => r.key === form.agentKey)?.name || form.agentKey) : '未分类' }} · {{ cwdDisplay }}</div>
             </div>
             <button class="btn btn-ghost" data-testid="sp-editor-close-btn" @click="closeEditor">关闭</button>
           </div>
 
-          <div class="sp-editor-body">
-            <!-- Tab switch: [基础] / [🔧 高级调试] -->
-            <div class="sub-tabs sp-editor-tabs" data-testid="sp-editor-tabs">
-              <button class="sub-tab"
-                :class="{ active: editorTab === 'basic' }"
-                data-testid="sp-editor-tab-basic"
-                @click="switchEditorTab('basic')">基础</button>
-              <button class="sub-tab"
-                :class="{ active: editorTab === 'advanced' }"
-                data-testid="sp-editor-tab-advanced"
-                :title="'高级调试：编辑 prompt_template_sections 的分段 / region / enable_when。普通用户无需使用。'"
-                @click="switchEditorTab('advanced')">🔧 高级调试</button>
-            </div>
-
-            <!-- 基础 tab：原有的名称 / 描述 / 内容 -->
-            <div v-show="editorTab === 'basic'" data-testid="sp-editor-basic">
+          <div class="sp-editor-body" data-testid="sp-editor-basic">
               <div v-if="fallbackMode" class="sp-notice is-warn" data-testid="sp-editor-readonly-banner">
                 {{ readonlyBannerMessage }}
               </div>
@@ -744,30 +789,26 @@ export const SystemPromptPage = {
               </div>
 
               <div class="sp-field">
-                <label>描述（可选）</label>
-                <input class="modal-input" data-testid="sp-desc-input" v-model="form.description" placeholder="一句话描述用途" :disabled="saving || fallbackMode" />
+                <label>一句话描述</label>
+                <input class="modal-input" data-testid="sp-desc-input" v-model="form.description" placeholder="简要说明用途" :disabled="saving || fallbackMode" />
               </div>
 
               <div class="sp-field">
-                <label>自动匹配条件（可选，JSON）</label>
-                <textarea
-                  class="sp-textarea"
-                  data-testid="sp-matchwhen-input"
-                  rows="3"
-                  v-model="form.matchWhen"
-                  placeholder='{} 代表总是参与自动匹配；{"cwd_prefix":"/Users/mac/work"} 代表仅在该目录下命中；留空 = 不参与自动路由'
-                  :disabled="saving || fallbackMode"
-                ></textarea>
-                <div class="sp-field-meta">未打开 pin / 智能分类器时，系统会在这里命中的模板里按「优先级」挑一个注入</div>
+                <label>角色</label>
+                <select class="modal-input" v-model="form.agentKey" :disabled="saving || fallbackMode">
+                  <option value="">未分类</option>
+                  <option v-for="r in roles" :key="r.key" :value="r.key">{{ r.icon }} {{ r.name }}</option>
+                </select>
               </div>
 
               <div class="sp-field">
-                <label>优先级（整数，默认 0；数字越大越优先）</label>
-                <input type="number" class="modal-input" data-testid="sp-priority-input" v-model.number="form.priority" :disabled="saving || fallbackMode" />
+                <label>场景标签</label>
+                <tag-input v-model="form.tags" placeholder="输入标签后按回车" :disabled="saving || fallbackMode" />
+                <div class="sp-field-hint">用于自动匹配对话场景，如“代码审查”、“需求分析”</div>
               </div>
 
               <div v-if="editingHasSections" class="sp-notice is-warn" data-testid="sp-editor-sections-banner">
-                ⚠️ 此模板的实际注入内容由「🔧 高级调试」里的 sections 控制，下面的「提示词内容」仅作备份，在运行时会被 sections 覆盖。要改 AI 行为，请切到高级调试 tab 编辑对应 section。
+                ⚠️ 此模板的实际注入内容由高级设置中的 sections 控制，下面的内容仅作备份。
               </div>
 
               <div class="sp-field">
@@ -783,6 +824,39 @@ export const SystemPromptPage = {
                 <div class="sp-field-meta">{{ countStats(form.content).lines }} 行 · {{ countStats(form.content).chars }} 字符</div>
               </div>
 
+              <!-- 高级设置折叠区 -->
+              <div class="sp-advanced-toggle" @click="advancedOpen = !advancedOpen">
+                {{ advancedOpen ? '▼' : '▶' }} 高级设置（开发者选项）
+              </div>
+              <div v-show="advancedOpen" class="sp-advanced-body">
+                <div class="sp-field">
+                  <label>自动匹配条件（JSON）</label>
+                  <textarea
+                    class="sp-textarea"
+                    data-testid="sp-matchwhen-input"
+                    rows="3"
+                    v-model="form.matchWhen"
+                    placeholder="留空则从场景标签自动生成"
+                    :disabled="saving || fallbackMode"
+                  ></textarea>
+                  <div class="sp-field-hint">手动设置会覆盖标签自动生成的匹配条件</div>
+                </div>
+
+                <div class="sp-field">
+                  <label>优先级（整数，默认 0）</label>
+                  <input type="number" class="modal-input" data-testid="sp-priority-input" v-model.number="form.priority" :disabled="saving || fallbackMode" />
+                  <div class="sp-field-hint">数字越大越优先，同时命中多条时生效</div>
+                </div>
+
+                <sections-editor
+                  :prompt-id="form.id"
+                  :cwd="currentProjectCwd"
+                  :fallback-mode="fallbackMode"
+                  :visible="advancedOpen && editorOpen"
+                  data-testid="sp-editor-advanced"
+                />
+              </div>
+
               <div v-if="notice.message" class="sp-notice" :class="'is-' + notice.level" data-testid="sp-editor-notice">
                 {{ notice.message }}
               </div>
@@ -793,20 +867,9 @@ export const SystemPromptPage = {
                   {{ fallbackMode ? '只读模式' : (saving ? '保存中...' : '保存') }}
                 </button>
               </div>
-            </div>
-
-            <!-- 高级调试 tab：sections 实际 CRUD 抽到 <sections-editor> 子组件 -->
-            <sections-editor
-              v-show="editorTab === 'advanced'"
-              :prompt-id="form.id"
-              :cwd="currentProjectCwd"
-              :fallback-mode="fallbackMode"
-              :visible="editorTab === 'advanced' && editorOpen"
-              data-testid="sp-editor-advanced"
-            />
           </div>
         </div>
       </div>
     </section>
   `,
-};
+});

@@ -41,24 +41,24 @@ beforeEach(() => {
 });
 
 describe('SystemPromptPage behavior', () => {
-  it('defaults to main tab with editor closed', () => {
+  it('defaults to all tab with editor closed', () => {
     const { vm } = createPage();
-    expect(vm.activeTab.value).toBe('main');
+    expect(vm.activeTab.value).toBe('all');
     expect(vm.editorOpen.value).toBe(false);
   });
 
   it('switchTab changes activeTab and clears notice', () => {
     const { vm } = createPage();
     vm.notice.message = 'old';
-    vm.switchTab('sub');
-    expect(vm.activeTab.value).toBe('sub');
+    vm.switchTab('coder');
+    expect(vm.activeTab.value).toBe('coder');
     expect(vm.notice.message).toBe('');
   });
 
   it('switchTab is noop for same tab', () => {
     const { vm } = createPage();
     vm.notice.message = 'keep';
-    vm.switchTab('main');
+    vm.switchTab('all');
     expect(vm.notice.message).toBe('keep');
   });
 
@@ -97,20 +97,24 @@ describe('SystemPromptPage behavior', () => {
   it('filteredCards filters by activeTab', async () => {
     apiMock.callAPI.mockResolvedValueOnce({
       prompts: [
-        { id: 'p1', name: 'Main', content: 'a', agentType: 'main' },
-        { id: 'p2', name: 'Sub', content: 'b', agentType: 'sub' },
+        { id: 'p1', name: 'Coder Prompt', content: 'a', agentType: 'coder' },
+        { id: 'p2', name: 'PM Prompt', content: 'b', agentType: 'pm' },
       ],
     });
 
     const { vm } = createPage();
     await vm.loadPrompts();
 
-    expect(vm.filteredCards.value).toHaveLength(1);
-    expect(vm.filteredCards.value[0].name).toBe('Main');
+    // default tab is 'all' — shows everything
+    expect(vm.filteredCards.value).toHaveLength(2);
 
-    vm.switchTab('sub');
+    vm.switchTab('coder');
     expect(vm.filteredCards.value).toHaveLength(1);
-    expect(vm.filteredCards.value[0].name).toBe('Sub');
+    expect(vm.filteredCards.value[0].name).toBe('Coder Prompt');
+
+    vm.switchTab('pm');
+    expect(vm.filteredCards.value).toHaveLength(1);
+    expect(vm.filteredCards.value[0].name).toBe('PM Prompt');
   });
 
   it('TestSystemPromptPageContentTextareaDisabledInFallback', () => {
@@ -222,6 +226,8 @@ describe('SystemPromptPage behavior', () => {
     expect(vm.fallbackMode.value).toBe(false);
     expect(vm.readonlyReason.value).toBe('');
     expect(vm.fallbackSource.value).toBe('');
+    // createDisabled is true when activeTab==='all'; switch to a role first
+    vm.switchTab('coder');
     expect(vm.createDisabled.value).toBe(false);
     expect(vm.saveDisabled.value).toBe(false);
     expect(vm.deleteDisabled.value).toBe(false);
@@ -332,7 +338,7 @@ describe('SystemPromptPage behavior', () => {
       cwd: '/test-repo',
     });
     expect(vm.activePromptId.value).toBe('main/launch-fav');
-    expect(vm.notice.message).toContain('已设为启动提示词');
+    expect(vm.notice.message).toContain('已设为强制使用');
   });
 
   it('clearLaunchPrompt writes empty value and resets active id', async () => {
@@ -350,7 +356,7 @@ describe('SystemPromptPage behavior', () => {
       cwd: '/test-repo',
     });
     expect(vm.activePromptId.value).toBe('');
-    expect(vm.notice.message).toContain('已取消启动');
+    expect(vm.notice.message).toContain('已取消强制使用');
   });
 
   it('loadActivePromptId hydrates from preference get', async () => {
@@ -454,5 +460,91 @@ describe('SystemPromptPage behavior', () => {
     const { vm } = createPage();
     expect(vm.countStats('a\nb\nc')).toEqual({ lines: 3, chars: 5 });
     expect(vm.countStats('')).toEqual({ lines: 0, chars: 0 });
+  });
+
+  it('basic user flow: select role + add tags + save auto-generates match_when and sends tags', async () => {
+    // 1. Load page, switch to coder role, open create
+    apiMock.callAPI.mockResolvedValueOnce({ prompts: [] }); // initial load
+    const { vm } = createPage();
+    await vm.loadPrompts();
+    vm.switchTab('coder');
+    vm.openCreate();
+
+    // 2. Fill basic fields (no advanced settings)
+    vm.form.name = '代码审查专家';
+    vm.form.description = '帮你审查代码质量';
+    vm.form.agentKey = 'coder';
+    vm.form.tags = ['代码审查', 'bug'];
+    vm.form.content = '你是一位资深代码审查专家。';
+    // user does NOT touch matchWhen or priority (stays default)
+    expect(vm.form.matchWhen).toBe('');
+    expect(vm.form.priority).toBe(0);
+
+    // 3. Save
+    apiMock.callAPI
+      .mockResolvedValueOnce({ prompt: { id: 'new-1', name: '代码审查专家' } }) // prompts/write
+      .mockResolvedValueOnce({ prompts: [{ id: 'new-1', name: '代码审查专家', content: '你是一位资深代码审查专家。', agentType: 'coder', tags: '["代码审查","bug"]' }] }); // reload
+    await vm.savePrompt();
+
+    // 4. Verify the write call
+    const writeCalls = apiMock.callAPI.mock.calls.filter(c => c[0] === 'prompts/write');
+    expect(writeCalls).toHaveLength(1);
+    const payload = writeCalls[0][1];
+
+    // tags sent
+    expect(payload.tags).toBe(JSON.stringify(['代码审查', 'bug']));
+    // match_when auto-generated from tags (not manually set)
+    expect(payload.match_when).toEqual({ tags_has: ['代码审查', 'bug'] });
+    // agentType from role selection
+    expect(payload.agentType).toBe('coder');
+    // priority stays default
+    expect(payload.priority).toBe(0);
+    // editor closed after save
+    expect(vm.editorOpen.value).toBe(false);
+  });
+
+  it('basic user flow: single tag generates string match_when instead of array', async () => {
+    apiMock.callAPI.mockResolvedValueOnce({ prompts: [] });
+    const { vm } = createPage();
+    await vm.loadPrompts();
+    vm.switchTab('pm');
+    vm.openCreate();
+
+    vm.form.name = '需求分析';
+    vm.form.agentKey = 'pm';
+    vm.form.tags = ['需求'];
+    vm.form.content = '你是产品经理。';
+
+    apiMock.callAPI
+      .mockResolvedValueOnce({ prompt: {} })
+      .mockResolvedValueOnce({ prompts: [] });
+    await vm.savePrompt();
+
+    const payload = apiMock.callAPI.mock.calls.find(c => c[0] === 'prompts/write')[1];
+    // single tag => string, not array
+    expect(payload.match_when).toEqual({ tags_has: '需求' });
+    expect(payload.agentType).toBe('pm');
+  });
+
+  it('basic user flow: no tags means no match_when', async () => {
+    apiMock.callAPI.mockResolvedValueOnce({ prompts: [] });
+    const { vm } = createPage();
+    await vm.loadPrompts();
+    vm.switchTab('coder');
+    vm.openCreate();
+
+    vm.form.name = '简单提示词';
+    vm.form.agentKey = 'coder';
+    vm.form.content = '你好。';
+    // no tags, no matchWhen
+
+    apiMock.callAPI
+      .mockResolvedValueOnce({ prompt: {} })
+      .mockResolvedValueOnce({ prompts: [] });
+    await vm.savePrompt();
+
+    const payload = apiMock.callAPI.mock.calls.find(c => c[0] === 'prompts/write')[1];
+    expect(payload.match_when).toBeUndefined();
+    expect(payload.tags).toBeUndefined();
   });
 });
