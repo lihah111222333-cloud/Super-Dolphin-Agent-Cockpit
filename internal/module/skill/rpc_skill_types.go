@@ -89,6 +89,7 @@ type skillListItem struct {
 	Trust                  TrustScope `json:"trust"`
 	ContentHash            string     `json:"content_hash"`
 	DisableModelInvocation bool       `json:"disable_model_invocation"`
+	DisclosureTier         string     `json:"disclosure_tier,omitempty"`
 }
 
 type skillListResult struct {

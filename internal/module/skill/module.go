@@ -6,6 +6,7 @@ import (
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/module/fbsd"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	auditstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/skillcandidate"
@@ -28,14 +29,23 @@ var Module = fx.Module("skill",
 	fx.Invoke(registerCandidateStores),
 )
 
-func newService(cfg *platformconfig.Config, dispatcher *event.Dispatcher) Service {
+type serviceDeps struct {
+	fx.In
+
+	Config     *platformconfig.Config
+	Dispatcher *event.Dispatcher
+	Tracker    *fbsd.Tracker `optional:"true"`
+}
+
+func newService(deps serviceDeps) Service {
 	projectRoot := ""
-	if cfg != nil {
-		projectRoot = strings.TrimSpace(cfg.ProjectRoot)
+	if deps.Config != nil {
+		projectRoot = strings.TrimSpace(deps.Config.ProjectRoot)
 	}
 	svc := NewService(projectRoot)
 	if impl, ok := svc.(*service); ok {
-		impl.bindDispatcher(dispatcher)
+		impl.bindDispatcher(deps.Dispatcher)
+		impl.tracker = deps.Tracker
 	}
 	return svc
 }
