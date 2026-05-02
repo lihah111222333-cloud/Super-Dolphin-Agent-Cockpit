@@ -90,11 +90,17 @@ export function useDurableMemoryEditor({ currentCwd, setNotice, setBusy, emit })
   async function save() {
     if (saving.value) return;
     const name = (form.name || '').toString().trim();
+    const description = (form.description || '').toString().trim();
+    const content = (form.content || '').toString().trim();
     if (!name) {
       setNotice('error', '请先填写名称');
       return;
     }
-    if (!(form.content || '').toString().trim()) {
+    if (!description) {
+      setNotice('error', '请先填写描述');
+      return;
+    }
+    if (!content) {
       setNotice('error', '内容不能为空');
       return;
     }
@@ -104,11 +110,12 @@ export function useDurableMemoryEditor({ currentCwd, setNotice, setBusy, emit })
         cwd: currentCwd.value,
         target: form.target,
         existingPath: form.existingPath,
-        name: form.name,
-        description: form.description,
+        name,
+        description,
         type: form.type,
-        content: form.content,
+        content,
       });
+
       close();
       setNotice('info', '已保存');
       emit('refresh');

@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/fbsd"
+	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2"
@@ -130,17 +132,20 @@ func TestSkillsListHostRPCIncludesDisclosureTierSnapshot(t *testing.T) {
 	cwd := filepath.Join(t.TempDir(), "repo")
 	writeScopedSystemSkill(t, svc.root, cwd, "hot-skill", "---\nname: hot-skill\nsummary: Hot\n---\n# Hot")
 	writeScopedSystemSkill(t, svc.root, cwd, "unused-skill", "---\nname: unused-skill\nsummary: Unused\n---\n# Unused")
-	tracker, err := fbsd.NewTracker(filepath.Join(t.TempDir(), "ws.json"), filepath.Join(t.TempDir(), "gl.json"), true)
-	if err != nil {
-		t.Fatalf("NewTracker() error = %v", err)
+	svc.disclosureTiers = fakeSkillDisclosureTierSource{
+		snapshot: contract.SkillDisclosureSnapshot{
+			Workspace: contract.SkillDisclosureStats{
+				"hot-skill": {Calls: []time.Time{time.Now(), time.Now(), time.Now(), time.Now()}},
+			},
+			Global: contract.SkillDisclosureStats{},
+			Config: contract.SkillDisclosureConfig{
+				HalfLife:       7 * 24 * time.Hour,
+				FrozenDuration: 90 * 24 * time.Hour,
+				WSMinCalls:     1,
+				WSWeight:       0.7,
+			},
+		},
 	}
-	for range 4 {
-		tracker.Record("hot-skill", "")
-	}
-	if err := tracker.Flush(context.Background()); err != nil {
-		t.Fatalf("Flush() error = %v", err)
-	}
-	svc.tracker = tracker
 	server := newSkillRPCTestServer(t, svc)
 
 	raw, err := server.Dispatch(context.Background(), "skills/list", json.RawMessage(`{"cwd":"`+cwd+`"}`))
@@ -407,4 +412,14 @@ func TestSkillRPCRejectsEmptyCWD(t *testing.T) {
 			t.Fatalf("%s message = %q, want %q", tc.method, rpcErr.Message, ErrMissingCWD.Error())
 		}
 	}
+}
+
+type fakeSkillDisclosureTierSource struct {
+	snapshot contract.SkillDisclosureSnapshot
+}
+
+func (f fakeSkillDisclosureTierSource) Enabled() bool { return true }
+
+func (f fakeSkillDisclosureTierSource) DisclosureSnapshot() contract.SkillDisclosureSnapshot {
+	return f.snapshot
 }

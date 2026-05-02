@@ -39,8 +39,10 @@ type startParams struct {
 	Summary               string          `json:"summary,omitempty"`
 	Effort                string          `json:"effort,omitempty"`
 	Personality           string          `json:"personality,omitempty"`
+	Language              string          `json:"language,omitempty"`
 	Config                json.RawMessage `json:"config,omitempty"`
-	Name                  string          `json:"name,omitempty"`
+
+	Name string `json:"name,omitempty"`
 	// Deprecated: use Name for display-name semantics; Prompt is kept only for legacy callers.
 	Prompt string `json:"-"`
 	// SelectedSkills / ManualSkillSelection p20.3 §4.3：launch 时 UI 已知的 skill 载荷。

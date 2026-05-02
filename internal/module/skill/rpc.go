@@ -3,6 +3,7 @@ package skill
 import (
 	"context"
 	"errors"
+	"math"
 	"os"
 	"strings"
 	"time"
@@ -11,7 +12,6 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/fbsd"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/repofingerprint"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
@@ -38,8 +38,8 @@ func skillListPayload(skills []SkillInfo) skillListResult {
 	return skillListResult{Skills: items}
 }
 
-func skillsWithDisclosureTiers(skills []SkillInfo, tracker *fbsd.Tracker) []SkillInfo {
-	tiers := disclosureTierSnapshot(skills, tracker, time.Now())
+func skillsWithDisclosureTiers(skills []SkillInfo, source contract.SkillDisclosureTierSource) []SkillInfo {
+	tiers := disclosureTierSnapshot(skills, source, time.Now())
 	out := make([]SkillInfo, 0, len(skills))
 	for _, info := range skills {
 		info.DisclosureTier = tiers[info.Name]
@@ -48,22 +48,57 @@ func skillsWithDisclosureTiers(skills []SkillInfo, tracker *fbsd.Tracker) []Skil
 	return out
 }
 
-func disclosureTierSnapshot(skills []SkillInfo, tracker *fbsd.Tracker, now time.Time) map[string]string {
+func disclosureTierSnapshot(skills []SkillInfo, source contract.SkillDisclosureTierSource, now time.Time) map[string]string {
 	out := make(map[string]string, len(skills))
-	if len(skills) == 0 || tracker == nil || !tracker.Enabled() {
+	if len(skills) == 0 || source == nil || !source.Enabled() {
 		return out
 	}
-	wsStats, glStats := tracker.Snapshot()
-	cfg := fbsd.EnvTierConfig()
+	snapshot := source.DisclosureSnapshot()
 	for _, info := range skills {
 		name := strings.TrimSpace(info.Name)
 		if name == "" {
 			continue
 		}
-		score := fbsd.EffectiveScore(wsStats[name], glStats[name], now, cfg.HalfLife, cfg.FrozenDuration, cfg.WSMinCalls, cfg.WSWeight)
+		score := skillDisclosureEffectiveScore(snapshot.Workspace[name], snapshot.Global[name], now, snapshot.Config)
 		out[info.Name] = skillDisclosureTierForScore(score)
 	}
 	return out
+}
+
+func skillDisclosureEffectiveScore(ws, gl *contract.SkillDisclosureSkillStats, now time.Time, cfg contract.SkillDisclosureConfig) float64 {
+	if ws != nil && len(ws.Calls) >= cfg.WSMinCalls {
+		return skillDisclosureScore(ws, now, cfg.HalfLife, cfg.FrozenDuration)
+	}
+	if gl == nil {
+		if ws == nil {
+			return 0
+		}
+		return cfg.WSWeight * skillDisclosureScore(ws, now, cfg.HalfLife, cfg.FrozenDuration)
+	}
+	if ws == nil {
+		return skillDisclosureScore(gl, now, cfg.HalfLife, cfg.FrozenDuration)
+	}
+	return cfg.WSWeight*skillDisclosureScore(ws, now, cfg.HalfLife, cfg.FrozenDuration) +
+		(1-cfg.WSWeight)*skillDisclosureScore(gl, now, cfg.HalfLife, cfg.FrozenDuration)
+}
+
+func skillDisclosureScore(stats *contract.SkillDisclosureSkillStats, now time.Time, halfLife, frozen time.Duration) float64 {
+	if stats == nil || len(stats.Calls) == 0 {
+		return 0
+	}
+	hlSec := halfLife.Seconds()
+	if hlSec <= 0 {
+		return 0
+	}
+	cutoff := now.Add(-frozen)
+	var score float64
+	for _, calledAt := range stats.Calls {
+		if calledAt.Before(cutoff) {
+			continue
+		}
+		score += math.Pow(2, -now.Sub(calledAt).Seconds()/hlSec)
+	}
+	return score
 }
 
 func skillDisclosureTierForScore(score float64) string {

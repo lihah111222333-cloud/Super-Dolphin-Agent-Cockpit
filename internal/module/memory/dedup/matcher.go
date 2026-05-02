@@ -67,20 +67,21 @@ func sliceToSet(ss []string) map[string]struct{} {
 //  2. search_keys Jaccard >= 0.5 — only when both sides have search_keys.
 //  3. Content containment >= 0.7 — highest score wins when multiple hit.
 //
-// Only entries with the same Type as candidate are considered (cross-scope
-// comparisons are allowed).
+// Only entries with the same Type as candidate are considered. When the
+// candidate has a Scope, same-scope entries are searched before cross-scope
+// entries so a current-scope duplicate is not shadowed by another scope.
 func FindDuplicate(candidate EntrySnapshot, existing []EntrySnapshot) MatchResult {
 	sameType := filterSameType(candidate.Type, existing)
 	if len(sameType) == 0 {
 		return MatchResult{}
 	}
-	if r := matchByName(candidate.Name, sameType); r.Found {
-		return r
+
+	if candidate.Scope != "" {
+		if r := findDuplicateInSet(candidate, filterSameScope(candidate.Scope, sameType)); r.Found {
+			return r
+		}
 	}
-	if r := matchBySearchKeys(candidate.SearchKeys, sameType); r.Found {
-		return r
-	}
-	return matchByContent(candidate.Content, sameType)
+	return findDuplicateInSet(candidate, sameType)
 }
 
 func filterSameType(candidateType string, existing []EntrySnapshot) []EntrySnapshot {
@@ -91,6 +92,29 @@ func filterSameType(candidateType string, existing []EntrySnapshot) []EntrySnaps
 		}
 	}
 	return result
+}
+
+func filterSameScope(candidateScope string, sameType []EntrySnapshot) []EntrySnapshot {
+	var result []EntrySnapshot
+	for _, e := range sameType {
+		if e.Scope == candidateScope {
+			result = append(result, e)
+		}
+	}
+	return result
+}
+
+func findDuplicateInSet(candidate EntrySnapshot, sameType []EntrySnapshot) MatchResult {
+	if len(sameType) == 0 {
+		return MatchResult{}
+	}
+	if r := matchByName(candidate.Name, sameType); r.Found {
+		return r
+	}
+	if r := matchBySearchKeys(candidate.SearchKeys, sameType); r.Found {
+		return r
+	}
+	return matchByContent(candidate.Content, sameType)
 }
 
 func matchByName(candidateName string, sameType []EntrySnapshot) MatchResult {
