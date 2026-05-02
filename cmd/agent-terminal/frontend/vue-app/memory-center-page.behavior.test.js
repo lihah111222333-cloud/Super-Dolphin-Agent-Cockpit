@@ -99,7 +99,49 @@ describe('MemoryCenterPage auto-dream card', () => {
   });
 });
 
+describe('MemoryCenterPage editor validation', () => {
+  it('does not save when description is blank', async () => {
+    const { vm } = setupPage({ projectRoot: '/repo' });
+
+    vm.memoryEditor.openCreate('private');
+    Object.assign(vm.memoryEditor.form, {
+      name: 'Release owner',
+      description: '   ',
+      content: 'Primary source is the runbook.',
+    });
+
+    await vm.memoryEditor.save();
+
+    expect(apiMock.callAPI).not.toHaveBeenCalledWith('ui/memory/entry/upsert', expect.anything());
+    expect(vm.notice.level).toBe('error');
+    expect(vm.notice.message).toBe('请先填写描述');
+  });
+
+  it('trims description before save', async () => {
+    const { vm } = setupPage({ projectRoot: '/repo' });
+
+    vm.memoryEditor.openCreate('private');
+    Object.assign(vm.memoryEditor.form, {
+      name: 'Release owner',
+      description: '  Who owns releases  ',
+      content: 'Primary source is the runbook.',
+    });
+
+    await vm.memoryEditor.save();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/memory/entry/upsert', expect.objectContaining({
+      cwd: '/repo',
+      target: 'private',
+      name: 'Release owner',
+      description: 'Who owns releases',
+      type: 'project',
+      content: 'Primary source is the runbook.',
+    }));
+  });
+});
+
 describe('MemoryCenterPage health and destructive actions', () => {
+
   it('normalizes health percentage when maxPerCategory is missing', () => {
     const { vm } = setupPage({ health: { preferenceCount: 4, projectCount: 2 } });
     expect(vm.healthPrefPercent.value).toBe(100);

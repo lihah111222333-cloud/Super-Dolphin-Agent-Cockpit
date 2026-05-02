@@ -54,9 +54,13 @@ test('memory center supports durable CRUD and shared-file promote', async ({ pag
 
   await page.getByTestId('memory-center-project-create').click();
   await page.getByTestId('memory-center-editor-name').fill('Release owner');
-  await page.getByTestId('memory-center-editor-description').fill('Who owns production release decisions');
+  await page.getByTestId('memory-center-editor-description').fill('');
   await page.getByTestId('memory-center-editor-content').fill('Primary source is the production release runbook.');
+  await expect(page.getByTestId('memory-center-editor-save')).toBeDisabled();
+  await page.getByTestId('memory-center-editor-description').fill('Who owns production release decisions');
+  await expect(page.getByTestId('memory-center-editor-save')).toBeEnabled();
   await page.getByTestId('memory-center-editor-save').click();
+
   await expect(page.getByTestId('memory-center-notice')).toContainText('已保存');
   await expect(page.getByTestId('memory-center-project-list')).toContainText('Release owner');
 

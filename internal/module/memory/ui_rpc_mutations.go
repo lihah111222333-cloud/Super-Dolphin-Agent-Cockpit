@@ -198,8 +198,15 @@ func deleteAbsorbedEntry(root, path string) error {
 	return store.DeletePath(path)
 }
 
-func rollbackMergedEntry(root, path string, entry MemoryEntry) error {
-	store, err := newDiskStore(root)
+func newUIMemoryMutationStore(cfg *Config, root, target string) (*diskStore, error) {
+	if target == "team" {
+		return newDiskStoreWithGuard(root, NewTeamMemoryGuard(NewTeamMemoryManager(cfg)))
+	}
+	return newDiskStore(root)
+}
+
+func rollbackMergedEntry(cfg *Config, root, target, path string, entry MemoryEntry) error {
+	store, err := newUIMemoryMutationStore(cfg, root, target)
 	if err != nil {
 		return err
 	}
@@ -394,7 +401,8 @@ func mergeUIMemoryEntries(ctx context.Context, deps memoryHandlerDeps, req uiMem
 	}
 
 	writeReq := buildUIMemoryMergeWriteRequest(resolved.entryA, resolved.entryB)
-	storeA, err := newDiskStore(resolved.rootA)
+	cfg := deps.Service.Config()
+	storeA, err := newUIMemoryMutationStore(&cfg, resolved.rootA, resolved.targetA)
 	if err != nil {
 		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "merge_open_store_a",
 			errDurableMemorySaveFailed, err, "target", resolved.targetA)
@@ -405,7 +413,7 @@ func mergeUIMemoryEntries(ctx context.Context, deps memoryHandlerDeps, req uiMem
 	}
 
 	if err := deleteAbsorbedEntry(resolved.rootB, req.PathB); err != nil {
-		_ = rollbackMergedEntry(resolved.rootA, req.PathA, resolved.entryA)
+		_ = rollbackMergedEntry(&cfg, resolved.rootA, resolved.targetA, req.PathA, resolved.entryA)
 		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "merge_delete_b",
 			errDurableMemoryDeleteFailed, err, "target", resolved.targetB, "path", req.PathB)
 	}

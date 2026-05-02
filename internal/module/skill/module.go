@@ -3,10 +3,10 @@ package skill
 import (
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/fbsd"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	auditstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/skillcandidate"
@@ -32,9 +32,9 @@ var Module = fx.Module("skill",
 type serviceDeps struct {
 	fx.In
 
-	Config     *platformconfig.Config
-	Dispatcher *event.Dispatcher
-	Tracker    *fbsd.Tracker `optional:"true"`
+	Config          *platformconfig.Config
+	Dispatcher      *event.Dispatcher
+	DisclosureTiers contract.SkillDisclosureTierSource `optional:"true"`
 }
 
 func newService(deps serviceDeps) Service {
@@ -45,7 +45,7 @@ func newService(deps serviceDeps) Service {
 	svc := NewService(projectRoot)
 	if impl, ok := svc.(*service); ok {
 		impl.bindDispatcher(deps.Dispatcher)
-		impl.tracker = deps.Tracker
+		impl.disclosureTiers = deps.DisclosureTiers
 	}
 	return svc
 }

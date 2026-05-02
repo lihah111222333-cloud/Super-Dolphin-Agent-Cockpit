@@ -138,16 +138,32 @@ func (f *Filter) collectAll(memType string) ([]EntrySnapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	all := make([]EntrySnapshot, len(private))
-	copy(all, private)
 
-	if f.scanTeam != nil {
-		team, err := f.scanTeam(memType)
-		if err != nil {
-			return nil, err
-		}
-		all = append(all, team...)
+	if f.scanTeam == nil {
+		all := make([]EntrySnapshot, len(private))
+		copy(all, private)
+		return all, nil
 	}
+
+	team, err := f.scanTeam(memType)
+	if err != nil {
+		return nil, err
+	}
+	teamPaths := make(map[string]struct{}, len(team))
+	for _, entry := range team {
+		if entry.Path != "" {
+			teamPaths[entry.Path] = struct{}{}
+		}
+	}
+
+	all := make([]EntrySnapshot, 0, len(private)+len(team))
+	for _, entry := range private {
+		if _, duplicatedByTeamScan := teamPaths[entry.Path]; duplicatedByTeamScan {
+			continue
+		}
+		all = append(all, entry)
+	}
+	all = append(all, team...)
 	return all, nil
 }
 

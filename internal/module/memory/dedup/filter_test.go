@@ -208,6 +208,109 @@ func TestFilterCheck(t *testing.T) {
 		}
 	})
 
+	t.Run("team_candidate_prefers_team_duplicate_when_private_same_name_exists", func(t *testing.T) {
+		privateEntry := EntrySnapshot{
+			Name:    "reply-in-chinese",
+			Type:    "feedback",
+			Content: oldContent,
+			Scope:   "private",
+			Path:    "/private/feedback_reply.md",
+		}
+		teamEntry := EntrySnapshot{
+			Name:    "reply-in-chinese",
+			Type:    "feedback",
+			Content: oldContent,
+			Scope:   "team",
+			Path:    "/team/feedback_reply.md",
+		}
+		f := NewFilter(
+			makeScanFunc([]EntrySnapshot{privateEntry}),
+			makeScanFunc([]EntrySnapshot{teamEntry}),
+		)
+
+		candidate := EntrySnapshot{
+			Name:    "reply-in-chinese",
+			Type:    "feedback",
+			Content: "面向用户的正文一律用中文",
+			Scope:   "team",
+		}
+		res, err := f.Check(candidate)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if res.Action != Skip {
+			t.Fatalf("team candidate must dedup against same-scope team entry: got %v, want %v", res.Action, Skip)
+		}
+	})
+
+	t.Run("team_candidate_prefers_team_duplicate_for_merge_when_private_same_name_exists", func(t *testing.T) {
+		privateEntry := EntrySnapshot{
+			Name:    "reply-in-chinese",
+			Type:    "feedback",
+			Content: oldContent,
+			Scope:   "private",
+			Path:    "/private/feedback_reply.md",
+		}
+		teamEntry := EntrySnapshot{
+			Name:    "reply-in-chinese",
+			Type:    "feedback",
+			Content: oldContent,
+			Scope:   "team",
+			Path:    "/team/feedback_reply.md",
+		}
+		f := NewFilter(
+			makeScanFunc([]EntrySnapshot{privateEntry}),
+			makeScanFunc([]EntrySnapshot{teamEntry}),
+		)
+
+		candidate := EntrySnapshot{
+			Name:    "reply-in-chinese",
+			Type:    "feedback",
+			Content: oldContent + "禁止在回复中使用表情符号。邮件主题行必须全英文。所有标题用粗体显示。",
+			Scope:   "team",
+		}
+		res, err := f.Check(candidate)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if res.Action != Merge {
+			t.Fatalf("team candidate must merge same-scope team entry: got %v, want %v", res.Action, Merge)
+		}
+		if res.TargetPath != teamEntry.Path {
+			t.Fatalf("merge target path = %q, want team path %q", res.TargetPath, teamEntry.Path)
+		}
+	})
+
+	t.Run("private_scan_alias_of_team_entry_keeps_cross_scope_write_new", func(t *testing.T) {
+		teamEntryAsPrivate := EntrySnapshot{
+			Name:    "deploy-checklist",
+			Type:    "user",
+			Content: "Team deploy checklist requires rollback owner and release window confirmation.",
+			Scope:   "private",
+			Path:    "/mem/team/user/deploy-checklist.md",
+		}
+		teamEntry := teamEntryAsPrivate
+		teamEntry.Scope = "team"
+		f := NewFilter(
+			makeScanFunc([]EntrySnapshot{teamEntryAsPrivate}),
+			makeScanFunc([]EntrySnapshot{teamEntry}),
+		)
+
+		candidate := EntrySnapshot{
+			Name:    "deploy-checklist",
+			Type:    "user",
+			Content: "Team deploy checklist requires rollback owner and release window confirmation.",
+			Scope:   "private",
+		}
+		res, err := f.Check(candidate)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if res.Action != WriteNew {
+			t.Fatalf("team entry discovered through private scan must remain cross-scope: got %v, want %v", res.Action, WriteNew)
+		}
+	})
+
 	t.Run("cross_scope_match_no_novel_skip", func(t *testing.T) {
 		// Existing in "team"; candidate in "private" with content contained in team entry.
 		// Cross-scope duplicates must not skip the current scope write.

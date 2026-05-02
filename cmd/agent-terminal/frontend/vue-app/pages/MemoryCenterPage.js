@@ -702,7 +702,8 @@ export const MemoryCenterPage = {
             <button
               class="btn btn-primary"
               data-testid="memory-center-editor-save"
-              :disabled="memoryEditor.saving || !memoryEditor.form.name.trim() || !memoryEditor.form.content.trim()"
+              :disabled="memoryEditor.saving || !memoryEditor.form.name.trim() || !memoryEditor.form.description.trim() || !memoryEditor.form.content.trim()"
+
               @click="memoryEditor.save"
             >{{ memoryEditor.saving ? '保存中...' : '保存' }}</button>
           </div>

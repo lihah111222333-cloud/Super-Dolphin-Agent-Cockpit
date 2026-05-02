@@ -1,9 +1,11 @@
 package memory
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -442,6 +444,105 @@ func TestDeleteUIMemoryEntryRejectsEntrypointIndex(t *testing.T) {
 	}
 	if _, err := readMemoryEntryFile(entryPath); err != nil {
 		t.Fatalf("topic entry was removed after rejected delete: %v", err)
+	}
+}
+
+func TestMergeUIMemoryEntriesUsesTeamGuardWhenKeptEntryIsTeam(t *testing.T) {
+	projectRoot := t.TempDir()
+	privateRoot := filepath.Join(t.TempDir(), "private")
+	cfg := &Config{
+		Enabled:             true,
+		EnableTools:         true,
+		ProjectRoot:         projectRoot,
+		RootDir:             t.TempDir(),
+		AutoMemPathOverride: privateRoot,
+		Features:            MemoryFeatureFlags{TeamMemory: true},
+	}
+	teamRoot, err := configuredTeamMemRoot(cfg, contract.BuildCtx{CWD: projectRoot})
+	if err != nil {
+		t.Fatalf("configuredTeamMemRoot() error = %v", err)
+	}
+
+	keptPath := filepath.Join(teamRoot, string(MemoryTypeProject), "team-kept.md")
+	absorbedPath := filepath.Join(privateRoot, string(MemoryTypeProject), "private-absorbed.md")
+	secret := "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"
+	commonBody := "Shared team merge guard content common phrase common phrase common phrase.\nWhy: merge validation should pass before guarded team write.\nHow to apply: reject merged content containing secrets."
+	keptBody := commonBody + "\nTeam kept clean marker."
+	absorbedBody := commonBody + "\nPrivate absorbed marker includes token " + secret + "."
+
+	writeTestTopicFile(t, keptPath, testMemoryEntry("Team Guard Kept", "team kept", MemoryTypeProject, keptBody))
+	writeTestTopicFile(t, absorbedPath, testMemoryEntry("Private Guard Absorbed", "private absorbed", MemoryTypeProject, absorbedBody))
+	if _, err := UpdateMemoryIndex(teamRoot); err != nil {
+		t.Fatalf("UpdateMemoryIndex(teamRoot) error = %v", err)
+	}
+	if _, err := UpdateMemoryIndex(privateRoot); err != nil {
+		t.Fatalf("UpdateMemoryIndex(privateRoot) error = %v", err)
+	}
+
+	var logBuf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{}))
+	_, err = mergeUIMemoryEntries(context.Background(), memoryHandlerDeps{
+		Service: newServiceWithConsolidator(cfg, nil, nil, nil),
+		Logger:  logger,
+	}, uiMemoryEntryMergeParams{
+		CWD:     projectRoot,
+		TargetA: "team",
+		PathA:   memoryEntryDisplayPath(teamRoot, keptPath),
+		TargetB: "private",
+		PathB:   memoryEntryDisplayPath(privateRoot, absorbedPath),
+	})
+	if !errors.Is(err, errDurableMemorySaveFailed) {
+		t.Fatalf("mergeUIMemoryEntries() error = %v, want %v", err, errDurableMemorySaveFailed)
+	}
+	if !strings.Contains(logBuf.String(), ErrTeamMemSecretDetected.Error()) {
+		t.Fatalf("merge log = %q, want TeamMemoryGuard rejection %q", logBuf.String(), ErrTeamMemSecretDetected.Error())
+	}
+	kept, readErr := readMemoryEntryFile(keptPath)
+	if readErr != nil {
+		t.Fatalf("read kept after rejected merge error = %v", readErr)
+	}
+	if kept.Content != keptBody {
+		t.Fatalf("team kept content changed after rejected merge:\n%s", kept.Content)
+	}
+	if strings.Contains(kept.Content, secret) {
+		t.Fatalf("team kept content contains secret after rejected merge:\n%s", kept.Content)
+	}
+	if _, err := os.Stat(absorbedPath); err != nil {
+		t.Fatalf("absorbed private entry was deleted after rejected team write: %v", err)
+	}
+}
+
+func TestRollbackMergedEntryUsesTeamGuardWhenTargetIsTeam(t *testing.T) {
+	projectRoot := t.TempDir()
+	privateRoot := filepath.Join(t.TempDir(), "private")
+	cfg := &Config{
+		Enabled:             true,
+		EnableTools:         true,
+		ProjectRoot:         projectRoot,
+		RootDir:             t.TempDir(),
+		AutoMemPathOverride: privateRoot,
+		Features:            MemoryFeatureFlags{TeamMemory: true},
+	}
+	teamRoot, err := configuredTeamMemRoot(cfg, contract.BuildCtx{CWD: projectRoot})
+	if err != nil {
+		t.Fatalf("configuredTeamMemRoot() error = %v", err)
+	}
+	keptPath := filepath.Join(teamRoot, string(MemoryTypeProject), "team-kept.md")
+	cleanBody := "Clean rollback placeholder.\nWhy: the existing team file should remain unchanged.\nHow to apply: reject unsafe rollback writes."
+	writeTestTopicFile(t, keptPath, testMemoryEntry("Team Rollback Kept", "team kept", MemoryTypeProject, cleanBody))
+
+	unsafeRollback := testMemoryEntry("Team Rollback Kept", "team kept", MemoryTypeProject,
+		"Unsafe rollback body.\nWhy: rollback must still use TeamMemoryGuard.\nHow to apply: reject token sk-proj-abcdefghijklmnopqrstuvwxyz1234567890.")
+	err = rollbackMergedEntry(cfg, teamRoot, "team", memoryEntryDisplayPath(teamRoot, keptPath), unsafeRollback)
+	if !errors.Is(err, ErrTeamMemSecretDetected) {
+		t.Fatalf("rollbackMergedEntry(team) error = %v, want %v", err, ErrTeamMemSecretDetected)
+	}
+	kept, readErr := readMemoryEntryFile(keptPath)
+	if readErr != nil {
+		t.Fatalf("read kept after rejected rollback error = %v", readErr)
+	}
+	if kept.Content != cleanBody {
+		t.Fatalf("team kept content changed after rejected rollback:\n%s", kept.Content)
 	}
 }
 

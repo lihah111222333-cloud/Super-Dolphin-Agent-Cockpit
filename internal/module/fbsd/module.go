@@ -9,11 +9,13 @@ import (
 	"time"
 
 	"go.uber.org/fx"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 // Module 是 fbsd 的 fx wire-up 入口：Provide *Tracker + 注册 OnStop flush 钩子。
 var Module = fx.Module("fbsd",
-	fx.Provide(NewTrackerFromEnv),
+	fx.Provide(NewTrackerFromEnv, ProvideSkillDisclosureTierSource),
 	fx.Invoke(registerFlush),
 )
 
@@ -106,3 +108,5 @@ func envInt(key string, def int) int {
 	}
 	return def
 }
+
+func ProvideSkillDisclosureTierSource(t *Tracker) contract.SkillDisclosureTierSource { return t }
