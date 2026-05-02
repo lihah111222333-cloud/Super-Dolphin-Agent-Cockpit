@@ -110,7 +110,11 @@ func (r *SkillReadSectionRegistry) HasTool(name string) bool {
 // host-direct call. Wrapping the raw body in a struct ensures json.Marshal in
 // callHostTool succeeds regardless of the markdown file content.
 type SkillReadSectionResult struct {
-	Body string `json:"body"`
+	Name       string `json:"name"`
+	Anchor     string `json:"anchor"`
+	Body       string `json:"body"`
+	Truncated  bool   `json:"truncated"`
+	TotalBytes int    `json:"total_bytes"`
 }
 
 // CallHostTool executes skill_read_section via SkillReadSectionTool.Call.
@@ -124,9 +128,27 @@ func (r *SkillReadSectionRegistry) CallHostTool(ctx context.Context, call HostTo
 	if call.Name != ToolNameReadSection {
 		return nil, fmt.Errorf("host tools: unknown tool %q", call.Name)
 	}
-	raw, err := r.tool.Call(ctx, call.Arguments)
+	args, err := decodeSkillReadSectionArgs(call.Arguments)
 	if err != nil {
 		return nil, err
 	}
-	return SkillReadSectionResult{Body: string(raw)}, nil
+	result, err := r.tool.readSection(args)
+	if err != nil {
+		return nil, err
+	}
+	return SkillReadSectionResult{
+		Name:       args.Name,
+		Anchor:     args.Anchor,
+		Body:       string(result.body),
+		Truncated:  result.truncated,
+		TotalBytes: result.totalBytes,
+	}, nil
+}
+
+func decodeSkillReadSectionArgs(raw json.RawMessage) (skillReadSectionArgs, error) {
+	var args skillReadSectionArgs
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return skillReadSectionArgs{}, fmt.Errorf("skill_read_section: parse args: %w", err)
+	}
+	return args, nil
 }

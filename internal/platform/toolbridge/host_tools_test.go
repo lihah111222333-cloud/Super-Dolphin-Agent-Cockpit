@@ -601,13 +601,54 @@ func TestSkillReadSectionRegistry_CallHostTool_ReadsSection(t *testing.T) {
 	if !ok {
 		t.Fatalf("result type = %T, want SkillReadSectionResult", result)
 	}
+	if res.Name != "tdd" {
+		t.Fatalf("result name = %q, want \"tdd\"", res.Name)
+	}
+	if res.Anchor != "overview" {
+		t.Fatalf("result anchor = %q, want \"overview\"", res.Anchor)
+	}
 	if res.Body != "TDD overview content" {
 		t.Fatalf("result body = %q, want \"TDD overview content\"", res.Body)
+	}
+	if res.Truncated {
+		t.Fatal("result truncated = true, want false")
+	}
+	if res.TotalBytes != len("TDD overview content") {
+		t.Fatalf("result total_bytes = %d, want %d", res.TotalBytes, len("TDD overview content"))
+	}
+}
+
+func TestSkillReadSectionRegistry_CallHostTool_TruncatedMetadata(t *testing.T) {
+	cacheDir := t.TempDir()
+	makeRefFile(t, cacheDir, "tdd", "overview", "abcdefghij")
+
+	reg := NewSkillReadSectionRegistry(NewSkillReadSectionTool(cacheDir, nil))
+	args := mustMarshal(t, map[string]any{"name": "tdd", "anchor": "overview", "max_bytes": 4})
+	result, err := reg.CallHostTool(context.Background(), HostToolCall{
+		Name:      ToolNameReadSection,
+		Arguments: args,
+	})
+	if err != nil {
+		t.Fatalf("CallHostTool() error = %v", err)
+	}
+	res, ok := result.(SkillReadSectionResult)
+	if !ok {
+		t.Fatalf("result type = %T, want SkillReadSectionResult", result)
+	}
+	if res.Body != "abcd" {
+		t.Fatalf("result body = %q, want \"abcd\"", res.Body)
+	}
+	if !res.Truncated {
+		t.Fatal("result truncated = false, want true")
+	}
+	if res.TotalBytes != len("abcdefghij") {
+		t.Fatalf("result total_bytes = %d, want %d", res.TotalBytes, len("abcdefghij"))
 	}
 }
 
 func TestSkillReadSectionRegistry_CallHostTool_UnknownToolReturnsError(t *testing.T) {
 	reg := NewSkillReadSectionRegistry(NewSkillReadSectionTool(t.TempDir(), nil))
+
 	_, err := reg.CallHostTool(context.Background(), HostToolCall{
 		Name:      "skill_expand_body",
 		Arguments: json.RawMessage(`{}`),
