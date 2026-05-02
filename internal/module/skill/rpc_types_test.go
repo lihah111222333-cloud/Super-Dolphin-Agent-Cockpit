@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/module/fbsd"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2"
@@ -119,6 +120,88 @@ func TestSkillListHostRPCResponseHidesLegacyFields(t *testing.T) {
 		if _, ok := entry[key]; ok {
 			t.Fatalf("unexpected legacy key %q in %#v", key, entry)
 		}
+	}
+}
+
+func TestSkillsListHostRPCIncludesDisclosureTierSnapshot(t *testing.T) {
+	t.Parallel()
+
+	svc := newTestSkillService(t)
+	cwd := filepath.Join(t.TempDir(), "repo")
+	writeScopedSystemSkill(t, svc.root, cwd, "hot-skill", "---\nname: hot-skill\nsummary: Hot\n---\n# Hot")
+	writeScopedSystemSkill(t, svc.root, cwd, "unused-skill", "---\nname: unused-skill\nsummary: Unused\n---\n# Unused")
+	tracker, err := fbsd.NewTracker(filepath.Join(t.TempDir(), "ws.json"), filepath.Join(t.TempDir(), "gl.json"), true)
+	if err != nil {
+		t.Fatalf("NewTracker() error = %v", err)
+	}
+	for range 4 {
+		tracker.Record("hot-skill", "")
+	}
+	if err := tracker.Flush(context.Background()); err != nil {
+		t.Fatalf("Flush() error = %v", err)
+	}
+	svc.tracker = tracker
+	server := newSkillRPCTestServer(t, svc)
+
+	raw, err := server.Dispatch(context.Background(), "skills/list", json.RawMessage(`{"cwd":"`+cwd+`"}`))
+	if err != nil {
+		t.Fatalf("Dispatch skills/list: %v", err)
+	}
+	var got struct {
+		Skills []SkillInfo `json:"skills"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	tiers := map[string]string{}
+	for _, item := range got.Skills {
+		tiers[item.Name] = item.DisclosureTier
+	}
+	if tiers["hot-skill"] != "hot" {
+		t.Fatalf("hot-skill disclosure_tier = %q, want hot; all tiers=%#v", tiers["hot-skill"], tiers)
+	}
+	if tiers["unused-skill"] != "frozen" {
+		t.Fatalf("unused-skill disclosure_tier = %q, want frozen; all tiers=%#v", tiers["unused-skill"], tiers)
+	}
+
+	rawHost, err := server.Dispatch(context.Background(), "skill/list", json.RawMessage(`{"cwd":"`+cwd+`"}`))
+	if err != nil {
+		t.Fatalf("Dispatch skill/list: %v", err)
+	}
+	var host skillListResult
+	if err := json.Unmarshal(rawHost, &host); err != nil {
+		t.Fatalf("json.Unmarshal skill/list: %v", err)
+	}
+	hostTiers := map[string]string{}
+	for _, item := range host.Skills {
+		hostTiers[item.Name] = item.DisclosureTier
+	}
+	if hostTiers["hot-skill"] != "hot" {
+		t.Fatalf("skill/list hot-skill disclosure_tier = %q, want hot; all tiers=%#v", hostTiers["hot-skill"], hostTiers)
+	}
+}
+
+func TestSkillDisclosureTierForScore(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		score float64
+		want  string
+	}{
+		{name: "hot", score: 3, want: "hot"},
+		{name: "warm", score: 1, want: "warm"},
+		{name: "cold", score: 0.1, want: "cold"},
+		{name: "frozen", score: 0, want: "frozen"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := skillDisclosureTierForScore(tc.score); got != tc.want {
+				t.Fatalf("skillDisclosureTierForScore(%v) = %q, want %q", tc.score, got, tc.want)
+			}
+		})
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	skillmodule "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
 	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
@@ -65,6 +66,29 @@ func TestGetDashboardPageDAGsWithoutOrchestrationIsEmpty(t *testing.T) {
 	if got == nil || got.DAGs == nil || len(got.DAGs) != 0 {
 		t.Fatalf("GetDashboardPage(dags) = %#v, want empty dag slice", got)
 	}
+}
+
+func TestGetDashboardPageKeepsSkillDisclosureTier(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{skills: stubSkillLister{
+		items: []skillmodule.SkillInfo{{Name: "HotSkill", DisclosureTier: "hot"}},
+	}}
+	got, err := svc.GetDashboardPage(context.Background(), "skills")
+	if err != nil {
+		t.Fatalf("GetDashboardPage(skills) error = %v", err)
+	}
+	if len(got.Skills) != 1 || got.Skills[0].DisclosureTier != "hot" {
+		t.Fatalf("GetDashboardPage(skills).Skills = %#v, want disclosure tier", got.Skills)
+	}
+}
+
+type stubSkillLister struct {
+	items []skillmodule.SkillInfo
+}
+
+func (s stubSkillLister) ListSkills(context.Context) ([]skillmodule.SkillInfo, error) {
+	return s.items, nil
 }
 
 func TestGetDashboardPageFiltersPromptsByScopedCWD(t *testing.T) {

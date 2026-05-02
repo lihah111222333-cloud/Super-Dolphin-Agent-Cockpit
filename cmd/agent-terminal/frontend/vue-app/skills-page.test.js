@@ -106,6 +106,28 @@ describe('SkillsPage', () => {
     expect(SkillsPage.template).toContain('data-testid="skills-import-scope-system"');
   });
 
+  it('maps disclosure tiers to user-friendly frequency labels', () => {
+    const { vm } = createSkillsPage({
+      skills: [{
+        name: 'HotSkill',
+        dir: '/skills/hot',
+        description: 'Hot skill',
+        summary: 'Hot helper',
+        trust: 'project',
+        disclosure_tier: 'hot',
+      }],
+    });
+
+    expect(vm.skillCards.value[0].disclosureTier).toBe('hot');
+    expect(vm.disclosureTierLabel('hot')).toBe('常用');
+    expect(vm.disclosureTierLabel('warm')).toBe('一般');
+    expect(vm.disclosureTierLabel('cold')).toBe('偶尔');
+    expect(vm.disclosureTierLabel('frozen')).toBe('少用');
+    expect(vm.disclosureTierLabel('unknown')).toBe('');
+    expect(SkillsPage.template).toContain('class="skill-card-disclosure-tag"');
+    expect(SkillsPage.template).toContain(':data-testid="\'skills-card-disclosure-\' + idx"');
+  });
+
   it('filters skills by name, summary and trigger words', () => {
     const { vm } = createSkillsPage();
 

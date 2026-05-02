@@ -5,11 +5,13 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/fbsd"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/repofingerprint"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
@@ -30,9 +32,51 @@ func skillListPayload(skills []SkillInfo) skillListResult {
 			Trust:                  info.Trust,
 			ContentHash:            info.ContentHash,
 			DisableModelInvocation: info.DisableModelInvocation,
+			DisclosureTier:         info.DisclosureTier,
 		})
 	}
 	return skillListResult{Skills: items}
+}
+
+func skillsWithDisclosureTiers(skills []SkillInfo, tracker *fbsd.Tracker) []SkillInfo {
+	tiers := disclosureTierSnapshot(skills, tracker, time.Now())
+	out := make([]SkillInfo, 0, len(skills))
+	for _, info := range skills {
+		info.DisclosureTier = tiers[info.Name]
+		out = append(out, info)
+	}
+	return out
+}
+
+func disclosureTierSnapshot(skills []SkillInfo, tracker *fbsd.Tracker, now time.Time) map[string]string {
+	out := make(map[string]string, len(skills))
+	if len(skills) == 0 || tracker == nil || !tracker.Enabled() {
+		return out
+	}
+	wsStats, glStats := tracker.Snapshot()
+	cfg := fbsd.EnvTierConfig()
+	for _, info := range skills {
+		name := strings.TrimSpace(info.Name)
+		if name == "" {
+			continue
+		}
+		score := fbsd.EffectiveScore(wsStats[name], glStats[name], now, cfg.HalfLife, cfg.FrozenDuration, cfg.WSMinCalls, cfg.WSWeight)
+		out[info.Name] = skillDisclosureTierForScore(score)
+	}
+	return out
+}
+
+func skillDisclosureTierForScore(score float64) string {
+	switch {
+	case score >= 3:
+		return "hot"
+	case score >= 1:
+		return "warm"
+	case score > 0:
+		return "cold"
+	default:
+		return "frozen"
+	}
 }
 
 func skillRPCError(err error) error {

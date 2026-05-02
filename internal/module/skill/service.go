@@ -15,6 +15,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/fbsd"
 	auditstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/skillcandidate"
 )
@@ -29,6 +30,7 @@ type service struct {
 	projectRoot        string
 	projectSkillsRoot  string
 	http               *http.Client
+	tracker            *fbsd.Tracker
 	approvalRequester  contract.ApprovalRequester
 	readConfigState    func(context.Context, string) (any, error)
 	emitSkillsChanged  skillsChangedEmitter
