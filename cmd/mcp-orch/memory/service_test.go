@@ -175,6 +175,27 @@ func TestServiceWriteCreatesEntryAndUpdatesIndex(t *testing.T) {
 	}
 }
 
+func TestServiceWriteReturnsErrorWhenIndexCannotBeUpdated(t *testing.T) {
+	svc := newTestMemoryService(t)
+	root := userScopeFixtureRoot(t)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", root, err)
+	}
+	if err := os.Mkdir(filepath.Join(root, memoryIndexFileName), 0o755); err != nil {
+		t.Fatalf("Mkdir(MEMORY.md) error = %v", err)
+	}
+
+	_, err := svc.Write(context.Background(), contract.MemoryWriteRequest{
+		Name:    "index failure",
+		Content: "索引失败时不能假装保存成功。",
+		Type:    contract.MemoryTypeFeedback,
+		Scope:   contract.MemoryScopeUser,
+	})
+	if err == nil {
+		t.Fatal("Write() error = nil, want index update failure")
+	}
+}
+
 func TestServiceWriteDeduplicatesSameName(t *testing.T) {
 	svc := newTestMemoryService(t)
 
@@ -256,6 +277,29 @@ func TestServiceWriteChineseNamesUseDistinctPaths(t *testing.T) {
 		if !strings.Contains(string(data), item.want) {
 			t.Fatalf("%s file %q missing %q:\n%s", item.name, item.path, item.want, string(data))
 		}
+	}
+}
+
+func TestServiceWritePreservesChineseStructuredSectionLabels(t *testing.T) {
+	svc := newTestMemoryService(t)
+	root := userScopeFixtureRoot(t)
+
+	result, err := svc.Write(context.Background(), contract.MemoryWriteRequest{
+		Name:    "中文结构化模板",
+		Content: "事实\n原因：用户界面提供中文模板。\n如何应用：保存时接受中文段落标题。",
+		Type:    contract.MemoryTypeProject,
+		Scope:   contract.MemoryScopeUser,
+	})
+	if err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, result.Path))
+	if err != nil {
+		t.Fatalf("ReadFile error = %v", err)
+	}
+	content := string(data)
+	if strings.Contains(content, "Why:") || strings.Contains(content, "How to apply:") {
+		t.Fatalf("Write() appended English sections despite Chinese labels:\n%s", content)
 	}
 }
 
