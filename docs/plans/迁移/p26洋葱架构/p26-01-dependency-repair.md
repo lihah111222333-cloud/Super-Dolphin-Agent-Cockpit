@@ -25,18 +25,18 @@
 
 修复的核心思路是**接口隔离（Dependency Inversion）**与**公共能力下沉（Sink down）**。
 
-### Phase 1: 抽象与下沉 Discovery 能力 (已开始执行)
+### Phase 1: 抽象与下沉 Discovery 能力 (已完成)
 服务发现机制（Peer Discovery）本质是基础设施能力，不该绑定在 `mcpserver` 下。
 - **行动**：将 `mcpserver/common/discovery.go` 剥离，新建并移动至 `internal/platform/discovery`。
 - **行动**：全局替换所有对 `common.DiscoverPeerHTTPAddr` 的引用，修改为 `discovery.DiscoverPeerHTTPAddr`。
 
-### Phase 2: 解耦 Toolbridge (待执行)
+### Phase 2: 解耦 Toolbridge (已完成)
 解决 `toolbridge` 反向依赖 `codexapp` 和 `mcpserver` 的问题。
 - **行动**：排查 `internal/platform/toolbridge` 对 `codexapp` 特定协议结构的硬编码引用。
 - **行动**：引入一层内部契约接口（如在 `internal/contract/mcp` 或 `dto` 层面），让 `codexapp` 来实现该接口并注入，而非 `toolbridge` 主动调用。
 - **行动**：将涉及到的所有 MCP 通用常量下沉至 Platform 层。
 
-### Phase 3: 架构守护测试增强 (待执行)
+### Phase 3: 架构守护测试增强 (已完成)
 代码重构完成后，通过增加自动化测试确保未来不会发生类似违规。
 - **行动**：扩展 `internal/archtest/dependency_direction_test.go`。
 - **行动**：在现有的 `assertPlatformIsolationRules` 中添加新断言：拦截所有从 `internal/platform` 指向 `internal/provider` 和 `internal/mcpserver` 的 `import`。

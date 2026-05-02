@@ -1,6 +1,6 @@
 # Onion Architecture Dependency Repair Implementation Plan
 
-> **For agentic workers:** 强制要求子技能: Use superpowers:子代理驱动开发 (recommended) or superpowers:执行计划 to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** 强制要求子技能: Use superpowers:子代理驱动开发 (recommended) or superpowers:执行计划 to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 完全消除 `internal/platform` 和 `internal/module` 层对 `mcpserver` 与 `provider` 层的倒置依赖，修复服务发现的路径，并添加严格的架构断言。
 
@@ -18,22 +18,22 @@
 - Modify: `internal/platform/discovery/discovery.go` (如果需要)
 - Modify: `cmd/mcp-lsp/fx.go` (等涉及引用替换的组装点)
 
-- [ ] **Step 1: 运行构建以确认当前失败点**
+- [x] **Step 1: 运行构建以确认当前失败点**
 ```bash
 go build ./cmd/mcp-lsp/... ./cmd/mcp-orch/... ./cmd/mcp-ida/...
 ```
 Expected: FAIL 伴随一些包未找到或命名空间未解决的错误（例如某些 `common` 未被正确替换）。
 
-- [ ] **Step 2: 修复遗留的命名空间问题**
+- [x] **Step 2: 修复遗留的命名空间问题**
 修复所有受影响包中的 `common.Xxx` 调用为 `discovery.Xxx`，并确保 `import` 指向正确的 `github.com/anthropic-ai/super-agent-v3/internal/platform/discovery`。
 
-- [ ] **Step 3: 运行测试以验证修复**
+- [x] **Step 3: 运行测试以验证修复**
 ```bash
 go test ./internal/platform/discovery/... ./internal/module/turn/... ./internal/mcpserver/...
 ```
 Expected: PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 ```bash
 git add -A
 git commit -m "refactor: sink discovery logic to platform layer and fix imports"
@@ -48,7 +48,7 @@ git commit -m "refactor: sink discovery logic to platform layer and fix imports"
 **Files:**
 - Modify: `internal/archtest/dependency_direction_test.go`
 
-- [ ] **Step 1: 编写失败的架构测试**
+- [x] **Step 1: 编写失败的架构测试**
 修改 `dependency_direction_test.go`，在 `assertPlatformIsolationRules` 和 `assertCoreDependencyRules` 中添加新的规则：
 ```go
 	t.Run("rule16_platform_no_mcpserver_or_provider", func(t *testing.T) {
@@ -71,13 +71,13 @@ git commit -m "refactor: sink discovery logic to platform layer and fix imports"
 	})
 ```
 
-- [ ] **Step 2: 运行测试以确认失败**
+- [x] **Step 2: 运行测试以确认失败**
 ```bash
 go test ./internal/archtest -run 'TestDependencyDirection/rule16|rule17' -v -count=1
 ```
 Expected: FAIL 伴随 `toolbridge imports mcpserver` 和 `toolbridge imports provider` 等错误。
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 ```bash
 git add internal/archtest/dependency_direction_test.go
 git commit -m "test(arch): add failing dependency direction guards for platform and module"
@@ -96,7 +96,7 @@ git commit -m "test(arch): add failing dependency direction guards for platform 
 - Modify: `internal/platform/toolbridge/module.go`
 - Modify: `internal/provider/codexapp/protocol/xxx.go`
 
-- [ ] **Step 1: 提取常量至契约层**
+- [x] **Step 1: 提取常量至契约层**
 在 `internal/contract/mcp/proxy_protocol.go` 中定义被 toolbridge 依赖的常量或接口，替换原有的 `codexprotocol`。
 ```go
 package mcp
@@ -106,16 +106,16 @@ const (
 )
 ```
 
-- [ ] **Step 2: 修复 Toolbridge 中的引用**
+- [x] **Step 2: 修复 Toolbridge 中的引用**
 在 `toolbridge` 包内，删除所有指向 `internal/provider` 和 `internal/mcpserver` 的 `import`。改用新创建的 `mcp` 契约或泛型参数。
 
-- [ ] **Step 3: 运行架构测试以验证解耦成功**
+- [x] **Step 3: 运行架构测试以验证解耦成功**
 ```bash
 go test ./internal/archtest -run 'TestDependencyDirection/rule16|rule17' -v -count=1
 ```
 Expected: PASS 
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 ```bash
 git add internal/platform/toolbridge internal/contract/mcp internal/provider/codexapp
 git commit -m "refactor: decouple toolbridge from specific providers and mcpserver"
@@ -127,13 +127,13 @@ git commit -m "refactor: decouple toolbridge from specific providers and mcpserv
 
 进行全量测试以确保没有附带破坏，然后执行推送。
 
-- [ ] **Step 1: 运行全量单元与架构测试**
+- [x] **Step 1: 运行全量单元与架构测试**
 ```bash
 go test ./... -v -short
 ```
 Expected: PASS
 
-- [ ] **Step 2: 进行全量原子提交与推送**
+- [x] **Step 2: 进行全量原子提交与推送**
 ```bash
 git add -A
 git commit -m "chore: complete P26 onion architecture dependency inversion repair"
