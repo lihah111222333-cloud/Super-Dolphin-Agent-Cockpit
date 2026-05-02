@@ -1,5 +1,6 @@
 // @ts-nocheck
 
+import { ref } from '../../../lib/vue.esm-browser.prod.js';
 import { parseAgentBadge } from '../../stores/thread-view.model.js';
 
 export const ThreadRailSidePanel = {
@@ -32,11 +33,17 @@ export const ThreadRailSidePanel = {
     'cancel-inline-rename',
     'handle-inline-rename-blur',
     'update-editing-alias',
+    'delete-stale-threads',
   ],
   setup(_, { emit }) {
+    const confirmCleanMode = ref(false);
     return {
       emit,
       parseAgentBadge,
+      confirmCleanMode,
+      startClean() { confirmCleanMode.value = true; },
+      cancelClean() { confirmCleanMode.value = false; },
+      doClean(staleIds) { confirmCleanMode.value = false; emit('delete-stale-threads', staleIds); },
     };
   },
   template: `
@@ -94,6 +101,35 @@ export const ThreadRailSidePanel = {
             <line x1="3" y1="8" x2="13" y2="8"></line>
           </svg>
         </button>
+        <button
+          v-if="showArchivedThreadList && !confirmCleanMode && visibleChatThreadCards.some(c => c.isStale)"
+          type="button"
+          class="btn btn-ghost btn-xs thread-rail-clean-btn"
+          data-testid="thread-clean-stale-btn"
+          aria-label="清理无用对话"
+          title="清理无用对话"
+          @click="startClean()"
+        >
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 4h10"></path>
+            <path d="M5 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"></path>
+            <path d="M4 4l1 9a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1l1-9"></path>
+          </svg>
+        </button>
+        <button
+          v-if="showArchivedThreadList && confirmCleanMode"
+          type="button"
+          class="btn btn-ghost btn-xs thread-rail-confirm-btn"
+          data-testid="thread-clean-confirm-btn"
+          @click="doClean(visibleChatThreadCards.filter(c => c.isStale).map(c => c.id))"
+        >确认</button>
+        <button
+          v-if="showArchivedThreadList && confirmCleanMode"
+          type="button"
+          class="btn btn-ghost btn-xs thread-rail-cancel-btn"
+          data-testid="thread-clean-cancel-btn"
+          @click="cancelClean()"
+        >取消</button>
         <button
           type="button"
           class="btn btn-ghost btn-xs thread-rail-switch-btn"
@@ -222,6 +258,7 @@ export const ThreadRailSidePanel = {
           <div class="thread-rail-item-meta">
             <span class="status-dot" :class="thread.status"></span>
             <span>{{ thread.statusHeader }}</span>
+            <span v-if="thread.isStale" class="thread-stale-badge" :data-stale-reason="thread.staleReason">{{ thread.staleReason === 'expired' ? '超7天' : '空对话' }}</span>
           </div>
         </div>
       </div>

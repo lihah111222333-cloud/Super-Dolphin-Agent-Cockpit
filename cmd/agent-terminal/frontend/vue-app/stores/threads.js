@@ -150,6 +150,7 @@ export function useThreadStore() {
     toggleThreadPin: actionManager.toggleThreadPin,
     setThreadArchived: actionManager.setThreadArchived,
     toggleThreadArchive: actionManager.toggleThreadArchive,
+    batchDeleteStaleThreads: actionManager.batchDeleteStaleThreads,
     displayName: viewHelpers.displayName,
   };
 }

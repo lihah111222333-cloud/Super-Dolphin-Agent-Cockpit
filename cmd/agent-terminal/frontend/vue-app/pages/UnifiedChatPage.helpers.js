@@ -206,6 +206,7 @@ export function buildUnifiedChatPageExposed(ctx) {
     getDisplayName: threadActions.getDisplayName,
     resolveThreadDisplayName: threadActions.resolveThreadDisplayName,
     dismissPinnedPlan: threadCards.dismissPinnedPlan,
+    deleteStaleThreads: ctx.batchDeleteStaleThreads,
     pinnedPlanCardSpec: ctx.pinnedPlanCardSpec,
     onTimelineFileRefClick: fileRefPreview.onTimelineFileRefClick,
   };

@@ -859,8 +859,29 @@ describe('buildVisibleChatThreadCards', () => {
         expect(result.cards).toEqual([]);
     });
 
+    it('filters deleted lifecycle threads out of both active and archived lists', () => {
+        const activeResult = buildVisibleChatThreadCards({
+            threads: [{ id: 'thread-deleted', name: 'thread-deleted', lifecycleStatus: 'deleted', state: 'deleted' }],
+            archivedMap: {},
+            showArchived: false,
+        });
+        const archivedResult = buildVisibleChatThreadCards({
+            threads: [{ id: 'thread-deleted', name: 'thread-deleted', lifecycleStatus: 'deleted', state: 'deleted' }],
+            archivedMap: { 'thread-deleted': Date.now() },
+            showArchived: true,
+        });
+
+        expect(activeResult.activeCount).toBe(0);
+        expect(activeResult.archivedCount).toBe(0);
+        expect(activeResult.cards).toEqual([]);
+        expect(archivedResult.activeCount).toBe(0);
+        expect(archivedResult.archivedCount).toBe(0);
+        expect(archivedResult.cards).toEqual([]);
+    });
+
 
     it('records card build perf phases and avoids repeated routing lookups', () => {
+
         const marks = [];
         let routingCalls = 0;
         const result = buildVisibleChatThreadCards({
@@ -901,5 +922,70 @@ describe('buildVisibleChatThreadCards', () => {
             pending_launch_calls: 2,
             runtime_hits: 1,
         }));
+    });
+
+    it('marks archived threads as stale when archivedAt exceeds 7 days', () => {
+        const eightDaysAgo = Date.now() - 8 * 24 * 60 * 60 * 1000;
+        const result = buildVisibleChatThreadCards({
+            threads: [{ id: 'old-thread', name: 'Old Thread' }],
+            archivedMap: { 'old-thread': eightDaysAgo },
+            showArchived: true,
+            displayNameOf: (t) => t.name,
+        });
+        expect(result.cards[0].isStale).toBe(true);
+        expect(result.cards[0].staleReason).toBe('expired');
+    });
+
+    it('marks archived threads as stale when showId is true (empty)', () => {
+        const result = buildVisibleChatThreadCards({
+            threads: [{ id: 'thread-123', name: 'thread-123' }],
+            archivedMap: { 'thread-123': Date.now() },
+            showArchived: true,
+            displayNameOf: (t) => t.name,
+        });
+        expect(result.cards[0].isStale).toBe(true);
+        expect(result.cards[0].staleReason).toBe('empty');
+    });
+
+    it('does not mark active threads as stale', () => {
+        const result = buildVisibleChatThreadCards({
+            threads: [{ id: 'active-thread', name: 'active-thread' }],
+            archivedMap: {},
+            showArchived: false,
+            displayNameOf: (t) => t.name,
+        });
+        expect(result.cards[0].isStale).toBe(false);
+        expect(result.cards[0].staleReason).toBe('');
+    });
+
+    it('sorts archived cards by archivedAt descending', () => {
+        const now = Date.now();
+        const result = buildVisibleChatThreadCards({
+            threads: [
+                { id: 'old', name: 'Old' },
+                { id: 'new', name: 'New' },
+                { id: 'mid', name: 'Mid' },
+            ],
+            archivedMap: {
+                'old': now - 3000,
+                'new': now - 1000,
+                'mid': now - 2000,
+            },
+            showArchived: true,
+            displayNameOf: (t) => t.name,
+        });
+        expect(result.cards.map((c) => c.id)).toEqual(['new', 'mid', 'old']);
+    });
+
+    it('expired takes precedence over empty for stale reason', () => {
+        const eightDaysAgo = Date.now() - 8 * 24 * 60 * 60 * 1000;
+        const result = buildVisibleChatThreadCards({
+            threads: [{ id: 'thread-abc', name: 'thread-abc' }],
+            archivedMap: { 'thread-abc': eightDaysAgo },
+            showArchived: true,
+            displayNameOf: (t) => t.name,
+        });
+        expect(result.cards[0].isStale).toBe(true);
+        expect(result.cards[0].staleReason).toBe('expired');
     });
 });
