@@ -112,34 +112,6 @@ func TestCacheByNameSectionKeysScratchpadByDirectory(t *testing.T) {
 	}
 }
 
-func TestInputScopedSectionKeysAgentMemoryByScope(t *testing.T) {
-	section := PromptSection{Name: DynamicSectionAgentMemory, CachePolicy: InputScoped}
-	keyProject, ok := sectionInputCacheKey(section, SectionContext{Start: &StartInput{
-		ParentAgentID:    "agent-root",
-		AgentType:        "worker",
-		AgentMemoryScope: "project",
-	}})
-	if !ok {
-		t.Fatal("sectionInputCacheKey() cacheable = false, want true")
-	}
-	keyProject2, _ := sectionInputCacheKey(section, SectionContext{Start: &StartInput{
-		ParentAgentID:    "agent-root",
-		AgentType:        "worker",
-		AgentMemoryScope: "project",
-	}})
-	keyLocal, _ := sectionInputCacheKey(section, SectionContext{Start: &StartInput{
-		ParentAgentID:    "agent-root",
-		AgentType:        "worker",
-		AgentMemoryScope: "local",
-	}})
-	if keyProject != keyProject2 {
-		t.Fatalf("same agent scope key mismatch: first=%q second=%q", keyProject, keyProject2)
-	}
-	if keyProject == keyLocal {
-		t.Fatalf("different agent-memory scopes reused cache key: %q", keyProject)
-	}
-}
-
 func TestInputScopedSectionKeysMemoryByGateInputs(t *testing.T) {
 	section := PromptSection{Name: DynamicSectionMemory, CachePolicy: InputScoped}
 	base := SectionContext{

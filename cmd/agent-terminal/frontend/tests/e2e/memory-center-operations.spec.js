@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 
 import { installMockBackend } from './support/mock-backend.js';
 
-test('memory center supports CRUD, agent memory save, and shared-file promote', async ({ page }) => {
+test('memory center supports durable CRUD and shared-file promote', async ({ page }) => {
   await installMockBackend(page, {
     projects: ['/workspace/project-alpha'],
     activeProject: '/workspace/project-alpha',
@@ -63,7 +63,10 @@ test('memory center supports CRUD, agent memory save, and shared-file promote', 
   await page.getByTestId('memory-center-project-edit-0').click();
   await expect(page.getByTestId('memory-center-editor')).toBeVisible();
   await page.getByTestId('memory-center-editor-delete').click();
+  await expect(page.getByTestId('memory-center-inline-delete-modal')).toBeVisible();
+  await page.getByTestId('memory-center-inline-delete-confirm').click();
   await expect(page.getByTestId('memory-center-notice')).toContainText('已删除');
+
   await expect(page.getByTestId('memory-center-project-empty')).toBeVisible();
 
   await page.getByTestId('nav-memory').click();

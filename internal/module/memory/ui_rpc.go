@@ -330,15 +330,8 @@ func isContainmentRejection(err error) bool {
 //
 // Sentinels are grouped per user-visible action family (read / scan /
 // save / delete) rather than per internal RPC method, so the list
-// stays short as more handlers join. Agent and durable memory have
-// distinct sentinels because the user can disambiguate which surface
-// failed without leaking which internal helper produced the error.
+// stays short as more handlers join.
 var (
-	errAgentMemoryReadFailed   = errors.New("agent memory entry read failed")
-	errAgentMemoryScanFailed   = errors.New("agent memory scope scan failed")
-	errAgentMemorySaveFailed   = errors.New("agent memory entry save failed")
-	errAgentMemoryDeleteFailed = errors.New("agent memory entry delete failed")
-
 	errDurableMemoryReadFailed   = errors.New("durable memory entry read failed")
 	errDurableMemoryScanFailed   = errors.New("durable memory scope scan failed")
 	errDurableMemorySaveFailed   = errors.New("durable memory entry save failed")

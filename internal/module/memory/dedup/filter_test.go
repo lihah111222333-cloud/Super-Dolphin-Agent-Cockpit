@@ -142,11 +142,10 @@ func TestFilterCheck(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		// The short candidate is largely contained in the old -> Skip or Merge.
-		// It must NOT be WriteNew (a content match was found).
-		if res.Action == WriteNew {
-			t.Errorf("expected Skip or Merge for content-contained candidate, got WriteNew")
+		if res.Action != Skip {
+			t.Errorf("expected Skip for content-contained candidate, got %v", res.Action)
 		}
+
 	})
 
 	t.Run("content_containment_dup_with_novel_merge", func(t *testing.T) {
@@ -171,12 +170,10 @@ func TestFilterCheck(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		// Should be either Merge (novel content) or Skip depending on bigram
-		// ratios -- both are acceptable; what must NOT happen is WriteNew when
-		// a content match was found.
-		if res.Action == WriteNew {
-			t.Errorf("expected Skip or Merge for content-matched candidate, got WriteNew")
+		if res.Action != Merge {
+			t.Errorf("expected Merge for content-matched candidate with novel content, got %v", res.Action)
 		}
+
 	})
 
 	t.Run("cross_scope_match_with_novel_write_new", func(t *testing.T) {
@@ -213,7 +210,7 @@ func TestFilterCheck(t *testing.T) {
 
 	t.Run("cross_scope_match_no_novel_skip", func(t *testing.T) {
 		// Existing in "team"; candidate in "private" with content contained in team entry.
-		// No novel bigrams -> Skip.
+		// Cross-scope duplicates must not skip the current scope write.
 		teamEntry := EntrySnapshot{
 			Name:    "reply-in-chinese",
 			Type:    "feedback",
@@ -226,7 +223,7 @@ func TestFilterCheck(t *testing.T) {
 			makeScanFunc([]EntrySnapshot{teamEntry}),
 		)
 
-		// Candidate is the same short subset -- fully contained -> Skip.
+		// Candidate is the same short subset -- fully contained in the team entry.
 		candidate := EntrySnapshot{
 			Name:    "reply-in-chinese",
 			Type:    "feedback",
@@ -237,8 +234,8 @@ func TestFilterCheck(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if res.Action != Skip {
-			t.Errorf("cross-scope fully-contained candidate: expected Skip, got %v", res.Action)
+		if res.Action != WriteNew {
+			t.Errorf("cross-scope duplicate must still write current scope: expected WriteNew, got %v", res.Action)
 		}
 	})
 

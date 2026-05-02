@@ -20,10 +20,6 @@ func (s stubRegistryMemoryService) Read(ctx context.Context, req contract.Memory
 	return s.read(ctx, req)
 }
 
-func (s stubRegistryMemoryService) Write(_ context.Context, _ contract.MemoryWriteRequest) (contract.MemoryWriteResult, error) {
-	return contract.MemoryWriteResult{}, nil
-}
-
 func TestNewRegistryIncludesMemoryTool(t *testing.T) {
 	var gotReq contract.MemoryReadRequest
 	registry := newRegistry(nil, nil, nil, nil, nil, stubRegistryMemoryService{read: func(_ context.Context, req contract.MemoryReadRequest) (contract.MemoryReadResult, error) {

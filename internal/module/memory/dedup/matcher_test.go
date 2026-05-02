@@ -195,3 +195,16 @@ func TestFindDuplicate_NameNormalizationMatch(t *testing.T) {
 		t.Errorf("expected Level=%q, got %q", "name", result.Level)
 	}
 }
+
+func TestFindDuplicate_EmptyNormalizedNameDoesNotMatch(t *testing.T) {
+	candidate := makeEntry("---", "feedback", nil, "候选内容")
+	existing := []EntrySnapshot{
+		makeEntry("!!!", "feedback", nil, "完全不同的旧内容"),
+	}
+
+	result := FindDuplicate(candidate, existing)
+
+	if result.Found {
+		t.Fatalf("empty normalized names must not match: %#v", result)
+	}
+}

@@ -81,8 +81,8 @@ func assertRecordedInvalidation(
 
 // assertRecordedNoSections asserts that the recorder NEVER recorded an
 // invalidation that contains any of the disallowedSections. Used for
-// disjoint counter-baselines (e.g. agent-memory paths must not bleed
-// into durable Memory/MemoryContext/MemoryEntrypoint sections).
+// disjoint counter-baselines.
+
 func assertRecordedNoSections(
 	t *testing.T,
 	rec *recordingSectionInvalidator,

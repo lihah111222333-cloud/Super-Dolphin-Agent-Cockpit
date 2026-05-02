@@ -100,7 +100,7 @@ func TestParseMemoryFilePreservesRawContentWhenContentChanges(t *testing.T) {
 
 func TestParseMemoryFileTruncatesEntrypointContent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), memoryIndexFileName)
-	lines := make([]string, agentMemoryMaxLines+5)
+	lines := make([]string, entrypointMaxLines+5)
 	for i := range lines {
 		lines[i] = fmt.Sprintf("line %03d", i)
 	}
@@ -116,7 +116,7 @@ func TestParseMemoryFileTruncatesEntrypointContent(t *testing.T) {
 	if !strings.Contains(parsed.Content, "> WARNING: MEMORY.md is") {
 		t.Fatalf("ParseMemoryFile() content missing truncation warning: %q", parsed.Content)
 	}
-	if strings.Contains(parsed.Content, fmt.Sprintf("line %03d", agentMemoryMaxLines)) {
+	if strings.Contains(parsed.Content, fmt.Sprintf("line %03d", entrypointMaxLines)) {
 		t.Fatalf("ParseMemoryFile() content still contains discarded line: %q", parsed.Content)
 	}
 	if !parsed.ContentDiffersFromDisk || parsed.RawContent != raw {

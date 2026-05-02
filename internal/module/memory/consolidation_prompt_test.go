@@ -160,3 +160,19 @@ func TestConsolidationPromptIncludesRuntimeContext(t *testing.T) {
 		t.Fatalf("extract func calls = %d, want 1", called)
 	}
 }
+
+func TestRejectConsolidationPathRejectsHistoricalAgentMemoryPath(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	cfg := &Config{Enabled: true, RootDir: root, ProjectRoot: filepath.Join(root, "project")}
+
+	paths := []string{
+		filepath.Join(root, "agent-memory", "worker", "MEMORY.md"),
+		filepath.Join(cfg.ProjectRoot, ".claude", "agent-memory", "worker", "MEMORY.md"),
+		filepath.Join(cfg.ProjectRoot, ".claude", "agent-memory-local", "worker", "MEMORY.md"),
+	}
+	for _, path := range paths {
+		if err := rejectConsolidationPath(cfg, path); err != ErrConsolidationAgentMemoryPath {
+			t.Fatalf("rejectConsolidationPath(%q) = %v, want ErrConsolidationAgentMemoryPath", path, err)
+		}
+	}
+}

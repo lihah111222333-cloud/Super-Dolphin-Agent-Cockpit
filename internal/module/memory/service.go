@@ -335,6 +335,9 @@ func (h *MemoryLifecycleHooks) checkDedupAndHandle(entry MemoryWriteRequest, sto
 	}
 	result, err := h.dedupFilter.Check(candidate)
 	if err != nil {
+		if h.logger != nil {
+			h.logger.Warn("memory dedup check failed", "err", err, "scope", scope, "type", entry.Type)
+		}
 		return false
 	}
 	switch result.Action {
@@ -360,22 +363,47 @@ func (h *MemoryLifecycleHooks) tryDedupMerge(result dedup.CheckResult, store mem
 }
 
 func (h *MemoryLifecycleHooks) maybeOverflowMerge(store memoryStructuredStore, memType MemoryType, options WriteOptions) {
-	if h.dedupFilter == nil {
-		return
-	}
 	if ws, ok := store.(memoryWriteStore); ok {
 		h.handleDedupOverflow(ws, memType, options)
 	}
 }
 
-// handleDedupOverflow 检查并执行溢出合并。
+// handleDedupOverflow checks and executes overflow merges within the current
+// write store only. The global dedup filter scans cross-scope for duplicate
+// detection, but overflow control must never use private-scope instructions
+// to mutate a team store or vice versa.
 func (h *MemoryLifecycleHooks) handleDedupOverflow(store memoryWriteStore, memType MemoryType, options WriteOptions) {
-	instruction, err := h.dedupFilter.FindOverflowMerge(string(memType))
+	if store == nil {
+		return
+	}
+	filter := dedup.NewFilter(func(typeFilter string) ([]dedup.EntrySnapshot, error) {
+		return scanEntriesAsSnapshots(store.Root(), typeFilter, storeScopeName(store, h))
+	}, nil)
+	instruction, err := filter.FindOverflowMerge(string(memType))
 	if err != nil || instruction == nil {
+		if err != nil && h != nil && h.logger != nil {
+			h.logger.Warn("memory dedup overflow check failed", "err", err, "scope", storeScopeName(store, h), "type", memType)
+		}
 		return
 	}
 	merged := snapshotToMemoryEntry(instruction.KeepEntry)
-	_ = overflowMergeAndDelete(store, instruction.KeepEntry.Path, merged, instruction.DeletePath, options)
+	if err := overflowMergeAndDelete(store, instruction.KeepEntry.Path, merged, instruction.DeletePath, options); err != nil && h != nil && h.logger != nil {
+		h.logger.Warn("memory dedup overflow merge failed", "err", err, "scope", storeScopeName(store, h), "type", memType)
+	}
+}
+
+func storeScopeName(store memoryWriteStore, h *MemoryLifecycleHooks) string {
+	if store == nil {
+		return ""
+	}
+	root := filepath.Clean(store.Root())
+	if h != nil && h.team != nil {
+		teamRoot := filepath.Clean(strings.TrimSpace(h.team.GetTeamMemPath()))
+		if teamRoot != "." && root == teamRoot {
+			return "team"
+		}
+	}
+	return "private"
 }
 
 // warnCrossScopeSameName logs a single warn (dedup'd by name) when the
