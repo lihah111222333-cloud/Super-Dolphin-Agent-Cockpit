@@ -55,6 +55,9 @@ func markThreadStopped(items []ThreadSummary, threadID, status string) []ThreadS
 	if status = strings.TrimSpace(status); status == "" {
 		status = "stopped"
 	}
+	if strings.EqualFold(status, "deleted") {
+		return removeThreadSummary(items, threadID)
+	}
 	for i := range items {
 		if items[i].ID != threadID {
 			continue
@@ -69,6 +72,22 @@ func markThreadStopped(items []ThreadSummary, threadID, status string) []ThreadS
 	}
 	return append(items, ThreadSummary{ID: threadID, LifecycleStatus: status, State: status})
 }
+
+func removeThreadSummary(items []ThreadSummary, threadID string) []ThreadSummary {
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" || len(items) == 0 {
+		return items
+	}
+	out := items[:0]
+	for _, item := range items {
+		if item.ID == threadID {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
 func recentTurnTime(value TurnSummary) time.Time {
 	if value.CompletedAt != nil {
 		return *value.CompletedAt

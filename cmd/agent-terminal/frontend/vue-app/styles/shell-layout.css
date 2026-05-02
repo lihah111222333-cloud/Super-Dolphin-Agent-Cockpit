@@ -1078,6 +1078,95 @@ a,
   box-shadow: 0 0 0 2px rgba(106, 219, 142, 0.24);
 }
 
+.unified-chat-page .thread-rail-clean-btn {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border: 1px solid rgba(239, 68, 68, 0.48);
+  border-radius: 999px;
+  background: rgba(50, 30, 30, 0.92);
+  color: rgba(239, 68, 68, 0.88);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  transition: border-color var(--transition), color var(--transition), background var(--transition);
+}
+
+.unified-chat-page .thread-rail-clean-btn svg {
+  width: 12px;
+  height: 12px;
+  display: block;
+}
+
+.unified-chat-page .thread-rail-clean-btn:hover {
+  border-color: rgba(239, 68, 68, 0.78);
+  color: rgba(239, 68, 68, 1);
+  background: rgba(70, 30, 30, 0.92);
+}
+
+.unified-chat-page .thread-rail-clean-btn:focus-visible {
+  outline: none;
+  border-color: rgba(239, 68, 68, 0.9);
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.24);
+}
+
+.unified-chat-page .thread-rail-confirm-btn {
+  flex-shrink: 0;
+  height: 22px;
+  border: 1px solid rgba(239, 68, 68, 0.6);
+  border-radius: 999px;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(239, 68, 68, 0.18);
+  color: rgba(239, 68, 68, 0.95);
+  cursor: pointer;
+}
+
+.unified-chat-page .thread-rail-confirm-btn:hover {
+  background: rgba(239, 68, 68, 0.32);
+}
+
+.unified-chat-page .thread-rail-cancel-btn {
+  flex-shrink: 0;
+  height: 22px;
+  border: 1px solid rgba(148, 163, 184, 0.36);
+  border-radius: 999px;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 500;
+  background: transparent;
+  color: rgba(148, 163, 184, 0.8);
+  cursor: pointer;
+}
+
+.unified-chat-page .thread-rail-cancel-btn:hover {
+  border-color: rgba(148, 163, 184, 0.56);
+  color: rgba(148, 163, 184, 1);
+}
+
+.thread-stale-badge {
+  flex-shrink: 0;
+  border: 1px solid rgba(148, 163, 184, 0.36);
+  border-radius: 999px;
+  padding: 1px 6px;
+  font-size: 10px;
+  line-height: 1.4;
+  font-weight: 500;
+  white-space: nowrap;
+  color: rgba(148, 163, 184, 0.72);
+  background: rgba(30, 41, 59, 0.24);
+  margin-left: 4px;
+}
+
+.thread-stale-badge[data-stale-reason="expired"] {
+  border-color: rgba(245, 158, 11, 0.36);
+  color: rgba(245, 158, 11, 0.72);
+  background: rgba(120, 80, 10, 0.18);
+}
+
 .unified-chat-page .thread-rail-empty {
   margin: 10px 10px 0;
   padding: 10px;

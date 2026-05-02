@@ -736,6 +736,15 @@ function browserInstaller({
           writePreference('threadArchives.chat', next);
           return { ok: true, archiveModified: false };
         }
+        case 'thread/delete': {
+          const threadId = (params.threadId || '').toString();
+          const nextArchive = { ...(asObject(state.preferences['threadArchives.chat'] || state.archivedThreadAtById)) };
+          delete nextArchive[threadId];
+          state.archivedThreadAtById = nextArchive;
+          writePreference('threadArchives.chat', nextArchive);
+          state.threads = (state.threads || []).filter((t) => t.id !== threadId);
+          return { ok: true };
+        }
         case 'ui/selectProjectDir':
           return { path: state.uiSelectProjectDirResult };
         case 'ui/openNewWindow':

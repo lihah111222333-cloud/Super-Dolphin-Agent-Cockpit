@@ -69,6 +69,7 @@ const PUBLIC_API_KEYS = [
   'syncThreadState',
   'toggleThreadArchive',
   'toggleThreadPin',
+  'batchDeleteStaleThreads',
 ].sort();
 
 describe('thread store public api', () => {

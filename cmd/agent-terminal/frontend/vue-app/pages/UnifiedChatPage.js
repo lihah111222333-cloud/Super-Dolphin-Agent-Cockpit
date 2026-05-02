@@ -825,7 +825,7 @@ export const UnifiedChatPage = {
     const exposed = buildUnifiedChatPageExposed({
       composer, isCmd, threads, selectedThreadId, activeThread,
       chatThreadOptions, showArchivedThreadList,
-      threadCards, threadStatus, threadActions, inlineRename, copyThreadInfo, fileRefPreview,
+      threadCards, threadStatus, threadActions, inlineRename, copyThreadInfo, fileRefPreview, batchDeleteStaleThreads: props.threadStore.batchDeleteStaleThreads,
       taskHandoff,
       threadConfigUi: threadConfigController.threadConfigUi,
       updateThreadConfigModel: threadConfigController.updateThreadConfigModel,
