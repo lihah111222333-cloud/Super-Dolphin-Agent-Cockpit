@@ -2,6 +2,8 @@ package memory
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -104,16 +106,34 @@ func (s *service) resolveWriteRoot(ctx context.Context, rawScope contract.Memory
 }
 
 func (s *service) resolveWriteTarget(root, name string, memType contract.MemoryType) (targetPath, targetDir string) {
-	slug := slugify(name)
 	typeDir := string(memType)
 	targetDir = filepath.Join(root, typeDir)
-	targetPath = filepath.Join(targetDir, slug+".md")
-
 	if existingPath := s.findExistingByName(root, name); existingPath != "" {
 		targetPath = existingPath
 		targetDir = filepath.Dir(targetPath)
+		return targetPath, targetDir
 	}
+	targetPath = s.reserveWriteTarget(root, targetDir, name)
 	return targetPath, targetDir
+}
+
+func (s *service) reserveWriteTarget(root, targetDir, name string) string {
+	slug := slugify(name)
+	candidates := []string{filepath.Join(targetDir, slug+".md")}
+	hash := shortNameHash(canonicalName(name))
+	for attempt := 0; attempt < 8; attempt++ {
+		candidateSlug := slug + "-" + hash
+		if attempt > 0 {
+			candidateSlug = fmt.Sprintf("%s-%s-%d", slug, hash, attempt+1)
+		}
+		candidates = append(candidates, filepath.Join(targetDir, candidateSlug+".md"))
+	}
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); errors.Is(err, os.ErrNotExist) {
+			return candidate
+		}
+	}
+	return filepath.Join(targetDir, slug+"-"+hash+".md")
 }
 
 func (s *service) findExistingByName(root, name string) string {
@@ -159,9 +179,14 @@ func slugify(name string) string {
 		slug = strings.TrimRight(slug, "-")
 	}
 	if slug == "" {
-		slug = "memory-entry"
+		slug = "memory-entry-" + shortNameHash(canonicalName(name))
 	}
 	return slug
+}
+
+func shortNameHash(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:4])
 }
 
 func buildFrontmatter(name, description string, memType contract.MemoryType) string {

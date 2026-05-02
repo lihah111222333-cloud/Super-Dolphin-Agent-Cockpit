@@ -262,6 +262,21 @@ func TestDiskStoreRejectsStructuredTypesWithoutWhyAndHowToApply(t *testing.T) {
 	}
 }
 
+func TestDiskStoreAcceptsChineseStructuredSectionLabels(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	store := newTestDiskStore(t, root)
+
+	_, err := store.Create(testMemoryEntry(
+		"中文结构化模板",
+		"中文 UI 模板也应通过结构化校验",
+		MemoryTypeProject,
+		"事实\n原因：用户界面提供中文模板。\n如何应用：保存时接受中文段落标题。",
+	))
+	if err != nil {
+		t.Fatalf("Create() with Chinese section labels error = %v", err)
+	}
+}
+
 const (
 	diskStoreHelperEnv      = "GO_WANT_DISK_STORE_HELPER"
 	diskStoreHelperRootEnv  = "DISK_STORE_HELPER_ROOT"

@@ -223,6 +223,108 @@ func TestUIMemoryEntryCRUD(t *testing.T) {
 	}
 }
 
+func TestMergeUIMemoryEntriesRejectsDifferentTypesAndKeepsBoth(t *testing.T) {
+	projectRoot := t.TempDir()
+	privateRoot := filepath.Join(t.TempDir(), "private")
+	cfg := &Config{
+		Enabled:             true,
+		EnableTools:         true,
+		ProjectRoot:         projectRoot,
+		RootDir:             t.TempDir(),
+		AutoMemPathOverride: privateRoot,
+	}
+	store, err := newDiskStore(privateRoot)
+	if err != nil {
+		t.Fatalf("newDiskStore(privateRoot) error = %v", err)
+	}
+	feedback, err := store.CreateStructured(MemoryWriteRequest{
+		Name:        "Verification preference",
+		Description: "How the user wants verification handled",
+		Type:        MemoryTypeFeedback,
+		Body:        "Run guarded verification before success claims.\nWhy: verification avoids false completion reports.\nHow to apply: run the relevant guard before final summaries.",
+	})
+	if err != nil {
+		t.Fatalf("CreateStructured(feedback) error = %v", err)
+	}
+	project, err := store.CreateStructured(MemoryWriteRequest{
+		Name:        "Verification project fact",
+		Description: "Project verification workflow context",
+		Type:        MemoryTypeProject,
+		Body:        "Run guarded verification before success claims.\nWhy: verification avoids false completion reports.\nHow to apply: run the relevant guard before final summaries.",
+	})
+	if err != nil {
+		t.Fatalf("CreateStructured(project) error = %v", err)
+	}
+
+	_, err = mergeUIMemoryEntries(context.Background(), memoryHandlerDeps{Service: newServiceWithConsolidator(cfg, nil, nil, nil)}, uiMemoryEntryMergeParams{
+		CWD:     projectRoot,
+		TargetA: "private",
+		PathA:   memoryEntryDisplayPath(privateRoot, feedback.FilePath),
+		TargetB: "private",
+		PathB:   memoryEntryDisplayPath(privateRoot, project.FilePath),
+	})
+	if err == nil {
+		t.Fatal("mergeUIMemoryEntries() error = nil, want type mismatch rejection")
+	}
+	if _, _, err := readUIMemoryEntryByName(privateRoot, "Verification preference"); err != nil {
+		t.Fatalf("feedback entry missing after rejected merge: %v", err)
+	}
+	if _, _, err := readUIMemoryEntryByName(privateRoot, "Verification project fact"); err != nil {
+		t.Fatalf("project entry missing after rejected merge: %v", err)
+	}
+}
+
+func TestMergeUIMemoryEntriesRejectsDissimilarEntriesAndKeepsBoth(t *testing.T) {
+	projectRoot := t.TempDir()
+	privateRoot := filepath.Join(t.TempDir(), "private")
+	cfg := &Config{
+		Enabled:             true,
+		EnableTools:         true,
+		ProjectRoot:         projectRoot,
+		RootDir:             t.TempDir(),
+		AutoMemPathOverride: privateRoot,
+	}
+	store, err := newDiskStore(privateRoot)
+	if err != nil {
+		t.Fatalf("newDiskStore(privateRoot) error = %v", err)
+	}
+	first, err := store.CreateStructured(MemoryWriteRequest{
+		Name:        "Reply language",
+		Description: "Preferred response language",
+		Type:        MemoryTypeFeedback,
+		Body:        "Answer the user in Chinese by default.\nWhy: the user prefers Chinese collaboration.\nHow to apply: use Chinese for user-facing summaries.",
+	})
+	if err != nil {
+		t.Fatalf("CreateStructured(first) error = %v", err)
+	}
+	second, err := store.CreateStructured(MemoryWriteRequest{
+		Name:        "Database engine",
+		Description: "Project database choice",
+		Type:        MemoryTypeFeedback,
+		Body:        "Use PostgreSQL migrations for schema changes.\nWhy: the backend relies on PostgreSQL-specific migrations.\nHow to apply: do not write MySQL-only migration syntax.",
+	})
+	if err != nil {
+		t.Fatalf("CreateStructured(second) error = %v", err)
+	}
+
+	_, err = mergeUIMemoryEntries(context.Background(), memoryHandlerDeps{Service: newServiceWithConsolidator(cfg, nil, nil, nil)}, uiMemoryEntryMergeParams{
+		CWD:     projectRoot,
+		TargetA: "private",
+		PathA:   memoryEntryDisplayPath(privateRoot, first.FilePath),
+		TargetB: "private",
+		PathB:   memoryEntryDisplayPath(privateRoot, second.FilePath),
+	})
+	if err == nil {
+		t.Fatal("mergeUIMemoryEntries() error = nil, want dissimilar rejection")
+	}
+	if _, _, err := readUIMemoryEntryByName(privateRoot, "Reply language"); err != nil {
+		t.Fatalf("first entry missing after rejected merge: %v", err)
+	}
+	if _, _, err := readUIMemoryEntryByName(privateRoot, "Database engine"); err != nil {
+		t.Fatalf("second entry missing after rejected merge: %v", err)
+	}
+}
+
 func TestPromoteSharedFileToMemory(t *testing.T) {
 	projectRoot := t.TempDir()
 	privateRoot := filepath.Join(t.TempDir(), "private")

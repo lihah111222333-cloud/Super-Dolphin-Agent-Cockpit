@@ -216,6 +216,49 @@ func TestServiceWriteDeduplicatesSameName(t *testing.T) {
 	}
 }
 
+func TestServiceWriteChineseNamesUseDistinctPaths(t *testing.T) {
+	svc := newTestMemoryService(t)
+	root := userScopeFixtureRoot(t)
+
+	first, err := svc.Write(context.Background(), contract.MemoryWriteRequest{
+		Name:    "回复语言",
+		Content: "面向用户时默认使用中文。",
+		Type:    contract.MemoryTypeFeedback,
+		Scope:   contract.MemoryScopeUser,
+	})
+	if err != nil {
+		t.Fatalf("Write(first) error = %v", err)
+	}
+	second, err := svc.Write(context.Background(), contract.MemoryWriteRequest{
+		Name:    "汇报格式",
+		Content: "汇报今日工作时使用固定四段结构。",
+		Type:    contract.MemoryTypeFeedback,
+		Scope:   contract.MemoryScopeUser,
+	})
+	if err != nil {
+		t.Fatalf("Write(second) error = %v", err)
+	}
+	if first.Path == second.Path {
+		t.Fatalf("different Chinese names wrote the same path %q", first.Path)
+	}
+	for _, item := range []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "first", path: first.Path, want: "回复语言"},
+		{name: "second", path: second.Path, want: "汇报格式"},
+	} {
+		data, err := os.ReadFile(filepath.Join(root, item.path))
+		if err != nil {
+			t.Fatalf("ReadFile(%s path %q) error = %v", item.name, item.path, err)
+		}
+		if !strings.Contains(string(data), item.want) {
+			t.Fatalf("%s file %q missing %q:\n%s", item.name, item.path, item.want, string(data))
+		}
+	}
+}
+
 func TestServiceWriteProjectType(t *testing.T) {
 	svc := newTestMemoryService(t)
 
