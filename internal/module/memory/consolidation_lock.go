@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -174,4 +175,80 @@ func resolvedConsolidationLockOptions(opts consolidationLockOptions) (func() tim
 		ttl = defaultConsolidationLockTTL
 	}
 	return now, pid, ttl
+}
+
+const (
+	diskStoreLockFileName      = ".memory.lock"
+	diskStoreLockRetryInterval = 25 * time.Millisecond
+	diskStoreLockTimeout       = 5 * time.Second
+)
+
+var diskStoreLocks sync.Map
+
+func acquireMemoryRootFileLock(root string, timeout time.Duration) (*os.File, error) {
+	lockPath, err := ValidateMemoryWritePath(root, filepath.Join(root, diskStoreLockFileName))
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return nil, err
+	}
+	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	if err := waitForMemoryRootFileLock(file, timeout); err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	return file, nil
+}
+
+func waitForMemoryRootFileLock(file *os.File, timeout time.Duration) error {
+	if timeout <= 0 {
+		timeout = diskStoreLockTimeout
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		err := tryAcquireMemoryFileLock(file)
+		if err == nil {
+			return nil
+		}
+		if !isMemoryFileLockBusy(err) {
+			return err
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("%w: %s", ErrMemoryLockTimeout, file.Name())
+		}
+		time.Sleep(diskStoreLockRetryInterval)
+	}
+}
+
+func closeMemoryRootFileLock(file *os.File) error {
+	if file == nil {
+		return nil
+	}
+	unlockErr := releaseMemoryFileLock(file)
+	closeErr := file.Close()
+	if unlockErr != nil {
+		return unlockErr
+	}
+	return closeErr
+}
+
+func withDiskStoreLock(root string, fn func() error) (err error) {
+	mutexValue, _ := diskStoreLocks.LoadOrStore(root, &sync.Mutex{})
+	mutex := mutexValue.(*sync.Mutex)
+	mutex.Lock()
+	defer mutex.Unlock()
+	lockedFile, err := acquireMemoryRootFileLock(root, diskStoreLockTimeout)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := closeMemoryRootFileLock(lockedFile); err == nil && closeErr != nil {
+			err = closeErr
+		}
+	}()
+	return fn()
 }
