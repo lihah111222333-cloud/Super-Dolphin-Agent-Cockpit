@@ -161,7 +161,7 @@ func applyUIMemoryUpsert(store *diskStore, root, target, existingPath string, wr
 	if ParseMemoryType(string(existing.Type())) != writeReq.Type {
 		return publicValidationErr("现有 durable memory 暂不支持改类型；如需改类型请删除后重建")
 	}
-	_, err = store.UpdateStructured(writeReq, WriteOptions{})
+	_, err = store.UpdateStructuredPath(existingPath, writeReq, WriteOptions{})
 	return err
 }
 
@@ -171,30 +171,40 @@ func deleteUIMemoryEntry(ctx context.Context, deps memoryHandlerDeps, req uiMemo
 		return redactIfPathBearing(deps.Logger, "durable_memory_resolve_root",
 			errDurableMemoryDeleteFailed, err, "target", req.Target)
 	}
-	entry, _, err := readUIMemoryEntryByPath(root, target, req.Path)
-	if err != nil {
+	if _, _, err := readUIMemoryEntryByPath(root, target, req.Path); err != nil {
 		return redactIfPathBearing(deps.Logger, "durable_memory_read",
 			errDurableMemoryDeleteFailed, err, "target", target, "path", req.Path)
 	}
+
 	store, err := newDiskStore(root)
 	if err != nil {
 		return redactIfPathBearing(deps.Logger, "durable_memory_open_store",
 			errDurableMemoryDeleteFailed, err, "target", target)
 	}
-	if err := store.Delete(entry.Frontmatter.Name, WriteOptions{}); err != nil {
+	if err := store.DeletePath(req.Path, WriteOptions{}); err != nil {
 		return redactIfPathBearing(deps.Logger, "durable_memory_delete",
-			errDurableMemoryDeleteFailed, err, "target", target, "name", entry.Frontmatter.Name)
+			errDurableMemoryDeleteFailed, err, "target", target, "path", req.Path)
 	}
+
 	invalidateDurableMemorySections(deps.Sections)
 	return nil
 }
 
-func deleteAbsorbedEntry(root, name string) error {
+func deleteAbsorbedEntry(root, path string) error {
 	store, err := newDiskStore(root)
 	if err != nil {
 		return err
 	}
-	return store.Delete(name)
+	return store.DeletePath(path)
+}
+
+func rollbackMergedEntry(root, path string, entry MemoryEntry) error {
+	store, err := newDiskStore(root)
+	if err != nil {
+		return err
+	}
+	_, err = store.updatePath(path, entry, WriteOptions{})
+	return err
 }
 
 func resolveUIMemoryTargetRoot(ctx context.Context, svc Service, cwd, rawTarget string) (string, string, error) {
@@ -212,7 +222,11 @@ func resolveUIMemoryTargetRoot(ctx context.Context, svc Service, cwd, rawTarget 
 		root, err := resolvedStoreRoot(cfg.RootDir, projectRoot, cfg.AutoMemPathOverride)
 		return root, target, err
 	case "team":
+		if !teamMemoryConfigured(cfg) {
+			return "", "", publicValidationErr("team memory is not enabled")
+		}
 		buildCtx := contract.BuildCtx{CWD: projectRoot}
+
 		if gitRoot, err := FindCanonicalGitRoot(ctx, projectRoot); err == nil && strings.TrimSpace(gitRoot) != "" {
 			buildCtx.GitRoot = strings.TrimSpace(gitRoot)
 		}
@@ -260,7 +274,12 @@ func readUIMemoryEntryByPath(root, target, relPath string) (MemoryEntry, string,
 	if relPath == "" {
 		return MemoryEntry{}, "", publicValidationErr("path is required")
 	}
-	if target == "private" && strings.HasPrefix(filepath.ToSlash(relPath), "team/") {
+	slashPath := filepath.ToSlash(relPath)
+	if filepath.Base(slashPath) == memoryIndexFileName {
+		return MemoryEntry{}, "", ErrInvalidMemoryReadPath
+	}
+	if target == "private" && strings.HasPrefix(slashPath, "team/") {
+
 		return MemoryEntry{}, "", publicValidationErr("private durable memory cannot access team/ paths")
 	}
 	validated, err := ValidateMemoryReadPath(root, relPath)
@@ -380,20 +399,23 @@ func mergeUIMemoryEntries(ctx context.Context, deps memoryHandlerDeps, req uiMem
 		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "merge_open_store_a",
 			errDurableMemorySaveFailed, err, "target", resolved.targetA)
 	}
-	if _, err := storeA.UpdateStructured(writeReq); err != nil {
+	if _, err := storeA.UpdateStructuredPath(req.PathA, writeReq); err != nil {
 		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "merge_write_a",
-			errDurableMemorySaveFailed, err, "target", resolved.targetA, "name", writeReq.Name)
+			errDurableMemorySaveFailed, err, "target", resolved.targetA, "path", req.PathA)
 	}
-	if err := deleteAbsorbedEntry(resolved.rootB, resolved.entryB.Frontmatter.Name); err != nil {
+
+	if err := deleteAbsorbedEntry(resolved.rootB, req.PathB); err != nil {
+		_ = rollbackMergedEntry(resolved.rootA, req.PathA, resolved.entryA)
 		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "merge_delete_b",
-			errDurableMemoryDeleteFailed, err, "target", resolved.targetB, "name", resolved.entryB.Frontmatter.Name)
+			errDurableMemoryDeleteFailed, err, "target", resolved.targetB, "path", req.PathB)
 	}
+
 	invalidateDurableMemorySections(deps.Sections)
 
-	merged, mergedPath, err := readUIMemoryEntryByName(resolved.rootA, resolved.entryA.Frontmatter.Name)
+	merged, mergedPath, err := readUIMemoryEntryByPath(resolved.rootA, resolved.targetA, req.PathA)
 	if err != nil {
 		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "merge_read_back",
-			errDurableMemoryReadFailed, err, "target", resolved.targetA, "name", writeReq.Name)
+			errDurableMemoryReadFailed, err, "target", resolved.targetA, "path", req.PathA)
 	}
 	return toUIMemoryEntryDetail(resolved.targetA, resolved.rootA, mergedPath, merged), nil
 }

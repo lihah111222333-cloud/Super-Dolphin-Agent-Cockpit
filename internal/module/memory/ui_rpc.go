@@ -107,6 +107,7 @@ func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger
 	}
 
 	health := computeUIMemoryHealth(privateSection.Entries, teamSection.Entries)
+	populateUIMemoryHealthSimilarGroups(health, privateRoot, privateSection.Entries, teamSection.RootPath, teamSection.Entries)
 
 	return UIMemorySnapshot{
 		Overview: UIMemoryOverview{
@@ -128,33 +129,62 @@ func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger
 
 func computeUIMemoryHealth(privateEntries, teamEntries []UIMemoryEntry) *UIMemoryHealth {
 	var prefCount, projCount int
-	snapshots := make([]dedup.EntrySnapshot, 0, len(privateEntries)+len(teamEntries))
 	for _, e := range privateEntries {
 		countByCategory(e.Type, &prefCount, &projCount)
-		snapshots = append(snapshots, toEntrySnapshot(e, "private"))
 	}
 	for _, e := range teamEntries {
 		countByCategory(e.Type, &prefCount, &projCount)
-		snapshots = append(snapshots, toEntrySnapshot(e, "team"))
 	}
-	health := &UIMemoryHealth{
+	return &UIMemoryHealth{
 		PreferenceCount: prefCount,
 		ProjectCount:    projCount,
 		MaxPerCategory:  dedup.MaxEntriesPerType,
 	}
-	if pairs := dedup.FindSimilarPairs(snapshots); len(pairs) > 0 {
-		groups := make([]UISimilarGroup, 0, len(pairs))
-		for _, p := range pairs {
-			groups = append(groups, UISimilarGroup{
-				NameA: p.NameA, NameB: p.NameB,
-				PathA: p.PathA, PathB: p.PathB,
-				TargetA: p.ScopeA, TargetB: p.ScopeB,
-				Score: p.Score,
-			})
-		}
-		health.SimilarGroups = groups
+}
+
+func populateUIMemoryHealthSimilarGroups(health *UIMemoryHealth, privateRoot string, privateEntries []UIMemoryEntry, teamRoot string, teamEntries []UIMemoryEntry) {
+	if health == nil {
+		return
 	}
-	return health
+	pairs := dedup.FindSimilarPairs(buildUIMemoryHealthSnapshots(privateRoot, privateEntries, "private", teamRoot, teamEntries, "team"))
+	if len(pairs) == 0 {
+		return
+	}
+	groups := make([]UISimilarGroup, 0, len(pairs))
+	for _, p := range pairs {
+		groups = append(groups, UISimilarGroup{
+			NameA: p.NameA, NameB: p.NameB,
+			PathA: p.PathA, PathB: p.PathB,
+			TargetA: p.ScopeA, TargetB: p.ScopeB,
+			Score: p.Score,
+		})
+	}
+	health.SimilarGroups = groups
+}
+
+func buildUIMemoryHealthSnapshots(privateRoot string, privateEntries []UIMemoryEntry, privateScope string, teamRoot string, teamEntries []UIMemoryEntry, teamScope string) []dedup.EntrySnapshot {
+	snapshots := make([]dedup.EntrySnapshot, 0, len(privateEntries)+len(teamEntries))
+	snapshots = append(snapshots, readUIMemoryHealthSnapshots(privateRoot, privateEntries, privateScope)...)
+	snapshots = append(snapshots, readUIMemoryHealthSnapshots(teamRoot, teamEntries, teamScope)...)
+	return snapshots
+}
+
+func readUIMemoryHealthSnapshots(root string, entries []UIMemoryEntry, scope string) []dedup.EntrySnapshot {
+	if strings.TrimSpace(root) == "" || len(entries) == 0 {
+		return nil
+	}
+	snapshots := make([]dedup.EntrySnapshot, 0, len(entries))
+	for _, entry := range entries {
+		detail, _, err := readUIMemoryEntryByPath(root, scope, entry.Path)
+		if err != nil {
+			continue
+		}
+		snapshots = append(snapshots, dedup.EntrySnapshot{
+			Name: strings.TrimSpace(detail.Frontmatter.Name), Type: strings.TrimSpace(string(detail.Type())), Content: detail.Content,
+			Path: entry.Path, Scope: scope,
+		})
+	}
+	return snapshots
 }
 
 func countByCategory(entryType string, pref, proj *int) {
@@ -163,13 +193,6 @@ func countByCategory(entryType string, pref, proj *int) {
 		*pref++
 	case "project", "reference":
 		*proj++
-	}
-}
-
-func toEntrySnapshot(e UIMemoryEntry, scope string) dedup.EntrySnapshot {
-	return dedup.EntrySnapshot{
-		Name: e.Name, Type: e.Type, Content: e.Preview,
-		Path: e.Path, Scope: scope,
 	}
 }
 
@@ -223,6 +246,14 @@ func loadUIMemoryScope(logger *slog.Logger, label, root string, rootErr error, f
 }
 
 func memoryEntryDisplayPath(root, path string) string {
+	root = strings.TrimSpace(root)
+	path = strings.TrimSpace(path)
+	if resolvedRoot, err := resolveExistingMemoryPath(root); err == nil {
+		root = resolvedRoot
+	}
+	if resolvedPath, err := resolveExistingMemoryPath(path); err == nil {
+		path = resolvedPath
+	}
 	rel, err := filepath.Rel(root, path)
 	if err != nil {
 		return filepath.ToSlash(path)

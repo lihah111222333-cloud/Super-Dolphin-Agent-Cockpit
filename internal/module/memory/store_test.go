@@ -73,6 +73,114 @@ func TestDiskStoreCRUD(t *testing.T) {
 	}
 }
 
+func TestDiskStoreUpdateStructuredPathRejectsNameMismatchAndKeepsFile(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	store := newTestDiskStore(t, root)
+	created, err := store.CreateStructured(MemoryWriteRequest{
+		Name:        "Path pinned entry",
+		Description: "original hook",
+		Type:        MemoryTypeProject,
+		Body:        "Original body.\nWhy: original content should survive rejected path update.\nHow to apply: keep the original file untouched.",
+	})
+	if err != nil {
+		t.Fatalf("CreateStructured() error = %v", err)
+	}
+
+	_, err = store.UpdateStructuredPath(created.FilePath, MemoryWriteRequest{
+		Name:        "Different entry",
+		Description: "replacement hook",
+		Type:        MemoryTypeProject,
+		Body:        "Replacement body.\nWhy: this should be rejected.\nHow to apply: do not write it to the existing path.",
+	})
+	if !errors.Is(err, ErrInvalidMemoryEntry) {
+		t.Fatalf("UpdateStructuredPath(name mismatch) error = %v, want %v", err, ErrInvalidMemoryEntry)
+	}
+	after, err := readMemoryEntryFile(created.FilePath)
+	if err != nil {
+		t.Fatalf("readMemoryEntryFile() error = %v", err)
+	}
+	if after.Frontmatter.Name != created.Frontmatter.Name || strings.Contains(after.Content, "Replacement body") {
+		t.Fatalf("entry changed after rejected path update: %#v", after)
+	}
+}
+
+func TestDiskStoreUpdateStructuredPathRejectsTypeMismatchAndKeepsFile(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	store := newTestDiskStore(t, root)
+	created, err := store.CreateStructured(MemoryWriteRequest{
+		Name:        "Typed path entry",
+		Description: "original hook",
+		Type:        MemoryTypeProject,
+		Body:        "Original project body.\nWhy: original project content should survive rejected type update.\nHow to apply: keep the project memory typed as project.",
+	})
+	if err != nil {
+		t.Fatalf("CreateStructured() error = %v", err)
+	}
+
+	_, err = store.UpdateStructuredPath(created.FilePath, MemoryWriteRequest{
+		Name:        "Typed path entry",
+		Description: "replacement hook",
+		Type:        MemoryTypeUser,
+		Body:        "Replacement user body.",
+	})
+	if !errors.Is(err, ErrInvalidMemoryEntry) {
+		t.Fatalf("UpdateStructuredPath(type mismatch) error = %v, want %v", err, ErrInvalidMemoryEntry)
+	}
+	after, err := readMemoryEntryFile(created.FilePath)
+	if err != nil {
+		t.Fatalf("readMemoryEntryFile() error = %v", err)
+	}
+	if after.Type() != MemoryTypeProject || strings.Contains(after.Content, "Replacement user body") {
+		t.Fatalf("entry changed after rejected type update: %#v", after)
+	}
+}
+
+func TestDiskStoreDeletePathRejectsEntrypointIndexAndKeepsFile(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	store := newTestDiskStore(t, root)
+	created, err := store.CreateStructured(MemoryWriteRequest{
+		Name:        "Index delete boundary",
+		Description: "delete hook",
+		Type:        MemoryTypeUser,
+		Body:        "Deleting by path must not remove MEMORY.md.",
+	})
+	if err != nil {
+		t.Fatalf("CreateStructured() error = %v", err)
+	}
+
+	if err := store.DeletePath(memoryIndexFileName); !errors.Is(err, ErrInvalidMemoryWritePath) {
+		t.Fatalf("DeletePath(MEMORY.md) error = %v, want %v", err, ErrInvalidMemoryWritePath)
+	}
+	if _, err := os.Stat(memoryIndexPath(root)); err != nil {
+		t.Fatalf("MEMORY.md was removed or inaccessible after rejected DeletePath: %v", err)
+	}
+	if _, err := readMemoryEntryFile(created.FilePath); err != nil {
+		t.Fatalf("entry was removed after rejected DeletePath: %v", err)
+	}
+}
+
+func TestDiskStoreDeletePathRejectsEscapingPathAndKeepsFile(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	store := newTestDiskStore(t, root)
+
+	created, err := store.CreateStructured(MemoryWriteRequest{
+		Name:        "Delete path boundary",
+		Description: "delete hook",
+		Type:        MemoryTypeUser,
+		Body:        "Deleting by path must stay inside the memory root.",
+	})
+	if err != nil {
+		t.Fatalf("CreateStructured() error = %v", err)
+	}
+
+	if err := store.DeletePath(filepath.Join("..", "escape.md")); !errors.Is(err, ErrInvalidMemoryWritePath) {
+		t.Fatalf("DeletePath(escape) error = %v, want %v", err, ErrInvalidMemoryWritePath)
+	}
+	if _, err := readMemoryEntryFile(created.FilePath); err != nil {
+		t.Fatalf("entry was removed after rejected DeletePath: %v", err)
+	}
+}
+
 func TestWriteMemoryFileLongChineseNameUsesUTF8SafeSlug(t *testing.T) {
 	root := newTestMemoryRoot(t)
 	name := "用户要求-汇报今日工作-总结今日工作-写日报-时按固定四段简化输出不要包含额外解释"
