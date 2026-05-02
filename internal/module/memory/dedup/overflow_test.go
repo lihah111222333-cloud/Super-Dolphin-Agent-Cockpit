@@ -45,6 +45,16 @@ func TestFindMostSimilarPair_AllPairsBelowThreshold(t *testing.T) {
 	}
 }
 
+func TestFindSimilarPairsOnlyComparesSameType(t *testing.T) {
+	pairs := FindSimilarPairs([]EntrySnapshot{
+		{Name: "Feedback", Type: "feedback", Content: "same reusable memory content"},
+		{Name: "Project", Type: "project", Content: "same reusable memory content"},
+	})
+	if len(pairs) != 0 {
+		t.Fatalf("FindSimilarPairs() returned cross-type pairs: %#v", pairs)
+	}
+}
+
 func TestFindMostSimilarPair_ZeroEntries(t *testing.T) {
 	_, _, _, found := FindMostSimilarPair([]EntrySnapshot{})
 	if found {

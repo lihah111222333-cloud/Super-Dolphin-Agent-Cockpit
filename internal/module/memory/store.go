@@ -324,11 +324,20 @@ func validateRequiredMemoryFrontmatter(frontmatter MemoryFrontmatter) error {
 func validateStructuredMemoryContent(memoryType MemoryType, content string) error {
 	switch memoryType {
 	case MemoryTypeFeedback, MemoryTypeProject:
-		if !hasStructuredMemorySection(content, "why") || !hasStructuredMemorySection(content, "how to apply") {
+		if !hasAnyStructuredMemorySection(content, "why", "原因") || !hasAnyStructuredMemorySection(content, "how to apply", "如何应用") {
 			return fmt.Errorf("%w: %s memory content must include Why: and How to apply:", ErrInvalidMemoryEntry, memoryType)
 		}
 	}
 	return nil
+}
+
+func hasAnyStructuredMemorySection(content string, labels ...string) bool {
+	for _, label := range labels {
+		if hasStructuredMemorySection(content, label) {
+			return true
+		}
+	}
+	return false
 }
 
 func hasStructuredMemorySection(content, label string) bool {
@@ -336,7 +345,7 @@ func hasStructuredMemorySection(content, label string) bool {
 		normalized := strings.ToLower(strings.TrimSpace(line))
 		normalized = strings.TrimPrefix(normalized, "- ")
 		normalized = strings.ReplaceAll(normalized, "**", "")
-		if strings.HasPrefix(normalized, label+":") {
+		if strings.HasPrefix(normalized, label+":") || strings.HasPrefix(normalized, label+"：") {
 			return true
 		}
 	}

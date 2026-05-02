@@ -27,6 +27,9 @@ func FindMostSimilarPair(entries []EntrySnapshot) (i, j int, score float64, foun
 	for a := 0; a < len(entries); a++ {
 		bigramsA := Bigrams(Normalize(entries[a].Content))
 		for b := a + 1; b < len(entries); b++ {
+			if entries[a].Type != entries[b].Type {
+				continue
+			}
 			bigramsB := Bigrams(Normalize(entries[b].Content))
 			s := Containment(bigramsA, bigramsB)
 			if s > bestScore {
@@ -61,6 +64,9 @@ func FindSimilarPairs(entries []EntrySnapshot) []SimilarPair {
 	for a := 0; a < len(entries); a++ {
 		bigramsA := Bigrams(Normalize(entries[a].Content))
 		for b := a + 1; b < len(entries); b++ {
+			if entries[a].Type != entries[b].Type {
+				continue
+			}
 			bigramsB := Bigrams(Normalize(entries[b].Content))
 			s := Containment(bigramsA, bigramsB)
 			if s >= MinMergePairContainment {
