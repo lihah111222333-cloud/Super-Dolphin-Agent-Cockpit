@@ -75,10 +75,13 @@ func (s *service) Write(ctx context.Context, req contract.MemoryWriteRequest) (c
 		return contract.MemoryWriteResult{}, fmt.Errorf("%w: %v", contract.ErrMemoryPersist, err)
 	}
 
-	_ = rebuildIndex(root)
+	if err := rebuildIndex(root); err != nil {
+		return contract.MemoryWriteResult{}, fmt.Errorf("%w: %v", contract.ErrMemoryPersist, err)
+	}
 
 	relPath := relativePath(root, targetPath)
 	return contract.MemoryWriteResult{Path: relPath}, nil
+
 }
 
 func (s *service) validateWriteInput(req contract.MemoryWriteRequest) (string, string, error) {
@@ -154,18 +157,29 @@ func ensureStructuredSections(content string, memType contract.MemoryType) strin
 	if memType != contract.MemoryTypeFeedback && memType != contract.MemoryTypeProject {
 		return content
 	}
-	if !containsSection(content, "why") {
+	if !containsAnySection(content, "why", "原因") {
 		content += "\nWhy: agent auto-detected this as important context."
 	}
-	if !containsSection(content, "how to apply") {
+	if !containsAnySection(content, "how to apply", "如何应用") {
 		content += "\nHow to apply: follow this guidance in future work."
 	}
+
 	return content
+}
+
+func containsAnySection(content string, sections ...string) bool {
+	for _, section := range sections {
+		if containsSection(content, section) {
+			return true
+		}
+	}
+	return false
 }
 
 func containsSection(content, section string) bool {
 	lower := strings.ToLower(content)
-	return strings.Contains(lower, strings.ToLower(section)+":")
+	label := strings.ToLower(section)
+	return strings.Contains(lower, label+":") || strings.Contains(lower, label+"：")
 }
 
 var slugRe = regexp.MustCompile(`[^a-z0-9]+`)
