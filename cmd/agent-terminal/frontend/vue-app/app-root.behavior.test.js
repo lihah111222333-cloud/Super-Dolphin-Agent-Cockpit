@@ -246,4 +246,84 @@ describe('AppRoot behavior', () => {
     });
     expect(vm.page.value).toBe('chat');
   });
+
+  it('marks the memory center nav when similar memories need merging', async () => {
+    apiMock.getBuildInfo.mockResolvedValueOnce({ version: '1.0.0' });
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'config/read') return { cwd: '/window' };
+      if (method === 'ui/memory/get') {
+        return {
+          overview: {
+            health: {
+              similarGroups: [
+                { nameA: 'A', nameB: 'B' },
+                { nameA: 'C', nameB: 'D' },
+              ],
+            },
+          },
+          private: { entries: [] },
+          team: { entries: [] },
+        };
+      }
+      return {};
+    });
+
+    const vm = AppRoot.setup();
+    hooks.mounted.forEach((fn) => fn());
+    await flush();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/memory/get', { cwd: '/repo' });
+    expect(vm.sidebarBadges.value['memory-center']).toBe(2);
+  });
+
+  it('does not mark the memory center nav when no similar memories need merging', () => {
+    const vm = AppRoot.setup();
+
+    vm.memoryCenter.overview = { health: { similarGroups: [] } };
+
+    expect(vm.sidebarBadges.value['memory-center']).toBeUndefined();
+  });
+
+  it('marks the skills nav when pending skill candidates need approval', async () => {
+    apiMock.getBuildInfo.mockResolvedValueOnce({ version: '1.0.0' });
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'config/read') return { cwd: '/window' };
+      if (method === 'skills/candidate/list/pending') {
+        return { candidates: [{ id: 'candidate-1' }] };
+      }
+      return {};
+    });
+
+    const vm = AppRoot.setup();
+    hooks.mounted.forEach((fn) => fn());
+    await flush();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/candidate/list/pending', { cwd: '/repo', limit: 20, offset: 0 });
+    expect(vm.sidebarBadges.value.skills).toBe(1);
+  });
+
+  it('keeps skills and memory center nav badges at the same time', async () => {
+    apiMock.getBuildInfo.mockResolvedValueOnce({ version: '1.0.0' });
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'config/read') return { cwd: '/window' };
+      if (method === 'skills/candidate/list/pending') {
+        return { candidates: [{ id: 'candidate-1' }, { id: 'candidate-2' }] };
+      }
+      if (method === 'ui/memory/get') {
+        return {
+          overview: { health: { similarGroups: [{ nameA: 'A', nameB: 'B' }] } },
+          private: { entries: [] },
+          team: { entries: [] },
+        };
+      }
+      return {};
+    });
+
+    const vm = AppRoot.setup();
+    hooks.mounted.forEach((fn) => fn());
+    await flush();
+
+    expect(vm.sidebarBadges.value.skills).toBe(2);
+    expect(vm.sidebarBadges.value['memory-center']).toBe(1);
+  });
 });
