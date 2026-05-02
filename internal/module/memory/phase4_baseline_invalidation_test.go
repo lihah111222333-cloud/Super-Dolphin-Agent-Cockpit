@@ -15,9 +15,8 @@ import (
 //
 // Convention: assert (reason == InvalidateMemoryWrite) ∧ names ⊇
 // expectedSections, **exact-once** (reviewer B upgrade). Durable paths
-// invalidate Memory + MemoryContext + MemoryEntrypoint; agent paths
-// invalidate AgentMemory. Counter-baselines: agent paths must NOT
-// touch the durable trio (disjoint reviewer F).
+// invalidate Memory + MemoryContext + MemoryEntrypoint.
+
 //
 // Helpers (`sectionSet`, `assertRecordedInvalidation`,
 // `assertRecordedNoSections`, `newPhase4UIDeps`, `findEntriesByName`)

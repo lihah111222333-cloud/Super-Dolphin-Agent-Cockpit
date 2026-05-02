@@ -82,9 +82,17 @@ func FindSimilarPairs(entries []EntrySnapshot) []SimilarPair {
 			}
 		}
 	}
-	// sort descending by score
-	sort.Slice(pairs, func(i, j int) bool { return pairs[i].Score > pairs[j].Score })
+	sort.Slice(pairs, func(i, j int) bool {
+		if pairs[i].Score != pairs[j].Score {
+			return pairs[i].Score > pairs[j].Score
+		}
+		return pairSortKey(pairs[i]) < pairSortKey(pairs[j])
+	})
 	return pairs
+}
+
+func pairSortKey(pair SimilarPair) string {
+	return strings.Join([]string{pair.ScopeA, pair.PathA, pair.ScopeB, pair.PathB}, "\x00")
 }
 
 // TruncateOldestParagraphs truncates content to at most maxRunes runes.

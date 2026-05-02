@@ -95,8 +95,12 @@ func filterSameType(candidateType string, existing []EntrySnapshot) []EntrySnaps
 
 func matchByName(candidateName string, sameType []EntrySnapshot) MatchResult {
 	candNorm := NormalizeName(candidateName)
+	if candNorm == "" {
+		return MatchResult{}
+	}
 	for _, e := range sameType {
-		if NormalizeName(e.Name) == candNorm {
+		existingNorm := NormalizeName(e.Name)
+		if existingNorm != "" && existingNorm == candNorm {
 			return MatchResult{Found: true, Target: e, Level: "name", Score: 1.0}
 		}
 	}

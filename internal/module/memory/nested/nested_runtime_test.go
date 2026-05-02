@@ -210,3 +210,21 @@ func TestNestedRuntimePersistedToolReadFailsClosedWhenCacheRootUnset(t *testing.
 		t.Fatalf("ConsumePending(unset cacheRoot) = %#v, want none (must fail closed)", got)
 	}
 }
+
+func TestNestedRuntimeHardDeniesHistoricalAgentMemoryRoots(t *testing.T) {
+	base := t.TempDir()
+	memoryRoot := filepath.Join(base, "memory")
+	projectRoot := filepath.Join(base, "repo")
+	deps := newTestDependencies(testDepsOptions{autoMemRoot: filepath.Join(memoryRoot, "private")})
+	runtime := NewNestedRuntime(deps)
+	buildCtx := contract.BuildCtx{GitRoot: projectRoot, CWD: projectRoot}
+
+	runtime.AddTriggers("thread-1", buildCtx, []string{
+		filepath.Join(memoryRoot, "agent-memory", "worker", "MEMORY.md"),
+		filepath.Join(projectRoot, ".claude", "agent-memory", "worker", "MEMORY.md"),
+		filepath.Join(projectRoot, ".claude", "agent-memory-local", "worker", "MEMORY.md"),
+	})
+	if got := runtime.ConsumePending("thread-1", buildCtx); len(got) != 0 {
+		t.Fatalf("ConsumePending() = %#v, want no historical agent-memory triggers", got)
+	}
+}

@@ -224,6 +224,31 @@ function browserInstaller({
     return clone(next);
   }
 
+  function mergeMemoryEntries(params) {
+    const left = findMemoryEntry(params.targetA, params.pathA);
+    const right = findMemoryEntry(params.targetB, params.pathB);
+    if (!left.entry) throw new Error(`memory entry not found: ${params.pathA || ''}`);
+    if (!right.entry) throw new Error(`memory entry not found: ${params.pathB || ''}`);
+    const mergedContent = [left.entry.content, right.entry.content]
+      .map((item) => (item || '').toString().trim())
+      .filter(Boolean)
+      .join('\n\n');
+    const next = {
+      ...left.entry,
+      description: (left.entry.description || right.entry.description || '').toString(),
+      content: mergedContent,
+      preview: memoryPreview(mergedContent),
+      updatedAt: isoClock(),
+    };
+    left.section.entries[left.index] = next;
+    right.section.entries = right.section.entries.filter((_, idx) => idx !== right.index);
+    const groups = asArray(state.memoryCenter?.overview?.health?.similarGroups);
+    if (state.memoryCenter?.overview?.health) {
+      state.memoryCenter.overview.health.similarGroups = groups.filter((group) => !((group?.pathA === params.pathA && group?.pathB === params.pathB) || (group?.pathA === params.pathB && group?.pathB === params.pathA)));
+    }
+    return clone(next);
+  }
+
   function deleteMemoryEntry(params) {
     const section = ensureMemorySection(params.target);
     const normalizedPath = (params.path || '').toString().trim();
@@ -589,6 +614,8 @@ function browserInstaller({
           return upsertMemoryEntry(params);
         case 'ui/memory/entry/delete':
           return deleteMemoryEntry(params);
+        case 'ui/memory/entry/merge':
+          return mergeMemoryEntries(params);
         case 'ui/memory/shared-file/get': {
           const file = findSharedFile(params.path);
           if (!file) throw new Error(`shared file not found: ${params.path || ''}`);

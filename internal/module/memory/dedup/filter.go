@@ -54,6 +54,10 @@ func (f *Filter) Check(candidate EntrySnapshot) (CheckResult, error) {
 
 	target := match.Target
 
+	if target.Scope != "" && candidate.Scope != "" && target.Scope != candidate.Scope {
+		return CheckResult{Action: WriteNew}, nil
+	}
+
 	// --- 3. compute bigram-level decision ---
 	oldBigrams := Bigrams(Normalize(target.Content))
 	newBigrams := Bigrams(Normalize(candidate.Content))
@@ -64,10 +68,6 @@ func (f *Filter) Check(candidate EntrySnapshot) (CheckResult, error) {
 		return CheckResult{Action: Skip}, nil
 
 	case Merge:
-		// Cross-scope match → treat as new write, never merge across scopes.
-		if target.Scope != candidate.Scope {
-			return CheckResult{Action: WriteNew}, nil
-		}
 		// Same scope: build the merged entry.
 		mergedBody := MergeContent(target.Type, target.Content, candidate.Content)
 		merged := MergeFrontmatter(target, candidate)

@@ -171,9 +171,7 @@
 .memory-center-footer-note,
 .memory-scope-note,
 .memory-guide-text,
-.memory-entry-description,
-.memory-agent-entry-path,
-.memory-agent-empty {
+.memory-entry-description {
   color: var(--text-muted);
   line-height: 1.65;
   font-size: 12px;
@@ -322,7 +320,6 @@
 
 .memory-center-section--private::before { background: #7aa2f7; }
 .memory-center-section--team::before { background: #9ece6a; }
-.memory-center-section--agent::before { background: #e0af68; }
 .memory-center-section--files::before { background: #bb9af7; }
 
 /* --- Overview card --- */
@@ -333,8 +330,7 @@
 
 /* --- Entry grid / cards --- */
 
-.memory-entry-grid,
-.memory-agent-scope-list {
+.memory-entry-grid {
   display: grid;
   gap: 10px;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -500,82 +496,6 @@
   opacity: 0.5;
 }
 
-/* --- Agent scope card --- */
-
-.memory-agent-scope-card {
-  gap: 10px;
-}
-
-.memory-agent-scope-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  align-items: flex-start;
-}
-
-.memory-agent-scope-title {
-  font-weight: 700;
-  color: var(--text);
-  font-size: 13px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.memory-agent-scope-count {
-  color: var(--text-subtle);
-  font-size: 11px;
-}
-
-.memory-agent-entry-list {
-  display: grid;
-  gap: 8px;
-  margin-top: 8px;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-}
-
-.memory-agent-entry {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 10px 12px;
-  background: color-mix(in srgb, var(--card) 86%, transparent);
-  display: grid;
-  gap: 6px;
-}
-
-.memory-agent-entry-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  align-items: flex-start;
-}
-
-.memory-agent-entry-title {
-  font-weight: 700;
-  color: var(--text);
-  font-size: 12px;
-}
-
-.memory-agent-entry-updated {
-  color: var(--text-subtle);
-  font-size: 11px;
-}
-
-.memory-agent-collapsed-toggle {
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 11px;
-  background: none;
-  border: none;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-.memory-agent-collapsed-toggle:hover {
-  background: var(--hover);
-  color: var(--text-sec);
-}
-
 /* --- Empty state V2 --- */
 
 .memory-empty {
@@ -674,8 +594,6 @@
 @media (max-width: 900px) {
   .memory-center-callout-head,
   .memory-entry-head,
-  .memory-agent-entry-head,
-  .memory-agent-scope-head,
   .memory-scope-head {
     flex-direction: column;
   }
@@ -810,9 +728,6 @@
   padding: 20px 16px;
 }
 
-.memory-agent-scope-card {
-  padding: 10px 14px;
-}
 
 .memory-center-footer-note {
   font-size: 11px;

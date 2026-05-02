@@ -10,8 +10,7 @@ import (
 )
 
 type stubMemoryService struct {
-	read  func(context.Context, contract.MemoryReadRequest) (contract.MemoryReadResult, error)
-	write func(context.Context, contract.MemoryWriteRequest) (contract.MemoryWriteResult, error)
+	read func(context.Context, contract.MemoryReadRequest) (contract.MemoryReadResult, error)
 }
 
 func (s stubMemoryService) Read(ctx context.Context, req contract.MemoryReadRequest) (contract.MemoryReadResult, error) {
@@ -19,13 +18,6 @@ func (s stubMemoryService) Read(ctx context.Context, req contract.MemoryReadRequ
 		return contract.MemoryReadResult{}, nil
 	}
 	return s.read(ctx, req)
-}
-
-func (s stubMemoryService) Write(ctx context.Context, req contract.MemoryWriteRequest) (contract.MemoryWriteResult, error) {
-	if s.write == nil {
-		return contract.MemoryWriteResult{}, nil
-	}
-	return s.write(ctx, req)
 }
 
 func TestMemoryReadToolReturnsContent(t *testing.T) {
@@ -82,5 +74,15 @@ func TestHandleMemoryReadNilGuard(t *testing.T) {
 	_, err := handler(context.Background(), json.RawMessage(`{}`))
 	if err == nil || err.Error() != "memory service is not configured" {
 		t.Fatalf("HandleMemoryRead() error = %v", err)
+	}
+}
+
+func TestMemoryToolDefinitionsExposeOnlyRead(t *testing.T) {
+	registry := NewRegistry(Dependencies{Memory: stubMemoryService{}})
+	if _, ok := registry.Lookup("memory_read"); !ok {
+		t.Fatal("memory_read tool is missing")
+	}
+	if _, ok := registry.Lookup("memory_write"); ok {
+		t.Fatal("memory_write tool must not be exposed in this branch")
 	}
 }

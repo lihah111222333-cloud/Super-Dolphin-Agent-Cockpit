@@ -123,6 +123,8 @@ export const MemoryCenterPage = {
     const overview = computed(() => ensureObject(props.model?.overview));
     const privateMemory = computed(() => ensureObject(props.model?.private));
     const teamMemory = computed(() => ensureObject(props.model?.team));
+    const isLoading = computed(() => props.model?.loading === true);
+
     const currentCwd = computed(() => firstNonEmpty(overview.value.projectRoot));
     const systemDisabled = computed(() => overview.value.enabled === false);
     const autoDreamRuntimeEnabled = computed(() => overview.value.autoDreamEnabled === true);
@@ -140,13 +142,18 @@ export const MemoryCenterPage = {
     const autoDreamToggling = ref(false);
 
     const health = computed(() => overview.value.health || null);
+    function healthPercent(count, max) {
+      const safeMax = Number(max) || 1;
+      const safeCount = Number(count) || 0;
+      return Math.min(100, Math.max(0, Math.round((safeCount / safeMax) * 100)));
+    }
     const healthPrefPercent = computed(() => {
       if (!health.value) return 0;
-      return Math.min(100, Math.round((health.value.preferenceCount / health.value.maxPerCategory) * 100));
+      return healthPercent(health.value.preferenceCount, health.value.maxPerCategory);
     });
     const healthProjPercent = computed(() => {
       if (!health.value) return 0;
-      return Math.min(100, Math.round((health.value.projectCount / health.value.maxPerCategory) * 100));
+      return healthPercent(health.value.projectCount, health.value.maxPerCategory);
     });
 
     function healthBarClass(percent) {
@@ -159,11 +166,31 @@ export const MemoryCenterPage = {
       return Math.round((score || 0) * 100) + '%';
     }
 
-    const mergingGroup = ref(null); // 正在合并的组索引
+    const mergingGroup = ref(null);
+    const mergeConfirm = reactive({ target: null, index: -1, crossScope: false });
 
-    async function mergeGroup(group, idx) {
-      if (mergingGroup.value !== null) return;
-      mergingGroup.value = idx;
+    function resetMergeConfirm() {
+      mergeConfirm.target = null;
+      mergeConfirm.index = -1;
+      mergeConfirm.crossScope = false;
+    }
+
+    function askMergeGroup(group, idx) {
+      if (!group || mergingGroup.value !== null) return;
+      mergeConfirm.target = group;
+      mergeConfirm.index = idx;
+      mergeConfirm.crossScope = (group.targetA || '') !== (group.targetB || '');
+    }
+
+    async function confirmMergeGroup() {
+      const group = mergeConfirm.target;
+      if (!group || mergingGroup.value !== null) return;
+      if (mergeConfirm.crossScope) {
+        setNotice('warning', '跨作用域相似条目不会自动整合，请手动整理私有/团队记忆');
+        resetMergeConfirm();
+        return;
+      }
+      mergingGroup.value = mergeConfirm.index;
       try {
         await callAPI('ui/memory/entry/merge', {
           cwd: currentCwd.value,
@@ -173,6 +200,7 @@ export const MemoryCenterPage = {
           pathB: group.pathB,
         });
         setNotice('info', `已整合「${group.nameA}」与「${group.nameB}」`);
+        resetMergeConfirm();
         emit('refresh');
       } catch (error) {
         setNotice('error', `整合失败：${(error && error.message) || String(error || '')}`);
@@ -263,6 +291,14 @@ export const MemoryCenterPage = {
       memoryEditor.form.type = 'project';
     }
 
+    function askEditorDelete() {
+      inlineDelete.ask(memoryEditor.form.target, {
+        path: memoryEditor.form.existingPath,
+        name: memoryEditor.form.name || memoryEditor.form.existingPath,
+      });
+      memoryEditor.close();
+    }
+
     watch(() => props.model, () => { refreshing.value = false; });
     onBeforeUnmount(() => { if (noticeTimer) clearTimeout(noticeTimer); });
 
@@ -272,7 +308,9 @@ export const MemoryCenterPage = {
       overview,
       privateMemory,
       teamMemory,
+      isLoading,
       currentCwd,
+
       memoryEditor,
       inlineDelete,
       memoryIdentityLocked,
@@ -296,7 +334,10 @@ export const MemoryCenterPage = {
       healthBarClass,
       formatScore,
       mergingGroup,
-      mergeGroup,
+      mergeConfirm,
+      askMergeGroup,
+      confirmMergeGroup,
+      resetMergeConfirm,
       formatTimestamp,
       statusLabel,
       typeBadgeClass,
@@ -307,6 +348,7 @@ export const MemoryCenterPage = {
       handleRefresh,
       createPreference,
       createProject,
+      askEditorDelete,
       openSharedFiles: () => emit('open-shared-files'),
     };
   },
@@ -452,7 +494,7 @@ export const MemoryCenterPage = {
                 <button
                   class="btn btn-secondary btn-xs memory-health-merge-btn"
                   :disabled="mergingGroup !== null"
-                  @click="mergeGroup(group, gi)"
+                  @click="askMergeGroup(group, gi)"
                 >{{ mergingGroup === gi ? '整合中...' : '整合' }}</button>
               </div>
             </div>
@@ -460,6 +502,7 @@ export const MemoryCenterPage = {
         </div>
 
         <div v-if="notice.message" class="settings-prompt-notice memory-notice-fade" :class="'is-' + notice.level" data-testid="memory-center-notice">{{ notice.message }}</div>
+        <div v-if="isLoading" class="settings-prompt-notice is-info" data-testid="memory-center-loading">正在加载记忆中心...</div>
         <div v-if="model.error" class="settings-prompt-notice is-error" data-testid="memory-center-error">{{ model.error }}</div>
 
         <div class="memory-center-section memory-center-section--preference">
@@ -576,6 +619,32 @@ export const MemoryCenterPage = {
         </div>
       </div>
 
+      <div v-if="mergeConfirm.target" class="modal-overlay" data-testid="memory-center-merge-overlay" @click.self="resetMergeConfirm">
+        <div class="modal-box memory-modal" role="dialog" aria-modal="true" data-testid="memory-center-merge-modal">
+          <div class="memory-modal-head">
+            <div>
+              <div class="modal-title">整合相似记忆</div>
+              <div class="memory-modal-tip">相似度 {{ formatScore(mergeConfirm.target.score) }}</div>
+            </div>
+            <button class="btn btn-ghost" :disabled="mergingGroup !== null" @click="resetMergeConfirm">关闭</button>
+          </div>
+          <div class="memory-form-helper">
+            <div>保留：{{ mergeConfirm.target.nameA }} · {{ mergeConfirm.target.targetA }} · {{ mergeConfirm.target.pathA }}</div>
+            <div>删除：{{ mergeConfirm.target.nameB }} · {{ mergeConfirm.target.targetB }} · {{ mergeConfirm.target.pathB }}</div>
+            <div v-if="mergeConfirm.crossScope" class="settings-prompt-notice is-warning">跨作用域相似条目不会自动整合，请手动整理。</div>
+          </div>
+          <div class="memory-editor-actions">
+            <button class="btn btn-ghost" :disabled="mergingGroup !== null" @click="resetMergeConfirm">取消</button>
+            <button
+              class="btn btn-primary"
+              data-testid="memory-center-merge-confirm"
+              :disabled="mergingGroup !== null || mergeConfirm.crossScope"
+              @click="confirmMergeGroup"
+            >{{ mergingGroup !== null ? '整合中...' : '确认整合' }}</button>
+          </div>
+        </div>
+      </div>
+
       <div v-if="memoryEditor.open" class="modal-overlay" data-testid="memory-center-editor-overlay" @click.self="memoryEditor.close">
         <div class="modal-box memory-modal" role="dialog" aria-modal="true" data-testid="memory-center-editor">
           <div class="memory-modal-head">
@@ -627,8 +696,8 @@ export const MemoryCenterPage = {
           </div>
           <div class="memory-editor-actions">
             <button class="btn btn-ghost" data-testid="memory-center-editor-cancel" @click="memoryEditor.close">取消</button>
-            <button v-if="memoryEditor.form.existingPath" class="btn btn-danger" data-testid="memory-center-editor-delete" :disabled="memoryEditor.deleting" @click="memoryEditor.remove">
-              {{ memoryEditor.deleting ? '删除中...' : '删除' }}
+            <button v-if="memoryEditor.form.existingPath" class="btn btn-danger" data-testid="memory-center-editor-delete" :disabled="memoryEditor.deleting" @click="askEditorDelete">
+              删除
             </button>
             <button
               class="btn btn-primary"

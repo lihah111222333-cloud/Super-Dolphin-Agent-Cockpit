@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	parse "github.com/anthropic-ai/super-agent-v3/internal/module/memory/parse"
+	memshared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 )
 
 var ErrConsolidationAgentMemoryPath = errors.New("dream cannot access agent memory path")
@@ -186,7 +187,10 @@ func readConsolidationLogDocument(root string, cfg *Config, path string, d os.Di
 	}, true, nil
 }
 
-func rejectConsolidationPath(_ *Config, _ string) error {
+func rejectConsolidationPath(_ *Config, path string) error {
+	if memshared.IsHistoricalAgentMemoryPath(path) {
+		return ErrConsolidationAgentMemoryPath
+	}
 	return nil
 }
 

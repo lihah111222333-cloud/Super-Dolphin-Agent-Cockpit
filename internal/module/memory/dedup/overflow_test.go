@@ -115,3 +115,22 @@ func TestTruncateOldestParagraphs_EmptyContent(t *testing.T) {
 		t.Errorf("expected empty string, got %q", got)
 	}
 }
+
+func TestFindSimilarPairsStableTieBreaker(t *testing.T) {
+	entries := []EntrySnapshot{
+		{Name: "b", Type: "feedback", Content: "完全相同的内容用于稳定排序", Scope: "team", Path: "team/b.md"},
+		{Name: "a", Type: "feedback", Content: "完全相同的内容用于稳定排序", Scope: "private", Path: "private/a.md"},
+		{Name: "c", Type: "feedback", Content: "完全相同的内容用于稳定排序", Scope: "private", Path: "private/c.md"},
+	}
+	pairs := FindSimilarPairs(entries)
+	if len(pairs) < 2 {
+		t.Fatalf("FindSimilarPairs() len = %d, want at least 2", len(pairs))
+	}
+	for i := 1; i < len(pairs); i++ {
+		prev := pairs[i-1]
+		cur := pairs[i]
+		if prev.Score == cur.Score && pairSortKey(prev) > pairSortKey(cur) {
+			t.Fatalf("pairs not stably sorted at %d: %#v before %#v", i, prev, cur)
+		}
+	}
+}

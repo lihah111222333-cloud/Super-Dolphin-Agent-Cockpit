@@ -194,8 +194,9 @@ func isRootOrNearRoot(path string) bool {
 //   - ReadFile fails                -> wrapped cause (errors.Is for ErrPermission etc still works)
 //
 // This is the single defense-in-depth read primitive for memory-system
-// entrypoints (MEMORY.md, agent memory entrypoints, nested CLAUDE.md).
+// entrypoints (MEMORY.md and nested CLAUDE.md).
 //
+
 // TOCTOU between Lstat/EvalSymlinks and ReadFile is best-effort.
 // TODO(tracker:safe-read-toctou): os.OpenRoot-based replacement to close
 // the TOCTOU window. Tracked in p25 B-class infrastructure backlog

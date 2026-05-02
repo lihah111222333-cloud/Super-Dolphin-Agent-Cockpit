@@ -97,7 +97,6 @@ const (
 const (
 	DynamicSectionSessionGuidance      = "session_guidance"
 	DynamicSectionMemory               = "memory"
-	DynamicSectionAgentMemory          = "agent_memory"
 	DynamicSectionMemoryContext        = "memory_context"
 	DynamicSectionMemoryEntrypoint     = "memory_entrypoint"
 	DynamicSectionEnvInfoSimple        = "env_info_simple"
