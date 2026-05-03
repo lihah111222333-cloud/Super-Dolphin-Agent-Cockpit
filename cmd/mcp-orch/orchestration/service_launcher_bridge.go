@@ -309,18 +309,22 @@ func (s *service) stopAgentViaLauncher(ctx context.Context, agentID, reason stri
 	return nil
 }
 
-// archiveAgentViaLauncher invokes the remote thread/archive RPC for the
-// given agent. Returns (true, nil) when the remote archive flow ran (the
-// main app already did UpdateStatus(archived) + SetArchived + cleanup +
-// publish). Returns (false, nil) when there is no live runtime and the
-// caller should fall back to the persisted DB write path.
+// archiveAgentViaLauncher invokes the remote thread/archive RPC for launcher-
+// owned agents. Local runtime agents still need the legacy local stop path; once
+// that completes the caller falls back to the persisted DB archive write.
+// Returns (true, nil) only when the remote archive flow ran (the main app
+// already did UpdateStatus(archived) + SetArchived + cleanup + publish).
+// Returns (false, nil) when there is no live runtime and the caller should fall
+// back to the persisted DB write path.
 func (s *service) archiveAgentViaLauncher(ctx context.Context, agentID, reason string) (bool, error) {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
 		return false, errAgentNotFound
 	}
 	if !s.shouldStopViaLauncher(ctx, agentID) {
-		// No live runtime: caller does persisted-only fallback.
+		if s.hasLocalRuntimeAgent(agentID) {
+			return false, s.stopAgentWithReason(ctx, agentID, reason)
+		}
 		return false, nil
 	}
 	agent, launchSeq, err := s.prepareLauncherStop(ctx, agentID, reason)
@@ -335,6 +339,19 @@ func (s *service) archiveAgentViaLauncher(ctx context.Context, agentID, reason s
 	}
 	s.exitMonitor.Emit(agentID, launchSeq, nil)
 	return true, nil
+}
+
+func (s *service) hasLocalRuntimeAgent(agentID string) bool {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return false
+	}
+	hasLocal := false
+	_ = s.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
+		hasLocal = agent.cmd != nil
+		return nil
+	})
+	return hasLocal
 }
 
 func (s *service) shouldStopViaLauncher(ctx context.Context, agentID string) bool {
@@ -402,7 +419,29 @@ func submissionAgentID(req TurnSubmission) (string, error) {
 	return agentID, nil
 }
 
+type remoteTurnSubmitAttempt struct {
+	agentID string
+	turnID  string
+	req     TurnSubmission
+	agent   *agentRuntime
+}
+
 func (s *service) trySubmitRemoteTurn(ctx context.Context, agentID string, req TurnSubmission) (bool, error) {
+	attempt, handled, err := s.prepareRemoteTurnSubmit(ctx, agentID, req)
+	if !handled || err != nil {
+		return handled, err
+	}
+	remoteTurnID, submitErr := s.launcher.SubmitTurn(ctx, attempt.agent, attempt.req)
+	if submitErr != nil {
+		s.finishRemoteTurnSubmitFailure(ctx, attempt, submitErr)
+		return true, submitErr
+	}
+	s.finishRemoteTurnSubmitSuccess(ctx, attempt, remoteTurnID)
+	return true, nil
+}
+
+func (s *service) prepareRemoteTurnSubmit(ctx context.Context, agentID string, req TurnSubmission) (remoteTurnSubmitAttempt, bool, error) {
+	attempt := remoteTurnSubmitAttempt{}
 	handled := true
 	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		if !s.canSubmitViaLauncher(ctx, agent) {
@@ -416,25 +455,38 @@ func (s *service) trySubmitRemoteTurn(ctx context.Context, agentID string, req T
 			return fmt.Errorf("agent %q is busy", agent.id)
 		}
 		req.AgentID = agentID
-		turnID, err := s.launcher.SubmitTurn(ctx, agent, req)
-		if err != nil {
-			agent.lastError = err.Error()
-			return err
+		req.ExpectedTurnID = s.turnIDFor(req)
+		if threadID := strings.TrimSpace(req.ThreadID); threadID != "" {
+			agent.threadID = threadID
 		}
 		if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnEnqueued); err != nil {
 			return err
 		}
-		agent.activeTurnID = shared.FirstTrimmed(turnID, req.ExpectedTurnID)
+		agent.activeTurnID = req.ExpectedTurnID
 		if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAccepted); err != nil {
+			agent.activeTurnID = ""
 			return err
 		}
 		agent.updatedAt = resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
+		attempt = remoteTurnSubmitAttempt{agentID: agentID, turnID: req.ExpectedTurnID, req: req, agent: agent}
 		return nil
 	})
-	if err != nil {
-		return true, err
-	}
-	return handled, nil
+	return attempt, handled, err
+}
+
+func (s *service) finishRemoteTurnSubmitSuccess(ctx context.Context, attempt remoteTurnSubmitAttempt, remoteTurnID string) {
+	_ = s.withAgentLocked(attempt.agentID, func(agent *agentRuntime) error {
+		if agent.activeTurnID != attempt.turnID {
+			return nil
+		}
+		agent.activeTurnID = shared.FirstTrimmed(remoteTurnID, attempt.turnID)
+		agent.updatedAt = resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
+		return nil
+	})
+}
+
+func (s *service) finishRemoteTurnSubmitFailure(ctx context.Context, attempt remoteTurnSubmitAttempt, submitErr error) {
+	s.finishTurnStartFailure(ctx, turnWork{agentID: attempt.agentID, turnID: attempt.turnID}, submitErr)
 }
 
 func (s *service) canSubmitViaLauncher(ctx context.Context, agent *agentRuntime) bool {

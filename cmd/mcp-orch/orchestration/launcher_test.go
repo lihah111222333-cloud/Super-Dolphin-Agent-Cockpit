@@ -390,6 +390,59 @@ func TestService_SubmitTurnRemoteMode(t *testing.T) {
 	}
 }
 
+func TestService_SubmitTurnRemoteModeDoesNotHoldServiceLockDuringRPC(t *testing.T) {
+	turnStarted := make(chan struct{})
+	releaseTurn := make(chan struct{})
+	stopCalls := make(chan struct{}, 1)
+	svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{
+		"turn/start": handler.New(func(_ context.Context, _ map[string]any) (map[string]any, error) {
+			close(turnStarted)
+			<-releaseTurn
+			return map[string]any{"turn_id": "turn-remote"}, nil
+		}),
+		"thread/stop": handler.New(func(_ context.Context, _ map[string]any) (struct{}, error) {
+			stopCalls <- struct{}{}
+			return struct{}{}, nil
+		}),
+	}), nil, nil, nil)
+	agent := svc.newAgentLocked("agent-1")
+	agent.state, agent.remoteThreadID, agent.name = agentdto.StateIdle, "thread-1", "worker-agent"
+	svc.agents[agent.id] = agent
+
+	submitDone := make(chan error, 1)
+	go func() {
+		submitDone <- svc.SubmitTurn(context.Background(), TurnSubmission{AgentID: agent.id, Inputs: []shareddto.InputItem{{Type: "text", Content: "work"}}})
+	}()
+	select {
+	case <-turnStarted:
+	case <-time.After(time.Second):
+		t.Fatal("turn/start was not called")
+	}
+
+	stopDone := make(chan error, 1)
+	go func() { stopDone <- svc.StopAgent(context.Background(), agent.id) }()
+	select {
+	case err := <-stopDone:
+		if err != nil {
+			t.Fatalf("StopAgent() error while turn/start blocked = %v", err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("StopAgent() blocked behind remote SubmitTurn RPC")
+	}
+	select {
+	case <-stopCalls:
+	case <-time.After(time.Second):
+		t.Fatal("thread/stop was not called")
+	}
+
+	close(releaseTurn)
+	select {
+	case <-submitDone:
+	case <-time.After(time.Second):
+		t.Fatal("SubmitTurn() did not finish after release")
+	}
+}
+
 func TestService_LaunchWithRemoteStoresExplicitDisplayName(t *testing.T) {
 	var started map[string]any
 	svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{

@@ -2,7 +2,10 @@ package orchestration
 
 import (
 	"context"
+	"errors"
+	"os/exec"
 	"testing"
+	"time"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 )
@@ -48,6 +51,71 @@ func TestArchiveAgentAcceptsProviderThreadIDAndArchivesOwningAgent(t *testing.T)
 	}
 	if bindings.archived.AgentID != "agent-1" || !bindings.archived.Archived {
 		t.Fatalf("binding archive update = %#v, want owning agent archived", bindings.archived)
+	}
+}
+
+func TestArchiveAgentStopsLocalRuntimeBeforePersistedArchive(t *testing.T) {
+	threads := &archiveAgentThreadStore{threads: []PersistedThread{
+		{ThreadID: "provider-thread-1", AgentID: "agent-1", Status: "created"},
+	}}
+	bindings := &archiveAgentBindingStore{bindings: map[string]PersistedBinding{
+		"agent-1": {AgentID: "agent-1", Provider: "codex", CodexThreadID: "provider-thread-1"},
+	}}
+	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
+	svc.processExitWaitTimeout = 2 * time.Second
+	svc.agentThreads = threads
+	svc.agentBindings = bindings
+
+	cmd := exec.Command("sh", "-c", "sleep 30")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("cmd.Start() error = %v", err)
+	}
+	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+
+	agent := svc.newAgentLocked("agent-1")
+	agent.cmd = cmd
+	agent.state = agentdto.StateIdle
+	agent.launchSeq = 1
+	svc.agents[agent.id] = agent
+	svc.exitMonitor.Arm(monitorTarget{agentID: agent.id, launchSeq: agent.launchSeq, cmd: cmd})
+	agent.monitoredSeq = agent.launchSeq
+
+	runCtx, cancelRunner := context.WithCancel(context.Background())
+	defer cancelRunner()
+	runDone := make(chan error, 1)
+	go func() { runDone <- NewRunnerActor(silentLogger(), svc).Run(runCtx) }()
+	waitForAgentMonitor(t, svc, agent.id, agent.launchSeq)
+
+	if err := svc.ArchiveAgent(context.Background(), "agent-1"); err != nil {
+		t.Fatalf("ArchiveAgent() error = %v", err)
+	}
+
+	if threads.updated.ThreadID != "provider-thread-1" || threads.updated.Status != "archived" {
+		t.Fatalf("thread status update = %#v, want provider-thread-1 archived", threads.updated)
+	}
+	if bindings.archived.AgentID != "agent-1" || !bindings.archived.Archived {
+		t.Fatalf("binding archive update = %#v, want agent-1 archived", bindings.archived)
+	}
+	svc.mu.RLock()
+	agentAfter := svc.agents["agent-1"]
+	cmdCleared := agentAfter != nil && agentAfter.cmd == nil
+	lastExitedSeq := uint64(0)
+	if agentAfter != nil {
+		lastExitedSeq = agentAfter.lastExitedSeq
+	}
+	svc.mu.RUnlock()
+	if !cmdCleared || lastExitedSeq < 1 {
+		t.Fatalf("local runtime not stopped: cmd_cleared=%v last_exited_seq=%d", cmdCleared, lastExitedSeq)
+	}
+
+	cancelRunner()
+	select {
+	case err := <-runDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("runner error = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("runner did not stop")
 	}
 }
 
