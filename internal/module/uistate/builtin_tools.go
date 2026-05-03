@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
@@ -79,6 +80,7 @@ type BuiltinToolView struct {
 	Description string `json:"description,omitempty"`
 	Enabled     bool   `json:"enabled"`
 	Provider    string `json:"provider,omitempty"`
+	ReplacedBy  string `json:"replacedBy,omitempty"`
 }
 
 // BuiltinToolProviderNote is a static informational card surfaced under a
@@ -115,27 +117,60 @@ type builtinToolsWriteParams struct {
 	Cwd     string `json:"cwd,omitempty"`
 }
 
-func readBuiltinTools(ctx context.Context, prefs uipreference.Store, cwd string) (*builtinToolsReadResult, error) {
+func readBuiltinTools(ctx context.Context, prefs uipreference.Store, store *skilllibrary.Store, cwd string) (*builtinToolsReadResult, error) {
+	// 来源 1：技能自动替代
+	var replaced map[string]string
+	if store != nil {
+		entries, err := store.List()
+		if err == nil {
+			replaced = aggregateReplacementSources(entries)
+		}
+	}
+	// 来源 2：用户手动勾选
 	disabled, err := effectiveDisabledBuiltinToolSet(ctx, prefs, cwd)
 	if err != nil {
 		return nil, err
 	}
 	tools := make([]BuiltinToolView, 0, len(builtinToolRegistry))
 	for _, item := range builtinToolRegistry {
+		skillName := replaced[item.ID]
 		_, isDisabled := disabled[item.ID]
 		tools = append(tools, BuiltinToolView{
 			ID:          item.ID,
 			Label:       item.Label,
 			Description: item.Description,
-			Enabled:     !isDisabled,
+			Enabled:     !isDisabled && skillName == "",
 			Provider:    item.Provider,
+			ReplacedBy:  skillName,
 		})
 	}
 	notes := append([]BuiltinToolProviderNote(nil), builtinToolProviderNotes...)
 	return &builtinToolsReadResult{Tools: tools, ProviderNotes: notes}, nil
 }
 
-func writeBuiltinTool(ctx context.Context, prefs uipreference.Store, p builtinToolsWriteParams) (*builtinToolsReadResult, error) {
+// aggregateReplacementSources 返回 map[toolName]skillName，记录每个被替代工具
+// 是被哪个 skill 声明替代的（取第一个声明者）。
+func aggregateReplacementSources(entries []skilllibrary.SkillEntry) map[string]string {
+	out := make(map[string]string)
+	for _, e := range entries {
+		if e.Meta == nil || e.Meta.Disabled {
+			continue
+		}
+		for _, tools := range e.Meta.ReplacesNative {
+			for _, name := range tools {
+				if name == "" {
+					continue
+				}
+				if _, exists := out[name]; !exists {
+					out[name] = e.Meta.Name
+				}
+			}
+		}
+	}
+	return out
+}
+
+func writeBuiltinTool(ctx context.Context, prefs uipreference.Store, store *skilllibrary.Store, p builtinToolsWriteParams) (*builtinToolsReadResult, error) {
 	if prefs == nil {
 		return nil, errConfigPreferenceStoreRequired
 	}
@@ -155,7 +190,7 @@ func writeBuiltinTool(ctx context.Context, prefs uipreference.Store, p builtinTo
 	if err := storeDisabledBuiltinToolSet(ctx, prefs, p.Cwd, current); err != nil {
 		return nil, err
 	}
-	return readBuiltinTools(ctx, prefs, p.Cwd)
+	return readBuiltinTools(ctx, prefs, store, p.Cwd)
 }
 
 // ResolveDisabledBuiltinTools returns the sorted list of tool IDs that must be

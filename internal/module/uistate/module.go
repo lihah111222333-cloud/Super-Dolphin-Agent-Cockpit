@@ -42,7 +42,10 @@ var Module = fx.Options(
 	// importing this package.
 	fx.Provide(NewProjectStateFacade),
 	fx.Provide(NewUIStateHandlers),
-	fx.Provide(NewConfigHandlers),
+	fx.Provide(fx.Annotate(
+		NewConfigHandlers,
+		fx.ParamTags("", "", "", "", `optional:"true"`),
+	)),
 	fx.Provide(NewUIStateSubscribers),
 )
 

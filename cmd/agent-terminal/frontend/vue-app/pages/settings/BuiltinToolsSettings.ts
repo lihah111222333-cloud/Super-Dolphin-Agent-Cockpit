@@ -4,16 +4,17 @@ import { useSettingsScope } from './useSettingsScope.ts';
 
 type BuiltinToolsProjectStore = { state?: { active?: string } } | null;
 type BuiltinToolsSettingsProps = { projectStore?: BuiltinToolsProjectStore };
-type BuiltinToolView = { id: string; label: string; description?: string; enabled: boolean; provider?: string };
+type BuiltinToolView = { id: string; label: string; description?: string; enabled: boolean; provider?: string; replacedBy?: string };
 type BuiltinToolProviderNote = { provider: string; label: string; note: string };
 type BuiltinToolsReadResult = { tools?: BuiltinToolView[]; providerNotes?: BuiltinToolProviderNote[] };
 type BuiltinToolsNoticeState = { level: string; message: string };
 type BuiltinToolGroup = {
-  provider: string;
+  key: string;
   label: string;
   tools: BuiltinToolView[];
-  note: string;
+  note?: string;
   disabledCount: number;
+  canToggle: boolean;
 };
 
 // PROVIDER_LABELS gives each provider a short Chinese display name. Backend
@@ -45,6 +46,7 @@ function setupBuiltinToolsSettings(props: BuiltinToolsSettingsProps) {
       description: (item.description || '').toString(),
       enabled: Boolean(item.enabled),
       provider: (item.provider || 'claude').toString(),
+      replacedBy: item.replacedBy ? (item.replacedBy || '').toString() : undefined,
     }));
     const notes = Array.isArray(payload?.providerNotes) ? payload!.providerNotes : [];
     providerNotes.value = notes.map((entry) => ({
@@ -54,39 +56,49 @@ function setupBuiltinToolsSettings(props: BuiltinToolsSettingsProps) {
     })).filter((entry) => entry.provider && entry.note);
   }
 
-  // groups merges tool rows and provider notes into per-provider accordion
-  // entries the template iterates over. Order: providers that own tools first
-  // (registry order), then info-only providers (codex).
+  // groups splits tools into three hybrid-mode buckets:
+  //   auto      — replaced by a skill declaration (not user-toggleable)
+  //   manual    — manually disabled by the user
+  //   available — neither replaced nor disabled
   const groups = computed<BuiltinToolGroup[]>(() => {
-    const byProvider = new Map<string, BuiltinToolView[]>();
-    const order: string[] = [];
-    for (const tool of tools.value) {
-      const key = tool.provider || 'claude';
-      if (!byProvider.has(key)) {
-        byProvider.set(key, []);
-        order.push(key);
-      }
-      byProvider.get(key)!.push(tool);
+    const autoReplaced = tools.value.filter((t) => t.replacedBy);
+    const manualDisabled = tools.value.filter((t) => !t.replacedBy && !t.enabled);
+    const notFiltered = tools.value.filter((t) => !t.replacedBy && t.enabled);
+
+    const result: BuiltinToolGroup[] = [];
+
+    if (autoReplaced.length > 0) {
+      result.push({
+        key: 'auto',
+        label: `自动替代（${autoReplaced.length}）—— 由技能声明，不可取消`,
+        tools: autoReplaced,
+        disabledCount: autoReplaced.length,
+        canToggle: false,
+      });
     }
-    const noteByProvider = new Map<string, BuiltinToolProviderNote>();
-    for (const note of providerNotes.value) {
-      noteByProvider.set(note.provider, note);
-      if (!byProvider.has(note.provider)) order.push(note.provider);
+    if (manualDisabled.length > 0) {
+      result.push({
+        key: 'manual',
+        label: `手动过滤（${manualDisabled.length}）—— 用户自行勾选`,
+        tools: manualDisabled,
+        disabledCount: manualDisabled.length,
+        canToggle: true,
+      });
     }
-    return order.map((provider) => {
-      const groupTools = byProvider.get(provider) || [];
-      const note = noteByProvider.get(provider);
-      return {
-        provider,
-        label: (note?.label) || PROVIDER_LABELS[provider] || provider,
-        tools: groupTools,
-        note: note?.note || '',
-        disabledCount: groupTools.filter((tool) => !tool.enabled).length,
-      };
-    });
+    if (notFiltered.length > 0) {
+      result.push({
+        key: 'unfiltered',
+        label: `未过滤（${notFiltered.length}）`,
+        tools: notFiltered,
+        disabledCount: 0,
+        canToggle: true,
+      });
+    }
+
+    return result;
   });
 
-  const totalDisabledCount = computed(() => tools.value.filter((tool) => !tool.enabled).length);
+  const filteredCount = computed(() => tools.value.filter((t) => t.replacedBy || !t.enabled).length);
   const totalToolCount = computed(() => tools.value.length);
 
   function toggleGroupExpanded(provider: string): void {
@@ -115,6 +127,7 @@ function setupBuiltinToolsSettings(props: BuiltinToolsSettingsProps) {
   // checkbox tracks `!enabled` (checked = disabled), so a click toggles
   // `enabled` to its opposite, and we send the new enabled state to backend.
   async function toggleBuiltinTool(tool: BuiltinToolView): Promise<void> {
+    if (tool.replacedBy) return;
     const id = (tool?.id || '').toString();
     if (!id) return;
     if (savingIds[id]) return;
@@ -152,7 +165,7 @@ function setupBuiltinToolsSettings(props: BuiltinToolsSettingsProps) {
     tools,
     providerNotes,
     groups,
-    totalDisabledCount,
+    filteredCount,
     totalToolCount,
     loading,
     savingIds,
@@ -172,16 +185,16 @@ export const BuiltinToolsSettings = {
   },
   setup: setupBuiltinToolsSettings,
   template: `
-    <div class="section-header">UPSTREAM BUILTIN TOOLS</div>
+    <div class="section-header">原生工具过滤</div>
     <div class="data-card-vue" data-testid="settings-builtin-tools-card">
       <div class="data-row-vue">
-        <strong>上游内置工具</strong>
+        <strong>原生工具过滤</strong>
         <span data-testid="settings-builtin-tools-summary">
-          {{ loading ? '加载中...' : '已禁用 ' + totalDisabledCount + ' / ' + totalToolCount }}
+          {{ loading ? '加载中...' : '已过滤 ' + filteredCount + ' / ' + totalToolCount }}
         </span>
       </div>
       <div class="settings-prompt-desc">
-        勾选 = 禁用该工具，Agent 会改走项目侧 MCP 等价品（如 lsp_file / lsp_grep / code_run）以保留审计。点击下方分组标题可展开查看。
+        技能自动替代 + 用户手动勾选，统一对所有模型生效。
       </div>
       <div v-if="tools.length === 0 && providerNotes.length === 0 && !loading" class="settings-log-empty" data-testid="settings-builtin-tools-empty">
         暂无可配置的内置工具
@@ -189,47 +202,47 @@ export const BuiltinToolsSettings = {
       <div v-else class="settings-builtin-tool-groups" data-testid="settings-builtin-tools-groups">
         <section
           v-for="group in groups"
-          :key="group.provider"
+          :key="group.key"
           class="settings-builtin-tool-group"
-          :data-testid="'settings-builtin-tool-group-' + group.provider"
+          :data-testid="'settings-builtin-tool-group-' + group.key"
         >
           <button
             type="button"
             class="settings-builtin-tool-group-head"
-            :data-testid="'settings-builtin-tool-group-head-' + group.provider"
-            :aria-expanded="isGroupExpanded(group.provider) ? 'true' : 'false'"
-            @click="toggleGroupExpanded(group.provider)"
+            :data-testid="'settings-builtin-tool-group-head-' + group.key"
+            :aria-expanded="isGroupExpanded(group.key) ? 'true' : 'false'"
+            @click="toggleGroupExpanded(group.key)"
           >
-            <span class="settings-builtin-tool-group-chevron" :class="{ 'is-open': isGroupExpanded(group.provider) }">▸</span>
+            <span class="settings-builtin-tool-group-chevron" :class="{ 'is-open': isGroupExpanded(group.key) }">▸</span>
             <span class="settings-builtin-tool-group-name">{{ group.label }}</span>
             <span class="settings-builtin-tool-group-summary">
-              <template v-if="group.tools.length > 0">已禁用 {{ group.disabledCount }} / {{ group.tools.length }}</template>
+              <template v-if="group.tools.length > 0">已过滤 {{ group.disabledCount }} / {{ group.tools.length }}</template>
               <template v-else>仅说明</template>
             </span>
           </button>
-          <div v-if="isGroupExpanded(group.provider)" class="settings-builtin-tool-group-body">
-            <p v-if="group.note" class="settings-builtin-tool-group-note" :data-testid="'settings-builtin-tool-group-note-' + group.provider">
+          <div v-if="isGroupExpanded(group.key)" class="settings-builtin-tool-group-body">
+            <p v-if="group.note" class="settings-builtin-tool-group-note" :data-testid="'settings-builtin-tool-group-note-' + group.key">
               {{ group.note }}
             </p>
             <label
               v-for="tool in group.tools"
               :key="tool.id"
               class="settings-prompt-toggle"
-              :class="{ 'is-disabled-tool': !tool.enabled }"
+              :class="{ 'is-disabled-tool': !tool.enabled || tool.replacedBy }"
               :data-testid="'settings-builtin-tool-' + tool.id"
             >
               <div class="settings-prompt-toggle-copy">
                 <span class="settings-prompt-toggle-title">{{ tool.label }}</span>
                 <span class="settings-prompt-toggle-desc">
-                  {{ tool.description || tool.id }}<span v-if="tool.description" class="settings-builtin-tool-id"> · {{ tool.id }}</span>
+                  {{ tool.description || tool.id }}<span v-if="tool.description" class="settings-builtin-tool-id"> · {{ tool.id }}</span><span v-if="tool.replacedBy" class="settings-builtin-tool-replaced"> 🔄 ← {{ tool.replacedBy }}</span>
                 </span>
               </div>
               <input
                 type="checkbox"
                 class="settings-prompt-toggle-input"
                 :data-testid="'settings-builtin-tool-input-' + tool.id"
-                :checked="!tool.enabled"
-                :disabled="loading || savingIds[tool.id]"
+                :checked="!tool.enabled || !!tool.replacedBy"
+                :disabled="!!tool.replacedBy || savingIds[tool.id]"
                 @change="toggleBuiltinTool(tool)"
               />
             </label>
