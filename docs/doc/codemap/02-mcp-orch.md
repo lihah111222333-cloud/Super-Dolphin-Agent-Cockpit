@@ -7,7 +7,7 @@
 `cmd/mcp-orch` 是 `super-agent-v3` 的编排侧车 / peer 服务，核心职责可归纳为 5 类：
 
 1. **Agent 编排**：维护 agent 生命周期、状态机、turn 队列、停止 / 恢复、report 请求者等内存态。
-2. **MCP 工具出口**：把 orchestration / task DAG / workspace / prompt / command card / shared file / memory read 能力注册进 `tools.Registry`，再通过 stdio / HTTP MCP 与 bootstrap `OnToolsList` / `OnToolsCall` 暴露给 Claude 或主控代理。
+2. **MCP 工具出口**：把 orchestration / task DAG / workspace / prompt / command card / shared file 能力注册进 `tools.Registry`，再通过 stdio / HTTP MCP 与 bootstrap `OnToolsList` / `OnToolsCall` 暴露给 Claude 或主控代理；当前 registry 不含 memory tools。
 3. **包级 JSON-RPC handler 映射**：定义 `agent.*`、`task/dag/*`、`workspace/run/*` 等 handler map；它们不是 Claude 侧 MCP tools，是否暴露取决于外层 Fx / RPC 组合。
 4. **持久化层**：维护 DAG / wakeup / worker lease / workspace run / shared file / prompt / command card 等 PostgreSQL 数据。
 5. **peer / bootstrap 桥接**：在 peer 模式下注册到主控、订阅 hooks，并把远端 thread/state/turn/runtime 事件回灌到本地编排内存态；`tools/list` / `tools/call` 也会经 bootstrap 回调代理到同一份 registry。
@@ -25,24 +25,22 @@
 - `runtime.go`
   - `newLogger(cfg *platformconfig.Config)`：默认写 `/tmp/mcp-orch-<pid>.log`。
   - `newPool(cfg *platformconfig.Config)` / `newQueries(pool *pgxpool.Pool)`：初始化 pgx pool 与 sqlc 查询器。
-  - `newRegistry(orchestration, ws, prompt, command, sharedFile, memory)`：构造运行时 `tools.Registry`；`tools.NewRegistry()` 会把 `memory_read` 一并挂入，因此 registry **定义数**是 20；`memory` 依赖也已注入，读侧是否真正返回内容再由 `memory.Config` 的开关决定。
+  - `newRegistry(orchestration, ws, prompt, command, sharedFile)`：构造运行时 `tools.Registry`；`tools.NewRegistry()` 汇总 orchestration / task / workspace / prompt / command / shared_file，当前 registry 不含 memory tools。
   - `registryToolProvider`：把 `tools.Registry` 适配为 `common.ToolProvider`；stdio MCP、HTTP MCP、bootstrap `OnToolsList` / `OnToolsCall` 都复用这层 `ListTools` / `CallTool` 出口。
   - `newStdioRunner()`：基于 `common.NewServer("mcp-orch", "dev", transport, provider)` 启动 stdio MCP。
   - `newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client)` / `bootstrapRunner.Run(ctx)`：runner 总是被加入 runner group，但只有在 `GO_AGENT_PEER_MODE=1` 且 `GO_AGENT_CTL_RPC_ADDR` 非空时才真正向控制面注册；否则只是阻塞等待 ctx 结束。
   - `bindRuntime()`：把 stdio / HTTP / bootstrap runner 注入同一个 `platformrunner.RunGroup` 生命周期。
   - 还包含 `newNoopSessionCleaner()` / `newNoopTurnStarter()`，作为 standalone / 测试兜底实现。
 - `cmd/mcp-orch/memory/`
-  - `config.go`：解析 `ENABLE_MEMORY_SYSTEM`、`ENABLE_MEMORY_TOOLS`、`MULTI_AGENT_MEMORY_DIR`，生成 memory 根目录 / 项目根 / 机器标识配置。
-  - `service.go`：实现 `contract.MemoryService.Read()`；只读读取 memory entry，并回传 `denyReason` / `degraded` / `source` 元数据。
-  - `path.go`：负责 scope root 解析、路径 sanitize / resolve / authorize，以及 project/user/local 三种 scope 的根目录派生。
-  - 当前 `fx.go/run()` 已通过 `memory.NewConfig()` / `memory.NewService()` 接入启动图；因此 wiring 已注入完成，运行时是否允许读取取决于 enable flags 与 scope 授权结果。
+  - 旧 standalone memory read 包：保留 env config、scope root / 路径授权、index/file 读取与 `contract.MemoryService.Read()` 实现。
+  - 当前不由 `fx.go/run()`、`newRegistry()` 或 `tools.NewRegistry()` 装配，不提供 `memory_read` / `memory_write` MCP tools；agent-terminal 的 memory tools 由 app host-direct toolbridge registry 提供。
 - `http_runner.go`
   - 仅在 `GO_AGENT_PEER_MODE=1` 时启用 `common.NewHTTPServer`。
   - 监听 `127.0.0.1:0`，并把地址写入 peer discovery file。
   - 非 peer 模式返回 `blockRunner`，仅阻塞等待上下文结束。
 - `buildBootstrapConfig()`
   - 给控制面注册 `OnToolsList` / `OnToolsCall`，使主控可代理调用本服务工具；底层直接复用 `registryToolProvider`。
-  - 声明能力：`tools/orchestration`、`tools/task`、`tools/workspace`、`tools/prompt`、`tools/command`、`tools/shared_file`、`tools/memory`。
+  - 声明能力：`tools/orchestration`、`tools/task`、`tools/workspace`、`tools/prompt`、`tools/command`、`tools/shared_file`；当前不声明 `tools/memory`。
   - 配置 `OnShutdown`、`OnConfigChanged`、`FinalReport`、`Hooks.OnAfter`。
 
 ### 与第 11 卷的边界
@@ -50,7 +48,7 @@
 - 本卷聚焦 `cmd/mcp-orch` 的编排侧车、registry、bootstrap 与 tool 暴露；`memory / prompt / thread snapshot` 的跨模块语义请结合 `11-memory-prompt-thread.md` 阅读。
 - `cmd/mcp-orch` 当前**没有直接 import** `internal/module/{memory,prompt,thread}`；它消费的是 `internal/contract`、`store/*`、`internal/mcpserver/common/bootstrap` 这些边界层，因此这里描述的是“暴露 / 注入 / 存储读取”，不是第 11 卷那种“语义组装 / 生命周期编排”。
 - `prompt_list` / `prompt_get` 读取的是 `cmd/mcp-orch/store/prompt` 里的 prompt template 资源，不等于 `internal/module/prompt` 的 system prompt assembly。
-- `memory_read` 走的是 `cmd/mcp-orch/memory.(*service).Read` 这条只读链路，不覆盖第 11 卷里的 durable memory 保存、rules 注入、manifest/retrieval 逻辑。
+- `memory_read` / `memory_write` 现由 app host-direct toolbridge registry 暴露并调用 `internal/module/memory` 的窄 contract；本卷只记录 `cmd/mcp-orch` 不再持有 memory tool registry / handler。
 - `UpdateRuntime()` 作为编排内存态的收口点仍在本卷说明；但 provider 何时上报 runtime、thread/session 如何消费这些元数据，属于第 11 卷与 provider/runtime 侧共同关注的链路。
 
 ### 运行组合关系
@@ -76,7 +74,7 @@
 - `cmd/mcp-orch/main.go`：保护 stdout 的 MCP 通道，限制 `GOMAXPROCS`。
 - `cmd/mcp-orch/fx.go`：Fx 装配入口；拼装 store、workspace、orchestration、launcher、bootstrap、runner。
 - `cmd/mcp-orch/runtime.go`：logger / pgx pool / sqlc queries / registry / stdio runner / bootstrap runner / runtime 绑定。
-- `cmd/mcp-orch/memory/`：memory 只读能力实现；覆盖 env 配置、scope root / 路径授权，以及 `contract.MemoryService.Read()`。
+- `cmd/mcp-orch/memory/`：旧 standalone memory read 包；当前不被 runtime/registry 装配，不注册 memory tools。
 - `cmd/mcp-orch/http_runner.go`：peer 模式 HTTP MCP server、peer discovery file、非 peer 模式阻塞 runner。
 - `cmd/mcp-orch/hook_subscription.go`：hook topic 常量与 `subscribeOrchestrationHooks()` 辅助函数；主启动路径未直接调用，主要被测试覆盖。
 - `cmd/mcp-orch/sqlc.yaml`：`sql/queries/*` 到 `store/sqlc/*` 的 sqlc 生成配置。
@@ -117,7 +115,7 @@
 - `prompt_tools.go`：prompt template list/get 工具；走通用 resource tool builder。
 - `command_tools.go`：command card list/get 工具；带固定 list limit（50）。
 - `shared_file_tools.go`：shared file read/write MCP 工具；保留 10 MiB 内容上限；read 走 `sharedfilepath.ValidateReadPath`，write 走 `sharedfilepath.ValidateAgentWritePath`（拒绝 `handoff/tasks/` 系统保留段）；3.7 起不再持有本地 `systemHandoffPrefix` / `normalizePath`。
-- `memory_tools.go`：唯一的 memory 工具出口 `memory_read`；schema 暴露 `name/path/scope/type`，handler 调 `contract.MemoryService.Read()`。
+- `memory_tools.go`：当前仅保留 package 壳，不定义或注册 `memory_read` / `memory_write`。
 - 测试文件：`handler_regression_test.go`、`orchestration_tools_test.go`、`parity_v2_test.go`、`workspace_tools_compat_test.go`。
 
 ### `workspace/`
@@ -204,15 +202,14 @@ sharedfile 三个 leaf helper 包不在 `cmd/mcp-orch/` 树下，但同时被 mc
 | `type HookConsumer interface` | `orchestration/hook_consumer.go` | bootstrap hooks 的 `After` 处理入口。 |
 | `type runnerActor` | `orchestration/process_lifecycle.go` | 本地模式 runner；处理进程 wait、队列消费、stall 恢复。 |
 | `type StallDetector` | `orchestration/recover.go` | `turn_running` 超时检测，触发恢复。 |
-| `type Registry struct` | `tools/registry.go` | 汇总 20 个 MCP tool definition（含 `memory_read`），并支持 `List/Lookup`。 |
+| `type Registry struct` | `tools/registry.go` | 汇总当前 mcp-orch MCP tool definitions，并支持 `List/Lookup`；当前不含 `memory_read` / `memory_write`。 |
 | `type ToolDefinition` | `tools/types.go` | MCP tool 元信息：名字、描述、输入 schema、handler。 |
 | `type workspace.Service interface` | `workspace/contract.go` | workspace run 的 create/get/list/merge/abort/file 查询能力。 |
 | `type workspace.service struct` | `workspace/service.go` | workspace 领域实现，负责路径校验、bootstrap copy、merge、事件发送。 |
 | `type taskdag.Store interface` | `store/taskdag/contract.go` | 兼容聚合持久化接口；真实消费面拆成 `OrchestrationStore` / `DAGMutationStore` / `DAGReadStore` / `DAGDetailStore` / `NodeStatusStore` / `RecoveryStore` / `RunningNodeStore` / `WakeupStore` / `WorkerLeaseStore`。 |
 | `type workspace.Store interface` | `store/workspace/contract.go` | `workspace_runs` / `workspace_run_files` 的持久化接口。 |
 | `type prompt.Store` / `commandcard.Store` / `sharedfile.Store` | `store/*/contract.go` | prompt / command / shared_file 资源查询与写入。 |
-| `type contract.MemoryService` | `internal/contract/memory.go` | `memory_read` 背后的只读契约；返回 `entry/sourcePath/indexHit/denyReason/degraded/source`。 |
-| `type memory.Config` | `memory/config.go` | memory root / project root / machine id / 功能开关配置；决定 `memory_read` 是否真正可用。 |
+| `cmd/mcp-orch/memory` legacy package | `memory/` | 旧 standalone memory read service/config/path 实现；当前不进入 Fx runtime/registry 装配，不提供 MCP memory tool。 |
 | `type sqlc.Queries` | `store/sqlc/db.go` | 所有 SQL 的底层执行器。 |
 
 ### `agentRuntime` 里最关键的字段
@@ -285,11 +282,11 @@ sharedfile 三个 leaf helper 包不在 `cmd/mcp-orch/` 树下，但同时被 mc
 
 ### 4.1 对外暴露的 MCP tools
 
-当前 `tools.Registry` 注册了 **20 个** MCP tools；数量拆分为 `5 orchestration + 3 task + 5 workspace + 2 prompt + 2 command + 2 shared_file + 1 memory`。其中 `tools.NewRegistry()` 会把 `memory_read` 一并加入列表，因此 **registry/list 视角是 20 个**；`contract.MemoryService` 也已通过 Fx 注入，`memory_read` 是否返回内容取决于 `ENABLE_MEMORY_SYSTEM` / `ENABLE_MEMORY_TOOLS` 与 scope 授权结果。
+当前 `tools.Registry` 暴露 orchestration / task / workspace / prompt / command / shared_file 这些 tool family；当前 registry 不含 memory tools。`memory_read` / `memory_write` 由 app host-direct toolbridge registry 暴露，不经过 `cmd/mcp-orch` 的 registry/list/call handler。
 
-> `buildBootstrapConfig()` 里的 `cfg.Capabilities` 当前显式声明 7 个能力名（`tools/orchestration|tools/task|tools/workspace|tools/prompt|tools/command|tools/shared_file|tools/memory`），与 registry 暴露的 tool family 保持一致。
+> `buildBootstrapConfig()` 里的 `cfg.Capabilities` 当前显式声明 `tools/orchestration|tools/task|tools/workspace|tools/prompt|tools/command|tools/shared_file`，不声明 `tools/memory`。
 >
-> bootstrap 元数据声明与实际工具暴露链仍共用同一份 `registryToolProvider`：`ListTools()` 暴露 20 个 tool definition，`CallTool()` 也会把调用路由到同一份 registry；`memory_read` 的运行结果由 memory enable flags、路径解析与授权共同决定。
+> bootstrap 元数据声明与实际工具暴露链仍共用同一份 `registryToolProvider`：`ListTools()` 暴露当前 registry 中的非 memory tool definitions，`CallTool()` 也只路由到同一份 mcp-orch registry。
 
 #### 编排类
 
@@ -321,7 +318,7 @@ sharedfile 三个 leaf helper 包不在 `cmd/mcp-orch/` 树下，但同时被 mc
 | `workspace_merge_run` | 把 workspace 变更回写 source root。 | 支持 `dry_run`、`delete_removed`；兼容返回 `files_merged`。 |
 | `workspace_abort_run` | 将 run 标记为 aborted。 | 直接更新状态并读取最新 run 返回。 |
 
-#### prompt / command / shared file / memory 类
+#### prompt / command / shared file 类
 
 | Tool | 功能 | 备注 |
 |---|---|---|
@@ -331,9 +328,8 @@ sharedfile 三个 leaf helper 包不在 `cmd/mcp-orch/` 树下，但同时被 mc
 | `command_get` | 读取指定 command card。 | 使用 `card_key`。 |
 | `shared_file_read` | 读取 shared file。 | 路径会先把 `\` 归一化成 `/`，再做 `path.Clean` 和前导 `/` 清理。 |
 | `shared_file_write` | 写入 shared file。 | 内容大小限制 10 MiB。 |
-| `memory_read` | 只读读取 memory entry。 | schema 暴露 `name/path/scope/type`；handler 调 `contract.MemoryService.Read()`，内部会做 sanitize → resolve → authorize，并可能返回 `denyReason/degraded/source`。它只覆盖 read-side 检索，不覆盖第 11 卷里的 memory 保存 / index 更新 / rules 注入。当前 `cmd/mcp-orch` 已通过 Fx 把 `memory.NewConfig()` / `memory.NewService()` 注入 `newRegistry()`；tool 是否真正返回内容取决于 memory enable flags 与 scope 授权。 |
 
-> `prompt_*` / `command_*` 走 `resourceToolDefinitions()` 成对导出 list/get；`memory_read` 是单独 schema/handler，不走资源型工具 builder。`prompt_*` 面向模板资源库，`memory_read` 面向只读 memory 文件视图，它们都不是第 11 卷里的运行时 prompt assembly 主链。
+> 当前 mcp-orch registry 不含 `memory_read` / `memory_write`。`prompt_*` / `command_*` 走 `resourceToolDefinitions()` 成对导出 list/get；memory tools 由 app host-direct toolbridge registry 暴露，不走本卷的 `tools.Registry`。
 
 ### 4.2 包级 JSON-RPC handlers（非 Claude MCP tools）
 
@@ -380,11 +376,11 @@ sharedfile 三个 leaf helper 包不在 `cmd/mcp-orch/` 树下，但同时被 mc
 
 | 签名 | 作用 |
 |---|---|
-| `func run() error` | 创建 Fx app，启动所有 runner；当前 provider 列表已包含 `memory.NewConfig()` / `memory.NewService()`。 |
+| `func run() error` | 创建 Fx app，启动所有 runner；当前 provider 列表不装配 mcp-orch memory service。 |
 | `func buildBootstrapConfig(shutdowner fx.Shutdowner, hookAfter contract.BootstrapHookAfterHandler, registry tools.Registry) bootstrap.Config` | 配置 bootstrap 注册、工具代理、能力声明、hook 回调；`OnToolsList` / `OnToolsCall` 直接复用 `registryToolProvider`，其中 `OnToolsCall` 会把 tool 返回值再包装成 text content。P22 P4 §278：bootstrap 的 after-hook 入口已退成 `contract.BootstrapHookAfterHandler` 函数型，不再 import `orchestration.HookConsumer`。 |
 | `func buildOrchestrationOptions(remoteAddr string) []fx.Option` | 根据是否存在 `GO_AGENT_CTL_RPC_ADDR` 选择 launch backend，并在本地模式注入 `runnerActor`。 |
 | `func buildLauncher(lc fx.Lifecycle, turnStarter orchestration.TurnStarter, logger *slog.Logger, remoteAddr string) orchestration.AgentLauncher` | 选择 `localLauncher` 或 `remoteLauncher`。 |
-| `func newRegistry(orchestration contract.OrchestrationService, ws workspace.Service, prompt promptstore.Store, command commandcardstore.Store, sharedFile sharedfilestore.Store, memory contract.MemoryService) tools.Registry` | 构造运行时 registry；当前会把 `Dependencies.Memory` 一并传给 `tools.NewRegistry()`，因此 `memory_read` 与其余 tool 同时完成 wiring。 |
+| `func newRegistry(orchestration contract.OrchestrationService, ws workspace.Service, prompt promptstore.Store, command commandcardstore.Store, sharedFile sharedfilestore.Store) tools.Registry` | 构造运行时 registry；只把 orchestration / workspace / prompt / command / shared_file 依赖传给 `tools.NewRegistry()`，不装配 memory tools。 |
 | `func newStdioRunner(registry tools.Registry) platformrunner.Runner` | 用 stdio 启动 MCP server。 |
 | `func newHTTPRunner(registry tools.Registry) platformrunner.Runner` | peer 模式启 HTTP MCP；否则返回阻塞 runner。 |
 | `func (p registryToolProvider) ListTools(context.Context) ([]common.MCPTool, error)` | 把 registry definitions 编码成 MCP `tools/list` 响应；stdio/HTTP/bootstrap 共用。 |
@@ -458,12 +454,11 @@ sharedfile 三个 leaf helper 包不在 `cmd/mcp-orch/` 树下，但同时被 mc
 
 | 签名 | 作用 |
 |---|---|
-| `func NewRegistry(deps Dependencies) Registry` | 汇总全部 MCP tools；当前把 prompt/command/shared_file 和 `memory_read` 一并 append 到 registry。 |
+| `func NewRegistry(deps Dependencies) Registry` | 汇总全部 mcp-orch MCP tools；当前 append orchestration / task / workspace / prompt / command / shared_file，不 append memory tools。 |
 | `func makeHandler[T any, R any](dependency any, dependencyName string, exec func(context.Context, T) (R, error)) ToolHandler` | 通用 handler 工厂：依赖检查 + 输入解码。 |
 | `func resourceToolDefinitions(spec resourceToolSpec) []ToolDefinition` | 构造 prompt / command 这类 list/get 资源型工具。 |
 | `func promptToolDefinitions(store promptstore.Store) []ToolDefinition` | 通过 `resourceToolDefinitions()` 暴露 `prompt_list` / `prompt_get` 两个出口。 |
-| `func memoryToolDefinitions(svc contract.MemoryService) []ToolDefinition` | 注册唯一的 memory tool `memory_read`。 |
-| `func HandleMemoryRead(svc contract.MemoryService) ToolHandler` | `memory_read` handler；把 `name/path/scope/type` 转成 `MemoryReadRequest` 后调用 `svc.Read()`。 |
+| `memory_tools.go` | 当前不定义 memory tool；`tools.NewRegistry()` 不挂入 `memory_read` / `memory_write`。 |
 | `func HandleLaunchAgent(svc contract.OrchestrationService) ToolHandler` | `orchestration_launch_agent` 实现；异步 launch。 |
 | `func createDAGRequestFromInput(in CreateDAGInput) (contract.CreateDAGRequest, error)` | 把 tool 输入转成 service contract。 |
 | `func createWorkspaceRun(ctx context.Context, svc workspace.Service, input WorkspaceCreateRunRequest) (*workspaceRunDTO, error)` | `workspace_create_run` 工具实现。 |
@@ -567,14 +562,13 @@ tools.Registry
   -> orchestration.Service
   -> workspace.Service
   -> store/{prompt,commandcard,sharedfile}
-  -> contract.MemoryService
 ```
 
-> 当前 source tree 已有 `cmd/mcp-orch/memory/*` 与 `memory_read` tool definition，且 `run()` 的 Fx provider 已 `fx.Provide(memory.NewConfig, memory.NewService)` 并经 `newRegistry(..., memory)` 注入 `contract.MemoryService`；`memory_read` 的可读结果因此受 memory 开关、路径解析与 scope 授权控制，不再归因于 wiring 缺失。
+> 当前 source tree 仍有 `cmd/mcp-orch/memory/*` 旧包，但 `run()` 不提供 `memory.NewConfig()` / `memory.NewService()`，`newRegistry(...)` 不接收 memory 参数，`tools.NewRegistry()` 不挂入 memory tools。
 
 - `run()`：Fx 装配总入口（`cmd/mcp-orch/fx.go:30`）。
 - `buildBootstrapConfig()`：注册 `OnToolsList` / `OnToolsCall` / `Hooks.OnAfter` / capabilities（`cmd/mcp-orch/fx.go:77`）。
-- `newRegistry()`：把 orchestration / task / workspace / prompt / command / shared_file / memory 组装成统一 registry（`cmd/mcp-orch/runtime.go:110`）。
+- `newRegistry()`：把 orchestration / task / workspace / prompt / command / shared_file 组装成统一 registry；当前不含 memory tools。
 - `bootstrapRunner.Run()`：仅在 peer mode + RPC addr 下真正 register + subscribe hooks（`cmd/mcp-orch/runtime.go:184`）。
 - `newHTTPRunner()`：peer mode 下启动 HTTP MCP，并写 discovery file（`cmd/mcp-orch/http_runner.go:23`、`internal/mcpserver/common/discovery.go:62`）。
 
@@ -727,11 +721,10 @@ flowchart LR
     D3 --> E
     E --> F1[orchestration.service]
     E --> F2[workspace.service]
-    E --> F3[memory.service]
-    E --> F4[prompt/command/sharedfile stores]
-    E --> F5[taskdag/workspace stores]
-    F4 --> G[(PostgreSQL)]
-    F5 --> G
+    E --> F3[prompt/command/sharedfile stores]
+    E --> F4[taskdag/workspace stores]
+    F3 --> G[(PostgreSQL)]
+    F4 --> G
 ```
 
 1. **恢复 replay**：`recover.go` 根据 `assigned_to + active_turn_id + active_wakeup_id` 找回原 prompt payload。
@@ -744,8 +737,8 @@ flowchart LR
 
 | 包 | 测试文件 | 核心 Test* | freeze |
 |---|---|---|---|
-| `mcp-orch` | `runtime_memory_test.go` | `TestNewRegistryIncludesMemoryTool` | — |
-| `memory` | `memory/service_test.go` | `TestServiceReadByNameReturnsEntryContentAndMetadata` | — |
+| `mcp-orch` | `runtime_memory_test.go` | `TestNewRegistryDoesNotIncludeMemoryTools` | — |
+| `memory` | `memory/service_test.go` | `TestServiceReadByNameReturnsEntryContentAndMetadata`（旧 standalone 包隔离测试） | — |
 | `orchestration` | `orchestration/submission_test.go` | `TestEnqueueDequeue` | — |
 | `store/taskdag` | `store/taskdag/store_fencing_test.go` | `TestClaimDueWakeupsSkipsAlreadyClaimedWakeups` | — |
 | `store/workspace` | `store/workspace/store_test.go` | `TestCreateWorkspaceRun` | — |
@@ -755,6 +748,6 @@ flowchart LR
 
 | 场景 | 触发 | 步骤 | 锚点 | 验证 |
 |---|---|---|---|---|
-| MCP tool | 暴露新的 Claude-facing 工具能力 | 1. 在 `tools/*_tools.go` 增 schema / handler。<br>2. 在 `tools.NewRegistry()` 挂入 definition。<br>3. 回看 `newRegistry()` 与 `buildBootstrapConfig()`，同步依赖注入和 capability。 | `tools.NewRegistry()` / `newRegistry()` / `buildBootstrapConfig()` | `tools/parity_v2_test.go`、`runtime_memory_test.go` |
+| MCP tool | 暴露新的 mcp-orch Claude-facing 工具能力 | 1. 在 `tools/*_tools.go` 增 schema / handler。<br>2. 在 `tools.NewRegistry()` 挂入 definition。<br>3. 回看 `newRegistry()` 与 `buildBootstrapConfig()`，按 tool family 同步依赖注入和 capability；memory tools 不在 mcp-orch 新增，走 app host-direct toolbridge。 | `tools.NewRegistry()` / `newRegistry()` / `buildBootstrapConfig()` | `tools/parity_v2_test.go`、相关 runtime 测试 |
 | orch RPC | 新增 agent / task / report 类 JSON-RPC | 1. 先补 `orchestration/rpc_types.go` 参数结构与 legacy alias。<br>2. 在 `ProvideRPCFacade()` 注册 handler。<br>3. 复用 `service` / helper 做 contract 映射与严格解码。 | `ProvideRPCFacade()` | `orchestration/rpc_golden_test.go` |
 | workspace op | 补 run / query / merge / abort 等 workspace 能力 | 1. 先补 `workspace/contract.go` / `workspace/rpc_types.go`。<br>2. 在 `workspace/service*.go` 实现校验、状态迁移与 merge 计划。<br>3. 经 `NewWorkspaceHandlers()` 与 `createWorkspaceRun()` / `workspaceRunDTOFromRun()` 同步暴露到 RPC / MCP。 | `NewWorkspaceHandlers()` / `createWorkspaceRun()` / `workspaceRunDTOFromRun()` | `tools/workspace_tools_compat_test.go`、`store/workspace/store_test.go` |

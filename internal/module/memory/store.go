@@ -380,7 +380,9 @@ func buildMemoryEntryFromWriteRequest(req MemoryWriteRequest) MemoryEntry {
 			Name:        strings.TrimSpace(req.Name),
 			Description: strings.TrimSpace(req.Description),
 			Type:        cloneMemoryType(req.Type),
+			Source:      strings.TrimSpace(req.Source),
 		},
+
 		Content: strings.TrimSpace(req.Body),
 	}
 }

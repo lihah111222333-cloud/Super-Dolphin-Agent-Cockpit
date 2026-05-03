@@ -909,6 +909,403 @@ func TestProxyToolCall_RejectsMissingRuntimeAsInvalidParams(t *testing.T) {
 	}
 }
 
+func TestProxyToolsList_OrchIncludesHostAndSurvivesPeerDown(t *testing.T) {
+	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: "memory_write", Description: "host memory"}}}
+	h := &Handler{
+		registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+			dto.ClientKindOrch: {listToolsPeer(nil, errors.New("orch down"))},
+		}},
+		hostTools: host,
+	}
+
+	got := callProxyRequest(t, h, "/mcp/orch/agent-1", `{"jsonrpc":"2.0","id":"req-1","method":"tools/list"}`)
+	if got.Error != nil {
+		t.Fatalf("proxy tools/list error = %+v, want result", got.Error)
+	}
+	result, ok := got.Result.(map[string]any)
+	if !ok {
+		t.Fatalf("result type = %T, want object", got.Result)
+	}
+	tools, ok := result["tools"].([]any)
+	if !ok || len(tools) != 1 {
+		t.Fatalf("tools = %#v, want one host tool", result["tools"])
+	}
+	tool, ok := tools[0].(map[string]any)
+	if !ok || tool["name"] != "memory_write" {
+		t.Fatalf("tool = %#v, want memory_write", tools[0])
+	}
+}
+
+func TestProxyToolsList_LSPDoesNotIncludeHostMemory(t *testing.T) {
+	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: "memory_write", Description: "host memory"}}}
+	h := &Handler{
+		registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+			dto.ClientKindLSP: {listToolsPeer([]dto.MCPTool{{Name: "lsp_hover", Description: "lsp"}}, nil)},
+		}},
+		hostTools: host,
+	}
+
+	got := callProxyRequest(t, h, "/mcp/lsp/agent-1", `{"jsonrpc":"2.0","id":"req-1","method":"tools/list"}`)
+	if got.Error != nil {
+		t.Fatalf("proxy tools/list error = %+v", got.Error)
+	}
+	result, ok := got.Result.(map[string]any)
+	if !ok {
+		t.Fatalf("result type = %T, want object", got.Result)
+	}
+	tools, ok := result["tools"].([]any)
+	if !ok || len(tools) != 1 {
+		t.Fatalf("tools = %#v, want one lsp tool", result["tools"])
+	}
+	tool := tools[0].(map[string]any)
+	if tool["name"] != "lsp_hover" {
+		t.Fatalf("tool = %#v, want lsp_hover", tool)
+	}
+}
+
+func TestProxyToolsList_LSPFiltersPeerMemoryRead(t *testing.T) {
+	h := &Handler{registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+		dto.ClientKindLSP: {listToolsPeer([]dto.MCPTool{{Name: ToolNameMemoryRead, Description: "peer memory"}, {Name: "lsp_hover", Description: "lsp"}}, nil)},
+	}}}
+
+	got := callProxyRequest(t, h, "/mcp/lsp/agent-1", `{"jsonrpc":"2.0","id":"req-1","method":"tools/list"}`)
+	if got.Error != nil {
+		t.Fatalf("proxy tools/list error = %+v", got.Error)
+	}
+	result := got.Result.(map[string]any)
+	tools := result["tools"].([]any)
+	if proxyToolsContainName(tools, ToolNameMemoryRead) {
+		t.Fatalf("tools = %#v, must filter peer memory_read for non-orch proxy list", tools)
+	}
+	if !proxyToolsContainName(tools, "lsp_hover") {
+		t.Fatalf("tools = %#v, want non-memory peer tool preserved", tools)
+	}
+}
+
+func TestProxyToolsList_OrchIncludesHostMemoryRead(t *testing.T) {
+	host := NewMemoryReadHostToolRegistry(&stubAgentMemoryReader{enabled: true, toolsEnabled: true}, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: true})
+	h := &Handler{registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: "orchestration_launch_agent", Description: "peer orch"}}, nil)}}}, hostTools: host}
+
+	got := callProxyRequest(t, h, "/mcp/orch/agent-1", `{"jsonrpc":"2.0","id":"req-1","method":"tools/list"}`)
+	if got.Error != nil {
+		t.Fatalf("proxy tools/list error = %+v", got.Error)
+	}
+	result := got.Result.(map[string]any)
+	tools := result["tools"].([]any)
+	if !proxyToolsContainName(tools, ToolNameMemoryRead) {
+		t.Fatalf("tools = %#v, want memory_read", tools)
+	}
+	if !proxyToolsContainName(tools, "orchestration_launch_agent") {
+		t.Fatalf("tools = %#v, want non-memory peer tool preserved", tools)
+	}
+}
+
+func TestProxyToolsList_OrchFiltersPeerMemoryReadWhenReaderUnavailable(t *testing.T) {
+	h := &Handler{registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: ToolNameMemoryRead, Description: "peer memory"}, {Name: "orchestration_launch_agent", Description: "peer orch"}}, nil)},
+	}}}
+
+	got := callProxyRequest(t, h, "/mcp/orch/agent-1", `{"jsonrpc":"2.0","id":"req-1","method":"tools/list"}`)
+	if got.Error != nil {
+		t.Fatalf("proxy tools/list error = %+v", got.Error)
+	}
+	result := got.Result.(map[string]any)
+	tools := result["tools"].([]any)
+	if proxyToolsContainName(tools, ToolNameMemoryRead) {
+		t.Fatalf("tools = %#v, must filter peer memory_read when host reader is unavailable", tools)
+	}
+	if !proxyToolsContainName(tools, "orchestration_launch_agent") {
+		t.Fatalf("tools = %#v, want non-memory peer tool preserved", tools)
+	}
+}
+
+func TestProxyToolsList_OrchFiltersPeerMemoryReadWhenMemoryReadToolsDisabled(t *testing.T) {
+	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true}
+	host := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: false})
+	h := &Handler{hostTools: host, registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: ToolNameMemoryRead, Description: "peer memory"}, {Name: "orchestration_launch_agent", Description: "peer orch"}}, nil)},
+	}}}
+
+	got := callProxyRequest(t, h, "/mcp/orch/agent-1", `{"jsonrpc":"2.0","id":"req-1","method":"tools/list"}`)
+	if got.Error != nil {
+		t.Fatalf("proxy tools/list error = %+v", got.Error)
+	}
+	result := got.Result.(map[string]any)
+	tools := result["tools"].([]any)
+	if proxyToolsContainName(tools, ToolNameMemoryRead) {
+		t.Fatalf("tools = %#v, must filter peer memory_read when memory_read tools disabled", tools)
+	}
+	if !proxyToolsContainName(tools, "orchestration_launch_agent") {
+		t.Fatalf("tools = %#v, want non-memory peer tool preserved", tools)
+	}
+}
+
+func proxyToolsContainName(tools []any, name string) bool {
+	for _, raw := range tools {
+		tool, ok := raw.(map[string]any)
+		if ok && tool["name"] == name {
+			return true
+		}
+	}
+	return false
+}
+
+func TestProxyToolCall_MemoryReadUsesHostDirect(t *testing.T) {
+	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true}
+	host := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: true})
+	registry := &stubKindRegistry{}
+	h := &Handler{registry: registry, hostTools: host, resolver: &stubCWDResolver{cwd: "/repo"}}
+	body := string(mustRawJSON(t, map[string]any{"jsonrpc": "2.0", "id": "read-1", "method": "tools/call", "params": map[string]any{"name": ToolNameMemoryRead, "arguments": map[string]any{"name": "daily", "scope": "user"}}}))
+
+	got := callProxyRequest(t, h, "/mcp/orch/agent-read", body)
+	if got.Error != nil {
+		t.Fatalf("proxy tools/call error = %+v", got.Error)
+	}
+	result := got.Result.(map[string]any)
+	if result["isError"] == true || reader.calls != 1 {
+		t.Fatalf("result=%#v reader.calls=%d, want success host call", result, reader.calls)
+	}
+	if reader.last.AgentID != "agent-read" || reader.last.CWD != "/repo" || reader.last.CallID != "read-1" {
+		t.Fatalf("reader request = %+v", reader.last)
+	}
+	if len(registry.gotKinds) != 0 {
+		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
+	}
+}
+
+func TestProxyToolsList_HidesMemoryReadWhenToolsDisabled(t *testing.T) {
+	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true}
+	host := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: false})
+	h := &Handler{hostTools: host, registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: "orchestration_launch_agent", Description: "peer orch"}}, nil)}}}}
+
+	got := callProxyRequest(t, h, "/mcp/orch/agent-1", `{"jsonrpc":"2.0","id":"req-1","method":"tools/list"}`)
+	if got.Error != nil {
+		t.Fatalf("proxy tools/list error = %+v", got.Error)
+	}
+	result := got.Result.(map[string]any)
+	tools := result["tools"].([]any)
+	if proxyToolsContainName(tools, ToolNameMemoryRead) {
+		t.Fatalf("tools = %#v, want memory_read hidden", tools)
+	}
+	if !proxyToolsContainName(tools, "orchestration_launch_agent") {
+		t.Fatalf("tools = %#v, want non-memory peer tool preserved", tools)
+	}
+}
+
+func TestProxyToolCall_MemoryReadToolsDisabledDoesNotFallbackToPeer(t *testing.T) {
+	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true}
+	host := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: false})
+	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+		dto.ClientKindOrch: {
+			{Peer: &stubPeer{callbackFn: func(_ context.Context, method string, params any, result any) error {
+				t.Fatalf("peer callback called for %s with params %#v", method, params)
+				return nil
+			}}},
+		},
+	}}
+	h := &Handler{hostTools: host, registry: registry}
+	body := string(mustRawJSON(t, map[string]any{"jsonrpc": "2.0", "id": "read-tools-off-no-peer", "method": "tools/call", "params": map[string]any{"name": ToolNameMemoryRead, "arguments": map[string]any{"name": "daily"}}}))
+
+	got := callProxyRequest(t, h, "/mcp/orch/agent-read", body)
+
+	assertProxyToolErrorEnvelope(t, got, ToolNameMemoryRead, "tools_disabled")
+	if reader.calls != 0 || len(registry.gotKinds) != 0 {
+		t.Fatalf("reader.calls=%d registry kinds=%#v, want no reader or peer", reader.calls, registry.gotKinds)
+	}
+}
+
+func TestProxyToolCall_MemoryReadFeatureDisabledDoesNotFallbackToPeer(t *testing.T) {
+	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true}
+	host := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: false, ToolsEnabled: true})
+	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+		dto.ClientKindOrch: {
+			{Peer: &stubPeer{callbackFn: func(_ context.Context, method string, params any, result any) error {
+				t.Fatalf("peer callback called for %s with params %#v", method, params)
+				return nil
+			}}},
+		},
+	}}
+	h := &Handler{hostTools: host, registry: registry}
+	body := string(mustRawJSON(t, map[string]any{"jsonrpc": "2.0", "id": "read-feature-off-no-peer", "method": "tools/call", "params": map[string]any{"name": ToolNameMemoryRead, "arguments": map[string]any{"name": "daily"}}}))
+
+	got := callProxyRequest(t, h, "/mcp/orch/agent-read", body)
+
+	assertProxyToolErrorEnvelope(t, got, ToolNameMemoryRead, "feature_disabled")
+	if reader.calls != 0 || len(registry.gotKinds) != 0 {
+		t.Fatalf("reader.calls=%d registry kinds=%#v, want no reader or peer", reader.calls, registry.gotKinds)
+	}
+}
+
+func TestProxyToolCall_MemoryReadReaderErrorDoesNotFallbackToPeer(t *testing.T) {
+	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true, err: contract.NewAgentMemoryError("not_visible", errors.New("memory not visible"))}
+	host := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: true})
+	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+		dto.ClientKindOrch: {
+			{Peer: &stubPeer{callbackFn: func(_ context.Context, method string, params any, result any) error {
+				t.Fatalf("peer callback called for %s with params %#v", method, params)
+				return nil
+			}}},
+		},
+	}}
+	h := &Handler{hostTools: host, registry: registry}
+	body := string(mustRawJSON(t, map[string]any{"jsonrpc": "2.0", "id": "read-not-visible-no-peer", "method": "tools/call", "params": map[string]any{"name": ToolNameMemoryRead, "arguments": map[string]any{"name": "private"}}}))
+
+	got := callProxyRequest(t, h, "/mcp/orch/agent-read", body)
+
+	assertProxyToolErrorEnvelope(t, got, ToolNameMemoryRead, "not_visible")
+	if reader.calls != 1 || len(registry.gotKinds) != 0 {
+		t.Fatalf("reader.calls=%d registry kinds=%#v, want one reader call and no peer", reader.calls, registry.gotKinds)
+	}
+}
+
+func TestProxyToolCall_MemoryReadToolsDisabledReturnsToolErrorEnvelope(t *testing.T) {
+	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true}
+	host := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: false})
+	h := &Handler{hostTools: host, registry: &stubKindRegistry{}}
+	body := string(mustRawJSON(t, map[string]any{"jsonrpc": "2.0", "id": "read-tools-off", "method": "tools/call", "params": map[string]any{"name": ToolNameMemoryRead, "arguments": map[string]any{"name": "daily"}}}))
+
+	got := callProxyRequest(t, h, "/mcp/orch/agent-read", body)
+	assertProxyToolErrorEnvelope(t, got, ToolNameMemoryRead, "tools_disabled")
+}
+
+func TestProxyToolCall_MemoryReadFeatureDisabledReturnsToolErrorEnvelope(t *testing.T) {
+	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true}
+	host := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: false, ToolsEnabled: true})
+	h := &Handler{hostTools: host, registry: &stubKindRegistry{}}
+	body := string(mustRawJSON(t, map[string]any{"jsonrpc": "2.0", "id": "read-feature-off", "method": "tools/call", "params": map[string]any{"name": ToolNameMemoryRead, "arguments": map[string]any{"name": "daily"}}}))
+
+	got := callProxyRequest(t, h, "/mcp/orch/agent-read", body)
+	assertProxyToolErrorEnvelope(t, got, ToolNameMemoryRead, "feature_disabled")
+}
+
+func TestProxyToolCall_StaleMemoryReadCallReturnsStableToolError(t *testing.T) {
+	h := &Handler{}
+	body := string(mustRawJSON(t, map[string]any{"jsonrpc": "2.0", "id": "read-stale", "method": "tools/call", "params": map[string]any{"name": ToolNameMemoryRead, "arguments": map[string]any{"name": "daily"}}}))
+
+	got := callProxyRequest(t, h, "/mcp/orch/agent-read", body)
+	assertProxyToolErrorEnvelope(t, got, ToolNameMemoryRead, "reader_unavailable")
+}
+
+func TestProxyToolCall_MemoryReadReaderErrorUsesToolErrorNotJSONRPCError(t *testing.T) {
+	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true, err: contract.NewAgentMemoryError("not_found", errors.New("missing"))}
+	host := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: true})
+	h := &Handler{hostTools: host, registry: &stubKindRegistry{}}
+	body := string(mustRawJSON(t, map[string]any{"jsonrpc": "2.0", "id": "read-missing", "method": "tools/call", "params": map[string]any{"name": ToolNameMemoryRead, "arguments": map[string]any{"name": "missing"}}}))
+
+	got := callProxyRequest(t, h, "/mcp/orch/agent-read", body)
+	assertProxyToolErrorEnvelope(t, got, ToolNameMemoryRead, "not_found")
+}
+
+func TestProxyToolCall_MemoryReadUnsupportedScopeReturnsToolErrorEnvelope(t *testing.T) {
+	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true, err: contract.NewAgentMemoryError("unsupported_scope", errors.New("unsupported"))}
+	host := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: true})
+	h := &Handler{hostTools: host, registry: &stubKindRegistry{}}
+	body := string(mustRawJSON(t, map[string]any{"jsonrpc": "2.0", "id": "read-unsupported", "method": "tools/call", "params": map[string]any{"name": ToolNameMemoryRead, "arguments": map[string]any{"name": "x", "scope": "project"}}}))
+
+	got := callProxyRequest(t, h, "/mcp/orch/agent-read", body)
+	assertProxyToolErrorEnvelope(t, got, ToolNameMemoryRead, "unsupported_scope")
+}
+
+func TestProxyToolCall_MemoryReadReaderUnavailableReturnsToolErrorEnvelope(t *testing.T) {
+	host := &MemoryReadHostToolRegistry{opts: MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: true}}
+	registry := &stubKindRegistry{}
+	h := &Handler{registry: registry, hostTools: host}
+	body := string(mustRawJSON(t, map[string]any{"jsonrpc": "2.0", "id": "read-err", "method": "tools/call", "params": map[string]any{"name": ToolNameMemoryRead, "arguments": map[string]any{"name": "daily"}}}))
+
+	got := callProxyRequest(t, h, "/mcp/orch/agent-read", body)
+	assertProxyToolErrorEnvelope(t, got, ToolNameMemoryRead, "reader_unavailable")
+	if len(registry.gotKinds) != 0 {
+		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
+	}
+}
+
+func TestProxyToolCall_MemoryReadMalformedInputReturnsToolErrorEnvelope(t *testing.T) {
+	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true}
+	host := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: true})
+	registry := &stubKindRegistry{}
+	h := &Handler{registry: registry, hostTools: host}
+	body := string(mustRawJSON(t, map[string]any{"jsonrpc": "2.0", "id": "read-bad", "method": "tools/call", "params": map[string]any{"name": ToolNameMemoryRead, "arguments": "not-object"}}))
+
+	got := callProxyRequest(t, h, "/mcp/orch/agent-read", body)
+	assertProxyToolErrorEnvelope(t, got, ToolNameMemoryRead, "invalid_input")
+	if reader.calls != 0 || len(registry.gotKinds) != 0 {
+		t.Fatalf("reader.calls=%d registry kinds=%#v, want no reader or peer", reader.calls, registry.gotKinds)
+	}
+}
+
+func assertProxyToolErrorEnvelope(t *testing.T, got proxyJSONRPCResponse, toolName, code string) {
+	t.Helper()
+	if got.Error != nil {
+		t.Fatalf("proxy response error = %+v, want JSON-RPC result", got.Error)
+	}
+	result, ok := got.Result.(map[string]any)
+	if !ok {
+		t.Fatalf("result type = %T, want object", got.Result)
+	}
+	if isError, _ := result["isError"].(bool); !isError {
+		t.Fatalf("isError = %v, want true (result=%#v)", result["isError"], result)
+	}
+	content, ok := result["content"].([]any)
+	if !ok || len(content) == 0 {
+		t.Fatalf("content = %#v, want text envelope", result["content"])
+	}
+	text, _ := content[0].(map[string]any)["text"].(string)
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(text), &envelope); err != nil {
+		t.Fatalf("content text json error = %v text=%q", err, text)
+	}
+	if envelope["kind"] != "host_tool_error" || envelope["tool"] != toolName || envelope["code"] != code {
+		t.Fatalf("envelope = %#v, want tool=%q code=%q", envelope, toolName, code)
+	}
+	if strings.TrimSpace(fmt.Sprint(envelope["error"])) == "" {
+		t.Fatalf("envelope missing non-empty error: %#v", envelope)
+	}
+}
+
+func TestProxyToolCall_MemoryWriteUsesHostDirect(t *testing.T) {
+	writer := &stubAgentMemoryWriter{}
+	host := NewMemoryWriteHostToolRegistry(writer, MemoryWriteHostToolOptions{Enabled: true, ToolsEnabled: true})
+	resolver := &stubCWDResolver{cwd: "/repo"}
+	registry := &stubKindRegistry{}
+	h := &Handler{registry: registry, hostTools: host, resolver: resolver}
+
+	body := string(mustRawJSON(t, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      "req-memory",
+		"method":  "tools/call",
+		"params": map[string]any{
+			"name": ToolNameMemoryWrite,
+			"arguments": map[string]any{
+				"name":        "agent-memory-visible",
+				"description": "Agent memory visible in center",
+				"content":     "Agents can write durable memory.\nWhy: user asked to verify agent write path.\nHow to apply: surface it in memory center.",
+				"type":        "feedback",
+			},
+		},
+	}))
+
+	got := callProxyRequest(t, h, "/mcp/orch/agent-claude", body)
+	if got.Error != nil {
+		t.Fatalf("proxy tools/call error = %+v", got.Error)
+	}
+	result, ok := got.Result.(map[string]any)
+	if !ok {
+		t.Fatalf("result type = %T, want object", got.Result)
+	}
+	if isError, _ := result["isError"].(bool); isError {
+		t.Fatalf("result isError = true: %#v", result)
+	}
+	if writer.calls != 1 {
+		t.Fatalf("writer calls = %d, want 1", writer.calls)
+	}
+	if writer.last.Name != "agent-memory-visible" || writer.last.AgentID != "agent-claude" || writer.last.CWD != "/repo" || writer.last.CallID != "req-memory" || writer.last.Source != "agent_tool" {
+		t.Fatalf("writer request = %+v", writer.last)
+	}
+	if len(registry.gotKinds) != 0 {
+		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
+	}
+}
+
 func TestProxyToolCall_RejectsInvalidParams(t *testing.T) {
 	h, registry := newHandlerForTest()
 	tests := []struct {

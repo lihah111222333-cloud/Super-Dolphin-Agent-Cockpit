@@ -49,6 +49,9 @@ func (s *service) prepareRead(ctx context.Context, req contract.MemoryReadReques
 }
 
 func (s *service) prepareRoot(ctx context.Context, scope contract.MemoryScope) (string, string, error) {
+	if !scope.Valid() {
+		return "", "deny", fmt.Errorf("%w: unsupported scope", contract.ErrMemoryInvalidParam)
+	}
 	if err := s.ensureEnabled(); err != nil {
 		return "", "", err
 	}
@@ -82,11 +85,18 @@ func authorizeRoot(scope contract.MemoryScope, root string) string {
 }
 
 func sanitizeScope(scope contract.MemoryScope) contract.MemoryScope {
-	parsed := contract.ParseMemoryScope(string(scope))
-	if parsed.Valid() {
-		return parsed
+	switch strings.ToLower(strings.TrimSpace(string(scope))) {
+	case "":
+		return contract.MemoryScopeProject
+	case string(contract.MemoryScopeProject):
+		return contract.MemoryScopeProject
+	case string(contract.MemoryScopeUser):
+		return contract.MemoryScopeUser
+	case string(contract.MemoryScopeLocal):
+		return contract.MemoryScopeLocal
+	default:
+		return contract.MemoryScope("")
 	}
-	return contract.MemoryScopeProject
 }
 
 func sanitizeType(memoryType contract.MemoryType) contract.MemoryType {
