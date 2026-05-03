@@ -9,6 +9,7 @@ import (
 
 	"github.com/creachadair/jrpc2/handler"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
@@ -71,7 +72,9 @@ func NewConfigHandlers(
 	sharedFiles sharedfilestore.Reader,
 	threads thread.Service,
 	skillStore *skilllibrary.Store,
+	nativeTools []contract.NativeToolDescriptor,
 ) rpc.HandlerMapResult {
+	toolIndex := buildNativeToolIndex(nativeTools)
 	return rpc.HandlerMapResult{Handlers: handler.Map{
 		"config/read": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			return readRuntimeConfig(ctx, cfg, prefs, threads), nil
@@ -83,10 +86,10 @@ func NewConfigHandlers(
 			return writeLSPPromptHint(ctx, prefs, sharedFiles, p.Cwd, p.Hint)
 		}),
 		"config/builtinTools/read": rpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
-			return readBuiltinTools(ctx, prefs, skillStore, p.Cwd)
+			return readBuiltinTools(ctx, prefs, skillStore, nativeTools, toolIndex, p.Cwd)
 		}),
 		"config/builtinTools/write": rpc.StrictHandler(func(ctx context.Context, p builtinToolsWriteParams) (any, error) {
-			return writeBuiltinTool(ctx, prefs, skillStore, p)
+			return writeBuiltinTool(ctx, prefs, skillStore, nativeTools, toolIndex, p)
 		}),
 	}}
 }

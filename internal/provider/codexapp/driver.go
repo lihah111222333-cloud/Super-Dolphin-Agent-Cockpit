@@ -123,6 +123,13 @@ func NewDriverFactory(
 		Create: func() contract.Driver {
 			return newDriver(logger, dispatcher, approvals, reporter, manager, pool, factory.skillStore, factory.tracker, factory.currentListTools())
 		},
+		NativeTools: []contract.NativeToolDescriptor{
+			{ID: "read_file", Label: "读文件", Description: "Codex 内置读文件", DefaultDisabled: true, Provider: "codex"},
+			{ID: "write_new_file", Label: "写新文件", Description: "Codex 内置写新文件", DefaultDisabled: true, Provider: "codex"},
+			{ID: "apply_patch", Label: "应用补丁", Description: "Codex 内置 apply_patch 修改文件", DefaultDisabled: true, Provider: "codex"},
+			{ID: "shell", Label: "执行命令", Description: "Codex 内置 shell 执行", DefaultDisabled: true, Provider: "codex"},
+			{ID: "list_dir", Label: "列目录", Description: "Codex 内置列目录", DefaultDisabled: true, Provider: "codex"},
+		},
 	}
 	return factory
 }

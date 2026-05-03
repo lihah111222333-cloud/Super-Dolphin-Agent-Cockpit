@@ -39,6 +39,22 @@ func NewDriverFactory(p driverFactoryParams) contract.DriverFactory {
 		Create: func() contract.Driver {
 			return newDriver(p.Logger, p.Dispatcher, p.Reporter, p.Reg, p.ProxyAddrFn, p.SkillLibConfig.CacheDir)
 		},
+		NativeTools: []contract.NativeToolDescriptor{
+			{ID: "Read", Label: "读文件", Description: "上游 Agent 直接读取工作区文件", DefaultDisabled: true, Provider: "claude"},
+			{ID: "Write", Label: "写文件", Description: "上游 Agent 直接写入新文件", DefaultDisabled: true, Provider: "claude"},
+			{ID: "Edit", Label: "编辑文件", Description: "上游 Agent 直接修改现有文件", DefaultDisabled: true, Provider: "claude"},
+			{ID: "MultiEdit", Label: "批量编辑", Description: "一次调用内批量修改多个位置", DefaultDisabled: true, Provider: "claude"},
+			{ID: "Bash", Label: "执行命令", Description: "在本地 shell 中执行任意命令", DefaultDisabled: true, Provider: "claude"},
+			{ID: "Grep", Label: "代码搜索", Description: "使用上游内置 grep 在工作区查找", DefaultDisabled: true, Provider: "claude"},
+			{ID: "Glob", Label: "文件匹配", Description: "按 glob 模式列出匹配文件", DefaultDisabled: true, Provider: "claude"},
+			{ID: "LS", Label: "列目录", Description: "列出目录内容", DefaultDisabled: true, Provider: "claude"},
+			{ID: "WebFetch", Label: "抓取网页", Description: "按 URL 拉取网页内容", DefaultDisabled: false, Provider: "claude"},
+			{ID: "WebSearch", Label: "网页搜索", Description: "调用内置网页搜索", DefaultDisabled: false, Provider: "claude"},
+			{ID: "TodoWrite", Label: "待办记录", Description: "写入上游自带的任务清单", DefaultDisabled: false, Provider: "claude"},
+			{ID: "NotebookEdit", Label: "Notebook 编辑", Description: "编辑 Jupyter Notebook", DefaultDisabled: false, Provider: "claude"},
+			{ID: "Task", Label: "派生子 Agent", Description: "派生子 Agent 执行任务", DefaultDisabled: false, Provider: "claude"},
+			{ID: "ExitPlanMode", Label: "退出计划模式", Description: "离开 Plan Mode 审批界面", DefaultDisabled: false, Provider: "claude"},
+		},
 	}
 }
 

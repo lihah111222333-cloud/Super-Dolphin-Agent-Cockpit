@@ -44,7 +44,7 @@ var Module = fx.Options(
 	fx.Provide(NewUIStateHandlers),
 	fx.Provide(fx.Annotate(
 		NewConfigHandlers,
-		fx.ParamTags("", "", "", "", `optional:"true"`),
+		fx.ParamTags("", "", "", "", `optional:"true"`, ""),
 	)),
 	fx.Provide(NewUIStateSubscribers),
 )

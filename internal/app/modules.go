@@ -7,6 +7,7 @@ import (
 
 	"go.uber.org/fx"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/cron"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/dashboard"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/fbsd"
@@ -85,6 +86,7 @@ var Module = fx.Options(
 		AsRPCRunner,
 		newThreadOrchestrationFacade,
 		newRuntimeReporter,
+		provideNativeToolDescriptors,
 		provideDisabledBuiltinToolsFn,
 	),
 )
@@ -98,11 +100,22 @@ func provideSkillLibraryConfig() skilllibrary.Config {
 	}
 }
 
+func provideNativeToolDescriptors(registry *unified.Registry) []contract.NativeToolDescriptor {
+	if registry == nil {
+		return nil
+	}
+	return registry.NativeTools()
+}
+
 // provideDisabledBuiltinToolsFn bridges uistate.ResolveDisabledBuiltinTools
 // into prompt.DisabledBuiltinToolsFn without creating a prompt→uistate import cycle.
-func provideDisabledBuiltinToolsFn(prefs uipreference.Store) prompt.DisabledBuiltinToolsFn {
+func provideDisabledBuiltinToolsFn(prefs uipreference.Store, tools []contract.NativeToolDescriptor) prompt.DisabledBuiltinToolsFn {
+	index := make(map[string]contract.NativeToolDescriptor, len(tools))
+	for _, t := range tools {
+		index[t.ID] = t
+	}
 	return func(ctx context.Context, cwd string) []string {
-		return uistate.ResolveDisabledBuiltinTools(ctx, prefs, cwd)
+		return uistate.ResolveDisabledBuiltinTools(ctx, prefs, cwd, tools, index)
 	}
 }
 

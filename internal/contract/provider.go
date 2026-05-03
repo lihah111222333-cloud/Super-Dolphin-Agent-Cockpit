@@ -14,10 +14,21 @@ type Driver interface {
 	ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (Session, error)
 }
 
+// NativeToolDescriptor describes an upstream CLI built-in tool that the
+// settings UI can render and the prompt layer can suppress.
+type NativeToolDescriptor struct {
+	ID              string
+	Label           string
+	Description     string
+	DefaultDisabled bool
+	Provider        string
+}
+
 // DriverFactory constructs Driver instances for DI registration.
 type DriverFactory struct {
-	Name   string
-	Create func() Driver
+	Name        string
+	Create      func() Driver
+	NativeTools []NativeToolDescriptor
 }
 
 // Session is the unified provider session abstraction.
