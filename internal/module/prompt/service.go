@@ -14,6 +14,7 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
@@ -42,6 +43,11 @@ type Service interface {
 // with the cache mutex (see cache.go) and the dynamicMu RWMutex.
 var _ contract.SectionInvalidator = (*service)(nil)
 
+// DisabledBuiltinToolsFn is the signature of a function that returns the
+// sorted list of tool IDs the user has manually disabled via UI preferences.
+// It is injected to break the import cycle between prompt and uistate.
+type DisabledBuiltinToolsFn func(ctx context.Context, cwd string) []string
+
 type service struct {
 	cfg              *Config
 	logger           *slog.Logger
@@ -51,8 +57,10 @@ type service struct {
 	claudeMdProvider contract.ClaudeMdSourceProvider
 	flight           singleflight.Group
 
-	prefs       uipreference.Store
-	sharedFiles sharedfilestore.Reader
+	prefs           uipreference.Store
+	sharedFiles     sharedfilestore.Reader
+	skillStore      *skilllibrary.Store
+	disabledToolsFn DisabledBuiltinToolsFn
 
 	dynamicMu sync.RWMutex
 	dynamic   map[string]DynamicSectionProvider
@@ -68,6 +76,24 @@ func WithPromptHintSources(prefs uipreference.Store, sharedFiles sharedfilestore
 	return func(s *service) {
 		s.prefs = prefs
 		s.sharedFiles = sharedFiles
+	}
+}
+
+// WithSkillStore injects the skill library store used to aggregate
+// ReplacesNative declarations for cross-model native tool suppression.
+func WithSkillStore(store *skilllibrary.Store) ServiceOption {
+	return func(s *service) {
+		s.skillStore = store
+	}
+}
+
+// WithDisabledBuiltinToolsFn injects the function used to resolve user-manually
+// disabled builtin tools. The caller (e.g. the fx module) provides a closure
+// over uistate.ResolveDisabledBuiltinTools, avoiding a direct import cycle
+// between the prompt package and the uistate package.
+func WithDisabledBuiltinToolsFn(fn DisabledBuiltinToolsFn) ServiceOption {
+	return func(s *service) {
+		s.disabledToolsFn = fn
 	}
 }
 
