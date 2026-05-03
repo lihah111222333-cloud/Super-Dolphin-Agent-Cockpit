@@ -17,37 +17,18 @@ const (
 // If the highest containment < MinMergePairContainment, returns found=false.
 // If entries has 0 or 1 elements, returns found=false.
 func FindMostSimilarPair(entries []EntrySnapshot) (i, j int, score float64, found bool) {
-	if len(entries) < 2 {
+	pairs := FindSimilarPairs(entries)
+	if len(pairs) == 0 {
 		return 0, 0, 0, false
 	}
-
-	bestI, bestJ := 0, 1
-	bestScore := -1.0
-
-	for a := 0; a < len(entries); a++ {
-		bigramsA := Bigrams(Normalize(entries[a].Content))
-		for b := a + 1; b < len(entries); b++ {
-			if entries[a].Type != entries[b].Type {
-				continue
-			}
-			bigramsB := Bigrams(Normalize(entries[b].Content))
-			s := Containment(bigramsA, bigramsB)
-			if s > bestScore {
-				bestScore = s
-				bestI = a
-				bestJ = b
-			}
-		}
-	}
-
-	if bestScore < MinMergePairContainment {
-		return 0, 0, 0, false
-	}
-	return bestI, bestJ, bestScore, true
+	best := pairs[0] // sorted by score descending
+	return best.IdxA, best.IdxB, best.Score, true
 }
 
 // SimilarPair describes a pair of entries with high containment.
 type SimilarPair struct {
+	IdxA   int // index into the original entries slice
+	IdxB   int // index into the original entries slice
 	NameA  string
 	NameB  string
 	PathA  string
@@ -71,6 +52,8 @@ func FindSimilarPairs(entries []EntrySnapshot) []SimilarPair {
 			s := Containment(bigramsA, bigramsB)
 			if s >= MinMergePairContainment {
 				pairs = append(pairs, SimilarPair{
+					IdxA:   a,
+					IdxB:   b,
 					NameA:  entries[a].Name,
 					NameB:  entries[b].Name,
 					PathA:  entries[a].Path,

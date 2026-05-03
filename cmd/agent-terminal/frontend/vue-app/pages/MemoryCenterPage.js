@@ -88,19 +88,6 @@ async function savePreference(key, value) {
   } catch { /* non-critical */ }
 }
 
-function typeDisplayName(type) {
-  switch ((type || '').toString()) {
-    case 'user':
-    case 'feedback':
-      return '偏好';
-    case 'project':
-    case 'reference':
-      return '项目';
-    default:
-      return type || 'unknown';
-  }
-}
-
 export const MemoryCenterPage = {
   name: 'MemoryCenterPage',
   props: {
@@ -342,7 +329,6 @@ export const MemoryCenterPage = {
       statusLabel,
       typeBadgeClass,
       typeBadgeLabel,
-      typeDisplayName,
       clearSearch,
       toggleGuide,
       handleRefresh,

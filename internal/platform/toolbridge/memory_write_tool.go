@@ -59,14 +59,8 @@ func (r *MemoryWriteHostToolRegistry) CallHostTool(ctx context.Context, call Hos
 	if r == nil || r.writer == nil {
 		return nil, contract.NewAgentMemoryError("writer_unavailable", fmt.Errorf("memory_write writer is not configured"))
 	}
-	if !r.opts.Enabled {
-		return nil, contract.NewAgentMemoryError("feature_disabled", contract.ErrFeatureDisabled)
-	}
-	if !r.opts.ToolsEnabled {
-		return nil, contract.NewAgentMemoryError("tools_disabled", contract.ErrFeatureDisabled)
-	}
-	if call.Name != ToolNameMemoryWrite {
-		return nil, contract.NewAgentMemoryError("invalid_input", fmt.Errorf("host tools: unknown tool %q", call.Name))
+	if err := validateHostToolGuards(r.opts.Enabled, r.opts.ToolsEnabled, call.Name, ToolNameMemoryWrite, "writer_unavailable"); err != nil {
+		return nil, err
 	}
 	var input memoryWriteToolInput
 	if err := platformshared.DecodeInput(call.Arguments, &input); err != nil {
