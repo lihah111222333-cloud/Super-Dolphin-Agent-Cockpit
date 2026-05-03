@@ -178,16 +178,16 @@ func (h *Handler) handleProxyToolsList(w http.ResponseWriter, ctx context.Contex
 		writeJSONRPCError(w, id, jsonRPCCodeInternal, err.Error())
 		return
 	}
-	writeJSONRPCResult(w, id, map[string]any{"tools": filterProxyPeerMemoryReadTools(tools)})
+	writeJSONRPCResult(w, id, map[string]any{"tools": filterProxyPeerReservedHostTools(tools)})
 }
 
-func filterProxyPeerMemoryReadTools(tools []mcpdto.MCPTool) []mcpdto.MCPTool {
+func filterProxyPeerReservedHostTools(tools []mcpdto.MCPTool) []mcpdto.MCPTool {
 	if len(tools) == 0 {
 		return tools
 	}
-	out := tools[:0]
+	out := make([]mcpdto.MCPTool, 0, len(tools))
 	for _, tool := range tools {
-		if strings.TrimSpace(tool.Name) == ToolNameMemoryRead {
+		if isReservedHostOnlyToolName(strings.TrimSpace(tool.Name)) {
 			continue
 		}
 		out = append(out, tool)

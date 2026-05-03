@@ -364,9 +364,10 @@ func hasProbableSecret(parts ...string) bool {
 	return containsHighEntropyAssignment(text)
 }
 
+var highEntropyAssignmentRe = regexp.MustCompile(`(?m)\b[A-Za-z0-9_.-]*(?:KEY|TOKEN|SECRET|PASSWORD)[A-Za-z0-9_.-]*\b\s*[:=]\s*['"]?([A-Za-z0-9/_+=.-]{24,})['"]?`)
+
 func containsHighEntropyAssignment(text string) bool {
-	assignment := regexp.MustCompile(`(?m)\b[A-Za-z0-9_.-]*(?:KEY|TOKEN|SECRET|PASSWORD)[A-Za-z0-9_.-]*\b\s*[:=]\s*['"]?([A-Za-z0-9/_+=.-]{24,})['"]?`)
-	for _, match := range assignment.FindAllStringSubmatch(text, -1) {
+	for _, match := range highEntropyAssignmentRe.FindAllStringSubmatch(text, -1) {
 		if len(match) > 1 && looksHighEntropy(match[1]) {
 			return true
 		}
