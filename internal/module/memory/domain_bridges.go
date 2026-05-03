@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 
@@ -190,7 +191,7 @@ func (h *MemoryLifecycleHooks) WriteAgentMemory(ctx context.Context, req contrac
 		return contract.AgentMemoryWriteResult{}, err
 	}
 	options := h.writeOptions(ctx, req.ThreadID)
-	outcome, err := h.writeStructuredAgentMemory(ctx, req.ThreadID, entry)
+	outcome, err := h.writeStructuredAgentMemory(ctx, req.ThreadID, entry, options)
 	if err != nil {
 		return contract.AgentMemoryWriteResult{}, err
 	}
@@ -209,8 +210,7 @@ type agentMemoryWriteOutcome struct {
 	merged       bool
 }
 
-func (h *MemoryLifecycleHooks) writeStructuredAgentMemory(ctx context.Context, threadID string, entry MemoryWriteRequest) (agentMemoryWriteOutcome, error) {
-	options := h.writeOptions(ctx, threadID)
+func (h *MemoryLifecycleHooks) writeStructuredAgentMemory(ctx context.Context, threadID string, entry MemoryWriteRequest, options WriteOptions) (agentMemoryWriteOutcome, error) {
 	primary, secondary, err := h.intentDiskStores(ctx, threadID, entry.Type)
 	if err != nil {
 		return agentMemoryWriteOutcome{}, agentMemoryError("persist_failed", err)
@@ -269,8 +269,8 @@ func normalizeAgentMemoryInput(req contract.AgentMemoryWriteRequest) (string, st
 }
 
 func inputExceedsAgentMemoryLimits(name, description, content string) bool {
-	return runeCount(name) > agentMemoryWriteMaxNameRunes ||
-		runeCount(description) > agentMemoryWriteMaxDescriptionRunes ||
+	return utf8.RuneCountInString(name) > agentMemoryWriteMaxNameRunes ||
+		utf8.RuneCountInString(description) > agentMemoryWriteMaxDescriptionRunes ||
 		len([]byte(content)) > agentMemoryWriteMaxContentBytes
 }
 
@@ -398,14 +398,6 @@ func requiresAgentMemoryConfirmation(content string) bool {
 		}
 	}
 	return false
-}
-
-func runeCount(s string) int {
-	count := 0
-	for range s {
-		count++
-	}
-	return count
 }
 
 // ==== explicit memory write helpers ====

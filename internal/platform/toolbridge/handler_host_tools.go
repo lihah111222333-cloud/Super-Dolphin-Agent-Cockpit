@@ -142,19 +142,21 @@ func isReservedHostOnlyToolName(name string) bool {
 	}
 }
 
-// dedupToolsByName 按 name 去重，保留首次出现的入口（所以调用时要把 host-direct
-// 放在列表最前）。补 host_tools 的 dedup 优先级语义。
-func dedupToolsByName(in []dto.MCPTool) []dto.MCPTool {
-	seen := make(map[string]struct{}, len(in))
-	out := make([]dto.MCPTool, 0, len(in))
-	for _, t := range in {
-		if _, ok := seen[t.Name]; ok {
-			continue
-		}
-		seen[t.Name] = struct{}{}
-		out = append(out, t)
+// validateHostToolGuards checks the common pre-conditions shared by all
+// host-direct memory tool implementations (enabled, toolsEnabled, tool name
+// match). The caller is responsible for nil-receiver / nil-dependency
+// checks before calling this function.
+func validateHostToolGuards(enabled, toolsEnabled bool, callName, expectedName, unavailableCode string) error {
+	if !enabled {
+		return contract.NewAgentMemoryError("feature_disabled", contract.ErrFeatureDisabled)
 	}
-	return out
+	if !toolsEnabled {
+		return contract.NewAgentMemoryError("tools_disabled", contract.ErrFeatureDisabled)
+	}
+	if callName != expectedName {
+		return contract.NewAgentMemoryError("invalid_input", fmt.Errorf("host tools: unknown tool %q", callName))
+	}
+	return nil
 }
 
 // callHostTool 是 routeToolCall 的 host-direct 分支：在调用 hostTools.CallHostTool 之前
@@ -195,7 +197,8 @@ func (h *Handler) callHostTool(ctx context.Context, req ToolCallRequest) (*ToolC
 		outcome = hostToolErrorOutcome(err)
 		return hostToolErrorResult(req, err), nil
 	}
-	payload, mErr := json.Marshal(sanitizeHostToolResult(result, cwd))
+	payload, mErr := json.Marshal(result)
+
 	if mErr != nil {
 		return nil, mErr
 	}
@@ -207,13 +210,6 @@ func (h *Handler) callHostTool(ctx context.Context, req ToolCallRequest) (*ToolC
 			Text: string(payload),
 		}},
 	}, nil
-}
-
-func sanitizeHostToolResult(result any, _ string) any {
-	// P4 Task 4: ExpandBodyResult / ReadResourceResult cases removed alongside the
-	// SkillHostTools struct. New host-direct results (e.g. SkillReadSectionResult) do
-	// not embed absolute paths, so no path scrubbing is required here for now.
-	return result
 }
 
 func hostToolErrorOutcome(err error) string {

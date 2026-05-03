@@ -30,29 +30,6 @@ import (
 // backend wiring. They exercise the generic plumbing that the renamed
 // skill_read_section pipeline still relies on.
 
-func TestDedupToolsByName_FirstWins(t *testing.T) {
-	in := []dto.MCPTool{
-		{Name: "a", Description: "first"},
-		{Name: "b"},
-		{Name: "a", Description: "second"}, // 重复，应被忽略
-		{Name: "c"},
-		{Name: "b"}, // 重复忽略
-	}
-	out := dedupToolsByName(in)
-	if len(out) != 3 {
-		t.Fatalf("len = %d, want 3", len(out))
-	}
-	want := []string{"a", "b", "c"}
-	for i, tl := range out {
-		if tl.Name != want[i] {
-			t.Fatalf("out[%d].Name = %q, want %q", i, tl.Name, want[i])
-		}
-	}
-	if out[0].Description != "first" {
-		t.Fatalf("first-wins: out[0].Description = %q, want \"first\"", out[0].Description)
-	}
-}
-
 type stubHostToolRegistry struct {
 	hasToolName string
 	tools       []dto.MCPTool

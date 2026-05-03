@@ -1,5 +1,7 @@
 package dedup
 
+import "unicode/utf8"
+
 // ScanFunc is the callback used to fetch existing entries for a given type.
 // It is injected by the caller so the dedup package has no dependency on the
 // storage layer.
@@ -69,12 +71,7 @@ func (f *Filter) Check(candidate EntrySnapshot) (CheckResult, error) {
 
 	case Merge:
 		// Same scope: build the merged entry.
-		mergedBody := MergeContent(target.Type, target.Content, candidate.Content)
-		merged := MergeFrontmatter(target, candidate)
-		merged.Content = mergedBody
-		if runeLen(merged.Content) > MaxEntryContentRunes {
-			merged.Content = TruncateOldestParagraphs(merged.Content, MaxEntryContentRunes)
-		}
+		merged := mergeSnapshots(target, candidate)
 		return CheckResult{
 			Action:      Merge,
 			MergedEntry: &merged,
@@ -117,12 +114,7 @@ func (f *Filter) FindOverflowMerge(memType string) (*OverflowInstruction, error)
 	keep := entries[i]
 	absorb := entries[j]
 
-	mergedBody := MergeContent(keep.Type, keep.Content, absorb.Content)
-	merged := MergeFrontmatter(keep, absorb)
-	merged.Content = mergedBody
-	if runeLen(merged.Content) > MaxEntryContentRunes {
-		merged.Content = TruncateOldestParagraphs(merged.Content, MaxEntryContentRunes)
-	}
+	merged := mergeSnapshots(keep, absorb)
 
 	return &OverflowInstruction{
 		KeepEntry:  merged,
@@ -167,11 +159,14 @@ func (f *Filter) collectAll(memType string) ([]EntrySnapshot, error) {
 	return all, nil
 }
 
-// runeLen returns the number of Unicode code points in s.
-func runeLen(s string) int {
-	n := 0
-	for range s {
-		n++
+// mergeSnapshots merges two snapshots: combines content with MergeContent,
+// merges frontmatter, and truncates if the result exceeds MaxEntryContentRunes.
+func mergeSnapshots(keep, absorb EntrySnapshot) EntrySnapshot {
+	mergedBody := MergeContent(keep.Type, keep.Content, absorb.Content)
+	merged := MergeFrontmatter(keep, absorb)
+	merged.Content = mergedBody
+	if utf8.RuneCountInString(merged.Content) > MaxEntryContentRunes {
+		merged.Content = TruncateOldestParagraphs(merged.Content, MaxEntryContentRunes)
 	}
-	return n
+	return merged
 }
