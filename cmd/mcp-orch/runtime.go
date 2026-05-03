@@ -233,7 +233,6 @@ func newRegistry(
 	prompt promptstore.Store,
 	command commandcardstore.Store,
 	sharedFile sharedfilestore.Store,
-	memory contract.MemoryService,
 ) tools.Registry {
 	return tools.NewRegistry(tools.Dependencies{
 		Orchestration: orchestration,
@@ -241,7 +240,6 @@ func newRegistry(
 		Prompt:        prompt,
 		CommandCard:   command,
 		SharedFile:    sharedFile,
-		Memory:        memory,
 	})
 }
 

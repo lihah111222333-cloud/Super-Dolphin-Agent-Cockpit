@@ -79,6 +79,54 @@ use --help`)
 	}
 }
 
+func TestServiceReadDefaultScopeRemainsProject(t *testing.T) {
+	svc := newTestMemoryService(t)
+	projectRoot := projectScopeFixtureRoot(t)
+	writeMemoryFixture(t, filepath.Join(projectRoot, memoryIndexFileName), "- [Project Alpha](project/project-alpha.md) — project default\n")
+	writeMemoryFixture(t, filepath.Join(projectRoot, "project", "project-alpha.md"), `---
+name: "Project Alpha"
+description: "project default"
+type: "project"
+---
+project memory`)
+
+	result, err := svc.Read(context.Background(), contract.MemoryReadRequest{Name: "Project Alpha"})
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	assertMemoryEntry(t, result, contract.MemoryEntry{Name: "Project Alpha", Description: "project default", Type: contract.MemoryTypeProject, Content: "project memory", SourcePath: "project/project-alpha.md"})
+}
+
+func TestServiceReadTeamScopeDoesNotFallThroughToProject(t *testing.T) {
+	svc := newTestMemoryService(t)
+	projectRoot := projectScopeFixtureRoot(t)
+	writeMemoryFixture(t, filepath.Join(projectRoot, memoryIndexFileName), "- [Team Alpha](project/team-alpha.md) — project entry\n")
+	writeMemoryFixture(t, filepath.Join(projectRoot, "project", "team-alpha.md"), `---
+name: "Team Alpha"
+description: "project entry"
+type: "project"
+---
+project memory`)
+
+	result, err := svc.Read(context.Background(), contract.MemoryReadRequest{Name: "Team Alpha", Scope: contract.MemoryScopeTeam})
+	if err == nil {
+		t.Fatalf("Read(team) error = nil, result=%+v; old mcp-orch memory service must not treat team as project", result)
+	}
+}
+
+func projectScopeFixtureRoot(t *testing.T) string {
+	t.Helper()
+	root := os.Getenv(envMemoryRoot)
+	if root == "" {
+		t.Fatal("envMemoryRoot is not set")
+	}
+	projectRoot, err := findCanonicalGitRoot(context.Background(), filepath.Join(root, "project"))
+	if err != nil {
+		t.Fatalf("findCanonicalGitRoot() error = %v", err)
+	}
+	return filepath.Join(root, memoryProjectsDir, sanitizePath(projectRoot), memoryProjectDirName)
+}
+
 func newTestMemoryService(t *testing.T) contract.MemoryService {
 	t.Helper()
 	root := t.TempDir()

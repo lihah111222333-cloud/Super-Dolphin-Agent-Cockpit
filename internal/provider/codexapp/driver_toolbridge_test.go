@@ -85,6 +85,42 @@ func TestToolBridge_StartSession_UsesDynamicTools(t *testing.T) {
 	}
 }
 
+func TestToolBridge_StartSession_InjectsMemoryReadDynamicTool(t *testing.T) {
+	recorder := &toolBridgeRPCRecorder{}
+	t.Setenv("CODEX_APP_SERVER_URL", startToolBridgeRPCServer(t, recorder))
+	manager := &ServerManager{}
+	got := newDriver(nil, nil, nil, nil, manager, nil, nil, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+		return []codexprotocol.DynamicToolSchema{{
+			Name:        "memory_read",
+			Description: "host direct memory read",
+			InputSchema: json.RawMessage(`{"type":"object"}`),
+		}}, nil
+	}).(*driver)
+
+	sessionAny, err := got.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-1"})
+	if err != nil {
+		t.Fatalf("StartSession() error = %v", err)
+	}
+	s, ok := sessionAny.(*session)
+	if !ok {
+		t.Fatalf("StartSession() type = %T, want *session", sessionAny)
+	}
+	defer closeCodexTestSession(t, s)
+
+	params := recorder.threadStartParamsSnapshot()
+	tools, ok := params["dynamicTools"].([]any)
+	if !ok {
+		t.Fatalf("dynamicTools = %#v, want array", params["dynamicTools"])
+	}
+	for _, raw := range tools {
+		tool, ok := raw.(map[string]any)
+		if ok && tool["name"] == "memory_read" {
+			return
+		}
+	}
+	t.Fatalf("dynamicTools = %#v, want memory_read", tools)
+}
+
 const testDynamicSkillExpandBodyToolName = "skill_expand_body"
 
 func TestResumeSession_DynamicSkillToolsStillCallable(t *testing.T) {

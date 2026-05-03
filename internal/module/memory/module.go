@@ -342,6 +342,8 @@ var Module = fx.Module("memory",
 		provideDreamExtractFunc,
 		provideAutoDreamConsolidator,
 		NewMemoryLifecycleHooks,
+		provideAgentMemoryReader,
+		provideAgentMemoryWriter,
 		NewMemoryExtractor,
 		newAutoDreamSchedulerProvider,
 		newNestedIngestWorkerProvider,
@@ -406,6 +408,14 @@ func provideMemoryService(
 	hooks *MemoryLifecycleHooks,
 ) Service {
 	return NewService(cfg, logger, consolidator, hooks)
+}
+
+func provideAgentMemoryReader(hooks *MemoryLifecycleHooks) contract.AgentMemoryReader {
+	return hooks
+}
+
+func provideAgentMemoryWriter(hooks *MemoryLifecycleHooks) contract.AgentMemoryWriter {
+	return hooks
 }
 
 func NewMemoryHandlers(p memoryHandlerDeps) rpc.HandlerMapResult {

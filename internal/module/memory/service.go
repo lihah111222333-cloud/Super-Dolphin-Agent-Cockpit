@@ -662,10 +662,7 @@ func selectExplicitWriteStore(name string, primary, secondary memoryStructuredSt
 // Create-failed-with-AlreadyExists into an Update that overwrote
 // concurrently-written content.
 func upsertStructuredMemory(store memoryStructuredStore, entry MemoryWriteRequest, options WriteOptions) error {
-	if store == nil {
-		return errors.New("memory store is nil")
-	}
-	_, err := store.UpsertStructured(entry, options)
+	_, err := upsertStructuredMemoryReturningEntry(store, entry, options)
 	return err
 }
 
