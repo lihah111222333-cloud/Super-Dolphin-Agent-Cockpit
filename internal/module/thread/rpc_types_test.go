@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
 func TestStartParamsAcceptV2WireFields(t *testing.T) {
@@ -198,6 +200,43 @@ func TestNormalizeStartRequestDoesNotDeriveNameFromPrompt(t *testing.T) {
 
 // TestStartParamsAcceptsSelectedSkillsCamelCase p20.3 §4.3：前端 send path 用
 // camelCase；launch payload 对齐后 startParams 必须同时接受 camelCase 别名。
+
+func TestNormalizeStartRequestDropsConfigArtifacts(t *testing.T) {
+	t.Parallel()
+
+	req, _, err := normalizeStartRequest(StartRequest{
+		ModelProvider: "[object Object]",
+		Model:         "[object Object]",
+		Effort:        "undefined",
+	})
+	if err != nil {
+		t.Fatalf("normalizeStartRequest() error = %v", err)
+	}
+	if req.Model != "" || req.ModelProvider != "" || req.Effort != "" {
+		t.Fatalf("normalizeStartRequest artifacts = model %q provider %q effort %q, want empty", req.Model, req.ModelProvider, req.Effort)
+	}
+	if req.Provider != defaultStartProvider {
+		t.Fatalf("Provider = %q, want default %q", req.Provider, defaultStartProvider)
+	}
+}
+
+func TestNormalizeThreadConfigPatchDropsConfigArtifacts(t *testing.T) {
+	t.Parallel()
+
+	model := "[object Object]"
+	effort := "undefined"
+	patch, err := normalizeThreadConfigPatchOffline("claude", dto.ThreadConfigPatch{Model: &model, Effort: &effort})
+	if err != nil {
+		t.Fatalf("normalizeThreadConfigPatchOffline() error = %v", err)
+	}
+	if got := threadConfigPatchValue(patch.Model); got != "" {
+		t.Fatalf("patch model = %q, want empty", got)
+	}
+	if got := threadConfigPatchValue(patch.Effort); got != "" {
+		t.Fatalf("patch effort = %q, want empty", got)
+	}
+}
+
 func TestStartParamsAcceptsSelectedSkillsCamelCase(t *testing.T) {
 	t.Parallel()
 

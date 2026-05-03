@@ -277,8 +277,8 @@ export async function setThreadConfig(ctx, threadId, config = {}) {
   const id = (threadId || '').toString().trim();
   if (!id) return null;
   const cwd = typeof ctx.getPreferenceScopeCwd === 'function' ? ctx.getPreferenceScopeCwd() : '';
-  const model = normalizeProviderConfigValue(config?.model) || '';
-  const effort = normalizeProviderConfigValue(config?.effort) || '';
+  const model = normalizeProviderConfigValue(config?.model);
+  const effort = normalizeProviderConfigValue(config?.effort);
   const start = perfNow();
   logInfo('thread', 'config.set.start', { thread_id: id, cwd, requested_model: model, requested_effort: effort });
   try {
@@ -421,7 +421,7 @@ export async function startThread(ctx, cwd = '.', options = {}) {
     getPref({ key: 'settings.classifierEnabled', cwd }),
   ]);
 
-  const modelProvider = (typeof providerPref === 'string' && providerPref.trim()) ? providerPref.trim() : '';
+  const modelProvider = normalizeProviderConfigValue(providerPref);
   if (!modelProvider) {
     throw new Error('startThread: settings.provider.active preference is empty — cannot determine provider. Please select a provider in Settings.');
   }
@@ -456,8 +456,8 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   // provider falls back to its own defaults — which forces every new thread
   // to hit the P1a identity check 'codexHome is required' instead of using
   // the model/effort the user picked in Settings (e.g. gpt-5.5 / xhigh).
-  const optionsModelTrimmed = (typeof options?.model === 'string' ? options.model.trim() : '');
-  const optionsEffortTrimmed = (typeof options?.effort === 'string' ? options.effort.trim() : '');
+  const optionsModelTrimmed = normalizeProviderConfigValue(options?.model);
+  const optionsEffortTrimmed = normalizeProviderConfigValue(options?.effort);
   const effectiveModel = optionsModelTrimmed || providerModel || '';
   const effectiveEffort = optionsEffortTrimmed || providerEffort || '';
   if (effectiveModel) payload.model = effectiveModel;

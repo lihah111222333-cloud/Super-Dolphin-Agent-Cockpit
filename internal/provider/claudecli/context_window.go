@@ -15,10 +15,20 @@ func claudeContextWindow(runtimeWindow int, model string, history *historyBacken
 }
 
 func claudeLaunchDisplayModel(model string, history *historyBackend) string {
-	if model = strings.TrimSpace(model); model != "" {
+	if model = sanitizeClaudeModel(model); model != "" {
 		return model
 	}
-	return readClaudeSettingsModel(history)
+	return sanitizeClaudeModel(readClaudeSettingsModel(history))
+}
+
+func sanitizeClaudeModel(model string) string {
+	model = strings.TrimSpace(model)
+	switch strings.ToLower(model) {
+	case "", "[object object]", "undefined", "null":
+		return ""
+	default:
+		return model
+	}
 }
 
 func claudeModelContextWindow(model string) int {

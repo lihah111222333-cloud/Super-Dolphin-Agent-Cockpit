@@ -239,9 +239,9 @@ func (d *driver) prepareSessionStart(spec startSpec) (preparedStartSession, erro
 }
 
 func resolveRequestedStartConfig(spec startSpec) (string, cliLaunchConfig) {
-	requestedModel := strings.TrimSpace(spec.model)
+	requestedModel := sanitizeClaudeModel(spec.model)
 	if requestedModel == "" && spec.configOverride.Model != nil {
-		requestedModel = strings.TrimSpace(*spec.configOverride.Model)
+		requestedModel = sanitizeClaudeModel(*spec.configOverride.Model)
 	}
 	requestedConfig := spec.config
 	if strings.TrimSpace(requestedConfig.Effort) == "" && spec.configOverride.Effort != nil {

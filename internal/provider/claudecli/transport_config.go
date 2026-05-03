@@ -183,6 +183,7 @@ func writeSystemPromptDump(index int, content string) string {
 }
 
 func buildCLIArgs(model, instructions, mcpConfigPath string, cfg cliLaunchConfig) []string {
+	model = sanitizeClaudeModel(model)
 	args := []string{
 		"-p",
 		"--input-format", "stream-json",

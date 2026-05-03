@@ -1,8 +1,24 @@
+function sanitizeProviderConfigString(value) {
+  const normalized = (value || '').toString().trim();
+  const lower = normalized.toLowerCase();
+  if (!normalized || lower === '[object object]' || lower === 'undefined' || lower === 'null') return '';
+  return normalized;
+}
+
 export function normalizeProviderConfigValue(value) {
-  if (value && typeof value === 'object' && 'value' in value) {
-    return (value.value || '').toString().trim();
+  if (value == null) return '';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return sanitizeProviderConfigString(value);
   }
-  return (value || '').toString().trim();
+  if (typeof value === 'object') {
+    for (const key of ['value', 'model', 'id', 'key', 'name']) {
+      if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+      const normalized = normalizeProviderConfigValue(value[key]);
+      if (normalized) return normalized;
+    }
+    return '';
+  }
+  return sanitizeProviderConfigString(value);
 }
 
 export const CODEX_IDENTITY_DEFAULTS = Object.freeze({

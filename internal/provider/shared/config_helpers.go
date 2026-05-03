@@ -74,12 +74,22 @@ func hasManagedBinary(dir string) bool {
 func ConfigString(cfg map[string]any, keys ...string) string {
 	for _, key := range keys {
 		if value, ok := cfg[key].(string); ok {
-			if value = strings.TrimSpace(value); value != "" {
+			if value = SanitizeConfigString(value); value != "" {
 				return value
 			}
 		}
 	}
 	return ""
+}
+
+func SanitizeConfigString(value string) string {
+	value = strings.TrimSpace(value)
+	switch strings.ToLower(value) {
+	case "", "[object object]", "undefined", "null":
+		return ""
+	default:
+		return value
+	}
 }
 
 func StringMap(raw any) map[string]string {

@@ -454,7 +454,7 @@ func trimThreadConfigPatchValue(value *string) *string {
 	if value == nil {
 		return nil
 	}
-	trimmed := strings.TrimSpace(*value)
+	trimmed := sanitizeConfigStringArtifact(*value)
 	return &trimmed
 }
 
@@ -462,7 +462,17 @@ func threadConfigPatchValue(value *string) string {
 	if value == nil {
 		return ""
 	}
-	return strings.TrimSpace(*value)
+	return sanitizeConfigStringArtifact(*value)
+}
+
+func sanitizeConfigStringArtifact(value string) string {
+	value = strings.TrimSpace(value)
+	switch strings.ToLower(value) {
+	case "", "[object object]", "undefined", "null":
+		return ""
+	default:
+		return value
+	}
 }
 
 func applyThreadConfigReturnPatch(cfg dto.ThreadConfig, patch dto.ThreadConfigPatch) dto.ThreadConfig {

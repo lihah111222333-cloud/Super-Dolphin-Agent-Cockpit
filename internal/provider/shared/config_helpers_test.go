@@ -71,6 +71,18 @@ func TestResolveBinaryDirFallsBackToLookPathDir(t *testing.T) {
 	}
 }
 
+func TestConfigStringDropsObjectArtifacts(t *testing.T) {
+	t.Parallel()
+
+	cfg := map[string]any{
+		"model":    "[object Object]",
+		"fallback": "gpt-5.5",
+	}
+	if got := ConfigString(cfg, "model", "fallback"); got != "gpt-5.5" {
+		t.Fatalf("ConfigString() = %q, want fallback", got)
+	}
+}
+
 func stubBinaryResolvers(t *testing.T, exe func() (string, error), lp func(string) (string, error)) {
 	t.Helper()
 	resolverStubMu.Lock()

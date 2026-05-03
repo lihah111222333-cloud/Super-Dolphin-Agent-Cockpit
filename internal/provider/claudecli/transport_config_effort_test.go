@@ -1,6 +1,10 @@
 package claudecli
 
-import "testing"
+import (
+	"testing"
+
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+)
 
 func TestNormalizeEffortRespectsClaudeModelFamily(t *testing.T) {
 	for _, tc := range []struct {
@@ -36,6 +40,26 @@ func TestBuildCLIArgsIncludesModelAndNormalizedEffort(t *testing.T) {
 	args = buildCLIArgs("sonnet", "system", "", cliLaunchConfig{Effort: "max"})
 	if !hasFlagValue(args, "--effort", "high") {
 		t.Fatalf("buildCLIArgs() = %#v, want sonnet max -> --effort high", args)
+	}
+}
+
+func TestBuildCLIArgsDropsAccidentalObjectModelString(t *testing.T) {
+	args := buildCLIArgs("[object Object]", "system", "", cliLaunchConfig{Effort: "high"})
+	if hasFlag(args, "--model") {
+		t.Fatalf("buildCLIArgs() = %#v, want no --model for object artifact", args)
+	}
+}
+
+func TestResolveRequestedStartConfigSanitizesObjectModelArtifact(t *testing.T) {
+	model := "sonnet"
+	got, _ := resolveRequestedStartConfig(startSpec{
+		model: "[object Object]",
+		configOverride: dto.ThreadConfigPatch{
+			Model: &model,
+		},
+	})
+	if got != "sonnet" {
+		t.Fatalf("resolveRequestedStartConfig model = %q, want sonnet", got)
 	}
 }
 
