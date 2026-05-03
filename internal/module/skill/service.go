@@ -29,6 +29,7 @@ type service struct {
 	projectRoot        string
 	projectSkillsRoot  string
 	http               *http.Client
+	disclosureTiers    contract.SkillDisclosureTierSource
 	approvalRequester  contract.ApprovalRequester
 	readConfigState    func(context.Context, string) (any, error)
 	emitSkillsChanged  skillsChangedEmitter

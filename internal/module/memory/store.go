@@ -6,75 +6,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
-	"time"
-	"unicode"
-	"unicode/utf8"
 
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
-	"golang.org/x/text/unicode/norm"
 )
-
-const (
-	diskStoreLockFileName      = ".memory.lock"
-	diskStoreLockRetryInterval = 25 * time.Millisecond
-	diskStoreLockTimeout       = 5 * time.Second
-
-	// memoryFileBaseMaxBytes mirrors the legacy memory project-key budget, but
-	// filename truncation below must be UTF-8 aware because macOS rejects paths
-	// that split a multibyte rune with "illegal byte sequence".
-	memoryFileBaseMaxBytes = 96
-)
-
-var (
-	ErrMemoryAlreadyExists     = errors.New("memory already exists")
-	ErrMemoryLockTimeout       = errors.New("memory store lock timeout")
-	ErrMemoryNotFound          = errors.New("memory not found")
-	ErrInvalidMemoryEntry      = errors.New("invalid memory entry")
-	ErrMemoryIndexUpdateFailed = errors.New("memory_index_update_failed")
-)
-
-type WriteOptions struct {
-	SkipIndex bool
-}
-
-type MemoryWriteRequest struct {
-	Name        string
-	Description string
-	Type        MemoryType
-	Body        string
-}
-
-type memoryWriteGuard interface {
-	ValidateWrite(path, content string) (string, error)
-}
-
-type memoryStructuredStore interface {
-	Read(name string) (MemoryEntry, error)
-	CreateStructured(req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error)
-	UpdateStructured(req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error)
-	// UpsertStructured writes the entry atomically inside a single disk
-	// store lock acquisition (Phase 自有.1a). Replaces the legacy
-	// Create-then-Update pattern in upsertStructuredMemory which had a
-	// two-phase locking window where another writer could race in between
-	// the failed Create and the follow-up Update, producing a lost update.
-	UpsertStructured(req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error)
-	Delete(name string, opts ...WriteOptions) error
-}
-
-type memoryWriteStore interface {
-	memoryStructuredStore
-	Root() string
-	Create(entry MemoryEntry, opts ...WriteOptions) (MemoryEntry, error)
-	Update(entry MemoryEntry, opts ...WriteOptions) (MemoryEntry, error)
-}
 
 type diskStore struct {
 	root  string
 	guard memoryWriteGuard
 }
-
-var diskStoreLocks sync.Map
 
 func newDiskStore(root string) (*diskStore, error) {
 	return newDiskStoreWithGuard(root, nil)
@@ -130,6 +69,10 @@ func (s *diskStore) UpdateStructured(req MemoryWriteRequest, opts ...WriteOption
 	return s.Update(buildMemoryEntryFromWriteRequest(req), opts...)
 }
 
+func (s *diskStore) UpdateStructuredPath(path string, req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error) {
+	return s.updatePath(path, buildMemoryEntryFromWriteRequest(req), resolveWriteOptions(opts))
+}
+
 // UpsertStructured writes the entry atomically inside a single
 // withDiskStoreLock acquisition: prepare → acquire lock →
 // writePreparedMemoryFile → updateIndexAfterMutation → release lock.
@@ -178,6 +121,20 @@ func (s *diskStore) Delete(name string, opts ...WriteOptions) error {
 	})
 }
 
+func (s *diskStore) DeletePath(path string, opts ...WriteOptions) error {
+	root, err := s.rootOrError()
+	if err != nil {
+		return err
+	}
+	options := resolveWriteOptions(opts)
+	return withDiskStoreLock(root, func() error {
+		if err := DeleteMemoryPath(root, path); err != nil {
+			return err
+		}
+		return updateIndexAfterMutation(root, options)
+	})
+}
+
 func (s *diskStore) RebuildIndex() ([]MemoryIndexEntry, error) {
 	root, err := s.rootOrError()
 	if err != nil {
@@ -213,6 +170,43 @@ func (s *diskStore) write(entry MemoryEntry, requireExisting bool, options Write
 	return written, err
 }
 
+func (s *diskStore) updatePath(path string, entry MemoryEntry, options WriteOptions) (MemoryEntry, error) {
+	root, err := s.rootOrError()
+	if err != nil {
+		return MemoryEntry{}, err
+	}
+	prepared, err := prepareWritableEntry(entry, false)
+	if err != nil {
+		return MemoryEntry{}, err
+	}
+	var written MemoryEntry
+	err = withDiskStoreLock(root, func() error {
+		validatedPath, err := ValidateMemoryWritePath(root, path)
+		if err != nil {
+			return err
+		}
+		existing, err := readMemoryEntryFile(validatedPath)
+		if errors.Is(err, os.ErrNotExist) {
+			return ErrMemoryNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if existing.CanonicalName != prepared.CanonicalName {
+			return fmt.Errorf("%w: name mismatch", ErrInvalidMemoryEntry)
+		}
+		if existing.Type() != prepared.Type() {
+			return fmt.Errorf("%w: type mismatch", ErrInvalidMemoryEntry)
+		}
+		written, err = writePreparedMemoryFilePath(root, validatedPath, prepared, s.guard)
+		if err != nil {
+			return err
+		}
+		return updateIndexAfterMutation(root, options)
+	})
+	return written, err
+}
+
 func WriteMemoryFile(root string, entry MemoryEntry) (MemoryEntry, error) {
 	prepared, err := prepareWritableEntry(entry, false)
 	if err != nil {
@@ -227,6 +221,18 @@ func writePreparedMemoryFile(root string, prepared MemoryEntry, guard memoryWrit
 		return MemoryEntry{}, err
 	}
 	targetPath, err := resolveMemoryFilePath(normalizedRoot, prepared)
+	if err != nil {
+		return MemoryEntry{}, err
+	}
+	return writePreparedMemoryFilePath(normalizedRoot, targetPath, prepared, guard)
+}
+
+func writePreparedMemoryFilePath(root, targetPath string, prepared MemoryEntry, guard memoryWriteGuard) (MemoryEntry, error) {
+	normalizedRoot, err := normalizeStoreRoot(root)
+	if err != nil {
+		return MemoryEntry{}, err
+	}
+	targetPath, err = ValidateMemoryWritePath(normalizedRoot, targetPath)
 	if err != nil {
 		return MemoryEntry{}, err
 	}
@@ -259,10 +265,26 @@ func DeleteMemory(root, name string) error {
 	if !exists {
 		return ErrMemoryNotFound
 	}
-	validatedPath, err := ValidateMemoryWritePath(normalizedRoot, entry.FilePath)
+	return removeMemoryFile(normalizedRoot, entry.FilePath)
+}
+
+func DeleteMemoryPath(root, path string) error {
+	normalizedRoot, err := normalizeStoreRoot(root)
 	if err != nil {
 		return err
 	}
+	return removeMemoryFile(normalizedRoot, path)
+}
+
+func removeMemoryFile(root, path string) error {
+	if filepath.Base(filepath.ToSlash(strings.TrimSpace(path))) == memoryIndexFileName {
+		return invalidMemoryWritePath("cannot remove memory entrypoint")
+	}
+	validatedPath, err := ValidateMemoryWritePath(root, path)
+	if err != nil {
+		return err
+	}
+
 	if err := os.Remove(validatedPath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return ErrMemoryNotFound
@@ -324,11 +346,20 @@ func validateRequiredMemoryFrontmatter(frontmatter MemoryFrontmatter) error {
 func validateStructuredMemoryContent(memoryType MemoryType, content string) error {
 	switch memoryType {
 	case MemoryTypeFeedback, MemoryTypeProject:
-		if !hasStructuredMemorySection(content, "why") || !hasStructuredMemorySection(content, "how to apply") {
+		if !hasAnyStructuredMemorySection(content, "why", "原因") || !hasAnyStructuredMemorySection(content, "how to apply", "如何应用") {
 			return fmt.Errorf("%w: %s memory content must include Why: and How to apply:", ErrInvalidMemoryEntry, memoryType)
 		}
 	}
 	return nil
+}
+
+func hasAnyStructuredMemorySection(content string, labels ...string) bool {
+	for _, label := range labels {
+		if hasStructuredMemorySection(content, label) {
+			return true
+		}
+	}
+	return false
 }
 
 func hasStructuredMemorySection(content, label string) bool {
@@ -336,7 +367,7 @@ func hasStructuredMemorySection(content, label string) bool {
 		normalized := strings.ToLower(strings.TrimSpace(line))
 		normalized = strings.TrimPrefix(normalized, "- ")
 		normalized = strings.ReplaceAll(normalized, "**", "")
-		if strings.HasPrefix(normalized, label+":") {
+		if strings.HasPrefix(normalized, label+":") || strings.HasPrefix(normalized, label+"：") {
 			return true
 		}
 	}
@@ -349,7 +380,9 @@ func buildMemoryEntryFromWriteRequest(req MemoryWriteRequest) MemoryEntry {
 			Name:        strings.TrimSpace(req.Name),
 			Description: strings.TrimSpace(req.Description),
 			Type:        cloneMemoryType(req.Type),
+			Source:      strings.TrimSpace(req.Source),
 		},
+
 		Content: strings.TrimSpace(req.Body),
 	}
 }
@@ -492,72 +525,6 @@ func memoryPathAvailable(path string) (bool, error) {
 	return false, err
 }
 
-func memoryFileBase(name string) string {
-	if !hasSlugRune(name) {
-		return "mem-" + shared.ShortHash(CanonicalName(name))
-	}
-	return memoryFileSlug(name)
-}
-
-func memoryFileSlug(raw string) string {
-	normalized := norm.NFC.String(strings.TrimSpace(raw))
-	var builder strings.Builder
-	lastDash := false
-	for _, r := range normalized {
-		switch {
-		case unicode.IsLetter(r) || unicode.IsDigit(r):
-			builder.WriteRune(unicode.ToLower(r))
-			lastDash = false
-		case lastDash:
-		default:
-			builder.WriteByte('-')
-			lastDash = true
-		}
-	}
-	slug := strings.Trim(builder.String(), "-")
-	if slug == "" {
-		return "mem-" + shared.ShortHash(CanonicalName(raw))
-	}
-	if len(slug) <= memoryFileBaseMaxBytes {
-		return slug
-	}
-	prefix := strings.Trim(truncateUTF8Bytes(slug, memoryFileBaseMaxBytes-9), "-")
-	if prefix == "" {
-		prefix = "mem"
-	}
-	return prefix + "-" + shared.ShortHash(normalized)
-}
-
-func truncateUTF8Bytes(text string, maxBytes int) string {
-	if maxBytes <= 0 || strings.TrimSpace(text) == "" {
-		return ""
-	}
-	if len(text) <= maxBytes && utf8.ValidString(text) {
-		return text
-	}
-	var builder strings.Builder
-	for _, r := range text {
-		runeLen := utf8.RuneLen(r)
-		if runeLen < 0 {
-			runeLen = len(string(r))
-		}
-		if builder.Len()+runeLen > maxBytes {
-			break
-		}
-		builder.WriteRune(r)
-	}
-	return builder.String()
-}
-
-func hasSlugRune(text string) bool {
-	for _, r := range text {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			return true
-		}
-	}
-	return false
-}
-
 func validateMutationMode(exists, requireExisting bool) error {
 	if requireExisting && !exists {
 		return ErrMemoryNotFound
@@ -583,74 +550,6 @@ func resolveWriteOptions(opts []WriteOptions) WriteOptions {
 		return WriteOptions{}
 	}
 	return opts[0]
-}
-
-func acquireMemoryRootFileLock(root string, timeout time.Duration) (*os.File, error) {
-	lockPath, err := ValidateMemoryWritePath(root, filepath.Join(root, diskStoreLockFileName))
-	if err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		return nil, err
-	}
-	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
-	if err != nil {
-		return nil, err
-	}
-	if err := waitForMemoryRootFileLock(file, timeout); err != nil {
-		_ = file.Close()
-		return nil, err
-	}
-	return file, nil
-}
-
-func waitForMemoryRootFileLock(file *os.File, timeout time.Duration) error {
-	if timeout <= 0 {
-		timeout = diskStoreLockTimeout
-	}
-	deadline := time.Now().Add(timeout)
-	for {
-		err := tryAcquireMemoryFileLock(file)
-		if err == nil {
-			return nil
-		}
-		if !isMemoryFileLockBusy(err) {
-			return err
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("%w: %s", ErrMemoryLockTimeout, file.Name())
-		}
-		time.Sleep(diskStoreLockRetryInterval)
-	}
-}
-
-func closeMemoryRootFileLock(file *os.File) error {
-	if file == nil {
-		return nil
-	}
-	unlockErr := releaseMemoryFileLock(file)
-	closeErr := file.Close()
-	if unlockErr != nil {
-		return unlockErr
-	}
-	return closeErr
-}
-
-func withDiskStoreLock(root string, fn func() error) (err error) {
-	mutexValue, _ := diskStoreLocks.LoadOrStore(root, &sync.Mutex{})
-	mutex := mutexValue.(*sync.Mutex)
-	mutex.Lock()
-	defer mutex.Unlock()
-	lockedFile, err := acquireMemoryRootFileLock(root, diskStoreLockTimeout)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if closeErr := closeMemoryRootFileLock(lockedFile); err == nil && closeErr != nil {
-			err = closeErr
-		}
-	}()
-	return fn()
 }
 
 func (s *diskStore) rootOrError() (string, error) {

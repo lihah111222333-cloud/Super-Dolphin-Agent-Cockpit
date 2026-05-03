@@ -3,9 +3,12 @@ package memory
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/dedup"
 )
 
 func TestTeamWriteIntentRoutesProjectMemoryToTeamStore(t *testing.T) {
@@ -102,5 +105,52 @@ func TestTeamWriteIntentKeepsUserMemoryPrivate(t *testing.T) {
 	}
 	if _, err := teamStore.Read(entry.Name); !errors.Is(err, ErrMemoryNotFound) {
 		t.Fatalf("teamStore.Read(%q) error = %v, want %v", entry.Name, err, ErrMemoryNotFound)
+	}
+}
+
+func TestTeamWriteIntentOverflowMergesWithinTeamScope(t *testing.T) {
+	withTeamMemoryRuntimeReady(t, true)
+	projectRoot := t.TempDir()
+	autoRoot := filepath.Join(t.TempDir(), "automem")
+	cfg := &Config{
+		Enabled:             true,
+		RootDir:             t.TempDir(),
+		ProjectRoot:         projectRoot,
+		AutoMemPathOverride: autoRoot,
+		Features:            MemoryFeatureFlags{TeamMemory: true},
+	}
+	hooks := NewMemoryLifecycleHooks(memoryLifecycleHookParams{Config: cfg, Team: NewTeamMemoryManager(cfg)})
+	teamRoot := filepath.Join(autoRoot, teamMemoryRootDirName)
+	teamStore, err := newDiskStore(teamRoot)
+	if err != nil {
+		t.Fatalf("newDiskStore(team) error = %v", err)
+	}
+	for i := 0; i < dedup.MaxEntriesPerType; i++ {
+		_, err := teamStore.CreateStructured(MemoryWriteRequest{
+			Name:        fmt.Sprintf("team-rule-%02d", i),
+			Description: "team overflow fixture",
+			Type:        MemoryTypeProject,
+			Body:        fmt.Sprintf("Team project context paragraph %02d.\nWhy: keeps team project context.\nHow to apply: use it for team decisions.", i),
+		})
+		if err != nil {
+			t.Fatalf("CreateStructured(%d) error = %v", i, err)
+		}
+	}
+
+	intent := SaveIntent{
+		Detected: true,
+		Type:     MemoryTypeProject,
+		Content:  "Team project context paragraph 00.\nWhy: keeps team project context.\nHow to apply: use it for team decisions plus overflow merge.",
+	}
+	if err := hooks.writeIntent(context.Background(), "thread-team-overflow", intent); err != nil {
+		t.Fatalf("writeIntent() error = %v", err)
+	}
+
+	entries, err := scanMemoryEntries(teamRoot)
+	if err != nil {
+		t.Fatalf("scanMemoryEntries(team) error = %v", err)
+	}
+	if len(entries) > dedup.MaxEntriesPerType {
+		t.Fatalf("team entries = %d, want <= %d after overflow merge", len(entries), dedup.MaxEntriesPerType)
 	}
 }

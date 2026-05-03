@@ -99,8 +99,9 @@ func TestAutoDreamBusyDropsWithoutReplay(t *testing.T) {
 // stubAutoDreamExplicitScopeStore serves a single ThreadMetadata row
 // with a non-empty AgentMemoryScope. When autoDreamAllowed runs against
 // this metadata, hasAgentMemoryScope() returns true and the scheduler
-// must decline to schedule a dream task (project-level scope is
-// required; agent-scope threads belong to the agent memory path).
+// must decline to schedule a dream task; child-agent scoped threads do not
+// own project-scope auto-dream writes.
+
 type stubAutoDreamExplicitScopeStore struct {
 	thread *contract.ThreadMetadata
 }
@@ -115,18 +116,19 @@ func (s *stubAutoDreamExplicitScopeStore) ListAll(context.Context) ([]contract.T
 
 // TestAutoDreamRequiresExplicitProjectScope is the P22 P2 behavioral
 // guard for autoDreamAllowed's scope check: a thread that carries an
-// explicit AgentMemoryScope belongs to the agent-memory write path, not
-// the project-scope auto-dream consolidator. maybeScheduleAutoDream
-// must decline for such threads (return false) and must not start a
-// dream task.
+// explicit AgentMemoryScope must not use the project-scope auto-dream
+// consolidator. maybeScheduleAutoDream must decline for such threads
+// (return false) and must not start a dream task.
+
 func TestAutoDreamRequiresExplicitProjectScope(t *testing.T) {
 	t.Parallel()
 
 	// Build a thread that LOOKS like an auto-memory-root thread
 	// (threadKind=main, no parent/owner) but carries a non-empty
 	// AgentMemoryScope. That combination must cause autoDreamAllowed
-	// to refuse scheduling: agent-scoped threads are handled by the
-	// per-agent memory path, not by project-scope auto-dream.
+	// to refuse scheduling: child-agent scoped threads are not
+	// project-scope auto-dream writers.
+
 	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 	finishedAt := now.Unix()
 	thread := &contract.ThreadMetadata{

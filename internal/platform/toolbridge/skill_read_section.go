@@ -43,19 +43,36 @@ type skillReadSectionArgs struct {
 // result is truncated to exactly max_bytes bytes.
 // All errors are wrapped with the "skill_read_section:" prefix.
 func (t *SkillReadSectionTool) Call(_ context.Context, raw json.RawMessage) (json.RawMessage, error) {
-	var a skillReadSectionArgs
-	if err := json.Unmarshal(raw, &a); err != nil {
-		return nil, fmt.Errorf("skill_read_section: parse args: %w", err)
+	a, err := decodeSkillReadSectionArgs(raw)
+	if err != nil {
+		return nil, err
 	}
+	result, err := t.readSection(a)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(result.body), nil
+}
+
+type skillReadSectionPayload struct {
+	body       []byte
+	totalBytes int
+	truncated  bool
+}
+
+func (t *SkillReadSectionTool) readSection(a skillReadSectionArgs) (skillReadSectionPayload, error) {
 	body, err := skilllibrary.ReadSection(t.cacheDir, a.Name, a.Anchor)
 	if err != nil {
-		return nil, fmt.Errorf("skill_read_section: %w", err)
+		return skillReadSectionPayload{}, fmt.Errorf("skill_read_section: %w", err)
 	}
+	totalBytes := len(body)
+	truncated := false
 	if a.MaxBytes > 0 && len(body) > a.MaxBytes {
 		body = body[:a.MaxBytes]
+		truncated = true
 	}
 	// P6 FBSD 打点：成功 ReadSection 后异步记录调用频次。tracker 为 nil 或
 	// disabled 时 Record 内部 no-op。
 	t.tracker.Record(a.Name, a.Anchor)
-	return json.RawMessage(body), nil
+	return skillReadSectionPayload{body: body, totalBytes: totalBytes, truncated: truncated}, nil
 }

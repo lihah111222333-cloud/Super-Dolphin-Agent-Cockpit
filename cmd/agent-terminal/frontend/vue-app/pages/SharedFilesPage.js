@@ -235,7 +235,7 @@ export const SharedFilesPage = {
           content: promoteForm.content,
         });
         closePromote();
-        setNotice('info', '已从共享文件创建 durable memory，建议到"记忆中心"继续维护。');
+        setNotice('info', '已从共享文件创建记忆，建议到"记忆中心"继续维护。');
       } catch (error) {
         setNotice('error', `Promote 失败：${toErrorMessage(error)}`);
       } finally {
@@ -450,7 +450,7 @@ export const SharedFilesPage = {
               </article>
               <article class="memory-center-guide-card">
                 <div class="memory-center-guide-title">什么时候 Promote</div>
-                <div class="memory-center-guide-text">当内容已经稳定、可复用、值得跨会话保留时，再整理为 durable memory 或 Agent 专属 MEMORY.md。</div>
+                <div class="memory-center-guide-text">当内容已经稳定、可复用、值得跨会话保留时，再整理为长期记忆。</div>
               </article>
               <article class="memory-center-guide-card">
                 <div class="memory-center-guide-title">注意</div>
@@ -618,7 +618,7 @@ export const SharedFilesPage = {
         <div class="modal-box memory-modal" role="dialog" aria-modal="true" data-testid="shared-files-promote-modal">
           <div class="memory-modal-head">
             <div>
-              <div class="modal-title">提升为 durable memory</div>
+              <div class="modal-title">提升为长期记忆</div>
               <div class="memory-modal-tip">{{ promoteForm.sharedPath }}</div>
             </div>
             <button class="btn btn-ghost" data-testid="shared-files-promote-close" @click="closePromote">关闭</button>
@@ -628,8 +628,8 @@ export const SharedFilesPage = {
             <div class="modal-input-flex">
               <label class="settings-inline-label">目标</label>
               <select v-model="promoteForm.target" class="modal-input" data-testid="shared-files-promote-target">
-                <option value="private">Private durable memory</option>
-                <option value="team">Team durable memory</option>
+                <option value="private">私有记忆</option>
+                <option value="team">团队记忆</option>
               </select>
             </div>
             <div class="modal-input-flex">
@@ -675,7 +675,7 @@ export const SharedFilesPage = {
               data-testid="shared-files-promote-save"
               :disabled="saving"
               @click="savePromote"
-            >{{ saving ? '保存中...' : '创建 durable memory' }}</button>
+            >{{ saving ? '保存中...' : '创建记忆' }}</button>
           </div>
         </div>
       </div>

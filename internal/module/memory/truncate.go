@@ -10,10 +10,8 @@ import (
 )
 
 const (
-	entrypointMaxLines      = 200
-	entrypointMaxCodeUnits  = 25_000
-	agentMemoryMaxLines     = entrypointMaxLines
-	agentMemoryMaxCodeUnits = entrypointMaxCodeUnits
+	entrypointMaxLines     = 200
+	entrypointMaxCodeUnits = 25_000
 )
 
 type EntrypointTruncation struct {
@@ -23,14 +21,6 @@ type EntrypointTruncation struct {
 	WasLineTruncated bool
 	WasByteTruncated bool
 	Warning          string
-}
-
-type agentMemoryTruncation struct {
-	content          string
-	lineCount        int
-	codeUnitCount    int
-	wasLineTruncated bool
-	wasByteTruncated bool
 }
 
 func TruncateEntrypointContent(raw string) EntrypointTruncation {
@@ -61,26 +51,6 @@ func TruncateEntrypointContent(raw string) EntrypointTruncation {
 	result.Warning = "MEMORY.md is " + truncateEntrypointReason(result) + ". Only part of it was loaded. Keep index entries to one line under ~200 chars; move detail into topic files."
 	result.Content = truncated + "\n\n> WARNING: " + result.Warning
 	return result
-}
-
-func truncateAgentMemoryContent(raw string) agentMemoryTruncation {
-	result := TruncateEntrypointContent(raw)
-	return agentMemoryTruncation{
-		content:          result.Content,
-		lineCount:        result.LineCount,
-		codeUnitCount:    result.CodeUnitCount,
-		wasLineTruncated: result.WasLineTruncated,
-		wasByteTruncated: result.WasByteTruncated,
-	}
-}
-
-func truncateAgentMemoryReason(result agentMemoryTruncation) string {
-	return truncateEntrypointReason(EntrypointTruncation{
-		LineCount:        result.lineCount,
-		CodeUnitCount:    result.codeUnitCount,
-		WasLineTruncated: result.wasLineTruncated,
-		WasByteTruncated: result.wasByteTruncated,
-	})
 }
 
 func truncateEntrypointReason(result EntrypointTruncation) string {

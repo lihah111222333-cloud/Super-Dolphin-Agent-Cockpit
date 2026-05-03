@@ -115,6 +115,17 @@ var standardSaveRules = []string{
 	"`MEMORY.md` index lines must stay one-per-line, pointer-only, roughly 150 characters or less, and must not inline full memory bodies.",
 }
 
+var standardAutoDetectSignalRules = []string{
+	"When you detect the following signals during conversation, save a memory proactively without the user saying \"remember\":",
+	"User corrects your behavior → save as feedback",
+	"User repeats the same instruction for the second time → save as feedback (high priority)",
+	"User makes an explicit technical or product decision → save as project",
+	"User expresses frustration about a recurring mistake (\"又来了\", \"上次也是\") → save as feedback (high priority)",
+	"User states a personal preference, habit, or context about themselves (\"我喜欢…\", \"我的习惯是…\", timezone, language, editor settings) → save as feedback",
+	"User states project environment facts, tech stack, or constraints (\"我们用的是 PostgreSQL\", \"CI 跑在 GitHub Actions\", \"必须兼容 v1\") → save as project",
+	"Do not ask for confirmation. The dedup filter will handle duplicates automatically.",
+}
+
 var standardAccessRules = []string{
 	"Read memory when it appears relevant or when the user refers to previous context.",
 	"If the user explicitly asks to recall, check, or remember, you must read memory.",
@@ -250,6 +261,7 @@ func (e *MemoryRuleEngine) BuildMemoryLines(opts MemoryRuleOptions) string {
 	sections = append(sections, renderSection(nextTitle("taxonomy"), engine.taxonomyLines()))
 	sections = append(sections, renderSection(nextTitle("exclusions"), standardExclusionRules))
 	sections = append(sections, engine.renderBehaviorSection(nextTitle("save rules / how to save memories"), append(cloneStrings(standardSaveRules), indexRule(opts.SkipIndex)), func(b MemoryTypeBehavior) []string { return b.Save }))
+	sections = append(sections, renderSection(nextTitle("auto-detect signals"), standardAutoDetectSignalRules))
 	sections = append(sections, engine.renderBehaviorSection(nextTitle("access rules / when to access memories"), standardAccessRules, func(b MemoryTypeBehavior) []string { return b.Access }))
 	sections = append(sections, engine.renderBehaviorSection(nextTitle("trust rules / before recommending from memory"), standardTrustRules, func(b MemoryTypeBehavior) []string { return b.Trust }))
 	sections = append(sections, renderSection(nextTitle("memory vs plan/tasks"), standardPlanRules))
@@ -280,6 +292,7 @@ func buildCombinedMemoryPrompt(engine *MemoryRuleEngine, opts MemoryRuleOptions)
 	sections = append(sections, renderSection(nextTitle("taxonomy"), combinedTaxonomyLines(engine)))
 	sections = append(sections, renderSection(nextTitle("exclusions"), combinedExclusionRules()))
 	sections = append(sections, renderSection(nextTitle("save rules / how to save memories"), combinedSaveRules(opts.SkipIndex, autoDir, teamDir)))
+	sections = append(sections, renderSection(nextTitle("auto-detect signals"), standardAutoDetectSignalRules))
 	sections = append(sections, renderSection(nextTitle("access rules / when to access memories"), combinedAccessRules()))
 	sections = append(sections, renderSection(nextTitle("trust rules / before recommending from memory"), standardTrustRules))
 	sections = append(sections, renderSection(nextTitle("memory vs plan/tasks"), standardPlanRules))

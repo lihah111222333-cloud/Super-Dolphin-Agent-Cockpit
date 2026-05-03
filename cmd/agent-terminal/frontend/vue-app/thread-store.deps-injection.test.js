@@ -174,8 +174,55 @@ describe('thread store dependency injection', () => {
     expect(state.archivedThreadAtById['thread-1']).toBeGreaterThan(0);
   });
 
+  it('waits for stale delete preference writes before refreshing sidebar', async () => {
+    const calls = [];
+    const state = buildRuntimeState({
+      threads: [{ id: 'thread-empty', name: 'thread-empty', state: 'archived' }],
+      archivedThreadAtById: { 'thread-empty': Date.now() },
+      pinnedThreadAtById: { 'thread-empty': Date.now() },
+    });
+    let resolvePersist;
+    const persistDone = new Promise((resolve) => { resolvePersist = resolve; });
+    const deps = {
+      callAPI: vi.fn(async (method) => {
+        if (method === 'thread/delete') return {};
+        throw new Error(`unexpected api method: ${method}`);
+      }),
+      logInfo: vi.fn(),
+      logWarn: vi.fn(),
+      syncRuntimeState: vi.fn(async () => {}),
+      syncThreadState: vi.fn(async () => {}),
+      refreshSidebarState: vi.fn(async () => { calls.push('refresh'); }),
+      persistPreferenceAndSync: vi.fn(() => persistDone.then(() => { calls.push('persist'); })),
+      withPreferenceScope: (payload) => payload,
+      getPreferenceScopeCwd: () => '/repo',
+      markLocalActiveThreadDirty: vi.fn(),
+      markLocalActiveCmdThreadDirty: vi.fn(),
+      setCompactResult: vi.fn(),
+      waitForCompactCompletion: vi.fn(),
+      cancelCompactWaiter: vi.fn(),
+      compactPendingByThread: {},
+      COMPACT_COMPLETION_TIMEOUT_MS: 1000,
+      getThreadInterruptible: vi.fn(() => false),
+      displayName: (item) => item?.name || item?.id || '',
+    };
+    const actions = createThreadActions(state, deps);
+
+    const deletePromise = actions.batchDeleteStaleThreads(['thread-empty']);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(deps.refreshSidebarState).not.toHaveBeenCalled();
+    resolvePersist();
+    await deletePromise;
+
+    expect(calls).toEqual(['persist', 'persist', 'refresh']);
+    expect(deps.persistPreferenceAndSync).toHaveBeenCalledTimes(2);
+    expect(deps.refreshSidebarState).toHaveBeenCalledTimes(1);
+  });
+
   it('shows unarchive partial warnings via injected action helpers', async () => {
     globalThis.window = { ...(globalThis.window || {}), alert: vi.fn() };
+
     const state = buildRuntimeState({ threads: [{ id: 'thread-1', name: 'Thread 1', state: 'idle' }], archivedThreadAtById: { 'thread-1': Date.now() } });
     const callAPI = vi.fn(async (method) => {
       if (method === 'thread/unarchive') return { partial: true, warnings: ['restore skipped'], restoreSkippedFiles: ['/tmp/a'] };

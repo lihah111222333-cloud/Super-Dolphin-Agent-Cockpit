@@ -41,13 +41,9 @@ func (p *MemoryEntrypointProvider) SectionName() string {
 }
 
 // Resolve implements contract.DynamicSectionProvider. It runs only at
-// session start and only for the parent agent — child agents resolve their
-// own per-agent memory via memagent.PromptProvider.
+// session start. Child agents use the prompt system for role-specific context.
 func (p *MemoryEntrypointProvider) Resolve(_ context.Context, input contract.SectionContext) (*string, error) {
 	if p == nil || input.Start == nil || input.Turn != nil {
-		return nil, nil
-	}
-	if _, ok := resolveChildAgentStart(input); ok {
 		return nil, nil
 	}
 	if !memoryProductEnabled(p.cfg) {

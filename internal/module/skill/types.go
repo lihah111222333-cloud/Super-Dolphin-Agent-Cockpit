@@ -27,4 +27,6 @@ type SkillInfo struct {
 	// ContentHash is the SHA-256 of the SKILL.md body (hex lowercase), used by the approval cache
 	// to key on (name, hash) and force re-approval when body mutates (TOCTOU defense).
 	ContentHash string `json:"content_hash,omitempty"`
+	// DisclosureTier is a non-realtime usage-frequency snapshot for UI display.
+	DisclosureTier string `json:"disclosure_tier,omitempty"`
 }

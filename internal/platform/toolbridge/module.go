@@ -8,10 +8,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/fbsd"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
@@ -103,14 +105,45 @@ func provideSkillReadSectionTool(in skillLibCfgIn) *SkillReadSectionTool {
 	return NewSkillReadSectionTool(in.Cfg.CacheDir, in.Tracker)
 }
 
+type hostToolRegistryIn struct {
+	fx.In
+
+	Tool   *SkillReadSectionTool      `optional:"true"`
+	Reader contract.AgentMemoryReader `optional:"true"`
+	Writer contract.AgentMemoryWriter `optional:"true"`
+}
+
 // provideHostToolRegistry builds the Codex-facing HostToolRegistry backed by
-// SkillReadSectionRegistry. skill_read_section is the only host-direct tool
-// post-P4 (legacy SkillHostTools deleted in Task 4).
-//
-// Returns nil when tool is nil (no skilllibrary.Config provided); the Handler
-// and ListToolsForCodex are both nil-safe on HostToolRegistry.
-func provideHostToolRegistry(tool *SkillReadSectionTool) HostToolRegistry {
-	return NewSkillReadSectionRegistry(tool)
+// host-direct tools. The registry is nil-safe: when a capability is absent or
+// disabled, the corresponding child registry is nil and the composite omits it.
+func provideHostToolRegistry(in hostToolRegistryIn) HostToolRegistry {
+	return NewCompositeHostToolRegistry(
+		NewSkillReadSectionRegistry(in.Tool),
+		NewMemoryReadHostToolRegistry(in.Reader, memoryReadHostToolOptions(in.Reader)),
+		NewMemoryWriteHostToolRegistry(in.Writer, memoryWriteHostToolOptions(in.Writer)),
+	)
+}
+
+func ProvideHostToolRegistryForTesting(in hostToolRegistryIn) HostToolRegistry {
+	return provideHostToolRegistry(in)
+}
+
+func NewHandlerForTesting(registry activePeerRegistry, hostTools HostToolRegistry) *Handler {
+	return &Handler{registry: registry, hostTools: hostTools, logger: pkglogger.Get()}
+}
+
+func memoryReadHostToolOptions(reader contract.AgentMemoryReader) MemoryReadHostToolOptions {
+	if reader == nil {
+		return MemoryReadHostToolOptions{}
+	}
+	return MemoryReadHostToolOptions{Enabled: reader.MemoryReadEnabled(), ToolsEnabled: reader.MemoryReadToolsEnabled()}
+}
+
+func memoryWriteHostToolOptions(writer contract.AgentMemoryWriter) MemoryWriteHostToolOptions {
+	if writer == nil {
+		return MemoryWriteHostToolOptions{}
+	}
+	return MemoryWriteHostToolOptions{Enabled: writer.MemoryWriteEnabled(), ToolsEnabled: writer.MemoryWriteToolsEnabled()}
 }
 
 // threadConfigOverrideAdapter wraps the production threadstore.Store so

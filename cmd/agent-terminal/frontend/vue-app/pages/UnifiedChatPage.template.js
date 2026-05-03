@@ -40,6 +40,7 @@ export const template = `
           @select-thread="selectThread"
           @toggle-thread-pin="toggleThreadPin"
           @toggle-thread-archive="toggleThreadArchive"
+          @delete-stale-threads="deleteStaleThreads"
           @begin-inline-rename="beginInlineRename"
           @submit-inline-rename="submitInlineRename"
           @handle-inline-rename-enter="handleInlineRenameEnter"

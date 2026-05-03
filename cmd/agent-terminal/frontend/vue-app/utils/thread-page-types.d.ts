@@ -55,6 +55,8 @@ export type VisibleChatThreadCard = {
   agentTitle: string;
   promptKey: string;
   pendingLaunch: boolean;
+  isStale: boolean;
+  staleReason: '' | 'empty' | 'expired';
 };
 
 export type BuildVisibleChatThreadCardsOptions = {

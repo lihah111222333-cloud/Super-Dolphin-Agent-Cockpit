@@ -32,21 +32,7 @@ func sectionInputCacheKey(section PromptSection, input SectionContext) (string, 
 }
 
 func inputScopedCacheDependency(section PromptSection, input SectionContext) any {
-	dependency := inputScopedSectionDependency(section, input)
-	if section.Name != DynamicSectionAgentMemory {
-		return dependency
-	}
-	scope := ""
-	if input.Start != nil && input.Turn == nil {
-		scope = strings.ToLower(strings.TrimSpace(input.Start.AgentMemoryScope))
-	}
-	return struct {
-		Dependency       any    `json:"dependency"`
-		AgentMemoryScope string `json:"agentMemoryScope,omitempty"`
-	}{
-		Dependency:       dependency,
-		AgentMemoryScope: scope,
-	}
+	return inputScopedSectionDependency(section, input)
 }
 
 type sectionCache struct {

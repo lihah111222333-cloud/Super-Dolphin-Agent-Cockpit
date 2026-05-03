@@ -11,10 +11,15 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 	"github.com/gorilla/websocket"
+	"go.uber.org/fx"
 )
 
 func TestCodexStartSession_InjectsDynamicTools_E2E(t *testing.T) {
@@ -69,6 +74,136 @@ func TestCodexStartSession_InjectsDynamicTools_E2E(t *testing.T) {
 		t.Fatalf("developerInstructions = %#v, want developer prompt", params["developerInstructions"])
 	}
 }
+
+func TestCodexStartSession_InjectsHostMemoryReadAndFiltersPeerMemoryRead_E2E(t *testing.T) {
+	recorder := &codexRPCRecorder{}
+	t.Setenv("CODEX_APP_SERVER_URL", startCodexRPCServer(t, recorder))
+
+	handler := newCodexMemoryReadToolBridgeHandler(t)
+	factory := codexapp.NewDriverFactory(nil, nil, nil, nil, nil, nil, nil, nil)
+	factory.SetListTools(handler.ListToolsForCodex)
+
+	session, err := factory.Create().StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-memory-read", CWD: "/tmp/codex-e2e/work"})
+	if err != nil {
+		t.Fatalf("StartSession() error = %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close(context.Background()) })
+
+	params := recorder.threadStartParamsSnapshot()
+	assertDynamicToolNames(t, params, []string{toolbridge.ToolNameMemoryRead, "orchestration_launch_agent", "lsp_hover"})
+	tools := dynamicToolsFromParams(t, params)
+	if countDynamicToolName(tools, toolbridge.ToolNameMemoryRead) != 1 {
+		t.Fatalf("dynamicTools = %#v, want exactly one memory_read", tools)
+	}
+	memoryRead := dynamicToolByName(t, tools, toolbridge.ToolNameMemoryRead)
+	if memoryRead["description"] == "peer memory read must be filtered" {
+		t.Fatalf("memory_read came from peer list, want host-direct schema: %#v", memoryRead)
+	}
+	inputSchema, ok := memoryRead["inputSchema"].(map[string]any)
+	if !ok {
+		t.Fatalf("memory_read inputSchema = %#v, want object", memoryRead["inputSchema"])
+	}
+	properties, ok := inputSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("memory_read schema properties = %#v, want object", inputSchema["properties"])
+	}
+	for _, key := range []string{"name", "path", "scope", "type"} {
+		if _, ok := properties[key]; !ok {
+			t.Fatalf("memory_read schema properties missing %q: %#v", key, properties)
+		}
+	}
+}
+
+func newCodexMemoryReadToolBridgeHandler(t *testing.T) *toolbridge.Handler {
+	t.Helper()
+	var handler *toolbridge.Handler
+	app := fx.New(
+		fx.NopLogger,
+		fx.Supply(newCodexToolBridgeRegistry()),
+		fx.Provide(func(reg codexToolBridgeRegistry) *toolbridge.Handler {
+			return toolbridge.NewHandlerForTesting(reg, toolbridge.NewCompositeHostToolRegistry(
+				toolbridge.NewMemoryReadHostToolRegistry(
+					&codexMemoryReaderStub{enabled: true, toolsEnabled: true},
+					toolbridge.MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: true},
+				),
+			))
+		}),
+		fx.Populate(&handler),
+	)
+	if err := app.Err(); err != nil {
+		t.Fatalf("fx.New(toolbridge handler) error = %v", err)
+	}
+	t.Cleanup(func() { _ = app.Stop(context.Background()) })
+	return handler
+}
+
+type codexToolBridgeRegistry struct {
+	peers map[string][]*mcpcontrol.ToolInstance
+}
+
+func (r codexToolBridgeRegistry) FindActiveByKind(clientKind string) []*mcpcontrol.ToolInstance {
+	return r.peers[clientKind]
+}
+
+func newCodexToolBridgeRegistry() codexToolBridgeRegistry {
+	return codexToolBridgeRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+		mcpdto.ClientKindOrch: {
+			codexToolInstance(mcpdto.ClientKindOrch, codexListToolsPeer([]mcpdto.MCPTool{
+				{Name: toolbridge.ToolNameMemoryRead, Description: "peer memory read must be filtered", InputSchema: json.RawMessage(`{"type":"object","properties":{"peer":{"type":"boolean"}}}`)},
+				{Name: "orchestration_launch_agent", Description: "peer orch", InputSchema: json.RawMessage(`{"type":"object"}`)},
+			})),
+		},
+		mcpdto.ClientKindLSP: {
+			codexToolInstance(mcpdto.ClientKindLSP, codexListToolsPeer([]mcpdto.MCPTool{
+				{Name: "lsp_hover", Description: "peer lsp", InputSchema: json.RawMessage(`{"type":"object"}`)},
+			})),
+		},
+	}}
+}
+
+func codexToolInstance(clientKind string, peer *codexToolBridgePeer) *mcpcontrol.ToolInstance {
+	return &mcpcontrol.ToolInstance{ClientKind: clientKind, Status: mcpdto.StatusActive, Peer: peer}
+}
+
+type codexMemoryReaderStub struct {
+	enabled      bool
+	toolsEnabled bool
+}
+
+func (s *codexMemoryReaderStub) ReadAgentMemory(_ context.Context, req contract.MemoryReadRequest) (contract.MemoryReadResult, error) {
+	return contract.MemoryReadResult{Entry: &contract.MemoryEntry{Name: req.Name, Type: req.Type, Content: "memory content"}, SourcePath: "feedback/read.md", IndexHit: true}, nil
+}
+
+func (s *codexMemoryReaderStub) MemoryReadEnabled() bool {
+	return s == nil || s.enabled
+}
+
+func (s *codexMemoryReaderStub) MemoryReadToolsEnabled() bool {
+	return s == nil || s.toolsEnabled
+}
+
+func codexListToolsPeer(tools []mcpdto.MCPTool) *codexToolBridgePeer {
+	return &codexToolBridgePeer{tools: tools}
+}
+
+type codexToolBridgePeer struct {
+	tools []mcpdto.MCPTool
+}
+
+func (p *codexToolBridgePeer) Notify(context.Context, string, any) error { return nil }
+
+func (p *codexToolBridgePeer) Callback(_ context.Context, method string, _ any, result any) error {
+	if method != "tools/list" {
+		return nil
+	}
+	raw, err := json.Marshal(map[string]any{"tools": p.tools})
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(raw, result)
+}
+
+func (p *codexToolBridgePeer) Close() error { return nil }
 
 func TestCodexStartSession_PreservesUserConfigFields_E2E(t *testing.T) {
 	recorder := &codexRPCRecorder{}
@@ -270,6 +405,41 @@ func assertDynamicToolNames(t *testing.T, params map[string]any, want []string) 
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("dynamic tool names = %#v, want %#v", got, want)
 	}
+}
+
+func dynamicToolsFromParams(t *testing.T, params map[string]any) []any {
+	t.Helper()
+	rawTools, ok := params["dynamicTools"].([]any)
+	if !ok {
+		t.Fatalf("dynamicTools = %#v, want array", params["dynamicTools"])
+	}
+	return rawTools
+}
+
+func dynamicToolByName(t *testing.T, tools []any, name string) map[string]any {
+	t.Helper()
+	for _, raw := range tools {
+		tool, ok := raw.(map[string]any)
+		if !ok {
+			t.Fatalf("dynamicTools item = %#v, want object", raw)
+		}
+		if tool["name"] == name {
+			return tool
+		}
+	}
+	t.Fatalf("dynamicTools = %#v, missing %q", tools, name)
+	return nil
+}
+
+func countDynamicToolName(tools []any, name string) int {
+	count := 0
+	for _, raw := range tools {
+		tool, _ := raw.(map[string]any)
+		if tool["name"] == name {
+			count++
+		}
+	}
+	return count
 }
 
 func assertNoLegacyMCPKeys(t *testing.T, params map[string]any) {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 // 默认 tracker 调参（spec 未明示，留实现层默认）。
@@ -202,6 +204,32 @@ func cloneStats(in Stats) Stats {
 			c.SectionCalls[kk] = vv
 		}
 		out[k] = &c
+	}
+	return out
+}
+
+func (t *Tracker) DisclosureSnapshot() contract.SkillDisclosureSnapshot {
+	cfg := EnvTierConfig()
+	wsStats, glStats := t.Snapshot()
+	return contract.SkillDisclosureSnapshot{
+		Workspace: disclosureStats(wsStats),
+		Global:    disclosureStats(glStats),
+		Config: contract.SkillDisclosureConfig{
+			HalfLife:       cfg.HalfLife,
+			FrozenDuration: cfg.FrozenDuration,
+			WSMinCalls:     cfg.WSMinCalls,
+			WSWeight:       cfg.WSWeight,
+		},
+	}
+}
+
+func disclosureStats(stats Stats) contract.SkillDisclosureStats {
+	out := make(contract.SkillDisclosureStats, len(stats))
+	for name, stat := range stats {
+		if stat == nil {
+			continue
+		}
+		out[name] = &contract.SkillDisclosureSkillStats{Calls: append([]time.Time(nil), stat.Calls...)}
 	}
 	return out
 }

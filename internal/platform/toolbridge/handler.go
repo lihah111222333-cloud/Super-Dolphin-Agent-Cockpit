@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -80,6 +81,12 @@ func (h *Handler) HandleToolCall(ctx context.Context, msg codexapp.RawMessage) (
 }
 
 func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*ToolCallResult, error) {
+	switch strings.TrimSpace(req.Name) {
+	case ToolNameMemoryRead:
+		return h.routeMemoryReadToolCall(ctx, req)
+	case ToolNameMemoryWrite:
+		return h.routeMemoryWriteToolCall(ctx, req)
+	}
 	if h == nil || h.registry == nil {
 		return nil, ErrNoPeerAvailable
 	}
@@ -95,6 +102,20 @@ func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*Tool
 		return nil, err
 	}
 	return h.callPeerTool(ctx, peer.Peer, req)
+}
+
+func (h *Handler) routeMemoryReadToolCall(ctx context.Context, req ToolCallRequest) (*ToolCallResult, error) {
+	if h != nil && h.hostTools != nil && h.hostTools.HasTool(req.Name) {
+		return h.callHostTool(ctx, req)
+	}
+	return hostToolErrorResult(req, contract.NewAgentMemoryError("reader_unavailable", fmt.Errorf("memory_read reader is not configured"))), nil
+}
+
+func (h *Handler) routeMemoryWriteToolCall(ctx context.Context, req ToolCallRequest) (*ToolCallResult, error) {
+	if h != nil && h.hostTools != nil && h.hostTools.HasTool(req.Name) {
+		return h.callHostTool(ctx, req)
+	}
+	return hostToolErrorResult(req, contract.NewAgentMemoryError("writer_unavailable", fmt.Errorf("memory_write writer is not configured"))), nil
 }
 
 func (h *Handler) routePrePeerToolCall(ctx context.Context, req ToolCallRequest) (*ToolCallResult, bool, error) {

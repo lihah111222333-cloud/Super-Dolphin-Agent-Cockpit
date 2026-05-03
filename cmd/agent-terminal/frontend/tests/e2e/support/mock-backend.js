@@ -120,7 +120,6 @@ function browserInstaller({
       overview: {},
       private: { entries: [] },
       team: { entries: [] },
-      agentScopes: [],
     },
     threads: [],
     statuses: clone(asObject(source.statuses)) || {},
@@ -225,6 +224,31 @@ function browserInstaller({
     return clone(next);
   }
 
+  function mergeMemoryEntries(params) {
+    const left = findMemoryEntry(params.targetA, params.pathA);
+    const right = findMemoryEntry(params.targetB, params.pathB);
+    if (!left.entry) throw new Error(`memory entry not found: ${params.pathA || ''}`);
+    if (!right.entry) throw new Error(`memory entry not found: ${params.pathB || ''}`);
+    const mergedContent = [left.entry.content, right.entry.content]
+      .map((item) => (item || '').toString().trim())
+      .filter(Boolean)
+      .join('\n\n');
+    const next = {
+      ...left.entry,
+      description: (left.entry.description || right.entry.description || '').toString(),
+      content: mergedContent,
+      preview: memoryPreview(mergedContent),
+      updatedAt: isoClock(),
+    };
+    left.section.entries[left.index] = next;
+    right.section.entries = right.section.entries.filter((_, idx) => idx !== right.index);
+    const groups = asArray(state.memoryCenter?.overview?.health?.similarGroups);
+    if (state.memoryCenter?.overview?.health) {
+      state.memoryCenter.overview.health.similarGroups = groups.filter((group) => !((group?.pathA === params.pathA && group?.pathB === params.pathB) || (group?.pathA === params.pathB && group?.pathB === params.pathA)));
+    }
+    return clone(next);
+  }
+
   function deleteMemoryEntry(params) {
     const section = ensureMemorySection(params.target);
     const normalizedPath = (params.path || '').toString().trim();
@@ -233,58 +257,6 @@ function browserInstaller({
       section.notice = section.notice || '当前目录下还没有可读的记忆条目。';
     }
     return { deleted: true };
-  }
-
-  function ensureAgentScope(scope) {
-    const scopeKey = (scope || 'project').toString().trim() || 'project';
-    const scopes = asArray(state.memoryCenter.agentScopes);
-    let item = scopes.find((entry) => (entry?.scope || '').toString().trim() === scopeKey);
-    if (!item) {
-      item = { scope: scopeKey, rootPath: '', notice: '', entries: [] };
-      scopes.push(item);
-      state.memoryCenter.agentScopes = scopes;
-    }
-    item.entries = clone(asArray(item.entries)) || [];
-    return item;
-  }
-
-  function getAgentEntry(scope, agentType) {
-    const scopeItem = ensureAgentScope(scope);
-    const normalizedAgentType = (agentType || '').toString().trim();
-    const index = scopeItem.entries.findIndex((item) => (item?.agentType || '').toString().trim() === normalizedAgentType);
-    return { scopeItem, index, entry: index >= 0 ? scopeItem.entries[index] : null };
-  }
-
-  function deleteAgentEntry(params) {
-    const agentType = (params.agentType || '').toString().trim();
-    const scope = (params.scope || 'project').toString().trim() || 'project';
-    if (!agentType) throw new Error('agentType is required');
-    const { scopeItem, index } = getAgentEntry(scope, agentType);
-    if (index >= 0) {
-      scopeItem.entries.splice(index, 1);
-    }
-    return { deleted: index >= 0 };
-  }
-
-  function saveAgentEntry(params) {
-    const normalizedAgentType = (params.agentType || '').toString().trim();
-    const content = (params.content || '').toString();
-    const scope = (params.scope || 'project').toString().trim() || 'project';
-    const { scopeItem, index } = getAgentEntry(scope, normalizedAgentType);
-    const next = {
-      agentType: normalizedAgentType,
-      path: `${normalizedAgentType}/MEMORY.md`,
-      content,
-      preview: memoryPreview(content),
-      updatedAt: isoClock(),
-    };
-    if (index >= 0) {
-      scopeItem.entries[index] = { ...scopeItem.entries[index], ...next };
-    } else {
-      scopeItem.entries.push(next);
-    }
-    scopeItem.notice = scopeItem.entries.length === 0 ? scopeItem.notice : '';
-    return clone(next);
   }
 
   function findSharedFile(path) {
@@ -642,32 +614,8 @@ function browserInstaller({
           return upsertMemoryEntry(params);
         case 'ui/memory/entry/delete':
           return deleteMemoryEntry(params);
-        case 'ui/memory/agent/get': {
-          const { entry } = getAgentEntry(params.scope, params.agentType);
-          if (!entry) {
-            return {
-              scope: (params.scope || 'project').toString(),
-              agentType: (params.agentType || '').toString(),
-              path: `${(params.agentType || '').toString().trim()}/MEMORY.md`,
-              content: '',
-              updatedAt: '',
-            };
-          }
-          return clone({
-            scope: (params.scope || 'project').toString(),
-            agentType: entry.agentType,
-            path: entry.path,
-            content: entry.content,
-            updatedAt: entry.updatedAt,
-          });
-        }
-        case 'ui/memory/agent/save':
-          return clone({
-            scope: (params.scope || 'project').toString(),
-            ...saveAgentEntry(params),
-          });
-        case 'ui/memory/agent/delete':
-          return clone(deleteAgentEntry(params));
+        case 'ui/memory/entry/merge':
+          return mergeMemoryEntries(params);
         case 'ui/memory/shared-file/get': {
           const file = findSharedFile(params.path);
           if (!file) throw new Error(`shared file not found: ${params.path || ''}`);
@@ -814,6 +762,15 @@ function browserInstaller({
           state.archivedThreadAtById = next;
           writePreference('threadArchives.chat', next);
           return { ok: true, archiveModified: false };
+        }
+        case 'thread/delete': {
+          const threadId = (params.threadId || '').toString();
+          const nextArchive = { ...(asObject(state.preferences['threadArchives.chat'] || state.archivedThreadAtById)) };
+          delete nextArchive[threadId];
+          state.archivedThreadAtById = nextArchive;
+          writePreference('threadArchives.chat', nextArchive);
+          state.threads = (state.threads || []).filter((t) => t.id !== threadId);
+          return { ok: true };
         }
         case 'ui/selectProjectDir':
           return { path: state.uiSelectProjectDirResult };

@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "checkJs": false,
+    "allowJs": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@vue": ["./lib/vue.esm-browser.prod.js"],
+      "@lib/*": ["./lib/*"]
+    }
+  },
+  "include": ["vue-app/**/*.js", "lib/**/*.js"],
+  "exclude": ["node_modules", "dist", ".vite-cache"]
+}

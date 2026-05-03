@@ -23,7 +23,8 @@ func TestStartParamsAcceptV2WireFields(t *testing.T) {
 		"sandbox":{"type":"danger-full-access"},
 		"summary":"concise",
 		"effort":"high",
-		"personality":"pragmatic"
+		"personality":"pragmatic",
+		"language":"zh"
 	}`)
 	if err := json.Unmarshal(input, &params); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
@@ -45,6 +46,13 @@ func TestStartParamsAcceptV2WireFields(t *testing.T) {
 	}
 	if params.Summary != "concise" || params.Effort != "high" || params.Personality != "pragmatic" {
 		t.Fatalf("startParams config = %#v", params)
+	}
+	if params.Language != "zh" {
+		t.Fatalf("startParams language = %q, want zh", params.Language)
+	}
+	request := buildStartRequestFromParams(params)
+	if request.Language != "zh" {
+		t.Fatalf("StartRequest.Language = %q, want zh", request.Language)
 	}
 }
 

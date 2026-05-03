@@ -41,7 +41,6 @@ func SectionInvalidatorConcurrent(t *testing.T, factory func() contract.SectionI
 		contract.DynamicSectionMemory,
 		contract.DynamicSectionMemoryEntrypoint,
 		contract.DynamicSectionMemoryContext,
-		contract.DynamicSectionAgentMemory,
 	}
 
 	var wg sync.WaitGroup

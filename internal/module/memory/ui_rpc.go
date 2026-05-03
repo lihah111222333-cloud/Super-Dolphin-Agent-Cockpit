@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -14,7 +12,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2/handler"
 
-	parse "github.com/anthropic-ai/super-agent-v3/internal/module/memory/parse"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/dedup"
 	memshared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 )
 
@@ -25,22 +23,22 @@ type uiMemoryGetParams struct {
 }
 
 type UIMemorySnapshot struct {
-	Overview    UIMemoryOverview     `json:"overview"`
-	Private     UIMemoryScopeSection `json:"private"`
-	Team        UIMemoryScopeSection `json:"team"`
-	AgentScopes []UIAgentMemoryScope `json:"agentScopes"`
+	Overview UIMemoryOverview     `json:"overview"`
+	Private  UIMemoryScopeSection `json:"private"`
+	Team     UIMemoryScopeSection `json:"team"`
 }
 
 type UIMemoryOverview struct {
-	Enabled             bool   `json:"enabled"`
-	ToolsEnabled        bool   `json:"toolsEnabled"`
-	AutoDreamEnabled    bool   `json:"autoDreamEnabled"`
-	AutoDreamIntent     *bool  `json:"autoDreamIntent,omitempty"`
-	RootDir             string `json:"rootDir,omitempty"`
-	ProjectRoot         string `json:"projectRoot,omitempty"`
-	PrivateRoot         string `json:"privateRoot,omitempty"`
-	AutoMemPathOverride string `json:"autoMemPathOverride,omitempty"`
-	TeamFeatureEnabled  bool   `json:"teamFeatureEnabled"`
+	Enabled             bool            `json:"enabled"`
+	ToolsEnabled        bool            `json:"toolsEnabled"`
+	AutoDreamEnabled    bool            `json:"autoDreamEnabled"`
+	AutoDreamIntent     *bool           `json:"autoDreamIntent,omitempty"`
+	RootDir             string          `json:"rootDir,omitempty"`
+	ProjectRoot         string          `json:"projectRoot,omitempty"`
+	PrivateRoot         string          `json:"privateRoot,omitempty"`
+	AutoMemPathOverride string          `json:"autoMemPathOverride,omitempty"`
+	TeamFeatureEnabled  bool            `json:"teamFeatureEnabled"`
+	Health              *UIMemoryHealth `json:"health,omitempty"`
 }
 
 type UIMemoryScopeSection struct {
@@ -62,19 +60,21 @@ type UIMemoryEntry struct {
 	Source string `json:"source,omitempty"`
 }
 
-type UIAgentMemoryScope struct {
-	Scope    string               `json:"scope"`
-	RootPath string               `json:"rootPath,omitempty"`
-	Notice   string               `json:"notice,omitempty"`
-	Entries  []UIAgentMemoryEntry `json:"entries"`
+type UIMemoryHealth struct {
+	PreferenceCount int              `json:"preferenceCount"`
+	ProjectCount    int              `json:"projectCount"`
+	MaxPerCategory  int              `json:"maxPerCategory"`
+	SimilarGroups   []UISimilarGroup `json:"similarGroups,omitempty"`
 }
 
-type UIAgentMemoryEntry struct {
-	AgentType string    `json:"agentType"`
-	Path      string    `json:"path,omitempty"`
-	UpdatedAt time.Time `json:"updatedAt,omitempty"`
-	Preview   string    `json:"preview,omitempty"`
-	Empty     bool      `json:"empty,omitempty"`
+type UISimilarGroup struct {
+	NameA   string  `json:"nameA"`
+	NameB   string  `json:"nameB"`
+	PathA   string  `json:"pathA"`
+	PathB   string  `json:"pathB"`
+	TargetA string  `json:"targetA"`
+	TargetB string  `json:"targetB"`
+	Score   float64 `json:"score"`
 }
 
 func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger, cwd string) (UIMemorySnapshot, error) {
@@ -106,7 +106,9 @@ func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger
 		teamSection = loadUIMemoryScope(logger, "Team durable memory", teamRoot, err, false)
 	}
 
-	agentScopes := loadUIAgentMemoryScopes(logger, cfg, projectRoot)
+	health := computeUIMemoryHealth(privateSection.Entries, teamSection.Entries)
+	populateUIMemoryHealthSimilarGroups(health, privateRoot, privateSection.Entries, teamSection.RootPath, teamSection.Entries)
+
 	return UIMemorySnapshot{
 		Overview: UIMemoryOverview{
 			Enabled:             cfg.Enabled,
@@ -118,11 +120,80 @@ func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger
 			PrivateRoot:         strings.TrimSpace(privateRoot),
 			AutoMemPathOverride: strings.TrimSpace(cfg.AutoMemPathOverride),
 			TeamFeatureEnabled:  cfg.Features.TeamMemory,
+			Health:              health,
 		},
-		Private:     privateSection,
-		Team:        teamSection,
-		AgentScopes: agentScopes,
+		Private: privateSection,
+		Team:    teamSection,
 	}, nil
+}
+
+func computeUIMemoryHealth(privateEntries, teamEntries []UIMemoryEntry) *UIMemoryHealth {
+	var prefCount, projCount int
+	for _, e := range privateEntries {
+		countByCategory(e.Type, &prefCount, &projCount)
+	}
+	for _, e := range teamEntries {
+		countByCategory(e.Type, &prefCount, &projCount)
+	}
+	return &UIMemoryHealth{
+		PreferenceCount: prefCount,
+		ProjectCount:    projCount,
+		MaxPerCategory:  dedup.MaxEntriesPerType,
+	}
+}
+
+func populateUIMemoryHealthSimilarGroups(health *UIMemoryHealth, privateRoot string, privateEntries []UIMemoryEntry, teamRoot string, teamEntries []UIMemoryEntry) {
+	if health == nil {
+		return
+	}
+	pairs := dedup.FindSimilarPairs(buildUIMemoryHealthSnapshots(privateRoot, privateEntries, "private", teamRoot, teamEntries, "team"))
+	if len(pairs) == 0 {
+		return
+	}
+	groups := make([]UISimilarGroup, 0, len(pairs))
+	for _, p := range pairs {
+		groups = append(groups, UISimilarGroup{
+			NameA: p.NameA, NameB: p.NameB,
+			PathA: p.PathA, PathB: p.PathB,
+			TargetA: p.ScopeA, TargetB: p.ScopeB,
+			Score: p.Score,
+		})
+	}
+	health.SimilarGroups = groups
+}
+
+func buildUIMemoryHealthSnapshots(privateRoot string, privateEntries []UIMemoryEntry, privateScope string, teamRoot string, teamEntries []UIMemoryEntry, teamScope string) []dedup.EntrySnapshot {
+	snapshots := make([]dedup.EntrySnapshot, 0, len(privateEntries)+len(teamEntries))
+	snapshots = append(snapshots, readUIMemoryHealthSnapshots(privateRoot, privateEntries, privateScope)...)
+	snapshots = append(snapshots, readUIMemoryHealthSnapshots(teamRoot, teamEntries, teamScope)...)
+	return snapshots
+}
+
+func readUIMemoryHealthSnapshots(root string, entries []UIMemoryEntry, scope string) []dedup.EntrySnapshot {
+	if strings.TrimSpace(root) == "" || len(entries) == 0 {
+		return nil
+	}
+	snapshots := make([]dedup.EntrySnapshot, 0, len(entries))
+	for _, entry := range entries {
+		detail, _, err := readUIMemoryEntryByPath(root, scope, entry.Path)
+		if err != nil {
+			continue
+		}
+		snapshots = append(snapshots, dedup.EntrySnapshot{
+			Name: strings.TrimSpace(detail.Frontmatter.Name), Type: strings.TrimSpace(string(detail.Type())), Content: detail.Content,
+			Path: entry.Path, Scope: scope,
+		})
+	}
+	return snapshots
+}
+
+func countByCategory(entryType string, pref, proj *int) {
+	switch entryType {
+	case "user", "feedback":
+		*pref++
+	case "project", "reference":
+		*proj++
+	}
 }
 
 func loadUIMemoryScope(logger *slog.Logger, label, root string, rootErr error, filterPrivateTeam bool) UIMemoryScopeSection {
@@ -174,106 +245,15 @@ func loadUIMemoryScope(logger *slog.Logger, label, root string, rootErr error, f
 	return section
 }
 
-func loadUIAgentMemoryScopes(logger *slog.Logger, cfg Config, projectRoot string) []UIAgentMemoryScope {
-	effective := cfg
-	if strings.TrimSpace(projectRoot) != "" {
-		effective.ProjectRoot = strings.TrimSpace(projectRoot)
-	}
-	manager := NewAgentMemoryManager(&effective)
-	scopes := []MemoryScope{MemoryScopeProject, MemoryScopeUser, MemoryScopeLocal}
-	items := make([]UIAgentMemoryScope, 0, len(scopes))
-	for _, scope := range scopes {
-		root, err := manager.GetAgentMemoryScopeRoot(scope)
-		item := UIAgentMemoryScope{
-			Scope:   string(scope),
-			Entries: []UIAgentMemoryEntry{},
-		}
-		if err != nil {
-			// Manager scope-root resolution may surface a *os.PathError
-			// with the on-disk template; redact before placing in Notice.
-			item.Notice = redactRPCError(logger, "agent_memory_scope_root",
-				errAgentMemoryScanFailed, err, "scope", string(scope)).Error()
-			items = append(items, item)
-			continue
-		}
-		item.RootPath = root
-		entries, readErr := scanUIAgentScope(logger, scope, root)
-		if readErr != nil {
-			item.Notice = readErr.Error()
-		} else {
-			item.Entries = entries
-			if len(entries) == 0 {
-				item.Notice = "当前 scope 下还没有可读的 MEMORY.md。"
-			}
-		}
-		items = append(items, item)
-	}
-	return items
-}
-
-func scanUIAgentScope(logger *slog.Logger, scope MemoryScope, root string) ([]UIAgentMemoryEntry, error) {
-	root = strings.TrimSpace(root)
-	if root == "" {
-		return nil, nil
-	}
-	dirs, err := os.ReadDir(root)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		// Phase 2.1.AB.3: os.ReadDir returns *os.PathError whose text
-		// embeds the absolute scope-root path. Redact before bubbling
-		// up so the snapshot Notice (rendered verbatim by the UI) does
-		// not leak the on-disk agent-memory layout.
-		return nil, redactRPCError(logger, "agent_memory_scope_scan",
-			errAgentMemoryScanFailed, err, "scope", string(scope))
-	}
-	items := make([]UIAgentMemoryEntry, 0, len(dirs))
-	for _, dir := range dirs {
-		if !dir.IsDir() {
-			continue
-		}
-		entryPath := filepath.Join(root, dir.Name(), memoryIndexFileName)
-		// SafeReadEntrypoint folds Stat + symlink-resolved containment +
-		// ReadFile into one defense-in-depth call. A child dir that is a
-		// symlink pointing outside the agent-memory root is rejected here
-		// rather than producing a UI entry from an attacker-chosen file.
-		raw, info, err := memshared.SafeReadEntrypoint(root, entryPath)
-		switch {
-		case err == nil:
-			// happy path; fall through to the append below
-		case isUserVisibleNotFound(err):
-			continue
-		case isContainmentRejection(err):
-			// Phase 2.1.AB.6 P0 #1: do not silently swallow a containment
-			// rejection on the scan path. The Warn-level redactRPCError
-			// preserves the attack signal in operator logs while still
-			// presenting an empty entry to the UI.
-			redactRPCError(logger, "agent_memory_scope_scan_containment",
-				errAgentMemoryScanFailed, err,
-				"scope", string(scope), "agent_type", dir.Name())
-			continue
-		default:
-			return nil, redactRPCError(logger, "agent_memory_scope_scan",
-				errAgentMemoryScanFailed, err,
-				"scope", string(scope), "agent_type", dir.Name())
-		}
-		content := strings.TrimSpace(parse.StripUTF8BOM(string(raw)))
-		items = append(items, UIAgentMemoryEntry{
-			AgentType: dir.Name(),
-			Path:      filepath.ToSlash(filepath.Join(dir.Name(), memoryIndexFileName)),
-			UpdatedAt: info.ModTime(),
-			Preview:   uiPreviewText(content),
-			Empty:     strings.TrimSpace(content) == "",
-		})
-	}
-	sort.Slice(items, func(i, j int) bool {
-		return strings.ToLower(items[i].AgentType) < strings.ToLower(items[j].AgentType)
-	})
-	return items, nil
-}
-
 func memoryEntryDisplayPath(root, path string) string {
+	root = strings.TrimSpace(root)
+	path = strings.TrimSpace(path)
+	if resolvedRoot, err := resolveExistingMemoryPath(root); err == nil {
+		root = resolvedRoot
+	}
+	if resolvedPath, err := resolveExistingMemoryPath(path); err == nil {
+		path = resolvedPath
+	}
 	rel, err := filepath.Rel(root, path)
 	if err != nil {
 		return filepath.ToSlash(path)
@@ -350,15 +330,8 @@ func isContainmentRejection(err error) bool {
 //
 // Sentinels are grouped per user-visible action family (read / scan /
 // save / delete) rather than per internal RPC method, so the list
-// stays short as more handlers join. Agent and durable memory have
-// distinct sentinels because the user can disambiguate which surface
-// failed without leaking which internal helper produced the error.
+// stays short as more handlers join.
 var (
-	errAgentMemoryReadFailed   = errors.New("agent memory entry read failed")
-	errAgentMemoryScanFailed   = errors.New("agent memory scope scan failed")
-	errAgentMemorySaveFailed   = errors.New("agent memory entry save failed")
-	errAgentMemoryDeleteFailed = errors.New("agent memory entry delete failed")
-
 	errDurableMemoryReadFailed   = errors.New("durable memory entry read failed")
 	errDurableMemoryScanFailed   = errors.New("durable memory scope scan failed")
 	errDurableMemorySaveFailed   = errors.New("durable memory entry save failed")

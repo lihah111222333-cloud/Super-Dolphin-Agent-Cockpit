@@ -100,6 +100,10 @@ func (h *Handler) ListToolsForCodex(ctx context.Context) ([]codexprotocol.Dynami
 }
 
 func (h *Handler) appendDynamicToolsWithShadowWarning(dst []dto.MCPTool, seen map[string]string, source string, tools []dto.MCPTool) []dto.MCPTool {
+	return h.appendMCPToolsWithShadowWarning(dst, seen, source, tools)
+}
+
+func (h *Handler) appendMCPToolsWithShadowWarning(dst []dto.MCPTool, seen map[string]string, source string, tools []dto.MCPTool) []dto.MCPTool {
 	if seen == nil {
 		seen = make(map[string]string, len(tools))
 	}
@@ -116,10 +120,26 @@ func (h *Handler) appendDynamicToolsWithShadowWarning(dst []dto.MCPTool, seen ma
 			)
 			continue
 		}
+		if isReservedHostOnlyToolName(name) && source != "host" {
+			h.warn("toolbridge peer tool blocked by host-only reservation",
+				"tool", name,
+				"source", source,
+			)
+			continue
+		}
 		seen[name] = source
 		dst = append(dst, tool)
 	}
 	return dst
+}
+
+func isReservedHostOnlyToolName(name string) bool {
+	switch strings.TrimSpace(name) {
+	case ToolNameMemoryRead, ToolNameMemoryWrite:
+		return true
+	default:
+		return false
+	}
 }
 
 // dedupToolsByName 按 name 去重，保留首次出现的入口（所以调用时要把 host-direct
@@ -213,6 +233,9 @@ func hostToolErrorResult(req ToolCallRequest, err error) *ToolCallResult {
 		"kind":  "host_tool_error",
 		"tool":  strings.TrimSpace(req.Name),
 		"error": err.Error(),
+	}
+	if code := contract.AgentMemoryErrorCode(err); code != "" {
+		envelope["code"] = code
 	}
 	var required skillpkg.SkillApprovalRequiredError
 	switch {
