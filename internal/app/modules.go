@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 
@@ -12,7 +13,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/feedback"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/insight"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/nativefilter"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/notify"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill"
@@ -37,6 +37,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	"github.com/anthropic-ai/super-agent-v3/internal/store"
+	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
 
 // Module wires the core app surface. It intentionally exposes the ctl control plane
@@ -61,7 +62,6 @@ var Module = fx.Options(
 	skill.Module,
 	skillforge.Module,
 	skilllibrary.Module,
-	nativefilter.Module,
 	fbsd.Module,
 	fx.Provide(provideSkillLibraryConfig),
 	thread.Module,
@@ -85,6 +85,7 @@ var Module = fx.Options(
 		AsRPCRunner,
 		newThreadOrchestrationFacade,
 		newRuntimeReporter,
+		provideDisabledBuiltinToolsFn,
 	),
 )
 
@@ -94,6 +95,14 @@ func provideSkillLibraryConfig() skilllibrary.Config {
 		LibraryDir:     filepath.Join(home, ".multi-agent", "skills-library"),
 		CacheDir:       filepath.Join(home, ".multi-agent", "skills-cache"),
 		HarnessVersion: "dev",
+	}
+}
+
+// provideDisabledBuiltinToolsFn bridges uistate.ResolveDisabledBuiltinTools
+// into prompt.DisabledBuiltinToolsFn without creating a prompt→uistate import cycle.
+func provideDisabledBuiltinToolsFn(prefs uipreference.Store) prompt.DisabledBuiltinToolsFn {
+	return func(ctx context.Context, cwd string) []string {
+		return uistate.ResolveDisabledBuiltinTools(ctx, prefs, cwd)
 	}
 }
 

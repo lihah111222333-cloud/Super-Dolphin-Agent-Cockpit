@@ -82,13 +82,23 @@ func renderToolPreferencesSectionText(build BuildCtx) string {
 			"Batch independent tool calls in parallel and run dependent calls sequentially.",
 		})
 	}
-	return renderToolPreferenceBullets([]string{
+	bullets := []string{
 		"Prefer repository-aware tools first: use lsp_file for reading, lsp_edit for edits, and lsp_grep for search.",
 		"Use code_run for shell execution only when a dedicated tool cannot do the job, and use it for new-file creation when needed.",
 		"Do not reach for shell fallbacks like cat, head, tail, sed, awk, grep, rg, find, or ls when a dedicated tool fits.",
+		suppressedToolsBullet(build.SuppressedTools),
 		toolPreferencePlanningLine(build.EnabledTools),
 		"Batch independent tool calls in parallel and run dependent calls sequentially.",
-	})
+	}
+	return renderToolPreferenceBullets(bullets)
+}
+
+func suppressedToolsBullet(tools []string) string {
+	if len(tools) == 0 {
+		return ""
+	}
+	return "Do NOT use these native tools — they have been replaced by project MCP equivalents: " +
+		strings.Join(tools, ", ") + "."
 }
 
 func renderToolPreferenceBullets(items []string) string {

@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -38,6 +40,7 @@ func (s *service) AssembleStart(ctx context.Context, in StartInput) (StartAssemb
 		return s.fallbackStartAssembly(ctx, in), nil
 	}
 	buildCtx := buildStartCtx(in)
+	buildCtx.SuppressedTools = s.aggregateSuppressedTools(ctx, strings.TrimSpace(in.CWD))
 	// Merge DB-sourced prompt_template sections (if any). Static blocks flow
 	// into CachedPrefix, dynamic into UncachedTail. Blocks whose EnableWhen
 	// rejects the current BuildCtx are filtered out here (Step 3b gate).
@@ -597,4 +600,37 @@ func snapshotHash(parts ...string) string {
 		_, _ = h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// aggregateSuppressedTools 合并两个来源的被抑制工具：
+//  1. skilllibrary.Store 中技能声明的 ReplacesNative（自动）
+//  2. uipreference.Store 中用户手动勾选禁用的工具（手动）
+//
+// 两者 union 去重后返回。
+func (s *service) aggregateSuppressedTools(ctx context.Context, cwd string) []string {
+	seen := make(map[string]struct{})
+	// 来源 1：技能声明
+	if s.skillStore != nil {
+		entries, err := s.skillStore.List()
+		if err == nil {
+			for _, name := range skilllibrary.AggregateAllReplacements(entries) {
+				seen[name] = struct{}{}
+			}
+		}
+	}
+	// 来源 2：用户手动勾选（通过注入的函数，避免 prompt↔uistate 的导入循环）
+	if s.disabledToolsFn != nil {
+		for _, name := range s.disabledToolsFn(ctx, cwd) {
+			seen[name] = struct{}{}
+		}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(seen))
+	for name := range seen {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }

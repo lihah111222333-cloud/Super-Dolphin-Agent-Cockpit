@@ -6,6 +6,7 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt/classifier"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
@@ -35,15 +36,24 @@ func newPromptClassifier() classifier.Classifier {
 // user-configurable LSP prompt hint in the start system prompt.
 type ServiceFxParams struct {
 	fx.In
-	Cfg         *Config
-	Logger      *slog.Logger           `optional:"true"`
-	Prefs       uipreference.Store     `optional:"true"`
-	SharedFiles sharedfilestore.Reader `optional:"true"`
+	Cfg             *Config
+	Logger          *slog.Logger           `optional:"true"`
+	Prefs           uipreference.Store     `optional:"true"`
+	SharedFiles     sharedfilestore.Reader `optional:"true"`
+	SkillStore      *skilllibrary.Store    `optional:"true"`
+	DisabledToolsFn DisabledBuiltinToolsFn `optional:"true"`
 }
 
-// NewServiceFx is the fx-facing constructor that wires the preference store
-// and shared-file reader into the prompt Service so the configured LSP prompt
-// hint actually reaches the assembled system prompt.
+// NewServiceFx is the fx-facing constructor that wires the preference store,
+// shared-file reader, skill library store, and disabled-tools function into
+// the prompt Service.
 func NewServiceFx(p ServiceFxParams) Service {
-	return NewService(p.Cfg, p.Logger, WithPromptHintSources(p.Prefs, p.SharedFiles))
+	opts := []ServiceOption{
+		WithPromptHintSources(p.Prefs, p.SharedFiles),
+		WithSkillStore(p.SkillStore),
+	}
+	if p.DisabledToolsFn != nil {
+		opts = append(opts, WithDisabledBuiltinToolsFn(p.DisabledToolsFn))
+	}
+	return NewService(p.Cfg, p.Logger, opts...)
 }

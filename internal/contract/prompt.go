@@ -62,6 +62,10 @@ type BuildCtx struct {
 	//   - 非空列表 + Force=true  → 只渲染命中的 skill，其余隰藏
 	LaunchSkillNames  []string
 	ForceLaunchSkills bool
+	// SuppressedTools 是被 SkillMeta.ReplacesNative 声明替代的原生工具名列表。
+	// prompt assembler 在 tool_preferences section 中渲染为 "Do NOT use..." 指令，
+	// 引导所有模型优先使用项目 MCP 等价工具。
+	SuppressedTools []string
 }
 
 type ClaudeMdSource struct {

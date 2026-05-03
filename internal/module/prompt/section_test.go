@@ -188,6 +188,52 @@ func TestStaticSectionsToolPreferencesUsePlannerAwareHint(t *testing.T) {
 	t.Fatal("tool_preferences section not found")
 }
 
+func TestStaticSectionsToolPreferencesSuppressedTools(t *testing.T) {
+	for _, section := range StaticSections() {
+		if section.Name != SectionToolPreferences {
+			continue
+		}
+		content, err := section.Compute(context.Background(), SectionContext{
+			BuildCtx: BuildCtx{
+				SuppressedTools: []string{"Bash", "Edit", "Read"},
+			},
+		})
+		if err != nil {
+			t.Fatalf("Compute() error = %v", err)
+		}
+		if content == nil {
+			t.Fatal("tool_preferences content is nil, want suppressed tools bullet")
+		}
+		if !strings.Contains(*content, "Do NOT use") {
+			t.Fatalf("content = %q, want 'Do NOT use' bullet", *content)
+		}
+		if !strings.Contains(*content, "Bash, Edit, Read") {
+			t.Fatalf("content = %q, want tool names 'Bash, Edit, Read'", *content)
+		}
+		return
+	}
+	t.Fatal("tool_preferences section not found")
+}
+
+func TestStaticSectionsToolPreferencesNoSuppressedTools(t *testing.T) {
+	for _, section := range StaticSections() {
+		if section.Name != SectionToolPreferences {
+			continue
+		}
+		content, err := section.Compute(context.Background(), SectionContext{
+			BuildCtx: BuildCtx{},
+		})
+		if err != nil {
+			t.Fatalf("Compute() error = %v", err)
+		}
+		if content != nil && strings.Contains(*content, "Do NOT use") {
+			t.Fatalf("content = %q, should NOT contain suppressed tools bullet when SuppressedTools is empty", *content)
+		}
+		return
+	}
+	t.Fatal("tool_preferences section not found")
+}
+
 func TestStaticSectionsToolPreferencesUseReplModeBranch(t *testing.T) {
 	for _, section := range StaticSections() {
 		if section.Name != SectionToolPreferences {
