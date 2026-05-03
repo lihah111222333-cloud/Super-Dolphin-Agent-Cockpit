@@ -9,19 +9,22 @@ import (
 )
 
 type Registry struct {
-	drivers map[string]contract.DriverFactory
+	drivers     map[string]contract.DriverFactory
+	nativeTools []contract.NativeToolDescriptor
 }
 
 func NewRegistry(params RegistryParams) *Registry {
 	drivers := make(map[string]contract.DriverFactory, len(params.Drivers))
+	var nativeTools []contract.NativeToolDescriptor
 	for _, factory := range params.Drivers {
 		name := normalizeProviderName(factory.Name)
 		if name == "" || factory.Create == nil {
 			continue
 		}
 		drivers[name] = factory
+		nativeTools = append(nativeTools, factory.NativeTools...)
 	}
-	return &Registry{drivers: drivers}
+	return &Registry{drivers: drivers, nativeTools: nativeTools}
 }
 
 func (r *Registry) Resolve(provider string) (contract.Driver, error) {
@@ -49,6 +52,17 @@ func (r *Registry) Names() []string {
 	}
 	slices.Sort(names)
 	return names
+}
+
+// NativeTools returns the aggregated native tool descriptors from all
+// registered providers. Order follows provider registration order.
+func (r *Registry) NativeTools() []contract.NativeToolDescriptor {
+	if r == nil {
+		return nil
+	}
+	out := make([]contract.NativeToolDescriptor, len(r.nativeTools))
+	copy(out, r.nativeTools)
+	return out
 }
 
 func normalizeProviderName(name string) string {

@@ -5,8 +5,7 @@ import { useSettingsScope } from './useSettingsScope.ts';
 type BuiltinToolsProjectStore = { state?: { active?: string } } | null;
 type BuiltinToolsSettingsProps = { projectStore?: BuiltinToolsProjectStore };
 type BuiltinToolView = { id: string; label: string; description?: string; enabled: boolean; provider?: string; replacedBy?: string };
-type BuiltinToolProviderNote = { provider: string; label: string; note: string };
-type BuiltinToolsReadResult = { tools?: BuiltinToolView[]; providerNotes?: BuiltinToolProviderNote[] };
+type BuiltinToolsReadResult = { tools?: BuiltinToolView[] };
 type BuiltinToolsNoticeState = { level: string; message: string };
 type BuiltinToolGroup = {
   key: string;
@@ -17,8 +16,7 @@ type BuiltinToolGroup = {
   canToggle: boolean;
 };
 
-// PROVIDER_LABELS gives each provider a short Chinese display name. Backend
-// only emits "claude" today; codex appears solely via providerNotes.
+// PROVIDER_LABELS gives each provider a short Chinese display name.
 const PROVIDER_LABELS: Record<string, string> = {
   claude: 'Claude 内置工具',
   codex: 'Codex 内置工具',
@@ -26,7 +24,6 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 function setupBuiltinToolsSettings(props: BuiltinToolsSettingsProps) {
   const tools = ref([]) as { value: BuiltinToolView[] };
-  const providerNotes = ref([]) as { value: BuiltinToolProviderNote[] };
   const loading = ref(false) as { value: boolean };
   const savingIds = reactive({} as Record<string, boolean>);
   const expanded = reactive({} as Record<string, boolean>);
@@ -48,12 +45,6 @@ function setupBuiltinToolsSettings(props: BuiltinToolsSettingsProps) {
       provider: (item.provider || 'claude').toString(),
       replacedBy: item.replacedBy ? (item.replacedBy || '').toString() : undefined,
     }));
-    const notes = Array.isArray(payload?.providerNotes) ? payload!.providerNotes : [];
-    providerNotes.value = notes.map((entry) => ({
-      provider: (entry.provider || '').toString(),
-      label: (entry.label || '').toString(),
-      note: (entry.note || '').toString(),
-    })).filter((entry) => entry.provider && entry.note);
   }
 
   // groups splits tools into three hybrid-mode buckets:
@@ -163,7 +154,6 @@ function setupBuiltinToolsSettings(props: BuiltinToolsSettingsProps) {
 
   return {
     tools,
-    providerNotes,
     groups,
     filteredCount,
     totalToolCount,
@@ -196,7 +186,7 @@ export const BuiltinToolsSettings = {
       <div class="settings-prompt-desc">
         技能自动替代 + 用户手动勾选，统一对所有模型生效。
       </div>
-      <div v-if="tools.length === 0 && providerNotes.length === 0 && !loading" class="settings-log-empty" data-testid="settings-builtin-tools-empty">
+      <div v-if="tools.length === 0 && !loading" class="settings-log-empty" data-testid="settings-builtin-tools-empty">
         暂无可配置的内置工具
       </div>
       <div v-else class="settings-builtin-tool-groups" data-testid="settings-builtin-tools-groups">
@@ -234,7 +224,7 @@ export const BuiltinToolsSettings = {
               <div class="settings-prompt-toggle-copy">
                 <span class="settings-prompt-toggle-title">{{ tool.label }}</span>
                 <span class="settings-prompt-toggle-desc">
-                  {{ tool.description || tool.id }}<span v-if="tool.description" class="settings-builtin-tool-id"> · {{ tool.id }}</span><span v-if="tool.replacedBy" class="settings-builtin-tool-replaced"> 🔄 ← {{ tool.replacedBy }}</span>
+{{ tool.description || tool.id }}<span v-if="tool.description" class="settings-builtin-tool-id"> · {{ tool.id }}</span><span v-if="tool.provider" class="settings-builtin-tool-provider"> [{{ tool.provider }}]</span><span v-if="tool.replacedBy" class="settings-builtin-tool-replaced"> 🔄 ← {{ tool.replacedBy }}</span>
                 </span>
               </div>
               <input

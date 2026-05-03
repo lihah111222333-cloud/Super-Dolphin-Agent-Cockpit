@@ -173,7 +173,7 @@ func newConfigTestServer(
 	threads thread.Service,
 ) *platformrpc.Server {
 	server := platformrpc.NewServer(platformrpc.Params{Config: cfg})
-	server.Register(NewConfigHandlers(cfg, prefs, sharedFiles, threads, nil).Handlers)
+	server.Register(NewConfigHandlers(cfg, prefs, sharedFiles, threads, nil, testNativeTools).Handlers)
 	return server
 }
 
