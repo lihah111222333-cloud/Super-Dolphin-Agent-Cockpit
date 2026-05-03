@@ -9,6 +9,7 @@ import (
 
 	"github.com/creachadair/jrpc2/handler"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -22,15 +23,15 @@ const (
 
 func NewThreadHandlers(svc Service, capResolver rpc.CapabilityResolver) rpc.HandlerMapResult {
 	return rpc.HandlerMapResult{Handlers: handler.Map{
-		"thread/start":     newStartHandler(svc),
-		"thread/stop":      newThreadEffect(svc.Stop),
-		"thread/resume":    newResumeHandler(svc),
-		"thread/fork":      newForkHandler(svc),
-		"thread/recover":   newRecoverHandler(svc),
-		"thread/handoff":   newHandoffHandler(svc),
-		"thread/archive":   newTracedThreadEffect("thread/archive", svc.Archive),
-		"thread/unarchive": newThreadEffect(svc.Unarchive),
-		"thread/delete":    newThreadEffect(svc.Delete),
+		contract.ThreadRPCStart:   newStartHandler(svc),
+		contract.ThreadRPCStop:    newThreadEffect(svc.Stop),
+		"thread/resume":           newResumeHandler(svc),
+		"thread/fork":             newForkHandler(svc),
+		"thread/recover":          newRecoverHandler(svc),
+		"thread/handoff":          newHandoffHandler(svc),
+		contract.ThreadRPCArchive: newTracedThreadEffect(contract.ThreadRPCArchive, svc.Archive),
+		"thread/unarchive":        newThreadEffect(svc.Unarchive),
+		"thread/delete":           newThreadEffect(svc.Delete),
 
 		"thread/list": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			return svc.List(ctx)
@@ -49,7 +50,7 @@ func NewThreadHandlers(svc Service, capResolver rpc.CapabilityResolver) rpc.Hand
 			return svc.ReadMessages(ctx, rpc.ThreadIDFrom(ctx), p.Limit, p.Before)
 		}),
 
-		"thread/name/set": rpc.ThreadHandler(func(ctx context.Context, p nameSetParams) (any, error) {
+		contract.ThreadRPCNameSet: rpc.ThreadHandler(func(ctx context.Context, p nameSetParams) (any, error) {
 			return nil, svc.SetName(ctx, rpc.ThreadIDFrom(ctx), p.Name)
 		}),
 		"thread/config/get": newThreadConfigGetHandler(svc),

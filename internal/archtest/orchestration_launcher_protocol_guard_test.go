@@ -9,19 +9,20 @@ import (
 
 // TestOrchestrationLauncherProtocolFreeze enforces P22 P4 §62 / §120 /
 // §280: the remoteLauncher's outbound RPC method names and response
-// alias keys must live in a single explicit protocol file
-// (cmd/mcp-orch/orchestration/launcher_protocol.go), not scattered as
-// raw string literals through launcher.go or other siblings. Freezing
-// the shell here ensures any change to the outbound contract is
-// visible as a diff in one place and guarded against silent drift.
+// alias keys must live in explicit protocol constants shared with the
+// app-side thread RPC handlers, not scattered as raw string literals through
+// launcher.go or other siblings. Freezing the shell here ensures any change to
+// the outbound contract is visible as a diff in one place and guarded against
+// silent drift.
 //
 // The test scans every non-test .go file under
 // cmd/mcp-orch/orchestration. For each frozen literal, the only
 // accepted producer file is launcher_protocol.go.
 func TestOrchestrationLauncherProtocolFreeze(t *testing.T) {
 	const (
-		dir      = "../../cmd/mcp-orch/orchestration"
-		producer = "launcher_protocol.go"
+		dir              = "../../cmd/mcp-orch/orchestration"
+		producer         = "launcher_protocol.go"
+		contractProducer = "../../internal/contract/rpc_methods.go"
 	)
 
 	// The guard freezes remoteLauncher outbound RPC method names. The
@@ -35,6 +36,13 @@ func TestOrchestrationLauncherProtocolFreeze(t *testing.T) {
 		"\"thread/archive\"",
 		"\"thread/name/set\"",
 		"\"turn/start\"",
+	}
+	requiredAliases := []string{
+		"LauncherMethodThreadStart = contract.ThreadRPCStart",
+		"LauncherMethodThreadStop = contract.ThreadRPCStop",
+		"LauncherMethodThreadArchive = contract.ThreadRPCArchive",
+		"LauncherMethodThreadNameSet = contract.ThreadRPCNameSet",
+		"LauncherMethodTurnStart = contract.TurnRPCStart",
 	}
 
 	entries, err := os.ReadDir(dir)
@@ -65,16 +73,27 @@ func TestOrchestrationLauncherProtocolFreeze(t *testing.T) {
 		}
 	}
 
-	// Also verify launcher_protocol.go actually contains each literal,
-	// so deletions don't accidentally weaken the freeze.
+	// Also verify launcher_protocol.go aliases each outbound method to the shared
+	// contract constant, so deletions don't accidentally weaken the freeze.
 	data, err := os.ReadFile(filepath.Join(dir, producer))
 	if err != nil {
 		t.Fatalf("read %s: %v", producer, err)
 	}
 	text := string(data)
+	for _, alias := range requiredAliases {
+		if !strings.Contains(text, alias) {
+			t.Errorf("%s: expected launcher protocol alias %q to be present", producer, alias)
+		}
+	}
+
+	contractData, err := os.ReadFile(contractProducer)
+	if err != nil {
+		t.Fatalf("read %s: %v", contractProducer, err)
+	}
+	contractText := string(contractData)
 	for _, tok := range frozen {
-		if !strings.Contains(text, tok) {
-			t.Errorf("%s: expected frozen launcher-protocol literal %s to be present", producer, tok)
+		if !strings.Contains(contractText, tok) {
+			t.Errorf("%s: expected shared RPC method literal %s to be present", contractProducer, tok)
 		}
 	}
 }

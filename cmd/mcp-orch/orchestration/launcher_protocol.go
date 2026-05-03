@@ -1,5 +1,7 @@
 package orchestration
 
+import "github.com/anthropic-ai/super-agent-v3/internal/contract"
+
 // Outbound RPC protocol contract for the remoteLauncher. Consolidates
 // the previously inline method names, request parameter keys, and
 // response alias ordering into a single authoritative definition so
@@ -20,23 +22,23 @@ package orchestration
 const (
 	// LauncherMethodThreadStart opens a remote thread and returns
 	// thread/agent identity for the newly-launched managed agent.
-	LauncherMethodThreadStart = "thread/start"
+	LauncherMethodThreadStart = contract.ThreadRPCStart
 	// LauncherMethodThreadStop closes a remote thread previously
 	// opened by LauncherMethodThreadStart.
-	LauncherMethodThreadStop = "thread/stop"
+	LauncherMethodThreadStop = contract.ThreadRPCStop
 	// LauncherMethodThreadArchive archives a remote thread previously
 	// opened by LauncherMethodThreadStart, performing the full archive
 	// flow on the main app side (status=archived, binding archived,
 	// scratchpad/turn cleanup, archived event publish).
-	LauncherMethodThreadArchive = "thread/archive"
+	LauncherMethodThreadArchive = contract.ThreadRPCArchive
 	// LauncherMethodThreadNameSet updates the display name of a
 	// remote thread. Optional; only explicit rename callers should use
 	// this path. Launch and turn submission must not infer names from
 	// prompt text.
-	LauncherMethodThreadNameSet = "thread/name/set"
+	LauncherMethodThreadNameSet = contract.ThreadRPCNameSet
 	// LauncherMethodTurnStart submits a turn against an already-open
 	// remote thread and returns the new turn identifier.
-	LauncherMethodTurnStart = "turn/start"
+	LauncherMethodTurnStart = contract.TurnRPCStart
 )
 
 // Request parameter keys for LauncherMethodThreadStart.
