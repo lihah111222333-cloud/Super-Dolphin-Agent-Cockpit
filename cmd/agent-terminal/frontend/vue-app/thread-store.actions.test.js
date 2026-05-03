@@ -267,7 +267,7 @@ describe('thread store actions', () => {
     let startPayload = null;
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'ui/preferences/get') {
-        return mockStartPreference(payload, { provider: 'claude', model: undefined, effort: 'high' });
+        return mockStartPreference(payload, { provider: 'claude', model: '[object Object]', effort: 'high' });
       }
       if (method === 'thread/start') { startPayload = payload; return { thread: { id: 'thread-claude-safe' } }; }
       if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-claude-safe', activeThreadId: '' });

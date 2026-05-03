@@ -158,8 +158,8 @@ func trimStartRequest(req StartRequest) StartRequest {
 	req.AgentType = strings.TrimSpace(req.AgentType)
 	req.AgentMemoryScope = strings.TrimSpace(req.AgentMemoryScope)
 	req.CWD = strings.TrimSpace(req.CWD)
-	req.Model = strings.TrimSpace(req.Model)
-	req.ModelProvider = strings.TrimSpace(req.ModelProvider)
+	req.Model = sanitizeConfigStringArtifact(req.Model)
+	req.ModelProvider = sanitizeConfigStringArtifact(req.ModelProvider)
 	req.Name = strings.TrimSpace(req.Name)
 	req.Prompt = strings.TrimSpace(req.Prompt)
 	req.OwnerThreadID = strings.TrimSpace(req.OwnerThreadID)
@@ -168,7 +168,7 @@ func trimStartRequest(req StartRequest) StartRequest {
 	req.ApprovalPolicy = strings.TrimSpace(req.ApprovalPolicy)
 	req.Sandbox = trimRawJSON(req.Sandbox)
 	req.Summary = strings.TrimSpace(req.Summary)
-	req.Effort = strings.TrimSpace(req.Effort)
+	req.Effort = sanitizeConfigStringArtifact(req.Effort)
 	req.Personality = strings.TrimSpace(req.Personality)
 	req.Language = strings.TrimSpace(req.Language)
 	req.GitRoot = strings.TrimSpace(req.GitRoot)
@@ -410,8 +410,8 @@ func trimResumeRequest(req ResumeRequest) (ResumeRequest, error) {
 	req.ThreadID = strings.TrimSpace(req.ThreadID)
 	req.Path = strings.TrimSpace(req.Path)
 	req.CWD = strings.TrimSpace(req.CWD)
-	req.Model = strings.TrimSpace(req.Model)
-	req.Effort = strings.TrimSpace(req.Effort)
+	req.Model = sanitizeConfigStringArtifact(req.Model)
+	req.Effort = sanitizeConfigStringArtifact(req.Effort)
 	req.CodexHome = strings.TrimSpace(req.CodexHome)
 	req.CodexInstanceKey = strings.TrimSpace(req.CodexInstanceKey)
 	req.CodexModelProvider = strings.TrimSpace(req.CodexModelProvider)
@@ -443,12 +443,12 @@ func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeReq
 	req = s.injectDefaultCodexIdentityForResume(req)
 	req.PromptSnapshot = s.resolveResumePromptSnapshot(ctx, req, state)
 	if req.ConfigOverride.Model == nil {
-		if value := strings.TrimSpace(state.ConfigOverride.Model); value != "" {
+		if value := sanitizeConfigStringArtifact(state.ConfigOverride.Model); value != "" {
 			req.ConfigOverride.Model = &value
 		}
 	}
 	if req.ConfigOverride.Effort == nil {
-		if value := strings.TrimSpace(state.ConfigOverride.Effort); value != "" {
+		if value := sanitizeConfigStringArtifact(state.ConfigOverride.Effort); value != "" {
 			req.ConfigOverride.Effort = &value
 		}
 	}
@@ -476,16 +476,16 @@ func resolveResumeConfigOverride(req ResumeRequest, state resumeState) dto.Threa
 		Approvals:   nil,
 	}
 	if patch.Model == nil {
-		if value := strings.TrimSpace(req.Model); value != "" {
+		if value := sanitizeConfigStringArtifact(req.Model); value != "" {
 			patch.Model = &value
-		} else if value := strings.TrimSpace(state.ConfigOverride.Model); value != "" {
+		} else if value := sanitizeConfigStringArtifact(state.ConfigOverride.Model); value != "" {
 			patch.Model = &value
 		}
 	}
 	if patch.Effort == nil {
-		if value := strings.TrimSpace(req.Effort); value != "" {
+		if value := sanitizeConfigStringArtifact(req.Effort); value != "" {
 			patch.Effort = &value
-		} else if value := strings.TrimSpace(state.ConfigOverride.Effort); value != "" {
+		} else if value := sanitizeConfigStringArtifact(state.ConfigOverride.Effort); value != "" {
 			patch.Effort = &value
 		}
 	}
@@ -497,18 +497,18 @@ func resolveResumeModel(req ResumeRequest, state resumeState) string {
 		if value := threadConfigPatchValue(req.ConfigOverride.Model); value != "" {
 			return value
 		}
-		if value := strings.TrimSpace(req.Model); value != "" {
+		if value := sanitizeConfigStringArtifact(req.Model); value != "" {
 			return value
 		}
-		return strings.TrimSpace(state.Model)
+		return sanitizeConfigStringArtifact(state.Model)
 	}
-	if value := strings.TrimSpace(req.Model); value != "" {
+	if value := sanitizeConfigStringArtifact(req.Model); value != "" {
 		return value
 	}
-	if value := strings.TrimSpace(state.ConfigOverride.Model); value != "" {
+	if value := sanitizeConfigStringArtifact(state.ConfigOverride.Model); value != "" {
 		return value
 	}
-	return strings.TrimSpace(state.Model)
+	return sanitizeConfigStringArtifact(state.Model)
 }
 
 func resolveResumeEffort(req ResumeRequest, state resumeState) string {
@@ -516,12 +516,12 @@ func resolveResumeEffort(req ResumeRequest, state resumeState) string {
 		if value := threadConfigPatchValue(req.ConfigOverride.Effort); value != "" {
 			return value
 		}
-		return strings.TrimSpace(req.Effort)
+		return sanitizeConfigStringArtifact(req.Effort)
 	}
-	if value := strings.TrimSpace(req.Effort); value != "" {
+	if value := sanitizeConfigStringArtifact(req.Effort); value != "" {
 		return value
 	}
-	return strings.TrimSpace(state.ConfigOverride.Effort)
+	return sanitizeConfigStringArtifact(state.ConfigOverride.Effort)
 }
 
 func (s *service) lookupResumeState(ctx context.Context, threadID string) resumeState {
@@ -535,10 +535,10 @@ func (s *service) lookupResumeState(ctx context.Context, threadID string) resume
 		state.AgentMemoryScope = strings.TrimSpace(thread.AgentMemoryScope)
 		state.PublicThreadID = strings.TrimSpace(thread.ThreadID)
 		state.Prompt = strings.TrimSpace(thread.Prompt)
-		state.Model = strings.TrimSpace(thread.Model)
+		state.Model = sanitizeConfigStringArtifact(thread.Model)
 		state.ConfigOverrideRaw = shared.CloneRawMessage(thread.ConfigOverride)
 		state.ConfigOverride = decodeStoredThreadConfig(thread.ConfigOverride)
-		state.Effort = strings.TrimSpace(state.ConfigOverride.Effort)
+		state.Effort = sanitizeConfigStringArtifact(state.ConfigOverride.Effort)
 		state.CWD = strings.TrimSpace(thread.Cwd)
 		state.CreatedAt = thread.CreatedAt
 	}

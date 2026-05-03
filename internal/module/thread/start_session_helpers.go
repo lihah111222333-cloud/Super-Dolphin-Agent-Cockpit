@@ -204,14 +204,34 @@ func buildStartSessionConfig(req StartRequest, input contract.StartInput, assemb
 	}
 	putConfigJSON(cfg, "sandbox", req.Sandbox)
 	for key, value := range req.Config {
-		if _, exists := cfg[key]; !exists {
-			cfg[key] = value
-		}
+		mergeConfigValueIfAbsent(cfg, key, value)
 	}
 	if len(cfg) == 0 {
 		return nil
 	}
 	return cfg
+}
+
+func mergeConfigValueIfAbsent(cfg map[string]any, key string, value any) {
+	if _, exists := cfg[key]; exists {
+		return
+	}
+	if text, ok := value.(string); ok && isConfigArtifactKey(key) {
+		if text = sanitizeConfigStringArtifact(text); text != "" {
+			cfg[key] = text
+		}
+		return
+	}
+	cfg[key] = value
+}
+
+func isConfigArtifactKey(key string) bool {
+	switch strings.TrimSpace(key) {
+	case "model", "effort", "modelProvider", "model_provider", "provider":
+		return true
+	default:
+		return false
+	}
 }
 
 func buildStartStoredThreadConfig(req StartRequest, input contract.StartInput, assembly contract.StartAssembly) storedThreadConfig {

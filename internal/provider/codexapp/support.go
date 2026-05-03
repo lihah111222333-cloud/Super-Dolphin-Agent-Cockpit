@@ -173,7 +173,7 @@ func (s *session) runtimeConfigString(key string) string {
 		return ""
 	}
 	v, _ := s.runtimeConfig[key].(string)
-	return strings.TrimSpace(v)
+	return sanitizeConfigStringArtifact(v)
 }
 
 func (s *session) ensureRuntimeCodexHomeFromInitialize(reason string) {
@@ -290,7 +290,17 @@ func configString(cfg map[string]any, key string) string {
 		return ""
 	}
 	value, _ := cfg[key].(string)
-	return strings.TrimSpace(value)
+	return sanitizeConfigStringArtifact(value)
+}
+
+func sanitizeConfigStringArtifact(value string) string {
+	value = strings.TrimSpace(value)
+	switch strings.ToLower(value) {
+	case "", "[object object]", "undefined", "null":
+		return ""
+	default:
+		return value
+	}
 }
 
 func resolveApprovalPolicy(cfg map[string]any) string {
