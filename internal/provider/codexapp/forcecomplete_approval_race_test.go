@@ -134,6 +134,104 @@ func TestForceCompletePinsActiveTurnBeforeRemoteCall(t *testing.T) {
 	}
 }
 
+func TestForceCompleteFallsBackWhenTurnIDRejected(t *testing.T) {
+	forceCompleteParams := make(chan map[string]any, 2)
+
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		for {
+			_, rawBytes, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var msg jsonRPCMessage
+			if err := json.Unmarshal(rawBytes, &msg); err != nil || len(msg.ID) == 0 {
+				continue
+			}
+			if strings.TrimSpace(msg.Method) == "turn/forceComplete" {
+				var params map[string]any
+				if len(msg.Params) > 0 {
+					_ = json.Unmarshal(msg.Params, &params)
+				}
+				select {
+				case forceCompleteParams <- params:
+				default:
+				}
+				if _, hasTurnID := params["turnId"]; hasTurnID {
+					resp := mustJSON(map[string]any{
+						"jsonrpc": "2.0",
+						"id":      json.RawMessage(append([]byte(nil), msg.ID...)),
+						"error": map[string]any{
+							"code":    -32602,
+							"message": "extra field turnId not permitted",
+						},
+					})
+					if err := conn.WriteMessage(websocket.TextMessage, resp); err != nil {
+						return
+					}
+					continue
+				}
+			}
+			resp := mustJSON(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      json.RawMessage(append([]byte(nil), msg.ID...)),
+				"result":  map[string]any{"ok": true},
+			})
+			if err := conn.WriteMessage(websocket.TextMessage, resp); err != nil {
+				return
+			}
+		}
+	}))
+	defer server.Close()
+
+	s, err := newSession(context.Background(), pkglogger.Get(), "ws"+strings.TrimPrefix(server.URL, "http"), "agent-1", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("newSession() error = %v", err)
+	}
+	s.runtime.Start()
+	defer closeCodexTestSession(t, s)
+
+	active := newTurnHandle("local-1", "turn-1")
+	s.mu.Lock()
+	s.turns["turn-1"] = active
+	s.activeTurnID = "turn-1"
+	s.mu.Unlock()
+
+	if err := s.ForceComplete(context.Background(), dto.ForceCompleteRequest{ThreadID: "thread-1"}); err != nil {
+		t.Fatalf("ForceComplete() error = %v", err)
+	}
+
+	select {
+	case params := <-forceCompleteParams:
+		if params["turnId"] != "turn-1" {
+			t.Fatalf("first forceComplete params = %#v, want turnId turn-1", params)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for first turn/forceComplete")
+	}
+	select {
+	case params := <-forceCompleteParams:
+		if _, hasTurnID := params["turnId"]; hasTurnID {
+			t.Fatalf("fallback forceComplete params = %#v, want no turnId", params)
+		}
+		if params["threadId"] != "thread-1" {
+			t.Fatalf("fallback forceComplete threadId = %#v, want thread-1", params["threadId"])
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for fallback turn/forceComplete")
+	}
+	select {
+	case <-active.Done():
+	case <-time.After(time.Second):
+		t.Fatal("forceComplete fallback did not finish active turn")
+	}
+}
+
 func TestForceCompleteIgnoresStaleProviderID(t *testing.T) {
 	forceCompleteCalls := make(chan struct{}, 1)
 
