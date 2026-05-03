@@ -3,6 +3,7 @@ package skill
 import (
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
 
@@ -28,14 +29,23 @@ var Module = fx.Module("skill",
 	fx.Invoke(registerCandidateStores),
 )
 
-func newService(cfg *platformconfig.Config, dispatcher *event.Dispatcher) Service {
+type serviceDeps struct {
+	fx.In
+
+	Config          *platformconfig.Config
+	Dispatcher      *event.Dispatcher
+	DisclosureTiers contract.SkillDisclosureTierSource `optional:"true"`
+}
+
+func newService(deps serviceDeps) Service {
 	projectRoot := ""
-	if cfg != nil {
-		projectRoot = strings.TrimSpace(cfg.ProjectRoot)
+	if deps.Config != nil {
+		projectRoot = strings.TrimSpace(deps.Config.ProjectRoot)
 	}
 	svc := NewService(projectRoot)
 	if impl, ok := svc.(*service); ok {
-		impl.bindDispatcher(dispatcher)
+		impl.bindDispatcher(deps.Dispatcher)
+		impl.disclosureTiers = deps.DisclosureTiers
 	}
 	return svc
 }

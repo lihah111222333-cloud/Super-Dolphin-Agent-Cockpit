@@ -350,6 +350,32 @@ func TestGetSidebarProjectsDBArchivedStatusIntoArchivesMap(t *testing.T) {
 // A future ThreadSummary.LifecycleStatus split will let unarchive drop
 // stale preference safely.
 
+func TestApplyThreadStoppedDeletedRemovesSidebarThread(t *testing.T) {
+	t.Parallel()
+
+	svc := mustNewUIStateService(t)
+	svc.state.Threads = []ThreadSummary{{
+		ID:              "thread-empty",
+		Name:            "thread-empty",
+		AgentID:         "agent-empty",
+		LifecycleStatus: "archived",
+		State:           "archived",
+		ThreadStatus:    "archived",
+	}}
+	svc.state.Agents = []AgentSummary{{ID: "agent-empty", ThreadID: "thread-empty", State: "stopped"}}
+	svc.applyThreadStopped(threaddto.Stopped{ThreadID: "thread-empty", AgentID: "agent-empty", Status: "deleted", Reason: "deleted_pending_launch"})
+
+	sidebar, err := svc.GetSidebar(context.Background())
+	if err != nil {
+		t.Fatalf("GetSidebar() error = %v", err)
+	}
+	for _, thread := range sidebar.Threads {
+		if thread.ID == "thread-empty" {
+			t.Fatalf("deleted thread still present in sidebar: %#v", thread)
+		}
+	}
+}
+
 func TestApplyThreadStoppedUnarchiveClearsLifecycleArchive(t *testing.T) {
 	t.Parallel()
 

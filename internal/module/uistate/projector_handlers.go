@@ -271,16 +271,19 @@ func (s *service) applyThreadStopped(ev threaddto.Stopped) {
 	if status == "" {
 		status = "stopped"
 	}
+	deleted := strings.EqualFold(status, "deleted")
 	applyMutation(s, threadID, func() {
 		s.clearThreadActivityLocked(threadID)
 		s.clearActiveTurnLocked(threadID)
 		s.state.Threads = markThreadStopped(s.state.Threads, threadID, status)
-		s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
-			ID:         threadID,
-			AgentID:    agentID,
-			AgentState: normalizeAgentLifecycleState(status),
-		})
-		if agentID != "" {
+		if !deleted {
+			s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
+				ID:         threadID,
+				AgentID:    agentID,
+				AgentState: normalizeAgentLifecycleState(status),
+			})
+		}
+		if agentID != "" && !deleted {
 			s.state.Agents = upsertAgentSummary(s.state.Agents, AgentSummary{
 				ID:         agentID,
 				ThreadID:   threadID,
@@ -288,8 +291,19 @@ func (s *service) applyThreadStopped(ev threaddto.Stopped) {
 				AgentState: normalizeAgentLifecycleState(status),
 			})
 		}
+		if deleted {
+			delete(s.overlayExpiryByThread, threadID)
+			return
+		}
 		s.clearThreadOverlayLocked(threadID, "")
 	}, func() uidto.UIThreadPatch {
+		if deleted {
+			sortThreads(s.state.Threads)
+			sortAgents(s.state.Agents)
+			patch := s.threadPatchLocked(threadID, "thread/stopped")
+			delete(s.patchSeq, threadID)
+			return patch
+		}
 		patch := s.refreshThreadPatchLocked(threadID, agentID, "thread/stopped")
 		delete(s.patchSeq, threadID)
 		return patch

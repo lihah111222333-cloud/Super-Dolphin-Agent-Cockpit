@@ -28,7 +28,7 @@ var kairosOverviewLines = []string{
 	"KAIROS mode continuously records durable remember-worthy facts to today's append-only daily log instead of editing topic files inline.",
 	"The daily log lives under `logs/YYYY/MM/YYYY-MM-DD.md` inside the auto-memory root.",
 	"`MEMORY.md` remains a read-only orientation summary in KAIROS: read it for context, but never edit it inline during the live session.",
-	"Only root-thread auto-memory sessions write to that log; child agents and agent-memory scopes do not.",
+	"Only root-thread auto-memory sessions write to that log; child agents do not.",
 }
 
 var kairosWriteRules = []string{

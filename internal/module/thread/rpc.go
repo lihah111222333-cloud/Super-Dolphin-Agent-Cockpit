@@ -174,7 +174,9 @@ func buildStartRequestFromParams(p startParams) StartRequest {
 		Summary:               p.Summary,
 		Effort:                p.Effort,
 		Personality:           p.Personality,
+		Language:              p.Language,
 		Config:                decodeConfigMap(p.Config),
+
 		// p20.3 §4.3：public payload 用 `selectedSkills` / `manualSkillSelection`，
 		// 内部合同归一化为 `LaunchSkillNames` / `ForceLaunchSkills`。
 		LaunchSkillNames:  append([]string(nil), p.SelectedSkills...),

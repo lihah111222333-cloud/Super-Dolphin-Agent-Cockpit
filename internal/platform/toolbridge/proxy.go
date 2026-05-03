@@ -169,11 +169,50 @@ func (h *Handler) handleProxyToolsList(w http.ResponseWriter, ctx context.Contex
 		writeJSONRPCError(w, id, jsonRPCCodeInvalidParam, "unsupported family")
 		return
 	}
+	if clientKind == mcpdto.ClientKindOrch {
+		h.handleProxyOrchToolsList(w, ctx, id)
+		return
+	}
 	tools, err := h.listPeerTools(ctx, clientKind)
 	if err != nil {
 		writeJSONRPCError(w, id, jsonRPCCodeInternal, err.Error())
 		return
 	}
+	writeJSONRPCResult(w, id, map[string]any{"tools": filterProxyPeerReservedHostTools(tools)})
+}
+
+func filterProxyPeerReservedHostTools(tools []mcpdto.MCPTool) []mcpdto.MCPTool {
+	if len(tools) == 0 {
+		return tools
+	}
+	out := make([]mcpdto.MCPTool, 0, len(tools))
+	for _, tool := range tools {
+		if isReservedHostOnlyToolName(strings.TrimSpace(tool.Name)) {
+			continue
+		}
+		out = append(out, tool)
+	}
+	return out
+}
+
+func (h *Handler) handleProxyOrchToolsList(w http.ResponseWriter, ctx context.Context, id any) {
+	var hostTools []mcpdto.MCPTool
+	if h != nil && h.hostTools != nil {
+		hostTools = h.hostTools.ListHostTools()
+	}
+	seen := make(map[string]string, len(hostTools))
+	tools := h.appendMCPToolsWithShadowWarning(nil, seen, "host", hostTools)
+	peerTools, err := h.listPeerTools(ctx, mcpdto.ClientKindOrch)
+	if err != nil {
+		if len(tools) == 0 {
+			writeJSONRPCError(w, id, jsonRPCCodeInternal, err.Error())
+			return
+		}
+		h.warn("toolbridge proxy tools/list peer degraded", "client_kind", mcpdto.ClientKindOrch, "error", err)
+		writeJSONRPCResult(w, id, map[string]any{"tools": tools})
+		return
+	}
+	tools = h.appendMCPToolsWithShadowWarning(tools, seen, mcpdto.ClientKindOrch, peerTools)
 	writeJSONRPCResult(w, id, map[string]any{"tools": tools})
 }
 

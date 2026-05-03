@@ -15,9 +15,8 @@ import (
 //
 // Convention: assert (reason == InvalidateMemoryWrite) ∧ names ⊇
 // expectedSections, **exact-once** (reviewer B upgrade). Durable paths
-// invalidate Memory + MemoryContext + MemoryEntrypoint; agent paths
-// invalidate AgentMemory. Counter-baselines: agent paths must NOT
-// touch the durable trio (disjoint reviewer F).
+// invalidate Memory + MemoryContext + MemoryEntrypoint.
+
 //
 // Helpers (`sectionSet`, `assertRecordedInvalidation`,
 // `assertRecordedNoSections`, `newPhase4UIDeps`, `findEntriesByName`)
@@ -99,107 +98,6 @@ func TestPhase4BaselineDeleteUIMemoryEntryInvalidatesDurableSections(t *testing.
 	}
 	assertRecordedInvalidation(t, rec, "after delete",
 		contract.InvalidateMemoryWrite,
-		contract.DynamicSectionMemory,
-		contract.DynamicSectionMemoryContext,
-		contract.DynamicSectionMemoryEntrypoint,
-	)
-}
-
-func TestPhase4BaselineSaveUIAgentMemoryInvalidatesAgentSection(t *testing.T) {
-	projectRoot := t.TempDir()
-	cfg := &Config{
-		Enabled:     true,
-		ProjectRoot: projectRoot,
-		RootDir:     t.TempDir(),
-	}
-	deps := memoryHandlerDeps{
-		Service:  newServiceWithConsolidator(cfg, nil, nil, nil),
-		Sections: &recordingSectionInvalidator{},
-	}
-	rec := deps.Sections.(*recordingSectionInvalidator)
-
-	if _, err := saveUIAgentMemory(context.Background(), deps, uiAgentMemorySaveParams{
-		CWD:       projectRoot,
-		Scope:     "project",
-		AgentType: "Phase4Baseline",
-		Content:   "Lock down agent-memory save invalidation as a Phase 4.0 baseline.",
-	}); err != nil {
-		t.Fatalf("saveUIAgentMemory() error = %v", err)
-	}
-	assertRecordedInvalidation(t, rec, "after saveUIAgentMemory",
-		contract.InvalidateMemoryWrite,
-		contract.DynamicSectionAgentMemory,
-	)
-}
-
-func TestPhase4BaselineDeleteUIAgentMemoryInvalidatesAgentSection(t *testing.T) {
-	projectRoot := t.TempDir()
-	cfg := &Config{
-		Enabled:     true,
-		ProjectRoot: projectRoot,
-		RootDir:     t.TempDir(),
-	}
-	deps := memoryHandlerDeps{
-		Service:  newServiceWithConsolidator(cfg, nil, nil, nil),
-		Sections: &recordingSectionInvalidator{},
-	}
-	rec := deps.Sections.(*recordingSectionInvalidator)
-
-	if _, err := saveUIAgentMemory(context.Background(), deps, uiAgentMemorySaveParams{
-		CWD:       projectRoot,
-		Scope:     "project",
-		AgentType: "Phase4BaselineDelete",
-		Content:   "Will be deleted by the baseline test.",
-	}); err != nil {
-		t.Fatalf("saveUIAgentMemory(fixture) error = %v", err)
-	}
-
-	// Reset so we only observe the delete-time signal.
-	rec.mu.Lock()
-	rec.calls = nil
-	rec.mu.Unlock()
-
-	if err := deleteUIAgentMemory(context.Background(), deps, uiAgentMemoryDeleteParams{
-		CWD:       projectRoot,
-		Scope:     "project",
-		AgentType: "Phase4BaselineDelete",
-	}); err != nil {
-		t.Fatalf("deleteUIAgentMemory() error = %v", err)
-	}
-	assertRecordedInvalidation(t, rec, "after deleteUIAgentMemory",
-		contract.InvalidateMemoryWrite,
-		contract.DynamicSectionAgentMemory,
-	)
-}
-
-// TestPhase4BaselineSaveUIAgentMemoryDoesNotInvalidateDurableSections is
-// a disjoint counter-baseline (reviewer F): the agent-memory path must
-// NOT bleed into the durable Memory/MemoryContext/MemoryEntrypoint
-// sections. Locks the section-name partitioning so a future Phase 4.1
-// ranking change that accidentally fans out invalidation across scopes
-// will trip this guard.
-func TestPhase4BaselineSaveUIAgentMemoryDoesNotInvalidateDurableSections(t *testing.T) {
-	projectRoot := t.TempDir()
-	cfg := &Config{
-		Enabled:     true,
-		ProjectRoot: projectRoot,
-		RootDir:     t.TempDir(),
-	}
-	deps := memoryHandlerDeps{
-		Service:  newServiceWithConsolidator(cfg, nil, nil, nil),
-		Sections: &recordingSectionInvalidator{},
-	}
-	rec := deps.Sections.(*recordingSectionInvalidator)
-
-	if _, err := saveUIAgentMemory(context.Background(), deps, uiAgentMemorySaveParams{
-		CWD:       projectRoot,
-		Scope:     "project",
-		AgentType: "Phase4DisjointAgent",
-		Content:   "Disjoint baseline: agent path must not bleed into durable sections.",
-	}); err != nil {
-		t.Fatalf("saveUIAgentMemory() error = %v", err)
-	}
-	assertRecordedNoSections(t, rec, "after saveUIAgentMemory",
 		contract.DynamicSectionMemory,
 		contract.DynamicSectionMemoryContext,
 		contract.DynamicSectionMemoryEntrypoint,

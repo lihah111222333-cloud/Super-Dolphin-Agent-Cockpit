@@ -15,6 +15,7 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
+	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
 )
 
@@ -527,6 +528,602 @@ func TestListToolsForCodex_PeerWaitIsConcurrent(t *testing.T) {
 	}
 }
 
+func TestMemoryWriteHostToolRegistry_DisabledToolsHideButRejectStaleCall(t *testing.T) {
+	reg := NewMemoryWriteHostToolRegistry(&stubAgentMemoryWriter{}, MemoryWriteHostToolOptions{Enabled: true, ToolsEnabled: false})
+
+	if tools := reg.ListHostTools(); tools != nil {
+		t.Fatalf("ListHostTools() = %+v, want nil when tools disabled", tools)
+	}
+	if !reg.HasTool(ToolNameMemoryWrite) {
+		t.Fatalf("HasTool(%q) = false, want true for stale call handling", ToolNameMemoryWrite)
+	}
+	_, err := reg.CallHostTool(context.Background(), HostToolCall{Name: ToolNameMemoryWrite})
+	if contract.AgentMemoryErrorCode(err) != "tools_disabled" {
+		t.Fatalf("CallHostTool() error = %v, want tools_disabled", err)
+	}
+}
+
+func TestMemoryWriteHostToolRegistry_ListSchemaAndCall(t *testing.T) {
+
+	writer := &stubAgentMemoryWriter{}
+	reg := NewMemoryWriteHostToolRegistry(writer, MemoryWriteHostToolOptions{Enabled: true, ToolsEnabled: true})
+	tools := reg.ListHostTools()
+	if len(tools) != 1 {
+		t.Fatalf("ListHostTools() len = %d, want 1", len(tools))
+	}
+	if tools[0].Name != ToolNameMemoryWrite {
+		t.Fatalf("tool name = %q, want %q", tools[0].Name, ToolNameMemoryWrite)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(tools[0].InputSchema, &schema); err != nil {
+		t.Fatalf("schema json invalid: %v", err)
+	}
+	required, _ := schema["required"].([]any)
+	if !containsAnyString(required, "description") {
+		t.Fatalf("schema required = %#v, want description required", required)
+	}
+	if !reg.HasTool(ToolNameMemoryWrite) {
+		t.Fatalf("HasTool(%q) = false, want true", ToolNameMemoryWrite)
+	}
+
+	args := mustMarshal(t, map[string]any{
+		"name":        "daily-report-style",
+		"description": "Report style preference",
+		"content":     "Prefer concise daily status.\nWhy: user asked.\nHow to apply: keep reports short.",
+		"type":        "feedback",
+	})
+	result, err := reg.CallHostTool(context.Background(), HostToolCall{
+		Name:      ToolNameMemoryWrite,
+		Arguments: args,
+		AgentID:   "agent-1",
+		ThreadID:  "thread-1",
+		CWD:       "/repo",
+		CallID:    "call-1",
+	})
+	if err != nil {
+		t.Fatalf("CallHostTool() error = %v", err)
+	}
+	if writer.calls != 1 {
+		t.Fatalf("writer calls = %d, want 1", writer.calls)
+	}
+	if writer.last.Name != "daily-report-style" || writer.last.Description != "Report style preference" || writer.last.Type != contract.MemoryTypeFeedback || writer.last.Scope != contract.MemoryScopeUser || writer.last.AgentID != "agent-1" || writer.last.ThreadID != "thread-1" || writer.last.CWD != "/repo" || writer.last.CallID != "call-1" || writer.last.Source != "agent_tool" {
+		t.Fatalf("writer request = %+v", writer.last)
+	}
+	res, ok := result.(contract.AgentMemoryWriteResult)
+	if !ok {
+		t.Fatalf("result type = %T, want contract.AgentMemoryWriteResult", result)
+	}
+	if res.ActualTarget != "private" || res.Type != contract.MemoryTypeFeedback {
+		t.Fatalf("result = %+v", res)
+	}
+}
+
+func TestMemoryWriteHostToolRegistry_RejectsPathAndLocalScope(t *testing.T) {
+	reg := NewMemoryWriteHostToolRegistry(&stubAgentMemoryWriter{}, MemoryWriteHostToolOptions{Enabled: true, ToolsEnabled: true})
+	tests := []struct {
+		name string
+		args map[string]any
+		code string
+	}{
+		{
+			name: "path traversal field",
+			args: map[string]any{"name": "x", "description": "d", "content": "c", "type": "feedback", "path": "../../x"},
+			code: "invalid_input",
+		},
+		{
+			name: "local scope unsupported",
+			args: map[string]any{"name": "x", "description": "d", "content": "c", "type": "feedback", "scope": "local"},
+			code: "unsupported_scope",
+		},
+		{
+			name: "feedback project mismatch",
+			args: map[string]any{"name": "x", "description": "d", "content": "c", "type": "feedback", "scope": "project"},
+			code: "invalid_input",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := reg.CallHostTool(context.Background(), HostToolCall{Name: ToolNameMemoryWrite, Arguments: mustMarshal(t, tt.args)})
+			if err == nil {
+				t.Fatal("CallHostTool() error = nil, want validation error")
+			}
+			if code := contract.AgentMemoryErrorCode(err); code != tt.code {
+				t.Fatalf("error code = %q, want %q (err=%v)", code, tt.code, err)
+			}
+		})
+	}
+}
+
+func TestCompositeHostToolRegistry_HostOrderAndCall(t *testing.T) {
+	first := &stubHostToolRegistry{hasToolName: "dup", tools: []dto.MCPTool{{Name: "dup", Description: "first"}}, result: map[string]any{"source": "first"}}
+	second := &stubHostToolRegistry{hasToolName: "dup", tools: []dto.MCPTool{{Name: "dup", Description: "second"}}}
+	reg := NewCompositeHostToolRegistry(first, second)
+	tools := reg.ListHostTools()
+	if len(tools) != 1 || tools[0].Description != "first" {
+		t.Fatalf("composite tools = %+v, want first duplicate only", tools)
+	}
+	result, err := reg.CallHostTool(context.Background(), HostToolCall{Name: "dup"})
+	if err != nil {
+		t.Fatalf("CallHostTool() error = %v", err)
+	}
+	if first.calls != 1 || second.calls != 0 {
+		t.Fatalf("calls first=%d second=%d, want first only", first.calls, second.calls)
+	}
+	got, _ := result.(map[string]any)
+	if got["source"] != "first" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+type stubAgentMemoryReader struct {
+	calls        int
+	last         contract.MemoryReadRequest
+	err          error
+	enabled      bool
+	toolsEnabled bool
+}
+
+func (s *stubAgentMemoryReader) ReadAgentMemory(_ context.Context, req contract.MemoryReadRequest) (contract.MemoryReadResult, error) {
+	s.calls++
+	s.last = req
+	if s.err != nil {
+		return contract.MemoryReadResult{}, s.err
+	}
+	return contract.MemoryReadResult{Entry: &contract.MemoryEntry{Name: req.Name, Type: req.Type, Content: "memory content"}, SourcePath: "feedback/read.md", IndexHit: true}, nil
+}
+
+func (s *stubAgentMemoryReader) MemoryReadEnabled() bool {
+	return s == nil || s.enabled
+}
+
+func (s *stubAgentMemoryReader) MemoryReadToolsEnabled() bool {
+	return s == nil || s.toolsEnabled
+}
+
+func TestMemoryReadHostToolRegistry_ListSchemaAndCall(t *testing.T) {
+	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true}
+	reg := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: true})
+	tools := reg.ListHostTools()
+	if len(tools) != 1 || tools[0].Name != ToolNameMemoryRead {
+		t.Fatalf("ListHostTools() = %+v, want memory_read", tools)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(tools[0].InputSchema, &schema); err != nil {
+		t.Fatalf("schema json error = %v", err)
+	}
+	properties := schema["properties"].(map[string]any)
+	for _, key := range []string{"name", "path", "scope", "type"} {
+		if _, ok := properties[key]; !ok {
+			t.Fatalf("schema properties missing %q: %#v", key, properties)
+		}
+	}
+	if schema["additionalProperties"] != false {
+		t.Fatalf("additionalProperties = %#v, want false", schema["additionalProperties"])
+	}
+	scopeSchema := properties["scope"].(map[string]any)
+	if containsAnyString(scopeSchema["enum"].([]any), "private") || containsAnyString(scopeSchema["enum"].([]any), "project") || containsAnyString(scopeSchema["enum"].([]any), "local") {
+		t.Fatalf("scope enum = %#v, want only public supported scopes", scopeSchema["enum"])
+	}
+
+	result, err := reg.CallHostTool(context.Background(), HostToolCall{
+		Name:      ToolNameMemoryRead,
+		Arguments: mustMarshal(t, map[string]any{"name": "daily-report-style", "scope": "team", "type": "project"}),
+		AgentID:   "agent-1",
+		ThreadID:  "thread-1",
+		CWD:       "/repo",
+		CallID:    "call-1",
+	})
+	if err != nil {
+		t.Fatalf("CallHostTool() error = %v", err)
+	}
+	if reader.calls != 1 || reader.last.Name != "daily-report-style" || reader.last.Scope != contract.MemoryScopeTeam || reader.last.Type != contract.MemoryTypeProject || reader.last.CWD != "/repo" || reader.last.AgentID != "agent-1" {
+		t.Fatalf("reader request = %+v calls=%d", reader.last, reader.calls)
+	}
+	if _, ok := result.(contract.MemoryReadResult); !ok {
+		t.Fatalf("result type = %T, want contract.MemoryReadResult", result)
+	}
+}
+
+func TestMemoryReadHostToolRegistry_ListHiddenWhenDisabled(t *testing.T) {
+	reader := &stubAgentMemoryReader{}
+	cases := []MemoryReadHostToolOptions{{Enabled: false, ToolsEnabled: true}, {Enabled: true, ToolsEnabled: false}}
+	for _, opts := range cases {
+		reg := NewMemoryReadHostToolRegistry(reader, opts)
+		if got := reg.ListHostTools(); len(got) != 0 {
+			t.Fatalf("ListHostTools() = %+v, want hidden for opts %+v", got, opts)
+		}
+		if !reg.HasTool(ToolNameMemoryRead) {
+			t.Fatalf("HasTool(%q) = false, want true for stale call handling", ToolNameMemoryRead)
+		}
+	}
+}
+
+func TestMemoryReadHostToolRegistry_StaleCallWhenFeatureDisabled(t *testing.T) {
+	reg := NewMemoryReadHostToolRegistry(&stubAgentMemoryReader{}, MemoryReadHostToolOptions{Enabled: false, ToolsEnabled: true})
+	_, err := reg.CallHostTool(context.Background(), HostToolCall{Name: ToolNameMemoryRead, Arguments: mustMarshal(t, map[string]any{"name": "x"})})
+	if code := contract.AgentMemoryErrorCode(err); code != "feature_disabled" {
+		t.Fatalf("error code = %q, want feature_disabled (err=%v)", code, err)
+	}
+}
+
+func TestMemoryReadHostToolRegistry_StaleCallWhenToolsDisabled(t *testing.T) {
+	reg := NewMemoryReadHostToolRegistry(&stubAgentMemoryReader{}, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: false})
+	_, err := reg.CallHostTool(context.Background(), HostToolCall{Name: ToolNameMemoryRead, Arguments: mustMarshal(t, map[string]any{"name": "x"})})
+	if code := contract.AgentMemoryErrorCode(err); code != "tools_disabled" {
+		t.Fatalf("error code = %q, want tools_disabled (err=%v)", code, err)
+	}
+}
+
+func TestMemoryReadHostToolRegistry_ReaderUnavailable(t *testing.T) {
+	reg := &MemoryReadHostToolRegistry{opts: MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: true}}
+	_, err := reg.CallHostTool(context.Background(), HostToolCall{Name: ToolNameMemoryRead, Arguments: mustMarshal(t, map[string]any{"name": "x"})})
+	if code := contract.AgentMemoryErrorCode(err); code != "reader_unavailable" {
+		t.Fatalf("error code = %q, want reader_unavailable (err=%v)", code, err)
+	}
+}
+
+func TestMemoryReadHostToolRegistry_InvalidInput(t *testing.T) {
+	reg := NewMemoryReadHostToolRegistry(&stubAgentMemoryReader{enabled: true, toolsEnabled: true}, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: true})
+	for _, args := range []json.RawMessage{json.RawMessage(`{"name":"x","scope":"private"}`), json.RawMessage(`{"name":"x","type":"bogus"}`), json.RawMessage(`not-json`)} {
+		_, err := reg.CallHostTool(context.Background(), HostToolCall{Name: ToolNameMemoryRead, Arguments: args})
+		if code := contract.AgentMemoryErrorCode(err); code != "invalid_input" {
+			t.Fatalf("error code = %q, want invalid_input for args %s (err=%v)", code, string(args), err)
+		}
+	}
+}
+
+func TestMemoryReadHostToolRegistry_ReaderError(t *testing.T) {
+	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true, err: contract.NewAgentMemoryError("not_found", errors.New("missing"))}
+	reg := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: true})
+	_, err := reg.CallHostTool(context.Background(), HostToolCall{Name: ToolNameMemoryRead, Arguments: mustMarshal(t, map[string]any{"name": "missing"})})
+	if code := contract.AgentMemoryErrorCode(err); code != "not_found" {
+		t.Fatalf("error code = %q, want not_found (err=%v)", code, err)
+	}
+}
+
+type stubAgentMemoryWriter struct {
+	calls int
+	last  contract.AgentMemoryWriteRequest
+}
+
+func (s *stubAgentMemoryWriter) WriteAgentMemory(_ context.Context, req contract.AgentMemoryWriteRequest) (contract.AgentMemoryWriteResult, error) {
+	s.calls++
+	s.last = req
+	return contract.AgentMemoryWriteResult{Path: "feedback/daily-report-style.md", RequestedScope: req.Scope, ActualTarget: "private", Type: req.Type}, nil
+}
+
+func (s *stubAgentMemoryWriter) MemoryWriteEnabled() bool { return true }
+
+func (s *stubAgentMemoryWriter) MemoryWriteToolsEnabled() bool { return true }
+
+func containsAnyString(values []any, want string) bool {
+	for _, value := range values {
+		if s, ok := value.(string); ok && s == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestListToolsForCodex_IncludesHostMemoryReadAndWrite(t *testing.T) {
+	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true}
+	writer := &stubAgentMemoryWriter{}
+	h := &Handler{
+		registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+			dto.ClientKindOrch: {listToolsPeer(nil, nil)},
+			dto.ClientKindLSP:  {listToolsPeer(nil, nil)},
+		}},
+		hostTools: NewCompositeHostToolRegistry(NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: true}), NewMemoryWriteHostToolRegistry(writer, MemoryWriteHostToolOptions{Enabled: true, ToolsEnabled: true})),
+	}
+	tools, err := h.ListToolsForCodex(context.Background())
+	if err != nil {
+		t.Fatalf("ListToolsForCodex() error = %v", err)
+	}
+	got := map[string]bool{}
+	for _, tool := range tools {
+		got[tool.Name] = true
+	}
+	if !got[ToolNameMemoryRead] || !got[ToolNameMemoryWrite] {
+		t.Fatalf("dynamic tools names = %#v, want memory_read and memory_write", got)
+	}
+}
+
+func TestListToolsForCodex_FiltersPeerMemoryReadWhenReaderUnavailable(t *testing.T) {
+	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: ToolNameMemoryRead, Description: "peer memory"}, {Name: "orchestration_launch_agent", Description: "peer orch"}}, nil)},
+		dto.ClientKindLSP:  {listToolsPeer(nil, nil)},
+	}}
+	h := &Handler{registry: registry}
+	tools, err := h.ListToolsForCodex(context.Background())
+	if err != nil {
+		t.Fatalf("ListToolsForCodex() error = %v", err)
+	}
+	if containsDynamicToolName(tools, ToolNameMemoryRead) {
+		t.Fatalf("dynamic tools = %+v, must filter peer memory_read when host reader is unavailable", tools)
+	}
+	if !containsDynamicToolName(tools, "orchestration_launch_agent") {
+		t.Fatalf("dynamic tools = %+v, want non-memory peer tool preserved", tools)
+	}
+}
+
+func TestListToolsForCodex_FiltersPeerMemoryReadWhenMemoryReadToolsDisabled(t *testing.T) {
+	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true}
+	host := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: false})
+	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: ToolNameMemoryRead, Description: "peer memory"}, {Name: "orchestration_launch_agent", Description: "peer orch"}}, nil)},
+		dto.ClientKindLSP:  {listToolsPeer(nil, nil)},
+	}}
+	h := &Handler{registry: registry, hostTools: host}
+	tools, err := h.ListToolsForCodex(context.Background())
+	if err != nil {
+		t.Fatalf("ListToolsForCodex() error = %v", err)
+	}
+	if containsDynamicToolName(tools, ToolNameMemoryRead) {
+		t.Fatalf("dynamic tools = %+v, must filter peer memory_read when memory_read tools are disabled", tools)
+	}
+	if !containsDynamicToolName(tools, "orchestration_launch_agent") {
+		t.Fatalf("dynamic tools = %+v, want non-memory peer tool preserved", tools)
+	}
+}
+
+func containsDynamicToolName(tools []codexprotocol.DynamicToolSchema, name string) bool {
+	for _, tool := range tools {
+		if tool.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func TestListToolsForCodex_HostMemoryReadPreventsPeerMemoryReadUse(t *testing.T) {
+	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true}
+	host := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: true})
+	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: ToolNameMemoryRead, Description: "peer memory"}}, nil)},
+		dto.ClientKindLSP:  {listToolsPeer(nil, nil)},
+	}}
+	h := &Handler{registry: registry, hostTools: host}
+	tools, err := h.ListToolsForCodex(context.Background())
+	if err != nil {
+		t.Fatalf("ListToolsForCodex() error = %v", err)
+	}
+	count := 0
+	var description string
+	for _, tool := range tools {
+		if tool.Name == ToolNameMemoryRead {
+			count++
+			description = tool.Description
+		}
+	}
+	if count != 1 || description == "peer memory" {
+		t.Fatalf("memory_read count=%d description=%q, want host only", count, description)
+	}
+}
+
+func TestCodexMemoryReadCallToolsDisabledReturnsStableEnvelopeWithoutPeerFallback(t *testing.T) {
+	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true}
+	host := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: false})
+	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+		dto.ClientKindOrch: {
+			{Peer: &stubPeer{callbackFn: func(_ context.Context, method string, params any, result any) error {
+				t.Fatalf("peer callback called for %s with params %#v", method, params)
+				return nil
+			}}},
+		},
+	}}
+	h := &Handler{registry: registry, hostTools: host}
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: ToolNameMemoryRead, Arguments: mustMarshal(t, map[string]any{"name": "daily"}), AgentID: "agent-1"})
+
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	if got == nil || got.Success {
+		t.Fatalf("result = %+v, want host tool error", got)
+	}
+	envelope := decodeToolResultEnvelope(t, got)
+	if envelope["tool"] != ToolNameMemoryRead || envelope["code"] != "tools_disabled" {
+		t.Fatalf("envelope = %#v, want tools_disabled", envelope)
+	}
+	if reader.calls != 0 || len(registry.gotKinds) != 0 {
+		t.Fatalf("reader.calls=%d registry kinds=%#v, want no reader or peer", reader.calls, registry.gotKinds)
+	}
+}
+
+func TestCodexMemoryReadCallFeatureDisabledReturnsStableEnvelopeWithoutPeerFallback(t *testing.T) {
+	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true}
+	host := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: false, ToolsEnabled: true})
+	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+		dto.ClientKindOrch: {
+			{Peer: &stubPeer{callbackFn: func(_ context.Context, method string, params any, result any) error {
+				t.Fatalf("peer callback called for %s with params %#v", method, params)
+				return nil
+			}}},
+		},
+	}}
+	h := &Handler{registry: registry, hostTools: host}
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: ToolNameMemoryRead, Arguments: mustMarshal(t, map[string]any{"name": "daily"}), AgentID: "agent-1"})
+
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	if got == nil || got.Success {
+		t.Fatalf("result = %+v, want host tool error", got)
+	}
+	envelope := decodeToolResultEnvelope(t, got)
+	if envelope["tool"] != ToolNameMemoryRead || envelope["code"] != "feature_disabled" {
+		t.Fatalf("envelope = %#v, want feature_disabled", envelope)
+	}
+	if reader.calls != 0 || len(registry.gotKinds) != 0 {
+		t.Fatalf("reader.calls=%d registry kinds=%#v, want no reader or peer", reader.calls, registry.gotKinds)
+	}
+}
+
+func TestCodexMemoryReadCallNilReaderReturnsStableEnvelopeWithoutPeerFallback(t *testing.T) {
+	host := &MemoryReadHostToolRegistry{opts: MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: true}}
+	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+		dto.ClientKindOrch: {
+			{Peer: &stubPeer{callbackFn: func(_ context.Context, method string, params any, result any) error {
+				t.Fatalf("peer callback called for %s with params %#v", method, params)
+				return nil
+			}}},
+		},
+	}}
+	h := &Handler{registry: registry, hostTools: host}
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: ToolNameMemoryRead, Arguments: mustMarshal(t, map[string]any{"name": "daily"}), AgentID: "agent-1"})
+
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	if got == nil || got.Success {
+		t.Fatalf("result = %+v, want host tool error", got)
+	}
+	envelope := decodeToolResultEnvelope(t, got)
+	if envelope["tool"] != ToolNameMemoryRead || envelope["code"] != "reader_unavailable" {
+		t.Fatalf("envelope = %#v, want reader_unavailable", envelope)
+	}
+	if len(registry.gotKinds) != 0 {
+		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
+	}
+}
+
+func TestCodexMemoryReadCallReaderErrorPreservesCodeWithoutPeerFallback(t *testing.T) {
+	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true, err: contract.NewAgentMemoryError("not_visible", errors.New("memory not visible"))}
+	host := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: true})
+	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+		dto.ClientKindOrch: {
+			{Peer: &stubPeer{callbackFn: func(_ context.Context, method string, params any, result any) error {
+				t.Fatalf("peer callback called for %s with params %#v", method, params)
+				return nil
+			}}},
+		},
+	}}
+	h := &Handler{registry: registry, hostTools: host}
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: ToolNameMemoryRead, Arguments: mustMarshal(t, map[string]any{"name": "private"}), AgentID: "agent-1"})
+
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	if got == nil || got.Success {
+		t.Fatalf("result = %+v, want host tool error", got)
+	}
+	envelope := decodeToolResultEnvelope(t, got)
+	if envelope["tool"] != ToolNameMemoryRead || envelope["code"] != "not_visible" {
+		t.Fatalf("envelope = %#v, want not_visible", envelope)
+	}
+	if reader.calls != 1 || len(registry.gotKinds) != 0 {
+		t.Fatalf("reader.calls=%d registry kinds=%#v, want one reader call and no peer", reader.calls, registry.gotKinds)
+	}
+}
+
+func TestCodexMemoryReadCallUsesHostDirect(t *testing.T) {
+	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true}
+	host := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: true})
+	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+		dto.ClientKindOrch: {
+			{Peer: &stubPeer{callbackFn: func(_ context.Context, method string, params any, result any) error {
+				t.Fatalf("peer callback called for %s with params %#v", method, params)
+				return nil
+			}}},
+		},
+	}}
+	h := &Handler{registry: registry, hostTools: host}
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: ToolNameMemoryRead, Arguments: mustMarshal(t, map[string]any{"name": "daily", "scope": "user"}), AgentID: "agent-1"})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	if got == nil || !got.Success || reader.calls != 1 {
+		t.Fatalf("result=%+v reader.calls=%d, want host success", got, reader.calls)
+	}
+	if len(registry.gotKinds) != 0 {
+		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
+	}
+}
+
+func TestCodexMemoryWriteCallWithoutHostDoesNotFallbackToPeer(t *testing.T) {
+	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+		dto.ClientKindOrch: {
+			{Peer: &stubPeer{callbackFn: func(_ context.Context, method string, params any, result any) error {
+				t.Fatalf("peer callback called for %s with params %#v", method, params)
+				return nil
+			}}},
+		},
+	}}
+	h := &Handler{registry: registry}
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: ToolNameMemoryWrite, Arguments: mustMarshal(t, map[string]any{"name": "daily"}), AgentID: "agent-1"})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	if got == nil || got.Success {
+		t.Fatalf("result = %+v, want host tool error", got)
+	}
+	envelope := decodeToolResultEnvelope(t, got)
+	if envelope["tool"] != ToolNameMemoryWrite || envelope["code"] != "writer_unavailable" {
+		t.Fatalf("envelope = %#v, want writer_unavailable", envelope)
+	}
+	if len(registry.gotKinds) != 0 {
+		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
+	}
+}
+
+func TestCodexMemoryWriteCallToolsDisabledReturnsStableEnvelope(t *testing.T) {
+	writer := &stubAgentMemoryWriter{}
+	host := NewMemoryWriteHostToolRegistry(writer, MemoryWriteHostToolOptions{Enabled: true, ToolsEnabled: false})
+	h := &Handler{registry: &stubKindRegistry{}, hostTools: host}
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: ToolNameMemoryWrite, Arguments: mustMarshal(t, map[string]any{"name": "daily"}), AgentID: "agent-1"})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	envelope := decodeToolResultEnvelope(t, got)
+	if envelope["tool"] != ToolNameMemoryWrite || envelope["code"] != "tools_disabled" {
+		t.Fatalf("envelope = %#v, want tools_disabled", envelope)
+	}
+}
+
+func TestCodexMemoryReadCallWithoutRegistryReturnsStableEnvelope(t *testing.T) {
+	h := &Handler{}
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: ToolNameMemoryRead, Arguments: mustMarshal(t, map[string]any{"name": "daily"}), AgentID: "agent-1"})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v, want stable tool result", err)
+	}
+	if got == nil || got.Success {
+		t.Fatalf("result = %+v, want host tool error", got)
+	}
+	envelope := decodeToolResultEnvelope(t, got)
+	if envelope["tool"] != ToolNameMemoryRead || envelope["code"] != "reader_unavailable" {
+		t.Fatalf("envelope = %#v, want reader_unavailable", envelope)
+	}
+}
+
+func TestCodexMemoryReadCallWithoutHostDoesNotFallbackToPeer(t *testing.T) {
+	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+		dto.ClientKindOrch: {
+			{Peer: &stubPeer{callbackFn: func(_ context.Context, method string, params any, result any) error {
+				t.Fatalf("peer callback called for %s with params %#v", method, params)
+				return nil
+			}}},
+		},
+	}}
+	h := &Handler{registry: registry}
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: ToolNameMemoryRead, Arguments: mustMarshal(t, map[string]any{"name": "daily"}), AgentID: "agent-1"})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	if got == nil || got.Success {
+		t.Fatalf("result = %+v, want host tool error", got)
+	}
+	envelope := decodeToolResultEnvelope(t, got)
+	if envelope["tool"] != ToolNameMemoryRead || envelope["code"] != "reader_unavailable" {
+		t.Fatalf("envelope = %#v, want reader_unavailable", envelope)
+	}
+	if len(registry.gotKinds) != 0 {
+		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
+	}
+}
+
 // ── SkillReadSectionRegistry tests ─────────────────────────────────────────
 
 func TestNewSkillReadSectionRegistry_NilTool(t *testing.T) {
@@ -601,13 +1198,54 @@ func TestSkillReadSectionRegistry_CallHostTool_ReadsSection(t *testing.T) {
 	if !ok {
 		t.Fatalf("result type = %T, want SkillReadSectionResult", result)
 	}
+	if res.Name != "tdd" {
+		t.Fatalf("result name = %q, want \"tdd\"", res.Name)
+	}
+	if res.Anchor != "overview" {
+		t.Fatalf("result anchor = %q, want \"overview\"", res.Anchor)
+	}
 	if res.Body != "TDD overview content" {
 		t.Fatalf("result body = %q, want \"TDD overview content\"", res.Body)
+	}
+	if res.Truncated {
+		t.Fatal("result truncated = true, want false")
+	}
+	if res.TotalBytes != len("TDD overview content") {
+		t.Fatalf("result total_bytes = %d, want %d", res.TotalBytes, len("TDD overview content"))
+	}
+}
+
+func TestSkillReadSectionRegistry_CallHostTool_TruncatedMetadata(t *testing.T) {
+	cacheDir := t.TempDir()
+	makeRefFile(t, cacheDir, "tdd", "overview", "abcdefghij")
+
+	reg := NewSkillReadSectionRegistry(NewSkillReadSectionTool(cacheDir, nil))
+	args := mustMarshal(t, map[string]any{"name": "tdd", "anchor": "overview", "max_bytes": 4})
+	result, err := reg.CallHostTool(context.Background(), HostToolCall{
+		Name:      ToolNameReadSection,
+		Arguments: args,
+	})
+	if err != nil {
+		t.Fatalf("CallHostTool() error = %v", err)
+	}
+	res, ok := result.(SkillReadSectionResult)
+	if !ok {
+		t.Fatalf("result type = %T, want SkillReadSectionResult", result)
+	}
+	if res.Body != "abcd" {
+		t.Fatalf("result body = %q, want \"abcd\"", res.Body)
+	}
+	if !res.Truncated {
+		t.Fatal("result truncated = false, want true")
+	}
+	if res.TotalBytes != len("abcdefghij") {
+		t.Fatalf("result total_bytes = %d, want %d", res.TotalBytes, len("abcdefghij"))
 	}
 }
 
 func TestSkillReadSectionRegistry_CallHostTool_UnknownToolReturnsError(t *testing.T) {
 	reg := NewSkillReadSectionRegistry(NewSkillReadSectionTool(t.TempDir(), nil))
+
 	_, err := reg.CallHostTool(context.Background(), HostToolCall{
 		Name:      "skill_expand_body",
 		Arguments: json.RawMessage(`{}`),

@@ -12,7 +12,6 @@ import (
 const (
 	DynamicSectionSessionGuidance      = contract.DynamicSectionSessionGuidance
 	DynamicSectionMemory               = contract.DynamicSectionMemory
-	DynamicSectionAgentMemory          = contract.DynamicSectionAgentMemory
 	DynamicSectionMemoryContext        = contract.DynamicSectionMemoryContext
 	DynamicSectionMemoryEntrypoint     = contract.DynamicSectionMemoryEntrypoint
 	DynamicSectionEnvInfoSimple        = contract.DynamicSectionEnvInfoSimple
@@ -55,7 +54,6 @@ var dynamicSectionSpecs = []dynamicSectionSpec{
 	{name: DynamicSectionSessionGuidance, order: 110, cachePolicy: InputScoped},
 	{name: DynamicSectionMemory, order: 120, cachePolicy: InputScoped, startOnly: true},
 	{name: DynamicSectionMemoryEntrypoint, order: 122, cachePolicy: InputScoped, startOnly: true},
-	{name: DynamicSectionAgentMemory, order: 123, cachePolicy: InputScoped, startOnly: true},
 	{name: DynamicSectionMemoryContext, order: 125, cachePolicy: InputScoped},
 	{name: DynamicSectionEnvInfoSimple, order: 130, cachePolicy: InputScoped},
 	{name: DynamicSectionLanguage, order: 140, cachePolicy: InputScoped},
@@ -402,16 +400,8 @@ func inputScopedSectionDependency(section PromptSection, input SectionContext) a
 			EnabledTools: sortedPromptValues(input.BuildCtx.EnabledTools),
 			SessionFlags: trueFlagKeys(input.BuildCtx.SessionFlags),
 		}
-	case DynamicSectionMemory, DynamicSectionAgentMemory:
-		if section.Name == DynamicSectionMemory {
-			return memorySectionDependency(section, input)
-		}
-		isChild, agentType := childAgentCacheDependency(input)
-		return struct {
-			Section   string `json:"section"`
-			IsChild   bool   `json:"isChild,omitempty"`
-			AgentType string `json:"agentType,omitempty"`
-		}{Section: section.Name, IsChild: isChild, AgentType: agentType}
+	case DynamicSectionMemory:
+		return memorySectionDependency(section, input)
 	case DynamicSectionMemoryContext:
 		threadID := ""
 		userText := ""

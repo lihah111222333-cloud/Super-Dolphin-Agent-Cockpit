@@ -66,17 +66,14 @@ func TestNestedRuntimeHardDeniesManagedRoots(t *testing.T) {
 	projectRoot := filepath.Join(base, "repo")
 	autoRoot := filepath.Join(base, "automem")
 	teamRoot := filepath.Join(autoRoot, "team")
-	agentRoot := filepath.Join(base, "agent", "worker")
 	deps := newTestDependencies(testDepsOptions{
-		autoMemRoot:       autoRoot,
-		teamRoot:          teamRoot,
-		isAgentMemoryPath: underRoot(agentRoot),
+		autoMemRoot: autoRoot,
+		teamRoot:    teamRoot,
 	})
 	runtime := NewNestedRuntime(deps)
 	buildCtx := contract.BuildCtx{GitRoot: projectRoot, CWD: projectRoot}
 	runtime.AddTriggers("thread-1", buildCtx, []string{
 		filepath.Join(autoRoot, "project.md"),
-		filepath.Join(agentRoot, "MEMORY.md"),
 		filepath.Join(teamRoot, "shared.md"),
 	})
 	if got := runtime.ConsumePending("thread-1", buildCtx); len(got) != 0 {
@@ -146,13 +143,6 @@ func TestNestedRuntimeAddsReadToolTriggersFromToolResult(t *testing.T) {
 	}
 }
 
-func underRoot(root string) func(string) bool {
-	root = cleanClaudeMdPath(root)
-	return func(path string) bool {
-		return nestedContainsPath(root, path)
-	}
-}
-
 // TestNestedRuntimePersistedToolReadHonorsCacheRoot verifies the P24
 // cache-root-threading happy path: a persistedPath under the configured
 // SetToolReadCacheRoot is read via shared.SafeReadEntrypoint and its
@@ -218,5 +208,23 @@ func TestNestedRuntimePersistedToolReadFailsClosedWhenCacheRootUnset(t *testing.
 	runtime.AddToolReadResult("thread-1", "Read", "", persistedPath)
 	if got := runtime.ConsumePending("thread-1", buildCtx); len(got) != 0 {
 		t.Fatalf("ConsumePending(unset cacheRoot) = %#v, want none (must fail closed)", got)
+	}
+}
+
+func TestNestedRuntimeHardDeniesHistoricalAgentMemoryRoots(t *testing.T) {
+	base := t.TempDir()
+	memoryRoot := filepath.Join(base, "memory")
+	projectRoot := filepath.Join(base, "repo")
+	deps := newTestDependencies(testDepsOptions{autoMemRoot: filepath.Join(memoryRoot, "private")})
+	runtime := NewNestedRuntime(deps)
+	buildCtx := contract.BuildCtx{GitRoot: projectRoot, CWD: projectRoot}
+
+	runtime.AddTriggers("thread-1", buildCtx, []string{
+		filepath.Join(memoryRoot, "agent-memory", "worker", "MEMORY.md"),
+		filepath.Join(projectRoot, ".claude", "agent-memory", "worker", "MEMORY.md"),
+		filepath.Join(projectRoot, ".claude", "agent-memory-local", "worker", "MEMORY.md"),
+	})
+	if got := runtime.ConsumePending("thread-1", buildCtx); len(got) != 0 {
+		t.Fatalf("ConsumePending() = %#v, want no historical agent-memory triggers", got)
 	}
 }

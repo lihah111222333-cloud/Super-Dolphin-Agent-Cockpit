@@ -2,7 +2,6 @@ package memory
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,52 +53,6 @@ func TestConsolidationPromptIncludesIndexTopicsAndLogs(t *testing.T) {
 		if !strings.Contains(prompt, snippet) {
 			t.Fatalf("prompt missing %q:\n%s", snippet, prompt)
 		}
-	}
-}
-
-func TestConsolidationPromptRejectsAgentMemoryPath(t *testing.T) {
-	root := newTestMemoryRoot(t)
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		t.Fatalf("MkdirAll(root) error = %v", err)
-	}
-	cfg := &Config{Enabled: true, RootDir: root}
-	manager := NewAgentMemoryManager(cfg)
-	agentDir, err := manager.GetAgentMemoryDir("Worker", MemoryScopeUser)
-	if err != nil {
-		t.Fatalf("GetAgentMemoryDir() error = %v", err)
-	}
-	if err := os.MkdirAll(agentDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll(agentDir) error = %v", err)
-	}
-	if err := os.WriteFile(memoryIndexPath(agentDir), []byte("# agent memory\n"), 0o644); err != nil {
-		t.Fatalf("WriteFile(agent MEMORY.md) error = %v", err)
-	}
-
-	_, err = loadConsolidationPromptInput(agentDir, cfg)
-	if !errors.Is(err, ErrConsolidationAgentMemoryPath) {
-		t.Fatalf("loadConsolidationPromptInput(agentDir) error = %v, want %v", err, ErrConsolidationAgentMemoryPath)
-	}
-}
-
-func TestConsolidationFailsClosedWithoutConfig(t *testing.T) {
-	root := newTestMemoryRoot(t)
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		t.Fatalf("MkdirAll(root) error = %v", err)
-	}
-	if _, err := loadConsolidationPromptInput(root, nil); !errors.Is(err, ErrConsolidationAgentMemoryPath) {
-		t.Fatalf("loadConsolidationPromptInput(nil cfg) error = %v, want %v", err, ErrConsolidationAgentMemoryPath)
-	}
-	consolidator := NewAutoDreamConsolidator(NewMemoryExtractor())
-	called := false
-	err := consolidator.Consolidate(context.Background(), root, func(context.Context, string) (string, error) {
-		called = true
-		return `{"memories":[]}`, nil
-	})
-	if !errors.Is(err, ErrConsolidationAgentMemoryPath) {
-		t.Fatalf("Consolidate(nil cfg) error = %v, want %v", err, ErrConsolidationAgentMemoryPath)
-	}
-	if called {
-		t.Fatal("extract func should not run when consolidation config is unavailable")
 	}
 }
 
@@ -205,5 +158,21 @@ func TestConsolidationPromptIncludesRuntimeContext(t *testing.T) {
 	}
 	if called != 1 {
 		t.Fatalf("extract func calls = %d, want 1", called)
+	}
+}
+
+func TestRejectConsolidationPathRejectsHistoricalAgentMemoryPath(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	cfg := &Config{Enabled: true, RootDir: root, ProjectRoot: filepath.Join(root, "project")}
+
+	paths := []string{
+		filepath.Join(root, "agent-memory", "worker", "MEMORY.md"),
+		filepath.Join(cfg.ProjectRoot, ".claude", "agent-memory", "worker", "MEMORY.md"),
+		filepath.Join(cfg.ProjectRoot, ".claude", "agent-memory-local", "worker", "MEMORY.md"),
+	}
+	for _, path := range paths {
+		if err := rejectConsolidationPath(cfg, path); err != ErrConsolidationAgentMemoryPath {
+			t.Fatalf("rejectConsolidationPath(%q) = %v, want ErrConsolidationAgentMemoryPath", path, err)
+		}
 	}
 }

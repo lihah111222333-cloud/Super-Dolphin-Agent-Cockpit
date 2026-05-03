@@ -10,10 +10,10 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/dedup"
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 )
 
@@ -92,6 +92,8 @@ type MemoryLifecycleHooks struct {
 	// once per process to avoid log spam on repeated explicit writes
 	// against the same entry. Key: entry.Name (string).
 	crossScopeWarned sync.Map
+
+	dedupFilter *dedup.Filter
 }
 
 var saveIntentPatterns = []*regexp.Regexp{
@@ -288,6 +290,8 @@ func (h *MemoryLifecycleHooks) detectTurnIntent(ctx context.Context, evt turndto
 }
 
 func (h *MemoryLifecycleHooks) writeIntent(ctx context.Context, threadID string, intent SaveIntent) error {
+	trackFeedbackIfApplicable(h, intent)
+
 	entry := buildExplicitMemoryWrite(intent)
 	options := h.writeOptions(ctx, threadID)
 	primary, secondary, err := h.intentDiskStores(ctx, threadID, entry.Type)
@@ -300,11 +304,106 @@ func (h *MemoryLifecycleHooks) writeIntent(ctx context.Context, threadID string,
 	}
 	primaryScope, secondaryScope := scopeNamesForIntentStores(entry.Type, secondary != nil)
 	h.warnCrossScopeSameName(entry.Name, store, primary, secondary, primaryScope, secondaryScope)
+
+	scope := primaryScope
+	if store == secondary {
+		scope = secondaryScope
+	}
+	if h.checkDedupAndHandle(entry, store, scope, options) {
+		return nil
+	}
+
 	if writeErr := upsertStructuredMemory(store, entry, options); writeErr != nil {
 		return writeErr
 	}
-	trackFeedbackIfApplicable(h, intent)
+	h.maybeOverflowMerge(store, entry.Type, options)
 	return nil
+}
+
+// checkDedupAndHandle runs the dedup filter check and handles Skip/Merge.
+// Returns true if the write was fully handled (caller should not proceed).
+func (h *MemoryLifecycleHooks) checkDedupAndHandle(entry MemoryWriteRequest, store memoryStructuredStore, scope string, options WriteOptions) bool {
+	if h.dedupFilter == nil {
+		return false
+	}
+	candidate := dedup.EntrySnapshot{
+		Name:        entry.Name,
+		Type:        string(entry.Type),
+		Description: entry.Description,
+		Content:     entry.Body,
+		Scope:       scope,
+	}
+	result, err := h.dedupFilter.Check(candidate)
+	if err != nil {
+		if h.logger != nil {
+			h.logger.Warn("memory dedup check failed", "err", err, "scope", scope, "type", entry.Type)
+		}
+		return false
+	}
+	switch result.Action {
+	case dedup.Skip:
+		return true
+	case dedup.Merge:
+		return h.tryDedupMerge(result, store, entry.Type, options)
+	}
+	return false
+}
+
+func (h *MemoryLifecycleHooks) tryDedupMerge(result dedup.CheckResult, store memoryStructuredStore, memType MemoryType, options WriteOptions) bool {
+	ws, ok := store.(memoryWriteStore)
+	if !ok {
+		return false
+	}
+	merged := snapshotToMemoryEntry(*result.MergedEntry)
+	if mergeErr := mergeAndWriteMemory(ws, result.TargetPath, merged, options); mergeErr != nil {
+		return false
+	}
+	h.handleDedupOverflow(ws, memType, options)
+	return true
+}
+
+func (h *MemoryLifecycleHooks) maybeOverflowMerge(store memoryStructuredStore, memType MemoryType, options WriteOptions) {
+	if ws, ok := store.(memoryWriteStore); ok {
+		h.handleDedupOverflow(ws, memType, options)
+	}
+}
+
+// handleDedupOverflow checks and executes overflow merges within the current
+// write store only. The global dedup filter scans cross-scope for duplicate
+// detection, but overflow control must never use private-scope instructions
+// to mutate a team store or vice versa.
+func (h *MemoryLifecycleHooks) handleDedupOverflow(store memoryWriteStore, memType MemoryType, options WriteOptions) {
+	if store == nil {
+		return
+	}
+	filter := dedup.NewFilter(func(typeFilter string) ([]dedup.EntrySnapshot, error) {
+		return scanEntriesAsSnapshots(store.Root(), typeFilter, storeScopeName(store, h))
+	}, nil)
+	instruction, err := filter.FindOverflowMerge(string(memType))
+	if err != nil || instruction == nil {
+		if err != nil && h != nil && h.logger != nil {
+			h.logger.Warn("memory dedup overflow check failed", "err", err, "scope", storeScopeName(store, h), "type", memType)
+		}
+		return
+	}
+	merged := snapshotToMemoryEntry(instruction.KeepEntry)
+	if err := overflowMergeAndDelete(store, instruction.KeepEntry.Path, merged, instruction.DeletePath, options); err != nil && h != nil && h.logger != nil {
+		h.logger.Warn("memory dedup overflow merge failed", "err", err, "scope", storeScopeName(store, h), "type", memType)
+	}
+}
+
+func storeScopeName(store memoryWriteStore, h *MemoryLifecycleHooks) string {
+	if store == nil {
+		return ""
+	}
+	root := filepath.Clean(store.Root())
+	if h != nil && h.team != nil {
+		teamRoot := filepath.Clean(strings.TrimSpace(h.team.GetTeamMemPath()))
+		if teamRoot != "." && root == teamRoot {
+			return "team"
+		}
+	}
+	return "private"
 }
 
 // warnCrossScopeSameName logs a single warn (dedup'd by name) when the
@@ -469,94 +568,6 @@ func resolvedStoreRoot(baseRoot, projectRoot, autoMemPathOverride string) (strin
 	return baseRoot, nil
 }
 
-func buildExplicitMemoryWrite(intent SaveIntent) MemoryWriteRequest {
-	content := normalizeHookContent(intent.Content)
-	memoryType := intent.Type
-	if !memoryType.IsKnown() {
-		memoryType = inferMemoryType(content)
-	}
-	description := buildExplicitMemoryDescription(content)
-	return MemoryWriteRequest{
-		Name:        buildExplicitMemoryName(memoryType, description),
-		Description: description,
-		Type:        memoryType,
-		Body:        buildExplicitMemoryBody(memoryType, content),
-	}
-}
-
-func buildExplicitMemoryDescription(content string) string {
-	description := truncateRunes(firstNonEmptyLine(content), memoryHookMaxRunes)
-	if description == "" {
-		description = truncateRunes(content, memoryHookMaxRunes)
-	}
-	return description
-}
-
-func buildExplicitMemoryBody(memoryType MemoryType, content string) string {
-	content = strings.TrimSpace(content)
-	switch memoryType {
-	case MemoryTypeFeedback:
-		if hasStructuredMemorySection(content, "why") && hasStructuredMemorySection(content, "how to apply") {
-			return content
-		}
-		return strings.Join([]string{
-			content,
-			"Why: user explicitly asked to remember this working guidance.",
-			"How to apply: follow this guidance when future work touches the same area.",
-		}, "\n")
-	case MemoryTypeProject:
-		if hasStructuredMemorySection(content, "why") && hasStructuredMemorySection(content, "how to apply") {
-			return content
-		}
-		return strings.Join([]string{
-			content,
-			"Why: user explicitly asked to preserve this project context.",
-			"How to apply: use this context when making project recommendations or planning follow-up work.",
-		}, "\n")
-	default:
-		return content
-	}
-}
-
-func buildExplicitMemoryName(memoryType MemoryType, description string) string {
-	prefix := "Saved memory"
-	switch memoryType {
-	case MemoryTypeUser:
-		prefix = "User note"
-	case MemoryTypeFeedback:
-		prefix = "Feedback rule"
-	case MemoryTypeProject:
-		prefix = "Project note"
-	case MemoryTypeReference:
-		prefix = "Reference note"
-	}
-	if description == "" {
-		return prefix
-	}
-	return truncateRunes(prefix+": "+description, 96)
-}
-
-func normalizeHookContent(text string) string {
-	lines := make([]string, 0, 4)
-	for line := range strings.SplitSeq(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
-		line = strings.TrimSpace(strings.TrimLeft(line, "-*• "))
-		line = strings.TrimSpace(strings.TrimLeft(line, ":：-—,，。.!！?？;；"))
-		line = strings.TrimSpace(strings.TrimPrefix(line, "that "))
-		line = strings.TrimSpace(strings.TrimPrefix(line, "关于 "))
-		if line == "" {
-			continue
-		}
-		lines = append(lines, line)
-	}
-	return strings.TrimSpace(strings.Join(lines, "\n"))
-}
-
-func hasMeaningfulMemoryContent(text string) bool {
-	return strings.IndexFunc(text, func(r rune) bool {
-		return unicode.IsLetter(r) || unicode.IsNumber(r)
-	}) >= 0
-}
-
 func inferMemoryType(text string) MemoryType {
 	normalized := CanonicalName(strings.ToLower(strings.ReplaceAll(text, "\n", " ")))
 	if normalized == "" {
@@ -651,10 +662,7 @@ func selectExplicitWriteStore(name string, primary, secondary memoryStructuredSt
 // Create-failed-with-AlreadyExists into an Update that overwrote
 // concurrently-written content.
 func upsertStructuredMemory(store memoryStructuredStore, entry MemoryWriteRequest, options WriteOptions) error {
-	if store == nil {
-		return errors.New("memory store is nil")
-	}
-	_, err := store.UpsertStructured(entry, options)
+	_, err := upsertStructuredMemoryReturningEntry(store, entry, options)
 	return err
 }
 

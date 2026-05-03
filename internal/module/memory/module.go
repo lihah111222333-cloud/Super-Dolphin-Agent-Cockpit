@@ -13,7 +13,7 @@ import (
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	memagent "github.com/anthropic-ai/super-agent-v3/internal/module/memory/agent"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/dedup"
 	nestedpkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/nested"
 	retrievalpkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/retrieval"
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
@@ -40,7 +40,6 @@ type promptProviderParams struct {
 	ClaudeMdProvider   contract.ClaudeMdSourceProvider          `optional:"true"`
 	Provider           *MemoryRulesProvider                     `optional:"true"`
 	EntrypointProvider *MemoryEntrypointProvider                `optional:"true"`
-	AgentProvider      *memagent.PromptProvider                 `optional:"true"`
 	ContextProvider    *MemoryContextProvider                   `optional:"true"`
 }
 
@@ -160,7 +159,59 @@ func NewMemoryLifecycleHooks(p memoryLifecycleHookParams) *MemoryLifecycleHooks 
 			}
 		}
 	}
+	if hooks != nil {
+		hooks.dedupFilter = buildDedupFilter(hooks)
+	}
 	return hooks
+}
+
+func buildDedupFilter(hooks *MemoryLifecycleHooks) *dedup.Filter {
+	privateRoot := hooks.rootDir
+	scanPrivate := func(typeFilter string) ([]dedup.EntrySnapshot, error) {
+		root, err := resolvedStoreRoot(privateRoot, hooks.projectRoot, hooks.autoMemPathOverride)
+		if err != nil {
+			return nil, err
+		}
+		return scanEntriesAsSnapshots(root, typeFilter, "private")
+	}
+	var scanTeam dedup.ScanFunc
+	if hooks.team != nil && hooks.team.GetTeamMemPath() != "" {
+		teamRoot := hooks.team.GetTeamMemPath()
+		scanTeam = func(typeFilter string) ([]dedup.EntrySnapshot, error) {
+			return scanEntriesAsSnapshots(teamRoot, typeFilter, "team")
+		}
+	}
+	return dedup.NewFilter(scanPrivate, scanTeam)
+}
+
+func scanEntriesAsSnapshots(root, typeFilter, scope string) ([]dedup.EntrySnapshot, error) {
+	entries, err := scanMemoryEntries(root)
+	if err != nil {
+		return nil, err
+	}
+	snapshots := make([]dedup.EntrySnapshot, 0, len(entries))
+	for _, e := range entries {
+		t := ""
+		if e.Frontmatter.Type != nil {
+			t = string(*e.Frontmatter.Type)
+		}
+		if typeFilter != "" && t != typeFilter {
+			continue
+		}
+		snapshots = append(snapshots, dedup.EntrySnapshot{
+			Name:        e.Frontmatter.Name,
+			Type:        t,
+			Description: e.Frontmatter.Description,
+			SearchKeys:  e.Frontmatter.SearchKeys,
+			Lang:        e.Frontmatter.Lang,
+			Aliases:     e.Frontmatter.Aliases,
+			Source:      e.Frontmatter.Source,
+			Content:     e.Content,
+			Path:        e.FilePath,
+			Scope:       scope,
+		})
+	}
+	return snapshots, nil
 }
 
 func newMemoryLifecycleHooks(
@@ -267,9 +318,6 @@ func provideNestedDependencies(cfg *Config) nestedpkg.Dependencies {
 			}
 			return cleaned
 		},
-		IsAgentMemoryPath: func(path string) bool {
-			return IsAgentMemoryPath(cfg, path)
-		},
 	}
 }
 
@@ -280,10 +328,6 @@ func provideTeamMemoryManagerContract(manager *TeamMemoryManager) contract.TeamM
 var Module = fx.Module("memory",
 	fx.Provide(
 		NewConfig,
-		provideAgentMemoryConfig,
-		provideAgentMemoryPathHelper,
-		provideAgentMemoryPromptBuilder,
-		provideAgentMemoryGateResolver,
 		provideNestedDependencies,
 		provideTeamConfig,
 		provideTeamMemoryManagerContract,
@@ -298,13 +342,14 @@ var Module = fx.Module("memory",
 		provideDreamExtractFunc,
 		provideAutoDreamConsolidator,
 		NewMemoryLifecycleHooks,
+		provideAgentMemoryReader,
+		provideAgentMemoryWriter,
 		NewMemoryExtractor,
 		newAutoDreamSchedulerProvider,
 		newNestedIngestWorkerProvider,
 		newTeamSyncCoordinatorProvider,
 		NewMemorySubscribers,
 	),
-	fx.Options(memagent.Module),
 	fx.Options(nestedpkg.Module),
 	fx.Options(retrievalpkg.Module),
 	fx.Options(teampkg.Module),
@@ -363,6 +408,14 @@ func provideMemoryService(
 	hooks *MemoryLifecycleHooks,
 ) Service {
 	return NewService(cfg, logger, consolidator, hooks)
+}
+
+func provideAgentMemoryReader(hooks *MemoryLifecycleHooks) contract.AgentMemoryReader {
+	return hooks
+}
+
+func provideAgentMemoryWriter(hooks *MemoryLifecycleHooks) contract.AgentMemoryWriter {
+	return hooks
 }
 
 func NewMemoryHandlers(p memoryHandlerDeps) rpc.HandlerMapResult {

@@ -17,18 +17,18 @@ vi.mock('./services/log.js', () => ({
 
 import { MemoryCenterPage } from './pages/MemoryCenterPage.js';
 
-function setupPage(overview = {}) {
+function setupPage(overview = {}, overrides = {}) {
   const emit = vi.fn();
   const props = {
     model: {
       overview,
-      private: { entries: [] },
-      team: { entries: [] },
-      agentScopes: [],
+      private: { entries: [], ...(overrides.private || {}) },
+      team: { entries: [], ...(overrides.team || {}) },
+      ...(overrides.model || {}),
     },
   };
   const vm = MemoryCenterPage.setup(props, { emit });
-  return { vm, emit };
+  return { vm, emit, props };
 }
 
 beforeEach(() => {
@@ -97,4 +97,116 @@ describe('MemoryCenterPage auto-dream card', () => {
     expect(emit).not.toHaveBeenCalledWith('refresh');
     expect(vm.autoDreamToggling.value).toBe(false);
   });
+});
+
+describe('MemoryCenterPage editor validation', () => {
+  it('does not save when description is blank', async () => {
+    const { vm } = setupPage({ projectRoot: '/repo' });
+
+    vm.memoryEditor.openCreate('private');
+    Object.assign(vm.memoryEditor.form, {
+      name: 'Release owner',
+      description: '   ',
+      content: 'Primary source is the runbook.',
+    });
+
+    await vm.memoryEditor.save();
+
+    expect(apiMock.callAPI).not.toHaveBeenCalledWith('ui/memory/entry/upsert', expect.anything());
+    expect(vm.notice.level).toBe('error');
+    expect(vm.notice.message).toBe('请先填写描述');
+  });
+
+  it('trims description before save', async () => {
+    const { vm } = setupPage({ projectRoot: '/repo' });
+
+    vm.memoryEditor.openCreate('private');
+    Object.assign(vm.memoryEditor.form, {
+      name: 'Release owner',
+      description: '  Who owns releases  ',
+      content: 'Primary source is the runbook.',
+    });
+
+    await vm.memoryEditor.save();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/memory/entry/upsert', expect.objectContaining({
+      cwd: '/repo',
+      target: 'private',
+      name: 'Release owner',
+      description: 'Who owns releases',
+      type: 'project',
+      content: 'Primary source is the runbook.',
+    }));
+  });
+});
+
+describe('MemoryCenterPage health and destructive actions', () => {
+
+  it('normalizes health percentage when maxPerCategory is missing', () => {
+    const { vm } = setupPage({ health: { preferenceCount: 4, projectCount: 2 } });
+    expect(vm.healthPrefPercent.value).toBe(100);
+    expect(vm.healthProjPercent.value).toBe(100);
+  });
+
+  it('exposes model loading state for the page template', () => {
+    const { vm } = setupPage({}, { model: { loading: true } });
+    expect(vm.isLoading.value).toBe(true);
+  });
+
+  it('opens merge confirmation instead of calling merge API immediately', () => {
+    const group = {
+      nameA: '私有规则', pathA: 'feedback/private.md', targetA: 'private',
+      nameB: '团队规则', pathB: 'feedback/team.md', targetB: 'team', score: 0.91,
+    };
+    const { vm } = setupPage({ health: { maxPerCategory: 15, preferenceCount: 2, projectCount: 0, similarGroups: [group] } });
+
+    vm.askMergeGroup(group, 0);
+
+    expect(apiMock.callAPI).not.toHaveBeenCalledWith('ui/memory/entry/merge', expect.anything());
+    expect(vm.mergeConfirm.target).toEqual(group);
+    expect(vm.mergeConfirm.index).toBe(0);
+    expect(vm.mergeConfirm.crossScope).toBe(true);
+  });
+
+  it('does not merge cross-scope groups from confirmation', async () => {
+    const group = { nameA: 'A', pathA: 'a.md', targetA: 'private', nameB: 'B', pathB: 'b.md', targetB: 'team', score: 0.8 };
+    const { vm } = setupPage({ health: { maxPerCategory: 15, preferenceCount: 2, projectCount: 0 } });
+    vm.askMergeGroup(group, 1);
+
+    await vm.confirmMergeGroup();
+
+    expect(apiMock.callAPI).not.toHaveBeenCalledWith('ui/memory/entry/merge', expect.anything());
+    expect(vm.notice.level).toBe('warning');
+    expect(vm.notice.message).toContain('跨作用域');
+  });
+
+  it('confirms same-scope merge with full payload', async () => {
+    const group = { nameA: 'A', pathA: 'a.md', targetA: 'private', nameB: 'B', pathB: 'b.md', targetB: 'private', score: 0.8 };
+    const { vm, emit } = setupPage({ projectRoot: '/repo', health: { maxPerCategory: 15, preferenceCount: 2, projectCount: 0 } });
+    vm.askMergeGroup(group, 2);
+
+    await vm.confirmMergeGroup();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/memory/entry/merge', {
+      cwd: '/repo',
+      targetA: 'private',
+      pathA: 'a.md',
+      targetB: 'private',
+      pathB: 'b.md',
+    });
+    expect(emit).toHaveBeenCalledWith('refresh');
+    expect(vm.mergeConfirm.target).toBe(null);
+  });
+
+  it('routes editor delete through inline confirmation instead of deleting immediately', () => {
+    const { vm } = setupPage();
+    Object.assign(vm.memoryEditor.form, { target: 'private', existingPath: 'project/a.md', name: 'A' });
+
+    vm.askEditorDelete();
+
+    expect(apiMock.callAPI).not.toHaveBeenCalledWith('ui/memory/entry/delete', expect.anything());
+    expect(vm.inlineDelete.target).toEqual({ target: 'private', path: 'project/a.md', name: 'A' });
+    expect(vm.memoryEditor.open).toBe(false);
+  });
+
 });

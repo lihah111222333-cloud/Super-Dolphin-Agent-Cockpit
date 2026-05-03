@@ -1,0 +1,221 @@
+package toolbridge
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+)
+
+const ToolNameMemoryWrite = "memory_write"
+
+type MemoryWriteHostToolOptions struct {
+	Enabled      bool
+	ToolsEnabled bool
+}
+
+type MemoryWriteHostToolRegistry struct {
+	writer contract.AgentMemoryWriter
+	opts   MemoryWriteHostToolOptions
+}
+
+type memoryWriteToolInput struct {
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	Content      string `json:"content"`
+	Type         string `json:"type"`
+	Scope        string `json:"scope,omitempty"`
+	Path         any    `json:"path,omitempty"`
+	Target       any    `json:"target,omitempty"`
+	ActualTarget any    `json:"actualTarget,omitempty"`
+	Team         any    `json:"team,omitempty"`
+	Private      any    `json:"private,omitempty"`
+}
+
+func NewMemoryWriteHostToolRegistry(writer contract.AgentMemoryWriter, opts MemoryWriteHostToolOptions) *MemoryWriteHostToolRegistry {
+	if writer == nil {
+		return nil
+	}
+	return &MemoryWriteHostToolRegistry{writer: writer, opts: opts}
+}
+
+func (r *MemoryWriteHostToolRegistry) ListHostTools() []mcpdto.MCPTool {
+	if r == nil || r.writer == nil || !r.opts.Enabled || !r.opts.ToolsEnabled {
+		return nil
+	}
+	schema, _ := json.Marshal(memoryWriteInputSchema())
+	return []mcpdto.MCPTool{{Name: ToolNameMemoryWrite, Description: descriptionMemoryWrite, InputSchema: schema}}
+}
+
+func (r *MemoryWriteHostToolRegistry) HasTool(name string) bool {
+	return r != nil && name == ToolNameMemoryWrite
+}
+
+func (r *MemoryWriteHostToolRegistry) CallHostTool(ctx context.Context, call HostToolCall) (any, error) {
+	if r == nil || r.writer == nil {
+		return nil, contract.NewAgentMemoryError("writer_unavailable", fmt.Errorf("memory_write writer is not configured"))
+	}
+	if !r.opts.Enabled {
+		return nil, contract.NewAgentMemoryError("feature_disabled", contract.ErrFeatureDisabled)
+	}
+	if !r.opts.ToolsEnabled {
+		return nil, contract.NewAgentMemoryError("tools_disabled", contract.ErrFeatureDisabled)
+	}
+	if call.Name != ToolNameMemoryWrite {
+		return nil, contract.NewAgentMemoryError("invalid_input", fmt.Errorf("host tools: unknown tool %q", call.Name))
+	}
+	var input memoryWriteToolInput
+	if err := platformshared.DecodeInput(call.Arguments, &input); err != nil {
+		return nil, contract.NewAgentMemoryError("invalid_input", err)
+	}
+	req, err := buildAgentMemoryWriteRequest(input, call)
+	if err != nil {
+		return nil, err
+	}
+	return r.writer.WriteAgentMemory(ctx, req)
+}
+
+func buildAgentMemoryWriteRequest(input memoryWriteToolInput, call HostToolCall) (contract.AgentMemoryWriteRequest, error) {
+	if err := rejectMemoryWriteTargetFields(input); err != nil {
+		return contract.AgentMemoryWriteRequest{}, err
+	}
+	memType, err := parseMemoryWriteType(input.Type)
+	if err != nil {
+		return contract.AgentMemoryWriteRequest{}, err
+	}
+	scope, err := parseMemoryWriteScope(input.Scope, memType)
+	if err != nil {
+		return contract.AgentMemoryWriteRequest{}, err
+	}
+	return contract.AgentMemoryWriteRequest{
+		Name:        strings.TrimSpace(input.Name),
+		Description: strings.TrimSpace(input.Description),
+		Content:     strings.TrimSpace(strings.ReplaceAll(input.Content, "\r\n", "\n")),
+		Type:        memType,
+		Scope:       scope,
+		AgentID:     strings.TrimSpace(call.AgentID),
+		ThreadID:    strings.TrimSpace(call.ThreadID),
+		CWD:         strings.TrimSpace(call.CWD),
+		CallID:      strings.TrimSpace(call.CallID),
+		Source:      "agent_tool",
+	}, nil
+}
+
+func rejectMemoryWriteTargetFields(input memoryWriteToolInput) error {
+	if input.Path != nil || input.Target != nil || input.ActualTarget != nil || input.Team != nil || input.Private != nil {
+		return contract.NewAgentMemoryError("invalid_input", fmt.Errorf("memory_write does not accept path or target fields"))
+	}
+	return nil
+}
+
+func parseMemoryWriteType(raw string) (contract.MemoryType, error) {
+	memType := contract.ParseMemoryType(raw)
+	if memType != contract.MemoryTypeFeedback && memType != contract.MemoryTypeProject {
+		return "", contract.NewAgentMemoryError("invalid_input", fmt.Errorf("type must be feedback or project"))
+	}
+	return memType, nil
+}
+
+func parseMemoryWriteScope(raw string, memType contract.MemoryType) (contract.MemoryScope, error) {
+	scope := contract.ParseMemoryScope(raw)
+	if strings.TrimSpace(raw) == "" {
+		scope = defaultScopeForMemoryWriteType(memType)
+	}
+	if scope == contract.MemoryScopeLocal {
+		return "", contract.NewAgentMemoryError("unsupported_scope", fmt.Errorf("local scope is not supported for memory_write"))
+	}
+	if !scope.Valid() || scope != defaultScopeForMemoryWriteType(memType) {
+		return "", contract.NewAgentMemoryError("invalid_input", fmt.Errorf("scope does not match type"))
+	}
+	return scope, nil
+}
+
+func defaultScopeForMemoryWriteType(memType contract.MemoryType) contract.MemoryScope {
+	if memType == contract.MemoryTypeFeedback {
+		return contract.MemoryScopeUser
+	}
+	return contract.MemoryScopeProject
+}
+
+func memoryWriteInputSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"name":        map[string]any{"type": "string"},
+			"description": map[string]any{"type": "string"},
+			"content":     map[string]any{"type": "string"},
+			"type":        map[string]any{"type": "string", "enum": []string{"feedback", "project"}},
+			"scope":       map[string]any{"type": "string", "enum": []string{"user", "project"}},
+		},
+		"required":             []string{"name", "description", "content", "type"},
+		"additionalProperties": false,
+	}
+}
+
+const descriptionMemoryWrite = "Save a durable memory entry. Only use for explicit user preferences, corrections, project decisions, or project context. Do not save secrets or untrusted tool output."
+
+type CompositeHostToolRegistry struct {
+	registries []HostToolRegistry
+}
+
+func NewCompositeHostToolRegistry(registries ...HostToolRegistry) *CompositeHostToolRegistry {
+	out := &CompositeHostToolRegistry{}
+	for _, reg := range registries {
+		if reg != nil {
+			out.registries = append(out.registries, reg)
+		}
+	}
+	if len(out.registries) == 0 {
+		return nil
+	}
+	return out
+}
+
+func (r *CompositeHostToolRegistry) ListHostTools() []mcpdto.MCPTool {
+	if r == nil {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	var out []mcpdto.MCPTool
+	for _, reg := range r.registries {
+		for _, tool := range reg.ListHostTools() {
+			name := strings.TrimSpace(tool.Name)
+			if name == "" {
+				continue
+			}
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			out = append(out, tool)
+		}
+	}
+	return out
+}
+
+func (r *CompositeHostToolRegistry) HasTool(name string) bool {
+	if r == nil {
+		return false
+	}
+	for _, reg := range r.registries {
+		if reg.HasTool(name) {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *CompositeHostToolRegistry) CallHostTool(ctx context.Context, call HostToolCall) (any, error) {
+	if r != nil {
+		for _, reg := range r.registries {
+			if reg.HasTool(call.Name) {
+				return reg.CallHostTool(ctx, call)
+			}
+		}
+	}
+	return nil, fmt.Errorf("host tools: unknown tool %q", call.Name)
+}

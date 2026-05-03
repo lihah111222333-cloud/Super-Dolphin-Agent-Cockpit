@@ -3,8 +3,10 @@ package skill
 import (
 	"context"
 	"errors"
+	"math"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
@@ -30,9 +32,86 @@ func skillListPayload(skills []SkillInfo) skillListResult {
 			Trust:                  info.Trust,
 			ContentHash:            info.ContentHash,
 			DisableModelInvocation: info.DisableModelInvocation,
+			DisclosureTier:         info.DisclosureTier,
 		})
 	}
 	return skillListResult{Skills: items}
+}
+
+func skillsWithDisclosureTiers(skills []SkillInfo, source contract.SkillDisclosureTierSource) []SkillInfo {
+	tiers := disclosureTierSnapshot(skills, source, time.Now())
+	out := make([]SkillInfo, 0, len(skills))
+	for _, info := range skills {
+		info.DisclosureTier = tiers[info.Name]
+		out = append(out, info)
+	}
+	return out
+}
+
+func disclosureTierSnapshot(skills []SkillInfo, source contract.SkillDisclosureTierSource, now time.Time) map[string]string {
+	out := make(map[string]string, len(skills))
+	if len(skills) == 0 || source == nil || !source.Enabled() {
+		return out
+	}
+	snapshot := source.DisclosureSnapshot()
+	for _, info := range skills {
+		name := strings.TrimSpace(info.Name)
+		if name == "" {
+			continue
+		}
+		score := skillDisclosureEffectiveScore(snapshot.Workspace[name], snapshot.Global[name], now, snapshot.Config)
+		out[info.Name] = skillDisclosureTierForScore(score)
+	}
+	return out
+}
+
+func skillDisclosureEffectiveScore(ws, gl *contract.SkillDisclosureSkillStats, now time.Time, cfg contract.SkillDisclosureConfig) float64 {
+	if ws != nil && len(ws.Calls) >= cfg.WSMinCalls {
+		return skillDisclosureScore(ws, now, cfg.HalfLife, cfg.FrozenDuration)
+	}
+	if gl == nil {
+		if ws == nil {
+			return 0
+		}
+		return cfg.WSWeight * skillDisclosureScore(ws, now, cfg.HalfLife, cfg.FrozenDuration)
+	}
+	if ws == nil {
+		return skillDisclosureScore(gl, now, cfg.HalfLife, cfg.FrozenDuration)
+	}
+	return cfg.WSWeight*skillDisclosureScore(ws, now, cfg.HalfLife, cfg.FrozenDuration) +
+		(1-cfg.WSWeight)*skillDisclosureScore(gl, now, cfg.HalfLife, cfg.FrozenDuration)
+}
+
+func skillDisclosureScore(stats *contract.SkillDisclosureSkillStats, now time.Time, halfLife, frozen time.Duration) float64 {
+	if stats == nil || len(stats.Calls) == 0 {
+		return 0
+	}
+	hlSec := halfLife.Seconds()
+	if hlSec <= 0 {
+		return 0
+	}
+	cutoff := now.Add(-frozen)
+	var score float64
+	for _, calledAt := range stats.Calls {
+		if calledAt.Before(cutoff) {
+			continue
+		}
+		score += math.Pow(2, -now.Sub(calledAt).Seconds()/hlSec)
+	}
+	return score
+}
+
+func skillDisclosureTierForScore(score float64) string {
+	switch {
+	case score >= 3:
+		return "hot"
+	case score >= 1:
+		return "warm"
+	case score > 0:
+		return "cold"
+	default:
+		return "frozen"
+	}
 }
 
 func skillRPCError(err error) error {

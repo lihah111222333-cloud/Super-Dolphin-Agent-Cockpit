@@ -4,7 +4,7 @@ import { useSkillFileNavigation } from '../composables/useSkillFileNavigation.js
 import { isSkillMainFilePath } from '../utils/skill-parser.js';
 import { approveCandidate, rejectCandidate, getCandidate } from '../services/skills-api.js';
 
-/** @typedef {{ name?: string, dir?: string, description?: string, summary?: string, trigger_words?: string[], force_words?: string[] }} SkillListItem */
+/** @typedef {{ name?: string, dir?: string, description?: string, summary?: string, trigger_words?: string[], force_words?: string[], disclosure_tier?: string }} SkillListItem */
 /** @typedef {{ name: string, dir: string, description: string, summary: string, triggerWords: string[], forceWords: string[] }} SkillCard */
 /** @typedef {{ skills?: SkillListItem[], projectStore?: { state?: { active?: string } } | null }} SkillsPageProps */
 
@@ -34,6 +34,23 @@ export const SkillsPage = {
       return 'project';
     };
 
+    const normalizeDisclosureTier = (tier) => {
+      const value = (tier || '').toString().trim().toLowerCase();
+      return ['hot', 'warm', 'cold', 'frozen'].includes(value) ? value : '';
+    };
+
+    const disclosureTierLabel = (tier) => ({
+      hot: '常用',
+      warm: '一般',
+      cold: '偶尔',
+      frozen: '少用',
+    }[normalizeDisclosureTier(tier)] || '');
+
+    const disclosureTierTitle = (tier) => {
+      const label = disclosureTierLabel(tier);
+      return label ? `基于本地使用频率计算：${label}，列表刷新时更新。` : '';
+    };
+
     const skillCards = computed(() => {
       const list = Array.isArray(props.skills) ? props.skills : [];
       return list.map((item) => ({
@@ -43,6 +60,7 @@ export const SkillsPage = {
         summary: (item?.summary || item?.description || '').toString(),
         trust: (item?.trust || '').toString(),
         scope: scopeForTrust(item?.trust),
+        disclosureTier: normalizeDisclosureTier(item?.disclosure_tier),
         triggerWords: Array.isArray(item?.trigger_words) ? item.trigger_words : [],
         forceWords: Array.isArray(item?.force_words) ? item.force_words : [],
       }));
@@ -168,6 +186,8 @@ export const SkillsPage = {
       scopeCounts,
       filteredSkillCards,
       skillCards,
+      disclosureTierLabel,
+      disclosureTierTitle,
       candidateActioning,
       candidatePreview,
       formatCandidateTime,
@@ -362,6 +382,13 @@ export const SkillsPage = {
                       :title="'scope: ' + (item.scope || 'project')"
                       :data-testid="'skills-card-scope-' + idx"
                     >{{ item.scope || 'project' }}</span>
+                    <span
+                      v-if="disclosureTierLabel(item.disclosureTier)"
+                      class="skill-card-disclosure-tag"
+                      :class="'skill-card-disclosure-' + item.disclosureTier"
+                      :title="disclosureTierTitle(item.disclosureTier)"
+                      :data-testid="'skills-card-disclosure-' + idx"
+                    >{{ disclosureTierLabel(item.disclosureTier) }}</span>
                     <span v-if="selectedSkillName.toLowerCase() === item.name.toLowerCase()" class="skill-card-badge">编辑中</span>
                   </div>
                 </div>

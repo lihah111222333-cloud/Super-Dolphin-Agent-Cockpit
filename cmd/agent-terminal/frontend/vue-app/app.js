@@ -83,26 +83,37 @@ const EMPTY_MEMORY_CENTER = Object.freeze({
   overview: {},
   private: { entries: [] },
   team: { entries: [] },
-  agentScopes: [],
 });
+
+function countMemorySimilarGroups(memoryCenter) {
+  const groups = memoryCenter?.overview?.health?.similarGroups;
+  return Array.isArray(groups) ? groups.length : 0;
+}
+
+function createSidebarBadges(skillSidebarBadges, memoryCenter) {
+  return computed(() => {
+    const badges = { ...(skillSidebarBadges.value || {}) };
+    const similarCount = countMemorySimilarGroups(memoryCenter);
+    if (similarCount > 0) badges['memory-center'] = similarCount;
+    return badges;
+  });
+}
 
 const SHARED_FILES_TIPS = Object.freeze([
   '适合放命令输出摘录、待整理笔记、交接清单。',
-  '确认值得长期保留的内容，请转到“记忆中心”查看真正的 durable memory 与 Agent 记忆。',
+  '确认值得长期保留的内容，请转到“记忆中心”查看长期记忆。',
 ]);
 
 function resetMemoryCenterState(state) {
   state.overview = {};
   state.private = { entries: [] };
   state.team = { entries: [] };
-  state.agentScopes = [];
 }
 
 function applyMemoryCenterSnapshot(state, snapshot) {
   state.overview = snapshot?.overview || {};
   state.private = snapshot?.private || { entries: [] };
   state.team = snapshot?.team || { entries: [] };
-  state.agentScopes = Array.isArray(snapshot?.agentScopes) ? snapshot.agentScopes : [];
 }
 
 export function routeDagBridgeEvent(method, eventType, payload, deps) {
@@ -197,6 +208,16 @@ async function ensureAppActiveThread(threadStore, projectStore) {
   return threadId;
 }
 
+async function runCommandCardForApp(card, threadStore, projectStore, pageRef) {
+  const command = (card?.command_template || '').toString().trim();
+  if (!command) return;
+  const threadId = await ensureAppActiveThread(threadStore, projectStore);
+  if (!threadId) return;
+
+  await threadStore.sendMessage(threadId, `请执行以下命令并反馈结果：\n${command}`);
+  pageRef.value = 'chat';
+}
+
 export function shouldRefreshChatPageOnEnter(/** @type {string} */ nextPage, /** @type {string | null | undefined} */ prevPage) {
   return nextPage === 'chat' && Boolean(prevPage) && prevPage !== nextPage;
 }
@@ -277,7 +298,7 @@ export const AppRoot = {
       commandCards: [],
       memory: [],
     });
-    const { pendingCandidates, sidebarBadges, refreshPendingCandidates } = usePendingCandidates(
+    const { pendingCandidates, sidebarBadges: skillSidebarBadges, refreshPendingCandidates } = usePendingCandidates(
       () => (threadScopeCwd.value || '').toString().trim(),
     );
 
@@ -287,8 +308,8 @@ export const AppRoot = {
       overview: {},
       private: { entries: [] },
       team: { entries: [] },
-      agentScopes: [],
     });
+    const sidebarBadges = createSidebarBadges(skillSidebarBadges, memoryCenter);
 
     let refreshTimer;
     let unsubscribeAgentEvent = () => { };
@@ -328,15 +349,7 @@ export const AppRoot = {
       await refreshRuntimeConfigState(runtimeConfig);
     }
 
-    async function runCommandCard(/** @type {CommandCard} */ card) {
-      const command = (card?.command_template || '').toString().trim();
-      if (!command) return;
-      const threadId = await ensureAppActiveThread(threadStore, projectStore);
-      if (!threadId) return;
-
-      await threadStore.sendMessage(threadId, `请执行以下命令并反馈结果：\n${command}`);
-      page.value = 'chat';
-    }
+    const runCommandCard = (/** @type {CommandCard} */ card) => runCommandCardForApp(card, threadStore, projectStore, page);
 
 
     async function refreshDashboardByPage(/** @type {AppPage} */ targetPage) {
@@ -411,6 +424,9 @@ export const AppRoot = {
       }
 
       refreshPendingCandidates().catch(() => {});
+      refreshMemoryCenter().catch((error) => {
+        console.warn('refresh memory center badge failed', error);
+      });
 
       refreshTimer = setInterval(() => {
         threadStore.refreshSidebarState();

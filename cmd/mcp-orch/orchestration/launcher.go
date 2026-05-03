@@ -184,6 +184,7 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 		LauncherParamProvider:         launchProvider(req),
 		LauncherParamModel:            model,
 		LauncherParamEffort:           effort,
+		LauncherParamLanguage:         strings.TrimSpace(req.Language),
 	})
 	elapsed := time.Since(start)
 	if err != nil {

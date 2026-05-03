@@ -137,9 +137,6 @@ func (p *MemoryRulesProvider) Resolve(_ context.Context, input contract.SectionC
 	if p == nil || input.Start == nil || input.Turn != nil {
 		return nil, nil
 	}
-	if _, ok := resolveChildAgentStart(input); ok {
-		return nil, nil
-	}
 	if !memoryProductEnabled(p.cfg) {
 		return nil, nil
 	}
@@ -542,7 +539,7 @@ func registerPromptProviders(p promptProviderParams) error {
 		}
 	}
 	if p.Registry != nil {
-		providers := []contract.DynamicSectionProvider{p.Provider, p.EntrypointProvider, p.AgentProvider, p.ContextProvider}
+		providers := []contract.DynamicSectionProvider{p.Provider, p.EntrypointProvider, p.ContextProvider}
 		for _, provider := range providers {
 			if provider == nil {
 				continue

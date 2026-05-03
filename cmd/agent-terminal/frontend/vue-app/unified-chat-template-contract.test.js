@@ -121,6 +121,7 @@ describe('UnifiedChatPage template contract', () => {
       'cancel-inline-rename',
       'handle-inline-rename-blur',
       'update-editing-alias',
+      'delete-stale-threads',
     ]);
     expectTemplateContainsAll(template, [
       'data-testid="thread-rail"',

@@ -575,6 +575,41 @@
   color: #ddd6fe;
 }
 
+
+.skill-card-disclosure-tag {
+  font-size: 10px;
+  line-height: 1.4;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  letter-spacing: 0.02em;
+}
+
+.skill-card-disclosure-hot {
+  background: rgba(34, 197, 94, 0.16);
+  border-color: rgba(34, 197, 94, 0.42);
+  color: #bbf7d0;
+}
+
+.skill-card-disclosure-warm {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.42);
+  color: #bfdbfe;
+}
+
+.skill-card-disclosure-cold {
+  background: rgba(245, 158, 11, 0.14);
+  border-color: rgba(245, 158, 11, 0.42);
+  color: #fde68a;
+}
+
+.skill-card-disclosure-frozen {
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.34);
+  color: #cbd5e1;
+}
+
 .skills-empty-icon {
   display: inline-flex;
   align-items: center;

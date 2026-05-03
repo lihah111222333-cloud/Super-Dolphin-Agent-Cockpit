@@ -475,9 +475,6 @@ func hasHandledAutoMemoryWrite(cfg *Config, files []string) bool {
 		if !isAutoMemPath(cfg, file) {
 			continue
 		}
-		if IsAgentMemoryPath(cfg, file) {
-			continue
-		}
 		return true
 	}
 	return false

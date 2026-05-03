@@ -296,22 +296,39 @@ export function buildVisibleChatThreadCards(opts) {
    * @param {ThreadCardSource} thread
    * @returns {boolean}
    */
+  function threadLifecycleState(thread) {
+    return (thread?.lifecycleStatus || thread?.state || thread?.status || thread?.threadStatus || '').toString().trim().toLowerCase();
+  }
+
+  function isDeletedThread(thread) {
+    return threadLifecycleState(thread) === 'deleted';
+  }
+
   function isArchivedThread(thread) {
     const threadId = (thread?.id || '').toString();
-    if (!threadId) return false;
-    const rawState = (thread?.lifecycleStatus || thread?.state || thread?.status || thread?.threadStatus || '').toString().trim().toLowerCase();
+    if (!threadId || isDeletedThread(thread)) return false;
+    const rawState = threadLifecycleState(thread);
     if (rawState === 'archived') return true;
     const archivedAt = Number(safeArchivedMap[threadId]) || 0;
     return Number.isFinite(archivedAt) && archivedAt > 0;
+  }
+
+  const STALE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
+  function detectStaleReason(archivedAt, showId) {
+    if (archivedAt > 0 && (Date.now() - archivedAt) > STALE_EXPIRY_MS) return 'expired';
+    if (showId) return 'empty';
+    return '';
   }
 
   const partitionStart = nowMs();
   const activeThreads = [];
   const archivedThreads = [];
   for (const thread of safeThreads) {
+    if (isDeletedThread(thread)) continue;
     if (isArchivedThread(thread)) archivedThreads.push(thread);
     else activeThreads.push(thread);
   }
+
   const visibleThreads = showArchived ? archivedThreads : activeThreads;
   markCardPerf(perf, 'partition_threads', partitionStart, {
     source_count: safeThreads.length,
@@ -360,6 +377,7 @@ export function buildVisibleChatThreadCards(opts) {
       pendingLaunchCalls += 1;
       pendingLaunch = Boolean(pendingLaunchOf(threadId));
     }
+    const staleReason = isArchived ? detectStaleReason(archivedAt, displayName === threadId) : '';
     let status = 'idle';
     let statusHeader = '已归档';
     let interruptible = false;
@@ -408,8 +426,13 @@ export function buildVisibleChatThreadCards(opts) {
       // forked yet (awaiting first turn). Card renders a "待启动" marker and
       // the send button shows a "启动中…" state on the first send.
       pendingLaunch,
+      isStale: Boolean(staleReason),
+      staleReason,
     };
   });
+  if (showArchived && cards.length > 1) {
+    cards.sort((a, b) => (b.archivedAt || 0) - (a.archivedAt || 0));
+  }
   markCardPerf(perf, 'build_cards', cardStart, {
     visible_count: visibleThreads.length,
     card_count: cards.length,

@@ -4,14 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	memshared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/dedup"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2/handler"
 )
@@ -38,25 +36,6 @@ type uiMemoryEntryDeleteParams struct {
 	Path   string `json:"path"`
 }
 
-type uiAgentMemoryGetParams struct {
-	CWD       string `json:"cwd,omitempty"`
-	Scope     string `json:"scope,omitempty"`
-	AgentType string `json:"agentType"`
-}
-
-type uiAgentMemorySaveParams struct {
-	CWD       string `json:"cwd,omitempty"`
-	Scope     string `json:"scope,omitempty"`
-	AgentType string `json:"agentType"`
-	Content   string `json:"content"`
-}
-
-type uiAgentMemoryDeleteParams struct {
-	CWD       string `json:"cwd,omitempty"`
-	Scope     string `json:"scope,omitempty"`
-	AgentType string `json:"agentType"`
-}
-
 type UIMemoryEntryDetail struct {
 	Target      string    `json:"target,omitempty"`
 	Path        string    `json:"path,omitempty"`
@@ -66,29 +45,6 @@ type UIMemoryEntryDetail struct {
 	Content     string    `json:"content,omitempty"`
 	UpdatedAt   time.Time `json:"updatedAt,omitempty"`
 }
-
-type UIAgentMemoryDetail struct {
-	Scope     string    `json:"scope"`
-	AgentType string    `json:"agentType"`
-	Path      string    `json:"path,omitempty"`
-	Content   string    `json:"content,omitempty"`
-	UpdatedAt time.Time `json:"updatedAt,omitempty"`
-	// WriteCommittedReadbackFailed is a tri-state flag for write-then-read:
-	//   nil   = readback did not occur (read-only paths; field omitted in JSON)
-	//   true  = readback ran but failed (containment, broken symlink, IO race);
-	//           Content/Path/UpdatedAt are echoed from the request, downstream
-	//           consumers (KAIROS, consolidation) MUST re-read from disk before
-	//           trusting the snapshot.
-	//   false = readback ran and succeeded; snapshot is authoritative.
-	// Phase 2.1.AB.6 P1 #3: bool→*bool so save success path can explicitly
-	// distinguish itself from read-only paths.
-	WriteCommittedReadbackFailed *bool `json:"writeCommittedReadbackFailed,omitempty"`
-}
-
-// boolPtr is a shorthand for taking the address of a bool literal,
-// used by saveUIAgentMemory to fill the tri-state
-// WriteCommittedReadbackFailed field.
-func boolPtr(b bool) *bool { return &b }
 
 func registerUIMemoryMutationHandlers(p memoryHandlerDeps) handler.Map {
 	out := handler.Map{
@@ -100,18 +56,6 @@ func registerUIMemoryMutationHandlers(p memoryHandlerDeps) handler.Map {
 		}),
 		"ui/memory/entry/delete": rpc.StrictHandler(func(ctx context.Context, req uiMemoryEntryDeleteParams) (map[string]any, error) {
 			if err := deleteUIMemoryEntry(ctx, p, req); err != nil {
-				return nil, err
-			}
-			return map[string]any{"deleted": true}, nil
-		}),
-		"ui/memory/agent/get": rpc.StrictHandler(func(ctx context.Context, req uiAgentMemoryGetParams) (UIAgentMemoryDetail, error) {
-			return getUIAgentMemory(ctx, p, req)
-		}),
-		"ui/memory/agent/save": rpc.StrictHandler(func(ctx context.Context, req uiAgentMemorySaveParams) (UIAgentMemoryDetail, error) {
-			return saveUIAgentMemory(ctx, p, req)
-		}),
-		"ui/memory/agent/delete": rpc.StrictHandler(func(ctx context.Context, req uiAgentMemoryDeleteParams) (map[string]any, error) {
-			if err := deleteUIAgentMemory(ctx, p, req); err != nil {
 				return nil, err
 			}
 			return map[string]any{"deleted": true}, nil
@@ -131,6 +75,9 @@ func registerUIMemoryMutationHandlers(p memoryHandlerDeps) handler.Map {
 		}),
 		"ui/memory/auto-dream/set-intent": rpc.StrictHandler(func(ctx context.Context, req uiAutoDreamIntentParams) (map[string]any, error) {
 			return setAutoDreamIntent(ctx, p, req)
+		}),
+		"ui/memory/entry/merge": rpc.StrictHandler(func(ctx context.Context, req uiMemoryEntryMergeParams) (UIMemoryEntryDetail, error) {
+			return mergeUIMemoryEntries(ctx, p, req)
 		}),
 	}
 	for name, item := range registerAutoContinueStateHandlers(p) {
@@ -214,7 +161,7 @@ func applyUIMemoryUpsert(store *diskStore, root, target, existingPath string, wr
 	if ParseMemoryType(string(existing.Type())) != writeReq.Type {
 		return publicValidationErr("现有 durable memory 暂不支持改类型；如需改类型请删除后重建")
 	}
-	_, err = store.UpdateStructured(writeReq, WriteOptions{})
+	_, err = store.UpdateStructuredPath(existingPath, writeReq, WriteOptions{})
 	return err
 }
 
@@ -224,119 +171,47 @@ func deleteUIMemoryEntry(ctx context.Context, deps memoryHandlerDeps, req uiMemo
 		return redactIfPathBearing(deps.Logger, "durable_memory_resolve_root",
 			errDurableMemoryDeleteFailed, err, "target", req.Target)
 	}
-	entry, _, err := readUIMemoryEntryByPath(root, target, req.Path)
-	if err != nil {
+	if _, _, err := readUIMemoryEntryByPath(root, target, req.Path); err != nil {
 		return redactIfPathBearing(deps.Logger, "durable_memory_read",
 			errDurableMemoryDeleteFailed, err, "target", target, "path", req.Path)
 	}
+
 	store, err := newDiskStore(root)
 	if err != nil {
 		return redactIfPathBearing(deps.Logger, "durable_memory_open_store",
 			errDurableMemoryDeleteFailed, err, "target", target)
 	}
-	if err := store.Delete(entry.Frontmatter.Name, WriteOptions{}); err != nil {
+	if err := store.DeletePath(req.Path, WriteOptions{}); err != nil {
 		return redactIfPathBearing(deps.Logger, "durable_memory_delete",
-			errDurableMemoryDeleteFailed, err, "target", target, "name", entry.Frontmatter.Name)
+			errDurableMemoryDeleteFailed, err, "target", target, "path", req.Path)
 	}
+
 	invalidateDurableMemorySections(deps.Sections)
 	return nil
 }
 
-func getUIAgentMemory(ctx context.Context, deps memoryHandlerDeps, req uiAgentMemoryGetParams) (UIAgentMemoryDetail, error) {
-	manager, scope, err := resolveUIAgentManager(deps.Service, req.CWD, req.Scope)
-	if err != nil {
-		return UIAgentMemoryDetail{}, err
-	}
-	detail, err := readUIAgentMemory(deps.Logger, manager, scope, req.AgentType)
-	if err != nil {
-		return UIAgentMemoryDetail{}, err
-	}
-	return detail, nil
-}
-
-func deleteUIAgentMemory(ctx context.Context, deps memoryHandlerDeps, req uiAgentMemoryDeleteParams) error {
-	manager, scope, err := resolveUIAgentManager(deps.Service, req.CWD, req.Scope)
+func deleteAbsorbedEntry(root, path string) error {
+	store, err := newDiskStore(root)
 	if err != nil {
 		return err
 	}
-	agentType := strings.TrimSpace(req.AgentType)
-	if agentType == "" {
-		return publicValidationErr("agentType is required")
+	return store.DeletePath(path)
+}
+
+func newUIMemoryMutationStore(cfg *Config, root, target string) (*diskStore, error) {
+	if target == "team" {
+		return newDiskStoreWithGuard(root, NewTeamMemoryGuard(NewTeamMemoryManager(cfg)))
 	}
-	entrypoint, err := manager.GetAgentMemoryEntrypoint(agentType, scope)
+	return newDiskStore(root)
+}
+
+func rollbackMergedEntry(cfg *Config, root, target, path string, entry MemoryEntry) error {
+	store, err := newUIMemoryMutationStore(cfg, root, target)
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(entrypoint); err != nil && !errors.Is(err, os.ErrNotExist) {
-		// os.Remove returns *os.PathError whose text embeds the
-		// absolute entrypoint path; redact before returning to RPC.
-		return redactRPCError(deps.Logger, "agent_memory_delete",
-			errAgentMemoryDeleteFailed, err,
-			"scope", string(scope), "agent_type", agentType)
-	}
-	// Best-effort: drop the now-empty agent-type directory so the scope scan
-	// no longer surfaces the agent as an existing (empty) entry. Ignore errors
-	// here — the MEMORY.md file is already gone, which is the contract.
-	if agentDir, err := manager.GetAgentMemoryDir(agentType, scope); err == nil {
-		_ = os.Remove(agentDir)
-	}
-	invalidateAgentMemorySections(deps.Sections)
-	return nil
-}
-
-func saveUIAgentMemory(ctx context.Context, deps memoryHandlerDeps, req uiAgentMemorySaveParams) (UIAgentMemoryDetail, error) {
-	manager, scope, err := resolveUIAgentManager(deps.Service, req.CWD, req.Scope)
-	if err != nil {
-		return UIAgentMemoryDetail{}, err
-	}
-	agentType := strings.TrimSpace(req.AgentType)
-	if agentType == "" {
-		return UIAgentMemoryDetail{}, publicValidationErr("agentType is required")
-	}
-	if err := manager.EnsureAgentMemoryDir(agentType, scope); err != nil {
-		// EnsureAgentMemoryDir wraps os.MkdirAll which produces
-		// *os.PathError with the agent-memory subtree path; redact.
-		return UIAgentMemoryDetail{}, redactRPCError(deps.Logger, "agent_memory_ensure_dir",
-			errAgentMemorySaveFailed, err,
-			"scope", string(scope), "agent_type", agentType)
-	}
-	entrypoint, err := manager.GetAgentMemoryEntrypoint(agentType, scope)
-	if err != nil {
-		return UIAgentMemoryDetail{}, err
-	}
-	if err := os.WriteFile(entrypoint, []byte(strings.ReplaceAll(req.Content, "\r\n", "\n")), 0o644); err != nil {
-		// os.WriteFile returns *os.PathError; redact entrypoint path.
-		return UIAgentMemoryDetail{}, redactRPCError(deps.Logger, "agent_memory_save",
-			errAgentMemorySaveFailed, err,
-			"scope", string(scope), "agent_type", agentType)
-	}
-	invalidateAgentMemorySections(deps.Sections)
-	// Phase 2.1.AB.4: the bytes have been written. If the read-back step
-	// fails (containment, broken symlink, IO race), the SAVE itself still
-	// succeeded — returning errAgentMemoryReadFailed here would mislead
-	// the UI into thinking the write didn't land. Synthesise a minimal
-	// detail from the request so the UI reflects what was just saved, and
-	// set WriteCommittedReadbackFailed so downstream consumers can tell
-	// the difference between "fresh from disk" and "echoed from request".
-	// The redacted readback failure is logged at Warn for operator visibility.
-	detail, err := readUIAgentMemory(deps.Logger, manager, scope, agentType)
-	if err != nil {
-		redactRPCError(deps.Logger, "agent_memory_save_readback",
-			errAgentMemoryReadFailed, err,
-			"scope", string(scope), "agent_type", agentType)
-		return UIAgentMemoryDetail{
-			Scope:                        string(scope),
-			AgentType:                    agentType,
-			Path:                         filepath.ToSlash(filepath.Base(filepath.Dir(entrypoint)) + "/" + filepath.Base(entrypoint)),
-			Content:                      strings.ReplaceAll(req.Content, "\r\n", "\n"),
-			UpdatedAt:                    time.Now().UTC(),
-			WriteCommittedReadbackFailed: boolPtr(true),
-		}, nil
-	}
-	// Phase 2.1.AB.6 P1 #3: explicit false on save success path so the
-	// tri-state stays distinguishable from nil (read-only paths).
-	detail.WriteCommittedReadbackFailed = boolPtr(false)
-	return detail, nil
+	_, err = store.updatePath(path, entry, WriteOptions{})
+	return err
 }
 
 func resolveUIMemoryTargetRoot(ctx context.Context, svc Service, cwd, rawTarget string) (string, string, error) {
@@ -354,7 +229,11 @@ func resolveUIMemoryTargetRoot(ctx context.Context, svc Service, cwd, rawTarget 
 		root, err := resolvedStoreRoot(cfg.RootDir, projectRoot, cfg.AutoMemPathOverride)
 		return root, target, err
 	case "team":
+		if !teamMemoryConfigured(cfg) {
+			return "", "", publicValidationErr("team memory is not enabled")
+		}
 		buildCtx := contract.BuildCtx{CWD: projectRoot}
+
 		if gitRoot, err := FindCanonicalGitRoot(ctx, projectRoot); err == nil && strings.TrimSpace(gitRoot) != "" {
 			buildCtx.GitRoot = strings.TrimSpace(gitRoot)
 		}
@@ -402,7 +281,12 @@ func readUIMemoryEntryByPath(root, target, relPath string) (MemoryEntry, string,
 	if relPath == "" {
 		return MemoryEntry{}, "", publicValidationErr("path is required")
 	}
-	if target == "private" && strings.HasPrefix(filepath.ToSlash(relPath), "team/") {
+	slashPath := filepath.ToSlash(relPath)
+	if filepath.Base(slashPath) == memoryIndexFileName {
+		return MemoryEntry{}, "", ErrInvalidMemoryReadPath
+	}
+	if target == "private" && strings.HasPrefix(slashPath, "team/") {
+
 		return MemoryEntry{}, "", publicValidationErr("private durable memory cannot access team/ paths")
 	}
 	validated, err := ValidateMemoryReadPath(root, relPath)
@@ -440,81 +324,6 @@ func toUIMemoryEntryDetail(target, root, path string, entry MemoryEntry) UIMemor
 	}
 }
 
-func resolveUIAgentManager(svc Service, cwd, rawScope string) (*AgentMemoryManager, MemoryScope, error) {
-	if svc == nil {
-		return nil, "", errors.New("memory service is not configured")
-	}
-	cfg := svc.Config()
-	if strings.TrimSpace(cwd) != "" {
-		cfg.ProjectRoot = strings.TrimSpace(cwd)
-	}
-	scope := normalizeUIAgentScope(rawScope)
-	return NewAgentMemoryManager(&cfg), scope, nil
-}
-
-func normalizeUIAgentScope(raw string) MemoryScope {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case string(MemoryScopeUser):
-		return MemoryScopeUser
-	case string(MemoryScopeLocal):
-		return MemoryScopeLocal
-	default:
-		return MemoryScopeProject
-	}
-}
-
-func readUIAgentMemory(logger *slog.Logger, manager *AgentMemoryManager, scope MemoryScope, agentType string) (UIAgentMemoryDetail, error) {
-	agentType = strings.TrimSpace(agentType)
-	if agentType == "" {
-		return UIAgentMemoryDetail{}, publicValidationErr("agentType is required")
-	}
-	entrypoint, err := manager.GetAgentMemoryEntrypoint(agentType, scope)
-	if err != nil {
-		return UIAgentMemoryDetail{}, err
-	}
-	scopeRoot, err := manager.GetAgentMemoryScopeRoot(scope)
-	if err != nil {
-		return UIAgentMemoryDetail{}, err
-	}
-	// SafeReadEntrypoint enforces symlink-resolved containment under
-	// scopeRoot before reading. Phase 2.1.AB.2: route through the
-	// shared isUserVisibleNotFound predicate so the boundary rule lives
-	// in one place (ui_rpc.go; AB.2 originally placed it in ui_error_policy.go,
-	// AB.5 #7 split + folded the predicate back into ui_rpc.go), and redact non-NotFound errors
-	// before they cross the JSON-RPC boundary so OS error strings (which
-	// embed absolute paths under macOS / Linux) cannot leak the
-	// agent-memory layout into the UI's error.message.
-	raw, info, err := memshared.SafeReadEntrypoint(scopeRoot, entrypoint)
-	var updatedAt time.Time
-	switch {
-	case err == nil:
-		updatedAt = info.ModTime()
-	case isUserVisibleNotFound(err):
-		raw = nil
-	case isContainmentRejection(err):
-		// Containment failure is surfaced to the user as "empty" (same
-		// shape as NotFound so the editor view stays usable), but it is
-		// an attack signal — a symlink resolved outside the agent-memory
-		// scope. Log at Warn with the redacted cause so operators see it
-		// in observability before the public response swallows it.
-		redactRPCError(logger, "agent_memory_read_containment",
-			errAgentMemoryReadFailed, err,
-			"scope", string(scope), "agent_type", agentType)
-		raw = nil
-	default:
-		return UIAgentMemoryDetail{}, redactRPCError(logger, "agent_memory_read",
-			errAgentMemoryReadFailed, err,
-			"scope", string(scope), "agent_type", agentType)
-	}
-	return UIAgentMemoryDetail{
-		Scope:     string(scope),
-		AgentType: agentType,
-		Path:      filepath.ToSlash(filepath.Base(filepath.Dir(entrypoint)) + "/" + filepath.Base(entrypoint)),
-		Content:   strings.ReplaceAll(string(raw), "\r\n", "\n"),
-		UpdatedAt: updatedAt,
-	}, nil
-}
-
 func invalidateDurableMemorySections(invalidator contract.SectionInvalidator) {
 	if invalidator == nil {
 		return
@@ -527,12 +336,107 @@ func invalidateDurableMemorySections(invalidator contract.SectionInvalidator) {
 	)
 }
 
-func invalidateAgentMemorySections(invalidator contract.SectionInvalidator) {
-	if invalidator == nil {
-		return
+func validateUIMemoryMergePair(entryA, entryB MemoryEntry) error {
+	if ParseMemoryType(string(entryA.Type())) != ParseMemoryType(string(entryB.Type())) {
+		return publicValidationErr("只能整合同类型记忆")
 	}
-	invalidator.InvalidateSections(
-		contract.InvalidateMemoryWrite,
-		contract.DynamicSectionAgentMemory,
+	score := dedup.Containment(
+		dedup.Bigrams(dedup.Normalize(entryA.Content)),
+		dedup.Bigrams(dedup.Normalize(entryB.Content)),
 	)
+	if score < dedup.MinMergePairContainment {
+		return publicValidationErr("两条记忆相似度不足，无法整合")
+	}
+	return nil
+}
+
+type uiMemoryEntryMergeParams struct {
+	CWD     string `json:"cwd,omitempty"`
+	TargetA string `json:"targetA"` // "private" or "team"
+	PathA   string `json:"pathA"`   // kept entry
+	TargetB string `json:"targetB"`
+	PathB   string `json:"pathB"` // absorbed entry (deleted after merge)
+}
+
+type uiMemoryMergeResolved struct {
+	rootA   string
+	rootB   string
+	targetA string
+	targetB string
+	entryA  MemoryEntry
+	entryB  MemoryEntry
+}
+
+func resolveUIMemoryMergeEntries(ctx context.Context, deps memoryHandlerDeps, req uiMemoryEntryMergeParams) (uiMemoryMergeResolved, error) {
+	rootA, targetA, err := resolveUIMemoryTargetRoot(ctx, deps.Service, req.CWD, req.TargetA)
+	if err != nil {
+		return uiMemoryMergeResolved{}, redactIfPathBearing(deps.Logger, "merge_resolve_root_a",
+			errDurableMemorySaveFailed, err, "target", req.TargetA)
+	}
+	rootB, targetB, err := resolveUIMemoryTargetRoot(ctx, deps.Service, req.CWD, req.TargetB)
+	if err != nil {
+		return uiMemoryMergeResolved{}, redactIfPathBearing(deps.Logger, "merge_resolve_root_b",
+			errDurableMemorySaveFailed, err, "target", req.TargetB)
+	}
+	entryA, _, err := readUIMemoryEntryByPath(rootA, targetA, req.PathA)
+	if err != nil {
+		return uiMemoryMergeResolved{}, redactIfPathBearing(deps.Logger, "merge_read_a",
+			errDurableMemoryReadFailed, err, "target", targetA, "path", req.PathA)
+	}
+	entryB, _, err := readUIMemoryEntryByPath(rootB, targetB, req.PathB)
+	if err != nil {
+		return uiMemoryMergeResolved{}, redactIfPathBearing(deps.Logger, "merge_read_b",
+			errDurableMemoryReadFailed, err, "target", targetB, "path", req.PathB)
+	}
+	return uiMemoryMergeResolved{rootA: rootA, rootB: rootB, targetA: targetA, targetB: targetB, entryA: entryA, entryB: entryB}, nil
+}
+
+func mergeUIMemoryEntries(ctx context.Context, deps memoryHandlerDeps, req uiMemoryEntryMergeParams) (UIMemoryEntryDetail, error) {
+	resolved, err := resolveUIMemoryMergeEntries(ctx, deps, req)
+	if err != nil {
+		return UIMemoryEntryDetail{}, err
+	}
+	if err := validateUIMemoryMergePair(resolved.entryA, resolved.entryB); err != nil {
+		return UIMemoryEntryDetail{}, err
+	}
+
+	writeReq := buildUIMemoryMergeWriteRequest(resolved.entryA, resolved.entryB)
+	cfg := deps.Service.Config()
+	storeA, err := newUIMemoryMutationStore(&cfg, resolved.rootA, resolved.targetA)
+	if err != nil {
+		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "merge_open_store_a",
+			errDurableMemorySaveFailed, err, "target", resolved.targetA)
+	}
+	if _, err := storeA.UpdateStructuredPath(req.PathA, writeReq); err != nil {
+		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "merge_write_a",
+			errDurableMemorySaveFailed, err, "target", resolved.targetA, "path", req.PathA)
+	}
+
+	if err := deleteAbsorbedEntry(resolved.rootB, req.PathB); err != nil {
+		_ = rollbackMergedEntry(&cfg, resolved.rootA, resolved.targetA, req.PathA, resolved.entryA)
+		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "merge_delete_b",
+			errDurableMemoryDeleteFailed, err, "target", resolved.targetB, "path", req.PathB)
+	}
+
+	invalidateDurableMemorySections(deps.Sections)
+
+	merged, mergedPath, err := readUIMemoryEntryByPath(resolved.rootA, resolved.targetA, req.PathA)
+	if err != nil {
+		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "merge_read_back",
+			errDurableMemoryReadFailed, err, "target", resolved.targetA, "path", req.PathA)
+	}
+	return toUIMemoryEntryDetail(resolved.targetA, resolved.rootA, mergedPath, merged), nil
+}
+
+func buildUIMemoryMergeWriteRequest(entryA, entryB MemoryEntry) MemoryWriteRequest {
+	mergedDesc := entryA.Frontmatter.Description
+	if len(entryB.Frontmatter.Description) > len(mergedDesc) {
+		mergedDesc = entryB.Frontmatter.Description
+	}
+	return MemoryWriteRequest{
+		Name:        entryA.Frontmatter.Name,
+		Description: mergedDesc,
+		Type:        ParseMemoryType(string(entryA.Type())),
+		Body:        dedup.MergeContent(string(entryA.Type()), entryA.Content, entryB.Content),
+	}
 }

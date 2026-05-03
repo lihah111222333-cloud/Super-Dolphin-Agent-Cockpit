@@ -52,6 +52,7 @@ const (
 	LauncherParamProvider         = "provider"
 	LauncherParamModel            = "model"
 	LauncherParamEffort           = "effort"
+	LauncherParamLanguage         = "language"
 )
 
 // Request parameter keys for LauncherMethodThreadStop /

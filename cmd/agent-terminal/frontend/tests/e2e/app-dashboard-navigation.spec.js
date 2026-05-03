@@ -64,19 +64,6 @@ test('sidebar pages load dashboard data and tasks tabs switch correctly', async 
           },
         ],
       },
-      agentScopes: [
-        {
-          scope: 'project',
-          rootPath: '/workspace/project-alpha/.claude/agent-memory',
-          entries: [
-            {
-              agentType: 'Writer',
-              path: 'Writer/MEMORY.md',
-              preview: 'Remember the verification checklist.',
-            },
-          ],
-        },
-      ],
     },
   });
 
@@ -98,8 +85,7 @@ test('sidebar pages load dashboard data and tasks tabs switch correctly', async 
 
   await page.getByTestId('nav-memory-center').click();
   await expect(page.getByTestId('memory-center-page')).toBeVisible();
-  await expect(page.getByTestId('memory-center-private-list')).toContainText('Keep responses short');
-  await expect(page.getByTestId('memory-center-agent-scopes')).toContainText('Writer');
+  await expect(page.getByTestId('memory-center-preference-list')).toContainText('Keep responses short');
 
   await page.getByTestId('nav-memory').click();
   await expect(page.getByTestId('shared-files-page')).toBeVisible();

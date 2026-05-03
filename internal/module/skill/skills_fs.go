@@ -41,7 +41,7 @@ func (s *service) ListSkills(ctx context.Context) ([]SkillInfo, error) {
 	for _, record := range records {
 		skills = append(skills, record.info)
 	}
-	return skills, nil
+	return skillsWithDisclosureTiers(skills, s.disclosureTiers), nil
 }
 
 type skillExpandPrepared struct {
