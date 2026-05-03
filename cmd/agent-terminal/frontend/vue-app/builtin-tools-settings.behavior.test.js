@@ -83,29 +83,23 @@ describe('BuiltinToolsSettings behavior', () => {
     expect(vm.notice.message).toContain('boom');
   });
 
-  it('groups tools by provider and surfaces info-only providers from providerNotes', async () => {
+  it('groups tools into manual-disabled and unfiltered buckets', async () => {
     apiMock.callAPI.mockResolvedValueOnce({
       tools: [
         { id: 'Read', label: '读文件', description: '读取', enabled: false, provider: 'claude' },
         { id: 'WebFetch', label: '抓取网页', description: '网页', enabled: true, provider: 'claude' },
-      ],
-      providerNotes: [
-        { provider: 'codex', label: 'Codex 内置工具', note: '协议未暴露' },
       ],
     });
     const { vm } = createBuiltinToolsSettings();
     await vm.loadBuiltinTools();
 
     expect(vm.groups.value).toHaveLength(2);
-    const claudeGroup = vm.groups.value.find((g) => g.provider === 'claude');
-    expect(claudeGroup.tools).toHaveLength(2);
-    expect(claudeGroup.disabledCount).toBe(1);
-    expect(claudeGroup.note).toBe('');
-    const codexGroup = vm.groups.value.find((g) => g.provider === 'codex');
-    expect(codexGroup.tools).toEqual([]);
-    expect(codexGroup.label).toBe('Codex 内置工具');
-    expect(codexGroup.note).toContain('协议未暴露');
-    expect(vm.totalDisabledCount.value).toBe(1);
+    const manualGroup = vm.groups.value.find((g) => g.key === 'manual');
+    expect(manualGroup.tools).toHaveLength(1);
+    expect(manualGroup.disabledCount).toBe(1);
+    const unfilteredGroup = vm.groups.value.find((g) => g.key === 'unfiltered');
+    expect(unfilteredGroup.tools).toHaveLength(1);
+    expect(vm.filteredCount.value).toBe(1);
     expect(vm.totalToolCount.value).toBe(2);
   });
 
