@@ -7,7 +7,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/fbsd"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/nativefilter"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
@@ -24,9 +23,8 @@ type driverFactoryParams struct {
 	Reporter       contract.RuntimeReporter
 	Reg            *pidregistry.Registry
 	ProxyAddrFn    func() string
-	SkillLibConfig skilllibrary.Config  `optional:"true"`
-	NativeFilter   *nativefilter.Filter `optional:"true"`
-	Tracker        *fbsd.Tracker        `optional:"true"`
+	SkillLibConfig skilllibrary.Config `optional:"true"`
+	Tracker        *fbsd.Tracker       `optional:"true"`
 }
 
 func NewDriverFactory(p driverFactoryParams) contract.DriverFactory {
@@ -39,7 +37,7 @@ func NewDriverFactory(p driverFactoryParams) contract.DriverFactory {
 	return contract.DriverFactory{
 		Name: "claude",
 		Create: func() contract.Driver {
-			return newDriver(p.Logger, p.Dispatcher, p.Reporter, p.Reg, p.ProxyAddrFn, p.SkillLibConfig.CacheDir, p.NativeFilter)
+			return newDriver(p.Logger, p.Dispatcher, p.Reporter, p.Reg, p.ProxyAddrFn, p.SkillLibConfig.CacheDir)
 		},
 	}
 }

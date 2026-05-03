@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/cliadapter"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/nativefilter"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -34,7 +35,6 @@ type driver struct {
 	pidRegistry     *pidregistry.Registry
 	proxyAddrFn     func() string
 	skillCacheDir   string
-	nativeFilter    *nativefilter.Filter // P5: optional, nil-safe
 }
 
 type startSpec struct {
@@ -88,7 +88,7 @@ func (d *driver) proxyHTTPAddr() string {
 	return strings.TrimSpace(d.proxyAddrFn())
 }
 
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string, skillCacheDir string, nativeFilter *nativefilter.Filter) contract.Driver {
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string, skillCacheDir string) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -103,7 +103,6 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, re
 		pidRegistry:     reg,
 		proxyAddrFn:     proxyAddrFn,
 		skillCacheDir:   skillCacheDir,
-		nativeFilter:    nativeFilter,
 	}
 }
 
@@ -204,17 +203,11 @@ func (d *driver) prepareSessionStart(spec startSpec) (preparedStartSession, erro
 			}
 		}
 	}
-	// P5: nativefilter renders <workspace>/.claude/settings.json with
-	// permissions.deny so Claude CLI blocks any native skill our project has
-	// declared a replacement for. Filter is nil-safe + flag-gated; default
-	// (env unset) is no-op so this hook keeps P2 behavior unchanged.
+	// 清理旧 nativefilter 残留的 settings.json（一次性写入空 deny 覆盖）
 	if spec.cwd != "" {
-		if err := d.nativeFilter.Apply(spec.cwd); err != nil {
-			if d.logger != nil {
-				d.logger.Warn("nativefilter apply failed",
-					"cwd", spec.cwd, "err", err)
-			}
-		}
+		cleanupPath := filepath.Join(spec.cwd, ".claude", "settings.json")
+		_ = os.MkdirAll(filepath.Dir(cleanupPath), 0o755)
+		_ = os.WriteFile(cleanupPath, []byte(`{"permissions":{"deny":[]}}`), 0o644)
 	}
 	tr, cleanup, err := launchCLI(
 		d.binaryPath,
