@@ -348,14 +348,56 @@ func (s *session) ForceComplete(ctx context.Context, req dto.ForceCompleteReques
 	if !ok {
 		return nil
 	}
-	if _, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "turn/forceComplete", map[string]any{
-		"threadId": threadID,
-		"turnId":   turnID,
-	}); err != nil {
+	if err := s.callForceComplete(ctx, threadID, turnID); err != nil {
 		return err
 	}
 	s.forceCompleteTurn(turnID)
 	return nil
+}
+
+func (s *session) callForceComplete(ctx context.Context, threadID, turnID string) error {
+	_, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "turn/forceComplete", forceCompleteParams(threadID, turnID, true))
+	if err == nil {
+		return nil
+	}
+	if !forceCompleteTurnIDFallbackEligible(err) {
+		return err
+	}
+	if s != nil && s.logger != nil {
+		s.logger.Warn("codexapp: turn/forceComplete turnId rejected; retrying legacy payload", "error", err)
+	}
+	_, fallbackErr := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "turn/forceComplete", forceCompleteParams(threadID, "", false))
+	if fallbackErr != nil {
+		return fmt.Errorf("codexapp: legacy turn/forceComplete fallback failed: %w (original turnId error: %v)", fallbackErr, err)
+	}
+	return nil
+}
+
+func forceCompleteParams(threadID, turnID string, includeTurnID bool) map[string]any {
+	params := map[string]any{"threadId": threadID}
+	if includeTurnID {
+		params["turnId"] = turnID
+	}
+	return params
+}
+
+func forceCompleteTurnIDFallbackEligible(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	if msg == "" || !(strings.Contains(msg, "turnid") || strings.Contains(msg, "turn_id") || strings.Contains(msg, "turn id")) {
+		return false
+	}
+	for _, marker := range []string{
+		"extra", "forbid", "unknown", "unexpected", "unrecognized", "unsupported",
+		"validation", "invalid", "not permitted", "no such field", "pydantic", "-32602",
+	} {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *session) ListThreads(ctx context.Context) ([]dto.ThreadRef, error) {

@@ -541,6 +541,17 @@ func (s *stuckPeerHandle) registered() bool {
 	return s.reg
 }
 
+func (s *stuckPeerHandle) receivedSignal(want processSig) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, sig := range s.signals {
+		if sig == want {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *stuckPeerHandle) markRegistered() {
 	s.mu.Lock()
 	s.reg = true
