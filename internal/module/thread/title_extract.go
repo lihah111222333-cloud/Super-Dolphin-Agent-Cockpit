@@ -283,6 +283,9 @@ func isAllPronouns(s string) bool {
 //  3. Fall back to the default thread name.
 func resolveDisplayName(ctx context.Context, store threadstore.Store, agentID, prompt, currentName string) string {
 	name := strings.TrimSpace(currentName)
+	if name == defaultThreadName() {
+		name = ""
+	}
 	if name == "" && store != nil {
 		existing, err := store.GetByThreadID(ctx, agentID)
 		if err == nil && existing.ManuallyRenamed {
