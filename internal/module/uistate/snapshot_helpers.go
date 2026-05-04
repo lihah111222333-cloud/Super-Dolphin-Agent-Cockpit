@@ -164,8 +164,28 @@ func classifyItemActivity(itemType, rawType, command, file string) string {
 	}
 }
 
+// normalizeToolName strips the MCP namespace prefix ("mcp__<server>__") and
+// lowercases the tool name so backend classifiers see the canonical short form.
+// Runtime-emitted ToolName carries the full MCP method (e.g. mcp__lsp__lsp_grep)
+// while the classification tables and prefix gates here use short names
+// (e.g. lsp_grep). Without this normalization every MCP-served tool falls
+// through into the default branch and counters silently zero out.
+func normalizeToolName(name string) string {
+	s := strings.ToLower(strings.TrimSpace(name))
+	if s == "" {
+		return ""
+	}
+	if strings.HasPrefix(s, "mcp__") {
+		rest := strings.TrimPrefix(s, "mcp__")
+		if i := strings.Index(rest, "__"); i >= 0 {
+			return rest[i+2:]
+		}
+	}
+	return s
+}
+
 func classifyToolActivity(toolName string) string {
-	switch strings.ToLower(strings.TrimSpace(toolName)) {
+	switch normalizeToolName(toolName) {
 	case "spawn_agent",
 		"wait_agent",
 		"send_input",

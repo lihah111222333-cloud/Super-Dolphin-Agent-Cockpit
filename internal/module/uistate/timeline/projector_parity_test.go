@@ -265,3 +265,52 @@ func TestRegisterSubscriptions_ToolCallDistinctByToolAndCallID(t *testing.T) {
 		return len(items) == 2 && items[0].Tool == "bash" && items[1].Tool == "lsp_edit"
 	}, "expected same callID with different tools to keep two timeline items")
 }
+
+// TestRegisterSubscriptions_ToolCallEndWithoutToolNameUpdatesBeginRow guards
+// the fallback that recovers ToolName-less End events: the Begin-side row
+// must be marked completed in place instead of spawning a duplicate “未知工具”
+// fallback row.
+func TestRegisterSubscriptions_ToolCallEndWithoutToolNameUpdatesBeginRow(t *testing.T) {
+	svc := timeline.New(nil, nil, 50)
+	dispatcher := event.NewDispatcher()
+	cancels := timeline.RegisterSubscriptions(dispatcher, svc, nil, nil)
+	defer func() {
+		for _, cancel := range cancels {
+			cancel()
+		}
+		_ = dispatcher.Close()
+	}()
+
+	header := shared.ToolCallHeader{
+		TurnHeader: shared.TurnHeader{
+			AgentHeader: shared.AgentHeader{
+				ThreadHeader: shared.ThreadHeader{ThreadID: "t1"},
+				AgentID:      "agent-1",
+			},
+			TurnIDHeader: shared.TurnIDHeader{TurnID: "turn-1"},
+		},
+		CallID:   "call-1",
+		ToolName: "lsp_grep",
+	}
+	event.Publish(dispatcher, tooldto.ToolCallBegin{ToolCallHeader: header})
+	waitForCondition(t, func() bool {
+		items := svc.GetByThread("t1")
+		return len(items) == 1 && items[0].Tool == "lsp_grep" && items[0].Status == "running"
+	}, "begin must create one running tool item")
+
+	// End event drops ToolName (mimics runtimes that only echo CallID on End).
+	endHeader := header
+	endHeader.ToolName = ""
+	event.Publish(dispatcher, tooldto.ToolCallEnd{
+		ToolCallHeader: endHeader,
+		Success:        true,
+	})
+	waitForCondition(t, func() bool {
+		items := svc.GetByThread("t1")
+		if len(items) != 1 {
+			return false
+		}
+		item := items[0]
+		return item.Tool == "lsp_grep" && item.Done && item.Status != "running"
+	}, "end without ToolName must update the existing row in place, not spawn a 未知工具 duplicate")
+}

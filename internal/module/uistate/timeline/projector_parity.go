@@ -225,14 +225,23 @@ func applyToolCallCompleted(it *Item, ev tooldto.ToolCallEnd, success bool) {
 }
 
 func appendCompletedToolFallback(svc Service, threadID string, ev tooldto.ToolCallEnd, updateKey string, success bool) bool {
+	tool := strings.TrimSpace(ev.ToolName)
+	// Without a tool name the fallback row would render as “未知工具”, which
+	// is worse than dropping the orphan event — the matching Begin-side row
+	// (now keyed by CallID alone) carries the canonical name and stays in
+	// the timeline as the source of truth. We only append a fallback when
+	// ToolName is present so the new row is self-identifying.
+	if tool == "" {
+		return false
+	}
 	item := Item{
 		lookupKey: updateKey,
 		ID:        timelineID("tool", ev.CallID, ev.ToolName),
 		Kind:      "tool",
 		Status:    toolCallStatus(success, ev.Error),
 		CallID:    strings.TrimSpace(ev.CallID),
-		Tool:      strings.TrimSpace(ev.ToolName),
-		ToolName:  strings.TrimSpace(ev.ToolName),
+		Tool:      tool,
+		ToolName:  tool,
 		Error:     strings.TrimSpace(ev.Error),
 		Success:   &success,
 		Done:      true,

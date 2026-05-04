@@ -177,7 +177,10 @@ func (s *service) applyToolCallBegin(ev tooldto.ToolCallBegin) {
 				stats.ToolCalls = map[string]int64{}
 			}
 			stats.ToolCalls[toolName]++
-			if strings.HasPrefix(strings.ToLower(toolName), "lsp_") {
+			// LSPCalls counts canonical LSP tools regardless of MCP namespace
+			// wrapping: ev.ToolName may arrive as "mcp__lsp__lsp_grep" from the
+			// MCP runtime or as bare "lsp_grep" from in-process callers.
+			if strings.HasPrefix(normalizeToolName(toolName), "lsp_") {
 				stats.LSPCalls++
 			}
 		}
