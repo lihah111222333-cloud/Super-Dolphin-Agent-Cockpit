@@ -12,11 +12,11 @@ import (
 )
 
 var testNativeTools = []contract.NativeToolDescriptor{
-	{ID: "Read", Label: "读文件", Description: "读取文件", DefaultDisabled: true, Provider: "claude"},
-	{ID: "Write", Label: "写文件", Description: "写入文件", DefaultDisabled: true, Provider: "claude"},
-	{ID: "Bash", Label: "执行命令", Description: "执行命令", DefaultDisabled: true, Provider: "claude"},
-	{ID: "WebFetch", Label: "抓取网页", Description: "抓取网页", DefaultDisabled: false, Provider: "claude"},
-	{ID: "shell", Label: "执行命令", Description: "Codex shell", DefaultDisabled: true, Provider: "codex"},
+	{ID: "Read", Label: "读文件", Description: "读取文件", DefaultDisabled: true, Provider: "claude", FilterMode: contract.NativeToolFilterModeHard},
+	{ID: "Write", Label: "写文件", Description: "写入文件", DefaultDisabled: true, Provider: "claude", FilterMode: contract.NativeToolFilterModeHard},
+	{ID: "Bash", Label: "执行命令", Description: "执行命令", DefaultDisabled: true, Provider: "claude", FilterMode: contract.NativeToolFilterModeHard},
+	{ID: "WebFetch", Label: "抓取网页", Description: "抓取网页", DefaultDisabled: false, Provider: "claude", FilterMode: contract.NativeToolFilterModeHard},
+	{ID: "shell", Label: "执行命令", Description: "Codex shell", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
 }
 
 var testNativeToolIndex = buildNativeToolIndex(testNativeTools)
@@ -130,6 +130,36 @@ func TestResolveDisabledBuiltinToolsHonorsExplicitEmptyOverride(t *testing.T) {
 	}
 }
 
+func TestResolveSoftFilteredBuiltinToolsReturnsOnlySoftTools(t *testing.T) {
+	t.Parallel()
+	got := ResolveSoftFilteredBuiltinTools(context.Background(), nil, "/repo", testNativeTools, testNativeToolIndex)
+	want := []string{"shell"}
+	if !equalSortedStrings(got, want) {
+		t.Fatalf("ResolveSoftFilteredBuiltinTools(nil prefs) = %#v, want %#v", got, want)
+	}
+}
+
+func TestResolveHardEnabledBuiltinToolsReturnsClaudeAllowlist(t *testing.T) {
+	t.Parallel()
+	got := ResolveHardEnabledBuiltinTools(context.Background(), nil, "/repo", testNativeTools, testNativeToolIndex, "claude")
+	want := []string{"WebFetch"}
+	if !equalSortedStrings(got, want) {
+		t.Fatalf("ResolveHardEnabledBuiltinTools(nil prefs) = %#v, want %#v", got, want)
+	}
+}
+
+func TestResolveHardEnabledBuiltinToolsHonorsExplicitEmptyOverride(t *testing.T) {
+	t.Parallel()
+	prefs := &uiPreferenceStoreStub{values: map[string]json.RawMessage{
+		preferenceStubKey("/repo", builtinToolsDisabledKey): json.RawMessage(`[]`),
+	}}
+	got := ResolveHardEnabledBuiltinTools(context.Background(), prefs, "/repo", testNativeTools, testNativeToolIndex, "claude")
+	want := []string{"Bash", "Read", "WebFetch", "Write"}
+	if !equalSortedStrings(got, want) {
+		t.Fatalf("ResolveHardEnabledBuiltinTools(explicit empty) = %#v, want %#v", got, want)
+	}
+}
+
 func toolViewByID(views []BuiltinToolView, id string) *BuiltinToolView {
 	for i := range views {
 		if views[i].ID == id {
@@ -171,5 +201,21 @@ func TestBuiltinToolsReadIncludesMultipleProviders(t *testing.T) {
 	}
 	if !providers["codex"] {
 		t.Errorf("expected codex provider in tools")
+	}
+}
+
+func TestBuiltinToolsReadReturnsFilterMode(t *testing.T) {
+	t.Parallel()
+	prefs := &uiPreferenceStoreStub{}
+	res, err := readBuiltinTools(context.Background(), prefs, nil, testNativeTools, testNativeToolIndex, "/repo")
+	if err != nil {
+		t.Fatalf("readBuiltinTools error = %v", err)
+	}
+	for _, view := range res.Tools {
+		descriptor := testNativeToolIndex[view.ID]
+		want := string(descriptor.FilterMode)
+		if view.FilterMode != want {
+			t.Errorf("tool %q FilterMode = %q, want %q", view.ID, view.FilterMode, want)
+		}
 	}
 }

@@ -14,14 +14,22 @@ type Driver interface {
 	ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (Session, error)
 }
 
+type NativeToolFilterMode string
+
+const (
+	NativeToolFilterModeHard NativeToolFilterMode = "hard"
+	NativeToolFilterModeSoft NativeToolFilterMode = "soft"
+)
+
 // NativeToolDescriptor describes an upstream CLI built-in tool that the
-// settings UI can render and the prompt layer can suppress.
+// settings UI can render and the prompt/provider layers can filter.
 type NativeToolDescriptor struct {
 	ID              string
 	Label           string
 	Description     string
 	DefaultDisabled bool
 	Provider        string
+	FilterMode      NativeToolFilterMode
 }
 
 // DriverFactory constructs Driver instances for DI registration.

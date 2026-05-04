@@ -311,12 +311,12 @@ export async function setThreadConfig(ctx, threadId, config = {}) {
   }
 }
 
-async function resolveDisallowedBuiltinTools(ctx, cwd) {
+async function resolveClaudeAllowedBuiltinTools(ctx, cwd) {
   try {
     const res = await ctx.callAPI('config/builtinTools/read', ctx.withPreferenceScope({ cwd }));
     if (!res || !Array.isArray(res.tools)) return null;
     return res.tools
-      .filter((tool) => tool && tool.enabled === false)
+      .filter((tool) => tool && (tool.provider || 'claude') === 'claude' && tool.enabled === true && !tool.replacedBy)
       .map((tool) => (typeof tool.id === 'string' ? tool.id.trim() : ''))
       .filter((id) => id !== '');
   } catch {
@@ -516,10 +516,11 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   // skips the Claude CLI fork; the spawn happens lazily on the first
   // turn/start via SpawnIfNeeded. See internal/module/thread/spawn.go.
   if (options?.deferSpawn === true) payload.defer_spawn = true;
-  const disallowedTools = await resolveDisallowedBuiltinTools(ctx, cwd);
-  if (Array.isArray(disallowedTools)) {
-    payload.config = { ...(payload.config || {}), disallowed_tools: disallowedTools };
+  const claudeAllowedTools = await resolveClaudeAllowedBuiltinTools(ctx, cwd);
+  if (Array.isArray(claudeAllowedTools)) {
+    payload.config = { ...(payload.config || {}), claude_builtin_tools: claudeAllowedTools };
   }
+
   if (options?.config && typeof options.config === 'object' && !Array.isArray(options.config)) {
     payload.config = { ...(payload.config || {}), ...options.config };
   }

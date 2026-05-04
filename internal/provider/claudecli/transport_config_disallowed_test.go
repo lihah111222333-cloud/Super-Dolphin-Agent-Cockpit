@@ -16,6 +16,35 @@ func TestBuildCLIArgsUsesLegacyDisallowedListByDefault(t *testing.T) {
 	}
 }
 
+func TestBuildCLIArgsUsesConfiguredBuiltinToolsAllowlist(t *testing.T) {
+	t.Parallel()
+
+	args := buildCLIArgs("claude-sonnet", "system", "/tmp/mcp.json", cliLaunchConfig{
+		BuiltinTools: []string{"WebFetch", "Task"},
+	})
+	got := flagValues(args, "--tools")
+	want := []string{"WebFetch,Task"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("--tools = %#v, want %#v", got, want)
+	}
+	if got := flagValues(args, "--disallowedTools"); len(got) != 0 {
+		t.Fatalf("--disallowedTools with --tools allowlist = %#v, want none", got)
+	}
+}
+
+func TestBuildCLIArgsUsesEmptyBuiltinToolsAllowlist(t *testing.T) {
+	t.Parallel()
+
+	args := buildCLIArgs("claude-sonnet", "system", "/tmp/mcp.json", cliLaunchConfig{
+		BuiltinTools: []string{},
+	})
+	got := flagValues(args, "--tools")
+	want := []string{""}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("--tools empty allowlist = %#v, want %#v", got, want)
+	}
+}
+
 func TestBuildCLIArgsHonorsConfiguredDisallowedOverride(t *testing.T) {
 	t.Parallel()
 
@@ -48,6 +77,50 @@ func TestBuildCLIArgsOmitsDisallowedFlagWhenNoMCPConfig(t *testing.T) {
 	})
 	if got := flagValues(args, "--disallowedTools"); len(got) != 0 {
 		t.Fatalf("--disallowedTools without --mcp-config = %#v, want none", got)
+	}
+}
+
+func TestConfigFromMapParsesBuiltinToolsKeys(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name  string
+		input map[string]any
+		want  []string
+	}{
+		{
+			name:  "nil when key absent",
+			input: map[string]any{"effort": "high"},
+			want:  nil,
+		},
+		{
+			name:  "snake_case array",
+			input: map[string]any{"claude_builtin_tools": []any{"WebFetch", "Task"}},
+			want:  []string{"WebFetch", "Task"},
+		},
+		{
+			name:  "camelCase string list",
+			input: map[string]any{"claudeBuiltinTools": "WebFetch, Task"},
+			want:  []string{"WebFetch", "Task"},
+		},
+		{
+			name:  "explicit empty array returns non-nil empty slice",
+			input: map[string]any{"claude_builtin_tools": []any{}},
+			want:  []string{},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := configFromMap(tc.input).BuiltinTools
+			if tc.want == nil {
+				if got != nil {
+					t.Fatalf("BuiltinTools = %#v, want nil", got)
+				}
+				return
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("BuiltinTools = %#v, want %#v", got, tc.want)
+			}
+		})
 	}
 }
 

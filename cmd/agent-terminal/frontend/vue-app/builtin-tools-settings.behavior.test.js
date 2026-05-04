@@ -23,11 +23,11 @@ beforeEach(() => {
 });
 
 describe('BuiltinToolsSettings behavior', () => {
-  it('loads the registry snapshot and surfaces labels/enable flags + provider', async () => {
+  it('loads the registry snapshot and surfaces labels/enable flags + provider + filterMode', async () => {
     apiMock.callAPI.mockResolvedValueOnce({
       tools: [
-        { id: 'Read', label: '读文件', description: '读取文件', enabled: false, provider: 'claude' },
-        { id: 'WebFetch', label: '抓取网页', description: '拉取网页', enabled: true, provider: 'claude' },
+        { id: 'Read', label: '读文件', description: '读取文件', enabled: false, provider: 'claude', filterMode: 'hard' },
+        { id: 'WebFetch', label: '抓取网页', description: '拉取网页', enabled: true, provider: 'claude', filterMode: 'hard' },
       ],
     });
 
@@ -36,8 +36,8 @@ describe('BuiltinToolsSettings behavior', () => {
 
     expect(apiMock.callAPI).toHaveBeenCalledWith('config/builtinTools/read', { cwd: '/repo' });
     expect(vm.tools.value).toEqual([
-      { id: 'Read', label: '读文件', description: '读取文件', enabled: false, provider: 'claude' },
-      { id: 'WebFetch', label: '抓取网页', description: '拉取网页', enabled: true, provider: 'claude' },
+      { id: 'Read', label: '读文件', description: '读取文件', enabled: false, provider: 'claude', filterMode: 'hard' },
+      { id: 'WebFetch', label: '抓取网页', description: '拉取网页', enabled: true, provider: 'claude', filterMode: 'hard' },
     ]);
   });
 
@@ -83,24 +83,28 @@ describe('BuiltinToolsSettings behavior', () => {
     expect(vm.notice.message).toContain('boom');
   });
 
-  it('groups tools into manual-disabled and unfiltered buckets', async () => {
+  it('groups tools into hard-disabled, soft-disabled and unfiltered buckets', async () => {
     apiMock.callAPI.mockResolvedValueOnce({
       tools: [
-        { id: 'Read', label: '读文件', description: '读取', enabled: false, provider: 'claude' },
-        { id: 'WebFetch', label: '抓取网页', description: '网页', enabled: true, provider: 'claude' },
+        { id: 'Read', label: '读文件', description: '读取', enabled: false, provider: 'claude', filterMode: 'hard' },
+        { id: 'shell', label: '执行命令', description: 'shell', enabled: false, provider: 'codex', filterMode: 'soft' },
+        { id: 'WebFetch', label: '抓取网页', description: '网页', enabled: true, provider: 'claude', filterMode: 'hard' },
       ],
     });
     const { vm } = createBuiltinToolsSettings();
     await vm.loadBuiltinTools();
 
-    expect(vm.groups.value).toHaveLength(2);
-    const manualGroup = vm.groups.value.find((g) => g.key === 'manual');
-    expect(manualGroup.tools).toHaveLength(1);
-    expect(manualGroup.disabledCount).toBe(1);
+    expect(vm.groups.value).toHaveLength(3);
+    const hardGroup = vm.groups.value.find((g) => g.key === 'hard');
+    expect(hardGroup.tools).toHaveLength(1);
+    expect(hardGroup.disabledCount).toBe(1);
+    const softGroup = vm.groups.value.find((g) => g.key === 'soft');
+    expect(softGroup.tools).toHaveLength(1);
+    expect(softGroup.disabledCount).toBe(1);
     const unfilteredGroup = vm.groups.value.find((g) => g.key === 'unfiltered');
     expect(unfilteredGroup.tools).toHaveLength(1);
-    expect(vm.filteredCount.value).toBe(1);
-    expect(vm.totalToolCount.value).toBe(2);
+    expect(vm.filteredCount.value).toBe(2);
+    expect(vm.totalToolCount.value).toBe(3);
   });
 
   it('toggles group expand state and defaults to collapsed', async () => {
