@@ -4,7 +4,7 @@ import { useSettingsScope } from './useSettingsScope.ts';
 
 type BuiltinToolsProjectStore = { state?: { active?: string } } | null;
 type BuiltinToolsSettingsProps = { projectStore?: BuiltinToolsProjectStore };
-type BuiltinToolView = { id: string; label: string; description?: string; enabled: boolean; provider?: string; replacedBy?: string };
+type BuiltinToolView = { id: string; label: string; description?: string; enabled: boolean; provider?: string; replacedBy?: string; filterMode?: string };
 type BuiltinToolsReadResult = { tools?: BuiltinToolView[] };
 type BuiltinToolsNoticeState = { level: string; message: string };
 type BuiltinToolGroup = {
@@ -44,35 +44,37 @@ function setupBuiltinToolsSettings(props: BuiltinToolsSettingsProps) {
       enabled: Boolean(item.enabled),
       provider: (item.provider || 'claude').toString(),
       replacedBy: item.replacedBy ? (item.replacedBy || '').toString() : undefined,
+      filterMode: (item.filterMode || '').toString() || undefined,
     }));
   }
 
-  // groups splits tools into three hybrid-mode buckets:
-  //   auto      — replaced by a skill declaration (not user-toggleable)
-  //   manual    — manually disabled by the user
-  //   available — neither replaced nor disabled
+  // groups splits tools into three filter-mode buckets:
+  //   hard       — disabled tools whose filterMode is "hard" (blocked at CLI startup)
+  //   soft       — disabled tools whose filterMode is "soft" (suppressed via prompt)
+  //   unfiltered — enabled tools (not yet filtered)
   const groups = computed<BuiltinToolGroup[]>(() => {
-    const autoReplaced = tools.value.filter((t) => t.replacedBy);
-    const manualDisabled = tools.value.filter((t) => !t.replacedBy && !t.enabled);
-    const notFiltered = tools.value.filter((t) => !t.replacedBy && t.enabled);
+    const disabled = tools.value.filter((t) => !t.enabled || t.replacedBy);
+    const hardDisabled = disabled.filter((t) => t.filterMode === 'hard');
+    const softDisabled = disabled.filter((t) => t.filterMode !== 'hard');
+    const notFiltered = tools.value.filter((t) => t.enabled && !t.replacedBy);
 
     const result: BuiltinToolGroup[] = [];
 
-    if (autoReplaced.length > 0) {
+    if (hardDisabled.length > 0) {
       result.push({
-        key: 'auto',
-        label: `自动替代（${autoReplaced.length}）—— 由技能声明，不可取消`,
-        tools: autoReplaced,
-        disabledCount: autoReplaced.length,
-        canToggle: false,
+        key: 'hard',
+        label: `启动时过滤（${hardDisabled.length}）—— CLI 启动参数直接屏蔽`,
+        tools: hardDisabled,
+        disabledCount: hardDisabled.length,
+        canToggle: true,
       });
     }
-    if (manualDisabled.length > 0) {
+    if (softDisabled.length > 0) {
       result.push({
-        key: 'manual',
-        label: `手动过滤（${manualDisabled.length}）—— 用户自行勾选`,
-        tools: manualDisabled,
-        disabledCount: manualDisabled.length,
+        key: 'soft',
+        label: `软过滤提示（${softDisabled.length}）—— 通过 prompt 指令抑制`,
+        tools: softDisabled,
+        disabledCount: softDisabled.length,
         canToggle: true,
       });
     }
@@ -184,8 +186,9 @@ export const BuiltinToolsSettings = {
         </span>
       </div>
       <div class="settings-prompt-desc">
-        技能自动替代 + 用户手动勾选，统一对所有模型生效。
+        过滤底层 CLI 原生工具
       </div>
+
       <div v-if="tools.length === 0 && !loading" class="settings-log-empty" data-testid="settings-builtin-tools-empty">
         暂无可配置的内置工具
       </div>
@@ -224,7 +227,7 @@ export const BuiltinToolsSettings = {
               <div class="settings-prompt-toggle-copy">
                 <span class="settings-prompt-toggle-title">{{ tool.label }}</span>
                 <span class="settings-prompt-toggle-desc">
-{{ tool.description || tool.id }}<span v-if="tool.description" class="settings-builtin-tool-id"> · {{ tool.id }}</span><span v-if="tool.provider" class="settings-builtin-tool-provider"> [{{ tool.provider }}]</span><span v-if="tool.replacedBy" class="settings-builtin-tool-replaced"> 🔄 ← {{ tool.replacedBy }}</span>
+{{ tool.description || tool.id }}<span v-if="tool.description" class="settings-builtin-tool-id"> · {{ tool.id }}</span><span v-if="tool.provider" class="settings-builtin-tool-provider"> [{{ tool.provider }}]</span><span v-if="tool.filterMode" class="settings-builtin-tool-filter-mode"> [{{ tool.filterMode }}]</span><span v-if="tool.replacedBy" class="settings-builtin-tool-replaced"> ← {{ tool.replacedBy }}</span>
                 </span>
               </div>
               <input

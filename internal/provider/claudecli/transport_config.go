@@ -53,9 +53,10 @@ type cliLaunchConfig struct {
 	Personality           string
 	DeveloperInstructions string
 	PromptSnapshot        contract.PromptAssemblySnapshot
-	// DisallowedTools overrides the upstream Claude CLI built-in tool disable
-	// list. A nil slice keeps the legacy hardcoded default; a non-nil slice
-	// (including empty) expresses an explicit user choice.
+	// BuiltinTools is the allowlist passed to Claude CLI --tools. Nil keeps the
+	// legacy disallow-list path; non-nil (including empty) expresses an explicit
+	// launch-time native tool visibility choice.
+	BuiltinTools    []string
 	DisallowedTools []string
 }
 
@@ -196,13 +197,16 @@ func buildCLIArgs(model, instructions, mcpConfigPath string, cfg cliLaunchConfig
 	args = appendFlagIfSet(args, "--effort", normalizeEffort(model, cfg.Effort))
 	if mcpConfigPath = strings.TrimSpace(mcpConfigPath); mcpConfigPath != "" {
 		args = appendFlagIfSet(args, "--mcp-config", mcpConfigPath)
-		if disallowed := resolveDisallowedToolsFlag(cfg.DisallowedTools); disallowed != "" {
+		if cfg.BuiltinTools != nil {
+			args = append(args, "--tools", resolveToolsFlag(cfg.BuiltinTools))
+		} else if disallowed := resolveDisallowedToolsFlag(cfg.DisallowedTools); disallowed != "" {
 			args = append(args, "--disallowedTools", disallowed)
 		}
 		if !hasFlag(args, "--permission-mode") {
 			args = appendFlagIfSet(args, "--permission-mode", "bypassPermissions")
 		}
 	}
+
 	return args
 }
 
@@ -214,6 +218,18 @@ func hasFlag(args []string, flag string) bool {
 // backwards compatibility when the caller has not provided an explicit
 // DisallowedTools override.
 var defaultDisallowedBuiltinTools = []string{"Read", "Write", "Edit", "MultiEdit", "Bash", "Grep", "Glob", "LS"}
+
+func resolveToolsFlag(allowlist []string) string {
+	ids := make([]string, 0, len(allowlist))
+	for _, raw := range allowlist {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	return strings.Join(ids, ",")
+}
 
 // resolveDisallowedToolsFlag turns the configured list into the --disallowedTools
 // flag value. nil → legacy default; non-nil empty → "" (caller skips the flag);

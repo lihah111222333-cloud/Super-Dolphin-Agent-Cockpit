@@ -107,15 +107,15 @@ func provideNativeToolDescriptors(registry *unified.Registry) []contract.NativeT
 	return registry.NativeTools()
 }
 
-// provideDisabledBuiltinToolsFn bridges uistate.ResolveDisabledBuiltinTools
-// into prompt.DisabledBuiltinToolsFn without creating a prompt→uistate import cycle.
+// provideDisabledBuiltinToolsFn bridges uistate soft-filter resolution into
+// prompt.DisabledBuiltinToolsFn without creating a prompt→uistate import cycle.
 func provideDisabledBuiltinToolsFn(prefs uipreference.Store, tools []contract.NativeToolDescriptor) prompt.DisabledBuiltinToolsFn {
 	index := make(map[string]contract.NativeToolDescriptor, len(tools))
 	for _, t := range tools {
 		index[t.ID] = t
 	}
 	return func(ctx context.Context, cwd string) []string {
-		return uistate.ResolveDisabledBuiltinTools(ctx, prefs, cwd, tools, index)
+		return uistate.ResolveSoftFilteredBuiltinTools(ctx, prefs, cwd, tools, index)
 	}
 }
 

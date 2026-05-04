@@ -46,8 +46,24 @@ func configFromMap(cfg map[string]any) cliLaunchConfig {
 		Effort:                providershared.ConfigString(cfg, "effort"),
 		Personality:           providershared.ConfigString(cfg, "personality"),
 		DeveloperInstructions: providershared.ConfigString(cfg, "developer_instructions", "developerInstructions"),
+		BuiltinTools:          builtinToolsFromMap(cfg),
 		DisallowedTools:       disallowedBuiltinToolsFromMap(cfg),
 	}
+}
+
+func builtinToolsFromMap(cfg map[string]any) []string {
+	for _, key := range []string{"claude_builtin_tools", "claudeBuiltinTools", "builtin_tools", "builtinTools"} {
+		raw, ok := cfg[key]
+		if !ok {
+			continue
+		}
+		ids := providershared.NormalizeConfigStringSlice(raw)
+		if ids == nil {
+			return []string{}
+		}
+		return ids
+	}
+	return nil
 }
 
 // disallowedBuiltinToolsFromMap preserves nil when no override key is present

@@ -22,6 +22,23 @@ func AggregateAllReplacements(entries []SkillEntry) []string {
 	return sortedKeys(seen)
 }
 
+func AggregateReplacementsForProvider(entries []SkillEntry, provider string) []string {
+	seen := make(map[string]struct{})
+	for _, e := range entries {
+		if e.Meta == nil || e.Meta.Disabled {
+			continue
+		}
+		for _, key := range []string{"*", provider} {
+			for _, name := range e.Meta.ReplacesNative[key] {
+				if name != "" {
+					seen[name] = struct{}{}
+				}
+			}
+		}
+	}
+	return sortedKeys(seen)
+}
+
 func sortedKeys(seen map[string]struct{}) []string {
 	out := make([]string, 0, len(seen))
 	for n := range seen {

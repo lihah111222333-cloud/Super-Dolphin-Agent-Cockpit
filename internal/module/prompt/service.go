@@ -87,10 +87,11 @@ func WithSkillStore(store *skilllibrary.Store) ServiceOption {
 	}
 }
 
-// WithDisabledBuiltinToolsFn injects the function used to resolve user-manually
-// disabled builtin tools. The caller (e.g. the fx module) provides a closure
-// over uistate.ResolveDisabledBuiltinTools, avoiding a direct import cycle
-// between the prompt package and the uistate package.
+// WithDisabledBuiltinToolsFn injects the function used to resolve soft-filtered
+// builtin tools. The caller (e.g. the fx module) provides a closure over
+// uistate resolution helpers, avoiding a direct import cycle between the prompt
+// package and the uistate package.
+
 func WithDisabledBuiltinToolsFn(fn DisabledBuiltinToolsFn) ServiceOption {
 	return func(s *service) {
 		s.disabledToolsFn = fn

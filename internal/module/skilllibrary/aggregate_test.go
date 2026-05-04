@@ -60,3 +60,23 @@ func TestAggregateAllReplacements_Empty(t *testing.T) {
 		t.Fatalf("got %v, want empty", got)
 	}
 }
+
+func TestAggregateReplacementsForProvider(t *testing.T) {
+	entries := []SkillEntry{
+		{Meta: &SkillMeta{Name: "a", ReplacesNative: map[string][]string{
+			"claude": {"Read"},
+			"codex":  {"shell"},
+			"*":      {"WebFetch"},
+		}}},
+	}
+	got := AggregateReplacementsForProvider(entries, "codex")
+	want := []string{"WebFetch", "shell"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
