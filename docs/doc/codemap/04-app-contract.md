@@ -26,7 +26,7 @@
 - 把 provider / thread / turn / hooks / mcpcontrol / orchestration 之间的依赖压缩为接口依赖；
 - 把 RPC、sqlc、provider transport、standalone orchestration 这类易变实现隔离到外层；
 - 允许桌面态在 **没有 orchestration service** 时，依靠 `optional:"true"` + noop 适配器完成大部分组装；
-- 按能力域拆分：`approval`、`hooks`、`mcp_control`、`orchestration`、`prompt`、`provider`、`runtime_reporter`、`session_resolver`、`skill_injection`、`memory/team/thread_metadata`，以及 `agent_state`、`bootstrap_hook`、`dream`、`frc`、`message_notifier`、`pending_launch_spawner`、`prompt_attachment`、`toolbridge_runtime_required`、`ui_project_state` 等桥接/模型/helper。
+- 按能力域拆分：`approval`、`hooks`、`mcp_control`、`orchestration`、`prompt`、`provider`、`runtime_reporter`、`session_resolver`、`skill_injection`、`agent_memory`、`memory/team/thread_metadata`，以及 `agent_state`、`bootstrap_hook`、`dream`、`frc`、`message_notifier`、`pending_launch_spawner`、`prompt_attachment`、`toolbridge_runtime_required`、`ui_project_state` 等桥接/模型/helper。
 - **58f19fa 接口隔离维护口径**：不要把单一模块拥有的超大 `Service` / `Store` 端口继续抬进 `internal/contract`；`internal/module/skill/contract.go`、`cmd/mcp-orch/store/taskdag/contract.go` 等 owner-local narrow ports 由模块自身维护，04 只记录它们和 app/root graph 的边界关系。
 
 一句话：**`app` 负责“怎么装”，`contract` 负责“装出来的东西如何说话”。**
@@ -110,7 +110,7 @@ flowchart TD
 | `frc.go` | FRC 配置模型与默认窗口参数。 |
 | `hooks.go` | Hook 管理、生命周期、审批持久化契约；定义 hook 相关错误。 |
 | `mcp_control.go` | MCP 控制面注册/通知/回调/组合控制面的契约与 `ToolInstance` 快照。 |
-| `memory.go` | memory 只读契约：`MemoryService`、`MemoryReadRequest/Result`、scope/type 枚举。 |
+| `memory.go` | memory 契约：`MemoryService`、`AgentMemoryReader`、`AgentMemoryWriter`、`MemoryReadRequest/Result`、`AgentMemoryWriteRequest/Result`、scope/type 枚举。 |
 | `message_notifier.go` | 跨模块通知消息、等级与队列/alias 错误。 |
 | `orchestration.go` | agent orchestration 的总边界：生命周期、turn、runtime、report、DAG。 |
 | `pending_launch_spawner.go` | pending launch 二段式唤醒/补偿入口。 |
@@ -149,6 +149,8 @@ flowchart TD
 | `RuntimeReporter` | `ReportRuntime(ctx context.Context, report RuntimeReport) error` | Provider：`internal/provider/{claudecli,codexapp}` | `internal/app` (`orchestrationRuntimeReporter` / `noopRuntimeReporter`)；`cmd/mcp-orch/orchestration.runtimeReporter` 仅辅类型，未导出到 app 图 |
 | `SessionResolver` | `ResolveSession(ctx context.Context, threadID string) (Session, error)` | RPC：`internal/platform/rpc` capability gate；Module：`internal/module/turn`；Platform：`internal/platform/cachekeepalive` | `internal/provider/unified` (`sessionResolver`) |
 | `MemoryService` | `Read(ctx context.Context, req MemoryReadRequest) (MemoryReadResult, error)` | cmd：`cmd/mcp-orch/tools` / `tools.Registry` | `cmd/mcp-orch/memory` (`service`) |
+| `AgentMemoryReader` | `ReadAgentMemory(ctx, MemoryReadRequest) (MemoryReadResult, error); MemoryReadEnabled() bool; MemoryReadToolsEnabled() bool` | Platform：`internal/platform/toolbridge` (`MemoryReadHostToolRegistry`) | `internal/module/memory` (`MemoryLifecycleHooks`) |
+| `AgentMemoryWriter` | `WriteAgentMemory(ctx, AgentMemoryWriteRequest) (AgentMemoryWriteResult, error); MemoryWriteEnabled() bool; MemoryWriteToolsEnabled() bool` | Platform：`internal/platform/toolbridge` (`MemoryWriteHostToolRegistry`) | `internal/module/memory` (`MemoryLifecycleHooks`) |
 
 ### 2.2 Prompt / memory / attachment 契约
 
@@ -181,6 +183,8 @@ flowchart TD
 | `PeerCallback` | `mcp_control.go` | 对单个 lease 做 before/check/after callback | `*internal/platform/mcpcontrol.ToolRegistry` | 同上。 |
 | `ToolControlPlane` | `mcp_control.go` | 上述 4 个 MCP 控制面接口的组合 | `*internal/platform/mcpcontrol.ToolRegistry` | 组合接口，无单独实现。 |
 | `MemoryService` | `memory.go` | `memory_read` 背后的只读 memory 查询 | `*cmd/mcp-orch/memory.service` | 仅在 `cmd/mcp-orch` standalone 图由 `memory.NewService` 提供；`app.Module` 当前不装它。 |
+| `AgentMemoryReader` | `memory.go` | agent 侧 memory 读取（host tool 注册） | `*internal/module/memory.MemoryLifecycleHooks` | 由 `memory.Module` 通过 `provideAgentMemoryReader` 导出；`toolbridge.Module` 消费。 |
+| `AgentMemoryWriter` | `memory.go` | agent 侧 memory 写入（host tool 注册） | `*internal/module/memory.MemoryLifecycleHooks` | 由 `memory.Module` 通过 `provideAgentMemoryWriter` 导出；`toolbridge.Module` 消费。 |
 | `OrchestrationService` | `orchestration.go` | agent 生命周期、turn、runtime、report、DAG | `*cmd/mcp-orch/orchestration.service` | 由 `cmd/mcp-orch/orchestration.Module` 导出；桌面态默认不内嵌该模块。 |
 | `OrchestrationSessionCleaner` | `orchestration.go` | orchestration 关闭 agent 时清理本地 session | `*internal/provider/unified.sessionCleanerAdapter`；standalone noop：`cmd/mcp-orch.noopSessionCleaner` | `app.Module` 侧由 `unified.NewSessionCleaner` 提供；`mcp-orch` standalone 图由 `newNoopSessionCleaner` 提供。`sessionCleanerAdapter` 额外实现了非契约方法 `RemoveSessionGeneration(...)`，供 orchestration 通过类型断言使用。 |
 | `OrchestrationTurnStarter` | `orchestration.go` | orchestration 触发 turn 启动 | `internal/module/turn.orchestrationTurnStarter`；standalone noop：`cmd/mcp-orch.noopTurnStarter` | `turn.Module` 直接提供返回值类型 `contract.OrchestrationTurnStarter`；当前 `app.Module` 不内嵌 `orchestration.Module`，`mcp-orch` standalone 图则使用 `newNoopTurnStarter`。 |
@@ -217,6 +221,7 @@ flowchart TD
 - `ApprovalDecision`：审批结果载体；包含 `Approved *bool`、`Reason`、`Detail json.RawMessage`。
 - `ApprovalRequest`：主动请求审批时的统一载荷；包含 `CallID`、`ApprovalID`、`ToolName`、`AgentID`、`ThreadID`、`TurnID`、`Reason`、`Kind`、`SourceMethod`、`Payload`。
 - `MemoryEntry`、`MemoryReadRequest`、`MemoryReadResult`：`memory_read` 契约模型；涵盖 `Scope/Type`、`denyReason`、`degraded`、`source` 等返回元数据。
+- `AgentMemoryWriteRequest`、`AgentMemoryWriteResult`：`memory_write` 契约模型；涵盖 `Name/Description/Content/Type/Scope/AgentID/ThreadID/CWD/CallID/Source` 及 `Path/RequestedScope/ActualTarget/Skipped/Merged` 返回字段。
 - `BuildCtx`、`StartInput`、`TurnInput`、`StartAssembly`、`TurnAssembly`、`InvalidateReason`：prompt assembly 主契约模型；跨 thread / turn / prompt / memory 共享。
 - `ToolInstance`：MCP peer 快照；字段包含 `Lease`、废弃中的 `LeaseID`、`BinaryName`、`AgentID`、`ThreadID`、`PID`、`Capabilities`、`Subscriptions`、`PeerKind`、`ClientKind`、`Status`、`ConfigVersion`。
 - `ThreadMetadata`：提供 memory / team sync 所需的 thread 只读字段；包含 `ThreadID`、`ParentAgentID`、`AgentMemoryScope`、`Cwd`、`OwnerThreadID`、`ConfigOverride` 等。
@@ -767,7 +772,7 @@ type SessionResolver interface {
 - `unified.Module`
 - `claudecli.Module`
 - `codexapp.Module`
-- `toolbridge.Module`
+- `toolbridge.Module` — 通过 `provideHostToolRegistry` 组装 `CompositeHostToolRegistry`，聚合 `SkillReadSectionRegistry` + `MemoryReadHostToolRegistry` + `MemoryWriteHostToolRegistry`，向 Codex provider 暴露 host-direct 工具。
 
 **本地提供者 / 适配器**
 
@@ -828,6 +833,7 @@ internal/contract
   ├─ hooks            -> hooks / mcpcontrol / hookstore
   ├─ mcp_control      -> mcpcontrol / hooks
   ├─ memory           -> cmd/mcp-orch memory_read
+  ├─ agent_memory     -> toolbridge (AgentMemoryReader/Writer)
   ├─ orchestration    -> cmd/mcp-orch / dashboard / uistate / wails / app
   ├─ prompt           -> prompt / thread / turn / memory
   ├─ provider         -> unified / claudecli / codexapp / thread / turn

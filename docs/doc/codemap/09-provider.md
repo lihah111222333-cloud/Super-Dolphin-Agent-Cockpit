@@ -29,7 +29,7 @@ Layer 2 provider 适配层
 
 Layer 3 runtime 桥接层
   prompt snapshot / StartAssembly / binding store / thread store
-  rpc.ApprovalManager / toolbridge(dynamic tools; host-direct skills via SkillHostToolReader) / pidregistry / ServerManager / local process
+rpc.ApprovalManager / toolbridge(dynamic tools; host-direct skills via SkillReadSectionRegistry) / pidregistry / ServerManager / local process
 ```
 
 - `unified.Module` 负责注册 `Registry / Client / SessionManager / SessionResolver / EventDispatcher`，并在 `OnStop` 统一 `CloseAll()`。锚点：`internal/provider/unified/module.go:24`、`internal/provider/unified/session.go:110-127`。
@@ -369,7 +369,7 @@ sequenceDiagram
 | restart/token | `session_log_watcher_integration.go` / `session_log_watcher.go` | log watcher 生命周期、restart staged swap/rollback、token usage 补发 | `internal/provider/claudecli/session_log_watcher.go:19-40`、`internal/provider/claudecli/session_log_watcher_integration.go:59-73`、`internal/provider/claudecli/session_log_watcher_integration.go:165-205`、`internal/provider/claudecli/session_log_watcher_integration.go:230-323` |
 | 历史/上下文窗 | `history.go` / `context_window.go` | 读 CLI history.jsonl、settings model、context window 推断 | `internal/provider/claudecli/history.go:16-85`、`internal/provider/claudecli/history.go:87-110`、`internal/provider/claudecli/context_window.go:10-22`、`internal/provider/claudecli/context_window.go:40-59` |
 | 事件翻译 | `event_map.go` | Claude raw event -> DTO；含 `translateStatusPatchEvent` 与 `translateToolEvent` | `internal/provider/claudecli/event_map.go:18-42`、`internal/provider/claudecli/event_map.go:44-58`、`internal/provider/claudecli/event_map.go:92-138`、`internal/provider/claudecli/event_map.go:140-168` |
-| 技能/keepalive | `skill_inject.go` / `session_silent_turn.go` | 原生 `.claude/skills` 探测、silent keepalive turn | `internal/provider/claudecli/skill_inject.go:15-18`、`internal/provider/claudecli/skill_inject.go:61-94`、`internal/provider/claudecli/session_silent_turn.go:21-55` |
+| 技能/keepalive | `skill_inject.go` / `session_silent_turn.go` | `SetupWorkspaceSkills` symlink 注入 + 原生 `.claude/skills` 探测、silent keepalive turn | `internal/provider/claudecli/skill_inject.go:15-18`、`internal/provider/claudecli/skill_inject.go:61-94`、`internal/provider/claudecli/session_silent_turn.go:21-55` |
 
 ### 10.2 关键类型
 
@@ -380,7 +380,7 @@ sequenceDiagram
 - `turnHandle`：provider/local turn id 在 Claude 场景通常相同，但结构仍保留二者，给 restart/replay/force-complete 留接口。锚点：`internal/provider/claudecli/session.go:61-97`。
 - `cliLaunchConfig`：是 CLI flag + system-prompt 元数据的桥；不是 thread config 的完整镜像。锚点：`internal/provider/claudecli/transport_config.go:22-30`。
 - `historyBackend` / `sessionLogWatcher`：一个管离线 history 文件，一个管在线 token usage 追踪。锚点：`internal/provider/claudecli/history.go:16-85`、`internal/provider/claudecli/session_log_watcher.go:19-40`。
-- `claudecliSkillInjectionPort`：特殊点在于会探测原生 `.claude/skills/*/SKILL.md`，让上游 resolver 对这些 skill 强制 Mode=None。锚点：`internal/provider/claudecli/skill_inject.go:23-30`、`internal/provider/claudecli/skill_inject.go:61-94`。
+- `claudecliSkillInjectionPort`：两个职责——① `prepareSessionStart()` 调用 `cliadapter.SetupWorkspaceSkills()` 将 skill cache 目录 symlink 到 `.claude/skills/`，使 Claude CLI 原生发现 harness 的技能；② `DetectNativeSkills()` 探测已安装的 `.claude/skills/*/SKILL.md`，让上游 resolver 对这些 skill 强制 Mode=None。锚点：`internal/provider/claudecli/driver.go:194-205`、`internal/provider/claudecli/skill_inject.go:23-30`、`internal/provider/claudecli/skill_inject.go:61-94`。
 
 ### 10.3 Claude 启动主链
 
@@ -399,7 +399,7 @@ sequenceDiagram
 
 #### 10.3.3 `driver.start()` 展开
 
-- `prepareSessionStart()`：解析 requested model / requested config，补 `DeveloperInstructions`，再 `launchCLI(...)`。锚点：`internal/provider/claudecli/driver.go:177-207`。
+- `prepareSessionStart()`：解析 requested model / requested config，补 `DeveloperInstructions`；若 `skillCacheDir` 非空则调用 `cliadapter.SetupWorkspaceSkills(spec.cwd, d.skillCacheDir)` 创建 `.claude/skills` symlink，使 Claude CLI 原生发现 harness 管理的技能（fail-open：失败只 warn，不阻塞会话）；最后 `launchCLI(...)`。锚点：`internal/provider/claudecli/driver.go:184-232`。
 - `newStartedSession()`：构造 placeholder session，设置 `publicThreadID`、`transportModel`、`transportManifest`、`suppressedTurns` 等，并在必要时提前 `markThreadReady()`。锚点：`internal/provider/claudecli/driver.go:221-256`、`internal/provider/claudecli/thread_identity.go:17-19`。
 - `awaitStartedSession()`：阻塞到真实 thread ready，再把 transport PID 注册到 `pidregistry`。锚点：`internal/provider/claudecli/driver.go:258-265`、`internal/provider/claudecli/session_restart_control.go:9-21`。
 - `dispatchStartEvents()`：先合成 `agent:launched`，再发 `agent:state_changed{idling}`。锚点：`internal/provider/claudecli/driver.go:267-292`。
@@ -445,7 +445,7 @@ sequenceDiagram
 1. **Claude 实际会传 `--model`**：`buildCLIArgs()` 里直接 `appendFlagIfSet(args, "--model", model)`。锚点：`internal/provider/claudecli/transport_config.go:102-113`。
 2. **`--system-prompt` 元数据只拼 `summary/personality`**：approval/sandbox/effort 全都走独立 flag，不进 metadata block。锚点：`internal/provider/claudecli/transport_config.go:139-155`。
 3. **Boundary provider-ready，但 bridge 未全透传**：`promptBaseInstructionBlocks()` 支持 `snapshot.Boundary`，但 thread helper 当前只传 `DisplayName/BaseInstructions/DeveloperInstructions/Provider/Version/Hash/Generation`。锚点：`internal/provider/claudecli/transport_config.go:157-162`、`internal/module/thread/start_session_helpers.go:106-116`、`internal/dto/provider/session.go:26-45`。
-4. **原生 skill 是 Claude 专有差异**：`DetectNativeSkills()` 扫 `.claude/skills`，是为了让 harness 避让 Claude CLI 的原生技能装载。锚点：`internal/provider/claudecli/skill_inject.go:15-18`、`internal/provider/claudecli/skill_inject.go:61-94`。
+4. **原生 skill 是 Claude 专有差异**：`prepareSessionStart()` 先调用 `cliadapter.SetupWorkspaceSkills()` 创建 `.claude/skills` symlink 注入技能，再由 `DetectNativeSkills()` 扫描同一目录让 harness 避让 Claude CLI 的原生技能装载。锚点：`internal/provider/claudecli/driver.go:194-205`、`internal/provider/claudecli/skill_inject.go:15-18`、`internal/provider/claudecli/skill_inject.go:61-94`。
 
 ---
 
@@ -471,7 +471,7 @@ sequenceDiagram
 ### 11.2 关键类型
 
 - `DriverFactory`：自身既是 fx 单例，又包装出 `contract.DriverFactory{Name:"codex", Create:...}`；dynamic tools 的 provider 通过 `SetListTools()` 注入。锚点：`internal/provider/codexapp/driver.go:23-31`、`internal/provider/codexapp/driver.go:91-121`。
-- Provider 不直接依赖胖 `skill.Service`：Codex 只接收 `toolbridge` 注入的 list/call handler；host-direct `skill_expand_body` / `skill_read_resource` 在 `platform/toolbridge.provideHostToolRegistry(skill.SkillHostToolReader)` 装配，并经同一个 dynamic tools 通道暴露。锚点：`internal/platform/toolbridge/module.go:81-90`、`internal/platform/toolbridge/module.go:217-222`、`internal/module/skill/contract.go:169-177`。
+- Provider 不直接依赖胖 `skill.Service`：Codex 只接收 `toolbridge` 注入的 list/call handler；host-direct `skill_read_section` 在 `platform/toolbridge.provideHostToolRegistry(skill.SkillReadSectionRegistry)` 装配，并经同一个 dynamic tools 通道暴露。锚点：`internal/platform/toolbridge/module.go:81-90`、`internal/platform/toolbridge/host_tools.go:44-58`、`internal/module/skill/contract.go:169-177`。
 - `ServerManager`：共享 `codex app-server` 的 owner；session 只借它的 `ServerURL()`，不会共享 WS。锚点：`internal/provider/codexapp/module.go:64-79`、`internal/provider/codexapp/module.go:140-175`。
 - `session`：比 Claude 更像 RPC client runtime，内部有 `transport / recovery / approvals / readLoop / runtimeConfig / turns / pendingTurn`。锚点：`internal/provider/codexapp/session.go:22-50`。
 - `threadStartParams / threadResumeParams`：是 start/resume JSON-RPC 的精确 schema，也是 prompt parity 的 Codex 物化面。锚点：`internal/provider/codexapp/driver.go:64-89`。

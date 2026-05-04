@@ -771,7 +771,8 @@ var Module = fx.Module("store",
   - `dbquery.Module`：`fx.Provide(newDefaultStore)`，其中注入默认超时 `10s`
   - `hookstore.Module`：`NewStore(platformdb.Queryable)` 返回 `contract.HookReviewStore`
   - `prompt.Module`：`newStoreWithPool(...)` 返回 `Store`，再通过 `AsReader(store Store) Reader` 补一个只读 adapter
-  - `commandcard / sharedfile`：`NewStore` 返回 `Reader`
+- `commandcard`：`NewStore` 返回 `Reader`
+  - `sharedfile`：`provideStore(*sqlc.Queries, *platformconfig.Config)` 返回 `Store`（含 Reader+Upserter+Deleter），再分别 provide 各窄接口
 
 ### 2.3 `Store -> Reader` adapter 与 tx wiring
 - `internal/store/prompt/module.go:13`：`store.prompt` module。
@@ -790,7 +791,7 @@ var Module = fx.Module("store",
 - `hookstore.NewStore(platformdb.Queryable) contract.HookReviewStore`
 - `interaction.NewStore(*sqlc.Queries) Store`
 - `prompt.newStoreWithPool(*pgxpool.Pool, *sqlc.Queries) Store`；同时 `prompt.AsReader(Store) Reader`
-- `sharedfile.NewStore(*sqlc.Queries) Reader`
+- `sharedfile.NewStoreWithConfig(*sqlc.Queries, sharedfilefs.Config) Store`；fx 实际通过 `provideStore(*sqlc.Queries, *platformconfig.Config) Store`，再分别 `fx.Provide(func(s Store) Reader/Deleter/Upserter)`
 - `systemlog.NewStore(*sqlc.Queries) Store`
 - `tasktrace.NewStore(*sqlc.Queries) Store`
 - `thread.NewStore(*sqlc.Queries) Store`
@@ -838,7 +839,7 @@ var Module = fx.Module("store",
 | `hookstore` | `contract.HookReviewStore` | `hook_pending_reviews` | 手写 SQL |
 | `interaction` | `interaction.Store` | `agent_interactions` | `interaction.sql` |
 | `prompt` | `prompt.Store` + `prompt.Reader` adapter | `prompt_templates` + `prompt_versions` | `prompt_template.sql` |
-| `sharedfile` | `sharedfile.Reader` | `shared_files` | `shared_file.sql` |
+| `sharedfile` | `sharedfile.Store` + `Reader`/`Upserter`/`Deleter` adapters | `shared_files` | `shared_file.sql` |
 | `systemlog` | `systemlog.Store` | `system_logs` | `system_log.sql` |
 | `tasktrace` | `tasktrace.Store` | `task_traces` | `task_trace.sql` |
 | `thread` | `thread.Store` | `agent_threads`（并关联 `agent_provider_binding`） | `agent_thread.sql` |
