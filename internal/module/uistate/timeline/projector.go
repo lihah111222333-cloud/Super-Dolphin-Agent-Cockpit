@@ -241,10 +241,42 @@ func toolCallEndHandler(svc Service, onUpdated func(string)) func(tooldto.ToolCa
 			emitTimelineUpdated(onUpdated, threadID)
 			return
 		}
+		if recoverToolEndByCallID(svc, threadID, ev, success) {
+			emitTimelineUpdated(onUpdated, threadID)
+			return
+		}
 		if appendCompletedToolFallback(svc, threadID, ev, updateKey, success) {
 			emitTimelineUpdated(onUpdated, threadID)
 		}
 	}
+}
+
+// recoverToolEndByCallID handles ToolName-less End events: some runtimes
+// only echo CallID on the End event. We scan the timeline backwards for
+// a matching tool item and complete it.
+func recoverToolEndByCallID(svc Service, threadID string, ev tooldto.ToolCallEnd, success bool) bool {
+	if strings.TrimSpace(ev.ToolName) != "" {
+		return false
+	}
+	callID := strings.TrimSpace(ev.CallID)
+	if callID == "" {
+		return false
+	}
+	items := svc.GetByThread(threadID)
+	for i := len(items) - 1; i >= 0; i-- {
+		it := items[i]
+		if it.Kind != "tool" || strings.TrimSpace(it.CallID) != callID {
+			continue
+		}
+		recoveredKey := toolUpdateKey(callID, it.ToolName)
+		if recoveredKey == "" {
+			return false
+		}
+		return svc.UpdateByCallID(threadID, strings.TrimSpace(ev.AgentID), recoveredKey, func(target *Item) {
+			applyToolCallCompleted(target, ev, success)
+		})
+	}
+	return false
 }
 
 func approvalRequestedHandler(svc Service, onUpdated func(string)) func(tooldto.ToolApprovalRequested) {
