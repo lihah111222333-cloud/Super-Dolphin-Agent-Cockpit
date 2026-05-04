@@ -234,8 +234,15 @@ func resolveDisallowedToolsFlag(override []string) string {
 	return strings.Join(ids, ",")
 }
 
+const fallbackSystemPrompt = "You are a helpful assistant."
+
 func appendSystemPromptFlags(args []string, instructions string, cfg cliLaunchConfig) []string {
-	for _, block := range composeLaunchSystemPromptBlocks(instructions, cfg) {
+	blocks := composeLaunchSystemPromptBlocks(instructions, cfg)
+	if len(blocks) == 0 {
+		args = append(args, "--system-prompt", fallbackSystemPrompt)
+		return args
+	}
+	for _, block := range blocks {
 		args = append(args, "--system-prompt", block)
 	}
 	return args
