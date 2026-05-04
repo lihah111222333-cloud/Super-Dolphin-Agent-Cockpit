@@ -12,6 +12,7 @@ import (
 type querier interface {
 	AgentThreadRunningExists(ctx context.Context, threadID string) (bool, error)
 	AgentThreadExists(ctx context.Context, threadID string) (bool, error)
+	CountAllThreads(ctx context.Context) (int64, error)
 	CountChildAgentThreads(ctx context.Context, parentAgentID string) (int64, error)
 	DeleteAgentThreadByID(ctx context.Context, threadID string) error
 	ExpireStaleAgentThreads(ctx context.Context, arg sqlc.ExpireStaleAgentThreadsParams) (int64, error)
@@ -118,6 +119,7 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 		AgentKey:         params.AgentKey,
 		PromptVersionID:  params.PromptVersionID,
 		PendingLaunch:    params.PendingLaunch,
+		ManuallyRenamed:  params.ManuallyRenamed,
 	}), "upsert")
 }
 
@@ -239,6 +241,14 @@ func (s *store) Exists(ctx context.Context, threadID string) (bool, error) {
 	return exists, nil
 }
 
+func (s *store) CountAll(ctx context.Context) (int64, error) {
+	count, err := s.q.CountAllThreads(ctx)
+	if err != nil {
+		return 0, wrapThreadError(err, "count_all")
+	}
+	return count, nil
+}
+
 func wrapThreadError(err error, operation string) error {
 	return platformdb.WrapStoreError(err, operation, "thread")
 }
@@ -268,6 +278,7 @@ func mapThreadByID(row sqlc.GetAgentThreadByIDRow) Thread {
 		AgentKey:         row.AgentKey,
 		PromptVersionID:  row.PromptVersionID,
 		PendingLaunch:    row.PendingLaunch,
+		ManuallyRenamed:  row.ManuallyRenamed,
 	}
 }
 
@@ -296,6 +307,7 @@ func mapThreadByPort(row sqlc.GetAgentThreadByPortRow) Thread {
 		AgentKey:         row.AgentKey,
 		PromptVersionID:  row.PromptVersionID,
 		PendingLaunch:    row.PendingLaunch,
+		ManuallyRenamed:  row.ManuallyRenamed,
 	}
 }
 
@@ -326,6 +338,7 @@ func mapThreadList(rows []sqlc.ListAgentThreadsRow) []Thread {
 			AgentKey:         row.AgentKey,
 			PromptVersionID:  row.PromptVersionID,
 			PendingLaunch:    row.PendingLaunch,
+			ManuallyRenamed:  row.ManuallyRenamed,
 		}
 	}
 	return result
@@ -358,6 +371,7 @@ func mapRunningThreadList(rows []sqlc.ListRunningAgentThreadsRow) []Thread {
 			AgentKey:         row.AgentKey,
 			PromptVersionID:  row.PromptVersionID,
 			PendingLaunch:    row.PendingLaunch,
+			ManuallyRenamed:  row.ManuallyRenamed,
 		}
 	}
 	return result
@@ -390,6 +404,7 @@ func mapRecoverableThreadList(rows []sqlc.ListRecoverableAgentThreadsRow) []Thre
 			AgentKey:         row.AgentKey,
 			PromptVersionID:  row.PromptVersionID,
 			PendingLaunch:    row.PendingLaunch,
+			ManuallyRenamed:  row.ManuallyRenamed,
 		}
 	}
 	return result

@@ -34,6 +34,7 @@ sql:
       - "migrations/0063_agent_thread_name.sql"
       - "migrations/0064_skill_candidates.sql"
       - "migrations/0066_skill_candidates_repo_fp_widen.sql"
+      - "migrations/0067_thread_manually_renamed.sql"
     gen:
       go:
         package: "sqlc"

@@ -33,6 +33,7 @@ type Querier interface {
 	//
 	ClaimDueJobs(ctx context.Context, arg ClaimDueJobsParams) ([]CronJob, error)
 	CountAILogsByStatus(ctx context.Context) ([]CountAILogsByStatusRow, error)
+	CountAllThreads(ctx context.Context) (int64, error)
 	// Returns the number of child agents belonging to the given parent.
 	// Used to determine the next sequential suffix for child agent IDs.
 	CountChildAgentThreads(ctx context.Context, parentAgentID string) (int64, error)

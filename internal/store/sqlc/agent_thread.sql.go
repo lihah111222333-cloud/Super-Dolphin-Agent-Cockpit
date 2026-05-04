@@ -39,6 +39,17 @@ func (q *Queries) AgentThreadRunningExists(ctx context.Context, threadID string)
 	return exists, err
 }
 
+const countAllThreads = `-- name: CountAllThreads :one
+SELECT COUNT(*) FROM agent_threads
+`
+
+func (q *Queries) CountAllThreads(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countAllThreads)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countChildAgentThreads = `-- name: CountChildAgentThreads :one
 SELECT COUNT(*)
 FROM agent_threads
@@ -86,7 +97,7 @@ func (q *Queries) ExpireStaleAgentThreads(ctx context.Context, arg ExpireStaleAg
 }
 
 const getAgentThreadByID = `-- name: GetAgentThreadByID :one
-SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id, pending_launch,
+SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id, pending_launch, manually_renamed,
        COALESCE((
             SELECT b.agent_id
             FROM agent_provider_binding b
@@ -127,6 +138,7 @@ type GetAgentThreadByIDRow struct {
 	AgentKey         string      `db:"agent_key" json:"agent_key"`
 	PromptVersionID  *int64      `db:"prompt_version_id" json:"prompt_version_id"`
 	PendingLaunch    bool        `db:"pending_launch" json:"pending_launch"`
+	ManuallyRenamed  bool        `db:"manually_renamed" json:"manually_renamed"`
 	AgentID          interface{} `db:"agent_id" json:"agent_id"`
 }
 
@@ -156,13 +168,14 @@ func (q *Queries) GetAgentThreadByID(ctx context.Context, threadID string) (GetA
 		&i.AgentKey,
 		&i.PromptVersionID,
 		&i.PendingLaunch,
+		&i.ManuallyRenamed,
 		&i.AgentID,
 	)
 	return i, err
 }
 
 const getAgentThreadByPort = `-- name: GetAgentThreadByPort :one
-SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id, pending_launch,
+SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id, pending_launch, manually_renamed,
        COALESCE((
             SELECT b.agent_id
             FROM agent_provider_binding b
@@ -204,6 +217,7 @@ type GetAgentThreadByPortRow struct {
 	AgentKey         string      `db:"agent_key" json:"agent_key"`
 	PromptVersionID  *int64      `db:"prompt_version_id" json:"prompt_version_id"`
 	PendingLaunch    bool        `db:"pending_launch" json:"pending_launch"`
+	ManuallyRenamed  bool        `db:"manually_renamed" json:"manually_renamed"`
 	AgentID          interface{} `db:"agent_id" json:"agent_id"`
 }
 
@@ -233,6 +247,7 @@ func (q *Queries) GetAgentThreadByPort(ctx context.Context, port int32) (GetAgen
 		&i.AgentKey,
 		&i.PromptVersionID,
 		&i.PendingLaunch,
+		&i.ManuallyRenamed,
 		&i.AgentID,
 	)
 	return i, err
@@ -304,7 +319,7 @@ func (q *Queries) ListAgentThreadCwdsByPrefix(ctx context.Context, dollar_1 *str
 }
 
 const listAgentThreads = `-- name: ListAgentThreads :many
-SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id, pending_launch,
+SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id, pending_launch, manually_renamed,
        COALESCE((
             SELECT b.agent_id
             FROM agent_provider_binding b
@@ -344,6 +359,7 @@ type ListAgentThreadsRow struct {
 	AgentKey         string      `db:"agent_key" json:"agent_key"`
 	PromptVersionID  *int64      `db:"prompt_version_id" json:"prompt_version_id"`
 	PendingLaunch    bool        `db:"pending_launch" json:"pending_launch"`
+	ManuallyRenamed  bool        `db:"manually_renamed" json:"manually_renamed"`
 	AgentID          interface{} `db:"agent_id" json:"agent_id"`
 }
 
@@ -379,6 +395,7 @@ func (q *Queries) ListAgentThreads(ctx context.Context) ([]ListAgentThreadsRow, 
 			&i.AgentKey,
 			&i.PromptVersionID,
 			&i.PendingLaunch,
+			&i.ManuallyRenamed,
 			&i.AgentID,
 		); err != nil {
 			return nil, err
@@ -392,7 +409,7 @@ func (q *Queries) ListAgentThreads(ctx context.Context) ([]ListAgentThreadsRow, 
 }
 
 const listRecoverableAgentThreads = `-- name: ListRecoverableAgentThreads :many
-SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id, pending_launch,
+SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id, pending_launch, manually_renamed,
        COALESCE((
             SELECT b.agent_id
             FROM agent_provider_binding b
@@ -433,6 +450,7 @@ type ListRecoverableAgentThreadsRow struct {
 	AgentKey         string      `db:"agent_key" json:"agent_key"`
 	PromptVersionID  *int64      `db:"prompt_version_id" json:"prompt_version_id"`
 	PendingLaunch    bool        `db:"pending_launch" json:"pending_launch"`
+	ManuallyRenamed  bool        `db:"manually_renamed" json:"manually_renamed"`
 	AgentID          interface{} `db:"agent_id" json:"agent_id"`
 }
 
@@ -468,6 +486,7 @@ func (q *Queries) ListRecoverableAgentThreads(ctx context.Context) ([]ListRecove
 			&i.AgentKey,
 			&i.PromptVersionID,
 			&i.PendingLaunch,
+			&i.ManuallyRenamed,
 			&i.AgentID,
 		); err != nil {
 			return nil, err
@@ -481,7 +500,7 @@ func (q *Queries) ListRecoverableAgentThreads(ctx context.Context) ([]ListRecove
 }
 
 const listRunningAgentThreads = `-- name: ListRunningAgentThreads :many
-SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id, pending_launch,
+SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updated_at, finished_at, last_event_type, error_message, workspace_run_key, owner_thread_id, parent_agent_id, agent_type, agent_memory_scope, config_override, agent_key, prompt_version_id, pending_launch, manually_renamed,
        COALESCE((
             SELECT b.agent_id
             FROM agent_provider_binding b
@@ -522,6 +541,7 @@ type ListRunningAgentThreadsRow struct {
 	AgentKey         string      `db:"agent_key" json:"agent_key"`
 	PromptVersionID  *int64      `db:"prompt_version_id" json:"prompt_version_id"`
 	PendingLaunch    bool        `db:"pending_launch" json:"pending_launch"`
+	ManuallyRenamed  bool        `db:"manually_renamed" json:"manually_renamed"`
 	AgentID          interface{} `db:"agent_id" json:"agent_id"`
 }
 
@@ -557,6 +577,7 @@ func (q *Queries) ListRunningAgentThreads(ctx context.Context) ([]ListRunningAge
 			&i.AgentKey,
 			&i.PromptVersionID,
 			&i.PendingLaunch,
+			&i.ManuallyRenamed,
 			&i.AgentID,
 		); err != nil {
 			return nil, err
@@ -684,9 +705,10 @@ INSERT INTO agent_threads (
     config_override,
     agent_key,
     prompt_version_id,
-    pending_launch
+    pending_launch,
+    manually_renamed
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, COALESCE($15, '{}'::jsonb), $16, $17, $18)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, COALESCE($15, '{}'::jsonb), $16, $17, $18, $19)
 ON CONFLICT (thread_id) DO UPDATE
 SET name = $2,
     prompt = $3,
@@ -703,7 +725,8 @@ SET name = $2,
     config_override = COALESCE($15, '{}'::jsonb),
     agent_key = $16,
     prompt_version_id = $17,
-    pending_launch = $18
+    pending_launch = $18,
+    manually_renamed = $19
 `
 
 type UpsertAgentThreadParams struct {
@@ -725,6 +748,7 @@ type UpsertAgentThreadParams struct {
 	AgentKey         string      `db:"agent_key" json:"agent_key"`
 	PromptVersionID  *int64      `db:"prompt_version_id" json:"prompt_version_id"`
 	PendingLaunch    bool        `db:"pending_launch" json:"pending_launch"`
+	ManuallyRenamed  bool        `db:"manually_renamed" json:"manually_renamed"`
 }
 
 func (q *Queries) UpsertAgentThread(ctx context.Context, arg UpsertAgentThreadParams) error {
@@ -747,6 +771,7 @@ func (q *Queries) UpsertAgentThread(ctx context.Context, arg UpsertAgentThreadPa
 		arg.AgentKey,
 		arg.PromptVersionID,
 		arg.PendingLaunch,
+		arg.ManuallyRenamed,
 	)
 	return err
 }

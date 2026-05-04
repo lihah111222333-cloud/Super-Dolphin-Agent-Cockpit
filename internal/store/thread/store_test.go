@@ -28,6 +28,10 @@ func (s *threadQuerierStub) AgentThreadExists(context.Context, string) (bool, er
 	return false, nil
 }
 
+func (s *threadQuerierStub) CountAllThreads(context.Context) (int64, error) {
+	return 0, nil
+}
+
 func (s *threadQuerierStub) CountChildAgentThreads(context.Context, string) (int64, error) {
 	return 0, nil
 }
