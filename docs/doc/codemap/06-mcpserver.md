@@ -71,7 +71,7 @@ sequenceDiagram
   L-->>C: response
 ```
 
-### 1.2 Bootstrap 生命周期调用链
+### 2.2 Bootstrap 生命周期调用链
 
 - transport decode：`internal/mcpserver/common/stdio.go` — `ReadMessage`、`ensureMode`、`readRaw`、`readFramed`
 - server entry：`internal/mcpserver/common/server.go` — `Run`、`readLoop`、`handleMessage`、`dispatch`

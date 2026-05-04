@@ -10,6 +10,7 @@
 - runtime **如何检索 memory**：`MEMORY.md` fallback、manifest + ranking + prefetch、`search past context` transcript fallback。
 - **Claude parity 机制** 在 memory 侧接到哪里：`ClaudeMdSourceProvider` 如何把 auto/team memory 注入 prompt。
 - 子包拆分后，**root memory 包还负责什么**，哪些能力已经下沉到 `agent / nested / retrieval / team / shared`。
+- 模型如何通过 **host-direct `memory_read` / `memory_write` 工具**在 turn 中主动读写 durable memory，以及该路径与 onTurnEnd 隐式写侧的关系。
 
 ## 2. 当前源码结论
 
@@ -19,6 +20,7 @@
 4. **相关记忆检索仍是 runtime retrieval，不是 Claude 原生 memory tool**：P18.4 C-4 已在 ADR-001 定案为架构性偏离；当前实现是 `ManifestBuilder + RelevantMemoryFinder + PrefetchManager`。
 5. **TeamSyncService 已接上线，不是空架子**：线程 started/stopped 事件通过 `StartSessionFromThreadEvent/StopSessionFromThreadEvent` 驱动 team sync；remote pull 后会主动 invalidate prompt cache（`internal/module/memory/module.go:449-460`，`internal/module/memory/team/thread_metadata.go:63-84`，`internal/module/memory/team/team_sync_pull.go:96-108`）。
 6. **root retrieval compat bridge 还在，但 root constructor 已基本退役**：`memory.NewRelevantMemoryFinder()` 只是兼容壳；生产检索真正走 `memory/retrieval` 子包，root 版本的 xref 只剩测试 caller。
+7. **模型可通过 host-direct `memory_read` / `memory_write` 工具主动读写 memory**：该路径由 `toolbridge.Handler.routeToolCall()` 顶层 switch 拦截，走 `routeHostOnlyToolCall()` → `callHostTool()`，绝不 fallback 到 peer MCP；依赖的 `contract.AgentMemoryReader` / `AgentMemoryWriter` 由 memory 包的 `provideAgentMemoryReader` / `provideAgentMemoryWriter` 提供（`internal/platform/toolbridge/memory_read_tool.go`、`memory_write_tool.go`，`internal/module/memory/module.go:413-419`）。
 
 **改错补充**：
 - root 装配不是抽象概念：`module.go:218-245` 明确逐个挂载 `memagent` / `nestedpkg` / `retrievalpkg` / `teampkg`，而不是继续按旧单体包理解。
@@ -65,6 +67,7 @@
 - `registerLifecycle()` 只负责 root dir 初始化（`module.go:345-354`）。
 - `registerTeamMemoryRuntime()` 在 app 生命周期内切 `teamMemoryRuntimeReady`（`module.go:356-367`）；因此 combined/team prompt 不会在 runtime 未就绪时误报可用。
 - `registerMemoryHooks()` 的 `OnStart` 会统一注册 thread hook / background extraction / context provider / auto-dream 四类订阅；`registerAutoDreamSubscriptions()` 已在 root wiring 主链内（`module.go:369-400`）。
+- `provideAgentMemoryReader(hooks)` / `provideAgentMemoryWriter(hooks)` 把 `MemoryLifecycleHooks` 暴露为 `contract.AgentMemoryReader` / `contract.AgentMemoryWriter`（`module.go:345-346,413-419`）；这两个 contract 是 host-direct memory tool 的依赖注入点（见 §5.7）。
 - `registerPromptProviders()` 把 memory 侧 provider 注入 prompt service：
   - `MemoryRulesProvider`
   - `AgentMemoryPromptProvider`
@@ -156,6 +159,13 @@
 
 **结论**：memory parity 不是在 provider 里各写一份特化逻辑，而是通过 **prompt-neutral assembly + shared snapshot**，让 Claude/Codex 两边看到同一份 memory 注入结果。
 
+#### C. host-direct memory tool 统一路由
+
+- 模型发起的 `memory_read` / `memory_write` tool call 在两个 provider 下走同一条 `routeHostOnlyToolCall` 路径：
+  - **Codex**：`codexapp.ServerManager.SetToolHandler(h.HandleToolCall)` → `Handler.routeToolCall()` switch → `routeHostOnlyToolCall()` → `callHostTool()`（`internal/platform/toolbridge/module.go:277`，`handler.go:83-89,107-112`）。
+  - **Claude CLI**：通过 proxy HTTP endpoint 进入同一个 `Handler.routeToolCall()` → `routeHostOnlyToolCall()`。
+- 该路径绝不 fallback 到 peer MCP 工具（`cmd/mcp-orch` 不再注册 memory_read/memory_write，测试强制保证）。
+
 ### 5.6 Team / Agent memory 的当前位置
 
 - `agent` 子包已是真实 provider，不再只是空目录：`PromptProvider.Resolve()` 用 agent type + scope 读取对应 `MEMORY.md`，只在 child-agent start 时挂入（`internal/module/memory/agent/agent.go:109-147,206-220`）。
@@ -164,6 +174,37 @@
   - thread event adapter：`team/thread_metadata.go:63-84`
   - remote pull invalidate：`team/team_sync_pull.go:96-108`
 - `combined` 模式是否可见，不只看 feature flag；还取决于 team runtime 是否 ready、path 是否存在、Kairos 是否激活。
+
+### 5.7 Host-direct memory tool 路径（模型主动读写）
+
+> 与 5.2 写侧（`onTurnEnd` 触发）不同，本节描述模型在 turn 中主动调用 `memory_read` / `memory_write` 工具的链路。
+
+#### A. 工具定义与注册
+
+| 工具 | 实现 | 依赖 contract |
+|---|---|---|
+| `memory_read` | `MemoryReadHostToolRegistry`（`internal/platform/toolbridge/memory_read_tool.go`） | `contract.AgentMemoryReader` |
+| `memory_write` | `MemoryWriteHostToolRegistry`（`internal/platform/toolbridge/memory_write_tool.go`） | `contract.AgentMemoryWriter` |
+
+两者由 `CompositeHostToolRegistry` 组合后注入 `Handler.hostTools`；`ListHostTools()` 通过 gate（`Enabled + ToolsEnabled`）决定是否向模型暴露工具 schema。
+
+#### B. 调用链路
+
+1. 模型返回 tool_use → provider 层解码→ `Handler.routeToolCall()`。
+2. `routeToolCall()` 顶层 switch 拦截 `ToolNameMemoryRead` / `ToolNameMemoryWrite` → `routeHostOnlyToolCall()`（`handler.go:83-89`）。
+3. `routeHostOnlyToolCall()` 确认 `hostTools.HasTool()` 后调 `callHostTool()` → `MemoryReadHostToolRegistry.CallHostTool()` / `MemoryWriteHostToolRegistry.CallHostTool()`。
+4. 最终分别调用 `contract.AgentMemoryReader.ReadAgentMemory()` / `contract.AgentMemoryWriter.WriteAgentMemory()`，实体即 `MemoryLifecycleHooks`。
+
+#### C. 与 onTurnEnd 写侧的关系
+
+- `memory_write` 是模型在 turn 中的显式写入入口，绕过 `onTurnEnd` 的隐式 intent 检测。
+- 写完后同样触发 `MEMORY.md` 刷新 + prompt invalidation，与 5.2 写侧闭环一致。
+- `memory_read` 是纯只读操作，不触发任何写侧副作用。
+
+#### D. fx 装配来源
+
+- `provideAgentMemoryReader` / `provideAgentMemoryWriter` 在 `memory.Module` 内提供 contract（§5.1）。
+- `toolbridge.Module` 消费这两个 contract 构造 `MemoryReadHostToolRegistry` / `MemoryWriteHostToolRegistry`，组合为 `CompositeHostToolRegistry` 注入 `Handler`。
 
 ## 6. 依赖树（真实子包 + root 角色）
 
@@ -281,4 +322,7 @@ flowchart LR
 - Team sync 事件链：`internal/module/memory/module.go:449-460`、`internal/module/memory/team/thread_metadata.go:63-84`、`internal/module/memory/team/team_sync.go:105-173`
 - provider-neutral 对齐：`internal/module/prompt/{dynamic.go,assembler.go,user_context_builder.go}`、`internal/module/thread/start_session_helpers.go`、`internal/provider/{claudecli/config.go,codexapp/driver.go}`
 - provider 消费字段：`internal/provider/claudecli/config.go:52-67`、`internal/provider/codexapp/driver.go:225-237`
+- host-direct memory tool：`internal/platform/toolbridge/memory_read_tool.go`、`internal/platform/toolbridge/memory_write_tool.go`
+- memory contract 提供：`internal/module/memory/module.go:345-346,413-419`（`provideAgentMemoryReader` / `provideAgentMemoryWriter`）
+- tool 路由：`internal/platform/toolbridge/handler.go:83-89,107-112`（`routeToolCall` switch + `routeHostOnlyToolCall`）
 - freeze：`internal/archtest/freeze_registry.go:21-26`

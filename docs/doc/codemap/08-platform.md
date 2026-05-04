@@ -591,7 +591,9 @@
 
 - `handler.go`：tool call 解析、peer 路由、`beginToolDiffSnapshot()` / `emitToolDiff()`
 - `handler_host_tools.go`：host-direct 工具列表合并、去重/shadow warning、`callHostTool()`、结果脱敏与 metrics
-- `host_tools.go`：`skill.SkillHostToolReader` -> `skill_expand_body` / `skill_read_resource` 的窄端口包装
+- `host_tools.go`：`HostToolRegistry` 接口 + `SkillReadSectionRegistry`（skill_read_section host-direct）
+- `memory_read_tool.go`：`MemoryReadHostToolRegistry`（memory_read host-direct）
+- `memory_write_tool.go`：`MemoryWriteHostToolRegistry` + `CompositeHostToolRegistry`（多 registry 聚合）
 - `diff_gen.go`：Phase 1 snapshot 触发条件、`emitToolDiff()`、`shouldTrackDiff()`
 - `diff_fallback.go`：`diffFallbackTracker`、`handleToolCallEnd()`、`shouldFallbackDiffTool()`
 - `proxy.go`：HTTP JSON-RPC proxy，支持 `initialize` / `notifications/initialized` / `tools/list` / `tools/call`
@@ -601,7 +603,10 @@
 
 - `decodeToolCallRequest()` 会兼容多种字段别名，并能从嵌套 `item` / `thread` 结构里补出 `name/threadId/callId`
 - `classifyTool()` 目前把 `lsp_*`、`code_run`、`code_run_test` 路由到 `ClientKindLSP`，其余走 `ClientKindOrch`
-- host-direct 分支先于 peer 路由：`routePrePeerToolCall()` 命中 `HostToolRegistry.HasTool()` 时，`callHostTool()` 直接调用 `SkillHostTools`；toolbridge 只消费 `skill.SkillHostToolReader`（`ExpandBody/ReadResource`），不依赖完整 `skill.Service`
+- host-direct 路由分两级：
+  - `routeToolCall()` 顶层 switch 拦截 `memory_read`/`memory_write` → `routeHostOnlyToolCall()`（只走 host，绝不 fallback peer）
+  - `routePrePeerToolCall()` 拦截 `skill_read_section` → `callHostTool()`（host 优先，peer 兜底）
+- `CompositeHostToolRegistry` 聚合三个子 registry：`SkillReadSectionRegistry` + `MemoryReadHostToolRegistry` + `MemoryWriteHostToolRegistry`
 - `routeToolCall()` 对非 host-direct 工具通过 `mcpcontrol.ToolRegistry.FindActiveByKind()` 找活跃 peer；0 个报 `ErrNoPeerAvailable`，多个报 `ErrAmbiguousPeer`
 - 对 `tools/call` 的 peer callback 若返回错误，不会上抛 Go error，而是转换成 `ToolCallResult{Success:false}` 返给 Provider
 - `ListToolsForCodex()` 先加入 host-direct skill tools，再并发等待 orch / lsp peer 就绪（默认最多 10s、300ms 轮询），同名工具保留先出现者并记录 shadow warning，最后转换成 `codexapp.DynamicToolSchema`
@@ -892,10 +897,13 @@ Codex session 收到 inbound tool request
   -> ServerManager.getToolHandler()
   -> toolbridge.Handler.HandleToolCall()
   -> decodeToolCallRequest()
-  -> routePrePeerToolCall()
-       ├─ host-direct skill tool: callHostTool() -> SkillHostTools.CallHostTool()
-       │   -> skill.SkillHostToolReader.ExpandBody/ReadResource
-       └─ non-host tool continues to peer route
+   -> routeToolCall()
+        ├─ memory_read/write: routeHostOnlyToolCall() -> callHostTool()
+        │   -> MemoryReadHostToolRegistry / MemoryWriteHostToolRegistry
+        ├─ routePrePeerToolCall()
+        │   ├─ skill_read_section: callHostTool() -> SkillReadSectionRegistry
+        │   └─ non-host tool continues to peer route
+        └─ peer route: classifyTool() -> FindActiveByKind() -> callPeerTool()
   -> beginToolDiffSnapshot() [仅 `lsp_edit(rename/replace_range)`]
   -> mcpcontrol.ToolRegistry.FindActiveByKind()
   -> 选中 MCP peer，发起 peer.Callback("tools/call")
@@ -925,7 +933,24 @@ Codex session 收到 inbound tool request
   - `OnToolsList`
   - `OnToolsCall`
 - proxy 模式下，非 host-direct 工具仍然回到 `routeToolCall()` -> `mcpcontrol.ToolRegistry.FindActiveByKind()` -> peer callback 这条路径
-- `skill_expand_body` / `skill_read_resource` 是显式例外：它们由 host 进程内 `SkillHostTools` 执行，依赖 `skill.SkillHostToolReader` 窄端口；其余工具仍面向一组**注册到 mcpcontrol 的外部工具 peer**，而不是直接调用内部 Go 对象
+- host-direct 工具（`memory_read`、`memory_write`、`skill_read_section`）由主进程内 `CompositeHostToolRegistry` 执行，不经过 mcp-orch 子进程；其余工具仍面向一组**注册到 mcpcontrol 的外部工具 peer**
+
+### 6.2.1 工具路由表
+
+| 工具名 | 执行路径 | 实现位置 |
+|--------|---------|----------|
+| `memory_read` | host-direct (routeHostOnlyToolCall) | `memory_read_tool.go` |
+| `memory_write` | host-direct (routeHostOnlyToolCall) | `memory_write_tool.go` |
+| `skill_read_section` | host-direct (routePrePeerToolCall) | `host_tools.go` |
+| `orchestration_*` (5) | peer → mcp-orch | `cmd/mcp-orch/tools/orchestration_tools.go` |
+| `task_*` (3) | peer → mcp-orch | `cmd/mcp-orch/tools/task_tools.go` |
+| `workspace_*` (5) | peer → mcp-orch | `cmd/mcp-orch/tools/workspace_tools.go` |
+| `prompt_*` (2) | peer → mcp-orch | `cmd/mcp-orch/tools/prompt_tools.go` |
+| `command_*` (2) | peer → mcp-orch | `cmd/mcp-orch/tools/command_tools.go` |
+| `shared_file_*` (2) | peer → mcp-orch | `cmd/mcp-orch/tools/shared_file_tools.go` |
+| `lsp_*` / `code_run*` (9) | peer → mcp-lsp | `cmd/mcp-lsp/tools/` |
+
+> 注：Claude CLI 通过 proxy HTTP endpoint 进入，所有工具前缀为 `mcp__orch__`（orch family）或 `mcp__lsp__`（lsp family）。host-direct 工具虽然前缀是 `mcp__orch__`，但从不经过 mcp-orch 子进程。
 
 ### 6.3 路由规则
 
