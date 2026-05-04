@@ -186,7 +186,6 @@ func buildCLIArgs(model, instructions, mcpConfigPath string, cfg cliLaunchConfig
 	model = sanitizeClaudeModel(model)
 	args := []string{
 		"-p",
-		"--bare",
 		"--input-format", "stream-json",
 		"--output-format", "stream-json",
 		"--verbose",
@@ -235,15 +234,8 @@ func resolveDisallowedToolsFlag(override []string) string {
 	return strings.Join(ids, ",")
 }
 
-const bareModeFallbackSystemPrompt = "You are a helpful assistant."
-
 func appendSystemPromptFlags(args []string, instructions string, cfg cliLaunchConfig) []string {
-	blocks := composeLaunchSystemPromptBlocks(instructions, cfg)
-	if len(blocks) == 0 {
-		args = append(args, "--system-prompt", bareModeFallbackSystemPrompt)
-		return args
-	}
-	for _, block := range blocks {
+	for _, block := range composeLaunchSystemPromptBlocks(instructions, cfg) {
 		args = append(args, "--system-prompt", block)
 	}
 	return args
