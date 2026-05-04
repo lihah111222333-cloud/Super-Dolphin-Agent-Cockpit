@@ -36,6 +36,8 @@ type DriverFactory struct {
 	tracker         *fbsd.Tracker // P6 FBSD; optional, nil-safe
 }
 
+const fallbackBaseInstructions = "You are a helpful assistant."
+
 type driver struct {
 	logger          *slog.Logger
 	serverURL       string
@@ -200,9 +202,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	baseInstructions, developerInstructions := d.startAssemblyInstructions(req)
 	s.setRuntimeConfig(canonicalStartRuntimeConfig(req.Config))
 	s.ensureRuntimeCodexHomeFromInitialize("start")
-	if baseInstructions != "" {
-		s.setRuntimeConfigValue("baseInstructions", baseInstructions)
-	}
+	s.setRuntimeConfigValue("baseInstructions", baseInstructions)
 	if developerInstructions != "" {
 		s.setRuntimeConfigValue("developerInstructions", developerInstructions)
 	}
@@ -237,9 +237,10 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 		s.setRuntimeConfigValue("model", m)
 	}
 	baseInstructions, developerInstructions := promptSnapshotInstructions(req.PromptSnapshot)
-	if baseInstructions != "" {
-		s.setRuntimeConfigValue("baseInstructions", baseInstructions)
+	if baseInstructions == "" {
+		baseInstructions = fallbackBaseInstructions
 	}
+	s.setRuntimeConfigValue("baseInstructions", baseInstructions)
 	if developerInstructions != "" {
 		s.setRuntimeConfigValue("developerInstructions", developerInstructions)
 	}
@@ -302,6 +303,9 @@ func (d *driver) startAssemblyInstructions(req dto.StartSessionRequest) (string,
 		}
 		// err from List() is logged-and-ignored: skill manifest is best-effort,
 		// session start should not fail because the library is unreadable.
+	}
+	if base == "" {
+		base = fallbackBaseInstructions
 	}
 	return base, developer
 }
