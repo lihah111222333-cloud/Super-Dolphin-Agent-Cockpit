@@ -74,6 +74,9 @@ func (f *fakeThreadStoreForHandoff) CountChildren(context.Context, string) (int6
 func (f *fakeThreadStoreForHandoff) Exists(context.Context, string) (bool, error) {
 	panic("unused")
 }
+func (f *fakeThreadStoreForHandoff) CountAll(context.Context) (int64, error) {
+	panic("unused")
+}
 
 func TestHandoff_RejectsEmptySourceThreadID(t *testing.T) {
 	t.Parallel()

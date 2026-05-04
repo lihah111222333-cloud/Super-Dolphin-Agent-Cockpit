@@ -117,7 +117,7 @@ func TestServiceForkCreatesIndependentAgentAndBinding(t *testing.T) {
 	if orch.launch.AgentID != "thread-fork" {
 		t.Fatalf("launch.AgentID = %q, want thread-fork", orch.launch.AgentID)
 	}
-	if orch.launch.Cwd != "/repo" || orch.launch.Name != "Forked Thread" {
+	if orch.launch.Cwd != "/repo" || orch.launch.Name != "Forked Thread (续)" {
 		t.Fatalf("launch = %#v", orch.launch)
 	}
 	if bindings.upsert.AgentID != "thread-fork" {
@@ -129,8 +129,8 @@ func TestServiceForkCreatesIndependentAgentAndBinding(t *testing.T) {
 	if threads.upsert.ThreadID != "thread-fork" || threads.upsert.OwnerThreadID != "thread-parent" {
 		t.Fatalf("thread upsert = %#v", threads.upsert)
 	}
-	if threads.upsert.Prompt != "Forked Thread" {
-		t.Fatalf("persisted prompt = %q, want Forked Thread", threads.upsert.Prompt)
+	if threads.upsert.Prompt != "Forked Thread (续)" {
+		t.Fatalf("persisted prompt = %q, want Forked Thread (续)", threads.upsert.Prompt)
 	}
 }
 

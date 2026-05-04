@@ -99,11 +99,13 @@ func TestBaseInstructionsNotFoldedIntoPrompt(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	if orch.launchReq.Name != "" {
-		t.Fatalf("launch name = %q, want empty", orch.launchReq.Name)
+	// Auto-naming: no prompt supplied → fallback to "对话 #N".
+	wantName := defaultThreadName()
+	if orch.launchReq.Name != wantName {
+		t.Fatalf("launch name = %q, want %q", orch.launchReq.Name, wantName)
 	}
-	if threads.upsert.Prompt != "" {
-		t.Fatalf("persisted prompt = %q, want empty", threads.upsert.Prompt)
+	if threads.upsert.Prompt != wantName {
+		t.Fatalf("persisted prompt = %q, want %q", threads.upsert.Prompt, wantName)
 	}
 }
 
@@ -319,11 +321,11 @@ func TestForkPreservesPromptAssembly(t *testing.T) {
 	if originalSession.forkRequest.ThreadID != "provider-thread-parent" {
 		t.Fatalf("forkRequest.ThreadID = %q, want provider-thread-parent", originalSession.forkRequest.ThreadID)
 	}
-	if orch.launch.Name != "assembled name" {
-		t.Fatalf("launch name = %q, want assembled name", orch.launch.Name)
+	if orch.launch.Name != "assembled name (续)" {
+		t.Fatalf("launch name = %q, want assembled name (续)", orch.launch.Name)
 	}
-	if threads.upsert.Prompt != "assembled name" {
-		t.Fatalf("persisted prompt = %q, want assembled name", threads.upsert.Prompt)
+	if threads.upsert.Prompt != "assembled name (续)" {
+		t.Fatalf("persisted prompt = %q, want assembled name (续)", threads.upsert.Prompt)
 	}
 }
 

@@ -122,7 +122,7 @@ func (s *service) completeStart(ctx context.Context, req StartRequest, agentID s
 	if err != nil {
 		return StartResult{}, err
 	}
-	displayName := strings.TrimSpace(assembly.DisplayName)
+	displayName := resolveDisplayName(ctx, s.threadStore, agentID, req.Prompt, assembly.DisplayName)
 	if err := s.launchAgent(
 		ctx,
 		agentID,

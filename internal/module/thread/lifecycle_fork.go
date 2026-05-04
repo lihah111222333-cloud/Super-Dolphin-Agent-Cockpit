@@ -22,7 +22,7 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 		return ForkResult{}, err
 	}
 	meta := s.lookupThreadMeta(ctx, threadID)
-	displayName := strings.TrimSpace(meta.Name)
+	displayName := continuationName(strings.TrimSpace(meta.Name))
 	newThreadID := strings.TrimSpace(result.NewThreadID)
 	if newThreadID == "" {
 		return ForkResult{}, errors.New("fork thread id is required")

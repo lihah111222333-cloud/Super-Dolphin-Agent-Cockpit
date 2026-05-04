@@ -6,13 +6,14 @@ package thread
 //   Agent name MUST only come from:
 //     1. An explicit `name` field in StartRequest (set by main agent or frontend).
 //     2. The frontend calling `thread/name/set` RPC to rename.
+//     3. Auto-naming in completeStart: ExtractTitle(prompt) or "对话 #N" fallback.
 //
-//   Agent name MUST NEVER come from:
-//     - The `prompt` field (user's first message).
-//     - Any automatic derivation / fallback logic.
+//   At the PARSING / NORMALIZATION / ASSEMBLY layers the `prompt` field
+//   MUST NOT leak into the `Name` field.  Auto-naming happens later,
+//   inside completeStart, after assembly.
 //
-// If you are reading this because a test broke: the naming policy is
-// intentional. DO NOT reintroduce prompt→name aliasing.
+// If you are reading this because a test broke: the layer-isolation policy is
+// intentional. DO NOT move auto-naming into the parsing or assembly layers.
 
 import (
 	"context"
@@ -137,7 +138,7 @@ func TestNamePolicy_NormalizeTruncatesLongName(t *testing.T) {
 // §3  Service.Start: end-to-end guard on launch request name
 // ---------------------------------------------------------------------------
 
-func TestNamePolicy_StartWithoutNameLaunchesEmpty(t *testing.T) {
+func TestNamePolicy_StartWithoutNameGetsAutoName(t *testing.T) {
 	t.Parallel()
 
 	threads := &stubThreadStore{}
@@ -159,8 +160,10 @@ func TestNamePolicy_StartWithoutNameLaunchesEmpty(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	if orch.launchReq.Name != "" {
-		t.Fatalf("POLICY VIOLATION: launch name = %q, want empty (prompt must not become name)", orch.launchReq.Name)
+	// Auto-naming: "hello world" is too short for ExtractTitle (≤2 display units) → fallback.
+	wantName := defaultThreadName()
+	if orch.launchReq.Name != wantName {
+		t.Fatalf("launch name = %q, want %q (auto-naming fallback)", orch.launchReq.Name, wantName)
 	}
 }
 

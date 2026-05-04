@@ -848,6 +848,8 @@ func (s *stubThreadStore) Exists(_ context.Context, threadID string) (bool, erro
 	return false, nil
 }
 
+func (s *stubThreadStore) CountAll(context.Context) (int64, error) { return 0, nil }
+
 type stubBindingStore struct {
 	binding        *bindingstore.Binding
 	upsert         bindingstore.UpsertParams
