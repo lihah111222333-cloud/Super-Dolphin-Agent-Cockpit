@@ -115,11 +115,13 @@ func TestPhase45BaseInstructionsStayOutOfPromptStorage(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	if orch.launchReq.Name != "" {
-		t.Fatalf("launch name = %q, want empty", orch.launchReq.Name)
+	// Auto-naming: no prompt supplied → fallback to "对话 #N" (CountAll stub returns 0 → "对话 #1").
+	wantName := defaultThreadName()
+	if orch.launchReq.Name != wantName {
+		t.Fatalf("launch name = %q, want %q", orch.launchReq.Name, wantName)
 	}
-	if threads.upsert.Prompt != "" {
-		t.Fatalf("persisted prompt = %q, want empty", threads.upsert.Prompt)
+	if threads.upsert.Prompt != wantName {
+		t.Fatalf("persisted prompt = %q, want %q", threads.upsert.Prompt, wantName)
 	}
 }
 

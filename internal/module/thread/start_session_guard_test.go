@@ -139,11 +139,13 @@ func TestServiceStartUsesResolvedStartConfig(t *testing.T) {
 	if orch.launchReq.Cwd != wantStartCWD(t) {
 		t.Fatalf("launch cwd = %q, want %q", orch.launchReq.Cwd, wantStartCWD(t))
 	}
-	if orch.launchReq.Name != "" {
-		t.Fatalf("launch name = %q, want empty", orch.launchReq.Name)
+	// Auto-naming: no prompt supplied → fallback to "对话 #N".
+	wantName := defaultThreadName()
+	if orch.launchReq.Name != wantName {
+		t.Fatalf("launch name = %q, want %q", orch.launchReq.Name, wantName)
 	}
-	if threads.upsert.Prompt != "" {
-		t.Fatalf("persisted prompt = %q, want empty", threads.upsert.Prompt)
+	if threads.upsert.Prompt != wantName {
+		t.Fatalf("persisted prompt = %q, want %q", threads.upsert.Prompt, wantName)
 	}
 	if threads.upsert.Cwd != wantStartCWD(t) || bindings.upsert.Cwd != wantStartCWD(t) {
 		t.Fatalf("persisted cwd = %q/%q, want %q", threads.upsert.Cwd, bindings.upsert.Cwd, wantStartCWD(t))

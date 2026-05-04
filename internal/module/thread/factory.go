@@ -112,6 +112,7 @@ func newThreadUpsertParams(thread threadstore.Thread) threadstore.UpsertParams {
 		AgentKey:         strings.TrimSpace(thread.AgentKey),
 		PromptVersionID:  thread.PromptVersionID,
 		PendingLaunch:    thread.PendingLaunch,
+		ManuallyRenamed:  thread.ManuallyRenamed,
 	}
 }
 

@@ -357,6 +357,8 @@ func (s *historyTestThreadStore) Exists(_ context.Context, threadID string) (boo
 	return ok, nil
 }
 
+func (s *historyTestThreadStore) CountAll(context.Context) (int64, error) { return 0, nil }
+
 type historyReadCall struct {
 	ThreadID string
 	Limit    int

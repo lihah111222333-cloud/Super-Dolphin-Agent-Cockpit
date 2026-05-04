@@ -58,7 +58,8 @@ func (s *service) startPendingThread(ctx context.Context, req StartRequest, agen
 	// Display text for a pending card; left empty when the caller did not
 	// supply a Name or Prompt.  The real name gets rewritten during
 	// SpawnIfNeeded once we have the user's first-turn input.
-	displayName := strings.TrimSpace(shared.FirstNonEmpty(req.Name, req.Prompt))
+	displayName := resolveDisplayName(ctx, s.threadStore, agentID, req.Prompt,
+		shared.FirstNonEmpty(req.Name, req.Prompt))
 	// Stash the launch-time provider/effort/personality/approvals choices into
 	// config_override so SpawnIfNeeded can restore them on the first turn.
 	// Without this the pending row only retains Model+Cwd and normalizeStart
