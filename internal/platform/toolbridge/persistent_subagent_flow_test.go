@@ -121,6 +121,8 @@ func (*persistentFlowThreadStore) ListCwdsByPrefix(context.Context, string) ([]t
 	return nil, nil
 }
 
+func (*persistentFlowThreadStore) CountAll(context.Context) (int64, error) { return 0, nil }
+
 type persistentFlowSessions struct {
 	byAgent map[string]contract.Session
 }

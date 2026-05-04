@@ -119,6 +119,7 @@ func (*capturingThreadStore) ListCwdsByPrefix(context.Context, string) ([]thread
 }
 func (*capturingThreadStore) CountChildren(context.Context, string) (int64, error) { return 0, nil }
 func (*capturingThreadStore) Exists(context.Context, string) (bool, error)         { return false, nil }
+func (*capturingThreadStore) CountAll(context.Context) (int64, error)              { return 0, nil }
 
 type capturingBindingStore struct {
 	binding *bindingstore.Binding
