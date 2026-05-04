@@ -127,6 +127,7 @@ func (*threadStoreStub) ListCwdsByPrefix(context.Context, string) ([]threadstore
 }
 func (*threadStoreStub) CountChildren(context.Context, string) (int64, error) { return 0, nil }
 func (*threadStoreStub) Exists(context.Context, string) (bool, error)         { return false, nil }
+func (*threadStoreStub) CountAll(context.Context) (int64, error)              { return 0, nil }
 
 func newTestManager(resolver contract.SessionResolver, bindings bindingstore.Store, threads threadstore.Store) *Manager {
 	pingCtx, pingCancel := context.WithCancel(context.Background())
