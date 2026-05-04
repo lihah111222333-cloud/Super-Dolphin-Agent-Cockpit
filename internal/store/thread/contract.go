@@ -26,6 +26,7 @@ type Store interface {
 	ListCwdsByPrefix(ctx context.Context, prefix string) ([]ThreadCwd, error)
 	CountChildren(ctx context.Context, parentAgentID string) (int64, error)
 	Exists(ctx context.Context, threadID string) (bool, error)
+	CountAll(ctx context.Context) (int64, error)
 }
 
 type UpsertParams struct {
@@ -47,6 +48,7 @@ type UpsertParams struct {
 	AgentKey         string
 	PromptVersionID  *int64
 	PendingLaunch    bool
+	ManuallyRenamed  bool
 }
 
 type UpdateStatusParams struct {
@@ -91,6 +93,7 @@ type Thread struct {
 	AgentKey         string
 	PromptVersionID  *int64
 	PendingLaunch    bool
+	ManuallyRenamed  bool
 }
 
 type PromptSnapshot struct {
