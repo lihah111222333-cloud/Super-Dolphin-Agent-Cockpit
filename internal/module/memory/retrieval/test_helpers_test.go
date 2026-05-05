@@ -52,8 +52,12 @@ func formatMemoryEntry(entry MemoryEntry) string {
 	if len(entry.Frontmatter.SearchKeys) > 0 {
 		lines = append(lines, "search_keys: "+formatStringList(entry.Frontmatter.SearchKeys))
 	}
+	if title := strings.TrimSpace(entry.Frontmatter.Title); title != "" {
+		lines = append(lines, "title: "+strconv.Quote(title))
+	}
 	lines = append(lines, "---")
 	body := strings.TrimSpace(entry.Content)
+
 	if body == "" {
 		return strings.Join(lines, "\n") + "\n"
 	}

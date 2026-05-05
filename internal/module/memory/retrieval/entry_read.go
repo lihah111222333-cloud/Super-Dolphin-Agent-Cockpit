@@ -72,7 +72,8 @@ func parseMemoryFrontmatter(frontmatter string) MemoryFrontmatter {
 		if !ok {
 			continue
 		}
-		switch strings.ToLower(strings.TrimSpace(key)) {
+		key = strings.ToLower(strings.TrimSpace(key))
+		switch key {
 		case "name":
 			parsed.Name = parseScalar(value)
 		case "description":
@@ -86,11 +87,21 @@ func parseMemoryFrontmatter(frontmatter string) MemoryFrontmatter {
 			parsed.Aliases = parseStringList(value)
 		case "search_keys":
 			parsed.SearchKeys = parseStringList(value)
-		case "source":
-			parsed.Source = parseScalar(value)
+		case "title", "source":
+			assignMemoryFrontmatterScalar(&parsed, key, value)
 		}
 	}
 	return parsed
+}
+
+func assignMemoryFrontmatterScalar(parsed *MemoryFrontmatter, key, value string) {
+	value = parseScalar(value)
+	switch key {
+	case "title":
+		parsed.Title = value
+	case "source":
+		parsed.Source = value
+	}
 }
 
 func normalizeLoadedEntry(entry MemoryEntry) MemoryEntry {
