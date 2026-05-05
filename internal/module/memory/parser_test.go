@@ -72,7 +72,8 @@ func TestExtractIncludesFindsSupportedPathsOutsideCodeFences(t *testing.T) {
 func TestParseMemoryFilePreservesRawContentWhenContentChanges(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "topic.md")
-	raw := "\uFEFF---\nname: Review Style\ndescription: Keep review diffs focused\ntype: user\n---\n\n<!-- hidden -->\nKeep diffs small.\n@./details.md\n"
+	raw := "\uFEFF---\nname: Review Style\ndescription: Keep review diffs focused\ntype: user\ntitle: Review\n---\n\n<!-- hidden -->\nKeep diffs small.\n@./details.md\n"
+
 	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
 		t.Fatalf("WriteFile(%q) error = %v", path, err)
 	}
@@ -92,6 +93,9 @@ func TestParseMemoryFilePreservesRawContentWhenContentChanges(t *testing.T) {
 	}
 	if parsed.Frontmatter.Name != "Review Style" {
 		t.Fatalf("ParseMemoryFile() frontmatter name = %q, want %q", parsed.Frontmatter.Name, "Review Style")
+	}
+	if parsed.Frontmatter.Title != "Review" {
+		t.Fatalf("ParseMemoryFile() frontmatter title = %q, want %q", parsed.Frontmatter.Title, "Review")
 	}
 	if !reflect.DeepEqual(parsed.Includes, []string{"./details.md"}) {
 		t.Fatalf("ParseMemoryFile() includes = %#v, want %#v", parsed.Includes, []string{"./details.md"})

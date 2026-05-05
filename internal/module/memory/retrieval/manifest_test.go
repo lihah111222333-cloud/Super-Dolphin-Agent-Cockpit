@@ -13,6 +13,7 @@ func TestManifestBuilderBuildManifestScansMemoryFiles(t *testing.T) {
 	older.Frontmatter.Aliases = []string{"review preference"}
 	newer := testMemoryEntry("Build Guard", "Use guarded build commands", MemoryTypeProject, "Run ./scripts/go_with_guard.sh build ./...")
 	newer.Frontmatter.SearchKeys = []string{"build", "guard"}
+	newer.Frontmatter.Title = "Guard"
 
 	olderPath := filepath.Join(root, string(MemoryTypeUser), "review-style.md")
 	newerPath := filepath.Join(root, string(MemoryTypeProject), "build-guard.md")
@@ -50,6 +51,10 @@ func TestManifestBuilderBuildManifestScansMemoryFiles(t *testing.T) {
 	if manifest[0].Content != "" || manifest[1].Content != "" {
 		t.Fatalf("BuildManifest() should not preload content, got %#v", manifest)
 	}
+	if manifest[0].Frontmatter.Title != "Guard" {
+		t.Fatalf("BuildManifest()[0].Frontmatter.Title = %q, want %q", manifest[0].Frontmatter.Title, "Guard")
+	}
+
 	if manifest[1].CanonicalName != CanonicalName("Review Style") {
 		t.Fatalf("BuildManifest()[1].CanonicalName = %q, want %q", manifest[1].CanonicalName, CanonicalName("Review Style"))
 	}
