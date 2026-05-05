@@ -5,7 +5,9 @@ import { normalizeStatus } from '../services/status.js';
 import {
   formatTimelineTime,
   normalizeActivityOutput,
+  summarizeToolActivity,
 } from '../utils/format-utils.js';
+
 import { buildVisibleChatThreadCards } from '../utils/thread-page-utils.js';
 import { getThreadRouting, getThreadPendingLaunch } from '../stores/thread-actions-helpers.js';
 import { createPinnedPlanState } from './useThreadCards.pinned-plan.js';
@@ -49,16 +51,14 @@ function isFailedActivity(item) {
 }
 
 function toToolProcessActivityItem(item, index) {
-  const status = (item.status || '').toString().trim().toLowerCase();
-  const failed = isFailedActivity(item);
-  const tool = (item.tool || '').toString().trim() || '未知工具';
-  const detail = (item.preview || item.file || '').toString().trim();
+  const rawTool = (item.tool || item.toolName || '').toString().trim();
+  const tool = summarizeToolActivity(rawTool, item);
   return {
     id: processActivityId(item, 'tool', index),
     time: formatTimelineTime(item.ts),
-    message: detail ? `${tool} · ${detail}` : tool,
+    message: `${tool.name} · ${tool.summary}`,
     kind: 'tool',
-    status: failed ? 'failed' : status === 'running' ? 'active' : 'done',
+    status: tool.status,
   };
 }
 

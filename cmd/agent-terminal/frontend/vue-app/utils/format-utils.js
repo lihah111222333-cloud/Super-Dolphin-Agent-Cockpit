@@ -30,6 +30,89 @@ export function normalizeActivityOutput(value) {
   return `${text.slice(0, maxLen)}\n...[truncated]`;
 }
 
+export function displayToolName(value) {
+  const raw = (value || '').toString().trim();
+  if (!raw) return '未知工具';
+  const normalized = raw
+    .replace(/[./:-]+/g, '_')
+    .replace(/^functions_+/, '')
+    .replace(/^function_+/, '')
+    .replace(/^tools_+/, '')
+    .replace(/^tool_+/, '')
+    .replace(/^mcp_+[a-z0-9]+_+/i, '')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return normalized || raw;
+}
+
+function parsedToolResult(preview) {
+  const text = (preview || '').toString().trim();
+  if (!text || !/^[{[]/.test(text)) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function previewText(value) {
+  if (value == null) return '';
+  if (typeof value === 'string') return value.trim();
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value).trim();
+  }
+}
+
+function toolResultText(result, preview, keys) {
+  if (result && typeof result === 'object') {
+    for (const key of keys) {
+      const text = previewText(result[key]);
+      if (text) return text;
+    }
+  }
+  return previewText(preview);
+}
+
+function knownToolSummary(name, failed, result, preview) {
+  if (name === 'lsp_edit') return failed ? '编辑文件失败' : '已替换文件内容';
+  if (name === 'lsp_file') return failed ? '读取文件失败' : '已读取文件';
+  if (name === 'lsp_grep') {
+    const total = Number(result?.total ?? result?.count);
+    if (Number.isFinite(total)) return total > 0 ? `搜索到 ${Math.trunc(total)} 处` : '搜索无结果';
+    return failed ? '搜索代码失败' : '已搜索代码';
+  }
+  if (name === 'code_run' || name === 'go_run' || name === 'code_run_test') return failed ? `命令执行失败${toolFailureSuffix(result, preview)}` : '命令执行成功';
+
+  if (name.startsWith('orchestration_launch') || name === 'spawn_agent') return failed ? '启动 Agent 失败' : '已启动 Agent';
+  if (name.startsWith('orchestration_send') || name === 'send_input') return failed ? '发送消息失败' : '已发送消息';
+  if (name.startsWith('workspace_merge')) return failed ? '合并工作区失败' : '已合并工作区';
+  if (name.startsWith('workspace_create')) return failed ? '创建工作区失败' : '已创建工作区';
+  if (name.startsWith('browser_click') || name.endsWith('_click')) return failed ? '点击页面失败' : '已点击页面';
+  if (name === 'ToolSearch') return failed ? '查找工具失败' : '已查找工具';
+  return '';
+}
+
+function toolFailureSuffix(result, preview) {
+  const text = toolResultText(result, preview, ['error', 'output', 'message', 'result']);
+  return text ? `：${normalizeActivityOutput(text).replace(/\n/g, ' ')}` : '';
+}
+
+export function summarizeToolActivity(toolName, item = {}) {
+  const name = displayToolName(toolName);
+  const status = (item?.status || '').toString().trim().toLowerCase();
+  const failed = item?.success === false || status === 'failed' || status === 'error' || Boolean((item?.error || '').toString().trim());
+  if (status === 'running' && !failed) return { name, summary: '执行中', status: 'active' };
+  const preview = item?.preview || item?.error || '';
+
+  const result = parsedToolResult(preview);
+  const known = knownToolSummary(name, failed, result, preview);
+  if (known) return { name, summary: known, status: failed ? 'failed' : 'done' };
+  if (failed) return { name, summary: `执行失败${toolFailureSuffix(result, preview)}`, status: 'failed' };
+  return { name, summary: '已完成', status: 'done' };
+}
+
 export function formatTokenCompact(value) {
   const number = Number(value);
   if (!Number.isFinite(number) || number < 0) return '0';
