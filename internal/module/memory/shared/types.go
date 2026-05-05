@@ -49,6 +49,7 @@ type MemoryFrontmatter struct {
 	Lang        string      `yaml:"lang,omitempty"`
 	Aliases     []string    `yaml:"aliases,omitempty"`
 	SearchKeys  []string    `yaml:"search_keys,omitempty"`
+	Title       string      `yaml:"title,omitempty"`
 	// Source 标记记忆条目的来源，例如 dream 自动巩固写入时为 "dream"；用户手动写入时留空。
 	Source string `yaml:"source,omitempty"`
 }

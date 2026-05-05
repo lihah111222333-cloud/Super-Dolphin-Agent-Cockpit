@@ -28,6 +28,7 @@ type memoryWriteToolInput struct {
 	Description  string `json:"description"`
 	Content      string `json:"content"`
 	Type         string `json:"type"`
+	Title        string `json:"title,omitempty"`
 	Scope        string `json:"scope,omitempty"`
 	Path         any    `json:"path,omitempty"`
 	Target       any    `json:"target,omitempty"`
@@ -91,6 +92,7 @@ func buildAgentMemoryWriteRequest(input memoryWriteToolInput, call HostToolCall)
 		Content:     strings.TrimSpace(strings.ReplaceAll(input.Content, "\r\n", "\n")),
 		Type:        memType,
 		Scope:       scope,
+		Title:       strings.TrimSpace(input.Title),
 		AgentID:     strings.TrimSpace(call.AgentID),
 		ThreadID:    strings.TrimSpace(call.ThreadID),
 		CWD:         strings.TrimSpace(call.CWD),
@@ -143,6 +145,7 @@ func memoryWriteInputSchema() map[string]any {
 			"description": map[string]any{"type": "string"},
 			"content":     map[string]any{"type": "string"},
 			"type":        map[string]any{"type": "string", "enum": []string{"feedback", "project"}},
+			"title":       map[string]any{"type": "string", "description": "Short display title (max 12 chars). Optional."},
 			"scope":       map[string]any{"type": "string", "enum": []string{"user", "project"}},
 		},
 		"required":             []string{"name", "description", "content", "type"},

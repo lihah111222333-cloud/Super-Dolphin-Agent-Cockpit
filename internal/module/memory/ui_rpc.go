@@ -56,6 +56,7 @@ type UIMemoryEntry struct {
 	Path        string    `json:"path,omitempty"`
 	UpdatedAt   time.Time `json:"updatedAt,omitempty"`
 	Preview     string    `json:"preview,omitempty"`
+	Title       string    `json:"title,omitempty"`
 	// Source 透传记忆条目的来源标记（如 "dream"），UI 据此渲染徽章。
 	Source string `json:"source,omitempty"`
 }
@@ -236,6 +237,7 @@ func loadUIMemoryScope(logger *slog.Logger, label, root string, rootErr error, f
 			Path:        rel,
 			UpdatedAt:   entry.UpdatedAt,
 			Preview:     uiPreviewText(entry.Content),
+			Title:       strings.TrimSpace(entry.Frontmatter.Title),
 			Source:      strings.TrimSpace(entry.Frontmatter.Source),
 		})
 	}

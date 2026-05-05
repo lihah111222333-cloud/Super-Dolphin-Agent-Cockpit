@@ -128,6 +128,7 @@ type AgentMemoryWriteRequest struct {
 	Content     string
 	Type        MemoryType
 	Scope       MemoryScope
+	Title       string
 	AgentID     string
 	ThreadID    string
 	CWD         string

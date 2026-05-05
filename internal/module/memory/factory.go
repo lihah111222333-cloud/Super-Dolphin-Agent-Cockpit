@@ -34,6 +34,7 @@ type MemoryWriteRequest struct {
 	Description string
 	Type        MemoryType
 	Body        string
+	Title       string
 	Source      string
 }
 

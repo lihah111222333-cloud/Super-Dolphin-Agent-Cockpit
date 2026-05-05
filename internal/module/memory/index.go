@@ -226,6 +226,9 @@ func formatMemoryEntry(entry MemoryEntry) string {
 	if len(frontmatter.SearchKeys) > 0 {
 		lines = append(lines, "search_keys: "+formatStringList(frontmatter.SearchKeys))
 	}
+	if frontmatter.Title != "" {
+		lines = append(lines, "title: "+strconv.Quote(frontmatter.Title))
+	}
 	if frontmatter.Source != "" {
 		lines = append(lines, "source: "+strconv.Quote(frontmatter.Source))
 	}
