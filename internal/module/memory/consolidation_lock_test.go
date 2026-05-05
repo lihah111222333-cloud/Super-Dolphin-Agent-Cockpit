@@ -101,11 +101,15 @@ func TestConsolidationLockRollbackRemovesNewLock(t *testing.T) {
 
 func TestConsolidationLockIndependentFromDiskStoreLock(t *testing.T) {
 	root := newTestMemoryRoot(t)
+	store, err := newDiskStore(root)
+	if err != nil {
+		t.Fatalf("newDiskStore() error = %v", err)
+	}
 	started := make(chan struct{})
 	release := make(chan struct{})
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- withDiskStoreLock(root, func() error {
+		errCh <- store.withDiskStoreLock(root, func() error {
 			close(started)
 			<-release
 			return nil

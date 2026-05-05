@@ -60,6 +60,7 @@ type memoryWriteStore interface {
 	Root() string
 	Create(entry MemoryEntry, opts ...WriteOptions) (MemoryEntry, error)
 	Update(entry MemoryEntry, opts ...WriteOptions) (MemoryEntry, error)
+	withDiskStoreLock(root string, fn func() error) error
 }
 
 var _ contract.AgentMemoryReader = (*MemoryLifecycleHooks)(nil)

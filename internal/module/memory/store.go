@@ -6,13 +6,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 )
 
 type diskStore struct {
-	root  string
-	guard memoryWriteGuard
+	root      string
+	guard     memoryWriteGuard
+	diskLocks sync.Map
 }
 
 func newDiskStore(root string) (*diskStore, error) {
@@ -32,6 +34,26 @@ func (s *diskStore) Root() string {
 		return ""
 	}
 	return s.root
+}
+
+func (s *diskStore) withDiskStoreLock(root string, fn func() error) (err error) {
+	if s == nil {
+		return errors.New("memory disk store is nil")
+	}
+	mutexValue, _ := s.diskLocks.LoadOrStore(root, &sync.Mutex{})
+	mutex := mutexValue.(*sync.Mutex)
+	mutex.Lock()
+	defer mutex.Unlock()
+	lockedFile, err := acquireMemoryRootFileLock(root, diskStoreLockTimeout)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := closeMemoryRootFileLock(lockedFile); err == nil && closeErr != nil {
+			err = closeErr
+		}
+	}()
+	return fn()
 }
 
 func (s *diskStore) CreateStructured(req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error) {
@@ -96,7 +118,7 @@ func (s *diskStore) upsertWrite(entry MemoryEntry, options WriteOptions) (Memory
 		return MemoryEntry{}, err
 	}
 	var written MemoryEntry
-	err = withDiskStoreLock(root, func() error {
+	err = s.withDiskStoreLock(root, func() error {
 		var werr error
 		written, werr = writePreparedMemoryFile(root, prepared, s.guard)
 		if werr != nil {
@@ -113,7 +135,7 @@ func (s *diskStore) Delete(name string, opts ...WriteOptions) error {
 		return err
 	}
 	options := resolveWriteOptions(opts)
-	return withDiskStoreLock(root, func() error {
+	return s.withDiskStoreLock(root, func() error {
 		if err := DeleteMemory(root, name); err != nil {
 			return err
 		}
@@ -127,7 +149,7 @@ func (s *diskStore) DeletePath(path string, opts ...WriteOptions) error {
 		return err
 	}
 	options := resolveWriteOptions(opts)
-	return withDiskStoreLock(root, func() error {
+	return s.withDiskStoreLock(root, func() error {
 		if err := DeleteMemoryPath(root, path); err != nil {
 			return err
 		}
@@ -153,7 +175,7 @@ func (s *diskStore) write(entry MemoryEntry, requireExisting bool, options Write
 		return MemoryEntry{}, err
 	}
 	var written MemoryEntry
-	err = withDiskStoreLock(root, func() error {
+	err = s.withDiskStoreLock(root, func() error {
 		_, exists, err := findMemoryEntry(root, prepared.CanonicalName)
 		if err != nil {
 			return err
@@ -180,7 +202,7 @@ func (s *diskStore) updatePath(path string, entry MemoryEntry, options WriteOpti
 		return MemoryEntry{}, err
 	}
 	var written MemoryEntry
-	err = withDiskStoreLock(root, func() error {
+	err = s.withDiskStoreLock(root, func() error {
 		validatedPath, err := ValidateMemoryWritePath(root, path)
 		if err != nil {
 			return err

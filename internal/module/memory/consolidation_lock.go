@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 )
 
@@ -183,8 +182,6 @@ const (
 	diskStoreLockTimeout       = 5 * time.Second
 )
 
-var diskStoreLocks sync.Map
-
 func acquireMemoryRootFileLock(root string, timeout time.Duration) (*os.File, error) {
 	lockPath, err := ValidateMemoryWritePath(root, filepath.Join(root, diskStoreLockFileName))
 	if err != nil {
@@ -234,21 +231,4 @@ func closeMemoryRootFileLock(file *os.File) error {
 		return unlockErr
 	}
 	return closeErr
-}
-
-func withDiskStoreLock(root string, fn func() error) (err error) {
-	mutexValue, _ := diskStoreLocks.LoadOrStore(root, &sync.Mutex{})
-	mutex := mutexValue.(*sync.Mutex)
-	mutex.Lock()
-	defer mutex.Unlock()
-	lockedFile, err := acquireMemoryRootFileLock(root, diskStoreLockTimeout)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if closeErr := closeMemoryRootFileLock(lockedFile); err == nil && closeErr != nil {
-			err = closeErr
-		}
-	}()
-	return fn()
 }
