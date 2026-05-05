@@ -114,6 +114,13 @@ function toProcessActivityItem(item, index) {
     };
   }
   if (kind === 'command') {
+    // Skip command entries that are actually tool calls — the backend emits
+    // both ItemStarted (kind:command) and ToolCallBegin (kind:tool) for the
+    // same MCP call; the kind:tool branch below handles them correctly.
+    if ((item.tool || item.toolName || '').toString().trim()) return null;
+    // Skip ghost command entries with no command text — these render as
+    // "终端命令" with zero useful information for the user.
+    if (!(item.command || '').toString().trim()) return null;
     const status = (item.status || '').toString().trim().toLowerCase();
     const failed = isFailedActivity(item);
     const commandText = (item.command || '').toString().trim();

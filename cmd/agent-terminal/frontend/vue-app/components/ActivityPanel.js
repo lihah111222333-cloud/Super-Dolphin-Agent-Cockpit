@@ -195,6 +195,7 @@ export const ActivityPanel = {
     function isCommandEntry(entry) {
       const kind = (entry?.kind || '').toString().trim();
       if (kind === 'command') return true;
+      if (kind === 'tool' || kind === 'file' || kind === 'approval' || kind === 'thinking') return false;
       if ((entry?.command || '').toString().trim()) return true;
       if ((entry?.output || '').toString().trim()) return true;
       if (Number.isFinite(Number(entry?.exitCode))) return true;
