@@ -120,8 +120,13 @@ export const ActivityPanel = {
 
     const toolCallEntries = computed(() => {
       const map = toolCallMap.value;
-      return Object.entries(map)
-        .map(([name, value]) => ({ name, count: Number(value) || 0 }))
+      const merged = {};
+      for (const [raw, value] of Object.entries(map)) {
+        const short = normalizeToolName(raw) || raw;
+        merged[short] = (merged[short] || 0) + (Number(value) || 0);
+      }
+      return Object.entries(merged)
+        .map(([name, count]) => ({ name, count }))
         .filter((entry) => entry.count > 0)
         .sort((a, b) => b.count - a.count);
     });

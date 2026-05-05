@@ -20,6 +20,7 @@ vi.mock('../lib/vue.esm-browser.prod.js', async () => {
 });
 
 import { reactive, ref } from '../lib/vue.esm-browser.prod.js';
+import { displayToolName, summarizeToolActivity } from './utils/format-utils.js';
 
 vi.mock('./stores/composer.js', () => ({
   useComposerStore: () => composerStoreMock,
@@ -129,6 +130,20 @@ function makeThreadStore(options = {}) {
   };
 }
 
+describe('tool activity formatting', () => {
+  it('shortens known and unknown tool names without dropping new tools', () => {
+    expect(displayToolName('mcp__lsp__lsp_edit')).toBe('lsp_edit');
+    expect(displayToolName('functions.exec_command')).toBe('exec_command');
+    expect(displayToolName('future.vendor/scan')).toBe('future_vendor_scan');
+  });
+
+  it('summarizes known tools and keeps a generic fallback for unknown tools', () => {
+    expect(summarizeToolActivity('mcp__lsp__lsp_grep', { preview: '{"total":3}', success: true })).toEqual({ name: 'lsp_grep', summary: '搜索到 3 处', status: 'done' });
+    expect(summarizeToolActivity('mcp__lsp__code_run', { preview: '{"output":"cat: missing file"}', success: false })).toEqual({ name: 'code_run', summary: '命令执行失败：cat: missing file', status: 'failed' });
+    expect(summarizeToolActivity('future.vendor/scan', { status: 'completed', success: true })).toEqual({ name: 'future_vendor_scan', summary: '已完成', status: 'done' });
+  });
+});
+
 describe('format split barrier via UnifiedChatPage public outputs', () => {
   it('formats activity timeline items and truncates long command output', () => {
     const threadStore = makeThreadStore({
@@ -137,6 +152,7 @@ describe('format split barrier via UnifiedChatPage public outputs', () => {
         { id: 'cmd-1', kind: 'command', ts: '2026-03-09T10:01:00Z', status: 'failed', command: 'npm test', output: 'x'.repeat(500), exitCode: 3 },
       ],
     });
+
     const vm = UnifiedChatPage.setup({ threadStore, projectStore: makeProjectStore(), mode: 'chat' });
 
     expect(vm.activeProcessActivity.value[0].message).toBe('$ npm test');
