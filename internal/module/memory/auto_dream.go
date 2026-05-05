@@ -24,6 +24,7 @@ type consolidationRunOptions struct {
 
 type preparedConsolidation struct {
 	root           string
+	store          *diskStore
 	cfg            *Config
 	now            func() time.Time
 	extractFn      ExtractFunc
@@ -71,7 +72,7 @@ func (c *AutoDreamConsolidator) consolidateWithOptions(
 	}
 	input.Limit = c.limit()
 	if !shouldRunConsolidationExtract(input) {
-		err = refreshConsolidationWithoutExtract(run.root, run.now)
+		err = refreshConsolidationWithoutExtract(run.store, run.now)
 		committed = err == nil
 		return err
 	}
@@ -91,8 +92,9 @@ func shouldRunConsolidationExtract(input consolidationPromptInput) bool {
 	return indexContent != "" && indexContent != "(missing)" && indexContent != "(empty)"
 }
 
-func refreshConsolidationWithoutExtract(root string, now func() time.Time) error {
-	return withDiskStoreLock(root, func() error {
+func refreshConsolidationWithoutExtract(store *diskStore, now func() time.Time) error {
+	root := store.Root()
+	return store.withDiskStoreLock(root, func() error {
 		if _, err := UpdateMemoryIndex(root); err != nil {
 			return err
 		}
@@ -127,6 +129,10 @@ func (c *AutoDreamConsolidator) prepareConsolidation(
 	if now == nil {
 		now = time.Now
 	}
+	store, err := newDiskStore(root)
+	if err != nil {
+		return preparedConsolidation{}, err
+	}
 	guard, err := acquireConsolidationLock(root, consolidationLockOptions{Now: now})
 	if err != nil {
 		return preparedConsolidation{}, err
@@ -134,7 +140,7 @@ func (c *AutoDreamConsolidator) prepareConsolidation(
 	if opts.onLocked != nil {
 		opts.onLocked()
 	}
-	return preparedConsolidation{root: root, cfg: opts.cfg, now: now, extractFn: extractFn, guard: guard, runtimeContext: opts.runtimeContext}, nil
+	return preparedConsolidation{root: root, store: store, cfg: opts.cfg, now: now, extractFn: extractFn, guard: guard, runtimeContext: opts.runtimeContext}, nil
 }
 
 func (c *AutoDreamConsolidator) runConsolidationExtract(
@@ -151,7 +157,7 @@ func (c *AutoDreamConsolidator) runConsolidationExtract(
 	if err != nil {
 		return err
 	}
-	return withDiskStoreLock(run.root, func() error {
+	return run.store.withDiskStoreLock(run.root, func() error {
 		if err := removeMemoryFiles(run.root, staleMemoryPaths(input.TopicEntries)); err != nil {
 			return err
 		}

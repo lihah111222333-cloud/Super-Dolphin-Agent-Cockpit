@@ -499,7 +499,7 @@ func mergeAndWriteMemory(store memoryWriteStore, targetPath string, merged Memor
 	}
 	root := store.Root()
 	raw := formatMemoryEntry(merged)
-	return withDiskStoreLock(root, func() error {
+	return store.withDiskStoreLock(root, func() error {
 		validatedPath, err := ValidateMemoryWritePath(root, targetPath)
 		if err != nil {
 			return err
@@ -517,7 +517,7 @@ func overflowMergeAndDelete(store memoryWriteStore, keepPath string, merged Memo
 	}
 	root := store.Root()
 	raw := formatMemoryEntry(merged)
-	return withDiskStoreLock(root, func() error {
+	return store.withDiskStoreLock(root, func() error {
 		validatedKeep, err := ValidateMemoryWritePath(root, keepPath)
 		if err != nil {
 			return err
