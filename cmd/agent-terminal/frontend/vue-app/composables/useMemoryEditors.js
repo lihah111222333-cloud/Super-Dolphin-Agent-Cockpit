@@ -27,6 +27,7 @@ export function resetMemoryForm(form, target = 'private') {
     existingPath: '',
     name: '',
     description: '',
+    title: '',
     type: 'project',
     content: memoryTemplateForType('project'),
   });
@@ -70,6 +71,7 @@ export function useDurableMemoryEditor({ currentCwd, setNotice, setBusy, emit })
         existingPath: detail?.path || path,
         name: detail?.name || '',
         description: detail?.description || '',
+        title: detail?.title || '',
         type: detail?.type || 'project',
         content: detail?.content || '',
       });
@@ -112,6 +114,7 @@ export function useDurableMemoryEditor({ currentCwd, setNotice, setBusy, emit })
         existingPath: form.existingPath,
         name,
         description,
+        title: (form.title || '').toString().trim(),
         type: form.type,
         content,
       });

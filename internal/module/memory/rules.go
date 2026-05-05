@@ -107,7 +107,8 @@ var standardSaveRules = []string{
 	"Each durable fact belongs in its own topic file; `MEMORY.md` stays a pointer index rather than a second copy of the body.",
 	"Prefer updating an existing topic over creating duplicates.",
 	"Keep `name`, `description`, and `type` frontmatter aligned with the body.",
-	"Use the standard topic-file frontmatter template:\n  ---\n  name: <memory name>\n  description: <specific one-line relevance hook>\n  type: user|feedback|project|reference\n  ---\n  <durable memory body>",
+	"Use the standard topic-file frontmatter template:\n  ---\n  name: <memory name>\n  description: <specific one-line relevance hook>\n  type: user|feedback|project|reference\n  title: <short display title, max 12 chars, optional>\n  ---\n  <durable memory body>",
+	"When saving a memory, include a concise `title` (max 12 characters) that captures the core point for card-view display. Omit if the description is already short and clear enough.",
 	"Organize memory by semantic topic, not by time.",
 	"Save or delete only after runtime `sanitize + resolve + authorize` succeeds; `deny`, `not_visible`, and `local_unavailable` are hard stop conditions.",
 	"The prompt layer must not probe or `mkdir` memory directories; runtime may ensure them separately.",
@@ -352,7 +353,8 @@ func combinedSaveRules(skipIndex bool, autoDir, teamDir string) []string {
 	indexTeam := memoryIndexPath(teamDir)
 	rules := []string{
 		"Choose the private or team directory according to the scope guidance for the memory type; `user` is always private, `feedback` stays private unless every collaborator should follow it, and shared project conventions or external pointers usually belong in team memory.",
-		"Keep `name`, `description`, and `type` frontmatter aligned with the body.",
+		"Keep `name`, `description`, `type`, and `title` frontmatter aligned with the body.",
+		"When saving a memory, include a concise `title` (max 12 characters) that captures the core point for card-view display. Omit if the description is already short and clear enough.",
 		"Organize memories semantically by topic, not chronologically.",
 		"Update or remove memories that turn out to be wrong or outdated.",
 		"Do not write duplicate memories. First check whether an existing memory should be updated instead.",

@@ -28,6 +28,7 @@ type uiMemoryEntryUpsertParams struct {
 	Description  string `json:"description"`
 	Type         string `json:"type"`
 	Content      string `json:"content"`
+	Title        string `json:"title,omitempty"`
 }
 
 type uiMemoryEntryDeleteParams struct {
@@ -43,6 +44,7 @@ type UIMemoryEntryDetail struct {
 	Description string    `json:"description,omitempty"`
 	Type        string    `json:"type,omitempty"`
 	Content     string    `json:"content,omitempty"`
+	Title       string    `json:"title,omitempty"`
 	UpdatedAt   time.Time `json:"updatedAt,omitempty"`
 }
 
@@ -129,7 +131,7 @@ func upsertUIMemoryEntry(ctx context.Context, deps memoryHandlerDeps, req uiMemo
 		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "durable_memory_open_store",
 			errDurableMemorySaveFailed, err, "target", target)
 	}
-	writeReq, err := buildUIWriteRequest(req.Name, req.Description, req.Type, req.Content)
+	writeReq, err := buildUIWriteRequest(req.Name, req.Description, req.Type, req.Content, req.Title)
 	if err != nil {
 		return UIMemoryEntryDetail{}, err // pure validation, no path
 	}
@@ -253,7 +255,7 @@ func normalizeUIMemoryTarget(raw string) string {
 	}
 }
 
-func buildUIWriteRequest(name, description, rawType, content string) (MemoryWriteRequest, error) {
+func buildUIWriteRequest(name, description, rawType, content, title string) (MemoryWriteRequest, error) {
 	memoryType := ParseMemoryType(rawType)
 	if !memoryType.IsKnown() {
 		return MemoryWriteRequest{}, publicValidationErr("type must be one of user|feedback|project|reference")
@@ -263,6 +265,7 @@ func buildUIWriteRequest(name, description, rawType, content string) (MemoryWrit
 		Description: strings.TrimSpace(description),
 		Type:        memoryType,
 		Body:        strings.TrimSpace(strings.ReplaceAll(content, "\r\n", "\n")),
+		Title:       strings.TrimSpace(title),
 	}
 	if strings.TrimSpace(req.Name) == "" {
 		return MemoryWriteRequest{}, publicValidationErr("name is required")
@@ -320,6 +323,7 @@ func toUIMemoryEntryDetail(target, root, path string, entry MemoryEntry) UIMemor
 		Description: strings.TrimSpace(entry.Frontmatter.Description),
 		Type:        strings.TrimSpace(string(entry.Type())),
 		Content:     strings.TrimSpace(entry.Content),
+		Title:       strings.TrimSpace(entry.Frontmatter.Title),
 		UpdatedAt:   entry.UpdatedAt,
 	}
 }

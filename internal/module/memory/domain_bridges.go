@@ -251,7 +251,7 @@ func buildAgentMemoryEntry(req contract.AgentMemoryWriteRequest) (MemoryWriteReq
 	if err := validateAgentMemoryGuards(name, description, content); err != nil {
 		return MemoryWriteRequest{}, "", err
 	}
-	return MemoryWriteRequest{Name: name, Description: description, Type: memType, Body: buildExplicitMemoryBody(memType, content), Source: strings.TrimSpace(req.Source)}, scope, nil
+	return MemoryWriteRequest{Name: name, Description: description, Type: memType, Body: buildExplicitMemoryBody(memType, content), Title: strings.TrimSpace(req.Title), Source: strings.TrimSpace(req.Source)}, scope, nil
 
 }
 
