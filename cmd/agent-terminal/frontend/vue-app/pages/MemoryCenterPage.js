@@ -639,19 +639,19 @@ export const MemoryCenterPage = {
           </select>
         </div>
         <div class="mc-form-row">
-          <label class="mc-form-label">名称</label>
-          <input v-model="memoryEditor.form.name" class="modal-input" data-testid="memory-center-editor-name" :disabled="memoryIdentityLocked" placeholder="例如：reply-in-chinese" />
+          <label class="mc-form-label">标识名</label>
+          <input v-model="memoryEditor.form.name" class="modal-input" data-testid="memory-center-editor-name" :disabled="memoryIdentityLocked" placeholder="内部标识，如 reply-in-chinese" />
         </div>
         <div class="mc-form-row">
           <label class="mc-form-label">描述</label>
           <input v-model="memoryEditor.form.description" class="modal-input" data-testid="memory-center-editor-description" placeholder="一句话描述为什么值得长期保留" />
         </div>
         <div class="mc-form-row">
-          <label class="mc-form-label">标题</label>
-          <input v-model="memoryEditor.form.title" class="modal-input" data-testid="memory-center-editor-title" placeholder="留空则自动生成（−12字）" />
+          <label class="mc-form-label">卡片标题</label>
+          <input v-model="memoryEditor.form.title" class="modal-input" data-testid="memory-center-editor-title" placeholder="卡片上显示的短标题，留空则自动截取描述" />
         </div>
         <div v-if="memoryIdentityLocked" class="mc-form-helper">
-          现有记忆的名称和类型暂时锁定；如需改名或改类型，请删除后重建。
+现有记忆的标识名和类型暂时锁定；如需修改，请删除后重建。
         </div>
         <div class="mc-form-row">
           <label class="mc-form-label">内容</label>
