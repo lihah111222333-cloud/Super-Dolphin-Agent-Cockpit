@@ -5,8 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-
+	"fmt"
 	"io"
+	"log/slog"
 	"os/exec"
 	"strings"
 	"sync"
@@ -148,6 +149,11 @@ func (t *transport) spawnResponder(envelope protocol.Envelope) {
 	t.responderWG.Add(1)
 	go func() {
 		defer t.responderWG.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("gopls: responder panic", "panic", fmt.Sprint(r))
+			}
+		}()
 		t.respondToServerRequest(envelope)
 	}()
 }
