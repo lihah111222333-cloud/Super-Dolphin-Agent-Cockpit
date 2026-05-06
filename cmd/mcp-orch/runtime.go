@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
@@ -24,7 +25,10 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
+
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -345,24 +349,33 @@ func bindRuntime(lc fx.Lifecycle, params runtimeParams) {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
-	var cancel context.CancelFunc
+	var (
+		cancel       context.CancelFunc
+		shutdownOnce sync.Once
+	)
 	done := make(chan error, 1)
+	requestShutdown := func() {
+		shutdownOnce.Do(func() {
+			platformshared.LogIgnoredError(logger, "mcp-orch shutdown error", params.Shutdowner.Shutdown())
+		})
+	}
 
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
 			runCtx, runCancel := context.WithCancel(context.Background())
 			cancel = runCancel
-			go func() {
+			runtimesafe.SafeGo(runCtx, logger, "mcp-orch.runtime.runGroup", func(context.Context) {
 				err := platformrunner.RunGroup(runCtx, params.Runners, platformrunner.GroupOptions{
-					EnableSignals: true,
+					EnableSignals: false,
 				})
 				done <- err
 				close(done)
 				if err != nil && !errors.Is(err, context.Canceled) {
 					logger.Error("mcp-orch runtime exited", "error", err)
 				}
-				_ = params.Shutdowner.Shutdown()
-			}()
+				requestShutdown()
+			})
+
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {
