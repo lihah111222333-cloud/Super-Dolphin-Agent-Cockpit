@@ -265,6 +265,11 @@ func (a *runnerActor) drainOnStop(exitEvents <-chan waitResult) {
 	stopDone := make(chan struct{})
 	go func() {
 		defer close(stopDone)
+		defer func() {
+			if r := recover(); r != nil {
+				a.service.logger.Error("orchestration: stopAll panic", slog.Any("panic", r))
+			}
+		}()
 		a.stopAll()
 	}()
 	drainCtx, cancel := platformconfig.WithTimeout(context.Background(), runnerShutdownDrainGrace)
@@ -272,6 +277,11 @@ func (a *runnerActor) drainOnStop(exitEvents <-chan waitResult) {
 	drainDone := make(chan struct{})
 	go func() {
 		defer close(drainDone)
+		defer func() {
+			if r := recover(); r != nil {
+				a.service.logger.Error("orchestration: drain panic", slog.Any("panic", r))
+			}
+		}()
 		if err := a.service.exitMonitor.Drain(drainCtx); err != nil {
 			a.service.logger.Warn("orchestration: exit monitor drain failed",
 				slog.String("error", err.Error()),
