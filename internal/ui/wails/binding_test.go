@@ -76,8 +76,8 @@ func TestListAgentsUsesAgentList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListAgents() error = %v", err)
 	}
-	if method != "agent.list" {
-		t.Fatalf("ListAgents() method = %q, want %q", method, "agent.list")
+	if method != "agent/list" {
+		t.Fatalf("ListAgents() method = %q, want %q", method, "agent/list")
 	}
 	if payload != "{}" {
 		t.Fatalf("ListAgents() payload = %q, want %q", payload, "{}")
