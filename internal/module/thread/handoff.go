@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -26,7 +26,7 @@ var errHandoffMissingAgentKey = errors.New("thread/handoff: target agent_key is 
 //   - If target agent_key has no enabled prompt_template, router
 //     fallback applies (agent_key recorded, prompt_version_id NULL).
 func (s *service) Handoff(ctx context.Context, req HandoffRequest) (HandoffResult, error) {
-	ctx = shared.NonNilContext(ctx)
+	ctx = util.NonNilContext(ctx)
 
 	sourceID := strings.TrimSpace(req.SourceThreadID)
 	if sourceID == "" {

@@ -13,10 +13,13 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// Module 是 fbsd 的 fx wire-up 入口：Provide *Tracker + 注册 OnStop flush 钩子。
+// Module 是 fbsd 的 fx wire-up 入口：Provide *Tracker + 通过 group:"runners" 注册生命周期。
 var Module = fx.Module("fbsd",
-	fx.Provide(NewTrackerFromEnv, ProvideSkillDisclosureTierSource),
-	fx.Invoke(registerFlush),
+	fx.Provide(
+		NewTrackerFromEnv,
+		ProvideSkillDisclosureTierSource,
+		fx.Annotate(trackerAsRunner, fx.ResultTags(`group:"runners"`)),
+	),
 )
 
 // NewTrackerFromEnv 构造 Tracker。FBSD 默认始终启用——历史灰度开关
@@ -42,15 +45,16 @@ func NewTrackerFromEnv() (*Tracker, error) {
 	return NewTracker(wsPath, globPath, true)
 }
 
-// registerFlush 注册 fx OnStop 钩子，确保 harness 退出前 flush stats。
-// nil tracker 跳过；disabled 时 Flush 自身 no-op。
-func registerFlush(lc fx.Lifecycle, t *Tracker) {
-	lc.Append(fx.Hook{
-		OnStop: func(ctx context.Context) error {
-			return t.Flush(ctx)
-		},
-	})
+// trackerAsRunner adapts *Tracker into a contract.Runner so the run.Group
+// owns the background goroutine lifecycle (Start + Flush on stop).
+func trackerAsRunner(t *Tracker) contract.Runner {
+	return contract.AsRunner(&trackerWorker{t: t})
 }
+
+type trackerWorker struct{ t *Tracker }
+
+func (w *trackerWorker) Start()                         { _ = w.t.Start() }
+func (w *trackerWorker) Stop(ctx context.Context) error { return w.t.Flush(ctx) }
 
 // EnvTierConfig 从环境变量加载 spec §9.7 默认参数；缺失字段走默认。
 // 主要给 buildSkillManifest 调用方用，统一参数来源。

@@ -16,14 +16,13 @@ import (
 	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	rpcpkg "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/kelindar/event"
 )
 
 func TestNewConfigFallsBackToProjectRoot(t *testing.T) {
 	t.Setenv(envMemoryRoot, "")
-	cfg := NewConfig(&platformconfig.Config{ProjectRoot: t.TempDir()})
+	cfg := NewConfig(&contract.Config{ProjectRoot: t.TempDir()})
 	if cfg == nil || cfg.RootDir == "" {
 		t.Fatalf("expected non-empty root dir, got %#v", cfg)
 	}
@@ -192,7 +191,7 @@ func TestAutoDreamTaskInheritsParentCancellation(t *testing.T) {
 
 func TestConsolidationHandlerDispatch(t *testing.T) {
 	stub := &stubMemoryService{}
-	server := rpcpkg.NewServer(rpcpkg.Params{Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"}})
+	server := rpcpkg.NewServer(rpcpkg.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(NewMemoryHandlers(memoryHandlerDeps{Service: stub}).Handlers)
 
 	raw, err := server.Dispatch(context.Background(), "memory/consolidate", json.RawMessage(`{}`))

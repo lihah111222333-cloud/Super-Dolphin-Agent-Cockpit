@@ -8,11 +8,12 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 )
 
 func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error) {
-	ctx = shared.NonNilContext(ctx)
+	ctx = util.NonNilContext(ctx)
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
 		return ForkResult{}, err
@@ -33,7 +34,7 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 	}
 	snapshot := s.resolveStablePromptSnapshot(ctx, threadID, provider, contract.PromptAssemblySnapshot{})
 	agentID := newThreadID
-	cwd := shared.FirstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd))
+	cwd := util.FirstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd))
 	if err := s.launchAgent(
 		ctx,
 		agentID,
@@ -91,7 +92,7 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 }
 
 func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, error) {
-	ctx = shared.NonNilContext(ctx)
+	ctx = util.NonNilContext(ctx)
 	binding, err := s.resolveBinding(ctx, threadID)
 	if err != nil {
 		return RecoverResult{}, err
@@ -106,7 +107,7 @@ func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, 
 	if err := s.recoverAgent(
 		ctx,
 		strings.TrimSpace(binding.AgentID),
-		shared.FirstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd)),
+		util.FirstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd)),
 		displayName,
 		meta.ParentAgentID,
 		meta.AgentType,
@@ -136,24 +137,24 @@ func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, 
 	if err := s.persistThreadState(ctx, newThreadState(threadStateRecoverKind, threadStateFields{
 		RequestedThreadID: threadID,
 		PublicThreadID:    publicThreadID,
-		ProviderThreadID:  shared.FirstNonEmpty(providerThreadID, session.ThreadID()),
+		ProviderThreadID:  util.FirstNonEmpty(providerThreadID, session.ThreadID()),
 		AgentID:           agentID,
 		ParentAgentID:     meta.ParentAgentID,
 		AgentType:         meta.AgentType,
 		AgentMemoryScope:  meta.AgentMemoryScope,
 		Provider:          provider,
-		CWD:               shared.FirstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd)),
+		CWD:               util.FirstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd)),
 		Model:             meta.Model,
 		Name:              displayName,
 		Prompt:            displayName,
-		RolloutPath:       shared.FirstNonEmpty(binding.RolloutPath, session.RolloutPath()),
-		SessionUUID:       shared.FirstNonEmpty(binding.SessionUUID, session.ThreadID()),
-		ConfigOverride:    shared.CloneRawMessage(meta.ConfigOverride),
+		RolloutPath:       util.FirstNonEmpty(binding.RolloutPath, session.RolloutPath()),
+		SessionUUID:       util.FirstNonEmpty(binding.SessionUUID, session.ThreadID()),
+		ConfigOverride:    clone.RawMessage(meta.ConfigOverride),
 		CreatedAt:         meta.CreatedAt,
 	}), true); err != nil {
 		return RecoverResult{}, err
 	}
-	restoredCWD := shared.FirstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd))
+	restoredCWD := util.FirstNonEmpty(meta.CWD, strings.TrimSpace(binding.Cwd))
 	if promptResumeRestoreRequiresInvalidation(restoredCWD, restoredCWD, s.cfg) {
 		if err := s.invalidatePromptAssembly(ctx, contract.InvalidateResumeRestore); err != nil {
 			return RecoverResult{}, err

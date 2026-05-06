@@ -11,7 +11,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
@@ -41,7 +40,7 @@ func TestTurnInterruptHandlerReturnsEnvelope(t *testing.T) {
 		t.Fatalf("StartTurn() error = %v", err)
 	}
 
-	server := platformrpc.NewServer(platformrpc.Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}})
+	server := platformrpc.NewServer(platformrpc.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(handler.Map{"turn/interrupt": turnInterruptHandler(svc, rpcHelperResolver{session: session})})
 	raw, err := server.Dispatch(context.Background(), "turn/interrupt", json.RawMessage(`{"threadId":"thread-1","source":"user"}`))
 	if err != nil {

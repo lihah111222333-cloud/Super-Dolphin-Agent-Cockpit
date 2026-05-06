@@ -2,13 +2,13 @@ package uistate
 
 import (
 	"encoding/json"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"strings"
 	"time"
 
 	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/timeline"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/kelindar/event"
 )
 
@@ -20,10 +20,10 @@ func (s *service) bindDispatcher(dispatcher *event.Dispatcher) {
 	if s == nil {
 		return
 	}
-	s.emitThreadPatch = bus.NewEmitter[uidto.UIThreadPatch](dispatcher)
-	s.emitPreferenceChange = bus.NewEmitter[uidto.UIPreferencesChanged](dispatcher)
-	s.emitProjectionUpdated = bus.NewEmitter[uidto.UIProjectionUpdated](dispatcher)
-	emitTimelineAppend := bus.NewEmitter[uidto.UITimelineAppended](dispatcher)
+	s.emitThreadPatch = contract.NewEmitter[uidto.UIThreadPatch](dispatcher)
+	s.emitPreferenceChange = contract.NewEmitter[uidto.UIPreferencesChanged](dispatcher)
+	s.emitProjectionUpdated = contract.NewEmitter[uidto.UIProjectionUpdated](dispatcher)
+	emitTimelineAppend := contract.NewEmitter[uidto.UITimelineAppended](dispatcher)
 	if s.timeline != nil {
 		s.timeline.SetEmitter(timeline.AppendedEmitter(emitTimelineAppend))
 	}

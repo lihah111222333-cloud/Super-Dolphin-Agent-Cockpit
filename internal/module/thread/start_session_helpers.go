@@ -8,7 +8,8 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 )
 
 const startDisplayNameMaxRunes = 160
@@ -88,7 +89,7 @@ func resolveStartPromptAssembly(ctx context.Context, req StartRequest, input con
 	if err != nil {
 		return contract.StartAssembly{}, err
 	}
-	assembly.DisplayName = normalizeStartDisplayName(shared.FirstNonEmpty(strings.TrimSpace(assembly.DisplayName), req.Name))
+	assembly.DisplayName = normalizeStartDisplayName(util.FirstNonEmpty(strings.TrimSpace(assembly.DisplayName), req.Name))
 	assembly.BaseInstructions = strings.TrimSpace(assembly.BaseInstructions)
 	assembly.DeveloperInstructions = strings.TrimSpace(assembly.DeveloperInstructions)
 	return ensureStartAssemblySnapshot(assembly, input.Provider), nil
@@ -240,7 +241,7 @@ func buildStartStoredThreadConfig(req StartRequest, input contract.StartInput, a
 		Effort:      strings.TrimSpace(req.Effort),
 		Approvals:   strings.TrimSpace(req.ApprovalPolicy),
 		Personality: strings.TrimSpace(req.Personality),
-		Runtime:     shared.CloneRuntimeConfigMap(buildStartSessionConfig(req, input, assembly)),
+		Runtime:     clone.RuntimeConfigMap(buildStartSessionConfig(req, input, assembly)),
 	}
 }
 

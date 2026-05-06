@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -42,7 +42,7 @@ func validateMemoryReadPath(root, file string) (string, error) {
 	if err != nil {
 		return "", invalidMemoryReadPath(err.Error())
 	}
-	if !platformshared.ContainsPath(rootReal, candidateReal) {
+	if !pathutil.ContainsPath(rootReal, candidateReal) {
 		return "", invalidMemoryReadPath("path escapes root")
 	}
 	if info, err := os.Stat(candidateReal); err != nil {

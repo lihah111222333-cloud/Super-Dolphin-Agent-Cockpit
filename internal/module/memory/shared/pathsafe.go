@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -214,7 +214,7 @@ func SafeReadEntrypoint(root, indexPath string) ([]byte, os.FileInfo, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	if !platformshared.ContainsPath(rootReal, candidate) {
+	if !pathutil.ContainsPath(rootReal, candidate) {
 		return nil, nil, ErrSafeReadContainment
 	}
 	return readSafeResolvedFile(candidate)

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -148,7 +148,7 @@ func (w *agentLaunchedWorker) Stop(ctx context.Context) error {
 		}
 		if deadline, ok := waitCtx.Deadline(); !ok || time.Until(deadline) > agentLaunchedDrainGrace {
 			var cancel context.CancelFunc
-			waitCtx, cancel = platformconfig.WithTimeout(waitCtx, agentLaunchedDrainGrace)
+			waitCtx, cancel = ctxutil.WithTimeout(waitCtx, agentLaunchedDrainGrace)
 			defer cancel()
 			_ = deadline
 		}

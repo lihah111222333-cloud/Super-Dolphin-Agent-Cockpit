@@ -8,7 +8,7 @@ import (
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
 )
 
 func planDeltaHandler(svc Service, onUpdated func(string)) func(turndto.PlanDelta) {
@@ -65,7 +65,7 @@ func agentErrorHandler(svc Service, onUpdated func(string)) func(agentdto.AgentE
 		if threadID == "" {
 			return
 		}
-		appendErrorItem(svc, threadID, strings.TrimSpace(ev.AgentID), "", timelineID("error", "agent", ev.AgentID, ev.Code, ev.Message), shared.FirstNonEmpty(strings.TrimSpace(ev.Message), strings.TrimSpace(ev.Code), strings.TrimSpace(string(ev.Payload))), ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"))
+		appendErrorItem(svc, threadID, strings.TrimSpace(ev.AgentID), "", timelineID("error", "agent", ev.AgentID, ev.Code, ev.Message), util.FirstNonEmpty(strings.TrimSpace(ev.Message), strings.TrimSpace(ev.Code), strings.TrimSpace(string(ev.Payload))), ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"))
 		emitTimelineUpdated(onUpdated, threadID)
 	}
 }
@@ -134,10 +134,10 @@ func itemCompletedHandler(svc Service, onUpdated func(string)) func(turndto.Item
 
 func applyItemCompleted(it *Item, ev turndto.ItemCompleted, success bool) {
 	it.Kind = itemKind(
-		shared.FirstNonEmpty(strings.TrimSpace(ev.ItemType), it.ItemType),
+		util.FirstNonEmpty(strings.TrimSpace(ev.ItemType), it.ItemType),
 		strings.TrimSpace(ev.RawType),
-		shared.FirstNonEmpty(strings.TrimSpace(ev.Command), it.Command),
-		shared.FirstNonEmpty(strings.TrimSpace(ev.File), it.File),
+		util.FirstNonEmpty(strings.TrimSpace(ev.Command), it.Command),
+		util.FirstNonEmpty(strings.TrimSpace(ev.File), it.File),
 	)
 	it.Status = itemCompletedStatus(it.Kind, success, ev.ExitCode, ev.Error)
 	it.Success = &success
@@ -168,7 +168,7 @@ func applyItemCompleted(it *Item, ev turndto.ItemCompleted, success bool) {
 }
 
 func appendCompletedItemFallback(svc Service, threadID string, ev turndto.ItemCompleted, updateKey string, success bool) bool {
-	if shared.FirstNonEmpty(
+	if util.FirstNonEmpty(
 		strings.TrimSpace(ev.ItemType),
 		strings.TrimSpace(ev.Command),
 		strings.TrimSpace(ev.File),
@@ -210,13 +210,13 @@ func applyToolCallCompleted(it *Item, ev tooldto.ToolCallEnd, success bool) {
 	if strings.TrimSpace(it.Ts) == "" {
 		it.Ts = ev.Timestamp.Format("2006-01-02T15:04:05Z07:00")
 	}
-	it.Tool = shared.FirstNonEmpty(strings.TrimSpace(ev.ToolName), it.Tool)
-	it.ToolName = shared.FirstNonEmpty(strings.TrimSpace(ev.ToolName), it.ToolName)
+	it.Tool = util.FirstNonEmpty(strings.TrimSpace(ev.ToolName), it.Tool)
+	it.ToolName = util.FirstNonEmpty(strings.TrimSpace(ev.ToolName), it.ToolName)
 	if ev.ElapsedMS > 0 {
 		ms := int(ev.ElapsedMS)
 		it.ElapsedMS = &ms
 	}
-	if preview := previewText(shared.FirstNonEmpty(strings.TrimSpace(ev.Result), strings.TrimSpace(ev.Error))); preview != "" {
+	if preview := previewText(util.FirstNonEmpty(strings.TrimSpace(ev.Result), strings.TrimSpace(ev.Error))); preview != "" {
 		it.Preview = preview
 	}
 	if errText := strings.TrimSpace(ev.Error); errText != "" {
@@ -253,7 +253,7 @@ func appendCompletedToolFallback(svc Service, threadID string, ev tooldto.ToolCa
 		ms := int(ev.ElapsedMS)
 		item.ElapsedMS = &ms
 	}
-	if preview := previewText(shared.FirstNonEmpty(strings.TrimSpace(ev.Result), strings.TrimSpace(ev.Error))); preview != "" {
+	if preview := previewText(util.FirstNonEmpty(strings.TrimSpace(ev.Result), strings.TrimSpace(ev.Error))); preview != "" {
 		item.Preview = preview
 	}
 	svc.Append(threadID, strings.TrimSpace(ev.AgentID), item)

@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -143,7 +143,7 @@ func (w *taskHandoffWorker) Stop(ctx context.Context) error {
 		}
 		if deadline, ok := waitCtx.Deadline(); !ok || time.Until(deadline) > taskHandoffDrainGrace {
 			var cancel context.CancelFunc
-			waitCtx, cancel = platformconfig.WithTimeout(waitCtx, taskHandoffDrainGrace)
+			waitCtx, cancel = ctxutil.WithTimeout(waitCtx, taskHandoffDrainGrace)
 			defer cancel()
 			_ = deadline
 		}

@@ -3,7 +3,7 @@ package dashboard
 import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	skillmodule "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	agentstatusstore "github.com/anthropic-ai/super-agent-v3/internal/store/agentstatus"
 	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
 	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
@@ -41,13 +41,13 @@ type dashboardHandlersParams struct {
 	Insights InsightReader `optional:"true"`
 }
 
-func NewDashboardHandlersWithInsights(p dashboardHandlersParams) rpc.HandlerMapResult {
+func NewDashboardHandlersWithInsights(p dashboardHandlersParams) platformrpc.HandlerMapResult {
 	result := NewDashboardHandlers(p.Service)
 	addDashboardInsightHandlers(result.Handlers, p.Insights)
 	return result
 }
 
-var Module = fx.Options(
+var Module = fx.Module("dashboard",
 	fx.Provide(func(p serviceParams) Service {
 		return NewService(
 			p.Orchestration,

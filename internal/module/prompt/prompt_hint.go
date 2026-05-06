@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 // These must stay in lockstep with the write side in
@@ -37,7 +37,7 @@ func (s *service) readPromptHintOverride(ctx context.Context, cwd string) string
 	raw, err := s.prefs.GetValue(ctx, strings.TrimSpace(cwd), promptHintOverridePreferenceKey)
 	switch {
 	case err == nil:
-	case platformdb.IsNotFound(err):
+	case contract.IsNotFound(err):
 		return ""
 	default:
 		// Non-fatal: assembly must not fail because the override lookup hit a
@@ -61,7 +61,7 @@ func (s *service) readPromptHintDefault(ctx context.Context) string {
 			return ""
 		}
 		return file.Content
-	case platformdb.IsNotFound(err):
+	case contract.IsNotFound(err):
 		return ""
 	default:
 		if s.logger != nil {

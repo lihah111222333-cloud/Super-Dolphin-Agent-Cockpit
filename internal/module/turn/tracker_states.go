@@ -1,7 +1,7 @@
 package turn
 
 import (
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/statemachine"
 )
 
 const (
@@ -16,14 +16,14 @@ const (
 )
 
 const (
-	TriggerStart       = "start"
-	TriggerRun         = "run"
-	TriggerForce       = "force"
-	TriggerInterrupt   = "interrupt"
-	TriggerAbort       = "abort"
-	TriggerComplete    = "complete"
-	TriggerFail        = "fail"
-	TriggerStall       = "stall"
+	TriggerStart     = "start"
+	TriggerRun       = "run"
+	TriggerForce     = "force"
+	TriggerInterrupt = "interrupt"
+	TriggerAbort     = "abort"
+	TriggerComplete  = "complete"
+	TriggerFail      = "fail"
+	TriggerStall     = "stall"
 )
 
 func newTurnStateMachineConfig() statemachine.Config {
@@ -65,7 +65,7 @@ func newTurnStateMachineConfig() statemachine.Config {
 				Name: StateInterrupting,
 				Permits: []statemachine.Permit{
 					{Trigger: TriggerAbort, Dest: StateInterrupted},
-					{Trigger: TriggerFail, Dest: StateInterrupted}, // fail after interrupt is treated as interrupted
+					{Trigger: TriggerFail, Dest: StateInterrupted},     // fail after interrupt is treated as interrupted
 					{Trigger: TriggerComplete, Dest: StateInterrupted}, // complete after interrupt is interrupted
 					{Trigger: TriggerStall, Dest: StateStalled},
 				},

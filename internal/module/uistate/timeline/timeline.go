@@ -7,7 +7,7 @@ import (
 
 	shared "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -55,7 +55,7 @@ func toolCallLookupKey(item Item) string {
 	if strings.TrimSpace(item.Kind) != "tool" {
 		return ""
 	}
-	tool := platformshared.FirstNonEmpty(strings.TrimSpace(item.Tool), strings.TrimSpace(item.ToolName))
+	tool := util.FirstNonEmpty(strings.TrimSpace(item.Tool), strings.TrimSpace(item.ToolName))
 	callID := strings.TrimSpace(item.CallID)
 	if tool == "" || callID == "" {
 		return ""

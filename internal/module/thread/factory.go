@@ -7,15 +7,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 	"github.com/kelindar/event"
 )
 
@@ -55,7 +56,7 @@ type threadStateFields struct {
 }
 
 func newThreadState(kind threadStateKind, fields threadStateFields) threadState {
-	displayName := strings.TrimSpace(shared.FirstNonEmpty(fields.Name, fields.Prompt))
+	displayName := strings.TrimSpace(util.FirstNonEmpty(fields.Name, fields.Prompt))
 	state := threadState{
 		OwnerThreadID:    fields.OwnerThreadID,
 		AgentID:          fields.AgentID,
@@ -70,18 +71,18 @@ func newThreadState(kind threadStateKind, fields threadStateFields) threadState 
 	}
 	switch kind {
 	case threadStateStartKind:
-		state.PublicThreadID = shared.FirstNonEmpty(fields.PublicThreadID, fields.AgentID)
+		state.PublicThreadID = util.FirstNonEmpty(fields.PublicThreadID, fields.AgentID)
 	case threadStateForkKind:
-		state.PublicThreadID = shared.FirstNonEmpty(fields.PublicThreadID, fields.ProviderThreadID, fields.AgentID)
+		state.PublicThreadID = util.FirstNonEmpty(fields.PublicThreadID, fields.ProviderThreadID, fields.AgentID)
 	default:
-		state.PublicThreadID = shared.FirstNonEmpty(fields.PublicThreadID, fields.RequestedThreadID, fields.AgentID)
+		state.PublicThreadID = util.FirstNonEmpty(fields.PublicThreadID, fields.RequestedThreadID, fields.AgentID)
 	}
 	// Keep provider_thread_id as-is — empty when the real UUID is not
 	// yet known (e.g. Claude resolves it asynchronously after launch).
 	state.ProviderThreadID = strings.TrimSpace(fields.ProviderThreadID)
 	state.RolloutPath = fields.RolloutPath
 	state.SessionUUID = fields.SessionUUID
-	state.ConfigOverride = shared.CloneRawMessage(fields.ConfigOverride)
+	state.ConfigOverride = clone.RawMessage(fields.ConfigOverride)
 	state.CodexHome = strings.TrimSpace(fields.CodexHome)
 	state.CodexInstanceKey = strings.TrimSpace(fields.CodexInstanceKey)
 	state.CodexModelProvider = strings.TrimSpace(fields.CodexModelProvider)
@@ -95,7 +96,7 @@ func newThreadState(kind threadStateKind, fields threadStateFields) threadState 
 func newThreadUpsertParams(thread threadstore.Thread) threadstore.UpsertParams {
 	return threadstore.UpsertParams{
 		ThreadID:         strings.TrimSpace(thread.ThreadID),
-		Name:             strings.TrimSpace(shared.FirstNonEmpty(thread.Name, thread.Prompt)),
+		Name:             strings.TrimSpace(util.FirstNonEmpty(thread.Name, thread.Prompt)),
 		Prompt:           strings.TrimSpace(thread.Prompt),
 		Model:            strings.TrimSpace(thread.Model),
 		Cwd:              strings.TrimSpace(thread.Cwd),
@@ -275,11 +276,11 @@ func (s *service) buildOfflineConfig(
 		return offlineConfigSnapshot{}, err
 	}
 	if thread == nil && binding == nil {
-		return offlineConfigSnapshot{}, platformdb.ErrNotFound
+		return offlineConfigSnapshot{}, contract.ErrNotFound
 	}
 	stored := decodeStoredThreadConfig(offlineThreadConfigRaw(thread))
 	provider := offlineThreadProvider(binding)
-	provider = shared.FirstNonEmpty(stored.Provider, provider)
+	provider = util.FirstNonEmpty(stored.Provider, provider)
 	return offlineConfigSnapshot{
 		Config: dto.ThreadConfig{
 			ThreadID:               id,
@@ -291,7 +292,7 @@ func (s *service) buildOfflineConfig(
 				Approvals: stored.Approvals,
 			},
 			Effective: dto.ThreadConfigValues{
-				Model:     shared.FirstNonEmpty(stored.Model, offlineThreadModel(thread)),
+				Model:     util.FirstNonEmpty(stored.Model, offlineThreadModel(thread)),
 				Effort:    strings.TrimSpace(stored.Effort),
 				Approvals: strings.TrimSpace(stored.Approvals),
 			},
@@ -311,7 +312,7 @@ func (s *service) loadOfflineThread(
 	switch {
 	case err == nil:
 		return thread, nil
-	case platformdb.IsNotFound(err):
+	case contract.IsNotFound(err):
 		return nil, nil
 	default:
 		return nil, err
@@ -331,14 +332,14 @@ func buildOfflineRuntimeConfig(stored storedThreadConfig, thread *threadstore.Th
 			"timeoutSec":          8,
 		},
 	}
-	cfg = mergeRuntimeConfig(cfg, shared.CloneRuntimeConfigMap(stored.Runtime))
+	cfg = mergeRuntimeConfig(cfg, clone.RuntimeConfigMap(stored.Runtime))
 	if value := strings.TrimSpace(stored.Approvals); value != "" {
 		cfg["approvalPolicy"] = value
 	}
 	if value := strings.TrimSpace(stored.Personality); value != "" {
 		cfg["personality"] = value
 	}
-	if model := shared.FirstNonEmpty(stored.Model, offlineThreadModel(thread)); model != "" {
+	if model := util.FirstNonEmpty(stored.Model, offlineThreadModel(thread)); model != "" {
 		cfg["model"] = model
 	}
 	return cfg
@@ -348,7 +349,7 @@ func offlineThreadProvider(binding *bindingstore.Binding) string {
 	if binding == nil {
 		return offlineProvider
 	}
-	return shared.FirstNonEmpty(binding.Provider, offlineProvider)
+	return util.FirstNonEmpty(binding.Provider, offlineProvider)
 }
 
 func supportsThreadOverride(provider string) bool {
@@ -518,7 +519,7 @@ func (s *service) normalizeThreadConfig(
 	binding *bindingstore.Binding,
 	cfg dto.ThreadConfig,
 ) dto.ThreadConfig {
-	cfg.ThreadID = shared.FirstNonEmpty(strings.TrimSpace(cfg.ThreadID), strings.TrimSpace(threadID))
+	cfg.ThreadID = util.FirstNonEmpty(strings.TrimSpace(cfg.ThreadID), strings.TrimSpace(threadID))
 	if binding != nil && strings.TrimSpace(cfg.Provider) == "" {
 		cfg.Provider = strings.TrimSpace(binding.Provider)
 	}
@@ -601,7 +602,7 @@ func (s *service) bindingByProviderThreadID(ctx context.Context, threadID string
 // NewThreadSubscribers declares thread bus subscriptions for BusModule.
 func NewThreadSubscribers(svc *service) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
-		Spec: platformbus.SubscriberSpec{
+		Spec: contract.SubscriberSpec{
 			EventType:     "thread.core",
 			HandlerSymbol: "thread.registerThreadSubscriptions",
 			OwnerModule:   "thread",
@@ -628,8 +629,8 @@ func NewThreadSubscribers(svc *service) platformbus.SubscriberResult {
 	}
 }
 
-func threadBusWorkersAsRunner(svc *service) platformrunner.Runner {
-	return platformrunner.AsRunner(&threadBusWorkerRunner{svc: svc})
+func threadBusWorkersAsRunner(svc *service) contract.Runner {
+	return contract.AsRunner(&threadBusWorkerRunner{svc: svc})
 }
 
 type threadBusWorkerRunner struct {

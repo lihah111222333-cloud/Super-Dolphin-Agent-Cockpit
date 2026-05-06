@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 var testNativeTools = []contract.NativeToolDescriptor{
@@ -48,7 +47,7 @@ func TestBuiltinToolsWritePersistsDisabledAndReturnsCurrentView(t *testing.T) {
 
 	prefs := &uiPreferenceStoreStub{}
 	server := newConfigTestServer(
-		&platformconfig.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: "/repo"},
+		&contract.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: "/repo"},
 		prefs,
 		&sharedFileStoreStub{},
 		nil,
@@ -76,7 +75,7 @@ func TestBuiltinToolsWriteRejectsUnknownID(t *testing.T) {
 
 	prefs := &uiPreferenceStoreStub{}
 	server := newConfigTestServer(
-		&platformconfig.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: "/repo"},
+		&contract.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: "/repo"},
 		prefs,
 		&sharedFileStoreStub{},
 		nil,
@@ -95,7 +94,7 @@ func TestBuiltinToolsWriteRequiresPreferenceStore(t *testing.T) {
 	t.Parallel()
 
 	server := newConfigTestServer(
-		&platformconfig.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: "/repo"},
+		&contract.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: "/repo"},
 		nil,
 		&sharedFileStoreStub{},
 		nil,

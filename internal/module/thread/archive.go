@@ -5,12 +5,12 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func (s *service) Archive(ctx context.Context, threadID string) error {
-	ctx = shared.NonNilContext(ctx)
+	ctx = util.NonNilContext(ctx)
 	caller := archiveCallerStack()
 	pkglogger.Info("thread: Archive() ENTERED",
 		"thread_id", threadID,

@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
-	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 )
 
 // newIdentityConfig returns a valid codex identity config whose codexHome
 // points at a freshly-created temp directory that passes
-// providershared.CanonicalizeCodexHome.
+// contract.CanonicalizeCodexHome.
 func newIdentityConfig(t *testing.T) json.RawMessage {
 	t.Helper()
 	dir := t.TempDir()
@@ -27,7 +27,7 @@ func newIdentityConfig(t *testing.T) json.RawMessage {
 	// Sanity-check that ResolveCodexIdentity accepts our fixture; if this
 	// breaks future updates, we'll catch it here rather than inside the
 	// service test stack traces.
-	if _, err := providershared.ResolveCodexIdentity(cfg); err != nil {
+	if _, err := contract.ResolveCodexIdentity(cfg); err != nil {
 		t.Fatalf("identity fixture invalid: %v", err)
 	}
 	raw, err := json.Marshal(cfg)
@@ -40,13 +40,13 @@ func newIdentityConfig(t *testing.T) json.RawMessage {
 // fakeStore is a lightweight recording double for the narrow Store
 // interface the module consumes.
 type fakeStore struct {
-	createFn        func(context.Context, cronstore.CreateJobParams) (cronstore.Job, error)
-	getByIDFn       func(context.Context, string) (cronstore.Job, error)
-	listFn          func(context.Context) ([]cronstore.Job, error)
-	deleteFn        func(context.Context, string) error
-	updateFn        func(context.Context, cronstore.UpdateJobScheduleParams) error
-	setEnabledFn    func(context.Context, string, bool, time.Time) error
-	listRunsByJobFn func(context.Context, string, int32) ([]cronstore.Run, error)
+	createFn         func(context.Context, cronstore.CreateJobParams) (cronstore.Job, error)
+	getByIDFn        func(context.Context, string) (cronstore.Job, error)
+	listFn           func(context.Context) ([]cronstore.Job, error)
+	deleteFn         func(context.Context, string) error
+	updateFn         func(context.Context, cronstore.UpdateJobScheduleParams) error
+	setEnabledFn     func(context.Context, string, bool, time.Time) error
+	listRunsByJobFn  func(context.Context, string, int32) ([]cronstore.Run, error)
 	patchNextRunAtFn func(context.Context, string, time.Time, time.Time) error
 }
 

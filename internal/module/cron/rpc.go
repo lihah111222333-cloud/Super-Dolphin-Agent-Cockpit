@@ -9,7 +9,7 @@ import (
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 )
 
@@ -55,17 +55,17 @@ type cronListRunsParams struct {
 }
 
 // NewHandlers wires the cronjob/* host RPC methods. It is registered via
-// the Fx rpc.HandlerMapResult aggregate.
-func NewHandlers(svc Service) rpc.HandlerMapResult {
-	return rpc.HandlerMapResult{Handlers: handler.Map{
-		"cronjob/create":     rpc.StrictHandler(createHandler(svc)),
-		"cronjob/update":     rpc.StrictHandler(updateHandler(svc)),
-		"cronjob/get":        rpc.StrictHandler(getHandler(svc)),
-		"cronjob/list":       rpc.StrictHandler(listHandler(svc)),
-		"cronjob/delete":     rpc.StrictHandler(deleteHandler(svc)),
-		"cronjob/setEnabled": rpc.StrictHandler(setEnabledHandler(svc)),
-		"cronjob/listRuns":   rpc.StrictHandler(listRunsHandler(svc)),
-		"cronjob/runOnce":    rpc.StrictHandler(runOnceHandler(svc)),
+// the Fx platformrpc.HandlerMapResult aggregate.
+func NewHandlers(svc Service) platformrpc.HandlerMapResult {
+	return platformrpc.HandlerMapResult{Handlers: handler.Map{
+		"cronjob/create":     platformrpc.StrictHandler(createHandler(svc)),
+		"cronjob/update":     platformrpc.StrictHandler(updateHandler(svc)),
+		"cronjob/get":        platformrpc.StrictHandler(getHandler(svc)),
+		"cronjob/list":       platformrpc.StrictHandler(listHandler(svc)),
+		"cronjob/delete":     platformrpc.StrictHandler(deleteHandler(svc)),
+		"cronjob/setEnabled": platformrpc.StrictHandler(setEnabledHandler(svc)),
+		"cronjob/listRuns":   platformrpc.StrictHandler(listRunsHandler(svc)),
+		"cronjob/runOnce":    platformrpc.StrictHandler(runOnceHandler(svc)),
 	}}
 }
 
@@ -215,7 +215,7 @@ func createRequestFrom(p cronCreateParams) (CreateJobRequest, error) {
 
 // mapRPCError classifies service / store errors into jrpc2 codes. Validation
 // and identity errors map to InvalidParams; not-found maps to jrpc2's
-// dedicated not-found via rpc.ErrNotFound; everything else propagates as
+// dedicated not-found via platformrpc.ErrNotFound; everything else propagates as
 // the raw error so the transport layer handles it as an internal error.
 func mapRPCError(err error) error {
 	if err == nil {
@@ -227,7 +227,7 @@ func mapRPCError(err error) error {
 	}
 	switch {
 	case errors.Is(err, ErrNotFound):
-		return rpc.ErrNotFound(err.Error())
+		return platformrpc.ErrNotFound(err.Error())
 	case errors.Is(err, ErrMissingCWD),
 		errors.Is(err, ErrMissingName),
 		errors.Is(err, ErrMissingPrompt),

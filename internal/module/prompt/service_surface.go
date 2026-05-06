@@ -10,7 +10,7 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
@@ -163,7 +163,7 @@ func NewService(cfg *Config, logger *slog.Logger, opts ...ServiceOption) Service
 	return svc
 }
 
-func registerPromptHandlers(store promptstore.Store) rpc.HandlerMapResult {
+func registerPromptHandlers(store promptstore.Store) platformrpc.HandlerMapResult {
 	return buildPromptHandlersWithService(newPromptService(store))
 }
 
@@ -171,16 +171,16 @@ func newPromptService(store promptstore.Store) PromptService {
 	return &promptService{store: store}
 }
 
-func buildPromptHandlersWithService(promptSvc PromptService) rpc.HandlerMapResult {
-	return rpc.HandlerMapResult{Handlers: handler.Map{
-		"prompts/list": rpc.StrictHandler(func(ctx context.Context, p promptListParams) (any, error) {
+func buildPromptHandlersWithService(promptSvc PromptService) platformrpc.HandlerMapResult {
+	return platformrpc.HandlerMapResult{Handlers: handler.Map{
+		"prompts/list": platformrpc.StrictHandler(func(ctx context.Context, p promptListParams) (any, error) {
 			templates, err := promptSvc.ListPrompts(ctx, p.Cwd, "")
 			if err != nil {
 				return nil, err
 			}
 			return map[string]any{"prompts": promptItemsFromTemplates(templates)}, nil
 		}),
-		"prompts/write": rpc.StrictHandler(func(ctx context.Context, p promptWriteParams) (any, error) {
+		"prompts/write": platformrpc.StrictHandler(func(ctx context.Context, p promptWriteParams) (any, error) {
 			template, err := promptSvc.WritePrompt(ctx, p.Cwd, PromptWriteRequest{
 				ID:          p.ID,
 				Name:        p.Name,
@@ -196,20 +196,20 @@ func buildPromptHandlersWithService(promptSvc PromptService) rpc.HandlerMapResul
 			}
 			return map[string]any{"prompt": promptItemFromTemplate(*template)}, nil
 		}),
-		"prompts/delete": rpc.StrictHandler(func(ctx context.Context, p promptDeleteParams) (any, error) {
+		"prompts/delete": platformrpc.StrictHandler(func(ctx context.Context, p promptDeleteParams) (any, error) {
 			if err := promptSvc.DeletePrompt(ctx, p.Cwd, p.ID); err != nil {
 				return nil, err
 			}
 			return map[string]any{"ok": true}, nil
 		}),
-		"prompt_sections/list": rpc.StrictHandler(func(ctx context.Context, p promptSectionListParams) (any, error) {
+		"prompt-sections/list": platformrpc.StrictHandler(func(ctx context.Context, p promptSectionListParams) (any, error) {
 			sections, err := promptSvc.ListSections(ctx, p.Cwd, p.PromptID)
 			if err != nil {
 				return nil, err
 			}
 			return map[string]any{"sections": promptSectionItemsFromStore(sections, p.PromptID)}, nil
 		}),
-		"prompt_sections/write": rpc.StrictHandler(func(ctx context.Context, p promptSectionWriteParams) (any, error) {
+		"prompt-sections/write": platformrpc.StrictHandler(func(ctx context.Context, p promptSectionWriteParams) (any, error) {
 			enabled := true
 			if p.Enabled != nil {
 				enabled = *p.Enabled
@@ -228,7 +228,7 @@ func buildPromptHandlersWithService(promptSvc PromptService) rpc.HandlerMapResul
 			}
 			return map[string]any{"section": promptSectionItemFromStore(*section, p.PromptID)}, nil
 		}),
-		"prompt_sections/delete": rpc.StrictHandler(func(ctx context.Context, p promptSectionDeleteParams) (any, error) {
+		"prompt-sections/delete": platformrpc.StrictHandler(func(ctx context.Context, p promptSectionDeleteParams) (any, error) {
 			if err := promptSvc.DeleteSection(ctx, p.Cwd, p.PromptID, p.SectionKey); err != nil {
 				return nil, err
 			}

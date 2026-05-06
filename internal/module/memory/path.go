@@ -12,8 +12,8 @@ import (
 	"time"
 
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -64,7 +64,7 @@ func FindCanonicalGitRoot(ctx context.Context, projectRoot string) (string, erro
 	if err != nil {
 		return "", fmt.Errorf("%w: %v", ErrInvalidMemoryRoot, err)
 	}
-	gitCtx, cancel := platformconfig.WithTimeout(ctx, gitResolveTimeout)
+	gitCtx, cancel := ctxutil.WithTimeout(ctx, gitResolveTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(gitCtx, "git", "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir")
@@ -96,7 +96,7 @@ func FindCanonicalGitRoot(ctx context.Context, projectRoot string) (string, erro
 }
 
 func SanitizePath(raw string) string {
-	return platformshared.SanitizeMemoryProjectKey(raw)
+	return pathutil.SanitizeMemoryProjectKey(raw)
 }
 
 func ValidateMemoryWritePath(root, file string) (string, error) {
@@ -119,7 +119,7 @@ func ValidateMemoryWritePath(root, file string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if !platformshared.ContainsPath(rootReal, candidateReal) {
+	if !pathutil.ContainsPath(rootReal, candidateReal) {
 		return "", invalidMemoryWritePath("path escapes root")
 	}
 	return candidate, nil
@@ -145,7 +145,7 @@ func ValidateMemoryReadPath(root, file string) (string, error) {
 	if err != nil {
 		return "", invalidMemoryReadPath(err.Error())
 	}
-	if !platformshared.ContainsPath(rootReal, candidateReal) {
+	if !pathutil.ContainsPath(rootReal, candidateReal) {
 		return "", invalidMemoryReadPath("path escapes root")
 	}
 	if info, err := os.Stat(candidateReal); err != nil {

@@ -11,7 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
-	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -276,7 +276,7 @@ func (s *service) validateCreate(req *CreateJobRequest) error {
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidConfig, err)
 	}
-	if _, err := providershared.ResolveCodexIdentity(configMap); err != nil {
+	if _, err := contract.ResolveCodexIdentity(configMap); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidConfig, err)
 	}
 	return nil

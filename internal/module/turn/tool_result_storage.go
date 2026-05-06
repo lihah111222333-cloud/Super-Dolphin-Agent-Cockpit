@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolresults"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/toolresults"
 )
 
 type ToolResultMeta struct {

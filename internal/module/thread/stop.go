@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -170,7 +170,7 @@ func resumeLifecycleError(threadID, reason string) error {
 }
 
 func (s *service) Stop(ctx context.Context, threadID string) error {
-	ctx = shared.NonNilContext(ctx)
+	ctx = util.NonNilContext(ctx)
 	// C1 fast-path: a pending_launch thread has no runtime / no binding / no
 	// session; skip stopThreadRuntime/cleanup entirely and just mark the row
 	// stopped so the card disappears. Any still-outstanding SpawnIfNeeded call
@@ -322,7 +322,7 @@ func (s *service) cleanupThreadTurns(ctx context.Context, reason string, threadI
 		return
 	}
 	for _, threadID := range uniqueThreadIDs(threadIDs...) {
-		shared.LogIgnoredError(s.logger, "cleanup thread turns failed", s.turns.CleanupThread(ctx, threadID, reason))
+		util.LogIgnoredError(s.logger, "cleanup thread turns failed", s.turns.CleanupThread(ctx, threadID, reason))
 	}
 }
 
@@ -342,7 +342,7 @@ func stoppedThreadID(binding *bindingstore.Binding, threadID string) string {
 	if binding == nil {
 		return strings.TrimSpace(threadID)
 	}
-	return shared.FirstNonEmpty(
+	return util.FirstNonEmpty(
 		binding.CodexThreadID,
 		threadID,
 		binding.ProviderThreadID,

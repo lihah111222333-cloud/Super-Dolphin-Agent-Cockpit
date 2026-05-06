@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -23,7 +23,7 @@ type TickActor struct {
 	interval  time.Duration
 }
 
-var _ platformrunner.Runner = (*TickActor)(nil)
+var _ contract.Runner = (*TickActor)(nil)
 
 // NewTickActor wires a TickActor with a zero-field-ok signature. interval
 // defaults to the scheduler's TickInterval when non-positive.

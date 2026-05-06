@@ -11,7 +11,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	teampkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/team"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -167,7 +167,7 @@ func (c *teamSyncCoordinator) Stop(ctx context.Context) error {
 		}
 		if deadline, ok := waitCtx.Deadline(); !ok || time.Until(deadline) > teamSyncCoordinatorDrainGrace {
 			var cancel context.CancelFunc
-			waitCtx, cancel = platformconfig.WithTimeout(waitCtx, teamSyncCoordinatorDrainGrace)
+			waitCtx, cancel = ctxutil.WithTimeout(waitCtx, teamSyncCoordinatorDrainGrace)
 			defer cancel()
 			_ = deadline
 		}

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/repofingerprint"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/repofingerprint"
 )
 
 // Redactor is the second-pass redactor used by the skill extractor. Redact
@@ -98,7 +98,7 @@ func (r *DefaultRedactor) Redact(input string) (string, []string, error) {
 }
 
 // RepoFingerprint derives the canonical 128-bit repo scope key. It delegates
-// to internal/platform/repofingerprint so turn, skill, cron, and insight code
+// to internal/util/repofingerprint so turn, skill, cron, and insight code
 // share one implementation. Empty / whitespace cwd returns the empty string.
 func RepoFingerprint(cwd string) string {
 	return repofingerprint.MustCompute(cwd)

@@ -12,9 +12,8 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/skillcandidate"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -181,7 +180,7 @@ func (e *DefaultExtractor) redactedTrajectoryPrompt(t Trajectory) (string, error
 }
 
 func (e *DefaultExtractor) executeDream(ctx context.Context, t Trajectory, prompt string) (string, error) {
-	callCtx, cancel := platformconfig.WithTimeout(ctx, extractTimeout)
+	callCtx, cancel := ctxutil.WithTimeout(ctx, extractTimeout)
 	defer cancel()
 	rawSkillMd, err := e.dream.ExecuteDream(callCtx, prompt)
 	if err != nil {
@@ -276,7 +275,7 @@ func (e *DefaultExtractor) insertExtractedSkill(ctx context.Context, t Trajector
 	return false, err
 }
 
-// isUniqueViolation accepts both the platformdb.ErrConflict sentinel that
+// isUniqueViolation accepts both the contract.ErrConflict sentinel that
 // WrapStoreError emits and a raw PG sqlstate 23505 string match. Step 1's
 // store wraps Insert through WrapStoreError, so under normal wiring the
 // sentinel path is the one that fires; the text matches are belt-and-
@@ -285,7 +284,7 @@ func isUniqueViolation(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, platformdb.ErrConflict) {
+	if errors.Is(err, contract.ErrConflict) {
 		return true
 	}
 	msg := err.Error()

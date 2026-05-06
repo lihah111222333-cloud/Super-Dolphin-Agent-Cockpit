@@ -8,8 +8,9 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	shared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
 )
 
 func ensureStartAssemblySnapshot(assembly contract.StartAssembly, provider string) contract.StartAssembly {
@@ -224,7 +225,7 @@ func (s *service) resolveResumePromptSnapshot(
 	req ResumeRequest,
 	state resumeState,
 ) contract.PromptAssemblySnapshot {
-	provider := strings.TrimSpace(shared.FirstNonEmpty(req.Provider, state.Provider))
+	provider := strings.TrimSpace(util.FirstNonEmpty(req.Provider, state.Provider))
 	if stored, ok := s.preferredStoredPromptSnapshot(ctx, state.PublicThreadID, provider); ok {
 		return stored
 	}

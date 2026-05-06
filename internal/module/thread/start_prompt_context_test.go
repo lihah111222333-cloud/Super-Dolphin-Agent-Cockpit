@@ -10,7 +10,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 func TestBuildStartCtxFallsBackToConfigAndRegistry(t *testing.T) {
@@ -33,7 +32,7 @@ func TestBuildStartCtxFallsBackToConfigAndRegistry(t *testing.T) {
 				"keepCodingInstructions": true,
 			},
 		},
-	}, &platformconfig.Config{ProjectRoot: repoRoot}, promptToolRegistryStub{instances: []contract.ToolInstance{
+	}, &contract.Config{ProjectRoot: repoRoot}, promptToolRegistryStub{instances: []contract.ToolInstance{
 		{BinaryName: "mcp-lsp", ClientKind: "lsp", Status: mcpdto.StatusActive},
 		{BinaryName: "mcp-orch", ClientKind: "orch", Status: mcpdto.StatusActive},
 		{BinaryName: "mcp-ida", ClientKind: "ida", Status: mcpdto.StatusDisconnected},
@@ -82,8 +81,8 @@ func TestBuildStartCtxInjectsPersistentSubagentDefaultFromConfig(t *testing.T) {
 		Config: map[string]any{
 			"sessionFlags": map[string]any{"verification_required": true},
 		},
-	}, &platformconfig.Config{
-		Agent: platformconfig.AgentConfig{PersistentSubagentDefault: true},
+	}, &contract.Config{
+		Agent: contract.AgentConfig{PersistentSubagentDefault: true},
 	}, nil)
 
 	if !ctx.SessionFlags["verification_required"] || !ctx.SessionFlags["persistent_subagent_default"] {
@@ -98,8 +97,8 @@ func TestBuildStartCtxFiltersSpawnAgentWhenPersistentManagedLaunchEnabled(t *tes
 		Config: map[string]any{
 			"enabledTools": []any{"spawn_agent", "orchestration_launch_agent", "request_user_input"},
 		},
-	}, &platformconfig.Config{
-		Agent: platformconfig.AgentConfig{PersistentSubagentDefault: true},
+	}, &contract.Config{
+		Agent: contract.AgentConfig{PersistentSubagentDefault: true},
 	}, nil)
 
 	if got := sortedStrings(ctx.EnabledTools); !slices.Equal(got, []string{"orchestration_launch_agent", "request_user_input"}) {
@@ -112,8 +111,8 @@ func TestBuildStartCtxPreservesExplicitPersistentSubagentOverride(t *testing.T) 
 
 	ctx := buildStartCtx(StartRequest{
 		SessionFlags: map[string]bool{"persistent_subagent_default": false},
-	}, &platformconfig.Config{
-		Agent: platformconfig.AgentConfig{PersistentSubagentDefault: true},
+	}, &contract.Config{
+		Agent: contract.AgentConfig{PersistentSubagentDefault: true},
 	}, nil)
 
 	value, ok := ctx.SessionFlags["persistent_subagent_default"]
@@ -148,7 +147,7 @@ func TestServiceStartPassesFullPromptAssemblyContext(t *testing.T) {
 		orch,
 		nil,
 		assembly,
-		&platformconfig.Config{ProjectRoot: repoRoot},
+		&contract.Config{ProjectRoot: repoRoot},
 		promptToolRegistryStub{instances: []contract.ToolInstance{{BinaryName: "mcp-lsp", ClientKind: "lsp", Status: mcpdto.StatusActive}}},
 	).(*service)
 

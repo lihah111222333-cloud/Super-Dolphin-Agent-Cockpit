@@ -4,7 +4,7 @@ import (
 	"os"
 	"strings"
 
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 const (
@@ -28,7 +28,7 @@ type Config struct {
 	EnableSystemContextCacheBreaker bool
 }
 
-func NewConfig(_ *platformconfig.Config) *Config {
+func NewConfig(_ *contract.Config) *Config {
 	return &Config{
 		EnableRegistry:                  parseBoolEnv(envEnablePromptRegistry, false),
 		EnableAssembly:                  parseBoolEnv(envEnablePromptAssembly, false),

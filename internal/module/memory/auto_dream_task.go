@@ -10,8 +10,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -171,7 +170,7 @@ func registerAutoDreamSubscriptions(p memorySubscriptionDeps, scheduler *autoDre
 	if p.Hooks == nil || !p.Hooks.enabled || scheduler == nil {
 		return
 	}
-	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev threaddto.Stopped) {
+	appendCancel(contract.ResilientSubscribe(p.Dispatcher, func(ev threaddto.Stopped) {
 		scheduler.Enqueue(ev.ThreadID)
 	}, pkglogger.Get()))
 }
@@ -286,7 +285,7 @@ func (h *MemoryLifecycleHooks) launchAutoDreamTask(taskCtx context.Context, thre
 	// crash in consolidator does not bring down the process. Mirrors the
 	// pattern in team/team_sync_watcher.go:76. Without this, a panic in
 	// the background dream task would propagate to runtime and abort.
-	runtimesafe.SafeGo(taskCtx, h.logger, "memory.autoDream.task", func(ctx context.Context) {
+	safego.Go(taskCtx, h.logger, "memory.autoDream.task", func(ctx context.Context) {
 		defer h.finishDreamTask()
 		err := h.consolidator.consolidateWithOptions(ctx, plan.root, plan.extractFn, consolidationRunOptions{
 			cfg:            h.cfg,

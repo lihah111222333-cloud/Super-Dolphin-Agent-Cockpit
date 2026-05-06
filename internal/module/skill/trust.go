@@ -8,8 +8,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/repofingerprint"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/repofingerprint"
 )
 
 // ErrInvalidSkillName 是 name 校验失败统一返回的哨兵错误，调用方可用 errors.Is 检查。
@@ -219,10 +219,10 @@ func inferTrustFromRoot(dir, projectRoot, userRoot string) TrustScope {
 	}
 	projectRoot = normalizeTrustRoot(projectRoot)
 	userRoot = normalizeTrustRoot(userRoot)
-	if projectRoot != "" && platformshared.ContainsPath(projectRoot, dir) {
+	if projectRoot != "" && pathutil.ContainsPath(projectRoot, dir) {
 		return TrustProject
 	}
-	if userRoot != "" && platformshared.ContainsPath(userRoot, dir) {
+	if userRoot != "" && pathutil.ContainsPath(userRoot, dir) {
 		return TrustUser
 	}
 	return TrustProject

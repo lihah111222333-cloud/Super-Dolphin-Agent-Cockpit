@@ -11,12 +11,12 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/historyjsonl"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/historyjsonl"
+
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 )
 
 const (
@@ -171,7 +171,7 @@ func defaultCodexHome() (string, error) {
 		}
 		raw = filepath.Join(home, ".codex")
 	}
-	return providershared.CanonicalizeCodexHome(raw)
+	return contract.CanonicalizeCodexHome(raw)
 }
 
 func injectParentCodexIdentity(cfg map[string]any, parent *bindingstore.Binding) (map[string]any, bool) {
@@ -204,7 +204,7 @@ func (s *service) logStartedSessionCodexIdentity(
 	req StartRequest,
 	agentID,
 	codexHome string,
-	identity providershared.CodexIdentity,
+	identity contract.CodexIdentity,
 	session contract.Session,
 ) {
 	if s.logger == nil {
@@ -242,7 +242,7 @@ func comparablePromptCWD(cwd string) string {
 	return cwd
 }
 
-func promptWorktreeState(cwd string, cfg *platformconfig.Config) (string, bool) {
+func promptWorktreeState(cwd string, cfg *contract.Config) (string, bool) {
 	resolved := comparablePromptCWD(cwd)
 	if resolved == "" {
 		return "", false
@@ -250,13 +250,13 @@ func promptWorktreeState(cwd string, cfg *platformconfig.Config) (string, bool) 
 	return resolved, resolvePromptGitContext(resolved, "", cfg).IsWorktree
 }
 
-func promptResumeRestoreRequiresInvalidation(prevCWD, nextCWD string, cfg *platformconfig.Config) bool {
+func promptResumeRestoreRequiresInvalidation(prevCWD, nextCWD string, cfg *contract.Config) bool {
 	_, prevWorktree := promptWorktreeState(prevCWD, cfg)
 	_, nextWorktree := promptWorktreeState(nextCWD, cfg)
 	return prevWorktree || nextWorktree
 }
 
-func promptWorktreeSwitchRequiresInvalidation(prevCWD, nextCWD string, cfg *platformconfig.Config) bool {
+func promptWorktreeSwitchRequiresInvalidation(prevCWD, nextCWD string, cfg *contract.Config) bool {
 	prevResolved, prevWorktree := promptWorktreeState(prevCWD, cfg)
 	nextResolved, nextWorktree := promptWorktreeState(nextCWD, cfg)
 	if prevResolved == nextResolved {
@@ -283,7 +283,7 @@ func (s *service) ReadThreadStateRuntimeConfig(ctx context.Context, threadID str
 	if err != nil {
 		return nil, err
 	}
-	return shared.CloneRuntimeConfigMap(offline.Runtime), nil
+	return clone.RuntimeConfigMap(offline.Runtime), nil
 }
 
 func buildLaunchRequest(
@@ -367,7 +367,7 @@ func bindingPublicThreadID(binding *bindingstore.Binding, fallback string) strin
 	if binding == nil {
 		return strings.TrimSpace(fallback)
 	}
-	return shared.FirstNonEmpty(binding.CodexThreadID, fallback)
+	return util.FirstNonEmpty(binding.CodexThreadID, fallback)
 }
 
 func firstNonZero(values ...int64) int64 {
@@ -411,7 +411,7 @@ func (s *service) upsertPublicThread(
 	if s.threadStore == nil {
 		return nil
 	}
-	displayName := strings.TrimSpace(shared.FirstNonEmpty(state.Name, state.Prompt))
+	displayName := strings.TrimSpace(util.FirstNonEmpty(state.Name, state.Prompt))
 	err := s.threadStore.Upsert(ctx, newThreadUpsertParams(threadstore.Thread{
 		ThreadID:        state.PublicThreadID,
 		Name:            displayName,
@@ -422,7 +422,7 @@ func (s *service) upsertPublicThread(
 		CreatedAt:       state.CreatedAt,
 		UpdatedAt:       time.Now().Unix(),
 		OwnerThreadID:   state.OwnerThreadID,
-		ConfigOverride:  shared.CloneRawMessage(state.ConfigOverride),
+		ConfigOverride:  clone.RawMessage(state.ConfigOverride),
 		AgentKey:        state.AgentKey,
 		PromptVersionID: state.PromptVersionID,
 	}))
@@ -450,13 +450,13 @@ func historyTargetID(binding *bindingstore.Binding, threadID string) string {
 	if requestedID != "" && requestedID != publicThreadID && requestedID != agentID {
 		return requestedID
 	}
-	return shared.FirstNonEmpty(binding.ProviderThreadID, publicThreadID, agentID, requestedID)
+	return util.FirstNonEmpty(binding.ProviderThreadID, publicThreadID, agentID, requestedID)
 }
 
 func toRef(thread threadstore.Thread) Ref {
-	name := strings.TrimSpace(shared.FirstNonEmpty(thread.Name, thread.Prompt))
+	name := strings.TrimSpace(util.FirstNonEmpty(thread.Name, thread.Prompt))
 	if name == "" {
-		name = shared.FirstNonEmpty(strings.TrimSpace(thread.ThreadID), strings.TrimSpace(thread.AgentID))
+		name = util.FirstNonEmpty(strings.TrimSpace(thread.ThreadID), strings.TrimSpace(thread.AgentID))
 	}
 	return Ref{
 		ID:      strings.TrimSpace(thread.ThreadID),

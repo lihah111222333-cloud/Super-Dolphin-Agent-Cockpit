@@ -8,7 +8,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
 
@@ -225,7 +224,7 @@ func loadStoredDisabledBuiltinToolSet(ctx context.Context, prefs uipreference.St
 	raw, err := prefs.GetValue(ctx, strings.TrimSpace(cwd), builtinToolsDisabledKey)
 	switch {
 	case err == nil:
-	case platformdb.IsNotFound(err):
+	case contract.IsNotFound(err):
 		return nil, false, nil
 	default:
 		return nil, false, err

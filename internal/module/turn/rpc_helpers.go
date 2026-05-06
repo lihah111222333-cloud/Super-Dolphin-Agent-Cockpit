@@ -12,9 +12,9 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 )
 
 func buildRPCPrepareInput(p turnStartParams, session contract.Session, threadRuntimeConfig map[string]any) PrepareInput {
@@ -64,12 +64,12 @@ func resolveTurnSession(ctx context.Context, resolver contract.SessionResolver) 
 	if resolver == nil {
 		return nil, errors.New("turn rpc: session resolver is not configured")
 	}
-	session, err := resolver.ResolveSession(ctx, rpc.ThreadIDFrom(ctx))
+	session, err := resolver.ResolveSession(ctx, contract.ThreadIDFrom(ctx))
 	if err != nil {
 		return nil, err
 	}
 	if session == nil {
-		return nil, rpc.ErrInvalidState("thread session is not available; start or resume the thread first")
+		return nil, platformrpc.ErrInvalidState("thread session is not available; start or resume the thread first")
 	}
 	return session, nil
 }
@@ -86,7 +86,7 @@ func resolveReadyTurnSession(ctx context.Context, resolver contract.SessionResol
 	if resolver == nil {
 		return nil, errors.New("turn rpc: session resolver is not configured")
 	}
-	threadID := rpc.ThreadIDFrom(ctx)
+	threadID := contract.ThreadIDFrom(ctx)
 	session, err := lookupReadyTurnSession(ctx, resolver, threadID)
 	if err == nil {
 		return session, nil
@@ -115,7 +115,7 @@ func lookupReadyTurnSession(
 }
 
 func readyTurnWaitContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	return config.WithTimeoutIfNone(ctx, config.LaunchTimeout)
+	return ctxutil.WithTimeoutIfNone(ctx, ctxutil.LaunchTimeout)
 }
 
 func waitForReadyTurnSession(
@@ -128,7 +128,7 @@ func waitForReadyTurnSession(
 	for {
 		select {
 		case <-waitCtx.Done():
-			return nil, rpc.ErrInvalidState("thread session is not available; start or resume the thread first")
+			return nil, platformrpc.ErrInvalidState("thread session is not available; start or resume the thread first")
 		case <-ticker.C:
 			session, err := lookupReadyTurnSession(waitCtx, resolver, threadID)
 			if err == nil {
@@ -178,16 +178,16 @@ func collectTurnStartUserInput(p turnStartParams) string {
 	return ""
 }
 
-func turnStartHandler(svc Service, resolver contract.SessionResolver, spawner contract.PendingLaunchSpawner, capResolver rpc.CapabilityResolver, runtimeReader ThreadStateConfigReader) handler.Func {
+func turnStartHandler(svc Service, resolver contract.SessionResolver, spawner contract.PendingLaunchSpawner, capResolver contract.CapabilityResolver, runtimeReader ThreadStateConfigReader) handler.Func {
 	_ = capResolver
-	return rpc.ThreadHandler(func(ctx context.Context, p turnStartParams) (any, error) {
+	return platformrpc.ThreadHandler(func(ctx context.Context, p turnStartParams) (any, error) {
 		// C1: if this thread is still in pending_launch state, fork the
 		// provider CLI now using the first-turn user text for router
 		// classification. SpawnIfNeeded is a no-op for already-running
 		// threads, so eager-path threads are unaffected.
 		var spawnRouting threaddto.SpawnRouting
 		if spawner != nil {
-			launched, routing, err := spawner.SpawnIfNeeded(ctx, rpc.ThreadIDFrom(ctx), collectTurnStartUserInput(p))
+			launched, routing, err := spawner.SpawnIfNeeded(ctx, contract.ThreadIDFrom(ctx), collectTurnStartUserInput(p))
 			if err != nil {
 				return nil, err
 			}
@@ -196,10 +196,10 @@ func turnStartHandler(svc Service, resolver contract.SessionResolver, spawner co
 			}
 		}
 		return withReadyTurnSession(ctx, resolver, func(ctx context.Context, session contract.Session) (any, error) {
-			if !contract.HasCapability(session.Capabilities(), dto.CapMessageSend) {
-				return nil, rpc.ErrCapabilityGate("capability not supported by active provider")
+			if err := platformrpc.RequireSessionCapability(session, dto.CapMessageSend); err != nil {
+				return nil, err
 			}
-			threadRuntimeConfig := readThreadRuntimeConfig(ctx, runtimeReader, rpc.ThreadIDFrom(ctx))
+			threadRuntimeConfig := readThreadRuntimeConfig(ctx, runtimeReader, contract.ThreadIDFrom(ctx))
 			input := buildRPCPrepareInput(p, session, threadRuntimeConfig)
 			if err := applyTurnStartConfig(ctx, session, p); err != nil {
 				return nil, err
@@ -227,15 +227,15 @@ func turnStartHandler(svc Service, resolver contract.SessionResolver, spawner co
 	})
 }
 
-func turnSteerHandler(svc Service, resolver contract.SessionResolver, capResolver rpc.CapabilityResolver, runtimeReader ThreadStateConfigReader) handler.Func {
+func turnSteerHandler(svc Service, resolver contract.SessionResolver, capResolver contract.CapabilityResolver, runtimeReader ThreadStateConfigReader) handler.Func {
 	_ = capResolver
-	return rpc.ThreadHandler(func(ctx context.Context, p turnSteerParams) (any, error) {
+	return platformrpc.ThreadHandler(func(ctx context.Context, p turnSteerParams) (any, error) {
 		return withReadyTurnSession(ctx, resolver, func(ctx context.Context, session contract.Session) (any, error) {
-			if !contract.HasCapability(session.Capabilities(), dto.CapMessageSend) {
-				return nil, rpc.ErrCapabilityGate("capability not supported by active provider")
+			if err := platformrpc.RequireSessionCapability(session, dto.CapMessageSend); err != nil {
+				return nil, err
 			}
 			items, inputSkills := buildTurnStartInputs(p.Input)
-			threadRuntimeConfig := readThreadRuntimeConfig(ctx, runtimeReader, rpc.ThreadIDFrom(ctx))
+			threadRuntimeConfig := readThreadRuntimeConfig(ctx, runtimeReader, contract.ThreadIDFrom(ctx))
 			handle, err := svc.SteerTurn(ctx, session, p.ExpectedTurnID, buildPrepareInput(prepareInputSpec{
 				Inputs:                       items,
 				Prompt:                       p.Prompt,
@@ -264,7 +264,7 @@ func turnSteerHandler(svc Service, resolver contract.SessionResolver, capResolve
 }
 
 func turnInterruptHandler(svc Service, resolver contract.SessionResolver) handler.Func {
-	return rpc.ThreadHandler(func(ctx context.Context, p turnInterruptParams) (any, error) {
+	return platformrpc.ThreadHandler(func(ctx context.Context, p turnInterruptParams) (any, error) {
 		return withTurnSession(ctx, resolver, func(ctx context.Context, session contract.Session) (any, error) {
 			status, err := svc.InterruptTurn(ctx, session, p.Source)
 			if err != nil {
@@ -276,7 +276,7 @@ func turnInterruptHandler(svc Service, resolver contract.SessionResolver) handle
 }
 
 func turnForceCompleteHandler(svc Service, resolver contract.SessionResolver) handler.Func {
-	return rpc.ThreadHandler(func(ctx context.Context, p threadIDOnlyParams) (any, error) {
+	return platformrpc.ThreadHandler(func(ctx context.Context, p threadIDOnlyParams) (any, error) {
 		return withTurnSession(ctx, resolver, func(ctx context.Context, session contract.Session) (any, error) {
 			if err := svc.ForceCompleteTurn(ctx, session); err != nil {
 				return nil, err
@@ -287,7 +287,7 @@ func turnForceCompleteHandler(svc Service, resolver contract.SessionResolver) ha
 }
 
 func approvalRespondHandler(approver contract.ApprovalResponder) handler.Func {
-	return rpc.StrictHandler(func(ctx context.Context, p approvalRespondParams) (any, error) {
+	return platformrpc.StrictHandler(func(ctx context.Context, p approvalRespondParams) (any, error) {
 		if approver == nil {
 			return nil, errors.New("turn rpc: approval responder is not configured")
 		}
@@ -305,16 +305,16 @@ func (p turnInputItemParams) skillName() string {
 	if !strings.EqualFold(strings.TrimSpace(p.Type), "skill") {
 		return ""
 	}
-	return shared.FirstTrimmed(p.Name, p.Text, p.Content, p.Path)
+	return util.FirstTrimmed(p.Name, p.Text, p.Content, p.Path)
 }
 
 func (p turnInputItemParams) inputItem() (InputItem, bool) {
 	item := InputItem{
-		Type:    shared.FirstTrimmed(p.Type),
-		Content: shared.FirstTrimmed(p.Content, p.Text),
-		Path:    shared.FirstTrimmed(p.Path),
-		Name:    shared.FirstTrimmed(p.Name),
-		URL:     shared.FirstTrimmed(p.URL),
+		Type:    util.FirstTrimmed(p.Type),
+		Content: util.FirstTrimmed(p.Content, p.Text),
+		Path:    util.FirstTrimmed(p.Path),
+		Name:    util.FirstTrimmed(p.Name),
+		URL:     util.FirstTrimmed(p.URL),
 	}
 	switch {
 	case item.Type == "" && item.URL != "":

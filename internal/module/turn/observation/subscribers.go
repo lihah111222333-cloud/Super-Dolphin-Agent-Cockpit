@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+	buscontract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 
@@ -30,15 +30,15 @@ func Subscribe(dispatcher *event.Dispatcher, contract Contract, logger *pkglogge
 		return func() {}
 	}
 	cancels := []context.CancelFunc{
-		platformbus.ResilientSubscribe(dispatcher, onTurnStarted(contract), logger),
-		platformbus.ResilientSubscribe(dispatcher, onTurnCompleted(contract), logger),
-		platformbus.ResilientSubscribe(dispatcher, onTurnInterrupted(contract), logger),
-		platformbus.ResilientSubscribe(dispatcher, onTurnStalled(contract), logger),
-		platformbus.ResilientSubscribe(dispatcher, onToolCallBegin(contract), logger),
-		platformbus.ResilientSubscribe(dispatcher, onToolCallEnd(contract), logger),
-		platformbus.ResilientSubscribe(dispatcher, onToolApprovalRequested(contract), logger),
-		platformbus.ResilientSubscribe(dispatcher, onUITokensUpdated(contract), logger),
-		platformbus.ResilientSubscribe(dispatcher, onRawProviderEvent(contract), logger),
+		buscontract.ResilientSubscribe(dispatcher, onTurnStarted(contract), logger),
+		buscontract.ResilientSubscribe(dispatcher, onTurnCompleted(contract), logger),
+		buscontract.ResilientSubscribe(dispatcher, onTurnInterrupted(contract), logger),
+		buscontract.ResilientSubscribe(dispatcher, onTurnStalled(contract), logger),
+		buscontract.ResilientSubscribe(dispatcher, onToolCallBegin(contract), logger),
+		buscontract.ResilientSubscribe(dispatcher, onToolCallEnd(contract), logger),
+		buscontract.ResilientSubscribe(dispatcher, onToolApprovalRequested(contract), logger),
+		buscontract.ResilientSubscribe(dispatcher, onUITokensUpdated(contract), logger),
+		buscontract.ResilientSubscribe(dispatcher, onRawProviderEvent(contract), logger),
 	}
 	return func() {
 		for _, c := range cancels {

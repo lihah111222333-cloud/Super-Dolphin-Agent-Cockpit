@@ -46,6 +46,9 @@ func TestTracker_RecordAndFlushPersists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := tr.Start(); err != nil {
+		t.Fatal(err)
+	}
 	tr.Record("tdd", "red-green")
 	tr.Record("tdd", "")
 	tr.Record("brainstorming", "")
@@ -85,6 +88,9 @@ func TestTracker_SnapshotIsDeepCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := tr.Start(); err != nil {
+		t.Fatal(err)
+	}
 	tr.Record("x", "")
 	// 给 worker 一点时间 apply
 	for i := 0; i < 50; i++ {
@@ -120,6 +126,9 @@ func TestTracker_RecordEmptyNameIgnored(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := tr.Start(); err != nil {
+		t.Fatal(err)
+	}
 	tr.Record("", "anchor")
 	_ = tr.Flush(context.Background())
 	ws, _ := tr.Snapshot()
@@ -132,6 +141,9 @@ func TestTracker_DoubleFlushSafe(t *testing.T) {
 	dir := t.TempDir()
 	tr, err := newTrackerWithInterval(filepath.Join(dir, "ws.json"), filepath.Join(dir, "gl.json"), true, time.Hour)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.Start(); err != nil {
 		t.Fatal(err)
 	}
 	tr.Record("x", "")

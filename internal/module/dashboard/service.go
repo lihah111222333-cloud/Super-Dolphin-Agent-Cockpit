@@ -10,7 +10,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	skillmodule "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	agentstatusstore "github.com/anthropic-ai/super-agent-v3/internal/store/agentstatus"
 	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
 	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
@@ -21,6 +20,7 @@ import (
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	systemlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/systemlog"
 	tasktracestore "github.com/anthropic-ai/super-agent-v3/internal/store/tasktrace"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -143,7 +143,7 @@ func (s *service) GetAgentDetail(ctx context.Context, agentID string) (*AgentDet
 	snapshot := AgentSnapshot(rawSnapshot)
 	report := strings.TrimSpace(snapshot.LastReport)
 	if reportErr == nil {
-		report = shared.FirstNonEmpty(strings.TrimSpace(reportResp.Report), report)
+		report = util.FirstNonEmpty(strings.TrimSpace(reportResp.Report), report)
 	}
 	snapshot.LastReport = report
 	return &AgentDetail{
@@ -175,7 +175,7 @@ func (s *service) GetLogs(ctx context.Context, filter LogFilter) ([]LogEntry, er
 	if err != nil {
 		return nil, err
 	}
-	limit := shared.ClampLimit(filter.Limit, 1, maxLogLimit, defaultLogLimit)
+	limit := util.ClampLimit(filter.Limit, 1, maxLogLimit, defaultLogLimit)
 	filter.Limit = limit
 	entries := make([]LogEntry, 0, limit)
 	if mode.includeSystem {

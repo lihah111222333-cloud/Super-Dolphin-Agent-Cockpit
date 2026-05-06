@@ -2,11 +2,10 @@ package skill
 
 import (
 	"fmt"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
 	"path/filepath"
 	"regexp"
 	"strings"
-
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 // defaultExpandMaxBytes 是 Expand 系列 helper 的默认返回上限。超出时截断并置 Truncated=true。
@@ -128,7 +127,7 @@ func resolveResourceTarget(dir, relPath string) (target, skillDir string, err er
 	if resolveErr != nil {
 		return "", "", fmt.Errorf("resolve resource path symlinks: %s: %w", relPath, resolveErr)
 	}
-	if !platformshared.ContainsPath(skillDir, target) {
+	if !pathutil.ContainsPath(skillDir, target) {
 		return "", "", fmt.Errorf("resource path escapes skill dir: %s", relPath)
 	}
 	return target, skillDir, nil

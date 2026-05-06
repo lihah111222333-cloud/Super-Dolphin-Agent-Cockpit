@@ -7,7 +7,8 @@ import (
 	"strings"
 	"time"
 
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 )
 
@@ -91,7 +92,7 @@ func (s *service) ensurePublicThreadAvailable(ctx context.Context, state threadS
 	}
 	existing, err := s.threadStore.GetByThreadID(ctx, state.PublicThreadID)
 	if err != nil {
-		if platformdb.IsNotFound(err) {
+		if contract.IsNotFound(err) {
 			return nil
 		}
 		return err
@@ -184,7 +185,7 @@ func (s *service) ensureProviderThreadAvailable(ctx context.Context, registratio
 	}
 	existing, err := s.bindingStore.GetByProviderThread(ctx, registration.Provider, registration.ProviderThreadID)
 	if err != nil {
-		if platformdb.IsNotFound(err) {
+		if contract.IsNotFound(err) {
 			return nil
 		}
 		return err
@@ -269,7 +270,7 @@ func (s *service) prepareBindingWrite(
 ) (*bindingstore.Binding, bindingWriteOutcome, error) {
 	existing, err := s.bindingStore.GetByAgentID(ctx, registration.AgentID)
 	if err != nil {
-		if platformdb.IsNotFound(err) {
+		if contract.IsNotFound(err) {
 			return nil, bindingWriteOutcome{AgentID: registration.AgentID}, nil
 		}
 		return nil, bindingWriteOutcome{}, err

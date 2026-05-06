@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	feedbackstore "github.com/anthropic-ai/super-agent-v3/internal/store/feedback"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -28,7 +28,7 @@ func NewService(logger *slog.Logger, store feedbackstore.Store) Service {
 var errServiceDisabled = errors.New("feedback: service not wired (store is nil)")
 
 func (s *service) Record(ctx context.Context, req RecordRequest) (RecordResult, error) {
-	ctx = shared.NonNilContext(ctx)
+	ctx = util.NonNilContext(ctx)
 	if s == nil || s.store == nil {
 		return RecordResult{}, errServiceDisabled
 	}

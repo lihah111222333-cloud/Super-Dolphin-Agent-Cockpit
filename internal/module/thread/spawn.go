@@ -11,9 +11,9 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -59,7 +59,7 @@ func (s *service) startPendingThread(ctx context.Context, req StartRequest, agen
 	// supply a Name or Prompt.  The real name gets rewritten during
 	// SpawnIfNeeded once we have the user's first-turn input.
 	displayName := resolveDisplayName(ctx, s.threadStore, agentID, req.Prompt,
-		shared.FirstNonEmpty(req.Name, req.Prompt))
+		util.FirstNonEmpty(req.Name, req.Prompt))
 	// Stash the launch-time provider/effort/personality/approvals choices into
 	// config_override so SpawnIfNeeded can restore them on the first turn.
 	// Without this the pending row only retains Model+Cwd and normalizeStart
@@ -73,7 +73,7 @@ func (s *service) startPendingThread(ctx context.Context, req StartRequest, agen
 		Provider:      strings.TrimSpace(req.Provider),
 		PromptKey:     strings.TrimSpace(req.PromptKey),
 		UseClassifier: req.UseClassifier,
-		Runtime:       shared.CloneRuntimeConfigMap(req.Config),
+		Runtime:       clone.RuntimeConfigMap(req.Config),
 	}
 	configOverride, err := encodeStoredThreadConfig(pendingStored)
 	if err != nil {
@@ -173,7 +173,7 @@ func (s *service) acquirePendingLaunchLock(threadID string) *sync.Mutex {
 // Returns (false, zero, err) when the thread exists but spawn failed; caller
 // should leave pending_launch=true so a later retry can proceed.
 func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRouter string) (bool, SpawnRouting, error) {
-	ctx = shared.NonNilContext(ctx)
+	ctx = util.NonNilContext(ctx)
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
 		return false, SpawnRouting{}, errors.New("thread: SpawnIfNeeded requires thread_id")
@@ -220,7 +220,7 @@ func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRoute
 func (s *service) loadPendingLaunchRow(ctx context.Context, threadID string) (*threadstore.Thread, bool, error) {
 	row, err := s.threadStore.GetByThreadID(ctx, threadID)
 	if err != nil {
-		if platformdb.IsNotFound(err) {
+		if contract.IsNotFound(err) {
 			return nil, false, fmt.Errorf("thread: %w", err)
 		}
 		return nil, false, fmt.Errorf("thread: load pending row: %w", err)
@@ -251,7 +251,7 @@ func buildPendingSpawnRequest(row *threadstore.Thread, agentID, userInputForRout
 		AgentType:        row.AgentType,
 		AgentMemoryScope: row.AgentMemoryScope,
 		CWD:              row.Cwd,
-		Model:            shared.FirstNonEmpty(storedCfg.Model, row.Model),
+		Model:            util.FirstNonEmpty(storedCfg.Model, row.Model),
 		Name:             row.Prompt,
 		Prompt:           strings.TrimSpace(userInputForRouter),
 		OwnerThreadID:    row.OwnerThreadID,
@@ -261,7 +261,7 @@ func buildPendingSpawnRequest(row *threadstore.Thread, agentID, userInputForRout
 		ApprovalPolicy:   storedCfg.Approvals,
 		PromptKey:        storedCfg.PromptKey,
 		UseClassifier:    storedCfg.UseClassifier,
-		Config:           shared.CloneRuntimeConfigMap(storedCfg.Runtime),
+		Config:           clone.RuntimeConfigMap(storedCfg.Runtime),
 	}
 	// normalizeStartRequest fills in provider default ("codex"), resolves CWD,
 	// sanitizes sandbox, picks approval policy defaults, etc. AgentID stays

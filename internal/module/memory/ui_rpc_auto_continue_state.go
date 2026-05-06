@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	"github.com/creachadair/jrpc2/handler"
 )
@@ -187,13 +187,13 @@ func deleteAutoContinueState(ctx context.Context, deps memoryHandlerDeps, req ui
 // map without bloating the main file.
 func registerAutoContinueStateHandlers(p memoryHandlerDeps) handler.Map {
 	return handler.Map{
-		"ui/auto-continue/state/get": rpc.StrictHandler(func(ctx context.Context, req uiAutoContinueStateGetParams) (UIAutoContinueStateDetail, error) {
+		"ui/auto-continue/state/get": platformrpc.StrictHandler(func(ctx context.Context, req uiAutoContinueStateGetParams) (UIAutoContinueStateDetail, error) {
 			return getAutoContinueState(ctx, p, req)
 		}),
-		"ui/auto-continue/state/upsert": rpc.StrictHandler(func(ctx context.Context, req uiAutoContinueStateUpsertParams) (UIAutoContinueStateDetail, error) {
+		"ui/auto-continue/state/upsert": platformrpc.StrictHandler(func(ctx context.Context, req uiAutoContinueStateUpsertParams) (UIAutoContinueStateDetail, error) {
 			return upsertAutoContinueState(ctx, p, req)
 		}),
-		"ui/auto-continue/state/delete": rpc.StrictHandler(func(ctx context.Context, req uiAutoContinueStateDeleteParams) (map[string]any, error) {
+		"ui/auto-continue/state/delete": platformrpc.StrictHandler(func(ctx context.Context, req uiAutoContinueStateDeleteParams) (map[string]any, error) {
 			deleted, err := deleteAutoContinueState(ctx, p, req)
 			if err != nil {
 				return nil, err

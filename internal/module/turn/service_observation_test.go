@@ -14,8 +14,9 @@ func TestPrepareTurnRecordsSkillsSelected(t *testing.T) {
 	t.Parallel()
 
 	mem := observation.NewMemory()
-	svc := newService(silentLogger(), nil, nil, nil, mem)
+	svc := newService(silentLogger(), nil, nil, nil, mem, nil, nil)
 	session := &stubSession{threadID: "thread-1"}
+
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
 		Prompt: "Please use @debug and [skill:deploy-tool] on this issue.",
 		Skills: []dto.SkillRef{{Name: " explicit "}},
@@ -39,13 +40,14 @@ func TestProviderTurnCreationMapsToLocalTurnID(t *testing.T) {
 	t.Parallel()
 
 	mem := observation.NewMemory()
-	svc := newService(silentLogger(), nil, nil, nil, mem)
+	svc := newService(silentLogger(), nil, nil, nil, mem, nil, nil)
 	session := &stubSession{
 		threadID: "thread-1",
 		startTurn: func(_ context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {
 			return newStubTurnHandle(req.LocalID, "provider-turn-1"), nil
 		},
 	}
+
 	t.Cleanup(func() {
 		if sd, ok := svc.(interface{ Shutdown() }); ok {
 			sd.Shutdown()

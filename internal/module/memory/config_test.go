@@ -9,14 +9,13 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	nestedpkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/nested"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 func TestNewConfigUsesEnvOverride(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root")
 	t.Setenv(envMemoryRoot, root)
 
-	cfg := NewConfig(&platformconfig.Config{ProjectRoot: t.TempDir()})
+	cfg := NewConfig(&contract.Config{ProjectRoot: t.TempDir()})
 	if cfg == nil {
 		t.Fatal("NewConfig() returned nil")
 	}
@@ -40,7 +39,7 @@ func TestNewConfigSupportsClaudeCompatOverridesAndFlags(t *testing.T) {
 	t.Setenv(envFeatureTeamMemory, "true")
 	t.Setenv(envFeatureSearchPastContext, "yes")
 
-	cfg := NewConfig(&platformconfig.Config{ProjectRoot: t.TempDir()})
+	cfg := NewConfig(&contract.Config{ProjectRoot: t.TempDir()})
 	if cfg == nil {
 		t.Fatal("NewConfig() returned nil")
 	}
@@ -75,7 +74,7 @@ func TestNewConfigSupportsClaudeCompatOverridesAndFlags(t *testing.T) {
 func TestSkeletonConfigsDefaultDisabledAndPlaceholderHelpers(t *testing.T) {
 	t.Setenv(envFeatureKairos, "0")
 
-	cfg := NewConfig(&platformconfig.Config{ProjectRoot: t.TempDir()})
+	cfg := NewConfig(&contract.Config{ProjectRoot: t.TempDir()})
 	if cfg == nil {
 		t.Fatal("NewConfig() returned nil")
 	}
@@ -104,7 +103,7 @@ func TestNewConfigAutoDreamIntentOverridesEnv(t *testing.T) {
 	t.Setenv(envMemoryExtractOnStop, "")
 
 	// Without an intent file, env default (false) wins.
-	cfg := NewConfig(&platformconfig.Config{ProjectRoot: t.TempDir()})
+	cfg := NewConfig(&contract.Config{ProjectRoot: t.TempDir()})
 	if cfg.ExtractOnStop {
 		t.Fatalf("ExtractOnStop = true, want false (no intent, no env)")
 	}
@@ -113,7 +112,7 @@ func TestNewConfigAutoDreamIntentOverridesEnv(t *testing.T) {
 	if err := WriteAutoDreamIntent(root, true); err != nil {
 		t.Fatalf("WriteAutoDreamIntent(true) error = %v", err)
 	}
-	cfg = NewConfig(&platformconfig.Config{ProjectRoot: t.TempDir()})
+	cfg = NewConfig(&contract.Config{ProjectRoot: t.TempDir()})
 	if !cfg.ExtractOnStop {
 		t.Fatalf("ExtractOnStop = false, want true (intent=true should override env)")
 	}
@@ -123,7 +122,7 @@ func TestNewConfigAutoDreamIntentOverridesEnv(t *testing.T) {
 		t.Fatalf("WriteAutoDreamIntent(false) error = %v", err)
 	}
 	t.Setenv(envMemoryExtractOnStop, "true")
-	cfg = NewConfig(&platformconfig.Config{ProjectRoot: t.TempDir()})
+	cfg = NewConfig(&contract.Config{ProjectRoot: t.TempDir()})
 	if cfg.ExtractOnStop {
 		t.Fatalf("ExtractOnStop = true, want false (intent=false should override env=true)")
 	}

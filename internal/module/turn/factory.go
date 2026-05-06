@@ -8,8 +8,9 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
 )
 
 type prepareInputSpec struct {
@@ -83,7 +84,7 @@ func buildPrepareInput(spec prepareInputSpec, skills prepareSkillSpec, session p
 		OutputStyleConfig:            cloneOutputStyleConfigValue(spec.OutputStyleConfig),
 		ScratchpadDir:                strings.TrimSpace(spec.ScratchpadDir),
 		FRCConfig:                    configFRCConfig(map[string]any{"frc": spec.FRCConfig}, "frc"),
-		ThreadRuntimeConfig:          platformshared.CloneRuntimeConfigMap(spec.ThreadRuntimeConfig),
+		ThreadRuntimeConfig:          clone.RuntimeConfigMap(spec.ThreadRuntimeConfig),
 		ThreadCaps:                   caps,
 		BinaryDir:                    spec.BinaryDir,
 	}
@@ -105,19 +106,19 @@ func mergePrepareInputRuntime(input PrepareInput, cfg map[string]any) PrepareInp
 	if len(cfg) == 0 {
 		return input
 	}
-	input.Provider = platformshared.FirstNonEmpty(strings.TrimSpace(input.Provider), providershared.ConfigString(cfg, "provider"))
-	input.CWD = platformshared.FirstNonEmpty(strings.TrimSpace(input.CWD), providershared.ConfigString(cfg, "cwd"))
-	input.Model = platformshared.FirstNonEmpty(strings.TrimSpace(input.Model), providershared.ConfigString(cfg, "model"))
-	input.GitRoot = platformshared.FirstNonEmpty(strings.TrimSpace(input.GitRoot), providershared.ConfigString(cfg, "gitRoot", "git_root"))
+	input.Provider = util.FirstNonEmpty(strings.TrimSpace(input.Provider), configutil.ConfigString(cfg, "provider"))
+	input.CWD = util.FirstNonEmpty(strings.TrimSpace(input.CWD), configutil.ConfigString(cfg, "cwd"))
+	input.Model = util.FirstNonEmpty(strings.TrimSpace(input.Model), configutil.ConfigString(cfg, "model"))
+	input.GitRoot = util.FirstNonEmpty(strings.TrimSpace(input.GitRoot), configutil.ConfigString(cfg, "gitRoot", "git_root"))
 	input.IsWorktree = input.IsWorktree || configBool(cfg, "isWorktree", "is_worktree")
-	input.Language = platformshared.FirstNonEmpty(strings.TrimSpace(input.Language), providershared.ConfigString(cfg, "language"))
-	input.EnabledTools = firstNonEmptyStrings(input.EnabledTools, providershared.ConfigStringSlice(cfg, "enabledTools", "enabled_tools", "tools"))
-	input.AdditionalWorkingDirectories = firstNonEmptyStrings(input.AdditionalWorkingDirectories, providershared.ConfigStringSlice(cfg, "additionalWorkingDirectories", "additional_working_directories"))
+	input.Language = util.FirstNonEmpty(strings.TrimSpace(input.Language), configutil.ConfigString(cfg, "language"))
+	input.EnabledTools = firstNonEmptyStrings(input.EnabledTools, configutil.ConfigStringSlice(cfg, "enabledTools", "enabled_tools", "tools"))
+	input.AdditionalWorkingDirectories = firstNonEmptyStrings(input.AdditionalWorkingDirectories, configutil.ConfigStringSlice(cfg, "additionalWorkingDirectories", "additional_working_directories"))
 	input.MCPSnapshot = mergeMCPSnapshot(input.MCPSnapshot, configMCPSnapshot(cfg))
 	input.SessionFlags = firstNonEmptyFlags(input.SessionFlags, configBoolMap(cfg, "sessionFlags", "session_flags"))
-	input.Summary = platformshared.FirstNonEmpty(strings.TrimSpace(input.Summary), providershared.ConfigString(cfg, "summary"))
+	input.Summary = util.FirstNonEmpty(strings.TrimSpace(input.Summary), configutil.ConfigString(cfg, "summary"))
 	input.OutputStyleConfig = firstNonNilOutputStyle(input.OutputStyleConfig, configOutputStyle(cfg, "outputStyleConfig", "output_style_config"))
-	input.ScratchpadDir = platformshared.FirstNonEmpty(strings.TrimSpace(input.ScratchpadDir), configScratchpadDir(cfg, "scratchpadDir", "scratchpad_dir"))
+	input.ScratchpadDir = util.FirstNonEmpty(strings.TrimSpace(input.ScratchpadDir), configScratchpadDir(cfg, "scratchpadDir", "scratchpad_dir"))
 	if input.FRCConfig == nil {
 		input.FRCConfig = configFRCConfig(cfg, "frcConfig", "frc_config")
 	}
@@ -170,8 +171,8 @@ func normalizePrepareBoolMap(value any) map[string]bool {
 
 func configMCPSnapshot(cfg map[string]any) contract.MCPSnapshot {
 	return contract.MCPSnapshot{
-		Servers:                  providershared.ConfigStringSlice(cfg, "mcpServers", "mcp_servers"),
-		Tools:                    providershared.ConfigStringSlice(cfg, "mcpTools", "mcp_tools"),
+		Servers:                  configutil.ConfigStringSlice(cfg, "mcpServers", "mcp_servers"),
+		Tools:                    configutil.ConfigStringSlice(cfg, "mcpTools", "mcp_tools"),
 		Instructions:             configStringMap(cfg, "mcpInstructions", "mcp_instructions"),
 		InstructionsDeltaEnabled: configBool(cfg, "mcpInstructionsDeltaEnabled", "mcp_instructions_delta_enabled"),
 	}
@@ -183,7 +184,7 @@ func configStringMap(cfg map[string]any, keys ...string) map[string]string {
 		if !ok {
 			continue
 		}
-		if out := providershared.StringMap(value); len(out) > 0 {
+		if out := configutil.StringMap(value); len(out) > 0 {
 			return out
 		}
 	}
@@ -191,10 +192,10 @@ func configStringMap(cfg map[string]any, keys ...string) map[string]string {
 }
 
 func firstNonEmptyStrings(primary, fallback []string) []string {
-	if out := providershared.NormalizeConfigStringSlice(primary); len(out) > 0 {
+	if out := configutil.NormalizeConfigStringSlice(primary); len(out) > 0 {
 		return out
 	}
-	if out := providershared.NormalizeConfigStringSlice(fallback); len(out) > 0 {
+	if out := configutil.NormalizeConfigStringSlice(fallback); len(out) > 0 {
 		return out
 	}
 	return nil
@@ -274,8 +275,8 @@ func cloneMCPSnapshot(snapshot contract.MCPSnapshot) contract.MCPSnapshot {
 
 func mergeMCPSnapshot(base, extra contract.MCPSnapshot) contract.MCPSnapshot {
 	return contract.MCPSnapshot{
-		Servers:                  providershared.NormalizeConfigStringSlice(append(append([]string(nil), base.Servers...), extra.Servers...)),
-		Tools:                    providershared.NormalizeConfigStringSlice(append(append([]string(nil), base.Tools...), extra.Tools...)),
+		Servers:                  configutil.NormalizeConfigStringSlice(append(append([]string(nil), base.Servers...), extra.Servers...)),
+		Tools:                    configutil.NormalizeConfigStringSlice(append(append([]string(nil), base.Tools...), extra.Tools...)),
 		Instructions:             mergeMCPInstructions(base.Instructions, extra.Instructions),
 		InstructionsDeltaEnabled: base.InstructionsDeltaEnabled || extra.InstructionsDeltaEnabled,
 		InstructionAttachments:   append(append([]contract.MCPAttachmentRef(nil), base.InstructionAttachments...), extra.InstructionAttachments...),
@@ -317,7 +318,7 @@ func readThreadRuntimeConfig(ctx context.Context, reader ThreadStateConfigReader
 	if err != nil {
 		return nil
 	}
-	return platformshared.CloneRuntimeConfigMap(cfg)
+	return clone.RuntimeConfigMap(cfg)
 }
 
 func requireTurnContext(
@@ -325,7 +326,7 @@ func requireTurnContext(
 	session contract.Session,
 	requestedThreadID ...string,
 ) (context.Context, string, error) {
-	ctx = platformshared.NonNilContext(ctx)
+	ctx = util.NonNilContext(ctx)
 	if err := ctx.Err(); err != nil {
 		return ctx, "", err
 	}

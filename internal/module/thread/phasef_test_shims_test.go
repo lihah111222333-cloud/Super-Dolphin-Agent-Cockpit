@@ -8,13 +8,12 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 type service struct {
-	cfg            *platformconfig.Config
+	cfg            *contract.Config
 	toolRegistry   contract.ToolRegistry
 	logger         *slog.Logger
 	threadStore    threadstore.Store

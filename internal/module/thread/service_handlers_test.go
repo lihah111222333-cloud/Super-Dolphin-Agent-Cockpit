@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	rpcpkg "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
@@ -333,7 +333,7 @@ func TestNewThreadHandlersDispatchMessagesReturnsEnvelope(t *testing.T) {
 }
 
 func newThreadTestServer(svc Service) *rpcpkg.Server {
-	server := rpcpkg.NewServer(rpcpkg.Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}})
+	server := rpcpkg.NewServer(rpcpkg.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(NewThreadHandlers(svc, nil).Handlers)
 	return server
 }

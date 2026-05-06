@@ -2,6 +2,7 @@ package insight
 
 import (
 	"context"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"log/slog"
 	"reflect"
 	"strings"
@@ -11,7 +12,6 @@ import (
 	"github.com/kelindar/event"
 
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -53,13 +53,13 @@ func (c *collector) subscribe(dispatcher *event.Dispatcher, logger *pkglogger.Lo
 		return func() {}
 	}
 	cancels := []context.CancelFunc{
-		platformbus.ResilientSubscribe(dispatcher, func(ev turndto.TurnCompleted) {
+		contract.ResilientSubscribe(dispatcher, func(ev turndto.TurnCompleted) {
 			c.enqueueTerminal(ev.TurnID, ev.ThreadID, ev.AgentID, eventProvider(ev), ev.Timestamp)
 		}, logger),
-		platformbus.ResilientSubscribe(dispatcher, func(ev turndto.TurnInterrupted) {
+		contract.ResilientSubscribe(dispatcher, func(ev turndto.TurnInterrupted) {
 			c.enqueueTerminal(ev.TurnID, ev.ThreadID, ev.AgentID, eventProvider(ev), ev.Timestamp)
 		}, logger),
-		platformbus.ResilientSubscribe(dispatcher, func(ev turndto.TurnStalled) {
+		contract.ResilientSubscribe(dispatcher, func(ev turndto.TurnStalled) {
 			c.enqueueTerminal(ev.TurnID, ev.ThreadID, ev.AgentID, eventProvider(ev), ev.Timestamp)
 		}, logger),
 	}

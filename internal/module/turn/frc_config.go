@@ -4,7 +4,7 @@ import (
 	"strconv"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
 )
 
 func configFRCConfig(cfg map[string]any, keys ...string) *contract.FRCConfig {
@@ -33,7 +33,7 @@ func normalizeFRCConfig(value any) *contract.FRCConfig {
 		cfg := contract.FRCConfig{
 			Enabled:                      configBool(typed, "enabled"),
 			SystemPromptSuggestSummaries: configBool(typed, "systemPromptSuggestSummaries", "system_prompt_suggest_summaries"),
-			SupportedModels:              providershared.ConfigStringSlice(typed, "supportedModels", "supported_models"),
+			SupportedModels:              configutil.ConfigStringSlice(typed, "supportedModels", "supported_models"),
 			KeepRecent:                   configInt(typed, "keepRecent", "keep_recent"),
 		}
 		if !cfg.Enabled && !cfg.SystemPromptSuggestSummaries && cfg.KeepRecent == 0 && len(cfg.SupportedModels) == 0 {

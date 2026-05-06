@@ -4,16 +4,17 @@ import (
 	"context"
 	"sync"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/kelindar/event"
 
-	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 // NewCronProgressSubscribers declares cron progress subscriptions for BusModule.
 func NewCronProgressSubscribers(scheduler *Scheduler, logger *pkglogger.Logger) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
-		Spec: platformbus.SubscriberSpec{
+		Spec: contract.SubscriberSpec{
 			EventType:     "cron.progress",
 			HandlerSymbol: "cron.subscribeCronProgress",
 			OwnerModule:   "cron",
@@ -21,8 +22,10 @@ func NewCronProgressSubscribers(scheduler *Scheduler, logger *pkglogger.Logger) 
 			ShutdownClass: "bus-subscriber",
 			TestFixtureID: "cron-progress-subscribers",
 			Register: func(dispatcher *event.Dispatcher) context.CancelFunc {
-				cancelProgress := subscribeCronProgress(dispatcher, scheduler, logger)
-				cancelTerminal := subscribeCronTerminalEvents(dispatcher, scheduler, logger)
+				worker := newCronProgressWorker(scheduler, logger)
+				worker.Start()
+				cancelProgress := subscribeCronProgress(dispatcher, worker, logger)
+				cancelTerminal := subscribeCronTerminalEvents(dispatcher, worker, logger)
 				var once sync.Once
 				return func() {
 					once.Do(func() {
@@ -32,6 +35,7 @@ func NewCronProgressSubscribers(scheduler *Scheduler, logger *pkglogger.Logger) 
 						if cancelTerminal != nil {
 							cancelTerminal()
 						}
+						_ = worker.Stop(context.Background())
 					})
 				}
 			},

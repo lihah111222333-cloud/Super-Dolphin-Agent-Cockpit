@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	agentstatusstore "github.com/anthropic-ai/super-agent-v3/internal/store/agentstatus"
 )
@@ -50,7 +50,7 @@ func TestDashboardAgentStatusHandlerSupportsStatusFilter(t *testing.T) {
 		listResult: []agentstatusstore.AgentStatus{{AgentID: "agent-1", Status: "running"}},
 	}
 	svc := NewService(nil, store, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	server := platformrpc.NewServer(platformrpc.Params{Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"}})
+	server := platformrpc.NewServer(platformrpc.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(NewDashboardHandlers(svc).Handlers)
 
 	result, err := server.Dispatch(context.Background(), "dashboard/agentStatus", json.RawMessage(`{"status":"running"}`))

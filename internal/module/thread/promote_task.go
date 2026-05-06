@@ -7,7 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -66,7 +67,7 @@ func (s *service) PromoteTaskFromThread(ctx context.Context, threadID string) (P
 	}
 
 	meta := taskHandoffMeta{
-		TaskID:    shared.NewID("task"),
+		TaskID:    idgen.NewID("task"),
 		TaskTitle: firstNonEmptyTaskString(strings.TrimSpace(thread.Name), strings.TrimSpace(thread.Prompt), threadID),
 	}
 	meta.HandoffFile = defaultTaskHandoffPath(meta.TaskID)
@@ -113,7 +114,7 @@ func (s *service) PromoteTaskFromThread(ctx context.Context, threadID string) (P
 // applyTaskRuntimeToThreadRuntime) accepts either, and the write path in
 // applyTaskHandoffConfig also writes camelCase.
 func withPromotedTaskRuntime(runtime map[string]any, meta taskHandoffMeta) map[string]any {
-	next := shared.CloneRuntimeConfigMap(runtime)
+	next := clone.RuntimeConfigMap(runtime)
 	if next == nil {
 		next = map[string]any{}
 	}

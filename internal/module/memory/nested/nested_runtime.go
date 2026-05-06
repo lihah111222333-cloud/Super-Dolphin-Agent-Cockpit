@@ -8,7 +8,8 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
 )
 
 const nestedGlobalThreadKey = "_global"
@@ -197,7 +198,7 @@ func (r *NestedRuntime) ensureMatcherRootLocked(state *nestedSessionState, build
 
 func (r *NestedRuntime) normalizeTrigger(buildCtx contract.BuildCtx, raw string) (string, bool) {
 	raw = strings.TrimSpace(raw)
-	if raw == "" || platformshared.IsRemoteTurnInput(raw) {
+	if raw == "" || util.IsRemoteTurnInput(raw) {
 		return "", false
 	}
 	if !filepath.IsAbs(raw) && strings.TrimSpace(buildCtx.CWD) != "" {
@@ -291,7 +292,7 @@ func nestedContainsPath(root, child string) bool {
 	if err != nil {
 		return false
 	}
-	return platformshared.ContainsPath(cleanRoot, cleanChild)
+	return pathutil.ContainsPath(cleanRoot, cleanChild)
 }
 
 func sortedNestedKeys(values map[string]struct{}) []string {

@@ -9,7 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 )
 
 type orchestrationTurnStarter struct {
@@ -37,7 +37,7 @@ func (s orchestrationTurnStarter) WaitForSessionReady(ctx context.Context, agent
 	}
 	if timeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = platformconfig.WithTimeout(ctx, timeout)
+		ctx, cancel = ctxutil.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
 	ticker := time.NewTicker(sessionReadyPollInterval)
@@ -94,7 +94,7 @@ func (s orchestrationTurnStarter) StartTurn(ctx context.Context, submission cont
 
 func sessionLookupError(err error) error {
 	if errors.Is(err, contract.ErrSessionNotFound) {
-		return errors.New("agent session not ready, ensure agent.launch completed")
+		return errors.New("agent session not ready, ensure agent/launch completed")
 	}
 	return err
 }

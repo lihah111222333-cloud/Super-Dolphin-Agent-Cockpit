@@ -2,13 +2,13 @@ package timeline
 
 import (
 	"context"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"log/slog"
 	"strings"
 
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 )
@@ -28,22 +28,22 @@ func RegisterSubscriptions(
 		logger = pkglogger.Get()
 	}
 	return []context.CancelFunc{
-		platformbus.ResilientSubscribe(dispatcher, turnStartedHandler(svc, onUpdated), logger),
-		platformbus.ResilientSubscribe(dispatcher, turnCompletedHandler(svc, onUpdated), logger),
-		platformbus.ResilientSubscribe(dispatcher, turnInterruptedHandler(svc, onUpdated), logger),
+		contract.ResilientSubscribe(dispatcher, turnStartedHandler(svc, onUpdated), logger),
+		contract.ResilientSubscribe(dispatcher, turnCompletedHandler(svc, onUpdated), logger),
+		contract.ResilientSubscribe(dispatcher, turnInterruptedHandler(svc, onUpdated), logger),
 		// TurnInputReceived no longer projects a user timeline item; dialog
 		// comes from thread/messages history RPC exclusively.
-		platformbus.ResilientSubscribe(dispatcher, planDeltaHandler(svc, onUpdated), logger),
-		platformbus.ResilientSubscribe(dispatcher, planUpdatedHandler(svc, onUpdated), logger),
-		platformbus.ResilientSubscribe(dispatcher, agentErrorHandler(svc, onUpdated), logger),
-		platformbus.ResilientSubscribe(dispatcher, agentFailedHandler(svc, onUpdated), logger),
-		platformbus.ResilientSubscribe(dispatcher, itemStartedHandler(svc, onUpdated), logger),
-		platformbus.ResilientSubscribe(dispatcher, itemCompletedHandler(svc, onUpdated), logger),
-		platformbus.ResilientSubscribe(dispatcher, toolCallBeginHandler(svc, onUpdated), logger),
-		platformbus.ResilientSubscribe(dispatcher, toolCallEndHandler(svc, onUpdated), logger),
-		platformbus.ResilientSubscribe(dispatcher, approvalRequestedHandler(svc, onUpdated), logger),
-		platformbus.ResilientSubscribe(dispatcher, approvalResolvedHandler(svc, onUpdated), logger),
-		platformbus.ResilientSubscribe(dispatcher, reasoningDeltaHandler(svc, onUpdated), logger),
+		contract.ResilientSubscribe(dispatcher, planDeltaHandler(svc, onUpdated), logger),
+		contract.ResilientSubscribe(dispatcher, planUpdatedHandler(svc, onUpdated), logger),
+		contract.ResilientSubscribe(dispatcher, agentErrorHandler(svc, onUpdated), logger),
+		contract.ResilientSubscribe(dispatcher, agentFailedHandler(svc, onUpdated), logger),
+		contract.ResilientSubscribe(dispatcher, itemStartedHandler(svc, onUpdated), logger),
+		contract.ResilientSubscribe(dispatcher, itemCompletedHandler(svc, onUpdated), logger),
+		contract.ResilientSubscribe(dispatcher, toolCallBeginHandler(svc, onUpdated), logger),
+		contract.ResilientSubscribe(dispatcher, toolCallEndHandler(svc, onUpdated), logger),
+		contract.ResilientSubscribe(dispatcher, approvalRequestedHandler(svc, onUpdated), logger),
+		contract.ResilientSubscribe(dispatcher, approvalResolvedHandler(svc, onUpdated), logger),
+		contract.ResilientSubscribe(dispatcher, reasoningDeltaHandler(svc, onUpdated), logger),
 	}
 }
 
@@ -75,7 +75,7 @@ func turnCompletedHandler(svc Service, onUpdated func(string)) func(turndto.Turn
 		// Dialog (user/assistant) items are no longer projected into the uistate
 		// timeline. They come exclusively from the thread/messages history RPC so
 		// that live and history paths share a single source of truth and id format.
-		failed := !ev.Success && shared.FirstNonEmpty(
+		failed := !ev.Success && util.FirstNonEmpty(
 			strings.TrimSpace(ev.Error),
 			strings.TrimSpace(ev.Reason),
 			strings.TrimSpace(ev.Status),
@@ -98,7 +98,7 @@ func turnCompletedHandler(svc Service, onUpdated func(string)) func(turndto.Turn
 				agentID,
 				turnID,
 				timelineID("error", "turn", turnID),
-				shared.FirstNonEmpty(
+				util.FirstNonEmpty(
 					strings.TrimSpace(ev.Error),
 					strings.TrimSpace(ev.Reason),
 					strings.TrimSpace(ev.Result),
@@ -322,8 +322,8 @@ func approvalResolvedHandler(svc Service, onUpdated func(string)) func(tooldto.T
 			if strings.TrimSpace(it.Ts) == "" {
 				it.Ts = ev.Timestamp.Format("2006-01-02T15:04:05Z07:00")
 			}
-			it.Tool = shared.FirstNonEmpty(strings.TrimSpace(ev.ToolName), it.Tool)
-			it.ToolName = shared.FirstNonEmpty(strings.TrimSpace(ev.ToolName), it.ToolName)
+			it.Tool = util.FirstNonEmpty(strings.TrimSpace(ev.ToolName), it.Tool)
+			it.ToolName = util.FirstNonEmpty(strings.TrimSpace(ev.ToolName), it.ToolName)
 		})
 		if updated {
 			if onUpdated != nil {
@@ -369,5 +369,5 @@ func toolUpdateKey(callID, tool string) string {
 }
 
 func approvalUpdateKey(approvalID, callID string) string {
-	return timelineID("approval", shared.FirstNonEmpty(approvalID, callID))
+	return timelineID("approval", util.FirstNonEmpty(approvalID, callID))
 }

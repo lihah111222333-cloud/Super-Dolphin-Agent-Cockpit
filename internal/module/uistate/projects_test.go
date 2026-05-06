@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	rpcpkg "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
@@ -40,7 +40,7 @@ func TestProjectHandlersDispatchRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
-	server := rpcpkg.NewServer(rpcpkg.Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}})
+	server := rpcpkg.NewServer(rpcpkg.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(NewUIStateHandlers(svc).Handlers)
 
 	added := dispatchProjectsState(t, server, "ui/projects/add", `{"path":"`+filepath.ToSlash(dir)+`/"}`)

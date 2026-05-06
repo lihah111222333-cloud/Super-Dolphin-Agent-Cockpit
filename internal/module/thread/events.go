@@ -7,9 +7,8 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 )
@@ -26,9 +25,9 @@ func registerThreadSubscriptions(svc *service) []context.CancelFunc {
 		return nil
 	}
 	return []context.CancelFunc{
-		bus.ResilientSubscribe(svc.bus, svc.onAgentLaunched, svc.logger),
-		bus.ResilientSubscribe(svc.bus, svc.onAgentFailed, svc.logger),
-		bus.ResilientSubscribe(svc.bus, svc.onTurnCompleted, svc.logger),
+		contract.ResilientSubscribe(svc.bus, svc.onAgentLaunched, svc.logger),
+		contract.ResilientSubscribe(svc.bus, svc.onAgentFailed, svc.logger),
+		contract.ResilientSubscribe(svc.bus, svc.onTurnCompleted, svc.logger),
 	}
 }
 
@@ -207,7 +206,7 @@ func (s *service) onAgentFailed(ev agentdto.AgentFailed) {
 	}
 	// Match processSessionRecovery's target computation so coalesce
 	// key == the identifier the worker will hand to evict / resume.
-	target := shared.FirstNonEmpty(threadID, agentID)
+	target := util.FirstNonEmpty(threadID, agentID)
 	s.sessionRecoveryWorker.Enqueue(target, ev)
 }
 
@@ -229,7 +228,7 @@ func (s *service) processSessionRecovery(ctx context.Context, ev agentdto.AgentF
 	if agentID == "" {
 		return
 	}
-	target := shared.FirstNonEmpty(threadID, agentID)
+	target := util.FirstNonEmpty(threadID, agentID)
 	if reason, blocked := s.resumeLifecycleBlockReason(ctx, target, nil); blocked {
 		pkglogger.Info("thread: session recovery skipped by lifecycle",
 			"agent_id", agentID,

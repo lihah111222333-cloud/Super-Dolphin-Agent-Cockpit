@@ -6,7 +6,7 @@ import (
 
 	"github.com/creachadair/jrpc2/handler"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
 type scopeParams struct {
@@ -32,17 +32,17 @@ type projectPathParams struct {
 	Cwd  string `json:"cwd,omitempty"`
 }
 
-func NewUIStateHandlers(svc Service) rpc.HandlerMapResult {
-	return rpc.HandlerMapResult{Handlers: handler.Map{
-		"ui/state/get": rpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
+func NewUIStateHandlers(svc Service) platformrpc.HandlerMapResult {
+	return platformrpc.HandlerMapResult{Handlers: handler.Map{
+		"ui/state/get": platformrpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
 			ctx = withPreferenceScope(ctx, p.Cwd)
 			ctx = withDiffStateRequest(ctx, strings.TrimSpace(p.ThreadID), p.IncludeDiff, p.KnownDiffRevision)
 			return svc.GetState(ctx)
 		}),
-		"ui/sidebar/get": rpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
+		"ui/sidebar/get": platformrpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
 			return svc.GetSidebar(withPreferenceScope(ctx, p.Cwd))
 		}),
-		"ui/preferences/get": rpc.StrictHandler(func(ctx context.Context, p preferenceGetParams) (any, error) {
+		"ui/preferences/get": platformrpc.StrictHandler(func(ctx context.Context, p preferenceGetParams) (any, error) {
 			prefs, err := svc.GetPreferences(withPreferenceScope(ctx, p.Cwd))
 			if err != nil {
 				return nil, err
@@ -52,25 +52,25 @@ func NewUIStateHandlers(svc Service) rpc.HandlerMapResult {
 			}
 			return preferenceValue(*prefs, p.Key), nil
 		}),
-		"ui/preferences/getAll": rpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
+		"ui/preferences/getAll": platformrpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
 			return svc.GetPreferences(withPreferenceScope(ctx, p.Cwd))
 		}),
-		"ui/preferences/set": rpc.StrictHandler(func(ctx context.Context, p preferenceSetParams) (any, error) {
+		"ui/preferences/set": platformrpc.StrictHandler(func(ctx context.Context, p preferenceSetParams) (any, error) {
 			if err := svc.SetPreference(withPreferenceScope(ctx, p.Cwd), p.Key, p.Value); err != nil {
 				return nil, err
 			}
 			return map[string]any{"ok": true}, nil
 		}),
-		"ui/projects/get": rpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
+		"ui/projects/get": platformrpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
 			return svc.GetProjects(withPreferenceScope(ctx, p.Cwd))
 		}),
-		"ui/projects/setActive": rpc.StrictHandler(func(ctx context.Context, p projectPathParams) (any, error) {
+		"ui/projects/setActive": platformrpc.StrictHandler(func(ctx context.Context, p projectPathParams) (any, error) {
 			return svc.SetActiveProject(withPreferenceScope(ctx, p.Cwd), p.Path)
 		}),
-		"ui/projects/add": rpc.StrictHandler(func(ctx context.Context, p projectPathParams) (any, error) {
+		"ui/projects/add": platformrpc.StrictHandler(func(ctx context.Context, p projectPathParams) (any, error) {
 			return svc.AddProject(withPreferenceScope(ctx, p.Cwd), p.Path)
 		}),
-		"ui/projects/remove": rpc.StrictHandler(func(ctx context.Context, p projectPathParams) (any, error) {
+		"ui/projects/remove": platformrpc.StrictHandler(func(ctx context.Context, p projectPathParams) (any, error) {
 			return svc.RemoveProject(withPreferenceScope(ctx, p.Cwd), p.Path)
 		}),
 	}}

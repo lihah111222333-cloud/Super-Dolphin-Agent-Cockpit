@@ -6,12 +6,13 @@ import (
 	"sync"
 	"time"
 
+	buscontract "github.com/anthropic-ai/super-agent-v3/internal/contract"
+	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/kelindar/event"
 
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation"
-	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -398,13 +399,13 @@ func SubscribeTrajectory(dispatcher *event.Dispatcher, c *Collector, contract ob
 		return func() {}
 	}
 	cancels := []context.CancelFunc{
-		platformbus.ResilientSubscribe(dispatcher, c.onTurnStarted, logger),
-		platformbus.ResilientSubscribe(dispatcher, c.onTurnCompleted, logger),
-		platformbus.ResilientSubscribe(dispatcher, c.onTurnInterrupted, logger),
-		platformbus.ResilientSubscribe(dispatcher, c.onTurnStalled, logger),
-		platformbus.ResilientSubscribe(dispatcher, c.onToolCallBegin, logger),
-		platformbus.ResilientSubscribe(dispatcher, c.onToolCallEnd, logger),
-		platformbus.ResilientSubscribe(dispatcher, c.onToolDiffUpdated, logger),
+		buscontract.ResilientSubscribe(dispatcher, c.onTurnStarted, logger),
+		buscontract.ResilientSubscribe(dispatcher, c.onTurnCompleted, logger),
+		buscontract.ResilientSubscribe(dispatcher, c.onTurnInterrupted, logger),
+		buscontract.ResilientSubscribe(dispatcher, c.onTurnStalled, logger),
+		buscontract.ResilientSubscribe(dispatcher, c.onToolCallBegin, logger),
+		buscontract.ResilientSubscribe(dispatcher, c.onToolCallEnd, logger),
+		buscontract.ResilientSubscribe(dispatcher, c.onToolDiffUpdated, logger),
 	}
 	return func() {
 		for _, cancel := range cancels {
@@ -420,7 +421,7 @@ func SubscribeTrajectory(dispatcher *event.Dispatcher, c *Collector, contract ob
 // observation.NewObservationSubscribers; BusModule owns lifecycle.
 func NewTrajectorySubscribers(c *Collector, contract observation.ObservationReader, logger *pkglogger.Logger) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
-		Spec: platformbus.SubscriberSpec{
+		Spec: buscontract.SubscriberSpec{
 			EventType:     "turn.trajectory",
 			HandlerSymbol: "turn.SubscribeTrajectory",
 			OwnerModule:   "turn.trajectory_collector",

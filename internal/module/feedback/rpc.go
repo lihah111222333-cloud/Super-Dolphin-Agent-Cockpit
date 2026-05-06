@@ -6,7 +6,7 @@ import (
 
 	"github.com/creachadair/jrpc2/handler"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
 type recordParams struct {
@@ -19,14 +19,14 @@ type recordParams struct {
 	Payload         json.RawMessage `json:"payload,omitempty"`
 }
 
-func NewHandlers(svc Service) rpc.HandlerMapResult {
-	return rpc.HandlerMapResult{Handlers: handler.Map{
+func NewHandlers(svc Service) platformrpc.HandlerMapResult {
+	return platformrpc.HandlerMapResult{Handlers: handler.Map{
 		"feedback/record": newRecordHandler(svc),
 	}}
 }
 
 func newRecordHandler(svc Service) handler.Func {
-	return rpc.StrictHandler(func(ctx context.Context, p recordParams) (any, error) {
+	return platformrpc.StrictHandler(func(ctx context.Context, p recordParams) (any, error) {
 		result, err := svc.Record(ctx, RecordRequest{
 			ThreadID:        p.ThreadID,
 			TurnID:          p.TurnID,
