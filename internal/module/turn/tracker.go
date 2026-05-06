@@ -104,6 +104,16 @@ func (t *turnTracker) BindProviderID(localID, providerID string) {
 	}
 }
 
+var stateToTrigger = map[string]string{
+	StateRunning:         TriggerRun,
+	StateForceCompleting: TriggerForce,
+	StateInterrupting:    TriggerInterrupt,
+	StateInterrupted:     TriggerAbort,
+	StateCompleted:       TriggerComplete,
+	StateFailed:          TriggerFail,
+	StateStalled:         TriggerStall,
+}
+
 func (t *turnTracker) Update(localID string, state string) {
 	localID = strings.TrimSpace(localID)
 	state = strings.TrimSpace(state)
@@ -115,27 +125,7 @@ func (t *turnTracker) Update(localID string, state string) {
 	if turn, ok := t.turns[localID]; ok {
 		// Map the raw state string to a trigger if possible.
 		// Since callers pass the *dest state* as a string, we map it to triggers here.
-		trigger := ""
-		switch state {
-		case StateRunning:
-			trigger = TriggerRun
-		case StateForceCompleting:
-			trigger = TriggerForce
-		case StateInterrupting:
-			trigger = TriggerInterrupt
-		case StateInterrupted:
-			trigger = TriggerAbort
-		case StateCompleted:
-			trigger = TriggerComplete
-		case StateFailed:
-			trigger = TriggerFail
-		case StateStalled:
-			trigger = TriggerStall
-		default:
-			return
-		}
-		
-		if trigger != "" {
+		if trigger, ok := stateToTrigger[state]; ok {
 			_ = turn.sm.Fire(trigger)
 			turn.updatedAt = t.tick()
 		}
