@@ -43,7 +43,7 @@ func TestOrchestrationGoldenTurnAgentSamples(t *testing.T) {
 		"agentType":   "worker",
 		"memoryScope": "project",
 	}
-	launchResponse := dispatchJSON(t, server, "agent.launch", launchRequest)
+	launchResponse := dispatchJSON(t, server, "agent/launch", launchRequest)
 	assertLaunchRequest(t, launchReq)
 
 	submitRequest := map[string]any{
@@ -52,7 +52,7 @@ func TestOrchestrationGoldenTurnAgentSamples(t *testing.T) {
 		"images":   []string{"diagram.png"},
 		"files":    []string{"app://workspace/docs/notes.txt"},
 	}
-	submitResponse := dispatchJSON(t, server, "agent.submit", submitRequest)
+	submitResponse := dispatchJSON(t, server, "agent/submit", submitRequest)
 	assertSubmitRequest(t, submitReq)
 
 	goldentest.AssertJSON(t, goldentest.Case{
@@ -60,8 +60,8 @@ func TestOrchestrationGoldenTurnAgentSamples(t *testing.T) {
 		Domain:  goldentest.DomainTurnAgent,
 		Name:    "rpc_samples",
 	}, map[string]any{
-		"agent.launch": map[string]any{
-			"method":   "agent.launch",
+		"agent/launch": map[string]any{
+			"method":   "agent/launch",
 			"request":  launchRequest,
 			"response": launchResponse,
 			"v2_reference": map[string]any{
@@ -73,8 +73,8 @@ func TestOrchestrationGoldenTurnAgentSamples(t *testing.T) {
 				},
 			},
 		},
-		"agent.submit": map[string]any{
-			"method":   "agent.submit",
+		"agent/submit": map[string]any{
+			"method":   "agent/submit",
 			"request":  submitRequest,
 			"response": submitResponse,
 			"v2_reference": map[string]any{

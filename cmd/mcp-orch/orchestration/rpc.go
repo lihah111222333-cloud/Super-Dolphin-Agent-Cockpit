@@ -74,10 +74,10 @@ func decodeStrictRuntimeReportJSON(data []byte, dst any) error {
 // locks the old name out so it cannot re-surface.
 func ProvideRPCFacade(svc Service) rpc.HandlerMapResult {
 	return rpc.HandlerMapResult{Handlers: handler.Map{
-		"agent.launch": rpc.StrictHandler(func(ctx context.Context, p launchParams) (any, error) {
+		"agent/launch": rpc.StrictHandler(func(ctx context.Context, p launchParams) (any, error) {
 			return nil, svc.LaunchAgent(ctx, launchRequestFromParams(p))
 		}),
-		"agent.submit": rpc.StrictHandler(func(ctx context.Context, p submitParams) (any, error) {
+		"agent/submit": rpc.StrictHandler(func(ctx context.Context, p submitParams) (any, error) {
 			req, err := submissionFromParams(ctx, svc, p)
 			if err != nil {
 				return nil, err
@@ -87,7 +87,7 @@ func ProvideRPCFacade(svc Service) rpc.HandlerMapResult {
 			}
 			return map[string]any{"success": true}, nil
 		}),
-		"agent.submitPrompt": rpc.StrictHandler(func(ctx context.Context, p submitPromptParams) (any, error) {
+		"agent/submitPrompt": rpc.StrictHandler(func(ctx context.Context, p submitPromptParams) (any, error) {
 			req, err := submissionFromParams(ctx, svc, submitParams(p))
 			if err != nil {
 				return nil, err
@@ -97,25 +97,25 @@ func ProvideRPCFacade(svc Service) rpc.HandlerMapResult {
 			}
 			return map[string]any{"success": true}, nil
 		}),
-		"agent.stop": rpc.StrictHandler(func(ctx context.Context, p agentIDParams) (any, error) {
+		"agent/stop": rpc.StrictHandler(func(ctx context.Context, p agentIDParams) (any, error) {
 			return nil, svc.StopAgent(ctx, p.AgentID)
 		}),
-		"agent.list": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
+		"agent/list": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			return svc.ListAgents(ctx)
 		}),
-		"agent.snapshot": rpc.StrictHandler(func(ctx context.Context, p agentIDParams) (any, error) {
+		"agent/snapshot": rpc.StrictHandler(func(ctx context.Context, p agentIDParams) (any, error) {
 			return svc.Snapshot(ctx, p.AgentID)
 		}),
-		"orchestration.reportRuntime": rpc.StrictHandler(func(ctx context.Context, p runtimeReportParams) (any, error) {
+		"orchestration/reportRuntime": rpc.StrictHandler(func(ctx context.Context, p runtimeReportParams) (any, error) {
 			if err := svc.UpdateRuntime(ctx, runtimeReportFromParams(p)); err != nil {
 				return nil, err
 			}
 			return map[string]any{"success": true}, nil
 		}),
-		"agent.getState": rpc.StrictHandler(func(ctx context.Context, p agentIDParams) (any, error) {
+		"agent/getState": rpc.StrictHandler(func(ctx context.Context, p agentIDParams) (any, error) {
 			return svc.GetState(ctx, p.AgentID)
 		}),
-		"agent.getReport": rpc.StrictHandler(func(ctx context.Context, p agentIDParams) (any, error) {
+		"agent/getReport": rpc.StrictHandler(func(ctx context.Context, p agentIDParams) (any, error) {
 			return svc.GetReport(ctx, p.AgentID)
 		}),
 		ReportMethodRememberReportRequest: rpc.StrictHandler(func(ctx context.Context, p rememberReportRequestParams) (any, error) {

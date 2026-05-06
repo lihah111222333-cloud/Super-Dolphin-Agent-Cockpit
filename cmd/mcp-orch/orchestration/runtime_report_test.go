@@ -87,7 +87,7 @@ func TestReportRuntimeRPCHandler(t *testing.T) {
 	server := rpcpkg.NewServer(rpcpkg.Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(ProvideRPCFacade(svc).Handlers)
 
-	raw, err := server.Dispatch(context.Background(), "orchestration.reportRuntime", json.RawMessage(`{"agent_id":"agent-1","provider":"claude"}`))
+	raw, err := server.Dispatch(context.Background(), "orchestration/reportRuntime", json.RawMessage(`{"agent_id":"agent-1","provider":"claude"}`))
 	if err != nil {
 		t.Fatalf("Dispatch() error = %v", err)
 	}

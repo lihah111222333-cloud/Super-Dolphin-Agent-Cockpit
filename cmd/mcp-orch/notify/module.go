@@ -120,21 +120,21 @@ type dagSubscribeParams struct {
 }
 
 // registerDAGSubscriberLifecycle attaches the orch DAG bus subscriber
-// at OnStart and cancels it at OnStop. Running the cancel before the
-// flusher shuts down would be ideal; platformrunner.RunGroup does so
-// naturally because the flusher's drain path sees ctx cancel from the
-// same root context as this OnStop hook.
+// at OnStart and cancels it at OnStop. The worker is started before
+// subscriptions so events arriving immediately are processed; OnStop
+// cancels subscriptions first, then drains the worker.
 func registerDAGSubscriberLifecycle(p dagSubscribeParams) {
 	cancel := func() {}
 	p.Lifecycle.Append(fx.Hook{
 		OnStart: func(_ context.Context) error {
+			p.Notifier.Start()
 			cancel = p.Notifier.Subscribe(p.Dispatcher, p.Logger)
 			return nil
 		},
-		OnStop: func(_ context.Context) error {
+		OnStop: func(ctx context.Context) error {
 			cancel()
 			cancel = func() {}
-			return nil
+			return p.Notifier.Stop(ctx)
 		},
 	})
 }
