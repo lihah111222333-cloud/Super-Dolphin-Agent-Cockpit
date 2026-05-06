@@ -5,21 +5,13 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/kelindar/event"
 )
 
-// SubscriberSpec is the declarative BusModule-owned subscription contract.
-// Business modules should provide this shape into group:"bus.subscribers"
-// instead of registering bus callbacks from their own fx lifecycle hooks.
-type SubscriberSpec struct {
-	EventType     string
-	HandlerSymbol string
-	OwnerModule   string
-	CancelOwner   string
-	ShutdownClass string
-	TestFixtureID string
-	Register      func(*event.Dispatcher) context.CancelFunc
-}
+// SubscriberSpec is a type alias kept for backward compatibility;
+// the canonical definition lives in internal/contract.
+type SubscriberSpec = contract.SubscriberSpec
 
 type SubscriberGroup struct {
 	dispatcher *event.Dispatcher

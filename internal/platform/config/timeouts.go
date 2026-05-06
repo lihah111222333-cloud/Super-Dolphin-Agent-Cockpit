@@ -3,75 +3,54 @@ package config
 import (
 	"context"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 )
 
 const (
-	LaunchTimeout             = 30 * time.Second
-	StartupTimeout            = 30 * time.Second
-	ShutdownTimeout           = 15 * time.Second
-	InitialThreadIDTimeout    = 5 * time.Second
-	SessionCloseTimeout       = 5 * time.Second
-	HealthCheckPeriod         = 5 * time.Second
-	StallDetectDelay          = 90 * time.Second
-	DBQueryTimeout            = 10 * time.Second
-	TxCleanupTimeout          = 1 * time.Second
-	RPCRequestTimeout         = 30 * time.Second
-	InterruptSettleTimeout    = 6 * time.Second
-	AsyncLaunchTimeout        = 60 * time.Second
-	DreamConsolidationTimeout = 5 * time.Minute
+	LaunchTimeout             = ctxutil.LaunchTimeout
+	StartupTimeout            = ctxutil.StartupTimeout
+	ShutdownTimeout           = ctxutil.ShutdownTimeout
+	InitialThreadIDTimeout    = ctxutil.InitialThreadIDTimeout
+	SessionCloseTimeout       = ctxutil.SessionCloseTimeout
+	HealthCheckPeriod         = ctxutil.HealthCheckPeriod
+	StallDetectDelay          = ctxutil.StallDetectDelay
+	DBQueryTimeout            = ctxutil.DBQueryTimeout
+	TxCleanupTimeout          = ctxutil.TxCleanupTimeout
+	RPCRequestTimeout         = ctxutil.RPCRequestTimeout
+	InterruptSettleTimeout    = ctxutil.InterruptSettleTimeout
+	AsyncLaunchTimeout        = ctxutil.AsyncLaunchTimeout
+	DreamConsolidationTimeout = ctxutil.DreamConsolidationTimeout
 )
 
 func WithTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if timeout <= 0 {
-		return ctx, func() {}
-	}
-	return context.WithTimeout(ctx, timeout)
+	return ctxutil.WithTimeout(ctx, timeout)
 }
 
 func WithTimeoutIfNone(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if timeout <= 0 {
-		return ctx, func() {}
-	}
-	if _, ok := ctx.Deadline(); ok {
-		return ctx, func() {}
-	}
-	return WithTimeout(ctx, timeout)
+	return ctxutil.WithTimeoutIfNone(ctx, timeout)
 }
 
 func WithInitialThreadIDTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
-	return WithTimeout(ctx, InitialThreadIDTimeout)
+	return ctxutil.WithInitialThreadIDTimeout(ctx)
 }
 
 func WithSessionCloseTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
-	return WithTimeout(ctx, SessionCloseTimeout)
+	return ctxutil.WithSessionCloseTimeout(ctx)
 }
 
 func WithDBQueryTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
-	return WithTimeout(ctx, DBQueryTimeout)
+	return ctxutil.WithDBQueryTimeout(ctx)
 }
 
 func WithTxCleanupTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
-	return WithTimeout(ctx, TxCleanupTimeout)
+	return ctxutil.WithTxCleanupTimeout(ctx)
 }
 
 func WithRPCRequestTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
-	return WithTimeout(ctx, RPCRequestTimeout)
+	return ctxutil.WithRPCRequestTimeout(ctx)
 }
 
-// WithPeerTimeout wraps context.WithTimeout for peer callback scenarios.
-// Allowed by TestTimeoutLocality whitelist.
 func WithPeerTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if timeout <= 0 {
-		return context.WithCancel(ctx)
-	}
-	return WithTimeout(ctx, timeout)
+	return ctxutil.WithPeerTimeout(ctx, timeout)
 }

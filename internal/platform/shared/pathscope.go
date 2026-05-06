@@ -3,16 +3,13 @@ package shared
 import (
 	"path/filepath"
 	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
 )
 
 func NormalizeRelativePath(path string) string {
 	return filepath.Clean(strings.TrimSpace(path))
 }
 
-func ContainsPath(root, target string) bool {
-	rel, err := filepath.Rel(root, target)
-	if err != nil {
-		return false
-	}
-	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-}
+// ContainsPath delegates to pathutil.ContainsPath.
+func ContainsPath(root, target string) bool { return pathutil.ContainsPath(root, target) }

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 )
 
 func DecodeInput(input json.RawMessage, dst any) error {
@@ -33,23 +34,11 @@ func CloneHookPayload(payload mcp.HookPayload) mcp.HookPayload {
 	return cloned
 }
 
-func CloneStrings(input []string) []string {
-	if len(input) == 0 {
-		return nil
-	}
-	return append([]string(nil), input...)
-}
+// CloneStrings delegates to clone.Strings.
+func CloneStrings(input []string) []string { return clone.Strings(input) }
 
-func CloneStringMap(input map[string]string) map[string]string {
-	if len(input) == 0 {
-		return nil
-	}
-	cloned := make(map[string]string, len(input))
-	for key, value := range input {
-		cloned[key] = value
-	}
-	return cloned
-}
+// CloneStringMap delegates to clone.StringMap.
+func CloneStringMap(input map[string]string) map[string]string { return clone.StringMap(input) }
 
 func FilterKeys(payload map[string]any, keys []string) map[string]any {
 	if len(keys) == 0 {
@@ -68,61 +57,14 @@ func FilterKeys(payload map[string]any, keys []string) map[string]any {
 	return filtered
 }
 
-func CloneRawMessage(message json.RawMessage) json.RawMessage {
-	if len(message) == 0 {
-		return nil
-	}
-	return append(json.RawMessage(nil), message...)
-}
+// CloneRawMessage delegates to clone.RawMessage.
+func CloneRawMessage(message json.RawMessage) json.RawMessage { return clone.RawMessage(message) }
 
-func CloneJSONMap(input map[string]any) map[string]any {
-	if len(input) == 0 {
-		return map[string]any{}
-	}
-	cloned := make(map[string]any, len(input))
-	for key, value := range input {
-		cloned[key] = cloneJSONValue(value)
-	}
-	return cloned
-}
+// CloneJSONMap delegates to clone.JSONMap.
+func CloneJSONMap(input map[string]any) map[string]any { return clone.JSONMap(input) }
 
-func CloneRuntimeConfigMap(cfg map[string]any) map[string]any {
-	if len(cfg) == 0 {
-		return nil
-	}
-	raw, err := json.Marshal(cfg)
-	if err != nil {
-		return copyMapAny(cfg)
-	}
-	var out map[string]any
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return copyMapAny(cfg)
-	}
-	return out
-}
-
-func cloneJSONValue(value any) any {
-	switch typed := value.(type) {
-	case map[string]any:
-		return CloneJSONMap(typed)
-	case []any:
-		cloned := make([]any, len(typed))
-		for index := range typed {
-			cloned[index] = cloneJSONValue(typed[index])
-		}
-		return cloned
-	default:
-		return typed
-	}
-}
-
-func copyMapAny(input map[string]any) map[string]any {
-	out := make(map[string]any, len(input))
-	for key, value := range input {
-		out[key] = value
-	}
-	return out
-}
+// CloneRuntimeConfigMap delegates to clone.RuntimeConfigMap.
+func CloneRuntimeConfigMap(cfg map[string]any) map[string]any { return clone.RuntimeConfigMap(cfg) }
 
 func NormalizeAbsolutePath(path string) (string, error) {
 	trimmed := strings.TrimSpace(path)

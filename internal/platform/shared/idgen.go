@@ -1,14 +1,6 @@
 package shared
 
-import (
-	"crypto/rand"
-	"encoding/hex"
-	"fmt"
-	"time"
-)
+import "github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
 
-func NewID(prefix string) string {
-	buf := make([]byte, 8)
-	_, _ = rand.Read(buf)
-	return fmt.Sprintf("%s_%d_%s", prefix, time.Now().UnixMilli(), hex.EncodeToString(buf))
-}
+// NewID delegates to idgen.NewID.
+func NewID(prefix string) string { return idgen.NewID(prefix) }

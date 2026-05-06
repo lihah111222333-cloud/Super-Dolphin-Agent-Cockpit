@@ -270,12 +270,20 @@ func provideAgentThreadLookup(store bindingstore.Store) agentThreadLookup {
 	return agentThreadLookupAdapter{inner: store}
 }
 
-func bindCodexHandlers(mgr *codexapp.ServerManager, factory *codexapp.DriverFactory, h *Handler) {
-	if mgr == nil || factory == nil || h == nil {
+type codexHandlerBindingParams struct {
+	fx.In
+
+	Manager *codexapp.ServerManager `optional:"true"`
+	Factory *codexapp.DriverFactory `optional:"true"`
+	Handler *Handler                `optional:"true"`
+}
+
+func bindCodexHandlers(p codexHandlerBindingParams) {
+	if p.Manager == nil || p.Factory == nil || p.Handler == nil {
 		return
 	}
-	mgr.SetToolHandler(h.HandleToolCall)
-	factory.SetListTools(h.ListToolsForCodex)
+	p.Manager.SetToolHandler(p.Handler.HandleToolCall)
+	p.Factory.SetListTools(p.Handler.ListToolsForCodex)
 }
 
 type resolverFunc func(context.Context, string) (string, error)

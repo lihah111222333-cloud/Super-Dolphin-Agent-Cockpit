@@ -28,17 +28,12 @@ func NewPool(cfg *config.Config) (*pgxpool.Pool, error) {
 		return nil, err
 	}
 
-	if err := ensureDatabaseExists(poolCfg.ConnConfig.Database, cfg.DatabaseURL); err != nil {
-		return nil, err
-	}
-
 	poolCfg.MaxConns = 100
+	// pgxpool.NewWithConfig opens lazily; actual connections are
+	// established on first use. Blocking work (ensureDatabaseExists,
+	// autoMigrate) is deferred to registerLifecycle.OnStart.
 	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
 	if err != nil {
-		return nil, err
-	}
-
-	if err := autoMigrate(context.Background(), pool, cfg.ProjectRoot); err != nil {
 		return nil, err
 	}
 
@@ -194,9 +189,16 @@ func executeMigration(ctx context.Context, pool *pgxpool.Pool, dir, f string) er
 	return err
 }
 
-func registerLifecycle(lc fx.Lifecycle, logger *pkglogger.Logger, pool *pgxpool.Pool) {
+func registerLifecycle(lc fx.Lifecycle, logger *pkglogger.Logger, pool *pgxpool.Pool, cfg *config.Config) {
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
+			poolCfg := pool.Config()
+			if err := ensureDatabaseExists(poolCfg.ConnConfig.Database, cfg.DatabaseURL); err != nil {
+				return err
+			}
+			if err := autoMigrate(ctx, pool, cfg.ProjectRoot); err != nil {
+				return err
+			}
 			logger.Info("db pool ready")
 			return pool.Ping(ctx)
 		},

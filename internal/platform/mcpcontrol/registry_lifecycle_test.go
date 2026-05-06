@@ -161,13 +161,12 @@ func TestRegisterRegistryLifecycle_OnStopCleansActiveLeases(t *testing.T) {
 	activeA := dto.LeaseKey{InstanceID: "tool-a", Generation: 1}
 	activeB := dto.LeaseKey{InstanceID: "tool-b", Generation: 2}
 	disconnected := dto.LeaseKey{InstanceID: "tool-c", Generation: 3}
-	registry.setHookLifecycle(lifecycle)
 	registry.instances[activeB] = &ToolInstance{Lease: activeB, Status: dto.StatusActive}
 	registry.instances[disconnected] = &ToolInstance{Lease: disconnected, Status: dto.StatusDisconnected}
 	registry.instances[activeA] = &ToolInstance{Lease: activeA, Status: dto.StatusActive}
 
 	recorder := &lifecycleHookRecorder{}
-	registerRegistryLifecycle(recorder, registry)
+	registerRegistryLifecycle(recorder, registry, lifecycle)
 
 	if len(recorder.hooks) != 1 {
 		t.Fatalf("registered hooks = %d, want 1", len(recorder.hooks))

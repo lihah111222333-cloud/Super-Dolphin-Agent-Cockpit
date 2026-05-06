@@ -24,6 +24,7 @@ var Module = fx.Module("rpc",
 		provideWSRoute,
 		NewRPCPushSubscribers,
 		newPushNotificationWorkerProvider,
+		func(s *Server) contract.RPCDispatcher { return s },
 		func(m *ApprovalManager) contract.ApprovalResponder { return m },
 		func(m *ApprovalManager, bridge *PushBridge, server *Server) contract.ApprovalRequester {
 			return approvalRequester{
@@ -53,6 +54,7 @@ type approvalRequester struct {
 }
 
 var _ contract.ApprovalRequester = approvalRequester{}
+var _ contract.RPCDispatcher = (*Server)(nil)
 
 func (r approvalRequester) RequestApproval(ctx context.Context, req contract.ApprovalRequest) (contract.ApprovalDecision, error) {
 	if r.manager == nil {
@@ -94,6 +96,7 @@ type Params struct {
 	Config *config.Config
 }
 
+// HandlerMapResult is the fx-compatible output wrapper for handler.Map.
 type HandlerMapResult struct {
 	fx.Out
 

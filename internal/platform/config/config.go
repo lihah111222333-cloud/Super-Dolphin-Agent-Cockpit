@@ -5,40 +5,17 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-type SkillConfig struct {
-	ProgressiveDisclosure bool
-	TokenBudget           int
-}
-
-type AgentConfig struct {
-	PersistentSubagentDefault bool
-}
-
-// NotifyConfig carries the P21 P2 external-webhook egress settings.
-// Empty ChannelsJSON is valid and produces an empty resolver (every
-// TryEnqueue fails with ErrNotifyAliasNotFound). AllowPrivateCIDR is an
-// explicit opt-in for deployments that really do need to push to an
-// intranet endpoint; production defaults keep it off so the SSRF guard
-// refuses every loopback / RFC 1918 / RFC 6598 / ULA / link-local IP.
-type NotifyConfig struct {
-	ChannelsJSON     string
-	AllowPrivateCIDR bool
-	TimeoutSeconds   int
-	QueueCapacity    int
-	DrainSeconds     int
-}
-
-type Config struct {
-	DatabaseURL string
-	RPCAddr     string
-	LogLevel    string
-	ProjectRoot string
-	Skill       SkillConfig
-	Agent       AgentConfig
-	Notify      NotifyConfig
-}
+// Type aliases – canonical definitions live in contract.
+type (
+	Config       = contract.Config
+	SkillConfig  = contract.SkillConfig
+	AgentConfig  = contract.AgentConfig
+	NotifyConfig = contract.NotifyConfig
+)
 
 func New() *Config {
 	cfg := &Config{
