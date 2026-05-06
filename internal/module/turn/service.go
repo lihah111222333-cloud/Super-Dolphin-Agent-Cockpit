@@ -240,7 +240,7 @@ func (s *service) StartTurn(ctx context.Context, session contract.Session, req d
 	s.tracker.BindProviderID(req.LocalID, providerID)
 	s.recordDedupeProviderID(ctx, req.DedupeKey, providerID)
 	s.mapObservationTurn(req.LocalID, providerID)
-	s.tracker.Update(req.LocalID, "running")
+	s.tracker.Update(req.LocalID, StateRunning)
 	s.watchTurn(handle, req.LocalID)
 	return handle, nil
 }
@@ -299,7 +299,7 @@ func (s *service) ForceCompleteTurn(ctx context.Context, session contract.Sessio
 	active, tracked := s.tracker.ActiveByThread(threadID)
 	req := dto.ForceCompleteRequest{ThreadID: threadID}
 	if tracked {
-		s.tracker.Update(active.localID, "force_completing")
+		s.tracker.Update(active.localID, StateForceCompleting)
 		if active.handle != nil {
 			req.ProviderID = strings.TrimSpace(active.handle.ProviderID())
 		}
@@ -356,13 +356,24 @@ func (s *service) LookupByDedupeKey(ctx context.Context, dedupeKey string) (Turn
 		}
 		return TurnStatus{}, false, err
 	}
+	// Check if the registry hit is a "zombie" (the process that started it
+	// died without marking it terminal). If it hasn't been updated within
+	// trackerTTL, consider it expired. Returning ok=false allows the caller
+	// to retry (StartTurn will upsert and overwrite the zombie row).
+	if time.Since(entry.UpdatedAt) > trackerTTL {
+		if s.logger != nil {
+			s.logger.Warn("turn: dedupe registry hit is expired (zombie)", "dedupe_key", key, "updated_at", entry.UpdatedAt)
+		}
+		return TurnStatus{}, false, nil
+	}
+
 	// A registry hit is treated as "running" because terminal rows are
 	// filtered at the SQL layer. Providing the tracker-shaped
 	// TurnStatus here lets callers share a single code path.
 	return TurnStatus{
 		LocalID:    entry.LocalTurnID,
 		ProviderID: entry.ProviderTurnID,
-		State:      "running",
+		State:      StateRunning,
 	}, true, nil
 }
 
@@ -481,7 +492,7 @@ func (s *service) watchTurn(handle contract.TurnHandle, localID string) {
 		}
 		if err := handle.Err(); err != nil {
 			if errors.Is(err, context.Canceled) {
-				s.tracker.Update(localID, "interrupted")
+				s.tracker.Update(localID, StateInterrupted)
 			}
 			s.tracker.Complete(localID, false, err.Error())
 			s.recordDedupeTerminalForLocalID(ctx, localID)
@@ -568,7 +579,7 @@ func ensureLocalTurnID(localID string) string {
 
 func isTerminalTurnState(state string) bool {
 	switch strings.TrimSpace(state) {
-	case "completed", "interrupted", "failed", "stalled":
+	case StateCompleted, StateInterrupted, StateFailed, StateStalled:
 		return true
 	}
 	return false

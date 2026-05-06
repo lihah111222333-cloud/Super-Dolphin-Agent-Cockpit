@@ -55,7 +55,7 @@ func (s *service) finishInterrupt(
 			return TurnStatus{}, err
 		}
 	}
-	after := s.interruptStatus(active, before, "interrupted")
+	after := s.interruptStatus(active, before, StateInterrupted)
 	envelope := buildTurnInterruptEnvelope(
 		before.State,
 		after.State,

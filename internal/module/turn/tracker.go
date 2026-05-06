@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
+	"github.com/qmuntal/stateless"
 )
 
 const trackerTTL = 30 * time.Minute
@@ -16,11 +18,6 @@ type turnTracker struct {
 	lastTick time.Time
 }
 
-// tick returns a time.Time that is strictly greater than every previously
-// returned tick. On Windows time.Now() can have ~15ms granularity, so
-// back-to-back tracker writes get bit-identical timestamps; that breaks
-// GetByDedupeKey's "most recently updated wins" tiebreaker. Caller MUST
-// hold the write lock.
 func (t *turnTracker) tick() time.Time {
 	now := time.Now()
 	if !now.After(t.lastTick) {
@@ -38,6 +35,7 @@ type trackedTurn struct {
 	lastError                     string
 	interruptRequested            bool
 	handle                        contract.TurnHandle
+	sm                            *stateless.StateMachine
 }
 
 type activeTurn struct {
@@ -56,14 +54,23 @@ func (t *turnTracker) Start(localID, providerID, threadID string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	now := t.tick()
-	t.turns[localID] = &trackedTurn{
+
+	turn := &trackedTurn{
 		localID:    localID,
 		providerID: strings.TrimSpace(providerID),
 		threadID:   strings.TrimSpace(threadID),
-		state:      "preparing",
+		state:      StatePreparing,
 		startedAt:  now,
 		updatedAt:  now,
 	}
+
+	turn.sm = statemachine.New(
+		newTurnStateMachineConfig(),
+		func() string { return turn.state },
+		func(next string) { turn.state = next },
+	)
+
+	t.turns[localID] = turn
 }
 
 func (t *turnTracker) AttachHandle(localID string, handle contract.TurnHandle) {
@@ -106,8 +113,32 @@ func (t *turnTracker) Update(localID string, state string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if turn, ok := t.turns[localID]; ok {
-		turn.state = state
-		turn.updatedAt = t.tick()
+		// Map the raw state string to a trigger if possible.
+		// Since callers pass the *dest state* as a string, we map it to triggers here.
+		trigger := ""
+		switch state {
+		case StateRunning:
+			trigger = TriggerRun
+		case StateForceCompleting:
+			trigger = TriggerForce
+		case StateInterrupting:
+			trigger = TriggerInterrupt
+		case StateInterrupted:
+			trigger = TriggerAbort
+		case StateCompleted:
+			trigger = TriggerComplete
+		case StateFailed:
+			trigger = TriggerFail
+		case StateStalled:
+			trigger = TriggerStall
+		default:
+			return
+		}
+		
+		if trigger != "" {
+			_ = turn.sm.Fire(trigger)
+			turn.updatedAt = t.tick()
+		}
 	}
 }
 
@@ -124,14 +155,15 @@ func (t *turnTracker) Complete(localID string, success bool, errMsg string) {
 	}
 	turn.handle = nil
 	turn.lastError = strings.TrimSpace(errMsg)
-	switch {
-	case success:
-		turn.state = "completed"
-	case turn.interruptRequested || turn.state == "interrupted":
-		turn.state = "interrupted"
-	default:
-		turn.state = "failed"
+	
+	trigger := TriggerFail
+	if success {
+		trigger = TriggerComplete
+	} else if turn.interruptRequested || turn.state == StateInterrupted {
+		trigger = TriggerFail // But StateInterrupting -> Fail is mapped to Interrupted!
 	}
+	
+	_ = turn.sm.Fire(trigger)
 	turn.updatedAt = t.tick()
 }
 
@@ -147,9 +179,11 @@ func (t *turnTracker) MarkInterruptRequested(localID string) bool {
 		return false
 	}
 	turn.interruptRequested = true
-	turn.state = "interrupting"
-	turn.updatedAt = t.tick()
-	return true
+	if err := turn.sm.Fire(TriggerInterrupt); err == nil {
+		turn.updatedAt = t.tick()
+		return true
+	}
+	return false
 }
 
 func (t *turnTracker) Stall(localID string, errMsg string) {
@@ -164,12 +198,11 @@ func (t *turnTracker) Stall(localID string, errMsg string) {
 		return
 	}
 	turn.handle = nil
-	turn.state = "stalled"
 	turn.lastError = strings.TrimSpace(errMsg)
+	_ = turn.sm.Fire(TriggerStall)
 	turn.updatedAt = t.tick()
 }
 
-// Cleanup removes terminal turns that have aged past the tracker TTL.
 func (t *turnTracker) Cleanup() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -243,13 +276,6 @@ func (t *turnTracker) GetByProviderID(providerID string) (TurnStatus, bool) {
 	return TurnStatus{}, false
 }
 
-// RegisterDedupeKey stamps a dedupeKey onto an already-tracked turn.
-// Empty localID or dedupeKey is silently ignored so callers can always
-// invoke this without guarding on "did cron set a key this time". The
-// tracker does not enforce uniqueness here — the authoritative dedupe
-// check happens in GetByDedupeKey; a duplicate registration simply
-// overwrites the previous key (the last Start wins, which matches the
-// provider-layer idempotency contract).
 func (t *turnTracker) RegisterDedupeKey(localID, dedupeKey string) {
 	localID = strings.TrimSpace(localID)
 	dedupeKey = strings.TrimSpace(dedupeKey)
@@ -264,10 +290,6 @@ func (t *turnTracker) RegisterDedupeKey(localID, dedupeKey string) {
 	}
 }
 
-// DedupeKeyOf returns the dedupeKey previously registered for a
-// tracked localID, or "" when the turn never had one bound (or is
-// already evicted). Used by the service to resolve the key at
-// terminal-state callsites that only know the localID.
 func (t *turnTracker) DedupeKeyOf(localID string) string {
 	localID = strings.TrimSpace(localID)
 	if localID == "" {
@@ -282,15 +304,6 @@ func (t *turnTracker) DedupeKeyOf(localID string) string {
 	return turn.dedupeKey
 }
 
-// GetByDedupeKey returns the most recently updated non-terminal turn
-// that matches dedupeKey. A terminal turn (completed / failed / ...)
-// is deliberately skipped so a fresh StartTurn after a prior
-// terminal isn't mistaken for a still-in-flight submission — cron
-// crash recovery only cares about "is there a live turn with this
-// key right now".
-//
-// When nothing matches the caller gets ok=false and an empty status.
-// Callers MUST treat ok=false as "never submitted" per the P1b plan.
 func (t *turnTracker) GetByDedupeKey(dedupeKey string) (TurnStatus, bool) {
 	dedupeKey = strings.TrimSpace(dedupeKey)
 	if dedupeKey == "" {
@@ -324,7 +337,7 @@ func (t *trackedTurn) status() TurnStatus {
 
 func (t *trackedTurn) isTerminal() bool {
 	switch t.state {
-	case "completed", "interrupted", "failed", "stalled":
+	case StateCompleted, StateInterrupted, StateFailed, StateStalled:
 		return true
 	}
 	return false
@@ -338,10 +351,11 @@ func abortTrackedTurns(turns map[string]*trackedTurn, threadID, errMsg string, n
 		}
 		turn.handle = nil
 		turn.interruptRequested = true
-		turn.state = "interrupted"
 		turn.lastError = strings.TrimSpace(errMsg)
-		turn.updatedAt = now
-		updated = true
+		if err := turn.sm.Fire(TriggerAbort); err == nil {
+			turn.updatedAt = now
+			updated = true
+		}
 	}
 	return updated
 }
