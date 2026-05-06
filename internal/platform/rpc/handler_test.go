@@ -134,8 +134,8 @@ func TestStrictHandlerRejectsArrayParams(t *testing.T) {
 	if !errors.As(err, &rpcErr) {
 		t.Fatalf("Dispatch() error = %T, want *jrpc2.Error", err)
 	}
-	if rpcErr.Code != jrpc2.InvalidParams {
-		t.Fatalf("rpcErr.Code = %v, want %v", rpcErr.Code, jrpc2.InvalidParams)
+	if rpcErr.Code != jrpc2.Code(CodeInvalidParams) {
+		t.Fatalf("rpcErr.Code = %v, want %v", rpcErr.Code, jrpc2.Code(CodeInvalidParams))
 	}
 }
 
@@ -186,8 +186,8 @@ func TestThreadHandlerRejectsMissingThreadID(t *testing.T) {
 	if !errors.As(err, &rpcErr) {
 		t.Fatalf("Dispatch() error = %T, want *jrpc2.Error", err)
 	}
-	if rpcErr.Code != jrpc2.InvalidParams {
-		t.Fatalf("rpcErr.Code = %v, want %v", rpcErr.Code, jrpc2.InvalidParams)
+	if rpcErr.Code != jrpc2.Code(CodeInvalidParams) {
+		t.Fatalf("rpcErr.Code = %v, want %v", rpcErr.Code, jrpc2.Code(CodeInvalidParams))
 	}
 }
 

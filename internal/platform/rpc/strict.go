@@ -13,7 +13,7 @@ func StrictHandler[Req, Resp any](fn func(context.Context, Req) (Resp, error)) h
 	if err != nil {
 		panic(err)
 	}
-	return info.AllowArray(false).SetStrict(true).Wrap()
+	return InvalidParamsMapper()(info.AllowArray(false).SetStrict(true).Wrap())
 }
 
 // RawHandler passes the raw request through unchanged.

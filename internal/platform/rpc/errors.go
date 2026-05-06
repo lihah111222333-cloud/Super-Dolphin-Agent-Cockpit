@@ -6,6 +6,7 @@ const (
 	CodeConflict        = -31003
 	CodeCapabilityGate  = -31004
 	CodeApprovalTimeout = -31005
+	CodeInvalidParams   = -31007
 )
 
 func ErrNotFound(msg string) error {
@@ -26,4 +27,8 @@ func ErrCapabilityGate(msg string) error {
 
 func ErrApprovalTimeout(msg string) error {
 	return rpcError(CodeApprovalTimeout, msg)
+}
+
+func ErrInvalidParams(msg string) error {
+	return rpcError(CodeInvalidParams, msg)
 }
