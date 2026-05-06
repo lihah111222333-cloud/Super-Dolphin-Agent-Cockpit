@@ -31,9 +31,9 @@ var Module = fx.Module("ui.wails",
 	fx.Invoke(bindEventBridge),
 )
 
-func NewApp(server *rpc.Server, cfg *config.Config) *App {
+func NewApp(dispatcher contract.RPCDispatcher, cfg *config.Config) *App {
 	return &App{
-		dispatch:    server.Dispatch,
+		dispatch:    dispatcher.Dispatch,
 		emitter:     func(string, any) {},
 		windowTitle: applicationTitle(),
 		debug:       isDebug(cfg),

@@ -76,7 +76,7 @@ func (a *App) StopAgent(threadID string) error {
 }
 
 func (a *App) ListAgents() (any, error) {
-	return a.callAPIObject("agent.list", struct{}{})
+	return a.callAPIObject("agent/list", struct{}{})
 }
 
 func (a *App) GetBuildInfo() map[string]string {
