@@ -126,11 +126,12 @@ func upsertUIMemoryEntry(ctx context.Context, deps memoryHandlerDeps, req uiMemo
 		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "durable_memory_resolve_root",
 			errDurableMemorySaveFailed, err, "target", req.Target)
 	}
-	store, err := newDiskStore(root, nil)
+	store, err := newUIMemoryMutationStore(deps.Service, root, target)
 	if err != nil {
 		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "durable_memory_open_store",
 			errDurableMemorySaveFailed, err, "target", target)
 	}
+
 	writeReq, err := buildUIWriteRequest(req.Name, req.Description, req.Type, req.Content, req.Title)
 	if err != nil {
 		return UIMemoryEntryDetail{}, err // pure validation, no path
@@ -178,11 +179,12 @@ func deleteUIMemoryEntry(ctx context.Context, deps memoryHandlerDeps, req uiMemo
 			errDurableMemoryDeleteFailed, err, "target", target, "path", req.Path)
 	}
 
-	store, err := newDiskStore(root, nil)
+	store, err := newUIMemoryMutationStore(deps.Service, root, target)
 	if err != nil {
 		return redactIfPathBearing(deps.Logger, "durable_memory_open_store",
 			errDurableMemoryDeleteFailed, err, "target", target)
 	}
+
 	if err := store.DeletePath(req.Path, WriteOptions{}); err != nil {
 		return redactIfPathBearing(deps.Logger, "durable_memory_delete",
 			errDurableMemoryDeleteFailed, err, "target", target, "path", req.Path)
@@ -192,26 +194,33 @@ func deleteUIMemoryEntry(ctx context.Context, deps memoryHandlerDeps, req uiMemo
 	return nil
 }
 
-func deleteAbsorbedEntry(root, path string) error {
-	store, err := newDiskStore(root, nil)
+func deleteAbsorbedEntry(svc Service, root, target, path string) error {
+	store, err := newUIMemoryMutationStore(svc, root, target)
 	if err != nil {
 		return err
 	}
 	return store.DeletePath(path)
 }
 
-func newUIMemoryMutationStore(cfg *Config, root, target string) (*diskStore, error) {
-	if target == "team" {
-		return newDiskStoreWithGuard(root, NewTeamMemoryGuard(NewTeamMemoryManager(cfg)), nil)
+func newUIMemoryMutationStore(svc Service, root, target string) (*diskStore, error) {
+	var cfg Config
+	var locks *diskLockCoordinator
+	if svc != nil {
+		cfg = svc.Config()
+		locks = svc.MemoryCoordinator()
 	}
-	return newDiskStore(root, nil)
+	if target == "team" {
+		return newDiskStoreWithGuard(root, NewTeamMemoryGuard(NewTeamMemoryManager(&cfg)), locks)
+	}
+	return newDiskStore(root, locks)
 }
 
-func rollbackMergedEntry(cfg *Config, root, target, path string, entry MemoryEntry) error {
-	store, err := newUIMemoryMutationStore(cfg, root, target)
+func rollbackMergedEntry(svc Service, root, target, path string, entry MemoryEntry) error {
+	store, err := newUIMemoryMutationStore(svc, root, target)
 	if err != nil {
 		return err
 	}
+
 	_, err = store.updatePath(path, entry, WriteOptions{})
 	return err
 }
@@ -289,9 +298,9 @@ func readUIMemoryEntryByPath(root, target, relPath string) (MemoryEntry, string,
 		return MemoryEntry{}, "", ErrInvalidMemoryReadPath
 	}
 	if target == "private" && strings.HasPrefix(slashPath, "team/") {
-
 		return MemoryEntry{}, "", publicValidationErr("private durable memory cannot access team/ paths")
 	}
+
 	validated, err := ValidateMemoryReadPath(root, relPath)
 	if err != nil {
 		return MemoryEntry{}, "", err
@@ -405,19 +414,19 @@ func mergeUIMemoryEntries(ctx context.Context, deps memoryHandlerDeps, req uiMem
 	}
 
 	writeReq := buildUIMemoryMergeWriteRequest(resolved.entryA, resolved.entryB)
-	cfg := deps.Service.Config()
-	storeA, err := newUIMemoryMutationStore(&cfg, resolved.rootA, resolved.targetA)
+	storeA, err := newUIMemoryMutationStore(deps.Service, resolved.rootA, resolved.targetA)
 	if err != nil {
 		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "merge_open_store_a",
 			errDurableMemorySaveFailed, err, "target", resolved.targetA)
 	}
+
 	if _, err := storeA.UpdateStructuredPath(req.PathA, writeReq); err != nil {
 		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "merge_write_a",
 			errDurableMemorySaveFailed, err, "target", resolved.targetA, "path", req.PathA)
 	}
 
-	if err := deleteAbsorbedEntry(resolved.rootB, req.PathB); err != nil {
-		_ = rollbackMergedEntry(&cfg, resolved.rootA, resolved.targetA, req.PathA, resolved.entryA)
+	if err := deleteAbsorbedEntry(deps.Service, resolved.rootB, resolved.targetB, req.PathB); err != nil {
+		_ = rollbackMergedEntry(deps.Service, resolved.rootA, resolved.targetA, req.PathA, resolved.entryA)
 		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "merge_delete_b",
 			errDurableMemoryDeleteFailed, err, "target", resolved.targetB, "path", req.PathB)
 	}

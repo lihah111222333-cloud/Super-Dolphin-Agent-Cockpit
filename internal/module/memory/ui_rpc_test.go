@@ -533,7 +533,8 @@ func TestRollbackMergedEntryUsesTeamGuardWhenTargetIsTeam(t *testing.T) {
 
 	unsafeRollback := testMemoryEntry("Team Rollback Kept", "team kept", MemoryTypeProject,
 		"Unsafe rollback body.\nWhy: rollback must still use TeamMemoryGuard.\nHow to apply: reject token sk-proj-abcdefghijklmnopqrstuvwxyz1234567890.")
-	err = rollbackMergedEntry(cfg, teamRoot, "team", memoryEntryDisplayPath(teamRoot, keptPath), unsafeRollback)
+	err = rollbackMergedEntry(newServiceWithConsolidator(cfg, nil, nil, nil), teamRoot, "team", memoryEntryDisplayPath(teamRoot, keptPath), unsafeRollback)
+
 	if !errors.Is(err, ErrTeamMemSecretDetected) {
 		t.Fatalf("rollbackMergedEntry(team) error = %v, want %v", err, ErrTeamMemSecretDetected)
 	}
