@@ -30,7 +30,7 @@ func TestCrossDomainGoldenAgentListDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json.Marshal(agent.list request) error = %v", err)
 	}
-	raw, err := server.Dispatch(context.Background(), "agent.list", params)
+	raw, err := server.Dispatch(context.Background(), "agent/list", params)
 	if err != nil {
 		t.Fatalf("Dispatch(agent.list) error = %v", err)
 	}
@@ -45,7 +45,7 @@ func TestCrossDomainGoldenAgentListDispatch(t *testing.T) {
 		Domain:  goldentest.DomainIntegration,
 		Name:    "agent_list_dispatch",
 	}, map[string]any{
-		"method":       "agent.list",
+		"method":       "agent/list",
 		"request":      request,
 		"response":     response,
 		"v2_reference": agentListV2Reference(),

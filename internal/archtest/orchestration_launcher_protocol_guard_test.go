@@ -22,7 +22,7 @@ func TestOrchestrationLauncherProtocolFreeze(t *testing.T) {
 	const (
 		dir              = "../../cmd/mcp-orch/orchestration"
 		producer         = "launcher_protocol.go"
-		contractProducer = "../../internal/contract/rpc_methods.go"
+		contractProducer = "../../internal/contract/rpc_handler.go"
 	)
 
 	// The guard freezes remoteLauncher outbound RPC method names. The

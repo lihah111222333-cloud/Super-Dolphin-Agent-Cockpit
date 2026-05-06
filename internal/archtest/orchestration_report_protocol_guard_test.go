@@ -8,7 +8,7 @@ import (
 )
 
 // TestOrchestrationReportProtocolFreeze enforces P22 P4 §64 / §122 /
-// §283: the agent.reportEvent / agent.rememberReportRequest RPC
+// §283: the agent/reportEvent / agent/rememberReportRequest RPC
 // method names and the special thread/status/changed terminal event
 // type must live in a single authoritative protocol file
 // (cmd/mcp-orch/orchestration/report_protocol.go). Sibling report.go
@@ -25,8 +25,8 @@ func TestOrchestrationReportProtocolFreeze(t *testing.T) {
 	)
 
 	frozen := []string{
-		"\"agent.reportEvent\"",
-		"\"agent.rememberReportRequest\"",
+		"\"agent/reportEvent\"",
+		"\"agent/rememberReportRequest\"",
 		"\"thread/status/changed\"",
 	}
 

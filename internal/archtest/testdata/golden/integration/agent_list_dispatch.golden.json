@@ -1,5 +1,5 @@
 {
-  "method": "agent.list",
+  "method": "agent/list",
   "request": {},
   "response": [
     {
