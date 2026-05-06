@@ -29,7 +29,7 @@ import (
 func TestPhaseSelf1a_UpsertStructuredCreatesNewEntry(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	store, err := newDiskStore(root)
+	store, err := newDiskStore(root, nil)
 	if err != nil {
 		t.Fatalf("newDiskStore() error = %v", err)
 	}
@@ -57,7 +57,7 @@ func TestPhaseSelf1a_UpsertStructuredCreatesNewEntry(t *testing.T) {
 func TestPhaseSelf1a_UpsertStructuredOverwritesExistingEntry(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	store, err := newDiskStore(root)
+	store, err := newDiskStore(root, nil)
 	if err != nil {
 		t.Fatalf("newDiskStore() error = %v", err)
 	}
@@ -112,7 +112,7 @@ func TestPhaseSelf1a_UpsertStructuredOverwritesExistingEntry(t *testing.T) {
 func TestPhaseSelf1a_UpsertStructuredConcurrentRaceFree(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	store, err := newDiskStore(root)
+	store, err := newDiskStore(root, nil)
 	if err != nil {
 		t.Fatalf("newDiskStore() error = %v", err)
 	}

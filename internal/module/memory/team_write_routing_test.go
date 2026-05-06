@@ -39,11 +39,11 @@ func TestTeamWriteIntentRoutesProjectMemoryToTeamStore(t *testing.T) {
 		t.Fatalf("writeIntent() error = %v", err)
 	}
 
-	privateStore, err := newDiskStore(autoRoot)
+	privateStore, err := newDiskStore(autoRoot, nil)
 	if err != nil {
 		t.Fatalf("NewDiskStore(private) error = %v", err)
 	}
-	teamStore, err := newDiskStore(filepath.Join(autoRoot, teamMemoryRootDirName))
+	teamStore, err := newDiskStore(filepath.Join(autoRoot, teamMemoryRootDirName), nil)
 	if err != nil {
 		t.Fatalf("NewDiskStore(team) error = %v", err)
 	}
@@ -92,11 +92,11 @@ func TestTeamWriteIntentKeepsUserMemoryPrivate(t *testing.T) {
 		t.Fatalf("writeIntent() error = %v", err)
 	}
 
-	privateStore, err := newDiskStore(autoRoot)
+	privateStore, err := newDiskStore(autoRoot, nil)
 	if err != nil {
 		t.Fatalf("NewDiskStore(private) error = %v", err)
 	}
-	teamStore, err := newDiskStore(filepath.Join(autoRoot, teamMemoryRootDirName))
+	teamStore, err := newDiskStore(filepath.Join(autoRoot, teamMemoryRootDirName), nil)
 	if err != nil {
 		t.Fatalf("NewDiskStore(team) error = %v", err)
 	}
@@ -121,7 +121,7 @@ func TestTeamWriteIntentOverflowMergesWithinTeamScope(t *testing.T) {
 	}
 	hooks := NewMemoryLifecycleHooks(memoryLifecycleHookParams{Config: cfg, Team: NewTeamMemoryManager(cfg)})
 	teamRoot := filepath.Join(autoRoot, teamMemoryRootDirName)
-	teamStore, err := newDiskStore(teamRoot)
+	teamStore, err := newDiskStore(teamRoot, nil)
 	if err != nil {
 		t.Fatalf("newDiskStore(team) error = %v", err)
 	}

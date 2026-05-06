@@ -510,7 +510,7 @@ func waitForTestFile(t *testing.T, path string, timeout time.Duration) {
 
 func newTestDiskStore(t *testing.T, root string) *diskStore {
 	t.Helper()
-	store, err := newDiskStore(root)
+	store, err := newDiskStore(root, nil)
 	if err != nil {
 		t.Fatalf("NewDiskStore(%q) error = %v", root, err)
 	}

@@ -35,9 +35,9 @@ func TestBuildUIMemorySnapshotIncludesDurableAndAgentMemories(t *testing.T) {
 		t.Fatalf("MkdirAll(privateRoot) error = %v", err)
 	}
 
-	privateStore, err := newDiskStore(privateRoot)
+	privateStore, err := newDiskStore(privateRoot, nil)
 	if err != nil {
-		t.Fatalf("newDiskStore(privateRoot) error = %v", err)
+		t.Fatalf("newDiskStore(privateRoot, nil) error = %v", err)
 	}
 	if _, err := privateStore.CreateStructured(MemoryWriteRequest{
 		Name:        "Keep replies concise",
@@ -55,9 +55,9 @@ func TestBuildUIMemorySnapshotIncludesDurableAndAgentMemories(t *testing.T) {
 	if err := os.MkdirAll(teamRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll(teamRoot) error = %v", err)
 	}
-	teamStore, err := newDiskStore(teamRoot)
+	teamStore, err := newDiskStore(teamRoot, nil)
 	if err != nil {
-		t.Fatalf("newDiskStore(teamRoot) error = %v", err)
+		t.Fatalf("newDiskStore(teamRoot, nil) error = %v", err)
 	}
 	if _, err := teamStore.CreateStructured(MemoryWriteRequest{
 		Name:        "Core dashboard owner",
@@ -359,9 +359,9 @@ func TestComputeUIMemoryHealthUsesFullContentNotPreviewOnly(t *testing.T) {
 		ProjectRoot:         projectRoot,
 		AutoMemPathOverride: privateRoot,
 	}
-	store, err := newDiskStore(privateRoot)
+	store, err := newDiskStore(privateRoot, nil)
 	if err != nil {
-		t.Fatalf("newDiskStore(privateRoot) error = %v", err)
+		t.Fatalf("newDiskStore(privateRoot, nil) error = %v", err)
 	}
 	sharedPreview := strings.Repeat("sharedpreview ", 40)
 	alphaTail := uniqueTokenRun("alpha", 120)
@@ -701,9 +701,9 @@ func TestMergeUIMemoryEntriesRejectsDifferentTypesAndKeepsBoth(t *testing.T) {
 		RootDir:             t.TempDir(),
 		AutoMemPathOverride: privateRoot,
 	}
-	store, err := newDiskStore(privateRoot)
+	store, err := newDiskStore(privateRoot, nil)
 	if err != nil {
-		t.Fatalf("newDiskStore(privateRoot) error = %v", err)
+		t.Fatalf("newDiskStore(privateRoot, nil) error = %v", err)
 	}
 	feedback, err := store.CreateStructured(MemoryWriteRequest{
 		Name:        "Verification preference",
@@ -752,9 +752,9 @@ func TestMergeUIMemoryEntriesRejectsDissimilarEntriesAndKeepsBoth(t *testing.T) 
 		RootDir:             t.TempDir(),
 		AutoMemPathOverride: privateRoot,
 	}
-	store, err := newDiskStore(privateRoot)
+	store, err := newDiskStore(privateRoot, nil)
 	if err != nil {
-		t.Fatalf("newDiskStore(privateRoot) error = %v", err)
+		t.Fatalf("newDiskStore(privateRoot, nil) error = %v", err)
 	}
 	first, err := store.CreateStructured(MemoryWriteRequest{
 		Name:        "Reply language",

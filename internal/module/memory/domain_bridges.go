@@ -493,13 +493,16 @@ func hasMeaningfulMemoryContent(text string) bool {
 
 // ==== dedup write helpers ====
 
-func mergeAndWriteMemory(store memoryWriteStore, targetPath string, merged MemoryEntry, options WriteOptions) error {
+func mergeAndWriteMemory(store memoryWriteStore, targetPath string, merged MemoryEntry, options WriteOptions, locks *diskLockCoordinator) error {
 	if err := ValidateMemoryEntryContent(merged); err != nil {
 		return err
 	}
 	root := store.Root()
 	raw := formatMemoryEntry(merged)
-	return store.withDiskStoreLock(root, func() error {
+	if locks == nil {
+		locks = newDiskLockCoordinator()
+	}
+	return locks.withDiskStoreLock(root, func() error {
 		validatedPath, err := ValidateMemoryWritePath(root, targetPath)
 		if err != nil {
 			return err
@@ -511,13 +514,16 @@ func mergeAndWriteMemory(store memoryWriteStore, targetPath string, merged Memor
 	})
 }
 
-func overflowMergeAndDelete(store memoryWriteStore, keepPath string, merged MemoryEntry, deletePath string, options WriteOptions) error {
+func overflowMergeAndDelete(store memoryWriteStore, keepPath string, merged MemoryEntry, deletePath string, options WriteOptions, locks *diskLockCoordinator) error {
 	if err := ValidateMemoryEntryContent(merged); err != nil {
 		return err
 	}
 	root := store.Root()
 	raw := formatMemoryEntry(merged)
-	return store.withDiskStoreLock(root, func() error {
+	if locks == nil {
+		locks = newDiskLockCoordinator()
+	}
+	return locks.withDiskStoreLock(root, func() error {
 		validatedKeep, err := ValidateMemoryWritePath(root, keepPath)
 		if err != nil {
 			return err
