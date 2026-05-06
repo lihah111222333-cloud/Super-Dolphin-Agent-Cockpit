@@ -24,6 +24,7 @@ type Service interface {
 	RunConsolidation(ctx context.Context) error
 	GetDreamTaskStatus() DreamTaskSnapshot
 	KillDreamTask() error
+	MemoryCoordinator() *diskLockCoordinator
 }
 
 type service struct {
@@ -87,17 +88,12 @@ type MemoryLifecycleHooks struct {
 	dreamMu   sync.Mutex
 	dreamTask *dreamTaskState
 
-	// crossScopeWarned dedups cross-scope same-name warns emitted by
-	// writeIntent (Phase 4.1a 子项 3.3): each name is logged at most
-	// once per process to avoid log spam on repeated explicit writes
-	// against the same entry. Key: entry.Name (string).
-	crossScopeWarned sync.Map
-
 	dedupFilter *dedup.Filter
 
-	// locks is the process-scoped disk-lock coordinator shared across all
-	// diskStore instances created by this MemoryLifecycleHooks.
-	locks *diskLockCoordinator
+	// locks is the process-scoped memory coordinator shared across all
+	// diskStore instances and cross-scope warning dedupe for this lifecycle.
+	locks     *diskLockCoordinator
+	locksOnce sync.Once
 }
 
 var saveIntentPatterns = []*regexp.Regexp{
@@ -132,8 +128,16 @@ func newServiceWithConsolidator(cfg *Config, logger *slog.Logger, consolidator *
 	return &service{cfg: cfg, logger: logger, consolidator: consolidator, dreamHooks: hooks}
 }
 
+func (s *service) MemoryCoordinator() *diskLockCoordinator {
+	if s == nil || s.dreamHooks == nil {
+		return nil
+	}
+	return s.dreamHooks.memoryCoordinator()
+}
+
 func (s *service) Config() Config {
 	if s == nil || s.cfg == nil {
+
 		return Config{}
 	}
 	return *s.cfg
@@ -359,7 +363,8 @@ func (h *MemoryLifecycleHooks) tryDedupMerge(result dedup.CheckResult, store mem
 		return false
 	}
 	merged := snapshotToMemoryEntry(*result.MergedEntry)
-	if mergeErr := mergeAndWriteMemory(ws, result.TargetPath, merged, options, h.locks); mergeErr != nil {
+	if mergeErr := mergeAndWriteMemory(ws, result.TargetPath, merged, options, h.memoryCoordinator()); mergeErr != nil {
+
 		return false
 	}
 	h.handleDedupOverflow(ws, memType, options)
@@ -391,7 +396,8 @@ func (h *MemoryLifecycleHooks) handleDedupOverflow(store memoryWriteStore, memTy
 		return
 	}
 	merged := snapshotToMemoryEntry(instruction.KeepEntry)
-	if err := overflowMergeAndDelete(store, instruction.KeepEntry.Path, merged, instruction.DeletePath, options, h.locks); err != nil && h != nil && h.logger != nil {
+	if err := overflowMergeAndDelete(store, instruction.KeepEntry.Path, merged, instruction.DeletePath, options, h.memoryCoordinator()); err != nil && h != nil && h.logger != nil {
+
 		h.logger.Warn("memory dedup overflow merge failed", "err", err, "scope", storeScopeName(store, h), "type", memType)
 	}
 }
@@ -437,9 +443,11 @@ func (h *MemoryLifecycleHooks) warnCrossScopeSameName(name string, selected, pri
 	if _, err := other.Read(name); err != nil {
 		return
 	}
-	if _, loaded := h.crossScopeWarned.LoadOrStore(name, struct{}{}); loaded {
+	coordinator := h.memoryCoordinator()
+	if coordinator == nil || !coordinator.markCrossScopeSameNameWarned(name) {
 		return
 	}
+
 	h.logger.Warn("memory cross-scope same-name entry detected",
 		"name", name,
 		"selected_scope", selScope,
@@ -476,55 +484,33 @@ func (h *MemoryLifecycleHooks) deleteIntent(ctx context.Context, threadID string
 	return nil
 }
 
+func (h *MemoryLifecycleHooks) memoryCoordinator() *diskLockCoordinator {
+	if h == nil {
+		return nil
+	}
+	if h.locks != nil {
+		return h.locks
+	}
+	h.locksOnce.Do(func() {
+		h.locks = newDiskLockCoordinator()
+		if h.consolidator != nil {
+			h.consolidator.locks = h.locks
+		}
+	})
+	return h.locks
+}
+
 func (h *MemoryLifecycleHooks) diskStore() (memoryWriteStore, error) {
 	root, err := resolvedStoreRoot(h.rootDir, h.projectRoot, h.autoMemPathOverride)
 	if err != nil {
 		return nil, err
 	}
-	return newDiskStore(root, h.locks)
+	return newDiskStore(root, h.memoryCoordinator())
 }
 
 type ForgetIntent struct {
 	Detected bool
 	Query    string
-}
-
-func DetectSaveIntent(userText string) SaveIntent {
-	response := normalizeIntentText(userText)
-	if response == "" {
-		return SaveIntent{}
-	}
-	for _, pattern := range saveIntentPatterns {
-		matches := pattern.FindStringSubmatch(response)
-		if len(matches) == 0 {
-			continue
-		}
-		content := normalizeHookContent(matches[len(matches)-1])
-		if !hasMeaningfulMemoryContent(content) {
-			continue
-		}
-		return SaveIntent{Detected: true, Content: content, Type: inferMemoryType(content)}
-	}
-	return SaveIntent{}
-}
-
-func DetectForgetIntent(userText string) ForgetIntent {
-	response := normalizeIntentText(userText)
-	if response == "" {
-		return ForgetIntent{}
-	}
-	for _, pattern := range forgetIntentPatterns {
-		matches := pattern.FindStringSubmatch(response)
-		if len(matches) == 0 {
-			continue
-		}
-		query := normalizeHookContent(matches[len(matches)-1])
-		if !hasMeaningfulMemoryContent(query) || isGenericForgetTarget(query) {
-			continue
-		}
-		return ForgetIntent{Detected: true, Query: query}
-	}
-	return ForgetIntent{}
 }
 
 func (h *MemoryLifecycleHooks) handleExplicitUserMemoryIntent(
@@ -570,130 +556,4 @@ func resolvedStoreRoot(baseRoot, projectRoot, autoMemPathOverride string) (strin
 		}
 	}
 	return baseRoot, nil
-}
-
-func inferMemoryType(text string) MemoryType {
-	normalized := CanonicalName(strings.ToLower(strings.ReplaceAll(text, "\n", " ")))
-	if normalized == "" {
-		return MemoryTypeUser
-	}
-	if strings.Contains(normalized, "http://") || strings.Contains(normalized, "https://") {
-		return MemoryTypeReference
-	}
-	typeScores := map[MemoryType]int{
-		MemoryTypeUser:      keywordScore(normalized, "prefer", "preference", "style", "tone", "habit", "偏好", "风格", "习惯", "喜欢", "回答尽量", "回复尽量"),
-		MemoryTypeFeedback:  keywordScore(normalized, "rule", "workflow", "always", "never", "avoid", "规范", "规则", "流程", "约定", "务必", "不要", "how to apply"),
-		MemoryTypeProject:   keywordScore(normalized, "project", "phase", "milestone", "deadline", "owner", "incident", "项目", "阶段", "里程碑", "截止", "负责人", "事故", "发布日期"),
-		MemoryTypeReference: keywordScore(normalized, "docs", "doc", "wiki", "runbook", "notion", "slack", "grafana", "dashboard", "文档", "链接", "地址", "手册"),
-	}
-	bestType := MemoryTypeUser
-	bestScore := -1
-	for _, candidate := range []MemoryType{MemoryTypeUser, MemoryTypeFeedback, MemoryTypeProject, MemoryTypeReference} {
-		if score := typeScores[candidate]; score > bestScore {
-			bestType = candidate
-			bestScore = score
-		}
-	}
-	return bestType
-}
-
-func keywordScore(text string, keywords ...string) int {
-	score := 0
-	for _, keyword := range keywords {
-		if strings.Contains(text, CanonicalName(keyword)) {
-			score++
-		}
-	}
-	return score
-}
-
-func (h *MemoryLifecycleHooks) intentDiskStores(ctx context.Context, threadID string, memoryType MemoryType) (memoryStructuredStore, memoryStructuredStore, error) {
-	privateStore, err := h.diskStore()
-	if err != nil {
-		return nil, nil, err
-	}
-	teamStore, err := h.teamDiskStore(ctx, threadID)
-	if err != nil {
-		return nil, nil, err
-	}
-	if teamStore == nil {
-		return privateStore, nil, nil
-	}
-	if defaultTeamMemoryType(memoryType) {
-		return teamStore, privateStore, nil
-	}
-	return privateStore, teamStore, nil
-}
-
-func (h *MemoryLifecycleHooks) teamDiskStore(ctx context.Context, threadID string) (memoryStructuredStore, error) {
-	if h == nil || h.team == nil {
-		return nil, nil
-	}
-	buildCtx := h.resolveThreadRuntimeMetadata(ctx, strings.TrimSpace(threadID)).buildCtx()
-	if !h.team.IsTeamMemoryEnabled(buildCtx) {
-		return nil, nil
-	}
-	root, err := configuredTeamMemPath(h.team, buildCtx)
-	if err != nil {
-		return nil, err
-	}
-	return newDiskStoreWithGuard(root, NewTeamMemoryGuard(h.team), h.locks)
-}
-
-func selectExplicitWriteStore(name string, primary, secondary memoryStructuredStore) (memoryStructuredStore, error) {
-	for _, store := range []memoryStructuredStore{primary, secondary} {
-		if store == nil {
-			continue
-		}
-		if _, err := store.Read(name); err == nil {
-			return store, nil
-		} else if !errors.Is(err, ErrMemoryNotFound) {
-			return nil, err
-		}
-	}
-	if primary != nil {
-		return primary, nil
-	}
-
-	return nil, errors.New("memory store is nil")
-}
-
-// upsertStructuredMemory writes the entry atomically via the store's
-// UpsertStructured implementation, which acquires the disk store lock
-// once for the full check-and-write sequence. Phase 自有.1a replaced the
-// previous Create-then-Update pattern, where two independent lock
-// acquisitions left a window for a racing writer to convert a
-// Create-failed-with-AlreadyExists into an Update that overwrote
-// concurrently-written content.
-func upsertStructuredMemory(store memoryStructuredStore, entry MemoryWriteRequest, options WriteOptions) error {
-	_, err := upsertStructuredMemoryReturningEntry(store, entry, options)
-	return err
-}
-
-func deleteMemoryAcrossStores(name string, options WriteOptions, stores ...memoryStructuredStore) error {
-	deleted := false
-	for _, store := range stores {
-		if store == nil {
-			continue
-		}
-		if err := store.Delete(name, options); err == nil {
-			deleted = true
-			continue
-		} else if !errors.Is(err, ErrMemoryNotFound) {
-			return err
-		}
-	}
-	if deleted {
-		return nil
-	}
-	return ErrMemoryNotFound
-}
-
-func defaultTeamMemoryType(memoryType MemoryType) bool {
-	switch ParseMemoryType(string(memoryType)) {
-	case MemoryTypeProject, MemoryTypeReference:
-		return true
-	default:
-		return false
-	}
 }

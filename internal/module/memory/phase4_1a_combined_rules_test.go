@@ -16,7 +16,8 @@ import (
 //   - 子项 3.1: combined save rules pre-check directive for same-name
 //     feedback in the other scope (rules.go combinedSaveRules end).
 //   - 子项 3.3: cross-scope same-name warn fires once per name (dedup'd
-//     via MemoryLifecycleHooks.crossScopeWarned sync.Map).
+//     via the shared memory coordinator).
+
 //
 // Phase 4.1b (ranking scope boost + reviewer G P1.3 ranking pipeline) is
 // out of scope here — it requires a PrefetchManager double-root refactor
@@ -166,23 +167,27 @@ func TestPhase4_1aWarnCrossScopeSameNameConcurrentDedup(t *testing.T) {
 // Phase 4.1a 3.3 follow-up (reviewer post-impl): the warn helper is by
 // design wired only into writeIntent (explicit-write paths). The delete
 // path goes through deleteMemoryAcrossStores directly and must NOT
-// pollute crossScopeWarned or emit the warn log. If a future refactor
+// pollute cross-scope warn dedupe or emit the warn log. If a future refactor
 // accidentally adds warn to delete, this counter-baseline fails.
+
 func TestPhase4_1aDeletePathDoesNotWarn(t *testing.T) {
 	t.Parallel()
 	primary, secondary, sharedName := newCrossScopeFixture(t, true)
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	hooks := &MemoryLifecycleHooks{logger: logger}
+	coordinator := newDiskLockCoordinator()
+	_ = &MemoryLifecycleHooks{logger: logger, locks: coordinator}
 	if err := deleteMemoryAcrossStores(sharedName, WriteOptions{}, primary, secondary); err != nil {
 		t.Fatalf("deleteMemoryAcrossStores() error = %v", err)
 	}
+
 	if got := buf.String(); strings.Contains(got, "cross-scope same-name") {
 		t.Fatalf("delete path unexpectedly emitted cross-scope warn:\n%s", got)
 	}
-	if _, ok := hooks.crossScopeWarned.Load(sharedName); ok {
-		t.Fatalf("crossScopeWarned map polluted by delete path: name=%q", sharedName)
+	if !coordinator.markCrossScopeSameNameWarned(sharedName) {
+		t.Fatalf("coordinator cross-scope warn dedupe polluted by delete path: name=%q", sharedName)
 	}
+
 }
 
 // newCrossScopeFixture creates two disjoint disk stores. When bothHave is

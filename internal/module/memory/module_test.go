@@ -335,12 +335,14 @@ type stubMemoryService struct {
 	runErr    error
 }
 
-func (s *stubMemoryService) Config() Config                        { return Config{} }
-func (s *stubMemoryService) RootDir() string                       { return "" }
-func (s *stubMemoryService) EnsureRoot(context.Context) error      { return nil }
-func (s *stubMemoryService) GetDreamTaskStatus() DreamTaskSnapshot { return DreamTaskSnapshot{} }
-func (s *stubMemoryService) KillDreamTask() error                  { return nil }
+func (s *stubMemoryService) Config() Config                          { return Config{} }
+func (s *stubMemoryService) RootDir() string                         { return "" }
+func (s *stubMemoryService) EnsureRoot(context.Context) error        { return nil }
+func (s *stubMemoryService) GetDreamTaskStatus() DreamTaskSnapshot   { return DreamTaskSnapshot{} }
+func (s *stubMemoryService) KillDreamTask() error                    { return nil }
+func (s *stubMemoryService) MemoryCoordinator() *diskLockCoordinator { return nil }
 func (s *stubMemoryService) RunConsolidation(context.Context) error {
 	s.runCalled = true
+
 	return s.runErr
 }

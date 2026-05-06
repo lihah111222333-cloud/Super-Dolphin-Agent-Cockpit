@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -187,11 +188,20 @@ const (
 // file-level memory locks. It MUST be instantiated once (via fx) and
 // shared across all callers — never as a package-level global.
 type diskLockCoordinator struct {
-	locks sync.Map
+	locks            sync.Map
+	crossScopeWarned sync.Map
 }
 
 func newDiskLockCoordinator() *diskLockCoordinator {
 	return &diskLockCoordinator{}
+}
+
+func (c *diskLockCoordinator) markCrossScopeSameNameWarned(name string) bool {
+	if c == nil || strings.TrimSpace(name) == "" {
+		return false
+	}
+	_, loaded := c.crossScopeWarned.LoadOrStore(name, struct{}{})
+	return !loaded
 }
 
 func (c *diskLockCoordinator) withDiskStoreLock(root string, fn func() error) (err error) {
