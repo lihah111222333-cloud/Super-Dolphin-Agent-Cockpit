@@ -86,8 +86,8 @@ func TestSkillListHostRPCRejectsUnknownFields(t *testing.T) {
 	if !errors.As(err, &rpcErr) {
 		t.Fatalf("Dispatch() error = %T, want *jrpc2.Error", err)
 	}
-	if rpcErr.Code != jrpc2.InvalidParams {
-		t.Fatalf("rpcErr.Code = %v, want %v", rpcErr.Code, jrpc2.InvalidParams)
+	if rpcErr.Code != jrpc2.Code(platformrpc.CodeInvalidParams) {
+		t.Fatalf("rpcErr.Code = %v, want %v", rpcErr.Code, platformrpc.CodeInvalidParams)
 	}
 }
 
@@ -223,8 +223,8 @@ func TestSkillExpandHostRPCRejectsUnknownFields(t *testing.T) {
 	if !errors.As(err, &rpcErr) {
 		t.Fatalf("Dispatch() error = %T, want *jrpc2.Error", err)
 	}
-	if rpcErr.Code != jrpc2.InvalidParams {
-		t.Fatalf("rpcErr.Code = %v, want %v", rpcErr.Code, jrpc2.InvalidParams)
+	if rpcErr.Code != jrpc2.Code(platformrpc.CodeInvalidParams) {
+		t.Fatalf("rpcErr.Code = %v, want %v", rpcErr.Code, platformrpc.CodeInvalidParams)
 	}
 }
 
@@ -254,8 +254,8 @@ func TestSkillExpandHostRPCMapsErrors(t *testing.T) {
 		if !errors.As(err, &rpcErr) {
 			t.Fatalf("Dispatch() error = %T, want *jrpc2.Error", err)
 		}
-		if rpcErr.Code != jrpc2.InvalidParams {
-			t.Fatalf("rpcErr.Code = %v, want %v", rpcErr.Code, jrpc2.InvalidParams)
+		if rpcErr.Code != jrpc2.Code(platformrpc.CodeInvalidParams) {
+			t.Fatalf("rpcErr.Code = %v, want %v", rpcErr.Code, platformrpc.CodeInvalidParams)
 		}
 	})
 }
@@ -352,8 +352,8 @@ func TestSkillsListHostRPCUsesCWDForProjectSkillsAndSharesSystem(t *testing.T) {
 	if !errors.As(err, &rpcErr) {
 		t.Fatalf("Dispatch global skills/list error = %T, want *jrpc2.Error", err)
 	}
-	if rpcErr.Code != jrpc2.InvalidParams {
-		t.Fatalf("rpcErr.Code = %v, want %v", rpcErr.Code, jrpc2.InvalidParams)
+	if rpcErr.Code != jrpc2.Code(platformrpc.CodeInvalidParams) {
+		t.Fatalf("rpcErr.Code = %v, want %v", rpcErr.Code, platformrpc.CodeInvalidParams)
 	}
 }
 
@@ -405,8 +405,8 @@ func TestSkillRPCRejectsEmptyCWD(t *testing.T) {
 		if !errors.As(err, &rpcErr) {
 			t.Fatalf("%s error = %T, want *jrpc2.Error", tc.method, err)
 		}
-		if rpcErr.Code != jrpc2.InvalidParams {
-			t.Fatalf("%s code = %v, want %v", tc.method, rpcErr.Code, jrpc2.InvalidParams)
+		if rpcErr.Code != jrpc2.Code(platformrpc.CodeInvalidParams) {
+			t.Fatalf("%s code = %v, want %v", tc.method, rpcErr.Code, platformrpc.CodeInvalidParams)
 		}
 		if rpcErr.Message != ErrMissingCWD.Error() {
 			t.Fatalf("%s message = %q, want %q", tc.method, rpcErr.Message, ErrMissingCWD.Error())

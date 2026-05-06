@@ -12,7 +12,9 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	platformhooks "github.com/anthropic-ai/super-agent-v3/internal/platform/hooks"
+	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2"
+
 	jrpcserver "github.com/creachadair/jrpc2/server"
 )
 
@@ -334,9 +336,10 @@ func TestNewHandlers_HookMethods_InvalidParams(t *testing.T) {
 			if !errors.As(err, &rpcErr) {
 				t.Fatalf("CallResult() error = %T, want *jrpc2.Error", err)
 			}
-			if got := int(rpcErr.Code); got != dto.ErrCodeInvalidParams {
-				t.Fatalf("CallResult() code = %d, want %d", got, dto.ErrCodeInvalidParams)
+			if got := int(rpcErr.Code); got != platformrpc.CodeInvalidParams {
+				t.Fatalf("CallResult() code = %d, want %d", got, platformrpc.CodeInvalidParams)
 			}
+
 		})
 	}
 }
