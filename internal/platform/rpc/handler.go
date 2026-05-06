@@ -16,8 +16,8 @@ import (
 
 type Middleware func(handler.Func) handler.Func
 
-// CapabilityResolver from context returns the active provider capabilities.
-type CapabilityResolver func(ctx context.Context) (dto.CapabilitySet, error)
+// CapabilityResolver is an alias for contract.CapabilityResolver.
+type CapabilityResolver = contract.CapabilityResolver
 
 func NewCapabilityResolver(resolver contract.SessionResolver) CapabilityResolver {
 	return func(ctx context.Context) (dto.CapabilitySet, error) {
@@ -154,22 +154,22 @@ func capabilityResolverError(ctx context.Context, err error) error {
 	return rpcErrorData(CodeInvalidState, msg, data)
 }
 
-// ThreadHandler keeps the default per-method stack narrow: strict decoding,
-// placeholder validation, and thread scoping. Transport-level logging/recovery
-// should be layered outside handler helpers when parity with V2's outer HTTP
-// middleware is required.
+// ThreadHandler composes strict decoding, placeholder validation, and thread
+// scoping into the default per-method handler chain.
 func ThreadHandler[Req, Resp any](fn func(context.Context, Req) (Resp, error)) handler.Func {
-	return baseThreadHandler(fn)
+	mws := []Middleware{ThreadScope(), Validate(), CapabilityErrorMapper()}
+	return Wrap(mws...)(StrictHandler(fn))
 }
 
-// CapabilityThreadHandler composes ThreadScope, CapabilityGate, and StrictHandler.
+// CapabilityThreadHandler composes ThreadScope, CapabilityGate, and
+// StrictHandler.
 func CapabilityThreadHandler[Req, Resp any](cap string, resolver CapabilityResolver, fn func(context.Context, Req) (Resp, error)) handler.Func {
-	return baseThreadHandler(fn, CapabilityGate(cap, resolver))
+	mws := []Middleware{ThreadScope(), Validate(), CapabilityGate(cap, resolver)}
+	return Wrap(mws...)(StrictHandler(fn))
 }
 
 func ThreadIDFrom(ctx context.Context) string {
-	value, _ := ctx.Value(threadIDKey{}).(string)
-	return value
+	return contract.ThreadIDFrom(ctx)
 }
 
 func Logging(logger *pkglogger.Logger) Middleware {
@@ -199,7 +199,38 @@ func Validate() Middleware {
 }
 
 func withThreadID(ctx context.Context, threadID string) context.Context {
-	return context.WithValue(ctx, threadIDKey{}, threadID)
+	return contract.WithThreadID(ctx, threadID)
 }
 
-type threadIDKey struct{}
+// TracedMethod logs the method name before and after handler execution.
+// It is a middleware that adds structured observability at the handler
+// registration layer rather than inside individual handler bodies.
+func TracedMethod(method string) Middleware {
+	return func(next handler.Func) handler.Func {
+		return handler.Func(func(ctx context.Context, req *jrpc2.Request) (any, error) {
+			start := time.Now()
+			pkglogger.Info(method + ": rpc received")
+			resp, err := next(ctx, req)
+			pkglogger.Info(method+": rpc completed",
+				"duration_ms", time.Since(start).Milliseconds(),
+				"error", err,
+			)
+			return resp, err
+		})
+	}
+}
+
+// LoggedStrictHandler composes StrictHandler with TracedMethod, yielding a
+// handler with strict object decoding and structured method-level traces.
+func LoggedStrictHandler[Req, Resp any](method string, fn func(context.Context, Req) (Resp, error)) handler.Func {
+	return TracedMethod(method)(StrictHandler(fn))
+}
+
+// RequireSessionCapability returns a non-nil error when the given session does
+// not advertise the requested capability.
+func RequireSessionCapability(session contract.Session, cap string) error {
+	if !contract.HasCapability(session.Capabilities(), cap) {
+		return ErrCapabilityGate("capability not supported by active provider")
+	}
+	return nil
+}

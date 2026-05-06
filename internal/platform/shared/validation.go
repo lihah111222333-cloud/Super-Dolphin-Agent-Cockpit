@@ -1,29 +1,19 @@
 package shared
 
-import "strings"
+import (
+	"strings"
 
-func FirstNonEmpty(values ...string) string {
-	return FirstTrimmed(values...)
-}
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
+)
 
-func FirstTrimmed(values ...string) string {
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	return ""
-}
+// FirstNonEmpty delegates to util.FirstNonEmpty.
+func FirstNonEmpty(values ...string) string { return util.FirstNonEmpty(values...) }
 
-func ClampLimit(val, min, max, defaultVal int) int {
-	if val < min {
-		return defaultVal
-	}
-	if max > 0 && val > max {
-		return max
-	}
-	return val
-}
+// FirstTrimmed delegates to util.FirstTrimmed.
+func FirstTrimmed(values ...string) string { return util.FirstTrimmed(values...) }
+
+// ClampLimit delegates to util.ClampLimit.
+func ClampLimit(val, min, max, defaultVal int) int { return util.ClampLimit(val, min, max, defaultVal) }
 
 func FirstPayloadString(payload map[string]any, keys ...string) string {
 	for _, key := range keys {

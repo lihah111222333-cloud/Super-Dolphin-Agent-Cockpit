@@ -179,6 +179,9 @@ func TestSkillReadSectionTool_RecordsToTrackerOnSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := tracker.Start(); err != nil {
+		t.Fatal(err)
+	}
 
 	tool := NewSkillReadSectionTool(cacheDir, tracker)
 	args := mustMarshal(t, map[string]any{"name": "tdd", "anchor": "red-green"})

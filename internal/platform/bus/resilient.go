@@ -2,28 +2,15 @@ package bus
 
 import (
 	"context"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	"github.com/kelindar/event"
 )
 
+// ResilientSubscribe delegates to contract.ResilientSubscribe.
+// Kept for backward compatibility; new code should use contract directly.
 func ResilientSubscribe[T event.Event](dispatcher *event.Dispatcher, fn func(T), logger *pkglogger.Logger) context.CancelFunc {
-	if dispatcher == nil || fn == nil {
-		return func() {}
-	}
-	log := logger
-	if log == nil {
-		log = pkglogger.Get()
-	}
-	return event.Subscribe(dispatcher, func(ev T) {
-		if recovered := recoverCall(func() { fn(ev) }); recovered != nil {
-			log.Error("handler panic", "type", eventTypeName(ev), "error", recovered)
-		}
-	})
-}
-
-func recoverCall(fn func()) (recovered any) {
-	defer func() { recovered = recover() }()
-	fn()
-	return nil
+	return contract.ResilientSubscribe(dispatcher, fn, logger)
 }

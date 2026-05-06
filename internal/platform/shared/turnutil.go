@@ -1,8 +1,6 @@
 package shared
 
-import "strings"
+import "github.com/anthropic-ai/super-agent-v3/internal/util"
 
-func IsRemoteTurnInput(value string) bool {
-	value = strings.TrimSpace(value)
-	return strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://")
-}
+// IsRemoteTurnInput delegates to util.IsRemoteTurnInput.
+func IsRemoteTurnInput(value string) bool { return util.IsRemoteTurnInput(value) }

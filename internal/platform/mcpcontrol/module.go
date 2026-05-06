@@ -16,9 +16,13 @@ const activeLeaseCleanupTimeout = 5 * time.Second
 // Module wires the ctl/* control-plane registry, handlers, sweeper, and related
 // lifecycle hooks. MCP binaries are started outside the core process and
 // self-register through the control plane.
+func provideRegistry() *ToolRegistry {
+	return NewRegistry()
+}
+
 var Module = fx.Module("mcpcontrol",
 	fx.Provide(
-		NewRegistry,
+		provideRegistry,
 		provideConfigVersionSource,
 		provideToolRegistry,
 		provideToolNotifier,
@@ -38,7 +42,6 @@ var Module = fx.Module("mcpcontrol",
 	fx.Provide(
 		fx.Annotate(configFanoutWorkerAsRunner, fx.ResultTags(`group:"runners"`)),
 	),
-	fx.Invoke(registerHookLifecycle),
 	fx.Invoke(registerRegistryLifecycle),
 )
 
@@ -75,13 +78,6 @@ type handlerIn struct {
 	Logs              LogSink                       `optional:"true"`
 	RuntimeReports    RuntimeReportHandler          `optional:"true"`
 	CompletionReports CompletionReportHandler       `optional:"true"`
-}
-
-type hookLifecycleIn struct {
-	fx.In
-
-	Registry      *ToolRegistry
-	HookLifecycle contract.HookLifecycle `optional:"true"`
 }
 
 type configFanoutWorkerIn struct {
@@ -146,19 +142,15 @@ func provideHandlers(in handlerIn) rpc.HandlerMapResult {
 	})
 }
 
-func registerHookLifecycle(in hookLifecycleIn) {
-	if in.Registry == nil {
-		return
-	}
-	in.Registry.setHookLifecycle(in.HookLifecycle)
-}
-
-func registerRegistryLifecycle(lc fx.Lifecycle, registry *ToolRegistry) {
+func registerRegistryLifecycle(lc fx.Lifecycle, registry *ToolRegistry, hookLifecycle contract.HookLifecycle) {
 	if registry == nil {
+
 		return
 	}
+	registry.setHookLifecycle(hookLifecycle)
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
+
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {

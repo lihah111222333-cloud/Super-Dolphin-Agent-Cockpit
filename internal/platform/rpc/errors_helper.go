@@ -7,7 +7,7 @@ import (
 	"github.com/creachadair/jrpc2"
 )
 
-const CodeNotImplemented = -31006
+const CodeNotImplemented = contract.CodeNotImplemented
 
 func ErrNotImplemented(msg string) error {
 	return rpcError(CodeNotImplemented, msg)

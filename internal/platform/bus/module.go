@@ -3,6 +3,7 @@ package bus
 import (
 	"context"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
 )
@@ -18,10 +19,11 @@ var Module = fx.Module(
 	fx.Invoke(registerLifecycle),
 )
 
+// SubscriberResult is the fx-compatible output wrapper for a SubscriberSpec.
 type SubscriberResult struct {
 	fx.Out
 
-	Spec SubscriberSpec `group:"bus.subscribers"`
+	Spec contract.SubscriberSpec `group:"bus.subscribers"`
 }
 
 type subscriberGroupIn struct {

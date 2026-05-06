@@ -5,13 +5,14 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
 var (
-	ErrNotFound = errors.New("store: not found")
-	ErrConflict = errors.New("store: conflict")
+	ErrNotFound = contract.ErrNotFound
+	ErrConflict = contract.ErrConflict
 	ErrTimeout  = errors.New("store: timeout")
 )
 

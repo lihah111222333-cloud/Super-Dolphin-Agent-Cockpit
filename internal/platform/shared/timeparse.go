@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 )
 
 func ParseRFC3339Loose(s string) time.Time {
@@ -30,13 +32,8 @@ func DecodeHistoryMetadata(raw json.RawMessage) map[string]any {
 	return payload
 }
 
-func CloneTime(value *time.Time) *time.Time {
-	if value == nil {
-		return nil
-	}
-	cloned := *value
-	return &cloned
-}
+// CloneTime delegates to clone.Time.
+func CloneTime(value *time.Time) *time.Time { return clone.Time(value) }
 
 type eventTimeKey struct{}
 
