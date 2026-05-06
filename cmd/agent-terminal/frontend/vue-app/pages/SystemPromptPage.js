@@ -198,7 +198,7 @@ async function probeTemplateSectionCount(cwd, promptId) {
   const id = (promptId || '').toString().trim();
   if (!id) return 0;
   try {
-    const res = await callAPI('prompt_sections/list', withCwd(cwd, { prompt_id: id }));
+    const res = await callAPI('prompt-sections/list', withCwd(cwd, { prompt_id: id }));
     return Array.isArray(res?.sections) ? res.sections.length : 0;
   } catch {
     return 0;

@@ -79,7 +79,7 @@ export const SectionsEditor = {
       }
       sectionsLoading.value = true;
       try {
-        const res = await callAPI('prompt_sections/list', withCwd(props.cwd, { prompt_id: props.promptId }));
+        const res = await callAPI('prompt-sections/list', withCwd(props.cwd, { prompt_id: props.promptId }));
         sectionsList.value = Array.isArray(res?.sections) ? res.sections : [];
         setNotice('info', '');
       } catch (error) {
@@ -160,7 +160,7 @@ export const SectionsEditor = {
         if (sectionEditorMode.value === 'edit'
           && sectionForm.originalKey
           && sectionForm.originalKey !== sk) {
-          await callAPI('prompt_sections/delete', withCwd(props.cwd, {
+          await callAPI('prompt-sections/delete', withCwd(props.cwd, {
             prompt_id: props.promptId,
             section_key: sectionForm.originalKey,
           }));
@@ -176,7 +176,7 @@ export const SectionsEditor = {
         if (parsedEnableWhen !== undefined) {
           payload.enable_when = parsedEnableWhen;
         }
-        await callAPI('prompt_sections/write', withCwd(props.cwd, payload));
+        await callAPI('prompt-sections/write', withCwd(props.cwd, payload));
         sectionEditorOpen.value = false;
         await loadSections();
         setNotice('info', `分段已保存：${sk}`);
@@ -193,7 +193,7 @@ export const SectionsEditor = {
       if (!sk || sectionDeletingKey.value) return;
       sectionDeletingKey.value = sk;
       try {
-        await callAPI('prompt_sections/delete', withCwd(props.cwd, {
+        await callAPI('prompt-sections/delete', withCwd(props.cwd, {
           prompt_id: props.promptId,
           section_key: sk,
         }));
