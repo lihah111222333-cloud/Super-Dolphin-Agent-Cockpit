@@ -13,10 +13,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-const (
-	triggerTurnCompletionRecovered   = "turn_completion_recovered"
-	triggerTurnInterruptionRecovered = "turn_interruption_recovered"
-)
+// removed triggers
 
 func handleTurnCompletedEvent(svc *service, logger *slog.Logger, ev turndto.TurnCompleted) {
 	handleTurnCompletedEventWithCtx(svc, logger, ev, context.Background())
@@ -208,7 +205,7 @@ func (s *service) forceIdleAfterCompletionError(
 	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		var recoverErr error
 		recovered, recoverErr = s.forceIdleAfterTurnTerminalLocked(ctx, agent, turnID, activeTurnRecoveryKind{
-			recoveredTrigger: triggerTurnCompletionRecovered,
+			recoveredTrigger: completionRecoveryTrigger(success),
 			errorText:        errMsg,
 			clearError:       success,
 			recover: func(ctx context.Context, svc *service, agent *agentRuntime) error {
@@ -230,7 +227,7 @@ func (s *service) forceIdleAfterInterruptionError(
 	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		var recoverErr error
 		recovered, recoverErr = s.forceIdleAfterTurnTerminalLocked(ctx, agent, turnID, activeTurnRecoveryKind{
-			recoveredTrigger: triggerTurnInterruptionRecovered,
+			recoveredTrigger: agentdto.TriggerTurnAborted,
 			errorText:        reason,
 			recover: func(ctx context.Context, svc *service, agent *agentRuntime) error {
 				return svc.recoverTurnInterruptionStateLocked(ctx, agent)
