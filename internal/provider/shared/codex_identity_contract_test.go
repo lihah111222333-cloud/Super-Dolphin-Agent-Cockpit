@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 func TestResolveCodexIdentityPhase0ContractGolden(t *testing.T) {
@@ -15,9 +17,9 @@ func TestResolveCodexIdentityPhase0ContractGolden(t *testing.T) {
 		t.Skipf("symlink unsupported: %v", err)
 	}
 	ident, err := ResolveCodexIdentity(map[string]any{
-		codexHomeKey:          linkHome,
-		codexInstanceKeyKey:   "primary",
-		codexModelProviderKey: "codex",
+		contract.CodexHomeKey:          linkHome,
+		contract.CodexInstanceKeyKey:   "primary",
+		contract.CodexModelProviderKey: "codex",
 	})
 	if err != nil {
 		t.Fatalf("ResolveCodexIdentity error = %v", err)
@@ -35,9 +37,9 @@ func TestResolveCodexIdentityPhase0ContractEnvExpansion(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PHASE0_CODEX_HOME", home)
 	ident, err := ResolveCodexIdentity(map[string]any{
-		codexHomeKey:          "$PHASE0_CODEX_HOME",
-		codexInstanceKeyKey:   "primary",
-		codexModelProviderKey: "codex",
+		contract.CodexHomeKey:          "$PHASE0_CODEX_HOME",
+		contract.CodexInstanceKeyKey:   "primary",
+		contract.CodexModelProviderKey: "codex",
 	})
 	if err != nil {
 		t.Fatalf("ResolveCodexIdentity error = %v", err)
@@ -53,7 +55,7 @@ func TestResolveCodexIdentityPhase0ContractEnvExpansion(t *testing.T) {
 
 func TestResolveCodexIdentityPhase0ContractMissingTupleUsesSentinel(t *testing.T) {
 	t.Parallel()
-	_, err := ResolveCodexIdentity(map[string]any{codexHomeKey: t.TempDir()})
+	_, err := ResolveCodexIdentity(map[string]any{contract.CodexHomeKey: t.TempDir()})
 	if !errors.Is(err, ErrCodexInstanceKeyRequired) {
 		t.Fatalf("err = %v, want ErrCodexInstanceKeyRequired", err)
 	}

@@ -1,145 +1,28 @@
 package shared
 
-// Phase 0 shared contract: ResolveCodexIdentity is consumed by cron, thread,
-// provider routing, dashboard insight, and notification flows. Do not make
-// breaking changes to the input keys, canonicalization pipeline, sentinel
-// errors, or output fields without an ADR and coordinated downstream updates.
 import (
-	"errors"
-	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
-	"strings"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// CodexIdentity is the immutable triple that identifies a codex app-server
-// instance. All three fields together determine which local process a codex
-// thread resolves to, and are persisted on agent_provider_binding for
-// auto-resume.
-//
-// Home is always a canonicalized realpath produced by CanonicalizeCodexHome
-// (home/env expansion, filepath.Clean, filepath.EvalSymlinks). Two inputs that
-// point at the same physical directory (including symlink aliases) must produce
-// the same Home.
-type CodexIdentity struct {
-	Home          string
-	InstanceKey   string
-	ModelProvider string
-}
+// CodexIdentity is an alias for contract.CodexIdentity.
+// Kept for backward compatibility with existing provider-layer callers.
+type CodexIdentity = contract.CodexIdentity
 
-// Config keys consumed by ResolveCodexIdentity.
-const (
-	codexHomeKey          = "codexHome"
-	codexInstanceKeyKey   = "codexInstanceKey"
-	codexModelProviderKey = "codexModelProvider"
-)
-
-// Sentinel errors for codex identity resolution. Callers must check with
-// errors.Is; RPC layers map these to jrpc2.InvalidParams.
+// Sentinel errors — aliases to the canonical definitions in contract.
 var (
-	ErrCodexHomeRequired          = errors.New("codexHome is required")
-	ErrCodexInstanceKeyRequired   = errors.New("codexInstanceKey is required")
-	ErrCodexModelProviderRequired = errors.New("codexModelProvider is required")
-	ErrCodexHomeNotFound          = errors.New("codexHome directory does not exist")
-	ErrCodexIdentityInvalidType   = errors.New("codex identity field has invalid type or value")
+	ErrCodexHomeRequired          = contract.ErrCodexHomeRequired
+	ErrCodexInstanceKeyRequired   = contract.ErrCodexInstanceKeyRequired
+	ErrCodexModelProviderRequired = contract.ErrCodexModelProviderRequired
+	ErrCodexHomeNotFound          = contract.ErrCodexHomeNotFound
+	ErrCodexIdentityInvalidType   = contract.ErrCodexIdentityInvalidType
 )
 
-// userHomeDir is overridable in tests.
-var userHomeDir = os.UserHomeDir
-
-// ResolveCodexIdentity extracts the (Home, InstanceKey, ModelProvider) triple
-// from a config map. All three keys must be present as non-empty strings.
-//
-// Home is canonicalized via CanonicalizeCodexHome. The directory must already
-// exist; missing directories return ErrCodexHomeNotFound. This function does
-// not create directories and does not fall back to a default home.
+// ResolveCodexIdentity delegates to contract.ResolveCodexIdentity.
 func ResolveCodexIdentity(config map[string]any) (CodexIdentity, error) {
-	home, err := requireCodexString(config, codexHomeKey, ErrCodexHomeRequired)
-	if err != nil {
-		return CodexIdentity{}, err
-	}
-	key, err := requireCodexString(config, codexInstanceKeyKey, ErrCodexInstanceKeyRequired)
-	if err != nil {
-		return CodexIdentity{}, err
-	}
-	provider, err := requireCodexString(config, codexModelProviderKey, ErrCodexModelProviderRequired)
-	if err != nil {
-		return CodexIdentity{}, err
-	}
-	canonical, err := CanonicalizeCodexHome(home)
-	if err != nil {
-		return CodexIdentity{}, err
-	}
-	return CodexIdentity{
-		Home:          canonical,
-		InstanceKey:   key,
-		ModelProvider: provider,
-	}, nil
+	return contract.ResolveCodexIdentity(config)
 }
 
-// CanonicalizeCodexHome performs the full codex home canonicalization pipeline:
-// ~ expansion, $ENV expansion, filepath.Clean, filepath.EvalSymlinks. The
-// resulting path must be absolute and must exist. Callers should persist this
-// realpath to binding rather than the raw user input.
+// CanonicalizeCodexHome delegates to contract.CanonicalizeCodexHome.
 func CanonicalizeCodexHome(raw string) (string, error) {
-	expanded, err := expandCodexHome(raw)
-	if err != nil {
-		return "", err
-	}
-	cleaned := filepath.Clean(expanded)
-	if !filepath.IsAbs(cleaned) {
-		return "", fmt.Errorf("%w: codexHome must be absolute after expansion, got %q", ErrCodexIdentityInvalidType, cleaned)
-	}
-	real, err := filepath.EvalSymlinks(cleaned)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return "", fmt.Errorf("%w: %s", ErrCodexHomeNotFound, cleaned)
-		}
-		return "", fmt.Errorf("codexHome canonicalize: %w", err)
-	}
-	return real, nil
-}
-
-func requireCodexString(config map[string]any, key string, missingErr error) (string, error) {
-	raw, ok := config[key]
-	if !ok || raw == nil {
-		return "", missingErr
-	}
-	s, ok := raw.(string)
-	if !ok {
-		return "", fmt.Errorf("%w: %q must be string, got %T", ErrCodexIdentityInvalidType, key, raw)
-	}
-	if s = strings.TrimSpace(s); s == "" {
-		return "", missingErr
-	}
-	return s, nil
-}
-
-func expandCodexHome(raw string) (string, error) {
-	s := strings.TrimSpace(raw)
-	if s == "" {
-		return "", ErrCodexHomeRequired
-	}
-	if strings.HasPrefix(s, "~") {
-		switch {
-		case s == "~":
-			home, err := userHomeDir()
-			if err != nil {
-				return "", fmt.Errorf("codexHome ~ expand: %w", err)
-			}
-			s = home
-		case strings.HasPrefix(s, "~/"):
-			home, err := userHomeDir()
-			if err != nil {
-				return "", fmt.Errorf("codexHome ~ expand: %w", err)
-			}
-			s = filepath.Join(home, s[2:])
-		default:
-			// ~user/... form not supported: would let a caller address another
-			// user's home by name, which we explicitly refuse.
-			return "", fmt.Errorf("%w: ~user/... form not supported, got %q", ErrCodexIdentityInvalidType, raw)
-		}
-	}
-	return os.ExpandEnv(s), nil
+	return contract.CanonicalizeCodexHome(raw)
 }

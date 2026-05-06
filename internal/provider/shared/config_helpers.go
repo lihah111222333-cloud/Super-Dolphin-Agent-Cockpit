@@ -5,6 +5,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
 )
 
 var (
@@ -71,112 +73,42 @@ func hasManagedBinary(dir string) bool {
 	return false
 }
 
+// ConfigString delegates to configutil.ConfigString.
 func ConfigString(cfg map[string]any, keys ...string) string {
-	for _, key := range keys {
-		if value, ok := cfg[key].(string); ok {
-			if value = SanitizeConfigString(value); value != "" {
-				return value
-			}
-		}
-	}
-	return ""
+	return configutil.ConfigString(cfg, keys...)
 }
 
+// SanitizeConfigString delegates to configutil.SanitizeConfigString.
 func SanitizeConfigString(value string) string {
-	value = strings.TrimSpace(value)
-	switch strings.ToLower(value) {
-	case "", "[object object]", "undefined", "null":
-		return ""
-	default:
-		return value
-	}
+	return configutil.SanitizeConfigString(value)
 }
 
+// StringMap delegates to configutil.StringMap.
 func StringMap(raw any) map[string]string {
-	input, _ := raw.(map[string]any)
-	if len(input) == 0 {
-		return nil
-	}
-	out := make(map[string]string, len(input))
-	for key, value := range input {
-		text, ok := value.(string)
-		if !ok {
-			continue
-		}
-		if key = strings.TrimSpace(key); key == "" {
-			continue
-		}
-		if text = strings.TrimSpace(text); text == "" {
-			continue
-		}
-		out[key] = text
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
+	return configutil.StringMap(raw)
 }
 
+// ConfigStringSlice delegates to configutil.ConfigStringSlice.
 func ConfigStringSlice(cfg map[string]any, keys ...string) []string {
-	for _, key := range keys {
-		values, ok := cfg[key]
-		if !ok {
-			continue
-		}
-		if out := NormalizeConfigStringSlice(values); len(out) > 0 {
-			return out
-		}
-	}
-	return nil
+	return configutil.ConfigStringSlice(cfg, keys...)
 }
 
+// NormalizeConfigStringSlice delegates to configutil.NormalizeConfigStringSlice.
 func NormalizeConfigStringSlice(values any) []string {
-	switch typed := values.(type) {
-	case []string:
-		return TrimStrings(typed)
-	case []any:
-		return TrimConfigStringValues(typed)
-	case string:
-		return SplitConfigStringSlice(typed)
-	default:
-		return nil
-	}
+	return configutil.NormalizeConfigStringSlice(values)
 }
 
+// TrimConfigStringValues delegates to configutil.TrimConfigStringValues.
 func TrimConfigStringValues(values []any) []string {
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		text, ok := value.(string)
-		if !ok {
-			continue
-		}
-		if text = strings.TrimSpace(text); text != "" {
-			out = append(out, text)
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
+	return configutil.TrimConfigStringValues(values)
 }
 
+// SplitConfigStringSlice delegates to configutil.SplitConfigStringSlice.
 func SplitConfigStringSlice(value string) []string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return nil
-	}
-	return TrimStrings(strings.Split(value, ","))
+	return configutil.SplitConfigStringSlice(value)
 }
 
+// TrimStrings delegates to configutil.TrimStrings.
 func TrimStrings(values []string) []string {
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			out = append(out, value)
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
+	return configutil.TrimStrings(values)
 }
