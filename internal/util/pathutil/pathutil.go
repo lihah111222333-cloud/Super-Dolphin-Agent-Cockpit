@@ -1,0 +1,203 @@
+// Package pathutil provides path containment and sanitization helpers.
+package pathutil
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+	"unicode"
+
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"golang.org/x/text/unicode/norm"
+)
+
+const (
+	projectKeyMaxLen         = 96
+	projectKeyResolveTimeout = 4 * time.Second
+)
+
+// ContainsPath reports whether target is inside root (or equal to it).
+func ContainsPath(root, target string) bool {
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// SanitizeMemoryProjectKey is byte-for-byte compatible with the legacy
+// memory/mcp-orch sanitizePath implementation: full-path dash slug, lowercase,
+// collapsed separators, max-len trim, and 8-char hash suffix.
+func SanitizeMemoryProjectKey(raw string) string {
+	normalized := filepath.ToSlash(norm.NFC.String(strings.TrimSpace(raw)))
+	var builder strings.Builder
+	lastDash := false
+	for _, r := range normalized {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsDigit(r):
+			builder.WriteRune(unicode.ToLower(r))
+			lastDash = false
+		case lastDash:
+		default:
+			builder.WriteByte('-')
+			lastDash = true
+		}
+	}
+	slug := strings.Trim(builder.String(), "-")
+	if slug == "" {
+		return "project-" + shortProjectKeyHash(normalized)
+	}
+	if len(slug) <= projectKeyMaxLen {
+		return slug
+	}
+	prefix := strings.Trim(slug[:projectKeyMaxLen-9], "-")
+	if prefix == "" {
+		prefix = "project"
+	}
+	return prefix + "-" + shortProjectKeyHash(normalized)
+}
+
+// SanitizeSkillProjectKey preserves the on-disk skill directory semantics:
+// keep the last two path segments, preserve case, and join them with "_".
+func SanitizeSkillProjectKey(raw string) string {
+	normalized := filepath.ToSlash(norm.NFC.String(strings.TrimSpace(raw)))
+	normalized = strings.Trim(normalized, "/")
+	if normalized == "" {
+		return "project-" + shortProjectKeyHash(raw)
+	}
+	parts := strings.FieldsFunc(normalized, func(r rune) bool {
+		return r == '/' || r == '\\'
+	})
+	if len(parts) > 2 {
+		parts = parts[len(parts)-2:]
+	}
+	candidateParts := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if cleaned := sanitizeSkillProjectKeySegment(part); cleaned != "" {
+			candidateParts = append(candidateParts, cleaned)
+		}
+	}
+	candidate := strings.Join(candidateParts, "_")
+	if candidate == "" {
+		return "project-" + shortProjectKeyHash(normalized)
+	}
+	if len(candidate) <= projectKeyMaxLen {
+		return candidate
+	}
+	prefix := strings.Trim(candidate[:projectKeyMaxLen-9], "_.-")
+	if prefix == "" {
+		prefix = "project"
+	}
+	return prefix + "-" + shortProjectKeyHash(candidate)
+}
+
+// ProjectKeyFromCwd resolves cwd to the skill-scoped project key.
+func ProjectKeyFromCwd(cwd string) string {
+	return projectKeyFromCwd(cwd, SanitizeSkillProjectKey)
+}
+
+// MemoryProjectKeyFromCwd resolves cwd to the legacy memory/mcp-orch project key.
+func MemoryProjectKeyFromCwd(cwd string) string {
+	return projectKeyFromCwd(cwd, SanitizeMemoryProjectKey)
+}
+
+func projectKeyFromCwd(cwd string, sanitize func(string) string) string {
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" {
+		return ""
+	}
+	if canonical, err := canonicalProjectRoot(context.Background(), cwd); err == nil && strings.TrimSpace(canonical) != "" {
+		return sanitize(canonical)
+	}
+	if cleaned, err := cleanAbsoluteProjectPath(cwd); err == nil && strings.TrimSpace(cleaned) != "" {
+		return sanitize(cleaned)
+	}
+	return sanitize(cwd)
+}
+
+func sanitizeSkillProjectKeySegment(raw string) string {
+	raw = norm.NFC.String(strings.TrimSpace(raw))
+	if raw == "" {
+		return ""
+	}
+	var builder strings.Builder
+	lastUnderscore := false
+	for _, r := range raw {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsDigit(r):
+			builder.WriteRune(r)
+			lastUnderscore = false
+		case r == '-' || r == '.':
+			builder.WriteRune(r)
+			lastUnderscore = false
+		case lastUnderscore:
+		default:
+			builder.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+	return strings.Trim(builder.String(), "_.-")
+}
+
+func shortProjectKeyHash(text string) string {
+	sum := sha256.Sum256([]byte(text))
+	return hex.EncodeToString(sum[:4])
+}
+
+func canonicalProjectRoot(ctx context.Context, cwd string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	fallback, err := cleanAbsoluteProjectPath(cwd)
+	if err != nil {
+		return "", err
+	}
+	gitCtx, cancel := platformconfig.WithTimeout(ctx, projectKeyResolveTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(gitCtx, "git", "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir")
+	cmd.Dir = fallback
+	output, err := cmd.Output()
+	if err != nil {
+		return fallback, nil
+	}
+	lines := strings.Split(strings.ReplaceAll(string(output), "\r\n", "\n"), "\n")
+	if len(lines) == 0 {
+		return fallback, nil
+	}
+	gitRoot := filepath.Clean(norm.NFC.String(strings.TrimSpace(lines[0])))
+	if gitRoot == "" {
+		return fallback, nil
+	}
+	if len(lines) < 2 {
+		return gitRoot, nil
+	}
+	commonDir := strings.TrimSpace(lines[1])
+	if filepath.Base(commonDir) != ".git" {
+		return gitRoot, nil
+	}
+	parent := filepath.Dir(filepath.Clean(commonDir))
+	if parent == "" {
+		return gitRoot, nil
+	}
+	return parent, nil
+}
+
+func cleanAbsoluteProjectPath(raw string) (string, error) {
+	cleaned := filepath.Clean(norm.NFC.String(strings.TrimSpace(raw)))
+	if cleaned == "" || cleaned == "." {
+		return "", exec.ErrNotFound
+	}
+	if !filepath.IsAbs(cleaned) {
+		absolute, err := filepath.Abs(cleaned)
+		if err != nil {
+			return "", err
+		}
+		cleaned = filepath.Clean(absolute)
+	}
+	return cleaned, nil
+}
