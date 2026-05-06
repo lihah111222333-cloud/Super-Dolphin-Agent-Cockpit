@@ -12,19 +12,115 @@ import (
 
 const trackerTTL = 30 * time.Minute
 
-type turnTracker struct {
-	mu       sync.RWMutex
-	turns    map[string]*trackedTurn
-	lastTick time.Time
+// ---------------------------------------------------------------------------
+// turnTrackerStore — injectable storage interface
+// ---------------------------------------------------------------------------
+
+// turnTrackerStore abstracts mutable turn-entry storage behind an
+// injectable interface so turnTracker itself holds zero local state.
+//
+// The default in-process implementation (inMemoryTurnTrackerStore)
+// wraps sync.RWMutex + map.  A future SQL/Redis backend can persist
+// turn metadata for cross-process crash recovery and horizontal
+// scaling without changing the tracker's business logic.
+type turnTrackerStore interface {
+	Put(localID string, turn *trackedTurn)
+	Mutate(localID string, fn func(*trackedTurn)) bool
+	RangeMut(fn func(localID string, turn *trackedTurn))
+	DeleteMatching(fn func(localID string, turn *trackedTurn) bool)
+	View(localID string, fn func(*trackedTurn)) bool
+	RangeView(fn func(localID string, turn *trackedTurn) bool)
+	Tick() time.Time
 }
 
-func (t *turnTracker) tick() time.Time {
-	now := time.Now()
-	if !now.After(t.lastTick) {
-		now = t.lastTick.Add(time.Nanosecond)
+// ---------------------------------------------------------------------------
+// inMemoryTurnTrackerStore — default in-process implementation
+// ---------------------------------------------------------------------------
+
+type inMemoryTurnTrackerStore struct {
+	mu     sync.RWMutex
+	turns  map[string]*trackedTurn
+	tickMu sync.Mutex
+	last   time.Time
+}
+
+func newInMemoryTurnTrackerStore() *inMemoryTurnTrackerStore {
+	return &inMemoryTurnTrackerStore{turns: make(map[string]*trackedTurn)}
+}
+
+func (s *inMemoryTurnTrackerStore) Put(localID string, turn *trackedTurn) {
+	s.mu.Lock()
+	s.turns[localID] = turn
+	s.mu.Unlock()
+}
+
+func (s *inMemoryTurnTrackerStore) Mutate(localID string, fn func(*trackedTurn)) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	turn, ok := s.turns[localID]
+	if !ok {
+		return false
 	}
-	t.lastTick = now
+	fn(turn)
+	return true
+}
+
+func (s *inMemoryTurnTrackerStore) RangeMut(fn func(localID string, turn *trackedTurn)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, turn := range s.turns {
+		fn(id, turn)
+	}
+}
+
+func (s *inMemoryTurnTrackerStore) DeleteMatching(fn func(localID string, turn *trackedTurn) bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, turn := range s.turns {
+		if fn(id, turn) {
+			delete(s.turns, id)
+		}
+	}
+}
+
+func (s *inMemoryTurnTrackerStore) View(localID string, fn func(*trackedTurn)) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	turn, ok := s.turns[localID]
+	if !ok {
+		return false
+	}
+	fn(turn)
+	return true
+}
+
+func (s *inMemoryTurnTrackerStore) RangeView(fn func(localID string, turn *trackedTurn) bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for id, turn := range s.turns {
+		if !fn(id, turn) {
+			return
+		}
+	}
+}
+
+func (s *inMemoryTurnTrackerStore) Tick() time.Time {
+	s.tickMu.Lock()
+	defer s.tickMu.Unlock()
+	now := time.Now()
+	if !now.After(s.last) {
+		now = s.last.Add(time.Nanosecond)
+	}
+	s.last = now
 	return now
+}
+
+// ---------------------------------------------------------------------------
+// turnTracker — stateless business-logic layer
+// ---------------------------------------------------------------------------
+
+type turnTracker struct {
+	store turnTrackerStore
 }
 
 type trackedTurn struct {
@@ -44,16 +140,16 @@ type activeTurn struct {
 	handle     contract.TurnHandle
 }
 
-func newTurnTracker() *turnTracker { return &turnTracker{turns: make(map[string]*trackedTurn)} }
+func newTurnTracker() *turnTracker {
+	return &turnTracker{store: newInMemoryTurnTrackerStore()}
+}
 
 func (t *turnTracker) Start(localID, providerID, threadID string) {
 	localID = strings.TrimSpace(localID)
 	if localID == "" {
 		return
 	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	now := t.tick()
+	now := t.store.Tick()
 
 	turn := &trackedTurn{
 		localID:    localID,
@@ -70,7 +166,7 @@ func (t *turnTracker) Start(localID, providerID, threadID string) {
 		func(next string) { turn.state = next },
 	)
 
-	t.turns[localID] = turn
+	t.store.Put(localID, turn)
 }
 
 func (t *turnTracker) AttachHandle(localID string, handle contract.TurnHandle) {
@@ -78,17 +174,13 @@ func (t *turnTracker) AttachHandle(localID string, handle contract.TurnHandle) {
 	if localID == "" || handle == nil {
 		return
 	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	turn, ok := t.turns[localID]
-	if !ok {
-		return
-	}
-	turn.handle = handle
-	if turn.providerID == "" {
-		turn.providerID = strings.TrimSpace(handle.ProviderID())
-	}
-	turn.updatedAt = t.tick()
+	t.store.Mutate(localID, func(turn *trackedTurn) {
+		turn.handle = handle
+		if turn.providerID == "" {
+			turn.providerID = strings.TrimSpace(handle.ProviderID())
+		}
+		turn.updatedAt = t.store.Tick()
+	})
 }
 
 func (t *turnTracker) BindProviderID(localID, providerID string) {
@@ -96,12 +188,10 @@ func (t *turnTracker) BindProviderID(localID, providerID string) {
 	if localID == "" || strings.TrimSpace(providerID) == "" {
 		return
 	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if turn, ok := t.turns[localID]; ok {
+	t.store.Mutate(localID, func(turn *trackedTurn) {
 		turn.providerID = strings.TrimSpace(providerID)
-		turn.updatedAt = t.tick()
-	}
+		turn.updatedAt = t.store.Tick()
+	})
 }
 
 var stateToTrigger = map[string]string{
@@ -117,19 +207,14 @@ var stateToTrigger = map[string]string{
 func (t *turnTracker) Update(localID string, state string) {
 	localID = strings.TrimSpace(localID)
 	state = strings.TrimSpace(state)
-	if localID == "" || state == "" {
+	trigger := stateToTrigger[state]
+	if localID == "" || trigger == "" {
 		return
 	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if turn, ok := t.turns[localID]; ok {
-		// Map the raw state string to a trigger if possible.
-		// Since callers pass the *dest state* as a string, we map it to triggers here.
-		if trigger, ok := stateToTrigger[state]; ok {
-			_ = turn.sm.Fire(trigger)
-			turn.updatedAt = t.tick()
-		}
-	}
+	t.store.Mutate(localID, func(turn *trackedTurn) {
+		_ = turn.sm.Fire(trigger)
+		turn.updatedAt = t.store.Tick()
+	})
 }
 
 func (t *turnTracker) Complete(localID string, success bool, errMsg string) {
@@ -137,24 +222,20 @@ func (t *turnTracker) Complete(localID string, success bool, errMsg string) {
 	if localID == "" {
 		return
 	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	turn, ok := t.turns[localID]
-	if !ok {
-		return
-	}
-	turn.handle = nil
-	turn.lastError = strings.TrimSpace(errMsg)
-	
-	trigger := TriggerFail
-	if success {
-		trigger = TriggerComplete
-	} else if turn.interruptRequested || turn.state == StateInterrupted {
-		trigger = TriggerFail // But StateInterrupting -> Fail is mapped to Interrupted!
-	}
-	
-	_ = turn.sm.Fire(trigger)
-	turn.updatedAt = t.tick()
+	t.store.Mutate(localID, func(turn *trackedTurn) {
+		turn.handle = nil
+		turn.lastError = strings.TrimSpace(errMsg)
+
+		trigger := TriggerFail
+		if success {
+			trigger = TriggerComplete
+		} else if turn.interruptRequested || turn.state == StateInterrupted {
+			trigger = TriggerFail
+		}
+
+		_ = turn.sm.Fire(trigger)
+		turn.updatedAt = t.store.Tick()
+	})
 }
 
 func (t *turnTracker) MarkInterruptRequested(localID string) bool {
@@ -162,18 +243,17 @@ func (t *turnTracker) MarkInterruptRequested(localID string) bool {
 	if localID == "" {
 		return false
 	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	turn, ok := t.turns[localID]
-	if !ok {
+	var interrupted bool
+	if !t.store.Mutate(localID, func(turn *trackedTurn) {
+		turn.interruptRequested = true
+		if err := turn.sm.Fire(TriggerInterrupt); err == nil {
+			turn.updatedAt = t.store.Tick()
+			interrupted = true
+		}
+	}) {
 		return false
 	}
-	turn.interruptRequested = true
-	if err := turn.sm.Fire(TriggerInterrupt); err == nil {
-		turn.updatedAt = t.tick()
-		return true
-	}
-	return false
+	return interrupted
 }
 
 func (t *turnTracker) Stall(localID string, errMsg string) {
@@ -181,28 +261,19 @@ func (t *turnTracker) Stall(localID string, errMsg string) {
 	if localID == "" {
 		return
 	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	turn, ok := t.turns[localID]
-	if !ok {
-		return
-	}
-	turn.handle = nil
-	turn.lastError = strings.TrimSpace(errMsg)
-	_ = turn.sm.Fire(TriggerStall)
-	turn.updatedAt = t.tick()
+	t.store.Mutate(localID, func(turn *trackedTurn) {
+		turn.handle = nil
+		turn.lastError = strings.TrimSpace(errMsg)
+		_ = turn.sm.Fire(TriggerStall)
+		turn.updatedAt = t.store.Tick()
+	})
 }
 
 func (t *turnTracker) Cleanup() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	cutoff := time.Now().Add(-trackerTTL)
-	for id, turn := range t.turns {
-		if turn.isTerminal() && turn.updatedAt.Before(cutoff) {
-			delete(t.turns, id)
-		}
-	}
+	t.store.DeleteMatching(func(_ string, turn *trackedTurn) bool {
+		return turn.isTerminal() && turn.updatedAt.Before(cutoff)
+	})
 }
 
 func (t *turnTracker) ActiveByThread(threadID string) (activeTurn, bool) {
@@ -210,21 +281,25 @@ func (t *turnTracker) ActiveByThread(threadID string) (activeTurn, bool) {
 	if threadID == "" {
 		return activeTurn{}, false
 	}
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	var current *trackedTurn
-	for _, turn := range t.turns {
+	var result activeTurn
+	var found bool
+	var latestUpdate time.Time
+	t.store.RangeView(func(_ string, turn *trackedTurn) bool {
 		if turn.threadID != threadID || turn.isTerminal() {
-			continue
+			return true
 		}
-		if current == nil || turn.updatedAt.After(current.updatedAt) {
-			current = turn
+		if !found || turn.updatedAt.After(latestUpdate) {
+			result = activeTurn{
+				localID:    turn.localID,
+				providerID: turn.providerID,
+				handle:     turn.handle,
+			}
+			latestUpdate = turn.updatedAt
+			found = true
 		}
-	}
-	if current == nil {
-		return activeTurn{}, false
-	}
-	return activeTurn{localID: current.localID, providerID: current.providerID, handle: current.handle}, true
+		return true
+	})
+	return result, found
 }
 
 func (t *turnTracker) AbortThread(threadID, errMsg string) bool {
@@ -232,9 +307,21 @@ func (t *turnTracker) AbortThread(threadID, errMsg string) bool {
 	if threadID == "" {
 		return false
 	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return abortTrackedTurns(t.turns, threadID, errMsg, t.tick())
+	errMsg = strings.TrimSpace(errMsg)
+	var updated bool
+	t.store.RangeMut(func(_ string, turn *trackedTurn) {
+		if turn.threadID != threadID || turn.isTerminal() {
+			return
+		}
+		turn.handle = nil
+		turn.interruptRequested = true
+		turn.lastError = errMsg
+		if err := turn.sm.Fire(TriggerAbort); err == nil {
+			turn.updatedAt = t.store.Tick()
+			updated = true
+		}
+	})
+	return updated
 }
 
 func (t *turnTracker) Get(localID string) (TurnStatus, bool) {
@@ -242,13 +329,11 @@ func (t *turnTracker) Get(localID string) (TurnStatus, bool) {
 	if localID == "" {
 		return TurnStatus{}, false
 	}
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	turn, ok := t.turns[localID]
-	if !ok {
-		return TurnStatus{}, false
-	}
-	return turn.status(), true
+	var status TurnStatus
+	found := t.store.View(localID, func(turn *trackedTurn) {
+		status = turn.status()
+	})
+	return status, found
 }
 
 func (t *turnTracker) GetByProviderID(providerID string) (TurnStatus, bool) {
@@ -256,14 +341,17 @@ func (t *turnTracker) GetByProviderID(providerID string) (TurnStatus, bool) {
 	if providerID == "" {
 		return TurnStatus{}, false
 	}
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	for _, turn := range t.turns {
+	var status TurnStatus
+	var found bool
+	t.store.RangeView(func(_ string, turn *trackedTurn) bool {
 		if turn.providerID == providerID {
-			return turn.status(), true
+			status = turn.status()
+			found = true
+			return false
 		}
-	}
-	return TurnStatus{}, false
+		return true
+	})
+	return status, found
 }
 
 func (t *turnTracker) RegisterDedupeKey(localID, dedupeKey string) {
@@ -272,12 +360,10 @@ func (t *turnTracker) RegisterDedupeKey(localID, dedupeKey string) {
 	if localID == "" || dedupeKey == "" {
 		return
 	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if turn, ok := t.turns[localID]; ok {
+	t.store.Mutate(localID, func(turn *trackedTurn) {
 		turn.dedupeKey = dedupeKey
-		turn.updatedAt = t.tick()
-	}
+		turn.updatedAt = t.store.Tick()
+	})
 }
 
 func (t *turnTracker) DedupeKeyOf(localID string) string {
@@ -285,13 +371,11 @@ func (t *turnTracker) DedupeKeyOf(localID string) string {
 	if localID == "" {
 		return ""
 	}
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	turn, ok := t.turns[localID]
-	if !ok {
-		return ""
-	}
-	return turn.dedupeKey
+	var key string
+	t.store.View(localID, func(turn *trackedTurn) {
+		key = turn.dedupeKey
+	})
+	return key
 }
 
 func (t *turnTracker) GetByDedupeKey(dedupeKey string) (TurnStatus, bool) {
@@ -299,21 +383,21 @@ func (t *turnTracker) GetByDedupeKey(dedupeKey string) (TurnStatus, bool) {
 	if dedupeKey == "" {
 		return TurnStatus{}, false
 	}
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	var current *trackedTurn
-	for _, turn := range t.turns {
+	var result TurnStatus
+	var found bool
+	var latestUpdate time.Time
+	t.store.RangeView(func(_ string, turn *trackedTurn) bool {
 		if turn.dedupeKey != dedupeKey || turn.isTerminal() {
-			continue
+			return true
 		}
-		if current == nil || turn.updatedAt.After(current.updatedAt) {
-			current = turn
+		if !found || turn.updatedAt.After(latestUpdate) {
+			result = turn.status()
+			latestUpdate = turn.updatedAt
+			found = true
 		}
-	}
-	if current == nil {
-		return TurnStatus{}, false
-	}
-	return current.status(), true
+		return true
+	})
+	return result, found
 }
 
 func (t *trackedTurn) status() TurnStatus {
@@ -331,21 +415,4 @@ func (t *trackedTurn) isTerminal() bool {
 		return true
 	}
 	return false
-}
-
-func abortTrackedTurns(turns map[string]*trackedTurn, threadID, errMsg string, now time.Time) bool {
-	updated := false
-	for _, turn := range turns {
-		if turn.threadID != threadID || turn.isTerminal() {
-			continue
-		}
-		turn.handle = nil
-		turn.interruptRequested = true
-		turn.lastError = strings.TrimSpace(errMsg)
-		if err := turn.sm.Fire(TriggerAbort); err == nil {
-			turn.updatedAt = now
-			updated = true
-		}
-	}
-	return updated
 }
