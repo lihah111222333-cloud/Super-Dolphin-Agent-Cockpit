@@ -7,7 +7,6 @@ import (
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
-	"github.com/jackc/pgx/v5"
 )
 
 const defaultQueryTimeout = 10 * time.Second
@@ -37,35 +36,7 @@ func (s *store) Query(ctx context.Context, query string, args ...any) ([]map[str
 		return nil, wrapDBQueryError(errors.New("dbquery store is not initialized"), "query")
 	}
 
-	var rows []map[string]any
-	var err error
-
-	// Defense-in-depth: enforce READ ONLY transaction explicitly at the store level
-	if beginner, ok := s.db.(interface {
-		BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error)
-	}); ok {
-		tx, txErr := beginner.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
-		if txErr != nil {
-			return nil, wrapDBQueryError(txErr, "query")
-		}
-		defer func() {
-			_ = tx.Rollback(ctx)
-		}()
-
-		// Explicitly execute SET TRANSACTION READ ONLY to ensure database-level enforcement
-		if _, execErr := tx.Exec(ctx, "SET TRANSACTION READ ONLY"); execErr != nil {
-			return nil, wrapDBQueryError(execErr, "query")
-		}
-
-		rows, err = executeQuery(ctx, tx, s.timeout, query, args...)
-		if err == nil {
-			_ = tx.Commit(ctx)
-		}
-	} else {
-		// Fallback for testing or non-tx queryables
-		rows, err = executeQuery(ctx, s.db, s.timeout, query, args...)
-	}
-
+	rows, err := executeQuery(ctx, s.db, s.timeout, query, args...)
 	if err != nil {
 		return nil, wrapDBQueryError(err, "query")
 	}

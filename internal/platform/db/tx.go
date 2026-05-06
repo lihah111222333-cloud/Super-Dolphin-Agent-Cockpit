@@ -44,10 +44,14 @@ func OpenReadOnlyRows(ctx context.Context, queryer Queryable, query string, args
 	if err != nil {
 		return nil, nil, err
 	}
+	if _, err := tx.Exec(ctx, "SET TRANSACTION READ ONLY"); err != nil {
+		return nil, nil, rollbackTx(ctx, tx, err)
+	}
 	rows, err := tx.Query(ctx, query, args...)
 	if err != nil {
 		return nil, nil, rollbackTx(ctx, tx, err)
 	}
+
 	return rows, func(success bool) error {
 		rows.Close()
 		if success {
