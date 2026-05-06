@@ -173,6 +173,9 @@ func TestExecuteQueryUsesReadOnlyTransaction(t *testing.T) {
 	if !tx.committed || tx.rolledBack {
 		t.Fatalf("transaction state commit=%v rollback=%v", tx.committed, tx.rolledBack)
 	}
+	if len(tx.execSQLs) != 1 || tx.execSQLs[0] != "SET TRANSACTION READ ONLY" {
+		t.Fatalf("tx.Exec() sqls = %#v, want SET TRANSACTION READ ONLY", tx.execSQLs)
+	}
 	if tx.querySQL != "SELECT * FROM agent_threads WHERE thread_id = $1" {
 		t.Fatalf("tx.Query() sql = %q", tx.querySQL)
 	}
@@ -306,6 +309,7 @@ func (q *beginTxQueryer) BeginTx(_ context.Context, txOptions pgx.TxOptions) (pg
 type captureTx struct {
 	rows       pgx.Rows
 	err        error
+	execSQLs   []string
 	querySQL   string
 	queryFn    func(context.Context, string, ...any) (pgx.Rows, error)
 	committed  bool
@@ -338,8 +342,9 @@ func (*captureTx) Prepare(context.Context, string, string) (*pgconn.StatementDes
 	return nil, errors.New("captureTx: prepare not implemented")
 }
 
-func (*captureTx) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
-	return pgconn.CommandTag{}, errors.New("captureTx: exec not implemented")
+func (tx *captureTx) Exec(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+	tx.execSQLs = append(tx.execSQLs, sql)
+	return pgconn.CommandTag{}, nil
 }
 
 func (tx *captureTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
