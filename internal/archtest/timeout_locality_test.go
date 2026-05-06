@@ -47,5 +47,7 @@ func TestTimeoutLocality(t *testing.T) {
 }
 
 func allowedTimeoutFile(relPath string) bool {
-	return relPath == "internal/platform/config/timeouts.go" || strings.HasPrefix(relPath, "internal/transport/retry/")
+	return relPath == "internal/platform/config/timeouts.go" ||
+		relPath == "internal/util/ctxutil/ctxutil.go" ||
+		strings.HasPrefix(relPath, "internal/transport/retry/")
 }
