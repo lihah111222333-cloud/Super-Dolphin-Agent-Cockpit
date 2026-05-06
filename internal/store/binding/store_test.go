@@ -27,6 +27,14 @@ type bindingQuerierStub struct {
 	updateArchivedFn                   func(context.Context, sqlc.UpdateAgentProviderBindingArchivedParams) error
 	updateSessionUUIDFn                func(context.Context, sqlc.UpdateAgentProviderBindingSessionUUIDParams) error
 	upsertAgentProviderBindingFn       func(context.Context, sqlc.UpsertAgentProviderBindingParams) error
+	rebindAgentThreadTxFn              func(context.Context, sqlc.RebindAgentThreadTxParams) error
+}
+
+func (s *bindingQuerierStub) RebindAgentThreadTx(ctx context.Context, arg sqlc.RebindAgentThreadTxParams) error {
+	if s.rebindAgentThreadTxFn != nil {
+		return s.rebindAgentThreadTxFn(ctx, arg)
+	}
+	return nil
 }
 
 func (s *bindingQuerierStub) BindAgentThread(ctx context.Context, arg sqlc.BindAgentThreadParams) error {

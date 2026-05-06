@@ -237,6 +237,16 @@ func (s *historyTestBindingStore) UpdateAgentCwd(context.Context, bindingstore.U
 	return nil
 }
 
+func (s *historyTestBindingStore) Rebind(context.Context, bindingstore.RebindParams) error { return nil }
+
+func (s *historyTestBindingStore) ListProviderMap(context.Context) (map[string]string, error) {
+	return nil, nil
+}
+
+func (s *historyTestBindingStore) ListCwdMap(context.Context) (map[string]string, error) {
+	return nil, nil
+}
+
 type historyTestSessionProvider struct {
 	sessions map[string]contract.Session
 }

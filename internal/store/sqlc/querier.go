@@ -171,6 +171,7 @@ type Querier interface {
 	// A true sqlc query cannot represent a runtime-supplied SELECT shape, so this
 	// file keeps a typed placeholder until sqlc generation is introduced.
 	PlaceholderDBQuery(ctx context.Context) ([]*string, error)
+	RebindAgentThreadTx(ctx context.Context, arg RebindAgentThreadTxParams) error
 	RejectSkillCandidate(ctx context.Context, arg RejectSkillCandidateParams) (SkillCandidate, error)
 	RejectTopologyApproval(ctx context.Context, arg RejectTopologyApprovalParams) (int64, error)
 	ReleaseClaim(ctx context.Context, arg ReleaseClaimParams) (int64, error)

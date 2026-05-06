@@ -52,3 +52,18 @@ UPDATE agent_provider_binding
 SET cwd = $1,
     updated_at = $2
 WHERE agent_id = $3;
+
+-- name: RebindAgentThreadTx :exec
+WITH deleted AS (
+    DELETE FROM agent_provider_binding
+    WHERE agent_id = sqlc.arg(agent_id)
+    RETURNING created_at, session_uuid, parent_agent_id, agent_type, agent_memory_scope, rollout_path
+)
+INSERT INTO agent_provider_binding (
+    agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd,
+    parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid
+)
+SELECT 
+    sqlc.arg(agent_id), 'codex', sqlc.arg(thread_id), sqlc.arg(thread_id), deleted.rollout_path, sqlc.arg(cwd),
+    deleted.parent_agent_id, deleted.agent_type, deleted.agent_memory_scope, false, deleted.created_at, sqlc.arg(updated_at), deleted.session_uuid
+FROM deleted;

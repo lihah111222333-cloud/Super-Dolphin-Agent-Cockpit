@@ -139,6 +139,39 @@ func (q *Queries) ListAgentThreadBindings(ctx context.Context) ([]ListAgentThrea
 	return items, nil
 }
 
+const rebindAgentThreadTx = `-- name: RebindAgentThreadTx :exec
+WITH deleted AS (
+    DELETE FROM agent_provider_binding
+    WHERE agent_id = $1
+    RETURNING created_at, session_uuid, parent_agent_id, agent_type, agent_memory_scope, rollout_path
+)
+INSERT INTO agent_provider_binding (
+    agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd,
+    parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid
+)
+SELECT 
+    $1, 'codex', $2, $2, deleted.rollout_path, $3,
+    deleted.parent_agent_id, deleted.agent_type, deleted.agent_memory_scope, false, deleted.created_at, $4, deleted.session_uuid
+FROM deleted
+`
+
+type RebindAgentThreadTxParams struct {
+	AgentID   string `db:"agent_id" json:"agent_id"`
+	ThreadID  string `db:"thread_id" json:"thread_id"`
+	Cwd       string `db:"cwd" json:"cwd"`
+	UpdatedAt int64  `db:"updated_at" json:"updated_at"`
+}
+
+func (q *Queries) RebindAgentThreadTx(ctx context.Context, arg RebindAgentThreadTxParams) error {
+	_, err := q.db.Exec(ctx, rebindAgentThreadTx,
+		arg.AgentID,
+		arg.ThreadID,
+		arg.Cwd,
+		arg.UpdatedAt,
+	)
+	return err
+}
+
 const unbindAgentThread = `-- name: UnbindAgentThread :exec
 DELETE FROM agent_provider_binding
 WHERE agent_id = $1

@@ -16,6 +16,16 @@ type Store interface {
 	ListAgentThreadBindings(ctx context.Context) ([]Binding, error)
 	GetThreadByAgent(ctx context.Context, agentID string) (string, error)
 	UpdateAgentCwd(ctx context.Context, params UpdateAgentCwdParams) error
+	Rebind(ctx context.Context, params RebindParams) error
+	ListProviderMap(ctx context.Context) (map[string]string, error)
+	ListCwdMap(ctx context.Context) (map[string]string, error)
+}
+
+type RebindParams struct {
+	AgentID   string
+	ThreadID  string
+	Cwd       string
+	UpdatedAt int64
 }
 
 type UpsertParams struct {
