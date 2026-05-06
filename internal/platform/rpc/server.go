@@ -313,17 +313,9 @@ func (s *Server) acceptLoop(ctx context.Context, accepter jrpcserver.Accepter) e
 			return err
 		}
 		wg.Add(1)
-		go func() {
-			defer func() {
-				if rec := recover(); rec != nil {
-					if s.logger != nil {
-						s.logger.Error("rpc: recovered serveConn panic", "panic", rec)
-					}
-					wg.Done()
-				}
-			}()
+		runtimesafe.SafeGo(ctx, s.logger, "rpc.serveConn", func(context.Context) {
 			s.serveConn(ctx, ch, &wg)
-		}()
+		})
 	}
 }
 
