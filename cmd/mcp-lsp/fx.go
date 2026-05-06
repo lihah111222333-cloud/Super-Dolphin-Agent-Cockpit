@@ -6,13 +6,17 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+
 	"go.uber.org/fx"
 )
 
@@ -75,7 +79,9 @@ func run() error {
 				cfg.OnConfigChanged = func(notify mcp.ConfigChangedNotify) {
 					pkglogger.Info("mcp-lsp config changed", "binary_name", cfg.BinaryName, "instance_id", cfg.InstanceID, "scope", notify.Scope, "config_version", notify.ConfigVersion, "selector", notify.Selector, "payload", string(notify.Payload))
 				}
-				cfg.OnShutdown = func(mcp.ShutdownRequest) { _ = shutdowner.Shutdown() }
+				cfg.OnShutdown = func(mcp.ShutdownRequest) {
+					platformshared.LogIgnoredError(pkglogger.Get(), "mcp-lsp: OnShutdown", shutdowner.Shutdown())
+				}
 				return cfg
 			},
 			bootstrap.New,
@@ -215,24 +221,33 @@ func (r bootstrapRunner) Run(ctx context.Context) error {
 
 func bindRuntime(lc fx.Lifecycle, params runtimeParams) {
 	log := pkglogger.Get()
-	var cancel context.CancelFunc
+	var (
+		cancel       context.CancelFunc
+		shutdownOnce sync.Once
+	)
 	done := make(chan error, 1)
+	requestShutdown := func() {
+		shutdownOnce.Do(func() {
+			platformshared.LogIgnoredError(log, "mcp-lsp shutdown error", params.Shutdowner.Shutdown())
+		})
+	}
 
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
 			runCtx, runCancel := context.WithCancel(context.Background())
 			cancel = runCancel
-			go func() {
+			runtimesafe.SafeGo(runCtx, log, "mcp-lsp.runtime.runGroup", func(context.Context) {
 				err := platformrunner.RunGroup(runCtx, params.Runners, platformrunner.GroupOptions{
-					EnableSignals: true,
+					EnableSignals: false,
 				})
 				done <- err
 				close(done)
 				if err != nil && !errors.Is(err, context.Canceled) {
 					log.Error("mcp-lsp runtime exited", "error", err)
 				}
-				_ = params.Shutdowner.Shutdown()
-			}()
+				requestShutdown()
+			})
+
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {

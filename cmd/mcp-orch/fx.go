@@ -22,6 +22,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
 )
@@ -119,7 +121,9 @@ func buildBootstrapConfig(shutdowner fx.Shutdowner, hookAfter contract.Bootstrap
 	cfg.OnConfigChanged = func(n mcp.ConfigChangedNotify) {
 		log.Printf("mcp-orch config changed: scope=%s version=%d", n.Scope, n.ConfigVersion)
 	}
-	cfg.OnShutdown = func(mcp.ShutdownRequest) { _ = shutdowner.Shutdown() }
+	cfg.OnShutdown = func(mcp.ShutdownRequest) {
+		platformshared.LogIgnoredError(pkglogger.Get(), "mcp-orch: OnShutdown", shutdowner.Shutdown())
+	}
 	if hookAfter != nil {
 		cfg.Hooks = bootstrap.HookConfig{OnAfter: bootstrap.HookAfterHandler(hookAfter)}
 	}
