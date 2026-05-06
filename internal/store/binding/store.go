@@ -20,6 +20,7 @@ type querier interface {
 	UpdateAgentProviderBindingArchived(ctx context.Context, arg sqlc.UpdateAgentProviderBindingArchivedParams) error
 	UpdateAgentProviderBindingSessionUUID(ctx context.Context, arg sqlc.UpdateAgentProviderBindingSessionUUIDParams) error
 	UpsertAgentProviderBinding(ctx context.Context, arg sqlc.UpsertAgentProviderBindingParams) error
+	RebindAgentThreadTx(ctx context.Context, arg sqlc.RebindAgentThreadTxParams) error
 }
 
 type store struct {
@@ -210,6 +211,53 @@ func (s *store) UpdateAgentCwd(ctx context.Context, params UpdateAgentCwdParams)
 		UpdatedAt: updatedAt,
 		AgentID:   params.AgentID,
 	}), "update_agent_cwd")
+}
+
+func (s *store) Rebind(ctx context.Context, params RebindParams) error {
+	now := time.Now().Unix()
+	updatedAt := params.UpdatedAt
+	if updatedAt == 0 {
+		updatedAt = now
+	}
+	return wrapBindingError(s.q.RebindAgentThreadTx(ctx, sqlc.RebindAgentThreadTxParams{
+		AgentID:   params.AgentID,
+		ThreadID:  params.ThreadID,
+		Cwd:       params.Cwd,
+		UpdatedAt: updatedAt,
+	}), "rebind")
+}
+
+func (s *store) ListProviderMap(ctx context.Context) (map[string]string, error) {
+	bindings, err := s.ListAgentThreadBindings(ctx)
+	if err != nil {
+		return nil, wrapBindingError(err, "list_provider_map")
+	}
+	m := make(map[string]string, len(bindings))
+	for _, b := range bindings {
+		// Prefer ProviderThreadID, fallback to CodexThreadID if empty
+		threadID := b.ProviderThreadID
+		if threadID == "" {
+			threadID = b.CodexThreadID
+		}
+		if b.AgentID != "" && threadID != "" {
+			m[b.AgentID] = threadID
+		}
+	}
+	return m, nil
+}
+
+func (s *store) ListCwdMap(ctx context.Context) (map[string]string, error) {
+	bindings, err := s.ListAgentThreadBindings(ctx)
+	if err != nil {
+		return nil, wrapBindingError(err, "list_cwd_map")
+	}
+	m := make(map[string]string, len(bindings))
+	for _, b := range bindings {
+		if b.AgentID != "" && b.Cwd != "" {
+			m[b.AgentID] = b.Cwd
+		}
+	}
+	return m, nil
 }
 
 func mapBinding(row bindingRow) Binding {

@@ -195,6 +195,16 @@ func (s *eventBindingStore) UpdateAgentCwd(_ context.Context, params bindingstor
 	return nil
 }
 
+func (s *eventBindingStore) Rebind(context.Context, bindingstore.RebindParams) error { return nil }
+
+func (s *eventBindingStore) ListProviderMap(context.Context) (map[string]string, error) {
+	return nil, nil
+}
+
+func (s *eventBindingStore) ListCwdMap(context.Context) (map[string]string, error) {
+	return nil, nil
+}
+
 func (s *eventBindingStore) SessionUpdates() []bindingstore.UpdateSessionUUIDParams {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

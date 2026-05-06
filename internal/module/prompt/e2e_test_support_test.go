@@ -193,6 +193,16 @@ func (*capturingBindingStore) UpdateAgentCwd(context.Context, bindingstore.Updat
 	return nil
 }
 
+func (*capturingBindingStore) Rebind(context.Context, bindingstore.RebindParams) error { return nil }
+
+func (*capturingBindingStore) ListProviderMap(context.Context) (map[string]string, error) {
+	return nil, nil
+}
+
+func (*capturingBindingStore) ListCwdMap(context.Context) (map[string]string, error) {
+	return nil, nil
+}
+
 type capturingOrchestration struct{ launchReq thread.LaunchAgentRequest }
 
 func (o *capturingOrchestration) LaunchAgent(_ context.Context, req thread.LaunchAgentRequest) error {

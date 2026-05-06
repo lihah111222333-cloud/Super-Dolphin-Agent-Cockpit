@@ -419,6 +419,16 @@ func (s *stubThreadBindingStore) UpdateAgentCwd(context.Context, bindingstore.Up
 	return nil
 }
 
+func (s *stubThreadBindingStore) Rebind(context.Context, bindingstore.RebindParams) error { return nil }
+
+func (s *stubThreadBindingStore) ListProviderMap(context.Context) (map[string]string, error) {
+	return nil, nil
+}
+
+func (s *stubThreadBindingStore) ListCwdMap(context.Context) (map[string]string, error) {
+	return nil, nil
+}
+
 type stubThreadSessions struct {
 	agentID            string
 	session            contract.Session

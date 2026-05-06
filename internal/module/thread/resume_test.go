@@ -947,6 +947,16 @@ func (s *stubBindingStore) UpdateAgentCwd(context.Context, bindingstore.UpdateAg
 	return nil
 }
 
+func (s *stubBindingStore) Rebind(context.Context, bindingstore.RebindParams) error { return nil }
+
+func (s *stubBindingStore) ListProviderMap(context.Context) (map[string]string, error) {
+	return nil, nil
+}
+
+func (s *stubBindingStore) ListCwdMap(context.Context) (map[string]string, error) {
+	return nil, nil
+}
+
 func silentLogger() *pkglogger.Logger {
 	return pkglogger.Get()
 }

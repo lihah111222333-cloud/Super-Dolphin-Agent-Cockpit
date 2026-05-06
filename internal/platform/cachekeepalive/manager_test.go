@@ -79,6 +79,16 @@ func (*bindingStoreStub) UpdateAgentCwd(context.Context, bindingstore.UpdateAgen
 	return nil
 }
 
+func (*bindingStoreStub) Rebind(context.Context, bindingstore.RebindParams) error { return nil }
+
+func (*bindingStoreStub) ListProviderMap(context.Context) (map[string]string, error) {
+	return nil, nil
+}
+
+func (*bindingStoreStub) ListCwdMap(context.Context) (map[string]string, error) {
+	return nil, nil
+}
+
 type threadStoreStub struct {
 	byThread map[string]*threadstore.Thread
 	lookups  []string
