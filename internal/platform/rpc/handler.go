@@ -61,7 +61,7 @@ func ThreadScope(fields ...string) Middleware {
 		return handler.Func(func(ctx context.Context, req *jrpc2.Request) (any, error) {
 			var raw map[string]json.RawMessage
 			if err := req.UnmarshalParams(&raw); err != nil {
-				return nil, jrpc2.Errorf(jrpc2.InvalidParams, "invalid params: %v", err)
+				return nil, jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "invalid params: %v", err)
 			}
 			for _, field := range fields {
 				tidRaw, ok := raw[field]
@@ -74,7 +74,7 @@ func ThreadScope(fields ...string) Middleware {
 				}
 				return next(withThreadID(ctx, threadID), req)
 			}
-			return nil, jrpc2.Errorf(jrpc2.InvalidParams, "threadId is required")
+			return nil, jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "threadId is required")
 		})
 	}
 }
@@ -108,6 +108,22 @@ func CapabilityErrorMapper() Middleware {
 			resp, err := next(ctx, req)
 			if err != nil {
 				if rpcErr := MapCapabilityError(err); rpcErr != nil {
+					return nil, rpcErr
+				}
+			}
+			return resp, err
+		})
+	}
+}
+
+// InvalidParamsMapper intercepts runtime parameter validation errors
+// and maps them to CodeInvalidParams.
+func InvalidParamsMapper() Middleware {
+	return func(next handler.Func) handler.Func {
+		return handler.Func(func(ctx context.Context, req *jrpc2.Request) (any, error) {
+			resp, err := next(ctx, req)
+			if err != nil {
+				if rpcErr := MapInvalidParamsError(err); rpcErr != nil {
 					return nil, rpcErr
 				}
 			}
