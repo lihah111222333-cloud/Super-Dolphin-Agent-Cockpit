@@ -10,6 +10,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
 type stubHookManager struct {
@@ -145,9 +146,10 @@ func TestHookPendingHandler_SharedServiceRequiresAgentID(t *testing.T) {
 	if !ok {
 		t.Fatalf("hook pending error type = %T, want *jrpc2.Error", err)
 	}
-	if rpcErr.Code != jrpc2.Code(dto.ErrCodeInvalidParams) {
-		t.Fatalf("hook pending error code = %v, want %v", rpcErr.Code, dto.ErrCodeInvalidParams)
+	if rpcErr.Code != jrpc2.Code(platformrpc.CodeInvalidParams) {
+		t.Fatalf("hook pending error code = %v, want %v", rpcErr.Code, platformrpc.CodeInvalidParams)
 	}
+
 	if len(hookManager.pendingAgents) != 0 {
 		t.Fatalf("GetPendingReviews() calls = %#v, want none", hookManager.pendingAgents)
 	}

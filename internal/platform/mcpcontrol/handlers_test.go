@@ -155,6 +155,7 @@ func TestValidateHookSubscribeRequest_ReturnsInvalidParams(t *testing.T) {
 	if got := int(rpcErr.Code); got != dto.ErrCodeInvalidParams {
 		t.Fatalf("validateHookSubscribeRequest() code = %d, want %d", got, dto.ErrCodeInvalidParams)
 	}
+
 }
 
 func TestValidateHookResolveRequest_ReturnsInvalidParams(t *testing.T) {
@@ -166,6 +167,7 @@ func TestValidateHookResolveRequest_ReturnsInvalidParams(t *testing.T) {
 	if got := int(rpcErr.Code); got != dto.ErrCodeInvalidParams {
 		t.Fatalf("validateHookResolveRequest() code = %d, want %d", got, dto.ErrCodeInvalidParams)
 	}
+
 }
 
 func TestMapHookHandlerError_StoreErrorReturnsInternal(t *testing.T) {
