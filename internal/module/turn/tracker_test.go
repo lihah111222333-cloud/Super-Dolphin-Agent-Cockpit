@@ -34,6 +34,34 @@ func requireTurnStatus(t *testing.T, tracker *turnTracker, localID string) TurnS
 	return status
 }
 
+// viewHandle returns the internal TurnHandle for a tracked turn (test-only).
+func viewHandle(tracker *turnTracker, localID string) interface{} {
+	var h interface{}
+	tracker.store.View(localID, func(turn *trackedTurn) {
+		h = turn.handle
+	})
+	return h
+}
+
+// viewInterruptRequested returns the interruptRequested flag (test-only).
+func viewInterruptRequested(tracker *turnTracker, localID string) bool {
+	var v bool
+	tracker.store.View(localID, func(turn *trackedTurn) {
+		v = turn.interruptRequested
+	})
+	return v
+}
+
+// countEntries returns the number of tracked turns (test-only).
+func countEntries(tracker *turnTracker) int {
+	count := 0
+	tracker.store.RangeView(func(_ string, _ *trackedTurn) bool {
+		count++
+		return true
+	})
+	return count
+}
+
 func TestTurnTrackerStartAttachUpdateAndGet(t *testing.T) {
 	t.Parallel()
 
@@ -70,7 +98,7 @@ func TestTurnTrackerCompleteSuccessClearsActiveHandle(t *testing.T) {
 	if status.State != "completed" || status.Error != "" {
 		t.Fatalf("Get() = %+v", status)
 	}
-	if tracker.turns["local-1"].handle != nil {
+	if viewHandle(tracker, "local-1") != nil {
 		t.Fatal("handle was not cleared on Complete()")
 	}
 	if _, ok := tracker.ActiveByThread("thread-1"); ok {
@@ -95,7 +123,7 @@ func TestTurnTrackerCompleteMarksInterruptedAfterInterruptRequest(t *testing.T) 
 	if status.State != "interrupted" || status.Error != "canceled" {
 		t.Fatalf("Get() = %+v", status)
 	}
-	if tracker.turns["local-1"].handle != nil {
+	if viewHandle(tracker, "local-1") != nil {
 		t.Fatal("handle was not cleared on interrupted Complete()")
 	}
 }
@@ -124,7 +152,7 @@ func TestTurnTrackerAbortThreadSkipsTerminalTurns(t *testing.T) {
 	if running.State != "interrupted" || running.Error != "stop requested" {
 		t.Fatalf("running turn after AbortThread() = %+v", running)
 	}
-	if !tracker.turns["running-turn"].interruptRequested {
+	if !viewInterruptRequested(tracker, "running-turn") {
 		t.Fatal("interruptRequested was not set by AbortThread()")
 	}
 }
@@ -135,13 +163,14 @@ func TestTurnTrackerIgnoresInvalidInputs(t *testing.T) {
 	tracker := newTurnTracker()
 
 	tracker.Start("", "provider-1", "thread-1")
-	if len(tracker.turns) != 0 {
-		t.Fatalf("Start() created turns = %d", len(tracker.turns))
+	if countEntries(tracker) != 0 {
+		t.Fatalf("Start() created turns = %d", countEntries(tracker))
 	}
 
 	tracker.Start("local-1", "provider-1", "thread-1")
 	tracker.AttachHandle("missing", newTrackerHandleStub("missing", "provider-2"))
 	tracker.Update("local-1", "")
+	tracker.Update("local-1", "not-a-state")
 	tracker.Complete("missing", false, "boom")
 
 	status := requireTurnStatus(t, tracker, "local-1")
