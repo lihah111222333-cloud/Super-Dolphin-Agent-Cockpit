@@ -14,11 +14,12 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	turnobservation "github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	turndedupe "github.com/anthropic-ai/super-agent-v3/internal/store/turndedupe"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -70,11 +71,11 @@ type steerableSession interface {
 }
 
 func NewService(logger *slog.Logger) Service {
-	return newService(logger, nil, nil, nil, nil)
+	return newService(logger, nil, nil, nil, nil, nil, contract.BuildManifest)
 }
 
 func NewServiceWithPromptAssembly(logger *slog.Logger, promptAssembly contract.PromptAssemblyService) Service {
-	return newService(logger, promptAssembly, nil, nil, nil)
+	return newService(logger, promptAssembly, nil, nil, nil, nil, contract.BuildManifest)
 }
 
 // NewServiceWithPromptAssemblyAndTurnContext p20.2 §5 step 1：skill.Service
@@ -86,12 +87,14 @@ func NewServiceWithPromptAssemblyAndTurnContext(
 	turnContextProvider contract.TurnContextProvider,
 	skillSvc skillpkg.SkillHydrationSource,
 	observation turnobservation.Contract,
+	dedupeStore turndedupe.Store,
+	manifestBuild contract.ManifestBuildFunc,
 ) Service {
 	var lookup skillHydrationPort
 	if skillSvc != nil {
 		lookup = skillSvc
 	}
-	return newService(logger, promptAssembly, turnContextProvider, lookup, observation)
+	return newService(logger, promptAssembly, turnContextProvider, lookup, observation, dedupeStore, manifestBuild)
 }
 
 func newService(
@@ -100,21 +103,27 @@ func newService(
 	turnContextProvider contract.TurnContextProvider,
 	skillLookup skillHydrationPort,
 	observation turnobservation.Contract,
+	dedupeStore turndedupe.Store,
+	manifestBuild contract.ManifestBuildFunc,
 ) Service {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	if manifestBuild == nil {
+		manifestBuild = contract.BuildManifest
+	}
 	svc := &service{
 		logger:                 logger,
 		assembler:              &inputAssembler{},
 		skills:                 &skillResolver{},
-		manifest:               newManifestBuilder(resolveBinaryDir()),
+		manifest:               newManifestBuilder(resolveBinaryDir(), manifestBuild),
 		tracker:                newTurnTracker(),
 		promptAssembly:         promptAssembly,
 		skillLookup:            skillLookup,
 		observation:            observation,
-		interruptSettleTimeout: config.InterruptSettleTimeout,
+		dedupeStore:            dedupeStore,
+		interruptSettleTimeout: ctxutil.InterruptSettleTimeout,
 		ctx:                    ctx,
 		ctxCancel:              cancel,
 	}
@@ -154,7 +163,7 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 	}
 	userText := s.assembler.PromptText(input)
 	s.cleanupStaleToolResults(threadID, input)
-	localID := platformshared.NewID("turn")
+	localID := idgen.NewID("turn")
 	mcp := s.manifest.Build(input, threadID)
 	synthetic := s.syntheticMemoryContext(ctx, session, input, threadID, userText, mcp)
 	resolvedSkills := s.skills.Resolve(input.Skills, candidateSkills, userText)
@@ -201,7 +210,7 @@ func turnMCPSnapshot(snapshot contract.MCPSnapshot, manifest dto.MCPManifest) co
 			servers = append(servers, name)
 		}
 	}
-	cloned.Servers = providershared.NormalizeConfigStringSlice(servers)
+	cloned.Servers = configutil.NormalizeConfigStringSlice(servers)
 	if len(cloned.Servers) == 0 {
 		cloned.Servers = nil
 	}
@@ -314,7 +323,7 @@ func (s *service) ForceCompleteTurn(ctx context.Context, session contract.Sessio
 }
 
 func (s *service) TrackTurn(ctx context.Context, localID string) (TurnStatus, error) {
-	ctx = platformshared.NonNilContext(ctx)
+	ctx = util.NonNilContext(ctx)
 	if err := ctx.Err(); err != nil {
 		return TurnStatus{}, err
 	}
@@ -331,7 +340,7 @@ func (s *service) TrackTurn(ctx context.Context, localID string) (TurnStatus, er
 // process)", which is the scheduler's cue to proceed with a fresh
 // StartTurn via the normal pending→submitting path.
 func (s *service) LookupByDedupeKey(ctx context.Context, dedupeKey string) (TurnStatus, bool, error) {
-	ctx = platformshared.NonNilContext(ctx)
+	ctx = util.NonNilContext(ctx)
 	if err := ctx.Err(); err != nil {
 		return TurnStatus{}, false, err
 	}
@@ -475,7 +484,7 @@ func (s *service) watchTurn(handle contract.TurnHandle, localID string) {
 	if svcCtx == nil {
 		svcCtx = context.Background()
 	}
-	runtimesafe.SafeGo(svcCtx, s.logger, "turn.watchTurn", func(ctx context.Context) {
+	safego.Go(svcCtx, s.logger, "turn.watchTurn", func(ctx context.Context) {
 		timer := time.NewTimer(trackerTTL)
 		defer timer.Stop()
 		select {
@@ -505,7 +514,7 @@ func (s *service) watchTurn(handle contract.TurnHandle, localID string) {
 
 func (s *service) waitForTurnSettle(ctx context.Context, localID string, handle contract.TurnHandle) error {
 	deadline := time.Now().Add(s.interruptSettleTimeout)
-	ctx = platformshared.NonNilContext(ctx)
+	ctx = util.NonNilContext(ctx)
 	if err := waitForHandle(ctx, handle, deadline); err != nil && handle != nil {
 		return err
 	}
@@ -574,7 +583,7 @@ func ensureLocalTurnID(localID string) string {
 	if localID = strings.TrimSpace(localID); localID != "" {
 		return localID
 	}
-	return platformshared.NewID("turn")
+	return idgen.NewID("turn")
 }
 
 func isTerminalTurnState(state string) bool {

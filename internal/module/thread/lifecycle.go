@@ -9,9 +9,11 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
+
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
 )
 
 type SessionStarter interface {
@@ -149,7 +151,7 @@ func (s *service) completeStart(ctx context.Context, req StartRequest, agentID s
 }
 
 func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, error) {
-	ctx = shared.NonNilContext(ctx)
+	ctx = util.NonNilContext(ctx)
 	req, agentID, releaseAgentID, err := s.prepareStartRequest(ctx, req)
 	if err != nil {
 		return StartResult{}, err
@@ -183,16 +185,16 @@ func (s *service) resolveUniqueAgentID(ctx context.Context, req StartRequest, ca
 // possible under concurrent sub-agent creation) it increments the counter.
 func (s *service) nextChildAgentID(ctx context.Context, parentID string) (string, error) {
 	if s.threadStore == nil {
-		return shared.NewChildAgentID(parentID, 1), nil
+		return idgen.NewChildAgentID(parentID, 1), nil
 	}
 	count, err := s.threadStore.CountChildren(ctx, parentID)
 	if err != nil {
 		// DB error → fall back to timestamp-based to avoid blocking start.
-		return shared.NewAgentID(), nil
+		return idgen.NewAgentID(), nil
 	}
 	const maxRetries = 5
 	for i := 0; i < maxRetries; i++ {
-		candidate := shared.NewChildAgentID(parentID, int(count)+1+i)
+		candidate := idgen.NewChildAgentID(parentID, int(count)+1+i)
 		exists, err := s.threadStore.Exists(ctx, candidate)
 		if err != nil {
 			return candidate, nil // DB read error → use as-is
@@ -202,7 +204,7 @@ func (s *service) nextChildAgentID(ctx context.Context, parentID string) (string
 		}
 	}
 	// Exhausted retries — extremely unlikely. Fall back to timestamp.
-	return shared.NewAgentID(), nil
+	return idgen.NewAgentID(), nil
 }
 
 // ensureUniqueRootAgentID checks the database for a collision and regenerates
@@ -221,13 +223,13 @@ func (s *service) ensureUniqueRootAgentID(ctx context.Context, candidate string)
 			return candidate, nil
 		}
 		// Collision: regenerate with a new timestamp.
-		candidate = shared.NewAgentID()
+		candidate = idgen.NewAgentID()
 	}
 	return candidate, nil
 }
 
 func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, error) {
-	ctx = shared.NonNilContext(ctx)
+	ctx = util.NonNilContext(ctx)
 	req, state, err := s.resolveResumeRequest(ctx, req)
 	if err != nil {
 		return ResumeResult{}, err
@@ -235,9 +237,9 @@ func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, 
 	if reason, blocked := s.resumeLifecycleBlockReason(ctx, req.ThreadID, nil); blocked {
 		return ResumeResult{}, resumeLifecycleError(req.ThreadID, reason)
 	}
-	req.Provider = shared.FirstNonEmpty(req.Provider, state.Provider)
-	req.Model = shared.FirstNonEmpty(req.Model, state.Model)
-	req.CWD = shared.FirstNonEmpty(req.CWD, state.CWD, s.lookupBindingCWD(ctx, req.AgentID))
+	req.Provider = util.FirstNonEmpty(req.Provider, state.Provider)
+	req.Model = util.FirstNonEmpty(req.Model, state.Model)
+	req.CWD = util.FirstNonEmpty(req.CWD, state.CWD, s.lookupBindingCWD(ctx, req.AgentID))
 	displayName := strings.TrimSpace(state.Prompt)
 	session, err := s.establishResumedSession(ctx, req, state, displayName)
 	if err != nil {
@@ -288,7 +290,7 @@ func (s *service) persistStartedSession(
 		s.stopAgent(ctx, agentID)
 		return StartResult{}, err
 	}
-	codexHome := shared.FirstNonEmpty(identity.Home, sessionRuntimeConfigString(session, "codexHome"))
+	codexHome := util.FirstNonEmpty(identity.Home, sessionRuntimeConfigString(session, "codexHome"))
 	s.logStartedSessionCodexIdentity(req, agentID, codexHome, identity, session)
 	state := newThreadState(threadStateStartKind, threadStateFields{
 		AgentID:            agentID,
@@ -329,7 +331,7 @@ func (s *service) persistStartedSession(
 	return StartResult{
 		ThreadID:        publicThreadID,
 		AgentID:         agentID,
-		SessionID:       shared.FirstNonEmpty(providerThreadID, publicThreadID),
+		SessionID:       util.FirstNonEmpty(providerThreadID, publicThreadID),
 		Status:          "running",
 		Model:           effectiveModel,
 		Provider:        req.Provider,
@@ -345,11 +347,11 @@ func (s *service) persistStartedSession(
 	}, nil
 }
 
-func resolveStartCodexIdentity(config map[string]any) (providershared.CodexIdentity, error) {
+func resolveStartCodexIdentity(config map[string]any) (contract.CodexIdentity, error) {
 	if !startConfigHasCodexIdentity(config) {
-		return providershared.CodexIdentity{}, nil
+		return contract.CodexIdentity{}, nil
 	}
-	return providershared.ResolveCodexIdentity(config)
+	return contract.ResolveCodexIdentity(config)
 }
 
 func startConfigHasCodexIdentity(config map[string]any) bool {
@@ -412,10 +414,10 @@ func (s *service) persistResumedSession(
 	displayName string,
 	session contract.Session,
 ) (ResumeResult, error) {
-	model := shared.FirstNonEmpty(req.Model, state.Model)
-	codexHome := shared.FirstNonEmpty(req.CodexHome, state.CodexHome, sessionRuntimeConfigString(session, "codexHome"))
-	codexInstanceKey := shared.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey)
-	codexModelProvider := shared.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
+	model := util.FirstNonEmpty(req.Model, state.Model)
+	codexHome := util.FirstNonEmpty(req.CodexHome, state.CodexHome, sessionRuntimeConfigString(session, "codexHome"))
+	codexInstanceKey := util.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey)
+	codexModelProvider := util.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
 	if s.logger != nil {
 		s.logger.Warn("thread: persist resumed session codex identity",
 			"agent_id", req.AgentID,
@@ -424,12 +426,12 @@ func (s *service) persistResumedSession(
 			"codex_instance_key", codexInstanceKey,
 			"codex_model_provider", codexModelProvider,
 			"session_runtime_codex_home", sessionRuntimeConfigString(session, "codexHome"),
-			"rollout_path", shared.FirstNonEmpty(state.RolloutPath, session.RolloutPath()))
+			"rollout_path", util.FirstNonEmpty(state.RolloutPath, session.RolloutPath()))
 	}
 	threadState := newThreadState(threadStateResumeKind, threadStateFields{
 		RequestedThreadID:  req.ThreadID,
 		PublicThreadID:     state.PublicThreadID,
-		ProviderThreadID:   shared.FirstNonEmpty(req.ProviderThreadID, session.ThreadID()),
+		ProviderThreadID:   util.FirstNonEmpty(req.ProviderThreadID, session.ThreadID()),
 		AgentID:            req.AgentID,
 		ParentAgentID:      state.ParentAgentID,
 		AgentType:          state.AgentType,
@@ -439,9 +441,9 @@ func (s *service) persistResumedSession(
 		Model:              model,
 		Name:               displayName,
 		Prompt:             displayName,
-		RolloutPath:        shared.FirstNonEmpty(state.RolloutPath, session.RolloutPath()),
-		SessionUUID:        shared.FirstNonEmpty(state.SessionUUID, session.ThreadID()),
-		ConfigOverride:     shared.CloneRawMessage(state.ConfigOverrideRaw),
+		RolloutPath:        util.FirstNonEmpty(state.RolloutPath, session.RolloutPath()),
+		SessionUUID:        util.FirstNonEmpty(state.SessionUUID, session.ThreadID()),
+		ConfigOverride:     clone.RawMessage(state.ConfigOverrideRaw),
 		CodexHome:          codexHome,
 		CodexInstanceKey:   codexInstanceKey,
 		CodexModelProvider: codexModelProvider,
@@ -460,7 +462,7 @@ func (s *service) persistResumedSession(
 	}
 	return ResumeResult{
 		ThreadID:  publicThreadID,
-		SessionID: shared.FirstNonEmpty(providerThreadID, publicThreadID),
+		SessionID: util.FirstNonEmpty(providerThreadID, publicThreadID),
 		Status:    "resumed",
 		Model:     model,
 		CWD:       req.CWD,
@@ -522,13 +524,13 @@ func (s *service) lookupThreadMeta(ctx context.Context, threadID string) threadM
 		ParentAgentID:    strings.TrimSpace(thread.ParentAgentID),
 		AgentType:        strings.TrimSpace(thread.AgentType),
 		AgentMemoryScope: strings.TrimSpace(thread.AgentMemoryScope),
-		ConfigOverride:   shared.CloneRawMessage(thread.ConfigOverride),
+		ConfigOverride:   clone.RawMessage(thread.ConfigOverride),
 		CreatedAt:        thread.CreatedAt,
 	}
 }
 
 func (s *service) stopAgent(ctx context.Context, agentID string) {
-	shared.LogIgnoredError(s.logger, "stop managed agent failed", s.stopManagedAgent(ctx, strings.TrimSpace(agentID), true))
+	util.LogIgnoredError(s.logger, "stop managed agent failed", s.stopManagedAgent(ctx, strings.TrimSpace(agentID), true))
 }
 
 func (s *service) rememberBinding(binding *bindingstore.Binding) {

@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -144,7 +144,7 @@ func appendClaudeMdCandidate(candidates *[]claudeMdCandidate, seen map[string]st
 		if evaled, err := filepath.EvalSymlinks(candidate.BaseDir); err == nil {
 			resolvedBase = evaled
 		}
-		if !platformshared.ContainsPath(resolvedBase, resolvedPath) {
+		if !pathutil.ContainsPath(resolvedBase, resolvedPath) {
 			return
 		}
 	}

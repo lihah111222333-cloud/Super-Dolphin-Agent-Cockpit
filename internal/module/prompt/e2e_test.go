@@ -17,7 +17,6 @@ import (
 	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	thread "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	turnpkg "github.com/anthropic-ai/super-agent-v3/internal/module/turn"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"go.uber.org/fx"
@@ -238,7 +237,7 @@ func newFxHarness(t *testing.T) *fxHarness {
 	h.orchestration = &capturingOrchestration{}
 	app := fx.New(
 		fx.NopLogger,
-		fx.Supply(&platformconfig.Config{ProjectRoot: h.projectRoot}),
+		fx.Supply(&contract.Config{ProjectRoot: h.projectRoot}),
 		fx.Supply(slog.New(slog.NewTextHandler(io.Discard, nil))),
 		fx.Provide(
 			func() thread.SessionStarter { return h.bridge },

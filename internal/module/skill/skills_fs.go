@@ -6,14 +6,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 var errInvalidSkillExpandParam = errors.New("invalid skill expand params")
@@ -506,5 +505,5 @@ func pathEscapesRoot(rootPath, targetPath string) (bool, error) {
 	if _, err := filepath.Rel(rootPath, targetPath); err != nil {
 		return false, err
 	}
-	return !platformshared.ContainsPath(rootPath, targetPath), nil
+	return !pathutil.ContainsPath(rootPath, targetPath), nil
 }

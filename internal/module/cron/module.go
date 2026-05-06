@@ -9,7 +9,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	thread "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	turn "github.com/anthropic-ai/super-agent-v3/internal/module/turn"
-	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -101,10 +100,10 @@ func provideScheduler(p schedulerParams) *Scheduler {
 	return s
 }
 
-func provideTickActor(logger *slog.Logger, s *Scheduler) platformrunner.Runner {
+func provideTickActor(logger *slog.Logger, s *Scheduler) contract.Runner {
 	return NewTickActor(logger, s)
 }
 
-func provideLeaseActor(logger *slog.Logger, s *Scheduler) platformrunner.Runner {
+func provideLeaseActor(logger *slog.Logger, s *Scheduler) contract.Runner {
 	return NewLeaseActor(logger, s)
 }

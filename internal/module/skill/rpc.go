@@ -12,12 +12,12 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/repofingerprint"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/repofingerprint"
 )
 
 func namedContentHandler(fn func(context.Context, string, string) (any, error)) handler.Func {
-	return rpc.StrictHandler(func(ctx context.Context, p skillNamedContentParams) (any, error) {
+	return platformrpc.StrictHandler(func(ctx context.Context, p skillNamedContentParams) (any, error) {
 		return fn(ctx, p.Name, p.Content)
 	})
 }
@@ -126,11 +126,11 @@ func skillRPCError(err error) error {
 	case errors.Is(err, ErrMissingCWD):
 		return jrpc2.Errorf(jrpc2.InvalidParams, "%s", err.Error())
 	case errors.Is(err, os.ErrNotExist):
-		return rpc.ErrNotFound(err.Error())
+		return platformrpc.ErrNotFound(err.Error())
 	case errors.Is(err, ErrInvalidSkillName), errors.Is(err, errInvalidSkillExpandParam), errors.Is(err, ErrInvalidSkillScope):
 		return jrpc2.Errorf(jrpc2.InvalidParams, "%s", err.Error())
 	case errors.Is(err, errSkillApprovalRequired):
-		rpcErr := jrpc2.Errorf(-31002, "%s", err.Error())
+		rpcErr := jrpc2.Errorf(platformrpc.CodeInvalidState, "%s", err.Error())
 		var required SkillApprovalRequiredError
 		if errors.As(err, &required) {
 			return rpcErr.WithData(required.Request)
@@ -156,15 +156,15 @@ func requireRequestCWD(cwd string) error {
 	return nil
 }
 
-func NewSkillHandlers(svc Service, requester contract.ApprovalRequester) rpc.HandlerMapResult {
+func NewSkillHandlers(svc Service, requester contract.ApprovalRequester) platformrpc.HandlerMapResult {
 	return newSkillHandlers(svc, requester)
 }
 
-func newSkillHandlers(svc Service, requester contract.ApprovalRequester) rpc.HandlerMapResult {
+func newSkillHandlers(svc Service, requester contract.ApprovalRequester) platformrpc.HandlerMapResult {
 	if impl, ok := svc.(*service); ok {
 		impl.approvalRequester = requester
 	}
-	return rpc.HandlerMapResult{Handlers: mergeSkillHandlerMaps(
+	return platformrpc.HandlerMapResult{Handlers: mergeSkillHandlerMaps(
 		skillCoreHandlers(svc),
 		skillLocalHandlers(svc),
 		skillRemoteHandlers(svc),
@@ -184,30 +184,30 @@ func mergeSkillHandlerMaps(parts ...handler.Map) handler.Map {
 
 func skillCoreHandlers(svc Service) handler.Map {
 	return handler.Map{
-		"command/exec": rpc.StrictHandler(func(ctx context.Context, p execParams) (any, error) {
+		"command/exec": platformrpc.StrictHandler(func(ctx context.Context, p execParams) (any, error) {
 			return svc.ExecCommand(ctx, p.Command, p.Args, p.CWD, p.Env)
 		}),
-		"skill/list":   rpc.StrictHandler(skillListHandler(svc)),
-		"skill/expand": rpc.StrictHandler(skillExpandHandler(svc)),
-		"skills/list":  rpc.StrictHandler(skillsListHandler(svc)),
+		"skill/list":   platformrpc.StrictHandler(skillListHandler(svc)),
+		"skill/expand": platformrpc.StrictHandler(skillExpandHandler(svc)),
+		"skills/list":  platformrpc.StrictHandler(skillsListHandler(svc)),
 	}
 }
 
 func skillLocalHandlers(svc Service) handler.Map {
 	return handler.Map{
-		"skills/local/read":      rpc.StrictHandler(skillLocalReadHandler(svc)),
-		"skills/local/listFiles": rpc.StrictHandler(skillLocalListFilesHandler(svc)),
-		"skills/local/write":     rpc.StrictHandler(skillLocalWriteHandler(svc)),
-		"skills/local/importDir": rpc.StrictHandler(skillLocalImportDirHandler(svc)),
-		"skills/local/delete":    rpc.StrictHandler(skillLocalDeleteHandler(svc)),
-		"skills/create":          rpc.StrictHandler(skillCreateHandler(svc)),
+		"skills/local/read":      platformrpc.StrictHandler(skillLocalReadHandler(svc)),
+		"skills/local/listFiles": platformrpc.StrictHandler(skillLocalListFilesHandler(svc)),
+		"skills/local/write":     platformrpc.StrictHandler(skillLocalWriteHandler(svc)),
+		"skills/local/importDir": platformrpc.StrictHandler(skillLocalImportDirHandler(svc)),
+		"skills/local/delete":    platformrpc.StrictHandler(skillLocalDeleteHandler(svc)),
+		"skills/create":          platformrpc.StrictHandler(skillCreateHandler(svc)),
 		// P0b Step 5: candidate review gate. List + approve + reject share
 		// the local-skills namespace because approvals always promote into a
 		// project-scope SKILL.md via CreateSkill.
-		"skills/candidate/list/pending": rpc.StrictHandler(skillCandidateListPendingHandler(svc)),
-		"skills/candidate/get":          rpc.StrictHandler(skillCandidateGetHandler(svc)),
-		"skills/candidate/approve":      rpc.StrictHandler(skillCandidateApproveHandler(svc)),
-		"skills/candidate/reject":       rpc.StrictHandler(skillCandidateRejectHandler(svc)),
+		"skills/candidate/list/pending": platformrpc.StrictHandler(skillCandidateListPendingHandler(svc)),
+		"skills/candidate/get":          platformrpc.StrictHandler(skillCandidateGetHandler(svc)),
+		"skills/candidate/approve":      platformrpc.StrictHandler(skillCandidateApproveHandler(svc)),
+		"skills/candidate/reject":       platformrpc.StrictHandler(skillCandidateRejectHandler(svc)),
 	}
 }
 
@@ -230,25 +230,25 @@ func skillCreateHandler(svc Service) func(context.Context, createSkillParams) (a
 
 func skillRemoteHandlers(svc Service) handler.Map {
 	return handler.Map{
-		"skills/remote/list": rpc.StrictHandler(func(ctx context.Context, p skillRemoteReadParams) (any, error) {
+		"skills/remote/list": platformrpc.StrictHandler(func(ctx context.Context, p skillRemoteReadParams) (any, error) {
 			return svc.ReadRemote(ctx, p.URL)
 		}),
 		"skills/remote/export": namedContentHandler(func(ctx context.Context, name, content string) (any, error) {
 			return svc.WriteRemote(ctx, name, content)
 		}),
-		"skills/remote/read": rpc.StrictHandler(func(ctx context.Context, p skillRemoteReadParams) (any, error) {
+		"skills/remote/read": platformrpc.StrictHandler(func(ctx context.Context, p skillRemoteReadParams) (any, error) {
 			return svc.ReadRemote(ctx, p.URL)
 		}),
 		"skills/remote/write": namedContentHandler(func(ctx context.Context, name, content string) (any, error) {
 			return svc.WriteRemote(ctx, name, content)
 		}),
-		"skills/config/read": rpc.StrictHandler(func(ctx context.Context, p skillConfigReadParams) (any, error) {
+		"skills/config/read": platformrpc.StrictHandler(func(ctx context.Context, p skillConfigReadParams) (any, error) {
 			return svc.ReadConfig(ctx, p.AgentID)
 		}),
 		"skills/config/write": namedContentHandler(func(ctx context.Context, name, content string) (any, error) {
 			return svc.WriteSkillContent(ctx, name, content)
 		}),
-		"skills/summary/write": rpc.StrictHandler(func(ctx context.Context, p skillSummaryWriteParams) (any, error) {
+		"skills/summary/write": platformrpc.StrictHandler(func(ctx context.Context, p skillSummaryWriteParams) (any, error) {
 			return svc.WriteSummary(ctx, p.Name, p.Summary)
 		}),
 	}
@@ -256,7 +256,7 @@ func skillRemoteHandlers(svc Service) handler.Map {
 
 func skillPreviewHandlers(svc Service) handler.Map {
 	return handler.Map{
-		"skills/match/preview": rpc.StrictHandler(skillMatchPreviewHandler(svc)),
+		"skills/match/preview": platformrpc.StrictHandler(skillMatchPreviewHandler(svc)),
 	}
 }
 

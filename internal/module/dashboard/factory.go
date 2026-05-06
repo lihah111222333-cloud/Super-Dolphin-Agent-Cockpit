@@ -6,11 +6,11 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
 	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
 	systemlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/systemlog"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
 )
 
 type responseField struct {
@@ -95,10 +95,10 @@ func (p logsParams) ToFilter(source string) LogFilter {
 		Level:     strings.TrimSpace(p.Level),
 		Logger:    strings.TrimSpace(p.Logger),
 		Component: strings.TrimSpace(p.Component),
-		AgentID:   shared.FirstNonEmpty(p.AgentID, p.AgentIDSnake),
-		ThreadID:  shared.FirstNonEmpty(p.ThreadID, p.ThreadIDSnake),
-		EventType: shared.FirstNonEmpty(p.EventType, p.EventTypeSnake),
-		ToolName:  shared.FirstNonEmpty(p.ToolName, p.ToolNameSnake),
+		AgentID:   util.FirstNonEmpty(p.AgentID, p.AgentIDSnake),
+		ThreadID:  util.FirstNonEmpty(p.ThreadID, p.ThreadIDSnake),
+		EventType: util.FirstNonEmpty(p.EventType, p.EventTypeSnake),
+		ToolName:  util.FirstNonEmpty(p.ToolName, p.ToolNameSnake),
 		Limit:     p.Limit,
 	}
 }
@@ -112,13 +112,13 @@ func (p logsParams) fieldValue(field logFilterField) string {
 	case logFieldComponent:
 		return p.Component
 	case logFieldAgentID:
-		return shared.FirstNonEmpty(p.AgentID, p.AgentIDSnake)
+		return util.FirstNonEmpty(p.AgentID, p.AgentIDSnake)
 	case logFieldThreadID:
-		return shared.FirstNonEmpty(p.ThreadID, p.ThreadIDSnake)
+		return util.FirstNonEmpty(p.ThreadID, p.ThreadIDSnake)
 	case logFieldEventType:
-		return shared.FirstNonEmpty(p.EventType, p.EventTypeSnake)
+		return util.FirstNonEmpty(p.EventType, p.EventTypeSnake)
 	case logFieldToolName:
-		return shared.FirstNonEmpty(p.ToolName, p.ToolNameSnake)
+		return util.FirstNonEmpty(p.ToolName, p.ToolNameSnake)
 	default:
 		return ""
 	}

@@ -7,7 +7,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	teampkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/team"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 const (
@@ -100,7 +99,7 @@ const (
 	MemoryPathClassAuto  MemoryPathClass = "auto"
 )
 
-func NewConfig(platformCfg *platformconfig.Config) *Config {
+func NewConfig(platformCfg *contract.Config) *Config {
 	kairosEnabled := parseBoolEnv(envFeatureKairos, false)
 	envOverride := firstNonEmptyEnv(envMemoryPathOverride, envClaudeMemoryPathOverride)
 	cfg := &Config{
@@ -241,7 +240,7 @@ func LoadNestedMemoryPaths() []string {
 	return []string{}
 }
 
-func defaultRootDir(platformCfg *platformconfig.Config) string {
+func defaultRootDir(platformCfg *contract.Config) string {
 	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
 		return filepath.Join(home, ".multi-agent", "memory")
 	}
@@ -251,7 +250,7 @@ func defaultRootDir(platformCfg *platformconfig.Config) string {
 	return ""
 }
 
-func defaultProjectRoot(platformCfg *platformconfig.Config) string {
+func defaultProjectRoot(platformCfg *contract.Config) string {
 	if platformCfg != nil && strings.TrimSpace(platformCfg.ProjectRoot) != "" {
 		return platformCfg.ProjectRoot
 	}

@@ -11,8 +11,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolresults"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/toolresults"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 )
@@ -259,7 +258,7 @@ func agentMemoryReadResult(root string, entry MemoryEntry, indexHit bool) contra
 // NewMemorySubscribers declares memory lifecycle bus subscriptions for BusModule.
 func NewMemorySubscribers(scheduler *autoDreamScheduler, nested *nestedIngestWorker, teamSync *teamSyncCoordinator, p memorySubscriberParams) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
-		Spec: platformbus.SubscriberSpec{
+		Spec: contract.SubscriberSpec{
 			EventType:     "memory.lifecycle",
 			HandlerSymbol: "memory.registerLifecycleSubscriptions",
 			OwnerModule:   "memory",
@@ -275,17 +274,23 @@ func NewMemorySubscribers(scheduler *autoDreamScheduler, nested *nestedIngestWor
 					ThreadStore:     p.ThreadStore,
 					TeamSync:        p.TeamSync,
 				}
+				// Create and start the memoryHookWorker so the
+				// onTurnInputReceived / onTurnCompleted bus callbacks
+				// only enqueue; disk I/O runs on the worker goroutine.
+				hookWorker := newMemoryHookWorker(p.Hooks, pkglogger.Get())
+				hookWorker.Start()
 				var cancels []context.CancelFunc
 				appendCancel := func(cancel context.CancelFunc) {
 					if cancel != nil {
 						cancels = append(cancels, cancel)
 					}
 				}
-				registerLifecycleSubscriptions(deps, scheduler, nested, teamSync, appendCancel)
+				registerLifecycleSubscriptions(deps, scheduler, nested, teamSync, hookWorker, appendCancel)
 				var once sync.Once
 				return func() {
 					once.Do(func() {
 						cancelSubscriptions(cancels)
+						_ = hookWorker.Stop(context.Background())
 					})
 				}
 			},
@@ -311,14 +316,14 @@ func newTeamSyncCoordinatorProvider(p teamSyncCoordinatorProviderParams) *teamSy
 	return newTeamSyncCoordinator(p.TeamSync, p.ThreadStore, pkglogger.Get())
 }
 
-func autoDreamSchedulerAsRunner(s *autoDreamScheduler) platformrunner.Runner {
-	return platformrunner.AsRunner(s)
+func autoDreamSchedulerAsRunner(s *autoDreamScheduler) contract.Runner {
+	return contract.AsRunner(s)
 }
 
-func nestedIngestWorkerAsRunner(w *nestedIngestWorker) platformrunner.Runner {
-	return platformrunner.AsRunner(w)
+func nestedIngestWorkerAsRunner(w *nestedIngestWorker) contract.Runner {
+	return contract.AsRunner(w)
 }
 
-func teamSyncCoordinatorAsRunner(c *teamSyncCoordinator) platformrunner.Runner {
-	return platformrunner.AsRunner(c)
+func teamSyncCoordinatorAsRunner(c *teamSyncCoordinator) contract.Runner {
+	return contract.AsRunner(c)
 }

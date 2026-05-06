@@ -153,7 +153,7 @@ func TestOrchestrationTurnStarterReportsSessionNotReady(t *testing.T) {
 	if err == nil {
 		t.Fatal("StartTurn() error = nil, want session-not-ready error")
 	}
-	if got := err.Error(); got != "agent session not ready, ensure agent.launch completed" {
+	if got := err.Error(); got != "agent session not ready, ensure agent/launch completed" {
 		t.Fatalf("StartTurn() error = %q, want session-not-ready error", got)
 	}
 }
@@ -223,7 +223,7 @@ func TestOrchestrationTurnStarterWaitForSessionReadyTimeout(t *testing.T) {
 	if err == nil {
 		t.Fatal("WaitForSessionReady() error = nil, want session-not-ready error")
 	}
-	if got := err.Error(); got != "agent session not ready, ensure agent.launch completed" {
+	if got := err.Error(); got != "agent session not ready, ensure agent/launch completed" {
 		t.Fatalf("WaitForSessionReady() error = %q, want session-not-ready error", got)
 	}
 }

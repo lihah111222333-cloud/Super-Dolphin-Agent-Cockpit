@@ -10,8 +10,9 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -24,7 +25,7 @@ func normalizeStartRequest(req StartRequest) (StartRequest, string, error) {
 	if req.AgentID == "" {
 		// Root agent: timestamp-only ID. Collision is checked at
 		// the service layer which retries with a fresh timestamp.
-		req.AgentID = shared.NewAgentID()
+		req.AgentID = idgen.NewAgentID()
 	}
 	req, err := resolveStartConfig(req)
 	if err != nil {
@@ -42,7 +43,7 @@ func (s *service) reserveUniqueStartAgentID(
 	candidate = strings.TrimSpace(candidate)
 	parentID := strings.TrimSpace(req.ParentAgentID)
 	if candidate == "" {
-		candidate = shared.NewAgentID()
+		candidate = idgen.NewAgentID()
 	}
 	s.agentIDMu.Lock()
 	defer s.agentIDMu.Unlock()
@@ -75,7 +76,7 @@ func (s *service) reserveNextChildAgentIDLocked(ctx context.Context, parentID st
 		}
 	}
 	for i := 0; i < maxAgentIDReservationRetries; i++ {
-		candidate := shared.NewChildAgentID(parentID, int(base)+1+i)
+		candidate := idgen.NewChildAgentID(parentID, int(base)+1+i)
 		release, err := s.reserveAgentIDIfAvailableLocked(ctx, candidate)
 		if err != nil {
 			return "", nil, err
@@ -89,7 +90,7 @@ func (s *service) reserveNextChildAgentIDLocked(ctx context.Context, parentID st
 
 func (s *service) reserveGeneratedRootAgentIDLocked(ctx context.Context) (string, func(), error) {
 	for i := 0; i < maxAgentIDReservationRetries; i++ {
-		candidate := shared.NewAgentID()
+		candidate := idgen.NewAgentID()
 		release, err := s.reserveAgentIDIfAvailableLocked(ctx, candidate)
 		if err != nil {
 			return "", nil, err
@@ -144,7 +145,7 @@ func (s *service) agentIDInUseLocked(ctx context.Context, agentID string) (bool,
 		if err == nil && binding != nil {
 			return true, nil
 		}
-		if err != nil && !platformdb.IsNotFound(err) {
+		if err != nil && !contract.IsNotFound(err) {
 			return true, fmt.Errorf("thread: check agent_id %q in binding store: %w", agentID, err)
 		}
 	}
@@ -178,7 +179,7 @@ func trimStartRequest(req StartRequest) StartRequest {
 func resolveStartConfig(req StartRequest) (StartRequest, error) {
 	// ModelProvider from frontend (e.g. "claude") should drive provider selection
 	// when Provider is not explicitly set.
-	provider, err := resolveStartProvider(shared.FirstNonEmpty(req.Provider, req.ModelProvider))
+	provider, err := resolveStartProvider(util.FirstNonEmpty(req.Provider, req.ModelProvider))
 	if err != nil {
 		return StartRequest{}, err
 	}
@@ -374,15 +375,15 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	}
 	requestedThreadID := req.ThreadID
 	state := s.lookupResumeState(ctx, requestedThreadID)
-	state.PublicThreadID = shared.FirstNonEmpty(state.PublicThreadID, requestedThreadID)
-	state.ProviderThreadID = shared.FirstNonEmpty(state.ProviderThreadID, requestedThreadID)
-	req.AgentID = shared.FirstNonEmpty(req.AgentID, state.AgentID)
-	req.Provider = shared.FirstNonEmpty(req.Provider, state.Provider)
-	req.ProviderThreadID = shared.FirstNonEmpty(req.ProviderThreadID, state.ProviderThreadID)
-	req.CWD = shared.FirstNonEmpty(req.CWD, req.Path, state.CWD)
-	req.CodexHome = shared.FirstNonEmpty(req.CodexHome, state.CodexHome)
-	req.CodexInstanceKey = shared.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey)
-	req.CodexModelProvider = shared.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
+	state.PublicThreadID = util.FirstNonEmpty(state.PublicThreadID, requestedThreadID)
+	state.ProviderThreadID = util.FirstNonEmpty(state.ProviderThreadID, requestedThreadID)
+	req.AgentID = util.FirstNonEmpty(req.AgentID, state.AgentID)
+	req.Provider = util.FirstNonEmpty(req.Provider, state.Provider)
+	req.ProviderThreadID = util.FirstNonEmpty(req.ProviderThreadID, state.ProviderThreadID)
+	req.CWD = util.FirstNonEmpty(req.CWD, req.Path, state.CWD)
+	req.CodexHome = util.FirstNonEmpty(req.CodexHome, state.CodexHome)
+	req.CodexInstanceKey = util.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey)
+	req.CodexModelProvider = util.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
 	req = s.injectDefaultCodexIdentityForResume(req)
 	req.ConfigOverride = resolveResumeConfigOverride(req, state)
 	req.Model = resolveResumeModel(req, state)
@@ -397,9 +398,9 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	state.CWD = req.CWD
 	state.Model = req.Model
 	state.Effort = req.Effort
-	state.CodexHome = shared.FirstNonEmpty(state.CodexHome, req.CodexHome)
-	state.CodexInstanceKey = shared.FirstNonEmpty(state.CodexInstanceKey, req.CodexInstanceKey)
-	state.CodexModelProvider = shared.FirstNonEmpty(state.CodexModelProvider, req.CodexModelProvider)
+	state.CodexHome = util.FirstNonEmpty(state.CodexHome, req.CodexHome)
+	state.CodexInstanceKey = util.FirstNonEmpty(state.CodexInstanceKey, req.CodexInstanceKey)
+	state.CodexModelProvider = util.FirstNonEmpty(state.CodexModelProvider, req.CodexModelProvider)
 	state.ConfigOverrideRaw = s.backfillResumeRootTaskId(ctx, state.OwnerThreadID, state.ConfigOverrideRaw)
 	return req, state, nil
 }
@@ -431,15 +432,15 @@ func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeReq
 		return ResumeRequest{}, err
 	}
 	state := s.lookupResumeState(ctx, req.ThreadID)
-	state.PublicThreadID = shared.FirstNonEmpty(state.PublicThreadID, req.ThreadID)
-	state.ProviderThreadID = shared.FirstNonEmpty(state.ProviderThreadID, req.ThreadID)
-	req.AgentID = shared.FirstNonEmpty(req.AgentID, state.AgentID)
-	req.Provider = shared.FirstNonEmpty(req.Provider, state.Provider)
-	req.ProviderThreadID = shared.FirstNonEmpty(req.ProviderThreadID, state.ProviderThreadID)
-	req.CWD = shared.FirstNonEmpty(req.CWD, req.Path, state.CWD)
-	req.CodexHome = shared.FirstNonEmpty(req.CodexHome, state.CodexHome)
-	req.CodexInstanceKey = shared.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey)
-	req.CodexModelProvider = shared.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
+	state.PublicThreadID = util.FirstNonEmpty(state.PublicThreadID, req.ThreadID)
+	state.ProviderThreadID = util.FirstNonEmpty(state.ProviderThreadID, req.ThreadID)
+	req.AgentID = util.FirstNonEmpty(req.AgentID, state.AgentID)
+	req.Provider = util.FirstNonEmpty(req.Provider, state.Provider)
+	req.ProviderThreadID = util.FirstNonEmpty(req.ProviderThreadID, state.ProviderThreadID)
+	req.CWD = util.FirstNonEmpty(req.CWD, req.Path, state.CWD)
+	req.CodexHome = util.FirstNonEmpty(req.CodexHome, state.CodexHome)
+	req.CodexInstanceKey = util.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey)
+	req.CodexModelProvider = util.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
 	req = s.injectDefaultCodexIdentityForResume(req)
 	req.PromptSnapshot = s.resolveResumePromptSnapshot(ctx, req, state)
 	if req.ConfigOverride.Model == nil {
@@ -536,7 +537,7 @@ func (s *service) lookupResumeState(ctx context.Context, threadID string) resume
 		state.PublicThreadID = strings.TrimSpace(thread.ThreadID)
 		state.Prompt = strings.TrimSpace(thread.Prompt)
 		state.Model = sanitizeConfigStringArtifact(thread.Model)
-		state.ConfigOverrideRaw = shared.CloneRawMessage(thread.ConfigOverride)
+		state.ConfigOverrideRaw = clone.RawMessage(thread.ConfigOverride)
 		state.ConfigOverride = decodeStoredThreadConfig(thread.ConfigOverride)
 		state.Effort = sanitizeConfigStringArtifact(state.ConfigOverride.Effort)
 		state.CWD = strings.TrimSpace(thread.Cwd)
@@ -544,19 +545,19 @@ func (s *service) lookupResumeState(ctx context.Context, threadID string) resume
 	}
 	binding, err := s.resolveBinding(ctx, threadID)
 	if err == nil && binding != nil {
-		state.AgentID = shared.FirstNonEmpty(state.AgentID, binding.AgentID)
-		state.ParentAgentID = shared.FirstNonEmpty(state.ParentAgentID, strings.TrimSpace(binding.ParentAgentID))
-		state.AgentType = shared.FirstNonEmpty(state.AgentType, strings.TrimSpace(binding.AgentType))
-		state.AgentMemoryScope = shared.FirstNonEmpty(state.AgentMemoryScope, strings.TrimSpace(binding.AgentMemoryScope))
+		state.AgentID = util.FirstNonEmpty(state.AgentID, binding.AgentID)
+		state.ParentAgentID = util.FirstNonEmpty(state.ParentAgentID, strings.TrimSpace(binding.ParentAgentID))
+		state.AgentType = util.FirstNonEmpty(state.AgentType, strings.TrimSpace(binding.AgentType))
+		state.AgentMemoryScope = util.FirstNonEmpty(state.AgentMemoryScope, strings.TrimSpace(binding.AgentMemoryScope))
 		state.Provider = strings.TrimSpace(binding.Provider)
-		state.ProviderThreadID = shared.FirstNonEmpty(state.ProviderThreadID, binding.ProviderThreadID)
-		state.PublicThreadID = shared.FirstNonEmpty(state.PublicThreadID, binding.CodexThreadID)
+		state.ProviderThreadID = util.FirstNonEmpty(state.ProviderThreadID, binding.ProviderThreadID)
+		state.PublicThreadID = util.FirstNonEmpty(state.PublicThreadID, binding.CodexThreadID)
 		state.RolloutPath = strings.TrimSpace(binding.RolloutPath)
 		state.SessionUUID = strings.TrimSpace(binding.SessionUUID)
 		state.CodexHome = strings.TrimSpace(binding.CodexHome)
 		state.CodexInstanceKey = strings.TrimSpace(binding.CodexInstanceKey)
 		state.CodexModelProvider = strings.TrimSpace(binding.CodexModelProvider)
-		state.CWD = shared.FirstNonEmpty(state.CWD, binding.Cwd)
+		state.CWD = util.FirstNonEmpty(state.CWD, binding.Cwd)
 		// SessionUUID is updated asynchronously by onAgentLaunched when the
 		// real provider UUID arrives (e.g. claude system:init).  If it
 		// differs from ProviderThreadID the latter is stale — prefer

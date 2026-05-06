@@ -13,7 +13,8 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 )
 
 const eventTypeAgentMessage = "agent_message"
@@ -24,7 +25,7 @@ func (s *service) ReadHistory(ctx context.Context, threadID string, limit int) (
 		return nil, err
 	}
 	targetID := historyTargetID(binding, threadID)
-	return session.ReadHistory(ctx, targetID, shared.ClampLimit(limit, 0, 0, 0))
+	return session.ReadHistory(ctx, targetID, util.ClampLimit(limit, 0, 0, 0))
 }
 
 type threadReadProvider interface {
@@ -71,11 +72,11 @@ func (s *service) ReadRuntimeConfig(ctx context.Context, threadID string) (map[s
 		return nil, offlineErr
 	}
 	if err != nil {
-		return shared.CloneRuntimeConfigMap(offline.Runtime), nil
+		return clone.RuntimeConfigMap(offline.Runtime), nil
 	}
 	reader, ok := session.(runtimeConfigReaderSession)
 	if !ok {
-		return shared.CloneRuntimeConfigMap(offline.Runtime), nil
+		return clone.RuntimeConfigMap(offline.Runtime), nil
 	}
 	return mergeRuntimeConfig(offline.Runtime, reader.RuntimeConfigSnapshot()), nil
 }
@@ -132,7 +133,7 @@ func buildReadHistoryResultFromThreads(threads []dto.ThreadRef, fallbackID strin
 func readHistoryFallbackID(ref *Ref, threadID string) string {
 	fallbackID := strings.TrimSpace(threadID)
 	if ref != nil {
-		return shared.FirstNonEmpty(ref.ID, fallbackID)
+		return util.FirstNonEmpty(ref.ID, fallbackID)
 	}
 	return fallbackID
 }
@@ -156,9 +157,9 @@ func buildReadHistoryResult(threadIDs ...string) *ReadHistoryResult {
 
 func mergeRuntimeConfig(base, overlay map[string]any) map[string]any {
 	if len(base) == 0 {
-		return shared.CloneRuntimeConfigMap(overlay)
+		return clone.RuntimeConfigMap(overlay)
 	}
-	merged := shared.CloneRuntimeConfigMap(base)
+	merged := clone.RuntimeConfigMap(base)
 	if len(overlay) == 0 {
 		return merged
 	}

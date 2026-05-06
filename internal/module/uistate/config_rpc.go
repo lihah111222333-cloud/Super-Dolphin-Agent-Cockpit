@@ -12,9 +12,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
@@ -67,28 +65,28 @@ type threadRuntimeConfigReader interface {
 }
 
 func NewConfigHandlers(
-	cfg *platformconfig.Config,
+	cfg *contract.Config,
 	prefs uipreference.Store,
 	sharedFiles sharedfilestore.Reader,
 	threads thread.Service,
 	skillStore *skilllibrary.Store,
 	nativeTools []contract.NativeToolDescriptor,
-) rpc.HandlerMapResult {
+) platformrpc.HandlerMapResult {
 	toolIndex := buildNativeToolIndex(nativeTools)
-	return rpc.HandlerMapResult{Handlers: handler.Map{
-		"config/read": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
+	return platformrpc.HandlerMapResult{Handlers: handler.Map{
+		"config/read": platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			return readRuntimeConfig(ctx, cfg, prefs, threads), nil
 		}),
-		"config/lspPromptHint/read": rpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
+		"config/lspPromptHint/read": platformrpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
 			return readLSPPromptHint(ctx, prefs, sharedFiles, p.Cwd)
 		}),
-		"config/lspPromptHint/write": rpc.StrictHandler(func(ctx context.Context, p lspPromptHintWriteParams) (any, error) {
+		"config/lspPromptHint/write": platformrpc.StrictHandler(func(ctx context.Context, p lspPromptHintWriteParams) (any, error) {
 			return writeLSPPromptHint(ctx, prefs, sharedFiles, p.Cwd, p.Hint)
 		}),
-		"config/builtinTools/read": rpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
+		"config/builtinTools/read": platformrpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
 			return readBuiltinTools(ctx, prefs, skillStore, nativeTools, toolIndex, p.Cwd)
 		}),
-		"config/builtinTools/write": rpc.StrictHandler(func(ctx context.Context, p builtinToolsWriteParams) (any, error) {
+		"config/builtinTools/write": platformrpc.StrictHandler(func(ctx context.Context, p builtinToolsWriteParams) (any, error) {
 			return writeBuiltinTool(ctx, prefs, skillStore, nativeTools, toolIndex, p)
 		}),
 	}}
@@ -96,7 +94,7 @@ func NewConfigHandlers(
 
 func readRuntimeConfig(
 	ctx context.Context,
-	cfg *platformconfig.Config,
+	cfg *contract.Config,
 	prefs uipreference.Store,
 	threads thread.Service,
 ) runtimeConfigResult {
@@ -159,7 +157,7 @@ func applyRuntimeObjectOverrides(result *runtimeConfigResult, cfg map[string]any
 	}
 }
 
-func defaultRuntimeConfig(cfg *platformconfig.Config) runtimeConfigResult {
+func defaultRuntimeConfig(cfg *contract.Config) runtimeConfigResult {
 	return runtimeConfigResult{
 		Model:                 "o4-mini",
 		ModelProvider:         nil,
@@ -189,7 +187,7 @@ func readActiveThreadID(ctx context.Context, prefs uipreference.Store, cwd strin
 	raw, err := prefs.GetValue(ctx, strings.TrimSpace(cwd), normalizePreferenceKey(preferenceActiveThreadID))
 	switch {
 	case err == nil:
-	case platformdb.IsNotFound(err):
+	case contract.IsNotFound(err):
 		return ""
 	default:
 		return ""
@@ -291,7 +289,7 @@ func runtimeConfigInt(cfg map[string]any, key string) int {
 	}
 }
 
-func configCWD(cfg *platformconfig.Config) string {
+func configCWD(cfg *contract.Config) string {
 	if cfg == nil {
 		return ""
 	}
@@ -354,7 +352,7 @@ func readDefaultLSPPromptHint(ctx context.Context, sharedFiles sharedfilestore.R
 			return "", nil
 		}
 		return file.Content, nil
-	case platformdb.IsNotFound(err):
+	case contract.IsNotFound(err):
 		return "", nil
 	default:
 		return "", err
@@ -368,7 +366,7 @@ func readLSPPromptOverride(ctx context.Context, prefs uipreference.Store, cwd st
 	raw, err := prefs.GetValue(ctx, strings.TrimSpace(cwd), normalizePreferenceKey(lspPromptHintOverrideKey))
 	switch {
 	case err == nil:
-	case platformdb.IsNotFound(err):
+	case contract.IsNotFound(err):
 		return "", nil
 	default:
 		return "", err

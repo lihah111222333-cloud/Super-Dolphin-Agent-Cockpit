@@ -11,9 +11,9 @@ import (
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -249,7 +249,7 @@ func autoTaskHandoffMeta(req StartRequest, meta taskHandoffMeta) taskHandoffMeta
 	if meta.TaskID != "" || !shouldAutoTaskHandoff(req) {
 		return meta
 	}
-	meta.TaskID = shared.NewID("task")
+	meta.TaskID = idgen.NewID("task")
 	meta.TaskTitle = firstNonEmptyTaskString(meta.TaskTitle, defaultTaskTitle(req))
 	meta.HandoffFile = defaultTaskHandoffPath(meta.TaskID)
 	return meta

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2/handler"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/dedup"
@@ -291,7 +291,7 @@ func firstNonEmptyUI(values ...string) string {
 
 func registerUIMemoryHandlers(p memoryHandlerDeps) handler.Map {
 	return handler.Map{
-		"ui/memory/get": rpc.StrictHandler(func(ctx context.Context, req uiMemoryGetParams) (UIMemorySnapshot, error) {
+		"ui/memory/get": platformrpc.StrictHandler(func(ctx context.Context, req uiMemoryGetParams) (UIMemorySnapshot, error) {
 			return buildUIMemorySnapshot(ctx, p.Service, p.Logger, req.CWD)
 		}),
 	}

@@ -6,8 +6,8 @@ import (
 
 	"github.com/creachadair/jrpc2/handler"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
 )
 
 type uiDashboardGetParams struct {
@@ -80,26 +80,26 @@ type dagDetailParams struct {
 	DAGKey string `json:"dagKey,omitempty"`
 }
 
-func NewDashboardHandlers(svc Service) rpc.HandlerMapResult {
-	return rpc.HandlerMapResult{Handlers: handler.Map{
-		"ui/dashboard/get": rpc.StrictHandler(func(ctx context.Context, p uiDashboardGetParams) (any, error) {
+func NewDashboardHandlers(svc Service) platformrpc.HandlerMapResult {
+	return platformrpc.HandlerMapResult{Handlers: handler.Map{
+		"ui/dashboard/get": platformrpc.StrictHandler(func(ctx context.Context, p uiDashboardGetParams) (any, error) {
 			ctx = withDashboardPromptScopeCWD(ctx, p.Cwd)
 			return svc.GetDashboardPage(ctx, p.Page)
 		}),
-		"dashboard/agentStatus": rpc.StrictHandler(func(ctx context.Context, p agentStatusParams) (any, error) {
+		"dashboard/agentStatus": platformrpc.StrictHandler(func(ctx context.Context, p agentStatusParams) (any, error) {
 			agents, err := svc.ListAgentStatuses(ctx, p.Status)
 			if err != nil {
 				return nil, err
 			}
 			return wrapResponse("agents", agents), nil
 		}),
-		"dashboard/taskTraces": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
+		"dashboard/taskTraces": platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			return dashboardPageField(ctx, svc, "tasks", func(page *DashboardPage) any { return page.TaskTraces }, "traces")
 		}),
-		"dashboard/commandCards": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
+		"dashboard/commandCards": platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			return dashboardPageField(ctx, svc, "commands", func(page *DashboardPage) any { return page.CommandCards }, "cards")
 		}),
-		"dashboard/prompts": rpc.StrictHandler(func(ctx context.Context, p dashboardPromptsParams) (any, error) {
+		"dashboard/prompts": platformrpc.StrictHandler(func(ctx context.Context, p dashboardPromptsParams) (any, error) {
 			ctx = withDashboardPromptScopeCWD(ctx, p.Cwd)
 			page, err := svc.GetDashboardPage(ctx, "commands")
 			if err != nil {
@@ -107,44 +107,44 @@ func NewDashboardHandlers(svc Service) rpc.HandlerMapResult {
 			}
 			return wrapResponse("prompts", page.Prompts), nil
 		}),
-		"dashboard/sharedFiles": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
+		"dashboard/sharedFiles": platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			return dashboardPageField(ctx, svc, "memory", func(page *DashboardPage) any { return page.Memory }, "files")
 		}),
-		"dashboard/skills": rpc.StrictHandler(func(ctx context.Context, p dashboardPromptsParams) (any, error) {
+		"dashboard/skills": platformrpc.StrictHandler(func(ctx context.Context, p dashboardPromptsParams) (any, error) {
 			ctx = withDashboardPromptScopeCWD(ctx, p.Cwd)
 			return dashboardPageField(ctx, svc, "skills", func(page *DashboardPage) any { return page.Skills })
 		}),
-		"dashboard/agent/detail": rpc.StrictHandler(func(ctx context.Context, p agentDetailParams) (any, error) {
+		"dashboard/agent/detail": platformrpc.StrictHandler(func(ctx context.Context, p agentDetailParams) (any, error) {
 			return svc.GetAgentDetail(ctx, p.agentID())
 		}),
-		"dashboard/system/info": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
+		"dashboard/system/info": platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			return svc.GetSystemInfo(ctx)
 		}),
-		"dashboard/query": rpc.StrictHandler(func(ctx context.Context, p dashboardQueryParams) ([]map[string]any, error) {
+		"dashboard/query": platformrpc.StrictHandler(func(ctx context.Context, p dashboardQueryParams) ([]map[string]any, error) {
 			return svc.Query(ctx, p.Query, p.Args...)
 		}),
-		"dashboard/aiLogs": rpc.StrictHandler(func(ctx context.Context, p logsParams) (any, error) {
+		"dashboard/aiLogs": platformrpc.StrictHandler(func(ctx context.Context, p logsParams) (any, error) {
 			return dashboardAILogField(ctx, svc, p)
 		}),
-		"dashboard/auditLogs": rpc.StrictHandler(func(ctx context.Context, p auditLogsParams) (any, error) {
+		"dashboard/auditLogs": platformrpc.StrictHandler(func(ctx context.Context, p auditLogsParams) (any, error) {
 			return dashboardAuditLogField(ctx, svc, p)
 		}),
-		"dashboard/busLogs": rpc.StrictHandler(func(ctx context.Context, p busLogsParams) (any, error) {
+		"dashboard/busLogs": platformrpc.StrictHandler(func(ctx context.Context, p busLogsParams) (any, error) {
 			return dashboardBusLogField(ctx, svc, p)
 		}),
-		"dashboard/dags": rpc.StrictHandler(func(ctx context.Context, p dagsParams) (any, error) {
+		"dashboard/dags": platformrpc.StrictHandler(func(ctx context.Context, p dagsParams) (any, error) {
 			return dashboardDAGField(ctx, svc, p)
 		}),
-		"dashboard/dagDetail": rpc.StrictHandler(func(ctx context.Context, p dagDetailParams) (any, error) {
+		"dashboard/dagDetail": platformrpc.StrictHandler(func(ctx context.Context, p dagDetailParams) (any, error) {
 			return dashboardDAGDetailField(ctx, svc, p)
 		}),
-		"dashboard/aiLogs/recent": rpc.StrictHandler(func(ctx context.Context, p limitParams) (any, error) {
+		"dashboard/aiLogs/recent": platformrpc.StrictHandler(func(ctx context.Context, p limitParams) (any, error) {
 			return dashboardRecentAILogField(ctx, svc, p.Limit)
 		}),
-		"dashboard/aiLogs/stats": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
+		"dashboard/aiLogs/stats": platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			return dashboardAILogStatsField(ctx, svc)
 		}),
-		"dashboard/logs": rpc.StrictHandler(func(ctx context.Context, p logsParams) (any, error) {
+		"dashboard/logs": platformrpc.StrictHandler(func(ctx context.Context, p logsParams) (any, error) {
 			return dashboardLogField(ctx, svc, p, p.Source)
 		}),
 	}}
@@ -236,5 +236,5 @@ func dashboardAILogStatsField(ctx context.Context, svc Service) (map[string]any,
 }
 
 func (p agentDetailParams) agentID() string {
-	return shared.FirstNonEmpty(p.AgentID, p.AgentIDSnake)
+	return util.FirstNonEmpty(p.AgentID, p.AgentIDSnake)
 }

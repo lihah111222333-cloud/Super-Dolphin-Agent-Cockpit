@@ -15,7 +15,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
@@ -168,7 +167,7 @@ func (s *promptService) GetPrompt(
 		return nil, err
 	}
 	if !promptVisibleForRead(*template, cwd) {
-		return nil, platformdb.ErrNotFound
+		return nil, contract.ErrNotFound
 	}
 	return template, nil
 }
@@ -228,7 +227,7 @@ func (s *promptService) WriteSection(ctx context.Context, cwd string, req Prompt
 			return gerr
 		}
 		if !promptVisibleForRead(*template, cwd) {
-			return platformdb.ErrNotFound
+			return contract.ErrNotFound
 		}
 		section, uerr := txStore.UpsertSection(ctx, promptstore.PromptTemplateSection{
 			TemplateID: template.ID,
@@ -268,7 +267,7 @@ func (s *promptService) DeleteSection(ctx context.Context, cwd, promptKey, secti
 			return gerr
 		}
 		if !promptVisibleForRead(*template, cwd) {
-			return platformdb.ErrNotFound
+			return contract.ErrNotFound
 		}
 		return txStore.DeleteSection(ctx, template.ID, sKey)
 	})
@@ -395,7 +394,7 @@ func resolvePromptKey(
 	switch {
 	case err == nil:
 		return fmt.Sprintf("%s-%d", base, time.Now().UnixNano()), nil
-	case platformdb.IsNotFound(err):
+	case contract.IsNotFound(err):
 		return base, nil
 	default:
 		return "", err

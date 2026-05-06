@@ -12,7 +12,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 )
 
 const teamSyncGitTimeout = 4 * time.Second
@@ -287,7 +287,7 @@ func resolveTeamRepoSlug(ctx context.Context, projectRoot string) (string, error
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	gitCtx, cancel := platformconfig.WithTimeout(ctx, teamSyncGitTimeout)
+	gitCtx, cancel := ctxutil.WithTimeout(ctx, teamSyncGitTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(gitCtx, "git", "config", "--get", "remote.origin.url")
 	cmd.Dir = projectRoot

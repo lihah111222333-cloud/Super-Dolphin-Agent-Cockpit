@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
@@ -253,7 +252,7 @@ func newDashboardQueryTestServer(t *testing.T, db *queryDBTXStub) *platformrpc.S
 func newDashboardTestServer(t *testing.T, svc Service) *platformrpc.Server {
 	t.Helper()
 
-	server := platformrpc.NewServer(platformrpc.Params{Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"}})
+	server := platformrpc.NewServer(platformrpc.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(NewDashboardHandlers(svc).Handlers)
 	return server
 }

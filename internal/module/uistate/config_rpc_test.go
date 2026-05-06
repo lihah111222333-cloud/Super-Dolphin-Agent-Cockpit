@@ -6,9 +6,9 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
@@ -49,7 +49,7 @@ func TestConfigHandlersReadAndWriteLSPPromptHint(t *testing.T) {
 		},
 	}}
 	server := newConfigTestServer(
-		&platformconfig.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: "/window"},
+		&contract.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: "/window"},
 		prefs,
 		sharedFiles,
 		threads,
@@ -118,7 +118,7 @@ func TestConfigReadFallsBackToDefaultsWhenThreadConfigUnavailable(t *testing.T) 
 		},
 	}
 	server := newConfigTestServer(
-		&platformconfig.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: "/window"},
+		&contract.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: "/window"},
 		prefs,
 		&sharedFileStoreStub{},
 		threads,
@@ -151,7 +151,7 @@ func TestConfigPromptHintWriteRequiresPreferenceStore(t *testing.T) {
 	t.Parallel()
 
 	server := newConfigTestServer(
-		&platformconfig.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: "/window"},
+		&contract.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: "/window"},
 		nil,
 		&sharedFileStoreStub{},
 		nil,
@@ -167,7 +167,7 @@ func TestConfigPromptHintWriteRequiresPreferenceStore(t *testing.T) {
 }
 
 func newConfigTestServer(
-	cfg *platformconfig.Config,
+	cfg *contract.Config,
 	prefs uipreference.Store,
 	sharedFiles sharedfilestore.Reader,
 	threads thread.Service,

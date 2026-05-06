@@ -3,21 +3,25 @@ package turn
 import (
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/discovery"
-	"github.com/anthropic-ai/super-agent-v3/internal/provider/manifestbuilder"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/discovery"
 )
 
 type manifestBuilder struct {
 	binaryDir string
+	buildFn   contract.ManifestBuildFunc
 }
 
-func newManifestBuilder(binaryDir string) *manifestBuilder {
-	return &manifestBuilder{binaryDir: strings.TrimSpace(binaryDir)}
+func newManifestBuilder(binaryDir string, buildFn contract.ManifestBuildFunc) *manifestBuilder {
+	return &manifestBuilder{
+		binaryDir: strings.TrimSpace(binaryDir),
+		buildFn:   buildFn,
+	}
 }
 
 func (b *manifestBuilder) Build(input PrepareInput, threadID string) dto.MCPManifest {
-	return manifestbuilder.BuildManifest(dto.ManifestContext{
+	return b.buildFn(dto.ManifestContext{
 		AgentID:       input.AgentID,
 		ThreadID:      threadID,
 		CWD:           input.CWD,

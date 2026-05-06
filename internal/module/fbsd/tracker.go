@@ -28,6 +28,7 @@ const (
 type Tracker struct {
 	wsPath, globPath string
 	enabled          bool
+	started          bool
 	saveInterval     time.Duration
 
 	mu        sync.Mutex
@@ -63,18 +64,29 @@ func newTrackerWithInterval(wsPath, globPath string, enabled bool, interval time
 		close(t.done)
 		return t, nil
 	}
-	ws, err := LoadStats(wsPath)
-	if err != nil {
-		return nil, err
+	return t, nil
+}
+
+// Start loads persisted stats from disk and launches the background
+// worker. It must be called from an fx OnStart hook so blocking I/O
+// does not run inside an fx constructor.
+func (t *Tracker) Start() error {
+	if t == nil || !t.enabled {
+		return nil
 	}
-	gl, err := LoadStats(globPath)
+	ws, err := LoadStats(t.wsPath)
 	if err != nil {
-		return nil, err
+		return err
+	}
+	gl, err := LoadStats(t.globPath)
+	if err != nil {
+		return err
 	}
 	t.wsStats = ws
 	t.globStats = gl
+	t.started = true
 	go t.run()
-	return t, nil
+	return nil
 }
 
 // Enabled 报告 feature flag 是否打开。nil receiver → false。
@@ -96,9 +108,9 @@ func (t *Tracker) Record(name, anchor string) {
 }
 
 // Flush 通知 worker 停止 + drain 剩余 events + 写盘。fx OnStop 钩子调用。
-// nil receiver / disabled → no-op 立即返回。重复 Flush 安全（stop 仅 close-once）。
+// nil receiver / disabled / not started → no-op 立即返回。重复 Flush 安全（stop 仅 close-once）。
 func (t *Tracker) Flush(ctx context.Context) error {
-	if t == nil || !t.enabled {
+	if t == nil || !t.enabled || !t.started {
 		return nil
 	}
 	select {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/kelindar/event"
 )
@@ -11,7 +12,7 @@ import (
 // NewUIStateSubscribers declares UI state projection subscriptions for BusModule.
 func NewUIStateSubscribers(svc *service) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
-		Spec: platformbus.SubscriberSpec{
+		Spec: contract.SubscriberSpec{
 			EventType:     "uistate.projections",
 			HandlerSymbol: "uistate.registerProjectionSubscriptions",
 			OwnerModule:   "uistate",

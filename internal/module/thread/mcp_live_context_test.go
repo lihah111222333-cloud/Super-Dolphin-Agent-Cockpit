@@ -9,7 +9,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 func TestBuildStartCtxKeepsOnlyLiveMCPServers(t *testing.T) {
@@ -30,7 +29,7 @@ func TestBuildStartCtxKeepsOnlyLiveMCPServers(t *testing.T) {
 			"mcpInstructionsDeltaEnabled": true,
 			"frcConfig":                   map[string]any{"enabled": true, "supportedModels": []any{"gpt-5.5"}, "keepRecent": 2},
 		},
-	}, &platformconfig.Config{ProjectRoot: repoRoot}, mcpLiveToolRegistryStub{instances: []contract.ToolInstance{{BinaryName: "mcp-lsp", ClientKind: "lsp", Status: mcpdto.StatusActive}}})
+	}, &contract.Config{ProjectRoot: repoRoot}, mcpLiveToolRegistryStub{instances: []contract.ToolInstance{{BinaryName: "mcp-lsp", ClientKind: "lsp", Status: mcpdto.StatusActive}}})
 
 	if got := mcpLiveSortedStrings(ctx.MCPSnapshot.Servers); !slices.Equal(got, []string{"lsp"}) {
 		t.Fatalf("MCPSnapshot.Servers = %#v, want [lsp]", ctx.MCPSnapshot.Servers)

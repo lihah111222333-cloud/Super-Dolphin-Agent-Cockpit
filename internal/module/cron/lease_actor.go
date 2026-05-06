@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -20,7 +20,7 @@ type LeaseActor struct {
 	interval  time.Duration
 }
 
-var _ platformrunner.Runner = (*LeaseActor)(nil)
+var _ contract.Runner = (*LeaseActor)(nil)
 
 func NewLeaseActor(logger *slog.Logger, scheduler *Scheduler) *LeaseActor {
 	if logger == nil {

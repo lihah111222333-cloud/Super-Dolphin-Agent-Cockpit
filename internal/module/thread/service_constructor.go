@@ -8,7 +8,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt/classifier"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
@@ -40,7 +39,7 @@ func NewServiceWithPromptAssembly(
 	orchestration OrchestrationFacade,
 	threadEvents *bus.ThreadEmitters,
 	promptAssembly contract.PromptAssemblyService,
-	cfg *platformconfig.Config,
+	cfg *contract.Config,
 	toolRegistry contract.ToolRegistry,
 ) Service {
 	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, nil, nil)
@@ -57,7 +56,7 @@ func NewServiceWithPromptAssemblyAndSharedFiles(
 	orchestration OrchestrationFacade,
 	threadEvents *bus.ThreadEmitters,
 	promptAssembly contract.PromptAssemblyService,
-	cfg *platformconfig.Config,
+	cfg *contract.Config,
 	toolRegistry contract.ToolRegistry,
 	promptStore promptstore.Store,
 	promptClassifier classifier.Classifier,
@@ -76,7 +75,7 @@ func newService(
 	orchestration OrchestrationFacade,
 	threadEvents *bus.ThreadEmitters,
 	promptAssembly contract.PromptAssemblyService,
-	cfg *platformconfig.Config,
+	cfg *contract.Config,
 	toolRegistry contract.ToolRegistry,
 	promptStore promptstore.Store,
 	promptClassifier classifier.Classifier,
@@ -103,12 +102,12 @@ func newService(
 		bus:              dispatcher,
 		promptStore:      promptStore,
 		classifier:       promptClassifier,
-		emitStarted:      bus.NewEmitter[threaddto.Started](dispatcher),
-		emitStopped:      bus.NewEmitter[threaddto.Stopped](dispatcher),
-		emitUpdated:      bus.NewEmitter[threaddto.Updated](dispatcher),
-		emitMessagesPage: bus.NewEmitter[threaddto.MessagesPage](dispatcher),
-		emitCompacted:    bus.NewEmitter[threaddto.Compacted](dispatcher),
-		emitLaunched:     bus.NewEmitter[threaddto.Launched](dispatcher),
+		emitStarted:      contract.NewEmitter[threaddto.Started](dispatcher),
+		emitStopped:      contract.NewEmitter[threaddto.Stopped](dispatcher),
+		emitUpdated:      contract.NewEmitter[threaddto.Updated](dispatcher),
+		emitMessagesPage: contract.NewEmitter[threaddto.MessagesPage](dispatcher),
+		emitCompacted:    contract.NewEmitter[threaddto.Compacted](dispatcher),
+		emitLaunched:     contract.NewEmitter[threaddto.Launched](dispatcher),
 		threadAgents:     make(map[string]string),
 	}
 	// P22 P2 thread S3: the taskHandoffWorker owns the

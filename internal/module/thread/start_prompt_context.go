@@ -8,9 +8,8 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
 )
 
 type promptGitContext struct {
@@ -22,18 +21,18 @@ type toolInstanceLister interface {
 	ListInstances() []contract.ToolInstance
 }
 
-func buildStartCtx(req StartRequest, cfg *platformconfig.Config, registry contract.ToolRegistry) contract.BuildCtx {
+func buildStartCtx(req StartRequest, cfg *contract.Config, registry contract.ToolRegistry) contract.BuildCtx {
 	cwd := resolvePromptCWD(req.CWD)
 	outputStyleConfig := configOutputStyle(req.Config, "outputStyleConfig", "output_style_config")
 	sessionFlags := firstNonEmptyFlags(req.SessionFlags, configBoolMap(req.Config, "sessionFlags", "session_flags"))
 	sessionFlags = applyConfiguredSessionFlagDefaults(sessionFlags, cfg)
 	enabledTools := applyPersistentSubagentToolPolicy(
-		firstNonEmptyStrings(req.EnabledTools, providershared.ConfigStringSlice(req.Config, "enabledTools", "enabled_tools", "tools")),
+		firstNonEmptyStrings(req.EnabledTools, configutil.ConfigStringSlice(req.Config, "enabledTools", "enabled_tools", "tools")),
 		sessionFlags,
 	)
 	gitCtx := resolvePromptGitContext(
 		cwd,
-		shared.FirstNonEmpty(req.GitRoot, providershared.ConfigString(req.Config, "gitRoot", "git_root")),
+		util.FirstNonEmpty(req.GitRoot, configutil.ConfigString(req.Config, "gitRoot", "git_root")),
 		cfg,
 	)
 	if req.IsWorktree || configBool(req.Config, "isWorktree", "is_worktree") {
@@ -43,15 +42,15 @@ func buildStartCtx(req StartRequest, cfg *platformconfig.Config, registry contra
 		CWD:                          cwd,
 		GitRoot:                      gitCtx.Root,
 		IsWorktree:                   gitCtx.IsWorktree,
-		Language:                     shared.FirstNonEmpty(req.Language, providershared.ConfigString(req.Config, "language")),
+		Language:                     util.FirstNonEmpty(req.Language, configutil.ConfigString(req.Config, "language")),
 		Provider:                     req.Provider,
 		Model:                        req.Model,
 		EnabledTools:                 enabledTools,
-		AdditionalWorkingDirectories: firstNonEmptyStrings(req.AdditionalWorkingDirectories, providershared.ConfigStringSlice(req.Config, "additionalWorkingDirectories", "additional_working_directories")),
-		ClaudeMdExcludes:             providershared.ConfigStringSlice(req.Config, "claudeMdExcludes", "claude_md_excludes"),
+		AdditionalWorkingDirectories: firstNonEmptyStrings(req.AdditionalWorkingDirectories, configutil.ConfigStringSlice(req.Config, "additionalWorkingDirectories", "additional_working_directories")),
+		ClaudeMdExcludes:             configutil.ConfigStringSlice(req.Config, "claudeMdExcludes", "claude_md_excludes"),
 		MCPSnapshot:                  buildPromptMCPSnapshot(req.MCPSnapshot, configMCPSnapshot(req.Config), registryMCPSnapshot(registry)),
 		SessionFlags:                 sessionFlags,
-		Summary:                      shared.FirstNonEmpty(req.Summary, providershared.ConfigString(req.Config, "summary")),
+		Summary:                      util.FirstNonEmpty(req.Summary, configutil.ConfigString(req.Config, "summary")),
 		OutputStyleConfig:            outputStyleConfig,
 		ScratchpadDir:                configScratchpadDir(req.Config, "scratchpadDir", "scratchpad_dir"),
 		FRCConfig:                    configFRCConfig(req.Config, "frcConfig", "frc_config"),
@@ -59,7 +58,7 @@ func buildStartCtx(req StartRequest, cfg *platformconfig.Config, registry contra
 	}
 }
 
-func applyConfiguredSessionFlagDefaults(flags map[string]bool, cfg *platformconfig.Config) map[string]bool {
+func applyConfiguredSessionFlagDefaults(flags map[string]bool, cfg *contract.Config) map[string]bool {
 	out := cloneFlags(flags)
 	if cfg == nil || !cfg.Agent.PersistentSubagentDefault {
 		return out
@@ -121,7 +120,7 @@ func resolvePromptCWD(cwd string) string {
 	return cwd
 }
 
-func resolvePromptGitContext(cwd, hintRoot string, cfg *platformconfig.Config) promptGitContext {
+func resolvePromptGitContext(cwd, hintRoot string, cfg *contract.Config) promptGitContext {
 	ctx := discoverPromptGitContext(cwd)
 	if root := strings.TrimSpace(hintRoot); root != "" {
 		ctx.Root = root
@@ -191,7 +190,7 @@ func worktreeGitRoot(gitDir string) string {
 	return filepath.Clean(root)
 }
 
-func cfgProjectRoot(cfg *platformconfig.Config) string {
+func cfgProjectRoot(cfg *contract.Config) string {
 	if cfg == nil {
 		return ""
 	}
@@ -271,8 +270,8 @@ func cloneOptionalBool(value *bool) *bool {
 
 func configMCPSnapshot(cfg map[string]any) contract.MCPSnapshot {
 	return contract.MCPSnapshot{
-		Servers:                  providershared.ConfigStringSlice(cfg, "mcpServers", "mcp_servers"),
-		Tools:                    providershared.ConfigStringSlice(cfg, "mcpTools", "mcp_tools"),
+		Servers:                  configutil.ConfigStringSlice(cfg, "mcpServers", "mcp_servers"),
+		Tools:                    configutil.ConfigStringSlice(cfg, "mcpTools", "mcp_tools"),
 		Instructions:             configStringMap(cfg, "mcpInstructions", "mcp_instructions"),
 		InstructionsDeltaEnabled: configBool(cfg, "mcpInstructionsDeltaEnabled", "mcp_instructions_delta_enabled"),
 	}
@@ -284,7 +283,7 @@ func configStringMap(cfg map[string]any, keys ...string) map[string]string {
 		if !ok {
 			continue
 		}
-		if out := providershared.StringMap(value); len(out) > 0 {
+		if out := configutil.StringMap(value); len(out) > 0 {
 			return out
 		}
 	}
@@ -306,7 +305,7 @@ func registryMCPSnapshot(registry contract.ToolRegistry) contract.MCPSnapshot {
 			servers = append(servers, server)
 		}
 	}
-	return contract.MCPSnapshot{Servers: providershared.NormalizeConfigStringSlice(servers)}
+	return contract.MCPSnapshot{Servers: configutil.NormalizeConfigStringSlice(servers)}
 }
 
 func buildPromptMCPSnapshot(base, configured, live contract.MCPSnapshot) contract.MCPSnapshot {
@@ -360,7 +359,7 @@ func firstNonEmptyStrings(primary, fallback []string) []string {
 }
 
 func uniquePromptStrings(first, second []string) []string {
-	combined := providershared.NormalizeConfigStringSlice(append(append([]string(nil), first...), second...))
+	combined := configutil.NormalizeConfigStringSlice(append(append([]string(nil), first...), second...))
 	if len(combined) == 0 {
 		return nil
 	}
@@ -426,10 +425,10 @@ func normalizeOutputStyleConfig(value any) *contract.OutputStyleConfig {
 		return cloneOutputStyleConfig(*typed)
 	case map[string]any:
 		style := contract.OutputStyleConfig{
-			Name:        providershared.ConfigString(typed, "name"),
-			Description: providershared.ConfigString(typed, "description"),
-			Prompt:      providershared.ConfigString(typed, "prompt"),
-			Source:      providershared.ConfigString(typed, "source"),
+			Name:        configutil.ConfigString(typed, "name"),
+			Description: configutil.ConfigString(typed, "description"),
+			Prompt:      configutil.ConfigString(typed, "prompt"),
+			Source:      configutil.ConfigString(typed, "source"),
 		}
 		style.KeepCodingInstructions = configOptionalBool(typed, "keepCodingInstructions", "keep_coding_instructions")
 		if strings.TrimSpace(style.Name) == "" &&
@@ -493,7 +492,7 @@ func normalizeFRCConfig(value any) *contract.FRCConfig {
 		cfg := contract.FRCConfig{
 			Enabled:                      configBool(typed, "enabled"),
 			SystemPromptSuggestSummaries: configBool(typed, "systemPromptSuggestSummaries", "system_prompt_suggest_summaries"),
-			SupportedModels:              providershared.ConfigStringSlice(typed, "supportedModels", "supported_models"),
+			SupportedModels:              configutil.ConfigStringSlice(typed, "supportedModels", "supported_models"),
 			KeepRecent:                   configInt(typed, "keepRecent", "keep_recent"),
 		}
 		if !cfg.Enabled && !cfg.SystemPromptSuggestSummaries && cfg.KeepRecent == 0 && len(cfg.SupportedModels) == 0 {

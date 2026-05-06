@@ -18,8 +18,7 @@ import (
 	retrievalpkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/retrieval"
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 	teampkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/team"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	skillcandidatedto "github.com/anthropic-ai/super-agent-v3/internal/store/skillcandidate"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -148,7 +147,8 @@ func NewMemoryLifecycleHooks(p memoryLifecycleHookParams) *MemoryLifecycleHooks 
 	}
 	if hooks != nil {
 		hooks.feedbackTracker = NewFeedbackTracker(3)
-		hooks.feedbackTracker.LoadFromDir(hooks.rootDir)
+		// LoadFromDir is deferred to bindMemoryDrainShutdown.OnStart
+		// so blocking I/O does not run inside an fx constructor.
 		if p.DreamExecutor != nil && p.CandidateStore != nil {
 			dream := p.DreamExecutor
 			store := p.CandidateStore
@@ -421,9 +421,9 @@ func provideAgentMemoryWriter(hooks *MemoryLifecycleHooks) contract.AgentMemoryW
 	return hooks
 }
 
-func NewMemoryHandlers(p memoryHandlerDeps) rpc.HandlerMapResult {
+func NewMemoryHandlers(p memoryHandlerDeps) platformrpc.HandlerMapResult {
 	handlers := handler.Map{
-		"memory/consolidate": rpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
+		"memory/consolidate": platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			if err := p.Service.RunConsolidation(ctx); err != nil {
 				return nil, err
 			}
@@ -436,7 +436,7 @@ func NewMemoryHandlers(p memoryHandlerDeps) rpc.HandlerMapResult {
 	for name, item := range registerUIMemoryMutationHandlers(p) {
 		handlers[name] = item
 	}
-	return rpc.HandlerMapResult{Handlers: handlers}
+	return platformrpc.HandlerMapResult{Handlers: handlers}
 }
 
 func buildConsolidationRuntimeContext(source string, sessionsSinceLast int, lastSuccess time.Time, threadID string) string {
@@ -500,6 +500,12 @@ func bindMemoryDrainShutdown(p memoryDrainShutdownParams) {
 		return
 	}
 	p.Lifecycle.Append(fx.Hook{
+		OnStart: func(context.Context) error {
+			if p.Hooks.feedbackTracker != nil {
+				p.Hooks.feedbackTracker.LoadFromDir(p.Hooks.rootDir)
+			}
+			return nil
+		},
 		OnStop: func(ctx context.Context) error {
 			drainDreamTask(ctx, p.Hooks)
 			return nil
@@ -525,36 +531,20 @@ func registerTeamMemoryRuntime(lc fx.Lifecycle) {
 // teamSync stop through their RunnerModule adapters, while the legacy dream
 // task is closed by bindMemoryDrainShutdown during resource shutdown.
 func drainMemoryHooks(ctx context.Context, scheduler *autoDreamScheduler, nested *nestedIngestWorker, teamSync *teamSyncCoordinator, hooks *MemoryLifecycleHooks) {
-	drainAutoDreamScheduler(ctx, scheduler)
-	drainNestedIngestWorker(ctx, nested)
-	drainTeamSyncCoordinator(ctx, teamSync)
+	drainStoppable(ctx, "auto-dream scheduler", scheduler)
+	drainStoppable(ctx, "nested ingest worker", nested)
+	drainStoppable(ctx, "team sync coordinator", teamSync)
 	drainDreamTask(ctx, hooks)
 }
 
-func drainTeamSyncCoordinator(ctx context.Context, coordinator *teamSyncCoordinator) {
-	if coordinator == nil {
-		return
-	}
-	if err := coordinator.Stop(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		pkglogger.Get().Warn("memory: team sync coordinator drain failed", "error", err)
-	}
-}
+type stoppable interface{ Stop(context.Context) error }
 
-func drainAutoDreamScheduler(ctx context.Context, scheduler *autoDreamScheduler) {
-	if scheduler == nil {
+func drainStoppable(ctx context.Context, name string, s stoppable) {
+	if s == nil {
 		return
 	}
-	if err := scheduler.Stop(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		pkglogger.Get().Warn("memory: auto-dream scheduler drain failed", "error", err)
-	}
-}
-
-func drainNestedIngestWorker(ctx context.Context, nested *nestedIngestWorker) {
-	if nested == nil {
-		return
-	}
-	if err := nested.Stop(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		pkglogger.Get().Warn("memory: nested ingest worker drain failed", "error", err)
+	if err := s.Stop(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		pkglogger.Get().Warn("memory: "+name+" drain failed", "error", err)
 	}
 }
 
@@ -572,8 +562,8 @@ func drainDreamTask(ctx context.Context, hooks *MemoryLifecycleHooks) {
 	}
 }
 
-func registerLifecycleSubscriptions(p memorySubscriptionDeps, scheduler *autoDreamScheduler, nested *nestedIngestWorker, teamSync *teamSyncCoordinator, appendCancel func(context.CancelFunc)) {
-	registerThreadHookSubscriptions(p, nested, teamSync, appendCancel)
+func registerLifecycleSubscriptions(p memorySubscriptionDeps, scheduler *autoDreamScheduler, nested *nestedIngestWorker, teamSync *teamSyncCoordinator, hookWorker *memoryHookWorker, appendCancel func(context.CancelFunc)) {
+	registerThreadHookSubscriptions(p, nested, teamSync, hookWorker, appendCancel)
 	registerBackgroundExtractionSubscriptions(p, appendCancel)
 	registerContextProviderSubscriptions(p, appendCancel)
 	registerAutoDreamSubscriptions(p, scheduler, appendCancel)
@@ -583,26 +573,26 @@ func registerBackgroundExtractionSubscriptions(p memorySubscriptionDeps, appendC
 	if p.Hooks == nil || !p.Hooks.extractOnStop {
 		return
 	}
-	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnStarted) {
+	appendCancel(contract.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnStarted) {
 		p.Hooks.onTurnStarted(ev)
 	}, pkglogger.Get()))
-	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnInterrupted) {
+	appendCancel(contract.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnInterrupted) {
 		p.Hooks.onTurnTerminated(ev.ThreadID, ev.TurnID)
 	}, pkglogger.Get()))
-	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnStalled) {
+	appendCancel(contract.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnStalled) {
 		p.Hooks.onTurnTerminated(ev.ThreadID, ev.TurnID)
 	}, pkglogger.Get()))
-	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev tooldto.ToolCallBegin) {
+	appendCancel(contract.ResilientSubscribe(p.Dispatcher, func(ev tooldto.ToolCallBegin) {
 		p.Hooks.onToolCallBegin(ev)
 	}, pkglogger.Get()))
-	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev tooldto.ToolDiffUpdated) {
+	appendCancel(contract.ResilientSubscribe(p.Dispatcher, func(ev tooldto.ToolDiffUpdated) {
 		p.Hooks.onToolDiffUpdated(ev)
 	}, pkglogger.Get()))
 }
 
-func registerThreadHookSubscriptions(p memorySubscriptionDeps, nested *nestedIngestWorker, teamSync *teamSyncCoordinator, appendCancel func(context.CancelFunc)) {
+func registerThreadHookSubscriptions(p memorySubscriptionDeps, nested *nestedIngestWorker, teamSync *teamSyncCoordinator, hookWorker *memoryHookWorker, appendCancel func(context.CancelFunc)) {
 	if p.NestedRuntime != nil {
-		appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev threaddto.Started) {
+		appendCancel(contract.ResilientSubscribe(p.Dispatcher, func(ev threaddto.Started) {
 			p.NestedRuntime.OnThreadStart(ev.ThreadID)
 		}, pkglogger.Get()))
 		// P22 P2 Finding 10: the ToolCallEnd callback must stay off the
@@ -610,7 +600,7 @@ func registerThreadHookSubscriptions(p memorySubscriptionDeps, nested *nestedIng
 		// lossless pending-set + wake-signal and invokes AddToolReadResult
 		// (which os.ReadFile's the persisted result) on its own goroutine.
 		if nested != nil {
-			appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev tooldto.ToolCallEnd) {
+			appendCancel(contract.ResilientSubscribe(p.Dispatcher, func(ev tooldto.ToolCallEnd) {
 				nested.Enqueue(ev.ThreadID, ev.ToolName, ev.Result, ev.PersistedPath)
 			}, pkglogger.Get()))
 		}
@@ -621,17 +611,26 @@ func registerThreadHookSubscriptions(p memorySubscriptionDeps, nested *nestedIng
 	if p.Hooks == nil || !p.Hooks.enabled {
 		return
 	}
-	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev threaddto.Started) {
-		// P22: callback only updates in-memory state (no I/O); ctx unused by callee.
+	appendCancel(contract.ResilientSubscribe(p.Dispatcher, func(ev threaddto.Started) {
+		// Callback only updates in-memory state (no I/O); ctx unused by callee.
 		p.Hooks.onThreadStart(context.Background(), ev)
 	}, pkglogger.Get()))
-	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnInputReceived) {
-		// P22: callback only updates in-memory state (no I/O); ctx unused by callee.
-		p.Hooks.onTurnInputReceived(context.Background(), ev)
+	appendCancel(contract.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnInputReceived) {
+		// Callback enqueues to memoryHookWorker; disk I/O (deleteIntent /
+		// writeDetectedIntent) runs on the worker goroutine, not here.
+		hookWorker.Enqueue(memoryHookRequest{
+			kind:      memoryHookTurnInputReceived,
+			turnInput: ev,
+		})
 	}, pkglogger.Get()))
-	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnCompleted) {
-		// P22: callback only updates in-memory state (no I/O); ctx unused by callee.
-		p.Hooks.onTurnCompleted(context.Background(), ev)
+	appendCancel(contract.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnCompleted) {
+		// Callback enqueues to memoryHookWorker; disk I/O (onTurnEnd,
+		// intent detection, background extraction) runs on the worker
+		// goroutine, not here.
+		hookWorker.Enqueue(memoryHookRequest{
+			kind:          memoryHookTurnCompleted,
+			turnCompleted: ev,
+		})
 	}, pkglogger.Get()))
 }
 
@@ -644,10 +643,10 @@ func registerTeamSyncSubscriptions(p memorySubscriptionDeps, coordinator *teamSy
 	if coordinator == nil {
 		return
 	}
-	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev threaddto.Started) {
+	appendCancel(contract.ResilientSubscribe(p.Dispatcher, func(ev threaddto.Started) {
 		coordinator.EnqueueStart(ev)
 	}, pkglogger.Get()))
-	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev threaddto.Stopped) {
+	appendCancel(contract.ResilientSubscribe(p.Dispatcher, func(ev threaddto.Stopped) {
 		coordinator.EnqueueStop(ev)
 	}, pkglogger.Get()))
 }
@@ -661,9 +660,9 @@ func registerContextProviderSubscriptions(p memorySubscriptionDeps, appendCancel
 
 func registerTurnTerminationSubscriptions(p memorySubscriptionDeps, appendCancel func(context.CancelFunc)) {
 	term := func(threadID, turnID string) { p.ContextProvider.onTurnTerminated(threadID, turnID) }
-	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnCompleted) { term(ev.ThreadID, ev.TurnID) }, pkglogger.Get()))
-	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnInterrupted) { term(ev.ThreadID, ev.TurnID) }, pkglogger.Get()))
-	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnStalled) { term(ev.ThreadID, ev.TurnID) }, pkglogger.Get()))
+	appendCancel(contract.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnCompleted) { term(ev.ThreadID, ev.TurnID) }, pkglogger.Get()))
+	appendCancel(contract.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnInterrupted) { term(ev.ThreadID, ev.TurnID) }, pkglogger.Get()))
+	appendCancel(contract.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnStalled) { term(ev.ThreadID, ev.TurnID) }, pkglogger.Get()))
 }
 
 func cancelSubscriptions(cancels []context.CancelFunc) {

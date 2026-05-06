@@ -5,7 +5,7 @@ import (
 
 	"go.uber.org/fx"
 
-	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -36,6 +36,6 @@ func provideCollector(logger *slog.Logger) *collector {
 	return newCollector(logger, defaultQueueCapacity)
 }
 
-// flusherAsRunner narrows *Flusher to the platformrunner.Runner
-// interface for the `group:"runners"` collector.
-func flusherAsRunner(f *Flusher) platformrunner.Runner { return f }
+// flusherAsRunner narrows *Flusher to the contract Runner interface
+// for the `group:"runners"` collector.
+func flusherAsRunner(f *Flusher) contract.Runner { return f }

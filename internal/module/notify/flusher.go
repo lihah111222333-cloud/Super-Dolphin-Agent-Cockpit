@@ -9,8 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platform "github.com/anthropic-ai/super-agent-v3/internal/module/notify/platform"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -39,7 +38,7 @@ type Flusher struct {
 	drainDrops  atomic.Int64
 }
 
-var _ platformrunner.Runner = (*Flusher)(nil)
+var _ contract.Runner = (*Flusher)(nil)
 
 // NewFlusher wires a Flusher with the notifier's queue + resolver and a
 // pre-built webhook client. drainTimeout <= 0 falls back to the plan
@@ -126,7 +125,7 @@ func (f *Flusher) drain() {
 	if f.drainTimeout <= 0 {
 		return
 	}
-	drainCtx, cancel := platformconfig.WithTimeout(context.Background(), f.drainTimeout)
+	drainCtx, cancel := ctxutil.WithTimeout(context.Background(), f.drainTimeout)
 	defer cancel()
 	for {
 		select {

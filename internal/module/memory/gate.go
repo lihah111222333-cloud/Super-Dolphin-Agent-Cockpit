@@ -6,7 +6,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
 )
 
 type AutoMemPathSource string
@@ -218,7 +218,7 @@ func isAutoMemPath(cfg *Config, path string) bool {
 	if err != nil {
 		return false
 	}
-	return platformshared.ContainsPath(root, candidate)
+	return pathutil.ContainsPath(root, candidate)
 }
 
 func resolveAutoEnabled(snapshot MemoryGateSnapshot, _ *Config) bool {

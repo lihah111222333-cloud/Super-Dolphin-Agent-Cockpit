@@ -65,8 +65,9 @@ func TestPrepareTurnHydratesNameOnlySkill(t *testing.T) {
 			filepath.Join(dir, "SKILL.md"): "full debug body",
 		},
 	}
-	svc := newService(silentLogger(), nil, nil, lookup, nil).(*service)
+	svc := newService(silentLogger(), nil, nil, lookup, nil, nil, nil).(*service)
 	session := &stubSession{threadID: "thread-hydrate"}
+
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
 		Prompt:               "please investigate",
 		Skills:               []dto.SkillRef{{Name: "debug", Source: dto.SkillSourceManual}},
@@ -113,8 +114,9 @@ func TestPrepareTurnPreservesSummaryWhenBodyMissing(t *testing.T) {
 			filepath.Join("/tmp/skills/rpc-tracing", "SKILL.md"): errors.New("missing"),
 		},
 	}
-	svc := newService(silentLogger(), nil, nil, lookup, nil).(*service)
+	svc := newService(silentLogger(), nil, nil, lookup, nil, nil, nil).(*service)
 	session := &stubSession{threadID: "thread-nobody"}
+
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
 		Prompt:               "trace the event flow",
 		Skills:               []dto.SkillRef{{Name: "rpc-tracing", Source: dto.SkillSourceManual}},
@@ -170,8 +172,9 @@ func TestPrepareTurnSkipsHydrateWhenAlreadyPopulated(t *testing.T) {
 			ContentHash: "shouldnotoverride1",
 		}},
 	}
-	svc := newService(silentLogger(), nil, nil, lookup, nil).(*service)
+	svc := newService(silentLogger(), nil, nil, lookup, nil, nil, nil).(*service)
 	session := &stubSession{threadID: "thread-nohit"}
+
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
 		Prompt:               "already full",
 		Skills:               []dto.SkillRef{{Name: "debug", Prompt: "user body", Summary: "user summary", Version: "v1"}},
@@ -193,8 +196,9 @@ func TestHydrateSkillRefsListSkillsErrorReturnsOriginal(t *testing.T) {
 	t.Parallel()
 
 	lookup := &stubSkillLookup{listErr: errors.New("boom")}
-	svc := newService(silentLogger(), nil, nil, lookup, nil).(*service)
+	svc := newService(silentLogger(), nil, nil, lookup, nil, nil, nil).(*service)
 	original := []dto.SkillRef{{Name: "debug"}}
+
 	out, _ := svc.hydrateSkillRefs(skillpkg.WithCWD(context.Background(), "/repo"), original, false)
 	if len(out) != 1 || out[0].Name != "debug" || out[0].Prompt != "" {
 		t.Fatalf("ListSkills error must preserve input, got %+v", out)

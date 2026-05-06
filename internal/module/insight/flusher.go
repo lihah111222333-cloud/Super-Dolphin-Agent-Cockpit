@@ -6,10 +6,10 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	observation "github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	insightstore "github.com/anthropic-ai/super-agent-v3/internal/store/insight"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -49,7 +49,7 @@ func NewFlusher(logger *slog.Logger, obs observation.Contract, store insightstor
 	}
 }
 
-var _ platformrunner.Runner = (*Flusher)(nil)
+var _ contract.Runner = (*Flusher)(nil)
 
 // Run loops until ctx cancels. On cancel it drains at most drainTimeout
 // before returning so a slow terminal is never lost silently on a normal
@@ -84,7 +84,7 @@ func (f *Flusher) drain() {
 	if f.drainTimeout <= 0 {
 		return
 	}
-	drainCtx, cancel := platformconfig.WithTimeout(context.Background(), f.drainTimeout)
+	drainCtx, cancel := ctxutil.WithTimeout(context.Background(), f.drainTimeout)
 	defer cancel()
 	drained := 0
 	for {

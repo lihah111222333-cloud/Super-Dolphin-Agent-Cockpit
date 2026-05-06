@@ -10,7 +10,7 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 	"go.uber.org/fx"
 
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
@@ -73,7 +73,7 @@ func TestNewPromptHandlersExposeLegacyPromptsMethods(t *testing.T) {
 	var collected promptHandlerCollector
 	app := fx.New(
 		fx.NopLogger,
-		fx.Supply(&platformconfig.Config{}),
+		fx.Supply(&contract.Config{}),
 		fx.Supply(slog.New(slog.NewTextHandler(io.Discard, nil))),
 		fx.Provide(func() promptstore.Store { return noopPromptStore{} }),
 		Module,

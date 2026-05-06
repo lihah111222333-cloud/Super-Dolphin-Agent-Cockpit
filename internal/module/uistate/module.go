@@ -33,7 +33,7 @@ type serviceParams struct {
 	Bindings    bindingstore.Store `optional:"true"`
 }
 
-var Module = fx.Options(
+var Module = fx.Module("uistate",
 	fx.Provide(func(p serviceParams) (*service, Service, error) {
 		return NewService(p.Logger, p.Threads, p.Agents, p.Preferences, newBindingAdapter(p.Bindings))
 	}),

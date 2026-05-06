@@ -3,7 +3,7 @@ package thread
 import (
 	"testing"
 
-	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 func TestInjectDefaultCodexIdentityForStartUsesCodexHomeWhenOptedIn(t *testing.T) {
@@ -12,7 +12,7 @@ func TestInjectDefaultCodexIdentityForStartUsesCodexHomeWhenOptedIn(t *testing.T
 	t.Setenv(legacyDefaultCodexHomeEnvVar, legacyDefaultCodexHomeEnabled)
 
 	got := (&service{}).injectDefaultCodexIdentityForStart(StartRequest{Provider: "codex"})
-	wantHome, err := providershared.CanonicalizeCodexHome(dir)
+	wantHome, err := contract.CanonicalizeCodexHome(dir)
 	if err != nil {
 		t.Fatalf("CanonicalizeCodexHome() error = %v", err)
 	}

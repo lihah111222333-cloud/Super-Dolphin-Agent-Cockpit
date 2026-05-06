@@ -10,9 +10,8 @@ import (
 	"unicode"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
 )
 
 const (
@@ -59,7 +58,7 @@ func configScratchpadDir(cfg map[string]any, keys ...string) string {
 	return ""
 }
 
-func ensureManagedScratchpadDir(buildCtx contract.BuildCtx, req StartRequest, threadID string, cfg *platformconfig.Config) (string, error) {
+func ensureManagedScratchpadDir(buildCtx contract.BuildCtx, req StartRequest, threadID string, cfg *contract.Config) (string, error) {
 	projectRoot := managedScratchpadProjectRoot(buildCtx, req, cfg)
 	dir := filepath.Join(
 		os.TempDir(),
@@ -77,8 +76,8 @@ func ensureManagedScratchpadDir(buildCtx contract.BuildCtx, req StartRequest, th
 	return dir, nil
 }
 
-func managedScratchpadProjectRoot(buildCtx contract.BuildCtx, req StartRequest, cfg *platformconfig.Config) string {
-	return platformshared.FirstNonEmpty(
+func managedScratchpadProjectRoot(buildCtx contract.BuildCtx, req StartRequest, cfg *contract.Config) string {
+	return util.FirstNonEmpty(
 		strings.TrimSpace(buildCtx.GitRoot),
 		strings.TrimSpace(req.GitRoot),
 		strings.TrimSpace(buildCtx.CWD),
@@ -88,7 +87,7 @@ func managedScratchpadProjectRoot(buildCtx contract.BuildCtx, req StartRequest, 
 	)
 }
 
-func configProjectRoot(cfg *platformconfig.Config) string {
+func configProjectRoot(cfg *contract.Config) string {
 	if cfg == nil {
 		return ""
 	}

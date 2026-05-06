@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2"
 )
@@ -72,7 +71,7 @@ func TestSkillListParamsRejectsEmptyCWD(t *testing.T) {
 
 func newSkillRPCTestServer(t *testing.T, svc Service) *platformrpc.Server {
 	t.Helper()
-	server := platformrpc.NewServer(platformrpc.Params{Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"}})
+	server := platformrpc.NewServer(platformrpc.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(newSkillHandlers(svc, nil).Handlers)
 	return server
 }

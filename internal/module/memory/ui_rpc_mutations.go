@@ -10,7 +10,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/dedup"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2/handler"
 )
 
@@ -50,35 +50,35 @@ type UIMemoryEntryDetail struct {
 
 func registerUIMemoryMutationHandlers(p memoryHandlerDeps) handler.Map {
 	out := handler.Map{
-		"ui/memory/entry/get": rpc.StrictHandler(func(ctx context.Context, req uiMemoryEntryGetParams) (UIMemoryEntryDetail, error) {
+		"ui/memory/entry/get": platformrpc.StrictHandler(func(ctx context.Context, req uiMemoryEntryGetParams) (UIMemoryEntryDetail, error) {
 			return getUIMemoryEntry(ctx, p, req)
 		}),
-		"ui/memory/entry/upsert": rpc.StrictHandler(func(ctx context.Context, req uiMemoryEntryUpsertParams) (UIMemoryEntryDetail, error) {
+		"ui/memory/entry/upsert": platformrpc.StrictHandler(func(ctx context.Context, req uiMemoryEntryUpsertParams) (UIMemoryEntryDetail, error) {
 			return upsertUIMemoryEntry(ctx, p, req)
 		}),
-		"ui/memory/entry/delete": rpc.StrictHandler(func(ctx context.Context, req uiMemoryEntryDeleteParams) (map[string]any, error) {
+		"ui/memory/entry/delete": platformrpc.StrictHandler(func(ctx context.Context, req uiMemoryEntryDeleteParams) (map[string]any, error) {
 			if err := deleteUIMemoryEntry(ctx, p, req); err != nil {
 				return nil, err
 			}
 			return map[string]any{"deleted": true}, nil
 		}),
-		"ui/memory/shared-file/get": rpc.StrictHandler(func(ctx context.Context, req uiSharedFileGetParams) (UISharedFileDetail, error) {
+		"ui/memory/shared-file/get": platformrpc.StrictHandler(func(ctx context.Context, req uiSharedFileGetParams) (UISharedFileDetail, error) {
 			return getUISharedFile(ctx, p, req)
 		}),
-		"ui/memory/shared-file/promote": rpc.StrictHandler(func(ctx context.Context, req uiSharedFilePromoteParams) (UIMemoryEntryDetail, error) {
+		"ui/memory/shared-file/promote": platformrpc.StrictHandler(func(ctx context.Context, req uiSharedFilePromoteParams) (UIMemoryEntryDetail, error) {
 			return promoteSharedFileToMemory(ctx, p, req)
 		}),
-		"ui/memory/shared-file/delete": rpc.StrictHandler(func(ctx context.Context, req uiSharedFileDeleteParams) (map[string]any, error) {
+		"ui/memory/shared-file/delete": platformrpc.StrictHandler(func(ctx context.Context, req uiSharedFileDeleteParams) (map[string]any, error) {
 			deleted, err := deleteUISharedFile(ctx, p, req)
 			if err != nil {
 				return nil, err
 			}
 			return map[string]any{"deleted": deleted}, nil
 		}),
-		"ui/memory/auto-dream/set-intent": rpc.StrictHandler(func(ctx context.Context, req uiAutoDreamIntentParams) (map[string]any, error) {
+		"ui/memory/auto-dream/set-intent": platformrpc.StrictHandler(func(ctx context.Context, req uiAutoDreamIntentParams) (map[string]any, error) {
 			return setAutoDreamIntent(ctx, p, req)
 		}),
-		"ui/memory/entry/merge": rpc.StrictHandler(func(ctx context.Context, req uiMemoryEntryMergeParams) (UIMemoryEntryDetail, error) {
+		"ui/memory/entry/merge": platformrpc.StrictHandler(func(ctx context.Context, req uiMemoryEntryMergeParams) (UIMemoryEntryDetail, error) {
 			return mergeUIMemoryEntries(ctx, p, req)
 		}),
 	}

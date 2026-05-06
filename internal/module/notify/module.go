@@ -8,8 +8,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platform "github.com/anthropic-ai/super-agent-v3/internal/module/notify/platform"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -41,14 +39,14 @@ var Module = fx.Module("notify",
 	fx.Provide(fx.Annotate(flusherAsRunner, fx.ResultTags(`group:"runners"`))),
 )
 
-func provideResolver(cfg *platformconfig.Config) (platform.Resolver, error) {
+func provideResolver(cfg *contract.Config) (platform.Resolver, error) {
 	if cfg == nil {
 		return platform.ParseChannelsJSON("")
 	}
 	return platform.ParseChannelsJSON(cfg.Notify.ChannelsJSON)
 }
 
-func provideWebhookClient(cfg *platformconfig.Config) *platform.WebhookClient {
+func provideWebhookClient(cfg *contract.Config) *platform.WebhookClient {
 	wcfg := platform.WebhookClientConfig{}
 	if cfg != nil {
 		wcfg.AllowPrivateCIDR = cfg.Notify.AllowPrivateCIDR
@@ -59,7 +57,7 @@ func provideWebhookClient(cfg *platformconfig.Config) *platform.WebhookClient {
 	return platform.NewWebhookClient(wcfg)
 }
 
-func provideNotifier(logger *slog.Logger, cfg *platformconfig.Config, resolver platform.Resolver) *Notifier {
+func provideNotifier(logger *slog.Logger, cfg *contract.Config, resolver platform.Resolver) *Notifier {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -75,7 +73,7 @@ func provideNotifier(logger *slog.Logger, cfg *platformconfig.Config, resolver p
 // agent failure handlers, ...) don't bind to the concrete type.
 func provideMessageNotifierContract(n *Notifier) contract.MessageNotifier { return n }
 
-func provideFlusher(logger *slog.Logger, cfg *platformconfig.Config, notifier *Notifier, client *platform.WebhookClient) *Flusher {
+func provideFlusher(logger *slog.Logger, cfg *contract.Config, notifier *Notifier, client *platform.WebhookClient) *Flusher {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -86,4 +84,4 @@ func provideFlusher(logger *slog.Logger, cfg *platformconfig.Config, notifier *N
 	return NewFlusher(logger, notifier, client, drain)
 }
 
-func flusherAsRunner(f *Flusher) platformrunner.Runner { return f }
+func flusherAsRunner(f *Flusher) contract.Runner { return f }

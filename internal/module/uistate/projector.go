@@ -2,6 +2,7 @@ package uistate
 
 import (
 	"context"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"strings"
 
 	"github.com/kelindar/event"
@@ -10,35 +11,34 @@ import (
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/timeline"
-	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 )
 
 func registerProjectionSubscriptions(dispatcher *event.Dispatcher, svc *service) []context.CancelFunc {
 	cancels := []context.CancelFunc{
-		platformbus.ResilientSubscribe(dispatcher, svc.applyAgentStateChanged, svc.logger),
-		platformbus.ResilientSubscribe(dispatcher, svc.applyAgentLaunched, svc.logger),
-		platformbus.ResilientSubscribe(dispatcher, svc.applyAgentStopped, svc.logger),
-		platformbus.ResilientSubscribe(dispatcher, svc.applyAgentRecovering, svc.logger),
-		platformbus.ResilientSubscribe(dispatcher, svc.applyAgentFailed, svc.logger),
-		platformbus.ResilientSubscribe(dispatcher, svc.applyAgentRuntimeReported, svc.logger),
-		platformbus.ResilientSubscribe(dispatcher, svc.applyThreadStarted, svc.logger),
-		platformbus.ResilientSubscribe(dispatcher, svc.applyThreadUpdated, svc.logger),
-		platformbus.ResilientSubscribe(dispatcher, svc.applyThreadStopped, svc.logger),
-		platformbus.ResilientSubscribe(dispatcher, svc.applyTurnStarted, svc.logger),
-		platformbus.ResilientSubscribe(dispatcher, svc.applyTurnInterrupted, svc.logger),
-		platformbus.ResilientSubscribe(dispatcher, svc.applyTurnCompleted, svc.logger),
-		platformbus.ResilientSubscribe(dispatcher, svc.applyTurnResumed, svc.logger),
-		platformbus.ResilientSubscribe(dispatcher, svc.applyTurnInputReceived, svc.logger),
-		platformbus.ResilientSubscribe(dispatcher, svc.applyTurnOutputDelta, svc.logger),
-		platformbus.ResilientSubscribe(dispatcher, svc.applyItemStarted, svc.logger),
-		platformbus.ResilientSubscribe(dispatcher, svc.applyItemCompleted, svc.logger),
-		platformbus.ResilientSubscribe(dispatcher, svc.applyToolCallBegin, svc.logger),
-		platformbus.ResilientSubscribe(dispatcher, svc.applyToolCallEnd, svc.logger),
-		platformbus.ResilientSubscribe(dispatcher, svc.applyToolDiffUpdated, svc.logger),
-		platformbus.ResilientSubscribe(dispatcher, svc.applyToolApprovalRequested, svc.logger),
-		platformbus.ResilientSubscribe(dispatcher, svc.applyToolApprovalResolved, svc.logger),
-		platformbus.ResilientSubscribe(dispatcher, svc.applyTokensUpdated, svc.logger),
+		contract.ResilientSubscribe(dispatcher, svc.applyAgentStateChanged, svc.logger),
+		contract.ResilientSubscribe(dispatcher, svc.applyAgentLaunched, svc.logger),
+		contract.ResilientSubscribe(dispatcher, svc.applyAgentStopped, svc.logger),
+		contract.ResilientSubscribe(dispatcher, svc.applyAgentRecovering, svc.logger),
+		contract.ResilientSubscribe(dispatcher, svc.applyAgentFailed, svc.logger),
+		contract.ResilientSubscribe(dispatcher, svc.applyAgentRuntimeReported, svc.logger),
+		contract.ResilientSubscribe(dispatcher, svc.applyThreadStarted, svc.logger),
+		contract.ResilientSubscribe(dispatcher, svc.applyThreadUpdated, svc.logger),
+		contract.ResilientSubscribe(dispatcher, svc.applyThreadStopped, svc.logger),
+		contract.ResilientSubscribe(dispatcher, svc.applyTurnStarted, svc.logger),
+		contract.ResilientSubscribe(dispatcher, svc.applyTurnInterrupted, svc.logger),
+		contract.ResilientSubscribe(dispatcher, svc.applyTurnCompleted, svc.logger),
+		contract.ResilientSubscribe(dispatcher, svc.applyTurnResumed, svc.logger),
+		contract.ResilientSubscribe(dispatcher, svc.applyTurnInputReceived, svc.logger),
+		contract.ResilientSubscribe(dispatcher, svc.applyTurnOutputDelta, svc.logger),
+		contract.ResilientSubscribe(dispatcher, svc.applyItemStarted, svc.logger),
+		contract.ResilientSubscribe(dispatcher, svc.applyItemCompleted, svc.logger),
+		contract.ResilientSubscribe(dispatcher, svc.applyToolCallBegin, svc.logger),
+		contract.ResilientSubscribe(dispatcher, svc.applyToolCallEnd, svc.logger),
+		contract.ResilientSubscribe(dispatcher, svc.applyToolDiffUpdated, svc.logger),
+		contract.ResilientSubscribe(dispatcher, svc.applyToolApprovalRequested, svc.logger),
+		contract.ResilientSubscribe(dispatcher, svc.applyToolApprovalResolved, svc.logger),
+		contract.ResilientSubscribe(dispatcher, svc.applyTokensUpdated, svc.logger),
 	}
 	onTimelineUpdated := func(threadID string) {
 		threadID = strings.TrimSpace(threadID)
@@ -282,14 +282,14 @@ func completedTurnSummary(current *TurnSummary, ev turndto.TurnCompleted) TurnSu
 		Status:      completionStatus(ev),
 		Error:       strings.TrimSpace(ev.Error),
 		Reason:      strings.TrimSpace(ev.Reason),
-		CompletedAt: shared.CloneTime(&ev.Timestamp),
+		CompletedAt: clone.Time(&ev.Timestamp),
 	}
 	if current != nil && current.ID == summary.ID {
 		summary = *cloneTurn(current)
 		summary.Status = completionStatus(ev)
 		summary.Error = strings.TrimSpace(ev.Error)
 		summary.Reason = strings.TrimSpace(ev.Reason)
-		summary.CompletedAt = shared.CloneTime(&ev.Timestamp)
+		summary.CompletedAt = clone.Time(&ev.Timestamp)
 	}
 	success := ev.Success
 	summary.Success = &success

@@ -2,14 +2,14 @@ package skill
 
 import (
 	"context"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 )
@@ -22,7 +22,7 @@ func (s *service) bindDispatcher(dispatcher *event.Dispatcher) {
 	if s == nil {
 		return
 	}
-	s.emitSkillsChanged = bus.NewEmitter[uidto.SkillsChanged](dispatcher)
+	s.emitSkillsChanged = contract.NewEmitter[uidto.SkillsChanged](dispatcher)
 }
 
 func (s *service) publishSkillsChanged(ctx context.Context, action, name, scope string) {
@@ -62,7 +62,7 @@ func (s *service) scheduleSkillsChanged(next uidto.SkillsChanged) {
 	seq := s.skillsChangedSeq
 	s.skillsChangedMu.Unlock()
 
-	runtimesafe.SafeGo(context.Background(), pkglogger.Get(), "skill.scheduleSkillsChangedFlush", func(context.Context) {
+	safego.Go(context.Background(), pkglogger.Get(), "skill.scheduleSkillsChangedFlush", func(context.Context) {
 		time.Sleep(skillsChangedDebounceWindow)
 		s.flushSkillsChanged(seq)
 	})

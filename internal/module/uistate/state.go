@@ -7,7 +7,7 @@ import (
 
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/timeline"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 )
 
 type UIState struct {
@@ -192,8 +192,8 @@ func cloneState(value UIState) *UIState {
 		MainAgentID:              value.MainAgentID,
 		StallThresholdSec:        value.StallThresholdSec,
 		ShowInjectedPromptInChat: cloneBoolPtr(value.ShowInjectedPromptInChat),
-		ViewPrefsChat:            shared.CloneJSONMap(value.ViewPrefsChat),
-		ViewPrefsCmd:             shared.CloneJSONMap(value.ViewPrefsCmd),
+		ViewPrefsChat:            clone.JSONMap(value.ViewPrefsChat),
+		ViewPrefsCmd:             clone.JSONMap(value.ViewPrefsCmd),
 		ThreadPinsChat:           cloneTimestampMap(value.ThreadPinsChat),
 		ThreadArchivesChat:       cloneTimestampMap(value.ThreadArchivesChat),
 		Groups:                   copyThreadGroups(value.Groups),
@@ -216,8 +216,8 @@ func cloneSidebar(value Sidebar) *Sidebar {
 		ActiveThreadID:        value.ActiveThreadID,
 		ActiveCmdThreadID:     value.ActiveCmdThreadID,
 		MainAgentID:           value.MainAgentID,
-		ViewPrefsChat:         shared.CloneJSONMap(value.ViewPrefsChat),
-		ViewPrefsCmd:          shared.CloneJSONMap(value.ViewPrefsCmd),
+		ViewPrefsChat:         clone.JSONMap(value.ViewPrefsChat),
+		ViewPrefsCmd:          clone.JSONMap(value.ViewPrefsCmd),
 		ThreadPinsChat:        cloneTimestampMap(value.ThreadPinsChat),
 		ThreadArchivesChat:    cloneTimestampMap(value.ThreadArchivesChat),
 		Groups:                copyThreadGroups(value.Groups),
@@ -227,7 +227,7 @@ func cloneSidebar(value Sidebar) *Sidebar {
 func clonePreferences(value Preferences) *Preferences {
 	return &Preferences{
 		CWD:                      value.CWD,
-		Values:                   shared.CloneJSONMap(value.Values),
+		Values:                   clone.JSONMap(value.Values),
 		ActiveThreadID:           value.ActiveThreadID,
 		ActiveCmdThreadID:        value.ActiveCmdThreadID,
 		MainAgentID:              value.MainAgentID,
@@ -262,8 +262,8 @@ func cloneTurns(items []TurnSummary) []TurnSummary {
 	out := make([]TurnSummary, len(items))
 	for i := range items {
 		out[i] = items[i]
-		out[i].StartedAt = shared.CloneTime(items[i].StartedAt)
-		out[i].CompletedAt = shared.CloneTime(items[i].CompletedAt)
+		out[i].StartedAt = clone.Time(items[i].StartedAt)
+		out[i].CompletedAt = clone.Time(items[i].CompletedAt)
 		if items[i].Success != nil {
 			success := *items[i].Success
 			out[i].Success = &success
@@ -277,8 +277,8 @@ func cloneTurn(value *TurnSummary) *TurnSummary {
 		return nil
 	}
 	copied := *value
-	copied.StartedAt = shared.CloneTime(value.StartedAt)
-	copied.CompletedAt = shared.CloneTime(value.CompletedAt)
+	copied.StartedAt = clone.Time(value.StartedAt)
+	copied.CompletedAt = clone.Time(value.CompletedAt)
 	if value.Success != nil {
 		success := *value.Success
 		copied.Success = &success
@@ -294,7 +294,7 @@ func cloneWorkspaceRuns(items []WorkspaceRunSummary) []WorkspaceRunSummary {
 	out := make([]WorkspaceRunSummary, len(items))
 	for i := range items {
 		out[i] = items[i]
-		out[i].UpdatedAt = shared.CloneTime(items[i].UpdatedAt)
+		out[i].UpdatedAt = clone.Time(items[i].UpdatedAt)
 	}
 	return out
 }

@@ -10,7 +10,7 @@ import (
 	"unicode"
 
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -65,7 +65,7 @@ func validateTeamMemCandidate(root, file string, wrap teamPathError) (string, er
 	if candidate == rootDir {
 		return "", wrap("path must target a file under team root")
 	}
-	if !platformshared.ContainsPath(rootDir, candidate) {
+	if !pathutil.ContainsPath(rootDir, candidate) {
 		return "", wrap("path escapes team root")
 	}
 	rootReal, err := resolveTeamMemRealPath(rootDir, wrap)
@@ -79,7 +79,7 @@ func validateTeamMemCandidate(root, file string, wrap teamPathError) (string, er
 	if candidateReal == rootReal {
 		return "", wrap("path must target a file under team root")
 	}
-	if !platformshared.ContainsPath(rootReal, candidateReal) {
+	if !pathutil.ContainsPath(rootReal, candidateReal) {
 		return "", wrap("path escapes team root via symlink")
 	}
 	return candidate, nil

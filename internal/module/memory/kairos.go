@@ -17,9 +17,9 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/repofingerprint"
 	skillcandidatedto "github.com/anthropic-ai/super-agent-v3/internal/store/skillcandidate"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/repofingerprint"
 )
 
 const dateChangeAttachmentKind = "date_change"
@@ -535,7 +535,7 @@ func feedbackSkillPropose(
 
 	prompt := buildFeedbackProposalPrompt(topicKey, group)
 
-	ctx, cancel := platformconfig.WithTimeout(context.Background(), 90*time.Second)
+	ctx, cancel := ctxutil.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
 	skillMD, err := dream.ExecuteDream(ctx, prompt)

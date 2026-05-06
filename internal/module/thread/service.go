@@ -13,14 +13,13 @@ import (
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt/classifier"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 )
@@ -53,7 +52,7 @@ type service struct {
 	sessions       SessionProvider
 	starter        SessionStarter
 	promptAssembly contract.PromptAssemblyService
-	cfg            *platformconfig.Config
+	cfg            *contract.Config
 	toolRegistry   contract.ToolRegistry
 	turns          turn.Service
 	orchestration  OrchestrationFacade
@@ -209,7 +208,7 @@ func (s *service) SetName(ctx context.Context, threadID, name string) error {
 }
 
 func (s *service) Delete(ctx context.Context, threadID string) error {
-	ctx = shared.NonNilContext(ctx)
+	ctx = util.NonNilContext(ctx)
 	id, err := normalizeThreadID(threadID)
 	if err != nil {
 		return err
@@ -404,12 +403,12 @@ func (s *service) backgroundResumeIfNeeded(ctx context.Context, threadID string)
 	if _, loaded := s.resumeInFlight.LoadOrStore(agentID, struct{}{}); loaded {
 		return
 	}
-	runtimesafe.SafeGo(context.Background(), s.logger, "thread.backgroundResume", func(ctx context.Context) {
+	safego.Go(context.Background(), s.logger, "thread.backgroundResume", func(ctx context.Context) {
 		if s.logger != nil {
 			s.logger.Info("thread: background resume", "thread_id", threadID, "agent_id", agentID)
 		}
 		if _, err := s.Resume(ctx, ResumeRequest{ThreadID: threadID}); err != nil {
-			shared.LogIgnoredError(s.logger, "thread: background resume failed", err)
+			util.LogIgnoredError(s.logger, "thread: background resume failed", err)
 			// Keep resumeInFlight entry to block further retries.
 			return
 		}

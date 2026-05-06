@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	insightmodule "github.com/anthropic-ai/super-agent-v3/internal/module/insight"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
 )
@@ -16,8 +16,8 @@ func addDashboardInsightHandlers(handlers handler.Map, reader InsightReader) {
 	if reader == nil {
 		return
 	}
-	handlers["dashboard/insights/list"] = rpc.StrictHandler(dashboardInsightsListHandler(reader))
-	handlers["dashboard/insights/approvals"] = rpc.StrictHandler(dashboardInsightsApprovalsHandler(reader))
+	handlers["dashboard/insights/list"] = platformrpc.StrictHandler(dashboardInsightsListHandler(reader))
+	handlers["dashboard/insights/approvals"] = platformrpc.StrictHandler(dashboardInsightsApprovalsHandler(reader))
 }
 
 type insightsListParams struct {

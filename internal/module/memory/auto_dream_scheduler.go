@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -145,7 +145,7 @@ func (s *autoDreamScheduler) Stop(ctx context.Context) error {
 		}
 		if deadline, ok := waitCtx.Deadline(); !ok || time.Until(deadline) > autoDreamSchedulerDrainGrace {
 			var cancel context.CancelFunc
-			waitCtx, cancel = platformconfig.WithTimeout(waitCtx, autoDreamSchedulerDrainGrace)
+			waitCtx, cancel = ctxutil.WithTimeout(waitCtx, autoDreamSchedulerDrainGrace)
 			defer cancel()
 			_ = deadline
 		}

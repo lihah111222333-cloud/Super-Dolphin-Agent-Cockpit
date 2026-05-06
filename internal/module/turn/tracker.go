@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/statemachine"
 	"github.com/qmuntal/stateless"
 )
 

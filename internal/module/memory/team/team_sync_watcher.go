@@ -9,7 +9,7 @@ import (
 	"time"
 
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	"github.com/fsnotify/fsnotify"
 	"log/slog"
 )
@@ -73,7 +73,7 @@ func (w *teamSyncWatcher) Start() {
 	if w == nil {
 		return
 	}
-	runtimesafe.SafeGo(w.loopCtx, w.logger, "memory.teamSyncWatcher.loop", func(context.Context) {
+	safego.Go(w.loopCtx, w.logger, "memory.teamSyncWatcher.loop", func(context.Context) {
 		w.loop()
 	})
 }
