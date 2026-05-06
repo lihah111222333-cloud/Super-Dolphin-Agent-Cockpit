@@ -162,7 +162,7 @@ func TestPhase4BaselineCrossScopeFilePathDisjoint(t *testing.T) {
 
 	const sharedName = "Cross-scope baseline name"
 
-	privateStore, err := newDiskStore(privateRoot)
+	privateStore, err := newDiskStore(privateRoot, nil)
 	if err != nil {
 		t.Fatalf("newDiskStore(private) error = %v", err)
 	}
@@ -174,7 +174,7 @@ func TestPhase4BaselineCrossScopeFilePathDisjoint(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CreateStructured(private) error = %v", err)
 	}
-	teamStore, err := newDiskStore(teamRoot)
+	teamStore, err := newDiskStore(teamRoot, nil)
 	if err != nil {
 		t.Fatalf("newDiskStore(team) error = %v", err)
 	}

@@ -10,7 +10,15 @@ import (
 	"testing"
 )
 
-func TestMemoryDiskStoreLocksOwnedByDiskStore(t *testing.T) {
+// TestMemoryDiskStoreLocksOwnedByCoordinator ensures that:
+//  1. No package-level mutable var named diskStoreLocks exists.
+//  2. No package-level function named withDiskStoreLock exists.
+//  3. consolidation_lock.go defines diskLockCoordinator as a struct
+//     owning a sync.Map named "locks".
+//  4. consolidation_lock.go exposes withDiskStoreLock as a method on
+//     diskLockCoordinator (not on diskStore).
+//  5. diskStore (store.go) holds a *diskLockCoordinator field named "locks".
+func TestMemoryDiskStoreLocksOwnedByCoordinator(t *testing.T) {
 	t.Parallel()
 	root := repoRootForGuardTests(t)
 	memoryDir := filepath.Join(root, "internal", "module", "memory")
@@ -20,6 +28,8 @@ func TestMemoryDiskStoreLocksOwnedByDiskStore(t *testing.T) {
 	}
 
 	var violations []string
+
+	// ---- Pass 1: scan all files for forbidden package-level patterns ----
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -46,36 +56,46 @@ func TestMemoryDiskStoreLocksOwnedByDiskStore(t *testing.T) {
 					}
 					for _, ident := range varSpec.Names {
 						if ident.Name == "diskStoreLocks" {
-							violations = append(violations, filepath.ToSlash(filepath.Join("internal/module/memory", name))+": package-level diskStoreLocks must live on diskStore")
+							violations = append(violations, filepath.ToSlash(filepath.Join("internal/module/memory", name))+": package-level diskStoreLocks must not exist")
 						}
 					}
 					for _, ident := range varSpec.Names {
 						if strings.Contains(strings.ToLower(ident.Name), "disk") && strings.Contains(strings.ToLower(ident.Name), "lock") && isSyncMapType(varSpec.Type) {
-							violations = append(violations, filepath.ToSlash(filepath.Join("internal/module/memory", name))+": package-level disk lock sync.Map must live on diskStore")
+							violations = append(violations, filepath.ToSlash(filepath.Join("internal/module/memory", name))+": package-level disk lock sync.Map must not exist")
 						}
 					}
 				}
 			case *ast.FuncDecl:
 				if decl.Name.Name == "withDiskStoreLock" && decl.Recv == nil {
-					violations = append(violations, filepath.ToSlash(filepath.Join("internal/module/memory", name))+": withDiskStoreLock must be a diskStore method")
+					violations = append(violations, filepath.ToSlash(filepath.Join("internal/module/memory", name))+": withDiskStoreLock must not be a package-level function")
 				}
 			}
 		}
 	}
 
+	// ---- Pass 2: consolidation_lock.go — coordinator struct ----
+	coordFile, err := parser.ParseFile(token.NewFileSet(), filepath.Join(memoryDir, "consolidation_lock.go"), nil, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("parse consolidation_lock.go: %v", err)
+	}
+	if !structHasSyncMapField(coordFile, "diskLockCoordinator", "locks") {
+		violations = append(violations, "internal/module/memory/consolidation_lock.go: diskLockCoordinator must own locks sync.Map")
+	}
+	if !hasMethod(coordFile, "diskLockCoordinator", "withDiskStoreLock") {
+		violations = append(violations, "internal/module/memory/consolidation_lock.go: diskLockCoordinator must expose withDiskStoreLock as a method")
+	}
+
+	// ---- Pass 3: store.go — diskStore holds *diskLockCoordinator ----
 	storeFile, err := parser.ParseFile(token.NewFileSet(), filepath.Join(memoryDir, "store.go"), nil, parser.SkipObjectResolution)
 	if err != nil {
 		t.Fatalf("parse store.go: %v", err)
 	}
-	if !structHasSyncMapField(storeFile, "diskStore", "diskLocks") {
-		violations = append(violations, "internal/module/memory/store.go: diskStore must own diskLocks sync.Map")
-	}
-	if !hasMethod(storeFile, "diskStore", "withDiskStoreLock") {
-		violations = append(violations, "internal/module/memory/store.go: diskStore must expose withDiskStoreLock as a method")
+	if !structHasPointerField(storeFile, "diskStore", "locks", "diskLockCoordinator") {
+		violations = append(violations, "internal/module/memory/store.go: diskStore must hold a *diskLockCoordinator field named locks")
 	}
 
 	if len(violations) > 0 {
-		t.Fatalf("memory disk store lock ownership violations:\n%s", strings.Join(violations, "\n"))
+		t.Fatalf("memory disk lock coordinator ownership violations:\n%s", strings.Join(violations, "\n"))
 	}
 }
 
@@ -105,6 +125,41 @@ func structHasSyncMapField(file *ast.File, structName, fieldName string) bool {
 			}
 			for _, field := range structType.Fields.List {
 				if !isSyncMapType(field.Type) {
+					continue
+				}
+				for _, name := range field.Names {
+					if name.Name == fieldName {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+func structHasPointerField(file *ast.File, structName, fieldName, pointedType string) bool {
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.TYPE {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			typeSpec, ok := spec.(*ast.TypeSpec)
+			if !ok || typeSpec.Name.Name != structName {
+				continue
+			}
+			structType, ok := typeSpec.Type.(*ast.StructType)
+			if !ok {
+				continue
+			}
+			for _, field := range structType.Fields.List {
+				star, ok := field.Type.(*ast.StarExpr)
+				if !ok {
+					continue
+				}
+				ident, ok := star.X.(*ast.Ident)
+				if !ok || ident.Name != pointedType {
 					continue
 				}
 				for _, name := range field.Names {

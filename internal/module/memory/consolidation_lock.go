@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -182,6 +183,33 @@ const (
 	diskStoreLockTimeout       = 5 * time.Second
 )
 
+// diskLockCoordinator provides process-scoped mutex coordination for
+// file-level memory locks. It MUST be instantiated once (via fx) and
+// shared across all callers — never as a package-level global.
+type diskLockCoordinator struct {
+	locks sync.Map
+}
+
+func newDiskLockCoordinator() *diskLockCoordinator {
+	return &diskLockCoordinator{}
+}
+
+func (c *diskLockCoordinator) withDiskStoreLock(root string, fn func() error) (err error) {
+	mutexValue, _ := c.locks.LoadOrStore(root, &sync.Mutex{})
+	mutex := mutexValue.(*sync.Mutex)
+	mutex.Lock()
+	defer mutex.Unlock()
+	lockedFile, err := acquireMemoryRootFileLock(root, diskStoreLockTimeout)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := closeMemoryRootFileLock(lockedFile); err == nil && closeErr != nil {
+			err = closeErr
+		}
+	}()
+	return fn()
+}
 func acquireMemoryRootFileLock(root string, timeout time.Duration) (*os.File, error) {
 	lockPath, err := ValidateMemoryWritePath(root, filepath.Join(root, diskStoreLockFileName))
 	if err != nil {

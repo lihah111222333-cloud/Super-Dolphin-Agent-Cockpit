@@ -86,6 +86,7 @@ func newTestTeamGuardedDiskStore(t *testing.T) *diskStore {
 	store, err := newDiskStoreWithGuard(
 		filepath.Join(autoRoot, teamMemoryRootDirName),
 		NewTeamMemoryGuard(NewTeamMemoryManager(cfg)),
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("NewDiskStoreWithGuard(team) error = %v", err)

@@ -126,7 +126,7 @@ func upsertUIMemoryEntry(ctx context.Context, deps memoryHandlerDeps, req uiMemo
 		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "durable_memory_resolve_root",
 			errDurableMemorySaveFailed, err, "target", req.Target)
 	}
-	store, err := newDiskStore(root)
+	store, err := newDiskStore(root, nil)
 	if err != nil {
 		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "durable_memory_open_store",
 			errDurableMemorySaveFailed, err, "target", target)
@@ -178,7 +178,7 @@ func deleteUIMemoryEntry(ctx context.Context, deps memoryHandlerDeps, req uiMemo
 			errDurableMemoryDeleteFailed, err, "target", target, "path", req.Path)
 	}
 
-	store, err := newDiskStore(root)
+	store, err := newDiskStore(root, nil)
 	if err != nil {
 		return redactIfPathBearing(deps.Logger, "durable_memory_open_store",
 			errDurableMemoryDeleteFailed, err, "target", target)
@@ -193,7 +193,7 @@ func deleteUIMemoryEntry(ctx context.Context, deps memoryHandlerDeps, req uiMemo
 }
 
 func deleteAbsorbedEntry(root, path string) error {
-	store, err := newDiskStore(root)
+	store, err := newDiskStore(root, nil)
 	if err != nil {
 		return err
 	}
@@ -202,9 +202,9 @@ func deleteAbsorbedEntry(root, path string) error {
 
 func newUIMemoryMutationStore(cfg *Config, root, target string) (*diskStore, error) {
 	if target == "team" {
-		return newDiskStoreWithGuard(root, NewTeamMemoryGuard(NewTeamMemoryManager(cfg)))
+		return newDiskStoreWithGuard(root, NewTeamMemoryGuard(NewTeamMemoryManager(cfg)), nil)
 	}
-	return newDiskStore(root)
+	return newDiskStore(root, nil)
 }
 
 func rollbackMergedEntry(cfg *Config, root, target, path string, entry MemoryEntry) error {

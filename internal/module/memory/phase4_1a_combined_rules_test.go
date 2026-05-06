@@ -192,11 +192,11 @@ func newCrossScopeFixture(t *testing.T, bothHave bool) (memoryStructuredStore, m
 	t.Helper()
 	primaryRoot := filepath.Join(t.TempDir(), "primary")
 	secondaryRoot := filepath.Join(t.TempDir(), "secondary")
-	primary, err := newDiskStore(primaryRoot)
+	primary, err := newDiskStore(primaryRoot, nil)
 	if err != nil {
 		t.Fatalf("newDiskStore(primary) error = %v", err)
 	}
-	secondary, err := newDiskStore(secondaryRoot)
+	secondary, err := newDiskStore(secondaryRoot, nil)
 	if err != nil {
 		t.Fatalf("newDiskStore(secondary) error = %v", err)
 	}

@@ -80,7 +80,7 @@ func TestWriteIntentDedupMergesNovelSameNameAndUpdatesIndex(t *testing.T) {
 func TestWriteIntentDedupCrossScopeDuplicateWritesCurrentScope(t *testing.T) {
 	hooks, autoRoot := newWriteIntentDedupTestHooks(t, true)
 	teamRoot := filepath.Join(autoRoot, teamMemoryRootDirName)
-	teamStore, err := newDiskStore(teamRoot)
+	teamStore, err := newDiskStore(teamRoot, nil)
 	if err != nil {
 		t.Fatalf("newDiskStore(team) error = %v", err)
 	}

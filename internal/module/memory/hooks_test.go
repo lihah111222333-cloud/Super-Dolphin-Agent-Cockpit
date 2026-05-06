@@ -263,7 +263,7 @@ func TestReadAgentMemoryReadsExistingDurablePrivateEntry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolvedStoreRoot() error = %v", err)
 	}
-	store, err := newDiskStore(storeRoot)
+	store, err := newDiskStore(storeRoot, nil)
 	if err != nil {
 		t.Fatalf("newDiskStore() error = %v", err)
 	}
@@ -302,7 +302,7 @@ func TestReadAgentMemoryByPathReturnsRelativeSourcePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolvedStoreRoot() error = %v", err)
 	}
-	store, err := newDiskStore(storeRoot)
+	store, err := newDiskStore(storeRoot, nil)
 	if err != nil {
 		t.Fatalf("newDiskStore() error = %v", err)
 	}
@@ -339,7 +339,7 @@ func TestReadAgentMemoryReadsExistingDurableTeamEntry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("configuredTeamMemRoot() error = %v", err)
 	}
-	store, err := newDiskStore(teamRoot)
+	store, err := newDiskStore(teamRoot, nil)
 	if err != nil {
 		t.Fatalf("newDiskStore(team) error = %v", err)
 	}
@@ -378,7 +378,7 @@ func TestReadAgentMemoryDefaultScopeReadsPrivateMemory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolvedStoreRoot() error = %v", err)
 	}
-	store, err := newDiskStore(storeRoot)
+	store, err := newDiskStore(storeRoot, nil)
 	if err != nil {
 		t.Fatalf("newDiskStore() error = %v", err)
 	}
@@ -410,7 +410,7 @@ func TestReadAgentMemoryTypeMismatchReturnsNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolvedStoreRoot() error = %v", err)
 	}
-	store, err := newDiskStore(storeRoot)
+	store, err := newDiskStore(storeRoot, nil)
 	if err != nil {
 		t.Fatalf("newDiskStore() error = %v", err)
 	}

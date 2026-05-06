@@ -251,7 +251,7 @@ func newMemoryLifecycleHooksWithTeam(
 	if manifestBuilder == nil {
 		manifestBuilder = NewManifestBuilder()
 	}
-	return &MemoryLifecycleHooks{
+	hooks := &MemoryLifecycleHooks{
 		cfg:                 memoryConfig(cfg),
 		team:                team,
 		enabled:             ResolveMemoryGate(contract.BuildCtx{}, cfg).AutoEnabled,
@@ -271,7 +271,10 @@ func newMemoryLifecycleHooksWithTeam(
 		activeTurns:         map[string]string{},
 		callTurns:           map[string]toolCallScope{},
 		turnWrites:          map[string]map[string]struct{}{},
+		locks:               newDiskLockCoordinator(),
 	}
+	hooks.consolidator.locks = hooks.locks // share process-scoped coordinator
+	return hooks
 }
 
 func asTeamSyncLifecycle(svc *teampkg.TeamSyncService) teampkg.Lifecycle { return svc }
@@ -387,7 +390,7 @@ func newAutoDreamConsolidator(extractor *MemoryExtractor, extractFn ExtractFunc)
 	if extractor == nil {
 		extractor = NewMemoryExtractor()
 	}
-	return &AutoDreamConsolidator{extractor: extractor, extractFn: extractFn}
+	return &AutoDreamConsolidator{extractor: extractor, extractFn: extractFn, locks: newDiskLockCoordinator()}
 }
 
 func provideDreamExtractFunc(p dreamExtractParams) ExtractFunc {
@@ -657,18 +660,10 @@ func registerContextProviderSubscriptions(p memorySubscriptionDeps, appendCancel
 }
 
 func registerTurnTerminationSubscriptions(p memorySubscriptionDeps, appendCancel func(context.CancelFunc)) {
-	terminate := func(threadID, turnID string) {
-		p.ContextProvider.onTurnTerminated(threadID, turnID)
-	}
-	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnCompleted) {
-		terminate(ev.ThreadID, ev.TurnID)
-	}, pkglogger.Get()))
-	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnInterrupted) {
-		terminate(ev.ThreadID, ev.TurnID)
-	}, pkglogger.Get()))
-	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnStalled) {
-		terminate(ev.ThreadID, ev.TurnID)
-	}, pkglogger.Get()))
+	term := func(threadID, turnID string) { p.ContextProvider.onTurnTerminated(threadID, turnID) }
+	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnCompleted) { term(ev.ThreadID, ev.TurnID) }, pkglogger.Get()))
+	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnInterrupted) { term(ev.ThreadID, ev.TurnID) }, pkglogger.Get()))
+	appendCancel(bus.ResilientSubscribe(p.Dispatcher, func(ev turndto.TurnStalled) { term(ev.ThreadID, ev.TurnID) }, pkglogger.Get()))
 }
 
 func cancelSubscriptions(cancels []context.CancelFunc) {

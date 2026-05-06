@@ -94,6 +94,10 @@ type MemoryLifecycleHooks struct {
 	crossScopeWarned sync.Map
 
 	dedupFilter *dedup.Filter
+
+	// locks is the process-scoped disk-lock coordinator shared across all
+	// diskStore instances created by this MemoryLifecycleHooks.
+	locks *diskLockCoordinator
 }
 
 var saveIntentPatterns = []*regexp.Regexp{
@@ -355,7 +359,7 @@ func (h *MemoryLifecycleHooks) tryDedupMerge(result dedup.CheckResult, store mem
 		return false
 	}
 	merged := snapshotToMemoryEntry(*result.MergedEntry)
-	if mergeErr := mergeAndWriteMemory(ws, result.TargetPath, merged, options); mergeErr != nil {
+	if mergeErr := mergeAndWriteMemory(ws, result.TargetPath, merged, options, h.locks); mergeErr != nil {
 		return false
 	}
 	h.handleDedupOverflow(ws, memType, options)
@@ -387,7 +391,7 @@ func (h *MemoryLifecycleHooks) handleDedupOverflow(store memoryWriteStore, memTy
 		return
 	}
 	merged := snapshotToMemoryEntry(instruction.KeepEntry)
-	if err := overflowMergeAndDelete(store, instruction.KeepEntry.Path, merged, instruction.DeletePath, options); err != nil && h != nil && h.logger != nil {
+	if err := overflowMergeAndDelete(store, instruction.KeepEntry.Path, merged, instruction.DeletePath, options, h.locks); err != nil && h != nil && h.logger != nil {
 		h.logger.Warn("memory dedup overflow merge failed", "err", err, "scope", storeScopeName(store, h), "type", memType)
 	}
 }
@@ -477,7 +481,7 @@ func (h *MemoryLifecycleHooks) diskStore() (memoryWriteStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newDiskStore(root)
+	return newDiskStore(root, h.locks)
 }
 
 type ForgetIntent struct {
@@ -633,7 +637,7 @@ func (h *MemoryLifecycleHooks) teamDiskStore(ctx context.Context, threadID strin
 	if err != nil {
 		return nil, err
 	}
-	return newDiskStoreWithGuard(root, NewTeamMemoryGuard(h.team))
+	return newDiskStoreWithGuard(root, NewTeamMemoryGuard(h.team), h.locks)
 }
 
 func selectExplicitWriteStore(name string, primary, secondary memoryStructuredStore) (memoryStructuredStore, error) {
