@@ -4,7 +4,9 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/kelindar/event"
 
@@ -12,18 +14,37 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	taskdto "github.com/anthropic-ai/super-agent-v3/internal/dto/task"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// DAGNotifier holds the orch-specific bus subscribers. It is
-// goroutine-safe; every notify action is a non-blocking TryEnqueue on
-// the shared core-notifier implementation (reused by orch via its own
-// Notifier instance). Callers drive it through fx.Lifecycle hooks;
-// tests can also drive Subscribe / Close directly.
+// dagNotifyDrainGrace bounds the Stop wait for the DAGNotifier worker
+// so fx.Lifecycle.OnStop never hangs on a stuck store query.
+const dagNotifyDrainGrace = 10 * time.Second
+
+// dagNotifyRequest is the unit of work enqueued by the bus callback.
+type dagNotifyRequest struct {
+	ev taskdto.TaskNodeStatusChanged
+}
+
+// DAGNotifier holds the orch-specific bus subscribers. The bus callback
+// only performs cheap checks and enqueues; a single worker goroutine
+// owns all DB queries and TryEnqueue calls so no synchronous I/O runs
+// on the dispatcher callback goroutine.
 type DAGNotifier struct {
 	logger   *slog.Logger
 	notifier contract.MessageNotifier
 	store    taskdag.Store
+
+	mu    sync.Mutex
+	queue []dagNotifyRequest
+
+	wake chan struct{}
+
+	startOnce sync.Once
+	stopOnce  sync.Once
+	stopCh    chan struct{}
+	doneCh    chan struct{}
 
 	skipped       atomic.Int64
 	enqueueErrors atomic.Int64
@@ -37,7 +58,59 @@ func NewDAGNotifier(logger *slog.Logger, notifier contract.MessageNotifier, stor
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
-	return &DAGNotifier{logger: logger, notifier: notifier, store: store}
+	return &DAGNotifier{
+		logger:   logger,
+		notifier: notifier,
+		store:    store,
+		wake:     make(chan struct{}, 1),
+		stopCh:   make(chan struct{}),
+		doneCh:   make(chan struct{}),
+	}
+}
+
+// Start spawns the worker goroutine. Idempotent.
+func (n *DAGNotifier) Start() {
+	if n == nil {
+		return
+	}
+	n.startOnce.Do(func() {
+		go func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					pkglogger.Error("notify(orch): recovered dag_notifier_worker panic", "panic", rec)
+				}
+			}()
+			n.runWorker()
+		}()
+	})
+}
+
+// Stop closes the gate, drains pending requests through the worker, and
+// waits bounded by ctx for the worker to exit. Idempotent.
+func (n *DAGNotifier) Stop(ctx context.Context) error {
+	if n == nil {
+		return nil
+	}
+	var firstErr error
+	n.stopOnce.Do(func() {
+		close(n.stopCh)
+		waitCtx := ctx
+		if waitCtx == nil {
+			waitCtx = context.Background()
+		}
+		if deadline, ok := waitCtx.Deadline(); !ok || time.Until(deadline) > dagNotifyDrainGrace {
+			var cancel context.CancelFunc
+			waitCtx, cancel = ctxutil.WithTimeout(waitCtx, dagNotifyDrainGrace)
+			defer cancel()
+			_ = deadline
+		}
+		select {
+		case <-n.doneCh:
+		case <-waitCtx.Done():
+			firstErr = waitCtx.Err()
+		}
+	})
+	return firstErr
 }
 
 // Subscribe registers the orch bus subscribers. Returns a cancel that
@@ -61,27 +134,41 @@ func (n *DAGNotifier) Subscribe(dispatcher *event.Dispatcher, logger *pkglogger.
 	}
 }
 
-// onNodeStatusChanged is the terminal-state handler for DAG nodes. It
-// applies the plan's alias hierarchy (node > dag > drop) and enqueues
-// a NotifyMessage only when an alias resolves.
+// onNodeStatusChanged is the bus callback for DAG node status changes.
+// It performs only cheap checks (terminal status, empty key) and then
+// enqueues the event for the worker goroutine to process. No DB queries
+// or blocking I/O happen on the bus dispatcher's callback goroutine.
 func (n *DAGNotifier) onNodeStatusChanged(ev taskdto.TaskNodeStatusChanged) {
 	if !isTerminalNodeStatus(ev.NewStatus) {
 		return
 	}
-	dagKey := strings.TrimSpace(ev.DagKey)
-	nodeKey := strings.TrimSpace(ev.NodeKey)
-	if dagKey == "" || nodeKey == "" {
+	if strings.TrimSpace(ev.DagKey) == "" || strings.TrimSpace(ev.NodeKey) == "" {
 		return
 	}
-	// Look up node config + dag metadata. We use a short-lived
-	// background context because the subscriber callback has no ctx
-	// of its own — the bus dispatcher fires these eagerly.
+	select {
+	case <-n.stopCh:
+		return
+	default:
+	}
+	n.mu.Lock()
+	n.queue = append(n.queue, dagNotifyRequest{ev: ev})
+	n.mu.Unlock()
+	select {
+	case n.wake <- struct{}{}:
+	default:
+	}
+}
+
+// processEvent runs on the worker goroutine and performs the DB lookups
+// + TryEnqueue that were previously done synchronously in the callback.
+func (n *DAGNotifier) processEvent(ev taskdto.TaskNodeStatusChanged) {
+	dagKey := strings.TrimSpace(ev.DagKey)
+	nodeKey := strings.TrimSpace(ev.NodeKey)
 	ctx := context.Background()
 	node := n.findNode(ctx, dagKey, nodeKey)
 	dag := n.getDAG(ctx, dagKey)
 	alias := resolveNodeAlias(node, dag)
 	if alias == "" {
-		// drop/error per the plan — no NOTIFY_DEFAULT_CHANNEL fallback.
 		n.skipped.Add(1)
 		n.logger.Debug("notify(orch): no alias configured for dag node",
 			slog.String("dag_key", dagKey),
@@ -111,6 +198,35 @@ func (n *DAGNotifier) onNodeStatusChanged(ev taskdto.TaskNodeStatusChanged) {
 	n.enqueued.Add(1)
 }
 
+func (n *DAGNotifier) runWorker() {
+	defer close(n.doneCh)
+	for {
+		select {
+		case <-n.stopCh:
+			n.drainPending()
+			return
+		case <-n.wake:
+			n.drainPending()
+		}
+	}
+}
+
+func (n *DAGNotifier) drainPending() {
+	for {
+		n.mu.Lock()
+		if len(n.queue) == 0 {
+			n.mu.Unlock()
+			return
+		}
+		reqs := n.queue
+		n.queue = nil
+		n.mu.Unlock()
+		for _, req := range reqs {
+			n.processEvent(req.ev)
+		}
+	}
+}
+
 // findNode pulls the node row matching the event. ListNodes is the
 // cheapest path currently available; if performance becomes an issue
 // taskdag could add GetNode(dagKey, nodeKey) — but that's a store-
@@ -129,7 +245,6 @@ func (n *DAGNotifier) findNode(ctx context.Context, dagKey, nodeKey string) *tas
 	}
 	for i := range nodes {
 		if nodes[i].NodeKey == nodeKey {
-			// Copy so the caller can't mutate the slice-backing array.
 			out := nodes[i]
 			return &out
 		}
@@ -176,7 +291,7 @@ func buildNodeBody(ev taskdto.TaskNodeStatusChanged, node *taskdag.Node, dag *ta
 	b.WriteString("\nStatus: ")
 	if old := strings.TrimSpace(ev.OldStatus); old != "" {
 		b.WriteString(old)
-		b.WriteString(" \u2192 ")
+		b.WriteString(" → ")
 	}
 	b.WriteString(strings.TrimSpace(ev.NewStatus))
 	if turn := strings.TrimSpace(ev.ActiveTurnID); turn != "" {

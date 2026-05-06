@@ -19,11 +19,11 @@ package orchestration
 const (
 	// ReportMethodReportEvent accepts a report event payload and
 	// applies it to the agent's report state. See (*service).HandleReportEvent.
-	ReportMethodReportEvent = "agent.reportEvent"
+	ReportMethodReportEvent = "agent/reportEvent"
 	// ReportMethodRememberReportRequest records that a peer has
 	// subscribed to the next terminal report for an agent. See
 	// (*service).RememberReportRequest.
-	ReportMethodRememberReportRequest = "agent.rememberReportRequest"
+	ReportMethodRememberReportRequest = "agent/rememberReportRequest"
 )
 
 // Special event type whose terminality is decided by the event

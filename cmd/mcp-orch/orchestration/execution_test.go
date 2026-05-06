@@ -85,7 +85,7 @@ func TestSubmitTurnWaitsForSessionReadyWhenIdle(t *testing.T) {
 func TestSubmitTurnReturnsSessionWaitError(t *testing.T) {
 	t.Parallel()
 
-	want := errors.New("agent session not ready, ensure agent.launch completed")
+	want := errors.New("agent session not ready, ensure agent/launch completed")
 	starter := &stubTurnStarter{waitErr: want}
 	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, starter, nil)
 	agent := svc.newAgentLocked("agent-1")
@@ -165,7 +165,7 @@ func TestStartTurnExecutionWaitsForSessionReadyAfterBusySubmit(t *testing.T) {
 func TestStartTurnExecutionReturnsSessionWaitErrorAfterSubmitWait(t *testing.T) {
 	t.Parallel()
 
-	want := errors.New("agent session not ready, ensure agent.launch completed")
+	want := errors.New("agent session not ready, ensure agent/launch completed")
 	waitCalls := 0
 	starter := &stubTurnStarter{
 		waitFunc: func(_ context.Context, _ string, _ time.Duration) error {

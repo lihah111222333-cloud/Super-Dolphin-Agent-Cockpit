@@ -1,6 +1,6 @@
 {
-  "agent.launch": {
-    "method": "agent.launch",
+  "agent/launch": {
+    "method": "agent/launch",
     "request": {
       "agentType": "worker",
       "command": [
@@ -28,8 +28,8 @@
       }
     }
   },
-  "agent.submit": {
-    "method": "agent.submit",
+  "agent/submit": {
+    "method": "agent/submit",
     "request": {
       "agent_id": "agent-submit-1",
       "files": [

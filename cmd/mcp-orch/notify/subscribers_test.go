@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -66,6 +67,18 @@ func (f *fakeStore) GetDAG(ctx context.Context, dagKey string) (*taskdag.DAG, er
 	return nil, nil
 }
 
+// startAndStopDAGNotifier is a test helper that starts the worker,
+// fires the event via fn, then stops the worker so all enqueued events
+// are drained before assertions.
+func startAndStopDAGNotifier(t *testing.T, n *DAGNotifier, fn func()) {
+	t.Helper()
+	n.Start()
+	fn()
+	if err := n.Stop(context.Background()); err != nil {
+		t.Fatalf("DAGNotifier.Stop: %v", err)
+	}
+}
+
 func TestOnNodeStatusChangedIgnoresNonTerminal(t *testing.T) {
 	t.Parallel()
 	rec := &recordingMessageNotifier{}
@@ -76,12 +89,14 @@ func TestOnNodeStatusChangedIgnoresNonTerminal(t *testing.T) {
 		},
 	}
 	n := NewDAGNotifier(slog.Default(), rec, store)
-	n.onNodeStatusChanged(taskdto.TaskNodeStatusChanged{
-		TaskNodeHeader: shareddto.TaskNodeHeader{
-			TaskDAGHeader: shareddto.TaskDAGHeader{DAGHeader: shareddto.DAGHeader{DagKey: "d"}},
-			NodeKey:       "n",
-		},
-		NewStatus: "running",
+	startAndStopDAGNotifier(t, n, func() {
+		n.onNodeStatusChanged(taskdto.TaskNodeStatusChanged{
+			TaskNodeHeader: shareddto.TaskNodeHeader{
+				TaskDAGHeader: shareddto.TaskDAGHeader{DAGHeader: shareddto.DAGHeader{DagKey: "d"}},
+				NodeKey:       "n",
+			},
+			NewStatus: "running",
+		})
 	})
 	if rec.len() != 0 {
 		t.Fatalf("non-terminal enqueue leaked; got %d", rec.len())
@@ -100,12 +115,14 @@ func TestOnNodeStatusChangedDropsWithoutAlias(t *testing.T) {
 		},
 	}
 	n := NewDAGNotifier(slog.Default(), rec, store)
-	n.onNodeStatusChanged(taskdto.TaskNodeStatusChanged{
-		TaskNodeHeader: shareddto.TaskNodeHeader{
-			TaskDAGHeader: shareddto.TaskDAGHeader{DAGHeader: shareddto.DAGHeader{DagKey: "d"}},
-			NodeKey:       "n",
-		},
-		NewStatus: "failed",
+	startAndStopDAGNotifier(t, n, func() {
+		n.onNodeStatusChanged(taskdto.TaskNodeStatusChanged{
+			TaskNodeHeader: shareddto.TaskNodeHeader{
+				TaskDAGHeader: shareddto.TaskDAGHeader{DAGHeader: shareddto.DAGHeader{DagKey: "d"}},
+				NodeKey:       "n",
+			},
+			NewStatus: "failed",
+		})
 	})
 	if rec.len() != 0 {
 		t.Fatalf("no alias must drop; got %d enqueues", rec.len())
@@ -128,13 +145,15 @@ func TestOnNodeStatusChangedEnqueuesWithNodeAlias(t *testing.T) {
 		},
 	}
 	n := NewDAGNotifier(slog.Default(), rec, store)
-	n.onNodeStatusChanged(taskdto.TaskNodeStatusChanged{
-		TaskNodeHeader: shareddto.TaskNodeHeader{
-			TaskDAGHeader: shareddto.TaskDAGHeader{DAGHeader: shareddto.DAGHeader{DagKey: "d"}},
-			NodeKey:       "n",
-		},
-		OldStatus: "running",
-		NewStatus: "done",
+	startAndStopDAGNotifier(t, n, func() {
+		n.onNodeStatusChanged(taskdto.TaskNodeStatusChanged{
+			TaskNodeHeader: shareddto.TaskNodeHeader{
+				TaskDAGHeader: shareddto.TaskDAGHeader{DAGHeader: shareddto.DAGHeader{DagKey: "d"}},
+				NodeKey:       "n",
+			},
+			OldStatus: "running",
+			NewStatus: "done",
+		})
 	})
 	if rec.len() != 1 {
 		t.Fatalf("want 1 enqueue, got %d", rec.len())
@@ -166,12 +185,14 @@ func TestOnNodeStatusChangedFallsBackToDAGAlias(t *testing.T) {
 		},
 	}
 	n := NewDAGNotifier(slog.Default(), rec, store)
-	n.onNodeStatusChanged(taskdto.TaskNodeStatusChanged{
-		TaskNodeHeader: shareddto.TaskNodeHeader{
-			TaskDAGHeader: shareddto.TaskDAGHeader{DAGHeader: shareddto.DAGHeader{DagKey: "d"}},
-			NodeKey:       "n",
-		},
-		NewStatus: "failed",
+	startAndStopDAGNotifier(t, n, func() {
+		n.onNodeStatusChanged(taskdto.TaskNodeStatusChanged{
+			TaskNodeHeader: shareddto.TaskNodeHeader{
+				TaskDAGHeader: shareddto.TaskDAGHeader{DAGHeader: shareddto.DAGHeader{DagKey: "d"}},
+				NodeKey:       "n",
+			},
+			NewStatus: "failed",
+		})
 	})
 	if rec.len() != 1 {
 		t.Fatalf("want 1 enqueue, got %d", rec.len())
@@ -193,12 +214,14 @@ func TestOnNodeStatusChangedCountsEnqueueErrors(t *testing.T) {
 		},
 	}
 	n := NewDAGNotifier(slog.Default(), rec, store)
-	n.onNodeStatusChanged(taskdto.TaskNodeStatusChanged{
-		TaskNodeHeader: shareddto.TaskNodeHeader{
-			TaskDAGHeader: shareddto.TaskDAGHeader{DAGHeader: shareddto.DAGHeader{DagKey: "d"}},
-			NodeKey:       "n",
-		},
-		NewStatus: "done",
+	startAndStopDAGNotifier(t, n, func() {
+		n.onNodeStatusChanged(taskdto.TaskNodeStatusChanged{
+			TaskNodeHeader: shareddto.TaskNodeHeader{
+				TaskDAGHeader: shareddto.TaskDAGHeader{DAGHeader: shareddto.DAGHeader{DagKey: "d"}},
+				NodeKey:       "n",
+			},
+			NewStatus: "done",
+		})
 	})
 	m := n.Metrics()
 	if m.EnqueueErrors != 1 || m.Enqueued != 0 {
@@ -210,12 +233,14 @@ func TestOnNodeStatusChangedSurvivesNilStore(t *testing.T) {
 	t.Parallel()
 	rec := &recordingMessageNotifier{}
 	n := NewDAGNotifier(slog.Default(), rec, nil)
-	n.onNodeStatusChanged(taskdto.TaskNodeStatusChanged{
-		TaskNodeHeader: shareddto.TaskNodeHeader{
-			TaskDAGHeader: shareddto.TaskDAGHeader{DAGHeader: shareddto.DAGHeader{DagKey: "d"}},
-			NodeKey:       "n",
-		},
-		NewStatus: "done",
+	startAndStopDAGNotifier(t, n, func() {
+		n.onNodeStatusChanged(taskdto.TaskNodeStatusChanged{
+			TaskNodeHeader: shareddto.TaskNodeHeader{
+				TaskDAGHeader: shareddto.TaskDAGHeader{DAGHeader: shareddto.DAGHeader{DagKey: "d"}},
+				NodeKey:       "n",
+			},
+			NewStatus: "done",
+		})
 	})
 	// No store -> no node / dag -> empty alias -> dropped.
 	if rec.len() != 0 || n.Metrics().Skipped != 1 {
@@ -239,5 +264,35 @@ func TestLevelForNodeStatusMapping(t *testing.T) {
 		if got := levelForNodeStatus(in); got != want {
 			t.Errorf("levelForNodeStatus(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// TestDAGNotifierStopDrainsBeforeReturn verifies the bounded drain
+// contract: Stop returns only after all enqueued events are processed.
+func TestDAGNotifierStopDrainsBeforeReturn(t *testing.T) {
+	t.Parallel()
+	rec := &recordingMessageNotifier{}
+	store := &fakeStore{
+		listNodesFn: func(context.Context, string) ([]taskdag.Node, error) {
+			time.Sleep(10 * time.Millisecond) // simulate slow DB
+			return []taskdag.Node{{NodeKey: "n", Config: jsonB(t, map[string]any{"notify_channel": "ch"})}}, nil
+		},
+	}
+	n := NewDAGNotifier(slog.Default(), rec, store)
+	n.Start()
+	for i := 0; i < 5; i++ {
+		n.onNodeStatusChanged(taskdto.TaskNodeStatusChanged{
+			TaskNodeHeader: shareddto.TaskNodeHeader{
+				TaskDAGHeader: shareddto.TaskDAGHeader{DAGHeader: shareddto.DAGHeader{DagKey: "d"}},
+				NodeKey:       "n",
+			},
+			NewStatus: "done",
+		})
+	}
+	if err := n.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if rec.len() != 5 {
+		t.Fatalf("expected 5 enqueues after drain, got %d", rec.len())
 	}
 }
