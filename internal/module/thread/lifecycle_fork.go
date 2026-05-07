@@ -64,7 +64,7 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 		s.stopAgent(ctx, agentID)
 		return ForkResult{}, err
 	}
-	providerThreadID := strings.TrimSpace(forkedSession.ThreadID())
+	providerThreadID := resolvedProviderUUID(forkedSession)
 	if err := s.persistThreadState(ctx, newThreadState(threadStateForkKind, threadStateFields{
 		PublicThreadID:   newThreadID,
 		ProviderThreadID: providerThreadID,
@@ -79,7 +79,7 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 		Name:             displayName,
 		Prompt:           displayName,
 		RolloutPath:      forkedSession.RolloutPath(),
-		SessionUUID:      forkedSession.ThreadID(),
+		SessionUUID:      resolvedProviderUUID(forkedSession),
 		CreatedAt:        time.Now().Unix(),
 	}), true); err != nil {
 		s.stopAgent(ctx, agentID)
@@ -137,7 +137,7 @@ func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, 
 	if err := s.persistThreadState(ctx, newThreadState(threadStateRecoverKind, threadStateFields{
 		RequestedThreadID: threadID,
 		PublicThreadID:    publicThreadID,
-		ProviderThreadID:  util.FirstNonEmpty(providerThreadID, session.ThreadID()),
+		ProviderThreadID:  util.FirstNonEmpty(providerThreadID, resolvedProviderUUID(session)),
 		AgentID:           agentID,
 		ParentAgentID:     meta.ParentAgentID,
 		AgentType:         meta.AgentType,
@@ -148,7 +148,7 @@ func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, 
 		Name:              displayName,
 		Prompt:            displayName,
 		RolloutPath:       util.FirstNonEmpty(binding.RolloutPath, session.RolloutPath()),
-		SessionUUID:       util.FirstNonEmpty(binding.SessionUUID, session.ThreadID()),
+		SessionUUID:       util.FirstNonEmpty(binding.SessionUUID, resolvedProviderUUID(session)),
 		ConfigOverride:    clone.RawMessage(meta.ConfigOverride),
 		CreatedAt:         meta.CreatedAt,
 	}), true); err != nil {

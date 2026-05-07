@@ -234,14 +234,14 @@ func (s *service) persistStartedSession(
 		ParentAgentID:      req.ParentAgentID,
 		AgentType:          req.AgentType,
 		AgentMemoryScope:   req.AgentMemoryScope,
-		ProviderThreadID:   session.ThreadID(),
+		ProviderThreadID:   resolvedProviderUUID(session),
 		Provider:           req.Provider,
 		CWD:                effectiveCWD,
 		Model:              effectiveModel,
 		Name:               displayName,
 		Prompt:             displayName,
 		RolloutPath:        session.RolloutPath(),
-		SessionUUID:        session.ThreadID(),
+		SessionUUID:        resolvedProviderUUID(session),
 		ConfigOverride:     configOverride,
 		CodexHome:          codexHome,
 		CodexInstanceKey:   identity.InstanceKey,
@@ -368,7 +368,7 @@ func (s *service) persistResumedSession(
 	threadState := newThreadState(threadStateResumeKind, threadStateFields{
 		RequestedThreadID:  req.ThreadID,
 		PublicThreadID:     state.PublicThreadID,
-		ProviderThreadID:   util.FirstNonEmpty(req.ProviderThreadID, session.ThreadID()),
+		ProviderThreadID:   util.FirstNonEmpty(req.ProviderThreadID, resolvedProviderUUID(session)),
 		AgentID:            req.AgentID,
 		ParentAgentID:      state.ParentAgentID,
 		AgentType:          state.AgentType,
@@ -379,7 +379,7 @@ func (s *service) persistResumedSession(
 		Name:               displayName,
 		Prompt:             displayName,
 		RolloutPath:        util.FirstNonEmpty(state.RolloutPath, session.RolloutPath()),
-		SessionUUID:        util.FirstNonEmpty(state.SessionUUID, session.ThreadID()),
+		SessionUUID:        util.FirstNonEmpty(state.SessionUUID, resolvedProviderUUID(session)),
 		ConfigOverride:     clone.RawMessage(state.ConfigOverrideRaw),
 		CodexHome:          codexHome,
 		CodexInstanceKey:   codexInstanceKey,
@@ -507,4 +507,15 @@ func (s *service) forgetThreadAgent(threadID string) {
 	s.threadAgentsMu.Lock()
 	defer s.threadAgentsMu.Unlock()
 	delete(s.threadAgents, threadID)
+}
+
+func resolvedProviderUUID(session contract.Session) string {
+	if session == nil {
+		return ""
+	}
+	id := strings.TrimSpace(session.ThreadID())
+	if looksLikeUUID(id) {
+		return id
+	}
+	return ""
 }

@@ -57,7 +57,7 @@ func TestServiceForkCreatesIndependentAgentAndBinding(t *testing.T) {
 		threadID:   "thread-parent",
 		forkResult: dto.ForkResult{NewThreadID: "thread-fork"},
 	}
-	forkedSession := &stubSession{threadID: "thread-fork"}
+	forkedSession := &stubSession{threadID: "019d5f6b-aaaa-7760-9d6f-54005553f5b3"}
 	sessions := &stubSessionProvider{session: originalSession}
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-parent",
@@ -123,7 +123,7 @@ func TestServiceForkCreatesIndependentAgentAndBinding(t *testing.T) {
 	if bindings.upsert.AgentID != "thread-fork" {
 		t.Fatalf("binding.AgentID = %q, want thread-fork", bindings.upsert.AgentID)
 	}
-	if bindings.upsert.ProviderThreadID != "thread-fork" || bindings.upsert.CodexThreadID != "thread-fork" {
+	if bindings.upsert.ProviderThreadID != "019d5f6b-aaaa-7760-9d6f-54005553f5b3" || bindings.upsert.CodexThreadID != "thread-fork" {
 		t.Fatalf("binding upsert = %#v", bindings.upsert)
 	}
 	if threads.upsert.ThreadID != "thread-fork" || threads.upsert.OwnerThreadID != "thread-parent" {
