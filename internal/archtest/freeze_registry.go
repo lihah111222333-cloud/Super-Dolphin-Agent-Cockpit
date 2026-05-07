@@ -20,18 +20,10 @@ var explicitFreezeRegistry = []explicitFreeze{
 	{
 		Path:       "internal/module/memory",
 		Kind:       ViolationPackageCount,
-		Limit:      32,
+		Limit:      31,
 		Reason:     "上下文继承与预警合并 (Phase 1.6 / 2.1) 后 memory 包多出 auto-continue state RPC 套件；临时超 30 默认上限，后续拆 sub-package 后取消。",
 		Owner:      "chat",
 		RemoveWhen: "memory 包拆出 auto-continue 子包后文件数回落 ≤ 30，删除该 freeze。",
-	},
-	{
-		Path:       "internal/module/thread",
-		Kind:       ViolationPackageCount,
-		Limit:      31,
-		Reason:     "上下文继承与预警合并 (Phase 2.1 / 4.1) 后 thread 包多出 promote_task.go + rootTaskId 系列；task_handoff.go 620 行无法内联，拆独立文件后超 30 默认。",
-		Owner:      "chat",
-		RemoveWhen: "task_handoff.go 拆分（render / worker / 持久化各自独立）后把 promote_task / rootTaskId helpers 内联回精简版 task_handoff.go，文件数回落 ≤ 30 后删除该 freeze。",
 	},
 }
 
