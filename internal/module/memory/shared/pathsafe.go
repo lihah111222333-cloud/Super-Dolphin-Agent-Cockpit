@@ -138,7 +138,7 @@ func expandHomePath(raw string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("%w: %v", ErrInvalidMemoryRoot, err)
 		}
-		tail := strings.TrimLeft(raw[1:], `/\\`)
+		tail := strings.TrimLeft(raw[1:], `/\`)
 		if strings.TrimSpace(tail) == "" || filepath.Clean(tail) == "." {
 			return "", fmt.Errorf("%w: home root is not allowed", ErrInvalidMemoryRoot)
 		}
@@ -154,7 +154,7 @@ func isWindowsDriveRoot(path string) bool {
 	if len(path) < 2 || path[1] != ':' {
 		return false
 	}
-	rest := strings.Trim(path[2:], `/\\`)
+	rest := strings.Trim(path[2:], `/\`)
 	return rest == ""
 }
 

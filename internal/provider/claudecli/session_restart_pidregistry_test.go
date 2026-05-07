@@ -13,14 +13,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
 )
 
-type registrySnapshotForTest struct {
-	Children []registryChildForTest `json:"children"`
-}
-
-type registryChildForTest struct {
-	PID int `json:"pid"`
-}
-
 func TestRestartIfNeededLockedReRegistersPIDRegistry(t *testing.T) {
 	reg := pidregistry.New()
 	t.Cleanup(reg.Close)

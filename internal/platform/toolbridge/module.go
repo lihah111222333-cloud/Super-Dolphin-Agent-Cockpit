@@ -2,7 +2,6 @@ package toolbridge
 
 import (
 	"context"
-	"encoding/json"
 	"net"
 	"strings"
 	"sync/atomic"
@@ -105,14 +104,6 @@ func memoryWriteHostToolOptions(writer contract.AgentMemoryWriter) MemoryWriteHo
 		return MemoryWriteHostToolOptions{}
 	}
 	return MemoryWriteHostToolOptions{Enabled: writer.MemoryWriteEnabled(), ToolsEnabled: writer.MemoryWriteToolsEnabled()}
-}
-
-func decodeToolbridgePreferenceValue(raw json.RawMessage) any {
-	var value any
-	if err := json.Unmarshal(raw, &value); err == nil {
-		return value
-	}
-	return strings.TrimSpace(string(raw))
 }
 
 func provideDiffEmitter(dispatcher *event.Dispatcher) difftracker.DiffEmitter {

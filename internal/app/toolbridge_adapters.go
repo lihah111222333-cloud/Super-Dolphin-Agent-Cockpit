@@ -244,11 +244,7 @@ func bindToolbridgeCodexHandlers(p codexBindingParams) {
 		}
 		out := make([]codexprotocol.DynamicToolSchema, len(tools))
 		for i, t := range tools {
-			out[i] = codexprotocol.DynamicToolSchema{
-				Name:        t.Name,
-				Description: t.Description,
-				InputSchema: t.InputSchema,
-			}
+			out[i] = codexprotocol.DynamicToolSchema(t)
 		}
 		return out, nil
 	})

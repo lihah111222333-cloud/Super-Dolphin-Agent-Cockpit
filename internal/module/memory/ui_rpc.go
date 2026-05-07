@@ -13,7 +13,6 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/dedup"
-	memshared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 )
 
 const uiMemoryPreviewLimit = 320
@@ -295,31 +294,6 @@ func registerUIMemoryHandlers(p memoryHandlerDeps) handler.Map {
 			return buildUIMemorySnapshot(ctx, p.Service, p.Logger, req.CWD)
 		}),
 	}
-}
-
-// isUserVisibleNotFound returns true only for ErrSafeReadNotFound
-// (i.e. the entrypoint genuinely does not exist on disk). Containment
-// rejections — post-EvalSymlinks paths that escape the scope root —
-// are now classified by isContainmentRejection and surfaced via
-// Warn-level redactRPCError so the attack signal is preserved instead
-// of silently folded into "no entry to display". See AB.5 落地项 #7.
-//
-// The rule deliberately lives in the main memory package, not in
-// memshared: memshared owns the sentinels and the read primitive,
-// while UI-boundary policy ("what the editor view should reveal") is
-// a higher-layer decision that may evolve independently per RPC.
-func isUserVisibleNotFound(err error) bool {
-	return errors.Is(err, memshared.ErrSafeReadNotFound)
-}
-
-// isContainmentRejection reports whether err is a SafeReadEntrypoint
-// containment failure — the resolved path escaped the configured root.
-// This is treated as "empty content" at the UI boundary (so the user does
-// not get an actionable error they cannot fix), but callers MUST log it
-// at Warn before swallowing it; folding containment into NotFound silently
-// masks an attack signal.
-func isContainmentRejection(err error) bool {
-	return errors.Is(err, memshared.ErrSafeReadContainment)
 }
 
 // Per-operation redacted public sentinels for the UI RPC boundary.

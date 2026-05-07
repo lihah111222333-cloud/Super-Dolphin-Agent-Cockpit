@@ -203,7 +203,11 @@ func (s *service) discardStaleLaunchResult(ctx context.Context, launching *agent
 }
 
 func (s *service) failLauncherLaunchLocked(ctx context.Context, agent, launching *agentRuntime, launchErr error) error {
-	err := s.commitLaunchFailureLocked(ctx, agent, launchErr, launching.lastError)
+	var lastErr string
+	if launching != nil {
+		lastErr = launching.lastError
+	}
+	err := s.commitLaunchFailureLocked(ctx, agent, launchErr, lastErr)
 	s.mu.Unlock()
 	// Clean up any residual resources on the launching copy (remote thread, etc.).
 	if launching != nil && s.launcher != nil {

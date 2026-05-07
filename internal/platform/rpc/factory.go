@@ -9,11 +9,8 @@ import (
 
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/channel"
-	"github.com/creachadair/jrpc2/handler"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/eventsurface"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 type approvalMethodCatalogSpec struct {
@@ -96,23 +93,6 @@ func (c approvalMethodCatalogSpec) isPushMethod(method string) bool {
 	}
 	_, ok := c.pushEligibleMethods[method]
 	return ok
-}
-
-func baseThreadHandler[Req, Resp any](fn func(context.Context, Req) (Resp, error), extras ...Middleware) handler.Func {
-	mws := make([]Middleware, 0, 3+len(extras))
-	mws = append(mws, CapabilityErrorMapper(), Validate(), ThreadScope())
-	mws = append(mws, extras...)
-	return Wrap(mws...)(StrictHandler(fn))
-}
-
-func broadcastNotifications(ctx context.Context, server *Server, bridge *PushBridge, notifications []eventsurface.Notification) {
-	if server == nil || bridge == nil || len(notifications) == 0 {
-		return
-	}
-	ctx = platformshared.NonNilContext(ctx)
-	for _, notification := range notifications {
-		server.NotifyAll(ctx, bridge, notification.Method, notification.Payload)
-	}
 }
 
 func isExpectedCloseErr(err error) bool {

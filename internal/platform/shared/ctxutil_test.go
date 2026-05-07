@@ -8,7 +8,7 @@ import (
 
 func TestNonNilContext(t *testing.T) {
 	t.Run("nil returns background", func(t *testing.T) {
-		ctx := NonNilContext(nil)
+		ctx := NonNilContext(nil) //nolint:staticcheck // testing nil-ctx defense
 		if ctx == nil {
 			t.Fatal("expected background context")
 		}
@@ -27,7 +27,7 @@ func TestNonNilContext(t *testing.T) {
 }
 
 func TestCheckCtx(t *testing.T) {
-	if err := CheckCtx(nil); err != nil {
+	if err := CheckCtx(nil); err != nil { //nolint:staticcheck // testing nil-ctx behavior
 		t.Fatalf("expected nil err for nil context, got %v", err)
 	}
 

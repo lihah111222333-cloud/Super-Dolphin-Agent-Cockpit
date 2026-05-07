@@ -47,8 +47,6 @@ type driver struct {
 	manifestRenderer contract.SkillManifestRenderer // P6 FBSD + skill library; optional, nil-safe
 }
 
-const defaultManifestBudget = 8192
-
 var _ contract.Driver = (*driver)(nil)
 
 var codexCapabilities = dto.CapabilitySet{

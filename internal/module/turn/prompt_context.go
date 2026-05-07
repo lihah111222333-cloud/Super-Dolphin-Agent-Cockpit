@@ -108,22 +108,3 @@ func clonePrepareOptionalBool(value *bool) *bool {
 	cloned := *value
 	return &cloned
 }
-
-func clonePrepareUserContext(values map[string]string) map[string]string {
-	if len(values) == 0 {
-		return nil
-	}
-	cloned := make(map[string]string, len(values))
-	for key, value := range values {
-		key = strings.TrimSpace(key)
-		value = strings.TrimSpace(value)
-		if key == "" || value == "" {
-			continue
-		}
-		cloned[key] = value
-	}
-	if len(cloned) == 0 {
-		return nil
-	}
-	return cloned
-}

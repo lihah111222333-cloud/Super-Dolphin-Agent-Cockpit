@@ -64,7 +64,7 @@ func TestSafeGoNilFnIsNoop(t *testing.T) {
 func TestSafeGoNilCtxDefaultsBackground(t *testing.T) {
 	t.Parallel()
 	done := make(chan struct{})
-	SafeGo(nil, nil, "test.nilCtx", func(ctx context.Context) {
+	SafeGo(nil, nil, "test.nilCtx", func(ctx context.Context) { //nolint:staticcheck // testing nil-ctx defense
 		defer close(done)
 		if ctx == nil {
 			t.Error("nil ctx should have been replaced by context.Background()")

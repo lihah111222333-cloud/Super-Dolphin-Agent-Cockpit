@@ -130,13 +130,6 @@ func (a *App) bindRuntime(wailsApp *application.App) {
 	}
 }
 
-func (a *App) emit(event string, data any) {
-	if a == nil || a.emitter == nil {
-		return
-	}
-	a.emitter(event, data)
-}
-
 func (a *App) callContext() context.Context {
 	if a != nil && a.wailsApp != nil {
 		if ctx := a.wailsApp.Context(); ctx != nil {
@@ -189,10 +182,6 @@ func decodeAPIResult(result json.RawMessage) (any, error) {
 		return nil, err
 	}
 	return value, nil
-}
-
-func deferredBindingError(method, reason string) error {
-	return fmt.Errorf("wails binding: %s is not implemented: %s", method, reason)
 }
 
 func currentBuildInfo() map[string]string {

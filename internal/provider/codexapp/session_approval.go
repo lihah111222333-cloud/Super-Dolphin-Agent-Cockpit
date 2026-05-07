@@ -66,9 +66,12 @@ func (s *session) requestToolApprovalWithContext(ctx context.Context, method str
 }
 
 func (s *session) requestApprovalDecision(req rpc.ApprovalRequest) (contract.ApprovalDecision, error) {
+	if s == nil {
+		return contract.ApprovalDecision{}, errors.New("session is nil")
+	}
 	ctx, cancel := approvalDecisionContext(s.ctx)
 	defer cancel()
-	if s != nil && s.approvalDecisionHook != nil {
+	if s.approvalDecisionHook != nil {
 		return s.approvalDecisionHook(ctx, req)
 	}
 	if isRequestUserInputMethod(req.SourceMethod) {
@@ -333,14 +336,6 @@ func (s *session) handleNotificationAction(method string, params json.RawMessage
 	case method == "connection.dead":
 		s.handleConnectionDead(params)
 	}
-}
-
-// isAlienThreadEvent returns true when the event payload carries a threadId
-// that does not match this session's thread. Events without a threadId are
-// never considered alien.
-func (s *session) isAlienThreadEvent(params json.RawMessage) bool {
-	_, ok := s.alienThreadEventThread(params)
-	return ok
 }
 
 func (s *session) alienThreadEventThread(params json.RawMessage) (string, bool) {

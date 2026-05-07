@@ -22,7 +22,7 @@ func TestEscalate_Normal(t *testing.T) {
 		WithResolverLogger(pkglogger.New(pkglogger.NewTextHandler(io.Discard, nil))),
 	)
 
-	got, err := resolver.Escalate(nil, "call-escalate", mcp.HookPayload{
+	got, err := resolver.Escalate(context.TODO(), "call-escalate", mcp.HookPayload{
 		Topic:   " " + TopicToolAfter + " ",
 		AgentID: " agent-1 ",
 	}, mcp.LeaseKey{InstanceID: " lease-a ", Generation: 1}, 0)
@@ -84,7 +84,7 @@ func TestEscalate_UsesExplicitTTLMs(t *testing.T) {
 		WithResolverLogger(pkglogger.New(pkglogger.NewTextHandler(io.Discard, nil))),
 	)
 
-	got, err := resolver.Escalate(nil, "call-escalate-ttl", mcp.HookPayload{
+	got, err := resolver.Escalate(context.TODO(), "call-escalate-ttl", mcp.HookPayload{
 		Topic:      TopicToolAfter,
 		AgentID:    "agent-1",
 		DeadlineMs: time.Now().Add(10 * time.Minute).UnixMilli(),
@@ -109,7 +109,7 @@ func TestSweepExpired_Delegates(t *testing.T) {
 		},
 	}
 
-	got, err := mustNewHookResolver(t, store).SweepExpired(nil)
+	got, err := mustNewHookResolver(t, store).SweepExpired(context.TODO())
 	if err != nil {
 		t.Fatalf("SweepExpired() error = %v", err)
 	}
@@ -136,7 +136,7 @@ func TestCancelByLease_Delegates(t *testing.T) {
 		},
 	}
 
-	got, err := mustNewHookResolver(t, store).CancelByLease(nil, mcp.LeaseKey{InstanceID: " lease-a ", Generation: 2})
+	got, err := mustNewHookResolver(t, store).CancelByLease(context.TODO(), mcp.LeaseKey{InstanceID: " lease-a ", Generation: 2})
 	if err != nil {
 		t.Fatalf("CancelByLease() error = %v", err)
 	}
@@ -160,7 +160,7 @@ func TestCancelByAgent_Delegates(t *testing.T) {
 		},
 	}
 
-	got, err := mustNewHookResolver(t, store).CancelByAgent(nil, " agent-1 ")
+	got, err := mustNewHookResolver(t, store).CancelByAgent(context.TODO(), " agent-1 ")
 	if err != nil {
 		t.Fatalf("CancelByAgent() error = %v", err)
 	}
@@ -183,7 +183,7 @@ func TestRecoverOnStartup_Delegates(t *testing.T) {
 		},
 	}
 
-	got, err := mustNewHookResolver(t, store).RecoverOnStartup(nil)
+	got, err := mustNewHookResolver(t, store).RecoverOnStartup(context.TODO())
 	if err != nil {
 		t.Fatalf("RecoverOnStartup() error = %v", err)
 	}

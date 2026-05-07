@@ -502,17 +502,6 @@ func buildStdioServer(bin dto.MCPBinary, cwd string) (map[string]any, bool) {
 	return server, true
 }
 
-func cloneStringMap(in map[string]string) map[string]string {
-	if len(in) == 0 {
-		return map[string]string{}
-	}
-	out := make(map[string]string, len(in))
-	for key, value := range in {
-		out[key] = value
-	}
-	return out
-}
-
 func applyAutoApprove(server map[string]any, autoApprove []string) {
 	if len(autoApprove) > 0 {
 		server["autoApprove"] = append([]string(nil), autoApprove...)

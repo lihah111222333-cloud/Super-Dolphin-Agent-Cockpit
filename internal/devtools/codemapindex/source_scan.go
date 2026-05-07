@@ -46,7 +46,7 @@ func indexedSourceDirs(root string) []string {
 }
 
 func collectSourceFilesFromDir(root, dir string) (files []string) {
-	filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
+	_ = filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}

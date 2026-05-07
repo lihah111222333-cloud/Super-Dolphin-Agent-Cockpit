@@ -261,24 +261,7 @@ func (s *store) ListCwdMap(ctx context.Context) (map[string]string, error) {
 }
 
 func mapBinding(row bindingRow) Binding {
-	return Binding{
-		AgentID:            row.AgentID,
-		Provider:           row.Provider,
-		ProviderThreadID:   row.ProviderThreadID,
-		CodexThreadID:      row.CodexThreadID,
-		RolloutPath:        row.RolloutPath,
-		Cwd:                row.Cwd,
-		ParentAgentID:      row.ParentAgentID,
-		AgentType:          row.AgentType,
-		AgentMemoryScope:   row.AgentMemoryScope,
-		Archived:           row.Archived,
-		CreatedAt:          row.CreatedAt,
-		UpdatedAt:          row.UpdatedAt,
-		SessionUUID:        row.SessionUUID,
-		CodexHome:          row.CodexHome,
-		CodexInstanceKey:   row.CodexInstanceKey,
-		CodexModelProvider: row.CodexModelProvider,
-	}
+	return Binding(row)
 }
 
 type bindingRow struct {

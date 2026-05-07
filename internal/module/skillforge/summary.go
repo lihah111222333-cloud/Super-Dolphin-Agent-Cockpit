@@ -35,7 +35,7 @@ func ExtractSummary(body string, maxRunes int) string {
 			}
 		}
 	}
-	out := first
+	var out string
 	if cutAt > 0 {
 		out = first[:cutAt]
 	} else {

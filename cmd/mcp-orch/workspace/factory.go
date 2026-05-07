@@ -116,7 +116,6 @@ func copyPreserveModeAtomic(source *os.File, targetPath string, perm os.FileMode
 	if err := os.Rename(tmpPath, targetPath); err != nil {
 		return err
 	}
-	cleanup = func() {}
 	return nil
 }
 

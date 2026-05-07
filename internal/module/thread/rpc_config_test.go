@@ -32,7 +32,7 @@ func TestDecodeConfigMap_Null(t *testing.T) {
 func TestDecodeConfigMap_EmptyObject(t *testing.T) {
 	t.Parallel()
 
-	if got := decodeConfigMap(json.RawMessage(`{}`)); got != nil && len(got) != 0 {
+	if got := decodeConfigMap(json.RawMessage(`{}`)); len(got) != 0 {
 		t.Fatalf("decodeConfigMap({}) = %#v, want nil or empty map", got)
 	}
 }

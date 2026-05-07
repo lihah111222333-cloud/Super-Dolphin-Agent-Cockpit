@@ -146,14 +146,6 @@ func (h *fakePeerHandle) Signal(sig processSig) error {
 	return nil
 }
 
-func (h *fakePeerHandle) signalsSnapshot() []processSig {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	out := make([]processSig, len(h.signals))
-	copy(out, h.signals)
-	return out
-}
-
 // fakePIDTracker observes Register/Unregister calls so the atomic-swap test
 // can assert the exact sequence the supervisor issues.
 type fakePIDTracker struct {
@@ -539,17 +531,6 @@ func (s *stuckPeerHandle) registered() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.reg
-}
-
-func (s *stuckPeerHandle) receivedSignal(want processSig) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, sig := range s.signals {
-		if sig == want {
-			return true
-		}
-	}
-	return false
 }
 
 func (s *stuckPeerHandle) markRegistered() {

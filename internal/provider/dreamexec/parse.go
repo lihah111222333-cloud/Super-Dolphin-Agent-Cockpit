@@ -41,9 +41,7 @@ func StripJSONFences(s string) string {
 	}
 	// 去掉尾部 ``` （可能带尾部空白或 newline）
 	s = strings.TrimRight(s, " \t\r\n")
-	if strings.HasSuffix(s, "```") {
-		s = s[:len(s)-3]
-	}
+	s = strings.TrimSuffix(s, "```")
 	return strings.TrimSpace(s)
 }
 

@@ -3,7 +3,6 @@ package toolbridge
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -160,6 +159,6 @@ func runGit(t *testing.T, dir string, args ...string) {
 	cmd.Dir = dir
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("git %s error = %v\n%s", strings.Join(args, " "), err, fmt.Sprintf("%s", output))
+		t.Fatalf("git %s error = %v\n%s", strings.Join(args, " "), err, string(output))
 	}
 }

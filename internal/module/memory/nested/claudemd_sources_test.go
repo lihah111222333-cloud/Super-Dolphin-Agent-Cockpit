@@ -316,17 +316,6 @@ func sourceByPath(t *testing.T, sources []ClaudeMdSource, path string) ClaudeMdS
 	return ClaudeMdSource{}
 }
 
-func sourceByType(t *testing.T, sources []ClaudeMdSource, sourceType string) ClaudeMdSource {
-	t.Helper()
-	for _, source := range sources {
-		if source.Type == sourceType {
-			return source
-		}
-	}
-	t.Fatalf("source type %q not found in %#v", sourceType, sources)
-	return ClaudeMdSource{}
-}
-
 func hasSourceType(sources []ClaudeMdSource, sourceType string) bool {
 	for _, source := range sources {
 		if source.Type == sourceType {

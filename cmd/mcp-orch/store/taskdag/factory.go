@@ -99,12 +99,7 @@ func fencedWakeupMutation(
 }
 
 func wakeupFenceFromMark(input MarkWakeupSentInput) wakeupFence {
-	return wakeupFence{
-		ID:             input.ID,
-		ClaimedAt:      input.ClaimedAt,
-		ClaimedBy:      input.ClaimedBy,
-		LeaseExpiresAt: input.LeaseExpiresAt,
-	}
+	return wakeupFence(input)
 }
 
 func wakeupFenceFromRetry(input RetryWakeupInput) wakeupFence {

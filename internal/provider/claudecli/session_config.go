@@ -233,27 +233,6 @@ func (s *session) forceCompleteTurn(target *turnHandle, turnID string) {
 	handle.finish(nil)
 }
 
-func (s *session) activeTurnHandle() *turnHandle {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.activeTurn
-}
-
-func (s *session) takeActiveTurn(turnID string) *turnHandle {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if turnID != "" && currentTurnID(s.activeTurn) != turnID {
-		return nil
-	}
-	return s.takeActiveTurnLocked()
-}
-
-func (s *session) suppressTurn(turnID string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.suppressedTurns[turnID] = struct{}{}
-}
-
 func (s *session) consumeSuppressedTurn(turnID string) bool {
 	if turnID == "" {
 		return false

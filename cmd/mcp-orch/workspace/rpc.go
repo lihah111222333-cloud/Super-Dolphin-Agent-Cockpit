@@ -63,12 +63,7 @@ func handleMergeRun(svc Service) func(context.Context, mergeRunParams) (mergeRes
 }
 
 func mergeRunRequestFromParams(p mergeRunParams) MergeRunRequest {
-	return MergeRunRequest{
-		RunKey:        p.RunKey,
-		UpdatedBy:     p.UpdatedBy,
-		DryRun:        p.DryRun,
-		DeleteRemoved: p.DeleteRemoved,
-	}
+	return MergeRunRequest(p)
 }
 
 func handleAbortRun(svc Service) func(context.Context, abortRunParams) (runResult, error) {
