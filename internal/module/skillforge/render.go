@@ -28,10 +28,10 @@ func Render(ps *ParsedSkill, summaryOverride map[string]string) (*RenderResult, 
 
 	var b strings.Builder
 	b.WriteString("---\n")
-	b.WriteString(fmt.Sprintf("name: %s\n", ps.Name))
-	b.WriteString(fmt.Sprintf("description: %s\n", ps.Description))
+	fmt.Fprintf(&b, "name: %s\n", ps.Name)
+	fmt.Fprintf(&b, "description: %s\n", ps.Description)
 	b.WriteString("---\n\n")
-	b.WriteString(fmt.Sprintf("# %s\n\n", ps.Name))
+	fmt.Fprintf(&b, "# %s\n\n", ps.Name)
 
 	if len(ps.Sections) == 0 {
 		b.WriteString("（本 skill 无 H2 分节。）\n")
@@ -47,8 +47,8 @@ func Render(ps *ParsedSkill, summaryOverride map[string]string) (*RenderResult, 
 		if summary == "" {
 			summary = ExtractSummary(sec.Body, summaryRunes)
 		}
-		b.WriteString(fmt.Sprintf("- %s — %s\n", sec.Title, summary))
-		b.WriteString(fmt.Sprintf("  详见 references/%s\n", fname))
+		fmt.Fprintf(&b, "- %s — %s\n", sec.Title, summary)
+		fmt.Fprintf(&b, "  详见 references/%s\n", fname)
 		res.References[fname] = sec.Body + "\n"
 	}
 	b.WriteString("\n> 需要某节内容时，使用 Read 工具读取对应 references/ 文件，不要整文加载。\n")

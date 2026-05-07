@@ -141,10 +141,7 @@ func buildIndex(root, codemapDir, generatedAt string) (Index, []codemapindex.Rea
 }
 
 func checkGeneratedFiles(indexPath string, indexData []byte, readmePath string, readmeCodemaps []codemapindex.ReadmeCodemap, generatedAt string) {
-	stale := false
-	if !sameFileContent(indexPath, indexData) {
-		stale = true
-	}
+	stale := !sameFileContent(indexPath, indexData)
 	expectedREADME, err := renderSyncedREADME(readmePath, readmeCodemaps, generatedAt)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "codemap-check: render README: %v\n", err)

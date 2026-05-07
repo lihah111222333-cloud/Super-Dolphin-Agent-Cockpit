@@ -75,12 +75,12 @@ func buildManifest(entries []dtoskill.SkillEntry, descriptions contract.SkillDes
 func renderL1CBlock(e dtoskill.SkillEntry, descriptions contract.SkillDescriptionParser) string {
 	desc := descriptionOf(e, descriptions)
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("- %s — %s\n", e.Meta.Name, desc))
+	fmt.Fprintf(&b, "- %s — %s\n", e.Meta.Name, desc)
 	if len(e.Meta.SectionSummaries) > 0 {
 		b.WriteString("  节索引：\n")
 		anchors := sortedStringKeys(e.Meta.SectionSummaries)
 		for _, a := range anchors {
-			b.WriteString(fmt.Sprintf("    - %s — %s\n", a, e.Meta.SectionSummaries[a]))
+			fmt.Fprintf(&b, "    - %s — %s\n", a, e.Meta.SectionSummaries[a])
 		}
 	}
 	return b.String()
@@ -96,7 +96,7 @@ func descriptionOf(e dtoskill.SkillEntry, descriptions contract.SkillDescription
 func renderWarmBlock(e dtoskill.SkillEntry, descriptions contract.SkillDescriptionParser) string {
 	desc := descriptionOf(e, descriptions)
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("- %s — %s\n", e.Meta.Name, desc))
+	fmt.Fprintf(&b, "- %s — %s\n", e.Meta.Name, desc)
 	if len(e.Meta.SectionSummaries) > 0 {
 		anchors := sortedStringKeys(e.Meta.SectionSummaries)
 		b.WriteString("  节: [" + strings.Join(anchors, ", ") + "]\n")

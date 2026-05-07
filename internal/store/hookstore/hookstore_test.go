@@ -198,7 +198,7 @@ func assignScanDest(dest []any, values []any) error {
 
 func assignValue(dest, value any) error {
 	rv := reflect.ValueOf(dest)
-	if rv.Kind() != reflect.Ptr || rv.IsNil() {
+	if rv.Kind() != reflect.Pointer || rv.IsNil() {
 		return fmt.Errorf("scan dest = %T, want non-nil pointer", dest)
 	}
 	target := rv.Elem()

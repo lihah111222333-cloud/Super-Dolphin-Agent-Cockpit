@@ -22,7 +22,7 @@ func TestFindMostSimilarPair_ReturnsCorrectPair(t *testing.T) {
 		t.Fatal("expected found=true")
 	}
 	// The most similar pair should be (0,1)
-	if !((i == 0 && j == 1) || (i == 1 && j == 0)) {
+	if (i != 0 || j != 1) && (i != 1 || j != 0) {
 		t.Errorf("expected pair (0,1), got (%d,%d)", i, j)
 	}
 	if score < MinMergePairContainment {

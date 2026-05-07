@@ -257,7 +257,7 @@ func (s *session) failRecovery(reason string, err error) error {
 	if s == nil {
 		return err
 	}
-	if suppressedErr := s.recoveryShutdownErr(); suppressedErr != nil || errors.Is(err, runtimeErrStopped) {
+	if suppressedErr := s.recoveryShutdownErr(); suppressedErr != nil || errors.Is(err, errRuntimeStopped) {
 		pkglogger.Warn("codexapp: recovery suppressed during shutdown",
 			"agent_id", s.agentID,
 			"thread_id", s.ThreadID(),
@@ -294,7 +294,7 @@ func (s *session) recoveryShutdownErr() error {
 		return nil
 	}
 	if s.runtime != nil && s.runtime.Stopped() {
-		return runtimeErrStopped
+		return errRuntimeStopped
 	}
 	if s.ctx != nil {
 		if err := shared.CheckCtx(s.ctx); err != nil {

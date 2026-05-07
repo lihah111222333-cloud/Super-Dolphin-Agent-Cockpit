@@ -259,7 +259,7 @@ func truncateAtRuneBoundary(content string, limit int) string {
 }
 
 func escapeUntrustedClaudeMdContent(content string) string {
-	const zwsp = "​"
+	const zwsp = "\u200b"
 	openTag := "<" + untrustedClaudeMdFenceTag
 	closeTag := "</" + untrustedClaudeMdFenceTag
 	content = strings.ReplaceAll(content, closeTag, "</"+zwsp+untrustedClaudeMdFenceTag)

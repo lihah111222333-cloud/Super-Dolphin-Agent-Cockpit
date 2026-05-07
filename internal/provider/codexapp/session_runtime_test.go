@@ -375,19 +375,19 @@ func TestSessionRuntimeUsesFakeClockForHealthIntervals(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// Static contract check (runtimeErrStopped reachable + typed)
+// Static contract check (errRuntimeStopped reachable + typed)
 // -----------------------------------------------------------------------------
 
-func TestSessionRuntimeErrStoppedSentinel(t *testing.T) {
+func TestSessionRuntimeStoppedSentinel(t *testing.T) {
 	t.Parallel()
 	// Ensures the sentinel exists and is a non-nil error value — P1c §需冻结的
 	// 兼容语义 requires "ErrXxxRequired" style sentinels for missing context,
-	// and runtimeErrStopped is the analogue for post-Close recovery attempts.
-	if runtimeErrStopped == nil {
-		t.Fatal("runtimeErrStopped must be a non-nil sentinel")
+	// and errRuntimeStopped is the analogue for post-Close recovery attempts.
+	if errRuntimeStopped == nil {
+		t.Fatal("errRuntimeStopped must be a non-nil sentinel")
 	}
-	if !errors.Is(runtimeErrStopped, runtimeErrStopped) {
-		t.Fatal("runtimeErrStopped should satisfy errors.Is(self, self)")
+	if !errors.Is(errRuntimeStopped, errRuntimeStopped) {
+		t.Fatal("errRuntimeStopped should satisfy errors.Is(self, self)")
 	}
 }
 
