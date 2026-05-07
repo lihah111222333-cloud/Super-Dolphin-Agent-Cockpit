@@ -24,6 +24,7 @@ const (
 	MetadataKeyAgentID  = "_agentId"
 	MetadataKeyThreadID = "_threadId"
 	MetadataKeyCallID   = "_callId"
+	MetadataKeyCWD      = "_cwd"
 )
 
 // ProxyProtocolVersion and ProxyServerInfo* are the fixed-value

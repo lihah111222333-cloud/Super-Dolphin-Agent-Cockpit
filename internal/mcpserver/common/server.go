@@ -15,6 +15,17 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+type contextKey string
+
+const CwdContextKey = contextKey("mcp_cwd")
+
+func WorkspaceRootFromContext(ctx context.Context, fallback string) string {
+	if cwd, ok := ctx.Value(CwdContextKey).(string); ok && cwd != "" {
+		return cwd
+	}
+	return fallback
+}
+
 const (
 	codeParseError    = -32700
 	codeInvalidReq    = -32600
@@ -68,6 +79,7 @@ type initializeParams struct {
 type toolCallParams struct {
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments,omitempty"`
+	MetaCWD   string          `json:"_cwd,omitempty"`
 }
 
 type textContent struct {
@@ -252,6 +264,11 @@ func (s *Server) handleToolsCall(ctx context.Context, req jsonRPCRequest) *jsonR
 		"server", s.name, "tool", params.Name,
 		"req_id", string(req.ID))
 	start := time.Now()
+	
+	if params.MetaCWD != "" {
+		ctx = context.WithValue(ctx, CwdContextKey, params.MetaCWD)
+	}
+	
 	result, err := s.callTool(ctx, params.Name, params.Arguments)
 	elapsed := time.Since(start)
 	if err != nil {

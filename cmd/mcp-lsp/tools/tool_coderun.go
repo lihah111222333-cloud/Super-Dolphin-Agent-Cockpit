@@ -13,6 +13,7 @@ import (
 
 	lspexec "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/exec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
 type SandboxRunner interface {
@@ -97,7 +98,7 @@ func (h CodeRunHandler) handleRun(ctx context.Context, req CodeRunRequest) (any,
 		return nil, err
 	}
 	timeout := middleware.ClampTimeout(req.Timeout, middleware.TierExec, middleware.TierExec)
-	request, cleanup, err := h.snippetRequest(fileName, source, args, timeout)
+	request, cleanup, err := h.snippetRequest(ctx, fileName, source, args, timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -109,6 +110,11 @@ func (h CodeRunHandler) handleProjectCommand(ctx context.Context, req CodeRunReq
 	if strings.TrimSpace(req.Command) == "" {
 		return nil, errors.New("command is required for project_cmd mode")
 	}
+	if req.WorkDir == "" {
+		req.WorkDir = common.WorkspaceRootFromContext(ctx, h.sandbox.RootDir())
+	} else if !filepath.IsAbs(req.WorkDir) {
+		req.WorkDir = filepath.Join(common.WorkspaceRootFromContext(ctx, h.sandbox.RootDir()), req.WorkDir)
+	}
 	timeout := middleware.ClampTimeout(req.Timeout, defaultCodeRunTimeout(), middleware.TierExec)
 	request := h.sandbox.ShellRequest(req.Command, req.WorkDir, timeout)
 	return h.execute(ctx, request, "", "project_cmd")
@@ -118,8 +124,9 @@ func (h CodeRunHandler) execute(ctx context.Context, request lspexec.Request, la
 	return executeSandbox(ctx, h.sandbox, request, language, mode)
 }
 
-func (h CodeRunHandler) snippetRequest(fileName string, source string, args []string, timeout time.Duration) (lspexec.Request, func(), error) {
-	tempDir, err := os.MkdirTemp(h.sandbox.RootDir(), ".mcp-lsp-run-*")
+func (h CodeRunHandler) snippetRequest(ctx context.Context, fileName string, source string, args []string, timeout time.Duration) (lspexec.Request, func(), error) {
+	tempRoot := common.WorkspaceRootFromContext(ctx, h.sandbox.RootDir())
+	tempDir, err := os.MkdirTemp(tempRoot, ".mcp-lsp-run-*")
 	if err != nil {
 		return lspexec.Request{}, nil, fmt.Errorf("create temp dir: %w", err)
 	}

@@ -12,6 +12,7 @@ import (
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
 const (
@@ -100,7 +101,7 @@ func (h EditHandler) Handle(ctx context.Context, params json.RawMessage) (any, e
 }
 
 func (h EditHandler) handleRename(ctx context.Context, req EditRequest) (any, error) {
-	path, position, err := h.resolveRenameRequest(req)
+	path, position, err := h.resolveRenameRequest(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +126,7 @@ func (h EditHandler) handleRename(ctx context.Context, req EditRequest) (any, er
 		}, nil
 	}
 	if !persistToDisk(req.PersistToDisk) {
-		if err := validateWorkspaceEditPaths(h.root, workspaceEdit); err != nil {
+		if err := validateWorkspaceEditPaths(common.WorkspaceRootFromContext(ctx, h.root), workspaceEdit); err != nil {
 			return nil, err
 		}
 		return editEnvelope{
@@ -163,11 +164,11 @@ func (h EditHandler) handleRename(ctx context.Context, req EditRequest) (any, er
 	}, nil
 }
 
-func (h EditHandler) resolveRenameRequest(req EditRequest) (string, protocol.Position, error) {
+func (h EditHandler) resolveRenameRequest(ctx context.Context, req EditRequest) (string, protocol.Position, error) {
 	if strings.TrimSpace(req.NewName) == "" {
 		return "", protocol.Position{}, errors.New("new_name is required for rename")
 	}
-	path, err := resolveWorkspacePath(h.root, req.FilePath)
+	path, err := resolveWorkspacePath(common.WorkspaceRootFromContext(ctx, h.root), req.FilePath)
 	if err != nil {
 		return "", protocol.Position{}, err
 	}
@@ -178,8 +179,8 @@ func (h EditHandler) resolveRenameRequest(req EditRequest) (string, protocol.Pos
 	return path, position, nil
 }
 
-func (h EditHandler) resolveFilePositionRequest(req EditRequest) (string, protocol.Position, error) {
-	path, err := resolveWorkspacePath(h.root, req.FilePath)
+func (h EditHandler) resolveFilePositionRequest(ctx context.Context, req EditRequest) (string, protocol.Position, error) {
+	path, err := resolveWorkspacePath(common.WorkspaceRootFromContext(ctx, h.root), req.FilePath)
 	if err != nil {
 		return "", protocol.Position{}, err
 	}
@@ -191,7 +192,7 @@ func (h EditHandler) resolveFilePositionRequest(req EditRequest) (string, protoc
 }
 
 func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any, error) {
-	path, position, err := h.resolveFilePositionRequest(req)
+	path, position, err := h.resolveFilePositionRequest(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -203,14 +204,14 @@ func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any
 	if err != nil {
 		return nil, err
 	}
-	if err := validateCodeActionWorkspaceEditPaths(h.root, actions); err != nil {
+	if err := validateCodeActionWorkspaceEditPaths(common.WorkspaceRootFromContext(ctx, h.root), actions); err != nil {
 		return nil, err
 	}
 	return format.CodeActionResults(actions), nil
 }
 
 func (h EditHandler) handleFormat(ctx context.Context, req EditRequest) (any, error) {
-	path, err := resolveWorkspacePath(h.root, req.FilePath)
+	path, err := resolveWorkspacePath(common.WorkspaceRootFromContext(ctx, h.root), req.FilePath)
 	if err != nil {
 		return nil, err
 	}

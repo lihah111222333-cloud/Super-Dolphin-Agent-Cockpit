@@ -9,6 +9,7 @@ import (
 
 	lspexec "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/exec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
 type CodeRunTestHandler struct {
@@ -52,7 +53,7 @@ func (h CodeRunTestHandler) Handle(ctx context.Context, params json.RawMessage) 
 	timeout := middleware.ClampTimeout(req.Timeout, defaultCodeRunTimeout(), middleware.TierExec)
 	request := lspexec.Request{
 		Args:    []string{"go", "test", "-run", "^" + req.TestFunc + "$", pkg},
-		WorkDir: h.sandbox.RootDir(),
+		WorkDir: common.WorkspaceRootFromContext(ctx, h.sandbox.RootDir()),
 		Timeout: timeout,
 	}
 	return executeSandbox(ctx, h.sandbox, request, "go", "test")
