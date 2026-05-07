@@ -1,7 +1,6 @@
 package turn
 
 import (
-	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
@@ -236,26 +235,27 @@ func TestTrajectoryCollector_DrainEmptiesTerminalOnly(t *testing.T) {
 func TestImports_ObservationDoesNotImportTurn(t *testing.T) {
 	dir := filepath.Join("observation")
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, func(fi os.FileInfo) bool {
-		return strings.HasSuffix(fi.Name(), ".go")
-	}, parser.ImportsOnly)
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		t.Fatalf("parse %q: %v", dir, err)
+		t.Fatalf("read %q: %v", dir, err)
 	}
 	const turnPkg = `"github.com/anthropic-ai/super-agent-v3/internal/module/turn"`
-	for name, pkg := range pkgs {
-		for _, file := range pkg.Files {
-			for _, imp := range file.Imports {
-				if imp.Path == nil {
-					continue
-				}
-				if imp.Path.Value == turnPkg {
-					t.Fatalf("observation/%s imports %s", name, imp.Path.Value)
-				}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		file, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
+		if err != nil {
+			t.Fatalf("parse %q: %v", path, err)
+		}
+		for _, imp := range file.Imports {
+			if imp.Path == nil {
+				continue
+			}
+			if imp.Path.Value == turnPkg {
+				t.Fatalf("observation/%s imports %s", entry.Name(), imp.Path.Value)
 			}
 		}
 	}
 }
-
-// Type-level guard: ensure the parser.ParseDir filter signature still holds.
-var _ ast.Node = (*ast.File)(nil)
