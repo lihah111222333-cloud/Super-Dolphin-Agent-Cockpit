@@ -91,7 +91,7 @@ type CronJob struct {
 	Timezone        string             `db:"timezone" json:"timezone"`
 	Provider        string             `db:"provider" json:"provider"`
 	Model           string             `db:"model" json:"model"`
-	Cwd             string             `db:"cwd" json:"cwd"`
+	CWD             string             `db:"cwd" json:"cwd"`
 	Config          []byte             `db:"config" json:"config"`
 	Skills          []byte             `db:"skills" json:"skills"`
 	NotifyChannel   string             `db:"notify_channel" json:"notify_channel"`
@@ -272,7 +272,7 @@ type TurnDedupeRegistry struct {
 type WorkspaceRun struct {
 	ID            int64      `db:"id" json:"id"`
 	RunKey        string     `db:"run_key" json:"run_key"`
-	DagKey        string     `db:"dag_key" json:"dag_key"`
+	DAGKey        string     `db:"dag_key" json:"dag_key"`
 	SourceRoot    string     `db:"source_root" json:"source_root"`
 	WorkspacePath string     `db:"workspace_path" json:"workspace_path"`
 	Status        string     `db:"status" json:"status"`

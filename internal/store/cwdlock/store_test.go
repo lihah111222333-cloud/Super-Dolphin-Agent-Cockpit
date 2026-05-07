@@ -55,9 +55,9 @@ func (s *cwdLockQuerierStub) DeleteStaleCwdLocks(ctx context.Context) (int64, er
 	return 0, nil
 }
 
-func (s *cwdLockQuerierStub) GetCwdLockHolder(ctx context.Context, cwd string) (sqlc.GetCwdLockHolderRow, error) {
+func (s *cwdLockQuerierStub) GetCwdLockHolder(ctx context.Context, arg sqlc.GetCwdLockHolderParams) (sqlc.GetCwdLockHolderRow, error) {
 	if s.getHolderFn != nil {
-		return s.getHolderFn(ctx, cwd)
+		return s.getHolderFn(ctx, arg.CWD)
 	}
 	return sqlc.GetCwdLockHolderRow{}, nil
 }
@@ -80,7 +80,7 @@ func TestAcquireForwardsParamsAndReturnsCount(t *testing.T) {
 	if count != 1 {
 		t.Fatalf("Acquire() count = %d, want 1", count)
 	}
-	if captured.Cwd != "/tmp/work" || captured.InstanceID != "inst-1" || captured.Pid != 1234 {
+	if captured.CWD != "/tmp/work" || captured.InstanceID != "inst-1" || captured.Pid != 1234 {
 		t.Fatalf("Acquire() forwarded wrong params: %+v", captured)
 	}
 }
@@ -132,7 +132,7 @@ func TestForceAcquireForwardsParamsAndReturnsCount(t *testing.T) {
 	if count != 2 {
 		t.Fatalf("ForceAcquire() count = %d, want 2", count)
 	}
-	if captured.Cwd != "/var" || captured.InstanceID != "inst-2" || captured.Pid != 42 || captured.Pid_2 != 99 {
+	if captured.CWD != "/var" || captured.InstanceID != "inst-2" || captured.Pid != 42 || captured.Pid_2 != 99 {
 		t.Fatalf("ForceAcquire() forwarded wrong params: %+v", captured)
 	}
 }
@@ -175,7 +175,7 @@ func TestReleaseForwardsParamsAndReturnsCount(t *testing.T) {
 	if count != 3 {
 		t.Fatalf("Release() count = %d, want 3", count)
 	}
-	if captured.Cwd != "/repo" || captured.InstanceID != "inst-3" {
+	if captured.CWD != "/repo" || captured.InstanceID != "inst-3" {
 		t.Fatalf("Release() forwarded wrong params: %+v", captured)
 	}
 }
@@ -210,7 +210,7 @@ func TestHeartbeatForwardsParamsAndReturnsNilOnSuccess(t *testing.T) {
 	if err := s.Heartbeat(context.Background(), HeartbeatParams{Cwd: "/h", InstanceID: "inst-4", PID: 7}); err != nil {
 		t.Fatalf("Heartbeat() error = %v", err)
 	}
-	if captured.Cwd != "/h" || captured.InstanceID != "inst-4" || captured.Pid != 7 {
+	if captured.CWD != "/h" || captured.InstanceID != "inst-4" || captured.Pid != 7 {
 		t.Fatalf("Heartbeat() forwarded wrong params: %+v", captured)
 	}
 }

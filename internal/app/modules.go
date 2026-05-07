@@ -155,11 +155,11 @@ func provideWorkspaceSkillSetup() contract.WorkspaceSkillSetupFunc {
 
 // provideSkillManifestRenderer creates the contract.SkillManifestRenderer
 // using the fbsd ManifestRenderer implementation.
-func provideSkillManifestRenderer(store *skilllibrary.Store, tracker *fbsd.Tracker) contract.SkillManifestRenderer {
-	if store == nil {
+func provideSkillManifestRenderer(entries contract.SkillManifestEntryLister, descriptions contract.SkillDescriptionParser, tracker *fbsd.Tracker) contract.SkillManifestRenderer {
+	if entries == nil {
 		return nil
 	}
-	return fbsd.NewManifestRenderer(store, tracker)
+	return fbsd.NewManifestRenderer(entries, descriptions, tracker)
 }
 
 // initProviderHooks wires module-layer functions into provider/shared hooks

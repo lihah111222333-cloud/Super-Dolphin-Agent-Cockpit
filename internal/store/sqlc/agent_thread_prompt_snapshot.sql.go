@@ -16,8 +16,12 @@ WHERE thread_id = $1
 LIMIT 1
 `
 
-func (q *Queries) LoadAgentThreadPromptSnapshot(ctx context.Context, threadID string) ([]byte, error) {
-	row := q.db.QueryRow(ctx, loadAgentThreadPromptSnapshot, threadID)
+type LoadAgentThreadPromptSnapshotParams struct {
+	ThreadID string `db:"thread_id" json:"thread_id"`
+}
+
+func (q *Queries) LoadAgentThreadPromptSnapshot(ctx context.Context, arg LoadAgentThreadPromptSnapshotParams) ([]byte, error) {
+	row := q.db.QueryRow(ctx, loadAgentThreadPromptSnapshot, arg.ThreadID)
 	var prompt_snapshot []byte
 	err := row.Scan(&prompt_snapshot)
 	return prompt_snapshot, err

@@ -10,15 +10,15 @@ import (
 )
 
 type sharedFileQuerierStub struct {
-	getFn    func(context.Context, string) (sqlc.SharedFile, error)
+	getFn    func(context.Context, sqlc.GetSharedFileParams) (sqlc.SharedFile, error)
 	listFn   func(context.Context, sqlc.ListSharedFilesParams) ([]sqlc.SharedFile, error)
-	deleteFn func(context.Context, string) (int64, error)
+	deleteFn func(context.Context, sqlc.DeleteSharedFileParams) (int64, error)
 	upsertFn func(context.Context, sqlc.UpsertSharedFileParams) (sqlc.SharedFile, error)
 }
 
-func (s *sharedFileQuerierStub) GetSharedFile(ctx context.Context, path string) (sqlc.SharedFile, error) {
+func (s *sharedFileQuerierStub) GetSharedFile(ctx context.Context, arg sqlc.GetSharedFileParams) (sqlc.SharedFile, error) {
 	if s.getFn != nil {
-		return s.getFn(ctx, path)
+		return s.getFn(ctx, arg)
 	}
 	return sqlc.SharedFile{}, nil
 }
@@ -30,9 +30,9 @@ func (s *sharedFileQuerierStub) ListSharedFiles(ctx context.Context, arg sqlc.Li
 	return nil, nil
 }
 
-func (s *sharedFileQuerierStub) DeleteSharedFile(ctx context.Context, path string) (int64, error) {
+func (s *sharedFileQuerierStub) DeleteSharedFile(ctx context.Context, arg sqlc.DeleteSharedFileParams) (int64, error) {
 	if s.deleteFn != nil {
-		return s.deleteFn(ctx, path)
+		return s.deleteFn(ctx, arg)
 	}
 	return 0, nil
 }
@@ -49,8 +49,8 @@ func TestGetMapsRow(t *testing.T) {
 	now := time.Unix(1_000_000, 0).UTC()
 	var captured string
 	s := &store{q: &sharedFileQuerierStub{
-		getFn: func(_ context.Context, path string) (sqlc.SharedFile, error) {
-			captured = path
+		getFn: func(_ context.Context, arg sqlc.GetSharedFileParams) (sqlc.SharedFile, error) {
+			captured = arg.Path
 			return sqlc.SharedFile{
 				Path:      "dag/dag-1/readme.md",
 				Content:   "hello",
@@ -76,7 +76,7 @@ func TestGetWrapsError(t *testing.T) {
 	t.Parallel()
 	sentinel := errors.New("not found")
 	s := &store{q: &sharedFileQuerierStub{
-		getFn: func(context.Context, string) (sqlc.SharedFile, error) {
+		getFn: func(context.Context, sqlc.GetSharedFileParams) (sqlc.SharedFile, error) {
 			return sqlc.SharedFile{}, sentinel
 		},
 	}}
@@ -190,8 +190,8 @@ func TestDeleteForwardsPathAndReturnsCount(t *testing.T) {
 	t.Parallel()
 	var captured string
 	s := &store{q: &sharedFileQuerierStub{
-		deleteFn: func(_ context.Context, path string) (int64, error) {
-			captured = path
+		deleteFn: func(_ context.Context, arg sqlc.DeleteSharedFileParams) (int64, error) {
+			captured = arg.Path
 			return 1, nil
 		},
 	}}
@@ -211,7 +211,7 @@ func TestDeleteWrapsQuerierError(t *testing.T) {
 	t.Parallel()
 	sentinel := errors.New("db gone")
 	s := &store{q: &sharedFileQuerierStub{
-		deleteFn: func(context.Context, string) (int64, error) {
+		deleteFn: func(context.Context, sqlc.DeleteSharedFileParams) (int64, error) {
 			return 0, sentinel
 		},
 	}}

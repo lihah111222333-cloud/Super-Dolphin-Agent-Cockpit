@@ -6,9 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dtoskill "github.com/anthropic-ai/super-agent-v3/internal/dto/skill"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skillforge"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 )
 
 const defaultManifestBudget = 8192
@@ -20,33 +19,34 @@ const skillManifestTruncatedFooter = "\n（更多 skill 因 budget 截断省略�
 // ManifestRenderer implements contract.SkillManifestRenderer by combining
 // the skill library store with FBSD tier-aware rendering.
 type ManifestRenderer struct {
-	store   *skilllibrary.Store
-	tracker *Tracker
+	entries      contract.SkillManifestEntryLister
+	descriptions contract.SkillDescriptionParser
+	tracker      *Tracker
 }
 
 // NewManifestRenderer creates a ManifestRenderer. Either or both params may
 // be nil; RenderSkillManifest returns "" in that case.
-func NewManifestRenderer(store *skilllibrary.Store, tracker *Tracker) *ManifestRenderer {
-	return &ManifestRenderer{store: store, tracker: tracker}
+func NewManifestRenderer(entries contract.SkillManifestEntryLister, descriptions contract.SkillDescriptionParser, tracker *Tracker) *ManifestRenderer {
+	return &ManifestRenderer{entries: entries, descriptions: descriptions, tracker: tracker}
 }
 
 // RenderSkillManifest satisfies contract.SkillManifestRenderer.
 func (r *ManifestRenderer) RenderSkillManifest() string {
-	if r == nil || r.store == nil {
+	if r == nil || r.entries == nil {
 		return ""
 	}
-	entries, err := r.store.List()
+	entries, err := r.entries.List()
 	if err != nil || len(entries) == 0 {
 		return ""
 	}
 	if r.tracker != nil && r.tracker.Enabled() {
-		return buildManifestFBSD(entries, r.tracker, EnvTierConfig(), time.Now())
+		return buildManifestFBSD(entries, r.descriptions, r.tracker, EnvTierConfig(), time.Now())
 	}
-	return buildManifest(entries, defaultManifestBudget)
+	return buildManifest(entries, r.descriptions, defaultManifestBudget)
 }
 
 // buildManifest renders L1-C full-detail manifest (no FBSD tier degradation).
-func buildManifest(entries []dtoskill.SkillEntry, budgetChars int) string {
+func buildManifest(entries []dtoskill.SkillEntry, descriptions contract.SkillDescriptionParser, budgetChars int) string {
 	if len(entries) == 0 {
 		return ""
 	}
@@ -59,7 +59,7 @@ func buildManifest(entries []dtoskill.SkillEntry, budgetChars int) string {
 
 	truncated := false
 	for _, e := range sorted {
-		block := renderL1CBlock(e)
+		block := renderL1CBlock(e, descriptions)
 		if b.Len()+len(block) > budgetChars {
 			truncated = true
 			break
@@ -72,8 +72,8 @@ func buildManifest(entries []dtoskill.SkillEntry, budgetChars int) string {
 	return b.String()
 }
 
-func renderL1CBlock(e dtoskill.SkillEntry) string {
-	desc := descriptionOf(e)
+func renderL1CBlock(e dtoskill.SkillEntry, descriptions contract.SkillDescriptionParser) string {
+	desc := descriptionOf(e, descriptions)
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("- %s — %s\n", e.Meta.Name, desc))
 	if len(e.Meta.SectionSummaries) > 0 {
@@ -86,16 +86,15 @@ func renderL1CBlock(e dtoskill.SkillEntry) string {
 	return b.String()
 }
 
-func descriptionOf(e dtoskill.SkillEntry) string {
-	ps, err := skillforge.Parse(e.SkillMD)
-	if err != nil {
+func descriptionOf(e dtoskill.SkillEntry, descriptions contract.SkillDescriptionParser) string {
+	if descriptions == nil {
 		return ""
 	}
-	return ps.Description
+	return descriptions.Description(e.SkillMD)
 }
 
-func renderWarmBlock(e dtoskill.SkillEntry) string {
-	desc := descriptionOf(e)
+func renderWarmBlock(e dtoskill.SkillEntry, descriptions contract.SkillDescriptionParser) string {
+	desc := descriptionOf(e, descriptions)
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("- %s — %s\n", e.Meta.Name, desc))
 	if len(e.Meta.SectionSummaries) > 0 {
@@ -105,11 +104,11 @@ func renderWarmBlock(e dtoskill.SkillEntry) string {
 	return b.String()
 }
 
-func renderColdBlock(e dtoskill.SkillEntry) string {
-	return fmt.Sprintf("- %s: %s\n", e.Meta.Name, descriptionOf(e))
+func renderColdBlock(e dtoskill.SkillEntry, descriptions contract.SkillDescriptionParser) string {
+	return fmt.Sprintf("- %s: %s\n", e.Meta.Name, descriptionOf(e, descriptions))
 }
 
-func buildManifestFBSD(entries []dtoskill.SkillEntry, tracker *Tracker, cfg TierConfig, now time.Time) string {
+func buildManifestFBSD(entries []dtoskill.SkillEntry, descriptions contract.SkillDescriptionParser, tracker *Tracker, cfg TierConfig, now time.Time) string {
 	if len(entries) == 0 || tracker == nil {
 		return ""
 	}
@@ -120,11 +119,11 @@ func buildManifestFBSD(entries []dtoskill.SkillEntry, tracker *Tracker, cfg Tier
 	for _, a := range assignments {
 		switch a.Tier {
 		case TierHot:
-			b.WriteString(renderL1CBlock(a.Skill))
+			b.WriteString(renderL1CBlock(a.Skill, descriptions))
 		case TierWarm:
-			b.WriteString(renderWarmBlock(a.Skill))
+			b.WriteString(renderWarmBlock(a.Skill, descriptions))
 		case TierCold:
-			b.WriteString(renderColdBlock(a.Skill))
+			b.WriteString(renderColdBlock(a.Skill, descriptions))
 			// TierFrozen: omitted
 		}
 	}

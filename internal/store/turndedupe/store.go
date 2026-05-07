@@ -19,8 +19,8 @@ type querier interface {
 	UpsertTurnDedupeRegistry(ctx context.Context, arg sqlc.UpsertTurnDedupeRegistryParams) error
 	BindTurnDedupeProviderID(ctx context.Context, arg sqlc.BindTurnDedupeProviderIDParams) error
 	MarkTurnDedupeTerminal(ctx context.Context, arg sqlc.MarkTurnDedupeTerminalParams) error
-	GetLiveTurnDedupe(ctx context.Context, dedupeKey string) (sqlc.TurnDedupeRegistry, error)
-	SweepTurnDedupeRegistry(ctx context.Context, cutoff pgtype.Timestamptz) error
+	GetLiveTurnDedupe(ctx context.Context, arg sqlc.GetLiveTurnDedupeParams) (sqlc.TurnDedupeRegistry, error)
+	SweepTurnDedupeRegistry(ctx context.Context, arg sqlc.SweepTurnDedupeRegistryParams) error
 }
 
 type store struct {
@@ -79,7 +79,7 @@ func (s *store) GetLive(ctx context.Context, dedupeKey string) (Entry, error) {
 	if key == "" {
 		return Entry{}, ErrNotFound
 	}
-	row, err := s.q.GetLiveTurnDedupe(ctx, key)
+	row, err := s.q.GetLiveTurnDedupe(ctx, sqlc.GetLiveTurnDedupeParams{DedupeKey: key})
 	if err != nil {
 		if platformdb.IsNotFound(err) {
 			return Entry{}, ErrNotFound
@@ -102,7 +102,7 @@ func (s *store) Sweep(ctx context.Context, cutoff time.Time) error {
 		return errors.New("turndedupe: sweep cutoff must be non-zero")
 	}
 	return platformdb.WrapStoreError(
-		s.q.SweepTurnDedupeRegistry(ctx, ts(cutoff)),
+		s.q.SweepTurnDedupeRegistry(ctx, sqlc.SweepTurnDedupeRegistryParams{Cutoff: ts(cutoff)}),
 		"sweep",
 		"turn_dedupe_registry",
 	)

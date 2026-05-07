@@ -84,7 +84,7 @@ type ClaimDueJobsForUpdateParams struct {
 }
 
 // Claim / lease -----------------------------------------------------
-// ClaimDueJobsForUpdate marks up to `limit` due rows as claimed by `claimed_by`.
+// ClaimDueJobs marks up to `limit` due rows as claimed by `claimed_by`.
 // The embedded SELECT ... FOR UPDATE SKIP LOCKED makes sure two
 // schedulers hitting the same tick never grab the same row. claim_token
 // is generated in the application layer (Go UUID) and passed in so no
@@ -113,7 +113,7 @@ func (q *Queries) ClaimDueJobsForUpdate(ctx context.Context, arg ClaimDueJobsFor
 			&i.Timezone,
 			&i.Provider,
 			&i.Model,
-			&i.Cwd,
+			&i.CWD,
 			&i.Config,
 			&i.Skills,
 			&i.NotifyChannel,
@@ -180,7 +180,7 @@ type CreateCronJobParams struct {
 	Timezone      string             `db:"timezone" json:"timezone"`
 	Provider      string             `db:"provider" json:"provider"`
 	Model         string             `db:"model" json:"model"`
-	Cwd           string             `db:"cwd" json:"cwd"`
+	CWD           string             `db:"cwd" json:"cwd"`
 	Config        []byte             `db:"config" json:"config"`
 	Skills        []byte             `db:"skills" json:"skills"`
 	NotifyChannel string             `db:"notify_channel" json:"notify_channel"`
@@ -202,7 +202,7 @@ func (q *Queries) CreateCronJob(ctx context.Context, arg CreateCronJobParams) (C
 		arg.Timezone,
 		arg.Provider,
 		arg.Model,
-		arg.Cwd,
+		arg.CWD,
 		arg.Config,
 		arg.Skills,
 		arg.NotifyChannel,
@@ -222,7 +222,7 @@ func (q *Queries) CreateCronJob(ctx context.Context, arg CreateCronJobParams) (C
 		&i.Timezone,
 		&i.Provider,
 		&i.Model,
-		&i.Cwd,
+		&i.CWD,
 		&i.Config,
 		&i.Skills,
 		&i.NotifyChannel,
@@ -254,8 +254,12 @@ const deleteCronJob = `-- name: DeleteCronJob :exec
 DELETE FROM cron_jobs WHERE id = $1
 `
 
-func (q *Queries) DeleteCronJob(ctx context.Context, id string) error {
-	_, err := q.db.Exec(ctx, deleteCronJob, id)
+type DeleteCronJobParams struct {
+	ID string `db:"id" json:"id"`
+}
+
+func (q *Queries) DeleteCronJob(ctx context.Context, arg DeleteCronJobParams) error {
+	_, err := q.db.Exec(ctx, deleteCronJob, arg.ID)
 	return err
 }
 
@@ -299,8 +303,12 @@ FROM cron_jobs
 WHERE id = $1
 `
 
-func (q *Queries) GetCronJobByID(ctx context.Context, id string) (CronJob, error) {
-	row := q.db.QueryRow(ctx, getCronJobByID, id)
+type GetCronJobByIDParams struct {
+	ID string `db:"id" json:"id"`
+}
+
+func (q *Queries) GetCronJobByID(ctx context.Context, arg GetCronJobByIDParams) (CronJob, error) {
+	row := q.db.QueryRow(ctx, getCronJobByID, arg.ID)
 	var i CronJob
 	err := row.Scan(
 		&i.ID,
@@ -311,7 +319,7 @@ func (q *Queries) GetCronJobByID(ctx context.Context, id string) (CronJob, error
 		&i.Timezone,
 		&i.Provider,
 		&i.Model,
-		&i.Cwd,
+		&i.CWD,
 		&i.Config,
 		&i.Skills,
 		&i.NotifyChannel,
@@ -347,8 +355,12 @@ FROM cron_job_runs
 WHERE dedupe_key = $1 AND dedupe_key <> ''
 `
 
-func (q *Queries) GetCronJobRunByDedupeKey(ctx context.Context, dedupeKey string) (CronJobRun, error) {
-	row := q.db.QueryRow(ctx, getCronJobRunByDedupeKey, dedupeKey)
+type GetCronJobRunByDedupeKeyParams struct {
+	DedupeKey string `db:"dedupe_key" json:"dedupe_key"`
+}
+
+func (q *Queries) GetCronJobRunByDedupeKey(ctx context.Context, arg GetCronJobRunByDedupeKeyParams) (CronJobRun, error) {
+	row := q.db.QueryRow(ctx, getCronJobRunByDedupeKey, arg.DedupeKey)
 	var i CronJobRun
 	err := row.Scan(
 		&i.ID,
@@ -376,8 +388,12 @@ FROM cron_job_runs
 WHERE id = $1
 `
 
-func (q *Queries) GetCronJobRunByID(ctx context.Context, id string) (CronJobRun, error) {
-	row := q.db.QueryRow(ctx, getCronJobRunByID, id)
+type GetCronJobRunByIDParams struct {
+	ID string `db:"id" json:"id"`
+}
+
+func (q *Queries) GetCronJobRunByID(ctx context.Context, arg GetCronJobRunByIDParams) (CronJobRun, error) {
+	row := q.db.QueryRow(ctx, getCronJobRunByID, arg.ID)
 	var i CronJobRun
 	err := row.Scan(
 		&i.ID,
@@ -406,12 +422,16 @@ WHERE turn_id = $1 AND status = 'running'
 LIMIT 1
 `
 
+type GetRunningCronJobRunByTurnIDParams struct {
+	TurnID string `db:"turn_id" json:"turn_id"`
+}
+
 // Used by CompleteTurn to locate the active run for a completed turn without
 // scanning all unresolved rows. turn_id is indexed by the dedupe_key B-tree
 // and the status guard ensures only one row can match (at most one run per
 // turn can be in 'running').
-func (q *Queries) GetRunningCronJobRunByTurnID(ctx context.Context, turnID string) (CronJobRun, error) {
-	row := q.db.QueryRow(ctx, getRunningCronJobRunByTurnID, turnID)
+func (q *Queries) GetRunningCronJobRunByTurnID(ctx context.Context, arg GetRunningCronJobRunByTurnIDParams) (CronJobRun, error) {
+	row := q.db.QueryRow(ctx, getRunningCronJobRunByTurnID, arg.TurnID)
 	var i CronJobRun
 	err := row.Scan(
 		&i.ID,
@@ -566,7 +586,7 @@ func (q *Queries) ListCronJobs(ctx context.Context) ([]CronJob, error) {
 			&i.Timezone,
 			&i.Provider,
 			&i.Model,
-			&i.Cwd,
+			&i.CWD,
 			&i.Config,
 			&i.Skills,
 			&i.NotifyChannel,
@@ -613,10 +633,14 @@ WHERE claimed_by = $1 AND claim_token <> ''
 ORDER BY id ASC
 `
 
+type ListCronJobsClaimedByParams struct {
+	ClaimedBy string `db:"claimed_by" json:"claimed_by"`
+}
+
 // Used by RenewLeases / ExtendClaimForTurnProgress to fetch only the jobs
 // owned by this scheduler instance, avoiding a full-table scan of cron_jobs.
-func (q *Queries) ListCronJobsClaimedBy(ctx context.Context, claimedBy string) ([]CronJob, error) {
-	rows, err := q.db.Query(ctx, listCronJobsClaimedBy, claimedBy)
+func (q *Queries) ListCronJobsClaimedBy(ctx context.Context, arg ListCronJobsClaimedByParams) ([]CronJob, error) {
+	rows, err := q.db.Query(ctx, listCronJobsClaimedBy, arg.ClaimedBy)
 	if err != nil {
 		return nil, err
 	}
@@ -633,7 +657,7 @@ func (q *Queries) ListCronJobsClaimedBy(ctx context.Context, claimedBy string) (
 			&i.Timezone,
 			&i.Provider,
 			&i.Model,
-			&i.Cwd,
+			&i.CWD,
 			&i.Config,
 			&i.Skills,
 			&i.NotifyChannel,
@@ -992,7 +1016,7 @@ type UpdateCronJobScheduleParams struct {
 	Timezone      string             `db:"timezone" json:"timezone"`
 	Provider      string             `db:"provider" json:"provider"`
 	Model         string             `db:"model" json:"model"`
-	Cwd           string             `db:"cwd" json:"cwd"`
+	CWD           string             `db:"cwd" json:"cwd"`
 	Config        []byte             `db:"config" json:"config"`
 	Skills        []byte             `db:"skills" json:"skills"`
 	NotifyChannel string             `db:"notify_channel" json:"notify_channel"`
@@ -1012,7 +1036,7 @@ func (q *Queries) UpdateCronJobSchedule(ctx context.Context, arg UpdateCronJobSc
 		arg.Timezone,
 		arg.Provider,
 		arg.Model,
-		arg.Cwd,
+		arg.CWD,
 		arg.Config,
 		arg.Skills,
 		arg.NotifyChannel,

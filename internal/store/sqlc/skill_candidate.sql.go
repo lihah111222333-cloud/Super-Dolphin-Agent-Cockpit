@@ -57,8 +57,12 @@ const getSkillCandidateByID = `-- name: GetSkillCandidateByID :one
 SELECT id, scope, slug, content_hash, repo_fingerprint, status, skill_md, approved_by, approved_at, reason, redacted_sample, created_at FROM skill_candidates WHERE id = $1
 `
 
-func (q *Queries) GetSkillCandidateByID(ctx context.Context, id int64) (SkillCandidate, error) {
-	row := q.db.QueryRow(ctx, getSkillCandidateByID, id)
+type GetSkillCandidateByIDParams struct {
+	ID int64 `db:"id" json:"id"`
+}
+
+func (q *Queries) GetSkillCandidateByID(ctx context.Context, arg GetSkillCandidateByIDParams) (SkillCandidate, error) {
+	row := q.db.QueryRow(ctx, getSkillCandidateByID, arg.ID)
 	var i SkillCandidate
 	err := row.Scan(
 		&i.ID,
@@ -221,8 +225,12 @@ WHERE id = $1 AND status = 'approved'
 RETURNING id, scope, slug, content_hash, repo_fingerprint, status, skill_md, approved_by, approved_at, reason, redacted_sample, created_at
 `
 
-func (q *Queries) MarkSkillCandidatePromoted(ctx context.Context, id int64) (SkillCandidate, error) {
-	row := q.db.QueryRow(ctx, markSkillCandidatePromoted, id)
+type MarkSkillCandidatePromotedParams struct {
+	ID int64 `db:"id" json:"id"`
+}
+
+func (q *Queries) MarkSkillCandidatePromoted(ctx context.Context, arg MarkSkillCandidatePromotedParams) (SkillCandidate, error) {
+	row := q.db.QueryRow(ctx, markSkillCandidatePromoted, arg.ID)
 	var i SkillCandidate
 	err := row.Scan(
 		&i.ID,

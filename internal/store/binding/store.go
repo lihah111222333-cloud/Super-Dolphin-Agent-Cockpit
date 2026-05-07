@@ -10,12 +10,12 @@ import (
 
 type querier interface {
 	BindAgentThread(ctx context.Context, arg sqlc.BindAgentThreadParams) error
-	DeleteAgentProviderBindingByAgentID(ctx context.Context, agentID string) error
-	GetAgentProviderBindingByAgentID(ctx context.Context, agentID string) (sqlc.GetAgentProviderBindingByAgentIDRow, error)
+	DeleteAgentProviderBindingByAgentID(ctx context.Context, arg sqlc.DeleteAgentProviderBindingByAgentIDParams) error
+	GetAgentProviderBindingByAgentID(ctx context.Context, arg sqlc.GetAgentProviderBindingByAgentIDParams) (sqlc.GetAgentProviderBindingByAgentIDRow, error)
 	GetAgentProviderBindingByProviderThread(ctx context.Context, arg sqlc.GetAgentProviderBindingByProviderThreadParams) (sqlc.GetAgentProviderBindingByProviderThreadRow, error)
-	GetThreadByAgent(ctx context.Context, agentID string) (string, error)
+	GetThreadByAgent(ctx context.Context, arg sqlc.GetThreadByAgentParams) (string, error)
 	ListAgentThreadBindings(ctx context.Context) ([]sqlc.ListAgentThreadBindingsRow, error)
-	UnbindAgentThread(ctx context.Context, agentID string) error
+	UnbindAgentThread(ctx context.Context, arg sqlc.UnbindAgentThreadParams) error
 	UpdateAgentCwd(ctx context.Context, arg sqlc.UpdateAgentCwdParams) error
 	UpdateAgentProviderBindingArchived(ctx context.Context, arg sqlc.UpdateAgentProviderBindingArchivedParams) error
 	UpdateAgentProviderBindingSessionUUID(ctx context.Context, arg sqlc.UpdateAgentProviderBindingSessionUUIDParams) error
@@ -45,7 +45,7 @@ func (s *store) GetByProviderThread(ctx context.Context, provider, providerThrea
 		ProviderThreadID:   row.ProviderThreadID,
 		CodexThreadID:      row.CodexThreadID,
 		RolloutPath:        row.RolloutPath,
-		Cwd:                row.Cwd,
+		Cwd:                row.CWD,
 		ParentAgentID:      row.ParentAgentID,
 		AgentType:          row.AgentType,
 		AgentMemoryScope:   row.AgentMemoryScope,
@@ -67,7 +67,7 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 		ProviderThreadID:   params.ProviderThreadID,
 		CodexThreadID:      params.CodexThreadID,
 		RolloutPath:        params.RolloutPath,
-		Cwd:                params.Cwd,
+		CWD:                params.Cwd,
 		ParentAgentID:      params.ParentAgentID,
 		AgentType:          params.AgentType,
 		AgentMemoryScope:   params.AgentMemoryScope,
@@ -98,7 +98,7 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 }
 
 func (s *store) DeleteByAgentID(ctx context.Context, agentID string) error {
-	return wrapBindingError(s.q.DeleteAgentProviderBindingByAgentID(ctx, agentID), "delete_by_agent_id")
+	return wrapBindingError(s.q.DeleteAgentProviderBindingByAgentID(ctx, sqlc.DeleteAgentProviderBindingByAgentIDParams{AgentID: agentID}), "delete_by_agent_id")
 }
 
 func (s *store) UpdateSessionUUID(ctx context.Context, params UpdateSessionUUIDParams) error {
@@ -118,7 +118,7 @@ func (s *store) SetArchived(ctx context.Context, params SetArchivedParams) error
 }
 
 func (s *store) GetByAgentID(ctx context.Context, agentID string) (*Binding, error) {
-	row, err := s.q.GetAgentProviderBindingByAgentID(ctx, agentID)
+	row, err := s.q.GetAgentProviderBindingByAgentID(ctx, sqlc.GetAgentProviderBindingByAgentIDParams{AgentID: agentID})
 	if err != nil {
 		return nil, wrapBindingError(err, "get_by_agent_id")
 	}
@@ -128,7 +128,7 @@ func (s *store) GetByAgentID(ctx context.Context, agentID string) (*Binding, err
 		ProviderThreadID:   row.ProviderThreadID,
 		CodexThreadID:      row.CodexThreadID,
 		RolloutPath:        row.RolloutPath,
-		Cwd:                row.Cwd,
+		Cwd:                row.CWD,
 		ParentAgentID:      row.ParentAgentID,
 		AgentType:          row.AgentType,
 		AgentMemoryScope:   row.AgentMemoryScope,
@@ -154,14 +154,14 @@ func (s *store) BindAgentThread(ctx context.Context, params BindAgentThreadParam
 	return wrapBindingError(s.q.BindAgentThread(ctx, sqlc.BindAgentThreadParams{
 		AgentID:   params.AgentID,
 		ThreadID:  params.ThreadID,
-		Cwd:       params.Cwd,
+		CWD:       params.Cwd,
 		CreatedAt: params.CreatedAt,
 		UpdatedAt: params.UpdatedAt,
 	}), "bind_agent_thread")
 }
 
 func (s *store) UnbindAgentThread(ctx context.Context, agentID string) error {
-	return wrapBindingError(s.q.UnbindAgentThread(ctx, agentID), "unbind_agent_thread")
+	return wrapBindingError(s.q.UnbindAgentThread(ctx, sqlc.UnbindAgentThreadParams{AgentID: agentID}), "unbind_agent_thread")
 }
 
 func (s *store) ListAgentThreadBindings(ctx context.Context) ([]Binding, error) {
@@ -177,7 +177,7 @@ func (s *store) ListAgentThreadBindings(ctx context.Context) ([]Binding, error) 
 			ProviderThreadID:   row.ProviderThreadID,
 			CodexThreadID:      row.CodexThreadID,
 			RolloutPath:        row.RolloutPath,
-			Cwd:                row.Cwd,
+			Cwd:                row.CWD,
 			ParentAgentID:      row.ParentAgentID,
 			AgentType:          row.AgentType,
 			AgentMemoryScope:   row.AgentMemoryScope,
@@ -194,7 +194,7 @@ func (s *store) ListAgentThreadBindings(ctx context.Context) ([]Binding, error) 
 }
 
 func (s *store) GetThreadByAgent(ctx context.Context, agentID string) (string, error) {
-	threadID, err := s.q.GetThreadByAgent(ctx, agentID)
+	threadID, err := s.q.GetThreadByAgent(ctx, sqlc.GetThreadByAgentParams{AgentID: agentID})
 	if err != nil {
 		return "", wrapBindingError(err, "get_thread_by_agent")
 	}
@@ -207,7 +207,7 @@ func (s *store) UpdateAgentCwd(ctx context.Context, params UpdateAgentCwdParams)
 		updatedAt = time.Now().Unix()
 	}
 	return wrapBindingError(s.q.UpdateAgentCwd(ctx, sqlc.UpdateAgentCwdParams{
-		Cwd:       params.Cwd,
+		CWD:       params.Cwd,
 		UpdatedAt: updatedAt,
 		AgentID:   params.AgentID,
 	}), "update_agent_cwd")
@@ -222,7 +222,7 @@ func (s *store) Rebind(ctx context.Context, params RebindParams) error {
 	return wrapBindingError(s.q.RebindAgentThreadTx(ctx, sqlc.RebindAgentThreadTxParams{
 		AgentID:   params.AgentID,
 		ThreadID:  params.ThreadID,
-		Cwd:       params.Cwd,
+		CWD:       params.Cwd,
 		UpdatedAt: updatedAt,
 	}), "rebind")
 }

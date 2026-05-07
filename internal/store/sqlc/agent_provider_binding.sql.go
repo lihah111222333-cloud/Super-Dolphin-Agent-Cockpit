@@ -14,8 +14,12 @@ DELETE FROM agent_provider_binding
 WHERE agent_id = $1
 `
 
-func (q *Queries) DeleteAgentProviderBindingByAgentID(ctx context.Context, agentID string) error {
-	_, err := q.db.Exec(ctx, deleteAgentProviderBindingByAgentID, agentID)
+type DeleteAgentProviderBindingByAgentIDParams struct {
+	AgentID string `db:"agent_id" json:"agent_id"`
+}
+
+func (q *Queries) DeleteAgentProviderBindingByAgentID(ctx context.Context, arg DeleteAgentProviderBindingByAgentIDParams) error {
+	_, err := q.db.Exec(ctx, deleteAgentProviderBindingByAgentID, arg.AgentID)
 	return err
 }
 
@@ -25,13 +29,17 @@ FROM agent_provider_binding
 WHERE agent_id = $1
 `
 
+type GetAgentProviderBindingByAgentIDParams struct {
+	AgentID string `db:"agent_id" json:"agent_id"`
+}
+
 type GetAgentProviderBindingByAgentIDRow struct {
 	AgentID            string `db:"agent_id" json:"agent_id"`
 	Provider           string `db:"provider" json:"provider"`
 	ProviderThreadID   string `db:"provider_thread_id" json:"provider_thread_id"`
 	CodexThreadID      string `db:"codex_thread_id" json:"codex_thread_id"`
 	RolloutPath        string `db:"rollout_path" json:"rollout_path"`
-	Cwd                string `db:"cwd" json:"cwd"`
+	CWD                string `db:"cwd" json:"cwd"`
 	ParentAgentID      string `db:"parent_agent_id" json:"parent_agent_id"`
 	AgentType          string `db:"agent_type" json:"agent_type"`
 	AgentMemoryScope   string `db:"agent_memory_scope" json:"agent_memory_scope"`
@@ -44,8 +52,8 @@ type GetAgentProviderBindingByAgentIDRow struct {
 	CodexModelProvider string `db:"codex_model_provider" json:"codex_model_provider"`
 }
 
-func (q *Queries) GetAgentProviderBindingByAgentID(ctx context.Context, agentID string) (GetAgentProviderBindingByAgentIDRow, error) {
-	row := q.db.QueryRow(ctx, getAgentProviderBindingByAgentID, agentID)
+func (q *Queries) GetAgentProviderBindingByAgentID(ctx context.Context, arg GetAgentProviderBindingByAgentIDParams) (GetAgentProviderBindingByAgentIDRow, error) {
+	row := q.db.QueryRow(ctx, getAgentProviderBindingByAgentID, arg.AgentID)
 	var i GetAgentProviderBindingByAgentIDRow
 	err := row.Scan(
 		&i.AgentID,
@@ -53,7 +61,7 @@ func (q *Queries) GetAgentProviderBindingByAgentID(ctx context.Context, agentID 
 		&i.ProviderThreadID,
 		&i.CodexThreadID,
 		&i.RolloutPath,
-		&i.Cwd,
+		&i.CWD,
 		&i.ParentAgentID,
 		&i.AgentType,
 		&i.AgentMemoryScope,
@@ -85,7 +93,7 @@ type GetAgentProviderBindingByProviderThreadRow struct {
 	ProviderThreadID   string `db:"provider_thread_id" json:"provider_thread_id"`
 	CodexThreadID      string `db:"codex_thread_id" json:"codex_thread_id"`
 	RolloutPath        string `db:"rollout_path" json:"rollout_path"`
-	Cwd                string `db:"cwd" json:"cwd"`
+	CWD                string `db:"cwd" json:"cwd"`
 	ParentAgentID      string `db:"parent_agent_id" json:"parent_agent_id"`
 	AgentType          string `db:"agent_type" json:"agent_type"`
 	AgentMemoryScope   string `db:"agent_memory_scope" json:"agent_memory_scope"`
@@ -107,7 +115,7 @@ func (q *Queries) GetAgentProviderBindingByProviderThread(ctx context.Context, a
 		&i.ProviderThreadID,
 		&i.CodexThreadID,
 		&i.RolloutPath,
-		&i.Cwd,
+		&i.CWD,
 		&i.ParentAgentID,
 		&i.AgentType,
 		&i.AgentMemoryScope,
@@ -184,7 +192,7 @@ type UpsertAgentProviderBindingParams struct {
 	ProviderThreadID   string `db:"provider_thread_id" json:"provider_thread_id"`
 	CodexThreadID      string `db:"codex_thread_id" json:"codex_thread_id"`
 	RolloutPath        string `db:"rollout_path" json:"rollout_path"`
-	Cwd                string `db:"cwd" json:"cwd"`
+	CWD                string `db:"cwd" json:"cwd"`
 	ParentAgentID      string `db:"parent_agent_id" json:"parent_agent_id"`
 	AgentType          string `db:"agent_type" json:"agent_type"`
 	AgentMemoryScope   string `db:"agent_memory_scope" json:"agent_memory_scope"`
@@ -207,7 +215,7 @@ func (q *Queries) UpsertAgentProviderBinding(ctx context.Context, arg UpsertAgen
 		arg.ProviderThreadID,
 		arg.CodexThreadID,
 		arg.RolloutPath,
-		arg.Cwd,
+		arg.CWD,
 		arg.ParentAgentID,
 		arg.AgentType,
 		arg.AgentMemoryScope,

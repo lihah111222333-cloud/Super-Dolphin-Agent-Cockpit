@@ -17,7 +17,7 @@ type ailogQuerierStub struct {
 	countAILogsByStatusFn  func(context.Context) ([]sqlc.CountAILogsByStatusRow, error)
 	listAILogSystemLogsFn  func(context.Context, sqlc.ListAILogSystemLogsParams) ([]sqlc.SystemLog, error)
 	listAILogsByCategoryFn func(context.Context, sqlc.ListAILogsByCategoryParams) ([]sqlc.ListAILogsByCategoryRow, error)
-	listRecentAILogsFn     func(context.Context, int32) ([]sqlc.ListRecentAILogsRow, error)
+	listRecentAILogsFn     func(context.Context, sqlc.ListRecentAILogsParams) ([]sqlc.ListRecentAILogsRow, error)
 }
 
 func (s *ailogQuerierStub) CountAILogsByStatus(ctx context.Context) ([]sqlc.CountAILogsByStatusRow, error) {
@@ -41,9 +41,9 @@ func (s *ailogQuerierStub) ListAILogsByCategory(ctx context.Context, arg sqlc.Li
 	return nil, nil
 }
 
-func (s *ailogQuerierStub) ListRecentAILogs(ctx context.Context, limit int32) ([]sqlc.ListRecentAILogsRow, error) {
+func (s *ailogQuerierStub) ListRecentAILogs(ctx context.Context, arg sqlc.ListRecentAILogsParams) ([]sqlc.ListRecentAILogsRow, error) {
 	if s.listRecentAILogsFn != nil {
-		return s.listRecentAILogsFn(ctx, limit)
+		return s.listRecentAILogsFn(ctx, arg)
 	}
 	return nil, nil
 }
@@ -151,7 +151,8 @@ func TestListRecent(t *testing.T) {
 	ts := time.Unix(300, 0)
 	rawExtra := json.RawMessage(`{"recent":true}`)
 	s := &store{q: &ailogQuerierStub{
-		listRecentAILogsFn: func(_ context.Context, limit int32) ([]sqlc.ListRecentAILogsRow, error) {
+		listRecentAILogsFn: func(_ context.Context, arg sqlc.ListRecentAILogsParams) ([]sqlc.ListRecentAILogsRow, error) {
+			limit := arg.Limit
 			if limit != 9 {
 				t.Fatalf("ListRecent() limit = %d, want 9", limit)
 			}

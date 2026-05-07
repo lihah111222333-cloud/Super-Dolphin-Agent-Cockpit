@@ -2,7 +2,36 @@ version: "2"
 sql:
   - engine: "postgresql"
     queries: "sql/queries/"
-    schema: "migrations/"
+    schema:
+      - "migrations/001_baseline.sql"
+      - "migrations/0022_binding_session_uuid.sql"
+      - "migrations/0023_dag_watcher_phase1.sql"
+      - "migrations/0024_prompt_versions_description.sql"
+      - "migrations/0025_agent_thread_config_override.sql"
+      - "migrations/0025_hook_pending_reviews.sql"
+      - "migrations/0026_hook_pending_reviews_resolved_by.sql"
+      - "migrations/0027_prompt_description_columns.sql"
+      - "migrations/0028_binding_provider_thread_nullable.sql"
+      - "migrations/0029_agent_provider_binding_schema_repair.sql"
+      - "migrations/0030_baseline_schema_repair.sql"
+      - "migrations/0031_prompt_snapshot.sql"
+      - "migrations/0032_agent_memory_identity.sql"
+      - "migrations/0033_prompt_id_sequence_repair.sql"
+      - "migrations/0034_thread_agent_routing.sql"
+      - "migrations/0035_agent_feedback_events.sql"
+      - "migrations/0037_thread_pending_launch.sql"
+      - "migrations/0041_prompt_routing_tests.sql"
+      - "migrations/0045_cron_jobs.sql"
+      - "migrations/0046_session_insights.sql"
+      - "migrations/0048_binding_codex_identity.sql"
+      - "migrations/0049_prompt_template_sections.sql"
+      - "migrations/0053_prompt_template_match_when.sql"
+      - "migrations/0060_turn_dedupe_registry.sql"
+      - "migrations/0063_agent_thread_name.sql"
+      - "migrations/0064_skill_candidates.sql"
+      - "migrations/0066_skill_candidates_repo_fp_widen.sql"
+      - "migrations/0068_thread_manually_renamed.sql"
+    strict_order_by: true
     gen:
       go:
         package: "sqlc"
@@ -14,7 +43,6 @@ sql:
         emit_empty_slices: true
         emit_interface: true
         query_parameter_limit: 0
-        strict_order_by: true
         omit_unused_structs: true
         emit_pointers_for_null_types: true
         initialisms:

@@ -12,7 +12,7 @@ import (
 // NewStore still accepts the concrete *sqlc.Queries for fx wiring.
 type querier interface {
 	CreateInteraction(ctx context.Context, arg sqlc.CreateInteractionParams) (sqlc.AgentInteraction, error)
-	GetInteraction(ctx context.Context, id int64) (sqlc.AgentInteraction, error)
+	GetInteraction(ctx context.Context, arg sqlc.GetInteractionParams) (sqlc.AgentInteraction, error)
 	ListInteractions(ctx context.Context, arg sqlc.ListInteractionsParams) ([]sqlc.AgentInteraction, error)
 	ReviewInteraction(ctx context.Context, arg sqlc.ReviewInteractionParams) (sqlc.AgentInteraction, error)
 }
@@ -42,7 +42,7 @@ func (s *store) Create(ctx context.Context, interaction Interaction) (*Interacti
 }
 
 func (s *store) Get(ctx context.Context, id int64) (*Interaction, error) {
-	row, err := s.q.GetInteraction(ctx, id)
+	row, err := s.q.GetInteraction(ctx, sqlc.GetInteractionParams{ID: id})
 	if err != nil {
 		return nil, wrapInteractionError(err, "get")
 	}

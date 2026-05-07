@@ -15,8 +15,12 @@ DELETE FROM prompt_templates
 WHERE prompt_key = $1
 `
 
-func (q *Queries) DeletePromptTemplate(ctx context.Context, promptKey string) (int64, error) {
-	result, err := q.db.Exec(ctx, deletePromptTemplate, promptKey)
+type DeletePromptTemplateParams struct {
+	PromptKey string `db:"prompt_key" json:"prompt_key"`
+}
+
+func (q *Queries) DeletePromptTemplate(ctx context.Context, arg DeletePromptTemplateParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deletePromptTemplate, arg.PromptKey)
 	if err != nil {
 		return 0, err
 	}
@@ -28,6 +32,10 @@ SELECT id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags
 FROM prompt_templates
 WHERE prompt_key = $1
 `
+
+type GetPromptTemplateParams struct {
+	PromptKey string `db:"prompt_key" json:"prompt_key"`
+}
 
 type GetPromptTemplateRow struct {
 	ID          int64     `db:"id" json:"id"`
@@ -48,8 +56,8 @@ type GetPromptTemplateRow struct {
 	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
 }
 
-func (q *Queries) GetPromptTemplate(ctx context.Context, promptKey string) (GetPromptTemplateRow, error) {
-	row := q.db.QueryRow(ctx, getPromptTemplate, promptKey)
+func (q *Queries) GetPromptTemplate(ctx context.Context, arg GetPromptTemplateParams) (GetPromptTemplateRow, error) {
+	row := q.db.QueryRow(ctx, getPromptTemplate, arg.PromptKey)
 	var i GetPromptTemplateRow
 	err := row.Scan(
 		&i.ID,
@@ -137,7 +145,7 @@ LIMIT $4
 type ListPromptTemplatesParams struct {
 	AgentKey   string `db:"agent_key" json:"agent_key"`
 	Keyword    string `db:"keyword" json:"keyword"`
-	Cwd        string `db:"cwd" json:"cwd"`
+	CWD        string `db:"cwd" json:"cwd"`
 	LimitCount int32  `db:"limit_count" json:"limit_count"`
 }
 
@@ -164,7 +172,7 @@ func (q *Queries) ListPromptTemplates(ctx context.Context, arg ListPromptTemplat
 	rows, err := q.db.Query(ctx, listPromptTemplates,
 		arg.AgentKey,
 		arg.Keyword,
-		arg.Cwd,
+		arg.CWD,
 		arg.LimitCount,
 	)
 	if err != nil {

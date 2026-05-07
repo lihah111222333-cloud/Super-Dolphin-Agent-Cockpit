@@ -1,42 +1,47 @@
+version: "2"
 run:
-  timeout: 5m
   modules-download-mode: readonly
-
 linters:
-  enable:
-    - errcheck
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
-    - gosimple
-    - typecheck
-
-linters-settings:
-  errcheck:
-    exclude-functions:
-      - (io.Closer).Close
-      - (*os.File).Close
-      - (net.Conn).Close
-      - fmt.Fprintf
-      - fmt.Fprintln
-
+  settings:
+    errcheck:
+      exclude-functions:
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (net.Conn).Close
+        - fmt.Fprintf
+        - fmt.Fprintln
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - errcheck
+        path: _test\.go
+      - linters:
+          - errcheck
+        path: scripts/
+      - linters:
+          - errcheck
+          - unused
+        path: \.tmp
+    paths:
+      - vendor
+      - third_party
+      - node_modules
+      - third_party$
+      - builtin$
+      - examples$
 issues:
-  exclude-dirs:
-    - vendor
-    - third_party
-    - node_modules
-  exclude-dirs-use-default: true
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - errcheck
-    - path: scripts/
-      linters:
-        - errcheck
-    - path: \.tmp
-      linters:
-        - errcheck
-        - unused
   max-issues-per-linter: 50
   max-same-issues: 5
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

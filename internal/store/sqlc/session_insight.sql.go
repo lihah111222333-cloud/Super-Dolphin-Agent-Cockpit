@@ -202,10 +202,14 @@ ORDER BY created_at DESC, id DESC
 LIMIT $1
 `
 
+type ListRecentSessionInsightsParams struct {
+	Limit int32 `db:"limit" json:"limit"`
+}
+
 // ListRecentSessionInsights is used by the dashboard API to return the
 // N most recent turns across all threads.
-func (q *Queries) ListRecentSessionInsights(ctx context.Context, limit int32) ([]SessionInsight, error) {
-	rows, err := q.db.Query(ctx, listRecentSessionInsights, limit)
+func (q *Queries) ListRecentSessionInsights(ctx context.Context, arg ListRecentSessionInsightsParams) ([]SessionInsight, error) {
+	rows, err := q.db.Query(ctx, listRecentSessionInsights, arg.Limit)
 	if err != nil {
 		return nil, err
 	}

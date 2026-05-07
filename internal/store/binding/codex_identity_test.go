@@ -59,7 +59,7 @@ func TestGetByAgentIDSurfacesCodexIdentity(t *testing.T) {
 		ProviderThreadID:   "pt-read",
 		CodexThreadID:      "ct-read",
 		RolloutPath:        "/tmp/r",
-		Cwd:                "/repo",
+		CWD:                "/repo",
 		Archived:           false,
 		CreatedAt:          5,
 		UpdatedAt:          6,

@@ -42,7 +42,8 @@ func (f *fakeQuerier) UpsertAgentStatus(_ context.Context, p sqlc.UpsertAgentSta
 	return row, nil
 }
 
-func (f *fakeQuerier) GetAgentStatus(_ context.Context, agentID string) (sqlc.AgentStatus, error) {
+func (f *fakeQuerier) GetAgentStatus(_ context.Context, arg sqlc.GetAgentStatusParams) (sqlc.AgentStatus, error) {
+	agentID := arg.AgentID
 	if f.getErr != nil {
 		return sqlc.AgentStatus{}, f.getErr
 	}
@@ -53,7 +54,8 @@ func (f *fakeQuerier) GetAgentStatus(_ context.Context, agentID string) (sqlc.Ag
 	return row, nil
 }
 
-func (f *fakeQuerier) ListAgentStatuses(_ context.Context, status string) ([]sqlc.AgentStatus, error) {
+func (f *fakeQuerier) ListAgentStatuses(_ context.Context, arg sqlc.ListAgentStatusesParams) ([]sqlc.AgentStatus, error) {
+	status := arg.Column1
 	if f.listErr != nil {
 		return nil, f.listErr
 	}

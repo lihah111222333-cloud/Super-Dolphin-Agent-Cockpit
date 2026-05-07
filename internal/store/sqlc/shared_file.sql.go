@@ -14,8 +14,12 @@ DELETE FROM shared_files
 WHERE path = $1
 `
 
-func (q *Queries) DeleteSharedFile(ctx context.Context, path string) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteSharedFile, path)
+type DeleteSharedFileParams struct {
+	Path string `db:"path" json:"path"`
+}
+
+func (q *Queries) DeleteSharedFile(ctx context.Context, arg DeleteSharedFileParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteSharedFile, arg.Path)
 	if err != nil {
 		return 0, err
 	}
@@ -28,8 +32,12 @@ FROM shared_files
 WHERE path = $1
 `
 
-func (q *Queries) GetSharedFile(ctx context.Context, path string) (SharedFile, error) {
-	row := q.db.QueryRow(ctx, getSharedFile, path)
+type GetSharedFileParams struct {
+	Path string `db:"path" json:"path"`
+}
+
+func (q *Queries) GetSharedFile(ctx context.Context, arg GetSharedFileParams) (SharedFile, error) {
+	row := q.db.QueryRow(ctx, getSharedFile, arg.Path)
 	var i SharedFile
 	err := row.Scan(
 		&i.Path,

@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"time"
+
+	dtoskill "github.com/anthropic-ai/super-agent-v3/internal/dto/skill"
 )
 
 // ---------------------------------------------------------------------------
@@ -169,6 +171,17 @@ type SkillHydrationSource interface {
 // and module/skilllibrary. Returning empty string means "no skills available".
 type SkillManifestRenderer interface {
 	RenderSkillManifest() string
+}
+
+// SkillManifestEntryLister is the read-only skill entry source used by
+// manifest renderers. Satisfied by *skilllibrary.Store.
+type SkillManifestEntryLister interface {
+	List() ([]dtoskill.SkillEntry, error)
+}
+
+// SkillDescriptionParser extracts the description field from SKILL.md content.
+type SkillDescriptionParser interface {
+	Description(skillMD string) string
 }
 
 // SkillLibraryConfig holds the subset of skill-library configuration that

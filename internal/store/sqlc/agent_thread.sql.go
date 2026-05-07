@@ -17,8 +17,12 @@ SELECT EXISTS(
 )
 `
 
-func (q *Queries) AgentThreadExists(ctx context.Context, threadID string) (bool, error) {
-	row := q.db.QueryRow(ctx, agentThreadExists, threadID)
+type AgentThreadExistsParams struct {
+	ThreadID string `db:"thread_id" json:"thread_id"`
+}
+
+func (q *Queries) AgentThreadExists(ctx context.Context, arg AgentThreadExistsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, agentThreadExists, arg.ThreadID)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -32,8 +36,12 @@ SELECT EXISTS(
 )
 `
 
-func (q *Queries) AgentThreadRunningExists(ctx context.Context, threadID string) (bool, error) {
-	row := q.db.QueryRow(ctx, agentThreadRunningExists, threadID)
+type AgentThreadRunningExistsParams struct {
+	ThreadID string `db:"thread_id" json:"thread_id"`
+}
+
+func (q *Queries) AgentThreadRunningExists(ctx context.Context, arg AgentThreadRunningExistsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, agentThreadRunningExists, arg.ThreadID)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -56,10 +64,14 @@ FROM agent_threads
 WHERE parent_agent_id = $1
 `
 
+type CountChildAgentThreadsParams struct {
+	ParentAgentID string `db:"parent_agent_id" json:"parent_agent_id"`
+}
+
 // Returns the number of child agents belonging to the given parent.
 // Used to determine the next sequential suffix for child agent IDs.
-func (q *Queries) CountChildAgentThreads(ctx context.Context, parentAgentID string) (int64, error) {
-	row := q.db.QueryRow(ctx, countChildAgentThreads, parentAgentID)
+func (q *Queries) CountChildAgentThreads(ctx context.Context, arg CountChildAgentThreadsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countChildAgentThreads, arg.ParentAgentID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -70,8 +82,12 @@ DELETE FROM agent_threads
 WHERE thread_id = $1
 `
 
-func (q *Queries) DeleteAgentThreadByID(ctx context.Context, threadID string) error {
-	_, err := q.db.Exec(ctx, deleteAgentThreadByID, threadID)
+type DeleteAgentThreadByIDParams struct {
+	ThreadID string `db:"thread_id" json:"thread_id"`
+}
+
+func (q *Queries) DeleteAgentThreadByID(ctx context.Context, arg DeleteAgentThreadByIDParams) error {
+	_, err := q.db.Exec(ctx, deleteAgentThreadByID, arg.ThreadID)
 	return err
 }
 
@@ -115,12 +131,16 @@ WHERE thread_id = $1
 LIMIT 1
 `
 
+type GetAgentThreadByIDParams struct {
+	ThreadID string `db:"thread_id" json:"thread_id"`
+}
+
 type GetAgentThreadByIDRow struct {
 	ThreadID         string      `db:"thread_id" json:"thread_id"`
 	Name             string      `db:"name" json:"name"`
 	Prompt           string      `db:"prompt" json:"prompt"`
 	Model            string      `db:"model" json:"model"`
-	Cwd              string      `db:"cwd" json:"cwd"`
+	CWD              string      `db:"cwd" json:"cwd"`
 	Status           string      `db:"status" json:"status"`
 	Port             int32       `db:"port" json:"port"`
 	Pid              int32       `db:"pid" json:"pid"`
@@ -142,15 +162,15 @@ type GetAgentThreadByIDRow struct {
 	AgentID          interface{} `db:"agent_id" json:"agent_id"`
 }
 
-func (q *Queries) GetAgentThreadByID(ctx context.Context, threadID string) (GetAgentThreadByIDRow, error) {
-	row := q.db.QueryRow(ctx, getAgentThreadByID, threadID)
+func (q *Queries) GetAgentThreadByID(ctx context.Context, arg GetAgentThreadByIDParams) (GetAgentThreadByIDRow, error) {
+	row := q.db.QueryRow(ctx, getAgentThreadByID, arg.ThreadID)
 	var i GetAgentThreadByIDRow
 	err := row.Scan(
 		&i.ThreadID,
 		&i.Name,
 		&i.Prompt,
 		&i.Model,
-		&i.Cwd,
+		&i.CWD,
 		&i.Status,
 		&i.Port,
 		&i.Pid,
@@ -194,12 +214,16 @@ ORDER BY updated_at DESC
 LIMIT 1
 `
 
+type GetAgentThreadByPortParams struct {
+	Port int32 `db:"port" json:"port"`
+}
+
 type GetAgentThreadByPortRow struct {
 	ThreadID         string      `db:"thread_id" json:"thread_id"`
 	Name             string      `db:"name" json:"name"`
 	Prompt           string      `db:"prompt" json:"prompt"`
 	Model            string      `db:"model" json:"model"`
-	Cwd              string      `db:"cwd" json:"cwd"`
+	CWD              string      `db:"cwd" json:"cwd"`
 	Status           string      `db:"status" json:"status"`
 	Port             int32       `db:"port" json:"port"`
 	Pid              int32       `db:"pid" json:"pid"`
@@ -221,15 +245,15 @@ type GetAgentThreadByPortRow struct {
 	AgentID          interface{} `db:"agent_id" json:"agent_id"`
 }
 
-func (q *Queries) GetAgentThreadByPort(ctx context.Context, port int32) (GetAgentThreadByPortRow, error) {
-	row := q.db.QueryRow(ctx, getAgentThreadByPort, port)
+func (q *Queries) GetAgentThreadByPort(ctx context.Context, arg GetAgentThreadByPortParams) (GetAgentThreadByPortRow, error) {
+	row := q.db.QueryRow(ctx, getAgentThreadByPort, arg.Port)
 	var i GetAgentThreadByPortRow
 	err := row.Scan(
 		&i.ThreadID,
 		&i.Name,
 		&i.Prompt,
 		&i.Model,
-		&i.Cwd,
+		&i.CWD,
 		&i.Status,
 		&i.Port,
 		&i.Pid,
@@ -262,7 +286,7 @@ ORDER BY created_at DESC
 
 type ListAgentThreadCwdsRow struct {
 	ThreadID string `db:"thread_id" json:"thread_id"`
-	Cwd      string `db:"cwd" json:"cwd"`
+	CWD      string `db:"cwd" json:"cwd"`
 }
 
 func (q *Queries) ListAgentThreadCwds(ctx context.Context) ([]ListAgentThreadCwdsRow, error) {
@@ -274,7 +298,7 @@ func (q *Queries) ListAgentThreadCwds(ctx context.Context) ([]ListAgentThreadCwd
 	items := []ListAgentThreadCwdsRow{}
 	for rows.Next() {
 		var i ListAgentThreadCwdsRow
-		if err := rows.Scan(&i.ThreadID, &i.Cwd); err != nil {
+		if err := rows.Scan(&i.ThreadID, &i.CWD); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -293,13 +317,17 @@ WHERE cwd <> ''
 ORDER BY created_at DESC
 `
 
-type ListAgentThreadCwdsByPrefixRow struct {
-	ThreadID string `db:"thread_id" json:"thread_id"`
-	Cwd      string `db:"cwd" json:"cwd"`
+type ListAgentThreadCwdsByPrefixParams struct {
+	Column1 *string `db:"column_1" json:"column_1"`
 }
 
-func (q *Queries) ListAgentThreadCwdsByPrefix(ctx context.Context, dollar_1 *string) ([]ListAgentThreadCwdsByPrefixRow, error) {
-	rows, err := q.db.Query(ctx, listAgentThreadCwdsByPrefix, dollar_1)
+type ListAgentThreadCwdsByPrefixRow struct {
+	ThreadID string `db:"thread_id" json:"thread_id"`
+	CWD      string `db:"cwd" json:"cwd"`
+}
+
+func (q *Queries) ListAgentThreadCwdsByPrefix(ctx context.Context, arg ListAgentThreadCwdsByPrefixParams) ([]ListAgentThreadCwdsByPrefixRow, error) {
+	rows, err := q.db.Query(ctx, listAgentThreadCwdsByPrefix, arg.Column1)
 	if err != nil {
 		return nil, err
 	}
@@ -307,7 +335,7 @@ func (q *Queries) ListAgentThreadCwdsByPrefix(ctx context.Context, dollar_1 *str
 	items := []ListAgentThreadCwdsByPrefixRow{}
 	for rows.Next() {
 		var i ListAgentThreadCwdsByPrefixRow
-		if err := rows.Scan(&i.ThreadID, &i.Cwd); err != nil {
+		if err := rows.Scan(&i.ThreadID, &i.CWD); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -341,7 +369,7 @@ type ListAgentThreadsRow struct {
 	Name             string      `db:"name" json:"name"`
 	Prompt           string      `db:"prompt" json:"prompt"`
 	Model            string      `db:"model" json:"model"`
-	Cwd              string      `db:"cwd" json:"cwd"`
+	CWD              string      `db:"cwd" json:"cwd"`
 	Status           string      `db:"status" json:"status"`
 	Port             int32       `db:"port" json:"port"`
 	Pid              int32       `db:"pid" json:"pid"`
@@ -377,7 +405,7 @@ func (q *Queries) ListAgentThreads(ctx context.Context) ([]ListAgentThreadsRow, 
 			&i.Name,
 			&i.Prompt,
 			&i.Model,
-			&i.Cwd,
+			&i.CWD,
 			&i.Status,
 			&i.Port,
 			&i.Pid,
@@ -432,7 +460,7 @@ type ListRecoverableAgentThreadsRow struct {
 	Name             string      `db:"name" json:"name"`
 	Prompt           string      `db:"prompt" json:"prompt"`
 	Model            string      `db:"model" json:"model"`
-	Cwd              string      `db:"cwd" json:"cwd"`
+	CWD              string      `db:"cwd" json:"cwd"`
 	Status           string      `db:"status" json:"status"`
 	Port             int32       `db:"port" json:"port"`
 	Pid              int32       `db:"pid" json:"pid"`
@@ -468,7 +496,7 @@ func (q *Queries) ListRecoverableAgentThreads(ctx context.Context) ([]ListRecove
 			&i.Name,
 			&i.Prompt,
 			&i.Model,
-			&i.Cwd,
+			&i.CWD,
 			&i.Status,
 			&i.Port,
 			&i.Pid,
@@ -523,7 +551,7 @@ type ListRunningAgentThreadsRow struct {
 	Name             string      `db:"name" json:"name"`
 	Prompt           string      `db:"prompt" json:"prompt"`
 	Model            string      `db:"model" json:"model"`
-	Cwd              string      `db:"cwd" json:"cwd"`
+	CWD              string      `db:"cwd" json:"cwd"`
 	Status           string      `db:"status" json:"status"`
 	Port             int32       `db:"port" json:"port"`
 	Pid              int32       `db:"pid" json:"pid"`
@@ -559,7 +587,7 @@ func (q *Queries) ListRunningAgentThreads(ctx context.Context) ([]ListRunningAge
 			&i.Name,
 			&i.Prompt,
 			&i.Model,
-			&i.Cwd,
+			&i.CWD,
 			&i.Status,
 			&i.Port,
 			&i.Pid,
@@ -734,7 +762,7 @@ type UpsertAgentThreadParams struct {
 	Name             string      `db:"name" json:"name"`
 	Prompt           string      `db:"prompt" json:"prompt"`
 	Model            string      `db:"model" json:"model"`
-	Cwd              string      `db:"cwd" json:"cwd"`
+	CWD              string      `db:"cwd" json:"cwd"`
 	Status           string      `db:"status" json:"status"`
 	Port             int32       `db:"port" json:"port"`
 	Pid              int32       `db:"pid" json:"pid"`
@@ -757,7 +785,7 @@ func (q *Queries) UpsertAgentThread(ctx context.Context, arg UpsertAgentThreadPa
 		arg.Name,
 		arg.Prompt,
 		arg.Model,
-		arg.Cwd,
+		arg.CWD,
 		arg.Status,
 		arg.Port,
 		arg.Pid,

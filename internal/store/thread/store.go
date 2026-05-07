@@ -10,21 +10,21 @@ import (
 )
 
 type querier interface {
-	AgentThreadRunningExists(ctx context.Context, threadID string) (bool, error)
-	AgentThreadExists(ctx context.Context, threadID string) (bool, error)
+	AgentThreadRunningExists(ctx context.Context, arg sqlc.AgentThreadRunningExistsParams) (bool, error)
+	AgentThreadExists(ctx context.Context, arg sqlc.AgentThreadExistsParams) (bool, error)
 	CountAllThreads(ctx context.Context) (int64, error)
-	CountChildAgentThreads(ctx context.Context, parentAgentID string) (int64, error)
-	DeleteAgentThreadByID(ctx context.Context, threadID string) error
+	CountChildAgentThreads(ctx context.Context, arg sqlc.CountChildAgentThreadsParams) (int64, error)
+	DeleteAgentThreadByID(ctx context.Context, arg sqlc.DeleteAgentThreadByIDParams) error
 	ExpireStaleAgentThreads(ctx context.Context, arg sqlc.ExpireStaleAgentThreadsParams) (int64, error)
-	GetAgentThreadByID(ctx context.Context, threadID string) (sqlc.GetAgentThreadByIDRow, error)
-	GetAgentThreadByPort(ctx context.Context, port int32) (sqlc.GetAgentThreadByPortRow, error)
+	GetAgentThreadByID(ctx context.Context, arg sqlc.GetAgentThreadByIDParams) (sqlc.GetAgentThreadByIDRow, error)
+	GetAgentThreadByPort(ctx context.Context, arg sqlc.GetAgentThreadByPortParams) (sqlc.GetAgentThreadByPortRow, error)
 	ListAgentThreadCwds(ctx context.Context) ([]sqlc.ListAgentThreadCwdsRow, error)
-	ListAgentThreadCwdsByPrefix(ctx context.Context, dollar_1 *string) ([]sqlc.ListAgentThreadCwdsByPrefixRow, error)
+	ListAgentThreadCwdsByPrefix(ctx context.Context, arg sqlc.ListAgentThreadCwdsByPrefixParams) ([]sqlc.ListAgentThreadCwdsByPrefixRow, error)
 	ListAgentThreads(ctx context.Context) ([]sqlc.ListAgentThreadsRow, error)
 	ListRecoverableAgentThreads(ctx context.Context) ([]sqlc.ListRecoverableAgentThreadsRow, error)
 	ListRunningAgentThreads(ctx context.Context) ([]sqlc.ListRunningAgentThreadsRow, error)
 	ListRunningAgents(ctx context.Context) ([]sqlc.ListRunningAgentsRow, error)
-	LoadAgentThreadPromptSnapshot(ctx context.Context, threadID string) ([]byte, error)
+	LoadAgentThreadPromptSnapshot(ctx context.Context, arg sqlc.LoadAgentThreadPromptSnapshotParams) ([]byte, error)
 	ResetRunningAgentThreads(ctx context.Context) error
 	UpdateAgentThreadPromptSnapshot(ctx context.Context, arg sqlc.UpdateAgentThreadPromptSnapshotParams) (int64, error)
 	UpdateAgentThreadStatus(ctx context.Context, arg sqlc.UpdateAgentThreadStatusParams) error
@@ -41,7 +41,7 @@ func NewStore(q *sqlc.Queries) Store {
 }
 
 func (s *store) GetByThreadID(ctx context.Context, threadID string) (*Thread, error) {
-	row, err := s.q.GetAgentThreadByID(ctx, threadID)
+	row, err := s.q.GetAgentThreadByID(ctx, sqlc.GetAgentThreadByIDParams{ThreadID: threadID})
 	if err != nil {
 		return nil, wrapThreadError(err, "get_by_thread_id")
 	}
@@ -50,7 +50,7 @@ func (s *store) GetByThreadID(ctx context.Context, threadID string) (*Thread, er
 }
 
 func (s *store) GetByPort(ctx context.Context, port int32) (*Thread, error) {
-	row, err := s.q.GetAgentThreadByPort(ctx, port)
+	row, err := s.q.GetAgentThreadByPort(ctx, sqlc.GetAgentThreadByPortParams{Port: port})
 	if err != nil {
 		return nil, wrapThreadError(err, "get_by_port")
 	}
@@ -105,7 +105,7 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 		Name:             params.Name,
 		Prompt:           params.Prompt,
 		Model:            params.Model,
-		Cwd:              params.Cwd,
+		CWD:              params.Cwd,
 		Status:           params.Status,
 		Port:             params.Port,
 		Pid:              params.PID,
@@ -145,7 +145,7 @@ func (s *store) SavePromptSnapshot(ctx context.Context, threadID string, snapsho
 }
 
 func (s *store) LoadPromptSnapshot(ctx context.Context, threadID string) (*PromptSnapshot, error) {
-	payload, err := s.q.LoadAgentThreadPromptSnapshot(ctx, threadID)
+	payload, err := s.q.LoadAgentThreadPromptSnapshot(ctx, sqlc.LoadAgentThreadPromptSnapshotParams{ThreadID: threadID})
 	if err != nil {
 		return nil, wrapThreadError(err, "load_prompt_snapshot")
 	}
@@ -183,7 +183,7 @@ func (s *store) UpdateLaunchResult(ctx context.Context, params UpdateLaunchResul
 }
 
 func (s *store) DeleteByThreadID(ctx context.Context, threadID string) error {
-	return wrapThreadError(s.q.DeleteAgentThreadByID(ctx, threadID), "delete_by_thread_id")
+	return wrapThreadError(s.q.DeleteAgentThreadByID(ctx, sqlc.DeleteAgentThreadByIDParams{ThreadID: threadID}), "delete_by_thread_id")
 }
 
 func (s *store) ResetRunning(ctx context.Context) error {
@@ -202,7 +202,7 @@ func (s *store) ExpireStale(ctx context.Context, params ExpireStaleParams) (int6
 }
 
 func (s *store) RunningExists(ctx context.Context, threadID string) (bool, error) {
-	exists, err := s.q.AgentThreadRunningExists(ctx, threadID)
+	exists, err := s.q.AgentThreadRunningExists(ctx, sqlc.AgentThreadRunningExistsParams{ThreadID: threadID})
 	if err != nil {
 		return false, wrapThreadError(err, "running_exists")
 	}
@@ -218,7 +218,7 @@ func (s *store) ListCwds(ctx context.Context) ([]ThreadCwd, error) {
 }
 
 func (s *store) ListCwdsByPrefix(ctx context.Context, prefix string) ([]ThreadCwd, error) {
-	rows, err := s.q.ListAgentThreadCwdsByPrefix(ctx, &prefix)
+	rows, err := s.q.ListAgentThreadCwdsByPrefix(ctx, sqlc.ListAgentThreadCwdsByPrefixParams{Column1: &prefix})
 	if err != nil {
 		return nil, wrapThreadError(err, "list_cwds_by_prefix")
 	}
@@ -226,7 +226,7 @@ func (s *store) ListCwdsByPrefix(ctx context.Context, prefix string) ([]ThreadCw
 }
 
 func (s *store) CountChildren(ctx context.Context, parentAgentID string) (int64, error) {
-	count, err := s.q.CountChildAgentThreads(ctx, parentAgentID)
+	count, err := s.q.CountChildAgentThreads(ctx, sqlc.CountChildAgentThreadsParams{ParentAgentID: parentAgentID})
 	if err != nil {
 		return 0, wrapThreadError(err, "count_children")
 	}
@@ -234,7 +234,7 @@ func (s *store) CountChildren(ctx context.Context, parentAgentID string) (int64,
 }
 
 func (s *store) Exists(ctx context.Context, threadID string) (bool, error) {
-	exists, err := s.q.AgentThreadExists(ctx, threadID)
+	exists, err := s.q.AgentThreadExists(ctx, sqlc.AgentThreadExistsParams{ThreadID: threadID})
 	if err != nil {
 		return false, wrapThreadError(err, "exists")
 	}
@@ -263,7 +263,7 @@ func mapThreadByID(row sqlc.GetAgentThreadByIDRow) Thread {
 		Name:             row.Name,
 		Prompt:           row.Prompt,
 		Model:            row.Model,
-		Cwd:              row.Cwd,
+		Cwd:              row.CWD,
 		Status:           row.Status,
 		Port:             row.Port,
 		PID:              row.Pid,
@@ -292,7 +292,7 @@ func mapThreadByPort(row sqlc.GetAgentThreadByPortRow) Thread {
 		Name:             row.Name,
 		Prompt:           row.Prompt,
 		Model:            row.Model,
-		Cwd:              row.Cwd,
+		Cwd:              row.CWD,
 		Status:           row.Status,
 		Port:             row.Port,
 		PID:              row.Pid,
@@ -323,7 +323,7 @@ func mapThreadList(rows []sqlc.ListAgentThreadsRow) []Thread {
 			Name:             row.Name,
 			Prompt:           row.Prompt,
 			Model:            row.Model,
-			Cwd:              row.Cwd,
+			Cwd:              row.CWD,
 			Status:           row.Status,
 			Port:             row.Port,
 			PID:              row.Pid,
@@ -356,7 +356,7 @@ func mapRunningThreadList(rows []sqlc.ListRunningAgentThreadsRow) []Thread {
 			Name:             row.Name,
 			Prompt:           row.Prompt,
 			Model:            row.Model,
-			Cwd:              row.Cwd,
+			Cwd:              row.CWD,
 			Status:           row.Status,
 			Port:             row.Port,
 			PID:              row.Pid,
@@ -389,7 +389,7 @@ func mapRecoverableThreadList(rows []sqlc.ListRecoverableAgentThreadsRow) []Thre
 			Name:             row.Name,
 			Prompt:           row.Prompt,
 			Model:            row.Model,
-			Cwd:              row.Cwd,
+			Cwd:              row.CWD,
 			Status:           row.Status,
 			Port:             row.Port,
 			PID:              row.Pid,
@@ -415,7 +415,7 @@ func mapThreadCwds(rows []sqlc.ListAgentThreadCwdsRow) []ThreadCwd {
 	for i, row := range rows {
 		result[i] = ThreadCwd{
 			ThreadID: row.ThreadID,
-			Cwd:      row.Cwd,
+			Cwd:      row.CWD,
 		}
 	}
 	return result
@@ -426,7 +426,7 @@ func mapThreadCwdsByPrefix(rows []sqlc.ListAgentThreadCwdsByPrefixRow) []ThreadC
 	for i, row := range rows {
 		result[i] = ThreadCwd{
 			ThreadID: row.ThreadID,
-			Cwd:      row.Cwd,
+			Cwd:      row.CWD,
 		}
 	}
 	return result

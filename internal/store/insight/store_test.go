@@ -22,7 +22,7 @@ type insightQuerierStub struct {
 	upsertFn         func(context.Context, sqlc.UpsertSessionInsightParams) (sqlc.SessionInsight, error)
 	getByLocalFn     func(context.Context, sqlc.GetSessionInsightByLocalTurnParams) (sqlc.SessionInsight, error)
 	listByThreadFn   func(context.Context, sqlc.ListSessionInsightsByThreadParams) ([]sqlc.SessionInsight, error)
-	listRecentFn     func(context.Context, int32) ([]sqlc.SessionInsight, error)
+	listRecentFn     func(context.Context, sqlc.ListRecentSessionInsightsParams) ([]sqlc.SessionInsight, error)
 	listApprovalFn   func(context.Context, sqlc.ListObservedApprovalRequestsParams) ([]sqlc.ListObservedApprovalRequestsRow, error)
 	listTokenTurnsFn func(context.Context, sqlc.ListObservedTokenTurnsParams) ([]sqlc.ListObservedTokenTurnsRow, error)
 }
@@ -45,9 +45,9 @@ func (s *insightQuerierStub) ListSessionInsightsByThread(ctx context.Context, a 
 	}
 	return nil, nil
 }
-func (s *insightQuerierStub) ListRecentSessionInsights(ctx context.Context, limit int32) ([]sqlc.SessionInsight, error) {
+func (s *insightQuerierStub) ListRecentSessionInsights(ctx context.Context, arg sqlc.ListRecentSessionInsightsParams) ([]sqlc.SessionInsight, error) {
 	if s.listRecentFn != nil {
-		return s.listRecentFn(ctx, limit)
+		return s.listRecentFn(ctx, arg)
 	}
 	return nil, nil
 }
@@ -176,7 +176,8 @@ func TestListRecentPassesThrough(t *testing.T) {
 	t.Parallel()
 	var gotLimit int32
 	s := &store{q: &insightQuerierStub{
-		listRecentFn: func(_ context.Context, limit int32) ([]sqlc.SessionInsight, error) {
+		listRecentFn: func(_ context.Context, arg sqlc.ListRecentSessionInsightsParams) ([]sqlc.SessionInsight, error) {
+			limit := arg.Limit
 			gotLimit = limit
 			return []sqlc.SessionInsight{{ID: 42, ThreadID: "t", LocalTurnID: "lt"}}, nil
 		},
