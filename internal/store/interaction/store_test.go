@@ -14,7 +14,7 @@ import (
 
 type interactionQuerierStub struct {
 	createFn func(context.Context, sqlc.CreateInteractionParams) (sqlc.AgentInteraction, error)
-	getFn    func(context.Context, int64) (sqlc.AgentInteraction, error)
+	getFn    func(context.Context, sqlc.GetInteractionParams) (sqlc.AgentInteraction, error)
 	listFn   func(context.Context, sqlc.ListInteractionsParams) ([]sqlc.AgentInteraction, error)
 	reviewFn func(context.Context, sqlc.ReviewInteractionParams) (sqlc.AgentInteraction, error)
 }
@@ -26,9 +26,9 @@ func (s *interactionQuerierStub) CreateInteraction(ctx context.Context, arg sqlc
 	return sqlc.AgentInteraction{}, nil
 }
 
-func (s *interactionQuerierStub) GetInteraction(ctx context.Context, id int64) (sqlc.AgentInteraction, error) {
+func (s *interactionQuerierStub) GetInteraction(ctx context.Context, arg sqlc.GetInteractionParams) (sqlc.AgentInteraction, error) {
 	if s.getFn != nil {
-		return s.getFn(ctx, id)
+		return s.getFn(ctx, arg)
 	}
 	return sqlc.AgentInteraction{}, nil
 }
@@ -153,7 +153,8 @@ func TestGetForwardsIDAndMapsResult(t *testing.T) {
 	fixture := fullAgentInteractionFixture()
 	var capturedID int64
 	s := &store{q: &interactionQuerierStub{
-		getFn: func(_ context.Context, id int64) (sqlc.AgentInteraction, error) {
+		getFn: func(_ context.Context, arg sqlc.GetInteractionParams) (sqlc.AgentInteraction, error) {
+			id := arg.ID
 			capturedID = id
 			return fixture, nil
 		},
@@ -175,7 +176,7 @@ func TestGetWrapsPgxErrNoRowsAsNotFound(t *testing.T) {
 	t.Parallel()
 
 	s := &store{q: &interactionQuerierStub{
-		getFn: func(context.Context, int64) (sqlc.AgentInteraction, error) {
+		getFn: func(context.Context, sqlc.GetInteractionParams) (sqlc.AgentInteraction, error) {
 			return sqlc.AgentInteraction{}, pgx.ErrNoRows
 		},
 	}}

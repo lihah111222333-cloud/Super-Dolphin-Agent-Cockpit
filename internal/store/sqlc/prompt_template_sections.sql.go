@@ -35,8 +35,12 @@ WHERE template_id = $1 AND enabled = TRUE
 ORDER BY region, ordinal, id
 `
 
-func (q *Queries) ListPromptTemplateSectionsByTemplate(ctx context.Context, templateID int64) ([]PromptTemplateSection, error) {
-	rows, err := q.db.Query(ctx, listPromptTemplateSectionsByTemplate, templateID)
+type ListPromptTemplateSectionsByTemplateParams struct {
+	TemplateID int64 `db:"template_id" json:"template_id"`
+}
+
+func (q *Queries) ListPromptTemplateSectionsByTemplate(ctx context.Context, arg ListPromptTemplateSectionsByTemplateParams) ([]PromptTemplateSection, error) {
+	rows, err := q.db.Query(ctx, listPromptTemplateSectionsByTemplate, arg.TemplateID)
 	if err != nil {
 		return nil, err
 	}

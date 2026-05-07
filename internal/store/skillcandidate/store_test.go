@@ -22,12 +22,12 @@ const validStoreFPB = "fedcba9876543210fedcba9876543210"
 // individual tests only wire what they exercise.
 type stubQuerier struct {
 	insertFn         func(context.Context, sqlc.InsertSkillCandidateParams) (sqlc.SkillCandidate, error)
-	getByIDFn        func(context.Context, int64) (sqlc.SkillCandidate, error)
+	getByIDFn        func(context.Context, sqlc.GetSkillCandidateByIDParams) (sqlc.SkillCandidate, error)
 	listPendingFn    func(context.Context, sqlc.ListPendingSkillCandidatesParams) ([]sqlc.SkillCandidate, error)
 	markSupersededFn func(context.Context, sqlc.MarkSkillCandidatesSupersededParams) (int64, error)
 	approveFn        func(context.Context, sqlc.ApproveSkillCandidateParams) (sqlc.SkillCandidate, error)
 	rejectFn         func(context.Context, sqlc.RejectSkillCandidateParams) (sqlc.SkillCandidate, error)
-	promoteFn        func(context.Context, int64) (sqlc.SkillCandidate, error)
+	promoteFn        func(context.Context, sqlc.MarkSkillCandidatePromotedParams) (sqlc.SkillCandidate, error)
 	lookupFn         func(context.Context, sqlc.LookupSkillCandidateApprovalParams) (sqlc.SkillCandidate, error)
 }
 
@@ -48,11 +48,11 @@ func (s *stubQuerier) InsertSkillCandidate(ctx context.Context, a sqlc.InsertSki
 	}, nil
 }
 
-func (s *stubQuerier) GetSkillCandidateByID(ctx context.Context, id int64) (sqlc.SkillCandidate, error) {
+func (s *stubQuerier) GetSkillCandidateByID(ctx context.Context, arg sqlc.GetSkillCandidateByIDParams) (sqlc.SkillCandidate, error) {
 	if s.getByIDFn != nil {
-		return s.getByIDFn(ctx, id)
+		return s.getByIDFn(ctx, arg)
 	}
-	return sqlc.SkillCandidate{ID: id, Status: StatusPendingReview}, nil
+	return sqlc.SkillCandidate{ID: arg.ID, Status: StatusPendingReview}, nil
 }
 
 func (s *stubQuerier) ListPendingSkillCandidates(ctx context.Context, a sqlc.ListPendingSkillCandidatesParams) ([]sqlc.SkillCandidate, error) {
@@ -89,11 +89,11 @@ func (s *stubQuerier) RejectSkillCandidate(ctx context.Context, a sqlc.RejectSki
 	return sqlc.SkillCandidate{ID: a.ID, Status: StatusRejected, Reason: a.Reason}, nil
 }
 
-func (s *stubQuerier) MarkSkillCandidatePromoted(ctx context.Context, id int64) (sqlc.SkillCandidate, error) {
+func (s *stubQuerier) MarkSkillCandidatePromoted(ctx context.Context, arg sqlc.MarkSkillCandidatePromotedParams) (sqlc.SkillCandidate, error) {
 	if s.promoteFn != nil {
-		return s.promoteFn(ctx, id)
+		return s.promoteFn(ctx, arg)
 	}
-	return sqlc.SkillCandidate{ID: id, Status: StatusPromoted}, nil
+	return sqlc.SkillCandidate{ID: arg.ID, Status: StatusPromoted}, nil
 }
 
 func (s *stubQuerier) LookupSkillCandidateApproval(ctx context.Context, a sqlc.LookupSkillCandidateApprovalParams) (sqlc.SkillCandidate, error) {
@@ -309,7 +309,7 @@ func TestStore_Approve_NoRowsMissingCandidateMapsToNotFound(t *testing.T) {
 		approveFn: func(context.Context, sqlc.ApproveSkillCandidateParams) (sqlc.SkillCandidate, error) {
 			return sqlc.SkillCandidate{}, pgx.ErrNoRows
 		},
-		getByIDFn: func(context.Context, int64) (sqlc.SkillCandidate, error) {
+		getByIDFn: func(_ context.Context, arg sqlc.GetSkillCandidateByIDParams) (sqlc.SkillCandidate, error) {
 			return sqlc.SkillCandidate{}, pgx.ErrNoRows
 		},
 	}
@@ -375,7 +375,7 @@ func TestStore_Reject_NoRowsExistingCandidateMapsToStateMismatch(t *testing.T) {
 func TestStore_MarkPromoted_NoRowsExistingCandidateMapsToStateMismatch(t *testing.T) {
 	t.Parallel()
 	stub := &stubQuerier{
-		promoteFn: func(context.Context, int64) (sqlc.SkillCandidate, error) {
+		promoteFn: func(_ context.Context, arg sqlc.MarkSkillCandidatePromotedParams) (sqlc.SkillCandidate, error) {
 			return sqlc.SkillCandidate{}, pgx.ErrNoRows
 		},
 	}
@@ -496,7 +496,7 @@ func TestStore_ListPending_PassthroughPagination(t *testing.T) {
 func TestStore_GetByID_NoRowsMapsToNotFound(t *testing.T) {
 	t.Parallel()
 	stub := &stubQuerier{
-		getByIDFn: func(context.Context, int64) (sqlc.SkillCandidate, error) {
+		getByIDFn: func(_ context.Context, arg sqlc.GetSkillCandidateByIDParams) (sqlc.SkillCandidate, error) {
 			return sqlc.SkillCandidate{}, pgx.ErrNoRows
 		},
 	}

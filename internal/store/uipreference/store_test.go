@@ -15,7 +15,7 @@ import (
 type uiPreferenceQuerierStub struct {
 	getValueFn func(context.Context, sqlc.GetUIPreferenceValueParams) ([]byte, error)
 	upsertFn   func(context.Context, sqlc.UpsertUIPreferenceParams) error
-	listFn     func(context.Context, string) ([]sqlc.ListUIPreferencesRow, error)
+	listFn     func(context.Context, sqlc.ListUIPreferencesParams) ([]sqlc.ListUIPreferencesRow, error)
 }
 
 func (s *uiPreferenceQuerierStub) GetUIPreferenceValue(ctx context.Context, arg sqlc.GetUIPreferenceValueParams) ([]byte, error) {
@@ -32,9 +32,9 @@ func (s *uiPreferenceQuerierStub) UpsertUIPreference(ctx context.Context, arg sq
 	return nil
 }
 
-func (s *uiPreferenceQuerierStub) ListUIPreferences(ctx context.Context, dollar_1 string) ([]sqlc.ListUIPreferencesRow, error) {
+func (s *uiPreferenceQuerierStub) ListUIPreferences(ctx context.Context, arg sqlc.ListUIPreferencesParams) ([]sqlc.ListUIPreferencesRow, error) {
 	if s.listFn != nil {
-		return s.listFn(ctx, dollar_1)
+		return s.listFn(ctx, arg)
 	}
 	return nil, nil
 }
@@ -54,7 +54,7 @@ func TestGetValueForwardsParamsAndReturnsBytes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetValue() error = %v", err)
 	}
-	if captured.Cwd != "/proj" || captured.Key != "theme" {
+	if captured.CWD != "/proj" || captured.Key != "theme" {
 		t.Fatalf("GetValue() forwarded wrong params: %+v", captured)
 	}
 	if string(got) != `{"theme":"dark"}` {
@@ -105,7 +105,7 @@ func TestUpsertForwardsParamsAndReturnsNilOnSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Upsert() error = %v", err)
 	}
-	if captured.Cwd != "/proj" || captured.Key != "theme" || string(captured.Value) != `{"theme":"light"}` {
+	if captured.CWD != "/proj" || captured.Key != "theme" || string(captured.Value) != `{"theme":"light"}` {
 		t.Fatalf("Upsert() forwarded wrong params: %+v", captured)
 	}
 }
@@ -134,11 +134,12 @@ func TestListForwardsCwdAndMapsRows(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0).UTC()
 	var capturedCwd string
 	s := &store{q: &uiPreferenceQuerierStub{
-		listFn: func(_ context.Context, cwd string) ([]sqlc.ListUIPreferencesRow, error) {
+		listFn: func(_ context.Context, arg sqlc.ListUIPreferencesParams) ([]sqlc.ListUIPreferencesRow, error) {
+			cwd := arg.Column1
 			capturedCwd = cwd
 			return []sqlc.ListUIPreferencesRow{
-				{Key: "theme", Value: []byte(`"dark"`), Cwd: "", UpdatedAt: now},
-				{Key: "layout", Value: []byte(`"wide"`), Cwd: "/proj", UpdatedAt: now},
+				{Key: "theme", Value: []byte(`"dark"`), CWD: "", UpdatedAt: now},
+				{Key: "layout", Value: []byte(`"wide"`), CWD: "/proj", UpdatedAt: now},
 			}, nil
 		},
 	}}
@@ -165,7 +166,9 @@ func TestListReturnsEmptySliceWhenNoRows(t *testing.T) {
 	t.Parallel()
 
 	s := &store{q: &uiPreferenceQuerierStub{
-		listFn: func(context.Context, string) ([]sqlc.ListUIPreferencesRow, error) { return nil, nil },
+		listFn: func(context.Context, sqlc.ListUIPreferencesParams) ([]sqlc.ListUIPreferencesRow, error) {
+			return nil, nil
+		},
 	}}
 	got, err := s.List(context.Background(), "")
 	if err != nil {
@@ -181,7 +184,9 @@ func TestListWrapsQuerierError(t *testing.T) {
 
 	sentinel := errors.New("list fail")
 	s := &store{q: &uiPreferenceQuerierStub{
-		listFn: func(context.Context, string) ([]sqlc.ListUIPreferencesRow, error) { return nil, sentinel },
+		listFn: func(context.Context, sqlc.ListUIPreferencesParams) ([]sqlc.ListUIPreferencesRow, error) {
+			return nil, sentinel
+		},
 	}}
 	_, err := s.List(context.Background(), "/proj")
 	if !errors.Is(err, sentinel) {

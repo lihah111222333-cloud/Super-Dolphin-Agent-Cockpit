@@ -17,12 +17,12 @@ WHERE cwd = $1 AND key = $2
 `
 
 type GetUIPreferenceValueParams struct {
-	Cwd string `db:"cwd" json:"cwd"`
+	CWD string `db:"cwd" json:"cwd"`
 	Key string `db:"key" json:"key"`
 }
 
 func (q *Queries) GetUIPreferenceValue(ctx context.Context, arg GetUIPreferenceValueParams) ([]byte, error) {
-	row := q.db.QueryRow(ctx, getUIPreferenceValue, arg.Cwd, arg.Key)
+	row := q.db.QueryRow(ctx, getUIPreferenceValue, arg.CWD, arg.Key)
 	var value []byte
 	err := row.Scan(&value)
 	return value, err
@@ -36,15 +36,19 @@ WHERE cwd = ''
 ORDER BY cwd ASC, key ASC
 `
 
+type ListUIPreferencesParams struct {
+	Column1 string `db:"column_1" json:"column_1"`
+}
+
 type ListUIPreferencesRow struct {
 	Key       string    `db:"key" json:"key"`
 	Value     []byte    `db:"value" json:"value"`
-	Cwd       string    `db:"cwd" json:"cwd"`
+	CWD       string    `db:"cwd" json:"cwd"`
 	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
 }
 
-func (q *Queries) ListUIPreferences(ctx context.Context, dollar_1 string) ([]ListUIPreferencesRow, error) {
-	rows, err := q.db.Query(ctx, listUIPreferences, dollar_1)
+func (q *Queries) ListUIPreferences(ctx context.Context, arg ListUIPreferencesParams) ([]ListUIPreferencesRow, error) {
+	rows, err := q.db.Query(ctx, listUIPreferences, arg.Column1)
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +59,7 @@ func (q *Queries) ListUIPreferences(ctx context.Context, dollar_1 string) ([]Lis
 		if err := rows.Scan(
 			&i.Key,
 			&i.Value,
-			&i.Cwd,
+			&i.CWD,
 			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
@@ -77,12 +81,12 @@ SET value = EXCLUDED.value,
 `
 
 type UpsertUIPreferenceParams struct {
-	Cwd   string `db:"cwd" json:"cwd"`
+	CWD   string `db:"cwd" json:"cwd"`
 	Key   string `db:"key" json:"key"`
 	Value []byte `db:"value" json:"value"`
 }
 
 func (q *Queries) UpsertUIPreference(ctx context.Context, arg UpsertUIPreferenceParams) error {
-	_, err := q.db.Exec(ctx, upsertUIPreference, arg.Cwd, arg.Key, arg.Value)
+	_, err := q.db.Exec(ctx, upsertUIPreference, arg.CWD, arg.Key, arg.Value)
 	return err
 }

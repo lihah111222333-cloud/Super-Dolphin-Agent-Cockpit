@@ -44,16 +44,16 @@ func (s *bindingQuerierStub) BindAgentThread(ctx context.Context, arg sqlc.BindA
 	return nil
 }
 
-func (s *bindingQuerierStub) DeleteAgentProviderBindingByAgentID(ctx context.Context, agentID string) error {
+func (s *bindingQuerierStub) DeleteAgentProviderBindingByAgentID(ctx context.Context, arg sqlc.DeleteAgentProviderBindingByAgentIDParams) error {
 	if s.deleteAgentProviderBindingByIDFn != nil {
-		return s.deleteAgentProviderBindingByIDFn(ctx, agentID)
+		return s.deleteAgentProviderBindingByIDFn(ctx, arg.AgentID)
 	}
 	return nil
 }
 
-func (s *bindingQuerierStub) GetAgentProviderBindingByAgentID(ctx context.Context, agentID string) (sqlc.GetAgentProviderBindingByAgentIDRow, error) {
+func (s *bindingQuerierStub) GetAgentProviderBindingByAgentID(ctx context.Context, arg sqlc.GetAgentProviderBindingByAgentIDParams) (sqlc.GetAgentProviderBindingByAgentIDRow, error) {
 	if s.getAgentProviderBindingByAgentIDFn != nil {
-		return s.getAgentProviderBindingByAgentIDFn(ctx, agentID)
+		return s.getAgentProviderBindingByAgentIDFn(ctx, arg.AgentID)
 	}
 	return sqlc.GetAgentProviderBindingByAgentIDRow{}, nil
 }
@@ -65,9 +65,9 @@ func (s *bindingQuerierStub) GetAgentProviderBindingByProviderThread(ctx context
 	return sqlc.GetAgentProviderBindingByProviderThreadRow{}, nil
 }
 
-func (s *bindingQuerierStub) GetThreadByAgent(ctx context.Context, agentID string) (string, error) {
+func (s *bindingQuerierStub) GetThreadByAgent(ctx context.Context, arg sqlc.GetThreadByAgentParams) (string, error) {
 	if s.getThreadByAgentFn != nil {
-		return s.getThreadByAgentFn(ctx, agentID)
+		return s.getThreadByAgentFn(ctx, arg.AgentID)
 	}
 	return "", nil
 }
@@ -79,9 +79,9 @@ func (s *bindingQuerierStub) ListAgentThreadBindings(ctx context.Context) ([]sql
 	return nil, nil
 }
 
-func (s *bindingQuerierStub) UnbindAgentThread(ctx context.Context, agentID string) error {
+func (s *bindingQuerierStub) UnbindAgentThread(ctx context.Context, arg sqlc.UnbindAgentThreadParams) error {
 	if s.unbindAgentThreadFn != nil {
-		return s.unbindAgentThreadFn(ctx, agentID)
+		return s.unbindAgentThreadFn(ctx, arg.AgentID)
 	}
 	return nil
 }
@@ -148,7 +148,7 @@ func TestUpsertAgentProviderBinding(t *testing.T) {
 		if got.AgentID != params.AgentID || got.Provider != params.Provider || got.ProviderThreadID != params.ProviderThreadID {
 			t.Fatalf("Upsert() forwarded wrong identity params: %+v", got)
 		}
-		if got.CodexThreadID != params.CodexThreadID || got.RolloutPath != params.RolloutPath || got.Cwd != params.Cwd {
+		if got.CodexThreadID != params.CodexThreadID || got.RolloutPath != params.RolloutPath || got.CWD != params.Cwd {
 			t.Fatalf("Upsert() forwarded wrong payload params: %+v", got)
 		}
 		if got.CreatedAt != params.CreatedAt || got.UpdatedAt != params.UpdatedAt {
@@ -441,7 +441,7 @@ func TestBindAgentThread(t *testing.T) {
 	}
 	end := time.Now().Unix()
 
-	if got.AgentID != "agent-1" || got.ThreadID != "thread-1" || got.Cwd != "/tmp/run" {
+	if got.AgentID != "agent-1" || got.ThreadID != "thread-1" || got.CWD != "/tmp/run" {
 		t.Fatalf("BindAgentThread() forwarded wrong params: %+v", got)
 	}
 	if got.CreatedAt < start || got.CreatedAt > end {
@@ -525,7 +525,7 @@ func TestListAgentThreadBindings(t *testing.T) {
 				ProviderThreadID: "provider-thread-4",
 				CodexThreadID:    "codex-thread-4",
 				RolloutPath:      "/tmp/rollout",
-				Cwd:              "/tmp/cwd",
+				CWD:              "/tmp/cwd",
 				Archived:         true,
 				CreatedAt:        10,
 				UpdatedAt:        20,
@@ -566,7 +566,7 @@ func TestUpdateAgentCwd(t *testing.T) {
 	}
 	end := time.Now().Unix()
 
-	if got.AgentID != "agent-5" || got.Cwd != "/tmp/updated" {
+	if got.AgentID != "agent-5" || got.CWD != "/tmp/updated" {
 		t.Fatalf("UpdateAgentCwd() forwarded wrong params: %+v", got)
 	}
 	if got.UpdatedAt < start || got.UpdatedAt > end {
@@ -631,7 +631,7 @@ func sampleAgentProviderBindingByAgentIDRow() sqlc.GetAgentProviderBindingByAgen
 		ProviderThreadID: "provider-thread-sample",
 		CodexThreadID:    "codex-thread-sample",
 		RolloutPath:      "/tmp/rollout-sample",
-		Cwd:              "/tmp/cwd-sample",
+		CWD:              "/tmp/cwd-sample",
 		Archived:         true,
 		CreatedAt:        11,
 		UpdatedAt:        22,
@@ -646,7 +646,7 @@ func sampleAgentProviderBindingByProviderThreadRow() sqlc.GetAgentProviderBindin
 		ProviderThreadID: "provider-thread-sample",
 		CodexThreadID:    "codex-thread-sample",
 		RolloutPath:      "/tmp/rollout-sample",
-		Cwd:              "/tmp/cwd-sample",
+		CWD:              "/tmp/cwd-sample",
 		Archived:         true,
 		CreatedAt:        11,
 		UpdatedAt:        22,

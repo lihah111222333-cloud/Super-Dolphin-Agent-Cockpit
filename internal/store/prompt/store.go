@@ -15,11 +15,11 @@ type querier interface {
 }
 
 type getQuerier interface {
-	GetPromptTemplate(ctx context.Context, promptKey string) (sqlc.GetPromptTemplateRow, error)
+	GetPromptTemplate(ctx context.Context, arg sqlc.GetPromptTemplateParams) (sqlc.GetPromptTemplateRow, error)
 }
 
 type deleteQuerier interface {
-	DeletePromptTemplate(ctx context.Context, promptKey string) (int64, error)
+	DeletePromptTemplate(ctx context.Context, arg sqlc.DeletePromptTemplateParams) (int64, error)
 }
 
 type insertVersionQuerier interface {
@@ -63,7 +63,7 @@ func (s *store) Get(ctx context.Context, promptKey string) (*PromptTemplate, err
 	if !ok {
 		return nil, wrapPromptError(errors.New("prompt store does not support get"), "get", "prompt_template")
 	}
-	row, err := q.GetPromptTemplate(ctx, promptKey)
+	row, err := q.GetPromptTemplate(ctx, sqlc.GetPromptTemplateParams{PromptKey: promptKey})
 	if err != nil {
 		return nil, wrapPromptError(err, "get", "prompt_template")
 	}
@@ -75,7 +75,7 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]PromptTemplate, 
 	rows, err := s.q.ListPromptTemplates(ctx, sqlc.ListPromptTemplatesParams{
 		AgentKey:   filter.AgentKey,
 		Keyword:    filter.Keyword,
-		Cwd:        filter.CWD,
+		CWD:        filter.CWD,
 		LimitCount: filter.Limit,
 	})
 	if err != nil {
@@ -103,7 +103,7 @@ func (s *store) Delete(ctx context.Context, promptKey string) error {
 	if !ok {
 		return wrapPromptError(errors.New("prompt store does not support delete"), "delete", "prompt_template")
 	}
-	rows, err := q.DeletePromptTemplate(ctx, promptKey)
+	rows, err := q.DeletePromptTemplate(ctx, sqlc.DeletePromptTemplateParams{PromptKey: promptKey})
 	if err != nil {
 		return wrapPromptError(err, "delete", "prompt_template")
 	}

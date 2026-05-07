@@ -13,7 +13,7 @@ import (
 type querier interface {
 	GetUIPreferenceValue(ctx context.Context, arg sqlc.GetUIPreferenceValueParams) ([]byte, error)
 	UpsertUIPreference(ctx context.Context, arg sqlc.UpsertUIPreferenceParams) error
-	ListUIPreferences(ctx context.Context, dollar_1 string) ([]sqlc.ListUIPreferencesRow, error)
+	ListUIPreferences(ctx context.Context, arg sqlc.ListUIPreferencesParams) ([]sqlc.ListUIPreferencesRow, error)
 }
 
 type store struct {
@@ -26,7 +26,7 @@ func NewStore(q *sqlc.Queries) Store {
 
 func (s *store) GetValue(ctx context.Context, cwd, key string) (json.RawMessage, error) {
 	value, err := s.q.GetUIPreferenceValue(ctx, sqlc.GetUIPreferenceValueParams{
-		Cwd: cwd,
+		CWD: cwd,
 		Key: key,
 	})
 	if err != nil {
@@ -37,14 +37,14 @@ func (s *store) GetValue(ctx context.Context, cwd, key string) (json.RawMessage,
 
 func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 	return wrapUIPreferenceError(s.q.UpsertUIPreference(ctx, sqlc.UpsertUIPreferenceParams{
-		Cwd:   params.Cwd,
+		CWD:   params.Cwd,
 		Key:   params.Key,
 		Value: params.Value,
 	}), "upsert")
 }
 
 func (s *store) List(ctx context.Context, cwd string) ([]UIPreference, error) {
-	rows, err := s.q.ListUIPreferences(ctx, cwd)
+	rows, err := s.q.ListUIPreferences(ctx, sqlc.ListUIPreferencesParams{Column1: cwd})
 	if err != nil {
 		return nil, wrapUIPreferenceError(err, "list")
 	}
@@ -54,7 +54,7 @@ func (s *store) List(ctx context.Context, cwd string) ([]UIPreference, error) {
 			Key:       row.Key,
 			Value:     row.Value,
 			UpdatedAt: row.UpdatedAt,
-			Cwd:       row.Cwd,
+			Cwd:       row.CWD,
 		}
 	}
 	return result, nil

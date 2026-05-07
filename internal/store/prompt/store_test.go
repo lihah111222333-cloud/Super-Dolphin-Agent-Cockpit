@@ -12,8 +12,8 @@ import (
 
 type promptQuerierStub struct {
 	listFn          func(context.Context, sqlc.ListPromptTemplatesParams) ([]sqlc.ListPromptTemplatesRow, error)
-	getFn           func(context.Context, string) (sqlc.GetPromptTemplateRow, error)
-	deleteFn        func(context.Context, string) (int64, error)
+	getFn           func(context.Context, sqlc.GetPromptTemplateParams) (sqlc.GetPromptTemplateRow, error)
+	deleteFn        func(context.Context, sqlc.DeletePromptTemplateParams) (int64, error)
 	insertVersionFn func(context.Context, sqlc.InsertPromptVersionParams) (int64, error)
 	upsertFn        func(context.Context, sqlc.UpsertPromptTemplateParams) (sqlc.UpsertPromptTemplateRow, error)
 }
@@ -25,16 +25,16 @@ func (s *promptQuerierStub) ListPromptTemplates(ctx context.Context, arg sqlc.Li
 	return nil, nil
 }
 
-func (s *promptQuerierStub) GetPromptTemplate(ctx context.Context, promptKey string) (sqlc.GetPromptTemplateRow, error) {
+func (s *promptQuerierStub) GetPromptTemplate(ctx context.Context, arg sqlc.GetPromptTemplateParams) (sqlc.GetPromptTemplateRow, error) {
 	if s.getFn != nil {
-		return s.getFn(ctx, promptKey)
+		return s.getFn(ctx, arg)
 	}
 	return sqlc.GetPromptTemplateRow{}, nil
 }
 
-func (s *promptQuerierStub) DeletePromptTemplate(ctx context.Context, promptKey string) (int64, error) {
+func (s *promptQuerierStub) DeletePromptTemplate(ctx context.Context, arg sqlc.DeletePromptTemplateParams) (int64, error) {
 	if s.deleteFn != nil {
-		return s.deleteFn(ctx, promptKey)
+		return s.deleteFn(ctx, arg)
 	}
 	return 0, nil
 }
@@ -84,7 +84,7 @@ func TestListForwardsAgentKeyKeywordCWDAndLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List() unexpected error: %v", err)
 	}
-	if captured.AgentKey != "reviewer" || captured.Keyword != "review" || captured.Cwd != "/repo_a" || captured.LimitCount != 10 {
+	if captured.AgentKey != "reviewer" || captured.Keyword != "review" || captured.CWD != "/repo_a" || captured.LimitCount != 10 {
 		t.Fatalf("List() forwarded wrong params: %+v", captured)
 	}
 	if len(got) != 1 {
@@ -109,8 +109,8 @@ func TestStoreListPromptsRespectsCWDFilter(t *testing.T) {
 	}
 	s := &store{q: &promptQuerierStub{
 		listFn: func(_ context.Context, arg sqlc.ListPromptTemplatesParams) ([]sqlc.ListPromptTemplatesRow, error) {
-			if arg.Cwd != "/repo_a" {
-				t.Fatalf("ListPromptTemplates Cwd = %q, want /repo_a", arg.Cwd)
+			if arg.CWD != "/repo_a" {
+				t.Fatalf("ListPromptTemplates CWD = %q, want /repo_a", arg.CWD)
 			}
 			return rows[:2], nil
 		},
@@ -162,7 +162,8 @@ func TestStoreGetUpsertDeleteAndInsertVersion(t *testing.T) {
 	t.Run("get maps row", func(t *testing.T) {
 		var capturedKey string
 		s := &store{q: &promptQuerierStub{
-			getFn: func(_ context.Context, promptKey string) (sqlc.GetPromptTemplateRow, error) {
+			getFn: func(_ context.Context, arg sqlc.GetPromptTemplateParams) (sqlc.GetPromptTemplateRow, error) {
+				promptKey := arg.PromptKey
 				capturedKey = promptKey
 				return sqlc.GetPromptTemplateRow{
 					ID:          7,
@@ -246,7 +247,8 @@ func TestStoreGetUpsertDeleteAndInsertVersion(t *testing.T) {
 	t.Run("delete treats rows affected as success", func(t *testing.T) {
 		var capturedKey string
 		s := &store{q: &promptQuerierStub{
-			deleteFn: func(_ context.Context, promptKey string) (int64, error) {
+			deleteFn: func(_ context.Context, arg sqlc.DeletePromptTemplateParams) (int64, error) {
+				promptKey := arg.PromptKey
 				capturedKey = promptKey
 				return 1, nil
 			},
@@ -316,7 +318,7 @@ func TestStoreGetUpsertDeleteAndInsertVersion(t *testing.T) {
 
 	t.Run("delete wraps not found", func(t *testing.T) {
 		s := &store{q: &promptQuerierStub{
-			deleteFn: func(context.Context, string) (int64, error) {
+			deleteFn: func(context.Context, sqlc.DeletePromptTemplateParams) (int64, error) {
 				return 0, nil
 			},
 		}}

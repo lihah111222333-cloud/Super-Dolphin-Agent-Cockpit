@@ -15,8 +15,12 @@ DELETE FROM command_cards
 WHERE card_key = $1
 `
 
-func (q *Queries) DeleteCommandCard(ctx context.Context, cardKey string) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteCommandCard, cardKey)
+type DeleteCommandCardParams struct {
+	CardKey string `db:"card_key" json:"card_key"`
+}
+
+func (q *Queries) DeleteCommandCard(ctx context.Context, arg DeleteCommandCardParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteCommandCard, arg.CardKey)
 	if err != nil {
 		return 0, err
 	}
@@ -29,8 +33,12 @@ FROM command_cards
 WHERE card_key = $1
 `
 
-func (q *Queries) GetCommandCard(ctx context.Context, cardKey string) (CommandCard, error) {
-	row := q.db.QueryRow(ctx, getCommandCard, cardKey)
+type GetCommandCardParams struct {
+	CardKey string `db:"card_key" json:"card_key"`
+}
+
+func (q *Queries) GetCommandCard(ctx context.Context, arg GetCommandCardParams) (CommandCard, error) {
+	row := q.db.QueryRow(ctx, getCommandCard, arg.CardKey)
 	var i CommandCard
 	err := row.Scan(
 		&i.ID,
@@ -93,8 +101,12 @@ WHERE card_key = $1
 ORDER BY id DESC
 `
 
-func (q *Queries) ListCommandCardVersions(ctx context.Context, cardKey string) ([]CommandCardVersion, error) {
-	rows, err := q.db.Query(ctx, listCommandCardVersions, cardKey)
+type ListCommandCardVersionsParams struct {
+	CardKey string `db:"card_key" json:"card_key"`
+}
+
+func (q *Queries) ListCommandCardVersions(ctx context.Context, arg ListCommandCardVersionsParams) ([]CommandCardVersion, error) {
+	rows, err := q.db.Query(ctx, listCommandCardVersions, arg.CardKey)
 	if err != nil {
 		return nil, err
 	}

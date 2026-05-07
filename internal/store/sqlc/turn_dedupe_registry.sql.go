@@ -38,12 +38,16 @@ SELECT dedupe_key, local_turn_id, provider_turn_id, thread_id, created_at,
  LIMIT 1
 `
 
+type GetLiveTurnDedupeParams struct {
+	DedupeKey string `db:"dedupe_key" json:"dedupe_key"`
+}
+
 // Returns the still-live registry row for dedupe_key, or an empty row
 // when none exists / all matching rows are already terminal. The
 // scheduler's caller checks local_turn_id == "" to distinguish miss
 // from hit.
-func (q *Queries) GetLiveTurnDedupe(ctx context.Context, dedupeKey string) (TurnDedupeRegistry, error) {
-	row := q.db.QueryRow(ctx, getLiveTurnDedupe, dedupeKey)
+func (q *Queries) GetLiveTurnDedupe(ctx context.Context, arg GetLiveTurnDedupeParams) (TurnDedupeRegistry, error) {
+	row := q.db.QueryRow(ctx, getLiveTurnDedupe, arg.DedupeKey)
 	var i TurnDedupeRegistry
 	err := row.Scan(
 		&i.DedupeKey,
@@ -80,11 +84,15 @@ DELETE FROM turn_dedupe_registry
  WHERE updated_at < $1
 `
 
+type SweepTurnDedupeRegistryParams struct {
+	Cutoff pgtype.Timestamptz `db:"cutoff" json:"cutoff"`
+}
+
 // Deletes every row whose updated_at is older than cutoff. Run on a
 // coarse interval by the scheduler so the table can never outgrow
 // the tracker TTL window.
-func (q *Queries) SweepTurnDedupeRegistry(ctx context.Context, cutoff pgtype.Timestamptz) error {
-	_, err := q.db.Exec(ctx, sweepTurnDedupeRegistry, cutoff)
+func (q *Queries) SweepTurnDedupeRegistry(ctx context.Context, arg SweepTurnDedupeRegistryParams) error {
+	_, err := q.db.Exec(ctx, sweepTurnDedupeRegistry, arg.Cutoff)
 	return err
 }
 

@@ -6,14 +6,12 @@ package sqlc
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
 	AcquireCwdLock(ctx context.Context, arg AcquireCwdLockParams) (int64, error)
-	AgentThreadExists(ctx context.Context, threadID string) (bool, error)
-	AgentThreadRunningExists(ctx context.Context, threadID string) (bool, error)
+	AgentThreadExists(ctx context.Context, arg AgentThreadExistsParams) (bool, error)
+	AgentThreadRunningExists(ctx context.Context, arg AgentThreadRunningExistsParams) (bool, error)
 	ApproveSkillCandidate(ctx context.Context, arg ApproveSkillCandidateParams) (SkillCandidate, error)
 	ApproveTopologyApproval(ctx context.Context, arg ApproveTopologyApprovalParams) (int64, error)
 	BindAgentThread(ctx context.Context, arg BindAgentThreadParams) error
@@ -24,8 +22,13 @@ type Querier interface {
 	// from stale worker overwrites.
 	//
 	CASCronJobRunStatus(ctx context.Context, arg CASCronJobRunStatusParams) (int64, error)
+	CancelExpiredHookReviews(ctx context.Context, arg CancelExpiredHookReviewsParams) (int64, error)
+	CancelHookPendingReviewsByAgent(ctx context.Context, arg CancelHookPendingReviewsByAgentParams) (int64, error)
+	CancelHookPendingReviewsByLease(ctx context.Context, arg CancelHookPendingReviewsByLeaseParams) (int64, error)
+	// Returns 1 if a review is already resolved with the given idempotency key.
+	CheckHookReviewIdempotency(ctx context.Context, arg CheckHookReviewIdempotencyParams) (int32, error)
 	// Claim / lease -----------------------------------------------------
-	// ClaimDueJobsForUpdate marks up to `limit` due rows as claimed by `claimed_by`.
+	// ClaimDueJobs marks up to `limit` due rows as claimed by `claimed_by`.
 	// The embedded SELECT ... FOR UPDATE SKIP LOCKED makes sure two
 	// schedulers hitting the same tick never grab the same row. claim_token
 	// is generated in the application layer (Go UUID) and passed in so no
@@ -36,52 +39,54 @@ type Querier interface {
 	CountAllThreads(ctx context.Context) (int64, error)
 	// Returns the number of child agents belonging to the given parent.
 	// Used to determine the next sequential suffix for child agent IDs.
-	CountChildAgentThreads(ctx context.Context, parentAgentID string) (int64, error)
+	CountChildAgentThreads(ctx context.Context, arg CountChildAgentThreadsParams) (int64, error)
 	// CRUD --------------------------------------------------------------
 	CreateCronJob(ctx context.Context, arg CreateCronJobParams) (CronJob, error)
 	CreateInteraction(ctx context.Context, arg CreateInteractionParams) (AgentInteraction, error)
 	// Legacy V2 store SQL used proposal_hash/proposal_json columns.
 	// These queries are aligned to the V2 exported public schema used for the baseline.
 	CreateTopologyApproval(ctx context.Context, arg CreateTopologyApprovalParams) (TopologyApproval, error)
-	DeleteAgentProviderBindingByAgentID(ctx context.Context, agentID string) error
-	DeleteAgentThreadByID(ctx context.Context, threadID string) error
-	DeleteCommandCard(ctx context.Context, cardKey string) (int64, error)
-	DeleteCronJob(ctx context.Context, id string) error
-	DeletePromptTemplate(ctx context.Context, promptKey string) (int64, error)
+	DeleteAgentProviderBindingByAgentID(ctx context.Context, arg DeleteAgentProviderBindingByAgentIDParams) error
+	DeleteAgentThreadByID(ctx context.Context, arg DeleteAgentThreadByIDParams) error
+	DeleteCommandCard(ctx context.Context, arg DeleteCommandCardParams) (int64, error)
+	DeleteCronJob(ctx context.Context, arg DeleteCronJobParams) error
+	DeletePromptTemplate(ctx context.Context, arg DeletePromptTemplateParams) (int64, error)
 	DeletePromptTemplateSection(ctx context.Context, arg DeletePromptTemplateSectionParams) (int64, error)
-	DeleteSharedFile(ctx context.Context, path string) (int64, error)
+	DeleteSharedFile(ctx context.Context, arg DeleteSharedFileParams) (int64, error)
 	DeleteStaleCwdLocks(ctx context.Context) (int64, error)
 	ExpireStaleAgentThreads(ctx context.Context, arg ExpireStaleAgentThreadsParams) (int64, error)
 	ExtendClaim(ctx context.Context, arg ExtendClaimParams) (int64, error)
 	ForceAcquireCwdLock(ctx context.Context, arg ForceAcquireCwdLockParams) (int64, error)
-	GetAgentProviderBindingByAgentID(ctx context.Context, agentID string) (GetAgentProviderBindingByAgentIDRow, error)
+	GetAgentProviderBindingByAgentID(ctx context.Context, arg GetAgentProviderBindingByAgentIDParams) (GetAgentProviderBindingByAgentIDRow, error)
 	GetAgentProviderBindingByProviderThread(ctx context.Context, arg GetAgentProviderBindingByProviderThreadParams) (GetAgentProviderBindingByProviderThreadRow, error)
-	GetAgentStatus(ctx context.Context, agentID string) (AgentStatus, error)
-	GetAgentThreadByID(ctx context.Context, threadID string) (GetAgentThreadByIDRow, error)
-	GetAgentThreadByPort(ctx context.Context, port int32) (GetAgentThreadByPortRow, error)
-	GetCommandCard(ctx context.Context, cardKey string) (CommandCard, error)
-	GetCronJobByID(ctx context.Context, id string) (CronJob, error)
-	GetCronJobRunByDedupeKey(ctx context.Context, dedupeKey string) (CronJobRun, error)
-	GetCronJobRunByID(ctx context.Context, id string) (CronJobRun, error)
-	GetCwdLockHolder(ctx context.Context, cwd string) (GetCwdLockHolderRow, error)
-	GetInteraction(ctx context.Context, id int64) (AgentInteraction, error)
+	GetAgentStatus(ctx context.Context, arg GetAgentStatusParams) (AgentStatus, error)
+	GetAgentThreadByID(ctx context.Context, arg GetAgentThreadByIDParams) (GetAgentThreadByIDRow, error)
+	GetAgentThreadByPort(ctx context.Context, arg GetAgentThreadByPortParams) (GetAgentThreadByPortRow, error)
+	GetCommandCard(ctx context.Context, arg GetCommandCardParams) (CommandCard, error)
+	GetCronJobByID(ctx context.Context, arg GetCronJobByIDParams) (CronJob, error)
+	GetCronJobRunByDedupeKey(ctx context.Context, arg GetCronJobRunByDedupeKeyParams) (CronJobRun, error)
+	GetCronJobRunByID(ctx context.Context, arg GetCronJobRunByIDParams) (CronJobRun, error)
+	GetCwdLockHolder(ctx context.Context, arg GetCwdLockHolderParams) (GetCwdLockHolderRow, error)
+	GetHookPendingReview(ctx context.Context, arg GetHookPendingReviewParams) (GetHookPendingReviewRow, error)
+	GetHookResolvedReview(ctx context.Context, arg GetHookResolvedReviewParams) (GetHookResolvedReviewRow, error)
+	GetInteraction(ctx context.Context, arg GetInteractionParams) (AgentInteraction, error)
 	// Returns the still-live registry row for dedupe_key, or an empty row
 	// when none exists / all matching rows are already terminal. The
 	// scheduler's caller checks local_turn_id == "" to distinguish miss
 	// from hit.
-	GetLiveTurnDedupe(ctx context.Context, dedupeKey string) (TurnDedupeRegistry, error)
-	GetPromptTemplate(ctx context.Context, promptKey string) (GetPromptTemplateRow, error)
+	GetLiveTurnDedupe(ctx context.Context, arg GetLiveTurnDedupeParams) (TurnDedupeRegistry, error)
+	GetPromptTemplate(ctx context.Context, arg GetPromptTemplateParams) (GetPromptTemplateRow, error)
 	// Used by CompleteTurn to locate the active run for a completed turn without
 	// scanning all unresolved rows. turn_id is indexed by the dedupe_key B-tree
 	// and the status guard ensures only one row can match (at most one run per
 	// turn can be in 'running').
-	GetRunningCronJobRunByTurnID(ctx context.Context, turnID string) (CronJobRun, error)
+	GetRunningCronJobRunByTurnID(ctx context.Context, arg GetRunningCronJobRunByTurnIDParams) (CronJobRun, error)
 	GetSessionInsightByLocalTurn(ctx context.Context, arg GetSessionInsightByLocalTurnParams) (SessionInsight, error)
-	GetSharedFile(ctx context.Context, path string) (SharedFile, error)
-	GetSkillCandidateByID(ctx context.Context, id int64) (SkillCandidate, error)
-	GetThreadByAgent(ctx context.Context, agentID string) (string, error)
+	GetSharedFile(ctx context.Context, arg GetSharedFileParams) (SharedFile, error)
+	GetSkillCandidateByID(ctx context.Context, arg GetSkillCandidateByIDParams) (SkillCandidate, error)
+	GetThreadByAgent(ctx context.Context, arg GetThreadByAgentParams) (string, error)
 	GetUIPreferenceValue(ctx context.Context, arg GetUIPreferenceValueParams) ([]byte, error)
-	GetWorkspaceRun(ctx context.Context, runKey string) (WorkspaceRun, error)
+	GetWorkspaceRun(ctx context.Context, arg GetWorkspaceRunParams) (WorkspaceRun, error)
 	GetWorkspaceRunFile(ctx context.Context, arg GetWorkspaceRunFileParams) (WorkspaceRunFile, error)
 	HeartbeatCwdLock(ctx context.Context, arg HeartbeatCwdLockParams) error
 	InsertAgentFeedbackEvent(ctx context.Context, arg InsertAgentFeedbackEventParams) (AgentFeedbackEvent, error)
@@ -101,21 +106,22 @@ type Querier interface {
 	ListAILogsByCategory(ctx context.Context, arg ListAILogsByCategoryParams) ([]ListAILogsByCategoryRow, error)
 	ListAgentFeedbackEventsByAgent(ctx context.Context, arg ListAgentFeedbackEventsByAgentParams) ([]AgentFeedbackEvent, error)
 	ListAgentFeedbackEventsByThread(ctx context.Context, arg ListAgentFeedbackEventsByThreadParams) ([]AgentFeedbackEvent, error)
-	ListAgentStatuses(ctx context.Context, dollar_1 string) ([]AgentStatus, error)
+	ListAgentStatuses(ctx context.Context, arg ListAgentStatusesParams) ([]AgentStatus, error)
 	ListAgentThreadBindings(ctx context.Context) ([]ListAgentThreadBindingsRow, error)
 	ListAgentThreadCwds(ctx context.Context) ([]ListAgentThreadCwdsRow, error)
-	ListAgentThreadCwdsByPrefix(ctx context.Context, dollar_1 *string) ([]ListAgentThreadCwdsByPrefixRow, error)
+	ListAgentThreadCwdsByPrefix(ctx context.Context, arg ListAgentThreadCwdsByPrefixParams) ([]ListAgentThreadCwdsByPrefixRow, error)
 	ListAgentThreads(ctx context.Context) ([]ListAgentThreadsRow, error)
 	ListAuditEvents(ctx context.Context, arg ListAuditEventsParams) ([]ListAuditEventsRow, error)
 	ListBusExceptionLogs(ctx context.Context, arg ListBusExceptionLogsParams) ([]ListBusExceptionLogsRow, error)
-	ListCommandCardVersions(ctx context.Context, cardKey string) ([]CommandCardVersion, error)
+	ListCommandCardVersions(ctx context.Context, arg ListCommandCardVersionsParams) ([]CommandCardVersion, error)
 	ListCommandCards(ctx context.Context, arg ListCommandCardsParams) ([]ListCommandCardsRow, error)
 	ListCronJobRunsByJob(ctx context.Context, arg ListCronJobRunsByJobParams) ([]CronJobRun, error)
 	ListCronJobs(ctx context.Context) ([]CronJob, error)
 	// Used by RenewLeases / ExtendClaimForTurnProgress to fetch only the jobs
 	// owned by this scheduler instance, avoiding a full-table scan of cron_jobs.
-	ListCronJobsClaimedBy(ctx context.Context, claimedBy string) ([]CronJob, error)
+	ListCronJobsClaimedBy(ctx context.Context, arg ListCronJobsClaimedByParams) ([]CronJob, error)
 	ListEnabledPromptRoutingTests(ctx context.Context) ([]PromptRoutingTest, error)
+	ListHookPendingReviewsByAgent(ctx context.Context, arg ListHookPendingReviewsByAgentParams) ([]ListHookPendingReviewsByAgentRow, error)
 	ListInteractions(ctx context.Context, arg ListInteractionsParams) ([]AgentInteraction, error)
 	// ListObservedApprovalRequests returns the per-thread approval_requests
 	// window but only for turns where approval_requests_observed = TRUE.
@@ -131,13 +137,13 @@ type Querier interface {
 	ListObservedTokenTurns(ctx context.Context, arg ListObservedTokenTurnsParams) ([]ListObservedTokenTurnsRow, error)
 	ListPendingSkillCandidates(ctx context.Context, arg ListPendingSkillCandidatesParams) ([]SkillCandidate, error)
 	ListPendingTopologyApprovals(ctx context.Context) ([]TopologyApproval, error)
-	ListPromptTemplateSectionsByTemplate(ctx context.Context, templateID int64) ([]PromptTemplateSection, error)
+	ListPromptTemplateSectionsByTemplate(ctx context.Context, arg ListPromptTemplateSectionsByTemplateParams) ([]PromptTemplateSection, error)
 	ListPromptTemplates(ctx context.Context, arg ListPromptTemplatesParams) ([]ListPromptTemplatesRow, error)
-	ListRecentAILogs(ctx context.Context, limit int32) ([]ListRecentAILogsRow, error)
+	ListRecentAILogs(ctx context.Context, arg ListRecentAILogsParams) ([]ListRecentAILogsRow, error)
 	// ListRecentSessionInsights is used by the dashboard API to return the
 	// N most recent turns across all threads.
 	//
-	ListRecentSessionInsights(ctx context.Context, limit int32) ([]SessionInsight, error)
+	ListRecentSessionInsights(ctx context.Context, arg ListRecentSessionInsightsParams) ([]SessionInsight, error)
 	ListRecoverableAgentThreads(ctx context.Context) ([]ListRecoverableAgentThreadsRow, error)
 	ListRunningAgentThreads(ctx context.Context) ([]ListRunningAgentThreadsRow, error)
 	ListRunningAgents(ctx context.Context) ([]ListRunningAgentsRow, error)
@@ -145,14 +151,14 @@ type Querier interface {
 	ListSharedFiles(ctx context.Context, arg ListSharedFilesParams) ([]SharedFile, error)
 	ListSystemLogs(ctx context.Context, arg ListSystemLogsParams) ([]SystemLog, error)
 	ListTaskTraces(ctx context.Context, arg ListTaskTracesParams) ([]TaskTrace, error)
-	ListUIPreferences(ctx context.Context, dollar_1 string) ([]ListUIPreferencesRow, error)
+	ListUIPreferences(ctx context.Context, arg ListUIPreferencesParams) ([]ListUIPreferencesRow, error)
 	// Used on scheduler boot for crash recovery: any run stuck in submitting /
 	// submitted / running must be re-entered through Observe / LookupByDedupeKey
 	// instead of StartTurn, per the three-phase protocol.
 	ListUnresolvedCronJobRuns(ctx context.Context) ([]CronJobRun, error)
 	ListWorkspaceRunFiles(ctx context.Context, arg ListWorkspaceRunFilesParams) ([]WorkspaceRunFile, error)
 	ListWorkspaceRuns(ctx context.Context, arg ListWorkspaceRunsParams) ([]WorkspaceRun, error)
-	LoadAgentThreadPromptSnapshot(ctx context.Context, threadID string) ([]byte, error)
+	LoadAgentThreadPromptSnapshot(ctx context.Context, arg LoadAgentThreadPromptSnapshotParams) ([]byte, error)
 	LookupSkillCandidateApproval(ctx context.Context, arg LookupSkillCandidateApprovalParams) (SkillCandidate, error)
 	MarkCronJobFailed(ctx context.Context, arg MarkCronJobFailedParams) (int64, error)
 	// MarkCronJobFinished releases the claim, records the successful run's
@@ -160,7 +166,7 @@ type Querier interface {
 	// a late worker cannot overwrite terminal state after being preempted.
 	//
 	MarkCronJobFinished(ctx context.Context, arg MarkCronJobFinishedParams) (int64, error)
-	MarkSkillCandidatePromoted(ctx context.Context, id int64) (SkillCandidate, error)
+	MarkSkillCandidatePromoted(ctx context.Context, arg MarkSkillCandidatePromotedParams) (SkillCandidate, error)
 	MarkSkillCandidatesSuperseded(ctx context.Context, arg MarkSkillCandidatesSupersededParams) (int64, error)
 	MarkTurnDedupeTerminal(ctx context.Context, arg MarkTurnDedupeTerminalParams) error
 	// Narrow update used by RunOnce: only touches next_run_at + updated_at
@@ -172,29 +178,34 @@ type Querier interface {
 	// file keeps a typed placeholder until sqlc generation is introduced.
 	PlaceholderDBQuery(ctx context.Context) ([]*string, error)
 	RebindAgentThreadTx(ctx context.Context, arg RebindAgentThreadTxParams) error
+	RecoverHookPendingReviews(ctx context.Context) ([]RecoverHookPendingReviewsRow, error)
 	RejectSkillCandidate(ctx context.Context, arg RejectSkillCandidateParams) (SkillCandidate, error)
 	RejectTopologyApproval(ctx context.Context, arg RejectTopologyApprovalParams) (int64, error)
 	ReleaseClaim(ctx context.Context, arg ReleaseClaimParams) (int64, error)
 	ReleaseCwdLock(ctx context.Context, arg ReleaseCwdLockParams) (int64, error)
 	RenewLease(ctx context.Context, arg RenewLeaseParams) (int64, error)
 	ResetRunningAgentThreads(ctx context.Context) error
+	ResolveHookPendingReview(ctx context.Context, arg ResolveHookPendingReviewParams) (int64, error)
 	ReviewInteraction(ctx context.Context, arg ReviewInteractionParams) (AgentInteraction, error)
-	UpdateAgentThreadPromptSnapshot(ctx context.Context, arg UpdateAgentThreadPromptSnapshotParams) (int64, error)
+	// hook_pending_review.sql — sqlc queries for hook_pending_reviews table.
+	// Migrated from internal/store/hookstore/hookstore.go raw SQL.
+	SaveHookPendingReview(ctx context.Context, arg SaveHookPendingReviewParams) error
 	SetCronJobActiveTurn(ctx context.Context, arg SetCronJobActiveTurnParams) (int64, error)
 	SetCronJobEnabled(ctx context.Context, arg SetCronJobEnabledParams) error
 	SetCronJobRunTurn(ctx context.Context, arg SetCronJobRunTurnParams) (int64, error)
 	// Deletes every row whose updated_at is older than cutoff. Run on a
 	// coarse interval by the scheduler so the table can never outgrow
 	// the tracker TTL window.
-	SweepTurnDedupeRegistry(ctx context.Context, cutoff pgtype.Timestamptz) error
+	SweepTurnDedupeRegistry(ctx context.Context, arg SweepTurnDedupeRegistryParams) error
 	TransitionWorkspaceRunStatus(ctx context.Context, arg TransitionWorkspaceRunStatusParams) (WorkspaceRun, error)
-	UnbindAgentThread(ctx context.Context, agentID string) error
+	UnbindAgentThread(ctx context.Context, arg UnbindAgentThreadParams) error
 	UpdateAgentCwd(ctx context.Context, arg UpdateAgentCwdParams) error
 	UpdateAgentProviderBindingArchived(ctx context.Context, arg UpdateAgentProviderBindingArchivedParams) error
 	UpdateAgentProviderBindingSessionUUID(ctx context.Context, arg UpdateAgentProviderBindingSessionUUIDParams) error
 	// Atomically clears pending_launch and stamps the router decision after the
 	// Claude CLI has been spawned for this thread.
 	UpdateAgentThreadLaunchResult(ctx context.Context, arg UpdateAgentThreadLaunchResultParams) error
+	UpdateAgentThreadPromptSnapshot(ctx context.Context, arg UpdateAgentThreadPromptSnapshotParams) (int64, error)
 	UpdateAgentThreadStatus(ctx context.Context, arg UpdateAgentThreadStatusParams) error
 	UpdateCronJobSchedule(ctx context.Context, arg UpdateCronJobScheduleParams) error
 	UpdateWorkspaceRunStatus(ctx context.Context, arg UpdateWorkspaceRunStatusParams) (WorkspaceRun, error)

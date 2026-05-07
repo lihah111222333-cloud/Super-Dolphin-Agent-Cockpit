@@ -21,12 +21,12 @@ const (
 // Splitting it out keeps unit tests off the live pgx pool.
 type querier interface {
 	InsertSkillCandidate(ctx context.Context, arg sqlc.InsertSkillCandidateParams) (sqlc.SkillCandidate, error)
-	GetSkillCandidateByID(ctx context.Context, id int64) (sqlc.SkillCandidate, error)
+	GetSkillCandidateByID(ctx context.Context, arg sqlc.GetSkillCandidateByIDParams) (sqlc.SkillCandidate, error)
 	ListPendingSkillCandidates(ctx context.Context, arg sqlc.ListPendingSkillCandidatesParams) ([]sqlc.SkillCandidate, error)
 	MarkSkillCandidatesSuperseded(ctx context.Context, arg sqlc.MarkSkillCandidatesSupersededParams) (int64, error)
 	ApproveSkillCandidate(ctx context.Context, arg sqlc.ApproveSkillCandidateParams) (sqlc.SkillCandidate, error)
 	RejectSkillCandidate(ctx context.Context, arg sqlc.RejectSkillCandidateParams) (sqlc.SkillCandidate, error)
-	MarkSkillCandidatePromoted(ctx context.Context, id int64) (sqlc.SkillCandidate, error)
+	MarkSkillCandidatePromoted(ctx context.Context, arg sqlc.MarkSkillCandidatePromotedParams) (sqlc.SkillCandidate, error)
 	LookupSkillCandidateApproval(ctx context.Context, arg sqlc.LookupSkillCandidateApprovalParams) (sqlc.SkillCandidate, error)
 }
 
@@ -89,7 +89,7 @@ func fromRow(r sqlc.SkillCandidate) Candidate {
 }
 
 func (s *store) transitionNoRowsError(ctx context.Context, id int64, op string) error {
-	if _, err := s.q.GetSkillCandidateByID(ctx, id); err != nil {
+	if _, err := s.q.GetSkillCandidateByID(ctx, sqlc.GetSkillCandidateByIDParams{ID: id}); err != nil {
 		if platformdb.IsNotFound(err) {
 			return wrap(ErrCandidateNotFound, op)
 		}
@@ -114,7 +114,7 @@ func (s *store) Insert(ctx context.Context, p InsertParams) (Candidate, error) {
 }
 
 func (s *store) GetByID(ctx context.Context, id int64) (Candidate, error) {
-	row, err := s.q.GetSkillCandidateByID(ctx, id)
+	row, err := s.q.GetSkillCandidateByID(ctx, sqlc.GetSkillCandidateByIDParams{ID: id})
 	if err != nil {
 		if platformdb.IsNotFound(err) {
 			return Candidate{}, wrap(platformdb.ErrNotFound, "get_by_id")
@@ -208,7 +208,7 @@ func (s *store) Reject(ctx context.Context, id int64, reason string) (Candidate,
 }
 
 func (s *store) MarkPromoted(ctx context.Context, id int64) (Candidate, error) {
-	row, err := s.q.MarkSkillCandidatePromoted(ctx, id)
+	row, err := s.q.MarkSkillCandidatePromoted(ctx, sqlc.MarkSkillCandidatePromotedParams{ID: id})
 	if err != nil {
 		if platformdb.IsNotFound(err) {
 			return Candidate{}, s.transitionNoRowsError(ctx, id, "mark_promoted")

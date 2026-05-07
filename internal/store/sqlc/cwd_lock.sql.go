@@ -23,13 +23,13 @@ WHERE cwd_instance_locks.instance_id = EXCLUDED.instance_id
 `
 
 type AcquireCwdLockParams struct {
-	Cwd        string `db:"cwd" json:"cwd"`
+	CWD        string `db:"cwd" json:"cwd"`
 	InstanceID string `db:"instance_id" json:"instance_id"`
 	Pid        int32  `db:"pid" json:"pid"`
 }
 
 func (q *Queries) AcquireCwdLock(ctx context.Context, arg AcquireCwdLockParams) (int64, error) {
-	result, err := q.db.Exec(ctx, acquireCwdLock, arg.Cwd, arg.InstanceID, arg.Pid)
+	result, err := q.db.Exec(ctx, acquireCwdLock, arg.CWD, arg.InstanceID, arg.Pid)
 	if err != nil {
 		return 0, err
 	}
@@ -61,7 +61,7 @@ WHERE cwd_instance_locks.pid = $4
 `
 
 type ForceAcquireCwdLockParams struct {
-	Cwd        string `db:"cwd" json:"cwd"`
+	CWD        string `db:"cwd" json:"cwd"`
 	InstanceID string `db:"instance_id" json:"instance_id"`
 	Pid        int32  `db:"pid" json:"pid"`
 	Pid_2      int32  `db:"pid_2" json:"pid_2"`
@@ -69,7 +69,7 @@ type ForceAcquireCwdLockParams struct {
 
 func (q *Queries) ForceAcquireCwdLock(ctx context.Context, arg ForceAcquireCwdLockParams) (int64, error) {
 	result, err := q.db.Exec(ctx, forceAcquireCwdLock,
-		arg.Cwd,
+		arg.CWD,
 		arg.InstanceID,
 		arg.Pid,
 		arg.Pid_2,
@@ -86,14 +86,18 @@ FROM cwd_instance_locks
 WHERE cwd = $1
 `
 
+type GetCwdLockHolderParams struct {
+	CWD string `db:"cwd" json:"cwd"`
+}
+
 type GetCwdLockHolderRow struct {
 	InstanceID  string    `db:"instance_id" json:"instance_id"`
 	Pid         int32     `db:"pid" json:"pid"`
 	HeartbeatAt time.Time `db:"heartbeat_at" json:"heartbeat_at"`
 }
 
-func (q *Queries) GetCwdLockHolder(ctx context.Context, cwd string) (GetCwdLockHolderRow, error) {
-	row := q.db.QueryRow(ctx, getCwdLockHolder, cwd)
+func (q *Queries) GetCwdLockHolder(ctx context.Context, arg GetCwdLockHolderParams) (GetCwdLockHolderRow, error) {
+	row := q.db.QueryRow(ctx, getCwdLockHolder, arg.CWD)
 	var i GetCwdLockHolderRow
 	err := row.Scan(&i.InstanceID, &i.Pid, &i.HeartbeatAt)
 	return i, err
@@ -107,13 +111,13 @@ WHERE cwd = $1 AND instance_id = $2
 `
 
 type HeartbeatCwdLockParams struct {
-	Cwd        string `db:"cwd" json:"cwd"`
+	CWD        string `db:"cwd" json:"cwd"`
 	InstanceID string `db:"instance_id" json:"instance_id"`
 	Pid        int32  `db:"pid" json:"pid"`
 }
 
 func (q *Queries) HeartbeatCwdLock(ctx context.Context, arg HeartbeatCwdLockParams) error {
-	_, err := q.db.Exec(ctx, heartbeatCwdLock, arg.Cwd, arg.InstanceID, arg.Pid)
+	_, err := q.db.Exec(ctx, heartbeatCwdLock, arg.CWD, arg.InstanceID, arg.Pid)
 	return err
 }
 
@@ -123,12 +127,12 @@ WHERE cwd = $1 AND instance_id = $2
 `
 
 type ReleaseCwdLockParams struct {
-	Cwd        string `db:"cwd" json:"cwd"`
+	CWD        string `db:"cwd" json:"cwd"`
 	InstanceID string `db:"instance_id" json:"instance_id"`
 }
 
 func (q *Queries) ReleaseCwdLock(ctx context.Context, arg ReleaseCwdLockParams) (int64, error) {
-	result, err := q.db.Exec(ctx, releaseCwdLock, arg.Cwd, arg.InstanceID)
+	result, err := q.db.Exec(ctx, releaseCwdLock, arg.CWD, arg.InstanceID)
 	if err != nil {
 		return 0, err
 	}

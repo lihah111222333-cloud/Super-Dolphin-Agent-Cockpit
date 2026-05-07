@@ -224,7 +224,8 @@ type fakeRowQuerier struct {
 	rows *fakeRowStore
 }
 
-func (f *fakeRowQuerier) GetSharedFile(_ context.Context, path string) (sqlc.SharedFile, error) {
+func (f *fakeRowQuerier) GetSharedFile(_ context.Context, arg sqlc.GetSharedFileParams) (sqlc.SharedFile, error) {
+	path := arg.Path
 	row, ok := f.rows.byPath[path]
 	if !ok {
 		return sqlc.SharedFile{}, platformdb.ErrNotFound
@@ -240,7 +241,8 @@ func (f *fakeRowQuerier) ListSharedFiles(_ context.Context, _ sqlc.ListSharedFil
 	return out, nil
 }
 
-func (f *fakeRowQuerier) DeleteSharedFile(_ context.Context, path string) (int64, error) {
+func (f *fakeRowQuerier) DeleteSharedFile(_ context.Context, arg sqlc.DeleteSharedFileParams) (int64, error) {
+	path := arg.Path
 	if _, ok := f.rows.byPath[path]; !ok {
 		return 0, nil
 	}

@@ -14,9 +14,9 @@ import (
 
 type querier interface {
 	CreateCronJob(ctx context.Context, arg sqlc.CreateCronJobParams) (sqlc.CronJob, error)
-	GetCronJobByID(ctx context.Context, id string) (sqlc.CronJob, error)
+	GetCronJobByID(ctx context.Context, arg sqlc.GetCronJobByIDParams) (sqlc.CronJob, error)
 	ListCronJobs(ctx context.Context) ([]sqlc.CronJob, error)
-	DeleteCronJob(ctx context.Context, id string) error
+	DeleteCronJob(ctx context.Context, arg sqlc.DeleteCronJobParams) error
 	UpdateCronJobSchedule(ctx context.Context, arg sqlc.UpdateCronJobScheduleParams) error
 	SetCronJobEnabled(ctx context.Context, arg sqlc.SetCronJobEnabledParams) error
 	PatchCronJobNextRunAt(ctx context.Context, arg sqlc.PatchCronJobNextRunAtParams) error
@@ -30,12 +30,12 @@ type querier interface {
 	InsertCronJobRun(ctx context.Context, arg sqlc.InsertCronJobRunParams) (sqlc.CronJobRun, error)
 	CASCronJobRunStatus(ctx context.Context, arg sqlc.CASCronJobRunStatusParams) (int64, error)
 	SetCronJobRunTurn(ctx context.Context, arg sqlc.SetCronJobRunTurnParams) (int64, error)
-	GetCronJobRunByDedupeKey(ctx context.Context, dedupeKey string) (sqlc.CronJobRun, error)
-	GetCronJobRunByID(ctx context.Context, id string) (sqlc.CronJobRun, error)
+	GetCronJobRunByDedupeKey(ctx context.Context, arg sqlc.GetCronJobRunByDedupeKeyParams) (sqlc.CronJobRun, error)
+	GetCronJobRunByID(ctx context.Context, arg sqlc.GetCronJobRunByIDParams) (sqlc.CronJobRun, error)
 	ListCronJobRunsByJob(ctx context.Context, arg sqlc.ListCronJobRunsByJobParams) ([]sqlc.CronJobRun, error)
 	ListUnresolvedCronJobRuns(ctx context.Context) ([]sqlc.CronJobRun, error)
-	GetRunningCronJobRunByTurnID(ctx context.Context, turnID string) (sqlc.CronJobRun, error)
-	ListCronJobsClaimedBy(ctx context.Context, claimedBy string) ([]sqlc.CronJob, error)
+	GetRunningCronJobRunByTurnID(ctx context.Context, arg sqlc.GetRunningCronJobRunByTurnIDParams) (sqlc.CronJobRun, error)
+	ListCronJobsClaimedBy(ctx context.Context, arg sqlc.ListCronJobsClaimedByParams) ([]sqlc.CronJob, error)
 }
 
 type store struct{ q querier }
@@ -113,7 +113,7 @@ func (s *store) CreateJob(ctx context.Context, p CreateJobParams) (Job, error) {
 		Timezone:      p.Timezone,
 		Provider:      p.Provider,
 		Model:         p.Model,
-		Cwd:           p.CWD,
+		CWD:           p.CWD,
 		Config:        bytesOrDefault(p.Config, "{}"),
 		Skills:        bytesOrDefault(p.Skills, "[]"),
 		NotifyChannel: p.NotifyChannel,
@@ -134,7 +134,7 @@ func (s *store) GetJobByID(ctx context.Context, id string) (Job, error) {
 	if err != nil {
 		return Job{}, wrap(err, "get_job_by_id")
 	}
-	row, err := s.q.GetCronJobByID(ctx, id)
+	row, err := s.q.GetCronJobByID(ctx, sqlc.GetCronJobByIDParams{ID: id})
 	if err != nil {
 		if platformdb.IsNotFound(err) {
 			return Job{}, wrap(ErrJobNotFound, "get_job_by_id")
@@ -161,7 +161,7 @@ func (s *store) DeleteJob(ctx context.Context, id string) error {
 	if err != nil {
 		return wrap(err, "delete_job")
 	}
-	return wrap(s.q.DeleteCronJob(ctx, id), "delete_job")
+	return wrap(s.q.DeleteCronJob(ctx, sqlc.DeleteCronJobParams{ID: id}), "delete_job")
 }
 
 func (s *store) UpdateJobSchedule(ctx context.Context, p UpdateJobScheduleParams) error {
@@ -185,7 +185,7 @@ func (s *store) UpdateJobSchedule(ctx context.Context, p UpdateJobScheduleParams
 		Timezone:      p.Timezone,
 		Provider:      p.Provider,
 		Model:         p.Model,
-		Cwd:           p.CWD,
+		CWD:           p.CWD,
 		Config:        p.Config,
 		Skills:        p.Skills,
 		NotifyChannel: p.NotifyChannel,
@@ -462,7 +462,7 @@ func (s *store) GetRunByID(ctx context.Context, id string) (Run, error) {
 	if err != nil {
 		return Run{}, wrap(err, "get_run_by_id")
 	}
-	row, err := s.q.GetCronJobRunByID(ctx, id)
+	row, err := s.q.GetCronJobRunByID(ctx, sqlc.GetCronJobRunByIDParams{ID: id})
 	if err != nil {
 		if platformdb.IsNotFound(err) {
 			return Run{}, wrap(ErrJobRunNotFound, "get_run_by_id")
@@ -477,7 +477,7 @@ func (s *store) GetRunByDedupeKey(ctx context.Context, dedupeKey string) (Run, e
 	if key == "" {
 		return Run{}, wrap(ErrJobRunNotFound, "get_run_by_dedupe_key")
 	}
-	row, err := s.q.GetCronJobRunByDedupeKey(ctx, key)
+	row, err := s.q.GetCronJobRunByDedupeKey(ctx, sqlc.GetCronJobRunByDedupeKeyParams{DedupeKey: key})
 	if err != nil {
 		if platformdb.IsNotFound(err) {
 			return Run{}, wrap(ErrJobRunNotFound, "get_run_by_dedupe_key")
@@ -533,7 +533,7 @@ func (s *store) GetRunningRunByTurnID(ctx context.Context, turnID string) (Run, 
 	if turnID == "" {
 		return Run{}, wrap(ErrJobRunNotFound, "get_running_run_by_turn_id")
 	}
-	row, err := s.q.GetRunningCronJobRunByTurnID(ctx, turnID)
+	row, err := s.q.GetRunningCronJobRunByTurnID(ctx, sqlc.GetRunningCronJobRunByTurnIDParams{TurnID: turnID})
 	if err != nil {
 		if platformdb.IsNotFound(err) {
 			return Run{}, wrap(ErrJobRunNotFound, "get_running_run_by_turn_id")
@@ -548,7 +548,7 @@ func (s *store) ListJobsClaimedBy(ctx context.Context, claimedBy string) ([]Job,
 	if claimedBy == "" {
 		return nil, nil
 	}
-	rows, err := s.q.ListCronJobsClaimedBy(ctx, claimedBy)
+	rows, err := s.q.ListCronJobsClaimedBy(ctx, sqlc.ListCronJobsClaimedByParams{ClaimedBy: claimedBy})
 	if err != nil {
 		return nil, wrap(err, "list_jobs_claimed_by")
 	}

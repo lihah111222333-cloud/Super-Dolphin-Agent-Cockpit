@@ -17,9 +17,9 @@ import (
 // 头部注释。Config.CWD 为空时退化到 DB-only（兼容老 fixture）。
 
 type querier interface {
-	GetSharedFile(ctx context.Context, path string) (sqlc.SharedFile, error)
+	GetSharedFile(ctx context.Context, arg sqlc.GetSharedFileParams) (sqlc.SharedFile, error)
 	ListSharedFiles(ctx context.Context, arg sqlc.ListSharedFilesParams) ([]sqlc.SharedFile, error)
-	DeleteSharedFile(ctx context.Context, path string) (int64, error)
+	DeleteSharedFile(ctx context.Context, arg sqlc.DeleteSharedFileParams) (int64, error)
 	UpsertSharedFile(ctx context.Context, arg sqlc.UpsertSharedFileParams) (sqlc.SharedFile, error)
 }
 
@@ -39,7 +39,7 @@ func (s *store) Get(ctx context.Context, path string) (*SharedFile, error) {
 	if err != nil {
 		return nil, platformdb.WrapStoreError(err, "get", "shared_file")
 	}
-	row, dbErr := s.q.GetSharedFile(ctx, cleaned)
+	row, dbErr := s.q.GetSharedFile(ctx, sqlc.GetSharedFileParams{Path: cleaned})
 	mapped := SharedFile{}
 	dbHit := dbErr == nil
 	if dbHit {
@@ -101,7 +101,7 @@ func (s *store) Delete(ctx context.Context, path string) (int64, error) {
 	if err != nil {
 		return 0, platformdb.WrapStoreError(err, "delete", "shared_file")
 	}
-	count, err := s.q.DeleteSharedFile(ctx, cleaned)
+	count, err := s.q.DeleteSharedFile(ctx, sqlc.DeleteSharedFileParams{Path: cleaned})
 	if err != nil {
 		return 0, platformdb.WrapStoreError(err, "delete", "shared_file")
 	}

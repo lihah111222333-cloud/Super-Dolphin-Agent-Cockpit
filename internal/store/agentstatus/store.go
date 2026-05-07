@@ -12,8 +12,8 @@ import (
 // Splitting it out keeps unit tests free of a live pool.
 type querier interface {
 	UpsertAgentStatus(ctx context.Context, arg sqlc.UpsertAgentStatusParams) (sqlc.AgentStatus, error)
-	GetAgentStatus(ctx context.Context, agentID string) (sqlc.AgentStatus, error)
-	ListAgentStatuses(ctx context.Context, status string) ([]sqlc.AgentStatus, error)
+	GetAgentStatus(ctx context.Context, arg sqlc.GetAgentStatusParams) (sqlc.AgentStatus, error)
+	ListAgentStatuses(ctx context.Context, arg sqlc.ListAgentStatusesParams) ([]sqlc.AgentStatus, error)
 }
 
 type store struct {
@@ -44,7 +44,7 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) (*AgentStatus, 
 }
 
 func (s *store) Get(ctx context.Context, agentID string) (*AgentStatus, error) {
-	row, err := s.q.GetAgentStatus(ctx, agentID)
+	row, err := s.q.GetAgentStatus(ctx, sqlc.GetAgentStatusParams{AgentID: agentID})
 	if err != nil {
 		return nil, wrapAgentStatusError(err, "get")
 	}
@@ -53,7 +53,7 @@ func (s *store) Get(ctx context.Context, agentID string) (*AgentStatus, error) {
 }
 
 func (s *store) List(ctx context.Context, status string) ([]AgentStatus, error) {
-	rows, err := s.q.ListAgentStatuses(ctx, status)
+	rows, err := s.q.ListAgentStatuses(ctx, sqlc.ListAgentStatusesParams{Column1: status})
 	if err != nil {
 		return nil, wrapAgentStatusError(err, "list")
 	}

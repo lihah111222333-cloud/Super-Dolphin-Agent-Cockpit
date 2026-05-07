@@ -15,7 +15,7 @@ type querier interface {
 	ReleaseCwdLock(ctx context.Context, arg sqlc.ReleaseCwdLockParams) (int64, error)
 	HeartbeatCwdLock(ctx context.Context, arg sqlc.HeartbeatCwdLockParams) error
 	DeleteStaleCwdLocks(ctx context.Context) (int64, error)
-	GetCwdLockHolder(ctx context.Context, cwd string) (sqlc.GetCwdLockHolderRow, error)
+	GetCwdLockHolder(ctx context.Context, arg sqlc.GetCwdLockHolderParams) (sqlc.GetCwdLockHolderRow, error)
 }
 
 type store struct {
@@ -28,7 +28,7 @@ func NewStore(q *sqlc.Queries) Store {
 
 func (s *store) Acquire(ctx context.Context, params AcquireParams) (int64, error) {
 	count, err := s.q.AcquireCwdLock(ctx, sqlc.AcquireCwdLockParams{
-		Cwd:        params.Cwd,
+		CWD:        params.Cwd,
 		InstanceID: params.InstanceID,
 		Pid:        params.PID,
 	})
@@ -40,7 +40,7 @@ func (s *store) Acquire(ctx context.Context, params AcquireParams) (int64, error
 
 func (s *store) ForceAcquire(ctx context.Context, params ForceAcquireParams) (int64, error) {
 	count, err := s.q.ForceAcquireCwdLock(ctx, sqlc.ForceAcquireCwdLockParams{
-		Cwd:        params.Cwd,
+		CWD:        params.Cwd,
 		InstanceID: params.InstanceID,
 		Pid:        params.PID,
 		Pid_2:      params.HolderPID,
@@ -53,7 +53,7 @@ func (s *store) ForceAcquire(ctx context.Context, params ForceAcquireParams) (in
 
 func (s *store) Release(ctx context.Context, params ReleaseParams) (int64, error) {
 	count, err := s.q.ReleaseCwdLock(ctx, sqlc.ReleaseCwdLockParams{
-		Cwd:        params.Cwd,
+		CWD:        params.Cwd,
 		InstanceID: params.InstanceID,
 	})
 	if err != nil {
@@ -64,7 +64,7 @@ func (s *store) Release(ctx context.Context, params ReleaseParams) (int64, error
 
 func (s *store) Heartbeat(ctx context.Context, params HeartbeatParams) error {
 	return wrapCwdLockError(s.q.HeartbeatCwdLock(ctx, sqlc.HeartbeatCwdLockParams{
-		Cwd:        params.Cwd,
+		CWD:        params.Cwd,
 		InstanceID: params.InstanceID,
 		Pid:        params.PID,
 	}), "heartbeat", "cwd_lock")
@@ -79,7 +79,7 @@ func (s *store) DeleteStale(ctx context.Context) (int64, error) {
 }
 
 func (s *store) GetHolder(ctx context.Context, cwd string) (*LockHolder, error) {
-	row, err := s.q.GetCwdLockHolder(ctx, cwd)
+	row, err := s.q.GetCwdLockHolder(ctx, sqlc.GetCwdLockHolderParams{CWD: cwd})
 	if err != nil {
 		return nil, wrapCwdLockError(err, "get_holder", "cwd_lock")
 	}
