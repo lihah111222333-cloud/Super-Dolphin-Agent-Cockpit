@@ -10,6 +10,7 @@ import (
 var Module = fx.Module("skillforge",
 	fx.Provide(func() contract.SkillForger { return &forgerAdapter{} }),
 	fx.Provide(func() contract.EmbeddedSkillReader { return &embeddedReaderAdapter{} }),
+	fx.Provide(func() contract.SkillDescriptionParser { return &descriptionParserAdapter{} }),
 )
 
 // forgerAdapter 将包级函数 Forge/RecoverStaging 适配为 contract.SkillForger 接口。
@@ -37,4 +38,14 @@ func (a *embeddedReaderAdapter) ListNames() ([]string, error) {
 
 func (a *embeddedReaderAdapter) Read(name string) ([]byte, error) {
 	return ReadEmbeddedSkill(name)
+}
+
+type descriptionParserAdapter struct{}
+
+func (a *descriptionParserAdapter) Description(skillMD string) string {
+	parsed, err := Parse(skillMD)
+	if err != nil {
+		return ""
+	}
+	return parsed.Description
 }
