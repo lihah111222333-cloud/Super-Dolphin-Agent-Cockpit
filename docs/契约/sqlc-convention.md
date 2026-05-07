@@ -109,6 +109,7 @@ func (s *Service) GetAgentStatus(ctx context.Context, agentID string) (storedb.A
 - `sql_package` 固定为 `pgx/v5`。
 - `emit_interface` 必须开启。
 - `query_parameter_limit` 固定为 `0`，强制始终生成参数结构体，避免函数签名漂移。
+- `strict_order_by` 必须配置在每个 `sql` block 顶层，不能放入 `gen.go`；`sqlc v1.30.0` 会拒绝错误层级。
 - `emit_empty_slices` 建议开启，避免 `:many` 返回 `nil` slice。
 - `emit_pointers_for_null_types` 建议开启，再配合 overrides 收敛成 V3 可接受的 Go 类型。
 - `sql_driver` 必须配置为 `github.com/jackc/pgx/v5`，否则 `:copyfrom` 无法生成。
@@ -1644,7 +1645,7 @@ func TestWriteSharedFile(t *testing.T) {
 - V3 的迁移文件继续存放在 `migrations/`。
 - phase 1 优先采用 `golang-migrate`。
 - `sqlc` 只消费 schema，不负责执行 migration。
-- CI 默认流程：执行 migration → `sqlc generate` → `sqlc vet` → `go test`。
+- CI 默认流程：执行 migration → `make sqlc-generate` → `make sqlc-verify` → `./scripts/test_with_guard.sh ./...`。
 - `sqlc verify` 是可选增强项，只有在团队接受 `sqlc cloud` 工作流时才启用。
 
 ### 18.3 SQL 示例
@@ -1836,7 +1837,7 @@ V3 不再机械复制 V2 的“一个表一个手写 Store + 一个 BaseStore”
 
 1. 把现有 raw SQL 提炼到 `sql/queries/<entity>.sql`。
 2. 用显式列清单替换 `SELECT *` 和 `RowToStructByNameLax` 心智。
-3. 运行 `sqlc generate`。
+3. 运行 `make sqlc-generate`，不要直接使用 PATH 上的 `sqlc generate`。
 4. 新增最薄兼容层，先保持旧调用点 API 不变。
 5. 调用点切到生成 query。
 6. 删除旧 Store 中的 raw SQL、列常量、scan 逻辑。
@@ -1977,12 +1978,13 @@ func (e *ReadOnlySQLExecutor) Query(ctx context.Context, sqlText string, args ..
 建议的开发命令：
 
 ```bash
-sqlc generate
-sqlc vet
-go test ./...
+make sqlc-generate
+make sqlc-verify
+./scripts/test_with_guard.sh ./...
+go vet ./...
 ```
 
-如果团队启用 `sqlc verify`：
+如果团队启用 `sqlc cloud` 工作流，可额外使用 `sqlc verify`：
 
 ```bash
 sqlc push --tag main
@@ -1993,8 +1995,9 @@ sqlc verify --against main
 
 ```bash
 migrate -path ./migrations -database "$DATABASE_URL" up
-sqlc generate
-go test ./...
+make sqlc-generate
+make sqlc-verify
+./scripts/test_with_guard.sh ./...
 ```
 
 ## 23. 参考资料
