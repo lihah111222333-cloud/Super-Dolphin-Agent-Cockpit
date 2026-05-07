@@ -28,8 +28,8 @@ func TestStartSessionWithPublicThreadIsImmediatelyReady(t *testing.T) {
 	// empty.  The session must be immediately ready so StartSession can
 	// return without waiting for system:init (which may arrive later).
 	s := &session{
-		publicThreadID: "agent_123",
-		threadID:       "agent_123",
+		publicThreadID: "ext_thread_123",
+		threadID:       "ext_thread_123",
 		threadReady:    make(chan struct{}),
 	}
 
