@@ -15,6 +15,7 @@ import (
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/search"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
@@ -111,7 +112,7 @@ func (h handlerBase) handleFile(ctx context.Context, params json.RawMessage) (an
 			if len(input.FilePaths) > 0 {
 				return h.readBatch(ctx, input.FilePaths, input.Offset, input.Limit)
 			}
-			return h.readSingle(input.FilePath, input.Offset, input.Limit)
+			return h.readSingle(ctx, input.FilePath, input.Offset, input.Limit)
 		},
 		"diagnostics": func(ctx context.Context, input fileToolInput) (any, error) {
 			return h.handleDiagnostics(ctx, input)
@@ -123,7 +124,7 @@ func (h handlerBase) openFile(ctx context.Context, rawPath string) (openFileResu
 	if h.registry == nil {
 		return openFileResult{}, errManagerUnavailable
 	}
-	file, err := search.ReadToolFileContent(h.root, rawPath, maxReadFileBytes)
+	file, err := search.ReadToolFileContent(common.WorkspaceRootFromContext(ctx, h.root), rawPath, maxReadFileBytes)
 	if err != nil {
 		return openFileResult{}, err
 	}
@@ -142,8 +143,8 @@ func (h handlerBase) openFile(ctx context.Context, rawPath string) (openFileResu
 	}, nil
 }
 
-func (h handlerBase) readSingle(rawPath string, offset, limit int) (string, error) {
-	file, err := search.ReadToolFileContent(h.root, rawPath, maxReadFileBytes)
+func (h handlerBase) readSingle(ctx context.Context, rawPath string, offset, limit int) (string, error) {
+	file, err := search.ReadToolFileContent(common.WorkspaceRootFromContext(ctx, h.root), rawPath, maxReadFileBytes)
 	if err != nil {
 		return "", err
 	}
@@ -159,7 +160,7 @@ func (h handlerBase) readBatch(ctx context.Context, rawPaths []string, offset, l
 		go func(idx int, target string) {
 			defer wg.Done()
 			item := batchReadItem{FilePath: strings.TrimSpace(target)}
-			file, err := search.ReadToolFileContent(h.root, target, maxReadFileBytes)
+			file, err := search.ReadToolFileContent(common.WorkspaceRootFromContext(ctx, h.root), target, maxReadFileBytes)
 			if err != nil {
 				item.Error = err.Error()
 				results <- indexedBatchItem{Index: idx, Item: item}

@@ -148,6 +148,12 @@ func (h *Handler) callPeerTool(ctx context.Context, peer mcpcontrol.Peer, req To
 	req = h.injectManagedLaunchContext(ctx, req)
 	h.warnManagedLaunchConfigTrace(ctx, req)
 
+	var cwd string
+	binding, ok := h.resolveCurrentToolCallBinding(ctx, req)
+	if ok {
+		cwd = strings.TrimSpace(binding.CWD)
+	}
+
 	var resp peerToolCallResponse
 	err := peer.Callback(callCtx, ProxyMethodToolsCall, map[string]any{
 		"name":              req.Name,
@@ -155,6 +161,7 @@ func (h *Handler) callPeerTool(ctx context.Context, peer mcpcontrol.Peer, req To
 		MetadataKeyAgentID:  req.AgentID,
 		MetadataKeyThreadID: req.ThreadID,
 		MetadataKeyCallID:   req.CallID,
+		MetadataKeyCWD:      cwd,
 	}, &resp)
 	if err != nil {
 		return toolCallTextResult(false, err.Error()), nil

@@ -11,6 +11,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
 type applyWorkspaceEditResult struct {
@@ -69,7 +70,7 @@ type functionContext struct {
 }
 
 func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (any, error) {
-	path, err := resolveWorkspacePath(h.root, req.FilePath)
+	path, err := resolveWorkspacePath(common.WorkspaceRootFromContext(ctx, h.root), req.FilePath)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +173,7 @@ func (h EditHandler) replaceFailure(ctx context.Context, manager lspmanager.Mana
 }
 
 func (h EditHandler) applyWorkspaceEdit(ctx context.Context, manager lspmanager.Manager, workspaceEdit *protocol.WorkspaceEdit, version int) (applyWorkspaceEditResult, error) {
-	originals, updated, err := loadWorkspaceEditUpdates(h.root, workspaceEdit)
+	originals, updated, err := loadWorkspaceEditUpdates(common.WorkspaceRootFromContext(ctx, h.root), workspaceEdit)
 	if err != nil {
 		return applyWorkspaceEditResult{}, err
 	}
