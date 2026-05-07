@@ -149,6 +149,9 @@ func (s *session) ReadConfig(context.Context, string) (dto.ThreadConfig, error) 
 	defer s.mu.Unlock()
 	threadID := strings.TrimSpace(s.threadID)
 	if threadID == "" {
+		threadID = strings.TrimSpace(s.publicThreadID)
+	}
+	if threadID == "" {
 		return dto.ThreadConfig{}, errors.New("claudecli: thread id is required")
 	}
 	return dto.ThreadConfig{

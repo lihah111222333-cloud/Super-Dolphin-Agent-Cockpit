@@ -9,7 +9,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 )
 
@@ -153,8 +152,5 @@ func fallbackThreadID(agentID, threadID string) string {
 	if threadID = strings.TrimSpace(threadID); threadID != "" {
 		return threadID
 	}
-	if agentID = strings.TrimSpace(agentID); agentID != "" {
-		return agentID
-	}
-	return platformshared.NewID("claude")
+	return ""
 }
