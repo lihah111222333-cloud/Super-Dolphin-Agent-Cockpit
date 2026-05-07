@@ -329,6 +329,10 @@ ORDER BY ts DESC, id DESC
 LIMIT $1
 `
 
+type ListRecentAILogsParams struct {
+	Limit int32 `db:"limit" json:"limit"`
+}
+
 type ListRecentAILogsRow struct {
 	ID         int64     `db:"id" json:"id"`
 	Ts         time.Time `db:"ts" json:"ts"`
@@ -354,8 +358,8 @@ type ListRecentAILogsRow struct {
 	Model      string    `db:"model" json:"model"`
 }
 
-func (q *Queries) ListRecentAILogs(ctx context.Context, limit int32) ([]ListRecentAILogsRow, error) {
-	rows, err := q.db.Query(ctx, listRecentAILogs, limit)
+func (q *Queries) ListRecentAILogs(ctx context.Context, arg ListRecentAILogsParams) ([]ListRecentAILogsRow, error) {
+	rows, err := q.db.Query(ctx, listRecentAILogs, arg.Limit)
 	if err != nil {
 		return nil, err
 	}

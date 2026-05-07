@@ -63,8 +63,12 @@ FROM agent_interactions
 WHERE id = $1
 `
 
-func (q *Queries) GetInteraction(ctx context.Context, id int64) (AgentInteraction, error) {
-	row := q.db.QueryRow(ctx, getInteraction, id)
+type GetInteractionParams struct {
+	ID int64 `db:"id" json:"id"`
+}
+
+func (q *Queries) GetInteraction(ctx context.Context, arg GetInteractionParams) (AgentInteraction, error) {
+	row := q.db.QueryRow(ctx, getInteraction, arg.ID)
 	var i AgentInteraction
 	err := row.Scan(
 		&i.ID,

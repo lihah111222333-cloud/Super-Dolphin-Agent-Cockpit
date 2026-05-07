@@ -92,7 +92,8 @@ func (f *fakeQuerier) MarkTurnDedupeTerminal(_ context.Context, p sqlc.MarkTurnD
 	return nil
 }
 
-func (f *fakeQuerier) GetLiveTurnDedupe(_ context.Context, key string) (sqlc.TurnDedupeRegistry, error) {
+func (f *fakeQuerier) GetLiveTurnDedupe(_ context.Context, arg sqlc.GetLiveTurnDedupeParams) (sqlc.TurnDedupeRegistry, error) {
+	key := arg.DedupeKey
 	if f.getErr != nil {
 		return sqlc.TurnDedupeRegistry{}, f.getErr
 	}
@@ -103,7 +104,8 @@ func (f *fakeQuerier) GetLiveTurnDedupe(_ context.Context, key string) (sqlc.Tur
 	return row, nil
 }
 
-func (f *fakeQuerier) SweepTurnDedupeRegistry(_ context.Context, cutoff pgtype.Timestamptz) error {
+func (f *fakeQuerier) SweepTurnDedupeRegistry(_ context.Context, arg sqlc.SweepTurnDedupeRegistryParams) error {
+	cutoff := arg.Cutoff
 	if cutoff.Valid {
 		f.lastCutoff = cutoff.Time
 	}

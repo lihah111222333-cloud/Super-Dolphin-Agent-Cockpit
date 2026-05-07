@@ -15,7 +15,7 @@ type querier interface {
 	UpsertSessionInsight(ctx context.Context, arg sqlc.UpsertSessionInsightParams) (sqlc.SessionInsight, error)
 	GetSessionInsightByLocalTurn(ctx context.Context, arg sqlc.GetSessionInsightByLocalTurnParams) (sqlc.SessionInsight, error)
 	ListSessionInsightsByThread(ctx context.Context, arg sqlc.ListSessionInsightsByThreadParams) ([]sqlc.SessionInsight, error)
-	ListRecentSessionInsights(ctx context.Context, limit int32) ([]sqlc.SessionInsight, error)
+	ListRecentSessionInsights(ctx context.Context, arg sqlc.ListRecentSessionInsightsParams) ([]sqlc.SessionInsight, error)
 	ListObservedApprovalRequests(ctx context.Context, arg sqlc.ListObservedApprovalRequestsParams) ([]sqlc.ListObservedApprovalRequestsRow, error)
 	ListObservedTokenTurns(ctx context.Context, arg sqlc.ListObservedTokenTurnsParams) ([]sqlc.ListObservedTokenTurnsRow, error)
 }
@@ -152,7 +152,7 @@ func (s *store) ListRecent(ctx context.Context, limit int32) ([]Insight, error) 
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := s.q.ListRecentSessionInsights(ctx, limit)
+	rows, err := s.q.ListRecentSessionInsights(ctx, sqlc.ListRecentSessionInsightsParams{Limit: limit})
 	if err != nil {
 		return nil, wrap(err, "list_recent")
 	}

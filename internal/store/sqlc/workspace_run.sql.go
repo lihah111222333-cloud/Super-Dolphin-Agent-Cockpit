@@ -16,13 +16,17 @@ FROM workspace_runs
 WHERE run_key = $1
 `
 
-func (q *Queries) GetWorkspaceRun(ctx context.Context, runKey string) (WorkspaceRun, error) {
-	row := q.db.QueryRow(ctx, getWorkspaceRun, runKey)
+type GetWorkspaceRunParams struct {
+	RunKey string `db:"run_key" json:"run_key"`
+}
+
+func (q *Queries) GetWorkspaceRun(ctx context.Context, arg GetWorkspaceRunParams) (WorkspaceRun, error) {
+	row := q.db.QueryRow(ctx, getWorkspaceRun, arg.RunKey)
 	var i WorkspaceRun
 	err := row.Scan(
 		&i.ID,
 		&i.RunKey,
-		&i.DagKey,
+		&i.DAGKey,
 		&i.SourceRoot,
 		&i.WorkspacePath,
 		&i.Status,
@@ -140,7 +144,7 @@ func (q *Queries) ListWorkspaceRuns(ctx context.Context, arg ListWorkspaceRunsPa
 		if err := rows.Scan(
 			&i.ID,
 			&i.RunKey,
-			&i.DagKey,
+			&i.DAGKey,
 			&i.SourceRoot,
 			&i.WorkspacePath,
 			&i.Status,
@@ -196,7 +200,7 @@ func (q *Queries) TransitionWorkspaceRunStatus(ctx context.Context, arg Transiti
 	err := row.Scan(
 		&i.ID,
 		&i.RunKey,
-		&i.DagKey,
+		&i.DAGKey,
 		&i.SourceRoot,
 		&i.WorkspacePath,
 		&i.Status,
@@ -243,7 +247,7 @@ func (q *Queries) UpdateWorkspaceRunStatus(ctx context.Context, arg UpdateWorksp
 	err := row.Scan(
 		&i.ID,
 		&i.RunKey,
-		&i.DagKey,
+		&i.DAGKey,
 		&i.SourceRoot,
 		&i.WorkspacePath,
 		&i.Status,
@@ -276,7 +280,7 @@ RETURNING id, run_key, dag_key, source_root, workspace_path, status, created_by,
 
 type UpsertWorkspaceRunParams struct {
 	RunKey        string     `db:"run_key" json:"run_key"`
-	DagKey        string     `db:"dag_key" json:"dag_key"`
+	DAGKey        string     `db:"dag_key" json:"dag_key"`
 	SourceRoot    string     `db:"source_root" json:"source_root"`
 	WorkspacePath string     `db:"workspace_path" json:"workspace_path"`
 	Status        string     `db:"status" json:"status"`
@@ -289,7 +293,7 @@ type UpsertWorkspaceRunParams struct {
 func (q *Queries) UpsertWorkspaceRun(ctx context.Context, arg UpsertWorkspaceRunParams) (WorkspaceRun, error) {
 	row := q.db.QueryRow(ctx, upsertWorkspaceRun,
 		arg.RunKey,
-		arg.DagKey,
+		arg.DAGKey,
 		arg.SourceRoot,
 		arg.WorkspacePath,
 		arg.Status,
@@ -302,7 +306,7 @@ func (q *Queries) UpsertWorkspaceRun(ctx context.Context, arg UpsertWorkspaceRun
 	err := row.Scan(
 		&i.ID,
 		&i.RunKey,
-		&i.DagKey,
+		&i.DAGKey,
 		&i.SourceRoot,
 		&i.WorkspacePath,
 		&i.Status,

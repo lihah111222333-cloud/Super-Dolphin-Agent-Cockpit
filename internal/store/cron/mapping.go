@@ -16,7 +16,7 @@ func fromCronJob(r sqlc.CronJob) Job {
 		Timezone:        r.Timezone,
 		Provider:        r.Provider,
 		Model:           r.Model,
-		CWD:             r.Cwd,
+		CWD:             r.CWD,
 		Config:          cloneBytes(r.Config),
 		Skills:          cloneBytes(r.Skills),
 		NotifyChannel:   r.NotifyChannel,

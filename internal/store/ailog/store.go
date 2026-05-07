@@ -12,7 +12,7 @@ type querier interface {
 	CountAILogsByStatus(ctx context.Context) ([]sqlc.CountAILogsByStatusRow, error)
 	ListAILogSystemLogs(ctx context.Context, arg sqlc.ListAILogSystemLogsParams) ([]sqlc.SystemLog, error)
 	ListAILogsByCategory(ctx context.Context, arg sqlc.ListAILogsByCategoryParams) ([]sqlc.ListAILogsByCategoryRow, error)
-	ListRecentAILogs(ctx context.Context, limit int32) ([]sqlc.ListRecentAILogsRow, error)
+	ListRecentAILogs(ctx context.Context, arg sqlc.ListRecentAILogsParams) ([]sqlc.ListRecentAILogsRow, error)
 }
 
 type store struct {
@@ -67,7 +67,7 @@ func (s *store) CountByStatus(ctx context.Context) ([]StatusCount, error) {
 }
 
 func (s *store) ListRecent(ctx context.Context, limit int32) ([]AILog, error) {
-	rows, err := s.q.ListRecentAILogs(ctx, limit)
+	rows, err := s.q.ListRecentAILogs(ctx, sqlc.ListRecentAILogsParams{Limit: limit})
 	if err != nil {
 		return nil, wrapAILogError(err, "list_recent")
 	}

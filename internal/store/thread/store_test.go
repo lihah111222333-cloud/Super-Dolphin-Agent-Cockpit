@@ -20,11 +20,11 @@ type threadQuerierStub struct {
 	upsertFn             func(context.Context, sqlc.UpsertAgentThreadParams) error
 }
 
-func (s *threadQuerierStub) AgentThreadRunningExists(context.Context, string) (bool, error) {
+func (s *threadQuerierStub) AgentThreadRunningExists(context.Context, sqlc.AgentThreadRunningExistsParams) (bool, error) {
 	return false, nil
 }
 
-func (s *threadQuerierStub) AgentThreadExists(context.Context, string) (bool, error) {
+func (s *threadQuerierStub) AgentThreadExists(context.Context, sqlc.AgentThreadExistsParams) (bool, error) {
 	return false, nil
 }
 
@@ -32,24 +32,26 @@ func (s *threadQuerierStub) CountAllThreads(context.Context) (int64, error) {
 	return 0, nil
 }
 
-func (s *threadQuerierStub) CountChildAgentThreads(context.Context, string) (int64, error) {
+func (s *threadQuerierStub) CountChildAgentThreads(context.Context, sqlc.CountChildAgentThreadsParams) (int64, error) {
 	return 0, nil
 }
 
-func (s *threadQuerierStub) DeleteAgentThreadByID(context.Context, string) error { return nil }
+func (s *threadQuerierStub) DeleteAgentThreadByID(context.Context, sqlc.DeleteAgentThreadByIDParams) error {
+	return nil
+}
 
 func (s *threadQuerierStub) ExpireStaleAgentThreads(context.Context, sqlc.ExpireStaleAgentThreadsParams) (int64, error) {
 	return 0, nil
 }
 
-func (s *threadQuerierStub) GetAgentThreadByID(ctx context.Context, threadID string) (sqlc.GetAgentThreadByIDRow, error) {
+func (s *threadQuerierStub) GetAgentThreadByID(ctx context.Context, arg sqlc.GetAgentThreadByIDParams) (sqlc.GetAgentThreadByIDRow, error) {
 	if s.getByIDFn != nil {
-		return s.getByIDFn(ctx, threadID)
+		return s.getByIDFn(ctx, arg.ThreadID)
 	}
 	return sqlc.GetAgentThreadByIDRow{}, nil
 }
 
-func (*threadQuerierStub) GetAgentThreadByPort(context.Context, int32) (sqlc.GetAgentThreadByPortRow, error) {
+func (*threadQuerierStub) GetAgentThreadByPort(context.Context, sqlc.GetAgentThreadByPortParams) (sqlc.GetAgentThreadByPortRow, error) {
 	return sqlc.GetAgentThreadByPortRow{}, nil
 }
 
@@ -57,7 +59,7 @@ func (*threadQuerierStub) ListAgentThreadCwds(context.Context) ([]sqlc.ListAgent
 	return nil, nil
 }
 
-func (*threadQuerierStub) ListAgentThreadCwdsByPrefix(context.Context, *string) ([]sqlc.ListAgentThreadCwdsByPrefixRow, error) {
+func (*threadQuerierStub) ListAgentThreadCwdsByPrefix(context.Context, sqlc.ListAgentThreadCwdsByPrefixParams) ([]sqlc.ListAgentThreadCwdsByPrefixRow, error) {
 	return nil, nil
 }
 
@@ -86,9 +88,9 @@ func (*threadQuerierStub) ListRunningAgents(context.Context) ([]sqlc.ListRunning
 	return nil, nil
 }
 
-func (s *threadQuerierStub) LoadAgentThreadPromptSnapshot(ctx context.Context, threadID string) ([]byte, error) {
+func (s *threadQuerierStub) LoadAgentThreadPromptSnapshot(ctx context.Context, arg sqlc.LoadAgentThreadPromptSnapshotParams) ([]byte, error) {
 	if s.loadPromptSnapshotFn != nil {
-		return s.loadPromptSnapshotFn(ctx, threadID)
+		return s.loadPromptSnapshotFn(ctx, arg.ThreadID)
 	}
 	return nil, nil
 }

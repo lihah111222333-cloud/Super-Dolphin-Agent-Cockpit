@@ -46,11 +46,11 @@ func (s *cronQuerierStub) CreateCronJob(ctx context.Context, a sqlc.CreateCronJo
 	}
 	return sqlc.CronJob{ID: a.ID}, nil
 }
-func (s *cronQuerierStub) GetCronJobByID(ctx context.Context, id string) (sqlc.CronJob, error) {
+func (s *cronQuerierStub) GetCronJobByID(ctx context.Context, arg sqlc.GetCronJobByIDParams) (sqlc.CronJob, error) {
 	if s.getByIDFn != nil {
-		return s.getByIDFn(ctx, id)
+		return s.getByIDFn(ctx, arg.ID)
 	}
-	return sqlc.CronJob{ID: id}, nil
+	return sqlc.CronJob{ID: arg.ID}, nil
 }
 func (s *cronQuerierStub) ListCronJobs(ctx context.Context) ([]sqlc.CronJob, error) {
 	if s.listFn != nil {
@@ -58,9 +58,9 @@ func (s *cronQuerierStub) ListCronJobs(ctx context.Context) ([]sqlc.CronJob, err
 	}
 	return nil, nil
 }
-func (s *cronQuerierStub) DeleteCronJob(ctx context.Context, id string) error {
+func (s *cronQuerierStub) DeleteCronJob(ctx context.Context, arg sqlc.DeleteCronJobParams) error {
 	if s.deleteFn != nil {
-		return s.deleteFn(ctx, id)
+		return s.deleteFn(ctx, arg.ID)
 	}
 	return nil
 }
@@ -139,17 +139,17 @@ func (s *cronQuerierStub) SetCronJobRunTurn(ctx context.Context, a sqlc.SetCronJ
 	}
 	return 1, nil
 }
-func (s *cronQuerierStub) GetCronJobRunByDedupeKey(ctx context.Context, key string) (sqlc.CronJobRun, error) {
+func (s *cronQuerierStub) GetCronJobRunByDedupeKey(ctx context.Context, arg sqlc.GetCronJobRunByDedupeKeyParams) (sqlc.CronJobRun, error) {
 	if s.getRunByDedupeKeyFn != nil {
-		return s.getRunByDedupeKeyFn(ctx, key)
+		return s.getRunByDedupeKeyFn(ctx, arg.DedupeKey)
 	}
 	return sqlc.CronJobRun{}, nil
 }
-func (s *cronQuerierStub) GetCronJobRunByID(ctx context.Context, id string) (sqlc.CronJobRun, error) {
+func (s *cronQuerierStub) GetCronJobRunByID(ctx context.Context, arg sqlc.GetCronJobRunByIDParams) (sqlc.CronJobRun, error) {
 	if s.getRunByIDFn != nil {
-		return s.getRunByIDFn(ctx, id)
+		return s.getRunByIDFn(ctx, arg.ID)
 	}
-	return sqlc.CronJobRun{ID: id}, nil
+	return sqlc.CronJobRun{ID: arg.ID}, nil
 }
 func (s *cronQuerierStub) ListCronJobRunsByJob(ctx context.Context, a sqlc.ListCronJobRunsByJobParams) ([]sqlc.CronJobRun, error) {
 	if s.listRunsByJobFn != nil {
@@ -163,10 +163,10 @@ func (s *cronQuerierStub) ListUnresolvedCronJobRuns(ctx context.Context) ([]sqlc
 	}
 	return nil, nil
 }
-func (s *cronQuerierStub) GetRunningCronJobRunByTurnID(ctx context.Context, turnID string) (sqlc.CronJobRun, error) {
+func (s *cronQuerierStub) GetRunningCronJobRunByTurnID(ctx context.Context, arg sqlc.GetRunningCronJobRunByTurnIDParams) (sqlc.CronJobRun, error) {
 	return sqlc.CronJobRun{}, platformdb.ErrNotFound
 }
-func (s *cronQuerierStub) ListCronJobsClaimedBy(ctx context.Context, claimedBy string) ([]sqlc.CronJob, error) {
+func (s *cronQuerierStub) ListCronJobsClaimedBy(ctx context.Context, arg sqlc.ListCronJobsClaimedByParams) ([]sqlc.CronJob, error) {
 	return nil, nil
 }
 
@@ -277,7 +277,7 @@ func TestClaimDueJobsForUpdateForwardsParamsAndMapsRows(t *testing.T) {
 	s := &store{q: &cronQuerierStub{
 		claimFn: func(_ context.Context, a sqlc.ClaimDueJobsForUpdateParams) ([]sqlc.CronJob, error) {
 			got = a
-			return []sqlc.CronJob{{ID: "job-1", Name: "daily", Provider: "codex", Cwd: "/repo"}}, nil
+			return []sqlc.CronJob{{ID: "job-1", Name: "daily", Provider: "codex", CWD: "/repo"}}, nil
 		},
 	}}
 	jobs, err := s.ClaimDueJobsForUpdate(context.Background(), ClaimDueJobsForUpdateParams{

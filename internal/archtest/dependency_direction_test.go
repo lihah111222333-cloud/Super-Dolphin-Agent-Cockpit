@@ -39,6 +39,7 @@ func TestDependencyDirection(t *testing.T) {
 	assertStoreAndToolDependencyRules(t, root)
 	assertMCPServerDependencyRules(t, root)
 	assertPlatformIsolationRules(t, root)
+	assertModuleSiblingDependencyRules(t, root)
 }
 
 func assertCoreDependencyRules(t *testing.T, root string) {
@@ -103,6 +104,37 @@ func assertCoreDependencyRules(t *testing.T, root string) {
 			t.Skip("directory not yet created")
 		}
 		assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/platform"), []string{internalPrefix("internal/module")})
+	})
+}
+
+func assertModuleSiblingDependencyRules(t *testing.T, root string) {
+	t.Helper()
+	t.Run("rule16_module_siblings_no_concrete_imports", func(t *testing.T) {
+		if !dirExists(root, "internal/module") {
+			t.Skip("directory not yet created")
+		}
+		var violations []string
+		for _, file := range parseImportFiles(t, root, "internal/module") {
+			if strings.HasSuffix(file.RelPath, "_test.go") || filepath.Base(file.RelPath) == "module.go" {
+				continue
+			}
+			parts := strings.Split(filepath.ToSlash(file.RelPath), "/")
+			if len(parts) < 3 || parts[0] != "internal" || parts[1] != "module" {
+				continue
+			}
+			owner := parts[2]
+			for _, imp := range file.Imports {
+				if !strings.HasPrefix(imp, internalPrefix("internal/module/")) {
+					continue
+				}
+				importRel := strings.TrimPrefix(imp, internalPrefix("internal/module/"))
+				importModule := strings.Split(importRel, "/")[0]
+				if importModule != owner {
+					violations = append(violations, fmt.Sprintf("%s imports sibling module %s", file.RelPath, imp))
+				}
+			}
+		}
+		failIfViolations(t, violations)
 	})
 }
 

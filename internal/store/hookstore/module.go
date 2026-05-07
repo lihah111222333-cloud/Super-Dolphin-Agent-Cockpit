@@ -4,9 +4,9 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
 var Module = fx.Module("store.hookstore",
-	fx.Provide(func(pool *pgxpool.Pool) contract.HookReviewStore { return NewStore(pool) }),
+	fx.Provide(func(q *sqlc.Queries) contract.HookReviewStore { return NewStore(q) }),
 )

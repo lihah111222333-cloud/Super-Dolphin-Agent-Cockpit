@@ -9,8 +9,10 @@ import (
 	"time"
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type testRecord struct {
@@ -36,7 +38,7 @@ func newTestStore(records ...testRecord) (*store, *hookStoreDBStub) {
 		recordCopy := record
 		db.records[record.review.HookCallID] = &recordCopy
 	}
-	return &store{db: db}, db
+	return newStoreForTest(sqlc.New(db)), db
 }
 
 func (db *hookStoreDBStub) Exec(_ context.Context, query string, args ...any) (pgconn.CommandTag, error) {
@@ -154,9 +156,9 @@ func (db *hookStoreDBStub) execResolve(args []any) (pgconn.CommandTag, error) {
 	if !ok {
 		return pgconn.CommandTag{}, fmt.Errorf("resolved_by arg type = %T, want string", args[4])
 	}
-	resolvedAt, ok := args[5].(time.Time)
-	if !ok {
-		return pgconn.CommandTag{}, fmt.Errorf("resolved_at arg type = %T, want time.Time", args[5])
+	resolvedAt, err := timeArg(args[5], "resolved_at")
+	if err != nil {
+		return pgconn.CommandTag{}, err
 	}
 	record, exists := db.records[hookCallID]
 	if !exists || record.status != "pending" {
@@ -179,9 +181,9 @@ func (db *hookStoreDBStub) execCancelByLease(args []any) (pgconn.CommandTag, err
 	if !ok {
 		return pgconn.CommandTag{}, fmt.Errorf("subscriber_lease arg type = %T, want string", args[0])
 	}
-	resolvedAt, ok := args[1].(time.Time)
-	if !ok {
-		return pgconn.CommandTag{}, fmt.Errorf("resolved_at arg type = %T, want time.Time", args[1])
+	resolvedAt, err := timeArg(args[1], "resolved_at")
+	if err != nil {
+		return pgconn.CommandTag{}, err
 	}
 	count := 0
 	for _, record := range db.records {
@@ -202,9 +204,9 @@ func (db *hookStoreDBStub) execCancelByAgent(args []any) (pgconn.CommandTag, err
 	if !ok {
 		return pgconn.CommandTag{}, fmt.Errorf("agent_id arg type = %T, want string", args[0])
 	}
-	resolvedAt, ok := args[1].(time.Time)
-	if !ok {
-		return pgconn.CommandTag{}, fmt.Errorf("resolved_at arg type = %T, want time.Time", args[1])
+	resolvedAt, err := timeArg(args[1], "resolved_at")
+	if err != nil {
+		return pgconn.CommandTag{}, err
 	}
 	count := 0
 	for _, record := range db.records {
@@ -221,9 +223,9 @@ func (db *hookStoreDBStub) execCancelExpired(args []any) (pgconn.CommandTag, err
 	if len(args) != 1 {
 		return pgconn.CommandTag{}, fmt.Errorf("cancel_expired args = %d, want 1", len(args))
 	}
-	now, ok := args[0].(time.Time)
-	if !ok {
-		return pgconn.CommandTag{}, fmt.Errorf("deadline arg type = %T, want time.Time", args[0])
+	now, err := timeArg(args[0], "deadline")
+	if err != nil {
+		return pgconn.CommandTag{}, err
 	}
 	if db.beforeCancelExpired != nil {
 		db.beforeCancelExpired(now)
@@ -238,6 +240,17 @@ func (db *hookStoreDBStub) execCancelExpired(args []any) (pgconn.CommandTag, err
 		}
 	}
 	return pgconn.NewCommandTag(fmt.Sprintf("UPDATE %d", count)), nil
+}
+
+func timeArg(value any, name string) (time.Time, error) {
+	switch t := value.(type) {
+	case time.Time:
+		return t, nil
+	case pgtype.Timestamptz:
+		return fromTS(t), nil
+	default:
+		return time.Time{}, fmt.Errorf("%s arg type = %T, want pgtype.Timestamptz", name, value)
+	}
 }
 
 func (db *hookStoreDBStub) pendingReviewsByAgent(agentID string) []*testRecord {

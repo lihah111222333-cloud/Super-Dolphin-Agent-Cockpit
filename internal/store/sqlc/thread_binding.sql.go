@@ -48,7 +48,7 @@ SET codex_thread_id = EXCLUDED.codex_thread_id,
 type BindAgentThreadParams struct {
 	AgentID   string `db:"agent_id" json:"agent_id"`
 	ThreadID  string `db:"thread_id" json:"thread_id"`
-	Cwd       string `db:"cwd" json:"cwd"`
+	CWD       string `db:"cwd" json:"cwd"`
 	CreatedAt int64  `db:"created_at" json:"created_at"`
 	UpdatedAt int64  `db:"updated_at" json:"updated_at"`
 }
@@ -57,7 +57,7 @@ func (q *Queries) BindAgentThread(ctx context.Context, arg BindAgentThreadParams
 	_, err := q.db.Exec(ctx, bindAgentThread,
 		arg.AgentID,
 		arg.ThreadID,
-		arg.Cwd,
+		arg.CWD,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
@@ -70,8 +70,12 @@ FROM agent_provider_binding
 WHERE agent_id = $1
 `
 
-func (q *Queries) GetThreadByAgent(ctx context.Context, agentID string) (string, error) {
-	row := q.db.QueryRow(ctx, getThreadByAgent, agentID)
+type GetThreadByAgentParams struct {
+	AgentID string `db:"agent_id" json:"agent_id"`
+}
+
+func (q *Queries) GetThreadByAgent(ctx context.Context, arg GetThreadByAgentParams) (string, error) {
+	row := q.db.QueryRow(ctx, getThreadByAgent, arg.AgentID)
 	var thread_id string
 	err := row.Scan(&thread_id)
 	return thread_id, err
@@ -89,7 +93,7 @@ type ListAgentThreadBindingsRow struct {
 	ProviderThreadID   string `db:"provider_thread_id" json:"provider_thread_id"`
 	CodexThreadID      string `db:"codex_thread_id" json:"codex_thread_id"`
 	RolloutPath        string `db:"rollout_path" json:"rollout_path"`
-	Cwd                string `db:"cwd" json:"cwd"`
+	CWD                string `db:"cwd" json:"cwd"`
 	ParentAgentID      string `db:"parent_agent_id" json:"parent_agent_id"`
 	AgentType          string `db:"agent_type" json:"agent_type"`
 	AgentMemoryScope   string `db:"agent_memory_scope" json:"agent_memory_scope"`
@@ -117,7 +121,7 @@ func (q *Queries) ListAgentThreadBindings(ctx context.Context) ([]ListAgentThrea
 			&i.ProviderThreadID,
 			&i.CodexThreadID,
 			&i.RolloutPath,
-			&i.Cwd,
+			&i.CWD,
 			&i.ParentAgentID,
 			&i.AgentType,
 			&i.AgentMemoryScope,
@@ -158,7 +162,7 @@ FROM deleted
 type RebindAgentThreadTxParams struct {
 	AgentID   string `db:"agent_id" json:"agent_id"`
 	ThreadID  string `db:"thread_id" json:"thread_id"`
-	Cwd       string `db:"cwd" json:"cwd"`
+	CWD       string `db:"cwd" json:"cwd"`
 	UpdatedAt int64  `db:"updated_at" json:"updated_at"`
 }
 
@@ -166,7 +170,7 @@ func (q *Queries) RebindAgentThreadTx(ctx context.Context, arg RebindAgentThread
 	_, err := q.db.Exec(ctx, rebindAgentThreadTx,
 		arg.AgentID,
 		arg.ThreadID,
-		arg.Cwd,
+		arg.CWD,
 		arg.UpdatedAt,
 	)
 	return err
@@ -177,8 +181,12 @@ DELETE FROM agent_provider_binding
 WHERE agent_id = $1
 `
 
-func (q *Queries) UnbindAgentThread(ctx context.Context, agentID string) error {
-	_, err := q.db.Exec(ctx, unbindAgentThread, agentID)
+type UnbindAgentThreadParams struct {
+	AgentID string `db:"agent_id" json:"agent_id"`
+}
+
+func (q *Queries) UnbindAgentThread(ctx context.Context, arg UnbindAgentThreadParams) error {
+	_, err := q.db.Exec(ctx, unbindAgentThread, arg.AgentID)
 	return err
 }
 
@@ -190,12 +198,12 @@ WHERE agent_id = $3
 `
 
 type UpdateAgentCwdParams struct {
-	Cwd       string `db:"cwd" json:"cwd"`
+	CWD       string `db:"cwd" json:"cwd"`
 	UpdatedAt int64  `db:"updated_at" json:"updated_at"`
 	AgentID   string `db:"agent_id" json:"agent_id"`
 }
 
 func (q *Queries) UpdateAgentCwd(ctx context.Context, arg UpdateAgentCwdParams) error {
-	_, err := q.db.Exec(ctx, updateAgentCwd, arg.Cwd, arg.UpdatedAt, arg.AgentID)
+	_, err := q.db.Exec(ctx, updateAgentCwd, arg.CWD, arg.UpdatedAt, arg.AgentID)
 	return err
 }

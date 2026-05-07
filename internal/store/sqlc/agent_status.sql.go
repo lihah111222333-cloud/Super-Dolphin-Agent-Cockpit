@@ -15,8 +15,12 @@ FROM agent_status
 WHERE agent_id = $1
 `
 
-func (q *Queries) GetAgentStatus(ctx context.Context, agentID string) (AgentStatus, error) {
-	row := q.db.QueryRow(ctx, getAgentStatus, agentID)
+type GetAgentStatusParams struct {
+	AgentID string `db:"agent_id" json:"agent_id"`
+}
+
+func (q *Queries) GetAgentStatus(ctx context.Context, arg GetAgentStatusParams) (AgentStatus, error) {
+	row := q.db.QueryRow(ctx, getAgentStatus, arg.AgentID)
 	var i AgentStatus
 	err := row.Scan(
 		&i.AgentID,
@@ -40,8 +44,12 @@ ORDER BY updated_at DESC
 LIMIT 500
 `
 
-func (q *Queries) ListAgentStatuses(ctx context.Context, dollar_1 string) ([]AgentStatus, error) {
-	rows, err := q.db.Query(ctx, listAgentStatuses, dollar_1)
+type ListAgentStatusesParams struct {
+	Column1 string `db:"column_1" json:"column_1"`
+}
+
+func (q *Queries) ListAgentStatuses(ctx context.Context, arg ListAgentStatusesParams) ([]AgentStatus, error) {
+	rows, err := q.db.Query(ctx, listAgentStatuses, arg.Column1)
 	if err != nil {
 		return nil, err
 	}
