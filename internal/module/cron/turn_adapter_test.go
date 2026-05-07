@@ -9,14 +9,11 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	thread "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
-	turn "github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 )
 
 // fakeSession is a minimal contract.Session used purely to thread a
 // ThreadID through the adapter; StartTurn / Interrupt / etc. are not
-// exercised (the adapter passes the session to turn.Service which
+// exercised (the adapter passes the session to CronTurnExecutor which
 // is itself a fake here).
 type fakeSession struct {
 	threadID string
@@ -65,44 +62,45 @@ func (r *fakeResolver) ResolveSession(_ context.Context, threadID string) (contr
 	return s, nil
 }
 
-// fakeTurnService records PrepareTurn / StartTurn / TrackTurn /
-// LookupByDedupeKey calls and returns controllable outcomes.
+// fakeTurnService records CronPrepareTurn / CronStartTurn / CronTrackTurn /
+// CronLookupByDedupeKey calls and returns controllable outcomes.
 type fakeTurnService struct {
-	turn.Service // embed to only override the 4 methods the adapter uses
-	prepareFn    func(context.Context, contract.Session, turn.PrepareInput) (providerdto.TurnRequest, error)
-	startFn      func(context.Context, contract.Session, providerdto.TurnRequest) (contract.TurnHandle, error)
-	trackFn      func(context.Context, string) (turn.TurnStatus, error)
-	lookupFn     func(context.Context, string) (turn.TurnStatus, bool, error)
+	prepareFn func(context.Context, contract.Session, contract.CronPrepareInput) (providerdto.TurnRequest, error)
+	startFn   func(context.Context, contract.Session, providerdto.TurnRequest) (contract.TurnHandle, error)
+	trackFn   func(context.Context, string) (contract.CronTurnStatus, error)
+	lookupFn  func(context.Context, string) (contract.CronTurnStatus, bool, error)
 
-	prepareCalls []turn.PrepareInput
+	prepareCalls []contract.CronPrepareInput
 	lookupCalls  []string
 }
 
-func (f *fakeTurnService) PrepareTurn(ctx context.Context, s contract.Session, in turn.PrepareInput) (providerdto.TurnRequest, error) {
+var _ contract.CronTurnExecutor = (*fakeTurnService)(nil)
+
+func (f *fakeTurnService) CronPrepareTurn(ctx context.Context, s contract.Session, in contract.CronPrepareInput) (providerdto.TurnRequest, error) {
 	f.prepareCalls = append(f.prepareCalls, in)
 	if f.prepareFn != nil {
 		return f.prepareFn(ctx, s, in)
 	}
 	return providerdto.TurnRequest{LocalID: "turn-local-1", ThreadID: s.ThreadID()}, nil
 }
-func (f *fakeTurnService) StartTurn(ctx context.Context, s contract.Session, req providerdto.TurnRequest) (contract.TurnHandle, error) {
+func (f *fakeTurnService) CronStartTurn(ctx context.Context, s contract.Session, req providerdto.TurnRequest) (contract.TurnHandle, error) {
 	if f.startFn != nil {
 		return f.startFn(ctx, s, req)
 	}
 	return &fakeHandle{localID: req.LocalID}, nil
 }
-func (f *fakeTurnService) TrackTurn(ctx context.Context, localID string) (turn.TurnStatus, error) {
+func (f *fakeTurnService) CronTrackTurn(ctx context.Context, localID string) (contract.CronTurnStatus, error) {
 	if f.trackFn != nil {
 		return f.trackFn(ctx, localID)
 	}
-	return turn.TurnStatus{LocalID: localID, State: "running"}, nil
+	return contract.CronTurnStatus{LocalID: localID, State: "running"}, nil
 }
-func (f *fakeTurnService) LookupByDedupeKey(ctx context.Context, key string) (turn.TurnStatus, bool, error) {
+func (f *fakeTurnService) CronLookupByDedupeKey(ctx context.Context, key string) (contract.CronTurnStatus, bool, error) {
 	f.lookupCalls = append(f.lookupCalls, key)
 	if f.lookupFn != nil {
 		return f.lookupFn(ctx, key)
 	}
-	return turn.TurnStatus{}, false, nil
+	return contract.CronTurnStatus{}, false, nil
 }
 
 type fakeHandle struct {
@@ -172,11 +170,11 @@ func TestAdapterStartTurnHappyPath(t *testing.T) {
 		t.Fatalf("result = %+v", res)
 	}
 	if len(svc.prepareCalls) != 1 {
-		t.Fatalf("want 1 PrepareTurn call, got %d", len(svc.prepareCalls))
+		t.Fatalf("want 1 CronPrepareTurn call, got %d", len(svc.prepareCalls))
 	}
 	got := svc.prepareCalls[0]
 	if got.Prompt != "daily check" || got.Provider != "codex" || got.Model != "gpt-5" || got.CWD != "/repo" || got.AgentID != "agent-1" {
-		t.Fatalf("PrepareInput forward wrong: %+v", got)
+		t.Fatalf("CronPrepareInput forward wrong: %+v", got)
 	}
 	if len(got.Skills) != 2 || got.Skills[0].Name != "skill-a" || got.Skills[1].Name != "skill-b" {
 		t.Fatalf("Skills trim/skip empty wrong: %+v", got.Skills)
@@ -199,7 +197,7 @@ func TestAdapterStartTurnResolverError(t *testing.T) {
 func TestAdapterStartTurnPrepareError(t *testing.T) {
 	t.Parallel()
 	svc := &fakeTurnService{
-		prepareFn: func(context.Context, contract.Session, turn.PrepareInput) (providerdto.TurnRequest, error) {
+		prepareFn: func(context.Context, contract.Session, contract.CronPrepareInput) (providerdto.TurnRequest, error) {
 			return providerdto.TurnRequest{}, errors.New("boom")
 		},
 	}
@@ -252,8 +250,8 @@ func TestAdapterStartTurnEmptyLocalIDIsError(t *testing.T) {
 func TestAdapterObserveTranslatesTurnNotFound(t *testing.T) {
 	t.Parallel()
 	svc := &fakeTurnService{
-		trackFn: func(context.Context, string) (turn.TurnStatus, error) {
-			return turn.TurnStatus{}, errors.New("turn not found")
+		trackFn: func(context.Context, string) (contract.CronTurnStatus, error) {
+			return contract.CronTurnStatus{}, errors.New("turn not found")
 		},
 	}
 	a := NewTurnServiceAdapter(slog.Default(), svc, &fakeResolver{})
@@ -266,8 +264,8 @@ func TestAdapterObserveTranslatesTurnNotFound(t *testing.T) {
 func TestAdapterObserveWrapsOtherErrors(t *testing.T) {
 	t.Parallel()
 	svc := &fakeTurnService{
-		trackFn: func(context.Context, string) (turn.TurnStatus, error) {
-			return turn.TurnStatus{}, errors.New("db offline")
+		trackFn: func(context.Context, string) (contract.CronTurnStatus, error) {
+			return contract.CronTurnStatus{}, errors.New("db offline")
 		},
 	}
 	a := NewTurnServiceAdapter(slog.Default(), svc, &fakeResolver{})
@@ -334,8 +332,8 @@ func TestAdapterLookupByDedupeKeyMiss(t *testing.T) {
 func TestAdapterLookupByDedupeKeyHit(t *testing.T) {
 	t.Parallel()
 	svc := &fakeTurnService{
-		lookupFn: func(context.Context, string) (turn.TurnStatus, bool, error) {
-			return turn.TurnStatus{LocalID: "turn-local-42", ProviderID: "provider-7", State: "running"}, true, nil
+		lookupFn: func(context.Context, string) (contract.CronTurnStatus, bool, error) {
+			return contract.CronTurnStatus{LocalID: "turn-local-42", ProviderID: "provider-7", State: "running"}, true, nil
 		},
 	}
 	a := NewTurnServiceAdapter(slog.Default(), svc, &fakeResolver{})
@@ -356,8 +354,8 @@ func TestAdapterLookupByDedupeKeyHit(t *testing.T) {
 func TestAdapterLookupByDedupeKeyServiceError(t *testing.T) {
 	t.Parallel()
 	svc := &fakeTurnService{
-		lookupFn: func(context.Context, string) (turn.TurnStatus, bool, error) {
-			return turn.TurnStatus{}, false, errors.New("tracker offline")
+		lookupFn: func(context.Context, string) (contract.CronTurnStatus, bool, error) {
+			return contract.CronTurnStatus{}, false, errors.New("tracker offline")
 		},
 	}
 	a := NewTurnServiceAdapter(slog.Default(), svc, &fakeResolver{})
@@ -371,8 +369,8 @@ func TestAdapterLookupByDedupeKeyServiceError(t *testing.T) {
 }
 
 // TestAdapterStartTurnForwardsDedupeKey asserts the adapter threads
-// StartTurnRequest.DedupeKey into turn.PrepareInput so the tracker
-// can register it during PrepareTurn/StartTurn.
+// StartTurnRequest.DedupeKey into CronPrepareInput so the tracker
+// can register it during CronPrepareTurn/CronStartTurn.
 func TestAdapterStartTurnForwardsDedupeKey(t *testing.T) {
 	t.Parallel()
 	svc := &fakeTurnService{}
@@ -438,11 +436,6 @@ func stringContains(s, sub string) bool {
 	}
 	return false
 }
-
-// Ensure unused imports don't trip go vet when the test file is
-// trimmed later. The compiler will also catch this — this line just
-// documents the intended dependency set.
-var _ = sharedto.InputItem{}
 
 // ----- Bootstrap paths -----
 
@@ -557,23 +550,24 @@ func TestNoopThreadBootstrapperSignals(t *testing.T) {
 
 // ----- ThreadServiceBootstrapper -----
 
-type fakeThreadService struct {
-	thread.Service
-	startFn func(context.Context, thread.StartRequest) (thread.StartResult, error)
-	calls   []thread.StartRequest
+type fakeThreadStarter struct {
+	startFn func(context.Context, contract.CronStartThreadRequest) (contract.CronStartThreadResult, error)
+	calls   []contract.CronStartThreadRequest
 }
 
-func (f *fakeThreadService) Start(ctx context.Context, req thread.StartRequest) (thread.StartResult, error) {
+var _ contract.CronThreadStarter = (*fakeThreadStarter)(nil)
+
+func (f *fakeThreadStarter) CronStartThread(ctx context.Context, req contract.CronStartThreadRequest) (contract.CronStartThreadResult, error) {
 	f.calls = append(f.calls, req)
 	if f.startFn != nil {
 		return f.startFn(ctx, req)
 	}
-	return thread.StartResult{ThreadID: "thread-new", AgentID: "agent-new"}, nil
+	return contract.CronStartThreadResult{ThreadID: "thread-new", AgentID: "agent-new"}, nil
 }
 
 func TestThreadServiceBootstrapperHappyPath(t *testing.T) {
 	t.Parallel()
-	ts := &fakeThreadService{}
+	ts := &fakeThreadStarter{}
 	b := NewThreadServiceBootstrapper(slog.Default(), ts)
 	res, err := b.BootstrapThread(context.Background(), BootstrapRequest{
 		JobID:    "job-1",
@@ -590,11 +584,11 @@ func TestThreadServiceBootstrapperHappyPath(t *testing.T) {
 		t.Fatalf("result %+v", res)
 	}
 	if len(ts.calls) != 1 {
-		t.Fatalf("want 1 thread.Start call, got %d", len(ts.calls))
+		t.Fatalf("want 1 CronStartThread call, got %d", len(ts.calls))
 	}
 	got := ts.calls[0]
 	if got.Provider != "codex" || got.Model != "gpt-5" || got.CWD != "/repo" || got.Name != "nightly" {
-		t.Fatalf("StartRequest projection wrong: %+v", got)
+		t.Fatalf("CronStartThreadRequest projection wrong: %+v", got)
 	}
 	if got.Config == nil || got.Config["codexHome"] != "/tmp/home" || got.Config["codexInstanceKey"] != "glm" {
 		t.Fatalf("Config not decoded into map: %+v", got.Config)
@@ -603,9 +597,9 @@ func TestThreadServiceBootstrapperHappyPath(t *testing.T) {
 
 func TestThreadServiceBootstrapperPropagatesStartError(t *testing.T) {
 	t.Parallel()
-	ts := &fakeThreadService{
-		startFn: func(context.Context, thread.StartRequest) (thread.StartResult, error) {
-			return thread.StartResult{}, errors.New("thread start offline")
+	ts := &fakeThreadStarter{
+		startFn: func(context.Context, contract.CronStartThreadRequest) (contract.CronStartThreadResult, error) {
+			return contract.CronStartThreadResult{}, errors.New("thread start offline")
 		},
 	}
 	b := NewThreadServiceBootstrapper(slog.Default(), ts)
@@ -617,7 +611,7 @@ func TestThreadServiceBootstrapperPropagatesStartError(t *testing.T) {
 
 func TestThreadServiceBootstrapperMalformedConfigRejected(t *testing.T) {
 	t.Parallel()
-	b := NewThreadServiceBootstrapper(slog.Default(), &fakeThreadService{})
+	b := NewThreadServiceBootstrapper(slog.Default(), &fakeThreadStarter{})
 	_, err := b.BootstrapThread(context.Background(), BootstrapRequest{
 		JobID:  "j",
 		Config: json.RawMessage("not-json"),

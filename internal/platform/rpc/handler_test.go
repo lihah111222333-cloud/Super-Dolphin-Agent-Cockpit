@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/creachadair/jrpc2"
@@ -44,8 +45,8 @@ func TestNewCapabilityResolverRejectsNilSession(t *testing.T) {
 
 	resolver := NewCapabilityResolver(stubSessionResolver{})
 	_, err := resolver(withThreadID(context.Background(), "thread-1"))
-	if err == nil || err.Error() != "thread session is not available" {
-		t.Fatalf("resolver() error = %v, want thread session is not available", err)
+	if err == nil || !strings.Contains(err.Error(), "thread session is not available") {
+		t.Fatalf("resolver() error = %v, want containing 'thread session is not available'", err)
 	}
 }
 

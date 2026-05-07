@@ -5,8 +5,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 )
 
 func TestNewExpandedArtifactState_DefaultTTL(t *testing.T) {
@@ -78,20 +78,20 @@ func TestExpandedArtifactState_HashChangeBreaksFresh(t *testing.T) {
 
 func TestExpandedArtifactState_BodyVsResourceIsolated(t *testing.T) {
 	s := NewExpandedArtifactState(5)
-	s.MarkArtifact("foo", skillpkg.ArtifactKindBody, "SKILL.md", "hashA", 0)
+	s.MarkArtifact("foo", contract.ArtifactKindBody, "SKILL.md", "hashA", 0)
 	// 同 name 但不同 kind/locator 必须互不抑制
-	if s.IsArtifactFresh("foo", skillpkg.ArtifactKindResource, "references/api.md", "hashA", 0) {
+	if s.IsArtifactFresh("foo", contract.ArtifactKindResource, "references/api.md", "hashA", 0) {
 		t.Fatalf("body fresh should NOT imply resource fresh")
 	}
-	if s.IsArtifactFresh("foo", skillpkg.ArtifactKindBody, "SKILL.md#Usage", "hashA", 0) {
+	if s.IsArtifactFresh("foo", contract.ArtifactKindBody, "SKILL.md#Usage", "hashA", 0) {
 		t.Fatalf("body SKILL.md fresh should NOT imply different anchor fresh")
 	}
 	// 再 Mark resource 之后两者都 fresh，但彼此独立
-	s.MarkArtifact("foo", skillpkg.ArtifactKindResource, "references/api.md", "hashB", 0)
-	if !s.IsArtifactFresh("foo", skillpkg.ArtifactKindBody, "SKILL.md", "hashA", 0) {
+	s.MarkArtifact("foo", contract.ArtifactKindResource, "references/api.md", "hashB", 0)
+	if !s.IsArtifactFresh("foo", contract.ArtifactKindBody, "SKILL.md", "hashA", 0) {
 		t.Fatalf("body should still be fresh after marking resource")
 	}
-	if !s.IsArtifactFresh("foo", skillpkg.ArtifactKindResource, "references/api.md", "hashB", 0) {
+	if !s.IsArtifactFresh("foo", contract.ArtifactKindResource, "references/api.md", "hashB", 0) {
 		t.Fatalf("resource should be fresh after marking")
 	}
 }

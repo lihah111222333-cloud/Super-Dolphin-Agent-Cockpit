@@ -4,7 +4,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
+	dtoskill "github.com/anthropic-ai/super-agent-v3/internal/dto/skill"
 )
 
 // TierConfig 是 budget 贪心分配的输入参数。env 覆盖在 Tracker / NewTrackerFromEnv
@@ -39,7 +39,7 @@ func DefaultTierConfig() TierConfig {
 // TierAssignment 是 AssignTiers 单条输出。Score 是辅助诊断字段（pinned / grace
 // 用 sentinel 大数填，调用方仅需关心 Tier）。
 type TierAssignment struct {
-	Skill skilllibrary.SkillEntry
+	Skill dtoskill.SkillEntry
 	Tier  Tier
 	Score float64
 }
@@ -61,20 +61,20 @@ const (
 // budget 用尽后剩余 → Frozen（贪心：先 Hot，余量降级 Warm/Cold）。
 //
 // wsStats / globStats 可为 nil（首启动）；时间通过 now 注入便于测试。
-func AssignTiers(entries []skilllibrary.SkillEntry, wsStats, globStats Stats, cfg TierConfig, now time.Time) []TierAssignment {
+func AssignTiers(entries []dtoskill.SkillEntry, wsStats, globStats Stats, cfg TierConfig, now time.Time) []TierAssignment {
 	dec := decorate(entries, wsStats, globStats, cfg, now)
 	sort.SliceStable(dec, func(i, j int) bool { return dec[i].score > dec[j].score })
 	return greedyAssign(dec, cfg)
 }
 
 type decorated struct {
-	entry  skilllibrary.SkillEntry
+	entry  dtoskill.SkillEntry
 	score  float64
 	forced Tier // "" 或 Hot
 }
 
 // decorate 把 SkillEntry 按 pinned/grace/score 三档转成 decorated。
-func decorate(entries []skilllibrary.SkillEntry, wsStats, globStats Stats, cfg TierConfig, now time.Time) []decorated {
+func decorate(entries []dtoskill.SkillEntry, wsStats, globStats Stats, cfg TierConfig, now time.Time) []decorated {
 	out := make([]decorated, 0, len(entries))
 	for _, e := range entries {
 		if e.Meta == nil || e.Meta.Disabled {

@@ -19,6 +19,7 @@ const (
 	CodeApprovalTimeout = -31005
 	CodeNotImplemented  = -31006
 	CodeInvalidParams   = -31007
+	CodeMethodNotFound  = -31008
 )
 
 // CapabilityResolver returns the active provider capabilities from context.

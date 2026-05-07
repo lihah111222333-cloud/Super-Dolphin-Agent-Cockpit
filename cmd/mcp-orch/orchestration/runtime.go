@@ -66,7 +66,7 @@ func (s *service) snapshotLocked(_ context.Context, agent *agentRuntime) AgentSn
 		ThreadID:       threadID,
 		ActiveTurnID:   agent.activeTurnID,
 		Cwd:            agent.cwd,
-		State:          agent.state,
+		State:          string(agent.state),
 		Provider:       provider,
 		ProviderSource: providerSource,
 		LastReport:     normalizeDisplayReportText(agent.lastReport),

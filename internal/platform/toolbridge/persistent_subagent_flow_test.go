@@ -16,6 +16,23 @@ import (
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
+// testThreadConfigOverrideStore adapts threadstore.Store into the narrow
+// ThreadConfigOverrideStore port for test fixtures.
+type testThreadConfigOverrideStore struct {
+	inner threadstore.Store
+}
+
+func (a testThreadConfigOverrideStore) GetConfigOverride(ctx context.Context, threadID string) (json.RawMessage, error) {
+	if a.inner == nil {
+		return nil, nil
+	}
+	row, err := a.inner.GetByThreadID(ctx, threadID)
+	if err != nil || row == nil {
+		return nil, err
+	}
+	return row.ConfigOverride, nil
+}
+
 type persistentFlowThreadStore struct {
 	row *threadstore.Thread
 }
@@ -270,10 +287,10 @@ func TestPersistentSubagentDefaultFlow_StartFiltersSpawnAgentAndToolbridgeBlocks
 		t.Fatal("Callback() should not be invoked when spawn_agent is blocked")
 		return nil
 	}}})
-	// P22 P4 S3d: wrap the full threadstore.Store fixture through the
-	// narrow port adapter so h.threadStore (threadConfigOverrideStore)
+	// P22 P4 S3d: wrap the full threadstore.Store fixture through a
+	// narrow port adapter so h.threadStore (ThreadConfigOverrideStore)
 	// receives only the ConfigOverride bytes the handler actually reads.
-	h.threadStore = provideThreadConfigOverrideStore(store)
+	h.threadStore = testThreadConfigOverrideStore{inner: store}
 	h.cfg = cfg
 
 	toolResult, err := h.routeToolCall(ctx, ToolCallRequest{

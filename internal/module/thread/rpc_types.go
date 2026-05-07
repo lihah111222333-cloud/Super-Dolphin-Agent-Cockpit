@@ -2,9 +2,10 @@ package thread
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
+
+	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
 type threadIDParams struct {
@@ -24,23 +25,27 @@ func (p *threadIDParams) UnmarshalJSON(data []byte) error {
 }
 
 type startParams struct {
-	AgentID               string          `json:"agent_id,omitempty"`
-	Provider              string          `json:"provider,omitempty"`
-	CWD                   string          `json:"cwd,omitempty"`
-	Model                 string          `json:"model,omitempty"`
-	ModelProvider         string          `json:"model_provider,omitempty"`
-	ApprovalPolicy        string          `json:"approval_policy,omitempty"`
-	ParentAgentID         string          `json:"parent_agent_id,omitempty"`
-	AgentType             string          `json:"agent_type,omitempty"`
-	AgentMemoryScope      string          `json:"agent_memory_scope,omitempty"`
-	BaseInstructions      string          `json:"base_instructions,omitempty"`
-	DeveloperInstructions string          `json:"developer_instructions,omitempty"`
-	Sandbox               json.RawMessage `json:"sandbox,omitempty"`
-	Summary               string          `json:"summary,omitempty"`
-	Effort                string          `json:"effort,omitempty"`
-	Personality           string          `json:"personality,omitempty"`
-	Language              string          `json:"language,omitempty"`
-	Config                json.RawMessage `json:"config,omitempty"`
+	AgentID               string `json:"agent_id,omitempty"`
+	Provider              string `json:"provider,omitempty"`
+	CWD                   string `json:"cwd,omitempty"`
+	Model                 string `json:"model,omitempty"`
+	ModelProvider         string `json:"model_provider,omitempty"`
+	ApprovalPolicy        string `json:"approval_policy,omitempty"`
+	ParentAgentID         string `json:"parent_agent_id,omitempty"`
+	AgentType             string `json:"agent_type,omitempty"`
+	AgentMemoryScope      string `json:"agent_memory_scope,omitempty"`
+	BaseInstructions      string `json:"base_instructions,omitempty"`
+	DeveloperInstructions string `json:"developer_instructions,omitempty"`
+	// json.RawMessage: justified -- polymorphic wire shape (object {"type":"..."} OR plain string);
+	// consumed via isDangerFullAccessSandbox and forwarded opaquely to provider config.
+	Sandbox     json.RawMessage `json:"sandbox,omitempty"`
+	Summary     string          `json:"summary,omitempty"`
+	Effort      string          `json:"effort,omitempty"`
+	Personality string          `json:"personality,omitempty"`
+	Language    string          `json:"language,omitempty"`
+	// json.RawMessage: justified -- open-ended key/value config bag decoded via
+	// decodeConfigMap into map[string]any; schema is caller-defined, not fixed.
+	Config json.RawMessage `json:"config,omitempty"`
 
 	Name string `json:"name,omitempty"`
 	// Deprecated: use Name for display-name semantics; Prompt is kept only for legacy callers.
@@ -326,7 +331,7 @@ func decodeMessagesBefore(raw json.RawMessage) (string, error) {
 	if err := dec.Decode(&number); err == nil {
 		return strings.TrimSpace(number.String()), nil
 	}
-	return "", errors.New("thread/messages: before must be a string or integer")
+	return "", platformrpc.ErrInvalidParams("thread/messages: before must be a string or integer")
 }
 
 type nameSetParams struct {
@@ -462,4 +467,117 @@ func fillLegacyThreadID(data []byte, threadID *string) error {
 	}
 	*threadID = strings.TrimSpace(legacy.ThreadID)
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Response structs — wire-compatible replacements for map[string]any returns.
+// JSON tags MUST match the original map keys exactly.
+// ---------------------------------------------------------------------------
+
+// startEffectiveResponse is the nested "effective" object inside startResponse.
+type startEffectiveResponse struct {
+	Model          string `json:"model"`
+	Provider       string `json:"provider"`
+	ModelProvider  string `json:"modelProvider"`
+	CWD            string `json:"cwd"`
+	ApprovalPolicy string `json:"approvalPolicy"`
+}
+
+// startResponse is the wire response for thread/start.
+type startResponse struct {
+	Thread         threadInfo             `json:"thread"`
+	ThreadID       string                 `json:"threadId"`
+	ThreadIDSnake  string                 `json:"thread_id"`
+	SessionID      string                 `json:"sessionId"`
+	SessionIDSnake string                 `json:"session_id"`
+	Status         string                 `json:"status"`
+	AgentID        string                 `json:"agentId"`
+	AgentIDSnake   string                 `json:"agent_id"`
+	Model          string                 `json:"model"`
+	Provider       string                 `json:"provider"`
+	ModelProvider  string                 `json:"modelProvider"`
+	CWD            string                 `json:"cwd"`
+	ApprovalPolicy string                 `json:"approvalPolicy"`
+	Effective      startEffectiveResponse `json:"effective"`
+
+	// Optional fields — omitted from JSON when zero/nil.
+	AgentKey         *string `json:"agent_key,omitempty"`
+	AgentKeyCamel    *string `json:"agentKey,omitempty"`
+	AgentTitle       *string `json:"agent_title,omitempty"`
+	AgentTitleCamel  *string `json:"agentTitle,omitempty"`
+	PromptKey        *string `json:"prompt_key,omitempty"`
+	PromptKeyCamel   *string `json:"promptKey,omitempty"`
+	PromptVersionID  *int64  `json:"prompt_version_id,omitempty"`
+	PromptVersionIDC *int64  `json:"promptVersionId,omitempty"`
+	PendingLaunch    *bool   `json:"pending_launch,omitempty"`
+	PendingLaunchC   *bool   `json:"pendingLaunch,omitempty"`
+	TaskID           *string `json:"task_id,omitempty"`
+	TaskIDCamel      *string `json:"taskId,omitempty"`
+	HandoffFile      *string `json:"handoff_file,omitempty"`
+	HandoffFileCamel *string `json:"handoffFile,omitempty"`
+}
+
+// promoteTaskResponse is the wire response for ui/thread/promote-task.
+type promoteTaskResponse struct {
+	ThreadIDSnake string `json:"thread_id"`
+	ThreadIDCamel string `json:"threadId"`
+	TaskIDSnake   string `json:"task_id"`
+	TaskIDCamel   string `json:"taskId"`
+	AlreadyTask   bool   `json:"already_task"`
+	AlreadyTaskC  bool   `json:"alreadyTask"`
+
+	TaskTitle         *string `json:"task_title,omitempty"`
+	TaskTitleCamel    *string `json:"taskTitle,omitempty"`
+	HandoffFile       *string `json:"handoff_file,omitempty"`
+	HandoffFileC      *string `json:"handoffFile,omitempty"`
+	HandoffShellWarn  *string `json:"handoff_shell_warning,omitempty"`
+	HandoffShellWarnC *string `json:"handoffShellWarning,omitempty"`
+}
+
+// forkResponse is the wire response for thread/fork.
+type forkResponse struct {
+	Thread threadInfo `json:"thread"`
+}
+
+// handoffResponse is the wire response for thread/handoff.
+type handoffResponse struct {
+	SourceThreadID      string     `json:"source_thread_id"`
+	SourceThreadIDCamel string     `json:"sourceThreadId"`
+	NewThreadID         string     `json:"new_thread_id"`
+	NewThreadIDCamel    string     `json:"newThreadId"`
+	Thread              threadInfo `json:"thread"`
+	AgentID             string     `json:"agent_id"`
+	AgentIDCamel        string     `json:"agentId"`
+	Status              string     `json:"status"`
+
+	AgentKey         *string `json:"agent_key,omitempty"`
+	AgentKeyCamel    *string `json:"agentKey,omitempty"`
+	PromptKey        *string `json:"prompt_key,omitempty"`
+	PromptKeyCamel   *string `json:"promptKey,omitempty"`
+	PromptVersionID  *int64  `json:"prompt_version_id,omitempty"`
+	PromptVersionIDC *int64  `json:"promptVersionId,omitempty"`
+}
+
+// recoverResponse is the wire response for thread/recover.
+type recoverResponse struct {
+	Thread    threadInfo `json:"thread"`
+	Recovered bool       `json:"recovered"`
+	Mode      string     `json:"mode"`
+}
+
+// resumeResponse is the wire response for thread/resume.
+type resumeResponse struct {
+	Thread         threadInfo `json:"thread"`
+	ThreadID       string     `json:"threadId"`
+	ThreadIDSnake  string     `json:"thread_id"`
+	SessionID      string     `json:"sessionId"`
+	SessionIDSnake string     `json:"session_id"`
+	Status         string     `json:"status"`
+	Model          string     `json:"model"`
+	CWD            string     `json:"cwd"`
+}
+
+// flushAndVerifyResponse is the wire response for ui/task/flush_and_verify.
+type flushAndVerifyResponse struct {
+	OK bool `json:"ok"`
 }

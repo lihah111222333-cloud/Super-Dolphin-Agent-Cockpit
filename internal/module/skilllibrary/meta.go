@@ -9,33 +9,24 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	dtoskill "github.com/anthropic-ai/super-agent-v3/internal/dto/skill"
 )
 
-// Origin 表示 skill 来源（spec §5.1）。
-type Origin string
+// Origin, SkillMeta — canonical definitions live in dto/skill;
+// aliases here preserve backward compatibility for all existing
+// skilllibrary.Origin / skilllibrary.SkillMeta references.
+type Origin = dtoskill.Origin
 
 const (
-	OriginBuiltin     Origin = "builtin"
-	OriginMarketplace Origin = "marketplace"
-	OriginLocal       Origin = "local"
-	OriginDevOverride Origin = "dev-override"
+	OriginBuiltin     = dtoskill.OriginBuiltin
+	OriginMarketplace = dtoskill.OriginMarketplace
+	OriginLocal       = dtoskill.OriginLocal
+	OriginDevOverride = dtoskill.OriginDevOverride
 )
 
-// SkillMeta 是 .skill-meta.json sidecar 的完整 schema（spec §3.1）。
-type SkillMeta struct {
-	Name                   string              `json:"name"`
-	Origin                 Origin              `json:"origin"`
-	Version                string              `json:"version"`
-	VersionHash            string              `json:"version_hash"`
-	InstalledAt            string              `json:"installed_at,omitempty"`
-	Signature              *string             `json:"signature"`
-	AllowedTools           []string            `json:"allowed_tools,omitempty"`
-	DisableModelInvocation bool                `json:"disable_model_invocation,omitempty"`
-	Pinned                 bool                `json:"pinned,omitempty"`
-	Disabled               bool                `json:"disabled,omitempty"`
-	ReplacesNative         map[string][]string `json:"replaces_native,omitempty"`
-	SectionSummaries       map[string]string   `json:"section_summaries,omitempty"`
-}
+// SkillMeta is a type alias for dtoskill.SkillMeta.
+type SkillMeta = dtoskill.SkillMeta
 
 const metaFilename = ".skill-meta.json"
 

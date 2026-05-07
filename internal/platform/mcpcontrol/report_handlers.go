@@ -29,7 +29,7 @@ func handleReport(
 	req dto.ReportRequest,
 ) (dto.ReportResponse, error) {
 	return withResolvedInstance(registry, req, func(req dto.ReportRequest) dto.LeaseKey {
-		return req.Lease
+		return dto.LeaseKey{InstanceID: req.InstanceID, Generation: req.Generation}
 	}, func(instance *ToolInstance) (dto.ReportResponse, error) {
 		cached, fingerprint, err := registry.reserveReport(instance.Lease, req)
 		if err != nil {

@@ -32,7 +32,7 @@ func normalizeApprovalRequest(req ApprovalRequest) (ApprovalRequest, error) {
 	req.ToolName = strings.TrimSpace(req.ToolName)
 	req.ApprovalID = strings.TrimSpace(req.ApprovalID)
 	req.Kind = shared.FirstNonEmpty(strings.TrimSpace(req.Kind), "tool")
-	req.State = shared.FirstNonEmpty(strings.TrimSpace(req.State), agentdto.StateAwaitingUserInput)
+	req.State = shared.FirstNonEmpty(strings.TrimSpace(req.State), string(agentdto.StateAwaitingUserInput))
 	req.SourceMethod = strings.TrimSpace(req.SourceMethod)
 	req.Reason = strings.TrimSpace(req.Reason)
 	req.ApprovalPolicy = strings.TrimSpace(req.ApprovalPolicy)

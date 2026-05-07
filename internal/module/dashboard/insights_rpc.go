@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 
-	insightmodule "github.com/anthropic-ai/super-agent-v3/internal/module/insight"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
 )
 
-type InsightReader = insightmodule.Service
+type InsightReader = contract.InsightService
 
 func addDashboardInsightHandlers(handlers handler.Map, reader InsightReader) {
 	if reader == nil {
@@ -33,7 +33,7 @@ type insightsApprovalsParams struct {
 func dashboardInsightsListHandler(reader InsightReader) func(context.Context, insightsListParams) (map[string]any, error) {
 	return func(ctx context.Context, p insightsListParams) (map[string]any, error) {
 		var (
-			snaps []insightmodule.Snapshot
+			snaps []contract.InsightSnapshot
 			err   error
 		)
 		if p.ThreadID == "" {
@@ -45,7 +45,7 @@ func dashboardInsightsListHandler(reader InsightReader) func(context.Context, in
 			return nil, mapInsightRPCError(err)
 		}
 		if snaps == nil {
-			snaps = []insightmodule.Snapshot{}
+			snaps = []contract.InsightSnapshot{}
 		}
 		return map[string]any{"insights": snaps}, nil
 	}
@@ -58,7 +58,7 @@ func dashboardInsightsApprovalsHandler(reader InsightReader) func(context.Contex
 			return nil, mapInsightRPCError(err)
 		}
 		if rows == nil {
-			rows = []insightmodule.ApprovalSnapshot{}
+			rows = []contract.InsightApprovalSnapshot{}
 		}
 		return map[string]any{"approvals": rows}, nil
 	}
@@ -72,11 +72,11 @@ func mapInsightRPCError(err error) error {
 	if errors.As(err, &rpcErr) {
 		return err
 	}
-	if errors.Is(err, insightmodule.ErrInvalidLimit) {
-		return jrpc2.Errorf(jrpc2.InvalidParams, "%s", err.Error())
+	if errors.Is(err, contract.ErrInsightInvalidLimit) {
+		return platformrpc.ErrInvalidParams(err.Error())
 	}
 	if err.Error() == "insight: thread_id is required" {
-		return jrpc2.Errorf(jrpc2.InvalidParams, "%s", err.Error())
+		return platformrpc.ErrInvalidParams(err.Error())
 	}
 	return err
 }

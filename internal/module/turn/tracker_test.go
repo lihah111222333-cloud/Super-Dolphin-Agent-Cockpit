@@ -71,7 +71,7 @@ func TestTurnTrackerStartAttachUpdateAndGet(t *testing.T) {
 	tracker.Start(" local-1 ", "", " thread-1 ")
 	tracker.AttachHandle(" local-1 ", handle)
 	tracker.BindProviderID("local-1", "provider-bound")
-	tracker.Update("local-1", "running")
+	tracker.Update("local-1", StateRunning)
 
 	status := requireTurnStatus(t, tracker, "local-1")
 	if status.LocalID != "local-1" || status.ProviderID != "provider-bound" || status.State != "running" {
@@ -91,7 +91,7 @@ func TestTurnTrackerCompleteSuccessClearsActiveHandle(t *testing.T) {
 
 	tracker.Start("local-1", "provider-1", "thread-1")
 	tracker.AttachHandle("local-1", handle)
-	tracker.Update("local-1", "running")
+	tracker.Update("local-1", StateRunning)
 	tracker.Complete("local-1", true, "")
 
 	status := requireTurnStatus(t, tracker, "local-1")
@@ -138,7 +138,7 @@ func TestTurnTrackerAbortThreadSkipsTerminalTurns(t *testing.T) {
 
 	tracker.Start("running-turn", "provider-2", "thread-1")
 	tracker.AttachHandle("running-turn", newTrackerHandleStub("running-turn", "provider-2"))
-	tracker.Update("running-turn", "running")
+	tracker.Update("running-turn", StateRunning)
 
 	if !tracker.AbortThread(" thread-1 ", " stop requested ") {
 		t.Fatal("AbortThread() = false")
@@ -169,8 +169,8 @@ func TestTurnTrackerIgnoresInvalidInputs(t *testing.T) {
 
 	tracker.Start("local-1", "provider-1", "thread-1")
 	tracker.AttachHandle("missing", newTrackerHandleStub("missing", "provider-2"))
-	tracker.Update("local-1", "")
-	tracker.Update("local-1", "not-a-state")
+	tracker.Update("local-1", TurnState(""))
+	tracker.Update("local-1", TurnState("not-a-state"))
 	tracker.Complete("missing", false, "boom")
 
 	status := requireTurnStatus(t, tracker, "local-1")
@@ -194,7 +194,7 @@ func TestTurnTrackerRegisterAndGetByDedupeKey(t *testing.T) {
 	tracker := newTurnTracker()
 	tracker.Start("local-1", "", "thread-1")
 	tracker.RegisterDedupeKey("local-1", " key-a ")
-	tracker.Update("local-1", "running")
+	tracker.Update("local-1", StateRunning)
 
 	status, ok := tracker.GetByDedupeKey("key-a")
 	if !ok {
@@ -228,7 +228,7 @@ func TestTurnTrackerGetByDedupeKeySkipsTerminal(t *testing.T) {
 	// A second live turn with the same key (simulating a restart scenario)
 	tracker.Start("local-2", "", "thread-1")
 	tracker.RegisterDedupeKey("local-2", "key-a")
-	tracker.Update("local-2", "running")
+	tracker.Update("local-2", StateRunning)
 
 	status, ok := tracker.GetByDedupeKey("key-a")
 	if !ok || status.LocalID != "local-2" {
@@ -253,12 +253,12 @@ func TestTurnTrackerGetByDedupeKeyReturnsLatestOnConflict(t *testing.T) {
 	tracker := newTurnTracker()
 	tracker.Start("local-old", "", "thread-1")
 	tracker.RegisterDedupeKey("local-old", "key-shared")
-	tracker.Update("local-old", "running")
+	tracker.Update("local-old", StateRunning)
 
 	// Second registration with the same key — last-wins semantics.
 	tracker.Start("local-new", "", "thread-1")
 	tracker.RegisterDedupeKey("local-new", "key-shared")
-	tracker.Update("local-new", "running")
+	tracker.Update("local-new", StateRunning)
 
 	status, ok := tracker.GetByDedupeKey("key-shared")
 	if !ok {

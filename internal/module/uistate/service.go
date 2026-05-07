@@ -11,7 +11,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/uistate/timeline"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -62,10 +61,11 @@ var _ Service = (*service)(nil)
 
 func NewService(
 	logger *slog.Logger,
-	threads thread.Service,
+	threads contract.ThreadLister,
 	agents contract.OrchestrationService,
 	preferences uipreference.Store,
 	bindings bindingLookup,
+	runtimeCfg runtimeConfigLookup,
 ) (*service, Service, error) {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -78,7 +78,7 @@ func NewService(
 		logger:                logger,
 		preferences:           preferences,
 		bindings:              bindings,
-		runtimeConfig:         runtimeConfigReader(threads),
+		runtimeConfig:         runtimeCfg,
 		state:                 state,
 		workspaceByKey:        map[string]WorkspaceRunSummary{},
 		activityByThread:      map[string]*threadActivity{},
@@ -91,7 +91,7 @@ func NewService(
 	}
 	return svc, svc, nil
 }
-func buildInitialState(ctx context.Context, threads thread.Service, agents contract.OrchestrationService) (UIState, error) {
+func buildInitialState(ctx context.Context, threads contract.ThreadLister, agents contract.OrchestrationService) (UIState, error) {
 	state := UIState{}
 	if threads != nil {
 		items, err := threads.List(ctx)
@@ -117,7 +117,7 @@ func buildInitialState(ctx context.Context, threads thread.Service, agents contr
 	sortAgents(state.Agents)
 	return state, nil
 }
-func summarizeThreads(items []thread.Ref) []ThreadSummary {
+func summarizeThreads(items []contract.ThreadRef) []ThreadSummary {
 	out := make([]ThreadSummary, 0, len(items))
 	for _, item := range items {
 		status := strings.TrimSpace(item.Status)

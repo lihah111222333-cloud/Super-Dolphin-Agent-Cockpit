@@ -6,14 +6,14 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	dtoskill "github.com/anthropic-ai/super-agent-v3/internal/dto/skill"
 )
 
-// SkillEntry 是一条已扫描的 library 条目。
-type SkillEntry struct {
-	Dir     string     // 该 skill 在 library 的绝对目录
-	SkillMD string     // SKILL.md 字节内容（保持 string 易于直接 hash/parse）
-	Meta    *SkillMeta // 同目录下的 .skill-meta.json
-}
+// SkillEntry — canonical definition lives in dto/skill;
+// alias here preserves backward compatibility for all existing
+// skilllibrary.SkillEntry references.
+type SkillEntry = dtoskill.SkillEntry
 
 // Scan 扫描 libraryDir 下所有形如 <dir>/{SKILL.md, .skill-meta.json} 的子目录。
 // 缺 SKILL.md 或 sidecar 一律跳过，不报错。

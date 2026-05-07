@@ -39,7 +39,7 @@ func TestListAgentsIncludesPersistedAgentIDAndNameWhenRuntimeEmpty(t *testing.T)
 	if got[0].Name != "display one" {
 		t.Fatalf("Name = %q, want persisted display name", got[0].Name)
 	}
-	if got[0].ThreadID != "agent-1" || got[0].Cwd != "/repo" || got[0].State != agentdto.StateIdle {
+	if got[0].ThreadID != "agent-1" || got[0].Cwd != "/repo" || got[0].State != string(agentdto.StateIdle) {
 		t.Fatalf("snapshot = %#v, want persisted thread projection", got[0])
 	}
 }
@@ -68,7 +68,7 @@ func TestListAgentsOverlaysRuntimeOnPersistedIdentity(t *testing.T) {
 	if got[0].Name != "renamed" {
 		t.Fatalf("Name = %q, want persisted display name to override launch name", got[0].Name)
 	}
-	if got[0].State != agentdto.StateTurnRunning {
+	if got[0].State != string(agentdto.StateTurnRunning) {
 		t.Fatalf("State = %q, want runtime state", got[0].State)
 	}
 }
@@ -85,7 +85,7 @@ func TestGetReportFallsBackByAgentIDOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetReport(agent_id) error = %v", err)
 	}
-	if got.AgentID != "agent-1" || got.State != agentdto.StateIdle {
+	if got.AgentID != "agent-1" || got.State != string(agentdto.StateIdle) {
 		t.Fatalf("GetReport(agent_id) = %#v, want persisted agent identity/state", got)
 	}
 	if got.Report != "结论：持久化\n\n修复：回读" {
@@ -181,7 +181,7 @@ func TestSubmitTurnRehydratesPersistedAgentRuntimeAfterPeerRestart(t *testing.T)
 	if err != nil {
 		t.Fatalf("Snapshot() error = %v", err)
 	}
-	if snapshot.State != agentdto.StateTurnStarting || snapshot.ActiveTurnID != "turn-1" {
+	if snapshot.State != string(agentdto.StateTurnStarting) || snapshot.ActiveTurnID != "turn-1" {
 		t.Fatalf("Snapshot() = %#v, want rehydrated accepted turn", snapshot)
 	}
 }

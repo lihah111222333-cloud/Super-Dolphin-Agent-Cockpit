@@ -174,13 +174,13 @@ func normalizeRegisterResponse(resp *mcp.RegisterResponse, instanceID string) (*
 		return nil, errors.New("bootstrap: register response is nil")
 	}
 	out := *resp
-	if out.Lease.InstanceID == "" {
-		out.Lease.InstanceID = strings.TrimSpace(instanceID)
+	if out.InstanceID == "" {
+		out.InstanceID = strings.TrimSpace(instanceID)
 	}
-	if out.Lease.Generation == 0 && out.AcceptedGeneration != 0 {
-		out.Lease.Generation = out.AcceptedGeneration
+	if out.Generation == 0 && out.AcceptedGeneration != 0 {
+		out.Generation = out.AcceptedGeneration
 	}
-	if out.Lease.InstanceID == "" || out.Lease.Generation == 0 {
+	if out.InstanceID == "" || out.Generation == 0 {
 		return nil, errors.New("bootstrap: register response missing lease key")
 	}
 	if err := validateProtocolVersion(out.ServerProtocolVersion); err != nil {

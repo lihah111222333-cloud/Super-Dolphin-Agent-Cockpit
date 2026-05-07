@@ -20,7 +20,7 @@ type querier interface {
 	UpdateCronJobSchedule(ctx context.Context, arg sqlc.UpdateCronJobScheduleParams) error
 	SetCronJobEnabled(ctx context.Context, arg sqlc.SetCronJobEnabledParams) error
 	PatchCronJobNextRunAt(ctx context.Context, arg sqlc.PatchCronJobNextRunAtParams) error
-	ClaimDueJobs(ctx context.Context, arg sqlc.ClaimDueJobsParams) ([]sqlc.CronJob, error)
+	ClaimDueJobsForUpdate(ctx context.Context, arg sqlc.ClaimDueJobsForUpdateParams) ([]sqlc.CronJob, error)
 	RenewLease(ctx context.Context, arg sqlc.RenewLeaseParams) (int64, error)
 	ExtendClaim(ctx context.Context, arg sqlc.ExtendClaimParams) (int64, error)
 	ReleaseClaim(ctx context.Context, arg sqlc.ReleaseClaimParams) (int64, error)
@@ -223,7 +223,7 @@ func (s *store) PatchNextRunAt(ctx context.Context, id string, nextRunAt time.Ti
 
 // ----- claim / lease -----
 
-func (s *store) ClaimDueJobs(ctx context.Context, p ClaimDueJobsParams) ([]Job, error) {
+func (s *store) ClaimDueJobsForUpdate(ctx context.Context, p ClaimDueJobsForUpdateParams) ([]Job, error) {
 	if strings.TrimSpace(p.ClaimToken) == "" {
 		return nil, wrap(ErrEmptyClaimToken, "claim_due_jobs")
 	}
@@ -234,7 +234,7 @@ func (s *store) ClaimDueJobs(ctx context.Context, p ClaimDueJobsParams) ([]Job, 
 	if maxClaim <= 0 {
 		maxClaim = 16
 	}
-	rows, err := s.q.ClaimDueJobs(ctx, sqlc.ClaimDueJobsParams{
+	rows, err := s.q.ClaimDueJobsForUpdate(ctx, sqlc.ClaimDueJobsForUpdateParams{
 		ClaimedBy:      p.ClaimedBy,
 		Now:            ts(p.Now),
 		LeaseExpiresAt: ts(p.LeaseExpiresAt),

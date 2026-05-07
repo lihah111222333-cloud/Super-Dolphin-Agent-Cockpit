@@ -2,39 +2,7 @@ version: "2"
 sql:
   - engine: "postgresql"
     queries: "sql/queries/"
-    schema:
-      - "migrations/001_baseline.sql"
-      - "migrations/0022_binding_session_uuid.sql"
-      - "migrations/0023_dag_watcher_phase1.sql"
-      - "migrations/0024_prompt_versions_description.sql"
-      - "migrations/0025_agent_thread_config_override.sql"
-      - "migrations/0031_prompt_snapshot.sql"
-      - "migrations/0032_agent_memory_identity.sql"
-      - "migrations/0034_thread_agent_routing.sql"
-      - "migrations/0035_agent_feedback_events.sql"
-      - "migrations/0036_seed_orchestrator_prompt.sql"
-      - "migrations/0037_thread_pending_launch.sql"
-      - "migrations/0041_prompt_routing_tests.sql"
-      - "migrations/0042_prompt_templates_router_priority.sql"
-      - "migrations/0045_cron_jobs.sql"
-      - "migrations/0046_session_insights.sql"
-      - "migrations/0048_binding_codex_identity.sql"
-      - "migrations/0049_prompt_template_sections.sql"
-      - "migrations/0050_seed_prompt_template_sections_example.sql"
-      - "migrations/0051_seed_main_default_sections.sql"
-      - "migrations/0052_seed_test_prompts_with_sections.sql"
-      - "migrations/0053_prompt_template_match_when.sql"
-      - "migrations/0054_seed_main_default_match_when.sql"
-      - "migrations/0055_seed_match_when_test_prompts.sql"
-      - "migrations/0056_seed_simple_match_when_demo.sql"
-      - "migrations/0057_seed_claude_style_prompt.sql"
-      - "migrations/0058_seed_claude_style_sections.sql"
-      - "migrations/0059_rename_claude_style_sections_to_builtin_keys.sql"
-      - "migrations/0060_turn_dedupe_registry.sql"
-      - "migrations/0063_agent_thread_name.sql"
-      - "migrations/0064_skill_candidates.sql"
-      - "migrations/0066_skill_candidates_repo_fp_widen.sql"
-      - "migrations/0068_thread_manually_renamed.sql"
+    schema: "migrations/"
     gen:
       go:
         package: "sqlc"
@@ -45,13 +13,18 @@ sql:
         emit_db_tags: true
         emit_empty_slices: true
         emit_interface: true
-        query_parameter_limit: 1
+        query_parameter_limit: 0
+        strict_order_by: true
         omit_unused_structs: true
         emit_pointers_for_null_types: true
         initialisms:
           - id
           - ui
+          - dag
+          - rpc
+          - sql
           - uuid
+          - cwd
         overrides:
           - db_type: "pg_catalog.timestamptz"
             go_type: "time.Time"

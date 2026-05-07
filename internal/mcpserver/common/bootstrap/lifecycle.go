@@ -12,6 +12,7 @@ import (
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/channel"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -168,10 +169,10 @@ func (c *Client) dispatchLifecycleRequest(req *jrpc2.Request) (handled bool, err
 
 // errBootstrapUnknownMethod is the wire error surfaced when a
 // server-initiated callback uses a method this client has not opted
-// into. Code -32601 maps to the JSON-RPC MethodNotFound convention.
+// into. Uses contract.CodeMethodNotFound (-31008).
 // See P22 P4 S5b / plan §315.
 func errBootstrapUnknownMethod(method string) error {
-	return jrpc2.Errorf(jrpc2.Code(-32601), "bootstrap: unknown callback method: %s", strings.TrimSpace(method))
+	return jrpc2.Errorf(jrpc2.Code(contract.CodeMethodNotFound), "bootstrap: unknown callback method: %s", strings.TrimSpace(method))
 }
 
 func (c *Client) fireShutdown(req mcp.ShutdownRequest) {
@@ -236,8 +237,8 @@ func (c *Client) applyRegisterLocked(reg *mcp.RegisterResponse) {
 	if reg == nil {
 		return
 	}
-	c.lease = reg.Lease
-	c.resumeGeneration = reg.Lease.Generation
+	c.lease = mcp.LeaseKey{InstanceID: reg.InstanceID, Generation: reg.Generation}
+	c.resumeGeneration = reg.Generation
 	c.configVersion = reg.ConfigVersion
 	c.serverProtocolVersion = strings.TrimSpace(reg.ServerProtocolVersion)
 	c.capabilitiesNegotiated = shared.CloneStrings(reg.CapabilitiesNegotiated)

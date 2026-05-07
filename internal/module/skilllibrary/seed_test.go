@@ -13,7 +13,7 @@ import (
 func TestSeed_FreshLibraryInstallsAllBuiltins(t *testing.T) {
 	root := t.TempDir()
 	s := NewStore(root)
-	count, err := SeedBuiltins(s, "test-version-1")
+	count, err := SeedBuiltins(s, "test-version-1", testReader())
 	if err != nil {
 		t.Fatalf("SeedBuiltins: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestSeed_PreservesUserModifiedNonBuiltin(t *testing.T) {
 		SkillMeta{Name: target, Origin: OriginMarketplace, Version: "user-1"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := SeedBuiltins(s, "test-version-1"); err != nil {
+	if _, err := SeedBuiltins(s, "test-version-1", testReader()); err != nil {
 		t.Fatalf("SeedBuiltins: %v", err)
 	}
 	got, err := s.Get(target)
@@ -64,7 +64,7 @@ func TestSeed_OverwritesOlderBuiltin(t *testing.T) {
 		SkillMeta{Name: target, Origin: OriginBuiltin, Version: "0", VersionHash: "stale"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := SeedBuiltins(s, "test-version-2"); err != nil {
+	if _, err := SeedBuiltins(s, "test-version-2", testReader()); err != nil {
 		t.Fatalf("SeedBuiltins: %v", err)
 	}
 	got, err := s.Get(target)
@@ -84,10 +84,10 @@ func TestSeed_OverwritesOlderBuiltin(t *testing.T) {
 func TestSeed_IdempotentWhenUpToDate(t *testing.T) {
 	root := t.TempDir()
 	s := NewStore(root)
-	if _, err := SeedBuiltins(s, "v1"); err != nil {
+	if _, err := SeedBuiltins(s, "v1", testReader()); err != nil {
 		t.Fatal(err)
 	}
-	count2, err := SeedBuiltins(s, "v1")
+	count2, err := SeedBuiltins(s, "v1", testReader())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestSeed_PropagatesUnexpectedGetError(t *testing.T) {
 	// the seed function does not silently swallow Get errors.)
 	root := t.TempDir()
 	s := NewStore(root)
-	if _, err := SeedBuiltins(s, "v1"); err != nil {
+	if _, err := SeedBuiltins(s, "v1", testReader()); err != nil {
 		// Should be nil for a fresh root
 		if !errors.Is(err, fs.ErrNotExist) {
 			t.Errorf("unexpected err: %v", err)

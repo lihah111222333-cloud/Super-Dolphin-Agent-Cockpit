@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
-	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 )
 
 // peerReadyTimeout is the max time to wait for a peer to register after startup.
@@ -67,10 +67,10 @@ func adaptMCPResponse(resp peerToolCallResponse) *ToolCallResult {
 	return &ToolCallResult{ContentItems: items, Success: true}
 }
 
-func toCodexDynamicTools(tools []mcpdto.MCPTool) []codexprotocol.DynamicToolSchema {
-	out := make([]codexprotocol.DynamicToolSchema, 0, len(tools))
+func toCodexDynamicTools(tools []mcpdto.MCPTool) []contract.DynamicToolSchema {
+	out := make([]contract.DynamicToolSchema, 0, len(tools))
 	for _, tool := range tools {
-		schema := codexprotocol.DynamicToolSchema{
+		schema := contract.DynamicToolSchema{
 			Name:        tool.Name,
 			Description: tool.Description,
 			InputSchema: tool.InputSchema,
@@ -168,7 +168,7 @@ func toolDeferLoading(tool mcpdto.MCPTool) bool {
 	return field.IsValid() && field.Kind() == reflect.Bool && field.Bool()
 }
 
-func setDynamicToolDeferLoading(schema *codexprotocol.DynamicToolSchema, enabled bool) {
+func setDynamicToolDeferLoading(schema *contract.DynamicToolSchema, enabled bool) {
 	if schema == nil {
 		return
 	}

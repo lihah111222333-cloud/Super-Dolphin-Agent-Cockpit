@@ -196,7 +196,7 @@ func newHookHandlerHarness(t *testing.T) *hookHandlerHarness {
 		hookRegistry:    hookRegistry,
 		store:           store,
 		local:           local,
-		lease:           regResp.Lease,
+		lease:           dto.LeaseKey{InstanceID: regResp.InstanceID, Generation: regResp.Generation},
 	}
 }
 

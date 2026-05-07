@@ -8,6 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/repofingerprint"
 )
@@ -52,27 +53,15 @@ func validateSkillName(name string) (string, error) {
 // P20.1 §3.2 审批粒度升级：artifact-level identity helpers
 // ============================================================================
 
-// ArtifactKind 分类 skill 内容产物的类型。用于审批缓存的粒度区分。
+// ArtifactKind constants — aliases for the canonical contract values.
 const (
-	// ArtifactKindMetadata 指 skill 的元数据（name / description / summary）。
-	ArtifactKindMetadata = "metadata"
-	// ArtifactKindBody 指 SKILL.md 正文（或其 anchor 切片）。
-	ArtifactKindBody = "body"
-	// ArtifactKindResource 指 skill 目录内的资源文件（references/* / scripts/* / assets/*）。
-	ArtifactKindResource = "resource"
+	ArtifactKindMetadata = contract.ArtifactKindMetadata
+	ArtifactKindBody     = contract.ArtifactKindBody
+	ArtifactKindResource = contract.ArtifactKindResource
 )
 
-// validArtifactKinds 是所有合法 kind 的集合，供 Approve/Lookup 入口校验。
-func validArtifactKinds() map[string]bool {
-	return map[string]bool{
-		ArtifactKindMetadata: true,
-		ArtifactKindBody:     true,
-		ArtifactKindResource: true,
-	}
-}
-
-// IsValidArtifactKind 导出给 RPC / test 使用。
-func IsValidArtifactKind(kind string) bool { return validArtifactKinds()[kind] }
+// IsValidArtifactKind delegates to contract.IsValidArtifactKind.
+var IsValidArtifactKind = contract.IsValidArtifactKind
 
 // RepoFingerprint 生成项目根目录的稳定 128-bit 指纹，作为审批缓存 key 的第一维数据。
 func RepoFingerprint(projectRoot string) string {
@@ -155,39 +144,18 @@ func normalizeResourceLocator(trimmed string) (string, error) {
 	return cleaned, nil
 }
 
-// TrustScope 描述 skill 的信任边界，决定其自主调用权、审批策略、工具白名单默认值。
-//
-// 三档来源：
-//   - TrustUser    : 位于用户级 skills root（`~/.multi-agent/skills` 或 $SKILLS_ROOT），
-//     视为本地信任域，默认允许模型自主调用。
-//   - TrustProject : 位于项目级 skills root（`<cwd>/.agent/skills`），通常来自 git clone，
-//     视为不受信任源；首次扫描需弹审批，且 `skill_expand` 每次 body hash 变更重审。
-//   - TrustSigned  : 由 frontmatter `trust: signed` 显式声明；验签逻辑延后到 P21，当前与
-//     TrustUser 等价处理但保留字段便于未来升级。
-//
-// 若 frontmatter 显式写了 `trust:`，解析时覆盖推断结果；否则根据 skill 所在 root 推断。
-type TrustScope string
+// TrustScope is a type alias for contract.TrustScope. The canonical definition
+// now lives in internal/contract so that cross-module consumers (dashboard,
+// prompt) do not need to import internal/module/skill.
+type TrustScope = contract.TrustScope
 
+// Trust-scope constants — aliases for the canonical contract values.
 const (
-	TrustUnknown TrustScope = ""
-	TrustUser    TrustScope = "user"
-	TrustProject TrustScope = "project"
-	TrustSigned  TrustScope = "signed"
+	TrustUnknown = contract.TrustUnknown
+	TrustUser    = contract.TrustUser
+	TrustProject = contract.TrustProject
+	TrustSigned  = contract.TrustSigned
 )
-
-// Valid 判断是否是已知信任域。
-func (t TrustScope) Valid() bool {
-	switch t {
-	case TrustUser, TrustProject, TrustSigned:
-		return true
-	}
-	return false
-}
-
-// Trusted 返回该 trust 是否可跳过逐次审批（user / signed 视为受信）。
-func (t TrustScope) Trusted() bool {
-	return t == TrustUser || t == TrustSigned
-}
 
 // parseTrustScope 把 frontmatter 的字符串解析为 TrustScope。未知值返回 TrustUnknown，
 // 调用方应据此回落到 inferTrustFromRoot 的推断结果。

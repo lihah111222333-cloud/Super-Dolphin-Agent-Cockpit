@@ -83,3 +83,61 @@ type TurnStatus struct {
 	Error      string `json:"error,omitempty"`
 	interrupt  turnInterruptEnvelope
 }
+
+// ---------------------------------------------------------------------------
+// CronExecutorAdapter (was cron_adapter.go)
+// ---------------------------------------------------------------------------
+
+// CronExecutorAdapter wraps the full turn.Service into the narrow
+// contract.CronTurnExecutor interface consumed by the cron module.
+type CronExecutorAdapter struct {
+	svc Service
+}
+
+// NewCronExecutorAdapter creates an adapter. svc must not be nil.
+func NewCronExecutorAdapter(svc Service) *CronExecutorAdapter {
+	return &CronExecutorAdapter{svc: svc}
+}
+
+var _ contract.CronTurnExecutor = (*CronExecutorAdapter)(nil)
+
+func (a *CronExecutorAdapter) CronPrepareTurn(ctx context.Context, session contract.Session, input contract.CronPrepareInput) (dto.TurnRequest, error) {
+	return a.svc.PrepareTurn(ctx, session, PrepareInput{
+		Prompt:              input.Prompt,
+		Skills:              input.Skills,
+		Provider:            input.Provider,
+		Model:               input.Model,
+		AgentID:             input.AgentID,
+		CWD:                 input.CWD,
+		ThreadRuntimeConfig: input.ThreadRuntimeConfig,
+		DedupeKey:           input.DedupeKey,
+	})
+}
+
+func (a *CronExecutorAdapter) CronStartTurn(ctx context.Context, session contract.Session, req dto.TurnRequest) (contract.TurnHandle, error) {
+	return a.svc.StartTurn(ctx, session, req)
+}
+
+func (a *CronExecutorAdapter) CronTrackTurn(ctx context.Context, localID string) (contract.CronTurnStatus, error) {
+	st, err := a.svc.TrackTurn(ctx, localID)
+	if err != nil {
+		return contract.CronTurnStatus{}, err
+	}
+	return contract.CronTurnStatus{
+		LocalID:    st.LocalID,
+		ProviderID: st.ProviderID,
+		State:      st.State,
+	}, nil
+}
+
+func (a *CronExecutorAdapter) CronLookupByDedupeKey(ctx context.Context, dedupeKey string) (contract.CronTurnStatus, bool, error) {
+	st, found, err := a.svc.LookupByDedupeKey(ctx, dedupeKey)
+	if err != nil {
+		return contract.CronTurnStatus{}, false, err
+	}
+	return contract.CronTurnStatus{
+		LocalID:    st.LocalID,
+		ProviderID: st.ProviderID,
+		State:      st.State,
+	}, found, nil
+}

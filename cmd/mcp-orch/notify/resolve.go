@@ -1,8 +1,10 @@
 // Package notify hosts the orch-side notifier wiring. It reuses the
-// shared platform library (internal/module/notify/platform) and the
-// core notify notifier + flusher implementations, but registers its
-// own fx Provide set and bus subscribers so the dual-Fx tree rule
-// from the P21 P2 plan is respected.
+// shared platform library (internal/platform/notify) and provides its
+// own notifier + flusher implementations with its own fx Provide set
+// and bus subscribers so the dual-Fx tree rule from the P21 P2 plan
+// is respected. The concrete Notifier / Flusher are defined locally
+// to avoid importing internal/module/notify (mcp-service-convention
+// S3.1).
 package notify
 
 import (

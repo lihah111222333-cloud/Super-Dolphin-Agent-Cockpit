@@ -139,7 +139,7 @@ func (m *Memory) RecordTerminal(turnID string, t Terminal) Terminal {
 	if prev.Kind == TerminalInterrupted || prev.Kind == TerminalAborted {
 		return prev
 	}
-	if t.Kind.precedence() >= prev.Kind.precedence() {
+	if terminalPrecedence(t.Kind) >= terminalPrecedence(prev.Kind) {
 		merged := t
 		if merged.Reason == "" {
 			merged.Reason = prev.Reason

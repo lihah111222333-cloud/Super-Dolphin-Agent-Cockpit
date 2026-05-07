@@ -1,9 +1,6 @@
 package protocol
 
-import "encoding/json"
+import "github.com/anthropic-ai/super-agent-v3/internal/contract"
 
-type DynamicToolSchema struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	InputSchema json.RawMessage `json:"inputSchema"`
-}
+// DynamicToolSchema is an alias of the canonical contract type.
+type DynamicToolSchema = contract.DynamicToolSchema

@@ -75,17 +75,6 @@ func tagOverlapScore(tags []string, normalizedInput string) int {
 	return score
 }
 
-// FastPathDecision is what FastPath returns: either a confident pick (Picked,
-// Hit=true) that lets the caller skip the LLM entirely, or Hit=false meaning
-// the tag signal was too weak / too ambiguous and the caller should fall
-// through to the LLM classifier.
-type FastPathDecision struct {
-	Picked Candidate
-	Hit    bool
-	Score  int
-	Gap    int
-}
-
 // FastPath tries to avoid the 5-15s claude -p round trip when the user's
 // message has a clear, high-confidence tag overlap with exactly one
 // candidate. The decision is intentionally conservative:

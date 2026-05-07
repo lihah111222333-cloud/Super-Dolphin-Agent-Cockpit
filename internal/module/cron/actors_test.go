@@ -10,14 +10,14 @@ import (
 	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 )
 
-// tickActorRecorder counts how many ClaimDueJobs fires so tests can
+// tickActorRecorder counts how many ClaimDueJobsForUpdate fires so tests can
 // verify the tick actor actually drives the scheduler.
 type tickActorRecorder struct {
 	recordingCronStore
 	ticks int32
 }
 
-func (r *tickActorRecorder) ClaimDueJobs(ctx context.Context, p cronstore.ClaimDueJobsParams) ([]cronstore.Job, error) {
+func (r *tickActorRecorder) ClaimDueJobsForUpdate(ctx context.Context, p cronstore.ClaimDueJobsForUpdateParams) ([]cronstore.Job, error) {
 	atomic.AddInt32(&r.ticks, 1)
 	if r.claimFn != nil {
 		return r.claimFn(ctx, p)

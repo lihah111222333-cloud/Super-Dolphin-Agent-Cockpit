@@ -48,7 +48,7 @@ func TestNewDriverUsesEnvServerURLAndName(t *testing.T) {
 func TestNewDriverFactoryCreateReturnsCodexDriver(t *testing.T) {
 	t.Parallel()
 
-	factory := NewDriverFactory(nil, nil, nil, nil, nil, nil, nil, nil)
+	factory := NewDriverFactory(nil, nil, nil, nil, nil, nil, nil)
 	if factory.Name != "codex" {
 		t.Fatalf("factory.Name = %q, want codex", factory.Name)
 	}

@@ -9,6 +9,7 @@ import (
 var Module = fx.Module("store.thread",
 	fx.Provide(NewStore),
 	fx.Provide(NewMetadataStore),
+	fx.Provide(NewSessionThreadLookup),
 )
 
 func NewStoreFromPool(pool *pgxpool.Pool) Store {

@@ -101,7 +101,7 @@ func TestRegisterTurnLifecycleHandlesTurnInterrupted(t *testing.T) {
 	interruptAt := time.Unix(1710000000, 0).UTC()
 	event.Publish(dispatcher, interruptedEventAt("agent-1", "thread-1", "turn-1", "user_cancelled", interruptAt))
 
-	snapshot := waitForAgentState(t, svc, agent.id, agentdto.StateIdle)
+	snapshot := waitForAgentState(t, svc, agent.id, string(agentdto.StateIdle))
 	if snapshot.activeTurnID != "" {
 		t.Fatalf("activeTurnID = %q, want empty", snapshot.activeTurnID)
 	}
@@ -130,7 +130,7 @@ func TestHandleTurnInterruptedEventIsIdempotent(t *testing.T) {
 	firstInterruptAt := time.Unix(1710000000, 0).UTC()
 	secondInterruptAt := firstInterruptAt.Add(time.Minute)
 	event.Publish(dispatcher, interruptedEventAt("agent-1", "thread-1", "turn-1", "user_cancelled", firstInterruptAt))
-	waitForAgentState(t, svc, agent.id, agentdto.StateIdle)
+	waitForAgentState(t, svc, agent.id, string(agentdto.StateIdle))
 	event.Publish(dispatcher, interruptedEventAt("agent-1", "thread-1", "turn-1", "user_cancelled", secondInterruptAt))
 
 	assertAgentUpdatedAtStays(t, svc, agent.id, firstInterruptAt)
@@ -163,7 +163,7 @@ func TestHandleTurnCompletedEventConvergesAfterInterrupt(t *testing.T) {
 	interruptAt := time.Unix(1710000000, 0).UTC()
 	completedAt := interruptAt.Add(time.Minute)
 	event.Publish(dispatcher, interruptedEventAt("agent-1", "thread-1", "turn-1", "user_cancelled", interruptAt))
-	waitForAgentState(t, svc, agent.id, agentdto.StateIdle)
+	waitForAgentState(t, svc, agent.id, string(agentdto.StateIdle))
 	event.Publish(dispatcher, completedEventAt("agent-1", "thread-1", "turn-1", true, "", completedAt))
 
 	assertAgentUpdatedAtStays(t, svc, agent.id, interruptAt)
@@ -305,7 +305,7 @@ func readAgentSnapshot(t *testing.T, svc *service, agentID string) agentSnapshot
 	var snapshot agentSnapshot
 	if err := svc.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
 		snapshot = agentSnapshot{
-			state:        agent.state,
+			state:        string(agent.state),
 			activeTurnID: agent.activeTurnID,
 			lastError:    agent.lastError,
 			updatedAt:    agent.updatedAt,

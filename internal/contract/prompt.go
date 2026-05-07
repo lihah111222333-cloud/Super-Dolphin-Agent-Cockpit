@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 	"strings"
+	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
@@ -454,3 +455,77 @@ type PromptAssemblyService interface {
 	AssembleAgent(ctx context.Context, in AgentInput) (StartAssembly, error)
 	Invalidate(ctx context.Context, reason InvalidateReason) error
 }
+
+// ---------------------------------------------------------------------------
+// PromptClassifier — LLM-based prompt routing (was prompt_classifier.go)
+// ---------------------------------------------------------------------------
+
+// PromptClassifierCandidate is one prompt_template exposed to the classifier
+// for ranking. Only the human-readable metadata is sent; PromptText is
+// deliberately omitted to keep the classifier prompt under control and cost low.
+type PromptClassifierCandidate struct {
+	PromptKey   string
+	Title       string
+	Description string
+	Tags        []string
+}
+
+// PromptClassifierInput is a classification request.
+type PromptClassifierInput struct {
+	UserInput  string
+	Candidates []PromptClassifierCandidate
+}
+
+// PromptClassifierResult is the classifier's top-1 pick.
+//
+// An empty PromptKey is the explicit "no strong match" signal; callers should
+// fall through to default routing in that case rather than pick arbitrarily.
+type PromptClassifierResult struct {
+	PromptKey string
+	Reason    string
+	Latency   time.Duration
+	// Model records which model answered, for observability. Empty when the
+	// concrete implementation does not surface it.
+	Model string
+}
+
+// PromptClassifierFastPathDecision is returned by a fast-path evaluation:
+// either a confident pick (Picked, Hit=true) that lets the caller skip the
+// LLM entirely, or Hit=false meaning the tag signal was too weak / too
+// ambiguous and the caller should fall through to the LLM classifier.
+type PromptClassifierFastPathDecision struct {
+	Picked PromptClassifierCandidate
+	Hit    bool
+	Score  int
+	Gap    int
+}
+
+// PromptClassifier is the narrow contract the thread router depends on for
+// LLM-based prompt routing. The concrete implementation lives in
+// internal/module/prompt/classifier; this interface breaks the thread->prompt
+// horizontal dependency so thread only imports contract.
+type PromptClassifier interface {
+	Classify(ctx context.Context, in PromptClassifierInput) (PromptClassifierResult, error)
+	// Enabled reports whether the classifier will make a real attempt on
+	// Classify. Callers can use this to short-circuit candidate collection
+	// and logging when the feature is off.
+	Enabled() bool
+}
+
+// MatchWhenEvaluator decides whether a prompt_template's match_when JSONB
+// expression is satisfied by the given BuildCtx and user prompt. The thread
+// router calls this to implement the "match_when auto-route" tier without
+// importing the prompt module. The concrete implementation lives in
+// internal/module/prompt (EvaluateMatchWhen).
+type MatchWhenEvaluator func(raw []byte, buildCtx BuildCtx, userPrompt string) bool
+
+// ClassifierFastPathFunc is the function signature for the tag-based fast-path
+// that skips the LLM round trip when there's a clear winner by tag overlap.
+type ClassifierFastPathFunc func(candidates []PromptClassifierCandidate, userInput string) PromptClassifierFastPathDecision
+
+// ClassifierPruneCandidatesFunc trims the candidate pool before sending to the
+// LLM classifier.
+type ClassifierPruneCandidatesFunc func(candidates []PromptClassifierCandidate, userInput string, max int) []PromptClassifierCandidate
+
+// ClassifierMaxCandidatesFunc returns the configured candidate cap from env.
+type ClassifierMaxCandidatesFunc func() int

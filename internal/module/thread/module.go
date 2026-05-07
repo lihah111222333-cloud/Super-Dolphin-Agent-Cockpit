@@ -17,7 +17,7 @@ var Module = fx.Module("thread",
 	fx.Provide(
 		fx.Annotate(
 			NewServiceWithPromptAssemblyAndSharedFiles,
-			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`),
+			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`),
 			// Publish the service under both thread.Service (its native
 			// interface, required by uistate/orchestration) and
 			// contract.PendingLaunchSpawner so NewTurnHandlers can pick it
@@ -37,13 +37,28 @@ var Module = fx.Module("thread",
 		),
 		provideThreadConcreteService,
 		NewThreadSubscribers,
+		// Publish the narrow CronThreadStarter adapter so the cron module
+		// can bootstrap threads without importing internal/module/thread.
+		provideCronThreadStarter,
 	),
 	fx.Provide(
 		fx.Annotate(threadBusWorkersAsRunner, fx.ResultTags(`group:"runners"`)),
 	),
+	// Publish narrow contract adapters so downstream consumers (uistate)
+	// can depend on contract interfaces instead of thread.Service directly.
+	fx.Provide(NewThreadLister),
+	fx.Provide(NewThreadConfigReader),
+	fx.Provide(NewThreadRuntimeConfigReader),
 )
 
 func provideThreadConcreteService(svc Service) *service {
 	concrete, _ := svc.(*service)
 	return concrete
+}
+
+// provideCronThreadStarter wraps thread.Service in a narrow adapter so
+// the cron module can start threads via contract.CronThreadStarter
+// without importing this package.
+func provideCronThreadStarter(svc Service) contract.CronThreadStarter {
+	return NewCronStarterAdapter(svc)
 }

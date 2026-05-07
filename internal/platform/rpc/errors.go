@@ -10,6 +10,7 @@ const (
 	CodeCapabilityGate  = contract.CodeCapabilityGate
 	CodeApprovalTimeout = contract.CodeApprovalTimeout
 	CodeInvalidParams   = contract.CodeInvalidParams
+	CodeMethodNotFound  = contract.CodeMethodNotFound
 )
 
 // RPC error constructors.
@@ -19,3 +20,4 @@ func ErrConflict(msg string) error        { return rpcError(CodeConflict, msg) }
 func ErrCapabilityGate(msg string) error  { return rpcError(CodeCapabilityGate, msg) }
 func ErrApprovalTimeout(msg string) error { return rpcError(CodeApprovalTimeout, msg) }
 func ErrInvalidParams(msg string) error   { return rpcError(CodeInvalidParams, msg) }
+func ErrMethodNotFound(msg string) error  { return rpcError(CodeMethodNotFound, msg) }

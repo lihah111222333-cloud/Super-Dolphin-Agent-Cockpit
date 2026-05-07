@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 )
 
 type skillResolver struct{}
@@ -146,7 +146,7 @@ func (s *service) hydrateSkillRefs(ctx context.Context, refs []dto.SkillRef, man
 	}
 	scopedCtx, index, err := s.skillHydrationIndex(ctx)
 	if err != nil {
-		if errors.Is(err, skillpkg.ErrMissingCWD) {
+		if errors.Is(err, contract.ErrSkillMissingCWD) {
 			return refs, err
 		}
 		return refs, nil
@@ -164,12 +164,12 @@ func (s *service) hydrateSkillRefs(ctx context.Context, refs []dto.SkillRef, man
 
 // skillHydrationIndex 返 err：ErrMissingCWD 代表契约违反（由 caller fail-fast），
 // 其他 err 代表 scan/list 失败（由 hydrateSkillRefs 按容忍口径吞掉）。
-func (s *service) skillHydrationIndex(ctx context.Context) (context.Context, map[string]skillpkg.SkillInfo, error) {
-	cwd, err := skillpkg.RequireCWD(ctx)
+func (s *service) skillHydrationIndex(ctx context.Context) (context.Context, map[string]contract.SkillInfo, error) {
+	cwd, err := contract.RequireSkillCWD(ctx)
 	if err != nil {
 		return ctx, nil, err
 	}
-	scopedCtx := skillpkg.WithCWD(ctx, cwd)
+	scopedCtx := contract.WithSkillCWD(ctx, cwd)
 	infos, err := s.skillLookup.ListSkills(scopedCtx)
 	if err != nil {
 		if s.logger != nil {
@@ -197,8 +197,8 @@ func refsNeedHydration(refs []dto.SkillRef) bool {
 }
 
 // skillInfoIndex 把 ListSkills 结果按 lower(name) 索引，空名跳过。
-func skillInfoIndex(infos []skillpkg.SkillInfo) map[string]skillpkg.SkillInfo {
-	index := make(map[string]skillpkg.SkillInfo, len(infos))
+func skillInfoIndex(infos []contract.SkillInfo) map[string]contract.SkillInfo {
+	index := make(map[string]contract.SkillInfo, len(infos))
 	for _, info := range infos {
 		key := strings.ToLower(strings.TrimSpace(info.Name))
 		if key == "" {
@@ -217,14 +217,14 @@ func (p skillHydrationPolicy) allowUntrustedMetadata(ref dto.SkillRef) bool {
 	return p.ManualSkillSelection && ref.Source == dto.SkillSourceManual
 }
 
-func allowHydratedSummary(info skillpkg.SkillInfo, ref dto.SkillRef, policy skillHydrationPolicy) bool {
+func allowHydratedSummary(info contract.SkillInfo, ref dto.SkillRef, policy skillHydrationPolicy) bool {
 	if info.Trust.Trusted() {
 		return true
 	}
 	return policy.allowUntrustedMetadata(ref)
 }
 
-func allowHydratedPrompt(info skillpkg.SkillInfo) bool {
+func allowHydratedPrompt(info contract.SkillInfo) bool {
 	return info.Trust.Trusted()
 }
 
@@ -238,7 +238,7 @@ func allowHydratedPrompt(info skillpkg.SkillInfo) bool {
 // ManualSkillSelection=true 且 ref.Source=manual 时才允许 hydrate。legacy
 // Source=Unspecified、trigger、force 等来源不得因为 name-only hydration 看到 summary。
 // untrusted full body 不在 selected hydration 中注入；必须继续走 skill_expand_body + approval。
-func (s *service) applyHydration(ctx context.Context, ref dto.SkillRef, index map[string]skillpkg.SkillInfo, policy skillHydrationPolicy) dto.SkillRef {
+func (s *service) applyHydration(ctx context.Context, ref dto.SkillRef, index map[string]contract.SkillInfo, policy skillHydrationPolicy) dto.SkillRef {
 	name := strings.ToLower(strings.TrimSpace(ref.Name))
 	info, ok := index[name]
 	if !ok {

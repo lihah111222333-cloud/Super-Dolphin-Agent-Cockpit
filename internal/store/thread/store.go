@@ -26,7 +26,7 @@ type querier interface {
 	ListRunningAgents(ctx context.Context) ([]sqlc.ListRunningAgentsRow, error)
 	LoadAgentThreadPromptSnapshot(ctx context.Context, threadID string) ([]byte, error)
 	ResetRunningAgentThreads(ctx context.Context) error
-	SaveAgentThreadPromptSnapshot(ctx context.Context, arg sqlc.SaveAgentThreadPromptSnapshotParams) (int64, error)
+	UpdateAgentThreadPromptSnapshot(ctx context.Context, arg sqlc.UpdateAgentThreadPromptSnapshotParams) (int64, error)
 	UpdateAgentThreadStatus(ctx context.Context, arg sqlc.UpdateAgentThreadStatusParams) error
 	UpdateAgentThreadLaunchResult(ctx context.Context, arg sqlc.UpdateAgentThreadLaunchResultParams) error
 	UpsertAgentThread(ctx context.Context, arg sqlc.UpsertAgentThreadParams) error
@@ -131,7 +131,7 @@ func (s *store) SavePromptSnapshot(ctx context.Context, threadID string, snapsho
 	if err != nil {
 		return wrapThreadError(err, "save_prompt_snapshot")
 	}
-	rows, err := s.q.SaveAgentThreadPromptSnapshot(ctx, sqlc.SaveAgentThreadPromptSnapshotParams{
+	rows, err := s.q.UpdateAgentThreadPromptSnapshot(ctx, sqlc.UpdateAgentThreadPromptSnapshotParams{
 		ThreadID:       threadID,
 		PromptSnapshot: payload,
 	})

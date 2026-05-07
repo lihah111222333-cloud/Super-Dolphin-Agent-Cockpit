@@ -179,7 +179,7 @@ func persistedThreadInactive(thread *PersistedThread) bool {
 		return false
 	}
 	state := persistedThreadAgentState(*thread)
-	return state == agentdto.StateStopped || state == agentdto.StateFailed
+	return state == string(agentdto.StateStopped) || state == string(agentdto.StateFailed)
 }
 
 func (s *service) newPersistedRuntimeAgent(agentID string, source persistedRuntimeSource, thread *PersistedThread) *agentRuntime {
@@ -203,9 +203,9 @@ func (s *service) newPersistedRuntimeAgent(agentID string, source persistedRunti
 		queue:           &SubmissionQueue{},
 	}
 	agent.sm = platformstatemachine.New(s.machineCfg, func() string {
-		return agent.state
+		return string(agent.state)
 	}, func(next string) {
-		agent.state = next
+		agent.state = agentdto.AgentState(next)
 	})
 	return agent
 }

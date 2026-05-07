@@ -205,7 +205,7 @@ func (s *service) forceIdleAfterCompletionError(
 	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		var recoverErr error
 		recovered, recoverErr = s.forceIdleAfterTurnTerminalLocked(ctx, agent, turnID, activeTurnRecoveryKind{
-			recoveredTrigger: completionRecoveryTrigger(success),
+			recoveredTrigger: string(completionRecoveryTrigger(success)),
 			errorText:        errMsg,
 			clearError:       success,
 			recover: func(ctx context.Context, svc *service, agent *agentRuntime) error {
@@ -227,7 +227,7 @@ func (s *service) forceIdleAfterInterruptionError(
 	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		var recoverErr error
 		recovered, recoverErr = s.forceIdleAfterTurnTerminalLocked(ctx, agent, turnID, activeTurnRecoveryKind{
-			recoveredTrigger: agentdto.TriggerTurnAborted,
+			recoveredTrigger: string(agentdto.TriggerTurnAborted),
 			errorText:        reason,
 			recover: func(ctx context.Context, svc *service, agent *agentRuntime) error {
 				return svc.recoverTurnInterruptionStateLocked(ctx, agent)
@@ -279,7 +279,7 @@ func (s *service) ensureTurnAbortableLocked(ctx context.Context, agent *agentRun
 	return s.ensureTurnStartedLocked(ctx, agent, agentdto.TriggerTurnAborted, agentdto.StateTurnRunning, agentdto.StateAwaitingUserInput)
 }
 
-func completionRecoveryTrigger(success bool) string {
+func completionRecoveryTrigger(success bool) agentdto.AgentTrigger {
 	if success {
 		return agentdto.TriggerTurnCompleted
 	}
@@ -298,7 +298,7 @@ func canForceIdleAfterTurnTerminal(agent *agentRuntime, turnID string) bool {
 	if activeTurnID != "" {
 		return true
 	}
-	switch strings.TrimSpace(agent.state) {
+	switch agent.state {
 	case agentdto.StateTurnStarting, agentdto.StateTurnRunning, agentdto.StateAwaitingUserInput:
 		return true
 	default:
@@ -331,7 +331,7 @@ func turnTerminalConvergedLocked(agent *agentRuntime, turnID string) bool {
 	if strings.TrimSpace(agent.activeTurnID) != "" {
 		return false
 	}
-	if strings.TrimSpace(agent.state) != agentdto.StateIdle {
+	if agent.state != agentdto.StateIdle {
 		return false
 	}
 	return strings.TrimSpace(turnID) != "" || strings.TrimSpace(agent.threadID) != ""

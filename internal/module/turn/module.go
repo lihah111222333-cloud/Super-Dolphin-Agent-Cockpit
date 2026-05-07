@@ -15,7 +15,15 @@ var Module = fx.Module("turn",
 			// p20.2 step 1: Skill.Service is optional, contract.Contract is also optional, etc.
 			// (Original tag rationale preserved below.)
 			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`),
+			// Publish under both turn.Service (consumed by orchestration,
+			// etc.) and contract.TurnThreadCleaner (narrow interface consumed
+			// by the thread module to avoid a thread→turn import).
+			fx.As(new(Service)),
+			fx.As(new(contract.TurnThreadCleaner)),
 		),
+		// Publish the narrow CronTurnExecutor adapter so the cron module
+		// can prepare/start/track turns without importing internal/module/turn.
+		provideCronTurnExecutor,
 		fx.Annotate(
 			NewOrchestrationTurnStarter,
 			fx.ParamTags("", "", `optional:"true"`),
@@ -89,4 +97,11 @@ func registerTurnServiceLifecycle(lc fx.Lifecycle, svc Service) {
 			return nil
 		},
 	})
+}
+
+// provideCronTurnExecutor wraps turn.Service in a narrow adapter so
+// the cron module can prepare/start/track turns via
+// contract.CronTurnExecutor without importing this package.
+func provideCronTurnExecutor(svc Service) contract.CronTurnExecutor {
+	return NewCronExecutorAdapter(svc)
 }

@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	skillmodule "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
@@ -23,7 +22,7 @@ type DashboardPage struct {
 	Agents       []AgentOverview                `json:"agents"`
 	DAGs         []contract.DAGSummary          `json:"dags"`
 	TaskTraces   []tasktracestore.TaskTrace     `json:"taskTraces"`
-	Skills       []skillmodule.SkillInfo        `json:"skills"`
+	Skills       []contract.SkillInfo           `json:"skills"`
 	CommandCards []commandcardstore.CommandCard `json:"commandCards"`
 	Prompts      []promptstore.PromptTemplate   `json:"prompts"`
 	Memory       []sharedfilestore.SharedFile   `json:"memory"`
@@ -44,7 +43,7 @@ func newDashboardPage() *DashboardPage {
 		Agents:       []AgentOverview{},
 		DAGs:         []contract.DAGSummary{},
 		TaskTraces:   []tasktracestore.TaskTrace{},
-		Skills:       []skillmodule.SkillInfo{},
+		Skills:       []contract.SkillInfo{},
 		CommandCards: []commandcardstore.CommandCard{},
 		Prompts:      []promptstore.PromptTemplate{},
 		Memory:       []sharedfilestore.SharedFile{},
@@ -155,10 +154,10 @@ func (s *service) listDashboardTaskTraces(ctx context.Context) ([]tasktracestore
 	})
 }
 
-func (s *service) listDashboardSkills(ctx context.Context) ([]skillmodule.SkillInfo, error) {
+func (s *service) listDashboardSkills(ctx context.Context) ([]contract.SkillInfo, error) {
 	cwd := dashboardPromptScopeCWDFromContext(ctx)
-	return safeList(s.skills != nil, func() ([]skillmodule.SkillInfo, error) {
-		return s.skills.ListSkills(skillmodule.WithCWD(ctx, cwd))
+	return safeList(s.skills != nil, func() ([]contract.SkillInfo, error) {
+		return s.skills.ListSkills(contract.WithSkillCWD(ctx, cwd))
 	})
 }
 

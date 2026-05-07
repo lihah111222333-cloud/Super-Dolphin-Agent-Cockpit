@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
+	agentstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/agent"
 	commandcardstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/commandcard"
 	promptstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
@@ -27,9 +28,6 @@ import (
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/fx"
@@ -40,8 +38,9 @@ type registryToolProvider struct {
 }
 
 type bootstrapRunner struct {
-	cfg    bootstrap.Config
-	client bootstrapClient
+	cfg        bootstrap.Config
+	client     bootstrapClient
+	stdioReady <-chan struct{} // closed when stdio server is ready
 }
 
 type bootstrapClient interface {
@@ -79,103 +78,12 @@ func newQueries(pool *pgxpool.Pool) *sqlc.Queries {
 	return sqlc.New(pool)
 }
 
-// threadStoreAdapter wraps internal/store/thread.Store and converts its
-// types to the orchestration-local PersistedThread DTO so the orchestration
-// subpackage never imports internal/store/* (modularity-convention §2.4).
-type threadStoreAdapter struct {
-	inner threadstore.Store
-}
-
-func (a threadStoreAdapter) ListAll(ctx context.Context) ([]orchestration.PersistedThread, error) {
-	threads, err := a.inner.ListAll(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]orchestration.PersistedThread, len(threads))
-	for i, t := range threads {
-		out[i] = toPersistedThread(t)
-	}
-	return out, nil
-}
-
-func (a threadStoreAdapter) GetByThreadID(ctx context.Context, threadID string) (*orchestration.PersistedThread, error) {
-	t, err := a.inner.GetByThreadID(ctx, threadID)
-	if err != nil {
-		return nil, err
-	}
-	if t == nil {
-		return nil, nil
-	}
-	pt := toPersistedThread(*t)
-	return &pt, nil
-}
-
-func (a threadStoreAdapter) UpdateStatus(ctx context.Context, params orchestration.PersistedThreadStatusUpdate) error {
-	return a.inner.UpdateStatus(ctx, threadstore.UpdateStatusParams{
-		ThreadID:  params.ThreadID,
-		Status:    params.Status,
-		UpdatedAt: params.UpdatedAt,
-	})
-}
-
-func toPersistedThread(t threadstore.Thread) orchestration.PersistedThread {
-	return orchestration.PersistedThread{
-		ThreadID:      t.ThreadID,
-		AgentID:       t.AgentID,
-		ParentAgentID: t.ParentAgentID,
-		Name:          t.Name,
-		Prompt:        t.Prompt,
-		Cwd:           t.Cwd,
-		Status:        t.Status,
-		Port:          t.Port,
-		PID:           t.PID,
-		CreatedAt:     t.CreatedAt,
-		UpdatedAt:     t.UpdatedAt,
-		PendingLaunch: t.PendingLaunch,
-	}
-}
-
-// bindingStoreAdapter wraps internal/store/binding.Store and converts its
-// types to the orchestration-local PersistedBinding DTO (modularity-convention §2.4).
-type bindingStoreAdapter struct {
-	inner bindingstore.Store
-}
-
-func (a bindingStoreAdapter) GetByAgentID(ctx context.Context, agentID string) (*orchestration.PersistedBinding, error) {
-	b, err := a.inner.GetByAgentID(ctx, agentID)
-	if err != nil {
-		return nil, err
-	}
-	if b == nil {
-		return nil, nil
-	}
-	pb := orchestration.PersistedBinding{
-		AgentID:          b.AgentID,
-		Provider:         b.Provider,
-		ProviderThreadID: b.ProviderThreadID,
-		CodexThreadID:    b.CodexThreadID,
-		Cwd:              b.Cwd,
-		Archived:         b.Archived,
-		CreatedAt:        b.CreatedAt,
-		UpdatedAt:        b.UpdatedAt,
-	}
-	return &pb, nil
-}
-
-func (a bindingStoreAdapter) SetArchived(ctx context.Context, params orchestration.PersistedBindingArchiveUpdate) error {
-	return a.inner.SetArchived(ctx, bindingstore.SetArchivedParams{
-		AgentID:   params.AgentID,
-		Archived:  params.Archived,
-		UpdatedAt: params.UpdatedAt,
-	})
-}
-
 func newAgentThreadStore(pool *pgxpool.Pool) orchestration.AgentThreadStore {
-	return threadStoreAdapter{inner: threadstore.NewStoreFromPool(pool)}
+	return agentstore.NewThreadStore(pool)
 }
 
 func newAgentBindingStore(pool *pgxpool.Pool) orchestration.AgentBindingStore {
-	return bindingStoreAdapter{inner: bindingstore.NewStoreFromPool(pool)}
+	return agentstore.NewBindingStore(pool)
 }
 
 func registerPoolLifecycle(lc fx.Lifecycle, logger *slog.Logger, pool *pgxpool.Pool) {
@@ -231,23 +139,27 @@ func newNoopTurnStarter() contract.OrchestrationTurnStarter {
 	return noopTurnStarter{}
 }
 
-func newRegistry(
-	orchestration contract.OrchestrationService,
-	ws workspace.Service,
-	prompt promptstore.Store,
-	command commandcardstore.Store,
-	sharedFile sharedfilestore.Store,
-) tools.Registry {
+type newRegistryParams struct {
+	fx.In
+
+	Orchestration contract.OrchestrationService
+	WS            workspace.Service
+	Prompt        promptstore.Store
+	Command       commandcardstore.Store
+	SharedFile    sharedfilestore.Store
+}
+
+func newRegistry(p newRegistryParams) tools.Registry {
 	return tools.NewRegistry(tools.Dependencies{
-		Orchestration: orchestration,
-		Workspace:     ws,
-		Prompt:        prompt,
-		CommandCard:   command,
-		SharedFile:    sharedFile,
+		Orchestration: p.Orchestration,
+		Workspace:     p.WS,
+		Prompt:        p.Prompt,
+		CommandCard:   p.Command,
+		SharedFile:    p.SharedFile,
 	})
 }
 
-func newStdioRunner(registry tools.Registry) platformrunner.Runner {
+func newStdioServer(registry tools.Registry) *common.Server {
 	stdout := mcpStdout
 	if stdout == nil {
 		stdout = os.Stdout
@@ -256,8 +168,13 @@ func newStdioRunner(registry tools.Registry) platformrunner.Runner {
 	return common.NewServer("mcp-orch", "dev", transport, registryToolProvider{registry: registry})
 }
 
-func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client) platformrunner.Runner {
-	return bootstrapRunner{cfg: cfg, client: client}
+// newStdioRunner adapts the stdio *common.Server as a Runner for the run group.
+func newStdioRunner(server *common.Server) platformrunner.Runner {
+	return server
+}
+
+func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client, server *common.Server) platformrunner.Runner {
+	return bootstrapRunner{cfg: cfg, client: client, stdioReady: server.Ready()}
 }
 
 func (p registryToolProvider) ListTools(context.Context) ([]mcpdto.MCPTool, error) {
@@ -304,6 +221,18 @@ func handleToolCall(ctx context.Context, registry tools.Registry, name string, a
 }
 
 func (r bootstrapRunner) Run(ctx context.Context) error {
+	// Dual-channel startup ordering: wait for the local stdio MCP server
+	// to be ready before connecting to the control-plane jrpc2. This
+	// guarantees the tool-execution surface is available when the
+	// control plane starts dispatching requests.
+	if r.stdioReady != nil {
+		select {
+		case <-r.stdioReady:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
 	if strings.TrimSpace(r.cfg.RPCAddr) == "" {
 		pkglogger.Warn("mcp-orch bootstrap disabled: GO_AGENT_CTL_RPC_ADDR missing",
 			"binary_name", r.cfg.BinaryName,
@@ -362,6 +291,14 @@ func bindRuntime(lc fx.Lifecycle, params runtimeParams) {
 
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
+			// Sidecar lifecycle: context.Background() is intentional here.
+			// Unlike the main app (internal/app/runner.go) which derives runCtx
+			// from an owner-supplied RootCtxProvider, sidecars run as independent
+			// child processes. Their lifetime is governed by:
+			//   1. Parent process kill / OnShutdown callback → fx.Shutdowner.Shutdown()
+			//   2. RunGroup self-exit → requestShutdown()
+			// Both paths converge on OnStop, which calls cancel() and waits for
+			// the run group to drain via the done channel.
 			runCtx, runCancel := context.WithCancel(context.Background())
 			cancel = runCancel
 			runtimesafe.SafeGo(runCtx, logger, "mcp-orch.runtime.runGroup", func(context.Context) {

@@ -16,6 +16,10 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+type successResponse struct {
+	Success bool `json:"success"`
+}
+
 type runtimeReportParams struct {
 	AgentID  string `json:"agent_id"`
 	Port     int    `json:"port,omitempty"`
@@ -85,7 +89,7 @@ func ProvideRPCFacade(svc Service) rpc.HandlerMapResult {
 			if err := svc.SubmitTurn(ctx, req); err != nil {
 				return nil, err
 			}
-			return map[string]any{"success": true}, nil
+			return successResponse{Success: true}, nil
 		}),
 		"agent/submitPrompt": rpc.StrictHandler(func(ctx context.Context, p submitPromptParams) (any, error) {
 			req, err := submissionFromParams(ctx, svc, submitParams(p))
@@ -95,7 +99,7 @@ func ProvideRPCFacade(svc Service) rpc.HandlerMapResult {
 			if err := svc.SubmitTurn(ctx, req); err != nil {
 				return nil, err
 			}
-			return map[string]any{"success": true}, nil
+			return successResponse{Success: true}, nil
 		}),
 		"agent/stop": rpc.StrictHandler(func(ctx context.Context, p agentIDParams) (any, error) {
 			return nil, svc.StopAgent(ctx, p.AgentID)
@@ -110,7 +114,7 @@ func ProvideRPCFacade(svc Service) rpc.HandlerMapResult {
 			if err := svc.UpdateRuntime(ctx, runtimeReportFromParams(p)); err != nil {
 				return nil, err
 			}
-			return map[string]any{"success": true}, nil
+			return successResponse{Success: true}, nil
 		}),
 		"agent/getState": rpc.StrictHandler(func(ctx context.Context, p agentIDParams) (any, error) {
 			return svc.GetState(ctx, p.AgentID)

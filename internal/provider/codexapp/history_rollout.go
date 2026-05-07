@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 )
 
 type rolloutLine struct {
@@ -239,7 +239,7 @@ func trimInjectedLSPHint(text string) string {
 // trimInjectedSkillBlock 委托给共享包。P20 Phase 3 统一两家 provider 的识别逻辑，
 // 日后新增格式（如 Phase 4 的 [skill:name::mode@v1]）只需在 rollout_markers.go 中升级。
 func trimInjectedSkillBlock(text string) string {
-	return skillpkg.TrimInjectedSkillBlocks(text)
+	return providershared.TrimInjectedSkillBlocks(text)
 }
 
 func normalizeRolloutInputType(kind string) string {

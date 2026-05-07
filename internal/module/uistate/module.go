@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 	"go.uber.org/fx"
@@ -26,16 +25,21 @@ type Service interface {
 type serviceParams struct {
 	fx.In
 
-	Logger      *slog.Logger
-	Threads     thread.Service
-	Agents      contract.OrchestrationService `optional:"true"`
-	Preferences uipreference.Store
-	Bindings    bindingstore.Store `optional:"true"`
+	Logger        *slog.Logger
+	ThreadLister  contract.ThreadLister         `optional:"true"`
+	Agents        contract.OrchestrationService `optional:"true"`
+	Preferences   uipreference.Store
+	Bindings      bindingstore.Store                 `optional:"true"`
+	RuntimeConfig contract.ThreadRuntimeConfigReader `optional:"true"`
 }
 
 var Module = fx.Module("uistate",
 	fx.Provide(func(p serviceParams) (*service, Service, error) {
-		return NewService(p.Logger, p.Threads, p.Agents, p.Preferences, newBindingAdapter(p.Bindings))
+		var rcl runtimeConfigLookup
+		if p.RuntimeConfig != nil {
+			rcl = p.RuntimeConfig
+		}
+		return NewService(p.Logger, p.ThreadLister, p.Agents, p.Preferences, newBindingAdapter(p.Bindings), rcl)
 	}),
 	// P22 P4 S1b: publish the narrow contract.UIProjectStateFacade so
 	// ui/wails and other frontends can consume GetProjects without
@@ -161,13 +165,6 @@ func setRuntimeStringField(rt map[string]any, cfg map[string]any, field string, 
 	if value := runtimeConfigStringValue(cfg, keys...); value != "" {
 		rt[field] = value
 	}
-}
-
-func runtimeConfigReader(threads thread.Service) runtimeConfigLookup {
-	if reader, ok := threads.(runtimeConfigLookup); ok {
-		return reader
-	}
-	return nil
 }
 
 func runtimeConfigStringValue(cfg map[string]any, keys ...string) string {

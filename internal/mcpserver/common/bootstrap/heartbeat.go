@@ -110,7 +110,8 @@ func (c *Client) sendHeartbeat(ctx context.Context, timeout time.Duration) (bool
 	callCtx, cancel := withTimeoutIfNone(ctx, timeout)
 	defer cancel()
 	req := mcp.HeartbeatRequest{
-		Lease:                 lease,
+		InstanceID:            lease.InstanceID,
+		Generation:            lease.Generation,
 		HeartbeatSeq:          c.nextHeartbeatSeq(),
 		Status:                mcp.StatusActive,
 		Metrics:               c.heartbeatMetrics(),

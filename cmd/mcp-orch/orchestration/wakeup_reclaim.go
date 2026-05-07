@@ -7,6 +7,7 @@ import (
 	"time"
 
 	taskdag "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
+	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	"go.uber.org/fx"
@@ -116,65 +117,31 @@ func (r *WakeupReclaimer) ReclaimOnce(ctx context.Context) (int64, error) {
 	return rows, nil
 }
 
-// RegisterWakeupReclaimerIn lets fx inject taskdag.Store as an optional
-// dependency. Same pattern as RegisterWakeupDispatcherIn (Phase 3.2).
-type RegisterWakeupReclaimerIn struct {
+// ProvideWakeupReclaimerRunnerIn lets fx inject taskdag.Store as an optional
+// dependency. Same pattern as ProvideWakeupDispatcherRunnerIn (Phase 3.2).
+type ProvideWakeupReclaimerRunnerIn struct {
 	fx.In
 
-	Lifecycle fx.Lifecycle
-	Store     taskdag.Store `optional:"true"`
-	Logger    *slog.Logger  `optional:"true"`
+	Store  taskdag.Store `optional:"true"`
+	Logger *slog.Logger  `optional:"true"`
 }
 
-// RegisterWakeupReclaimer (Phase 3.3) starts the reclaim cron on app start
-// and stops it on app stop. Independent ticker from RegisterWakeupDispatcher
-// so that dispatcher hiccups (DB blip / panic) cannot stall the reclaim
-// path that frees stuck-dispatching wakeups.
+// ProvideWakeupReclaimerRunner (Phase 3.3) returns the wakeup reclaimer as
+// a Runner for injection into run.Group via group:"runners". Independent
+// ticker from the wakeup dispatcher so that dispatcher hiccups (DB blip /
+// panic) cannot stall the reclaim path that frees stuck-dispatching wakeups.
 //
-// taskdag.Store optional: when missing the reclaimer is skipped (for tests
-// that don't bring up the dag store).
-func RegisterWakeupReclaimer(in RegisterWakeupReclaimerIn) error {
+// Wired with fx.Provide + group:"runners" from cmd/mcp-orch/fx.go so
+// run.Group manages the goroutine lifecycle. taskdag.Store is optional:
+// when missing the reclaimer is replaced by a no-op runner.
+func ProvideWakeupReclaimerRunner(in ProvideWakeupReclaimerRunnerIn) (platformrunner.Runner, error) {
 	logger := in.Logger
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
 	if in.Store == nil {
 		logger.Info("orchestration: wakeup reclaimer disabled (no taskdag store provided)")
-		return nil
+		return platformrunner.NoopRunner{}, nil
 	}
-	reclaimer, err := NewWakeupReclaimer(in.Store, logger, WakeupReclaimerConfig{})
-	if err != nil {
-		return err
-	}
-	var (
-		cancel context.CancelFunc
-		done   = make(chan struct{})
-	)
-	in.Lifecycle.Append(fx.Hook{
-		OnStart: func(context.Context) error {
-			var runCtx context.Context
-			runCtx, cancel = context.WithCancel(context.Background())
-			go func() {
-				defer close(done)
-				if runErr := reclaimer.Run(runCtx); runErr != nil && !errors.Is(runErr, context.Canceled) {
-					logger.Warn("orchestration: wakeup reclaimer exited",
-						"error", runErr)
-				}
-			}()
-			return nil
-		},
-		OnStop: func(stopCtx context.Context) error {
-			if cancel != nil {
-				cancel()
-			}
-			select {
-			case <-done:
-			case <-stopCtx.Done():
-				logger.Warn("orchestration: wakeup reclaimer stop timeout",
-					"error", stopCtx.Err())
-			}
-			return nil
-		},
-	})
-	return nil
+	return NewWakeupReclaimer(in.Store, logger, WakeupReclaimerConfig{})
 }

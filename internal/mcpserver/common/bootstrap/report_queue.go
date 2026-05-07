@@ -18,7 +18,8 @@ func (c *Client) normalizeReportRequest(req mcp.ReportRequest) mcp.ReportRequest
 	if req.ReportID == "" {
 		req.ReportID = generateID("ctl_report")
 	}
-	req.Lease = mcp.LeaseKey{}
+	req.InstanceID = ""
+	req.Generation = 0
 	req.Report = cloneReportEnvelope(req.Report)
 	if req.Report.Type == "" {
 		req.Report.Type = guessReportVariant(req)
@@ -92,7 +93,8 @@ func (c *Client) sendReportWithConn(ctx context.Context, conn *jrpc2.Client, lea
 		return nil, errors.New("bootstrap: nil rpc client")
 	}
 	req = cloneReportRequest(req)
-	req.Lease = lease
+	req.InstanceID = lease.InstanceID
+	req.Generation = lease.Generation
 	callCtx, cancel := withTimeoutIfNone(ctx, c.currentSendTimeout())
 	defer cancel()
 	var resp mcp.ReportResponse

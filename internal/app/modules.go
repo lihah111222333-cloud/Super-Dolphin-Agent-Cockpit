@@ -8,6 +8,7 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/cliadapter"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/cron"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/dashboard"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/fbsd"
@@ -36,6 +37,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/claudecli"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	"github.com/anthropic-ai/super-agent-v3/internal/store"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
@@ -65,6 +67,11 @@ var Module = fx.Options(
 	skilllibrary.Module,
 	fbsd.Module,
 	fx.Provide(provideSkillLibraryConfig),
+	fx.Provide(provideContractSkillLibraryConfig),
+	fx.Provide(provideFBSDRecorder),
+	fx.Provide(provideWorkspaceSkillSetup),
+	fx.Provide(provideSkillManifestRenderer),
+	fx.Invoke(initProviderHooks),
 	thread.Module,
 	turn.Module,
 	turnobservation.Module,
@@ -78,6 +85,8 @@ var Module = fx.Options(
 	claudecli.Module,
 	codexapp.Module,
 	toolbridge.Module, // P15 新增：始终加载
+	ToolbridgeAdapters,
+	ToolbridgeCodexBinding,
 	// orchestration is handled entirely by the standalone mcp-orch MCP server;
 	// the desktop app must NOT embed its own orchestration module, otherwise
 	// localLauncher re-spawns the desktop binary as a subprocess which exits
@@ -121,4 +130,57 @@ func provideDisabledBuiltinToolsFn(prefs uipreference.Store, tools []contract.Na
 
 func AsRPCRunner(server *rpc.Server) RunnerResult {
 	return RunnerResult{Runner: server}
+}
+
+// provideContractSkillLibraryConfig bridges skilllibrary.Config to the
+// contract-level type that provider packages consume.
+func provideContractSkillLibraryConfig(cfg skilllibrary.Config) contract.SkillLibraryConfig {
+	return contract.SkillLibraryConfig{CacheDir: cfg.CacheDir}
+}
+
+// provideFBSDRecorder exposes *fbsd.Tracker as contract.FBSDRecorder.
+// The tracker may be nil (fx optional); callers must nil-check.
+func provideFBSDRecorder(t *fbsd.Tracker) contract.FBSDRecorder {
+	if t == nil {
+		return nil
+	}
+	return t
+}
+
+// provideWorkspaceSkillSetup exposes cliadapter.SetupWorkspaceSkills as a
+// contract.WorkspaceSkillSetupFunc for the claudecli provider.
+func provideWorkspaceSkillSetup() contract.WorkspaceSkillSetupFunc {
+	return cliadapter.SetupWorkspaceSkills
+}
+
+// provideSkillManifestRenderer creates the contract.SkillManifestRenderer
+// using the fbsd ManifestRenderer implementation.
+func provideSkillManifestRenderer(store *skilllibrary.Store, tracker *fbsd.Tracker) contract.SkillManifestRenderer {
+	if store == nil {
+		return nil
+	}
+	return fbsd.NewManifestRenderer(store, tracker)
+}
+
+// initProviderHooks wires module-layer functions into provider/shared hooks
+// so the provider layer can use CaptureToolResult, ResetToolResultScope, and
+// TrimInjectedSkillBlocks without importing module packages directly.
+func initProviderHooks() {
+	providershared.SetCaptureToolResultHook(func(meta providershared.ToolResultMeta, raw string) providershared.ToolResultRecord {
+		result := turn.CaptureToolResult(turn.ToolResultMeta{
+			ThreadID:  meta.ThreadID,
+			TurnID:    meta.TurnID,
+			CallID:    meta.CallID,
+			ToolName:  meta.ToolName,
+			Timestamp: meta.Timestamp,
+		}, raw)
+		return providershared.ToolResultRecord{
+			Preview:       result.Preview,
+			PersistedPath: result.PersistedPath,
+			Truncated:     result.Truncated,
+			OriginalSize:  result.OriginalSize,
+		}
+	})
+	providershared.SetResetToolResultScopeHook(turn.ResetToolResultScope)
+	providershared.SetTrimSkillBlocksHook(skill.TrimInjectedSkillBlocks)
 }

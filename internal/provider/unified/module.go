@@ -7,7 +7,6 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 )
 
 type RegistryParams struct {
@@ -27,9 +26,9 @@ var Module = fx.Module("provider.unified",
 	fx.Provide(
 		NewEventDispatcher,
 		NewRegistry,
-		fx.Annotate(NewClient, fx.As(new(thread.SessionStarter))),
+		fx.Annotate(NewClient, fx.As(new(contract.SessionStarter))),
 		NewSessionManager,
-		fx.Annotate(NewSessionProvider, fx.As(new(thread.SessionProvider))),
+		fx.Annotate(NewSessionProvider, fx.As(new(contract.SessionProvider))),
 		NewTurnSessionProvider,
 		fx.Annotate(NewSessionCleaner, fx.As(new(contract.OrchestrationSessionCleaner))),
 		NewSessionResolver,

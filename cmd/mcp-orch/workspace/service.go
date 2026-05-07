@@ -13,6 +13,7 @@ import (
 	"time"
 
 	storeworkspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/workspace"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 
 	"github.com/kelindar/event"
@@ -52,20 +53,11 @@ type service struct {
 func NewService(store storeworkspace.Store, dispatcher *event.Dispatcher) Service {
 	return &service{
 		store:            store,
-		emitCreated:      newEmitter[WorkspaceRunCreated](dispatcher),
-		emitMerged:       newEmitter[WorkspaceRunMerged](dispatcher),
-		emitAborted:      newEmitter[WorkspaceRunAborted](dispatcher),
-		emitMergeError:   newEmitter[WorkspaceRunMergeError](dispatcher),
-		emitStatusChange: newEmitter[WorkspaceRunStatusChanged](dispatcher),
-	}
-}
-
-func newEmitter[T event.Event](dispatcher *event.Dispatcher) func(T) {
-	return func(ev T) {
-		if dispatcher == nil {
-			return
-		}
-		event.Publish(dispatcher, ev)
+		emitCreated:      contract.NewEmitter[WorkspaceRunCreated](dispatcher),
+		emitMerged:       contract.NewEmitter[WorkspaceRunMerged](dispatcher),
+		emitAborted:      contract.NewEmitter[WorkspaceRunAborted](dispatcher),
+		emitMergeError:   contract.NewEmitter[WorkspaceRunMergeError](dispatcher),
+		emitStatusChange: contract.NewEmitter[WorkspaceRunStatusChanged](dispatcher),
 	}
 }
 

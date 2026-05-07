@@ -69,8 +69,9 @@ func TestShutdownInstance_CleansUpHooksBeforeCallback(t *testing.T) {
 			if !ok {
 				t.Fatalf("Callback() params type = %T, want dto.ShutdownRequest", params)
 			}
-			if req.Lease != lease {
-				t.Fatalf("ShutdownRequest.Lease = %#v, want %#v", req.Lease, lease)
+			gotLease := dto.LeaseKey{InstanceID: req.InstanceID, Generation: req.Generation}
+			if gotLease != lease {
+				t.Fatalf("ShutdownRequest lease = %#v, want %#v", gotLease, lease)
 			}
 			return nil
 		},
@@ -102,8 +103,9 @@ func TestHeartbeat_DisconnectedCleansUpHooksAndEvictsLease(t *testing.T) {
 	registry.latestByInstance[lease.InstanceID] = lease
 
 	resp, err := registry.Heartbeat(context.Background(), dto.HeartbeatRequest{
-		Lease:  lease,
-		Status: dto.StatusDisconnected,
+		InstanceID: lease.InstanceID,
+		Generation: lease.Generation,
+		Status:     dto.StatusDisconnected,
 	})
 	if err != nil {
 		t.Fatalf("Heartbeat() error = %v", err)

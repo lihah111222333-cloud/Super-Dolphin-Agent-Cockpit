@@ -10,23 +10,23 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	turn "github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// TurnServiceAdapter implements TurnSubmitter on top of turn.Service.
-// It bridges the cron scheduler's narrow submit-and-observe contract
-// into the real turn preparation + start + track stack.
+// TurnServiceAdapter implements TurnSubmitter on top of
+// contract.CronTurnExecutor. It bridges the cron scheduler's narrow
+// submit-and-observe contract into the real turn preparation + start +
+// track stack.
 //
 // Scope — phase 2b-integrate (v1):
 //   - StartTurn: requires the job row to already have ThreadID; the
 //     adapter resolves an existing Session via contract.SessionResolver,
-//     runs PrepareTurn -> StartTurn, and returns the handle's local id
-//     as the recorded turn_id. Agent bootstrap (creating an agent when
-//     the job fires for the first time) is NOT in this cut — that
-//     bootstrap pattern belongs in a follow-up that also fills
+//     runs CronPrepareTurn -> CronStartTurn, and returns the handle's
+//     local id as the recorded turn_id. Agent bootstrap (creating an
+//     agent when the job fires for the first time) is NOT in this cut —
+//     that bootstrap pattern belongs in a follow-up that also fills
 //     thread_id onto the job row before the first tick.
-//   - LookupByDedupeKey: delegates to turn.Service.LookupByDedupeKey,
+//   - LookupByDedupeKey: delegates to CronTurnExecutor.CronLookupByDedupeKey,
 //     which reads the in-memory tracker. That covers the common
 //     crash-recovery window (same process, transient failure between
 //     StartTurn returning and the run row CAS-advancing to
@@ -34,11 +34,11 @@ import (
 //     persistence half of the P1b plan remains a follow-up. ok=false
 //     is mapped to ObservedTurn{Found:false} so the scheduler treats
 //     every tracker miss as "never submitted" per the plan.
-//   - Observe: delegates to turn.Service.TrackTurn; a not-found error
-//     maps to ErrTurnNotFound so the scheduler marks the run
+//   - Observe: delegates to CronTurnExecutor.CronTrackTurn; a not-found
+//     error maps to ErrTurnNotFound so the scheduler marks the run
 //     observe_lost per the P1b plan.
 type TurnServiceAdapter struct {
-	svc      turn.Service
+	svc      contract.CronTurnExecutor
 	resolver contract.SessionResolver
 	logger   *slog.Logger
 	// bootstrapper is optional. When set, StartTurn invokes it on a job
@@ -54,7 +54,7 @@ var _ TurnSubmitter = (*TurnServiceAdapter)(nil)
 // NewTurnServiceAdapter wires the adapter. Either dependency being nil
 // is a programmer error; callers should fall back to NoopTurnSubmitter
 // before reaching this constructor.
-func NewTurnServiceAdapter(logger *slog.Logger, svc turn.Service, resolver contract.SessionResolver) *TurnServiceAdapter {
+func NewTurnServiceAdapter(logger *slog.Logger, svc contract.CronTurnExecutor, resolver contract.SessionResolver) *TurnServiceAdapter {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -79,12 +79,11 @@ func (a *TurnServiceAdapter) WithBootstrapper(b ThreadBootstrapper) *TurnService
 // will retry per its retry budget.
 var ErrJobNotBootstrapped = errors.New("cron: job thread_id is empty (agent/thread bootstrap not yet supported)")
 
-// StartTurn runs the PrepareTurn -> StartTurn pipeline. DedupeKey is
-// forwarded to the turn layer so a subsequent LookupByDedupeKey can
-// resolve the submission within the same process; cross-process
-// crash recovery still relies on the phase-1 store
-// CAS(pending->submitting) gate until the dedupe_key SQL column
-// lands.
+// StartTurn runs the CronPrepareTurn -> CronStartTurn pipeline.
+// DedupeKey is forwarded to the turn layer so a subsequent
+// LookupByDedupeKey can resolve the submission within the same process;
+// cross-process crash recovery still relies on the phase-1 store
+// CAS(pending->submitting) gate until the dedupe_key SQL column lands.
 func (a *TurnServiceAdapter) StartTurn(ctx context.Context, req StartTurnRequest) (StartTurnResult, error) {
 	if a == nil || a.svc == nil || a.resolver == nil {
 		return StartTurnResult{}, errors.New("cron: turn adapter not wired")
@@ -129,20 +128,20 @@ func (a *TurnServiceAdapter) resolveThreadAgent(ctx context.Context, req StartTu
 }
 
 func (a *TurnServiceAdapter) executeTurn(ctx context.Context, session contract.Session, req StartTurnRequest) (string, error) {
-	prepared, err := a.svc.PrepareTurn(ctx, session, a.buildPrepareInput(req))
+	prepared, err := a.svc.CronPrepareTurn(ctx, session, a.buildPrepareInput(req))
 	if err != nil {
 		return "", fmt.Errorf("cron: prepare turn: %w", err)
 	}
-	handle, err := a.svc.StartTurn(ctx, session, prepared)
+	handle, err := a.svc.CronStartTurn(ctx, session, prepared)
 	if err != nil {
 		return "", fmt.Errorf("cron: start turn: %w", err)
 	}
 	turnID := strings.TrimSpace(handle.LocalID())
 	if turnID == "" {
-		// A StartTurn that returns without a local id is a turn.Service
+		// A CronStartTurn that returns without a local id is a
 		// contract violation. Fail loudly so the scheduler marks the
 		// run failed instead of persisting a phantom turn_id.
-		return "", errors.New("cron: turn.StartTurn returned empty local id")
+		return "", errors.New("cron: CronStartTurn returned empty local id")
 	}
 	return turnID, nil
 }
@@ -153,8 +152,8 @@ func (a *TurnServiceAdapter) executeTurn(ctx context.Context, session contract.S
 // contract by returning ErrJobNotBootstrapped so the scheduler can
 // fail the run and retry; a non-empty ThreadID from the bootstrapper
 // is required — an empty result is treated as a bootstrap failure
-// because we cannot proceed to PrepareTurn / StartTurn without a
-// thread.
+// because we cannot proceed to CronPrepareTurn / CronStartTurn without
+// a thread.
 func (a *TurnServiceAdapter) bootstrapFirstRun(ctx context.Context, req StartTurnRequest) (BootstrapResult, error) {
 	if a == nil || a.bootstrapper == nil {
 		return BootstrapResult{}, ErrJobNotBootstrapped
@@ -192,7 +191,7 @@ func (a *TurnServiceAdapter) LookupByDedupeKey(ctx context.Context, dedupeKey st
 	if key == "" {
 		return ObservedTurn{Found: false}, nil
 	}
-	status, found, err := a.svc.LookupByDedupeKey(ctx, key)
+	status, found, err := a.svc.CronLookupByDedupeKey(ctx, key)
 	if err != nil {
 		return ObservedTurn{Found: false}, fmt.Errorf("cron: lookup by dedupe key: %w", err)
 	}
@@ -209,7 +208,7 @@ func (a *TurnServiceAdapter) LookupByDedupeKey(ctx context.Context, dedupeKey st
 	return ObservedTurn{Found: true, TurnID: turnID}, nil
 }
 
-// Observe attaches a cheap liveness check via turn.Service.TrackTurn.
+// Observe attaches a cheap liveness check via CronTurnExecutor.CronTrackTurn.
 // A tracker miss ("turn not found") maps to ErrTurnNotFound so the
 // scheduler marks the run observe_lost per the P1b plan; every other
 // error surfaces wrapped so the scheduler can log it.
@@ -221,8 +220,8 @@ func (a *TurnServiceAdapter) Observe(ctx context.Context, turnID string) error {
 	if turnID == "" {
 		return errors.New("cron: Observe requires a turn id")
 	}
-	if _, err := a.svc.TrackTurn(ctx, turnID); err != nil {
-		// turn.Service currently wraps "turn not found" as a plain
+	if _, err := a.svc.CronTrackTurn(ctx, turnID); err != nil {
+		// CronTrackTurn currently wraps "turn not found" as a plain
 		// errors.New — compare on substring until a sentinel lands.
 		if strings.Contains(strings.ToLower(err.Error()), "turn not found") {
 			return ErrTurnNotFound
@@ -233,10 +232,10 @@ func (a *TurnServiceAdapter) Observe(ctx context.Context, turnID string) error {
 }
 
 // buildPrepareInput translates the cron-side StartTurnRequest into
-// turn.PrepareInput. Fields absent from the cron row (Files / Images /
-// CandidateSkills / MCPSnapshot / ...) default to their zero values;
-// turn.Service's PrepareTurn owns the fallback policy.
-func (a *TurnServiceAdapter) buildPrepareInput(req StartTurnRequest) turn.PrepareInput {
+// contract.CronPrepareInput. Fields absent from the cron row (Files /
+// Images / CandidateSkills / MCPSnapshot / ...) default to their zero
+// values; the turn layer's PrepareTurn owns the fallback policy.
+func (a *TurnServiceAdapter) buildPrepareInput(req StartTurnRequest) contract.CronPrepareInput {
 	skills := make([]providerdto.SkillRef, 0, len(req.Skills))
 	for _, s := range req.Skills {
 		if name := strings.TrimSpace(s); name != "" {
@@ -244,7 +243,7 @@ func (a *TurnServiceAdapter) buildPrepareInput(req StartTurnRequest) turn.Prepar
 		}
 	}
 	runtimeCfg := decodeRuntimeConfig(req.Config)
-	return turn.PrepareInput{
+	return contract.CronPrepareInput{
 		Prompt:              req.Prompt,
 		Skills:              skills,
 		Provider:            strings.TrimSpace(req.Provider),
@@ -258,7 +257,7 @@ func (a *TurnServiceAdapter) buildPrepareInput(req StartTurnRequest) turn.Prepar
 
 // decodeRuntimeConfig turns a JSON blob into a map[string]any, or nil
 // when the blob is missing/invalid. A decode error is silently
-// dropped — turn.Service treats nil config as "no overrides" and a
+// dropped — the turn layer treats nil config as "no overrides" and a
 // malformed config has already been rejected at cron create time by
 // the service-layer ResolveCodexIdentity check (phase 2a), so reaching
 // this branch implies the row was mutated after validation.

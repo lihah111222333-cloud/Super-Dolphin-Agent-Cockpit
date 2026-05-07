@@ -3,9 +3,14 @@ package claudecli
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skill"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 )
 
 func TestTrimClaudeHistoryFiltersNoiseAndInjectedHints(t *testing.T) {
+	providershared.SetTrimSkillBlocksHook(skill.TrimInjectedSkillBlocks)
+	t.Cleanup(func() { providershared.SetTrimSkillBlocksHook(nil) })
 	t.Parallel()
 
 	messages := []Message{

@@ -5,8 +5,8 @@ import (
 
 	"go.uber.org/fx"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt/classifier"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
@@ -21,6 +21,10 @@ var Module = fx.Module("prompt",
 		AsSectionInvalidator,
 		registerPromptHandlers,
 		newPromptClassifier,
+		newClassifierFastPathFunc,
+		newClassifierPruneCandidatesFunc,
+		newClassifierMaxCandidatesFunc,
+		newMatchWhenEvaluator,
 	),
 )
 
@@ -28,8 +32,24 @@ var Module = fx.Module("prompt",
 // returns the resulting Classifier. Disabled/missing-binary both yield
 // NoopClassifier so downstream consumers (thread router) can always depend
 // on a non-nil value and skip feature detection on the hot path.
-func newPromptClassifier() classifier.Classifier {
+func newPromptClassifier() contract.PromptClassifier {
 	return classifier.NewService(classifier.NewConfigFromEnv())
+}
+
+func newClassifierFastPathFunc() contract.ClassifierFastPathFunc {
+	return classifier.FastPath
+}
+
+func newClassifierPruneCandidatesFunc() contract.ClassifierPruneCandidatesFunc {
+	return classifier.PruneCandidates
+}
+
+func newClassifierMaxCandidatesFunc() contract.ClassifierMaxCandidatesFunc {
+	return classifier.MaxCandidatesFromEnv
+}
+
+func newMatchWhenEvaluator() contract.MatchWhenEvaluator {
+	return EvaluateMatchWhen
 }
 
 // ServiceFxParams resolves optional dependencies needed to surface the
@@ -37,11 +57,11 @@ func newPromptClassifier() classifier.Classifier {
 type ServiceFxParams struct {
 	fx.In
 	Cfg             *Config
-	Logger          *slog.Logger           `optional:"true"`
-	Prefs           uipreference.Store     `optional:"true"`
-	SharedFiles     sharedfilestore.Reader `optional:"true"`
-	SkillStore      *skilllibrary.Store    `optional:"true"`
-	DisabledToolsFn DisabledBuiltinToolsFn `optional:"true"`
+	Logger          *slog.Logger                        `optional:"true"`
+	Prefs           uipreference.Store                  `optional:"true"`
+	SharedFiles     sharedfilestore.Reader              `optional:"true"`
+	SkillStore      contract.SkillReplacementAggregator `optional:"true"`
+	DisabledToolsFn DisabledBuiltinToolsFn              `optional:"true"`
 }
 
 // NewServiceFx is the fx-facing constructor that wires the preference store,

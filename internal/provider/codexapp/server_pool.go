@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/discovery"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -400,5 +402,23 @@ func closeWithTimeout(server SpawnedServer, timeout time.Duration, logger *slog.
 			slog.String("owner", key.ownerKey),
 			slog.String("error", err.Error()),
 		)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Peer discovery cleanup (was peer_discovery_cleanup.go)
+// ---------------------------------------------------------------------------
+
+// cleanPeerDiscoveryFiles removes HTTP discovery files for peer MCP processes.
+// Called during ServerManager shutdown as a safety net.
+func cleanPeerDiscoveryFiles() {
+	myPID := os.Getpid()
+	for _, binary := range []string{"mcp-orch", "mcp-lsp"} {
+		if err := discovery.CleanupDiscoveryFile(binary, myPID); err != nil {
+			if !os.IsNotExist(err) {
+				pkglogger.Warn("peer discovery cleanup failed",
+					"binary", binary, "pid", myPID, "error", err)
+			}
+		}
 	}
 }

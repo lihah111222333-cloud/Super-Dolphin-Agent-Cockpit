@@ -114,13 +114,13 @@ func persistedThreadAgentState(thread PersistedThread) string {
 	switch strings.ToLower(strings.TrimSpace(thread.Status)) {
 	case "", "created", "running":
 		if thread.PendingLaunch {
-			return agentdto.StateProvisioning
+			return string(agentdto.StateProvisioning)
 		}
-		return agentdto.StateIdle
+		return string(agentdto.StateIdle)
 	case "stopped", "archived":
-		return agentdto.StateStopped
+		return string(agentdto.StateStopped)
 	case "expired":
-		return agentdto.StateFailed
+		return string(agentdto.StateFailed)
 	default:
 		return strings.TrimSpace(thread.Status)
 	}

@@ -60,7 +60,7 @@ func TestSchedulerPublishesHappyPathTransitions(t *testing.T) {
 		ID: "job-1", Name: "daily", Prompt: "x", ScheduleExpr: "0 9 * * *",
 		Timezone: "UTC", Provider: "codex", CWD: "/repo", ClaimToken: "t", NextRunAt: now,
 	}
-	store.claimFn = func(context.Context, cronstore.ClaimDueJobsParams) ([]cronstore.Job, error) {
+	store.claimFn = func(context.Context, cronstore.ClaimDueJobsForUpdateParams) ([]cronstore.Job, error) {
 		return []cronstore.Job{job}, nil
 	}
 
@@ -105,7 +105,7 @@ func TestSchedulerPublishesFailedOnStartTurnError(t *testing.T) {
 
 	now := time.Unix(1_700_000_000, 0).UTC()
 	job := cronstore.Job{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", Provider: "codex", CWD: "/r", ClaimToken: "t", NextRunAt: now}
-	store.claimFn = func(context.Context, cronstore.ClaimDueJobsParams) ([]cronstore.Job, error) {
+	store.claimFn = func(context.Context, cronstore.ClaimDueJobsForUpdateParams) ([]cronstore.Job, error) {
 		return []cronstore.Job{job}, nil
 	}
 
@@ -136,7 +136,7 @@ func TestSchedulerNoPublishWhenDispatcherUnset(t *testing.T) {
 
 	now := time.Unix(1_700_000_000, 0).UTC()
 	job := cronstore.Job{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", Provider: "codex", CWD: "/r", ClaimToken: "t", NextRunAt: now}
-	store.claimFn = func(context.Context, cronstore.ClaimDueJobsParams) ([]cronstore.Job, error) {
+	store.claimFn = func(context.Context, cronstore.ClaimDueJobsForUpdateParams) ([]cronstore.Job, error) {
 		return []cronstore.Job{job}, nil
 	}
 	if err := s.RunTick(context.Background()); err != nil {

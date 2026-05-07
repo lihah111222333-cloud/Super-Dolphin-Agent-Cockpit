@@ -45,7 +45,7 @@ func (q *Queries) CASCronJobRunStatus(ctx context.Context, arg CASCronJobRunStat
 	return result.RowsAffected(), nil
 }
 
-const claimDueJobs = `-- name: ClaimDueJobs :many
+const claimDueJobsForUpdate = `-- name: ClaimDueJobsForUpdate :many
 
 WITH due AS (
     SELECT id
@@ -75,7 +75,7 @@ RETURNING j.id, j.name, j.prompt, j.schedule_type, j.schedule_expr,
           j.updated_at
 `
 
-type ClaimDueJobsParams struct {
+type ClaimDueJobsForUpdateParams struct {
 	ClaimedBy      string             `db:"claimed_by" json:"claimed_by"`
 	Now            pgtype.Timestamptz `db:"now" json:"now"`
 	LeaseExpiresAt pgtype.Timestamptz `db:"lease_expires_at" json:"lease_expires_at"`
@@ -84,13 +84,13 @@ type ClaimDueJobsParams struct {
 }
 
 // Claim / lease -----------------------------------------------------
-// ClaimDueJobs marks up to `limit` due rows as claimed by `claimed_by`.
+// ClaimDueJobsForUpdate marks up to `limit` due rows as claimed by `claimed_by`.
 // The embedded SELECT ... FOR UPDATE SKIP LOCKED makes sure two
 // schedulers hitting the same tick never grab the same row. claim_token
 // is generated in the application layer (Go UUID) and passed in so no
 // Postgres extension (pgcrypto / uuid-ossp) is required.
-func (q *Queries) ClaimDueJobs(ctx context.Context, arg ClaimDueJobsParams) ([]CronJob, error) {
-	rows, err := q.db.Query(ctx, claimDueJobs,
+func (q *Queries) ClaimDueJobsForUpdate(ctx context.Context, arg ClaimDueJobsForUpdateParams) ([]CronJob, error) {
+	rows, err := q.db.Query(ctx, claimDueJobsForUpdate,
 		arg.ClaimedBy,
 		arg.Now,
 		arg.LeaseExpiresAt,

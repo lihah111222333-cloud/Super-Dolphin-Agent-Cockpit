@@ -7,8 +7,6 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	thread "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
-	turn "github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -19,7 +17,7 @@ import (
 // TurnSubmitter defaults to NoopTurnSubmitter: the scheduler machinery
 // runs end-to-end but every StartTurn fails fast with
 // ErrSubmitterNotWired until phase 2b-integrate provides a real
-// internal/module/turn-backed implementation. Overriding the submitter
+// contract.CronTurnExecutor-backed implementation. Overriding the submitter
 // in a parent Fx module is a single fx.Decorate replacing the Noop.
 var Module = fx.Module("cron",
 	fx.Provide(provideStore),
@@ -45,7 +43,7 @@ func provideStore(s cronstore.Store) Store { return s }
 func provideSchedulerConfig() SchedulerConfig { return SchedulerConfig{} }
 
 // turnSubmitterParams lets provideTurnSubmitter discover an optional
-// real turn.Service + SessionResolver pair. When both are wired the
+// real CronTurnExecutor + SessionResolver pair. When both are wired the
 // factory promotes the seam to TurnServiceAdapter; otherwise it falls
 // back to NoopTurnSubmitter so binaries that import cron.Module
 // without a turn stack (for example unit tests or the mcp-orch peer)
@@ -53,7 +51,7 @@ func provideSchedulerConfig() SchedulerConfig { return SchedulerConfig{} }
 // ErrSubmitterNotWired, preserving the v1 guarantee that the
 // scheduler cannot silently accept work it has no way to execute.
 //
-// The optional ThreadService drives first-trigger bootstrap: when
+// The optional CronThreadStarter drives first-trigger bootstrap: when
 // provided, the submitter builds a ThreadServiceBootstrapper and
 // attaches it to the adapter so a job with an empty thread_id mints
 // its thread on the fly instead of failing with
@@ -61,10 +59,10 @@ func provideSchedulerConfig() SchedulerConfig { return SchedulerConfig{} }
 type turnSubmitterParams struct {
 	fx.In
 
-	Logger        *slog.Logger             `optional:"true"`
-	Service       turn.Service             `optional:"true"`
-	Resolver      contract.SessionResolver `optional:"true"`
-	ThreadService thread.Service           `optional:"true"`
+	Logger        *slog.Logger               `optional:"true"`
+	Service       contract.CronTurnExecutor  `optional:"true"`
+	Resolver      contract.SessionResolver   `optional:"true"`
+	ThreadService contract.CronThreadStarter `optional:"true"`
 }
 
 func provideTurnSubmitter(p turnSubmitterParams) TurnSubmitter {

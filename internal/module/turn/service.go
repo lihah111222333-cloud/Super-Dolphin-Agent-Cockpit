@@ -12,7 +12,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	turnobservation "github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation"
 	turndedupe "github.com/anthropic-ai/super-agent-v3/internal/store/turndedupe"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
@@ -23,12 +22,9 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// skillHydrationPort 是 turn service 平时读取 skill 元数据/正文的最小入口。
-//
-// p20.2 §5 step 2：PrepareTurn 前置需要把 name-only skill 补全为
-// `{Prompt, Summary, Version}`。该端口已上移到 skill 模块，避免 turn
-// 构造器继续依赖完整 skill.Service。
-type skillHydrationPort = skillpkg.SkillHydrationSource
+// skillHydrationPort is the turn service's minimal dependency for resolving
+// name-only skill references before provider submission.
+type skillHydrationPort = contract.SkillHydrationSource
 
 type service struct {
 	logger                 *slog.Logger
@@ -85,7 +81,7 @@ func NewServiceWithPromptAssemblyAndTurnContext(
 	logger *slog.Logger,
 	promptAssembly contract.PromptAssemblyService,
 	turnContextProvider contract.TurnContextProvider,
-	skillSvc skillpkg.SkillHydrationSource,
+	skillSvc contract.SkillHydrationSource,
 	observation turnobservation.Contract,
 	dedupeStore turndedupe.Store,
 	manifestBuild contract.ManifestBuildFunc,
@@ -152,7 +148,7 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 	// Prompt=="" 时只能走 name-list fallback。hydrate 是 optional 依赖：
 	// skillLookup==nil 时（NewService / NewServiceWithPromptAssembly 或 fx 未
 	// 注入 skill.Service）原路直通。
-	hydrated, hydrateErr := s.hydrateSkillRefs(skillpkg.WithCWD(ctx, input.CWD), input.Skills, input.ManualSkillSelection)
+	hydrated, hydrateErr := s.hydrateSkillRefs(contract.WithSkillCWD(ctx, input.CWD), input.Skills, input.ManualSkillSelection)
 	if hydrateErr != nil {
 		return dto.TurnRequest{}, hydrateErr
 	}
@@ -382,7 +378,7 @@ func (s *service) LookupByDedupeKey(ctx context.Context, dedupeKey string) (Turn
 	return TurnStatus{
 		LocalID:    entry.LocalTurnID,
 		ProviderID: entry.ProviderTurnID,
-		State:      StateRunning,
+		State:      string(StateRunning),
 	}, true, nil
 }
 
@@ -530,22 +526,6 @@ func (s *service) waitForTurnSettle(ctx context.Context, localID string, handle 
 	return err
 }
 
-func waitForHandle(ctx context.Context, handle contract.TurnHandle, deadline time.Time) error {
-	if handle == nil {
-		return nil
-	}
-	timer := time.NewTimer(time.Until(deadline))
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-handle.Done():
-		return nil
-	case <-timer.C:
-		return context.DeadlineExceeded
-	}
-}
-
 func (s *service) waitForTrackedTerminal(ctx context.Context, localID string, deadline time.Time) (TurnStatus, error) {
 	ticker := time.NewTicker(25 * time.Millisecond)
 	defer ticker.Stop()
@@ -577,21 +557,6 @@ func (s *service) buildOverrides(caps dto.CapabilitySet, input PrepareInput) dto
 		overrides.Effort = effort
 	}
 	return overrides
-}
-
-func ensureLocalTurnID(localID string) string {
-	if localID = strings.TrimSpace(localID); localID != "" {
-		return localID
-	}
-	return idgen.NewID("turn")
-}
-
-func isTerminalTurnState(state string) bool {
-	switch strings.TrimSpace(state) {
-	case StateCompleted, StateInterrupted, StateFailed, StateStalled:
-		return true
-	}
-	return false
 }
 
 // Shutdown cancels the service-level ctx so background goroutines

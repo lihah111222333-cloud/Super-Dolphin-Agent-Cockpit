@@ -36,6 +36,7 @@ import (
 // business logic.
 var Module = fx.Module("store",
 	fx.Provide(func(pool *pgxpool.Pool) *sqlc.Queries { return sqlc.New(pool) }),
+	fx.Provide(func(q *sqlc.Queries) sqlc.Querier { return q }),
 	agentstatus.Module,
 	ailog.Module,
 	auditlog.Module,

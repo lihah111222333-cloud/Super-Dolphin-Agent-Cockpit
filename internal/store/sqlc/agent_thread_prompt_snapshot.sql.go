@@ -23,19 +23,19 @@ func (q *Queries) LoadAgentThreadPromptSnapshot(ctx context.Context, threadID st
 	return prompt_snapshot, err
 }
 
-const saveAgentThreadPromptSnapshot = `-- name: SaveAgentThreadPromptSnapshot :execrows
+const updateAgentThreadPromptSnapshot = `-- name: UpdateAgentThreadPromptSnapshot :execrows
 UPDATE agent_threads
 SET prompt_snapshot = $2
 WHERE thread_id = $1
 `
 
-type SaveAgentThreadPromptSnapshotParams struct {
+type UpdateAgentThreadPromptSnapshotParams struct {
 	ThreadID       string `db:"thread_id" json:"thread_id"`
 	PromptSnapshot []byte `db:"prompt_snapshot" json:"prompt_snapshot"`
 }
 
-func (q *Queries) SaveAgentThreadPromptSnapshot(ctx context.Context, arg SaveAgentThreadPromptSnapshotParams) (int64, error) {
-	result, err := q.db.Exec(ctx, saveAgentThreadPromptSnapshot, arg.ThreadID, arg.PromptSnapshot)
+func (q *Queries) UpdateAgentThreadPromptSnapshot(ctx context.Context, arg UpdateAgentThreadPromptSnapshotParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateAgentThreadPromptSnapshot, arg.ThreadID, arg.PromptSnapshot)
 	if err != nil {
 		return 0, err
 	}

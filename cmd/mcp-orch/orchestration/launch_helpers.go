@@ -114,10 +114,10 @@ func (s *service) newAgentLocked(agentID string) *agentRuntime {
 		queue:     &SubmissionQueue{},
 	}
 	agent.sm = platformstatemachine.New(s.machineCfg, func() string {
-		return agent.state
+		return string(agent.state)
 	}, func(next string) {
 		// The state machine owns subsequent transitions through this sink.
-		agent.state = next
+		agent.state = agentdto.AgentState(next)
 	})
 	return agent
 }

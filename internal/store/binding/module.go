@@ -8,6 +8,7 @@ import (
 
 var Module = fx.Module("store.binding",
 	fx.Provide(NewStore),
+	fx.Provide(NewSessionBindingLookup),
 )
 
 func NewStoreFromPool(pool *pgxpool.Pool) Store {

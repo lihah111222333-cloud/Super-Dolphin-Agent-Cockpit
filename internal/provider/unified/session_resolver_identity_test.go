@@ -6,8 +6,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	goldentest "github.com/anthropic-ai/super-agent-v3/internal/testutil/golden"
 )
 
@@ -31,8 +29,8 @@ func (d *resumeCaptureDriver) ResumeSession(_ context.Context, req dto.ResumeSes
 func TestSessionResolverAutoResumePassesCodexIdentityGolden(t *testing.T) {
 	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "provider-thread-1"}}
 	resolver := &sessionResolver{
-		threadStore: stubThreadLookup{thread: &threadstore.Thread{ThreadID: "public-thread-1", AgentID: "agent-1"}},
-		bindingStore: stubBindingLookup{bindings: map[string]*bindingstore.Binding{
+		threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{ThreadID: "public-thread-1", AgentID: "agent-1"}},
+		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
 			"codex:provider-thread-1": {
 				Provider:           "codex",
 				AgentID:            "agent-1",
@@ -65,7 +63,7 @@ func TestSessionResolverAutoResumePassesCodexIdentityGolden(t *testing.T) {
 func TestSessionResolverProviderThreadAutoResumeUsesCodexThreadID(t *testing.T) {
 	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "provider-thread-3"}}
 	resolver := &sessionResolver{
-		bindingStore: stubBindingLookup{bindings: map[string]*bindingstore.Binding{
+		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
 			"codex:provider-thread-3": {
 				Provider:         "codex",
 				AgentID:          "agent-3",
@@ -99,7 +97,7 @@ func TestSessionResolverProviderThreadAutoResumeUsesCodexThreadID(t *testing.T) 
 func TestSessionResolverAutoResumeDoesNotUseAgentIDAsThreadIDWithoutPublicThread(t *testing.T) {
 	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "provider-thread-2"}}
 	resolver := &sessionResolver{
-		bindingStore: stubBindingLookup{bindings: map[string]*bindingstore.Binding{
+		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
 			"codex:provider-thread-2": {
 				Provider:         "codex",
 				AgentID:          "agent-2",

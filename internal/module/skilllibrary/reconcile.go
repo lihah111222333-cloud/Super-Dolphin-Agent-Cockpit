@@ -7,17 +7,18 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skillforge"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 // Reconciler 把 library 的当前状态投影到 cache。
 type Reconciler struct {
 	store    *Store
 	cacheDir string
+	forger   contract.SkillForger
 }
 
-func NewReconciler(s *Store, cacheDir string) *Reconciler {
-	return &Reconciler{store: s, cacheDir: cacheDir}
+func NewReconciler(s *Store, cacheDir string, forger contract.SkillForger) *Reconciler {
+	return &Reconciler{store: s, cacheDir: cacheDir, forger: forger}
 }
 
 // ReconcileReport 是 ReconcileAll 的统计结果。
@@ -43,7 +44,7 @@ func (r *Reconciler) ReconcileOne(name string) error {
 		return os.RemoveAll(filepath.Join(r.cacheDir, name))
 	}
 	libDir := filepath.Dir(entry.Dir)
-	return skillforge.Forge(libDir, r.cacheDir, name, entry.Meta.SectionSummaries)
+	return r.forger.Forge(libDir, r.cacheDir, name, entry.Meta.SectionSummaries)
 }
 
 // ReconcileAll 全量对账：构建所有 enabled skill 到 cache，并清理孤儿条目。
@@ -70,7 +71,7 @@ func (r *Reconciler) ReconcileAll() (*ReconcileReport, error) {
 // skillforge 自身的 fatal 错误（如 ReadDir 权限失败）会冒到 report.Errors，
 // 由调用方决定是否当致命处理。
 func (r *Reconciler) recoverStaging(report *ReconcileReport) {
-	rec, err := skillforge.RecoverStaging(r.cacheDir)
+	rec, err := r.forger.RecoverStaging(r.cacheDir)
 	if err != nil {
 		report.Errors = append(report.Errors, fmt.Errorf("skilllibrary: recover staging: %w", err))
 		return
@@ -90,7 +91,7 @@ func (r *Reconciler) buildLibrary(entries []SkillEntry, report *ReconcileReport)
 			_ = os.RemoveAll(filepath.Join(r.cacheDir, e.Meta.Name))
 			continue
 		}
-		if err := skillforge.Forge(filepath.Dir(e.Dir), r.cacheDir, e.Meta.Name, e.Meta.SectionSummaries); err != nil {
+		if err := r.forger.Forge(filepath.Dir(e.Dir), r.cacheDir, e.Meta.Name, e.Meta.SectionSummaries); err != nil {
 			report.Errors = append(report.Errors, fmt.Errorf("forge %s: %w", e.Meta.Name, err))
 			continue
 		}

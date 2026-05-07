@@ -14,7 +14,7 @@ func TestPromptSnapshotRoundTripNormalizesNilSectionMap(t *testing.T) {
 
 	var saved []byte
 	s := &store{q: &threadQuerierStub{
-		savePromptSnapshotFn: func(_ context.Context, arg sqlc.SaveAgentThreadPromptSnapshotParams) (int64, error) {
+		savePromptSnapshotFn: func(_ context.Context, arg sqlc.UpdateAgentThreadPromptSnapshotParams) (int64, error) {
 			saved = append([]byte(nil), arg.PromptSnapshot...)
 			return 1, nil
 		},
@@ -84,7 +84,7 @@ func TestSavePromptSnapshotConcurrentSafety(t *testing.T) {
 		saved  [][]byte
 		errCh  = make(chan error, 8)
 		storeQ = &threadQuerierStub{
-			savePromptSnapshotFn: func(_ context.Context, arg sqlc.SaveAgentThreadPromptSnapshotParams) (int64, error) {
+			savePromptSnapshotFn: func(_ context.Context, arg sqlc.UpdateAgentThreadPromptSnapshotParams) (int64, error) {
 				mu.Lock()
 				defer mu.Unlock()
 				saved = append(saved, append([]byte(nil), arg.PromptSnapshot...))

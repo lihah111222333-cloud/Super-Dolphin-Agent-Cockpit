@@ -3,10 +3,10 @@ package rpc
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"strings"
 	"time"
+
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
@@ -22,18 +22,18 @@ type CapabilityResolver = contract.CapabilityResolver
 func NewCapabilityResolver(resolver contract.SessionResolver) CapabilityResolver {
 	return func(ctx context.Context) (dto.CapabilitySet, error) {
 		if resolver == nil {
-			return nil, errors.New("thread session resolver is not configured")
+			return nil, rpcError(CodeInvalidState, "thread session resolver is not configured")
 		}
 		threadID := strings.TrimSpace(ThreadIDFrom(ctx))
 		if threadID == "" {
-			return nil, errors.New("thread id is required")
+			return nil, rpcError(CodeInvalidParams, "thread id is required")
 		}
 		session, err := resolver.ResolveSession(ctx, threadID)
 		if err != nil {
 			return nil, err
 		}
 		if session == nil {
-			return nil, errors.New("thread session is not available")
+			return nil, rpcError(CodeInvalidState, "thread session is not available")
 		}
 		return session.Capabilities(), nil
 	}
@@ -59,6 +59,9 @@ func ThreadScope(fields ...string) Middleware {
 	}
 	return func(next handler.Func) handler.Func {
 		return handler.Func(func(ctx context.Context, req *jrpc2.Request) (any, error) {
+			// json.RawMessage: justified -- Wails bridge layer; middleware must
+			// probe arbitrary RPC params for a thread_id field without knowing
+			// the concrete param struct.
 			var raw map[string]json.RawMessage
 			if err := req.UnmarshalParams(&raw); err != nil {
 				return nil, jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "invalid params: %v", err)
@@ -134,7 +137,7 @@ func InvalidParamsMapper() Middleware {
 
 func resolveCapabilities(ctx context.Context, resolver CapabilityResolver) (dto.CapabilitySet, error) {
 	if resolver == nil {
-		return nil, errors.New("thread capability resolver is not configured")
+		return nil, rpcError(CodeInvalidState, "thread capability resolver is not configured")
 	}
 	return resolver(ctx)
 }

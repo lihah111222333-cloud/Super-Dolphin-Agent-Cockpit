@@ -11,8 +11,6 @@ import (
 	"time"
 
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/fbsd"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
@@ -49,23 +47,22 @@ func provideDefaultPeerSupervisor(mgr *ServerManager, logger *slog.Logger) platf
 }
 
 // DriverFactoryParams holds the fx-injected dependencies for NewDriverFactory.
-// SkillStore is optional so the codexapp module works even when skilllibrary
-// is not wired into the application graph (e.g., standalone tests).
+// ManifestRenderer is optional so the codexapp module works even when
+// skill library is not wired into the application graph (e.g., standalone tests).
 type DriverFactoryParams struct {
 	fx.In
 
-	Logger     *slog.Logger
-	Dispatcher *unified.EventDispatcher
-	Approvals  *rpc.ApprovalManager
-	Reporter   contract.RuntimeReporter
-	Manager    *ServerManager
-	Pool       *ServerPool
-	SkillStore *skilllibrary.Store `optional:"true"`
-	Tracker    *fbsd.Tracker       `optional:"true"`
+	Logger           *slog.Logger
+	Dispatcher       *unified.EventDispatcher
+	Approvals        *rpc.ApprovalManager
+	Reporter         contract.RuntimeReporter
+	Manager          *ServerManager
+	Pool             *ServerPool
+	ManifestRenderer contract.SkillManifestRenderer `optional:"true"`
 }
 
 func provideDriverFactory(p DriverFactoryParams) *DriverFactory {
-	return NewDriverFactory(p.Logger, p.Dispatcher, p.Approvals, p.Reporter, p.Manager, p.Pool, p.SkillStore, p.Tracker)
+	return NewDriverFactory(p.Logger, p.Dispatcher, p.Approvals, p.Reporter, p.Manager, p.Pool, p.ManifestRenderer)
 }
 
 func provideContractDriverFactory(factory *DriverFactory) contract.DriverFactory {

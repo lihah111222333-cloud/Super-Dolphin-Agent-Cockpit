@@ -3,7 +3,7 @@ package claudecli
 import (
 	"strings"
 
-	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 )
 
 const claudeSystemNoiseTrimLeftCutset = "\ufeff \t\r\n"
@@ -58,7 +58,7 @@ func trimInjectedClaudeLSPHint(text string) string {
 
 // trimInjectedClaudeSkillBlock 委托给共享包。P20 Phase 3 两家 provider 统一 trim 逻辑。
 func trimInjectedClaudeSkillBlock(text string) string {
-	return skillpkg.TrimInjectedSkillBlocks(text)
+	return providershared.TrimInjectedSkillBlocks(text)
 }
 
 func isClaudeSystemNoiseText(text string) bool {

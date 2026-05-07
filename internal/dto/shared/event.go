@@ -52,6 +52,12 @@ const (
 	EventTypeUIPreferencesChanged uint32 = 1505
 
 	EventTypeProviderRaw uint32 = 1600
+
+	EventTypeWorkspaceRunCreated       uint32 = 1700
+	EventTypeWorkspaceRunStatusChanged uint32 = 1701
+	EventTypeWorkspaceRunMerged        uint32 = 1702
+	EventTypeWorkspaceRunAborted       uint32 = 1703
+	EventTypeWorkspaceRunMergeError    uint32 = 1704
 )
 
 // EventHeader carries fields shared by all typed events.

@@ -11,7 +11,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/cliadapter"
+
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -28,13 +28,14 @@ var claudeCapabilities = dto.CapabilitySet{
 }
 
 type driver struct {
-	logger          *slog.Logger
-	binaryPath      string
-	eventDispatcher *unified.EventDispatcher
-	reporter        contract.RuntimeReporter
-	pidRegistry     *pidregistry.Registry
-	proxyAddrFn     func() string
-	skillCacheDir   string
+	logger               *slog.Logger
+	binaryPath           string
+	eventDispatcher      *unified.EventDispatcher
+	reporter             contract.RuntimeReporter
+	pidRegistry          *pidregistry.Registry
+	proxyAddrFn          func() string
+	skillCacheDir        string
+	setupWorkspaceSkills func(workspaceDir, cacheDir string) error
 }
 
 type startSpec struct {
@@ -88,21 +89,25 @@ func (d *driver) proxyHTTPAddr() string {
 	return strings.TrimSpace(d.proxyAddrFn())
 }
 
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string, skillCacheDir string) contract.Driver {
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string, skillCacheDir string, setupWSSkills func(string, string) error) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
 	if proxyAddrFn == nil {
 		proxyAddrFn = func() string { return "" }
 	}
+	if setupWSSkills == nil {
+		setupWSSkills = func(string, string) error { return nil }
+	}
 	return &driver{
-		logger:          logger,
-		binaryPath:      resolveBinaryPath(),
-		eventDispatcher: eventDispatcher,
-		reporter:        reporter,
-		pidRegistry:     reg,
-		proxyAddrFn:     proxyAddrFn,
-		skillCacheDir:   skillCacheDir,
+		logger:               logger,
+		binaryPath:           resolveBinaryPath(),
+		eventDispatcher:      eventDispatcher,
+		reporter:             reporter,
+		pidRegistry:          reg,
+		proxyAddrFn:          proxyAddrFn,
+		skillCacheDir:        skillCacheDir,
+		setupWorkspaceSkills: setupWSSkills,
 	}
 }
 
@@ -194,7 +199,7 @@ func (d *driver) prepareSessionStart(spec startSpec) (preparedStartSession, erro
 	// Before launchCLI, mount the shared skill cache into the workspace so
 	// Claude CLI's native discovery picks up our skills.
 	if d.skillCacheDir != "" && spec.cwd != "" {
-		if err := cliadapter.SetupWorkspaceSkills(spec.cwd, d.skillCacheDir); err != nil {
+		if err := d.setupWorkspaceSkills(spec.cwd, d.skillCacheDir); err != nil {
 			// fail-open: log and continue. Skill discovery failure should not
 			// block the user's main session.
 			if d.logger != nil {

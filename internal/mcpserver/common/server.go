@@ -39,6 +39,7 @@ type Server struct {
 	version   string
 	transport *StdioTransport
 	tools     ToolProvider
+	ready     chan struct{} // closed when Run enters its read loop
 }
 
 type jsonRPCRequest struct {
@@ -86,8 +87,14 @@ func NewServer(name, version string, transport *StdioTransport, tools ToolProvid
 	if strings.TrimSpace(version) == "" {
 		version = "dev"
 	}
-	return &Server{name: name, version: version, transport: transport, tools: tools}
+	return &Server{name: name, version: version, transport: transport, tools: tools, ready: make(chan struct{})}
 }
+
+// Ready returns a channel that is closed once the stdio server has entered
+// its read loop and is ready to accept JSON-RPC messages. Bootstrap runners
+// wait on this channel to guarantee that the local MCP tool-execution
+// surface is available before connecting to the control-plane jrpc2.
+func (s *Server) Ready() <-chan struct{} { return s.ready }
 
 func (s *Server) Run(ctx context.Context) error {
 	if ctx == nil {
@@ -96,6 +103,9 @@ func (s *Server) Run(ctx context.Context) error {
 	pkglogger.Info("mcp: server run started", "server", s.name)
 	results := make(chan readResult, 1)
 	s.startReadLoop(results)
+	// Signal that the stdio server is ready to accept messages.
+	// Bootstrap runners block on this before connecting to the control plane.
+	close(s.ready)
 	for {
 		select {
 		case <-ctx.Done():

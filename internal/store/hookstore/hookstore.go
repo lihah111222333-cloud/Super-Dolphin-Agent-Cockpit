@@ -12,11 +12,25 @@ import (
 // Compile-time interface check.
 var _ contract.HookReviewStore = (*store)(nil)
 
-// hookstore uses handwritten SQL via platformdb.Queryable instead of generated sqlc
-// queries because hook_pending_reviews requires dynamic status transitions and
-// idempotency logic that do not map cleanly to sqlc's static query model. This
-// is an explicit exception to the sqlc convention documented in
-// docs/契约/sqlc-convention.md.
+// TODO(sqlc-migration): All raw SQL in this file has been ported to sqlc query
+// definitions in sql/queries/hook_pending_review.sql. After running `sqlc generate`,
+// replace the handwritten Exec/Query/QueryRow calls with the generated
+// Queries methods (e.g. SaveHookPendingReview, GetHookPendingReview, etc.).
+// Query mapping:
+//
+//	SavePendingReview         -> SaveHookPendingReview          (:exec)
+//	GetPendingReview          -> GetHookPendingReview           (:one)
+//	ListPendingReviews        -> ListHookPendingReviewsByAgent  (:many)
+//	ResolvePendingReview      -> CheckHookReviewIdempotency     (:one) + ResolveHookPendingReview (:execrows)
+//	GetResolvedReview         -> GetHookResolvedReview          (:one)
+//	CancelPendingReviewsByLease -> CancelHookPendingReviewsByLease (:execrows)
+//	CancelPendingReviewsByAgent -> CancelHookPendingReviewsByAgent (:execrows)
+//	CancelExpiredReviews      -> CancelExpiredHookReviews       (:execrows)
+//	RecoverOnStartup          -> RecoverHookPendingReviews      (:many)
+//
+// Previously this file used handwritten SQL via platformdb.Queryable as an
+// explicit exception to the sqlc convention (docs/契约/sqlc-convention.md).
+// That exception is no longer needed once the generated code is wired in.
 //
 // store implements contract.HookReviewStore for hook_pending_reviews.
 type store struct {

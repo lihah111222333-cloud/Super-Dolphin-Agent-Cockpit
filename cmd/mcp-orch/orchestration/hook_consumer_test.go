@@ -34,7 +34,7 @@ func TestHookConsumerAfter_StateChangeMirrorsAgentState(t *testing.T) {
 				AgentID: "agent-1",
 			},
 		},
-		NewState: agentdto.StateTurnRunning,
+		NewState: string(agentdto.StateTurnRunning),
 	}
 	if _, err := consumer.After(context.Background(), hookPayload(t, hookTopicStateChange, hookRelayKindStateChanged, stateChanged)); err != nil {
 		t.Fatalf("After(state running) error = %v", err)
@@ -44,14 +44,14 @@ func TestHookConsumerAfter_StateChangeMirrorsAgentState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Snapshot() error = %v", err)
 	}
-	if snapshot.State != agentdto.StateTurnRunning {
+	if snapshot.State != string(agentdto.StateTurnRunning) {
 		t.Fatalf("snapshot.State = %q, want %q", snapshot.State, agentdto.StateTurnRunning)
 	}
 	if snapshot.ActiveTurnID != "turn-1" {
 		t.Fatalf("snapshot.ActiveTurnID = %q, want turn-1", snapshot.ActiveTurnID)
 	}
 
-	stateChanged.NewState = agentdto.StateIdle
+	stateChanged.NewState = string(agentdto.StateIdle)
 	stateChanged.Timestamp = time.Unix(11, 0).UTC()
 	if _, err := consumer.After(context.Background(), hookPayload(t, hookTopicStateChange, hookRelayKindStateChanged, stateChanged)); err != nil {
 		t.Fatalf("After(state idle) error = %v", err)
@@ -61,7 +61,7 @@ func TestHookConsumerAfter_StateChangeMirrorsAgentState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Snapshot() after idle error = %v", err)
 	}
-	if snapshot.State != agentdto.StateIdle {
+	if snapshot.State != string(agentdto.StateIdle) {
 		t.Fatalf("snapshot.State after idle = %q, want %q", snapshot.State, agentdto.StateIdle)
 	}
 	if snapshot.ActiveTurnID != "" {
@@ -92,7 +92,7 @@ func TestHookConsumerAfter_ProcessExitMarksStopped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Snapshot() error = %v", err)
 	}
-	if snapshot.State != agentdto.StateStopped {
+	if snapshot.State != string(agentdto.StateStopped) {
 		t.Fatalf("snapshot.State = %q, want %q", snapshot.State, agentdto.StateStopped)
 	}
 	if snapshot.ActiveTurnID != "" {
@@ -131,7 +131,7 @@ func TestHookConsumerAfter_TurnCompletedMarksIdleAndPersistsReport(t *testing.T)
 	if err != nil {
 		t.Fatalf("Snapshot() error = %v", err)
 	}
-	if snapshot.State != agentdto.StateIdle {
+	if snapshot.State != string(agentdto.StateIdle) {
 		t.Fatalf("snapshot.State = %q, want %q", snapshot.State, agentdto.StateIdle)
 	}
 	if snapshot.ActiveTurnID != "" {
@@ -179,7 +179,7 @@ func TestHookConsumerAfter_FinalAnswerItemPersistsReport(t *testing.T) {
 	if report.Report != "ORCH_OK" {
 		t.Fatalf("report.Report = %q, want ORCH_OK", report.Report)
 	}
-	if report.State != agentdto.StateTurnRunning {
+	if report.State != string(agentdto.StateTurnRunning) {
 		t.Fatalf("report.State = %q, want %q", report.State, agentdto.StateTurnRunning)
 	}
 }
@@ -198,7 +198,7 @@ func TestHookConsumerAfter_UnknownAgentIsIgnored(t *testing.T) {
 				AgentID: "missing-agent",
 			},
 		},
-		NewState: agentdto.StateIdle,
+		NewState: string(agentdto.StateIdle),
 	}
 	if _, err := consumer.After(context.Background(), hookPayload(t, hookTopicStateChange, hookRelayKindStateChanged, stateChanged)); err != nil {
 		t.Fatalf("After(unknown agent) error = %v", err)

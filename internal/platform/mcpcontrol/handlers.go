@@ -85,21 +85,21 @@ func NewHandlers(p HandlerDeps) rpc.HandlerMapResult {
 		}),
 		dto.MethodContext: rpc.StrictHandler(func(ctx context.Context, req dto.ContextRequest) (dto.ContextResponse, error) {
 			return withResolvedInstance(p.Registry, req, func(req dto.ContextRequest) dto.LeaseKey {
-				return req.Lease
+				return dto.LeaseKey{InstanceID: req.InstanceID, Generation: req.Generation}
 			}, func(instance *ToolInstance) (dto.ContextResponse, error) {
 				return contextProvider.GetContext(ctx, instance, req)
 			})
 		}),
 		dto.MethodEvent: rpc.StrictHandler(func(ctx context.Context, req dto.EventNotify) (ackResponse, error) {
 			return withResolvedInstance(p.Registry, req, func(req dto.EventNotify) dto.LeaseKey {
-				return req.Lease
+				return dto.LeaseKey{InstanceID: req.InstanceID, Generation: req.Generation}
 			}, func(instance *ToolInstance) (ackResponse, error) {
 				return ackResponse{OK: true}, eventSink.HandleEvent(ctx, instance, req)
 			})
 		}),
 		dto.MethodLog: rpc.StrictHandler(func(ctx context.Context, req dto.LogNotify) (ackResponse, error) {
 			return withResolvedInstance(p.Registry, req, func(req dto.LogNotify) dto.LeaseKey {
-				return req.Lease
+				return dto.LeaseKey{InstanceID: req.InstanceID, Generation: req.Generation}
 			}, func(instance *ToolInstance) (ackResponse, error) {
 				return ackResponse{OK: true}, logSink.HandleLog(ctx, instance, req)
 			})
@@ -137,7 +137,7 @@ func requestApproval(
 		return dto.ApprovalResponse{}, err
 	}
 	return withResolvedInstance(registry, req, func(req dto.ApprovalRequest) dto.LeaseKey {
-		return req.Lease
+		return dto.LeaseKey{InstanceID: req.InstanceID, Generation: req.Generation}
 	}, func(instance *ToolInstance) (dto.ApprovalResponse, error) {
 		callCtx := ctx
 		if req.TimeoutMs > 0 {

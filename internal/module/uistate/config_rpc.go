@@ -10,8 +10,6 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
@@ -60,16 +58,12 @@ type lspPromptHintResult struct {
 	UsingDefault bool   `json:"usingDefault"`
 }
 
-type threadRuntimeConfigReader interface {
-	ReadRuntimeConfig(ctx context.Context, threadID string) (map[string]any, error)
-}
-
 func NewConfigHandlers(
 	cfg *contract.Config,
 	prefs uipreference.Store,
 	sharedFiles sharedfilestore.Reader,
-	threads thread.Service,
-	skillStore *skilllibrary.Store,
+	threads contract.ThreadConfigReader,
+	skillStore contract.SkillLibraryLister,
 	nativeTools []contract.NativeToolDescriptor,
 ) platformrpc.HandlerMapResult {
 	toolIndex := buildNativeToolIndex(nativeTools)
@@ -96,14 +90,14 @@ func readRuntimeConfig(
 	ctx context.Context,
 	cfg *contract.Config,
 	prefs uipreference.Store,
-	threads thread.Service,
+	threads contract.ThreadConfigReader,
 ) runtimeConfigResult {
 	result := defaultRuntimeConfig(cfg)
 	threadID := readActiveThreadID(ctx, prefs, result.CWD)
 	if threadID == "" || threads == nil {
 		return result
 	}
-	if reader, ok := threads.(threadRuntimeConfigReader); ok {
+	if reader, ok := threads.(contract.ThreadRuntimeConfigReader); ok {
 		runtimeCfg, err := reader.ReadRuntimeConfig(ctx, threadID)
 		if err == nil {
 			applyRuntimeConfigOverrides(&result, runtimeCfg)

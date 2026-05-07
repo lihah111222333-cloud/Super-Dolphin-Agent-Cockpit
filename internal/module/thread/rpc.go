@@ -3,7 +3,6 @@ package thread
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"runtime"
 	"strings"
 
@@ -82,7 +81,7 @@ func NewThreadHandlers(svc Service, capResolver contract.CapabilityResolver) pla
 			if err := svc.FlushAndVerifyTaskHandoff(ctx, p.ThreadID, p.TaskID); err != nil {
 				return nil, err
 			}
-			return map[string]any{"ok": true}, nil
+			return flushAndVerifyResponse{OK: true}, nil
 		}),
 
 		// Phase 2.1: promote a normal thread to a task thread. Frontend
@@ -189,88 +188,84 @@ func buildStartRequestFromParams(p startParams) StartRequest {
 	}
 }
 
-func buildStartEffective(result StartResult) map[string]any {
-	return map[string]any{
-		"model":          result.Model,
-		"provider":       result.Provider,
-		"modelProvider":  result.ModelProvider,
-		"cwd":            result.CWD,
-		"approvalPolicy": result.ApprovalPolicy,
-	}
-}
-
-func buildStartResponse(result StartResult) map[string]any {
+func buildStartResponse(result StartResult) startResponse {
 	status := util.FirstNonEmpty(result.Status, "running")
 	sessionID := util.FirstNonEmpty(result.SessionID, result.ThreadID)
-	response := map[string]any{
-		"thread":         threadInfo{ID: result.ThreadID, Status: status},
-		"threadId":       result.ThreadID,
-		"thread_id":      result.ThreadID,
-		"sessionId":      sessionID,
-		"session_id":     sessionID,
-		"status":         status,
-		"agentId":        result.AgentID,
-		"agent_id":       result.AgentID,
-		"model":          result.Model,
-		"provider":       result.Provider,
-		"modelProvider":  result.ModelProvider,
-		"cwd":            result.CWD,
-		"approvalPolicy": result.ApprovalPolicy,
-		"effective":      buildStartEffective(result),
+	resp := startResponse{
+		Thread:         threadInfo{ID: result.ThreadID, Status: status},
+		ThreadID:       result.ThreadID,
+		ThreadIDSnake:  result.ThreadID,
+		SessionID:      sessionID,
+		SessionIDSnake: sessionID,
+		Status:         status,
+		AgentID:        result.AgentID,
+		AgentIDSnake:   result.AgentID,
+		Model:          result.Model,
+		Provider:       result.Provider,
+		ModelProvider:  result.ModelProvider,
+		CWD:            result.CWD,
+		ApprovalPolicy: result.ApprovalPolicy,
+		Effective: startEffectiveResponse{
+			Model:          result.Model,
+			Provider:       result.Provider,
+			ModelProvider:  result.ModelProvider,
+			CWD:            result.CWD,
+			ApprovalPolicy: result.ApprovalPolicy,
+		},
 	}
 	if result.AgentKey != "" {
-		response["agent_key"] = result.AgentKey
-		response["agentKey"] = result.AgentKey
+		resp.AgentKey = &result.AgentKey
+		resp.AgentKeyCamel = &result.AgentKey
 	}
 	if result.AgentTitle != "" {
-		response["agent_title"] = result.AgentTitle
-		response["agentTitle"] = result.AgentTitle
+		resp.AgentTitle = &result.AgentTitle
+		resp.AgentTitleCamel = &result.AgentTitle
 	}
 	if result.PromptKey != "" {
-		response["prompt_key"] = result.PromptKey
-		response["promptKey"] = result.PromptKey
+		resp.PromptKey = &result.PromptKey
+		resp.PromptKeyCamel = &result.PromptKey
 	}
 	if result.PromptVersionID != nil {
-		response["prompt_version_id"] = *result.PromptVersionID
-		response["promptVersionId"] = *result.PromptVersionID
+		resp.PromptVersionID = result.PromptVersionID
+		resp.PromptVersionIDC = result.PromptVersionID
 	}
 	if result.PendingLaunch {
-		response["pending_launch"] = true
-		response["pendingLaunch"] = true
+		resp.PendingLaunch = &result.PendingLaunch
+		resp.PendingLaunchC = &result.PendingLaunch
 	}
 	if result.TaskID != "" {
-		response["task_id"] = result.TaskID
-		response["taskId"] = result.TaskID
+		resp.TaskID = &result.TaskID
+		resp.TaskIDCamel = &result.TaskID
 	}
 	if result.HandoffFile != "" {
-		response["handoff_file"] = result.HandoffFile
-		response["handoffFile"] = result.HandoffFile
+		resp.HandoffFile = &result.HandoffFile
+		resp.HandoffFileCamel = &result.HandoffFile
 	}
-	return response
+	return resp
 }
 
-func buildPromoteTaskResponse(result PromoteTaskResult) map[string]any {
-	response := map[string]any{
-		"thread_id":    result.ThreadID,
-		"threadId":     result.ThreadID,
-		"task_id":      result.TaskID,
-		"taskId":       result.TaskID,
-		"already_task": result.AlreadyTask,
-		"alreadyTask":  result.AlreadyTask,
+func buildPromoteTaskResponse(result PromoteTaskResult) promoteTaskResponse {
+	resp := promoteTaskResponse{
+		ThreadIDSnake: result.ThreadID,
+		ThreadIDCamel: result.ThreadID,
+		TaskIDSnake:   result.TaskID,
+		TaskIDCamel:   result.TaskID,
+		AlreadyTask:   result.AlreadyTask,
+		AlreadyTaskC:  result.AlreadyTask,
 	}
 	if result.TaskTitle != "" {
-		response["task_title"] = result.TaskTitle
-		response["taskTitle"] = result.TaskTitle
+		resp.TaskTitle = &result.TaskTitle
+		resp.TaskTitleCamel = &result.TaskTitle
 	}
 	if result.HandoffFile != "" {
-		response["handoff_file"] = result.HandoffFile
-		response["handoffFile"] = result.HandoffFile
+		resp.HandoffFile = &result.HandoffFile
+		resp.HandoffFileC = &result.HandoffFile
 	}
 	if result.HandoffShellWarning != "" {
-		response["handoff_shell_warning"] = result.HandoffShellWarning
-		response["handoffShellWarning"] = result.HandoffShellWarning
+		resp.HandoffShellWarn = &result.HandoffShellWarning
+		resp.HandoffShellWarnC = &result.HandoffShellWarning
 	}
-	return response
+	return resp
 }
 
 func decodeConfigMap(raw json.RawMessage) map[string]any {
@@ -336,8 +331,8 @@ func newForkHandler(svc Service) handler.Func {
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{
-			"thread": threadInfo{ID: result.NewThreadID, ForkedFrom: result.ForkedFrom},
+		return forkResponse{
+			Thread: threadInfo{ID: result.NewThreadID, ForkedFrom: result.ForkedFrom},
 		}, nil
 	})
 }
@@ -352,29 +347,29 @@ func newHandoffHandler(svc Service) handler.Func {
 		if err != nil {
 			return nil, err
 		}
-		response := map[string]any{
-			"source_thread_id": result.SourceThreadID,
-			"sourceThreadId":   result.SourceThreadID,
-			"new_thread_id":    result.NewThreadID,
-			"newThreadId":      result.NewThreadID,
-			"thread":           threadInfo{ID: result.NewThreadID, Status: result.Status},
-			"agent_id":         result.AgentID,
-			"agentId":          result.AgentID,
-			"status":           result.Status,
+		resp := handoffResponse{
+			SourceThreadID:      result.SourceThreadID,
+			SourceThreadIDCamel: result.SourceThreadID,
+			NewThreadID:         result.NewThreadID,
+			NewThreadIDCamel:    result.NewThreadID,
+			Thread:              threadInfo{ID: result.NewThreadID, Status: result.Status},
+			AgentID:             result.AgentID,
+			AgentIDCamel:        result.AgentID,
+			Status:              result.Status,
 		}
 		if result.AgentKey != "" {
-			response["agent_key"] = result.AgentKey
-			response["agentKey"] = result.AgentKey
+			resp.AgentKey = &result.AgentKey
+			resp.AgentKeyCamel = &result.AgentKey
 		}
 		if result.PromptKey != "" {
-			response["prompt_key"] = result.PromptKey
-			response["promptKey"] = result.PromptKey
+			resp.PromptKey = &result.PromptKey
+			resp.PromptKeyCamel = &result.PromptKey
 		}
 		if result.PromptVersionID != nil {
-			response["prompt_version_id"] = *result.PromptVersionID
-			response["promptVersionId"] = *result.PromptVersionID
+			resp.PromptVersionID = result.PromptVersionID
+			resp.PromptVersionIDC = result.PromptVersionID
 		}
-		return response, nil
+		return resp, nil
 	})
 }
 
@@ -384,10 +379,10 @@ func newRecoverHandler(svc Service) handler.Func {
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{
-			"thread":    threadInfo{ID: result.ThreadID, Status: result.Status},
-			"recovered": result.Recovered,
-			"mode":      result.Mode,
+		return recoverResponse{
+			Thread:    threadInfo{ID: result.ThreadID, Status: result.Status},
+			Recovered: result.Recovered,
+			Mode:      result.Mode,
 		}, nil
 	})
 }
@@ -466,7 +461,7 @@ func resolveModelSetArgs(p modelSetParams) (string, error) {
 	return args, nil
 }
 
-var errModelSetArgsConflict = errors.New("thread/model/set: model and args must match when both are provided")
+var errModelSetArgsConflict = platformrpc.ErrInvalidParams("thread/model/set: model and args must match when both are provided")
 
 func resolveApprovalsSetArgs(p approvalsSetParams) (string, error) {
 	policy := strings.TrimSpace(p.Policy)
@@ -480,7 +475,7 @@ func resolveApprovalsSetArgs(p approvalsSetParams) (string, error) {
 	return args, nil
 }
 
-var errApprovalsSetArgsConflict = errors.New("thread/approvals/set: policy and args must match when both are provided")
+var errApprovalsSetArgsConflict = platformrpc.ErrInvalidParams("thread/approvals/set: policy and args must match when both are provided")
 
 func newResumeHandler(svc Service) handler.Func {
 	return platformrpc.ThreadHandler(func(ctx context.Context, p resumeParams) (any, error) {
@@ -496,15 +491,15 @@ func newResumeHandler(svc Service) handler.Func {
 		}
 		status := util.FirstNonEmpty(result.Status, "resumed")
 		sessionID := util.FirstNonEmpty(result.SessionID, result.ThreadID)
-		return map[string]any{
-			"thread":     threadInfo{ID: result.ThreadID, Status: status},
-			"threadId":   result.ThreadID,
-			"thread_id":  result.ThreadID,
-			"sessionId":  sessionID,
-			"session_id": sessionID,
-			"status":     status,
-			"model":      result.Model,
-			"cwd":        result.CWD,
+		return resumeResponse{
+			Thread:         threadInfo{ID: result.ThreadID, Status: status},
+			ThreadID:       result.ThreadID,
+			ThreadIDSnake:  result.ThreadID,
+			SessionID:      sessionID,
+			SessionIDSnake: sessionID,
+			Status:         status,
+			Model:          result.Model,
+			CWD:            result.CWD,
 		}, nil
 	})
 }

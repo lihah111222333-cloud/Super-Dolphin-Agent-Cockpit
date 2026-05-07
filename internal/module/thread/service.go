@@ -11,8 +11,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt/classifier"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
@@ -30,11 +28,9 @@ const (
 	statusStopped  = "stopped"
 )
 
-// SessionProvider narrows session lookup to keep thread module provider-neutral.
-type SessionProvider interface {
-	GetSession(agentID string) (contract.Session, error)
-	RemoveSession(agentID string)
-}
+// SessionProvider is an alias for contract.SessionProvider.
+// Kept as a local type alias for backward compatibility within this package.
+type SessionProvider = contract.SessionProvider
 
 type sessionGenerationRemover interface {
 	RemoveSessionGeneration(agentID string, generation uint64)
@@ -54,7 +50,7 @@ type service struct {
 	promptAssembly contract.PromptAssemblyService
 	cfg            *contract.Config
 	toolRegistry   contract.ToolRegistry
-	turns          turn.Service
+	turns          contract.TurnThreadCleaner
 	orchestration  OrchestrationFacade
 	bus            *event.Dispatcher
 
@@ -95,12 +91,25 @@ type service struct {
 	// CLI falls back to its bundled system prompt. When wired, it powers the
 	// agent_key → prompt_text lookup in resolveRoutedPrompt.
 	promptStore promptstore.Store
-	// classifier is an opt-in Plan B dependency. When enabled (see
-	// internal/module/prompt/classifier), resolveRoutedPrompt consults it
-	// for first-turn user input when the caller didn't pin a prompt_key
-	// explicitly. Nil / NoopClassifier is safe; the router guards on
-	// Enabled() and preserves the pre-classifier behavior.
-	classifier classifier.Classifier
+	// classifier is an opt-in Plan B dependency. When enabled, resolveRoutedPrompt
+	// consults it for first-turn user input when the caller didn't pin a prompt_key
+	// explicitly. Nil is safe; the router guards on Enabled() and preserves the
+	// pre-classifier behavior.
+	classifier contract.PromptClassifier
+
+	// classifierFastPath, classifierPrune, classifierMaxCandidates are pure-function
+	// helpers injected from prompt/classifier at construction time. They avoid a
+	// direct import of the classifier package in the thread module. Nil-safe: the
+	// router guards on classifier != nil before calling any of these.
+	classifierFastPath      contract.ClassifierFastPathFunc
+	classifierPrune         contract.ClassifierPruneCandidatesFunc
+	classifierMaxCandidates contract.ClassifierMaxCandidatesFunc
+
+	// matchWhenEval evaluates a prompt_template's match_when JSONB expression
+	// against the current BuildCtx. Injected from prompt.EvaluateMatchWhen at
+	// construction time to avoid a direct thread→prompt import. Nil-safe:
+	// maybeAutoRouteByMatchWhen skips evaluation when nil.
+	matchWhenEval contract.MatchWhenEvaluator
 
 	// taskHandoffWorker is the P22 P2 (thread S3) single owner of the
 	// onTurnCompleted -> refreshTaskHandoffFromThread slow-path. Nil when
@@ -392,6 +401,11 @@ func (s *service) evictZombieSession(ctx context.Context, threadID string) {
 // backgroundResumeIfNeeded checks whether the thread has a stored binding
 // (from a previous session) but no active session, and triggers a background
 // Resume so the session is ready by the time the user sends a message.
+//
+// context.Background() is used because the thread service has no lifecycle
+// context and the goroutine is naturally bounded: resumeInFlight prevents
+// stampede (at most one in-flight per agent), and Resume itself is a single
+// provider round-trip with provider-side timeouts.
 func (s *service) backgroundResumeIfNeeded(ctx context.Context, threadID string) {
 	agentID, ok := s.backgroundResumeCandidate(ctx, threadID)
 	if !ok {

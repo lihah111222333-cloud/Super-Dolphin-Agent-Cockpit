@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	skillmodule "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	agentstatusstore "github.com/anthropic-ai/super-agent-v3/internal/store/agentstatus"
 	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
 	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
@@ -44,7 +43,7 @@ type service struct {
 	commandCards  commandcardstore.Reader
 	prompts       promptstore.Reader
 	sharedFiles   sharedfilestore.Reader
-	skills        skillmodule.SkillLister
+	skills        contract.SkillLister
 	startedAt     time.Time
 }
 
@@ -64,7 +63,7 @@ func NewService(
 	commandCards commandcardstore.Reader,
 	prompts promptstore.Reader,
 	sharedFiles sharedfilestore.Reader,
-	skills skillmodule.SkillLister,
+	skills contract.SkillLister,
 ) Service {
 	return &service{
 		orchestration: orchestrationSvc,

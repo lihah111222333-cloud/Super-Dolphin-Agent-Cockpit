@@ -10,8 +10,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
-	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
 )
 
@@ -66,7 +64,7 @@ func joinPeerToolErrors(outcomes []peerToolsListOutcome) error {
 	return errors.Join(errs...)
 }
 
-func (h *Handler) ListToolsForCodex(ctx context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+func (h *Handler) ListToolsForCodex(ctx context.Context) ([]contract.DynamicToolSchema, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -213,9 +211,9 @@ func (h *Handler) callHostTool(ctx context.Context, req ToolCallRequest) (*ToolC
 }
 
 func hostToolErrorOutcome(err error) string {
-	var required skillpkg.SkillApprovalRequiredError
+	var required contract.SkillApprovalRequiredError
 	switch {
-	case errors.Is(err, skillpkg.ErrMissingCWD):
+	case errors.Is(err, contract.ErrSkillMissingCWD):
 		return skillmetrics.HostToolOutcomeCWDMissing
 	case errors.As(err, &required):
 		return skillmetrics.HostToolOutcomeApprovalRequired
@@ -233,7 +231,7 @@ func hostToolErrorResult(req ToolCallRequest, err error) *ToolCallResult {
 	if code := contract.AgentMemoryErrorCode(err); code != "" {
 		envelope["code"] = code
 	}
-	var required skillpkg.SkillApprovalRequiredError
+	var required contract.SkillApprovalRequiredError
 	switch {
 	case errors.As(err, &required):
 		envelope["kind"] = "approval_required"

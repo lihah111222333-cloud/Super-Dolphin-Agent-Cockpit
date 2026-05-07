@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/memory"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/skillcandidate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -65,10 +64,10 @@ func TestFeedbackProposer_Propose(t *testing.T) {
 
 	proposer := NewFeedbackProposer(dream, store, nil)
 
-	feedbacks := []memory.ExtractedMemory{
-		{Type: memory.MemoryTypeFeedback, Content: "用中文回复"},
-		{Type: memory.MemoryTypeFeedback, Content: "面向用户正文用中文"},
-		{Type: memory.MemoryTypeFeedback, Content: "commit message 也用中文"},
+	feedbacks := []FeedbackItem{
+		{Content: "用中文回复"},
+		{Content: "面向用户正文用中文"},
+		{Content: "commit message 也用中文"},
 	}
 
 	err := proposer.Propose(context.Background(), "reply-chinese", feedbacks, "abcd1234abcd1234abcd1234abcd1234")

@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 
+	"github.com/qmuntal/stateless"
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -214,22 +216,26 @@ func (c *hookConsumer) handleStateChanged(ctx context.Context, ev agentdto.State
 			)
 			return nil
 		}
-		before := strings.TrimSpace(agent.state)
+		before := string(agent.state)
 		threadID := strings.TrimSpace(ev.ThreadID)
 		if threadID != "" {
 			agent.threadID = threadID
 			agent.remoteThreadID = threadID
 		}
-		if nextState == agentdto.StateIdle || nextState == agentdto.StateStopped || nextState == agentdto.StateFailed {
+		if nextState == string(agentdto.StateIdle) || nextState == string(agentdto.StateStopped) || nextState == string(agentdto.StateFailed) {
 			agent.activeTurnID = ""
 		}
 		if before != nextState {
-			agent.state = nextState
+			if err := c.svc.hookSyncFireLocked(ctx, agent, nextState); err != nil {
+				c.logger.Warn("orchestration: hook state sync fire failed",
+					"agent_id", agent.id,
+					"from", before,
+					"to", nextState,
+					"error", err,
+				)
+			}
 		}
 		agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
-		if before != nextState {
-			c.svc.publishStateChanged(agent, before, hookSyncTrigger)
-		}
 		return nil
 	})
 	c.logUnexpectedHookError("state change", ev.AgentID, ev.ThreadID, err)
@@ -237,7 +243,8 @@ func (c *hookConsumer) handleStateChanged(ctx context.Context, ev agentdto.State
 
 func (c *hookConsumer) handleThreadStopped(ctx context.Context, ev threaddto.Stopped) {
 	err := c.svc.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
-		before := strings.TrimSpace(agent.state)
+		before := string(agent.state)
+		_ = before
 		threadID := strings.TrimSpace(ev.ThreadID)
 		if threadID != "" {
 			agent.threadID = threadID
@@ -245,9 +252,14 @@ func (c *hookConsumer) handleThreadStopped(ctx context.Context, ev threaddto.Sto
 		}
 		agent.activeTurnID = ""
 		agent.stopReason = strings.TrimSpace(ev.Reason)
-		agent.state = agentdto.StateStopped
+		if err := c.svc.hookSyncForceStoppedLocked(ctx, agent); err != nil {
+			c.logger.Warn("orchestration: hook sync force stopped failed",
+				"agent_id", agent.id,
+				"from", before,
+				"error", err,
+			)
+		}
 		agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
-		c.svc.publishStateChanged(agent, before, hookSyncTrigger)
 		c.svc.publishAgentStopped(agent, ev.Reason)
 		return nil
 	})
@@ -380,7 +392,7 @@ func firstPayloadString(payload map[string]any, keys ...string) string {
 }
 
 func isKnownMirroredState(state string) bool {
-	switch strings.TrimSpace(state) {
+	switch agentdto.AgentState(strings.TrimSpace(state)) {
 	case agentdto.StateProvisioning,
 		agentdto.StateIdle,
 		agentdto.StateTurnQueued,
@@ -395,4 +407,133 @@ func isKnownMirroredState(state string) bool {
 	default:
 		return false
 	}
+}
+
+// resolveTriggerForTransition looks up TransitionDefinitions to find a
+// trigger that transitions from state `from` to state `to`. Returns the
+// trigger name and true if found, or ("", false) if no single-step
+// transition exists.
+func resolveTriggerForTransition(from, to string) (string, bool) {
+	fromState := agentdto.AgentState(from)
+	toState := agentdto.AgentState(to)
+	for _, td := range agentdto.TransitionDefinitions {
+		if td.From == fromState && td.To == toState {
+			return string(td.Trigger), true
+		}
+	}
+	return "", false
+}
+
+// resolveTransitionPath performs a BFS over TransitionDefinitions to find
+// the shortest sequence of triggers that drives the state machine from
+// `from` to `to`. Returns nil if no path exists. The returned slice
+// contains trigger names in firing order.
+func resolveTransitionPath(from, to string) []string {
+	if from == to {
+		return nil
+	}
+	// Build adjacency: state -> [{trigger, dest}, ...]
+	type edge struct {
+		trigger string
+		dest    string
+	}
+	adj := make(map[string][]edge, len(agentdto.StateDefinitions))
+	for _, td := range agentdto.TransitionDefinitions {
+		adj[string(td.From)] = append(adj[string(td.From)], edge{trigger: string(td.Trigger), dest: string(td.To)})
+	}
+	// BFS parent map: state -> (trigger that led here, previous state)
+	type step struct {
+		trigger string
+		prev    string
+	}
+	visited := map[string]step{from: {trigger: "", prev: ""}}
+	queue := []string{from}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for _, e := range adj[cur] {
+			if _, seen := visited[e.dest]; seen {
+				continue
+			}
+			visited[e.dest] = step{trigger: e.trigger, prev: cur}
+			if e.dest == to {
+				// Reconstruct path.
+				var path []string
+				for s := to; s != from; s = visited[s].prev {
+					path = append(path, visited[s].trigger)
+				}
+				// Reverse to get firing order.
+				for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
+					path[i], path[j] = path[j], path[i]
+				}
+				return path
+			}
+			queue = append(queue, e.dest)
+		}
+	}
+	return nil
+}
+
+// hookSyncFireLocked drives the agent state machine from its current state
+// to targetState using the transition table. It resolves the shortest
+// trigger path for the (current -> target) transition and fires each
+// trigger through the state machine so that sm.Fire owns every step.
+//
+// Intermediate transitions are fired silently (via sm.FireCtx) so that
+// only the final before/after pair is published as a single state-change
+// event with the hookSyncTrigger label.
+//
+// If no path exists in the transition table, the helper returns an error
+// — callers must not fall back to direct assignment.
+func (s *service) hookSyncFireLocked(ctx context.Context, agent *agentRuntime, targetState string) error {
+	if agent == nil || agent.sm == nil {
+		return errors.New("state machine is not initialized")
+	}
+	before := string(agent.state)
+	if before == targetState {
+		return nil
+	}
+	path := resolveTransitionPath(before, targetState)
+	if len(path) == 0 {
+		return fmt.Errorf(
+			"no transition path in table for %s -> %s (agent %s)",
+			before, targetState, agent.id,
+		)
+	}
+	// Fire each trigger through the state machine. The SM's external-
+	// storage mutator updates agent.state on each step.
+	for _, trigger := range path {
+		if err := agent.sm.FireCtx(ctx, stateless.Trigger(trigger)); err != nil {
+			return fmt.Errorf(
+				"hook sync fire %s (step in %s -> %s) for agent %s: %w",
+				trigger, before, targetState, agent.id, err,
+			)
+		}
+	}
+	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
+	s.publishStateChanged(agent, before, hookSyncTrigger)
+	return nil
+}
+
+// hookSyncForceStoppedLocked drives the agent state machine to StateStopped
+// regardless of the current state. It delegates to hookSyncFireLocked
+// which resolves the shortest BFS path through the transition table.
+// For states that cannot reach StateStopped (e.g. provisioning,
+// recovering), the helper falls back to StateFailed since the hook
+// represents an actual process exit.
+func (s *service) hookSyncForceStoppedLocked(ctx context.Context, agent *agentRuntime) error {
+	if agent == nil || agent.sm == nil {
+		return errors.New("state machine is not initialized")
+	}
+	if agent.state == agentdto.StateStopped {
+		return nil
+	}
+	// Try the primary path to StateStopped.
+	if err := s.hookSyncFireLocked(ctx, agent, string(agentdto.StateStopped)); err == nil {
+		return nil
+	}
+	// Fallback: states like provisioning/recovering cannot reach stopped
+	// but can reach failed via launch_failed. Accept failed as the
+	// terminal state rather than bypassing the state machine.
+	return s.hookSyncFireLocked(ctx, agent, string(agentdto.StateFailed))
 }

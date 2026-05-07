@@ -79,7 +79,7 @@ func (c *Client) reconnectLoop(ctx context.Context) {
 			replayErr := c.replayHookSubscriptions(ctx)
 			pkglogger.Info("bootstrap reconnected",
 				"instance_id", c.instanceID,
-				"lease_key", reg.Lease,
+				"lease_key", mcp.LeaseKey{InstanceID: reg.InstanceID, Generation: reg.Generation},
 				"hook_replay_pending", replayErr != nil,
 			)
 			return

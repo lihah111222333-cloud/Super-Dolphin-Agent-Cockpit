@@ -19,7 +19,7 @@ func TestAddProjectConcurrentPreservesAllAdds(t *testing.T) {
 		delay:  5 * time.Millisecond,
 		values: map[string]json.RawMessage{},
 	}
-	svc, _, err := NewService(nil, nil, nil, store, nil)
+	svc, _, err := NewService(nil, nil, nil, store, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}

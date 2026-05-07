@@ -28,25 +28,25 @@ func TestHookConsumerStateChangeRespectsSessionFence(t *testing.T) {
 			name:      "empty_session_id_accepted",
 			agentSeq:  5,
 			evSession: "",
-			wantState: agentdto.StateTurnRunning,
+			wantState: string(agentdto.StateTurnRunning),
 		},
 		{
 			name:      "matching_session_id_accepted",
 			agentSeq:  5,
 			evSession: "5",
-			wantState: agentdto.StateTurnRunning,
+			wantState: string(agentdto.StateTurnRunning),
 		},
 		{
 			name:      "stale_session_id_dropped",
 			agentSeq:  5,
 			evSession: "4",
-			wantState: agentdto.StateIdle,
+			wantState: string(agentdto.StateIdle),
 		},
 		{
 			name:      "future_session_id_dropped",
 			agentSeq:  5,
 			evSession: "6",
-			wantState: agentdto.StateIdle,
+			wantState: string(agentdto.StateIdle),
 		},
 	}
 
@@ -70,7 +70,7 @@ func TestHookConsumerStateChangeRespectsSessionFence(t *testing.T) {
 					},
 					SessionID: tc.evSession,
 				},
-				NewState: agentdto.StateTurnRunning,
+				NewState: string(agentdto.StateTurnRunning),
 			}
 			payload := hookPayload(t, hookTopicStateChange, hookRelayKindStateChanged, stateChanged)
 			if _, err := consumer.After(context.Background(), payload); err != nil {

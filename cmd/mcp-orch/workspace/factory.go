@@ -3,14 +3,16 @@ package workspace
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/creachadair/jrpc2"
+
 	storeworkspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/workspace"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
@@ -330,7 +332,7 @@ func (s *service) updateRunStatusAndEmit(
 	input.Status = strings.TrimSpace(input.Status)
 	input.UpdatedBy = strings.TrimSpace(input.UpdatedBy)
 	if input.RunKey == "" {
-		return nil, errors.New("runKey is required")
+		return nil, jrpc2.Errorf(jrpc2.Code(contract.CodeInvalidParams), "runKey is required")
 	}
 	if mapError == nil {
 		mapError = passthroughRunStatusError
