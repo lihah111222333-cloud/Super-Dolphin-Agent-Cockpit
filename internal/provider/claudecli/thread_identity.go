@@ -19,12 +19,18 @@ func shouldMarkThreadReady(specThreadID, publicThreadID string) bool {
 }
 
 func isPlaceholderThreadID(threadID string) bool {
-	switch strings.ToLower(strings.TrimSpace(threadID)) {
-	case "", "pending", "unknown", "placeholder", "none", "null":
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
 		return true
-	default:
-		return false
 	}
+	switch strings.ToLower(threadID) {
+	case "pending", "unknown", "placeholder", "none", "null":
+		return true
+	}
+	if strings.HasPrefix(strings.ToLower(threadID), "agent_") {
+		return true
+	}
+	return false
 }
 
 func (s *session) setResolvedThreadID(threadID string) {
