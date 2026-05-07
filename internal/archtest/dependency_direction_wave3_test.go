@@ -38,4 +38,14 @@ func TestWave3DependencyDirection(t *testing.T) {
 		}
 		assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/module/memory"), []string{internalPrefix("internal/module/turn")})
 	})
+	t.Run("rule14_module_thread_cannot_import_module_turn", func(t *testing.T) {
+		// Thread consumed turn.Service directly for InterruptActiveTurn and
+		// CleanupThread; this was replaced by the narrow contract.TurnThreadCleaner
+		// interface injected via fx. A re-introduced direct import would
+		// reintroduce the horizontal coupling between peer modules.
+		if !dirExists(root, "internal/module/thread") || !dirExists(root, "internal/module/turn") {
+			t.Skip("directory not yet created")
+		}
+		assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/module/thread"), []string{internalPrefix("internal/module/turn")})
+	})
 }

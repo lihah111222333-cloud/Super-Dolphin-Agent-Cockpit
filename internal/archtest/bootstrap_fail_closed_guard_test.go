@@ -21,7 +21,7 @@ func TestBootstrapHandleCallbackFailsClosedOnUnknownMethod(t *testing.T) {
 		"errBootstrapUnknownMethod(",
 		"dispatchLifecycleRequest(",
 		"§315",
-		"jrpc2.Code(-32601)",
+		"contract.CodeMethodNotFound",
 	}
 	for _, tok := range required {
 		if !strings.Contains(text, tok) {

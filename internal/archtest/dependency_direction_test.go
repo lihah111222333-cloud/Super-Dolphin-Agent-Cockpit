@@ -69,11 +69,11 @@ func assertCoreDependencyRules(t *testing.T, root string) {
 	})
 
 	t.Run("rule3_provider_cannot_import_store", func(t *testing.T) {
-		dirs := existingDirs(root, "internal/provider/claudecli", "internal/provider/codexapp")
+		dirs := existingDirs(root, "internal/provider/claudecli", "internal/provider/codexapp", "internal/provider/unified")
 		if len(dirs) == 0 {
 			t.Skip("directory not yet created")
 		}
-		assertNoImportPrefixes(t, parseImportFiles(t, root, dirs...), []string{internalPrefix("internal/store/")})
+		assertNoImportPrefixes(t, parseImportFiles(t, root, dirs...), []string{internalPrefix("internal/store")})
 	})
 
 	t.Run("rule3b_provider_external_whitelist", func(t *testing.T) {
@@ -102,7 +102,7 @@ func assertCoreDependencyRules(t *testing.T, root string) {
 		if !dirExists(root, "internal/platform") || !dirExists(root, "internal/module") {
 			t.Skip("directory not yet created")
 		}
-		assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/platform"), []string{internalPrefix("internal/module/")})
+		assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/platform"), []string{internalPrefix("internal/module")})
 	})
 }
 

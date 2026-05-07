@@ -87,8 +87,8 @@ func TestSkillServiceConsumersUseNarrowPorts(t *testing.T) {
 		fieldName  string
 		want       string
 	}{
-		{relPath: "internal/module/dashboard/service.go", structName: "service", fieldName: "skills", want: "skillmodule.SkillLister"},
-		{relPath: "internal/module/dashboard/module.go", structName: "serviceParams", fieldName: "Skills", want: "skillmodule.SkillLister"},
+		{relPath: "internal/module/dashboard/service.go", structName: "service", fieldName: "skills", want: "contract.SkillLister"},
+		{relPath: "internal/module/dashboard/module.go", structName: "serviceParams", fieldName: "Skills", want: "contract.SkillLister"},
 		// skillCatalogProviderDeps + registerSkillCatalogDeps removed in skill refactor P2 Task 7;
 		// SkillCatalogProvider is gone, Claude uses native discovery via workspace symlink instead.
 	}
@@ -106,8 +106,8 @@ func TestSkillServiceConsumersUseNarrowPorts(t *testing.T) {
 
 	if actual, ok := functionParamType(t, root, "internal/module/turn/service.go", "NewServiceWithPromptAssemblyAndTurnContext", "skillSvc"); !ok {
 		violations = append(violations, "internal/module/turn/service.go: NewServiceWithPromptAssemblyAndTurnContext.skillSvc not found")
-	} else if actual != "skillpkg.SkillHydrationSource" {
-		violations = append(violations, fmt.Sprintf("internal/module/turn/service.go: NewServiceWithPromptAssemblyAndTurnContext.skillSvc must depend on skillpkg.SkillHydrationSource, got %s", actual))
+	} else if actual != "contract.SkillHydrationSource" {
+		violations = append(violations, fmt.Sprintf("internal/module/turn/service.go: NewServiceWithPromptAssemblyAndTurnContext.skillSvc must depend on contract.SkillHydrationSource, got %s", actual))
 	}
 	// provideHostToolRegistry.svc check removed in skill refactor P3 Task 3:
 	// provideHostToolRegistry no longer takes a SkillHostToolReader; the Codex tool

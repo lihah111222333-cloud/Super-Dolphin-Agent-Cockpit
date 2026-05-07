@@ -16,8 +16,8 @@ func TestSqlcQueryParameterLimitPinned(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read sqlc.yaml: %v", err)
 	}
-	if !strings.Contains(string(data), "\n        query_parameter_limit: 1\n") {
-		t.Fatalf("sqlc.yaml must pin gen.go.query_parameter_limit: 1 so existing single-param query APIs stay stable while multi-param queries use params structs")
+	if !strings.Contains(string(data), "\n        query_parameter_limit: 0\n") {
+		t.Fatalf("sqlc.yaml must pin gen.go.query_parameter_limit: 0 to always generate param structs per convention")
 	}
 }
 
