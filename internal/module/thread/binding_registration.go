@@ -332,6 +332,10 @@ func validateBindingProviderThread(existing *bindingstore.Binding, registration 
 	if existingID == registration.ProviderThreadID {
 		return nil
 	}
+	// Allow placeholder agent_id → real UUID correction.
+	if existingID == strings.TrimSpace(existing.AgentID) {
+		return nil
+	}
 	// UUID already set and caller tries to change it — reject.
 	return fmt.Errorf("agent %q provider_thread_id is immutable (existing=%q, new=%q)",
 		registration.AgentID, existingID, registration.ProviderThreadID)

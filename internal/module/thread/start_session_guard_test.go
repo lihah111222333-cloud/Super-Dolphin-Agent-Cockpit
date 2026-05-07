@@ -113,7 +113,7 @@ func TestServiceStartUsesResolvedStartConfig(t *testing.T) {
 			if sandbox["type"] != "danger-full-access" {
 				t.Fatalf("sandbox = %#v, want danger-full-access", req.Config["sandbox"])
 			}
-			session := &stubSession{threadID: "provider-thread-1"}
+			session := &stubSession{threadID: "019d5f6b-fb3c-7760-9d6f-54005553f5b3"}
 			sessions.session = session
 			return session, nil
 		},
@@ -130,7 +130,7 @@ func TestServiceStartUsesResolvedStartConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	if result.ThreadID != "agent-start" || result.SessionID != "provider-thread-1" || result.AgentID != "agent-start" {
+	if result.ThreadID != "agent-start" || result.SessionID != "019d5f6b-fb3c-7760-9d6f-54005553f5b3" || result.AgentID != "agent-start" {
 		t.Fatalf("result = %#v", result)
 	}
 	if result.Provider != "claude" || result.CWD != wantStartCWD(t) || result.ApprovalPolicy != "never" {
@@ -153,7 +153,7 @@ func TestServiceStartUsesResolvedStartConfig(t *testing.T) {
 	if bindings.upsert.Provider != "claude" {
 		t.Fatalf("binding provider = %q, want claude", bindings.upsert.Provider)
 	}
-	if bindings.upsert.ProviderThreadID != "provider-thread-1" || bindings.upsert.CodexThreadID != "agent-start" {
+	if bindings.upsert.ProviderThreadID != "019d5f6b-fb3c-7760-9d6f-54005553f5b3" || bindings.upsert.CodexThreadID != "agent-start" {
 		t.Fatalf("binding upsert = %#v", bindings.upsert)
 	}
 }

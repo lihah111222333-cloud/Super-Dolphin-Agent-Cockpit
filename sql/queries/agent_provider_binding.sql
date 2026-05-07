@@ -13,14 +13,14 @@ INSERT INTO agent_provider_binding (
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, $12, $13, $14, $15)
 ON CONFLICT (agent_id) DO UPDATE
 SET provider = EXCLUDED.provider,
-    provider_thread_id = EXCLUDED.provider_thread_id,
+    provider_thread_id = CASE WHEN EXCLUDED.provider_thread_id = '' THEN agent_provider_binding.provider_thread_id ELSE EXCLUDED.provider_thread_id END,
     codex_thread_id = EXCLUDED.codex_thread_id,
     rollout_path = EXCLUDED.rollout_path,
     cwd = EXCLUDED.cwd,
     parent_agent_id = EXCLUDED.parent_agent_id,
     agent_type = EXCLUDED.agent_type,
     agent_memory_scope = EXCLUDED.agent_memory_scope,
-    session_uuid = EXCLUDED.session_uuid,
+    session_uuid = CASE WHEN EXCLUDED.session_uuid = '' THEN agent_provider_binding.session_uuid ELSE EXCLUDED.session_uuid END,
     codex_home = CASE WHEN EXCLUDED.codex_home = '' THEN agent_provider_binding.codex_home ELSE EXCLUDED.codex_home END,
     codex_instance_key = CASE WHEN EXCLUDED.codex_instance_key = '' THEN agent_provider_binding.codex_instance_key ELSE EXCLUDED.codex_instance_key END,
     codex_model_provider = CASE WHEN EXCLUDED.codex_model_provider = '' THEN agent_provider_binding.codex_model_provider ELSE EXCLUDED.codex_model_provider END,
@@ -33,6 +33,11 @@ WHERE agent_id = $1;
 -- name: UpdateAgentProviderBindingSessionUUID :exec
 UPDATE agent_provider_binding
 SET session_uuid = $1,
+    provider_thread_id = CASE
+        WHEN provider_thread_id = '' OR provider_thread_id = agent_id
+        THEN $1
+        ELSE provider_thread_id
+    END,
     updated_at = $2
 WHERE agent_id = $3;
 
