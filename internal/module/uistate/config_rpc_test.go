@@ -8,7 +8,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
@@ -170,7 +169,7 @@ func newConfigTestServer(
 	cfg *contract.Config,
 	prefs uipreference.Store,
 	sharedFiles sharedfilestore.Reader,
-	threads thread.Service,
+	threads contract.ThreadConfigReader,
 ) *platformrpc.Server {
 	server := platformrpc.NewServer(platformrpc.Params{Config: cfg})
 	server.Register(NewConfigHandlers(cfg, prefs, sharedFiles, threads, nil, testNativeTools).Handlers)
@@ -269,6 +268,8 @@ func mustJSONRaw(t *testing.T, value string) json.RawMessage {
 	return raw
 }
 
+// configThreadServiceStub implements contract.ThreadConfigReader and
+// contract.ThreadRuntimeConfigReader for config_rpc tests.
 type configThreadServiceStub struct {
 	getConfigResult     dto.ThreadConfig
 	getConfigErr        error
@@ -276,42 +277,6 @@ type configThreadServiceStub struct {
 	runtimeConfigResult map[string]any
 	runtimeConfigErr    error
 	runtimeConfigIDs    []string
-}
-
-func (*configThreadServiceStub) Start(context.Context, thread.StartRequest) (thread.StartResult, error) {
-	return thread.StartResult{}, nil
-}
-
-func (*configThreadServiceStub) Stop(context.Context, string) error { return nil }
-
-func (*configThreadServiceStub) Resume(context.Context, thread.ResumeRequest) (thread.ResumeResult, error) {
-	return thread.ResumeResult{}, nil
-}
-
-func (*configThreadServiceStub) Fork(context.Context, string) (thread.ForkResult, error) {
-	return thread.ForkResult{}, nil
-}
-
-func (*configThreadServiceStub) Recover(context.Context, string) (thread.RecoverResult, error) {
-	return thread.RecoverResult{}, nil
-}
-func (*configThreadServiceStub) SpawnIfNeeded(context.Context, string, string) (bool, thread.SpawnRouting, error) {
-	return false, thread.SpawnRouting{}, nil
-}
-func (*configThreadServiceStub) Handoff(context.Context, thread.HandoffRequest) (thread.HandoffResult, error) {
-	return thread.HandoffResult{}, nil
-}
-
-func (*configThreadServiceStub) List(context.Context) ([]thread.Ref, error) { return nil, nil }
-
-func (*configThreadServiceStub) Get(context.Context, string) (*thread.Ref, error) { return nil, nil }
-
-func (*configThreadServiceStub) ReadHistory(context.Context, string, int) ([]dto.Message, error) {
-	return nil, nil
-}
-
-func (*configThreadServiceStub) ReadMessages(context.Context, string, int, string) (dto.ThreadMessagesResult, error) {
-	return dto.ThreadMessagesResult{}, nil
 }
 
 func (s *configThreadServiceStub) GetConfig(_ context.Context, threadID string) (dto.ThreadConfig, error) {
@@ -322,44 +287,4 @@ func (s *configThreadServiceStub) GetConfig(_ context.Context, threadID string) 
 func (s *configThreadServiceStub) ReadRuntimeConfig(_ context.Context, threadID string) (map[string]any, error) {
 	s.runtimeConfigIDs = append(s.runtimeConfigIDs, threadID)
 	return s.runtimeConfigResult, s.runtimeConfigErr
-}
-
-func (*configThreadServiceStub) SetConfig(context.Context, string, dto.ThreadConfigPatch) (dto.ThreadConfig, error) {
-	return dto.ThreadConfig{}, nil
-}
-
-func (*configThreadServiceStub) SetModel(context.Context, string, string) (dto.ThreadConfig, error) {
-	return dto.ThreadConfig{}, nil
-}
-
-func (*configThreadServiceStub) Compact(context.Context, string, string) (dto.ThreadCompactResult, error) {
-	return dto.ThreadCompactResult{}, nil
-}
-
-func (*configThreadServiceStub) Archive(context.Context, string) error { return nil }
-
-func (*configThreadServiceStub) Unarchive(context.Context, string) error { return nil }
-
-func (*configThreadServiceStub) ListByStatus(context.Context, string) ([]thread.Ref, error) {
-	return nil, nil
-}
-
-func (*configThreadServiceStub) ListByCWD(context.Context, string) ([]thread.Ref, error) {
-	return nil, nil
-}
-
-func (*configThreadServiceStub) SendCommand(context.Context, string, string, string) (any, error) {
-	return nil, nil
-}
-
-func (*configThreadServiceStub) SetName(context.Context, string, string) error { return nil }
-
-func (*configThreadServiceStub) Delete(context.Context, string) error { return nil }
-
-func (*configThreadServiceStub) FlushAndVerifyTaskHandoff(context.Context, string, string) error {
-	return nil
-}
-
-func (*configThreadServiceStub) PromoteTaskFromThread(context.Context, string) (thread.PromoteTaskResult, error) {
-	return thread.PromoteTaskResult{}, nil
 }

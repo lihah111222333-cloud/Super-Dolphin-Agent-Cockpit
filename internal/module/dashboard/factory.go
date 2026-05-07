@@ -13,11 +13,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 )
 
-type responseField struct {
-	key   string
-	value any
-}
-
 type logFilterField string
 
 type storedLogRow interface {
@@ -59,22 +54,6 @@ var logFilterFields = []logFilterField{
 	logFieldThreadID,
 	logFieldEventType,
 	logFieldToolName,
-}
-
-func wrapResponse(key string, value any) map[string]any {
-	return map[string]any{strings.TrimSpace(key): value}
-}
-
-func wrapResponses(fields ...responseField) map[string]any {
-	out := make(map[string]any, len(fields))
-	for _, field := range fields {
-		key := strings.TrimSpace(field.key)
-		if key == "" {
-			continue
-		}
-		out[key] = field.value
-	}
-	return out
 }
 
 func safeList[T any](enabled bool, query func() ([]T, error)) ([]T, error) {

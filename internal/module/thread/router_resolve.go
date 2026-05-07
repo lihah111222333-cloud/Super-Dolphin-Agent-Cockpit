@@ -7,8 +7,6 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt/classifier"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -65,13 +63,13 @@ func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) {
 	// and stamps its pick into req.PromptKey so the normal explicit-pin branch
 	// in pickRoutedTemplate takes over. Empty pick ("no strong match") leaves
 	// req.PromptKey alone so the default persona fallback still applies.
-	maybeClassifyPrompt(ctx, s.classifier, req, templates)
+	s.maybeClassifyPrompt(ctx, req, templates)
 
 	// match_when auto-route: between classifier and main/default fallback.
 	// Runs only when neither caller nor classifier pinned anything and no
 	// explicit AgentKey was supplied. Picks the highest-priority enabled
 	// template whose match_when rules satisfy the current BuildCtx.
-	maybeAutoRouteByMatchWhen(req, templates)
+	s.maybeAutoRouteByMatchWhen(req, templates)
 
 	picked := s.pickRoutedTemplate(ctx, req, templates)
 	if picked == nil || !picked.Enabled {
@@ -249,9 +247,8 @@ func firstEnabledByAgentKey(templates []promptstore.PromptTemplate, agentKey str
 // take the normal explicit-pin branch. It never fails fatally: a classifier
 // error is logged and the router proceeds with the empty pin (default
 // fallback). This keeps the feature safe to enable globally.
-func maybeClassifyPrompt(
+func (s *service) maybeClassifyPrompt(
 	ctx context.Context,
-	c classifier.Classifier,
 	req *StartRequest,
 	templates []promptstore.PromptTemplate,
 ) {
@@ -259,7 +256,7 @@ func maybeClassifyPrompt(
 	if !ok {
 		return
 	}
-	if !classifierReady(c) {
+	if !s.classifierReady() {
 		return
 	}
 	candidates := classifierCandidates(templates)
@@ -270,10 +267,10 @@ func maybeClassifyPrompt(
 	// AND runner-up gap >= 1), skip the 5-15s claude -p round trip entirely.
 	// The thresholds are deliberately tight so untagged rows like main/default
 	// can't hijack the fast path; anything ambiguous falls through to haiku.
-	if applyClassifierFastPath(req, candidates, userInput) {
+	if s.applyClassifierFastPath(req, candidates, userInput) {
 		return
 	}
-	classifyPromptWithBackend(ctx, c, req, candidates, userInput)
+	s.classifyPromptWithBackend(ctx, req, candidates, userInput)
 }
 
 func resolvePromptClassificationInput(req *StartRequest) (string, bool) {
@@ -296,8 +293,8 @@ func resolvePromptClassificationInput(req *StartRequest) (string, bool) {
 	return userInput, true
 }
 
-func classifierReady(c classifier.Classifier) bool {
-	if c != nil && c.Enabled() {
+func (s *service) classifierReady() bool {
+	if s.classifier != nil && s.classifier.Enabled() {
 		return true
 	}
 	pkglogger.Info("router: classifier opt-in but backend disabled",
@@ -305,8 +302,11 @@ func classifierReady(c classifier.Classifier) bool {
 	return false
 }
 
-func applyClassifierFastPath(req *StartRequest, candidates []classifier.Candidate, userInput string) bool {
-	decision := classifier.FastPath(candidates, userInput)
+func (s *service) applyClassifierFastPath(req *StartRequest, candidates []contract.PromptClassifierCandidate, userInput string) bool {
+	if s.classifierFastPath == nil {
+		return false
+	}
+	decision := s.classifierFastPath(candidates, userInput)
 	if !decision.Hit {
 		return false
 	}
@@ -319,19 +319,20 @@ func applyClassifierFastPath(req *StartRequest, candidates []classifier.Candidat
 	return true
 }
 
-func classifyPromptWithBackend(
+func (s *service) classifyPromptWithBackend(
 	ctx context.Context,
-	c classifier.Classifier,
 	req *StartRequest,
-	candidates []classifier.Candidate,
+	candidates []contract.PromptClassifierCandidate,
 	userInput string,
 ) {
 	// Prune down to top-K by tag-keyword overlap before spending LLM tokens.
 	// With 11+ candidates in typical libraries, the untrimmed prompt pushes
 	// haiku latency into the 10s range; a 5-row list keeps it closer to 3-5s.
 	beforePrune := len(candidates)
-	candidates = classifier.PruneCandidates(candidates, userInput, classifier.MaxCandidatesFromEnv())
-	res, err := c.Classify(ctx, classifier.Input{UserInput: userInput, Candidates: candidates})
+	if s.classifierPrune != nil && s.classifierMaxCandidates != nil {
+		candidates = s.classifierPrune(candidates, userInput, s.classifierMaxCandidates())
+	}
+	res, err := s.classifier.Classify(ctx, contract.PromptClassifierInput{UserInput: userInput, Candidates: candidates})
 	if err != nil {
 		pkglogger.Warn("router: classify failed",
 			"err", err,
@@ -359,14 +360,14 @@ func classifyPromptWithBackend(
 // classifierCandidates maps enabled prompt_templates to the classifier's DTO.
 // Disabled rows are dropped so the classifier never picks a row that the
 // subsequent pickRoutedTemplate would reject on Enabled=false.
-func classifierCandidates(templates []promptstore.PromptTemplate) []classifier.Candidate {
-	out := make([]classifier.Candidate, 0, len(templates))
+func classifierCandidates(templates []promptstore.PromptTemplate) []contract.PromptClassifierCandidate {
+	out := make([]contract.PromptClassifierCandidate, 0, len(templates))
 	for i := range templates {
 		t := &templates[i]
 		if !t.Enabled {
 			continue
 		}
-		out = append(out, classifier.Candidate{
+		out = append(out, contract.PromptClassifierCandidate{
 			PromptKey:   t.PromptKey,
 			Title:       t.Title,
 			Description: t.Description,
@@ -405,7 +406,7 @@ func findByPromptKey(templates []promptstore.PromptTemplate, promptKey string) *
 }
 
 // d-clean: applyCandidatePoolMerge / candidateTemplateBlocks 已移除。
-// 候选池合并注入的设计已与“对齐 Claude 主线程单提示词”的目标冲突；
+// 候选池合并注入的设计已与"对齐 Claude 主线程单提示词"的目标冲突；
 // 路由现在的四档优先级为：
 //   1. 显式 pin (PromptKey / AgentKey) > 2. 分类器 opt-in > 3. match_when
 //   自动路由 > 4. main/default 兑底。
@@ -416,7 +417,7 @@ func findByPromptKey(templates []promptstore.PromptTemplate, promptKey string) *
 // Priority DESC (stable), and stamps the first one whose rules match the
 // synthesized BuildCtx. All failure modes leave req.PromptKey untouched so
 // the main/default fallback still applies.
-func maybeAutoRouteByMatchWhen(req *StartRequest, templates []promptstore.PromptTemplate) {
+func (s *service) maybeAutoRouteByMatchWhen(req *StartRequest, templates []promptstore.PromptTemplate) {
 	if req == nil {
 		return
 	}
@@ -424,6 +425,9 @@ func maybeAutoRouteByMatchWhen(req *StartRequest, templates []promptstore.Prompt
 		return
 	}
 	if strings.TrimSpace(req.AgentKey) != "" {
+		return
+	}
+	if s.matchWhenEval == nil {
 		return
 	}
 	candidates := autoRouteCandidates(templates)
@@ -434,7 +438,7 @@ func maybeAutoRouteByMatchWhen(req *StartRequest, templates []promptstore.Prompt
 	userPrompt := req.Prompt
 	for i := range candidates {
 		cand := &candidates[i]
-		if !promptpkg.EvaluateMatchWhen(cand.MatchWhen, buildCtx, userPrompt) {
+		if !s.matchWhenEval(cand.MatchWhen, buildCtx, userPrompt) {
 			continue
 		}
 		pkglogger.Info("router: match_when auto-routed",

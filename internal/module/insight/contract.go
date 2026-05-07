@@ -13,69 +13,22 @@
 package insight
 
 import (
-	"context"
-	"errors"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	insightstore "github.com/anthropic-ai/super-agent-v3/internal/store/insight"
 )
 
-// Service is the read-side facade consumed by dashboard-owned RPC handlers.
-type Service interface {
-	ListRecent(ctx context.Context, limit int32) ([]Snapshot, error)
-	ListByThread(ctx context.Context, threadID string, limit int32) ([]Snapshot, error)
-	ListObservedApprovalRequests(ctx context.Context, threadID string, limit int32) ([]ApprovalSnapshot, error)
-}
+// Service re-exports the contract interface so in-package references
+// (and downstream consumers that already import insight) keep working.
+type Service = contract.InsightService
 
-// Sentinel errors.
-var (
-	ErrInvalidLimit = errors.New("insight: limit must be >= 0")
-)
+// Re-export contract types as local aliases for backwards compatibility.
+type Snapshot = contract.InsightSnapshot
+type ApprovalSnapshot = contract.InsightApprovalSnapshot
 
-// Snapshot is the read-side projection of a session_insights row. Time
-// fields are RFC3339 strings so JSON consumers never have to deal with
-// pgtype.Timestamptz. Success is *bool to preserve the unknown / true /
-// false three-state from the underlying schema.
-type Snapshot struct {
-	ID                       int64    `json:"id"`
-	ThreadID                 string   `json:"thread_id,omitempty"`
-	AgentID                  string   `json:"agent_id,omitempty"`
-	SessionID                string   `json:"session_id,omitempty"`
-	Provider                 string   `json:"provider,omitempty"`
-	LocalTurnID              string   `json:"local_turn_id,omitempty"`
-	ProviderTurnID           string   `json:"provider_turn_id,omitempty"`
-	StartedAt                string   `json:"started_at,omitempty"`
-	CompletedAt              string   `json:"completed_at,omitempty"`
-	DurationMS               int32    `json:"duration_ms"`
-	Success                  *bool    `json:"success,omitempty"`
-	Status                   string   `json:"status,omitempty"`
-	StopReason               string   `json:"stop_reason,omitempty"`
-	ToolCalls                int32    `json:"tool_calls"`
-	ToolCallsObserved        bool     `json:"tool_calls_observed"`
-	ToolFailures             int32    `json:"tool_failures"`
-	ToolFailuresObserved     bool     `json:"tool_failures_observed"`
-	ApprovalRequests         int32    `json:"approval_requests"`
-	ApprovalRequestsObserved bool     `json:"approval_requests_observed"`
-	TokenInput               int32    `json:"token_input"`
-	TokenOutput              int32    `json:"token_output"`
-	TokenTotal               int32    `json:"token_total"`
-	TokenSnapshotObserved    bool     `json:"token_snapshot_observed"`
-	ContextWindowTokens      int32    `json:"context_window_tokens"`
-	UIProjection             string   `json:"ui_projection,omitempty"`
-	SkillsSelected           []string `json:"skills_selected,omitempty"`
-	CreatedAt                string   `json:"created_at,omitempty"`
-}
-
-// ApprovalSnapshot is a slim projection for observed approval metrics.
-type ApprovalSnapshot struct {
-	ID               int64  `json:"id"`
-	ThreadID         string `json:"thread_id,omitempty"`
-	AgentID          string `json:"agent_id,omitempty"`
-	LocalTurnID      string `json:"local_turn_id,omitempty"`
-	ProviderTurnID   string `json:"provider_turn_id,omitempty"`
-	ApprovalRequests int32  `json:"approval_requests"`
-	CreatedAt        string `json:"created_at,omitempty"`
-}
+// ErrInvalidLimit re-exports the contract sentinel.
+var ErrInvalidLimit = contract.ErrInsightInvalidLimit
 
 // flushSignal is what the subscriber pushes onto the queue. Everything
 // the flusher needs to read observation + build the Insight row is

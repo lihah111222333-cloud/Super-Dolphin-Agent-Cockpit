@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/fbsd"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 )
 
 // makeRefFile creates cacheDir/<name>/references/<prefix>-<anchor>.md with given body.
@@ -38,7 +39,7 @@ func TestSkillReadSectionTool_ReturnsSectionBody(t *testing.T) {
 	cacheDir := t.TempDir()
 	makeRefFile(t, cacheDir, "tdd", "red-green-refactor", "## Red Green Refactor\n\nsome content here")
 
-	tool := NewSkillReadSectionTool(cacheDir, nil)
+	tool := NewSkillReadSectionTool(cacheDir, skilllibrary.ReadSection, nil)
 	args := mustMarshal(t, map[string]any{"name": "tdd", "anchor": "red-green-refactor"})
 	out, err := tool.Call(context.Background(), args)
 	if err != nil {
@@ -52,7 +53,7 @@ func TestSkillReadSectionTool_ReturnsSectionBody(t *testing.T) {
 func TestSkillReadSectionTool_MissingSkillReturnsError(t *testing.T) {
 	cacheDir := t.TempDir()
 
-	tool := NewSkillReadSectionTool(cacheDir, nil)
+	tool := NewSkillReadSectionTool(cacheDir, skilllibrary.ReadSection, nil)
 	args := mustMarshal(t, map[string]any{"name": "nonexistent", "anchor": "foo"})
 	_, err := tool.Call(context.Background(), args)
 	if err == nil {
@@ -71,7 +72,7 @@ func TestSkillReadSectionTool_MissingAnchorReturnsError(t *testing.T) {
 	cacheDir := t.TempDir()
 	makeRefFile(t, cacheDir, "tdd", "red-green-refactor", "body")
 
-	tool := NewSkillReadSectionTool(cacheDir, nil)
+	tool := NewSkillReadSectionTool(cacheDir, skilllibrary.ReadSection, nil)
 	args := mustMarshal(t, map[string]any{"name": "tdd", "anchor": "no-such-anchor"})
 	_, err := tool.Call(context.Background(), args)
 	if err == nil {
@@ -89,7 +90,7 @@ func TestSkillReadSectionTool_MaxBytesTruncation(t *testing.T) {
 	cacheDir := t.TempDir()
 	makeRefFile(t, cacheDir, "tdd", "overview", "abcdefghij") // 10 bytes
 
-	tool := NewSkillReadSectionTool(cacheDir, nil)
+	tool := NewSkillReadSectionTool(cacheDir, skilllibrary.ReadSection, nil)
 	args := mustMarshal(t, map[string]any{"name": "tdd", "anchor": "overview", "max_bytes": 4})
 	out, err := tool.Call(context.Background(), args)
 	if err != nil {
@@ -105,7 +106,7 @@ func TestSkillReadSectionTool_MaxBytesZeroNoTruncation(t *testing.T) {
 	body := "full body no truncation"
 	makeRefFile(t, cacheDir, "skill", "section", body)
 
-	tool := NewSkillReadSectionTool(cacheDir, nil)
+	tool := NewSkillReadSectionTool(cacheDir, skilllibrary.ReadSection, nil)
 	// max_bytes omitted → zero value → no truncation
 	args := mustMarshal(t, map[string]any{"name": "skill", "anchor": "section"})
 	out, err := tool.Call(context.Background(), args)
@@ -119,7 +120,7 @@ func TestSkillReadSectionTool_MaxBytesZeroNoTruncation(t *testing.T) {
 
 func TestSkillReadSectionTool_EmptyArgsReturnsError(t *testing.T) {
 	cacheDir := t.TempDir()
-	tool := NewSkillReadSectionTool(cacheDir, nil)
+	tool := NewSkillReadSectionTool(cacheDir, skilllibrary.ReadSection, nil)
 
 	// Empty JSON object: name and anchor are empty strings → skilllibrary errors
 	args := mustMarshal(t, map[string]any{})
@@ -134,7 +135,7 @@ func TestSkillReadSectionTool_EmptyArgsReturnsError(t *testing.T) {
 
 func TestSkillReadSectionTool_InvalidJSONReturnsError(t *testing.T) {
 	cacheDir := t.TempDir()
-	tool := NewSkillReadSectionTool(cacheDir, nil)
+	tool := NewSkillReadSectionTool(cacheDir, skilllibrary.ReadSection, nil)
 
 	_, err := tool.Call(context.Background(), json.RawMessage(`{invalid json`))
 	if err == nil {
@@ -146,7 +147,7 @@ func TestSkillReadSectionTool_InvalidJSONReturnsError(t *testing.T) {
 }
 
 func TestNewSkillReadSectionTool_Constructor(t *testing.T) {
-	tool := NewSkillReadSectionTool("/some/cache/dir", nil)
+	tool := NewSkillReadSectionTool("/some/cache/dir", skilllibrary.ReadSection, nil)
 	if tool == nil {
 		t.Fatal("NewSkillReadSectionTool returned nil")
 	}
@@ -183,7 +184,7 @@ func TestSkillReadSectionTool_RecordsToTrackerOnSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := NewSkillReadSectionTool(cacheDir, tracker)
+	tool := NewSkillReadSectionTool(cacheDir, skilllibrary.ReadSection, tracker)
 	args := mustMarshal(t, map[string]any{"name": "tdd", "anchor": "red-green"})
 	if _, err := tool.Call(context.Background(), args); err != nil {
 		t.Fatalf("Call: %v", err)
@@ -212,7 +213,7 @@ func TestSkillReadSectionTool_NilTrackerSafe(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cacheDir, "x", "references", "01-foo.md"), []byte("body"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	tool := NewSkillReadSectionTool(cacheDir, nil) // nil tracker
+	tool := NewSkillReadSectionTool(cacheDir, skilllibrary.ReadSection, nil) // nil tracker
 	args := mustMarshal(t, map[string]any{"name": "x", "anchor": "foo"})
 	if _, err := tool.Call(context.Background(), args); err != nil {
 		t.Errorf("nil tracker should not break Call: %v", err)
@@ -231,7 +232,7 @@ func TestSkillReadSectionTool_MissingAnchorDoesNotRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := NewSkillReadSectionTool(cacheDir, tracker)
+	tool := NewSkillReadSectionTool(cacheDir, skilllibrary.ReadSection, tracker)
 	args := mustMarshal(t, map[string]any{"name": "x", "anchor": "missing"})
 	if _, err := tool.Call(context.Background(), args); err == nil {
 		t.Fatal("expected error for missing anchor")

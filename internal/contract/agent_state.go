@@ -17,7 +17,7 @@ import agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 // failure state (StateStopped / StateFailed). Keep it as a pure function
 // — zero allocations, safe to call from tight loops.
 func IsActiveAgentState(state string) bool {
-	switch state {
+	switch agentdto.AgentState(state) {
 	case "", agentdto.StateStopped, agentdto.StateFailed:
 		return false
 	default:

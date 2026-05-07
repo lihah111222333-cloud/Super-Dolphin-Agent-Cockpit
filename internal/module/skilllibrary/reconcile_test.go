@@ -5,17 +5,41 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skillforge"
 )
+
+// testForger returns concrete contract.SkillForger and contract.EmbeddedSkillReader
+// backed by skillforge for integration tests.
+func testForger() contract.SkillForger         { return &testForgerImpl{} }
+func testReader() contract.EmbeddedSkillReader { return &testReaderImpl{} }
+
+type testForgerImpl struct{}
+
+func (f *testForgerImpl) Forge(libDir, cacheDir, name string, so map[string]string) error {
+	return skillforge.Forge(libDir, cacheDir, name, so)
+}
+func (f *testForgerImpl) RecoverStaging(cacheDir string) (*contract.StagingRecoveryReport, error) {
+	rr, err := skillforge.RecoverStaging(cacheDir)
+	if err != nil {
+		return nil, err
+	}
+	return &contract.StagingRecoveryReport{Errors: rr.Errors}, nil
+}
+
+type testReaderImpl struct{}
+
+func (r *testReaderImpl) ListNames() ([]string, error)     { return skillforge.ListEmbeddedSkillNames() }
+func (r *testReaderImpl) Read(name string) ([]byte, error) { return skillforge.ReadEmbeddedSkill(name) }
 
 func TestReconcile_BuildsCacheFromLibrary(t *testing.T) {
 	libRoot := t.TempDir()
 	cacheRoot := t.TempDir()
 	s := NewStore(libRoot)
-	if _, err := SeedBuiltins(s, "test-1"); err != nil {
+	if _, err := SeedBuiltins(s, "test-1", testReader()); err != nil {
 		t.Fatal(err)
 	}
-	r := NewReconciler(s, cacheRoot)
+	r := NewReconciler(s, cacheRoot, testForger())
 	report, err := r.ReconcileAll()
 	if err != nil {
 		t.Fatalf("ReconcileAll: %v", err)
@@ -43,7 +67,7 @@ func TestReconcile_RemovesOrphanCacheEntries(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(orphan, "SKILL.md"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	r := NewReconciler(NewStore(libRoot), cacheRoot)
+	r := NewReconciler(NewStore(libRoot), cacheRoot, testForger())
 	report, err := r.ReconcileAll()
 	if err != nil {
 		t.Fatal(err)
@@ -64,7 +88,7 @@ func TestReconcile_DisabledSkillIsRemovedFromCache(t *testing.T) {
 	if err := s.Install("x", src, SkillMeta{Name: "x", Origin: OriginBuiltin, Version: "1"}); err != nil {
 		t.Fatal(err)
 	}
-	r := NewReconciler(s, cacheRoot)
+	r := NewReconciler(s, cacheRoot, testForger())
 	if _, err := r.ReconcileAll(); err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +112,7 @@ func TestReconcileOne_RemovesWhenNotInLibrary(t *testing.T) {
 	if err := os.MkdirAll(orphan, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	r := NewReconciler(NewStore(libRoot), cacheRoot)
+	r := NewReconciler(NewStore(libRoot), cacheRoot, testForger())
 	if err := r.ReconcileOne("ghost"); err != nil {
 		t.Fatalf("ReconcileOne: %v", err)
 	}
@@ -105,7 +129,7 @@ func TestReconcileOne_BuildsValidSkill(t *testing.T) {
 	if err := s.Install("y", src, SkillMeta{Name: "y", Origin: OriginBuiltin, Version: "1"}); err != nil {
 		t.Fatal(err)
 	}
-	r := NewReconciler(s, cacheRoot)
+	r := NewReconciler(s, cacheRoot, testForger())
 	if err := r.ReconcileOne("y"); err != nil {
 		t.Fatalf("ReconcileOne: %v", err)
 	}
@@ -130,7 +154,7 @@ func TestReconcile_RecoversBackupBeforeRemoveOrphans(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r := NewReconciler(NewStore(libRoot), cacheRoot)
+	r := NewReconciler(NewStore(libRoot), cacheRoot, testForger())
 	report, err := r.ReconcileAll()
 	if err != nil {
 		t.Fatalf("ReconcileAll: %v", err)
@@ -160,7 +184,7 @@ func TestReconcile_DiscardsStaleTmpStaging(t *testing.T) {
 	if err := os.MkdirAll(tmp, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	r := NewReconciler(NewStore(libRoot), cacheRoot)
+	r := NewReconciler(NewStore(libRoot), cacheRoot, testForger())
 	if _, err := r.ReconcileAll(); err != nil {
 		t.Fatal(err)
 	}

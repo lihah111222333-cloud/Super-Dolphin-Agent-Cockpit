@@ -2,13 +2,17 @@ package thread
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -239,4 +243,93 @@ func (w *taskHandoffWorker) FlushForThread(ctx context.Context, threadID string)
 type taskHandoffPendingEntry struct {
 	threadID string
 	seed     taskHandoffRenderSeed
+}
+
+// ---------------------------------------------------------------------------
+// PromoteTaskFromThread (was promote_task.go)
+// ---------------------------------------------------------------------------
+
+func (s *service) PromoteTaskFromThread(ctx context.Context, threadID string) (PromoteTaskResult, error) {
+	if s == nil {
+		return PromoteTaskResult{}, errors.New("thread service unavailable")
+	}
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return PromoteTaskResult{}, errors.New("threadId required")
+	}
+	thread, err := s.getThread(ctx, threadID)
+	if err != nil {
+		return PromoteTaskResult{}, err
+	}
+	if thread == nil {
+		return PromoteTaskResult{}, fmt.Errorf("thread %q not found", threadID)
+	}
+
+	stored := decodeStoredThreadConfig(thread.ConfigOverride)
+	existing := taskHandoffMetaFromRuntimeConfig(stored.Runtime)
+	if strings.TrimSpace(existing.TaskID) != "" {
+		return PromoteTaskResult{
+			ThreadID:    threadID,
+			TaskID:      strings.TrimSpace(existing.TaskID),
+			TaskTitle:   strings.TrimSpace(existing.TaskTitle),
+			HandoffFile: strings.TrimSpace(existing.HandoffFile),
+			AlreadyTask: true,
+		}, nil
+	}
+
+	meta := taskHandoffMeta{
+		TaskID:    idgen.NewID("task"),
+		TaskTitle: firstNonEmptyTaskString(strings.TrimSpace(thread.Name), strings.TrimSpace(thread.Prompt), threadID),
+	}
+	meta.HandoffFile = defaultTaskHandoffPath(meta.TaskID)
+	meta.RootTaskID = meta.TaskID
+
+	stored.Runtime = withPromotedTaskRuntime(stored.Runtime, meta)
+	raw, err := encodeStoredThreadConfig(stored)
+	if err != nil {
+		return PromoteTaskResult{}, fmt.Errorf("encode promoted thread config: %w", err)
+	}
+	thread.ConfigOverride = raw
+	thread.UpdatedAt = time.Now().Unix()
+	if err := s.upsertThread(ctx, *thread); err != nil {
+		return PromoteTaskResult{}, fmt.Errorf("persist promoted thread config: %w", err)
+	}
+
+	result := PromoteTaskResult{
+		ThreadID:    threadID,
+		TaskID:      meta.TaskID,
+		TaskTitle:   meta.TaskTitle,
+		HandoffFile: meta.HandoffFile,
+	}
+
+	if shellErr := s.ensureTaskHandoffShell(ctx, meta, threadID); shellErr != nil {
+		pkglogger.Warn("thread/promote-task: handoff shell init failed",
+			"thread_id", threadID,
+			"task_id", meta.TaskID,
+			"handoff_file", meta.HandoffFile,
+			"error", shellErr)
+		result.HandoffShellWarning = shellErr.Error()
+	}
+
+	s.emitThreadPromotedTask(threadID)
+	return result, nil
+}
+
+func withPromotedTaskRuntime(runtime map[string]any, meta taskHandoffMeta) map[string]any {
+	next := clone.RuntimeConfigMap(runtime)
+	if next == nil {
+		next = map[string]any{}
+	}
+	next[taskConfigKeyAuto] = true
+	next[taskConfigKeyID] = meta.TaskID
+	if meta.TaskTitle != "" {
+		next[taskConfigKeyTitle] = meta.TaskTitle
+	}
+	if meta.HandoffFile != "" {
+		next[taskConfigKeyHandoffFile] = meta.HandoffFile
+	}
+	if meta.RootTaskID != "" {
+		next[taskConfigKeyRoot] = meta.RootTaskID
+	}
+	return next
 }

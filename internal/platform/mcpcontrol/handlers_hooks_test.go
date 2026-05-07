@@ -247,8 +247,8 @@ func registerHookTestClient(t *testing.T, local jrpcserver.Local, req dto.Regist
 	if err := local.Client.CallResult(context.Background(), dto.MethodRegister, req, &resp); err != nil {
 		t.Fatalf("CallResult(%s) error = %v", dto.MethodRegister, err)
 	}
-	if resp.Lease.InstanceID != req.InstanceID || resp.Lease.Generation != 1 {
-		t.Fatalf("register response lease = %#v, want %s/1", resp.Lease, req.InstanceID)
+	if resp.InstanceID != req.InstanceID || resp.Generation != 1 {
+		t.Fatalf("register response lease = %s/%d, want %s/1", resp.InstanceID, resp.Generation, req.InstanceID)
 	}
 	return resp
 }

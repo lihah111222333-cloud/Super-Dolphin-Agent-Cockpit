@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
@@ -16,10 +15,9 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
 )
 
-type SessionStarter interface {
-	StartSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error)
-	ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error)
-}
+// SessionStarter is an alias for contract.SessionStarter.
+// Kept as a local type alias for backward compatibility within this package.
+type SessionStarter = contract.SessionStarter
 
 type OrchestrationFacade interface {
 	LaunchAgent(ctx context.Context, req LaunchAgentRequest) error

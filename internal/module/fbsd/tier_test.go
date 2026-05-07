@@ -4,15 +4,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
+	dtoskill "github.com/anthropic-ai/super-agent-v3/internal/dto/skill"
 )
 
-func mkEntry(name string, mutate func(m *skilllibrary.SkillMeta)) skilllibrary.SkillEntry {
-	m := &skilllibrary.SkillMeta{Name: name}
+func mkEntry(name string, mutate func(m *dtoskill.SkillMeta)) dtoskill.SkillEntry {
+	m := &dtoskill.SkillMeta{Name: name}
 	if mutate != nil {
 		mutate(m)
 	}
-	return skilllibrary.SkillEntry{Meta: m}
+	return dtoskill.SkillEntry{Meta: m}
 }
 
 func mkCfg() TierConfig {
@@ -27,8 +27,8 @@ func mkCfg() TierConfig {
 
 func TestAssignTiers_PinnedAlwaysHot(t *testing.T) {
 	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
-	entries := []skilllibrary.SkillEntry{
-		mkEntry("pinned", func(m *skilllibrary.SkillMeta) { m.Pinned = true }),
+	entries := []dtoskill.SkillEntry{
+		mkEntry("pinned", func(m *dtoskill.SkillMeta) { m.Pinned = true }),
 		mkEntry("normal", nil), // score=0
 	}
 	got := AssignTiers(entries, nil, nil, mkCfg(), now)
@@ -48,8 +48,8 @@ func TestAssignTiers_PinnedAlwaysHot(t *testing.T) {
 func TestAssignTiers_GraceIsHot(t *testing.T) {
 	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
 	graceTime := now.Add(-2 * 24 * time.Hour).Format(time.RFC3339) // 2 days ago, within 7-day grace
-	entries := []skilllibrary.SkillEntry{
-		mkEntry("fresh", func(m *skilllibrary.SkillMeta) { m.InstalledAt = graceTime }),
+	entries := []dtoskill.SkillEntry{
+		mkEntry("fresh", func(m *dtoskill.SkillMeta) { m.InstalledAt = graceTime }),
 	}
 	got := AssignTiers(entries, nil, nil, mkCfg(), now)
 	if len(got) != 1 || got[0].Tier != TierHot {
@@ -63,9 +63,9 @@ func TestAssignTiers_PinnedBeatsGrace(t *testing.T) {
 	cfg := mkCfg()
 	// 让 budget 只够 1 个 Hot：HotChars=600, Budget=600
 	cfg.Budget = 600
-	entries := []skilllibrary.SkillEntry{
-		mkEntry("grace", func(m *skilllibrary.SkillMeta) { m.InstalledAt = graceTime }),
-		mkEntry("pinned", func(m *skilllibrary.SkillMeta) { m.Pinned = true }),
+	entries := []dtoskill.SkillEntry{
+		mkEntry("grace", func(m *dtoskill.SkillMeta) { m.InstalledAt = graceTime }),
+		mkEntry("pinned", func(m *dtoskill.SkillMeta) { m.Pinned = true }),
 	}
 	got := AssignTiers(entries, nil, nil, cfg, now)
 	// pinned 应排第一并占用 Hot；grace 退回更低 tier
@@ -88,7 +88,7 @@ func TestAssignTiers_ScoreOrdersDescending(t *testing.T) {
 		"mid":  &SkillStats{Calls: repeatTime(now, 15)},
 		"low":  &SkillStats{Calls: repeatTime(now, 10)},
 	}
-	entries := []skilllibrary.SkillEntry{
+	entries := []dtoskill.SkillEntry{
 		mkEntry("low", nil),
 		mkEntry("high", nil),
 		mkEntry("mid", nil),
@@ -110,7 +110,7 @@ func TestAssignTiers_BudgetExhaustedDegrades(t *testing.T) {
 		"c": &SkillStats{Calls: repeatTime(now, 18)},
 		"d": &SkillStats{Calls: repeatTime(now, 17)},
 	}
-	entries := []skilllibrary.SkillEntry{
+	entries := []dtoskill.SkillEntry{
 		mkEntry("a", nil), mkEntry("b", nil), mkEntry("c", nil), mkEntry("d", nil),
 	}
 	got := AssignTiers(entries, wsStats, nil, mkCfg(), now)
@@ -130,8 +130,8 @@ func TestAssignTiers_BudgetExhaustedDegrades(t *testing.T) {
 
 func TestAssignTiers_DisabledSkipped(t *testing.T) {
 	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
-	entries := []skilllibrary.SkillEntry{
-		mkEntry("dead", func(m *skilllibrary.SkillMeta) { m.Disabled = true; m.Pinned = true }),
+	entries := []dtoskill.SkillEntry{
+		mkEntry("dead", func(m *dtoskill.SkillMeta) { m.Disabled = true; m.Pinned = true }),
 		mkEntry("alive", nil),
 	}
 	got := AssignTiers(entries, nil, nil, mkCfg(), now)
@@ -142,7 +142,7 @@ func TestAssignTiers_DisabledSkipped(t *testing.T) {
 
 func TestAssignTiers_ZeroScoreNonPinnedFrozen(t *testing.T) {
 	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
-	entries := []skilllibrary.SkillEntry{mkEntry("idle", nil)}
+	entries := []dtoskill.SkillEntry{mkEntry("idle", nil)}
 	got := AssignTiers(entries, nil, nil, mkCfg(), now)
 	if got[0].Tier != TierFrozen {
 		t.Errorf("score=0 + non-pinned + non-grace → Frozen, got %v", got[0].Tier)

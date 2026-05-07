@@ -36,7 +36,7 @@ func (s *service) interruptBaseStatus(active activeTurn, tracked bool) TurnStatu
 	return TurnStatus{
 		LocalID:    active.localID,
 		ProviderID: interruptProviderID(TurnStatus{}, active.handle),
-		State:      "running",
+		State:      string(StateRunning),
 	}
 }
 
@@ -67,14 +67,14 @@ func (s *service) finishInterrupt(
 	return attachInterruptEnvelope(after, envelope), nil
 }
 
-func (s *service) interruptStatus(active activeTurn, fallback TurnStatus, defaultState string) TurnStatus {
+func (s *service) interruptStatus(active activeTurn, fallback TurnStatus, defaultState TurnState) TurnStatus {
 	if after, ok := s.tracker.Get(active.localID); ok {
 		return after
 	}
 	return TurnStatus{
 		LocalID:    active.localID,
 		ProviderID: interruptProviderID(fallback, active.handle),
-		State:      defaultState,
+		State:      string(defaultState),
 	}
 }
 
@@ -88,7 +88,7 @@ func (s *service) timeoutInterruptStatus(
 	if !errors.Is(err, context.DeadlineExceeded) || (ctx != nil && ctx.Err() != nil) {
 		return TurnStatus{}, false
 	}
-	after := s.interruptStatus(active, before, before.State)
+	after := s.interruptStatus(active, before, TurnState(before.State))
 	return attachInterruptEnvelope(after, buildTurnInterruptTimeoutEnvelope(
 		before.State,
 		after.State,

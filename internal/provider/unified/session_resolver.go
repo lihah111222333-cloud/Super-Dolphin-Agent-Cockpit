@@ -9,23 +9,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
-
-type threadLookup interface {
-	GetByThreadID(ctx context.Context, threadID string) (*threadstore.Thread, error)
-}
-
-type providerThreadLookup interface {
-	GetByProviderThread(ctx context.Context, provider, providerThreadID string) (*bindingstore.Binding, error)
-	GetByAgentID(ctx context.Context, agentID string) (*bindingstore.Binding, error)
-}
-
-type providerNameSource interface {
-	Names() []string
-}
 
 type driverRegistry interface {
 	Resolve(provider string) (contract.Driver, error)
@@ -33,8 +18,8 @@ type driverRegistry interface {
 }
 
 type sessionResolver struct {
-	threadStore  threadLookup
-	bindingStore providerThreadLookup
+	threadStore  contract.SessionThreadLookup
+	bindingStore contract.SessionBindingLookup
 	registry     driverRegistry
 	sessions     *SessionManager
 }
@@ -42,8 +27,8 @@ type sessionResolver struct {
 var _ contract.SessionResolver = (*sessionResolver)(nil)
 
 func NewSessionResolver(
-	threadStore threadstore.Store,
-	bindingStore bindingstore.Store,
+	threadStore contract.SessionThreadLookup,
+	bindingStore contract.SessionBindingLookup,
 	registry *Registry,
 	sessions *SessionManager,
 ) contract.SessionResolver {
@@ -169,7 +154,7 @@ func (r *sessionResolver) resolveProviderThreadSession(ctx context.Context, thre
 // autoResumeSession rebuilds a runtime session from a persisted binding.
 // This is the key recovery path after application restart: the DB has the
 // thread UUID but the in-memory SessionManager is empty.
-func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *bindingstore.Binding, publicThreadID ...string) (contract.Session, error) {
+func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contract.SessionBinding, publicThreadID ...string) (contract.Session, error) {
 	if binding == nil {
 		return nil, contract.ErrSessionNotFound
 	}

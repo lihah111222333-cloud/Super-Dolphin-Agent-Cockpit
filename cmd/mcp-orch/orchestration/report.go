@@ -17,7 +17,7 @@ import (
 func (s *service) GetState(ctx context.Context, agentID string) (AgentStateResult, error) {
 	var result AgentStateResult
 	err := s.withAgentReadLockedByAgentID(agentID, func(agent *agentRuntime) error {
-		result = AgentStateResult{AgentID: agent.id, State: agent.state}
+		result = AgentStateResult{AgentID: agent.id, State: string(agent.state)}
 		return nil
 	})
 	if err != nil && errors.Is(err, errAgentNotFound) {
@@ -195,7 +195,7 @@ func agentReportLocked(agent *agentRuntime) AgentReportResult {
 	return AgentReportResult{
 		AgentID:  agent.id,
 		Report:   normalizeDisplayReportText(agent.lastReport),
-		State:    agent.state,
+		State:    string(agent.state),
 		Metadata: metadata,
 	}
 }

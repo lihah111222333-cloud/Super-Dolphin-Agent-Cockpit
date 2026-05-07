@@ -3,15 +3,14 @@ package skill
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-type skillCWDContextKey struct{}
-
-var ErrMissingCWD = errors.New("cwd is required")
+// ErrMissingCWD aliases the canonical contract sentinel so errors.Is works
+// regardless of whether the caller imported skill or contract.
+var ErrMissingCWD = contract.ErrSkillMissingCWD
 var ErrInvalidSkillScope = errors.New("invalid skill scope")
 
 // P0b Step 5 sentinels for the candidate review gate. These are mapped to
@@ -25,38 +24,20 @@ var (
 	ErrRepoFingerprintMismatch     = errors.New("candidate repo fingerprint does not match caller")
 )
 
-// WithCWD scopes a skill request to a specific cwd. Empty cwd is a no-op so
-// downstream callers can detect the missing scope explicitly.
-func WithCWD(ctx context.Context, cwd string) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	cwd = strings.TrimSpace(cwd)
-	if cwd == "" {
-		return ctx
-	}
-	return context.WithValue(ctx, skillCWDContextKey{}, cwd)
-}
+// WithCWD delegates to contract.WithSkillCWD. Kept for backward compatibility
+// so existing callers (e.g. dashboard) that import skill.WithCWD keep compiling.
+var WithCWD = contract.WithSkillCWD
 
 func cwdFromContext(ctx context.Context) string {
-	if ctx == nil {
-		return ""
-	}
-	value, _ := ctx.Value(skillCWDContextKey{}).(string)
-	return strings.TrimSpace(value)
+	return contract.SkillCWDFromContext(ctx)
 }
 
 func requireCWD(ctx context.Context) (string, error) {
-	cwd := cwdFromContext(ctx)
-	if cwd == "" {
-		return "", ErrMissingCWD
-	}
-	return cwd, nil
+	return contract.RequireSkillCWD(ctx)
 }
 
-func RequireCWD(ctx context.Context) (string, error) {
-	return requireCWD(ctx)
-}
+// RequireCWD delegates to contract.RequireSkillCWD.
+var RequireCWD = contract.RequireSkillCWD
 
 // ApproveCandidateParams drives Service.ApproveCandidate. ApprovedBy is
 // required (sentinel ErrCandidateApprovedByRequired); Reason is free-form
@@ -135,11 +116,10 @@ type SkillCommandExecutor interface {
 	ExecCommand(ctx context.Context, command string, args []string, cwd string, env map[string]string) (ExecResult, error)
 }
 
-// SkillLister is the read-only skill catalog port used by dashboard and prompt
-// consumers that only need skill metadata.
-type SkillLister interface {
-	ListSkills(ctx context.Context) ([]SkillInfo, error)
-}
+// SkillLister is a type alias for contract.SkillLister. The canonical
+// definition now lives in internal/contract so that cross-module consumers
+// (dashboard, prompt) do not need to import internal/module/skill.
+type SkillLister = contract.SkillLister
 
 type SkillRevisionSource interface {
 	SkillRevision() uint64
@@ -158,12 +138,10 @@ type SkillCatalogSource interface {
 	TrustRevisionSource
 }
 
-// SkillHydrationSource is the turn service's minimal dependency for resolving
-// name-only skill references before provider submission.
-type SkillHydrationSource interface {
-	SkillLister
-	ReadLocal(ctx context.Context, path string) (any, error)
-}
+// SkillHydrationSource is a type alias for contract.SkillHydrationSource.
+// The canonical definition now lives in internal/contract so that the turn
+// module can depend on contract instead of importing skill directly.
+type SkillHydrationSource = contract.SkillHydrationSource
 
 type skillLocalMutationStore interface {
 	ListLocalFiles(ctx context.Context, p listSkillFilesParams) (any, error)

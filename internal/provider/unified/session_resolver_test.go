@@ -8,25 +8,23 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 type stubThreadLookup struct {
-	thread *threadstore.Thread
+	thread *contract.SessionThreadRef
 	err    error
 }
 
-func (s stubThreadLookup) GetByThreadID(context.Context, string) (*threadstore.Thread, error) {
+func (s stubThreadLookup) GetByThreadID(context.Context, string) (*contract.SessionThreadRef, error) {
 	return s.thread, s.err
 }
 
 type stubBindingLookup struct {
-	bindings map[string]*bindingstore.Binding
+	bindings map[string]*contract.SessionBinding
 	errs     map[string]error
 }
 
-func (s stubBindingLookup) GetByProviderThread(_ context.Context, provider, providerThreadID string) (*bindingstore.Binding, error) {
+func (s stubBindingLookup) GetByProviderThread(_ context.Context, provider, providerThreadID string) (*contract.SessionBinding, error) {
 	key := provider + ":" + providerThreadID
 	if err, ok := s.errs[key]; ok {
 		return nil, err
@@ -37,7 +35,7 @@ func (s stubBindingLookup) GetByProviderThread(_ context.Context, provider, prov
 	return nil, platformdb.ErrNotFound
 }
 
-func (s stubBindingLookup) GetByAgentID(_ context.Context, agentID string) (*bindingstore.Binding, error) {
+func (s stubBindingLookup) GetByAgentID(_ context.Context, agentID string) (*contract.SessionBinding, error) {
 	for _, b := range s.bindings {
 		if b != nil && b.AgentID == agentID {
 			return b, nil
@@ -52,7 +50,7 @@ func TestSessionResolverResolveSessionUsesThreadStoreAgent(t *testing.T) {
 	sessions.Register("agent-1", session)
 
 	resolver := &sessionResolver{
-		threadStore: stubThreadLookup{thread: &threadstore.Thread{ThreadID: "thread-1", AgentID: "agent-1"}},
+		threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{ThreadID: "thread-1", AgentID: "agent-1"}},
 		registry:    NewRegistry(RegistryParams{}),
 		sessions:    sessions,
 	}
@@ -70,7 +68,7 @@ func TestSessionResolverResolveSessionFallsBackToProviderThreadBinding(t *testin
 
 	resolver := &sessionResolver{
 		threadStore:  stubThreadLookup{err: platformdb.ErrNotFound},
-		bindingStore: stubBindingLookup{bindings: map[string]*bindingstore.Binding{"codex:provider-thread-1": {AgentID: "agent-2"}}},
+		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{"codex:provider-thread-1": {AgentID: "agent-2"}}},
 		registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
 			{Name: "codex", Create: func() contract.Driver { return nil }},
 			{Name: "claude", Create: func() contract.Driver { return nil }},

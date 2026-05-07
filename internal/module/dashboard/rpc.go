@@ -2,11 +2,19 @@ package dashboard
 
 import (
 	"context"
-	"strings"
 
 	"github.com/creachadair/jrpc2/handler"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	agentstatusstore "github.com/anthropic-ai/super-agent-v3/internal/store/agentstatus"
+	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
+	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
+	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
+	commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
+	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
+	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
+	tasktracestore "github.com/anthropic-ai/super-agent-v3/internal/store/tasktrace"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 )
 
@@ -80,159 +88,187 @@ type dagDetailParams struct {
 	DAGKey string `json:"dagKey,omitempty"`
 }
 
+// --- typed RPC response structs (replace map[string]any wrappers) ---
+
+type agentsResponse struct {
+	Agents []agentstatusstore.AgentStatus `json:"agents"`
+}
+
+type tracesResponse struct {
+	Traces []tasktracestore.TaskTrace `json:"traces"`
+}
+
+type cardsResponse struct {
+	Cards []commandcardstore.CommandCard `json:"cards"`
+}
+
+type promptsResponse struct {
+	Prompts []promptstore.PromptTemplate `json:"prompts"`
+}
+
+type filesResponse struct {
+	Files []sharedfilestore.SharedFile `json:"files"`
+}
+
+type skillsResponse struct {
+	Skills []contract.SkillInfo `json:"skills"`
+}
+
+type logsResponse struct {
+	Logs []LogEntry `json:"logs"`
+}
+
+type aiLogsResponse struct {
+	Logs []ailogstore.AILog `json:"logs"`
+}
+
+type auditLogsResponse struct {
+	Logs []auditlogstore.AuditEvent `json:"logs"`
+}
+
+type busLogsResponse struct {
+	Logs []buslogstore.BusExceptionLog `json:"logs"`
+}
+
+type dagsResponse struct {
+	DAGs []contract.DAGSummary `json:"dags"`
+}
+
+type dagDetailResponse struct {
+	DAG   contract.DAGSummary `json:"dag"`
+	Nodes []contract.DAGNode  `json:"nodes"`
+}
+
+type aiLogStatsResponse struct {
+	Stats []ailogstore.StatusCount `json:"stats"`
+}
+
 func NewDashboardHandlers(svc Service) platformrpc.HandlerMapResult {
-	return platformrpc.HandlerMapResult{Handlers: handler.Map{
-		"ui/dashboard/get": platformrpc.StrictHandler(func(ctx context.Context, p uiDashboardGetParams) (any, error) {
-			ctx = withDashboardPromptScopeCWD(ctx, p.Cwd)
-			return svc.GetDashboardPage(ctx, p.Page)
-		}),
-		"dashboard/agentStatus": platformrpc.StrictHandler(func(ctx context.Context, p agentStatusParams) (any, error) {
-			agents, err := svc.ListAgentStatuses(ctx, p.Status)
-			if err != nil {
-				return nil, err
-			}
-			return wrapResponse("agents", agents), nil
-		}),
-		"dashboard/taskTraces": platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
-			return dashboardPageField(ctx, svc, "tasks", func(page *DashboardPage) any { return page.TaskTraces }, "traces")
-		}),
-		"dashboard/commandCards": platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
-			return dashboardPageField(ctx, svc, "commands", func(page *DashboardPage) any { return page.CommandCards }, "cards")
-		}),
-		"dashboard/prompts": platformrpc.StrictHandler(func(ctx context.Context, p dashboardPromptsParams) (any, error) {
-			ctx = withDashboardPromptScopeCWD(ctx, p.Cwd)
-			page, err := svc.GetDashboardPage(ctx, "commands")
-			if err != nil {
-				return nil, err
-			}
-			return wrapResponse("prompts", page.Prompts), nil
-		}),
-		"dashboard/sharedFiles": platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
-			return dashboardPageField(ctx, svc, "memory", func(page *DashboardPage) any { return page.Memory }, "files")
-		}),
-		"dashboard/skills": platformrpc.StrictHandler(func(ctx context.Context, p dashboardPromptsParams) (any, error) {
-			ctx = withDashboardPromptScopeCWD(ctx, p.Cwd)
-			return dashboardPageField(ctx, svc, "skills", func(page *DashboardPage) any { return page.Skills })
-		}),
-		"dashboard/agent/detail": platformrpc.StrictHandler(func(ctx context.Context, p agentDetailParams) (any, error) {
-			return svc.GetAgentDetail(ctx, p.agentID())
-		}),
-		"dashboard/system/info": platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
-			return svc.GetSystemInfo(ctx)
-		}),
-		"dashboard/query": platformrpc.StrictHandler(func(ctx context.Context, p dashboardQueryParams) ([]map[string]any, error) {
-			return svc.Query(ctx, p.Query, p.Args...)
-		}),
-		"dashboard/aiLogs": platformrpc.StrictHandler(func(ctx context.Context, p logsParams) (any, error) {
-			return dashboardAILogField(ctx, svc, p)
-		}),
-		"dashboard/auditLogs": platformrpc.StrictHandler(func(ctx context.Context, p auditLogsParams) (any, error) {
-			return dashboardAuditLogField(ctx, svc, p)
-		}),
-		"dashboard/busLogs": platformrpc.StrictHandler(func(ctx context.Context, p busLogsParams) (any, error) {
-			return dashboardBusLogField(ctx, svc, p)
-		}),
-		"dashboard/dags": platformrpc.StrictHandler(func(ctx context.Context, p dagsParams) (any, error) {
-			return dashboardDAGField(ctx, svc, p)
-		}),
-		"dashboard/dagDetail": platformrpc.StrictHandler(func(ctx context.Context, p dagDetailParams) (any, error) {
-			return dashboardDAGDetailField(ctx, svc, p)
-		}),
-		"dashboard/aiLogs/recent": platformrpc.StrictHandler(func(ctx context.Context, p limitParams) (any, error) {
-			return dashboardRecentAILogField(ctx, svc, p.Limit)
-		}),
-		"dashboard/aiLogs/stats": platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
-			return dashboardAILogStatsField(ctx, svc)
-		}),
-		"dashboard/logs": platformrpc.StrictHandler(func(ctx context.Context, p logsParams) (any, error) {
-			return dashboardLogField(ctx, svc, p, p.Source)
-		}),
-	}}
+	m := handler.Map{}
+	registerDashboardCoreHandlers(m, svc)
+	registerDashboardDataHandlers(m, svc)
+	return platformrpc.HandlerMapResult{Handlers: m}
 }
 
-func dashboardPageField(
-	ctx context.Context,
-	svc Service,
-	pageName string,
-	selectField func(*DashboardPage) any,
-	keys ...string,
-) (map[string]any, error) {
-	page, err := svc.GetDashboardPage(ctx, pageName)
-	if err != nil {
-		return nil, err
-	}
-	key := pageName
-	if len(keys) > 0 && strings.TrimSpace(keys[0]) != "" {
-		key = strings.TrimSpace(keys[0])
-	}
-	return wrapResponse(key, selectField(page)), nil
+// registerDashboardCoreHandlers registers page-level, agent, system and query handlers.
+func registerDashboardCoreHandlers(m handler.Map, svc Service) {
+	m["ui/dashboard/get"] = platformrpc.StrictHandler(func(ctx context.Context, p uiDashboardGetParams) (any, error) {
+		ctx = withDashboardPromptScopeCWD(ctx, p.Cwd)
+		return svc.GetDashboardPage(ctx, p.Page)
+	})
+	m["dashboard/agentStatus"] = platformrpc.StrictHandler(func(ctx context.Context, p agentStatusParams) (any, error) {
+		agents, err := svc.ListAgentStatuses(ctx, p.Status)
+		if err != nil {
+			return nil, err
+		}
+		return agentsResponse{Agents: agents}, nil
+	})
+	m["dashboard/taskTraces"] = platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
+		page, err := svc.GetDashboardPage(ctx, "tasks")
+		if err != nil {
+			return nil, err
+		}
+		return tracesResponse{Traces: page.TaskTraces}, nil
+	})
+	m["dashboard/commandCards"] = platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
+		page, err := svc.GetDashboardPage(ctx, "commands")
+		if err != nil {
+			return nil, err
+		}
+		return cardsResponse{Cards: page.CommandCards}, nil
+	})
+	m["dashboard/prompts"] = platformrpc.StrictHandler(func(ctx context.Context, p dashboardPromptsParams) (any, error) {
+		ctx = withDashboardPromptScopeCWD(ctx, p.Cwd)
+		page, err := svc.GetDashboardPage(ctx, "commands")
+		if err != nil {
+			return nil, err
+		}
+		return promptsResponse{Prompts: page.Prompts}, nil
+	})
+	m["dashboard/sharedFiles"] = platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
+		page, err := svc.GetDashboardPage(ctx, "memory")
+		if err != nil {
+			return nil, err
+		}
+		return filesResponse{Files: page.Memory}, nil
+	})
+	m["dashboard/skills"] = platformrpc.StrictHandler(func(ctx context.Context, p dashboardPromptsParams) (any, error) {
+		ctx = withDashboardPromptScopeCWD(ctx, p.Cwd)
+		page, err := svc.GetDashboardPage(ctx, "skills")
+		if err != nil {
+			return nil, err
+		}
+		return skillsResponse{Skills: page.Skills}, nil
+	})
+	m["dashboard/agent/detail"] = platformrpc.StrictHandler(func(ctx context.Context, p agentDetailParams) (any, error) {
+		return svc.GetAgentDetail(ctx, p.agentID())
+	})
+	m["dashboard/system/info"] = platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
+		return svc.GetSystemInfo(ctx)
+	})
+	m["dashboard/query"] = platformrpc.StrictHandler(func(ctx context.Context, p dashboardQueryParams) ([]map[string]any, error) {
+		return svc.Query(ctx, p.Query, p.Args...)
+	})
 }
 
-func dashboardLogField(ctx context.Context, svc Service, p logsParams, source string) (map[string]any, error) {
-	logs, err := svc.GetLogs(ctx, p.ToFilter(source))
-	if err != nil {
-		return nil, err
-	}
-	return wrapResponse("logs", logs), nil
-}
-
-func dashboardAILogField(ctx context.Context, svc Service, p logsParams) (map[string]any, error) {
-	logs, err := svc.GetAILogsByCategory(ctx, p.Category, p.Keyword, p.Limit)
-	if err != nil {
-		return nil, err
-	}
-	return wrapResponse("logs", logs), nil
-}
-
-func dashboardAuditLogField(ctx context.Context, svc Service, p auditLogsParams) (map[string]any, error) {
-	logs, err := svc.GetAuditLogs(ctx, p.ToFilter())
-	if err != nil {
-		return nil, err
-	}
-	return wrapResponse("logs", logs), nil
-}
-
-func dashboardBusLogField(ctx context.Context, svc Service, p busLogsParams) (map[string]any, error) {
-	logs, err := svc.GetBusLogs(ctx, p.ToFilter())
-	if err != nil {
-		return nil, err
-	}
-	return wrapResponse("logs", logs), nil
-}
-
-func dashboardDAGField(ctx context.Context, svc Service, p dagsParams) (map[string]any, error) {
-	dags, err := svc.ListDAGs(ctx, p.ToFilter())
-	if err != nil {
-		return nil, err
-	}
-	return wrapResponse("dags", dags), nil
-}
-
-func dashboardDAGDetailField(ctx context.Context, svc Service, p dagDetailParams) (map[string]any, error) {
-	detail, err := svc.GetDAGDetail(ctx, p.DAGKey)
-	if err != nil {
-		return nil, err
-	}
-	return wrapResponses(
-		responseField{key: "dag", value: detail.DAG},
-		responseField{key: "nodes", value: detail.Nodes},
-	), nil
-}
-
-func dashboardRecentAILogField(ctx context.Context, svc Service, limit int) (map[string]any, error) {
-	logs, err := svc.GetRecentAILogs(ctx, limit)
-	if err != nil {
-		return nil, err
-	}
-	return wrapResponse("logs", logs), nil
-}
-
-func dashboardAILogStatsField(ctx context.Context, svc Service) (map[string]any, error) {
-	stats, err := svc.GetAILogStats(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return wrapResponse("stats", stats), nil
+// registerDashboardDataHandlers registers log, audit, bus, DAG and AI-log handlers.
+func registerDashboardDataHandlers(m handler.Map, svc Service) {
+	m["dashboard/aiLogs"] = platformrpc.StrictHandler(func(ctx context.Context, p logsParams) (any, error) {
+		logs, err := svc.GetAILogsByCategory(ctx, p.Category, p.Keyword, p.Limit)
+		if err != nil {
+			return nil, err
+		}
+		return aiLogsResponse{Logs: logs}, nil
+	})
+	m["dashboard/auditLogs"] = platformrpc.StrictHandler(func(ctx context.Context, p auditLogsParams) (any, error) {
+		logs, err := svc.GetAuditLogs(ctx, p.ToFilter())
+		if err != nil {
+			return nil, err
+		}
+		return auditLogsResponse{Logs: logs}, nil
+	})
+	m["dashboard/busLogs"] = platformrpc.StrictHandler(func(ctx context.Context, p busLogsParams) (any, error) {
+		logs, err := svc.GetBusLogs(ctx, p.ToFilter())
+		if err != nil {
+			return nil, err
+		}
+		return busLogsResponse{Logs: logs}, nil
+	})
+	m["dashboard/dags"] = platformrpc.StrictHandler(func(ctx context.Context, p dagsParams) (any, error) {
+		dags, err := svc.ListDAGs(ctx, p.ToFilter())
+		if err != nil {
+			return nil, err
+		}
+		return dagsResponse{DAGs: dags}, nil
+	})
+	m["dashboard/dagDetail"] = platformrpc.StrictHandler(func(ctx context.Context, p dagDetailParams) (any, error) {
+		detail, err := svc.GetDAGDetail(ctx, p.DAGKey)
+		if err != nil {
+			return nil, err
+		}
+		return dagDetailResponse{DAG: detail.DAG, Nodes: detail.Nodes}, nil
+	})
+	m["dashboard/aiLogs/recent"] = platformrpc.StrictHandler(func(ctx context.Context, p limitParams) (any, error) {
+		logs, err := svc.GetRecentAILogs(ctx, p.Limit)
+		if err != nil {
+			return nil, err
+		}
+		return aiLogsResponse{Logs: logs}, nil
+	})
+	m["dashboard/aiLogs/stats"] = platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
+		stats, err := svc.GetAILogStats(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return aiLogStatsResponse{Stats: stats}, nil
+	})
+	m["dashboard/logs"] = platformrpc.StrictHandler(func(ctx context.Context, p logsParams) (any, error) {
+		logs, err := svc.GetLogs(ctx, p.ToFilter(p.Source))
+		if err != nil {
+			return nil, err
+		}
+		return logsResponse{Logs: logs}, nil
+	})
 }
 
 func (p agentDetailParams) agentID() string {

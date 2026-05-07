@@ -3,8 +3,14 @@ package memory
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 var ErrConsolidationExtractFuncRequired = errors.New("dream extract func is not configured")
@@ -185,4 +191,157 @@ func (c *AutoDreamConsolidator) limit() int {
 		return defaultExtractMaxItems
 	}
 	return c.extractor.limit()
+}
+
+// ---------------------------------------------------------------------------
+// autoDreamScheduler (was auto_dream_scheduler.go)
+// ---------------------------------------------------------------------------
+
+// autoDreamSchedulerQueueCap bounds the in-memory queue of threadIDs waiting
+// for auto-dream eligibility evaluation.
+const autoDreamSchedulerQueueCap = 64
+
+// autoDreamSchedulerDrainGrace is the shutdown budget for draining the
+// queue + waiting for any in-flight dream task before RunnerModule shutdown.
+const autoDreamSchedulerDrainGrace = 10 * time.Second
+
+type autoDreamScheduler struct {
+	hooks  *MemoryLifecycleHooks
+	logger *slog.Logger
+
+	queue chan string
+
+	startOnce sync.Once
+	stopOnce  sync.Once
+	stopCh    chan struct{}
+	doneCh    chan struct{}
+
+	taskCtx    context.Context
+	taskCancel context.CancelFunc
+
+	droppedTotal   atomic.Int64
+	processedTotal atomic.Int64
+	scheduledTotal atomic.Int64
+}
+
+func newAutoDreamScheduler(hooks *MemoryLifecycleHooks, logger *slog.Logger) *autoDreamScheduler {
+	if logger == nil {
+		logger = pkglogger.Get()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	return &autoDreamScheduler{
+		hooks:      hooks,
+		logger:     logger,
+		queue:      make(chan string, autoDreamSchedulerQueueCap),
+		stopCh:     make(chan struct{}),
+		doneCh:     make(chan struct{}),
+		taskCtx:    ctx,
+		taskCancel: cancel,
+	}
+}
+
+func (s *autoDreamScheduler) Start() {
+	if s == nil {
+		return
+	}
+	s.startOnce.Do(func() {
+		if s.hooks == nil || !s.hooks.enabled {
+			close(s.doneCh)
+			return
+		}
+		go func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					pkglogger.Error("memory: recovered auto_dream_scheduler worker panic", "panic", rec)
+				}
+			}()
+			s.runWorker()
+		}()
+	})
+}
+
+func (s *autoDreamScheduler) Enqueue(threadID string) {
+	if s == nil {
+		return
+	}
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return
+	}
+	select {
+	case <-s.stopCh:
+		s.droppedTotal.Add(1)
+		return
+	default:
+	}
+	select {
+	case s.queue <- threadID:
+	default:
+		s.droppedTotal.Add(1)
+		if s.logger != nil {
+			s.logger.Warn("memory auto-dream scheduler: queue full, dropping enqueue",
+				"thread_id", threadID, "cap", autoDreamSchedulerQueueCap)
+		}
+	}
+}
+
+func (s *autoDreamScheduler) Stop(ctx context.Context) error {
+	if s == nil {
+		return nil
+	}
+	var firstErr error
+	s.stopOnce.Do(func() {
+		close(s.stopCh)
+		s.taskCancel()
+		waitCtx := ctx
+		if waitCtx == nil {
+			waitCtx = context.Background()
+		}
+		if deadline, ok := waitCtx.Deadline(); !ok || time.Until(deadline) > autoDreamSchedulerDrainGrace {
+			var cancel context.CancelFunc
+			waitCtx, cancel = ctxutil.WithTimeout(waitCtx, autoDreamSchedulerDrainGrace)
+			defer cancel()
+			_ = deadline
+		}
+		select {
+		case <-s.doneCh:
+		case <-waitCtx.Done():
+			firstErr = waitCtx.Err()
+		}
+	})
+	return firstErr
+}
+
+func (s *autoDreamScheduler) DroppedTotal() int64   { return s.droppedTotal.Load() }
+func (s *autoDreamScheduler) ProcessedTotal() int64 { return s.processedTotal.Load() }
+func (s *autoDreamScheduler) ScheduledTotal() int64 { return s.scheduledTotal.Load() }
+
+func (s *autoDreamScheduler) runWorker() {
+	defer close(s.doneCh)
+	for {
+		select {
+		case <-s.stopCh:
+			return
+		case threadID := <-s.queue:
+			s.process(threadID)
+		}
+	}
+}
+
+func (s *autoDreamScheduler) process(threadID string) {
+	if strings.TrimSpace(threadID) == "" {
+		return
+	}
+	s.processedTotal.Add(1)
+	scheduled, err := s.hooks.maybeScheduleAutoDream(s.taskCtx, threadID)
+	if err != nil && !errors.Is(err, context.Canceled) {
+		if s.logger != nil {
+			s.logger.Warn("memory auto-dream scheduler: schedule failed",
+				"thread_id", threadID, "error", err)
+		}
+		return
+	}
+	if scheduled {
+		s.scheduledTotal.Add(1)
+	}
 }

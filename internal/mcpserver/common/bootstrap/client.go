@@ -141,7 +141,7 @@ func (c *Client) Start(ctx context.Context) error {
 		"instance_id", c.instanceID,
 		"rpc_addr", c.cfg.RPCAddr,
 		"thread_id", c.cfg.ThreadID,
-		"lease_generation", reg.Lease.Generation,
+		"lease_generation", reg.Generation,
 		"capabilities_negotiated", reg.CapabilitiesNegotiated,
 		"subscriptions", c.cfg.Subscriptions,
 		"config_version", reg.ConfigVersion,
@@ -156,10 +156,12 @@ func (c *Client) Context(ctx context.Context, scope string, keys []string) (*mcp
 	if conn == nil || degraded {
 		return c.envContext(scope, keys)
 	}
+	lease := c.currentLease()
 	req := mcp.ContextRequest{
-		Lease: c.currentLease(),
-		Scope: strings.TrimSpace(scope),
-		Keys:  shared.CloneStrings(keys),
+		InstanceID: lease.InstanceID,
+		Generation: lease.Generation,
+		Scope:      strings.TrimSpace(scope),
+		Keys:       shared.CloneStrings(keys),
 	}
 	if agentID := strings.TrimSpace(c.cfg.AgentID); agentID != "" {
 		req.AgentID = agentID
@@ -186,8 +188,10 @@ func (c *Client) EmitEvent(ctx context.Context, eventType string, payload any) e
 		c.auditEventFallback(eventType, raw, nil)
 		return nil
 	}
+	lease := c.currentLease()
 	req := mcp.EventNotify{
-		Lease:      c.currentLease(),
+		InstanceID: lease.InstanceID,
+		Generation: lease.Generation,
 		EventID:    generateID("ctl_event"),
 		EventType:  strings.TrimSpace(eventType),
 		AuditClass: "tool.lifecycle",
@@ -206,13 +210,15 @@ func (c *Client) EmitEvent(ctx context.Context, eventType string, payload any) e
 }
 
 func (c *Client) Log(ctx context.Context, level, message string, fields map[string]string) error {
+	lease := c.currentLease()
 	entry := mcp.LogNotify{
-		Lease:   c.currentLease(),
-		Seq:     c.nextLogSeq(),
-		Level:   strings.TrimSpace(level),
-		Message: message,
-		Fields:  cloneStringMapAny(fields),
-		TS:      time.Now().UnixMilli(),
+		InstanceID: lease.InstanceID,
+		Generation: lease.Generation,
+		Seq:        c.nextLogSeq(),
+		Level:      strings.TrimSpace(level),
+		Message:    message,
+		Fields:     cloneStringMapAny(fields),
+		TS:         time.Now().UnixMilli(),
 	}
 	conn, degraded := c.currentConn()
 	if conn == nil || degraded {
@@ -236,7 +242,9 @@ func (c *Client) RequestApproval(ctx context.Context, req mcp.ApprovalRequest) (
 	if conn == nil || degraded {
 		return nil, approvalUnavailableErr("live lifecycle RPC is unavailable")
 	}
-	req.Lease = c.currentLease()
+	lease := c.currentLease()
+	req.InstanceID = lease.InstanceID
+	req.Generation = lease.Generation
 	var resp mcp.ApprovalResponse
 	if err := conn.CallResult(defaultContext(ctx), mcp.MethodApproval, req, &resp); err != nil {
 		if isTransportErr(err) {

@@ -89,6 +89,10 @@ func HandleLaunchAgent(svc contract.OrchestrationService) ToolHandler {
 		// longer than the codex app-server's tool-call timeout. The actual
 		// launch runs in the background; callers poll orchestration_list_agents
 		// or orchestration_get_agent_report for status.
+		//
+		// Bounded lifetime: context.Background() is acceptable here because
+		// AsyncLaunchTimeout caps the goroutine's maximum duration. No
+		// service-level lifecycle ctx is available in the tools package.
 		go func() {
 			defer releaseAgentID()
 			bgCtx, cancel := platformconfig.WithTimeout(context.Background(), platformconfig.AsyncLaunchTimeout)

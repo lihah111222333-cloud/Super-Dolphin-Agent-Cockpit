@@ -8,7 +8,7 @@ import (
 	"io/fs"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skillforge"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 // SeedBuiltins 把 //go:embed 的内置 skill 写入 library。
@@ -18,15 +18,15 @@ import (
 //   - 库里有，origin != builtin → 保留（用户已自定义版）
 //
 // 返回实际写入的 skill 数（跳过的不计入）。
-func SeedBuiltins(store *Store, harnessVersion string) (int, error) {
-	names, err := skillforge.ListEmbeddedSkillNames()
+func SeedBuiltins(store *Store, harnessVersion string, reader contract.EmbeddedSkillReader) (int, error) {
+	names, err := reader.ListNames()
 	if err != nil {
 		return 0, fmt.Errorf("skilllibrary: list embedded: %w", err)
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	written := 0
 	for _, name := range names {
-		body, err := skillforge.ReadEmbeddedSkill(name)
+		body, err := reader.Read(name)
 		if err != nil {
 			return written, fmt.Errorf("skilllibrary: read embedded %s: %w", name, err)
 		}

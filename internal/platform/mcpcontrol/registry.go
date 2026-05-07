@@ -165,7 +165,8 @@ func (r *ToolRegistry) Register(ctx context.Context, req dto.RegisterRequest) (d
 		peer: previous,
 	})
 	return dto.RegisterResponse{
-		Lease:                  instance.Lease,
+		InstanceID:             instance.Lease.InstanceID,
+		Generation:             instance.Lease.Generation,
 		AcceptedGeneration:     instance.Lease.Generation,
 		PeerKind:               instance.PeerKind,
 		CapabilitiesNegotiated: platformshared.CloneStrings(instance.Capabilities),
@@ -180,7 +181,7 @@ func (r *ToolRegistry) Register(ctx context.Context, req dto.RegisterRequest) (d
 }
 
 func (r *ToolRegistry) Heartbeat(ctx context.Context, req dto.HeartbeatRequest) (dto.HeartbeatResponse, error) {
-	key, err := normalizeLeaseKey(req.Lease)
+	key, err := normalizeLeaseKey(dto.LeaseKey{InstanceID: req.InstanceID, Generation: req.Generation})
 	if err != nil {
 		return dto.HeartbeatResponse{}, err
 	}
@@ -263,7 +264,8 @@ func (r *ToolRegistry) ShutdownInstance(ctx context.Context, key dto.LeaseKey, r
 		}
 		return peerErr
 	}
-	req.Lease = key
+	req.InstanceID = key.InstanceID
+	req.Generation = key.Generation
 	callCtx, cancel := withTimeoutContext(ctx, r.notifyTimeout)
 	defer cancel()
 

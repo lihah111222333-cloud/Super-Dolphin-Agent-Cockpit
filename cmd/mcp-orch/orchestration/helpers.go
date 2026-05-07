@@ -29,16 +29,16 @@ const submitSessionReadyTimeout = 5 * time.Second
 func buildStatesFromDefinitions(defs []agentdto.TransitionDefinition) []platformstatemachine.StateConfig {
 	permits := make(map[string][]platformstatemachine.Permit, len(agentdto.StateDefinitions))
 	for _, def := range defs {
-		permits[def.From] = append(permits[def.From], platformstatemachine.Permit{
-			Trigger: def.Trigger,
-			Dest:    def.To,
+		permits[string(def.From)] = append(permits[string(def.From)], platformstatemachine.Permit{
+			Trigger: string(def.Trigger),
+			Dest:    string(def.To),
 		})
 	}
 	states := make([]platformstatemachine.StateConfig, 0, len(agentdto.StateDefinitions))
 	for _, def := range agentdto.StateDefinitions {
 		states = append(states, platformstatemachine.StateConfig{
-			Name:    def.Name,
-			Permits: permits[def.Name],
+			Name:    string(def.Name),
+			Permits: permits[string(def.Name)],
 		})
 	}
 	return states
@@ -252,19 +252,19 @@ func (s *service) startProcessLocked(ctx context.Context, agent *agentRuntime) e
 	return nil
 }
 
-func (s *service) fireOrForceLocked(ctx context.Context, agent *agentRuntime, trigger string) error {
+func (s *service) fireOrForceLocked(ctx context.Context, agent *agentRuntime, trigger agentdto.AgentTrigger) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	before := ""
+	var before string
 	if agent != nil {
-		before = agent.state
+		before = string(agent.state)
 	}
 	if agent == nil || agent.sm == nil {
-		return formatIllegalTransitionError(ctx, agent, before, trigger, errors.New("state machine is not initialized"))
+		return formatIllegalTransitionError(ctx, agent, before, string(trigger), errors.New("state machine is not initialized"))
 	}
 	if err := s.fireAndPublishLocked(ctx, agent, trigger); err != nil {
-		return formatIllegalTransitionError(ctx, agent, before, trigger, err)
+		return formatIllegalTransitionError(ctx, agent, before, string(trigger), err)
 	}
 	return nil
 }
@@ -290,16 +290,25 @@ func allowedTriggersForState(ctx context.Context, agent *agentRuntime, state str
 	if strings.TrimSpace(state) == "" {
 		return nil
 	}
-	return agentdto.AllowedTriggers(state)
+	return agentdto.AllowedTriggersStr(state)
 }
 
-func (s *service) fireAndPublishLocked(ctx context.Context, agent *agentRuntime, trigger string) error {
-	before := agent.state
-	if err := agent.sm.FireCtx(ctx, stateless.Trigger(trigger)); err != nil {
+// fireAndPublishLocked fires a state-machine trigger and publishes a
+// StateChanged event while the caller holds s.mu. publishStateChanged calls
+// Dispatcher.Publish, which (kelindar/event) fans out to subscriber goroutines
+// asynchronously. Those subscribers may in turn call back into the service and
+// attempt to acquire s.mu.
+//
+// TODO(convention): Publish 在持锁期间调用存在潜在风险——如果 kelindar/event
+// 的投递策略变更为同步，或 subscriber 在同一 goroutine 回调，将导致死锁。
+// 应将 Publish 移到锁外，或改为 trigger channel 解耦（参见 statemachine-event-convention B7）。
+func (s *service) fireAndPublishLocked(ctx context.Context, agent *agentRuntime, trigger agentdto.AgentTrigger) error {
+	before := string(agent.state)
+	if err := agent.sm.FireCtx(ctx, stateless.Trigger(string(trigger))); err != nil {
 		return err
 	}
 	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
-	s.publishStateChanged(agent, before, trigger)
+	s.publishStateChanged(agent, before, string(trigger))
 	return nil
 }
 

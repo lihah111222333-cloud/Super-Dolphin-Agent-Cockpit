@@ -62,7 +62,7 @@ func buildTurnStartInputs(raw []turnInputItemParams) ([]InputItem, []string) {
 
 func resolveTurnSession(ctx context.Context, resolver contract.SessionResolver) (contract.Session, error) {
 	if resolver == nil {
-		return nil, errors.New("turn rpc: session resolver is not configured")
+		return nil, platformrpc.ErrInvalidState("turn rpc: session resolver is not configured")
 	}
 	session, err := resolver.ResolveSession(ctx, contract.ThreadIDFrom(ctx))
 	if err != nil {
@@ -84,7 +84,7 @@ func withTurnSession(ctx context.Context, resolver contract.SessionResolver, fn 
 
 func resolveReadyTurnSession(ctx context.Context, resolver contract.SessionResolver) (contract.Session, error) {
 	if resolver == nil {
-		return nil, errors.New("turn rpc: session resolver is not configured")
+		return nil, platformrpc.ErrInvalidState("turn rpc: session resolver is not configured")
 	}
 	threadID := contract.ThreadIDFrom(ctx)
 	session, err := lookupReadyTurnSession(ctx, resolver, threadID)
@@ -289,10 +289,10 @@ func turnForceCompleteHandler(svc Service, resolver contract.SessionResolver) ha
 func approvalRespondHandler(approver contract.ApprovalResponder) handler.Func {
 	return platformrpc.StrictHandler(func(ctx context.Context, p approvalRespondParams) (any, error) {
 		if approver == nil {
-			return nil, errors.New("turn rpc: approval responder is not configured")
+			return nil, platformrpc.ErrInvalidState("turn rpc: approval responder is not configured")
 		}
 		if p.Approved == nil && len(p.Decision) == 0 {
-			return nil, errors.New("turn rpc: approval decision is required")
+			return nil, platformrpc.ErrInvalidParams("turn rpc: approval decision is required")
 		}
 		return nil, approver.Respond(p.CallID, p.RequestID, contract.ApprovalDecision{
 			Approved: p.Approved,

@@ -24,7 +24,7 @@ type cronQuerierStub struct {
 	deleteFn            func(context.Context, string) error
 	updateScheduleFn    func(context.Context, sqlc.UpdateCronJobScheduleParams) error
 	setEnabledFn        func(context.Context, sqlc.SetCronJobEnabledParams) error
-	claimFn             func(context.Context, sqlc.ClaimDueJobsParams) ([]sqlc.CronJob, error)
+	claimFn             func(context.Context, sqlc.ClaimDueJobsForUpdateParams) ([]sqlc.CronJob, error)
 	renewFn             func(context.Context, sqlc.RenewLeaseParams) (int64, error)
 	extendFn            func(context.Context, sqlc.ExtendClaimParams) (int64, error)
 	releaseFn           func(context.Context, sqlc.ReleaseClaimParams) (int64, error)
@@ -79,7 +79,7 @@ func (s *cronQuerierStub) SetCronJobEnabled(ctx context.Context, a sqlc.SetCronJ
 func (s *cronQuerierStub) PatchCronJobNextRunAt(ctx context.Context, a sqlc.PatchCronJobNextRunAtParams) error {
 	return nil
 }
-func (s *cronQuerierStub) ClaimDueJobs(ctx context.Context, a sqlc.ClaimDueJobsParams) ([]sqlc.CronJob, error) {
+func (s *cronQuerierStub) ClaimDueJobsForUpdate(ctx context.Context, a sqlc.ClaimDueJobsForUpdateParams) ([]sqlc.CronJob, error) {
 	if s.claimFn != nil {
 		return s.claimFn(ctx, a)
 	}
@@ -255,63 +255,63 @@ func TestGetJobByIDMapsNotFound(t *testing.T) {
 
 // ----- claim / lease -----
 
-func TestClaimDueJobsRequiresTokenAndClaimedBy(t *testing.T) {
+func TestClaimDueJobsForUpdateRequiresTokenAndClaimedBy(t *testing.T) {
 	t.Parallel()
 	s := &store{q: &cronQuerierStub{}}
-	_, err := s.ClaimDueJobs(context.Background(), ClaimDueJobsParams{ClaimedBy: "scheduler"})
+	_, err := s.ClaimDueJobsForUpdate(context.Background(), ClaimDueJobsForUpdateParams{ClaimedBy: "scheduler"})
 	if !errors.Is(err, ErrEmptyClaimToken) {
 		t.Fatalf("claim without token: err = %v, want ErrEmptyClaimToken", err)
 	}
-	_, err = s.ClaimDueJobs(context.Background(), ClaimDueJobsParams{ClaimToken: "tok"})
+	_, err = s.ClaimDueJobsForUpdate(context.Background(), ClaimDueJobsForUpdateParams{ClaimToken: "tok"})
 	if err == nil || !contains(err.Error(), "claimed_by is required") {
 		t.Fatalf("claim without claimed_by: err = %v", err)
 	}
 }
 
-func TestClaimDueJobsForwardsParamsAndMapsRows(t *testing.T) {
+func TestClaimDueJobsForUpdateForwardsParamsAndMapsRows(t *testing.T) {
 	t.Parallel()
 
 	now := time.Unix(1_700_000_000, 0).UTC()
 	leaseExpiry := now.Add(30 * time.Minute)
-	var got sqlc.ClaimDueJobsParams
+	var got sqlc.ClaimDueJobsForUpdateParams
 	s := &store{q: &cronQuerierStub{
-		claimFn: func(_ context.Context, a sqlc.ClaimDueJobsParams) ([]sqlc.CronJob, error) {
+		claimFn: func(_ context.Context, a sqlc.ClaimDueJobsForUpdateParams) ([]sqlc.CronJob, error) {
 			got = a
 			return []sqlc.CronJob{{ID: "job-1", Name: "daily", Provider: "codex", Cwd: "/repo"}}, nil
 		},
 	}}
-	jobs, err := s.ClaimDueJobs(context.Background(), ClaimDueJobsParams{
+	jobs, err := s.ClaimDueJobsForUpdate(context.Background(), ClaimDueJobsForUpdateParams{
 		Now: now, ClaimedBy: "scheduler-A",
 		LeaseExpiresAt: leaseExpiry, ClaimToken: "tok-uuid", MaxClaim: 8,
 	})
 	if err != nil {
-		t.Fatalf("ClaimDueJobs error = %v", err)
+		t.Fatalf("ClaimDueJobsForUpdate error = %v", err)
 	}
 	if len(jobs) != 1 || jobs[0].ID != "job-1" || jobs[0].Provider != "codex" {
-		t.Fatalf("ClaimDueJobs rows = %+v", jobs)
+		t.Fatalf("ClaimDueJobsForUpdate rows = %+v", jobs)
 	}
 	if got.ClaimToken != "tok-uuid" || got.ClaimedBy != "scheduler-A" || got.MaxClaim != 8 {
-		t.Fatalf("ClaimDueJobs params = %+v", got)
+		t.Fatalf("ClaimDueJobsForUpdate params = %+v", got)
 	}
 	if got.Now.Time != now || got.LeaseExpiresAt.Time != leaseExpiry {
-		t.Fatalf("ClaimDueJobs timestamps = %+v", got)
+		t.Fatalf("ClaimDueJobsForUpdate timestamps = %+v", got)
 	}
 }
 
-func TestClaimDueJobsDefaultsMaxClaim(t *testing.T) {
+func TestClaimDueJobsForUpdateDefaultsMaxClaim(t *testing.T) {
 	t.Parallel()
-	var got sqlc.ClaimDueJobsParams
+	var got sqlc.ClaimDueJobsForUpdateParams
 	s := &store{q: &cronQuerierStub{
-		claimFn: func(_ context.Context, a sqlc.ClaimDueJobsParams) ([]sqlc.CronJob, error) {
+		claimFn: func(_ context.Context, a sqlc.ClaimDueJobsForUpdateParams) ([]sqlc.CronJob, error) {
 			got = a
 			return nil, nil
 		},
 	}}
-	_, err := s.ClaimDueJobs(context.Background(), ClaimDueJobsParams{
+	_, err := s.ClaimDueJobsForUpdate(context.Background(), ClaimDueJobsForUpdateParams{
 		ClaimedBy: "s", ClaimToken: "t",
 	})
 	if err != nil {
-		t.Fatalf("ClaimDueJobs error = %v", err)
+		t.Fatalf("ClaimDueJobsForUpdate error = %v", err)
 	}
 	if got.MaxClaim <= 0 {
 		t.Fatalf("MaxClaim default = %d, want positive", got.MaxClaim)

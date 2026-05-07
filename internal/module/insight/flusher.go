@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	observation "github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation"
+	observation "github.com/anthropic-ai/super-agent-v3/internal/dto/observation"
 	insightstore "github.com/anthropic-ai/super-agent-v3/internal/store/insight"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"

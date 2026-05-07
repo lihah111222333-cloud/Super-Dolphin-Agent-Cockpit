@@ -62,6 +62,8 @@ func (s *service) scheduleSkillsChanged(next uidto.SkillsChanged) {
 	seq := s.skillsChangedSeq
 	s.skillsChangedMu.Unlock()
 
+	// Bounded lifetime: goroutine sleeps for skillsChangedDebounceWindow (100ms)
+	// then performs a non-blocking flush. Total duration ~100ms; no lifecycle ctx needed.
 	safego.Go(context.Background(), pkglogger.Get(), "skill.scheduleSkillsChangedFlush", func(context.Context) {
 		time.Sleep(skillsChangedDebounceWindow)
 		s.flushSkillsChanged(seq)

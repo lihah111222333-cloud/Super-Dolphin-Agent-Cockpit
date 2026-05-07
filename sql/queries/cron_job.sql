@@ -85,7 +85,7 @@ WHERE id = sqlc.arg(id);
 -- is generated in the application layer (Go UUID) and passed in so no
 -- Postgres extension (pgcrypto / uuid-ossp) is required.
 --
--- name: ClaimDueJobs :many
+-- name: ClaimDueJobsForUpdate :many
 WITH due AS (
     SELECT id
     FROM cron_jobs

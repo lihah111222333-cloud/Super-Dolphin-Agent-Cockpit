@@ -8,13 +8,13 @@ INSERT INTO skill_candidates (
     scope, slug, content_hash, repo_fingerprint, skill_md, redacted_sample
 ) VALUES (
     $1, $2, $3, $4, $5, $6
-) RETURNING *;
+) RETURNING id, scope, slug, content_hash, repo_fingerprint, status, skill_md, approved_by, approved_at, reason, redacted_sample, created_at;
 
 -- name: GetSkillCandidateByID :one
-SELECT * FROM skill_candidates WHERE id = $1;
+SELECT id, scope, slug, content_hash, repo_fingerprint, status, skill_md, approved_by, approved_at, reason, redacted_sample, created_at FROM skill_candidates WHERE id = $1;
 
 -- name: ListPendingSkillCandidates :many
-SELECT * FROM skill_candidates
+SELECT id, scope, slug, content_hash, repo_fingerprint, status, skill_md, approved_by, approved_at, reason, redacted_sample, created_at FROM skill_candidates
 WHERE status = 'pending_review'
   AND repo_fingerprint = $1
 ORDER BY created_at DESC, id DESC
@@ -27,20 +27,20 @@ SET status      = 'approved',
     approved_at = $3,
     reason      = $4
 WHERE id = $1 AND status = 'pending_review'
-RETURNING *;
+RETURNING id, scope, slug, content_hash, repo_fingerprint, status, skill_md, approved_by, approved_at, reason, redacted_sample, created_at;
 
 -- name: RejectSkillCandidate :one
 UPDATE skill_candidates
 SET status = 'rejected',
     reason = $2
 WHERE id = $1 AND status = 'pending_review'
-RETURNING *;
+RETURNING id, scope, slug, content_hash, repo_fingerprint, status, skill_md, approved_by, approved_at, reason, redacted_sample, created_at;
 
 -- name: MarkSkillCandidatePromoted :one
 UPDATE skill_candidates
 SET status = 'promoted'
 WHERE id = $1 AND status = 'approved'
-RETURNING *;
+RETURNING id, scope, slug, content_hash, repo_fingerprint, status, skill_md, approved_by, approved_at, reason, redacted_sample, created_at;
 
 -- name: MarkSkillCandidatesSuperseded :execrows
 UPDATE skill_candidates
@@ -52,7 +52,7 @@ WHERE scope = $1
   AND status = 'pending_review';
 
 -- name: LookupSkillCandidateApproval :one
-SELECT * FROM skill_candidates
+SELECT id, scope, slug, content_hash, repo_fingerprint, status, skill_md, approved_by, approved_at, reason, redacted_sample, created_at FROM skill_candidates
 WHERE scope = $1
   AND slug = $2
   AND content_hash = $3

@@ -185,6 +185,8 @@ func rpcRequestThreadID(raw string) string {
 	if raw == "" {
 		return ""
 	}
+	// json.RawMessage: justified -- Wails bridge layer; extracts thread_id from
+	// an unknown RPC param shape without requiring a typed struct.
 	var params map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(raw), &params); err != nil {
 		return ""
@@ -252,6 +254,8 @@ func (s *Server) Register(handlerMaps ...handler.Map) {
 
 // Dispatch executes a registered handler locally without using the network.
 // It is used by the Wails binding layer to bridge CallAPI requests.
+// json.RawMessage: justified -- Wails bridge layer; params/result are dynamic JSON
+// whose shape is determined by the dispatched method at runtime.
 func (s *Server) Dispatch(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
 	ctx = platformshared.NonNilContext(ctx)
 	var rpcLog jrpc2.RPCLogger

@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 )
 
 // ExpandedArtifact 记录一次 skill artifact 的注入历史。
@@ -107,7 +107,7 @@ func (s *ExpandedArtifactState) MarkArtifact(name, kind, locator, hash string, t
 		LastTurnIdx: turnIdx,
 		LastUsedAt:  time.Now().UTC(),
 	}
-	if entry.Kind == skillpkg.ArtifactKindBody && entry.Locator == "" {
+	if entry.Kind == contract.ArtifactKindBody && entry.Locator == "" {
 		entry.Locator = "SKILL.md"
 	}
 	key := ArtifactKey(entry.Name, entry.Kind, entry.Locator, entry.Hash)
@@ -141,7 +141,7 @@ func (s *ExpandedArtifactState) IsArtifactFresh(name, kind, locator, hash string
 	}
 	normalizedKind := normalizeArtifactKind(kind)
 	normalizedLocator := strings.TrimSpace(locator)
-	if normalizedKind == skillpkg.ArtifactKindBody && normalizedLocator == "" {
+	if normalizedKind == contract.ArtifactKindBody && normalizedLocator == "" {
 		normalizedLocator = "SKILL.md"
 	}
 	normalizedHash := strings.ToLower(strings.TrimSpace(hash))
@@ -253,12 +253,12 @@ func ArtifactKey(name, kind, locator, hash string) string {
 // 因为 expanded state 作为内部缓存结构不应打断主流程。
 func normalizeArtifactKind(kind string) string {
 	switch strings.TrimSpace(strings.ToLower(kind)) {
-	case skillpkg.ArtifactKindMetadata:
-		return skillpkg.ArtifactKindMetadata
-	case skillpkg.ArtifactKindResource:
-		return skillpkg.ArtifactKindResource
+	case contract.ArtifactKindMetadata:
+		return contract.ArtifactKindMetadata
+	case contract.ArtifactKindResource:
+		return contract.ArtifactKindResource
 	default:
-		return skillpkg.ArtifactKindBody
+		return contract.ArtifactKindBody
 	}
 }
 
@@ -272,7 +272,7 @@ func artifactFromRef(ref dto.SkillRef, turnIdx int) ExpandedArtifact {
 	}
 	return ExpandedArtifact{
 		Name:        name,
-		Kind:        skillpkg.ArtifactKindBody,
+		Kind:        contract.ArtifactKindBody,
 		Locator:     "SKILL.md",
 		Hash:        strings.ToLower(strings.TrimSpace(ref.Version)),
 		LastTurnIdx: turnIdx,

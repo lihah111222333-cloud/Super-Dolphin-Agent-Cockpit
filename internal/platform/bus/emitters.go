@@ -19,16 +19,6 @@ func (e *domainEmitters) Dispatcher() *event.Dispatcher {
 
 type ThreadEmitters struct{ *domainEmitters }
 
-// NewEmitter returns a typed publish function without hand-writing per-event wrappers.
-func NewEmitter[T event.Event](dispatcher *event.Dispatcher) func(T) {
-	return func(ev T) {
-		if dispatcher == nil {
-			return
-		}
-		event.Publish(dispatcher, ev)
-	}
-}
-
 func NewThreadEmitters(dispatcher *event.Dispatcher) *ThreadEmitters {
 	return &ThreadEmitters{domainEmitters: newDomainEmitters(dispatcher)}
 }

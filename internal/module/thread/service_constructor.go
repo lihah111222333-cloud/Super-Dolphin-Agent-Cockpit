@@ -5,8 +5,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt/classifier"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
@@ -22,11 +20,11 @@ func NewService(
 	bindingStore bindingstore.Store,
 	sessions SessionProvider,
 	starter SessionStarter,
-	turns turn.Service,
+	turns contract.TurnThreadCleaner,
 	orchestration OrchestrationFacade,
 	threadEvents *bus.ThreadEmitters,
 ) Service {
-	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, nil, nil, nil, nil, nil)
+	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 func NewServiceWithPromptAssembly(
@@ -35,14 +33,14 @@ func NewServiceWithPromptAssembly(
 	bindingStore bindingstore.Store,
 	sessions SessionProvider,
 	starter SessionStarter,
-	turns turn.Service,
+	turns contract.TurnThreadCleaner,
 	orchestration OrchestrationFacade,
 	threadEvents *bus.ThreadEmitters,
 	promptAssembly contract.PromptAssemblyService,
 	cfg *contract.Config,
 	toolRegistry contract.ToolRegistry,
 ) Service {
-	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, nil, nil)
+	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, nil, nil, nil, nil, nil, nil)
 }
 
 func NewServiceWithPromptAssemblyAndSharedFiles(
@@ -52,16 +50,20 @@ func NewServiceWithPromptAssemblyAndSharedFiles(
 	sharedFiles sharedfilestore.Store,
 	sessions SessionProvider,
 	starter SessionStarter,
-	turns turn.Service,
+	turns contract.TurnThreadCleaner,
 	orchestration OrchestrationFacade,
 	threadEvents *bus.ThreadEmitters,
 	promptAssembly contract.PromptAssemblyService,
 	cfg *contract.Config,
 	toolRegistry contract.ToolRegistry,
 	promptStore promptstore.Store,
-	promptClassifier classifier.Classifier,
+	promptClassifier contract.PromptClassifier,
+	classifierFastPath contract.ClassifierFastPathFunc,
+	classifierPrune contract.ClassifierPruneCandidatesFunc,
+	classifierMaxCandidates contract.ClassifierMaxCandidatesFunc,
+	matchWhenEval contract.MatchWhenEvaluator,
 ) Service {
-	return newService(logger, threadStore, bindingStore, sharedFiles, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, promptStore, promptClassifier)
+	return newService(logger, threadStore, bindingStore, sharedFiles, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, promptStore, promptClassifier, classifierFastPath, classifierPrune, classifierMaxCandidates, matchWhenEval)
 }
 
 func newService(
@@ -71,14 +73,18 @@ func newService(
 	sharedFiles sharedfilestore.Store,
 	sessions SessionProvider,
 	starter SessionStarter,
-	turns turn.Service,
+	turns contract.TurnThreadCleaner,
 	orchestration OrchestrationFacade,
 	threadEvents *bus.ThreadEmitters,
 	promptAssembly contract.PromptAssemblyService,
 	cfg *contract.Config,
 	toolRegistry contract.ToolRegistry,
 	promptStore promptstore.Store,
-	promptClassifier classifier.Classifier,
+	promptClassifier contract.PromptClassifier,
+	clsFastPath contract.ClassifierFastPathFunc,
+	clsPrune contract.ClassifierPruneCandidatesFunc,
+	clsMaxCandidates contract.ClassifierMaxCandidatesFunc,
+	matchWhenEval contract.MatchWhenEvaluator,
 ) Service {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -88,27 +94,31 @@ func newService(
 		dispatcher = threadEvents.Dispatcher()
 	}
 	s := &service{
-		logger:           logger,
-		threadStore:      threadStore,
-		bindingStore:     bindingStore,
-		sharedFiles:      sharedFiles,
-		sessions:         sessions,
-		starter:          starter,
-		promptAssembly:   promptAssembly,
-		cfg:              cfg,
-		toolRegistry:     toolRegistry,
-		turns:            turns,
-		orchestration:    orchestration,
-		bus:              dispatcher,
-		promptStore:      promptStore,
-		classifier:       promptClassifier,
-		emitStarted:      contract.NewEmitter[threaddto.Started](dispatcher),
-		emitStopped:      contract.NewEmitter[threaddto.Stopped](dispatcher),
-		emitUpdated:      contract.NewEmitter[threaddto.Updated](dispatcher),
-		emitMessagesPage: contract.NewEmitter[threaddto.MessagesPage](dispatcher),
-		emitCompacted:    contract.NewEmitter[threaddto.Compacted](dispatcher),
-		emitLaunched:     contract.NewEmitter[threaddto.Launched](dispatcher),
-		threadAgents:     make(map[string]string),
+		logger:                  logger,
+		threadStore:             threadStore,
+		bindingStore:            bindingStore,
+		sharedFiles:             sharedFiles,
+		sessions:                sessions,
+		starter:                 starter,
+		promptAssembly:          promptAssembly,
+		cfg:                     cfg,
+		toolRegistry:            toolRegistry,
+		turns:                   turns,
+		orchestration:           orchestration,
+		bus:                     dispatcher,
+		promptStore:             promptStore,
+		classifier:              promptClassifier,
+		classifierFastPath:      clsFastPath,
+		classifierPrune:         clsPrune,
+		classifierMaxCandidates: clsMaxCandidates,
+		matchWhenEval:           matchWhenEval,
+		emitStarted:             contract.NewEmitter[threaddto.Started](dispatcher),
+		emitStopped:             contract.NewEmitter[threaddto.Stopped](dispatcher),
+		emitUpdated:             contract.NewEmitter[threaddto.Updated](dispatcher),
+		emitMessagesPage:        contract.NewEmitter[threaddto.MessagesPage](dispatcher),
+		emitCompacted:           contract.NewEmitter[threaddto.Compacted](dispatcher),
+		emitLaunched:            contract.NewEmitter[threaddto.Launched](dispatcher),
+		threadAgents:            make(map[string]string),
 	}
 	// P22 P2 thread S3: the taskHandoffWorker owns the
 	// onTurnCompleted -> refreshTaskHandoffFromThread slow-path so the bus

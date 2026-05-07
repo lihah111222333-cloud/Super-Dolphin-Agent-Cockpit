@@ -1,46 +1,52 @@
 package agent
 
+// AgentState is a named string type for agent lifecycle states.
+type AgentState string
+
+// AgentTrigger is a named string type for agent lifecycle triggers.
+type AgentTrigger string
+
 const (
-	StateProvisioning      = "provisioning"
-	StateIdle              = "idle"
-	StateTurnQueued        = "turn_queued"
-	StateTurnStarting      = "turn_starting"
-	StateTurnRunning       = "turn_running"
-	StateAwaitingUserInput = "awaiting_user_input"
-	StateRecovering        = "recovering"
-	StateStopping          = "stopping"
-	StateStopped           = "stopped"
-	StateFailed            = "failed"
+	StateProvisioning      AgentState = "provisioning"
+	StateIdle              AgentState = "idle"
+	StateTurnQueued        AgentState = "turn_queued"
+	StateTurnStarting      AgentState = "turn_starting"
+	StateTurnRunning       AgentState = "turn_running"
+	StateAwaitingUserInput AgentState = "awaiting_user_input"
+	StateRecovering        AgentState = "recovering"
+	StateStopping          AgentState = "stopping"
+	StateStopped           AgentState = "stopped"
+	StateFailed            AgentState = "failed"
 )
 
 const (
-	TriggerLaunchSucceeded    = "launch_succeeded"
-	TriggerLaunchFailed       = "launch_failed"
-	TriggerTurnEnqueued       = "turn_enqueued"
-	TriggerTurnAccepted       = "turn_accepted"
-	TriggerTurnCompleted      = "turn_completed"
-	TriggerTurnAborted        = "turn_aborted"
-	TriggerUserInputRequested = "user_input_requested"
-	TriggerUserInputResolved  = "user_input_resolved"
-	TriggerRecoverRequested   = "recover_requested"
-	TriggerStopRequested      = "stop_requested"
-	TriggerProcessExited      = "process_exited"
+	TriggerLaunchSucceeded    AgentTrigger = "launch_succeeded"
+	TriggerLaunchFailed       AgentTrigger = "launch_failed"
+	TriggerTurnEnqueued       AgentTrigger = "turn_enqueued"
+	TriggerTurnAccepted       AgentTrigger = "turn_accepted"
+	TriggerTurnCompleted      AgentTrigger = "turn_completed"
+	TriggerTurnAborted        AgentTrigger = "turn_aborted"
+	TriggerUserInputRequested AgentTrigger = "user_input_requested"
+	TriggerUserInputResolved  AgentTrigger = "user_input_resolved"
+	TriggerRecoverRequested   AgentTrigger = "recover_requested"
+	TriggerStopRequested      AgentTrigger = "stop_requested"
+	TriggerProcessExited      AgentTrigger = "process_exited"
 )
 
 type StateDefinition struct {
-	Name        string
+	Name        AgentState
 	Description string
 }
 
 type TriggerDefinition struct {
-	Name        string
+	Name        AgentTrigger
 	Description string
 }
 
 type TransitionDefinition struct {
-	From    string
-	Trigger string
-	To      string
+	From    AgentState
+	Trigger AgentTrigger
+	To      AgentState
 }
 
 var StateDefinitions = []StateDefinition{
@@ -106,12 +112,24 @@ var TransitionDefinitions = []TransitionDefinition{
 	{From: StateFailed, Trigger: TriggerStopRequested, To: StateStopping},
 }
 
-func AllowedTriggers(state string) []string {
-	triggers := make([]string, 0, 4)
+func AllowedTriggers(state AgentState) []AgentTrigger {
+	triggers := make([]AgentTrigger, 0, 4)
 	for _, transition := range TransitionDefinitions {
 		if transition.From == state {
 			triggers = append(triggers, transition.Trigger)
 		}
 	}
 	return triggers
+}
+
+// AllowedTriggersStr is a convenience wrapper that accepts a plain string
+// state and returns trigger names as plain strings, suitable for
+// diagnostics and error messages at the statemachine boundary.
+func AllowedTriggersStr(state string) []string {
+	triggers := AllowedTriggers(AgentState(state))
+	result := make([]string, len(triggers))
+	for i, t := range triggers {
+		result[i] = string(t)
+	}
+	return result
 }

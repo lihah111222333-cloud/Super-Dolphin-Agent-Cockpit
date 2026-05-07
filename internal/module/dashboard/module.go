@@ -2,7 +2,6 @@ package dashboard
 
 import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	skillmodule "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	agentstatusstore "github.com/anthropic-ai/super-agent-v3/internal/store/agentstatus"
 	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
@@ -31,7 +30,7 @@ type serviceParams struct {
 	CommandCards  commandcardstore.Reader
 	Prompts       promptstore.Reader
 	SharedFiles   sharedfilestore.Reader
-	Skills        skillmodule.SkillLister
+	Skills        contract.SkillLister
 }
 
 type dashboardHandlersParams struct {

@@ -6,38 +6,37 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/fbsd"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 )
 
 // driverFactoryParams collects the fx dependencies for NewDriverFactory.
-// skilllibrary.Config is marked optional so test fixtures that do not provide
-// it still compile and wire correctly.
+// SkillLibConfig and FBSDRecorder are optional so test fixtures that do not
+// provide them still compile and wire correctly.
 type driverFactoryParams struct {
 	fx.In
 
-	Logger         *slog.Logger
-	Dispatcher     *unified.EventDispatcher
-	Reporter       contract.RuntimeReporter
-	Reg            *pidregistry.Registry
-	ProxyAddrFn    func() string
-	SkillLibConfig skilllibrary.Config `optional:"true"`
-	Tracker        *fbsd.Tracker       `optional:"true"`
+	Logger               *slog.Logger
+	Dispatcher           *unified.EventDispatcher
+	Reporter             contract.RuntimeReporter
+	Reg                  *pidregistry.Registry
+	ProxyAddrFn          func() string
+	SkillLibConfig       contract.SkillLibraryConfig      `optional:"true"`
+	FBSDRecorder         contract.FBSDRecorder            `optional:"true"`
+	SetupWorkspaceSkills contract.WorkspaceSkillSetupFunc `optional:"true"`
 }
 
 func NewDriverFactory(p driverFactoryParams) contract.DriverFactory {
 	// P6: install FBSD recorder hook so Claude tool_use parser can打点
 	// when the model issues Read(.claude/skills/<n>/references/...) calls.
 	// nil tracker / disabled tracker keeps the hook nil-safe.
-	if p.Tracker != nil {
-		SetFBSDRecorder(p.Tracker.Record)
+	if p.FBSDRecorder != nil {
+		SetFBSDRecorder(p.FBSDRecorder.Record)
 	}
 	return contract.DriverFactory{
 		Name: "claude",
 		Create: func() contract.Driver {
-			return newDriver(p.Logger, p.Dispatcher, p.Reporter, p.Reg, p.ProxyAddrFn, p.SkillLibConfig.CacheDir)
+			return newDriver(p.Logger, p.Dispatcher, p.Reporter, p.Reg, p.ProxyAddrFn, p.SkillLibConfig.CacheDir, contract.WorkspaceSkillSetupFunc(p.SetupWorkspaceSkills))
 		},
 		NativeTools: []contract.NativeToolDescriptor{
 			{ID: "Read", Label: "读文件", Description: "上游 Agent 直接读取工作区文件", DefaultDisabled: true, Provider: "claude", FilterMode: contract.NativeToolFilterModeHard},

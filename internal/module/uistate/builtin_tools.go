@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
 
@@ -50,7 +49,7 @@ type builtinToolsWriteParams struct {
 	Cwd     string `json:"cwd,omitempty"`
 }
 
-func readBuiltinTools(ctx context.Context, prefs uipreference.Store, store *skilllibrary.Store, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, cwd string) (*builtinToolsReadResult, error) {
+func readBuiltinTools(ctx context.Context, prefs uipreference.Store, store contract.SkillLibraryLister, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, cwd string) (*builtinToolsReadResult, error) {
 	var replaced map[string]string
 	if store != nil {
 		entries, err := store.List()
@@ -81,7 +80,7 @@ func readBuiltinTools(ctx context.Context, prefs uipreference.Store, store *skil
 
 // aggregateReplacementSources 返回 map[toolName]skillName，记录每个被替代工具
 // 是被哪个 skill 声明替代的（取第一个声明者）。
-func aggregateReplacementSources(entries []skilllibrary.SkillEntry) map[string]string {
+func aggregateReplacementSources(entries []contract.SkillEntry) map[string]string {
 	out := make(map[string]string)
 	for _, e := range entries {
 		if e.Meta == nil || e.Meta.Disabled {
@@ -101,7 +100,7 @@ func aggregateReplacementSources(entries []skilllibrary.SkillEntry) map[string]s
 	return out
 }
 
-func writeBuiltinTool(ctx context.Context, prefs uipreference.Store, store *skilllibrary.Store, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, p builtinToolsWriteParams) (*builtinToolsReadResult, error) {
+func writeBuiltinTool(ctx context.Context, prefs uipreference.Store, store contract.SkillLibraryLister, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, p builtinToolsWriteParams) (*builtinToolsReadResult, error) {
 	if prefs == nil {
 		return nil, errConfigPreferenceStoreRequired
 	}

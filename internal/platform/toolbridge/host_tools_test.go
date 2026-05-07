@@ -14,8 +14,9 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
-	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
+
 	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
 )
 
@@ -843,7 +844,7 @@ func TestListToolsForCodex_FiltersPeerMemoryReadWhenMemoryReadToolsDisabled(t *t
 	}
 }
 
-func containsDynamicToolName(tools []codexprotocol.DynamicToolSchema, name string) bool {
+func containsDynamicToolName(tools []contract.DynamicToolSchema, name string) bool {
 	for _, tool := range tools {
 		if tool.Name == name {
 			return true
@@ -1111,7 +1112,7 @@ func TestNewSkillReadSectionRegistry_NilTool(t *testing.T) {
 
 func TestSkillReadSectionRegistry_ListHostTools_SingleEntry(t *testing.T) {
 	cacheDir := t.TempDir()
-	reg := NewSkillReadSectionRegistry(NewSkillReadSectionTool(cacheDir, nil))
+	reg := NewSkillReadSectionRegistry(NewSkillReadSectionTool(cacheDir, skilllibrary.ReadSection, nil))
 	tools := reg.ListHostTools()
 	if len(tools) != 1 {
 		t.Fatalf("expect 1 tool, got %d: %+v", len(tools), tools)
@@ -1128,7 +1129,7 @@ func TestSkillReadSectionRegistry_ListHostTools_SingleEntry(t *testing.T) {
 }
 
 func TestSkillReadSectionRegistry_HasTool(t *testing.T) {
-	reg := NewSkillReadSectionRegistry(NewSkillReadSectionTool(t.TempDir(), nil))
+	reg := NewSkillReadSectionRegistry(NewSkillReadSectionTool(t.TempDir(), skilllibrary.ReadSection, nil))
 	if !reg.HasTool(ToolNameReadSection) {
 		t.Fatalf("HasTool(%q) = false, want true", ToolNameReadSection)
 	}
@@ -1161,7 +1162,7 @@ func TestSkillReadSectionRegistry_CallHostTool_ReadsSection(t *testing.T) {
 	cacheDir := t.TempDir()
 	makeRefFile(t, cacheDir, "tdd", "overview", "TDD overview content")
 
-	reg := NewSkillReadSectionRegistry(NewSkillReadSectionTool(cacheDir, nil))
+	reg := NewSkillReadSectionRegistry(NewSkillReadSectionTool(cacheDir, skilllibrary.ReadSection, nil))
 	args := mustMarshal(t, map[string]any{"name": "tdd", "anchor": "overview"})
 	result, err := reg.CallHostTool(context.Background(), HostToolCall{
 		Name:      ToolNameReadSection,
@@ -1196,7 +1197,7 @@ func TestSkillReadSectionRegistry_CallHostTool_TruncatedMetadata(t *testing.T) {
 	cacheDir := t.TempDir()
 	makeRefFile(t, cacheDir, "tdd", "overview", "abcdefghij")
 
-	reg := NewSkillReadSectionRegistry(NewSkillReadSectionTool(cacheDir, nil))
+	reg := NewSkillReadSectionRegistry(NewSkillReadSectionTool(cacheDir, skilllibrary.ReadSection, nil))
 	args := mustMarshal(t, map[string]any{"name": "tdd", "anchor": "overview", "max_bytes": 4})
 	result, err := reg.CallHostTool(context.Background(), HostToolCall{
 		Name:      ToolNameReadSection,
@@ -1221,7 +1222,7 @@ func TestSkillReadSectionRegistry_CallHostTool_TruncatedMetadata(t *testing.T) {
 }
 
 func TestSkillReadSectionRegistry_CallHostTool_UnknownToolReturnsError(t *testing.T) {
-	reg := NewSkillReadSectionRegistry(NewSkillReadSectionTool(t.TempDir(), nil))
+	reg := NewSkillReadSectionRegistry(NewSkillReadSectionTool(t.TempDir(), skilllibrary.ReadSection, nil))
 
 	_, err := reg.CallHostTool(context.Background(), HostToolCall{
 		Name:      "skill_expand_body",
@@ -1237,7 +1238,7 @@ func TestSkillReadSectionRegistry_CallHostTool_UnknownToolReturnsError(t *testin
 // surfaces skill_read_section (not skill_expand_body or skill_read_resource).
 func TestListToolsForCodex_HostToolIsReadSection(t *testing.T) {
 	cacheDir := t.TempDir()
-	reg := NewSkillReadSectionRegistry(NewSkillReadSectionTool(cacheDir, nil))
+	reg := NewSkillReadSectionRegistry(NewSkillReadSectionTool(cacheDir, skilllibrary.ReadSection, nil))
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: "spawn_agent"}}, nil)},
 		dto.ClientKindLSP:  {listToolsPeer([]dto.MCPTool{{Name: "lsp_hover"}}, nil)},
@@ -1265,7 +1266,7 @@ func TestRouteToolCall_SkillReadSection_BypassesPeer(t *testing.T) {
 	cacheDir := t.TempDir()
 	makeRefFile(t, cacheDir, "demo", "intro", "intro content")
 
-	reg := NewSkillReadSectionRegistry(NewSkillReadSectionTool(cacheDir, nil))
+	reg := NewSkillReadSectionRegistry(NewSkillReadSectionTool(cacheDir, skilllibrary.ReadSection, nil))
 	registry := &stubRegistry{}
 	h := &Handler{registry: registry, hostTools: reg}
 

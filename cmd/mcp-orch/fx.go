@@ -57,6 +57,7 @@ func run() error {
 			buildBootstrapConfig,
 			bootstrap.New,
 			newRegistry,
+			newStdioServer,
 			fx.Annotate(newBootstrapRunner, fx.ResultTags(`group:"runners"`)),
 			fx.Annotate(newStdioRunner, fx.ResultTags(`group:"runners"`)),
 			fx.Annotate(newHTTPRunner, fx.ResultTags(`group:"runners"`)),
@@ -146,8 +147,8 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 			),
 			fx.Invoke(orchestration.RegisterTurnLifecycle),
 			fx.Invoke(orchestration.RegisterApprovalLifecycle),
-			fx.Invoke(orchestration.RegisterWakeupDispatcher),
-			fx.Invoke(orchestration.RegisterWakeupReclaimer),
+			fx.Provide(fx.Annotate(orchestration.ProvideWakeupDispatcherRunner, fx.ResultTags(`group:"runners"`))),
+			fx.Provide(fx.Annotate(orchestration.ProvideWakeupReclaimerRunner, fx.ResultTags(`group:"runners"`))),
 		),
 		fx.Provide(func(lc fx.Lifecycle, turnStarter orchestration.TurnStarter, logger *slog.Logger) orchestration.AgentLauncher {
 			return buildLauncher(lc, turnStarter, logger, remoteAddr)

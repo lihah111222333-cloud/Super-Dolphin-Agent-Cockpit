@@ -16,7 +16,7 @@ type threadQuerierStub struct {
 	listRecoverableFn    func(context.Context) ([]sqlc.ListRecoverableAgentThreadsRow, error)
 	listRunningFn        func(context.Context) ([]sqlc.ListRunningAgentThreadsRow, error)
 	loadPromptSnapshotFn func(context.Context, string) ([]byte, error)
-	savePromptSnapshotFn func(context.Context, sqlc.SaveAgentThreadPromptSnapshotParams) (int64, error)
+	savePromptSnapshotFn func(context.Context, sqlc.UpdateAgentThreadPromptSnapshotParams) (int64, error)
 	upsertFn             func(context.Context, sqlc.UpsertAgentThreadParams) error
 }
 
@@ -95,7 +95,7 @@ func (s *threadQuerierStub) LoadAgentThreadPromptSnapshot(ctx context.Context, t
 
 func (*threadQuerierStub) ResetRunningAgentThreads(context.Context) error { return nil }
 
-func (s *threadQuerierStub) SaveAgentThreadPromptSnapshot(ctx context.Context, arg sqlc.SaveAgentThreadPromptSnapshotParams) (int64, error) {
+func (s *threadQuerierStub) UpdateAgentThreadPromptSnapshot(ctx context.Context, arg sqlc.UpdateAgentThreadPromptSnapshotParams) (int64, error) {
 	if s.savePromptSnapshotFn != nil {
 		return s.savePromptSnapshotFn(ctx, arg)
 	}
@@ -244,9 +244,9 @@ func TestSaveAndLoadPromptSnapshot(t *testing.T) {
 		},
 		Generation: 9,
 	}
-	var saved sqlc.SaveAgentThreadPromptSnapshotParams
+	var saved sqlc.UpdateAgentThreadPromptSnapshotParams
 	s := &store{q: &threadQuerierStub{
-		savePromptSnapshotFn: func(_ context.Context, arg sqlc.SaveAgentThreadPromptSnapshotParams) (int64, error) {
+		savePromptSnapshotFn: func(_ context.Context, arg sqlc.UpdateAgentThreadPromptSnapshotParams) (int64, error) {
 			saved = arg
 			return 1, nil
 		},
@@ -302,7 +302,7 @@ func TestSavePromptSnapshotMissingThread(t *testing.T) {
 	t.Parallel()
 
 	s := &store{q: &threadQuerierStub{
-		savePromptSnapshotFn: func(context.Context, sqlc.SaveAgentThreadPromptSnapshotParams) (int64, error) {
+		savePromptSnapshotFn: func(context.Context, sqlc.UpdateAgentThreadPromptSnapshotParams) (int64, error) {
 			return 0, nil
 		},
 	}}

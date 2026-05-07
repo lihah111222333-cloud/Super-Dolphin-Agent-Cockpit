@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	promptpkg "github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt/classifier"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
@@ -56,7 +58,13 @@ func (f *fakePromptStore) DeleteSection(context.Context, int64, string) error {
 }
 
 func newServiceWithRouter(store *fakePromptStore) *service {
-	return &service{promptStore: store}
+	return &service{
+		promptStore:             store,
+		classifierFastPath:      classifier.FastPath,
+		classifierPrune:         classifier.PruneCandidates,
+		classifierMaxCandidates: classifier.MaxCandidatesFromEnv,
+		matchWhenEval:           promptpkg.EvaluateMatchWhen,
+	}
 }
 
 func sqlTemplate(promptKey, agentKey, text string, tags []string) promptstore.PromptTemplate {

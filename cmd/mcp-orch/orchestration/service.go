@@ -21,6 +21,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	platformstatemachine "github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -88,6 +89,13 @@ type service struct {
 	mu          sync.RWMutex
 	agents      map[string]*agentRuntime
 	nextTurnSeq int64
+
+	// asyncCtx / asyncCancel / asyncWg track fire-and-forget goroutines
+	// (e.g. submitInitialLaunchPromptAsync, async LaunchAgent) so
+	// DrainAsync can join them on shutdown instead of leaking.
+	asyncCtx    context.Context
+	asyncCancel context.CancelFunc
+	asyncWg     sync.WaitGroup
 }
 
 type serviceParams struct {
@@ -120,7 +128,7 @@ type agentRuntime struct {
 	provider          string
 	runtimeProvider   string
 	providerSource    string
-	state             string
+	state             agentdto.AgentState
 	threadID          string
 	remoteThreadID    string
 	remoteAgentID     string
@@ -170,6 +178,7 @@ func NewService(
 	if store, ok := dagStore.(recoveryTurnStore); ok {
 		recoveryStore = store
 	}
+	asyncCtx, asyncCancel := context.WithCancel(context.Background())
 	return &service{
 		logger:         logger,
 		eventBus:       eventBus,
@@ -179,12 +188,14 @@ func NewService(
 		dagStore:       dagStore,
 		recoveryStore:  recoveryStore,
 		machineCfg: platformstatemachine.Config{
-			Initial: agentdto.StateProvisioning,
+			Initial: string(agentdto.StateProvisioning),
 			States:  buildStatesFromDefinitions(agentdto.TransitionDefinitions),
 		},
 		processExitWaitTimeout: 30 * time.Second,
 		exitMonitor:            newProcessExitMonitor(logger),
 		agents:                 make(map[string]*agentRuntime),
+		asyncCtx:               asyncCtx,
+		asyncCancel:            asyncCancel,
 	}
 }
 
@@ -233,12 +244,16 @@ func RegisterTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *s
 					logger.Warn("orchestration: failed to bind active turn id", "agent_id", ev.AgentID, "turn_id", ev.TurnID, "error", err)
 				}
 			}, logger)
+			// TODO(convention): event handler 直接操作状态机违反 statemachine-event-convention B7。
+			// 当前安全（kelindar/event 异步投递），但应改为 trigger channel 解耦。
 			completedCancel = bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnCompleted) {
 				if lifecycleCtx.Err() != nil {
 					return
 				}
 				handleTurnCompletedEventWithCtx(svc, logger, ev, lifecycleCtx)
 			}, logger)
+			// TODO(convention): event handler 直接操作状态机违反 statemachine-event-convention B7。
+			// 当前安全（kelindar/event 异步投递），但应改为 trigger channel 解耦。
 			interruptedCancel = bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnInterrupted) {
 				if lifecycleCtx.Err() != nil {
 					return
@@ -267,9 +282,13 @@ func RegisterApprovalLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, sv
 	resolvedCancel := func() {}
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
+			// TODO(convention): event handler 直接操作状态机违反 statemachine-event-convention B7。
+			// 当前安全（kelindar/event 异步投递），但应改为 trigger channel 解耦。
 			requestedCancel = bus.ResilientSubscribe(dispatcher, func(ev tooldto.ToolApprovalRequested) {
 				handleToolApprovalRequestedEvent(svc, loggerOrDefault(logger), ev)
 			}, logger)
+			// TODO(convention): event handler 直接操作状态机违反 statemachine-event-convention B7。
+			// 当前安全（kelindar/event 异步投递），但应改为 trigger channel 解耦。
 			resolvedCancel = bus.ResilientSubscribe(dispatcher, func(ev tooldto.ToolApprovalResolved) {
 				handleToolApprovalResolvedEvent(svc, loggerOrDefault(logger), ev)
 			}, logger)
@@ -290,73 +309,37 @@ func loggerOrDefault(logger *slog.Logger) *slog.Logger {
 	return pkglogger.Get()
 }
 
-// RegisterWakeupDispatcherIn lets fx inject taskdag.Store as an optional
+// ProvideWakeupDispatcherRunnerIn lets fx inject taskdag.Store as an optional
 // dependency. Tests that do not bring up the taskdag module skip the
 // dispatcher entirely; production wiring (cmd/mcp-orch/fx.go) always
 // includes taskdagstore.Module so the dispatcher runs.
-type RegisterWakeupDispatcherIn struct {
+type ProvideWakeupDispatcherRunnerIn struct {
 	fx.In
 
-	Lifecycle fx.Lifecycle
-	Store     taskdag.Store `optional:"true"`
-	Service   *service
-	Logger    *slog.Logger `optional:"true"`
+	Store   taskdag.Store `optional:"true"`
+	Service *service
+	Logger  *slog.Logger `optional:"true"`
 }
 
-// RegisterWakeupDispatcher (Phase 3.2) starts the wakeup dispatcher main
-// loop on app start and stops it on app stop. The dispatcher claims due
-// wakeups via taskdag.Store, hands each off to *service.LaunchAgent, and
-// drives state transitions (MarkWakeupSent / RetryWakeup / FailWakeup).
+// ProvideWakeupDispatcherRunner (Phase 3.2) returns the wakeup dispatcher as
+// a Runner for injection into run.Group via group:"runners". The dispatcher
+// claims due wakeups via taskdag.Store, hands each off to
+// *service.LaunchAgent, and drives state transitions (MarkWakeupSent /
+// RetryWakeup / FailWakeup).
 //
-// Wired with fx.Invoke from cmd/mcp-orch/fx.go so the orchestration module
-// can compose it. taskdag.Store is optional: when missing the dispatcher
-// is skipped (for tests that don't bring up the dag store).
-func RegisterWakeupDispatcher(in RegisterWakeupDispatcherIn) error {
+// Wired with fx.Provide + group:"runners" from cmd/mcp-orch/fx.go so
+// run.Group manages the goroutine lifecycle. taskdag.Store is optional:
+// when missing the dispatcher is replaced by a no-op runner.
+func ProvideWakeupDispatcherRunner(in ProvideWakeupDispatcherRunnerIn) (platformrunner.Runner, error) {
 	logger := in.Logger
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
 	if in.Store == nil {
 		logger.Info("orchestration: wakeup dispatcher disabled (no taskdag store provided)")
-		return nil
+		return platformrunner.NoopRunner{}, nil
 	}
-	dispatcher, err := NewWakeupDispatcher(in.Store, in.Service, logger, WakeupDispatcherConfig{})
-	if err != nil {
-		return err
-	}
-	var (
-		cancel context.CancelFunc
-		done   = make(chan struct{})
-	)
-	in.Lifecycle.Append(fx.Hook{
-		OnStart: func(context.Context) error {
-			var runCtx context.Context
-			runCtx, cancel = context.WithCancel(context.Background())
-			go func() {
-				defer close(done)
-				if runErr := dispatcher.Run(runCtx); runErr != nil && !errors.Is(runErr, context.Canceled) {
-					logger.Warn("orchestration: wakeup dispatcher exited",
-						"claimed_by", dispatcher.ClaimedBy(),
-						"error", runErr)
-				}
-			}()
-			return nil
-		},
-		OnStop: func(stopCtx context.Context) error {
-			if cancel != nil {
-				cancel()
-			}
-			select {
-			case <-done:
-			case <-stopCtx.Done():
-				logger.Warn("orchestration: wakeup dispatcher stop timeout",
-					"claimed_by", dispatcher.ClaimedBy(),
-					"error", stopCtx.Err())
-			}
-			return nil
-		},
-	})
-	return nil
+	return NewWakeupDispatcher(in.Store, in.Service, logger, WakeupDispatcherConfig{})
 }
 
 func withEventTime(ctx context.Context, timestamp time.Time) context.Context {
@@ -389,6 +372,18 @@ func (s *service) StopAllAgents() {
 			s.logger.Warn("orchestration: failed to stop agent during shutdown", "agent_id", agentID, "error", err)
 		}
 	}
+	s.DrainAsync()
+}
+
+// DrainAsync cancels the shared async context and waits for all
+// fire-and-forget goroutines tracked by asyncWg to finish. Safe to
+// call multiple times; the second+ invocations are no-ops because
+// asyncCancel is idempotent and asyncWg is already at zero.
+func (s *service) DrainAsync() {
+	if s.asyncCancel != nil {
+		s.asyncCancel()
+	}
+	s.asyncWg.Wait()
 }
 
 func (s *service) SubmitTurn(ctx context.Context, req TurnSubmission) error {

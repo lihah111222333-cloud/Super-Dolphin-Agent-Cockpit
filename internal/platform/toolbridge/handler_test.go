@@ -269,7 +269,7 @@ func TestToolBridge_FreshSession_ToolCallForward(t *testing.T) {
 func TestToolBridge_Resume_ToolCallStillWorks(t *testing.T) {
 	args := mustRawJSON(t, map[string]any{"symbol": "x"})
 	h, registry := newHandlerForTest(newToolCallPeer(t, "lsp_definition", args, "resume ok", nil))
-	msg := codexapp.RawMessage{Params: mustRawJSON(t, map[string]any{
+	msg := contract.ToolCallRawMessage{Params: mustRawJSON(t, map[string]any{
 		"name":      "lsp_definition",
 		"arguments": json.RawMessage(args),
 		"agentId":   "agent-1",

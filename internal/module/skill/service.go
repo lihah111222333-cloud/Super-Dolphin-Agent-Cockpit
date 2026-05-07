@@ -74,15 +74,10 @@ var (
 	errSkillApprovalRequired             = errors.New("skill artifact approval required")
 )
 
-type SkillApprovalRequiredError struct {
-	Request contract.ApprovalRequest
-}
-
-func (e SkillApprovalRequiredError) Error() string {
-	return errSkillApprovalRequired.Error()
-}
-
-func (e SkillApprovalRequiredError) Unwrap() error { return errSkillApprovalRequired }
+// SkillApprovalRequiredError is an alias for the contract-level type so that
+// both skill and toolbridge consumers can errors.As the same concrete type
+// without toolbridge importing the module layer.
+type SkillApprovalRequiredError = contract.SkillApprovalRequiredError
 
 type skillApprovalDeniedError struct {
 	reason string

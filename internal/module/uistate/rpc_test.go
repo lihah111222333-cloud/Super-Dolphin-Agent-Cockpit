@@ -12,7 +12,7 @@ import (
 func TestUIStateGetAcceptsKnownDiffRevision(t *testing.T) {
 	t.Parallel()
 
-	svc, _, err := NewService(nil, nil, nil, nil, nil)
+	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}

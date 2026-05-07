@@ -21,8 +21,9 @@ import (
 )
 
 type bootstrapRunner struct {
-	cfg    bootstrap.Config
-	client *bootstrap.Client
+	cfg        bootstrap.Config
+	client     *bootstrap.Client
+	stdioReady <-chan struct{} // closed when stdio server is ready
 }
 
 type runtimeParams struct {
@@ -124,8 +125,8 @@ func newServer(handlers ToolHandlers) *common.Server {
 	})
 }
 
-func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client) platformrunner.Runner {
-	return bootstrapRunner{cfg: cfg, client: client}
+func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client, server *common.Server) platformrunner.Runner {
+	return bootstrapRunner{cfg: cfg, client: client, stdioReady: server.Ready()}
 }
 
 // provideLSPBackgroundRunners lifts each language manager's background
@@ -182,6 +183,18 @@ func handleToolCall(ctx context.Context, defs []toolDefinition, name string, arg
 }
 
 func (r bootstrapRunner) Run(ctx context.Context) error {
+	// Dual-channel startup ordering: wait for the local stdio MCP server
+	// to be ready before connecting to the control-plane jrpc2. This
+	// guarantees the tool-execution surface is available when the
+	// control plane starts dispatching requests.
+	if r.stdioReady != nil {
+		select {
+		case <-r.stdioReady:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
 	if strings.TrimSpace(r.cfg.RPCAddr) == "" {
 		pkglogger.Warn("mcp-lsp bootstrap disabled: GO_AGENT_CTL_RPC_ADDR missing",
 			"binary_name", r.cfg.BinaryName,
@@ -234,6 +247,14 @@ func bindRuntime(lc fx.Lifecycle, params runtimeParams) {
 
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
+			// Sidecar lifecycle: context.Background() is intentional here.
+			// Unlike the main app (internal/app/runner.go) which derives runCtx
+			// from an owner-supplied RootCtxProvider, sidecars run as independent
+			// child processes. Their lifetime is governed by:
+			//   1. Parent process kill / OnShutdown callback → fx.Shutdowner.Shutdown()
+			//   2. RunGroup self-exit → requestShutdown()
+			// Both paths converge on OnStop, which calls cancel() and waits for
+			// the run group to drain via the done channel.
 			runCtx, runCancel := context.WithCancel(context.Background())
 			cancel = runCancel
 			runtimesafe.SafeGo(runCtx, log, "mcp-lsp.runtime.runGroup", func(context.Context) {

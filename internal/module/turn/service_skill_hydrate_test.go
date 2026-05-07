@@ -6,13 +6,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 )
 
 // stubSkillLookup 是 turn.service 的 skillHydrationPort 测试替身。
 type stubSkillLookup struct {
-	infos      []skillpkg.SkillInfo
+	infos      []contract.SkillInfo
 	listErr    error
 	bodies     map[string]string // absolute SKILL.md path → content
 	readErrors map[string]error
@@ -22,7 +22,7 @@ type stubSkillLookup struct {
 	}
 }
 
-func (s *stubSkillLookup) ListSkills(context.Context) ([]skillpkg.SkillInfo, error) {
+func (s *stubSkillLookup) ListSkills(context.Context) ([]contract.SkillInfo, error) {
 	s.calls.list++
 	if s.listErr != nil {
 		return nil, s.listErr
@@ -53,13 +53,13 @@ func TestPrepareTurnHydratesNameOnlySkill(t *testing.T) {
 
 	dir := "/tmp/skills/debug"
 	lookup := &stubSkillLookup{
-		infos: []skillpkg.SkillInfo{{
+		infos: []contract.SkillInfo{{
 			Name:        "debug",
 			Dir:         dir,
 			Summary:     "debug helpers",
 			Description: "Debug triggers",
 			ContentHash: "0123456789abcdef0123456789abcdef",
-			Trust:       skillpkg.TrustUser,
+			Trust:       contract.TrustUser,
 		}},
 		bodies: map[string]string{
 			filepath.Join(dir, "SKILL.md"): "full debug body",
@@ -102,12 +102,12 @@ func TestPrepareTurnPreservesSummaryWhenBodyMissing(t *testing.T) {
 	t.Parallel()
 
 	lookup := &stubSkillLookup{
-		infos: []skillpkg.SkillInfo{{
+		infos: []contract.SkillInfo{{
 			Name:        "rpc-tracing",
 			Dir:         "/tmp/skills/rpc-tracing",
 			Summary:     "trace bus/router flow",
 			ContentHash: "deadbeefdeadbeefdeadbeef",
-			Trust:       skillpkg.TrustUser,
+			Trust:       contract.TrustUser,
 		}},
 		// no bodies registered → ReadLocal returns error
 		readErrors: map[string]error{
@@ -166,7 +166,7 @@ func TestPrepareTurnSkipsHydrateWhenAlreadyPopulated(t *testing.T) {
 	t.Parallel()
 
 	lookup := &stubSkillLookup{
-		infos: []skillpkg.SkillInfo{{
+		infos: []contract.SkillInfo{{
 			Name:        "debug",
 			Summary:     "should-not-override",
 			ContentHash: "shouldnotoverride1",
@@ -199,7 +199,7 @@ func TestHydrateSkillRefsListSkillsErrorReturnsOriginal(t *testing.T) {
 	svc := newService(silentLogger(), nil, nil, lookup, nil, nil, nil).(*service)
 	original := []dto.SkillRef{{Name: "debug"}}
 
-	out, _ := svc.hydrateSkillRefs(skillpkg.WithCWD(context.Background(), "/repo"), original, false)
+	out, _ := svc.hydrateSkillRefs(contract.WithSkillCWD(context.Background(), "/repo"), original, false)
 	if len(out) != 1 || out[0].Name != "debug" || out[0].Prompt != "" {
 		t.Fatalf("ListSkills error must preserve input, got %+v", out)
 	}

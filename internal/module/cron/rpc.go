@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/creachadair/jrpc2"
@@ -19,14 +20,16 @@ import (
 // this with real cron-expression parsing).
 
 type cronCreateParams struct {
-	Name          string          `json:"name"`
-	Prompt        string          `json:"prompt"`
-	ScheduleType  string          `json:"schedule_type,omitempty"`
-	ScheduleExpr  string          `json:"schedule_expr"`
-	Timezone      string          `json:"timezone,omitempty"`
-	Provider      string          `json:"provider,omitempty"`
-	Model         string          `json:"model,omitempty"`
-	CWD           string          `json:"cwd"`
+	Name         string `json:"name"`
+	Prompt       string `json:"prompt"`
+	ScheduleType string `json:"schedule_type,omitempty"`
+	ScheduleExpr string `json:"schedule_expr"`
+	Timezone     string `json:"timezone,omitempty"`
+	Provider     string `json:"provider,omitempty"`
+	Model        string `json:"model,omitempty"`
+	CWD          string `json:"cwd"`
+	// json.RawMessage: justified -- open-ended provider config bag; decoded into
+	// map[string]any by decodeConfigMap and persisted as raw bytes in the store.
 	Config        json.RawMessage `json:"config,omitempty"`
 	Skills        []string        `json:"skills,omitempty"`
 	NotifyChannel string          `json:"notify_channel,omitempty"`
@@ -52,6 +55,27 @@ type cronEnabledParams struct {
 type cronListRunsParams struct {
 	JobID string `json:"job_id"`
 	Limit int32  `json:"limit,omitempty"`
+}
+
+// Host RPC response types. JSON tags match the original map keys to preserve
+// wire-format compatibility.
+
+type cronListResponse struct {
+	Jobs []Job `json:"jobs"`
+}
+
+type cronDeleteResponse struct {
+	Deleted bool   `json:"deleted"`
+	ID      string `json:"id"`
+}
+
+type cronSetEnabledResponse struct {
+	ID      string `json:"id"`
+	Enabled bool   `json:"enabled"`
+}
+
+type cronListRunsResponse struct {
+	Runs []Run `json:"runs"`
 }
 
 // NewHandlers wires the cronjob/* host RPC methods. It is registered via
@@ -124,16 +148,16 @@ func getHandler(svc Service) func(context.Context, cronIDParams) (Job, error) {
 	}
 }
 
-func listHandler(svc Service) func(context.Context, struct{}) (map[string]any, error) {
-	return func(ctx context.Context, _ struct{}) (map[string]any, error) {
+func listHandler(svc Service) func(context.Context, struct{}) (cronListResponse, error) {
+	return func(ctx context.Context, _ struct{}) (cronListResponse, error) {
 		jobs, err := svc.ListJobs(ctx)
 		if err != nil {
-			return nil, mapRPCError(err)
+			return cronListResponse{}, mapRPCError(err)
 		}
 		if jobs == nil {
 			jobs = []Job{}
 		}
-		return map[string]any{"jobs": jobs}, nil
+		return cronListResponse{Jobs: jobs}, nil
 	}
 }
 
@@ -147,34 +171,34 @@ func runOnceHandler(svc Service) func(context.Context, cronIDParams) (Job, error
 	}
 }
 
-func deleteHandler(svc Service) func(context.Context, cronIDParams) (map[string]any, error) {
-	return func(ctx context.Context, p cronIDParams) (map[string]any, error) {
+func deleteHandler(svc Service) func(context.Context, cronIDParams) (cronDeleteResponse, error) {
+	return func(ctx context.Context, p cronIDParams) (cronDeleteResponse, error) {
 		if err := svc.DeleteJob(ctx, p.ID); err != nil {
-			return nil, mapRPCError(err)
+			return cronDeleteResponse{}, mapRPCError(err)
 		}
-		return map[string]any{"deleted": true, "id": p.ID}, nil
+		return cronDeleteResponse{Deleted: true, ID: p.ID}, nil
 	}
 }
 
-func setEnabledHandler(svc Service) func(context.Context, cronEnabledParams) (map[string]any, error) {
-	return func(ctx context.Context, p cronEnabledParams) (map[string]any, error) {
+func setEnabledHandler(svc Service) func(context.Context, cronEnabledParams) (cronSetEnabledResponse, error) {
+	return func(ctx context.Context, p cronEnabledParams) (cronSetEnabledResponse, error) {
 		if err := svc.SetJobEnabled(ctx, p.ID, p.Enabled); err != nil {
-			return nil, mapRPCError(err)
+			return cronSetEnabledResponse{}, mapRPCError(err)
 		}
-		return map[string]any{"id": p.ID, "enabled": p.Enabled}, nil
+		return cronSetEnabledResponse{ID: p.ID, Enabled: p.Enabled}, nil
 	}
 }
 
-func listRunsHandler(svc Service) func(context.Context, cronListRunsParams) (map[string]any, error) {
-	return func(ctx context.Context, p cronListRunsParams) (map[string]any, error) {
+func listRunsHandler(svc Service) func(context.Context, cronListRunsParams) (cronListRunsResponse, error) {
+	return func(ctx context.Context, p cronListRunsParams) (cronListRunsResponse, error) {
 		runs, err := svc.ListJobRuns(ctx, p.JobID, p.Limit)
 		if err != nil {
-			return nil, mapRPCError(err)
+			return cronListRunsResponse{}, mapRPCError(err)
 		}
 		if runs == nil {
 			runs = []Run{}
 		}
-		return map[string]any{"runs": runs}, nil
+		return cronListRunsResponse{Runs: runs}, nil
 	}
 }
 
@@ -190,8 +214,8 @@ func createRequestFrom(p cronCreateParams) (CreateJobRequest, error) {
 	if p.NextRunAt != "" {
 		t, err := time.Parse(time.RFC3339, p.NextRunAt)
 		if err != nil {
-			return CreateJobRequest{}, jrpc2.Errorf(jrpc2.InvalidParams,
-				"cron: next_run_at must be RFC3339, got %q", p.NextRunAt)
+			return CreateJobRequest{}, platformrpc.ErrInvalidParams(
+				fmt.Sprintf("cron: next_run_at must be RFC3339, got %q", p.NextRunAt))
 		}
 		nextRunAt = t
 	}
@@ -240,7 +264,7 @@ func mapRPCError(err error) error {
 		errors.Is(err, cronstore.ErrEmptyCWD),
 		errors.Is(err, cronstore.ErrEmptyProvider),
 		errors.Is(err, cronstore.ErrEmptyScheduleExpr):
-		return jrpc2.Errorf(jrpc2.InvalidParams, "%s", err.Error())
+		return platformrpc.ErrInvalidParams(err.Error())
 	}
 	return err
 }

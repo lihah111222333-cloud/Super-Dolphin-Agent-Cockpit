@@ -7,34 +7,35 @@ import (
 	"log/slog"
 	"strings"
 
-	thread "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// ThreadServiceBootstrapper adapts thread.Service into the
+// ThreadServiceBootstrapper adapts contract.CronThreadStarter into the
 // ThreadBootstrapper seam consumed by TurnServiceAdapter. It is
 // deliberately a thin shim: translate BootstrapRequest into
-// thread.StartRequest, call Start eagerly (DeferSpawn=false so the
-// provider CLI launches before the immediate first StartTurn), and
-// return the ThreadID + AgentID for the scheduler to persist.
+// contract.CronStartThreadRequest, call CronStartThread eagerly
+// (DeferSpawn=false so the provider CLI launches before the immediate
+// first StartTurn), and return the ThreadID + AgentID for the scheduler
+// to persist.
 //
 // Provider-specific config (codexHome / codexInstanceKey /
-// codexModelProvider / \u2026) is forwarded verbatim via
-// thread.StartRequest.Config so the downstream codexapp driver can
+// codexModelProvider / …) is forwarded verbatim via
+// CronStartThreadRequest.Config so the downstream codexapp driver can
 // resolve a multi-provider binding at session-start time. An invalid
-// config blob is surfaced as a plain error \u2014 we do NOT fall back to
+// config blob is surfaced as a plain error — we do NOT fall back to
 // a default thread here because a cron job that pinned an identity
 // must not silently escape to the wrong instance.
 type ThreadServiceBootstrapper struct {
-	svc    thread.Service
+	svc    contract.CronThreadStarter
 	logger *slog.Logger
 }
 
-// NewThreadServiceBootstrapper wires the adapter. A nil thread.Service
-// is a programmer error \u2014 callers should rely on the module-level fx
+// NewThreadServiceBootstrapper wires the adapter. A nil CronThreadStarter
+// is a programmer error — callers should rely on the module-level fx
 // factory to fall back to NoopThreadBootstrapper before reaching this
 // constructor.
-func NewThreadServiceBootstrapper(logger *slog.Logger, svc thread.Service) *ThreadServiceBootstrapper {
+func NewThreadServiceBootstrapper(logger *slog.Logger, svc contract.CronThreadStarter) *ThreadServiceBootstrapper {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -52,20 +53,20 @@ func (b *ThreadServiceBootstrapper) BootstrapThread(ctx context.Context, req Boo
 	if err != nil {
 		return BootstrapResult{}, err
 	}
-	startReq := thread.StartRequest{
+	startReq := contract.CronStartThreadRequest{
 		Provider: strings.TrimSpace(req.Provider),
 		CWD:      strings.TrimSpace(req.CWD),
 		Model:    strings.TrimSpace(req.Model),
 		Name:     strings.TrimSpace(req.Name),
 		Config:   cfg,
 	}
-	res, err := b.svc.Start(ctx, startReq)
+	res, err := b.svc.CronStartThread(ctx, startReq)
 	if err != nil {
 		return BootstrapResult{}, err
 	}
 	threadID := strings.TrimSpace(res.ThreadID)
 	if threadID == "" {
-		return BootstrapResult{}, errors.New("cron: thread.Service.Start returned empty thread id")
+		return BootstrapResult{}, errors.New("cron: CronThreadStarter.CronStartThread returned empty thread id")
 	}
 	return BootstrapResult{
 		ThreadID: threadID,
@@ -74,8 +75,8 @@ func (b *ThreadServiceBootstrapper) BootstrapThread(ctx context.Context, req Boo
 }
 
 // decodeBootstrapConfig turns the job row's raw config JSON into the
-// map[string]any shape thread.StartRequest expects. An empty/nil input
-// is legal \u2014 the thread layer interprets nil as \"no overrides\". A
+// map[string]any shape CronStartThreadRequest expects. An empty/nil input
+// is legal — the thread layer interprets nil as "no overrides". A
 // syntactically-invalid blob is rejected so a corrupt row surfaces as
 // a bootstrap error instead of silently dropping codexHome.
 func decodeBootstrapConfig(raw json.RawMessage) (map[string]any, error) {

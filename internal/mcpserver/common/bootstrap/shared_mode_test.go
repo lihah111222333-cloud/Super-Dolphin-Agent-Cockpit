@@ -48,7 +48,8 @@ func TestRegisterConn_ClearsAgentIDForSharedService(t *testing.T) {
 		mcpdto.MethodRegister: platformrpc.StrictHandler(func(_ context.Context, req mcpdto.RegisterRequest) (mcpdto.RegisterResponse, error) {
 			captured = req
 			return mcpdto.RegisterResponse{
-				Lease:                 mcpdto.LeaseKey{InstanceID: req.InstanceID, Generation: 1},
+				InstanceID:            req.InstanceID,
+				Generation:            1,
 				HeartbeatIntervalMs:   1000,
 				HeartbeatTimeoutMs:    500,
 				ServerProtocolVersion: mcpdto.ProtocolVersion,

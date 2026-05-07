@@ -113,6 +113,20 @@ func (n *DAGNotifier) Stop(ctx context.Context) error {
 	return firstErr
 }
 
+// Run implements platformrunner.Runner. It starts the internal worker,
+// blocks until ctx is cancelled, then drains and stops the worker.
+// This allows DAGNotifier to be managed by run.Group instead of manual
+// goroutine management in fx.Lifecycle hooks.
+func (n *DAGNotifier) Run(ctx context.Context) error {
+	if n == nil {
+		<-ctx.Done()
+		return nil
+	}
+	n.Start()
+	<-ctx.Done()
+	return n.Stop(ctx)
+}
+
 // Subscribe registers the orch bus subscribers. Returns a cancel that
 // tears every subscription down — the fx.Lifecycle wrapper invokes it
 // OnStop so no late events arrive after the flusher is shut down.

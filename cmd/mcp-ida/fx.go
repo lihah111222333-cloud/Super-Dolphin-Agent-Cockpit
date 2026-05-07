@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"sync"
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
@@ -18,8 +21,9 @@ import (
 )
 
 type bootstrapRunner struct {
-	cfg    bootstrap.Config
-	client *bootstrap.Client
+	cfg        bootstrap.Config
+	client     *bootstrap.Client
+	stdioReady <-chan struct{} // closed when stdio server is ready
 }
 
 type runtimeParams struct {
@@ -66,7 +70,9 @@ func run() error {
 				return cfg
 			},
 			bootstrap.New,
+			newStdioServer,
 			fx.Annotate(newBootstrapRunner, fx.ResultTags(`group:"runners"`)),
+			fx.Annotate(newStdioRunner, fx.ResultTags(`group:"runners"`)),
 		),
 		fx.Invoke(bindRuntime),
 	)
@@ -84,11 +90,23 @@ func run() error {
 	return app.Stop(stopCtx)
 }
 
-func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client) platformrunner.Runner {
-	return bootstrapRunner{cfg: cfg, client: client}
+func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client, server *common.Server) platformrunner.Runner {
+	return bootstrapRunner{cfg: cfg, client: client, stdioReady: server.Ready()}
 }
 
 func (r bootstrapRunner) Run(ctx context.Context) error {
+	// Dual-channel startup ordering: wait for the local stdio MCP server
+	// to be ready before connecting to the control-plane jrpc2. This
+	// guarantees the tool-execution surface is available when the
+	// control plane starts dispatching requests.
+	if r.stdioReady != nil {
+		select {
+		case <-r.stdioReady:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
 	if strings.TrimSpace(r.cfg.RPCAddr) == "" {
 		<-ctx.Done()
 		return nil
@@ -98,6 +116,33 @@ func (r bootstrapRunner) Run(ctx context.Context) error {
 	}
 	<-ctx.Done()
 	return r.client.Close()
+}
+
+// emptyToolProvider implements common.ToolProvider with an empty tool list.
+// mcp-ida currently exposes no local tools via MCP; IDA tool definitions
+// will be added here once migrated from V2 (see docs/plans/迁移/audit-mcp-ida-tools.md).
+type emptyToolProvider struct{}
+
+func (emptyToolProvider) ListTools(context.Context) ([]mcp.MCPTool, error) {
+	return nil, nil
+}
+
+func (emptyToolProvider) CallTool(_ context.Context, name string, _ json.RawMessage) (any, error) {
+	return nil, errors.New("unknown tool: " + name)
+}
+
+func newStdioServer() *common.Server {
+	stdout := mcpStdout
+	if stdout == nil {
+		stdout = os.Stdout
+	}
+	transport := common.NewStdioTransport(os.Stdin, stdout)
+	return common.NewServer("mcp-ida", "dev", transport, emptyToolProvider{})
+}
+
+// newStdioRunner adapts the stdio *common.Server as a Runner for the run group.
+func newStdioRunner(server *common.Server) platformrunner.Runner {
+	return server
 }
 
 func bindRuntime(lc fx.Lifecycle, params runtimeParams) {
@@ -115,6 +160,14 @@ func bindRuntime(lc fx.Lifecycle, params runtimeParams) {
 
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
+			// Sidecar lifecycle: context.Background() is intentional here.
+			// Unlike the main app (internal/app/runner.go) which derives runCtx
+			// from an owner-supplied RootCtxProvider, sidecars run as independent
+			// child processes. Their lifetime is governed by:
+			//   1. Parent process kill / OnShutdown callback -> fx.Shutdowner.Shutdown()
+			//   2. RunGroup self-exit -> requestShutdown()
+			// Both paths converge on OnStop, which calls cancel() and waits for
+			// the run group to drain via the done channel.
 			runCtx, runCancel := context.WithCancel(context.Background())
 			cancel = runCancel
 			runtimesafe.SafeGo(runCtx, log, "mcp-ida.runtime.runGroup", func(context.Context) {

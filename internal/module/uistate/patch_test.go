@@ -19,7 +19,7 @@ func TestApplyTokensUpdatedPublishesThreadPatch(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	defer func() { _ = dispatcher.Close() }()
 
-	svc, _, err := NewService(nil, nil, nil, nil, nil)
+	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -75,7 +75,7 @@ func TestApplyThreadStoppedResetsPatchSequence(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	defer func() { _ = dispatcher.Close() }()
 
-	svc, _, err := NewService(nil, nil, nil, nil, nil)
+	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -112,7 +112,7 @@ func TestEmitThreadPatchEventPayloadTooLargeFallsBack(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	defer func() { _ = dispatcher.Close() }()
 
-	svc, _, err := NewService(nil, nil, nil, nil, nil)
+	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -168,7 +168,7 @@ func TestApplyToolDiffUpdatedPublishesDiffThreadPatch(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	defer func() { _ = dispatcher.Close() }()
 
-	svc, _, err := NewService(nil, nil, nil, nil, nil)
+	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -198,7 +198,7 @@ func TestApplyToolDiffUpdatedPublishesDiffThreadPatch(t *testing.T) {
 func TestGetStateOmitsInternalDiffMapsUnlessRequested(t *testing.T) {
 	t.Parallel()
 
-	svc, _, err := NewService(nil, nil, nil, nil, nil)
+	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}

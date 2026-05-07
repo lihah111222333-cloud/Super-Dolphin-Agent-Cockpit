@@ -27,9 +27,8 @@ type RegisterRequest struct {
 
 // RegisterResponse is the response for ctl/register.
 type RegisterResponse struct {
-	Lease LeaseKey `json:"lease"`
-	// Deprecated: use LeaseKey. Will be removed after 2026-06-30.
-	LeaseID                string   `json:"lease_id,omitempty"`
+	InstanceID             string   `json:"instance_id"`
+	Generation             uint64   `json:"generation"`
 	AcceptedGeneration     uint64   `json:"accepted_generation,omitempty"`
 	PeerKind               string   `json:"peer_kind,omitempty"`
 	CapabilitiesNegotiated []string `json:"capabilities_negotiated,omitempty"`
@@ -44,14 +43,12 @@ type RegisterResponse struct {
 
 // HeartbeatRequest is the payload for ctl/heartbeat.
 type HeartbeatRequest struct {
-	Lease                 LeaseKey        `json:"lease"`
+	InstanceID            string          `json:"instance_id"`
+	Generation            uint64          `json:"generation"`
 	HeartbeatSeq          uint64          `json:"heartbeat_seq"`
 	Status                string          `json:"status,omitempty"`
 	Metrics               json.RawMessage `json:"metrics,omitempty"`
 	ObservedConfigVersion int64           `json:"observed_config_version,omitempty"`
-	InstanceID            string          `json:"instance_id,omitempty"`
-	// Deprecated: use LeaseKey. Will be removed after 2026-06-30.
-	LeaseID string `json:"lease_id,omitempty"`
 }
 
 // HeartbeatResponse is the response for ctl/heartbeat.
@@ -64,9 +61,8 @@ type HeartbeatResponse struct {
 
 // ContextRequest is the payload for ctl/context.
 type ContextRequest struct {
-	Lease LeaseKey `json:"lease"`
-	// Deprecated compatibility mirror.
-	InstanceID string   `json:"instance_id,omitempty"`
+	InstanceID string   `json:"instance_id"`
+	Generation uint64   `json:"generation"`
 	AgentID    string   `json:"agent_id,omitempty"`
 	Scope      string   `json:"scope"` // agent.runtime / thread.binding / workspace.run / config.snapshot
 	Keys       []string `json:"keys,omitempty"`
@@ -83,9 +79,8 @@ type ContextResponse struct {
 
 // EventNotify is the notify payload for ctl/event.
 type EventNotify struct {
-	Lease LeaseKey `json:"lease"`
-	// Deprecated compatibility mirror.
-	InstanceID string          `json:"instance_id,omitempty"`
+	InstanceID string          `json:"instance_id"`
+	Generation uint64          `json:"generation"`
 	EventID    string          `json:"event_id,omitempty"`
 	EventType  string          `json:"event_type"`
 	AuditClass string          `json:"audit_class,omitempty"`
@@ -94,9 +89,8 @@ type EventNotify struct {
 
 // LogNotify is the notify payload for ctl/log.
 type LogNotify struct {
-	Lease LeaseKey `json:"lease"`
-	// Deprecated compatibility mirror.
-	InstanceID string         `json:"instance_id,omitempty"`
+	InstanceID string         `json:"instance_id"`
+	Generation uint64         `json:"generation"`
 	Seq        uint64         `json:"seq,omitempty"`
 	Level      string         `json:"level"`
 	Message    string         `json:"message"`
@@ -106,17 +100,14 @@ type LogNotify struct {
 
 // ApprovalRequest is the request payload for ctl/approval/request.
 type ApprovalRequest struct {
-	Lease LeaseKey `json:"lease"`
-	// Deprecated compatibility mirrors.
-	InstanceID string `json:"instance_id,omitempty"`
-	// Deprecated: use LeaseKey. Will be removed after 2026-06-30.
-	LeaseID   string          `json:"lease_id,omitempty"`
-	CallID    string          `json:"call_id"`
-	ToolName  string          `json:"tool_name"`
-	Reason    string          `json:"reason"`
-	Kind      string          `json:"kind"`
-	Payload   json.RawMessage `json:"payload"`
-	TimeoutMs int             `json:"timeout_ms,omitempty"`
+	InstanceID string          `json:"instance_id"`
+	Generation uint64          `json:"generation"`
+	CallID     string          `json:"call_id"`
+	ToolName   string          `json:"tool_name"`
+	Reason     string          `json:"reason"`
+	Kind       string          `json:"kind"`
+	Payload    json.RawMessage `json:"payload"`
+	TimeoutMs  int             `json:"timeout_ms,omitempty"`
 }
 
 // RuntimeReport is the durable runtime variant of ctl/report.
@@ -160,13 +151,10 @@ type ReportEnvelope struct {
 
 // ReportRequest is the request payload for ctl/report.
 type ReportRequest struct {
-	Lease LeaseKey `json:"lease"`
-	// Deprecated compatibility mirrors.
-	InstanceID string `json:"instance_id,omitempty"`
-	// Deprecated: use LeaseKey. Will be removed after 2026-06-30.
-	LeaseID  string         `json:"lease_id,omitempty"`
-	ReportID string         `json:"report_id"` // idempotency key
-	Report   ReportEnvelope `json:"report"`
+	InstanceID string         `json:"instance_id"`
+	Generation uint64         `json:"generation"`
+	ReportID   string         `json:"report_id"` // idempotency key
+	Report     ReportEnvelope `json:"report"`
 }
 
 // ReportResponse is the response for ctl/report.
@@ -180,12 +168,13 @@ type ReportResponse struct {
 
 // ShutdownRequest is the request payload for ctl/shutdown.
 type ShutdownRequest struct {
-	Lease               LeaseKey `json:"lease"`
-	ShutdownID          string   `json:"shutdown_id"`
-	Reason              string   `json:"reason"`
-	TimeoutMs           int      `json:"timeout_ms,omitempty"`
-	DeadlineMs          int      `json:"deadline_ms,omitempty"`
-	FinalReportExpected bool     `json:"final_report_expected,omitempty"`
+	InstanceID          string `json:"instance_id"`
+	Generation          uint64 `json:"generation"`
+	ShutdownID          string `json:"shutdown_id"`
+	Reason              string `json:"reason"`
+	TimeoutMs           int    `json:"timeout_ms,omitempty"`
+	DeadlineMs          int    `json:"deadline_ms,omitempty"`
+	FinalReportExpected bool   `json:"final_report_expected,omitempty"`
 }
 
 // SelectorScope is the target scope inside a config selector.

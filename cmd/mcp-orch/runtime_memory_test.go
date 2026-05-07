@@ -6,7 +6,7 @@ import (
 )
 
 func TestNewRegistryDoesNotIncludeMemoryTools(t *testing.T) {
-	registry := newRegistry(nil, nil, nil, nil, nil)
+	registry := newRegistry(newRegistryParams{})
 	if _, ok := registry.Lookup("memory_read"); ok {
 		t.Fatal("memory_read must not be registered by mcp-orch")
 	}
@@ -16,7 +16,7 @@ func TestNewRegistryDoesNotIncludeMemoryTools(t *testing.T) {
 }
 
 func TestBuildBootstrapConfigDoesNotAdvertiseMemoryCapability(t *testing.T) {
-	cfg := buildBootstrapConfig(nil, nil, newRegistry(nil, nil, nil, nil, nil))
+	cfg := buildBootstrapConfig(nil, nil, newRegistry(newRegistryParams{}))
 	if slices.Contains(cfg.Capabilities, "tools/memory") {
 		t.Fatalf("Capabilities = %#v, want no tools/memory", cfg.Capabilities)
 	}

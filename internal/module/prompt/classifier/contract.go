@@ -10,49 +10,28 @@
 //     deterministic-enough at top-1 granularity, cheaper than duplicating
 //     intent classification in Go, and short-circuits cleanly when the user
 //     has already pinned a prompt (the pin wins, classifier is skipped).
+//
+// The canonical interface and DTO types are defined in internal/contract
+// (PromptClassifier*) so that consumers (thread module) depend only on the
+// contract layer. This package provides type aliases for backward
+// compatibility and houses the concrete implementations.
 package classifier
 
 import (
-	"context"
-	"time"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// Candidate is one prompt_template exposed to the classifier for ranking.
-// Only the human-readable metadata is sent; PromptText is deliberately
-// omitted to keep the classifier prompt under control and cost low.
-type Candidate struct {
-	PromptKey   string
-	Title       string
-	Description string
-	Tags        []string
-}
+// Candidate is an alias for the contract-layer DTO.
+type Candidate = contract.PromptClassifierCandidate
 
-// Input is a classification request.
-type Input struct {
-	UserInput  string
-	Candidates []Candidate
-}
+// Input is an alias for the contract-layer DTO.
+type Input = contract.PromptClassifierInput
 
-// Result is the classifier's top-1 pick.
-//
-// An empty PromptKey is the explicit "no strong match" signal; callers should
-// fall through to default routing in that case rather than pick arbitrarily.
-type Result struct {
-	PromptKey string
-	Reason    string
-	Latency   time.Duration
-	// Model records which model answered, for observability. Empty when the
-	// concrete implementation does not surface it.
-	Model string
-}
+// Result is an alias for the contract-layer DTO.
+type Result = contract.PromptClassifierResult
 
-// Classifier is the narrow contract the thread router depends on. The thread
-// module takes this as optional fx dependency; when nil (or a noop), the
-// router behaves exactly like the previous "single-pin only" path.
-type Classifier interface {
-	Classify(ctx context.Context, in Input) (Result, error)
-	// Enabled reports whether the classifier will make a real attempt on
-	// Classify. Callers can use this to short-circuit candidate collection
-	// and logging when the feature is off.
-	Enabled() bool
-}
+// FastPathDecision is an alias for the contract-layer DTO.
+type FastPathDecision = contract.PromptClassifierFastPathDecision
+
+// Classifier is an alias for the contract-layer interface.
+type Classifier = contract.PromptClassifier

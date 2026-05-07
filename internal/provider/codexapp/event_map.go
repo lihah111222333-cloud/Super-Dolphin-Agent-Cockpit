@@ -11,8 +11,8 @@ import (
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	turnpkg "github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -167,7 +167,7 @@ func translateAgentEvent(eventType string, payload map[string]any) (any, bool) {
 func translateTurnEvent(eventType string, payload map[string]any) (any, bool) {
 	if isTurnTerminalEvent(eventType) {
 		header := buildTurnHeader(payload)
-		turnpkg.ResetToolResultScope(header.ThreadID, header.TurnID)
+		providershared.ResetToolResultScope(header.ThreadID, header.TurnID)
 		return turndto.TurnCompleted{
 			TurnHeader: header,
 			Success:    turnTerminalSuccess(eventType, payload),
@@ -232,9 +232,9 @@ func validatedStateChangedEvent(payload map[string]any) (any, bool) {
 	}
 	switch strings.TrimSpace(newState) {
 	case "active":
-		newState = agentdto.StateTurnRunning
+		newState = string(agentdto.StateTurnRunning)
 	case "idle":
-		newState = agentdto.StateIdle
+		newState = string(agentdto.StateIdle)
 	}
 	if !isKnownAgentState(newState) {
 		return nil, false
@@ -245,9 +245,9 @@ func validatedStateChangedEvent(payload map[string]any) (any, bool) {
 	}
 	switch strings.TrimSpace(oldState) {
 	case "active":
-		oldState = agentdto.StateTurnRunning
+		oldState = string(agentdto.StateTurnRunning)
 	case "idle":
-		oldState = agentdto.StateIdle
+		oldState = string(agentdto.StateIdle)
 	}
 	if oldState != "" && !isKnownAgentState(oldState) {
 		return nil, false
@@ -266,7 +266,7 @@ func isKnownAgentState(state string) bool {
 		return false
 	}
 	for _, candidate := range agentdto.StateDefinitions {
-		if candidate.Name == state {
+		if string(candidate.Name) == state {
 			return true
 		}
 	}
@@ -293,7 +293,7 @@ func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 			return nil, false
 		}
 		header := buildToolCallHeader(payload)
-		result := turnpkg.CaptureToolResult(turnpkg.ToolResultMeta{
+		result := providershared.CaptureToolResult(providershared.ToolResultMeta{
 			ThreadID:  header.ThreadID,
 			TurnID:    header.TurnID,
 			CallID:    header.CallID,

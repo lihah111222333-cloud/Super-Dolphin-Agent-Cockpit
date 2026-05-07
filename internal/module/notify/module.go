@@ -7,7 +7,7 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platform "github.com/anthropic-ai/super-agent-v3/internal/module/notify/platform"
+	platform "github.com/anthropic-ai/super-agent-v3/internal/platform/notify"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -19,9 +19,10 @@ import (
 //     ErrNotifyAliasNotFound without trying to reach any network).
 //   - *platform.WebhookClient configured with AllowPrivateCIDR /
 //     Timeout honoring NotifyConfig.
-//   - *Notifier, exposed both as *Notifier (for metrics) and as the
-//     contract.MessageNotifier interface (for downstream consumers).
-//   - *Flusher, published into the shared group:"runners" slice so
+//   - *platform.Notifier, exposed both as *platform.Notifier (for metrics)
+//     and as the contract.MessageNotifier interface (for downstream
+//     consumers).
+//   - *platform.Flusher, published into the shared group:"runners" slice so
 //     platformrunner.RunGroup drives it with the rest of the core
 //     Runners.
 //
@@ -57,31 +58,41 @@ func provideWebhookClient(cfg *contract.Config) *platform.WebhookClient {
 	return platform.NewWebhookClient(wcfg)
 }
 
-func provideNotifier(logger *slog.Logger, cfg *contract.Config, resolver platform.Resolver) *Notifier {
+func provideNotifier(logger *slog.Logger, cfg *contract.Config, resolver platform.Resolver) *platform.Notifier {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
-	capacity := DefaultQueueCapacity
+	capacity := platform.DefaultQueueCapacity
 	if cfg != nil && cfg.Notify.QueueCapacity > 0 {
 		capacity = cfg.Notify.QueueCapacity
 	}
-	return NewNotifier(logger, resolver, capacity)
+	return platform.NewNotifier(logger, resolver, capacity)
 }
 
-// provideMessageNotifierContract narrows *Notifier to the public
+// provideMessageNotifierContract narrows *platform.Notifier to the public
 // contract.MessageNotifier interface so downstream consumers (cron,
 // agent failure handlers, ...) don't bind to the concrete type.
-func provideMessageNotifierContract(n *Notifier) contract.MessageNotifier { return n }
+func provideMessageNotifierContract(n *platform.Notifier) contract.MessageNotifier { return n }
 
-func provideFlusher(logger *slog.Logger, cfg *contract.Config, notifier *Notifier, client *platform.WebhookClient) *Flusher {
+type provideFlusherParams struct {
+	fx.In
+
+	Logger   *slog.Logger
+	Cfg      *contract.Config
+	Notifier *platform.Notifier
+	Client   *platform.WebhookClient
+}
+
+func provideFlusher(p provideFlusherParams) *platform.Flusher {
+	logger := p.Logger
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
-	drain := DefaultDrainTimeout
-	if cfg != nil && cfg.Notify.DrainSeconds > 0 {
-		drain = time.Duration(cfg.Notify.DrainSeconds) * time.Second
+	drain := platform.DefaultDrainTimeout
+	if p.Cfg != nil && p.Cfg.Notify.DrainSeconds > 0 {
+		drain = time.Duration(p.Cfg.Notify.DrainSeconds) * time.Second
 	}
-	return NewFlusher(logger, notifier, client, drain)
+	return platform.NewFlusher(logger, p.Notifier, p.Client, drain)
 }
 
-func flusherAsRunner(f *Flusher) contract.Runner { return f }
+func flusherAsRunner(f *platform.Flusher) contract.Runner { return f }

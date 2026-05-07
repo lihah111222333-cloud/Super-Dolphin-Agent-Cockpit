@@ -16,6 +16,15 @@ type Runner interface {
 	Run(ctx context.Context) error
 }
 
+// NoopRunner is a Runner that blocks until its context is cancelled.
+// Used as a placeholder when an optional component is disabled.
+type NoopRunner struct{}
+
+func (NoopRunner) Run(ctx context.Context) error {
+	<-ctx.Done()
+	return nil
+}
+
 type GroupOptions struct {
 	EnableSignals bool
 }

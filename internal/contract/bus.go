@@ -2,9 +2,8 @@ package contract
 
 import (
 	"context"
+	"log/slog"
 	"reflect"
-
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 
 	"github.com/kelindar/event"
 )
@@ -27,13 +26,13 @@ type SubscriberSpec struct {
 // ---------------------------------------------------------------------------
 // ResilientSubscribe subscribes to events with panic recovery.
 // ---------------------------------------------------------------------------
-func ResilientSubscribe[T event.Event](dispatcher *event.Dispatcher, fn func(T), logger *pkglogger.Logger) context.CancelFunc {
+func ResilientSubscribe[T event.Event](dispatcher *event.Dispatcher, fn func(T), logger *slog.Logger) context.CancelFunc {
 	if dispatcher == nil || fn == nil {
 		return func() {}
 	}
 	log := logger
 	if log == nil {
-		log = pkglogger.Get()
+		log = slog.Default()
 	}
 	return event.Subscribe(dispatcher, func(ev T) {
 		if recovered := recoverCall(func() { fn(ev) }); recovered != nil {

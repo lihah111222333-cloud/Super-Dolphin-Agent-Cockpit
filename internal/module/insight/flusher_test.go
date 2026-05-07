@@ -7,7 +7,8 @@ import (
 	"testing"
 	"time"
 
-	observation "github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation"
+	observation "github.com/anthropic-ai/super-agent-v3/internal/dto/observation"
+	moduleobs "github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation"
 	insightstore "github.com/anthropic-ai/super-agent-v3/internal/store/insight"
 )
 
@@ -72,7 +73,7 @@ func newTestFlusher(t *testing.T, obs observation.Contract, store insightstore.S
 func TestFlusherBuildsUpsertFromObservation(t *testing.T) {
 	t.Parallel()
 
-	mem := observation.NewMemory()
+	mem := moduleobs.NewMemory()
 	// Seed observation with a completed turn.
 	start := time.Unix(1_700_000_000, 0).UTC()
 	end := start.Add(3 * time.Second)
@@ -139,7 +140,7 @@ func TestFlusherBuildsUpsertFromObservation(t *testing.T) {
 func TestFlusherMapsUnknownTerminalToStatusUnknown(t *testing.T) {
 	t.Parallel()
 
-	mem := observation.NewMemory()
+	mem := moduleobs.NewMemory()
 	mem.RecordTerminal("t", observation.Terminal{Kind: observation.TerminalUnknown})
 
 	var got insightstore.UpsertParams
@@ -162,7 +163,7 @@ func TestFlusherMapsUnknownTerminalToStatusUnknown(t *testing.T) {
 func TestFlusherRequeuesWhenObservationEmpty(t *testing.T) {
 	t.Parallel()
 
-	mem := observation.NewMemory() // intentionally empty
+	mem := moduleobs.NewMemory() // intentionally empty
 	store := &fakeInsightStore{
 		upsertFn: func(_ context.Context, _ insightstore.UpsertParams) (insightstore.Insight, error) {
 			t.Fatal("Upsert should not run when observation has no terminal")
@@ -188,7 +189,7 @@ func TestFlusherRequeuesWhenObservationEmpty(t *testing.T) {
 func TestFlusherUsesSignalTimestampProviderAndCodexApprovalObserved(t *testing.T) {
 	t.Parallel()
 
-	mem := observation.NewMemory()
+	mem := moduleobs.NewMemory()
 	mem.RecordTerminal("local-1", observation.Terminal{Kind: observation.TerminalCompleted})
 	stamp := time.Unix(1_700_000_123, 0).UTC()
 
@@ -221,7 +222,7 @@ func TestFlusherUsesSignalTimestampProviderAndCodexApprovalObserved(t *testing.T
 func TestFlusherDrainRunsOnCancel(t *testing.T) {
 	t.Parallel()
 
-	mem := observation.NewMemory()
+	mem := moduleobs.NewMemory()
 	mem.RecordTerminal("t", observation.Terminal{Kind: observation.TerminalCompleted})
 
 	done := make(chan struct{}, 1)
@@ -254,7 +255,7 @@ func TestFlusherDrainRunsOnCancel(t *testing.T) {
 func TestFlusherLogsButIgnoresStoreError(t *testing.T) {
 	t.Parallel()
 
-	mem := observation.NewMemory()
+	mem := moduleobs.NewMemory()
 	mem.RecordTerminal("t", observation.Terminal{Kind: observation.TerminalFailed})
 	store := &fakeInsightStore{
 		upsertFn: func(context.Context, insightstore.UpsertParams) (insightstore.Insight, error) {

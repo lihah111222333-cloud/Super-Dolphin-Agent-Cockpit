@@ -12,7 +12,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
@@ -503,34 +502,15 @@ type stubTurnService struct {
 	calls          *[]string
 }
 
-func (s *stubTurnService) PrepareTurn(context.Context, contract.Session, turn.PrepareInput) (dto.TurnRequest, error) {
-	return dto.TurnRequest{}, nil
-}
-func (s *stubTurnService) StartTurn(context.Context, contract.Session, dto.TurnRequest) (contract.TurnHandle, error) {
-	return nil, nil
-}
-func (s *stubTurnService) SteerTurn(context.Context, contract.Session, string, turn.PrepareInput) (contract.TurnHandle, error) {
-	return nil, nil
-}
-func (s *stubTurnService) InterruptTurn(context.Context, contract.Session, string) (turn.TurnStatus, error) {
-	return turn.TurnStatus{}, nil
-}
 func (s *stubTurnService) InterruptActiveTurn(_ context.Context, session contract.Session, source string) error {
 	s.interruptCalls = append(s.interruptCalls, session.ThreadID()+":"+source)
 	recordCall(s.calls, "turn_interrupt:"+session.ThreadID()+":"+source)
 	return nil
 }
-func (s *stubTurnService) ForceCompleteTurn(context.Context, contract.Session) error { return nil }
 func (s *stubTurnService) CleanupThread(_ context.Context, threadID, reason string) error {
 	s.cleanupCalls = append(s.cleanupCalls, threadID+":"+reason)
 	recordCall(s.calls, "turn_cleanup:"+threadID+":"+reason)
 	return nil
-}
-func (s *stubTurnService) TrackTurn(context.Context, string) (turn.TurnStatus, error) {
-	return turn.TurnStatus{}, nil
-}
-func (s *stubTurnService) LookupByDedupeKey(context.Context, string) (turn.TurnStatus, bool, error) {
-	return turn.TurnStatus{}, false, nil
 }
 
 type stubThreadOrchestration struct {

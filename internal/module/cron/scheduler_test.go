@@ -19,25 +19,25 @@ import (
 // the methods the scheduler calls have first-class slots; everything
 // else returns zero-values so lint / compile stays quiet.
 type recordingCronStore struct {
-	mu               sync.Mutex
-	claimFn          func(context.Context, cronstore.ClaimDueJobsParams) ([]cronstore.Job, error)
-	insertRunFn      func(context.Context, cronstore.InsertRunParams) (cronstore.Run, error)
-	casStatusFn      func(context.Context, cronstore.CASRunStatusParams) error
-	setRunTurnFn     func(context.Context, cronstore.SetRunTurnParams) error
-	setActiveTurnFn  func(context.Context, cronstore.SetActiveTurnParams) error
-	markFinishedFn   func(context.Context, cronstore.MarkFinishedParams) error
-	markFailedFn     func(context.Context, cronstore.MarkFailedParams) error
-	renewLeaseFn     func(context.Context, cronstore.LeaseParams) error
-	listJobsFn       func(context.Context) ([]cronstore.Job, error)
-	getJobFn         func(context.Context, string) (cronstore.Job, error)
-	listUnresolvedFn func(context.Context) ([]cronstore.Run, error)
+	mu                      sync.Mutex
+	claimFn                 func(context.Context, cronstore.ClaimDueJobsForUpdateParams) ([]cronstore.Job, error)
+	insertRunFn             func(context.Context, cronstore.InsertRunParams) (cronstore.Run, error)
+	casStatusFn             func(context.Context, cronstore.CASRunStatusParams) error
+	setRunTurnFn            func(context.Context, cronstore.SetRunTurnParams) error
+	setActiveTurnFn         func(context.Context, cronstore.SetActiveTurnParams) error
+	markFinishedFn          func(context.Context, cronstore.MarkFinishedParams) error
+	markFailedFn            func(context.Context, cronstore.MarkFailedParams) error
+	renewLeaseFn            func(context.Context, cronstore.LeaseParams) error
+	listJobsFn              func(context.Context) ([]cronstore.Job, error)
+	getJobFn                func(context.Context, string) (cronstore.Job, error)
+	listUnresolvedFn        func(context.Context) ([]cronstore.Run, error)
 	getRunningRunByTurnIDFn func(context.Context, string) (cronstore.Run, error)
 	listJobsClaimedByFn     func(context.Context, string) ([]cronstore.Job, error)
 
 	casCalls []cronstore.CASRunStatusParams
 }
 
-func (s *recordingCronStore) ClaimDueJobs(ctx context.Context, p cronstore.ClaimDueJobsParams) ([]cronstore.Job, error) {
+func (s *recordingCronStore) ClaimDueJobsForUpdate(ctx context.Context, p cronstore.ClaimDueJobsForUpdateParams) ([]cronstore.Job, error) {
 	if s.claimFn != nil {
 		return s.claimFn(ctx, p)
 	}
@@ -258,7 +258,7 @@ func TestSchedulerDriveJobHappyPath(t *testing.T) {
 		ClaimToken:   "claim-token-xyz",
 		NextRunAt:    now,
 	}
-	store.claimFn = func(context.Context, cronstore.ClaimDueJobsParams) ([]cronstore.Job, error) {
+	store.claimFn = func(context.Context, cronstore.ClaimDueJobsForUpdateParams) ([]cronstore.Job, error) {
 		return []cronstore.Job{job}, nil
 	}
 
@@ -309,7 +309,7 @@ func TestSchedulerStartTurnFailureMarksFailed(t *testing.T) {
 		ID: "job-1", ScheduleExpr: "0 9 * * *", ClaimToken: "tok", NextRunAt: s.now(),
 		MaxAttempts: 3,
 	}
-	store.claimFn = func(context.Context, cronstore.ClaimDueJobsParams) ([]cronstore.Job, error) {
+	store.claimFn = func(context.Context, cronstore.ClaimDueJobsForUpdateParams) ([]cronstore.Job, error) {
 		return []cronstore.Job{job}, nil
 	}
 	if err := s.RunTick(context.Background()); err != nil {
@@ -337,7 +337,7 @@ func TestSchedulerObserveFailureMarksObserveLost(t *testing.T) {
 		return nil
 	}
 	job := cronstore.Job{ID: "job-1", ScheduleExpr: "0 9 * * *", ClaimToken: "tok", NextRunAt: s.now()}
-	store.claimFn = func(context.Context, cronstore.ClaimDueJobsParams) ([]cronstore.Job, error) {
+	store.claimFn = func(context.Context, cronstore.ClaimDueJobsForUpdateParams) ([]cronstore.Job, error) {
 		return []cronstore.Job{job}, nil
 	}
 	if err := s.RunTick(context.Background()); err != nil {
@@ -358,7 +358,7 @@ func TestSchedulerDoesNotFinishLongTurnUntilTerminalEvent(t *testing.T) {
 	s := newTestScheduler(t, store, sub)
 
 	job := cronstore.Job{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "tok", NextRunAt: s.now()}
-	store.claimFn = func(context.Context, cronstore.ClaimDueJobsParams) ([]cronstore.Job, error) {
+	store.claimFn = func(context.Context, cronstore.ClaimDueJobsForUpdateParams) ([]cronstore.Job, error) {
 		return []cronstore.Job{job}, nil
 	}
 	markFinishedCalls := 0

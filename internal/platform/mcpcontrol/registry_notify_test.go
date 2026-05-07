@@ -85,7 +85,7 @@ func newRegisteredLocalRegistry(t *testing.T, extra handler.Map, req dto.Registe
 	if err := local.Client.CallResult(context.Background(), dto.MethodRegister, req, &resp); err != nil {
 		t.Fatalf("CallResult(register) error = %v", err)
 	}
-	return &registeredLocalRegistry{registry: registry, lease: resp.Lease}
+	return &registeredLocalRegistry{registry: registry, lease: dto.LeaseKey{InstanceID: resp.InstanceID, Generation: resp.Generation}}
 }
 
 func TestNewToolRegistry_Basic(t *testing.T) {

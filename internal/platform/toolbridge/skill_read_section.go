@@ -5,29 +5,30 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/fbsd"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 // ToolNameReadSection is the model-visible name for the skill_read_section host-direct tool.
 const ToolNameReadSection = "skill_read_section"
 
 // SkillReadSectionTool reads a reference section file from the skill cache directory.
-// It calls skilllibrary.ReadSection to locate <cacheDir>/<name>/references/<NN-anchor>.md
+// It calls the injected SkillSectionReader to locate <cacheDir>/<name>/references/<NN-anchor>.md
 // by anchor suffix, and optionally truncates the result to max_bytes.
 //
-// P6: when tracker is non-nil and enabled, every successful Call records a
+// P6: when recorder is non-nil, every successful Call records a
 // CallEvent (skill name + anchor) for FBSD frequency-based tier ranking.
 type SkillReadSectionTool struct {
 	cacheDir string
-	tracker  *fbsd.Tracker // nil-safe, optional
+	reader   contract.SkillSectionReader // injected; reads section from cache
+	recorder contract.SkillCallRecorder  // nil-safe, optional
 }
 
 // NewSkillReadSectionTool constructs a SkillReadSectionTool that serves files from cacheDir.
-// tracker is optional (nil-safe); when non-nil and feature flag enabled, FBSD打点 happens
+// reader is the section-reading function (production: skilllibrary.ReadSection).
+// recorder is optional (nil-safe); when non-nil, FBSD打点 happens
 // after every successful Call.
-func NewSkillReadSectionTool(cacheDir string, tracker *fbsd.Tracker) *SkillReadSectionTool {
-	return &SkillReadSectionTool{cacheDir: cacheDir, tracker: tracker}
+func NewSkillReadSectionTool(cacheDir string, reader contract.SkillSectionReader, recorder contract.SkillCallRecorder) *SkillReadSectionTool {
+	return &SkillReadSectionTool{cacheDir: cacheDir, reader: reader, recorder: recorder}
 }
 
 // skillReadSectionArgs holds the JSON-decoded arguments for a skill_read_section call.
@@ -61,7 +62,7 @@ type skillReadSectionPayload struct {
 }
 
 func (t *SkillReadSectionTool) readSection(a skillReadSectionArgs) (skillReadSectionPayload, error) {
-	body, err := skilllibrary.ReadSection(t.cacheDir, a.Name, a.Anchor)
+	body, err := t.reader(t.cacheDir, a.Name, a.Anchor)
 	if err != nil {
 		return skillReadSectionPayload{}, fmt.Errorf("skill_read_section: %w", err)
 	}
@@ -71,8 +72,10 @@ func (t *SkillReadSectionTool) readSection(a skillReadSectionArgs) (skillReadSec
 		body = body[:a.MaxBytes]
 		truncated = true
 	}
-	// P6 FBSD 打点：成功 ReadSection 后异步记录调用频次。tracker 为 nil 或
-	// disabled 时 Record 内部 no-op。
-	t.tracker.Record(a.Name, a.Anchor)
+	// P6 FBSD 打点：成功 ReadSection 后异步记录调用频次。recorder 为 nil 时
+	// 跳过打点（向后兼容）。
+	if t.recorder != nil {
+		t.recorder.Record(a.Name, a.Anchor)
+	}
 	return skillReadSectionPayload{body: body, totalBytes: totalBytes, truncated: truncated}, nil
 }

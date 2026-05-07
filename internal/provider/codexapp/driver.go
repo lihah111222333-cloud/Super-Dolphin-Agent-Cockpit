@@ -13,8 +13,6 @@ import (
 
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/fbsd"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
@@ -24,31 +22,29 @@ import (
 
 type DriverFactory struct {
 	contract.DriverFactory
-	mu              sync.RWMutex
-	logger          *slog.Logger
-	eventDispatcher *unified.EventDispatcher
-	approvals       *rpc.ApprovalManager
-	reporter        contract.RuntimeReporter
-	manager         *ServerManager
-	pool            *ServerPool
-	listTools       func(context.Context) ([]codexprotocol.DynamicToolSchema, error)
-	skillStore      *skilllibrary.Store
-	tracker         *fbsd.Tracker // P6 FBSD; optional, nil-safe
+	mu               sync.RWMutex
+	logger           *slog.Logger
+	eventDispatcher  *unified.EventDispatcher
+	approvals        *rpc.ApprovalManager
+	reporter         contract.RuntimeReporter
+	manager          *ServerManager
+	pool             *ServerPool
+	listTools        func(context.Context) ([]codexprotocol.DynamicToolSchema, error)
+	manifestRenderer contract.SkillManifestRenderer // P6 FBSD + skill library; optional, nil-safe
 }
 
 const fallbackBaseInstructions = "You are a helpful assistant."
 
 type driver struct {
-	logger          *slog.Logger
-	serverURL       string
-	eventDispatcher *unified.EventDispatcher
-	approvals       *rpc.ApprovalManager
-	reporter        contract.RuntimeReporter
-	manager         *ServerManager
-	pool            *ServerPool
-	listTools       func(context.Context) ([]codexprotocol.DynamicToolSchema, error)
-	skillStore      *skilllibrary.Store
-	tracker         *fbsd.Tracker // P6 FBSD; optional, nil-safe
+	logger           *slog.Logger
+	serverURL        string
+	eventDispatcher  *unified.EventDispatcher
+	approvals        *rpc.ApprovalManager
+	reporter         contract.RuntimeReporter
+	manager          *ServerManager
+	pool             *ServerPool
+	listTools        func(context.Context) ([]codexprotocol.DynamicToolSchema, error)
+	manifestRenderer contract.SkillManifestRenderer // P6 FBSD + skill library; optional, nil-safe
 }
 
 const defaultManifestBudget = 8192
@@ -107,23 +103,21 @@ func NewDriverFactory(
 	reporter contract.RuntimeReporter,
 	manager *ServerManager,
 	pool *ServerPool,
-	skillStore *skilllibrary.Store,
-	tracker *fbsd.Tracker,
+	manifestRenderer contract.SkillManifestRenderer,
 ) *DriverFactory {
 	factory := &DriverFactory{
-		logger:          logger,
-		eventDispatcher: dispatcher,
-		approvals:       approvals,
-		reporter:        reporter,
-		manager:         manager,
-		pool:            pool,
-		skillStore:      skillStore,
-		tracker:         tracker,
+		logger:           logger,
+		eventDispatcher:  dispatcher,
+		approvals:        approvals,
+		reporter:         reporter,
+		manager:          manager,
+		pool:             pool,
+		manifestRenderer: manifestRenderer,
 	}
 	factory.DriverFactory = contract.DriverFactory{
 		Name: "codex",
 		Create: func() contract.Driver {
-			return newDriver(logger, dispatcher, approvals, reporter, manager, pool, factory.skillStore, factory.tracker, factory.currentListTools())
+			return newDriver(logger, dispatcher, approvals, reporter, manager, pool, factory.manifestRenderer, factory.currentListTools())
 		},
 		NativeTools: []contract.NativeToolDescriptor{
 			{ID: "read_file", Label: "读文件", Description: "Codex 内置读文件", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
@@ -155,7 +149,7 @@ func (f *DriverFactory) currentListTools() func(context.Context) ([]codexprotoco
 	return f.listTools
 }
 
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager, pool *ServerPool, skillStore *skilllibrary.Store, tracker *fbsd.Tracker, listTools ...func(context.Context) ([]codexprotocol.DynamicToolSchema, error)) contract.Driver {
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager, pool *ServerPool, manifestRenderer contract.SkillManifestRenderer, listTools ...func(context.Context) ([]codexprotocol.DynamicToolSchema, error)) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -168,16 +162,15 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, ap
 		listToolsFn = listTools[0]
 	}
 	return &driver{
-		logger:          logger,
-		serverURL:       serverURL,
-		eventDispatcher: eventDispatcher,
-		approvals:       approvals,
-		reporter:        reporter,
-		manager:         manager,
-		pool:            pool,
-		listTools:       listToolsFn,
-		skillStore:      skillStore,
-		tracker:         tracker,
+		logger:           logger,
+		serverURL:        serverURL,
+		eventDispatcher:  eventDispatcher,
+		approvals:        approvals,
+		reporter:         reporter,
+		manager:          manager,
+		pool:             pool,
+		listTools:        listToolsFn,
+		manifestRenderer: manifestRenderer,
 	}
 }
 
@@ -291,19 +284,15 @@ func (d *driver) startAssemblyInstructions(req dto.StartSessionRequest) (string,
 		configString(req.Config, "developerInstructions"),
 		configString(req.Config, "developer_instructions"),
 	))
-	if d != nil && d.skillStore != nil {
-		if entries, err := d.skillStore.List(); err == nil && len(entries) > 0 {
-			manifest := d.renderSkillManifest(entries)
-			if manifest != "" {
-				if base != "" {
-					base = manifest + "\n\n" + base
-				} else {
-					base = manifest
-				}
+	if d != nil && d.manifestRenderer != nil {
+		manifest := d.manifestRenderer.RenderSkillManifest()
+		if manifest != "" {
+			if base != "" {
+				base = manifest + "\n\n" + base
+			} else {
+				base = manifest
 			}
 		}
-		// err from List() is logged-and-ignored: skill manifest is best-effort,
-		// session start should not fail because the library is unreadable.
 	}
 	if base == "" {
 		base = fallbackBaseInstructions

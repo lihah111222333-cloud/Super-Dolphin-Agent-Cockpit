@@ -3,17 +3,8 @@ package workspace
 import (
 	"encoding/json"
 	"time"
-)
 
-// Event type constants for workspace events.
-// These are self-contained within the workspace module—no dependency on
-// internal/dto/shared.
-const (
-	EventTypeWorkspaceRunCreated       uint32 = 1400
-	EventTypeWorkspaceRunStatusChanged uint32 = 1401
-	EventTypeWorkspaceRunMerged        uint32 = 1402
-	EventTypeWorkspaceRunAborted       uint32 = 1403
-	EventTypeWorkspaceRunMergeError    uint32 = 1404
+	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 )
 
 // EventHeader is a minimal event header for workspace events.
@@ -87,8 +78,8 @@ type WorkspaceRunMergeError struct {
 	UpdatedBy     string `json:"updated_by,omitempty"`
 }
 
-func (WorkspaceRunCreated) Type() uint32       { return EventTypeWorkspaceRunCreated }
-func (WorkspaceRunStatusChanged) Type() uint32 { return EventTypeWorkspaceRunStatusChanged }
-func (WorkspaceRunMerged) Type() uint32        { return EventTypeWorkspaceRunMerged }
-func (WorkspaceRunAborted) Type() uint32       { return EventTypeWorkspaceRunAborted }
-func (WorkspaceRunMergeError) Type() uint32    { return EventTypeWorkspaceRunMergeError }
+func (WorkspaceRunCreated) Type() uint32       { return shared.EventTypeWorkspaceRunCreated }
+func (WorkspaceRunStatusChanged) Type() uint32 { return shared.EventTypeWorkspaceRunStatusChanged }
+func (WorkspaceRunMerged) Type() uint32        { return shared.EventTypeWorkspaceRunMerged }
+func (WorkspaceRunAborted) Type() uint32       { return shared.EventTypeWorkspaceRunAborted }
+func (WorkspaceRunMergeError) Type() uint32    { return shared.EventTypeWorkspaceRunMergeError }

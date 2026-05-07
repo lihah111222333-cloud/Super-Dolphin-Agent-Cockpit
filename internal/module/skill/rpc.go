@@ -124,11 +124,11 @@ func skillRPCError(err error) error {
 	}
 	switch {
 	case errors.Is(err, ErrMissingCWD):
-		return jrpc2.Errorf(jrpc2.InvalidParams, "%s", err.Error())
+		return platformrpc.ErrInvalidParams(err.Error())
 	case errors.Is(err, os.ErrNotExist):
 		return platformrpc.ErrNotFound(err.Error())
 	case errors.Is(err, ErrInvalidSkillName), errors.Is(err, errInvalidSkillExpandParam), errors.Is(err, ErrInvalidSkillScope):
-		return jrpc2.Errorf(jrpc2.InvalidParams, "%s", err.Error())
+		return platformrpc.ErrInvalidParams(err.Error())
 	case errors.Is(err, errSkillApprovalRequired):
 		rpcErr := jrpc2.Errorf(platformrpc.CodeInvalidState, "%s", err.Error())
 		var required SkillApprovalRequiredError
@@ -143,7 +143,7 @@ func skillRPCError(err error) error {
 		errors.Is(err, ErrCallerFingerprintRequired),
 		errors.Is(err, ErrRepoFingerprintMismatch),
 		errors.Is(err, ErrCandidateNotPending):
-		return jrpc2.Errorf(jrpc2.InvalidParams, "%s", err.Error())
+		return platformrpc.ErrInvalidParams(err.Error())
 	default:
 		return err
 	}

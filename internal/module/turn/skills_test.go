@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	skillpkg "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 )
 
 func TestSkillDedupKey(t *testing.T) {
@@ -144,8 +144,8 @@ func TestNormalizePrepareSkillRefs_SelectedManualOnlyWhenManualSelectionTrue(t *
 // 仅含 Name 的 ref 补出 Summary + Version；Source=Unspecified 不被改写。
 func TestApplyHydration_HydratesSummaryAndVersionForBareRef(t *testing.T) {
 	svc := &service{}
-	index := map[string]skillpkg.SkillInfo{
-		"alpha": {Name: "alpha", Dir: "/tmp/skills/alpha", Summary: "summary-a", ContentHash: "hash-aaaaaaaaaaaa", Trust: skillpkg.TrustUser},
+	index := map[string]contract.SkillInfo{
+		"alpha": {Name: "alpha", Dir: "/tmp/skills/alpha", Summary: "summary-a", ContentHash: "hash-aaaaaaaaaaaa", Trust: contract.TrustUser},
 	}
 	ref := dto.SkillRef{Name: "alpha"}
 	out := svc.applyHydration(context.Background(), ref, index, skillHydrationPolicy{})
@@ -159,12 +159,12 @@ func TestApplyHydration_HydratesSummaryAndVersionForBareRef(t *testing.T) {
 
 func TestApplyHydration_UntrustedSummary_RedactedWhenSourceUnspecified(t *testing.T) {
 	svc := &service{}
-	index := map[string]skillpkg.SkillInfo{
+	index := map[string]contract.SkillInfo{
 		"project-skill": {
 			Name:        "project-skill",
 			Summary:     "SECRET PROJECT SUMMARY",
 			ContentHash: "hash-project-summary",
-			Trust:       skillpkg.TrustProject,
+			Trust:       contract.TrustProject,
 		},
 	}
 	out := svc.applyHydration(context.Background(), dto.SkillRef{Name: "project-skill"}, index, skillHydrationPolicy{ManualSkillSelection: true})
@@ -181,12 +181,12 @@ func TestApplyHydration_UntrustedSummary_RedactedWhenSourceUnspecified(t *testin
 
 func TestApplyHydration_UntrustedSummary_AllowsOnlyRealManualSelection(t *testing.T) {
 	svc := &service{}
-	index := map[string]skillpkg.SkillInfo{
+	index := map[string]contract.SkillInfo{
 		"project-skill": {
 			Name:        "project-skill",
 			Summary:     "manual approved summary",
 			ContentHash: "hash-manual-summary",
-			Trust:       skillpkg.TrustProject,
+			Trust:       contract.TrustProject,
 		},
 	}
 
@@ -206,12 +206,12 @@ func TestApplyHydration_UntrustedSummary_AllowsOnlyRealManualSelection(t *testin
 
 func TestApplyHydration_UntrustedSummary_RedactedForTriggerAndForce(t *testing.T) {
 	svc := &service{}
-	index := map[string]skillpkg.SkillInfo{
+	index := map[string]contract.SkillInfo{
 		"project-skill": {
 			Name:        "project-skill",
 			Summary:     "SECRET AUTO SUMMARY",
 			ContentHash: "hash-auto-summary",
-			Trust:       skillpkg.TrustProject,
+			Trust:       contract.TrustProject,
 		},
 	}
 	for _, source := range []dto.SkillSource{dto.SkillSourceTrigger, dto.SkillSourceForce} {

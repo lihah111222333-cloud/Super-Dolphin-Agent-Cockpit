@@ -1,12 +1,14 @@
 package turn
 
 import (
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/statemachine"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/qmuntal/stateless"
 )
 
@@ -120,13 +122,14 @@ func (s *inMemoryTurnTrackerStore) Tick() time.Time {
 // ---------------------------------------------------------------------------
 
 type turnTracker struct {
-	store turnTrackerStore
+	store  turnTrackerStore
+	logger *slog.Logger
 }
 
 type trackedTurn struct {
 	localID, providerID, threadID string
 	dedupeKey                     string
-	state                         string
+	state                         TurnState
 	startedAt, updatedAt          time.Time
 	lastError                     string
 	interruptRequested            bool
@@ -141,7 +144,7 @@ type activeTurn struct {
 }
 
 func newTurnTracker() *turnTracker {
-	return &turnTracker{store: newInMemoryTurnTrackerStore()}
+	return &turnTracker{store: newInMemoryTurnTrackerStore(), logger: pkglogger.Get()}
 }
 
 func (t *turnTracker) Start(localID, providerID, threadID string) {
@@ -162,8 +165,8 @@ func (t *turnTracker) Start(localID, providerID, threadID string) {
 
 	turn.sm = statemachine.New(
 		newTurnStateMachineConfig(),
-		func() string { return turn.state },
-		func(next string) { turn.state = next },
+		func() string { return string(turn.state) },
+		func(next string) { turn.state = TurnState(next) },
 	)
 
 	t.store.Put(localID, turn)
@@ -194,7 +197,7 @@ func (t *turnTracker) BindProviderID(localID, providerID string) {
 	})
 }
 
-var stateToTrigger = map[string]string{
+var stateToTrigger = map[TurnState]TurnTrigger{
 	StateRunning:         TriggerRun,
 	StateForceCompleting: TriggerForce,
 	StateInterrupting:    TriggerInterrupt,
@@ -204,15 +207,16 @@ var stateToTrigger = map[string]string{
 	StateStalled:         TriggerStall,
 }
 
-func (t *turnTracker) Update(localID string, state string) {
+func (t *turnTracker) Update(localID string, state TurnState) {
 	localID = strings.TrimSpace(localID)
-	state = strings.TrimSpace(state)
 	trigger := stateToTrigger[state]
 	if localID == "" || trigger == "" {
 		return
 	}
 	t.store.Mutate(localID, func(turn *trackedTurn) {
-		_ = turn.sm.Fire(trigger)
+		if err := turn.sm.Fire(string(trigger)); err != nil {
+			t.logger.Warn("turn: state machine fire failed", "trigger", trigger, "localID", localID, "error", err)
+		}
 		turn.updatedAt = t.store.Tick()
 	})
 }
@@ -233,7 +237,9 @@ func (t *turnTracker) Complete(localID string, success bool, errMsg string) {
 			trigger = TriggerFail
 		}
 
-		_ = turn.sm.Fire(trigger)
+		if err := turn.sm.Fire(string(trigger)); err != nil {
+			t.logger.Warn("turn: state machine fire failed", "trigger", trigger, "localID", localID, "error", err)
+		}
 		turn.updatedAt = t.store.Tick()
 	})
 }
@@ -246,7 +252,7 @@ func (t *turnTracker) MarkInterruptRequested(localID string) bool {
 	var interrupted bool
 	if !t.store.Mutate(localID, func(turn *trackedTurn) {
 		turn.interruptRequested = true
-		if err := turn.sm.Fire(TriggerInterrupt); err == nil {
+		if err := turn.sm.Fire(string(TriggerInterrupt)); err == nil {
 			turn.updatedAt = t.store.Tick()
 			interrupted = true
 		}
@@ -264,7 +270,9 @@ func (t *turnTracker) Stall(localID string, errMsg string) {
 	t.store.Mutate(localID, func(turn *trackedTurn) {
 		turn.handle = nil
 		turn.lastError = strings.TrimSpace(errMsg)
-		_ = turn.sm.Fire(TriggerStall)
+		if err := turn.sm.Fire(string(TriggerStall)); err != nil {
+			t.logger.Warn("turn: state machine fire failed", "trigger", TriggerStall, "localID", localID, "error", err)
+		}
 		turn.updatedAt = t.store.Tick()
 	})
 }
@@ -316,7 +324,7 @@ func (t *turnTracker) AbortThread(threadID, errMsg string) bool {
 		turn.handle = nil
 		turn.interruptRequested = true
 		turn.lastError = errMsg
-		if err := turn.sm.Fire(TriggerAbort); err == nil {
+		if err := turn.sm.Fire(string(TriggerAbort)); err == nil {
 			turn.updatedAt = t.store.Tick()
 			updated = true
 		}
@@ -404,7 +412,7 @@ func (t *trackedTurn) status() TurnStatus {
 	return TurnStatus{
 		LocalID:    t.localID,
 		ProviderID: t.providerID,
-		State:      t.state,
+		State:      string(t.state),
 		Error:      t.lastError,
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	skillmodule "github.com/anthropic-ai/super-agent-v3/internal/module/skill"
 	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
 	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
@@ -72,7 +71,7 @@ func TestGetDashboardPageKeepsSkillDisclosureTier(t *testing.T) {
 	t.Parallel()
 
 	svc := &service{skills: stubSkillLister{
-		items: []skillmodule.SkillInfo{{Name: "HotSkill", DisclosureTier: "hot"}},
+		items: []contract.SkillInfo{{Name: "HotSkill", DisclosureTier: "hot"}},
 	}}
 	got, err := svc.GetDashboardPage(context.Background(), "skills")
 	if err != nil {
@@ -84,10 +83,10 @@ func TestGetDashboardPageKeepsSkillDisclosureTier(t *testing.T) {
 }
 
 type stubSkillLister struct {
-	items []skillmodule.SkillInfo
+	items []contract.SkillInfo
 }
 
-func (s stubSkillLister) ListSkills(context.Context) ([]skillmodule.SkillInfo, error) {
+func (s stubSkillLister) ListSkills(context.Context) ([]contract.SkillInfo, error) {
 	return s.items, nil
 }
 

@@ -3,7 +3,7 @@ package orchestration
 import "time"
 
 func (s *service) publishStateChanged(agent *agentRuntime, before, trigger string) {
-	if agent != nil && before == agent.state {
+	if agent != nil && before == string(agent.state) {
 		return
 	}
 	emitEvent(s.eventBus, eventTypeStateChanged, eventAgentID(agent), agent, before, trigger)

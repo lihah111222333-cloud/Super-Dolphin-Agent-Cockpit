@@ -14,7 +14,6 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
@@ -58,7 +57,7 @@ type service struct {
 
 	prefs           uipreference.Store
 	sharedFiles     sharedfilestore.Reader
-	skillStore      *skilllibrary.Store
+	skillStore      contract.SkillReplacementAggregator
 	disabledToolsFn DisabledBuiltinToolsFn
 
 	dynamicMu sync.RWMutex
@@ -78,9 +77,9 @@ func WithPromptHintSources(prefs uipreference.Store, sharedFiles sharedfilestore
 	}
 }
 
-// WithSkillStore injects the skill library store used to aggregate
+// WithSkillStore injects the skill replacement aggregator used to aggregate
 // ReplacesNative declarations for cross-model native tool suppression.
-func WithSkillStore(store *skilllibrary.Store) ServiceOption {
+func WithSkillStore(store contract.SkillReplacementAggregator) ServiceOption {
 	return func(s *service) {
 		s.skillStore = store
 	}

@@ -85,3 +85,15 @@ func (s *Store) Get(name string) (*SkillEntry, error) {
 
 // List 是 Scan 的便捷封装。
 func (s *Store) List() ([]SkillEntry, error) { return Scan(s.root) }
+
+// ReplacedNativeTools returns the sorted, deduplicated list of native tool
+// names that installed skills declare as replaced for the given provider
+// (e.g. "codex"). On scan error the method returns nil (graceful degradation).
+// This method satisfies contract.SkillReplacementAggregator.
+func (s *Store) ReplacedNativeTools(provider string) []string {
+	entries, err := s.List()
+	if err != nil {
+		return nil
+	}
+	return AggregateReplacementsForProvider(entries, provider)
+}

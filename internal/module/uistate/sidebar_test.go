@@ -5,19 +5,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	"github.com/kelindar/event"
 )
 
 func TestGetSidebarBuildsCompatibilitySnapshot(t *testing.T) {
 	t.Parallel()
 
-	svc, _, err := NewService(nil, nil, nil, nil, nil)
+	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -79,7 +79,7 @@ func TestGetSidebarIncludesTaskHandoffMetadataInRuntime(t *testing.T) {
 			"handoffFile": "handoff/tasks/task-demo.md",
 		},
 	}
-	svc, _, err := NewService(nil, threads, nil, nil, nil)
+	svc, _, err := NewService(nil, nil, nil, nil, nil, threads)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -148,7 +148,7 @@ func TestSetPreferencePublishesProjectionUpdatesForSettingsKeys(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	defer func() { _ = dispatcher.Close() }()
 
-	svc, _, err := NewService(nil, nil, nil, nil, nil)
+	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -188,7 +188,7 @@ func TestProjectionSubscriptionsUpdateSidebarFromLifecycleAndOutputEvents(t *tes
 	dispatcher := event.NewDispatcher()
 	defer func() { _ = dispatcher.Close() }()
 
-	svc, _, err := NewService(nil, nil, nil, nil, nil)
+	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -319,7 +319,7 @@ func mustReceiveProjectionUpdated(t *testing.T, ch <-chan uidto.UIProjectionUpda
 func TestSummarizeThreadsProjectsArchivedStatus(t *testing.T) {
 	t.Parallel()
 
-	got := summarizeThreads([]thread.Ref{{ID: "thread-archived", Name: "Archived", AgentID: "agent-1", Status: " archived "}})
+	got := summarizeThreads([]contract.ThreadRef{{ID: "thread-archived", Name: "Archived", AgentID: "agent-1", Status: " archived "}})
 	if len(got) != 1 || got[0].State != "archived" || got[0].LifecycleStatus != "archived" {
 		t.Fatalf("summarizeThreads() = %#v, want state/lifecycle archived", got)
 	}
@@ -328,7 +328,7 @@ func TestSummarizeThreadsProjectsArchivedStatus(t *testing.T) {
 func TestGetSidebarProjectsDBArchivedStatusIntoArchivesMap(t *testing.T) {
 	t.Parallel()
 
-	svc, _, err := NewService(nil, nil, nil, nil, nil)
+	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -379,7 +379,7 @@ func TestApplyThreadStoppedDeletedRemovesSidebarThread(t *testing.T) {
 func TestApplyThreadStoppedUnarchiveClearsLifecycleArchive(t *testing.T) {
 	t.Parallel()
 
-	svc, _, err := NewService(nil, nil, nil, nil, nil)
+	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -406,7 +406,7 @@ func TestApplyThreadStoppedUnarchiveClearsLifecycleArchive(t *testing.T) {
 func TestGetSidebarProjectsLifecycleArchivedAfterRuntimeStateDerivation(t *testing.T) {
 	t.Parallel()
 
-	svc, _, err := NewService(nil, nil, nil, nil, nil)
+	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
