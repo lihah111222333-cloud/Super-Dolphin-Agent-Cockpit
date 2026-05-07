@@ -283,10 +283,10 @@ func resolveDisplayName(ctx context.Context, store threadstore.Store, agentID, p
 	if name == defaultThreadName() {
 		name = ""
 	}
-	if name == "" && store != nil {
+	if store != nil {
 		existing, err := store.GetByThreadID(ctx, agentID)
 		if err == nil && existing.ManuallyRenamed {
-			name = existing.Name
+			return existing.Name
 		}
 	}
 	if name == "" {
