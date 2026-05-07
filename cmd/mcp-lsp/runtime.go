@@ -34,9 +34,13 @@ func (m *Manager) BackgroundRunners() []platformrunner.Runner {
 }
 
 func newManager() (*Manager, error) {
-	root, err := os.Getwd()
-	if err != nil {
-		return nil, err
+	root := os.Getenv("GO_AGENT_LSP_ROOT")
+	if root == "" {
+		var err error
+		root, err = os.Getwd()
+		if err != nil {
+			return nil, err
+		}
 	}
 	log := pkglogger.Get()
 	inst := setupInstaller()

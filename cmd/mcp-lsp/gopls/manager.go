@@ -159,6 +159,8 @@ func (m *manager) resolveDocumentRef(target, languageID string) (documentRef, er
 	)
 	if strings.HasPrefix(trimmed, "file://") {
 		absPath, err = absolutePathFromURI(trimmed)
+	} else if !filepath.IsAbs(trimmed) && m.workspaceRoot != "" {
+		absPath, err = platformshared.NormalizeAbsolutePath(filepath.Join(m.workspaceRoot, trimmed))
 	} else {
 		absPath, err = platformshared.NormalizeAbsolutePath(trimmed)
 	}
