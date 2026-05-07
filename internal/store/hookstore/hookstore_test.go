@@ -20,7 +20,7 @@ const (
 	savePendingReviewSQL           = "INSERT INTO hook_pending_reviews ( hook_call_id, topic, agent_id, subscriber_lease, default_action, status, created_at, deadline_at ) VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7) ON CONFLICT (hook_call_id) DO NOTHING"
 	getPendingReviewSQL            = "SELECT hook_call_id, topic, agent_id, subscriber_lease, default_action, status, created_at, deadline_at FROM hook_pending_reviews WHERE hook_call_id = $1 AND status = 'pending'"
 	listPendingReviewsSQL          = "SELECT hook_call_id, topic, agent_id, subscriber_lease, default_action, status, created_at, deadline_at FROM hook_pending_reviews WHERE agent_id = $1 AND status = 'pending' ORDER BY created_at ASC"
-	resolveIdempotencySQL          = "SELECT 1 FROM hook_pending_reviews WHERE hook_call_id = $1 AND status = 'resolved' AND idempotency_key = $2"
+	resolveIdempotencySQL          = "SELECT 1::int AS already_resolved FROM hook_pending_reviews WHERE hook_call_id = $1 AND status = 'resolved' AND idempotency_key = $2"
 	resolvePendingReviewSQL        = "UPDATE hook_pending_reviews SET status = 'resolved', decision = $2, reason = $3, idempotency_key = $4, resolved_by = $5, resolved_at = $6 WHERE hook_call_id = $1 AND status = 'pending'"
 	cancelPendingReviewsByLeaseSQL = "UPDATE hook_pending_reviews SET status = 'cancelled', resolved_at = $2 WHERE subscriber_lease = $1 AND status = 'pending'"
 	cancelPendingReviewsByAgentSQL = "UPDATE hook_pending_reviews SET status = 'cancelled', resolved_at = $2 WHERE agent_id = $1 AND status = 'pending'"
@@ -67,8 +67,8 @@ func TestNewStore(t *testing.T) {
 	if !ok {
 		t.Fatalf("NewStore() type = %T, want *store", got)
 	}
-	if store.db != nil {
-		t.Fatalf("NewStore().db = %#v, want nil queryable for nil DB", store.db)
+	if store.q != nil {
+		t.Fatalf("NewStore().q = %#v, want nil querier", store.q)
 	}
 }
 
@@ -144,13 +144,13 @@ func pendingReviewFromArgs(args []any) (mcp.PendingHookReview, error) {
 	if !ok {
 		return mcp.PendingHookReview{}, fmt.Errorf("default_action arg type = %T, want string", args[4])
 	}
-	createdAt, ok := args[5].(time.Time)
-	if !ok {
-		return mcp.PendingHookReview{}, fmt.Errorf("created_at arg type = %T, want time.Time", args[5])
+	createdAt, err := timeArg(args[5], "created_at")
+	if err != nil {
+		return mcp.PendingHookReview{}, err
 	}
-	deadlineAt, ok := args[6].(time.Time)
-	if !ok {
-		return mcp.PendingHookReview{}, fmt.Errorf("deadline_at arg type = %T, want time.Time", args[6])
+	deadlineAt, err := timeArg(args[6], "deadline_at")
+	if err != nil {
+		return mcp.PendingHookReview{}, err
 	}
 	return mcp.PendingHookReview{
 		HookCallID:      hookCallID,
@@ -179,8 +179,8 @@ func reviewValues(review mcp.PendingHookReview) []any {
 		review.SubscriberLease,
 		review.DefaultAction,
 		"pending",
-		review.CreatedAt,
-		review.DeadlineAt,
+		toTS(review.CreatedAt),
+		toTS(review.DeadlineAt),
 	}
 }
 
@@ -260,5 +260,13 @@ func assertStoreError(t *testing.T, err error, operation, entity string, baseErr
 }
 
 func compactSQL(query string) string {
-	return strings.Join(strings.Fields(query), " ")
+	lines := strings.Split(query, "\n")
+	kept := lines[:0]
+	for _, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "--") {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.Join(strings.Fields(strings.Join(kept, "\n")), " ")
 }

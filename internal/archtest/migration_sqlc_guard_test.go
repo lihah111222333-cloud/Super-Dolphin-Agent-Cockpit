@@ -21,6 +21,71 @@ func TestSqlcQueryParameterLimitPinned(t *testing.T) {
 	}
 }
 
+func TestSqlcStrictOrderByAtSQLBlockLevel(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(repoRoot(t), "sqlc.yaml"))
+	if err != nil {
+		t.Fatalf("read sqlc.yaml: %v", err)
+	}
+	content := string(data)
+	if strings.Contains(content, "\n        strict_order_by: true\n") {
+		t.Fatalf("sqlc.yaml must not place strict_order_by under gen.go options; sqlc v1.30.0 rejects that location")
+	}
+	if !strings.Contains(content, "\n    strict_order_by: true\n") {
+		t.Fatalf("sqlc.yaml must pin strict_order_by at the top-level sql block so make sqlc-verify can parse it")
+	}
+}
+
+func TestHookstoreUsesGeneratedSQLC(t *testing.T) {
+	root := repoRoot(t)
+	storeDir := filepath.Join(root, "internal", "store", "hookstore")
+	entries, err := os.ReadDir(storeDir)
+	if err != nil {
+		t.Fatalf("read hookstore dir: %v", err)
+	}
+	var violations []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || filepath.Ext(name) != ".go" || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		path := filepath.Join(storeDir, name)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		content := string(data)
+		for _, forbidden := range []string{"TODO(sqlc-migration)", ".Exec(", ".Query(", ".QueryRow("} {
+			if strings.Contains(content, forbidden) {
+				violations = append(violations, fmt.Sprintf("%s contains %s", filepath.ToSlash(filepath.Join("internal", "store", "hookstore", name)), forbidden))
+			}
+		}
+	}
+
+	generatedPath := filepath.Join(root, "internal", "store", "sqlc", "hook_pending_review.sql.go")
+	generated, err := os.ReadFile(generatedPath)
+	if err != nil {
+		t.Fatalf("read generated hook sqlc file: %v", err)
+	}
+	generatedContent := string(generated)
+	for _, method := range []string{
+		"SaveHookPendingReview",
+		"GetHookPendingReview",
+		"ListHookPendingReviewsByAgent",
+		"CheckHookReviewIdempotency",
+		"ResolveHookPendingReview",
+		"GetHookResolvedReview",
+		"CancelHookPendingReviewsByLease",
+		"CancelHookPendingReviewsByAgent",
+		"CancelExpiredHookReviews",
+		"RecoverHookPendingReviews",
+	} {
+		if !strings.Contains(generatedContent, "func (q *Queries) "+method+"(") {
+			violations = append(violations, fmt.Sprintf("generated hook_pending_review sqlc file missing %s", method))
+		}
+	}
+	failIfViolations(t, violations)
+}
+
 func TestMigrationNumberUniqueness(t *testing.T) {
 	root := repoRoot(t)
 	paths, err := filepath.Glob(filepath.Join(root, "migrations", "*.sql"))
