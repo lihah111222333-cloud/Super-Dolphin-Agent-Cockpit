@@ -95,8 +95,11 @@ type threadStoreStub struct {
 }
 
 func (s *threadStoreStub) GetByThreadID(_ context.Context, threadID string) (*threadstore.Thread, error) {
+	if s == nil {
+		return nil, nil
+	}
 	s.lookups = append(s.lookups, threadID)
-	if s == nil || s.byThread == nil {
+	if s.byThread == nil {
 		return nil, nil
 	}
 	return s.byThread[threadID], nil

@@ -325,16 +325,6 @@ func (r *codexRPCRecorder) threadStartParamsSnapshot() map[string]any {
 	return cloneAnyMap(r.threadStartParams)
 }
 
-func (r *codexRPCRecorder) paramsSnapshot(method string, index int) map[string]any {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	params := r.methodParams[method]
-	if index < 0 || index >= len(params) {
-		return nil
-	}
-	return cloneAnyMap(params[index])
-}
-
 func startCodexRPCServer(t *testing.T, recorder *codexRPCRecorder) string {
 	t.Helper()
 

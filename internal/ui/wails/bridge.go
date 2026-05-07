@@ -33,8 +33,11 @@ func NewEventBridge(dispatcher *event.Dispatcher, lifecycle *WailsLifecycle, slo
 }
 
 func (b *EventBridge) Start() {
-	if b == nil || b.dispatcher == nil {
-		b.logger.Warn("bridge: Start skipped", "nil_bridge", b == nil, "nil_dispatcher", b == nil || b.dispatcher == nil)
+	if b == nil {
+		return
+	}
+	if b.dispatcher == nil {
+		b.logger.Warn("bridge: Start skipped", "nil_dispatcher", true)
 		return
 	}
 

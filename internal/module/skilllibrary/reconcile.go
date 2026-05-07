@@ -76,9 +76,7 @@ func (r *Reconciler) recoverStaging(report *ReconcileReport) {
 		report.Errors = append(report.Errors, fmt.Errorf("skilllibrary: recover staging: %w", err))
 		return
 	}
-	for _, e := range rec.Errors {
-		report.Errors = append(report.Errors, e)
-	}
+	report.Errors = append(report.Errors, rec.Errors...)
 }
 
 // buildLibrary forges all enabled skills and removes disabled ones from cache.

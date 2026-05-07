@@ -8,10 +8,6 @@ import (
 	"github.com/kelindar/event"
 )
 
-type subscriberTestEvent struct{}
-
-func (subscriberTestEvent) Type() uint32 { return 990001 }
-
 func TestSubscriberGroupRegistersCancelsAndStopsIntake(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	var order []string

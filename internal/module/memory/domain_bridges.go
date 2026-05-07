@@ -60,34 +60,6 @@ func configuredTeamMemPath(m *TeamMemoryManager, buildCtx ...contract.BuildCtx) 
 	return teampkg.ConfiguredTeamMemPath(m, buildCtx...)
 }
 
-func teamMemPath(m *TeamMemoryManager, buildCtx contract.BuildCtx) string {
-	if m == nil {
-		return ""
-	}
-	return m.GetTeamMemPath(buildCtx)
-}
-
-func isTeamMemoryEnabled(m *TeamMemoryManager, buildCtx contract.BuildCtx) bool {
-	if m == nil {
-		return false
-	}
-	return m.IsTeamMemoryEnabled(buildCtx)
-}
-
-func validateTeamMemWriteRequest(m *TeamMemoryManager, raw string) error {
-	if m == nil {
-		return ErrTeamMemoryDisabled
-	}
-	return m.ValidateTeamMemWritePath(raw)
-}
-
-func validateTeamMemKeyRequest(m *TeamMemoryManager, key string) error {
-	if m == nil {
-		return ErrTeamMemoryDisabled
-	}
-	return m.ValidateTeamMemKey(key)
-}
-
 func firstTeamBuildCtx(buildCtx []contract.BuildCtx) contract.BuildCtx {
 	if len(buildCtx) == 0 {
 		return contract.BuildCtx{}

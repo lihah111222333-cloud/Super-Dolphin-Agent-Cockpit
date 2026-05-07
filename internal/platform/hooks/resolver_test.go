@@ -49,7 +49,7 @@ func TestResolve_Approve(t *testing.T) {
 	}
 	store := &stubResolvedReviewStore{stubHookReviewStore: base}
 
-	got, err := mustNewHookResolver(t, store).Resolve(nil, mcp.LeaseKey{InstanceID: "instance-approve", Generation: 1}, mcp.HookResolveRequest{
+	got, err := mustNewHookResolver(t, store).Resolve(context.TODO(), mcp.LeaseKey{InstanceID: "instance-approve", Generation: 1}, mcp.HookResolveRequest{
 		HookCallID:     " call-approve ",
 		Decision:       " APPROVE ",
 		Reason:         " looks good ",
@@ -206,7 +206,7 @@ func TestResolve_ReadbackFallback(t *testing.T) {
 		},
 	}
 
-	got, err := mustNewHookResolver(t, store).Resolve(nil, mcp.LeaseKey{InstanceID: "instance-fallback", Generation: 4}, mcp.HookResolveRequest{
+	got, err := mustNewHookResolver(t, store).Resolve(context.TODO(), mcp.LeaseKey{InstanceID: "instance-fallback", Generation: 4}, mcp.HookResolveRequest{
 		HookCallID:     "call-fallback",
 		Decision:       mcp.HookDecisionReject,
 		Reason:         "missing reader",

@@ -12,7 +12,6 @@ import (
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
 )
 
 // SessionStarter is an alias for contract.SessionStarter.
@@ -164,66 +163,6 @@ func (s *service) Start(ctx context.Context, req StartRequest) (StartResult, err
 		return s.startPendingThread(ctx, req, agentID)
 	}
 	return s.completeStart(ctx, req, agentID)
-}
-
-// resolveUniqueAgentID ensures the agent ID won't collide with an existing
-// thread_id in the database. For child agents (ParentAgentID is set) it
-// generates a sequential suffix: {parentID}-1, {parentID}-2, …
-// For root agents it verifies uniqueness and regenerates on collision.
-func (s *service) resolveUniqueAgentID(ctx context.Context, req StartRequest, candidate string) (string, error) {
-	parentID := strings.TrimSpace(req.ParentAgentID)
-	if parentID != "" {
-		return s.nextChildAgentID(ctx, parentID)
-	}
-	return s.ensureUniqueRootAgentID(ctx, candidate)
-}
-
-// nextChildAgentID generates a child agent ID: {parentID}-{N+1} where N is
-// the current count of children for that parent. On collision (unlikely but
-// possible under concurrent sub-agent creation) it increments the counter.
-func (s *service) nextChildAgentID(ctx context.Context, parentID string) (string, error) {
-	if s.threadStore == nil {
-		return idgen.NewChildAgentID(parentID, 1), nil
-	}
-	count, err := s.threadStore.CountChildren(ctx, parentID)
-	if err != nil {
-		// DB error → fall back to timestamp-based to avoid blocking start.
-		return idgen.NewAgentID(), nil
-	}
-	const maxRetries = 5
-	for i := 0; i < maxRetries; i++ {
-		candidate := idgen.NewChildAgentID(parentID, int(count)+1+i)
-		exists, err := s.threadStore.Exists(ctx, candidate)
-		if err != nil {
-			return candidate, nil // DB read error → use as-is
-		}
-		if !exists {
-			return candidate, nil
-		}
-	}
-	// Exhausted retries — extremely unlikely. Fall back to timestamp.
-	return idgen.NewAgentID(), nil
-}
-
-// ensureUniqueRootAgentID checks the database for a collision and regenerates
-// the ID if the timestamp-only ID already exists.
-func (s *service) ensureUniqueRootAgentID(ctx context.Context, candidate string) (string, error) {
-	if s.threadStore == nil {
-		return candidate, nil
-	}
-	const maxRetries = 3
-	for i := 0; i < maxRetries; i++ {
-		exists, err := s.threadStore.Exists(ctx, candidate)
-		if err != nil {
-			return candidate, nil // DB error → use as-is
-		}
-		if !exists {
-			return candidate, nil
-		}
-		// Collision: regenerate with a new timestamp.
-		candidate = idgen.NewAgentID()
-	}
-	return candidate, nil
 }
 
 func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, error) {

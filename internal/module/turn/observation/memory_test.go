@@ -193,8 +193,11 @@ func TestDedupeRejectsSecondObservation(t *testing.T) {
 	}
 	// Empty key is always unique — observation must not swallow events
 	// that arrive with no identifying field.
-	if !m.Dedupe(DedupeKey{}) || !m.Dedupe(DedupeKey{}) {
-		t.Fatal("empty DedupeKey must be treated as always unique")
+	if !m.Dedupe(DedupeKey{}) {
+		t.Fatal("first empty DedupeKey must be treated as always unique")
+	}
+	if !m.Dedupe(DedupeKey{}) {
+		t.Fatal("second empty DedupeKey must be treated as always unique")
 	}
 }
 

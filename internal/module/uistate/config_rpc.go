@@ -250,11 +250,6 @@ func runtimeToolRouting(base runtimeConfigToolRouting, raw any) (runtimeConfigTo
 	return out, true
 }
 
-func runtimeConfigBool(cfg map[string]any, key string) bool {
-	value, _ := cfg[key].(bool)
-	return value
-}
-
 func runtimeConfigFloat(cfg map[string]any, key string) float64 {
 	switch value := cfg[key].(type) {
 	case float64:

@@ -185,7 +185,7 @@ func setEnabledHandler(svc Service) func(context.Context, cronEnabledParams) (cr
 		if err := svc.SetJobEnabled(ctx, p.ID, p.Enabled); err != nil {
 			return cronSetEnabledResponse{}, mapRPCError(err)
 		}
-		return cronSetEnabledResponse{ID: p.ID, Enabled: p.Enabled}, nil
+		return cronSetEnabledResponse(p), nil
 	}
 }
 

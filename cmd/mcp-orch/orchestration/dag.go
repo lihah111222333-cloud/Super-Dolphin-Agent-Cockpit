@@ -195,12 +195,7 @@ func (s *service) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequ
 
 // completeNodeWithDownstream 走 store NodeFlowStore，3.5w 接通点。
 func (s *service) completeNodeWithDownstream(ctx context.Context, flow taskdag.NodeFlowStore, input taskdag.NodeStatusUpdate, result *DAGNode) error {
-	res, err := flow.CompleteNodeAndScheduleDownstream(ctx, taskdag.CompleteNodeInput{
-		Status:  input.Status,
-		Result:  input.Result,
-		DagKey:  input.DagKey,
-		NodeKey: input.NodeKey,
-	})
+	res, err := flow.CompleteNodeAndScheduleDownstream(ctx, taskdag.CompleteNodeInput(input))
 	if err != nil {
 		return err
 	}

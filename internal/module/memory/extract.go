@@ -266,25 +266,6 @@ func nonEmptyExtractedParts(values ...string) []string {
 	return parts
 }
 
-func extractPromptTaxonomySection() string {
-	engine := resolvedRuleEngine(nil)
-	lines := make([]string, 0, len(engine.order)+1)
-	for _, memoryType := range engine.order {
-		behavior := engine.rules[memoryType]
-		line := fmt.Sprintf("`%s`: %s", memoryType, behavior.Summary)
-		if memoryType == MemoryTypeFeedback || memoryType == MemoryTypeProject {
-			line += " Body must be structured as the main rule/fact followed by `Why:` and `How to apply:` lines."
-		}
-		lines = append(lines, line)
-	}
-	lines = append(lines, "`scope` must be `private` or `team`; default to `private` unless the memory is safe and broadly useful to collaborators.")
-	return renderSection("Memory taxonomy", lines)
-}
-
-func extractPromptExclusionsSection() string {
-	return renderSection("What not to save", standardExclusionRules)
-}
-
 func extractLimit(limit, fallback int) int {
 	if limit > 0 {
 		return limit

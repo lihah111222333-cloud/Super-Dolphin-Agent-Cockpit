@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	auditstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/skillcandidate"
 )
 
@@ -16,25 +15,6 @@ import (
 // specific error rather than nil-deref makes the misconfiguration
 // visible at the RPC boundary.
 var errCandidateStoreUnavailable = errors.New("skill candidate store is not configured")
-
-// setCandidateStore is the fx setter used by registerCandidateStores
-// (module.go). Kept package-private so tests in the same package can
-// also use it; production code must go through fx.
-func (s *service) setCandidateStore(c skillcandidate.Store) {
-	if s == nil {
-		return
-	}
-	s.candidateStore = c
-}
-
-// setAuditStore mirrors setCandidateStore for the auditlog dependency.
-// auditStore is optional; nil disables audit emission entirely.
-func (s *service) setAuditStore(a auditstore.Store) {
-	if s == nil {
-		return
-	}
-	s.auditStore = a
-}
 
 // ListPendingCandidates is a thin pass-through that projects each row
 // through candidateFromStore so SkillMD never escapes the service.

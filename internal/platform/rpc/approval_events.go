@@ -50,10 +50,6 @@ func callbackMethod(req ApprovalRequest) string {
 	return approvalMethodCatalog.callback(req)
 }
 
-func normalizeApprovalCallbackMethod(method string) string {
-	return approvalMethodCatalog.normalize(method)
-}
-
 func isRequestUserInputKind(kind string) bool {
 	return strings.EqualFold(strings.TrimSpace(kind), "request_user_input")
 }
@@ -110,14 +106,6 @@ func approvalRequestedAt(pending *pendingApproval) time.Time {
 
 func approvalResolvedAt(decision contract.ApprovalDecision) time.Time {
 	return shared.ResolveEventTime(context.Background(), approvalDecisionPayload(decision))
-}
-
-func approvalRequestTime(req ApprovalRequest) time.Time {
-	return shared.EventTimeFromPayload(req.Payload)
-}
-
-func approvalDecisionTime(decision contract.ApprovalDecision) time.Time {
-	return shared.EventTimeFromPayload(approvalDecisionPayload(decision))
 }
 
 func approvalDecisionPayload(decision contract.ApprovalDecision) map[string]any {

@@ -6,18 +6,6 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// cleanOrphanedAppServers finds "codex app-server --listen" processes that
-// are NOT part of the current application process tree and kills them along
-// with all their descendant processes (typically mcp-server-postgres,
-// exa-mcp-server, etc.). Returns the total number of processes killed.
-//
-// All orphaned app-servers are SIGTERM'd concurrently (batch), then we wait
-// once for the grace period before SIGKILL'ing survivors. This keeps cleanup
-// time constant (~5s) regardless of how many orphans exist.
-func cleanOrphanedAppServers() int {
-	return cleanOrphanedAppServersWithProtectedPIDs(nil)
-}
-
 func cleanOrphanedAppServersWithProtectedPIDs(extraProtectedPIDs map[int]struct{}) int {
 	allProcs, appServerProcs := discoverAppServerProcesses()
 	if len(appServerProcs) == 0 {

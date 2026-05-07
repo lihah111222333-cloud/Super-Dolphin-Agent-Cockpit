@@ -184,7 +184,7 @@ func executeMigration(ctx context.Context, pool *pgxpool.Pool, dir, f string) er
 		return err
 	}
 	var version int
-	fmt.Sscanf(f, "%d_", &version)
+	_, _ = fmt.Sscanf(f, "%d_", &version)
 	_, err = pool.Exec(ctx, "INSERT INTO schema_migrations (version, name, filename) VALUES ($1, $2, $3)", version, f, f)
 	return err
 }

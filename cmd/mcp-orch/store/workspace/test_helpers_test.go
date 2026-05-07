@@ -87,64 +87,6 @@ func (r stubWorkspaceRow) Scan(dest ...any) error {
 	return scanWorkspaceInto(dest, r.values)
 }
 
-type adapterStoreStub struct {
-	withTxCalls int
-	getRunKeys  []string
-	listFilters []ListRunsFilter
-	txStore     Store
-	getRun      func(context.Context, string) (*WorkspaceRun, error)
-	listRuns    func(context.Context, ListRunsFilter) ([]WorkspaceRun, error)
-}
-
-func (s *adapterStoreStub) WithTx(ctx context.Context, fn func(txStore Store) error) error {
-	s.withTxCalls++
-	target := s.txStore
-	if target == nil {
-		target = s
-	}
-	return fn(target)
-}
-
-func (s *adapterStoreStub) UpsertRun(context.Context, WorkspaceRun) (*WorkspaceRun, error) {
-	return nil, fmt.Errorf("unexpected UpsertRun call")
-}
-
-func (s *adapterStoreStub) GetRun(ctx context.Context, runKey string) (*WorkspaceRun, error) {
-	s.getRunKeys = append(s.getRunKeys, runKey)
-	if s.getRun != nil {
-		return s.getRun(ctx, runKey)
-	}
-	return nil, fmt.Errorf("missing getRun stub")
-}
-
-func (s *adapterStoreStub) ListRuns(ctx context.Context, filter ListRunsFilter) ([]WorkspaceRun, error) {
-	s.listFilters = append(s.listFilters, filter)
-	if s.listRuns != nil {
-		return s.listRuns(ctx, filter)
-	}
-	return nil, fmt.Errorf("missing listRuns stub")
-}
-
-func (s *adapterStoreStub) UpdateRunStatus(context.Context, UpdateRunStatusInput) (*WorkspaceRun, error) {
-	return nil, fmt.Errorf("unexpected UpdateRunStatus call")
-}
-
-func (s *adapterStoreStub) TransitionRunStatus(context.Context, TransitionRunStatusInput) (*WorkspaceRun, error) {
-	return nil, fmt.Errorf("unexpected TransitionRunStatus call")
-}
-
-func (s *adapterStoreStub) UpsertFile(context.Context, WorkspaceRunFile) (*WorkspaceRunFile, error) {
-	return nil, fmt.Errorf("unexpected UpsertFile call")
-}
-
-func (s *adapterStoreStub) GetFile(context.Context, string, string) (*WorkspaceRunFile, error) {
-	return nil, fmt.Errorf("unexpected GetFile call")
-}
-
-func (s *adapterStoreStub) ListFiles(context.Context, ListFilesFilter) ([]WorkspaceRunFile, error) {
-	return nil, fmt.Errorf("unexpected ListFiles call")
-}
-
 func scanWorkspaceInto(dest []any, values []any) error {
 	if len(dest) != len(values) {
 		return fmt.Errorf("dest len = %d, values len = %d", len(dest), len(values))

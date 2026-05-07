@@ -50,18 +50,6 @@ type service struct {
 	ctxCancel context.CancelFunc
 }
 
-// setDedupeStore is wired from fx via registerTurnDedupeStore after
-// the Service is constructed. Kept as a package-private setter so
-// the public constructor surface stays stable; non-fx callers can
-// leave the field nil and the tracker continues to service dedupe
-// lookups on its own.
-func (s *service) setDedupeStore(store turndedupe.Store) {
-	if s == nil {
-		return
-	}
-	s.dedupeStore = store
-}
-
 type steerableSession interface {
 	Steer(ctx context.Context, req dto.SteerRequest) error
 }

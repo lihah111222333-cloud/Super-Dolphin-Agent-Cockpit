@@ -207,8 +207,6 @@ func isAllowedExecEnvKey(key string) bool {
 
 func isBlockedCommand(name string) bool { return blockedCommands[name] }
 
-func isReadOnlyCommand(name string) bool { return readCommands[name] }
-
 func isShellInterpreter(name string) bool { return shellInterpreters[name] }
 
 type limitedBuffer struct {

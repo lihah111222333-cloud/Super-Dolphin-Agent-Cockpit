@@ -9,8 +9,6 @@ import (
 	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
-type transcriptMessage = providerdto.Message
-
 func normalizeTranscriptMessages(messages []providerdto.Message) []providerdto.Message {
 	if len(messages) == 0 {
 		return nil

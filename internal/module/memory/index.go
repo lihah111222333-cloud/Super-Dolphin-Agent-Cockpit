@@ -59,17 +59,6 @@ func ReadMemoryIndex(path string) ([]MemoryIndexEntry, error) {
 	return ParseMemoryIndex(string(content))
 }
 
-func parseMemoryHeader(path, header string) MemoryEntry {
-	frontmatter, _, ok := parse.SplitFrontmatter(header)
-	if !ok {
-		return MemoryEntry{FilePath: path}
-	}
-	return MemoryEntry{
-		Frontmatter: parseMemoryFrontmatter(frontmatter),
-		FilePath:    path,
-	}
-}
-
 func WriteMemoryIndex(root string, entries []MemoryEntry) error {
 	indexEntries, err := buildMemoryIndex(root, entries)
 	if err != nil {

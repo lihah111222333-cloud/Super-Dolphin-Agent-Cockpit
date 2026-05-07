@@ -82,27 +82,6 @@ func (p logsParams) ToFilter(source string) LogFilter {
 	}
 }
 
-func (p logsParams) fieldValue(field logFilterField) string {
-	switch field {
-	case logFieldLevel:
-		return p.Level
-	case logFieldLogger:
-		return p.Logger
-	case logFieldComponent:
-		return p.Component
-	case logFieldAgentID:
-		return util.FirstNonEmpty(p.AgentID, p.AgentIDSnake)
-	case logFieldThreadID:
-		return util.FirstNonEmpty(p.ThreadID, p.ThreadIDSnake)
-	case logFieldEventType:
-		return util.FirstNonEmpty(p.EventType, p.EventTypeSnake)
-	case logFieldToolName:
-		return util.FirstNonEmpty(p.ToolName, p.ToolNameSnake)
-	default:
-		return ""
-	}
-}
-
 func (p auditLogsParams) ToFilter() auditlogstore.ListFilter {
 	return auditlogstore.ListFilter{
 		EventType: strings.TrimSpace(p.EventType),

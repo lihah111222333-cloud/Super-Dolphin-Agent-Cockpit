@@ -409,21 +409,6 @@ func isKnownMirroredState(state string) bool {
 	}
 }
 
-// resolveTriggerForTransition looks up TransitionDefinitions to find a
-// trigger that transitions from state `from` to state `to`. Returns the
-// trigger name and true if found, or ("", false) if no single-step
-// transition exists.
-func resolveTriggerForTransition(from, to string) (string, bool) {
-	fromState := agentdto.AgentState(from)
-	toState := agentdto.AgentState(to)
-	for _, td := range agentdto.TransitionDefinitions {
-		if td.From == fromState && td.To == toState {
-			return string(td.Trigger), true
-		}
-	}
-	return "", false
-}
-
 // resolveTransitionPath performs a BFS over TransitionDefinitions to find
 // the shortest sequence of triggers that drives the state machine from
 // `from` to `to`. Returns nil if no path exists. The returned slice

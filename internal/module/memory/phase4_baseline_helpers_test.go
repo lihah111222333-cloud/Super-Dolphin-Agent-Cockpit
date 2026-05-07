@@ -79,30 +79,6 @@ func assertRecordedInvalidation(
 	}
 }
 
-// assertRecordedNoSections asserts that the recorder NEVER recorded an
-// invalidation that contains any of the disallowedSections. Used for
-// disjoint counter-baselines.
-
-func assertRecordedNoSections(
-	t *testing.T,
-	rec *recordingSectionInvalidator,
-	when string,
-	disallowedSections ...string,
-) {
-	t.Helper()
-	rec.mu.Lock()
-	calls := append([]recordedInvalidateCall(nil), rec.calls...)
-	rec.mu.Unlock()
-	for _, call := range calls {
-		got := sectionSet(call.names)
-		for _, banned := range disallowedSections {
-			if _, ok := got[banned]; ok {
-				t.Fatalf("%s: invalidation leaked disallowed section %q; call=%#v", when, banned, call)
-			}
-		}
-	}
-}
-
 func newPhase4UIDeps(t *testing.T) (memoryHandlerDeps, string, string) {
 	t.Helper()
 	projectRoot := t.TempDir()

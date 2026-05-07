@@ -252,9 +252,6 @@ func truncateToUnits(s string, maxUnits int) string {
 		}
 		i += runeLen
 	}
-	if inWord {
-		units++
-	}
 	return strings.TrimSpace(s)
 }
 
@@ -321,7 +318,7 @@ func continuationName(parentName string) string {
 			return fmt.Sprintf("%s (续 2)", base)
 		}
 		n := 0
-		fmt.Sscanf(m[2], "%d", &n)
+		_, _ = fmt.Sscanf(m[2], "%d", &n)
 		return fmt.Sprintf("%s (续 %d)", base, n+1)
 	}
 	return fmt.Sprintf("%s (续)", parentName)
