@@ -2,7 +2,6 @@ package uipreference
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -60,8 +59,6 @@ func TestGetValueForwardsParamsAndReturnsBytes(t *testing.T) {
 	if string(got) != `{"theme":"dark"}` {
 		t.Fatalf("GetValue() = %s", got)
 	}
-	// Type assertion: RawMessage is the declared return type.
-	var _ json.RawMessage = got
 }
 
 func TestGetValueWrapsPgxErrNoRowsAsNotFound(t *testing.T) {
@@ -100,7 +97,7 @@ func TestUpsertForwardsParamsAndReturnsNilOnSuccess(t *testing.T) {
 	err := s.Upsert(context.Background(), UpsertParams{
 		Cwd:   "/proj",
 		Key:   "theme",
-		Value: json.RawMessage(`{"theme":"light"}`),
+		Value: []byte(`{"theme":"light"}`),
 	})
 	if err != nil {
 		t.Fatalf("Upsert() error = %v", err)

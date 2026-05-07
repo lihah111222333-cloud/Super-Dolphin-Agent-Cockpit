@@ -46,7 +46,7 @@ const (
 // 里插入零宽空格（U+200B），让模型看到的形态明显是被打断的标签，不会被当成
 // 关闭 fence。零宽空格不在 fence 关键字里，已 escape 过的内容不会被二次破坏。
 func escapeRelevantMemoryContent(content string) string {
-	const zwsp = "​"
+	const zwsp = "\u200b"
 	openTag := "<" + relevantMemoryFenceTag
 	closeTag := "</" + relevantMemoryFenceTag
 	content = strings.ReplaceAll(content, closeTag, "</"+zwsp+relevantMemoryFenceTag)

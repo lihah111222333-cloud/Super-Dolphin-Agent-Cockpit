@@ -101,7 +101,7 @@ func scanWorkspaceInto(dest []any, values []any) error {
 
 func assignWorkspaceValue(target any, value any) error {
 	rv := reflect.ValueOf(target)
-	if rv.Kind() != reflect.Ptr || rv.IsNil() {
+	if rv.Kind() != reflect.Pointer || rv.IsNil() {
 		return fmt.Errorf("target must be non-nil pointer")
 	}
 	elem := rv.Elem()

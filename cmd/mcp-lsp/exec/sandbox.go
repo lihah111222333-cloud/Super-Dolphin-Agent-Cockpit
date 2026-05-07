@@ -193,7 +193,7 @@ func exitCode(err error) int {
 	if !errors.As(err, &exitErr) {
 		return -1
 	}
-	status, ok := exitErr.ProcessState.Sys().(syscall.WaitStatus)
+	status, ok := exitErr.Sys().(syscall.WaitStatus)
 	if ok {
 		return status.ExitStatus()
 	}

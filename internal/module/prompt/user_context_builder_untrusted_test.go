@@ -119,7 +119,7 @@ func TestRenderClaudeMdSource_FenceEscapeAgainstInjection(t *testing.T) {
 		t.Fatalf("expect exactly one true closing fence, got %d\n%s", c, got)
 	}
 	mustContain(t, got, "attacker payload")
-	const zwsp = "​"
+	const zwsp = "\u200b"
 	mustContain(t, got, "</"+zwsp+"untrusted-claude-md")
 	mustContain(t, got, "<"+zwsp+"untrusted-claude-md")
 }

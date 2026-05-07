@@ -31,7 +31,7 @@ func mergeItem(dst *Item, src Item) {
 }
 
 func mergeStatusField(dst *Item, src string) {
-	if src != "" && !(dst.Done && src == "running") {
+	if src != "" && (!dst.Done || src != "running") {
 		dst.Status = src
 	}
 }

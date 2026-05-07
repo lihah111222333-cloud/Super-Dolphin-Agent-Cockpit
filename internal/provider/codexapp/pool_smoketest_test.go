@@ -89,10 +89,10 @@ func TestServerPoolMultiProviderSmoke(t *testing.T) {
 		var exitB error
 		var tailB string
 		if tsA != nil {
-			exitA, tailA = tsA.DiagnoseExit()
+			tailA, exitA = tsA.DiagnoseExit()
 		}
 		if tsB != nil {
-			exitB, tailB = tsB.DiagnoseExit()
+			tailB, exitB = tsB.DiagnoseExit()
 		}
 		t.Fatalf("alive check failed:\n  A alive=%v url=%s exit=%v stderr=%q\n  B alive=%v url=%s exit=%v stderr=%q",
 			srvA.Alive(), urlA, exitA, tailA,

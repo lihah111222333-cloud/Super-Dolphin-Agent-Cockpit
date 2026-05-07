@@ -386,7 +386,7 @@ func forceCompleteTurnIDFallbackEligible(err error) bool {
 		return false
 	}
 	msg := strings.ToLower(strings.TrimSpace(err.Error()))
-	if msg == "" || !(strings.Contains(msg, "turnid") || strings.Contains(msg, "turn_id") || strings.Contains(msg, "turn id")) {
+	if msg == "" || (!strings.Contains(msg, "turnid") && !strings.Contains(msg, "turn_id") && !strings.Contains(msg, "turn id")) {
 		return false
 	}
 	for _, marker := range []string{

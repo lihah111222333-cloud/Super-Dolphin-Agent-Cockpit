@@ -197,7 +197,7 @@ func turnHeader(agent *agentState, threadID, turnID string, timestamp time.Time)
 		header.ThreadID = threadID
 	}
 	if !timestamp.IsZero() {
-		header.ThreadHeader.EventHeader.Timestamp = timestamp
+		header.Timestamp = timestamp
 	}
 	return shareddto.TurnHeader{
 		AgentHeader:  header,

@@ -38,8 +38,6 @@ func (s *diskStore) Root() string {
 	return s.root
 }
 
-
-
 func (s *diskStore) CreateStructured(req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error) {
 	return s.Create(buildMemoryEntryFromWriteRequest(req), opts...)
 }
@@ -353,7 +351,7 @@ func validateStructuredMemoryContent(memoryType MemoryType, content string) erro
 	switch memoryType {
 	case MemoryTypeFeedback, MemoryTypeProject:
 		if !hasAnyStructuredMemorySection(content, "why", "原因") || !hasAnyStructuredMemorySection(content, "how to apply", "如何应用") {
-			return fmt.Errorf("%w: %s memory content must include Why: and How to apply:", ErrInvalidMemoryEntry, memoryType)
+			return fmt.Errorf("%w: %s memory content must include Why: and How to apply", ErrInvalidMemoryEntry, memoryType)
 		}
 	}
 	return nil

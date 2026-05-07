@@ -210,7 +210,7 @@ func wrapGoSnippet(code string) string {
 		sb.WriteString("import (\n")
 		for _, imp := range imports {
 			sb.WriteString("\t")
-			sb.WriteString(fmt.Sprintf("%q", imp))
+			fmt.Fprintf(&sb, "%q", imp)
 			sb.WriteString("\n")
 		}
 		sb.WriteString(")\n\n")

@@ -111,7 +111,7 @@ func TestPhaseB10_FreezeRelevantMemoryAttachmentsEscapesEmbeddedFenceTags(t *tes
 	}
 	// The escaped form (close tag with ZWSP injected after `</`) must appear:
 	// proves the embedded close tag was sanitized.
-	if !strings.Contains(content, "</​untrusted-relevant-memory") {
+	if !strings.Contains(content, "</\u200buntrusted-relevant-memory") {
 		t.Fatalf("attachment content missing ZWSP-escaped close tag (U+200B between `</` and `untrusted-relevant-memory`):\n%s", content)
 	}
 	// Counter-baseline: benign body text + injection text both still appear

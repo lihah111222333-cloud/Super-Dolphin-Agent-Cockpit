@@ -187,7 +187,7 @@ func (s *session) completeRecoveryReplay(reason string) error {
 			return s.failRecovery(reason, err)
 		}
 		if !s.runtime.restartReader() {
-			return s.failRecovery(reason, runtimeErrStopped)
+			return s.failRecovery(reason, errRuntimeStopped)
 		}
 	}
 	s.mu.Lock()

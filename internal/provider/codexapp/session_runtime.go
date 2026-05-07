@@ -360,9 +360,9 @@ func (r *SessionRuntime) waitReaderDone() {
 	<-done
 }
 
-// runtimeErrStopped is returned by attemptRecovery when the runtime has been
+// errRuntimeStopped is returned by attemptRecovery when the runtime has been
 // stopped mid-flight (e.g. Close raced with a callTransport retry).
-var runtimeErrStopped = errors.New("codexapp: session runtime stopped")
+var errRuntimeStopped = errors.New("codexapp: session runtime stopped")
 
 // recoverWorkerPanic catches any panic from a session runtime worker goroutine,
 // logging it with structured context so the process stays alive. This replaces
