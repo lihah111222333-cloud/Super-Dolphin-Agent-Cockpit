@@ -3,6 +3,16 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# 自动加载本地配置（如 DATABASE_URL）—— .env 已在 .gitignore，每个开发机器的本地配置可不同
+# set -a 让 source 进来的所有变量自动 export 给子进程（agent-terminal 走 os.Getenv 读到）
+if [ -f "$PROJECT_DIR/.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "$PROJECT_DIR/.env"
+  set +a
+fi
+
 WORKTREE_DIR="$PROJECT_DIR/.worktrees/test"
 FRONTEND_DIR="$PROJECT_DIR/cmd/agent-terminal/frontend"
 export GO_GUARD_ALLOW_RAW="run-debug.sh"
