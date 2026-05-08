@@ -48,7 +48,13 @@ func (s *session) setResolvedThreadIDForTransport(tr *transport, threadID string
 		return
 	}
 	s.threadID = threadID
-	if isPlaceholderThreadID(s.publicThreadID) {
+	// Only promote the resolved UUID to publicThreadID when it is truly
+	// unset (empty). When publicThreadID already carries an agentID
+	// (e.g. "agent_17782…"), it is the identifier the frontend uses to
+	// track this session card. Overwriting it with the provider UUID
+	// would cause every subsequent event to carry an unknown thread_id,
+	// making the frontend create a duplicate session card.
+	if strings.TrimSpace(s.publicThreadID) == "" {
 		s.publicThreadID = threadID
 	}
 	s.sessionID = threadID

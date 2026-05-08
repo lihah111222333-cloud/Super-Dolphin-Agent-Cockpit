@@ -279,7 +279,14 @@ func (d *driver) newStartedSession(spec startSpec, started preparedStartSession)
 		imageTracker:      newImageHashTracker(),
 	}
 	s.applyConfiguredOverridesLocked(spec.configOverride, false)
-	if shouldMarkThreadReady(spec.threadID, publicThreadID) {
+	// Claude CLI v2.1+ only emits system:init (which carries the real
+	// session_id) after it receives the first user message on stdin. For
+	// brand-new sessions (empty spec.threadID), mark threadReady immediately
+	// so StartTurn can proceed and trigger system:init. The real thread ID
+	// will be resolved asynchronously when the read loop processes the
+	// system:init event. The restart path uses its own resumeID-based logic
+	// in swapRestartTransportLocked and is unaffected by this override.
+	if strings.TrimSpace(spec.threadID) == "" || shouldMarkThreadReady(spec.threadID, publicThreadID) {
 		s.markThreadReady()
 	}
 	s.startReadLoop(started.transport)
