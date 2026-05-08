@@ -26,15 +26,15 @@ type toolDefinition struct {
 }
 
 var lspToolManifests = []ToolManifest{
-	toolManifestWithSchema("lsp_file", "File: read_file (offset/limit paging), open_file, diagnostics. Batch: file_paths.", lspFileSchema),
-	toolManifestWithSchema("lsp_inspect", "Hover/definition/implementation/type_definition/signature_help at file:line:column (1-based).", lspInspectSchema),
-	toolManifestWithSchema("lsp_xref", "References/call_hierarchy/type_hierarchy. verbosity=compact(default)|full, max_results cap 50.", lspXrefSchema),
+	toolManifestWithSchema("lsp_file", "File: read_file (offset/limit paging), open_file, diagnostics. Batch: file_paths. For locating code, prefer lsp_grep first.", lspFileSchema),
+	toolManifestWithSchema("lsp_inspect", "Hover/definition/implementation/type_definition/signature_help at file:line:column (1-based). Use before editing to verify types and signatures.", lspInspectSchema),
+	toolManifestWithSchema("lsp_xref", "References/call_hierarchy/type_hierarchy. verbosity=compact(default)|full, max_results cap 50. Use before renaming or refactoring to find all references.", lspXrefSchema),
 	toolManifestWithOutputSchema("lsp_grep", "Search codebase: text_search (literal default, regex=true) or ast_search. Returns 1-based file:line:col.", lspGrepSchema, lspGrepOutputSchema),
-	toolManifestWithSchema("lsp_structure", "Document/workspace symbols, folding ranges, semantic tokens.", lspStructureSchema),
-	toolManifestWithSchema("lsp_edit", "Edit: rename, replace_range (single-hunk patch), code_action, format.", lspEditSchema),
-	toolManifestWithSchema("lsp_completion", "Request code completions via LSP.", lspCompletionSchema),
-	toolManifestWithSchema("code_run", "Execute code snippet or project shell command. mode=project_cmd for shell.", codeRunSchema),
-	toolManifestWithSchema("code_run_test", "Run a specific Go test function.", codeRunTestSchema),
+	toolManifestWithSchema("lsp_structure", "Document/workspace symbols, folding ranges, semantic tokens. Use to understand file structure before targeted edits.", lspStructureSchema),
+	toolManifestWithSchema("lsp_edit", "Edit: rename, replace_range (single-hunk patch), code_action, format. Before editing, use lsp_grep to locate and lsp_inspect or lsp_xref to verify context.", lspEditSchema),
+	toolManifestWithSchema("lsp_completion", "Request code completions via LSP. Use to discover available APIs and method signatures.", lspCompletionSchema),
+	toolManifestWithSchema("code_run", "Execute code snippet or project shell command. mode=project_cmd for shell. For code search prefer lsp_grep; for file reading prefer lsp_file.", codeRunSchema),
+	toolManifestWithSchema("code_run_test", "Run a specific Go test function. Use after editing to verify changes.", codeRunTestSchema),
 }
 
 func newToolHandlers(m *Manager) (ToolHandlers, error) {
