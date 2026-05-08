@@ -14,9 +14,10 @@ type ToolHandler func(ctx context.Context, params json.RawMessage) (any, error)
 type ToolHandlers map[string]ToolHandler
 
 type ToolManifest struct {
-	Name        string
-	Description string
-	Schema      map[string]any
+	Name         string
+	Description  string
+	Schema       map[string]any
+	OutputSchema map[string]any
 }
 
 type toolDefinition struct {
@@ -28,7 +29,7 @@ var lspToolManifests = []ToolManifest{
 	toolManifestWithSchema("lsp_file", "File: read_file (offset/limit paging), open_file, diagnostics. Batch: file_paths.", lspFileSchema),
 	toolManifestWithSchema("lsp_inspect", "Hover/definition/implementation/type_definition/signature_help at file:line:column (1-based).", lspInspectSchema),
 	toolManifestWithSchema("lsp_xref", "References/call_hierarchy/type_hierarchy. verbosity=compact(default)|full, max_results cap 50.", lspXrefSchema),
-	toolManifestWithSchema("lsp_grep", "Search codebase: text_search (literal default, regex=true) or ast_search. Returns 1-based file:line:col.", lspGrepSchema),
+	toolManifestWithOutputSchema("lsp_grep", "Search codebase: text_search (literal default, regex=true) or ast_search. Returns 1-based file:line:col.", lspGrepSchema, lspGrepOutputSchema),
 	toolManifestWithSchema("lsp_structure", "Document/workspace symbols, folding ranges, semantic tokens.", lspStructureSchema),
 	toolManifestWithSchema("lsp_edit", "Edit: rename, replace_range (single-hunk patch), code_action, format.", lspEditSchema),
 	toolManifestWithSchema("lsp_completion", "Request code completions via LSP.", lspCompletionSchema),
@@ -79,6 +80,15 @@ func toolManifestWithSchema(name, description string, s schema) ToolManifest {
 		Name:        name,
 		Description: description,
 		Schema:      map[string]any(s),
+	}
+}
+
+func toolManifestWithOutputSchema(name, description string, s schema, out schema) ToolManifest {
+	return ToolManifest{
+		Name:         name,
+		Description:  description,
+		Schema:       map[string]any(s),
+		OutputSchema: map[string]any(out),
 	}
 }
 

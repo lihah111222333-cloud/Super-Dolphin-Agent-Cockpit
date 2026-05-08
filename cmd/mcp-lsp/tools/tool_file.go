@@ -93,10 +93,7 @@ func NewFileHandler(cfg Config) Handler {
 		root:     resolveRoot(cfg.WorkspaceRoot),
 		registry: cfg.Registry,
 	}
-	return Handler(middleware.WithOutputBudget(
-		wrapToolHandler("lsp_file", middleware.TierNormal, handler.handleFile),
-		middleware.Budget{Message: "lsp_file response exceeded output budget"},
-	))
+	return Handler(wrapToolHandler("lsp_file", middleware.TierNormal, handler.handleFile))
 }
 
 func (h handlerBase) handleFile(ctx context.Context, params json.RawMessage) (any, error) {

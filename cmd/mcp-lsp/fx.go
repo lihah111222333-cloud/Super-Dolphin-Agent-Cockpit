@@ -72,7 +72,10 @@ func run() error {
 						return nil, err
 					}
 					text, _ := json.Marshal(result)
-					return map[string]any{"content": []map[string]string{{"type": "text", "text": string(text)}}}, nil
+					return map[string]any{
+						"content":           []map[string]string{{"type": "text", "text": string(text)}},
+						"structuredContent": json.RawMessage(text),
+					}, nil
 				}
 				cfg.FinalReport = func() *mcp.ReportRequest {
 					return &mcp.ReportRequest{Report: mcp.ReportEnvelope{Type: mcp.ReportVariantCompletion, Completion: &mcp.CompletionReport{Status: "done", Report: "mcp-lsp shutdown"}}}
@@ -144,11 +147,19 @@ func (p registryToolProvider) ListTools(context.Context) ([]mcp.MCPTool, error) 
 		if err != nil {
 			return nil, err
 		}
-		toolsList = append(toolsList, mcp.MCPTool{
+		tool := mcp.MCPTool{
 			Name:        def.Manifest.Name,
 			Description: def.Manifest.Description,
 			InputSchema: schema,
-		})
+		}
+		if len(def.Manifest.OutputSchema) > 0 {
+			outSchema, err := json.Marshal(def.Manifest.OutputSchema)
+			if err != nil {
+				return nil, err
+			}
+			tool.OutputSchema = outSchema
+		}
+		toolsList = append(toolsList, tool)
 	}
 	return toolsList, nil
 }

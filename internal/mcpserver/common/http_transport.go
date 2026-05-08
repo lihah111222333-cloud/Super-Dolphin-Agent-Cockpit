@@ -197,7 +197,8 @@ func (h *HTTPServer) handleToolsCall(ctx context.Context, req jsonRPCRequest) *j
 		"server", h.name, "tool", params.Name,
 		"elapsed", elapsed, "result_len", len(raw))
 	return maybeResult(req.ID, map[string]any{
-		"content": []textContent{{Type: "text", Text: string(raw)}},
+		"content":           []textContent{{Type: "text", Text: string(raw)}},
+		"structuredContent": json.RawMessage(raw),
 	})
 }
 

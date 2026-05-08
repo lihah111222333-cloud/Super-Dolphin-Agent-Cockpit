@@ -22,18 +22,19 @@ var (
 )
 
 type LaunchAgentInput struct {
-	AgentID     string `json:"agent_id,omitempty"`
-	Name        string `json:"name"`
-	Prompt      string `json:"prompt,omitempty"`
-	ParentID    string `json:"parent_id,omitempty"`
-	AgentType   string `json:"agent_type,omitempty"`
-	AgentKey    string `json:"agent_key,omitempty"`
-	MemoryScope string `json:"memory_scope,omitempty"`
-	CWD         string `json:"cwd,omitempty"`
-	Provider    string `json:"provider,omitempty"`
-	Model       string `json:"model,omitempty"`
-	Effort      string `json:"effort,omitempty"`
-	Language    string `json:"language,omitempty"`
+	AgentID       string `json:"agent_id,omitempty"`
+	Name          string `json:"name"`
+	Prompt        string `json:"prompt,omitempty"`
+	ParentID      string `json:"parent_id,omitempty"`
+	AgentType     string `json:"agent_type,omitempty"`
+	AgentKey      string `json:"agent_key,omitempty"`
+	MemoryScope   string `json:"memory_scope,omitempty"`
+	CWD           string `json:"cwd,omitempty"`
+	Provider      string `json:"provider,omitempty"`
+	Model         string `json:"model,omitempty"`
+	Effort        string `json:"effort,omitempty"`
+	Language      string `json:"language,omitempty"`
+	DisabledTools string `json:"disabled_tools,omitempty"`
 }
 
 type SendMessageInput struct {
@@ -278,11 +279,12 @@ func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefin
 			"agent_key":    StringSchema("Optional router agent_key. When set, thread/start looks up the matching prompt_template and injects its prompt_text as base_instructions."),
 			"memory_scope": EnumStringSchema("Optional child-agent scope metadata for launches.", "project", "user", "local"),
 
-			"cwd":      StringSchema("Optional working directory for the launched agent."),
-			"provider": EnumStringSchema("Provider for the launched agent. Defaults to codex when omitted.", "codex", "claude"),
-			"model":    StringSchema("Optional model identifier for the launched agent (e.g. 'sonnet', 'opus', 'claude-opus-4-7[1m]'). When omitted, the provider falls back to its own default (for claude: ~/.claude/settings.json `model`)."),
-			"effort":   StringSchema("Optional reasoning effort for the launched agent (e.g. xhigh/high/medium/low for codex, max/high/medium/low for claude)."),
-			"language": StringSchema("Optional language tag for the launched agent (e.g. 'zh', 'en'). Propagated to BuildCtx.Language for prompt match_when / section enable_when evaluation."),
+			"cwd":            StringSchema("Optional working directory for the launched agent."),
+			"provider":       EnumStringSchema("Provider for the launched agent. Defaults to codex when omitted.", "codex", "claude"),
+			"model":          StringSchema("Optional model identifier for the launched agent (e.g. 'sonnet', 'opus', 'claude-opus-4-7[1m]'). When omitted, the provider falls back to its own default (for claude: ~/.claude/settings.json `model`)."),
+			"effort":         StringSchema("Optional reasoning effort for the launched agent (e.g. xhigh/high/medium/low for codex, max/high/medium/low for claude)."),
+			"language":       StringSchema("Optional language tag for the launched agent (e.g. 'zh', 'en'). Propagated to BuildCtx.Language for prompt match_when / section enable_when evaluation."),
+			"disabled_tools": StringSchema("Optional comma-separated list of tool names to disable for the launched agent. Merged with the default deny list."),
 		}, "name"), HandleLaunchAgent(svc)),
 		defineTool("orchestration_send_message", "Submit a text turn to an existing orchestration agent.", ObjectSchema(map[string]Schema{
 			"agent_id": StringSchema("Target orchestration agent ID."),
@@ -334,7 +336,7 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 	if err != nil {
 		return contract.LaunchRequest{}, err
 	}
-	return contract.LaunchRequest{
+	req := contract.LaunchRequest{
 		AgentID:     agentID,
 		Name:        name,
 		Prompt:      strings.TrimSpace(in.Prompt),
@@ -346,7 +348,11 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 		Command:     []string{strings.TrimSpace(exe)},
 		Env:         launchEnv(provider, strings.TrimSpace(in.Model), strings.TrimSpace(in.Effort)),
 		Language:    strings.TrimSpace(in.Language),
-	}, nil
+	}
+	if dt := strings.TrimSpace(in.DisabledTools); dt != "" {
+		req.Env = append(req.Env, "AGENT_DISABLED_TOOLS="+dt)
+	}
+	return req, nil
 }
 
 func validateLaunchProvider(raw string) (string, error) {

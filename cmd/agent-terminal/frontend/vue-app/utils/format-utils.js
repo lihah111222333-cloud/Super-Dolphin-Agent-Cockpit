@@ -76,12 +76,32 @@ function toolResultText(result, preview, keys) {
 }
 
 function knownToolSummary(name, failed, result, preview) {
+  if (result?.error_code === 'result_too_large') {
+    const hint = result?.hint || '请缩小范围';
+    return `结果过大（${hint}）`;
+  }
   if (name === 'lsp_edit') return failed ? '编辑文件失败' : '已替换文件内容';
   if (name === 'lsp_file') return failed ? '读取文件失败' : '已读取文件';
   if (name === 'lsp_grep') {
-    const total = Number(result?.total ?? result?.count);
+    const total = Number(result?.total ?? result?.summary?.total ?? result?.count);
     if (Number.isFinite(total)) return total > 0 ? `搜索到 ${Math.trunc(total)} 处` : '搜索无结果';
     return failed ? '搜索代码失败' : '已搜索代码';
+  }
+  if (name === 'lsp_inspect') return failed ? '查看类型信息失败' : '已查看类型信息';
+  if (name === 'lsp_xref') {
+    const total = Number(result?.total ?? result?.summary?.total ?? result?.count);
+    if (Number.isFinite(total)) return total > 0 ? `找到 ${Math.trunc(total)} 处引用` : '未找到引用';
+    return failed ? '查找引用失败' : '已查找引用';
+  }
+  if (name === 'lsp_structure') {
+    const count = Array.isArray(result) ? result.length : Number(result?.total);
+    if (Number.isFinite(count)) return `获取到 ${Math.trunc(count)} 个符号`;
+    return failed ? '获取文档结构失败' : '已获取文档结构';
+  }
+  if (name === 'lsp_completion') {
+    const count = Array.isArray(result) ? result.length : Number(result?.total);
+    if (Number.isFinite(count)) return `${Math.trunc(count)} 条补全建议`;
+    return failed ? '获取补全失败' : '已获取补全建议';
   }
   if (name === 'code_run' || name === 'go_run' || name === 'code_run_test') return failed ? `命令执行失败${toolFailureSuffix(result, preview)}` : '命令执行成功';
 

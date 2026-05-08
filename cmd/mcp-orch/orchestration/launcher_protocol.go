@@ -55,6 +55,7 @@ const (
 	LauncherParamModel            = "model"
 	LauncherParamEffort           = "effort"
 	LauncherParamLanguage         = "language"
+	LauncherParamDisabledTools    = "disabled_tools"
 )
 
 // Request parameter keys for LauncherMethodThreadStop /

@@ -1,6 +1,7 @@
 package turn
 
 import (
+	"encoding/json"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -99,4 +100,132 @@ func truncateToolResultChars(raw string, limit int) string {
 		return raw
 	}
 	return string(runes[:limit])
+}
+
+func repairTruncatedJSON(original, truncated string) string {
+	if !isRepairableJSON(original) {
+		return truncated
+	}
+	runes := []rune(truncated)
+	if len(runes) == 0 {
+		return truncated
+	}
+	pos, stack, ok := scanCleanPosition(runes)
+	if !ok {
+		return truncated
+	}
+	repaired := closeJSONBrackets(runes[:pos], stack)
+	if !json.Valid([]byte(repaired)) {
+		return truncated
+	}
+	return repaired
+}
+
+func isRepairableJSON(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	return (s[0] == '{' || s[0] == '[') && json.Valid([]byte(s))
+}
+
+type jsonRepairScanner struct {
+	inString  bool
+	awaitKey  bool
+	stack     []rune
+	bestPos   int
+	bestStack []rune
+}
+
+func scanCleanPosition(runes []rune) (int, []rune, bool) {
+	s := &jsonRepairScanner{bestPos: -1}
+	for i := 0; i < len(runes); i++ {
+		if s.inString {
+			i = s.advanceString(runes, i)
+			continue
+		}
+		s.processToken(runes[i], i)
+	}
+	return s.bestPos, s.bestStack, s.bestPos > 0
+}
+
+func (s *jsonRepairScanner) record(pos int) {
+	s.bestPos = pos
+	s.bestStack = append([]rune(nil), s.stack...)
+}
+
+func (s *jsonRepairScanner) advanceString(runes []rune, i int) int {
+	for i < len(runes) {
+		ch := runes[i]
+		if ch == '\\' {
+			i++
+		} else if ch == '"' {
+			s.inString = false
+			if !s.awaitKey {
+				s.record(i + 1)
+			}
+			return i
+		}
+		i++
+	}
+	return i
+}
+
+func (s *jsonRepairScanner) popMatchingBracket(opener rune) {
+	if len(s.stack) > 0 && s.stack[len(s.stack)-1] == opener {
+		s.stack = s.stack[:len(s.stack)-1]
+	}
+}
+
+func (s *jsonRepairScanner) handleCloseBracket(ch rune, i int) {
+	if ch == '}' {
+		s.popMatchingBracket('{')
+	} else {
+		s.popMatchingBracket('[')
+	}
+	s.awaitKey = false
+	s.record(i + 1)
+}
+
+func (s *jsonRepairScanner) processToken(ch rune, i int) {
+	switch ch {
+	case '"':
+		s.inString = true
+	case '{', '[':
+		s.stack = append(s.stack, ch)
+		s.awaitKey = ch == '{'
+	case '}', ']':
+		s.handleCloseBracket(ch, i)
+	case ':':
+		s.awaitKey = false
+	case ',':
+		s.record(i)
+		if len(s.stack) > 0 && s.stack[len(s.stack)-1] == '{' {
+			s.awaitKey = true
+		}
+	case ' ', '\t', '\n', '\r':
+	default:
+		if !s.awaitKey {
+			s.record(i + 1)
+		}
+	}
+}
+
+func closeJSONBrackets(prefix []rune, stack []rune) string {
+	result := append([]rune(nil), prefix...)
+	for len(result) > 0 {
+		last := result[len(result)-1]
+		if last == ',' || last == ' ' || last == '\t' || last == '\n' || last == '\r' {
+			result = result[:len(result)-1]
+		} else {
+			break
+		}
+	}
+	for i := len(stack) - 1; i >= 0; i-- {
+		if stack[i] == '{' {
+			result = append(result, '}')
+		} else if stack[i] == '[' {
+			result = append(result, ']')
+		}
+	}
+	return string(result)
 }

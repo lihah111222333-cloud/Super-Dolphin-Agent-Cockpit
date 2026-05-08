@@ -1,6 +1,7 @@
 package turn
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -62,5 +63,82 @@ func TestCaptureToolResultBudgetResetsPerTurnScope(t *testing.T) {
 	reset := CaptureToolResult(ToolResultMeta{ThreadID: "thread-2", TurnID: "turn-2"}, strings.Repeat("d", 50_000))
 	if reset.Truncated {
 		t.Fatalf("reset result = %+v, want full preview after scope reset", reset)
+	}
+}
+
+func TestRepairTruncatedJSON_ObjectTruncatedMidValue(t *testing.T) {
+	original := `{"files":{"a.go":{"rows":[[1,2,"hello, world"],[3,4]]}},"total":3}`
+	truncated := original[:40]
+	result := repairTruncatedJSON(original, truncated)
+	if !json.Valid([]byte(result)) {
+		t.Fatalf("result is not valid JSON: %q", result)
+	}
+	if result == truncated {
+		t.Fatalf("expected repair to modify truncated string, got same: %q", result)
+	}
+}
+
+func TestRepairTruncatedJSON_ArrayTruncated(t *testing.T) {
+	original := `[{"name":"main","kind":12},{"name":"init","kind":12},{"name":"run","kind":12}]`
+	truncated := original[:45]
+	result := repairTruncatedJSON(original, truncated)
+	if !json.Valid([]byte(result)) {
+		t.Fatalf("result is not valid JSON: %q", result)
+	}
+	if result == truncated {
+		t.Fatalf("expected repair to modify truncated string, got same: %q", result)
+	}
+}
+
+func TestRepairTruncatedJSON_NonJSON(t *testing.T) {
+	original := "just plain text output from a command"
+	truncated := original[:20]
+	result := repairTruncatedJSON(original, truncated)
+	if result != truncated {
+		t.Fatalf("expected plain text to be returned as-is, got %q", result)
+	}
+}
+
+func TestRepairTruncatedJSON_TruncatedMidString(t *testing.T) {
+	original := `{"count":42,"msg":"hello, world","extra":true}`
+	truncated := original[:30] // cuts inside "hello, world" after complete "count":42
+	result := repairTruncatedJSON(original, truncated)
+	if !json.Valid([]byte(result)) {
+		t.Fatalf("result is not valid JSON: %q", result)
+	}
+	if result == truncated {
+		t.Fatalf("expected repair to modify truncated string, got same: %q", result)
+	}
+}
+
+func TestRepairTruncatedJSON_NoCleanPosition(t *testing.T) {
+	original := `{"key":"value"}`
+	truncated := `{"`
+	result := repairTruncatedJSON(original, truncated)
+	if result != truncated {
+		t.Fatalf("expected fallback to truncated, got %q", result)
+	}
+}
+
+func TestCaptureToolResultRepairsJSON(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	ResetToolResultScope("thread-json", "turn-json")
+
+	original := `[` + strings.Repeat(`{"id":1,"name":"test"},`, 5000) + `{"id":5001,"name":"last"}]`
+	if !json.Valid([]byte(original)) {
+		t.Fatal("test setup: original is not valid JSON")
+	}
+	record := CaptureToolResult(ToolResultMeta{
+		ThreadID: "thread-json",
+		TurnID:   "turn-json",
+		CallID:   "call-json",
+		ToolName: "test",
+	}, original)
+	if !record.Truncated {
+		t.Skip("original not large enough to trigger truncation")
+	}
+	if !json.Valid([]byte(record.Preview)) {
+		t.Fatalf("preview is not valid JSON after repair: %q...", record.Preview[:100])
 	}
 }
