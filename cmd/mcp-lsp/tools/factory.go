@@ -224,10 +224,11 @@ func executeSandbox(
 
 func wrapToolHandler(toolName string, tier time.Duration, handler middleware.Handler) middleware.Handler {
 	log := pkglogger.Get()
-	return middleware.Chain(
+	chained := middleware.Chain(
 		handler,
 		middleware.Recovery(log, toolName),
 		middleware.Logging(log, toolName),
 		middleware.Timeout(tier),
 	)
+	return middleware.WithOutputBudget(toolName, chained, middleware.Budget{})
 }

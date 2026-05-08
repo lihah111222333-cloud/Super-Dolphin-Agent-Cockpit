@@ -12,6 +12,7 @@ import (
 
 func TestMiddlewareChainAddsDeadline(t *testing.T) {
 	handler := middleware.WithOutputBudget(
+		"test_tool",
 		wrapToolHandler("test_tool", 25*time.Millisecond, func(ctx context.Context, _ json.RawMessage) (any, error) {
 			if _, ok := ctx.Deadline(); !ok {
 				t.Fatal("expected deadline on wrapped context")
@@ -28,6 +29,7 @@ func TestMiddlewareChainAddsDeadline(t *testing.T) {
 
 func TestMiddlewareChainRecoversPanic(t *testing.T) {
 	handler := middleware.WithOutputBudget(
+		"test_tool",
 		wrapToolHandler("test_tool", time.Second, func(context.Context, json.RawMessage) (any, error) {
 			panic("boom")
 		}),

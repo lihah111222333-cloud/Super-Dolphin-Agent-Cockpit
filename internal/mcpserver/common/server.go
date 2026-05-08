@@ -264,12 +264,15 @@ func (s *Server) handleToolsCall(ctx context.Context, req jsonRPCRequest) *jsonR
 		"server", s.name, "tool", params.Name,
 		"req_id", string(req.ID))
 	start := time.Now()
-	
+
 	if params.MetaCWD != "" {
 		ctx = context.WithValue(ctx, CwdContextKey, params.MetaCWD)
 	}
-	
-	result, err := s.callTool(ctx, params.Name, params.Arguments)
+
+	if s.tools == nil {
+		return errorResponse(req.ID, codeToolCall, "tool provider is not configured")
+	}
+	value, err := s.tools.CallTool(ctx, strings.TrimSpace(params.Name), params.Arguments)
 	elapsed := time.Since(start)
 	if err != nil {
 		pkglogger.Warn("mcp: tools/call error",
@@ -277,15 +280,20 @@ func (s *Server) handleToolsCall(ctx context.Context, req jsonRPCRequest) *jsonR
 			"elapsed", elapsed, "error", err)
 		return errorResponse(req.ID, codeToolCall, err.Error())
 	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return errorResponse(req.ID, codeInternal, err.Error())
+	}
 	if elapsed > 3*time.Second {
 		pkglogger.Warn("mcp: tools/call slow",
 			"server", s.name, "tool", params.Name, "elapsed", elapsed)
 	}
 	pkglogger.Info("mcp: tools/call done",
 		"server", s.name, "tool", params.Name,
-		"elapsed", elapsed, "result_len", len(result))
+		"elapsed", elapsed, "result_len", len(raw))
 	return maybeResult(req.ID, map[string]any{
-		"content": []textContent{{Type: "text", Text: result}},
+		"content":           []textContent{{Type: "text", Text: string(raw)}},
+		"structuredContent": json.RawMessage(raw),
 	})
 }
 
@@ -294,21 +302,6 @@ func (s *Server) listTools(ctx context.Context) ([]MCPTool, error) {
 		return nil, nil
 	}
 	return s.tools.ListTools(ctx)
-}
-
-func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage) (string, error) {
-	if s.tools == nil {
-		return "", errors.New("tool provider is not configured")
-	}
-	value, err := s.tools.CallTool(ctx, strings.TrimSpace(name), args)
-	if err != nil {
-		return "", err
-	}
-	raw, err := json.Marshal(value)
-	if err != nil {
-		return "", err
-	}
-	return string(raw), nil
 }
 
 func (s *Server) reply(resp *jsonRPCResponse) error {

@@ -3,24 +3,44 @@ package middleware
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"strings"
 )
 
 const defaultOutputBudget = 64 * 1024
 
-type Budget struct {
-	MaxBytes int
-	Message  string
+var defaultToolBudgets = map[string]int{
+	"lsp_grep":       24 * 1024,
+	"lsp_file":       16 * 1024,
+	"lsp_inspect":    8 * 1024,
+	"lsp_xref":       16 * 1024,
+	"lsp_structure":  16 * 1024,
+	"lsp_edit":       16 * 1024,
+	"lsp_completion": 16 * 1024,
+	"code_run":       32 * 1024,
+	"code_run_test":  32 * 1024,
 }
 
-func WithOutputBudget(next Handler, budget Budget) Handler {
+type Budget struct {
+	MaxBytes int
+}
+
+func ToolBudget(toolName string) int {
+	if v, ok := defaultToolBudgets[toolName]; ok {
+		return v
+	}
+	return defaultOutputBudget
+}
+
+func WithOutputBudget(toolName string, next Handler, budget Budget) Handler {
 	if next == nil {
 		return nil
 	}
 	limit := budget.MaxBytes
 	if limit <= 0 {
-		limit = defaultOutputBudget
+		if v, ok := defaultToolBudgets[toolName]; ok {
+			limit = v
+		} else {
+			limit = defaultOutputBudget
+		}
 	}
 	return func(ctx context.Context, params json.RawMessage) (any, error) {
 		value, err := next(ctx, params)
@@ -30,7 +50,7 @@ func WithOutputBudget(next Handler, budget Budget) Handler {
 		if fitsBudget(value, limit) {
 			return value, nil
 		}
-		return overflowEnvelope(value, limit, budget.Message), nil
+		return overflowEnvelope(toolName, value, limit), nil
 	}
 }
 
@@ -39,51 +59,67 @@ func fitsBudget(value any, maxBytes int) bool {
 	return err == nil && len(raw) <= maxBytes
 }
 
-func overflowEnvelope(value any, maxBytes int, custom string) map[string]any {
-	message := strings.TrimSpace(custom)
-	if message == "" {
-		message = fmt.Sprintf("tool response exceeded %d byte budget", maxBytes)
-	}
+func overflowEnvelope(toolName string, value any, maxBytes int) map[string]any {
 	raw, err := json.Marshal(value)
 	if err != nil {
-		return defaultOverflowEnvelope(message)
+		return structuredOverflow(toolName, nil, 0, maxBytes)
 	}
 	var payload map[string]any
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		return defaultOverflowEnvelope(message)
+		return structuredOverflow(toolName, nil, len(raw), maxBytes)
 	}
-	if _, ok := payload["files"]; ok {
-		return grepOverflowEnvelope(payload, message)
-	}
-	return defaultOverflowEnvelope(message)
+	return structuredOverflow(toolName, payload, len(raw), maxBytes)
 }
 
-func defaultOverflowEnvelope(message string) map[string]any {
-	return map[string]any{
-		"success": true,
-		"data":    []any{},
-		"meta": map[string]any{
-			"count":     0,
-			"truncated": true,
-			"message":   message,
-		},
+func structuredOverflow(toolName string, payload map[string]any, actualBytes, budgetBytes int) map[string]any {
+	switch toolName {
+	case "lsp_edit":
+		return editOverflowEnvelope(toolName, payload, actualBytes, budgetBytes)
+	default:
+		hint := lookupHint(toolName)
+		envelope := map[string]any{
+			"error_code":   "result_too_large",
+			"tool":         toolName,
+			"actual_bytes": actualBytes,
+			"budget_bytes": budgetBytes,
+			"summary":      extractSummary(toolName, payload),
+			"hint":         hint.Hint,
+		}
+		if hint.NextAction != nil {
+			envelope["next_action"] = hint.NextAction
+		}
+		return envelope
 	}
 }
 
-func grepOverflowEnvelope(payload map[string]any, message string) map[string]any {
+func editOverflowEnvelope(toolName string, payload map[string]any, actualBytes, budgetBytes int) map[string]any {
+	hint := lookupHint(toolName)
 	envelope := map[string]any{
-		"files":     map[string]any{},
-		"total":     numericField(payload, "total"),
-		"showing":   numericField(payload, "showing"),
-		"truncated": true,
-		"meta": map[string]any{
-			"count":     0,
-			"truncated": true,
-			"message":   message,
-		},
+		"error_code":            "result_too_large",
+		"tool":                  toolName,
+		"actual_bytes":          actualBytes,
+		"budget_bytes":          budgetBytes,
+		"hint":                  hint.Hint,
+		"success":               payload["success"],
+		"action":                payload["action"],
+		"status":                payload["status"],
+		"applied":               payload["applied"],
+		"applied_count":         payload["applied_count"],
+		"persisted":             payload["persisted"],
+		"diagnostic_generation": payload["diagnostic_generation"],
 	}
-	if hint, ok := payload["hint"].(string); ok && strings.TrimSpace(hint) != "" {
-		envelope["hint"] = hint
+	if ctx, ok := payload["edit_context"].(string); ok && len(ctx) > 2048 {
+		mid := len(ctx) / 2
+		start := max(0, mid-1024)
+		end := min(len(ctx), mid+1024)
+		envelope["edit_context"] = ctx[start:end]
+	} else if ok {
+		envelope["edit_context"] = ctx
+	}
+	for _, key := range []string{"func_start", "func_end", "affected_start_line", "affected_end_line"} {
+		if v, ok := payload[key]; ok {
+			envelope[key] = v
+		}
 	}
 	return envelope
 }

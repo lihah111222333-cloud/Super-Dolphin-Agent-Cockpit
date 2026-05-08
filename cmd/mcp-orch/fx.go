@@ -105,7 +105,8 @@ func buildBootstrapConfig(shutdowner fx.Shutdowner, hookAfter contract.Bootstrap
 		}
 		text, _ := json.Marshal(result)
 		return map[string]any{
-			"content": []map[string]string{{"type": "text", "text": string(text)}},
+			"content":           []map[string]string{{"type": "text", "text": string(text)}},
+			"structuredContent": json.RawMessage(text),
 		}, nil
 	}
 	cfg.Capabilities = []string{

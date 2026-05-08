@@ -35,6 +35,9 @@ func CaptureToolResult(meta ToolResultMeta, raw string) ToolResultRecord {
 		previewSource = truncateToolResultChars(raw, toolResultPersistThresholdChars)
 	}
 	preview, budgetTruncated := takeToolResultPreview(meta.ThreadID, meta.TurnID, previewSource)
+	if toolResultCharCount(preview) < originalSize {
+		preview = repairTruncatedJSON(raw, preview)
+	}
 	record := ToolResultRecord{
 		Preview:      preview,
 		Truncated:    toolResultCharCount(preview) < originalSize,

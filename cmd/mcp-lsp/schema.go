@@ -90,6 +90,18 @@ var lspGrepSchema = objectSchema(map[string]schema{
 	"max_results":    integerProp("Max matches"),
 }, "action")
 
+var lspGrepOutputSchema = schema{
+	"type": "object",
+	"properties": map[string]any{
+		"files":     map[string]any{"type": "object", "description": "matched files with rows"},
+		"total":     map[string]any{"type": "integer"},
+		"showing":   map[string]any{"type": "integer"},
+		"truncated": map[string]any{"type": "boolean"},
+		"hint":      map[string]any{"type": "string"},
+	},
+	"required": []string{"total"},
+}
+
 var lspStructureSchema = objectSchema(map[string]schema{
 	"action":      enumProp("Operation", "document_symbol", "workspace_symbol", "folding_range", "semantic_tokens"),
 	"file_path":   stringProp("File path (absolute or relative, auto-resolved)"),

@@ -53,11 +53,7 @@ func NewGrepHandler(cfg Config) Handler {
 		root:     resolveRoot(cfg.WorkspaceRoot),
 		registry: cfg.Registry,
 	}
-	return Handler(middleware.WithOutputBudget(
-		wrapToolHandler("lsp_grep", middleware.TierSlow, handler.handleGrep),
-		middleware.Budget{
-			Message: "lsp_grep response exceeded output budget",
-		}))
+	return Handler(wrapToolHandler("lsp_grep", middleware.TierSlow, handler.handleGrep))
 }
 
 func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (any, error) {
@@ -110,7 +106,9 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 			Showing: 0,
 		}, nil
 	}
-	return buildGrepResponse(filtered, total, truncated), nil
+	resp := buildGrepResponse(filtered, total, truncated)
+	capGrepResponseBytes(&resp, middleware.ToolBudget("lsp_grep"))
+	return resp, nil
 }
 
 func (h handlerBase) attachFuncRanges(ctx context.Context, matches []search.SearchMatch) {
@@ -147,6 +145,45 @@ func (p *documentSymbolProvider) Symbols(absPath string) ([]protocol.DocumentSym
 	}
 	p.cache[absPath] = symbols
 	return symbols, nil
+}
+
+func capGrepResponseBytes(resp *grepResponse, maxBytes int) {
+	for {
+		raw, err := json.Marshal(resp)
+		if err != nil || len(raw) <= maxBytes {
+			return
+		}
+		if !dropLastGrepRow(resp) {
+			return
+		}
+		resp.Truncated = true
+	}
+}
+
+func dropLastGrepRow(resp *grepResponse) bool {
+	var maxFile string
+	var maxRows int
+	for file, fr := range resp.Files {
+		if len(fr.Rows) > maxRows {
+			maxRows = len(fr.Rows)
+			maxFile = file
+		}
+	}
+	if maxFile == "" {
+		return false
+	}
+	fr := resp.Files[maxFile]
+	if len(fr.Rows) <= 1 {
+		delete(resp.Files, maxFile)
+	} else {
+		fr.Rows = fr.Rows[:len(fr.Rows)-1]
+		resp.Files[maxFile] = fr
+	}
+	resp.Showing--
+	if resp.Showing < 0 {
+		resp.Showing = 0
+	}
+	return true
 }
 
 func buildGrepResponse(matches []search.SearchMatch, total int, truncated bool) grepResponse {
