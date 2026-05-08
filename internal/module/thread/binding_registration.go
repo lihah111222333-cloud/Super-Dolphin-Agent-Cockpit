@@ -183,6 +183,13 @@ func (s *service) ensureProviderThreadAvailable(ctx context.Context, registratio
 	if s == nil || s.bindingStore == nil {
 		return nil
 	}
+	// An empty provider_thread_id means the real UUID has not been resolved
+	// yet (e.g. Claude CLI resolves it asynchronously after the first user
+	// message). Empty strings are not meaningful unique identifiers and must
+	// not trigger binding conflicts.
+	if strings.TrimSpace(registration.ProviderThreadID) == "" {
+		return nil
+	}
 	existing, err := s.bindingStore.GetByProviderThread(ctx, registration.Provider, registration.ProviderThreadID)
 	if err != nil {
 		if contract.IsNotFound(err) {

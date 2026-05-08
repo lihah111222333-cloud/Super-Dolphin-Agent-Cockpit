@@ -130,11 +130,20 @@ func (s *session) handleSystemInitRaw(tr *transport, raw dto.RawProviderEvent) {
 	if newID := s.ThreadID(); newID != "" {
 		eventThreadID := s.EventThreadID()
 		if newID != prevID || eventThreadID != newID {
+			// When the previous thread ID was a placeholder (empty or
+			// agent_xxx), use agentID as thread_id so the frontend
+			// matches this event to the existing session card instead
+			// of creating a duplicate. The real provider UUID is still
+			// carried in session_id for backend binding resolution.
+			displayThreadID := eventThreadID
+			if isPlaceholderThreadID(prevID) && s.agentID != "" {
+				displayThreadID = s.agentID
+			}
 			s.dispatch(dto.RawProviderEvent{
 				EventType: "agent:launched",
 				Data: map[string]any{
 					"agent_id":   s.agentID,
-					"thread_id":  eventThreadID,
+					"thread_id":  displayThreadID,
 					"session_id": newID,
 					"cwd":        s.cwd,
 					"model":      s.currentTransportModel(),

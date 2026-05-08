@@ -341,6 +341,13 @@ func requireTurnContext(
 	if threadID == "" {
 		threadID = strings.TrimSpace(session.ThreadID())
 	}
+	// Fallback to the thread ID injected into context by the RPC
+	// ThreadScope middleware. This covers providers (e.g. Claude CLI)
+	// whose session.ThreadID() has not yet been resolved because the
+	// real provider UUID arrives asynchronously after the first turn.
+	if threadID == "" {
+		threadID = strings.TrimSpace(contract.ThreadIDFrom(ctx))
+	}
 	if threadID == "" {
 		return ctx, "", errors.New("thread id is required")
 	}
