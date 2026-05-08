@@ -12,7 +12,7 @@ fi
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WRAPPER_GO="$ROOT_DIR/scripts/go"
-GLOBAL_GO_WRAPPER="/Users/mima0000/.local/bin/go"
+GLOBAL_GO_WRAPPER="${GLOBAL_GO_WRAPPER:-}"
 
 resolve_real_go() {
   local candidate

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-GLOBAL_GO_WRAPPER="/Users/mima0000/.local/bin/go"
+GLOBAL_GO_WRAPPER="${GLOBAL_GO_WRAPPER:-}"
 
 resolve_real_go() {
   if [[ -n "${REAL_GO_BIN:-}" && -x "${REAL_GO_BIN}" ]]; then
