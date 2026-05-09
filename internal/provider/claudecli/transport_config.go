@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -13,14 +12,9 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
-
-// claudeSessionUUIDRE matches the canonical UUID shape the Claude CLI accepts
-// for --resume. The CLI also accepts session titles, but those are arbitrary
-// strings and we cannot safely distinguish them from internal thread IDs, so
-// only UUIDs are allowed through.
-var claudeSessionUUIDRE = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // sanitizeResumeID returns the resumeID only if it's a UUID that Claude CLI
 // will accept. Passing a non-UUID (e.g. our synthetic "agent_<ts>" thread ID)
@@ -32,7 +26,7 @@ func sanitizeResumeID(id string) string {
 	if trimmed == "" {
 		return ""
 	}
-	if claudeSessionUUIDRE.MatchString(trimmed) {
+	if identifier.IsClaudeCLISessionUUID(trimmed) {
 		return trimmed
 	}
 	pkglogger.Warn("claudecli: dropping non-UUID resume id",
