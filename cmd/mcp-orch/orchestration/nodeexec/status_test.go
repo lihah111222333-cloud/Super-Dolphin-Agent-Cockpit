@@ -1,0 +1,113 @@
+package nodeexec
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestValidateTransition_AllLegal(t *testing.T) {
+	legal := []struct {
+		from, to NodeStatus
+		desc     string
+	}{
+		{NodeStatusPending, NodeStatusReady, "deps done"},
+		{NodeStatusPending, NodeStatusCancelled, "upstream fail_fast"},
+		{NodeStatusReady, NodeStatusRunning, "dispatcher pick"},
+		{NodeStatusReady, NodeStatusCancelled, "upstream fail_fast (ready)"},
+		{NodeStatusRunning, NodeStatusDone, "success"},
+		{NodeStatusRunning, NodeStatusFailed, "fail no retries"},
+		{NodeStatusRunning, NodeStatusRetrying, "fail with retries"},
+		{NodeStatusRunning, NodeStatusSkipped, "on_failure=skip"},
+		{NodeStatusRunning, NodeStatusWaitingHuman, "on_failure=ask_human"},
+		{NodeStatusRetrying, NodeStatusReady, "backoff over"},
+		{NodeStatusRetrying, NodeStatusFailed, "give up"},
+		{NodeStatusWaitingHuman, NodeStatusReady, "approved"},
+		{NodeStatusWaitingHuman, NodeStatusFailed, "rejected"},
+	}
+	if got, want := len(legal), 13; got != want {
+		t.Fatalf("legal transitions in test = %d, want %d (与 legalTransitions map 同步)", got, want)
+	}
+	for _, tc := range legal {
+		if err := ValidateTransition(tc.from, tc.to); err != nil {
+			t.Errorf("%q→%q (%s) should be legal, got: %v", tc.from, tc.to, tc.desc, err)
+		}
+	}
+}
+
+func TestValidateTransition_Illegal(t *testing.T) {
+	cases := []struct {
+		from, to NodeStatus
+		want     string // 错误消息子串
+	}{
+		// 跳态：pending 直接到 done
+		{NodeStatusPending, NodeStatusDone, "非法"},
+		// 终态出态：done 不允许任何后续
+		{NodeStatusDone, NodeStatusReady, "非法"},
+		{NodeStatusDone, NodeStatusFailed, "非法"},
+		// failed → 任何：禁止
+		{NodeStatusFailed, NodeStatusReady, "非法"},
+		// cancelled → 任何：禁止
+		{NodeStatusCancelled, NodeStatusReady, "非法"},
+		// skipped → 任何：禁止
+		{NodeStatusSkipped, NodeStatusReady, "非法"},
+		// 反向：ready → pending
+		{NodeStatusReady, NodeStatusPending, "非法"},
+		// 反向：running → ready (跳过 retrying)
+		{NodeStatusRunning, NodeStatusReady, "非法"},
+		// 同态
+		{NodeStatusRunning, NodeStatusRunning, "same state"},
+		{NodeStatusPending, NodeStatusPending, "same state"},
+		// 空 from
+		{"", NodeStatusReady, "empty from"},
+		// 空 to
+		{NodeStatusReady, "", "empty to"},
+		// 未知 to
+		{NodeStatusReady, "bogus", "非法"},
+	}
+	for _, tc := range cases {
+		err := ValidateTransition(tc.from, tc.to)
+		if err == nil {
+			t.Errorf("%q→%q should be illegal, got nil error", tc.from, tc.to)
+			continue
+		}
+		if !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%q→%q error = %v, want substring %q", tc.from, tc.to, err, tc.want)
+		}
+	}
+}
+
+func TestIsTerminal_FourStates(t *testing.T) {
+	terminal := []NodeStatus{
+		NodeStatusDone,
+		NodeStatusFailed,
+		NodeStatusCancelled,
+		NodeStatusSkipped,
+	}
+	for _, s := range terminal {
+		if !IsTerminal(s) {
+			t.Errorf("%q should be terminal", s)
+		}
+	}
+	nonTerminal := []NodeStatus{
+		NodeStatusPending,
+		NodeStatusReady,
+		NodeStatusRunning,
+		NodeStatusRetrying,
+		NodeStatusWaitingHuman,
+	}
+	for _, s := range nonTerminal {
+		if IsTerminal(s) {
+			t.Errorf("%q should NOT be terminal", s)
+		}
+	}
+}
+
+// TestTerminalsHaveNoOutgoing 强制不变量：legalTransitions 里不能有任何
+// 终态作为 from（守护"终态出态"的封闭性）。
+func TestTerminalsHaveNoOutgoing(t *testing.T) {
+	for tr := range legalTransitions {
+		if IsTerminal(tr.From) {
+			t.Errorf("terminal status %q has outgoing transition to %q (违反终态封闭原则)", tr.From, tr.To)
+		}
+	}
+}
