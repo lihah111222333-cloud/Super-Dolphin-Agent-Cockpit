@@ -31,6 +31,10 @@ sql:
       - "migrations/0064_skill_candidates.sql"
       - "migrations/0066_skill_candidates_repo_fp_widen.sql"
       - "migrations/0068_thread_manually_renamed.sql"
+      - "migrations/0072_dag_v2_dag_columns.sql"
+      - "migrations/0073_dag_v2_node_columns.sql"
+      - "migrations/0074_dag_v2_runs.sql"
+      - "migrations/0075_dag_v2_compat.sql"
     strict_order_by: true
     gen:
       go:

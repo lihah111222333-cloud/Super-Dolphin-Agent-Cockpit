@@ -8,6 +8,10 @@ sql:
       - "../../migrations/0023_dag_watcher_phase1.sql"
       - "../../migrations/0024_prompt_versions_description.sql"
       - "../../migrations/0032_agent_memory_identity.sql"
+      - "../../migrations/0072_dag_v2_dag_columns.sql"
+      - "../../migrations/0073_dag_v2_node_columns.sql"
+      - "../../migrations/0074_dag_v2_runs.sql"
+      - "../../migrations/0075_dag_v2_compat.sql"
     gen:
       go:
         package: "sqlc"

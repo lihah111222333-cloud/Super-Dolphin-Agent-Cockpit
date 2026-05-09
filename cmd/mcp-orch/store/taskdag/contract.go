@@ -354,3 +354,57 @@ type WorkerLease struct {
 	LeaseExpiresAt time.Time
 	UpdatedAt      time.Time
 }
+
+// =====================================================
+// DAG v2 骨架阶段 S3.5: task_dag_runs 类型 + RunStore 接口位
+// =====================================================
+//
+// 蓝图 v2 §5 决策 C 混合：DAG 主表是模板，task_dag_runs 存每次执行实例。
+// 骨架阶段：仅类型 + 接口签名；T1.2 加 SQL 与真实实现，并把 RunStore 并入 Store
+// 聚合接口。当前 RunStore 不被任何聚合引用，避免破坏既有 store / 测试桩。
+
+// Run 是 task_dag_runs 表的一行（参见 migrations/0074_dag_v2_runs.sql）。
+type Run struct {
+	ID                 int64
+	RunKey             string
+	DagKey             string
+	DagVersionSnapshot int64
+	TriggerSource      string // manual | auto | scheduled | external
+	Status             string // running | succeeded | failed | cancelled
+	StartedAt          time.Time
+	FinishedAt         *time.Time
+	Events             json.RawMessage // 字段位（Temporal-style replay）
+	BudgetUsed         int64
+	BudgetLimit        *int64
+	Metadata           json.RawMessage
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
+// CreateRunInput 是 RunStore.CreateRun 的入参。
+type CreateRunInput struct {
+	RunKey             string
+	DagKey             string
+	DagVersionSnapshot int64
+	TriggerSource      string
+	Metadata           json.RawMessage
+	BudgetLimit        *int64
+}
+
+// ListRunsFilter 是 RunStore.ListRuns 的过滤条件。
+type ListRunsFilter struct {
+	DagKey string // 必填
+	Status string // 可选
+	Limit  int32  // 0 表示走默认上限
+}
+
+// RunStore 是 task_dag_runs 的窄接口（骨架阶段未并入 Store 聚合，T1.2 接通）。
+// 接口签名：
+//   - CreateRun: StartDAG 调用，新建一条 run 记录
+//   - GetRun:    按 run_key 取一条
+//   - ListRuns:  按 dag_key + 可选 status 列出最近 run（默认 ORDER BY started_at DESC）
+type RunStore interface {
+	CreateRun(ctx context.Context, input CreateRunInput) (*Run, error)
+	GetRun(ctx context.Context, runKey string) (*Run, error)
+	ListRuns(ctx context.Context, filter ListRunsFilter) ([]Run, error)
+}
