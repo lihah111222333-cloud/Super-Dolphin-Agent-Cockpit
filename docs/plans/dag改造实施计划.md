@@ -3,7 +3,7 @@
 > 配套文档：`docs/plans/dag改造蓝图v2.md`（决策与设计）
 > 本文是执行级清单：每行一个可独立提交的任务，含触动文件、验收、依赖、size、可并行性
 > Size 直觉：S = 半天以内 / M = 1-2 天 / L = 3 天以上（仅相对量级，非时间承诺）
-> 修订历史：2026-05-10 初稿；2026-05-10 补 4 处小字段位 / 策略（isolation / outputs.schema / replan / polling）；2026-05-10 2-pass DAG 审查后同步（10 项 checklist：加 S0 / S2.4 / S5.3、migration 编号、T2.2 size 调整等）
+> 修订历史：2026-05-10 初稿；2026-05-10 补 4 处小字段位 / 策略（isolation / outputs.schema / replan / polling）；2026-05-10 2-pass DAG 审查后同步（10 项 checklist）；2026-05-10 骨架阶段调研 S2.4 后推迟到 F 阶段（跨 SQL/sqlc/dispatcher 三层，超出骨架“行为不变”原则）
 
 ---
 
@@ -11,7 +11,7 @@
 
 | 阶段 | 任务数 | 总 size | 关键产出 |
 |---|---|---|---|
-| S 骨架 | 25 | ~25% | 14 处补丁 + ADR + 删死代码；行为完全不变 |
+| S 骨架 | 24（S2.4 推迟 F） | ~25% | 14 处补丁 + ADR + 删死代码；行为完全不变 |
 | T 工具 | 18 | ~35% | MCP 工具就位 + UI 接通真实数据 + AI 按钮可点 |
 | F 功能 | 26 | ~30% | 行为兑现：cron 真跑、AI 设计师上岗、智能重试落地 |
 | H 加固 | 按需 | ~10% | 生产问题驱动，不预排 |
@@ -36,7 +36,7 @@
 | **S2.1** | service 层 `StartDAG` / `TerminateDAG` 方法签名 + stub | `cmd/mcp-orch/orchestration/service.go` 增 / `dag_lifecycle.go` 新建 | 单测：调用返回 NotImplemented；接口稳定 | — | S | Y |
 | **S2.2** | service 层 `ApplyOps(dag_key, base_version, ops[])` 接口 + stub | `cmd/mcp-orch/orchestration/dag_ops.go` 新建 | 单测：base_version 不匹配返回 ConflictError | S2.1 | M | N |
 | **S2.3** | `Scheduler` interface (`Tick` / `Schedule`) + stub | `cmd/mcp-orch/orchestration/scheduler.go` 新建 | 接口编译过；stub panic("not implemented") | — | S | Y |
-| **S2.4** | 节点完成时自动 promote 下游 deps-satisfied 节点 status 从 pending → ready（填补吃狗粮发现 B-14：CompleteNodeAndScheduleDownstream 只 enqueue wakeup 不改 status） | `cmd/mcp-orch/orchestration/dag.go` / `cmd/mcp-orch/store/taskdag/store_complete_downstream.go` 修改 | 集成测试：上游 done 后下游节点 status 自动从 pending → ready；状态转移走 ValidateTransition | S2.1, S7.1 | M | N |
+| ~~S2.4~~ | ~~节点完成时自动 promote 下游 deps-satisfied 节点 status pending→ready~~ | **推迟到 F 阶段**：调研后发现需要同时改 SQL (`task_dag_node_runtime.sql:28` `status IN ('pending')`)、sqlc 生成代码、store_complete_downstream.go、dispatcher 路径跳面大，超出骨架阶段“行为不变”原则。B-14 在 F 阶段 dispatcher 重做时一并修复。骨架阶段 ValidateTransition (S7.2) 已拦截外部 API 的跳态 (pending→done 警告)；dispatcher 走 “pending→running” 快车道，另外说明 | — | — | — |
 | **S3.1** | migration: `task_dags` 加 `trigger / owner_id / cron_expr / next_run_at / version` | `migrations/0072_dag_v2_dag_columns.sql` 新建 | `make migrate` 通过；旧 row trigger 默认 'manual'；附 rollback 注释 | — | M | N |
 | **S3.2** | migration: `task_dag_nodes` 加 `run_id / reads / writes` | `migrations/0073_dag_v2_node_columns.sql` 新建 | migrate 通过；reads/writes 默认 `[]`；附 rollback 注释 | S3.1 | S | N |
 | **S3.3** | migration: 新建 `task_dag_runs` 表（含 events / budget_used / budget_limit）+ 三条索引（dag_key+started_at desc / status / next_run_at WHERE scheduled） | `migrations/0074_dag_v2_runs.sql` 新建 | migrate 通过；run_key UNIQUE；三条索引存在；附 rollback 注释 | S3.1 | M | N |
@@ -66,7 +66,7 @@
 - S0.1 单独（p23 deprecation 提示）
 - S1.1+S1.2 一次（接口 + enum + HookHandler）
 - S1.3 / S1.4 / S1.5 各一次
-- S2.1 / S2.2 / S2.3 / S2.4 各一次
+- S2.1 / S2.2 / S2.3 各一次（S2.4 推迟 F 阶段，与 dispatcher 重做一并做）
 - S3.1+S3.2+S3.3 一次（一组 migration）/ S3.4 单独 / S3.5 单独
 - S4.1+S4.2 一次
 - S5.1+S5.2 一次 / S5.3 单独
