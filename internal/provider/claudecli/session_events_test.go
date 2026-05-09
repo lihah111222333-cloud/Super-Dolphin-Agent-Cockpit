@@ -133,6 +133,42 @@ func TestHandleReceiveExitEOFCompletesActiveTurn(t *testing.T) {
 	}
 }
 
+func TestDriverResumeSessionDoesNotWaitForSystemInit(t *testing.T) {
+	resumedUUID := "11111111-2222-3333-4444-555555555555"
+	next := newScriptedTransport()
+	defer next.finish()
+	overrideLaunchCLI(t, func(_, _, _, _ string, _ cliLaunchConfig, _ dto.MCPManifest, resumeID string) (*transport, func(), error) {
+		if resumeID != resumedUUID {
+			t.Fatalf("resumeID = %q, want %s", resumeID, resumedUUID)
+		}
+		return next.tr, nil, nil
+	})
+
+	d := &driver{}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	resumed, err := d.ResumeSession(ctx, dto.ResumeSessionRequest{
+		Provider:         "claude",
+		AgentID:          "agent-1",
+		ThreadID:         "thread-public",
+		ProviderThreadID: resumedUUID,
+		CWD:              "/tmp/repo",
+	})
+	if err != nil {
+		t.Fatalf("ResumeSession() error = %v", err)
+	}
+	s, ok := resumed.(*session)
+	if !ok {
+		t.Fatalf("ResumeSession() type = %T, want *session", resumed)
+	}
+	if s.ThreadID() != resumedUUID {
+		t.Fatalf("ThreadID() = %q, want %s", s.ThreadID(), resumedUUID)
+	}
+	if s.EventThreadID() != "thread-public" {
+		t.Fatalf("EventThreadID() = %q, want thread-public", s.EventThreadID())
+	}
+}
+
 func TestDriverResumeSessionPublishesPublicThreadID(t *testing.T) {
 	bus := event.NewDispatcher()
 	defer func() { _ = bus.Close() }()

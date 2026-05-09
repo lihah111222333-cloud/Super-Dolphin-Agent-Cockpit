@@ -851,11 +851,13 @@ func (s *stubThreadStore) Exists(_ context.Context, threadID string) (bool, erro
 func (s *stubThreadStore) CountAll(context.Context) (int64, error) { return 0, nil }
 
 type stubBindingStore struct {
-	binding        *bindingstore.Binding
-	upsert         bindingstore.UpsertParams
-	upserts        []bindingstore.UpsertParams
-	deleteAgentIDs []string
-	deleteErr      error
+	binding                *bindingstore.Binding
+	upsert                 bindingstore.UpsertParams
+	upserts                []bindingstore.UpsertParams
+	deleteAgentIDs         []string
+	deleteErr              error
+	sessionUpdates         []bindingstore.UpdateSessionUUIDParams
+	updateProviderThreadID bindingstore.UpdateProviderThreadIDParams
 }
 
 func (s *stubBindingStore) GetByProviderThread(_ context.Context, provider, providerThreadID string) (*bindingstore.Binding, error) {
@@ -903,7 +905,21 @@ func (s *stubBindingStore) DeleteByAgentID(_ context.Context, agentID string) er
 	return nil
 }
 
-func (s *stubBindingStore) UpdateSessionUUID(context.Context, bindingstore.UpdateSessionUUIDParams) error {
+func (s *stubBindingStore) UpdateSessionUUID(_ context.Context, params bindingstore.UpdateSessionUUIDParams) error {
+	s.sessionUpdates = append(s.sessionUpdates, params)
+	if s.binding != nil && s.binding.AgentID == params.AgentID {
+		s.binding.SessionUUID = params.SessionUUID
+		s.binding.UpdatedAt = params.UpdatedAt
+	}
+	return nil
+}
+
+func (s *stubBindingStore) UpdateProviderThreadID(_ context.Context, params bindingstore.UpdateProviderThreadIDParams) error {
+	s.updateProviderThreadID = params
+	if s.binding != nil && s.binding.AgentID == params.AgentID {
+		s.binding.ProviderThreadID = params.ProviderThreadID
+		s.binding.UpdatedAt = params.UpdatedAt
+	}
 	return nil
 }
 

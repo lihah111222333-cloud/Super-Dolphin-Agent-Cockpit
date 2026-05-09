@@ -47,6 +47,12 @@ SET archived = $1,
     updated_at = $2
 WHERE agent_id = $3;
 
+-- name: UpdateAgentProviderBindingProviderThreadID :exec
+UPDATE agent_provider_binding
+SET provider_thread_id = $1,
+    updated_at = $2
+WHERE agent_id = $3;
+
 -- name: GetAgentProviderBindingByAgentID :one
 SELECT agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid, codex_home, codex_instance_key, codex_model_provider
 FROM agent_provider_binding

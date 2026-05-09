@@ -1,11 +1,14 @@
 package claudecli
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 
 	"github.com/kelindar/event"
 
@@ -13,7 +16,35 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 )
 
+func TestHandleSystemInitRawRecordsProviderSessionUUID(t *testing.T) {
+	const sessionID = "11111111-2222-3333-4444-555555555555"
+	recovery := &recordingSessionRecoveryReporter{}
+	tr := &transport{}
+	s := &session{
+		agentID:         "agent-1",
+		threadID:        "agent-1",
+		publicThreadID:  "agent-1",
+		sessionID:       "agent-1",
+		threadReady:     make(chan struct{}),
+		transport:       tr,
+		recovery:        recovery,
+		suppressedTurns: map[string]struct{}{},
+	}
+	defer func() {
+		if tr.done != nil {
+			close(tr.done)
+		}
+	}()
+
+	s.handleSystemInitRaw(tr, dto.RawProviderEvent{EventType: "system:init", Data: map[string]any{"session_id": sessionID}})
+
+	if recovery.recordAgentID != "agent-1" || recovery.recordSessionUUID != sessionID {
+		t.Fatalf("recorded recovery = (%q,%q), want (agent-1,%s)", recovery.recordAgentID, recovery.recordSessionUUID, sessionID)
+	}
+}
+
 func TestHandleSystemInitRawStartsLogWatcherAndUsesRuntimeContextWindow(t *testing.T) {
+
 	defer swapDefaultSessionLogWatcherPollIntervalForTest(10 * time.Millisecond)()
 
 	dir := t.TempDir()
@@ -105,7 +136,27 @@ func TestDispatchTokenUsageIfCurrentRejectsStaleIdentity(t *testing.T) {
 	}
 }
 
+type recordingSessionRecoveryReporter struct {
+	recordAgentID     string
+	recordSessionUUID string
+	clearStaleAgentID string
+}
+
+func (r *recordingSessionRecoveryReporter) ClearStaleProviderThreadID(_ context.Context, agentID string) error {
+	r.clearStaleAgentID = agentID
+	return nil
+}
+
+func (r *recordingSessionRecoveryReporter) RecordProviderSessionUUID(_ context.Context, agentID, sessionUUID string) error {
+	r.recordAgentID = agentID
+	r.recordSessionUUID = sessionUUID
+	return nil
+}
+
+var _ contract.SessionRecoveryReporter = (*recordingSessionRecoveryReporter)(nil)
+
 func watcherIntegrationLine(t *testing.T, sessionID, timestamp string, input, output int) []byte {
+
 	t.Helper()
 	raw, err := json.Marshal(map[string]any{
 		"type":      "assistant",

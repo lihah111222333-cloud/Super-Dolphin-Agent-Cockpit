@@ -51,12 +51,14 @@ type session struct {
 	logWatcher           *sessionLogWatcher
 	logWatcherGen        uint64
 	sessionContextWindow int
+	recovery             contract.SessionRecoveryReporter
 	mu                   sync.Mutex
-	activeTurn           *turnHandle
-	pendingRetry         *turnRetryState
-	activeToolCalls      map[string]string
-	suppressedTurns      map[string]struct{}
-	imageTracker         *imageHashTracker
+
+	activeTurn      *turnHandle
+	pendingRetry    *turnRetryState
+	activeToolCalls map[string]string
+	suppressedTurns map[string]struct{}
+	imageTracker    *imageHashTracker
 }
 
 type turnHandle struct {

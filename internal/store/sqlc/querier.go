@@ -201,6 +201,7 @@ type Querier interface {
 	UnbindAgentThread(ctx context.Context, arg UnbindAgentThreadParams) error
 	UpdateAgentCwd(ctx context.Context, arg UpdateAgentCwdParams) error
 	UpdateAgentProviderBindingArchived(ctx context.Context, arg UpdateAgentProviderBindingArchivedParams) error
+	UpdateAgentProviderBindingProviderThreadID(ctx context.Context, arg UpdateAgentProviderBindingProviderThreadIDParams) error
 	UpdateAgentProviderBindingSessionUUID(ctx context.Context, arg UpdateAgentProviderBindingSessionUUIDParams) error
 	// Atomically clears pending_launch and stamps the router decision after the
 	// Claude CLI has been spawned for this thread.

@@ -18,6 +18,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/manifestbuilder"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -37,6 +38,7 @@ type driver struct {
 	proxyAddrFn          func() string
 	skillCacheDir        string
 	setupWorkspaceSkills func(workspaceDir, cacheDir string) error
+	recovery             contract.SessionRecoveryReporter
 }
 
 type startSpec struct {
@@ -90,7 +92,7 @@ func (d *driver) proxyHTTPAddr() string {
 	return strings.TrimSpace(d.proxyAddrFn())
 }
 
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string, skillCacheDir string, setupWSSkills func(string, string) error) contract.Driver {
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string, skillCacheDir string, setupWSSkills func(string, string) error, recovery contract.SessionRecoveryReporter) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -109,6 +111,7 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, re
 		proxyAddrFn:          proxyAddrFn,
 		skillCacheDir:        skillCacheDir,
 		setupWorkspaceSkills: setupWSSkills,
+		recovery:             recovery,
 	}
 }
 
@@ -276,20 +279,19 @@ func (d *driver) newStartedSession(spec startSpec, started preparedStartSession)
 		manifest:          spec.manifest,
 		cleanup:           started.cleanup,
 		pidRegistry:       d.pidRegistry,
+		recovery:          d.recovery,
 		suppressedTurns:   map[string]struct{}{},
 		imageTracker:      newImageHashTracker(),
 	}
 	s.applyConfiguredOverridesLocked(spec.configOverride, false)
 	// Claude CLI v2.1+ only emits system:init (which carries the real
-	// session_id) after it receives the first user message on stdin. For
-	// brand-new sessions (empty spec.threadID), mark threadReady immediately
-	// so StartTurn can proceed and trigger system:init. The real thread ID
-	// will be resolved asynchronously when the read loop processes the
-	// system:init event. The restart path uses its own resumeID-based logic
-	// in swapRestartTransportLocked and is unaffected by this override.
-	if !identifier.IsClaudeCLISessionUUID(spec.threadID) {
-		s.markThreadReady()
-	}
+	// session_id) after it receives the first user message on stdin. Mark
+	// the session ready immediately so StartTurn can send that message.
+	// Fresh sessions still resolve the real thread ID asynchronously from
+	// system:init; resumed sessions already have the persisted UUID in
+	// spec.threadID. The restart path uses its own resumeID-based logic in
+	// swapRestartTransportLocked and is unaffected by this startup gate.
+	s.markThreadReady()
 	s.startReadLoop(started.transport)
 	return s
 }
@@ -297,10 +299,22 @@ func (d *driver) newStartedSession(spec startSpec, started preparedStartSession)
 func (d *driver) awaitStartedSession(ctx context.Context, s *session, tr *transport) error {
 	if err := s.awaitResolvedThreadID(ctx); err != nil {
 		shared.LogIgnoredError(d.logger, "stop failed on start error", s.stop(true))
+		d.clearStaleProviderThreadID(s.agentID, "claudecli: clear stale binding failed")
 		return err
 	}
 	registerTransportPID(d.pidRegistry, tr, s.agentID)
 	return nil
+}
+
+func (d *driver) clearStaleProviderThreadID(agentID, message string) {
+	if d == nil || d.recovery == nil {
+		return
+	}
+	cleanCtx, cancel := ctxutil.WithSessionCloseTimeout(context.Background())
+	defer cancel()
+	if err := d.recovery.ClearStaleProviderThreadID(cleanCtx, agentID); err != nil && d.logger != nil {
+		d.logger.Warn(message, "agent_id", strings.TrimSpace(agentID), "error", err)
+	}
 }
 
 func (d *driver) dispatchStartEvents(s *session, launchModel string) {

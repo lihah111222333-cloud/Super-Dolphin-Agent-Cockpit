@@ -17,6 +17,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -31,6 +32,7 @@ type DriverFactory struct {
 	pool             *ServerPool
 	listTools        func(context.Context) ([]codexprotocol.DynamicToolSchema, error)
 	manifestRenderer contract.SkillManifestRenderer // P6 FBSD + skill library; optional, nil-safe
+	recovery         contract.SessionRecoveryReporter
 }
 
 const fallbackBaseInstructions = "You are a helpful assistant."
@@ -45,6 +47,7 @@ type driver struct {
 	pool             *ServerPool
 	listTools        func(context.Context) ([]codexprotocol.DynamicToolSchema, error)
 	manifestRenderer contract.SkillManifestRenderer // P6 FBSD + skill library; optional, nil-safe
+	recovery         contract.SessionRecoveryReporter
 }
 
 var _ contract.Driver = (*driver)(nil)
@@ -102,6 +105,7 @@ func NewDriverFactory(
 	manager *ServerManager,
 	pool *ServerPool,
 	manifestRenderer contract.SkillManifestRenderer,
+	recovery contract.SessionRecoveryReporter,
 ) *DriverFactory {
 	factory := &DriverFactory{
 		logger:           logger,
@@ -111,11 +115,12 @@ func NewDriverFactory(
 		manager:          manager,
 		pool:             pool,
 		manifestRenderer: manifestRenderer,
+		recovery:         recovery,
 	}
 	factory.DriverFactory = contract.DriverFactory{
 		Name: "codex",
 		Create: func() contract.Driver {
-			return newDriver(logger, dispatcher, approvals, reporter, manager, pool, factory.manifestRenderer, factory.currentListTools())
+			return newDriver(logger, dispatcher, approvals, reporter, manager, pool, factory.manifestRenderer, factory.recovery, factory.currentListTools())
 		},
 		NativeTools: []contract.NativeToolDescriptor{
 			{ID: "read_file", Label: "读文件", Description: "Codex 内置读文件", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
@@ -147,7 +152,7 @@ func (f *DriverFactory) currentListTools() func(context.Context) ([]codexprotoco
 	return f.listTools
 }
 
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager, pool *ServerPool, manifestRenderer contract.SkillManifestRenderer, listTools ...func(context.Context) ([]codexprotocol.DynamicToolSchema, error)) contract.Driver {
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager, pool *ServerPool, manifestRenderer contract.SkillManifestRenderer, recovery contract.SessionRecoveryReporter, listTools ...func(context.Context) ([]codexprotocol.DynamicToolSchema, error)) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -169,6 +174,7 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, ap
 		pool:             pool,
 		listTools:        listToolsFn,
 		manifestRenderer: manifestRenderer,
+		recovery:         recovery,
 	}
 }
 
@@ -221,6 +227,7 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	threadID, err := resumeRemoteThread(ctx, s.transport, req)
 	if err != nil {
 		cleanupFailedSession(s, "force stop failed on resume error")
+		d.clearStaleProviderThreadID(req.AgentID, "codexapp: clear stale binding failed")
 		return nil, err
 	}
 	s.setThreadID(threadID)
@@ -239,6 +246,17 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	d.restoreApprovalPolicy(ctx, s, threadID)
 	d.reportRuntime(s.agentID)
 	return s, nil
+}
+
+func (d *driver) clearStaleProviderThreadID(agentID, message string) {
+	if d == nil || d.recovery == nil {
+		return
+	}
+	cleanCtx, cancel := ctxutil.WithSessionCloseTimeout(context.Background())
+	defer cancel()
+	if err := d.recovery.ClearStaleProviderThreadID(cleanCtx, agentID); err != nil && d.logger != nil {
+		d.logger.Warn(message, "agent_id", strings.TrimSpace(agentID), "error", err)
+	}
 }
 
 func (s *session) AllowedModels(ctx context.Context) ([]string, error) {

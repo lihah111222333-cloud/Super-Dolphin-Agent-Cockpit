@@ -73,3 +73,35 @@ func TestRepairMigrationRebuildsAgentProviderBindingConstraints(t *testing.T) {
 		}
 	}
 }
+
+func TestMigration0070RestoresFirstTimeProviderThreadIDWrite(t *testing.T) {
+	t.Parallel()
+
+	assertMigrationContains(t, "0070_binding_provider_thread_first_write.sql", []string{
+		"CREATE OR REPLACE FUNCTION prevent_agent_provider_binding_rebind()",
+		"IF OLD.provider_thread_id <> ''",
+		"AND OLD.provider_thread_id <> OLD.agent_id",
+		"AND NEW.provider_thread_id IS DISTINCT FROM OLD.provider_thread_id THEN",
+		"UPDATE agent_provider_binding",
+		"SET provider_thread_id = session_uuid",
+		"WHERE provider = 'claude'",
+		"AND provider_thread_id = agent_id",
+		"session_uuid ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'",
+	})
+}
+
+func TestMigration0071EnforcesClaudeProviderThreadUUID(t *testing.T) {
+	t.Parallel()
+
+	assertMigrationContains(t, "0071_claude_provider_thread_uuid_check.sql", []string{
+		"SET provider_thread_id = session_uuid",
+		"WHERE provider = 'claude'",
+		"AND (provider_thread_id = '' OR provider_thread_id = agent_id)",
+		"SET provider_thread_id = ''",
+		"AND provider_thread_id = agent_id",
+		"ADD CONSTRAINT chk_claude_provider_thread_uuid",
+		"provider <> 'claude'",
+		"OR provider_thread_id = ''",
+		"provider_thread_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'",
+	})
+}

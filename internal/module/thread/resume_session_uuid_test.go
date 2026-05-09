@@ -55,3 +55,42 @@ func TestServiceResumePrefersSessionUUIDOverStaleProviderThreadID(t *testing.T) 
 		t.Fatalf("SessionID = %q, want %s", result.SessionID, realUUID)
 	}
 }
+
+func TestServiceResumeDoesNotUseAgentIDAsClaudeProviderThreadID(t *testing.T) {
+	t.Parallel()
+
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:  "thread-public",
+		AgentID:   "agent-1",
+		Prompt:    "resume",
+		Model:     "claude-3",
+		Cwd:       "/repo",
+		CreatedAt: 123,
+		Status:    statusCreated,
+	}}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:       "agent-1",
+		Provider:      "claude",
+		CodexThreadID: "thread-public",
+		Cwd:           "/repo",
+	}}
+	sessions := &stubSessionProvider{}
+	var resumeReq dto.ResumeSessionRequest
+	starter := &stubSessionStarter{onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+		resumeReq = req
+		session := &stubSession{}
+		sessions.session = session
+		return session, nil
+	}}
+
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, &stubThreadOrchestration{}, nil).(*service)
+	if _, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "agent-1"}); err != nil {
+		t.Fatalf("Resume() error = %v", err)
+	}
+	if resumeReq.ProviderThreadID != "" {
+		t.Fatalf("ResumeSessionRequest.ProviderThreadID = %q, want empty", resumeReq.ProviderThreadID)
+	}
+	if bindings.upsert.ProviderThreadID == "agent-1" {
+		t.Fatalf("binding upsert provider_thread_id = agent id %q", bindings.upsert.ProviderThreadID)
+	}
+}

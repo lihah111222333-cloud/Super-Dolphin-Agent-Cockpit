@@ -205,15 +205,18 @@ func TestServiceRecoverRehydratesClaudeOverrideConfigWhenSessionMissing(t *testi
 
 	model := "claude-sonnet-4-20250514[1m]"
 	effort := "max"
-	resumedSession := &stubSession{threadID: "provider-parent"}
+	const providerParentUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5b3"
+	resumedSession := &stubSession{threadID: providerParentUUID}
 	sessions := &stubSessionProvider{}
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-parent",
 		Provider:         "claude",
-		ProviderThreadID: "provider-parent",
+		ProviderThreadID: providerParentUUID,
 		CodexThreadID:    "thread-parent",
+		SessionUUID:      providerParentUUID,
 		Cwd:              "/repo",
 	}}
+
 	threads := &stubThreadStore{thread: &threadstore.Thread{
 		ThreadID:       "thread-parent",
 		AgentID:        "agent-parent",

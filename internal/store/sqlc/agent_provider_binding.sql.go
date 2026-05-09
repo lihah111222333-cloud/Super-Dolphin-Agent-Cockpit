@@ -148,6 +148,24 @@ func (q *Queries) UpdateAgentProviderBindingArchived(ctx context.Context, arg Up
 	return err
 }
 
+const updateAgentProviderBindingProviderThreadID = `-- name: UpdateAgentProviderBindingProviderThreadID :exec
+UPDATE agent_provider_binding
+SET provider_thread_id = $1,
+    updated_at = $2
+WHERE agent_id = $3
+`
+
+type UpdateAgentProviderBindingProviderThreadIDParams struct {
+	ProviderThreadID string `db:"provider_thread_id" json:"provider_thread_id"`
+	UpdatedAt        int64  `db:"updated_at" json:"updated_at"`
+	AgentID          string `db:"agent_id" json:"agent_id"`
+}
+
+func (q *Queries) UpdateAgentProviderBindingProviderThreadID(ctx context.Context, arg UpdateAgentProviderBindingProviderThreadIDParams) error {
+	_, err := q.db.Exec(ctx, updateAgentProviderBindingProviderThreadID, arg.ProviderThreadID, arg.UpdatedAt, arg.AgentID)
+	return err
+}
+
 const updateAgentProviderBindingSessionUUID = `-- name: UpdateAgentProviderBindingSessionUUID :exec
 UPDATE agent_provider_binding
 SET session_uuid = $1,

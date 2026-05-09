@@ -58,11 +58,12 @@ type DriverFactoryParams struct {
 	Reporter         contract.RuntimeReporter
 	Manager          *ServerManager
 	Pool             *ServerPool
-	ManifestRenderer contract.SkillManifestRenderer `optional:"true"`
+	ManifestRenderer contract.SkillManifestRenderer   `optional:"true"`
+	Recovery         contract.SessionRecoveryReporter `optional:"true"`
 }
 
 func provideDriverFactory(p DriverFactoryParams) *DriverFactory {
-	return NewDriverFactory(p.Logger, p.Dispatcher, p.Approvals, p.Reporter, p.Manager, p.Pool, p.ManifestRenderer)
+	return NewDriverFactory(p.Logger, p.Dispatcher, p.Approvals, p.Reporter, p.Manager, p.Pool, p.ManifestRenderer, p.Recovery)
 }
 
 func provideContractDriverFactory(factory *DriverFactory) contract.DriverFactory {

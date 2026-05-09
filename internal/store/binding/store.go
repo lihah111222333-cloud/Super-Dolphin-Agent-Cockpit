@@ -18,6 +18,7 @@ type querier interface {
 	UnbindAgentThread(ctx context.Context, arg sqlc.UnbindAgentThreadParams) error
 	UpdateAgentCwd(ctx context.Context, arg sqlc.UpdateAgentCwdParams) error
 	UpdateAgentProviderBindingArchived(ctx context.Context, arg sqlc.UpdateAgentProviderBindingArchivedParams) error
+	UpdateAgentProviderBindingProviderThreadID(ctx context.Context, arg sqlc.UpdateAgentProviderBindingProviderThreadIDParams) error
 	UpdateAgentProviderBindingSessionUUID(ctx context.Context, arg sqlc.UpdateAgentProviderBindingSessionUUIDParams) error
 	UpsertAgentProviderBinding(ctx context.Context, arg sqlc.UpsertAgentProviderBindingParams) error
 	RebindAgentThreadTx(ctx context.Context, arg sqlc.RebindAgentThreadTxParams) error
@@ -107,6 +108,14 @@ func (s *store) UpdateSessionUUID(ctx context.Context, params UpdateSessionUUIDP
 		UpdatedAt:   params.UpdatedAt,
 		AgentID:     params.AgentID,
 	}), "update_session_uuid")
+}
+
+func (s *store) UpdateProviderThreadID(ctx context.Context, params UpdateProviderThreadIDParams) error {
+	return wrapBindingError(s.q.UpdateAgentProviderBindingProviderThreadID(ctx, sqlc.UpdateAgentProviderBindingProviderThreadIDParams{
+		ProviderThreadID: params.ProviderThreadID,
+		UpdatedAt:        params.UpdatedAt,
+		AgentID:          params.AgentID,
+	}), "update_provider_thread_id")
 }
 
 func (s *store) SetArchived(ctx context.Context, params SetArchivedParams) error {

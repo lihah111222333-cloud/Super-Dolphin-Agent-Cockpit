@@ -366,10 +366,11 @@ func (s *service) persistResumedSession(
 			"session_runtime_codex_home", sessionRuntimeConfigString(session, "codexHome"),
 			"rollout_path", util.FirstNonEmpty(state.RolloutPath, session.RolloutPath()))
 	}
+	providerThreadID := normalizeProviderThreadID(req.Provider, util.FirstNonEmpty(resolvedProviderUUID(session), req.ProviderThreadID, state.ProviderThreadID, state.SessionUUID))
 	threadState := newThreadState(threadStateResumeKind, threadStateFields{
 		RequestedThreadID:  req.ThreadID,
 		PublicThreadID:     state.PublicThreadID,
-		ProviderThreadID:   util.FirstNonEmpty(req.ProviderThreadID, resolvedProviderUUID(session)),
+		ProviderThreadID:   providerThreadID,
 		AgentID:            req.AgentID,
 		ParentAgentID:      state.ParentAgentID,
 		AgentType:          state.AgentType,
@@ -388,7 +389,7 @@ func (s *service) persistResumedSession(
 		CreatedAt:          state.CreatedAt,
 	})
 	publicThreadID := threadState.PublicThreadID
-	providerThreadID := threadState.ProviderThreadID
+	providerThreadID = threadState.ProviderThreadID
 	if err := s.persistThreadState(ctx, threadState, true); err != nil {
 		s.logResumePersistFailure(req.AgentID, publicThreadID, providerThreadID, err)
 		s.publishThreadStarted(threadState)

@@ -4,8 +4,6 @@ import (
 	"context"
 	"testing"
 	"time"
-
-	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 )
 
 func TestIsPlaceholderThreadID(t *testing.T) {
@@ -27,38 +25,32 @@ func TestIsPlaceholderThreadID(t *testing.T) {
 	}
 }
 
-func TestStartSessionWithPlaceholderThreadIsImmediatelyReady(t *testing.T) {
-	// markThreadReady gate (driver.go): if spec.threadID is not a real
-	// claude UUID, treat as fresh start and immediately mark ready so
-	// StartSession can return without waiting for system:init.
+func TestStartupMarksThreadReadyImmediately(t *testing.T) {
+	// Claude CLI may not emit system:init until after the first user message.
+	// Startup must mark ready immediately for both fresh sessions and resume
+	// sessions so that StartTurn can send that message.
 	cases := []struct {
-		name     string
-		specID   string
-		wantMark bool
+		name   string
+		specID string
 	}{
-		{"empty", "", true},
-		{"agent placeholder", "agent_1778254389737948000", true},
-		{"pending placeholder", "pending", true},
-		{"real v4 uuid (resume path)", "11111111-2222-3333-4444-555555555555", false},
+		{"empty", ""},
+		{"agent placeholder", "agent_1778254389737948000"},
+		{"pending placeholder", "pending"},
+		{"real v4 uuid resume path", "11111111-2222-3333-4444-555555555555"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			s := &session{
-				publicThreadID: "ext_thread_123",
-				threadID:       "ext_thread_123",
-				threadReady:    make(chan struct{}),
-			}
-			if !identifier.IsClaudeCLISessionUUID(tc.specID) {
-				s.markThreadReady()
-			}
+			st := newBufferedTransport(t, tc.specID)
+			defer st.finish()
+			s := (&driver{}).newStartedSession(startSpec{
+				agentID:      "agent-1",
+				threadID:     tc.specID,
+				publicThread: "thread-public",
+			}, preparedStartSession{transport: st.tr})
 			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 			defer cancel()
-			err := s.awaitResolvedThreadID(ctx)
-			if tc.wantMark && err != nil {
+			if err := s.awaitResolvedThreadID(ctx); err != nil {
 				t.Fatalf("expected immediate ready, got %v", err)
-			}
-			if !tc.wantMark && err == nil {
-				t.Fatalf("expected awaitResolvedThreadID to block until timeout for resume path")
 			}
 		})
 	}

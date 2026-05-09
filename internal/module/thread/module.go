@@ -46,6 +46,7 @@ var Module = fx.Module("thread",
 	),
 	// Publish narrow contract adapters so downstream consumers (uistate)
 	// can depend on contract interfaces instead of thread.Service directly.
+	fx.Provide(NewBindingRecoveryReporter),
 	fx.Provide(NewThreadLister),
 	fx.Provide(NewThreadConfigReader),
 	fx.Provide(NewThreadRuntimeConfigReader),

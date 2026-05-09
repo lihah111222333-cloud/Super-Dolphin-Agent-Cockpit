@@ -246,6 +246,9 @@ func (s *toolCallBindingStoreStub) DeleteByAgentID(context.Context, string) erro
 func (s *toolCallBindingStoreStub) UpdateSessionUUID(context.Context, bindingstore.UpdateSessionUUIDParams) error {
 	return nil
 }
+func (s *toolCallBindingStoreStub) UpdateProviderThreadID(context.Context, bindingstore.UpdateProviderThreadIDParams) error {
+	return nil
+}
 
 func (s *toolCallBindingStoreStub) SetArchived(context.Context, bindingstore.SetArchivedParams) error {
 	return nil

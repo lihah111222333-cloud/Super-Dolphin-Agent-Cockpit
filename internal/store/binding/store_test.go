@@ -25,6 +25,7 @@ type bindingQuerierStub struct {
 	unbindAgentThreadFn                func(context.Context, string) error
 	updateAgentCwdFn                   func(context.Context, sqlc.UpdateAgentCwdParams) error
 	updateArchivedFn                   func(context.Context, sqlc.UpdateAgentProviderBindingArchivedParams) error
+	updateProviderThreadIDFn           func(context.Context, sqlc.UpdateAgentProviderBindingProviderThreadIDParams) error
 	updateSessionUUIDFn                func(context.Context, sqlc.UpdateAgentProviderBindingSessionUUIDParams) error
 	upsertAgentProviderBindingFn       func(context.Context, sqlc.UpsertAgentProviderBindingParams) error
 	rebindAgentThreadTxFn              func(context.Context, sqlc.RebindAgentThreadTxParams) error
@@ -96,6 +97,13 @@ func (s *bindingQuerierStub) UpdateAgentCwd(ctx context.Context, arg sqlc.Update
 func (s *bindingQuerierStub) UpdateAgentProviderBindingArchived(ctx context.Context, arg sqlc.UpdateAgentProviderBindingArchivedParams) error {
 	if s.updateArchivedFn != nil {
 		return s.updateArchivedFn(ctx, arg)
+	}
+	return nil
+}
+
+func (s *bindingQuerierStub) UpdateAgentProviderBindingProviderThreadID(ctx context.Context, arg sqlc.UpdateAgentProviderBindingProviderThreadIDParams) error {
+	if s.updateProviderThreadIDFn != nil {
+		return s.updateProviderThreadIDFn(ctx, arg)
 	}
 	return nil
 }
@@ -329,6 +337,29 @@ func TestUpdateSessionUUID(t *testing.T) {
 	}
 	if got.SessionUUID != "session-uuid-1" || got.UpdatedAt != 300 || got.AgentID != "agent-session" {
 		t.Fatalf("UpdateSessionUUID() forwarded wrong params: %+v", got)
+	}
+}
+
+func TestUpdateProviderThreadID(t *testing.T) {
+	t.Parallel()
+
+	var got sqlc.UpdateAgentProviderBindingProviderThreadIDParams
+	s := &store{q: &bindingQuerierStub{
+		updateProviderThreadIDFn: func(_ context.Context, arg sqlc.UpdateAgentProviderBindingProviderThreadIDParams) error {
+			got = arg
+			return nil
+		},
+	}}
+
+	if err := s.UpdateProviderThreadID(context.Background(), UpdateProviderThreadIDParams{
+		ProviderThreadID: "provider-thread-1",
+		UpdatedAt:        350,
+		AgentID:          "agent-provider-thread",
+	}); err != nil {
+		t.Fatalf("UpdateProviderThreadID() error = %v", err)
+	}
+	if got.ProviderThreadID != "provider-thread-1" || got.UpdatedAt != 350 || got.AgentID != "agent-provider-thread" {
+		t.Fatalf("UpdateProviderThreadID() forwarded wrong params: %+v", got)
 	}
 }
 
