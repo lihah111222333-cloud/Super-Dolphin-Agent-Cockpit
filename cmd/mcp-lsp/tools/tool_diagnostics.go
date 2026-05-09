@@ -10,6 +10,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/search"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
 const maxReactiveBootstrap = 30
@@ -58,7 +59,7 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 	if h.registry == nil {
 		return nil, errManagerUnavailable
 	}
-	uris, err := h.collectDiagnosticURIs(input)
+	uris, err := h.collectDiagnosticURIs(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +84,7 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 	}, nil
 }
 
-func (h handlerBase) collectDiagnosticURIs(input fileToolInput) ([]string, error) {
+func (h handlerBase) collectDiagnosticURIs(ctx context.Context, input fileToolInput) ([]string, error) {
 	targets := make([]string, 0, len(input.FilePaths)+1)
 	if value := strings.TrimSpace(input.FilePath); value != "" {
 		targets = append(targets, value)
@@ -97,10 +98,11 @@ func (h handlerBase) collectDiagnosticURIs(input fileToolInput) ([]string, error
 		return nil, nil
 	}
 
+	root := common.WorkspaceRootFromContext(ctx, h.root)
 	uris := make([]string, 0, len(targets))
 	seen := make(map[string]struct{}, len(targets))
 	for _, target := range targets {
-		pathInfo, err := search.ResolvePath(h.root, target)
+		pathInfo, err := search.ResolvePath(root, target)
 		if err != nil {
 			return nil, err
 		}
