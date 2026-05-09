@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
@@ -428,18 +429,10 @@ func cloneInt64(value *int64) *int64 {
 // errors.Is 可用：errors.Is(err, ErrLifecycleNotImplemented)。
 var ErrLifecycleNotImplemented = errors.New("orchestration lifecycle: not implemented in skeleton stage (T1.2/F4.x/F6.x)")
 
-// StartDAGRequest 是触发 DAG 一次新执行的入参。
-type StartDAGRequest struct {
-	DagKey         string // 必填
-	TriggerSource  string // manual | auto | scheduled | external
-	IdempotencyKey string // 可选，防重复 run
-}
-
-// StartDAGResponse 是 StartDAG 的返回。
-type StartDAGResponse struct {
-	RunKey  string // 新 run 的唯一键（例 dag_xxx#run_2026-05-10T08:00）
-	Version int64  // 该 run snapshot 的 dag.version
-}
+// StartDAGRequest / StartDAGResponse 现为 contract 包类型别名，让 service
+// 能直接实现 contract.OrchestrationService 接口（T1.1 接通）。
+type StartDAGRequest = contract.StartDAGRequest
+type StartDAGResponse = contract.StartDAGResponse
 
 // TerminateDAGRequest 是终止一次 DAG run 的入参。
 type TerminateDAGRequest struct {
