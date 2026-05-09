@@ -12,6 +12,7 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -567,7 +568,7 @@ func (s *service) lookupResumeState(ctx context.Context, threadID string) resume
 		// Only override when SessionUUID looks like a real UUID.
 		if state.SessionUUID != "" &&
 			state.SessionUUID != state.ProviderThreadID &&
-			looksLikeUUID(state.SessionUUID) {
+			identifier.LooksLikeUUID(state.SessionUUID) {
 			state.ProviderThreadID = state.SessionUUID
 		}
 	}

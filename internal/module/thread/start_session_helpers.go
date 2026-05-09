@@ -344,24 +344,3 @@ func trimRawJSON(raw json.RawMessage) json.RawMessage {
 	}
 	return raw
 }
-
-// looksLikeUUID returns true when s resembles a UUID (hex-and-dashes, 32+ hex chars).
-// It rejects agent_id placeholders like "agent_17754..." that are not valid provider UUIDs.
-func looksLikeUUID(s string) bool {
-	s = strings.TrimSpace(s)
-	if len(s) < 32 {
-		return false
-	}
-	hex := 0
-	for _, c := range s {
-		switch {
-		case (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'):
-			hex++
-		case c == '-':
-			// ok
-		default:
-			return false
-		}
-	}
-	return hex >= 32
-}

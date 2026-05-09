@@ -9,6 +9,7 @@ import (
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 )
@@ -121,7 +122,7 @@ func (s *service) processAgentLaunched(ev agentdto.AgentLaunched) {
 	}
 	s.syncAgentLaunchCWD(ctx, binding, threadID, ev.CWD)
 	agentID = strings.TrimSpace(binding.AgentID)
-	if agentID == "" || sessionID == "" || !looksLikeUUID(sessionID) {
+	if agentID == "" || sessionID == "" || !identifier.LooksLikeUUID(sessionID) {
 		return
 	}
 	if strings.TrimSpace(binding.SessionUUID) == sessionID {

@@ -12,6 +12,7 @@ import (
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 )
 
 // SessionStarter is an alias for contract.SessionStarter.
@@ -514,7 +515,7 @@ func resolvedProviderUUID(session contract.Session) string {
 		return ""
 	}
 	id := strings.TrimSpace(session.ThreadID())
-	if looksLikeUUID(id) {
+	if identifier.LooksLikeUUID(id) {
 		return id
 	}
 	return ""
