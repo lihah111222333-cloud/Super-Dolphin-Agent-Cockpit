@@ -2,7 +2,7 @@
 
 > 状态：草案 / 等待动手
 > 关系：本文是 `docs/plans/迁移/p23/` 的上位重排，不是替换；p23 各 Phase 的去留在第 11 节给出映射表。
-> 历史：2026-05-09 初稿；2026-05-10 合并 14 处骨架补丁、4 阶段路径、所有讨论决策
+> 历史：2026-05-09 初稿；2026-05-10 合并 14 处骨架补丁、4 阶段路径、所有讨论决策；2026-05-10 第二次修订（用户场景查漏：4 处小补 isolation / outputs.schema / replan / polling）
 
 ---
 
@@ -65,6 +65,10 @@ MCP 工具层      ✅ 完整 (task_create_dag / get_dag / update_node)
 | on_failure 策略 | **按 class 分发** | by_class map + escalation_chain 字段位（功能阶段实现） |
 | HITL | **enum 留位不实现** | `waiting_human` 入 enum，UI/通知/timeout 等加固阶段做 |
 | Cron | **保留 P5 但骨架阶段只字段位 + Scheduler stub** | 我之前推荐砍 P5 是错的，每日定时是真实需求 |
+| 节点隔离 | **`exec.isolation` 字段位** | 多并行任务 worktree 隔离（Cursor 同侪验证） |
+| 重新规划策略 | **`OnFailureStrategy` 加 `replan`** | 失败时 spawn planner 改图，不止重试 |
+| 输出校验 | **`outputs.schema` 字段位** | JSON Schema 自动校验，配合 `validation` 失败分类 |
+| 实时进度 | **T 阶段先 polling，WS 升级放加固阶段** | 用户高频痛点；不补骨架 |
 
 ## 6. 改造决策矩阵
 
@@ -95,6 +99,9 @@ MCP 工具层      ✅ 完整 (task_create_dag / get_dag / update_node)
 - lifecycle hooks 接口位（Book Part 2）。
 - 节点级 allowed_tools 白名单（Harness MCP 工具图）。
 - task_post_message 原语（CAO send_message，**功能阶段做 / 骨架不做**）。
+- 节点级 worktree 隔离（Cursor 长跑 agent 模式，`exec.isolation` 字段位）。
+- 失败重新规划策略（`OnFailureStrategy.replan`，spawn planner 改图）。
+- 节点输出 JSON Schema 校验（`outputs.schema` 字段位，配合 `validation` failure class）。
 
 ## 7. 节点 config typed schema（骨架阶段锁死）
 
@@ -107,6 +114,7 @@ MCP 工具层      ✅ 完整 (task_create_dag / get_dag / update_node)
     "agent_key": "architect",    // 查 prompt_templates 表
     "effort": "high",
     "language": "zh",
+    "isolation": "shared",       // shared | worktree （worktree 模式下子 agent 在独立 git worktree）
     "allowed_tools": [],         // 白名单（可选，与 disabled_tools 共存）
     "disabled_tools": [],
     "budget_tokens": 50000,      // 字段位，骨架不 enforce
@@ -120,6 +128,7 @@ MCP 工具层      ✅ 完整 (task_create_dag / get_dag / update_node)
       "max_attempts": 3,
       "escalation_chain": ["sonnet", "opus"]
     }
+    // 注：on_failure 策略 enum 含 retry / escalate_model / append_error / replan / skip / fail_fast / ask_human
   },
   "inputs": {
     "from_nodes": ["prev"],
@@ -134,7 +143,12 @@ MCP 工具层      ✅ 完整 (task_create_dag / get_dag / update_node)
       "path": "report.md",
       "lock_mode": "exclusive"   // exclusive | append | shared
     },
-    "to_node_result": true
+    "to_node_result": true,
+    "schema": {                   // 可选 JSON Schema：节点输出不符则归类为 validation failure
+      "type": "object",
+      "required": ["summary"],
+      "properties": {"summary": {"type": "string"}}
+    }
   },
   "first_turn": ""               // 可选：覆盖 agent_key 默认提示词
 }
@@ -219,10 +233,10 @@ ops 在不同 status 下允许的子集：
 | 2 | service 层 StartDAG/TerminateDAG/ApplyOps + Scheduler | 设计 | 接口位定签名；Scheduler.Tick/Schedule stub |
 | 3 | migration 字段位 | 设计 | task_dags 加 trigger/owner_id/cron_expr/next_run_at/version；新建 task_dag_runs；task_dag_nodes 加 run_id/reads/writes |
 | 4 | typed ops payload | 设计 | update_dag / add_node / update_node / remove_node 四个动词 + base_version OCC |
-| 5 | typed node.config schema | 设计 | 第 7 节三种 node_type 的 schema + Go struct 解码器 |
+| 5 | typed node.config schema | 设计 | 第 7 节三种 node_type 的 schema + Go struct 解码器（含 `exec.isolation` / `outputs.schema` 字段位） |
 | 6 | UI 组件骨架占位 | 设计 | DagDetailModal 占位结构（节点列表 / Start 按钮 / 拓扑位），不接数据 |
 | 7 | 状态机 9 态 | Q&A | 第 8 节九态 + 状态转移合法性表 |
-| 8 | FailureClass + on_failure 策略 typed schema | Q&A | 第 8 节七类 + 策略 enum + by_class 分发 |
+| 8 | FailureClass + on_failure 策略 typed schema | Q&A | 第 8 节七类 + 策略 enum (含 `replan`) + by_class 分发 |
 | 9 | NodeExecutor.Execute → NodeOutcome | Q&A | NodeOutcome{Status, Result, FailureClass, ErrorSummary, RetryHint} |
 | **10** | lifecycle hooks 接口位 | Book Part 2 | HookPoint enum (before_execute/after_execute/on_state_change/on_failure) |
 | **11** | inputs.summarization 字段位 | Book Part 3 | strategy: none/last_n/llm_summary + max_tokens |
@@ -246,9 +260,9 @@ ops 在不同 status 下允许的子集：
 - T2：MCP `task_dag_apply_ops`（typed payload，draft/ready 可改）
 - T3：MCP `task_get_run / task_list_runs`
 - T4：MCP registry 工具：`list_models / list_prompt_templates / list_command_cards / list_sharedfiles`（给 AI 自助查可用资源）
-- T5：UI `DagDetailModal` 接 `task_get_dag`，渲染节点列表 + 状态色 + Start 按钮
+- T5：UI `DagDetailModal` 接 `task_get_dag`，渲染节点列表 + 状态色 + Start 按钮（**节点状态先 polling 3-5s 刷新；WS 升级放加固阶段**）
 - T6：UI 节点行展示 `exec.provider/model/agent_key`，跳到子 agent thread
-- T7：UI 列表显示 `trigger / status / version / 最近 run 状态`
+- T7：UI 列表显示 `trigger / status / version / 最近 run 状态`（同 polling 策略）
 - T8：UI「AI 帮你设计流程」按钮（spawn 新 thread + 注入 base 设计师 prompt 占位）
 - 验收：端到端 `task_create_dag → UI 看到 → 点 Start → 看到节点状态变化` 通过
 - 工作量比例：约 35%
@@ -266,7 +280,7 @@ ops 在不同 status 下允许的子集：
 - F9 UI mermaid 拓扑图
 - F10 UI run 历史时间轴
 - F11 UI sharedfile 锁可视化（节点 reads/writes 联动）
-- F12 智能重试 strategy dispatcher（by_class + escalation_chain）
+- F12 智能重试 strategy dispatcher（by_class + escalation_chain + `replan` 策略：spawn planner agent 改图）
 - F13 lifecycle hooks 真实触发
 - 验收：端到端用例 ——「AI 帮我设计每天 8 点的报告生成 DAG → AI 设计 → 用户改一处 prompt → Start → 第一个 run 跑通 → 第二天 8 点自动起第二个 run → run 历史里看到两次执行 → 一次故意失败 → 状态正确反映」
 - 工作量比例：约 30%
