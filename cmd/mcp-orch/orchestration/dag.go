@@ -459,3 +459,13 @@ func (s *service) StartDAG(_ context.Context, _ StartDAGRequest) (StartDAGRespon
 func (s *service) TerminateDAG(_ context.Context, _ TerminateDAGRequest) error {
 	return ErrLifecycleNotImplemented
 }
+
+// ApplyOps 对 DAG 执行一组 typed ops（add_node / update_node / remove_node /
+// update_dag），带 base_version OCC。是 AI 设计师 + UI 表单 + ops MCP 工具
+// 的同一接入点。
+//
+// 骨架阶段：仅返回 ErrLifecycleNotImplemented；
+// T2.2 接通 stub，F4.1-F4.5 真实实现 add/update/remove + 环检测 + OCC。
+func (s *service) ApplyOps(_ context.Context, _ nodeexec.OpsRequest) (nodeexec.OpsResponse, error) {
+	return nodeexec.OpsResponse{}, ErrLifecycleNotImplemented
+}

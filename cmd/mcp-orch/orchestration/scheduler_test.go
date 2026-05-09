@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 )
 
 func TestNoopScheduler_TickReturnsNotImplemented(t *testing.T) {
@@ -49,5 +51,21 @@ func TestService_TerminateDAG_NotImplemented(t *testing.T) {
 	err := s.TerminateDAG(context.Background(), TerminateDAGRequest{DagKey: "dag-x", RunKey: "run-y"})
 	if !errors.Is(err, ErrLifecycleNotImplemented) {
 		t.Fatalf("TerminateDAG err = %v, want ErrLifecycleNotImplemented", err)
+	}
+}
+
+func TestService_ApplyOps_NotImplemented(t *testing.T) {
+	s := &service{}
+	req := nodeexec.OpsRequest{
+		DagKey:      "dag-x",
+		BaseVersion: 1,
+		Ops:         nodeexec.Ops{nodeexec.OpRemoveNode{NodeKey: "n1"}},
+	}
+	resp, err := s.ApplyOps(context.Background(), req)
+	if !errors.Is(err, ErrLifecycleNotImplemented) {
+		t.Fatalf("ApplyOps err = %v, want ErrLifecycleNotImplemented", err)
+	}
+	if resp.NewVersion != 0 {
+		t.Fatalf("ApplyOps resp should be zero value, got %+v", resp)
 	}
 }
