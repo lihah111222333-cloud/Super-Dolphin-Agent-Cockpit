@@ -4,6 +4,13 @@ import (
 	"encoding/json"
 )
 
+// 导航注（DAG v2 骨架阶段后）：
+// 本文件 (`RetryPolicy / DAGSchedulePolicy / NodeExecutionPolicy`) 是 Phase 3.5 生产
+// dispatcher 路径的重试策略 (拿 DAG metadata 里的 default_retry / fail_fast)。
+// DAG v2 骨架阶段加了 typed `nodeexec.OnFailureConfig` 提供智能重试
+// (by_class 分发 + escalate_model + replan + skip + ask_human)。两者骨架阶段
+// 共存，F 阶段 dispatcher 重做时一并收敛 (见 ADR `docs/adr/0001-dag-v2-contracts.md` §2.7)。
+//
 // Phase 3.5 / 3B · 节点失败重试策略
 //
 // dispatcher 在 launch 失败后判断「再 retry 还是直接 fail」时，必须能从 DAG
