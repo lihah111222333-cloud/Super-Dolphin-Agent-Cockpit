@@ -14,13 +14,8 @@ type CreateDAGInput struct {
 	DagKey      string               `json:"dag_key"`
 	Title       string               `json:"title"`
 	Description string               `json:"description,omitempty"`
-	Metadata    *DAGMetadataInput    `json:"metadata,omitempty"`
 	Schedule    DAGScheduleInput     `json:"schedule"`
 	Nodes       []CreateDAGNodeInput `json:"nodes,omitempty"`
-}
-
-type DAGMetadataInput struct {
-	AutoHandoffPhase1 bool `json:"auto_handoff_phase1,omitempty"`
 }
 
 type DAGScheduleInput struct {
@@ -112,9 +107,6 @@ func createDAGSchema() Schema {
 		"dag_key":     StringSchema("Unique DAG key."),
 		"title":       StringSchema("DAG title."),
 		"description": StringSchema("Optional DAG description."),
-		"metadata": ObjectSchema(map[string]Schema{
-			"auto_handoff_phase1": BooleanSchema("Enable watcher-managed phase1 DAG control."),
-		}),
 		"schedule": ObjectSchema(map[string]Schema{
 			"trigger":             StringSchema("Start trigger."),
 			"default_retry":       IntegerSchema("Default retry count for nodes."),
@@ -156,7 +148,7 @@ func createDAGRequestFromInput(in CreateDAGInput) (contract.CreateDAGRequest, er
 	if err != nil {
 		return contract.CreateDAGRequest{}, err
 	}
-	metadata, err := encodeJSONRaw(createDAGMetadata(in.Metadata, in.Schedule))
+	metadata, err := encodeJSONRaw(createDAGMetadata(in.Schedule))
 	if err != nil {
 		return contract.CreateDAGRequest{}, err
 	}
@@ -228,12 +220,12 @@ func updateNodeRequestFromInput(in UpdateNodeInput) (contract.UpdateNodeStatusRe
 	}, nil
 }
 
-func createDAGMetadata(metadata *DAGMetadataInput, schedule DAGScheduleInput) map[string]any {
-	payload := map[string]any{"schedule": scheduleMap(schedule)}
-	if metadata != nil && metadata.AutoHandoffPhase1 {
-		payload["auto_handoff_phase1"] = true
-	}
-	return payload
+// createDAGMetadata 把 schedule 字段编码为 DAG metadata JSON 子树。
+// 旧版 metadata 字段 (S15.1 删除 / migrations/0075_dag_v2_compat.sql 迁移) 不再处理：
+// 数据库老行已一次性映射到 trigger 一等字段，tools 入参 schema 不再接受，
+// 调用方如果传入会被忽略（向后兼容）。
+func createDAGMetadata(schedule DAGScheduleInput) map[string]any {
+	return map[string]any{"schedule": scheduleMap(schedule)}
 }
 
 func nodeConfig(execution *DAGExecutionInput) map[string]any {
