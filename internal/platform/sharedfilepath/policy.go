@@ -49,6 +49,15 @@ var writePrefixes = []string{
 	prefixInternal,
 }
 
+// WritePrefixes 返回白名单写入路径前缀的拷贝。
+// MCP 工具 (如 shared_file_list) 可用此向 AI / UI 暴露允许的路径前缀，
+// 避免 “path prefix not in whitelist” 错误谌不透明 (骨架阶段吃狗粮 B-10/PE-1)。
+func WritePrefixes() []string {
+	copied := make([]string, len(writePrefixes))
+	copy(copied, writePrefixes)
+	return copied
+}
+
 // ValidateWritePath enforces the full schema (whitelist + traversal +
 // absolute) and returns the canonical-cleaned relative path. Used by every
 // store write entry point AND by backend writers (system handoff worker,

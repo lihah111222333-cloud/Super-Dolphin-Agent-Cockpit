@@ -27,6 +27,7 @@ func NewRegistry(deps Dependencies) Registry {
 	tools = append(tools, promptToolDefinitions(deps.Prompt)...)
 	tools = append(tools, commandToolDefinitions(deps.CommandCard)...)
 	tools = append(tools, sharedFileToolDefinitions(deps.SharedFile)...)
+	tools = append(tools, registryToolDefinitions(deps.SharedFile)...)
 	byName := make(map[string]ToolDefinition, len(tools))
 	for _, tool := range tools {
 		byName[tool.Name] = tool

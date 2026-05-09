@@ -1,0 +1,139 @@
+package tools
+
+import (
+	"context"
+	"encoding/json"
+
+	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilepath"
+)
+
+// T4.1 + T4.4 Registry / discovery 工具：
+//   - list_models: 暴露 super-dolphin 支持的 provider→models（硬编码骨架；
+//     F 阶段可改为读 provider registry 配置）
+//   - shared_file_list: 列已存在的 sharedfile + 暴露允许写入的路径前缀，
+//     防止 AI / UI 撞 “path prefix not in whitelist” 错误谌不透明
+//     （骨架阶段吃狗粮 B-10 / PE-1）
+//
+// T4.2 prompt_list / T4.3 command_list 已在 prompt_tools.go / command_tools.go
+// 通过 resourceToolDefinitions(...) 暴露，本文件不重复。
+
+// =====================================================
+// list_models (T4.1)
+// =====================================================
+
+// ListModelsInput 是 list_models 工具的可选过滤器。
+type ListModelsInput struct {
+	Provider string `json:"provider,omitempty"` // 可选：claude | codex；空表示全部
+}
+
+// ProviderModels 列出某 provider 支持的 model 名称集。
+type ProviderModels struct {
+	Provider string   `json:"provider"`
+	Models   []string `json:"models"`
+}
+
+// ListModelsResult 是 list_models 的返回结构。
+type ListModelsResult struct {
+	Providers []ProviderModels `json:"providers"`
+}
+
+// supportedModels 是骨架阶段硬编码的 provider→models 映射。
+// 出处：internal/provider/claudecli/session_config.go:120-123 列出的 sonnet/haiku/opus；
+// codex 走 OpenAI Codex CLI。F 阶段可改为读 provider registry 配置。
+var supportedModels = []ProviderModels{
+	{
+		Provider: "claude",
+		Models:   []string{"opus", "sonnet", "haiku"},
+	},
+	{
+		Provider: "codex",
+		Models:   []string{"gpt-5", "o3"},
+	},
+}
+
+// HandleListModels 返回 super-dolphin 支持的 provider→models 列表。
+// 无依赖项；直接写 closure 而不走 makeHandler。
+func HandleListModels() ToolHandler {
+	return func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var input ListModelsInput
+		if err := shared.DecodeInput(raw, &input); err != nil {
+			return nil, err
+		}
+		if input.Provider == "" {
+			return ListModelsResult{Providers: append([]ProviderModels(nil), supportedModels...)}, nil
+		}
+		filtered := make([]ProviderModels, 0, 1)
+		for _, p := range supportedModels {
+			if p.Provider == input.Provider {
+				filtered = append(filtered, p)
+			}
+		}
+		return ListModelsResult{Providers: filtered}, nil
+	}
+}
+
+// =====================================================
+// shared_file_list (T4.4)
+// =====================================================
+
+// SharedFileListInput 是 shared_file_list 工具的过滤器。
+type SharedFileListInput struct {
+	Prefix string `json:"prefix,omitempty"` // 可选前缀过滤
+	Limit  int32  `json:"limit,omitempty"`  // 可选上限
+}
+
+// SharedFileEntry 是 shared_file_list 返回的单条记录（不含 content，避免泄漏大块数据）。
+type SharedFileEntry struct {
+	Path      string `json:"path"`
+	UpdatedBy string `json:"updated_by"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+// SharedFileListResult 是 shared_file_list 的返回结构。
+type SharedFileListResult struct {
+	Files             []SharedFileEntry `json:"files"`
+	AllowedPrefixes   []string          `json:"allowed_prefixes"`
+	AllowedPrefixHint string            `json:"allowed_prefix_hint"`
+}
+
+// HandleSharedFileList 列已存在的 sharedfile，并暴露允许写入的路径前缀。
+func HandleSharedFileList(store sharedfilestore.Store) ToolHandler {
+	return makeHandler(store, "shared file store", func(ctx context.Context, in SharedFileListInput) (SharedFileListResult, error) {
+		rows, err := store.List(ctx, sharedfilestore.ListFilter{
+			Prefix: in.Prefix,
+			Limit:  in.Limit,
+		})
+		if err != nil {
+			return SharedFileListResult{}, err
+		}
+		entries := make([]SharedFileEntry, 0, len(rows))
+		for _, r := range rows {
+			entries = append(entries, SharedFileEntry{
+				Path:      r.Path,
+				UpdatedBy: r.UpdatedBy,
+				UpdatedAt: r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			})
+		}
+		return SharedFileListResult{
+			Files:             entries,
+			AllowedPrefixes:   sharedfilepath.WritePrefixes(),
+			AllowedPrefixHint: "writes must start with one of allowed_prefixes; agent writes additionally cannot touch handoff/tasks/ (system reserved)",
+		}, nil
+	})
+}
+
+// registryToolDefinitions 是 T4.1 + T4.4 工具的注册聚合。
+// T4.2 prompt_list / T4.3 command_list 已在各自包里通过 resourceToolDefinitions 注册，不重复。
+func registryToolDefinitions(sharedFile sharedfilestore.Store) []ToolDefinition {
+	return buildToolDefinitions(
+		defineTool("list_models", "List super-dolphin supported provider→models. Optional 'provider' filter (claude | codex). AI 设计师可用此查 exec.model 字段允许的取值。", ObjectSchema(map[string]Schema{
+			"provider": StringSchema("Optional provider filter ('claude' or 'codex'); omit for all."),
+		}), HandleListModels()),
+		defineTool("shared_file_list", "List existing shared files + return allowed write prefixes. AI 设计 DAG 时用此查 outputs.to_sharedfile 允许的路径。", ObjectSchema(map[string]Schema{
+			"prefix": StringSchema("Optional path prefix filter."),
+			"limit":  IntegerSchema("Optional max rows."),
+		}), HandleSharedFileList(sharedFile)),
+	)
+}
