@@ -8,6 +8,7 @@ import (
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 )
 
 type logWatcherIdentity struct {
@@ -82,7 +83,7 @@ func (s *session) prepareLogWatcherStart(tr *transport) (logWatcherStartState, b
 		sessionID: strings.TrimSpace(s.sessionID),
 		threadID:  strings.TrimSpace(s.threadID),
 	}
-	if s.transport != tr || identity.sessionID == "" || requiresResolvedThreadID(identity.sessionID) {
+	if s.transport != tr || identity.sessionID == "" || !identifier.IsClaudeCLISessionUUID(identity.sessionID) {
 		return logWatcherStartState{}, false
 	}
 	state := logWatcherStartState{
@@ -270,7 +271,7 @@ func (s *session) restartSnapshotLocked() restartSnapshot {
 
 func (s *session) swapRestartTransportLocked(tr *transport, cleanup func(), next stagedSessionState, resumeID string) {
 	s.resetThreadReadyLocked()
-	if shouldMarkThreadReady(resumeID, s.publicThreadID) {
+	if identifier.IsClaudeCLISessionUUID(resumeID) {
 		s.markThreadReadyLocked()
 	}
 	s.activeTurn = nil

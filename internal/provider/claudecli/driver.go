@@ -18,6 +18,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/manifestbuilder"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -286,7 +287,7 @@ func (d *driver) newStartedSession(spec startSpec, started preparedStartSession)
 	// will be resolved asynchronously when the read loop processes the
 	// system:init event. The restart path uses its own resumeID-based logic
 	// in swapRestartTransportLocked and is unaffected by this override.
-	if strings.TrimSpace(spec.threadID) == "" || shouldMarkThreadReady(spec.threadID, publicThreadID) {
+	if !identifier.IsClaudeCLISessionUUID(spec.threadID) {
 		s.markThreadReady()
 	}
 	s.startReadLoop(started.transport)
@@ -409,7 +410,7 @@ func (s *session) commitRestartSuccessLocked(next stagedSessionState) {
 
 func (s *session) restartResumeIDLocked() string {
 	resumeID := strings.TrimSpace(shared.FirstNonEmpty(s.sessionID, s.threadID))
-	if requiresResolvedThreadID(resumeID) {
+	if !identifier.IsClaudeCLISessionUUID(resumeID) {
 		return ""
 	}
 	return resumeID

@@ -52,7 +52,7 @@ func TestRestartIfNeededLockedCommitsPendingConfigAfterReady(t *testing.T) {
 		t.Fatalf("pending state lost before ready: %#v", s)
 	}
 
-	next.emitSystemInit(t, "thread-1")
+	next.emitSystemInit(t, "11111111-2222-3333-4444-555555555555")
 	select {
 	case err := <-result:
 		if err != nil {
@@ -217,7 +217,7 @@ func TestRestartIfNeededLockedUsesPromptSnapshot(t *testing.T) {
 		t.Fatal("restart did not launch replacement transport")
 	}
 
-	next.emitSystemInit(t, "thread-1")
+	next.emitSystemInit(t, "11111111-2222-3333-4444-555555555555")
 	select {
 	case err := <-result:
 		if err != nil {

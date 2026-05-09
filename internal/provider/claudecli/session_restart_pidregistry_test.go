@@ -27,8 +27,8 @@ func TestRestartIfNeededLockedReRegistersPIDRegistry(t *testing.T) {
 	close(oldReady)
 	s := &session{
 		agentID:         "agent-1",
-		threadID:        "thread-1",
-		sessionID:       "thread-1",
+		threadID:        "11111111-2222-3333-4444-555555555555",
+		sessionID:       "11111111-2222-3333-4444-555555555555",
 		publicThreadID:  "thread-public",
 		threadReady:     oldReady,
 		transport:       oldTransport,

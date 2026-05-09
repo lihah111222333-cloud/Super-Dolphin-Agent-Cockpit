@@ -8,16 +8,6 @@ import (
 	"strings"
 )
 
-func requiresResolvedThreadID(threadID string) bool {
-	return isPlaceholderThreadID(threadID)
-}
-
-// shouldMarkThreadReady decides whether the session should be marked ready
-// immediately (without waiting for the CLI to send a thread ID event).
-func shouldMarkThreadReady(specThreadID, publicThreadID string) bool {
-	return !requiresResolvedThreadID(specThreadID) || !isPlaceholderThreadID(publicThreadID)
-}
-
 func isPlaceholderThreadID(threadID string) bool {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
