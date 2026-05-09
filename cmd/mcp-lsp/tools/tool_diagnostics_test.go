@@ -1,0 +1,160 @@
+package tools
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+)
+
+type diagnosticsTestRegistry struct {
+	lastURIs []string
+}
+
+func (r *diagnosticsTestRegistry) GetManagerForFile(context.Context, string) (lspmanager.Manager, error) {
+	return nil, lspmanager.ErrUnsupportedLanguage
+}
+
+func (r *diagnosticsTestRegistry) GetManagerForLanguage(context.Context, string) (lspmanager.Manager, error) {
+	return nil, lspmanager.ErrUnsupportedLanguage
+}
+
+func (r *diagnosticsTestRegistry) Diagnostics(_ context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, error) {
+	r.lastURIs = append([]string(nil), uris...)
+	items := make([]protocol.PublishDiagnosticsParams, 0, len(uris))
+	for _, uri := range uris {
+		items = append(items, protocol.PublishDiagnosticsParams{URI: uri})
+	}
+	return items, nil
+}
+
+func (*diagnosticsTestRegistry) WaitDiagnosticsStable(context.Context, []string) error {
+	return nil
+}
+
+func (*diagnosticsTestRegistry) CurrentDiagnosticGeneration() uint64 {
+	return 1
+}
+
+func (*diagnosticsTestRegistry) BootstrapDocument(context.Context, string) error {
+	return nil
+}
+
+func (*diagnosticsTestRegistry) Close() error {
+	return nil
+}
+
+func TestDiagnosticsUsesMetaCWDForExternalAbsolutePath(t *testing.T) {
+	mainRoot := t.TempDir()
+	externalRoot := t.TempDir()
+	externalFile := writeDiagnosticsFixture(t, externalRoot, "external.go")
+
+	registry := &diagnosticsTestRegistry{}
+	handler := NewFileHandler(Config{WorkspaceRoot: mainRoot, Registry: registry})
+	ctx := context.WithValue(context.Background(), common.CwdContextKey, externalRoot)
+	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: externalFile})
+
+	if _, err := handler(ctx, req); err != nil {
+		t.Fatalf("diagnostics returned error: %v", err)
+	}
+	assertDiagnosticURIs(t, registry.lastURIs, []string{canonicalFileURI(t, externalFile)})
+}
+
+func TestDiagnosticsUsesMetaCWDForRelativePath(t *testing.T) {
+	mainRoot := t.TempDir()
+	externalRoot := t.TempDir()
+	writeDiagnosticsFixture(t, mainRoot, "same.go")
+	externalFile := writeDiagnosticsFixture(t, externalRoot, "same.go")
+
+	registry := &diagnosticsTestRegistry{}
+	handler := NewFileHandler(Config{WorkspaceRoot: mainRoot, Registry: registry})
+	ctx := context.WithValue(context.Background(), common.CwdContextKey, externalRoot)
+	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: "same.go"})
+
+	if _, err := handler(ctx, req); err != nil {
+		t.Fatalf("diagnostics returned error: %v", err)
+	}
+	assertDiagnosticURIs(t, registry.lastURIs, []string{canonicalFileURI(t, externalFile)})
+}
+
+func TestDiagnosticsBatchUsesMetaCWD(t *testing.T) {
+	mainRoot := t.TempDir()
+	externalRoot := t.TempDir()
+	first := writeDiagnosticsFixture(t, externalRoot, "first.go")
+	second := writeDiagnosticsFixture(t, externalRoot, "second.go")
+
+	registry := &diagnosticsTestRegistry{}
+	handler := NewFileHandler(Config{WorkspaceRoot: mainRoot, Registry: registry})
+	ctx := context.WithValue(context.Background(), common.CwdContextKey, externalRoot)
+	req := marshalDiagnosticsInput(t, fileToolInput{
+		Action:    "diagnostics",
+		FilePaths: []string{"first.go", second},
+	})
+
+	if _, err := handler(ctx, req); err != nil {
+		t.Fatalf("diagnostics returned error: %v", err)
+	}
+	assertDiagnosticURIs(t, registry.lastURIs, []string{canonicalFileURI(t, first), canonicalFileURI(t, second)})
+}
+
+func TestDiagnosticsWithoutMetaCWDRejectsExternalAbsolutePath(t *testing.T) {
+	mainRoot := t.TempDir()
+	externalRoot := t.TempDir()
+	externalFile := writeDiagnosticsFixture(t, externalRoot, "external.go")
+
+	handler := NewFileHandler(Config{WorkspaceRoot: mainRoot, Registry: &diagnosticsTestRegistry{}})
+	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: externalFile})
+
+	_, err := handler(context.Background(), req)
+	if err == nil {
+		t.Fatalf("diagnostics succeeded for external path without MetaCWD")
+	}
+	if !strings.Contains(err.Error(), "outside workspace root") {
+		t.Fatalf("diagnostics error = %v, want outside workspace root", err)
+	}
+}
+
+func writeDiagnosticsFixture(t *testing.T, root, name string) string {
+	t.Helper()
+	path := filepath.Join(root, name)
+	if err := os.WriteFile(path, []byte("package fixture\n"), 0o600); err != nil {
+		t.Fatalf("write fixture %s: %v", path, err)
+	}
+	return path
+}
+
+func marshalDiagnosticsInput(t *testing.T, input fileToolInput) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(input)
+	if err != nil {
+		t.Fatalf("marshal diagnostics input: %v", err)
+	}
+	return raw
+}
+
+func canonicalFileURI(t *testing.T, path string) string {
+	t.Helper()
+	parent, err := filepath.EvalSymlinks(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("resolve fixture parent: %v", err)
+	}
+	return fileURI(filepath.Join(parent, filepath.Base(path)))
+}
+
+func assertDiagnosticURIs(t *testing.T, got, want []string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("diagnostic URIs = %#v, want %#v", got, want)
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("diagnostic URIs = %#v, want %#v", got, want)
+		}
+	}
+}
