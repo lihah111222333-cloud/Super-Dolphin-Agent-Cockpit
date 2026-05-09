@@ -58,6 +58,11 @@ export function useCopyThreadInfo(deps) {
     return '';
   }
 
+  function isPlaceholderProviderThreadID(value) {
+    const text = (value || '').toString().trim();
+    return !text || text.startsWith('agent_');
+  }
+
   async function resolveAgentModel(threadId, agentProvider, runtime, thread, storeRuntime) {
     const directModel = pickString(
       runtime?.model,
@@ -128,15 +133,17 @@ export function useCopyThreadInfo(deps) {
       : { providerThreadId: '', port: null });
     let resolved = /** @type {any} */ ({ providerThreadId: '', port: null });
     const existingProviderThreadID = (runtime.providerThreadId || '').toString().trim();
-    if (!existingProviderThreadID) {
+    if (isPlaceholderProviderThreadID(existingProviderThreadID)) {
       try {
         resolved = /** @type {any} */ (await resolveThreadIdentity(threadId));
       } catch {
         resolved = { providerThreadId: '', port: null };
       }
     }
-    const providerThreadID = existingProviderThreadID
-      || (resolved.providerThreadId || '').toString().trim();
+    const resolvedProviderThreadID = (resolved.providerThreadId || '').toString().trim();
+    const providerThreadID = !isPlaceholderProviderThreadID(existingProviderThreadID)
+      ? existingProviderThreadID
+      : resolvedProviderThreadID;
     const resolvedPort = (Number.isFinite(Number(runtime.port)) && Number(runtime.port) > 0)
       ? Number(runtime.port)
       : ((Number.isFinite(Number(resolved.port)) && Number(resolved.port) > 0) ? Number(resolved.port) : null);
