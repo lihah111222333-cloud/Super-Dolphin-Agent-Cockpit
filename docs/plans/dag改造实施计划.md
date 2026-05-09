@@ -3,18 +3,18 @@
 > 配套文档：`docs/plans/dag改造蓝图v2.md`（决策与设计）
 > 本文是执行级清单：每行一个可独立提交的任务，含触动文件、验收、依赖、size、可并行性
 > Size 直觉：S = 半天以内 / M = 1-2 天 / L = 3 天以上（仅相对量级，非时间承诺）
-> 修订历史：2026-05-10 初稿；2026-05-10 补 4 处小字段位 / 策略（isolation / outputs.schema / replan / polling）；2026-05-10 2-pass DAG 审查后同步（10 项 checklist）；2026-05-10 骨架阶段调研 S2.4 后推迟到 F 阶段（跨 SQL/sqlc/dispatcher 三层，超出骨架“行为不变”原则）
+> 修订历史：2026-05-10 初稿；2026-05-10 补 4 处小字段位 / 策略；2026-05-10 2-pass DAG 审查后同步（10 项 checklist）；2026-05-10 S2.4 推迟到 F 阶段；**2026-05-10 骨架阶段封板：17/24 task done + 1 推迟 F + S6 推迟 T5；骨架后二次 DAG 审查 8 个 findings 转为 T0 启动作业**
 
 ---
 
 ## 0. 总览
 
-| 阶段 | 任务数 | 总 size | 关键产出 |
-|---|---|---|---|
-| S 骨架 | 24（S2.4 推迟 F） | ~25% | 14 处补丁 + ADR + 删死代码；行为完全不变 |
-| T 工具 | 18 | ~35% | MCP 工具就位 + UI 接通真实数据 + AI 按钮可点 |
-| F 功能 | 26 | ~30% | 行为兑现：cron 真跑、AI 设计师上岗、智能重试落地 |
-| H 加固 | 按需 | ~10% | 生产问题驱动，不预排 |
+| 阶段 | 任务数 | 状态 | 总 size | 关键产出 |
+|---|---|---|---|---|
+| **S 骨架** | **24** | **✅ 封板：17 done / 1 推迟 F (S2.4) / 2 推迟 T5 (S6.1+S6.2) / 4 转 T0 作业** | ~25% | 14 处补丁 + ADR 0001 + 删死代码；行为完全不变 |
+| T 工具 | 18+T0作业 | ⛔ 未开动 | ~35% | MCP 工具就位 + UI 接通真实数据 + AI 按钮可点 |
+| F 功能 | 26 | ⛔ 未开动 | ~30% | 行为兑现：cron 真跑、AI 设计师上岗、智能重试落地 |
+| H 加固 | 按需 | ⛔ 未开动 | ~10% | 生产问题驱动，不预排 |
 
 里程碑：
 - **M1（S 完成）**：删除 `auto_handoff_phase1` 全代码 0 命中；旧 DAG 100% 兼容
@@ -23,59 +23,92 @@
 
 ---
 
-## 1. 阶段 S 骨架（25 任务）
+## 1. 阶段 S 骨架（24 任务，已封板）
 
-| ID | 标题 | 主要触动文件 | 验收 | 依赖 | Size | 并行 |
-|---|---|---|---|---|---|---|
-| **S0.1** | 在 p23/README.md 顶部加 deprecation 提示指向蓝图u v2（防止与 p23 mutual conflict） | `docs/plans/迁移/p23/README.md` | grep "被蓝图 v2 上位重排" 命中；p23 各 Phase 状态列明 v2 合并/砍/推迟 | — | S | Y |
-| **S1.1** | 定义 `NodeExecutor` interface（含 `Execute()` + `Hooks() map[HookPoint]HookHandler`）+ `NodeOutcome` / `RetryHint` 类型 | `cmd/mcp-orch/orchestration/node_executor.go` 新建 | 接口编译过；godoc 注释完整；`grep -c "Hooks()"` ≥ 1 | — | S | Y |
-| **S1.2** | `FailureClass` 7 类常量 + `OnFailureStrategy` 7 项常量（含 `replan`）+ `HookPoint` enum + `HookHandler` interface | `cmd/mcp-orch/orchestration/node_executor.go` | 常量定义 + godoc；`grep -c FailureClass` ≥ 7；`grep -c OnFailureReplan` ≥ 1；`grep -c "type HookHandler"` ≥ 1 | S1.1 | S | Y |
-| **S1.3** | `AgentExecutor` stub（包现有 wakeup 拉子 agent 逻辑） | `cmd/mcp-orch/orchestration/executor_agent.go` 新建 | 单测 stub 调用返回 `NodeOutcome{Status: Done}` | S1.1 | M | N |
-| **S1.4** | `AutomationExecutor` stub | `cmd/mcp-orch/orchestration/executor_automation.go` 新建 | 单测 stub 返回 NodeOutcome | S1.1 | S | Y（与 S1.3 并行） |
-| **S1.5** | `HybridExecutor` stub | `cmd/mcp-orch/orchestration/executor_hybrid.go` 新建 | 单测 stub 返回 NodeOutcome | S1.1 | S | Y |
-| **S2.1** | service 层 `StartDAG` / `TerminateDAG` 方法签名 + stub | `cmd/mcp-orch/orchestration/service.go` 增 / `dag_lifecycle.go` 新建 | 单测：调用返回 NotImplemented；接口稳定 | — | S | Y |
-| **S2.2** | service 层 `ApplyOps(dag_key, base_version, ops[])` 接口 + stub | `cmd/mcp-orch/orchestration/dag_ops.go` 新建 | 单测：base_version 不匹配返回 ConflictError | S2.1 | M | N |
-| **S2.3** | `Scheduler` interface (`Tick` / `Schedule`) + stub | `cmd/mcp-orch/orchestration/scheduler.go` 新建 | 接口编译过；stub panic("not implemented") | — | S | Y |
-| ~~S2.4~~ | ~~节点完成时自动 promote 下游 deps-satisfied 节点 status pending→ready~~ | **推迟到 F 阶段**：调研后发现需要同时改 SQL (`task_dag_node_runtime.sql:28` `status IN ('pending')`)、sqlc 生成代码、store_complete_downstream.go、dispatcher 路径跳面大，超出骨架阶段“行为不变”原则。B-14 在 F 阶段 dispatcher 重做时一并修复。骨架阶段 ValidateTransition (S7.2) 已拦截外部 API 的跳态 (pending→done 警告)；dispatcher 走 “pending→running” 快车道，另外说明 | — | — | — |
-| **S3.1** | migration: `task_dags` 加 `trigger / owner_id / cron_expr / next_run_at / version` | `migrations/0072_dag_v2_dag_columns.sql` 新建 | `make migrate` 通过；旧 row trigger 默认 'manual'；附 rollback 注释 | — | M | N |
-| **S3.2** | migration: `task_dag_nodes` 加 `run_id / reads / writes` | `migrations/0073_dag_v2_node_columns.sql` 新建 | migrate 通过；reads/writes 默认 `[]`；附 rollback 注释 | S3.1 | S | N |
-| **S3.3** | migration: 新建 `task_dag_runs` 表（含 events / budget_used / budget_limit）+ 三条索引（dag_key+started_at desc / status / next_run_at WHERE scheduled） | `migrations/0074_dag_v2_runs.sql` 新建 | migrate 通过；run_key UNIQUE；三条索引存在；附 rollback 注释 | S3.1 | M | N |
-| **S3.4** | migration: 旧 `metadata.auto_handoff_phase1=true` → `trigger='auto'` 一次性映射 | `migrations/0075_dag_v2_compat.sql` 新建 | migrate 通过；DB 上 grep 不到该 key；附 rollback 注释 | S3.1 | S | N |
-| **S3.5** | store contract 新方法签名（不实现）：`CreateRun / GetRun / ListRuns / ApplyOps` | `cmd/mcp-orch/store/taskdag/contract.go` | 接口编译过；mock 实现 stub | S3.1-3.3 | M | N |
-| **S4.1** | typed ops payload Go struct: `OpUpdateDAG / OpAddNode / OpUpdateNode / OpRemoveNode` + `OpKind` enum | `cmd/mcp-orch/orchestration/dag_ops_types.go` 新建 | 单测：JSON marshal/unmarshal 双向 | S2.2 | S | Y |
-| **S4.2** | `OpsRequest{DagKey, BaseVersion, Ops[]}` + `OpsResponse{NewVersion}` | 同上 | 单测 | S4.1 | S | Y |
-| **S5.1** | typed `node.config` schema Go struct（agent / automation / hybrid 三套），含 `exec.isolation` / `outputs.schema` 字段位；与现有 `dag_retry_policy.go` 的 `DAGSchedulePolicy / NodeExecutionPolicy / RetryPolicy` 协调（共存或 deprecate 路径在 ADR 里明确）；`to_node_result` 仅 < 4KB 摘要规则在 godoc 说明 | `cmd/mcp-orch/orchestration/node_config_types.go` 新建 | 单测：三种 node_type 各跑一份 fixture marshal/unmarshal；`isolation` / `outputs.schema` 字段读写正确；与 dag_retry_policy.go typed struct 无冲突 | S1.2 | M | Y |
-| **S5.2** | `ParseNodeConfig(node_type, raw)` 解码器 | 同上 | 单测：错误 node_type / 缺字段 返回明确错误 | S5.1 | S | N |
-| **S5.3** | `OnFailureConfig` 解码 + by_class lookup 中间函数 + 单测（吃狗粮发现 M-1） | `cmd/mcp-orch/orchestration/on_failure_config.go` 新建 | 单测：byClass lookup 命中走 by_class 策略；未命中走 default；未配置走 retry | S5.1 | S | Y |
-| **S6.1** | UI `DagDetailModal` 真实组件结构（不接数据） | `cmd/agent-terminal/frontend/vue-app/components/DagDetailModal.js` 重写 | 组件渲染不黑屏；占位文案显示；e2e snapshot 通过 | — | M | Y（前端独立） |
-| **S6.2** | UI 节点 9 态状态色 token + 7 类失败色 token | `cmd/agent-terminal/frontend/vue-app/styles/dag-tokens.css` 新建 | 视觉 review 通过；色弱友好 | S6.1 | S | Y |
-| **S7.1** | 9 态 `NodeStatus` 常量 + `ValidateTransition(from, to)` 函数 | `cmd/mcp-orch/orchestration/node_status.go` 新建 | 单测：所有合法/非法转移；非法返回 error | S1.2 | M | Y |
-| **S7.2** | `service.UpdateNodeStatus` 用 `ValidateTransition` 校验 | `cmd/mcp-orch/orchestration/dag.go` 修改 | 单测：非法转移被拒；现有测试不破 | S7.1 | S | N |
-| **S15.1** | 删除 `auto_handoff_phase1` 全部写入点（`task_tools.go:23,116,231-235`） | `cmd/mcp-orch/tools/task_tools.go` | grep `auto_handoff_phase1` 全代码 0 命中（除 changelog） | S3.4 | S | N |
-| **S16.1** | 一份 ADR：NodeExecutor / Ops / Status / FailureClass 契约 | `docs/adr/0001-dag-v2-contracts.md` 新建 | 文档 review 通过；蓝图 v2 第 7-9 节内容固化 | S1-S7 完成 | M | Y |
+状态图例：✅ done / ⏸ 推迟 / ⛔ 未做
 
-**S 阶段验收**：
-- 全部 25 任务完成
+| ID | 状态 | 标题 | 主要触动文件 | commit |
+|---|---|---|---|---|
+| **S0.1** | ✅ | 在 p23/README.md 顶部加 deprecation 提示 | `docs/plans/迁移/p23/README.md` | 66c42c82 |
+| **S1.1** | ✅ | NodeExecutor interface + NodeOutcome / RetryHint | `nodeexec/types.go` | 5e1c731e |
+| **S1.2** | ✅ | FailureClass 7 / OnFailureStrategy 7 / HookPoint 4 / HookHandler interface | `nodeexec/types.go` | 5e1c731e |
+| **S1.3** | ✅ | AgentExecutor stub | `nodeexec/stubs.go` | 5de5dd44 |
+| **S1.4** | ✅ | AutomationExecutor stub | `nodeexec/stubs.go` | 5de5dd44 |
+| **S1.5** | ✅ | HybridExecutor stub | `nodeexec/stubs.go` | 5de5dd44 |
+| (重构) | ✅ | NodeExecutor 抽到 nodeexec 子包 | `nodeexec/` | 9dda3a41 |
+| **S2.1** | ✅ | service.StartDAG / TerminateDAG stub + ErrLifecycleNotImplemented | `orchestration/dag.go` | c504441e |
+| **S2.2** | ✅ | service.ApplyOps stub | `orchestration/dag.go` | da79df11 |
+| **S2.3** | ✅ | Scheduler interface + noopScheduler stub | `orchestration/scheduler.go` | c504441e |
+| ~~S2.4~~ | ⏸ | 节点完成时自动 promote 下游 status pending→ready (B-14) | **推迟到 F 阶段**跨 SQL/sqlc/dispatcher 三层 | 84c5b0da 说明 |
+| **S3.1** | ✅ | migration: task_dags 加 5 列 (trigger/owner_id/cron_expr/next_run_at/version) | `migrations/0072_dag_v2_dag_columns.sql` | 9130f601 |
+| **S3.2** | ✅ | migration: task_dag_nodes 加 run_id/reads/writes | `migrations/0073_dag_v2_node_columns.sql` | 9130f601 |
+| **S3.3** | ✅ | migration: task_dag_runs 表 + 3 索引 | `migrations/0074_dag_v2_runs.sql` | 9130f601 |
+| **S3.4** | ✅ | migration: auto_handoff_phase1 一次性映射 → trigger='auto' | `migrations/0075_dag_v2_compat.sql` | 9130f601 |
+| **S3.5** | ✅ | store contract: Run / RunStore / CreateRunInput / ListRunsFilter | `store/taskdag/contract.go` | 9130f601 |
+| **S4.1** | ✅ | typed ops payload (4 动词 + Op interface + custom (Un)Marshal) | `nodeexec/ops.go` | 89073074 |
+| **S4.2** | ✅ | OpsRequest / OpsResponse | `nodeexec/ops.go` | 89073074 |
+| **S5.1** | ✅ | typed node.config schema (3 种 node_type + 共享 Inputs/Outputs) | `nodeexec/config.go` | 0883254b |
+| **S5.2** | ✅ | ParseNodeConfig dispatcher | `nodeexec/config.go` | 0883254b |
+| **S5.3** | ✅ | OnFailureConfig 解码 + by_class lookup + EscalationModelFor | `nodeexec/on_failure.go` | 61bff08b |
+| **S6.1** | ⏸ | UI `DagDetailModal` 真实组件结构 (推迟 T5) | `components/DagDetailModal.js` | T 阶段 |
+| **S6.2** | ⏸ | UI 状态色 token (推迟 T5) | `styles/dag-tokens.css` | T 阶段 |
+| **S7.1** | ✅ | 9 态 NodeStatus + ValidateTransition + IsTerminal | `nodeexec/status.go` | af542629 |
+| **S7.2** | ✅ | service.UpdateNodeStatus 接通 ValidateTransition + dispatcher fast-lane 说明 | `orchestration/dag.go` | c972b3f1 |
+| **S15.1** | ✅ | 删 auto_handoff_phase1 全部写入点 (grep 代码 0 命中) | `tools/task_tools.go` | 4c355d5e |
+| **S16.1** | ✅ | ADR 0001 骨架阶段契约 (276 行) | `docs/adr/0001-dag-v2-contracts.md` | 83d83ea0 |
+
+## 1.1 T0 启动作业（骨架阶段二次审查后转入）
+
+骨架阶段二次 DAG 审查（`dag_skeleton_audit_20260510`）产出 8 个非阻塞型 findings，全部转为 T0 启动作业。必须在 T1.1 / T2.1 开工前处理：
+
+| ID | 优先级 | 问题 | 补动 |
+|---|---|---|---|
+| **T0.1** | 中 | PD-1: 缺 e2e 测试 fixture (S骨架阶段未补上) | 加最小 DAG e2e fixture，供 T1.1/T2.1 集成测试复用 |
+| **T0.2** | 中 | PB-2: migration 0072-0075 未在 PG 跑过验证 | 本地 PG 试跑 + sqlc generate 验证生成 |
+| **T0.3** | 中 | PB-1: 缺 service↔store 跨层集成测试 | T1.1 / T2.1 一起加 |
+| **T0.4** | 轻 | PA-1: dag_retry_policy.go 缺导航注释指向 nodeexec.OnFailureConfig | 5 行注释 |
+| **T0.5** | 轻 | PC-1: RunStore 接口不强制实现 | 加 archtest 守“production store implements RunStore” |
+| **T0.6** | 轻 | PC-4: NodeSpec↔taskdag.Node↔nodeexec.Node 三方映射未文档化 | ADR 0001 §2.5/§2.6 加一句 |
+| **T0.7** | 轻 | PD-2: B-5 thread-DAG 关联 (spawning_thread_id) 未明确推迟 | T8.1 做 AI 设计师按钮时补 metadata.spawning_thread_id |
+| **T0.8** | 中 | PD-3: doc-sync check 未做也未文档化 | 加 `scripts/check-dag-doc-sync.sh` 简单 grep 设查 |
+| **T0.9** | 中 | PE-1（吃狗粮）: dispatcher 对无 assignee 节点自动 spawn | F 阶段修 dispatcher 时一并 (列作推迟 F) |
+
+详见审查报告 `handoff/skeleton-audit-{pass1-adr,pass2-tests,pass3-cross-cutting,pass4-prev-closed,synthesis,final-verdict}.md`。
+
+## 1.2 骨架阶段验收总结
+
+**已达成**：
+- 17/24 task done + 1 推迟 F (S2.4) + 2 推迟 T5 (S6.1+S6.2)
+- 14 commit / 28 files / 3113 insertions
 - `go build ./...` / `go test ./...` / `go vet ./...` / `scripts/test_with_guard.sh` 全过
 - `cmd/agent-terminal/frontend && npm test` 通过（vitest）
 - 旧 DAG 创建/查询/更新调用 100% 兼容
 - `grep -r auto_handoff_phase1 cmd/ internal/` 0 命中
 - ADR 已 commit
 
-**S 阶段提交粒度建议**：
-- S0.1 单独（p23 deprecation 提示）
-- S1.1+S1.2 一次（接口 + enum + HookHandler）
-- S1.3 / S1.4 / S1.5 各一次
-- S2.1 / S2.2 / S2.3 各一次（S2.4 推迟 F 阶段，与 dispatcher 重做一并做）
-- S3.1+S3.2+S3.3 一次（一组 migration）/ S3.4 单独 / S3.5 单独
-- S4.1+S4.2 一次
-- S5.1+S5.2 一次 / S5.3 单独
-- S6.1 / S6.2 各一次（**前端必须先发方案给用户确认**）
-- S7.1+S7.2 一次
-- S15.1 单独（删死代码 commit 单独提）
-- S16.1 单独（ADR，含状态转移矩阵 + 完整契约）
+- 67 单测全 PASS / 架构守卫全过 / `auto_handoff_phase1` 全代码 0 命中
+- ADR 0001 固化全部契约
 
-约 17-18 个 commit。
+**实际 14 commit 列表**：
+```
+4c355d5e  refactor(tools): 删 auto_handoff_phase1 (S15.1)
+9130f601  feat(orch): DAG v2 migration + Run 接口位 (S3.1-S3.5)
+83d83ea0  docs(adr): 0001 DAG v2 骨架阶段契约 (S16.1)
+da79df11  feat(orch): service.ApplyOps stub (S2.2)
+61bff08b  feat(nodeexec): OnFailureConfig (S5.3)
+0883254b  feat(nodeexec): typed node.config (S5.1+S5.2)
+84c5b0da  docs(dag): S2.4 推迟 F + dispatcher fast-lane 说明
+c504441e  feat(orch): StartDAG/TerminateDAG/Scheduler stub (S2.1+S2.3)
+c972b3f1  feat(orch): UpdateNodeStatus 接通 ValidateTransition (S7.2)
+af542629  feat(nodeexec): ValidateTransition + IsTerminal (S7.1)
+89073074  feat(nodeexec): typed ops payload (S4.1+S4.2)
+66c42c82  docs(p23): deprecation 提示 (S0.1)
+9dda3a41  refactor(orch): NodeExecutor → nodeexec
+5de5dd44  feat(orch): 三 NodeExecutor stub (S1.3-1.5)
+5e1c731e  feat(orch): NodeExecutor 接口契约 (S1.1+S1.2)
+```
+
+**骨架阶段封板。**进 T 阶段必读：`docs/adr/0001-dag-v2-contracts.md` + 本节 T0 启动作业。
 
 ---
 
