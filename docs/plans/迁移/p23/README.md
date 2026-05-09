@@ -1,6 +1,18 @@
 # P23 DAG 自驱执行引擎与多触发源能力补齐总览
 
-> 创建时间：2026-04-25 | 状态：**未开动**
+> ⚠️ **本规划已被《[DAG 改造蓝图 v2](../../dag改造蓝图v2.md)》上位重排**（2026-05-10）
+>
+> P23 各 Phase 的归属见 蓝图 v2 §14《与 p23 的关系》去留映射表：
+> - 保留 + 重排：P3 / P4 / P10 / P11
+> - **砍掉**：P8 VerificationGate / P9 ScaleScheduling / P12 SwarmArbiter / P13 StrictJSONOutput
+> - **推迟**：P5 Cron / P6 ExternalRPC / P7 LivenessProbe
+> - 已实现（P0-P2）保留
+>
+> 骨架阶段在 §10《14 处骨架补丁》里有完整推进表。**本文现仅作历史参考，不再作为动手依据**。
+> 实施清单：`docs/plans/dag改造实施计划.md`。
+>
+> 创建时间：2026-04-25 | 状态：**被 v2 上位重排 / 原计划未开动**
+
 > 当前 authoritative 文档：`README.md`（计划范围/依赖/实施口径）；gate/archtest/CI/hard-soft 权威仅为 [`COMPLIANCE_GATES.md`](COMPLIANCE_GATES.md)，README 只引用不维护第二清单
 > 输入基线：2026-04-25 `dag-runtime-audit` / `dag-entry-audit` 事实审计；契约以 `docs/契约/modularity-convention.md §4.4 / §7`、`docs/契约/fx-convention.md §2 / §3`、`docs/契约/rungroup-convention.md §2 / §4` 为准
 
