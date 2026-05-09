@@ -33,6 +33,9 @@ type OrchestrationService interface {
 	UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequest) (DAGNode, error)
 	// StartDAG 触发 DAG 一次新执行（骨架阶段 stub，返回 ErrLifecycleNotImplemented）。
 	StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGResponse, error)
+	// ApplyOps 对 DAG 执行一组 typed ops (add/update/remove/update_dag) + base_version OCC。
+	// Ops 字段是 raw JSON（wire 格式），service 内部解码为 nodeexec.Ops。
+	ApplyOps(ctx context.Context, req ApplyOpsRequest) (ApplyOpsResponse, error)
 }
 
 // OrchestrationSessionCleaner is the owner-side contract for releasing
@@ -206,6 +209,21 @@ type StartDAGRequest struct {
 type StartDAGResponse struct {
 	RunKey  string // 新 run 的唯一键（例 dag_xxx#run_2026-05-10T08:00）
 	Version int64  // 该 run snapshot 的 dag.version
+}
+
+// DAG v2 骨架阶段 T2.1+T2.2: ApplyOps 入参出参。
+// Ops 是 raw JSON（typed 解码由 service 内部 nodeexec.Ops UnmarshalJSON 处理）
+// 以免 contract 包依赖 mcp-orch 内部的 nodeexec 子包。
+// 骨架阶段 service 实现返回 ErrLifecycleNotImplemented；F4.1-F4.5 真实补齐
+// add/update/remove + 环检测 + base_version OCC。
+type ApplyOpsRequest struct {
+	DagKey      string
+	BaseVersion int64
+	Ops         json.RawMessage // typed shape 见 nodeexec.Ops
+}
+
+type ApplyOpsResponse struct {
+	NewVersion int64
 }
 
 type DAGSummary struct {

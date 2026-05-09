@@ -8,6 +8,7 @@ import (
 
 type OrchestrationStub struct {
 	StartDAGFunc              func(context.Context, contract.StartDAGRequest) (contract.StartDAGResponse, error)
+	ApplyOpsFunc              func(context.Context, contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error)
 	LaunchAgentFunc           func(context.Context, contract.LaunchRequest) error
 	LaunchAgentSnapshotFunc   func(context.Context, contract.LaunchRequest) (contract.AgentSnapshot, error)
 	ListAgentsFunc            func(context.Context) ([]contract.AgentSnapshot, error)
@@ -166,4 +167,12 @@ func (s *OrchestrationStub) StartDAG(ctx context.Context, req contract.StartDAGR
 		return s.StartDAGFunc(ctx, req)
 	}
 	return contract.StartDAGResponse{}, nil
+}
+
+// ApplyOps 是 T2.1+T2.2 加的接口方法；骨架阶段 stub 返回零值。
+func (s *OrchestrationStub) ApplyOps(ctx context.Context, req contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
+	if s.ApplyOpsFunc != nil {
+		return s.ApplyOpsFunc(ctx, req)
+	}
+	return contract.ApplyOpsResponse{}, nil
 }

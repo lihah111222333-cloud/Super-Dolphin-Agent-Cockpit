@@ -457,8 +457,8 @@ func (s *service) TerminateDAG(_ context.Context, _ TerminateDAGRequest) error {
 // update_dag），带 base_version OCC。是 AI 设计师 + UI 表单 + ops MCP 工具
 // 的同一接入点。
 //
-// 骨架阶段：仅返回 ErrLifecycleNotImplemented；
-// T2.2 接通 stub，F4.1-F4.5 真实实现 add/update/remove + 环检测 + OCC。
-func (s *service) ApplyOps(_ context.Context, _ nodeexec.OpsRequest) (nodeexec.OpsResponse, error) {
-	return nodeexec.OpsResponse{}, ErrLifecycleNotImplemented
+// req.Ops 是 raw JSON（wire 格式）；F4.x 实现时用 nodeexec.Ops UnmarshalJSON
+// 解码为 typed Op slice。骨架阶段：仅返回 ErrLifecycleNotImplemented。
+func (s *service) ApplyOps(_ context.Context, _ contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
+	return contract.ApplyOpsResponse{}, ErrLifecycleNotImplemented
 }

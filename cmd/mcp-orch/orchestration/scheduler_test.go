@@ -2,11 +2,12 @@ package orchestration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 func TestNoopScheduler_TickReturnsNotImplemented(t *testing.T) {
@@ -56,10 +57,10 @@ func TestService_TerminateDAG_NotImplemented(t *testing.T) {
 
 func TestService_ApplyOps_NotImplemented(t *testing.T) {
 	s := &service{}
-	req := nodeexec.OpsRequest{
+	req := contract.ApplyOpsRequest{
 		DagKey:      "dag-x",
 		BaseVersion: 1,
-		Ops:         nodeexec.Ops{nodeexec.OpRemoveNode{NodeKey: "n1"}},
+		Ops:         json.RawMessage(`[{"op":"remove_node","node_key":"n1"}]`),
 	}
 	resp, err := s.ApplyOps(context.Background(), req)
 	if !errors.Is(err, ErrLifecycleNotImplemented) {

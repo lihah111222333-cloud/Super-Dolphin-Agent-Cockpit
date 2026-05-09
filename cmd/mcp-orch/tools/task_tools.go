@@ -93,6 +93,31 @@ type StartDAGInput struct {
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
 }
 
+// ApplyOpsInput 是 task_dag_apply_ops MCP 工具的 typed 入参（T2.1）。
+// Ops 是 raw JSON：service 内部用 nodeexec.Ops UnmarshalJSON 解码为 typed Op slice。
+type ApplyOpsInput struct {
+	DagKey      string          `json:"dag_key"`
+	BaseVersion int64           `json:"base_version"`
+	Ops         json.RawMessage `json:"ops"`
+}
+
+// HandleApplyOps 是 task_dag_apply_ops MCP 工具的 handler（T2.1）。
+// 骨架阶段：service.ApplyOps 返回 ErrLifecycleNotImplemented；F4.1-F4.5 真实补齐
+// add/update/remove + 环检测 + base_version OCC。
+func HandleApplyOps(svc contract.OrchestrationService) ToolHandler {
+	return makeHandler(svc, "orchestration service", func(ctx context.Context, in ApplyOpsInput) (any, error) {
+		dagKey, err := requireTrimmed(in.DagKey, "dag_key")
+		if err != nil {
+			return nil, err
+		}
+		return svc.ApplyOps(ctx, contract.ApplyOpsRequest{
+			DagKey:      dagKey,
+			BaseVersion: in.BaseVersion,
+			Ops:         append(json.RawMessage(nil), in.Ops...),
+		})
+	})
+}
+
 // HandleStartDAG 是 task_start_dag MCP 工具的 handler（T1.1）。
 // 骨架阶段：service.StartDAG 返回 ErrLifecycleNotImplemented，
 // MCP 客户端会收到结构化错误；T1.2 接通真实路径后返回 RunKey + Version。
@@ -127,6 +152,11 @@ func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 			"trigger_source":  EnumStringSchema("Trigger source.", "manual", "auto", "scheduled", "external"),
 			"idempotency_key": StringSchema("Optional, prevents duplicate run on retry."),
 		}, "dag_key"), HandleStartDAG(svc)),
+		defineTool("task_dag_apply_ops", "Apply a typed ops batch (add_node / update_node / remove_node / update_dag) with base_version OCC. Ops shape: see nodeexec.Ops. Skeleton stage returns ErrLifecycleNotImplemented.", ObjectSchema(map[string]Schema{
+			"dag_key":      StringSchema("Target DAG key."),
+			"base_version": IntegerSchema("Expected current dag.version (OCC; mismatch returns conflict)."),
+			"ops":          ArraySchema(ObjectSchema(map[string]Schema{}, "op"), "Typed ops array; each item must include 'op' discriminator."),
+		}, "dag_key", "base_version", "ops"), HandleApplyOps(svc)),
 	)
 }
 
