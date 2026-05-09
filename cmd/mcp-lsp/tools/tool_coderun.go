@@ -13,7 +13,6 @@ import (
 
 	lspexec "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/exec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
 type SandboxRunner interface {
@@ -111,9 +110,9 @@ func (h CodeRunHandler) handleProjectCommand(ctx context.Context, req CodeRunReq
 		return nil, errors.New("command is required for project_cmd mode")
 	}
 	if req.WorkDir == "" {
-		req.WorkDir = common.WorkspaceRootFromContext(ctx, h.sandbox.RootDir())
+		req.WorkDir = toolWorkspaceRoot(ctx, h.sandbox.RootDir())
 	} else if !filepath.IsAbs(req.WorkDir) {
-		req.WorkDir = filepath.Join(common.WorkspaceRootFromContext(ctx, h.sandbox.RootDir()), req.WorkDir)
+		req.WorkDir = filepath.Join(toolWorkspaceRoot(ctx, h.sandbox.RootDir()), req.WorkDir)
 	}
 	timeout := middleware.ClampTimeout(req.Timeout, defaultCodeRunTimeout(), middleware.TierExec)
 	request := h.sandbox.ShellRequest(req.Command, req.WorkDir, timeout)
@@ -125,7 +124,7 @@ func (h CodeRunHandler) execute(ctx context.Context, request lspexec.Request, la
 }
 
 func (h CodeRunHandler) snippetRequest(ctx context.Context, fileName string, source string, args []string, timeout time.Duration) (lspexec.Request, func(), error) {
-	tempRoot := common.WorkspaceRootFromContext(ctx, h.sandbox.RootDir())
+	tempRoot := toolWorkspaceRoot(ctx, h.sandbox.RootDir())
 	tempDir, err := os.MkdirTemp(tempRoot, ".mcp-lsp-run-*")
 	if err != nil {
 		return lspexec.Request{}, nil, fmt.Errorf("create temp dir: %w", err)

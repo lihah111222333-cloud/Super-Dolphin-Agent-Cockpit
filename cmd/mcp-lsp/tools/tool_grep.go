@@ -9,7 +9,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/search"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
@@ -70,7 +69,7 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 	if _, err := dispatchToolAction(ctx, "lsp_grep", input.Action, input, map[string]actionHandler[grepToolInput]{
 		"text_search": func(ctx context.Context, input grepToolInput) (any, error) {
 			matches, runErr = search.SearchText(ctx, search.TextSearchOptions{
-				Root:          common.WorkspaceRootFromContext(ctx, h.root),
+				Root:          toolWorkspaceRoot(ctx, h.root),
 				Path:          input.Path,
 				Glob:          input.Glob,
 				Query:         input.Query,
@@ -83,7 +82,7 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 		},
 		"ast_search": func(ctx context.Context, input grepToolInput) (any, error) {
 			matches, runErr = search.SearchAST(ctx, search.ASTSearchOptions{
-				Root:         common.WorkspaceRootFromContext(ctx, h.root),
+				Root:         toolWorkspaceRoot(ctx, h.root),
 				Path:         input.Path,
 				Glob:         input.Glob,
 				Query:        input.Query,
