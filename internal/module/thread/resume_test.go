@@ -340,6 +340,7 @@ func TestBackgroundResumeIfNeededRehydratesClaudeOverrideConfig(t *testing.T) {
 
 	model := "claude-sonnet-4-20250514[1m]"
 	effort := "max"
+	const providerThreadID = "11111111-2222-3333-4444-555555555555"
 	threads := &stubThreadStore{thread: &threadstore.Thread{
 		ThreadID:       "thread-1",
 		AgentID:        "agent-1",
@@ -353,7 +354,7 @@ func TestBackgroundResumeIfNeededRehydratesClaudeOverrideConfig(t *testing.T) {
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-1",
 		Provider:         "claude",
-		ProviderThreadID: "provider-thread-1",
+		ProviderThreadID: providerThreadID,
 		CodexThreadID:    "thread-1",
 		Cwd:              "/repo",
 	}}
@@ -365,7 +366,7 @@ func TestBackgroundResumeIfNeededRehydratesClaudeOverrideConfig(t *testing.T) {
 			case resumeReqCh <- req:
 			default:
 			}
-			session := &stubSession{threadID: "provider-thread-1"}
+			session := &stubSession{threadID: providerThreadID}
 			sessions.session = session
 			return session, nil
 		},
@@ -376,6 +377,9 @@ func TestBackgroundResumeIfNeededRehydratesClaudeOverrideConfig(t *testing.T) {
 
 	select {
 	case req := <-resumeReqCh:
+		if req.ProviderThreadID != providerThreadID {
+			t.Fatalf("ProviderThreadID = %q, want %s", req.ProviderThreadID, providerThreadID)
+		}
 		if req.Model != model || req.Effort != effort {
 			t.Fatalf("ResumeSession request = %#v, want model/effort restored", req)
 		}
@@ -387,6 +391,53 @@ func TestBackgroundResumeIfNeededRehydratesClaudeOverrideConfig(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("backgroundResumeIfNeeded() did not trigger resume")
+	}
+}
+
+func TestBackgroundResumeIfNeededSkipsInvalidProviderThreadID(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		providerThreadID string
+	}{
+		{name: "empty", providerThreadID: ""},
+		{name: "agent placeholder", providerThreadID: "agent-1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			threads := &stubThreadStore{thread: &threadstore.Thread{
+				ThreadID:  "thread-1",
+				AgentID:   "agent-1",
+				Prompt:    "resume",
+				Model:     "gpt-5.5",
+				Cwd:       "/repo",
+				CreatedAt: 123,
+				Status:    statusCreated,
+			}}
+			bindings := &stubBindingStore{binding: &bindingstore.Binding{
+				AgentID:          "agent-1",
+				Provider:         "claude",
+				ProviderThreadID: tt.providerThreadID,
+				CodexThreadID:    "thread-1",
+				Cwd:              "/repo",
+			}}
+			resumeReqCh := make(chan dto.ResumeSessionRequest, 1)
+			starter := &stubSessionStarter{
+				onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+					resumeReqCh <- req
+					return &stubSession{threadID: tt.providerThreadID}, nil
+				},
+			}
+
+			svc := NewService(silentLogger(), threads, bindings, &stubSessionProvider{}, starter, nil, nil, nil).(*service)
+			svc.backgroundResumeIfNeeded(context.Background(), "thread-1")
+
+			assertNoResumeStarted(t, resumeReqCh)
+			if _, ok := svc.resumeInFlight.Load("agent-1"); ok {
+				t.Fatalf("resumeInFlight set for provider_thread_id %q", tt.providerThreadID)
+			}
+		})
 	}
 }
 
@@ -405,7 +456,7 @@ func TestBackgroundResumeIfNeededSkipsArchivedBinding(t *testing.T) {
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-1",
 		Provider:         "codex",
-		ProviderThreadID: "provider-thread-1",
+		ProviderThreadID: "22222222-3333-4444-5555-666666666666",
 		CodexThreadID:    "thread-1",
 		Cwd:              "/repo",
 		Archived:         true,
@@ -442,7 +493,7 @@ func TestBackgroundResumeIfNeededSkipsStoppedThread(t *testing.T) {
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-1",
 		Provider:         "codex",
-		ProviderThreadID: "provider-thread-1",
+		ProviderThreadID: "33333333-4444-5555-6666-777777777777",
 		CodexThreadID:    "thread-1",
 		Cwd:              "/repo",
 	}}
@@ -450,7 +501,7 @@ func TestBackgroundResumeIfNeededSkipsStoppedThread(t *testing.T) {
 	starter := &stubSessionStarter{
 		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
 			resumeReqCh <- req
-			return &stubSession{threadID: "provider-thread-1"}, nil
+			return &stubSession{threadID: "33333333-4444-5555-6666-777777777777"}, nil
 		},
 	}
 

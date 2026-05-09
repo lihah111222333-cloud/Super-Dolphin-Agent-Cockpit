@@ -11,6 +11,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
@@ -438,6 +439,9 @@ func (s *service) backgroundResumeCandidate(ctx context.Context, threadID string
 	}
 	agentID := strings.TrimSpace(binding.AgentID)
 	if agentID == "" {
+		return "", false
+	}
+	if !identifier.LooksLikeUUID(strings.TrimSpace(binding.ProviderThreadID)) {
 		return "", false
 	}
 	if reason, blocked := s.resumeLifecycleBlockReason(ctx, threadID, binding); blocked {
