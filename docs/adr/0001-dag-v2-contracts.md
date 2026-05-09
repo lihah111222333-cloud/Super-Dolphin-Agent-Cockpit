@@ -122,6 +122,13 @@ OpsResponse { NewVersion int64 }
 
 **JSON 形状**：每条 op 的 wire 格式带 `"op": <kind>` discriminator；`Ops` 类型自定义 (Un)MarshalJSON 做 typed dispatch。
 
+**三方映射关系（`NodeSpec ↔ taskdag.Node ↔ nodeexec.Node`）**：
+- `NodeSpec` （ops.go）是“编辑视图”：含 `DependsOn`，用于 add_node ops 表达节点依赖关系。
+- `taskdag.Node` （store/taskdag）是“持久化视图”：含主键/状态/时间戳/`DependsOn`。
+- `nodeexec.Node` （types.go）是“执行视图”：不含 `DependsOn` (调度器已解析) / `Status` (由 NodeOutcome 表达)。
+- 数据流：`add_node ops 中的 NodeSpec` → dispatcher 写入 `taskdag.Node` → 调度时映射为 `nodeexec.Node` 交 `NodeExecutor.Execute`。
+- 骨架阶段未提供统一 mapping function；F 阶段调度器重做时加一处 `nodeexecNodeFromStore(taskdag.Node) nodeexec.Node`。
+
 **约束**：
 - 未知 op kind / 缺 discriminator → fail-fast 报错
 - `NodePatch.DependsOn` 用 `*[]string` 区分三态（nil 不改 / `*[]` 清空 / `*[a,b]` 设置）
