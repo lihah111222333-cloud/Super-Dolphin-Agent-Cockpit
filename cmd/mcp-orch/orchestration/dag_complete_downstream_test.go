@@ -12,6 +12,7 @@ import (
 // stubNodeFlowStore 实现 NodeFlowStore + OrchestrationStore 必需方法，
 // 验证 service.UpdateNodeStatus 的 Phase 3.5w 接通逻辑：status="done" 时
 // 应该走 CompleteNodeAndScheduleDownstream 而不是普通 UpdateNodeStatus。
+// S7.2 后补上 ListNodes，让 service 先取 from-status 走状态机校验。
 type stubNodeFlowStore struct {
 	taskdag.OrchestrationStore // nil 嵌入：未覆盖方法 panic 暴露遗漏
 
@@ -19,6 +20,18 @@ type stubNodeFlowStore struct {
 	completeCalls []taskdag.CompleteNodeInput
 	completeReply *taskdag.CompleteNodeWithDownstreamResult
 	completeErr   error
+
+	// fromStatus 是 ListNodes 返回的当前 node.status（供 S7.2 转移校验取用）。
+	// 未设默认 "running" 让 done 转移合法，适配多数测试不需显式设置。
+	fromStatus string
+}
+
+func (s *stubNodeFlowStore) ListNodes(_ context.Context, dagKey string) ([]taskdag.Node, error) {
+	status := s.fromStatus
+	if status == "" {
+		status = "running"
+	}
+	return []taskdag.Node{{DagKey: dagKey, NodeKey: "A", Status: status}}, nil
 }
 
 func (s *stubNodeFlowStore) UpdateNodeStatus(_ context.Context, input taskdag.NodeStatusUpdate) (*taskdag.Node, error) {
@@ -89,7 +102,7 @@ func TestUpdateNodeStatusDone_RoutesToCompleteNodeAndScheduleDownstream(t *testi
 // TestUpdateNodeStatusNonDone_KeepsLegacyUpdate:
 // status != "done" 时仍走旧 UpdateNodeStatus 路径，不应触发 CompleteNodeAndScheduleDownstream。
 func TestUpdateNodeStatusNonDone_KeepsLegacyUpdate(t *testing.T) {
-	stub := &stubNodeFlowStore{}
+	stub := &stubNodeFlowStore{fromStatus: "ready"} // ready → running 合法
 	s := makeServiceWithStub(stub)
 	_, err := s.UpdateNodeStatus(context.Background(), UpdateNodeStatusRequest{
 		DagKey:  "dag-1",
@@ -108,11 +121,51 @@ func TestUpdateNodeStatusNonDone_KeepsLegacyUpdate(t *testing.T) {
 	}
 }
 
+// TestUpdateNodeStatus_RejectsIllegalTransition:
+// S7.2 验收：非法转移（pending → done 跳态）被拒。
+func TestUpdateNodeStatus_RejectsIllegalTransition(t *testing.T) {
+	stub := &stubNodeFlowStore{fromStatus: "pending"} // pending → done 非法
+	s := makeServiceWithStub(stub)
+	_, err := s.UpdateNodeStatus(context.Background(), UpdateNodeStatusRequest{
+		DagKey:  "dag-1",
+		NodeKey: "A",
+		Status:  "done",
+		Result:  json.RawMessage(`{}`),
+	})
+	if err == nil {
+		t.Fatalf("expected illegal transition error for pending→done, got nil")
+	}
+	if len(stub.updateCalls) != 0 || len(stub.completeCalls) != 0 {
+		t.Fatalf("store should NOT be called when validation fails: updateCalls=%d completeCalls=%d",
+			len(stub.updateCalls), len(stub.completeCalls))
+	}
+}
+
+// TestUpdateNodeStatus_RejectsTerminalSourceTransition:
+// done → ready 是终态出态，必须被拒。
+func TestUpdateNodeStatus_RejectsTerminalSourceTransition(t *testing.T) {
+	stub := &stubNodeFlowStore{fromStatus: "done"}
+	s := makeServiceWithStub(stub)
+	_, err := s.UpdateNodeStatus(context.Background(), UpdateNodeStatusRequest{
+		DagKey:  "dag-1",
+		NodeKey: "A",
+		Status:  "ready",
+	})
+	if err == nil {
+		t.Fatalf("expected terminal-source rejection for done→ready, got nil")
+	}
+}
+
 // nonFlowStub 只实现 OrchestrationStore，不实现 NodeFlowStore：模拟测试 mock 或
 // 老 store 实现。预期 service 退化到普通 UpdateNodeStatus（type assertion 失败）。
+// S7.2 后补 ListNodes 让 service 先走转移校验。
 type nonFlowStub struct {
 	taskdag.OrchestrationStore // nil
 	updateCalls                []taskdag.NodeStatusUpdate
+}
+
+func (s *nonFlowStub) ListNodes(_ context.Context, dagKey string) ([]taskdag.Node, error) {
+	return []taskdag.Node{{DagKey: dagKey, NodeKey: "A", Status: "running"}}, nil
 }
 
 func (s *nonFlowStub) UpdateNodeStatus(_ context.Context, input taskdag.NodeStatusUpdate) (*taskdag.Node, error) {

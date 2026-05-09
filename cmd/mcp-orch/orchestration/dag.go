@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
@@ -171,6 +173,12 @@ func (s *service) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequ
 	}
 	var result DAGNode
 	err = s.withDAGStore(func(store taskdag.OrchestrationStore) error {
+		// S7.2: 状态转移合法性校验。用 ListNodes 拿当前 from 状态，用
+		// nodeexec.ValidateTransition 检查；接口不提供单节点读，用 ListNodes
+		// + 筛选是当前唯一路径。F 阶段可加 GetNode 小接口优化。
+		if vErr := s.validateNodeTransition(ctx, store, input); vErr != nil {
+			return vErr
+		}
 		// Phase 3.5w: status="done" 切到 CompleteNodeAndScheduleDownstream
 		// 让 store 同事务自动 enqueue 下游 ready 节点（生产路径自动 spawn）。
 		// 生产 dagStore 实际是 taskdag.Store（embed NodeFlowStore），type
@@ -191,6 +199,28 @@ func (s *service) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequ
 		return DAGNode{}, err
 	}
 	return result, nil
+}
+
+// validateNodeTransition 走 ListNodes 取当前 node.status，交 nodeexec.ValidateTransition
+// 检查。节点不存在时返回明确错误（防 typo / 并发删节点）。
+func (s *service) validateNodeTransition(ctx context.Context, store taskdag.OrchestrationStore, input taskdag.NodeStatusUpdate) error {
+	nodes, err := store.ListNodes(ctx, input.DagKey)
+	if err != nil {
+		return fmt.Errorf("validate transition: list nodes %s: %w", input.DagKey, err)
+	}
+	var fromStatus string
+	found := false
+	for _, n := range nodes {
+		if n.NodeKey == input.NodeKey {
+			fromStatus = n.Status
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("validate transition: node %s/%s not found", input.DagKey, input.NodeKey)
+	}
+	return nodeexec.ValidateTransition(nodeexec.NodeStatus(fromStatus), nodeexec.NodeStatus(input.Status))
 }
 
 // completeNodeWithDownstream 走 store NodeFlowStore，3.5w 接通点。
