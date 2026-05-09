@@ -403,3 +403,49 @@ func cloneInt64(value *int64) *int64 {
 	copied := *value
 	return &copied
 }
+
+// =====================================================
+// DAG 生命周期入口（S2.1 骨架接口位 + stub）
+// =====================================================
+//
+// StartDAG / TerminateDAG / ApplyOps 的真实实现在 T1.2 / F4.x / F6.x 落地；
+// 骨架阶段只定签名 + ErrLifecycleNotImplemented，让上层接口稳定。
+//
+// 真实运行时还会创建 task_dag_runs 行 + snapshot dag.version + 写
+// node.run_id 等（见蓝图 v2 §5 决策"DAG 模板 + run 实例"模型 + S3.3 migration）。
+
+// ErrLifecycleNotImplemented 是骨架阶段 stub 方法的 sentinel 错误。
+// errors.Is 可用：errors.Is(err, ErrLifecycleNotImplemented)。
+var ErrLifecycleNotImplemented = errors.New("orchestration lifecycle: not implemented in skeleton stage (T1.2/F4.x/F6.x)")
+
+// StartDAGRequest 是触发 DAG 一次新执行的入参。
+type StartDAGRequest struct {
+	DagKey         string // 必填
+	TriggerSource  string // manual | auto | scheduled | external
+	IdempotencyKey string // 可选，防重复 run
+}
+
+// StartDAGResponse 是 StartDAG 的返回。
+type StartDAGResponse struct {
+	RunKey  string // 新 run 的唯一键（例 dag_xxx#run_2026-05-10T08:00）
+	Version int64  // 该 run snapshot 的 dag.version
+}
+
+// TerminateDAGRequest 是终止一次 DAG run 的入参。
+type TerminateDAGRequest struct {
+	DagKey string // 必填
+	RunKey string // 必填，目标 run
+	Reason string // 可选，写入 events 字段
+}
+
+// StartDAG 触发 DAG 一次新执行（创建 run、初始化节点、第一批 ready 节点入队）。
+// 骨架阶段：仅返回 ErrLifecycleNotImplemented；T1.2 真实落地。
+func (s *service) StartDAG(_ context.Context, _ StartDAGRequest) (StartDAGResponse, error) {
+	return StartDAGResponse{}, ErrLifecycleNotImplemented
+}
+
+// TerminateDAG 终止一次 run（标 cancelled，级联取消 pending/ready 节点）。
+// 骨架阶段：仅返回 ErrLifecycleNotImplemented；F6.x 真实落地。
+func (s *service) TerminateDAG(_ context.Context, _ TerminateDAGRequest) error {
+	return ErrLifecycleNotImplemented
+}
