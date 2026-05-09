@@ -203,6 +203,16 @@ func (s *service) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequ
 
 // validateNodeTransition 走 ListNodes 取当前 node.status，交 nodeexec.ValidateTransition
 // 检查。节点不存在时返回明确错误（防 typo / 并发删节点）。
+//
+// 设计说明：本函数仅拦截走外部 API 路径的 service.UpdateNodeStatus。
+// 生产 dispatcher 的 store.UpdateRunningNodeStatus 不走 service，走 SQL
+// `WHERE status IN ('pending')` 的 “pending→running 快车道”，本骨架阶段
+// 不拦截也不修复（见实施计划 S2.4 推迟说明）。并存后果：
+//   - 外部 API（task_update_node）：遵守完整 9 态机，pending→done 跳态被拒
+//   - 内部 dispatcher：走 pending→running 快车道，不经 ready 中转
+//
+// F 阶段 dispatcher 重做时会一并修复（CompleteNodeAndScheduleDownstream
+// 同事务修下游 status 为 ready + dispatcher SQL 接受 ready）。
 func (s *service) validateNodeTransition(ctx context.Context, store taskdag.OrchestrationStore, input taskdag.NodeStatusUpdate) error {
 	nodes, err := store.ListNodes(ctx, input.DagKey)
 	if err != nil {
