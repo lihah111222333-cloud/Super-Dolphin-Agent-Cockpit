@@ -3,7 +3,7 @@
 > 配套文档：`docs/plans/dag改造蓝图v2.md`（决策与设计）
 > 本文是执行级清单：每行一个可独立提交的任务，含触动文件、验收、依赖、size、可并行性
 > Size 直觉：S = 半天以内 / M = 1-2 天 / L = 3 天以上（仅相对量级，非时间承诺）
-> 修订历史：2026-05-10 初稿；2026-05-10 补 4 处小字段位 / 策略（isolation / outputs.schema / replan / polling）
+> 修订历史：2026-05-10 初稿；2026-05-10 补 4 处小字段位 / 策略（isolation / outputs.schema / replan / polling）；2026-05-10 2-pass DAG 审查后同步（10 项 checklist：加 S0 / S2.4 / S5.3、migration 编号、T2.2 size 调整等）
 
 ---
 
@@ -11,7 +11,7 @@
 
 | 阶段 | 任务数 | 总 size | 关键产出 |
 |---|---|---|---|
-| S 骨架 | 22 | ~25% | 14 处补丁 + ADR + 删死代码；行为完全不变 |
+| S 骨架 | 25 | ~25% | 14 处补丁 + ADR + 删死代码；行为完全不变 |
 | T 工具 | 18 | ~35% | MCP 工具就位 + UI 接通真实数据 + AI 按钮可点 |
 | F 功能 | 26 | ~30% | 行为兑现：cron 真跑、AI 设计师上岗、智能重试落地 |
 | H 加固 | 按需 | ~10% | 生产问题驱动，不预排 |
@@ -23,27 +23,30 @@
 
 ---
 
-## 1. 阶段 S 骨架（22 任务）
+## 1. 阶段 S 骨架（25 任务）
 
 | ID | 标题 | 主要触动文件 | 验收 | 依赖 | Size | 并行 |
 |---|---|---|---|---|---|---|
-| **S1.1** | 定义 `NodeExecutor` interface + `NodeOutcome` / `RetryHint` 类型 | `cmd/mcp-orch/orchestration/node_executor.go` 新建 | 接口编译过；godoc 注释完整 | — | S | Y |
-| **S1.2** | `FailureClass` 7 类常量 + `OnFailureStrategy` 7 项常量（含 `replan`）+ `HookPoint` enum | `cmd/mcp-orch/orchestration/node_executor.go` | 常量定义 + godoc；`grep -c FailureClass` ≥ 7；`grep -c OnFailureReplan` ≥ 1 | S1.1 | S | Y |
+| **S0.1** | 在 p23/README.md 顶部加 deprecation 提示指向蓝图u v2（防止与 p23 mutual conflict） | `docs/plans/迁移/p23/README.md` | grep "被蓝图 v2 上位重排" 命中；p23 各 Phase 状态列明 v2 合并/砍/推迟 | — | S | Y |
+| **S1.1** | 定义 `NodeExecutor` interface（含 `Execute()` + `Hooks() map[HookPoint]HookHandler`）+ `NodeOutcome` / `RetryHint` 类型 | `cmd/mcp-orch/orchestration/node_executor.go` 新建 | 接口编译过；godoc 注释完整；`grep -c "Hooks()"` ≥ 1 | — | S | Y |
+| **S1.2** | `FailureClass` 7 类常量 + `OnFailureStrategy` 7 项常量（含 `replan`）+ `HookPoint` enum + `HookHandler` interface | `cmd/mcp-orch/orchestration/node_executor.go` | 常量定义 + godoc；`grep -c FailureClass` ≥ 7；`grep -c OnFailureReplan` ≥ 1；`grep -c "type HookHandler"` ≥ 1 | S1.1 | S | Y |
 | **S1.3** | `AgentExecutor` stub（包现有 wakeup 拉子 agent 逻辑） | `cmd/mcp-orch/orchestration/executor_agent.go` 新建 | 单测 stub 调用返回 `NodeOutcome{Status: Done}` | S1.1 | M | N |
 | **S1.4** | `AutomationExecutor` stub | `cmd/mcp-orch/orchestration/executor_automation.go` 新建 | 单测 stub 返回 NodeOutcome | S1.1 | S | Y（与 S1.3 并行） |
 | **S1.5** | `HybridExecutor` stub | `cmd/mcp-orch/orchestration/executor_hybrid.go` 新建 | 单测 stub 返回 NodeOutcome | S1.1 | S | Y |
 | **S2.1** | service 层 `StartDAG` / `TerminateDAG` 方法签名 + stub | `cmd/mcp-orch/orchestration/service.go` 增 / `dag_lifecycle.go` 新建 | 单测：调用返回 NotImplemented；接口稳定 | — | S | Y |
 | **S2.2** | service 层 `ApplyOps(dag_key, base_version, ops[])` 接口 + stub | `cmd/mcp-orch/orchestration/dag_ops.go` 新建 | 单测：base_version 不匹配返回 ConflictError | S2.1 | M | N |
 | **S2.3** | `Scheduler` interface (`Tick` / `Schedule`) + stub | `cmd/mcp-orch/orchestration/scheduler.go` 新建 | 接口编译过；stub panic("not implemented") | — | S | Y |
-| **S3.1** | migration: `task_dags` 加 `trigger / owner_id / cron_expr / next_run_at / version` | `migrations/0017_dag_v2_dag_columns.sql` 新建 | `make migrate` 通过；旧 row trigger 默认 'manual' | — | M | N |
-| **S3.2** | migration: `task_dag_nodes` 加 `run_id / reads / writes` | `migrations/0018_dag_v2_node_columns.sql` 新建 | migrate 通过；reads/writes 默认 `[]` | S3.1 | S | N |
-| **S3.3** | migration: 新建 `task_dag_runs` 表（含 events / budget_used / budget_limit） | `migrations/0019_dag_v2_runs.sql` 新建 | migrate 通过；run_key UNIQUE | S3.1 | M | N |
-| **S3.4** | migration: 旧 `metadata.auto_handoff_phase1=true` → `trigger='auto'` 一次性映射 | `migrations/0020_dag_v2_compat.sql` 新建 | migrate 通过；DB 上 grep 不到该 key | S3.1 | S | N |
+| **S2.4** | 节点完成时自动 promote 下游 deps-satisfied 节点 status 从 pending → ready（填补吃狗粮发现 B-14：CompleteNodeAndScheduleDownstream 只 enqueue wakeup 不改 status） | `cmd/mcp-orch/orchestration/dag.go` / `cmd/mcp-orch/store/taskdag/store_complete_downstream.go` 修改 | 集成测试：上游 done 后下游节点 status 自动从 pending → ready；状态转移走 ValidateTransition | S2.1, S7.1 | M | N |
+| **S3.1** | migration: `task_dags` 加 `trigger / owner_id / cron_expr / next_run_at / version` | `migrations/0072_dag_v2_dag_columns.sql` 新建 | `make migrate` 通过；旧 row trigger 默认 'manual'；附 rollback 注释 | — | M | N |
+| **S3.2** | migration: `task_dag_nodes` 加 `run_id / reads / writes` | `migrations/0073_dag_v2_node_columns.sql` 新建 | migrate 通过；reads/writes 默认 `[]`；附 rollback 注释 | S3.1 | S | N |
+| **S3.3** | migration: 新建 `task_dag_runs` 表（含 events / budget_used / budget_limit）+ 三条索引（dag_key+started_at desc / status / next_run_at WHERE scheduled） | `migrations/0074_dag_v2_runs.sql` 新建 | migrate 通过；run_key UNIQUE；三条索引存在；附 rollback 注释 | S3.1 | M | N |
+| **S3.4** | migration: 旧 `metadata.auto_handoff_phase1=true` → `trigger='auto'` 一次性映射 | `migrations/0075_dag_v2_compat.sql` 新建 | migrate 通过；DB 上 grep 不到该 key；附 rollback 注释 | S3.1 | S | N |
 | **S3.5** | store contract 新方法签名（不实现）：`CreateRun / GetRun / ListRuns / ApplyOps` | `cmd/mcp-orch/store/taskdag/contract.go` | 接口编译过；mock 实现 stub | S3.1-3.3 | M | N |
 | **S4.1** | typed ops payload Go struct: `OpUpdateDAG / OpAddNode / OpUpdateNode / OpRemoveNode` + `OpKind` enum | `cmd/mcp-orch/orchestration/dag_ops_types.go` 新建 | 单测：JSON marshal/unmarshal 双向 | S2.2 | S | Y |
 | **S4.2** | `OpsRequest{DagKey, BaseVersion, Ops[]}` + `OpsResponse{NewVersion}` | 同上 | 单测 | S4.1 | S | Y |
-| **S5.1** | typed `node.config` schema Go struct（agent / automation / hybrid 三套），含 `exec.isolation` / `outputs.schema` 字段位 | `cmd/mcp-orch/orchestration/node_config_types.go` 新建 | 单测：三种 node_type 各跑一份 fixture marshal/unmarshal；`isolation` / `outputs.schema` 字段读写正确 | S1.2 | M | Y |
+| **S5.1** | typed `node.config` schema Go struct（agent / automation / hybrid 三套），含 `exec.isolation` / `outputs.schema` 字段位；与现有 `dag_retry_policy.go` 的 `DAGSchedulePolicy / NodeExecutionPolicy / RetryPolicy` 协调（共存或 deprecate 路径在 ADR 里明确）；`to_node_result` 仅 < 4KB 摘要规则在 godoc 说明 | `cmd/mcp-orch/orchestration/node_config_types.go` 新建 | 单测：三种 node_type 各跑一份 fixture marshal/unmarshal；`isolation` / `outputs.schema` 字段读写正确；与 dag_retry_policy.go typed struct 无冲突 | S1.2 | M | Y |
 | **S5.2** | `ParseNodeConfig(node_type, raw)` 解码器 | 同上 | 单测：错误 node_type / 缺字段 返回明确错误 | S5.1 | S | N |
+| **S5.3** | `OnFailureConfig` 解码 + by_class lookup 中间函数 + 单测（吃狗粮发现 M-1） | `cmd/mcp-orch/orchestration/on_failure_config.go` 新建 | 单测：byClass lookup 命中走 by_class 策略；未命中走 default；未配置走 retry | S5.1 | S | Y |
 | **S6.1** | UI `DagDetailModal` 真实组件结构（不接数据） | `cmd/agent-terminal/frontend/vue-app/components/DagDetailModal.js` 重写 | 组件渲染不黑屏；占位文案显示；e2e snapshot 通过 | — | M | Y（前端独立） |
 | **S6.2** | UI 节点 9 态状态色 token + 7 类失败色 token | `cmd/agent-terminal/frontend/vue-app/styles/dag-tokens.css` 新建 | 视觉 review 通过；色弱友好 | S6.1 | S | Y |
 | **S7.1** | 9 态 `NodeStatus` 常量 + `ValidateTransition(from, to)` 函数 | `cmd/mcp-orch/orchestration/node_status.go` 新建 | 单测：所有合法/非法转移；非法返回 error | S1.2 | M | Y |
@@ -52,7 +55,7 @@
 | **S16.1** | 一份 ADR：NodeExecutor / Ops / Status / FailureClass 契约 | `docs/adr/0001-dag-v2-contracts.md` 新建 | 文档 review 通过；蓝图 v2 第 7-9 节内容固化 | S1-S7 完成 | M | Y |
 
 **S 阶段验收**：
-- 全部 22 任务完成
+- 全部 25 任务完成
 - `go build ./...` / `go test ./...` / `go vet ./...` / `scripts/test_with_guard.sh` 全过
 - `cmd/agent-terminal/frontend && npm test` 通过（vitest）
 - 旧 DAG 创建/查询/更新调用 100% 兼容
@@ -60,18 +63,19 @@
 - ADR 已 commit
 
 **S 阶段提交粒度建议**：
-- S1.1+S1.2 一次（接口 + enum）
+- S0.1 单独（p23 deprecation 提示）
+- S1.1+S1.2 一次（接口 + enum + HookHandler）
 - S1.3 / S1.4 / S1.5 各一次
-- S2.1 / S2.2 / S2.3 各一次
+- S2.1 / S2.2 / S2.3 / S2.4 各一次
 - S3.1+S3.2+S3.3 一次（一组 migration）/ S3.4 单独 / S3.5 单独
 - S4.1+S4.2 一次
-- S5.1+S5.2 一次
+- S5.1+S5.2 一次 / S5.3 单独
 - S6.1 / S6.2 各一次（**前端必须先发方案给用户确认**）
 - S7.1+S7.2 一次
 - S15.1 单独（删死代码 commit 单独提）
-- S16.1 单独（ADR）
+- S16.1 单独（ADR，含状态转移矩阵 + 完整契约）
 
-约 14 个 commit。
+约 17-18 个 commit。
 
 ---
 
@@ -82,7 +86,7 @@
 | **T1.1** | MCP `task_start_dag` schema + handler | `cmd/mcp-orch/tools/task_tools.go` | 集成测试：调 task_create_dag → task_start_dag → status running | S2.1 | M | Y |
 | **T1.2** | `service.StartDAG` 真实实现：创建 run + status 转 running | `cmd/mcp-orch/orchestration/dag_lifecycle.go` | 单测覆盖；run 表插入正确 | T1.1, S3.5 | M | N |
 | **T2.1** | MCP `task_dag_apply_ops` schema + handler（draft/ready 状态可改） | `cmd/mcp-orch/tools/task_tools.go` | 集成测试：apply_ops 后 version+1，base_version 不匹配返 conflict | S4.1, S4.2 | M | Y |
-| **T2.2** | `service.ApplyOps` 真实实现 ops apply 逻辑 | `cmd/mcp-orch/orchestration/dag_ops.go` | 单测覆盖 4 种 ops + 环检测 + OCC | T2.1, S5.2 | L | N |
+| **T2.2** | `service.ApplyOps` stub 接通（draft/ready 状态允许调用，返回 NotImplemented）；真实实现完全归 F4.x | `cmd/mcp-orch/orchestration/dag_ops.go` | 单测：工具 schema 正确 + service stub 调用通 + base_version 不匹配返 conflict | T2.1, S5.2 | M | N |
 | **T3.1** | MCP `task_get_run` schema + handler | `cmd/mcp-orch/tools/task_tools.go` | 集成测试：返回完整 run + 节点状态 | S3.5 | S | Y |
 | **T3.2** | MCP `task_list_runs(dag_key, limit)` schema + handler | 同上 | 集成测试：分页正确 | S3.5 | S | Y |
 | **T4.1** | MCP `list_models` 工具（hardcoded provider→models） | `cmd/mcp-orch/tools/registry_tools.go` 新建 | 集成测试：claude/codex 各自 model 列表 | — | S | Y |
