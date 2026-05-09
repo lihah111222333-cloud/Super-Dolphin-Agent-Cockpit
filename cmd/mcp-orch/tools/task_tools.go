@@ -86,6 +86,30 @@ func HandleUpdateNode(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
+// StartDAGInput 是 task_start_dag MCP 工具的 typed 入参（T1.1）。
+type StartDAGInput struct {
+	DagKey         string `json:"dag_key"`
+	TriggerSource  string `json:"trigger_source,omitempty"`
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
+}
+
+// HandleStartDAG 是 task_start_dag MCP 工具的 handler（T1.1）。
+// 骨架阶段：service.StartDAG 返回 ErrLifecycleNotImplemented，
+// MCP 客户端会收到结构化错误；T1.2 接通真实路径后返回 RunKey + Version。
+func HandleStartDAG(svc contract.OrchestrationService) ToolHandler {
+	return makeHandler(svc, "orchestration service", func(ctx context.Context, in StartDAGInput) (any, error) {
+		dagKey, err := requireTrimmed(in.DagKey, "dag_key")
+		if err != nil {
+			return nil, err
+		}
+		return svc.StartDAG(ctx, contract.StartDAGRequest{
+			DagKey:         dagKey,
+			TriggerSource:  strings.TrimSpace(in.TriggerSource),
+			IdempotencyKey: strings.TrimSpace(in.IdempotencyKey),
+		})
+	})
+}
+
 func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 	return buildToolDefinitions(
 		defineTool("task_create_dag", "Create or upsert a DAG and its nodes in the orchestration store.", createDAGSchema(), HandleCreateDAG(svc)),
@@ -98,6 +122,11 @@ func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 			"status":   EnumStringSchema("New node status.", "pending", "running", "done", "failed"),
 			"result":   StringSchema("Optional result summary."),
 		}, "dag_key", "node_key", "status"), HandleUpdateNode(svc)),
+		defineTool("task_start_dag", "Trigger a new DAG execution (creates a run, snapshots dag.version). Skeleton stage returns ErrLifecycleNotImplemented; T1.2 wires the real path.", ObjectSchema(map[string]Schema{
+			"dag_key":         StringSchema("DAG to start."),
+			"trigger_source":  EnumStringSchema("Trigger source.", "manual", "auto", "scheduled", "external"),
+			"idempotency_key": StringSchema("Optional, prevents duplicate run on retry."),
+		}, "dag_key"), HandleStartDAG(svc)),
 	)
 }
 

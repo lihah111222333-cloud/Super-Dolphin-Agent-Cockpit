@@ -7,6 +7,7 @@ import (
 )
 
 type OrchestrationStub struct {
+	StartDAGFunc              func(context.Context, contract.StartDAGRequest) (contract.StartDAGResponse, error)
 	LaunchAgentFunc           func(context.Context, contract.LaunchRequest) error
 	LaunchAgentSnapshotFunc   func(context.Context, contract.LaunchRequest) (contract.AgentSnapshot, error)
 	ListAgentsFunc            func(context.Context) ([]contract.AgentSnapshot, error)
@@ -157,4 +158,12 @@ func (s *OrchestrationStub) UpdateNodeStatus(ctx context.Context, req contract.U
 		return s.UpdateNodeStatusFunc(ctx, req)
 	}
 	return contract.DAGNode{}, nil
+}
+
+// StartDAG 是 T1.1 加的接口方法；骨架阶段 stub 返回零值。
+func (s *OrchestrationStub) StartDAG(ctx context.Context, req contract.StartDAGRequest) (contract.StartDAGResponse, error) {
+	if s.StartDAGFunc != nil {
+		return s.StartDAGFunc(ctx, req)
+	}
+	return contract.StartDAGResponse{}, nil
 }

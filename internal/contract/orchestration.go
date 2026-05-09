@@ -31,6 +31,8 @@ type OrchestrationService interface {
 	GetDAG(ctx context.Context, dagKey string) (DAGDetail, error)
 	ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAGSummary, error)
 	UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequest) (DAGNode, error)
+	// StartDAG 触发 DAG 一次新执行（骨架阶段 stub，返回 ErrLifecycleNotImplemented）。
+	StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGResponse, error)
 }
 
 // OrchestrationSessionCleaner is the owner-side contract for releasing
@@ -189,6 +191,21 @@ type UpdateNodeStatusRequest struct {
 	NodeKey string
 	Status  string
 	Result  json.RawMessage
+}
+
+// DAG v2 骨架阶段 T1.1: StartDAG 生命周期入参出参。
+// 骨架阶段 service 实现返回 ErrLifecycleNotImplemented；T1.2 接通真实路径
+// （创建 task_dag_runs 行 + snapshot dag.version）。契约见
+// docs/adr/0001-dag-v2-contracts.md §2.1 + 骨架阶段补丁 2。
+type StartDAGRequest struct {
+	DagKey         string
+	TriggerSource  string // manual | auto | scheduled | external
+	IdempotencyKey string // 可选，防重复 run
+}
+
+type StartDAGResponse struct {
+	RunKey  string // 新 run 的唯一键（例 dag_xxx#run_2026-05-10T08:00）
+	Version int64  // 该 run snapshot 的 dag.version
 }
 
 type DAGSummary struct {
