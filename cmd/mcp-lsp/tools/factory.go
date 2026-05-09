@@ -15,6 +15,7 @@ import (
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -31,6 +32,10 @@ const (
 	decodeLenient
 	decodeStrict
 )
+
+func toolWorkspaceRoot(ctx context.Context, fallback string) string {
+	return common.WorkspaceRootFromContext(ctx, fallback)
+}
 
 func newManagerTool[T any](
 	name string,

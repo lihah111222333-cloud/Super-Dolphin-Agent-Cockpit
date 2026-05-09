@@ -10,7 +10,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/search"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
 const maxReactiveBootstrap = 30
@@ -98,7 +97,7 @@ func (h handlerBase) collectDiagnosticURIs(ctx context.Context, input fileToolIn
 		return nil, nil
 	}
 
-	root := common.WorkspaceRootFromContext(ctx, h.root)
+	root := toolWorkspaceRoot(ctx, h.root)
 	uris := make([]string, 0, len(targets))
 	seen := make(map[string]struct{}, len(targets))
 	for _, target := range targets {
