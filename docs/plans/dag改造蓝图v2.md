@@ -2,7 +2,7 @@
 
 > 状态：草案 / 等待动手
 > 关系：本文是 `docs/plans/迁移/p23/` 的上位重排，不是替换；p23 各 Phase 的去留在第 11 节给出映射表。
-> 历史：2026-05-09 初稿；2026-05-10 合并 14 处骨架补丁、4 阶段路径、所有讨论决策；2026-05-10 第二次修订（用户场景查漏：4 处小补 isolation / outputs.schema / replan / polling）
+> 历史：2026-05-09 初稿；2026-05-10 合并 14 处骨架补丁、4 阶段路径、所有讨论决策；2026-05-10 二修（用户场景查漏：4 处小补）；2026-05-10 三修（2-pass DAG 审查后同步：决策来源标记 + result 大小规则）
 
 ---
 
@@ -54,21 +54,24 @@ MCP 工具层      ✅ 完整 (task_create_dag / get_dag / update_node)
 
 ## 5. 关键决策汇总（讨论中拍板）
 
-| 决策点 | 选择 | 理由 |
-|---|---|---|
-| DAG vs DAG run | **C 混合** | DAG 主表是模板，引用 `task_dag_runs` 表存每次执行实例；node 加 `run_id` 维度。Temporal/Airflow/LangGraph 标准模型。 |
-| 编辑粒度 | **C+ ops + 版本号 + 暴露 MCP** | typed ops 数组（add/update/remove）+ `base_version` OCC；AI 和用户共用同一组动词；对话流→ops 天然映射。 |
-| node.config schema | **A 完全 typed** | Go struct + JSON Schema 双向；AI 才能稳定输出符合契约的 ops。 |
-| 编排模式 | **只保留 DAG** | 砍 Swarm / Supervisor / 多策略路由。 |
-| 状态机 | **9 态** | pending / ready / running / retrying / done / failed / cancelled / skipped / waiting_human |
-| 失败分类 | **7 类** | transient / quota / validation / capability / hard / needs_human / **infrastructure** |
-| on_failure 策略 | **按 class 分发** | by_class map + escalation_chain 字段位（功能阶段实现） |
-| HITL | **enum 留位不实现** | `waiting_human` 入 enum，UI/通知/timeout 等加固阶段做 |
-| Cron | **保留 P5 但骨架阶段只字段位 + Scheduler stub** | 我之前推荐砍 P5 是错的，每日定时是真实需求 |
-| 节点隔离 | **`exec.isolation` 字段位** | 多并行任务 worktree 隔离（Cursor 同侪验证） |
-| 重新规划策略 | **`OnFailureStrategy` 加 `replan`** | 失败时 spawn planner 改图，不止重试 |
-| 输出校验 | **`outputs.schema` 字段位** | JSON Schema 自动校验，配合 `validation` 失败分类 |
-| 实时进度 | **T 阶段先 polling，WS 升级放加固阶段** | 用户高频痛点；不补骨架 |
+决策来源标注：✅ = 用户明确拍板；🤖 = AI 推荐（用户未明确反对但也未明确发言，未来可调整）
+
+| 决策点 | 选择 | 来源 | 理由 |
+|---|---|---|---|
+| DAG vs DAG run | **C 混合** | ✅ | DAG 主表是模板，引用 `task_dag_runs` 表存每次执行实例；node 加 `run_id` 维度。Temporal/Airflow/LangGraph 标准模型。 |
+| 编辑粒度 | **C+ ops + 版本号 + 暴露 MCP** | ✅ | typed ops 数组（add/update/remove）+ `base_version` OCC；AI 和用户共用同一组动词 |
+| node.config schema | **A 完全 typed** | ✅ | Go struct + JSON Schema 双向；AI 才能稳定输出符合契约的 ops |
+| 编排模式 | **只保留 DAG** | ✅ | 砍 Swarm / Supervisor / 多策略路由 |
+| 状态机 | **9 态** | 🤖 | pending / ready / running / retrying / done / failed / cancelled / skipped / waiting_human |
+| 失败分类 | **7 类（含 infrastructure）** | 🤖 | transient / quota / validation / capability / hard / needs_human / infrastructure |
+| on_failure 策略 | **按 class 分发** | 🤖 | by_class map + escalation_chain 字段位（功能阶段实现） |
+| HITL | **enum 留位不实现** | 🤖 | `waiting_human` 入 enum，UI/通知/timeout 等加固阶段做 |
+| Cron | **保留 P5 但骨架阶段只字段位 + Scheduler stub** | ✅ | 用户明确提出 Need 1 每日定时 |
+| 节点隔离 | **`exec.isolation` 字段位** | 🤖 | 多并行任务 worktree 隔离（Cursor 同侪验证） |
+| 重新规划策略 | **`OnFailureStrategy` 加 `replan`** | 🤖 | 失败时 spawn planner 改图，不止重试 |
+| 输出校验 | **`outputs.schema` 字段位** | 🤖 | JSON Schema 自动校验，配合 `validation` 失败分类 |
+| 实时进度 | **T 阶段先 polling，WS 升级放加固阶段** | 🤖 | 用户高频痛点；不补骨架 |
+| **result vs sharedfile 边界** | **`to_node_result` 仅 < 4KB 摘要；大输出必须 `to_sharedfile`** | 🤖 | 防止 task_dag_nodes.result JSONB 列膨胀；F1.3 enforce |
 
 ## 6. 改造决策矩阵
 
@@ -143,7 +146,7 @@ MCP 工具层      ✅ 完整 (task_create_dag / get_dag / update_node)
       "path": "report.md",
       "lock_mode": "exclusive"   // exclusive | append | shared
     },
-    "to_node_result": true,
+    "to_node_result": true,        // 仅适合 < 4KB 摘要；大输出必须走 to_sharedfile
     "schema": {                   // 可选 JSON Schema：节点输出不符则归类为 validation failure
       "type": "object",
       "required": ["summary"],
