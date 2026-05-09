@@ -9,6 +9,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -162,6 +163,14 @@ func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contra
 	if provider == "" {
 		return nil, fmt.Errorf("resolve session: binding for %q has no provider", binding.AgentID)
 	}
+	// Reject bindings whose provider_thread_id is missing or non-UUID. The
+	// only resume path that can succeed needs a real provider session UUID;
+	// passing a placeholder (e.g. agent_xxx) used to flow into the driver and
+	// trigger a 5s system:init wait followed by ForceStop. Returning
+	// ErrSessionNotFound lets the caller take the fresh-start path explicitly.
+	if !identifier.LooksLikeUUID(strings.TrimSpace(binding.ProviderThreadID)) {
+		return nil, contract.ErrSessionNotFound
+	}
 	if r.registry == nil {
 		return nil, fmt.Errorf("resolve session: no driver registry available")
 	}
@@ -177,9 +186,11 @@ func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contra
 			break
 		}
 	}
-	if threadID == "" {
-		threadID = strings.TrimSpace(binding.CodexThreadID)
-	}
+	// Note: deliberately do NOT fall back to binding.CodexThreadID here.
+	// CodexThreadID is a routing key (often agent_xxx placeholder) and
+	// passing it as req.ThreadID let placeholders cross provider boundaries
+	// into claude driver, where it caused the 5s system:init deadlock.
+	// req.ThreadID may be empty; the driver derives a synthetic ID itself.
 
 	req := dto.ResumeSessionRequest{
 		Provider:           provider,
