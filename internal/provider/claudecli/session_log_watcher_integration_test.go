@@ -17,7 +17,7 @@ func TestHandleSystemInitRawStartsLogWatcherAndUsesRuntimeContextWindow(t *testi
 	defer swapDefaultSessionLogWatcherPollIntervalForTest(10 * time.Millisecond)()
 
 	dir := t.TempDir()
-	sessionID := "session-1"
+	sessionID := "11111111-2222-3333-4444-555555555555"
 	projectDir := filepath.Join(dir, "projects", "proj")
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(%q) error = %v", projectDir, err)
@@ -89,9 +89,9 @@ func TestDispatchTokenUsageIfCurrentRejectsStaleIdentity(t *testing.T) {
 
 	tr := &transport{}
 	s := &session{
-		threadID:        "session-1",
+		threadID:        "11111111-2222-3333-4444-555555555555",
 		publicThreadID:  "thread-public",
-		sessionID:       "session-1",
+		sessionID:       "11111111-2222-3333-4444-555555555555",
 		transport:       tr,
 		logWatcherGen:   2,
 		eventDispatcher: dispatcher,

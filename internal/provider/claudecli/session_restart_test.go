@@ -319,7 +319,7 @@ func TestRestartIfNeededLockedRebuildsReadyAndPreservesIDs(t *testing.T) {
 	default:
 	}
 
-	next.emitSystemInit(t, "thread-1")
+	next.emitSystemInit(t, "11111111-2222-3333-4444-555555555555")
 	select {
 	case err := <-result:
 		if err != nil {
@@ -335,8 +335,9 @@ func TestRestartIfNeededLockedRebuildsReadyAndPreservesIDs(t *testing.T) {
 	}
 
 	threadID, sessionID, _ = snapshotSessionState(s)
-	if threadID != "thread-1" || sessionID != "thread-1" {
-		t.Fatalf("ids after new ready = %q/%q, want thread-1/thread-1", threadID, sessionID)
+	const wantID = "11111111-2222-3333-4444-555555555555"
+	if threadID != wantID || sessionID != wantID {
+		t.Fatalf("ids after new ready = %q/%q, want %q/%q", threadID, sessionID, wantID, wantID)
 	}
 	if got := suppressedTurnsLen(s); got != 0 {
 		t.Fatalf("suppressedTurns len = %d, want 0 after restart", got)

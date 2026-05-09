@@ -21,8 +21,8 @@ func TestStartTurnRestartsUnavailableTransportWithoutSettingsChange(t *testing.T
 	oldReady := make(chan struct{})
 	close(oldReady)
 	s := &session{
-		threadID:        "thread-dead",
-		sessionID:       "thread-dead",
+		threadID:        "11111111-2222-3333-4444-555555555555",
+		sessionID:       "11111111-2222-3333-4444-555555555555",
 		threadReady:     oldReady,
 		transport:       closedTransport(),
 		suppressedTurns: map[string]struct{}{},
@@ -37,7 +37,7 @@ func TestStartTurnRestartsUnavailableTransportWithoutSettingsChange(t *testing.T
 	}()
 
 	ready := waitForReadySwap(t, s, oldReady)
-	next.emitSystemInit(t, "thread-dead")
+	next.emitSystemInit(t, "11111111-2222-3333-4444-555555555555")
 	select {
 	case <-ready:
 	case <-time.After(time.Second):
@@ -61,8 +61,8 @@ func TestStartTurnRestartsUnavailableTransportWithoutSettingsChange(t *testing.T
 	}
 	select {
 	case resumeID := <-resumeIDs:
-		if resumeID != "thread-dead" {
-			t.Fatalf("resumeID = %q, want thread-dead", resumeID)
+		if resumeID != "11111111-2222-3333-4444-555555555555" {
+			t.Fatalf("resumeID = %q, want UUID", resumeID)
 		}
 	default:
 		t.Fatal("restart launch was not invoked")

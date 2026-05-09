@@ -97,8 +97,8 @@ func runInterruptRestartScenario(t *testing.T, script string) {
 	cleanupCalled := false
 	active := newTurnHandle("local-1", "turn-1")
 	s := &session{
-		threadID:        "thread-1",
-		sessionID:       "thread-1",
+		threadID:        "11111111-2222-3333-4444-555555555555",
+		sessionID:       "11111111-2222-3333-4444-555555555555",
 		publicThreadID:  "thread-public",
 		threadReady:     oldReady,
 		transport:       oldTransport,
@@ -156,8 +156,8 @@ func runInterruptRestartScenario(t *testing.T, script string) {
 	}
 	select {
 	case resumeID := <-resumeIDs:
-		if resumeID != "thread-1" {
-			t.Fatalf("resumeID = %q, want thread-1", resumeID)
+		if resumeID != "11111111-2222-3333-4444-555555555555" {
+			t.Fatalf("resumeID = %q, want UUID", resumeID)
 		}
 	default:
 		t.Fatal("restart launch was not invoked")
@@ -187,9 +187,9 @@ func TestInterruptDispatchesSyntheticToolEnd(t *testing.T) {
 
 	s := &session{
 		agentID:         "agent-1",
-		threadID:        "thread-1",
+		threadID:        "11111111-2222-3333-4444-555555555555",
 		publicThreadID:  "thread-public",
-		sessionID:       "thread-1",
+		sessionID:       "11111111-2222-3333-4444-555555555555",
 		activeTurn:      newTurnHandle("local-1", "turn-1"),
 		activeToolCalls: map[string]string{"call-1": "lsp_read"},
 		suppressedTurns: map[string]struct{}{},
@@ -233,8 +233,8 @@ func TestInterruptWaitsForConcurrentStartTurnSend(t *testing.T) {
 		writes:  make(chan string, 1),
 	}
 	s := &session{
-		threadID:        "thread-1",
-		sessionID:       "thread-1",
+		threadID:        "11111111-2222-3333-4444-555555555555",
+		sessionID:       "11111111-2222-3333-4444-555555555555",
 		publicThreadID:  "thread-public",
 		threadReady:     ready,
 		transport:       &transport{stdin: writer, stderr: newLimitedBuffer(stderrLimitBytes), done: make(chan struct{})},
