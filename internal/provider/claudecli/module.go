@@ -24,6 +24,7 @@ type driverFactoryParams struct {
 	SkillLibConfig       contract.SkillLibraryConfig      `optional:"true"`
 	FBSDRecorder         contract.FBSDRecorder            `optional:"true"`
 	SetupWorkspaceSkills contract.WorkspaceSkillSetupFunc `optional:"true"`
+	Recovery             contract.SessionRecoveryReporter `optional:"true"`
 }
 
 func NewDriverFactory(p driverFactoryParams) contract.DriverFactory {
@@ -36,7 +37,7 @@ func NewDriverFactory(p driverFactoryParams) contract.DriverFactory {
 	return contract.DriverFactory{
 		Name: "claude",
 		Create: func() contract.Driver {
-			return newDriver(p.Logger, p.Dispatcher, p.Reporter, p.Reg, p.ProxyAddrFn, p.SkillLibConfig.CacheDir, contract.WorkspaceSkillSetupFunc(p.SetupWorkspaceSkills))
+			return newDriver(p.Logger, p.Dispatcher, p.Reporter, p.Reg, p.ProxyAddrFn, p.SkillLibConfig.CacheDir, contract.WorkspaceSkillSetupFunc(p.SetupWorkspaceSkills), p.Recovery)
 		},
 		NativeTools: []contract.NativeToolDescriptor{
 			{ID: "Read", Label: "读文件", Description: "上游 Agent 直接读取工作区文件", DefaultDisabled: true, Provider: "claude", FilterMode: contract.NativeToolFilterModeHard},

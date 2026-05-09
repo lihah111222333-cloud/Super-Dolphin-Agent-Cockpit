@@ -166,6 +166,9 @@ func (s *eventBindingStore) UpdateSessionUUID(_ context.Context, params bindings
 func (s *eventBindingStore) SetArchived(context.Context, bindingstore.SetArchivedParams) error {
 	return nil
 }
+func (s *eventBindingStore) UpdateProviderThreadID(context.Context, bindingstore.UpdateProviderThreadIDParams) error {
+	return nil
+}
 func (s *eventBindingStore) GetByAgentID(_ context.Context, agentID string) (*bindingstore.Binding, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

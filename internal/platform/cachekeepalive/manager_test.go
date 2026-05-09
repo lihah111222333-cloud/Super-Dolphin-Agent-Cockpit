@@ -58,6 +58,9 @@ func (*bindingStoreStub) DeleteByAgentID(context.Context, string) error         
 func (*bindingStoreStub) UpdateSessionUUID(context.Context, bindingstore.UpdateSessionUUIDParams) error {
 	return nil
 }
+func (*bindingStoreStub) UpdateProviderThreadID(context.Context, bindingstore.UpdateProviderThreadIDParams) error {
+	return nil
+}
 func (*bindingStoreStub) SetArchived(context.Context, bindingstore.SetArchivedParams) error {
 	return nil
 }

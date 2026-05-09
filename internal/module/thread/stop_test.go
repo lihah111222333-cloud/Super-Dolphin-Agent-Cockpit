@@ -383,6 +383,9 @@ func (s *stubThreadBindingStore) UpdateSessionUUID(_ context.Context, params bin
 	s.sessionUpdates = append(s.sessionUpdates, params)
 	return nil
 }
+func (s *stubThreadBindingStore) UpdateProviderThreadID(context.Context, bindingstore.UpdateProviderThreadIDParams) error {
+	return nil
+}
 func (s *stubThreadBindingStore) SetArchived(_ context.Context, params bindingstore.SetArchivedParams) error {
 	s.archived = append(s.archived, params)
 	archived := "false"

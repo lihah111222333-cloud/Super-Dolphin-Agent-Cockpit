@@ -26,7 +26,7 @@ func TestCodexStartSession_InjectsDynamicTools_E2E(t *testing.T) {
 	recorder := &codexRPCRecorder{}
 	t.Setenv("CODEX_APP_SERVER_URL", startCodexRPCServer(t, recorder))
 
-	factory := codexapp.NewDriverFactory(nil, nil, nil, nil, nil, nil, nil)
+	factory := codexapp.NewDriverFactory(nil, nil, nil, nil, nil, nil, nil, nil)
 	factory.SetListTools(func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 		return []codexprotocol.DynamicToolSchema{{
 			Name:        "tool.echo",
@@ -80,7 +80,7 @@ func TestCodexStartSession_InjectsHostMemoryReadAndFiltersPeerMemoryRead_E2E(t *
 	t.Setenv("CODEX_APP_SERVER_URL", startCodexRPCServer(t, recorder))
 
 	handler := newCodexMemoryReadToolBridgeHandler(t)
-	factory := codexapp.NewDriverFactory(nil, nil, nil, nil, nil, nil, nil)
+	factory := codexapp.NewDriverFactory(nil, nil, nil, nil, nil, nil, nil, nil)
 	factory.SetListTools(handler.ListToolsForCodex)
 
 	session, err := factory.Create().StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-memory-read", CWD: "/tmp/codex-e2e/work"})
@@ -209,7 +209,7 @@ func TestCodexStartSession_PreservesUserConfigFields_E2E(t *testing.T) {
 	recorder := &codexRPCRecorder{}
 	t.Setenv("CODEX_APP_SERVER_URL", startCodexRPCServer(t, recorder))
 
-	factory := codexapp.NewDriverFactory(nil, nil, nil, nil, nil, nil, nil)
+	factory := codexapp.NewDriverFactory(nil, nil, nil, nil, nil, nil, nil, nil)
 	factory.SetListTools(func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 		return []codexprotocol.DynamicToolSchema{
 			{

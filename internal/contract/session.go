@@ -25,6 +25,11 @@ type SessionResolver interface {
 	ResolveSession(ctx context.Context, threadID string) (Session, error)
 }
 
+type SessionRecoveryReporter interface {
+	ClearStaleProviderThreadID(ctx context.Context, agentID string) error
+	RecordProviderSessionUUID(ctx context.Context, agentID, sessionUUID string) error
+}
+
 // ---------------------------------------------------------------------------
 // SessionThreadRef / SessionBinding — narrow projections consumed by
 // the session-resolver inside provider/unified so it never imports store.

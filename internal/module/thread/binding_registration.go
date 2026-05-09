@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 )
 
 type bindingRegistration struct {
@@ -66,12 +67,14 @@ func normalizeBindingRegistration(state threadState) (bindingRegistration, error
 	if state.AgentID == "" || state.Provider == "" || state.PublicThreadID == "" {
 		return bindingRegistration{}, errors.New("binding requires agent, provider, and public thread ids")
 	}
-	// provider_thread_id may be empty on initial launch; it is filled
-	// in later once the session handshake returns the real UUID.
+	providerThreadID := normalizeProviderThreadID(state.Provider, state.ProviderThreadID)
+	if err := validateProviderThreadID(state.Provider, providerThreadID); err != nil {
+		return bindingRegistration{}, err
+	}
 	return bindingRegistration{
 		AgentID:            state.AgentID,
 		Provider:           state.Provider,
-		ProviderThreadID:   strings.TrimSpace(state.ProviderThreadID),
+		ProviderThreadID:   providerThreadID,
 		PublicThreadID:     state.PublicThreadID,
 		CWD:                state.CWD,
 		RolloutPath:        state.RolloutPath,
@@ -84,6 +87,26 @@ func normalizeBindingRegistration(state threadState) (bindingRegistration, error
 		CodexModelProvider: state.CodexModelProvider,
 		CreatedAt:          state.CreatedAt,
 	}, nil
+}
+
+func normalizeProviderThreadID(provider, id string) string {
+	id = strings.TrimSpace(id)
+	if strings.EqualFold(strings.TrimSpace(provider), "claude") && !identifier.IsClaudeCLISessionUUID(id) {
+		return ""
+	}
+	return id
+}
+
+func validateProviderThreadID(provider, id string) error {
+	provider = strings.TrimSpace(provider)
+	id = strings.TrimSpace(id)
+	if !strings.EqualFold(provider, "claude") || id == "" {
+		return nil
+	}
+	if identifier.IsClaudeCLISessionUUID(id) {
+		return nil
+	}
+	return fmt.Errorf("claude provider_thread_id must be a session UUID")
 }
 
 func (s *service) ensurePublicThreadAvailable(ctx context.Context, state threadState) error {
@@ -454,4 +477,88 @@ func (s *service) lookupPersistedAgentID(ctx context.Context, threadID string) s
 		return ""
 	}
 	return strings.TrimSpace(thread.AgentID)
+}
+
+type bindingRecoveryReporter struct {
+	store  bindingstore.Store
+	logger *slog.Logger
+}
+
+func NewBindingRecoveryReporter(store bindingstore.Store, logger *slog.Logger) contract.SessionRecoveryReporter {
+	return &bindingRecoveryReporter{store: store, logger: logger}
+}
+
+func (r *bindingRecoveryReporter) ClearStaleProviderThreadID(ctx context.Context, agentID string) error {
+	if r == nil || r.store == nil {
+		return nil
+	}
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return nil
+	}
+	binding, err := r.store.GetByAgentID(ctx, agentID)
+	if err != nil || binding == nil {
+		return err
+	}
+	current := strings.TrimSpace(binding.ProviderThreadID)
+	if current == "" || identifier.LooksLikeUUID(current) {
+		return nil
+	}
+	if err := r.store.UpdateProviderThreadID(ctx, bindingstore.UpdateProviderThreadIDParams{
+		AgentID:          agentID,
+		ProviderThreadID: "",
+		UpdatedAt:        time.Now().Unix(),
+	}); err != nil {
+		return err
+	}
+	if r.logger != nil {
+		r.logger.Info("thread: cleared stale provider_thread_id", "agent_id", agentID, "old_provider_thread_id", current)
+	}
+	return nil
+}
+
+func (r *bindingRecoveryReporter) RecordProviderSessionUUID(ctx context.Context, agentID, sessionUUID string) error {
+	if r == nil || r.store == nil {
+		return nil
+	}
+	agentID = strings.TrimSpace(agentID)
+	sessionUUID = strings.TrimSpace(sessionUUID)
+	if agentID == "" || !identifier.IsClaudeCLISessionUUID(sessionUUID) {
+		return nil
+	}
+	binding, err := r.store.GetByAgentID(ctx, agentID)
+	if err != nil || binding == nil {
+		return err
+	}
+	updatedAt := time.Now().Unix()
+	if err := r.recordSessionUUID(ctx, agentID, sessionUUID, updatedAt); err != nil {
+		return err
+	}
+	if err := r.recordProviderThreadID(ctx, binding, agentID, sessionUUID, updatedAt); err != nil {
+		return err
+	}
+	if r.logger != nil {
+		r.logger.Info("thread: recorded provider session uuid", "agent_id", agentID, "session_uuid", sessionUUID)
+	}
+	return nil
+}
+
+func (r *bindingRecoveryReporter) recordSessionUUID(ctx context.Context, agentID, sessionUUID string, updatedAt int64) error {
+	return r.store.UpdateSessionUUID(ctx, bindingstore.UpdateSessionUUIDParams{
+		AgentID:     agentID,
+		SessionUUID: sessionUUID,
+		UpdatedAt:   updatedAt,
+	})
+}
+
+func (r *bindingRecoveryReporter) recordProviderThreadID(ctx context.Context, binding *bindingstore.Binding, agentID, sessionUUID string, updatedAt int64) error {
+	current := strings.TrimSpace(binding.ProviderThreadID)
+	if current != "" && current != agentID {
+		return nil
+	}
+	return r.store.UpdateProviderThreadID(ctx, bindingstore.UpdateProviderThreadIDParams{
+		AgentID:          agentID,
+		ProviderThreadID: sessionUUID,
+		UpdatedAt:        updatedAt,
+	})
 }

@@ -194,6 +194,9 @@ func (s *historyTestBindingStore) DeleteByAgentID(context.Context, string) error
 func (s *historyTestBindingStore) UpdateSessionUUID(context.Context, bindingstore.UpdateSessionUUIDParams) error {
 	return nil
 }
+func (s *historyTestBindingStore) UpdateProviderThreadID(context.Context, bindingstore.UpdateProviderThreadIDParams) error {
+	return nil
+}
 
 func (s *historyTestBindingStore) SetArchived(context.Context, bindingstore.SetArchivedParams) error {
 	return nil
@@ -237,7 +240,9 @@ func (s *historyTestBindingStore) UpdateAgentCwd(context.Context, bindingstore.U
 	return nil
 }
 
-func (s *historyTestBindingStore) Rebind(context.Context, bindingstore.RebindParams) error { return nil }
+func (s *historyTestBindingStore) Rebind(context.Context, bindingstore.RebindParams) error {
+	return nil
+}
 
 func (s *historyTestBindingStore) ListProviderMap(context.Context) (map[string]string, error) {
 	return nil, nil

@@ -377,10 +377,10 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	requestedThreadID := req.ThreadID
 	state := s.lookupResumeState(ctx, requestedThreadID)
 	state.PublicThreadID = util.FirstNonEmpty(state.PublicThreadID, requestedThreadID)
-	state.ProviderThreadID = util.FirstNonEmpty(state.ProviderThreadID, requestedThreadID)
 	req.AgentID = util.FirstNonEmpty(req.AgentID, state.AgentID)
 	req.Provider = util.FirstNonEmpty(req.Provider, state.Provider)
-	req.ProviderThreadID = util.FirstNonEmpty(req.ProviderThreadID, state.ProviderThreadID)
+	req.ProviderThreadID = normalizeProviderThreadID(req.Provider, util.FirstNonEmpty(req.ProviderThreadID, state.ProviderThreadID))
+
 	req.CWD = util.FirstNonEmpty(req.CWD, req.Path, state.CWD)
 	req.CodexHome = util.FirstNonEmpty(req.CodexHome, state.CodexHome)
 	req.CodexInstanceKey = util.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey)
@@ -434,10 +434,10 @@ func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeReq
 	}
 	state := s.lookupResumeState(ctx, req.ThreadID)
 	state.PublicThreadID = util.FirstNonEmpty(state.PublicThreadID, req.ThreadID)
-	state.ProviderThreadID = util.FirstNonEmpty(state.ProviderThreadID, req.ThreadID)
 	req.AgentID = util.FirstNonEmpty(req.AgentID, state.AgentID)
 	req.Provider = util.FirstNonEmpty(req.Provider, state.Provider)
-	req.ProviderThreadID = util.FirstNonEmpty(req.ProviderThreadID, state.ProviderThreadID)
+	req.ProviderThreadID = normalizeProviderThreadID(req.Provider, util.FirstNonEmpty(req.ProviderThreadID, state.ProviderThreadID))
+
 	req.CWD = util.FirstNonEmpty(req.CWD, req.Path, state.CWD)
 	req.CodexHome = util.FirstNonEmpty(req.CodexHome, state.CodexHome)
 	req.CodexInstanceKey = util.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey)

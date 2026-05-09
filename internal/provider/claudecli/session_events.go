@@ -12,6 +12,7 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -123,10 +124,12 @@ func (s *session) handleSystemInitRaw(tr *transport, raw dto.RawProviderEvent) {
 	prevID := s.ThreadID()
 	s.setResolvedThreadIDForTransport(tr, resolvedID)
 	if s.isCurrentTransport(tr) {
+		s.recordProviderSessionUUID(resolvedID)
 		runtimesafe.SafeGo(context.Background(), s.logger, "claudecli.session.startLogWatcher", func(context.Context) {
 			s.startLogWatcherIfCurrent(tr)
 		})
 	}
+
 	if newID := s.ThreadID(); newID != "" {
 		eventThreadID := s.EventThreadID()
 		if newID != prevID || eventThreadID != newID {
@@ -152,7 +155,19 @@ func (s *session) handleSystemInitRaw(tr *transport, raw dto.RawProviderEvent) {
 		}
 	}
 }
+func (s *session) recordProviderSessionUUID(sessionUUID string) {
+	if s == nil || s.recovery == nil {
+		return
+	}
+	reportCtx, cancel := ctxutil.WithSessionCloseTimeout(context.Background())
+	defer cancel()
+	if err := s.recovery.RecordProviderSessionUUID(reportCtx, s.agentID, sessionUUID); err != nil && s.logger != nil {
+		s.logger.Warn("claudecli: record provider session uuid failed", "agent_id", s.agentID, "session_uuid", sessionUUID, "error", err)
+	}
+}
+
 func (s *session) dispatchToolInterruptEvents(raw dto.RawProviderEvent) {
+
 	if raw.EventType != "turn:interrupted" {
 		return
 	}

@@ -23,7 +23,7 @@ func newMockSession(threadID string) contractpkg.Session { return &mockSession{t
 func (b *capturingSessionBridge) StartSession(_ context.Context, req dto.StartSessionRequest) (contractpkg.Session, error) {
 	b.startReq = req
 	if b.session == nil {
-		b.session = newMockSession("provider-thread-1")
+		b.session = newMockSession("019e0bcb-0cf7-7982-964f-c2654783ba17")
 	}
 	return b.session, nil
 }
@@ -160,7 +160,21 @@ func (s *capturingBindingStore) Upsert(_ context.Context, params bindingstore.Up
 }
 
 func (*capturingBindingStore) DeleteByAgentID(context.Context, string) error { return nil }
-func (*capturingBindingStore) UpdateSessionUUID(context.Context, bindingstore.UpdateSessionUUIDParams) error {
+func (s *capturingBindingStore) UpdateSessionUUID(_ context.Context, params bindingstore.UpdateSessionUUIDParams) error {
+	if s.binding != nil && s.binding.AgentID == params.AgentID {
+		s.binding.SessionUUID = params.SessionUUID
+		if s.binding.ProviderThreadID == "" || s.binding.ProviderThreadID == s.binding.AgentID {
+			s.binding.ProviderThreadID = params.SessionUUID
+		}
+		s.binding.UpdatedAt = params.UpdatedAt
+	}
+	return nil
+}
+func (s *capturingBindingStore) UpdateProviderThreadID(_ context.Context, params bindingstore.UpdateProviderThreadIDParams) error {
+	if s.binding != nil && s.binding.AgentID == params.AgentID {
+		s.binding.ProviderThreadID = params.ProviderThreadID
+		s.binding.UpdatedAt = params.UpdatedAt
+	}
 	return nil
 }
 func (*capturingBindingStore) SetArchived(context.Context, bindingstore.SetArchivedParams) error {

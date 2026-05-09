@@ -217,8 +217,8 @@ func TestFullChainFromThreadToProvider(t *testing.T) {
 	if h.threadStore.upsert.Prompt != start.DisplayName {
 		t.Fatalf("persisted prompt = %q, want %q", h.threadStore.upsert.Prompt, start.DisplayName)
 	}
-	if h.bindingStore.upsert.ProviderThreadID != "provider-thread-1" {
-		t.Fatalf("binding provider thread id = %q, want %q", h.bindingStore.upsert.ProviderThreadID, "provider-thread-1")
+	if h.bindingStore.upsert.ProviderThreadID != "019e0bcb-0cf7-7982-964f-c2654783ba17" {
+		t.Fatalf("binding provider thread id = %q, want %q", h.bindingStore.upsert.ProviderThreadID, "019e0bcb-0cf7-7982-964f-c2654783ba17")
 	}
 	if !containsString(h.orchestration.launchReq.Env, "AGENT_PROVIDER=codex") || !containsString(h.orchestration.launchReq.Env, "AGENT_MODEL=gpt-5") {
 		t.Fatalf("launch env = %#v, want provider/model injection", h.orchestration.launchReq.Env)
@@ -231,7 +231,7 @@ func newFxHarness(t *testing.T) *fxHarness {
 	t.Setenv("ENABLE_MEMORY_SYSTEM", "1")
 	t.Setenv("MULTI_AGENT_MEMORY_FEATURE_TEAMMEM", "1")
 	t.Setenv("MULTI_AGENT_MEMORY_DIR", filepath.Join(h.projectRoot, "memory"))
-	h.bridge = &capturingSessionBridge{session: newMockSession("provider-thread-1")}
+	h.bridge = &capturingSessionBridge{session: newMockSession("019e0bcb-0cf7-7982-964f-c2654783ba17")}
 	h.threadStore = &capturingThreadStore{}
 	h.bindingStore = &capturingBindingStore{}
 	h.orchestration = &capturingOrchestration{}

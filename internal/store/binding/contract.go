@@ -9,6 +9,7 @@ type Store interface {
 	Upsert(ctx context.Context, params UpsertParams) error
 	DeleteByAgentID(ctx context.Context, agentID string) error
 	UpdateSessionUUID(ctx context.Context, params UpdateSessionUUIDParams) error
+	UpdateProviderThreadID(ctx context.Context, params UpdateProviderThreadIDParams) error
 	SetArchived(ctx context.Context, params SetArchivedParams) error
 	GetByAgentID(ctx context.Context, agentID string) (*Binding, error)
 	BindAgentThread(ctx context.Context, params BindAgentThreadParams) error
@@ -54,6 +55,12 @@ type UpdateSessionUUIDParams struct {
 	SessionUUID string
 	UpdatedAt   int64
 	AgentID     string
+}
+
+type UpdateProviderThreadIDParams struct {
+	ProviderThreadID string
+	UpdatedAt        int64
+	AgentID          string
 }
 
 type SetArchivedParams struct {
