@@ -17,7 +17,9 @@ import (
 func (s *store) CreateRun(ctx context.Context, input CreateRunInput) (*Run, error) {
 	metadata := input.Metadata
 	if metadata == nil {
-		metadata = json.RawMessage("null")
+		// 与 migration 0077 task_dag_runs.metadata NOT NULL DEFAULT '{}'::jsonb 对齐：
+		// 用 jsonb 空对象兜底，避免读路径 fromTaskDagRun 拿到 jsonb null 时与对象语义错位。
+		metadata = json.RawMessage("{}")
 	}
 	return queryOne(func() (sqlc.TaskDagRun, error) {
 		return s.q.CreateTaskDagRun(ctx, sqlc.CreateTaskDagRunParams{
