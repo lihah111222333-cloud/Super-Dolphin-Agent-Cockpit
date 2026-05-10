@@ -92,9 +92,9 @@ func (s *service) GetRun(ctx context.Context, req contract.GetRunRequest) (contr
 //   - status 可选（store 层 ListTaskDagRunsByKey 把空串视为不过滤；
 //     合法状态枚举由 migration 0080 task_dag_runs.status CHECK 锁全集，
 //     service 不重复校验，错误 status 由 DB 直接拒绝）。
-//   - limit 走 shared.ClampLimit(val, 1, 0, 50)：<1 → 默认 50；max=0 表示无上界
-//     上限（与 ListDAGs 同款），交给 store 自己再 cap 一次（store_run.go:46
-//     已用 limit<=0 → 50 兜底，故此处只负责把负值/未传值规整为 50）。
+//   - limit 走 shared.ClampLimit(val, 1, 200, 50)：<1 → 默认 50，>200 → cap 200。
+//     M2 阶段 50 够用，200 是防呆上限（调用方传 99999999 不会透到 SQL 层）。
+//     store_run.go:46 还会用 limit<=0 → 50 兜底，为例外路径多一道保险。
 //   - runStore == nil 防御与 StartDAG 一致：返 ErrRunStoreUnset，避免裸构造
 //     测试路径走到 nil pointer。
 //
@@ -102,7 +102,9 @@ func (s *service) GetRun(ctx context.Context, req contract.GetRunRequest) (contr
 //   - dag_key required; empty string returns an error.
 //   - status optional; the store treats empty as no filter and migration 0080
 //     CHECK constrains the legal status set, so the service does not re-validate.
-//   - limit goes through shared.ClampLimit(val, 1, 0, 50): <1 → default 50.
+//   - limit goes through shared.ClampLimit(val, 1, 200, 50): <1 → default 50,
+//     >200 → capped to 200. M2 callers rarely need more, and 200 keeps a stray
+//     99999999 from reaching SQL. store_run.go:46 still defaults limit<=0 to 50.
 //   - runStore == nil defense matches StartDAG: returns ErrRunStoreUnset.
 func (s *service) ListRuns(ctx context.Context, req contract.ListRunsRequest) (contract.ListRunsResponse, error) {
 	if s == nil || s.runStore == nil {
@@ -115,7 +117,7 @@ func (s *service) ListRuns(ctx context.Context, req contract.ListRunsRequest) (c
 	filter := taskdag.ListRunsFilter{
 		DagKey: dagKey,
 		Status: strings.TrimSpace(req.Status),
-		Limit:  int32(shared.ClampLimit(int(req.Limit), 1, 0, 50)),
+		Limit:  int32(shared.ClampLimit(int(req.Limit), 1, 200, 50)),
 	}
 	rows, err := s.runStore.ListRuns(ctx, filter)
 	if err != nil {

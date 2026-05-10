@@ -358,11 +358,13 @@ func TestListRuns_LimitNegative_DefaultsToFifty(t *testing.T) {
 	}
 }
 
-// ---- limit 超大值原样透传（当前 service 未设 cap，仅靠 store 层再兌底） ----
-// ---- very large limit passes through (service has no cap yet; store-side fallback handles it) ----
+// ---- limit 超大值 → service cap 到 200 ----
+// ---- very large limit → capped by service to 200 ----
 //
-// 本用例与可选 3 （service cap=200）临越对齐：如后续 commit 加上 cap，该测试要同步改为断言被 cap。
-// Aligned with optional-fix 3 (service cap=200): when that cap lands, this assertion flips to expect 200.
+// service 层 ClampLimit(val, 1, 200, 50) 会把 >200 的调用手推回 200，
+// 避免调用方传 99999999 后透到 SQL 层。
+// service-side ClampLimit(val, 1, 200, 50) caps anything above 200 so a
+// 99999999 caller cannot push that limit down to SQL.
 func TestListRuns_LimitVeryLarge_PassedThrough(t *testing.T) {
 	stub := &stubRunStore{}
 	svc := makeStartDAGService(nil, stub)
@@ -371,8 +373,8 @@ func TestListRuns_LimitVeryLarge_PassedThrough(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListRuns() error = %v", err)
 	}
-	if got := stub.listRunsLastFilter.Limit; got != 99999999 {
-		t.Errorf("filter.Limit = %d, want 99999999 (max=0 未 cap)", got)
+	if got := stub.listRunsLastFilter.Limit; got != 200 {
+		t.Errorf("filter.Limit = %d, want 200 (service-side cap)", got)
 	}
 }
 
