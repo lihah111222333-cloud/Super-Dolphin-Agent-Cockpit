@@ -25,12 +25,12 @@ WHERE dag_key = $1
 ORDER BY started_at DESC, id DESC
 LIMIT $3;
 
--- name: CountActiveTaskDagRunsByKey :one
--- StartDAG 用于多 run 并发 reject：当且仅当 0 时才允许新 run。
--- T1.2-mid 限制；F6.5 升级 multi-run 后此 query 不再被 StartDAG 调用。
-SELECT COUNT(*)::bigint AS active
-FROM task_dag_runs
-WHERE dag_key = $1 AND status = 'running';
+-- (CountActiveTaskDagRunsByKey query 已随 L3 根治删除。原作为 service.StartDAG
+--  多 run 并发 reject 预检，有 TOCTOU race。L3 后该约束被 0076 partial
+--  unique 下沉到 DB 兑底，应用层预检不再需要，删除避免未来再写 race。
+--  历史代码 store/sqlc/task_dag_run.sql.go 中的生成代码作为 dead code、
+--  留待未来 sqlc realignment 一并清理。不手工删生成代码以免下次
+--  sqlc generate 反复。)
 
 -- name: PromoteRootNodesToReady :execrows
 -- StartDAG 在新 run 创建后调用：把 dag_key 下所有 depends_on=[] 且 status='pending'
