@@ -28,7 +28,8 @@ func (s *stubStartDAGStore) GetDAG(_ context.Context, _ string) (*taskdag.DAG, e
 	return s.dag, nil
 }
 
-// stubRunStore 实现 RunStore，支持 happy / 错误 / WithRunTx / GetRun 行为定制。
+// stubRunStore 实现 RunStore，支持 happy / 错误 / WithRunTx / GetRun / ListRuns 行为定制。
+// stubRunStore implements RunStore for happy / error / WithRunTx / GetRun / ListRuns paths.
 type stubRunStore struct {
 	taskdag.RunStore // nil 嵌入：未覆盖方法 panic
 
@@ -44,6 +45,17 @@ type stubRunStore struct {
 
 	getRunReply *taskdag.Run // 不为 nil 代表 GetRun 命中 (幂等路径)
 	getRunErr   error        // 不为 nil 走 GetRun 错误路径；IsNotFound 表示未命中 → ErrDAGAlreadyRunning
+
+	// ListRuns 行为定制（T3.2）。listRunsReply 默认 nil（store 返空 slice），
+	// listRunsErr 非 nil 走错误路径。listRunsCalls / listRunsLastFilter 用于
+	// 观测调用次数与最后一次 filter，让测试可以并发 t.Parallel() 安全跑。
+	// ListRuns customization (T3.2). listRunsReply defaults to nil (empty),
+	// listRunsErr drives the error path. listRunsCalls / listRunsLastFilter are
+	// observation hooks so tests stay parallel-safe (no package-level state).
+	listRunsReply      []taskdag.Run
+	listRunsErr        error
+	listRunsCalls      []taskdag.ListRunsFilter
+	listRunsLastFilter taskdag.ListRunsFilter
 
 	// 调用观测
 	countCalls   []string
