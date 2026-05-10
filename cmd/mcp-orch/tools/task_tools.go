@@ -3,9 +3,11 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
@@ -121,18 +123,56 @@ func HandleApplyOps(svc contract.OrchestrationService) ToolHandler {
 // HandleStartDAG 是 task_start_dag MCP 工具的 handler（T1.1）。
 // 骨架阶段：service.StartDAG 返回 ErrLifecycleNotImplemented，
 // MCP 客户端会收到结构化错误；T1.2 接通真实路径后返回 RunKey + Version。
+//
+// 错误转译（路线 N）：
+//   - ErrIdempotencyKeyExhausted → 中英双语提示 + 携带旧 RunKey + status，
+//     方便 AI agent 决策是否换 idempotency_key 重试。
+//   - ErrDAGAlreadyRunning → 中英双语提示。
+//
+// Error translation (route N):
+//   - ErrIdempotencyKeyExhausted → bilingual hint with previous RunKey +
+//     status so the AI caller can decide to retry with a fresh idempotency_key.
+//   - ErrDAGAlreadyRunning → bilingual hint.
 func HandleStartDAG(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in StartDAGInput) (any, error) {
 		dagKey, err := requireTrimmed(in.DagKey, "dag_key")
 		if err != nil {
 			return nil, err
 		}
-		return svc.StartDAG(ctx, contract.StartDAGRequest{
+		resp, err := svc.StartDAG(ctx, contract.StartDAGRequest{
 			DagKey:         dagKey,
 			TriggerSource:  strings.TrimSpace(in.TriggerSource),
 			IdempotencyKey: strings.TrimSpace(in.IdempotencyKey),
 		})
+		if err != nil {
+			return nil, translateStartDAGError(dagKey, err)
+		}
+		return resp, nil
 	})
+}
+
+// translateStartDAGError 把 service 层的 sentinel 包装成中英双语 MCP 错误。
+// 保留 errors.Is 可命中原 sentinel（依赖 fmt.Errorf %w）。
+//
+// translateStartDAGError wraps service-layer sentinels into bilingual MCP
+// errors while preserving errors.Is matching against the original sentinel.
+func translateStartDAGError(dagKey string, err error) error {
+	var exhausted *orchestration.IdempotencyKeyExhaustedError
+	if errors.As(err, &exhausted) {
+		return fmt.Errorf(
+			"幂等键已耗尽：上次 run 已失败/取消，请换新 idempotency_key 重试 (run_key=%s, status=%s); idempotency key exhausted: previous run is failed/cancelled, retry with a new idempotency_key (run_key=%s, status=%s): %w",
+			exhausted.RunKey, exhausted.Status,
+			exhausted.RunKey, exhausted.Status,
+			err,
+		)
+	}
+	if errors.Is(err, orchestration.ErrDAGAlreadyRunning) {
+		return fmt.Errorf(
+			"DAG 已有在跑 run，拒绝并发启动 (dag_key=%s); dag already has an active run, refusing concurrent start (dag_key=%s): %w",
+			dagKey, dagKey, err,
+		)
+	}
+	return err
 }
 
 func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {

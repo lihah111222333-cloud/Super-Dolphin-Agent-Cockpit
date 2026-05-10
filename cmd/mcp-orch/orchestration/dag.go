@@ -461,6 +461,35 @@ var ErrDAGNotFound = errors.New("orchestration: dag_key not found")
 // run 并发。F6.5 升级 multi-run 后不再出。
 var ErrDAGAlreadyRunning = errors.New("orchestration: dag has an active run (T1.2-mid single-run constraint)")
 
+// ErrIdempotencyKeyExhausted 当 StartDAG 用同 idempotency key 调用，
+// 但对应的 run 已是终态 (failed/cancelled) 时返回。
+// 调用方应换新 idempotency key 重试。
+//
+// ErrIdempotencyKeyExhausted is returned when StartDAG is called with the
+// same idempotency key whose previous run is already in a terminal state
+// (failed/cancelled). The caller must use a new idempotency key to retry.
+var ErrIdempotencyKeyExhausted = errors.New("idempotency key exhausted: previous run is in terminal state, use a new key to retry")
+
+// IdempotencyKeyExhaustedError 是 ErrIdempotencyKeyExhausted 的富错误包装：
+// 携带旧 RunKey + 终态 Status，方便 MCP / 调用方做决策（也可 errors.Is
+// 命中 ErrIdempotencyKeyExhausted sentinel）。
+//
+// IdempotencyKeyExhaustedError wraps ErrIdempotencyKeyExhausted with the
+// previous RunKey and terminal Status so MCP callers can surface them. It
+// still satisfies errors.Is(err, ErrIdempotencyKeyExhausted).
+type IdempotencyKeyExhaustedError struct {
+	RunKey string
+	Status string
+}
+
+func (e *IdempotencyKeyExhaustedError) Error() string {
+	return fmt.Sprintf("%s (run_key=%s, status=%s)", ErrIdempotencyKeyExhausted.Error(), e.RunKey, e.Status)
+}
+
+func (e *IdempotencyKeyExhaustedError) Unwrap() error {
+	return ErrIdempotencyKeyExhausted
+}
+
 // ErrRunStoreUnset 表示 service 未注入 RunStore（测试裸构造路径）不能调
 // StartDAG。生产路径 ProvideService 会 setter 注入 RunStore。
 var ErrRunStoreUnset = errors.New("orchestration: run store not configured")
@@ -477,6 +506,20 @@ type TerminateDAGRequest struct {
 	Reason string // 可选，写入 events 字段
 }
 
+// StartDAG 幂等语义（路线 N）：
+//   - 同 idempotency_key 重发：
+//   - 旧 run 处于 running/succeeded → 返回旧 RunKey（去重）
+//   - 旧 run 处于 failed/cancelled → 返回 ErrIdempotencyKeyExhausted
+//     （要求换 idem 重试）
+//   - 不同 idempotency_key → 总是新启 run
+//
+// StartDAG idempotency semantics (route N):
+//   - Same idempotency_key replay:
+//   - existing run is running/succeeded → return existing RunKey (dedup)
+//   - existing run is failed/cancelled → return ErrIdempotencyKeyExhausted
+//     (caller must use new key)
+//   - Different idempotency_key → always start a new run
+//
 // StartDAG 触发 DAG 一次新执行。T1.2-mid 范围（L3 根治后）：
 //
 //  1. validateStartDAGPrereq: 检 service 预设 + dag_key 非空 + GetDAG 取
@@ -564,10 +607,35 @@ func (s *service) runStartDAGWithFallback(ctx context.Context, dagKey, runKey st
 // resolveStartDAGUniqueViolation 是 WithRunTx 遭 unique violation 后的备路径。
 // 事务已回滚、在 tx 外 GetRun(run_key)。拆出 helper 保 runStartDAGWithFallback
 // CC≤10。
+//
+// 幂等语义（路线 N）：
+//   - 命中 existing：
+//   - status = running   → 返旧 RunKey（去重网络重试）
+//   - status = succeeded → 返旧 RunKey（幂等成功结果）
+//   - status = failed/cancelled → 返 ErrIdempotencyKeyExhausted
+//     （调用方需换新 idempotency key 重试）
+//   - 未知 status → 防御性报错
+//   - 未命中 → 冲突来自 dag_key partial unique → ErrDAGAlreadyRunning
+//
+// Idempotency semantics (route N):
+//   - GetRun hit:
+//   - status running   → return existing RunKey (network-retry dedup)
+//   - status succeeded → return existing RunKey (idempotent success)
+//   - status failed/cancelled → ErrIdempotencyKeyExhausted (caller must use new key)
+//   - unknown status → defensive error
+//   - GetRun miss → conflict came from dag_key partial unique → ErrDAGAlreadyRunning
 func (s *service) resolveStartDAGUniqueViolation(ctx context.Context, dagKey, runKey string, txErr error) (StartDAGResponse, error) {
 	existing, getErr := s.runStore.GetRun(ctx, runKey)
 	if getErr == nil && existing != nil {
-		return StartDAGResponse{RunKey: existing.RunKey, Version: existing.DagVersionSnapshot}, nil
+		switch existing.Status {
+		case "running", "succeeded":
+			return StartDAGResponse{RunKey: existing.RunKey, Version: existing.DagVersionSnapshot}, nil
+		case "failed", "cancelled":
+			return StartDAGResponse{}, &IdempotencyKeyExhaustedError{RunKey: existing.RunKey, Status: existing.Status}
+		default:
+			// 防御未知 status：不静默复用也不错误重导，显式报错让上层可见。
+			return StartDAGResponse{}, fmt.Errorf("orchestration: StartDAG(%q): unexpected run status %q for run_key=%s", dagKey, existing.Status, runKey)
+		}
 	}
 	if getErr != nil && !platformdb.IsNotFound(getErr) {
 		return StartDAGResponse{}, fmt.Errorf("orchestration: StartDAG(%q): GetRun fallback: %w (original tx error: %v)", dagKey, getErr, txErr)
