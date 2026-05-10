@@ -42,48 +42,52 @@ func Ensure(cwd string, logger *slog.Logger) error {
 	if cwd == "" {
 		return nil
 	}
-	once := loadOrCreateOnce(cwd)
-	once.Do(func() {
-		ensureErr = ensureOnce(cwd, logger)
+	state := loadOrCreateState(cwd)
+	state.once.Do(func() {
+		state.err = ensureOnce(cwd, logger)
 	})
-	if ensureErr != nil {
-		// Make the persisted error visible to subsequent callers — they
-		// retry next process restart, but within this process we already
-		// know it failed and don't repeat the IO.
-		return ensureErr
-	}
-	return nil
+	// state.err is published by sync.Once: any caller returning from
+	// state.once.Do() observes the write that happened inside the first
+	// invocation's f. No package-level error variable, so a failure for
+	// cwd1 cannot bleed into cwd2's return value.
+	return state.err
 }
 
 // ResetForTests clears the per-cwd memoization so unit tests can drive the
 // helper repeatedly inside a single process. Production callers must not use
 // this.
 func ResetForTests() {
-	onceMu.Lock()
-	defer onceMu.Unlock()
-	onceByCWD = make(map[string]*sync.Once)
-	ensureErr = nil
+	stateMu.Lock()
+	defer stateMu.Unlock()
+	stateByCWD = make(map[string]*ensureState)
+}
+
+// ensureState bundles the per-cwd sync.Once gate with the error captured
+// inside its f. Storing them together keeps every cwd's success/failure
+// signal isolated; a previous design used a package-level `ensureErr`
+// variable shared across all cwds, which both raced (no synchronization
+// for reads outside Once.Do) and corrupted return values when distinct
+// cwds completed in interleaved order. See archtest
+// TestSharedfileGitignoreNoPackageLevelErrorVar for the lock-in.
+type ensureState struct {
+	once sync.Once
+	err  error
 }
 
 var (
-	onceMu    sync.Mutex
-	onceByCWD = make(map[string]*sync.Once)
-	// ensureErr is the error captured the last time ensureOnce ran. We keep
-	// it package-level so the per-cwd sync.Once gate doesn't lose the
-	// signal — the second caller in the same process needs to know the
-	// helper actually failed, not that it succeeded silently.
-	ensureErr error
+	stateMu    sync.Mutex
+	stateByCWD = make(map[string]*ensureState)
 )
 
-func loadOrCreateOnce(cwd string) *sync.Once {
-	onceMu.Lock()
-	defer onceMu.Unlock()
-	if existing, ok := onceByCWD[cwd]; ok {
+func loadOrCreateState(cwd string) *ensureState {
+	stateMu.Lock()
+	defer stateMu.Unlock()
+	if existing, ok := stateByCWD[cwd]; ok {
 		return existing
 	}
-	o := &sync.Once{}
-	onceByCWD[cwd] = o
-	return o
+	s := &ensureState{}
+	stateByCWD[cwd] = s
+	return s
 }
 
 func ensureOnce(cwd string, logger *slog.Logger) error {
