@@ -118,3 +118,16 @@ func nullableInt64(v pgtype.Int8) *int64 {
 	n := v.Int64
 	return &n
 }
+
+// WithRunTx 走 sqlc.WithTx 起单一 PG 事务，fn 拿到的 tx RunStore 是
+// 事务绑定的 *store 运行时实例，所有 RunStore 方法调用都在同事务内。
+//
+// 主要调用点：service.StartDAG 使用 WithRunTx 原子化 CreateRun +
+// PromoteRootNodesToReady，任一失败都会回滚事务、避免“run 已建却
+// 根节点未 ready”脱状态。 PG 事务跨 task_dag_runs / task_dag_nodes 两
+// 表不是问题。
+func (s *store) WithRunTx(ctx context.Context, fn func(tx RunStore) error) error {
+	return wrapTaskDAGError(sqlc.WithTx(ctx, s.q, func(txq *sqlc.Queries) error {
+		return fn(&store{q: txq})
+	}), "with_run_tx", "task_dag_run")
+}
