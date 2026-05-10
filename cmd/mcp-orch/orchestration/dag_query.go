@@ -43,28 +43,26 @@ var ErrRunNotFound = errors.New("orchestration: run_key not found")
 
 // GetRun 按 run_key 取一条 task_dag_runs。
 //
-// 防御性检查与 StartDAG 保持一致：service 自身或 runStore 未注入时返
-// ErrRunStoreUnset / ErrLifecycleNotImplemented；运行时调用路径上
-// ProvideService 的 setter 注入会保证两者非 nil（fx 提供路线 N 后已守护）。
+// 防御性检查与 ListRuns / StartDAG 对齐：service 自身或 runStore 未注入时统一
+// 返 ErrRunStoreUnset（同一个 sentinel，调用方 errors.Is 判断更省事）。运行时
+// 调用路径上 ProvideService 的 setter 注入会保证两者非 nil（fx 提供路线 N 后已守护）。
 //
 // 错误转译：runStore 返回的域错误若 IsNotFound 命中 → 包装 ErrRunNotFound
 // sentinel；其他错误透传并附 run_key 上下文。
 //
 // GetRun fetches a single task_dag_runs row by run_key.
 //
-// Defensive checks mirror StartDAG: if the service or runStore is unset, we
-// return ErrLifecycleNotImplemented / ErrRunStoreUnset respectively. In the
-// production path ProvideService's setter injection guarantees both are
-// non-nil (route N's fx wiring guards that already).
+// Defensive checks align with ListRuns / StartDAG: if the service itself or
+// runStore is unset, we return the same ErrRunStoreUnset sentinel so callers
+// have a single errors.Is target. In the production path ProvideService's
+// setter injection guarantees both are non-nil (route N's fx wiring guards
+// that already).
 //
 // Error translation: when runStore returns a domain error matched by
 // IsNotFound we wrap ErrRunNotFound; other errors are passed through with
 // the run_key for context.
 func (s *service) GetRun(ctx context.Context, req contract.GetRunRequest) (contract.GetRunResponse, error) {
-	if s == nil {
-		return contract.GetRunResponse{}, ErrLifecycleNotImplemented
-	}
-	if s.runStore == nil {
+	if s == nil || s.runStore == nil {
 		return contract.GetRunResponse{}, ErrRunStoreUnset
 	}
 	runKey := strings.TrimSpace(req.RunKey)
@@ -106,13 +104,13 @@ func (s *service) GetRun(ctx context.Context, req contract.GetRunRequest) (contr
 //     CHECK constrains the legal status set, so the service does not re-validate.
 //   - limit goes through shared.ClampLimit(val, 1, 0, 50): <1 → default 50.
 //   - runStore == nil defense matches StartDAG: returns ErrRunStoreUnset.
-func (s *service) ListRuns(ctx context.Context, req contract.ListRunsRequest) (*contract.ListRunsResponse, error) {
+func (s *service) ListRuns(ctx context.Context, req contract.ListRunsRequest) (contract.ListRunsResponse, error) {
 	if s == nil || s.runStore == nil {
-		return nil, ErrRunStoreUnset
+		return contract.ListRunsResponse{}, ErrRunStoreUnset
 	}
 	dagKey := strings.TrimSpace(req.DagKey)
 	if dagKey == "" {
-		return nil, fmt.Errorf("orchestration: ListRuns: dag_key required")
+		return contract.ListRunsResponse{}, fmt.Errorf("orchestration: ListRuns: dag_key required")
 	}
 	filter := taskdag.ListRunsFilter{
 		DagKey: dagKey,
@@ -121,9 +119,9 @@ func (s *service) ListRuns(ctx context.Context, req contract.ListRunsRequest) (*
 	}
 	rows, err := s.runStore.ListRuns(ctx, filter)
 	if err != nil {
-		return nil, fmt.Errorf("orchestration: ListRuns(%q): %w", dagKey, err)
+		return contract.ListRunsResponse{}, fmt.Errorf("orchestration: ListRuns(%q): %w", dagKey, err)
 	}
-	return &contract.ListRunsResponse{Runs: mapRuns(rows)}, nil
+	return contract.ListRunsResponse{Runs: mapRuns(rows)}, nil
 }
 
 // mapRuns 把 store 层 taskdag.Run slice 转为 contract.Run slice，

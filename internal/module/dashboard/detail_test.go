@@ -210,6 +210,6 @@ func (s *stubDashboardOrchestration) ApplyOps(context.Context, contract.ApplyOps
 	return contract.ApplyOpsResponse{}, nil
 }
 
-func (s *stubDashboardOrchestration) ListRuns(context.Context, contract.ListRunsRequest) (*contract.ListRunsResponse, error) {
-	return &contract.ListRunsResponse{}, nil
+func (s *stubDashboardOrchestration) ListRuns(context.Context, contract.ListRunsRequest) (contract.ListRunsResponse, error) {
+	return contract.ListRunsResponse{}, nil
 }

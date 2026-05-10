@@ -45,7 +45,7 @@ type OrchestrationService interface {
 	ApplyOps(ctx context.Context, req ApplyOpsRequest) (ApplyOpsResponse, error)
 	// ListRuns 列出指定 DAG 的最近 run（dag_key 必填，可选 status / limit）。
 	// ListRuns lists recent runs for a DAG (dag_key required, optional status / limit).
-	ListRuns(ctx context.Context, req ListRunsRequest) (*ListRunsResponse, error)
+	ListRuns(ctx context.Context, req ListRunsRequest) (ListRunsResponse, error)
 }
 
 // ListRunsRequest 是 OrchestrationService.ListRuns 的入参（T3.2）。

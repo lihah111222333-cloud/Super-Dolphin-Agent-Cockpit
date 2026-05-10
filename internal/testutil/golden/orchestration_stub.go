@@ -10,7 +10,7 @@ type OrchestrationStub struct {
 	StartDAGFunc              func(context.Context, contract.StartDAGRequest) (contract.StartDAGResponse, error)
 	GetRunFunc                func(context.Context, contract.GetRunRequest) (contract.GetRunResponse, error)
 	ApplyOpsFunc              func(context.Context, contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error)
-	ListRunsFunc              func(context.Context, contract.ListRunsRequest) (*contract.ListRunsResponse, error)
+	ListRunsFunc              func(context.Context, contract.ListRunsRequest) (contract.ListRunsResponse, error)
 	LaunchAgentFunc           func(context.Context, contract.LaunchRequest) error
 	LaunchAgentSnapshotFunc   func(context.Context, contract.LaunchRequest) (contract.AgentSnapshot, error)
 	ListAgentsFunc            func(context.Context) ([]contract.AgentSnapshot, error)
@@ -192,9 +192,9 @@ func (s *OrchestrationStub) GetRun(ctx context.Context, req contract.GetRunReque
 
 // ListRuns 是 T3.2 加的接口方法；stub 默认返空 runs slice。
 // ListRuns is the T3.2 interface method; stub defaults to an empty runs slice.
-func (s *OrchestrationStub) ListRuns(ctx context.Context, req contract.ListRunsRequest) (*contract.ListRunsResponse, error) {
+func (s *OrchestrationStub) ListRuns(ctx context.Context, req contract.ListRunsRequest) (contract.ListRunsResponse, error) {
 	if s.ListRunsFunc != nil {
 		return s.ListRunsFunc(ctx, req)
 	}
-	return &contract.ListRunsResponse{}, nil
+	return contract.ListRunsResponse{}, nil
 }
