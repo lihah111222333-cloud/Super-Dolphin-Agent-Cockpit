@@ -71,14 +71,14 @@
 | ~~**T0.6**~~ | ✅ done | PC-4: ADR 0001 §2.5 加三方映射注释 | commit `8d32ea1f` |
 | **T0.7** | ⏸ 推迟 | PD-2: thread-DAG 关联 (spawning_thread_id) | T8.1 AI 设计师按钮一并 |
 | ~~**T0.8**~~ | ✅ done | PD-3: doc-sync check | commit `f972627d`（4 项检查全过） |
-| **T0.9** | ⏸ 推迟 F | PE-1（吃狗粮）: dispatcher 对无 assignee 节点自动 spawn | F 阶段 dispatcher 重做一并 |
+| **T0.9** | ⏸ 推迟 F | PE-1（吃狗粮）: dispatcher 对无 assignee 节点自动 spawn | → **F6.4** dispatcher 重做一并 |
 
 详见审查报告 `handoff/skeleton-audit-{pass1-adr,pass2-tests,pass3-cross-cutting,pass4-prev-closed,synthesis,final-verdict}.md`。
 
 ## 1.2 骨架阶段验收总结
 
 **已达成**：
-- 17/24 task done + 1 推迟 F (S2.4) + 2 推迟 T5 (S6.1+S6.2)
+- 17/24 task done + 1 推迟 F (S2.4 → **F6.3**) + 2 推迟 T5 (S6.1+S6.2)
 - 14 commit / 28 files / 3113 insertions
 - `go build ./...` / `go test ./...` / `go vet ./...` / `scripts/test_with_guard.sh` 全过
 - `cmd/agent-terminal/frontend && npm test` 通过（vitest）
@@ -119,9 +119,9 @@ af542629  feat(nodeexec): ValidateTransition + IsTerminal (S7.1)
 | ID | 状态 | 标题 | 文件 / Commit |
 |---|---|---|---|
 | ~~**T1.1**~~ | ✅ done | MCP `task_start_dag` schema + handler（stub） | `tools/task_tools.go` + `contract/orchestration.go` (StartDAGRequest/Response) / commit `2ef76d2e` |
-| **T1.2** | ⛔ 需 PG | `service.StartDAG` 真实实现：创建 run + status 转 running | `cmd/mcp-orch/orchestration/dag.go`（现 stub 位）。依赖 T0.2 PG 环境 |
-| ~~**T2.1**~~ | ✅ done | MCP `task_dag_apply_ops` schema + handler（stub） | `tools/task_tools.go` / commit `2af9539c`（PT-4: raw ops 透传测试归 F4.1） |
-| ~~**T2.2**~~ | ✅ done | `service.ApplyOps` 接通 contract.ApplyOpsRequest（stub）；真实实现归 F4.x | `orchestration/dag.go` / commit `2af9539c`（PT-2: ops 形状校验 / unmarshal fail-fast 归 F4.1） |
+| **T1.2** | ⛔ 需 PG | `service.StartDAG` 真实实现：创建 run + status 转 running | `cmd/mcp-orch/orchestration/dag.go`（现 stub 位）。依赖 T0.2 PG 环境（T1.2-mid 范围：创建 run + 根节点 pending→ready + reject 多 run并发；T1.2-full 升级 → **F6.5**） |
+| ~~**T2.1**~~ | ✅ done | MCP `task_dag_apply_ops` schema + handler（stub） | `tools/task_tools.go` / commit `2af9539c`（PT-4: raw ops 透传测试由 F4.1-F4.5 各自单测自然覆盖，不单独立项） |
+| ~~**T2.2**~~ | ✅ done | `service.ApplyOps` 接通 contract.ApplyOpsRequest（stub）；真实实现归 F4.x | `orchestration/dag.go` / commit `2af9539c`（PT-2: ops 形状校验 / unmarshal fail-fast → **F4.0** 顶层前置） |
 | **T3.1** | ⛔ 需 PG | MCP `task_get_run` schema + handler | 依赖 RunStore 真实实现（T1.2 后） |
 | **T3.2** | ⛔ 需 PG | MCP `task_list_runs` schema + handler | 同 T3.1 |
 | ~~**T4.1**~~ | ✅ done | MCP `list_models` 工具 | `tools/registry_tools.go` 新建 / commit `c311259e`（PT-1: F 阶段改读 provider registry） |
@@ -209,7 +209,11 @@ f972627d  T0.8 doc-sync script
 
 ---
 
-## 3. 阶段 F 功能（26 任务）
+## 3. 阶段 F 功能（31 行 / 30 待做 + 1 完成占位）
+
+> 26 个原计划 + 5 个从推迟项补位（F4.0 / F6.3 / F6.4 / F6.5 / F14.1） = 31 表位；其中 F6.1 由 T1.2-mid 接手 snapshot 后留为已完成契约占位、不再计为待做，所以待做任务 = 30。
+>
+> 推迟项拼装表：S2.4 → F6.3；T0.9/PE-1 → F6.4；PT-1 → F14.1；PT-2 → F4.0；T1.2-full → F6.5。
 
 | ID | 标题 | 主要触动文件 | 验收 | 依赖 | Size | 并行 |
 |---|---|---|---|---|---|---|
@@ -220,7 +224,8 @@ f972627d  T0.8 doc-sync script
 | **F2.1** | `AutomationExecutor` 解码 `command_ref` → command_get + 执行 | `cmd/mcp-orch/orchestration/executor_automation.go` | 单测：command 执行 + 错误处理 | S1.4, S5.2 | M | Y（与 F1 并行） |
 | **F2.2** | `AutomationExecutor` 处理 inputs/outputs | 同上 | 集成测试 | F2.1 | S | N |
 | **F3.1** | `HybridExecutor` 串联 automation → agent verifier | `cmd/mcp-orch/orchestration/executor_hybrid.go` | 集成测试：automation 失败时 verifier 不跑 | F1, F2 完成 | M | N |
-| **F4.1** | `ApplyOps` add_node 真实实现 + 环检测 | `cmd/mcp-orch/orchestration/dag_ops.go` | 单测：环检测；version+1 | S2.2, T2.2 | M | Y |
+| **F4.0**（顶层前置） | `ApplyOps` 顶层 unmarshal + 形状校验 + 错误分类（PT-2） | `cmd/mcp-orch/orchestration/dag_ops.go` 顶层 + `nodeexec.Ops UnmarshalJSON` | 单测：非法 op_kind / 缺字段 / 非法 base_version 全拒；错误分类清晰 | T2.2 | S | Y |
+| **F4.1** | `ApplyOps` add_node 真实实现 + 环检测 | `cmd/mcp-orch/orchestration/dag_ops.go` | 单测：环检测；version+1；PT-4 raw ops 透传覆盖 | S2.2, T2.2, F4.0 | M | Y |
 | **F4.2** | `ApplyOps` update_node 真实实现 | 同上 | 单测 | F4.1 | S | N |
 | **F4.3** | `ApplyOps` remove_node 真实实现（含级联清理依赖） | 同上 | 单测：被依赖节点不能删除 | F4.2 | M | N |
 | **F4.4** | `ApplyOps` update_dag 真实实现 | 同上 | 单测 | F4.1 | S | Y |
@@ -228,8 +233,11 @@ f972627d  T0.8 doc-sync script
 | **F5.1** | cron daemon 进程入口 + 接 robfig/cron 库 | `cmd/mcp-orch/orchestration/scheduler_cron.go` 新建 | 单测：cron 表达式解析正确 | S2.3 | M | Y |
 | **F5.2** | `Scheduler.Tick` 真实实现：扫 `next_run_at <= now` → StartDAG | 同上 | 集成测试：到点自动起 run | F5.1, T1.2 | M | N |
 | **F5.3** | cron 多实例锁（避免重复触发） | 同上 | 集成测试：两个进程只一个 tick 成功 | F5.2 | M | N |
-| **F6.1** | `StartDAG` 真实实现：snapshot dag.version → run.dag_version_snapshot | `dag_lifecycle.go` 修改 | 集成测试：run 创建后改 dag 不影响这次 run | T1.2 | M | N |
-| **F6.2** | run 终态判定：所有节点 done/failed/cancelled/skipped → run.status finished | 同上 | 集成测试 | F6.1 | M | N |
+| ~~**F6.1**~~ | (snapshot dag.version 部分由 T1.2-mid 完成；events 字段位的业务化写入归 H 阶段。本行保留作为契约位、不再单独 commit) | — | — | T1.2 | — | — |
+| **F6.2** | run 终态判定：所有节点 done/failed/cancelled/skipped → run.status finished | `dag_lifecycle.go` 修改 | 集成测试 | T1.2 | M | N |
+| **F6.3** | 节点完成时自动 promote 下游 pending→ready（S2.4 / B-14） | `task_dag_node` SQL + sqlc + dispatcher 三层 | 集成测试：节点 A done 后下游 B 自动 ready | T1.2, S2.4 推迟 | M | N |
+| **F6.4** | dispatcher 对无 assignee 节点自动 spawn（T0.9 / PE-1） | `wakeup_dispatcher` 重做（与 F6.3 配套） | 集成测试：promote 后无 assignee 节点自动起子 agent | F6.3 | M | N |
+| **F6.5** | T1.2-full：复制节点带 run_id + allow 多 run 并发 | `RunStore` 节点复制 + `dag_lifecycle.go` + `StartDAG` 去 reject | 集成测试：同 DAG 两次 StartDAG 都成功，节点行各自 run_id 独立 | T1.2 (mid)、F6.3、F6.4 | L | N |
 | **F7.1** | AI 设计师 prompt（中文版） | `internal/...` prompt_template 表 seed 或 migration | 集成测试：prompt 注入完整可用资源列表 | T4.1-T4.4 | M | Y |
 | **F7.2** | AI 设计师 prompt（英文版） | 同上 | 同上 | F7.1 | S | N |
 | **F8.1** | UI 节点编辑表单（typed schema → form field 映射规则） | `components/NodeEditForm.js` 新建 | 单测：schema 渲染对应控件 | S5.1 | L | Y（前端独立，**方案先发用户**） |
@@ -239,6 +247,7 @@ f972627d  T0.8 doc-sync script
 | **F11.1** | UI sharedfile 锁可视化（节点 reads/writes 联动） | `pages/SharedFilesPage.js` 修改 | e2e：sharedfile 显示"被节点 X 占用" | F1.3 | M | Y |
 | **F12.1** | 智能重试 strategy dispatcher：`by_class` 分发（capability→escalate_model / validation→append_error / 关键节点→replan spawn planner） | `retry_strategy.go` 修改 | 集成测试：模拟 capability 失败 → 升级到 Opus 重跑；validation 失败 → schema 错误注入重跑；replan 策略 spawn planner agent | F1.4 | L | N |
 | **F13.1** | lifecycle hooks 真实触发（before/after/on_state_change/on_failure） | `node_executor_dispatch.go` 新建 | 集成测试：hooks 在正确时机被调 | S1.1, S10 | M | Y |
+| **F14.1**（工具升级） | `list_models` 改读 provider registry（PT-1） | `cmd/mcp-orch/tools/registry_tools.go` + 新 registry 模块 | 单测：增改 registry 配置即时反映；F8.2 UI 下拉接这里 | T4.1 | S | Y |
 
 **F 阶段验收**：M3 里程碑端到端用例通过：
 
