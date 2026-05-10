@@ -63,7 +63,7 @@
 
 | ID | 状态 | 问题 | 处理 |
 |---|---|---|---|
-| **T0.1** | ⏸ 推迟 | PD-1: 缺 e2e 测试 fixture | 与 T1.2/T3.x 真实路径一起做（需 PG） |
+| **T0.1** | ⏸ 推迟 | PD-1: 缺 e2e 测试 fixture（合并 PT-3: T1.1 缺端到端 fixture） | 与 T1.2/T3.x 真实路径一起做（需 PG） |
 | **T0.2** | ⏸ 推迟 | PB-2: migration 0072-0075 未在 PG 跑过验证 | 等本地 PG 环境就绪 |
 | **T0.3** | ⏸ 推迟 | PB-1: 缺 service↔store 跨层集成测试 | 与 T1.2/T3.x 一起做 |
 | ~~**T0.4**~~ | ✅ done | PA-1: dag_retry_policy.go 导航注释 | commit `8d32ea1f` |
@@ -120,8 +120,8 @@ af542629  feat(nodeexec): ValidateTransition + IsTerminal (S7.1)
 |---|---|---|---|
 | ~~**T1.1**~~ | ✅ done | MCP `task_start_dag` schema + handler（stub） | `tools/task_tools.go` + `contract/orchestration.go` (StartDAGRequest/Response) / commit `2ef76d2e` |
 | **T1.2** | ⛔ 需 PG | `service.StartDAG` 真实实现：创建 run + status 转 running | `cmd/mcp-orch/orchestration/dag.go`（现 stub 位）。依赖 T0.2 PG 环境 |
-| ~~**T2.1**~~ | ✅ done | MCP `task_dag_apply_ops` schema + handler（stub） | `tools/task_tools.go` / commit `2af9539c` |
-| ~~**T2.2**~~ | ✅ done | `service.ApplyOps` 接通 contract.ApplyOpsRequest（stub）；真实实现归 F4.x | `orchestration/dag.go` / commit `2af9539c` |
+| ~~**T2.1**~~ | ✅ done | MCP `task_dag_apply_ops` schema + handler（stub） | `tools/task_tools.go` / commit `2af9539c`（PT-4: raw ops 透传测试归 F4.1） |
+| ~~**T2.2**~~ | ✅ done | `service.ApplyOps` 接通 contract.ApplyOpsRequest（stub）；真实实现归 F4.x | `orchestration/dag.go` / commit `2af9539c`（PT-2: ops 形状校验 / unmarshal fail-fast 归 F4.1） |
 | **T3.1** | ⛔ 需 PG | MCP `task_get_run` schema + handler | 依赖 RunStore 真实实现（T1.2 后） |
 | **T3.2** | ⛔ 需 PG | MCP `task_list_runs` schema + handler | 同 T3.1 |
 | ~~**T4.1**~~ | ✅ done | MCP `list_models` 工具 | `tools/registry_tools.go` 新建 / commit `c311259e`（PT-1: F 阶段改读 provider registry） |
