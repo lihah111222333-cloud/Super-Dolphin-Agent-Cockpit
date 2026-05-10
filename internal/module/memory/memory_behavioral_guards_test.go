@@ -34,7 +34,7 @@ func TestAutoDreamBusyDropsWithoutReplay(t *testing.T) {
 	// path and makes each process() call a fast increment-and-return,
 	// so the worker drains whatever is in the queue as quickly as the
 	// Go scheduler allows.
-	hooks := &MemoryLifecycleHooks{enabled: true}
+	hooks := newTestHooks(withEnabled(true))
 	s := newAutoDreamScheduler(hooks, pkglogger.Get())
 
 	// Fill the queue to its cap WITHOUT starting the worker — nothing

@@ -22,13 +22,7 @@ func TestTeamWriteIntentRoutesProjectMemoryToTeamStore(t *testing.T) {
 		AutoMemPathOverride: autoRoot,
 		Features:            MemoryFeatureFlags{TeamMemory: true},
 	}
-	hooks := &MemoryLifecycleHooks{
-		cfg:                 cfg,
-		team:                NewTeamMemoryManager(cfg),
-		rootDir:             cfg.RootDir,
-		projectRoot:         cfg.ProjectRoot,
-		autoMemPathOverride: cfg.AutoMemPathOverride,
-	}
+	hooks := newTestHooks(withTestCfg(cfg), withTeam(NewTeamMemoryManager(cfg)))
 	intent := SaveIntent{
 		Detected: true,
 		Type:     MemoryTypeProject,
@@ -75,13 +69,7 @@ func TestTeamWriteIntentKeepsUserMemoryPrivate(t *testing.T) {
 		AutoMemPathOverride: autoRoot,
 		Features:            MemoryFeatureFlags{TeamMemory: true},
 	}
-	hooks := &MemoryLifecycleHooks{
-		cfg:                 cfg,
-		team:                NewTeamMemoryManager(cfg),
-		rootDir:             cfg.RootDir,
-		projectRoot:         cfg.ProjectRoot,
-		autoMemPathOverride: cfg.AutoMemPathOverride,
-	}
+	hooks := newTestHooks(withTestCfg(cfg), withTeam(NewTeamMemoryManager(cfg)))
 	intent := SaveIntent{
 		Detected: true,
 		Type:     MemoryTypeUser,

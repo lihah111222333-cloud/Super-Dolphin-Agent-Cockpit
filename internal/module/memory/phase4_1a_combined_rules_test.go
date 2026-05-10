@@ -98,7 +98,7 @@ func TestPhase4_1aWarnCrossScopeSameNameTriggers(t *testing.T) {
 	primary, secondary, sharedName := newCrossScopeFixture(t, true /*bothHave*/)
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	hooks := &MemoryLifecycleHooks{logger: logger}
+	hooks := newTestHooks(withLogger(logger))
 	hooks.warnCrossScopeSameName(sharedName, primary, primary, secondary, "private", "team")
 	got := buf.String()
 	if !strings.Contains(got, "memory cross-scope same-name entry detected") {
@@ -130,7 +130,7 @@ func TestPhase4_1aWarnCrossScopeSameNameNoSecondaryHit(t *testing.T) {
 	primary, secondary, onlyName := newCrossScopeFixture(t, false /*bothHave*/)
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	hooks := &MemoryLifecycleHooks{logger: logger}
+	hooks := newTestHooks(withLogger(logger))
 	hooks.warnCrossScopeSameName(onlyName, primary, primary, secondary, "private", "team")
 	if got := buf.String(); strings.Contains(got, "cross-scope same-name") {
 		t.Fatalf("unexpected warn when only primary has entry:\n%s", got)
@@ -147,7 +147,7 @@ func TestPhase4_1aWarnCrossScopeSameNameConcurrentDedup(t *testing.T) {
 	primary, secondary, sharedName := newCrossScopeFixture(t, true)
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	hooks := &MemoryLifecycleHooks{logger: logger}
+	hooks := newTestHooks(withLogger(logger))
 	const concurrency = 20
 	var wg sync.WaitGroup
 	wg.Add(concurrency)
@@ -176,7 +176,7 @@ func TestPhase4_1aDeletePathDoesNotWarn(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	coordinator := newDiskLockCoordinator()
-	_ = &MemoryLifecycleHooks{logger: logger, locks: coordinator}
+	_ = newTestHooks(withLogger(logger), withLocks(coordinator))
 	if err := deleteMemoryAcrossStores(sharedName, WriteOptions{}, primary, secondary); err != nil {
 		t.Fatalf("deleteMemoryAcrossStores() error = %v", err)
 	}

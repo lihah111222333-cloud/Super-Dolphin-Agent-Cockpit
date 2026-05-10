@@ -92,8 +92,11 @@ type MemoryLifecycleHooks struct {
 
 	// locks is the process-scoped memory coordinator shared across all
 	// diskStore instances and cross-scope warning dedupe for this lifecycle.
-	locks     *diskLockCoordinator
-	locksOnce sync.Once
+	// Required field — constructors (provideMemoryLifecycleHooks, newTestHooks)
+	// MUST set it. memoryCoordinator() is a pure getter; lazy-init is forbidden
+	// because it would race callers and silently overwrite the
+	// consolidator-shared instance wired in module.go.
+	locks *diskLockCoordinator
 }
 
 var saveIntentPatterns = []*regexp.Regexp{
@@ -488,15 +491,6 @@ func (h *MemoryLifecycleHooks) memoryCoordinator() *diskLockCoordinator {
 	if h == nil {
 		return nil
 	}
-	if h.locks != nil {
-		return h.locks
-	}
-	h.locksOnce.Do(func() {
-		h.locks = newDiskLockCoordinator()
-		if h.consolidator != nil {
-			h.consolidator.locks = h.locks
-		}
-	})
 	return h.locks
 }
 
