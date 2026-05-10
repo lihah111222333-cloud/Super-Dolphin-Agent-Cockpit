@@ -4,6 +4,7 @@
 > 本文是执行级清单：每行一个可独立提交的任务，含触动文件、验收、依赖、size、可并行性
 > Size 直觉：S = 半天以内 / M = 1-2 天 / L = 3 天以上（仅相对量级，非时间承诺）
 > 修订历史：2026-05-10 初稿 / 4 处小补 / 2-pass 审查 / S2.4 推迟 F / **骨架阶段封板**；**2026-05-10 T 阶段快车道完成**：T0.4/5/6/8 + T1.1 + T2.1+T2.2 + T4.1+T4.4 全部 done（6 commit）；T 阶段二次审查 4 轻度 findings 全推迟到 T0.1 / F4.1 / F 阶段
+> 2026-05-10/11 T 阶段第二批 done：T1.2-mid（StartDAG 真业务 + RunStore CRUD）+ T3.1/T3.2（task_get_run / task_list_runs）+ 路线 N 幂等语义切换 + migration 0079/0080；T1.2-full → F6.5
 
 ---
 
@@ -12,7 +13,7 @@
 | 阶段 | 任务数 | 状态 | 总 size | 关键产出 |
 |---|---|---|---|---|
 | **S 骨架** | **24** | **✅ 封板：17 done / 1 推迟 F (S2.4) / 2 推迟 T5 (S6.1+S6.2) / 4 转 T0 作业** | ~25% | 14 处补丁 + ADR 0001 + 删死代码；行为完全不变 |
-| **T 工具** | 18 + 9 T0 | **🟡 快车道 done：4 T0 done / 5 T0 推迟 + T1.1 / T2.1+T2.2 / T4.1+T4.4 done。5 task 入 PG/前端阔。** | ~35% | MCP 工具 9/9 就位（含 registry）；UI/AI 设计师待外部依赖 |
+| **T 工具** | 18 + 9 T0 | **🟡 T1.1 + T1.2-mid + T2.1+T2.2 + T3.1+T3.2 + T4.1+T4.4 后端八连发 done。前端 6 task 待方案审。** | ~55% | MCP 工具 9/9 就位（含 registry）；UI/AI 设计师待外部依赖 |
 | F 功能 | 26 | ⛔ 未开动 | ~30% | 行为兑现：cron 真跑、AI 设计师上岗、智能重试落地 |
 | H 加固 | 按需 | ⛔ 未开动 | ~10% | 生产问题驱动，不预排 |
 
@@ -25,7 +26,7 @@
 
 ## 1. 阶段 S 骨架（24 任务，已封板）
 
-状态图例：✅ done / ⏸ 推迟 / ⛔ 未做
+状态图例：✅ done / 🟡 部分完成 / ⏸ 推迟 / ⛔ 未做
 
 | ID | 状态 | 标题 | 主要触动文件 | commit |
 |---|---|---|---|---|
@@ -45,6 +46,7 @@
 | **S3.3** | ✅ | migration: task_dag_runs 表 + 3 索引 | `migrations/0074_dag_v2_runs.sql` | 9130f601 |
 | **S3.4** | ✅ | migration: auto_handoff_phase1 一次性映射 → trigger='auto' | `migrations/0075_dag_v2_compat.sql` | 9130f601 |
 | **S3.5** | ✅ | store contract: Run / RunStore / CreateRunInput / ListRunsFilter | `store/taskdag/contract.go` | 9130f601 |
+| (补) | ✅ | migration 0076-0080 续：T1.2/T3.x 落地补 task_dag_runs CHECK 与字段对齐（详见 §12.4） | `migrations/0076_*.sql`-`0080_*.sql` | T 阶段多 commit |
 | **S4.1** | ✅ | typed ops payload (4 动词 + Op interface + custom (Un)Marshal) | `nodeexec/ops.go` | 89073074 |
 | **S4.2** | ✅ | OpsRequest / OpsResponse | `nodeexec/ops.go` | 89073074 |
 | **S5.1** | ✅ | typed node.config schema (3 种 node_type + 共享 Inputs/Outputs) | `nodeexec/config.go` | 0883254b |
@@ -114,7 +116,7 @@ af542629  feat(nodeexec): ValidateTransition + IsTerminal (S7.1)
 
 ## 2. 阶段 T 工具（18 任务，快车道 5 项 done）
 
-状态图例：✅ done / ⛔ 入 PG 阔 / ⛔ 入前端阔 / ⏸ 推迟
+状态图例：✅ done / 🟡 部分完成 / ⛔ 入 PG 阔 / ⛔ 入前端阔 / ⏸ 推迟
 
 | ID | 状态 | 标题 | 文件 / Commit |
 |---|---|---|---|
@@ -135,7 +137,7 @@ af542629  feat(nodeexec): ValidateTransition + IsTerminal (S7.1)
 | **T7.1** | ⛔ 前端方案待审 | UI DAG 列表字段显示 + polling | `pages/DagsPage.js` |
 | **T8.1** | ⛔ 前端方案待审 | UI 「AI 帮你设计流程」按钮 | `pages/DagsPage.js` |
 | **T8.2** | ⛔ 依赖 T8.1 | base 设计师 prompt 占位 | prompt_template 表 |
-| **T9.1** | ⛔ 依赖 T1-T4 | codemap 索引刷新 | `docs/doc/codemap/02-mcp-orch.md` |
+| **T9.1** | 🟡 部分 done | codemap 索引随 T1-T4 同步刷新中（02-mcp-orch.md / 04-app-contract.md / 10-store.md 已同步） | `docs/doc/codemap/` |
 
 ### 2.1 T 阶段快车道总结 (2026-05-10 二次审查后)
 
@@ -160,13 +162,14 @@ f972627d  T0.8 doc-sync script
 **剩余 task 阔住点**：
 - T0.1 / T0.2 / T0.3 → 需本地 PG 环境（T1.2 / T3.1 / T3.2 已完成）
 - T5.x / T6.1 / T7.1 / T8.x → 需前端方案用户审认过
-- T9.1 codemap → 依赖 T1-T4 全部完成
 
 详见审查报告 `handoff/t-phase-audit-{pass1-adr,pass2-layer,pass3-tests,pass4-t0-closed,synthesis,final-verdict}.md`。
 
 ---
 
 ## 2.legacy 原 T 阶段表格（历史保留，可跳过）
+
+> 本表为历史排期，状态以上方 §2 当前表为准。T1.1 / T1.2-mid / T2.1 / T2.2 / T3.1 / T3.2 / T4.1 / T4.4 已 done。
 
 | ID | 标题 | 主要触动文件 | 验收 | 依赖 | Size | 并行 |
 |---|---|---|---|---|---|---|
@@ -197,7 +200,7 @@ f972627d  T0.8 doc-sync script
 **T 阶段提交粒度**：
 - T1.1+T1.2 一次
 - T2.1+T2.2 一次（ops 是大改，单独提）
-- ~~T3.1+T3.2 一次~~ ✅ commit `360f9bfd` + `cf335dbf`
+- ~~T3.1+T3.2 一次~~ ✅ commit `360f9bfd` + `cf335dbf` + `caa9f13b` + `d1f5b0e4` + `498be56d`（审查应修） + `3f6c6a80` + `1877f401`（路线 N） + `5fed929c` + `9f302bf9`（fx wiring + codemap）
 - T4.1-T4.4 一次（registry 工具集）
 - T5.1 / T5.2 / T5.3 各一次（前端**每次方案先发用户**）
 - T6.1 单独
@@ -281,7 +284,7 @@ f972627d  T0.8 doc-sync script
 ### 里程碑 M1 完成 = 阶段 S 全部 22 任务
 **用户可见**：什么都没变，但代码内部干净了。
 
-### 里程碑 M2 完成 = 阶段 S + T1.1, T1.2, T3.1, T3.2, T5.1, T5.2, T5.3
+### 里程碑 M2 完成 = 阶段 S + T1.1, T1.2, T3.1, T3.2, T5.1, T5.2, T5.3（4/7 done，剩 T5.x 前端）
 **用户可见**：UI 上能看到 DAG → 点 Start → 节点跑起来。
 **还不能**：cron 自动触发；AI 帮你设计流程的智能化。
 **进度**：T1.1 / T1.2 / T3.1 / T3.2 ✅；T5.x 前端方案待审。后端 MCP 表面全套已在位。
@@ -293,13 +296,13 @@ f972627d  T0.8 doc-sync script
 
 **Need 1（每日定时任务）落地必备 task**：
 - S2.3, S3.1, S3.3, S4, S5（cron 字段位 + run 表）
-- T1.1 ✅ / T1.2 ✅ / T3.1 ✅ / T3.2 ✅ / T7.1（StartDAG + Run 工具 + UI 显示；后端部分均已完成）
+- T1.1 ✅ / T1.2 ✅ / T3.1 ✅ / T3.2 ✅ / T7.1 ⛔ 前端方案待审（依赖已就位）
 - F5.1, F5.2, F5.3, F6.1, F6.2（cron daemon + Run snapshot）
 - F10.1（run 历史 UI）
 
 **Need 2（AI 帮你设计流程）落地必备 task**：
-- S1.1, S2.2, S4, S5（NodeExecutor + ops + typed schema）
-- T2.1, T2.2, T4.1-T4.4, T5.2, T8.1, T8.2（ops 工具 + registry + UI 按钮）
+- S1.1 ✅, S2.2 ✅, S4 ✅, S5 ✅（NodeExecutor + ops + typed schema）
+- T2.1 ✅ / T2.2 ✅ / T4.1 ✅ / T4.2 ✅ / T4.3 ✅ / T4.4 ✅ / T5.2 / T8.1 / T8.2（ops 工具 + registry + UI 按钮）
 - F1.1-F1.3, F4.1-F4.5, F7.1, F7.2, F8.1, F8.2（Executor + ApplyOps + 设计师 prompt + 表单）
 
 ---
@@ -436,7 +439,7 @@ grep -r "FailureClass\|OnFailureStrategy" cmd/ 2>/dev/null | wc -l  # 目标 ≥
 
 - **抽 RunStatus 常量包**：当前 `running/succeeded/failed/cancelled` 4 状态字面量在 13 处分散（`contract.go` 注释、`0080` CHECK、`dag.go` switch、测试 stub）。等加新 status（如 `timeout` / `paused`）时再统一抽 `taskdag.RunStatus` 常量包，与 `0080` CHECK 单一来源对齐。当前 `0080` CHECK 已锁定全集，分散字面量风险可控。
 - **MCP 错误双语化拉齐**：本次仅 StartDAG handler 内 `ErrIdempotencyKeyExhausted` / `ErrDAGAlreadyRunning` / `ErrDAGNotFound` 三个错误双语，其他 `task_*` / `commands_*` / `orchestration_*` handler 仍英文单语。下次迭代统一定义"双语错误规范"（面向 AI agent 的业务错误必须双语，内部错误英文）后批量拉齐。
-- **task_get_run.Events 全量返回**：当前 GetRun 一次性返回完整 Events jsonb；run 长跑后可能很大，需要长期分页 / 截断方案。M2 阶段可接受，未来 F 阶段再做。
+- **task_get_run.Events 全量返回**（commit `360f9bfd` 实装）：当前 GetRun 一次性返回完整 Events jsonb；run 长跑后可能很大，需要长期分页 / 截断方案。M2 阶段可接受，未来 F 阶段再做。
 
 源自 T3.1/T3.2 落地 + 审查补修（commit `360f9bfd` + `cf335dbf` + `caa9f13b` + `d1f5b0e4` + `498be56d`）：
 
@@ -454,4 +457,52 @@ grep -r "FailureClass\|OnFailureStrategy" cmd/ 2>/dev/null | wc -l  # 目标 ≥
 - **t.Parallel() 启用**：`dag_start_test.go` / `dag_query_test.go` 多用例未启用 `t.Parallel()`；T0.5/T1.2/T3.x stub 已并发安全（commit `d1f5b0e4` 字段化 stubRunStore + race test 验证），可启用以压缩本包测试总时。
 - **FinishedAt 防御拷贝断言**：`dag_query.go:158` 用 `shared.CloneTime(row.FinishedAt)` 做防御拷贝，但当前测试断言只覆盖 Events / Metadata，未掰 FinishedAt 拷贝表现。低优先级；如后续发现 FinishedAt 在调用者侧被误改再补补丁。
 - **service.ListRuns limit cap=200 抽常量**：commit `498be56d` 已在 service 层 cap，但 `200` 仍是字面量（出现于 service.go + dag_query_test.go）。建议提 `defaultListRunsLimitCap = 200` 或者走 contract 层常量，避免文档与代码双多头。
+
+---
+
+## 12. 契约变更登记 / Contract Change Log
+
+<!-- 说明：原本拟编号 §11，但§11 已被「下一步」占用，故作§12。Note: originally planned as §11, but §11 is taken by "Next Steps", so this is §12. -->
+
+记录会向调用方暴露的契约级变更（接口签名 / 错误语义 / DB 约束 / 幂等行为等）。AI agent / 团队成员可从此处快速对齐“语义切换”决策。
+
+### 12.1 路线 N — StartDAG 幂等语义（commit `3f6c6a80` / `1877f401`）
+- **改前（路线 R）**：同 idempotency_key 重发，无论旧 run 状态如何，都返回旧 RunKey
+- **改后（路线 N）**：按 status 分流：
+  - running / succeeded → 返回旧 RunKey（去重网络重试 + 幂等成功结果）
+  - failed / cancelled → 返回新 sentinel `ErrIdempotencyKeyExhausted`（含旧 RunKey + Status，要求换 idem 重试）
+- **理由**：路线 R 把已死 run 的 RunKey 静默返给调用方，AI agent 拿到后会 wait 一个早已失败的 run，浪费 turn。路线 N 显式报错让调用方一次拿到正确信号
+
+### 12.2 OrchestrationService 接口扩张（commit `bbf8a988` / `360f9bfd` / `cf335dbf` / `caa9f13b`）
+- 新增 4 方法：StartDAG / ApplyOps / GetRun / ListRuns（Request/Response 配对）
+- 接口签名一致：所有方法返值类型（不返指针），ListRuns 经 `caa9f13b` 修正
+
+### 12.3 新增 sentinel 错误码（路线 N 系列）
+- `ErrRunStoreUnset` — RunStore fx provider 未注册时启动期可能命中（commit `eb341e54` 已修）
+- `ErrRunNotFound` — task_get_run 路径专用，含 run_key 上下文，中英双语转译
+- `ErrIdempotencyKeyExhausted` — 路线 N 核心富错，含旧 RunKey + Status
+- `ErrDAGAlreadyRunning` — dag-level 单 run 约束（0076 partial unique 阻断）
+- `ErrDAGNotFound` — task_get_dag / task_get_run 路径，含 dag_key
+
+### 12.4 schema migration 0076-0080
+- 0076 task_dag_runs partial unique（dag_key WHERE status='running'）— 阻 dag-level 并发
+- 0077 metadata NOT NULL DEFAULT '{}'::jsonb — 消除读写不对称
+- 0078 task_dag_nodes.depends_on CHECK array — NOT VALID + VALIDATE 两步
+- 0079 task_dag_nodes.run_id FK + reads/writes CHECK array + run_id index
+- 0080 task_dag_runs.status CHECK 4 全集（running / succeeded / failed / cancelled）
+
+### 12.5 RunStore 接口隔离（commit `57075943` / `d27e82e7`）
+- RunStore 故意不嵌入 taskdag.Store 聚合接口（保 InterfaceIsolation 预算）
+- 通过 module.go ProvideRunStore(Store) RunStore 适配（非 fx.As 双绑定，因 Store 接口不嵌入 RunStore）
+
+### English version
+
+This section logs contract-level changes exposed to callers (interface signatures, error semantics, DB constraints, idempotency behavior). AI agents and team members can use this as the single point of reference for “semantic switch” decisions.
+
+- **12.1 Route N — StartDAG idempotency** (`3f6c6a80` / `1877f401`): split by run status — running/succeeded reuse old RunKey; failed/cancelled raise sentinel `ErrIdempotencyKeyExhausted` (carries old RunKey + Status). Replaces “Route R” which silently returned dead RunKeys.
+- **12.2 OrchestrationService surface** (`bbf8a988` / `360f9bfd` / `cf335dbf` / `caa9f13b`): added 4 methods (StartDAG / ApplyOps / GetRun / ListRuns) with paired Request/Response; all return values (no pointer).
+- **12.3 New sentinel errors**: `ErrRunStoreUnset`, `ErrRunNotFound`, `ErrIdempotencyKeyExhausted`, `ErrDAGAlreadyRunning`, `ErrDAGNotFound` — all bilingually translated at MCP tool boundary.
+- **12.4 Migrations 0076-0080**: partial-unique on running status; metadata NOT NULL default; depends_on/reads/writes CHECK arrays; run_id FK + index; status CHECK enum.
+- **12.5 RunStore isolation** (`57075943` / `d27e82e7`): RunStore intentionally not embedded in `taskdag.Store` aggregate (preserves InterfaceIsolation budget); wired via `module.go ProvideRunStore(Store) RunStore`.
+
 
