@@ -128,11 +128,13 @@ func HandleApplyOps(svc contract.OrchestrationService) ToolHandler {
 //   - ErrIdempotencyKeyExhausted → 中英双语提示 + 携带旧 RunKey + status，
 //     方便 AI agent 决策是否换 idempotency_key 重试。
 //   - ErrDAGAlreadyRunning → 中英双语提示。
+//   - ErrDAGNotFound → 中英双语提示 + 提示先调 task_create_dag。
 //
 // Error translation (route N):
 //   - ErrIdempotencyKeyExhausted → bilingual hint with previous RunKey +
 //     status so the AI caller can decide to retry with a fresh idempotency_key.
 //   - ErrDAGAlreadyRunning → bilingual hint.
+//   - ErrDAGNotFound → bilingual hint pointing the caller to task_create_dag.
 func HandleStartDAG(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in StartDAGInput) (any, error) {
 		dagKey, err := requireTrimmed(in.DagKey, "dag_key")
@@ -169,6 +171,16 @@ func translateStartDAGError(dagKey string, err error) error {
 	if errors.Is(err, orchestration.ErrDAGAlreadyRunning) {
 		return fmt.Errorf(
 			"DAG 已有在跑 run，拒绝并发启动 (dag_key=%s); dag already has an active run, refusing concurrent start (dag_key=%s): %w",
+			dagKey, dagKey, err,
+		)
+	}
+	if errors.Is(err, orchestration.ErrDAGNotFound) {
+		// dag_key 取自 handler 入参（service 层触发点也带，这里选入参途径保证不受 sentinel 包装形式影响）。
+		// dag_key comes from the handler input; service-layer error already wraps it,
+		// but using the input keeps the bilingual message stable regardless of
+		// upstream wrapping shape.
+		return fmt.Errorf(
+			"DAG 不存在：dag_key=%s。请先调 task_create_dag 创建后再启动 (dag_key=%s, please call task_create_dag first): %w",
 			dagKey, dagKey, err,
 		)
 	}
