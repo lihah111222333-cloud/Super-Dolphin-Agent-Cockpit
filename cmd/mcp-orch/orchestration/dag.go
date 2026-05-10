@@ -269,7 +269,30 @@ func upsertDAG(ctx context.Context, store taskdag.DAGMutationStore, req CreateDA
 	})
 }
 
+// upsertDAGNodes 把 req.Nodes 全量写入 task_dag_nodes。
+//
+// C1 优化：优先走批量路径——store 实现 taskdag.BatchUpsertingNodeStore 时
+// 单条 multi-row INSERT … ON CONFLICT … DO UPDATE 一次 round-trip 完成 N 行；
+// 不实现（如测试 mock）则 fallback 到 N 次单行 UpsertNode，行为完全等价
+// （UpsertNode 也是 ON CONFLICT DO UPDATE 同列，故批量与单行 UPSERT 语义
+// 一致；status/result/run_id/reads/writes 都不在 INSERT 列、回到 DEFAULT/原值）。
+//
+// 选择窄接口 type-assert 而非把方法塞 DAGMutationStore：DAGMutationStore 当前
+// 2 direct + 1 embedded 处于 InterfaceIsolation 预算上限，新增方法会破预算
+// （contract.go:39 注释明确预算）。Phase 4.x 起 service 大量复用批量路径
+// 时再讨论是否升预算 / 加新聚合接口。
 func upsertDAGNodes(ctx context.Context, store taskdag.DAGMutationStore, dagKey string, nodes []CreateDAGNodeRequest) error {
+	if len(nodes) == 0 {
+		return nil
+	}
+	if batch, ok := store.(taskdag.BatchUpsertingNodeStore); ok {
+		mapped := make([]taskdag.Node, len(nodes))
+		for i, n := range nodes {
+			mapped[i] = dagNodeFromRequest(dagKey, n)
+		}
+		_, err := batch.BatchUpsertNodes(ctx, mapped)
+		return err
+	}
 	for _, node := range nodes {
 		if _, err := store.UpsertNode(ctx, dagNodeFromRequest(dagKey, node)); err != nil {
 			return err
