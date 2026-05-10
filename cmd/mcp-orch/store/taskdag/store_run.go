@@ -55,15 +55,6 @@ func (s *store) ListRuns(ctx context.Context, filter ListRunsFilter) ([]Run, err
 	}, "list", "task_dag_run", fromTaskDagRun)
 }
 
-// CountActiveRunsByDagKey 用于 StartDAG 多 run 并发 reject（T1.2-mid 限制）。
-// 返回 status='running' 的 run 数。F6.5 升级 multi-run 后此方法不再被
-// StartDAG 调用，但保留作为运维 / 监控用途。
-func (s *store) CountActiveRunsByDagKey(ctx context.Context, dagKey string) (int64, error) {
-	return queryValue(func() (int64, error) {
-		return s.q.CountActiveTaskDagRunsByKey(ctx, dagKey)
-	}, "count_active", "task_dag_run")
-}
-
 // PromoteRootNodesToReady 把 dag_key 下所有 depends_on=[] 且 status='pending'
 // 的根节点提升为 'ready'。返回受影响行数（service 层用于断言至少一个根节点
 // 被提升，否则视为 DAG 无可执行起点 → 报错 / 警告）。

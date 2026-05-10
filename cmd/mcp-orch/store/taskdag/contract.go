@@ -406,14 +406,13 @@ type ListRunsFilter struct {
 	Limit  int32  // 0 表示走默认上限
 }
 
-// RunStore 是 task_dag_runs 的窄接口（T1.2 接通；T0.5 archtest 守护至此转正向）。
+// RunStore 是 task_dag_runs 的窄接口。接口实现由 store_compile_assertions_test.go
+// 的 var _ RunStore = (*store)(nil) 编译期断言守护。
 // 接口签名：
 //   - CreateRun:                StartDAG 调用，新建一条 run 记录
-//   - GetRun:                   按 run_key 取一条
+//   - GetRun:                   按 run_key 取一条（也是 StartDAG GetRun-first 幂等路径）
 //   - ListRuns:                 按 dag_key + 可选 status 列出最近 run
 //     （默认 ORDER BY started_at DESC）
-//   - CountActiveRunsByDagKey:  StartDAG 多 run 并发 reject 用（T1.2-mid 限制；
-//     F6.5 升级 multi-run 后此方法不再被 StartDAG 调用）
 //   - PromoteRootNodesToReady:  StartDAG 在新 run 创建后调用，把 dag_key 下
 //     depends_on=[] 且 status='pending' 的根节点提为
 //     'ready'。返回受影响行数
@@ -422,11 +421,14 @@ type ListRunsFilter struct {
 //     嵌入 OrchestrationStore / DAGMutationStore 是为了
 //     保 InterfaceIsolation 预算，service 层独立持
 //     有 runStore 字段。
+//
+// 历史注：原接口还含 CountActiveRunsByDagKey，service 用于多 run 并发预检。
+// L3 根治后该预检被 DB partial unique（0076 migration）下沉到 DB 兑底，应
+// 用层 CountActiveRunsByDagKey 变 dead method 后从接口删除避免未来再写 race。
 type RunStore interface {
 	CreateRun(ctx context.Context, input CreateRunInput) (*Run, error)
 	GetRun(ctx context.Context, runKey string) (*Run, error)
 	ListRuns(ctx context.Context, filter ListRunsFilter) ([]Run, error)
-	CountActiveRunsByDagKey(ctx context.Context, dagKey string) (int64, error)
 	PromoteRootNodesToReady(ctx context.Context, dagKey string) (int64, error)
 	WithRunTx(ctx context.Context, fn func(tx RunStore) error) error
 }
