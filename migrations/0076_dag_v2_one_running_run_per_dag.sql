@@ -28,6 +28,23 @@
 -- ROLLBACK (manual):
 --   DROP INDEX IF EXISTS uniq_task_dag_runs_one_running_per_dag;
 
+-- Fail-fast 自检：CREATE UNIQUE INDEX 前先检查是否已存在违反约束的重复 running
+-- 行。若有则直接 RAISE EXCEPTION 中止 migration，避免 CREATE UNIQUE INDEX 在脏
+-- 数据上失败遗留半成品状态（CREATE UNIQUE INDEX 失败时 PG 会自己 rollback，
+-- 但报错信息没有自检 RAISE 友好；此处把人工预检步骤固化进 migration）。
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM task_dag_runs
+        WHERE status = 'running'
+        GROUP BY dag_key
+        HAVING COUNT(*) > 1
+    ) THEN
+        RAISE EXCEPTION 'migration 0076 abort: duplicate running runs per dag_key detected; manual cleanup required before applying partial unique index';
+    END IF;
+END $$;
+
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_task_dag_runs_one_running_per_dag
   ON task_dag_runs (dag_key)
   WHERE status = 'running';
+
