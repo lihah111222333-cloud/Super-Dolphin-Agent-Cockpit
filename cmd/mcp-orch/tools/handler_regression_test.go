@@ -79,6 +79,7 @@ func TestOrchestrationNilGuardsUseConsistentMessage(t *testing.T) {
 		{name: "start_dag", handler: HandleStartDAG(nil), input: `{}`},
 		{name: "get_run", handler: HandleGetRun(nil), input: `{}`},
 		{name: "apply_ops", handler: HandleApplyOps(nil), input: `{}`},
+		{name: "list_runs", handler: HandleListRuns(nil), input: `{}`},
 	}
 	for _, tc := range handlers {
 		t.Run(tc.name, func(t *testing.T) {

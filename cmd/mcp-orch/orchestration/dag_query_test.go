@@ -184,3 +184,190 @@ func TestGetRun_DTO_DefensiveCopiesRawMessages(t *testing.T) {
 		}
 	}
 }
+
+// stubRunStore.ListRuns 在 dag_start_test.go 之外补上，覆盖 T3.2 service.ListRuns
+// 单元测试需要的行为定制（dag_key/status/limit 调用观测、replyRows 注入）。
+// 字段绑在嵌入的 taskdag.RunStore 接口外，单独跑在这一组测试用例。
+//
+// stubRunStore.ListRuns lives outside dag_start_test.go to keep that file
+// focused on StartDAG, while still letting T3.2 unit tests observe filter
+// arguments and inject reply rows.
+type listRunsCall struct {
+	filter taskdag.ListRunsFilter
+}
+
+// listRunsState 把 ListRuns 相关 stub 字段集中起来：通过包级 var 持有，由
+// 各测试用例通过 helper 重置 / 配置；避免改 dag_start_test.go 的 stubRunStore
+// 结构（与 T3.1 worktree 分支并存友好）。
+//
+// listRunsState centralises ListRuns stub state via a package-level var so
+// dag_start_test.go's stubRunStore struct stays untouched (kept friendly for
+// the T3.1 worktree).
+var listRunsState = struct {
+	calls   []listRunsCall
+	rows    []taskdag.Run
+	listErr error
+}{}
+
+func resetListRunsStub() {
+	listRunsState.calls = nil
+	listRunsState.rows = nil
+	listRunsState.listErr = nil
+}
+
+func (s *stubRunStore) ListRuns(_ context.Context, filter taskdag.ListRunsFilter) ([]taskdag.Run, error) {
+	listRunsState.calls = append(listRunsState.calls, listRunsCall{filter: filter})
+	if listRunsState.listErr != nil {
+		return nil, listRunsState.listErr
+	}
+	return listRunsState.rows, nil
+}
+
+// ---- happy path：返多 run ----
+// ---- happy path: returns multiple runs ----
+
+func TestListRuns_HappyPath(t *testing.T) {
+	resetListRunsStub()
+	now := time.Now()
+	listRunsState.rows = []taskdag.Run{
+		{RunKey: "dag-1#run-a", DagKey: "dag-1", Status: "running", StartedAt: now},
+		{RunKey: "dag-1#run-b", DagKey: "dag-1", Status: "succeeded", StartedAt: now.Add(-time.Hour)},
+	}
+	svc := makeStartDAGService(nil, &stubRunStore{})
+
+	resp, err := svc.ListRuns(context.Background(), contract.ListRunsRequest{DagKey: "dag-1"})
+	if err != nil {
+		t.Fatalf("ListRuns() error = %v, want nil", err)
+	}
+	if resp == nil {
+		t.Fatalf("ListRuns() resp = nil, want non-nil")
+	}
+	if got := len(resp.Runs); got != 2 {
+		t.Fatalf("ListRuns() runs = %d, want 2", got)
+	}
+	if resp.Runs[0].RunKey != "dag-1#run-a" {
+		t.Errorf("Runs[0].RunKey = %q, want dag-1#run-a", resp.Runs[0].RunKey)
+	}
+	if got := len(listRunsState.calls); got != 1 {
+		t.Fatalf("ListRuns calls = %d, want 1", got)
+	}
+	if listRunsState.calls[0].filter.DagKey != "dag-1" {
+		t.Errorf("filter.DagKey = %q, want dag-1", listRunsState.calls[0].filter.DagKey)
+	}
+}
+
+// ---- 空结果（无匹配） ----
+// ---- empty result (no match) ----
+
+func TestListRuns_EmptyResult(t *testing.T) {
+	resetListRunsStub()
+	svc := makeStartDAGService(nil, &stubRunStore{})
+
+	resp, err := svc.ListRuns(context.Background(), contract.ListRunsRequest{DagKey: "dag-empty"})
+	if err != nil {
+		t.Fatalf("ListRuns() error = %v, want nil", err)
+	}
+	if resp == nil {
+		t.Fatalf("resp = nil, want non-nil")
+	}
+	if got := len(resp.Runs); got != 0 {
+		t.Errorf("Runs = %d, want 0", got)
+	}
+}
+
+// ---- status filter 透传 ----
+// ---- status filter passthrough ----
+
+func TestListRuns_StatusFilterPassthrough(t *testing.T) {
+	resetListRunsStub()
+	listRunsState.rows = []taskdag.Run{
+		{RunKey: "dag-1#run-x", DagKey: "dag-1", Status: "failed"},
+	}
+	svc := makeStartDAGService(nil, &stubRunStore{})
+
+	_, err := svc.ListRuns(context.Background(), contract.ListRunsRequest{
+		DagKey: "dag-1",
+		Status: " failed ", // 验证 service 调 strings.TrimSpace
+	})
+	if err != nil {
+		t.Fatalf("ListRuns() error = %v", err)
+	}
+	if got := listRunsState.calls[0].filter.Status; got != "failed" {
+		t.Errorf("filter.Status = %q, want %q (trimmed)", got, "failed")
+	}
+}
+
+// ---- limit 默认 50（不传 limit） ----
+// ---- limit defaults to 50 when omitted ----
+
+func TestListRuns_DefaultLimit(t *testing.T) {
+	resetListRunsStub()
+	svc := makeStartDAGService(nil, &stubRunStore{})
+
+	_, err := svc.ListRuns(context.Background(), contract.ListRunsRequest{DagKey: "dag-1"})
+	if err != nil {
+		t.Fatalf("ListRuns() error = %v", err)
+	}
+	if got := listRunsState.calls[0].filter.Limit; got != 50 {
+		t.Errorf("filter.Limit = %d, want 50 (default)", got)
+	}
+}
+
+// ---- limit 传值透传（在 max=0 上限内） ----
+// ---- limit passthrough within max=0 cap ----
+
+func TestListRuns_ExplicitLimitPassthrough(t *testing.T) {
+	resetListRunsStub()
+	svc := makeStartDAGService(nil, &stubRunStore{})
+
+	_, err := svc.ListRuns(context.Background(), contract.ListRunsRequest{DagKey: "dag-1", Limit: 7})
+	if err != nil {
+		t.Fatalf("ListRuns() error = %v", err)
+	}
+	if got := listRunsState.calls[0].filter.Limit; got != 7 {
+		t.Errorf("filter.Limit = %d, want 7", got)
+	}
+}
+
+// ---- runStore == nil 防御与 StartDAG 一致 ----
+// ---- runStore == nil defense (matches StartDAG) ----
+
+func TestListRuns_RunStoreUnset(t *testing.T) {
+	resetListRunsStub()
+	svc := makeStartDAGService(nil, nil)
+
+	_, err := svc.ListRuns(context.Background(), contract.ListRunsRequest{DagKey: "dag-1"})
+	if !errors.Is(err, ErrRunStoreUnset) {
+		t.Fatalf("ListRuns() error = %v, want errors.Is(ErrRunStoreUnset)", err)
+	}
+}
+
+// ---- dag_key 必填 ----
+// ---- dag_key required ----
+
+func TestListRuns_DagKeyRequired(t *testing.T) {
+	resetListRunsStub()
+	svc := makeStartDAGService(nil, &stubRunStore{})
+
+	_, err := svc.ListRuns(context.Background(), contract.ListRunsRequest{DagKey: "  "})
+	if err == nil {
+		t.Fatalf("ListRuns() error = nil, want non-nil for blank dag_key")
+	}
+}
+
+// ---- store 错误透传（包装信息含 dag_key） ----
+// ---- store error propagated (wrapped with dag_key) ----
+
+func TestListRuns_StoreErrorPropagated(t *testing.T) {
+	resetListRunsStub()
+	listRunsState.listErr = errors.New("connection lost")
+	svc := makeStartDAGService(nil, &stubRunStore{})
+
+	_, err := svc.ListRuns(context.Background(), contract.ListRunsRequest{DagKey: "dag-1"})
+	if err == nil {
+		t.Fatalf("ListRuns() error = nil, want non-nil")
+	}
+	if !errors.Is(err, listRunsState.listErr) {
+		t.Errorf("err = %v, want errors.Is(listErr)", err)
+	}
+}

@@ -101,6 +101,21 @@ type GetRunInput struct {
 	RunKey string `json:"run_key"`
 }
 
+// ListRunsInput 是 task_list_runs MCP 工具的 typed 入参（T3.2）。
+// dag_key 必填；status / limit 可选。status 枚举与 migration 0080
+// task_dag_runs.status CHECK 对齐：service / store 不重复校验，错误
+// status 由 DB CHECK 拒绝。
+//
+// ListRunsInput is the typed input for the task_list_runs MCP tool (T3.2).
+// dag_key required; status / limit optional. The status enum mirrors
+// migration 0080 task_dag_runs.status CHECK; service / store skip
+// re-validation and rely on the DB CHECK to reject illegal values.
+type ListRunsInput struct {
+	DagKey string `json:"dag_key"`
+	Status string `json:"status,omitempty"`
+	Limit  int32  `json:"limit,omitempty"`
+}
+
 // ApplyOpsInput 是 task_dag_apply_ops MCP 工具的 typed 入参（T2.1）。
 // Ops 是 raw JSON：service 内部用 nodeexec.Ops UnmarshalJSON 解码为 typed Op slice。
 type ApplyOpsInput struct {
@@ -122,6 +137,30 @@ func HandleApplyOps(svc contract.OrchestrationService) ToolHandler {
 			DagKey:      dagKey,
 			BaseVersion: in.BaseVersion,
 			Ops:         append(json.RawMessage(nil), in.Ops...),
+		})
+	})
+}
+
+// HandleListRuns 是 task_list_runs MCP 工具的 handler（T3.2）。
+// 调 service.ListRuns 后返回 {runs: [...]} 包对象（留 next_cursor / total
+// 等扩展位）。list 路径无业务 sentinel（DAG 不存在返空 slice，store
+// 未定义判空为 sentinel），错误走默认 fallback。
+//
+// HandleListRuns is the task_list_runs MCP tool handler (T3.2). It calls
+// service.ListRuns and returns {runs: [...]} (object wrapper reserves room
+// for next_cursor / total etc.). The list path has no business sentinels
+// (a missing DAG yields an empty slice rather than an error), so errors
+// fall through to the default translation.
+func HandleListRuns(svc contract.OrchestrationService) ToolHandler {
+	return makeHandler(svc, "orchestration service", func(ctx context.Context, in ListRunsInput) (any, error) {
+		dagKey, err := requireTrimmed(in.DagKey, "dag_key")
+		if err != nil {
+			return nil, err
+		}
+		return svc.ListRuns(ctx, contract.ListRunsRequest{
+			DagKey: dagKey,
+			Status: strings.TrimSpace(in.Status),
+			Limit:  in.Limit,
 		})
 	})
 }
@@ -259,6 +298,11 @@ func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 			"base_version": IntegerSchema("Expected current dag.version (OCC; mismatch returns conflict)."),
 			"ops":          ArraySchema(ObjectSchema(map[string]Schema{}, "op"), "Typed ops array; each item must include 'op' discriminator."),
 		}, "dag_key", "base_version", "ops"), HandleApplyOps(svc)),
+		defineTool("task_list_runs", "List recent runs for a DAG (object response wraps the runs slice for forward-compatibility). Status enum mirrors migration 0080 task_dag_runs.status CHECK.", ObjectSchema(map[string]Schema{
+			"dag_key": StringSchema("DAG key to list runs for."),
+			"status":  EnumStringSchema("Optional status filter.", "running", "succeeded", "failed", "cancelled"),
+			"limit":   IntegerSchema("Optional max rows; defaults to 50 when 0/omitted."),
+		}, "dag_key"), HandleListRuns(svc)),
 	)
 }
 
