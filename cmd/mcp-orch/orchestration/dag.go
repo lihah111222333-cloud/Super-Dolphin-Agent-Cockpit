@@ -11,6 +11,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
@@ -453,20 +454,22 @@ type TerminateDAGRequest struct {
 	Reason string // 可选，写入 events 字段
 }
 
-// StartDAG 触发 DAG 一次新执行。T1.2-mid 范围：
+// StartDAG 触发 DAG 一次新执行。T1.2-mid 范围（L3 根治后）：
 //
-//  1. GetDAG 读出 dag.version 作为 run.dag_version_snapshot（Temporal 风格
-//     “run 创建后改 dag 不影响这次 run”）
-//  2. CountActiveRunsByDagKey: 如果已有 status='running' 的 run，拒绝
-//     多 run 并发（T1.2-mid 限制；F6.5 升级 multi-run 后去掉这步）
-//  3. WithRunTx 原子化：CreateRun + PromoteRootNodesToReady。任一失败回
+//  1. validateStartDAGPrereq: 检 service 预设 + dag_key 非空 + GetDAG 取
+//     dag.version 作为 run.dag_version_snapshot。不再在应用层做
+//     CountActiveRunsByDagKey 预检（原方案有 TOCTOU race；0076 partial
+//     unique 把该约束下沉到 DB 兑底）。
+//  2. WithRunTx 原子化 CreateRun + PromoteRootNodesToReady。任一失败回
 //     滚、避免“run 已建却根节点未 ready”脱状态。
+//  3. PG unique violation (SQLSTATE 23505) 后备路径（L3 GetRun-first 策略）：
+//     事务已回滚后在 tx 外 GetRun(run_key)：
+//     - 命中 → 同 IdempotencyKey 重入，幂等返已有 run
+//     - 未命中 → 冲突来自 dag_key partial unique → ErrDAGAlreadyRunning
+//     不依赖 ConstraintName 字符串 (PG 同时冲突哪个先报不可控)。
 //
-// run_key 生成：IdempotencyKey 非空时使用 “<dagKey>#run-<idem>”，让 task_dag_runs.run_key
-// UNIQUE 约束兼带幂等（重复 StartDAG 带同名幂等键 → INSERT 冲突→返回
-// 已有 run，但 T1.2-mid 为避免复杂在同 run 中另一个带同一幂等键调用返回
-// ErrDAGAlreadyRunning；F6.5 会重看幂等语义）。IdempotencyKey 为空时生
-// 成 “<dagKey>#run-<unix_nano>” 保证唯一。
+// run_key 生成：IdempotencyKey 非空 → “<dagKey>#run-<idem>”；IdempotencyKey
+// 为空 → “<dagKey>#run-<unix_nano>” 保证唯一。
 func (s *service) StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGResponse, error) {
 	dagKey, dag, err := s.validateStartDAGPrereq(ctx, req)
 	if err != nil {
@@ -481,14 +484,12 @@ func (s *service) StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGRe
 		DagVersionSnapshot: dagVersion,
 		TriggerSource:      triggerSource,
 	}
-	resp, txErr := s.runStartDAGTx(ctx, dagKey, input)
-	if txErr != nil {
-		return StartDAGResponse{}, fmt.Errorf("orchestration: StartDAG(%q): %w", dagKey, txErr)
-	}
-	return resp, nil
+	return s.runStartDAGWithFallback(ctx, dagKey, runKey, input)
 }
 
-// validateStartDAGPrereq 检 service 预设 + dag_key 同存、调 GetDAG、走多 run 并发 reject。
+// validateStartDAGPrereq 检 service 预设 + dag_key 非空 + 调 GetDAG。
+// 不再检 CountActiveRunsByDagKey——原预检不冲突有 TOCTOU race；
+// 0076 partial unique on (dag_key) WHERE status='running' 负责 DB 兑底。
 // 返回三元组 (dagKey, dag, error)。拆出 helper 让 StartDAG 主体保持在 CC≤10。
 func (s *service) validateStartDAGPrereq(ctx context.Context, req StartDAGRequest) (string, *taskdag.DAG, error) {
 	if s == nil || s.dagStore == nil {
@@ -508,19 +509,14 @@ func (s *service) validateStartDAGPrereq(ctx context.Context, req StartDAGReques
 	if dag == nil {
 		return "", nil, fmt.Errorf("%w: %s", ErrDAGNotFound, dagKey)
 	}
-	active, err := s.runStore.CountActiveRunsByDagKey(ctx, dagKey)
-	if err != nil {
-		return "", nil, fmt.Errorf("orchestration: StartDAG: CountActiveRunsByDagKey(%q): %w", dagKey, err)
-	}
-	if active > 0 {
-		return "", nil, fmt.Errorf("%w: %s", ErrDAGAlreadyRunning, dagKey)
-	}
 	return dagKey, dag, nil
 }
 
-// runStartDAGTx 走 runStore.WithRunTx 原子化 CreateRun + PromoteRootNodesToReady。
-// 任一失败 → 事务回滚 + 返错。
-func (s *service) runStartDAGTx(ctx context.Context, dagKey string, input taskdag.CreateRunInput) (StartDAGResponse, error) {
+// runStartDAGWithFallback 走 WithRunTx CreateRun + Promote。失败是 PG unique
+// violation 时：tx 已回滚，在 tx 外 GetRun(run_key) 处理 幂等返已有 run
+// 还是判定为 dag_key partial unique 冲突 → ErrDAGAlreadyRunning。不依赖
+// ConstraintName（PG 同时冲突哪个先报 OID 顺序不可控）。
+func (s *service) runStartDAGWithFallback(ctx context.Context, dagKey, runKey string, input taskdag.CreateRunInput) (StartDAGResponse, error) {
 	var resp StartDAGResponse
 	txErr := s.runStore.WithRunTx(ctx, func(tx taskdag.RunStore) error {
 		run, err := tx.CreateRun(ctx, input)
@@ -533,7 +529,27 @@ func (s *service) runStartDAGTx(ctx context.Context, dagKey string, input taskda
 		resp = StartDAGResponse{RunKey: run.RunKey, Version: run.DagVersionSnapshot}
 		return nil
 	})
-	return resp, txErr
+	if txErr == nil {
+		return resp, nil
+	}
+	if !platformdb.IsUniqueViolation(txErr) {
+		return StartDAGResponse{}, fmt.Errorf("orchestration: StartDAG(%q): %w", dagKey, txErr)
+	}
+	return s.resolveStartDAGUniqueViolation(ctx, dagKey, runKey, txErr)
+}
+
+// resolveStartDAGUniqueViolation 是 WithRunTx 遭 unique violation 后的备路径。
+// 事务已回滚、在 tx 外 GetRun(run_key)。拆出 helper 保 runStartDAGWithFallback
+// CC≤10。
+func (s *service) resolveStartDAGUniqueViolation(ctx context.Context, dagKey, runKey string, txErr error) (StartDAGResponse, error) {
+	existing, getErr := s.runStore.GetRun(ctx, runKey)
+	if getErr == nil && existing != nil {
+		return StartDAGResponse{RunKey: existing.RunKey, Version: existing.DagVersionSnapshot}, nil
+	}
+	if getErr != nil && !platformdb.IsNotFound(getErr) {
+		return StartDAGResponse{}, fmt.Errorf("orchestration: StartDAG(%q): GetRun fallback: %w (original tx error: %v)", dagKey, getErr, txErr)
+	}
+	return StartDAGResponse{}, fmt.Errorf("%w: %s", ErrDAGAlreadyRunning, dagKey)
 }
 
 // generateRunKey 生成 task_dag_runs.run_key，与 UNIQUE 约束兼容。

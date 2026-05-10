@@ -6,7 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	taskdag "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
 // stubStartDAGStore 实现 service 调到的 OrchestrationStore 子集（GetDAG）。
@@ -25,7 +28,7 @@ func (s *stubStartDAGStore) GetDAG(_ context.Context, _ string) (*taskdag.DAG, e
 	return s.dag, nil
 }
 
-// stubRunStore 实现 RunStore，支持 happy / 错误 / WithRunTx 行为定制。
+// stubRunStore 实现 RunStore，支持 happy / 错误 / WithRunTx / GetRun 行为定制。
 type stubRunStore struct {
 	taskdag.RunStore // nil 嵌入：未覆盖方法 panic
 
@@ -37,12 +40,16 @@ type stubRunStore struct {
 	promoteRows int64
 	promoteErr  error
 
-	withTxErr error // 模拟事务整体失败
+	withTxErr error // 模拟事务整体失败 (L3: 可传 *pgconn.PgError 走 unique violation 路径)
+
+	getRunReply *taskdag.Run // 不为 nil 代表 GetRun 命中 (幂等路径)
+	getRunErr   error        // 不为 nil 走 GetRun 错误路径；IsNotFound 表示未命中 → ErrDAGAlreadyRunning
 
 	// 调用观测
 	countCalls   []string
 	createCalls  []taskdag.CreateRunInput
 	promoteCalls []string
+	getRunCalls  []string
 }
 
 func (s *stubRunStore) CountActiveRunsByDagKey(_ context.Context, dagKey string) (int64, error) {
@@ -79,6 +86,20 @@ func (s *stubRunStore) WithRunTx(ctx context.Context, fn func(taskdag.RunStore) 
 	return fn(s) // mock: 同一实例当作 tx-bound 实例
 }
 
+func (s *stubRunStore) GetRun(_ context.Context, runKey string) (*taskdag.Run, error) {
+	s.getRunCalls = append(s.getRunCalls, runKey)
+	if s.getRunErr != nil {
+		return nil, s.getRunErr
+	}
+	return s.getRunReply, nil
+}
+
+// uniqueViolationErr 交付一个 SQLSTATE 23505 错误供 stub.WithRunTx 返回，
+// 以便驱动 service 走 GetRun-first fallback 路径。
+func uniqueViolationErr(constraintName string) error {
+	return &pgconn.PgError{Code: "23505", ConstraintName: constraintName}
+}
+
 // makeStartDAGService 构造测试用 service：仅注入 dagStore + runStore。
 func makeStartDAGService(dagStore taskdag.OrchestrationStore, runStore taskdag.RunStore) *service {
 	return &service{dagStore: dagStore, runStore: runStore}
@@ -104,8 +125,9 @@ func TestStartDAG_HappyPath(t *testing.T) {
 	if !strings.HasPrefix(resp.RunKey, "dag-1#run-") {
 		t.Errorf("resp.RunKey = %q, want prefix dag-1#run-", resp.RunKey)
 	}
-	if got := len(runStore.countCalls); got != 1 {
-		t.Errorf("CountActiveRunsByDagKey calls = %d, want 1", got)
+	// L3 后 service 不再调 CountActiveRunsByDagKey（DB partial unique 兑底）。
+	if got := len(runStore.countCalls); got != 0 {
+		t.Errorf("CountActiveRunsByDagKey calls = %d, want 0 (L3: DB-side guard)", got)
 	}
 	if got := len(runStore.createCalls); got != 1 {
 		t.Fatalf("CreateRun calls = %d, want 1", got)
@@ -169,19 +191,25 @@ func TestStartDAG_DAGNotFound(t *testing.T) {
 	}
 }
 
-// ---- active run > 0 → ErrDAGAlreadyRunning ----
-
-func TestStartDAG_RejectMultiRunConcurrency(t *testing.T) {
+// ---- DB 冲突 (partial unique on running run) + GetRun 未命中 → ErrDAGAlreadyRunning ----
+//
+// L3 后 service 不再在应用层预检 active run，DB partial unique 兑底。本测驱动
+// WithRunTx 返回一个 SQLSTATE 23505 错误，然后 GetRun 返 nil/IsNotFound 表示
+// run_key 未命中，证明冲突来自 dag_key partial unique → service 返 ErrDAGAlreadyRunning。
+func TestStartDAG_DBUniqueViolation_DAGAlreadyRunning(t *testing.T) {
 	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
-	runStore := &stubRunStore{activeCount: 1}
+	runStore := &stubRunStore{
+		withTxErr: uniqueViolationErr("uniq_task_dag_runs_one_running_per_dag"),
+		getRunErr: platformdb.ErrNotFound, // GetRun 未命中
+	}
 	svc := makeStartDAGService(dagStore, runStore)
 
 	_, err := svc.StartDAG(context.Background(), StartDAGRequest{DagKey: "dag-1"})
 	if !errors.Is(err, ErrDAGAlreadyRunning) {
 		t.Fatalf("StartDAG() error = %v, want errors.Is(ErrDAGAlreadyRunning)", err)
 	}
-	if got := len(runStore.createCalls); got != 0 {
-		t.Errorf("CreateRun called %d times, want 0 (rejected before tx)", got)
+	if got := len(runStore.getRunCalls); got != 1 {
+		t.Errorf("GetRun fallback calls = %d, want 1", got)
 	}
 }
 
