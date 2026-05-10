@@ -273,31 +273,42 @@ func translateStartDAGError(dagKey string, err error) error {
 	return err
 }
 
+// taskToolDefinitions 按 CRUD + lifecycle 分组排序，让读者一眼看出 DAG
+// 写入 / 生命周期 / 读取 三类工具的边界：
+//   - 写入类（状态变更）：task_create_dag / task_dag_apply_ops / task_update_node
+//   - 生命周期（起停）：task_start_dag
+//   - 读取类：task_get_dag / task_get_run / task_list_runs
+//
+// taskToolDefinitions groups tools as writes → lifecycle → reads so readers
+// can locate a tool by intent at a glance.
 func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 	return buildToolDefinitions(
+		// ---- writes ----
 		defineTool("task_create_dag", "Create or upsert a DAG and its nodes in the orchestration store.", createDAGSchema(), HandleCreateDAG(svc)),
-		defineTool("task_get_dag", "Fetch a DAG and all of its nodes.", ObjectSchema(map[string]Schema{
-			"dag_key": StringSchema("Unique DAG key."),
-		}, "dag_key"), HandleGetDAG(svc)),
+		defineTool("task_dag_apply_ops", "Apply a typed ops batch (add_node / update_node / remove_node / update_dag) with base_version OCC. Ops shape: see nodeexec.Ops. Skeleton stage returns ErrLifecycleNotImplemented.", ObjectSchema(map[string]Schema{
+			"dag_key":      StringSchema("Target DAG key."),
+			"base_version": IntegerSchema("Expected current dag.version (OCC; mismatch returns conflict)."),
+			"ops":          ArraySchema(ObjectSchema(map[string]Schema{}, "op"), "Typed ops array; each item must include 'op' discriminator."),
+		}, "dag_key", "base_version", "ops"), HandleApplyOps(svc)),
 		defineTool("task_update_node", "Update the runtime status for a DAG node.", ObjectSchema(map[string]Schema{
 			"dag_key":  StringSchema("DAG key."),
 			"node_key": StringSchema("Node key within the DAG."),
 			"status":   EnumStringSchema("New node status.", "pending", "running", "done", "failed"),
 			"result":   StringSchema("Optional result summary."),
 		}, "dag_key", "node_key", "status"), HandleUpdateNode(svc)),
+		// ---- lifecycle ----
 		defineTool("task_start_dag", "Trigger a new DAG execution (creates a run, snapshots dag.version). Skeleton stage returns ErrLifecycleNotImplemented; T1.2 wires the real path.", ObjectSchema(map[string]Schema{
 			"dag_key":         StringSchema("DAG to start."),
 			"trigger_source":  EnumStringSchema("Trigger source.", "manual", "auto", "scheduled", "external"),
 			"idempotency_key": StringSchema("Optional, prevents duplicate run on retry."),
 		}, "dag_key"), HandleStartDAG(svc)),
+		// ---- reads ----
+		defineTool("task_get_dag", "Fetch a DAG and all of its nodes.", ObjectSchema(map[string]Schema{
+			"dag_key": StringSchema("Unique DAG key."),
+		}, "dag_key"), HandleGetDAG(svc)),
 		defineTool("task_get_run", "Fetch a single DAG run by run_key. Returns the run row only; node-level data is fetched separately via task_get_dag.", ObjectSchema(map[string]Schema{
 			"run_key": StringSchema("Run key returned by task_start_dag."),
 		}, "run_key"), HandleGetRun(svc)),
-		defineTool("task_dag_apply_ops", "Apply a typed ops batch (add_node / update_node / remove_node / update_dag) with base_version OCC. Ops shape: see nodeexec.Ops. Skeleton stage returns ErrLifecycleNotImplemented.", ObjectSchema(map[string]Schema{
-			"dag_key":      StringSchema("Target DAG key."),
-			"base_version": IntegerSchema("Expected current dag.version (OCC; mismatch returns conflict)."),
-			"ops":          ArraySchema(ObjectSchema(map[string]Schema{}, "op"), "Typed ops array; each item must include 'op' discriminator."),
-		}, "dag_key", "base_version", "ops"), HandleApplyOps(svc)),
 		defineTool("task_list_runs", "List recent runs for a DAG (object response wraps the runs slice for forward-compatibility). Status enum mirrors migration 0080 task_dag_runs.status CHECK.", ObjectSchema(map[string]Schema{
 			"dag_key": StringSchema("DAG key to list runs for."),
 			"status":  EnumStringSchema("Optional status filter.", "running", "succeeded", "failed", "cancelled"),
