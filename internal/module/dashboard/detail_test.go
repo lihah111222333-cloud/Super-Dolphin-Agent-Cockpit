@@ -197,3 +197,11 @@ func (s *stubDashboardOrchestration) ListDAGs(_ context.Context, filter contract
 func (s *stubDashboardOrchestration) UpdateNodeStatus(context.Context, contract.UpdateNodeStatusRequest) (contract.DAGNode, error) {
 	return contract.DAGNode{}, nil
 }
+
+func (s *stubDashboardOrchestration) StartDAG(context.Context, contract.StartDAGRequest) (contract.StartDAGResponse, error) {
+	return contract.StartDAGResponse{}, nil
+}
+
+func (s *stubDashboardOrchestration) ApplyOps(context.Context, contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
+	return contract.ApplyOpsResponse{}, nil
+}
