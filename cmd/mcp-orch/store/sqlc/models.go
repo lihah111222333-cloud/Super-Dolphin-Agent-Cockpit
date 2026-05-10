@@ -153,3 +153,28 @@ type WorkspaceRunFile struct {
 	CreatedAt          pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 }
+
+// TaskDagRun mirrors the row type that `sqlc generate` would emit for the
+// migrations 0072-0075 schema. Manually copied from a sqlc-1.30 dry run
+// because the existing baseline models.go diverges from sqlc-1.30 output
+// (omit_unused_structs:true drops TaskDag / TaskDagNode top-level types
+// when the queries SELECT explicit columns); regenerating in-place would
+// break store.go's TaskDag/TaskDagNode references. Keeping this manually
+// is a localised fix until the project does a full sqlc realignment
+// (separate refactor, out of scope for T1.2).
+type TaskDagRun struct {
+	ID                 int64              `json:"id"`
+	RunKey             string             `json:"run_key"`
+	DagKey             string             `json:"dag_key"`
+	DagVersionSnapshot int64              `json:"dag_version_snapshot"`
+	TriggerSource      string             `json:"trigger_source"`
+	Status             string             `json:"status"`
+	StartedAt          pgtype.Timestamptz `json:"started_at"`
+	FinishedAt         pgtype.Timestamptz `json:"finished_at"`
+	Events             []byte             `json:"events"`
+	BudgetUsed         int64              `json:"budget_used"`
+	BudgetLimit        pgtype.Int8        `json:"budget_limit"`
+	Metadata           []byte             `json:"metadata"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+}

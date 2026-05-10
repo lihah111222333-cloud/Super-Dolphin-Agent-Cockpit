@@ -22,6 +22,9 @@ type Store interface {
 
 // OrchestrationStore is the narrow port consumed by cmd/mcp-orch/orchestration
 // for public DAG CRUD/update flows.
+// Note: RunStore (task_dag_runs CRUD) is intentionally NOT embedded here
+// to keep this port within the InterfaceIsolation budget (<=0 direct,
+// <=3 embedded). service 层持有独立 runStore 字段、与 dagStore 并列。
 type OrchestrationStore interface {
 	UnitOfWorkStore
 	DAGReadStore
@@ -32,6 +35,11 @@ type UnitOfWorkStore interface {
 	WithTx(ctx context.Context, fn func(txStore DAGMutationStore) error) error
 }
 
+// DAGMutationStore 是 WithTx fn 接收的事务内变更接口。
+// Note: RunStore 不嵌入这里为了保持 InterfaceIsolation 预算
+// (<=2 direct, <=1 embedded)。StartDAG 事务内需要 CreateRun +
+// PromoteRootNodesToReady 时、通过扩展接口 DAGMutationWithRunStore
+// （commit 2 引入）拿到联合语义，不遭 InterfaceIsolation。
 type DAGMutationStore interface {
 	DAGDetailStore
 	UpsertDAG(ctx context.Context, dag DAG) (*DAG, error)
@@ -398,13 +406,21 @@ type ListRunsFilter struct {
 	Limit  int32  // 0 表示走默认上限
 }
 
-// RunStore 是 task_dag_runs 的窄接口（骨架阶段未并入 Store 聚合，T1.2 接通）。
+// RunStore 是 task_dag_runs 的窄接口（T1.2 接通；T0.5 archtest 守护至此转正向）。
 // 接口签名：
-//   - CreateRun: StartDAG 调用，新建一条 run 记录
-//   - GetRun:    按 run_key 取一条
-//   - ListRuns:  按 dag_key + 可选 status 列出最近 run（默认 ORDER BY started_at DESC）
+//   - CreateRun:                StartDAG 调用，新建一条 run 记录
+//   - GetRun:                   按 run_key 取一条
+//   - ListRuns:                 按 dag_key + 可选 status 列出最近 run
+//     （默认 ORDER BY started_at DESC）
+//   - CountActiveRunsByDagKey:  StartDAG 多 run 并发 reject 用（T1.2-mid 限制；
+//     F6.5 升级 multi-run 后此方法不再被 StartDAG 调用）
+//   - PromoteRootNodesToReady:  StartDAG 在新 run 创建后调用，把 dag_key 下
+//     depends_on=[] 且 status='pending' 的根节点提为
+//     'ready'。返回受影响行数
 type RunStore interface {
 	CreateRun(ctx context.Context, input CreateRunInput) (*Run, error)
 	GetRun(ctx context.Context, runKey string) (*Run, error)
 	ListRuns(ctx context.Context, filter ListRunsFilter) ([]Run, error)
+	CountActiveRunsByDagKey(ctx context.Context, dagKey string) (int64, error)
+	PromoteRootNodesToReady(ctx context.Context, dagKey string) (int64, error)
 }
