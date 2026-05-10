@@ -438,7 +438,7 @@ grep -r "FailureClass\|OnFailureStrategy" cmd/ 2>/dev/null | wc -l  # 目标 ≥
 - **MCP 错误双语化拉齐**：本次仅 StartDAG handler 内 `ErrIdempotencyKeyExhausted` / `ErrDAGAlreadyRunning` / `ErrDAGNotFound` 三个错误双语，其他 `task_*` / `commands_*` / `orchestration_*` handler 仍英文单语。下次迭代统一定义"双语错误规范"（面向 AI agent 的业务错误必须双语，内部错误英文）后批量拉齐。
 - **task_get_run.Events 全量返回**：当前 GetRun 一次性返回完整 Events jsonb；run 长跑后可能很大，需要长期分页 / 截断方案。M2 阶段可接受，未来 F 阶段再做。
 
-源自 T3.1/T3.2 审查补修（commit `caa9f13b` + `d1f5b0e4` + `498be56d`）：
+源自 T3.1/T3.2 落地 + 审查补修（commit `360f9bfd` + `cf335dbf` + `caa9f13b` + `d1f5b0e4` + `498be56d`）：
 
 - commit `360f9bfd` — T3.1 task_get_run（A2 不 inline 节点 / RunStore.GetRun 接通 / ErrRunNotFound 双语转译）
 - commit `cf335dbf` — T3.2 task_list_runs（status 枚举对齐 0080 CHECK / mapRuns 复用 dagRunDTO / {runs} 包对象）
