@@ -445,3 +445,13 @@ grep -r "FailureClass\|OnFailureStrategy" cmd/ 2>/dev/null | wc -l  # 目标 ≥
 - commit `caa9f13b` — T3.1/T3.2 审查应修 1+2：GetRun s==nil 统一返 ErrRunStoreUnset + ListRuns 返回值从指针改值类型（与 GetRun / ApplyOps 同款）
 - commit `d1f5b0e4` — T3.1/T3.2 测试加固：stubRunStore 字段化（并发友好，退出包级 var） + limit 边界 3 例 + s==nil receiver 测试 + BudgetLimit cloneInt64 独立性断言
 - commit `498be56d` — T3.2 service.ListRuns max=200 cap（防呆） + taskToolDefinitions 按 writes → lifecycle → reads 重排
+
+源自 T3 尾声 codemap 全检与合并仓运作复盘（1877f401 / 5fed929c / 9f302bf9 / 8399ea1b）：
+
+- **§10.58 候选 — cherry-pick hook 兜底纪律**：cherry-pick / rebase 自动提交路径默认 **不** 触发 pre-commit hook（git sequencer 行为，非配置问题）。本会话曾因合并 agent 跳 hook 导致 gofmt 违规漏检。建议 push 前手跑 `bash .githooks/pre-commit` 自检（不是 bypass，是补跑）。详见会话 §10.58 候选。
+- **§10.59 候选 — docs/plans 状态同步纪律**：每次 commit 改 task 状态（新增 / done / 推迟）时，必须同步 grep codemap / README / ADR 是否需要更新。本会话 T3.1/T3.2 落地后 04/10 codemap 漏改 1 周才被扫出，实际接口面与文档描述脱节。建议在 `会话习惯.md` 或 task done 检查表里添加“codemap 同步”一轮。
+- **listRunsLastFilter 字段冗余**：`dag_query_test.go:211-220` 注释承认与 stubRunStore 字段命名重叠（`lastListFilter` vs stubRunStore.lastFilter）。可去除二选一，保留 stubRunStore 一侧即可。低优先级。
+- **t.Parallel() 启用**：`dag_start_test.go` / `dag_query_test.go` 多用例未启用 `t.Parallel()`；T0.5/T1.2/T3.x stub 已并发安全（commit `d1f5b0e4` 字段化 stubRunStore + race test 验证），可启用以压缩本包测试总时。
+- **FinishedAt 防御拷贝断言**：`dag_query.go:158` 用 `shared.CloneTime(row.FinishedAt)` 做防御拷贝，但当前测试断言只覆盖 Events / Metadata，未掰 FinishedAt 拷贝表现。低优先级；如后续发现 FinishedAt 在调用者侧被误改再补补丁。
+- **service.ListRuns limit cap=200 抽常量**：commit `498be56d` 已在 service 层 cap，但 `200` 仍是字面量（出现于 service.go + dag_query_test.go）。建议提 `defaultListRunsLimitCap = 200` 或者走 contract 层常量，避免文档与代码双多头。
+
