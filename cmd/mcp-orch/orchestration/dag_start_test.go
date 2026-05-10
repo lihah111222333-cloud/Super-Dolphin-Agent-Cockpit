@@ -191,6 +191,102 @@ func TestStartDAG_DAGNotFound(t *testing.T) {
 	}
 }
 
+// ---- idempotency 命中返已有 run（commit message “幂等真兑现”收尾测） ----
+//
+// L3 GetRun-first 策略：同 IdempotencyKey 重入 → INSERT 冲突 (run_key UNIQUE) →
+// tx 外 GetRun(run_key) 命中 → 返已有 run。驱动：stub.WithRunTx 返一个
+// 23505 错误 + getRunReply 设为已有 run 表示 GetRun 命中。
+func TestStartDAG_IdempotencyKeyReplay_ReturnsExistingRun(t *testing.T) {
+	existing := &taskdag.Run{RunKey: "dag-1#run-abc", DagKey: "dag-1", DagVersionSnapshot: 7}
+	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
+	runStore := &stubRunStore{
+		withTxErr:   uniqueViolationErr("task_dag_runs_run_key_key"),
+		getRunReply: existing, // GetRun 命中 → 幂等路径
+	}
+	svc := makeStartDAGService(dagStore, runStore)
+
+	resp, err := svc.StartDAG(context.Background(), StartDAGRequest{
+		DagKey:         "dag-1",
+		IdempotencyKey: "abc",
+	})
+	if err != nil {
+		t.Fatalf("StartDAG() idempotent replay error = %v, want nil", err)
+	}
+	if resp.RunKey != existing.RunKey {
+		t.Errorf("resp.RunKey = %q, want existing %q (幂等返已有 run)", resp.RunKey, existing.RunKey)
+	}
+	if resp.Version != existing.DagVersionSnapshot {
+		t.Errorf("resp.Version = %d, want existing %d", resp.Version, existing.DagVersionSnapshot)
+	}
+	if got := len(runStore.getRunCalls); got != 1 {
+		t.Errorf("GetRun fallback calls = %d, want 1", got)
+	}
+}
+
+// ---- GetRun fallback 本身返非-NotFound 错误 → 包错上传 ----
+func TestStartDAG_GetRunFallbackError_PropagatesWithContext(t *testing.T) {
+	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
+	runStore := &stubRunStore{
+		withTxErr: uniqueViolationErr("some_constraint"),
+		getRunErr: errors.New("connection lost during fallback"), // 非 IsNotFound
+	}
+	svc := makeStartDAGService(dagStore, runStore)
+
+	_, err := svc.StartDAG(context.Background(), StartDAGRequest{DagKey: "dag-1"})
+	if err == nil {
+		t.Fatalf("StartDAG() error = nil, want fallback error propagation")
+	}
+	if !strings.Contains(err.Error(), "GetRun fallback") {
+		t.Errorf("StartDAG() error = %q, want contains 'GetRun fallback'", err.Error())
+	}
+	if !strings.Contains(err.Error(), "connection lost during fallback") {
+		t.Errorf("StartDAG() error = %q, want contains GetRun 错误原文", err.Error())
+	}
+}
+
+// ---- GetDAG 返错误（不是 nil dag）→ 包错上传 ----
+func TestStartDAG_GetDAGError_PropagatesWithContext(t *testing.T) {
+	dagStore := &stubStartDAGStore{getErr: errors.New("db down")}
+	runStore := &stubRunStore{}
+	svc := makeStartDAGService(dagStore, runStore)
+
+	_, err := svc.StartDAG(context.Background(), StartDAGRequest{DagKey: "dag-1"})
+	if err == nil {
+		t.Fatalf("StartDAG() error = nil, want GetDAG error propagation")
+	}
+	if !strings.Contains(err.Error(), "GetDAG") {
+		t.Errorf("StartDAG() error = %q, want contains 'GetDAG'", err.Error())
+	}
+	if !strings.Contains(err.Error(), "db down") {
+		t.Errorf("StartDAG() error = %q, want contains GetDAG 错误原文", err.Error())
+	}
+	// CreateRun / GetRun fallback 都不应被调
+	if got := len(runStore.createCalls); got != 0 {
+		t.Errorf("CreateRun called %d times, want 0 (short-circuit on GetDAG err)", got)
+	}
+}
+
+// ---- CreateRun 返非-unique-violation 错误 → 事务包错上传不走 fallback ----
+func TestStartDAG_CreateRunGenericError_NoFallback(t *testing.T) {
+	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
+	runStore := &stubRunStore{
+		createErr: errors.New("disk full"), // 非 PG unique violation
+	}
+	svc := makeStartDAGService(dagStore, runStore)
+
+	_, err := svc.StartDAG(context.Background(), StartDAGRequest{DagKey: "dag-1"})
+	if err == nil {
+		t.Fatalf("StartDAG() error = nil, want CreateRun error propagation")
+	}
+	if !strings.Contains(err.Error(), "disk full") {
+		t.Errorf("StartDAG() error = %q, want contains 'disk full'", err.Error())
+	}
+	// GetRun fallback 不应被调（仅 unique violation 走 fallback）
+	if got := len(runStore.getRunCalls); got != 0 {
+		t.Errorf("GetRun fallback called %d times, want 0 (only on unique violation)", got)
+	}
+}
+
 // ---- DB 冲突 (partial unique on running run) + GetRun 未命中 → ErrDAGAlreadyRunning ----
 //
 // L3 后 service 不再在应用层预检 active run，DB partial unique 兑底。本测驱动
