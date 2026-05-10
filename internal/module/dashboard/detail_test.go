@@ -209,3 +209,7 @@ func (s *stubDashboardOrchestration) GetRun(context.Context, contract.GetRunRequ
 func (s *stubDashboardOrchestration) ApplyOps(context.Context, contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
 	return contract.ApplyOpsResponse{}, nil
 }
+
+func (s *stubDashboardOrchestration) ListRuns(context.Context, contract.ListRunsRequest) (*contract.ListRunsResponse, error) {
+	return &contract.ListRunsResponse{}, nil
+}

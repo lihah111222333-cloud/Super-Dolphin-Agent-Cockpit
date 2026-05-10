@@ -49,6 +49,9 @@ type UpdateNodeStatusRequest = contract.UpdateNodeStatusRequest
 type DAGSummary = contract.DAGSummary
 type DAGNode = contract.DAGNode
 type DAGDetail = contract.DAGDetail
+type ListRunsRequest = contract.ListRunsRequest
+type ListRunsResponse = contract.ListRunsResponse
+type Run = contract.Run
 
 // P22 P4 S4c1: orchestration no longer exports a package-level `Module`
 // variable. Per P4 §278 the root entry (cmd/mcp-orch/fx.go

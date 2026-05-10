@@ -43,6 +43,30 @@ type OrchestrationService interface {
 	// ApplyOps 对 DAG 执行一组 typed ops (add/update/remove/update_dag) + base_version OCC。
 	// Ops 字段是 raw JSON（wire 格式），service 内部解码为 nodeexec.Ops。
 	ApplyOps(ctx context.Context, req ApplyOpsRequest) (ApplyOpsResponse, error)
+	// ListRuns 列出指定 DAG 的最近 run（dag_key 必填，可选 status / limit）。
+	// ListRuns lists recent runs for a DAG (dag_key required, optional status / limit).
+	ListRuns(ctx context.Context, req ListRunsRequest) (*ListRunsResponse, error)
+}
+
+// ListRunsRequest 是 OrchestrationService.ListRuns 的入参（T3.2）。
+// dag_key 必填；status / limit 可选。limit=0 时由 service 走默认上限。
+//
+// ListRunsRequest is the input for OrchestrationService.ListRuns (T3.2).
+// DagKey is required; Status / Limit are optional. Limit=0 uses the
+// service-side default cap.
+type ListRunsRequest struct {
+	DagKey string
+	Status string
+	Limit  int32
+}
+
+// ListRunsResponse 用对象包裹 runs slice，给后续扩展（next_cursor / total
+// 等分页/聚合字段）留位，避免一开始就把 wire 形状钉成裸数组。
+//
+// ListRunsResponse wraps the runs slice in an object so the wire shape can
+// grow extensions (next_cursor / total etc.) without a breaking change.
+type ListRunsResponse struct {
+	Runs []Run `json:"runs"`
 }
 
 // OrchestrationSessionCleaner is the owner-side contract for releasing
