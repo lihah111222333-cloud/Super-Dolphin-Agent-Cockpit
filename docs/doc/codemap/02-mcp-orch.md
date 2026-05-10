@@ -302,9 +302,13 @@ sharedfile 三个 leaf helper 包不在 `cmd/mcp-orch/` 树下，但同时被 mc
 
 | Tool | 功能 | 备注 |
 |---|---|---|
-| `task_create_dag` | 创建或 upsert DAG 与节点。 | `agent_id` 必填；`schedule` 与 node `execution` 先编码进 JSON。 |
-| `task_get_dag` | 获取 DAG 详情和节点列表。 | 返回 `dag + nodes`。 |
-| `task_update_node` | 更新节点运行状态。 | MCP schema 把状态枚举收敛为 `pending/running/done/failed`。 |
+| `task_create_dag` | 创建或 upsert DAG 与节点。 | writes。`agent_id` 必填；`schedule` 与 node `execution` 先编码进 JSON。 |
+| `task_dag_apply_ops` | 提交 typed ops batch（`add_node` / `update_node` / `remove_node` / `update_dag`）以 `base_version` OCC 原子应用。 | writes（T1.1 落地）。ops shape 参见 `nodeexec.Ops`；base_version 不匹配返回 conflict。 |
+| `task_update_node` | 更新节点运行状态。 | writes。MCP schema 把状态枚举收敛为 `pending/running/done/failed`。 |
+| `task_start_dag` | 触发一次 DAG 执行：创建 run、snapshot `dag.version`。 | lifecycle（T1.2 落地）。支持 `idempotency_key` 防重；`ErrDAGNotFound` / `ErrDAGAlreadyRunning` 双语转译。 |
+| `task_get_dag` | 获取 DAG 详情和节点列表。 | reads。返回 `dag + nodes`。 |
+| `task_get_run` | 按 `run_key` 获取单个 DAG run。 | reads（T3.1 落地）。仅返 run 行，不 inline 节点；node-level 数据走 `task_get_dag`。 |
+| `task_list_runs` | 按 DAG / status 过滤近期 run。 | reads（T3.2 落地）。`{runs: [...]}` 包对象返回；`status` 枚举对齐 migration 0080 CHECK；limit 默认 50，service 端 cap 到 200。 |
 
 > 当前**没有**对 Claude 暴露 `task_list_dags`；但包级 JSON-RPC handler 已有 `task/dag/list`。
 
