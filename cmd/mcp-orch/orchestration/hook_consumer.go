@@ -191,6 +191,19 @@ func (c *hookConsumer) handleThreadStarted(ctx context.Context, ev threaddto.Sta
 	c.logUnexpectedHookError("thread started", ev.AgentID, ev.ThreadID, err)
 }
 
+// shouldDeferIdleHook implements the single-writer guard against
+// launch_succeeded double-fire. While agent.state is provisioning or
+// recovering, commitLaunchSuccessLocked is the authoritative writer of the
+// state->idle transition; an idle event arriving via the hook channel must
+// be dropped so the state machine fires launch_succeeded exactly once.
+// All other (state, nextState) pairs flow through the normal path.
+func shouldDeferIdleHook(nextState string, agentState agentdto.AgentState) bool {
+	if nextState != string(agentdto.StateIdle) {
+		return false
+	}
+	return agentState == agentdto.StateProvisioning || agentState == agentdto.StateRecovering
+}
+
 func (c *hookConsumer) handleStateChanged(ctx context.Context, ev agentdto.StateChanged) {
 	nextState := strings.TrimSpace(ev.NewState)
 	if !isKnownMirroredState(nextState) {
@@ -213,6 +226,18 @@ func (c *hookConsumer) handleStateChanged(ctx context.Context, ev agentdto.State
 				"event_session_id", ev.SessionID,
 				"current_session_id", agentSessionID(agent),
 				"state", nextState,
+			)
+			return nil
+		}
+		// Launch/recover owns the provisioning->idle and recovering->idle
+		// transitions via commitLaunchSuccessLocked. If the launcher subprocess
+		// reports idle while we're still mid-launch, defer to the main flow to
+		// avoid a double-fire of launch_succeeded (single-writer principle).
+		if shouldDeferIdleHook(nextState, agent.state) {
+			c.logger.Info("orchestration: deferring hook idle event to launch/recover commit",
+				"agent_id", agent.id,
+				"current_state", agent.state,
+				"thread_id", ev.ThreadID,
 			)
 			return nil
 		}

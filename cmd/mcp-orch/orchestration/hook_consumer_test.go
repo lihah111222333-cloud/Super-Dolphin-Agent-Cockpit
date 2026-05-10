@@ -69,6 +69,123 @@ func TestHookConsumerAfter_StateChangeMirrorsAgentState(t *testing.T) {
 	}
 }
 
+// TestHookConsumerAfter_DefersIdleDuringProvisioning verifies the
+// single-writer guard: when the launcher subprocess reports idle while
+// the main flow is still mid-launch (state=provisioning), the hook
+// consumer must defer to commitLaunchSuccessLocked and leave the agent's
+// state untouched. Without this guard the state machine would fire
+// launch_succeeded twice (once via hookSyncFireLocked, once via the main
+// flow), producing an illegal-state-transition error and aborting launch.
+func TestHookConsumerAfter_DefersIdleDuringProvisioning(t *testing.T) {
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
+	agent := addHookTestAgent(t, svc, "agent-1")
+	agent.state = agentdto.StateProvisioning
+	agent.threadID = "thread-launch-rpc"
+	agent.remoteThreadID = "thread-launch-rpc"
+
+	consumer := newHookConsumer(svc, silentLogger())
+	stateChanged := agentdto.StateChanged{
+		AgentSessionHeader: sharedto.AgentSessionHeader{
+			AgentHeader: sharedto.AgentHeader{
+				ThreadHeader: sharedto.ThreadHeader{
+					EventHeader: sharedto.EventHeader{Timestamp: time.Unix(10, 0).UTC()},
+					ThreadID:    "thread-from-hook",
+				},
+				AgentID: "agent-1",
+			},
+		},
+		NewState: string(agentdto.StateIdle),
+	}
+	if _, err := consumer.After(context.Background(), hookPayload(t, hookTopicStateChange, hookRelayKindStateChanged, stateChanged)); err != nil {
+		t.Fatalf("After(provisioning idle hook) error = %v", err)
+	}
+
+	snapshot, err := svc.Snapshot(context.Background(), "agent-1")
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	if snapshot.State != string(agentdto.StateProvisioning) {
+		t.Fatalf("snapshot.State = %q, want %q (hook idle must be deferred during launch)",
+			snapshot.State, agentdto.StateProvisioning)
+	}
+	if snapshot.ThreadID != "thread-launch-rpc" {
+		t.Fatalf("snapshot.ThreadID = %q, want %q (main flow owns thread_id during launch)",
+			snapshot.ThreadID, "thread-launch-rpc")
+	}
+}
+
+// TestHookConsumerAfter_DefersIdleDuringRecovering covers the symmetric
+// recover path: state machine has Recovering->launch_succeeded->Idle, so
+// the same race exists when commitLaunchSuccessLocked is fired during a
+// recover cycle. The guard must apply here too.
+func TestHookConsumerAfter_DefersIdleDuringRecovering(t *testing.T) {
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
+	agent := addHookTestAgent(t, svc, "agent-1")
+	agent.state = agentdto.StateRecovering
+
+	consumer := newHookConsumer(svc, silentLogger())
+	stateChanged := agentdto.StateChanged{
+		AgentSessionHeader: sharedto.AgentSessionHeader{
+			AgentHeader: sharedto.AgentHeader{
+				ThreadHeader: sharedto.ThreadHeader{
+					EventHeader: sharedto.EventHeader{Timestamp: time.Unix(10, 0).UTC()},
+					ThreadID:    "thread-1",
+				},
+				AgentID: "agent-1",
+			},
+		},
+		NewState: string(agentdto.StateIdle),
+	}
+	if _, err := consumer.After(context.Background(), hookPayload(t, hookTopicStateChange, hookRelayKindStateChanged, stateChanged)); err != nil {
+		t.Fatalf("After(recovering idle hook) error = %v", err)
+	}
+
+	snapshot, err := svc.Snapshot(context.Background(), "agent-1")
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	if snapshot.State != string(agentdto.StateRecovering) {
+		t.Fatalf("snapshot.State = %q, want %q (hook idle must be deferred during recover)",
+			snapshot.State, agentdto.StateRecovering)
+	}
+}
+
+// TestHookConsumerAfter_FailedDuringProvisioning makes sure the guard is
+// scoped narrowly to NewState=idle. A failed/stopped hook during launch
+// represents a real subprocess crash and must still drive the state
+// machine so the main flow can observe the failure.
+func TestHookConsumerAfter_FailedDuringProvisioning(t *testing.T) {
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
+	agent := addHookTestAgent(t, svc, "agent-1")
+	agent.state = agentdto.StateProvisioning
+
+	consumer := newHookConsumer(svc, silentLogger())
+	stateChanged := agentdto.StateChanged{
+		AgentSessionHeader: sharedto.AgentSessionHeader{
+			AgentHeader: sharedto.AgentHeader{
+				ThreadHeader: sharedto.ThreadHeader{
+					EventHeader: sharedto.EventHeader{Timestamp: time.Unix(10, 0).UTC()},
+					ThreadID:    "thread-1",
+				},
+				AgentID: "agent-1",
+			},
+		},
+		NewState: string(agentdto.StateFailed),
+	}
+	if _, err := consumer.After(context.Background(), hookPayload(t, hookTopicStateChange, hookRelayKindStateChanged, stateChanged)); err != nil {
+		t.Fatalf("After(provisioning failed hook) error = %v", err)
+	}
+
+	snapshot, err := svc.Snapshot(context.Background(), "agent-1")
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	if snapshot.State != string(agentdto.StateFailed) {
+		t.Fatalf("snapshot.State = %q, want %q (failed hook must still drive sm during launch)",
+			snapshot.State, agentdto.StateFailed)
+	}
+}
+
 func TestHookConsumerAfter_ProcessExitMarksStopped(t *testing.T) {
 	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
 	agent := addHookTestAgent(t, svc, "agent-1")
