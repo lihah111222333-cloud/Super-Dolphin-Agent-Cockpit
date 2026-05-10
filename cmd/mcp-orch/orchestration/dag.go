@@ -459,6 +459,13 @@ var ErrDAGNotFound = errors.New("orchestration: dag_key not found")
 
 // ErrDAGAlreadyRunning 表示 T1.2-mid 限制下同 DAG 已有 running run，拒绝多
 // run 并发。F6.5 升级 multi-run 后不再出。
+//
+// 处理建议（与 ErrIdempotencyKeyExhausted 对照，"前者等/取消，后者换 idem"）：
+// 调用方应轮询当前 run 直至完成 / 主动 Terminate 后用同 idem 重试，不需要换 idem。
+//
+// Handling guidance (contrast with ErrIdempotencyKeyExhausted, "wait/cancel here
+// vs new idem there"): caller should poll the active run until completion or
+// Terminate it, then retry with the same idem; no new idem required.
 var ErrDAGAlreadyRunning = errors.New("orchestration: dag has an active run (T1.2-mid single-run constraint)")
 
 // ErrIdempotencyKeyExhausted 当 StartDAG 用同 idempotency key 调用，
@@ -513,12 +520,20 @@ type TerminateDAGRequest struct {
 //     （要求换 idem 重试）
 //   - 不同 idempotency_key → 总是新启 run
 //
+// 注意：T1.2-mid 单 run 约束下，同 dag_key 已有 running run 时仍返 ErrDAGAlreadyRunning
+// （与 idem 维度正交：idem 决定是否复用 RunKey，dag_key partial unique 决定是否允许启新 run）。
+//
 // StartDAG idempotency semantics (route N):
 //   - Same idempotency_key replay:
 //   - existing run is running/succeeded → return existing RunKey (dedup)
 //   - existing run is failed/cancelled → return ErrIdempotencyKeyExhausted
 //     (caller must use new key)
 //   - Different idempotency_key → always start a new run
+//
+// Note: under T1.2-mid single-run constraint, if the same dag_key already has a
+// running run, ErrDAGAlreadyRunning is returned regardless of idem (idem and
+// dag_key partial-unique are orthogonal: idem decides RunKey reuse, dag_key
+// partial-unique decides whether a new run may start).
 //
 // StartDAG 触发 DAG 一次新执行。T1.2-mid 范围（L3 根治后）：
 //
@@ -624,6 +639,17 @@ func (s *service) runStartDAGWithFallback(ctx context.Context, dagKey, runKey st
 //   - status failed/cancelled → ErrIdempotencyKeyExhausted (caller must use new key)
 //   - unknown status → defensive error
 //   - GetRun miss → conflict came from dag_key partial unique → ErrDAGAlreadyRunning
+//
+// 设计取舍：succeeded 与 running 同 case 复用 RunKey。这是 RFC-Idempotency 标准做法
+// （如 Stripe Idempotency-Key），把成功的幂等结果回放给重试调用方。
+// 如团队选"更激进版 N"（succeeded 也 exhausted），需把 succeeded 移到 exhausted
+// case 并补迁移说明（已交付调用方可能依赖当前语义）。
+//
+// Design trade-off: succeeded shares the running case to replay the idempotent
+// success result, following the RFC-Idempotency convention (e.g. Stripe
+// Idempotency-Key). For a "stricter route N" where succeeded is also exhausted,
+// move succeeded into the exhausted case and add migration notes (existing
+// callers may rely on the current semantics).
 func (s *service) resolveStartDAGUniqueViolation(ctx context.Context, dagKey, runKey string, txErr error) (StartDAGResponse, error) {
 	existing, getErr := s.runStore.GetRun(ctx, runKey)
 	if getErr == nil && existing != nil {
