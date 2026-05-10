@@ -239,9 +239,6 @@ func TestListRuns_HappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListRuns() error = %v, want nil", err)
 	}
-	if resp == nil {
-		t.Fatalf("ListRuns() resp = nil, want non-nil")
-	}
 	if got := len(resp.Runs); got != 2 {
 		t.Fatalf("ListRuns() runs = %d, want 2", got)
 	}
@@ -266,9 +263,6 @@ func TestListRuns_EmptyResult(t *testing.T) {
 	resp, err := svc.ListRuns(context.Background(), contract.ListRunsRequest{DagKey: "dag-empty"})
 	if err != nil {
 		t.Fatalf("ListRuns() error = %v, want nil", err)
-	}
-	if resp == nil {
-		t.Fatalf("resp = nil, want non-nil")
 	}
 	if got := len(resp.Runs); got != 0 {
 		t.Errorf("Runs = %d, want 0", got)
