@@ -14,7 +14,7 @@ import (
 
 func TestAutoDreamSchedulerDisabledHooksSkipsWorker(t *testing.T) {
 	t.Parallel()
-	hooks := &MemoryLifecycleHooks{enabled: false}
+	hooks := newTestHooks(withEnabled(false))
 	s := newAutoDreamScheduler(hooks, pkglogger.Get())
 	s.Start()
 
@@ -48,7 +48,7 @@ func TestAutoDreamSchedulerEnqueueOverflowCountsAsDropped(t *testing.T) {
 	// enabled=true keeps Enqueue on the production code path (otherwise it
 	// would still enqueue, but ensures future enabled checks inside Enqueue
 	// do not short-circuit without being counted).
-	hooks := &MemoryLifecycleHooks{enabled: true}
+	hooks := newTestHooks(withEnabled(true))
 	s := newAutoDreamScheduler(hooks, pkglogger.Get())
 
 	for i := 0; i < autoDreamSchedulerQueueCap; i++ {
@@ -84,7 +84,7 @@ func TestAutoDreamSchedulerStopGatesFurtherEnqueue(t *testing.T) {
 	// through autoDreamThreadEligible quickly (h.consolidator == nil path).
 	// That returns (false, nil) without any side effects, so process()
 	// increments processedTotal and returns.
-	hooks := &MemoryLifecycleHooks{enabled: true}
+	hooks := newTestHooks(withEnabled(true))
 	s := newAutoDreamScheduler(hooks, pkglogger.Get())
 	s.Start()
 
@@ -129,7 +129,7 @@ func TestAutoDreamSchedulerStopGatesFurtherEnqueue(t *testing.T) {
 
 func TestAutoDreamSchedulerIgnoresBlankThreadID(t *testing.T) {
 	t.Parallel()
-	hooks := &MemoryLifecycleHooks{enabled: true}
+	hooks := newTestHooks(withEnabled(true))
 	s := newAutoDreamScheduler(hooks, pkglogger.Get())
 	s.Start()
 	defer func() {

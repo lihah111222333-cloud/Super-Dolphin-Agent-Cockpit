@@ -71,7 +71,7 @@ func TestMemoryHookWorkerDrainsOnStop(t *testing.T) {
 	// that short-circuits inside autoDreamThreadEligible so process()
 	// just increments processedTotal. Mirrors the existing
 	// auto_dream_scheduler_test.go pattern.
-	hooks := &MemoryLifecycleHooks{enabled: true}
+	hooks := newTestHooks(withEnabled(true))
 	scheduler := newAutoDreamScheduler(hooks, pkglogger.Get())
 
 	// nestedIngestWorker: a tiny runtime that records every dispatch.
