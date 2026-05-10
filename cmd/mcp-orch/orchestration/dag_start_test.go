@@ -191,17 +191,16 @@ func TestStartDAG_DAGNotFound(t *testing.T) {
 	}
 }
 
-// ---- idempotency 命中返已有 run（commit message “幂等真兑现”收尾测） ----
+// ---- idempotency 命中返已有 run（路线 N：running 续复用） ----
 //
 // L3 GetRun-first 策略：同 IdempotencyKey 重入 → INSERT 冲突 (run_key UNIQUE) →
-// tx 外 GetRun(run_key) 命中 → 返已有 run。驱动：stub.WithRunTx 返一个
-// 23505 错误 + getRunReply 设为已有 run 表示 GetRun 命中。
+// tx 外 GetRun(run_key) 命中，路线 N 下 status=running 仍复用返已有 run。
 func TestStartDAG_IdempotencyKeyReplay_ReturnsExistingRun(t *testing.T) {
-	existing := &taskdag.Run{RunKey: "dag-1#run-abc", DagKey: "dag-1", DagVersionSnapshot: 7}
+	existing := &taskdag.Run{RunKey: "dag-1#run-abc", DagKey: "dag-1", DagVersionSnapshot: 7, Status: "running"}
 	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
 	runStore := &stubRunStore{
 		withTxErr:   uniqueViolationErr("task_dag_runs_run_key_key"),
-		getRunReply: existing, // GetRun 命中 → 幂等路径
+		getRunReply: existing, // GetRun 命中 running → 幂等路径
 	}
 	svc := makeStartDAGService(dagStore, runStore)
 
@@ -220,6 +219,111 @@ func TestStartDAG_IdempotencyKeyReplay_ReturnsExistingRun(t *testing.T) {
 	}
 	if got := len(runStore.getRunCalls); got != 1 {
 		t.Errorf("GetRun fallback calls = %d, want 1", got)
+	}
+}
+
+// ---- 路线 N：status=succeeded 同样复用 ----
+func TestStartDAG_IdempotencyKey_ExistingRunSucceeded_ReturnsExisting(t *testing.T) {
+	existing := &taskdag.Run{RunKey: "dag-1#run-abc", DagKey: "dag-1", DagVersionSnapshot: 9, Status: "succeeded"}
+	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
+	runStore := &stubRunStore{
+		withTxErr:   uniqueViolationErr("task_dag_runs_run_key_key"),
+		getRunReply: existing,
+	}
+	svc := makeStartDAGService(dagStore, runStore)
+
+	resp, err := svc.StartDAG(context.Background(), StartDAGRequest{
+		DagKey: "dag-1", IdempotencyKey: "abc",
+	})
+	if err != nil {
+		t.Fatalf("StartDAG() succeeded replay error = %v, want nil (幂等复用成功结果)", err)
+	}
+	if resp.RunKey != existing.RunKey {
+		t.Errorf("resp.RunKey = %q, want existing %q", resp.RunKey, existing.RunKey)
+	}
+	if resp.Version != existing.DagVersionSnapshot {
+		t.Errorf("resp.Version = %d, want %d", resp.Version, existing.DagVersionSnapshot)
+	}
+}
+
+// ---- 路线 N：status=failed 返 ErrIdempotencyKeyExhausted ----
+func TestStartDAG_IdempotencyKey_ExistingRunFailed_ReturnsExhausted(t *testing.T) {
+	existing := &taskdag.Run{RunKey: "dag-1#run-abc", DagKey: "dag-1", DagVersionSnapshot: 3, Status: "failed"}
+	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
+	runStore := &stubRunStore{
+		withTxErr:   uniqueViolationErr("task_dag_runs_run_key_key"),
+		getRunReply: existing,
+	}
+	svc := makeStartDAGService(dagStore, runStore)
+
+	resp, err := svc.StartDAG(context.Background(), StartDAGRequest{
+		DagKey: "dag-1", IdempotencyKey: "abc",
+	})
+	if !errors.Is(err, ErrIdempotencyKeyExhausted) {
+		t.Fatalf("StartDAG() error = %v, want errors.Is(ErrIdempotencyKeyExhausted)", err)
+	}
+	if resp.RunKey != "" {
+		t.Errorf("resp.RunKey = %q, want empty when exhausted", resp.RunKey)
+	}
+	// 富错误详情应携带旧 RunKey + status
+	var exhausted *IdempotencyKeyExhaustedError
+	if !errors.As(err, &exhausted) {
+		t.Fatalf("errors.As(*IdempotencyKeyExhaustedError) failed for err=%v", err)
+	}
+	if exhausted.RunKey != existing.RunKey || exhausted.Status != "failed" {
+		t.Errorf("exhausted = {RunKey:%q Status:%q}, want {RunKey:%q Status:\"failed\"}", exhausted.RunKey, exhausted.Status, existing.RunKey)
+	}
+}
+
+// ---- 路线 N：status=cancelled 返 ErrIdempotencyKeyExhausted ----
+func TestStartDAG_IdempotencyKey_ExistingRunCancelled_ReturnsExhausted(t *testing.T) {
+	existing := &taskdag.Run{RunKey: "dag-1#run-abc", DagKey: "dag-1", DagVersionSnapshot: 3, Status: "cancelled"}
+	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
+	runStore := &stubRunStore{
+		withTxErr:   uniqueViolationErr("task_dag_runs_run_key_key"),
+		getRunReply: existing,
+	}
+	svc := makeStartDAGService(dagStore, runStore)
+
+	resp, err := svc.StartDAG(context.Background(), StartDAGRequest{
+		DagKey: "dag-1", IdempotencyKey: "abc",
+	})
+	if !errors.Is(err, ErrIdempotencyKeyExhausted) {
+		t.Fatalf("StartDAG() error = %v, want errors.Is(ErrIdempotencyKeyExhausted)", err)
+	}
+	if resp.RunKey != "" {
+		t.Errorf("resp.RunKey = %q, want empty when exhausted", resp.RunKey)
+	}
+	var exhausted *IdempotencyKeyExhaustedError
+	if !errors.As(err, &exhausted) || exhausted.Status != "cancelled" {
+		t.Errorf("errors.As / status mismatch: err=%v, exhausted=%+v", err, exhausted)
+	}
+}
+
+// ---- 路线 N：未知 status 返防御错误，不静默复用也不当作幂等耗尽 ----
+func TestStartDAG_IdempotencyKey_UnknownStatus_ReturnsError(t *testing.T) {
+	existing := &taskdag.Run{RunKey: "dag-1#run-abc", DagKey: "dag-1", Status: "weird-state"}
+	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
+	runStore := &stubRunStore{
+		withTxErr:   uniqueViolationErr("task_dag_runs_run_key_key"),
+		getRunReply: existing,
+	}
+	svc := makeStartDAGService(dagStore, runStore)
+
+	_, err := svc.StartDAG(context.Background(), StartDAGRequest{
+		DagKey: "dag-1", IdempotencyKey: "abc",
+	})
+	if err == nil {
+		t.Fatalf("StartDAG() error = nil, want defensive error on unknown status")
+	}
+	if errors.Is(err, ErrIdempotencyKeyExhausted) {
+		t.Errorf("err = %v should NOT match ErrIdempotencyKeyExhausted on unknown status", err)
+	}
+	if errors.Is(err, ErrDAGAlreadyRunning) {
+		t.Errorf("err = %v should NOT match ErrDAGAlreadyRunning on unknown status", err)
+	}
+	if !strings.Contains(err.Error(), "unexpected run status") {
+		t.Errorf("err = %q, want contains 'unexpected run status'", err.Error())
 	}
 }
 
