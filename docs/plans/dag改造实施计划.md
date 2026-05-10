@@ -119,7 +119,7 @@ af542629  feat(nodeexec): ValidateTransition + IsTerminal (S7.1)
 | ID | 状态 | 标题 | 文件 / Commit |
 |---|---|---|---|
 | ~~**T1.1**~~ | ✅ done | MCP `task_start_dag` schema + handler（stub） | `tools/task_tools.go` + `contract/orchestration.go` (StartDAGRequest/Response) / commit `2ef76d2e` |
-| ~~**T1.2**~~ | ✅ done (mid) | `service.StartDAG` 真实实现：创建 run + status 转 running | `cmd/mcp-orch/orchestration/dag.go` + `store/taskdag/{contract.go,store_run.go}` + `sql/queries/task_dag_run.sql` / commit `57075943` (store 层) + `bbf8a988` (service)。T1.2-mid 范围完成：RunStore 5+1 方法 (CRUD/Count/Promote/WithRunTx) + StartDAG 真业务 + 3 sentinel error + 10 unit test。Integration test 合并 T0.1 + T0.3。T1.2-full 升级 → **F6.5** |
+| ~~**T1.2**~~ | ✅ done (mid) | `service.StartDAG` 真实实现：创建 run + status 转 running | `cmd/mcp-orch/orchestration/dag.go` + `store/taskdag/{contract.go,store_run.go}` + `sql/queries/task_dag_run.sql` / commit `57075943` (store 层) + `bbf8a988` (service)。T1.2-mid 范围完成：RunStore 5+1 方法 (CRUD/Count/Promote/WithRunTx) + StartDAG 真业务 + 3 sentinel error + 10 unit test。Integration test 合并 T0.1 + T0.3。T1.2-full 升级 → **F6.5**。**ledger**：commit `3f6c6a80` — StartDAG 幂等语义路线 N（failed/cancelled 命中返 ErrIdempotencyKeyExhausted，running/succeeded 仍复用 RunKey） |
 | ~~**T2.1**~~ | ✅ done | MCP `task_dag_apply_ops` schema + handler（stub） | `tools/task_tools.go` / commit `2af9539c`（PT-4: raw ops 透传测试由 F4.1-F4.5 各自单测自然覆盖，不单独立项） |
 | ~~**T2.2**~~ | ✅ done | `service.ApplyOps` 接通 contract.ApplyOpsRequest（stub）；真实实现归 F4.x | `orchestration/dag.go` / commit `2af9539c`（PT-2: ops 形状校验 / unmarshal fail-fast → **F4.0** 顶层前置） |
 | **T3.1** | ⛔ 需 PG | MCP `task_get_run` schema + handler | 依赖 RunStore 真实实现（T1.2 后） |
@@ -426,3 +426,12 @@ grep -r "FailureClass\|OnFailureStrategy" cmd/ 2>/dev/null | wc -l  # 目标 ≥
 6. 不主动 push
 
 按 §9 并行计划，**S1.1 + S2.1 + S3.1 + S6.1（前端独立） + S7.1** 可同时起 5 个 worker，但建议先把 **S1.1 + S1.2** 跑通再扩散，让接口契约稳定后再让其他 task 引用它。
+
+---
+
+## DAG 改造 follow-up issues（非阻塞）
+
+源自路线 N 三视角审查（commit `3f6c6a80` + 注释补强 commit `1877f401`）：
+
+- **抽 RunStatus 常量包**：当前 `running/succeeded/failed/cancelled` 4 状态字面量在 13 处分散（`contract.go` 注释、`0080` CHECK、`dag.go` switch、测试 stub）。等加新 status（如 `timeout` / `paused`）时再统一抽 `taskdag.RunStatus` 常量包，与 `0080` CHECK 单一来源对齐。当前 `0080` CHECK 已锁定全集，分散字面量风险可控。
+- **MCP 错误双语化拉齐**：本次仅 StartDAG handler 内 `ErrIdempotencyKeyExhausted` / `ErrDAGAlreadyRunning` / `ErrDAGNotFound` 三个错误双语，其他 `task_*` / `commands_*` / `orchestration_*` handler 仍英文单语。下次迭代统一定义"双语错误规范"（面向 AI agent 的业务错误必须双语，内部错误英文）后批量拉齐。

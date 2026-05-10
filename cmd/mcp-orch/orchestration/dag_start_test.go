@@ -295,8 +295,11 @@ func TestStartDAG_IdempotencyKey_ExistingRunCancelled_ReturnsExhausted(t *testin
 		t.Errorf("resp.RunKey = %q, want empty when exhausted", resp.RunKey)
 	}
 	var exhausted *IdempotencyKeyExhaustedError
-	if !errors.As(err, &exhausted) || exhausted.Status != "cancelled" {
-		t.Errorf("errors.As / status mismatch: err=%v, exhausted=%+v", err, exhausted)
+	if !errors.As(err, &exhausted) {
+		t.Fatalf("errors.As(*IdempotencyKeyExhaustedError) failed for err=%v", err)
+	}
+	if exhausted.RunKey != existing.RunKey || exhausted.Status != "cancelled" {
+		t.Errorf("exhausted = {RunKey:%q Status:%q}, want {RunKey:%q Status:\"cancelled\"}", exhausted.RunKey, exhausted.Status, existing.RunKey)
 	}
 }
 
