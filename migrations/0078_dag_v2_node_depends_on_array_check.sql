@@ -19,6 +19,12 @@
 -- ROLLBACK (manual):
 --   ALTER TABLE task_dag_nodes DROP CONSTRAINT IF EXISTS chk_depends_on_is_array;
 
+-- 包 BEGIN/COMMIT 让两步 ALTER 原子化：若步骤 2 VALIDATE 失败（极端情况下
+-- 历史数据有非 array 行）则整体 rollback，避免遗留 NOT VALID 状态的半成品
+-- 约束。当前 runner（internal/platform/db/module.go executeMigration）用
+-- pool.Exec 单次执行整文件、不自动包 tx，因此显式 BEGIN/COMMIT 是必须的。
+BEGIN;
+
 -- 步骤 1：NOT VALID 仅约束新写入，不阻塞既有行（即使预检显示全 array,
 -- NOT VALID 模式仍是更稳健的渐进路径，未来追加 migration 不会受历史数据卡死）。
 ALTER TABLE task_dag_nodes
@@ -29,3 +35,6 @@ ALTER TABLE task_dag_nodes
 -- 步骤 2：VALIDATE 升级到强约束（要求所有既有行通过；预检已确认全部 array）。
 ALTER TABLE task_dag_nodes
   VALIDATE CONSTRAINT chk_depends_on_is_array;
+
+COMMIT;
+
