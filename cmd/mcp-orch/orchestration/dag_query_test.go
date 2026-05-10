@@ -310,8 +310,8 @@ func TestListRuns_DefaultLimit(t *testing.T) {
 	}
 }
 
-// ---- limit 传值透传（在 max=0 上限内） ----
-// ---- limit passthrough within max=0 cap ----
+// ---- limit 传值透传（在 max=200 上限内） ----
+// ---- limit passthrough within max=200 cap ----
 
 func TestListRuns_ExplicitLimitPassthrough(t *testing.T) {
 	stub := &stubRunStore{}

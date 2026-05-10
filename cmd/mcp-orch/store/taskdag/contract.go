@@ -38,8 +38,8 @@ type UnitOfWorkStore interface {
 // DAGMutationStore 是 WithTx fn 接收的事务内变更接口。
 // Note: RunStore 不嵌入这里为了保持 InterfaceIsolation 预算
 // (<=2 direct, <=1 embedded)。StartDAG 事务内需要 CreateRun +
-// PromoteRootNodesToReady 时、通过扩展接口 DAGMutationWithRunStore
-// （commit 2 引入）拿到联合语义，不遭 InterfaceIsolation。
+// PromoteRootNodesToReady 时、未来（F6.x 阶段）通过扩展接口
+// DAGMutationWithRunStore 拿到联合语义，不遭 InterfaceIsolation。
 type DAGMutationStore interface {
 	DAGDetailStore
 	UpsertDAG(ctx context.Context, dag DAG) (*DAG, error)

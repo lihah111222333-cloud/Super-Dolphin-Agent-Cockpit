@@ -455,6 +455,9 @@ func cloneInt64(value *int64) *int64 {
 var ErrLifecycleNotImplemented = errors.New("orchestration lifecycle: not implemented in skeleton stage (T1.2/F4.x/F6.x)")
 
 // ErrDAGNotFound 表示 StartDAG / TerminateDAG 调用时 dag_key 不存在。
+//
+// ErrDAGNotFound is returned when StartDAG / TerminateDAG is invoked with a
+// dag_key that does not exist in storage.
 var ErrDAGNotFound = errors.New("orchestration: dag_key not found")
 
 // ErrDAGAlreadyRunning 表示 T1.2-mid 限制下同 DAG 已有 running run，拒绝多
@@ -499,6 +502,11 @@ func (e *IdempotencyKeyExhaustedError) Unwrap() error {
 
 // ErrRunStoreUnset 表示 service 未注入 RunStore（测试裸构造路径）不能调
 // StartDAG。生产路径 ProvideService 会 setter 注入 RunStore。
+//
+// ErrRunStoreUnset is returned when the service has no RunStore wired
+// (bare-construction test path) and a method that requires it (StartDAG /
+// GetRun / ListRuns) is invoked. Production wiring via ProvideService
+// always injects a RunStore.
 var ErrRunStoreUnset = errors.New("orchestration: run store not configured")
 
 // StartDAGRequest / StartDAGResponse 现为 contract 包类型别名，让 service
