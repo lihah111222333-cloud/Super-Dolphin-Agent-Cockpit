@@ -77,3 +77,26 @@ CHECK 误伤合法数据时才回滚。
 3. **down 不会修复脏数据**：如 0076 down 后若有遗留并发 running 行，需自行清理。
 4. **不要把 down SQL 放进 `migrations/` 目录**：runner 不区分 up/down，会把 `*.down.sql`
    当成新 migration 跑掉。
+
+---
+
+## 0079 — task_dag_nodes run_id FK + reads/writes array CHECK + run_id 索引
+
+**up：** `migrations/0079_dag_v2_node_run_id_fk_and_jsonb_checks.sql`
+
+**down（手工执行）：**
+
+```sql
+BEGIN;
+ALTER TABLE task_dag_nodes DROP CONSTRAINT IF EXISTS fk_task_dag_nodes_run_id;
+DROP INDEX IF EXISTS idx_task_dag_nodes_run_id;
+ALTER TABLE task_dag_nodes DROP CONSTRAINT IF EXISTS chk_reads_is_array;
+ALTER TABLE task_dag_nodes DROP CONSTRAINT IF EXISTS chk_writes_is_array;
+DELETE FROM schema_migrations WHERE filename = '0079_dag_v2_node_run_id_fk_and_jsonb_checks.sql';
+COMMIT;
+```
+
+**影响：** 删除 FK 后 run_id 可能悬挂引用不存在的 task_dag_runs.id；删 reads/
+writes CHECK 后允许非数组 jsonb 值，UI / 文件锁 联动读路径可能 unmarshal 失败。
+仅在 FK / CHECK 误伤合法数据或阻塞业务时回滚。run_id 索引 down 仅影响查询性能，
+不影响正确性。
