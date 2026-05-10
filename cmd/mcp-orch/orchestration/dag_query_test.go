@@ -365,7 +365,7 @@ func TestListRuns_LimitNegative_DefaultsToFifty(t *testing.T) {
 // 避免调用方传 99999999 后透到 SQL 层。
 // service-side ClampLimit(val, 1, 200, 50) caps anything above 200 so a
 // 99999999 caller cannot push that limit down to SQL.
-func TestListRuns_LimitVeryLarge_PassedThrough(t *testing.T) {
+func TestListRuns_LimitVeryLarge_CappedToTwoHundred(t *testing.T) {
 	stub := &stubRunStore{}
 	svc := makeStartDAGService(nil, stub)
 
