@@ -3,7 +3,7 @@
 > 配套文档：`docs/plans/dag改造蓝图v2.md`（决策与设计）
 > 本文是执行级清单：每行一个可独立提交的任务，含触动文件、验收、依赖、size、可并行性
 > Size 直觉：S = 半天以内 / M = 1-2 天 / L = 3 天以上（仅相对量级，非时间承诺）
-> 修订历史：2026-05-10 初稿；2026-05-10 补 4 处小字段位 / 策略；2026-05-10 2-pass DAG 审查后同步（10 项 checklist）；2026-05-10 S2.4 推迟到 F 阶段；**2026-05-10 骨架阶段封板：17/24 task done + 1 推迟 F + S6 推迟 T5；骨架后二次 DAG 审查 8 个 findings 转为 T0 启动作业**
+> 修订历史：2026-05-10 初稿 / 4 处小补 / 2-pass 审查 / S2.4 推迟 F / **骨架阶段封板**；**2026-05-10 T 阶段快车道完成**：T0.4/5/6/8 + T1.1 + T2.1+T2.2 + T4.1+T4.4 全部 done（6 commit）；T 阶段二次审查 4 轻度 findings 全推迟到 T0.1 / F4.1 / F 阶段
 
 ---
 
@@ -12,7 +12,7 @@
 | 阶段 | 任务数 | 状态 | 总 size | 关键产出 |
 |---|---|---|---|---|
 | **S 骨架** | **24** | **✅ 封板：17 done / 1 推迟 F (S2.4) / 2 推迟 T5 (S6.1+S6.2) / 4 转 T0 作业** | ~25% | 14 处补丁 + ADR 0001 + 删死代码；行为完全不变 |
-| T 工具 | 18+T0作业 | ⛔ 未开动 | ~35% | MCP 工具就位 + UI 接通真实数据 + AI 按钮可点 |
+| **T 工具** | 18 + 9 T0 | **🟡 快车道 done：4 T0 done / 5 T0 推迟 + T1.1 / T2.1+T2.2 / T4.1+T4.4 done。5 task 入 PG/前端阔。** | ~35% | MCP 工具 9/9 就位（含 registry）；UI/AI 设计师待外部依赖 |
 | F 功能 | 26 | ⛔ 未开动 | ~30% | 行为兑现：cron 真跑、AI 设计师上岗、智能重试落地 |
 | H 加固 | 按需 | ⛔ 未开动 | ~10% | 生产问题驱动，不预排 |
 
@@ -61,17 +61,17 @@
 
 骨架阶段二次 DAG 审查（`dag_skeleton_audit_20260510`）产出 8 个非阻塞型 findings，全部转为 T0 启动作业。必须在 T1.1 / T2.1 开工前处理：
 
-| ID | 优先级 | 问题 | 补动 |
+| ID | 状态 | 问题 | 处理 |
 |---|---|---|---|
-| **T0.1** | 中 | PD-1: 缺 e2e 测试 fixture (S骨架阶段未补上) | 加最小 DAG e2e fixture，供 T1.1/T2.1 集成测试复用 |
-| **T0.2** | 中 | PB-2: migration 0072-0075 未在 PG 跑过验证 | 本地 PG 试跑 + sqlc generate 验证生成 |
-| **T0.3** | 中 | PB-1: 缺 service↔store 跨层集成测试 | T1.1 / T2.1 一起加 |
-| **T0.4** | 轻 | PA-1: dag_retry_policy.go 缺导航注释指向 nodeexec.OnFailureConfig | 5 行注释 |
-| **T0.5** | 轻 | PC-1: RunStore 接口不强制实现 | 加 archtest 守“production store implements RunStore” |
-| **T0.6** | 轻 | PC-4: NodeSpec↔taskdag.Node↔nodeexec.Node 三方映射未文档化 | ADR 0001 §2.5/§2.6 加一句 |
-| **T0.7** | 轻 | PD-2: B-5 thread-DAG 关联 (spawning_thread_id) 未明确推迟 | T8.1 做 AI 设计师按钮时补 metadata.spawning_thread_id |
-| **T0.8** | 中 | PD-3: doc-sync check 未做也未文档化 | 加 `scripts/check-dag-doc-sync.sh` 简单 grep 设查 |
-| **T0.9** | 中 | PE-1（吃狗粮）: dispatcher 对无 assignee 节点自动 spawn | F 阶段修 dispatcher 时一并 (列作推迟 F) |
+| **T0.1** | ⏸ 推迟 | PD-1: 缺 e2e 测试 fixture | 与 T1.2/T3.x 真实路径一起做（需 PG） |
+| **T0.2** | ⏸ 推迟 | PB-2: migration 0072-0075 未在 PG 跑过验证 | 等本地 PG 环境就绪 |
+| **T0.3** | ⏸ 推迟 | PB-1: 缺 service↔store 跨层集成测试 | 与 T1.2/T3.x 一起做 |
+| ~~**T0.4**~~ | ✅ done | PA-1: dag_retry_policy.go 导航注释 | commit `8d32ea1f` |
+| ~~**T0.5**~~ | ✅ done | PC-1: archtest 守护 RunStore 待 T1.2 | commit `8f61c839` |
+| ~~**T0.6**~~ | ✅ done | PC-4: ADR 0001 §2.5 加三方映射注释 | commit `8d32ea1f` |
+| **T0.7** | ⏸ 推迟 | PD-2: thread-DAG 关联 (spawning_thread_id) | T8.1 AI 设计师按钮一并 |
+| ~~**T0.8**~~ | ✅ done | PD-3: doc-sync check | commit `f972627d`（4 项检查全过） |
+| **T0.9** | ⏸ 推迟 F | PE-1（吃狗粮）: dispatcher 对无 assignee 节点自动 spawn | F 阶段 dispatcher 重做一并 |
 
 详见审查报告 `handoff/skeleton-audit-{pass1-adr,pass2-tests,pass3-cross-cutting,pass4-prev-closed,synthesis,final-verdict}.md`。
 
@@ -112,7 +112,61 @@ af542629  feat(nodeexec): ValidateTransition + IsTerminal (S7.1)
 
 ---
 
-## 2. 阶段 T 工具（18 任务）
+## 2. 阶段 T 工具（18 任务，快车道 5 项 done）
+
+状态图例：✅ done / ⛔ 入 PG 阔 / ⛔ 入前端阔 / ⏸ 推迟
+
+| ID | 状态 | 标题 | 文件 / Commit |
+|---|---|---|---|
+| ~~**T1.1**~~ | ✅ done | MCP `task_start_dag` schema + handler（stub） | `tools/task_tools.go` + `contract/orchestration.go` (StartDAGRequest/Response) / commit `2ef76d2e` |
+| **T1.2** | ⛔ 需 PG | `service.StartDAG` 真实实现：创建 run + status 转 running | `cmd/mcp-orch/orchestration/dag.go`（现 stub 位）。依赖 T0.2 PG 环境 |
+| ~~**T2.1**~~ | ✅ done | MCP `task_dag_apply_ops` schema + handler（stub） | `tools/task_tools.go` / commit `2af9539c` |
+| ~~**T2.2**~~ | ✅ done | `service.ApplyOps` 接通 contract.ApplyOpsRequest（stub）；真实实现归 F4.x | `orchestration/dag.go` / commit `2af9539c` |
+| **T3.1** | ⛔ 需 PG | MCP `task_get_run` schema + handler | 依赖 RunStore 真实实现（T1.2 后） |
+| **T3.2** | ⛔ 需 PG | MCP `task_list_runs` schema + handler | 同 T3.1 |
+| ~~**T4.1**~~ | ✅ done | MCP `list_models` 工具 | `tools/registry_tools.go` 新建 / commit `c311259e`（PT-1: F 阶段改读 provider registry） |
+| ~~**T4.2**~~ | ✅ 复用 | MCP `prompt_list` 已存在 | `tools/prompt_tools.go` |
+| ~~**T4.3**~~ | ✅ 复用 | MCP `command_list` 已存在 | `tools/command_tools.go` |
+| ~~**T4.4**~~ | ✅ done | MCP `shared_file_list` + 暴露 allowed_prefixes | `tools/registry_tools.go` / commit `c311259e` |
+| **T5.1** | ⛔ 前端方案待审 | UI `useDagDetail` composable | `composables/useDagDetail.js` |
+| **T5.2** | ⛔ 前端方案待审 | UI `DagDetailModal` 节点列表 + polling | `components/DagDetailModal.js` |
+| **T5.3** | ⛔ 前端方案待审 | UI Start 按钮 | 同上 |
+| **T6.1** | ⛔ 前端方案待审 | UI 节点行 → 子 agent thread 链接 | 同上 |
+| **T7.1** | ⛔ 前端方案待审 | UI DAG 列表字段显示 + polling | `pages/DagsPage.js` |
+| **T8.1** | ⛔ 前端方案待审 | UI 「AI 帮你设计流程」按钮 | `pages/DagsPage.js` |
+| **T8.2** | ⛔ 依赖 T8.1 | base 设计师 prompt 占位 | prompt_template 表 |
+| **T9.1** | ⛔ 依赖 T1-T4 | codemap 索引刷新 | `docs/doc/codemap/02-mcp-orch.md` |
+
+### 2.1 T 阶段快车道总结 (2026-05-10 二次审查后)
+
+**完成（8 条 commit，含 T0）**：
+```
+c311259e  T4.1+T4.4 list_models + shared_file_list
+2af9539c  T2.1+T2.2 task_dag_apply_ops 接通 contract
+2ef76d2e  T1.1 task_start_dag stub
+8f61c839  T0.5 archtest 守护
+f972627d  T0.8 doc-sync script
+8d32ea1f  T0.4 + T0.6 导航注释 + ADR 三方映射
+```
+
+**MCP 工具表面 9/9 全就位**：task_create_dag / get_dag / update_node / start_dag / dag_apply_ops / list_models / shared_file_list / prompt_list / command_list。AI 设计师在 thread 里能查全部资源，stub 路径允许“骨架走一趟”。
+
+**T 阶段二次 DAG 审查（`dag_t_phase_audit_20260510`）产出 4 轻度 findings**，全部推迟立项：
+- **PT-1**：list_models 硬编码 → F 阶段改读 provider registry
+- **PT-2**：ApplyOps stub 不验证 ops 形状 → F4.1 真实落地时 unmarshal fail-fast
+- **PT-3**：T1.1 缺端到端 fixture → 合并到 T0.1
+- **PT-4**：T2.1 raw ops 透传缺测试 → F4.1 一起做
+
+**剩余 task 阔住点**：
+- T1.2 / T3.1 / T3.2 / T0.1 / T0.2 / T0.3 → 需本地 PG 环境
+- T5.x / T6.1 / T7.1 / T8.x → 需前端方案用户审认过
+- T9.1 codemap → 依赖 T1-T4 全部完成
+
+详见审查报告 `handoff/t-phase-audit-{pass1-adr,pass2-layer,pass3-tests,pass4-t0-closed,synthesis,final-verdict}.md`。
+
+---
+
+## 2.legacy 原 T 阶段表格（历史保留，可跳过）
 
 | ID | 标题 | 主要触动文件 | 验收 | 依赖 | Size | 并行 |
 |---|---|---|---|---|---|---|
