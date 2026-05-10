@@ -70,7 +70,7 @@ CHECK 误伤合法数据时才回滚。
 
 ## 注意事项
 
-1. **当前 PG 已 applied 0076/0077/0078**（`schema_migrations.version` 最大 78），
+1. **当前 PG 已 applied 0076/0077/0078/0079/0080**（`schema_migrations.version` 最大 80；以下文 §0079/0080 段为准），
    上述 down 是事故/演练时的手工兜底，不影响日常开发。
 2. **历史 0001-0075 没有补 down**，因为本仓库历史没有 down 概念。仅对 0076 起的
    T1.2-mid 一批 schema-tightening migration 做此 runbook 化。

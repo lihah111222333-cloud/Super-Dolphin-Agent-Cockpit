@@ -451,12 +451,13 @@ grep -r "FailureClass\|OnFailureStrategy" cmd/ 2>/dev/null | wc -l  # 目标 ≥
 
 源自 T3 尾声 codemap 全检与合并仓运作复盘（1877f401 / 5fed929c / 9f302bf9 / 8399ea1b）：
 
-- **§10.58 候选 — cherry-pick hook 兜底纪律**：cherry-pick / rebase 自动提交路径默认 **不** 触发 pre-commit hook（git sequencer 行为，非配置问题）。本会话曾因合并 agent 跳 hook 导致 gofmt 违规漏检。建议 push 前手跑 `bash .githooks/pre-commit` 自检（不是 bypass，是补跑）。详见会话 §10.58 候选。
-- **§10.59 候选 — docs/plans 状态同步纪律**：每次 commit 改 task 状态（新增 / done / 推迟）时，必须同步 grep codemap / README / ADR 是否需要更新。本会话 T3.1/T3.2 落地后 04/10 codemap 漏改 1 周才被扫出，实际接口面与文档描述脱节。建议在 `会话习惯.md` 或 task done 检查表里添加“codemap 同步”一轮。
+- **§10.58 已立项 → 见会话习惯.md §10.58 — cherry-pick hook 兜底纪律**：cherry-pick / rebase 自动提交路径默认 **不** 触发 pre-commit hook（git sequencer 行为，非配置问题）。本会话曾因合并 agent 跳 hook 导致 gofmt 违规漏检。push 前手跑 `bash .githooks/pre-commit` 自检（不是 bypass，是补跑）。
+- **§10.59 已立项 → 见会话习惯.md §10.59 — docs/plans 状态同步纪律**：每次 commit 改 task 状态（新增 / done / 推迟）时，必须 grep 同名 task ID 反查 codemap 02-mcp-orch / 04-app-contract / 10-store / docs/adr / 实施计划主体（不只 ledger）四源同时同步。本会话 T3.1/T3.2 落地后 04/10 codemap 漏改被扫文档 agent 发现。
 - **listRunsLastFilter 字段冗余**：`dag_query_test.go:211-220` 注释承认与 stubRunStore 字段命名重叠（`lastListFilter` vs stubRunStore.lastFilter）。可去除二选一，保留 stubRunStore 一侧即可。低优先级。
 - **t.Parallel() 启用**：`dag_start_test.go` / `dag_query_test.go` 多用例未启用 `t.Parallel()`；T0.5/T1.2/T3.x stub 已并发安全（commit `d1f5b0e4` 字段化 stubRunStore + race test 验证），可启用以压缩本包测试总时。
 - **FinishedAt 防御拷贝断言**：`dag_query.go:158` 用 `shared.CloneTime(row.FinishedAt)` 做防御拷贝，但当前测试断言只覆盖 Events / Metadata，未掰 FinishedAt 拷贝表现。低优先级；如后续发现 FinishedAt 在调用者侧被误改再补补丁。
 - **service.ListRuns limit cap=200 抽常量**：commit `498be56d` 已在 service 层 cap，但 `200` 仍是字面量（出现于 service.go + dag_query_test.go）。建议提 `defaultListRunsLimitCap = 200` 或者走 contract 层常量，避免文档与代码双多头。
+- **F6.4 dispatcher 对无 assignee 节点应跳过自动 dispatch**：本会话用 DAG 工具做审查 e2e 演练时发现，N1 root done 后 service.CompleteNodeAndScheduleDownstream 自动 promote N2 → ready，同时 dispatcher 立刻 dispatch N2 → 因 N2 无 assigned_to → "agent id is required" → retry 耗尽 → N2 自动 failed（终态）。导致 DAG 在 M2 阶段不能做“无 assignee 描述性任务编排”。F6.4 落地时应：(a) 节点 assigned_to 为空时跳过自动 dispatch（等外部 agent 接管）；或 (b) schedule 加 manual_dispatch=true 标记表示“仅人工/外部推进”，避免自动 dispatch 链。证据：DAG id=73, run audit-2026-05-11-route-n-runstore-review#run-001，N2 result.kind=exhausted_retries reason="agent id is required"。
 
 ---
 
@@ -483,6 +484,7 @@ grep -r "FailureClass\|OnFailureStrategy" cmd/ 2>/dev/null | wc -l  # 目标 ≥
 - `ErrIdempotencyKeyExhausted` — 路线 N 核心富错，含旧 RunKey + Status
 - `ErrDAGAlreadyRunning` — dag-level 单 run 约束（0076 partial unique 阻断）
 - `ErrDAGNotFound` — task_get_dag / task_get_run 路径，含 dag_key
+- 双语化覆盖范围：StartDAG / GetRun 路径已双语；CreateDAG / GetDAG / UpdateNode / ApplyOps 半统一，待批量拉齐（见 follow-up §10.59 candidate / MCP 错误双语化拉齐 issue）
 
 ### 12.4 schema migration 0076-0080
 - 0076 task_dag_runs partial unique（dag_key WHERE status='running'）— 阻 dag-level 并发
@@ -501,7 +503,7 @@ This section logs contract-level changes exposed to callers (interface signature
 
 - **12.1 Route N — StartDAG idempotency** (`3f6c6a80` / `1877f401`): split by run status — running/succeeded reuse old RunKey; failed/cancelled raise sentinel `ErrIdempotencyKeyExhausted` (carries old RunKey + Status). Replaces “Route R” which silently returned dead RunKeys.
 - **12.2 OrchestrationService surface** (`bbf8a988` / `360f9bfd` / `cf335dbf` / `caa9f13b`): added 4 methods (StartDAG / ApplyOps / GetRun / ListRuns) with paired Request/Response; all return values (no pointer).
-- **12.3 New sentinel errors**: `ErrRunStoreUnset`, `ErrRunNotFound`, `ErrIdempotencyKeyExhausted`, `ErrDAGAlreadyRunning`, `ErrDAGNotFound` — all bilingually translated at MCP tool boundary.
+- **12.3 New sentinel errors**: `ErrRunStoreUnset`, `ErrRunNotFound`, `ErrIdempotencyKeyExhausted`, `ErrDAGAlreadyRunning`, `ErrDAGNotFound` — StartDAG / GetRun paths bilingual; CreateDAG / GetDAG / UpdateNode / ApplyOps half-uniform pending (see follow-up “MCP 错误双语化拉齐” issue).
 - **12.4 Migrations 0076-0080**: partial-unique on running status; metadata NOT NULL default; depends_on/reads/writes CHECK arrays; run_id FK + index; status CHECK enum.
 - **12.5 RunStore isolation** (`57075943` / `d27e82e7`): RunStore intentionally not embedded in `taskdag.Store` aggregate (preserves InterfaceIsolation budget); wired via `module.go ProvideRunStore(Store) RunStore`.
 

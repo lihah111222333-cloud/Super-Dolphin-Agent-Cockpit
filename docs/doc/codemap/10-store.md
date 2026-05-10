@@ -38,7 +38,7 @@
 
 ## 2. 各子 store 详述
 
-> 下列 17 个子包均已按源码核对；contract 接口也全部补齐。17 个子包都包含 `module.go`；`hookstore` 的例外仅是没有本地 `contract.go`，而是实现 `internal/contract.HookReviewStore`。
+> 下列 23 个子包均已按源码核对（以 `internal/store/module.go` 为准）；contract 接口也全部补齐。23 个子包都包含 `module.go`；`hookstore` 的例外仅是没有本地 `contract.go`，而是实现 `internal/contract.HookReviewStore`。
 
 ### 2.1 `agentstatus`
 - **文件**：`contract.go` / `store.go` / `module.go`
@@ -617,12 +617,12 @@ store 层的主要价值在于：
 
 其中：
 - `task_dag_*` 在 schema 中仍然有效，且 `0023_dag_watcher_phase1.sql` 还继续扩展 `task_dag_nodes` 并新增 `task_dag_wakeups / task_dag_worker_leases`；
-- 但这些对象当前都不在 `store.Module` 的 17 个子 store 注册面里（注：`task_dag_runs` 上面已说明，由 `cmd/mcp-orch/store/taskdag.RunStore` 在独立 fx 包里装载；commit eb341e54 之后 taskdag 包中的 RunStore binding 已被 `ProvideRunStore` 补齐，internal/store 侧子 store 计数仍以 `internal/store/module.go` 为准 — 当前实际 >=22，“17” 是旧纲）；
+- 但这些对象当前都不在 `store.Module` 的 23 个子 store 注册面里（`task_dag_runs` 上面已说明，由 `cmd/mcp-orch/store/taskdag.RunStore` 在独立 fx 包里装载；commit eb341e54 之后 taskdag 包中的 RunStore binding 已被 `ProvideRunStore` 补齐，internal/store 侧子 store 计数仍以 `internal/store/module.go` 为准）；
 - `dbquery` 的白名单也**没有**向这些表开放。
 
 ### 4.7 `cmd/mcp-orch/store/taskdag` — 独立 fx 包装的 DAG / Run 存储
 
-该包是 `internal/store/` 之外的另一块“独立 fx store 子包”，不在 §3 “17 个子 store”表内，但仍是运行时装配面的一员。
+该包是 `internal/store/` 之外的另一块“独立 fx store 子包”，不在 §3 “23 个子 store”表内，但仍是运行时装配面的一员。
 
 | 子项 | 接口位置 | 实现位置 | Module 注册 | sqlc query 来源 | 关键方法 |
 | --- | --- | --- | --- | --- | --- |
@@ -817,7 +817,7 @@ var Module = fx.Module("store",
   - SQL 侧 `ListPromptTemplates` 只有 `$1/$2/$3`（`sql/queries/prompt_template.sql:43`）；
   - 当前 CWD scope 仍由 caller 后置过滤：dashboard 在 `internal/module/dashboard/ui_page.go:151` 传 `CWD` 后再本地过滤，prompt service 列表面仍在 `internal/module/prompt/service.go:259` 先全量查再过滤可见性。
 
-## 3. 17 个 store 子包一览
+## 3. 23 个 store 子包一览
 
 | 包名 | 核心实体 | 对应 SQL 文件 | 主要 caller 模块 |
 |---|---|---|---|
@@ -859,7 +859,7 @@ var Module = fx.Module("store",
 | `topologyapproval` | `topologyapproval.Store` | `topology_approvals` | `topology_approval.sql` |
 | `uipreference` | `uipreference.Store` | `ui_preferences` | `ui_preference.sql` |
 
-### 7.1 测试入口 + archtest freeze 映射（17 子包）
+### 7.1 测试入口 + archtest freeze 映射（23 子包）
 
 > `internal/archtest/freeze_registry.go` 当前只登记 `internal/module/memory` 与 `internal/module/prompt`，没有 `internal/store/` 项；因此下表 freeze 一列统一记为 `—`。
 
@@ -907,13 +907,13 @@ var Module = fx.Module("store",
 2. **对底层坚持 SQL-first**：查询定义集中在 `sql/queries/`，`sqlc` 只做生成。
 3. **允许显式例外**：`dbquery` 与 `hookstore` 都绕过了“普通静态 sqlc CRUD”路径。
 4. **读写面按场景拆分**：`commandcard / sharedfile` 仍只暴露读能力；`prompt` 同一实现同时暴露可写 `Store` 与只读 `Reader` adapter。
-5. **schema 明显大于 17 个子 store 的注册面**：workspace、dag、legacy 表仍存在于 schema 或 sqlc 低层，但未全部被注册成统一 store。
+5. **schema 明显大于 23 个子 store 的注册面**：workspace、dag、legacy 表仍存在于 schema 或 sqlc 低层，但未全部被注册成统一 store。
 
 如果从代码地图视角看，`internal/store` 更像“**项目核心数据访问骨架**”，而不是“数据库全部访问能力的唯一入口”。
 
 ## 审查补遗
 
-1. 已逐一核对 `internal/store/`、`internal/store/sqlc/`、`migrations/`、`sql/queries/`，当前 `store.Module` 注册的 **17 个子 store 均已覆盖**；`thread` 与 `hookstore` 的 contract 也已改成完整方法签名。
+1. 已逐一核对 `internal/store/`、`internal/store/sqlc/`、`migrations/`、`sql/queries/`，当前 `store.Module` 注册的 **23 个子 store 均已覆盖**（以 `internal/store/module.go` 为准）；`thread` 与 `hookstore` 的 contract 也已改成完整方法签名。
 2. 修正了 `agent_provider_binding` 的 schema 描述：最新迁移并**没有**为它建立 `cwd / created_at DESC` 二级索引；旧描述混入了 `agent_codex_binding` 的遗留索引信息。
 3. 修正了 `binding.BindAgentThread` 的行为说明：它在插入路径会写入 `provider='codex'` 与 `provider_thread_id=thread_id`，但在 `agent_id` 冲突路径只更新 `codex_thread_id/cwd/updated_at`。
 4. 补强了 sqlc 组织描述：补充 `sql_driver`，确认 `command_card.sql.go` 还生成了 `ListCommandCardVersions`，`workspace_run.sql.go` 已完整生成但未包装成 store 子包，并反向确认 `sql/queries/` 的 19 个 `.sql` 文件没有遗漏。
@@ -923,4 +923,4 @@ var Module = fx.Module("store",
 8. 修正了 `prompt` store 口径：当前已是**可读写 Store + Reader adapter**，真实写路径已被 `internal/module/prompt/service.go` 生产使用；`ListFilter.CWD` 已进入 contract，但 SQL 仍未下推，继续由 caller 后置过滤。
 9. 修正了 `thread.PromptSnapshot` 口径：当前持久化 DTO 已包含 modern 字段（`DisplayName/Boundary/Provider/Version/Hash/...`），同时通过自定义 `UnmarshalJSON` 兼容 legacy snake_case payload。
 10. 修正了 `sqlc.yaml` 输入集：根配置现在已包含 `0032_agent_memory_identity.sql`，`agent_threads` / `agent_provider_binding` 的 agent identity 列不能再按“只到 0031”理解。
-11. 追加了 `dbquery` 数据流 Mermaid、17 个 store 子包测试入口 + freeze 表，以及 3 条 store 维护 how-to，便于后续按锚点增量维护。
+11. 追加了 `dbquery` 数据流 Mermaid、23 个 store 子包测试入口 + freeze 表，以及 3 条 store 维护 how-to，便于后续按锚点增量维护。
