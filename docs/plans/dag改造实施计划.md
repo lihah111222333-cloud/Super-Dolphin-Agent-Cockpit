@@ -122,8 +122,8 @@ af542629  feat(nodeexec): ValidateTransition + IsTerminal (S7.1)
 | ~~**T1.2**~~ | ✅ done (mid) | `service.StartDAG` 真实实现：创建 run + status 转 running | `cmd/mcp-orch/orchestration/dag.go` + `store/taskdag/{contract.go,store_run.go}` + `sql/queries/task_dag_run.sql` / commit `57075943` (store 层) + `bbf8a988` (service)。T1.2-mid 范围完成：RunStore 5+1 方法 (CRUD/Count/Promote/WithRunTx) + StartDAG 真业务 + 3 sentinel error + 10 unit test。Integration test 合并 T0.1 + T0.3。T1.2-full 升级 → **F6.5**。**ledger**：commit `3f6c6a80` — StartDAG 幂等语义路线 N（failed/cancelled 命中返 ErrIdempotencyKeyExhausted，running/succeeded 仍复用 RunKey） |
 | ~~**T2.1**~~ | ✅ done | MCP `task_dag_apply_ops` schema + handler（stub） | `tools/task_tools.go` / commit `2af9539c`（PT-4: raw ops 透传测试由 F4.1-F4.5 各自单测自然覆盖，不单独立项） |
 | ~~**T2.2**~~ | ✅ done | `service.ApplyOps` 接通 contract.ApplyOpsRequest（stub）；真实实现归 F4.x | `orchestration/dag.go` / commit `2af9539c`（PT-2: ops 形状校验 / unmarshal fail-fast → **F4.0** 顶层前置） |
-| **T3.1** | ⛔ 需 PG | MCP `task_get_run` schema + handler | 依赖 RunStore 真实实现（T1.2 后） |
-| **T3.2** | ⛔ 需 PG | MCP `task_list_runs` schema + handler | 同 T3.1 |
+| ~~**T3.1**~~ | ✅ done | MCP `task_get_run` schema + handler | `cmd/mcp-orch/tools/task_tools.go` + `orchestration/dag_query.go` + `contract.GetRun{Request,Response}` / commit `360f9bfd`（RunStore.GetRun 接通 + 中英双语 ErrRunNotFound 转译 + A2 不 inline 节点） |
+| ~~**T3.2**~~ | ✅ done | MCP `task_list_runs` schema + handler | `cmd/mcp-orch/tools/task_tools.go` + `orchestration/dag_query.go` + `contract.ListRuns{Request,Response}` / commit `cf335dbf`（RunStore.ListRuns 接通 + status 枚举对齐 0080 CHECK + mapRuns 复用 dagRunDTO + {runs} 包对象） |
 | ~~**T4.1**~~ | ✅ done | MCP `list_models` 工具 | `tools/registry_tools.go` 新建 / commit `c311259e`（PT-1: F 阶段改读 provider registry） |
 | ~~**T4.2**~~ | ✅ 复用 | MCP `prompt_list` 已存在 | `tools/prompt_tools.go` |
 | ~~**T4.3**~~ | ✅ 复用 | MCP `command_list` 已存在 | `tools/command_tools.go` |
@@ -158,7 +158,7 @@ f972627d  T0.8 doc-sync script
 - **PT-4**：T2.1 raw ops 透传缺测试 → F4.1 一起做
 
 **剩余 task 阔住点**：
-- T1.2 / T3.1 / T3.2 / T0.1 / T0.2 / T0.3 → 需本地 PG 环境
+- T0.1 / T0.2 / T0.3 → 需本地 PG 环境（T1.2 / T3.1 / T3.2 已完成）
 - T5.x / T6.1 / T7.1 / T8.x → 需前端方案用户审认过
 - T9.1 codemap → 依赖 T1-T4 全部完成
 
@@ -197,7 +197,7 @@ f972627d  T0.8 doc-sync script
 **T 阶段提交粒度**：
 - T1.1+T1.2 一次
 - T2.1+T2.2 一次（ops 是大改，单独提）
-- T3.1+T3.2 一次
+- ~~T3.1+T3.2 一次~~ ✅ commit `360f9bfd` + `cf335dbf`
 - T4.1-T4.4 一次（registry 工具集）
 - T5.1 / T5.2 / T5.3 各一次（前端**每次方案先发用户**）
 - T6.1 单独
@@ -284,6 +284,7 @@ f972627d  T0.8 doc-sync script
 ### 里程碑 M2 完成 = 阶段 S + T1.1, T1.2, T3.1, T3.2, T5.1, T5.2, T5.3
 **用户可见**：UI 上能看到 DAG → 点 Start → 节点跑起来。
 **还不能**：cron 自动触发；AI 帮你设计流程的智能化。
+**进度**：T1.1 / T1.2 / T3.1 / T3.2 ✅；T5.x 前端方案待审。后端 MCP 表面全套已在位。
 
 ### 里程碑 M3 完成 = 阶段 S + T + F 全部
 **用户可见**：两大需求 + 智能重试全部端到端通。
@@ -292,7 +293,7 @@ f972627d  T0.8 doc-sync script
 
 **Need 1（每日定时任务）落地必备 task**：
 - S2.3, S3.1, S3.3, S4, S5（cron 字段位 + run 表）
-- T1.1, T1.2, T3.1, T3.2, T7.1（StartDAG + Run 工具 + UI 显示）
+- T1.1 ✅ / T1.2 ✅ / T3.1 ✅ / T3.2 ✅ / T7.1（StartDAG + Run 工具 + UI 显示；后端部分均已完成）
 - F5.1, F5.2, F5.3, F6.1, F6.2（cron daemon + Run snapshot）
 - F10.1（run 历史 UI）
 
@@ -435,3 +436,12 @@ grep -r "FailureClass\|OnFailureStrategy" cmd/ 2>/dev/null | wc -l  # 目标 ≥
 
 - **抽 RunStatus 常量包**：当前 `running/succeeded/failed/cancelled` 4 状态字面量在 13 处分散（`contract.go` 注释、`0080` CHECK、`dag.go` switch、测试 stub）。等加新 status（如 `timeout` / `paused`）时再统一抽 `taskdag.RunStatus` 常量包，与 `0080` CHECK 单一来源对齐。当前 `0080` CHECK 已锁定全集，分散字面量风险可控。
 - **MCP 错误双语化拉齐**：本次仅 StartDAG handler 内 `ErrIdempotencyKeyExhausted` / `ErrDAGAlreadyRunning` / `ErrDAGNotFound` 三个错误双语，其他 `task_*` / `commands_*` / `orchestration_*` handler 仍英文单语。下次迭代统一定义"双语错误规范"（面向 AI agent 的业务错误必须双语，内部错误英文）后批量拉齐。
+- **task_get_run.Events 全量返回**：当前 GetRun 一次性返回完整 Events jsonb；run 长跑后可能很大，需要长期分页 / 截断方案。M2 阶段可接受，未来 F 阶段再做。
+
+源自 T3.1/T3.2 审查补修（commit `caa9f13b` + `d1f5b0e4` + `498be56d`）：
+
+- commit `360f9bfd` — T3.1 task_get_run（A2 不 inline 节点 / RunStore.GetRun 接通 / ErrRunNotFound 双语转译）
+- commit `cf335dbf` — T3.2 task_list_runs（status 枚举对齐 0080 CHECK / mapRuns 复用 dagRunDTO / {runs} 包对象）
+- commit `caa9f13b` — T3.1/T3.2 审查应修 1+2：GetRun s==nil 统一返 ErrRunStoreUnset + ListRuns 返回值从指针改值类型（与 GetRun / ApplyOps 同款）
+- commit `d1f5b0e4` — T3.1/T3.2 测试加固：stubRunStore 字段化（并发友好，退出包级 var） + limit 边界 3 例 + s==nil receiver 测试 + BudgetLimit cloneInt64 独立性断言
+- commit `498be56d` — T3.2 service.ListRuns max=200 cap（防呆） + taskToolDefinitions 按 writes → lifecycle → reads 重排
