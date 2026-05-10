@@ -64,7 +64,7 @@
 | ID | 状态 | 问题 | 处理 |
 |---|---|---|---|
 | **T0.1** | ⏸ 推迟 | PD-1: 缺 e2e 测试 fixture（合并 PT-3: T1.1 缺端到端 fixture） | 与 T1.2/T3.x 真实路径一起做（需 PG） |
-| **T0.2** | ⏸ 推迟 | PB-2: migration 0072-0075 未在 PG 跑过验证 | 等本地 PG 环境就绪 |
+| ~~**T0.2**~~ | ✅ done | PB-2: migration 0072-0075 未在 PG 跑过验证 | 2026-05-10 应用：pg_dump 备份 `/tmp/super_agent_v3.before_0072_20260510_145812.dump` + psql 逐个单事务 + `INSERT schema_migrations` 同步。0075 实际转换 2 行（v3-arch-violations-fix-2026-05-06 + contract-audit-fixes）trigger=manual→auto、metadata 删 auto_handoff_phase1 |
 | **T0.3** | ⏸ 推迟 | PB-1: 缺 service↔store 跨层集成测试 | 与 T1.2/T3.x 一起做 |
 | ~~**T0.4**~~ | ✅ done | PA-1: dag_retry_policy.go 导航注释 | commit `8d32ea1f` |
 | ~~**T0.5**~~ | ✅ done | PC-1: archtest 守护 RunStore 待 T1.2 | commit `8f61c839` |
