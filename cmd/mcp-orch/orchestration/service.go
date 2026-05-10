@@ -108,9 +108,15 @@ type serviceParams struct {
 	SessionCleaner SessionCleaner
 	TurnStarter    TurnStarter
 	DAGStore       taskdag.OrchestrationStore `optional:"true"`
-	RunStore       taskdag.RunStore           `optional:"true"` // T1.2: StartDAG 需跳入 (CountActive / WithRunTx)
-	AgentThreads   AgentThreadStore           `optional:"true"`
-	AgentBindings  AgentBindingStore          `optional:"true"`
+	// RunStore 为 StartDAG 必需依赖（WithRunTx + GetRun + CreateRun + Promote）。
+	// 不加 optional：缺 provider 时 fx.New 启动期立即报 missing dependencies，
+	// 而非延迟到运行期 ErrRunStoreUnset（参 RunStore wiring bug 复盘）。
+	// RunStore is required by StartDAG (WithRunTx + GetRun + CreateRun + Promote).
+	// Marking it non-optional makes fx.New surface missing dependency errors at
+	// startup instead of letting them surface as runtime ErrRunStoreUnset.
+	RunStore      taskdag.RunStore
+	AgentThreads  AgentThreadStore  `optional:"true"`
+	AgentBindings AgentBindingStore `optional:"true"`
 }
 
 type recoveryTurnStore interface {
