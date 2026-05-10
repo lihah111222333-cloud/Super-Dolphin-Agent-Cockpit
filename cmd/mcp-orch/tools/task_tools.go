@@ -95,6 +95,12 @@ type StartDAGInput struct {
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
 }
 
+// GetRunInput 是 task_get_run MCP 工具的 typed 入参（T3.1）。
+// GetRunInput is the typed input for the task_get_run MCP tool (T3.1).
+type GetRunInput struct {
+	RunKey string `json:"run_key"`
+}
+
 // ApplyOpsInput 是 task_dag_apply_ops MCP 工具的 typed 入参（T2.1）。
 // Ops 是 raw JSON：service 内部用 nodeexec.Ops UnmarshalJSON 解码为 typed Op slice。
 type ApplyOpsInput struct {
@@ -153,6 +159,47 @@ func HandleStartDAG(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
+// HandleGetRun 是 task_get_run MCP 工具的 handler（T3.1）。
+// 调用 service.GetRun 返回 contract.GetRunResponse（仅 run，不 inline 节点）。
+//
+// 错误转译：
+//   - ErrRunNotFound → 中英双语提示 + run_key。
+//
+// HandleGetRun is the task_get_run MCP tool handler (T3.1). It calls
+// service.GetRun and returns contract.GetRunResponse (run only; nodes are
+// not inlined).
+//
+// Error translation:
+//   - ErrRunNotFound → bilingual hint with the offending run_key.
+func HandleGetRun(svc contract.OrchestrationService) ToolHandler {
+	return makeHandler(svc, "orchestration service", func(ctx context.Context, in GetRunInput) (any, error) {
+		runKey, err := requireTrimmed(in.RunKey, "run_key")
+		if err != nil {
+			return nil, err
+		}
+		resp, err := svc.GetRun(ctx, contract.GetRunRequest{RunKey: runKey})
+		if err != nil {
+			return nil, translateGetRunError(runKey, err)
+		}
+		return resp, nil
+	})
+}
+
+// translateGetRunError 把 service 层 sentinel 包为中英双语 MCP 错误。
+// 保留 errors.Is 可命中原 sentinel。
+//
+// translateGetRunError wraps service-layer sentinels into bilingual MCP
+// errors while preserving errors.Is matching against the original sentinel.
+func translateGetRunError(runKey string, err error) error {
+	if errors.Is(err, orchestration.ErrRunNotFound) {
+		return fmt.Errorf(
+			"run 不存在：run_key=%s。请检查传入的 run_key 是否正确，或先调 task_start_dag 启动 run (run_key=%s, please verify the run_key or call task_start_dag first): %w",
+			runKey, runKey, err,
+		)
+	}
+	return err
+}
+
 // translateStartDAGError 把 service 层的 sentinel 包装成中英双语 MCP 错误。
 // 保留 errors.Is 可命中原 sentinel（依赖 fmt.Errorf %w）。
 //
@@ -204,6 +251,9 @@ func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 			"trigger_source":  EnumStringSchema("Trigger source.", "manual", "auto", "scheduled", "external"),
 			"idempotency_key": StringSchema("Optional, prevents duplicate run on retry."),
 		}, "dag_key"), HandleStartDAG(svc)),
+		defineTool("task_get_run", "Fetch a single DAG run by run_key. Returns the run row only; node-level data is fetched separately via task_get_dag.", ObjectSchema(map[string]Schema{
+			"run_key": StringSchema("Run key returned by task_start_dag."),
+		}, "run_key"), HandleGetRun(svc)),
 		defineTool("task_dag_apply_ops", "Apply a typed ops batch (add_node / update_node / remove_node / update_dag) with base_version OCC. Ops shape: see nodeexec.Ops. Skeleton stage returns ErrLifecycleNotImplemented.", ObjectSchema(map[string]Schema{
 			"dag_key":      StringSchema("Target DAG key."),
 			"base_version": IntegerSchema("Expected current dag.version (OCC; mismatch returns conflict)."),

@@ -202,6 +202,10 @@ func (s *stubDashboardOrchestration) StartDAG(context.Context, contract.StartDAG
 	return contract.StartDAGResponse{}, nil
 }
 
+func (s *stubDashboardOrchestration) GetRun(context.Context, contract.GetRunRequest) (contract.GetRunResponse, error) {
+	return contract.GetRunResponse{}, nil
+}
+
 func (s *stubDashboardOrchestration) ApplyOps(context.Context, contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
 	return contract.ApplyOpsResponse{}, nil
 }

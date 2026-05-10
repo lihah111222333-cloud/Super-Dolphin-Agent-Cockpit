@@ -8,6 +8,7 @@ import (
 
 type OrchestrationStub struct {
 	StartDAGFunc              func(context.Context, contract.StartDAGRequest) (contract.StartDAGResponse, error)
+	GetRunFunc                func(context.Context, contract.GetRunRequest) (contract.GetRunResponse, error)
 	ApplyOpsFunc              func(context.Context, contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error)
 	LaunchAgentFunc           func(context.Context, contract.LaunchRequest) error
 	LaunchAgentSnapshotFunc   func(context.Context, contract.LaunchRequest) (contract.AgentSnapshot, error)
@@ -175,4 +176,15 @@ func (s *OrchestrationStub) ApplyOps(ctx context.Context, req contract.ApplyOpsR
 		return s.ApplyOpsFunc(ctx, req)
 	}
 	return contract.ApplyOpsResponse{}, nil
+}
+
+// GetRun 是 T3.1 加的接口方法；stub 默认返回零值，测试按需注入 GetRunFunc。
+//
+// GetRun is the T3.1 interface method; the stub returns a zero value by
+// default and tests inject GetRunFunc as needed.
+func (s *OrchestrationStub) GetRun(ctx context.Context, req contract.GetRunRequest) (contract.GetRunResponse, error) {
+	if s.GetRunFunc != nil {
+		return s.GetRunFunc(ctx, req)
+	}
+	return contract.GetRunResponse{}, nil
 }
