@@ -100,3 +100,23 @@ COMMIT;
 writes CHECK 后允许非数组 jsonb 值，UI / 文件锁 联动读路径可能 unmarshal 失败。
 仅在 FK / CHECK 误伤合法数据或阻塞业务时回滚。run_id 索引 down 仅影响查询性能，
 不影响正确性。
+
+---
+
+## 0080 — task_dag_runs.status CHECK 枚举
+
+**up：** `migrations/0080_dag_v2_run_status_check.sql`
+
+**down（手工执行）：**
+
+```sql
+BEGIN;
+ALTER TABLE task_dag_runs DROP CONSTRAINT IF EXISTS chk_task_dag_runs_status_enum;
+DELETE FROM schema_migrations WHERE filename = '0080_dag_v2_run_status_check.sql';
+COMMIT;
+```
+
+**影响：** 删除 CHECK 后 status 列允许任意 TEXT，未知字面量会进 DB；service
+状态机读到非枚举值会落 default 分支（行为未定义）。0076 partial unique index
+仍依赖 'running' 字面量，单边删 CHECK 不破 0076 但放宽了写路径校验。仅在
+CHECK 误伤业务（如新增合法 status 字面量未同步迁移）时回滚。
