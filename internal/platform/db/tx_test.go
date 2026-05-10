@@ -9,6 +9,67 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
+func TestRunWithTxCommitsOnSuccess(t *testing.T) {
+	t.Parallel()
+
+	tx := &captureReadOnlyTx{}
+	err := runWithTx(context.Background(), tx, func(pgx.Tx) error { return nil })
+	if err != nil {
+		t.Fatalf("runWithTx() error = %v, want nil", err)
+	}
+	if !tx.committed {
+		t.Fatal("runWithTx() did not commit on success")
+	}
+	if tx.rolledBack {
+		t.Fatal("runWithTx() rolled back on success path")
+	}
+}
+
+func TestRunWithTxRollsBackOnError(t *testing.T) {
+	t.Parallel()
+
+	fnErr := errors.New("write failed")
+	tx := &captureReadOnlyTx{}
+	err := runWithTx(context.Background(), tx, func(pgx.Tx) error { return fnErr })
+	if !errors.Is(err, fnErr) {
+		t.Fatalf("runWithTx() error = %v, want fnErr", err)
+	}
+	if !tx.rolledBack {
+		t.Fatal("runWithTx() did not roll back on error")
+	}
+	if tx.committed {
+		t.Fatal("runWithTx() committed after fn error")
+	}
+}
+
+func TestRunWithTxRollsBackOnPanicAndRepanics(t *testing.T) {
+	t.Parallel()
+
+	tx := &captureReadOnlyTx{}
+	panicVal := "boom"
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("runWithTx() did not re-panic")
+		}
+		if r != panicVal {
+			t.Fatalf("runWithTx() re-panicked with %v, want %v", r, panicVal)
+		}
+		if !tx.rolledBack {
+			t.Fatal("runWithTx() did not roll back on panic")
+		}
+		if tx.committed {
+			t.Fatal("runWithTx() committed despite panic")
+		}
+	}()
+
+	_ = runWithTx(context.Background(), tx, func(pgx.Tx) error {
+		panic(panicVal)
+	})
+	t.Fatal("unreachable: panic should have propagated")
+}
+
 func TestRollbackTxJoinsFunctionAndRollbackErrors(t *testing.T) {
 	t.Parallel()
 

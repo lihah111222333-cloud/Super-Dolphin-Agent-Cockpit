@@ -28,6 +28,24 @@ func WithTx(ctx context.Context, pool *pgxpool.Pool, fn func(tx pgx.Tx) error) e
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
+	return runWithTx(ctx, tx, fn)
+}
+
+// runWithTx 是 WithTx 的内部实现：拿到 tx 后跑 fn 并保证 panic-safe rollback。
+// 抽出来便于 unit test —— 测试用 fake pgx.Tx 直接覆盖 commit / error / panic 三条路径，
+// 不必 mock pgxpool.Pool（pgxpool.Pool 是具体类型不是 interface 没法直接 mock）。
+func runWithTx(ctx context.Context, tx pgx.Tx, fn func(tx pgx.Tx) error) (retErr error) {
+	// panic-safe rollback：若 fn 内部 panic，进入 recover 分支同步 rollback 后重抛
+	// panic，保证调用方仍能看到原始 stack。正常 commit / 错误 rollback 路径走完后
+	// tx 已 closed，再调 Rollback 返回 pgx.ErrTxClosed —— defer 里裸吃不传播。
+	defer func() {
+		if r := recover(); r != nil {
+			cleanupCtx, cancel := txCleanupContext(ctx)
+			defer cancel()
+			_ = tx.Rollback(cleanupCtx)
+			panic(r)
+		}
+	}()
 	if err := fn(tx); err != nil {
 		_ = tx.Rollback(ctx)
 		return err
