@@ -10,76 +10,82 @@ import (
 	"testing"
 )
 
-// DAG v2 骨架阶段 T0.5 (PC-1): RunStore 接口位待 T1.2 实现的提醒守护。
+// DAG v2 T1.2 完成后的正向守护（从 T0.5/PC-1 转正）：production *store
+// 必须实现 RunStore 接口的全部 5 个方法。缺任何一个则 fail。
 //
-// 骨架阶段（commit 9130f601 / S3.5）在 store/taskdag/contract.go 加了 RunStore
-// interface 但**未并入 Store 聚合**——产品 store 暂未 implement。这是预期的：
-// T1.2 加 SQL 实现时再并入。问题：T1.2 worker 漏 implement，编译不会报错
-// （没人 import RunStore），到 T1.2 集成测试才暴露。
+// 背景：骨架阶段（commit 9130f601 / S3.5）在 contract.go 加了 RunStore
+// interface 但产品 store 暂未 implement，需等 T1.2 补齐。旧版守护是实现不齐
+// 时 t.Log、实现齐了反老 fail 提醒转正。T1.2 实现后正式转为正向断言。
 //
-// 本测试在 T1.2 落地前持续提醒：当 production store 仍未 implement RunStore
-// 时，t.Log 一条 INFO（不 fail），让 CI 输出可见；T1.2 完成后此 t.Log 应消失，
-// 改为正向断言"production *store implements RunStore"。
-//
-// 触发更新条件：T1.2 完成时，把 t.Log 改成正向断言并删除本注释。
+// 覆盖范围：扫 cmd/mcp-orch/store/taskdag/ 下所有 .go（非 _test.go），
+// 找 *store receiver 上声明的方法；RunStore 实现可以拆到 store_run.go
+// 或任意其它同包文件。
 
-const (
-	taskdagStoreFile = "cmd/mcp-orch/store/taskdag/store.go"
-	runStoreMethod1  = "CreateRun"
-	runStoreMethod2  = "GetRun"
-	runStoreMethod3  = "ListRuns"
-)
-
-func TestDAGv2_RunStore_T12_PendingImplementation(t *testing.T) {
-	root := repoRoot(t)
-	storePath := filepath.Join(root, taskdagStoreFile)
-
-	src, err := os.ReadFile(storePath)
-	if err != nil {
-		t.Fatalf("read %s: %v", storePath, err)
-	}
-
-	implemented := hasAllMethods(t, storePath, src, runStoreMethod1, runStoreMethod2, runStoreMethod3)
-	if !implemented {
-		t.Logf("INFO (T0.5/PC-1): production *store 尚未 implement RunStore (CreateRun/GetRun/ListRuns); T1.2 落地时必须补齐. 接口契约见 docs/adr/0001-dag-v2-contracts.md §3 状态表 + cmd/mcp-orch/store/taskdag/contract.go::RunStore.")
-		return
-	}
-
-	// 已实现 → T1.2 完成；本测试应改为正向断言。
-	t.Errorf("T0.5 守护应在 T1.2 完成后改为正向断言；现在 production *store 已 implement RunStore，请把 t.Log 改成 var _ taskdag.RunStore = (*taskdag.Store)(nil) 形式")
+var runStoreMethods = []string{
+	"CreateRun",
+	"GetRun",
+	"ListRuns",
+	"CountActiveRunsByDagKey",
+	"PromoteRootNodesToReady",
 }
 
-// hasAllMethods 用 AST 扫 store.go，检查 *store 是否声明了全部给定方法名。
-func hasAllMethods(t *testing.T, path string, src []byte, methods ...string) bool {
+func TestDAGv2_RunStore_T12_Implemented(t *testing.T) {
+	root := repoRoot(t)
+	dir := filepath.Join(root, "cmd/mcp-orch/store/taskdag")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read %s: %v", dir, err)
+	}
+
+	found := make(map[string]string, len(runStoreMethods))
+	for _, m := range runStoreMethods {
+		found[m] = ""
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		collectStoreMethods(t, path, found)
+	}
+
+	var missing []string
+	for _, method := range runStoreMethods {
+		if found[method] == "" {
+			missing = append(missing, method)
+		}
+	}
+	if len(missing) > 0 {
+		t.Fatalf("production *store 未实现 RunStore 方法：%s\n接口契约见 cmd/mcp-orch/store/taskdag/contract.go::RunStore\n事实上该接口 5 个方法应在 store_run.go 全部完成（T1.2-mid）。",
+			strings.Join(missing, ", "))
+	}
+}
+
+// collectStoreMethods 用 AST 扫一个 .go 文件，为每个 *store receiver
+// 上声明的 RunStore 方法记录其所在文件名（为了在 fail 消息里能跟踪）。
+func collectStoreMethods(t *testing.T, path string, found map[string]string) {
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, path, src, parser.ParseComments)
+	f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
 	if err != nil {
 		t.Fatalf("parse %s: %v", path, err)
-	}
-	found := make(map[string]bool, len(methods))
-	for _, m := range methods {
-		found[m] = false
 	}
 	ast.Inspect(f, func(n ast.Node) bool {
 		fn, ok := n.(*ast.FuncDecl)
 		if !ok || fn.Recv == nil {
 			return true
 		}
-		// 收件人类型要是 *store
 		if !isStoreReceiver(fn.Recv) {
 			return true
 		}
 		if _, want := found[fn.Name.Name]; want {
-			found[fn.Name.Name] = true
+			found[fn.Name.Name] = filepath.Base(path)
 		}
 		return true
 	})
-	for _, ok := range found {
-		if !ok {
-			return false
-		}
-	}
-	return true
 }
 
 func isStoreReceiver(recv *ast.FieldList) bool {
