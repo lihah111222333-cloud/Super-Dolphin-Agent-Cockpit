@@ -33,6 +33,13 @@ type OrchestrationService interface {
 	UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequest) (DAGNode, error)
 	// StartDAG 触发 DAG 一次新执行（骨架阶段 stub，返回 ErrLifecycleNotImplemented）。
 	StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGResponse, error)
+	// GetRun 按 run_key 查询单条 run（task_get_run MCP 工具承载点）。
+	// 节点信息不内联，调用方需另查 task_get_dag。
+	//
+	// GetRun fetches a single run by run_key (backs the task_get_run MCP tool).
+	// Node-level data is intentionally not inlined; callers go through
+	// task_get_dag for that.
+	GetRun(ctx context.Context, req GetRunRequest) (GetRunResponse, error)
 	// ApplyOps 对 DAG 执行一组 typed ops (add/update/remove/update_dag) + base_version OCC。
 	// Ops 字段是 raw JSON（wire 格式），service 内部解码为 nodeexec.Ops。
 	ApplyOps(ctx context.Context, req ApplyOpsRequest) (ApplyOpsResponse, error)
@@ -224,6 +231,52 @@ type ApplyOpsRequest struct {
 
 type ApplyOpsResponse struct {
 	NewVersion int64
+}
+
+// GetRunRequest 是 task_get_run / OrchestrationService.GetRun 的入参。
+// run_key 必填，服务端 trim 后空串拒绝。
+//
+// GetRunRequest is the input for task_get_run / OrchestrationService.GetRun.
+// run_key is required; the service trims and rejects empty values.
+type GetRunRequest struct {
+	RunKey string
+}
+
+// GetRunResponse 是 task_get_run / OrchestrationService.GetRun 的出参。
+// 决策：不 inline 节点信息（调用方走 task_get_dag 拿 DAG 模板 + 节点），
+// 保证单一职责、避免与 DAG 表联查 N+1。
+//
+// GetRunResponse is the output for task_get_run / OrchestrationService.GetRun.
+// Decision: nodes are intentionally NOT inlined; callers fetch DAG template +
+// nodes via task_get_dag, keeping responsibilities single and avoiding an
+// implicit join with the dag-node table.
+type GetRunResponse struct {
+	Run Run `json:"run"`
+}
+
+// Run 是 task_dag_runs 的外露 DTO，镜像 cmd/mcp-orch/store/taskdag.Run 字段。
+// contract 包不依赖 mcp-orch 内部 store 包，故这里独立声明同形状。
+// service 层 dagRunDTO helper 负责转换。
+//
+// Run is the wire-side DTO for task_dag_runs, mirroring the field set of
+// cmd/mcp-orch/store/taskdag.Run. The contract package does not depend on the
+// internal mcp-orch store package, so the same shape is declared here. Service
+// layer's dagRunDTO helper is responsible for the conversion.
+type Run struct {
+	ID                 int64           `json:"id"`
+	RunKey             string          `json:"run_key"`
+	DagKey             string          `json:"dag_key"`
+	DagVersionSnapshot int64           `json:"dag_version_snapshot"`
+	TriggerSource      string          `json:"trigger_source,omitempty"`
+	Status             string          `json:"status"`
+	StartedAt          time.Time       `json:"started_at"`
+	FinishedAt         *time.Time      `json:"finished_at,omitempty"`
+	Events             json.RawMessage `json:"events,omitempty"`
+	BudgetUsed         int64           `json:"budget_used"`
+	BudgetLimit        *int64          `json:"budget_limit,omitempty"`
+	Metadata           json.RawMessage `json:"metadata,omitempty"`
+	CreatedAt          time.Time       `json:"created_at"`
+	UpdatedAt          time.Time       `json:"updated_at"`
 }
 
 type DAGSummary struct {
