@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
@@ -429,6 +430,17 @@ func cloneInt64(value *int64) *int64 {
 // errors.Is 可用：errors.Is(err, ErrLifecycleNotImplemented)。
 var ErrLifecycleNotImplemented = errors.New("orchestration lifecycle: not implemented in skeleton stage (T1.2/F4.x/F6.x)")
 
+// ErrDAGNotFound 表示 StartDAG / TerminateDAG 调用时 dag_key 不存在。
+var ErrDAGNotFound = errors.New("orchestration: dag_key not found")
+
+// ErrDAGAlreadyRunning 表示 T1.2-mid 限制下同 DAG 已有 running run，拒绝多
+// run 并发。F6.5 升级 multi-run 后不再出。
+var ErrDAGAlreadyRunning = errors.New("orchestration: dag has an active run (T1.2-mid single-run constraint)")
+
+// ErrRunStoreUnset 表示 service 未注入 RunStore（测试裸构造路径）不能调
+// StartDAG。生产路径 ProvideService 会 setter 注入 RunStore。
+var ErrRunStoreUnset = errors.New("orchestration: run store not configured")
+
 // StartDAGRequest / StartDAGResponse 现为 contract 包类型别名，让 service
 // 能直接实现 contract.OrchestrationService 接口（T1.1 接通）。
 type StartDAGRequest = contract.StartDAGRequest
@@ -441,10 +453,104 @@ type TerminateDAGRequest struct {
 	Reason string // 可选，写入 events 字段
 }
 
-// StartDAG 触发 DAG 一次新执行（创建 run、初始化节点、第一批 ready 节点入队）。
-// 骨架阶段：仅返回 ErrLifecycleNotImplemented；T1.2 真实落地。
-func (s *service) StartDAG(_ context.Context, _ StartDAGRequest) (StartDAGResponse, error) {
-	return StartDAGResponse{}, ErrLifecycleNotImplemented
+// StartDAG 触发 DAG 一次新执行。T1.2-mid 范围：
+//
+//  1. GetDAG 读出 dag.version 作为 run.dag_version_snapshot（Temporal 风格
+//     “run 创建后改 dag 不影响这次 run”）
+//  2. CountActiveRunsByDagKey: 如果已有 status='running' 的 run，拒绝
+//     多 run 并发（T1.2-mid 限制；F6.5 升级 multi-run 后去掉这步）
+//  3. WithRunTx 原子化：CreateRun + PromoteRootNodesToReady。任一失败回
+//     滚、避免“run 已建却根节点未 ready”脱状态。
+//
+// run_key 生成：IdempotencyKey 非空时使用 “<dagKey>#run-<idem>”，让 task_dag_runs.run_key
+// UNIQUE 约束兼带幂等（重复 StartDAG 带同名幂等键 → INSERT 冲突→返回
+// 已有 run，但 T1.2-mid 为避免复杂在同 run 中另一个带同一幂等键调用返回
+// ErrDAGAlreadyRunning；F6.5 会重看幂等语义）。IdempotencyKey 为空时生
+// 成 “<dagKey>#run-<unix_nano>” 保证唯一。
+func (s *service) StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGResponse, error) {
+	dagKey, dag, err := s.validateStartDAGPrereq(ctx, req)
+	if err != nil {
+		return StartDAGResponse{}, err
+	}
+	runKey := generateRunKey(dagKey, req.IdempotencyKey)
+	triggerSource := strings.TrimSpace(req.TriggerSource)
+	dagVersion := dagVersionFor(dag) // 初期 dag.Version 未同步到 contract.DAG，需从 sqlc 走
+	input := taskdag.CreateRunInput{
+		RunKey:             runKey,
+		DagKey:             dagKey,
+		DagVersionSnapshot: dagVersion,
+		TriggerSource:      triggerSource,
+	}
+	resp, txErr := s.runStartDAGTx(ctx, dagKey, input)
+	if txErr != nil {
+		return StartDAGResponse{}, fmt.Errorf("orchestration: StartDAG(%q): %w", dagKey, txErr)
+	}
+	return resp, nil
+}
+
+// validateStartDAGPrereq 检 service 预设 + dag_key 同存、调 GetDAG、走多 run 并发 reject。
+// 返回三元组 (dagKey, dag, error)。拆出 helper 让 StartDAG 主体保持在 CC≤10。
+func (s *service) validateStartDAGPrereq(ctx context.Context, req StartDAGRequest) (string, *taskdag.DAG, error) {
+	if s == nil || s.dagStore == nil {
+		return "", nil, ErrLifecycleNotImplemented
+	}
+	if s.runStore == nil {
+		return "", nil, ErrRunStoreUnset
+	}
+	dagKey := strings.TrimSpace(req.DagKey)
+	if dagKey == "" {
+		return "", nil, fmt.Errorf("orchestration: StartDAG: dag_key required")
+	}
+	dag, err := s.dagStore.GetDAG(ctx, dagKey)
+	if err != nil {
+		return "", nil, fmt.Errorf("orchestration: StartDAG: GetDAG(%q): %w", dagKey, err)
+	}
+	if dag == nil {
+		return "", nil, fmt.Errorf("%w: %s", ErrDAGNotFound, dagKey)
+	}
+	active, err := s.runStore.CountActiveRunsByDagKey(ctx, dagKey)
+	if err != nil {
+		return "", nil, fmt.Errorf("orchestration: StartDAG: CountActiveRunsByDagKey(%q): %w", dagKey, err)
+	}
+	if active > 0 {
+		return "", nil, fmt.Errorf("%w: %s", ErrDAGAlreadyRunning, dagKey)
+	}
+	return dagKey, dag, nil
+}
+
+// runStartDAGTx 走 runStore.WithRunTx 原子化 CreateRun + PromoteRootNodesToReady。
+// 任一失败 → 事务回滚 + 返错。
+func (s *service) runStartDAGTx(ctx context.Context, dagKey string, input taskdag.CreateRunInput) (StartDAGResponse, error) {
+	var resp StartDAGResponse
+	txErr := s.runStore.WithRunTx(ctx, func(tx taskdag.RunStore) error {
+		run, err := tx.CreateRun(ctx, input)
+		if err != nil {
+			return fmt.Errorf("CreateRun: %w", err)
+		}
+		if _, err := tx.PromoteRootNodesToReady(ctx, dagKey); err != nil {
+			return fmt.Errorf("PromoteRootNodesToReady: %w", err)
+		}
+		resp = StartDAGResponse{RunKey: run.RunKey, Version: run.DagVersionSnapshot}
+		return nil
+	})
+	return resp, txErr
+}
+
+// generateRunKey 生成 task_dag_runs.run_key，与 UNIQUE 约束兼容。
+func generateRunKey(dagKey, idempotencyKey string) string {
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	if idempotencyKey != "" {
+		return fmt.Sprintf("%s#run-%s", dagKey, idempotencyKey)
+	}
+	return fmt.Sprintf("%s#run-%d", dagKey, time.Now().UnixNano())
+}
+
+// dagVersionFor 从 contract.DAG 取 version 字段。骨架阶段 contract.DAG 未伸
+// version 字段（task_dags.version 在 0072 migration 后才加，sqlc 生成中仍未
+// 随 sqlc-1.30 realignment 运行），这里先返 0。F4.x ApplyOps OCC 落地后
+// version 会被写进 run。
+func dagVersionFor(_ *taskdag.DAG) int64 {
+	return 0
 }
 
 // TerminateDAG 终止一次 run（标 cancelled，级联取消 pending/ready 节点）。

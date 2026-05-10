@@ -77,6 +77,7 @@ type service struct {
 	sessionCleaner         SessionCleaner
 	turnStarter            TurnStarter
 	dagStore               taskdag.OrchestrationStore
+	runStore               taskdag.RunStore // T1.2: StartDAG / T3.x 跳入 RunStore；Tx 交给 runStore.WithRunTx 起
 	recoveryStore          recoveryTurnStore
 	agentThreads           AgentThreadStore
 	agentBindings          AgentBindingStore
@@ -107,6 +108,7 @@ type serviceParams struct {
 	SessionCleaner SessionCleaner
 	TurnStarter    TurnStarter
 	DAGStore       taskdag.OrchestrationStore `optional:"true"`
+	RunStore       taskdag.RunStore           `optional:"true"` // T1.2: StartDAG 需跳入 (CountActive / WithRunTx)
 	AgentThreads   AgentThreadStore           `optional:"true"`
 	AgentBindings  AgentBindingStore          `optional:"true"`
 }
@@ -208,6 +210,7 @@ func NewService(
 // Service interface.
 func ProvideService(p serviceParams) *service {
 	svc := NewService(p.Logger, p.EventBus, p.Launcher, p.SessionCleaner, p.TurnStarter, p.DAGStore)
+	svc.runStore = p.RunStore // T1.2: StartDAG 需跳入；setter 注入以保 NewService 签名不变
 	svc.agentThreads = p.AgentThreads
 	svc.agentBindings = p.AgentBindings
 	return svc

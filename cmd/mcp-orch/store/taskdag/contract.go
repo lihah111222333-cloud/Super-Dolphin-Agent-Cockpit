@@ -417,10 +417,16 @@ type ListRunsFilter struct {
 //   - PromoteRootNodesToReady:  StartDAG 在新 run 创建后调用，把 dag_key 下
 //     depends_on=[] 且 status='pending' 的根节点提为
 //     'ready'。返回受影响行数
+//   - WithRunTx:                在单一 PG 事务内组合调用其它 RunStore 方法
+//     （例：StartDAG 原子性 CreateRun + Promote）。不
+//     嵌入 OrchestrationStore / DAGMutationStore 是为了
+//     保 InterfaceIsolation 预算，service 层独立持
+//     有 runStore 字段。
 type RunStore interface {
 	CreateRun(ctx context.Context, input CreateRunInput) (*Run, error)
 	GetRun(ctx context.Context, runKey string) (*Run, error)
 	ListRuns(ctx context.Context, filter ListRunsFilter) ([]Run, error)
 	CountActiveRunsByDagKey(ctx context.Context, dagKey string) (int64, error)
 	PromoteRootNodesToReady(ctx context.Context, dagKey string) (int64, error)
+	WithRunTx(ctx context.Context, fn func(tx RunStore) error) error
 }
