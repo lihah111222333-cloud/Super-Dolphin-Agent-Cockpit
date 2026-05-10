@@ -613,10 +613,23 @@ store 层的主要价值在于：
 - `task_dag_wakeups`
 - `task_dag_worker_leases`
 
+另说明：`task_dag_runs` 已由 `cmd/mcp-orch/store/taskdag.RunStore` 包装（commit eb341e54 起走 `ProvideRunStore`），**不**列在上述“未包装”清单里；它也不是 `internal/store.Module` 的成员，而是在 `cmd/mcp-orch/store/taskdag` 这个独立包里（详见下面§4.7）。
+
 其中：
 - `task_dag_*` 在 schema 中仍然有效，且 `0023_dag_watcher_phase1.sql` 还继续扩展 `task_dag_nodes` 并新增 `task_dag_wakeups / task_dag_worker_leases`；
-- 但这些对象当前都不在 `store.Module` 的 17 个子 store 注册面里；
+- 但这些对象当前都不在 `store.Module` 的 17 个子 store 注册面里（注：`task_dag_runs` 上面已说明，由 `cmd/mcp-orch/store/taskdag.RunStore` 在独立 fx 包里装载；commit eb341e54 之后 taskdag 包中的 RunStore binding 已被 `ProvideRunStore` 补齐，internal/store 侧子 store 计数仍以 `internal/store/module.go` 为准 — 当前实际 >=22，“17” 是旧纲）；
 - `dbquery` 的白名单也**没有**向这些表开放。
+
+### 4.7 `cmd/mcp-orch/store/taskdag` — 独立 fx 包装的 DAG / Run 存储
+
+该包是 `internal/store/` 之外的另一块“独立 fx store 子包”，不在 §3 “17 个子 store”表内，但仍是运行时装配面的一员。
+
+| 子项 | 接口位置 | 实现位置 | Module 注册 | sqlc query 来源 | 关键方法 |
+| --- | --- | --- | --- | --- | --- |
+| `Store`（聚合） | `cmd/mcp-orch/store/taskdag/contract.go:13-21` | `cmd/mcp-orch/store/taskdag/store.go` | `Module` 中 `fx.Provide(NewStore)` + `ProvideOrchestrationStore` | `task_dags / task_dag_nodes` 等（sqlc 生成仓位于 `internal/store/sqlc`） | `WithTx`、`UpsertDAG`、`UpsertNode`、`UpdateNodeStatus`、`AcquireDAGLock`、节点生命周期等 |
+| `RunStore`（独立窄接口） | `cmd/mcp-orch/store/taskdag/contract.go:RunStore` 区段 | `cmd/mcp-orch/store/taskdag/store.go`（同一 `*store` 类型实现，编译期由 `store_compile_assertions_test.go` 里 `var _ RunStore = (*store)(nil)` 守住） | `Module` 中 `fx.Provide(ProvideRunStore)`，从聚合 `Store` type-assert 到 `RunStore`（commit eb341e54） | `task_dag_runs`（`sql/queries/task_dag_run.sql`） | `CreateRun`、`GetRun`、`ListRuns`、`UpdateRunStatus`、`AppendRunEvent` 等 |
+
+设计说明：`RunStore` **故意不嵌入** `taskdag.Store` 聚合接口，以保住 `OrchestrationStore` / `DAGMutationStore` 的 `InterfaceIsolation` 预算（·04 §2.1 接口隔离预算注脚同步列出；源码凭证见 `cmd/mcp-orch/store/taskdag/contract.go:25-27` 与 `:39-42`）。`cmd/mcp-orch/orchestration.service` 同时持有 `dagStore`（`OrchestrationStore`）与 `runStore`（`RunStore`）两个字段；事务内需要联合语义（例如 StartDAG 同一事务内 `CreateRun + PromoteRootNodesToReady`）时，走扩展接口 `DAGMutationWithRunStore`。
 
 ---
 
