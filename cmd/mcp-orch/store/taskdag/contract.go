@@ -60,6 +60,39 @@ type NodeStatusStore interface {
 	UpdateNodeStatus(ctx context.Context, input NodeStatusUpdate) (*Node, error)
 }
 
+// DAGOpsStore 是 task_dag_apply_ops 业务（F4.1+）的窄接口。包含：
+//   - GetDAGVersionForUpdate: SELECT version FROM task_dags WHERE dag_key = ?
+//     FOR UPDATE — 拿当前 OCC 版本，并在事务内锁定行避免双写。
+//   - BumpDAGVersion:        UPDATE task_dags SET version = version + 1
+//     WHERE dag_key = ? AND version = ? RETURNING version；
+//     0 行受影响 → expected/actual 不匹配，调用方判 OCC 冲突。
+//   - UpsertNode + ListNodes: 复用既有 store 接口。
+//
+// 设计取舍：单独窄接口而非塞进 DAGMutationStore，原因同 BatchUpsertingNodeStore
+// 注释 — DAGMutationStore 当前 2 direct + 1 embedded 处于 InterfaceIsolation
+// 预算上限，加方法破预算。F4.x 完整落地后整体重构再讨论是否升预算。
+//
+// DAGOpsStore is the narrow port consumed by ApplyOps (F4.1+). It carries the
+// OCC version helpers absent from the original DAGMutationStore; *store keeps
+// the latter within its InterfaceIsolation budget.
+type DAGOpsStore interface {
+	DAGDetailStore // GetDAG / ListNodes
+	GetDAGVersionForUpdate(ctx context.Context, dagKey string) (int64, error)
+	BumpDAGVersion(ctx context.Context, dagKey string, expectedVersion int64) (int64, error)
+	UpsertNode(ctx context.Context, node Node) (*Node, error)
+}
+
+// DAGOpsTxRunner 是 task_dag_apply_ops 在 PG 事务内跑业务的窄接口。调用方传
+// fn，在同一事务内调 GetDAGVersionForUpdate / UpsertNode / BumpDAGVersion
+// 以下泉到一起：OCC 校验 + 节点写入 + version 推进 原子化。
+//
+// 实现上与 UnitOfWorkStore.WithTx 同走 sqlc.WithTx，但传出去的 store 接口是
+// DAGOpsStore 而非 DAGMutationStore，避免造成 DAGMutationStore 超 Interface
+// Isolation 预算。
+type DAGOpsTxRunner interface {
+	WithDAGOpsTx(ctx context.Context, fn func(tx DAGOpsStore) error) error
+}
+
 type DAGLockStore interface {
 	GetDAGForUpdate(ctx context.Context, dagKey string) (*DAG, error)
 	GetNodesForUpdate(ctx context.Context, dagKey string) ([]Node, error)

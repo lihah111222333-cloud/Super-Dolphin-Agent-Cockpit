@@ -19,6 +19,8 @@ package taskdag
 var (
 	_ OrchestrationStore = (*store)(nil)
 	_ DAGMutationStore   = (*store)(nil)
+	_ DAGOpsStore        = (*store)(nil)
+	_ DAGOpsTxRunner     = (*store)(nil)
 	_ DAGReadStore       = (*store)(nil)
 	_ DAGDetailStore     = (*store)(nil)
 	_ NodeStatusStore    = (*store)(nil)
