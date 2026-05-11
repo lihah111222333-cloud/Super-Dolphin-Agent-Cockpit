@@ -79,6 +79,63 @@ func (s *fakeStarter) StartDAG(ctx context.Context, dagKey string, triggerSource
 	return nil
 }
 
+type blockingStarter struct {
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func newBlockingStarter() *blockingStarter {
+	return &blockingStarter{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+}
+
+func (s *blockingStarter) StartDAG(ctx context.Context, dagKey string, triggerSource string) error {
+	s.once.Do(func() { close(s.entered) })
+	select {
+	case <-s.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+type fakeLocker struct {
+	mu          sync.Mutex
+	locked      bool
+	tryCalls    int
+	unlockCalls int
+	err         error
+}
+
+func (l *fakeLocker) TryLock(ctx context.Context) (AdvisoryLockHandle, bool, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.tryCalls++
+	if l.err != nil {
+		return nil, false, l.err
+	}
+	if l.locked {
+		return nil, false, nil
+	}
+	l.locked = true
+	return &fakeLockHandle{locker: l}, true, nil
+}
+
+type fakeLockHandle struct {
+	locker *fakeLocker
+}
+
+func (h *fakeLockHandle) Unlock(ctx context.Context) error {
+	h.locker.mu.Lock()
+	defer h.locker.mu.Unlock()
+	h.locker.unlockCalls++
+	h.locker.locked = false
+	return nil
+}
+
 type blockingTicker struct {
 	entered chan struct{}
 	done    chan error
@@ -245,6 +302,63 @@ func TestScheduledDAGTicker_StartDAGErrorPassthrough(t *testing.T) {
 	_, err = ticker.Tick(context.Background(), time.Now())
 	if !errors.Is(err, startErr) {
 		t.Fatalf("Tick err = %v, want startErr passthrough", err)
+	}
+}
+
+func TestScheduledDAGTicker_MultiInstance_OneAcquires(t *testing.T) {
+	locker := &fakeLocker{}
+	store := &fakeScheduleStore{due: []DueDAG{{DagKey: "daily-report", CronExpr: "0 8 * * *"}}}
+	starter := newBlockingStarter()
+	first, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: starter, Locker: locker})
+	if err != nil {
+		t.Fatalf("first ticker: %v", err)
+	}
+	secondStarter := &fakeStarter{}
+	second, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: secondStarter, Locker: locker})
+	if err != nil {
+		t.Fatalf("second ticker: %v", err)
+	}
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := first.Tick(context.Background(), time.Date(2026, 5, 11, 7, 0, 0, 0, time.UTC))
+		firstDone <- err
+	}()
+	<-starter.entered
+	n, err := second.Tick(context.Background(), time.Date(2026, 5, 11, 7, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("second Tick err = %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("second triggered = %d, want 0 when lock is held", n)
+	}
+	if len(secondStarter.starts) != 0 {
+		t.Fatalf("second starts = %d, want 0", len(secondStarter.starts))
+	}
+	close(starter.release)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first Tick err = %v", err)
+	}
+}
+
+func TestScheduledDAGTicker_ReleaseOnExit(t *testing.T) {
+	locker := &fakeLocker{}
+	store := &fakeScheduleStore{due: []DueDAG{{DagKey: "daily-report", CronExpr: "0 8 * * *"}}}
+	starter := &fakeStarter{}
+	ticker, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: starter, Locker: locker})
+	if err != nil {
+		t.Fatalf("NewScheduledDAGTicker: %v", err)
+	}
+	if _, err := ticker.Tick(context.Background(), time.Date(2026, 5, 11, 7, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	locker.mu.Lock()
+	defer locker.mu.Unlock()
+	if locker.locked {
+		t.Fatalf("lock still held after Tick")
+	}
+	if locker.unlockCalls != 1 {
+		t.Fatalf("unlockCalls = %d, want 1", locker.unlockCalls)
 	}
 }
 

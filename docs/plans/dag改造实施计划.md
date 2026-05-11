@@ -213,9 +213,9 @@ f972627d  T0.8 doc-sync script
 
 ---
 
-## 3. 阶段 F 功能（37 行 / 29 未开工 + 7 ✅ done + 1 完成占位）
+## 3. 阶段 F 功能（37 行 / 28 未开工 + 8 ✅ done + 1 完成占位）
 
-> **口径说明**：37 表位 ÷ 状态 = 7 条 strikethrough ✅ done（F1.1 / F2.0 / F4.0 / F5.1 / F5.2 / F6.2 / F6.4）+ 1 条 F6.1 完成占位（由 T1.2-mid 接手 snapshot）+ 29 条未开工。“待做”传统口径只扣“完成占位”不扣 done，本文档接手人读“36 待做”时请同时看本说明。
+> **口径说明**：37 表位 ÷ 状态 = 8 条 strikethrough ✅ done（F1.1 / F2.0 / F4.0 / F5.1 / F5.2 / F5.3 / F6.2 / F6.4）+ 1 条 F6.1 完成占位（由 T1.2-mid 接手 snapshot）+ 28 条未开工。“待做”传统口径只扣“完成占位”不扣 done，本文档接手人读“36 待做”时请同时看本说明。
 >
 > 26 个原计划 + 5 个从推迟项补位（F4.0 / F6.3 / F6.4 / F6.5 / F14.1） + 1 个从 T0 前置项补位（F1.5） + 1 个 S5.1 schema 返修补位（F2.0） + 1 个 H6 前置补位（F15.1） + 3 个 Hybrid v2 拓扑占位（F3.2 / F3.3 / F3.4） = 37 表位。
 >
@@ -242,8 +242,8 @@ f972627d  T0.8 doc-sync script
 | **F4.4** | `ApplyOps` update_dag 真实实现 | 同上 | 单测 | F4.1 | S | Y |
 | **F4.5** | `ApplyOps` `status=running` 时只允许 add_node + depends_on 指向 done 节点 | 同上 | 单测：违规 ops 被拒 | F4.1 | M | N |
 | ~~**F5.1**~~ ✅ done | cron daemon 进程入口 + 接 robfig/cron 库（F5.2/F5.3 留位） | `cmd/mcp-orch/orchestration/cron/scheduler_cron.go` 新建 / commit `07ec1317` | 单测：cron 表达式解析正确；Tick 占位 | S2.3 | M | Y |
-| ~~**F5.2**~~ ✅ done | `Scheduler.Tick` 真实实现：扫 `next_run_at <= now` → StartDAG；TickTimeout 配置化；Stop cancel in-flight；goleak 替换 goroutine 容差 / commit `self:F5.2` | `cmd/mcp-orch/orchestration/cron/scheduler_cron.go` | 单测：Tick_ScansAndStarts / NextRunAtUpdated / TickTimeout / StopCancelsInflight；错误分类 infrastructure / validation / StartDAG 透传 | F5.1, T1.2 | M | N |
-| **F5.3** | cron 多实例锁（避免重复触发） | 同上 | 集成测试：两个进程只一个 tick 成功 | F5.2 | M | N |
+| ~~**F5.2**~~ ✅ done | `Scheduler.Tick` 真实实现：扫 `next_run_at <= now` → StartDAG；TickTimeout 配置化；Stop cancel in-flight；goleak 替换 goroutine 容差 / commit `2f9341b3` | `cmd/mcp-orch/orchestration/cron/scheduler_cron.go` | 单测：Tick_ScansAndStarts / NextRunAtUpdated / TickTimeout / StopCancelsInflight；错误分类 infrastructure / validation / StartDAG 透传 | F5.1, T1.2 | M | N |
+| ~~**F5.3**~~ ✅ done | cron 多实例锁：`pg_try_advisory_lock(lock_id)` 获取后执行 Tick，拿不到跳过，退出时释放 / commit `self:F5.3` | 同上 | 单测：MultiInstance_OneAcquires / ReleaseOnExit | F5.2 | M | N |
 | ~~**F6.1**~~ | (snapshot dag.version 部分由 T1.2-mid 完成；events 字段位的业务化写入归 H 阶段。本行保留作为契约位、不再单独 commit) | — | — | T1.2 | — | — |
 | ~~**F6.2**~~ ✅ done | run 终态判定：所有节点 done/failed/cancelled/skipped → run.status 按优先级写入 | `cmd/mcp-orch/orchestration/dag.go` + store 层 / commit `0a7cc0ca` | 集成测试通过 | T1.2 | M | N |
 | **F6.3** | 节点完成时自动 promote 下游 pending→ready（S2.4 / B-14） | `task_dag_node` SQL + sqlc + dispatcher 三层 | 集成测试：节点 A done 后下游 B 自动 ready | T1.2, S2.4 推迟 | M | N |
