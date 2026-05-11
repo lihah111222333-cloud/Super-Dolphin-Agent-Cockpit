@@ -700,12 +700,94 @@ func (s *service) TerminateDAG(_ context.Context, _ TerminateDAGRequest) error {
 	return ErrLifecycleNotImplemented
 }
 
+// ---- ApplyOps 顶层（F4.0）----
+//
+// task_dag_apply_ops 在 service 层的入口分层：
+//   - 本块负责顶层 unmarshal + 形状校验 + 错误分类（F4.0）。
+//   - 4 个 op_kind 的业务实现（add_node / update_node / remove_node /
+//     update_dag）由 F4.1-F4.4 在 applyTypedOps 里补齐。
+//
+// 原计划拆独立文件 dag_ops.go，但 cmd/mcp-orch/orchestration 包文件数已
+// 贴近 30 上限（代码守卫），拆出会超限；暂留在 dag.go，后续如果该包
+// 拆子包（路线 N 计划）再独立 dag_ops.go。
+//
+// Top-level ApplyOps (F4.0) lives here rather than in a dedicated dag_ops.go
+// because the orchestration package is already at the codeguard file-count
+// budget (≤ 30 non-test files); splitting would break the guard. The four
+// typed op handlers will land inside applyTypedOps in F4.1-F4.4.
+
+// ErrApplyOpsInvalid 是 ApplyOps 顶层校验失败的 sentinel（InvalidArgument
+// 类）。errors.Is 可用：errors.Is(err, ErrApplyOpsInvalid)。
+//
+// ErrApplyOpsInvalid is the InvalidArgument-class sentinel for top-level
+// ApplyOps validation failures; matchable with errors.Is.
+var ErrApplyOpsInvalid = errors.New("orchestration: apply_ops invalid request")
+
 // ApplyOps 对 DAG 执行一组 typed ops（add_node / update_node / remove_node /
 // update_dag），带 base_version OCC。是 AI 设计师 + UI 表单 + ops MCP 工具
 // 的同一接入点。
 //
-// req.Ops 是 raw JSON（wire 格式）；F4.x 实现时用 nodeexec.Ops UnmarshalJSON
-// 解码为 typed Op slice。骨架阶段：仅返回 ErrLifecycleNotImplemented。
-func (s *service) ApplyOps(_ context.Context, _ contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
+// 顶层分三段（F4.0）：
+//  1. base_version 非负（OCC 单调约束的必要条件）；
+//  2. ops 透过 nodeexec.Ops UnmarshalJSON 解码为 typed slice — 解码本身
+//     包含 op discriminator 白名单校验（缺 op / 未知 op 都在那一层报错）；
+//  3. 透传到 applyTypedOps 跑业务（F4.1-F4.4 落地，骨架返
+//     ErrLifecycleNotImplemented）。
+//
+// 错误分类决策：所有顶层失败统一包装 ErrApplyOpsInvalid，上层 MCP
+// handler（translate*Error）按 errors.Is 转译为中英双语用户消息。这样
+// service 层与 transport 层职责单一：service 决定「是不是合法」，transport
+// 决定「怎么说人话」。
+//
+// ApplyOps applies a typed op batch (add_node / update_node / remove_node /
+// update_dag) with base_version OCC; it is the shared entry point for the AI
+// designer, the UI form, and the ops MCP tool. F4.0 lands only the top-level
+// unmarshal + shape validation + error classification — the four typed op
+// handlers come in F4.1-F4.4 inside applyTypedOps.
+func (s *service) ApplyOps(ctx context.Context, req contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
+	if req.BaseVersion < 0 {
+		// base_version 必须非负：0 表示「首次写入空 DAG」，>0 是 OCC 期望
+		// 版本。负数没有定义，直接拒。
+		// base_version must be non-negative; 0 means "first write on empty
+		// DAG" and >0 is the OCC expected version. Negative is undefined.
+		return contract.ApplyOpsResponse{}, fmt.Errorf(
+			"%w: base_version must be non-negative, got %d",
+			ErrApplyOpsInvalid, req.BaseVersion,
+		)
+	}
+
+	var ops nodeexec.Ops
+	// ops 字段为空时按「无操作」处理：解码空 RawMessage 在 encoding/json
+	// 里会 panic 不直观，提前归一为 "null"。下游 applyTypedOps 收到 nil
+	// slice 走主路径，由 F4.1+ 决定是 noop 还是错。
+	// Treat an absent ops payload as JSON null so downstream sees a nil
+	// slice on the main path; F4.1+ decides noop-vs-error semantics.
+	raw := req.Ops
+	if len(raw) == 0 {
+		raw = json.RawMessage("null")
+	}
+	if err := json.Unmarshal(raw, &ops); err != nil {
+		// nodeexec.Ops.UnmarshalJSON 已经分类返出三种子错（顶层 JSON 不是
+		// 数组 / 单条 header 不解 / op discriminator 缺失或未知），这里
+		// 统一包成 ErrApplyOpsInvalid 让上层 errors.Is 命中。原始信息
+		// 通过 %w 保留供调试 / 日志。
+		// nodeexec.Ops.UnmarshalJSON already classifies the three sub-cases
+		// (bad outer JSON / bad item header / missing or unknown op
+		// discriminator); wrap them all as ErrApplyOpsInvalid so callers can
+		// match with errors.Is. The original message is preserved via %w.
+		return contract.ApplyOpsResponse{}, fmt.Errorf("%w: %s", ErrApplyOpsInvalid, err.Error())
+	}
+
+	return s.applyTypedOps(ctx, req.DagKey, req.BaseVersion, ops)
+}
+
+// applyTypedOps 是 4 个 op_kind 业务实现的容器（F4.1-F4.4）。
+// 本 task（F4.0）仅落地顶层校验，业务直接返 ErrLifecycleNotImplemented
+// 让上层 NotImplemented 测试保持稳定。
+//
+// applyTypedOps is the container where the four typed op handlers land in
+// F4.1-F4.4; F4.0 keeps it as the lifecycle stub so the NotImplemented
+// contract test stays green.
+func (s *service) applyTypedOps(_ context.Context, _ string, _ int64, _ nodeexec.Ops) (contract.ApplyOpsResponse, error) {
 	return contract.ApplyOpsResponse{}, ErrLifecycleNotImplemented
 }
