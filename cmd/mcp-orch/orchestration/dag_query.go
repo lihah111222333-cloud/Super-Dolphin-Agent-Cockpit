@@ -222,25 +222,8 @@ func partitionOps(ops nodeexec.Ops) (partitionedOps, error) {
 //  6. 顺序 UpsertNode（先 add 后 update，update 合并 patch 与旧 Node）
 //  7. BumpDAGVersion
 func runOpsBatch(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string, baseVersion int64, parts partitionedOps) (contract.ApplyOpsResponse, error) {
-	current, err := tx.GetDAGVersionForUpdate(ctx, dagKey)
+	current, existing, err := preflightOpsBatch(ctx, tx, dagKey, baseVersion, parts)
 	if err != nil {
-		return contract.ApplyOpsResponse{}, fmt.Errorf("get dag version: %w", err)
-	}
-	if current != baseVersion {
-		return contract.ApplyOpsResponse{}, fmt.Errorf("%w: dag=%s expected=%d actual=%d", ErrVersionConflict, dagKey, baseVersion, current)
-	}
-	dag, err := tx.GetDAG(ctx, dagKey)
-	if err != nil {
-		return contract.ApplyOpsResponse{}, fmt.Errorf("get dag: %w", err)
-	}
-	if dag == nil {
-		return contract.ApplyOpsResponse{}, fmt.Errorf("%w: dag=%s vanished mid-tx", ErrApplyOpsInvalid, dagKey)
-	}
-	existing, err := tx.ListNodes(ctx, dagKey)
-	if err != nil {
-		return contract.ApplyOpsResponse{}, fmt.Errorf("list nodes: %w", err)
-	}
-	if err := enforceRunningDAGInvariants(dag.Status, parts, existing); err != nil {
 		return contract.ApplyOpsResponse{}, err
 	}
 	if len(parts.adds) == 0 && len(parts.updates) == 0 {
@@ -253,14 +236,50 @@ func runOpsBatch(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string, bas
 	if err := persistOpsBatch(ctx, tx, dagKey, existing, plan); err != nil {
 		return contract.ApplyOpsResponse{}, err
 	}
+	newVersion, err := bumpDAGVersionTx(ctx, tx, dagKey, baseVersion)
+	if err != nil {
+		return contract.ApplyOpsResponse{}, err
+	}
+	return contract.ApplyOpsResponse{NewVersion: newVersion}, nil
+}
+
+// preflightOpsBatch 跑 runOpsBatch 的前置检查：上锁 + OCC 同庄判定 + DAG 状态读 +
+// F4.5 不变量。作为 runOpsBatch 的助手拆出避免父函数超过 cyclomatic complexity 上限。
+func preflightOpsBatch(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string, baseVersion int64, parts partitionedOps) (int64, []taskdag.Node, error) {
+	current, err := tx.GetDAGVersionForUpdate(ctx, dagKey)
+	if err != nil {
+		return 0, nil, fmt.Errorf("get dag version: %w", err)
+	}
+	if current != baseVersion {
+		return 0, nil, fmt.Errorf("%w: dag=%s expected=%d actual=%d", ErrVersionConflict, dagKey, baseVersion, current)
+	}
+	dag, err := tx.GetDAG(ctx, dagKey)
+	if err != nil {
+		return 0, nil, fmt.Errorf("get dag: %w", err)
+	}
+	if dag == nil {
+		return 0, nil, fmt.Errorf("%w: dag=%s vanished mid-tx", ErrApplyOpsInvalid, dagKey)
+	}
+	existing, err := tx.ListNodes(ctx, dagKey)
+	if err != nil {
+		return 0, nil, fmt.Errorf("list nodes: %w", err)
+	}
+	if err := enforceRunningDAGInvariants(dag.Status, parts, existing); err != nil {
+		return 0, nil, err
+	}
+	return current, existing, nil
+}
+
+// bumpDAGVersionTx 拼 OCC bump 与 ErrVersionConflict 翻译。拆出避免 runOpsBatch 超 CC 上限。
+func bumpDAGVersionTx(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string, baseVersion int64) (int64, error) {
 	newVersion, err := tx.BumpDAGVersion(ctx, dagKey, baseVersion)
 	if err != nil {
 		if platformdb.IsNotFound(err) {
-			return contract.ApplyOpsResponse{}, fmt.Errorf("%w: dag=%s base_version=%d (lost lock?)", ErrVersionConflict, dagKey, baseVersion)
+			return 0, fmt.Errorf("%w: dag=%s base_version=%d (lost lock?)", ErrVersionConflict, dagKey, baseVersion)
 		}
-		return contract.ApplyOpsResponse{}, fmt.Errorf("bump version: %w", err)
+		return 0, fmt.Errorf("bump version: %w", err)
 	}
-	return contract.ApplyOpsResponse{NewVersion: newVersion}, nil
+	return newVersion, nil
 }
 
 // enforceRunningDAGInvariants 是 F4.5 主体：在 DAG 状态为 running 时仅允许 add_node，
