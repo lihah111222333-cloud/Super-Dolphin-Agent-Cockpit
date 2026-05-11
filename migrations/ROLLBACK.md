@@ -166,3 +166,30 @@ F5 cron daemon / dispatcher 读到非枚举值会落 default 分支（行为未�
 **说明：** 本 CHECK 显式允许空串 '' —— 与 0074 DEFAULT '' 兼容。若后续把
 default 收敛为 'manual'，需独立 migration 同步把空串移出白名单。详见
 docs/plans/dag改造实施计划.md §10 follow-up「trigger_source default 收敛」。
+
+---
+
+## 0083 — task_dag_nodes.spawning_thread_id 列 + partial index (F1.5)
+
+**up：** `migrations/0083_dag_v2_spawning_thread_id.sql`
+
+**down（手工执行）：**
+
+```sql
+BEGIN;
+DROP INDEX IF EXISTS idx_task_dag_nodes_spawning_thread_id;
+-- CASCADE 防未来加上 view / generated column 后 DROP COLUMN 被依赖抦在。
+ALTER TABLE task_dag_nodes DROP COLUMN IF EXISTS spawning_thread_id CASCADE;
+DELETE FROM schema_migrations WHERE filename = '0083_dag_v2_spawning_thread_id.sql';
+COMMIT;
+```
+
+**影响：** 删列后 nodeexec.AgentExecutor / RecordNodeSpawn 走 store 层会在
+UpdateTaskDagNodeSpawningThread / Scan 处报列不存在；F1.5 spawn 历史链的
+Go 层手维 SQL 也失效。仅在 F1.5 被决定回滚时才跳此回滚。
+
+**幂等提示：** up 文件使用 `-- SPLIT --` sentinel（详见 internal/platform/db/module.go中的
+`migrationSplitSentinel`）拆为事务内 ALTER TABLE 与事务外
+CREATE INDEX CONCURRENTLY 两段。中途中断可能留下 INVALID 状态的部分索引；这时
+rollback 前先手工 `DROP INDEX IF EXISTS idx_task_dag_nodes_spawning_thread_id;`
+再走上面脚本。

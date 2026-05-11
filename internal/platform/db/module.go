@@ -175,18 +175,56 @@ func shouldApplyMigration(f os.DirEntry, applied map[string]bool) bool {
 	return true
 }
 
+// migrationSplitSentinel 是 migration 文件内的分段标记。出现该行时
+// executeMigration 把它两侧的语句拆成独立的 pool.Exec 调用。
+//
+// 主要用例：CREATE INDEX CONCURRENTLY 不能跑在任何 transaction 块内（PG 硬
+// 规则），但迁移文件主体心里不可避免要一些 ALTER TABLE 裹在 BEGIN/COMMIT
+// 中保证原子。之前 runner 单次 pool.Exec(文件整体) 无法共存两者；现在只要
+// 在两段间加一行“-- SPLIT --”，后面的语句就在事务外跑。
+const migrationSplitSentinel = "-- SPLIT --"
+
 func executeMigration(ctx context.Context, pool *pgxpool.Pool, dir, f string) error {
 	c, err := os.ReadFile(filepath.Join(dir, f))
 	if err != nil {
 		return err
 	}
-	if _, err := pool.Exec(ctx, string(c)); err != nil {
+	if err := execMigrationBody(ctx, pool, string(c)); err != nil {
 		return err
 	}
 	var version int
 	_, _ = fmt.Sscanf(f, "%d_", &version)
 	_, err = pool.Exec(ctx, "INSERT INTO schema_migrations (version, name, filename) VALUES ($1, $2, $3)", version, f, f)
 	return err
+}
+
+// execMigrationBody 拆并顺序跑 migration 体。无 sentinel 时退化为原单次
+// pool.Exec（完全后向兼容）。每个非空段被 trim 后单独 exec；空段跳过。
+func execMigrationBody(ctx context.Context, pool *pgxpool.Pool, body string) error {
+	for _, segment := range splitMigrationBody(body) {
+		if _, err := pool.Exec(ctx, segment); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// splitMigrationBody 是拆逻辑的纯函数形式，便于单测。返回列表每项是一个
+// 非空段（原本 trim 前的 segment，保留原 start/end 空白以不干扰 PG 解析）。
+// 无 sentinel 时返 [body] 一项（这使 exec 路径与原语义一致）。
+func splitMigrationBody(body string) []string {
+	if !strings.Contains(body, migrationSplitSentinel) {
+		return []string{body}
+	}
+	parts := strings.Split(body, migrationSplitSentinel)
+	out := make([]string, 0, len(parts))
+	for _, segment := range parts {
+		if strings.TrimSpace(segment) == "" {
+			continue
+		}
+		out = append(out, segment)
+	}
+	return out
 }
 
 func registerLifecycle(lc fx.Lifecycle, logger *pkglogger.Logger, pool *pgxpool.Pool, cfg *config.Config) {
