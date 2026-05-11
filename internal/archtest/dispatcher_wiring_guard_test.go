@@ -52,7 +52,10 @@ func TestDispatcherWiringGuard(t *testing.T) {
 			path: filepath.Join("cmd", "mcp-orch", "fx.go"),
 			mustHave: []string{
 				// production fx 必须 Provide AgentExecutor + AutomationExecutor
-				"nodeexec.NewAgentExecutor",
+				// round-3 后 AgentExecutor 走 orchestration.ProvideAgentExecutor 包
+				// WithRecorder option（W2 端口收敛后 NewAgentExecutor 变 variadic Option），
+				// 保证 launcher + NodeSpawnRecorder 同步落到 executor。
+				"orchestration.ProvideAgentExecutor",
 				"nodeexec.NewAutomationExecutor",
 				// + NodeExecutorRouter 单例
 				"orchestration.NewNodeExecutorRouter",
