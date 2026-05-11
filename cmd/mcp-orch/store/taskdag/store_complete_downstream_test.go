@@ -288,6 +288,50 @@ func TestCompleteNodeAndScheduleDownstream_SkipsWakeupForUnassignedNode(t *testi
 	}
 }
 
+// TestCompleteNodeAndScheduleDownstream_SkipsWakeupForWhitespaceAssignedTo
+// F6.4 补强（防回归 Nit 1）：assigned_to 为纯空白字符串（如 "   "）必须等价于空，
+// store 层经 strings.TrimSpace 守护后同样跳过 enqueue。若未来有人改成
+// `agentID := cand.AssignedTo`（去掉 TrimSpace），此测试将失败 — 钉死该守护。
+//
+// EN: A whitespace-only assigned_to (e.g. "   ") must be treated like empty.
+// The store applies strings.TrimSpace before checking, so the wakeup enqueue
+// is skipped. This pins the TrimSpace guard against regressions that drop it.
+func TestCompleteNodeAndScheduleDownstream_SkipsWakeupForWhitespaceAssignedTo(t *testing.T) {
+	t.Parallel()
+
+	store, db, now := newTaskDAGTestStore()
+	seedDAG(t, db, now, []seedNode{
+		{key: "A", deps: nil, status: "running", agent: "agent-a"},
+		{key: "B", deps: []string{"A"}, status: "pending", agent: "   "},
+	})
+
+	res, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
+		DagKey:  "dag-1",
+		NodeKey: "A",
+		Status:  "done",
+		Result:  json.RawMessage(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("complete A error = %v", err)
+	}
+	if res.Node == nil || res.Node.Status != "done" {
+		t.Fatalf("complete A node = %+v", res.Node)
+	}
+	// 关键断言 1：B 的 assigned_to 为纯空白，TrimSpace 后为空 → ScheduledDownstream 必须为空。
+	if got := scheduledKeys(res.ScheduledDownstream); len(got) != 0 {
+		t.Fatalf("scheduled = %v, want [] (B assigned_to is whitespace-only)", got)
+	}
+	// 关键断言 2：DB 也不应有 B 的 pending wakeup 行。
+	if c := pendingForNode(db, "B"); c != 0 {
+		t.Fatalf("B wakeup count = %d, want 0 (whitespace assigned_to must skip enqueue)", c)
+	}
+	// 关键断言 3：B 状态保持 pending（依赖已满足 → 等价 ready），
+	// 等外部 / 人工接管再 promote。
+	if got := db.nodes[dagNodeKey("dag-1", "B")].Status; got != "pending" {
+		t.Fatalf("B status = %q, want pending (ready semantic)", got)
+	}
+}
+
 // TestCompleteNodeAndScheduleDownstream_MixedAssignmentFanOut
 // 边界场景：扇出下游里有的有 assigned_to、有的没有 — 有的必须 enqueue、
 // 没的必须跳过，互不影响。
