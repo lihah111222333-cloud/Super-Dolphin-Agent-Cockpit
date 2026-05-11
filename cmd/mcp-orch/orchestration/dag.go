@@ -723,6 +723,23 @@ func (s *service) TerminateDAG(_ context.Context, _ TerminateDAGRequest) error {
 // ApplyOps validation failures; matchable with errors.Is.
 var ErrApplyOpsInvalid = errors.New("orchestration: apply_ops invalid request")
 
+// ErrVersionConflict 是 ApplyOps base_version OCC 冲突的 sentinel。
+// errors.Is(err, ErrVersionConflict) 可命中。调用方应重新拉 dag.version
+// 重试整套 ops（并重新干上下文决策）。
+//
+// ErrVersionConflict signals OCC failure on ApplyOps. The caller must refetch
+// the current dag.version, re-derive ops, and retry.
+var ErrVersionConflict = errors.New("orchestration: apply_ops version conflict")
+
+// ErrApplyOpsStoreNotConfigured 表示 service.dagStore 未实现 DAGOpsStore /
+// DAGOpsTxRunner（测试裸构造路径）。生产路径 ProvideService 注入的
+// taskdag.Store 同时实现两者、不会命中。
+//
+// ErrApplyOpsStoreNotConfigured fires when the service's dag store does not
+// satisfy DAGOpsStore / DAGOpsTxRunner. The production wiring (taskdag.Store)
+// implements both; only bare-construction test paths can hit this.
+var ErrApplyOpsStoreNotConfigured = errors.New("orchestration: apply_ops dag store does not implement DAGOpsStore/DAGOpsTxRunner")
+
 // ApplyOps 对 DAG 执行一组 typed ops（add_node / update_node / remove_node /
 // update_dag），带 base_version OCC。是 AI 设计师 + UI 表单 + ops MCP 工具
 // 的同一接入点。
@@ -774,20 +791,49 @@ func (s *service) ApplyOps(ctx context.Context, req contract.ApplyOpsRequest) (c
 		// nodeexec.Ops.UnmarshalJSON already classifies the three sub-cases
 		// (bad outer JSON / bad item header / missing or unknown op
 		// discriminator); wrap them all as ErrApplyOpsInvalid so callers can
-		// match with errors.Is. The original message is preserved via %w.
-		return contract.ApplyOpsResponse{}, fmt.Errorf("%w: %s", ErrApplyOpsInvalid, err.Error())
+		// match with errors.Is. 双 %w 链（Go 1.20+）保留 nodeexec 子错误链
+		// 让 errors.Is(err, nodeexec.ErrXxx) 仍能命中。
+		return contract.ApplyOpsResponse{}, fmt.Errorf("%w: %w", ErrApplyOpsInvalid, err)
 	}
 
 	return s.applyTypedOps(ctx, req.DagKey, req.BaseVersion, ops)
 }
 
-// applyTypedOps 是 4 个 op_kind 业务实现的容器（F4.1-F4.4）。
-// 本 task（F4.0）仅落地顶层校验，业务直接返 ErrLifecycleNotImplemented
-// 让上层 NotImplemented 测试保持稳定。
+// applyTypedOps 是 4 个 op_kind 业务实现的容器（F4.1-F4.4）。F4.1 只接上 add_node；
+// 其余 op_kind 被 fail-fast 拒为 ErrLifecycleNotImplemented。空 ops 返 noop。
 //
-// applyTypedOps is the container where the four typed op handlers land in
-// F4.1-F4.4; F4.0 keeps it as the lifecycle stub so the NotImplemented
-// contract test stays green.
-func (s *service) applyTypedOps(_ context.Context, _ string, _ int64, _ nodeexec.Ops) (contract.ApplyOpsResponse, error) {
-	return contract.ApplyOpsResponse{}, ErrLifecycleNotImplemented
+// applyTypedOps dispatches typed ops. F4.1 wires add_node only; other kinds
+// fail-fast to ErrLifecycleNotImplemented. Empty ops is a valid noop.
+func (s *service) applyTypedOps(ctx context.Context, dagKey string, baseVersion int64, ops nodeexec.Ops) (contract.ApplyOpsResponse, error) {
+	if s == nil || s.dagStore == nil {
+		return contract.ApplyOpsResponse{}, ErrApplyOpsStoreNotConfigured
+	}
+	dagKey = strings.TrimSpace(dagKey)
+	if dagKey == "" {
+		return contract.ApplyOpsResponse{}, fmt.Errorf("%w: dag_key required", ErrApplyOpsInvalid)
+	}
+	if err := ensureAllAddNodeOps(ops); err != nil {
+		return contract.ApplyOpsResponse{}, err
+	}
+	runner, ok := s.dagStore.(taskdag.DAGOpsTxRunner)
+	if !ok {
+		return contract.ApplyOpsResponse{}, ErrApplyOpsStoreNotConfigured
+	}
+	var resp contract.ApplyOpsResponse
+	txErr := runner.WithDAGOpsTx(ctx, func(tx taskdag.DAGOpsStore) error {
+		r, err := runAddNodeBatch(ctx, tx, dagKey, baseVersion, ops)
+		if err != nil {
+			return err
+		}
+		resp = r
+		return nil
+	})
+	if txErr != nil {
+		return contract.ApplyOpsResponse{}, txErr
+	}
+	return resp, nil
 }
+
+// ensureAllAddNodeOps / runAddNodeBatch / existingNodesForPlan /
+// persistAddNodeSpecs 均位于 dag_query.go — 它们是 ApplyOps add_node 业务的
+// helper，拆出是为了让 dag.go 行数不超守卫上限。在同包下拆不破可见性。

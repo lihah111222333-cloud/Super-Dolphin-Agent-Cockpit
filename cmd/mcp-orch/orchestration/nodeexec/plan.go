@@ -1,0 +1,138 @@
+package nodeexec
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
+
+// ApplyOps add_node 计划阶段 —— 把 typed ops 与 DAG 现有节点融合成
+// 「待入库节点列表 + 环检测 adjacency」。
+//
+// 设计取舍：nodeexec 包不依赖 taskdag（types.go 注释明确解耦），故输入用
+// nodeexec.ExistingNode 描述现有节点（只含 NodeKey + DependsOn），输出 specs
+// 用 nodeexec.NodeSpec —— orchestration 层再把它映射成 taskdag.Node 写库。
+//
+// PlanAddNodes is the validation-only phase of ApplyOps add_node: it takes the
+// typed ops + a snapshot of current nodes, returns the adjacency map ready for
+// DetectCycle plus the validated NodeSpecs to persist.
+
+// ErrAddNodePlan 是 PlanAddNodes 形状校验失败时的 sentinel。
+// 调用方（service.applyTypedOps）需要把它包成 ErrApplyOpsInvalid。
+var ErrAddNodePlan = errors.New("add_node plan: invalid request")
+
+// ExistingNode 描述 DAG 现有节点的最小投影 —— PlanAddNodes 只关心 NodeKey
+// 唯一性和 DependsOn 入环检测，其他字段无关。
+type ExistingNode struct {
+	NodeKey   string
+	DependsOn []string
+}
+
+// PlanAddNodes 走两遍 pass：
+//  1. 校验单个 ops：node_key 非空 + 与现有 / 同批不重名 + 不自依赖。
+//  2. 校验 depends_on 引用：必须命中 existing ∪ 同批 NodeKey；允许 ops 内
+//     互相引用不论顺序。
+//
+// 返回：adjacency（含 existing + new，传给 DetectCycle）/ 通过校验的 NodeSpec
+// 列表（保留 ops 原顺序，供 service 顺序 UpsertNode）/ 错误。
+//
+// PlanAddNodes performs two passes over the typed ops:
+//  1. Per-op validity (non-empty key, no name clash, no self-dependency)
+//  2. depends_on integrity (all keys point to existing or freshly-added nodes)
+//
+// Returns the cycle-detection adjacency, the accepted NodeSpecs preserved in
+// ops order (for caller to UpsertNode), and any validation error.
+func PlanAddNodes(ops Ops, existing []ExistingNode) (map[string][]string, []NodeSpec, error) {
+	adjacency, known := seedAdjacency(existing)
+	accepted := make([]NodeSpec, 0, len(ops))
+	for i, op := range ops {
+		spec, err := addNodeSpecFromOp(i, op)
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := registerNewNode(i, spec, known, adjacency); err != nil {
+			return nil, nil, err
+		}
+		accepted = append(accepted, spec)
+	}
+	if err := verifyDependsOnIntegrity(accepted, known); err != nil {
+		return nil, nil, err
+	}
+	return adjacency, accepted, nil
+}
+
+// seedAdjacency 把 existing 列表灌进 adjacency 与 known 集合，作为 PlanAddNodes
+// 的初始状态。
+func seedAdjacency(existing []ExistingNode) (map[string][]string, map[string]struct{}) {
+	adjacency := make(map[string][]string, len(existing))
+	known := make(map[string]struct{}, len(existing))
+	for _, n := range existing {
+		adjacency[n.NodeKey] = append([]string(nil), n.DependsOn...)
+		known[n.NodeKey] = struct{}{}
+	}
+	return adjacency, known
+}
+
+// addNodeSpecFromOp 把 Op 强转为 OpAddNode 并归一化 NodeSpec 字段。
+func addNodeSpecFromOp(idx int, op Op) (NodeSpec, error) {
+	add, ok := op.(OpAddNode)
+	if !ok {
+		return NodeSpec{}, fmt.Errorf("%w: ops[%d] not add_node", ErrAddNodePlan, idx)
+	}
+	spec := add.Node
+	spec.NodeKey = strings.TrimSpace(spec.NodeKey)
+	if spec.NodeKey == "" {
+		return NodeSpec{}, fmt.Errorf("%w: ops[%d] add_node node_key required", ErrAddNodePlan, idx)
+	}
+	spec.DependsOn = NormalizeDependsOn(spec.DependsOn)
+	return spec, nil
+}
+
+// registerNewNode 校验 spec 与现有图不冲突，更新 known + adjacency。
+func registerNewNode(idx int, spec NodeSpec, known map[string]struct{}, adjacency map[string][]string) error {
+	if _, dup := known[spec.NodeKey]; dup {
+		return fmt.Errorf("%w: ops[%d] add_node node_key %q already exists", ErrAddNodePlan, idx, spec.NodeKey)
+	}
+	for _, d := range spec.DependsOn {
+		if d == spec.NodeKey {
+			return fmt.Errorf("%w: ops[%d] add_node %q depends on itself", ErrAddNodePlan, idx, spec.NodeKey)
+		}
+	}
+	known[spec.NodeKey] = struct{}{}
+	adjacency[spec.NodeKey] = spec.DependsOn
+	return nil
+}
+
+// verifyDependsOnIntegrity 二走：每个新节点 depends_on 必须可达到 known 集合。
+func verifyDependsOnIntegrity(accepted []NodeSpec, known map[string]struct{}) error {
+	for _, n := range accepted {
+		for _, d := range n.DependsOn {
+			if _, ok := known[d]; !ok {
+				return fmt.Errorf("%w: add_node %q depends on unknown node %q", ErrAddNodePlan, n.NodeKey, d)
+			}
+		}
+	}
+	return nil
+}
+
+// NormalizeDependsOn 去空去重以便环检测 adjacency 拿到干净输入。不保顺序：
+// 环检测不需序（邻接集合语义）。
+func NormalizeDependsOn(deps []string) []string {
+	if len(deps) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(deps))
+	out := make([]string, 0, len(deps))
+	for _, d := range deps {
+		t := strings.TrimSpace(d)
+		if t == "" {
+			continue
+		}
+		if _, dup := seen[t]; dup {
+			continue
+		}
+		seen[t] = struct{}{}
+		out = append(out, t)
+	}
+	return out
+}

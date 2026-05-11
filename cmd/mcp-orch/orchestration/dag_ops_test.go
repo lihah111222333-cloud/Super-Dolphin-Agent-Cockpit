@@ -18,10 +18,12 @@ import (
 // shapes (unmarshal / invalid op / missing op / negative base_version) before
 // any business work, and valid ops should fall through to the lifecycle stub.
 
-// TestApplyOps_ValidOps_ReturnsNotImplemented 验证「合法 ops（含四个 op_kind
-// 各一）通过顶层校验后仍命中 F4.1-F4.4 业务未实现的 sentinel」。
-func TestApplyOps_ValidOps_ReturnsNotImplemented(t *testing.T) {
-	s := &service{}
+// TestApplyOps_NonAddNodeOpsReturnNotImplemented 验证「F4.1 仅接上 add_node、
+// 其余 op_kind （update_dag / update_node / remove_node）进业务层后被 fail-fast
+// 拒为 ErrLifecycleNotImplemented」。dagStore 注入任何 OrchestrationStore stub
+// 让预检透过，计算 fail-fast 是在 op kind 状能检查阶段。
+func TestApplyOps_NonAddNodeOpsReturnNotImplemented(t *testing.T) {
+	s := &service{dagStore: &stubStartDAGStore{}}
 	ops := json.RawMessage(`[
 		{"op":"update_dag","patch":{"title":"t"}},
 		{"op":"add_node","node":{"node_key":"n1","title":"x","node_type":"agent"}},
@@ -107,9 +109,9 @@ func TestApplyOps_NegativeBaseVersion(t *testing.T) {
 	}
 }
 
-// TestApplyOps_EmptyOps 验证空 ops 数组走主路径（顶层校验通过），返回
-// ErrLifecycleNotImplemented。noop / 错 由后续 F4.1+ 决定。
-func TestApplyOps_EmptyOps(t *testing.T) {
+// TestApplyOps_StoreNotConfigured 验证 service.dagStore 未设时返 sentinel。
+// 未接裸构造路径。
+func TestApplyOps_StoreNotConfigured(t *testing.T) {
 	s := &service{}
 	req := contract.ApplyOpsRequest{
 		DagKey:      "dag-a",
@@ -117,7 +119,7 @@ func TestApplyOps_EmptyOps(t *testing.T) {
 		Ops:         json.RawMessage(`[]`),
 	}
 	_, err := s.ApplyOps(context.Background(), req)
-	if !errors.Is(err, ErrLifecycleNotImplemented) {
-		t.Fatalf("ApplyOps empty ops err = %v, want ErrLifecycleNotImplemented", err)
+	if !errors.Is(err, ErrApplyOpsStoreNotConfigured) {
+		t.Fatalf("ApplyOps without dag store err = %v, want ErrApplyOpsStoreNotConfigured", err)
 	}
 }

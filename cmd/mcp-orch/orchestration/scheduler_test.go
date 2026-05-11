@@ -55,8 +55,11 @@ func TestService_TerminateDAG_NotImplemented(t *testing.T) {
 	}
 }
 
+// TestService_ApplyOps_NotImplemented 验证 F4.1 后：remove_node 仍为 F4.3 待接接口位，
+// 走到业务层后被 fail-fast 拒为 ErrLifecycleNotImplemented。要让路径走到业务
+// 阶段，需要 dagStore 非 nil（不然先报 ErrApplyOpsStoreNotConfigured）。
 func TestService_ApplyOps_NotImplemented(t *testing.T) {
-	s := &service{}
+	s := &service{dagStore: &stubStartDAGStore{}}
 	req := contract.ApplyOpsRequest{
 		DagKey:      "dag-x",
 		BaseVersion: 1,
