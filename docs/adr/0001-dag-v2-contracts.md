@@ -230,6 +230,51 @@ SharedfileTarget { Path; LockMode }   // exclusive | append | shared
 if errors.Is(err, ErrLifecycleNotImplemented) { /* 骨架阶段未接通，跳过/退化 */ }
 ```
 
+### 2.10 DB 不变量基线规则 / DB Invariant Baseline Rules
+
+本节沉淀 0072–0081 一批 schema-tightening migration 的共同模式，作为未来
+新建 DAG 相关表的必过 baseline。三条规则都以“应用层已约定的不变量，DB 层必下沉”为
+原则，避免仅靠 service 代码拦截。
+
+This section captures the shared pattern from migrations 0072–0081 as a mandatory
+baseline for any future DAG-related table. All three rules push application-layer
+invariants down to the DB so we don't rely solely on service-layer validation.
+
+1. **枚举字段必加 CHECK / Enum-like columns MUST have CHECK**
+   - 中文：Text 类型代表枚举的列必加 `CHECK (col IN (...))` 锁定全集。
+   - English: any TEXT column that represents an enum MUST carry a `CHECK
+     (col IN (...))` constraint pinning the full value set.
+   - 案例 / Case studies: `0080` (`task_dag_runs.status` enum: running |
+     succeeded | failed | cancelled) 、`0081` (`task_dags.trigger` enum:
+     manual | auto | scheduled | external)。
+
+2. **jsonb 列必加 jsonb_typeof CHECK / jsonb columns MUST have shape CHECK**
+   - 中文：jsonb 列若期望 array 必加
+     `CHECK (jsonb_typeof(col) = 'array')`; 期望 object 同理。
+   - English: jsonb columns expected to hold an array MUST add
+     `CHECK (jsonb_typeof(col) = 'array')`; object-shaped values use the
+     same pattern with `'object'`.
+   - 案例 / Case studies: `0078` (`task_dag_nodes.depends_on` array) 、
+     `0079` (`task_dag_nodes.reads` / `task_dag_nodes.writes` arrays)。
+
+3. **跨行业务唯一性必下沉到 partial unique index /
+   Cross-row uniqueness MUST be a partial unique index**
+   - 中文：“任意时刻 ≤ 1 个 X”的应用层约束必下沉到 DB 层 partial
+     unique，避免 TOCTOU race。
+   - English: any application-level "≤ 1 row matching X at any time"
+     invariant MUST be enforced by a partial unique index, never by
+     check-then-write logic in service code (TOCTOU race).
+   - 案例 / Case studies: `0076` `task_dag_runs` one running run per
+     `dag_key` (partial unique `WHERE status='running'`)。
+
+**适用范围 / Applicability**：未来新建 DAG 相关表必先过这 3 条 baseline
+检查，并在该表首次 migration 里同步加入。代码 review 发现缺失时直接裁决
+为“未满足 0001 §2.10”。
+Any new DAG-related table must clear these 3 baseline checks before merge;
+the first migration that creates the table is the right place to add them.
+Reviewers may reject a change as "violates ADR 0001 §2.10" without further
+discussion.
+
 ## 3. 状态
 
 **Accepted** — 骨架阶段所有 11 个 commit 已对齐本 ADR；T/F 阶段实现以本 ADR 为契约依据。
