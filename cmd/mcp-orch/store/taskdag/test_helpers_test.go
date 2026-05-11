@@ -14,11 +14,16 @@ import (
 )
 
 type fakeTaskDAGDB struct {
-	mu        sync.Mutex
-	now       time.Time
-	wakeups   map[int64]sqlc.TaskDagWakeup
-	nodes     map[string]sqlc.TaskDagNode
+	mu      sync.Mutex
+	now     time.Time
+	wakeups map[int64]sqlc.TaskDagWakeup
+	nodes   map[string]sqlc.TaskDagNode
+	// F6.2: runs 用于模拟 task_dag_runs 一行，键是 run_key；finalize SQL 拦截会读写它。
+	// F6.2: runs simulates task_dag_runs rows keyed by run_key so the finalize
+	// SQL interceptor can mutate run.status when all nodes reach terminal.
+	runs      map[string]sqlc.TaskDagRun
 	wakeupSeq int64
+	runSeq    int64
 }
 
 func newFakeTaskDAGDB(now time.Time) *fakeTaskDAGDB {
@@ -26,6 +31,7 @@ func newFakeTaskDAGDB(now time.Time) *fakeTaskDAGDB {
 		now:     now.UTC(),
 		wakeups: make(map[int64]sqlc.TaskDagWakeup),
 		nodes:   make(map[string]sqlc.TaskDagNode),
+		runs:    make(map[string]sqlc.TaskDagRun),
 	}
 }
 
@@ -70,9 +76,73 @@ func (db *fakeTaskDAGDB) Query(_ context.Context, sql string, args ...any) (pgx.
 			return nil, err
 		}
 		return &stubTaskDAGRows{rows: rows}, nil
+	case strings.Contains(sql, "FinalizeTaskDagRunIfAllNodesTerminal"):
+		rows, err := db.finalizeRunIfAllNodesTerminal(args...)
+		if err != nil {
+			return nil, err
+		}
+		return &stubTaskDAGRows{rows: rows}, nil
 	default:
 		return nil, fmt.Errorf("unexpected Query call: %s", firstLine(sql))
 	}
+}
+
+// finalizeRunIfAllNodesTerminal 复现 F6.2 SQL 的语义：在同一个 fake DB 上扫
+// dag_key 下节点状态，按优先级 (failed > cancelled > succeeded) 决定
+// final_status；节点还有非终态或 dag_key 下无 running run 时返回 0 行。
+//
+// finalizeRunIfAllNodesTerminal mirrors the F6.2 finalize SQL semantics inside
+// the fake DB. Empty result rows mean either some nodes are still non-terminal
+// or no 'running' run exists for dag_key.
+func (db *fakeTaskDAGDB) finalizeRunIfAllNodesTerminal(args ...any) ([][]any, error) {
+	if len(args) != 1 {
+		return nil, fmt.Errorf("finalize args len = %d, want 1", len(args))
+	}
+	dagKey, ok := args[0].(string)
+	if !ok {
+		return nil, fmt.Errorf("finalize dag_key arg = %T", args[0])
+	}
+	var total, nonTerminal, failedCnt, cancelledCnt int
+	for _, n := range db.nodes {
+		if n.DagKey != dagKey {
+			continue
+		}
+		total++
+		switch n.Status {
+		case "done", "skipped":
+			// terminal success
+		case "failed":
+			failedCnt++
+		case "cancelled":
+			cancelledCnt++
+		default:
+			nonTerminal++
+		}
+	}
+	if total == 0 || nonTerminal > 0 {
+		return nil, nil
+	}
+	var finalStatus string
+	switch {
+	case failedCnt > 0:
+		finalStatus = "failed"
+	case cancelledCnt > 0:
+		finalStatus = "cancelled"
+	default:
+		finalStatus = "succeeded"
+	}
+	rows := make([][]any, 0, 1)
+	for runKey, run := range db.runs {
+		if run.DagKey != dagKey || run.Status != "running" {
+			continue
+		}
+		run.Status = finalStatus
+		run.FinishedAt = timestamptzValue(db.now)
+		run.UpdatedAt = timestamptzValue(db.now)
+		db.runs[runKey] = run
+		rows = append(rows, []any{run.RunKey, run.Status})
+	}
+	return rows, nil
 }
 
 func (db *fakeTaskDAGDB) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {

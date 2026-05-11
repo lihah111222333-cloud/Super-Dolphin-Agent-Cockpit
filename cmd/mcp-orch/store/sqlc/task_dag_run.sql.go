@@ -177,3 +177,77 @@ func (q *Queries) PromoteRootNodesToReady(ctx context.Context, dagKey string) (i
 	}
 	return result.RowsAffected(), nil
 }
+
+// finalizeTaskDagRunIfAllNodesTerminal 是 F6.2 新增的 :many query。sqlc
+// generate 下次 realignment 会重写本函数；现阶段按 models.go 的 omit_unused_structs
+// 手维额外生代码。SQL 语义详见 cmd/mcp-orch/sql/queries/task_dag_run.sql
+// 同名查询注释。
+//
+// finalizeTaskDagRunIfAllNodesTerminal mirrors the same-named query in
+// cmd/mcp-orch/sql/queries/task_dag_run.sql. Kept hand-maintained for the same
+// reason models.TaskDagRun is hand-maintained (sqlc realignment out of scope).
+const finalizeTaskDagRunIfAllNodesTerminal = `-- name: FinalizeTaskDagRunIfAllNodesTerminal :many
+WITH node_counts AS (
+  SELECT
+    COUNT(*) FILTER (WHERE status NOT IN ('done','failed','cancelled','skipped')) AS non_terminal,
+    COUNT(*) FILTER (WHERE status = 'failed')    AS failed_cnt,
+    COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled_cnt,
+    COUNT(*)                                     AS total
+  FROM task_dag_nodes
+  WHERE dag_key = $1
+),
+final AS (
+  SELECT CASE
+    WHEN total = 0        THEN NULL
+    WHEN non_terminal > 0 THEN NULL
+    WHEN failed_cnt > 0   THEN 'failed'
+    WHEN cancelled_cnt > 0 THEN 'cancelled'
+    ELSE 'succeeded'
+  END AS final_status
+  FROM node_counts
+)
+UPDATE task_dag_runs r
+SET status      = (SELECT final_status FROM final),
+    finished_at = NOW(),
+    updated_at  = NOW()
+WHERE r.dag_key = $1
+  AND r.status = 'running'
+  AND (SELECT final_status FROM final) IS NOT NULL
+RETURNING r.run_key, r.status
+`
+
+// FinalizeTaskDagRunIfAllNodesTerminalRow 是 finalize 查询返回的最小投影（run_key + status）。
+// FinalizeTaskDagRunIfAllNodesTerminalRow is the projection returned by the
+// finalize query (run_key + status).
+type FinalizeTaskDagRunIfAllNodesTerminalRow struct {
+	RunKey string `json:"run_key"`
+	Status string `json:"status"`
+}
+
+// FinalizeTaskDagRunIfAllNodesTerminal 调用 finalize SQL。受影响 0 行时返回空
+// slice（表示节点还未全部终态或 dag_key 下已无 'running' run）；受影响 1 行
+// 时返回包含被推进 run 的 run_key + 新终态 status。
+//
+// FinalizeTaskDagRunIfAllNodesTerminal runs the finalize SQL. An empty slice
+// means the statement was a no-op (either some nodes are still non-terminal
+// or no 'running' run exists for dag_key). A one-element slice carries the
+// (run_key, status) of the row that was just flipped to its terminal status.
+func (q *Queries) FinalizeTaskDagRunIfAllNodesTerminal(ctx context.Context, dagKey string) ([]FinalizeTaskDagRunIfAllNodesTerminalRow, error) {
+	rows, err := q.db.Query(ctx, finalizeTaskDagRunIfAllNodesTerminal, dagKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []FinalizeTaskDagRunIfAllNodesTerminalRow{}
+	for rows.Next() {
+		var i FinalizeTaskDagRunIfAllNodesTerminalRow
+		if err := rows.Scan(&i.RunKey, &i.Status); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

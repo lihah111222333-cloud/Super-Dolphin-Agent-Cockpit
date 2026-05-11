@@ -43,3 +43,54 @@ SET status = 'ready',
 WHERE dag_key = $1
   AND status = 'pending'
   AND jsonb_array_length(depends_on) = 0;
+
+-- name: FinalizeTaskDagRunIfAllNodesTerminal :many
+-- F6.2: run 终态判定 — 当 dag_key 下所有 task_dag_nodes.status 已进入终态
+-- (done/failed/cancelled/skipped) 时，按优先级把 status='running' 的 run
+-- 推进到对应终态并写 finished_at；否则 0 行受影响、run 保持 'running'。
+--
+-- 优先级（含义：什么 status 占主导）：
+--   1. 任意节点 failed                 → run.status = 'failed'
+--   2. 否则任意节点 cancelled          → run.status = 'cancelled'
+--   3. 否则全部 done / skipped         → run.status = 'succeeded'
+--   4. 还有非终态(pending/ready/running/retrying/waiting_human) → final_status=NULL
+--      UPDATE WHERE 子句因此不命中，run 保持 'running'
+--
+-- F6.2: When every task_dag_node under dag_key has reached a terminal status
+-- (done/failed/cancelled/skipped), flip the matching 'running' run row to the
+-- aggregated terminal status with the priority above and set finished_at.
+-- Otherwise the statement is a no-op and the run stays 'running'.
+--
+-- 与 0080 status CHECK 对齐：枚举锁定 running|succeeded|failed|cancelled，
+-- final_status 取值都在白名单内、不会触发 CHECK 违例。
+--
+-- 单 DAG 单 run（0076 partial unique on (dag_key) WHERE status='running'）：
+-- WHERE r.dag_key=$1 AND r.status='running' 命中至多 1 行；F6.5 升级
+-- multi-run + 节点带 run_id 后，本 query 需带 run_id 参数定位目标 run。
+WITH node_counts AS (
+  SELECT
+    COUNT(*) FILTER (WHERE status NOT IN ('done','failed','cancelled','skipped')) AS non_terminal,
+    COUNT(*) FILTER (WHERE status = 'failed')    AS failed_cnt,
+    COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled_cnt,
+    COUNT(*)                                     AS total
+  FROM task_dag_nodes
+  WHERE dag_key = $1
+),
+final AS (
+  SELECT CASE
+    WHEN total = 0        THEN NULL
+    WHEN non_terminal > 0 THEN NULL
+    WHEN failed_cnt > 0   THEN 'failed'
+    WHEN cancelled_cnt > 0 THEN 'cancelled'
+    ELSE 'succeeded'
+  END AS final_status
+  FROM node_counts
+)
+UPDATE task_dag_runs r
+SET status      = (SELECT final_status FROM final),
+    finished_at = NOW(),
+    updated_at  = NOW()
+WHERE r.dag_key = $1
+  AND r.status = 'running'
+  AND (SELECT final_status FROM final) IS NOT NULL
+RETURNING r.run_key, r.status;

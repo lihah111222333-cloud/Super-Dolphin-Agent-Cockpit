@@ -35,20 +35,56 @@ func (s *store) CompleteNodeAndScheduleDownstream(ctx context.Context, input Com
 			return completeErr
 		}
 		result.Node = node
-		if node == nil || node.Status != terminalSuccessStatus {
+		if node == nil {
 			return nil
 		}
-		scheduled, scheduleErr := scheduleDownstreamWakeupsTx(ctx, txStore, node)
-		if scheduleErr != nil {
-			return scheduleErr
+		// 下游调度仅限 done 终态：failed / cancelled / skipped 走下游不会被
+		// dependsOn 满足，不需 enqueue。但 F6.2 终态判定在任何终态后都要尝试。
+		// Downstream scheduling stays gated on done — failed/cancelled/skipped
+		// terminals do not satisfy dependsOn and need no enqueue.
+		if node.Status == terminalSuccessStatus {
+			scheduled, scheduleErr := scheduleDownstreamWakeupsTx(ctx, txStore, node)
+			if scheduleErr != nil {
+				return scheduleErr
+			}
+			result.ScheduledDownstream = scheduled
 		}
-		result.ScheduledDownstream = scheduled
+		// F6.2 同事务内推进 run.status：节点全终态时按优先级
+		// (failed > cancelled > succeeded) 写 task_dag_runs.status + finished_at。
+		// F6.2: same-tx run finalize — priority failed > cancelled > succeeded.
+		finalized, finalizeErr := maybeFinalizeRunTx(ctx, txStore, node.DagKey)
+		if finalizeErr != nil {
+			return finalizeErr
+		}
+		result.FinalizedRun = finalized
 		return nil
 	})
 	if err != nil {
 		return nil, wrapTaskDAGError(err, "complete_and_schedule_downstream", "task_dag_node")
 	}
 	return &result, nil
+}
+
+// maybeFinalizeRunTx 调 sqlc 生代的 FinalizeTaskDagRunIfAllNodesTerminal，把
+// “节点全终态时按优先级推进 run.status” 一句 SQL 完成。最多返 1 行
+// (run_key, status)；返 0 行表示节点未全部终态、或 dag_key 下无 running run。
+//
+// maybeFinalizeRunTx invokes the F6.2 finalize SQL; it is idempotent because
+// the WHERE clause only matches a 'running' run, so re-running it after the
+// first successful flip simply returns zero rows.
+func maybeFinalizeRunTx(ctx context.Context, txStore *store, dagKey string) (*FinalizedRunInfo, error) {
+	rows, err := txStore.q.FinalizeTaskDagRunIfAllNodesTerminal(ctx, dagKey)
+	if err != nil {
+		return nil, fmt.Errorf("finalize run for dag %s: %w", dagKey, err)
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	// SQL WHERE dag_key=$1 + status='running' 命中至多 1 行（56 partial unique
+	// guarantees a single running run per dag_key）；取首行、多余行是 DB drift 不静默。
+	// At most one running run per dag_key (0076 partial unique); take the first.
+	first := rows[0]
+	return &FinalizedRunInfo{RunKey: first.RunKey, Status: first.Status}, nil
 }
 
 // scheduleDownstreamWakeupsTx assumes caller has already completed the
