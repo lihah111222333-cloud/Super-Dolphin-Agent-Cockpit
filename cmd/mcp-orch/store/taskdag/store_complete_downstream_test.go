@@ -242,16 +242,16 @@ func TestCompleteNodeAndScheduleDownstream_ConcurrentUpstreamsConvergeOnSameDown
 }
 
 // TestCompleteNodeAndScheduleDownstream_SkipsWakeupForUnassignedNode
-// 验证 F6.4：下游节点 assigned_to 为空时，store 层不应 enqueue wakeup
-// （否则 dispatcher 调 LaunchAgent 会因 "agent id is required" 失败、
-// retry 耗尽后让节点 permanent failed）。节点 status 保持 pending（== ready 语义），
-// 等外部 agent / 人工接管再推动到 running。
+// 验证 F6.4 + F6.3 协作：下游节点 assigned_to 为空时
+//   - F6.4：store 层不 enqueue wakeup（否则 dispatcher 调 LaunchAgent 会因
+//     "agent id is required" 失败、retry 耗尽后让节点 permanent failed）
+//   - F6.3：状态机仍然把 pending → ready 推进（依赖满足的真相），
+//     等外部 agent / 人工接管补 assigned_to 后直接进 dispatcher。
 //
-// EN: When a ready downstream node lacks an assigned_to value, the store
-// must skip the wakeup enqueue. Otherwise the dispatcher's LaunchAgent
-// call rejects the empty agent id, exhausts retries, and the node ends
-// up permanently failed. The node stays in pending so an external/manual
-// flow can later transition it.
+// EN: When a downstream node has dependencies satisfied but no assigned_to:
+//   - F6.4: skip the wakeup enqueue (avoid LaunchAgent failure cascade)
+//   - F6.3: still promote pending → ready (state-machine truth);
+//     external / manual flow can later inject assigned_to and resume.
 func TestCompleteNodeAndScheduleDownstream_SkipsWakeupForUnassignedNode(t *testing.T) {
 	t.Parallel()
 
@@ -273,18 +273,21 @@ func TestCompleteNodeAndScheduleDownstream_SkipsWakeupForUnassignedNode(t *testi
 	if res.Node == nil || res.Node.Status != "done" {
 		t.Fatalf("complete A node = %+v", res.Node)
 	}
-	// 关键断言 1：因 B 缺 assigned_to，ScheduledDownstream 必须为空。
+	// 关键断言 1（F6.4）：B 缺 assigned_to → ScheduledDownstream 必须为空。
 	if got := scheduledKeys(res.ScheduledDownstream); len(got) != 0 {
 		t.Fatalf("scheduled = %v, want [] (B has empty assigned_to)", got)
 	}
-	// 关键断言 2：表里也不应该有任何 B 的 pending wakeup 行。
+	// 关键断言 2（F6.4）：表里也不应该有任何 B 的 pending wakeup 行。
 	if c := pendingForNode(db, "B"); c != 0 {
 		t.Fatalf("B wakeup count = %d, want 0 (unassigned must skip enqueue)", c)
 	}
-	// 关键断言 3：B 节点状态保持 pending（依赖已满足 → 等价 ready），
-	// 等外部 / 人工流程后续 promote 到 running。
-	if got := db.nodes[dagNodeKey("dag-1", "B")].Status; got != "pending" {
-		t.Fatalf("B status = %q, want pending (ready semantic)", got)
+	// 关键断言 3（F6.3）：B 节点状态被 promote 到 ready（即使 unassigned）。
+	if got := db.nodes[dagNodeKey("dag-1", "B")].Status; got != "ready" {
+		t.Fatalf("B status = %q, want ready (F6.3 promote pending→ready)", got)
+	}
+	// 关键断言 4（F6.3）：PromotedDownstream 应包含 B（状态机真相 vs F6.4 路由）。
+	if len(res.PromotedDownstream) != 1 || res.PromotedDownstream[0].NodeKey != "B" {
+		t.Fatalf("PromotedDownstream = %+v, want [{dag-1 B}]", res.PromotedDownstream)
 	}
 }
 
@@ -317,18 +320,17 @@ func TestCompleteNodeAndScheduleDownstream_SkipsWakeupForWhitespaceAssignedTo(t 
 	if res.Node == nil || res.Node.Status != "done" {
 		t.Fatalf("complete A node = %+v", res.Node)
 	}
-	// 关键断言 1：B 的 assigned_to 为纯空白，TrimSpace 后为空 → ScheduledDownstream 必须为空。
+	// 关键断言 1（F6.4）：B 的 assigned_to 为纯空白，TrimSpace 后为空 → ScheduledDownstream 必须为空。
 	if got := scheduledKeys(res.ScheduledDownstream); len(got) != 0 {
 		t.Fatalf("scheduled = %v, want [] (B assigned_to is whitespace-only)", got)
 	}
-	// 关键断言 2：DB 也不应有 B 的 pending wakeup 行。
+	// 关键断言 2（F6.4）：DB 也不应有 B 的 pending wakeup 行。
 	if c := pendingForNode(db, "B"); c != 0 {
 		t.Fatalf("B wakeup count = %d, want 0 (whitespace assigned_to must skip enqueue)", c)
 	}
-	// 关键断言 3：B 状态保持 pending（依赖已满足 → 等价 ready），
-	// 等外部 / 人工接管再 promote。
-	if got := db.nodes[dagNodeKey("dag-1", "B")].Status; got != "pending" {
-		t.Fatalf("B status = %q, want pending (ready semantic)", got)
+	// 关键断言 3（F6.3）：B 状态被 promote 到 ready（无论 assigned_to 是否空白）。
+	if got := db.nodes[dagNodeKey("dag-1", "B")].Status; got != "ready" {
+		t.Fatalf("B status = %q, want ready (F6.3 promote pending→ready)", got)
 	}
 }
 
