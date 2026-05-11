@@ -52,6 +52,7 @@ func makeAutomationNode(t *testing.T, cfg AutomationNodeConfig) Node {
 }
 
 func TestAutomationExecutor_Happy(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{
 		CardKey:         "build_app",
 		CommandTemplate: "printf 'hello %s' '{{.name}}'",
@@ -87,6 +88,7 @@ func TestAutomationExecutor_Happy(t *testing.T) {
 }
 
 func TestAutomationExecutor_UnsupportedKind(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{}
 	runner := &stubAutomationRunner{}
 	exec := NewAutomationExecutor(getter, runner)
@@ -111,6 +113,7 @@ func TestAutomationExecutor_UnsupportedKind(t *testing.T) {
 }
 
 func TestAutomationExecutor_CommandNotFound(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{err: errors.New("command missing not found")}
 	runner := &stubAutomationRunner{}
 	exec := NewAutomationExecutor(getter, runner)
@@ -132,6 +135,7 @@ func TestAutomationExecutor_CommandNotFound(t *testing.T) {
 }
 
 func TestAutomationExecutor_Timeout(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "slow", CommandTemplate: "sleep 10", Enabled: true}}
 	runner := &stubAutomationRunner{err: context.DeadlineExceeded}
 	exec := NewAutomationExecutor(getter, runner)
@@ -150,6 +154,7 @@ func TestAutomationExecutor_Timeout(t *testing.T) {
 }
 
 func TestAutomationExecutor_NilLauncher(t *testing.T) {
+	t.Parallel()
 	exec := NewAutomationExecutor(nil, &stubAutomationRunner{})
 	node := makeAutomationNode(t, AutomationNodeConfig{Exec: AutomationExecConfig{CommandRef: "build_app"}})
 
@@ -169,6 +174,7 @@ func TestAutomationExecutor_NilLauncher(t *testing.T) {
 }
 
 func TestAutomationExecutor_ImplementsNodeExecutor(t *testing.T) {
+	t.Parallel()
 	var _ NodeExecutor = (*AutomationExecutor)(nil)
 }
 
@@ -218,6 +224,7 @@ func (c *captureRunner) RunCommandCard(_ context.Context, _ AutomationCommandCar
 }
 
 func TestAutomationExecutor_Inputs_InjectsFromNodes(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "build_app", CommandTemplate: "noop", Enabled: true}}
 	runner := &captureRunner{result: AutomationCommandResult{CardKey: "build_app", Stdout: "ok"}}
 	exec := NewAutomationExecutor(getter, runner)
@@ -267,6 +274,7 @@ func TestAutomationExecutor_Inputs_InjectsFromNodes(t *testing.T) {
 }
 
 func TestAutomationExecutor_Inputs_MissingPrevResult_Validation(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
 	runner := &captureRunner{}
 	exec := NewAutomationExecutor(getter, runner)
@@ -291,6 +299,7 @@ func TestAutomationExecutor_Inputs_MissingPrevResult_Validation(t *testing.T) {
 }
 
 func TestAutomationExecutor_Inputs_ReservedKeyConflict_Validation(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
 	runner := &captureRunner{}
 	exec := NewAutomationExecutor(getter, runner)
@@ -315,6 +324,7 @@ func TestAutomationExecutor_Inputs_ReservedKeyConflict_Validation(t *testing.T) 
 }
 
 func TestAutomationExecutor_Inputs_SharedfileNoReader_Validation(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
 	runner := &captureRunner{}
 	exec := NewAutomationExecutor(getter, runner)
@@ -336,6 +346,7 @@ func TestAutomationExecutor_Inputs_SharedfileNoReader_Validation(t *testing.T) {
 }
 
 func TestAutomationExecutor_Inputs_SharedfileReadError_Classified(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
 	runner := &captureRunner{}
 	reader := &stubAutomationSharedFileReader{err: errors.New("i/o timeout reading plan.md")}
@@ -358,6 +369,7 @@ func TestAutomationExecutor_Inputs_SharedfileReadError_Classified(t *testing.T) 
 }
 
 func TestAutomationExecutor_Outputs_WritesSharedfile(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
 	runner := &captureRunner{result: AutomationCommandResult{CardKey: "k", Stdout: "hello world", ExitCode: 0}}
 	writer := &stubAutomationSharedFileWriter{}
@@ -387,6 +399,7 @@ func TestAutomationExecutor_Outputs_WritesSharedfile(t *testing.T) {
 }
 
 func TestAutomationExecutor_Outputs_BothChannels(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
 	runner := &captureRunner{result: AutomationCommandResult{CardKey: "k", Stdout: "payload"}}
 	writer := &stubAutomationSharedFileWriter{}
@@ -415,6 +428,7 @@ func TestAutomationExecutor_Outputs_BothChannels(t *testing.T) {
 }
 
 func TestAutomationExecutor_Outputs_SharedfileNoWriter_Validation(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
 	runner := &captureRunner{result: AutomationCommandResult{CardKey: "k"}}
 	exec := NewAutomationExecutor(getter, runner)
@@ -436,6 +450,7 @@ func TestAutomationExecutor_Outputs_SharedfileNoWriter_Validation(t *testing.T) 
 }
 
 func TestAutomationExecutor_Outputs_SharedfileWriteFails_Validation(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
 	runner := &captureRunner{result: AutomationCommandResult{CardKey: "k", Stdout: "data"}}
 	writer := &stubAutomationSharedFileWriter{err: errors.New("disk full")}
@@ -457,35 +472,53 @@ func TestAutomationExecutor_Outputs_SharedfileWriteFails_Validation(t *testing.T
 	}
 }
 
+// TestAutomationExecutor_Outputs_RejectsAgentPromptField 表驱动覆盖
+// automationOutputsForbiddenKeys 中全部 6 个 key（R2 P0 gap）。以前只测
+// `prompt` 一个，但 forbidden 列表里 6 个都该拒。任何 key 被静默透过
+// 都意味着 ADR-011 边界被破。
 func TestAutomationExecutor_Outputs_RejectsAgentPromptField(t *testing.T) {
-	getter := &stubAutomationGetter{}
-	runner := &captureRunner{}
-	exec := NewAutomationExecutor(getter, runner)
-	// raw config 中 outputs 手动推 "prompt" 字段（typed OutputsConfig 不认，但原始 json 看得到）。
-	node := Node{
-		NodeType: "automation",
-		Config: json.RawMessage(`{
-			"exec":{"kind":"command_card","command_ref":"k"},
-			"outputs":{"prompt":"please summarize"}
-		}`),
+	t.Parallel()
+	// 与 source 一致：prompt / first_turn / agent_prompt / agent_key /
+	// append_error / system_prompt。增删斶与 source 同步。
+	keys := []string{"prompt", "first_turn", "agent_prompt", "agent_key", "append_error", "system_prompt"}
+	if len(keys) != len(automationOutputsForbiddenKeys) {
+		t.Fatalf("test list (%d) drifted from source automationOutputsForbiddenKeys (%d); update both",
+			len(keys), len(automationOutputsForbiddenKeys))
 	}
+	for _, key := range keys {
+		key := key
+		t.Run("key="+key, func(t *testing.T) {
+			t.Parallel()
+			getter := &stubAutomationGetter{}
+			runner := &captureRunner{}
+			exec := NewAutomationExecutor(getter, runner)
+			// 原始 json 里推一个 forbidden key。值不紧，能进 json object 即可。
+			cfg := `{"exec":{"kind":"command_card","command_ref":"k"},"outputs":{"` +
+				key + `":"poison"}}`
+			node := Node{NodeType: "automation", Config: json.RawMessage(cfg)}
 
-	out, err := exec.Execute(context.Background(), node, RunContext{})
-	if err != nil {
-		t.Fatalf("Execute() framework error = %v", err)
-	}
-	if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
-		t.Fatalf("got status=%q class=%q, want failed/validation", out.Status, out.FailureClass)
-	}
-	if !strings.Contains(out.ErrorSummary, "agent-prompt field") {
-		t.Fatalf("ErrorSummary = %q, want agent-prompt field", out.ErrorSummary)
-	}
-	if getter.called != 0 || runner.lastArgs != nil {
-		t.Fatalf("getter/runner should not be reached on outputs-validation failure; getter=%d runnerArgs=%s", getter.called, runner.lastArgs)
+			out, err := exec.Execute(context.Background(), node, RunContext{})
+			if err != nil {
+				t.Fatalf("Execute() framework error = %v", err)
+			}
+			if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
+				t.Fatalf("key=%s: got status=%q class=%q, want failed/validation", key, out.Status, out.FailureClass)
+			}
+			if !strings.Contains(out.ErrorSummary, "agent-prompt field") {
+				t.Fatalf("key=%s: ErrorSummary = %q, want agent-prompt field", key, out.ErrorSummary)
+			}
+			if !strings.Contains(out.ErrorSummary, key) {
+				t.Fatalf("key=%s: ErrorSummary = %q, should name the field", key, out.ErrorSummary)
+			}
+			if getter.called != 0 || runner.lastArgs != nil {
+				t.Fatalf("key=%s: getter/runner should not be reached on outputs-validation failure; getter=%d runnerArgs=%s", key, getter.called, runner.lastArgs)
+			}
+		})
 	}
 }
 
 func TestAutomationExecutor_EmptyInputsOutputs_KeepsF21Behaviour(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
 	runner := &captureRunner{result: AutomationCommandResult{CardKey: "k", Stdout: "out"}}
 	exec := NewAutomationExecutor(getter, runner)
@@ -514,6 +547,7 @@ func TestAutomationExecutor_EmptyInputsOutputs_KeepsF21Behaviour(t *testing.T) {
 }
 
 func TestClassifyAutomationError(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		err  error

@@ -51,6 +51,7 @@ func (s *stubSharedfileReader) ReadSharedfile(_ context.Context, path string) (s
 // TestAgentExecutor_Inputs_FromNodes_Single 验证「节点 B 看到节点 A.result」核心场景：
 // cfg.Inputs.FromNodes 引用一个上游节点，结果被注入到 LaunchRequest.Prompt。
 func TestAgentExecutor_Inputs_FromNodes_Single(t *testing.T) {
+	t.Parallel()
 	launcher := &stubAgentLauncher{}
 	prev := &stubPrevNodeResultReader{results: map[string]json.RawMessage{
 		"dag-x|node-a": json.RawMessage(`{"summary":"hello from A"}`),
@@ -88,6 +89,7 @@ func TestAgentExecutor_Inputs_FromNodes_Single(t *testing.T) {
 
 // TestAgentExecutor_Inputs_FromNodes_Multiple 验证多个 from_nodes 顺序保持配置顺序。
 func TestAgentExecutor_Inputs_FromNodes_Multiple(t *testing.T) {
+	t.Parallel()
 	launcher := &stubAgentLauncher{}
 	prev := &stubPrevNodeResultReader{results: map[string]json.RawMessage{
 		"dag-x|node-a": json.RawMessage(`{"a":1}`),
@@ -117,6 +119,7 @@ func TestAgentExecutor_Inputs_FromNodes_Multiple(t *testing.T) {
 
 // TestAgentExecutor_Inputs_FromSharedfiles_Single 验证 sharedfile 注入。
 func TestAgentExecutor_Inputs_FromSharedfiles_Single(t *testing.T) {
+	t.Parallel()
 	launcher := &stubAgentLauncher{}
 	sf := &stubSharedfileReader{contents: map[string]string{
 		"plan.md": "# Plan\n- step1\n- step2",
@@ -146,6 +149,7 @@ func TestAgentExecutor_Inputs_FromSharedfiles_Single(t *testing.T) {
 
 // TestAgentExecutor_Inputs_Mixed_FromNodes_AndSharedfiles 验证两类来源混合 + first_turn 拼接。
 func TestAgentExecutor_Inputs_Mixed_FromNodes_AndSharedfiles(t *testing.T) {
+	t.Parallel()
 	launcher := &stubAgentLauncher{}
 	prev := &stubPrevNodeResultReader{results: map[string]json.RawMessage{
 		"dag-x|node-a": json.RawMessage(`"result-A"`),
@@ -188,6 +192,7 @@ func TestAgentExecutor_Inputs_Mixed_FromNodes_AndSharedfiles(t *testing.T) {
 // TestAgentExecutor_Inputs_EmptyInputs_BackwardsCompat 验证 cfg.Inputs 为空时
 // LaunchRequest.Prompt 与 F1.1 保持一致（仅 first_turn）。
 func TestAgentExecutor_Inputs_EmptyInputs_BackwardsCompat(t *testing.T) {
+	t.Parallel()
 	launcher := &stubAgentLauncher{}
 	// 即使 prev/sharedfile readers 注入了，但 inputs 为空也不应被调用。
 	prev := &stubPrevNodeResultReader{}
@@ -218,6 +223,7 @@ func TestAgentExecutor_Inputs_EmptyInputs_BackwardsCompat(t *testing.T) {
 // TestAgentExecutor_Inputs_FromNodes_UnknownKey_Validation 验证 from_nodes 引用
 // 不存在的 node_key → validation 失败、不调 launcher。
 func TestAgentExecutor_Inputs_FromNodes_UnknownKey_Validation(t *testing.T) {
+	t.Parallel()
 	launcher := &stubAgentLauncher{}
 	prev := &stubPrevNodeResultReader{results: map[string]json.RawMessage{
 		"dag-x|node-a": json.RawMessage(`{}`),
@@ -251,6 +257,7 @@ func TestAgentExecutor_Inputs_FromNodes_UnknownKey_Validation(t *testing.T) {
 // TestAgentExecutor_Inputs_FromSharedfiles_Missing_Validation 验证 sharedfile
 // 不存在 → validation 失败。
 func TestAgentExecutor_Inputs_FromSharedfiles_Missing_Validation(t *testing.T) {
+	t.Parallel()
 	launcher := &stubAgentLauncher{}
 	sf := &stubSharedfileReader{contents: map[string]string{}} // 空
 	exec := NewAgentExecutorWithInputs(launcher, nil, nil, sf)
@@ -282,6 +289,7 @@ func TestAgentExecutor_Inputs_FromSharedfiles_Missing_Validation(t *testing.T) {
 // TestAgentExecutor_Inputs_FromNodes_NilReader_Validation 验证 inputs.from_nodes
 // 非空但 reader 未接通 → validation（不静默吞掉注入需求）。
 func TestAgentExecutor_Inputs_FromNodes_NilReader_Validation(t *testing.T) {
+	t.Parallel()
 	launcher := &stubAgentLauncher{}
 	exec := NewAgentExecutorWithInputs(launcher, nil, nil /*prev*/, nil /*sf*/)
 
@@ -303,6 +311,7 @@ func TestAgentExecutor_Inputs_FromNodes_NilReader_Validation(t *testing.T) {
 // TestAgentExecutor_Inputs_FromSharedfiles_NilReader_Validation 验证
 // inputs.from_sharedfiles 非空但 reader 未接通 → validation。
 func TestAgentExecutor_Inputs_FromSharedfiles_NilReader_Validation(t *testing.T) {
+	t.Parallel()
 	launcher := &stubAgentLauncher{}
 	exec := NewAgentExecutorWithInputs(launcher, nil, nil, nil)
 
@@ -322,6 +331,7 @@ func TestAgentExecutor_Inputs_FromSharedfiles_NilReader_Validation(t *testing.T)
 // 存在但 result 列为空时，注入「(empty)」占位且继续 launch（不阻塞 child）。
 // 上游节点合法配置 outputs.to_node_result=false 时此路径自然发生。
 func TestAgentExecutor_Inputs_FromNodes_EmptyResult_StillSucceeds(t *testing.T) {
+	t.Parallel()
 	launcher := &stubAgentLauncher{}
 	prev := &stubPrevNodeResultReader{results: map[string]json.RawMessage{
 		"dag-x|node-a": nil, // exists but no result payload
@@ -349,6 +359,7 @@ func TestAgentExecutor_Inputs_FromNodes_EmptyResult_StillSucceeds(t *testing.T) 
 // TestAgentExecutor_Inputs_FromNodes_ReaderInfraError_Transient 验证 reader
 // 返回的非 not-found 错误（如 DB 失联）走 classifyAgentLaunchError → transient。
 func TestAgentExecutor_Inputs_FromNodes_ReaderInfraError_Transient(t *testing.T) {
+	t.Parallel()
 	launcher := &stubAgentLauncher{}
 	prev := &stubPrevNodeResultReader{err: errors.New("connection refused: prev store")}
 	exec := NewAgentExecutorWithInputs(launcher, nil, prev, nil)
@@ -371,6 +382,7 @@ func TestAgentExecutor_Inputs_FromNodes_ReaderInfraError_Transient(t *testing.T)
 // TestAgentExecutor_Inputs_FallsBackToNodeDagKey 验证 runCtx.DagKey 为空时
 // 从 node.DagKey 取 dag_key（与 F1.5 resolveSpawnKeys 一致的回退）。
 func TestAgentExecutor_Inputs_FallsBackToNodeDagKey(t *testing.T) {
+	t.Parallel()
 	launcher := &stubAgentLauncher{}
 	prev := &stubPrevNodeResultReader{results: map[string]json.RawMessage{
 		"dag-x|node-a": json.RawMessage(`"fallback-result"`),
@@ -395,6 +407,7 @@ func TestAgentExecutor_Inputs_FallsBackToNodeDagKey(t *testing.T) {
 // TestAgentExecutor_Inputs_PreservesF15_ThreadIDWriteback 验证 F1.2 inputs 注入
 // 与 F1.5 spawning_thread_id 写回共存：注入成功 + launch 成功后，recorder 仍被调用。
 func TestAgentExecutor_Inputs_PreservesF15_ThreadIDWriteback(t *testing.T) {
+	t.Parallel()
 	launcher := &stubAgentLauncher{threadID: "thread-1"}
 	recorder := &stubNodeSpawnRecorder{}
 	prev := &stubPrevNodeResultReader{results: map[string]json.RawMessage{
@@ -426,6 +439,7 @@ func TestAgentExecutor_Inputs_PreservesF15_ThreadIDWriteback(t *testing.T) {
 // TestErrInputsValidation_IsSentinel 锁住 errors.Is 可见 ErrInputsValidation，
 // 便于上层（F1.4 dispatcher / 测试）按哨兵识别 inputs-stage 验证失败。
 func TestErrInputsValidation_IsSentinel(t *testing.T) {
+	t.Parallel()
 	exec := NewAgentExecutorWithInputs(&stubAgentLauncher{}, nil, &stubPrevNodeResultReader{}, nil)
 	_, err, class := exec.loadFromNodes(context.Background(), "dag-x", []string{"missing"})
 	if err == nil {

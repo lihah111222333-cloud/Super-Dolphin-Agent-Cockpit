@@ -1,9 +1,11 @@
 package nodeexec
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // task_dag_apply_ops typed payload —— 蓝图 v2 §9 + 实施计划 S4.1 + S4.2。
@@ -84,49 +86,103 @@ type NodePatch struct {
 	Config     json.RawMessage `json:"config,omitempty"`
 }
 
-// ErrNodePatchBannedField 是 NodePatch.UnmarshalJSON 遇到非白名单顶层字段时
-// 返回的 sentinel。errors.Is 可命中。F4.2 service 层把它包成
-// ErrApplyOpsInvalid 上抛，让 MCP 调用方收到「禁改字段」的明确反馈。
-var ErrNodePatchBannedField = errors.New("node patch: banned top-level field")
+// ErrNodePatchBannedField 是 NodePatch.UnmarshalJSON 遇到禁改字段时返回的
+// sentinel。errors.Is 可命中。F4.2 service 层把它包成 ErrApplyOpsInvalid
+// 上抛，让 MCP 调用方收到「禁改字段」的明确反馈。
+//
+// 拒的场景：
+//   - patch 顶层出现非白名单 key（含禁改 4 件套 + 拼写错误随机 key）。
+//   - patch.config 任意嵌套层出现 banned 4 件套之一：status / node_key /
+//     node_type / agent_key（R2 P1：深层 banned key 防 AI 把 agent_key
+//     藏进 config 内层蒙混过关）。
+var ErrNodePatchBannedField = errors.New("node patch: banned field")
 
-// nodePatchAllowedKeys 白名单：JSON 顶层 key 必须在此集合内。
-// 与 NodePatch 结构体字段一一对应；新增字段时双向维护。
-var nodePatchAllowedKeys = map[string]struct{}{
-	"title":       {},
-	"assigned_to": {},
-	"depends_on":  {},
-	"config":      {},
+// nodePatchBannedDeepKeys 是 patch.config 任意嵌套层都不允许出现的 key 集合。
+// 与顶层禁改 4 件套语义一致：status 由生命周期管 / node_key / node_type 不可
+// 改 / agent_key 必须改 assigned_to 而非 config 内层 prompt 字段。
+//
+// 深层校验对应 R2 P1（嵌套 banned key 测试 gap）：拒掉
+// `{"config":{"agent_key":"evil"}}` 与 `{"config":{"nested":{"status":"x"}}}`。
+// 与 executor_automation.go 的 automationOutputsForbiddenKeys 不同：
+// 后者是 outputs 子 schema 的「agent prompt 注入」语义，本集合只管 4 件套。
+var nodePatchBannedDeepKeys = map[string]struct{}{
+	"status":    {},
+	"node_key":  {},
+	"node_type": {},
+	"agent_key": {},
 }
 
-// UnmarshalJSON 走 strict 模式：拿 RawMessage map 过白名单，再分发给
-// 结构体本体解码。Banned key 顶层出现一律拒——含 status / node_key /
-// node_type / agent_key 这 4 个禁改字段，以及任何拼写错误的随机 key。
+// UnmarshalJSON 走 strict 模式：用 json.Decoder + DisallowUnknownFields 做
+// 顶层白名单校验，再递归扫 config 内层禁改 key。
 //
-// 双 pass 设计：encoding/json 默认 unknown fields 静默忽略，无 strict 开关；
-// 用 map[string]json.RawMessage 自前过白名单是 stdlib 下的标准做法。代价：
-// 多一次解码 + map 分配，但 patch 顶层字段固定 ≤ 4 个、影响可忽略。
+// 实现说明（R1 P1 #1 改造）：
+//   - stdlib 标准做法是 json.NewDecoder(...).DisallowUnknownFields()。原先
+//     双 pass map[string]json.RawMessage 也能做，但注释把它说成「标准做法」
+//     不准确——decoder strict 模式才是 stdlib 一等公民。
+//   - decoder 在解码到非白名单字段时返回 `json: unknown field "xxx"` 错误。
+//     我们包成 ErrNodePatchBannedField 让 errors.Is 路径不变。
+//   - 用 type alias 跳过 UnmarshalJSON 自调用，防递归。
+//   - 顶层 strict 解码 + 单独遍 walk patch.Config 做深层 banned key 校验，
+//     避免漏掉 `config.agent_key` 这类「藏在内层」的禁改字段。
 func (p *NodePatch) UnmarshalJSON(data []byte) error {
 	if string(data) == "null" {
 		*p = NodePatch{}
 		return nil
 	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return fmt.Errorf("node patch: %w", err)
-	}
-	for key := range raw {
-		if _, ok := nodePatchAllowedKeys[key]; !ok {
-			return fmt.Errorf("%w: %q (allowed: title/assigned_to/depends_on/config)", ErrNodePatchBannedField, key)
-		}
-	}
-	// 第二 pass：结构体本体解码。用 type alias 跳过 UnmarshalJSON 自调用
-	// 防递归。
 	type nodePatchPlain NodePatch
 	var plain nodePatchPlain
-	if err := json.Unmarshal(data, &plain); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&plain); err != nil {
+		if strings.Contains(err.Error(), "unknown field") {
+			return fmt.Errorf("%w: %v (allowed: title/assigned_to/depends_on/config)", ErrNodePatchBannedField, err)
+		}
 		return fmt.Errorf("node patch decode: %w", err)
 	}
+	if err := validateConfigDoesNotContainBannedKeys(plain.Config); err != nil {
+		return err
+	}
 	*p = NodePatch(plain)
+	return nil
+}
+
+// validateConfigDoesNotContainBannedKeys 递归扫 raw 内的所有 object key，
+// 命中 nodePatchBannedDeepKeys → 包成 ErrNodePatchBannedField。
+//
+// 空 / null / 非对象 / 数组里的标量都直接放行；只在递归到 object 时检查。
+// 数组元素与对象值都继续递归，覆盖 `{"config":{"nested":{"agent_key":...}}}` /
+// `{"config":{"arr":[{"agent_key":...}]}}` 这类深嵌套 case。
+func validateConfigDoesNotContainBannedKeys(raw json.RawMessage) error {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		// 解不出来不在这一层报；让上层 typed schema 解码（ParseNodeConfig）再报。
+		return nil
+	}
+	return walkConfigForBannedKeys(v)
+}
+
+// walkConfigForBannedKeys 对任意 JSON 值做深度优先扫，命中 banned key 返回。
+func walkConfigForBannedKeys(v any) error {
+	switch node := v.(type) {
+	case map[string]any:
+		for key, child := range node {
+			if _, banned := nodePatchBannedDeepKeys[key]; banned {
+				return fmt.Errorf("%w: config contains banned key %q (status/node_key/node_type/agent_key are not patchable, even nested)", ErrNodePatchBannedField, key)
+			}
+			if err := walkConfigForBannedKeys(child); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for _, child := range node {
+			if err := walkConfigForBannedKeys(child); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
