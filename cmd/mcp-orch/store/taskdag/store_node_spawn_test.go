@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 // F1.5 / ADR-009 — RecordNodeSpawn 写入回路单测。
@@ -18,8 +19,16 @@ import (
 //      （AppendedEvent=false），不视为错误（spawn 历史是辅助，缺失不应破坏 spawn 主路）。
 //   4. 入参防御：空 thread_id 拒绝；空 dag/node_key 拒绝。
 
+// newSpawnRecorderTestStore 包装 newTaskDAGTestStore 的聚合 Store 返回值，提取 narrow
+// port NodeSpawnRecorderStore。F1.5 后续修复：从聚合 Store 中拆出 NodeSpawnRecorderStore
+// 以过 archtest TestInterfaceIsolationBudgets，所以测试不能再直接这 Store 接口调。
+func newSpawnRecorderTestStore() (NodeSpawnRecorderStore, *fakeTaskDAGDB, time.Time) {
+	s, db, now := newTaskDAGTestStore()
+	return s.(NodeSpawnRecorderStore), db, now
+}
+
 func TestRecordNodeSpawn_FirstSpawn_WritesFieldNoEvents(t *testing.T) {
-	store, db, _ := newTaskDAGTestStore()
+	store, db, _ := newSpawnRecorderTestStore()
 	seedDAG(t, db, db.now, []seedNode{
 		{key: "n1", deps: nil, status: "running", agent: "agent-a"},
 	})
@@ -53,7 +62,7 @@ func TestRecordNodeSpawn_FirstSpawn_WritesFieldNoEvents(t *testing.T) {
 }
 
 func TestRecordNodeSpawn_RetryOverwrite_AppendsEvent(t *testing.T) {
-	store, db, _ := newTaskDAGTestStore()
+	store, db, _ := newSpawnRecorderTestStore()
 	seedDAG(t, db, db.now, []seedNode{
 		{key: "n1", deps: nil, status: "running", agent: "agent-a"},
 	})
@@ -108,7 +117,7 @@ func TestRecordNodeSpawn_RetryOverwrite_AppendsEvent(t *testing.T) {
 }
 
 func TestRecordNodeSpawn_RetryWithoutRunningRun_SoftMiss(t *testing.T) {
-	store, db, _ := newTaskDAGTestStore()
+	store, db, _ := newSpawnRecorderTestStore()
 	seedDAG(t, db, db.now, []seedNode{
 		{key: "n1", deps: nil, status: "running", agent: "agent-a"},
 	})
@@ -145,7 +154,7 @@ func TestRecordNodeSpawn_RetryWithoutRunningRun_SoftMiss(t *testing.T) {
 }
 
 func TestRecordNodeSpawn_InputValidation(t *testing.T) {
-	store, db, _ := newTaskDAGTestStore()
+	store, db, _ := newSpawnRecorderTestStore()
 	seedDAG(t, db, db.now, []seedNode{
 		{key: "n1", deps: nil, status: "running", agent: "agent-a"},
 	})

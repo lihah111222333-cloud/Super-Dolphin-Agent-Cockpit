@@ -18,15 +18,6 @@ type Store interface {
 	NodeFlowStore
 	WakeupStore
 	WorkerLeaseStore
-	// NodeSpawnRecorderStore 是 F1.5 / ADR-009 加入的窄端口。嵌入聚合 Store
-	// 接口让 unit tests 能用同一个 aggregate handle 调用 RecordNodeSpawn；
-	// 生产 wiring 仍鼓励提取独立 NodeSpawnRecorderStore 使用。
-	//
-	// NodeSpawnRecorderStore was added in F1.5 / ADR-009. It is embedded into
-	// the aggregate Store so unit tests can reach RecordNodeSpawn through the
-	// same handle they already use for the other narrow ports; production
-	// wiring should still depend on the narrow NodeSpawnRecorderStore alone.
-	NodeSpawnRecorderStore
 }
 
 // OrchestrationStore is the narrow port consumed by cmd/mcp-orch/orchestration
