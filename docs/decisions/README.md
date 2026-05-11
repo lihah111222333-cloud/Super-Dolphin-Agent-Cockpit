@@ -18,6 +18,7 @@
 - [ADR-008：FailureClass 七类的映射规则全集](./ADR-008-failureclass-mapping.md) — 2026-05-12 升 Accepted（代码引用 ≥5 处 + 行为稳定数轮）
 - [ADR-009：DAG node ↔ child thread 双向追溯（spawning_thread_id）](./ADR-009-thread-dag-traceability.md) — 2026-05-12 升 Accepted（F1.5 落地 + DTO 透出 + archtest 守护）
 - [ADR-011：HybridExecutor 拓扑边界与未来扩展](./ADR-011-hybrid-executor-topology.md) — 2026-05-12 v1 升 Accepted（F3.1 等同 AutomationWithVerifier 语义稳定）；v2 拓扑（F3.2/F3.3/F3.4）仍 Proposed
+- [ADR-012：taskdag 聚合 Store 接口 7/7 嵌入端口预算锁死](./ADR-012-store-aggregate-frozen.md) — 2026-05-12 Accepted（禁止再向聚合 Store 加 embedded port，新端口走独立窄接口 + var _ 编译期断言）
 
 ### Proposed（DAG 改造修补单 §7 占位 + 返修轮新立，待拍板）
 
