@@ -15,6 +15,7 @@ import (
 
 // 单条 update：改 title，不动 depends_on。adjacency 应与 existing 一致。
 func TestPlanUpdateNodes_TitleOnly_Happy(t *testing.T) {
+	t.Parallel()
 	existing := []ExistingNodeFull{
 		{NodeKey: "n1", DependsOn: nil, Status: "pending"},
 		{NodeKey: "n2", DependsOn: []string{"n1"}, Status: "pending"},
@@ -43,6 +44,7 @@ func TestPlanUpdateNodes_TitleOnly_Happy(t *testing.T) {
 
 // 改 depends_on 不引入环：n2 原依赖 n1，改为依赖空 → DAG 仍合法。
 func TestPlanUpdateNodes_DependsOnRewire_Happy(t *testing.T) {
+	t.Parallel()
 	existing := []ExistingNodeFull{
 		{NodeKey: "n1", DependsOn: nil, Status: "ready"},
 		{NodeKey: "n2", DependsOn: []string{"n1"}, Status: "ready"},
@@ -69,6 +71,7 @@ func TestPlanUpdateNodes_DependsOnRewire_Happy(t *testing.T) {
 
 // 改 assigned_to + config 同时。
 func TestPlanUpdateNodes_AssignedToAndConfig_Happy(t *testing.T) {
+	t.Parallel()
 	existing := []ExistingNodeFull{
 		{NodeKey: "n1", DependsOn: nil, Status: "pending"},
 	}
@@ -91,6 +94,7 @@ func TestPlanUpdateNodes_AssignedToAndConfig_Happy(t *testing.T) {
 // ---- 负面：节点不存在 ----
 
 func TestPlanUpdateNodes_NodeNotFound(t *testing.T) {
+	t.Parallel()
 	existing := []ExistingNodeFull{
 		{NodeKey: "n1", Status: "pending"},
 	}
@@ -112,6 +116,7 @@ func TestPlanUpdateNodes_NodeNotFound(t *testing.T) {
 // ---- 负面：自环 ----
 
 func TestPlanUpdateNodes_DependsOnSelf_Rejected(t *testing.T) {
+	t.Parallel()
 	existing := []ExistingNodeFull{
 		{NodeKey: "n1", Status: "pending"},
 	}
@@ -133,6 +138,7 @@ func TestPlanUpdateNodes_DependsOnSelf_Rejected(t *testing.T) {
 // ---- 负面：depends_on 引用不存在节点 ----
 
 func TestPlanUpdateNodes_DependsOnUnknown(t *testing.T) {
+	t.Parallel()
 	existing := []ExistingNodeFull{
 		{NodeKey: "n1", Status: "pending"},
 	}
@@ -154,6 +160,7 @@ func TestPlanUpdateNodes_DependsOnUnknown(t *testing.T) {
 // ---- 负面：节点 status 不允许 update（F4.5 提前防御）----
 
 func TestPlanUpdateNodes_StatusRunning_Rejected(t *testing.T) {
+	t.Parallel()
 	existing := []ExistingNodeFull{
 		{NodeKey: "n1", Status: "running"},
 	}
@@ -173,6 +180,7 @@ func TestPlanUpdateNodes_StatusRunning_Rejected(t *testing.T) {
 }
 
 func TestPlanUpdateNodes_StatusDone_Rejected(t *testing.T) {
+	t.Parallel()
 	existing := []ExistingNodeFull{
 		{NodeKey: "n1", Status: "done"},
 	}
@@ -191,6 +199,7 @@ func TestPlanUpdateNodes_StatusDone_Rejected(t *testing.T) {
 // ---- 负面：op 类型错 ----
 
 func TestPlanUpdateNodes_WrongOpKind(t *testing.T) {
+	t.Parallel()
 	existing := []ExistingNodeFull{{NodeKey: "n1", Status: "pending"}}
 	ops := Ops{OpAddNode{Node: NodeSpec{NodeKey: "x"}}}
 
@@ -206,6 +215,7 @@ func TestPlanUpdateNodes_WrongOpKind(t *testing.T) {
 // ---- 空 ops noop ----
 
 func TestPlanUpdateNodes_EmptyOps_Noop(t *testing.T) {
+	t.Parallel()
 	existing := []ExistingNodeFull{
 		{NodeKey: "n1", DependsOn: []string{"n0"}, Status: "pending"},
 	}
@@ -224,6 +234,7 @@ func TestPlanUpdateNodes_EmptyOps_Noop(t *testing.T) {
 // ---- key 必填 ----
 
 func TestPlanUpdateNodes_EmptyNodeKey(t *testing.T) {
+	t.Parallel()
 	existing := []ExistingNodeFull{{NodeKey: "n1", Status: "pending"}}
 	title := "x"
 	ops := Ops{OpUpdateNode{NodeKey: "  ", Patch: NodePatch{Title: &title}}}

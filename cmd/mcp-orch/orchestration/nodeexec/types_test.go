@@ -8,6 +8,7 @@ import (
 
 // TestNodeStatusConstants_NineStates: 蓝图 v2 §8 声明 9 态，骨架阶段必须齐全。
 func TestNodeStatusConstants_NineStates(t *testing.T) {
+	t.Parallel()
 	all := []NodeStatus{
 		NodeStatusPending,
 		NodeStatusReady,
@@ -36,6 +37,7 @@ func TestNodeStatusConstants_NineStates(t *testing.T) {
 
 // TestFailureClassConstants_SevenClasses: 蓝图 v2 §8 七类失败。
 func TestFailureClassConstants_SevenClasses(t *testing.T) {
+	t.Parallel()
 	all := []FailureClass{
 		FailureClassTransient,
 		FailureClassQuota,
@@ -62,6 +64,7 @@ func TestFailureClassConstants_SevenClasses(t *testing.T) {
 
 // TestOnFailureStrategyConstants_SevenStrategies: 蓝图 v2 §7 注释列出的 7 项策略。
 func TestOnFailureStrategyConstants_SevenStrategies(t *testing.T) {
+	t.Parallel()
 	all := []OnFailureStrategy{
 		OnFailureRetry,
 		OnFailureEscalateModel,
@@ -78,6 +81,7 @@ func TestOnFailureStrategyConstants_SevenStrategies(t *testing.T) {
 
 // TestHookPointConstants_FourPoints: 蓝图 v2 §10 补丁 10 列出的 4 个 hook 点。
 func TestHookPointConstants_FourPoints(t *testing.T) {
+	t.Parallel()
 	all := []HookPoint{
 		HookBeforeExecute,
 		HookAfterExecute,
@@ -91,6 +95,7 @@ func TestHookPointConstants_FourPoints(t *testing.T) {
 
 // TestNodeOutcome_FieldRoundTrip: NodeOutcome 字段读写与 zero value 行为。
 func TestNodeOutcome_FieldRoundTrip(t *testing.T) {
+	t.Parallel()
 	o := NodeOutcome{
 		Status:       NodeStatusDone,
 		Result:       json.RawMessage(`{"summary":"ok"}`),
@@ -120,6 +125,7 @@ func (stubExecutor) Hooks() map[HookPoint]HookHandler { return nil }
 
 // TestNodeExecutorInterface_Implementable: 编译时验证接口形状稳定。
 func TestNodeExecutorInterface_Implementable(t *testing.T) {
+	t.Parallel()
 	var _ NodeExecutor = stubExecutor{}
 
 	// 走一次 happy path，确认 NodeOutcome zero value 不 panic。

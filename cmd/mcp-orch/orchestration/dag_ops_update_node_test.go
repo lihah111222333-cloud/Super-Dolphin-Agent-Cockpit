@@ -24,6 +24,7 @@ import (
 // ---- happy ----
 
 func TestApplyOps_UpdateNode_TitleHappy(t *testing.T) {
+	t.Parallel()
 	stub := &stubDAGOpsStore{
 		currentVersion: 1,
 		nodes: []taskdag.Node{
@@ -59,6 +60,7 @@ func TestApplyOps_UpdateNode_TitleHappy(t *testing.T) {
 }
 
 func TestApplyOps_UpdateNode_AssignedToHappy(t *testing.T) {
+	t.Parallel()
 	stub := &stubDAGOpsStore{
 		currentVersion: 0,
 		nodes: []taskdag.Node{
@@ -90,6 +92,7 @@ func TestApplyOps_UpdateNode_AssignedToHappy(t *testing.T) {
 }
 
 func TestApplyOps_UpdateNode_ConfigHappy(t *testing.T) {
+	t.Parallel()
 	stub := &stubDAGOpsStore{
 		currentVersion: 0,
 		nodes: []taskdag.Node{
@@ -115,6 +118,7 @@ func TestApplyOps_UpdateNode_ConfigHappy(t *testing.T) {
 }
 
 func TestApplyOps_UpdateNode_DependsOnHappy(t *testing.T) {
+	t.Parallel()
 	// 现有：n1（无 dep）, n2（depends [n1]）, n3（无 dep）。
 	// patch: n2 → depends [n3] —— rewire 不引入环。
 	stub := &stubDAGOpsStore{
@@ -145,6 +149,7 @@ func TestApplyOps_UpdateNode_DependsOnHappy(t *testing.T) {
 // 同批 add + update：先 add n3 depends n1，再 update n2 depends [n3]。
 // 顺序无关，校验 add 与 update 在同一事务内的 plan 综合 adjacency。
 func TestApplyOps_AddPlusUpdate_SameBatch(t *testing.T) {
+	t.Parallel()
 	stub := &stubDAGOpsStore{
 		currentVersion: 0,
 		nodes: []taskdag.Node{
@@ -177,6 +182,7 @@ func TestApplyOps_AddPlusUpdate_SameBatch(t *testing.T) {
 
 // update_node 引入二节点对环：现有 a（无 dep），b（dep a），patch a → dep [b] → 环。
 func TestApplyOps_UpdateNode_CycleIntroducedRejected(t *testing.T) {
+	t.Parallel()
 	stub := &stubDAGOpsStore{
 		currentVersion: 0,
 		nodes: []taskdag.Node{
@@ -213,6 +219,7 @@ func TestApplyOps_UpdateNode_CycleIntroducedRejected(t *testing.T) {
 
 // 自环也在 plan 阶段先拒。
 func TestApplyOps_UpdateNode_SelfLoopRejected(t *testing.T) {
+	t.Parallel()
 	stub := &stubDAGOpsStore{
 		currentVersion: 0,
 		nodes: []taskdag.Node{
@@ -242,6 +249,7 @@ func TestApplyOps_UpdateNode_SelfLoopRejected(t *testing.T) {
 // ---- OCC ----
 
 func TestApplyOps_UpdateNode_OCCStale(t *testing.T) {
+	t.Parallel()
 	stub := &stubDAGOpsStore{
 		currentVersion: 5,
 		nodes: []taskdag.Node{
@@ -271,6 +279,7 @@ func TestApplyOps_UpdateNode_OCCStale(t *testing.T) {
 // ---- banned key: status / node_key / node_type / agent_key 在 patch 顶层 ----
 
 func TestApplyOps_UpdateNode_BannedFields(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		op   string
@@ -312,6 +321,7 @@ func TestApplyOps_UpdateNode_BannedFields(t *testing.T) {
 // ---- 节点 status=running / done / cancelled 时 update → 拒 ----
 
 func TestApplyOps_UpdateNode_RunningStatusRejected(t *testing.T) {
+	t.Parallel()
 	stub := &stubDAGOpsStore{
 		currentVersion: 0,
 		nodes: []taskdag.Node{
@@ -339,6 +349,7 @@ func TestApplyOps_UpdateNode_RunningStatusRejected(t *testing.T) {
 }
 
 func TestApplyOps_UpdateNode_DoneStatusRejected(t *testing.T) {
+	t.Parallel()
 	stub := &stubDAGOpsStore{
 		currentVersion: 0,
 		nodes: []taskdag.Node{
@@ -365,6 +376,7 @@ func TestApplyOps_UpdateNode_DoneStatusRejected(t *testing.T) {
 // ---- 节点不存在 ----
 
 func TestApplyOps_UpdateNode_NodeNotFound(t *testing.T) {
+	t.Parallel()
 	stub := &stubDAGOpsStore{
 		currentVersion: 0,
 		nodes: []taskdag.Node{
@@ -398,6 +410,7 @@ func TestApplyOps_UpdateNode_NodeNotFound(t *testing.T) {
 // patch」语义歧义。用两种「判定接口」：errors.Is ErrApplyOpsInvalid +
 // errors.Is ErrDuplicateOpForNode。
 func TestApplyOps_UpdateNode_DuplicateKeyWithinBatch(t *testing.T) {
+	t.Parallel()
 	stub := &stubDAGOpsStore{
 		currentVersion: 0,
 		nodes: []taskdag.Node{
@@ -435,6 +448,7 @@ func TestApplyOps_UpdateNode_DuplicateKeyWithinBatch(t *testing.T) {
 // TestApplyOps_UpdateNode_DistinctKeysInBatch 防误伤：两个不同 node_key 的
 // update_node 必须能共存。与 dup 检测配对吃到一起越界。
 func TestApplyOps_UpdateNode_DistinctKeysInBatch(t *testing.T) {
+	t.Parallel()
 	stub := &stubDAGOpsStore{
 		currentVersion: 0,
 		nodes: []taskdag.Node{
@@ -465,4 +479,3 @@ func TestApplyOps_UpdateNode_DistinctKeysInBatch(t *testing.T) {
 
 // _ = nodeexec import 保留：上面测试已在用 nodeexec.ErrNodePatchBannedField。
 var _ = nodeexec.ErrNodePatchBannedField
-
