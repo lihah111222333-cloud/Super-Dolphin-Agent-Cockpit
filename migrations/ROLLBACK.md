@@ -169,7 +169,7 @@ docs/plans/dag改造实施计划.md §10 follow-up「trigger_source default 收�
 
 ---
 
-## 0083 — task_dag_nodes.spawning_thread_id 列 + partial index
+## 0083 — task_dag_nodes.spawning_thread_id 列 + partial index (F1.5)
 
 **up：** `migrations/0083_dag_v2_spawning_thread_id.sql`
 
@@ -178,12 +178,19 @@ docs/plans/dag改造实施计划.md §10 follow-up「trigger_source default 收�
 ```sql
 BEGIN;
 DROP INDEX IF EXISTS idx_task_dag_nodes_spawning_thread_id;
+-- CASCADE 防未来加上 view / generated column 后 DROP COLUMN 被依赖抦在。
 ALTER TABLE task_dag_nodes DROP COLUMN IF EXISTS spawning_thread_id CASCADE;
 DELETE FROM schema_migrations WHERE filename = '0083_dag_v2_spawning_thread_id.sql';
 COMMIT;
 ```
 
 **影响：** 删列后 F1.5 / ADR-009 提供的 thread↔node 软关联丢失。`AgentExecutor.RecordNodeSpawn` 调用会打 SQL 错（列不存在）；DTO `DAGNode.SpawningThreadID` 读不到列 → 需 mcp-orch 退回 F1.5 之前二进制。CASCADE 清理任何 partial index 依赖；spawning_thread_id 不带 FK / CHECK，不会连带别处。仅在严重随机问题需回退 F1.5 时才回滚。
+
+**幂等提示：** up 文件使用 `-- SPLIT --` sentinel（详见 internal/platform/db/module.go 中的
+`migrationSplitSentinel`）拆为事务内 ALTER TABLE 与事务外
+CREATE INDEX CONCURRENTLY 两段。中途中断可能留下 INVALID 状态的部分索引；这时
+rollback 前先手工 `DROP INDEX IF EXISTS idx_task_dag_nodes_spawning_thread_id;`
+再走上面脚本。
 
 ---
 

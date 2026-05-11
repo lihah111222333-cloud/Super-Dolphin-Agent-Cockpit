@@ -254,16 +254,18 @@ func (q *Queries) FinalizeTaskDagRunIfAllNodesTerminal(ctx context.Context, dagK
 
 const appendTaskDagRunEvent = `-- name: AppendTaskDagRunEvent :one
 UPDATE task_dag_runs
-SET events     = events || $2::jsonb,
+SET events     = events || jsonb_build_array($2::jsonb),
     updated_at = NOW()
 WHERE dag_key = $1 AND status = 'running'
 RETURNING run_key
 `
 
 // AppendTaskDagRunEventParams binds (dag_key, event_json) for the events
-// jsonb array append in task_dag_runs. The event payload must already be a
-// JSON object (or wrapped in […] when appending multiple). Mismatched values
-// cause PG operator || to error at bind time.
+// jsonb array append in task_dag_runs. The event payload should be a single
+// JSON object; the SQL wraps it with jsonb_build_array() so the || operator
+// always runs array-append semantics, even when bind would otherwise feed an
+// object into || (which PG treats as object-merge, silently losing history).
+// R1 P0 #1 工艺修复：see queries/task_dag_run.sql for the long-form rationale.
 type AppendTaskDagRunEventParams struct {
 	DagKey  string `json:"dag_key"`
 	Column2 []byte `json:"column_2"`

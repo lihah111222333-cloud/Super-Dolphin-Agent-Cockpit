@@ -15,8 +15,20 @@
 -- 因此用 DO 块检查 pg_attribute 后再 ADD COLUMN，索引用 IF NOT EXISTS。
 -- 本 migration 不创建 CHECK/FK 约束，所以无需 pg_constraint bookkeeping 分支。
 --
--- ROLLBACK (manual): DROP INDEX IF EXISTS idx_task_dag_nodes_spawning_thread_id;
---   ALTER TABLE task_dag_nodes DROP COLUMN IF EXISTS spawning_thread_id;
+-- ROLLBACK (manual)：详见 migrations/ROLLBACK.md §0083。
+--   DROP INDEX IF EXISTS idx_task_dag_nodes_spawning_thread_id;
+--   ALTER TABLE task_dag_nodes DROP COLUMN IF EXISTS spawning_thread_id CASCADE;
+-- CASCADE 防未来加上 view / generated column 后 rollback 堆报错。
+--
+-- R1 P1 #3 修复：ALTER TABLE 需在事务内保证原子，但 CREATE INDEX CONCURRENTLY
+-- 不能跑在任何 transaction 块内（PG 硬规则）。现在用 runner 提供的
+-- “-- SPLIT --” sentinel 拆为两段：
+--   1. BEGIN; DO ALTER TABLE; COMMIT;       （事务内）
+--   2. CREATE INDEX CONCURRENTLY IF NOT EXISTS （事务外）
+-- CONCURRENTLY 避免在热表 task_dag_nodes 上拿 write 锁阻塞生产流量。
+--
+-- 幂等保证在两段均有。CREATE INDEX CONCURRENTLY IF NOT EXISTS 是幂等的（如果
+-- 上次 partial 创建走到一半中断，需人工 DROP INDEX IF EXISTS 后重跑，详 PG 文档。
 
 BEGIN;
 
@@ -35,8 +47,12 @@ BEGIN
 END
 $$;
 
-CREATE INDEX IF NOT EXISTS idx_task_dag_nodes_spawning_thread_id
+COMMIT;
+
+-- SPLIT --
+
+-- CREATE INDEX CONCURRENTLY 必须独立于任何事务之外。IF NOT EXISTS 保证幂等。
+-- partial WHERE 仅覆盖非 NULL 值，支持按 thread_id 反查节点，且不放大空值索引。
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_task_dag_nodes_spawning_thread_id
   ON task_dag_nodes (spawning_thread_id)
   WHERE spawning_thread_id IS NOT NULL;
-
-COMMIT;
