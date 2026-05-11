@@ -10,15 +10,6 @@ import "context"
 //   - AutomationExecutor → F2.1：解码 command_ref → command_get + 执行确定性任务
 //   - HybridExecutor → F3.1：先 automation 后 agent verifier（高风险操作）
 
-// AutomationExecutor 是 node_type=automation 节点的执行器 stub。
-type AutomationExecutor struct{}
-
-func (AutomationExecutor) Execute(_ context.Context, _ Node, _ RunContext) (NodeOutcome, error) {
-	return NodeOutcome{Status: NodeStatusDone}, nil
-}
-
-func (AutomationExecutor) Hooks() map[HookPoint]HookHandler { return nil }
-
 // HybridExecutor 是 node_type=hybrid 节点的执行器 stub
 // （真实实现先跑 automation，再用 agent verifier 验证输出）。
 type HybridExecutor struct{}

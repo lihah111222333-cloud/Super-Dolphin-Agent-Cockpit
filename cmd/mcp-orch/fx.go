@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"log/slog"
 	"os"
@@ -10,6 +12,7 @@ import (
 
 	orchnotify "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/notify"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	commandcardstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/commandcard"
 	promptstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
@@ -154,6 +157,11 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 		fx.Provide(func(lc fx.Lifecycle, turnStarter orchestration.TurnStarter, logger *slog.Logger) orchestration.AgentLauncher {
 			return buildLauncher(lc, turnStarter, logger, remoteAddr)
 		}),
+		fx.Provide(
+			newAutomationCommandGetter,
+			nodeexec.NewShellCommandRunner,
+			nodeexec.NewAutomationExecutor,
+		),
 	}
 	if remoteAddr == "" {
 		options = append(options, fx.Provide(
@@ -161,6 +169,37 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 		))
 	}
 	return options
+}
+
+type automationCommandGetter struct {
+	handler tools.ToolHandler
+}
+
+func newAutomationCommandGetter(store commandcardstore.Store) nodeexec.AutomationCommandGetter {
+	return automationCommandGetter{handler: tools.HandleCommandGet(store)}
+}
+
+func (g automationCommandGetter) GetCommandCard(ctx context.Context, cardKey string) (nodeexec.AutomationCommandCard, error) {
+	if g.handler == nil {
+		return nodeexec.AutomationCommandCard{}, errors.New("command_get client is not configured")
+	}
+	input, err := json.Marshal(map[string]string{"card_key": cardKey})
+	if err != nil {
+		return nodeexec.AutomationCommandCard{}, fmt.Errorf("marshal command_get input: %w", err)
+	}
+	result, err := g.handler(ctx, input)
+	if err != nil {
+		return nodeexec.AutomationCommandCard{}, err
+	}
+	payload, err := json.Marshal(result)
+	if err != nil {
+		return nodeexec.AutomationCommandCard{}, fmt.Errorf("marshal command_get result: %w", err)
+	}
+	var card nodeexec.AutomationCommandCard
+	if err := json.Unmarshal(payload, &card); err != nil {
+		return nodeexec.AutomationCommandCard{}, fmt.Errorf("parse command_get result: %w", err)
+	}
+	return card, nil
 }
 
 func buildLauncher(lc fx.Lifecycle, turnStarter orchestration.TurnStarter, logger *slog.Logger, remoteAddr string) orchestration.AgentLauncher {
