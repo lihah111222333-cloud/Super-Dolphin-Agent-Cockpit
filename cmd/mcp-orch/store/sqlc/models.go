@@ -83,24 +83,28 @@ type TaskDag struct {
 }
 
 type TaskDagNode struct {
-	ID             int64              `json:"id"`
-	DagKey         string             `json:"dag_key"`
-	NodeKey        string             `json:"node_key"`
-	Title          string             `json:"title"`
-	NodeType       string             `json:"node_type"`
-	AssignedTo     string             `json:"assigned_to"`
-	DependsOn      []byte             `json:"depends_on"`
-	Status         string             `json:"status"`
-	CommandRef     string             `json:"command_ref"`
-	Config         []byte             `json:"config"`
-	Result         []byte             `json:"result"`
-	StartedAt      pgtype.Timestamptz `json:"started_at"`
-	FinishedAt     pgtype.Timestamptz `json:"finished_at"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
-	ActiveTurnID   pgtype.Text        `json:"active_turn_id"`
-	ActiveWakeupID pgtype.Int8        `json:"active_wakeup_id"`
-	LastEventAt    pgtype.Timestamptz `json:"last_event_at"`
+	ID               int64              `json:"id"`
+	DagKey           string             `json:"dag_key"`
+	NodeKey          string             `json:"node_key"`
+	Title            string             `json:"title"`
+	NodeType         string             `json:"node_type"`
+	AssignedTo       string             `json:"assigned_to"`
+	DependsOn        []byte             `json:"depends_on"`
+	Status           string             `json:"status"`
+	CommandRef       string             `json:"command_ref"`
+	Config           []byte             `json:"config"`
+	Result           []byte             `json:"result"`
+	StartedAt        pgtype.Timestamptz `json:"started_at"`
+	FinishedAt       pgtype.Timestamptz `json:"finished_at"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	ActiveTurnID     pgtype.Text        `json:"active_turn_id"`
+	ActiveWakeupID   pgtype.Int8        `json:"active_wakeup_id"`
+	LastEventAt      pgtype.Timestamptz `json:"last_event_at"`
+	// SpawningThreadID — DAG v2 F1.5 / ADR-009：AgentExecutor spawn 出的最近一次
+	// child agent thread id（软关联，无外键，重试时覆盖）。NULL 表示从未 spawn
+	// 或本节点 node_type != agent。详 migration 0083_dag_v2_spawning_thread_id.sql。
+	SpawningThreadID pgtype.Text        `json:"spawning_thread_id"`
 }
 
 type TaskDagWakeup struct {
