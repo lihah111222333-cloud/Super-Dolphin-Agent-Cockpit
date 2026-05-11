@@ -2,6 +2,7 @@ package nodeexec
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 )
 
@@ -61,12 +62,72 @@ type OpAddNode struct {
 
 func (OpAddNode) Kind() OpKind { return OpKindAddNode }
 
-// NodePatch 是 update_node 允许修改的节点字段子集（不含 NodeKey）。
-// DependsOn 用 *[]string 区分三态：nil 不改 / *[] 清空 / *[a,b] 设置。
+// NodePatch 是 update_node 允许修改的节点字段白名单。F4.2 落地后唯一接收的
+// patch 顶层 key 是 4 个：title / assigned_to / depends_on / config。任何其他
+// 顶层 key（含禁改的 node_key / node_type / status / agent_key 与拼写错误的
+// 随机字段）由 UnmarshalJSON 严格拒。
+//
+// 三态语义：
+//   - Title / AssignedTo: *string —— nil 不改 / 指向 "" 清空 / 指向 v 改成 v
+//   - DependsOn: *[]string —— nil 不改 / *[] 清空 / *[a,b] 设置
+//   - Config: json.RawMessage —— 空（len==0 或 "null"）不改 / 非空覆盖整个 JSON
+//     （结构性 patch 留给 schema 解码后再做，骨架阶段语义保持"整片替换"）
+//
+// 关键不变量：禁改 status —— status 由生命周期路径管，ApplyOps 不许碰；禁改
+// node_key / node_type —— wire 上无字段位、即便用户硬塞也由 strict unmarshal
+// 拦下；禁改 agent_key —— agent_key 是 config 内的字段，patch 顶层不许出现
+// （改 agent 路由应通过 assigned_to 改 wakeup 派发，或改 config 里嵌的字段）。
 type NodePatch struct {
-	Title     *string         `json:"title,omitempty"`
-	DependsOn *[]string       `json:"depends_on,omitempty"`
-	Config    json.RawMessage `json:"config,omitempty"`
+	Title      *string         `json:"title,omitempty"`
+	AssignedTo *string         `json:"assigned_to,omitempty"`
+	DependsOn  *[]string       `json:"depends_on,omitempty"`
+	Config     json.RawMessage `json:"config,omitempty"`
+}
+
+// ErrNodePatchBannedField 是 NodePatch.UnmarshalJSON 遇到非白名单顶层字段时
+// 返回的 sentinel。errors.Is 可命中。F4.2 service 层把它包成
+// ErrApplyOpsInvalid 上抛，让 MCP 调用方收到「禁改字段」的明确反馈。
+var ErrNodePatchBannedField = errors.New("node patch: banned top-level field")
+
+// nodePatchAllowedKeys 白名单：JSON 顶层 key 必须在此集合内。
+// 与 NodePatch 结构体字段一一对应；新增字段时双向维护。
+var nodePatchAllowedKeys = map[string]struct{}{
+	"title":       {},
+	"assigned_to": {},
+	"depends_on":  {},
+	"config":      {},
+}
+
+// UnmarshalJSON 走 strict 模式：拿 RawMessage map 过白名单，再分发给
+// 结构体本体解码。Banned key 顶层出现一律拒——含 status / node_key /
+// node_type / agent_key 这 4 个禁改字段，以及任何拼写错误的随机 key。
+//
+// 双 pass 设计：encoding/json 默认 unknown fields 静默忽略，无 strict 开关；
+// 用 map[string]json.RawMessage 自前过白名单是 stdlib 下的标准做法。代价：
+// 多一次解码 + map 分配，但 patch 顶层字段固定 ≤ 4 个、影响可忽略。
+func (p *NodePatch) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		*p = NodePatch{}
+		return nil
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("node patch: %w", err)
+	}
+	for key := range raw {
+		if _, ok := nodePatchAllowedKeys[key]; !ok {
+			return fmt.Errorf("%w: %q (allowed: title/assigned_to/depends_on/config)", ErrNodePatchBannedField, key)
+		}
+	}
+	// 第二 pass：结构体本体解码。用 type alias 跳过 UnmarshalJSON 自调用
+	// 防递归。
+	type nodePatchPlain NodePatch
+	var plain nodePatchPlain
+	if err := json.Unmarshal(data, &plain); err != nil {
+		return fmt.Errorf("node patch decode: %w", err)
+	}
+	*p = NodePatch(plain)
+	return nil
 }
 
 // OpUpdateNode 修改单个节点（draft/ready 状态）。
