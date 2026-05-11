@@ -11,6 +11,19 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
+// 下列包级 enum 切片是 schema 与 handler requireEnum 的单一真源。
+// 修改 schema 字面量时必须同步切片，反之亦然 —— 编译期通过类型 + 单测覆盖
+// 防止 drift。命名规约：<tool>_<field>_Enum。
+//
+// The slices below are the single source of truth shared by the schema
+// builder (EnumStringSchema) and the handler-layer requireEnum fallback.
+// Any change to one must update the other; tests cover the wiring.
+var (
+	listRunsStatusEnum   = []string{"running", "succeeded", "failed", "cancelled"}
+	startDAGTriggerEnum  = []string{"manual", "auto", "scheduled", "external"}
+	updateNodeStatusEnum = []string{"pending", "running", "done", "failed"}
+)
+
 type CreateDAGInput struct {
 	AgentID     string               `json:"agent_id"`
 	DagKey      string               `json:"dag_key"`
@@ -153,16 +166,39 @@ func HandleApplyOps(svc contract.OrchestrationService) ToolHandler {
 // fall through to the default translation.
 func HandleListRuns(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in ListRunsInput) (any, error) {
-		dagKey, err := requireTrimmed(in.DagKey, "dag_key")
+		req, err := listRunsRequestFromInput(in)
 		if err != nil {
 			return nil, err
 		}
-		return svc.ListRuns(ctx, contract.ListRunsRequest{
-			DagKey: dagKey,
-			Status: strings.TrimSpace(in.Status),
-			Limit:  in.Limit,
-		})
+		return svc.ListRuns(ctx, req)
 	})
+}
+
+// listRunsRequestFromInput 把 ListRunsInput 校验为 contract.ListRunsRequest。
+// status 可选：空串视为「不过滤」放行；非空必须命中 listRunsStatusEnum
+// （与 schema 单源 + DB CHECK 三层互锁）。
+//
+// listRunsRequestFromInput validates the ListRunsInput. status is optional:
+// empty means "no filter"; a non-empty value must hit listRunsStatusEnum
+// (single source shared with the schema; mirrored by the migration CHECK).
+func listRunsRequestFromInput(in ListRunsInput) (contract.ListRunsRequest, error) {
+	dagKey, err := requireTrimmed(in.DagKey, "dag_key")
+	if err != nil {
+		return contract.ListRunsRequest{}, err
+	}
+	status := strings.TrimSpace(in.Status)
+	if status != "" {
+		validated, err := requireEnum(status, "status", listRunsStatusEnum)
+		if err != nil {
+			return contract.ListRunsRequest{}, err
+		}
+		status = validated
+	}
+	return contract.ListRunsRequest{
+		DagKey: dagKey,
+		Status: status,
+		Limit:  in.Limit,
+	}, nil
 }
 
 // HandleStartDAG 是 task_start_dag MCP 工具的 handler（T1.1）。
@@ -182,20 +218,43 @@ func HandleListRuns(svc contract.OrchestrationService) ToolHandler {
 //   - ErrDAGNotFound → bilingual hint pointing the caller to task_create_dag.
 func HandleStartDAG(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in StartDAGInput) (any, error) {
-		dagKey, err := requireTrimmed(in.DagKey, "dag_key")
+		req, err := startDAGRequestFromInput(in)
 		if err != nil {
 			return nil, err
 		}
-		resp, err := svc.StartDAG(ctx, contract.StartDAGRequest{
-			DagKey:         dagKey,
-			TriggerSource:  strings.TrimSpace(in.TriggerSource),
-			IdempotencyKey: strings.TrimSpace(in.IdempotencyKey),
-		})
+		resp, err := svc.StartDAG(ctx, req)
 		if err != nil {
-			return nil, translateStartDAGError(dagKey, err)
+			return nil, translateStartDAGError(req.DagKey, err)
 		}
 		return resp, nil
 	})
+}
+
+// startDAGRequestFromInput 把 StartDAGInput 校验为 contract.StartDAGRequest。
+// trigger_source 可选：非空必须命中 startDAGTriggerEnum（schema 单源 +
+// migration 0082 CHECK 双闸）。
+//
+// startDAGRequestFromInput validates the StartDAGInput. trigger_source is
+// optional; a non-empty value must hit startDAGTriggerEnum (single source
+// shared with the schema; mirrored by migration 0082 CHECK).
+func startDAGRequestFromInput(in StartDAGInput) (contract.StartDAGRequest, error) {
+	dagKey, err := requireTrimmed(in.DagKey, "dag_key")
+	if err != nil {
+		return contract.StartDAGRequest{}, err
+	}
+	trigger := strings.TrimSpace(in.TriggerSource)
+	if trigger != "" {
+		validated, err := requireEnum(trigger, "trigger_source", startDAGTriggerEnum)
+		if err != nil {
+			return contract.StartDAGRequest{}, err
+		}
+		trigger = validated
+	}
+	return contract.StartDAGRequest{
+		DagKey:         dagKey,
+		TriggerSource:  trigger,
+		IdempotencyKey: strings.TrimSpace(in.IdempotencyKey),
+	}, nil
 }
 
 // HandleGetRun 是 task_get_run MCP 工具的 handler（T3.1）。
@@ -293,13 +352,13 @@ func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 		defineTool("task_update_node", "Update the runtime status for a DAG node.", ObjectSchema(map[string]Schema{
 			"dag_key":  StringSchema("DAG key."),
 			"node_key": StringSchema("Node key within the DAG."),
-			"status":   EnumStringSchema("New node status.", "pending", "running", "done", "failed"),
+			"status":   EnumStringSchema("New node status.", updateNodeStatusEnum...),
 			"result":   StringSchema("Optional result summary."),
 		}, "dag_key", "node_key", "status"), HandleUpdateNode(svc)),
 		// ---- lifecycle ----
 		defineTool("task_start_dag", "Trigger a new DAG execution (creates a run, snapshots dag.version). Skeleton stage returns ErrLifecycleNotImplemented; T1.2 wires the real path.", ObjectSchema(map[string]Schema{
 			"dag_key":         StringSchema("DAG to start."),
-			"trigger_source":  EnumStringSchema("Trigger source.", "manual", "auto", "scheduled", "external"),
+			"trigger_source":  EnumStringSchema("Trigger source.", startDAGTriggerEnum...),
 			"idempotency_key": StringSchema("Optional, prevents duplicate run on retry."),
 		}, "dag_key"), HandleStartDAG(svc)),
 		// ---- reads ----
@@ -311,7 +370,7 @@ func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 		}, "run_key"), HandleGetRun(svc)),
 		defineTool("task_list_runs", "List recent runs for a DAG (object response wraps the runs slice for forward-compatibility). Status enum mirrors migration 0080 task_dag_runs.status CHECK.", ObjectSchema(map[string]Schema{
 			"dag_key": StringSchema("DAG key to list runs for."),
-			"status":  EnumStringSchema("Optional status filter.", "running", "succeeded", "failed", "cancelled"),
+			"status":  EnumStringSchema("Optional status filter.", listRunsStatusEnum...),
 			"limit":   IntegerSchema("Optional max rows; defaults to 50 when 0/omitted."),
 		}, "dag_key"), HandleListRuns(svc)),
 	)
@@ -420,7 +479,11 @@ func updateNodeRequestFromInput(in UpdateNodeInput) (contract.UpdateNodeStatusRe
 	if err != nil {
 		return contract.UpdateNodeStatusRequest{}, err
 	}
-	status, err := requireTrimmed(in.Status, "status")
+	// status 必填 + 必须命中 schema enum；ValidateTransition (service 层) 仍会
+	// 进一步检查 from→to 的合法性。
+	// status is required and must hit the schema enum; ValidateTransition
+	// (service layer) still checks the from→to transition.
+	status, err := requireEnum(in.Status, "status", updateNodeStatusEnum)
 	if err != nil {
 		return contract.UpdateNodeStatusRequest{}, err
 	}

@@ -61,6 +61,18 @@ type agentArchiver interface {
 	ArchiveAgent(context.Context, string) error
 }
 
+// 下列包级 enum 切片是 schema 与 handler 层 requireEnum 的单一真源。
+// 修改 schema 字面量时必须同步切片，反之亦然。
+// memory_scope drift 暂不在本批改（见 docs/plans/dag改造实施计划.md §10
+// follow-up），保留 validateMemoryScope 独立路径。
+//
+// The slices below are the single source of truth shared by the schema
+// builder and the handler-layer requireEnum fallback. The memory_scope
+// drift follow-up is tracked separately (see plans §10).
+var (
+	launchAgentProviderEnum = []string{"codex", "claude"}
+)
+
 func HandleLaunchAgent(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in LaunchAgentInput) (map[string]any, error) {
 		req, err := launchRequestFromInput(in)
@@ -280,7 +292,7 @@ func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefin
 			"memory_scope": EnumStringSchema("Optional child-agent scope metadata for launches.", "project", "user", "local"),
 
 			"cwd":            StringSchema("Optional working directory for the launched agent."),
-			"provider":       EnumStringSchema("Provider for the launched agent. Defaults to codex when omitted.", "codex", "claude"),
+			"provider":       EnumStringSchema("Provider for the launched agent. Defaults to codex when omitted.", launchAgentProviderEnum...),
 			"model":          StringSchema("Optional model identifier for the launched agent (e.g. 'sonnet', 'opus', 'claude-opus-4-7[1m]'). When omitted, the provider falls back to its own default (for claude: ~/.claude/settings.json `model`)."),
 			"effort":         StringSchema("Optional reasoning effort for the launched agent (e.g. xhigh/high/medium/low for codex, max/high/medium/low for claude)."),
 			"language":       StringSchema("Optional language tag for the launched agent (e.g. 'zh', 'en'). Propagated to BuildCtx.Language for prompt match_when / section enable_when evaluation."),
@@ -356,16 +368,17 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 }
 
 func validateLaunchProvider(raw string) (string, error) {
-	p := strings.ToLower(strings.TrimSpace(raw))
-	if p == "" {
-		return "", nil // empty → downstream defaults to codex
+	// provider 可选；空串/纯空白 → 返空（下游默认 codex）。
+	// 非空时走 requireEnum 与 launchAgentProviderEnum 校验（单源驱动）。
+	//
+	// provider is optional; empty/whitespace returns empty so the downstream
+	// defaults to codex. Non-empty values are validated by requireEnum against
+	// launchAgentProviderEnum (single source of truth shared with the schema).
+	lower := strings.ToLower(strings.TrimSpace(raw))
+	if lower == "" {
+		return "", nil
 	}
-	switch p {
-	case "codex", "claude":
-		return p, nil
-	default:
-		return "", fmt.Errorf("invalid provider %q: must be codex or claude", raw)
-	}
+	return requireEnum(lower, "provider", launchAgentProviderEnum)
 }
 
 func validateMemoryScope(raw string) (string, error) {
