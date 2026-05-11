@@ -459,10 +459,15 @@ func collectSharedfileInputs(ctx context.Context, paths []string, reader SharedF
 		if path == "" {
 			continue
 		}
-		content, err := reader.ReadSharedFile(ctx, path)
+		content, exists, err := reader.ReadSharedFile(ctx, path)
 		if err != nil {
 			outcome := failedAutomationOutcome(classifyAutomationError(err),
 				fmt.Sprintf("inputs.from_sharedfiles[%q]: %v", path, err))
+			return nil, &outcome
+		}
+		if !exists {
+			outcome := failedAutomationOutcome(FailureClassValidation,
+				fmt.Sprintf("inputs.from_sharedfiles references unknown path %q", path))
 			return nil, &outcome
 		}
 		out[path] = content
