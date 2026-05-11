@@ -130,6 +130,12 @@ type RunContext struct {
 
 // SharedFileReader 是 RunContext.SharedFileReader 的最小接口面。
 // 生产实现可由 store/sharedfile.Store 的 Get 适配；测试注入 stub 断言入参。
+//
+// TODO(F1.3 follow-up): 与 executor_agent.go 的 SharedfileReader（小写 f、签名
+// 返 (string, bool, error) 用于三态判存在性）统一。两份接口源于 F1.2/F2.2 并
+// 行开发：W1（AgentExecutor）走构造器参数 + 三态返值，W2（AutomationExecutor）
+// 走 RunContext 字段 + 二态返值。F1.3 闭环时收敛为单一端口（建议方向：
+// RunContext 字段化 + 三态返值），同时移除 NewAgentExecutorWithInputs 的双端口参数。
 type SharedFileReader interface {
 	ReadSharedFile(ctx context.Context, path string) (string, error)
 }
