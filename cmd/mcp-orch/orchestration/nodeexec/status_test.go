@@ -21,10 +21,11 @@ func TestValidateTransition_AllLegal(t *testing.T) {
 		{NodeStatusRunning, NodeStatusWaitingHuman, "on_failure=ask_human"},
 		{NodeStatusRetrying, NodeStatusReady, "backoff over"},
 		{NodeStatusRetrying, NodeStatusFailed, "give up"},
+		{NodeStatusRetrying, NodeStatusCancelled, "upstream fail_fast while retrying"},
 		{NodeStatusWaitingHuman, NodeStatusReady, "approved"},
 		{NodeStatusWaitingHuman, NodeStatusFailed, "rejected"},
 	}
-	if got, want := len(legal), 13; got != want {
+	if got, want := len(legal), 14; got != want {
 		t.Fatalf("legal transitions in test = %d, want %d (与 legalTransitions map 同步)", got, want)
 	}
 	for _, tc := range legal {
@@ -109,5 +110,22 @@ func TestTerminalsHaveNoOutgoing(t *testing.T) {
 		if IsTerminal(tr.From) {
 			t.Errorf("terminal status %q has outgoing transition to %q (违反终态封闭原则)", tr.From, tr.To)
 		}
+	}
+}
+
+// TestRetryingCanTransitionToCancelled 针对新增的 retrying → cancelled 合法
+// 转移单独守护（防未来误删）。场景：上游节点 fail_fast 级联取消
+// 且当前节点正在退避。以前该转移不合法，只能强转 failed，导致
+// 该节点被误认为“自身失败”。
+// English: dedicated guard for the newly legal retrying → cancelled
+// transition. Scenario: upstream fail_fast cascades while this node is in
+// backoff; previously the only path was a forced → failed, mislabelling a
+// node that never had a chance to retry.
+func TestRetryingCanTransitionToCancelled(t *testing.T) {
+	if err := ValidateTransition(NodeStatusRetrying, NodeStatusCancelled); err != nil {
+		t.Fatalf("retrying → cancelled should be legal, got: %v", err)
+	}
+	if _, ok := legalTransitions[transition{NodeStatusRetrying, NodeStatusCancelled}]; !ok {
+		t.Fatal("legalTransitions 缺少 retrying → cancelled 条目")
 	}
 }
