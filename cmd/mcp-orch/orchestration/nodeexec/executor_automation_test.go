@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -188,15 +189,17 @@ type stubAutomationSharedFileReader struct {
 	calls   []string
 }
 
-func (s *stubAutomationSharedFileReader) ReadSharedFile(_ context.Context, path string) (string, error) {
+// 端口收敛 batch 后 SharedFileReader 统一为 (content, exists, err) 三态。
+// 本测试 stub 用 ok 表达 exists；not-found 不再走 err 路径，避免与基础设施 err 混淆。
+func (s *stubAutomationSharedFileReader) ReadSharedFile(_ context.Context, path string) (string, bool, error) {
 	s.calls = append(s.calls, path)
 	if s.err != nil {
-		return "", s.err
+		return "", false, s.err
 	}
 	if v, ok := s.content[path]; ok {
-		return v, nil
+		return v, true, nil
 	}
-	return "", errors.New("not found: " + path)
+	return "", false, nil
 }
 
 type stubAutomationSharedFileWriter struct {
@@ -253,17 +256,17 @@ func TestAutomationExecutor_Inputs_InjectsFromNodes(t *testing.T) {
 	if merged["target"] != "prod" {
 		t.Fatalf("original arg target lost: %#v", merged)
 	}
-	inputs, ok := merged["inputs"].(map[string]any)
+	inputs, ok := merged["__inputs"].(map[string]any)
 	if !ok {
-		t.Fatalf("inputs subobject missing: %#v", merged)
+		t.Fatalf("__inputs subobject missing: %#v", merged)
 	}
 	fromNodes, ok := inputs["from_nodes"].(map[string]any)
 	if !ok {
-		t.Fatalf("inputs.from_nodes missing: %#v", inputs)
+		t.Fatalf("__inputs.from_nodes missing: %#v", inputs)
 	}
 	plan, ok := fromNodes["plan"].(map[string]any)
 	if !ok {
-		t.Fatalf("inputs.from_nodes.plan not an object: %#v", fromNodes["plan"])
+		t.Fatalf("__inputs.from_nodes.plan not an object: %#v", fromNodes["plan"])
 	}
 	if plan["summary"] != "build prod" {
 		t.Fatalf("plan.summary = %v, want 'build prod'", plan["summary"])
@@ -306,7 +309,7 @@ func TestAutomationExecutor_Inputs_ReservedKeyConflict_Validation(t *testing.T) 
 	node := makeAutomationNode(t, AutomationNodeConfig{
 		Exec: AutomationExecConfig{
 			CommandRef: "k",
-			Args:       json.RawMessage(`{"inputs":"already-there"}`),
+			Args:       json.RawMessage(`{"__inputs":"already-there"}`),
 		},
 		Inputs: InputsConfig{FromNodes: []string{"a"}},
 	})
@@ -472,29 +475,32 @@ func TestAutomationExecutor_Outputs_SharedfileWriteFails_Validation(t *testing.T
 	}
 }
 
-// TestAutomationExecutor_Outputs_RejectsAgentPromptField 表驱动覆盖
-// automationOutputsForbiddenKeys 中全部 6 个 key（R2 P0 gap）。以前只测
-// `prompt` 一个，但 forbidden 列表里 6 个都该拒。任何 key 被静默透过
-// 都意味着 ADR-011 边界被破。
-func TestAutomationExecutor_Outputs_RejectsAgentPromptField(t *testing.T) {
-	t.Parallel()
-	// 与 source 一致：prompt / first_turn / agent_prompt / agent_key /
-	// append_error / system_prompt。增删斶与 source 同步。
-	keys := []string{"prompt", "first_turn", "agent_prompt", "agent_key", "append_error", "system_prompt"}
-	if len(keys) != len(automationOutputsForbiddenKeys) {
-		t.Fatalf("test list (%d) drifted from source automationOutputsForbiddenKeys (%d); update both",
-			len(keys), len(automationOutputsForbiddenKeys))
+// TestAutomationExecutor_Outputs_RejectsAllBannedKeys 表驱动覆盖全 11 个 banned key。
+//
+// R1 P1 #3 + R2 P0 gap：原测试只覆盖了 "prompt" 一个；扩展为 prompt-injection 5 +
+// agent-routing 6 = 11 个，确保任何路由字段从 automation outputs 注入下游 agent 节点
+// 都被 validation 拦截，不至于让 automation 隐式驱动下游 agent 路由 / 升级 model。
+func TestAutomationExecutor_Outputs_RejectsAllBannedKeys(t *testing.T) {
+	// keep in sync with executor_automation.go::automationOutputsForbiddenKeys
+	bannedKeys := []string{
+		// prompt-injection family
+		"prompt", "first_turn", "agent_prompt", "system_prompt", "append_error",
+		// agent-routing family
+		"agent_key", "model", "provider", "language", "tool_choice", "tools",
 	}
-	for _, key := range keys {
-		key := key
-		t.Run("key="+key, func(t *testing.T) {
-			t.Parallel()
+	if len(bannedKeys) != 11 {
+		t.Fatalf("test table out of sync; want 11 banned keys, got %d", len(bannedKeys))
+	}
+
+	for _, key := range bannedKeys {
+		t.Run(key, func(t *testing.T) {
 			getter := &stubAutomationGetter{}
 			runner := &captureRunner{}
 			exec := NewAutomationExecutor(getter, runner)
-			// 原始 json 里推一个 forbidden key。值不紧，能进 json object 即可。
-			cfg := `{"exec":{"kind":"command_card","command_ref":"k"},"outputs":{"` +
-				key + `":"poison"}}`
+			cfg := fmt.Sprintf(`{
+				"exec":{"kind":"command_card","command_ref":"k"},
+				"outputs":{%q:"x"}
+			}`, key)
 			node := Node{NodeType: "automation", Config: json.RawMessage(cfg)}
 
 			out, err := exec.Execute(context.Background(), node, RunContext{})
@@ -502,16 +508,13 @@ func TestAutomationExecutor_Outputs_RejectsAgentPromptField(t *testing.T) {
 				t.Fatalf("Execute() framework error = %v", err)
 			}
 			if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
-				t.Fatalf("key=%s: got status=%q class=%q, want failed/validation", key, out.Status, out.FailureClass)
-			}
-			if !strings.Contains(out.ErrorSummary, "agent-prompt field") {
-				t.Fatalf("key=%s: ErrorSummary = %q, want agent-prompt field", key, out.ErrorSummary)
+				t.Fatalf("banned key %q not rejected; got status=%q class=%q", key, out.Status, out.FailureClass)
 			}
 			if !strings.Contains(out.ErrorSummary, key) {
-				t.Fatalf("key=%s: ErrorSummary = %q, should name the field", key, out.ErrorSummary)
+				t.Fatalf("ErrorSummary should mention offending key %q; got %q", key, out.ErrorSummary)
 			}
 			if getter.called != 0 || runner.lastArgs != nil {
-				t.Fatalf("key=%s: getter/runner should not be reached on outputs-validation failure; getter=%d runnerArgs=%s", key, getter.called, runner.lastArgs)
+				t.Fatalf("getter/runner should not be reached for banned key %q", key)
 			}
 		})
 	}
@@ -541,8 +544,8 @@ func TestAutomationExecutor_EmptyInputsOutputs_KeepsF21Behaviour(t *testing.T) {
 	if err := json.Unmarshal(runner.lastArgs, &got); err != nil {
 		t.Fatalf("unmarshal lastArgs: %v", err)
 	}
-	if _, hasInputs := got["inputs"]; hasInputs {
-		t.Fatalf("lastArgs should not contain injected inputs key on empty Inputs config: %#v", got)
+	if _, hasInputs := got["__inputs"]; hasInputs {
+		t.Fatalf("lastArgs should not contain injected __inputs key on empty Inputs config: %#v", got)
 	}
 }
 
@@ -566,5 +569,99 @@ func TestClassifyAutomationError(t *testing.T) {
 				t.Fatalf("classifyAutomationError(%v) = %q, want %q", tc.err, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestEnforceNodeResultSizeCap_Boundary 边界测试：4096 byte 通过、4097 byte 拒绝。
+// ADR-006 决策点：等于 cap 算 OK，超过即 validation 失败。
+func TestEnforceNodeResultSizeCap_Boundary(t *testing.T) {
+	if NodeResultSizeCapBytes != 4096 {
+		t.Fatalf("ADR-006 cap drift; NodeResultSizeCapBytes = %d, want 4096", NodeResultSizeCapBytes)
+	}
+	// exactly 4096 bytes → OK
+	if out := enforceNodeResultSizeCap(make([]byte, 4096)); out != nil {
+		t.Fatalf("4096-byte payload must pass; got outcome=%+v", out)
+	}
+	// 4097 bytes → reject
+	out := enforceNodeResultSizeCap(make([]byte, 4097))
+	if out == nil {
+		t.Fatalf("4097-byte payload must be rejected; got nil")
+	}
+	if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
+		t.Fatalf("got status=%q class=%q, want failed/validation", out.Status, out.FailureClass)
+	}
+	if !strings.Contains(out.ErrorSummary, "outputs.to_sharedfile") {
+		t.Fatalf("ErrorSummary must hint outputs.to_sharedfile fix; got %q", out.ErrorSummary)
+	}
+}
+
+// TestEnforceNodeResultSizeCap_FivekBytes 5000 byte 拒绝（典型超阈案例）。
+func TestEnforceNodeResultSizeCap_FivekBytes(t *testing.T) {
+	out := enforceNodeResultSizeCap(make([]byte, 5000))
+	if out == nil {
+		t.Fatalf("5000-byte payload must be rejected; got nil")
+	}
+	if out.FailureClass != FailureClassValidation {
+		t.Fatalf("FailureClass = %q, want validation", out.FailureClass)
+	}
+	if !strings.Contains(out.ErrorSummary, "5000") || !strings.Contains(out.ErrorSummary, "4096") {
+		t.Fatalf("ErrorSummary should report both actual and cap; got %q", out.ErrorSummary)
+	}
+}
+
+// TestAutomationExecutor_Outputs_OversizeResultRejected 端到端：runner 返回的 stdout
+// marshal 后超 4KB → finalizeAutomationOutcome 拒绝，不写 NodeOutcome.Result。
+func TestAutomationExecutor_Outputs_OversizeResultRejected(t *testing.T) {
+	// Stdout 撑爆 4KB；marshal 后整个 AutomationCommandResult JSON 也大于 4KB。
+	bigStdout := strings.Repeat("x", 5000)
+	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
+	runner := &captureRunner{result: AutomationCommandResult{CardKey: "k", Stdout: bigStdout}}
+	exec := NewAutomationExecutor(getter, runner)
+	node := makeAutomationNode(t, AutomationNodeConfig{
+		Exec:    AutomationExecConfig{CommandRef: "k"},
+		Outputs: OutputsConfig{ToNodeResult: true},
+	})
+
+	out, err := exec.Execute(context.Background(), node, RunContext{})
+	if err != nil {
+		t.Fatalf("Execute() framework error = %v", err)
+	}
+	if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
+		t.Fatalf("got status=%q class=%q, want failed/validation", out.Status, out.FailureClass)
+	}
+	if !strings.Contains(out.ErrorSummary, "ADR-006") {
+		t.Fatalf("ErrorSummary should cite ADR-006; got %q", out.ErrorSummary)
+	}
+	if out.Result != nil {
+		t.Fatalf("Result must NOT be set when size cap rejection fires; got %d bytes", len(out.Result))
+	}
+}
+
+// TestAutomationExecutor_Outputs_OversizeViaSharedfile_OK 验证 sharedfile 旁路：
+// stdout > 4KB 但 to_node_result=false + to_sharedfile=path → 不走 node.result 路径
+// → 不触发 size cap rejection。这是 ADR-006 给运营者的「修复路径」。
+func TestAutomationExecutor_Outputs_OversizeViaSharedfile_OK(t *testing.T) {
+	bigStdout := strings.Repeat("y", 5000)
+	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
+	runner := &captureRunner{result: AutomationCommandResult{CardKey: "k", Stdout: bigStdout}}
+	writer := &stubAutomationSharedFileWriter{}
+	exec := NewAutomationExecutor(getter, runner)
+	node := makeAutomationNode(t, AutomationNodeConfig{
+		Exec:    AutomationExecConfig{CommandRef: "k"},
+		Outputs: OutputsConfig{ToSharedfile: &SharedfileTarget{Path: "reports/big.log"}},
+	})
+
+	out, err := exec.Execute(context.Background(), node, RunContext{SharedFileWriter: writer})
+	if err != nil {
+		t.Fatalf("Execute() framework error = %v", err)
+	}
+	if out.Status != NodeStatusDone {
+		t.Fatalf("Status = %q, want done; ErrorSummary=%q", out.Status, out.ErrorSummary)
+	}
+	if len(writer.writes) != 1 || writer.writes[0].Content != bigStdout {
+		t.Fatalf("writer should hold the big stdout; writes=%#v", writer.writes)
+	}
+	if out.Result != nil {
+		t.Fatalf("Result should be nil when only sharedfile is configured")
 	}
 }

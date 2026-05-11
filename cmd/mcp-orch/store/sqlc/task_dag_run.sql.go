@@ -254,7 +254,15 @@ func (q *Queries) FinalizeTaskDagRunIfAllNodesTerminal(ctx context.Context, dagK
 
 const appendTaskDagRunEvent = `-- name: AppendTaskDagRunEvent :one
 UPDATE task_dag_runs
-SET events     = events || jsonb_build_array($2::jsonb),
+SET events     = CASE
+        WHEN jsonb_array_length(events || jsonb_build_array($2::jsonb)) <= 50
+            THEN events || jsonb_build_array($2::jsonb)
+        ELSE COALESCE((
+            SELECT jsonb_agg(elem ORDER BY ord)
+            FROM jsonb_array_elements(events || jsonb_build_array($2::jsonb)) WITH ORDINALITY AS t(elem, ord)
+            WHERE ord > jsonb_array_length(events || jsonb_build_array($2::jsonb)) - 50
+        ), '[]'::jsonb)
+    END,
     updated_at = NOW()
 WHERE dag_key = $1 AND status = 'running'
 RETURNING run_key

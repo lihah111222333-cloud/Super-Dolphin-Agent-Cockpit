@@ -14,6 +14,7 @@
 - [ADR-002：V3 固化 dependency-aware cache 三分法（放弃 Claude name-only）](./ADR-002-dependency-aware-cache.md)
 - [ADR-003：MCP 工具 input enum 校验落 handler 层（A+ 方案）](./ADR-003-mcp-input-enum-validation.md)
 - [ADR-004：F6.4 dispatcher 对无 assignee 节点跳过自动 wakeup（方案 A）](./ADR-004-f6.4-dispatcher-no-assignee.md)
+- [ADR-006：outputs.to_node_result 超 size_cap 的处理策略（方案 A：4KB validation + 建议 to_sharedfile，2026-05-12 端口收敛 batch 升 Accepted）](./ADR-006-to-node-result-size-cap.md)
 - [ADR-007：automation.kind 多 kind 渐进开通策略（方案 A：command_card → webhook → http → shell）](./ADR-007-automation-kind-progressive.md)
 - [ADR-008：FailureClass 七类的映射规则全集](./ADR-008-failureclass-mapping.md) — 2026-05-12 升 Accepted（代码引用 ≥5 处 + 行为稳定数轮）
 - [ADR-009：DAG node ↔ child thread 双向追溯（spawning_thread_id）](./ADR-009-thread-dag-traceability.md) — 2026-05-12 升 Accepted（F1.5 落地 + DTO 透出 + archtest 守护）
@@ -23,7 +24,6 @@
 ### Proposed（DAG 改造修补单 §7 占位 + 返修轮新立，待拍板）
 
 - [ADR-005：F4.5 与 F6.5 联动 —— 多 run 并发后 running 受限的判定主体](./ADR-005-f4.5-f6.5-running-semantics.md)
-- [ADR-006：outputs.to_node_result 超 size_cap 的处理策略](./ADR-006-to-node-result-size-cap.md)
 - [ADR-010：DAG 上下文与 token budget 兜底阈值](./ADR-010-dag-context-token-budget.md)
 - [ADR-011 v2 部分（F3.2/F3.3/F3.4）](./ADR-011-hybrid-executor-topology.md#) — 占位，拍板后拆分为 ADR-011a/b/c
 

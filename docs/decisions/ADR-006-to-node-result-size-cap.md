@@ -1,10 +1,10 @@
 # ADR-006：outputs.to_node_result 超 size_cap 的处理策略
 
-> ⚠️ **历史快照**：本 ADR 2026-05-11 写于 F1.3 未开工时；F1.3 仍未做，`to_node_result` 仍是 `bool` 未升对象，本文保留；当前详细 follow-up 见 `docs/plans/dag改造现状与补丁v2.md` §4.3。
+> ⚠️ **历史快照**：本 ADR 2026-05-11 写于 F1.3 未开工时；2026-05-12 端口收敛 batch 在 AutomationExecutor.finalizeAutomationOutcome 路径上实装 4KB enforce 并升 Accepted，`to_node_result` 维持 `bool` 字段位向后兼容（不升对象），cap 由代码常量 `NodeResultSizeCapBytes` 统一管理。
 >
-> 状态：⏸ Deferred to F1.3 wiring 闭环 | 日期：2026-05-11（Proposed）→ 2026-05-12（Deferred） | 决策者：项目维护者
+> 状态：✅ Accepted | 日期：2026-05-12（升 Accepted）/ 2026-05-11（首立 Proposed） | 决策者：DAG 改造端口收敛 batch | 相关：`docs/plans/dag改造蓝图v2.md` §5 关键决策汇总 line 74 / §7 typed schema、`docs/plans/dag改造修补.md` §4a、`docs/adr/0001-dag-v2-contracts.md`（typed schema 锁死契约）
 >
-> 推迟说明（2026-05-12 决议）：W2 worker 本轮未完成 `outputs.to_node_result` 升对象 + `size_cap_bytes` 字段位 enforce —— `nodeexec/config.go:47` 仍 `ToNodeResult bool`、`nodeexec/executor_agent.go:236` 仍 F1.3 留位。本 ADR 内三方案（A validation failure / B truncate+warn / C split-to-sharedfile）继续作设计输入；真正拍板与代码侧 enforce 同步落地在 F1.3 wiring 闭环（届时 ADR 状态再升 Accepted 或重写）。 | 相关：`docs/plans/dag改造蓝图v2.md` §5 关键决策汇总 line 74 / §7 typed schema、`docs/plans/dag改造修补.md` §4a、`docs/adr/0001-dag-v2-contracts.md`（typed schema 锁死契约）
+> 状态修正说明（2026-05-12 round-3 reviewer 决议）：W5 worker 在并行 worktree 内基于 "W2 未实装" 误判把状态降回 Deferred；同步 W2 worker 已落 4KB enforce + Accepted 升级（commit 6d2b6576）。round-3 合并按 W2 实际代码状态保留 Accepted，覆盖 W5 的 Deferred 改动。
 
 ## 1. 背景
 
@@ -64,5 +64,48 @@
 
 ## 5. 决策
 
-⛔ 待定。F1.3 开工前由主线拍板。
+✅ **方案 A（validation failure）+ 主路径建议 to_sharedfile**。2026-05-12 端口收敛 batch 实装。
+
+### 5.1 实装位置
+
+- 常量：`cmd/mcp-orch/orchestration/nodeexec/executor_automation.go::NodeResultSizeCapBytes = 4096`；
+- 守卫函数：`enforceNodeResultSizeCap(payload []byte) *NodeOutcome`——返回非 nil 即拦截；
+- 触发点：`finalizeAutomationOutcome`，在 `shouldEmitNodeResult` 已判定要写 `node.result` 之后、`outcome.Result = payload` 之前；
+- 行为：`len(payload) > 4096` → `NodeOutcome{Status: failed, FailureClass: validation, ErrorSummary: "result exceeds 4KB size cap (N > 4096 bytes), configure outputs.to_sharedfile (ADR-006)"}`；
+- 边界：`len(payload) <= 4096` 视为 OK（蓝图 §5 的「< 4KB 摘要」严格读是「不超」即 `<=`，便于运营者按 4KB 整数边界设计 payload）。
+
+### 5.2 维持字段位为 bool 而非升对象
+
+修补单 §4a 曾建议升级为 `{"enabled": true, "size_cap_bytes": 4096}` 对象形态。本 batch 决定**暂不升对象**：
+
+- 阈值由代码常量统一，不需要 schema 字段位；
+- 现网 / 测试 DAG 中已有的 `"to_node_result": true` 配置无需迁移；
+- 待真实运营需求出现"按节点定制 cap"时再升对象，等价于「字段位先开、cap 个性化拍板后再升」（同 ADR-007 §4 渐进策略）。
+
+### 5.3 与 ADR-008 / FailureClass 映射的协同
+
+`size cap 超阈` 归类为 `validation`，原因：
+
+- AI 节点（agent）见到 validation 失败可在 retry prompt 上读到「ErrorSummary 报超阈」，自行调整成生成摘要；
+- automation 节点见到 validation 失败也是合理的——它的命令卡输出形状失配 outputs 约定，应在 command_card 端修，而非 retry；
+- 与方案 A 原本"AI 能反馈调整"的论证一致。
+
+### 5.4 未走方案 B/C 的原因
+
+- 方案 B（自动转 sharedfile）：需要在 schema 加 `to_sharedfile_on_overflow.path` 字段位，心智重；当前 `outputs.to_sharedfile` 已是显式 sharedfile 主路径，运营者应直接走 explicit；
+- 方案 C（按节点类型分发）：行为多态，AI 设计师 / 用户在设计节点时需要为不同 node_type 记两种 outputs 行为，违反"DAG 是统一抽象"。
+
+## 6. Open Questions 落定
+
+- Q1 `size_cap_bytes` 默认值是否要 schema bound？→ 不入 schema，由代码常量管理；不再需要 bound 校验。
+- Q2 fallback vs 主路径 sharedfile 同字段复用？→ 不复用，方案 A 不需要 fallback。
+- Q3 PG jsonb toast 性能？→ 4KB 远低于 256KB toast 门槛，无 PG 层影响；ADR 仍提示运营者大输出走 sharedfile。
+- Q4 智能重试 by_class[validation] 注入诊断？→ ErrorSummary 已含 「N > 4096」具体数字，retry prompt 可直接读。
+
+## 7. 单测覆盖
+
+- `TestEnforceNodeResultSizeCap_Boundary`：4096 byte 通过、4097 byte 拒绝、错误消息含 outputs.to_sharedfile 提示；
+- `TestEnforceNodeResultSizeCap_FivekBytes`：5000 byte 拒绝、消息含具体数字；
+- `TestAutomationExecutor_Outputs_OversizeResultRejected`：端到端 5000 byte stdout + to_node_result=true → validation 拒绝，Result 未写；
+- `TestAutomationExecutor_Outputs_OversizeViaSharedfile_OK`：大输出 + to_sharedfile（不勾 to_node_result）→ 走 sharedfile 主路径，不触发 cap rejection（ADR-006 主推修复路径）。
 

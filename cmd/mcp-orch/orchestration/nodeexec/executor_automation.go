@@ -150,9 +150,48 @@ func finalizeAutomationOutcome(ctx context.Context, cfg *AutomationNodeConfig, r
 	}
 	outcome := NodeOutcome{Status: NodeStatusDone}
 	if shouldEmitNodeResult(cfg.Outputs) {
+		if failure := enforceNodeResultSizeCap(payload); failure != nil {
+			return *failure, nil
+		}
 		outcome.Result = payload
 	}
 	return outcome, nil
+}
+
+// NodeResultSizeCapBytes 是 outputs.to_node_result 路径下 NodeOutcome.Result 的硬上限。
+// ADR-006 决策（Accepted 2026-05-12）：4KB 摘要阈值，超出 → validation 失败，提示配置
+// outputs.to_sharedfile。大输出走 sharedfile 是 ADR 主路径，避免 task_dag_nodes.result
+// jsonb 列膨胀拖垮 PG 查询 / UI 列表渲染。
+//
+// 4KB = 4096 bytes 含义来自蓝图 v2 §5 关键决策汇总 "result vs sharedfile 边界" 行；
+// 选 4KB 的依据见 ADR-006 §1：下游 LLM context 阈值的经验拍 + PG jsonb toast 256KB 的
+// 1/64 中位拍，足够装下结构化摘要（~ <2KB JSON）+ 留余量。
+//
+// NodeResultSizeCapBytes is the hard cap enforced on NodeOutcome.Result before writing to
+// task_dag_nodes.result. ADR-006 (Accepted 2026-05-12) chose 4096 bytes as the validation
+// threshold; oversize payloads must route through outputs.to_sharedfile.
+const NodeResultSizeCapBytes = 4096
+
+// enforceNodeResultSizeCap 在 NodeOutcome.Result 落库前测 size，超阈返回 validation
+// 失败 outcome；不超返 nil。F1.3 实装 ADR-006 决策。
+//
+// 边界：len(payload) <= 4096 OK；> 4096 拒绝。错误消息显式建议「configure
+// outputs.to_sharedfile」让运营者知道修复路径。
+//
+// enforceNodeResultSizeCap returns a *NodeOutcome iff payload exceeds
+// NodeResultSizeCapBytes; nil means within cap. ADR-006 main path.
+func enforceNodeResultSizeCap(payload []byte) *NodeOutcome {
+	if len(payload) <= NodeResultSizeCapBytes {
+		return nil
+	}
+	outcome := failedAutomationOutcome(
+		FailureClassValidation,
+		fmt.Sprintf(
+			"result exceeds 4KB size cap (%d > %d bytes), configure outputs.to_sharedfile (ADR-006)",
+			len(payload), NodeResultSizeCapBytes,
+		),
+	)
+	return &outcome
 }
 
 // shouldEmitNodeResult 判定是否在 NodeOutcome.Result 写入 marshal 后的命令结果。
@@ -309,15 +348,27 @@ func renderCommandTemplate(commandTemplate string, args json.RawMessage) (string
 }
 
 // automationOutputsForbiddenKeys 是 automation 节点 outputs 中不得出现的「agent prompt
-// 注入」语义字段名。automation 节点只负责命令卡执行 + 输出落地，不得为下游 agent
-// 拼 prompt，避免跨节点路径被“转变”为隐式 agent 调用（F1.3 / ADR-011 边界）。
+// 注入 / agent 路由」语义字段名。automation 节点只负责命令卡执行 + 输出落地，
+// 不得为下游 agent 拼 prompt 或路由 agent 实例，避免跨节点路径被「转变」为
+// 隐式 agent 调用 / 隐式模型升级（F1.3 / ADR-011 边界）。
+//
+// 字段集来源（R1 P1 #3 扩展）：
+//   - prompt 系：prompt / first_turn / agent_prompt / system_prompt / append_error
+//     —— 直接注入 prompt 文本会让 automation outputs 隐式驱动下游 agent；
+//   - 路由系：agent_key / model / provider / language / tool_choice / tools
+//     —— automation 节点 outputs 不得替下游 agent 决定模型 / provider / 工具白
+//     名单等路由字段；路由必须由该 agent 节点的 config.exec 显式声明。
 //
 // automationOutputsForbiddenKeys lists field names whose presence in an automation
-// node's outputs config indicates an attempt to inject agent-style prompts; per
-// the F1.3 / ADR-011 boundary, those flows belong to hybrid (agent→automation),
-// not automation outputs, so the executor must reject them at validation time.
+// node's outputs config indicates an attempt to inject agent-style prompts or
+// silently reroute downstream agent dispatch; per the F1.3 / ADR-011 boundary,
+// those flows belong to hybrid (agent→automation), not automation outputs, so
+// the executor must reject them at validation time.
 var automationOutputsForbiddenKeys = []string{
-	"prompt", "first_turn", "agent_prompt", "agent_key", "append_error", "system_prompt",
+	// prompt-injection family
+	"prompt", "first_turn", "agent_prompt", "system_prompt", "append_error",
+	// agent-routing family
+	"agent_key", "model", "provider", "language", "tool_choice", "tools",
 }
 
 // validateAutomationOutputs 验证 outputs 配置未含 agent prompt 注入字段。
@@ -341,19 +392,23 @@ func validateAutomationOutputs(raw json.RawMessage, _ *AutomationNodeConfig) *No
 	for _, key := range automationOutputsForbiddenKeys {
 		if _, ok := fields[key]; ok {
 			outcome := failedAutomationOutcome(FailureClassValidation,
-				fmt.Sprintf("automation outputs cannot include agent-prompt field %q", key))
+				fmt.Sprintf("automation outputs cannot include agent-prompt or agent-routing field %q", key))
 			return &outcome
 		}
 	}
 	return nil
 }
 
-// buildAutomationRunArgs 把 cfg.Inputs 指定的 prev_results / sharedfiles 合并到 args.inputs 子对象。
+// buildAutomationRunArgs 把 cfg.Inputs 指定的 prev_results / sharedfiles 合并到 args.__inputs 子对象。
 // 返回的 json.RawMessage 用于 RunCommandCard；原 cfg.Exec.Args 不被修改。
+//
+// 收敛 batch 第 6 项（R1 P2 #4）：reserved key 从 "inputs" 改为 "__inputs"（双下划线
+// 前缀），避免与普通 command_card args 用户自定义的 "inputs" 字段冲突。command_template
+// 渲染路径用 `{{.__inputs.from_nodes.X}}` 访问。
 //
 // 合并规则：
 //   - inputs.FromNodes / FromSharedfiles 都空 → 返回原 args，F2.1 happy 路径不变；
-//   - args 本身已包含 "inputs" key → validation（避免隐式覆盖）；
+//   - args 本身已包含 "__inputs" key → validation（避免隐式覆盖）；
 //   - FromNodes 里的 node_key 在 PrevResults 中不存在 → validation；
 //   - FromSharedfiles 非空 但 SharedFileReader == nil → validation；读失败走 classify 分类。
 func buildAutomationRunArgs(ctx context.Context, cfg *AutomationNodeConfig, runCtx RunContext) (json.RawMessage, *NodeOutcome) {
@@ -369,7 +424,7 @@ func buildAutomationRunArgs(ctx context.Context, cfg *AutomationNodeConfig, runC
 	if failure != nil {
 		return nil, failure
 	}
-	argsMap["inputs"] = injected
+	argsMap["__inputs"] = injected
 	merged, err := json.Marshal(argsMap)
 	if err != nil {
 		outcome := failedAutomationOutcome(FailureClassValidation, "marshal merged command args: "+err.Error())
@@ -378,7 +433,7 @@ func buildAutomationRunArgs(ctx context.Context, cfg *AutomationNodeConfig, runC
 	return merged, nil
 }
 
-// decodeArgsForInjection 把 cfg.Exec.Args 解码为 map，同时拒绝占用 reserved “inputs” key 的原始 args。
+// decodeArgsForInjection 把 cfg.Exec.Args 解码为 map，同时拒绝占用 reserved "__inputs" key 的原始 args。
 // 该 helper 拆出是为了压住 buildAutomationRunArgs 的圏复杂度（代码守卫阈 CC ≤ 10）。
 func decodeArgsForInjection(raw json.RawMessage) (map[string]any, *NodeOutcome) {
 	argsMap := map[string]any{}
@@ -388,15 +443,15 @@ func decodeArgsForInjection(raw json.RawMessage) (map[string]any, *NodeOutcome) 
 			return nil, &outcome
 		}
 	}
-	if _, conflict := argsMap["inputs"]; conflict {
+	if _, conflict := argsMap["__inputs"]; conflict {
 		outcome := failedAutomationOutcome(FailureClassValidation,
-			"command args already define reserved key \"inputs\"; remove it before injecting Inputs config")
+			"command args already define reserved key \"__inputs\"; remove it before injecting Inputs config")
 		return nil, &outcome
 	}
 	return argsMap, nil
 }
 
-// buildInputsPayload 面向 cfg.Inputs 生成最终注入 args.inputs 子对象的 map；nil failure 表示成功。
+// buildInputsPayload 面向 cfg.Inputs 生成最终注入 args.__inputs 子对象的 map；nil failure 表示成功。
 func buildInputsPayload(ctx context.Context, in InputsConfig, runCtx RunContext) (map[string]any, *NodeOutcome) {
 	injected := map[string]any{}
 	fromNodes, failure := collectPrevResults(in.FromNodes, runCtx.PrevResults)
@@ -459,10 +514,15 @@ func collectSharedfileInputs(ctx context.Context, paths []string, reader SharedF
 		if path == "" {
 			continue
 		}
-		content, err := reader.ReadSharedFile(ctx, path)
+		content, exists, err := reader.ReadSharedFile(ctx, path)
 		if err != nil {
 			outcome := failedAutomationOutcome(classifyAutomationError(err),
 				fmt.Sprintf("inputs.from_sharedfiles[%q]: %v", path, err))
+			return nil, &outcome
+		}
+		if !exists {
+			outcome := failedAutomationOutcome(FailureClassValidation,
+				fmt.Sprintf("inputs.from_sharedfiles references unknown path %q", path))
 			return nil, &outcome
 		}
 		out[path] = content

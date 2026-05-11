@@ -62,7 +62,7 @@ func makeAgentNode(t *testing.T, cfg AgentNodeConfig) Node {
 func TestAgentExecutor_Execute_HappyPath(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{}
-	exec := NewAgentExecutor(launcher, nil)
+	exec := NewAgentExecutor(launcher)
 
 	cfg := AgentNodeConfig{
 		Exec: AgentExecConfig{
@@ -104,7 +104,7 @@ func TestAgentExecutor_Execute_HappyPath(t *testing.T) {
 func TestAgentExecutor_Execute_InvalidConfig_BadJSON(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{}
-	exec := NewAgentExecutor(launcher, nil)
+	exec := NewAgentExecutor(launcher)
 
 	node := Node{
 		NodeType: "agent",
@@ -128,7 +128,7 @@ func TestAgentExecutor_Execute_InvalidConfig_BadJSON(t *testing.T) {
 func TestAgentExecutor_Execute_InvalidConfig_MissingAgentKey(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{}
-	exec := NewAgentExecutor(launcher, nil)
+	exec := NewAgentExecutor(launcher)
 
 	cfg := AgentNodeConfig{
 		Exec: AgentExecConfig{Provider: "claude"}, // 缺 agent_key
@@ -153,7 +153,7 @@ func TestAgentExecutor_Execute_InvalidConfig_MissingAgentKey(t *testing.T) {
 func TestAgentExecutor_Execute_LaunchTransientErr(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{err: errors.New("connection refused: provider not up")}
-	exec := NewAgentExecutor(launcher, nil)
+	exec := NewAgentExecutor(launcher)
 
 	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
 	node := makeAgentNode(t, cfg)
@@ -176,7 +176,7 @@ func TestAgentExecutor_Execute_LaunchTransientErr(t *testing.T) {
 func TestAgentExecutor_Execute_LaunchQuotaErr(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{err: errors.New("quota_exhausted: out of credits")}
-	exec := NewAgentExecutor(launcher, nil)
+	exec := NewAgentExecutor(launcher)
 
 	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
 	node := makeAgentNode(t, cfg)
@@ -196,7 +196,7 @@ func TestAgentExecutor_Execute_LaunchQuotaErr(t *testing.T) {
 func TestAgentExecutor_Execute_LaunchPermanentErr(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{err: errors.New("401 unauthorized: invalid api key")}
-	exec := NewAgentExecutor(launcher, nil)
+	exec := NewAgentExecutor(launcher)
 
 	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
 	node := makeAgentNode(t, cfg)
@@ -219,10 +219,10 @@ func TestAgentExecutor_Execute_NilLauncher(t *testing.T) {
 	// nil launcher 应在构造期失败而非 Execute 期 panic。
 	defer func() {
 		if r := recover(); r != nil {
-			t.Fatalf("NewAgentExecutor(nil, nil) should not panic, got %v", r)
+			t.Fatalf("NewAgentExecutor(nil) should not panic, got %v", r)
 		}
 	}()
-	exec := NewAgentExecutor(nil, nil)
+	exec := NewAgentExecutor(nil)
 	if exec == nil {
 		// 允许返回 nil 给 nil launcher
 		return
@@ -243,7 +243,7 @@ func TestAgentExecutor_Execute_NilNodeConfig(t *testing.T) {
 	// 节点 config 为空（旧 DAG）也得是 validation 失败而非 panic：
 	// ParseAgentConfig 返回 zero-value，但 agent_key 缺失 → validation。
 	launcher := &stubAgentLauncher{}
-	exec := NewAgentExecutor(launcher, nil)
+	exec := NewAgentExecutor(launcher)
 
 	node := Node{NodeType: "agent", Config: nil}
 	out, err := exec.Execute(context.Background(), node, RunContext{})
@@ -265,7 +265,7 @@ func TestAgentExecutor_Execute_NilContextDefaultsToBackground(t *testing.T) {
 	t.Parallel()
 	// nil ctx 不应 panic：Execute 应内部兜底 context.Background()。
 	launcher := &stubAgentLauncher{}
-	exec := NewAgentExecutor(launcher, nil)
+	exec := NewAgentExecutor(launcher)
 	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
 	node := makeAgentNode(t, cfg)
 	//nolint:staticcheck // 故意传 nil ctx 测兜底
@@ -280,7 +280,7 @@ func TestAgentExecutor_Execute_NilContextDefaultsToBackground(t *testing.T) {
 
 func TestAgentExecutor_Hooks_Nil(t *testing.T) {
 	t.Parallel()
-	exec := NewAgentExecutor(&stubAgentLauncher{}, nil)
+	exec := NewAgentExecutor(&stubAgentLauncher{})
 	if h := exec.Hooks(); h != nil {
 		t.Fatalf("Hooks() = %v, want nil (F13 留位)", h)
 	}
@@ -334,7 +334,7 @@ func TestAgentExecutor_Execute_Spawn_WritesBackThreadID(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{threadID: "thread-success"}
 	recorder := &stubNodeSpawnRecorder{}
-	exec := NewAgentExecutor(launcher, recorder)
+	exec := NewAgentExecutor(launcher, WithRecorder(recorder))
 
 	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
 	node := makeAgentNode(t, cfg)
@@ -370,7 +370,7 @@ func TestAgentExecutor_Execute_Spawn_FallsBackToNodeKeys(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{threadID: "thread-fallback"}
 	recorder := &stubNodeSpawnRecorder{}
-	exec := NewAgentExecutor(launcher, recorder)
+	exec := NewAgentExecutor(launcher, WithRecorder(recorder))
 
 	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
 	node := makeAgentNode(t, cfg) // node has DagKey=dag-x NodeKey=node-a
@@ -393,7 +393,7 @@ func TestAgentExecutor_Execute_Spawn_FallsBackToNodeKeys(t *testing.T) {
 func TestAgentExecutor_Execute_Spawn_NilRecorder_SkipsWriteback(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{threadID: "thread-nil-recorder"}
-	exec := NewAgentExecutor(launcher, nil)
+	exec := NewAgentExecutor(launcher)
 	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
 	node := makeAgentNode(t, cfg)
 
@@ -415,7 +415,7 @@ func TestAgentExecutor_Execute_Spawn_EmptyThreadID_SkipsWriteback(t *testing.T) 
 	t.Parallel()
 	launcher := &stubAgentLauncher{threadID: ""} // launch 成功但拿不到 thread_id
 	recorder := &stubNodeSpawnRecorder{}
-	exec := NewAgentExecutor(launcher, recorder)
+	exec := NewAgentExecutor(launcher, WithRecorder(recorder))
 
 	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
 	node := makeAgentNode(t, cfg)
@@ -441,7 +441,7 @@ func TestAgentExecutor_Execute_Spawn_RecorderErrorIsSoft(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{threadID: "thread-err"}
 	recorder := &stubNodeSpawnRecorder{err: errors.New("db connection refused")}
-	exec := NewAgentExecutor(launcher, recorder)
+	exec := NewAgentExecutor(launcher, WithRecorder(recorder))
 
 	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
 	node := makeAgentNode(t, cfg)
@@ -474,7 +474,7 @@ func TestAgentExecutor_Execute_Spawn_LaunchErrorSkipsWriteback(t *testing.T) {
 		err:      errors.New("connection refused"),
 	}
 	recorder := &stubNodeSpawnRecorder{}
-	exec := NewAgentExecutor(launcher, recorder)
+	exec := NewAgentExecutor(launcher, WithRecorder(recorder))
 
 	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
 	node := makeAgentNode(t, cfg)
