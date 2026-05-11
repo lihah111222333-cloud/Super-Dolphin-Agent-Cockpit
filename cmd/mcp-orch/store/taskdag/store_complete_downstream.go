@@ -103,6 +103,20 @@ func tryEnqueueDownstream(
 		return nil, nil
 	}
 	agentID := strings.TrimSpace(cand.AssignedTo)
+	// F6.4：assigned_to 为空 → 跳过 wakeup enqueue。否则 dispatcher 走
+	// LaunchAgent 会因 "agent id is required" 失败，retry 耗尽后把节点判
+	// 死成 permanent failed（详见 docs/plans/dag改造实施计划.md follow-up
+	// F6.4）。节点状态保持 pending（依赖已满足 == ready 语义），等外部
+	// agent / 人工接管再 promote 到 running，避免误杀未指派节点。
+	//
+	// EN: When the candidate has no assigned_to we deliberately skip the
+	// wakeup enqueue: otherwise the dispatcher's LaunchAgent rejects the
+	// empty agent id, exhausts retries, and the node ends up permanently
+	// failed. The node stays in pending (= ready semantics) so an
+	// external/manual flow can later move it to running.
+	if agentID == "" {
+		return nil, nil
+	}
 	idempotencyKey := downstreamIdempotencyKey(cand.DagKey, cand.NodeKey)
 	payload, payloadErr := json.Marshal(DownstreamWakeupPayload{
 		AgentID:         agentID,
