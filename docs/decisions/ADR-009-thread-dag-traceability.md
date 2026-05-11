@@ -70,9 +70,10 @@ T6.1 / T8.1 UI 任务允许在字段位就位后开始（不必等 F1.5 全部 d
 
 ## 5. Open Questions
 
-- **Q1**：thread_id 是否走外键？目前 thread 表（agent threads）由 orchestration store 维护，跨域外键耦合大。倾向 **不加外键**，只做软引用 + index。
-- **Q2**：thread 被归档/删除后字段是否清空？倾向 **不主动清空**——历史 DAG 仍要能追溯曾经的 thread_id；UI 端遇到不存在 thread 显示"已归档"。
-- **Q3**：与 ADR-006 `to_node_result.size_cap` 是否冲突？不冲突——spawning_thread_id 走独立列，不进 result jsonb。
+- **Q1**：thread_id 是否走外键？`agent_threads` 表由 thread 子系统维护（migration 0012），与DAG 编排层处于不同语义域。跨域外键会放大编排层的耦合面（任何 thread 生命周期变动都需同步到 DAG store）。倾向 **不加外键**，只做软引用 + index。
+- **Q2**：thread 被归档/删除后字段是否清空？倾向 **不主动清空**——历史 DAG 仍要能追溯曾经的 thread_id。UI 端取 `agent_threads.status` 判定（migration 0012 已具备 status 字段），status 非 running 显示「已归档」。
+- **Q3**：与 ADR-006 `to_node_result.size_cap` 是否冲突？**本ADR 独立列与 ADR-006 size_cap 不冲突**（spawning_thread_id 走 task_dag_nodes 独立列，不进 result jsonb）。但另见 Q4——重试历史落 `task_dag_runs.events` 可能独立吃掉另一个阈值。
+- **Q4**（审查补）：`task_dag_runs.events` jsonb **未加 size_cap CHECK**（grep events 无约束）。F12.1 智能重试「关键节点 replan」会 spawn 多 planner thread，每次 append `{kind, node_key, thread_id, ts}` 约 80~150B。2026-05-11 返修审查推算：M3 用例「≥10 节点 + replan 触发」场景可能在 ADR-006 size_cap 之前先把 events 列吻爆。倾向：F1.5 实装对 `events` 列 `node_spawn` 类目设**独立环形 cap**（只保最近 N 条 node_spawn），**与 ADR-006 的 4KB result cap 不共用**。具体阈值（N=20？50？）待 F1.5 实装时定；M3 实测后迭代。
 
 ## 6. 实装登记
 
@@ -82,5 +83,6 @@ T6.1 / T8.1 UI 任务允许在字段位就位后开始（不必等 F1.5 全部 d
 | AgentExecutor 写入 | ⏳ 待 F1.5 | `cmd/mcp-orch/orchestration/nodeexec/executor_agent.go` |
 | task_get_dag 返回字段 | ⏳ 待 F1.5 | `cmd/mcp-orch/orchestration/dag_query.go` |
 | task_get_run 返回字段 | ⏳ 待 F1.5 | 同上 |
+| events node_spawn 环形 cap（Q4） | ⏳ 待 F1.5 | `cmd/mcp-orch/store/taskdag/` events append 路径 |
 | UI T6.1 消费 | ⏳ 待 T6.1 | `components/DagDetailModal.js` |
 | UI T8.1 消费 | ⏳ 待 T8.1 | `pages/DagsPage.js` |

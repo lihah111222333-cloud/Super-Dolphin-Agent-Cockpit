@@ -17,13 +17,13 @@
 }
 ```
 
-`command_ref` 指向 `command_get` 注册表，本质是 Super-Dolphin 自身的命令卡。这与 §1 "所有自动化能力" 之间存在张力：
+`command_ref` 指向 `command_get` 注册表，本质是 Super-Dolphin 自身的命令卡。command_card 已支持 `CommandTemplate` 字符串（见 `cmd/mcp-orch/tools/command_tools.go`），实际上能承载一定 shell-style 表达力；但这些模板仅限注册表内预定义命令，与 §1 "所有自动化能力" 之间仍存在张力：
 - webhook（HTTP POST 到外部系统）
-- shell（执行任意命令）
+- shell（执行任意命令——及“用 command_card 包装 shell”以外的任意脚本）
 - http（GET / POST 任意 URL，含 response 解析）
 - 文件操作（cp / mv / 模板渲染）
 
-这些常见自动化基元目前**无法在 DAG 内表达**，要做必须破 typed schema。
+这些常见自动化基元目前**无法在 DAG 内动态表达**，要做必须破 typed schema。需注意：用户现状已可用 command_card + CommandTemplate 打包一部分 shell 场景，这意味着 shell sandbox 缺口在 `command_card` 路径上**现在就存在**，不是「等 shell kind 开通才需考虑」的未来问题。
 
 修补单 §4b 已把 schema 升级为：
 ```jsonc
@@ -73,22 +73,31 @@
 
 修补单 §4b 的 schema 升级**先行**——`kind` 字段位先开，骨架 `AutomationExecutor` 只识别 `kind="command_card"`（默认值），其他 kind 显式拒绝（返回 `unsupported automation.kind` 错误）。
 
+### 4.1 shell kind 前置：sandbox 基设任务未指派
+
+§3 守门规则第 4 条要求 shell kind 需「 sandbox + allowed_paths + timeout + cgroup 」，但 Super-Dolphin 当前**无 sandbox 基设**（`grep allowed_paths/sandbox cmd/mcp-orch/` 全空，仅测试 fixture 名）。如不补任务编号，方案 A 「shell 最后开」实际会变成「shell 永远开不了」，ADR-007a/b/c 链条断尾。
+
+**守门补充**：在 ADR-007c（shell kind 开通）拍板前，**必须先立独立任务编号（拟名 Sx.x sandbox 基设）**交付：容器 / chroot / namespace 三选一 + `allowed_paths` whitelist + timeout enforcement + cgroup 资源限。未交付前本 ADR Accepted 状态**不动**，但 shell kind 不得拍板。
+
+**额外缺口（§1 提到）**：shell sandbox 缺口在 `command_card + CommandTemplate` 路径上已然存在（现状用户可用 command_card 包 shell），严格讲该缺口应独立跟踪，不可拖到 shell kind 开通时才补。这个问题超出本 ADR 范围，在§10 Open Questions 加 Q6 跟踪。
+
 ## 5. Open Questions
 
 - Q1 已结 —— kind="" 视为 command_card（向下兼容）：F2.0 的 ParseAutomationConfig 把空 kind 默认填 command_card；非法 kind 走 fail-fast 拒绝（返 unsupported automation.kind 错误）。
 - Q2 已结 —— webhook 与 http 保持分开：修补单 §4b schema 已明确拆 `webhook | shell | http` 三种 kind。webhook（外发事件、fire-and-forget）与 http（同步调用 + response 解析）语义不同、错误处理不同，合并会损失 typed schema 的表达力。后续若实现中发现设计重叠，立 ADR-007a 合并补充。
-- Q3：shell kind 的 sandbox 实现（容器 / chroot / 用户级 namespace）—— Super-Dolphin 当前没有 sandbox 基建，要不要复用现有 `workspace` 子系统的隔离？
+- Q3：shell kind 的 sandbox 实现（容器 / chroot / 用户级 namespace）—— Super-Dolphin 当前没有 sandbox 基建；§4.1 已补「shell kind 拍板前立 Sx.x sandbox 基设任务」守门，本问题仍开。是否复用 `workspace` 子系统的隔离待估。
 - Q4：每种 kind 的 `inputs / outputs` 与 §7 共享 schema 是否完全适用？webhook 的 outputs 是 HTTP 响应 jsonb，与 `to_node_result` 的"摘要"语义重叠 / 冲突？
 - Q5：与 ADR-006 size_cap 交互——webhook/http 响应大小常超 4KB，是否每种 kind 有独立默认 size_cap？
+- Q6（超出本 ADR 范围，仅跟踪）：`command_card + CommandTemplate` 现状已能表达部分 shell 场景，意味着 sandbox 缺口在 command_card 路径上已然存在。是否需独立 ADR 领 command_card 侧的 sandbox / template injection 防护？
 
 ## 6. kind 登记表
 
 | kind | 状态 | 配套 ADR | 实装位 | 备注 |
 |---|---|---|---|---|
-| command_card | ⏳ 待 F2.0+F2.1 实装（F2.0 = schema kind 字段位返修；F2.1 = AutomationExecutor 解码） | (无，本 ADR) | `executor_automation.go`（F2.1） + `nodeexec/config.go`（F2.0） | 当前 schema 唯一通道 |
-| webhook | ⛔ 未开通 | 待立 | (未起) | 等本 ADR 拍板 |
-| shell | ⛔ 未开通 | 待立 + sandbox 调研 | (未起) | 高风险，sandbox 是前置 |
-| http | ⛔ 未开通 | 待立 | (未起) | 与 webhook 明确分开（见 Q2 结本） |
+| command_card | 🟡 F2.0 ✅ done（commit `3629a77a`）；F2.1 待开工 | (无，本 ADR) | `executor_automation.go`（F2.1） + `nodeexec/config.go`（F2.0 ✅） | F2.0 字段位 + fail-fast 已落；F2.1 = AutomationExecutor 仅识别本 kind |
+| webhook | ⛔ 未开通 | 待立 ADR-007a | (未起) | 等本 ADR 拍板 |
+| shell | ⛔ 未开通（§4.1 守门：sandbox 基设任务未指派前不得拍板） | 待立 Sx.x sandbox 基设 + ADR-007c | (未起) | 高风险；sandbox 是硬前置 |
+| http | ⛔ 未开通 | 待立 ADR-007b | (未起) | 与 webhook 明确分开（见 Q2 结本） |
 
 ## 7. 决策
 
