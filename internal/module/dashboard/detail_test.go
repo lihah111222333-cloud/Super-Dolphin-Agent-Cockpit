@@ -132,6 +132,14 @@ type stubDashboardOrchestration struct {
 	getDAGKey      string
 }
 
+// 中文：编译期断言 — stubDashboardOrchestration 必须实现
+// contract.OrchestrationService 全部方法。未来接口扩张时
+// 该行在 `go build` / `go test -c` 阶段即报错，不靠 `make test` 补漏。
+// English: compile-time assertion that stubDashboardOrchestration satisfies
+// contract.OrchestrationService. Future interface growth fails at build
+// time instead of relying on `make test` to surface the gap.
+var _ contract.OrchestrationService = (*stubDashboardOrchestration)(nil)
+
 func (s *stubDashboardOrchestration) LaunchAgent(context.Context, contract.LaunchRequest) error {
 	return nil
 }
