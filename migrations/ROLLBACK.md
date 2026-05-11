@@ -120,3 +120,24 @@ COMMIT;
 状态机读到非枚举值会落 default 分支（行为未定义）。0076 partial unique index
 仍依赖 'running' 字面量，单边删 CHECK 不破 0076 但放宽了写路径校验。仅在
 CHECK 误伤业务（如新增合法 status 字面量未同步迁移）时回滚。
+
+---
+
+## 0081 — task_dags.trigger CHECK 枚举
+
+**up：** `migrations/0081_dag_v2_dag_trigger_check.sql`
+
+**down（手工执行）：**
+
+```sql
+BEGIN;
+ALTER TABLE task_dags DROP CONSTRAINT IF EXISTS chk_task_dags_trigger_enum;
+DELETE FROM schema_migrations WHERE filename = '0081_dag_v2_dag_trigger_check.sql';
+COMMIT;
+```
+
+**影响：** 删除 CHECK 后 trigger 列允许任意 TEXT，未知字面量会进 DB；
+F5 cron daemon / dispatcher 读到非枚举值会落 default 分支（行为未定义）。
+0072 default 'manual' 仍存在，单边删 CHECK 不影响默认值写路径，仅放宽
+非默认写入校验。仅在 CHECK 误伤业务（如新增合法 trigger 字面量未同步迁移）
+时回滚。
