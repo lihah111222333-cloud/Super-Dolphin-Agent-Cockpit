@@ -29,6 +29,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	robcron "github.com/robfig/cron/v3"
 )
 
@@ -63,6 +65,9 @@ type Config struct {
 	// Location 决定 cron 调度时区，默认 UTC。
 	// Location controls cron timezone, default UTC.
 	Location *time.Location
+	// TickTimeout 是单次 Tick 的超时时间，默认 30s。
+	// TickTimeout is the timeout for a single Tick, default 30s.
+	TickTimeout time.Duration
 }
 
 // Sentinel errors for defensive construction / state checks.
@@ -89,15 +94,18 @@ var (
 // CronScheduler is a thin cron-daemon wrapper. Immutable fields are
 // established at construction; the started/entryID state is mu-protected.
 type CronScheduler struct {
-	spec     string
-	logger   *slog.Logger
-	ticker   Ticker
-	cron     *robcron.Cron
-	location *time.Location
+	spec        string
+	logger      *slog.Logger
+	ticker      Ticker
+	cron        *robcron.Cron
+	location    *time.Location
+	tickTimeout time.Duration
 
-	mu      sync.Mutex
-	started bool
-	entryID robcron.EntryID
+	mu         sync.Mutex
+	started    bool
+	entryID    robcron.EntryID
+	rootCtx    context.Context
+	rootCancel context.CancelFunc
 }
 
 // NewCronScheduler 校验参数并构造一个未启动的 CronScheduler。
@@ -116,6 +124,10 @@ func NewCronScheduler(cfg Config) (*CronScheduler, error) {
 	if loc == nil {
 		loc = time.UTC
 	}
+	tickTimeout := cfg.TickTimeout
+	if tickTimeout <= 0 {
+		tickTimeout = 30 * time.Second
+	}
 	// 预解析 spec —— 提前失败比 cron loop 内部失败更友好。
 	// Pre-parse the spec to fail fast before the cron loop boots.
 	parser := robcron.NewParser(
@@ -129,11 +141,12 @@ func NewCronScheduler(cfg Config) (*CronScheduler, error) {
 		robcron.WithParser(parser),
 	)
 	return &CronScheduler{
-		spec:     cfg.Spec,
-		logger:   cfg.Logger,
-		ticker:   cfg.Ticker,
-		cron:     c,
-		location: loc,
+		spec:        cfg.Spec,
+		logger:      cfg.Logger,
+		ticker:      cfg.Ticker,
+		cron:        c,
+		location:    loc,
+		tickTimeout: tickTimeout,
 	}, nil
 }
 
@@ -142,19 +155,26 @@ func NewCronScheduler(cfg Config) (*CronScheduler, error) {
 //
 // Start hooks Tick into the robfig/cron loop and launches the daemon. A
 // second Start returns ErrAlreadyStarted.
-func (s *CronScheduler) Start(_ context.Context) error {
+func (s *CronScheduler) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.started {
 		return ErrAlreadyStarted
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	rootCtx, cancel := context.WithCancel(ctx)
 	id, err := s.cron.AddFunc(s.spec, s.Tick)
 	if err != nil {
+		cancel()
 		// 构造期已 Parse 过；这里仍兜底，避免 robfig 行为变化时静默吞错。
 		// We pre-parsed in NewCronScheduler; keep this fallback for safety.
 		return fmt.Errorf("cron: add func: %w", err)
 	}
 	s.entryID = id
+	s.rootCtx = rootCtx
+	s.rootCancel = cancel
 	s.cron.Start()
 	s.started = true
 	s.logger.Info("cron daemon started",
@@ -178,8 +198,14 @@ func (s *CronScheduler) Stop() error {
 		return nil
 	}
 	c := s.cron
+	cancel := s.rootCancel
 	s.started = false
+	s.rootCtx = nil
+	s.rootCancel = nil
 	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 	// 不在 mu 内等待，避免与 robfig/cron 内部回调时序耦合。
 	// Wait outside the mutex to avoid coupling with robfig's internal timing.
 	ctx := c.Stop()
@@ -203,11 +229,15 @@ func (s *CronScheduler) Tick() {
 	s.logger.Info("cron tick scheduled",
 		slog.String("component", "orchestration.cron"),
 		slog.Time("now", now),
-		slog.String("phase", "F5.1-placeholder"),
+		slog.Duration("timeout", s.tickTimeout),
 	)
-	// 即使是占位也走一次下游，便于 wiring 早期暴露 nil/panic 风险。
-	// Even as a placeholder we delegate once, surfacing wiring issues early.
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	s.mu.Lock()
+	rootCtx := s.rootCtx
+	s.mu.Unlock()
+	if rootCtx == nil {
+		rootCtx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(rootCtx, s.tickTimeout)
 	defer cancel()
 	n, err := s.ticker.Tick(ctx, now)
 	if err != nil {
@@ -223,4 +253,177 @@ func (s *CronScheduler) Tick() {
 			slog.Int("triggered", n),
 		)
 	}
+}
+
+const (
+	// TickErrorClassInfrastructure 表示数据库扫描 / 更新一类基础设施错误。
+	TickErrorClassInfrastructure = "infrastructure"
+	// TickErrorClassValidation 表示 cron_expr 无法解析一类配置校验错误。
+	TickErrorClassValidation = "validation"
+)
+
+const scheduledTriggerSource = "scheduled"
+
+// TickError 给 Tick 调用方暴露可匹配的错误分类。
+// TickError exposes a matchable error class to Tick callers.
+type TickError struct {
+	Class string
+	Op    string
+	Err   error
+}
+
+func (e *TickError) Error() string {
+	if e == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("cron tick %s error (%s): %v", e.Op, e.Class, e.Err)
+}
+
+func (e *TickError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+func classifyTickError(class, op string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &TickError{Class: class, Op: op, Err: err}
+}
+
+// DueDAG 是一次 Tick 扫到的 scheduled DAG 最小投影。
+// DueDAG is the minimal projection scanned by one Tick.
+type DueDAG struct {
+	DagKey   string
+	CronExpr string
+}
+
+// DAGScheduleStore 是 Tick 需要的最小存储接口。
+// DAGScheduleStore is the minimal storage port needed by Tick.
+type DAGScheduleStore interface {
+	DueDAGs(ctx context.Context, now time.Time) ([]DueDAG, error)
+	UpdateNextRun(ctx context.Context, dagKey string, nextRunAt time.Time) error
+}
+
+// DAGStarter 是 StartDAG 的反向依赖适配口，避免 cron 子包 import 父包。
+// DAGStarter adapts StartDAG without importing the parent orchestration package.
+type DAGStarter interface {
+	StartDAG(ctx context.Context, dagKey string, triggerSource string) error
+}
+
+// ScheduledDAGTicker 实现 F5.2：扫描 next_run_at 到期 DAG 并触发 StartDAG。
+// ScheduledDAGTicker implements F5.2 next_run_at scanning and StartDAG triggering.
+type ScheduledDAGTicker struct {
+	store   DAGScheduleStore
+	starter DAGStarter
+	parser  robcron.Parser
+}
+
+type ScheduledDAGTickerConfig struct {
+	Store   DAGScheduleStore
+	Starter DAGStarter
+}
+
+var (
+	ErrNilScheduleStore = errors.New("cron: nil schedule store")
+	ErrNilDAGStarter    = errors.New("cron: nil dag starter")
+)
+
+func NewScheduledDAGTicker(cfg ScheduledDAGTickerConfig) (*ScheduledDAGTicker, error) {
+	if cfg.Store == nil {
+		return nil, ErrNilScheduleStore
+	}
+	if cfg.Starter == nil {
+		return nil, ErrNilDAGStarter
+	}
+	return &ScheduledDAGTicker{
+		store:   cfg.Store,
+		starter: cfg.Starter,
+		parser:  robcron.NewParser(robcron.Minute | robcron.Hour | robcron.Dom | robcron.Month | robcron.Dow | robcron.Descriptor),
+	}, nil
+}
+
+func (t *ScheduledDAGTicker) Tick(ctx context.Context, now time.Time) (int, error) {
+	dags, err := t.store.DueDAGs(ctx, now)
+	if err != nil {
+		return 0, classifyTickError(TickErrorClassInfrastructure, "scan", err)
+	}
+	triggered := 0
+	for _, dag := range dags {
+		nextRunAt, err := t.nextRunAt(dag, now)
+		if err != nil {
+			return triggered, err
+		}
+		if err := t.store.UpdateNextRun(ctx, dag.DagKey, nextRunAt); err != nil {
+			return triggered, classifyTickError(TickErrorClassInfrastructure, "update_next_run_at", err)
+		}
+		if err := t.starter.StartDAG(ctx, dag.DagKey, scheduledTriggerSource); err != nil {
+			return triggered, err
+		}
+		triggered++
+	}
+	return triggered, nil
+}
+
+func (t *ScheduledDAGTicker) nextRunAt(dag DueDAG, now time.Time) (time.Time, error) {
+	schedule, err := t.parser.Parse(dag.CronExpr)
+	if err != nil {
+		return time.Time{}, classifyTickError(TickErrorClassValidation, "parse_cron_expr", fmt.Errorf("dag_key=%s cron_expr=%q: %w", dag.DagKey, dag.CronExpr, err))
+	}
+	return schedule.Next(now), nil
+}
+
+type scheduleDB interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}
+
+type SQLDAGScheduleStore struct {
+	db scheduleDB
+}
+
+func NewSQLDAGScheduleStore(db scheduleDB) (*SQLDAGScheduleStore, error) {
+	if db == nil {
+		return nil, ErrNilScheduleStore
+	}
+	return &SQLDAGScheduleStore{db: db}, nil
+}
+
+func (s *SQLDAGScheduleStore) DueDAGs(ctx context.Context, now time.Time) ([]DueDAG, error) {
+	rows, err := s.db.Query(ctx, `
+SELECT dag_key, cron_expr
+FROM task_dags
+WHERE cron_expr <> ''
+  AND next_run_at IS NOT NULL
+  AND next_run_at <= $1
+ORDER BY next_run_at ASC, id ASC
+`, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var dags []DueDAG
+	for rows.Next() {
+		var dag DueDAG
+		if err := rows.Scan(&dag.DagKey, &dag.CronExpr); err != nil {
+			return nil, err
+		}
+		dags = append(dags, dag)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return dags, nil
+}
+
+func (s *SQLDAGScheduleStore) UpdateNextRun(ctx context.Context, dagKey string, nextRunAt time.Time) error {
+	_, err := s.db.Exec(ctx, `
+UPDATE task_dags
+SET next_run_at = $1,
+    updated_at = NOW()
+WHERE dag_key = $2
+`, nextRunAt, dagKey)
+	return err
 }

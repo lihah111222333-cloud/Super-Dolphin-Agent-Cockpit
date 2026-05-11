@@ -5,12 +5,17 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"go.uber.org/goleak"
 )
+
+func TestMain(m *testing.M) {
+	goleak.VerifyTestMain(m)
+}
 
 // 复用变量 / Shared helpers
 // discardLogger 返回丢弃输出的 slog.Logger，避免测试噪音。
@@ -32,6 +37,68 @@ func (s *stubTicker) Tick(ctx context.Context, now time.Time) (int, error) {
 }
 
 func (s *stubTicker) calls() int32 { return atomic.LoadInt32(&s.count) }
+
+type fakeScheduleStore struct {
+	due     []DueDAG
+	err     error
+	updates []scheduledUpdate
+}
+
+type scheduledUpdate struct {
+	dagKey    string
+	nextRunAt time.Time
+}
+
+func (s *fakeScheduleStore) DueDAGs(ctx context.Context, now time.Time) ([]DueDAG, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return append([]DueDAG(nil), s.due...), nil
+}
+
+func (s *fakeScheduleStore) UpdateNextRun(ctx context.Context, dagKey string, nextRunAt time.Time) error {
+	s.updates = append(s.updates, scheduledUpdate{dagKey: dagKey, nextRunAt: nextRunAt})
+	return nil
+}
+
+type fakeStarter struct {
+	starts []startedDAG
+	err    error
+}
+
+type startedDAG struct {
+	dagKey        string
+	triggerSource string
+}
+
+func (s *fakeStarter) StartDAG(ctx context.Context, dagKey string, triggerSource string) error {
+	if s.err != nil {
+		return s.err
+	}
+	s.starts = append(s.starts, startedDAG{dagKey: dagKey, triggerSource: triggerSource})
+	return nil
+}
+
+type blockingTicker struct {
+	entered chan struct{}
+	done    chan error
+	once    sync.Once
+}
+
+func newBlockingTicker() *blockingTicker {
+	return &blockingTicker{
+		entered: make(chan struct{}),
+		done:    make(chan error, 1),
+	}
+}
+
+func (t *blockingTicker) Tick(ctx context.Context, now time.Time) (int, error) {
+	t.once.Do(func() { close(t.entered) })
+	<-ctx.Done()
+	err := ctx.Err()
+	t.done <- err
+	return 0, err
+}
 
 // TestCronScheduler_New_NilDepsReturnError —— 构造函数对 nil deps 防御。
 // Defensive check: NewCronScheduler must reject nil ticker / logger / spec.
@@ -71,26 +138,164 @@ func TestCronScheduler_New_NilDepsReturnError(t *testing.T) {
 	})
 }
 
-// TestCronScheduler_Tick_LogsPlaceholder —— F5.1 Tick 仅 log，不动 DB。
-// Tick is a placeholder; real next_run_at scan lands in F5.2.
-func TestCronScheduler_Tick_LogsPlaceholder(t *testing.T) {
+func TestCronScheduler_Tick_DelegatesToTicker(t *testing.T) {
 	ticker := &stubTicker{}
 	s, err := NewCronScheduler(Config{Spec: "@hourly", Logger: discardLogger(), Ticker: ticker})
 	if err != nil {
 		t.Fatalf("NewCronScheduler: %v", err)
 	}
-	// 直接调 Tick；F5.1 仅委托给 Ticker.Tick 并 log。
-	// Directly invoke Tick; F5.1 only delegates to Ticker.Tick and logs.
 	s.Tick()
 	if ticker.calls() != 1 {
 		t.Fatalf("ticker calls = %d, want 1", ticker.calls())
 	}
 }
 
+func TestScheduledDAGTicker_Tick_ScansAndStarts(t *testing.T) {
+	store := &fakeScheduleStore{due: []DueDAG{
+		{DagKey: "daily-report", CronExpr: "0 8 * * *"},
+		{DagKey: "hourly-sync", CronExpr: "@hourly"},
+	}}
+	starter := &fakeStarter{}
+	ticker, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: starter})
+	if err != nil {
+		t.Fatalf("NewScheduledDAGTicker: %v", err)
+	}
+	n, err := ticker.Tick(context.Background(), time.Date(2026, 5, 11, 7, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("triggered = %d, want 2", n)
+	}
+	if len(starter.starts) != 2 {
+		t.Fatalf("starts = %d, want 2", len(starter.starts))
+	}
+	for _, start := range starter.starts {
+		if start.triggerSource != scheduledTriggerSource {
+			t.Fatalf("trigger_source = %q, want %q", start.triggerSource, scheduledTriggerSource)
+		}
+	}
+}
+
+func TestScheduledDAGTicker_NextRunAtUpdated(t *testing.T) {
+	store := &fakeScheduleStore{due: []DueDAG{{DagKey: "hourly-sync", CronExpr: "@hourly"}}}
+	starter := &fakeStarter{}
+	ticker, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: starter})
+	if err != nil {
+		t.Fatalf("NewScheduledDAGTicker: %v", err)
+	}
+	now := time.Date(2026, 5, 11, 9, 30, 0, 0, time.UTC)
+	if _, err := ticker.Tick(context.Background(), now); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	if len(store.updates) != 1 {
+		t.Fatalf("updates = %d, want 1", len(store.updates))
+	}
+	want := time.Date(2026, 5, 11, 10, 0, 0, 0, time.UTC)
+	if !store.updates[0].nextRunAt.Equal(want) {
+		t.Fatalf("next_run_at = %s, want %s", store.updates[0].nextRunAt, want)
+	}
+	if len(starter.starts) != 1 || starter.starts[0].dagKey != "hourly-sync" {
+		t.Fatalf("starts = %+v, want hourly-sync", starter.starts)
+	}
+}
+
+func TestScheduledDAGTicker_CronParseValidationError(t *testing.T) {
+	store := &fakeScheduleStore{due: []DueDAG{{DagKey: "bad", CronExpr: "not-a-cron"}}}
+	starter := &fakeStarter{}
+	ticker, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: starter})
+	if err != nil {
+		t.Fatalf("NewScheduledDAGTicker: %v", err)
+	}
+	_, err = ticker.Tick(context.Background(), time.Now())
+	var tickErr *TickError
+	if !errors.As(err, &tickErr) {
+		t.Fatalf("Tick err = %v, want TickError", err)
+	}
+	if tickErr.Class != TickErrorClassValidation {
+		t.Fatalf("class = %q, want %q", tickErr.Class, TickErrorClassValidation)
+	}
+}
+
+func TestScheduledDAGTicker_ScanInfrastructureError(t *testing.T) {
+	store := &fakeScheduleStore{err: errors.New("db down")}
+	starter := &fakeStarter{}
+	ticker, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: starter})
+	if err != nil {
+		t.Fatalf("NewScheduledDAGTicker: %v", err)
+	}
+	_, err = ticker.Tick(context.Background(), time.Now())
+	var tickErr *TickError
+	if !errors.As(err, &tickErr) {
+		t.Fatalf("Tick err = %v, want TickError", err)
+	}
+	if tickErr.Class != TickErrorClassInfrastructure {
+		t.Fatalf("class = %q, want %q", tickErr.Class, TickErrorClassInfrastructure)
+	}
+}
+
+func TestScheduledDAGTicker_StartDAGErrorPassthrough(t *testing.T) {
+	startErr := errors.New("start failed")
+	store := &fakeScheduleStore{due: []DueDAG{{DagKey: "daily-report", CronExpr: "0 8 * * *"}}}
+	starter := &fakeStarter{err: startErr}
+	ticker, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: starter})
+	if err != nil {
+		t.Fatalf("NewScheduledDAGTicker: %v", err)
+	}
+	_, err = ticker.Tick(context.Background(), time.Now())
+	if !errors.Is(err, startErr) {
+		t.Fatalf("Tick err = %v, want startErr passthrough", err)
+	}
+}
+
+func TestCronScheduler_TickTimeout(t *testing.T) {
+	ticker := newBlockingTicker()
+	s, err := NewCronScheduler(Config{Spec: "@hourly", Logger: discardLogger(), Ticker: ticker, TickTimeout: 10 * time.Millisecond})
+	if err != nil {
+		t.Fatalf("NewCronScheduler: %v", err)
+	}
+	started := time.Now()
+	s.Tick()
+	if elapsed := time.Since(started); elapsed > 200*time.Millisecond {
+		t.Fatalf("Tick elapsed = %s, want timeout-driven return", elapsed)
+	}
+	select {
+	case err := <-ticker.done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("ticker err = %v, want DeadlineExceeded", err)
+		}
+	default:
+		t.Fatalf("ticker did not observe timeout")
+	}
+}
+
+func TestCronScheduler_StopCancelsInflight(t *testing.T) {
+	ticker := newBlockingTicker()
+	s, err := NewCronScheduler(Config{Spec: "@every 1h", Logger: discardLogger(), Ticker: ticker, TickTimeout: time.Hour})
+	if err != nil {
+		t.Fatalf("NewCronScheduler: %v", err)
+	}
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	go s.Tick()
+	<-ticker.entered
+	if err := s.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	select {
+	case err := <-ticker.done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("ticker err = %v, want Canceled", err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatalf("in-flight Tick was not canceled")
+	}
+}
+
 // TestCronScheduler_StartStop_GracefulShutdown —— Start + Stop 不泄露 goroutine。
 // Start + Stop must not leak goroutines.
 func TestCronScheduler_StartStop_GracefulShutdown(t *testing.T) {
-	before := runtime.NumGoroutine()
 	s, err := NewCronScheduler(Config{Spec: "@every 1h", Logger: discardLogger(), Ticker: &stubTicker{}})
 	if err != nil {
 		t.Fatalf("NewCronScheduler: %v", err)
@@ -102,14 +307,6 @@ func TestCronScheduler_StartStop_GracefulShutdown(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	if err := s.Stop(); err != nil {
 		t.Fatalf("Stop: %v", err)
-	}
-	// 等待 robfig cron 内部 goroutine 退出（Stop 返回 ctx 完成后再等少量）
-	// Wait for robfig cron goroutines to drain after Stop returns.
-	time.Sleep(50 * time.Millisecond)
-	after := runtime.NumGoroutine()
-	// 容忍 ±2 goroutine 的运行时抖动 / tolerate ±2 jitter
-	if after > before+2 {
-		t.Fatalf("goroutine leak: before=%d after=%d", before, after)
 	}
 }
 
