@@ -10,7 +10,7 @@ import (
 )
 
 const getTaskDagNodesForUpdate = `-- name: GetTaskDagNodesForUpdate :many
-SELECT id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at
+SELECT id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
 FROM task_dag_nodes
 WHERE dag_key = $1
 ORDER BY created_at, id
@@ -45,6 +45,7 @@ func (q *Queries) GetTaskDagNodesForUpdate(ctx context.Context, dagKey string) (
 			&i.ActiveTurnID,
 			&i.ActiveWakeupID,
 			&i.LastEventAt,
+			&i.SpawningThreadID,
 		); err != nil {
 			return nil, err
 		}
@@ -57,7 +58,7 @@ func (q *Queries) GetTaskDagNodesForUpdate(ctx context.Context, dagKey string) (
 }
 
 const listRunningTaskDagNodesByAssignee = `-- name: ListRunningTaskDagNodesByAssignee :many
-SELECT id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at
+SELECT id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
 FROM task_dag_nodes
 WHERE assigned_to = $1 AND status = 'running'
 ORDER BY created_at
@@ -91,6 +92,7 @@ func (q *Queries) ListRunningTaskDagNodesByAssignee(ctx context.Context, assigne
 			&i.ActiveTurnID,
 			&i.ActiveWakeupID,
 			&i.LastEventAt,
+			&i.SpawningThreadID,
 		); err != nil {
 			return nil, err
 		}
@@ -103,7 +105,7 @@ func (q *Queries) ListRunningTaskDagNodesByAssignee(ctx context.Context, assigne
 }
 
 const listTaskDagNodes = `-- name: ListTaskDagNodes :many
-SELECT id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at
+SELECT id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
 FROM task_dag_nodes
 WHERE dag_key = $1
 ORDER BY created_at
@@ -137,6 +139,7 @@ func (q *Queries) ListTaskDagNodes(ctx context.Context, dagKey string) ([]TaskDa
 			&i.ActiveTurnID,
 			&i.ActiveWakeupID,
 			&i.LastEventAt,
+			&i.SpawningThreadID,
 		); err != nil {
 			return nil, err
 		}

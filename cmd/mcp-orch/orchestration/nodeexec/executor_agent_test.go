@@ -10,17 +10,37 @@ import (
 )
 
 // stubAgentLauncher 是 AgentLauncher 接口的测试假实现。
-// 记录最近一次 LaunchAgent 调用入参 + 注入返回错误，便于断言。
+// 记录最近一次 LaunchAgent 调用入参 + 注入返回错误 + 返回 threadID，
+// 便于断言。F1.5 后 LaunchAgent 返回值是 (threadID, error)。
 type stubAgentLauncher struct {
-	called  int
-	lastReq contract.LaunchRequest
-	err     error
+	called   int
+	lastReq  contract.LaunchRequest
+	threadID string
+	err      error
 }
 
-func (s *stubAgentLauncher) LaunchAgent(_ context.Context, req contract.LaunchRequest) error {
+func (s *stubAgentLauncher) LaunchAgent(_ context.Context, req contract.LaunchRequest) (string, error) {
 	s.called++
 	s.lastReq = req
-	return s.err
+	return s.threadID, s.err
+}
+
+// stubNodeSpawnRecorder 是 NodeSpawnRecorder 接口的测试假实现。
+// 记录最近一次 RecordNodeSpawn 入参 + 返回注入错误。
+type stubNodeSpawnRecorder struct {
+	called       int
+	lastDagKey   string
+	lastNodeKey  string
+	lastThreadID string
+	err          error
+}
+
+func (r *stubNodeSpawnRecorder) RecordNodeSpawn(_ context.Context, dagKey, nodeKey, threadID string) error {
+	r.called++
+	r.lastDagKey = dagKey
+	r.lastNodeKey = nodeKey
+	r.lastThreadID = threadID
+	return r.err
 }
 
 // makeAgentNode 构造一个 agent 类型节点 + json 编码的 AgentNodeConfig。
@@ -41,7 +61,7 @@ func makeAgentNode(t *testing.T, cfg AgentNodeConfig) Node {
 
 func TestAgentExecutor_Execute_HappyPath(t *testing.T) {
 	launcher := &stubAgentLauncher{}
-	exec := NewAgentExecutor(launcher)
+	exec := NewAgentExecutor(launcher, nil)
 
 	cfg := AgentNodeConfig{
 		Exec: AgentExecConfig{
@@ -82,7 +102,7 @@ func TestAgentExecutor_Execute_HappyPath(t *testing.T) {
 
 func TestAgentExecutor_Execute_InvalidConfig_BadJSON(t *testing.T) {
 	launcher := &stubAgentLauncher{}
-	exec := NewAgentExecutor(launcher)
+	exec := NewAgentExecutor(launcher, nil)
 
 	node := Node{
 		NodeType: "agent",
@@ -105,7 +125,7 @@ func TestAgentExecutor_Execute_InvalidConfig_BadJSON(t *testing.T) {
 
 func TestAgentExecutor_Execute_InvalidConfig_MissingAgentKey(t *testing.T) {
 	launcher := &stubAgentLauncher{}
-	exec := NewAgentExecutor(launcher)
+	exec := NewAgentExecutor(launcher, nil)
 
 	cfg := AgentNodeConfig{
 		Exec: AgentExecConfig{Provider: "claude"}, // 缺 agent_key
@@ -129,7 +149,7 @@ func TestAgentExecutor_Execute_InvalidConfig_MissingAgentKey(t *testing.T) {
 
 func TestAgentExecutor_Execute_LaunchTransientErr(t *testing.T) {
 	launcher := &stubAgentLauncher{err: errors.New("connection refused: provider not up")}
-	exec := NewAgentExecutor(launcher)
+	exec := NewAgentExecutor(launcher, nil)
 
 	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
 	node := makeAgentNode(t, cfg)
@@ -151,7 +171,7 @@ func TestAgentExecutor_Execute_LaunchTransientErr(t *testing.T) {
 
 func TestAgentExecutor_Execute_LaunchQuotaErr(t *testing.T) {
 	launcher := &stubAgentLauncher{err: errors.New("quota_exhausted: out of credits")}
-	exec := NewAgentExecutor(launcher)
+	exec := NewAgentExecutor(launcher, nil)
 
 	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
 	node := makeAgentNode(t, cfg)
@@ -170,7 +190,7 @@ func TestAgentExecutor_Execute_LaunchQuotaErr(t *testing.T) {
 
 func TestAgentExecutor_Execute_LaunchPermanentErr(t *testing.T) {
 	launcher := &stubAgentLauncher{err: errors.New("401 unauthorized: invalid api key")}
-	exec := NewAgentExecutor(launcher)
+	exec := NewAgentExecutor(launcher, nil)
 
 	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
 	node := makeAgentNode(t, cfg)
@@ -192,10 +212,10 @@ func TestAgentExecutor_Execute_NilLauncher(t *testing.T) {
 	// nil launcher 应在构造期失败而非 Execute 期 panic。
 	defer func() {
 		if r := recover(); r != nil {
-			t.Fatalf("NewAgentExecutor(nil) should not panic, got %v", r)
+			t.Fatalf("NewAgentExecutor(nil, nil) should not panic, got %v", r)
 		}
 	}()
-	exec := NewAgentExecutor(nil)
+	exec := NewAgentExecutor(nil, nil)
 	if exec == nil {
 		// 允许返回 nil 给 nil launcher
 		return
@@ -215,7 +235,7 @@ func TestAgentExecutor_Execute_NilNodeConfig(t *testing.T) {
 	// 节点 config 为空（旧 DAG）也得是 validation 失败而非 panic：
 	// ParseAgentConfig 返回 zero-value，但 agent_key 缺失 → validation。
 	launcher := &stubAgentLauncher{}
-	exec := NewAgentExecutor(launcher)
+	exec := NewAgentExecutor(launcher, nil)
 
 	node := Node{NodeType: "agent", Config: nil}
 	out, err := exec.Execute(context.Background(), node, RunContext{})
@@ -236,7 +256,7 @@ func TestAgentExecutor_Execute_NilNodeConfig(t *testing.T) {
 func TestAgentExecutor_Execute_NilContextDefaultsToBackground(t *testing.T) {
 	// nil ctx 不应 panic：Execute 应内部兜底 context.Background()。
 	launcher := &stubAgentLauncher{}
-	exec := NewAgentExecutor(launcher)
+	exec := NewAgentExecutor(launcher, nil)
 	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
 	node := makeAgentNode(t, cfg)
 	//nolint:staticcheck // 故意传 nil ctx 测兜底
@@ -250,7 +270,7 @@ func TestAgentExecutor_Execute_NilContextDefaultsToBackground(t *testing.T) {
 }
 
 func TestAgentExecutor_Hooks_Nil(t *testing.T) {
-	exec := NewAgentExecutor(&stubAgentLauncher{})
+	exec := NewAgentExecutor(&stubAgentLauncher{}, nil)
 	if h := exec.Hooks(); h != nil {
 		t.Fatalf("Hooks() = %v, want nil (F13 留位)", h)
 	}
@@ -288,5 +308,169 @@ func TestClassifyAgentLaunchError(t *testing.T) {
 				t.Fatalf("classifyAgentLaunchError(%v) = %q, want %q", tc.err, got, tc.want)
 			}
 		})
+	}
+}
+
+// ====================================================================
+// F1.5 / ADR-009: spawning_thread_id 写回单测。
+// ====================================================================
+
+// TestAgentExecutor_Execute_Spawn_WritesBackThreadID 验证成功 launch 后
+// AgentExecutor 调用 NodeSpawnRecorder.RecordNodeSpawn 传入正确的 dagKey /
+// nodeKey / threadID。该用例覃盖 ADR-009 §3 「写入时机」核心约定。
+func TestAgentExecutor_Execute_Spawn_WritesBackThreadID(t *testing.T) {
+	launcher := &stubAgentLauncher{threadID: "thread-success"}
+	recorder := &stubNodeSpawnRecorder{}
+	exec := NewAgentExecutor(launcher, recorder)
+
+	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
+	node := makeAgentNode(t, cfg)
+
+	out, err := exec.Execute(context.Background(), node, RunContext{
+		DagKey: "dag-x", NodeKey: "node-a", RunID: 1,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if out.Status != NodeStatusDone {
+		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusDone)
+	}
+	if out.ErrorSummary != "" {
+		t.Fatalf("ErrorSummary = %q, want empty on successful writeback", out.ErrorSummary)
+	}
+	if recorder.called != 1 {
+		t.Fatalf("RecordNodeSpawn called %d times, want 1", recorder.called)
+	}
+	if recorder.lastDagKey != "dag-x" || recorder.lastNodeKey != "node-a" {
+		t.Fatalf("RecordNodeSpawn keys = (%q,%q), want (dag-x,node-a)",
+			recorder.lastDagKey, recorder.lastNodeKey)
+	}
+	if recorder.lastThreadID != "thread-success" {
+		t.Fatalf("RecordNodeSpawn threadID = %q, want thread-success", recorder.lastThreadID)
+	}
+}
+
+// TestAgentExecutor_Execute_Spawn_FallsBackToNodeKeys 验证 RunContext.DagKey /
+// NodeKey 为空时，AgentExecutor 会 fallback 到 node.DagKey / node.NodeKey。
+// dispatcher 未填 RunContext 时不会失去写回能力。
+func TestAgentExecutor_Execute_Spawn_FallsBackToNodeKeys(t *testing.T) {
+	launcher := &stubAgentLauncher{threadID: "thread-fallback"}
+	recorder := &stubNodeSpawnRecorder{}
+	exec := NewAgentExecutor(launcher, recorder)
+
+	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
+	node := makeAgentNode(t, cfg) // node has DagKey=dag-x NodeKey=node-a
+
+	_, err := exec.Execute(context.Background(), node, RunContext{})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if recorder.called != 1 {
+		t.Fatalf("RecordNodeSpawn called %d times, want 1", recorder.called)
+	}
+	if recorder.lastDagKey != "dag-x" || recorder.lastNodeKey != "node-a" {
+		t.Fatalf("RecordNodeSpawn keys = (%q,%q), want fallback (dag-x,node-a)",
+			recorder.lastDagKey, recorder.lastNodeKey)
+	}
+}
+
+// TestAgentExecutor_Execute_Spawn_NilRecorder_SkipsWriteback 验证 recorder=nil
+// 时 AgentExecutor 仍能正常 launch + 返回 done。保证 F1.5 之前的 wiring 不被破坏。
+func TestAgentExecutor_Execute_Spawn_NilRecorder_SkipsWriteback(t *testing.T) {
+	launcher := &stubAgentLauncher{threadID: "thread-nil-recorder"}
+	exec := NewAgentExecutor(launcher, nil)
+	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
+	node := makeAgentNode(t, cfg)
+
+	out, err := exec.Execute(context.Background(), node, RunContext{
+		DagKey: "dag-x", NodeKey: "node-a",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if out.Status != NodeStatusDone || out.ErrorSummary != "" {
+		t.Fatalf("Execute() = %+v, want Status=done & empty summary", out)
+	}
+}
+
+// TestAgentExecutor_Execute_Spawn_EmptyThreadID_SkipsWriteback 验证 launcher
+// 返回 threadID="" 时（如 service.LaunchAgentSnapshot 失败微妙路径）跳过
+// 写回，避免错误覆盖之前的 thread id（fail-fast 语义）。
+func TestAgentExecutor_Execute_Spawn_EmptyThreadID_SkipsWriteback(t *testing.T) {
+	launcher := &stubAgentLauncher{threadID: ""} // launch 成功但拿不到 thread_id
+	recorder := &stubNodeSpawnRecorder{}
+	exec := NewAgentExecutor(launcher, recorder)
+
+	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
+	node := makeAgentNode(t, cfg)
+
+	out, err := exec.Execute(context.Background(), node, RunContext{
+		DagKey: "dag-x", NodeKey: "node-a",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if out.Status != NodeStatusDone {
+		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusDone)
+	}
+	if recorder.called != 0 {
+		t.Fatalf("RecordNodeSpawn called %d times, want 0 when threadID empty", recorder.called)
+	}
+}
+
+// TestAgentExecutor_Execute_Spawn_RecorderErrorIsSoft 验证 recorder 写回失败仅
+// 写进 NodeOutcome.ErrorSummary，不把 launch 翻成 failed（launch 已成功，
+// spawn 历史是辅助审计——详 executor_agent.go 注释）。
+func TestAgentExecutor_Execute_Spawn_RecorderErrorIsSoft(t *testing.T) {
+	launcher := &stubAgentLauncher{threadID: "thread-err"}
+	recorder := &stubNodeSpawnRecorder{err: errors.New("db connection refused")}
+	exec := NewAgentExecutor(launcher, recorder)
+
+	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
+	node := makeAgentNode(t, cfg)
+
+	out, err := exec.Execute(context.Background(), node, RunContext{
+		DagKey: "dag-x", NodeKey: "node-a",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if out.Status != NodeStatusDone {
+		t.Fatalf("Status = %q, want %q (recorder error must NOT demote launch)",
+			out.Status, NodeStatusDone)
+	}
+	if out.FailureClass != "" {
+		t.Fatalf("FailureClass = %q, want empty on soft writeback failure", out.FailureClass)
+	}
+	if out.ErrorSummary == "" {
+		t.Fatalf("ErrorSummary empty, want substring 'spawning_thread_id write-back failed'")
+	}
+}
+
+// TestAgentExecutor_Execute_Spawn_LaunchErrorSkipsWriteback 验证 launch 本身
+// 失败时 recorder 不被调用。避免走到一个 launch 失败但路径上又去写 thread id
+// 的错乱局面。
+func TestAgentExecutor_Execute_Spawn_LaunchErrorSkipsWriteback(t *testing.T) {
+	launcher := &stubAgentLauncher{
+		threadID: "thread-should-not-be-used",
+		err:      errors.New("connection refused"),
+	}
+	recorder := &stubNodeSpawnRecorder{}
+	exec := NewAgentExecutor(launcher, recorder)
+
+	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
+	node := makeAgentNode(t, cfg)
+
+	out, err := exec.Execute(context.Background(), node, RunContext{
+		DagKey: "dag-x", NodeKey: "node-a",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if out.Status != NodeStatusFailed {
+		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusFailed)
+	}
+	if recorder.called != 0 {
+		t.Fatalf("RecordNodeSpawn called %d times on launch error, want 0", recorder.called)
 	}
 }
