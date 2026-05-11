@@ -99,12 +99,45 @@ type Node struct {
 }
 
 // RunContext 是 Execute 调用时的运行时上下文。
-// 骨架阶段是最小占位；inputs from prior nodes / sharedfile readers /
-// budget tracker / lifecycle hooks 在 F1.x 真实实现时补全。
+//
+// 字段说明：
+//   - DagKey/NodeKey/RunID：调度上下文 ID 三元组（F1.5 已用于 spawning_thread_id 写回）；
+//   - PrevResults：上游节点 result（按 node_key 索引），dispatcher 在派发前预取并填入；
+//     F2.2 起 AutomationExecutor 据 cfg.Inputs.FromNodes 注入到 command 渲染上下文。nil 等价空 map，
+//     执行器不会主动查 store——keep executor pure，让 dispatcher 决定何时如何拉历史 result。
+//   - SharedFileReader/SharedFileWriter：sharedfile 读/写端口，分别承载 inputs.from_sharedfiles 与
+//     outputs.to_sharedfile 行为；nil 表示「未注入对应能力」——配置里若引用了 sharedfile，会按
+//     ADR-008 归类为 validation（缺能力即视为 wiring 配置问题，与 nil launcher 同语义）。
+//
+// RunContext carries dispatch-time information. PrevResults/SharedFileReader/SharedFileWriter
+// are optional capability ports introduced in F2.2 for inputs/outputs handling; passing nil keeps
+// the F2.1 behaviour intact unless the node config actively references the missing capability.
 type RunContext struct {
 	DagKey  string
 	NodeKey string
 	RunID   int64
+
+	// PrevResults: dispatcher-supplied snapshot of upstream node results keyed by node_key.
+	// 仅传 cfg.Inputs.FromNodes 关心的子集即可；缺 key 时执行器走 validation 失败。
+	PrevResults map[string]json.RawMessage
+
+	// SharedFileReader: inputs.from_sharedfiles 读取入口；nil 表示未注入。
+	SharedFileReader SharedFileReader
+
+	// SharedFileWriter: outputs.to_sharedfile 写入入口；nil 表示未注入。
+	SharedFileWriter SharedFileWriter
+}
+
+// SharedFileReader 是 RunContext.SharedFileReader 的最小接口面。
+// 生产实现可由 store/sharedfile.Store 的 Get 适配；测试注入 stub 断言入参。
+type SharedFileReader interface {
+	ReadSharedFile(ctx context.Context, path string) (string, error)
+}
+
+// SharedFileWriter 是 RunContext.SharedFileWriter 的最小接口面。
+// 生产实现可由 store/sharedfile.Store 的 Upsert 适配；测试注入 stub 验证写入路径与内容。
+type SharedFileWriter interface {
+	WriteSharedFile(ctx context.Context, path, content string) error
 }
 
 // NodeOutcome 是 NodeExecutor.Execute 的结构化返回值。

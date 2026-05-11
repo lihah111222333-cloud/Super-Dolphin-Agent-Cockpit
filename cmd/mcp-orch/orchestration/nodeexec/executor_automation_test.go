@@ -172,6 +172,347 @@ func TestAutomationExecutor_ImplementsNodeExecutor(t *testing.T) {
 	var _ NodeExecutor = (*AutomationExecutor)(nil)
 }
 
+// ---------------------------------------------------------------------------
+// F2.2 下的 inputs/outputs 测例
+// ---------------------------------------------------------------------------
+
+type stubSharedfileReader struct {
+	content map[string]string
+	err     error
+	calls   []string
+}
+
+func (s *stubSharedfileReader) ReadSharedFile(_ context.Context, path string) (string, error) {
+	s.calls = append(s.calls, path)
+	if s.err != nil {
+		return "", s.err
+	}
+	if v, ok := s.content[path]; ok {
+		return v, nil
+	}
+	return "", errors.New("not found: " + path)
+}
+
+type stubSharedfileWriter struct {
+	writes []struct{ Path, Content string }
+	err    error
+}
+
+func (s *stubSharedfileWriter) WriteSharedFile(_ context.Context, path, content string) error {
+	if s.err != nil {
+		return s.err
+	}
+	s.writes = append(s.writes, struct{ Path, Content string }{path, content})
+	return nil
+}
+
+// captureRunner 记录 RunCommandCard 被调用时的 args，同时返回可定制 result。
+type captureRunner struct {
+	lastArgs json.RawMessage
+	result   AutomationCommandResult
+}
+
+func (c *captureRunner) RunCommandCard(_ context.Context, _ AutomationCommandCard, args json.RawMessage) (AutomationCommandResult, error) {
+	c.lastArgs = append(json.RawMessage(nil), args...)
+	return c.result, nil
+}
+
+func TestAutomationExecutor_Inputs_InjectsFromNodes(t *testing.T) {
+	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "build_app", CommandTemplate: "noop", Enabled: true}}
+	runner := &captureRunner{result: AutomationCommandResult{CardKey: "build_app", Stdout: "ok"}}
+	exec := NewAutomationExecutor(getter, runner)
+	node := makeAutomationNode(t, AutomationNodeConfig{
+		Exec: AutomationExecConfig{
+			CommandRef: "build_app",
+			Args:       json.RawMessage(`{"target":"prod"}`),
+		},
+		Inputs: InputsConfig{FromNodes: []string{"plan"}},
+	})
+	prev := map[string]json.RawMessage{
+		"plan": json.RawMessage(`{"summary":"build prod"}`),
+	}
+
+	out, err := exec.Execute(context.Background(), node, RunContext{PrevResults: prev})
+	if err != nil {
+		t.Fatalf("Execute() framework error = %v", err)
+	}
+	if out.Status != NodeStatusDone {
+		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusDone)
+	}
+	var merged map[string]any
+	if err := json.Unmarshal(runner.lastArgs, &merged); err != nil {
+		t.Fatalf("unmarshal lastArgs: %v; raw=%s", err, runner.lastArgs)
+	}
+	if merged["target"] != "prod" {
+		t.Fatalf("original arg target lost: %#v", merged)
+	}
+	inputs, ok := merged["inputs"].(map[string]any)
+	if !ok {
+		t.Fatalf("inputs subobject missing: %#v", merged)
+	}
+	fromNodes, ok := inputs["from_nodes"].(map[string]any)
+	if !ok {
+		t.Fatalf("inputs.from_nodes missing: %#v", inputs)
+	}
+	plan, ok := fromNodes["plan"].(map[string]any)
+	if !ok {
+		t.Fatalf("inputs.from_nodes.plan not an object: %#v", fromNodes["plan"])
+	}
+	if plan["summary"] != "build prod" {
+		t.Fatalf("plan.summary = %v, want 'build prod'", plan["summary"])
+	}
+	if out.Result == nil {
+		t.Fatalf("Result nil but ToNodeResult default path expected to write payload")
+	}
+}
+
+func TestAutomationExecutor_Inputs_MissingPrevResult_Validation(t *testing.T) {
+	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
+	runner := &captureRunner{}
+	exec := NewAutomationExecutor(getter, runner)
+	node := makeAutomationNode(t, AutomationNodeConfig{
+		Exec:   AutomationExecConfig{CommandRef: "k"},
+		Inputs: InputsConfig{FromNodes: []string{"missing"}},
+	})
+
+	out, err := exec.Execute(context.Background(), node, RunContext{PrevResults: map[string]json.RawMessage{}})
+	if err != nil {
+		t.Fatalf("Execute() framework error = %v", err)
+	}
+	if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
+		t.Fatalf("got status=%q class=%q, want failed/validation", out.Status, out.FailureClass)
+	}
+	if !strings.Contains(out.ErrorSummary, "missing prev result") {
+		t.Fatalf("ErrorSummary = %q, want missing prev result", out.ErrorSummary)
+	}
+	if runner.lastArgs != nil {
+		t.Fatalf("runner should not be called on validation failure; got args=%s", runner.lastArgs)
+	}
+}
+
+func TestAutomationExecutor_Inputs_ReservedKeyConflict_Validation(t *testing.T) {
+	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
+	runner := &captureRunner{}
+	exec := NewAutomationExecutor(getter, runner)
+	node := makeAutomationNode(t, AutomationNodeConfig{
+		Exec: AutomationExecConfig{
+			CommandRef: "k",
+			Args:       json.RawMessage(`{"inputs":"already-there"}`),
+		},
+		Inputs: InputsConfig{FromNodes: []string{"a"}},
+	})
+
+	out, err := exec.Execute(context.Background(), node, RunContext{PrevResults: map[string]json.RawMessage{"a": json.RawMessage(`{}`)}})
+	if err != nil {
+		t.Fatalf("Execute() framework error = %v", err)
+	}
+	if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
+		t.Fatalf("got status=%q class=%q, want failed/validation", out.Status, out.FailureClass)
+	}
+	if !strings.Contains(out.ErrorSummary, "reserved key") {
+		t.Fatalf("ErrorSummary = %q, want reserved key", out.ErrorSummary)
+	}
+}
+
+func TestAutomationExecutor_Inputs_SharedfileNoReader_Validation(t *testing.T) {
+	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
+	runner := &captureRunner{}
+	exec := NewAutomationExecutor(getter, runner)
+	node := makeAutomationNode(t, AutomationNodeConfig{
+		Exec:   AutomationExecConfig{CommandRef: "k"},
+		Inputs: InputsConfig{FromSharedfiles: []string{"plan.md"}},
+	})
+
+	out, err := exec.Execute(context.Background(), node, RunContext{})
+	if err != nil {
+		t.Fatalf("Execute() framework error = %v", err)
+	}
+	if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
+		t.Fatalf("got status=%q class=%q, want failed/validation", out.Status, out.FailureClass)
+	}
+	if !strings.Contains(out.ErrorSummary, "SharedFileReader not wired") {
+		t.Fatalf("ErrorSummary = %q, want SharedFileReader not wired", out.ErrorSummary)
+	}
+}
+
+func TestAutomationExecutor_Inputs_SharedfileReadError_Classified(t *testing.T) {
+	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
+	runner := &captureRunner{}
+	reader := &stubSharedfileReader{err: errors.New("i/o timeout reading plan.md")}
+	exec := NewAutomationExecutor(getter, runner)
+	node := makeAutomationNode(t, AutomationNodeConfig{
+		Exec:   AutomationExecConfig{CommandRef: "k"},
+		Inputs: InputsConfig{FromSharedfiles: []string{"plan.md"}},
+	})
+
+	out, err := exec.Execute(context.Background(), node, RunContext{SharedFileReader: reader})
+	if err != nil {
+		t.Fatalf("Execute() framework error = %v", err)
+	}
+	if out.Status != NodeStatusFailed {
+		t.Fatalf("Status = %q, want failed", out.Status)
+	}
+	if out.FailureClass != FailureClassTransient {
+		t.Fatalf("FailureClass = %q, want transient (timeout)", out.FailureClass)
+	}
+}
+
+func TestAutomationExecutor_Outputs_WritesSharedfile(t *testing.T) {
+	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
+	runner := &captureRunner{result: AutomationCommandResult{CardKey: "k", Stdout: "hello world", ExitCode: 0}}
+	writer := &stubSharedfileWriter{}
+	exec := NewAutomationExecutor(getter, runner)
+	node := makeAutomationNode(t, AutomationNodeConfig{
+		Exec:    AutomationExecConfig{CommandRef: "k"},
+		Outputs: OutputsConfig{ToSharedfile: &SharedfileTarget{Path: "reports/build.log", LockMode: "exclusive"}},
+	})
+
+	out, err := exec.Execute(context.Background(), node, RunContext{SharedFileWriter: writer})
+	if err != nil {
+		t.Fatalf("Execute() framework error = %v", err)
+	}
+	if out.Status != NodeStatusDone {
+		t.Fatalf("Status = %q, want done; summary=%q", out.Status, out.ErrorSummary)
+	}
+	if len(writer.writes) != 1 {
+		t.Fatalf("writer called %d times, want 1", len(writer.writes))
+	}
+	if writer.writes[0].Path != "reports/build.log" || writer.writes[0].Content != "hello world" {
+		t.Fatalf("write = %#v, want path=reports/build.log content='hello world'", writer.writes[0])
+	}
+	// to_node_result 未勾选，且 to_sharedfile 启用 → NodeOutcome.Result 不重复写。
+	if out.Result != nil {
+		t.Fatalf("Result should be nil when to_sharedfile set and to_node_result unset; got %s", out.Result)
+	}
+}
+
+func TestAutomationExecutor_Outputs_BothChannels(t *testing.T) {
+	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
+	runner := &captureRunner{result: AutomationCommandResult{CardKey: "k", Stdout: "payload"}}
+	writer := &stubSharedfileWriter{}
+	exec := NewAutomationExecutor(getter, runner)
+	node := makeAutomationNode(t, AutomationNodeConfig{
+		Exec: AutomationExecConfig{CommandRef: "k"},
+		Outputs: OutputsConfig{
+			ToSharedfile: &SharedfileTarget{Path: "reports/build.log"},
+			ToNodeResult: true,
+		},
+	})
+
+	out, err := exec.Execute(context.Background(), node, RunContext{SharedFileWriter: writer})
+	if err != nil {
+		t.Fatalf("Execute() framework error = %v", err)
+	}
+	if out.Status != NodeStatusDone {
+		t.Fatalf("Status = %q, want done", out.Status)
+	}
+	if len(writer.writes) != 1 || writer.writes[0].Content != "payload" {
+		t.Fatalf("writer state = %#v, want 1 write of payload", writer.writes)
+	}
+	if out.Result == nil {
+		t.Fatalf("Result must be present when to_node_result=true")
+	}
+}
+
+func TestAutomationExecutor_Outputs_SharedfileNoWriter_Validation(t *testing.T) {
+	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
+	runner := &captureRunner{result: AutomationCommandResult{CardKey: "k"}}
+	exec := NewAutomationExecutor(getter, runner)
+	node := makeAutomationNode(t, AutomationNodeConfig{
+		Exec:    AutomationExecConfig{CommandRef: "k"},
+		Outputs: OutputsConfig{ToSharedfile: &SharedfileTarget{Path: "reports/build.log"}},
+	})
+
+	out, err := exec.Execute(context.Background(), node, RunContext{})
+	if err != nil {
+		t.Fatalf("Execute() framework error = %v", err)
+	}
+	if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
+		t.Fatalf("got status=%q class=%q, want failed/validation", out.Status, out.FailureClass)
+	}
+	if !strings.Contains(out.ErrorSummary, "SharedFileWriter not wired") {
+		t.Fatalf("ErrorSummary = %q, want SharedFileWriter not wired", out.ErrorSummary)
+	}
+}
+
+func TestAutomationExecutor_Outputs_SharedfileWriteFails_Validation(t *testing.T) {
+	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
+	runner := &captureRunner{result: AutomationCommandResult{CardKey: "k", Stdout: "data"}}
+	writer := &stubSharedfileWriter{err: errors.New("disk full")}
+	exec := NewAutomationExecutor(getter, runner)
+	node := makeAutomationNode(t, AutomationNodeConfig{
+		Exec:    AutomationExecConfig{CommandRef: "k"},
+		Outputs: OutputsConfig{ToSharedfile: &SharedfileTarget{Path: "x.log"}},
+	})
+
+	out, err := exec.Execute(context.Background(), node, RunContext{SharedFileWriter: writer})
+	if err != nil {
+		t.Fatalf("Execute() framework error = %v", err)
+	}
+	if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
+		t.Fatalf("got status=%q class=%q, want failed/validation", out.Status, out.FailureClass)
+	}
+	if !strings.Contains(out.ErrorSummary, "disk full") {
+		t.Fatalf("ErrorSummary = %q, want disk full", out.ErrorSummary)
+	}
+}
+
+func TestAutomationExecutor_Outputs_RejectsAgentPromptField(t *testing.T) {
+	getter := &stubAutomationGetter{}
+	runner := &captureRunner{}
+	exec := NewAutomationExecutor(getter, runner)
+	// raw config 中 outputs 手动推 "prompt" 字段（typed OutputsConfig 不认，但原始 json 看得到）。
+	node := Node{
+		NodeType: "automation",
+		Config: json.RawMessage(`{
+			"exec":{"kind":"command_card","command_ref":"k"},
+			"outputs":{"prompt":"please summarize"}
+		}`),
+	}
+
+	out, err := exec.Execute(context.Background(), node, RunContext{})
+	if err != nil {
+		t.Fatalf("Execute() framework error = %v", err)
+	}
+	if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
+		t.Fatalf("got status=%q class=%q, want failed/validation", out.Status, out.FailureClass)
+	}
+	if !strings.Contains(out.ErrorSummary, "agent-prompt field") {
+		t.Fatalf("ErrorSummary = %q, want agent-prompt field", out.ErrorSummary)
+	}
+	if getter.called != 0 || runner.lastArgs != nil {
+		t.Fatalf("getter/runner should not be reached on outputs-validation failure; getter=%d runnerArgs=%s", getter.called, runner.lastArgs)
+	}
+}
+
+func TestAutomationExecutor_EmptyInputsOutputs_KeepsF21Behaviour(t *testing.T) {
+	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
+	runner := &captureRunner{result: AutomationCommandResult{CardKey: "k", Stdout: "out"}}
+	exec := NewAutomationExecutor(getter, runner)
+	node := makeAutomationNode(t, AutomationNodeConfig{
+		Exec: AutomationExecConfig{CommandRef: "k", Args: json.RawMessage(`{"x":1}`)},
+	})
+
+	out, err := exec.Execute(context.Background(), node, RunContext{})
+	if err != nil {
+		t.Fatalf("Execute() framework error = %v", err)
+	}
+	if out.Status != NodeStatusDone {
+		t.Fatalf("Status = %q, want done", out.Status)
+	}
+	if out.Result == nil {
+		t.Fatalf("Result must be set on F2.1 fallback path")
+	}
+	// runner 拿到的 args 应与原 cfg.Exec.Args 一致（未被 merge 路径动过）。
+	var got map[string]any
+	if err := json.Unmarshal(runner.lastArgs, &got); err != nil {
+		t.Fatalf("unmarshal lastArgs: %v", err)
+	}
+	if _, hasInputs := got["inputs"]; hasInputs {
+		t.Fatalf("lastArgs should not contain injected inputs key on empty Inputs config: %#v", got)
+	}
+}
+
 func TestClassifyAutomationError(t *testing.T) {
 	cases := []struct {
 		name string
