@@ -176,13 +176,13 @@ func TestAutomationExecutor_ImplementsNodeExecutor(t *testing.T) {
 // F2.2 下的 inputs/outputs 测例
 // ---------------------------------------------------------------------------
 
-type stubSharedfileReader struct {
+type stubAutomationSharedFileReader struct {
 	content map[string]string
 	err     error
 	calls   []string
 }
 
-func (s *stubSharedfileReader) ReadSharedFile(_ context.Context, path string) (string, error) {
+func (s *stubAutomationSharedFileReader) ReadSharedFile(_ context.Context, path string) (string, error) {
 	s.calls = append(s.calls, path)
 	if s.err != nil {
 		return "", s.err
@@ -193,12 +193,12 @@ func (s *stubSharedfileReader) ReadSharedFile(_ context.Context, path string) (s
 	return "", errors.New("not found: " + path)
 }
 
-type stubSharedfileWriter struct {
+type stubAutomationSharedFileWriter struct {
 	writes []struct{ Path, Content string }
 	err    error
 }
 
-func (s *stubSharedfileWriter) WriteSharedFile(_ context.Context, path, content string) error {
+func (s *stubAutomationSharedFileWriter) WriteSharedFile(_ context.Context, path, content string) error {
 	if s.err != nil {
 		return s.err
 	}
@@ -338,7 +338,7 @@ func TestAutomationExecutor_Inputs_SharedfileNoReader_Validation(t *testing.T) {
 func TestAutomationExecutor_Inputs_SharedfileReadError_Classified(t *testing.T) {
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
 	runner := &captureRunner{}
-	reader := &stubSharedfileReader{err: errors.New("i/o timeout reading plan.md")}
+	reader := &stubAutomationSharedFileReader{err: errors.New("i/o timeout reading plan.md")}
 	exec := NewAutomationExecutor(getter, runner)
 	node := makeAutomationNode(t, AutomationNodeConfig{
 		Exec:   AutomationExecConfig{CommandRef: "k"},
@@ -360,7 +360,7 @@ func TestAutomationExecutor_Inputs_SharedfileReadError_Classified(t *testing.T) 
 func TestAutomationExecutor_Outputs_WritesSharedfile(t *testing.T) {
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
 	runner := &captureRunner{result: AutomationCommandResult{CardKey: "k", Stdout: "hello world", ExitCode: 0}}
-	writer := &stubSharedfileWriter{}
+	writer := &stubAutomationSharedFileWriter{}
 	exec := NewAutomationExecutor(getter, runner)
 	node := makeAutomationNode(t, AutomationNodeConfig{
 		Exec:    AutomationExecConfig{CommandRef: "k"},
@@ -389,7 +389,7 @@ func TestAutomationExecutor_Outputs_WritesSharedfile(t *testing.T) {
 func TestAutomationExecutor_Outputs_BothChannels(t *testing.T) {
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
 	runner := &captureRunner{result: AutomationCommandResult{CardKey: "k", Stdout: "payload"}}
-	writer := &stubSharedfileWriter{}
+	writer := &stubAutomationSharedFileWriter{}
 	exec := NewAutomationExecutor(getter, runner)
 	node := makeAutomationNode(t, AutomationNodeConfig{
 		Exec: AutomationExecConfig{CommandRef: "k"},
@@ -438,7 +438,7 @@ func TestAutomationExecutor_Outputs_SharedfileNoWriter_Validation(t *testing.T) 
 func TestAutomationExecutor_Outputs_SharedfileWriteFails_Validation(t *testing.T) {
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
 	runner := &captureRunner{result: AutomationCommandResult{CardKey: "k", Stdout: "data"}}
-	writer := &stubSharedfileWriter{err: errors.New("disk full")}
+	writer := &stubAutomationSharedFileWriter{err: errors.New("disk full")}
 	exec := NewAutomationExecutor(getter, runner)
 	node := makeAutomationNode(t, AutomationNodeConfig{
 		Exec:    AutomationExecConfig{CommandRef: "k"},
