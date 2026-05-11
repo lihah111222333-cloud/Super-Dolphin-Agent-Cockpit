@@ -7,6 +7,7 @@
 > 2026-05-10/11 T 阶段第二批 done：T1.2-mid（StartDAG 真业务 + RunStore CRUD）+ T3.1/T3.2（task_get_run / task_list_runs）+ 路线 N 幂等语义切换 + migration 0079/0080；T1.2-full → F6.5
 > 2026-05-11 套餐 B/C/A+ 落地同步：套餐 B（pre-T0.2 收尾 + stub 接口扩张补齐 + sharedfilegitignore race 根除 + memoryCoordinator getter 化）已记 §10 ledger；套餐 C（T0.8 doc-sync Check 4 真验证 + 状态机 retrying→cancelled 合法转移 + migration 0081 task_dags.trigger CHECK + stubDashboardOrchestration `var _` 编译期断言 + ADR 0001 §2.10 DB 不变量基线 + 会话习惯 §10.60 MCP 命名约定）落地 5 commit；套餐 A+/D（MCP enum 校验：handler `requireEnum` + 包级 `var` 单源 + DB CHECK 三层互锁 + `runtime.UpdateRuntime` provider silent Warn → fail-fast + migration 0082 task_dag_runs.trigger_source CHECK + ADR-003 + 会话习惯 §10.61）落地 5 commit + 1 idempotent 修复（31f2ad75，0082 重跑 42710 防御）
 > 2026-05-11 F1.5/F4.1/F6.3 并行 worktree 落地 + DAG dogfood 审查：3 worker agent 中并行落地 13 commit + 3 merge commit + 1 follow-up fix `970cb5aa`（从聚合 Store 拆出 NodeSpawnRecorderStore 过 archtest TestInterfaceIsolationBudgets）。F 阶段 done 计数：9 → **12**。审查用 review-dag-2026-05-11-merged-commits DAG 本身跳走，剩下 1 节点 n6 stuck pending 揭示：mcp-orch 服务在跑旧二进制，**需重启**才能走上 F6.3 promote / F6.2 finalize。sqlc 手维 5 文件（4 W1 + 1 W3 + 1 W2 db_accessor）集中标 marker 在 `cmd/mcp-orch/sqlc.yaml` 顶部。
+> 2026-05-12 F1.2/F2.2/F4.2/F7.1 第二轮并行 worktree 落地 + DAG dogfood 自动 promote 闭环验证：F1.2 AgentExecutor inputs 注入（`3317b00f` + merge `877193cf`）+ F2.2 AutomationExecutor inputs/outputs（`3d8526ab` + merge `4dd5307a`）+ F4.2 ApplyOps update_node 真业务（`7611c268` `65c977d8` `848f1188` + merge `d63a623d`）+ F7.1 AI 设计师 prompt 中文版 seed 0084 + archtest 守卫（`49fd0143` `52da9d36` + merge `94502cec`）+ 冲突修 `6f333dd1`（测试桩去重 + 双端口 TODO）。F 阶段 done 计数：12 → **16**。dogfood 第一轮 review-dag-74 n6 stuck pending 揭示旧二进制 → mcp-orch 重启后 verify-dag-75 验证 F6.3 promote 单点闭环 → 第二轮 review-dag-76 6 节点全 done + run.status=succeeded（F6.2 + F6.3 真生效）。
 
 ---
 
@@ -16,7 +17,7 @@
 |---|---|---|---|---|
 | **S 骨架** | **24** | **✅ 封板：17 done / 1 推迟 F (S2.4) / 2 推迟 T5 (S6.1+S6.2) / 4 转 T0 作业** | ~25% | 14 处补丁 + ADR 0001 + 删死代码；行为完全不变 |
 | **T 工具** | 18 + 9 T0 | **🟡 T1.1 + T1.2-mid + T2.1+T2.2 + T3.1+T3.2 + T4.1+T4.4 后端八连发 done。前端 6 task 待方案审。** | ~55% | MCP 工具 9/9 就位（含 registry）；UI/AI 设计师待外部依赖 |
-| F 功能 | 37 | 🟡 **12 done**（+ F1.5 / F4.1 / F6.3 于 2026-05-11 并行 worktree 落地） / 1 完成占位 F6.1 / 24 未开工 | ~40% | 行为兑现：cron 真跑、AI 设计师上岗、智能重试落地 |
+| F 功能 | 37 | 🟡 **16 done**（+ F1.5 / F4.1 / F6.3 于 2026-05-11 并行 worktree 落地；+ F1.2 / F2.2 / F4.2 / F7.1 于 2026-05-12 第二轮落地） / 1 完成占位 F6.1 / 20 未开工 | ~45% | 行为兑现：cron 真跑、AI 设计师上岗、智能重试落地 |
 | H 加固 | 按需 | ⛔ 未开动 | ~10% | 生产问题驱动，不预排 |
 
 里程碑：
@@ -214,9 +215,9 @@ f972627d  T0.8 doc-sync script
 
 ---
 
-## 3. 阶段 F 功能（37 行 / 24 未开工 + 12 ✅ done + 1 完成占位）
+## 3. 阶段 F 功能（37 行 / 20 未开工 + 16 ✅ done + 1 完成占位）
 
-> **口径说明**：37 表位 ÷ 状态 = 12 条 strikethrough ✅ done（F1.1 / F1.5 / F2.0 / F2.1 / F4.0 / F4.1 / F5.1 / F5.2 / F5.3 / F6.2 / F6.3 / F6.4）+ 1 条 F6.1 完成占位（由 T1.2-mid 接手 snapshot）+ 24 条未开工。“待做”传统口径只扣“完成占位”不扣 done，本文档接手人读“33 待做”时请同时看本说明。
+> **口径说明**：37 表位 ÷ 状态 = 16 条 strikethrough ✅ done（F1.1 / F1.2 / F1.5 / F2.0 / F2.1 / F2.2 / F4.0 / F4.1 / F4.2 / F5.1 / F5.2 / F5.3 / F6.2 / F6.3 / F6.4 / F7.1）+ 1 条 F6.1 完成占位（由 T1.2-mid 接手 snapshot）+ 20 条未开工。“待做”传统口径只扣“完成占位”不扣 done，本文档接手人读“29 待做”时请同时看本说明。
 >
 > 26 个原计划 + 5 个从推迟项补位（F4.0 / F6.3 / F6.4 / F6.5 / F14.1） + 1 个从 T0 前置项补位（F1.5） + 1 个 S5.1 schema 返修补位（F2.0） + 1 个 H6 前置补位（F15.1） + 3 个 Hybrid v2 拓扑占位（F3.2 / F3.3 / F3.4） = 37 表位。
 >
@@ -225,20 +226,20 @@ f972627d  T0.8 doc-sync script
 | ID | 标题 | 主要触动文件 | 验收 | 依赖 | Size | 并行 |
 |---|---|---|---|---|---|---|
 | ~~**F1.1**~~ ✅ done | `AgentExecutor` 解码 `node.config.exec` → `orchestration_launch_agent` 参数映射 + 错误分类（F1.2-1.4 留位） | `cmd/mcp-orch/orchestration/nodeexec/executor_agent.go` / commit `0f65833b` | 单测：provider/model/agent_key/effort/language/tools 映射正确；4 处 FailureClass 映射 + classifyAgentLaunchError | S1.3, S5.2 | M | Y |
-| **F1.2** | `AgentExecutor` 处理 `inputs`：注入 prev nodes results / sharedfiles | 同上 | 集成测试：节点 B 看到节点 A.result | F1.1 | M | N |
+| ~~**F1.2**~~ ✅ done | `AgentExecutor` 处理 `inputs`：注入 prev nodes results / sharedfiles（构造 RunContext + inputs.fromPrev / inputs.sharedFiles 注入到 prompt 前缀） | `cmd/mcp-orch/orchestration/nodeexec/executor_agent.go` + `nodeexec/inputs.go` + `nodeexec/executor_agent_inputs_test.go` / commit `3317b00f` + merge `877193cf` + 冲突修 `6f333dd1` | 单测覆盖 prev result 注入 / sharedfile 注入 / 缺失节点降级 / 双端口 wiring TODO | F1.1 | M | N |
 | **F1.3** | `AgentExecutor` 处理 `outputs`：写 sharedfile / node.result。**边界**：仅负责本节点输出落地，**不得调外部 webhook / 命令卡**——那属于 F3.2（hybrid agent→automation）路径，详 ADR-011 §4 Q3 | 同上 | 集成测试：sharedfile 内容正确写入；负面测试：agent 节点 outputs 中出现 webhook URL 字段被拒 | F1.2 | S | N |
 | **F1.4** | `AgentExecutor` 处理 transient/quota/validation 三类失败基础重试 | 同上 + `retry_strategy.go` 新建 | 单测：模拟三类失败重试次数正确 | F1.1, S7.1 | M | N |
 | ~~**F1.5**~~（T0.7 前置） ✅ done | `spawning_thread_id` 字段位：migration 0083 + AgentExecutor spawn 成功后 UPDATE + task_get_dag DTO 透出。详 ADR-009 | `migrations/0083_dag_v2_spawning_thread_id.sql` + `cmd/mcp-orch/orchestration/nodeexec/executor_agent.go` + `store/taskdag/store_node_spawn.go` + sqlc 手维 / commits `f111c12b` `edc22076` `2c2e0044` `61d41a7a` `4d8f0755` `bec17a85` + merge `b69e24da` + follow-up fix `970cb5aa`（从聚合 Store 拆出 NodeSpawnRecorderStore 过 archtest） | 单测全过：FirstSpawn / RetryOverwrite、3 种 assigned_to 形态 / RetryWithoutRunningRun_SoftMiss / InputValidation；PG 集成测试推迟 T0.1/T0.3 | F1.1 ✅ / S3.x migration 基设 | M | Y |
 | ~~**F2.0**~~（S5.1 schema 返修）✅ done | `AutomationExecConfig` 加 `Kind` 字段位（默认 `command_card`）+ `ParseAutomationConfig` 兜底「未知 kind → fail-fast 拒绝 / 空 kind → 默认 command_card」 / commit `3629a77a` | `cmd/mcp-orch/orchestration/nodeexec/config.go` + `config_test.go` | 单测全过：3 个新增用例（unknown kind 拒绝 / 空 kind 默认 / command_card round-trip） + 守卫全绿 | S5.1 ✅ / ADR-007 ✅ | S | Y |
 | ~~**F2.1**~~ ✅ done | `AutomationExecutor` 解码 `command_ref` → command_get + 执行 / commit `77e6e5bd` | `cmd/mcp-orch/orchestration/nodeexec/executor_automation.go` | 单测：happy / unsupported kind / command not found / timeout / nil launcher；错误分类按 ADR-008 口径 | S1.4, S5.2, F2.0 | M | Y（与 F1 并行） |
-| **F2.2** | `AutomationExecutor` 处理 inputs/outputs | 同上 | 集成测试 | F2.1 | S | N |
+| ~~**F2.2**~~ ✅ done | `AutomationExecutor` 处理 inputs/outputs（共用 nodeexec/inputs.go RunContext + 写回 node.result / sharedfile outputs） | `cmd/mcp-orch/orchestration/nodeexec/executor_automation.go` + `nodeexec/executor_automation_test.go` / commit `3d8526ab` + merge `4dd5307a` | 单测：inputs 注入到 command args / outputs 写 sharedfile / 错误分类按 ADR-008 | F2.1 | S | N |
 | **F3.1**（v1 单拓扑） | `HybridExecutor v1`：automation → agent verifier（等同 AutomationWithVerifier 语义）；v2 多向拓扑见 F3.2/F3.3/F3.4 占位。详 ADR-011 | `cmd/mcp-orch/orchestration/executor_hybrid.go` | 集成测试：automation 失败时 verifier 不跑；测试名带 v1 后缀 | F1, F2 完成 | M | N |
 | **F3.2**（v2 占位） | ⛔ 待 ADR-011a 拍板：`agent → automation` 拓扑（agent 输出触发 webhook / 写 sharedfile / 调命令卡） | `executor_hybrid.go` 内分支 | 集成测试 | F3.1 + ADR-011a | M | N |
 | **F3.3**（v2 占位） | ⛔ 待 ADR-011b 拍板：`agent A → agent B` 并行仲裁拓扑（与 F12.1 智能重试正交） | 同上 | 集成测试 | F3.1 + ADR-011b | M | N |
 | **F3.4**（v2 占位） | ⛔ 待 ADR-011c 拍板：`automation A → automation B` 编排两条命令卡 | 同上 | 集成测试 | F3.1 + ADR-011c | M | N |
 | ~~**F4.0**~~（顶层前置）✅ done | `ApplyOps` 顶层 unmarshal + 形状校验 + 错误分类（PT-2） | `cmd/mcp-orch/orchestration/dag.go` `ApplyOps` 顶层 + `nodeexec.Ops UnmarshalJSON` / commit `131feb75` | 单测：非法 op_kind / 缺字段 / 非法 base_version 全拒；错误分类清晰；`applyTypedOps` 仍 stub（F4.1+ 真业务） | T2.2 | S | Y |
 | ~~**F4.1**~~ ✅ done | `ApplyOps` add_node 真实实现 + Kahn 环检测（CycleError 携带 node_keys）+ OCC 双重护栏（pre-check + bump 失锁 post-check 都返 ErrVersionConflict） | `cmd/mcp-orch/orchestration/nodeexec/cycle.go` + `nodeexec/plan.go` + `orchestration/dag.go` + `dag_query.go` + `store/taskdag/store_dag_ops.go` + `store/sqlc/db_accessor.go` / commits `f716aa5c` `13a81828` `3b2e621e` `31aed200` + merge `e89f9231` | 21 单测：9 cycle（self-loop / diamond / external-dep-ignored / 3-node-loop） + 12 add_node（PT-4 raw ops 透传 + OCC + 重名 + 引用未知节点） | S2.2, T2.2, F4.0 | M | Y |
-| **F4.2** | `ApplyOps` update_node 真实实现 | 同上 | 单测 | F4.1 | S | N |
+| ~~**F4.2**~~ ✅ done | `ApplyOps` update_node 真实实现 + `NodePatch` strict UnmarshalJSON + `PlanUpdateNodes` 纯函数 + 节点 status 防御 + 同批 add+update 串行执行 | `cmd/mcp-orch/orchestration/dag.go` + `dag_ops_update_node_test.go` + `nodeexec/ops.go`（NodePatch + AssignedTo）+ `nodeexec/plan.go`（PlanUpdateNodes）+ `nodeexec/ops_update_node_test.go` + `nodeexec/plan_update_test.go` + `store/taskdag/store_dag_ops.go` UpdateNode / commits `7611c268` `65c977d8` `848f1188` + merge `d63a623d` + fix `6f333dd1` | 单测：未知字段拒 / 不可改字段拒 / 状态门禁（done 节点不可改 config）/ 同批 add 后 update / OCC | F4.1 | S | N |
 | **F4.3** | `ApplyOps` remove_node 真实实现（含级联清理依赖） | 同上 | 单测：被依赖节点不能删除 | F4.2 | M | N |
 | **F4.4** | `ApplyOps` update_dag 真实实现 | 同上 | 单测 | F4.1 | S | Y |
 | **F4.5** | `ApplyOps` `status=running` 时只允许 add_node + depends_on 指向 done 节点 | 同上 | 单测：违规 ops 被拒 | F4.1 | M | N |
@@ -250,7 +251,7 @@ f972627d  T0.8 doc-sync script
 | ~~**F6.3**~~ ✅ done | 节点完成时自动 promote 下游 pending→ready（S2.4 / B-14）。`PromoteSingleNodePendingToReady` SQL 用 status='pending' 作幂等护栏；与 F6.4 分工清晰（promote=状态机真相全集 PromotedDownstream / enqueue=路由后子集 ScheduledDownstream）。**部署注**：mcp-orch 服务重启后才生效。 | `cmd/mcp-orch/sql/queries/task_dag_node_write.sql` + `store/sqlc/task_dag_node_write.sql.go` 手维 + `store/taskdag/store_complete_downstream.go` + `store/taskdag/contract.go` PromotedDownstream 字段 / commits `303e01af` `34240412` `05d93f96` + merge `7f51b91e` | 10+ 单测：sequential / fan-out / diamond / idempotency / concurrent upstreams / unassigned + whitespace + mixed assignment + 5 F63 新测 | T1.2, S2.4 推迟 | M | N |
 | ~~**F6.4**~~ ✅ done | dispatcher 对无 assigned_to 节点**跳过自动 wakeup enqueue**（T0.9 / PE-1，实装方案 A，与 §10 follow-up DAG 73 证据对齐）；详 ADR-004 | `cmd/mcp-orch/orchestration/dag.go` `UpdateNodeStatus` 路由 + `cmd/mcp-orch/store/taskdag/store_complete_downstream.go` flow store 实装 + TrimSpace 守护测试 | 单测覆盖：无 assigned_to 节点不 enqueue wakeup，状态保持 pending（依赖已满足时承担 ready 语义）；commit `d068e04c` + `91057348` | F6.3（实际乱序：F6.4 先于 F6.3 done） | M | N |
 | **F6.5** | T1.2-full：复制节点带 run_id + allow 多 run 并发 | `RunStore` 节点复制 + `dag_lifecycle.go` + `StartDAG` 去 reject | 集成测试：同 DAG 两次 StartDAG 都成功，节点行各自 run_id 独立 | T1.2 (mid)、F6.3、F6.4 | L | N |
-| **F7.1** | AI 设计师 prompt（中文版） | `internal/...` prompt_template 表 seed 或 migration | 集成测试：prompt 注入完整可用资源列表 | T4.1-T4.4 | M | Y |
+| ~~**F7.1**~~ ✅ done | AI 设计师 prompt（中文版）seed 0084 + archtest 守护关键内容不被悄悄抽干 | `migrations/0084_seed_dag_designer_prompt_zh.sql` + `internal/archtest/dag_designer_prompt_seed_test.go` / commits `49fd0143` `52da9d36` + merge `94502cec` | archtest 校验 prompt 包含完整可用资源列表 / 关键指令 keyword 不丢失 | T4.1-T4.4 | M | Y |
 | **F7.2** | AI 设计师 prompt（英文版） | 同上 | 同上 | F7.1 | S | N |
 | **F8.1** | UI 节点编辑表单（typed schema → form field 映射规则） | `components/NodeEditForm.js` 新建 | 单测：schema 渲染对应控件 | S5.1 | L | Y（前端独立，**方案先发用户**） |
 | **F8.2** | UI 表单下拉框接 `list_models` / `list_prompt_templates` | 同上 | e2e：下拉框数据正确 | F8.1, T4.1-T4.4 | M | N |
