@@ -21,7 +21,10 @@ type recoveryManager struct {
 }
 
 const (
-	maxRecoveryAttempts      = 3
+	// maxRecoveryAttempts caps transport-level WS reconnect before escalating
+	// to session-level recovery (evict zombie + re-launch CLI). Set to 2 so
+	// a dead app-server port does not burn 3 pointless reconnect cycles.
+	maxRecoveryAttempts      = 2
 	healthCheckInterval      = 15 * time.Second
 	healthCheckIdleThreshold = 30 * time.Second
 )
@@ -153,7 +156,11 @@ func (s *session) attemptRecovery(reason string) error {
 		return s.failRecovery(reason, err)
 	}
 	if err := s.completeRecoveryReplay(reason); err != nil {
-		return err
+		// Replay failure means the transport connected but the session is
+		// unrecoverable at this level. Route through failRecovery so
+		// connection.dead is dispatched → thread layer can escalate to a
+		// full CLI re-launch (evict zombie + backgroundResume).
+		return s.failRecovery(reason, err)
 	}
 	s.recoveryCount.Store(0)
 	s.noteReadActivity()
