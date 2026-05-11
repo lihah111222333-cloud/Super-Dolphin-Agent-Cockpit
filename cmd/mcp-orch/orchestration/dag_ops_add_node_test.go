@@ -38,10 +38,21 @@ type stubDAGOpsStore struct {
 	bumpErr   error
 
 	// 调用观测
-	getVersionCalls int
-	listCalls       int
-	upsertCalls     []taskdag.Node
-	bumpCalls       []int64 // 调用 BumpDAGVersion 时传入的 expectedVersion
+	getVersionCalls      int // 调用 GetDAGVersionForUpdate 次数（事务内、带 FOR UPDATE）
+	getVersionLockCalls  int // = getVersionCalls 别名，错误消息里表达「锁」意图
+	getVersionReadCalls  int // 调用 GetDAGVersion 次数（事务外、不加锁）
+	listCalls            int
+	upsertCalls          []taskdag.Node
+	bumpCalls            []int64 // 调用 BumpDAGVersion 时传入的 expectedVersion
+}
+
+// GetDAGVersion (DAGVersionReader): 事务外只读路径，独立计数。
+func (s *stubDAGOpsStore) GetDAGVersion(_ context.Context, _ string) (int64, error) {
+	s.getVersionReadCalls++
+	if s.versionErr != nil {
+		return 0, s.versionErr
+	}
+	return s.currentVersion, nil
 }
 
 func (s *stubDAGOpsStore) GetDAG(_ context.Context, _ string) (*taskdag.DAG, error) {
@@ -420,5 +431,42 @@ func TestApplyOps_EmptyOps_NoopReturnsCurrentVersion(t *testing.T) {
 	}
 	if len(stub.upsertCalls) != 0 {
 		t.Fatalf("empty ops: upsert should not be called, got %d calls", len(stub.upsertCalls))
+	}
+	// R3 P2 #3 事务外短路断言：
+	//   - lockCalls=0：GetDAGVersionForUpdate 不应被调（避免白付 OCC 锁代价）
+	//   - readCalls=1：走 GetDAGVersion 事务外读（需要拿到当前 version 校 OCC）
+	//   - listCalls=0：不需 ListNodes（空 ops 不需环检测 plan）
+	if stub.getVersionCalls != 0 {
+		t.Fatalf("empty ops: GetDAGVersionForUpdate should not be called (lock-free path), got %d", stub.getVersionCalls)
+	}
+	if stub.getVersionReadCalls != 1 {
+		t.Fatalf("empty ops: GetDAGVersion read should be called exactly once, got %d", stub.getVersionReadCalls)
+	}
+	if stub.listCalls != 0 {
+		t.Fatalf("empty ops: ListNodes should not be called, got %d", stub.listCalls)
+	}
+}
+
+// R3 P2 #3 补充：空 ops + base_version stale 仍该返 OCC 冲突错，但仍走事务外。
+func TestApplyOps_EmptyOps_BaseVersionStale_ReturnsConflict(t *testing.T) {
+	stub := &stubDAGOpsStore{currentVersion: 9}
+	s := makeApplyOpsService(stub)
+	req := contract.ApplyOpsRequest{
+		DagKey:      "dag-a",
+		BaseVersion: 7, // stale
+		Ops:         json.RawMessage(`[]`),
+	}
+	_, err := s.ApplyOps(context.Background(), req)
+	if err == nil {
+		t.Fatal("empty ops stale base_version: want ErrVersionConflict, got nil")
+	}
+	if !errors.Is(err, ErrVersionConflict) {
+		t.Fatalf("empty ops stale base_version: err = %v, want errors.Is ErrVersionConflict", err)
+	}
+	if stub.getVersionCalls != 0 {
+		t.Fatalf("empty ops stale: should not lock, got getVersionCalls=%d", stub.getVersionCalls)
+	}
+	if stub.getVersionReadCalls != 1 {
+		t.Fatalf("empty ops stale: GetDAGVersion read should be called once, got %d", stub.getVersionReadCalls)
 	}
 }
