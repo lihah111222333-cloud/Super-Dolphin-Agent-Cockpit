@@ -1,6 +1,6 @@
 # ADR-009：DAG node ↔ child thread 双向追溯（spawning_thread_id）
 
-> 状态：📝 Proposed | 日期：2026-05-11 | 决策者：待定 | 相关：T0.7 / PD-2（骨架审查 finding）、F1.5（本 ADR 实装位）、T6.1 / T8.1（UI 节点行 → 子 agent thread 跳转）、ADR 0001 §2 三层架构
+> 状态：✅ Accepted | 日期：2026-05-11（Proposed）→ 2026-05-12（Accepted，F1.5 落地 + DTO 透出 + archtest 守护） | 决策者：项目维护者 | 相关：T0.7 / PD-2（骨架审查 finding）、F1.5（本 ADR 实装位）、T6.1 / T8.1（UI 节点行 → 子 agent thread 跳转）、ADR 0001 §2 三层架构
 
 ## 1. 背景
 

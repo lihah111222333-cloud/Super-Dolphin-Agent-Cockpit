@@ -166,3 +166,40 @@ F5 cron daemon / dispatcher 读到非枚举值会落 default 分支（行为未�
 **说明：** 本 CHECK 显式允许空串 '' —— 与 0074 DEFAULT '' 兼容。若后续把
 default 收敛为 'manual'，需独立 migration 同步把空串移出白名单。详见
 docs/plans/dag改造实施计划.md §10 follow-up「trigger_source default 收敛」。
+
+---
+
+## 0083 — task_dag_nodes.spawning_thread_id 列 + partial index
+
+**up：** `migrations/0083_dag_v2_spawning_thread_id.sql`
+
+**down（手工执行）：**
+
+```sql
+BEGIN;
+DROP INDEX IF EXISTS idx_task_dag_nodes_spawning_thread_id;
+ALTER TABLE task_dag_nodes DROP COLUMN IF EXISTS spawning_thread_id CASCADE;
+DELETE FROM schema_migrations WHERE filename = '0083_dag_v2_spawning_thread_id.sql';
+COMMIT;
+```
+
+**影响：** 删列后 F1.5 / ADR-009 提供的 thread↔node 软关联丢失。`AgentExecutor.RecordNodeSpawn` 调用会打 SQL 错（列不存在）；DTO `DAGNode.SpawningThreadID` 读不到列 → 需 mcp-orch 退回 F1.5 之前二进制。CASCADE 清理任何 partial index 依赖；spawning_thread_id 不带 FK / CHECK，不会连带别处。仅在严重随机问题需回退 F1.5 时才回滚。
+
+---
+
+## 0084 — AI 设计师 prompt seed（中文版 main/dag_designer_zh）
+
+**up：** `migrations/0084_seed_dag_designer_prompt_zh.sql`
+
+**down（手工执行）：**
+
+```sql
+BEGIN;
+DELETE FROM prompt_templates WHERE prompt_key = 'main/dag_designer_zh';
+DELETE FROM schema_migrations WHERE filename = '0084_seed_dag_designer_prompt_zh.sql';
+COMMIT;
+```
+
+**影响：** 删后 router 命中 `agent_key='dag_designer'` 会取不到 prompt，「AI 帮你设计流程」UI 按钮 / thread 入口会报 prompt missing。archtest `dag_designer_prompt_seed_test.go` 依赖本行存在 → 回滚后守护测试会跳红。仅在需回退 F7.1 或 prompt 内容废弃不再采用时才回滚。刷新内容请按 `docs/migrations/prompt-seed-policy.md` 规约写新 migration 走 DO UPDATE，不走 down+up 回滚。
+
+**参考：** `docs/migrations/prompt-seed-policy.md`。

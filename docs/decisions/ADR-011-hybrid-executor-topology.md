@@ -1,6 +1,6 @@
 # ADR-011：HybridExecutor 拓扑边界与未来扩展
 
-> 状态：📝 Proposed | 日期：2026-05-11 | 决策者：待定 | 相关：F3.1（HybridExecutor v1）、F3.2 / F3.3 / F3.4（v2 拓扑占位）、ADR 0001 §2.6 node_type=hybrid typed schema
+> 状态：v1 ✅ Accepted（F3.1 等同 AutomationWithVerifier 语义已稳定） / v2 拓扑（F3.2/F3.3/F3.4）仍 📝 Proposed 占位 | 日期：2026-05-11（Proposed）→ 2026-05-12（v1 Accepted） | 决策者：项目维护者 | 相关：F3.1（HybridExecutor v1）、F3.2 / F3.3 / F3.4（v2 拓扑占位）、ADR 0001 §2.6 node_type=hybrid typed schema
 
 ## 1. 背景
 

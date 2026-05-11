@@ -92,7 +92,15 @@
 - `hook_consumer.go`：bootstrap `after` hooks 消费器；同步 thread/state/turn/item/process 事件。
 - `runtime.go`：runtime port/provider 上报、provider 归一化、snapshot 组装。
 - `report.go`：agent report 聚合、report requester 跟踪、终态事件判定与 drain。
-- `dag.go`：DAG create/get/list/update 的 service 层映射，兼容旧 JSON 字段别名；Phase 3.5w 起 `UpdateNodeStatus` 在 `status="done"` 分支 type-assert `taskdag.NodeFlowStore` 走 `CompleteNodeAndScheduleDownstream` 自动入队下游 wakeup（不能 type-assert 时回退旧路径，兼容 mock store 测试）。
+- `dag.go`：DAG create/get/list/update 的 service 层映射，兼容旧 JSON 字段别名；Phase 3.5w 起 `UpdateNodeStatus` 在 `status="done"` 分支 type-assert `taskdag.NodeFlowStore` 走 `CompleteNodeAndScheduleDownstream` 自动入队下游 wakeup（不能 type-assert 时回退旧路径，兼容 mock store 测试）。**F4.1**（commit `13a81828` + merge `e89f9231`）起 `ApplyOps` add_node 真实业务实装：OCC 双重护栏（pre-check + bump 失锁 post-check）+ Kahn 环检测（`nodeexec/cycle.go` 的 `DetectCycle`）+ `applyTypedOps` helpers；**F4.2**（commits `7611c268` `65c977d8` `848f1188` + merge `d63a623d` + fix `6f333dd1`）起 `ApplyOps` update_node 真实业务，同批 add+update 串行执行、节点 status 门禁（done 节点不可改 config）；**F6.3**（commits `34240412` `05d93f96` + merge `7f51b91e`）起 `UpdateNodeStatus` done 分支走 store 同事务 `PromoteSingleNodePendingToReady`。
+- `dag_query.go`：DAG / Run / node 读查 + `applyTypedOps` 节点读 helpers；**F1.5** 起 task_get_dag DTO 透出 `spawning_thread_id`（commit `61d41a7a`）。
+- `nodeexec/` 子包：executor / typed ops / inputs / 环检测实现集中地。
+  - `nodeexec/cycle.go`：Kahn 环检测 `DetectCycle`（F4.1 / commit `f716aa5c`），返回 `CycleError` 携 `NodeKeys`。
+  - `nodeexec/ops.go`：typed ops payload + `NodePatch` strict UnmarshalJSON + `AssignedTo` 字段位（F4.2 / commit `7611c268`）。
+  - `nodeexec/plan.go`：`PlanUpdateNodes` 纯函数预算 update_node patch + 节点 status 防御（F4.2 / commit `65c977d8`）；不碰 store。
+  - `nodeexec/inputs.go`：`RunContext` + `InputsConfig` 沉淀 + `BuildPromptPrefix`（F1.2 / commit `3317b00f`）；AgentExecutor / AutomationExecutor 共用。
+  - `nodeexec/executor_agent.go`：AgentExecutor；F1.1 解码 exec、F1.2 注入 inputs、**F1.5** spawn 成功后调 `NodeSpawnRecorderStore.RecordNodeSpawn` 写回 `spawning_thread_id`（commit `2c2e0044`）。
+  - `nodeexec/executor_automation.go`：AutomationExecutor；F2.1 解码 command_ref + F2.2 处理 inputs/outputs（commit `3d8526ab` + merge `4dd5307a`）。
 - `dag_retry_policy.go`：Phase 3.5 helper —— 把 DAG metadata `schedule.{default_retry, fail_fast}` + node `config.execution.retry` 解析为 `RetryPolicy{MaxAttempts, FailFast}`，给 dispatcher 决定 retry vs fail 用。
 - `rpc.go`：编排 JSON-RPC handler 映射；把 RPC 参数转成 `contract` 请求。
 - `rpc_types.go`：RPC 入参结构与旧字段兼容（如 `agentId` / `dagKey` / `selectedSkills` / `outputSchema`）。
