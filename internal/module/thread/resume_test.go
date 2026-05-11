@@ -690,11 +690,18 @@ func (s *stubSessionStarter) ResumeSession(ctx context.Context, req dto.ResumeSe
 }
 
 type stubSessionProvider struct {
-	session contract.Session
-	removed []string
+	session  contract.Session
+	sessions map[string]contract.Session
+	removed  []string
 }
 
 func (p *stubSessionProvider) GetSession(agentID string) (contract.Session, error) {
+	// Check multi-agent sessions map first (used by eviction tests).
+	if p.sessions != nil {
+		if s, ok := p.sessions[agentID]; ok {
+			return s, nil
+		}
+	}
 	if p.session == nil {
 		return nil, fmt.Errorf("%w for agent %q", contract.ErrSessionNotFound, agentID)
 	}
@@ -703,6 +710,9 @@ func (p *stubSessionProvider) GetSession(agentID string) (contract.Session, erro
 
 func (p *stubSessionProvider) RemoveSession(agentID string) {
 	p.removed = append(p.removed, agentID)
+	if p.sessions != nil {
+		delete(p.sessions, agentID)
+	}
 	p.session = nil
 }
 
