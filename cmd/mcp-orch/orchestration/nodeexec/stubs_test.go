@@ -16,7 +16,8 @@ func stubExecutorCases() []struct {
 		exec     NodeExecutor
 		nodeType string
 	}{
-		{"AgentExecutor", AgentExecutor{}, "agent"},
+		// AgentExecutor 在 F1.1 后不再是 stub（见 executor_agent_test.go），
+		// 本表只覆盖仍为 stub 的 Automation / Hybrid。
 		{"AutomationExecutor", AutomationExecutor{}, "automation"},
 		{"HybridExecutor", HybridExecutor{}, "hybrid"},
 	}
@@ -24,7 +25,6 @@ func stubExecutorCases() []struct {
 
 func TestExecutorStubs_ImplementNodeExecutor(t *testing.T) {
 	// 编译期检查
-	var _ NodeExecutor = AgentExecutor{}
 	var _ NodeExecutor = AutomationExecutor{}
 	var _ NodeExecutor = HybridExecutor{}
 }
