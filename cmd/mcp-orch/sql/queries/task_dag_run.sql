@@ -94,3 +94,23 @@ WHERE r.dag_key = $1
   AND r.status = 'running'
   AND (SELECT final_status FROM final) IS NOT NULL
 RETURNING r.run_key, r.status;
+
+-- name: AppendTaskDagRunEvent :one
+-- F1.5: 把一个 JSON event append 到 task_dag_runs.events 数组。
+--
+-- 场景：AgentExecutor spawn 子 agent 时，如果是重试（旧 spawning_thread_id
+-- 已存在），把 {kind: "node_spawn", node_key, prev_thread_id, thread_id, ts}
+-- 落到 events 数组保留历史链。详 ADR-009 §3 / §5 Q4。
+--
+-- 当前实现：jsonb_set / array_append；events 列默认 '[]'::jsonb（参见 migration 0074）。
+-- WHERE 用 dag_key + status='running' 定位 0076 partial unique 保证的唯一 running run；
+-- 0 行返回（无 running run）调用方静默吞，不视为错误。
+--
+-- ADR-009 §5 Q4 留位：events 列未加 size_cap，M3 实测后可在此 query 加上
+-- 「只保最近 N 条 node_spawn」的环形截断逻辑。本骨架版本不带 cap。
+UPDATE task_dag_runs
+SET events     = events || $2::jsonb,
+    updated_at = NOW()
+WHERE dag_key = $1 AND status = 'running'
+RETURNING run_key;
+

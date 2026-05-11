@@ -9,7 +9,7 @@ SET title = EXCLUDED.title,
     command_ref = EXCLUDED.command_ref,
     config = EXCLUDED.config,
     updated_at = NOW()
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at;
+RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
 
 -- name: UpdateTaskDagNodeStatus :one
 UPDATE task_dag_nodes
@@ -17,13 +17,13 @@ SET status = $1,
     result = $2::jsonb,
     updated_at = NOW()
 WHERE dag_key = $3 AND node_key = $4
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at;
+RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
 
 -- name: UpdateTaskDagNodeStatusFlexible :one
 UPDATE task_dag_nodes
 SET status = $1, result = $2::jsonb, updated_at = NOW()
 WHERE dag_key = $3 AND node_key = $4
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at;
+RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
 
 -- name: PromoteSingleNodePendingToReady :execrows
 -- F6.3: 节点完成后自动 promote 单个下游 pending 节点到 ready。
@@ -41,4 +41,3 @@ SET status = 'ready',
 WHERE dag_key = $1
   AND node_key = $2
   AND status = 'pending';
-

@@ -12,6 +12,13 @@ sql:
       - "../../migrations/0073_dag_v2_node_columns.sql"
       - "../../migrations/0074_dag_v2_runs.sql"
       - "../../migrations/0075_dag_v2_compat.sql"
+      # NOTE: migration 0083 (spawning_thread_id) is intentionally NOT listed
+      # here because its idempotent guard wraps ALTER TABLE in a DO $$ ... $$
+      # PL/pgSQL block which sqlc v1.30's static parser cannot read. The
+      # generated TaskDagNode model was hand-edited to include the column;
+      # future sqlc regeneration after the migration runs through a real PG
+      # database should discover the column directly from the live schema.
+      # See migration 0083 header for the idempotency rationale.
     gen:
       go:
         package: "sqlc"

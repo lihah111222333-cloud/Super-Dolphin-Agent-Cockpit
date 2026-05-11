@@ -336,6 +336,10 @@ type DAGNode struct {
 	ActiveTurnID   *string         `json:"active_turn_id,omitempty"`
 	ActiveWakeupID *int64          `json:"active_wakeup_id,omitempty"`
 	LastEventAt    *time.Time      `json:"last_event_at,omitempty"`
+	// SpawningThreadID — DAG v2 F1.5 / ADR-009：AgentExecutor spawn 出的最近一
+	// 次 child agent thread id（软关联）；UI 用它拼「节点行 → 子 agent thread」
+	// 跳转链接，不再解析 result jsonb。NULL 表示未 spawn / 本节点非 agent。
+	SpawningThreadID *string `json:"spawning_thread_id,omitempty"`
 }
 
 type DAGDetail struct {

@@ -21,7 +21,7 @@ WHERE dag_key = $2
   AND status = 'running'
   AND active_turn_id IS NULL
   AND active_wakeup_id = $4
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at
+RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
 `
 
 type BindRunningTaskDagNodeTurnParams struct {
@@ -58,6 +58,7 @@ func (q *Queries) BindRunningTaskDagNodeTurn(ctx context.Context, arg BindRunnin
 		&i.ActiveTurnID,
 		&i.ActiveWakeupID,
 		&i.LastEventAt,
+		&i.SpawningThreadID,
 	)
 	return i, err
 }
@@ -67,7 +68,7 @@ UPDATE task_dag_nodes
 SET status = $1, result = $2::jsonb, active_turn_id = NULL, active_wakeup_id = NULL,
     finished_at = COALESCE(finished_at, NOW()), updated_at = NOW()
 WHERE dag_key = $3 AND node_key = $4 AND status IN ('running', 'awaiting_verify')
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at
+RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
 `
 
 type CompleteTaskDagNodeParams struct {
@@ -104,6 +105,7 @@ func (q *Queries) CompleteTaskDagNode(ctx context.Context, arg CompleteTaskDagNo
 		&i.ActiveTurnID,
 		&i.ActiveWakeupID,
 		&i.LastEventAt,
+		&i.SpawningThreadID,
 	)
 	return i, err
 }
@@ -117,7 +119,7 @@ WHERE dag_key = $2
   AND status = 'running'
   AND active_turn_id = $4
   AND (last_event_at IS NULL OR last_event_at < $1)
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at
+RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
 `
 
 type TouchRunningTaskDagNodeEventParams struct {
@@ -154,6 +156,7 @@ func (q *Queries) TouchRunningTaskDagNodeEvent(ctx context.Context, arg TouchRun
 		&i.ActiveTurnID,
 		&i.ActiveWakeupID,
 		&i.LastEventAt,
+		&i.SpawningThreadID,
 	)
 	return i, err
 }
@@ -162,7 +165,7 @@ const updateAwaitingVerifyTaskDagNodeStatus = `-- name: UpdateAwaitingVerifyTask
 UPDATE task_dag_nodes
 SET status = $1, result = $2::jsonb, active_turn_id = NULL, active_wakeup_id = NULL, updated_at = NOW()
 WHERE dag_key = $3 AND node_key = $4 AND status IN ('running')
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at
+RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
 `
 
 type UpdateAwaitingVerifyTaskDagNodeStatusParams struct {
@@ -199,6 +202,7 @@ func (q *Queries) UpdateAwaitingVerifyTaskDagNodeStatus(ctx context.Context, arg
 		&i.ActiveTurnID,
 		&i.ActiveWakeupID,
 		&i.LastEventAt,
+		&i.SpawningThreadID,
 	)
 	return i, err
 }
@@ -208,7 +212,7 @@ UPDATE task_dag_nodes
 SET status = $1, result = $2::jsonb, active_turn_id = NULL, active_wakeup_id = $3,
     last_event_at = NULL, started_at = COALESCE(started_at, NOW()), updated_at = NOW()
 WHERE dag_key = $4 AND node_key = $5 AND status IN ('pending')
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at
+RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
 `
 
 type UpdateRunningTaskDagNodeStatusParams struct {
@@ -247,6 +251,7 @@ func (q *Queries) UpdateRunningTaskDagNodeStatus(ctx context.Context, arg Update
 		&i.ActiveTurnID,
 		&i.ActiveWakeupID,
 		&i.LastEventAt,
+		&i.SpawningThreadID,
 	)
 	return i, err
 }
