@@ -182,15 +182,17 @@ type stubAutomationSharedFileReader struct {
 	calls   []string
 }
 
-func (s *stubAutomationSharedFileReader) ReadSharedFile(_ context.Context, path string) (string, error) {
+// 端口收敛 batch 后 SharedFileReader 统一为 (content, exists, err) 三态。
+// 本测试 stub 用 ok 表达 exists；not-found 不再走 err 路径，避免与基础设施 err 混淆。
+func (s *stubAutomationSharedFileReader) ReadSharedFile(_ context.Context, path string) (string, bool, error) {
 	s.calls = append(s.calls, path)
 	if s.err != nil {
-		return "", s.err
+		return "", false, s.err
 	}
 	if v, ok := s.content[path]; ok {
-		return v, nil
+		return v, true, nil
 	}
-	return "", errors.New("not found: " + path)
+	return "", false, nil
 }
 
 type stubAutomationSharedFileWriter struct {

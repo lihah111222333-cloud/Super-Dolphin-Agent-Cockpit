@@ -2,7 +2,6 @@ package nodeexec
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -35,10 +34,8 @@ import (
 // 仍可直接调 service.LaunchAgent（向后兼容）。F2/F3 才统一切到 NodeExecutor，
 // 届时 dispatcher 路径也会自动走 F1.5 写回。
 type AgentExecutor struct {
-	launcher    AgentLauncher
-	recorder    NodeSpawnRecorder
-	prevResults PrevNodeResultReader // F1.2: nil → inputs.from_nodes 被判为 validation 失败
-	sharedfiles SharedfileReader     // F1.2: nil → inputs.from_sharedfiles 被判为 validation 失败
+	launcher AgentLauncher
+	recorder NodeSpawnRecorder
 }
 
 // AgentLauncher 是 AgentExecutor 拉起子 agent 的最小接口面。
@@ -75,88 +72,36 @@ type NodeSpawnRecorder interface {
 	RecordNodeSpawn(ctx context.Context, dagKey, nodeKey, threadID string) error
 }
 
-// PrevNodeResultReader 是 F1.2 inputs.from_nodes 注入路径的窄端口：按
-// (dag_key, node_key) 读取上游节点的 task_dag_nodes.result JSONB。
+// PrevNodeResultReader 以及 SharedfileReader 的 F1.2 端口已于收敛 batch 走。
+// AgentExecutor 现在统一从 RunContext 拿：
+//   - inputs.from_nodes 读取 → RunContext.PrevResults（dispatcher 预取后填入）；
+//   - inputs.from_sharedfiles 读取 → RunContext.SharedFileReader（三态返值端口）。
 //
-// 语义合约：
-//   - 节点不存在（DAG 内无此 node_key）→ Exists=false，err=nil；
-//     AgentExecutor 据此把整个 inputs.from_nodes 引用归类为 validation 失败。
-//   - 节点存在但 result 列为 NULL / 空 JSON / 节点未 done → Exists=true，
-//     Result 可能是 nil 或空字节切片；AgentExecutor 注入空占位而不报错
-//     （上游节点可能合法配置 outputs.to_node_result=false，没必要拒跑下游）。
-//   - 任何 IO / DB 错误透传到 err；AgentExecutor 通过 classifyAgentLaunchError
-//     归类（默认 transient）。
+// 这样 AgentExecutor 与 AutomationExecutor 走同一个 inputs 端口语义，避免两条路径漂移。
+// PrevNodeResultReader / SharedfileReader 两个接口已被删除；生产侧 inputs 调用方
+// 只需填 RunContext。
 //
-// 生产实现可由 store/taskdag.DAGDetailStore.ListNodes 适配（F1.2 wiring 留给
-// 上层 service 接通；本 task 仅锁端口与 executor 行为）。
-//
-// PrevNodeResultReader is the F1.2 inputs.from_nodes port. Production wires
-// it to a taskdag store adapter; tests inject stubs. Contract: Exists=false
-// means the node_key is absent from the DAG (validation), Exists=true with
-// empty Result means upstream did not persist a result (inject placeholder),
-// non-nil err is an infra failure surfaced via classifyAgentLaunchError.
-type PrevNodeResultReader interface {
-	GetNodeResult(ctx context.Context, dagKey, nodeKey string) (result json.RawMessage, exists bool, err error)
-}
+// F1.2 prev/sharedfile readers were collapsed into RunContext fields so the
+// two executors share one inputs surface. PrevNodeResultReader and
+// SharedfileReader interfaces have been removed; callers wire data into
+// RunContext.PrevResults / RunContext.SharedFileReader instead.
 
-// SharedfileReader 是 F1.2 inputs.from_sharedfiles 注入路径的窄端口：按 path
-// 读取 sharedfile 正文。
-//
-// 语义合约：
-//   - 文件不存在 → Exists=false，err=nil；AgentExecutor 归类为 validation 失败。
-//   - 任何 IO / DB / 解码错误 → err 非 nil，AgentExecutor 通过
-//     classifyAgentLaunchError 归类（默认 transient）。
-//
-// 生产实现可由 store/sharedfile.Reader.Get 适配（包装 platformdb.ErrNotFound
-// 为 Exists=false）；本 task 仅锁端口与 executor 行为。
-//
-// SharedfileReader is the F1.2 inputs.from_sharedfiles port. Exists=false →
-// validation; non-nil err → classified as transient by default. Production
-// adapts sharedfile.Reader.Get and maps platformdb.ErrNotFound to
-// Exists=false.
-type SharedfileReader interface {
-	ReadSharedfile(ctx context.Context, path string) (content string, exists bool, err error)
-}
 
 // NewAgentExecutor 构造一个 AgentExecutor。launcher 为 nil 时仍返回非 nil
 // executor —— Execute 在 launch 阶段把它归为 validation 失败（让 dispatcher
 // 走 by_class[validation] 策略，不至于直接 panic）。
 //
-// recorder 为 nil 时 Execute 跳过 F1.5 写回（仅 launch），保留 F1.1 旧行为；
-// 这是有意的渐进 wiring，让既有调用方不必一次性升级。
+// recorder 为 nil 时 Execute 跳过 F1.5 写回（仅 launch），保留 F1.1 旧行为。
+// inputs 端口（prev results / sharedfile reader）现已走 RunContext，不再进构造器。
 //
 // NewAgentExecutor returns an executor; passing a nil launcher does not panic
 // — Execute classifies it as a validation failure so the dispatcher can
 // decide how to surface the misconfiguration instead of crashing the run
-// loop. A nil recorder simply skips the F1.5 write-back, preserving F1.1
-// behaviour for callers that have not yet plumbed the store in.
+// loop. A nil recorder simply skips the F1.5 write-back. Inputs ports
+// (prev-results / sharedfile reader) now live on RunContext rather than the
+// constructor.
 func NewAgentExecutor(launcher AgentLauncher, recorder NodeSpawnRecorder) *AgentExecutor {
 	return &AgentExecutor{launcher: launcher, recorder: recorder}
-}
-
-// NewAgentExecutorWithInputs 是 F1.2 扩展构造器，额外注入 inputs 读取端口。
-// prevResults / sharedfiles 任一为 nil 时，对应来源被视为未接通：
-// 节点配置中出现 inputs.from_nodes / inputs.from_sharedfiles 会在 Execute 期
-// 走 validation 失败（避免默默吃掉注入需求）。与 F1.5 nil recorder 的 「静
-// 默降级」不同：inputs 是节点语义的一部分，nil reader 意味着不能履行。
-//
-// NewAgentExecutorWithInputs is F1.2's extended constructor. A nil prev /
-// sharedfile reader means the corresponding input source is *not wired*; any
-// node config that references it surfaces as a validation failure. This is
-// intentionally different from the F1.5 nil-recorder "silent skip": inputs
-// are part of node semantics, not auxiliary write-back.
-func NewAgentExecutorWithInputs(
-	launcher AgentLauncher,
-	recorder NodeSpawnRecorder,
-	prevResults PrevNodeResultReader,
-	sharedfiles SharedfileReader,
-) *AgentExecutor {
-	return &AgentExecutor{
-		launcher:    launcher,
-		recorder:    recorder,
-		prevResults: prevResults,
-		sharedfiles: sharedfiles,
-	}
 }
 
 // Execute 解码 node.config.exec → 调 launcher.LaunchAgent → 包装成 NodeOutcome。

@@ -2,6 +2,7 @@ package nodeexec
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -52,7 +53,7 @@ func (e *AgentExecutor) assembleInputs(
 	}
 	dagKey := resolveDagKey(runCtx, node)
 
-	sections, err, class := e.collectInputSections(ctx, &cfg.Inputs, dagKey)
+	sections, err, class := collectInputSections(ctx, &cfg.Inputs, dagKey, runCtx)
 	if err != nil {
 		return "", err, class
 	}
@@ -84,16 +85,20 @@ func resolveDagKey(runCtx RunContext, node Node) string {
 // collectInputSections 依次拉取 from_nodes / from_sharedfiles 两节，返回
 // 非空节的拼接列表。拆出的意义：避免 assembleInputs CC 超阈。
 //
+// inputs 数据源均走 RunContext（PrevResults / SharedFileReader），收敛 batch 后与
+// AutomationExecutor 共享同一端口语义。
+//
 // collectInputSections loads each configured source and returns the non-empty
 // sections; split out to keep assembleInputs under the cyclomatic budget.
-func (e *AgentExecutor) collectInputSections(
+func collectInputSections(
 	ctx context.Context,
 	in *InputsConfig,
 	dagKey string,
+	runCtx RunContext,
 ) ([]string, error, FailureClass) {
 	var sections []string
 	if len(in.FromNodes) > 0 {
-		section, err, class := e.loadFromNodes(ctx, dagKey, in.FromNodes)
+		section, err, class := loadFromNodes(dagKey, in.FromNodes, runCtx.PrevResults)
 		if err != nil {
 			return nil, err, class
 		}
@@ -102,7 +107,7 @@ func (e *AgentExecutor) collectInputSections(
 		}
 	}
 	if len(in.FromSharedfiles) > 0 {
-		section, err, class := e.loadFromSharedfiles(ctx, in.FromSharedfiles)
+		section, err, class := loadFromSharedfiles(ctx, in.FromSharedfiles, runCtx.SharedFileReader)
 		if err != nil {
 			return nil, err, class
 		}
@@ -115,16 +120,16 @@ func (e *AgentExecutor) collectInputSections(
 
 // loadFromNodes 拉取 cfg.Inputs.FromNodes 列出的 prev node result。
 //
-// reader == nil 但配置非空 → validation（避免默默吞掉注入需求）。
+// prev == nil 但配置非空 → validation（避免默默吞掉注入需求）。
 // node_key 不存在 → validation。
 // result 为空 → 注入「(empty)」占位（上游可能未配 outputs.to_node_result）。
-func (e *AgentExecutor) loadFromNodes(
-	ctx context.Context,
+func loadFromNodes(
 	dagKey string,
 	nodeKeys []string,
+	prev map[string]json.RawMessage,
 ) (string, error, FailureClass) {
-	if e.prevResults == nil {
-		return "", fmt.Errorf("%w: inputs.from_nodes set but prev-results reader not wired", ErrInputsValidation), FailureClassValidation
+	if prev == nil {
+		return "", fmt.Errorf("%w: inputs.from_nodes set but RunContext.PrevResults not wired", ErrInputsValidation), FailureClassValidation
 	}
 	if dagKey == "" {
 		return "", fmt.Errorf("%w: cannot resolve from_nodes without dag_key (runCtx + node both empty)", ErrInputsValidation), FailureClassValidation
@@ -138,11 +143,8 @@ func (e *AgentExecutor) loadFromNodes(
 			// 空串 → 静默跳过，不是 validation 错（取其尽量汇入意图）。
 			continue
 		}
-		result, exists, err := e.prevResults.GetNodeResult(ctx, dagKey, key)
-		if err != nil {
-			return "", fmt.Errorf("read prev node %q result: %w", key, err), classifyAgentLaunchError(err)
-		}
-		if !exists {
+		result, ok := prev[key]
+		if !ok {
 			return "", fmt.Errorf("%w: from_nodes references unknown node_key %q", ErrInputsValidation, key), FailureClassValidation
 		}
 		fmt.Fprintf(&b, "## node:%s\n", key)
@@ -162,12 +164,13 @@ func (e *AgentExecutor) loadFromNodes(
 //
 // reader == nil 但配置非空 → validation。文件不存在 → validation。读失败 →
 // classifyAgentLaunchError（一般 transient）。
-func (e *AgentExecutor) loadFromSharedfiles(
+func loadFromSharedfiles(
 	ctx context.Context,
 	paths []string,
+	reader SharedFileReader,
 ) (string, error, FailureClass) {
-	if e.sharedfiles == nil {
-		return "", fmt.Errorf("%w: inputs.from_sharedfiles set but sharedfile reader not wired", ErrInputsValidation), FailureClassValidation
+	if reader == nil {
+		return "", fmt.Errorf("%w: inputs.from_sharedfiles set but RunContext.SharedFileReader not wired", ErrInputsValidation), FailureClassValidation
 	}
 
 	var b strings.Builder
@@ -177,7 +180,7 @@ func (e *AgentExecutor) loadFromSharedfiles(
 		if path == "" {
 			continue
 		}
-		content, exists, err := e.sharedfiles.ReadSharedfile(ctx, path)
+		content, exists, err := reader.ReadSharedFile(ctx, path)
 		if err != nil {
 			return "", fmt.Errorf("read sharedfile %q: %w", path, err), classifyAgentLaunchError(err)
 		}
