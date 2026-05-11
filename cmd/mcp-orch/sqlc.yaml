@@ -12,13 +12,34 @@ sql:
       - "../../migrations/0073_dag_v2_node_columns.sql"
       - "../../migrations/0074_dag_v2_runs.sql"
       - "../../migrations/0075_dag_v2_compat.sql"
-      # NOTE: migration 0083 (spawning_thread_id) is intentionally NOT listed
-      # here because its idempotent guard wraps ALTER TABLE in a DO $$ ... $$
-      # PL/pgSQL block which sqlc v1.30's static parser cannot read. The
-      # generated TaskDagNode model was hand-edited to include the column;
-      # future sqlc regeneration after the migration runs through a real PG
-      # database should discover the column directly from the live schema.
-      # See migration 0083 header for the idempotency rationale.
+      # =====================================================================
+      # HAND-MAINTAINED SQLC OUTPUT — read before running `make sqlc` or upgrading sqlc.
+      # =====================================================================
+      # As of 2026-05-11 several generated files under store/sqlc/ were hand-
+      # edited to ship F1.5 / F4.1 / F6.3 without forcing a sqlc v1.30 → v1.31+
+      # upgrade. Re-running `make sqlc` against the current schema set (or
+      # against a live PG with all migrations applied) will OVERWRITE these
+      # edits. Re-apply each marker afterwards or upgrade sqlc and re-test.
+      #
+      # Hand-edited files (all under cmd/mcp-orch/store/sqlc/):
+      #   1. models.go                          — TaskDagNode.SpawningThreadID column (F1.5)
+      #   2. task_dag_node_read.sql.go          — SELECT list + Scan (F1.5)
+      #   3. task_dag_node_runtime.sql.go       — SELECT list + Scan (F1.5)
+      #   4. task_dag_node_write.sql.go         — INSERT/UPDATE columns + RETURNING
+      #                                            + PromoteSingleNodePendingToReady
+      #                                            (F1.5 + F6.3)
+      #   5. task_dag_node_spawning_thread.sql.go — entire file new (F1.5 CTE)
+      #   6. task_dag_run.sql.go                — AppendTaskDagRunEvent (F1.5)
+      #   7. db_accessor.go                     — QueriesDB(*Queries) DBTX bypass (F4.1)
+      #
+      # Migrations intentionally NOT in the schema list below:
+      #   - 0083 (spawning_thread_id): sqlc v1.30 static parser cannot read
+      #     its DO $$ ... $$ PL/pgSQL idempotency guard. See migration 0083
+      #     header for the idempotency rationale.
+      #
+      # Long-term fix tracked in dag改造实施计划.md follow-up: either
+      # upgrade sqlc to a version that handles DO blocks, or move idempotent
+      # ALTER TABLE guards into a wrapping shell that sqlc can ignore.
     gen:
       go:
         package: "sqlc"
