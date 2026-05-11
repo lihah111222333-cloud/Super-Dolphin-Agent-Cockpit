@@ -188,3 +188,84 @@ func stringValue(p *string) string {
 	}
 	return *p
 }
+
+// TestRecordNodeSpawn_EventsRingTrim_KeepsLastFifty 验证端口收敛 batch 实装的
+// task_dag_runs.events 环形截断：append 多于 50 条 node_spawn 事件时，仅保留
+// 最近 50 条（按时间序最早的被踢出）。R1 P1 #5 + R2 P0 #2 修复。
+//
+// 流程：让同一节点重试 N 次（thread-1 → thread-2 → ... → thread-N），每次重试
+// （prev != new）都会 append 一条事件。检验 N=60 时 events 长度=50，且最早的
+// 10 条已被丢弃，最近 50 条 thread_id 是 thread-11 … thread-60 范围。
+//
+// 50 阈值是 AppendTaskDagRunEvent SQL 内 CASE 写死的；阈值变更时改 SQL 后本测试
+// 跟改 expectedCap 即可。
+func TestRecordNodeSpawn_EventsRingTrim_KeepsLastFifty(t *testing.T) {
+	const expectedCap = 50
+	const totalSpawns = 60
+
+	store, db, _ := newSpawnRecorderTestStore()
+	seedDAG(t, db, db.now, []seedNode{
+		{key: "n1", deps: nil, status: "running", agent: "agent-a"},
+	})
+	seedRun(db, "dag-1", "run-A")
+
+	for i := 1; i <= totalSpawns; i++ {
+		threadID := "thread-" + itoa(i)
+		_, err := store.RecordNodeSpawn(context.Background(), RecordNodeSpawnInput{
+			DagKey: "dag-1", NodeKey: "n1", ThreadID: threadID,
+		})
+		if err != nil {
+			t.Fatalf("spawn %d error = %v", i, err)
+		}
+	}
+
+	run := db.runs["run-A"]
+	var arr []map[string]any
+	if err := json.Unmarshal(run.Events, &arr); err != nil {
+		t.Fatalf("decode events: %v; raw=%s", err, run.Events)
+	}
+	// 60 spawns: 第 1 次首发不写 events（prev 空），第 2..60 次每次写 1 条 → 共 59 条。
+	// 59 > 50 → 截断保留最后 50 条。最早保留的是第 11 次写入的事件（覆盖 thread-10→thread-11）。
+	if len(arr) != expectedCap {
+		t.Fatalf("events length = %d, want %d (ring trim)", len(arr), expectedCap)
+	}
+	// 第一条保留的应是 thread_id=thread-11、prev_thread_id=thread-10。
+	first := arr[0]
+	if first["thread_id"] != "thread-11" {
+		t.Fatalf("first kept event thread_id = %v, want thread-11", first["thread_id"])
+	}
+	if first["prev_thread_id"] != "thread-10" {
+		t.Fatalf("first kept event prev_thread_id = %v, want thread-10", first["prev_thread_id"])
+	}
+	// 最后一条应是最新的：thread-60 / prev thread-59。
+	last := arr[expectedCap-1]
+	if last["thread_id"] != "thread-60" {
+		t.Fatalf("last event thread_id = %v, want thread-60", last["thread_id"])
+	}
+	if last["prev_thread_id"] != "thread-59" {
+		t.Fatalf("last event prev_thread_id = %v, want thread-59", last["prev_thread_id"])
+	}
+}
+
+// itoa 本地小转字符串，避免引 strconv（保持 import 表干净）。
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+	var buf [20]byte
+	i := len(buf)
+	for n > 0 {
+		i--
+		buf[i] = byte('0' + n%10)
+		n /= 10
+	}
+	if neg {
+		i--
+		buf[i] = '-'
+	}
+	return string(buf[i:])
+}

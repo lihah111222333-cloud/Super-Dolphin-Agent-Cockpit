@@ -102,14 +102,24 @@ RETURNING r.run_key, r.status;
 -- 已存在），把 {kind: "node_spawn", node_key, prev_thread_id, thread_id, ts}
 -- 落到 events 数组保留历史链。详 ADR-009 §3 / §5 Q4。
 --
--- 当前实现：jsonb_set / array_append；events 列默认 '[]'::jsonb（参见 migration 0074）。
+-- 环形截断（R1 P1 #5 + R2 P0 #2）：events 列若不限长会无界增长，单条 run 高频重试
+-- 时尾部能膨胀到几十 KB jsonb 数据，拖累 task_get_run 列表 / Detail 渲染。本 query
+-- 在 append 后保留**最近 50 条**事件——CASE 内 jsonb_array_length 判断 + 截尾片段
+-- 走 jsonb_array_elements WITH ORDINALITY 重组。50 是经验值，覆盖典型 retry 链
+-- （单节点 7 次重试 × 多节点）仍留富余；阈值需要调整时改 50 字面常量即可。
+--
 -- WHERE 用 dag_key + status='running' 定位 0076 partial unique 保证的唯一 running run；
 -- 0 行返回（无 running run）调用方静默吞，不视为错误。
---
--- ADR-009 §5 Q4 留位：events 列未加 size_cap，M3 实测后可在此 query 加上
--- 「只保最近 N 条 node_spawn」的环形截断逻辑。本骨架版本不带 cap。
 UPDATE task_dag_runs
-SET events     = events || $2::jsonb,
+SET events     = CASE
+        WHEN jsonb_array_length(events || $2::jsonb) <= 50
+            THEN events || $2::jsonb
+        ELSE COALESCE((
+            SELECT jsonb_agg(elem ORDER BY ord)
+            FROM jsonb_array_elements(events || $2::jsonb) WITH ORDINALITY AS t(elem, ord)
+            WHERE ord > jsonb_array_length(events || $2::jsonb) - 50
+        ), '[]'::jsonb)
+    END,
     updated_at = NOW()
 WHERE dag_key = $1 AND status = 'running'
 RETURNING run_key;
