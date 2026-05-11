@@ -392,24 +392,27 @@ func dagSummaryDTO(item taskdag.DAG) DAGSummary {
 
 func dagNodeDTO(item taskdag.Node) DAGNode {
 	return DAGNode{
-		ID:             item.ID,
-		DagKey:         item.DagKey,
-		NodeKey:        item.NodeKey,
-		Title:          item.Title,
-		NodeType:       item.NodeType,
-		AssignedTo:     item.AssignedTo,
-		DependsOn:      decodeDependsOn(item.DependsOn),
-		Status:         item.Status,
-		CommandRef:     item.CommandRef,
-		Config:         append(json.RawMessage(nil), item.Config...),
-		Result:         append(json.RawMessage(nil), item.Result...),
-		StartedAt:      shared.CloneTime(item.StartedAt),
-		FinishedAt:     shared.CloneTime(item.FinishedAt),
-		CreatedAt:      item.CreatedAt,
-		UpdatedAt:      item.UpdatedAt,
-		ActiveTurnID:   cloneString(item.ActiveTurnID),
-		ActiveWakeupID: cloneInt64(item.ActiveWakeupID),
-		LastEventAt:    shared.CloneTime(item.LastEventAt),
+		ID:               item.ID,
+		DagKey:           item.DagKey,
+		NodeKey:          item.NodeKey,
+		Title:            item.Title,
+		NodeType:         item.NodeType,
+		AssignedTo:       item.AssignedTo,
+		DependsOn:        decodeDependsOn(item.DependsOn),
+		Status:           item.Status,
+		CommandRef:       item.CommandRef,
+		Config:           append(json.RawMessage(nil), item.Config...),
+		Result:           append(json.RawMessage(nil), item.Result...),
+		StartedAt:        shared.CloneTime(item.StartedAt),
+		FinishedAt:       shared.CloneTime(item.FinishedAt),
+		CreatedAt:        item.CreatedAt,
+		UpdatedAt:        item.UpdatedAt,
+		ActiveTurnID:     cloneString(item.ActiveTurnID),
+		ActiveWakeupID:   cloneInt64(item.ActiveWakeupID),
+		LastEventAt:      shared.CloneTime(item.LastEventAt),
+		// F1.5 / ADR-009: spawning_thread_id 透出给 task_get_dag / DAG detail
+		// 调用方（UI 拼「节点行 → 子 agent thread」跳转链接）。
+		SpawningThreadID: cloneString(item.SpawningThreadID),
 	}
 }
 
