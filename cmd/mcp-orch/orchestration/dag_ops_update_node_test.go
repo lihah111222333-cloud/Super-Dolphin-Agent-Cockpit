@@ -390,3 +390,79 @@ func TestApplyOps_UpdateNode_NodeNotFound(t *testing.T) {
 		t.Errorf("err = %v, should mention 'not found'", err)
 	}
 }
+
+// ---- duplicate update_node within batch (R2 P1) ----
+
+// TestApplyOps_UpdateNode_DuplicateKeyWithinBatch 同批两个 update_node 指同
+// node_key → reject，不许后写覆盖。R2 P1 设计决策：fail-fast 避免「隐式合并
+// patch」语义歧义。用两种「判定接口」：errors.Is ErrApplyOpsInvalid +
+// errors.Is ErrDuplicateOpForNode。
+func TestApplyOps_UpdateNode_DuplicateKeyWithinBatch(t *testing.T) {
+	stub := &stubDAGOpsStore{
+		currentVersion: 0,
+		nodes: []taskdag.Node{
+			{NodeKey: "n1", Status: "pending", DependsOn: json.RawMessage(`[]`)},
+		},
+	}
+	s := makeApplyOpsService(stub)
+	req := contract.ApplyOpsRequest{
+		DagKey:      "dag-a",
+		BaseVersion: 0,
+		Ops: json.RawMessage(`[
+			{"op":"update_node","node_key":"n1","patch":{"title":"first"}},
+			{"op":"update_node","node_key":"n1","patch":{"title":"second"}}
+		]`),
+	}
+	_, err := s.ApplyOps(context.Background(), req)
+	if err == nil {
+		t.Fatal("duplicate update within batch: want err, got nil")
+	}
+	if !errors.Is(err, ErrApplyOpsInvalid) {
+		t.Errorf("err = %v, want errors.Is ErrApplyOpsInvalid", err)
+	}
+	if !errors.Is(err, ErrDuplicateOpForNode) {
+		t.Errorf("err = %v, want errors.Is ErrDuplicateOpForNode", err)
+	}
+	if !strings.Contains(err.Error(), "n1") {
+		t.Errorf("err = %v, should mention 'n1'", err)
+	}
+	// 同时必须没走 store 写入（fail-fast 在事务前）。
+	if len(stub.upsertCalls) != 0 {
+		t.Errorf("dup update: store 不该被调用，upsertCalls=%d", len(stub.upsertCalls))
+	}
+}
+
+// TestApplyOps_UpdateNode_DistinctKeysInBatch 防误伤：两个不同 node_key 的
+// update_node 必须能共存。与 dup 检测配对吃到一起越界。
+func TestApplyOps_UpdateNode_DistinctKeysInBatch(t *testing.T) {
+	stub := &stubDAGOpsStore{
+		currentVersion: 0,
+		nodes: []taskdag.Node{
+			{DagKey: "dag-a", NodeKey: "n1", Title: "old1", NodeType: "agent", Status: "pending", DependsOn: json.RawMessage(`[]`)},
+			{DagKey: "dag-a", NodeKey: "n2", Title: "old2", NodeType: "agent", Status: "pending", DependsOn: json.RawMessage(`[]`)},
+		},
+	}
+	s := makeApplyOpsService(stub)
+	req := contract.ApplyOpsRequest{
+		DagKey:      "dag-a",
+		BaseVersion: 0,
+		Ops: json.RawMessage(`[
+			{"op":"update_node","node_key":"n1","patch":{"title":"new1"}},
+			{"op":"update_node","node_key":"n2","patch":{"title":"new2"}}
+		]`),
+	}
+	resp, err := s.ApplyOps(context.Background(), req)
+	if err != nil {
+		t.Fatalf("distinct keys: err = %v, want nil", err)
+	}
+	if resp.NewVersion != 1 {
+		t.Errorf("NewVersion = %d, want 1", resp.NewVersion)
+	}
+	if len(stub.upsertCalls) != 2 {
+		t.Errorf("distinct keys: upsertCalls=%d, want 2", len(stub.upsertCalls))
+	}
+}
+
+// _ = nodeexec import 保留：上面测试已在用 nodeexec.ErrNodePatchBannedField。
+var _ = nodeexec.ErrNodePatchBannedField
+
