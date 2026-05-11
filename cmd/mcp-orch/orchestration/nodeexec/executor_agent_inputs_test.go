@@ -385,15 +385,28 @@ func TestAgentExecutor_Inputs_PreservesF15_ThreadIDWriteback(t *testing.T) {
 
 // TestErrInputsValidation_IsSentinel 锁住 errors.Is 可见 ErrInputsValidation，
 // 便于上层（F1.4 dispatcher / 测试）按哨兵识别 inputs-stage 验证失败。
+//
+// 收敛 batch 第 4 项后：loadFromNodes 返 *InputsError；errors.Is 通过 Unwrap 链
+// 仍可命中 ErrInputsValidation；errors.As 一次拿 FailureClass。
 func TestErrInputsValidation_IsSentinel(t *testing.T) {
-	_, err, class := loadFromNodes("dag-x", []string{"missing"}, map[string]json.RawMessage{})
-	if err == nil {
+	_, ierr := loadFromNodes("dag-x", []string{"missing"}, map[string]json.RawMessage{})
+	if ierr == nil {
 		t.Fatalf("expected validation error for missing node_key")
 	}
-	if !errors.Is(err, ErrInputsValidation) {
-		t.Fatalf("errors.Is(err, ErrInputsValidation) = false; err=%v", err)
+	if !errors.Is(ierr, ErrInputsValidation) {
+		t.Fatalf("errors.Is(ierr, ErrInputsValidation) = false; err=%v", ierr)
 	}
-	if class != FailureClassValidation {
-		t.Fatalf("class = %q, want validation", class)
+	if ierr.Class != FailureClassValidation {
+		t.Fatalf("Class = %q, want validation", ierr.Class)
+	}
+
+	// errors.As also resolves to *InputsError type for callers that want the
+	// full struct (Class + wrapped Err) without the variable-binding shortcut.
+	var via *InputsError
+	if !errors.As(error(ierr), &via) {
+		t.Fatalf("errors.As(ierr, &*InputsError) = false")
+	}
+	if via.Class != FailureClassValidation {
+		t.Fatalf("via.Class = %q, want validation", via.Class)
 	}
 }

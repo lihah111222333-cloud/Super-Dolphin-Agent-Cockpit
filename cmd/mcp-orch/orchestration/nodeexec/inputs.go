@@ -18,49 +18,110 @@ import (
 // decision the blueprint did not pin down) lives in one place that H7
 // summarization can later rewrite.
 
-// ErrInputsValidation 是 inputs 装载阶段被判为“节点配置错误”的 sentinel。
+// ErrInputsValidation 是 inputs 装载阶段被判为「节点配置错误」的 sentinel。
 // 例：from_nodes 引用不存在的 node_key；from_sharedfiles 引用不存在的 path；
-// 未接通 reader 但节点 inputs 又引用了。assembleInputs 返回时同时携带
-// FailureClassValidation；测试可用 errors.Is 该哨兵断言。
+// 未接通 reader 但节点 inputs 又引用了。assembleInputs 返回的 *InputsError 通过
+// Unwrap 把它暴露出来，调用方可以用 errors.Is(err, ErrInputsValidation) 断言。
 //
 // ErrInputsValidation marks inputs-stage failures that should map to
 // FailureClass=validation (missing node_key / missing sharedfile / inputs
-// referenced but reader not wired). assembleInputs returns it alongside the
-// validation class so callers can errors.Is in tests.
+// referenced but reader not wired). Unwrapped through *InputsError so
+// callers can errors.Is on it.
 var ErrInputsValidation = errors.New("nodeexec: inputs validation")
+
+// InputsError 是 assembleInputs 的结构化错误返回。
+// 收敛 batch 第 4 项：把原来三参解构 (string, error, FailureClass) 升级为
+// (string, *InputsError)，让 errors.As 一次拿到 FailureClass，并保留 Unwrap
+// 链给 errors.Is(ErrInputsValidation) 用。
+//
+// 设计要点：
+//   - Class 永远非空（FailureClassValidation / Transient 等）；
+//   - Err 是底层因（fmt.Errorf 包装或 sentinel）；
+//   - 实现 error 接口透传 Err.Error()；Unwrap 透传 Err，errors.Is/As 自然穿透。
+//
+// InputsError is the structured error returned by assembleInputs after the
+// port-unification batch. Callers run errors.As(err, &inputsErr) once to get
+// both the message and the FailureClass; errors.Is(err, ErrInputsValidation)
+// still works through the Unwrap chain.
+type InputsError struct {
+	Class FailureClass
+	Err   error
+}
+
+// Error implements error. nil-safe (returns "").
+func (e *InputsError) Error() string {
+	if e == nil || e.Err == nil {
+		return ""
+	}
+	return e.Err.Error()
+}
+
+// Unwrap exposes the wrapped error so errors.Is(ErrInputsValidation) and
+// errors.As(target) keep working through the InputsError shell.
+func (e *InputsError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+// newInputsValidationError 是构造 validation 类 InputsError 的小工厂；
+// 帮 loadFromNodes / loadFromSharedfiles 等保持简洁。
+func newInputsValidationError(format string, args ...any) *InputsError {
+	return &InputsError{
+		Class: FailureClassValidation,
+		Err:   fmt.Errorf("%w: "+format, append([]any{ErrInputsValidation}, args...)...),
+	}
+}
+
+// newInputsInfraError 是构造基础设施类 InputsError 的小工厂；
+// class 由 classifyAgentLaunchError 决定（默认 transient）。
+func newInputsInfraError(format string, args ...any) *InputsError {
+	// 取 args 中最后一个 error 作 classify 来源；按当前调用只在 reader / store
+	// 报错路径用，约定调用方把底层 err 放最后即可。
+	var underlying error
+	if len(args) > 0 {
+		if e, ok := args[len(args)-1].(error); ok {
+			underlying = e
+		}
+	}
+	return &InputsError{
+		Class: classifyAgentLaunchError(underlying),
+		Err:   fmt.Errorf(format, args...),
+	}
+}
 
 // assembleInputs 按 cfg.Inputs 拉取 prev nodes result + sharedfiles，拼成一个
 // 将注入到 LaunchRequest.Prompt 头部的前缀字符串。
 //
 // 返回值：
 //   - prefix：拼接后的文本。空表示无需注入（cfg.Inputs 为空）。
-//   - err：担结原因。为 nil 表示装载成功。
-//   - class：err 非 nil 时携带的 FailureClass。使调用方不用重推。
+//   - inputsErr：失败原因（结构化，含 Class）；nil 表示装载成功。
 //
 // assembleInputs gathers configured prev results / sharedfiles into a single
-// prompt prefix. Returns (prefix, nil, "") on success. On failure returns
-// ("", err, class) where class is FailureClassValidation for missing refs /
-// missing readers, and the transient/quota default for infra errors flowing
-// through classifyAgentLaunchError.
+// prompt prefix. Returns (prefix, nil) on success. On failure returns
+// ("", *InputsError) with Class set to validation for missing refs / missing
+// readers, transient/quota etc. for infra errors flowing through
+// classifyAgentLaunchError.
 func (e *AgentExecutor) assembleInputs(
 	ctx context.Context,
 	cfg *AgentNodeConfig,
 	runCtx RunContext,
 	node Node,
-) (string, error, FailureClass) {
+) (string, *InputsError) {
 	if cfg == nil || !inputsConfigured(&cfg.Inputs) {
-		return "", nil, ""
+		return "", nil
 	}
 	dagKey := resolveDagKey(runCtx, node)
 
-	sections, err, class := collectInputSections(ctx, &cfg.Inputs, dagKey, runCtx)
-	if err != nil {
-		return "", err, class
+	sections, ierr := collectInputSections(ctx, &cfg.Inputs, dagKey, runCtx)
+	if ierr != nil {
+		return "", ierr
 	}
 	if len(sections) == 0 {
-		return "", nil, ""
+		return "", nil
 	}
-	return strings.Join(sections, "\n\n"), nil, ""
+	return strings.Join(sections, "\n\n"), nil
 }
 
 // inputsConfigured 报告 cfg.Inputs 是否含需要拉取的来源。
@@ -95,27 +156,27 @@ func collectInputSections(
 	in *InputsConfig,
 	dagKey string,
 	runCtx RunContext,
-) ([]string, error, FailureClass) {
+) ([]string, *InputsError) {
 	var sections []string
 	if len(in.FromNodes) > 0 {
-		section, err, class := loadFromNodes(dagKey, in.FromNodes, runCtx.PrevResults)
-		if err != nil {
-			return nil, err, class
+		section, ierr := loadFromNodes(dagKey, in.FromNodes, runCtx.PrevResults)
+		if ierr != nil {
+			return nil, ierr
 		}
 		if section != "" {
 			sections = append(sections, section)
 		}
 	}
 	if len(in.FromSharedfiles) > 0 {
-		section, err, class := loadFromSharedfiles(ctx, in.FromSharedfiles, runCtx.SharedFileReader)
-		if err != nil {
-			return nil, err, class
+		section, ierr := loadFromSharedfiles(ctx, in.FromSharedfiles, runCtx.SharedFileReader)
+		if ierr != nil {
+			return nil, ierr
 		}
 		if section != "" {
 			sections = append(sections, section)
 		}
 	}
-	return sections, nil, ""
+	return sections, nil
 }
 
 // loadFromNodes 拉取 cfg.Inputs.FromNodes 列出的 prev node result。
@@ -127,12 +188,12 @@ func loadFromNodes(
 	dagKey string,
 	nodeKeys []string,
 	prev map[string]json.RawMessage,
-) (string, error, FailureClass) {
+) (string, *InputsError) {
 	if prev == nil {
-		return "", fmt.Errorf("%w: inputs.from_nodes set but RunContext.PrevResults not wired", ErrInputsValidation), FailureClassValidation
+		return "", newInputsValidationError("inputs.from_nodes set but RunContext.PrevResults not wired")
 	}
 	if dagKey == "" {
-		return "", fmt.Errorf("%w: cannot resolve from_nodes without dag_key (runCtx + node both empty)", ErrInputsValidation), FailureClassValidation
+		return "", newInputsValidationError("cannot resolve from_nodes without dag_key (runCtx + node both empty)")
 	}
 
 	var b strings.Builder
@@ -145,7 +206,7 @@ func loadFromNodes(
 		}
 		result, ok := prev[key]
 		if !ok {
-			return "", fmt.Errorf("%w: from_nodes references unknown node_key %q", ErrInputsValidation, key), FailureClassValidation
+			return "", newInputsValidationError("from_nodes references unknown node_key %q", key)
 		}
 		fmt.Fprintf(&b, "## node:%s\n", key)
 		if len(result) == 0 {
@@ -157,7 +218,7 @@ func loadFromNodes(
 			b.WriteByte('\n')
 		}
 	}
-	return b.String(), nil, ""
+	return b.String(), nil
 }
 
 // loadFromSharedfiles 拉取 cfg.Inputs.FromSharedfiles 列出的文件内容。
@@ -168,9 +229,9 @@ func loadFromSharedfiles(
 	ctx context.Context,
 	paths []string,
 	reader SharedFileReader,
-) (string, error, FailureClass) {
+) (string, *InputsError) {
 	if reader == nil {
-		return "", fmt.Errorf("%w: inputs.from_sharedfiles set but RunContext.SharedFileReader not wired", ErrInputsValidation), FailureClassValidation
+		return "", newInputsValidationError("inputs.from_sharedfiles set but RunContext.SharedFileReader not wired")
 	}
 
 	var b strings.Builder
@@ -182,10 +243,10 @@ func loadFromSharedfiles(
 		}
 		content, exists, err := reader.ReadSharedFile(ctx, path)
 		if err != nil {
-			return "", fmt.Errorf("read sharedfile %q: %w", path, err), classifyAgentLaunchError(err)
+			return "", newInputsInfraError("read sharedfile %q: %w", path, err)
 		}
 		if !exists {
-			return "", fmt.Errorf("%w: from_sharedfiles references unknown path %q", ErrInputsValidation, path), FailureClassValidation
+			return "", newInputsValidationError("from_sharedfiles references unknown path %q", path)
 		}
 		fmt.Fprintf(&b, "## sharedfile:%s\n", path)
 		b.WriteString(content)
@@ -193,7 +254,7 @@ func loadFromSharedfiles(
 			b.WriteByte('\n')
 		}
 	}
-	return b.String(), nil, ""
+	return b.String(), nil
 }
 
 // composePrompt 拼接 inputs 前缀与 first_turn。F1.2 设计决策：
