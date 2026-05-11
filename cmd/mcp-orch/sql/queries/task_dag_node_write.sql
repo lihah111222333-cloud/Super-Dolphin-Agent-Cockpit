@@ -11,15 +11,11 @@ SET title = EXCLUDED.title,
     updated_at = NOW()
 RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
 
--- name: UpdateTaskDagNodeStatus :one
-UPDATE task_dag_nodes
-SET status = $1,
-    result = $2::jsonb,
-    updated_at = NOW()
-WHERE dag_key = $3 AND node_key = $4
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
-
 -- name: UpdateTaskDagNodeStatusFlexible :one
+-- 名字 "Flexible" 表示不附带 status 前置约束——调用方负责检查状态机合法转移。
+-- 历史上曾与 UpdateTaskDagNodeStatus 两份 SQL 并存，但后者在 F4.2 / F6 后变成
+-- 与本查询逻辑上完全重复的 dead code。R1 dead code 清理：仅保留 Flexible
+-- 一项权威版本，store.UpdateNodeStatus 同样外调本 query。
 UPDATE task_dag_nodes
 SET status = $1, result = $2::jsonb, updated_at = NOW()
 WHERE dag_key = $3 AND node_key = $4
