@@ -188,6 +188,9 @@ func (db *fakeTaskDAGDB) QueryRow(_ context.Context, sql string, args ...any) pg
 	case strings.Contains(sql, "UpdateTaskDagNodeStatusFlexible"):
 		values, err := db.updateNodeStatusFlexible(args...)
 		return stubTaskDAGRow{values: values, err: err}
+	case strings.Contains(sql, "UpdateRunningTaskDagNodeStatus"):
+		values, err := db.updateRunningNodeStatus(args...)
+		return stubTaskDAGRow{values: values, err: err}
 	case strings.Contains(sql, "UpdateTaskDagNodeSpawningThread"):
 		// F1.5: CTE 同时返回新及旧 spawning_thread_id。
 		values, err := db.updateNodeSpawningThread(args...)
@@ -552,6 +555,52 @@ func (db *fakeTaskDAGDB) listTaskDagNodes(args ...any) ([][]any, error) {
 		rows = append(rows, taskDagNodeValues(db.nodes[k]))
 	}
 	return rows, nil
+}
+
+// updateRunningNodeStatus mirrors the W4-fence UpdateRunningTaskDagNodeStatus
+// SQL: only flip when current status is in ('pending','ready') (matches the
+// production fence post W4 fix). Returns pgx.ErrNoRows otherwise so the store
+// surfaces the same "not in fence" path as production.
+func (db *fakeTaskDAGDB) updateRunningNodeStatus(args ...any) ([]any, error) {
+	if len(args) != 5 {
+		return nil, fmt.Errorf("running update args len = %d, want 5", len(args))
+	}
+	status, ok := args[0].(string)
+	if !ok {
+		return nil, fmt.Errorf("status arg = %T", args[0])
+	}
+	result, ok := args[1].([]byte)
+	if !ok {
+		return nil, fmt.Errorf("result arg = %T", args[1])
+	}
+	wakeupID, ok := args[2].(sqlc.Int8)
+	if !ok {
+		return nil, fmt.Errorf("wakeup id arg = %T", args[2])
+	}
+	dagKey, ok := args[3].(string)
+	if !ok {
+		return nil, fmt.Errorf("dag key arg = %T", args[3])
+	}
+	nodeKey, ok := args[4].(string)
+	if !ok {
+		return nil, fmt.Errorf("node key arg = %T", args[4])
+	}
+	key := dagNodeKey(dagKey, nodeKey)
+	row, ok := db.nodes[key]
+	if !ok || (row.Status != "pending" && row.Status != "ready") {
+		return nil, pgx.ErrNoRows
+	}
+	row.Status = status
+	row.Result = append([]byte(nil), result...)
+	row.ActiveTurnID = sqlc.Text{}
+	row.ActiveWakeupID = wakeupID
+	row.LastEventAt = sqlc.Timestamptz{}
+	if !row.StartedAt.Valid {
+		row.StartedAt = timestamptzValue(db.now)
+	}
+	row.UpdatedAt = timestamptzValue(db.now)
+	db.nodes[key] = row
+	return taskDagNodeValues(row), nil
 }
 
 func (db *fakeTaskDAGDB) updateNodeStatusFlexible(args ...any) ([]any, error) {
