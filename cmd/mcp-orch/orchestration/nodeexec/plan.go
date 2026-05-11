@@ -136,3 +136,131 @@ func NormalizeDependsOn(deps []string) []string {
 	}
 	return out
 }
+
+// =====================================================
+// F4.2: PlanUpdateNodes —— update_node ops 校验 + adjacency 推导
+// =====================================================
+
+// ErrUpdateNodePlan 是 PlanUpdateNodes 校验失败时的 sentinel。
+// 调用方（service.applyTypedOps）会把它包成 ErrApplyOpsInvalid。
+var ErrUpdateNodePlan = errors.New("update_node plan: invalid request")
+
+// ExistingNodeFull 是 PlanUpdateNodes 看节点的最小投影：含 status，
+// 用于 F4.5 提前防御（running / 终态 节点不许 update）。
+type ExistingNodeFull struct {
+	NodeKey   string
+	DependsOn []string
+	Status    string
+}
+
+// UpdateNodeChange 是 PlanUpdateNodes 输出的已校验、待持久化的单条变更。
+// 字段语义沿用 NodePatch：调用方在 store 层调 UpsertNode 时根据 Patch 三态
+// 决定哪些列写入新值、哪些列保留旧值。
+type UpdateNodeChange struct {
+	NodeKey string
+	Patch   NodePatch
+}
+
+// updateNodeStatusAllowed 列出 update_node 允许触发的节点 status 集合。
+// F4.2 节点维度防御：pending / ready 才允许 update；其他状态拒。
+// F4.5 再补 DAG.status 维度做完整防御。
+var updateNodeStatusAllowed = map[string]struct{}{
+	string(NodeStatusPending): {},
+	string(NodeStatusReady):   {},
+}
+
+// PlanUpdateNodes 走两遍 pass：
+//  1. 校验单个 op：op_kind 必须 update_node / node_key 非空 / 目标节点存在
+//     / 目标 status ∈ {pending, ready} / patch.depends_on 不自依赖。
+//  2. 校验 depends_on 引用：必须命中现有节点 key 集合。
+//
+// 返回：adjacency（已应用 patch.depends_on 三态语义，传给 DetectCycle）/
+// 已通过校验的 UpdateNodeChange 列表（保留 ops 原顺序，供 service 顺序
+// UpsertNode）/ 错误。
+func PlanUpdateNodes(ops Ops, existing []ExistingNodeFull) (map[string][]string, []UpdateNodeChange, error) {
+	adjacency, byKey := seedAdjacencyFull(existing)
+	known := knownKeys(byKey)
+	changes := make([]UpdateNodeChange, 0, len(ops))
+	for i, op := range ops {
+		change, err := updateChangeFromOp(i, op)
+		if err != nil {
+			return nil, nil, err
+		}
+		node, ok := byKey[change.NodeKey]
+		if !ok {
+			return nil, nil, fmt.Errorf("%w: ops[%d] update_node node_key %q not found", ErrUpdateNodePlan, i, change.NodeKey)
+		}
+		if err := ensureUpdatableStatus(i, change.NodeKey, node.Status); err != nil {
+			return nil, nil, err
+		}
+		if err := applyDependsOnPatch(i, change, adjacency, known); err != nil {
+			return nil, nil, err
+		}
+		changes = append(changes, change)
+	}
+	return adjacency, changes, nil
+}
+
+// seedAdjacencyFull 是 seedAdjacency 的 Full 版：把 ExistingNodeFull 列表
+// 灌进 adjacency + 按 key 索引节点。
+func seedAdjacencyFull(existing []ExistingNodeFull) (map[string][]string, map[string]ExistingNodeFull) {
+	adjacency := make(map[string][]string, len(existing))
+	byKey := make(map[string]ExistingNodeFull, len(existing))
+	for _, n := range existing {
+		adjacency[n.NodeKey] = append([]string(nil), n.DependsOn...)
+		byKey[n.NodeKey] = n
+	}
+	return adjacency, byKey
+}
+
+// knownKeys 抽出 byKey 的 key 集合（PlanUpdateNodes 校验 depends_on 引用时用）。
+func knownKeys(byKey map[string]ExistingNodeFull) map[string]struct{} {
+	out := make(map[string]struct{}, len(byKey))
+	for k := range byKey {
+		out[k] = struct{}{}
+	}
+	return out
+}
+
+// updateChangeFromOp 把 Op 强转为 OpUpdateNode 并归一化 NodeKey。
+func updateChangeFromOp(idx int, op Op) (UpdateNodeChange, error) {
+	upd, ok := op.(OpUpdateNode)
+	if !ok {
+		return UpdateNodeChange{}, fmt.Errorf("%w: ops[%d] not update_node (got %s)", ErrUpdateNodePlan, idx, op.Kind())
+	}
+	key := strings.TrimSpace(upd.NodeKey)
+	if key == "" {
+		return UpdateNodeChange{}, fmt.Errorf("%w: ops[%d] update_node node_key required", ErrUpdateNodePlan, idx)
+	}
+	return UpdateNodeChange{NodeKey: key, Patch: upd.Patch}, nil
+}
+
+// ensureUpdatableStatus F4.5 提前防御：节点 status 必须 ∈ updateNodeStatusAllowed。
+// running / 终态 / retrying / waiting_human 一律拒。
+func ensureUpdatableStatus(idx int, key, status string) error {
+	if _, ok := updateNodeStatusAllowed[status]; !ok {
+		return fmt.Errorf("%w: ops[%d] update_node %q status=%q not updatable (allowed: pending|ready)", ErrUpdateNodePlan, idx, key, status)
+	}
+	return nil
+}
+
+// applyDependsOnPatch 处理 patch.DependsOn 三态：
+//   - nil 不改 → adjacency 保留 existing
+//   - *[] / *[a,b] 改 → adjacency 写入新值（NormalizeDependsOn 去空去重）；
+//     校验：不自依赖 / 引用 key 必须在 known 集合内
+func applyDependsOnPatch(idx int, change UpdateNodeChange, adjacency map[string][]string, known map[string]struct{}) error {
+	if change.Patch.DependsOn == nil {
+		return nil
+	}
+	deps := NormalizeDependsOn(*change.Patch.DependsOn)
+	for _, d := range deps {
+		if d == change.NodeKey {
+			return fmt.Errorf("%w: ops[%d] update_node %q depends on itself", ErrUpdateNodePlan, idx, change.NodeKey)
+		}
+		if _, ok := known[d]; !ok {
+			return fmt.Errorf("%w: ops[%d] update_node %q depends on unknown node %q", ErrUpdateNodePlan, idx, change.NodeKey, d)
+		}
+	}
+	adjacency[change.NodeKey] = deps
+	return nil
+}
