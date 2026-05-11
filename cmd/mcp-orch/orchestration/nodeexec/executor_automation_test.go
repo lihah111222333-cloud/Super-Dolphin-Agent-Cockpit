@@ -249,17 +249,17 @@ func TestAutomationExecutor_Inputs_InjectsFromNodes(t *testing.T) {
 	if merged["target"] != "prod" {
 		t.Fatalf("original arg target lost: %#v", merged)
 	}
-	inputs, ok := merged["inputs"].(map[string]any)
+	inputs, ok := merged["__inputs"].(map[string]any)
 	if !ok {
-		t.Fatalf("inputs subobject missing: %#v", merged)
+		t.Fatalf("__inputs subobject missing: %#v", merged)
 	}
 	fromNodes, ok := inputs["from_nodes"].(map[string]any)
 	if !ok {
-		t.Fatalf("inputs.from_nodes missing: %#v", inputs)
+		t.Fatalf("__inputs.from_nodes missing: %#v", inputs)
 	}
 	plan, ok := fromNodes["plan"].(map[string]any)
 	if !ok {
-		t.Fatalf("inputs.from_nodes.plan not an object: %#v", fromNodes["plan"])
+		t.Fatalf("__inputs.from_nodes.plan not an object: %#v", fromNodes["plan"])
 	}
 	if plan["summary"] != "build prod" {
 		t.Fatalf("plan.summary = %v, want 'build prod'", plan["summary"])
@@ -300,7 +300,7 @@ func TestAutomationExecutor_Inputs_ReservedKeyConflict_Validation(t *testing.T) 
 	node := makeAutomationNode(t, AutomationNodeConfig{
 		Exec: AutomationExecConfig{
 			CommandRef: "k",
-			Args:       json.RawMessage(`{"inputs":"already-there"}`),
+			Args:       json.RawMessage(`{"__inputs":"already-there"}`),
 		},
 		Inputs: InputsConfig{FromNodes: []string{"a"}},
 	})
@@ -556,8 +556,8 @@ func TestAutomationExecutor_EmptyInputsOutputs_KeepsF21Behaviour(t *testing.T) {
 	if err := json.Unmarshal(runner.lastArgs, &got); err != nil {
 		t.Fatalf("unmarshal lastArgs: %v", err)
 	}
-	if _, hasInputs := got["inputs"]; hasInputs {
-		t.Fatalf("lastArgs should not contain injected inputs key on empty Inputs config: %#v", got)
+	if _, hasInputs := got["__inputs"]; hasInputs {
+		t.Fatalf("lastArgs should not contain injected __inputs key on empty Inputs config: %#v", got)
 	}
 }
 

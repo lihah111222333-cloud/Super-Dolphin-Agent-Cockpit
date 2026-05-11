@@ -360,12 +360,16 @@ func validateAutomationOutputs(raw json.RawMessage, _ *AutomationNodeConfig) *No
 	return nil
 }
 
-// buildAutomationRunArgs 把 cfg.Inputs 指定的 prev_results / sharedfiles 合并到 args.inputs 子对象。
+// buildAutomationRunArgs 把 cfg.Inputs 指定的 prev_results / sharedfiles 合并到 args.__inputs 子对象。
 // 返回的 json.RawMessage 用于 RunCommandCard；原 cfg.Exec.Args 不被修改。
+//
+// 收敛 batch 第 6 项（R1 P2 #4）：reserved key 从 "inputs" 改为 "__inputs"（双下划线
+// 前缀），避免与普通 command_card args 用户自定义的 "inputs" 字段冲突。command_template
+// 渲染路径用 `{{.__inputs.from_nodes.X}}` 访问。
 //
 // 合并规则：
 //   - inputs.FromNodes / FromSharedfiles 都空 → 返回原 args，F2.1 happy 路径不变；
-//   - args 本身已包含 "inputs" key → validation（避免隐式覆盖）；
+//   - args 本身已包含 "__inputs" key → validation（避免隐式覆盖）；
 //   - FromNodes 里的 node_key 在 PrevResults 中不存在 → validation；
 //   - FromSharedfiles 非空 但 SharedFileReader == nil → validation；读失败走 classify 分类。
 func buildAutomationRunArgs(ctx context.Context, cfg *AutomationNodeConfig, runCtx RunContext) (json.RawMessage, *NodeOutcome) {
@@ -381,7 +385,7 @@ func buildAutomationRunArgs(ctx context.Context, cfg *AutomationNodeConfig, runC
 	if failure != nil {
 		return nil, failure
 	}
-	argsMap["inputs"] = injected
+	argsMap["__inputs"] = injected
 	merged, err := json.Marshal(argsMap)
 	if err != nil {
 		outcome := failedAutomationOutcome(FailureClassValidation, "marshal merged command args: "+err.Error())
@@ -390,7 +394,7 @@ func buildAutomationRunArgs(ctx context.Context, cfg *AutomationNodeConfig, runC
 	return merged, nil
 }
 
-// decodeArgsForInjection 把 cfg.Exec.Args 解码为 map，同时拒绝占用 reserved “inputs” key 的原始 args。
+// decodeArgsForInjection 把 cfg.Exec.Args 解码为 map，同时拒绝占用 reserved "__inputs" key 的原始 args。
 // 该 helper 拆出是为了压住 buildAutomationRunArgs 的圏复杂度（代码守卫阈 CC ≤ 10）。
 func decodeArgsForInjection(raw json.RawMessage) (map[string]any, *NodeOutcome) {
 	argsMap := map[string]any{}
@@ -400,15 +404,15 @@ func decodeArgsForInjection(raw json.RawMessage) (map[string]any, *NodeOutcome) 
 			return nil, &outcome
 		}
 	}
-	if _, conflict := argsMap["inputs"]; conflict {
+	if _, conflict := argsMap["__inputs"]; conflict {
 		outcome := failedAutomationOutcome(FailureClassValidation,
-			"command args already define reserved key \"inputs\"; remove it before injecting Inputs config")
+			"command args already define reserved key \"__inputs\"; remove it before injecting Inputs config")
 		return nil, &outcome
 	}
 	return argsMap, nil
 }
 
-// buildInputsPayload 面向 cfg.Inputs 生成最终注入 args.inputs 子对象的 map；nil failure 表示成功。
+// buildInputsPayload 面向 cfg.Inputs 生成最终注入 args.__inputs 子对象的 map；nil failure 表示成功。
 func buildInputsPayload(ctx context.Context, in InputsConfig, runCtx RunContext) (map[string]any, *NodeOutcome) {
 	injected := map[string]any{}
 	fromNodes, failure := collectPrevResults(in.FromNodes, runCtx.PrevResults)
