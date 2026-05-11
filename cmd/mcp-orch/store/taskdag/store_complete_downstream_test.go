@@ -374,7 +374,226 @@ func TestCompleteNodeAndScheduleDownstream_MixedAssignmentFanOut(t *testing.T) {
 	}
 }
 
+// TestCompleteNodeAndScheduleDownstream_F63_PromotesPendingToReadyWithAssignedTo
+// F6.3 核心场景：A done 后单个有 assigned_to 的下游 B
+//   - status: pending → ready（PromoteSingleNodePendingToReady）
+//   - PromotedDownstream 中含 B
+//   - ScheduledDownstream 中含 B（F6.4 路由不跳过非空 assigned_to）
+func TestCompleteNodeAndScheduleDownstream_F63_PromotesPendingToReadyWithAssignedTo(t *testing.T) {
+	t.Parallel()
+
+	store, db, now := newTaskDAGTestStore()
+	seedDAG(t, db, now, []seedNode{
+		{key: "A", deps: nil, status: "running", agent: "agent-a"},
+		{key: "B", deps: []string{"A"}, status: "pending", agent: "agent-b"},
+	})
+
+	res, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
+		DagKey: "dag-1", NodeKey: "A", Status: "done", Result: json.RawMessage(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("complete A error = %v", err)
+	}
+	if got := db.nodes[dagNodeKey("dag-1", "B")].Status; got != "ready" {
+		t.Fatalf("B status = %q, want ready (F6.3 promote)", got)
+	}
+	if keys := promotedKeys(res.PromotedDownstream); !equalStrings(keys, []string{"B"}) {
+		t.Fatalf("PromotedDownstream = %v, want [B]", keys)
+	}
+	if keys := scheduledKeys(res.ScheduledDownstream); !equalStrings(keys, []string{"B"}) {
+		t.Fatalf("ScheduledDownstream = %v, want [B]", keys)
+	}
+}
+
+// TestCompleteNodeAndScheduleDownstream_F63_DiamondPartialUpstreamNoPromote
+// F6.3 核心场景：多依赖节点上游只部分完成时未 promote。
+// Diamond A → (B, C) → D：B done 后单独不能让 D promote，仅在 C done 后两个
+// 依赖都满足 D 才 ready。
+func TestCompleteNodeAndScheduleDownstream_F63_DiamondPartialUpstreamNoPromote(t *testing.T) {
+	t.Parallel()
+
+	store, db, now := newTaskDAGTestStore()
+	seedDAG(t, db, now, []seedNode{
+		{key: "A", deps: nil, status: "running", agent: "agent-a"},
+		{key: "B", deps: []string{"A"}, status: "pending", agent: "agent-b"},
+		{key: "C", deps: []string{"A"}, status: "pending", agent: "agent-c"},
+		{key: "D", deps: []string{"B", "C"}, status: "pending", agent: "agent-d"},
+	})
+
+	// 1) A done → promote B, C 但不 promote D。
+	resA, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
+		DagKey: "dag-1", NodeKey: "A", Status: "done", Result: json.RawMessage(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("complete A error = %v", err)
+	}
+	if keys := promotedKeys(resA.PromotedDownstream); !equalStrings(keys, []string{"B", "C"}) {
+		t.Fatalf("after A promoted = %v, want [B C]", keys)
+	}
+	if got := db.nodes[dagNodeKey("dag-1", "D")].Status; got != "pending" {
+		t.Fatalf("after A: D status = %q, want pending (deps B,C still pending)", got)
+	}
+
+	// 2) 调度上上 B 进运行后 done，D 仍不能 promote（C 未 done）。
+	transitionToRunning(t, db, "B")
+	resB, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
+		DagKey: "dag-1", NodeKey: "B", Status: "done", Result: json.RawMessage(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("complete B error = %v", err)
+	}
+	if keys := promotedKeys(resB.PromotedDownstream); len(keys) != 0 {
+		t.Fatalf("after B alone promoted = %v, want [] (D deps not fully satisfied)", keys)
+	}
+	if got := db.nodes[dagNodeKey("dag-1", "D")].Status; got != "pending" {
+		t.Fatalf("after B: D status = %q, want pending", got)
+	}
+
+	// 3) C done → D 依赖全部满足 → promote。
+	transitionToRunning(t, db, "C")
+	resC, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
+		DagKey: "dag-1", NodeKey: "C", Status: "done", Result: json.RawMessage(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("complete C error = %v", err)
+	}
+	if keys := promotedKeys(resC.PromotedDownstream); !equalStrings(keys, []string{"D"}) {
+		t.Fatalf("after C promoted = %v, want [D]", keys)
+	}
+	if got := db.nodes[dagNodeKey("dag-1", "D")].Status; got != "ready" {
+		t.Fatalf("after C: D status = %q, want ready", got)
+	}
+}
+
+// TestCompleteNodeAndScheduleDownstream_F63_ChainAToBToC
+// F6.3 链式场景：A → B → C。
+// • A done → B promote。C 不动（依赖 B 还未 done）。
+// • B done → C promote。
+func TestCompleteNodeAndScheduleDownstream_F63_ChainAToBToC(t *testing.T) {
+	t.Parallel()
+
+	store, db, now := newTaskDAGTestStore()
+	seedDAG(t, db, now, []seedNode{
+		{key: "A", deps: nil, status: "running", agent: "agent-a"},
+		{key: "B", deps: []string{"A"}, status: "pending", agent: "agent-b"},
+		{key: "C", deps: []string{"B"}, status: "pending", agent: "agent-c"},
+	})
+
+	resA, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
+		DagKey: "dag-1", NodeKey: "A", Status: "done", Result: json.RawMessage(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("complete A error = %v", err)
+	}
+	if keys := promotedKeys(resA.PromotedDownstream); !equalStrings(keys, []string{"B"}) {
+		t.Fatalf("after A promoted = %v, want [B]", keys)
+	}
+	if got := db.nodes[dagNodeKey("dag-1", "B")].Status; got != "ready" {
+		t.Fatalf("after A: B status = %q, want ready", got)
+	}
+	if got := db.nodes[dagNodeKey("dag-1", "C")].Status; got != "pending" {
+		t.Fatalf("after A: C status = %q, want pending (B not done yet)", got)
+	}
+
+	transitionToRunning(t, db, "B")
+	resB, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
+		DagKey: "dag-1", NodeKey: "B", Status: "done", Result: json.RawMessage(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("complete B error = %v", err)
+	}
+	if keys := promotedKeys(resB.PromotedDownstream); !equalStrings(keys, []string{"C"}) {
+		t.Fatalf("after B promoted = %v, want [C]", keys)
+	}
+	if got := db.nodes[dagNodeKey("dag-1", "C")].Status; got != "ready" {
+		t.Fatalf("after B: C status = %q, want ready", got)
+	}
+}
+
+// TestCompleteNodeAndScheduleDownstream_F63_PromoteEvenWithoutAssignedTo
+// F6.3 创新项：无 assigned_to 的下游仍然 promote（F6.4 仅跳 wakeup）。
+// 本测试钉死河际划分：promote 不滤掉 assigned_to。
+//
+// EN: This test pins F6.3 × F6.4 division — promote (state-machine truth) is
+// independent of assigned_to. F6.4's empty-assigned_to skip only affects
+// wakeup enqueue, never the promote step.
+func TestCompleteNodeAndScheduleDownstream_F63_PromoteEvenWithoutAssignedTo(t *testing.T) {
+	t.Parallel()
+
+	store, db, now := newTaskDAGTestStore()
+	seedDAG(t, db, now, []seedNode{
+		{key: "A", deps: nil, status: "running", agent: "agent-a"},
+		{key: "B", deps: []string{"A"}, status: "pending", agent: "agent-b"},
+		{key: "C", deps: []string{"A"}, status: "pending", agent: ""},
+		{key: "D", deps: []string{"A"}, status: "pending", agent: "   "}, // whitespace
+	})
+
+	res, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
+		DagKey: "dag-1", NodeKey: "A", Status: "done", Result: json.RawMessage(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("complete A error = %v", err)
+	}
+	// F6.3: 三个下游都被 promote。
+	if keys := promotedKeys(res.PromotedDownstream); !equalStrings(keys, []string{"B", "C", "D"}) {
+		t.Fatalf("PromotedDownstream = %v, want [B C D] (promote ignores assigned_to)", keys)
+	}
+	for _, k := range []string{"B", "C", "D"} {
+		if got := db.nodes[dagNodeKey("dag-1", k)].Status; got != "ready" {
+			t.Errorf("%s status = %q, want ready (F6.3 promote)", k, got)
+		}
+	}
+	// F6.4: 只 B 有 wakeup（C / D 因 assigned_to 空被跳）。
+	if keys := scheduledKeys(res.ScheduledDownstream); !equalStrings(keys, []string{"B"}) {
+		t.Fatalf("ScheduledDownstream = %v, want [B] (F6.4 filters C/D)", keys)
+	}
+}
+
+// TestCompleteNodeAndScheduleDownstream_F63_ReentrantSecondCompleteNoDoublePromote
+// F6.3 幂等护栏：同一上游节点重复 complete（并发 / 第二次调用）
+// 不会重复 promote 同一下游。第二次 CompleteNode 本身会被 status fence 拒、
+// 未走到 promote；但我们补充“在 promote SQL 层 status='pending' fence 本身”
+// 也能幂等防护。
+func TestCompleteNodeAndScheduleDownstream_F63_ReentrantSecondCompleteNoDoublePromote(t *testing.T) {
+	t.Parallel()
+
+	store, db, now := newTaskDAGTestStore()
+	seedDAG(t, db, now, []seedNode{
+		{key: "A", deps: nil, status: "running", agent: "agent-a"},
+		{key: "B", deps: []string{"A"}, status: "pending", agent: "agent-b"},
+	})
+
+	res1, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
+		DagKey: "dag-1", NodeKey: "A", Status: "done", Result: json.RawMessage(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("first complete A error = %v", err)
+	}
+	if keys := promotedKeys(res1.PromotedDownstream); !equalStrings(keys, []string{"B"}) {
+		t.Fatalf("first PromotedDownstream = %v, want [B]", keys)
+	}
+	// 第二次 complete A 被 CompleteTaskDagNode fence 拒（这部分原有测试覆盖）；
+	// 不会走到 promote。B 仍然为 ready、PromotedDownstream 未重复上报。
+	if _, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
+		DagKey: "dag-1", NodeKey: "A", Status: "done", Result: json.RawMessage(`{}`),
+	}); err == nil {
+		t.Fatal("second complete A error = nil, want fence rejection")
+	}
+	if got := db.nodes[dagNodeKey("dag-1", "B")].Status; got != "ready" {
+		t.Fatalf("B status = %q, want ready (idempotent)", got)
+	}
+}
+
 // --- helpers --------------------------------------------------------------
+
+func promotedKeys(items []PromotedDownstreamNode) []string {
+	keys := make([]string, 0, len(items))
+	for _, it := range items {
+		keys = append(keys, it.NodeKey)
+	}
+	sort.Strings(keys)
+	return keys
+}
 
 type seedNode struct {
 	key    string
