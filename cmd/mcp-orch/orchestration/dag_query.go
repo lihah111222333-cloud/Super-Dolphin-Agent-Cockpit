@@ -185,19 +185,41 @@ type partitionedOps struct {
 	updates nodeexec.Ops
 }
 
+// ErrDuplicateOpForNode 是同一 ApplyOps 批里出现两个针对同一 node_key 的
+// update_node （或未来可能的 add+update / update+remove）时返回的 sentinel。
+// errors.Is(err, ErrDuplicateOpForNode) 可命中；service 层仍会同时包一层
+// ErrApplyOpsInvalid 让上层 errors.Is 路径不变。
+//
+// 设计决策（R2 P1）：同批同 node_key 两个 update_node 选 reject 而非后写
+// 覆盖。后写覆盖会让 ApplyOps 语义变成「隐式合并 patch」，与调用方明示传
+// 两次 patch 的意图不一致；让 AI / 表单发现重复立刻报错是更安全选择。
+// 需「合并 patch」语义可以让调用方自己合完后发一个 update_node。
+var ErrDuplicateOpForNode = errors.New("orchestration: duplicate op for same node_key in batch")
+
 // partitionOps 把 ops 按 op_kind 分组：add_node → adds，update_node → updates。
 // remove_node / update_dag 留给 F4.3 / F4.4，本阶段命中即返
 // ErrLifecycleNotImplemented，让请求 fail-fast。
+//
+// 同批 dedup（R2 P1）：update_node 不允许出现两次针对同一 node_key——护住
+// 「后写覆盖还是合并 patch」的语义歧义。重复命中 → fail-fast 包
+// ErrDuplicateOpForNode / ErrApplyOpsInvalid，service 层抦下。add_node 重复
+// 已由下游 PlanAddNodes 内部 dedup 抦（「already exists」错误），本函数不重复。
 func partitionOps(ops nodeexec.Ops) (partitionedOps, error) {
 	var p partitionedOps
+	seenUpdates := make(map[string]int) // node_key -> first ops index
 	for i, op := range ops {
 		if op == nil {
 			return p, fmt.Errorf("%w: ops[%d] nil op", ErrApplyOpsInvalid, i)
 		}
-		switch op.Kind() {
-		case nodeexec.OpKindAddNode:
+		switch v := op.(type) {
+		case nodeexec.OpAddNode:
 			p.adds = append(p.adds, op)
-		case nodeexec.OpKindUpdateNode:
+		case nodeexec.OpUpdateNode:
+			if prev, dup := seenUpdates[v.NodeKey]; dup {
+				return p, fmt.Errorf("%w: %w: ops[%d] and ops[%d] both update node_key=%q",
+					ErrApplyOpsInvalid, ErrDuplicateOpForNode, prev, i, v.NodeKey)
+			}
+			seenUpdates[v.NodeKey] = i
 			p.updates = append(p.updates, op)
 		default:
 			return p, fmt.Errorf("%w: ops[%d] kind=%s (only add_node/update_node implemented through F4.2)", ErrLifecycleNotImplemented, i, op.Kind())
