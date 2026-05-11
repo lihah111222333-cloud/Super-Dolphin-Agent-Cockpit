@@ -69,8 +69,11 @@ func (s *store) UpsertNode(ctx context.Context, node Node) (*Node, error) {
 }
 
 func (s *store) UpdateNodeStatus(ctx context.Context, input NodeStatusUpdate) (*Node, error) {
+	// R1 dead code 清理：原 2 份 SQL（UpdateTaskDagNodeStatus / UpdateTaskDagNodeStatusFlexible）
+	// 逻辑上完全重复，合并为 Flexible 一份。本函数保留为发布层 sentinel（NodeStatusUpdate
+	// 与 FlexibleNodeStatusUpdate 输入名字不同），但底层走同一 query。
 	return updateNodeStatus(func() (sqlc.TaskDagNode, error) {
-		return s.q.UpdateTaskDagNodeStatus(ctx, sqlc.UpdateTaskDagNodeStatusParams{
+		return s.q.UpdateTaskDagNodeStatusFlexible(ctx, sqlc.UpdateTaskDagNodeStatusFlexibleParams{
 			Status:  input.Status,
 			Column2: input.Result,
 			DagKey:  input.DagKey,
