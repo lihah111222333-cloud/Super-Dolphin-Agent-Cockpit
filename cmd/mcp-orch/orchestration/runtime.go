@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os/exec"
 	"strings"
 )
@@ -19,8 +20,20 @@ func (s *service) UpdateRuntime(ctx context.Context, report RuntimeReport) error
 		return errors.New("runtime report must include port or provider")
 	}
 	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
+		// provider fail-fast：runtime 上报的 provider 必须命中 isKnownRuntimeProvider
+		// 白名单。原先 silent Warn + 放行会让非法值落到 agent.runtimeProvider，
+		// snapshot 里以 "runtime-unverified" 暴露；P23 README §默认值安全要求
+		// 默认值不背锅，错就拒。
+		//
+		// provider fail-fast: runtime-reported provider must hit the known
+		// allow-list. The previous silent-Warn-then-pass behavior leaked
+		// unknown values into snapshots tagged "runtime-unverified"; P23
+		// README §default-safety requires rejecting unknown inputs instead.
 		if shouldUpdateProvider(provider) && !isKnownRuntimeProvider(provider) {
-			loggerOrDefault(s.logger).Warn("orchestration: unknown runtime provider", "agent_id", agent.id, "provider", provider)
+			return fmt.Errorf(
+				"runtime 上报 provider 非法：%q，必须是 claude 或 codex (invalid runtime provider %q: must be claude or codex)",
+				provider, provider,
+			)
 		}
 		beforePort, beforePortSource := snapshotPort(agent)
 		beforeProvider, beforeProviderSource := snapshotProvider(agent)

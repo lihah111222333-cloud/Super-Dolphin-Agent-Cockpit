@@ -145,7 +145,13 @@ func TestUpdateRuntimeIdempotent(t *testing.T) {
 	expectNoRuntimeEvent(t, reported)
 }
 
-func TestUpdateRuntimeUnknownProviderWarns(t *testing.T) {
+// TestUpdateRuntimeUnknownProviderFailsFast 验证 runtime 上报非法 provider
+// 直接返中英双语错误，不落 snapshot（取代旧 silent Warn 行为）。
+//
+// TestUpdateRuntimeUnknownProviderFailsFast verifies that an unknown runtime
+// provider is rejected fail-fast with a bilingual error and leaves the
+// snapshot untouched (replaces the prior silent Warn behavior).
+func TestUpdateRuntimeUnknownProviderFailsFast(t *testing.T) {
 	t.Parallel()
 
 	var logs bytes.Buffer
@@ -154,26 +160,37 @@ func TestUpdateRuntimeUnknownProviderWarns(t *testing.T) {
 	defer cancel()
 
 	err := svc.UpdateRuntime(context.Background(), RuntimeReport{AgentID: "agent-1", Provider: " Custom "})
-	if err != nil {
-		t.Fatalf("UpdateRuntime() error = %v", err)
+	if err == nil {
+		t.Fatalf("UpdateRuntime() unknown provider must error, got nil")
+	}
+	msg := err.Error()
+	for _, want := range []string{"custom", "claude", "codex", "invalid"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("err %q missing %q", msg, want)
+		}
 	}
 
-	snapshot, err := svc.Snapshot(context.Background(), "agent-1")
-	if err != nil {
-		t.Fatalf("Snapshot() error = %v", err)
+	// snapshot 不应被污染：仍是初始 inferred provider。
+	// snapshot must be untouched: still the initial inferred provider.
+	snapshot, snapErr := svc.Snapshot(context.Background(), "agent-1")
+	if snapErr != nil {
+		t.Fatalf("Snapshot() error = %v", snapErr)
 	}
-	if snapshot.Provider != "custom" || snapshot.ProviderSource != "runtime-unverified" {
-		t.Fatalf("snapshot provider = (%q, %q), want (custom, runtime-unverified)", snapshot.Provider, snapshot.ProviderSource)
+	if snapshot.Provider == "custom" {
+		t.Fatalf("snapshot provider leaked unknown value: %#v", snapshot)
 	}
 
-	ev := expectRuntimeEvent(t, reported)
-	if ev.AgentID != "agent-1" || ev.Port != 8080 || ev.Provider != "custom" {
-		t.Fatalf("runtime event = %#v", ev)
+	// fail-fast 不发 runtime event；通道应为空。
+	// fail-fast must not publish a runtime event; channel should be empty.
+	select {
+	case ev := <-reported:
+		t.Fatalf("unexpected runtime event after fail-fast: %#v", ev)
+	default:
 	}
-	if !strings.Contains(logs.String(), "unknown runtime provider") ||
-		!strings.Contains(logs.String(), "agent_id=agent-1") ||
-		!strings.Contains(logs.String(), "provider=custom") {
-		t.Fatalf("warning log = %q", logs.String())
+	// 不应再有 "unknown runtime provider" Warn 日志（已替换为返 error 路径）。
+	// The legacy "unknown runtime provider" warn line must be gone.
+	if strings.Contains(logs.String(), "unknown runtime provider") {
+		t.Fatalf("legacy warn line should be removed; logs=%q", logs.String())
 	}
 }
 
