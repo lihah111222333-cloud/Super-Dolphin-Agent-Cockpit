@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
@@ -345,4 +346,93 @@ type DAGNode struct {
 type DAGDetail struct {
 	DAG   DAGSummary `json:"dag"`
 	Nodes []DAGNode  `json:"nodes,omitempty"`
+}
+
+// =====================================================
+// DAG events helpers (R2 P2 #4)
+//
+// task_get_run 返 events 是 json.RawMessage，UI 不该重复手拼解。这里提供
+// 一个公共 DAGEvent typed struct + Parse / Filter helper，让多端客户端走
+// 同一 decoder 路径。与 DAGSummary / DAGNode 同在 orchestration.go，限制
+// internal/contract 包文件数 ≤ 30（代码守卫上限）。
+// =====================================================
+
+// DAGEvent 是 task_dag_runs.events jsonb 数组里单个事件的公共结构。
+//
+// 起源：F1.5 把 `{kind:"node_spawn", node_key, prev_thread_id, thread_id, ts}`
+// append 到 events，目的是给 UI 拉子 agent thread 历史链。task_get_run
+// 当前透传整个 events 为 json.RawMessage，没有官方 helper 让 UI 解；UI 各端
+// 各自手 parse 容易写歪，故此提供 ParseDAGEvents 统一入口。
+//
+// 字段说明：
+//   - Kind: discriminator。当前唯一已知值 "node_spawn"；新事件类型在
+//     migration / store 层加，本结构体保持 union 形态：未知 kind 也能解
+//     出来（其他字段会留空），调用方按 Kind 自分发。
+//   - NodeKey: 触发事件的节点 key。
+//   - PrevThreadID / ThreadID: spawn 重试场景下的「旧 / 新」thread。新建
+//     场景下 PrevThreadID 是空串。
+//   - TS: 事件时间戳 RFC3339Nano 字符串；保持字符串方便 UI 渲染、不强迫
+//     解 time.Time。需精确比较时调用方再 time.Parse。
+type DAGEvent struct {
+	Kind         string `json:"kind"`
+	NodeKey      string `json:"node_key,omitempty"`
+	PrevThreadID string `json:"prev_thread_id,omitempty"`
+	ThreadID     string `json:"thread_id,omitempty"`
+	TS           string `json:"ts,omitempty"`
+}
+
+// DAGEventKind 列举已知事件类型；常量化方便 UI 按 kind 分发。
+//
+// 新增事件类型时：
+//  1. store 层往 events 数组 append 时用同名字符串
+//  2. 本文件加常量
+//  3. 必要时 DAGEvent 加可选字段（保持 json:",omitempty"）
+type DAGEventKind = string
+
+const (
+	// DAGEventKindNodeSpawn 是 F1.5 唯一已落的事件类型：spawn 子 agent 时
+	// 把上次 thread id 与本次 thread id 记进 events 历史链。
+	DAGEventKindNodeSpawn DAGEventKind = "node_spawn"
+)
+
+// ParseDAGEvents 把 task_get_run 返回里的 events json.RawMessage 解成一组
+// DAGEvent。
+//
+// 行为：
+//   - raw 是 nil / 长度 0 / "null" → 返回 nil, nil（无事件，非错误）
+//   - 非 JSON 数组 → 返 nil + error
+//   - 数组元素非 object → 返 nil + 包了 ordinal 的 error
+//   - 未知 kind 不报错；DAGEvent.Kind 保留原值，调用方按需 ignore
+func ParseDAGEvents(raw json.RawMessage) ([]DAGEvent, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+	var elements []json.RawMessage
+	if err := json.Unmarshal(raw, &elements); err != nil {
+		return nil, fmt.Errorf("dag events: parse outer array: %w", err)
+	}
+	out := make([]DAGEvent, 0, len(elements))
+	for i, el := range elements {
+		var ev DAGEvent
+		if err := json.Unmarshal(el, &ev); err != nil {
+			return nil, fmt.Errorf("dag events: element [%d]: %w", i, err)
+		}
+		out = append(out, ev)
+	}
+	return out, nil
+}
+
+// FilterEventsByKind 过出指定 kind 的事件，保持原顺序。kind 空串 → 直接
+// 返回原切片（noop），便于 UI 一行链式调用。
+func FilterEventsByKind(events []DAGEvent, kind DAGEventKind) []DAGEvent {
+	if kind == "" {
+		return events
+	}
+	out := make([]DAGEvent, 0, len(events))
+	for _, ev := range events {
+		if ev.Kind == kind {
+			out = append(out, ev)
+		}
+	}
+	return out
 }

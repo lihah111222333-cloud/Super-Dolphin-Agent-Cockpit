@@ -7,6 +7,7 @@ import (
 
 // TestOpKindConstants_FourKinds: 蓝图 v2 §9 ops 4 个动词。
 func TestOpKindConstants_FourKinds(t *testing.T) {
+	t.Parallel()
 	all := []OpKind{
 		OpKindUpdateDAG,
 		OpKindAddNode,
@@ -30,6 +31,7 @@ func TestOpKindConstants_FourKinds(t *testing.T) {
 
 // TestOpsImplementOp 编译时检查 4 个 typed struct 都满足 Op 接口。
 func TestOpsImplementOp(t *testing.T) {
+	t.Parallel()
 	var _ Op = OpUpdateDAG{}
 	var _ Op = OpAddNode{}
 	var _ Op = OpUpdateNode{}
@@ -37,6 +39,7 @@ func TestOpsImplementOp(t *testing.T) {
 }
 
 func TestOps_KindReturns(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		op   Op
 		want OpKind
@@ -55,6 +58,7 @@ func TestOps_KindReturns(t *testing.T) {
 
 // TestOps_MixedRoundTrip: 混合 4 种 op 的 marshal/unmarshal 双向往返。
 func TestOps_MixedRoundTrip(t *testing.T) {
+	t.Parallel()
 	title := "新标题"
 	cron := "0 8 * * *"
 	deps := []string{"a", "b"}
@@ -125,6 +129,7 @@ func TestOps_MixedRoundTrip(t *testing.T) {
 
 // TestOps_UnmarshalRejectsUnknownKind: 未知 op 类型必须明确报错。
 func TestOps_UnmarshalRejectsUnknownKind(t *testing.T) {
+	t.Parallel()
 	data := []byte(`[{"op":"bogus"}]`)
 	var ops Ops
 	if err := json.Unmarshal(data, &ops); err == nil {
@@ -134,6 +139,7 @@ func TestOps_UnmarshalRejectsUnknownKind(t *testing.T) {
 
 // TestOps_UnmarshalRejectsMissingDiscriminator: 缺 op 字段必须报错。
 func TestOps_UnmarshalRejectsMissingDiscriminator(t *testing.T) {
+	t.Parallel()
 	data := []byte(`[{"patch":{"title":"x"}}]`)
 	var ops Ops
 	if err := json.Unmarshal(data, &ops); err == nil {
@@ -143,6 +149,7 @@ func TestOps_UnmarshalRejectsMissingDiscriminator(t *testing.T) {
 
 // TestOpsRequest_RoundTrip: 完整 OpsRequest / OpsResponse 字段。
 func TestOpsRequest_RoundTrip(t *testing.T) {
+	t.Parallel()
 	req := OpsRequest{
 		DagKey:      "dag_xxx",
 		BaseVersion: 7,
@@ -176,6 +183,7 @@ func TestOpsRequest_RoundTrip(t *testing.T) {
 
 // TestNodePatch_DependsOn_ThreeStates: nil 不改 / *[] 清空 / *[a,b] 设置。
 func TestNodePatch_DependsOn_ThreeStates(t *testing.T) {
+	t.Parallel()
 	// nil = unspecified
 	noChange := NodePatch{}
 	data, _ := json.Marshal(noChange)

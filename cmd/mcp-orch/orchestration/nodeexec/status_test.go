@@ -6,6 +6,7 @@ import (
 )
 
 func TestValidateTransition_AllLegal(t *testing.T) {
+	t.Parallel()
 	legal := []struct {
 		from, to NodeStatus
 		desc     string
@@ -36,6 +37,7 @@ func TestValidateTransition_AllLegal(t *testing.T) {
 }
 
 func TestValidateTransition_Illegal(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		from, to NodeStatus
 		want     string // 错误消息子串
@@ -78,6 +80,7 @@ func TestValidateTransition_Illegal(t *testing.T) {
 }
 
 func TestIsTerminal_FourStates(t *testing.T) {
+	t.Parallel()
 	terminal := []NodeStatus{
 		NodeStatusDone,
 		NodeStatusFailed,
@@ -106,6 +109,7 @@ func TestIsTerminal_FourStates(t *testing.T) {
 // TestTerminalsHaveNoOutgoing 强制不变量：legalTransitions 里不能有任何
 // 终态作为 from（守护"终态出态"的封闭性）。
 func TestTerminalsHaveNoOutgoing(t *testing.T) {
+	t.Parallel()
 	for tr := range legalTransitions {
 		if IsTerminal(tr.From) {
 			t.Errorf("terminal status %q has outgoing transition to %q (违反终态封闭原则)", tr.From, tr.To)
@@ -122,6 +126,7 @@ func TestTerminalsHaveNoOutgoing(t *testing.T) {
 // backoff; previously the only path was a forced → failed, mislabelling a
 // node that never had a chance to retry.
 func TestRetryingCanTransitionToCancelled(t *testing.T) {
+	t.Parallel()
 	if err := ValidateTransition(NodeStatusRetrying, NodeStatusCancelled); err != nil {
 		t.Fatalf("retrying → cancelled should be legal, got: %v", err)
 	}

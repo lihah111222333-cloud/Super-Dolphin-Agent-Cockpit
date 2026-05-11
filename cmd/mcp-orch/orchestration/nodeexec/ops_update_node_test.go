@@ -18,6 +18,7 @@ import (
 //   - 指向 "" = 清空 assigned_to（拿走 agent 路由）
 //   - 指向 "writer" = 改成此值
 func TestNodePatch_AssignedTo_ThreeStates(t *testing.T) {
+	t.Parallel()
 	noChange := NodePatch{}
 	data, _ := json.Marshal(noChange)
 	if string(data) != `{}` {
@@ -41,6 +42,7 @@ func TestNodePatch_AssignedTo_ThreeStates(t *testing.T) {
 
 // TestNodePatch_UnmarshalStrict_AcceptsAllowedKeys 白名单内的字段必须能正常解码。
 func TestNodePatch_UnmarshalStrict_AcceptsAllowedKeys(t *testing.T) {
+	t.Parallel()
 	raw := `{"title":"new","assigned_to":"writer","depends_on":["a"],"config":{"x":1}}`
 	var p NodePatch
 	if err := json.Unmarshal([]byte(raw), &p); err != nil {
@@ -63,6 +65,7 @@ func TestNodePatch_UnmarshalStrict_AcceptsAllowedKeys(t *testing.T) {
 // TestNodePatch_UnmarshalStrict_RejectsBannedKeys 关键 case：
 // 禁改字段在 patch 顶层出现必须拒。
 func TestNodePatch_UnmarshalStrict_RejectsBannedKeys(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		raw  string
@@ -75,7 +78,9 @@ func TestNodePatch_UnmarshalStrict_RejectsBannedKeys(t *testing.T) {
 		{"unknown", `{"random_extra":"x"}`, "random_extra"},
 	}
 	for _, c := range cases {
+		c := c
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			var p NodePatch
 			err := json.Unmarshal([]byte(c.raw), &p)
 			if err == nil {
@@ -93,8 +98,92 @@ func TestNodePatch_UnmarshalStrict_RejectsBannedKeys(t *testing.T) {
 
 // TestNodePatch_UnmarshalStrict_EmptyOk 空 patch 是合法的（noop）。
 func TestNodePatch_UnmarshalStrict_EmptyOk(t *testing.T) {
+	t.Parallel()
 	var p NodePatch
 	if err := json.Unmarshal([]byte(`{}`), &p); err != nil {
 		t.Fatalf("empty patch: err = %v, want nil", err)
+	}
+}
+
+// TestNodePatch_UnmarshalStrict_NestedBannedKeysInConfig 关键 case：
+// banned 4 件套藏在 patch.config 内层也要拒（R2 P1）。
+// 选项 A：拒——「不许改 agent_key」语义在 config 内层一致。
+//
+// 覆盖 4 个 banned key × 2 个嵌套深度（直接嵌 + 多层嵌套 + 数组里）。
+func TestNodePatch_UnmarshalStrict_NestedBannedKeysInConfig(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		raw  string
+		want string // err 子串
+	}{
+		{"direct_agent_key", `{"config":{"agent_key":"evil"}}`, "agent_key"},
+		{"direct_status", `{"config":{"status":"done"}}`, "status"},
+		{"direct_node_key", `{"config":{"node_key":"x"}}`, "node_key"},
+		{"direct_node_type", `{"config":{"node_type":"agent"}}`, "node_type"},
+		{"nested_object_agent_key", `{"config":{"inner":{"deep":{"agent_key":"evil"}}}}`, "agent_key"},
+		{"array_element_agent_key", `{"config":{"items":[{"foo":1},{"agent_key":"evil"}]}}`, "agent_key"},
+	}
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			var p NodePatch
+			err := json.Unmarshal([]byte(c.raw), &p)
+			if err == nil {
+				t.Fatalf("nested banned %s: want err, got nil", c.name)
+			}
+			if !errors.Is(err, ErrNodePatchBannedField) {
+				t.Fatalf("nested banned %s: err = %v, want errors.Is ErrNodePatchBannedField", c.name, err)
+			}
+			if !strings.Contains(err.Error(), c.want) {
+				t.Errorf("nested banned %s: err = %v, should contain %q", c.name, err, c.want)
+			}
+		})
+	}
+}
+
+// TestNodePatch_UnmarshalStrict_ConfigNonBannedNestedOK 防误伤：
+// config 内层任意「非 banned」字段必须放行。覆盖嵌套 object / 数组 / 标量。
+func TestNodePatch_UnmarshalStrict_ConfigNonBannedNestedOK(t *testing.T) {
+	t.Parallel()
+	cases := []string{
+		`{"config":{"prompt":"hi"}}`,
+		`{"config":{"nested":{"more":{"value":1}}}}`,
+		`{"config":{"items":[{"a":1},{"b":2}]}}`,
+		`{"config":{"items":[1,2,3]}}`,
+		`{"config":null}`,
+	}
+	for i, raw := range cases {
+		raw := raw
+		t.Run("ok_"+string(rune('0'+i)), func(t *testing.T) {
+			t.Parallel()
+			var p NodePatch
+			if err := json.Unmarshal([]byte(raw), &p); err != nil {
+				t.Fatalf("non-banned nested %q: err = %v, want nil", raw, err)
+			}
+		})
+	}
+}
+
+// TestNodePatch_UnmarshalStrict_DecoderUnknownFieldErrorWrapped 确认
+// json.Decoder.DisallowUnknownFields 返回的 unknown-field 错误被包成
+// ErrNodePatchBannedField，errors.Is 与原 sentinel 行为一致（R1 P1 #1）。
+func TestNodePatch_UnmarshalStrict_DecoderUnknownFieldErrorWrapped(t *testing.T) {
+	t.Parallel()
+	var p NodePatch
+	err := json.Unmarshal([]byte(`{"totally_random":42}`), &p)
+	if err == nil {
+		t.Fatalf("unknown field: want err, got nil")
+	}
+	if !errors.Is(err, ErrNodePatchBannedField) {
+		t.Fatalf("unknown field err = %v, want errors.Is ErrNodePatchBannedField", err)
+	}
+	if !strings.Contains(err.Error(), "totally_random") {
+		t.Errorf("err = %v, want field name 'totally_random' in message", err)
+	}
+	// 同时确认 decoder 原始 `unknown field` 措辞还在 err chain 内（便于排查）。
+	if !strings.Contains(err.Error(), "unknown field") {
+		t.Errorf("err = %v, want underlying 'unknown field' phrase", err)
 	}
 }

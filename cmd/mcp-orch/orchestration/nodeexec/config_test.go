@@ -51,6 +51,7 @@ func agentConfigFixture() AgentNodeConfig {
 }
 
 func TestParseAgentConfig_RoundTrip(t *testing.T) {
+	t.Parallel()
 	original := agentConfigFixture()
 	data, err := json.Marshal(original)
 	if err != nil {
@@ -87,6 +88,7 @@ func TestParseAgentConfig_RoundTrip(t *testing.T) {
 }
 
 func TestParseAutomationConfig_RoundTrip(t *testing.T) {
+	t.Parallel()
 	original := AutomationNodeConfig{
 		Exec: AutomationExecConfig{
 			CommandRef:   "build_app",
@@ -115,8 +117,9 @@ func TestParseAutomationConfig_RoundTrip(t *testing.T) {
 
 // TestParseAutomationConfig_KindEmptyDefaultsToCommandCard验证空 kind 默认填 command_card（向下兼容 ADR-007）。
 func TestParseAutomationConfig_KindEmptyDefaultsToCommandCard(t *testing.T) {
+	t.Parallel()
 	cases := []string{
-		`{"exec":{"command_ref":"build"}}`,         // kind 缺失
+		`{"exec":{"command_ref":"build"}}`,           // kind 缺失
 		`{"exec":{"kind":"","command_ref":"build"}}`, // kind 空字符串
 	}
 	for _, raw := range cases {
@@ -132,6 +135,7 @@ func TestParseAutomationConfig_KindEmptyDefaultsToCommandCard(t *testing.T) {
 
 // TestParseAutomationConfig_KindCommandCardRoundTrip验证显式 kind=command_card round-trip 不丢。
 func TestParseAutomationConfig_KindCommandCardRoundTrip(t *testing.T) {
+	t.Parallel()
 	raw := json.RawMessage(`{"exec":{"kind":"command_card","command_ref":"build"}}`)
 	got, err := ParseAutomationConfig(raw)
 	if err != nil {
@@ -147,6 +151,7 @@ func TestParseAutomationConfig_KindCommandCardRoundTrip(t *testing.T) {
 
 // TestParseAutomationConfig_UnknownKindRejected验证未实装 kind 被 fail-fast 拒绝（ADR-007 §4）。
 func TestParseAutomationConfig_UnknownKindRejected(t *testing.T) {
+	t.Parallel()
 	raw := json.RawMessage(`{"exec":{"kind":"webhook","command_ref":"x"}}`)
 	_, err := ParseAutomationConfig(raw)
 	if err == nil {
@@ -158,6 +163,7 @@ func TestParseAutomationConfig_UnknownKindRejected(t *testing.T) {
 }
 
 func TestParseHybridConfig_RoundTrip(t *testing.T) {
+	t.Parallel()
 	original := HybridNodeConfig{
 		Exec: HybridExecConfig{
 			Automation: &AutomationExecConfig{CommandRef: "run_tests"},
@@ -182,6 +188,7 @@ func TestParseHybridConfig_RoundTrip(t *testing.T) {
 }
 
 func TestParseNodeConfig_DispatchByNodeType(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		nodeType string
 		raw      string
@@ -239,6 +246,7 @@ func TestParseNodeConfig_DispatchByNodeType(t *testing.T) {
 }
 
 func TestParseNodeConfig_UnknownNodeType(t *testing.T) {
+	t.Parallel()
 	_, err := ParseNodeConfig("bogus", json.RawMessage(`{}`))
 	if !errors.Is(err, ErrUnknownNodeType) {
 		t.Fatalf("err = %v, want ErrUnknownNodeType", err)
@@ -246,6 +254,7 @@ func TestParseNodeConfig_UnknownNodeType(t *testing.T) {
 }
 
 func TestParseNodeConfig_EmptyRawReturnsZero(t *testing.T) {
+	t.Parallel()
 	// 空 raw 应返回 zero-value config，不报错（旧 DAG 兼容）
 	for _, nodeType := range []string{"agent", "automation", "hybrid"} {
 		got, err := ParseNodeConfig(nodeType, nil)
@@ -259,6 +268,7 @@ func TestParseNodeConfig_EmptyRawReturnsZero(t *testing.T) {
 }
 
 func TestParseNodeConfig_InvalidJSONReturnsError(t *testing.T) {
+	t.Parallel()
 	_, err := ParseAgentConfig(json.RawMessage(`{not json`))
 	if err == nil {
 		t.Fatalf("expected JSON parse error")
@@ -267,6 +277,7 @@ func TestParseNodeConfig_InvalidJSONReturnsError(t *testing.T) {
 
 // TestSharedfileTarget_AlwaysObjectShape: lock_mode 是 object 不是 string.
 func TestSharedfileTarget_AlwaysObjectShape(t *testing.T) {
+	t.Parallel()
 	cfg := AgentNodeConfig{
 		Outputs: OutputsConfig{
 			ToSharedfile: &SharedfileTarget{Path: "x.md", LockMode: "append"},
@@ -282,6 +293,7 @@ func TestSharedfileTarget_AlwaysObjectShape(t *testing.T) {
 
 // TestOnFailureConfig_ByClassMapKeys: by_class 的 key 是 FailureClass 字符串.
 func TestOnFailureConfig_ByClassMapKeys(t *testing.T) {
+	t.Parallel()
 	cfg := OnFailureConfig{
 		ByClass: map[FailureClass]OnFailureStrategy{
 			FailureClassCapability: OnFailureEscalateModel,
