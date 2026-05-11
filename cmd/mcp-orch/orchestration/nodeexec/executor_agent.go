@@ -177,12 +177,12 @@ func (e *AgentExecutor) Execute(ctx context.Context, node Node, runCtx RunContex
 	//    F1.2 Inputs assembly: gather prev node results + sharedfiles into a
 	//    prompt prefix. Missing refs map to validation; infra errors flow
 	//    through classifyAgentLaunchError (transient by default).
-	inputsPrefix, inputsErr, inputsClass := e.assembleInputs(ctx, cfg, runCtx, node)
-	if inputsErr != nil {
+	inputsPrefix, ierr := e.assembleInputs(ctx, cfg, runCtx, node)
+	if ierr != nil {
 		return NodeOutcome{
 			Status:       NodeStatusFailed,
-			FailureClass: inputsClass,
-			ErrorSummary: truncateErrSummary("assemble inputs: " + inputsErr.Error()),
+			FailureClass: ierr.Class,
+			ErrorSummary: truncateErrSummary("assemble inputs: " + ierr.Error()),
 		}, nil
 	}
 
