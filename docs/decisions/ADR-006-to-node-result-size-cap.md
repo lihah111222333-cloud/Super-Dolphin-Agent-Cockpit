@@ -2,7 +2,9 @@
 
 > ⚠️ **历史快照**：本 ADR 2026-05-11 写于 F1.3 未开工时；F1.3 仍未做，`to_node_result` 仍是 `bool` 未升对象，本文保留；当前详细 follow-up 见 `docs/plans/dag改造现状与补丁v2.md` §4.3。
 >
-> 状态：📝 Proposed | 日期：2026-05-11 | 决策者：待定 | 相关：`docs/plans/dag改造蓝图v2.md` §5 关键决策汇总 line 74 / §7 typed schema、`docs/plans/dag改造修补.md` §4a、`docs/adr/0001-dag-v2-contracts.md`（typed schema 锁死契约）
+> 状态：⏸ Deferred to F1.3 wiring 闭环 | 日期：2026-05-11（Proposed）→ 2026-05-12（Deferred） | 决策者：项目维护者
+>
+> 推迟说明（2026-05-12 决议）：W2 worker 本轮未完成 `outputs.to_node_result` 升对象 + `size_cap_bytes` 字段位 enforce —— `nodeexec/config.go:47` 仍 `ToNodeResult bool`、`nodeexec/executor_agent.go:236` 仍 F1.3 留位。本 ADR 内三方案（A validation failure / B truncate+warn / C split-to-sharedfile）继续作设计输入；真正拍板与代码侧 enforce 同步落地在 F1.3 wiring 闭环（届时 ADR 状态再升 Accepted 或重写）。 | 相关：`docs/plans/dag改造蓝图v2.md` §5 关键决策汇总 line 74 / §7 typed schema、`docs/plans/dag改造修补.md` §4a、`docs/adr/0001-dag-v2-contracts.md`（typed schema 锁死契约）
 
 ## 1. 背景
 
