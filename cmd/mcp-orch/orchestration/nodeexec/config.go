@@ -2,8 +2,16 @@ package nodeexec
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 )
+
+// AutomationKindCommandCard 是当前唯一实装的 automation.kind 取值（ADR-007 §6 登记表）。
+// 其余 kind（webhook / shell / mcp_call ...）字段位先行，后续按 ADR-007 §4 渐进开通。
+const AutomationKindCommandCard = "command_card"
+
+// ErrUnsupportedAutomationKind 在 ParseAutomationConfig 收到非 command_card 的 kind 时返回；errors.Is 可用。
+var ErrUnsupportedAutomationKind = errors.New("nodeexec: unsupported automation.kind")
 
 // node.config 的 typed schema —— 蓝图 v2 §7 + 实施计划 S5.1 + S5.2。
 // 三种 node_type (agent/automation/hybrid) 各有一份完整 config，共享 inputs/outputs。
@@ -82,6 +90,8 @@ type AgentExecConfig struct {
 
 // AutomationExecConfig 是 node_type=automation 节点的 exec 块。
 type AutomationExecConfig struct {
+	// Kind 为自动化执行通道，当前仅 "command_card" 实装；其余 kind 留位 ADR-007 渐进开通。空字符串视为 command_card（向下兼容）。详 ADR-007。
+	Kind         string           `json:"kind,omitempty"`
 	CommandRef   string           `json:"command_ref"`    // 查 command_cards 表
 	Args         json.RawMessage  `json:"args,omitempty"` // 命令参数（结构由 command 决定）
 	BudgetTokens int64            `json:"budget_tokens,omitempty"`
@@ -179,6 +189,7 @@ func ParseAgentConfig(raw json.RawMessage) (*AgentNodeConfig, error) {
 }
 
 // ParseAutomationConfig 解码 node_type=automation 的完整 config。
+// 空 kind 默认填 AutomationKindCommandCard（向下兼容）；非 command_card 的 kind 返回 ErrUnsupportedAutomationKind。
 func ParseAutomationConfig(raw json.RawMessage) (*AutomationNodeConfig, error) {
 	var cfg AutomationNodeConfig
 	if len(raw) == 0 {
@@ -186,6 +197,14 @@ func ParseAutomationConfig(raw json.RawMessage) (*AutomationNodeConfig, error) {
 	}
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		return nil, fmt.Errorf("nodeexec: parse automation config: %w", err)
+	}
+	switch cfg.Exec.Kind {
+	case "":
+		cfg.Exec.Kind = AutomationKindCommandCard
+	case AutomationKindCommandCard:
+		// ok
+	default:
+		return nil, fmt.Errorf("%w: %q (allowed: command_card)", ErrUnsupportedAutomationKind, cfg.Exec.Kind)
 	}
 	return &cfg, nil
 }

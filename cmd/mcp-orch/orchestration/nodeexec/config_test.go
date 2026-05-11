@@ -113,6 +113,50 @@ func TestParseAutomationConfig_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestParseAutomationConfig_KindEmptyDefaultsToCommandCard验证空 kind 默认填 command_card（向下兼容 ADR-007）。
+func TestParseAutomationConfig_KindEmptyDefaultsToCommandCard(t *testing.T) {
+	cases := []string{
+		`{"exec":{"command_ref":"build"}}`,         // kind 缺失
+		`{"exec":{"kind":"","command_ref":"build"}}`, // kind 空字符串
+	}
+	for _, raw := range cases {
+		got, err := ParseAutomationConfig(json.RawMessage(raw))
+		if err != nil {
+			t.Fatalf("parse %s: %v", raw, err)
+		}
+		if got.Exec.Kind != AutomationKindCommandCard {
+			t.Errorf("raw=%s: Exec.Kind = %q, want %q", raw, got.Exec.Kind, AutomationKindCommandCard)
+		}
+	}
+}
+
+// TestParseAutomationConfig_KindCommandCardRoundTrip验证显式 kind=command_card round-trip 不丢。
+func TestParseAutomationConfig_KindCommandCardRoundTrip(t *testing.T) {
+	raw := json.RawMessage(`{"exec":{"kind":"command_card","command_ref":"build"}}`)
+	got, err := ParseAutomationConfig(raw)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got.Exec.Kind != AutomationKindCommandCard {
+		t.Errorf("Exec.Kind = %q, want %q", got.Exec.Kind, AutomationKindCommandCard)
+	}
+	if got.Exec.CommandRef != "build" {
+		t.Errorf("CommandRef lost: %q", got.Exec.CommandRef)
+	}
+}
+
+// TestParseAutomationConfig_UnknownKindRejected验证未实装 kind 被 fail-fast 拒绝（ADR-007 §4）。
+func TestParseAutomationConfig_UnknownKindRejected(t *testing.T) {
+	raw := json.RawMessage(`{"exec":{"kind":"webhook","command_ref":"x"}}`)
+	_, err := ParseAutomationConfig(raw)
+	if err == nil {
+		t.Fatalf("expected error for unknown kind")
+	}
+	if !errors.Is(err, ErrUnsupportedAutomationKind) {
+		t.Errorf("err = %v, want errors.Is(ErrUnsupportedAutomationKind)", err)
+	}
+}
+
 func TestParseHybridConfig_RoundTrip(t *testing.T) {
 	original := HybridNodeConfig{
 		Exec: HybridExecConfig{
