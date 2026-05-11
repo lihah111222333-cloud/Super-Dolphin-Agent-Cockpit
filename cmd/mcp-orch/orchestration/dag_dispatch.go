@@ -55,62 +55,96 @@ const dispatchNodeWakeupKind = "manual_dispatch"
 // granularity is intentional; idempotency on the EnqueueWakeup ON CONFLICT
 // covers concurrent dispatch races.
 func (s *service) DispatchNode(ctx context.Context, req contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error) {
+	dagKey, nodeKey, assignedTo, err := normalizeDispatchInputs(s, req)
+	if err != nil {
+		return contract.DispatchNodeResponse{}, err
+	}
+	target, err := s.findDispatchTarget(ctx, dagKey, nodeKey)
+	if err != nil {
+		return contract.DispatchNodeResponse{}, err
+	}
+	if err := ensureDispatchEligible(target); err != nil {
+		return contract.DispatchNodeResponse{}, err
+	}
+	upserted, err := s.assignAndPersist(ctx, target, assignedTo)
+	if err != nil {
+		return contract.DispatchNodeResponse{}, err
+	}
+	wakeupID, err := s.enqueueManualDispatchWakeup(ctx, dagKey, nodeKey, assignedTo)
+	if err != nil {
+		return contract.DispatchNodeResponse{}, err
+	}
+	resp := contract.DispatchNodeResponse{
+		WakeupID: wakeupID,
+		Enqueued: wakeupID > 0,
+	}
+	if upserted != nil {
+		resp.Node = dagNodeDTO(*upserted)
+	}
+	return resp, nil
+}
+
+// normalizeDispatchInputs trim 三个必填字段并检查 service / dispatchStore 到位。
+// 拆出独立函数是为了压住 DispatchNode 主高的 CC。
+func normalizeDispatchInputs(s *service, req contract.DispatchNodeRequest) (string, string, string, error) {
 	if s == nil || s.dispatchStore == nil {
-		return contract.DispatchNodeResponse{}, ErrDispatchStoreUnset
+		return "", "", "", ErrDispatchStoreUnset
 	}
 	dagKey := strings.TrimSpace(req.DagKey)
 	nodeKey := strings.TrimSpace(req.NodeKey)
 	assignedTo := strings.TrimSpace(req.AssignedTo)
 	if dagKey == "" || nodeKey == "" || assignedTo == "" {
-		return contract.DispatchNodeResponse{}, fmt.Errorf("orchestration: DispatchNode: dag_key/node_key/assigned_to required (got %q/%q/%q)", dagKey, nodeKey, assignedTo)
+		return "", "", "", fmt.Errorf("orchestration: DispatchNode: dag_key/node_key/assigned_to required (got %q/%q/%q)", dagKey, nodeKey, assignedTo)
 	}
+	return dagKey, nodeKey, assignedTo, nil
+}
 
-	// 1. 找节点 — 走 ListNodes（窄接口里目前没有单读，沿用 dag.go::validateNodeTransition
-	//    同款做法）。生产场景 DAG 节点数量 << 100，扫一遍开销可接受。
+// findDispatchTarget 走 dispatchStore.ListNodes 拿到名节点。生产场景 DAG
+// 节点数量 << 100，扫一遍可接受；以后加上单读接口的话可同步替换。
+func (s *service) findDispatchTarget(ctx context.Context, dagKey, nodeKey string) (*taskdag.Node, error) {
 	nodes, err := s.dispatchStore.ListNodes(ctx, dagKey)
 	if err != nil {
-		return contract.DispatchNodeResponse{}, fmt.Errorf("orchestration: DispatchNode list nodes %s: %w", dagKey, err)
+		return nil, fmt.Errorf("orchestration: DispatchNode list nodes %s: %w", dagKey, err)
 	}
-	var target *taskdag.Node
 	for i := range nodes {
 		if nodes[i].NodeKey == nodeKey {
-			target = &nodes[i]
-			break
+			return &nodes[i], nil
 		}
 	}
-	if target == nil {
-		return contract.DispatchNodeResponse{}, fmt.Errorf("orchestration: DispatchNode: node %s/%s not found", dagKey, nodeKey)
-	}
+	return nil, fmt.Errorf("orchestration: DispatchNode: node %s/%s not found", dagKey, nodeKey)
+}
 
-	// 2. 状态闸：只放 pending / ready 通过。其它状态直接拒绝。
+// ensureDispatchEligible 状态闸：仅放 pending / ready 两状态过。
+func ensureDispatchEligible(target *taskdag.Node) error {
 	switch target.Status {
 	case "pending", "ready":
-		// fall through
+		return nil
 	default:
-		return contract.DispatchNodeResponse{}, fmt.Errorf("%w (current_status=%q)", ErrDispatchNodeIneligible, target.Status)
+		return fmt.Errorf("%w (current_status=%q)", ErrDispatchNodeIneligible, target.Status)
 	}
+}
 
-	// 3. 写 assigned_to。UpsertNode 是「按 (dag_key, node_key) upsert」，
-	//    其它列从 target 原样回写，避免覆盖 config / depends_on / command_ref。
+// assignAndPersist 把 assigned_to 写到节点后走 UpsertNode。其他列原样保留。
+func (s *service) assignAndPersist(ctx context.Context, target *taskdag.Node, assignedTo string) (*taskdag.Node, error) {
 	updated := *target
 	updated.AssignedTo = assignedTo
 	upserted, err := s.dispatchStore.UpsertNode(ctx, updated)
 	if err != nil {
-		return contract.DispatchNodeResponse{}, fmt.Errorf("orchestration: DispatchNode upsert %s/%s: %w", dagKey, nodeKey, err)
+		return nil, fmt.Errorf("orchestration: DispatchNode upsert %s/%s: %w", target.DagKey, target.NodeKey, err)
 	}
 	if upserted != nil {
-		// upserted is the post-write row.
-		target = upserted
+		return upserted, nil
 	}
+	return &updated, nil
+}
 
-	// 4. 入队 manual_dispatch wakeup。idempotency_key 用 "manual_dispatch:<dag>:<node>:<assignee>"
-	//    让同 assignee 多次 dispatch 被 ON CONFLICT 去重；换 assignee 重试会得到新 row。
+// enqueueManualDispatchWakeup 构建 idempotency_key 并入队 manual_dispatch wakeup。
+// 同 assignee 多次 dispatch 被 ON CONFLICT 去重；换 assignee 重试得到新 row。
+func (s *service) enqueueManualDispatchWakeup(ctx context.Context, dagKey, nodeKey, assignedTo string) (int64, error) {
 	idempotencyKey := fmt.Sprintf("%s:%s:%s:%s", dispatchNodeWakeupKind, dagKey, nodeKey, assignedTo)
-	payload, err := json.Marshal(taskdag.DownstreamWakeupPayload{
-		AgentID: assignedTo,
-	})
+	payload, err := json.Marshal(taskdag.DownstreamWakeupPayload{AgentID: assignedTo})
 	if err != nil {
-		return contract.DispatchNodeResponse{}, fmt.Errorf("orchestration: DispatchNode marshal payload: %w", err)
+		return 0, fmt.Errorf("orchestration: DispatchNode marshal payload: %w", err)
 	}
 	wakeupID, err := s.dispatchStore.EnqueueWakeup(ctx, taskdag.EnqueueWakeupInput{
 		DagKey:         dagKey,
@@ -121,15 +155,7 @@ func (s *service) DispatchNode(ctx context.Context, req contract.DispatchNodeReq
 		IdempotencyKey: idempotencyKey,
 	})
 	if err != nil {
-		return contract.DispatchNodeResponse{}, fmt.Errorf("orchestration: DispatchNode enqueue %s/%s: %w", dagKey, nodeKey, err)
+		return 0, fmt.Errorf("orchestration: DispatchNode enqueue %s/%s: %w", dagKey, nodeKey, err)
 	}
-
-	resp := contract.DispatchNodeResponse{
-		WakeupID: wakeupID,
-		Enqueued: wakeupID > 0,
-	}
-	if target != nil {
-		resp.Node = dagNodeDTO(*target)
-	}
-	return resp, nil
+	return wakeupID, nil
 }
