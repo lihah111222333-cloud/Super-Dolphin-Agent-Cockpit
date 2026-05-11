@@ -102,14 +102,23 @@ RETURNING r.run_key, r.status;
 -- 已存在），把 {kind: "node_spawn", node_key, prev_thread_id, thread_id, ts}
 -- 落到 events 数组保留历史链。详 ADR-009 §3 / §5 Q4。
 --
--- 当前实现：jsonb_set / array_append；events 列默认 '[]'::jsonb（参见 migration 0074）。
+-- 当前实现：jsonb_build_array($2::jsonb) 包成单元素数组再 || 拼接，强制
+-- 走 PG jsonb 的「array append」语义；events 列默认 '[]'::jsonb（参见
+-- migration 0074）。
+--
+-- 工艺修复（R1 P0 #1）：早期写法 `events || $2::jsonb` 看起来是 array append，
+-- 但当 bind 端误传 object（kind/node_key 等顶层 JSON object）时 PG `||` 走
+-- 「object concat」(merge by key) 而非 append，导致历史链静默被合并/覆盖。
+-- jsonb_build_array() 强制把右操作数包成数组，无论 bind 类型都保证 array
+-- append 语义；同 store 层调用方也保持原 payload（单条 object），不需双重数组。
+--
 -- WHERE 用 dag_key + status='running' 定位 0076 partial unique 保证的唯一 running run；
 -- 0 行返回（无 running run）调用方静默吞，不视为错误。
 --
 -- ADR-009 §5 Q4 留位：events 列未加 size_cap，M3 实测后可在此 query 加上
 -- 「只保最近 N 条 node_spawn」的环形截断逻辑。本骨架版本不带 cap。
 UPDATE task_dag_runs
-SET events     = events || $2::jsonb,
+SET events     = events || jsonb_build_array($2::jsonb),
     updated_at = NOW()
 WHERE dag_key = $1 AND status = 'running'
 RETURNING run_key;
