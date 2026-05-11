@@ -30,6 +30,8 @@ type stubDAGOpsStore struct {
 
 	currentVersion int64
 	versionErr     error
+	dagStatus      string // F4.5 现 DAG 状态；空串 = "draft" (默认)
+	getDagErr      error  // F4.5 模拟 GetDAG 错误用
 
 	nodes []taskdag.Node // 当前 DAG 已存的节点
 	listErr error
@@ -55,8 +57,18 @@ func (s *stubDAGOpsStore) GetDAGVersion(_ context.Context, _ string) (int64, err
 	return s.currentVersion, nil
 }
 
+// GetDAG 返回一个带当前 dagStatus 的 *taskdag.DAG。F4.5 引入 dag.status 不变量后，
+// runOpsBatch 在事务内会调 GetDAG；默认 "draft" 保现有测试不被破坏。要验证
+// F4.5 拒集逻辑、在测试里显式写 stub.dagStatus = "running"。
 func (s *stubDAGOpsStore) GetDAG(_ context.Context, _ string) (*taskdag.DAG, error) {
-	return nil, errors.New("stubDAGOpsStore.GetDAG not used in F4.1 add_node tests")
+	if s.getDagErr != nil {
+		return nil, s.getDagErr
+	}
+	status := s.dagStatus
+	if status == "" {
+		status = "draft"
+	}
+	return &taskdag.DAG{Status: status}, nil
 }
 
 func (s *stubDAGOpsStore) ListNodes(_ context.Context, _ string) ([]taskdag.Node, error) {
