@@ -251,3 +251,32 @@ func (q *Queries) FinalizeTaskDagRunIfAllNodesTerminal(ctx context.Context, dagK
 	}
 	return items, nil
 }
+
+const appendTaskDagRunEvent = `-- name: AppendTaskDagRunEvent :one
+UPDATE task_dag_runs
+SET events     = events || $2::jsonb,
+    updated_at = NOW()
+WHERE dag_key = $1 AND status = 'running'
+RETURNING run_key
+`
+
+// AppendTaskDagRunEventParams binds (dag_key, event_json) for the events
+// jsonb array append in task_dag_runs. The event payload must already be a
+// JSON object (or wrapped in […] when appending multiple). Mismatched values
+// cause PG operator || to error at bind time.
+type AppendTaskDagRunEventParams struct {
+	DagKey  string `json:"dag_key"`
+	Column2 []byte `json:"column_2"`
+}
+
+// AppendTaskDagRunEvent appends a JSON event to the running run's events
+// jsonb array. Returns pgx.ErrNoRows when there is no running run for the
+// dag_key (callers may treat that as a soft miss; the store layer wraps with
+// platformdb.IsNotFound).
+func (q *Queries) AppendTaskDagRunEvent(ctx context.Context, arg AppendTaskDagRunEventParams) (string, error) {
+	row := q.db.QueryRow(ctx, appendTaskDagRunEvent, arg.DagKey, arg.Column2)
+	var runKey string
+	err := row.Scan(&runKey)
+	return runKey, err
+}
+
