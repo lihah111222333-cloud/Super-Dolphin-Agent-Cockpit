@@ -44,6 +44,43 @@ func EnumStringSchema(description string, values ...string) Schema {
 	return schema
 }
 
+// EnumValues 从 Schema 反取 "enum" 字段（StringSchema enum 切片），
+// 给 handler 层 requireEnum 做单源驱动：schema 和 handler 共用同一份枚举值，
+// 避免「schema 写一份、handler 写一份」造成 drift。
+//
+// 仅识别 []string 与 []any（元素为 string）两种形状；其他类型直接返 nil，
+// 调用方应保证 schema 用 EnumStringSchema 构造（已在单测覆盖）。
+//
+// EnumValues extracts the "enum" slice from a Schema so the handler layer
+// (requireEnum) and the schema share one source of truth. Returns nil when
+// the field is absent or has an unexpected shape; callers should pair it
+// with a schema built via EnumStringSchema and cover the wiring in tests.
+func EnumValues(s Schema) []string {
+	if s == nil {
+		return nil
+	}
+	raw, ok := s["enum"]
+	if !ok || raw == nil {
+		return nil
+	}
+	switch v := raw.(type) {
+	case []string:
+		return append([]string(nil), v...)
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			str, ok := item.(string)
+			if !ok {
+				return nil
+			}
+			out = append(out, str)
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
 func ArraySchema(items Schema, description string) Schema {
 	schema := Schema{"type": "array", "items": map[string]any(items)}
 	if description != "" {
