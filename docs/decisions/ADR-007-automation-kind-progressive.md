@@ -1,8 +1,6 @@
 # ADR-007：automation.kind 多 kind 渐进开通策略
 
-> ⚠️ **历史快照**：本 ADR 2026-05-11 写于 F2.1 未开工时；F2.1 仍未做，`automation.exec` 仍为单 `command_ref` 通道，本文保留；当前详细 follow-up 见 `docs/plans/dag改造现状与补丁v2.md` §4.4。
->
-> 状态：📝 Proposed | 日期：2026-05-11 | 决策者：待定 | 相关：`docs/plans/dag改造蓝图v2.md` §1（"自动化能力收敛"主张）/ §7 typed schema、`docs/plans/dag改造修补.md` §4b、ADR 0001（typed schema 锁死契约）
+> 状态：✅ Accepted | 日期：2026-05-11（拍板）| 决策者：主线 | 相关：docs/plans/dag改造蓝图v2.md §1 / §7、docs/plans/dag改造修补.md §4b、ADR 0001、F2.0（schema kind 字段位返修）/ F2.1（AutomationExecutor 仅识别 command_card）
 
 ## 1. 背景
 
@@ -77,7 +75,7 @@
 
 ## 5. Open Questions
 
-- Q1：`kind=""` 默认行为？应该 fail-fast 拒绝还是兼容旧 schema 视为 `command_card`？倾向后者（向下兼容）。
+- Q1 已结 —— kind="" 视为 command_card（向下兼容）：F2.0 的 ParseAutomationConfig 把空 kind 默认填 command_card；非法 kind 走 fail-fast 拒绝（返 unsupported automation.kind 错误）。
 - Q2 已结 —— webhook 与 http 保持分开：修补单 §4b schema 已明确拆 `webhook | shell | http` 三种 kind。webhook（外发事件、fire-and-forget）与 http（同步调用 + response 解析）语义不同、错误处理不同，合并会损失 typed schema 的表达力。后续若实现中发现设计重叠，立 ADR-007a 合并补充。
 - Q3：shell kind 的 sandbox 实现（容器 / chroot / 用户级 namespace）—— Super-Dolphin 当前没有 sandbox 基建，要不要复用现有 `workspace` 子系统的隔离？
 - Q4：每种 kind 的 `inputs / outputs` 与 §7 共享 schema 是否完全适用？webhook 的 outputs 是 HTTP 响应 jsonb，与 `to_node_result` 的"摘要"语义重叠 / 冲突？
@@ -87,12 +85,18 @@
 
 | kind | 状态 | 配套 ADR | 实装位 | 备注 |
 |---|---|---|---|---|
-| command_card | 📝 骨架待实装 | (无，本 ADR) | `executor_automation.go`（F2.1） | 当前 schema 唯一通道 |
+| command_card | ⏳ 待 F2.0+F2.1 实装（F2.0 = schema kind 字段位返修；F2.1 = AutomationExecutor 解码） | (无，本 ADR) | `executor_automation.go`（F2.1） + `nodeexec/config.go`（F2.0） | 当前 schema 唯一通道 |
 | webhook | ⛔ 未开通 | 待立 | (未起) | 等本 ADR 拍板 |
 | shell | ⛔ 未开通 | 待立 + sandbox 调研 | (未起) | 高风险，sandbox 是前置 |
 | http | ⛔ 未开通 | 待立 | (未起) | 与 webhook 明确分开（见 Q2 结本） |
 
 ## 7. 决策
 
-⛔ 待定。F2.1 开工前由主线拍板方案 A/B/C。
+**选方案 A**：渐进开通顺序 `command_card → webhook → http → shell`。
+
+### 实装路径
+
+1. **F2.0（schema kind 字段位返修，先行）**：S5.1 typed schema 已 done 但没加 Kind 字段，本属 drift。F2.0 给 `AutomationExecConfig` 加 `Kind string `json:"kind,omitempty"`` 字段位 + `ParseAutomationConfig` 兜底「未知 kind → fail-fast 拒绝」+ 「空 kind → 默认填 command_card」。实装位 `cmd/mcp-orch/orchestration/nodeexec/config.go`。
+2. **F2.1（AutomationExecutor 实装）**：仅识别 `kind="command_card"`，其他 kind 返 `unsupported automation.kind: <kind>` 错误。
+3. **后续 kind 渐进开通**：每种 kind 独立 ADR-007a/b/c 子节点 + 守门规则（详 §3）。webhook → http → shell 顺序。
 
