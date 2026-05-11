@@ -32,6 +32,19 @@ func (s *store) GetDAGVersionForUpdate(ctx context.Context, dagKey string) (int6
 	return version, nil
 }
 
+// GetDAGVersion 是 GetDAGVersionForUpdate 的只读版本：不加任何锁，不需事务。
+// 专为「空 ops 短路」场景设计：调用方面拿当前版本号判定 base_version 是否同庄，
+// 但没有后续写操作，不需要 FOR UPDATE 的序列化代价（R3 P2 #3）。
+func (s *store) GetDAGVersion(ctx context.Context, dagKey string) (int64, error) {
+	const q = `SELECT version FROM task_dags WHERE dag_key = $1`
+	row := sqlcDB(s.q).QueryRow(ctx, q, dagKey)
+	var version int64
+	if err := row.Scan(&version); err != nil {
+		return 0, wrapTaskDAGError(err, "get_version", "task_dag")
+	}
+	return version, nil
+}
+
 // BumpDAGVersion 把 task_dags.version 从 expectedVersion 推到 expectedVersion+1。
 // 受影响行数 0 → expected 与 actual 不匹配（OCC 冲突），返回 nil error +
 // version=0 由上层用「row not found」语义判断（注：用 RETURNING 的 :one
