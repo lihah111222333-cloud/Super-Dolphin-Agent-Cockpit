@@ -149,38 +149,9 @@ func (e *AgentExecutor) Execute(ctx context.Context, node Node, runCtx RunContex
 	req := buildLaunchRequestFromAgentConfig(cfg, node, runCtx)
 	threadID, launchErr := e.launcher.LaunchAgent(ctx, req)
 	if launchErr == nil {
-		// 6. F1.5：launch 成功后把 child thread_id 写回 task_dag_nodes
-		//    .spawning_thread_id。recorder 为 nil 或 threadID 空则跳过（详
-		//    NewAgentExecutor 注释 + ADR-009 §3）。写回失败仅记录到
-		//    NodeOutcome.ErrorSummary，不把 launch 翻成 failed —— launch 已经
-		//    成功，spawn 历史是辅助审计；过强语义会让一次 DB 抖动把 child
-		//    agent 误判为 failed。F1.4 dispatcher 仍然可以从 ErrorSummary
-		//    日志层面感知 writeback 失败。
-		//
-		//    F1.5: after a successful launch, hand the child thread_id to the
-		//    recorder so task_dag_nodes.spawning_thread_id (ADR-009) is
-		//    written back. The write-back is an audit aid; failures are
-		//    surfaced via NodeOutcome.ErrorSummary but never demote the node
-		//    to failed — the child has launched successfully and demoting on a
-		//    transient DB blip would create a phantom-failure cascade.
+		// F1.5 写回逻辑外刷到 spawnWriteback，避免 Execute 本体圈复杂度 CC 超阈。
 		outcome := NodeOutcome{Status: NodeStatusDone}
-		if e.recorder != nil && strings.TrimSpace(threadID) != "" {
-			dagKey := strings.TrimSpace(runCtx.DagKey)
-			nodeKey := strings.TrimSpace(runCtx.NodeKey)
-			if dagKey == "" {
-				dagKey = strings.TrimSpace(node.DagKey)
-			}
-			if nodeKey == "" {
-				nodeKey = strings.TrimSpace(node.NodeKey)
-			}
-			if dagKey != "" && nodeKey != "" {
-				if recErr := e.recorder.RecordNodeSpawn(ctx, dagKey, nodeKey, threadID); recErr != nil {
-					outcome.ErrorSummary = truncateErrSummary(
-						fmt.Sprintf("spawning_thread_id write-back failed: %v", recErr),
-					)
-				}
-			}
-		}
+		outcome.ErrorSummary = e.spawnWriteback(ctx, node, runCtx, threadID)
 		// F1.3 留位：outputs.to_sharedfile / to_node_result 在 F1.3 实现。
 		// F1.3 placeholder: persist outputs into sharedfile / node result.
 		return outcome, nil
@@ -202,6 +173,56 @@ func (e *AgentExecutor) Execute(ctx context.Context, node Node, runCtx RunContex
 //
 // Hooks reports lifecycle hook handlers. F13 wires real hooks; today nil.
 func (e *AgentExecutor) Hooks() map[HookPoint]HookHandler { return nil }
+
+// spawnWriteback 是 F1.5 写回路径的独立 helper：luach 成功 → 调 recorder 记录
+// spawning_thread_id。返回值是 NodeOutcome.ErrorSummary 的候选填值：
+//   - 空串：recorder 跳过或写入成功，调用方保持原 outcome；
+//   - 非空：recorder 写入失败但 launch 已成功，调用方仅填 summary 不降级状态。
+//
+// 拆出独立函数主要为了把 Execute 的 CC 压住代码守卫上限（§10）。
+//
+// spawnWriteback is the F1.5 writeback helper. It returns the value to assign
+// to NodeOutcome.ErrorSummary: empty when the recorder was either skipped or
+// successful, non-empty when the recorder failed (callers preserve the
+// successful launch status and only annotate ErrorSummary). Pulled out so
+// Execute stays under the cyclomatic-complexity guard (10).
+func (e *AgentExecutor) spawnWriteback(ctx context.Context, node Node, runCtx RunContext, threadID string) string {
+	if e.recorder == nil {
+		return ""
+	}
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return ""
+	}
+	dagKey, nodeKey := resolveSpawnKeys(node, runCtx)
+	if dagKey == "" || nodeKey == "" {
+		return ""
+	}
+	if err := e.recorder.RecordNodeSpawn(ctx, dagKey, nodeKey, threadID); err != nil {
+		return truncateErrSummary(fmt.Sprintf("spawning_thread_id write-back failed: %v", err))
+	}
+	return ""
+}
+
+// resolveSpawnKeys 从 RunContext / node 中提取 dagKey + nodeKey，优先 RunContext
+// （dispatcher 传的 truth source），缺失时回退到 node 自身字段。两者都空意味
+// 着上层 wiring 路跳了节点闭包，跳过写回不报错。
+//
+// resolveSpawnKeys extracts dagKey/nodeKey, preferring RunContext (the
+// dispatcher-supplied truth source) and falling back to the node's own
+// fields. Empty on both sides means the caller-side wiring skipped the
+// closure; the writeback is then silently a no-op.
+func resolveSpawnKeys(node Node, runCtx RunContext) (string, string) {
+	dagKey := strings.TrimSpace(runCtx.DagKey)
+	if dagKey == "" {
+		dagKey = strings.TrimSpace(node.DagKey)
+	}
+	nodeKey := strings.TrimSpace(runCtx.NodeKey)
+	if nodeKey == "" {
+		nodeKey = strings.TrimSpace(node.NodeKey)
+	}
+	return dagKey, nodeKey
+}
 
 // buildLaunchRequestFromAgentConfig 把 AgentNodeConfig 映射到 contract.LaunchRequest。
 // 命名/字段语义与 wakeup_dispatcher.go::buildLaunchRequestFromWakeup 同源，避免
