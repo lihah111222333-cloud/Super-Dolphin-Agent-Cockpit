@@ -14,6 +14,9 @@ var Module = fx.Module("store.taskdag",
 		// could not resolve the RunStore dependency. The type assertion is statically
 		// guarded by store_compile_assertions_test.go's var _ RunStore = (*store)(nil).
 		ProvideRunStore,
+		// ProvideDispatchNodeStore 报同一 *store 作为 DispatchNodeStore (task_dispatch_node)。
+		// 编译期同样由 store_compile_assertions_test.go 守住。
+		ProvideDispatchNodeStore,
 	),
 )
 
@@ -26,3 +29,11 @@ func ProvideOrchestrationStore(store Store) OrchestrationStore { return store }
 // assertion. Safety is statically guaranteed by store_compile_assertions_test.go
 // (var _ RunStore = (*store)(nil)); the assertion will not panic at runtime.
 func ProvideRunStore(store Store) RunStore { return store.(RunStore) }
+
+// ProvideDispatchNodeStore 从聚合 Store 中 type-assert 出 task_dispatch_node
+// MCP 工具需要的窄接口 DispatchNodeStore。断言安全性同样由
+// store_compile_assertions_test.go 守住。
+//
+// ProvideDispatchNodeStore narrows the aggregate Store to DispatchNodeStore
+// (consumed by service.DispatchNode). Safety is statically guarded.
+func ProvideDispatchNodeStore(store Store) DispatchNodeStore { return store.(DispatchNodeStore) }

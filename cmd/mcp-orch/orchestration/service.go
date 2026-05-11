@@ -81,6 +81,9 @@ type service struct {
 	turnStarter            TurnStarter
 	dagStore               taskdag.OrchestrationStore
 	runStore               taskdag.RunStore // T1.2: StartDAG / T3.x 跳入 RunStore；Tx 交给 runStore.WithRunTx 起
+	// dispatchStore 是 task_dispatch_node (ADR-004 §Open Q1) 使用的窄端口。
+	// 生产未绑时为 nil；service.DispatchNode 返 ErrDispatchStoreUnset。
+	dispatchStore taskdag.DispatchNodeStore
 	recoveryStore          recoveryTurnStore
 	agentThreads           AgentThreadStore
 	agentBindings          AgentBindingStore
@@ -120,6 +123,10 @@ type serviceParams struct {
 	RunStore      taskdag.RunStore
 	AgentThreads  AgentThreadStore  `optional:"true"`
 	AgentBindings AgentBindingStore `optional:"true"`
+	// DispatchStore 是 task_dispatch_node (ADR-004 §Open Q1) 使用的窄端口。
+	// optional: 旧测试路径 / standalone 模式不装载 taskdag.Module 时依然能
+	// 启动；service.DispatchNode 遇到 nil 时返 ErrDispatchStoreUnset。
+	DispatchStore taskdag.DispatchNodeStore `optional:"true"`
 }
 
 type recoveryTurnStore interface {
@@ -222,6 +229,7 @@ func ProvideService(p serviceParams) *service {
 	svc.runStore = p.RunStore // T1.2: StartDAG 需跳入；setter 注入以保 NewService 签名不变
 	svc.agentThreads = p.AgentThreads
 	svc.agentBindings = p.AgentBindings
+	svc.dispatchStore = p.DispatchStore // dispatcher wiring batch §4：可为 nil，遇到后走 ErrDispatchStoreUnset
 	return svc
 }
 
