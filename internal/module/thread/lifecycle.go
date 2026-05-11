@@ -392,7 +392,14 @@ func (s *service) persistResumedSession(
 	providerThreadID = threadState.ProviderThreadID
 	if err := s.persistThreadState(ctx, threadState, true); err != nil {
 		s.logResumePersistFailure(req.AgentID, publicThreadID, providerThreadID, err)
-		s.publishThreadStarted(threadState)
+		// Only publish thread.Started as a fallback when the error is NOT a
+		// binding conflict. Binding conflicts mean the provider_thread_id in
+		// threadState belongs to another agent — publishing it would cause
+		// the frontend to see a provider_mismatch and reload history with
+		// the wrong UUID, resulting in empty conversation history.
+		if !isBindingConflictError(err) {
+			s.publishThreadStarted(threadState)
+		}
 	}
 	if promptResumeRestoreRequiresInvalidation(state.StoredCWD, req.CWD, s.cfg) {
 		if err := s.invalidatePromptAssembly(ctx, contract.InvalidateResumeRestore); err != nil {
@@ -412,8 +419,11 @@ func (s *service) logResumePersistFailure(agentID, threadID, providerThreadID st
 	if s == nil || s.logger == nil {
 		return
 	}
-	s.logger.Warn("thread: resume persist failed, continuing with event emission",
+	conflict := isBindingConflictError(err)
+	s.logger.Warn("thread: resume persist failed",
 		"error", err,
+		"binding_conflict", conflict,
+		"event_emitted", !conflict,
 		"agent_id", agentID,
 		"thread_id", threadID,
 		"provider_thread_id", providerThreadID,
@@ -520,4 +530,20 @@ func resolvedProviderUUID(session contract.Session) string {
 		return id
 	}
 	return ""
+}
+
+// isBindingConflictError reports whether err is a binding-uniqueness
+// rejection (provider_thread_id or public_thread_id already belongs to a
+// different agent). These errors mean the threadState carries identifiers
+// that are wrong for the requesting agent, so publishing a thread.Started
+// event with them would poison the frontend's loaded_provider_thread_id
+// and trigger a provider_mismatch → stale-ID history reload → empty UI.
+func isBindingConflictError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "already bound to agent") ||
+		strings.Contains(msg, "already bound to provider") ||
+		strings.Contains(msg, "already bound to public thread")
 }

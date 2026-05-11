@@ -378,8 +378,9 @@ func (s *service) resolveSession(ctx context.Context, threadID string) (contract
 
 // evictZombieSession removes a dead session (transport closed, context
 // canceled) left by Archive so that the next resolve path creates a fresh
-// session. It also clears the resumeInFlight guard to allow
-// backgroundResumeIfNeeded to proceed.
+// session. RemoveSession triggers session.Close → shutdownSession →
+// poolRelease, which reclaims the old CLI process. It also clears the
+// resumeInFlight guard to allow backgroundResumeIfNeeded to proceed.
 func (s *service) evictZombieSession(ctx context.Context, threadID string) {
 	binding, err := s.resolveBinding(ctx, threadID)
 	if err != nil || binding == nil {
@@ -390,6 +391,10 @@ func (s *service) evictZombieSession(ctx context.Context, threadID string) {
 		return
 	}
 	if s.sessions != nil {
+		pkglogger.Warn("thread: evictZombieSession → closing old session + reclaiming CLI process",
+			"agent_id", agentID,
+			"thread_id", threadID,
+		)
 		s.sessions.RemoveSession(agentID)
 	}
 	if _, blocked := s.resumeLifecycleBlockReason(ctx, threadID, binding); blocked {
