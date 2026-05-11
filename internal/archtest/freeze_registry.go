@@ -25,6 +25,14 @@ var explicitFreezeRegistry = []explicitFreeze{
 		Owner:      "chat",
 		RemoveWhen: "memory 包拆出 auto-continue 子包后文件数回落 ≤ 30，删除该 freeze。",
 	},
+	{
+		Path:       "cmd/mcp-orch/orchestration",
+		Kind:       ViolationPackageCount,
+		Limit:      32,
+		Reason:     "dispatcher-wiring batch (5 reviewer P0 #1) 接入 NodeExecutor 抽象后新增 node_router.go + dag_dispatch.go 两个必要单职责文件，包文件数 30→32；后续拆 sub-package (e.g. node_dispatch 独立包) 后取消。",
+		Owner:      "orchestration",
+		RemoveWhen: "orchestration 包拆出 node-dispatch / lifecycle 子包后文件数回落 ≤ 30，删除该 freeze。",
+	},
 }
 
 func freezeRegistryIntegrityViolations() []Violation {

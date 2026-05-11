@@ -79,6 +79,56 @@ func autoMigrate(ctx context.Context, pool *pgxpool.Pool, projectRoot string) er
 	return applyPendingMigrations(ctx, pool, migrationsDir)
 }
 
+// MinRequiredSchemaVersion 是当前二进制能正确工作所要求的最低 schema_migrations.version。
+//
+// 升级理由 / 历史：
+//   - 0084: AI 设计师中文 prompt seed（F7.1）；dispatcher wiring batch 默认依赖；
+//   - dispatcher wiring batch（dispatch-wire）：UpdateRunningTaskDagNodeStatus
+//     fence 放宽 + dispatcher 路由 NodeExecutor 抽象，要求 0083 spawning_thread_id
+//     字段已在位；最高强依赖落在 0084。
+//
+// MinRequiredSchemaVersion is the lower bound this binary needs in
+// schema_migrations.version to operate correctly. Bumping it here forces a
+// hard fail-fast at startup if an operator points the binary at a database
+// that has not had `make migrate` (or the autoMigrate path) reach the
+// required level. Update the constant together with the corresponding
+// migration file when adding a hard dependency.
+const MinRequiredSchemaVersion = 84
+
+// schemaVersionQueryRow 是 verifyMinSchemaVersion 的最小依赖面。
+// *pgxpool.Pool 天然满足；测试可注入纯内存桩。
+//
+// schemaVersionQueryRow is the narrow surface verifyMinSchemaVersion needs.
+// *pgxpool.Pool implements it; tests inject an in-memory fake.
+type schemaVersionQueryRow interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// verifyMinSchemaVersion 是 mcp-orch 启动 hook 末尾的 sanity gate：
+// autoMigrate 跑完后再读一次 schema_migrations 拿最高 version，
+// 若 < MinRequiredSchemaVersion 就 fail-fast 拒绝继续启动。
+//
+// 这里**故意**只读不写：autoMigrate 已经保证应用方向；本步骤只挡
+// 「migration 没跑全或 operator 手工指了一个落后的库」这类 wiring
+// 误配，避免 dispatcher 跑起来后撞到 F6.3 / F1.5 SQL 才报错。
+//
+// verifyMinSchemaVersion is the post-autoMigrate sanity gate. It surfaces a
+// readable bilingual error rather than letting a runtime SQL call blow up
+// later when an operator points the binary at a database whose migrations
+// have not caught up.
+func verifyMinSchemaVersion(ctx context.Context, q schemaVersionQueryRow) error {
+	var maxVersion int
+	if err := q.QueryRow(ctx, "SELECT COALESCE(MAX(version), 0) FROM schema_migrations").Scan(&maxVersion); err != nil {
+		return fmt.Errorf("verify schema_migrations version: %w", err)
+	}
+	if maxVersion < MinRequiredSchemaVersion {
+		return fmt.Errorf(
+			"数据库 migration 版本 < %d (当前=%d)，请先 apply 后再启动；database migration version below %d (current=%d), apply pending migrations before starting",
+			MinRequiredSchemaVersion, maxVersion, MinRequiredSchemaVersion, maxVersion)
+	}
+	return nil
+}
+
 func ensureSchemaMigrationsTable(ctx context.Context, pool *pgxpool.Pool) error {
 	_, err := pool.Exec(ctx, `
 		CREATE TABLE IF NOT EXISTS public.schema_migrations (
@@ -235,6 +285,9 @@ func registerLifecycle(lc fx.Lifecycle, logger *pkglogger.Logger, pool *pgxpool.
 				return err
 			}
 			if err := autoMigrate(ctx, pool, cfg.ProjectRoot); err != nil {
+				return err
+			}
+			if err := verifyMinSchemaVersion(ctx, pool); err != nil {
 				return err
 			}
 			logger.Info("db pool ready")

@@ -25,7 +25,7 @@ RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, stat
 UPDATE task_dag_nodes
 SET status = $1, result = $2::jsonb, active_turn_id = NULL, active_wakeup_id = $3,
     last_event_at = NULL, started_at = COALESCE(started_at, NOW()), updated_at = NOW()
-WHERE dag_key = $4 AND node_key = $5 AND status IN ('pending')
+WHERE dag_key = $4 AND node_key = $5 AND status IN ('pending', 'ready')
 RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
 
 -- name: UpdateAwaitingVerifyTaskDagNodeStatus :one
