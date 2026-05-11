@@ -73,73 +73,73 @@ func NewNodeExecutorRouter(
 // builds a RunContext, and dispatches by node_type. Returned error signals a
 // framework-level fault; NodeOutcome carries node-level success/failure.
 func (r *NodeExecutorRouter) RouteByWakeup(ctx context.Context, w *taskdag.Wakeup) (nodeexec.NodeOutcome, error) {
-	if r == nil {
-		return nodeexec.NodeOutcome{}, errors.New("node router: nil receiver")
-	}
-	if w == nil {
-		return nodeexec.NodeOutcome{}, errors.New("node router: nil wakeup")
+	if err := validateRouteInputs(r, w); err != nil {
+		return nodeexec.NodeOutcome{}, err
 	}
 	dagKey := strings.TrimSpace(w.DagKey)
 	nodeKey := strings.TrimSpace(w.NodeKey)
-	if dagKey == "" || nodeKey == "" {
-		return nodeexec.NodeOutcome{}, fmt.Errorf("node router: wakeup %d missing dag_key/node_key", w.ID)
-	}
-	nodes, err := r.store.ListNodes(ctx, dagKey)
+	target, err := r.lookupTargetNode(ctx, dagKey, nodeKey)
 	if err != nil {
-		return nodeexec.NodeOutcome{}, fmt.Errorf("node router: list nodes %s: %w", dagKey, err)
+		return nodeexec.NodeOutcome{}, err
 	}
-	var target *taskdag.Node
-	for i := range nodes {
-		if nodes[i].NodeKey == nodeKey {
-			target = &nodes[i]
-			break
-		}
-	}
-	if target == nil {
-		return nodeexec.NodeOutcome{}, fmt.Errorf("node router: node %s/%s not found", dagKey, nodeKey)
-	}
-
-	// node_type 兜底：空字符串 / 未识别 → "agent"（dogfood DAG 兼容，F1.0 默认）
-	nodeType := strings.TrimSpace(target.NodeType)
-	if nodeType == "" {
-		nodeType = "agent"
-	}
-
-	runCtx := nodeexec.RunContext{
-		DagKey:  dagKey,
-		NodeKey: nodeKey,
-	}
-	execNode := nodeexec.Node{
+	nodeType := resolveNodeType(target.NodeType)
+	node := nodeexec.Node{
 		DagKey:   dagKey,
 		NodeKey:  nodeKey,
 		NodeType: nodeType,
 		Title:    target.Title,
 		Config:   append(json.RawMessage(nil), target.Config...),
 	}
+	runCtx := nodeexec.RunContext{DagKey: dagKey, NodeKey: nodeKey}
+	return r.dispatchByNodeType(ctx, nodeType, node, runCtx)
+}
 
+// validateRouteInputs 拆出 RouteByWakeup 的入参防御，压住 Cyclomatic Complexity。
+func validateRouteInputs(r *NodeExecutorRouter, w *taskdag.Wakeup) error {
+	if r == nil {
+		return errors.New("node router: nil receiver")
+	}
+	if w == nil {
+		return errors.New("node router: nil wakeup")
+	}
+	if strings.TrimSpace(w.DagKey) == "" || strings.TrimSpace(w.NodeKey) == "" {
+		return fmt.Errorf("node router: wakeup %d missing dag_key/node_key", w.ID)
+	}
+	return nil
+}
+
+// lookupTargetNode 走 store.ListNodes 拿节点列表、按 node_key 定位。
+// 拆出独立函数为了让 RouteByWakeup 主高还清，压住 CC。
+func (r *NodeExecutorRouter) lookupTargetNode(ctx context.Context, dagKey, nodeKey string) (*taskdag.Node, error) {
+	nodes, err := r.store.ListNodes(ctx, dagKey)
+	if err != nil {
+		return nil, fmt.Errorf("node router: list nodes %s: %w", dagKey, err)
+	}
+	for i := range nodes {
+		if nodes[i].NodeKey == nodeKey {
+			return &nodes[i], nil
+		}
+	}
+	return nil, fmt.Errorf("node router: node %s/%s not found", dagKey, nodeKey)
+}
+
+// resolveNodeType 处理 nodeType 兜底逻辑：空串/未识别 → "agent" (F1.0 默认)。
+func resolveNodeType(raw string) string {
+	t := strings.TrimSpace(raw)
+	if t == "" {
+		return "agent"
+	}
+	return t
+}
+
+// dispatchByNodeType 是本文件里别的「真」路由表：按 node_type 调对应 executor。
+// 拆出独立函数以满足 code-size guard 的 CC 阈值。
+func (r *NodeExecutorRouter) dispatchByNodeType(ctx context.Context, nodeType string, node nodeexec.Node, runCtx nodeexec.RunContext) (nodeexec.NodeOutcome, error) {
 	switch nodeType {
 	case "agent":
-		if r.agentExec == nil {
-			return validationOutcome("node router: agent executor not wired"), nil
-		}
-		return r.agentExec.Execute(ctx, execNode, runCtx)
+		return r.dispatchAgent(ctx, node, runCtx)
 	case "automation":
-		if r.autoExec == nil {
-			return validationOutcome("node router: automation executor not wired"), nil
-		}
-		outcome, execErr := r.autoExec.Execute(ctx, execNode, runCtx)
-		if execErr != nil {
-			return outcome, execErr
-		}
-		// Automation 节点没有 child agent 在外面驱动 CompleteNode；
-		// 路由器代为推进 node.status / schedule downstream。
-		if outcome.Status == nodeexec.NodeStatusDone {
-			if err := r.completeAutomationNode(ctx, dagKey, nodeKey, outcome.Result); err != nil {
-				r.logger.Warn("node router: automation complete propagate failed",
-					"dag_key", dagKey, "node_key", nodeKey, "error", err)
-			}
-		}
-		return outcome, nil
+		return r.dispatchAutomation(ctx, node, runCtx)
 	case "hybrid":
 		return nodeexec.NodeOutcome{
 			Status:       nodeexec.NodeStatusFailed,
@@ -149,6 +149,31 @@ func (r *NodeExecutorRouter) RouteByWakeup(ctx context.Context, w *taskdag.Wakeu
 	default:
 		return validationOutcome(fmt.Sprintf("node router: unsupported node_type %q", nodeType)), nil
 	}
+}
+
+func (r *NodeExecutorRouter) dispatchAgent(ctx context.Context, node nodeexec.Node, runCtx nodeexec.RunContext) (nodeexec.NodeOutcome, error) {
+	if r.agentExec == nil {
+		return validationOutcome("node router: agent executor not wired"), nil
+	}
+	return r.agentExec.Execute(ctx, node, runCtx)
+}
+
+func (r *NodeExecutorRouter) dispatchAutomation(ctx context.Context, node nodeexec.Node, runCtx nodeexec.RunContext) (nodeexec.NodeOutcome, error) {
+	if r.autoExec == nil {
+		return validationOutcome("node router: automation executor not wired"), nil
+	}
+	outcome, execErr := r.autoExec.Execute(ctx, node, runCtx)
+	if execErr != nil {
+		return outcome, execErr
+	}
+	// Automation 节点没有 child agent 在外面驱动 CompleteNode；路由器代为推进。
+	if outcome.Status == nodeexec.NodeStatusDone {
+		if err := r.completeAutomationNode(ctx, node.DagKey, node.NodeKey, outcome.Result); err != nil {
+			r.logger.Warn("node router: automation complete propagate failed",
+				"dag_key", node.DagKey, "node_key", node.NodeKey, "error", err)
+		}
+	}
+	return outcome, nil
 }
 
 // completeAutomationNode 在 automation 节点 Execute 成功后同步推进 status=done
