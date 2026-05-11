@@ -43,11 +43,12 @@ func (s *store) CompleteNodeAndScheduleDownstream(ctx context.Context, input Com
 		// Downstream scheduling stays gated on done — failed/cancelled/skipped
 		// terminals do not satisfy dependsOn and need no enqueue.
 		if node.Status == terminalSuccessStatus {
-			scheduled, scheduleErr := scheduleDownstreamWakeupsTx(ctx, txStore, node)
+			scheduled, promoted, scheduleErr := scheduleDownstreamWakeupsTx(ctx, txStore, node)
 			if scheduleErr != nil {
 				return scheduleErr
 			}
 			result.ScheduledDownstream = scheduled
+			result.PromotedDownstream = promoted
 		}
 		// F6.2 同事务内推进 run.status：节点全终态时按优先级
 		// (failed > cancelled > succeeded) 写 task_dag_runs.status + finished_at。
@@ -91,10 +92,22 @@ func maybeFinalizeRunTx(ctx context.Context, txStore *store, dagKey string) (*Fi
 // upstream node row inside txStore's transaction. It re-reads the entire DAG
 // node set (cheap; DAGs are tens of nodes max) so it can evaluate every
 // downstream candidate's depends_on against the post-completion status map.
-func scheduleDownstreamWakeupsTx(ctx context.Context, txStore *store, completed *Node) ([]ScheduledDownstreamWakeup, error) {
+//
+// F6.3: 同事务内对每个「依赖已满足」的 pending 下游节点做两件事：
+//  1. promote pending→ready（PromoteSingleNodePendingToReady SQL）—— 无论
+//     assigned_to 是否为空，状态机层面都要推进，以暴露「ready 但未指派」
+//     可观测态；下次外部接管 / 人工补 assigned_to 时直接进 dispatcher。
+//  2. 仅当 assigned_to 非空时，enqueue wakeup（F6.4 跳过空 assigned_to 路由
+//     仍然成立）。
+//
+// EN: F6.3 + F6.4 dual responsibility — every dependency-satisfied pending
+// downstream node is promoted to ready in the same tx, while wakeup enqueue
+// stays gated on a non-empty assigned_to per F6.4. The two concerns are
+// decoupled: promote = state-machine truth; enqueue = dispatch routing.
+func scheduleDownstreamWakeupsTx(ctx context.Context, txStore *store, completed *Node) ([]ScheduledDownstreamWakeup, []PromotedDownstreamNode, error) {
 	nodes, listErr := txStore.ListNodes(ctx, completed.DagKey)
 	if listErr != nil {
-		return nil, listErr
+		return nil, nil, listErr
 	}
 	statusByKey := make(map[string]string, len(nodes))
 	for i := range nodes {
@@ -105,39 +118,76 @@ func scheduleDownstreamWakeupsTx(ctx context.Context, txStore *store, completed 
 		Path:    fmt.Sprintf("dag/%s/%s/output.json", completed.DagKey, completed.NodeKey),
 	}
 	scheduled := make([]ScheduledDownstreamWakeup, 0)
+	promoted := make([]PromotedDownstreamNode, 0)
 	for i := range nodes {
-		inserted, err := tryEnqueueDownstream(ctx, txStore, &nodes[i], completed.NodeKey, statusByKey, upstreamRef)
+		cand := &nodes[i]
+		if !dependsSatisfiedForUpstream(cand, completed.NodeKey, statusByKey) {
+			continue
+		}
+		// F6.3: 先 promote pending→ready；返回 0 行说明并发已被别的事务/
+		// 重入路径推进过（status != 'pending'），跳过当前节点的 enqueue 也
+		// 不再当作新 promote 上报。
+		rowsAffected, promoteErr := txStore.q.PromoteSingleNodePendingToReady(ctx, sqlc.PromoteSingleNodePendingToReadyParams{
+			DagKey:  cand.DagKey,
+			NodeKey: cand.NodeKey,
+		})
+		if promoteErr != nil {
+			return nil, nil, fmt.Errorf("promote %s/%s pending→ready: %w", cand.DagKey, cand.NodeKey, promoteErr)
+		}
+		if rowsAffected == 0 {
+			// pending → ready 已被他事务并发推进；本 tx 不再认领 promote / enqueue。
+			continue
+		}
+		promoted = append(promoted, PromotedDownstreamNode{
+			DagKey:  cand.DagKey,
+			NodeKey: cand.NodeKey,
+		})
+		// F6.4: assigned_to 为空 → 跳过 wakeup enqueue（promote 已发生，
+		// 节点停在 ready 等外部 dispatcher / 人工接管）。
+		inserted, err := tryEnqueueDownstream(ctx, txStore, cand, upstreamRef)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if inserted != nil {
 			scheduled = append(scheduled, *inserted)
 		}
 	}
-	return scheduled, nil
+	return scheduled, promoted, nil
 }
 
-// tryEnqueueDownstream evaluates a single candidate node and, when ready,
-// inserts a downstream wakeup. Returns (nil, nil) when the candidate is not
-// ready or when the INSERT was deduped by ON CONFLICT.
+// dependsSatisfiedForUpstream 判定 cand 是否：
+//   - 当前还在 pending（未被并发推进）
+//   - depends_on 包含 completedKey（即真的是该上游的下游）
+//   - 所有 depends_on 都已 done
+func dependsSatisfiedForUpstream(cand *Node, completedKey string, statusByKey map[string]string) bool {
+	if cand.Status != "pending" {
+		return false
+	}
+	deps, depErr := decodeDependsOn(cand.DependsOn)
+	if depErr != nil {
+		// 解码失败回退到「不满足」；上层调用扫到 enqueue 时会自己再 decode
+		// 一次并把错误冒上去（保留单一错误源）。
+		return false
+	}
+	if !dependsOnIncludes(deps, completedKey) {
+		return false
+	}
+	return allDependenciesSatisfied(deps, statusByKey)
+}
+
+// tryEnqueueDownstream enqueues a downstream wakeup for a candidate node
+// whose dependencies have already been confirmed satisfied (and promoted
+// pending→ready) by the caller. Returns (nil, nil) when assigned_to is empty
+// (F6.4 routing skip) or when the INSERT was deduped by ON CONFLICT.
+//
+// F6.3 refactor: depends_on / status checks moved up to
+// dependsSatisfiedForUpstream so promote + enqueue share a single decision.
 func tryEnqueueDownstream(
 	ctx context.Context,
 	txStore *store,
 	cand *Node,
-	completedKey string,
-	statusByKey map[string]string,
 	upstreamRef DownstreamUpstreamRef,
 ) (*ScheduledDownstreamWakeup, error) {
-	if cand.Status != "pending" {
-		return nil, nil
-	}
-	deps, depErr := decodeDependsOn(cand.DependsOn)
-	if depErr != nil {
-		return nil, fmt.Errorf("decode depends_on for %s/%s: %w", cand.DagKey, cand.NodeKey, depErr)
-	}
-	if !dependsOnIncludes(deps, completedKey) || !allDependenciesSatisfied(deps, statusByKey) {
-		return nil, nil
-	}
 	agentID := strings.TrimSpace(cand.AssignedTo)
 	// F6.4：assigned_to 为空 → 跳过 wakeup enqueue。否则 dispatcher 走
 	// LaunchAgent 会因 "agent id is required" 失败，retry 耗尽后把节点判

@@ -54,9 +54,38 @@ func (db *fakeTaskDAGDB) Exec(_ context.Context, sql string, args ...any) (pgcon
 		return updateTag(db.reclaimStaleWakeups())
 	case strings.Contains(sql, "EnqueueTaskDagWakeup"):
 		return updateTag(db.enqueueWakeup(args...))
+	case strings.Contains(sql, "PromoteSingleNodePendingToReady"):
+		return updateTag(db.promoteSingleNodePendingToReady(args...))
 	default:
 		return pgconn.CommandTag{}, fmt.Errorf("unexpected Exec call: %s", firstLine(sql))
 	}
+}
+
+// promoteSingleNodePendingToReady 复现 F6.3 PromoteSingleNodePendingToReady SQL
+// 的语义：仅当 node 还在 pending 时才推进到 ready，并返回受影响行数。
+// promoteSingleNodePendingToReady mirrors the F6.3 SQL: only flip when the
+// node row is still in 'pending', otherwise return 0 affected rows.
+func (db *fakeTaskDAGDB) promoteSingleNodePendingToReady(args ...any) (int64, error) {
+	if len(args) != 2 {
+		return 0, fmt.Errorf("promote args len = %d, want 2", len(args))
+	}
+	dagKey, ok := args[0].(string)
+	if !ok {
+		return 0, fmt.Errorf("dag key arg = %T", args[0])
+	}
+	nodeKey, ok := args[1].(string)
+	if !ok {
+		return 0, fmt.Errorf("node key arg = %T", args[1])
+	}
+	key := dagNodeKey(dagKey, nodeKey)
+	row, ok := db.nodes[key]
+	if !ok || row.Status != "pending" {
+		return 0, nil
+	}
+	row.Status = "ready"
+	row.UpdatedAt = timestamptzValue(db.now)
+	db.nodes[key] = row
+	return 1, nil
 }
 
 func (db *fakeTaskDAGDB) Query(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
