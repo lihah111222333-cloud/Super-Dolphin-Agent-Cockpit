@@ -799,22 +799,11 @@ func (s *service) ApplyOps(ctx context.Context, req contract.ApplyOpsRequest) (c
 	return s.applyTypedOps(ctx, req.DagKey, req.BaseVersion, ops)
 }
 
-// applyTypedOps 是 4 个 op_kind 业务实现的容器（F4.1-F4.4）。
+// applyTypedOps 是 4 个 op_kind 业务实现的容器（F4.1-F4.4）。F4.1 只接上 add_node；
+// 其余 op_kind 被 fail-fast 拒为 ErrLifecycleNotImplemented。空 ops 返 noop。
 //
-// F4.1 落地 add_node 分支：OCC + node_key 唯一 + depends_on 可达 + 环检测
-// 全部在单一 PG 事务里原子化。其他 op_kind 仍返 ErrLifecycleNotImplemented
-// （F4.2 / F4.3 / F4.4 接上）。空 ops 走主路径 返 noop 赋阶段误差，与 F4.0 原
-// 不同 — 现在 F4.1 已零步 commit 是合法的，返回 NewVersion = baseVersion。
-//
-// Status 限定（蓝图 v2 §2.5）：draft / ready / running；F4.5 完整限定则面
-// 带 running 状态下 depends_on 必须指向 done 节点 以及拒绝 terminal status。
-// 本 task（F4.1）只做 draft / ready；running 限定顺序交 F4.5。
-//
-// applyTypedOps dispatches typed ops. F4.1 wires add_node only: OCC version
-// check + node_key uniqueness + depends_on existence + cycle detection +
-// node insert + version bump all atomically in one PG tx. Other op kinds
-// still return ErrLifecycleNotImplemented. Empty ops is now valid (noop)
-// and returns NewVersion = base_version.
+// applyTypedOps dispatches typed ops. F4.1 wires add_node only; other kinds
+// fail-fast to ErrLifecycleNotImplemented. Empty ops is a valid noop.
 func (s *service) applyTypedOps(ctx context.Context, dagKey string, baseVersion int64, ops nodeexec.Ops) (contract.ApplyOpsResponse, error) {
 	if s == nil || s.dagStore == nil {
 		return contract.ApplyOpsResponse{}, ErrApplyOpsStoreNotConfigured
@@ -823,16 +812,8 @@ func (s *service) applyTypedOps(ctx context.Context, dagKey string, baseVersion 
 	if dagKey == "" {
 		return contract.ApplyOpsResponse{}, fmt.Errorf("%w: dag_key required", ErrApplyOpsInvalid)
 	}
-	// 预校验 ops：不支持的 op_kind 仍返 NotImplemented，add_node 以外
-	// 的 op 这里 fail-fast 避免进事务后中途接不住。F4.2 / F4.3 / F4.4 接
-	// 其他动词后可去掉。
-	for i, op := range ops {
-		if op == nil {
-			return contract.ApplyOpsResponse{}, fmt.Errorf("%w: ops[%d] nil op", ErrApplyOpsInvalid, i)
-		}
-		if op.Kind() != nodeexec.OpKindAddNode {
-			return contract.ApplyOpsResponse{}, fmt.Errorf("%w: ops[%d] kind=%s (only add_node implemented in F4.1)", ErrLifecycleNotImplemented, i, op.Kind())
-		}
+	if err := ensureAllAddNodeOps(ops); err != nil {
+		return contract.ApplyOpsResponse{}, err
 	}
 	runner, ok := s.dagStore.(taskdag.DAGOpsTxRunner)
 	if !ok {
@@ -840,52 +821,11 @@ func (s *service) applyTypedOps(ctx context.Context, dagKey string, baseVersion 
 	}
 	var resp contract.ApplyOpsResponse
 	txErr := runner.WithDAGOpsTx(ctx, func(tx taskdag.DAGOpsStore) error {
-		// OCC 检：GetDAGVersionForUpdate FOR UPDATE 锁行。
-		// Get current version under row lock.
-		current, err := tx.GetDAGVersionForUpdate(ctx, dagKey)
-		if err != nil {
-			return fmt.Errorf("get dag version: %w", err)
-		}
-		if current != baseVersion {
-			return fmt.Errorf("%w: dag=%s expected=%d actual=%d", ErrVersionConflict, dagKey, baseVersion, current)
-		}
-		if len(ops) == 0 {
-			// noop ops 仍需拿 version（供调用方查）但不 bump。
-			// Empty ops is a no-op: surface current version, do not bump.
-			resp = contract.ApplyOpsResponse{NewVersion: current}
-			return nil
-		}
-		// 拿当前全量节点作环检测输入。ListNodes 跟 GetVersion 同事务、
-		// 可以保证 OCC 后不会被别的 add_node 抢在前面插入同名node。
-		// List existing nodes under the same tx so node_key uniqueness +
-		// depends_on existence checks see a consistent snapshot.
-		existing, err := tx.ListNodes(ctx, dagKey)
-		if err != nil {
-			return fmt.Errorf("list nodes: %w", err)
-		}
-		adjacency, addNodes, err := buildAddNodePlan(ops, existing)
+		r, err := runAddNodeBatch(ctx, tx, dagKey, baseVersion, ops)
 		if err != nil {
 			return err
 		}
-		if cycleErr := nodeexec.DetectCycle(adjacency); cycleErr != nil {
-			return fmt.Errorf("%w: %w", ErrApplyOpsInvalid, cycleErr)
-		}
-		for _, n := range addNodes {
-			if _, err := tx.UpsertNode(ctx, n); err != nil {
-				return fmt.Errorf("upsert node %s: %w", n.NodeKey, err)
-			}
-		}
-		newVersion, err := tx.BumpDAGVersion(ctx, dagKey, baseVersion)
-		if err != nil {
-			// 0 行被包成 IsNotFound 于 store 层；这里译成 OCC 冲突。
-			// 但理论上 GetForUpdate 已拿到 version，Bump WHERE 应必中。
-			// 堆安全阐隻保护。
-			if platformdb.IsNotFound(err) {
-				return fmt.Errorf("%w: dag=%s base_version=%d (lost lock?)", ErrVersionConflict, dagKey, baseVersion)
-			}
-			return fmt.Errorf("bump version: %w", err)
-		}
-		resp = contract.ApplyOpsResponse{NewVersion: newVersion}
+		resp = r
 		return nil
 	})
 	if txErr != nil {
@@ -894,102 +834,6 @@ func (s *service) applyTypedOps(ctx context.Context, dagKey string, baseVersion 
 	return resp, nil
 }
 
-// buildAddNodePlan 检查 add_node ops 集合：
-//   - 每个 NodeSpec 走 dagNodeFromOpSpec 转拿到 taskdag.Node。
-//   - node_key 唯一：ops 集内 + 现有 nodes 不能重名。
-//   - depends_on 应指向 ops 集内或现有 nodes 的 key；未知节点拒。
-//   - 返回环检测需要的 adjacency（node_key → depends_on 列表）、
-//     准备入表的 taskdag.Node 列表、错误。
-//
-// buildAddNodePlan validates an add_node ops batch against current nodes:
-// node_key uniqueness within ops + against existing, depends_on must point
-// into ops ∪ existing, and returns the adjacency map for cycle detection
-// plus persistable nodes.
-func buildAddNodePlan(ops nodeexec.Ops, existing []taskdag.Node) (map[string][]string, []taskdag.Node, error) {
-	// adjacency 初始包含所有已有节点，低坟入度全部代入到环检测。
-	adjacency := make(map[string][]string, len(existing)+len(ops))
-	known := make(map[string]struct{}, len(existing)+len(ops))
-	for _, n := range existing {
-		adjacency[n.NodeKey] = decodeDependsOn(n.DependsOn)
-		known[n.NodeKey] = struct{}{}
-	}
-	newNodes := make([]taskdag.Node, 0, len(ops))
-	for i, op := range ops {
-		add, ok := op.(nodeexec.OpAddNode)
-		if !ok {
-			// 调用侧已 fail-fast；防御性报错。
-			return nil, nil, fmt.Errorf("%w: ops[%d] not add_node", ErrApplyOpsInvalid, i)
-		}
-		spec := add.Node
-		nodeKey := strings.TrimSpace(spec.NodeKey)
-		if nodeKey == "" {
-			return nil, nil, fmt.Errorf("%w: ops[%d] add_node node_key required", ErrApplyOpsInvalid, i)
-		}
-		if _, dup := known[nodeKey]; dup {
-			return nil, nil, fmt.Errorf("%w: ops[%d] add_node node_key %q already exists", ErrApplyOpsInvalid, i, nodeKey)
-		}
-		deps := normalizeDependsOn(spec.DependsOn)
-		// 不能依赖自己。环检测能拒但错误信息很不具体；在这里预检
-		// 出更设计性错信。
-		for _, d := range deps {
-			if d == nodeKey {
-				return nil, nil, fmt.Errorf("%w: ops[%d] add_node %q depends on itself", ErrApplyOpsInvalid, i, nodeKey)
-			}
-		}
-		known[nodeKey] = struct{}{}
-		adjacency[nodeKey] = deps
-		newNodes = append(newNodes, dagNodeFromOpSpec(spec))
-	}
-	// depends_on 验证：指向未知 key 拒。放在二走是为了允许 ops 内互相
-	// 引用不论顺序（add_node A depends B，add_node B 后出现也 ˚c OK）。
-	// Second pass: depends_on must resolve to existing or newly-added keys.
-	for _, n := range newNodes {
-		deps := decodeDependsOn(n.DependsOn)
-		for _, d := range deps {
-			if _, ok := known[d]; !ok {
-				return nil, nil, fmt.Errorf("%w: add_node %q depends on unknown node %q", ErrApplyOpsInvalid, n.NodeKey, d)
-			}
-		}
-	}
-	return adjacency, newNodes, nil
-}
-
-// dagNodeFromOpSpec 把 nodeexec.NodeSpec 转为 taskdag.Node 供 store.UpsertNode。
-// 跟 dagNodeFromRequest 同意，但从 NodeSpec 上取值。dagKey 不被从 spec 传、
-// 生产路径会被 UpsertNode 需要 — 这里返 Node 后 service.applyTypedOps 在
-// 调 store.UpsertNode 前补上。
-//
-// dagNodeFromOpSpec maps a nodeexec.NodeSpec to taskdag.Node. dag_key is not
-// inside the spec so callers set it before persisting; this helper handles
-// the rest (trimming + depends_on JSON encoding + config copy).
-func dagNodeFromOpSpec(spec nodeexec.NodeSpec) taskdag.Node {
-	return taskdag.Node{
-		NodeKey:   strings.TrimSpace(spec.NodeKey),
-		Title:     strings.TrimSpace(spec.Title),
-		NodeType:  strings.TrimSpace(spec.NodeType),
-		DependsOn: dependsOnJSON(spec.DependsOn),
-		Config:    append(json.RawMessage(nil), spec.Config...),
-	}
-}
-
-// normalizeDependsOn 去空去重才进环检测 adjacency。不保顺序：环检测不需
-// 序（郻接集合语义）。
-func normalizeDependsOn(deps []string) []string {
-	if len(deps) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(deps))
-	out := make([]string, 0, len(deps))
-	for _, d := range deps {
-		t := strings.TrimSpace(d)
-		if t == "" {
-			continue
-		}
-		if _, dup := seen[t]; dup {
-			continue
-		}
-		seen[t] = struct{}{}
-		out = append(out, t)
-	}
-	return out
-}
+// ensureAllAddNodeOps / runAddNodeBatch / existingNodesForPlan /
+// persistAddNodeSpecs 均位于 dag_query.go — 它们是 ApplyOps add_node 业务的
+// helper，拆出是为了让 dag.go 行数不超守卫上限。在同包下拆不破可见性。

@@ -2,10 +2,12 @@ package orchestration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
@@ -164,3 +166,94 @@ func dagRunDTO(row taskdag.Run) contract.Run {
 		UpdatedAt:          row.UpdatedAt,
 	}
 }
+
+// =====================================================
+// DAG v2 F4.1: ApplyOps add_node helpers
+// =====================================================
+//
+// 以下 4 个函数原本在 dag.go::applyTypedOps 附近，F4.1 重构时挪到这里以让
+// dag.go 不超守卫行数上限。位于同包，可见性不变。
+
+// ensureAllAddNodeOps F4.1 限定：ops 集内只允许 add_node。F4.2-F4.4 接其他
+// op_kind 后去掉。Fail-fast 避免进事务后中途发现不支持动词。
+func ensureAllAddNodeOps(ops nodeexec.Ops) error {
+	for i, op := range ops {
+		if op == nil {
+			return fmt.Errorf("%w: ops[%d] nil op", ErrApplyOpsInvalid, i)
+		}
+		if op.Kind() != nodeexec.OpKindAddNode {
+			return fmt.Errorf("%w: ops[%d] kind=%s (only add_node implemented in F4.1)", ErrLifecycleNotImplemented, i, op.Kind())
+		}
+	}
+	return nil
+}
+
+// runAddNodeBatch 在 PG 事务内跑一批 add_node ops。单独拆出以让
+// applyTypedOps 本体 CC 限在预算以内。
+func runAddNodeBatch(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string, baseVersion int64, ops nodeexec.Ops) (contract.ApplyOpsResponse, error) {
+	current, err := tx.GetDAGVersionForUpdate(ctx, dagKey)
+	if err != nil {
+		return contract.ApplyOpsResponse{}, fmt.Errorf("get dag version: %w", err)
+	}
+	if current != baseVersion {
+		return contract.ApplyOpsResponse{}, fmt.Errorf("%w: dag=%s expected=%d actual=%d", ErrVersionConflict, dagKey, baseVersion, current)
+	}
+	if len(ops) == 0 {
+		return contract.ApplyOpsResponse{NewVersion: current}, nil
+	}
+	existing, err := tx.ListNodes(ctx, dagKey)
+	if err != nil {
+		return contract.ApplyOpsResponse{}, fmt.Errorf("list nodes: %w", err)
+	}
+	adjacency, specs, err := nodeexec.PlanAddNodes(ops, existingNodesForPlan(existing))
+	if err != nil {
+		return contract.ApplyOpsResponse{}, fmt.Errorf("%w: %w", ErrApplyOpsInvalid, err)
+	}
+	if cycleErr := nodeexec.DetectCycle(adjacency); cycleErr != nil {
+		return contract.ApplyOpsResponse{}, fmt.Errorf("%w: %w", ErrApplyOpsInvalid, cycleErr)
+	}
+	if err := persistAddNodeSpecs(ctx, tx, dagKey, specs); err != nil {
+		return contract.ApplyOpsResponse{}, err
+	}
+	newVersion, err := tx.BumpDAGVersion(ctx, dagKey, baseVersion)
+	if err != nil {
+		if platformdb.IsNotFound(err) {
+			return contract.ApplyOpsResponse{}, fmt.Errorf("%w: dag=%s base_version=%d (lost lock?)", ErrVersionConflict, dagKey, baseVersion)
+		}
+		return contract.ApplyOpsResponse{}, fmt.Errorf("bump version: %w", err)
+	}
+	return contract.ApplyOpsResponse{NewVersion: newVersion}, nil
+}
+
+// existingNodesForPlan 把 taskdag.Node 列表转为 nodeexec.PlanAddNodes 需要的
+// 最小投影（NodeKey + DependsOn）。仅 nodeexec 不依赖 taskdag 的隔离层需。
+func existingNodesForPlan(nodes []taskdag.Node) []nodeexec.ExistingNode {
+	out := make([]nodeexec.ExistingNode, 0, len(nodes))
+	for _, n := range nodes {
+		out = append(out, nodeexec.ExistingNode{
+			NodeKey:   n.NodeKey,
+			DependsOn: decodeDependsOn(n.DependsOn),
+		})
+	}
+	return out
+}
+
+// persistAddNodeSpecs 顺序调 UpsertNode 把 NodeSpec 转为 taskdag.Node 写入表。
+func persistAddNodeSpecs(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string, specs []nodeexec.NodeSpec) error {
+	for _, spec := range specs {
+		node := taskdag.Node{
+			DagKey:    dagKey,
+			NodeKey:   strings.TrimSpace(spec.NodeKey),
+			Title:     strings.TrimSpace(spec.Title),
+			NodeType:  strings.TrimSpace(spec.NodeType),
+			DependsOn: dependsOnJSON(spec.DependsOn),
+			Config:    append(json.RawMessage(nil), spec.Config...),
+		}
+		if _, err := tx.UpsertNode(ctx, node); err != nil {
+			return fmt.Errorf("upsert node %s: %w", node.NodeKey, err)
+		}
+	}
+	return nil
+}
+
+
