@@ -31,7 +31,7 @@ type stubDAGOpsStore struct {
 	currentVersion int64
 	versionErr     error
 
-	nodes []taskdag.Node // 当前 DAG 已存的节点
+	nodes   []taskdag.Node // 当前 DAG 已存的节点
 	listErr error
 
 	upsertErr error
@@ -107,6 +107,7 @@ func makeApplyOpsService(store taskdag.OrchestrationStore) *service {
 // ---- happy path ----
 
 func TestApplyOps_AddSingleNode_Happy(t *testing.T) {
+	t.Parallel()
 	stub := &stubDAGOpsStore{currentVersion: 1}
 	s := makeApplyOpsService(stub)
 	req := contract.ApplyOpsRequest{
@@ -135,6 +136,7 @@ func TestApplyOps_AddSingleNode_Happy(t *testing.T) {
 }
 
 func TestApplyOps_AddNodeWithDeps_Happy(t *testing.T) {
+	t.Parallel()
 	// 现有节点 n0，新增 n1 depends on n0。
 	stub := &stubDAGOpsStore{
 		currentVersion: 3,
@@ -162,6 +164,7 @@ func TestApplyOps_AddNodeWithDeps_Happy(t *testing.T) {
 // PT-4: raw ops（即 MCP handler 透传原样的 json.RawMessage）能完整跑到 add_node 业务。
 // 这覆盖了 T2.1 dispatch shape 与 F4.1 业务的整链拼接。
 func TestApplyOps_RawOpsPassthrough_PT4(t *testing.T) {
+	t.Parallel()
 	stub := &stubDAGOpsStore{currentVersion: 0}
 	s := makeApplyOpsService(stub)
 	// 模拟 MCP handler 接收的 raw payload（"ops" 是数组，内含 typed payload）。
@@ -192,6 +195,7 @@ func TestApplyOps_RawOpsPassthrough_PT4(t *testing.T) {
 // ---- cycle ----
 
 func TestApplyOps_AddNode_CycleSelfLoop(t *testing.T) {
+	t.Parallel()
 	stub := &stubDAGOpsStore{currentVersion: 0}
 	s := makeApplyOpsService(stub)
 	req := contract.ApplyOpsRequest{
@@ -215,6 +219,7 @@ func TestApplyOps_AddNode_CycleSelfLoop(t *testing.T) {
 }
 
 func TestApplyOps_AddNode_CycleTwoNodes(t *testing.T) {
+	t.Parallel()
 	stub := &stubDAGOpsStore{currentVersion: 0}
 	s := makeApplyOpsService(stub)
 	// A 依赖 B、B 依赖 A，二者皆在同一 ops 批内 → 环。
@@ -239,6 +244,7 @@ func TestApplyOps_AddNode_CycleTwoNodes(t *testing.T) {
 }
 
 func TestApplyOps_AddNode_CycleThreeNodes(t *testing.T) {
+	t.Parallel()
 	stub := &stubDAGOpsStore{currentVersion: 0}
 	s := makeApplyOpsService(stub)
 	// a→b→c→a
@@ -271,6 +277,7 @@ func TestApplyOps_AddNode_CycleThreeNodes(t *testing.T) {
 // 本测试覆盖：现有图链 a→b 上加 c 依赖 a，且 a 的 depends_on 含 c
 // （buildAddNodePlan 用 existing.DependsOn 把 a→c 这条边带进 adjacency）。
 func TestApplyOps_AddNode_CycleAgainstExisting(t *testing.T) {
+	t.Parallel()
 	// 现有图 a→b（b depends a）。a 的 DependsOn 历史含 "c"（外部依赖），
 	// 现在 add c depends b → 环 a→b→c→a。
 	stub := &stubDAGOpsStore{
@@ -300,6 +307,7 @@ func TestApplyOps_AddNode_CycleAgainstExisting(t *testing.T) {
 // ---- OCC stale ----
 
 func TestApplyOps_OCCConflict(t *testing.T) {
+	t.Parallel()
 	stub := &stubDAGOpsStore{currentVersion: 5}
 	s := makeApplyOpsService(stub)
 	// base_version=2，但 store currentVersion=5 → 应返 OCC 冲突。
@@ -328,6 +336,7 @@ func TestApplyOps_OCCConflict(t *testing.T) {
 // ---- duplicate node_key ----
 
 func TestApplyOps_AddNode_DuplicateKey_AgainstExisting(t *testing.T) {
+	t.Parallel()
 	stub := &stubDAGOpsStore{
 		currentVersion: 0,
 		nodes: []taskdag.Node{
@@ -355,6 +364,7 @@ func TestApplyOps_AddNode_DuplicateKey_AgainstExisting(t *testing.T) {
 }
 
 func TestApplyOps_AddNode_DuplicateKey_WithinBatch(t *testing.T) {
+	t.Parallel()
 	stub := &stubDAGOpsStore{currentVersion: 0}
 	s := makeApplyOpsService(stub)
 	req := contract.ApplyOpsRequest{
@@ -377,6 +387,7 @@ func TestApplyOps_AddNode_DuplicateKey_WithinBatch(t *testing.T) {
 // ---- depends_on 引用不存在节点 ----
 
 func TestApplyOps_AddNode_DependsOnUnknown(t *testing.T) {
+	t.Parallel()
 	stub := &stubDAGOpsStore{currentVersion: 0}
 	s := makeApplyOpsService(stub)
 	req := contract.ApplyOpsRequest{
@@ -401,6 +412,7 @@ func TestApplyOps_AddNode_DependsOnUnknown(t *testing.T) {
 // ---- 空 ops 是合法 noop ----
 
 func TestApplyOps_EmptyOps_NoopReturnsCurrentVersion(t *testing.T) {
+	t.Parallel()
 	stub := &stubDAGOpsStore{currentVersion: 7}
 	s := makeApplyOpsService(stub)
 	req := contract.ApplyOpsRequest{

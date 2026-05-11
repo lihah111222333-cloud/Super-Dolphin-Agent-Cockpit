@@ -52,6 +52,7 @@ func makeAutomationNode(t *testing.T, cfg AutomationNodeConfig) Node {
 }
 
 func TestAutomationExecutor_Happy(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{
 		CardKey:         "build_app",
 		CommandTemplate: "printf 'hello %s' '{{.name}}'",
@@ -87,6 +88,7 @@ func TestAutomationExecutor_Happy(t *testing.T) {
 }
 
 func TestAutomationExecutor_UnsupportedKind(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{}
 	runner := &stubAutomationRunner{}
 	exec := NewAutomationExecutor(getter, runner)
@@ -111,6 +113,7 @@ func TestAutomationExecutor_UnsupportedKind(t *testing.T) {
 }
 
 func TestAutomationExecutor_CommandNotFound(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{err: errors.New("command missing not found")}
 	runner := &stubAutomationRunner{}
 	exec := NewAutomationExecutor(getter, runner)
@@ -132,6 +135,7 @@ func TestAutomationExecutor_CommandNotFound(t *testing.T) {
 }
 
 func TestAutomationExecutor_Timeout(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "slow", CommandTemplate: "sleep 10", Enabled: true}}
 	runner := &stubAutomationRunner{err: context.DeadlineExceeded}
 	exec := NewAutomationExecutor(getter, runner)
@@ -150,6 +154,7 @@ func TestAutomationExecutor_Timeout(t *testing.T) {
 }
 
 func TestAutomationExecutor_NilLauncher(t *testing.T) {
+	t.Parallel()
 	exec := NewAutomationExecutor(nil, &stubAutomationRunner{})
 	node := makeAutomationNode(t, AutomationNodeConfig{Exec: AutomationExecConfig{CommandRef: "build_app"}})
 
@@ -169,6 +174,7 @@ func TestAutomationExecutor_NilLauncher(t *testing.T) {
 }
 
 func TestAutomationExecutor_ImplementsNodeExecutor(t *testing.T) {
+	t.Parallel()
 	var _ NodeExecutor = (*AutomationExecutor)(nil)
 }
 
@@ -218,6 +224,7 @@ func (c *captureRunner) RunCommandCard(_ context.Context, _ AutomationCommandCar
 }
 
 func TestAutomationExecutor_Inputs_InjectsFromNodes(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "build_app", CommandTemplate: "noop", Enabled: true}}
 	runner := &captureRunner{result: AutomationCommandResult{CardKey: "build_app", Stdout: "ok"}}
 	exec := NewAutomationExecutor(getter, runner)
@@ -267,6 +274,7 @@ func TestAutomationExecutor_Inputs_InjectsFromNodes(t *testing.T) {
 }
 
 func TestAutomationExecutor_Inputs_MissingPrevResult_Validation(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
 	runner := &captureRunner{}
 	exec := NewAutomationExecutor(getter, runner)
@@ -291,6 +299,7 @@ func TestAutomationExecutor_Inputs_MissingPrevResult_Validation(t *testing.T) {
 }
 
 func TestAutomationExecutor_Inputs_ReservedKeyConflict_Validation(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
 	runner := &captureRunner{}
 	exec := NewAutomationExecutor(getter, runner)
@@ -315,6 +324,7 @@ func TestAutomationExecutor_Inputs_ReservedKeyConflict_Validation(t *testing.T) 
 }
 
 func TestAutomationExecutor_Inputs_SharedfileNoReader_Validation(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
 	runner := &captureRunner{}
 	exec := NewAutomationExecutor(getter, runner)
@@ -336,6 +346,7 @@ func TestAutomationExecutor_Inputs_SharedfileNoReader_Validation(t *testing.T) {
 }
 
 func TestAutomationExecutor_Inputs_SharedfileReadError_Classified(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
 	runner := &captureRunner{}
 	reader := &stubAutomationSharedFileReader{err: errors.New("i/o timeout reading plan.md")}
@@ -358,6 +369,7 @@ func TestAutomationExecutor_Inputs_SharedfileReadError_Classified(t *testing.T) 
 }
 
 func TestAutomationExecutor_Outputs_WritesSharedfile(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
 	runner := &captureRunner{result: AutomationCommandResult{CardKey: "k", Stdout: "hello world", ExitCode: 0}}
 	writer := &stubAutomationSharedFileWriter{}
@@ -387,6 +399,7 @@ func TestAutomationExecutor_Outputs_WritesSharedfile(t *testing.T) {
 }
 
 func TestAutomationExecutor_Outputs_BothChannels(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
 	runner := &captureRunner{result: AutomationCommandResult{CardKey: "k", Stdout: "payload"}}
 	writer := &stubAutomationSharedFileWriter{}
@@ -415,6 +428,7 @@ func TestAutomationExecutor_Outputs_BothChannels(t *testing.T) {
 }
 
 func TestAutomationExecutor_Outputs_SharedfileNoWriter_Validation(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
 	runner := &captureRunner{result: AutomationCommandResult{CardKey: "k"}}
 	exec := NewAutomationExecutor(getter, runner)
@@ -436,6 +450,7 @@ func TestAutomationExecutor_Outputs_SharedfileNoWriter_Validation(t *testing.T) 
 }
 
 func TestAutomationExecutor_Outputs_SharedfileWriteFails_Validation(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
 	runner := &captureRunner{result: AutomationCommandResult{CardKey: "k", Stdout: "data"}}
 	writer := &stubAutomationSharedFileWriter{err: errors.New("disk full")}
@@ -503,6 +518,7 @@ func TestAutomationExecutor_Outputs_RejectsAgentPromptField(t *testing.T) {
 }
 
 func TestAutomationExecutor_EmptyInputsOutputs_KeepsF21Behaviour(t *testing.T) {
+	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
 	runner := &captureRunner{result: AutomationCommandResult{CardKey: "k", Stdout: "out"}}
 	exec := NewAutomationExecutor(getter, runner)
@@ -531,6 +547,7 @@ func TestAutomationExecutor_EmptyInputsOutputs_KeepsF21Behaviour(t *testing.T) {
 }
 
 func TestClassifyAutomationError(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		err  error

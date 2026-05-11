@@ -23,6 +23,7 @@ import (
 // 拒为 ErrLifecycleNotImplemented」。dagStore 注入任何 OrchestrationStore stub
 // 让预检透过，计算 fail-fast 是在 op kind 状能检查阶段。
 func TestApplyOps_NonAddNodeOpsReturnNotImplemented(t *testing.T) {
+	t.Parallel()
 	s := &service{dagStore: &stubStartDAGStore{}}
 	ops := json.RawMessage(`[
 		{"op":"update_dag","patch":{"title":"t"}},
@@ -43,6 +44,7 @@ func TestApplyOps_NonAddNodeOpsReturnNotImplemented(t *testing.T) {
 // TestApplyOps_InvalidOpKind 验证 op_kind=unknown 返回 InvalidArgument 类错误
 // （命中 ErrApplyOpsInvalid sentinel），且错误信息含 op_kind 字面量。
 func TestApplyOps_InvalidOpKind(t *testing.T) {
+	t.Parallel()
 	s := &service{}
 	ops := json.RawMessage(`[{"op":"unknown_kind","whatever":1}]`)
 	req := contract.ApplyOpsRequest{DagKey: "dag-a", BaseVersion: 0, Ops: ops}
@@ -63,6 +65,7 @@ func TestApplyOps_InvalidOpKind(t *testing.T) {
 
 // TestApplyOps_MissingOpKind 验证缺 op 字段 → InvalidArgument。
 func TestApplyOps_MissingOpKind(t *testing.T) {
+	t.Parallel()
 	s := &service{}
 	ops := json.RawMessage(`[{"node_key":"n1"}]`)
 	req := contract.ApplyOpsRequest{DagKey: "dag-a", BaseVersion: 0, Ops: ops}
@@ -80,6 +83,7 @@ func TestApplyOps_MissingOpKind(t *testing.T) {
 
 // TestApplyOps_UnmarshalFails 验证非合法 JSON → InvalidArgument。
 func TestApplyOps_UnmarshalFails(t *testing.T) {
+	t.Parallel()
 	s := &service{}
 	ops := json.RawMessage(`not a json array`)
 	req := contract.ApplyOpsRequest{DagKey: "dag-a", BaseVersion: 0, Ops: ops}
@@ -94,6 +98,7 @@ func TestApplyOps_UnmarshalFails(t *testing.T) {
 
 // TestApplyOps_NegativeBaseVersion 验证 base_version<0 → InvalidArgument。
 func TestApplyOps_NegativeBaseVersion(t *testing.T) {
+	t.Parallel()
 	s := &service{}
 	ops := json.RawMessage(`[{"op":"remove_node","node_key":"n1"}]`)
 	req := contract.ApplyOpsRequest{DagKey: "dag-a", BaseVersion: -1, Ops: ops}
@@ -112,6 +117,7 @@ func TestApplyOps_NegativeBaseVersion(t *testing.T) {
 // TestApplyOps_StoreNotConfigured 验证 service.dagStore 未设时返 sentinel。
 // 未接裸构造路径。
 func TestApplyOps_StoreNotConfigured(t *testing.T) {
+	t.Parallel()
 	s := &service{}
 	req := contract.ApplyOpsRequest{
 		DagKey:      "dag-a",

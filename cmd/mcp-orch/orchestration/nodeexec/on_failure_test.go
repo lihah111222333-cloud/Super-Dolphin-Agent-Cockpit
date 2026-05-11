@@ -3,6 +3,7 @@ package nodeexec
 import "testing"
 
 func TestResolveOnFailureStrategy_NilConfigDefaultsRetry(t *testing.T) {
+	t.Parallel()
 	got := ResolveOnFailureStrategy(nil, FailureClassCapability)
 	if got != OnFailureRetry {
 		t.Errorf("nil cfg should default to retry, got %q", got)
@@ -10,6 +11,7 @@ func TestResolveOnFailureStrategy_NilConfigDefaultsRetry(t *testing.T) {
 }
 
 func TestResolveOnFailureStrategy_ByClassHit(t *testing.T) {
+	t.Parallel()
 	cfg := &OnFailureConfig{
 		Default: OnFailureFailFast,
 		ByClass: map[FailureClass]OnFailureStrategy{
@@ -38,6 +40,7 @@ func TestResolveOnFailureStrategy_ByClassHit(t *testing.T) {
 }
 
 func TestResolveOnFailureStrategy_DefaultEmptyFallsBackRetry(t *testing.T) {
+	t.Parallel()
 	cfg := &OnFailureConfig{} // 既无 Default 也无 ByClass
 	got := ResolveOnFailureStrategy(cfg, FailureClassQuota)
 	if got != OnFailureRetry {
@@ -46,6 +49,7 @@ func TestResolveOnFailureStrategy_DefaultEmptyFallsBackRetry(t *testing.T) {
 }
 
 func TestResolveOnFailureStrategy_EmptyByClassValueFallsBackDefault(t *testing.T) {
+	t.Parallel()
 	// ByClass 命中但值为空字符串 → 不算命中，走 Default
 	cfg := &OnFailureConfig{
 		Default: OnFailureSkip,
@@ -60,6 +64,7 @@ func TestResolveOnFailureStrategy_EmptyByClassValueFallsBackDefault(t *testing.T
 }
 
 func TestMaxAttemptsFor(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		cfg  *OnFailureConfig
@@ -80,6 +85,7 @@ func TestMaxAttemptsFor(t *testing.T) {
 }
 
 func TestEscalationModelFor_NextInChain(t *testing.T) {
+	t.Parallel()
 	cfg := &OnFailureConfig{EscalationChain: []string{"haiku", "sonnet", "opus"}}
 	cases := []struct {
 		current string
@@ -101,6 +107,7 @@ func TestEscalationModelFor_NextInChain(t *testing.T) {
 }
 
 func TestEscalationModelFor_CurrentNotInChainReturnsFirst(t *testing.T) {
+	t.Parallel()
 	cfg := &OnFailureConfig{EscalationChain: []string{"sonnet", "opus"}}
 	got, ok := EscalationModelFor(cfg, "haiku-3") // 不在链中
 	if !ok || got != "sonnet" {
@@ -109,6 +116,7 @@ func TestEscalationModelFor_CurrentNotInChainReturnsFirst(t *testing.T) {
 }
 
 func TestEscalationModelFor_NilOrEmptyChain(t *testing.T) {
+	t.Parallel()
 	if got, ok := EscalationModelFor(nil, "sonnet"); ok || got != "" {
 		t.Errorf("nil cfg: got (%q, %v), want (\"\", false)", got, ok)
 	}

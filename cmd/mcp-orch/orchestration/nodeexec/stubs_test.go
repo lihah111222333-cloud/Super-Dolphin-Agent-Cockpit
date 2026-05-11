@@ -23,11 +23,13 @@ func stubExecutorCases() []struct {
 }
 
 func TestExecutorStubs_ImplementNodeExecutor(t *testing.T) {
+	t.Parallel()
 	// 编译期检查
 	var _ NodeExecutor = HybridExecutor{}
 }
 
 func TestExecutorStubs_ReturnDone(t *testing.T) {
+	t.Parallel()
 	for _, tc := range stubExecutorCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			out, err := tc.exec.Execute(context.Background(), Node{NodeType: tc.nodeType}, RunContext{})
@@ -42,6 +44,7 @@ func TestExecutorStubs_ReturnDone(t *testing.T) {
 }
 
 func TestExecutorStubs_HooksNil(t *testing.T) {
+	t.Parallel()
 	for _, tc := range stubExecutorCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			if hooks := tc.exec.Hooks(); hooks != nil {

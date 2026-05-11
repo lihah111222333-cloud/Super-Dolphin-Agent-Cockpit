@@ -60,6 +60,7 @@ func makeAgentNode(t *testing.T, cfg AgentNodeConfig) Node {
 }
 
 func TestAgentExecutor_Execute_HappyPath(t *testing.T) {
+	t.Parallel()
 	launcher := &stubAgentLauncher{}
 	exec := NewAgentExecutor(launcher, nil)
 
@@ -101,6 +102,7 @@ func TestAgentExecutor_Execute_HappyPath(t *testing.T) {
 }
 
 func TestAgentExecutor_Execute_InvalidConfig_BadJSON(t *testing.T) {
+	t.Parallel()
 	launcher := &stubAgentLauncher{}
 	exec := NewAgentExecutor(launcher, nil)
 
@@ -124,6 +126,7 @@ func TestAgentExecutor_Execute_InvalidConfig_BadJSON(t *testing.T) {
 }
 
 func TestAgentExecutor_Execute_InvalidConfig_MissingAgentKey(t *testing.T) {
+	t.Parallel()
 	launcher := &stubAgentLauncher{}
 	exec := NewAgentExecutor(launcher, nil)
 
@@ -148,6 +151,7 @@ func TestAgentExecutor_Execute_InvalidConfig_MissingAgentKey(t *testing.T) {
 }
 
 func TestAgentExecutor_Execute_LaunchTransientErr(t *testing.T) {
+	t.Parallel()
 	launcher := &stubAgentLauncher{err: errors.New("connection refused: provider not up")}
 	exec := NewAgentExecutor(launcher, nil)
 
@@ -170,6 +174,7 @@ func TestAgentExecutor_Execute_LaunchTransientErr(t *testing.T) {
 }
 
 func TestAgentExecutor_Execute_LaunchQuotaErr(t *testing.T) {
+	t.Parallel()
 	launcher := &stubAgentLauncher{err: errors.New("quota_exhausted: out of credits")}
 	exec := NewAgentExecutor(launcher, nil)
 
@@ -189,6 +194,7 @@ func TestAgentExecutor_Execute_LaunchQuotaErr(t *testing.T) {
 }
 
 func TestAgentExecutor_Execute_LaunchPermanentErr(t *testing.T) {
+	t.Parallel()
 	launcher := &stubAgentLauncher{err: errors.New("401 unauthorized: invalid api key")}
 	exec := NewAgentExecutor(launcher, nil)
 
@@ -209,6 +215,7 @@ func TestAgentExecutor_Execute_LaunchPermanentErr(t *testing.T) {
 }
 
 func TestAgentExecutor_Execute_NilLauncher(t *testing.T) {
+	t.Parallel()
 	// nil launcher 应在构造期失败而非 Execute 期 panic。
 	defer func() {
 		if r := recover(); r != nil {
@@ -232,6 +239,7 @@ func TestAgentExecutor_Execute_NilLauncher(t *testing.T) {
 }
 
 func TestAgentExecutor_Execute_NilNodeConfig(t *testing.T) {
+	t.Parallel()
 	// 节点 config 为空（旧 DAG）也得是 validation 失败而非 panic：
 	// ParseAgentConfig 返回 zero-value，但 agent_key 缺失 → validation。
 	launcher := &stubAgentLauncher{}
@@ -254,6 +262,7 @@ func TestAgentExecutor_Execute_NilNodeConfig(t *testing.T) {
 }
 
 func TestAgentExecutor_Execute_NilContextDefaultsToBackground(t *testing.T) {
+	t.Parallel()
 	// nil ctx 不应 panic：Execute 应内部兜底 context.Background()。
 	launcher := &stubAgentLauncher{}
 	exec := NewAgentExecutor(launcher, nil)
@@ -270,6 +279,7 @@ func TestAgentExecutor_Execute_NilContextDefaultsToBackground(t *testing.T) {
 }
 
 func TestAgentExecutor_Hooks_Nil(t *testing.T) {
+	t.Parallel()
 	exec := NewAgentExecutor(&stubAgentLauncher{}, nil)
 	if h := exec.Hooks(); h != nil {
 		t.Fatalf("Hooks() = %v, want nil (F13 留位)", h)
@@ -277,11 +287,13 @@ func TestAgentExecutor_Hooks_Nil(t *testing.T) {
 }
 
 func TestAgentExecutor_ImplementsNodeExecutor(t *testing.T) {
+	t.Parallel()
 	// 编译期检查：保证 *AgentExecutor 满足 NodeExecutor 接口。
 	var _ NodeExecutor = (*AgentExecutor)(nil)
 }
 
 func TestClassifyAgentLaunchError(t *testing.T) {
+	t.Parallel()
 	// classifyAgentLaunchError 把 launcher 返回的 error 映射到 FailureClass。
 	// 与 service_launcher_errors.go::classifyLaunchError 模式对齐，
 	// 但目标空间是 nodeexec.FailureClass。
@@ -319,6 +331,7 @@ func TestClassifyAgentLaunchError(t *testing.T) {
 // AgentExecutor 调用 NodeSpawnRecorder.RecordNodeSpawn 传入正确的 dagKey /
 // nodeKey / threadID。该用例覃盖 ADR-009 §3 「写入时机」核心约定。
 func TestAgentExecutor_Execute_Spawn_WritesBackThreadID(t *testing.T) {
+	t.Parallel()
 	launcher := &stubAgentLauncher{threadID: "thread-success"}
 	recorder := &stubNodeSpawnRecorder{}
 	exec := NewAgentExecutor(launcher, recorder)
@@ -354,6 +367,7 @@ func TestAgentExecutor_Execute_Spawn_WritesBackThreadID(t *testing.T) {
 // NodeKey 为空时，AgentExecutor 会 fallback 到 node.DagKey / node.NodeKey。
 // dispatcher 未填 RunContext 时不会失去写回能力。
 func TestAgentExecutor_Execute_Spawn_FallsBackToNodeKeys(t *testing.T) {
+	t.Parallel()
 	launcher := &stubAgentLauncher{threadID: "thread-fallback"}
 	recorder := &stubNodeSpawnRecorder{}
 	exec := NewAgentExecutor(launcher, recorder)
@@ -377,6 +391,7 @@ func TestAgentExecutor_Execute_Spawn_FallsBackToNodeKeys(t *testing.T) {
 // TestAgentExecutor_Execute_Spawn_NilRecorder_SkipsWriteback 验证 recorder=nil
 // 时 AgentExecutor 仍能正常 launch + 返回 done。保证 F1.5 之前的 wiring 不被破坏。
 func TestAgentExecutor_Execute_Spawn_NilRecorder_SkipsWriteback(t *testing.T) {
+	t.Parallel()
 	launcher := &stubAgentLauncher{threadID: "thread-nil-recorder"}
 	exec := NewAgentExecutor(launcher, nil)
 	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
@@ -397,6 +412,7 @@ func TestAgentExecutor_Execute_Spawn_NilRecorder_SkipsWriteback(t *testing.T) {
 // 返回 threadID="" 时（如 service.LaunchAgentSnapshot 失败微妙路径）跳过
 // 写回，避免错误覆盖之前的 thread id（fail-fast 语义）。
 func TestAgentExecutor_Execute_Spawn_EmptyThreadID_SkipsWriteback(t *testing.T) {
+	t.Parallel()
 	launcher := &stubAgentLauncher{threadID: ""} // launch 成功但拿不到 thread_id
 	recorder := &stubNodeSpawnRecorder{}
 	exec := NewAgentExecutor(launcher, recorder)
@@ -422,6 +438,7 @@ func TestAgentExecutor_Execute_Spawn_EmptyThreadID_SkipsWriteback(t *testing.T) 
 // 写进 NodeOutcome.ErrorSummary，不把 launch 翻成 failed（launch 已成功，
 // spawn 历史是辅助审计——详 executor_agent.go 注释）。
 func TestAgentExecutor_Execute_Spawn_RecorderErrorIsSoft(t *testing.T) {
+	t.Parallel()
 	launcher := &stubAgentLauncher{threadID: "thread-err"}
 	recorder := &stubNodeSpawnRecorder{err: errors.New("db connection refused")}
 	exec := NewAgentExecutor(launcher, recorder)
@@ -451,6 +468,7 @@ func TestAgentExecutor_Execute_Spawn_RecorderErrorIsSoft(t *testing.T) {
 // 失败时 recorder 不被调用。避免走到一个 launch 失败但路径上又去写 thread id
 // 的错乱局面。
 func TestAgentExecutor_Execute_Spawn_LaunchErrorSkipsWriteback(t *testing.T) {
+	t.Parallel()
 	launcher := &stubAgentLauncher{
 		threadID: "thread-should-not-be-used",
 		err:      errors.New("connection refused"),
