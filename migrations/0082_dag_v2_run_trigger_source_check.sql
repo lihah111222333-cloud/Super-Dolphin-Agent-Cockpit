@@ -37,14 +37,36 @@
 -- 当前 runner pool.Exec 单次执行整文件、不自动包 tx，因此显式 BEGIN/COMMIT 必要。
 BEGIN;
 
--- 步骤 1：NOT VALID 仅约束新写入，不阻塞既有行。
-ALTER TABLE task_dag_runs
-  ADD CONSTRAINT chk_task_dag_runs_trigger_source_enum
-  CHECK (trigger_source IN ('manual', 'auto', 'scheduled', 'external', ''))
-  NOT VALID;
+-- 幂等保护：若约束已存在（例如上次执行 BEGIN/COMMIT 成功但 schema_migrations
+-- INSERT 漂移），跳过 ADD；否则按 NOT VALID + VALIDATE 两步建立。
+-- 背景：executeMigration（internal/platform/db/module.go）SQL 与 schema_migrations
+-- 写入未原子化，进程中断会留下"约束已建、bookkeeping 漏写"的半成品状态。
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'chk_task_dag_runs_trigger_source_enum'
+      AND conrelid = 'public.task_dag_runs'::regclass
+  ) THEN
+    -- 步骤 1：NOT VALID 仅约束新写入，不阻塞既有行。
+    ALTER TABLE task_dag_runs
+      ADD CONSTRAINT chk_task_dag_runs_trigger_source_enum
+      CHECK (trigger_source IN ('manual', 'auto', 'scheduled', 'external', ''))
+      NOT VALID;
+  END IF;
 
--- 步骤 2：VALIDATE 升级到强约束（要求所有既有行通过；预检已确认 3 行全白名单）。
-ALTER TABLE task_dag_runs
-  VALIDATE CONSTRAINT chk_task_dag_runs_trigger_source_enum;
+  -- 步骤 2：VALIDATE 升级到强约束（VALIDATE 对已 validated 约束是 no-op，
+  -- 但显式 IF 检查避免无谓 lock 与日志噪音）。
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'chk_task_dag_runs_trigger_source_enum'
+      AND conrelid = 'public.task_dag_runs'::regclass
+      AND convalidated = false
+  ) THEN
+    ALTER TABLE task_dag_runs
+      VALIDATE CONSTRAINT chk_task_dag_runs_trigger_source_enum;
+  END IF;
+END
+$$;
 
 COMMIT;
