@@ -5,6 +5,7 @@
 > Size 直觉：S = 半天以内 / M = 1-2 天 / L = 3 天以上（仅相对量级，非时间承诺）
 > 修订历史：2026-05-10 初稿 / 4 处小补 / 2-pass 审查 / S2.4 推迟 F / **骨架阶段封板**；**2026-05-10 T 阶段快车道完成**：T0.4/5/6/8 + T1.1 + T2.1+T2.2 + T4.1+T4.4 全部 done（6 commit）；T 阶段二次审查 4 轻度 findings 全推迟到 T0.1 / F4.1 / F 阶段
 > 2026-05-10/11 T 阶段第二批 done：T1.2-mid（StartDAG 真业务 + RunStore CRUD）+ T3.1/T3.2（task_get_run / task_list_runs）+ 路线 N 幂等语义切换 + migration 0079/0080；T1.2-full → F6.5
+> 2026-05-11 套餐 B/C/A+ 落地同步：套餐 B（pre-T0.2 收尾 + stub 接口扩张补齐 + sharedfilegitignore race 根除 + memoryCoordinator getter 化）已记 §10 ledger；套餐 C（T0.8 doc-sync Check 4 真验证 + 状态机 retrying→cancelled 合法转移 + migration 0081 task_dags.trigger CHECK + stubDashboardOrchestration `var _` 编译期断言 + ADR 0001 §2.10 DB 不变量基线 + 会话习惯 §10.60 MCP 命名约定）落地 5 commit；套餐 A+/D（MCP enum 校验：handler `requireEnum` + 包级 `var` 单源 + DB CHECK 三层互锁 + `runtime.UpdateRuntime` provider silent Warn → fail-fast + migration 0082 task_dag_runs.trigger_source CHECK + ADR-003 + 会话习惯 §10.61）落地 5 commit + 1 idempotent 修复（31f2ad75，0082 重跑 42710 防御）
 
 ---
 
@@ -473,6 +474,8 @@ grep -r "FailureClass\|OnFailureStrategy" cmd/ 2>/dev/null | wc -l  # 目标 ≥
 - **ADR-003 已落地 → 见 docs/decisions/ADR-003-mcp-input-enum-validation.md — MCP 工具 input enum 校验（A+ 方案）**：选 A+（handler 兜底 + 单源 + DB CHECK）而非 P13（jsonschema 框架级），避免依赖与 wire breaking。本批 commit 已接入 4 个字段：`task_list_runs.status` / `task_start_dag.trigger_source` / `task_update_node.status` / `orchestration_launch_agent.provider`。
 - **`runtime.UpdateRuntime` provider 已 fail-fast**：原 silent Warn 后放行 + snapshot 暴露 `ProviderSource="runtime-unverified"` 已根治；非法 provider 现返中英双语 error 不污染 snapshot。`ProviderSource="runtime-unverified"` 字面量保留作 defense-in-depth（fail-fast 后不可达）。
 - **migration 0082 task_dag_runs.trigger_source CHECK 已落地**：CHECK IN ('manual','auto','scheduled','external','')；显式允许空串与 0074 DEFAULT '' 兼容，dev DB 预检 3 行 DISTINCT={manual,''} VALIDATE 安全通过。
+- **0082 idempotent 防御修复**（commit `31f2ad75`）：启动期 autoMigrate 重跑 0082 会报 SQLSTATE 42710（constraint already exists）— 根因在 `internal/platform/db/module.go:executeMigration` 把 SQL 执行（自带 BEGIN/COMMIT）与 INSERT schema_migrations 拆成两个独立 pool.Exec，bookkeeping 补入中断会造成 partial-apply drift。本次未动 runner（defensive）赋能：把 0082 的 ADD/VALIDATE 裹入 DO 块，查 `pg_constraint`（不存在 → ADD NOT VALID；未 validated → VALIDATE；都就绪 → no-op）。后续 migration 如需类似保护 可参考 0082 范式；runner 层根治（同事务 SQL+bookkeeping）另立 follow-up。
+- **runner 原子化 schema_migrations bookkeeping**（未动 / open）：0082 partial-apply drift 暴露 `executeMigration` 两步拆事务。面向未来 migration 的根治是让 SQL 执行 + INSERT schema_migrations 同事务（或明确禁 SQL 内 BEGIN/COMMIT，由 runner 统一裹事务）。本次仅加防御 DO 块保证现状可复走，root fix 担保另立。
 
 ### memory_scope drift follow-up（A+ 套餐挑出 / 暂不动代码）
 
@@ -540,6 +543,35 @@ grep -r "FailureClass\|OnFailureStrategy" cmd/ 2>/dev/null | wc -l  # 目标 ≥
 - RunStore 故意不嵌入 taskdag.Store 聚合接口（保 InterfaceIsolation 预算）
 - 通过 module.go ProvideRunStore(Store) RunStore 适配（非 fx.As 双绑定，因 Store 接口不嵌入 RunStore）
 
+### 12.6 migration 0081 task_dags.trigger CHECK 枚举（commit `5c1e4646`）
+- **背景**：ADR 0001 §2.10 DB 不变量基线第 1 条 — 枚举字段必加 CHECK。`task_dags.trigger` (TEXT) 之前仅靠 0075 一次性 backfill 中守取值集，后续 INSERT/UPDATE 无约束。
+- **改动**：CHECK (trigger IN ('manual','auto','scheduled','external'))，NOT VALID + VALIDATE 两步（与 0078/0079/0080/0082 同款）。
+- **调用方影响**：MCP `task_create_dag` / `task_update_node` schema 以及 AI agent 传入的 trigger 必须在白名单内；走远的 trigger 值现会被 DB 拒。
+
+### 12.7 migration 0082 task_dag_runs.trigger_source CHECK 枚举（commit `f16fc58c` + `31f2ad75` idempotent 修复）
+- **背景**：ADR 0001 §2.10 baseline 补齐。`task_dag_runs.trigger_source` (TEXT, 0074 DEFAULT '') 之前无枚举约束。
+- **改动**：CHECK (trigger_source IN ('manual','auto','scheduled','external',''))— 显式允许空串与 0074 DEFAULT '' 兼容。
+- **idempotent 防御**（`31f2ad75`）：autoMigrate 重跑可能报 42710。本 migration 裹 DO 块查 `pg_constraint`，存在/validated 状态让 ADD/VALIDATE 可复走。根治（runner 同事务）另立 follow-up。
+- **调用方影响**：MCP `task_start_dag.trigger_source` handler 已接入 `requireEnum`（与 DB CHECK 同步）。
+
+### 12.8 ADR-003 — MCP 工具 input enum 校验（A+ 方案）（commit `ef54cec5` / `4f3bb5be`）
+- **决策**：选 A+（handler 兑底 + 包级 `var` 单源 + DB CHECK）而非 P13（jsonschema 框架级），避免依赖与 wire breaking。
+- **helper**：`requireEnum(value, field, allowed)` 位于 `cmd/mcp-orch/tools/factory.go`，trim 后校验，中英双语 error（含 field + allowed 候选）。
+- **首批接入 4 个字段**：`task_list_runs.status` / `task_start_dag.trigger_source` / `task_update_node.status` / `orchestration_launch_agent.provider`。包级 `var` 单源 → schema EnumStringSchema + handler requireEnum 同一源。
+- **三层互锁**：MCP schema（描述）→ handler `requireEnum`（运行期拒）→ DB CHECK（兑底）。三层同源，任一漏改被后两层拦下。
+- **memory_scope drift 未动**：5 个来源 + 3 个业务决策点（D1/D2/D3）未拍板，使本批仅 ADR-003 文档登记，代码不动（详 §10 memory_scope drift follow-up）。
+
+### 12.9 状态机 retrying → cancelled 合法转移（commit `1e3d4551`）
+- **背景**：上游 fail_fast 级联且当前节点正在退避重试时，需要能从 retrying 转 cancelled。
+- **改动**：`nodeexec.ValidateTransition` 补 `retrying → cancelled` 合法边。
+- **计数变化**：全量合法转移 13 → 14（主线 TestRetryingCanTransitionToCancelled 守护）。
+- **对调用方影响**：dispatcher 在 fail_fast 级联路径上可直接 cancel 退避中节点，不再需先走 ready 中转。
+
+### 12.10 runtime.UpdateRuntime provider fail-fast（commit `73651e34`）
+- **改前**：传非法 provider 上下文 silent Warn 后放行，snapshot 暴露 `ProviderSource="runtime-unverified"`，下游 launchAgent 会拿不可用 provider。
+- **改后**：返中英双语 error，不污染 snapshot；与 P23 README 默认值安全原则对齐（`unknown` 不默走）。
+- **defense-in-depth**：`ProviderSource="runtime-unverified"` 字面量保留作不可达分支（fail-fast 后不会再出现）。
+
 ### English version
 
 This section logs contract-level changes exposed to callers (interface signatures, error semantics, DB constraints, idempotency behavior). AI agents and team members can use this as the single point of reference for “semantic switch” decisions.
@@ -551,3 +583,8 @@ This section logs contract-level changes exposed to callers (interface signature
 - **12.5 RunStore isolation** (`57075943` / `d27e82e7`): RunStore intentionally not embedded in `taskdag.Store` aggregate (preserves InterfaceIsolation budget); wired via `module.go ProvideRunStore(Store) RunStore`.
 
 
+- **12.6 Migration 0081 — `task_dags.trigger` CHECK enum** (`5c1e4646`): adds `CHECK (trigger IN ('manual','auto','scheduled','external'))` (NOT VALID + VALIDATE). Satisfies ADR 0001 §2.10 baseline rule #1.
+- **12.7 Migration 0082 — `task_dag_runs.trigger_source` CHECK enum** (`f16fc58c` + idempotent fix `31f2ad75`): adds `CHECK (trigger_source IN ('manual','auto','scheduled','external',''))` — empty string explicitly allowed for 0074 DEFAULT '' compatibility. Idempotent DO-block wrap (`31f2ad75`) defends against 42710 on autoMigrate replay; root fix (atomic runner SQL+bookkeeping) tracked as separate follow-up.
+- **12.8 ADR-003 — MCP input enum validation (A+ scheme)** (`ef54cec5` / `4f3bb5be`): handler-layer `requireEnum` + package-level `var` single source + DB CHECK, three-layer interlock. First batch: 4 fields (`task_list_runs.status` / `task_start_dag.trigger_source` / `task_update_node.status` / `orchestration_launch_agent.provider`). `memory_scope` drift held open pending business decisions D1/D2/D3.
+- **12.9 State machine — `retrying → cancelled` transition added** (`1e3d4551`): legal-transition count 13 → 14, guarded by `TestRetryingCanTransitionToCancelled`. Lets dispatcher cancel back-off-retrying nodes directly on fail_fast cascade without routing through ready.
+- **12.10 `runtime.UpdateRuntime` provider fail-fast** (`73651e34`): replaces silent Warn + `ProviderSource="runtime-unverified"` snapshot pollution with bilingual error. Aligns with P23 README default-safety principle. The `runtime-unverified` literal is kept as defense-in-depth (unreachable post-fail-fast).
