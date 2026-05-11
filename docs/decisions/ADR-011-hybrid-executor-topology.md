@@ -46,9 +46,13 @@
 
 ### 2.3 命名约定
 
-- 实施计划 / 代码注释 / 测试名一律带 `v1` 后缀，表示当前 HybridExecutor = AutomationWithVerifier
-- 不重命名 `HybridExecutor` 类型（避免破 typed schema 兼容）
-- 未来 v2 实装时按拓扑加 dispatcher 内分支（`exec.agent_then_automation` 等 discriminator），不另立 Executor
+- **范围限定**：`v1` 后缀仅作于**实施计划表项 / 代码注释 / 测试名 / 文档锚**，表示「当前 HybridExecutor 实装仅取 automation→verifier 一种拓扑」。**不动类型名**（与 §4 Q1 一致）：Go 中 `nodeexec.HybridExecutor` 类型名不加 v1，避免破 typed schema 包接口。
+- 未来 v2 开工设计分三步执行，**这是三件事，不是一件事**：
+  1. **立独立子 ADR**（ADR-011a / b / c，见 §2.2）——拍板 typed schema 扩展 + failure class 映射 + 守门规则
+  2. **加拓扑 discriminator**（如 `exec.topology = "agent_then_automation"`）——schema 层独立字段位
+  3. **加 dispatcher 内分支**（`HybridExecutor.Execute` switch 分支上 topology）——**不新建 Executor 类型**
+  
+  误解提醒：「不另立 Executor」仅指 Go 类型层面，**不意味着跳过子 ADR**。v2 任何拓扑都走「立 ADR → 升 schema → 加 switch 分支」三步闭环。
 
 ## 3. 触发条件
 
@@ -60,7 +64,7 @@ v2 拓扑（F3.2/F3.3/F3.4）开工无前置 —— 等用户场景驱动 + 独�
 
 - **Q1**：`HybridExecutor` 类型名要不要带版本？倾向不带 —— 加 v1/v2 后缀会破坏 nodeexec 包接口。改用拓扑 discriminator（exec.topology = "automation_then_verifier"）。
 - **Q2**：v2 拓扑的 typed schema 改动会迫使 ADR 0001 §2.6 升版本吗？倾向是 —— ADR-011a/b/c 落地时同步升 ADR 0001 §2.6 子版本。
-- **Q3**：F3.2「agent → automation」与 F1.3「agent 写 sharedfile / node.result」边界？前者是 hybrid 节点内一次完成两步；后者是单 agent 节点输出落地。倾向「agent → automation」专指调外部 webhook / 触发命令卡（automation 维度），不重叠 F1.3。
+- **Q3 已结**：F3.2「agent → automation」与 F1.3「agent 写 sharedfile / node.result」边界：F1.3 处理**本节点输出落地**（agent 节点的 outputs.to_sharedfile / outputs.to_node_result）；F3.2 是**hybrid 节点内调外部 webhook / 命令卡**（需走 automation 子宏获取 exec context）。**F1.3 实装时不得越界加 webhook 调用逻辑**——调 webhook 走 F3.2 路径。实施计划 §3 F1.3 行已同步加本边界注。
 
 ## 5. 实装登记
 

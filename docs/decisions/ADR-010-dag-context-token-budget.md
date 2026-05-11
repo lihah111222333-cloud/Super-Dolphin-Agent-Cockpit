@@ -21,15 +21,18 @@ ADR-006 已规定 `outputs.to_node_result.size_cap` 默认 4KB，但只解决了
 
 把 H7/H8 拆成「硬阈值 + 触发动作」两部分；硬阈值文档化，触发动作走 H 阶段实装。
 
-| 维度 | 硬阈值（占位，可调） | 触发动作 | 归属 |
+| 维度 | 硬阈值（占位，待 Q1 调） | 触发动作 | 归属 |
 |---|---|---|---|
-| 单节点 result | > 4KB | summarization 落 sharedfile + node.result 仅留 hash+path | H7（实装）/ ADR-006（兜底） |
-| DAG 节点数 | ≥ 10 | 启用 input window 裁剪（只注入上游 N 跳 result） | H7（实装） |
-| 单 run 累计 token | > 100K（占位） | 告警 + 告警阈值 ×2 强制降级到 sonnet | H8（实装） |
+| 单节点 result | > ADR-006 拍板的 `size_cap_bytes`（默认 4KB占位） | **依 ADR-006 拍板结果**：方案 A 走 validation 报错 / 方案 B 落 sharedfile + hash+path / 方案 C 截断。本ADR 不锁死具体路径 | H7（实装）/ ADR-006（拍板后决定） |
+| DAG 节点数 | ≥ 10（占位） | 启用 input window 裁剪（上游范围待 Q2 拍板） | H7（实装） |
+| 单 run 累计 token | > 100K（占位） | 告警 + 告警阈值 ×2 强制降级到 sonnet；sonnet 还不够 → fail-fast quota 错（Q3） | H8（实装） |
 
-M3 验收增加：
+**依赖顺序警告**：本 ADR §2 第 1 行（单节点 result）**不得先于 ADR-006 拍板**。ADR-006 §5 决策状态 `⛔ 待定`，本ADR Accepted 后 M3 验收需同步等 ADR-006 拍板；ADR-006 结论出来后本表「触发动作」列才能填实。避免决策倒置。
+
+M3 验收增加（项目本身：数字以 ADR-006 拍板后为准）：
 - 用例必须覆盖 DAG ≥ 10 节点
-- 用例必须覆盖单节点 result > 4KB 场景（验证 summarization 触发）
+- 用例必须覆盖单节点 result 超 ADR-006 size_cap_bytes 场景（验证 ADR-006 拍板的动作被触发）
+- 用例必须能从 F15.1 metric 端点读取 `dispatch_failed_total` / `retry_count_per_node` 计数
 
 ### 方案 B：完全留 H 阶段（现状）
 
@@ -46,7 +49,7 @@ M3 验收增加：
 **选方案 A**。理由：
 - 「按需触发」必然失序（用户报错才知道阈值），文档化硬阈值能让 M3 验收有判定标准
 - 实装仍留 H 阶段，避免 F 拖延
-- 与 ADR-006 复用：单节点 result > 4KB 由 ADR-006 size_cap 处理（落 sharedfile）；本 ADR 加 DAG 维度（多节点累积 / 单 run 累计 token）
+- **与 ADR-006 分工，不锁路径**：单节点 result 超 size_cap 的具体动作依 ADR-006 拍板结果（本ADR 不领头决）；本 ADR 负责 DAG 维度额外维度（多节点累积 / 单 run 累计 token / 节点数）
 
 ## 4. 触发条件
 
@@ -62,6 +65,8 @@ H7/H8 实装无前置 —— 仍按需触发，但触发时不需要再做阈值
 
 ## 6. 验收锚点（M3）
 
-M3 端到端用例必须包含以下两条断言：
-1. **节点数断言**：构造 ≥ 10 节点的 DAG，跑完成，sum(node.result.size) > 单节点 size_cap × 5
-2. **大 result 断言**：构造 1 节点输出 > 4KB result，验证 ADR-006 size_cap 触发（落 sharedfile + node.result 仅留 hash+path）
+M3 端到端用例必须包含以下三条断言（与实施计划 §3 M3 验收硬阈值三档同步）：
+
+1. **节点数断言**：构造 ≥ 10 节点的 DAG，跑完成，sum(node.result.size) > 单节点 `size_cap_bytes` × 5。“10 节点”为本ADR Q1 占位，拍板前允许以生产实测 P95 调整。
+2. **大 result 断言**：构造 1 节点输出超 ADR-006 `size_cap_bytes` （拍板后代入实数），验证 **ADR-006 拍板的动作被正确触发**。本ADR 不锁“落 sharedfile + hash+path”路径——如 ADR-006 选方案 A（validation 报错）则本断言改为验证 validation 错路径。
+3. **metric 断言**：用例必须能在 F15.1 metric 端点（`/metrics` 或同类）读到 `dispatch_failed_total` / `retry_count_per_node` 计数。节点 retry ≥ 3 时告警 webhook 能被捕获。
