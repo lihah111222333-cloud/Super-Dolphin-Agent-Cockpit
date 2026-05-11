@@ -1,0 +1,103 @@
+package archtest_test
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// TestDAGDesignerPromptSeed_ZHCoversCoreSurface 守住 F7.1 中文版 prompt seed
+// migration 的关键内容不在后续重构 / 字段刷新中被悄悄抽干。
+//
+// 测试策略：直接读 migration SQL 文件而不是查库 —— seed 一旦合并即代码事实，
+// 任何对工具表面 (list_models / task_create_dag / task_dag_apply_ops 等) 或
+// node_type schema 关键词的删除都会让本测试红，提醒维护者同步更新设计师 prompt。
+//
+// 锚点：docs/plans/dag改造实施计划.md §3 F7.1；蓝图 v2 §AI 设计师。
+func TestDAGDesignerPromptSeed_ZHCoversCoreSurface(t *testing.T) {
+	path := filepath.Join(repoRoot(t), "migrations", "0084_seed_dag_designer_prompt_zh.sql")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read migration 0084: %v", err)
+	}
+	content := string(data)
+	if strings.TrimSpace(content) == "" {
+		t.Fatalf("migration 0084 is empty; F7.1 seed must contain a prompt body")
+	}
+
+	// 关键字段一：身份位 (prompt_key / agent_key / title 中文)。
+	for _, must := range []string{
+		"main/dag_designer_zh",                // prompt_key 唯一锚点
+		"'dag_designer'",                      // agent_key
+		"AI 流程设计师",                            // title 中文身份
+		"ON CONFLICT (prompt_key) DO NOTHING", // 幂等护栏
+	} {
+		if !strings.Contains(content, must) {
+			t.Errorf("migration 0084 missing identity marker %q", must)
+		}
+	}
+
+	// 关键字段二：MCP 工具表面 —— 让 reviewer 一眼能看出设计师能调哪些工具。
+	// 任意一个被悄悄删除都视为 prompt 退化。
+	for _, tool := range []string{
+		"list_models",
+		"prompt_list",
+		"command_list",
+		"shared_file_list",
+		"task_create_dag",
+		"task_dag_apply_ops",
+		"task_get_dag",
+		"task_update_node",
+	} {
+		if !strings.Contains(content, tool) {
+			t.Errorf("migration 0084 must reference MCP tool %q in prompt body", tool)
+		}
+	}
+
+	// 关键字段三：node_type typed schema 三种都要点名 (S5.1 契约入门门票)。
+	for _, nodeType := range []string{
+		`node_type = "agent"`,
+		`node_type = "automation"`,
+		`node_type = "hybrid"`,
+	} {
+		if !strings.Contains(content, nodeType) {
+			t.Errorf("migration 0084 must describe %s typed schema", nodeType)
+		}
+	}
+
+	// 关键字段四：蓝图 v2 不能丢的约束。
+	for _, rule := range []string{
+		"base_version", // OCC 乐观锁
+		"running",      // 动态可重写约束触发态
+		"FailureClass", // 失败分类智能重试
+		"4KB",          // size_cap / sharedfile 决策
+		"scheduled",    // trigger 三态之一 (cron)
+		"cron",         // cron 表达式语境
+	} {
+		if !strings.Contains(content, rule) {
+			t.Errorf("migration 0084 must keep blueprint rule keyword %q", rule)
+		}
+	}
+
+	// 关键字段五：tags 含中文路由命中词 (router 选这条模板就靠它)。
+	for _, tag := range []string{
+		"设计 DAG",
+		"流程编排",
+		"定时任务",
+	} {
+		if !strings.Contains(content, tag) {
+			t.Errorf("migration 0084 tags missing routing keyword %q", tag)
+		}
+	}
+
+	// 体量护栏：prompt 主体 < 200 行属合理；> 600 行就该警惕，可能塞了无关内容。
+	// 上限只是软警告 (Logf)，避免无谓阻塞。
+	lines := strings.Count(content, "\n")
+	if lines < 60 {
+		t.Errorf("migration 0084 only %d lines; prompt body looks suspiciously short", lines)
+	}
+	if lines > 600 {
+		t.Logf("migration 0084 has %d lines; consider whether prompt body grew bloat", lines)
+	}
+}
