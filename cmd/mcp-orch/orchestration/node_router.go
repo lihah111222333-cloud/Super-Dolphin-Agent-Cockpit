@@ -264,3 +264,21 @@ func (a *storeNodeSpawnRecorderAdapter) RecordNodeSpawn(ctx context.Context, dag
 	})
 	return err
 }
+
+// ProvideAgentExecutor 是 fx 用的 wiring 适配器：消费已经被 fx 容器装好的
+// AgentLauncher + NodeSpawnRecorder，按 W2 端口收敛后的 functional options
+// 形式构造 AgentExecutor。
+//
+// round-3 合并 follow-up：W1 worker 在落 fx wiring 时使用的是 W2 端口收敛
+// 之前的 NewAgentExecutor(launcher, recorder) 旧签名（直接把 NewAgentExecutor
+// 当 provider 用）；W2 把它折叠为 NewAgentExecutor(launcher, opts ...Option) +
+// WithRecorder(NodeSpawnRecorder) 之后，旧 wiring 只会注入 launcher，recorder
+// 被静默丢弃 → F1.5 spawning_thread_id 写回链在 dispatcher 路径上失效。本
+// provider 显式串接两者，确保 recorder 真正落到 executor.
+//
+// ProvideAgentExecutor wires the AgentLauncher + NodeSpawnRecorder into an
+// *AgentExecutor with WithRecorder() so the F1.5 write-back stays active
+// after W2's functional-options refactor.
+func ProvideAgentExecutor(launcher nodeexec.AgentLauncher, recorder nodeexec.NodeSpawnRecorder) *nodeexec.AgentExecutor {
+	return nodeexec.NewAgentExecutor(launcher, nodeexec.WithRecorder(recorder))
+}

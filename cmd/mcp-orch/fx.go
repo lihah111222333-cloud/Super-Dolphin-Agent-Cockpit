@@ -166,7 +166,10 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 			// “孤儿”的 AgentExecutor / AutomationExecutor 代码正式被危口调到。
 			orchestration.NewServiceAgentLauncher,
 			orchestration.NewStoreNodeSpawnRecorder,
-			nodeexec.NewAgentExecutor,
+			// round-3 merge fix: 走 ProvideAgentExecutor 包 WithRecorder option，
+			// 而不是直接 fx-resolve nodeexec NewAgentExecutor —— 后者 W2 端口收敛后
+			// 变 variadic Option 形态，fx 直 Provide 只会拿 launcher 丢 recorder。
+			orchestration.ProvideAgentExecutor,
 			orchestration.NewNodeExecutorRouter,
 		),
 		// dispatcher-wiring batch §1：在 NewWakeupDispatcher 返 dispatcher 后装上
