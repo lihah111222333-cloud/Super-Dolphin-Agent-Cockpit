@@ -467,6 +467,41 @@ grep -r "FailureClass\|OnFailureStrategy" cmd/ 2>/dev/null | wc -l  # 目标 ≥
 - **T0.8 doc-sync 脚本 Check 4 真验证 hash + 脚本注释 14 → 25 修正**：早期错误分支仅 `:`（恒成功），现改为 err 报错，未来 plan 误引不存在 hash 将被 Check 4 拦下。
 - **stubDashboardOrchestration 加 var _ 编译期接口断言**：未来 contract.OrchestrationService 接口扩张将在 `go build` 阶段报错，不靠 `make test` 补漏。
 
+源自 A+ 修复 5 commit（套餐 D — handler enum 校验 + runtime fail-fast + ADR-003）：
+
+- **§10.61 已立项 → 见会话习惯.md §10.61 — MCP 工具 enum 字段必须 handler 层 requireEnum 兜底**：schema 仅是描述层，MCP server 不强制校验；enum 字段须经 handler `requireEnum` + 包级 `var` 单源 + DB CHECK 三层互锁。详见 ADR-003。
+- **ADR-003 已落地 → 见 docs/decisions/ADR-003-mcp-input-enum-validation.md — MCP 工具 input enum 校验（A+ 方案）**：选 A+（handler 兜底 + 单源 + DB CHECK）而非 P13（jsonschema 框架级），避免依赖与 wire breaking。本批 commit 已接入 4 个字段：`task_list_runs.status` / `task_start_dag.trigger_source` / `task_update_node.status` / `orchestration_launch_agent.provider`。
+- **`runtime.UpdateRuntime` provider 已 fail-fast**：原 silent Warn 后放行 + snapshot 暴露 `ProviderSource="runtime-unverified"` 已根治；非法 provider 现返中英双语 error 不污染 snapshot。`ProviderSource="runtime-unverified"` 字面量保留作 defense-in-depth（fail-fast 后不可达）。
+- **migration 0082 task_dag_runs.trigger_source CHECK 已落地**：CHECK IN ('manual','auto','scheduled','external','')；显式允许空串与 0074 DEFAULT '' 兼容，dev DB 预检 3 行 DISTINCT={manual,''} VALIDATE 安全通过。
+
+### memory_scope drift follow-up（A+ 套餐挑出 / 暂不动代码）
+
+上一轮调研发现 `memory_scope` 在以下 **5 个来源** 不一致，且需要 **3 个独立业务决策点** 拍板，因此本批 A+ 修复仅 ADR-003 + 文档登记，**不动 memory_scope 实际代码**。
+
+5 个来源：
+1. `cmd/mcp-orch/tools/orchestration_tools.go` MCP schema：`project | user | local` （3 值）
+2. `cmd/mcp-orch/tools/orchestration_tools.go::validateMemoryScope`：`"" | project | user | local`（4 值，含空串）
+3. `internal/contract/agent_memory.go`（如有 const）：含 `team` 值（4 值）
+4. `internal/module/agent_memory/service_test.go:111`：测试用例引用 `team` scope —— 性质待澄清（"未来要支持" vs "历史遗留 dead 引用"）
+5. DB / store 实际接受的 scope 字面量集合（需现场 grep 收敛）
+
+3 个独立决策点：
+- **D1：`team` 作用域去留** — schema 缺 / service 缺 / test 引；若决定支持需补 schema + service + DB CHECK；若决定砍需删 test + const + 文档。
+- **D2：空串归一** — `validateMemoryScope` 允许 `""`，service 是否把空串归一为 default？还是直接拒？handler 层兜底空串是否要走 requireEnum 的"可选字段"分支？
+- **D3：service_test.go:111 性质** — dead code 还是 forward-compatible？需找 owner 拍板。
+
+落地路径建议：
+- D1/D2/D3 收敛后立 ADR-004 或扩展 ADR-003 第 6 章，定义最终 4 来源（schema / contract const / DB CHECK / handler 校验）单源真理；
+- 然后在同一 commit 完成迁移：补 / 砍 `team`、归一空串、补 DB CHECK、迁 `memory_scope` 到包级 `var` 单源（与 launchAgentProviderEnum 同款）。
+
+### MCP server schema 严格校验 follow-up（更长期）
+
+如团队后续决定走 jsonschema 库做框架级强校验：
+- 立 ADR-004 写明替代 ADR-003 第 2 章决策；
+- audit 70+ tool 的 `additionalProperties` 与现有字段宽容度兼容性；
+- 评估依赖（`xeipuuv/gojsonschema` 或 `santhosh-tekuri/jsonschema/v5`）的 license / size / 维护活跃度；
+- 评估 wire breaking 影响（旧调用方传额外字段是否被默拒）。
+
 ---
 
 ## 12. 契约变更登记 / Contract Change Log
