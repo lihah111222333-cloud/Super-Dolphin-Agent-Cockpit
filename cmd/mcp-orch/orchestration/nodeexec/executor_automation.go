@@ -309,15 +309,27 @@ func renderCommandTemplate(commandTemplate string, args json.RawMessage) (string
 }
 
 // automationOutputsForbiddenKeys 是 automation 节点 outputs 中不得出现的「agent prompt
-// 注入」语义字段名。automation 节点只负责命令卡执行 + 输出落地，不得为下游 agent
-// 拼 prompt，避免跨节点路径被“转变”为隐式 agent 调用（F1.3 / ADR-011 边界）。
+// 注入 / agent 路由」语义字段名。automation 节点只负责命令卡执行 + 输出落地，
+// 不得为下游 agent 拼 prompt 或路由 agent 实例，避免跨节点路径被「转变」为
+// 隐式 agent 调用 / 隐式模型升级（F1.3 / ADR-011 边界）。
+//
+// 字段集来源（R1 P1 #3 扩展）：
+//   - prompt 系：prompt / first_turn / agent_prompt / system_prompt / append_error
+//     —— 直接注入 prompt 文本会让 automation outputs 隐式驱动下游 agent；
+//   - 路由系：agent_key / model / provider / language / tool_choice / tools
+//     —— automation 节点 outputs 不得替下游 agent 决定模型 / provider / 工具白
+//     名单等路由字段；路由必须由该 agent 节点的 config.exec 显式声明。
 //
 // automationOutputsForbiddenKeys lists field names whose presence in an automation
-// node's outputs config indicates an attempt to inject agent-style prompts; per
-// the F1.3 / ADR-011 boundary, those flows belong to hybrid (agent→automation),
-// not automation outputs, so the executor must reject them at validation time.
+// node's outputs config indicates an attempt to inject agent-style prompts or
+// silently reroute downstream agent dispatch; per the F1.3 / ADR-011 boundary,
+// those flows belong to hybrid (agent→automation), not automation outputs, so
+// the executor must reject them at validation time.
 var automationOutputsForbiddenKeys = []string{
-	"prompt", "first_turn", "agent_prompt", "agent_key", "append_error", "system_prompt",
+	// prompt-injection family
+	"prompt", "first_turn", "agent_prompt", "system_prompt", "append_error",
+	// agent-routing family
+	"agent_key", "model", "provider", "language", "tool_choice", "tools",
 }
 
 // validateAutomationOutputs 验证 outputs 配置未含 agent prompt 注入字段。
@@ -341,7 +353,7 @@ func validateAutomationOutputs(raw json.RawMessage, _ *AutomationNodeConfig) *No
 	for _, key := range automationOutputsForbiddenKeys {
 		if _, ok := fields[key]; ok {
 			outcome := failedAutomationOutcome(FailureClassValidation,
-				fmt.Sprintf("automation outputs cannot include agent-prompt field %q", key))
+				fmt.Sprintf("automation outputs cannot include agent-prompt or agent-routing field %q", key))
 			return &outcome
 		}
 	}
