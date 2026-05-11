@@ -58,54 +58,72 @@ func (s *store) RecordNodeSpawn(ctx context.Context, input RecordNodeSpawnInput)
 
 	var result RecordNodeSpawnResult
 	err := sqlc.WithTxOrReuse(ctx, s.q, func(txq *sqlc.Queries) error {
-		// 1) UPDATE node + CTE capture previous value.
-		row, updateErr := txq.UpdateTaskDagNodeSpawningThread(ctx, sqlc.UpdateTaskDagNodeSpawningThreadParams{
-			SpawningThreadID: pgtype.Text{String: threadID, Valid: true},
-			DagKey:           dagKey,
-			NodeKey:          nodeKey,
-		})
-		if updateErr != nil {
-			return updateErr
-		}
-		result.Node = nodeFromSpawnRow(row)
-		if row.PreviousSpawningThreadID.Valid {
-			result.PreviousThreadID = row.PreviousSpawningThreadID.String
-		}
-
-		// 2) Append node_spawn event only on retry overwrite (prev != new).
-		//    First spawn (prev empty) skips the event to keep events lean.
-		if result.PreviousThreadID != "" && result.PreviousThreadID != threadID {
-			payload, marshalErr := json.Marshal(nodeSpawnEvent{
-				Kind:           "node_spawn",
-				NodeKey:        nodeKey,
-				PrevThreadID:   result.PreviousThreadID,
-				ThreadID:       threadID,
-				TS:             time.Now().UTC().Format(time.RFC3339Nano),
-			})
-			if marshalErr != nil {
-				return fmt.Errorf("marshal node_spawn event: %w", marshalErr)
-			}
-			runKey, appendErr := txq.AppendTaskDagRunEvent(ctx, sqlc.AppendTaskDagRunEventParams{
-				DagKey:  dagKey,
-				Column2: payload,
-			})
-			if appendErr != nil {
-				// pgx.ErrNoRows here means "no running run for dag_key" — the
-				// spawn history append is a soft miss, not a hard failure.
-				if errors.Is(appendErr, pgx.ErrNoRows) {
-					return nil
-				}
-				return appendErr
-			}
-			result.AppendedEvent = true
-			result.RunKey = runKey
-		}
-		return nil
+		return recordNodeSpawnTx(ctx, txq, dagKey, nodeKey, threadID, &result)
 	})
 	if err != nil {
 		return nil, wrapTaskDAGError(err, "record_node_spawn", "task_dag_node")
 	}
 	return &result, nil
+}
+
+// recordNodeSpawnTx 是事务体拆出的两步逻辑：UPDATE 节点 + （重试时）append events。
+// 拆为独立函数是为了把 RecordNodeSpawn 本体的圈复杂度压到代码守卫上限（§10）。
+//
+// recordNodeSpawnTx is the two-step transaction body (UPDATE the node, then
+// optionally append a node_spawn event on retry). Extracted as a free
+// function so the public RecordNodeSpawn stays under the cyclomatic
+// complexity guard (10).
+func recordNodeSpawnTx(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKey, threadID string, result *RecordNodeSpawnResult) error {
+	row, err := txq.UpdateTaskDagNodeSpawningThread(ctx, sqlc.UpdateTaskDagNodeSpawningThreadParams{
+		SpawningThreadID: pgtype.Text{String: threadID, Valid: true},
+		DagKey:           dagKey,
+		NodeKey:          nodeKey,
+	})
+	if err != nil {
+		return err
+	}
+	result.Node = nodeFromSpawnRow(row)
+	if row.PreviousSpawningThreadID.Valid {
+		result.PreviousThreadID = row.PreviousSpawningThreadID.String
+	}
+	// First spawn (prev empty) or idempotent retry (prev == new) keeps events lean.
+	if result.PreviousThreadID == "" || result.PreviousThreadID == threadID {
+		return nil
+	}
+	return appendNodeSpawnEvent(ctx, txq, dagKey, nodeKey, threadID, result)
+}
+
+// appendNodeSpawnEvent 封装「构造 payload + AppendTaskDagRunEvent + 软失败处理」三部分。
+// pgx.ErrNoRows （dag_key 下无 running run）被视为软失败，不传错上去。
+//
+// appendNodeSpawnEvent wraps the marshal + append + soft-miss path so
+// recordNodeSpawnTx stays linear and under the complexity ceiling.
+func appendNodeSpawnEvent(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKey, threadID string, result *RecordNodeSpawnResult) error {
+	payload, err := json.Marshal(nodeSpawnEvent{
+		Kind:         "node_spawn",
+		NodeKey:      nodeKey,
+		PrevThreadID: result.PreviousThreadID,
+		ThreadID:     threadID,
+		TS:           time.Now().UTC().Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		return fmt.Errorf("marshal node_spawn event: %w", err)
+	}
+	runKey, err := txq.AppendTaskDagRunEvent(ctx, sqlc.AppendTaskDagRunEventParams{
+		DagKey:  dagKey,
+		Column2: payload,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// No running run for dag_key — spawn-history append is a soft miss,
+			// not a hard failure (audit aid; absence shouldn't fail spawn).
+			return nil
+		}
+		return err
+	}
+	result.AppendedEvent = true
+	result.RunKey = runKey
+	return nil
 }
 
 // nodeSpawnEvent 是写入 task_dag_runs.events jsonb 数组的事件载荷。kind 固定
