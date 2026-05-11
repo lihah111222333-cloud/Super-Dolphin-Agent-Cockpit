@@ -168,29 +168,56 @@ func dagRunDTO(row taskdag.Run) contract.Run {
 }
 
 // =====================================================
-// DAG v2 F4.1: ApplyOps add_node helpers
+// DAG v2 F4.1/F4.2: ApplyOps add_node + update_node helpers
 // =====================================================
 //
-// 以下 4 个函数原本在 dag.go::applyTypedOps 附近，F4.1 重构时挪到这里以让
-// dag.go 不超守卫行数上限。位于同包，可见性不变。
+// 拆函数策略：partitionOps → planOpsBatch (调 PlanAddNodes + PlanUpdateNodes
+// + DetectCycle) → persistOpsBatch (顺序 UpsertNode add 后 update)。F4.1
+// 的 ensureAllAddNodeOps / runAddNodeBatch / existingNodesForPlan /
+// persistAddNodeSpecs 沿用主干，新增 update 路径与之共存，让 dag.go 本体
+// 行数不超守卫上限。位于同包，可见性不变。
 
-// ensureAllAddNodeOps F4.1 限定：ops 集内只允许 add_node。F4.2-F4.4 接其他
-// op_kind 后去掉。Fail-fast 避免进事务后中途发现不支持动词。
-func ensureAllAddNodeOps(ops nodeexec.Ops) error {
-	for i, op := range ops {
-		if op == nil {
-			return fmt.Errorf("%w: ops[%d] nil op", ErrApplyOpsInvalid, i)
-		}
-		if op.Kind() != nodeexec.OpKindAddNode {
-			return fmt.Errorf("%w: ops[%d] kind=%s (only add_node implemented in F4.1)", ErrLifecycleNotImplemented, i, op.Kind())
-		}
-	}
-	return nil
+// partitionedOps 是 ops 按 op_kind 拆分后的结果。F4.2 仅 add + update 实装；
+// 其他 op_kind 由 partitionOps 直接 fail-fast 返 ErrLifecycleNotImplemented，
+// 与 F4.1 ensureAllAddNodeOps 的兜底语义一致（避免进事务后中途发现）。
+type partitionedOps struct {
+	adds    nodeexec.Ops
+	updates nodeexec.Ops
 }
 
-// runAddNodeBatch 在 PG 事务内跑一批 add_node ops。单独拆出以让
-// applyTypedOps 本体 CC 限在预算以内。
-func runAddNodeBatch(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string, baseVersion int64, ops nodeexec.Ops) (contract.ApplyOpsResponse, error) {
+// partitionOps 把 ops 按 op_kind 分组：add_node → adds，update_node → updates。
+// remove_node / update_dag 留给 F4.3 / F4.4，本阶段命中即返
+// ErrLifecycleNotImplemented，让请求 fail-fast。
+func partitionOps(ops nodeexec.Ops) (partitionedOps, error) {
+	var p partitionedOps
+	for i, op := range ops {
+		if op == nil {
+			return p, fmt.Errorf("%w: ops[%d] nil op", ErrApplyOpsInvalid, i)
+		}
+		switch op.Kind() {
+		case nodeexec.OpKindAddNode:
+			p.adds = append(p.adds, op)
+		case nodeexec.OpKindUpdateNode:
+			p.updates = append(p.updates, op)
+		default:
+			return p, fmt.Errorf("%w: ops[%d] kind=%s (only add_node/update_node implemented through F4.2)", ErrLifecycleNotImplemented, i, op.Kind())
+		}
+	}
+	return p, nil
+}
+
+// runOpsBatch 在 PG 事务内跑一批已 partition 的 ops：F4.1 add + F4.2 update。
+// OCC 双重护栏：pre-check 比对 base_version；bump 失锁返
+// ErrVersionConflict（与 F4.1 同 sentinel，调用方 errors.Is 命中相同分支）。
+//
+// 步骤：
+//  1. GetDAGVersionForUpdate + 比对 base_version
+//  2. 空 ops → 直接返当前 version（noop）
+//  3. ListNodes 拿现有节点 → 投影成 nodeexec 入参
+//  4. plan add + plan update → 合并 adjacency → DetectCycle
+//  5. 顺序 UpsertNode（先 add 后 update，update 合并 patch 与旧 Node）
+//  6. BumpDAGVersion
+func runOpsBatch(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string, baseVersion int64, parts partitionedOps) (contract.ApplyOpsResponse, error) {
 	current, err := tx.GetDAGVersionForUpdate(ctx, dagKey)
 	if err != nil {
 		return contract.ApplyOpsResponse{}, fmt.Errorf("get dag version: %w", err)
@@ -198,21 +225,18 @@ func runAddNodeBatch(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string,
 	if current != baseVersion {
 		return contract.ApplyOpsResponse{}, fmt.Errorf("%w: dag=%s expected=%d actual=%d", ErrVersionConflict, dagKey, baseVersion, current)
 	}
-	if len(ops) == 0 {
+	if len(parts.adds) == 0 && len(parts.updates) == 0 {
 		return contract.ApplyOpsResponse{NewVersion: current}, nil
 	}
 	existing, err := tx.ListNodes(ctx, dagKey)
 	if err != nil {
 		return contract.ApplyOpsResponse{}, fmt.Errorf("list nodes: %w", err)
 	}
-	adjacency, specs, err := nodeexec.PlanAddNodes(ops, existingNodesForPlan(existing))
+	plan, err := planOpsBatch(parts, existing)
 	if err != nil {
-		return contract.ApplyOpsResponse{}, fmt.Errorf("%w: %w", ErrApplyOpsInvalid, err)
+		return contract.ApplyOpsResponse{}, err
 	}
-	if cycleErr := nodeexec.DetectCycle(adjacency); cycleErr != nil {
-		return contract.ApplyOpsResponse{}, fmt.Errorf("%w: %w", ErrApplyOpsInvalid, cycleErr)
-	}
-	if err := persistAddNodeSpecs(ctx, tx, dagKey, specs); err != nil {
+	if err := persistOpsBatch(ctx, tx, dagKey, existing, plan); err != nil {
 		return contract.ApplyOpsResponse{}, err
 	}
 	newVersion, err := tx.BumpDAGVersion(ctx, dagKey, baseVersion)
@@ -223,6 +247,41 @@ func runAddNodeBatch(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string,
 		return contract.ApplyOpsResponse{}, fmt.Errorf("bump version: %w", err)
 	}
 	return contract.ApplyOpsResponse{NewVersion: newVersion}, nil
+}
+
+// opsBatchPlan 是 planOpsBatch 输出：add 的 NodeSpec + update 的 Change，外加
+// 已合并的环检测 adjacency。
+type opsBatchPlan struct {
+	addSpecs []nodeexec.NodeSpec
+	updates  []nodeexec.UpdateNodeChange
+}
+
+// planOpsBatch 跑两路 plan + 合并 adjacency + 跑 DetectCycle。
+//
+// 关键设计：两路 plan 共享同一份 adjacency 是通过 service 层手动合并实现的，
+// 而非让 plan 函数互相耦合：
+//   - 先跑 PlanAddNodes：基于 existing 的 narrow 投影 → 返回 add 后的 adjacency_a。
+//   - 再跑 PlanUpdateNodes：基于 existing+add 的 full 投影（add 节点 status
+//     视作 pending，因为新建节点默认入态就是 pending）→ 返回 update 后的
+//     adjacency_u。
+//   - 合并：adjacency_u 已含 existing + update patch；adjacency_a 含 existing
+//   - add 节点。最终 adjacency = adjacency_u + adjacency_a 中 add 节点。
+//   - DetectCycle 跑一次合并图。
+func planOpsBatch(parts partitionedOps, existing []taskdag.Node) (opsBatchPlan, error) {
+	adjAdd, addSpecs, err := nodeexec.PlanAddNodes(parts.adds, existingNodesForPlan(existing))
+	if err != nil {
+		return opsBatchPlan{}, fmt.Errorf("%w: %w", ErrApplyOpsInvalid, err)
+	}
+	extended := existingFullForPlan(existing, addSpecs)
+	adjUpd, changes, err := nodeexec.PlanUpdateNodes(parts.updates, extended)
+	if err != nil {
+		return opsBatchPlan{}, fmt.Errorf("%w: %w", ErrApplyOpsInvalid, err)
+	}
+	merged := mergeAdjacency(adjAdd, adjUpd)
+	if cycleErr := nodeexec.DetectCycle(merged); cycleErr != nil {
+		return opsBatchPlan{}, fmt.Errorf("%w: %w", ErrApplyOpsInvalid, cycleErr)
+	}
+	return opsBatchPlan{addSpecs: addSpecs, updates: changes}, nil
 }
 
 // existingNodesForPlan 把 taskdag.Node 列表转为 nodeexec.PlanAddNodes 需要的
@@ -236,6 +295,55 @@ func existingNodesForPlan(nodes []taskdag.Node) []nodeexec.ExistingNode {
 		})
 	}
 	return out
+}
+
+// existingFullForPlan 把 taskdag.Node + add 后的 spec 列表合并成
+// PlanUpdateNodes 需要的 ExistingNodeFull 切片。add 节点 status 默认 pending
+// （migration 0072 task_dag_nodes.status default = 'pending'）。
+func existingFullForPlan(nodes []taskdag.Node, addSpecs []nodeexec.NodeSpec) []nodeexec.ExistingNodeFull {
+	out := make([]nodeexec.ExistingNodeFull, 0, len(nodes)+len(addSpecs))
+	for _, n := range nodes {
+		out = append(out, nodeexec.ExistingNodeFull{
+			NodeKey:   n.NodeKey,
+			DependsOn: decodeDependsOn(n.DependsOn),
+			Status:    n.Status,
+		})
+	}
+	for _, spec := range addSpecs {
+		out = append(out, nodeexec.ExistingNodeFull{
+			NodeKey:   spec.NodeKey,
+			DependsOn: spec.DependsOn,
+			Status:    string(nodeexec.NodeStatusPending),
+		})
+	}
+	return out
+}
+
+// mergeAdjacency 把 add 路径与 update 路径的 adjacency 合并：update 路径已
+// 含 existing 节点（含未被 patch 的节点保留 existing dep）；add 路径含新增
+// 节点的 dep。把 add 路径中 update 没见过的 key 补进 update 路径即可。
+func mergeAdjacency(adjAdd, adjUpd map[string][]string) map[string][]string {
+	merged := make(map[string][]string, len(adjAdd)+len(adjUpd))
+	for k, v := range adjUpd {
+		merged[k] = v
+	}
+	for k, v := range adjAdd {
+		if _, ok := merged[k]; !ok {
+			merged[k] = v
+		}
+	}
+	return merged
+}
+
+// persistOpsBatch 顺序写入 plan 结果：先 add（新节点），再 update（合并 patch
+// 到旧 Node 后整行写回）。UpsertNode 走 ON CONFLICT DO UPDATE，把 plan 的
+// 输出整行覆盖回库——故 update 路径必须把未在 patch 中的字段从旧 Node 复制
+// 回去，否则会被空值覆盖。
+func persistOpsBatch(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string, existing []taskdag.Node, plan opsBatchPlan) error {
+	if err := persistAddNodeSpecs(ctx, tx, dagKey, plan.addSpecs); err != nil {
+		return err
+	}
+	return persistUpdateChanges(ctx, tx, dagKey, existing, plan.updates)
 }
 
 // persistAddNodeSpecs 顺序调 UpsertNode 把 NodeSpec 转为 taskdag.Node 写入表。
@@ -256,4 +364,66 @@ func persistAddNodeSpecs(ctx context.Context, tx taskdag.DAGOpsStore, dagKey str
 	return nil
 }
 
+// persistUpdateChanges 把每条 update change 合并到对应旧 Node 后整行 UpsertNode。
+// 合并语义按 NodePatch 三态：
+//   - Title / AssignedTo: *string nil 沿用旧值；指向 v 覆盖（含 "" 清空）
+//   - DependsOn: *[]string nil 沿用旧值；指向 *[] / *[a,b] 覆盖
+//   - Config: json.RawMessage len==0 或 "null" 沿用旧值；非空覆盖
+//
+// 同样 sqlc UpsertTaskDagNode SQL 不写 status / result / started_at 等节点
+// 生命周期字段，故 patch 沿用 ApplyOps "不许改 status" 的约束。
+func persistUpdateChanges(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string, existing []taskdag.Node, changes []nodeexec.UpdateNodeChange) error {
+	byKey := indexExistingByKey(existing)
+	for _, c := range changes {
+		old, ok := byKey[c.NodeKey]
+		if !ok {
+			// 防御：PlanUpdateNodes 已校验存在；这里命中说明并发删除/lost
+			// lock。返错让 service 层把它包成 ErrApplyOpsInvalid（虽然此情况
+			// 在 OCC 锁下不应发生）。
+			return fmt.Errorf("update_node: node %q vanished between plan and persist", c.NodeKey)
+		}
+		merged := mergeNodePatch(old, c.Patch, dagKey)
+		if _, err := tx.UpsertNode(ctx, merged); err != nil {
+			return fmt.Errorf("upsert (update) node %s: %w", c.NodeKey, err)
+		}
+	}
+	return nil
+}
 
+// indexExistingByKey 按 NodeKey 建索引方便 persistUpdateChanges 查旧 Node。
+func indexExistingByKey(nodes []taskdag.Node) map[string]taskdag.Node {
+	out := make(map[string]taskdag.Node, len(nodes))
+	for _, n := range nodes {
+		out[n.NodeKey] = n
+	}
+	return out
+}
+
+// mergeNodePatch 按 NodePatch 三态把 patch 合并进旧 Node。返回值是要 UpsertNode
+// 写回的整行 taskdag.Node。
+func mergeNodePatch(old taskdag.Node, patch nodeexec.NodePatch, dagKey string) taskdag.Node {
+	merged := old
+	merged.DagKey = dagKey
+	if patch.Title != nil {
+		merged.Title = strings.TrimSpace(*patch.Title)
+	}
+	if patch.AssignedTo != nil {
+		merged.AssignedTo = strings.TrimSpace(*patch.AssignedTo)
+	}
+	if patch.DependsOn != nil {
+		merged.DependsOn = dependsOnJSON(nodeexec.NormalizeDependsOn(*patch.DependsOn))
+	}
+	if !isEmptyRawJSON(patch.Config) {
+		merged.Config = append(json.RawMessage(nil), patch.Config...)
+	}
+	return merged
+}
+
+// isEmptyRawJSON 判定 RawMessage 是否表示「不改 Config」三态中的 nil 一态：
+// len==0 或字面量 "null"。其他（含 "{}", "[]", `{"k":v}` 等）一律视为「覆盖」。
+func isEmptyRawJSON(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return true
+	}
+	return strings.TrimSpace(string(raw)) == "null"
+}
