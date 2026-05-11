@@ -223,10 +223,46 @@ func (s *service) ensureProviderThreadAvailable(ctx context.Context, registratio
 	if existing == nil {
 		return nil
 	}
-	if existingAgentID := strings.TrimSpace(existing.AgentID); existingAgentID != registration.AgentID {
-		return fmt.Errorf("provider thread %q is already bound to agent %q", registration.ProviderThreadID, existingAgentID)
+	existingAgentID := strings.TrimSpace(existing.AgentID)
+	if existingAgentID == registration.AgentID {
+		return nil
+	}
+	return s.resolveProviderThreadConflict(ctx, registration, existingAgentID)
+}
+
+// resolveProviderThreadConflict handles a provider_thread_id collision with a
+// different agent. If the blocking agent is dead (no active session), its
+// stale binding is evicted. If alive, the conflict is reported as an error.
+func (s *service) resolveProviderThreadConflict(ctx context.Context, registration bindingRegistration, existingAgentID string) error {
+	if s.isSessionAlive(existingAgentID) {
+		return fmt.Errorf("provider thread %q is already bound to agent %q (session active)", registration.ProviderThreadID, existingAgentID)
+	}
+	if s.logger != nil {
+		s.logger.Warn("thread: evicting stale provider_thread_id binding",
+			"provider_thread_id", registration.ProviderThreadID,
+			"stale_agent_id", existingAgentID,
+			"new_agent_id", registration.AgentID)
+	}
+	if err := s.bindingStore.UpdateProviderThreadID(ctx, bindingstore.UpdateProviderThreadIDParams{
+		AgentID:          existingAgentID,
+		ProviderThreadID: "",
+		UpdatedAt:        time.Now().Unix(),
+	}); err != nil {
+		return fmt.Errorf("evict stale provider_thread_id binding: %w", err)
 	}
 	return nil
+}
+
+// isSessionAlive reports whether the given agent currently has a live session
+// in the session provider. It is used to distinguish active binding conflicts
+// (two live agents competing for the same provider_thread_id) from orphan
+// conflicts (a dead agent's stale binding blocking a live agent).
+func (s *service) isSessionAlive(agentID string) bool {
+	if s == nil || s.sessions == nil {
+		return false
+	}
+	session, err := s.sessions.GetSession(strings.TrimSpace(agentID))
+	return err == nil && session != nil
 }
 
 func validateBindingRegistration(existing *bindingstore.Binding, registration bindingRegistration) error {

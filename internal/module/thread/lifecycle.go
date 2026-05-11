@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -399,6 +400,18 @@ func (s *service) persistResumedSession(
 		// the wrong UUID, resulting in empty conversation history.
 		if !isBindingConflictError(err) {
 			s.publishThreadStarted(threadState)
+		} else {
+			// Binding conflict means the codex session carries a UUID that
+			// belongs to another active agent. Kill the zombie session to
+			// prevent delta events from arriving on a half-alive channel,
+			// and force a clean re-start on the next user interaction.
+			if s.logger != nil {
+				s.logger.Error("thread: binding conflict on resume — killing zombie session",
+					"agent_id", req.AgentID,
+					"stale_provider_thread_id", providerThreadID)
+			}
+			s.stopAgent(ctx, req.AgentID)
+			return ResumeResult{}, fmt.Errorf("resume aborted due to binding conflict: %w", err)
 		}
 	}
 	if promptResumeRestoreRequiresInvalidation(state.StoredCWD, req.CWD, s.cfg) {
