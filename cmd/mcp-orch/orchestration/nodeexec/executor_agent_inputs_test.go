@@ -38,7 +38,7 @@ func (s *stubSharedFileReader) ReadSharedFile(_ context.Context, path string) (s
 // cfg.Inputs.FromNodes 引用一个上游节点，结果被注入到 LaunchRequest.Prompt。
 func TestAgentExecutor_Inputs_FromNodes_Single(t *testing.T) {
 	launcher := &stubAgentLauncher{}
-	exec := NewAgentExecutor(launcher, nil)
+	exec := NewAgentExecutor(launcher)
 
 	cfg := AgentNodeConfig{
 		Exec:   AgentExecConfig{AgentKey: "implementer"},
@@ -78,7 +78,7 @@ func TestAgentExecutor_Inputs_FromNodes_Single(t *testing.T) {
 // TestAgentExecutor_Inputs_FromNodes_Multiple 验证多个 from_nodes 顺序保持配置顺序。
 func TestAgentExecutor_Inputs_FromNodes_Multiple(t *testing.T) {
 	launcher := &stubAgentLauncher{}
-	exec := NewAgentExecutor(launcher, nil)
+	exec := NewAgentExecutor(launcher)
 
 	cfg := AgentNodeConfig{
 		Exec:   AgentExecConfig{AgentKey: "implementer"},
@@ -110,7 +110,7 @@ func TestAgentExecutor_Inputs_FromSharedfiles_Single(t *testing.T) {
 	sf := &stubSharedFileReader{contents: map[string]string{
 		"plan.md": "# Plan\n- step1\n- step2",
 	}}
-	exec := NewAgentExecutor(launcher, nil)
+	exec := NewAgentExecutor(launcher)
 
 	cfg := AgentNodeConfig{
 		Exec:   AgentExecConfig{AgentKey: "implementer"},
@@ -139,7 +139,7 @@ func TestAgentExecutor_Inputs_Mixed_FromNodes_AndSharedfiles(t *testing.T) {
 	sf := &stubSharedFileReader{contents: map[string]string{
 		"plan.md": "PLAN-CONTENT",
 	}}
-	exec := NewAgentExecutor(launcher, nil)
+	exec := NewAgentExecutor(launcher)
 
 	cfg := AgentNodeConfig{
 		Exec: AgentExecConfig{AgentKey: "implementer"},
@@ -180,7 +180,7 @@ func TestAgentExecutor_Inputs_EmptyInputs_BackwardsCompat(t *testing.T) {
 	launcher := &stubAgentLauncher{}
 	// 即使 prev/sharedfile readers 注入了，但 inputs 为空也不应被消费。
 	sf := &stubSharedFileReader{}
-	exec := NewAgentExecutor(launcher, nil)
+	exec := NewAgentExecutor(launcher)
 
 	cfg := AgentNodeConfig{
 		Exec:      AgentExecConfig{AgentKey: "implementer"},
@@ -208,7 +208,7 @@ func TestAgentExecutor_Inputs_EmptyInputs_BackwardsCompat(t *testing.T) {
 // 不存在的 node_key → validation 失败、不调 launcher。
 func TestAgentExecutor_Inputs_FromNodes_UnknownKey_Validation(t *testing.T) {
 	launcher := &stubAgentLauncher{}
-	exec := NewAgentExecutor(launcher, nil)
+	exec := NewAgentExecutor(launcher)
 
 	cfg := AgentNodeConfig{
 		Exec:   AgentExecConfig{AgentKey: "implementer"},
@@ -240,7 +240,7 @@ func TestAgentExecutor_Inputs_FromNodes_UnknownKey_Validation(t *testing.T) {
 func TestAgentExecutor_Inputs_FromSharedfiles_Missing_Validation(t *testing.T) {
 	launcher := &stubAgentLauncher{}
 	sf := &stubSharedFileReader{contents: map[string]string{}} // 空
-	exec := NewAgentExecutor(launcher, nil)
+	exec := NewAgentExecutor(launcher)
 
 	cfg := AgentNodeConfig{
 		Exec:   AgentExecConfig{AgentKey: "implementer"},
@@ -270,7 +270,7 @@ func TestAgentExecutor_Inputs_FromSharedfiles_Missing_Validation(t *testing.T) {
 // 非空但 RunContext.PrevResults 未填 → validation（不静默吞掉注入需求）。
 func TestAgentExecutor_Inputs_FromNodes_NilReader_Validation(t *testing.T) {
 	launcher := &stubAgentLauncher{}
-	exec := NewAgentExecutor(launcher, nil)
+	exec := NewAgentExecutor(launcher)
 
 	cfg := AgentNodeConfig{
 		Exec:   AgentExecConfig{AgentKey: "implementer"},
@@ -291,7 +291,7 @@ func TestAgentExecutor_Inputs_FromNodes_NilReader_Validation(t *testing.T) {
 // inputs.from_sharedfiles 非空但 reader 未接通 → validation。
 func TestAgentExecutor_Inputs_FromSharedfiles_NilReader_Validation(t *testing.T) {
 	launcher := &stubAgentLauncher{}
-	exec := NewAgentExecutor(launcher, nil)
+	exec := NewAgentExecutor(launcher)
 
 	cfg := AgentNodeConfig{
 		Exec:   AgentExecConfig{AgentKey: "implementer"},
@@ -310,7 +310,7 @@ func TestAgentExecutor_Inputs_FromSharedfiles_NilReader_Validation(t *testing.T)
 // 上游节点合法配置 outputs.to_node_result=false 时此路径自然发生。
 func TestAgentExecutor_Inputs_FromNodes_EmptyResult_StillSucceeds(t *testing.T) {
 	launcher := &stubAgentLauncher{}
-	exec := NewAgentExecutor(launcher, nil)
+	exec := NewAgentExecutor(launcher)
 
 	cfg := AgentNodeConfig{
 		Exec:   AgentExecConfig{AgentKey: "implementer"},
@@ -336,7 +336,7 @@ func TestAgentExecutor_Inputs_FromNodes_EmptyResult_StillSucceeds(t *testing.T) 
 // 从 node.DagKey 取 dag_key（与 F1.5 resolveSpawnKeys 一致的回退）。
 func TestAgentExecutor_Inputs_FallsBackToNodeDagKey(t *testing.T) {
 	launcher := &stubAgentLauncher{}
-	exec := NewAgentExecutor(launcher, nil)
+	exec := NewAgentExecutor(launcher)
 
 	cfg := AgentNodeConfig{
 		Exec:   AgentExecConfig{AgentKey: "implementer"},
@@ -359,7 +359,7 @@ func TestAgentExecutor_Inputs_FallsBackToNodeDagKey(t *testing.T) {
 func TestAgentExecutor_Inputs_PreservesF15_ThreadIDWriteback(t *testing.T) {
 	launcher := &stubAgentLauncher{threadID: "thread-1"}
 	recorder := &stubNodeSpawnRecorder{}
-	exec := NewAgentExecutor(launcher, recorder)
+	exec := NewAgentExecutor(launcher, WithRecorder(recorder))
 
 	cfg := AgentNodeConfig{
 		Exec:   AgentExecConfig{AgentKey: "implementer"},

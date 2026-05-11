@@ -87,21 +87,46 @@ type NodeSpawnRecorder interface {
 // RunContext.PrevResults / RunContext.SharedFileReader instead.
 
 
+// Option configures an AgentExecutor at construction time. 端口收敛 batch 把双构造器
+// （NewAgentExecutor / NewAgentExecutorWithInputs）折叠到 functional options：
+// inputs 数据走 RunContext，构造器只用来锁 launcher / recorder / 未来辅助端口。
+//
+// Option follows the functional-options pattern so future ports (e.g. metrics
+// hook, lifecycle observer) can be added without breaking existing callers.
+type Option func(*AgentExecutor)
+
+// WithRecorder 注入 NodeSpawnRecorder（F1.5 / ADR-009 spawning_thread_id 写回端口）。
+// 不传该 option → recorder 为 nil → Execute 跳过 F1.5 写回（仅 launch），保留 F1.1 旧行为；
+// 这种「静默降级」是有意的渐进 wiring，与 inputs 端口（nil 即视为未履行）的 fail-loud 不同。
+//
+// WithRecorder injects the F1.5 NodeSpawnRecorder. Omitting it leaves recorder
+// nil, which preserves the F1.1 launch-only behaviour by design — write-back
+// is auxiliary, not part of agent semantics.
+func WithRecorder(recorder NodeSpawnRecorder) Option {
+	return func(e *AgentExecutor) { e.recorder = recorder }
+}
+
 // NewAgentExecutor 构造一个 AgentExecutor。launcher 为 nil 时仍返回非 nil
 // executor —— Execute 在 launch 阶段把它归为 validation 失败（让 dispatcher
 // 走 by_class[validation] 策略，不至于直接 panic）。
 //
-// recorder 为 nil 时 Execute 跳过 F1.5 写回（仅 launch），保留 F1.1 旧行为。
-// inputs 端口（prev results / sharedfile reader）现已走 RunContext，不再进构造器。
+// 端口收敛 batch 把 recorder 从位置参数改为 functional option (WithRecorder)；
+// 不传 option 等价于过去的 NewAgentExecutor(launcher, nil)。inputs 端口（prev
+// results / sharedfile reader）走 RunContext，不在此构造器。
 //
 // NewAgentExecutor returns an executor; passing a nil launcher does not panic
 // — Execute classifies it as a validation failure so the dispatcher can
 // decide how to surface the misconfiguration instead of crashing the run
-// loop. A nil recorder simply skips the F1.5 write-back. Inputs ports
-// (prev-results / sharedfile reader) now live on RunContext rather than the
-// constructor.
-func NewAgentExecutor(launcher AgentLauncher, recorder NodeSpawnRecorder) *AgentExecutor {
-	return &AgentExecutor{launcher: launcher, recorder: recorder}
+// loop. The recorder moved from positional arg to WithRecorder option;
+// passing no options is equivalent to the former (launcher, nil) call.
+func NewAgentExecutor(launcher AgentLauncher, opts ...Option) *AgentExecutor {
+	e := &AgentExecutor{launcher: launcher}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(e)
+		}
+	}
+	return e
 }
 
 // Execute 解码 node.config.exec → 调 launcher.LaunchAgent → 包装成 NodeOutcome。
