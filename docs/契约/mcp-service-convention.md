@@ -245,6 +245,26 @@ ShutdownResponse {
 
 P8.5 明确新增 `internal/platform/mcpcontrol/*` 的原因之一，就是避免继续把 lifecycle 业务塞进已经拥挤的 `internal/platform/rpc`。
 
+### 5.1 Input enum 校验（ADR-003）
+
+MCP server 不强制按 input_schema 验证调用入参（避免引 jsonschema 库 +
+避免 wire breaking 70+ tool），因此 schema 里声明的 `enum` 不会在框架
+层兜底。为防止脏值穿到 service / store / DB，所有 enum 字段必须由 handler
+层显式校验，并满足以下规约：
+
+- enum 候选值提到**包级 `var`** 单源（命名 `<tool>_<field>_Enum`），schema
+  与 handler 共用同一切片；改动一处必须同步另一处，单测覆盖。
+- handler 层用 `tools.requireEnum(value, field, allowed)` 兜底校验。可选
+  字段需在 handler 内手动处理空串放行，必填字段直接 `requireEnum` 即可
+  （内置必填检查）。
+- enum 值同时落 DB CHECK（migration 0080/0081/0082 模板），形成
+  「schema enum + handler requireEnum + DB CHECK」三层互锁；任何单层失守，
+  其余两层兜底。
+- 错误消息中英双语，列出 allowed 候选，对齐 P19 错误约定与
+  `translateStartDAGError` 风格。
+
+参见 `docs/decisions/ADR-003-mcp-input-enum-validation.md`。
+
 ## 6. 落地检查清单
 
 - 是否明确区分了 `stdio` 工具执行通道和 `jrpc2` 生命周期管理通道
