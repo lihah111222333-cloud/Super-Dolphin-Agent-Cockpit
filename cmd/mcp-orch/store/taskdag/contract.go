@@ -163,9 +163,27 @@ type CompleteNodeInput struct {
 // ScheduledDownstream lists every downstream node for which a wakeup row was
 // inserted (i.e. ON CONFLICT-skipped duplicates are excluded so callers can
 // rely on the slice length reflecting newly-inserted rows only).
+//
+// F6.2: FinalizedRun 不为 nil 表示本次 complete 后所有节点已进入终态，
+// store 同事务内把 task_dag_runs.status 从 'running' 推进到了对应终态；
+// nil 表示 run 仍保持 'running'（还有非终态节点或本 dag_key 下无 running run）。
+//
+// F6.2: FinalizedRun is non-nil when this CompleteNode call also pushed the
+// matching task_dag_runs row from 'running' to a terminal status in the same
+// transaction. nil means the run stays 'running' (either some nodes are still
+// non-terminal or no 'running' run exists for the dag_key).
 type CompleteNodeWithDownstreamResult struct {
 	Node                *Node
 	ScheduledDownstream []ScheduledDownstreamWakeup
+	FinalizedRun        *FinalizedRunInfo
+}
+
+// FinalizedRunInfo 是 maybeFinalizeRun 报告给上层的最小投影（被推进的 run_key + 新 status）。
+// FinalizedRunInfo is the minimal projection reported back to callers when a run
+// transitions from 'running' to one of succeeded / failed / cancelled.
+type FinalizedRunInfo struct {
+	RunKey string
+	Status string
 }
 
 // ScheduledDownstreamWakeup describes a wakeup row enqueued as the side-effect
