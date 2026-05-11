@@ -631,6 +631,13 @@ store 层的主要价值在于：
 
 设计说明：`RunStore` **故意不嵌入** `taskdag.Store` 聚合接口，以保住 `OrchestrationStore` / `DAGMutationStore` 的 `InterfaceIsolation` 预算（·04 §2.1 接口隔离预算注脚同步列出；源码凭证见 `cmd/mcp-orch/store/taskdag/contract.go:25-27` 与 `:39-42`）。`cmd/mcp-orch/orchestration.service` 同时持有 `dagStore`（`OrchestrationStore`）与 `runStore`（`RunStore`）两个字段；事务内需要联合语义（例如 StartDAG 同一事务内 `CreateRun + PromoteRootNodesToReady`）时，走扩展接口 `DAGMutationWithRunStore`。
 
+**本次 DAG 改造新增 store 文件与 sqlc 手维**（F1.5 / F4.1 / F4.2 / F6.3）：
+- `cmd/mcp-orch/store/taskdag/store_node_spawn.go`：F1.5 `NodeSpawnRecorderStore` 实现 `RecordNodeSpawn`；migration 0083 加列 `task_dag_nodes.spawning_thread_id`；commits `edc22076` `f111c12b` + follow-up `970cb5aa`（从聚合 Store 拆窄端口）。
+- `cmd/mcp-orch/store/taskdag/store_dag_ops.go`：F4.1 / F4.2 `DAGOpsStore` 实现 add_node + update_node 同事务批写 + OCC bump；commits `13a81828` `848f1188`。
+- `cmd/mcp-orch/store/taskdag/store_complete_downstream.go`：F6.3 `CompleteNode` 同事务 promote 下游 pending→ready，返回 `PromotedDownstream`；commit `34240412`（与 F6.4 `ScheduledDownstream` 分工：promote=状态机真相 / enqueue=路由后子集）。
+- sqlc 手维 5 文件（4 W1 / 1 W3 / 1 W2 db_accessor）集中在 `cmd/mcp-orch/sqlc.yaml` 顶部 marker：`task_dag_node_write.sql.go`（F6.3 新增 `PromoteSingleNodePendingToReady`）、F1.5 加列后的 `task_dag_node_*.sql.go`、F4.1 `db_accessor.go`；不通过 `sqlc generate` 覆盖，每次重生成需对照 marker 手补。详 commit `bec17a85`（sqlc.yaml marker 注释）。
+- 新 SQL：`migrations/0083_dag_v2_spawning_thread_id.sql`（F1.5）+ `cmd/mcp-orch/sql/queries/task_dag_node_write.sql` 中 `PromoteSingleNodePendingToReady`（F6.3）+ `cmd/mcp-orch/sql/queries/task_dag_ops.sql`（F4.1 / F4.2）。
+
 ---
 
 ## 5. 查询引擎：`dbquery` 设计

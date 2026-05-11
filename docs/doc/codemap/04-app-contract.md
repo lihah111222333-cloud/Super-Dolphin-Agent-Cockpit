@@ -230,6 +230,13 @@ flowchart TD
 - `TurnSubmission`：`turndto.TurnSubmission` 的类型别名，用作 orchestration 向 turn 模块提交工作的契约载体。
 - `LaunchRequest`、`AgentSnapshot`、`AgentStateResult`、`AgentReportMetadata`、`AgentReportResult`、`RememberReportRequest`、`RememberReportRequestResult`、`ReportEvent`、`ReportEventResult`：orchestration 核心输入/输出模型。
 - `CreateDAGRequest`、`CreateDAGNodeRequest`、`ListDAGsFilter`、`UpdateNodeStatusRequest`、`DAGSummary`、`DAGNode`、`DAGDetail`：任务编排 / DAG 相关模型。
+- DAG ops 与 inputs 新增契约（F1.2 / F1.5 / F4.1 / F4.2 / F6.3）：
+  - `nodeexec.NodePatch`：`task_dag_apply_ops` update_node 的 strict UnmarshalJSON 入参；显式字段（`Label/AssignedTo/Config/...`）外的未知键 fail-fast；commit `7611c268`。
+  - `nodeexec.InputsConfig` / `nodeexec.RunContext`：F1.2 / F2.2 共用沉淀，给 AgentExecutor / AutomationExecutor 注入 prev node result + sharedfiles；commit `3317b00f`。
+  - `taskdag.NodeSpawnRecorderStore`（F1.5）：单方法窄端口 `RecordNodeSpawn(ctx, RecordNodeSpawnInput) (RecordNodeSpawnOutcome, error)`；从聚合 Store 拆出过 archtest TestInterfaceIsolationBudgets；commit `970cb5aa`。
+  - `taskdag.DAGOpsStore` / `DAGOpsTxRunner`（F4.1 / F4.2）：ApplyOps 用的窄端口；OCC bump + add/update node 同事务；commits `13a81828` `848f1188`。
+  - `taskdag.PromotedDownstream`（F6.3）：`CompleteNode` 同事务 promote 下游 pending→ready 的返回结构体，区别于 F6.4 路由后的 `ScheduledDownstream`；commit `34240412`。
+  - `DAGNode.SpawningThreadID`（F1.5）：DAGNode DTO 新增字段，task_get_dag 直接透出，让 thread-DAG 追溯不再瞎跳；commit `61d41a7a`。
 - 哨兵错误：
   - `ErrSessionNotFound`
   - `ErrAgentNotFound`
