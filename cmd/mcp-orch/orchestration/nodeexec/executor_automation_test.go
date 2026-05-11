@@ -457,31 +457,48 @@ func TestAutomationExecutor_Outputs_SharedfileWriteFails_Validation(t *testing.T
 	}
 }
 
+// TestAutomationExecutor_Outputs_RejectsAgentPromptField 表驱动覆盖
+// automationOutputsForbiddenKeys 中全部 6 个 key（R2 P0 gap）。以前只测
+// `prompt` 一个，但 forbidden 列表里 6 个都该拒。任何 key 被静默透过
+// 都意味着 ADR-011 边界被破。
 func TestAutomationExecutor_Outputs_RejectsAgentPromptField(t *testing.T) {
-	getter := &stubAutomationGetter{}
-	runner := &captureRunner{}
-	exec := NewAutomationExecutor(getter, runner)
-	// raw config 中 outputs 手动推 "prompt" 字段（typed OutputsConfig 不认，但原始 json 看得到）。
-	node := Node{
-		NodeType: "automation",
-		Config: json.RawMessage(`{
-			"exec":{"kind":"command_card","command_ref":"k"},
-			"outputs":{"prompt":"please summarize"}
-		}`),
+	t.Parallel()
+	// 与 source 一致：prompt / first_turn / agent_prompt / agent_key /
+	// append_error / system_prompt。增删斶与 source 同步。
+	keys := []string{"prompt", "first_turn", "agent_prompt", "agent_key", "append_error", "system_prompt"}
+	if len(keys) != len(automationOutputsForbiddenKeys) {
+		t.Fatalf("test list (%d) drifted from source automationOutputsForbiddenKeys (%d); update both",
+			len(keys), len(automationOutputsForbiddenKeys))
 	}
+	for _, key := range keys {
+		key := key
+		t.Run("key="+key, func(t *testing.T) {
+			t.Parallel()
+			getter := &stubAutomationGetter{}
+			runner := &captureRunner{}
+			exec := NewAutomationExecutor(getter, runner)
+			// 原始 json 里推一个 forbidden key。值不紧，能进 json object 即可。
+			cfg := `{"exec":{"kind":"command_card","command_ref":"k"},"outputs":{"` +
+				key + `":"poison"}}`
+			node := Node{NodeType: "automation", Config: json.RawMessage(cfg)}
 
-	out, err := exec.Execute(context.Background(), node, RunContext{})
-	if err != nil {
-		t.Fatalf("Execute() framework error = %v", err)
-	}
-	if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
-		t.Fatalf("got status=%q class=%q, want failed/validation", out.Status, out.FailureClass)
-	}
-	if !strings.Contains(out.ErrorSummary, "agent-prompt field") {
-		t.Fatalf("ErrorSummary = %q, want agent-prompt field", out.ErrorSummary)
-	}
-	if getter.called != 0 || runner.lastArgs != nil {
-		t.Fatalf("getter/runner should not be reached on outputs-validation failure; getter=%d runnerArgs=%s", getter.called, runner.lastArgs)
+			out, err := exec.Execute(context.Background(), node, RunContext{})
+			if err != nil {
+				t.Fatalf("Execute() framework error = %v", err)
+			}
+			if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
+				t.Fatalf("key=%s: got status=%q class=%q, want failed/validation", key, out.Status, out.FailureClass)
+			}
+			if !strings.Contains(out.ErrorSummary, "agent-prompt field") {
+				t.Fatalf("key=%s: ErrorSummary = %q, want agent-prompt field", key, out.ErrorSummary)
+			}
+			if !strings.Contains(out.ErrorSummary, key) {
+				t.Fatalf("key=%s: ErrorSummary = %q, should name the field", key, out.ErrorSummary)
+			}
+			if getter.called != 0 || runner.lastArgs != nil {
+				t.Fatalf("key=%s: getter/runner should not be reached on outputs-validation failure; getter=%d runnerArgs=%s", key, getter.called, runner.lastArgs)
+			}
+		})
 	}
 }
 
