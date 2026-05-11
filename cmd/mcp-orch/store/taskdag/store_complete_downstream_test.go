@@ -241,6 +241,93 @@ func TestCompleteNodeAndScheduleDownstream_ConcurrentUpstreamsConvergeOnSameDown
 	}
 }
 
+// TestCompleteNodeAndScheduleDownstream_SkipsWakeupForUnassignedNode
+// 验证 F6.4：下游节点 assigned_to 为空时，store 层不应 enqueue wakeup
+// （否则 dispatcher 调 LaunchAgent 会因 "agent id is required" 失败、
+// retry 耗尽后让节点 permanent failed）。节点 status 保持 pending（== ready 语义），
+// 等外部 agent / 人工接管再推动到 running。
+//
+// EN: When a ready downstream node lacks an assigned_to value, the store
+// must skip the wakeup enqueue. Otherwise the dispatcher's LaunchAgent
+// call rejects the empty agent id, exhausts retries, and the node ends
+// up permanently failed. The node stays in pending so an external/manual
+// flow can later transition it.
+func TestCompleteNodeAndScheduleDownstream_SkipsWakeupForUnassignedNode(t *testing.T) {
+	t.Parallel()
+
+	store, db, now := newTaskDAGTestStore()
+	seedDAG(t, db, now, []seedNode{
+		{key: "A", deps: nil, status: "running", agent: "agent-a"},
+		{key: "B", deps: []string{"A"}, status: "pending", agent: ""},
+	})
+
+	res, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
+		DagKey:  "dag-1",
+		NodeKey: "A",
+		Status:  "done",
+		Result:  json.RawMessage(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("complete A error = %v", err)
+	}
+	if res.Node == nil || res.Node.Status != "done" {
+		t.Fatalf("complete A node = %+v", res.Node)
+	}
+	// 关键断言 1：因 B 缺 assigned_to，ScheduledDownstream 必须为空。
+	if got := scheduledKeys(res.ScheduledDownstream); len(got) != 0 {
+		t.Fatalf("scheduled = %v, want [] (B has empty assigned_to)", got)
+	}
+	// 关键断言 2：表里也不应该有任何 B 的 pending wakeup 行。
+	if c := pendingForNode(db, "B"); c != 0 {
+		t.Fatalf("B wakeup count = %d, want 0 (unassigned must skip enqueue)", c)
+	}
+	// 关键断言 3：B 节点状态保持 pending（依赖已满足 → 等价 ready），
+	// 等外部 / 人工流程后续 promote 到 running。
+	if got := db.nodes[dagNodeKey("dag-1", "B")].Status; got != "pending" {
+		t.Fatalf("B status = %q, want pending (ready semantic)", got)
+	}
+}
+
+// TestCompleteNodeAndScheduleDownstream_MixedAssignmentFanOut
+// 边界场景：扇出下游里有的有 assigned_to、有的没有 — 有的必须 enqueue、
+// 没的必须跳过，互不影响。
+//
+// EN: Mixed fan-out — only downstream nodes carrying an assigned_to get a
+// wakeup; unassigned siblings are skipped without affecting their peers.
+func TestCompleteNodeAndScheduleDownstream_MixedAssignmentFanOut(t *testing.T) {
+	t.Parallel()
+
+	store, db, now := newTaskDAGTestStore()
+	seedDAG(t, db, now, []seedNode{
+		{key: "A", deps: nil, status: "running", agent: "agent-a"},
+		{key: "B", deps: []string{"A"}, status: "pending", agent: "agent-b"},
+		{key: "C", deps: []string{"A"}, status: "pending", agent: ""},
+		{key: "D", deps: []string{"A"}, status: "pending", agent: "agent-d"},
+	})
+
+	res, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
+		DagKey:  "dag-1",
+		NodeKey: "A",
+		Status:  "done",
+		Result:  json.RawMessage(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("complete A error = %v", err)
+	}
+	if got := scheduledKeys(res.ScheduledDownstream); !equalStrings(got, []string{"B", "D"}) {
+		t.Fatalf("scheduled = %v, want [B D] (C must be skipped)", got)
+	}
+	if c := pendingForNode(db, "B"); c != 1 {
+		t.Fatalf("B wakeup count = %d, want 1", c)
+	}
+	if c := pendingForNode(db, "C"); c != 0 {
+		t.Fatalf("C wakeup count = %d, want 0 (unassigned)", c)
+	}
+	if c := pendingForNode(db, "D"); c != 1 {
+		t.Fatalf("D wakeup count = %d, want 1", c)
+	}
+}
+
 // --- helpers --------------------------------------------------------------
 
 type seedNode struct {
