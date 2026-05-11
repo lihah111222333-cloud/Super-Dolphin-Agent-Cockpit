@@ -18,6 +18,15 @@ type Store interface {
 	NodeFlowStore
 	WakeupStore
 	WorkerLeaseStore
+	// NodeSpawnRecorderStore 是 F1.5 / ADR-009 加入的窄端口。嵌入聚合 Store
+	// 接口让 unit tests 能用同一个 aggregate handle 调用 RecordNodeSpawn；
+	// 生产 wiring 仍鼓励提取独立 NodeSpawnRecorderStore 使用。
+	//
+	// NodeSpawnRecorderStore was added in F1.5 / ADR-009. It is embedded into
+	// the aggregate Store so unit tests can reach RecordNodeSpawn through the
+	// same handle they already use for the other narrow ports; production
+	// wiring should still depend on the narrow NodeSpawnRecorderStore alone.
+	NodeSpawnRecorderStore
 }
 
 // OrchestrationStore is the narrow port consumed by cmd/mcp-orch/orchestration
@@ -88,6 +97,57 @@ type NodeFlowStore interface {
 	CompleteNodeAndScheduleDownstream(ctx context.Context, input CompleteNodeInput) (*CompleteNodeWithDownstreamResult, error)
 	FailNodeAndCancelDownstream(ctx context.Context, input FailNodeInput) (*FailNodeResult, error)
 	UpdateNodeStatusFlexible(ctx context.Context, input FlexibleNodeStatusUpdate) (*Node, error)
+}
+
+// NodeSpawnRecorderStore 是 F1.5 / ADR-009 下 nodeexec.AgentExecutor 写回
+// spawning_thread_id 的窄端口。实现同样是 *store（编译期由
+// store_compile_assertions_test.go 里 var _ NodeSpawnRecorderStore =
+// (*store)(nil) 守住），不嵌入 OrchestrationStore / RunStore 是为了不破
+// InterfaceIsolation 预算。
+//
+// NodeSpawnRecorderStore is the narrow port nodeexec.AgentExecutor (F1.5 /
+// ADR-009) uses to write task_dag_nodes.spawning_thread_id and the matching
+// node_spawn event into task_dag_runs.events. The same *store implements it
+// (guarded by var _ NodeSpawnRecorderStore = (*store)(nil) in
+// store_compile_assertions_test.go); it is intentionally not embedded into
+// OrchestrationStore / RunStore to keep the InterfaceIsolation budget intact.
+type NodeSpawnRecorderStore interface {
+	RecordNodeSpawn(ctx context.Context, input RecordNodeSpawnInput) (*RecordNodeSpawnResult, error)
+}
+
+// RecordNodeSpawnInput 是 RecordNodeSpawn 的入参。仅 ThreadID 允许为空串
+// 例外语义：ThreadID == "" 表示未获取到 child thread id（例如 launcher
+// 返回了 nil），store 拒绝写入（fail-fast）避免错误覆盖之前的 thread id。
+// DagKey / NodeKey 严格需要 trim 后非空。
+//
+// RecordNodeSpawnInput is the input for RecordNodeSpawn. Only ThreadID can be
+// empty as an exceptional case, which the store rejects (fail-fast) so a
+// missing remote thread id never accidentally erases a real one. DagKey /
+// NodeKey must be non-empty after trim.
+type RecordNodeSpawnInput struct {
+	DagKey   string
+	NodeKey  string
+	ThreadID string
+}
+
+// RecordNodeSpawnResult 报告本次 spawn 写入的后果。调用方据此判断是否
+// 需要上报「重试历史跳走」。PreviousThreadID 不为空且与 ThreadID 不同
+// 表示这是一次重试覆盖，store 同事务内已 append了一条 node_spawn 事件到
+// task_dag_runs.events（AppendedEvent=true）；无 running run 时 silently 变
+// false，不走错路。RunKey 为空表示未命中上述运行中 run。
+//
+// RecordNodeSpawnResult reports the outcome. PreviousThreadID is the value
+// captured by the CTE before the UPDATE took effect (empty when this is the
+// first spawn). AppendedEvent=true means the store, inside the same
+// transaction, appended a node_spawn entry to the matching running run's
+// events jsonb array; false either because there was no prior thread to
+// record or there is no running run for the dag_key (the latter is treated as
+// a soft miss, not an error).
+type RecordNodeSpawnResult struct {
+	Node               *Node
+	PreviousThreadID   string
+	AppendedEvent      bool
+	RunKey             string
 }
 
 type WakeupStore interface {
@@ -350,6 +410,10 @@ type Node struct {
 	ActiveTurnID   *string
 	ActiveWakeupID *int64
 	LastEventAt    *time.Time
+	// SpawningThreadID — DAG v2 F1.5 / ADR-009：AgentExecutor spawn 出的最近一次
+	// child agent thread id；NULL 表示从未 spawn 或本节点非 agent。重试覆盖语义
+	// 由 RecordNodeSpawn 写入，历史链走 task_dag_runs.events。
+	SpawningThreadID *string
 }
 
 type Wakeup struct {
