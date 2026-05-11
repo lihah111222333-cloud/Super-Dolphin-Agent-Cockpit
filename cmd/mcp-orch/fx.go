@@ -161,7 +161,20 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 			newAutomationCommandGetter,
 			nodeexec.NewShellCommandRunner,
 			nodeexec.NewAutomationExecutor,
+			// dispatcher-wiring batch §1：AgentExecutor / NodeExecutorRouter
+			// fx singletons + serviceAgentLauncher adapter。这些 provider 让 W1/W2 以来
+			// “孤儿”的 AgentExecutor / AutomationExecutor 代码正式被危口调到。
+			orchestration.NewServiceAgentLauncher,
+			orchestration.NewStoreNodeSpawnRecorder,
+			nodeexec.NewAgentExecutor,
+			orchestration.NewNodeExecutorRouter,
 		),
+		// dispatcher-wiring batch §1：在 NewWakeupDispatcher 返 dispatcher 后装上
+		// nodeRouter。必须采用 fx.Invoke 而非 fx.Decorate：ProvideWakeupDispatcherRunner
+		// 返 Runner 接口而非其位 *WakeupDispatcher，无法被 decorate 拿到原始类型。
+		// 单独提供一个 *WakeupDispatcher provider，供 Runner / router-wire invoke 复用。
+		fx.Provide(orchestration.ProvideWakeupDispatcher),
+		fx.Invoke(orchestration.WireWakeupDispatcherRouter),
 	}
 	if remoteAddr == "" {
 		options = append(options, fx.Provide(

@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	taskdag "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -96,6 +97,16 @@ type WakeupDispatcher struct {
 	launcher WakeupLauncher // Phase 3.2 起：claim 后真去 launch_agent
 	logger   *slog.Logger
 	cfg      WakeupDispatcherConfig
+
+	// nodeRouter 是 dispatcher wiring batch 加的 DAG-node-aware 路由。
+	// 不为 nil 且 wakeup 携 dag_key+node_key 时，走 NodeExecutor 抽象。
+	// 为 nil / wakeup 缺 dag信息时退化为原有 launcher.LaunchAgent 路径，保持向后兼容。
+	//
+	// nodeRouter is the wiring-batch addition. When non-nil and the wakeup
+	// carries dag_key+node_key, the dispatcher routes through the
+	// NodeExecutor abstraction; otherwise it falls back to the legacy
+	// WakeupLauncher.LaunchAgent path.
+	nodeRouter *NodeExecutorRouter
 }
 
 // NewWakeupDispatcher 构造 dispatcher。store 必传；launcher 可为 nil
@@ -115,6 +126,20 @@ func NewWakeupDispatcher(store taskdag.Store, launcher WakeupLauncher, logger *s
 		logger:   logger,
 		cfg:      cfg.ConfigOrDefaults(),
 	}, nil
+}
+
+// WithNodeRouter 在构造后注入 NodeExecutorRouter。返回 self 方便链式调用。
+// fx provider 返 dispatcher 后仅需一行召用该 setter 接上 router。传 nil 是
+// 合法的「解除 router」语义，能让测试路径退化到原 legacy 街。
+//
+// WithNodeRouter sets the optional NodeExecutorRouter on an existing
+// dispatcher. Nil is allowed and resets routing back to the legacy path,
+// which keeps test-only construction simple.
+func (d *WakeupDispatcher) WithNodeRouter(router *NodeExecutorRouter) *WakeupDispatcher {
+	if d != nil {
+		d.nodeRouter = router
+	}
+	return d
 }
 
 // ClaimedBy returns the claim fence value written to task_dag_wakeups.claimed_by
@@ -209,10 +234,32 @@ func extractFence(w *taskdag.Wakeup) wakeupFence {
 // 子步骤失败都 logWarn 但不返回错误：dispatcher 对单条 wakeup 的失败
 // 不应中断同 batch 其余条目。fence（claimedAt/claimedBy/leaseExpiresAt）
 // 必须原样回传给 store，让 SQL 层防止过期 lease 错乱状态。
+//
+// Dispatcher wiring batch 增量：dag_key+node_key 都非空且 nodeRouter 被注入
+// 时走 NodeExecutor 路由分发；其余情况退化到原 legacy launcher.LaunchAgent
+// 路径 (需保证 dogfood DAG 与非 DAG wakeup 兼容)。
 func (d *WakeupDispatcher) handleClaimed(ctx context.Context, w *taskdag.Wakeup) {
 	if w == nil {
 		return
 	}
+	if d.shouldRouteThroughNodeExecutor(w) {
+		d.handleClaimedViaRouter(ctx, w)
+		return
+	}
+	d.handleClaimedViaLegacyLauncher(ctx, w)
+}
+
+// shouldRouteThroughNodeExecutor 决定当前 wakeup 是否走 NodeExecutor 抽象。
+// 两个条件同时成立才走：(1) router 已注入 (production wiring)；
+// (2) wakeup 携完整 dag_key+node_key (表明是 DAG-driven enqueue)。手工插入
+// 的非 DAG wakeup 仍走原路径，避免后向不兼容。
+func (d *WakeupDispatcher) shouldRouteThroughNodeExecutor(w *taskdag.Wakeup) bool {
+	return d != nil && d.nodeRouter != nil && w != nil &&
+		strings.TrimSpace(w.DagKey) != "" && strings.TrimSpace(w.NodeKey) != ""
+}
+
+// handleClaimedViaLegacyLauncher 是 wiring batch 前原造逻辑，保留不动。
+func (d *WakeupDispatcher) handleClaimedViaLegacyLauncher(ctx context.Context, w *taskdag.Wakeup) {
 	fence := extractFence(w)
 	req := buildLaunchRequestFromWakeup(*w)
 	launchErr := d.launcher.LaunchAgent(ctx, req)
@@ -226,6 +273,53 @@ func (d *WakeupDispatcher) handleClaimed(ctx context.Context, w *taskdag.Wakeup)
 		return
 	}
 	d.markTransientRetry(ctx, w, fence, lastErr, launchErr)
+}
+
+// handleClaimedViaRouter 走 dispatcher wiring batch 的 NodeExecutor 抽象路由。
+// 映射表：
+//   - router 返错（framework fault） → markTransientRetry，下轮 tick 重试。
+//   - outcome.Status == done                 → markLaunched。
+//   - outcome.Status == failed                → 按 FailureClass 拆分 permanent / retry。
+//   - 其他 (skipped / waiting_human 等暂不纳入 dispatcher 判定)→ markLaunched
+//     (设计上该多状态是 node.status 的事实，wakeup 只负责代推一下)。
+func (d *WakeupDispatcher) handleClaimedViaRouter(ctx context.Context, w *taskdag.Wakeup) {
+	fence := extractFence(w)
+	outcome, err := d.nodeRouter.RouteByWakeup(ctx, w)
+	if err != nil {
+		lastErr := truncateWakeupError(err.Error())
+		d.logger.Warn("wakeup dispatcher: router framework error → retry",
+			"wakeup_id", w.ID, "dag_key", w.DagKey, "node_key", w.NodeKey,
+			"error", err)
+		d.markTransientRetry(ctx, w, fence, lastErr, err)
+		return
+	}
+	switch outcome.Status {
+	case nodeexec.NodeStatusFailed:
+		synthErr := errors.New(string(outcome.FailureClass) + ": " + outcome.ErrorSummary)
+		lastErr := truncateWakeupError(synthErr.Error())
+		if failureClassPermanent(outcome.FailureClass) {
+			d.markPermanentFail(ctx, w, fence, lastErr, synthErr)
+			return
+		}
+		d.markTransientRetry(ctx, w, fence, lastErr, synthErr)
+	default:
+		// done / skipped / waiting_human / 零值均视为“wakeup 使命完成”。
+		d.markLaunched(ctx, w, fence)
+	}
+}
+
+// failureClassPermanent 判定 NodeExecutor 返的 FailureClass 是否应被 dispatcher
+// 看作不可重试。对齐 service 层 classifyLaunchError 的 launchClassPermanent
+// 语义：validation / hard / needs_human 是「资源/配置/人工」问题，
+// transient / quota / capability / infrastructure 交给 retry-with-backoff。
+func failureClassPermanent(class nodeexec.FailureClass) bool {
+	switch class {
+	case nodeexec.FailureClassValidation,
+		nodeexec.FailureClassHard,
+		nodeexec.FailureClassNeedsHuman:
+		return true
+	}
+	return false
 }
 
 func (d *WakeupDispatcher) markLaunched(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence) {
