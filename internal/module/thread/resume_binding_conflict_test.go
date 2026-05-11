@@ -63,7 +63,10 @@ func TestResumeBindingConflictSuppressesThreadStartedEvent(t *testing.T) {
 		},
 	}
 
+	// Agent B has an active session — this is not an orphan binding.
+	agentBSession := &stubSession{threadID: "conflict-uuid"}
 	sessions := &stubSessionProvider{}
+	sessions.sessions = map[string]contract.Session{"agent-B": agentBSession}
 	starter := &stubSessionStarter{
 		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
 			session := &stubSession{threadID: "conflict-uuid"}
@@ -81,16 +84,16 @@ func TestResumeBindingConflictSuppressesThreadStartedEvent(t *testing.T) {
 		startedCount.Add(1)
 	}
 
-	result, err := svc.Resume(context.Background(), ResumeRequest{
+	_, err := svc.Resume(context.Background(), ResumeRequest{
 		ThreadID: "thread-A",
 	})
-	// Resume should still return a result (the session was established),
-	// even though the binding persist failed.
-	if err != nil {
-		t.Fatalf("Resume() error = %v", err)
+	// Resume should now return an error because the binding conflict
+	// is with an active agent — the zombie session is killed.
+	if err == nil {
+		t.Fatal("Resume() should return error on active binding conflict")
 	}
-	if result.ThreadID != "thread-A" {
-		t.Fatalf("ThreadID = %q, want thread-A", result.ThreadID)
+	if !isBindingConflictError(err) {
+		t.Fatalf("Resume() error should be binding conflict, got: %v", err)
 	}
 
 	// Key assertion: thread.Started MUST NOT be emitted when the persist
@@ -156,6 +159,71 @@ func TestResumeNonConflictPersistFailureStillEmitsThreadStarted(t *testing.T) {
 	}
 }
 
+// TestResumeEvictsStaleBindingWhenBlockingAgentIsDead verifies that when
+// a provider_thread_id is claimed by a dead agent (no active session),
+// the stale binding is evicted and resume succeeds.
+func TestResumeEvictsStaleBindingWhenBlockingAgentIsDead(t *testing.T) {
+	t.Parallel()
+
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:  "thread-A",
+		AgentID:   "agent-A",
+		Prompt:    "eviction-test",
+		Model:     "gpt-5.5",
+		Cwd:       "/repo",
+		CreatedAt: 123,
+		Status:    statusCreated,
+	}}
+
+	bindings := &conflictBindingStore{
+		agentBinding: &bindingstore.Binding{
+			AgentID:          "agent-A",
+			Provider:         "codex",
+			ProviderThreadID: "conflict-uuid",
+			CodexThreadID:    "thread-A",
+			Cwd:              "/repo",
+		},
+		conflictBinding: &bindingstore.Binding{
+			AgentID:          "agent-B",
+			Provider:         "codex",
+			ProviderThreadID: "conflict-uuid",
+			CodexThreadID:    "thread-B",
+			Cwd:              "/repo",
+		},
+	}
+
+	// Agent B has NO active session — it's a stale/orphan binding.
+	// Use the sessions map so GetSession("agent-B") returns not-found
+	// instead of falling through to the shared session field.
+	sessions := &stubSessionProvider{sessions: make(map[string]contract.Session)}
+	starter := &stubSessionStarter{
+		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+			session := &stubSession{threadID: "conflict-uuid"}
+			sessions.sessions["agent-A"] = session
+			return session, nil
+		},
+	}
+
+	orch := &stubThreadOrchestration{}
+
+	var startedCount atomic.Int32
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)
+	svc.emitStarted = func(ev threaddto.Started) {
+		startedCount.Add(1)
+	}
+
+	result, err := svc.Resume(context.Background(), ResumeRequest{
+		ThreadID: "thread-A",
+	})
+	// Resume should succeed because the stale binding is evicted.
+	if err != nil {
+		t.Fatalf("Resume() error = %v; want nil (stale binding should be evicted)", err)
+	}
+	if result.ThreadID != "thread-A" {
+		t.Fatalf("ThreadID = %q, want thread-A", result.ThreadID)
+	}
+}
+
 // -- Test-only stubs -------------------------------------------------------
 
 // conflictBindingStore simulates the production scenario where agent A's
@@ -185,6 +253,20 @@ func (s *conflictBindingStore) GetByProviderThread(_ context.Context, provider, 
 		return &b, nil
 	}
 	return s.stubBindingStore.GetByProviderThread(context.Background(), provider, providerThreadID)
+}
+
+func (s *conflictBindingStore) UpdateProviderThreadID(_ context.Context, params bindingstore.UpdateProviderThreadIDParams) error {
+	// Simulate eviction: when the conflict binding's provider_thread_id is
+	// cleared, GetByProviderThread should no longer return it.
+	if s.conflictBinding != nil && s.conflictBinding.AgentID == params.AgentID {
+		s.conflictBinding.ProviderThreadID = params.ProviderThreadID
+		s.conflictBinding.UpdatedAt = params.UpdatedAt
+	}
+	if s.agentBinding != nil && s.agentBinding.AgentID == params.AgentID {
+		s.agentBinding.ProviderThreadID = params.ProviderThreadID
+		s.agentBinding.UpdatedAt = params.UpdatedAt
+	}
+	return s.stubBindingStore.UpdateProviderThreadID(context.Background(), params)
 }
 
 // errTransientDB is a sentinel error for simulating non-conflict DB failures.

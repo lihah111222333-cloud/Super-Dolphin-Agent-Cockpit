@@ -44,11 +44,38 @@ func (s *session) ReadHistory(ctx context.Context, threadID string, limit int) (
 	if err != nil {
 		return nil, err
 	}
-	messages, err := s.history.ReadHistory(ctx, target, s.runtimeConfigString("codexHome"), limit)
-	if err != nil {
-		return nil, err
+	codexHome := s.runtimeConfigString("codexHome")
+	messages, primaryErr := s.history.ReadHistory(ctx, target, codexHome, limit)
+	if primaryErr == nil && len(messages) > 0 {
+		return toProviderHistory(messages), nil
+	}
+	if fallback := s.readHistoryFallback(ctx, target, codexHome, limit); fallback != nil {
+		return toProviderHistory(fallback), nil
+	}
+	if primaryErr != nil {
+		return nil, primaryErr
 	}
 	return toProviderHistory(messages), nil
+}
+
+// readHistoryFallback tries the session's actual codex thread UUID when the
+// primary threadID failed to find rollout history. This handles the case where
+// the binding's provider_thread_id wasn't updated (e.g. due to a prior binding
+// conflict) but the session knows the correct UUID from the live codex process.
+func (s *session) readHistoryFallback(ctx context.Context, primaryTarget, codexHome string, limit int) []Message {
+	codexThreadID := strings.TrimSpace(s.ThreadID())
+	if codexThreadID == "" || codexThreadID == primaryTarget {
+		return nil
+	}
+	messages, err := s.history.ReadHistory(ctx, codexThreadID, codexHome, limit)
+	if err != nil || len(messages) == 0 {
+		return nil
+	}
+	if s.logger != nil {
+		s.logger.Info("codexapp: history fallback to codex thread UUID",
+			"requested", primaryTarget, "used", codexThreadID)
+	}
+	return messages
 }
 
 func toProviderHistory(messages []Message) []dto.Message {
