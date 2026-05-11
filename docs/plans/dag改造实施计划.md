@@ -213,11 +213,11 @@ f972627d  T0.8 doc-sync script
 
 ---
 
-## 3. 阶段 F 功能（34 行 / 33 待做 + 1 完成占位）
+## 3. 阶段 F 功能（37 行 / 36 待做 + 1 完成占位）
 
-> 26 个原计划 + 5 个从推迟项补位（F4.0 / F6.3 / F6.4 / F6.5 / F14.1） + 1 个从 T0 前置项补位（F1.5） + 1 个 S5.1 schema 返修补位（F2.0） + 1 个 H6 前置补位（F15.1） = 34 表位；其中 F6.1 由 T1.2-mid 接手 snapshot 后留为已完成契约占位、不再计为待做，所以待做任务 = 33。
+> 26 个原计划 + 5 个从推迟项补位（F4.0 / F6.3 / F6.4 / F6.5 / F14.1） + 1 个从 T0 前置项补位（F1.5） + 1 个 S5.1 schema 返修补位（F2.0） + 1 个 H6 前置补位（F15.1） + 3 个 Hybrid v2 拓扑占位（F3.2 / F3.3 / F3.4） = 37 表位；其中 F6.1 由 T1.2-mid 接手 snapshot 后留为已完成契约占位、不再计为待做，所以待做任务 = 36。
 >
-> 推迟项拼装表：S2.4 → F6.3；T0.9/PE-1 → F6.4；PT-1 → F14.1；PT-2 → F4.0；T1.2-full → F6.5；**T0.7/PD-2 → F1.5**（spawning_thread_id 字段位，详 ADR-009）；**S5.1 schema 漏 kind 字段位 → F2.0**（详 ADR-007）；**H6 dispatch metric 前置 → F15.1**（详 ADR-010）。
+> 推迟项拼装表：S2.4 → F6.3；T0.9/PE-1 → F6.4；PT-1 → F14.1；PT-2 → F4.0；T1.2-full → F6.5；**T0.7/PD-2 → F1.5**（spawning_thread_id 字段位，详 ADR-009）；**S5.1 schema 漏 kind 字段位 → F2.0**（详 ADR-007）；**H6 dispatch metric 前置 → F15.1**（详 ADR-010）；**Hybrid v2 拓扑 → F3.2/F3.3/F3.4 占位**（详 ADR-011）。
 
 | ID | 标题 | 主要触动文件 | 验收 | 依赖 | Size | 并行 |
 |---|---|---|---|---|---|---|
@@ -229,7 +229,10 @@ f972627d  T0.8 doc-sync script
 | **F2.0**（S5.1 schema 返修） | `AutomationExecConfig` 加 `Kind` 字段位（默认 `command_card`）+ `ParseAutomationConfig` 兜底「未知 kind → fail-fast 拒绝 / 空 kind → 默认 command_card」。S5.1 已 done 但 schema 缺 kind 是 drift，本行作返修补丁。详 ADR-007 | `cmd/mcp-orch/orchestration/nodeexec/config.go` | 单测：unknown kind 拒绝、空 kind 默认、command_card round-trip | S5.1 ✅ / ADR-007 ✅ | S | Y |
 | **F2.1** | `AutomationExecutor` 解码 `command_ref` → command_get + 执行 | `cmd/mcp-orch/orchestration/executor_automation.go` | 单测：command 执行 + 错误处理 | S1.4, S5.2, F2.0 | M | Y（与 F1 并行） |
 | **F2.2** | `AutomationExecutor` 处理 inputs/outputs | 同上 | 集成测试 | F2.1 | S | N |
-| **F3.1** | `HybridExecutor` 串联 automation → agent verifier | `cmd/mcp-orch/orchestration/executor_hybrid.go` | 集成测试：automation 失败时 verifier 不跑 | F1, F2 完成 | M | N |
+| **F3.1**（v1 单拓扑） | `HybridExecutor v1`：automation → agent verifier（等同 AutomationWithVerifier 语义）；v2 多向拓扑见 F3.2/F3.3/F3.4 占位。详 ADR-011 | `cmd/mcp-orch/orchestration/executor_hybrid.go` | 集成测试：automation 失败时 verifier 不跑；测试名带 v1 后缀 | F1, F2 完成 | M | N |
+| **F3.2**（v2 占位） | ⛔ 待 ADR-011a 拍板：`agent → automation` 拓扑（agent 输出触发 webhook / 写 sharedfile / 调命令卡） | `executor_hybrid.go` 内分支 | 集成测试 | F3.1 + ADR-011a | M | N |
+| **F3.3**（v2 占位） | ⛔ 待 ADR-011b 拍板：`agent A → agent B` 并行仲裁拓扑（与 F12.1 智能重试正交） | 同上 | 集成测试 | F3.1 + ADR-011b | M | N |
+| **F3.4**（v2 占位） | ⛔ 待 ADR-011c 拍板：`automation A → automation B` 编排两条命令卡 | 同上 | 集成测试 | F3.1 + ADR-011c | M | N |
 | ~~**F4.0**~~（顶层前置）✅ done | `ApplyOps` 顶层 unmarshal + 形状校验 + 错误分类（PT-2） | `cmd/mcp-orch/orchestration/dag.go` `ApplyOps` 顶层 + `nodeexec.Ops UnmarshalJSON` / commit `131feb75` | 单测：非法 op_kind / 缺字段 / 非法 base_version 全拒；错误分类清晰；`applyTypedOps` 仍 stub（F4.1+ 真业务） | T2.2 | S | Y |
 | **F4.1** | `ApplyOps` add_node 真实实现 + 环检测 | `cmd/mcp-orch/orchestration/dag_ops.go` | 单测：环检测；version+1；PT-4 raw ops 透传覆盖 | S2.2, T2.2, F4.0 | M | Y |
 | **F4.2** | `ApplyOps` update_node 真实实现 | 同上 | 单测 | F4.1 | S | N |
@@ -536,11 +539,14 @@ grep -r "FailureClass\|OnFailureStrategy" cmd/ 2>/dev/null | wc -l  # 目标 ≥
 - 评估依赖（`xeipuuv/gojsonschema` 或 `santhosh-tekuri/jsonschema/v5`）的 license / size / 维护活跃度；
 - 评估 wire breaking 影响（旧调用方传额外字段是否被默拒）。
 
-### 返修轮 — 2026-05-11 登记（问题 4 + 6：token budget 硬阈值 + 观测前置）
+### 返修轮 — 2026-05-11 登记（问题 4 + 5 + 6：token budget 硬阈值 + Hybrid 拓扑 + 观测前置）
 
-源自第二轮返修审查（用户提出 6 个问题，4 个未解决）：
+源自第二轮返修审查（用户提出 6 个问题，其中 1 个上轮已解决，本轮解剩下 4 个）：
 
+- **问题 1：harness ↔ DAG 双向追溯缝（spawning_thread_id）** ✅ **已前置 — 立 ADR-009 + T0.7 前置到 F1.5**：字段位不再推迟到 T8.1，改由 F1.5 在 spawn 后写入。详 ADR-009 / F1.5。
+- **问题 3：AutomationExecutor 缺 automation.kind 多态分发** ✅ **已拍板 — ADR-007 Accepted + F2.0 schema 返修**：ADR-007 锁方案 A（command_card → webhook → http → shell 渐进）；F2.0 在 nodeexec/config.go 实装 Kind 字段位 + 未知 kind fail-fast。详 ADR-007 / F2.0。
 - **问题 4：H7/H8 没硬阈值** ✅ **已立 ADR-010 + M3 验收锚点**：DAG ≥ 10 节点 + 单节点 result > 4KB + 单 run 累计 token > 100K（占位） 三档硬阈值，M3 验收用例必须覆盖。实装仍留 H 阶段。
+- **问题 5：HybridExecutor 只一种拓扑（命名误导）** ✅ **已立 ADR-011 + F3.1 改 v1 + F3.2/3.3/3.4 占位**：v1 锁定 automation → agent verifier 单向（等同 AutomationWithVerifier 语义）；v2 多向拓扑（agent→automation / agent A→agent B / automation A→automation B）作占位行，开工前各自立 ADR-011a/b/c 子文档。
 - **问题 6：观测/告警全在 H 阶段** ✅ **H6 拆 H6a/H6b**：H6a（dispatch_failed_total / retry_count_per_node 计数 + retry≥3 告警）前置到 F15.1；H6b（cron miss / run timeout）留 H 阶段。避免「上层调度看不见下层执行」瞎区拖到 M3 后才补。
 
 ---
