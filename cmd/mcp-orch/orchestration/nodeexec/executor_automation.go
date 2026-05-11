@@ -150,9 +150,48 @@ func finalizeAutomationOutcome(ctx context.Context, cfg *AutomationNodeConfig, r
 	}
 	outcome := NodeOutcome{Status: NodeStatusDone}
 	if shouldEmitNodeResult(cfg.Outputs) {
+		if failure := enforceNodeResultSizeCap(payload); failure != nil {
+			return *failure, nil
+		}
 		outcome.Result = payload
 	}
 	return outcome, nil
+}
+
+// NodeResultSizeCapBytes 是 outputs.to_node_result 路径下 NodeOutcome.Result 的硬上限。
+// ADR-006 决策（Accepted 2026-05-12）：4KB 摘要阈值，超出 → validation 失败，提示配置
+// outputs.to_sharedfile。大输出走 sharedfile 是 ADR 主路径，避免 task_dag_nodes.result
+// jsonb 列膨胀拖垮 PG 查询 / UI 列表渲染。
+//
+// 4KB = 4096 bytes 含义来自蓝图 v2 §5 关键决策汇总 "result vs sharedfile 边界" 行；
+// 选 4KB 的依据见 ADR-006 §1：下游 LLM context 阈值的经验拍 + PG jsonb toast 256KB 的
+// 1/64 中位拍，足够装下结构化摘要（~ <2KB JSON）+ 留余量。
+//
+// NodeResultSizeCapBytes is the hard cap enforced on NodeOutcome.Result before writing to
+// task_dag_nodes.result. ADR-006 (Accepted 2026-05-12) chose 4096 bytes as the validation
+// threshold; oversize payloads must route through outputs.to_sharedfile.
+const NodeResultSizeCapBytes = 4096
+
+// enforceNodeResultSizeCap 在 NodeOutcome.Result 落库前测 size，超阈返回 validation
+// 失败 outcome；不超返 nil。F1.3 实装 ADR-006 决策。
+//
+// 边界：len(payload) <= 4096 OK；> 4096 拒绝。错误消息显式建议「configure
+// outputs.to_sharedfile」让运营者知道修复路径。
+//
+// enforceNodeResultSizeCap returns a *NodeOutcome iff payload exceeds
+// NodeResultSizeCapBytes; nil means within cap. ADR-006 main path.
+func enforceNodeResultSizeCap(payload []byte) *NodeOutcome {
+	if len(payload) <= NodeResultSizeCapBytes {
+		return nil
+	}
+	outcome := failedAutomationOutcome(
+		FailureClassValidation,
+		fmt.Sprintf(
+			"result exceeds 4KB size cap (%d > %d bytes), configure outputs.to_sharedfile (ADR-006)",
+			len(payload), NodeResultSizeCapBytes,
+		),
+	)
+	return &outcome
 }
 
 // shouldEmitNodeResult 判定是否在 NodeOutcome.Result 写入 marshal 后的命令结果。
