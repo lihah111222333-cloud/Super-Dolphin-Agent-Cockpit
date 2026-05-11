@@ -71,6 +71,17 @@ type UpdateNodeInput struct {
 	Result  string `json:"result,omitempty"`
 }
 
+// DispatchNodeInput 是 task_dispatch_node MCP 工具的 typed 入参。
+// 三个字段都是必填；service 层 trim 后拒绝空。
+//
+// DispatchNodeInput is the typed input for the task_dispatch_node MCP tool.
+// All three fields are required.
+type DispatchNodeInput struct {
+	DagKey     string `json:"dag_key"`
+	NodeKey    string `json:"node_key"`
+	AssignedTo string `json:"assigned_to"`
+}
+
 func HandleCreateDAG(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in CreateDAGInput) (any, error) {
 		req, err := createDAGRequestFromInput(in)
@@ -99,6 +110,43 @@ func HandleUpdateNode(svc contract.OrchestrationService) ToolHandler {
 		}
 		return svc.UpdateNodeStatus(ctx, req)
 	})
+}
+
+// HandleDispatchNode 是 task_dispatch_node MCP 工具的 handler（ADR-004 §Open Q1）。
+// 在 service.DispatchNode 返 ErrDispatchStoreUnset / ErrDispatchNodeIneligible
+// 时转中英双语错误，让使用者一眼看出不能继续的原因。
+//
+// HandleDispatchNode wires the task_dispatch_node MCP tool. Sentinel errors
+// (ErrDispatchStoreUnset / ErrDispatchNodeIneligible) are translated into
+// bilingual messages here so callers get actionable context.
+func HandleDispatchNode(svc contract.OrchestrationService) ToolHandler {
+	return makeHandler(svc, "orchestration service", func(ctx context.Context, in DispatchNodeInput) (any, error) {
+		resp, err := svc.DispatchNode(ctx, contract.DispatchNodeRequest{
+			DagKey:     in.DagKey,
+			NodeKey:    in.NodeKey,
+			AssignedTo: in.AssignedTo,
+		})
+		if err != nil {
+			return nil, translateDispatchNodeError(in, err)
+		}
+		return resp, nil
+	})
+}
+
+func translateDispatchNodeError(in DispatchNodeInput, err error) error {
+	switch {
+	case errors.Is(err, orchestration.ErrDispatchStoreUnset):
+		return fmt.Errorf(
+			"dispatch store 未接线，该 mcp-orch 启动模式不支持 task_dispatch_node; dispatch store not wired in this mcp-orch build: %w",
+			err,
+		)
+	case errors.Is(err, orchestration.ErrDispatchNodeIneligible):
+		return fmt.Errorf(
+			"节点 %s/%s 当前状态不允许 dispatch（仅 pending/ready 可推进）; node %s/%s not in pending/ready: %w",
+			in.DagKey, in.NodeKey, in.DagKey, in.NodeKey, err,
+		)
+	}
+	return err
 }
 
 // StartDAGInput 是 task_start_dag MCP 工具的 typed 入参（T1.1）。
@@ -355,6 +403,11 @@ func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 			"status":   EnumStringSchema("New node status.", updateNodeStatusEnum...),
 			"result":   StringSchema("Optional result summary."),
 		}, "dag_key", "node_key", "status"), HandleUpdateNode(svc)),
+		defineTool("task_dispatch_node", "Explicitly assign an agent to a pending/ready DAG node and enqueue a wakeup so the dispatcher launches it. Use when a node has assigned_to='' (ADR-004 §Open Q1).", ObjectSchema(map[string]Schema{
+			"dag_key":     StringSchema("DAG key."),
+			"node_key":    StringSchema("Node key within the DAG."),
+			"assigned_to": StringSchema("Agent id to dispatch the node to."),
+		}, "dag_key", "node_key", "assigned_to"), HandleDispatchNode(svc)),
 		// ---- lifecycle ----
 		defineTool("task_start_dag", "Trigger a new DAG execution (creates a run, snapshots dag.version). Skeleton stage returns ErrLifecycleNotImplemented; T1.2 wires the real path.", ObjectSchema(map[string]Schema{
 			"dag_key":         StringSchema("DAG to start."),

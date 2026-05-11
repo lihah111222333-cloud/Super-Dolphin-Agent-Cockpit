@@ -139,6 +139,24 @@ type NodeSpawnRecorderStore interface {
 	RecordNodeSpawn(ctx context.Context, input RecordNodeSpawnInput) (*RecordNodeSpawnResult, error)
 }
 
+// DispatchNodeStore 是 task_dispatch_node MCP 工具需要的窄端口：
+//   - DAGDetailStore: 拿 GetDAG + ListNodes 验证节点存在 + 读取现状
+//   - UpsertNode:     赋值 assigned_to (及保留其它列)
+//   - EnqueueWakeup:  入队一条 wakeup 让 dispatcher 能 pick
+//
+// 生产依赖仍然是同一个 *store (由 ProvideDispatchNodeStore type-assert)，
+// 此处窄接口仅为了避免 service 层頻繁拿到全集合 Store 接口。
+//
+// DispatchNodeStore is the narrow port for the task_dispatch_node MCP tool.
+// The production binding is the same *store (resolved via type assertion in
+// ProvideDispatchNodeStore); using a narrow interface here keeps the service
+// layer from depending on the aggregate Store.
+type DispatchNodeStore interface {
+	DAGDetailStore
+	UpsertNode(ctx context.Context, node Node) (*Node, error)
+	EnqueueWakeup(ctx context.Context, input EnqueueWakeupInput) (int64, error)
+}
+
 // RecordNodeSpawnInput 是 RecordNodeSpawn 的入参。仅 ThreadID 允许为空串
 // 例外语义：ThreadID == "" 表示未获取到 child thread id（例如 launcher
 // 返回了 nil），store 拒绝写入（fail-fast）避免错误覆盖之前的 thread id。

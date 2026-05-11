@@ -46,6 +46,39 @@ type OrchestrationService interface {
 	// ListRuns 列出指定 DAG 的最近 run（dag_key 必填，可选 status / limit）。
 	// ListRuns lists recent runs for a DAG (dag_key required, optional status / limit).
 	ListRuns(ctx context.Context, req ListRunsRequest) (ListRunsResponse, error)
+	// DispatchNode 是 ADR-004 「无 assignee 就绪节点」的显式推进入口：
+	// 给粘在 ready / pending 无 assignee 状态的节点指派一个 assigned_to
+	// 后立即 enqueue 一条 wakeup，让 dispatcher 能指取跳 launch。
+	// 骨架阶段 / F6.4 实装后在本 batch 中接通。
+	//
+	// DispatchNode is the explicit-resume entrypoint for ready/pending nodes
+	// that lack an assigned_to (ADR-004 §Open Q1). It records the assignee
+	// and enqueues a wakeup so the dispatcher can pick the node up.
+	DispatchNode(ctx context.Context, req DispatchNodeRequest) (DispatchNodeResponse, error)
+}
+
+// DispatchNodeRequest 是 OrchestrationService.DispatchNode 的入参。
+// 三个字段均必填；service 层 trim 后拒绝空串。
+//
+// DispatchNodeRequest is the input for OrchestrationService.DispatchNode.
+// All three fields are required; the service trims and rejects empties.
+type DispatchNodeRequest struct {
+	DagKey     string
+	NodeKey    string
+	AssignedTo string
+}
+
+// DispatchNodeResponse 报告本次 dispatch 的后果：是否新 enqueue 了
+// wakeup（WakeupID > 0 + Enqueued=true）还是 ON CONFLICT (idempotency_key)
+// 去重（Enqueued=false）。Node 字段是赋值后的最新 DAGNode。
+//
+// DispatchNodeResponse reports the outcome: Enqueued=true means a fresh
+// wakeup row was inserted; Enqueued=false means ON CONFLICT skipped a
+// duplicate (idempotent re-dispatch). Node is the node DTO post-assign.
+type DispatchNodeResponse struct {
+	Node     DAGNode `json:"node"`
+	WakeupID int64   `json:"wakeup_id,omitempty"`
+	Enqueued bool    `json:"enqueued"`
 }
 
 // ListRunsRequest 是 OrchestrationService.ListRuns 的入参（T3.2）。
