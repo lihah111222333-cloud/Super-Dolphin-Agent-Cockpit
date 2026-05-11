@@ -141,3 +141,28 @@ F5 cron daemon / dispatcher 读到非枚举值会落 default 分支（行为未�
 0072 default 'manual' 仍存在，单边删 CHECK 不影响默认值写路径，仅放宽
 非默认写入校验。仅在 CHECK 误伤业务（如新增合法 trigger 字面量未同步迁移）
 时回滚。
+
+---
+
+## 0082 — task_dag_runs.trigger_source CHECK 枚举
+
+**up：** `migrations/0082_dag_v2_run_trigger_source_check.sql`
+
+**down（手工执行）：**
+
+```sql
+BEGIN;
+ALTER TABLE task_dag_runs DROP CONSTRAINT IF EXISTS chk_task_dag_runs_trigger_source_enum;
+DELETE FROM schema_migrations WHERE filename = '0082_dag_v2_run_trigger_source_check.sql';
+COMMIT;
+```
+
+**影响：** 删除 CHECK 后 trigger_source 列允许任意 TEXT，未知字面量会进 DB；
+F5 cron daemon / dispatcher 读到非枚举值会落 default 分支（行为未定义）。
+0074 default '' 仍存在，单边删 CHECK 不影响默认值写路径，仅放宽非默认写入
+校验。仅在 CHECK 误伤业务（如新增合法 trigger_source 字面量未同步迁移）时
+回滚。
+
+**说明：** 本 CHECK 显式允许空串 '' —— 与 0074 DEFAULT '' 兼容。若后续把
+default 收敛为 'manual'，需独立 migration 同步把空串移出白名单。详见
+docs/plans/dag改造实施计划.md §10 follow-up「trigger_source default 收敛」。
