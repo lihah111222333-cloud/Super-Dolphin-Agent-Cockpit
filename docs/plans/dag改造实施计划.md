@@ -74,7 +74,7 @@
 | ~~**T0.6**~~ | ✅ done | PC-4: ADR 0001 §2.5 加三方映射注释 | commit `8d32ea1f` |
 | **T0.7** | ⏸ 推迟 | PD-2: thread-DAG 关联 (spawning_thread_id) | T8.1 AI 设计师按钮一并 |
 | ~~**T0.8**~~ | ✅ done | PD-3: doc-sync check | commit `f972627d`（4 项检查全过） |
-| **T0.9** | ⏸ 推迟 F | PE-1（吃狗粮）: dispatcher 对无 assignee 节点自动 spawn | → **F6.4** dispatcher 重做一并 |
+| ~~**T0.9**~~ | ✅ done（F6.4 背面实装） | PE-1（吃狗粮）: dispatcher 对无 assigned_to 节点处理 | 已归 F6.4 commit `d068e04c`：方案 A 对无 assigned_to 节点不 enqueue wakeup；节点保持 pending（依赖已满足时承担 ready 语义）。详 ADR-004 |
 
 详见审查报告 `handoff/skeleton-audit-{pass1-adr,pass2-tests,pass3-cross-cutting,pass4-prev-closed,synthesis,final-verdict}.md`。
 
@@ -221,26 +221,26 @@ f972627d  T0.8 doc-sync script
 
 | ID | 标题 | 主要触动文件 | 验收 | 依赖 | Size | 并行 |
 |---|---|---|---|---|---|---|
-| **F1.1** | `AgentExecutor` 解码 `node.config.exec` → `orchestration_launch_agent` 参数映射 | `cmd/mcp-orch/orchestration/executor_agent.go` | 单测：provider/model/agent_key/effort/language/tools 映射正确 | S1.3, S5.2 | M | Y |
+| ~~**F1.1**~~ ✅ done | `AgentExecutor` 解码 `node.config.exec` → `orchestration_launch_agent` 参数映射 + 错误分类（F1.2-1.4 留位） | `cmd/mcp-orch/orchestration/nodeexec/executor_agent.go` / commit `0f65833b` | 单测：provider/model/agent_key/effort/language/tools 映射正确；4 处 FailureClass 映射 + classifyAgentLaunchError | S1.3, S5.2 | M | Y |
 | **F1.2** | `AgentExecutor` 处理 `inputs`：注入 prev nodes results / sharedfiles | 同上 | 集成测试：节点 B 看到节点 A.result | F1.1 | M | N |
 | **F1.3** | `AgentExecutor` 处理 `outputs`：写 sharedfile / node.result | 同上 | 集成测试：sharedfile 内容正确写入 | F1.2 | S | N |
 | **F1.4** | `AgentExecutor` 处理 transient/quota/validation 三类失败基础重试 | 同上 + `retry_strategy.go` 新建 | 单测：模拟三类失败重试次数正确 | F1.1, S7.1 | M | N |
 | **F2.1** | `AutomationExecutor` 解码 `command_ref` → command_get + 执行 | `cmd/mcp-orch/orchestration/executor_automation.go` | 单测：command 执行 + 错误处理 | S1.4, S5.2 | M | Y（与 F1 并行） |
 | **F2.2** | `AutomationExecutor` 处理 inputs/outputs | 同上 | 集成测试 | F2.1 | S | N |
 | **F3.1** | `HybridExecutor` 串联 automation → agent verifier | `cmd/mcp-orch/orchestration/executor_hybrid.go` | 集成测试：automation 失败时 verifier 不跑 | F1, F2 完成 | M | N |
-| **F4.0**（顶层前置） | `ApplyOps` 顶层 unmarshal + 形状校验 + 错误分类（PT-2） | `cmd/mcp-orch/orchestration/dag_ops.go` 顶层 + `nodeexec.Ops UnmarshalJSON` | 单测：非法 op_kind / 缺字段 / 非法 base_version 全拒；错误分类清晰 | T2.2 | S | Y |
+| ~~**F4.0**~~（顶层前置）✅ done | `ApplyOps` 顶层 unmarshal + 形状校验 + 错误分类（PT-2） | `cmd/mcp-orch/orchestration/dag.go` `ApplyOps` 顶层 + `nodeexec.Ops UnmarshalJSON` / commit `131feb75` | 单测：非法 op_kind / 缺字段 / 非法 base_version 全拒；错误分类清晰；`applyTypedOps` 仍 stub（F4.1+ 真业务） | T2.2 | S | Y |
 | **F4.1** | `ApplyOps` add_node 真实实现 + 环检测 | `cmd/mcp-orch/orchestration/dag_ops.go` | 单测：环检测；version+1；PT-4 raw ops 透传覆盖 | S2.2, T2.2, F4.0 | M | Y |
 | **F4.2** | `ApplyOps` update_node 真实实现 | 同上 | 单测 | F4.1 | S | N |
 | **F4.3** | `ApplyOps` remove_node 真实实现（含级联清理依赖） | 同上 | 单测：被依赖节点不能删除 | F4.2 | M | N |
 | **F4.4** | `ApplyOps` update_dag 真实实现 | 同上 | 单测 | F4.1 | S | Y |
 | **F4.5** | `ApplyOps` `status=running` 时只允许 add_node + depends_on 指向 done 节点 | 同上 | 单测：违规 ops 被拒 | F4.1 | M | N |
-| **F5.1** | cron daemon 进程入口 + 接 robfig/cron 库 | `cmd/mcp-orch/orchestration/scheduler_cron.go` 新建 | 单测：cron 表达式解析正确 | S2.3 | M | Y |
+| ~~**F5.1**~~ ✅ done | cron daemon 进程入口 + 接 robfig/cron 库（F5.2/F5.3 留位） | `cmd/mcp-orch/orchestration/cron/scheduler_cron.go` 新建 / commit `07ec1317` | 单测：cron 表达式解析正确；Tick 占位 | S2.3 | M | Y |
 | **F5.2** | `Scheduler.Tick` 真实实现：扫 `next_run_at <= now` → StartDAG | 同上 | 集成测试：到点自动起 run | F5.1, T1.2 | M | N |
 | **F5.3** | cron 多实例锁（避免重复触发） | 同上 | 集成测试：两个进程只一个 tick 成功 | F5.2 | M | N |
 | ~~**F6.1**~~ | (snapshot dag.version 部分由 T1.2-mid 完成；events 字段位的业务化写入归 H 阶段。本行保留作为契约位、不再单独 commit) | — | — | T1.2 | — | — |
-| **F6.2** | run 终态判定：所有节点 done/failed/cancelled/skipped → run.status finished | `dag_lifecycle.go` 修改 | 集成测试 | T1.2 | M | N |
+| ~~**F6.2**~~ ✅ done | run 终态判定：所有节点 done/failed/cancelled/skipped → run.status 按优先级写入 | `cmd/mcp-orch/orchestration/dag.go` + store 层 / commit `0a7cc0ca` | 集成测试通过 | T1.2 | M | N |
 | **F6.3** | 节点完成时自动 promote 下游 pending→ready（S2.4 / B-14） | `task_dag_node` SQL + sqlc + dispatcher 三层 | 集成测试：节点 A done 后下游 B 自动 ready | T1.2, S2.4 推迟 | M | N |
-| **F6.4** | dispatcher 对无 assignee 节点自动 spawn（T0.9 / PE-1） | `wakeup_dispatcher` 重做（与 F6.3 配套） | 集成测试：promote 后无 assignee 节点自动起子 agent | F6.3 | M | N |
+| ~~**F6.4**~~ ✅ done | dispatcher 对无 assigned_to 节点**跳过自动 wakeup enqueue**（T0.9 / PE-1，实装方案 A，与 §10 follow-up DAG 73 证据对齐）；详 ADR-004 | `cmd/mcp-orch/orchestration/dag.go` `UpdateNodeStatus` 路由 + `cmd/mcp-orch/store/taskdag/store_complete_downstream.go` flow store 实装 + TrimSpace 守护测试 | 单测覆盖：无 assigned_to 节点不 enqueue wakeup，状态保持 pending（依赖已满足时承担 ready 语义）；commit `d068e04c` + `91057348` | F6.3（实际乱序：F6.4 先于 F6.3 done） | M | N |
 | **F6.5** | T1.2-full：复制节点带 run_id + allow 多 run 并发 | `RunStore` 节点复制 + `dag_lifecycle.go` + `StartDAG` 去 reject | 集成测试：同 DAG 两次 StartDAG 都成功，节点行各自 run_id 独立 | T1.2 (mid)、F6.3、F6.4 | L | N |
 | **F7.1** | AI 设计师 prompt（中文版） | `internal/...` prompt_template 表 seed 或 migration | 集成测试：prompt 注入完整可用资源列表 | T4.1-T4.4 | M | Y |
 | **F7.2** | AI 设计师 prompt（英文版） | 同上 | 同上 | F7.1 | S | N |
@@ -458,7 +458,7 @@ grep -r "FailureClass\|OnFailureStrategy" cmd/ 2>/dev/null | wc -l  # 目标 ≥
 - **t.Parallel() 启用**：`dag_start_test.go` / `dag_query_test.go` 多用例未启用 `t.Parallel()`；T0.5/T1.2/T3.x stub 已并发安全（commit `d1f5b0e4` 字段化 stubRunStore + race test 验证），可启用以压缩本包测试总时。
 - **FinishedAt 防御拷贝断言**：`dag_query.go:158` 用 `shared.CloneTime(row.FinishedAt)` 做防御拷贝，但当前测试断言只覆盖 Events / Metadata，未掰 FinishedAt 拷贝表现。低优先级；如后续发现 FinishedAt 在调用者侧被误改再补补丁。
 - **service.ListRuns limit cap=200 抽常量**：commit `498be56d` 已在 service 层 cap，但 `200` 仍是字面量（出现于 service.go + dag_query_test.go）。建议提 `defaultListRunsLimitCap = 200` 或者走 contract 层常量，避免文档与代码双多头。
-- **F6.4 dispatcher 对无 assignee 节点应跳过自动 dispatch**：本会话用 DAG 工具做审查 e2e 演练时发现，N1 root done 后 service.CompleteNodeAndScheduleDownstream 自动 promote N2 → ready，同时 dispatcher 立刻 dispatch N2 → 因 N2 无 assigned_to → "agent id is required" → retry 耗尽 → N2 自动 failed（终态）。导致 DAG 在 M2 阶段不能做“无 assignee 描述性任务编排”。F6.4 落地时应：(a) 节点 assigned_to 为空时跳过自动 dispatch（等外部 agent 接管）；或 (b) schedule 加 manual_dispatch=true 标记表示“仅人工/外部推进”，避免自动 dispatch 链。证据：DAG id=73, run audit-2026-05-11-route-n-runstore-review#run-001，N2 result.kind=exhausted_retries reason="agent id is required"。
+- ~~**F6.4 dispatcher 对无 assignee 节点应跳过自动 dispatch**~~ ✅ **已修**（commit `d068e04c` + `91057348`，实装方案 A）：本会话用 DAG 工具做审查 e2e 演练时发现，N1 root done 后 service.CompleteNodeAndScheduleDownstream 自动 promote N2 → ready，同时 dispatcher 立刻 dispatch N2 → 因 N2 无 assigned_to → "agent id is required" → retry 耗尽 → N2 自动 failed（终态）。导致 DAG 在 M2 阶段不能做“无 assignee 描述性任务编排”。原 2 候选方案 A/B 已由主线选定方案 A：节点 assigned_to 为空或 TrimSpace 后空白时不 enqueue wakeup，节点保持 pending（依赖已满足时承担 ready 语义），等外部 agent / 人工接管。证据：DAG id=73, run audit-2026-05-11-route-n-runstore-review#run-001。详 ADR-004。
 
 源自套餐 C 审查 + 应修落地（commit 2b3fc1c0 / 096c0957 / 5c1e4646 / 1e3d4551 + 本提交）：
 
