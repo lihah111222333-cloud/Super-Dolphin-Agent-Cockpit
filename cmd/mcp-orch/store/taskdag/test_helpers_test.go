@@ -159,6 +159,14 @@ func (db *fakeTaskDAGDB) QueryRow(_ context.Context, sql string, args ...any) pg
 	case strings.Contains(sql, "UpdateTaskDagNodeStatusFlexible"):
 		values, err := db.updateNodeStatusFlexible(args...)
 		return stubTaskDAGRow{values: values, err: err}
+	case strings.Contains(sql, "UpdateTaskDagNodeSpawningThread"):
+		// F1.5: CTE 同时返回新及旧 spawning_thread_id。
+		values, err := db.updateNodeSpawningThread(args...)
+		return stubTaskDAGRow{values: values, err: err}
+	case strings.Contains(sql, "AppendTaskDagRunEvent") || (strings.Contains(sql, "task_dag_runs") && strings.Contains(sql, "events     = events ||")):
+		// F1.5: 向 running run.events jsonb 数组 append 一条 event。
+		values, err := db.appendRunEvent(args...)
+		return stubTaskDAGRow{values: values, err: err}
 	default:
 		return stubTaskDAGRow{err: fmt.Errorf("unexpected QueryRow call: %s", firstLine(sql))}
 	}
@@ -566,6 +574,83 @@ func updateTag(count int64, err error) (pgconn.CommandTag, error) {
 }
 
 func dagNodeKey(dagKey, nodeKey string) string { return dagKey + "\x00" + nodeKey }
+
+// updateNodeSpawningThread mirrors the F1.5 CTE SQL: capture previous value
+// then UPDATE. The CTE row has 20 columns (18 node columns +
+// spawning_thread_id + previous_spawning_thread_id); the order must match
+// task_dag_node_spawning_thread.sql.go's Scan call so stubTaskDAGRow can
+// assign cleanly.
+func (db *fakeTaskDAGDB) updateNodeSpawningThread(args ...any) ([]any, error) {
+	if len(args) != 3 {
+		return nil, fmt.Errorf("spawning thread args len = %d, want 3", len(args))
+	}
+	spawningThread, ok := args[0].(sqlc.Text)
+	if !ok {
+		return nil, fmt.Errorf("spawning_thread_id arg = %T", args[0])
+	}
+	dagKey, ok := args[1].(string)
+	if !ok {
+		return nil, fmt.Errorf("dag key arg = %T", args[1])
+	}
+	nodeKey, ok := args[2].(string)
+	if !ok {
+		return nil, fmt.Errorf("node key arg = %T", args[2])
+	}
+	key := dagNodeKey(dagKey, nodeKey)
+	row, ok := db.nodes[key]
+	if !ok {
+		return nil, pgx.ErrNoRows
+	}
+	prev := row.SpawningThreadID
+	row.SpawningThreadID = spawningThread
+	row.UpdatedAt = timestamptzValue(db.now)
+	db.nodes[key] = row
+	values := taskDagNodeValues(row)
+	values = append(values, prev)
+	return values, nil
+}
+
+// appendRunEvent mirrors the F1.5 AppendTaskDagRunEvent SQL: find the running
+// run for dag_key, concat events || $2::jsonb; return run_key. Returns
+// pgx.ErrNoRows when no running run matches (the store treats that as a soft
+// miss).
+func (db *fakeTaskDAGDB) appendRunEvent(args ...any) ([]any, error) {
+	if len(args) != 2 {
+		return nil, fmt.Errorf("append event args len = %d, want 2", len(args))
+	}
+	dagKey, ok := args[0].(string)
+	if !ok {
+		return nil, fmt.Errorf("dag key arg = %T", args[0])
+	}
+	payload, ok := args[1].([]byte)
+	if !ok {
+		return nil, fmt.Errorf("payload arg = %T", args[1])
+	}
+	for runKey, run := range db.runs {
+		if run.DagKey != dagKey || run.Status != "running" {
+			continue
+		}
+		// events column is jsonb '[...]' in production; fake stores as raw
+		// bytes, so concat-append produces an invalid JSON literal — fine for
+		// the assertion-level tests below (they parse events themselves).
+		if len(run.Events) == 0 {
+			run.Events = append([]byte("["), payload...)
+			run.Events = append(run.Events, ']')
+		} else {
+			// remove trailing ']' then comma-append + close bracket.
+			if n := len(run.Events); n > 0 && run.Events[n-1] == ']' {
+				run.Events = run.Events[:n-1]
+			}
+			run.Events = append(run.Events, ',')
+			run.Events = append(run.Events, payload...)
+			run.Events = append(run.Events, ']')
+		}
+		run.UpdatedAt = timestamptzValue(db.now)
+		db.runs[runKey] = run
+		return []any{run.RunKey}, nil
+	}
+	return nil, pgx.ErrNoRows
+}
 
 func firstLine(sql string) string {
 	if idx := strings.IndexByte(sql, '\n'); idx >= 0 {
