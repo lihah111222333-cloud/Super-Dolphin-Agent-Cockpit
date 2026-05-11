@@ -53,56 +53,48 @@ func (e *CycleError) Unwrap() error { return ErrDAGCyclic }
 // keyed in adjacency) are skipped on the assumption upstream validation has
 // already rejected them.
 func DetectCycle(adjacency map[string][]string) error {
-	// indeg[v] = 「指向 v」的边数 = 「依赖 v」的节点数（注意：依赖方向
-	// 在我们这里是 v --depends_on--> u, 等价于 边 v→u, 那么 v 的「出
-	// 度」是 len(adjacency[v]); 而要做 Kahn 拓扑，需要 入度 = 谁依赖
-	// 我。所以 in_degree(u) = sum_v 1[u in adjacency[v]]）。
-	//
-	// 等价说法：建图 v→u 表示 v depends on u（即 u 必须先 done v 才能
-	// 跑），拓扑顺序就是 u 在 v 之前。Kahn 先弹「无人依赖的、可以最
-	// 早跑的」即出度为 0 的源 ＝ 入度（被依赖数）为 0 取错。
-	//
-	// 重写：换个更直观的方向 —— 把 depends_on 当成 「prereq → node」
-	// 的边。indeg[node] = len(adjacency[node])（即「依赖了多少个」）。
-	// 然后弹 indeg=0 的节点（无未满足依赖的根节点），把它从图里删
-	// 除：等价于把所有「以它为依赖」的节点的 indeg 减 1。
+	indeg, reverse := buildCycleDetectionIndex(adjacency)
+	processed := kahnDrain(indeg, reverse)
+	if processed == len(indeg) {
+		return nil
+	}
+	return newCycleError(indeg)
+}
+
+// buildCycleDetectionIndex 把 adjacency 编译成两个表：
+//   - indeg[node] = node 依赖的有效上游数（外部依赖被剔除）
+//   - reverse[u] = 所有把 u 列在 depends_on 里的下游节点
+//
+// 拓扑方向解释：把 depends_on 看作 prereq→node 的有向边，Kahn 弹 indeg=0 的
+// 节点 = 当前可执行（无未满足依赖）的根节点。
+func buildCycleDetectionIndex(adjacency map[string][]string) (map[string]int, map[string][]string) {
 	indeg := make(map[string]int, len(adjacency))
-	// reverse[u] = 列表，包含所有「依赖了 u」的下游节点 v。Kahn 弹根
-	// 时用它把 indeg[v] -= 1。
 	reverse := make(map[string][]string, len(adjacency))
 	for node, deps := range adjacency {
-		// 防御：node 必须在 indeg 中有 key（即使 len(deps)==0 也要 0
-		// 入度）。
 		if _, seen := indeg[node]; !seen {
 			indeg[node] = 0
 		}
 		for _, dep := range deps {
 			if _, known := adjacency[dep]; !known {
-				// 外部 / 未知依赖：上游 add_node 已保证不存在；
-				// 这里防御性跳过，不影响环判定（外部节点不在子图）。
+				// 外部 / 未知依赖：上游 add_node 已保证不存在；防御性跳过。
 				continue
 			}
 			indeg[node]++
 			reverse[dep] = append(reverse[dep], node)
 		}
 	}
-	// queue：当前 indeg=0 的节点集合（拓扑可立即出栈）。
-	// 为了让错误消息 deterministic，先按字典序排好序再 enqueue。
-	queue := make([]string, 0, len(indeg))
-	for node, d := range indeg {
-		if d == 0 {
-			queue = append(queue, node)
-		}
-	}
-	sort.Strings(queue)
+	return indeg, reverse
+}
+
+// kahnDrain 跑 Kahn 主循环并返回成功出栈的节点数。indeg 会被原地修改（消耗）。
+// 用确定的字典序入队，让错误消息 deterministic。
+func kahnDrain(indeg map[string]int, reverse map[string][]string) int {
+	queue := initialZeroIndegQueue(indeg)
 	processed := 0
 	for len(queue) > 0 {
 		head := queue[0]
 		queue = queue[1:]
 		processed++
-		// pop head：所有依赖 head 的下游节点 indeg -= 1。
-		// 收集这一轮新弹出的 indeg=0 节点再次按字典序追加，让 K 个
-		// 同时弹出的节点输出确定。
 		nextBatch := make([]string, 0)
 		for _, dn := range reverse[head] {
 			indeg[dn]--
@@ -113,11 +105,24 @@ func DetectCycle(adjacency map[string][]string) error {
 		sort.Strings(nextBatch)
 		queue = append(queue, nextBatch...)
 	}
-	if processed == len(indeg) {
-		return nil
+	return processed
+}
+
+// initialZeroIndegQueue 拿出所有 indeg==0 的根节点、按字典序排序后入队。
+func initialZeroIndegQueue(indeg map[string]int) []string {
+	queue := make([]string, 0, len(indeg))
+	for node, d := range indeg {
+		if d == 0 {
+			queue = append(queue, node)
+		}
 	}
-	// 剩余 indeg>0 的就是环参与节点。按字典序排好返回。
-	remaining := make([]string, 0, len(indeg)-processed)
+	sort.Strings(queue)
+	return queue
+}
+
+// newCycleError 从未拓扑出的 indeg map 取剩余节点构造 CycleError。
+func newCycleError(indeg map[string]int) *CycleError {
+	remaining := make([]string, 0)
 	for node, d := range indeg {
 		if d > 0 {
 			remaining = append(remaining, node)
