@@ -126,6 +126,33 @@ type UpsertTaskDagNodeParams struct {
 	Column8    []byte `json:"column_8"`
 }
 
+const promoteSingleNodePendingToReady = `-- name: PromoteSingleNodePendingToReady :execrows
+UPDATE task_dag_nodes
+SET status = 'ready',
+    updated_at = NOW()
+WHERE dag_key = $1
+  AND node_key = $2
+  AND status = 'pending'
+`
+
+type PromoteSingleNodePendingToReadyParams struct {
+	DagKey  string `json:"dag_key"`
+	NodeKey string `json:"node_key"`
+}
+
+// F6.3: 节点完成后自动 promote 单个下游 pending 节点到 ready。
+// 调用方（store_complete_downstream.scheduleDownstreamWakeupsTx）已在 Go 侧
+// 完成依赖满足判定；本 SQL 用 status='pending' 作为最后一道幂等护栏。
+// sqlc generate 选择不跑（v1.30/v1.31 反复序列化漂移 15 个生代文件），
+// 与 F6.2 finalizeTaskDagRunIfAllNodesTerminal 同手维代码。
+func (q *Queries) PromoteSingleNodePendingToReady(ctx context.Context, arg PromoteSingleNodePendingToReadyParams) (int64, error) {
+	result, err := q.db.Exec(ctx, promoteSingleNodePendingToReady, arg.DagKey, arg.NodeKey)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 func (q *Queries) UpsertTaskDagNode(ctx context.Context, arg UpsertTaskDagNodeParams) (TaskDagNode, error) {
 	row := q.db.QueryRow(ctx, upsertTaskDagNode,
 		arg.DagKey,
