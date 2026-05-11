@@ -93,6 +93,19 @@ type DAGOpsTxRunner interface {
 	WithDAGOpsTx(ctx context.Context, fn func(tx DAGOpsStore) error) error
 }
 
+// DAGVersionReader 是「事务外读 DAG version」的窄端口。仅 ApplyOps 空 ops 短路路径
+// 使用：拿当前 version 判定 OCC base_version 是否同庄，不需加锁 / 不需事务。
+//
+// 与 DAGOpsStore 上的 GetDAGVersionForUpdate 区别：
+//   - DAGVersionReader.GetDAGVersion：事务外、只读、不加锁。
+//   - DAGOpsStore.GetDAGVersionForUpdate：事务内、SELECT … FOR UPDATE。
+//
+// R3 P2 #3 引入：避免 ApplyOps 空 ops 路径走事务 + SELECT FOR UPDATE、白付 OCC
+// 锁代价。
+type DAGVersionReader interface {
+	GetDAGVersion(ctx context.Context, dagKey string) (int64, error)
+}
+
 type DAGLockStore interface {
 	GetDAGForUpdate(ctx context.Context, dagKey string) (*DAG, error)
 	GetNodesForUpdate(ctx context.Context, dagKey string) ([]Node, error)

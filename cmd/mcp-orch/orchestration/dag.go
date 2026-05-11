@@ -821,6 +821,12 @@ func (s *service) applyTypedOps(ctx context.Context, dagKey string, baseVersion 
 	if err != nil {
 		return contract.ApplyOpsResponse{}, err
 	}
+	// R3 P2 #3 空 ops 事务外短路：apply_ops 不带 add/update 时不需走事务也不需 FOR UPDATE
+	// 锁。仅需拿到当前 task_dags.version 与 base_version 对齐判 OCC 同庄、返回同一 version
+	// 即可。避免「合法调用但什么都不干」仍然白付 OCC 锁代价（并发则反过来变成锁竞争热点）。
+	if len(parts.adds) == 0 && len(parts.updates) == 0 {
+		return s.applyEmptyOpsShortCircuit(ctx, dagKey, baseVersion)
+	}
 	runner, ok := s.dagStore.(taskdag.DAGOpsTxRunner)
 	if !ok {
 		return contract.ApplyOpsResponse{}, ErrApplyOpsStoreNotConfigured
@@ -838,6 +844,28 @@ func (s *service) applyTypedOps(ctx context.Context, dagKey string, baseVersion 
 		return contract.ApplyOpsResponse{}, txErr
 	}
 	return resp, nil
+}
+
+// applyEmptyOpsShortCircuit 事务外 noop 路径：仅读当前 task_dags.version，校 OCC
+// base_version，返回同一 version 作为 NewVersion（无写操作不推进 version）。
+//
+// 错误语义与事务内路径对齐：
+//   - dag_key 不存在     → 透传 taskdag store 返回的 IsNotFound err（调用方用 platformdb.IsNotFound判）。
+//   - base_version != actual → ErrVersionConflict。
+//   - dagStore 不实现 DAGVersionReader（古 stub）→ ErrApplyOpsStoreNotConfigured。
+func (s *service) applyEmptyOpsShortCircuit(ctx context.Context, dagKey string, baseVersion int64) (contract.ApplyOpsResponse, error) {
+	reader, ok := s.dagStore.(taskdag.DAGVersionReader)
+	if !ok {
+		return contract.ApplyOpsResponse{}, ErrApplyOpsStoreNotConfigured
+	}
+	current, err := reader.GetDAGVersion(ctx, dagKey)
+	if err != nil {
+		return contract.ApplyOpsResponse{}, fmt.Errorf("get dag version: %w", err)
+	}
+	if current != baseVersion {
+		return contract.ApplyOpsResponse{}, fmt.Errorf("%w: dag=%s expected=%d actual=%d", ErrVersionConflict, dagKey, baseVersion, current)
+	}
+	return contract.ApplyOpsResponse{NewVersion: current}, nil
 }
 
 // partitionOps / runOpsBatch / planOpsBatch / persistOpsBatch /

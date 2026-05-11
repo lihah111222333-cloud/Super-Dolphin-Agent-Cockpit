@@ -9,53 +9,11 @@ import (
 	"context"
 )
 
-const updateTaskDagNodeStatus = `-- name: UpdateTaskDagNodeStatus :one
-UPDATE task_dag_nodes
-SET status = $1,
-    result = $2::jsonb,
-    updated_at = NOW()
-WHERE dag_key = $3 AND node_key = $4
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
-`
-
-type UpdateTaskDagNodeStatusParams struct {
-	Status  string `json:"status"`
-	Column2 []byte `json:"column_2"`
-	DagKey  string `json:"dag_key"`
-	NodeKey string `json:"node_key"`
-}
-
-func (q *Queries) UpdateTaskDagNodeStatus(ctx context.Context, arg UpdateTaskDagNodeStatusParams) (TaskDagNode, error) {
-	row := q.db.QueryRow(ctx, updateTaskDagNodeStatus,
-		arg.Status,
-		arg.Column2,
-		arg.DagKey,
-		arg.NodeKey,
-	)
-	var i TaskDagNode
-	err := row.Scan(
-		&i.ID,
-		&i.DagKey,
-		&i.NodeKey,
-		&i.Title,
-		&i.NodeType,
-		&i.AssignedTo,
-		&i.DependsOn,
-		&i.Status,
-		&i.CommandRef,
-		&i.Config,
-		&i.Result,
-		&i.StartedAt,
-		&i.FinishedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.ActiveTurnID,
-		&i.ActiveWakeupID,
-		&i.LastEventAt,
-		&i.SpawningThreadID,
-	)
-	return i, err
-}
+// R1 dead code 清理：UpdateTaskDagNodeStatus / UpdateTaskDagNodeStatusParams 与
+// UpdateTaskDagNodeStatusFlexible 几乎完全重复，后者语义更准（不附带 status
+// 前置约束，调用方负责状态机检查）。store.UpdateNodeStatus 现同样调 Flexible。
+// 下次 sqlc realignment 不会再生成 UpdateTaskDagNodeStatus——SQL 查询同步从
+// queries/task_dag_node_write.sql 中删除。
 
 const updateTaskDagNodeStatusFlexible = `-- name: UpdateTaskDagNodeStatusFlexible :one
 UPDATE task_dag_nodes

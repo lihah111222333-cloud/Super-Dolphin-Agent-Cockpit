@@ -12,10 +12,19 @@ sql:
       - "../../migrations/0073_dag_v2_node_columns.sql"
       - "../../migrations/0074_dag_v2_runs.sql"
       - "../../migrations/0075_dag_v2_compat.sql"
+      # ---- DAG v2 T1.2-mid schema-tightening 及后续 batch 补补上 schema list ----
+      # R1 P0 #2 修复：以下迁移不含 DO $$ ... $$ PL/pgSQL 块，能被 sqlc v1.30
+      # 静态解析，加入后 sqlc generate 是安全的。
+      - "../../migrations/0077_dag_v2_run_metadata_not_null.sql"
+      - "../../migrations/0078_dag_v2_node_depends_on_array_check.sql"
+      - "../../migrations/0079_dag_v2_node_run_id_fk_and_jsonb_checks.sql"
+      - "../../migrations/0080_dag_v2_run_status_check.sql"
+      - "../../migrations/0081_dag_v2_dag_trigger_check.sql"
+      - "../../migrations/0084_seed_dag_designer_prompt_zh.sql"
       # =====================================================================
       # HAND-MAINTAINED SQLC OUTPUT — read before running `make sqlc` or upgrading sqlc.
       # =====================================================================
-      # As of 2026-05-11 several generated files under store/sqlc/ were hand-
+      # As of 2026-05-12 several generated files under store/sqlc/ were hand-
       # edited to ship F1.5 / F4.1 / F6.3 without forcing a sqlc v1.30 → v1.31+
       # upgrade. Re-running `make sqlc` against the current schema set (or
       # against a live PG with all migrations applied) will OVERWRITE these
@@ -29,17 +38,24 @@ sql:
       #                                            + PromoteSingleNodePendingToReady
       #                                            (F1.5 + F6.3)
       #   5. task_dag_node_spawning_thread.sql.go — entire file new (F1.5 CTE)
-      #   6. task_dag_run.sql.go                — AppendTaskDagRunEvent (F1.5)
+      #   6. task_dag_run.sql.go                — AppendTaskDagRunEvent + jsonb_build_array
+      #                                            及 FinalizeTaskDagRunIfAllNodesTerminal (F1.5 + F6.2 + R1 P0 #1)
       #   7. db_accessor.go                     — QueriesDB(*Queries) DBTX bypass (F4.1)
       #
-      # Migrations intentionally NOT in the schema list below:
-      #   - 0083 (spawning_thread_id): sqlc v1.30 static parser cannot read
-      #     its DO $$ ... $$ PL/pgSQL idempotency guard. See migration 0083
-      #     header for the idempotency rationale.
+      # Migrations intentionally NOT in the schema list above:
+      #   - 0076 (one_running_run_per_dag): DO $$...$$ 预检块（重复 running run
+      #     RAISE EXCEPTION），sqlc v1.30 静态解析不能识别，会报。CREATE UNIQUE
+      #     INDEX 本体是隐式 schema，不影响 Go 层 query plan。
+      #   - 0082 (trigger_source_check): DO $$...$$ 包裹 ALTER TABLE ADD CHECK
+      #     的幂等保护，同上原因 sqlc v1.30 解析不了。CHECK 约束不影响 query plan。
+      #   - 0083 (spawning_thread_id): 同样 DO $$...$$ 幂等保护。spawning_thread_id
+      #     列需要 Go 层 model 识别，所以 models.go 以及几个 node 生成文件手维了
+      #     SpawningThreadID 字段（上表条目 1-5）。
       #
-      # Long-term fix tracked in dag改造实施计划.md follow-up: either
-      # upgrade sqlc to a version that handles DO blocks, or move idempotent
-      # ALTER TABLE guards into a wrapping shell that sqlc can ignore.
+      # Long-term fix tracked in dag改造实施计划.md follow-up: either upgrade sqlc
+      # to v1.31+ (handles DO blocks), or split idempotent DO guards into wrapper
+      # shell scripts sqlc can ignore. Until then, do NOT add 0076 / 0082 / 0083
+      # back without verifying sqlc generate locally.
     gen:
       go:
         package: "sqlc"

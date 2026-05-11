@@ -21,6 +21,7 @@ var (
 	_ DAGMutationStore   = (*store)(nil)
 	_ DAGOpsStore        = (*store)(nil)
 	_ DAGOpsTxRunner     = (*store)(nil)
+	_ DAGVersionReader   = (*store)(nil)
 	_ DAGReadStore       = (*store)(nil)
 	_ DAGDetailStore     = (*store)(nil)
 	_ NodeStatusStore    = (*store)(nil)

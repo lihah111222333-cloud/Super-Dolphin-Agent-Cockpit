@@ -192,7 +192,7 @@ func (db *fakeTaskDAGDB) QueryRow(_ context.Context, sql string, args ...any) pg
 		// F1.5: CTE 同时返回新及旧 spawning_thread_id。
 		values, err := db.updateNodeSpawningThread(args...)
 		return stubTaskDAGRow{values: values, err: err}
-	case strings.Contains(sql, "AppendTaskDagRunEvent") || (strings.Contains(sql, "task_dag_runs") && strings.Contains(sql, "events     = events ||")):
+	case strings.Contains(sql, "AppendTaskDagRunEvent") || (strings.Contains(sql, "task_dag_runs") && strings.Contains(sql, "events     = events ||")) || strings.Contains(sql, "jsonb_build_array($2::jsonb)"):
 		// F1.5: 向 running run.events jsonb 数组 append 一条 event。
 		values, err := db.appendRunEvent(args...)
 		return stubTaskDAGRow{values: values, err: err}

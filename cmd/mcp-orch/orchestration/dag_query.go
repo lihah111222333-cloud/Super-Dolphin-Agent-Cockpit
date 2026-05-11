@@ -228,31 +228,28 @@ func partitionOps(ops nodeexec.Ops) (partitionedOps, error) {
 	return p, nil
 }
 
-// runOpsBatch 在 PG 事务内跑一批已 partition 的 ops：F4.1 add + F4.2 update。
-// OCC 双重护栏：pre-check 比对 base_version；bump 失锁返
+// runOpsBatch 在 PG 事务内跑一批已 partition 的 ops：F4.1 add + F4.2 update + F4.5
+// dag.status 不变量。OCC 双重护栏：pre-check 比对 base_version；bump 失锁返
 // ErrVersionConflict（与 F4.1 同 sentinel，调用方 errors.Is 命中相同分支）。
 //
 // 步骤：
 //  1. GetDAGVersionForUpdate + 比对 base_version
-//  2. 空 ops → 直接返当前 version（noop）
-//  3. ListNodes 拿现有节点 → 投影成 nodeexec 入参
-//  4. plan add + plan update → 合并 adjacency → DetectCycle
-//  5. 顺序 UpsertNode（先 add 后 update，update 合并 patch 与旧 Node）
-//  6. BumpDAGVersion
+//  2. GetDAG 读 dag.status (同事务内、上锁后读)
+//  3. F4.5 不变量：若 status='running'——
+//     a. parts.updates 非空 → 拒为 ErrApplyOpsInvalid
+//     b. ListNodes 拿现有节点 → 验证 add_node.depends_on 全部指向一个 status='done' 节点
+//        否则拒为 ErrApplyOpsInvalid
+//  4. 空 ops → 直接返当前 version（noop）
+//  5. plan add + plan update → 合并 adjacency → DetectCycle
+//  6. 顺序 UpsertNode（先 add 后 update，update 合并 patch 与旧 Node）
+//  7. BumpDAGVersion
 func runOpsBatch(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string, baseVersion int64, parts partitionedOps) (contract.ApplyOpsResponse, error) {
-	current, err := tx.GetDAGVersionForUpdate(ctx, dagKey)
+	current, existing, err := preflightOpsBatch(ctx, tx, dagKey, baseVersion, parts)
 	if err != nil {
-		return contract.ApplyOpsResponse{}, fmt.Errorf("get dag version: %w", err)
-	}
-	if current != baseVersion {
-		return contract.ApplyOpsResponse{}, fmt.Errorf("%w: dag=%s expected=%d actual=%d", ErrVersionConflict, dagKey, baseVersion, current)
+		return contract.ApplyOpsResponse{}, err
 	}
 	if len(parts.adds) == 0 && len(parts.updates) == 0 {
 		return contract.ApplyOpsResponse{NewVersion: current}, nil
-	}
-	existing, err := tx.ListNodes(ctx, dagKey)
-	if err != nil {
-		return contract.ApplyOpsResponse{}, fmt.Errorf("list nodes: %w", err)
 	}
 	plan, err := planOpsBatch(parts, existing)
 	if err != nil {
@@ -261,14 +258,98 @@ func runOpsBatch(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string, bas
 	if err := persistOpsBatch(ctx, tx, dagKey, existing, plan); err != nil {
 		return contract.ApplyOpsResponse{}, err
 	}
+	newVersion, err := bumpDAGVersionTx(ctx, tx, dagKey, baseVersion)
+	if err != nil {
+		return contract.ApplyOpsResponse{}, err
+	}
+	return contract.ApplyOpsResponse{NewVersion: newVersion}, nil
+}
+
+// preflightOpsBatch 跑 runOpsBatch 的前置检查：上锁 + OCC 同庄判定 + DAG 状态读 +
+// F4.5 不变量。作为 runOpsBatch 的助手拆出避免父函数超过 cyclomatic complexity 上限。
+func preflightOpsBatch(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string, baseVersion int64, parts partitionedOps) (int64, []taskdag.Node, error) {
+	current, err := tx.GetDAGVersionForUpdate(ctx, dagKey)
+	if err != nil {
+		return 0, nil, fmt.Errorf("get dag version: %w", err)
+	}
+	if current != baseVersion {
+		return 0, nil, fmt.Errorf("%w: dag=%s expected=%d actual=%d", ErrVersionConflict, dagKey, baseVersion, current)
+	}
+	dag, err := tx.GetDAG(ctx, dagKey)
+	if err != nil {
+		return 0, nil, fmt.Errorf("get dag: %w", err)
+	}
+	if dag == nil {
+		return 0, nil, fmt.Errorf("%w: dag=%s vanished mid-tx", ErrApplyOpsInvalid, dagKey)
+	}
+	existing, err := tx.ListNodes(ctx, dagKey)
+	if err != nil {
+		return 0, nil, fmt.Errorf("list nodes: %w", err)
+	}
+	if err := enforceRunningDAGInvariants(dag.Status, parts, existing); err != nil {
+		return 0, nil, err
+	}
+	return current, existing, nil
+}
+
+// bumpDAGVersionTx 拼 OCC bump 与 ErrVersionConflict 翻译。拆出避免 runOpsBatch 超 CC 上限。
+func bumpDAGVersionTx(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string, baseVersion int64) (int64, error) {
 	newVersion, err := tx.BumpDAGVersion(ctx, dagKey, baseVersion)
 	if err != nil {
 		if platformdb.IsNotFound(err) {
-			return contract.ApplyOpsResponse{}, fmt.Errorf("%w: dag=%s base_version=%d (lost lock?)", ErrVersionConflict, dagKey, baseVersion)
+			return 0, fmt.Errorf("%w: dag=%s base_version=%d (lost lock?)", ErrVersionConflict, dagKey, baseVersion)
 		}
-		return contract.ApplyOpsResponse{}, fmt.Errorf("bump version: %w", err)
+		return 0, fmt.Errorf("bump version: %w", err)
 	}
-	return contract.ApplyOpsResponse{NewVersion: newVersion}, nil
+	return newVersion, nil
+}
+
+// enforceRunningDAGInvariants 是 F4.5 主体：在 DAG 状态为 running 时仅允许 add_node，
+// 且新节点的 depends_on 必须全部指向 status='done' 的现有节点。与 PlanAddNodes 独立调
+// 试点不同：后者不读 dag.status，这里专门面向 running DAG 动态补改场景。
+//
+// 设计取舍：
+//   - update_node / remove_node / update_dag 被 partitionOps 阶段已处理 (都走
+//     ErrLifecycleNotImplemented 分支，仅 update_node 在 draft 下是合法的)。本函数只
+//     需在 running 下多一层抲 update_node 拒。
+//   - add_node.depends_on 指向现有节点 (existing) 中 status='done' 才可插入。同批
+//     加入的新节点 (status 默认 pending) 不能作为 depends_on 目标 —— 这会让新节点
+//     互相等什么都不能跑。这是蓝图 v2 §5 “dynamic patch” 的宝贵限制。
+func enforceRunningDAGInvariants(dagStatus string, parts partitionedOps, existing []taskdag.Node) error {
+	if dagStatus != "running" {
+		return nil
+	}
+	if len(parts.updates) > 0 {
+		return fmt.Errorf("%w: dag is running, update_node not allowed (only add_node depends_on done nodes)", ErrApplyOpsInvalid)
+	}
+	if len(parts.adds) == 0 {
+		return nil
+	}
+	doneSet := doneNodeKeys(existing)
+	for i, op := range parts.adds {
+		add, ok := op.(nodeexec.OpAddNode)
+		if !ok {
+			// 防御：partitionOps 保证 parts.adds 只包含 OpAddNode。
+			return fmt.Errorf("%w: ops[%d] expected add_node, got %s", ErrApplyOpsInvalid, i, op.Kind())
+		}
+		for _, dep := range nodeexec.NormalizeDependsOn(add.Node.DependsOn) {
+			if _, done := doneSet[dep]; !done {
+				return fmt.Errorf("%w: dag is running, add_node %q depends_on %q must reference a done node", ErrApplyOpsInvalid, add.Node.NodeKey, dep)
+			}
+		}
+	}
+	return nil
+}
+
+// doneNodeKeys 抽出 existing 中 status=="done" 的 NodeKey 集合。
+func doneNodeKeys(existing []taskdag.Node) map[string]struct{} {
+	out := make(map[string]struct{}, len(existing))
+	for _, n := range existing {
+		if n.Status == "done" {
+			out[n.NodeKey] = struct{}{}
+		}
+	}
+	return out
 }
 
 // opsBatchPlan 是 planOpsBatch 输出：add 的 NodeSpec + update 的 Change，外加
