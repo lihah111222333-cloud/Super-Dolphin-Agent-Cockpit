@@ -13,7 +13,7 @@ type transition struct {
 	To   NodeStatus
 }
 
-// legalTransitions 列出所有合法的 NodeStatus 转移（13 条）。
+// legalTransitions 列出所有合法的 NodeStatus 转移（14 条）。
 // 终态 done / failed / cancelled / skipped 没有 outgoing 转移（修改终态节点
 // 必须经 fork 或 reset，而不是直接改 status）。
 //
@@ -29,6 +29,8 @@ type transition struct {
 //   - running → waiting_human        on_failure=ask_human (HITL，骨架阶段不实现)
 //   - retrying → ready               退避结束，重新入队
 //   - retrying → failed              放弃重试
+//   - retrying → cancelled           上游 fail_fast 级联且当前节点正在退避
+//     （避免强制转 failed 误罪待重试节点）
 //   - waiting_human → ready          用户 approve
 //   - waiting_human → failed         用户 reject / timeout
 var legalTransitions = map[transition]struct{}{
@@ -43,6 +45,7 @@ var legalTransitions = map[transition]struct{}{
 	{NodeStatusRunning, NodeStatusWaitingHuman}: {},
 	{NodeStatusRetrying, NodeStatusReady}:       {},
 	{NodeStatusRetrying, NodeStatusFailed}:      {},
+	{NodeStatusRetrying, NodeStatusCancelled}:   {},
 	{NodeStatusWaitingHuman, NodeStatusReady}:   {},
 	{NodeStatusWaitingHuman, NodeStatusFailed}:  {},
 }
