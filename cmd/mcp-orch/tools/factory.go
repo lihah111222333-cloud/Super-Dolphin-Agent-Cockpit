@@ -107,6 +107,34 @@ func requireTrimmed(value, field string) (string, error) {
 	return strings.TrimSpace(value), nil
 }
 
+// requireEnum 给 handler 层做兜底的 enum 字符串校验，与 StringSchema enum
+// 共用同一份 allowed（通过 EnumValues 从 schema 反取，单源驱动）。
+//   - value 为空（trim 后）→ 返 "<field> is required" 错（与 requireTrimmed 同语义，但
+//     调用方只在「该字段必填且需校验枚举」场景使用）。
+//   - 不在 allowed 内 → 返中英双语错误，列出 allowed 候选值。
+//   - 命中 → 返 trim 后的值。
+//
+// requireEnum is the handler-layer fallback validator for string enum
+// fields. It shares the allowed-values slice with the schema via
+// EnumValues so there is a single source of truth. Returns a bilingual
+// error (Chinese + English) when the value is outside the allowed set,
+// keeping the style aligned with translateStartDAGError.
+func requireEnum(value, field string, allowed []string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", errors.New(field + " is required")
+	}
+	for _, candidate := range allowed {
+		if trimmed == candidate {
+			return trimmed, nil
+		}
+	}
+	return "", fmt.Errorf(
+		"%s 取值非法：%q，必须是 %v 之一 (invalid %s %q: must be one of %v)",
+		field, trimmed, allowed, field, trimmed, allowed,
+	)
+}
+
 func loadOrNotFound[T any](value *T, err error, kind, id string) (*T, error) {
 	if err != nil {
 		if platformdb.IsNotFound(err) {
