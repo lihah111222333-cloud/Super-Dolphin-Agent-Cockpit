@@ -2,6 +2,7 @@ package taskdag
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -192,7 +193,7 @@ func (db *fakeTaskDAGDB) QueryRow(_ context.Context, sql string, args ...any) pg
 		// F1.5: CTE 同时返回新及旧 spawning_thread_id。
 		values, err := db.updateNodeSpawningThread(args...)
 		return stubTaskDAGRow{values: values, err: err}
-	case strings.Contains(sql, "AppendTaskDagRunEvent") || (strings.Contains(sql, "task_dag_runs") && strings.Contains(sql, "events     = events ||")):
+	case strings.Contains(sql, "AppendTaskDagRunEvent") || (strings.Contains(sql, "task_dag_runs") && strings.Contains(sql, "jsonb_array_length(events || $2::jsonb)")):
 		// F1.5: 向 running run.events jsonb 数组 append 一条 event。
 		values, err := db.appendRunEvent(args...)
 		return stubTaskDAGRow{values: values, err: err}
@@ -640,9 +641,13 @@ func (db *fakeTaskDAGDB) updateNodeSpawningThread(args ...any) ([]any, error) {
 }
 
 // appendRunEvent mirrors the F1.5 AppendTaskDagRunEvent SQL: find the running
-// run for dag_key, concat events || $2::jsonb; return run_key. Returns
-// pgx.ErrNoRows when no running run matches (the store treats that as a soft
-// miss).
+// run for dag_key, concat events || $2::jsonb; apply the 50-event ring trim
+// (port-unification batch); return run_key. Returns pgx.ErrNoRows when no
+// running run matches (the store treats that as a soft miss).
+//
+// The fake parses+re-serialises the events array as a real JSON []any (rather
+// than the previous raw-bytes concat trick) so that the ring trim semantics
+// match production: when length > 50 keep only the last 50 entries.
 func (db *fakeTaskDAGDB) appendRunEvent(args ...any) ([]any, error) {
 	if len(args) != 2 {
 		return nil, fmt.Errorf("append event args len = %d, want 2", len(args))
@@ -655,25 +660,35 @@ func (db *fakeTaskDAGDB) appendRunEvent(args ...any) ([]any, error) {
 	if !ok {
 		return nil, fmt.Errorf("payload arg = %T", args[1])
 	}
+	// Decode new event payload as opaque json value (object).
+	var newEvent any
+	if err := json.Unmarshal(payload, &newEvent); err != nil {
+		return nil, fmt.Errorf("decode event payload: %w", err)
+	}
 	for runKey, run := range db.runs {
 		if run.DagKey != dagKey || run.Status != "running" {
 			continue
 		}
-		// events column is jsonb '[...]' in production; fake stores as raw
-		// bytes, so concat-append produces an invalid JSON literal — fine for
-		// the assertion-level tests below (they parse events themselves).
-		if len(run.Events) == 0 {
-			run.Events = append([]byte("["), payload...)
-			run.Events = append(run.Events, ']')
-		} else {
-			// remove trailing ']' then comma-append + close bracket.
-			if n := len(run.Events); n > 0 && run.Events[n-1] == ']' {
-				run.Events = run.Events[:n-1]
+		// Decode existing events array; missing/empty → start with [].
+		var arr []any
+		if len(run.Events) > 0 {
+			if err := json.Unmarshal(run.Events, &arr); err != nil {
+				// Tolerate legacy raw-bytes garbage by resetting to empty array;
+				// production never produces such state.
+				arr = nil
 			}
-			run.Events = append(run.Events, ',')
-			run.Events = append(run.Events, payload...)
-			run.Events = append(run.Events, ']')
 		}
+		arr = append(arr, newEvent)
+		// Ring trim: keep last 50 entries. Mirrors the SQL CASE branch.
+		const ringCap = 50
+		if len(arr) > ringCap {
+			arr = arr[len(arr)-ringCap:]
+		}
+		encoded, err := json.Marshal(arr)
+		if err != nil {
+			return nil, fmt.Errorf("encode events array: %w", err)
+		}
+		run.Events = encoded
 		run.UpdatedAt = timestamptzValue(db.now)
 		db.runs[runKey] = run
 		return []any{run.RunKey}, nil
