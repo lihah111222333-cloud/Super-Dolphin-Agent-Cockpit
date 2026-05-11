@@ -72,7 +72,7 @@
 | ~~**T0.4**~~ | ✅ done | PA-1: dag_retry_policy.go 导航注释 | commit `8d32ea1f` |
 | ~~**T0.5**~~ | ✅ done | PC-1: archtest 守护 RunStore 待 T1.2 | commit `8f61c839` |
 | ~~**T0.6**~~ | ✅ done | PC-4: ADR 0001 §2.5 加三方映射注释 | commit `8d32ea1f` |
-| **T0.7** | ⏸ 推迟 | PD-2: thread-DAG 关联 (spawning_thread_id) | T8.1 AI 设计师按钮一并 |
+| **T0.7** | 🔁 前置 | PD-2: thread-DAG 关联 (spawning_thread_id) | 并入 F 阶段新增 **F1.5**（spawn 时写入）；T8.1 仅消费，不再推迟。详 ADR-009 |
 | ~~**T0.8**~~ | ✅ done | PD-3: doc-sync check | commit `f972627d`（4 项检查全过） |
 | ~~**T0.9**~~ | ✅ done（F6.4 背面实装） | PE-1（吃狗粮）: dispatcher 对无 assigned_to 节点处理 | 已归 F6.4 commit `d068e04c`：方案 A 对无 assigned_to 节点不 enqueue wakeup；节点保持 pending（依赖已满足时承担 ready 语义）。详 ADR-004 |
 
@@ -213,11 +213,11 @@ f972627d  T0.8 doc-sync script
 
 ---
 
-## 3. 阶段 F 功能（31 行 / 30 待做 + 1 完成占位）
+## 3. 阶段 F 功能（32 行 / 31 待做 + 1 完成占位）
 
-> 26 个原计划 + 5 个从推迟项补位（F4.0 / F6.3 / F6.4 / F6.5 / F14.1） = 31 表位；其中 F6.1 由 T1.2-mid 接手 snapshot 后留为已完成契约占位、不再计为待做，所以待做任务 = 30。
+> 26 个原计划 + 5 个从推迟项补位（F4.0 / F6.3 / F6.4 / F6.5 / F14.1） + 1 个从 T0 前置项补位（F1.5） = 32 表位；其中 F6.1 由 T1.2-mid 接手 snapshot 后留为已完成契约占位、不再计为待做，所以待做任务 = 31。
 >
-> 推迟项拼装表：S2.4 → F6.3；T0.9/PE-1 → F6.4；PT-1 → F14.1；PT-2 → F4.0；T1.2-full → F6.5。
+> 推迟项拼装表：S2.4 → F6.3；T0.9/PE-1 → F6.4；PT-1 → F14.1；PT-2 → F4.0；T1.2-full → F6.5；**T0.7/PD-2 → F1.5**（spawning_thread_id 字段位，详 ADR-009）。
 
 | ID | 标题 | 主要触动文件 | 验收 | 依赖 | Size | 并行 |
 |---|---|---|---|---|---|---|
@@ -225,6 +225,7 @@ f972627d  T0.8 doc-sync script
 | **F1.2** | `AgentExecutor` 处理 `inputs`：注入 prev nodes results / sharedfiles | 同上 | 集成测试：节点 B 看到节点 A.result | F1.1 | M | N |
 | **F1.3** | `AgentExecutor` 处理 `outputs`：写 sharedfile / node.result | 同上 | 集成测试：sharedfile 内容正确写入 | F1.2 | S | N |
 | **F1.4** | `AgentExecutor` 处理 transient/quota/validation 三类失败基础重试 | 同上 + `retry_strategy.go` 新建 | 单测：模拟三类失败重试次数正确 | F1.1, S7.1 | M | N |
+| **F1.5**（T0.7 前置） | `spawning_thread_id` 字段位：migration 加列（task_dag_nodes）+ AgentExecutor spawn 成功后 UPDATE 字段 + `task_get_run` / `task_get_dag` 返回字段；T6.1 / T8.1 UI 节点行 → 子 agent thread 跳转依赖本字段。详 ADR-009 | `migrations/0083_dag_v2_spawning_thread_id.sql`（新建） + `cmd/mcp-orch/orchestration/nodeexec/executor_agent.go` + `store/taskdag/*` | 集成测试：spawn 后节点行 spawning_thread_id 写入正确；重试仅换上最新一次 thread，历史 thread 进 run.events | F1.1 ✅ / S3.x migration 基设 | M | Y（可与 F1.2 并行） |
 | **F2.1** | `AutomationExecutor` 解码 `command_ref` → command_get + 执行 | `cmd/mcp-orch/orchestration/executor_automation.go` | 单测：command 执行 + 错误处理 | S1.4, S5.2 | M | Y（与 F1 并行） |
 | **F2.2** | `AutomationExecutor` 处理 inputs/outputs | 同上 | 集成测试 | F2.1 | S | N |
 | **F3.1** | `HybridExecutor` 串联 automation → agent verifier | `cmd/mcp-orch/orchestration/executor_hybrid.go` | 集成测试：automation 失败时 verifier 不跑 | F1, F2 完成 | M | N |

@@ -21,4 +21,5 @@
 - [ADR-006：outputs.to_node_result 超 size_cap 的处理策略](./ADR-006-to-node-result-size-cap.md)
 - [ADR-007：automation.kind 多 kind 渐进开通策略](./ADR-007-automation-kind-progressive.md)
 - [ADR-008：FailureClass 七类的映射规则全集](./ADR-008-failureclass-mapping.md)
+- [ADR-009：DAG node ↔ child thread 双向追溯（spawning_thread_id）](./ADR-009-thread-dag-traceability.md)
 
