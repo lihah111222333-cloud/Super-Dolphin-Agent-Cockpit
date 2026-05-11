@@ -213,9 +213,9 @@ f972627d  T0.8 doc-sync script
 
 ---
 
-## 3. 阶段 F 功能（37 行 / 31 未开工 + 5 ✅ done + 1 完成占位）
+## 3. 阶段 F 功能（37 行 / 30 未开工 + 6 ✅ done + 1 完成占位）
 
-> **口径说明**：37 表位 ÷ 状态 = 5 条 strikethrough ✅ done（F1.1 / F4.0 / F5.1 / F6.2 / F6.4）+ 1 条 F6.1 完成占位（由 T1.2-mid 接手 snapshot）+ 31 条未开工。“待做”传统口径只扣“完成占位”不扣 done，本文档接手人读“36 待做”时请同时看本说明。
+> **口径说明**：37 表位 ÷ 状态 = 6 条 strikethrough ✅ done（F1.1 / F2.0 / F4.0 / F5.1 / F6.2 / F6.4）+ 1 条 F6.1 完成占位（由 T1.2-mid 接手 snapshot）+ 30 条未开工。“待做”传统口径只扣“完成占位”不扣 done，本文档接手人读“36 待做”时请同时看本说明。
 >
 > 26 个原计划 + 5 个从推迟项补位（F4.0 / F6.3 / F6.4 / F6.5 / F14.1） + 1 个从 T0 前置项补位（F1.5） + 1 个 S5.1 schema 返修补位（F2.0） + 1 个 H6 前置补位（F15.1） + 3 个 Hybrid v2 拓扑占位（F3.2 / F3.3 / F3.4） = 37 表位。
 >
@@ -228,7 +228,7 @@ f972627d  T0.8 doc-sync script
 | **F1.3** | `AgentExecutor` 处理 `outputs`：写 sharedfile / node.result。**边界**：仅负责本节点输出落地，**不得调外部 webhook / 命令卡**——那属于 F3.2（hybrid agent→automation）路径，详 ADR-011 §4 Q3 | 同上 | 集成测试：sharedfile 内容正确写入；负面测试：agent 节点 outputs 中出现 webhook URL 字段被拒 | F1.2 | S | N |
 | **F1.4** | `AgentExecutor` 处理 transient/quota/validation 三类失败基础重试 | 同上 + `retry_strategy.go` 新建 | 单测：模拟三类失败重试次数正确 | F1.1, S7.1 | M | N |
 | **F1.5**（T0.7 前置） | `spawning_thread_id` 字段位：migration 加列（task_dag_nodes）+ AgentExecutor spawn 成功后 UPDATE 字段 + `task_get_run` / `task_get_dag` 返回字段；T6.1 / T8.1 UI 节点行 → 子 agent thread 跳转依赖本字段。详 ADR-009 | `migrations/0083_dag_v2_spawning_thread_id.sql`（新建） + `cmd/mcp-orch/orchestration/nodeexec/executor_agent.go` + `store/taskdag/*` | 集成测试：spawn 后节点行 spawning_thread_id 写入正确；重试仅换上最新一次 thread，历史 thread 进 run.events | F1.1 ✅ / S3.x migration 基设 | M | Y（可与 F1.2 并行） |
-| **F2.0**（S5.1 schema 返修） | `AutomationExecConfig` 加 `Kind` 字段位（默认 `command_card`）+ `ParseAutomationConfig` 兜底「未知 kind → fail-fast 拒绝 / 空 kind → 默认 command_card」。S5.1 已 done 但 schema 缺 kind 是 drift，本行作返修补丁。详 ADR-007 | `cmd/mcp-orch/orchestration/nodeexec/config.go` | 单测：unknown kind 拒绝、空 kind 默认、command_card round-trip | S5.1 ✅ / ADR-007 ✅ | S | Y |
+| ~~**F2.0**~~（S5.1 schema 返修）✅ done | `AutomationExecConfig` 加 `Kind` 字段位（默认 `command_card`）+ `ParseAutomationConfig` 兜底「未知 kind → fail-fast 拒绝 / 空 kind → 默认 command_card」 / commit `3629a77a` | `cmd/mcp-orch/orchestration/nodeexec/config.go` + `config_test.go` | 单测全过：3 个新增用例（unknown kind 拒绝 / 空 kind 默认 / command_card round-trip） + 守卫全绿 | S5.1 ✅ / ADR-007 ✅ | S | Y |
 | **F2.1** | `AutomationExecutor` 解码 `command_ref` → command_get + 执行 | `cmd/mcp-orch/orchestration/executor_automation.go` | 单测：command 执行 + 错误处理 | S1.4, S5.2, F2.0 | M | Y（与 F1 并行） |
 | **F2.2** | `AutomationExecutor` 处理 inputs/outputs | 同上 | 集成测试 | F2.1 | S | N |
 | **F3.1**（v1 单拓扑） | `HybridExecutor v1`：automation → agent verifier（等同 AutomationWithVerifier 语义）；v2 多向拓扑见 F3.2/F3.3/F3.4 占位。详 ADR-011 | `cmd/mcp-orch/orchestration/executor_hybrid.go` | 集成测试：automation 失败时 verifier 不跑；测试名带 v1 后缀 | F1, F2 完成 | M | N |
