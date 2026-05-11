@@ -459,6 +459,14 @@ grep -r "FailureClass\|OnFailureStrategy" cmd/ 2>/dev/null | wc -l  # 目标 ≥
 - **service.ListRuns limit cap=200 抽常量**：commit `498be56d` 已在 service 层 cap，但 `200` 仍是字面量（出现于 service.go + dag_query_test.go）。建议提 `defaultListRunsLimitCap = 200` 或者走 contract 层常量，避免文档与代码双多头。
 - **F6.4 dispatcher 对无 assignee 节点应跳过自动 dispatch**：本会话用 DAG 工具做审查 e2e 演练时发现，N1 root done 后 service.CompleteNodeAndScheduleDownstream 自动 promote N2 → ready，同时 dispatcher 立刻 dispatch N2 → 因 N2 无 assigned_to → "agent id is required" → retry 耗尽 → N2 自动 failed（终态）。导致 DAG 在 M2 阶段不能做“无 assignee 描述性任务编排”。F6.4 落地时应：(a) 节点 assigned_to 为空时跳过自动 dispatch（等外部 agent 接管）；或 (b) schedule 加 manual_dispatch=true 标记表示“仅人工/外部推进”，避免自动 dispatch 链。证据：DAG id=73, run audit-2026-05-11-route-n-runstore-review#run-001，N2 result.kind=exhausted_retries reason="agent id is required"。
 
+源自套餐 C 审查 + 应修落地（commit 2b3fc1c0 / 096c0957 / 5c1e4646 / 1e3d4551 + 本提交）：
+
+- **§10.60 已立项 → 见会话习惯.md §10.60 — MCP 工具命名约定**：业务领域工具用 `<domain>_<verb>_<noun>`（如 `task_create_dag`）；基础设施工具简洁 verb 优先；已存在 `list_models` / `shared_file_list` 因 wire 兼容保留作为已知例外，不再回头改名。本次套餐 C 审查 §1 “工具命名飘忽”作为触发案例，以 “线上不改名、未来新加严守” 折衷方案落地。
+- **ADR 0001 §2.10 已立项 → 见 docs/adr/0001-dag-v2-contracts.md §2.10 — DB 不变量基线规则**：枚举字段必加 CHECK / jsonb 列必加 jsonb_typeof CHECK / 跨行业务唯一性必下沉到 partial unique index。未来新建 DAG 相关表必过这 3 条 baseline。配套 migration `0081` (`task_dags.trigger` CHECK 枚举) 已随套餐 C 落地。
+- **状态机 retrying → cancelled 合法转移已补**：上游 fail_fast 级联且当前节点正在退避时可转 cancelled。主线 TestRetryingCanTransitionToCancelled 守护。全量转移表计数 13 → 14。
+- **T0.8 doc-sync 脚本 Check 4 真验证 hash + 脚本注释 14 → 25 修正**：早期错误分支仅 `:`（恒成功），现改为 err 报错，未来 plan 误引不存在 hash 将被 Check 4 拦下。
+- **stubDashboardOrchestration 加 var _ 编译期接口断言**：未来 contract.OrchestrationService 接口扩张将在 `go build` 阶段报错，不靠 `make test` 补漏。
+
 ---
 
 ## 12. 契约变更登记 / Contract Change Log
