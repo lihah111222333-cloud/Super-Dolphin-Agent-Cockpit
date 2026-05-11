@@ -176,6 +176,23 @@ type CompleteNodeWithDownstreamResult struct {
 	Node                *Node
 	ScheduledDownstream []ScheduledDownstreamWakeup
 	FinalizedRun        *FinalizedRunInfo
+	// F6.3: PromotedDownstream 列出本次 CompleteNode 同事务内被从 pending 推进到
+	// ready 的下游节点。与 ScheduledDownstream 区别：
+	//   - ScheduledDownstream：仅含「assigned_to 非空 + 成功 insert wakeup」的节点
+	//   - PromotedDownstream：含所有「依赖满足 + status 从 pending 转为 ready」的节点，
+	//     无论 assigned_to 是否为空（F6.4 路由跳过仅影响 wakeup enqueue，
+	//     不影响状态机推进）。
+	// PromotedDownstream lists nodes flipped pending→ready in this tx
+	// (state-machine truth). ScheduledDownstream is a strict subset filtered to
+	// rows that also got a wakeup enqueued.
+	PromotedDownstream []PromotedDownstreamNode
+}
+
+// PromotedDownstreamNode 描述本次 CompleteNode 事务内从 pending 推进到 ready
+// 的一个下游节点。仅反映状态转移；wakeup 路由以 ScheduledDownstreamWakeup 为准。
+type PromotedDownstreamNode struct {
+	DagKey  string
+	NodeKey string
 }
 
 // FinalizedRunInfo 是 maybeFinalizeRun 报告给上层的最小投影（被推进的 run_key + 新 status）。
