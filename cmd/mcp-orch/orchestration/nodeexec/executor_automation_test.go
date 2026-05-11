@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -479,11 +480,56 @@ func TestAutomationExecutor_Outputs_RejectsAgentPromptField(t *testing.T) {
 	if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
 		t.Fatalf("got status=%q class=%q, want failed/validation", out.Status, out.FailureClass)
 	}
-	if !strings.Contains(out.ErrorSummary, "agent-prompt field") {
-		t.Fatalf("ErrorSummary = %q, want agent-prompt field", out.ErrorSummary)
+	if !strings.Contains(out.ErrorSummary, "agent-prompt or agent-routing field") {
+		t.Fatalf("ErrorSummary = %q, want 'agent-prompt or agent-routing field'", out.ErrorSummary)
 	}
 	if getter.called != 0 || runner.lastArgs != nil {
 		t.Fatalf("getter/runner should not be reached on outputs-validation failure; getter=%d runnerArgs=%s", getter.called, runner.lastArgs)
+	}
+}
+
+// TestAutomationExecutor_Outputs_RejectsAllBannedKeys 表驱动覆盖全 11 个 banned key。
+//
+// R1 P1 #3 + R2 P0 gap：原测试只覆盖了 "prompt" 一个；扩展为 prompt-injection 5 +
+// agent-routing 6 = 11 个，确保任何路由字段从 automation outputs 注入下游 agent 节点
+// 都被 validation 拦截，不至于让 automation 隐式驱动下游 agent 路由 / 升级 model。
+func TestAutomationExecutor_Outputs_RejectsAllBannedKeys(t *testing.T) {
+	// keep in sync with executor_automation.go::automationOutputsForbiddenKeys
+	bannedKeys := []string{
+		// prompt-injection family
+		"prompt", "first_turn", "agent_prompt", "system_prompt", "append_error",
+		// agent-routing family
+		"agent_key", "model", "provider", "language", "tool_choice", "tools",
+	}
+	if len(bannedKeys) != 11 {
+		t.Fatalf("test table out of sync; want 11 banned keys, got %d", len(bannedKeys))
+	}
+
+	for _, key := range bannedKeys {
+		t.Run(key, func(t *testing.T) {
+			getter := &stubAutomationGetter{}
+			runner := &captureRunner{}
+			exec := NewAutomationExecutor(getter, runner)
+			cfg := fmt.Sprintf(`{
+				"exec":{"kind":"command_card","command_ref":"k"},
+				"outputs":{%q:"x"}
+			}`, key)
+			node := Node{NodeType: "automation", Config: json.RawMessage(cfg)}
+
+			out, err := exec.Execute(context.Background(), node, RunContext{})
+			if err != nil {
+				t.Fatalf("Execute() framework error = %v", err)
+			}
+			if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
+				t.Fatalf("banned key %q not rejected; got status=%q class=%q", key, out.Status, out.FailureClass)
+			}
+			if !strings.Contains(out.ErrorSummary, key) {
+				t.Fatalf("ErrorSummary should mention offending key %q; got %q", key, out.ErrorSummary)
+			}
+			if getter.called != 0 || runner.lastArgs != nil {
+				t.Fatalf("getter/runner should not be reached for banned key %q", key)
+			}
+		})
 	}
 }
 
