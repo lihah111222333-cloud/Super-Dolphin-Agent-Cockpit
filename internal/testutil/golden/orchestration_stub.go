@@ -29,6 +29,7 @@ type OrchestrationStub struct {
 	GetDAGFunc                func(context.Context, string) (contract.DAGDetail, error)
 	ListDAGsFunc              func(context.Context, contract.ListDAGsFilter) ([]contract.DAGSummary, error)
 	UpdateNodeStatusFunc      func(context.Context, contract.UpdateNodeStatusRequest) (contract.DAGNode, error)
+	DispatchNodeFunc          func(context.Context, contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error)
 }
 
 func (s *OrchestrationStub) LaunchAgent(ctx context.Context, req contract.LaunchRequest) error {
@@ -197,4 +198,16 @@ func (s *OrchestrationStub) ListRuns(ctx context.Context, req contract.ListRunsR
 		return s.ListRunsFunc(ctx, req)
 	}
 	return contract.ListRunsResponse{}, nil
+}
+
+// DispatchNode 是 dispatcher wiring batch §4 加的接口方法 (ADR-004 §Open Q1)；
+// stub 默认返零值；测试注入 DispatchNodeFunc 时走真实分支。
+//
+// DispatchNode is the dispatcher wiring batch addition for ADR-004 (Open Q1);
+// stub returns a zero value by default. Tests inject DispatchNodeFunc.
+func (s *OrchestrationStub) DispatchNode(ctx context.Context, req contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error) {
+	if s.DispatchNodeFunc != nil {
+		return s.DispatchNodeFunc(ctx, req)
+	}
+	return contract.DispatchNodeResponse{}, nil
 }

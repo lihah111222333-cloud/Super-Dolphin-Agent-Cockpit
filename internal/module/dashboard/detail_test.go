@@ -221,3 +221,7 @@ func (s *stubDashboardOrchestration) ApplyOps(context.Context, contract.ApplyOps
 func (s *stubDashboardOrchestration) ListRuns(context.Context, contract.ListRunsRequest) (contract.ListRunsResponse, error) {
 	return contract.ListRunsResponse{}, nil
 }
+
+func (s *stubDashboardOrchestration) DispatchNode(context.Context, contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error) {
+	return contract.DispatchNodeResponse{}, nil
+}

@@ -81,6 +81,9 @@ type service struct {
 	turnStarter            TurnStarter
 	dagStore               taskdag.OrchestrationStore
 	runStore               taskdag.RunStore // T1.2: StartDAG / T3.x 跳入 RunStore；Tx 交给 runStore.WithRunTx 起
+	// dispatchStore 是 task_dispatch_node (ADR-004 §Open Q1) 使用的窄端口。
+	// 生产未绑时为 nil；service.DispatchNode 返 ErrDispatchStoreUnset。
+	dispatchStore taskdag.DispatchNodeStore
 	recoveryStore          recoveryTurnStore
 	agentThreads           AgentThreadStore
 	agentBindings          AgentBindingStore
@@ -120,6 +123,10 @@ type serviceParams struct {
 	RunStore      taskdag.RunStore
 	AgentThreads  AgentThreadStore  `optional:"true"`
 	AgentBindings AgentBindingStore `optional:"true"`
+	// DispatchStore 是 task_dispatch_node (ADR-004 §Open Q1) 使用的窄端口。
+	// optional: 旧测试路径 / standalone 模式不装载 taskdag.Module 时依然能
+	// 启动；service.DispatchNode 遇到 nil 时返 ErrDispatchStoreUnset。
+	DispatchStore taskdag.DispatchNodeStore `optional:"true"`
 }
 
 type recoveryTurnStore interface {
@@ -222,6 +229,7 @@ func ProvideService(p serviceParams) *service {
 	svc.runStore = p.RunStore // T1.2: StartDAG 需跳入；setter 注入以保 NewService 签名不变
 	svc.agentThreads = p.AgentThreads
 	svc.agentBindings = p.AgentBindings
+	svc.dispatchStore = p.DispatchStore // dispatcher wiring batch §4：可为 nil，遇到后走 ErrDispatchStoreUnset
 	return svc
 }
 
@@ -333,25 +341,62 @@ type ProvideWakeupDispatcherRunnerIn struct {
 	Logger  *slog.Logger `optional:"true"`
 }
 
-// ProvideWakeupDispatcherRunner (Phase 3.2) returns the wakeup dispatcher as
-// a Runner for injection into run.Group via group:"runners". The dispatcher
-// claims due wakeups via taskdag.Store, hands each off to
-// *service.LaunchAgent, and drives state transitions (MarkWakeupSent /
-// RetryWakeup / FailWakeup).
+// ProvideWakeupDispatcher 是 dispatcher-wiring batch §1 拆出的 *WakeupDispatcher
+// fx 单例 provider。同一个 *WakeupDispatcher 供两个消费点复用：
+//   - ProvideWakeupDispatcherRunner: 适配成 platformrunner.Runner 加入 group:"runners";
+//   - WireWakeupDispatcherRouter:     fx.Invoke 装上 NodeExecutorRouter。
 //
-// Wired with fx.Provide + group:"runners" from cmd/mcp-orch/fx.go so
-// run.Group manages the goroutine lifecycle. taskdag.Store is optional:
-// when missing the dispatcher is replaced by a no-op runner.
-func ProvideWakeupDispatcherRunner(in ProvideWakeupDispatcherRunnerIn) (platformrunner.Runner, error) {
+// taskdag.Store 为 nil 时返 nil + nil error，表示「standalone / 旧测试路径」，
+// 下游 Runner provider 会退化为 NoopRunner。
+//
+// ProvideWakeupDispatcher exposes a singleton *WakeupDispatcher so both the
+// runner adapter and the router-wiring invoke share the same instance.
+func ProvideWakeupDispatcher(in ProvideWakeupDispatcherRunnerIn) (*WakeupDispatcher, error) {
 	logger := in.Logger
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
 	if in.Store == nil {
 		logger.Info("orchestration: wakeup dispatcher disabled (no taskdag store provided)")
-		return platformrunner.NoopRunner{}, nil
+		return nil, nil
 	}
 	return NewWakeupDispatcher(in.Store, in.Service, logger, WakeupDispatcherConfig{})
+}
+
+// ProvideWakeupDispatcherRunner (Phase 3.2) returns the wakeup dispatcher as
+// a Runner for injection into run.Group via group:"runners". The dispatcher
+// claims due wakeups via taskdag.Store, hands each off to
+// *service.LaunchAgent, and drives state transitions (MarkWakeupSent /
+// RetryWakeup / FailWakeup).
+//
+// dispatcher-wiring batch §1 后重构：从「独立构造」转为「包装
+// ProvideWakeupDispatcher 返的单例」，依赖一致。
+//
+// Wired with fx.Provide + group:"runners" from cmd/mcp-orch/fx.go so
+// run.Group manages the goroutine lifecycle. *WakeupDispatcher is optional
+// (nil when taskdag.Store is absent), and this adapter falls back to a
+// no-op runner.
+func ProvideWakeupDispatcherRunner(dispatcher *WakeupDispatcher) platformrunner.Runner {
+	if dispatcher == nil {
+		return platformrunner.NoopRunner{}
+	}
+	return dispatcher
+}
+
+// WireWakeupDispatcherRouter 是 dispatcher-wiring batch §1 的接线点：fx.Invoke
+// 拿 *WakeupDispatcher + NodeExecutorRouter (两者都可为 nil) 后调 setter 装上
+// router。任一为 nil 都是合法路径：
+//   - dispatcher nil (standalone)         → no-op
+//   - router nil     (未提供 nodeexec providers) → dispatcher 退化到 legacy launcher
+//
+// WireWakeupDispatcherRouter is the fx.Invoke entry: with both *WakeupDispatcher
+// and *NodeExecutorRouter resolved (either may be nil), call WithNodeRouter so
+// dispatcher gains DAG-aware node_type routing in production wiring.
+func WireWakeupDispatcherRouter(dispatcher *WakeupDispatcher, router *NodeExecutorRouter) {
+	if dispatcher == nil {
+		return
+	}
+	dispatcher.WithNodeRouter(router)
 }
 
 func withEventTime(ctx context.Context, timestamp time.Time) context.Context {

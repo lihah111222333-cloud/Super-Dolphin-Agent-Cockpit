@@ -41,6 +41,9 @@ func TestParentFxStartup(t *testing.T) {
 		),
 		fx.Invoke(orchestration.RegisterTurnLifecycle),
 		fx.Invoke(orchestration.RegisterApprovalLifecycle),
+		// dispatcher-wiring batch §1 重构后：Runner provider 消费
+		// *WakeupDispatcher 单例，需同时提供 ProvideWakeupDispatcher。
+		fx.Provide(orchestration.ProvideWakeupDispatcher),
 		fx.Provide(fx.Annotate(orchestration.ProvideWakeupDispatcherRunner, fx.ResultTags(`group:"runners"`))),
 		fx.Provide(fx.Annotate(orchestration.ProvideWakeupReclaimerRunner, fx.ResultTags(`group:"runners"`))),
 	)
