@@ -213,11 +213,11 @@ f972627d  T0.8 doc-sync script
 
 ---
 
-## 3. 阶段 F 功能（33 行 / 32 待做 + 1 完成占位）
+## 3. 阶段 F 功能（34 行 / 33 待做 + 1 完成占位）
 
-> 26 个原计划 + 5 个从推迟项补位（F4.0 / F6.3 / F6.4 / F6.5 / F14.1） + 1 个从 T0 前置项补位（F1.5） + 1 个 S5.1 schema 返修补位（F2.0） = 33 表位；其中 F6.1 由 T1.2-mid 接手 snapshot 后留为已完成契约占位、不再计为待做，所以待做任务 = 32。
+> 26 个原计划 + 5 个从推迟项补位（F4.0 / F6.3 / F6.4 / F6.5 / F14.1） + 1 个从 T0 前置项补位（F1.5） + 1 个 S5.1 schema 返修补位（F2.0） + 1 个 H6 前置补位（F15.1） = 34 表位；其中 F6.1 由 T1.2-mid 接手 snapshot 后留为已完成契约占位、不再计为待做，所以待做任务 = 33。
 >
-> 推迟项拼装表：S2.4 → F6.3；T0.9/PE-1 → F6.4；PT-1 → F14.1；PT-2 → F4.0；T1.2-full → F6.5；**T0.7/PD-2 → F1.5**（spawning_thread_id 字段位，详 ADR-009）；**S5.1 schema 漏 kind 字段位 → F2.0**（详 ADR-007）。
+> 推迟项拼装表：S2.4 → F6.3；T0.9/PE-1 → F6.4；PT-1 → F14.1；PT-2 → F4.0；T1.2-full → F6.5；**T0.7/PD-2 → F1.5**（spawning_thread_id 字段位，详 ADR-009）；**S5.1 schema 漏 kind 字段位 → F2.0**（详 ADR-007）；**H6 dispatch metric 前置 → F15.1**（详 ADR-010）。
 
 | ID | 标题 | 主要触动文件 | 验收 | 依赖 | Size | 并行 |
 |---|---|---|---|---|---|---|
@@ -254,10 +254,16 @@ f972627d  T0.8 doc-sync script
 | **F12.1** | 智能重试 strategy dispatcher：`by_class` 分发（capability→escalate_model / validation→append_error / 关键节点→replan spawn planner） | `retry_strategy.go` 修改 | 集成测试：模拟 capability 失败 → 升级到 Opus 重跑；validation 失败 → schema 错误注入重跑；replan 策略 spawn planner agent | F1.4 | L | N |
 | **F13.1** | lifecycle hooks 真实触发（before/after/on_state_change/on_failure） | `node_executor_dispatch.go` 新建 | 集成测试：hooks 在正确时机被调 | S1.1, S10 | M | Y |
 | **F14.1**（工具升级） | `list_models` 改读 provider registry（PT-1） | `cmd/mcp-orch/tools/registry_tools.go` + 新 registry 模块 | 单测：增改 registry 配置即时反映；F8.2 UI 下拉接这里 | T4.1 | S | Y |
+| **F15.1**（H6 前置部分） | dispatch / retry metric：`dispatch_failed_total` / `retry_count_per_node` 计数器 + 节点重试 ≥ 3 次告警 webhook。H6 拆 H6a/H6b 后 H6a 部分前置到 F 阶段，避免「上层调度看不见下层执行」瞎区到 M3 后才补。详 ADR-010 | `cmd/mcp-orch/orchestration/dispatcher/metric.go`（新建） + `orchestration_metrics.go`（已有 fx provider 扩展） | 集成测试：模拟 5 节点 DAG 跑通 + 1 节点 retry=3 触发告警 | F1.4 / F6.3 | M | Y |
 
 **F 阶段验收**：M3 里程碑端到端用例通过：
 
 > 「点『AI 帮你设计流程』按钮 → 新 thread → 在 thread 里说『帮我设计每天 8 点的报告生成 DAG』 → AI 输出 ops，DAG 创建 → 用户在 UI 改一处 prompt → 点 Start → 第一个 run 跑通 → 第二天 8 点自动起第二个 run → run 历史里看到两次执行 → 一次故意触发 capability 类失败 → 智能重试升级到 Opus → 通过」
+
+**M3 验收硬阈值（详 ADR-010）**：
+- 用例必须覆盖 DAG ≥ 10 节点跑通
+- 用例必须覆盖单节点 result > 4KB（验证 ADR-006 size_cap + summarization 触发）
+- 用例必须能在 metric 端点读取 `dispatch_failed_total` / `retry_count_per_node` 计数（F15.1）
 
 **F 阶段提交粒度**：每个 F1-F13 子项独立 commit；同一 task 拆 .1/.2/.3 时，每子项独立 commit（按 prefer-small-commits）。约 25 个 commit。
 
@@ -272,9 +278,10 @@ f972627d  T0.8 doc-sync script
 | H3 | 大 DAG 性能（N>50 拆批） | 真有 50+ 节点 DAG | 低 |
 | H4 | `task_dag_revisions` 表（编辑历史/回滚 UI） | 用户想 undo | 低 |
 | H5 | multi-tenant / 权限模型 | 多人协作场景 | 低 |
-| H6 | 监控/告警（cron miss / run timeout） | 跑漏一天后 | 中 |
-| H7 | inputs.summarization 真实实现 | 长 DAG 上下文爆炸 | 中 |
-| H8 | token budget enforcement | 出现 token 失控成本 | 中 |
+| H6a | ~~dispatch / retry metric~~ → **F15.1 前置**（详 ADR-010） | 已前置，本行作历史指针 | — |
+| H6b | 监控/告警（cron miss / run timeout） | 跑漏一天后 | 中 |
+| H7 | inputs.summarization 真实实现（**硬阈值见 ADR-010**：单节点 result > 4KB 或 DAG ≥ 10 节点必触发） | 长 DAG 上下文爆炸 | 中 |
+| H8 | token budget enforcement（**硬阈值见 ADR-010**：单 run 累计 token > 100K 告警，× 2 强制降级 sonnet） | 出现 token 失控成本 | 中 |
 | H9 | task_post_message 原语真实落地 | 节点对话 sharedfile 不够用 | 低 |
 | H10 | waiting_human HITL 完整流程 | 出现需要人审决策的场景 | 中 |
 
@@ -528,6 +535,13 @@ grep -r "FailureClass\|OnFailureStrategy" cmd/ 2>/dev/null | wc -l  # 目标 ≥
 - audit 70+ tool 的 `additionalProperties` 与现有字段宽容度兼容性；
 - 评估依赖（`xeipuuv/gojsonschema` 或 `santhosh-tekuri/jsonschema/v5`）的 license / size / 维护活跃度；
 - 评估 wire breaking 影响（旧调用方传额外字段是否被默拒）。
+
+### 返修轮 — 2026-05-11 登记（问题 4 + 6：token budget 硬阈值 + 观测前置）
+
+源自第二轮返修审查（用户提出 6 个问题，4 个未解决）：
+
+- **问题 4：H7/H8 没硬阈值** ✅ **已立 ADR-010 + M3 验收锚点**：DAG ≥ 10 节点 + 单节点 result > 4KB + 单 run 累计 token > 100K（占位） 三档硬阈值，M3 验收用例必须覆盖。实装仍留 H 阶段。
+- **问题 6：观测/告警全在 H 阶段** ✅ **H6 拆 H6a/H6b**：H6a（dispatch_failed_total / retry_count_per_node 计数 + retry≥3 告警）前置到 F15.1；H6b（cron miss / run timeout）留 H 阶段。避免「上层调度看不见下层执行」瞎区拖到 M3 后才补。
 
 ---
 
