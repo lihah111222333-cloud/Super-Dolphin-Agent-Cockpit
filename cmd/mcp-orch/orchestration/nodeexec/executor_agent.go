@@ -9,48 +9,83 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// AgentExecutor —— DAG 改造蓝图 v2 §1.1（F1.1 真实实现）。
+// AgentExecutor —— DAG 改造蓝图 v2 §1.1（F1.1 真实实现）+ F1.5 写回。
 //
 // 职责：把 node_type=agent 节点的 config.exec 解码成 typed AgentExecConfig，
-// 通过注入的 AgentLauncher（生产实现 = service.LaunchAgent）拉起子 agent；
-// 把 launcher 返回的 error 映射到 NodeOutcome.FailureClass，让上层 dispatcher
-// （F1.4 智能重试）能按 by_class 分发策略。
+// 通过注入的 AgentLauncher（生产实现 = service.LaunchAgentSnapshot 或 wrapper）
+// 拉起子 agent；把 launcher 返回的 error 映射到 NodeOutcome.FailureClass，
+// 让上层 dispatcher（F1.4 智能重试）能按 by_class 分发策略。
+//
+// F1.5 新增：launch 成功 + 拿到 child thread_id 后，调注入的
+// NodeSpawnRecorder 把 thread_id 写回 task_dag_nodes.spawning_thread_id
+// （重试时旧值进 task_dag_runs.events 形成历史链）。recorder 为 nil 时降级
+// 为「仅 launch、不写回」的 F1.1 行为，便于既有测试与早期 wiring 渐进迁移。
 //
 // AgentExecutor wires the agent execution pathway: decode node.config.exec
-// into a typed AgentExecConfig, ask an AgentLauncher to start a sub-agent, and
-// translate any launch error into a classified NodeOutcome so the smart-retry
-// dispatcher (F1.4) can dispatch by_class strategies. Wrapped inputs (F1.2) and
-// outputs persistence (F1.3) are deliberately stubbed until those tasks land.
+// into a typed AgentExecConfig, ask an AgentLauncher to start a sub-agent,
+// translate launch errors into classified NodeOutcomes so the smart-retry
+// dispatcher (F1.4) can dispatch by_class strategies, and — new in F1.5 —
+// once a child thread_id is returned, hand it to a NodeSpawnRecorder so
+// task_dag_nodes.spawning_thread_id is written back (ADR-009). Passing a nil
+// recorder downgrades to the F1.1 behaviour (launch-only, no write-back) so
+// pre-F1.5 tests and wiring keep compiling without changes elsewhere.
 //
 // 与 wakeup_dispatcher 的边界：本 task 落地 NodeExecutor 抽象，dispatcher 当前
-// 仍可直接调 service.LaunchAgent（向后兼容）。F2/F3 才统一切到 NodeExecutor。
+// 仍可直接调 service.LaunchAgent（向后兼容）。F2/F3 才统一切到 NodeExecutor，
+// 届时 dispatcher 路径也会自动走 F1.5 写回。
 type AgentExecutor struct {
 	launcher AgentLauncher
+	recorder NodeSpawnRecorder
 }
 
 // AgentLauncher 是 AgentExecutor 拉起子 agent 的最小接口面。
-// 生产实现是 *orchestration.service（其方法 LaunchAgent 形状一致）；
-// 测试注入 stub launcher，便于断言入参与注入错误。
+//
+// F1.5 签名升级：返回值 `(threadID, error)` —— 成功时 threadID 是 child agent
+// 的 thread_id（用于回写 task_dag_nodes.spawning_thread_id），空串表示 launcher
+// 未能拿到 thread_id（recorder 会 fail-fast 拒写，避免错误覆盖之前的值）。
+// 生产实现可以适配 service.LaunchAgentSnapshot —— 其 (AgentSnapshot, error)
+// 返回值天然包含 ThreadID 字段。
 //
 // 接口签名刻意复用 contract.LaunchRequest（orchestration / dispatcher 同源），
 // 避免再造一份 launch 入参类型。
 //
 // AgentLauncher is the narrow surface AgentExecutor calls to start a child
-// agent. Production wiring binds it to *service.LaunchAgent; tests inject a
-// stub that records the request and returns a chosen error.
+// agent. F1.5 widened the return to `(threadID, error)`: on success threadID
+// carries the child's thread id (consumed by NodeSpawnRecorder to write back
+// task_dag_nodes.spawning_thread_id); an empty string signals the launcher
+// could not surface a thread id (the recorder fails fast to avoid erasing a
+// previously recorded one). Production wiring adapts
+// service.LaunchAgentSnapshot whose (AgentSnapshot, error) result naturally
+// carries ThreadID.
 type AgentLauncher interface {
-	LaunchAgent(ctx context.Context, req contract.LaunchRequest) error
+	LaunchAgent(ctx context.Context, req contract.LaunchRequest) (threadID string, err error)
+}
+
+// NodeSpawnRecorder 是 F1.5 / ADR-009 引入的 thread_id 写回端口。
+// 生产实现是 store/taskdag.NodeSpawnRecorderStore —— *store 类型同时满足该
+// 接口；测试注入 stub recorder 断言写回入参与重试 events 是否被 append。
+//
+// NodeSpawnRecorder is the F1.5 / ADR-009 write-back port. Production wiring
+// binds it to store/taskdag.NodeSpawnRecorderStore (*store satisfies it);
+// tests inject a stub that captures the inputs and returns an injected error.
+type NodeSpawnRecorder interface {
+	RecordNodeSpawn(ctx context.Context, dagKey, nodeKey, threadID string) error
 }
 
 // NewAgentExecutor 构造一个 AgentExecutor。launcher 为 nil 时仍返回非 nil
 // executor —— Execute 在 launch 阶段把它归为 validation 失败（让 dispatcher
 // 走 by_class[validation] 策略，不至于直接 panic）。
 //
+// recorder 为 nil 时 Execute 跳过 F1.5 写回（仅 launch），保留 F1.1 旧行为；
+// 这是有意的渐进 wiring，让既有调用方不必一次性升级。
+//
 // NewAgentExecutor returns an executor; passing a nil launcher does not panic
-// — Execute classifies it as a validation failure so the dispatcher can decide
-// how to surface the misconfiguration instead of crashing the run loop.
-func NewAgentExecutor(launcher AgentLauncher) *AgentExecutor {
-	return &AgentExecutor{launcher: launcher}
+// — Execute classifies it as a validation failure so the dispatcher can
+// decide how to surface the misconfiguration instead of crashing the run
+// loop. A nil recorder simply skips the F1.5 write-back, preserving F1.1
+// behaviour for callers that have not yet plumbed the store in.
+func NewAgentExecutor(launcher AgentLauncher, recorder NodeSpawnRecorder) *AgentExecutor {
+	return &AgentExecutor{launcher: launcher, recorder: recorder}
 }
 
 // Execute 解码 node.config.exec → 调 launcher.LaunchAgent → 包装成 NodeOutcome。
@@ -112,14 +147,43 @@ func (e *AgentExecutor) Execute(ctx context.Context, node Node, runCtx RunContex
 
 	// 5. 构造 LaunchRequest 并调 launcher。
 	req := buildLaunchRequestFromAgentConfig(cfg, node, runCtx)
-	launchErr := e.launcher.LaunchAgent(ctx, req)
+	threadID, launchErr := e.launcher.LaunchAgent(ctx, req)
 	if launchErr == nil {
-		// 6. F1.3 留位：成功后 outputs.to_sharedfile / to_node_result 在 F1.3
-		//    实现；此处 Result 留空、OutputsPath 概念暂未引入 NodeOutcome。
-		//    F1.3 placeholder: persist outputs into sharedfile / node result.
-		return NodeOutcome{
-			Status: NodeStatusDone,
-		}, nil
+		// 6. F1.5：launch 成功后把 child thread_id 写回 task_dag_nodes
+		//    .spawning_thread_id。recorder 为 nil 或 threadID 空则跳过（详
+		//    NewAgentExecutor 注释 + ADR-009 §3）。写回失败仅记录到
+		//    NodeOutcome.ErrorSummary，不把 launch 翻成 failed —— launch 已经
+		//    成功，spawn 历史是辅助审计；过强语义会让一次 DB 抖动把 child
+		//    agent 误判为 failed。F1.4 dispatcher 仍然可以从 ErrorSummary
+		//    日志层面感知 writeback 失败。
+		//
+		//    F1.5: after a successful launch, hand the child thread_id to the
+		//    recorder so task_dag_nodes.spawning_thread_id (ADR-009) is
+		//    written back. The write-back is an audit aid; failures are
+		//    surfaced via NodeOutcome.ErrorSummary but never demote the node
+		//    to failed — the child has launched successfully and demoting on a
+		//    transient DB blip would create a phantom-failure cascade.
+		outcome := NodeOutcome{Status: NodeStatusDone}
+		if e.recorder != nil && strings.TrimSpace(threadID) != "" {
+			dagKey := strings.TrimSpace(runCtx.DagKey)
+			nodeKey := strings.TrimSpace(runCtx.NodeKey)
+			if dagKey == "" {
+				dagKey = strings.TrimSpace(node.DagKey)
+			}
+			if nodeKey == "" {
+				nodeKey = strings.TrimSpace(node.NodeKey)
+			}
+			if dagKey != "" && nodeKey != "" {
+				if recErr := e.recorder.RecordNodeSpawn(ctx, dagKey, nodeKey, threadID); recErr != nil {
+					outcome.ErrorSummary = truncateErrSummary(
+						fmt.Sprintf("spawning_thread_id write-back failed: %v", recErr),
+					)
+				}
+			}
+		}
+		// F1.3 留位：outputs.to_sharedfile / to_node_result 在 F1.3 实现。
+		// F1.3 placeholder: persist outputs into sharedfile / node result.
+		return outcome, nil
 	}
 
 	// 7. 失败 → 分类。F1.4 智能重试 dispatcher 据此查 cfg.Exec.OnFailure.ByClass。
