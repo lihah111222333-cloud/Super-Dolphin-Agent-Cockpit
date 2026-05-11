@@ -392,24 +392,24 @@ func dagSummaryDTO(item taskdag.DAG) DAGSummary {
 
 func dagNodeDTO(item taskdag.Node) DAGNode {
 	return DAGNode{
-		ID:               item.ID,
-		DagKey:           item.DagKey,
-		NodeKey:          item.NodeKey,
-		Title:            item.Title,
-		NodeType:         item.NodeType,
-		AssignedTo:       item.AssignedTo,
-		DependsOn:        decodeDependsOn(item.DependsOn),
-		Status:           item.Status,
-		CommandRef:       item.CommandRef,
-		Config:           append(json.RawMessage(nil), item.Config...),
-		Result:           append(json.RawMessage(nil), item.Result...),
-		StartedAt:        shared.CloneTime(item.StartedAt),
-		FinishedAt:       shared.CloneTime(item.FinishedAt),
-		CreatedAt:        item.CreatedAt,
-		UpdatedAt:        item.UpdatedAt,
-		ActiveTurnID:     cloneString(item.ActiveTurnID),
-		ActiveWakeupID:   cloneInt64(item.ActiveWakeupID),
-		LastEventAt:      shared.CloneTime(item.LastEventAt),
+		ID:             item.ID,
+		DagKey:         item.DagKey,
+		NodeKey:        item.NodeKey,
+		Title:          item.Title,
+		NodeType:       item.NodeType,
+		AssignedTo:     item.AssignedTo,
+		DependsOn:      decodeDependsOn(item.DependsOn),
+		Status:         item.Status,
+		CommandRef:     item.CommandRef,
+		Config:         append(json.RawMessage(nil), item.Config...),
+		Result:         append(json.RawMessage(nil), item.Result...),
+		StartedAt:      shared.CloneTime(item.StartedAt),
+		FinishedAt:     shared.CloneTime(item.FinishedAt),
+		CreatedAt:      item.CreatedAt,
+		UpdatedAt:      item.UpdatedAt,
+		ActiveTurnID:   cloneString(item.ActiveTurnID),
+		ActiveWakeupID: cloneInt64(item.ActiveWakeupID),
+		LastEventAt:    shared.CloneTime(item.LastEventAt),
 		// F1.5 / ADR-009: spawning_thread_id 透出给 task_get_dag / DAG detail
 		// 调用方（UI 拼「节点行 → 子 agent thread」跳转链接）。
 		SpawningThreadID: cloneString(item.SpawningThreadID),
@@ -802,11 +802,13 @@ func (s *service) ApplyOps(ctx context.Context, req contract.ApplyOpsRequest) (c
 	return s.applyTypedOps(ctx, req.DagKey, req.BaseVersion, ops)
 }
 
-// applyTypedOps 是 4 个 op_kind 业务实现的容器（F4.1-F4.4）。F4.1 只接上 add_node；
-// 其余 op_kind 被 fail-fast 拒为 ErrLifecycleNotImplemented。空 ops 返 noop。
+// applyTypedOps 是 4 个 op_kind 业务实现的容器（F4.1-F4.4）。F4.1 接 add_node、
+// F4.2 接 update_node；其余 op_kind 被 fail-fast 拒为 ErrLifecycleNotImplemented。
+// 空 ops 返 noop。
 //
-// applyTypedOps dispatches typed ops. F4.1 wires add_node only; other kinds
-// fail-fast to ErrLifecycleNotImplemented. Empty ops is a valid noop.
+// applyTypedOps dispatches typed ops. F4.1 wires add_node, F4.2 wires
+// update_node; other kinds fail-fast to ErrLifecycleNotImplemented. Empty
+// ops is a valid noop.
 func (s *service) applyTypedOps(ctx context.Context, dagKey string, baseVersion int64, ops nodeexec.Ops) (contract.ApplyOpsResponse, error) {
 	if s == nil || s.dagStore == nil {
 		return contract.ApplyOpsResponse{}, ErrApplyOpsStoreNotConfigured
@@ -815,7 +817,8 @@ func (s *service) applyTypedOps(ctx context.Context, dagKey string, baseVersion 
 	if dagKey == "" {
 		return contract.ApplyOpsResponse{}, fmt.Errorf("%w: dag_key required", ErrApplyOpsInvalid)
 	}
-	if err := ensureAllAddNodeOps(ops); err != nil {
+	parts, err := partitionOps(ops)
+	if err != nil {
 		return contract.ApplyOpsResponse{}, err
 	}
 	runner, ok := s.dagStore.(taskdag.DAGOpsTxRunner)
@@ -824,7 +827,7 @@ func (s *service) applyTypedOps(ctx context.Context, dagKey string, baseVersion 
 	}
 	var resp contract.ApplyOpsResponse
 	txErr := runner.WithDAGOpsTx(ctx, func(tx taskdag.DAGOpsStore) error {
-		r, err := runAddNodeBatch(ctx, tx, dagKey, baseVersion, ops)
+		r, err := runOpsBatch(ctx, tx, dagKey, baseVersion, parts)
 		if err != nil {
 			return err
 		}
@@ -837,6 +840,9 @@ func (s *service) applyTypedOps(ctx context.Context, dagKey string, baseVersion 
 	return resp, nil
 }
 
-// ensureAllAddNodeOps / runAddNodeBatch / existingNodesForPlan /
-// persistAddNodeSpecs 均位于 dag_query.go — 它们是 ApplyOps add_node 业务的
-// helper，拆出是为了让 dag.go 行数不超守卫上限。在同包下拆不破可见性。
+// partitionOps / runOpsBatch / planOpsBatch / persistOpsBatch /
+// existingNodesForPlan / existingFullForPlan / mergeAdjacency /
+// persistAddNodeSpecs / persistUpdateChanges / indexExistingByKey /
+// mergeNodePatch / isEmptyRawJSON 均位于 dag_query.go — 它们是 ApplyOps
+// add/update 业务的 helper，拆出是为了让 dag.go 行数不超守卫上限。在同包
+// 下拆不破可见性。
