@@ -57,6 +57,7 @@ func run() error {
 			},
 			newNoopSessionCleaner,
 			newNoopTurnStarter,
+			newModelRegistry,
 			buildBootstrapConfig,
 			bootstrap.New,
 			newRegistry,

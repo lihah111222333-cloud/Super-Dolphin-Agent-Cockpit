@@ -57,10 +57,45 @@ func TestHandleListModels_UnknownProviderReturnsEmpty(t *testing.T) {
 	}
 }
 
+func TestHandleListModels_UsesInjectedRegistry(t *testing.T) {
+	registry := stubModelRegistry{providers: []ProviderModels{
+		{Provider: "local", Models: []string{"dev-model"}},
+	}}
+	h := HandleListModels(WithModelRegistry(registry))
+	out, err := h(context.Background(), json.RawMessage(`{"provider":"local"}`))
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	res := out.(ListModelsResult)
+	if len(res.Providers) != 1 {
+		t.Fatalf("Providers count = %d, want 1", len(res.Providers))
+	}
+	if res.Providers[0].Provider != "local" || res.Providers[0].Models[0] != "dev-model" {
+		t.Fatalf("injected provider = %+v", res.Providers[0])
+	}
+}
+
 func TestHandleSharedFileList_NilStoreError(t *testing.T) {
 	h := HandleSharedFileList(nil)
 	_, err := h(context.Background(), json.RawMessage(`{}`))
 	if err == nil || err.Error() != "shared file store is not configured" {
 		t.Fatalf("expected nil store error, got %v", err)
 	}
+}
+
+type stubModelRegistry struct {
+	providers []ProviderModels
+}
+
+func (r stubModelRegistry) ListProviders() []ProviderModels {
+	return append([]ProviderModels(nil), r.providers...)
+}
+
+func (r stubModelRegistry) LookupProvider(name string) (ProviderModels, bool) {
+	for _, provider := range r.providers {
+		if provider.Provider == name {
+			return provider, true
+		}
+	}
+	return ProviderModels{}, false
 }
