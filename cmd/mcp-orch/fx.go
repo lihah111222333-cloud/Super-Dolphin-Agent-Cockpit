@@ -160,6 +160,9 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 		fx.Provide(
 			newAutomationCommandGetter,
 			nodeexec.NewShellCommandRunner,
+			// AutomationCommandRunner 接口适配：ShellCommandRunner 是 *T 类型，
+			// NewAutomationExecutor 要要 AutomationCommandRunner 接口，fx 不会自动推断。
+			func(r *nodeexec.ShellCommandRunner) nodeexec.AutomationCommandRunner { return r },
 			nodeexec.NewAutomationExecutor,
 			// dispatcher-wiring batch §1：AgentExecutor / NodeExecutorRouter
 			// fx singletons + serviceAgentLauncher adapter。这些 provider 让 W1/W2 以来

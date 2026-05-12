@@ -17,8 +17,20 @@ var Module = fx.Module("store.taskdag",
 		// ProvideDispatchNodeStore 报同一 *store 作为 DispatchNodeStore (task_dispatch_node)。
 		// 编译期同样由 store_compile_assertions_test.go 守住。
 		ProvideDispatchNodeStore,
+		// ProvideNodeSpawnRecorderStore 报同一 *store 作为 NodeSpawnRecorderStore (F1.5)。
+		// W1 fx wiring 依赖该 narrow port 构造 NodeExecutorRouter。编译期由
+		// store_compile_assertions_test.go 中 var _ NodeSpawnRecorderStore = (*store)(nil) 守住。
+		ProvideNodeSpawnRecorderStore,
 	),
 )
+
+// ProvideNodeSpawnRecorderStore 从聚合 Store type-assert 出 F1.5 / ADR-009
+// nodeexec.AgentExecutor 写回 spawning_thread_id 所需的窄端口 NodeSpawnRecorderStore。
+//
+// ProvideNodeSpawnRecorderStore narrows the aggregate Store to NodeSpawnRecorderStore
+// (F1.5 / ADR-009, consumed by orchestration.NewStoreNodeSpawnRecorder). Safety is
+// statically guarded by store_compile_assertions_test.go.
+func ProvideNodeSpawnRecorderStore(store Store) NodeSpawnRecorderStore { return store.(NodeSpawnRecorderStore) }
 
 func ProvideOrchestrationStore(store Store) OrchestrationStore { return store }
 
