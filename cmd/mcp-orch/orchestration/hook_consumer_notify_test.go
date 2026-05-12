@@ -47,7 +47,7 @@ func (r *recordingNotifyTap) OnThreadStopped(_ context.Context, ev threaddto.Sto
 func hookConsumerWithTap(t *testing.T, tap NotifyTap) *hookConsumer {
 	t.Helper()
 	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
-	return newHookConsumerInternal(svc, silentLogger(), tap)
+return newHookConsumerInternal(svc, silentLogger(), tap, nil, nil)
 }
 
 // TestHookConsumerFiresTapOnTurnCompleted verifies the post-handler
