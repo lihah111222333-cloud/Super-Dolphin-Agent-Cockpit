@@ -190,7 +190,7 @@ Use this when a mechanical step (running tests / calling an API) should be follo
 - Use semantic snake_case for node names (`test_run`, not `node1`); write human-readable titles.
 - Always end the final presentation with "Would you like any adjustments?" so the user has a clear handoff point.$prompt$,
     '{}'::jsonb,
-    '["AI 设计流程","帮我设计流程","设计 DAG","设计 dag","设计流程","流程编排","编排流程","设计任务图","DAG 设计","dag 设计","帮我编排","自动化流程","每天定时","每天 8 点","cron","定时任务","定时跑","报告流程","流水线设计","pipeline 设计","工作流","workflow 设计","设计工作流"]'::jsonb,
+    '["AI 设计流程","帮我设计流程","设计 DAG","设计 dag","设计流程","流程编排","编排流程","设计任务图","DAG 设计","dag 设计","帮我编排","自动化流程","每天定时","每天 8 点","cron","定时任务","定时跑","报告流程","流水线设计","pipeline 设计","工作流","workflow 设计","设计工作流","AI design flow","design flow","design DAG","flow design","design workflow","workflow design","schedule task","scheduled task","cron expression","daily report","report flow","pipeline design","flow orchestration","automation flow","daily at 8"]'::jsonb,
     'AI Flow Designer (English) — turns natural-language workflow requests into executable DAGs, discovers resources with list_models / prompt_list / command_list / shared_file_list, then persists the design with task_create_dag / task_dag_apply_ops. Seeded by migration 0085 (F7.2).',
     true,
     'system.seed',
