@@ -20,6 +20,7 @@ require (
 	golang.org/x/sync v0.19.0
 	golang.org/x/sys v0.40.0
 	golang.org/x/text v0.33.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -77,7 +78,6 @@ require (
 	golang.org/x/net v0.49.0 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
 replace github.com/kelindar/event => ./third_party/kelindar-event
