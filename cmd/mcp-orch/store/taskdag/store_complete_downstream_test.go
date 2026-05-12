@@ -179,7 +179,8 @@ func TestCompleteNodeAndScheduleDownstream_SecondCompleteOnDoneNodeIsNoRowsError
 	t.Parallel()
 
 	// Calling CompleteNode twice on the same upstream node hits the SQL
-	// status-IN ('running','awaiting_verify') fence on the second call.
+	// status-IN ('ready','running','awaiting_verify') fence on the second
+	// call (ADR-017 v1.2 §2.3 扩后仍不含 'done')。
 	// The expected behaviour is the underlying not-found error surfaces;
 	// the tx is short-circuited so no downstream scheduling runs and no
 	// duplicate wakeup row is created.
