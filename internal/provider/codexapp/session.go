@@ -121,14 +121,15 @@ func newSessionWithOptions(
 	// P22 P1c: session ctx derives from transportCtx so shutdown of the
 	// transport (or the caller's scope) cascades into session.Close path.
 	ctx, cancel := context.WithCancel(transportCtx)
+	agentLog := pkglogger.NewAgentLogger(agentID)
 	s := &session{
 		agentID:            strings.TrimSpace(agentID),
 		transport:          t,
 		manager:            manager,
 		caps:               cloneCaps(codexCapabilities),
-		recovery:           &recoveryManager{transport: t, logger: logger, maxRetry: 3},
-		history:            &rolloutReader{logger: logger, transport: t},
-		logger:             logger,
+		recovery:           &recoveryManager{transport: t, logger: agentLog, maxRetry: 3},
+		history:            &rolloutReader{logger: agentLog, transport: t},
+		logger:             agentLog,
 		dispatcher:         dispatcher,
 		approvals:          approvals,
 		ctx:                ctx,
@@ -141,7 +142,7 @@ func newSessionWithOptions(
 	s.noteReadActivity()
 	// P1c: newSession only builds the runtime handle. Start() is an explicit
 	// production call site inside driver.StartSession / driver.ResumeSession.
-	s.runtime = newSessionRuntime(s, logger)
+	s.runtime = newSessionRuntime(s, agentLog)
 	return s, nil
 }
 
