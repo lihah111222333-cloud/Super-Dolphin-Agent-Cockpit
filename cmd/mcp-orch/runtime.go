@@ -18,6 +18,7 @@ import (
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools/modelregistry"
 	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
@@ -147,6 +148,22 @@ type newRegistryParams struct {
 	Prompt        promptstore.Store
 	Command       commandcardstore.Store
 	SharedFile    sharedfilestore.Store
+	ModelRegistry modelregistry.Registry
+}
+
+func newModelRegistry(logger *slog.Logger) modelregistry.Registry {
+	registry, err := modelregistry.NewDefaultRegistry(modelregistry.WithLogger(logger))
+	if err == nil {
+		return registry
+	}
+	if logger == nil {
+		logger = pkglogger.Get()
+	}
+	logger.Warn("model registry load failed; falling back to static registry",
+		slog.String("path", modelregistry.DefaultRegistryPath()),
+		slog.String("error", err.Error()),
+	)
+	return modelregistry.NewStaticRegistry(tools.FallbackProviderModels())
 }
 
 func newRegistry(p newRegistryParams) tools.Registry {
@@ -156,6 +173,7 @@ func newRegistry(p newRegistryParams) tools.Registry {
 		Prompt:        p.Prompt,
 		CommandCard:   p.Command,
 		SharedFile:    p.SharedFile,
+		ModelRegistry: p.ModelRegistry,
 	})
 }
 
