@@ -230,6 +230,15 @@ func (t *turnTracker) Complete(localID string, success bool, errMsg string) {
 		turn.handle = nil
 		turn.lastError = strings.TrimSpace(errMsg)
 
+		// Already in a terminal state (e.g. interrupted): just update
+		// metadata without attempting a state machine transition. This
+		// handles the race where Codex sends turn/completed after the
+		// local tracker already moved to "interrupted".
+		if turn.isTerminal() {
+			turn.updatedAt = t.store.Tick()
+			return
+		}
+
 		trigger := TriggerFail
 		if success {
 			trigger = TriggerComplete
