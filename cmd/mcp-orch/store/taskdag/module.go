@@ -21,6 +21,11 @@ var Module = fx.Module("store.taskdag",
 		// W1 fx wiring 依赖该 narrow port 构造 NodeExecutorRouter。编译期由
 		// store_compile_assertions_test.go 中 var _ NodeSpawnRecorderStore = (*store)(nil) 守住。
 		ProvideNodeSpawnRecorderStore,
+		// ProvideNodeSpawningThreadLookup 报同一 *store 作为 NodeSpawningThreadLookup（ADR-017 §2.2），
+		// DAG turn.completed subscriber + hookConsumer thread.stopped fallback 复用
+		// 该窄端口反查 spawning_thread_id。编译期由 store_compile_assertions_test.go
+		// 中 var _ NodeSpawningThreadLookup = (*store)(nil) 守住。
+		ProvideNodeSpawningThreadLookup,
 	),
 )
 
@@ -31,6 +36,14 @@ var Module = fx.Module("store.taskdag",
 // (F1.5 / ADR-009, consumed by orchestration.NewStoreNodeSpawnRecorder). Safety is
 // statically guarded by store_compile_assertions_test.go.
 func ProvideNodeSpawnRecorderStore(store Store) NodeSpawnRecorderStore { return store.(NodeSpawnRecorderStore) }
+
+// ProvideNodeSpawningThreadLookup narrows the aggregate Store to
+// NodeSpawningThreadLookup (consumed by the DAG turn.completed subscriber /
+// hookConsumer thread.stopped DAG fallback). Safety is statically guarded by
+// store_compile_assertions_test.go.
+func ProvideNodeSpawningThreadLookup(store Store) NodeSpawningThreadLookup {
+	return store.(NodeSpawningThreadLookup)
+}
 
 func ProvideOrchestrationStore(store Store) OrchestrationStore { return store }
 
