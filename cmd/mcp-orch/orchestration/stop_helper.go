@@ -121,57 +121,60 @@ func StopSpawnedAgent(
 	threadID = strings.TrimSpace(threadID)
 	logger := pkglogger.Get()
 
+	agentID, preflight, preflightErr := resolveAgentIDForStop(ctx, logger, threads, svc, threadID)
+	if preflight != "" {
+		return preflight, preflightErr
+	}
+
+	stopErr := svc.StopAgent(ctx, agentID)
+	result := classifyStopError(stopErr)
+	stopSpawnedAgentMetrics.Inc(result)
+	return finalizeStopOutcome(logger, threadID, agentID, result, stopErr)
+}
+
+// resolveAgentIDForStop runs the §2.2 reverse-lookup path. Returns the
+// resolved agentID (when non-empty), the short-circuit StopResult (when
+// non-empty), and the error to surface to the caller. Exactly one of
+// agentID / result is non-empty.
+func resolveAgentIDForStop(
+	ctx context.Context,
+	logger logHandle,
+	threads AgentThreadLookup,
+	svc StopAgentService,
+	threadID string,
+) (string, StopResult, error) {
 	if threadID == "" {
 		stopSpawnedAgentMetrics.Inc(StopResultSkippedNoThreadID)
-		return StopResultSkippedNoThreadID, nil
+		return "", StopResultSkippedNoThreadID, nil
 	}
 	if threads == nil {
-		// No store wired — treat as lookup failure so operators
-		// notice via the metric. Subscriber should have wired one.
 		stopSpawnedAgentMetrics.Inc(StopResultSkippedLookupFailed)
-		logger.Warn(
-			"stop_helper: AgentThreadLookup is nil",
-			"thread_id", threadID,
-		)
-		return StopResultSkippedLookupFailed, errors.New("stop_helper: AgentThreadLookup is nil")
+		logger.Warn("stop_helper: AgentThreadLookup is nil", "thread_id", threadID)
+		return "", StopResultSkippedLookupFailed, errors.New("stop_helper: AgentThreadLookup is nil")
 	}
 	if svc == nil {
 		stopSpawnedAgentMetrics.Inc(StopResultSkippedLookupFailed)
-		logger.Warn(
-			"stop_helper: StopAgentService is nil",
-			"thread_id", threadID,
-		)
-		return StopResultSkippedLookupFailed, errors.New("stop_helper: StopAgentService is nil")
+		logger.Warn("stop_helper: StopAgentService is nil", "thread_id", threadID)
+		return "", StopResultSkippedLookupFailed, errors.New("stop_helper: StopAgentService is nil")
 	}
 
 	thread, err := threads.GetByThreadID(ctx, threadID)
-	switch {
-	case err == nil:
-		// fallthrough to nil-check
-	case isThreadNotFound(err):
-		stopSpawnedAgentMetrics.Inc(StopResultSkippedNoThreadID)
-		logger.Warn(
-			"stop_helper: thread not found during reverse lookup",
-			"thread_id", threadID,
-			"err", err,
-		)
-		return StopResultSkippedNoThreadID, nil
-	default:
+	if err != nil {
+		if isThreadNotFound(err) {
+			stopSpawnedAgentMetrics.Inc(StopResultSkippedNoThreadID)
+			logger.Warn("stop_helper: thread not found during reverse lookup",
+				"thread_id", threadID, "err", err)
+			return "", StopResultSkippedNoThreadID, nil
+		}
 		stopSpawnedAgentMetrics.Inc(StopResultSkippedLookupFailed)
-		logger.Warn(
-			"stop_helper: thread lookup failed",
-			"thread_id", threadID,
-			"err", err,
-		)
-		return StopResultSkippedLookupFailed, err
+		logger.Warn("stop_helper: thread lookup failed",
+			"thread_id", threadID, "err", err)
+		return "", StopResultSkippedLookupFailed, err
 	}
 	if thread == nil {
 		stopSpawnedAgentMetrics.Inc(StopResultSkippedNoThreadID)
-		logger.Warn(
-			"stop_helper: thread nil after lookup",
-			"thread_id", threadID,
-		)
-		return StopResultSkippedNoThreadID, nil
+		logger.Warn("stop_helper: thread nil after lookup", "thread_id", threadID)
+		return "", StopResultSkippedNoThreadID, nil
 	}
 	agentID := strings.TrimSpace(thread.AgentID)
 	if agentID == "" {
@@ -180,13 +183,20 @@ func StopSpawnedAgent(
 			"stop_helper: persisted thread has empty AgentID (binding missing or archived)",
 			"thread_id", threadID,
 		)
-		return StopResultSkippedBindingMissing, nil
+		return "", StopResultSkippedBindingMissing, nil
 	}
+	return agentID, "", nil
+}
 
-	stopErr := svc.StopAgent(ctx, agentID)
-	result := classifyStopError(stopErr)
-	stopSpawnedAgentMetrics.Inc(result)
-
+// finalizeStopOutcome handles the §2.4 post-stop branch: log + return.
+// Idempotent results (success / skipped_already_*) drop the error;
+// real failures propagate the underlying error for caller logging.
+func finalizeStopOutcome(
+	logger logHandle,
+	threadID, agentID string,
+	result StopResult,
+	stopErr error,
+) (StopResult, error) {
 	switch result {
 	case StopResultSuccess:
 		return result, nil
@@ -208,6 +218,13 @@ func StopSpawnedAgent(
 		)
 		return result, stopErr
 	}
+}
+
+// logHandle is the subset of *slog.Logger used by stop_helper.go. Keeping
+// it narrow lets callers pass either pkglogger.Get() or any test stub.
+type logHandle interface {
+	Info(msg string, args ...any)
+	Warn(msg string, args ...any)
 }
 
 // isThreadNotFound mirrors archive.go:archiveLookupNotFound — the two
