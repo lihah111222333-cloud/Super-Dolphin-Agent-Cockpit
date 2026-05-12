@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
 )
 
 // AgentExecutor —— DAG 改造蓝图 v2 §1.1（F1.1 真实实现）+ F1.5 写回。
@@ -351,23 +353,45 @@ func resolveSpawnKeys(node Node, runCtx RunContext) (string, string) {
 // 两条 launch 入口（dispatcher vs NodeExecutor）行为漂移。
 //
 // 关键映射：
+//   - AgentID 使用项目统一 agent_{monotonicNumericTimestamp} 生成器；
+//   - Name 取 node.Title，去掉控制符并限制长度，供日志/UI 展示；
 //   - AgentKey/Language 直填同名字段；
 //   - Provider/Model 暂留位（contract.LaunchRequest 当前结构不含 provider，由
 //     service.LaunchAgent 内部按 agent_key/默认 provider 解析）；
 //   - FirstTurn 作为初始 Prompt 注入；
-//   - RunContext.DagKey/NodeKey 暂不写入 req（contract.LaunchRequest 无对应字段），
-//     F1.2 inputs 注入时如需可在 prompt 里渲染。
+//   - RunContext 暂无 parent agent id 字段，ParentID 先保持空。
 func buildLaunchRequestFromAgentConfig(cfg *AgentNodeConfig, node Node, _ RunContext) contract.LaunchRequest {
 	if cfg == nil {
 		return contract.LaunchRequest{}
 	}
 	req := contract.LaunchRequest{
+		AgentID:   idgen.NewAgentID(),
+		Name:      sanitizeLaunchName(node.Title),
 		AgentKey:  strings.TrimSpace(cfg.Exec.AgentKey),
 		Language:  strings.TrimSpace(cfg.Exec.Language),
 		Prompt:    cfg.FirstTurn,
 		AgentType: node.NodeType, // "agent" 占位，F2/F3 hybrid 再细化
 	}
 	return req
+}
+
+func sanitizeLaunchName(value string) string {
+	const limit = 80
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	runes := make([]rune, 0, len(value))
+	for _, r := range value {
+		if unicode.IsControl(r) {
+			continue
+		}
+		runes = append(runes, r)
+		if len(runes) == limit {
+			break
+		}
+	}
+	return strings.TrimSpace(string(runes))
 }
 
 // classifyAgentLaunchError 把 launcher 返回的 error 映射成 FailureClass。
