@@ -18,6 +18,9 @@ type stubRouterStore struct {
 	taskdag.Store
 	nodes   []taskdag.Node
 	listErr error
+	// ADR-017 v1.2 §2.4：dispatchAgent 调 UpdateRunningNodeStatus 推 ready→running。
+	runningStatusErr   error                              // 默认 nil（成功路径）
+	runningStatusCalls []taskdag.RunningNodeStatusUpdate // 记录调用详情
 }
 
 func (s *stubRouterStore) ListNodes(_ context.Context, _ string) ([]taskdag.Node, error) {
@@ -27,6 +30,16 @@ func (s *stubRouterStore) ListNodes(_ context.Context, _ string) ([]taskdag.Node
 	out := make([]taskdag.Node, len(s.nodes))
 	copy(out, s.nodes)
 	return out, nil
+}
+
+// UpdateRunningNodeStatus 覆盖 taskdag.Store 嵌入，避免 advanceAgentNodeToRunning
+// nil-embedding panic。记录调用 + 返 runningStatusErr（默认 nil = success）。
+func (s *stubRouterStore) UpdateRunningNodeStatus(_ context.Context, input taskdag.RunningNodeStatusUpdate) (*taskdag.Node, error) {
+	s.runningStatusCalls = append(s.runningStatusCalls, input)
+	if s.runningStatusErr != nil {
+		return nil, s.runningStatusErr
+	}
+	return &taskdag.Node{DagKey: input.DagKey, NodeKey: input.NodeKey, Status: input.Status}, nil
 }
 
 // stubAgentLauncher 是 nodeexec.AgentLauncher 的最小实现 — 不真起 process，
