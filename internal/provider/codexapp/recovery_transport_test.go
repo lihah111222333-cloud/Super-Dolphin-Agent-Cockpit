@@ -87,6 +87,136 @@ func TestTransportReconnectReinitializes(t *testing.T) {
 	}
 }
 
+func TestTransportReconnectDoesNotDispatchConnectionDeadForSupersededReader(t *testing.T) {
+	t.Parallel()
+
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		for {
+			_, rawBytes, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var msg jsonRPCMessage
+			if err := json.Unmarshal(rawBytes, &msg); err != nil || len(msg.ID) == 0 {
+				continue
+			}
+			resp, err := json.Marshal(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      json.RawMessage(append([]byte(nil), msg.ID...)),
+				"result":  map[string]any{"ok": true},
+			})
+			if err != nil {
+				t.Fatalf("marshal response: %v", err)
+			}
+			if err := conn.WriteMessage(websocket.TextMessage, resp); err != nil {
+				return
+			}
+		}
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	transport, err := newTransport(ctx, "ws"+strings.TrimPrefix(server.URL, "http"))
+	if err != nil {
+		t.Fatalf("newTransport() error = %v", err)
+	}
+	defer func() { _ = transport.Kill() }()
+
+	dead := make(chan RawMessage, 1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		transport.ReadLoop(ctx, func(_ context.Context, _ Responder, msg RawMessage) {
+			if strings.TrimSpace(msg.Method) == "connection.dead" {
+				dead <- msg
+			}
+		})
+	}()
+
+	deadline := time.Now().Add(time.Second)
+	for !transport.looping.Load() && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !transport.looping.Load() {
+		t.Fatal("read loop did not start")
+	}
+
+	if err := transport.reconnect(ctx); err != nil {
+		t.Fatalf("reconnect() error = %v", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("read loop did not exit after reconnect closed old socket")
+	}
+	select {
+	case msg := <-dead:
+		t.Fatalf("unexpected connection.dead from superseded reader: %+v", msg)
+	default:
+	}
+}
+
+func TestTransportPassiveDisconnectDispatchesConnectionDead(t *testing.T) {
+	t.Parallel()
+
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		for {
+			_, rawBytes, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var msg jsonRPCMessage
+			if err := json.Unmarshal(rawBytes, &msg); err != nil || len(msg.ID) == 0 {
+				continue
+			}
+			resp, err := json.Marshal(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      json.RawMessage(append([]byte(nil), msg.ID...)),
+				"result":  map[string]any{"ok": true},
+			})
+			if err != nil {
+				t.Fatalf("marshal response: %v", err)
+			}
+			_ = conn.WriteMessage(websocket.TextMessage, resp)
+			return
+		}
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	transport, err := newTransport(ctx, "ws"+strings.TrimPrefix(server.URL, "http"))
+	if err != nil {
+		t.Fatalf("newTransport() error = %v", err)
+	}
+	defer func() { _ = transport.Kill() }()
+
+	dead := make(chan RawMessage, 1)
+	transport.ReadLoop(ctx, func(_ context.Context, _ Responder, msg RawMessage) {
+		if strings.TrimSpace(msg.Method) == "connection.dead" {
+			dead <- msg
+		}
+	})
+	select {
+	case <-dead:
+	case <-time.After(time.Second):
+		t.Fatal("passive disconnect did not dispatch connection.dead")
+	}
+}
+
 func TestSessionAttemptRecoveryReplaysPendingTurn(t *testing.T) {
 	var mu sync.Mutex
 	turnStarts := 0

@@ -38,10 +38,6 @@ SELECT
         FROM agent_provider_binding b
         WHERE b.provider_thread_id = t.thread_id
            OR b.codex_thread_id    = t.thread_id
-           OR (t.owner_thread_id <> '' AND (
-               b.provider_thread_id = t.owner_thread_id
-               OR b.codex_thread_id = t.owner_thread_id
-           ))
         ORDER BY b.updated_at DESC
         LIMIT 1
     ), '') AS agent_id
@@ -81,10 +77,6 @@ SELECT
         FROM agent_provider_binding b
         WHERE b.provider_thread_id = t.thread_id
            OR b.codex_thread_id    = t.thread_id
-           OR (t.owner_thread_id <> '' AND (
-               b.provider_thread_id = t.owner_thread_id
-               OR b.codex_thread_id = t.owner_thread_id
-           ))
         ORDER BY b.updated_at DESC
         LIMIT 1
     ), '') AS agent_id

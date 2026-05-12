@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"strings"
 	"testing"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
@@ -228,6 +230,34 @@ func TestGetAndListMapConfigOverride(t *testing.T) {
 		t.Fatalf("ListRecoverable() error = %v", err)
 	}
 	assertListConfigOverride("ListRecoverable()", recoverable)
+}
+
+func TestAgentThreadAgentIDQueriesUseDirectBindingOnly(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{
+		"../../../sql/queries/agent_thread.sql",
+		"../sqlc/agent_thread.sql.go",
+		"../../../cmd/mcp-orch/store/agent/store.go",
+	} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		text := string(raw)
+		for _, forbidden := range []string{
+			"b.provider_thread_id = agent_threads.owner_thread_id",
+			"b.codex_thread_id = agent_threads.owner_thread_id",
+			"agent_threads.owner_thread_id <> ''",
+			"b.provider_thread_id = t.owner_thread_id",
+			"b.codex_thread_id = t.owner_thread_id",
+			"t.owner_thread_id <> ''",
+		} {
+			if strings.Contains(text, forbidden) {
+				t.Fatalf("%s still infers agent_id from owner_thread_id via %q", path, forbidden)
+			}
+		}
+	}
 }
 
 func TestSaveAndLoadPromptSnapshot(t *testing.T) {
