@@ -21,43 +21,57 @@ import (
 // node_type 分发：
 //   - "agent"      → nodeexec.AgentExecutor.Execute
 //   - "automation" → nodeexec.AutomationExecutor.Execute（并在 Status=done 后
-//                   driving CompleteNodeAndScheduleDownstream，因为 automation
-//                   节点没有 child agent 在外面推动它）
+//     driving CompleteNodeAndScheduleDownstream，因为 automation
+//     节点没有 child agent 在外面推动它）
 //   - "hybrid"     → NodeOutcome{Status=failed, FailureClass=validation, 含 "hybrid not implemented"}
-//                   （F3.1 落地前的占位）
+//     （F3.1 落地前的占位）
 //   - 空 / 未知    → 兜底当作 "agent"（dogfood DAG 兼容；F1.0 默认 node_type=agent）
 //
 // NodeExecutorRouter dispatches DAG-driven wakeups to their per-node-type
 // NodeExecutor (agent / automation / hybrid). Non-DAG wakeups (no dag_key)
 // keep going through the legacy WakeupLauncher.LaunchAgent path.
 //
-// W2 (sharedfile RunContext + F1.2 inputs) 在 main 分支仍在收敛中，本 worktree
-// 的 RunContext 还是 F1.0 三字段版本。router 现阶段只填 DagKey/NodeKey，
-// PrevResults / sharedfile reader/writer 字段位待 main 合并后再接通；当前在
-// 路由器结构上不预留 nil 字段，避免编译失败。
+// W2 (sharedfile RunContext + F1.2 inputs) 端口在 main HEAD 6e32b39e 已落地：
+// RunContext 含 PrevResults / SharedFileReader / SharedFileWriter 三端口。
+// router 在派发前要预填这三个端口；否则 dogfood-grade DAG (cfg.Inputs.FromNodes /
+// from_sharedfiles / outputs.to_sharedfile) 走 dispatcher 路径会 fail-loud 在
+// validation "PrevResults not wired" / "SharedFileReader not wired" 上。
+//
+// dispatcher-wiring closure：sharedFileReader / sharedFileWriter 由 fx 注入
+// sharedfile_adapter.go 中的两个 adapter；prevResults 走 prefetchPrevResults
+// 自 store.ListNodes 拉。
 type NodeExecutorRouter struct {
-	store     taskdag.Store
-	agentExec *nodeexec.AgentExecutor
-	autoExec  *nodeexec.AutomationExecutor
-	logger    *slog.Logger
+	store            taskdag.Store
+	agentExec        *nodeexec.AgentExecutor
+	autoExec         *nodeexec.AutomationExecutor
+	sharedFileReader nodeexec.SharedFileReader
+	sharedFileWriter nodeexec.SharedFileWriter
+	logger           *slog.Logger
 }
 
-// NewNodeExecutorRouter constructs a router. Any of agentExec/autoExec may be
-// nil — the corresponding node_type falls back to a validation-class failure.
+// NewNodeExecutorRouter constructs a router. Any of agentExec/autoExec/
+// sharedFileReader/sharedFileWriter may be nil — node_type-specific 失败语义：
+//   - executor nil → validation 失败；
+//   - sharedFileReader/Writer nil → 仅在节点 cfg 引用 sharedfile 时 nodeexec 层归
+//     validation；纯 inputs.from_nodes 节点不受影响。
 func NewNodeExecutorRouter(
 	store taskdag.Store,
 	agentExec *nodeexec.AgentExecutor,
 	autoExec *nodeexec.AutomationExecutor,
+	sharedFileReader nodeexec.SharedFileReader,
+	sharedFileWriter nodeexec.SharedFileWriter,
 	logger *slog.Logger,
 ) *NodeExecutorRouter {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
 	return &NodeExecutorRouter{
-		store:     store,
-		agentExec: agentExec,
-		autoExec:  autoExec,
-		logger:    logger,
+		store:            store,
+		agentExec:        agentExec,
+		autoExec:         autoExec,
+		sharedFileReader: sharedFileReader,
+		sharedFileWriter: sharedFileWriter,
+		logger:           logger,
 	}
 }
 
@@ -90,8 +104,131 @@ func (r *NodeExecutorRouter) RouteByWakeup(ctx context.Context, w *taskdag.Wakeu
 		Title:    target.Title,
 		Config:   append(json.RawMessage(nil), target.Config...),
 	}
-	runCtx := nodeexec.RunContext{DagKey: dagKey, NodeKey: nodeKey}
+	runCtx, runCtxErr := r.buildRunContext(ctx, dagKey, nodeKey, nodeType, target.Config)
+	if runCtxErr != nil {
+		return runCtxErr.outcome, runCtxErr.frameworkErr
+	}
 	return r.dispatchByNodeType(ctx, nodeType, node, runCtx)
+}
+
+// runContextBuildErr 是 buildRunContext 的多路返值载体：
+//   - frameworkErr != nil → 框架级错误（store 报错），走 RouteByWakeup error 返值，
+//     让 dispatcher 走 transient retry；
+//   - outcome != zero → 节点级失败（config 解析不了等），走 RouteByWakeup outcome 返值。
+type runContextBuildErr struct {
+	frameworkErr error
+	outcome      nodeexec.NodeOutcome
+}
+
+// buildRunContext 预拼 RunContext：拍【调度上下文 ID】+ 【PrevResults 预取】+
+// 【SharedFileReader/Writer 注入】。失败路径拆为两种：
+//   - parse config 失败 → 节点级 validation outcome（不调 executor）；
+//   - prefetch 遇 store 报错 → framework err。
+func (r *NodeExecutorRouter) buildRunContext(
+	ctx context.Context,
+	dagKey, nodeKey, nodeType string,
+	cfgRaw json.RawMessage,
+) (nodeexec.RunContext, *runContextBuildErr) {
+	fromNodes, parseErr := extractFromNodes(nodeType, cfgRaw)
+	if parseErr != nil {
+		return nodeexec.RunContext{}, &runContextBuildErr{
+			outcome: validationOutcome(fmt.Sprintf(
+				"node router: parse %s config for prefetch failed: %v", nodeType, parseErr)),
+		}
+	}
+	prevResults, fetchErr := r.prefetchPrevResults(ctx, dagKey, fromNodes)
+	if fetchErr != nil {
+		return nodeexec.RunContext{}, &runContextBuildErr{frameworkErr: fetchErr}
+	}
+	return nodeexec.RunContext{
+		DagKey:           dagKey,
+		NodeKey:          nodeKey,
+		PrevResults:      prevResults,
+		SharedFileReader: r.sharedFileReader,
+		SharedFileWriter: r.sharedFileWriter,
+	}, nil
+}
+
+// extractFromNodes 拆出 cfg.Inputs.FromNodes。三种 nodeType 走 ParseNodeConfig
+// 拿 Inputs 子配置；未知 nodeType 返空列表（dispatchByNodeType 会继续走 validation
+// 失败分支，此处不需接管）。
+func extractFromNodes(nodeType string, cfgRaw json.RawMessage) ([]string, error) {
+	if len(cfgRaw) == 0 {
+		return nil, nil
+	}
+	parsed, err := nodeexec.ParseNodeConfig(nodeType, cfgRaw)
+	if err != nil {
+		if errors.Is(err, nodeexec.ErrUnknownNodeType) {
+			// 未知 nodeType 不是 prefetch 职责；让 dispatchByNodeType 去报。
+			return nil, nil
+		}
+		return nil, err
+	}
+	switch {
+	case parsed.Agent != nil:
+		return parsed.Agent.Inputs.FromNodes, nil
+	case parsed.Automation != nil:
+		return parsed.Automation.Inputs.FromNodes, nil
+	case parsed.Hybrid != nil:
+		return parsed.Hybrid.Inputs.FromNodes, nil
+	default:
+		return nil, nil
+	}
+}
+
+// prefetchPrevResults 查 store 拿 cfg.Inputs.FromNodes 列出的上游节点 result。
+//
+// 边界语义：
+//   - fromNodes 空 → 返 nil map（RunContext.PrevResults nil），nodeexec.inputs.go 是
+//     以「InputsConfig 为空才皆跳」语义走，本层 nil/empty 都不会被误读。
+//   - store ListNodes 报错 → 原样返错（framework err）。
+//   - fromNodes 里某个 key 不存在于当前 DAG → 不在本层报错，交由 nodeexec
+//     loadFromNodes（它会报 validation "references unknown node_key"）。
+//   - 上游节点 status != done → 同上路径 （未到期：依赖未满足时 dispatcher 不
+//     会 enqueue wakeup），但为保险起见过滤 ：只填 done 状态的节点 result；
+//     未 done 的 key 不入 map → nodeexec 那边会报 validation，语义一致。
+//   - result 为空（NULL）→ 填 empty json，让 nodeexec.loadFromNodes 走 "(empty)"
+//     占位分支（上游可能未配 outputs.to_node_result）。
+func (r *NodeExecutorRouter) prefetchPrevResults(
+	ctx context.Context,
+	dagKey string,
+	fromNodes []string,
+) (map[string]json.RawMessage, error) {
+	if len(fromNodes) == 0 {
+		return nil, nil
+	}
+	want := make(map[string]struct{}, len(fromNodes))
+	for _, k := range fromNodes {
+		if key := strings.TrimSpace(k); key != "" {
+			want[key] = struct{}{}
+		}
+	}
+	if len(want) == 0 {
+		return nil, nil
+	}
+	nodes, err := r.store.ListNodes(ctx, dagKey)
+	if err != nil {
+		return nil, fmt.Errorf("node router: prefetch prev results list nodes %s: %w", dagKey, err)
+	}
+	prev := make(map[string]json.RawMessage, len(want))
+	for i := range nodes {
+		n := &nodes[i]
+		if _, ok := want[n.NodeKey]; !ok {
+			continue
+		}
+		if n.Status != string(nodeexec.NodeStatusDone) {
+			// 未到期：dispatcher 不应在依赖未满足时 enqueue wakeup。本层不填，
+			// nodeexec.loadFromNodes 会以 "unknown node_key" 报 validation，保证失败
+			// 被 fail-loud 看到。
+			continue
+		}
+		if len(n.Result) == 0 {
+			prev[n.NodeKey] = nil // nodeexec 走 "(empty)" 分支
+			continue
+		}
+		prev[n.NodeKey] = append(json.RawMessage(nil), n.Result...)
+	}
+	return prev, nil
 }
 
 // validateRouteInputs 拆出 RouteByWakeup 的入参防御，压住 Cyclomatic Complexity。

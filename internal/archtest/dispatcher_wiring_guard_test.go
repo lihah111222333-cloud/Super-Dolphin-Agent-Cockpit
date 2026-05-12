@@ -63,6 +63,12 @@ func TestDispatcherWiringGuard(t *testing.T) {
 				"orchestration.NewServiceAgentLauncher",
 				// + NodeSpawnRecorder adapter (让 AgentExecutor 写回 thread_id)
 				"orchestration.NewStoreNodeSpawnRecorder",
+				// dispatcher-wiring closure: sharedfile reader / writer adapter
+				// 供 NodeExecutorRouter 预填 RunContext。缺任一 → dogfood-grade DAG
+				// (from_sharedfiles / outputs.to_sharedfile) 走 dispatcher 路径会
+				// fail-loud 在 validation "reader/writer not wired"。
+				"orchestration.NewStoreSharedFileReader",
+				"orchestration.NewStoreSharedFileWriter",
 				// dispatcher 单例 provider 必须存在
 				"orchestration.ProvideWakeupDispatcher",
 				// 装接 router 的 invoke 必须 wire 在 root assembly
@@ -85,6 +91,31 @@ func TestDispatcherWiringGuard(t *testing.T) {
 				"CompleteNodeAndScheduleDownstream",
 				// hybrid 必须返 validation 类失败，不能悄悄变 done
 				"hybrid node lifecycle not yet implemented",
+				// dispatcher-wiring closure: RunContext 三端口预填
+				// router 必须持 sharedFileReader / sharedFileWriter 字段
+				"sharedFileReader nodeexec.SharedFileReader",
+				"sharedFileWriter nodeexec.SharedFileWriter",
+				// prefetchPrevResults helper 必须存在，负责拉上游 done 节点 result
+				"prefetchPrevResults",
+				// RunContext 构造必须填全 PrevResults / SharedFileReader / SharedFileWriter
+				"PrevResults:      prevResults",
+				"SharedFileReader: r.sharedFileReader",
+				"SharedFileWriter: r.sharedFileWriter",
+			},
+		},
+		{
+			name: "sharedfile_adapter.go bridges store.Store to nodeexec ports",
+			path: filepath.Join("cmd", "mcp-orch", "orchestration", "sharedfile_adapter.go"),
+			mustHave: []string{
+				// Reader 适配器：store/sharedfile.Reader → nodeexec.SharedFileReader
+				"func NewStoreSharedFileReader",
+				"ReadSharedFile(ctx context.Context, path string) (string, bool, error)",
+				// Writer 适配器：store/sharedfile.Store → nodeexec.SharedFileWriter
+				"func NewStoreSharedFileWriter",
+				"WriteSharedFile(ctx context.Context, path, content string) error",
+				// ErrNotFound 三态翻译必须在（否则 nodeexec.loadFromSharedfiles
+				// 会把 "not found" 当作未知错抓丢。
+				"platformdb.ErrNotFound",
 			},
 		},
 	}
