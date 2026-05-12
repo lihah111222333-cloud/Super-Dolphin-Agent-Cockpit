@@ -102,7 +102,6 @@ func (s *session) finishTurn(params json.RawMessage, optimistic bool) {
 
 func (s *session) takeTurn(turnID string) *turnHandle {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if turnID == "" {
 		turnID = s.activeTurnID
 	}
@@ -114,6 +113,11 @@ func (s *session) takeTurn(turnID string) *turnHandle {
 	if s.pendingTurn != nil && s.pendingTurn.handle == h {
 		s.pendingTurn = nil
 	}
+	s.mu.Unlock()
+	// ADR-015 v4.1 §2.1 cleanup hook: drop the per-turn output accumulator
+	// outside s.mu (accumulator uses its own accumulatorMu to avoid nested
+	// locking).
+	s.dropTurnOutputAccumulator(turnID)
 	return h
 }
 
@@ -182,7 +186,11 @@ func (s *session) failTurns(err error) {
 	s.activeTurnID = ""
 	s.pendingTurn = nil
 	s.mu.Unlock()
-	for _, h := range turns {
+	// ADR-015 v4.1 §2.1 cleanup hook: drop accumulators for every aborted
+	// turn so shutdownSession does not leak per-turn buffers. Use the keys
+	// (provider IDs) we just removed from s.turns.
+	for providerID, h := range turns {
+		s.dropTurnOutputAccumulator(providerID)
 		h.complete(err)
 	}
 }
