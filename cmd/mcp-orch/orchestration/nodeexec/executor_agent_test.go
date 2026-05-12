@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -59,6 +60,40 @@ func makeAgentNode(t *testing.T, cfg AgentNodeConfig) Node {
 	}
 }
 
+func TestBuildLaunchRequestFromAgentConfigFillsAgentIDAndName(t *testing.T) {
+	t.Parallel()
+	cfg := AgentNodeConfig{
+		Exec: AgentExecConfig{
+			AgentKey: "implementer",
+			Language: "zh",
+		},
+		FirstTurn: "do the thing",
+	}
+	node := Node{
+		NodeType: "agent",
+		Title:    "Validate DAG node",
+	}
+
+	req := buildLaunchRequestFromAgentConfig(&cfg, node, RunContext{})
+	again := buildLaunchRequestFromAgentConfig(&cfg, node, RunContext{})
+
+	if !strings.HasPrefix(req.AgentID, "agent_") {
+		t.Fatalf("AgentID = %q, want agent_*", req.AgentID)
+	}
+	if req.AgentID == again.AgentID {
+		t.Fatalf("AgentID repeated across calls: %q", req.AgentID)
+	}
+	if req.Name != node.Title {
+		t.Fatalf("Name = %q, want node title %q", req.Name, node.Title)
+	}
+	if req.AgentKey != cfg.Exec.AgentKey {
+		t.Fatalf("AgentKey = %q, want %q", req.AgentKey, cfg.Exec.AgentKey)
+	}
+	if req.Prompt != cfg.FirstTurn {
+		t.Fatalf("Prompt = %q, want first turn %q", req.Prompt, cfg.FirstTurn)
+	}
+}
+
 func TestAgentExecutor_Execute_HappyPath(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{}
@@ -89,6 +124,12 @@ func TestAgentExecutor_Execute_HappyPath(t *testing.T) {
 	}
 	if launcher.called != 1 {
 		t.Fatalf("LaunchAgent called %d times, want 1", launcher.called)
+	}
+	if !strings.HasPrefix(launcher.lastReq.AgentID, "agent_") {
+		t.Fatalf("LaunchAgent.AgentID = %q, want agent_*", launcher.lastReq.AgentID)
+	}
+	if launcher.lastReq.Name != node.Title {
+		t.Fatalf("LaunchAgent.Name = %q, want %q", launcher.lastReq.Name, node.Title)
 	}
 	if launcher.lastReq.AgentKey != "implementer" {
 		t.Fatalf("LaunchAgent.AgentKey = %q, want %q", launcher.lastReq.AgentKey, "implementer")
