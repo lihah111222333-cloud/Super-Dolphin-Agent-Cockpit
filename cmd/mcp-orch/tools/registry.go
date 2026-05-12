@@ -4,6 +4,7 @@ import (
 	commandcardstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/commandcard"
 	promptstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools/modelregistry"
 	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
@@ -14,6 +15,7 @@ type Dependencies struct {
 	Prompt        promptstore.Store
 	CommandCard   commandcardstore.Store
 	SharedFile    sharedfilestore.Store
+	ModelRegistry modelregistry.Registry
 }
 
 type Registry struct {
@@ -27,7 +29,7 @@ func NewRegistry(deps Dependencies) Registry {
 	tools = append(tools, promptToolDefinitions(deps.Prompt)...)
 	tools = append(tools, commandToolDefinitions(deps.CommandCard)...)
 	tools = append(tools, sharedFileToolDefinitions(deps.SharedFile)...)
-	tools = append(tools, registryToolDefinitions(deps.SharedFile)...)
+	tools = append(tools, registryToolDefinitions(deps.SharedFile, deps.ModelRegistry)...)
 	byName := make(map[string]ToolDefinition, len(tools))
 	for _, tool := range tools {
 		byName[tool.Name] = tool
