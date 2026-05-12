@@ -11,6 +11,7 @@ import (
 	"github.com/qmuntal/stateless"
 	"go.uber.org/fx"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
@@ -57,6 +58,12 @@ type hookConsumer struct {
 	svc       *service
 	logger    *slog.Logger
 	notifyTap NotifyTap
+
+	// dagFallbackLookup / dagFallbackFlow 是 ADR-017 v1.2 §2.5 + §3.4 锁外
+	// DAG fallback 分支的依赖。未装配（测试 / runtime-only mode）为 nil
+	// 时 runThreadStoppedDAGFallback 直接 return，不影响现有 hook 语义。
+	dagFallbackLookup taskdag.NodeSpawningThreadLookup
+	dagFallbackFlow   taskdag.NodeFlowStore
 }
 
 type hookContextEnvelope struct {
@@ -76,20 +83,30 @@ type hookContextEnvelope struct {
 // no longer exports the interface or constructor. The archtest in
 // internal/archtest/orchestration_no_hookconsumer_export_guard_test.go
 // locks this in place.
+//
+// ADR-017 v1.2 dag fallback ports default nil (test / runtime-only mode);
+// fx wiring goes through ProvideHookAfterHandler + HookAfterHandlerParams.
 func newHookConsumer(svc *service, logger *slog.Logger) *hookConsumer {
-	return newHookConsumerInternal(svc, logger, nil)
+	return newHookConsumerInternal(svc, logger, nil, nil, nil)
 }
 
 // HookAfterHandlerParams is the fx.In bundle for ProvideHookAfterHandler.
 // A nil NotifyTap is valid (treated as no-op), so downstream modules
 // that do not register a tap — or unit tests that wire the orchestration
 // providers without the orch notify module — boot cleanly.
+//
+// DAGFallbackLookup / DAGFallbackFlow are optional ADR-017 v1.2 §2.5
+// thread.stopped DAG fallback ports. When the DAG store module is not
+// wired (e.g. agent-runtime-only deployment, unit-test harness) the
+// fallback short-circuits at runThreadStoppedDAGFallback's nil check.
 type HookAfterHandlerParams struct {
 	fx.In
 
-	Service   *service
-	Logger    *slog.Logger `optional:"true"`
-	NotifyTap NotifyTap    `optional:"true"`
+	Service           *service
+	Logger            *slog.Logger                  `optional:"true"`
+	NotifyTap         NotifyTap                     `optional:"true"`
+	DAGFallbackLookup taskdag.NodeSpawningThreadLookup `optional:"true"`
+	DAGFallbackFlow   taskdag.NodeFlowStore         `optional:"true"`
 }
 
 // ProvideHookAfterHandler is the fx-facing constructor. It returns the
@@ -97,11 +114,23 @@ type HookAfterHandlerParams struct {
 // so the root assembly plumbs it straight into bootstrap.HookConfig.OnAfter
 // without typing on any orchestration subpackage interface.
 func ProvideHookAfterHandler(p HookAfterHandlerParams) contract.BootstrapHookAfterHandler {
-	return newHookConsumerInternal(p.Service, p.Logger, p.NotifyTap).After
+	return newHookConsumerInternal(p.Service, p.Logger, p.NotifyTap, p.DAGFallbackLookup, p.DAGFallbackFlow).After
 }
 
-func newHookConsumerInternal(svc *service, logger *slog.Logger, tap NotifyTap) *hookConsumer {
-	return &hookConsumer{svc: svc, logger: loggerOrDefault(logger), notifyTap: tap}
+func newHookConsumerInternal(
+	svc *service,
+	logger *slog.Logger,
+	tap NotifyTap,
+	fallbackLookup taskdag.NodeSpawningThreadLookup,
+	fallbackFlow taskdag.NodeFlowStore,
+) *hookConsumer {
+	return &hookConsumer{
+		svc:               svc,
+		logger:            loggerOrDefault(logger),
+		notifyTap:         tap,
+		dagFallbackLookup: fallbackLookup,
+		dagFallbackFlow:   fallbackFlow,
+	}
 }
 
 func (c *hookConsumer) After(ctx context.Context, payload mcp.HookPayload) (mcp.AfterDecision, error) {
@@ -267,6 +296,9 @@ func (c *hookConsumer) handleStateChanged(ctx context.Context, ev agentdto.State
 }
 
 func (c *hookConsumer) handleThreadStopped(ctx context.Context, ev threaddto.Stopped) {
+	// 锁内：现有 agent runtime 推进（保留，只做 in-memory state + 事件投递）。
+	// ADR-017 v1.2 §2.5：DAG 分支重量级 PG 事务 + 级联 update，重点携出锁外避免
+	// 同 agent 高频 hook 路径序列化阻塞。
 	err := c.svc.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
 		before := string(agent.state)
 		_ = before
@@ -289,8 +321,69 @@ func (c *hookConsumer) handleThreadStopped(ctx context.Context, ev threaddto.Sto
 		return nil
 	})
 	c.logUnexpectedHookError("thread stopped", ev.AgentID, ev.ThreadID, err)
+
+	// ADR-017 v1.2 §2.5 + §3.4 锁外修正：DAG fallback 分支。锁释放后同步调，
+	// 与 agent runtime 推进解耦；推进失败 log warn 不抛。
+	c.runThreadStoppedDAGFallback(ctx, ev.ThreadID)
+
 	if c.notifyTap != nil {
 		c.notifyTap.OnThreadStopped(ctx, ev)
+	}
+}
+
+// runThreadStoppedDAGFallback 是 ADR-017 v1.2 §2.5 + §3.4 的兲外 DAG 反应
+// 分支：当 subscriber 主路未推进节点终态时（spawned agent crash / launch 后
+// 未出 first_turn / hook 以外原因被外部杀止），thread.stopped 作为兽底把
+// 节点推到 failed。与主路双路并发很常见，靠 isTerminalNodeStatus + SQL
+// 白名单 + pgx.ErrNoRows 三层幂等保证不重复推进。
+//
+// dagFallbackStore / dagFallbackFlow 默认 nil — 未装配 DAG store 的部署路径
+// （测试 / runtime-only mode）直接跳过该分支，不影响现有 hook 语义。
+func (c *hookConsumer) runThreadStoppedDAGFallback(ctx context.Context, threadID string) {
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return
+	}
+	lookup := c.dagFallbackLookup
+	flow := c.dagFallbackFlow
+	if lookup == nil || flow == nil {
+		return // 未装配 DAG store 的部署跳过
+	}
+	nodes, err := lookup.LookupNodesBySpawningThread(ctx, threadID)
+	if err != nil {
+		dagFallbackMetrics.IncLookupFailed()
+		c.logger.Warn("thread stopped fallback: lookup nodes failed",
+			"thread_id", threadID, "error", err)
+		return
+	}
+	if len(nodes) == 0 {
+		dagFallbackMetrics.IncNoNode()
+		return
+	}
+	for i := range nodes {
+		if ctx.Err() != nil {
+			return
+		}
+		n := nodes[i]
+		// 应用层幂等：已 done/failed 跳过（§2.6 race C）。
+		if isTerminalNodeStatus(n.Status) {
+			dagFallbackMetrics.IncIdempotentSkipped()
+			continue
+		}
+		_, failErr := flow.FailNodeAndCancelDownstream(ctx, taskdag.FailNodeInput{
+			DagKey:   n.DagKey,
+			NodeKey:  n.NodeKey,
+			Reason:   "thread_stopped_fallback",
+			FailFast: false,
+		})
+		switch {
+		case failErr == nil:
+			dagFallbackMetrics.IncFailed()
+		default:
+			dagFallbackMetrics.IncFailNodeErr()
+			c.logger.Warn("thread stopped fallback: fail node failed",
+				"dag_key", n.DagKey, "node_key", n.NodeKey, "error", failErr)
+		}
 	}
 }
 
