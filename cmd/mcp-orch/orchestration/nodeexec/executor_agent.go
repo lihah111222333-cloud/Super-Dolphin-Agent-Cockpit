@@ -280,7 +280,7 @@ func writeAgentSharedfile(ctx context.Context, cfg *AgentNodeConfig, runCtx RunC
 	if runCtx.SharedFileWriter == nil {
 		outcome := NodeOutcome{
 			Status:       NodeStatusFailed,
-			FailureClass: FailureClassValidation,
+			FailureClass: FailureClassInfrastructure,
 			ErrorSummary: "outputs.to_sharedfile configured but SharedFileWriter not wired in RunContext",
 		}
 		return &outcome
@@ -288,7 +288,7 @@ func writeAgentSharedfile(ctx context.Context, cfg *AgentNodeConfig, runCtx RunC
 	if err := runCtx.SharedFileWriter.WriteSharedFile(ctx, path, string(payload)); err != nil {
 		outcome := NodeOutcome{
 			Status:       NodeStatusFailed,
-			FailureClass: FailureClassValidation,
+			FailureClass: FailureClassInfrastructure,
 			ErrorSummary: truncateErrSummary(fmt.Sprintf("outputs.to_sharedfile[%q]: %v", path, err)),
 		}
 		return &outcome

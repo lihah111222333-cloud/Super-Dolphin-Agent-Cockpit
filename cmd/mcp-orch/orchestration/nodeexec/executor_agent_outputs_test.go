@@ -3,6 +3,7 @@ package nodeexec
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -82,6 +83,85 @@ func TestAgentExecutor_Outputs_ToNodeResult(t *testing.T) {
 	}
 	if got.ThreadID != "thread-result" || got.AgentKey != "reviewer" {
 		t.Fatalf("Result = %+v, want thread-result/reviewer", got)
+	}
+}
+
+func TestAgentExecutor_Outputs_OversizeNodeResultRejected(t *testing.T) {
+	t.Parallel()
+	launcher := &stubAgentLauncher{threadID: "thread-oversize"}
+	exec := NewAgentExecutor(launcher)
+	node := makeAgentNode(t, AgentNodeConfig{
+		Exec:    AgentExecConfig{AgentKey: strings.Repeat("x", NodeResultSizeCapBytes)},
+		Outputs: OutputsConfig{ToNodeResult: true},
+	})
+
+	out, err := exec.Execute(context.Background(), node, RunContext{})
+	if err != nil {
+		t.Fatalf("Execute() framework error = %v", err)
+	}
+	if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
+		t.Fatalf("got status=%q class=%q, want failed/validation", out.Status, out.FailureClass)
+	}
+	if !strings.Contains(out.ErrorSummary, "4KB") ||
+		!strings.Contains(out.ErrorSummary, "size cap") ||
+		!strings.Contains(out.ErrorSummary, "ADR-006") {
+		t.Fatalf("ErrorSummary = %q, want 4KB size cap ADR-006 context", out.ErrorSummary)
+	}
+	if launcher.called != 1 {
+		t.Fatalf("LaunchAgent called %d times, want 1", launcher.called)
+	}
+}
+
+func TestAgentExecutor_Outputs_ToSharedfileWithoutWriterInfrastructure(t *testing.T) {
+	t.Parallel()
+	launcher := &stubAgentLauncher{threadID: "thread-no-writer"}
+	exec := NewAgentExecutor(launcher)
+	node := makeAgentNode(t, AgentNodeConfig{
+		Exec: AgentExecConfig{AgentKey: "implementer"},
+		Outputs: OutputsConfig{
+			ToSharedfile: &SharedfileTarget{Path: "reports/agent.json", LockMode: "exclusive"},
+		},
+	})
+
+	out, err := exec.Execute(context.Background(), node, RunContext{})
+	if err != nil {
+		t.Fatalf("Execute() framework error = %v", err)
+	}
+	if out.Status != NodeStatusFailed || out.FailureClass != FailureClassInfrastructure {
+		t.Fatalf("got status=%q class=%q, want failed/infrastructure", out.Status, out.FailureClass)
+	}
+	if !strings.Contains(out.ErrorSummary, "SharedFileWriter not wired") {
+		t.Fatalf("ErrorSummary = %q, want SharedFileWriter not wired", out.ErrorSummary)
+	}
+	if launcher.called != 1 {
+		t.Fatalf("LaunchAgent called %d times, want 1", launcher.called)
+	}
+}
+
+func TestAgentExecutor_Outputs_ToSharedfileWriteErrorInfrastructure(t *testing.T) {
+	t.Parallel()
+	launcher := &stubAgentLauncher{threadID: "thread-write-error"}
+	writer := &stubAgentSharedFileWriter{err: errors.New("disk full")}
+	exec := NewAgentExecutor(launcher)
+	node := makeAgentNode(t, AgentNodeConfig{
+		Exec: AgentExecConfig{AgentKey: "implementer"},
+		Outputs: OutputsConfig{
+			ToSharedfile: &SharedfileTarget{Path: "reports/fail.json", LockMode: "exclusive"},
+		},
+	})
+
+	out, err := exec.Execute(context.Background(), node, RunContext{SharedFileWriter: writer})
+	if err != nil {
+		t.Fatalf("Execute() framework error = %v", err)
+	}
+	if out.Status != NodeStatusFailed || out.FailureClass != FailureClassInfrastructure {
+		t.Fatalf("got status=%q class=%q, want failed/infrastructure", out.Status, out.FailureClass)
+	}
+	if !strings.Contains(out.ErrorSummary, "reports/fail.json") || !strings.Contains(out.ErrorSummary, "disk full") {
+		t.Fatalf("ErrorSummary = %q, want path and disk full", out.ErrorSummary)
+	}
+	if launcher.called != 1 {
+		t.Fatalf("LaunchAgent called %d times, want 1", launcher.called)
 	}
 }
 
