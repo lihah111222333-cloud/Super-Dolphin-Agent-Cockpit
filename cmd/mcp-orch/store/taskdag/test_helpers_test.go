@@ -470,7 +470,8 @@ func (db *fakeTaskDAGDB) completeNode(args ...any) ([]any, error) {
 	}
 	key := dagNodeKey(dagKey, nodeKey)
 	row, ok := db.nodes[key]
-	if !ok || (row.Status != "running" && row.Status != "awaiting_verify") {
+	// ADR-017 v1.2 §2.3 白名单扩 'ready'。
+	if !ok || (row.Status != "ready" && row.Status != "running" && row.Status != "awaiting_verify") {
 		return nil, pgx.ErrNoRows
 	}
 	row.Status = status

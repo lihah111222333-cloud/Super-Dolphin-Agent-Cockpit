@@ -67,7 +67,7 @@ const completeTaskDagNode = `-- name: CompleteTaskDagNode :one
 UPDATE task_dag_nodes
 SET status = $1, result = $2::jsonb, active_turn_id = NULL, active_wakeup_id = NULL,
     finished_at = COALESCE(finished_at, NOW()), updated_at = NOW()
-WHERE dag_key = $3 AND node_key = $4 AND status IN ('running', 'awaiting_verify')
+WHERE dag_key = $3 AND node_key = $4 AND status IN ('ready', 'running', 'awaiting_verify')
 RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
 `
 
