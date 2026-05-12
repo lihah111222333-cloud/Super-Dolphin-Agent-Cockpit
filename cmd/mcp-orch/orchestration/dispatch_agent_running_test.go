@@ -15,7 +15,6 @@ import (
 // happy path: agent.Execute returns done, dispatchAgent must call
 // UpdateRunningNodeStatus(running) and the metric counter advances by 1.
 func TestDispatchAgent_WritesRunningOnSuccess(t *testing.T) {
-	t.Parallel()
 	before := DispatchAgentRunningCounters()
 
 	launcher := &stubAgentLauncher{threadID: "thr-1"}
@@ -60,7 +59,6 @@ func TestDispatchAgent_WritesRunningOnSuccess(t *testing.T) {
 // silently — dispatchAgent still returns the executor outcome, the metric
 // counter records SkippedAlreadyTerminal +1 (not WriteFailed).
 func TestDispatchAgent_RaceWindowD_NoRowsIsSilent(t *testing.T) {
-	t.Parallel()
 	before := DispatchAgentRunningCounters()
 
 	launcher := &stubAgentLauncher{threadID: "thr-2"}
@@ -105,7 +103,6 @@ func TestDispatchAgent_RaceWindowD_NoRowsIsSilent(t *testing.T) {
 // does NOT propagate back to RouteByWakeup (otherwise dispatcher would treat
 // the wakeup as transient-retry, even though child agent already launched).
 func TestDispatchAgent_DBErrorIsLoggedNotPropagated(t *testing.T) {
-	t.Parallel()
 	before := DispatchAgentRunningCounters()
 
 	launcher := &stubAgentLauncher{threadID: "thr-3"}
@@ -143,7 +140,6 @@ func TestDispatchAgent_DBErrorIsLoggedNotPropagated(t *testing.T) {
 // dispatchAgent does NOT attempt the ready→running write — letting dispatcher
 // pick up the failure cleanly (retry / mark failed).
 func TestDispatchAgent_LaunchFailedDoesNotWriteRunning(t *testing.T) {
-	t.Parallel()
 	launcher := &stubAgentLauncher{err: errors.New("launch refused: bad agent_key")}
 	agentExec := nodeexec.NewAgentExecutor(launcher, nil)
 	store := &stubRouterStore{
