@@ -1,0 +1,386 @@
+package orchestration
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"strings"
+	"sync/atomic"
+	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
+	sharedevt "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	"github.com/jackc/pgx/v5"
+)
+
+// ---------------------------------------------------------------------------
+// Test doubles — narrow ports only, no full taskdag.Store / *service.
+// ---------------------------------------------------------------------------
+
+type dagSubscriberLookupSpy struct {
+	nodes      []taskdag.Node
+	err        error
+	calls      int32
+	lastThread string
+}
+
+func (s *dagSubscriberLookupSpy) LookupNodesBySpawningThread(_ context.Context, threadID string) ([]taskdag.Node, error) {
+	atomic.AddInt32(&s.calls, 1)
+	s.lastThread = threadID
+	if s.err != nil {
+		return nil, s.err
+	}
+	out := make([]taskdag.Node, len(s.nodes))
+	copy(out, s.nodes)
+	return out, nil
+}
+
+type dagSubscriberFlowSpy struct {
+	completeCalls []taskdag.CompleteNodeInput
+	completeErr   error
+	failCalls     []taskdag.FailNodeInput
+	failErr       error
+	flexibleCalls []taskdag.FlexibleNodeStatusUpdate
+}
+
+func (s *dagSubscriberFlowSpy) CompleteNodeAndScheduleDownstream(_ context.Context, input taskdag.CompleteNodeInput) (*taskdag.CompleteNodeWithDownstreamResult, error) {
+	s.completeCalls = append(s.completeCalls, input)
+	if s.completeErr != nil {
+		return nil, s.completeErr
+	}
+	return &taskdag.CompleteNodeWithDownstreamResult{
+		Node: &taskdag.Node{DagKey: input.DagKey, NodeKey: input.NodeKey, Status: input.Status},
+	}, nil
+}
+
+func (s *dagSubscriberFlowSpy) FailNodeAndCancelDownstream(_ context.Context, input taskdag.FailNodeInput) (*taskdag.FailNodeResult, error) {
+	s.failCalls = append(s.failCalls, input)
+	if s.failErr != nil {
+		return nil, s.failErr
+	}
+	return &taskdag.FailNodeResult{
+		Node: &taskdag.Node{DagKey: input.DagKey, NodeKey: input.NodeKey, Status: "failed"},
+	}, nil
+}
+
+func (s *dagSubscriberFlowSpy) UpdateNodeStatusFlexible(_ context.Context, input taskdag.FlexibleNodeStatusUpdate) (*taskdag.Node, error) {
+	s.flexibleCalls = append(s.flexibleCalls, input)
+	return &taskdag.Node{DagKey: input.DagKey, NodeKey: input.NodeKey, Status: input.Status}, nil
+}
+
+type dagSubscriberThreadSpy struct {
+	thread *PersistedThread
+	err    error
+	calls  int32
+}
+
+func (s *dagSubscriberThreadSpy) GetByThreadID(_ context.Context, _ string) (*PersistedThread, error) {
+	atomic.AddInt32(&s.calls, 1)
+	return s.thread, s.err
+}
+
+type dagSubscriberStopSpy struct {
+	stopErr  error
+	stopped  []string
+}
+
+func (s *dagSubscriberStopSpy) StopAgent(_ context.Context, agentID string) error {
+	s.stopped = append(s.stopped, agentID)
+	return s.stopErr
+}
+
+// helper：构造 deps + reset metric singletons 让每 case 独立计数。
+func setupDAGSubscriberDeps(
+	lookup *dagSubscriberLookupSpy,
+	flow *dagSubscriberFlowSpy,
+	threads *dagSubscriberThreadSpy,
+	stop *dagSubscriberStopSpy,
+) DAGSubscriberDeps {
+	return DAGSubscriberDeps{
+		LookupStore:  lookup,
+		FlowStore:    flow,
+		AgentThreads: threads,
+		SvcStopper:   stop,
+	}
+}
+
+func newTurnCompletedEvent(threadID string, success bool, result string) turndto.TurnCompleted {
+	return turndto.TurnCompleted{
+		TurnHeader: sharedevt.TurnHeader{
+			AgentHeader: sharedevt.AgentHeader{
+				ThreadHeader: sharedevt.ThreadHeader{ThreadID: threadID},
+				AgentID:      "agent-x",
+			},
+			TurnIDHeader: sharedevt.TurnIDHeader{TurnID: "turn-1"},
+		},
+		Success: success,
+		Result:  result,
+	}
+}
+
+// metric delta helper —— each case takes a "before" snapshot and asserts the
+// delta. Avoids leaks between sequential subtests sharing the singleton.
+func metricDelta(before, after DAGSubscriberMetrics) DAGSubscriberMetrics {
+	return DAGSubscriberMetrics{
+		CompleteDone:            after.CompleteDone - before.CompleteDone,
+		CompleteFailed:          after.CompleteFailed - before.CompleteFailed,
+		IdempotentSkipped:       after.IdempotentSkipped - before.IdempotentSkipped,
+		LookupNoNode:            after.LookupNoNode - before.LookupNoNode,
+		LookupDirtyData:         after.LookupDirtyData - before.LookupDirtyData,
+		LookupFailed:            after.LookupFailed - before.LookupFailed,
+		CompleteSizeCapExceeded: after.CompleteSizeCapExceeded - before.CompleteSizeCapExceeded,
+		CompleteResultEmpty:     after.CompleteResultEmpty - before.CompleteResultEmpty,
+	}
+}
+
+func discardLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(nopWriter{}, &slog.HandlerOptions{Level: slog.LevelError + 1}))
+}
+
+type nopWriter struct{}
+
+func (nopWriter) Write(p []byte) (int, error) { return len(p), nil }
+
+// ---------------------------------------------------------------------------
+// 9 case suite — strictly mirrors ADR-017 v1.2 §5.1.
+// ---------------------------------------------------------------------------
+
+// 1. happy path - done: TurnCompleted.Success=true →
+// CompleteNodeAndScheduleDownstream, metric CompleteDone +1.
+func TestDAGSubscriber_HappyPath_Done(t *testing.T) {
+	before := DAGSubscriberCounters()
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", Status: "running"}}}
+	flow := &dagSubscriberFlowSpy{}
+	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-1", AgentID: "agent-x"}}
+	stop := &dagSubscriberStopSpy{}
+	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
+
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-1", true, `{"summary":"ok"}`))
+
+	if len(flow.completeCalls) != 1 || flow.completeCalls[0].Status != "done" {
+		t.Fatalf("completeCalls = %+v, want 1 done call", flow.completeCalls)
+	}
+	if len(flow.failCalls) != 0 {
+		t.Fatalf("failCalls = %d, want 0", len(flow.failCalls))
+	}
+	if len(stop.stopped) != 1 || stop.stopped[0] != "agent-x" {
+		t.Fatalf("stopped = %v, want [agent-x]", stop.stopped)
+	}
+	d := metricDelta(before, DAGSubscriberCounters())
+	if d.CompleteDone != 1 {
+		t.Fatalf("CompleteDone delta = %d, want 1", d.CompleteDone)
+	}
+}
+
+// 2. happy path - failed: TurnCompleted.Success=false →
+// FailNodeAndCancelDownstream, metric CompleteFailed +1.
+func TestDAGSubscriber_HappyPath_Failed(t *testing.T) {
+	before := DAGSubscriberCounters()
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", Status: "running"}}}
+	flow := &dagSubscriberFlowSpy{}
+	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-2", AgentID: "agent-y"}}
+	stop := &dagSubscriberStopSpy{}
+	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
+
+	ev := newTurnCompletedEvent("thr-2", false, "")
+	ev.Error = "explicit failure"
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), ev)
+
+	if len(flow.failCalls) != 1 {
+		t.Fatalf("failCalls = %d, want 1", len(flow.failCalls))
+	}
+	if flow.failCalls[0].Reason != "explicit failure" {
+		t.Fatalf("failCalls[0].Reason = %q, want %q", flow.failCalls[0].Reason, "explicit failure")
+	}
+	if flow.failCalls[0].FailFast {
+		t.Fatal("failCalls[0].FailFast = true, want false (A1 不级联)")
+	}
+	d := metricDelta(before, DAGSubscriberCounters())
+	if d.CompleteFailed != 1 {
+		t.Fatalf("CompleteFailed delta = %d, want 1", d.CompleteFailed)
+	}
+}
+
+// 3. race A — TurnCompleted 早于 dispatchAgent 写 running：节点仍 ready。
+// CompleteNode 白名单含 ready（commit 2）→ stub flow 返成功，metric
+// CompleteDone +1（subscriber 不区分 ready/running 转 done）。
+func TestDAGSubscriber_RaceA_NodeStillReady(t *testing.T) {
+	before := DAGSubscriberCounters()
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", Status: "ready"}}}
+	flow := &dagSubscriberFlowSpy{}
+	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-3", AgentID: "agent-z"}}
+	stop := &dagSubscriberStopSpy{}
+	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
+
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-3", true, `{"k":"v"}`))
+
+	if len(flow.completeCalls) != 1 {
+		t.Fatalf("completeCalls = %d, want 1 (subscriber must call CompleteNode even when status=ready)", len(flow.completeCalls))
+	}
+	d := metricDelta(before, DAGSubscriberCounters())
+	if d.CompleteDone != 1 {
+		t.Fatalf("CompleteDone delta = %d, want 1", d.CompleteDone)
+	}
+}
+
+// 4. race C — 节点已 failed（fallback 先到）：subscriber 跳过 + metric
+// IdempotentSkipped +1，不调 flow。
+func TestDAGSubscriber_RaceC_NodeAlreadyFailed_IdempotentSkip(t *testing.T) {
+	before := DAGSubscriberCounters()
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", Status: "failed"}}}
+	flow := &dagSubscriberFlowSpy{}
+	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-4", AgentID: "agent-a"}}
+	stop := &dagSubscriberStopSpy{}
+	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
+
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-4", true, ""))
+
+	if len(flow.completeCalls) != 0 || len(flow.failCalls) != 0 {
+		t.Fatalf("flow calls = %d/%d, want 0/0 (node already terminal, must skip)", len(flow.completeCalls), len(flow.failCalls))
+	}
+	d := metricDelta(before, DAGSubscriberCounters())
+	if d.IdempotentSkipped != 1 {
+		t.Fatalf("IdempotentSkipped delta = %d, want 1", d.IdempotentSkipped)
+	}
+}
+
+// 5. lookup empty — 反查无节点：metric LookupNoNode +1，仍调 stop_helper
+// （ev.ThreadID 可能存在但未来得及落 spawning_thread_id）。
+func TestDAGSubscriber_LookupEmpty_NoNode(t *testing.T) {
+	before := DAGSubscriberCounters()
+	lookup := &dagSubscriberLookupSpy{nodes: nil}
+	flow := &dagSubscriberFlowSpy{}
+	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-5", AgentID: "agent-b"}}
+	stop := &dagSubscriberStopSpy{}
+	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
+
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-5", true, ""))
+
+	if len(flow.completeCalls) != 0 {
+		t.Fatalf("completeCalls = %d, want 0 (no node to advance)", len(flow.completeCalls))
+	}
+	if len(stop.stopped) != 1 {
+		t.Fatalf("stopped = %d, want 1 (stop_helper still called)", len(stop.stopped))
+	}
+	d := metricDelta(before, DAGSubscriberCounters())
+	if d.LookupNoNode != 1 {
+		t.Fatalf("LookupNoNode delta = %d, want 1", d.LookupNoNode)
+	}
+}
+
+// 6. N>1 dirty data — 反查多条：metric LookupDirtyData +1，逐条尝试推进。
+func TestDAGSubscriber_LookupDirtyData_AdvanceEveryRow(t *testing.T) {
+	before := DAGSubscriberCounters()
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{
+		{DagKey: "dag-1", NodeKey: "a", Status: "running"},
+		{DagKey: "dag-1", NodeKey: "b", Status: "running"},
+	}}
+	flow := &dagSubscriberFlowSpy{}
+	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-6", AgentID: "agent-c"}}
+	stop := &dagSubscriberStopSpy{}
+	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
+
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-6", true, ""))
+
+	if len(flow.completeCalls) != 2 {
+		t.Fatalf("completeCalls = %d, want 2 (must advance every dirty-data row)", len(flow.completeCalls))
+	}
+	d := metricDelta(before, DAGSubscriberCounters())
+	if d.LookupDirtyData != 1 {
+		t.Fatalf("LookupDirtyData delta = %d, want 1", d.LookupDirtyData)
+	}
+	if d.CompleteDone != 2 {
+		t.Fatalf("CompleteDone delta = %d, want 2", d.CompleteDone)
+	}
+}
+
+// 7. 重复 TurnCompleted — 节点已 done：跳过 + metric IdempotentSkipped。
+// （与 case 4 形式上重复但语义不同：case 4 是 race C（fallback），case 7
+// 是同一 subscriber 在 retry 链下重复收到事件）。
+func TestDAGSubscriber_DuplicateTurnCompleted_NodeAlreadyDone(t *testing.T) {
+	before := DAGSubscriberCounters()
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", Status: "done"}}}
+	flow := &dagSubscriberFlowSpy{}
+	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-7", AgentID: "agent-d"}}
+	stop := &dagSubscriberStopSpy{}
+	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
+
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-7", true, ""))
+
+	if len(flow.completeCalls) != 0 {
+		t.Fatalf("completeCalls = %d, want 0 (duplicate event on terminal node)", len(flow.completeCalls))
+	}
+	d := metricDelta(before, DAGSubscriberCounters())
+	if d.IdempotentSkipped != 1 {
+		t.Fatalf("IdempotentSkipped delta = %d, want 1", d.IdempotentSkipped)
+	}
+}
+
+// 8. stop_helper 失败 — DB 推进 done 成功，但 stop 报错：subscriber 仅
+// Warn log，不影响 DB 推进，不传错给上层 dispatcher。
+func TestDAGSubscriber_StopHelperFails_DoesNotPropagate(t *testing.T) {
+	before := DAGSubscriberCounters()
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", Status: "running"}}}
+	flow := &dagSubscriberFlowSpy{}
+	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-8", AgentID: "agent-e"}}
+	stop := &dagSubscriberStopSpy{stopErr: errors.New("simulated stop refused")}
+	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
+
+	// 不 panic / 不抛错 —— 函数无返值。完成后 DB 推进应已发生。
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-8", true, ""))
+
+	if len(flow.completeCalls) != 1 {
+		t.Fatalf("completeCalls = %d, want 1 (DB advance must succeed even when stop fails)", len(flow.completeCalls))
+	}
+	d := metricDelta(before, DAGSubscriberCounters())
+	if d.CompleteDone != 1 {
+		t.Fatalf("CompleteDone delta = %d, want 1", d.CompleteDone)
+	}
+}
+
+// 9. CompleteNode 超 4KB cap — store 返 validation err（用 generic error
+// 模拟），metric CompleteSizeCapExceeded 已先 +1（subscriber 在调 SQL 之前
+// 测 size），随后 store err 走 Warn log + 不 panic。
+func TestDAGSubscriber_CompleteSizeCapExceeded(t *testing.T) {
+	before := DAGSubscriberCounters()
+	// 构造一个 > 4KB 的 result jsonb（合法 JSON）。
+	hugePayload := `{"data":"` + strings.Repeat("x", 5000) + `"}`
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", Status: "running"}}}
+	flow := &dagSubscriberFlowSpy{completeErr: errors.New("simulated validation: result exceeds 4KB")}
+	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-9", AgentID: "agent-f"}}
+	stop := &dagSubscriberStopSpy{}
+	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
+
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-9", true, hugePayload))
+
+	if len(flow.completeCalls) != 1 {
+		t.Fatalf("completeCalls = %d, want 1 (size cap is metric-only in A1, still attempts SQL)", len(flow.completeCalls))
+	}
+	d := metricDelta(before, DAGSubscriberCounters())
+	if d.CompleteSizeCapExceeded != 1 {
+		t.Fatalf("CompleteSizeCapExceeded delta = %d, want 1", d.CompleteSizeCapExceeded)
+	}
+	// CompleteDone must NOT advance because the store returned err.
+	if d.CompleteDone != 0 {
+		t.Fatalf("CompleteDone delta = %d, want 0 (store err)", d.CompleteDone)
+	}
+}
+
+// Additional companion case — pgx.ErrNoRows from CompleteNode (race C SQL
+// fence rejection) → metric IdempotentSkipped, exercises §2.6 SQL fallback.
+func TestDAGSubscriber_CompleteNodeReturnsNoRows_FenceRace(t *testing.T) {
+	before := DAGSubscriberCounters()
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", Status: "running"}}}
+	flow := &dagSubscriberFlowSpy{completeErr: pgx.ErrNoRows}
+	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-fence", AgentID: "agent-fence"}}
+	stop := &dagSubscriberStopSpy{}
+	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
+
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-fence", true, ""))
+
+	d := metricDelta(before, DAGSubscriberCounters())
+	if d.IdempotentSkipped != 1 {
+		t.Fatalf("IdempotentSkipped delta = %d, want 1 (pgx.ErrNoRows is SQL fence race)", d.IdempotentSkipped)
+	}
+}
