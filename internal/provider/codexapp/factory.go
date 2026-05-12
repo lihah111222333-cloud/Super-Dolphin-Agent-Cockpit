@@ -162,6 +162,20 @@ func isTurnTerminalEvent(method string) bool {
 	}
 }
 
+// isMessageStreamDeltaEvent reports whether the method denotes a streamed
+// agent-message delta (stream="message"). The codex CLI emits these via
+// item/agentMessage/delta and friends (event_map.go:187). reasoning /
+// command-execution deltas are intentionally excluded: only message stream
+// contributes to TurnCompleted.Result per ADR-015 v4.1 §2.2.
+func isMessageStreamDeltaEvent(method string) bool {
+	switch strings.TrimSpace(method) {
+	case "item/agentMessage/delta", "message.delta", "agent_message_delta":
+		return true
+	default:
+		return false
+	}
+}
+
 func turnTerminalSuccess(method string, payload map[string]any) bool {
 	if strings.Contains(strings.ToLower(strings.TrimSpace(method)), "aborted") {
 		return false

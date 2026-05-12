@@ -350,6 +350,23 @@ func decodeEventPayload(raw []byte) map[string]any {
 	return decodeJSONMap(raw)
 }
 
+// encodeEventPayload re-serializes a payload map back into json.RawMessage so
+// onNotification can mutate the payload (e.g. inject merged TurnOutputDelta
+// content for TurnCompleted, ADR-015 v4.1 §2.1) before forwarding. On
+// marshal failure the original raw bytes are returned to preserve the
+// dispatch path; loss only manifests as missing accumulated content rather
+// than a dropped event.
+func encodeEventPayload(payload map[string]any, fallback json.RawMessage) json.RawMessage {
+	if payload == nil {
+		return fallback
+	}
+	buf, err := json.Marshal(payload)
+	if err != nil {
+		return fallback
+	}
+	return json.RawMessage(buf)
+}
+
 func nestedValue(payload map[string]any, key string) map[string]any {
 	value, _ := payload[key].(map[string]any)
 	return value

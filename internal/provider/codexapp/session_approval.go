@@ -314,6 +314,10 @@ func (s *session) onNotification(method string, params json.RawMessage) {
 		)
 		return
 	}
+	// ADR-015 v4.1 §2.1: sniff TurnOutputDelta / TurnCompleted BEFORE
+	// shouldSuppressTurnEvent so suppressed-completed paths (forceCompleteTurn)
+	// still flush the accumulated buffer.
+	params = s.sniffTurnOutput(method, params)
 	if s.shouldSuppressTurnEvent(method, params) {
 		pkglogger.Warn("codexapp: suppressed duplicate turn terminal event",
 			"agent_id", s.agentID, "method", method)
@@ -325,6 +329,52 @@ func (s *session) onNotification(method string, params json.RawMessage) {
 		s.dispatch(raw)
 	}
 	s.handleNotificationAction(method, params)
+}
+
+// sniffTurnOutput inspects the incoming notification and:
+//   - accumulates stream="message" TurnOutputDelta payloads into the
+//     per-turn buffer (ADR-015 v4.1 §2.1)
+//   - on TurnCompleted-class events, merges the buffer into the payload
+//     under key "result" (and sets "truncated"=true when the buffer hit the
+//     1 MiB hard cap), returning a re-encoded params for downstream dispatch
+//
+// For unrelated methods, sniffTurnOutput returns the original params
+// unchanged so the normal dispatch path is preserved bit-for-bit.
+func (s *session) sniffTurnOutput(method string, params json.RawMessage) json.RawMessage {
+	switch {
+	case isMessageStreamDeltaEvent(method):
+		payload := decodeEventPayload(params)
+		turnID := payloadTurnID(payload)
+		delta := stringValue(payload, "delta", "content")
+		if turnID != "" && delta != "" {
+			s.appendTurnOutputDelta(turnID, delta)
+		}
+		return params
+	case isTurnTerminalEvent(method):
+		payload := decodeEventPayload(params)
+		turnID := payloadTurnID(payload)
+		if turnID == "" {
+			return params
+		}
+		merged, truncated := s.consumeTurnOutputAccumulator(turnID)
+		if merged == "" && !truncated {
+			return params
+		}
+		if payload == nil {
+			payload = map[string]any{}
+		}
+		// Do not clobber an existing payload["result"] the provider may
+		// already supply (defensive forward compatibility).
+		if _, ok := payload["result"]; !ok && merged != "" {
+			payload["result"] = merged
+		}
+		if truncated {
+			payload["truncated"] = true
+		}
+		return encodeEventPayload(payload, params)
+	default:
+		return params
+	}
 }
 
 func (s *session) handleNotificationAction(method string, params json.RawMessage) {

@@ -303,15 +303,23 @@ func (s *session) replayTurnStart(ctx context.Context, params turnStartParams) (
 func (s *session) applyReplayedTurn(snapshot *turnReplayState, newProviderID string) {
 	snapshot.handle.setProviderID(newProviderID)
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	var staleProviderID string
 	if snapshot.providerID != "" {
 		delete(s.turns, snapshot.providerID)
+		staleProviderID = snapshot.providerID
 	}
 	s.turns[newProviderID] = snapshot.handle
 	s.activeTurnID = newProviderID
 	if s.pendingTurn != nil && s.pendingTurn.handle == snapshot.handle {
 		s.pendingTurn.providerID = newProviderID
 		s.pendingTurn.params = cloneTurnStartParams(snapshot.params)
+	}
+	s.mu.Unlock()
+	// ADR-015 v4.1 §2.1 cleanup hook: recovery allocates a fresh provider
+	// turn-id (turn/start above), so the buffer under the previous id can
+	// never be flushed by a future TurnCompleted. Drop it explicitly.
+	if staleProviderID != "" {
+		s.dropTurnOutputAccumulator(staleProviderID)
 	}
 }
 
