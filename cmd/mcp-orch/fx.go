@@ -149,9 +149,17 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 				orchestration.ProvideServiceInterface,
 				orchestration.ProvideHookAfterHandler,
 				orchestration.ProvideRPCFacade,
+				// ADR-017 v1.2 §2.9：DAG turn.completed subscriber 的窄端口 provider。
+				orchestration.ProvideDAGSubscriberNodeFlowStore,
+				orchestration.ProvideDAGSubscriberStopAgentService,
+				orchestration.ProvideDAGSubscriberAgentThreadLookup,
 			),
 			fx.Invoke(orchestration.RegisterTurnLifecycle),
 			fx.Invoke(orchestration.RegisterApprovalLifecycle),
+			// ADR-017 v1.2 §2.1：第三路 TurnCompleted 订阅 —— 推进 DAG 节点状态机。
+			// 与 RegisterTurnLifecycle（推 agent runtime）并列不重叠，
+			// 三路并发安全（v1.2 reviewer A 实证）。
+			fx.Invoke(orchestration.RegisterDAGTurnCompletedSubscriber),
 			fx.Provide(fx.Annotate(orchestration.ProvideWakeupDispatcherRunner, fx.ResultTags(`group:"runners"`))),
 			fx.Provide(fx.Annotate(orchestration.ProvideWakeupReclaimerRunner, fx.ResultTags(`group:"runners"`))),
 		),
