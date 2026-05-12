@@ -375,6 +375,13 @@ var automationOutputsForbiddenKeys = []string{
 // 由于 typed OutputsConfig 会默认忽略未知 json key，这里手工重读 raw 才能猝住违规。
 // 空 raw / 缺 outputs / 非对象 outputs 都算合法（sanity 失败不在本守守范畴）。
 func validateAutomationOutputs(raw json.RawMessage, _ *AutomationNodeConfig) *NodeOutcome {
+	return validateOutputsForbiddenKeys(raw, automationOutputsForbiddenKeys, func(key string) NodeOutcome {
+		return failedAutomationOutcome(FailureClassValidation,
+			fmt.Sprintf("automation outputs cannot include agent-prompt or agent-routing field %q", key))
+	})
+}
+
+func validateOutputsForbiddenKeys(raw json.RawMessage, forbiddenKeys []string, buildOutcome func(string) NodeOutcome) *NodeOutcome {
 	if len(raw) == 0 {
 		return nil
 	}
@@ -389,10 +396,9 @@ func validateAutomationOutputs(raw json.RawMessage, _ *AutomationNodeConfig) *No
 		// outputs 不是 object（例如 null 或数组）——typed 解码阶段会报错，本守守不重复报告。
 		return nil
 	}
-	for _, key := range automationOutputsForbiddenKeys {
+	for _, key := range forbiddenKeys {
 		if _, ok := fields[key]; ok {
-			outcome := failedAutomationOutcome(FailureClassValidation,
-				fmt.Sprintf("automation outputs cannot include agent-prompt or agent-routing field %q", key))
+			outcome := buildOutcome(key)
 			return &outcome
 		}
 	}
