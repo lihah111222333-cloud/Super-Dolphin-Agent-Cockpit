@@ -13,12 +13,23 @@ import (
 // it is empty (e.g. unit-test fx graph) the store transparently degrades to
 // DB-only mode.
 var Module = fx.Module("store.sharedfile",
-	fx.Provide(provideStore),
+	fx.Provide(
+		provideStore,
+		// ProvideReader 从聚合 Store 拆出窄端口 Reader。Store interface 嵌入
+		// Reader（见 contract.go），任何 Store 实现必然也实现 Reader。
+		// dispatcher RunContext wiring 闭合（orchestration.NewStoreSharedFileReader）
+		// 需要这个 narrow port adapter。
+		ProvideReader,
+	),
 )
 
 func provideStore(q *sqlc.Queries, cfg *platformconfig.Config) Store {
 	return NewStoreWithConfig(q, sharedfileFSConfigFrom(cfg))
 }
+
+// ProvideReader 从聚合 Store 拆出 Reader。Store interface 显式嵌入 Reader
+// （见 contract.go:26-30），所以该转换编译期安全。
+func ProvideReader(store Store) Reader { return store }
 
 func sharedfileFSConfigFrom(cfg *platformconfig.Config) sharedfilefs.Config {
 	if cfg == nil {
