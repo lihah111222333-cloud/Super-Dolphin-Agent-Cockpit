@@ -130,7 +130,7 @@ func (s *service) submitInitialLaunchPromptAsync(agentID string, result LaunchRe
 }
 
 func (s *service) prepareLauncherLaunch(ctx context.Context, req LaunchRequest) (launcherLaunchAttempt, bool, error) {
-	if err := validateLaunchRequest(req); err != nil {
+	if err := validateLaunchRequestForLauncher(req, s.launcher); err != nil {
 		pkglogger.Warn("orchestration: launch rejected: validation failed",
 			"agent_id", req.AgentID, "name", req.Name, "error", err)
 		return launcherLaunchAttempt{}, true, err

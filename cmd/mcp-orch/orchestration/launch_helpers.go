@@ -220,14 +220,26 @@ func parsePositiveInt(raw string) int {
 	return value
 }
 
-func validateLaunchRequest(req LaunchRequest) error {
-	if strings.TrimSpace(req.AgentID) == "" {
-		return errors.New("agent id is required")
+func validateLaunchRequestForLauncher(req LaunchRequest, launcher AgentLauncher) error {
+	if err := validateLaunchRequestBase(req); err != nil {
+		return err
 	}
-	if len(req.Command) == 0 {
+	if requiresCommand(launcher) && len(req.Command) == 0 {
 		return errors.New("command is required")
 	}
 	return nil
+}
+
+func validateLaunchRequestBase(req LaunchRequest) error {
+	if strings.TrimSpace(req.AgentID) == "" {
+		return errors.New("agent id is required")
+	}
+	return nil
+}
+
+func requiresCommand(launcher AgentLauncher) bool {
+	_, isRemote := launcher.(*remoteLauncher)
+	return !isRemote
 }
 
 func stopProcess(cmd *exec.Cmd) error {
