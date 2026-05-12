@@ -46,6 +46,12 @@ type session struct {
 	suppressed           map[string]struct{}
 	processedApprovals   map[string]*processedApprovalEntry
 	runtimeConfig        map[string]any
+	// turnOutputAccumulator buffers per-turn TurnOutputDelta (stream="message")
+	// payloads so TurnCompleted can carry the merged final reply (ADR-015 §2.1).
+	// Key = providerID (codex turn UUID). Guarded by accumulatorMu to avoid
+	// deadlocking with the broader s.mu critical sections (takeTurn / failTurns).
+	turnOutputAccumulator map[string]*turnOutputBuffer
+	accumulatorMu         sync.Mutex
 	// poolRelease is set when the session was acquired from the P21
 	// ServerPool (multi-provider Codex path). It decrements the entry's
 	// refCount and closes the app-server process group when this was the last
@@ -123,20 +129,21 @@ func newSessionWithOptions(
 	ctx, cancel := context.WithCancel(transportCtx)
 	agentLog := pkglogger.NewAgentLogger(agentID)
 	s := &session{
-		agentID:            strings.TrimSpace(agentID),
-		transport:          t,
-		manager:            manager,
-		caps:               cloneCaps(codexCapabilities),
-		recovery:           &recoveryManager{transport: t, logger: agentLog, maxRetry: 3},
-		history:            &rolloutReader{logger: agentLog, transport: t},
-		logger:             agentLog,
-		dispatcher:         dispatcher,
-		approvals:          approvals,
-		ctx:                ctx,
-		cancel:             cancel,
-		turns:              map[string]*turnHandle{},
-		suppressed:         map[string]struct{}{},
-		processedApprovals: map[string]*processedApprovalEntry{},
+		agentID:               strings.TrimSpace(agentID),
+		transport:             t,
+		manager:               manager,
+		caps:                  cloneCaps(codexCapabilities),
+		recovery:              &recoveryManager{transport: t, logger: agentLog, maxRetry: 3},
+		history:               &rolloutReader{logger: agentLog, transport: t},
+		logger:                agentLog,
+		dispatcher:            dispatcher,
+		approvals:             approvals,
+		ctx:                   ctx,
+		cancel:                cancel,
+		turns:                 map[string]*turnHandle{},
+		suppressed:            map[string]struct{}{},
+		processedApprovals:    map[string]*processedApprovalEntry{},
+		turnOutputAccumulator: map[string]*turnOutputBuffer{},
 	}
 	s.poolRelease = cfg.poolRelease
 	s.noteReadActivity()
