@@ -254,14 +254,15 @@ func (t *transport) writeJSON(v any) error {
 	return ws.WriteJSON(v)
 }
 
-func (t *transport) endReadLoop(ctx context.Context, handler any, err error, message string) bool {
+func (t *transport) endReadLoop(ctx context.Context, handler any, ws *websocket.Conn, err error, message string) bool {
+	superseded := t.readSocketSuperseded(ws)
 	pkglogger.Warn("codexapp: transport read loop ending",
 		"server_url", t.serverURL, "local", t.local, "closed", t.closed.Load(),
-		"error", err, "message", message)
+		"superseded", superseded, "error", err, "message", message)
 	if err != nil {
 		t.failPending(err)
 	}
-	if handler != nil && !t.closed.Load() && shared.CheckCtx(ctx) == nil {
+	if handler != nil && !t.closed.Load() && !superseded && shared.CheckCtx(ctx) == nil {
 		invokeReadHandler(ctx, t, RawMessage{Method: "connection.dead", Params: mustJSON(map[string]any{"error": message})}, handler)
 	}
 	return false
@@ -341,6 +342,15 @@ func (t *transport) currentWS() *websocket.Conn {
 	t.stateMu.RLock()
 	defer t.stateMu.RUnlock()
 	return t.ws
+}
+
+func (t *transport) readSocketSuperseded(ws *websocket.Conn) bool {
+	if ws == nil {
+		return false
+	}
+	t.stateMu.RLock()
+	defer t.stateMu.RUnlock()
+	return t.ws != ws
 }
 
 func (t *transport) setWS(ws *websocket.Conn) {

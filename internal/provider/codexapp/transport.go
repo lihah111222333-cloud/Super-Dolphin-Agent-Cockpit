@@ -251,11 +251,11 @@ func (t *transport) readLoopStep(ctx context.Context, handler any) bool {
 	}
 	ws := t.currentWS()
 	if ws == nil {
-		return t.endReadLoop(ctx, handler, nil, "connection unavailable")
+		return t.endReadLoop(ctx, handler, ws, nil, "connection unavailable")
 	}
 	_, data, err := ws.ReadMessage()
 	if err != nil {
-		return t.endReadLoop(ctx, handler, err, err.Error())
+		return t.endReadLoop(ctx, handler, ws, err, err.Error())
 	}
 	return t.dispatchReadMessage(ctx, data, handler)
 }
