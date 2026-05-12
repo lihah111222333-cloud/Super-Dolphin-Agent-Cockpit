@@ -174,6 +174,15 @@ func translateTurnEvent(eventType string, payload map[string]any) (any, bool) {
 			Error:      stringValue(payload, "error", "message", "reason"),
 			Status:     stringValue(payload, "status"),
 			Reason:     stringValue(payload, "reason"),
+			// ADR-015 v4.1 §2.1: payload["result"] is populated by
+			// session.sniffTurnOutput from the per-turn TurnOutputDelta
+			// accumulator before onNotification dispatches the event.
+			// The other three fields are read defensively in case future
+			// codex builds attach them directly to TurnCompleted payloads.
+			Result:     stringValue(payload, "result"),
+			Summary:    stringValue(payload, "summary"),
+			Message:    stringValue(payload, "message"),
+			StopReason: stringValue(payload, "stop_reason"),
 		}, true
 	}
 	switch eventType {
