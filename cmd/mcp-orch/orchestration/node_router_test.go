@@ -58,7 +58,7 @@ func TestNodeExecutorRouter_RoutesAgentNode(t *testing.T) {
 			Status:   "ready",
 		}},
 	}
-	router := NewNodeExecutorRouter(store, agentExec, nil, nil)
+	router := NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil)
 	outcome, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
 		ID:      1,
 		DagKey:  "dag-1",
@@ -94,7 +94,7 @@ func TestNodeExecutorRouter_EmptyNodeTypeDefaultsToAgent(t *testing.T) {
 			Status:   "ready",
 		}},
 	}
-	router := NewNodeExecutorRouter(store, agentExec, nil, nil)
+	router := NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil)
 	outcome, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
 		DagKey: "dag-1", NodeKey: "n1",
 	})
@@ -113,7 +113,7 @@ func TestNodeExecutorRouter_HybridReturnsValidationFailure(t *testing.T) {
 	store := &stubRouterStore{
 		nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", NodeType: "hybrid"}},
 	}
-	router := NewNodeExecutorRouter(store, nil, nil, nil)
+	router := NewNodeExecutorRouter(store, nil, nil, nil, nil, nil)
 	outcome, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
 		DagKey: "dag-1", NodeKey: "n1",
 	})
@@ -133,7 +133,7 @@ func TestNodeExecutorRouter_HybridReturnsValidationFailure(t *testing.T) {
 func TestNodeExecutorRouter_NodeNotFoundIsFrameworkError(t *testing.T) {
 	t.Parallel()
 	store := &stubRouterStore{nodes: []taskdag.Node{}}
-	router := NewNodeExecutorRouter(store, nil, nil, nil)
+	router := NewNodeExecutorRouter(store, nil, nil, nil, nil, nil)
 	_, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
 		DagKey: "dag-1", NodeKey: "ghost",
 	})
@@ -148,7 +148,7 @@ func TestNodeExecutorRouter_StoreListErrorPropagates(t *testing.T) {
 	t.Parallel()
 	sentinel := errors.New("db reset")
 	store := &stubRouterStore{listErr: sentinel}
-	router := NewNodeExecutorRouter(store, nil, nil, nil)
+	router := NewNodeExecutorRouter(store, nil, nil, nil, nil, nil)
 	_, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
 		DagKey: "dag-1", NodeKey: "n1",
 	})
@@ -161,7 +161,7 @@ func TestNodeExecutorRouter_StoreListErrorPropagates(t *testing.T) {
 // 空都该 framework-fail；正常生产 enqueue 不会触发，但防御性测试守住该约定。
 func TestNodeExecutorRouter_MissingDagInfoIsFrameworkError(t *testing.T) {
 	t.Parallel()
-	router := NewNodeExecutorRouter(&stubRouterStore{}, nil, nil, nil)
+	router := NewNodeExecutorRouter(&stubRouterStore{}, nil, nil, nil, nil, nil)
 	_, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
 		DagKey: "", NodeKey: "n1",
 	})
