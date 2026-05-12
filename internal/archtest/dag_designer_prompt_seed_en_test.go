@@ -113,6 +113,17 @@ func TestDAGDesignerPromptSeed_ENCoversCoreSurface(t *testing.T) {
 		}
 	}
 
+	// English routing tags must keep the English seed discoverable directly.
+	for _, tag := range []string{
+		"AI design flow",
+		"schedule task",
+		"cron expression",
+	} {
+		if !strings.Contains(content, tag) {
+			t.Errorf("migration 0085 tags missing English routing keyword %q", tag)
+		}
+	}
+
 	// Size guard: a useful prompt should not be suspiciously tiny; over 600 lines
 	// is only logged to avoid blocking deliberate prompt growth.
 	lines := strings.Count(content, "\n")
