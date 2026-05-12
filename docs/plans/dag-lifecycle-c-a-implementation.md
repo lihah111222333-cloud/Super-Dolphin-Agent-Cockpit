@@ -3,7 +3,7 @@
 > 日期：2026-05-12 | 范围：F1-followup-3 + F1.3-rework 合并 ticket
 > 前置：`docs/design/F1-lifecycle-audit-2026-05-12.md`（4 轮实证 + 跨 4 层缺陷盘点）
 > 路径：**C 阶段（provider 层基础设施）→ A 阶段（DAG lifecycle 层）**
-> 总工程量预估：**~1530-1620 行 / 4-5 ADR / 9-13 commit / 跨 4 层**（v2 reviewer 修订后值，详 §9）
+> 总工程量预估（v2.4 ADR-016 v1.2 reviewer 三审后值）：情况 A **~2160-2400 行 / 5 ADR / 12-17 commit**；情况 B **~2390-2630 行 / 5 ADR / 14-19 commit**（详 §9 工程量盘点）
 
 ---
 
@@ -30,12 +30,12 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 |---|---|---|---|---|
 | **C1**：codex provider 补完 TurnCompleted.Result | provider 层 | ADR-X1 | `internal/provider/codexapp/session_dispatch.go` + session 累加器 | ~250 行 |
 | **C2**：claude provider 长内容完整性核验 + 必要补完 | provider 层 | ADR-X1（共享）| `internal/provider/claudecli/event_map.go` + 端到端测 | ~150-200 行（情况 B；情况 A 仅 0 行）+ ~80-120 行 e2e 基础设施前置 |
-| **C3**：codex/claude spawned agent 自动 stop | service 层 | ADR-X4 | 见 §5 拍板（方案 P1 拆 stop_helper.go / P2 并入 A1）| ~120 行 |
+| **C3**：codex/claude spawned agent 自动 stop | service 层 | ADR-016 v1.2 | 拆 stop_helper.go（方案 P1 已采纳；3 commit：sentinel / stop_helper+单测 / metric+e2e）| ~550-700 行（v1.2 reviewer 三审修订）|
 | **A1**：DAG subscriber 订阅 TurnCompleted 推进 lifecycle | DAG 层 | ADR-X3 | `dag_turn_completed_subscriber.go` + `hook_consumer.go` fallback + 扩 SQL 白名单 | ~500 行 |
 | **A2**：F1.3 outputs 重做（jsonb merge）| DAG 层 | ADR-X5 | `executor_agent.go` + 新 SQL `MergeTaskDagNodeResult` + sqlc 手维 | ~350 行 |
 | Phase 4 dogfood | 验收 | — | 10 节点 DAG 端到端 | ~80 行 |
 
-**总计**：**~1530-1620 行 / 5 ADR / 9-13 commit**（v2 reviewer 修订值；详 §9 工程量盘点）。
+**总计**（v2.4 ADR-016 v1.2 reviewer 三审修订）：情况 A **~2160-2400 行 / 5 ADR / 12-17 commit**；情况 B **~2390-2630 行 / 5 ADR / 14-19 commit**（详 §9 工程量盘点）。
 
 ---
 
@@ -132,17 +132,17 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 **修法**：
 - 在 A1 subscriber 推进 done 之后：
   1. 从 task_dag_nodes 拿 spawning_thread_id（已有索引）
-  2. 通过 thread 表反查 agentID（**ADR-X4 拍板项**：是查 thread 表的 agent_id 列还是其他路径）
+  2. 通过 thread 表反查 agentID（**ADR-016 拍板项**：是查 thread 表的 agent_id 列还是其他路径）
   3. 调 `service.StopAgent(ctx, agentID)`
 - thread.stopped fallback 路径**不需要**额外 stop（thread 本来就停了）
-- ADR-X4 决定的边界：
+- ADR-016 决定的边界：
   - 推进 done 后立即 stop（避免 race）
   - stop 失败不阻塞 done 推进（log warn，与 dispatchAutomation 同策略）
   - 单测覆盖：spawned agent stop 后 thread 进入 `archived` 状态 + child agent 进程退出
 
-**工程量**：~120 行（含 threadID→agentID 反查 + stop 调用 + 单测，**比初稿多 20 行因为多一步反查**）
+**工程量**：**~550-700 行 / 3 commit**（v2.4 修订 — 详 ADR-016 v1.2 §4：stop_helper.go ~100-150 + errAgentNotRunning sentinel ~20-30 + reason 透传 ~5-10 + metric 从零自建 collector ~80-120 + 9 case 单测 ~300-450 + 2 节点 DAG e2e ~150-200 + fx wiring ~10-20 + ADR-017 接口适配 ~15-25）
 
-**ADR-X4 拍板项**：
+**ADR-016 拍板项**：
 1. **API 签名澄清**：用 StopAgent(agentID) 接口；threadID → agentID 反查路径明示
 2. stop 调用时机（done 写回之前 / 之后 / 同事务）
 3. stop 失败兜底（log / metric / 重试）
@@ -238,7 +238,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 | ADR | 范围 | 阶段 | 状态 |
 |---|---|---|---|
 | **ADR-X1**（编号 ADR-015 v4，复用编号） | provider 层 TurnCompleted.Result 补完（codex + claude）| C1 + C2 | ⏳ 待立 |
-| **ADR-X4**（编号 ADR-016）| codex/claude spawned agent 自动 stop | C3 | ⏳ 待立 |
+| **ADR-016**（编号 ADR-016）| codex/claude spawned agent 自动 stop | C3 | ⏳ 待立 |
 | **ADR-X3**（编号 ADR-017）| DAG turn.completed subscriber + thread.stopped fallback | A1 | ⏳ 待立 |
 | **ADR-X5**（编号 ADR-018）| F1.3 outputs 重做（jsonb merge + turn-completed-time）| A2 | ⏳ 待立 |
 | **ADR-006 修订** | to_node_result 字段升对象 `{enabled, size_cap_bytes}` | A2 同步 | ⏳ 待修 |
@@ -268,7 +268,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 > 初稿把 C3 列在 C 阶段并行项是**错的**：C3 的 stop 调用在 `dag_turn_completed_subscriber.go` 内，该文件由 A1 创建 — C3 worker 写的是 A1 之后才存在的文件。
 
 - **C1 + C2 真并行**（两者修改 codex / claude 两个独立 provider 包）
-- **C3 切分方案**（二选一，ADR-X4 拍板）：
+- **C3 切分方案**（二选一，ADR-016 拍板）：
   - **方案 P1**：C3 拆出独立 `stop_helper.go`（在 `cmd/mcp-orch/orchestration/`），A1 subscriber 调用 helper — C3 可与 A1 并行
   - **方案 P2**：C3 移到 A1 之后（与 A1 同 worker，作为 A1 工程量的子项）— 工程量不变但失去并行优势
 - **A1 + A2 必须串行**（A2 依赖 A1 subscriber 框架 + jsonb merge SQL 改动）
@@ -302,7 +302,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 - **metric 验证**：跑完后从 metric 端点读 `dispatch_failed_total` / `retry_count_per_node`（F15.1 已 done）
 - **工程量**：~80 行（端到端 dogfood 脚本 + 验收 checklist + 失败重跑机制），独立计入
 
-**Phase 4 工程量 ~80 行单列**，不计入 C/A 阶段 ~1530-1620 行（详 §9）。
+**Phase 4 工程量 ~80 行单列**，不计入 C/A 阶段 ~2160-2400 行（情况 A）/ ~2390-2630 行（情况 B）（详 §9）。
 
 ---
 
@@ -311,7 +311,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 ### 7.1 已知风险
 1. **C1 方案 C1-a buffer 内存上限**：单 turn 真有大回复（>4KB）时累加器策略未定 — ADR-X1 拍板
 2. **claude CLI 长内容截断**：C2 实测可能揭示需要补 provider 层（情况 B 增 ~100 行）
-3. **C3 stop API race**：subscriber 推 done 与 service.Stop 之间的事务边界 — ADR-X4 拍板
+3. **C3 stop API race**：subscriber 推 done 与 service.Stop 之间的事务边界 — ADR-016 拍板
 4. **A2 ADR-006 修订冲突**：升对象后需要同步改 typed schema + config.go + 现有单测
 
 ### 7.2 未解问题
@@ -332,7 +332,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 启 3 个 worktree worker：
 - W-C1：codex provider 累加器（含 ADR-X1 codex 部分）
 - W-C2：claude provider 实测 + 必要补完
-- W-C3：spawned agent 自动 stop（含 ADR-X4）
+- W-C3：spawned agent 自动 stop（含 ADR-016）
 
 合并：1 个 reviewer agent 检查 3 个 worktree 的接口一致性 + 合并冲突。
 
@@ -357,20 +357,108 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 | C1 | ~250 行（session 层累加器）| 1（含 C2）| 1-2 | 与 C2 并行 |
 | C2 | ~150-200 行（情况 B：复用接口语义新建 session 累加器） | 同上 | 1-2 | 与 C1 并行 |
 | C2 e2e 基础设施前置 | ~80-120 行（若需要新建） | — | 1 | C2 起步前置 |
-| C3 | ~120 行（含 threadID→agentID 反查） | 1 | 1-2 | 方案 P1 与 A1 并行 / P2 并入 A1 |
+| C3 | ~550-700 行（含 threadID→agentID 反查 + errAgentNotRunning sentinel + 6 种错误分类（含 is stopping）+ metric 从零自建 collector + 9 case 单测 + 2 节点 DAG e2e + fx wiring + ADR-017 接口适配）| 1 | 3 | 方案 P1 拆 stop_helper.go 与 A1 并行 |
 | A1 | ~500 行（含扩白名单 SQL + sqlc 手维 + race 单测） | 1 | 2-3 | 单 worker |
 | A2 | ~350 行（含 ADR-006 修订 + jsonb merge SQL + 6 单测重写） | 1（+ ADR-006 修订）| 2-3 | 单 worker |
 | Phase 4 dogfood | ~80 行（10 节点 DAG 验收脚本） | — | 1 | 单 worker |
-| **合计** | **~1530-1620 行** | **4-5 份** | **9-13 commit** | 跨 4 层 |
+| **合计**（情况 A）| **~2160-2400 行** | **4-5 份** | **12-17 commit** | 跨 4 层 |
+| **合计**（情况 B）| **~2390-2630 行** | **4-5 份** | **14-19 commit** | 跨 4 层 |
 
 > **2026-05-12 reviewer 修订**：初稿估算 ~1050-1150 行 / 7-11 commit。reviewer 指出 F1.x 历史每次估算偏低 30%（F1.5/F1.3 类似规模都超 500 行）。修订后 ~1530-1620 行 / 9-13 commit 更稳。
+>
+> **2026-05-12 v2.2 ADR-015 v4.1 reviewer 二审同步**：C1 ~250 → ~320-380 行；C2 情况 B ~150-200 → ~220-280；e2e + 单测兜底 +30。情况 A 合计 ~1730-1820 / 11-15 commit；情况 B 合计 ~1960-2050 / 13-17 commit。
+>
+> **2026-05-12 v2.3 ADR-016 v1.1 reviewer 二审三修**：揭出 ADR-016 v1 三处事实层错误（StopAgent 非幂等 / AgentThreadStore.GetByThreadID 命中率不是 100% / reclaim cron 兜底虚指）+ 5 处工程量低估（项目无通用 metric IncCounter framework / stop_helper 真实 90-130 行 / 单测 200-280 行）。C3 ~120 → ~450-550 行 / 2-3 commit。情况 A 合计 ~2060-2250 / 12-16 commit；情况 B 合计 ~2290-2480 / 14-18 commit。
+>
+> **2026-05-12 v2.4 ADR-016 v1.2 reviewer 三审修订**：v1.1 → v1.2 二审 reviewer C2 揭出**跨文档工程量数字漂移在 v2.3 又复发**（v2.1 修过一次的 BUG），4 处必修：C-A line 6 文首 + line 305 §6.3 + line 143 §2.3 + 主实施计划 line 237 F1.3 cell。同时 reviewer B2 揭出 v1.1 工程量仍偏低 30%（单测应 9 case 全覆盖 + metric 零基建从零自建 collector + fx wiring + ADR-017 接口适配遗漏项）。C3 ~450-550 → ~550-700 行 / 3 commit（v1.1 拆 2 commit 单 commit 440+ 行违反 prefer-small-commits）。情况 A 合计 ~2160-2400 / 12-17 commit；情况 B 合计 ~2390-2630 / 14-19 commit。**根因预防**：本次同 PR 新增 §11 "跨文档同步 must-check 清单"，固化避免漂移反复复发。
 
 **关键里程碑**：阶段 C 完成 → DAG layer 改造工程量大幅降低（A 阶段不再需要订阅 TurnOutputDelta 自带累加器，节省 ~200 行）。
 
 ---
 
+## 11. 跨文档同步 must-check 清单（v2.4 新增 — 防漂移元工作流）
+
+> **背景**：v2.1 reviewer C2-1/2/3 揭出过工程量数字跨文档漂移 → v2.1 修订声称"统一"→ v2.2 漏改 line 6 / line 305 → v2.3 又漏改 line 143 + 主实施计划 F1.3 cell → v2.4 ADR-016 v1.2 reviewer C2 第三次揭出**完全相同的漂移**。
+>
+> 根因：缺少结构化跨文档同步清单。每次"我以为改完了"实际只改了几处显眼位置。**本 checklist 固化所有同步点**，每次修订必走。
+
+### 11.1 工程量数字同步点（C/A 阶段任一份 ADR 修订时必检）
+
+修订 ADR-015 v4.x / ADR-016 v1.x / ADR-017 / ADR-018 任一份后，必须同步以下所有位置：
+
+**ADR-016 v1.x 修订时检查清单**（适用 ADR-015 v4.x 修订时类比）：
+
+```
+□ ADR-016 §4 工程量表（C3 小计 + 各分项）
+□ C-A 计划 line 6 文首"总工程量预估"
+□ C-A 计划 §1 总览表 C3 行（line 33 附近）
+□ C-A 计划 §1 总览"总计"行（line 38 附近）
+□ C-A 计划 §2.3 工程量描述（line 143 附近）
+□ C-A 计划 §6.3 "Phase 4 工程量"段（line 305 附近）
+□ C-A 计划 §9 工程量表 C3 行（line 360 附近）
+□ C-A 计划 §9 工程量表"合计 A / 合计 B"两行（line 364-365 附近）
+□ C-A 计划 §9 修订说明段（line 371 附近，加新版本说明）
+□ C-A 计划 §10 变更记录（加新版本条目）
+□ 主实施计划 dag改造实施计划.md line 237 F1.3 cell（"详 `docs/plans/dag-lifecycle-c-a-implementation.md`" 后的工程量数字）
+```
+
+**11 个同步点**。任一点漏改即跨文档漂移。
+
+### 11.2 ADR 编号引用同步点
+
+修订时确认占位编号已实化：
+
+```
+□ ADR-015 v4.x 编号在 C-A §1 + §4 ADR 列表 + ADR-016/017/018 配套段都已实化（不是 "ADR-X1"）
+□ ADR-016 编号同上（v1.x 起立时检查，确保 X4 占位已删）
+□ ADR-017 起立时 X3 占位应实化
+□ ADR-018 起立时 X5 占位应实化
+□ ADR-006 修订（to_node_result 升对象）链接到 ADR-018
+```
+
+### 11.3 决策项同步点
+
+当 ADR §2.x 拍板新决策时，确保不在 §7 OPEN 仍以"Q-OPEN"形式残留：
+
+```
+□ §2.x 新拍板决策不应同时出现在 §7 Q-OPEN（避免 v1.1 反复犯的 Q1/Q2/Q4 已拍板还留 OPEN 形态）
+□ §7 OPEN 仅保留真正未决的问题（无既定倾向 / 跨 ADR 协同需要 / 落码前实测才能拍）
+□ §5 单测描述与 §2.x metric / status 标签术语对齐（避免 v1.1 §5.1 用 "success" 而 §2.5 用 "skipped_already_stopped" 的术语漂移）
+```
+
+### 11.4 元规则
+
+1. **任何 ADR 修订前**：先打印本 §11 checklist 到当前对话，逐项标记 ☐ → ✅
+2. **每次 reviewer 反馈中包含"跨文档漂移"问题时**：必须扩充 §11 checklist 增加新的同步点
+3. **C-A 计划修订到 v2.x 时**：§11 也要更新最新行号引用（如果文档结构变动）
+
+### 11.5 历史教训表
+
+| 版本 | 揭出问题 | 漏修位置数 | 教训 |
+|---|---|---|---|
+| v2.1 reviewer C2-1/2/3 | 文首 / §1 总览 / §6.3 工程量数字 | 3 | "我以为改完了"但只改了一处显眼位置 |
+| v2.2 修订（ADR-015 v4.1 同步）| 揭出 line 6 / line 305 / §10 变更记录数字不一致 | 2 | 同根因 |
+| v2.3 修订（ADR-016 v1.1 同步）| 主实施计划 F1.3 cell 漂移（4ae5b671 v2.2 修过又退化） | 1 | 跨文件同步比同文件难 |
+| v2.4 修订（ADR-016 v1.2 同步）| 重新揭出 line 6 / line 305 / line 143 + 主计划 F1.3 cell | 4 | 必须有结构化 checklist |
+
+四轮反复证明：**无 checklist = 漂移必复发**。
+
+---
+
 ## 10. 变更记录
 
+- 2026-05-12 v2.4（同步 ADR-016 v1.2 reviewer 三审修订 + 新增 §11 跨文档同步 checklist）：
+  - **跨文档漂移修复**：line 6 文首 / line 305 §6.3 / line 143 §2.3 三处工程量数字（v2.3 漏修）+ 主实施计划 line 237 F1.3 cell（commit 4ae5b671 v2.2 修过一次，v2.3 又漏）
+  - **工程量再上调**：随 ADR-016 v1.2 工程量从 ~450-550 升到 ~550-700（吸收 9 case 单测全覆盖 + metric 零基建 collector + fx wiring + ADR-017 接口适配）；C3 commit 从 2 拆 3
+  - **§1 总览 / §9 工程量表 / 合计**：情况 A ~2060-2250 → ~2160-2400 / 12-17 commit；情况 B ~2290-2480 → ~2390-2630 / 14-19 commit
+  - **新增 §11 跨文档同步 must-check 清单**：固化"工程量数字 / 编号引用 / 决策项跨文档"三类检查项，防止 v2.1/v2.2/v2.3 反复复发的漂移问题。每次修订 ADR / C-A / 主计划任一份，必须按 §11 走 checklist。
+- 2026-05-12 v2.3（同步 ADR-016 v1.1 reviewer 二审三修）：
+  - 全文 9 处 ADR-X4 占位符替换为 ADR-016
+  - §1 总览表 C3 行：~120 → ~450-550 行；方案 P1 已采纳
+  - §1 总计：情况 A ~1730-1820 → ~2060-2250；情况 B ~1960-2050 → ~2290-2480
+  - §9 工程量表 C3 行 + 合计同步上调
+  - §9 修订说明加 v1.1 ADR-016 二审说明
+  - 整体上调约 19%——源自 ADR-016 v1.1 事实层修正（StopAgent 幂等 / AgentID binding 子查询 / reclaim cron 虚指）+ 工程量低估纠正
 - 2026-05-12 v2.2（同步 ADR-015 v4.1 reviewer 二审修订）：
   - §1 总览表：C1 ~250 → ~320-380 行；C2 情况 B ~150-200 → ~220-280 行；C2 情况 A 加单测兜底 ~30 行
   - §9 工程量表：合计情况 A **~1730-1820 行 / 11-15 commit**；情况 B **~1960-2050 行 / 13-17 commit**
@@ -385,7 +473,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
   - P0-3: C2 加**实测基础设施前置核对**（避免"未核就写决策"重现）
   - P0-4: C3 stop API 签名纠正为 `StopAgent(ctx, agentID)`，明示 threadID→agentID 反查路径 + claude 路径拍板
   - P0-5: A1 race 闭环方案拍板为**扩 CompleteTaskDagNode 白名单含 ready**（不新增 SQL）
-  - P1-6: C3 与 A1 共用文件冲突 → 拆 stop_helper.go（方案 P1）或并入 A1（方案 P2），ADR-X4 拍板
+  - P1-6: C3 与 A1 共用文件冲突 → 拆 stop_helper.go（方案 P1）或并入 A1（方案 P2），ADR-016 拍板
   - P1-7: Phase 4 dogfood 工程量独立列出（~80 行）+ M3 ≥10 节点验收方法明示
   - P2-8: 工程量估算上调 30%（~1050-1150 → ~1530-1620 行；~7-11 commit → ~9-13 commit）
 - 2026-05-12：初稿。基于 F1.x lifecycle 设计审计（4 轮实证 + 跨 4 层缺陷盘点）+ 删除 ADR-015 v3 / ADR-016 后落定 C-A 路径。
