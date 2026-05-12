@@ -343,38 +343,53 @@ func (s *session) onNotification(method string, params json.RawMessage) {
 func (s *session) sniffTurnOutput(method string, params json.RawMessage) json.RawMessage {
 	switch {
 	case isMessageStreamDeltaEvent(method):
-		payload := decodeEventPayload(params)
-		turnID := payloadTurnID(payload)
-		delta := stringValue(payload, "delta", "content")
-		if turnID != "" && delta != "" {
-			s.appendTurnOutputDelta(turnID, delta)
-		}
+		s.absorbMessageDelta(params)
 		return params
 	case isTurnTerminalEvent(method):
-		payload := decodeEventPayload(params)
-		turnID := payloadTurnID(payload)
-		if turnID == "" {
-			return params
-		}
-		merged, truncated := s.consumeTurnOutputAccumulator(turnID)
-		if merged == "" && !truncated {
-			return params
-		}
-		if payload == nil {
-			payload = map[string]any{}
-		}
-		// Do not clobber an existing payload["result"] the provider may
-		// already supply (defensive forward compatibility).
-		if _, ok := payload["result"]; !ok && merged != "" {
-			payload["result"] = merged
-		}
-		if truncated {
-			payload["truncated"] = true
-		}
-		return encodeEventPayload(payload, params)
+		return s.injectAccumulatedResult(params)
 	default:
 		return params
 	}
+}
+
+// absorbMessageDelta routes a stream="message" TurnOutputDelta payload into
+// the per-turn accumulator. No-op for malformed / empty payloads.
+func (s *session) absorbMessageDelta(params json.RawMessage) {
+	payload := decodeEventPayload(params)
+	turnID := payloadTurnID(payload)
+	delta := stringValue(payload, "delta", "content")
+	if turnID == "" || delta == "" {
+		return
+	}
+	s.appendTurnOutputDelta(turnID, delta)
+}
+
+// injectAccumulatedResult merges the accumulated message-stream content into
+// the TurnCompleted payload under "result" (and "truncated" when the 1 MiB
+// cap latched). Returns the rewritten params, falling back to the original
+// when no buffer or marshal fails.
+func (s *session) injectAccumulatedResult(params json.RawMessage) json.RawMessage {
+	payload := decodeEventPayload(params)
+	turnID := payloadTurnID(payload)
+	if turnID == "" {
+		return params
+	}
+	merged, truncated := s.consumeTurnOutputAccumulator(turnID)
+	if merged == "" && !truncated {
+		return params
+	}
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	// Do not clobber an existing payload["result"] the provider may already
+	// supply (defensive forward compatibility).
+	if _, ok := payload["result"]; !ok && merged != "" {
+		payload["result"] = merged
+	}
+	if truncated {
+		payload["truncated"] = true
+	}
+	return encodeEventPayload(payload, params)
 }
 
 func (s *session) handleNotificationAction(method string, params json.RawMessage) {
