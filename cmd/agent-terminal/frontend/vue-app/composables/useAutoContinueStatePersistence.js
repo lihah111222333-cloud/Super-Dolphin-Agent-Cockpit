@@ -25,7 +25,7 @@ function buildPath(threadId) {
 
 function isNotFoundError(err) {
   const msg = ((err && err.message) || String(err || '')).toLowerCase();
-  return msg.includes('not found') || msg.includes('not configured');
+  return msg.includes('not found') || msg.includes('not configured') || msg.includes('no rows');
 }
 
 export function useAutoContinueStatePersistence(opts = {}) {
