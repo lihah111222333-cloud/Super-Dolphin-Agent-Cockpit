@@ -119,13 +119,9 @@ SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updat
             FROM agent_provider_binding b
            WHERE b.provider_thread_id = agent_threads.thread_id
               OR b.codex_thread_id = agent_threads.thread_id
-              OR (agent_threads.owner_thread_id <> '' AND (
-                  b.provider_thread_id = agent_threads.owner_thread_id
-                  OR b.codex_thread_id = agent_threads.owner_thread_id
-              ))
            ORDER BY b.updated_at DESC
            LIMIT 1
-       ), '') AS agent_id
+        ), '') AS agent_id
 FROM agent_threads
 WHERE thread_id = $1
 LIMIT 1
@@ -201,13 +197,9 @@ SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updat
             FROM agent_provider_binding b
            WHERE b.provider_thread_id = agent_threads.thread_id
               OR b.codex_thread_id = agent_threads.thread_id
-              OR (agent_threads.owner_thread_id <> '' AND (
-                  b.provider_thread_id = agent_threads.owner_thread_id
-                  OR b.codex_thread_id = agent_threads.owner_thread_id
-              ))
            ORDER BY b.updated_at DESC
            LIMIT 1
-       ), '') AS agent_id
+        ), '') AS agent_id
 FROM agent_threads
 WHERE port = $1 AND status = 'running'
 ORDER BY updated_at DESC
@@ -353,13 +345,9 @@ SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updat
             FROM agent_provider_binding b
            WHERE b.provider_thread_id = agent_threads.thread_id
               OR b.codex_thread_id = agent_threads.thread_id
-              OR (agent_threads.owner_thread_id <> '' AND (
-                  b.provider_thread_id = agent_threads.owner_thread_id
-                  OR b.codex_thread_id = agent_threads.owner_thread_id
-              ))
            ORDER BY b.updated_at DESC
            LIMIT 1
-       ), '') AS agent_id
+        ), '') AS agent_id
 FROM agent_threads
 ORDER BY created_at DESC
 `
@@ -443,13 +431,9 @@ SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updat
             FROM agent_provider_binding b
            WHERE b.provider_thread_id = agent_threads.thread_id
               OR b.codex_thread_id = agent_threads.thread_id
-              OR (agent_threads.owner_thread_id <> '' AND (
-                  b.provider_thread_id = agent_threads.owner_thread_id
-                  OR b.codex_thread_id = agent_threads.owner_thread_id
-              ))
            ORDER BY b.updated_at DESC
            LIMIT 1
-       ), '') AS agent_id
+        ), '') AS agent_id
 FROM agent_threads
 WHERE status = 'created'
 ORDER BY created_at ASC
@@ -534,13 +518,9 @@ SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updat
             FROM agent_provider_binding b
            WHERE b.provider_thread_id = agent_threads.thread_id
               OR b.codex_thread_id = agent_threads.thread_id
-              OR (agent_threads.owner_thread_id <> '' AND (
-                  b.provider_thread_id = agent_threads.owner_thread_id
-                  OR b.codex_thread_id = agent_threads.owner_thread_id
-              ))
            ORDER BY b.updated_at DESC
            LIMIT 1
-       ), '') AS agent_id
+        ), '') AS agent_id
 FROM agent_threads
 WHERE status = 'running'
 ORDER BY created_at ASC
