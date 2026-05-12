@@ -15,9 +15,9 @@
 
 **新增 prompt seed migration 一律走 DO UPDATE + `manually_edited` flag 防覆盖。**
 
-### 2.1 表结构补强（后续 migration 落地）
+### 2.1 表结构补强（F7.3 前置必需落地，未跟进不能走 DO UPDATE 模板）
 
-`prompt_templates` 表加列：
+预计在 `migrations/0085_prompt_template_manually_edited.sql` 落地，状态 **⚠️ 未实装**（为了不阻塞 F7.3 起动者，该 task 需于 F7.3 worker 启动前作为头几个子提交落地）。`prompt_templates` 表加列：
 
 ```sql
 ALTER TABLE public.prompt_templates
@@ -49,7 +49,13 @@ WHERE public.prompt_templates.manually_edited = FALSE;  -- 关键守护
 
 ### 2.3 UI 写路径同步
 
-UI / 后台改 prompt 时必须把 `manually_edited` 置 TRUE。当前 store 写路径（`cmd/mcp-orch/store/prompt/store.go` 的 `UpsertPromptTemplate`）需扩展支持显式写 flag。
+UI / 后台改 prompt 时必须把 `manually_edited` 置 TRUE。当前 store 写路径（`cmd/mcp-orch/store/prompt/store.go` 的 `UpsertPromptTemplate`）需扩展支持显式写 flag。**2026-05-12 状态**：本调整尚未实装，F7.3 前置必须完成（与 §2.1 0085 migration 同批运作）。
+
+### 2.4 路由与表字段废弃补况（避免误导 F7.3 作者）
+
+- **`router_priority` 列已被 `0044_drop_router_priority.sql` 移除**。harness 现按 **explicit agent_key** 分发，不再走 keyword router（详 0044 文件头）。**新 seed migration 不要写 router_priority 列**。
+- **`tags` jsonb 列当前只供 UI / admin 列表筛选使用，不参与路由命中**。F7.1 / 0084 写的 23 个中文 tag 本质上是文档性存在（archtest 守住内容不被抽干，不代表路由路径走过该集合）。F7.3 仍可写 tags，但不要设计“靠 tag 命中”的集成测试。
+- **`variables` jsonb 列未被 `AgentExecutor` 消费**。`prompt_text` 中不要写 `{{var}}` 替换符，会原样照送给 LLM。节点级参数化走 `AgentNodeConfig.first_turn` 覆盖（本次调用一次性指令）或 `cfg.Inputs.FromNodes` / `FromSharedfiles`（上游数据注入）。
 
 ## 3. 已有 seed 的处理
 
