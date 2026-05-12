@@ -79,7 +79,11 @@ func listModelsRegistry(opts []ListModelsOption) modelregistry.Registry {
 }
 
 func fallbackModelRegistry() modelregistry.Registry {
-	return modelregistry.NewStaticRegistry(fallbackProviderModels())
+	return modelregistry.NewStaticRegistry(FallbackProviderModels())
+}
+
+func FallbackProviderModels() []ProviderModels {
+	return fallbackProviderModels()
 }
 
 func fallbackProviderModels() []ProviderModels {

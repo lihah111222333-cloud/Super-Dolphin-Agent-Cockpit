@@ -2,15 +2,18 @@ package modelregistry
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"gopkg.in/yaml.v3"
 )
 
 const DefaultPath = "cmd/mcp-orch/tools/modelregistry/models.yaml"
+const EnvRegistryPath = "SUPER_DOLPHIN_MODEL_REGISTRY"
 
 type ProviderModels struct {
 	Provider string   `json:"provider" yaml:"provider"`
@@ -23,7 +26,8 @@ type Registry interface {
 }
 
 type FileRegistry struct {
-	path string
+	path   string
+	logger *slog.Logger
 
 	mu        sync.RWMutex
 	providers []ProviderModels
@@ -37,16 +41,35 @@ type fileConfig struct {
 	Providers []ProviderModels `yaml:"providers"`
 }
 
-func NewDefaultRegistry() (*FileRegistry, error) {
-	return NewFileRegistry(DefaultRegistryPath())
+type FileRegistryOption func(*fileRegistryConfig)
+
+type fileRegistryConfig struct {
+	logger *slog.Logger
 }
 
-func NewFileRegistry(path string) (*FileRegistry, error) {
+func WithLogger(logger *slog.Logger) FileRegistryOption {
+	return func(cfg *fileRegistryConfig) {
+		cfg.logger = logger
+	}
+}
+
+func NewDefaultRegistry(opts ...FileRegistryOption) (*FileRegistry, error) {
+	return NewFileRegistry(DefaultRegistryPath(), opts...)
+}
+
+func NewFileRegistry(path string, opts ...FileRegistryOption) (*FileRegistry, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return nil, fmt.Errorf("model registry path is empty")
 	}
-	registry := &FileRegistry{path: path}
+	cfg := fileRegistryConfig{logger: pkglogger.Get()}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	if cfg.logger == nil {
+		cfg.logger = pkglogger.Get()
+	}
+	registry := &FileRegistry{path: path, logger: cfg.logger}
 	if err := registry.Reload(); err != nil {
 		return nil, err
 	}
@@ -58,14 +81,18 @@ func NewStaticRegistry(providers []ProviderModels) StaticRegistry {
 }
 
 func (r *FileRegistry) ListProviders() []ProviderModels {
-	_ = r.Reload()
+	if err := r.Reload(); err != nil {
+		r.logReloadError(err)
+	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return cloneProviders(r.providers)
 }
 
 func (r *FileRegistry) LookupProvider(name string) (ProviderModels, bool) {
-	_ = r.Reload()
+	if err := r.Reload(); err != nil {
+		r.logReloadError(err)
+	}
 	return lookupProvider(r.snapshot(), name)
 }
 
@@ -84,6 +111,16 @@ func (r *FileRegistry) Reload() error {
 	return nil
 }
 
+func (r *FileRegistry) logReloadError(err error) {
+	if r.logger == nil {
+		return
+	}
+	r.logger.Warn("model registry reload failed; keeping previous providers",
+		slog.String("path", r.path),
+		slog.String("error", err.Error()),
+	)
+}
+
 func (r *FileRegistry) snapshot() []ProviderModels {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -99,6 +136,9 @@ func (r StaticRegistry) LookupProvider(name string) (ProviderModels, bool) {
 }
 
 func DefaultRegistryPath() string {
+	if path := strings.TrimSpace(os.Getenv(EnvRegistryPath)); path != "" {
+		return path
+	}
 	if fileExists(DefaultPath) {
 		return DefaultPath
 	}
