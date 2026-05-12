@@ -151,8 +151,19 @@ type newRegistryParams struct {
 	ModelRegistry modelregistry.Registry
 }
 
-func newModelRegistry() (modelregistry.Registry, error) {
-	return modelregistry.NewDefaultRegistry()
+func newModelRegistry(logger *slog.Logger) modelregistry.Registry {
+	registry, err := modelregistry.NewDefaultRegistry(modelregistry.WithLogger(logger))
+	if err == nil {
+		return registry
+	}
+	if logger == nil {
+		logger = pkglogger.Get()
+	}
+	logger.Warn("model registry load failed; falling back to static registry",
+		slog.String("path", modelregistry.DefaultRegistryPath()),
+		slog.String("error", err.Error()),
+	)
+	return modelregistry.NewStaticRegistry(tools.FallbackProviderModels())
 }
 
 func newRegistry(p newRegistryParams) tools.Registry {

@@ -1,11 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools/modelregistry"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
 )
@@ -152,5 +157,22 @@ func TestBootstrapRunnerStartsAndSubscribesWhenRPCAddrPresent(t *testing.T) {
 		if client.topics[i] != want {
 			t.Fatalf("topics[%d] = %q, want %q", i, client.topics[i], want)
 		}
+	}
+}
+
+func TestNewModelRegistryFallsBackWhenDefaultRegistryFails(t *testing.T) {
+	t.Setenv(modelregistry.EnvRegistryPath, filepath.Join(t.TempDir(), "missing.yaml"))
+	var logs bytes.Buffer
+
+	registry := newModelRegistry(slog.New(slog.NewTextHandler(&logs, nil)))
+	providers := registry.ListProviders()
+	if len(providers) != 2 {
+		t.Fatalf("providers count = %d, want 2", len(providers))
+	}
+	if providers[0].Provider != "claude" || providers[1].Provider != "codex" {
+		t.Fatalf("providers = %+v", providers)
+	}
+	if !strings.Contains(logs.String(), "model registry load failed; falling back to static registry") {
+		t.Fatalf("logs = %q, want static fallback warning", logs.String())
 	}
 }
