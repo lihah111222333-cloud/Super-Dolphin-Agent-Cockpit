@@ -18,7 +18,7 @@
 |---|---|---|---|---|
 | **S 骨架** | **24** | **✅ 封板：17 done / 1 推迟 F (S2.4) / 2 推迟 T5 (S6.1+S6.2) / 4 转 T0 作业** | ~25% | 14 处补丁 + ADR 0001 + 删死代码；行为完全不变 |
 | **T 工具** | 18 + 9 T0 | **🟡 T1.1 + T1.2-mid + T2.1+T2.2 + T3.1+T3.2 + T4.1+T4.4 后端八连发 done。前端 6 task 待方案审。** | ~55% | MCP 工具 9/9 就位（含 registry）；UI/AI 设计师待外部依赖 |
-| F 功能 | 37 | 🟡 **17 done**（+ F1.5 / F4.1 / F6.3 于 2026-05-11；+ F1.2 / F2.2 / F4.2 / F7.1 于 2026-05-12 第二轮；+ F4.5 于 2026-05-12 round-3 wiring batch） / 1 完成占位 F6.1 / 19 未开工。另：dispatcher wiring 全链接通 + size_cap 4KB enforce + events ring trim N=50 + Tarjan SCC + task_dispatch_node MCP tool + schema sanity gate（不在 F 表位，但在 round-3 batch 中携带落地） | ~50% | 行为兑现：cron 真跑、AI 设计师上岗、智能重试落地 |
+| F 功能 | 38 | 🟡 **17 done**（+ F1.5 / F4.1 / F6.3 于 2026-05-11；+ F1.2 / F2.2 / F4.2 / F7.1 于 2026-05-12 第二轮；+ F4.5 于 2026-05-12 round-3 wiring batch） / 1 完成占位 F6.1 / 16 未开工 / 4 降 H（F3.1-3.4，详 ADR-014） / 1 新增 F7.3 prompt_template seed 库。另：dispatcher wiring 全链接通 + size_cap 4KB enforce + events ring trim N=50 + Tarjan SCC + task_dispatch_node MCP tool + schema sanity gate（不在 F 表位，但在 round-3 batch 中携带落地） | ~50% | 行为兑现：cron 真跑、AI 设计师上岗（含 seed 库菜单）、智能重试落地 |
 | H 加固 | 按需 | ⛔ 未开动 | ~10% | 生产问题驱动，不预排 |
 
 里程碑：
@@ -216,28 +216,30 @@ f972627d  T0.8 doc-sync script
 
 ---
 
-## 3. 阶段 F 功能（37 行 / 19 未开工 + 17 ✅ done + 1 完成占位）
+## 3. 阶段 F 功能（38 行 / 16 未开工 + 17 ✅ done + 1 完成占位 + 4 降 H + 1 新增 F7.3：详 ADR-014）
 
-> **口径说明**：37 表位 ÷ 状态 = 17 条 strikethrough ✅ done（F1.1 / F1.2 / F1.5 / F2.0 / F2.1 / F2.2 / F4.0 / F4.1 / F4.2 / F4.5 / F5.1 / F5.2 / F5.3 / F6.2 / F6.3 / F6.4 / F7.1）+ 1 条 F6.1 完成占位（由 T1.2-mid 接手 snapshot）+ 19 条未开工。“待做”传统口径只扣“完成占位”不扣 done，本文档接手人读“28 待做”时请同时看本说明。
+> **口径说明**：38 表位 ÷ 状态 = 17 条 strikethrough ✅ done（F1.1 / F1.2 / F1.5 / F2.0 / F2.1 / F2.2 / F4.0 / F4.1 / F4.2 / F4.5 / F5.1 / F5.2 / F5.3 / F6.2 / F6.3 / F6.4 / F7.1）+ 1 条 F6.1 完成占位（由 T1.2-mid 接手 snapshot）+ 4 条 ⏸ 降 H（F3.1 / F3.2 / F3.3 / F3.4，详 ADR-014：prompt_template-first 路线下 hybrid 节点可由 agent+depends_on 两节点表达）+ 1 条新增 F7.3（prompt_template seed 库，详 ADR-014 §2.3）+ 16 条未开工。
 >
-> 26 个原计划 + 5 个从推迟项补位（F4.0 / F6.3 / F6.4 / F6.5 / F14.1） + 1 个从 T0 前置项补位（F1.5） + 1 个 S5.1 schema 返修补位（F2.0） + 1 个 H6 前置补位（F15.1） + 3 个 Hybrid v2 拓扑占位（F3.2 / F3.3 / F3.4） = 37 表位。
+> 26 个原计划 + 5 个从推迟项补位（F4.0 / F6.3 / F6.4 / F6.5 / F14.1） + 1 个从 T0 前置项补位（F1.5） + 1 个 S5.1 schema 返修补位（F2.0） + 1 个 H6 前置补位（F15.1） + 3 个 Hybrid v2 拓扑占位（F3.2 / F3.3 / F3.4） + 1 个 ADR-014 新增补位（F7.3 prompt_template seed 库） = 38 表位。
 >
 > 推迟项拼装表：S2.4 → F6.3；T0.9/PE-1 → F6.4；PT-1 → F14.1；PT-2 → F4.0；T1.2-full → F6.5；**T0.7/PD-2 → F1.5**（spawning_thread_id 字段位，详 ADR-009）；**S5.1 schema 漏 kind 字段位 → F2.0**（详 ADR-007）；**H6 dispatch metric 前置 → F15.1**（详 ADR-010）；**Hybrid v2 拓扑 → F3.2/F3.3/F3.4 占位**（详 ADR-011）。
+>
+> **2026-05-12 ADR-014 prompt_template-first 路线落地同步**：(1) F3.1 / F3.2 / F3.3 / F3.4 **⏸ 降级 H 阶段**（hybrid 节点在 prompt_template-first 下可由 agent+depends_on 两节点表达，独立 node_type 价值低；地基 schema/parser/router 占位/stub 骨架阶段已铺，降 H 不损失沉没成本）。(2) **F7.3 新增**：prompt_template seed 库（10-15 张通用 AI 微技能 — 晨报 / 文献摘要 / PR 摘要 / 周复盘 / 数据巡检 / 邮件起草 / 健康简报 / 选题整理 / 学习卡片 等）；区别于 F7.1 ✅ done 的 designer 自用 prompt（migration 0084 只 seed 了 `main/dag_designer_zh` 1 条），F7.3 是 designer **能挑卡组 DAG 的菜品库**——是 Need 2 端到端真打通的最后一公里。
 
 | ID | 标题 | 主要触动文件 | 验收 | 依赖 | Size | 并行 |
 |---|---|---|---|---|---|---|
 | ~~**F1.1**~~ ✅ done | `AgentExecutor` 解码 `node.config.exec` → `orchestration_launch_agent` 参数映射 + 错误分类（F1.2-1.4 留位） | `cmd/mcp-orch/orchestration/nodeexec/executor_agent.go` / commit `0f65833b` | 单测：provider/model/agent_key/effort/language/tools 映射正确；4 处 FailureClass 映射 + classifyAgentLaunchError | S1.3, S5.2 | M | Y |
 | ~~**F1.2**~~ ✅ done | `AgentExecutor` 处理 `inputs`：注入 prev nodes results / sharedfiles（构造 RunContext + inputs.fromPrev / inputs.sharedFiles 注入到 prompt 前缀） | `cmd/mcp-orch/orchestration/nodeexec/executor_agent.go` + `nodeexec/inputs.go` + `nodeexec/executor_agent_inputs_test.go` / commit `3317b00f` + merge `877193cf` + 冲突修 `6f333dd1` | 单测覆盖 prev result 注入 / sharedfile 注入 / 缺失节点降级 / 双端口 wiring TODO | F1.1 | M | N |
-| **F1.3** | `AgentExecutor` 处理 `outputs`：写 sharedfile / node.result。**边界**：仅负责本节点输出落地，**不得调外部 webhook / 命令卡**——那属于 F3.2（hybrid agent→automation）路径，详 ADR-011 §4 Q3 | 同上 | 集成测试：sharedfile 内容正确写入；负面测试：agent 节点 outputs 中出现 webhook URL 字段被拒 | F1.2 | S | N |
+| **F1.3** | `AgentExecutor` 处理 `outputs`：写 sharedfile / node.result。**边界**：仅负责本节点输出落地，**不得调外部 webhook / 命令卡**——那属于 F3.2（hybrid agent→automation）路径，详 ADR-011 §4 Q3。**注**：F3.2 已 ⏸ 降 H（详 ADR-014），本期 agent → 外部能力整体不做，但边界规则不变（agent 节点 outputs 仍然不允许声明 webhook/command_ref） | 同上 | 集成测试：sharedfile 内容正确写入；负面测试：agent 节点 outputs 中出现 webhook URL 字段被拒 | F1.2 | S | N |
 | **F1.4** | `AgentExecutor` 处理 transient/quota/validation 三类失败基础重试 | 同上 + `retry_strategy.go` 新建 | 单测：模拟三类失败重试次数正确 | F1.1, S7.1 | M | N |
 | ~~**F1.5**~~（T0.7 前置） ✅ done | `spawning_thread_id` 字段位：migration 0083 + AgentExecutor spawn 成功后 UPDATE + task_get_dag DTO 透出。详 ADR-009 | `migrations/0083_dag_v2_spawning_thread_id.sql` + `cmd/mcp-orch/orchestration/nodeexec/executor_agent.go` + `store/taskdag/store_node_spawn.go` + sqlc 手维 / commits `f111c12b` `edc22076` `2c2e0044` `61d41a7a` `4d8f0755` `bec17a85` + merge `b69e24da` + follow-up fix `970cb5aa`（从聚合 Store 拆出 NodeSpawnRecorderStore 过 archtest） | 单测全过：FirstSpawn / RetryOverwrite、3 种 assigned_to 形态 / RetryWithoutRunningRun_SoftMiss / InputValidation；PG 集成测试推迟 T0.1/T0.3 | F1.1 ✅ / S3.x migration 基设 | M | Y |
 | ~~**F2.0**~~（S5.1 schema 返修）✅ done | `AutomationExecConfig` 加 `Kind` 字段位（默认 `command_card`）+ `ParseAutomationConfig` 兜底「未知 kind → fail-fast 拒绝 / 空 kind → 默认 command_card」 / commit `3629a77a` | `cmd/mcp-orch/orchestration/nodeexec/config.go` + `config_test.go` | 单测全过：3 个新增用例（unknown kind 拒绝 / 空 kind 默认 / command_card round-trip） + 守卫全绿 | S5.1 ✅ / ADR-007 ✅ | S | Y |
 | ~~**F2.1**~~ ✅ done | `AutomationExecutor` 解码 `command_ref` → command_get + 执行 / commit `77e6e5bd` | `cmd/mcp-orch/orchestration/nodeexec/executor_automation.go` | 单测：happy / unsupported kind / command not found / timeout / nil launcher；错误分类按 ADR-008 口径 | S1.4, S5.2, F2.0 | M | Y（与 F1 并行） |
 | ~~**F2.2**~~ ✅ done | `AutomationExecutor` 处理 inputs/outputs（共用 nodeexec/inputs.go RunContext + 写回 node.result / sharedfile outputs） | `cmd/mcp-orch/orchestration/nodeexec/executor_automation.go` + `nodeexec/executor_automation_test.go` / commit `3d8526ab` + merge `4dd5307a` | 单测：inputs 注入到 command args / outputs 写 sharedfile / 错误分类按 ADR-008 | F2.1 | S | N |
-| **F3.1**（v1 单拓扑） | `HybridExecutor v1`：automation → agent verifier（等同 AutomationWithVerifier 语义）；v2 多向拓扑见 F3.2/F3.3/F3.4 占位。详 ADR-011 | `cmd/mcp-orch/orchestration/executor_hybrid.go` | 集成测试：automation 失败时 verifier 不跑；测试名带 v1 后缀 | F1, F2 完成 | M | N |
-| **F3.2**（v2 占位） | ⛔ 待 ADR-011a 拍板：`agent → automation` 拓扑（agent 输出触发 webhook / 写 sharedfile / 调命令卡） | `executor_hybrid.go` 内分支 | 集成测试 | F3.1 + ADR-011a | M | N |
-| **F3.3**（v2 占位） | ⛔ 待 ADR-011b 拍板：`agent A → agent B` 并行仲裁拓扑（与 F12.1 智能重试正交） | 同上 | 集成测试 | F3.1 + ADR-011b | M | N |
-| **F3.4**（v2 占位） | ⛔ 待 ADR-011c 拍板：`automation A → automation B` 编排两条命令卡 | 同上 | 集成测试 | F3.1 + ADR-011c | M | N |
+| ⏸ **F3.1**（v1 单拓扑） | `HybridExecutor v1` — **⏸ 降级 H 阶段**（详 ADR-014 §5：prompt_template-first 下 hybrid 可由 agent+depends_on 两节点表达，独立 node_type 价值低；地基已铺不浪费）。原描述：automation → agent verifier；v2 多向拓扑见 F3.2/F3.3/F3.4 占位。详 ADR-011 | `cmd/mcp-orch/orchestration/executor_hybrid.go` | 集成测试：automation 失败时 verifier 不跑；测试名带 v1 后缀 | F1, F2 完成 | M | N |
+| ⏸ **F3.2**（v2 占位） | **⏸ 降级 H 阶段**（详 ADR-014）。原占位：待 ADR-011a 拍板 `agent → automation` 拓扑（agent 输出触发 webhook / 写 sharedfile / 调命令卡） | `executor_hybrid.go` 内分支 | 集成测试 | F3.1 + ADR-011a | M | N |
+| ⏸ **F3.3**（v2 占位） | **⏸ 降级 H 阶段**（详 ADR-014）。原占位：待 ADR-011b 拍板 `agent A → agent B` 并行仲裁拓扑（与 F12.1 智能重试正交） | 同上 | 集成测试 | F3.1 + ADR-011b | M | N |
+| ⏸ **F3.4**（v2 占位） | **⏸ 降级 H 阶段**（详 ADR-014）。原占位：待 ADR-011c 拍板 `automation A → automation B` 编排两条命令卡 | 同上 | 集成测试 | F3.1 + ADR-011c | M | N |
 | ~~**F4.0**~~（顶层前置）✅ done | `ApplyOps` 顶层 unmarshal + 形状校验 + 错误分类（PT-2） | `cmd/mcp-orch/orchestration/dag.go` `ApplyOps` 顶层 + `nodeexec.Ops UnmarshalJSON` / commit `131feb75` | 单测：非法 op_kind / 缺字段 / 非法 base_version 全拒；错误分类清晰；`applyTypedOps` 仍 stub（F4.1+ 真业务） | T2.2 | S | Y |
 | ~~**F4.1**~~ ✅ done | `ApplyOps` add_node 真实实现 + Kahn 环检测（CycleError 携带 node_keys）+ OCC 双重护栏（pre-check + bump 失锁 post-check 都返 ErrVersionConflict） | `cmd/mcp-orch/orchestration/nodeexec/cycle.go` + `nodeexec/plan.go` + `orchestration/dag.go` + `dag_query.go` + `store/taskdag/store_dag_ops.go` + `store/sqlc/db_accessor.go` / commits `f716aa5c` `13a81828` `3b2e621e` `31aed200` + merge `e89f9231` | 21 单测：9 cycle（self-loop / diamond / external-dep-ignored / 3-node-loop） + 12 add_node（PT-4 raw ops 透传 + OCC + 重名 + 引用未知节点） | S2.2, T2.2, F4.0 | M | Y |
 | ~~**F4.2**~~ ✅ done | `ApplyOps` update_node 真实实现 + `NodePatch` strict UnmarshalJSON + `PlanUpdateNodes` 纯函数 + 节点 status 防御 + 同批 add+update 串行执行 | `cmd/mcp-orch/orchestration/dag.go` + `dag_ops_update_node_test.go` + `nodeexec/ops.go`（NodePatch + AssignedTo）+ `nodeexec/plan.go`（PlanUpdateNodes）+ `nodeexec/ops_update_node_test.go` + `nodeexec/plan_update_test.go` + `store/taskdag/store_dag_ops.go` UpdateNode / commits `7611c268` `65c977d8` `848f1188` + merge `d63a623d` + fix `6f333dd1` | 单测：未知字段拒 / 不可改字段拒 / 状态门禁（done 节点不可改 config）/ 同批 add 后 update / OCC | F4.1 | S | N |
@@ -254,6 +256,7 @@ f972627d  T0.8 doc-sync script
 | **F6.5** | T1.2-full：复制节点带 run_id + allow 多 run 并发 | `RunStore` 节点复制 + `dag_lifecycle.go` + `StartDAG` 去 reject | 集成测试：同 DAG 两次 StartDAG 都成功，节点行各自 run_id 独立 | T1.2 (mid)、F6.3、F6.4 | L | N |
 | ~~**F7.1**~~ ✅ done | AI 设计师 prompt（中文版）seed 0084 + archtest 守护关键内容不被悄悄抽干 | `migrations/0084_seed_dag_designer_prompt_zh.sql` + `internal/archtest/dag_designer_prompt_seed_test.go` / commits `49fd0143` `52da9d36` + merge `94502cec` | archtest 校验 prompt 包含完整可用资源列表 / 关键指令 keyword 不丢失 | T4.1-T4.4 | M | Y |
 | **F7.2** | AI 设计师 prompt（英文版） | 同上 | 同上 | F7.1 | S | N |
+| **F7.3**（新增 / ADR-014 §2.3） | **prompt_template seed 库**：10-15 张通用 AI 微技能（覆盖 power user 跨场景 — `morning_briefer` / `paper_summarizer` / `pr_summarizer` / `weekly_reviewer` / `data_inspector` / `email_drafter` / `health_reporter` / `topic_curator` / `source_monitor` / `note_organizer` / `todo_prioritizer` / `learning_card` / `trip_briefer` ...）；区别于 F7.1 ✅ done 的 designer 自用 prompt（migration 0084 只 seed 了 `main/dag_designer_zh` 1 条），F7.3 是 designer **能挑卡组 DAG 的菜品库** | `migrations/0085_seed_prompt_template_skill_cards.sql`（新建）+ `internal/archtest/dag_skill_seeds_test.go`（守卫每张 seed 关键字段完整） | 集成测试：`prompt_list` 返 ≥ 10 张；AI designer 在 thread 里能挑任意一张组 DAG 跑通；M3 demo 用例 `morning_briefer` round-trip | T4.2（prompt_list）、F1.1 ✅ / F1.2 ✅ / F1.3、F7.1 ✅ | M | Y |
 | **F8.1** | UI 节点编辑表单（typed schema → form field 映射规则） | `components/NodeEditForm.js` 新建 | 单测：schema 渲染对应控件 | S5.1 | L | Y（前端独立，**方案先发用户**） |
 | **F8.2** | UI 表单下拉框接 `list_models` / `list_prompt_templates` | 同上 | e2e：下拉框数据正确 | F8.1, T4.1-T4.4 | M | N |
 | **F9.1** | UI mermaid 拓扑图（DAG → mermaid 字符串） | `components/DagTopology.js` 新建 | e2e：截图对比 | T5.2 | M | Y |
@@ -266,7 +269,9 @@ f972627d  T0.8 doc-sync script
 
 **F 阶段验收**：M3 里程碑端到端用例通过：
 
-> 「点『AI 帮你设计流程』按钮 → 新 thread → 在 thread 里说『帮我设计每天 8 点的报告生成 DAG』 → AI 输出 ops，DAG 创建 → 用户在 UI 改一处 prompt → 点 Start → 第一个 run 跑通 → 第二天 8 点自动起第二个 run → run 历史里看到两次执行 → 一次故意触发 capability 类失败 → 智能重试升级到 Opus → 通过」
+> 「点『AI 帮你设计流程』按钮 → 新 thread → 在 thread 里说『帮我设计每天 8 点的报告生成 DAG』 → AI 调 `prompt_list` 看 prompt_template 菜单（F7.3 seed）→ 挑中 `morning_briefer` 等 prompt_template → AI 调 `task_dag_apply_ops` 加 `kind=agent` 节点 + `agent_key=morning_briefer` + `cron_expr=0 8 * * *` → 用户在 UI 改一处 prompt → 点 Start → 第一个 run 跑通 → 第二天 8 点自动起第二个 run → run 历史里看到两次执行 → 一次故意触发 capability 类失败 → 智能重试升级到 Opus → 通过」
+>
+> **关键路径**：全程不涉及 command_card；AI 设计师挑 prompt_template、`kind=agent` 节点跑 Claude/Codex CLI 子 thread——详 ADR-014 §3。
 
 **M3 验收硬阈值（详 ADR-010）**：
 - 用例必须覆盖 DAG ≥ 10 节点跑通
@@ -292,6 +297,7 @@ f972627d  T0.8 doc-sync script
 | H8 | token budget enforcement（**硬阈值见 ADR-010**：单 run 累计 token > 100K 告警，× 2 强制降级 sonnet） | 出现 token 失控成本 | 中 |
 | H9 | task_post_message 原语真实落地 | 节点对话 sharedfile 不够用 | 低 |
 | H10 | waiting_human HITL 完整流程 | 出现需要人审决策的场景 | 中 |
+| H11 | **Hybrid 节点拓扑（v1+v2）**（从 F3.1 / F3.2 / F3.3 / F3.4 降级而来，详 ADR-014 §5）。原 F3.1 = HybridExecutor v1（automation → agent verifier 单向）；F3.2/F3.3/F3.4 = v2 多向拓扑占位（agent→automation / agent A→agent B / automation A→automation B）。地基（HybridExecConfig schema / ParseHybridConfig / router 占位 / stub）骨架阶段已铺，重启时可直接实装 executor 真业务 | 用户场景出现明显需要 hybrid 编排（agent→外部能力 / agent→agent 仲裁 / 命令卡链）的需求 | 低（prompt_template-first 下可由 agent+depends_on 两节点表达，独立 node_type 价值低） |
 
 加固阶段任务**不预排**：每条 H 触发后单独立任务清单。
 
@@ -321,7 +327,7 @@ f972627d  T0.8 doc-sync script
 **Need 2（AI 帮你设计流程）落地必备 task**：
 - S1.1 ✅, S2.2 ✅, S4 ✅, S5 ✅（NodeExecutor + ops + typed schema）
 - T2.1 ✅ / T2.2 ✅ / T4.1 ✅ / T4.2 ✅ / T4.3 ✅ / T4.4 ✅ / T5.2 / T8.1 / T8.2（ops 工具 + registry + UI 按钮）
-- F1.1-F1.3, F4.1-F4.5, F7.1, F7.2, F8.1, F8.2（Executor + ApplyOps + 设计师 prompt + 表单）
+- F1.1-F1.3, F4.1-F4.5, **F7.1 ✅ / F7.2 / F7.3（新增 seed 库 ← M3 真打通最后一公里）**, F8.1, F8.2（Executor + ApplyOps + 设计师 prompt + 微技能 seed + 表单）
 
 ---
 
@@ -551,7 +557,7 @@ grep -r "FailureClass\|OnFailureStrategy" cmd/ 2>/dev/null | wc -l  # 目标 ≥
 - **问题 1：harness ↔ DAG 双向追溯缝（spawning_thread_id）** ✅ **已前置 — 立 ADR-009 + T0.7 前置到 F1.5**：字段位不再推迟到 T8.1，改由 F1.5 在 spawn 后写入。详 ADR-009 / F1.5。
 - **问题 3：AutomationExecutor 缺 automation.kind 多态分发** ✅ **已拍板 — ADR-007 Accepted + F2.0 schema 返修**：ADR-007 锁方案 A（command_card → webhook → http → shell 渐进）；F2.0 在 nodeexec/config.go 实装 Kind 字段位 + 未知 kind fail-fast。详 ADR-007 / F2.0。
 - **问题 4：H7/H8 没硬阈值** ✅ **已立 ADR-010 + M3 验收锚点**：DAG ≥ 10 节点 + 单节点 result > 4KB + 单 run 累计 token > 100K（占位） 三档硬阈值，M3 验收用例必须覆盖。实装仍留 H 阶段。
-- **问题 5：HybridExecutor 只一种拓扑（命名误导）** ✅ **已立 ADR-011 + F3.1 改 v1 + F3.2/3.3/3.4 占位**：v1 锁定 automation → agent verifier 单向（等同 AutomationWithVerifier 语义）；v2 多向拓扑（agent→automation / agent A→agent B / automation A→automation B）作占位行，开工前各自立 ADR-011a/b/c 子文档。
+- **问题 5：HybridExecutor 只一种拓扑（命名误导）** ✅ **已立 ADR-011 + F3.1 改 v1 + F3.2/3.3/3.4 占位**：v1 锁定 automation → agent verifier 单向（等同 AutomationWithVerifier 语义）；v2 多向拓扑（agent→automation / agent A→agent B / automation A→automation B）作占位行，开工前各自立 ADR-011a/b/c 子文档。**2026-05-12 后续**：F3.1 / F3.2 / F3.3 / F3.4 全部 ⏸ 降 H 阶段（H11），详 ADR-014 §5——prompt_template-first 路线下 hybrid 节点可由 agent+depends_on 两节点表达，独立 node_type 价值低。
 - **问题 6：观测/告警全在 H 阶段** ✅ **H6 拆 H6a/H6b**：H6a（dispatch_failed_total / retry_count_per_node 计数 + retry≥3 告警）前置到 F15.1；H6b（cron miss / run timeout）留 H 阶段。避免「上层调度看不见下层执行」瞎区拖到 M3 后才补。
 
 ---
