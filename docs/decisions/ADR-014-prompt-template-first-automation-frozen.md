@@ -1,6 +1,8 @@
 # ADR-014：prompt_template-first 路线 / automation kind 冻结在 command_card
 
 > 状态：✅ Accepted | 日期：2026-05-12 | 决策者：主线 | 相关：ADR-007（automation.kind 渐进路线，本 ADR 冻结其 §6 progression）、F2.0/F2.1（已 done 不撤回）、F7.1/F7.2（教 AI 挑 prompt_template）、F7.3（新增 prompt_template seed 库）
+>
+> 来源注：本 ADR 是 round-3（2026-05-12）独立产出，但文件随 reviewer 合并 W3 时 `git add -A` 顺手带入 commit `30f6837c`（W3 SQL/migration/F4.5/Tarjan SCC merge commit），git log 归属与实际产出起源不完全对齐。不 rebase 重写历史的原因：(1) 当前 50 commits 未 push，技术上可 rebase；(2) 但 rebase über 5 个 merge + 30+ worker commits 代价远大于“commit 归属准确”的美学收益；(3) 功能 / ADR 内容 / archtest / 状态项都正确不受影响。
 
 ## 1. 背景
 
