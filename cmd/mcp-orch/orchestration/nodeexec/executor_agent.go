@@ -2,6 +2,7 @@ package nodeexec
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -86,7 +87,6 @@ type NodeSpawnRecorder interface {
 // SharedfileReader interfaces have been removed; callers wire data into
 // RunContext.PrevResults / RunContext.SharedFileReader instead.
 
-
 // Option configures an AgentExecutor at construction time. 端口收敛 batch 把双构造器
 // （NewAgentExecutor / NewAgentExecutorWithInputs）折叠到 functional options：
 // inputs 数据走 RunContext，构造器只用来锁 launcher / recorder / 未来辅助端口。
@@ -159,6 +159,9 @@ func (e *AgentExecutor) Execute(ctx context.Context, node Node, runCtx RunContex
 			ErrorSummary: "decode agent config: nil parsed config",
 		}, nil
 	}
+	if failure := validateAgentOutputs(node.Config, cfg); failure != nil {
+		return *failure, nil
+	}
 
 	// 2. 形状校验：agent_key 是 launcher 路由 prompt template 的关键字段，
 	//    缺它即 validation 失败（与 ADR 0001 §2.10 enum/必填基线对齐）。
@@ -201,11 +204,8 @@ func (e *AgentExecutor) Execute(ctx context.Context, node Node, runCtx RunContex
 	threadID, launchErr := e.launcher.LaunchAgent(ctx, req)
 	if launchErr == nil {
 		// F1.5 写回逻辑外刷到 spawnWriteback，避免 Execute 本体圈复杂度 CC 超阈。
-		outcome := NodeOutcome{Status: NodeStatusDone}
-		outcome.ErrorSummary = e.spawnWriteback(ctx, node, runCtx, threadID)
-		// F1.3 留位：outputs.to_sharedfile / to_node_result 在 F1.3 实现。
-		// F1.3 placeholder: persist outputs into sharedfile / node result.
-		return outcome, nil
+		errorSummary := e.spawnWriteback(ctx, node, runCtx, threadID)
+		return finalizeAgentOutcome(ctx, cfg, runCtx, threadID, errorSummary)
 	}
 
 	// 7. 失败 → 分类。F1.4 智能重试 dispatcher 据此查 cfg.Exec.OnFailure.ByClass。
@@ -224,6 +224,77 @@ func (e *AgentExecutor) Execute(ctx context.Context, node Node, runCtx RunContex
 //
 // Hooks reports lifecycle hook handlers. F13 wires real hooks; today nil.
 func (e *AgentExecutor) Hooks() map[HookPoint]HookHandler { return nil }
+
+type agentLaunchResult struct {
+	ThreadID string `json:"thread_id"`
+	AgentKey string `json:"agent_key,omitempty"`
+}
+
+var agentOutputsForbiddenKeys = []string{"webhook_url", "command_ref"}
+
+func validateAgentOutputs(raw json.RawMessage, _ *AgentNodeConfig) *NodeOutcome {
+	return validateOutputsForbiddenKeys(raw, agentOutputsForbiddenKeys, func(key string) NodeOutcome {
+		return NodeOutcome{
+			Status:       NodeStatusFailed,
+			FailureClass: FailureClassValidation,
+			ErrorSummary: truncateErrSummary(fmt.Sprintf("agent outputs cannot include external capability field %q", key)),
+		}
+	})
+}
+
+func finalizeAgentOutcome(ctx context.Context, cfg *AgentNodeConfig, runCtx RunContext, threadID, errorSummary string) (NodeOutcome, error) {
+	result := agentLaunchResult{
+		ThreadID: strings.TrimSpace(threadID),
+		AgentKey: strings.TrimSpace(cfg.Exec.AgentKey),
+	}
+	payload, err := json.Marshal(result)
+	if err != nil {
+		return NodeOutcome{
+			Status:       NodeStatusFailed,
+			FailureClass: FailureClassValidation,
+			ErrorSummary: truncateErrSummary("marshal agent result: " + err.Error()),
+		}, nil
+	}
+	if failure := writeAgentSharedfile(ctx, cfg, runCtx, payload); failure != nil {
+		return *failure, nil
+	}
+	outcome := NodeOutcome{Status: NodeStatusDone, ErrorSummary: errorSummary}
+	if shouldEmitNodeResult(cfg.Outputs) {
+		if failure := enforceNodeResultSizeCap(payload); failure != nil {
+			return *failure, nil
+		}
+		outcome.Result = payload
+	}
+	return outcome, nil
+}
+
+func writeAgentSharedfile(ctx context.Context, cfg *AgentNodeConfig, runCtx RunContext, payload []byte) *NodeOutcome {
+	target := cfg.Outputs.ToSharedfile
+	if target == nil {
+		return nil
+	}
+	path := strings.TrimSpace(target.Path)
+	if path == "" {
+		return nil
+	}
+	if runCtx.SharedFileWriter == nil {
+		outcome := NodeOutcome{
+			Status:       NodeStatusFailed,
+			FailureClass: FailureClassInfrastructure,
+			ErrorSummary: "outputs.to_sharedfile configured but SharedFileWriter not wired in RunContext",
+		}
+		return &outcome
+	}
+	if err := runCtx.SharedFileWriter.WriteSharedFile(ctx, path, string(payload)); err != nil {
+		outcome := NodeOutcome{
+			Status:       NodeStatusFailed,
+			FailureClass: FailureClassInfrastructure,
+			ErrorSummary: truncateErrSummary(fmt.Sprintf("outputs.to_sharedfile[%q]: %v", path, err)),
+		}
+		return &outcome
+	}
+	return nil
+}
 
 // spawnWriteback 是 F1.5 写回路径的独立 helper：luach 成功 → 调 recorder 记录
 // spawning_thread_id。返回值是 NodeOutcome.ErrorSummary 的候选填值：
