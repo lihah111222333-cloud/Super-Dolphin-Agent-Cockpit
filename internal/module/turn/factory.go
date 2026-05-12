@@ -380,13 +380,15 @@ func interruptAndWait(
 }
 
 func activeProviderID(active activeTurn) string {
+	if active.handle != nil {
+		if providerID := strings.TrimSpace(active.handle.ProviderID()); providerID != "" {
+			return providerID
+		}
+	}
 	if providerID := strings.TrimSpace(active.providerID); providerID != "" {
 		return providerID
 	}
-	if active.handle == nil {
-		return ""
-	}
-	return strings.TrimSpace(active.handle.ProviderID())
+	return ""
 }
 
 func buildInterruptResult(status TurnStatus, envelope turnInterruptEnvelope) turnInterruptResult {

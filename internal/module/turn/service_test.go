@@ -77,6 +77,18 @@ func TestPrepareTurnManualSkillSelectionDisablesAutoMatch(t *testing.T) {
 	}
 }
 
+func TestActiveProviderIDPrefersLiveHandle(t *testing.T) {
+	t.Parallel()
+
+	handle := newStubTurnHandle("local-1", "provider-new")
+	if got := activeProviderID(activeTurn{providerID: "provider-old", handle: handle}); got != "provider-new" {
+		t.Fatalf("activeProviderID() = %q, want provider-new", got)
+	}
+	if got := activeProviderID(activeTurn{providerID: "provider-old"}); got != "provider-old" {
+		t.Fatalf("activeProviderID() fallback = %q, want provider-old", got)
+	}
+}
+
 func TestPrepareTurnTruncatesInputCount(t *testing.T) {
 	t.Parallel()
 
