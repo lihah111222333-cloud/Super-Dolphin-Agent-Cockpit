@@ -16,6 +16,7 @@ type Store interface {
 	DAGLockStore
 	RunningNodeStore
 	NodeFlowStore
+	NodeSpawningThreadLookup
 	WakeupStore
 	WorkerLeaseStore
 }
@@ -150,6 +151,26 @@ type NodeFlowStore interface {
 // OrchestrationStore / RunStore to keep the InterfaceIsolation budget intact.
 type NodeSpawnRecorderStore interface {
 	RecordNodeSpawn(ctx context.Context, input RecordNodeSpawnInput) (*RecordNodeSpawnResult, error)
+}
+
+// NodeSpawningThreadLookup is the narrow port consumed by the ADR-017 v1.2
+// DAG turn.completed subscriber (and the hookConsumer thread.stopped DAG
+// fallback). It reverses task_dag_nodes.spawning_thread_id back to the node
+// rows that spawned the given child thread id (ev.ThreadID).
+//
+// The same *store implements this port (guarded by
+// store_compile_assertions_test.go via
+// `var _ NodeSpawningThreadLookup = (*store)(nil)`), kept as a single-method
+// narrow port so unit tests for the subscriber / fallback can inject a
+// trivial mock without pulling in OrchestrationStore / NodeFlowStore.
+//
+// N>1 results are a normal occurrence on retry / recovery chains: the
+// partial index idx_task_dag_nodes_spawning_thread_id (migration 0083) has
+// no UNIQUE clause and F1.5's write entry-point is not single-writer. The
+// subscriber iterates every returned node and applies idempotent state
+// machine advancement on each (ADR-017 §2.2).
+type NodeSpawningThreadLookup interface {
+	LookupNodesBySpawningThread(ctx context.Context, threadID string) ([]Node, error)
 }
 
 // DispatchNodeStore 是 task_dispatch_node MCP 工具需要的窄端口：

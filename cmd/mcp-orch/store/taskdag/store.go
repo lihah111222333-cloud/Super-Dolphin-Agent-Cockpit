@@ -88,6 +88,20 @@ func (s *store) ListNodes(ctx context.Context, dagKey string) ([]Node, error) {
 	}, "list", "task_dag_node", fromNode)
 }
 
+// LookupNodesBySpawningThread reverses task_dag_nodes.spawning_thread_id back
+// to the node rows that spawned the given child thread id. ADR-017 v1.2 §2.2.
+//
+// Empty result slice (not platformdb.ErrNotFound) means no node currently
+// carries this thread id. N>1 results are normal on retry / recovery chains
+// (migration 0083 partial index has no UNIQUE clause + F1.5 write entry-point
+// is not single-writer); the caller iterates and applies idempotent
+// advancement on every row.
+func (s *store) LookupNodesBySpawningThread(ctx context.Context, threadID string) ([]Node, error) {
+	return queryMany(func() ([]sqlc.TaskDagNode, error) {
+		return s.q.LookupNodesBySpawningThread(ctx, threadID)
+	}, "lookup_by_spawning_thread", "task_dag_node", fromNode)
+}
+
 func (s *store) ListRunningNodesByAssignee(ctx context.Context, assignee string) ([]Node, error) {
 	return queryMany(func() ([]sqlc.TaskDagNode, error) {
 		return s.q.ListRunningTaskDagNodesByAssignee(ctx, assignee)

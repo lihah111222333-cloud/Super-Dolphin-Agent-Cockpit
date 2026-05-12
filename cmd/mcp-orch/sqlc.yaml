@@ -38,6 +38,7 @@ sql:
       #                                            + PromoteSingleNodePendingToReady
       #                                            (F1.5 + F6.3)
       #   5. task_dag_node_spawning_thread.sql.go — entire file new (F1.5 CTE)
+      #   5b. task_dag_node_lookup.sql.go — entire file new (ADR-017 §2.2 reverse lookup)
       #   6. task_dag_run.sql.go                — AppendTaskDagRunEvent + jsonb_build_array
       #                                            及 FinalizeTaskDagRunIfAllNodesTerminal (F1.5 + F6.2 + R1 P0 #1)
       #   7. db_accessor.go                     — QueriesDB(*Queries) DBTX bypass (F4.1)

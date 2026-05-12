@@ -31,6 +31,7 @@ var (
 	_ RunningNodeStore   = (*store)(nil)
 	_ NodeFlowStore      = (*store)(nil)
 	_ NodeSpawnRecorderStore = (*store)(nil)
+	_ NodeSpawningThreadLookup = (*store)(nil)
 	_ DispatchNodeStore  = (*store)(nil)
 	_ WakeupStore        = (*store)(nil)
 	_ WorkerLeaseStore   = (*store)(nil)

@@ -106,6 +106,12 @@ func (db *fakeTaskDAGDB) Query(_ context.Context, sql string, args ...any) (pgx.
 			return nil, err
 		}
 		return &stubTaskDAGRows{rows: rows}, nil
+	case strings.Contains(sql, "LookupNodesBySpawningThread"):
+		rows, err := db.lookupNodesBySpawningThread(args...)
+		if err != nil {
+			return nil, err
+		}
+		return &stubTaskDAGRows{rows: rows}, nil
 	case strings.Contains(sql, "FinalizeTaskDagRunIfAllNodesTerminal"):
 		rows, err := db.finalizeRunIfAllNodesTerminal(args...)
 		if err != nil {
@@ -529,6 +535,41 @@ func (db *fakeTaskDAGDB) enqueueWakeup(args ...any) (int64, error) {
 		UpdatedAt:      timestamptzValue(db.now),
 	}
 	return 1, nil
+}
+
+// lookupNodesBySpawningThread mirrors the ADR-017 §2.2 reverse-lookup query:
+// SELECT * FROM task_dag_nodes WHERE spawning_thread_id = $1 AND
+// spawning_thread_id IS NOT NULL ORDER BY updated_at DESC, id DESC.
+func (db *fakeTaskDAGDB) lookupNodesBySpawningThread(args ...any) ([][]any, error) {
+	if len(args) != 1 {
+		return nil, fmt.Errorf("lookup-by-spawning args len = %d, want 1", len(args))
+	}
+	threadID, ok := args[0].(string)
+	if !ok {
+		return nil, fmt.Errorf("thread id arg = %T", args[0])
+	}
+	keys := make([]string, 0)
+	for k, row := range db.nodes {
+		if !row.SpawningThreadID.Valid {
+			continue
+		}
+		if row.SpawningThreadID.String != threadID {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		left, right := db.nodes[keys[i]], db.nodes[keys[j]]
+		if !left.UpdatedAt.Time.Equal(right.UpdatedAt.Time) {
+			return left.UpdatedAt.Time.After(right.UpdatedAt.Time)
+		}
+		return left.ID > right.ID
+	})
+	rows := make([][]any, 0, len(keys))
+	for _, k := range keys {
+		rows = append(rows, taskDagNodeValues(db.nodes[k]))
+	}
+	return rows, nil
 }
 
 func (db *fakeTaskDAGDB) listTaskDagNodes(args ...any) ([][]any, error) {
