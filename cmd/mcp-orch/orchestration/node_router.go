@@ -11,7 +11,9 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/jackc/pgx/v5"
 )
 
 // NodeExecutorRouter 把 DAG-driven wakeup 按 node_type 派发到对应 NodeExecutor。
@@ -108,7 +110,7 @@ func (r *NodeExecutorRouter) RouteByWakeup(ctx context.Context, w *taskdag.Wakeu
 	if runCtxErr != nil {
 		return runCtxErr.outcome, runCtxErr.frameworkErr
 	}
-	return r.dispatchByNodeType(ctx, nodeType, node, runCtx)
+	return r.dispatchByNodeType(ctx, nodeType, node, runCtx, w.ID)
 }
 
 // runContextBuildErr 是 buildRunContext 的多路返值载体：
@@ -271,10 +273,13 @@ func resolveNodeType(raw string) string {
 
 // dispatchByNodeType 是本文件里别的「真」路由表：按 node_type 调对应 executor。
 // 拆出独立函数以满足 code-size guard 的 CC 阈值。
-func (r *NodeExecutorRouter) dispatchByNodeType(ctx context.Context, nodeType string, node nodeexec.Node, runCtx nodeexec.RunContext) (nodeexec.NodeOutcome, error) {
+//
+// wakeupID 是本轮 dispatcher 绑定的 wakeup row id，仅 dispatchAgent 用于
+// ready→running 推进（ADR-017 §2.4）。其他路径不需要。
+func (r *NodeExecutorRouter) dispatchByNodeType(ctx context.Context, nodeType string, node nodeexec.Node, runCtx nodeexec.RunContext, wakeupID int64) (nodeexec.NodeOutcome, error) {
 	switch nodeType {
 	case "agent":
-		return r.dispatchAgent(ctx, node, runCtx)
+		return r.dispatchAgent(ctx, node, runCtx, wakeupID)
 	case "automation":
 		return r.dispatchAutomation(ctx, node, runCtx)
 	case "hybrid":
@@ -288,11 +293,65 @@ func (r *NodeExecutorRouter) dispatchByNodeType(ctx context.Context, nodeType st
 	}
 }
 
-func (r *NodeExecutorRouter) dispatchAgent(ctx context.Context, node nodeexec.Node, runCtx nodeexec.RunContext) (nodeexec.NodeOutcome, error) {
+// dispatchAgent 类似 dispatchAutomation，但 child agent 是外部驱动的 —— router
+// 只负责 launch + 推 ready→running；subscriber（ADR-017 §2.1）后续推 done/failed。
+//
+// ADR-017 v1.2 §2.4 选项 C：launch 成功后用 UpdateRunningTaskDagNodeStatus
+// 写 running（白名单 IN ('pending','ready')，避免 UpdateNodeStatusFlexible
+// 反向覆盖 done→running）；sqlc 返 (TaskDagNode, error)，0 rows 错是 pgx.ErrNoRows，
+// 走 race window D 分支（subscriber 已先推 done）。
+func (r *NodeExecutorRouter) dispatchAgent(ctx context.Context, node nodeexec.Node, runCtx nodeexec.RunContext, wakeupID int64) (nodeexec.NodeOutcome, error) {
 	if r.agentExec == nil {
 		return validationOutcome("node router: agent executor not wired"), nil
 	}
-	return r.agentExec.Execute(ctx, node, runCtx)
+	outcome, err := r.agentExec.Execute(ctx, node, runCtx)
+	if err != nil || outcome.Status == nodeexec.NodeStatusFailed {
+		// launch 失败 / executor 框架错：不写 running；dispatcher 会走 retry / fail 路径。
+		return outcome, err
+	}
+	// launch 成功：推 ready→running，让 subscriber 后续推 done/failed。
+	r.advanceAgentNodeToRunning(ctx, node.DagKey, node.NodeKey, wakeupID)
+	return outcome, nil
+}
+
+// advanceAgentNodeToRunning 调 UpdateRunningNodeStatus（SQL 白名单 IN ('pending','ready')）
+// 推 ready→running。错误不阻塞 dispatchAgent 返值：
+//   - pgx.ErrNoRows：0 rows = subscriber 已先推 done/failed（Window D，§2.6），
+//     metric IncDispatchAgentRunningSkippedAlreadyTerminal +Debug log；
+//   - 其它 DB 错误：Warn log + metric IncDispatchAgentRunningWriteFailed；
+//   - 成功：metric IncDispatchAgentRunningWritten。
+func (r *NodeExecutorRouter) advanceAgentNodeToRunning(ctx context.Context, dagKey, nodeKey string, wakeupID int64) {
+	if r.store == nil {
+		r.logger.Warn("node router: store nil, skip ready->running write",
+			"dag_key", dagKey, "node_key", nodeKey)
+		return
+	}
+	runStore, ok := any(r.store).(taskdag.RunningNodeStore)
+	if !ok {
+		r.logger.Warn("node router: store does not implement RunningNodeStore",
+			"dag_key", dagKey, "node_key", nodeKey)
+		return
+	}
+	_, updateErr := runStore.UpdateRunningNodeStatus(ctx, taskdag.RunningNodeStatusUpdate{
+		Status:   "running",
+		Result:   json.RawMessage(`{}`),
+		WakeupID: wakeupID,
+		DagKey:   dagKey,
+		NodeKey:  nodeKey,
+	})
+	switch {
+	case updateErr == nil:
+		dispatchAgentRunningMetrics.IncWritten()
+	case errors.Is(updateErr, pgx.ErrNoRows) || platformdb.IsNotFound(updateErr):
+		// race window D：subscriber 已推终态，不在白名单 IN ('pending','ready')。
+		dispatchAgentRunningMetrics.IncSkippedAlreadyTerminal()
+		r.logger.Debug("node router: ready->running skipped, node already terminal",
+			"dag_key", dagKey, "node_key", nodeKey)
+	default:
+		dispatchAgentRunningMetrics.IncWriteFailed()
+		r.logger.Warn("node router: ready->running write failed",
+			"dag_key", dagKey, "node_key", nodeKey, "error", updateErr)
+	}
 }
 
 func (r *NodeExecutorRouter) dispatchAutomation(ctx context.Context, node nodeexec.Node, runCtx nodeexec.RunContext) (nodeexec.NodeOutcome, error) {
