@@ -16,10 +16,18 @@ type Store interface {
 	DAGLockStore
 	RunningNodeStore
 	NodeFlowStore
-	NodeSpawningThreadLookup
 	WakeupStore
 	WorkerLeaseStore
 }
+
+// NodeSpawningThreadLookup is intentionally NOT embedded in Store — same
+// rationale as NodeSpawnRecorderStore (see comment block on its type): the
+// InterfaceIsolation budget (≤7 embedded ports) is preserved by exposing
+// the narrow port via a dedicated fx provider (module.go::ProvideNodeSpawningThreadLookup)
+// + compile-time guard (store_compile_assertions_test.go::var _
+// NodeSpawningThreadLookup = (*store)(nil)). DAG subscriber / thread.stopped
+// fallback consumers receive the narrow port directly through fx, not
+// through the aggregate Store.
 
 // OrchestrationStore is the narrow port consumed by cmd/mcp-orch/orchestration
 // for public DAG CRUD/update flows.

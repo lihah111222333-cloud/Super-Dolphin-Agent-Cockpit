@@ -28,7 +28,7 @@ func TestLookupNodesBySpawningThread_ReverseLookupReturnsMatchingRows(t *testing
 		UpdatedAt:        timestamptzValue(now),
 		SpawningThreadID: sqlc.TextValuePtr(&thr),
 	}
-	got, err := store.LookupNodesBySpawningThread(context.Background(), thr)
+	got, err := store.(NodeSpawningThreadLookup).LookupNodesBySpawningThread(context.Background(), thr)
 	if err != nil {
 		t.Fatalf("LookupNodesBySpawningThread err = %v, want nil", err)
 	}
@@ -49,7 +49,7 @@ func TestLookupNodesBySpawningThread_ReverseLookupReturnsMatchingRows(t *testing
 func TestLookupNodesBySpawningThread_NoMatch_ReturnsEmptySliceNoError(t *testing.T) {
 	t.Parallel()
 	store, _, _ := newTaskDAGTestStore()
-	got, err := store.LookupNodesBySpawningThread(context.Background(), "thr-does-not-exist")
+	got, err := store.(NodeSpawningThreadLookup).LookupNodesBySpawningThread(context.Background(), "thr-does-not-exist")
 	if err != nil {
 		t.Fatalf("LookupNodesBySpawningThread err = %v, want nil", err)
 	}
@@ -78,7 +78,7 @@ func TestLookupNodesBySpawningThread_FiltersNullSpawningThread(t *testing.T) {
 		UpdatedAt: timestamptzValue(now),
 		// SpawningThreadID intentionally zero-value (NULL).
 	}
-	got, err := store.LookupNodesBySpawningThread(context.Background(), "")
+	got, err := store.(NodeSpawningThreadLookup).LookupNodesBySpawningThread(context.Background(), "")
 	if err != nil {
 		t.Fatalf("LookupNodesBySpawningThread err = %v, want nil", err)
 	}
@@ -122,7 +122,7 @@ func TestLookupNodesBySpawningThread_MultipleRowsReturnedDescByUpdatedAt(t *test
 		UpdatedAt:        timestamptzValue(newer),
 		SpawningThreadID: sqlc.TextValuePtr(&thr),
 	}
-	got, err := store.LookupNodesBySpawningThread(context.Background(), thr)
+	got, err := store.(NodeSpawningThreadLookup).LookupNodesBySpawningThread(context.Background(), thr)
 	if err != nil {
 		t.Fatalf("LookupNodesBySpawningThread err = %v, want nil", err)
 	}
@@ -152,7 +152,7 @@ func TestLookupNodesBySpawningThread_DoesNotMatchDifferentThreadID(t *testing.T)
 		UpdatedAt:        timestamptzValue(now),
 		SpawningThreadID: sqlc.TextValuePtr(&thrA),
 	}
-	got, err := store.LookupNodesBySpawningThread(context.Background(), thrB)
+	got, err := store.(NodeSpawningThreadLookup).LookupNodesBySpawningThread(context.Background(), thrB)
 	if err != nil {
 		t.Fatalf("LookupNodesBySpawningThread err = %v, want nil", err)
 	}

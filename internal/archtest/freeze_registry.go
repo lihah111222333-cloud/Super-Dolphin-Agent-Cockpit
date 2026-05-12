@@ -28,10 +28,10 @@ var explicitFreezeRegistry = []explicitFreeze{
 	{
 		Path:       "cmd/mcp-orch/orchestration",
 		Kind:       ViolationPackageCount,
-		Limit:      35,
-		Reason:     "dispatcher-wiring batch (5 reviewer P0 #1) 接入 NodeExecutor 抽象后新增 node_router.go + dag_dispatch.go 两个必要单职责文件 (30→32)；closure follow-up 再加 sharedfile_adapter.go 把 store/sharedfile.Store 适配成 nodeexec.SharedFileReader/Writer 端口 (32→33)；ADR-016 v1.2 §2.1-§2.5 C3（spawned agent 自动 stop）按 §2.5 P1 拍板新建 stop_helper.go + stop_metric.go 两个必要单职责文件 (33→35)，与 archive.go 单职责先例对齐；后续 lifecycle 子包拆出（stop_helper / stop_metric / archive 集中到独立子包）后取消。",
+		Limit:      40,
+		Reason:     "dispatcher-wiring batch (5 reviewer P0 #1) 接入 NodeExecutor 抽象后新增 node_router.go + dag_dispatch.go 两个必要单职责文件 (30→32)；closure follow-up 再加 sharedfile_adapter.go 把 store/sharedfile.Store 适配成 nodeexec.SharedFileReader/Writer 端口 (32→33)；ADR-016 v1.2 §2.1-§2.5 C3（spawned agent 自动 stop）按 §2.5 P1 拍板新建 stop_helper.go + stop_metric.go 两个必要单职责文件 (33→35)，与 archive.go 单职责先例对齐；ADR-017 v1.2 A1（DAG turn.completed subscriber + thread.stopped fallback）按 §2.9 + §2.5 拍板新建 5 个必要单职责文件：dag_turn_completed_subscriber.go + dag_subscriber_module.go + dag_subscriber_metric.go + dispatch_agent_running_metric.go + dag_fallback_metric.go (35→40)，同样与 archive / stop_helper 单职责设计一致；后续 lifecycle 子包拆出（含 stop_helper + stop_metric + dag_subscriber + dag_fallback + dispatch_agent metrics）后取消。",
 		Owner:      "orchestration",
-		RemoveWhen: "orchestration 包拆出 node-dispatch / lifecycle 子包（含 stop_helper + stop_metric + archive 等 lifecycle helper）后文件数回落 ≤ 30，删除该 freeze。",
+		RemoveWhen: "orchestration 包拆出 node-dispatch / lifecycle / dag-subscription 子包（含 stop_helper + stop_metric + archive + dag_turn_completed_subscriber + dag_subscriber_module + dag_subscriber_metric + dag_fallback_metric + dispatch_agent_running_metric 等 lifecycle / subscriber / metric helper）后文件数回落 ≤ 30，删除该 freeze。",
 	},
 }
 
