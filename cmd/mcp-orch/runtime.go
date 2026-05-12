@@ -18,6 +18,7 @@ import (
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/tools/modelregistry"
 	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
@@ -147,6 +148,11 @@ type newRegistryParams struct {
 	Prompt        promptstore.Store
 	Command       commandcardstore.Store
 	SharedFile    sharedfilestore.Store
+	ModelRegistry modelregistry.Registry
+}
+
+func newModelRegistry() (modelregistry.Registry, error) {
+	return modelregistry.NewDefaultRegistry()
 }
 
 func newRegistry(p newRegistryParams) tools.Registry {
@@ -156,6 +162,7 @@ func newRegistry(p newRegistryParams) tools.Registry {
 		Prompt:        p.Prompt,
 		CommandCard:   p.Command,
 		SharedFile:    p.SharedFile,
+		ModelRegistry: p.ModelRegistry,
 	})
 }
 
