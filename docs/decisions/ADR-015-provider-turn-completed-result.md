@@ -28,7 +28,7 @@ C-A 实施计划阶段 C 的核心前置：**让 codex / claude 两侧 provider 
 | 位置 | 清理时机 | 原因 |
 |---|---|---|
 | `session_dispatch.go:103-118 takeTurn` | 取走 turn 句柄时 | 正常完成路径 |
-| `factory.go:178-188 failTurns` | 异常退出所有 turn | shutdown 路径 |
+| `session_dispatch.go:182-196 failTurns` | 异常退出所有 turn | shutdown 路径 |
 | `recovery.go:303-316 applyReplayedTurn` | replay 时旧 turn-id `delete(s.turns, snapshot.providerID)` 同步清旧 buffer | provider 自身 replay 会分配新 turn-id（line 296 `turn/start`），旧 turn-id 的 buffer 必须显式清，否则泄漏到 shutdownSession |
 
 **实现路径**：
@@ -81,7 +81,7 @@ func (s *session) takeTurn(providerID string) *turnHandle {
     return h
 }
 
-// factory.go:178-188 failTurns 内每条 turn 清理
+// session_dispatch.go:182-196 failTurns 内每条 turn 清理
 // recovery.go:303-316 applyReplayedTurn 删除旧 providerID 时清理
 ```
 
@@ -123,7 +123,7 @@ return turndto.TurnCompleted{
 | **buffer 内存上限** | **1MB 硬 cap + truncated=true flag**（v4.1 修正） | v4 软上限语义模糊；高频事件（每 token / 每 chunk）需明确边界。硬 cap 超限即停止累加 + payload 标 truncated=true 让下游知道内容不完整 |
 | **释放策略** | TurnCompleted 触发立即清空对应 turn-id | turn 终态是明确点；lazy / TTL 增复杂度无收益 |
 | **多 turn 并发** | per-turn-id map（key = providerID UUID）+ 自带 mutex | providerID 由 codex CLI 通过 `turn/start` RPC 返回（`session.go:300-308`），同 session 全局唯一；多 goroutine（tool call / approval）可能并发 onNotification |
-| **session 生命周期清理** | `factory.go:178-188 failTurns` 内对每条 turn 调 `dropTurnOutputAccumulator(turnID)` | failTurns 是 shutdownSession 的子步骤；每条 turn 句柄清空时同步清 buffer |
+| **session 生命周期清理** | `session_dispatch.go:182-196 failTurns` 内对每条 turn 调 `dropTurnOutputAccumulator(turnID)` | failTurns 是 shutdownSession 的子步骤；每条 turn 句柄清空时同步清 buffer |
 | **正常 turn 完成清理** | `session_dispatch.go:103-118 takeTurn` 末尾调 `dropTurnOutputAccumulator(providerID)` | turn 句柄从 map 删除时同步清 buffer，避免 turn 完成后 buffer 残留 |
 | **recovery 路径清理**（v4.1 新增） | `recovery.go:303-316 applyReplayedTurn` 删除 `snapshot.providerID` 时调 `dropTurnOutputAccumulator` | provider 自身 replay 会分配新 turn-id（line 296）；旧 providerID 的 buffer 必须显式清，否则泄漏到 shutdownSession |
 | **跨 turn 复用 turn-id** | 不可能 | takeTurn 已 delete + recovery 路径已 delete + applyReplayedTurn 分配新 providerID；buffer 不会被新 turn 复用 |
@@ -207,7 +207,7 @@ v4.1 reviewer 揭出：`ev.Result` 已经在被消费但当前 codex 侧零值�
 | session_approval.go onNotification 加 sniff + merge 回填（v4.1 改 dispatch → onNotification）| `internal/provider/codexapp/session_approval.go:306-328` | +60 |
 | 辅助函数 `isTurnOutputDeltaEvent` + payload helper（复用 event_map.go 已有 stream 分类逻辑，避免双份漂移） | `internal/provider/codexapp/factory.go` 或新 helper.go | +20 |
 | event_map.go 改 TurnCompleted 构造加 4 字段读取 | `internal/provider/codexapp/event_map.go:171-177` | +15 |
-| 多点清理 hook：takeTurn + failTurns + applyReplayedTurn | `session_dispatch.go:103-118` + `factory.go:178-188` + `recovery.go:303-316` | +30 |
+| 多点清理 hook：takeTurn + failTurns + applyReplayedTurn | `session_dispatch.go:103-118` + `session_dispatch.go:182-196` + `recovery.go:303-316` | +30 |
 | 单测 `session_accumulator_test.go`（覆盖 sniff / merge / 三处清理 / suppress 绕过场景）| 新建 | +150 |
 | 并发测 `session_accumulator_concurrent_test.go`（多 goroutine 同 turn 不同 stream 交错；recovery 复用场景）| 新建 | +90 |
 
