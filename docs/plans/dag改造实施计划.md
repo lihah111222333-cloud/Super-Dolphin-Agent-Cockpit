@@ -302,6 +302,7 @@ f972627d  T0.8 doc-sync script
 | H9 | task_post_message 原语真实落地 | 节点对话 sharedfile 不够用 | 低 |
 | H10 | waiting_human HITL 完整流程 | 出现需要人审决策的场景 | 中 |
 | H11 | **Hybrid 节点拓扑（v1+v2）**（从 F3.1 / F3.2 / F3.3 / F3.4 降级而来，详 ADR-014 §5）。原 F3.1 = HybridExecutor v1（automation → agent verifier 单向）；F3.2/F3.3/F3.4 = v2 多向拓扑占位（agent→automation / agent A→agent B / automation A→automation B）。地基（HybridExecConfig schema / ParseHybridConfig / router 占位 / stub）骨架阶段已铺，重启时可直接实装 executor 真业务 | 用户场景出现明显需要 hybrid 编排（agent→外部能力 / agent→agent 仲裁 / 命令卡链）的需求 | 低（prompt_template-first 下可由 agent+depends_on 两节点表达，独立 node_type 价值低） |
+| H12 | **claude long result e2e 测试重做（C2 follow-up）**。2026-05-12 实测揭出 W-C2 e2e 两个设计缺陷：(1) 用 "重复 ABC N 次" 的 nonsensical prompt 被 model alignment 拒绝（16KB 实测："I can't comply... pure filler output"）；(2) 180s timeout 对 8KB 不够（实测 signal: killed）。当前实测证据：3KB 档 gotLen=4509 纯 ABC CLI 不截断（情况 A 强信号）；8KB/16KB 未拿到证据。重做要点：(a) prompt 改用真实长文本任务（如生成长 markdown 指南 / 结构化报告）；(b) timeout 提到 600s；(c) 加 32KB / 64KB 档覆盖 ADR-006 4KB cap 之外边界 | dogfood / 生产真遇到 result 截断 OR M3 验收前主动验证 | 低 |
 
 加固阶段任务**不预排**：每条 H 触发后单独立任务清单。
 
