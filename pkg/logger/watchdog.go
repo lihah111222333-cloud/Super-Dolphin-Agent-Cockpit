@@ -53,6 +53,7 @@ func closeLogFileLocked() {
 }
 
 func ShutdownFileHandler() {
+	closeAllAgentLoggers()
 	logFileMu.Lock()
 	defer logFileMu.Unlock()
 	stopFileWatcherLocked()
