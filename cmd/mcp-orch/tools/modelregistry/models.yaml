@@ -1,0 +1,10 @@
+providers:
+  - provider: claude
+    models:
+      - opus
+      - sonnet
+      - haiku
+  - provider: codex
+    models:
+      - gpt-5
+      - o3
