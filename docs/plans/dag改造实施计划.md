@@ -8,6 +8,7 @@
 > 2026-05-11 套餐 B/C/A+ 落地同步：套餐 B（pre-T0.2 收尾 + stub 接口扩张补齐 + sharedfilegitignore race 根除 + memoryCoordinator getter 化）已记 §10 ledger；套餐 C（T0.8 doc-sync Check 4 真验证 + 状态机 retrying→cancelled 合法转移 + migration 0081 task_dags.trigger CHECK + stubDashboardOrchestration `var _` 编译期断言 + ADR 0001 §2.10 DB 不变量基线 + 会话习惯 §10.60 MCP 命名约定）落地 5 commit；套餐 A+/D（MCP enum 校验：handler `requireEnum` + 包级 `var` 单源 + DB CHECK 三层互锁 + `runtime.UpdateRuntime` provider silent Warn → fail-fast + migration 0082 task_dag_runs.trigger_source CHECK + ADR-003 + 会话习惯 §10.61）落地 5 commit + 1 idempotent 修复（31f2ad75，0082 重跑 42710 防御）
 > 2026-05-11 F1.5/F4.1/F6.3 并行 worktree 落地 + DAG dogfood 审查：3 worker agent 中并行落地 13 commit + 3 merge commit + 1 follow-up fix `970cb5aa`（从聚合 Store 拆出 NodeSpawnRecorderStore 过 archtest TestInterfaceIsolationBudgets）。F 阶段 done 计数：9 → **12**。审查用 review-dag-2026-05-11-merged-commits DAG 本身跳走，剩下 1 节点 n6 stuck pending 揭示：mcp-orch 服务在跑旧二进制，**需重启**才能走上 F6.3 promote / F6.2 finalize。sqlc 手维 5 文件（4 W1 + 1 W3 + 1 W2 db_accessor）集中标 marker 在 `cmd/mcp-orch/sqlc.yaml` 顶部。
 > 2026-05-12 F1.2/F2.2/F4.2/F7.1 第二轮并行 worktree 落地 + DAG dogfood 自动 promote 闭环验证：F1.2 AgentExecutor inputs 注入（`3317b00f` + merge `877193cf`）+ F2.2 AutomationExecutor inputs/outputs（`3d8526ab` + merge `4dd5307a`）+ F4.2 ApplyOps update_node 真业务（`7611c268` `65c977d8` `848f1188` + merge `d63a623d`）+ F7.1 AI 设计师 prompt 中文版 seed 0084 + archtest 守卫（`49fd0143` `52da9d36` + merge `94502cec`）+ 冲突修 `6f333dd1`（测试桩去重 + 双端口 TODO）。F 阶段 done 计数：12 → **16**。dogfood 第一轮 review-dag-74 n6 stuck pending 揭示旧二进制 → mcp-orch 重启后 verify-dag-75 验证 F6.3 promote 单点闭环 → 第二轮 review-dag-76 6 节点全 done + run.status=succeeded（F6.2 + F6.3 真生效）。
+> 2026-05-12 round-3 wiring batch 落地 + dogfood 第三/四轮：5 reviewer（代码质量 + 测试覆盖 + ADR + SQL + F1.5/F4.1/F6.3 端到端）揭露 7 项 P0：dispatcher wiring 红线（10 个 executor task 是 dead code）+ SQL fence drift + AppendTaskDagRunEvent jsonb object-merge 陷阱 + make sqlc regen 红线 + F4.5 add_node depends_on→done 不变量未实装 + 端口分裂三件套 + docs sync 未做。并行启动 5 worker batch 落地（W1 dispatcher wiring + W2 端口收敛 + size_cap enforce + events ring trim + W3 SQL/migration 工艺 + F4.5 不变量 + Tarjan SCC + 0083 CONCURRENTLY 拆事务 + W4 测试加固（134 t.Parallel + NodePatch DisallowUnknownFields + 嵌套 banned key 深扫 + testcontainer 占位 + DAGEvent helpers）+ W5 文档同步 + ADR-008/009/011v1 升 Accepted + ADR-012 立卡）。合并后 mcp-orch 启动 fail-fast暴露 3 处 fx wiring 漏：ProvideAgentExecutor `898ee595` / NodeSpawnRecorderStore + AutomationCommandRunner adapter `6e32b39e` / sharedfile.Reader narrow port `1bb47955`。dogfood：verify-round3-wiring-2026-05-12（task_dispatch_node enqueued wakeup_id=1）+ verify-w6-typed-config-2026-05-12（apply_ops 写 typed cfg + W4 嵌套 banned key `agent_key` 真拒 + run.status=succeeded）。F 阶段 done 计数：16 → **17**（+ F4.5）。完整 wiring 链：dispatcher → NodeExecutorRouter → RunContext（PrevResults + SharedFileReader + SharedFileWriter）三端口预填 → AgentExecutor.Execute 真调。archtest 守卫：TestDispatcherWiringGuard + sqlc_bypass_guard_test + sharedfile_adapter.go。
 
 ---
 
@@ -17,7 +18,7 @@
 |---|---|---|---|---|
 | **S 骨架** | **24** | **✅ 封板：17 done / 1 推迟 F (S2.4) / 2 推迟 T5 (S6.1+S6.2) / 4 转 T0 作业** | ~25% | 14 处补丁 + ADR 0001 + 删死代码；行为完全不变 |
 | **T 工具** | 18 + 9 T0 | **🟡 T1.1 + T1.2-mid + T2.1+T2.2 + T3.1+T3.2 + T4.1+T4.4 后端八连发 done。前端 6 task 待方案审。** | ~55% | MCP 工具 9/9 就位（含 registry）；UI/AI 设计师待外部依赖 |
-| F 功能 | 37 | 🟡 **16 done**（+ F1.5 / F4.1 / F6.3 于 2026-05-11 并行 worktree 落地；+ F1.2 / F2.2 / F4.2 / F7.1 于 2026-05-12 第二轮落地） / 1 完成占位 F6.1 / 20 未开工 | ~45% | 行为兑现：cron 真跑、AI 设计师上岗、智能重试落地 |
+| F 功能 | 37 | 🟡 **17 done**（+ F1.5 / F4.1 / F6.3 于 2026-05-11；+ F1.2 / F2.2 / F4.2 / F7.1 于 2026-05-12 第二轮；+ F4.5 于 2026-05-12 round-3 wiring batch） / 1 完成占位 F6.1 / 19 未开工。另：dispatcher wiring 全链接通 + size_cap 4KB enforce + events ring trim N=50 + Tarjan SCC + task_dispatch_node MCP tool + schema sanity gate（不在 F 表位，但在 round-3 batch 中携带落地） | ~50% | 行为兑现：cron 真跑、AI 设计师上岗、智能重试落地 |
 | H 加固 | 按需 | ⛔ 未开动 | ~10% | 生产问题驱动，不预排 |
 
 里程碑：
@@ -215,9 +216,9 @@ f972627d  T0.8 doc-sync script
 
 ---
 
-## 3. 阶段 F 功能（37 行 / 20 未开工 + 16 ✅ done + 1 完成占位）
+## 3. 阶段 F 功能（37 行 / 19 未开工 + 17 ✅ done + 1 完成占位）
 
-> **口径说明**：37 表位 ÷ 状态 = 16 条 strikethrough ✅ done（F1.1 / F1.2 / F1.5 / F2.0 / F2.1 / F2.2 / F4.0 / F4.1 / F4.2 / F5.1 / F5.2 / F5.3 / F6.2 / F6.3 / F6.4 / F7.1）+ 1 条 F6.1 完成占位（由 T1.2-mid 接手 snapshot）+ 20 条未开工。“待做”传统口径只扣“完成占位”不扣 done，本文档接手人读“29 待做”时请同时看本说明。
+> **口径说明**：37 表位 ÷ 状态 = 17 条 strikethrough ✅ done（F1.1 / F1.2 / F1.5 / F2.0 / F2.1 / F2.2 / F4.0 / F4.1 / F4.2 / F4.5 / F5.1 / F5.2 / F5.3 / F6.2 / F6.3 / F6.4 / F7.1）+ 1 条 F6.1 完成占位（由 T1.2-mid 接手 snapshot）+ 19 条未开工。“待做”传统口径只扣“完成占位”不扣 done，本文档接手人读“28 待做”时请同时看本说明。
 >
 > 26 个原计划 + 5 个从推迟项补位（F4.0 / F6.3 / F6.4 / F6.5 / F14.1） + 1 个从 T0 前置项补位（F1.5） + 1 个 S5.1 schema 返修补位（F2.0） + 1 个 H6 前置补位（F15.1） + 3 个 Hybrid v2 拓扑占位（F3.2 / F3.3 / F3.4） = 37 表位。
 >
@@ -242,7 +243,7 @@ f972627d  T0.8 doc-sync script
 | ~~**F4.2**~~ ✅ done | `ApplyOps` update_node 真实实现 + `NodePatch` strict UnmarshalJSON + `PlanUpdateNodes` 纯函数 + 节点 status 防御 + 同批 add+update 串行执行 | `cmd/mcp-orch/orchestration/dag.go` + `dag_ops_update_node_test.go` + `nodeexec/ops.go`（NodePatch + AssignedTo）+ `nodeexec/plan.go`（PlanUpdateNodes）+ `nodeexec/ops_update_node_test.go` + `nodeexec/plan_update_test.go` + `store/taskdag/store_dag_ops.go` UpdateNode / commits `7611c268` `65c977d8` `848f1188` + merge `d63a623d` + fix `6f333dd1` | 单测：未知字段拒 / 不可改字段拒 / 状态门禁（done 节点不可改 config）/ 同批 add 后 update / OCC | F4.1 | S | N |
 | **F4.3** | `ApplyOps` remove_node 真实实现（含级联清理依赖） | 同上 | 单测：被依赖节点不能删除 | F4.2 | M | N |
 | **F4.4** | `ApplyOps` update_dag 真实实现 | 同上 | 单测 | F4.1 | S | Y |
-| **F4.5** | `ApplyOps` `status=running` 时只允许 add_node + depends_on 指向 done 节点 | 同上 | 单测：违规 ops 被拒 | F4.1 | M | N |
+| ~~**F4.5**~~ ✅ done | `ApplyOps` `status=running` 时只允许 add_node + depends_on 指向 done 节点。`preflightOpsBatch` + `enforceRunningDAGInvariants` 在事务内读 dag.status：running 状态拒 update_node / remove_node / update_dag + 拒 add_node depends_on 指向非 done 节点。`bumpDAGVersionTx` 拆 helper 压 CC。 | `cmd/mcp-orch/orchestration/dag_query.go` + `dag_ops_running_invariants_test.go` / commits `845ee566` `403e5b7e` + merge `30f6837c`（随 W3 round-3 batch） | 6 新测：running 状态拒 update_node / running 状态拒 add_node depends_on 指 pending 节点 / running 状态接受 add_node depends_on 指 done 节点 / draft 状态 happy 全过 | F4.1 | M | N |
 | ~~**F5.1**~~ ✅ done | cron daemon 进程入口 + 接 robfig/cron 库（F5.2/F5.3 留位） | `cmd/mcp-orch/orchestration/cron/scheduler_cron.go` 新建 / commit `07ec1317` | 单测：cron 表达式解析正确；Tick 占位 | S2.3 | M | Y |
 | ~~**F5.2**~~ ✅ done | `Scheduler.Tick` 真实实现：扫 `next_run_at <= now` → StartDAG；TickTimeout 配置化；Stop cancel in-flight；goleak 替换 goroutine 容差 / commit `2f9341b3` | `cmd/mcp-orch/orchestration/cron/scheduler_cron.go` | 单测：Tick_ScansAndStarts / NextRunAtUpdated / TickTimeout / StopCancelsInflight；错误分类 infrastructure / validation / StartDAG 透传 | F5.1, T1.2 | M | N |
 | ~~**F5.3**~~ ✅ done | cron 多实例锁：`pg_try_advisory_lock(lock_id)` 获取后执行 Tick，拿不到跳过，退出时释放 / commit `self:F5.3` | 同上 | 单测：MultiInstance_OneAcquires / ReleaseOnExit | F5.2 | M | N |
