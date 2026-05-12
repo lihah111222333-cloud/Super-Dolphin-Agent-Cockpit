@@ -18,7 +18,7 @@
 |---|---|---|---|---|
 | **S 骨架** | **24** | **✅ 封板：17 done / 1 推迟 F (S2.4) / 2 推迟 T5 (S6.1+S6.2) / 4 转 T0 作业** | ~25% | 14 处补丁 + ADR 0001 + 删死代码；行为完全不变 |
 | **T 工具** | 18 + 9 T0 | **🟡 T1.1 + T1.2-mid + T2.1+T2.2 + T3.1+T3.2 + T4.1+T4.4 后端八连发 done。前端 6 task 待方案审。** | ~55% | MCP 工具 9/9 就位（含 registry）；UI/AI 设计师待外部依赖 |
-| F 功能 | 38 | 🟡 **19 done**（+ F1.5 / F4.1 / F6.3 于 2026-05-11；+ F1.2 / F2.2 / F4.2 / F7.1 于 2026-05-12 第二轮；+ F4.5 于 2026-05-12 round-3 wiring batch；+ F1.3 / F7.2 于 2026-05-12 第四轮 worktree 并行 + 互审） / 1 完成占位 F6.1 / 14 未开工 / 4 降 H（F3.1-3.4，详 ADR-014） / 1 新增 F7.3 prompt_template seed 库。另：dispatcher wiring 全链接通 + size_cap 4KB enforce + events ring trim N=50 + Tarjan SCC + task_dispatch_node MCP tool + schema sanity gate（不在 F 表位，但在 round-3 batch 中携带落地） | ~50% | 行为兑现：cron 真跑、AI 设计师上岗（含 seed 库菜单）、智能重试落地 |
+| F 功能 | 38 | 🟡 **20 done**（+ F1.5 / F4.1 / F6.3 于 2026-05-11；+ F1.2 / F2.2 / F4.2 / F7.1 于 2026-05-12 第二轮；+ F4.5 于 2026-05-12 round-3 wiring batch；+ F1.3 / F7.2 于 2026-05-12 第四轮 worktree 并行 + 互审；+ F14.1 于 2026-05-12 第五轮 codex 实装 + claude 互审） / 1 完成占位 F6.1 / 13 未开工 / 4 降 H（F3.1-3.4，详 ADR-014） / 1 新增 F7.3 prompt_template seed 库。另：dispatcher wiring 全链接通 + size_cap 4KB enforce + events ring trim N=50 + Tarjan SCC + task_dispatch_node MCP tool + schema sanity gate（不在 F 表位，但在 round-3 batch 中携带落地） | ~50% | 行为兑现：cron 真跑、AI 设计师上岗（含 seed 库菜单）、智能重试落地 |
 | H 加固 | 按需 | ⛔ 未开动 | ~10% | 生产问题驱动，不预排 |
 
 里程碑：
@@ -216,9 +216,9 @@ f972627d  T0.8 doc-sync script
 
 ---
 
-## 3. 阶段 F 功能（38 行 / 14 未开工 + 19 ✅ done + 1 完成占位 + 4 降 H + 1 新增 F7.3：详 ADR-014）
+## 3. 阶段 F 功能（38 行 / 13 未开工 + 20 ✅ done + 1 完成占位 + 4 降 H + 1 新增 F7.3：详 ADR-014）
 
-> **口径说明**：38 表位 ÷ 状态 = 19 条 strikethrough ✅ done（F1.1 / F1.2 / **F1.3** / F1.5 / F2.0 / F2.1 / F2.2 / F4.0 / F4.1 / F4.2 / F4.5 / F5.1 / F5.2 / F5.3 / F6.2 / F6.3 / F6.4 / F7.1 / **F7.2**）+ 1 条 F6.1 完成占位（由 T1.2-mid 接手 snapshot）+ 4 条 ⏸ 降 H（F3.1 / F3.2 / F3.3 / F3.4，详 ADR-014：prompt_template-first 路线下 hybrid 节点可由 agent+depends_on 两节点表达）+ 1 条新增 F7.3（prompt_template seed 库，详 ADR-014 §2.3）+ 14 条未开工。
+> **口径说明**：38 表位 ÷ 状态 = 20 条 strikethrough ✅ done（F1.1 / F1.2 / **F1.3** / F1.5 / F2.0 / F2.1 / F2.2 / F4.0 / F4.1 / F4.2 / F4.5 / F5.1 / F5.2 / F5.3 / F6.2 / F6.3 / F6.4 / F7.1 / **F7.2** / **F14.1**）+ 1 条 F6.1 完成占位（由 T1.2-mid 接手 snapshot）+ 4 条 ⏸ 降 H（F3.1 / F3.2 / F3.3 / F3.4，详 ADR-014：prompt_template-first 路线下 hybrid 节点可由 agent+depends_on 两节点表达）+ 1 条新增 F7.3（prompt_template seed 库，详 ADR-014 §2.3）+ 13 条未开工。
 >
 > 26 个原计划 + 5 个从推迟项补位（F4.0 / F6.3 / F6.4 / F6.5 / F14.1） + 1 个从 T0 前置项补位（F1.5） + 1 个 S5.1 schema 返修补位（F2.0） + 1 个 H6 前置补位（F15.1） + 3 个 Hybrid v2 拓扑占位（F3.2 / F3.3 / F3.4） + 1 个 ADR-014 新增补位（F7.3 prompt_template seed 库） = 38 表位。
 >
@@ -264,7 +264,7 @@ f972627d  T0.8 doc-sync script
 | **F11.1** | UI sharedfile 锁可视化（节点 reads/writes 联动） | `pages/SharedFilesPage.js` 修改 | e2e：sharedfile 显示"被节点 X 占用" | F1.3 | M | Y |
 | **F12.1** | 智能重试 strategy dispatcher：`by_class` 分发（capability→escalate_model / validation→append_error / 关键节点→replan spawn planner） | `retry_strategy.go` 修改 | 集成测试：模拟 capability 失败 → 升级到 Opus 重跑；validation 失败 → schema 错误注入重跑；replan 策略 spawn planner agent | F1.4 | L | N |
 | **F13.1** | lifecycle hooks 真实触发（before/after/on_state_change/on_failure） | `node_executor_dispatch.go` 新建 | 集成测试：hooks 在正确时机被调 | S1.1, S10 | M | Y |
-| **F14.1**（工具升级） | `list_models` 改读 provider registry（PT-1） | `cmd/mcp-orch/tools/registry_tools.go` + 新 registry 模块 | 单测：增改 registry 配置即时反映；F8.2 UI 下拉接这里 | T4.1 | S | Y |
+| ~~**F14.1**~~（工具升级）✅ done | `list_models` 改读 provider registry（PT-1）+ env 覆盖 + fx fallback 到 StaticRegistry 防止启动失败 + Reload error 日志化 | `cmd/mcp-orch/tools/modelregistry/`（新建包：registry.go + models.yaml + test）+ `cmd/mcp-orch/tools/registry_tools.go`（HandleListModels 改 Registry 注入）+ `cmd/mcp-orch/runtime.go` fx provider / commits `9a395e5e` `2cbf389f` `737fcc7b` `90195458` + merge `0b3078f4`（2026-05-12 第五轮 codex 实装 + claude 互审两视角抓 2 blocker） | 单测：env 覆盖 / yaml 损坏保留旧数据 / fx fallback / 增改 yaml 即时反映 | T4.1 | S | Y |
 | **F15.1**（H6 前置部分） | dispatch / retry metric：`dispatch_failed_total` / `retry_count_per_node` 计数器 + 节点重试 ≥ 3 次告警 webhook。H6 拆 H6a/H6b 后 H6a 部分前置到 F 阶段，避免「上层调度看不见下层执行」瞎区到 M3 后才补。详 ADR-010 | `cmd/mcp-orch/orchestration/dispatcher/metric.go`（新建） + `orchestration_metrics.go`（已有 fx provider 扩展） | 集成测试：模拟 5 节点 DAG 跑通 + 1 节点 retry=3 触发告警 | F1.4 / F6.3 | M | Y |
 
 **F 阶段验收**：M3 里程碑端到端用例通过：
