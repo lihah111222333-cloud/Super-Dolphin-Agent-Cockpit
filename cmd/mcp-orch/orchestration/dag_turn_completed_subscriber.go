@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
@@ -354,13 +353,8 @@ func stopSpawnedAgentForSubscriber(
 // Compile-time guard ensuring DAGSubscriberDeps remains an fx.In-tagged
 // struct. Adding new fields without fx.In would silently drop them from
 // the fx graph at run-time.
-var _ = func() any {
-	var _ fx.In = DAGSubscriberDeps{}.In
-	return nil
-}
-
-// Compile-time anchor preventing a dead-code linter from stripping the
-// contract package import after future refactors. The subscriber currently
-// relies on contract.Dispatcher (re-export not direct) but importing the
-// package keeps the symbol visible to grep audits.
-var _ = contract.SubscriberSpec{}
+// 顶层编译期断言：保证 DAGSubscriberDeps 需含 fx.In 嵌入（Reviewer B 揭出
+// 原写法 var _ = func() any { ... } 函数从不被调，编译器不检函数体内
+// 类型断言是否仍成立，断言实际失效）。顶层 var 断言才能真正守住
+// “人工删 fx.In 后编译即报错”该不变式。
+var _ fx.In = DAGSubscriberDeps{}.In

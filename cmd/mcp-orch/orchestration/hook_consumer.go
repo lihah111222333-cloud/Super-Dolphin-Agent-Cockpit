@@ -301,7 +301,6 @@ func (c *hookConsumer) handleThreadStopped(ctx context.Context, ev threaddto.Sto
 	// 同 agent 高频 hook 路径序列化阻塞。
 	err := c.svc.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
 		before := string(agent.state)
-		_ = before
 		threadID := strings.TrimSpace(ev.ThreadID)
 		if threadID != "" {
 			agent.threadID = threadID
@@ -331,13 +330,13 @@ func (c *hookConsumer) handleThreadStopped(ctx context.Context, ev threaddto.Sto
 	}
 }
 
-// runThreadStoppedDAGFallback 是 ADR-017 v1.2 §2.5 + §3.4 的兲外 DAG 反应
+// runThreadStoppedDAGFallback 是 ADR-017 v1.2 §2.5 + §3.4 的锁外 DAG 反应
 // 分支：当 subscriber 主路未推进节点终态时（spawned agent crash / launch 后
-// 未出 first_turn / hook 以外原因被外部杀止），thread.stopped 作为兽底把
+// 未出 first_turn / hook 以外原因被外部杀止），thread.stopped 作为兜底把
 // 节点推到 failed。与主路双路并发很常见，靠 isTerminalNodeStatus + SQL
 // 白名单 + pgx.ErrNoRows 三层幂等保证不重复推进。
 //
-// dagFallbackStore / dagFallbackFlow 默认 nil — 未装配 DAG store 的部署路径
+// dagFallbackLookup / dagFallbackFlow 默认 nil — 未装配 DAG store 的部署路径
 // （测试 / runtime-only mode）直接跳过该分支，不影响现有 hook 语义。
 func (c *hookConsumer) runThreadStoppedDAGFallback(ctx context.Context, threadID string) {
 	threadID = strings.TrimSpace(threadID)
