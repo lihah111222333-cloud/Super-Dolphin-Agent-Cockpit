@@ -71,6 +71,9 @@ function isDirectThreadSyncSignal(methodLower, sourceLower) {
 }
 
 
+const REGRESSION_GUARD_THROTTLE_MS = 30_000;
+const _regressionGuardLastWarnByThread = new Map();
+
 function applyRegressionGuardToSnapshot(ctx, res, threadId) {
   if (!res || !res.timelinesByThread || !res.timelinesByThread[threadId]) return false;
   
@@ -89,13 +92,21 @@ function applyRegressionGuardToSnapshot(ctx, res, threadId) {
   if (regressionByCount) {
     let guardType = 'count_mismatch';
     
-    ctx.logWarn('thread', 'sync.thread_state_regression_guard', {
-      thread_id: threadId,
-      remote_len: timeline.length,
-      local_non_dialog_len: localNonDialogLen,
-      guard_type: guardType,
-      remote_kinds: timeline.slice(0, 5).map((it) => it?.kind),
-    });
+    // Throttle WARN to at most once per 30s per thread to avoid log flooding
+    // during high-frequency streaming events. The guard behavior (discarding
+    // the regressed snapshot) still applies on every hit.
+    const now = Date.now();
+    const lastWarn = _regressionGuardLastWarnByThread.get(threadId) || 0;
+    if (now - lastWarn >= REGRESSION_GUARD_THROTTLE_MS) {
+      _regressionGuardLastWarnByThread.set(threadId, now);
+      ctx.logWarn('thread', 'sync.thread_state_regression_guard', {
+        thread_id: threadId,
+        remote_len: timeline.length,
+        local_non_dialog_len: localNonDialogLen,
+        guard_type: guardType,
+        remote_kinds: timeline.slice(0, 5).map((it) => it?.kind),
+      });
+    }
     
     delete res.timelinesByThread[threadId];
     return guardType;
