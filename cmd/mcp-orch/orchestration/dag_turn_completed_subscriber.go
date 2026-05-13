@@ -53,8 +53,9 @@ type DAGSubscriberDeps struct {
 	FlowStore    taskdag.NodeFlowStore
 	AgentThreads AgentThreadLookup
 	SvcStopper   StopAgentService
-	// SharedFileWriter is only used by A2 agent output materialization after
-	// TurnCompleted carries the real child response.
+	// SharedFileReader/Writer are only used by A2 agent output materialization
+	// after TurnCompleted carries the real child response.
+	SharedFileReader nodeexec.SharedFileReader `optional:"true"`
 	SharedFileWriter nodeexec.SharedFileWriter `optional:"true"`
 }
 
@@ -239,11 +240,12 @@ func advanceNodeDoneForSuccess(
 		failNodeForMaterializationFailure(ctx, deps.FlowStore, logger, node, failure)
 		return
 	}
-	recordLegacyResultCapMetric(logger, node, materialized.Result)
-	if !materializeSharedfileAfterClaim(ctx, deps, logger, node, materialized) {
+	result, ok := materializeSharedfileAfterClaim(ctx, deps, logger, node, materialized)
+	if !ok {
 		return
 	}
-	advanceNodeDone(ctx, deps.FlowStore, logger, node, materialized.Result)
+	recordLegacyResultCapMetric(logger, node, result)
+	advanceNodeDone(ctx, deps.FlowStore, logger, node, result)
 }
 
 func failNodeForMaterializationFailure(
@@ -279,22 +281,37 @@ func materializeSharedfileAfterClaim(
 	logger *slog.Logger,
 	node *taskdag.Node,
 	materialized turnOutputMaterialization,
-) bool {
+) (json.RawMessage, bool) {
+	result := materialized.Result
 	if materialized.SharedfilePath == "" {
-		return true
+		return result, true
+	}
+	exists, failure := configuredSharedfileAlreadyExists(ctx, deps.SharedFileReader, materialized.SharedfilePath)
+	if failure != nil {
+		failNodeForMaterializationFailure(ctx, deps.FlowStore, logger, node, failure)
+		return nil, false
+	}
+	if exists {
+		result = encodeSharedfileResultRef(materialized.SharedfilePath)
+		if !claimNodeOutputMaterialization(ctx, deps.FlowStore, logger, node, result) {
+			return nil, false
+		}
+		logger.Debug("dag subscriber: configured sharedfile already exists, preserve existing content",
+			"dag_key", node.DagKey, "node_key", node.NodeKey, "path", materialized.SharedfilePath)
+		return result, true
 	}
 	if failure := validateAgentSharedfileWriter(deps.SharedFileWriter); failure != nil {
 		failNodeForMaterializationFailure(ctx, deps.FlowStore, logger, node, failure)
-		return false
+		return nil, false
 	}
-	if !claimNodeOutputMaterialization(ctx, deps.FlowStore, logger, node, materialized.Result) {
-		return false
+	if !claimNodeOutputMaterialization(ctx, deps.FlowStore, logger, node, result) {
+		return nil, false
 	}
 	if failure := writeAgentTurnSharedfile(ctx, deps.SharedFileWriter, materialized.SharedfilePath, materialized.RawResult); failure != nil {
 		failNodeForMaterializationFailure(ctx, deps.FlowStore, logger, node, failure)
-		return false
+		return nil, false
 	}
-	return true
+	return result, true
 }
 
 // advanceNodeDone calls CompleteNodeAndScheduleDownstream and records the
@@ -522,6 +539,33 @@ func writeAgentTurnSharedfile(
 		return infrastructureMaterializationFailure(fmt.Sprintf("outputs.to_sharedfile[%q]: %v", path, err))
 	}
 	return nil
+}
+
+func configuredSharedfileAlreadyExists(
+	ctx context.Context,
+	reader nodeexec.SharedFileReader,
+	path string,
+) (bool, *turnOutputMaterializationFailure) {
+	if path == "" {
+		return false, nil
+	}
+	if failure := validateAgentSharedfileReader(reader); failure != nil {
+		return false, failure
+	}
+	_, exists, err := reader.ReadSharedFile(ctx, path)
+	if err != nil {
+		return false, infrastructureMaterializationFailure(
+			fmt.Sprintf("outputs.to_sharedfile[%q] preflight read: %v", path, err))
+	}
+	return exists, nil
+}
+
+func validateAgentSharedfileReader(reader nodeexec.SharedFileReader) *turnOutputMaterializationFailure {
+	if reader != nil {
+		return nil
+	}
+	return infrastructureMaterializationFailure(
+		"outputs.to_sharedfile configured but SharedFileReader not wired in DAG subscriber")
 }
 
 func validateAgentSharedfileWriter(writer nodeexec.SharedFileWriter) *turnOutputMaterializationFailure {

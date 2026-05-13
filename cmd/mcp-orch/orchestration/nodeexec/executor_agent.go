@@ -174,6 +174,15 @@ func (e *AgentExecutor) Execute(ctx context.Context, node Node, runCtx RunContex
 			ErrorSummary: "agent_key required in node.config.exec",
 		}, nil
 	}
+	provider, providerErr := validateAgentLaunchProvider(cfg.Exec.Provider)
+	if providerErr != nil {
+		return NodeOutcome{
+			Status:       NodeStatusFailed,
+			FailureClass: FailureClassValidation,
+			ErrorSummary: truncateErrSummary(providerErr.Error()),
+		}, nil
+	}
+	cfg.Exec.Provider = provider
 
 	// 3. F1.2 Inputs 装载：拉取 prev nodes result + sharedfiles 作为 prompt 前缀。
 	//    任一环节失败 → 如果指向 missing node_key / sharedfile path 则 validation；
@@ -301,8 +310,7 @@ func resolveSpawnKeys(node Node, runCtx RunContext) (string, string) {
 //   - AgentID 使用项目统一 agent_{monotonicNumericTimestamp} 生成器；
 //   - Name 取 node.Title，去掉控制符并限制长度，供日志/UI 展示；
 //   - AgentKey/Language 直填同名字段；
-//   - Provider/Model 暂留位（contract.LaunchRequest 当前结构不含 provider，由
-//     service.LaunchAgent 内部按 agent_key/默认 provider 解析）；
+//   - Provider/Model/Effort 通过 LaunchRequest.Env 传递给 remoteLauncher；
 //   - FirstTurn 作为初始 Prompt 注入；
 //   - RunContext 暂无 parent agent id 字段，ParentID 先保持空。
 func buildLaunchRequestFromAgentConfig(cfg *AgentNodeConfig, node Node, _ RunContext) contract.LaunchRequest {
@@ -316,8 +324,46 @@ func buildLaunchRequestFromAgentConfig(cfg *AgentNodeConfig, node Node, _ RunCon
 		Language:  strings.TrimSpace(cfg.Exec.Language),
 		Prompt:    cfg.FirstTurn,
 		AgentType: node.NodeType, // "agent" 占位，F2/F3 hybrid 再细化
+		Env:       agentLaunchEnv(cfg.Exec),
 	}
 	return req
+}
+
+func validateAgentLaunchProvider(raw string) (string, error) {
+	provider := strings.ToLower(strings.TrimSpace(raw))
+	switch provider {
+	case "", "codex", "claude":
+		return provider, nil
+	default:
+		return "", fmt.Errorf("invalid provider %q: must be codex or claude", strings.TrimSpace(raw))
+	}
+}
+
+func agentLaunchEnv(exec AgentExecConfig) []string {
+	env := make([]string, 0, 4)
+	if provider := strings.ToLower(strings.TrimSpace(exec.Provider)); provider != "" {
+		env = append(env, "AGENT_PROVIDER="+provider)
+	}
+	if model := strings.TrimSpace(exec.Model); model != "" {
+		env = append(env, "AGENT_MODEL="+model)
+	}
+	if effort := strings.TrimSpace(exec.Effort); effort != "" {
+		env = append(env, "AGENT_EFFORT="+effort)
+	}
+	if disabledTools := joinTrimmed(exec.DisabledTools); disabledTools != "" {
+		env = append(env, "AGENT_DISABLED_TOOLS="+disabledTools)
+	}
+	return env
+}
+
+func joinTrimmed(values []string) string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			out = append(out, value)
+		}
+	}
+	return strings.Join(out, ",")
 }
 
 func sanitizeLaunchName(value string) string {

@@ -55,6 +55,7 @@ const (
 	LauncherParamModel            = "model"
 	LauncherParamEffort           = "effort"
 	LauncherParamLanguage         = "language"
+	LauncherParamConfig           = "config"
 	LauncherParamDisabledTools    = "disabled_tools"
 )
 
