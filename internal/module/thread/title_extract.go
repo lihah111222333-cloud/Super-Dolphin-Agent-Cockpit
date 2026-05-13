@@ -60,7 +60,7 @@ var englishFillerWords = map[string]bool{
 }
 
 // ExtractTitle extracts a ≤8 display-unit title from the first user prompt.
-// Returns "" when the result is too short or too vague (caller should use defaultThreadName).
+// Returns "" when the result is too short or too vague.
 func ExtractTitle(prompt string) string {
 	if prompt == "" {
 		return ""
@@ -273,12 +273,10 @@ func isAllPronouns(s string) bool {
 	return true
 }
 
-// resolveDisplayName consolidates the auto-naming logic shared by
-// completeStart and startPendingThread:
-//  1. If the thread was manually renamed, preserve the existing name.
-//  2. Otherwise extract a title from the user prompt.
-//  3. Fall back to the default thread name.
-func resolveDisplayName(ctx context.Context, store threadstore.Store, agentID, prompt, currentName string) string {
+// resolveDisplayName returns only a real persisted name. It preserves explicit
+// launch names and manual renames, but strips legacy UI placeholders so they
+// do not become recoverable provider-thread names.
+func resolveDisplayName(ctx context.Context, store threadstore.Store, agentID, _ string, currentName string) string {
 	name := strings.TrimSpace(currentName)
 	if name == defaultThreadName() {
 		name = ""
@@ -286,16 +284,8 @@ func resolveDisplayName(ctx context.Context, store threadstore.Store, agentID, p
 	if store != nil {
 		existing, err := store.GetByThreadID(ctx, agentID)
 		if err == nil && existing.ManuallyRenamed {
-			return existing.Name
+			return strings.TrimSpace(existing.Name)
 		}
-	}
-	if name == "" {
-		if p := strings.TrimSpace(prompt); p != "" {
-			name = ExtractTitle(p)
-		}
-	}
-	if name == "" {
-		name = defaultThreadName()
 	}
 	return name
 }

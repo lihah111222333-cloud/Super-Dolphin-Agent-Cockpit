@@ -34,7 +34,7 @@ function upsertThreadEntry(state, threadPatch, statusPatch) {
   if (!threadId) return;
   const existingIndex = base.findIndex((item) => item?.id === threadId);
   const current = existingIndex >= 0 ? base[existingIndex] : null;
-  const nextEntry = normalized || normalizeThread({ ...(current || { id: threadId, name: threadId }), state: nextStatus || current?.state || 'idle' });
+  const nextEntry = normalized || normalizeThread({ ...(current || { id: threadId }), state: nextStatus || current?.state || 'idle' });
   if (nextStatus && !threadPatch) nextEntry.state = nextStatus;
   if (current && current.id === nextEntry.id && current.name === nextEntry.name && current.state === nextEntry.state) return;
   const nextThreads = base.slice();

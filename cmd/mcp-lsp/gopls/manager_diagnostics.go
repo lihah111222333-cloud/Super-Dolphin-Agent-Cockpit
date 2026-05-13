@@ -22,8 +22,8 @@ func (h managerNotificationHandler) LogMessage(params protocol.LogMessageParams)
 	return h.logMessage(params)
 }
 
-func (m *manager) Diagnostics(_ context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, error) {
-	filter, err := m.normalizeDiagnosticFilter(uris)
+func (m *manager) Diagnostics(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, error) {
+	filter, err := m.normalizeDiagnosticFilter(ctx, uris)
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +41,7 @@ func (m *manager) WaitDiagnosticsStable(ctx context.Context, uris []string) erro
 	if err := sleepContext(ctx, m.diagInitial); err != nil {
 		return err
 	}
-	filter, err := m.normalizeDiagnosticFilter(uris)
+	filter, err := m.normalizeDiagnosticFilter(ctx, uris)
 	if err != nil {
 		return err
 	}
@@ -105,13 +105,13 @@ func (m *manager) latestDiagnosticUpdate(filter map[string]struct{}) time.Time {
 	return latest
 }
 
-func (m *manager) normalizeDiagnosticFilter(uris []string) (map[string]struct{}, error) {
+func (m *manager) normalizeDiagnosticFilter(ctx context.Context, uris []string) (map[string]struct{}, error) {
 	filter := make(map[string]struct{}, len(uris))
 	for _, uri := range uris {
 		if strings.TrimSpace(uri) == "" {
 			continue
 		}
-		ref, err := m.resolveDocumentRef(uri, "")
+		ref, err := m.resolveDocumentRef(ctx, uri, "")
 		if err != nil {
 			return nil, err
 		}

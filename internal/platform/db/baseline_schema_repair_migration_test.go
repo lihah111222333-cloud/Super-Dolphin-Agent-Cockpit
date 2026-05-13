@@ -18,6 +18,14 @@ func TestBaselineIncludesConflictTargetConstraints(t *testing.T) {
 	})
 }
 
+func TestBaselineAllowsPrecreatedSchemaMigrations(t *testing.T) {
+	t.Parallel()
+
+	assertMigrationContains(t, "001_baseline.sql", []string{
+		"CREATE TABLE IF NOT EXISTS public.schema_migrations",
+	})
+}
+
 func TestBaselineSchemaRepairMigrationRebuildsConflictTargetConstraints(t *testing.T) {
 	t.Parallel()
 

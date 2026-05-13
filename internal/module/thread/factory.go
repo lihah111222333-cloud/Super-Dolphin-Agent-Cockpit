@@ -130,6 +130,29 @@ func newBindingUpsertParams(binding bindingstore.Binding) bindingstore.UpsertPar
 	}
 }
 
+func newStartResult(
+	req StartRequest,
+	publicThreadID, agentID, providerUUID, providerThreadID, effectiveModel, effectiveCWD string,
+) StartResult {
+	return StartResult{
+		ThreadID:        publicThreadID,
+		AgentID:         agentID,
+		SessionID:       util.FirstNonEmpty(providerUUID, providerThreadID, publicThreadID),
+		Status:          "running",
+		Model:           effectiveModel,
+		Provider:        req.Provider,
+		ModelProvider:   req.ModelProvider,
+		CWD:             effectiveCWD,
+		ApprovalPolicy:  req.ApprovalPolicy,
+		AgentKey:        req.AgentKey,
+		AgentTitle:      req.AgentTitle,
+		PromptKey:       req.PromptKey,
+		PromptVersionID: req.PromptVersionID,
+		TaskID:          firstConfigString(req.Config, taskConfigKeyID, taskConfigKeyIDSnake),
+		HandoffFile:     firstConfigString(req.Config, taskConfigKeyHandoffFile, taskConfigKeyHandoffFileSnake),
+	}
+}
+
 type threadEventKind string
 
 const (

@@ -16,6 +16,7 @@ import (
 
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
@@ -54,13 +55,19 @@ type BackgroundRunnerProvider interface {
 }
 
 type ClientFactory interface {
-	NewClient(handler protocol.NotificationHandler) (Client, error)
+	// NewClient creates a language client whose subprocess Dir is bound
+	// to rootDir. rootDir is the per-workspace root resolved at call
+	// time (cfg.rootPath in createAndRegisterClient); the factory MUST
+	// NOT capture mcp-lsp's startup CWD via closure, otherwise gopls
+	// inherits the wrong project root when sessions span multiple
+	// workspaces.
+	NewClient(rootDir string, handler protocol.NotificationHandler) (Client, error)
 }
 
-type ClientFactoryFunc func(handler protocol.NotificationHandler) (Client, error)
+type ClientFactoryFunc func(rootDir string, handler protocol.NotificationHandler) (Client, error)
 
-func (fn ClientFactoryFunc) NewClient(handler protocol.NotificationHandler) (Client, error) {
-	return fn(handler)
+func (fn ClientFactoryFunc) NewClient(rootDir string, handler protocol.NotificationHandler) (Client, error) {
+	return fn(rootDir, handler)
 }
 
 type Config struct {
@@ -148,19 +155,40 @@ func NewManager(cfg Config) Manager {
 	return mgr
 }
 
-func (m *manager) resolveDocumentRef(target, languageID string) (documentRef, error) {
+// effectiveWorkspaceRoot picks the workspace root for resolving relative
+// paths / language-only workspace lookups. When the MCP toolbridge has
+// injected a per-call _cwd into ctx (see internal/mcpserver/common +
+// cmd/mcp-lsp/fx.go OnToolsCall), the manager MUST follow that cwd
+// instead of the build-time m.workspaceRoot, otherwise an agent bound
+// to a project other than the mcp-lsp startup directory ends up looking
+// up symbols / opening files in the wrong project.
+func (m *manager) effectiveWorkspaceRoot(ctx context.Context) string {
+	if ctx != nil {
+		if cwd, ok := ctx.Value(common.CwdContextKey).(string); ok {
+			if trimmed := strings.TrimSpace(cwd); trimmed != "" {
+				if normalized, err := platformshared.NormalizeAbsolutePath(trimmed); err == nil && normalized != "" {
+					return normalized
+				}
+			}
+		}
+	}
+	return m.workspaceRoot
+}
+
+func (m *manager) resolveDocumentRef(ctx context.Context, target, languageID string) (documentRef, error) {
 	trimmed := strings.TrimSpace(target)
 	if trimmed == "" {
 		return documentRef{}, ErrDocumentTargetEmpty
 	}
+	baseRoot := m.effectiveWorkspaceRoot(ctx)
 	var (
 		absPath string
 		err     error
 	)
 	if strings.HasPrefix(trimmed, "file://") {
 		absPath, err = absolutePathFromURI(trimmed)
-	} else if !filepath.IsAbs(trimmed) && m.workspaceRoot != "" {
-		absPath, err = platformshared.NormalizeAbsolutePath(filepath.Join(m.workspaceRoot, trimmed))
+	} else if !filepath.IsAbs(trimmed) && baseRoot != "" {
+		absPath, err = platformshared.NormalizeAbsolutePath(filepath.Join(baseRoot, trimmed))
 	} else {
 		absPath, err = platformshared.NormalizeAbsolutePath(trimmed)
 	}
@@ -192,11 +220,11 @@ func resolveProjectRoot(languageID, absPath string) (string, error) {
 	}
 }
 
-func (m *manager) resolveWorkspaceForDocument(ref documentRef) (workspaceConfig, error) {
+func (m *manager) resolveWorkspaceForDocument(ctx context.Context, ref documentRef) (workspaceConfig, error) {
 	if ref.absPath == "" {
 		return workspaceConfig{}, ErrWorkspaceRootEmpty
 	}
-	root := m.workspaceRoot
+	root := m.effectiveWorkspaceRoot(ctx)
 	langRoot, err := resolveProjectRoot(ref.languageID, ref.absPath)
 	if err != nil {
 		return workspaceConfig{}, err

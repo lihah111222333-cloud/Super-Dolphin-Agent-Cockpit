@@ -12,7 +12,6 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -180,11 +179,21 @@ func trimStartRequest(req StartRequest) StartRequest {
 func resolveStartConfig(req StartRequest) (StartRequest, error) {
 	// ModelProvider from frontend (e.g. "claude") should drive provider selection
 	// when Provider is not explicitly set.
+	providerInput := req.Provider
+	modelProviderInput := req.ModelProvider
 	provider, err := resolveStartProvider(util.FirstNonEmpty(req.Provider, req.ModelProvider))
 	if err != nil {
 		return StartRequest{}, err
 	}
 	req.Provider = provider
+	if strings.EqualFold(provider, "codex") || strings.TrimSpace(req.ModelProvider) != "" {
+		pkglogger.Warn("thread/start: provider resolved",
+			"provider_input", providerInput,
+			"model_provider_input", modelProviderInput,
+			"resolved_provider", provider,
+			"cwd", req.CWD,
+		)
+	}
 	req.CWD = resolveStartCWD(req.CWD)
 	req.Sandbox = sanitizeStartSandbox(req.Sandbox)
 	req.ApprovalPolicy, err = resolveStartApprovalPolicy(req.ApprovalPolicy, req.Sandbox)
@@ -289,6 +298,7 @@ func (s *service) startSession(ctx context.Context, req StartRequest, input cont
 		"config_model", configTraceString(config, "model"),
 		"config_effort", configTraceString(config, "effort"),
 	)
+	logStartProviderSessionIdentity(agentID, req, config)
 	sessionCtx := context.WithoutCancel(ctx)
 	return s.starter.StartSession(sessionCtx, dto.StartSessionRequest{
 		Provider:      req.Provider,
@@ -304,6 +314,28 @@ func (s *service) startSession(ctx context.Context, req StartRequest, input cont
 		LaunchSkillNames:  append([]string(nil), req.LaunchSkillNames...),
 		ForceLaunchSkills: req.ForceLaunchSkills,
 	})
+}
+
+func logStartProviderSessionIdentity(agentID string, req StartRequest, config map[string]any) {
+	if !strings.EqualFold(strings.TrimSpace(req.Provider), "codex") &&
+		strings.TrimSpace(req.ModelProvider) == "" &&
+		configTraceString(config, "provider") == "" &&
+		configTraceString(config, "modelProvider") == "" &&
+		configTraceString(config, "codexModelProvider") == "" {
+		return
+	}
+	pkglogger.Warn("thread/start: provider session identity trace",
+		"agent_id", agentID,
+		"provider", req.Provider,
+		"req_model_provider", req.ModelProvider,
+		"req_model", req.Model,
+		"req_effort", req.Effort,
+		"config_provider", configTraceString(config, "provider"),
+		"config_model_provider", configTraceString(config, "modelProvider"),
+		"config_codex_model_provider", configTraceString(config, "codexModelProvider"),
+		"config_model", configTraceString(config, "model"),
+		"config_effort", configTraceString(config, "effort"),
+	)
 }
 
 func (s *service) resumeSession(ctx context.Context, req ResumeRequest) (contract.Session, error) {
@@ -551,7 +583,7 @@ func (s *service) lookupResumeState(ctx context.Context, threadID string) resume
 		state.AgentType = util.FirstNonEmpty(state.AgentType, strings.TrimSpace(binding.AgentType))
 		state.AgentMemoryScope = util.FirstNonEmpty(state.AgentMemoryScope, strings.TrimSpace(binding.AgentMemoryScope))
 		state.Provider = strings.TrimSpace(binding.Provider)
-		state.ProviderThreadID = util.FirstNonEmpty(state.ProviderThreadID, binding.ProviderThreadID)
+		state.ProviderThreadID = util.FirstNonEmpty(state.ProviderThreadID, recoverableBindingProviderThreadID(binding))
 		state.PublicThreadID = util.FirstNonEmpty(state.PublicThreadID, binding.CodexThreadID)
 		state.RolloutPath = strings.TrimSpace(binding.RolloutPath)
 		state.SessionUUID = strings.TrimSpace(binding.SessionUUID)
@@ -559,18 +591,8 @@ func (s *service) lookupResumeState(ctx context.Context, threadID string) resume
 		state.CodexInstanceKey = strings.TrimSpace(binding.CodexInstanceKey)
 		state.CodexModelProvider = strings.TrimSpace(binding.CodexModelProvider)
 		state.CWD = util.FirstNonEmpty(state.CWD, binding.Cwd)
-		// SessionUUID is updated asynchronously by onAgentLaunched when the
-		// real provider UUID arrives (e.g. claude system:init).  If it
-		// differs from ProviderThreadID the latter is stale — prefer
-		// SessionUUID so resume uses the correct provider session.
-		// However, SessionUUID itself can be an agent_id placeholder
-		// (e.g. "agent_17754...") that is NOT a valid provider UUID.
-		// Only override when SessionUUID looks like a real UUID.
-		if state.SessionUUID != "" &&
-			state.SessionUUID != state.ProviderThreadID &&
-			identifier.LooksLikeUUID(state.SessionUUID) {
-			state.ProviderThreadID = state.SessionUUID
-		}
+		// SessionUUID is useful for diagnostics, but it is only a resumable
+		// provider_thread_id when the corresponding CLI history file exists.
 	}
 	state.StoredCWD = state.CWD
 	return state

@@ -47,6 +47,9 @@ func (s *service) ReadMessages(ctx context.Context, threadID string, limit int, 
 	}
 	binding, err := s.resolveBinding(ctx, threadID)
 	if err != nil {
+		if errors.Is(err, contract.ErrNotFound) {
+			return dto.ThreadMessagesResult{Messages: nil, Total: 0}, nil
+		}
 		return dto.ThreadMessagesResult{}, err
 	}
 	// Ensure session is resumed in background when thread is loaded after restart.

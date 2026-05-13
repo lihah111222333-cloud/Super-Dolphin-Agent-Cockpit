@@ -264,3 +264,34 @@ func cancelAll(cancels []context.CancelFunc) {
 		}
 	}
 }
+
+func TestApplyTurnStartedClearsLastMessageRegression(t *testing.T) {
+	t.Parallel()
+
+	svc := newProjectionTestService(t)
+	header := testAgentSessionHeader("thread-stream", "agent-stream")
+
+	// Inject a previous turn with a LastMessage left behind
+	svc.state.Threads = []ThreadSummary{{
+		ID:          "thread-stream",
+		AgentID:     "agent-stream",
+		LastMessage: "上一轮残留的流式消息",
+	}}
+
+	// Start a new turn
+	turnHeader := testTurnHeader(header, "turn-stream-2")
+	svc.applyTurnStarted(turndto.TurnStarted{TurnHeader: turnHeader})
+
+	// Verify that LastMessage is cleanly wiped out so it doesn't leak into the new turn
+	svc.mu.RLock()
+	defer svc.mu.RUnlock()
+	for _, item := range svc.state.Threads {
+		if item.ID == "thread-stream" {
+			if item.LastMessage != "" {
+				t.Fatalf("LastMessage was not cleared, got %q, want empty string", item.LastMessage)
+			}
+			return
+		}
+	}
+	t.Fatal("expected thread-stream to exist")
+}

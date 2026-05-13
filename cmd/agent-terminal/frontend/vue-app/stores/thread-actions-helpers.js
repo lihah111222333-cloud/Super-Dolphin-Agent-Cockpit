@@ -468,10 +468,14 @@ export async function startThread(ctx, cwd = '.', options = {}) {
     provider_scope: providerScope,
     provider_pref_model: providerModel,
     provider_pref_effort: providerEffort,
+    codex_model_provider_pref: normalizeProviderConfigValue(codexModelProviderPref),
     options_model: optionsModelTrimmed,
     options_effort: optionsEffortTrimmed,
-    payload_model: (payload.model || '').toString(),
-    payload_effort: (payload.effort || '').toString(),
+    payload_model_provider: (payload.modelProvider || '').toString(),
+    payload_model: (payload.model || '').toString(), payload_effort: (payload.effort || '').toString(),
+    payload_config_model_provider: (payload.config?.modelProvider || payload.config?.model_provider || '').toString(),
+    payload_config_codex_model_provider: (payload.config?.codexModelProvider || '').toString(),
+    is_codex_provider: isCodexProvider,
     note: 'diagnostic: provider prefs are observed here; payload forwarding is logged separately by backend',
   });
   const rawSelected = Array.isArray(options?.selectedSkills) ? options.selectedSkills : [];
@@ -523,6 +527,20 @@ export async function startThread(ctx, cwd = '.', options = {}) {
 
   if (options?.config && typeof options.config === 'object' && !Array.isArray(options.config)) {
     payload.config = { ...(payload.config || {}), ...options.config };
+  }
+  const finalConfig = (payload.config && typeof payload.config === 'object') ? payload.config : {};
+  if (isCodexProvider || finalConfig.modelProvider || finalConfig.model_provider || finalConfig.codexModelProvider) {
+    logWarn('thread', 'start.payload.identity_trace', {
+      cwd,
+      provider_scope: providerScope,
+      payload_model_provider: (payload.modelProvider || '').toString(),
+      payload_model: (payload.model || '').toString(),
+      payload_effort: (payload.effort || '').toString(),
+      config_provider: (finalConfig.provider || '').toString(),
+      config_model_provider: (finalConfig.modelProvider || finalConfig.model_provider || '').toString(),
+      config_codex_model_provider: (finalConfig.codexModelProvider || '').toString(),
+      has_config: Object.keys(finalConfig).length > 0, is_codex_provider: isCodexProvider,
+    });
   }
   const res = await callAPI('thread/start', payload);
   const id = res?.thread?.id;

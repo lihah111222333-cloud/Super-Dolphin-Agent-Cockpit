@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,11 +21,15 @@ import (
 func createGenericManager(executable string, args []string, root string, log *slog.Logger) manager.Manager {
 	return gopls.NewManager(gopls.Config{
 		WorkspaceRoot: root,
-		ClientFactory: gopls.ClientFactoryFunc(func(h protocol.NotificationHandler) (gopls.Client, error) {
+		ClientFactory: gopls.ClientFactoryFunc(func(rootDir string, h protocol.NotificationHandler) (gopls.Client, error) {
+			dir := rootDir
+			if strings.TrimSpace(dir) == "" {
+				dir = root
+			}
 			return gopls.NewClientWithOptions(gopls.Options{
 				Binary:              executable,
 				Args:                args,
-				Dir:                 root,
+				Dir:                 dir,
 				NotificationHandler: h,
 			})
 		}),

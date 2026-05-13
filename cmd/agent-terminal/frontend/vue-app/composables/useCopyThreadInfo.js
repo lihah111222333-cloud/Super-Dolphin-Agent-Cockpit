@@ -174,7 +174,7 @@ export function useCopyThreadInfo(deps) {
       agentId: threadId,
       providerThreadId: providerThreadID,
       uuid: providerThreadID,
-      name: activeThread.value ? threadStore.displayName(activeThread.value) : threadId,
+      name: pickString(thread.name),
       status: activeStatus.value,
 
       provider: agentProvider,

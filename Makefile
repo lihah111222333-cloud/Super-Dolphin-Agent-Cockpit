@@ -36,12 +36,15 @@ build-agent-terminal:
 build-agent-terminal-plain:
 	go build -o bin/agent-terminal ./cmd/agent-terminal
 
+# 推荐用 ./run-debug.sh：会跑 npm install/build、pre-flight 守卫
+# 这两个 target 只覆盖最小启动路径，前端 dist 必须先 build 过，否则 UI 是空的。
+# .env 由 internal/platform/config.loadDotEnv 自动加载，二者都能读到。
 run:
 	go run ./cmd/frida-bootstrap --frida-version "$(FRIDA_DEVKIT_VERSION)" -- \
-		go run -tags frida -ldflags "$(FRIDA_LDFLAGS)" ./cmd/server/main.go
+		go run -tags frida -ldflags "$(FRIDA_LDFLAGS)" ./cmd/agent-terminal
 
 run-plain:
-	go run ./cmd/server/main.go
+	go run ./cmd/agent-terminal
 
 # Memory subsystem defaults (override on the command line if you really
 # want memory off, e.g. 'make run-agent-terminal-debug ENABLE_MEMORY_SYSTEM=0').

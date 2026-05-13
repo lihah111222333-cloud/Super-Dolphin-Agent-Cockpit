@@ -158,6 +158,7 @@ func (s *service) Get(ctx context.Context, id string) (*Ref, error) {
 		return nil, err
 	}
 	ref := toRef(*thread)
+	s.enrichRefIdentity(ctx, &ref)
 	return &ref, nil
 }
 
@@ -376,6 +377,43 @@ func (s *service) resolveSession(ctx context.Context, threadID string) (contract
 	return session, binding, nil
 }
 
+func (s *service) enrichRefIdentity(ctx context.Context, ref *Ref) {
+	if s == nil || s.bindingStore == nil || ref == nil {
+		return
+	}
+	binding, err := s.resolveBinding(ctx, ref.ID)
+	if err != nil || binding == nil {
+		return
+	}
+	if provider := strings.TrimSpace(binding.Provider); provider != "" {
+		ref.Provider = provider
+	}
+	if providerThreadID := resolvedProviderThreadID(binding); providerThreadID != "" {
+		ref.ProviderThreadID = providerThreadID
+	}
+	if sessionID := resolvedSessionID(binding); sessionID != "" {
+		ref.SessionID = sessionID
+	}
+	if ref.CWD == "" {
+		ref.CWD = strings.TrimSpace(binding.Cwd)
+	}
+}
+
+func resolvedProviderThreadID(binding *bindingstore.Binding) string {
+	return recoverableBindingProviderThreadID(binding)
+}
+
+func resolvedSessionID(binding *bindingstore.Binding) string {
+	if binding == nil {
+		return ""
+	}
+	sessionUUID := strings.TrimSpace(binding.SessionUUID)
+	if identifier.LooksLikeUUID(sessionUUID) {
+		return sessionUUID
+	}
+	return strings.TrimSpace(binding.ProviderThreadID)
+}
+
 // evictZombieSession removes a dead session (transport closed, context
 // canceled) left by Archive so that the next resolve path creates a fresh
 // session. RemoveSession triggers session.Close → shutdownSession →
@@ -446,7 +484,7 @@ func (s *service) backgroundResumeCandidate(ctx context.Context, threadID string
 	if agentID == "" {
 		return "", false
 	}
-	if !identifier.LooksLikeUUID(strings.TrimSpace(binding.ProviderThreadID)) {
+	if recoverableBindingProviderThreadID(binding) == "" {
 		return "", false
 	}
 	if reason, blocked := s.resumeLifecycleBlockReason(ctx, threadID, binding); blocked {
