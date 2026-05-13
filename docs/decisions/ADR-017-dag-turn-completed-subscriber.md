@@ -1,6 +1,12 @@
 # ADR-017 v1.2：DAG turn.completed subscriber + thread.stopped fallback（A1）
 
-> 状态：📝 Proposed（v1.2 reviewer 三审修订）| 日期：2026-05-12 | 决策者：项目维护者
+> 状态：✅ Accepted（v1.2 reviewer 三审通过 + 2026-05-12 实装落地 + reviewer 二审复检通过）| 日期：2026-05-12 | 决策者：项目维护者
+>
+> **实装落地说明**（2026-05-12 W-A1 worker 实装 + 主 agent 接手补 commit 6/7）：10 commit `94ebdba4`..`71312fd2`。新建 `dag_turn_completed_subscriber.go`（主体 366 行）+ `dag_subscriber_module.go` + 3 metric 文件 + `hook_consumer.go` 锁外 fallback + dispatchAgent ready→running + 14+3 case 单测 + freeze 35→40。贴近 v1.2 §2.1-§2.9 描述。
+>
+> **3 reviewer 一审 + 二审反馈闭环**：一审揭 1 P0（dispatch_agent_running_test t.Parallel + 包级 counter 10/8 闪挂）+ 2 P1 + 3 P2 + 3 P3，主 agent commit `bcf68488` 一次收摆。二审复检：P0 20/20 PASS，0 新阻塞项，3 项非阻塞 follow-up（§5.2 e2e + §5.3 race C 时序模拟 + ProvideDAGSubscriberAgentThreadLookup nil 哨兵根治）全部记账 H13。
+>
+> **全量验证**：`go test ./cmd/mcp-orch/... -count=10` + `-race` + `scripts/test_with_guard.sh --guard-only` 全过。
 > 相关：C-A 实施计划 §3.1 v2.5（`docs/plans/dag-lifecycle-c-a-implementation.md`）/ ADR-015 v4.1（C1+C2 provider 层 ev.Result 填充）/ ADR-016 v1.2（C3 stop_helper.StopSpawnedAgent 接口契约）/ ADR-018（A2 outputs 重做，下游消费契约）/ F1.x 审计 §1.5 + §1.6
 
 ## 1. 背景
