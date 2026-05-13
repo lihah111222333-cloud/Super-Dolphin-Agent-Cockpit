@@ -29,7 +29,7 @@ func (m *manager) BackgroundRunner() platformrunner.Runner {
 
 func (m *manager) EnsureClient(ctx context.Context, filePath, languageID string) (Client, error) {
 	if strings.TrimSpace(filePath) != "" {
-		ref, err := m.resolveDocumentRef(filePath, languageID)
+		ref, err := m.resolveDocumentRef(ctx, filePath, languageID)
 		if err != nil {
 			return nil, err
 		}
@@ -103,11 +103,11 @@ func firstNonNilError(current, next error) error {
 }
 
 func (m *manager) ensureClientForFile(ctx context.Context, filePath, languageID string) (Client, error) {
-	ref, err := m.resolveDocumentRef(filePath, languageID)
+	ref, err := m.resolveDocumentRef(ctx, filePath, languageID)
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := m.resolveWorkspaceForDocument(ref)
+	cfg, err := m.resolveWorkspaceForDocument(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +115,7 @@ func (m *manager) ensureClientForFile(ctx context.Context, filePath, languageID 
 }
 
 func (m *manager) ensureClientForLanguage(ctx context.Context, languageID string) (Client, error) {
-	root, langID, err := m.resolveLanguageWorkspace(languageID)
+	root, langID, err := m.resolveLanguageWorkspace(ctx, languageID)
 	if err != nil {
 		return nil, err
 	}
@@ -132,11 +132,11 @@ func (m *manager) ensureClientForLanguage(ctx context.Context, languageID string
 	return client, nil
 }
 
-func (m *manager) resolveLanguageWorkspace(languageID string) (string, string, error) {
+func (m *manager) resolveLanguageWorkspace(ctx context.Context, languageID string) (string, string, error) {
 	if !shouldUseClientForLanguage(languageID) {
 		return "", "", fmt.Errorf("language %q is not managed by gopls", languageID)
 	}
-	root := m.workspaceRoot
+	root := m.effectiveWorkspaceRoot(ctx)
 	if root == "" {
 		return "", "", ErrWorkspaceRootEmpty
 	}
@@ -262,7 +262,7 @@ func (m *manager) createAndRegisterClient(ctx context.Context, cfg workspaceConf
 		return nil, ErrClientFactoryNil
 	}
 	capturedGen := m.diagGeneration.Load()
-	client, err := m.factory.NewClient(managerNotificationHandler{
+	client, err := m.factory.NewClient(cfg.rootPath, managerNotificationHandler{
 		publishDiagnostics: func(params protocol.PublishDiagnosticsParams) error {
 			return m.publishDiagnosticsForGeneration(params, capturedGen)
 		},
@@ -357,7 +357,7 @@ func (m *manager) request(ctx context.Context, client Client, method string, par
 }
 
 func (m *manager) documentClient(ctx context.Context, uri string) (Client, documentRef, error) {
-	ref, err := m.resolveDocumentRef(uri, "")
+	ref, err := m.resolveDocumentRef(ctx, uri, "")
 	if err != nil {
 		return nil, documentRef{}, err
 	}

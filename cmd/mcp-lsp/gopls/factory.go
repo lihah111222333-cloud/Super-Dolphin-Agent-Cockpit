@@ -94,7 +94,7 @@ func (m *manager) notifyDocument(
 	languageID string,
 	notify func(context.Context, Client, documentRef) error,
 ) error {
-	ref, err := m.resolveDocumentRef(uri, languageID)
+	ref, err := m.resolveDocumentRef(ctx, uri, languageID)
 	if err != nil {
 		return err
 	}
