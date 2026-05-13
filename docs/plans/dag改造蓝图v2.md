@@ -72,6 +72,7 @@ MCP 工具层      ✅ 完整 (task_create_dag / get_dag / update_node)
 | 输出校验 | **`outputs.schema` 字段位** | 🤖 | JSON Schema 自动校验，配合 `validation` 失败分类 |
 | 实时进度 | **T 阶段先 polling，WS 升级放加固阶段** | 🤖 | 用户高频痛点；不补骨架 |
 | **result vs sharedfile 边界** | **`to_node_result` 仅 < 4KB 摘要；大输出必须 `to_sharedfile`** | 🤖 | 防止 task_dag_nodes.result JSONB 列膨胀；F1.3 enforce |
+| **final output 边界** | **run 级最终产物看 `task_dag_runs.metadata.final_output`；sharedfile 只是存储层** | 🤖 | `task_dags.metadata.final_node_key` 显式声明最终节点；Shared Files 页面后续只突出被 final_output 引用的文件 |
 
 ## 6. 改造决策矩阵
 
@@ -282,7 +283,7 @@ ops 在不同 status 下允许的子集：
 - F8 UI 节点编辑表单（typed schema 自动渲染）
 - F9 UI mermaid 拓扑图
 - F10 UI run 历史时间轴
-- F11 UI sharedfile 锁可视化（节点 reads/writes 联动）
+- F11 UI sharedfile 锁可视化（节点 reads/writes 联动）+ final_output 高亮（默认折叠中间产物）
 - F12 智能重试 strategy dispatcher（by_class + escalation_chain + `replan` 策略：spawn planner agent 改图）
 - F13 lifecycle hooks 真实触发
 - 验收：端到端用例 ——「AI 帮我设计每天 8 点的报告生成 DAG → AI 设计 → 用户改一处 prompt → Start → 第一个 run 跑通 → 第二天 8 点自动起第二个 run → run 历史里看到两次执行 → 一次故意失败 → 状态正确反映」
