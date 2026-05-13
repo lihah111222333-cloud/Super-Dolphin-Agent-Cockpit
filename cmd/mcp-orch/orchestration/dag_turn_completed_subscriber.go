@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
@@ -52,6 +54,9 @@ type DAGSubscriberDeps struct {
 	FlowStore    taskdag.NodeFlowStore
 	AgentThreads AgentThreadLookup
 	SvcStopper   StopAgentService
+	// SharedFileWriter is only used by A2 agent output materialization after
+	// TurnCompleted carries the real child response.
+	SharedFileWriter nodeexec.SharedFileWriter `optional:"true"`
 }
 
 // RegisterDAGTurnCompletedSubscriber wires the third TurnCompleted
@@ -126,14 +131,14 @@ func RegisterDAGTurnCompletedSubscriber(
 //     index is non-UNIQUE — retry / recovery chains can dual-mount).
 //  3. For each node:
 //     a. Short-circuit if already terminal (race C / duplicate
-//        TurnCompleted) — metric IdempotentSkipped.
-//     b. Build CompleteNodeInput.Result = ev.Result (string passthrough;
-//        ADR-018 will rework into jsonb merge). Empty ev.Result fires
-//        metric CompleteResultEmpty as a soft alarm.
+//     TurnCompleted) — metric IdempotentSkipped.
+//     b. Materialize CompleteNodeInput.Result from ev.Result and the agent
+//     node's config.outputs. Empty ev.Result fires metric
+//     CompleteResultEmpty as a soft alarm.
 //     c. ev.Success=true → FlowStore.CompleteNodeAndScheduleDownstream
-//        (metric CompleteDone / size-cap / DB err).
-//        ev.Success=false → FlowStore.FailNodeAndCancelDownstream
-//        (metric CompleteFailed).
+//     (metric CompleteDone / size-cap / DB err).
+//     ev.Success=false → FlowStore.FailNodeAndCancelDownstream
+//     (metric CompleteFailed).
 //  4. After the DB advance, call stop_helper.StopSpawnedAgent (ADR-016
 //     §3.2 hard constraint — never inline the 5 contracts). Failure is a
 //     Warn log; the subscriber does NOT propagate the error and continues
@@ -188,7 +193,7 @@ func handleDAGTurnCompleted(
 		if ctx.Err() != nil {
 			return
 		}
-		advanceNodeForTurnCompleted(ctx, deps.FlowStore, logger, &nodes[i], ev)
+		advanceNodeForTurnCompleted(ctx, deps, logger, &nodes[i], ev)
 	}
 	// stop_helper after DB advance (DB is source of truth — stop failure
 	// does not affect DAG state). Called once per event regardless of
@@ -201,7 +206,7 @@ func handleDAGTurnCompleted(
 // unit tests can target the branch independently.
 func advanceNodeForTurnCompleted(
 	ctx context.Context,
-	flow taskdag.NodeFlowStore,
+	deps DAGSubscriberDeps,
 	logger *slog.Logger,
 	node *taskdag.Node,
 	ev turndto.TurnCompleted,
@@ -212,23 +217,33 @@ func advanceNodeForTurnCompleted(
 			"dag_key", node.DagKey, "node_key", node.NodeKey, "status", node.Status)
 		return
 	}
-	resultBytes := encodeTurnResultForNodeUpdate(ev.Result)
-	if len(resultBytes) > completeNodeResultCap {
-		dagSubscriberMetrics.IncCompleteSizeCapExceeded()
-		logger.Warn("dag subscriber: complete result exceeds ADR-006 4KB cap",
-			"dag_key", node.DagKey, "node_key", node.NodeKey, "size", len(resultBytes))
-		// Continue anyway — store layer will return validation error which
-		// we log below. We do NOT proactively reject (ADR-018 will rework).
-	}
 	if strings.TrimSpace(ev.Result) == "" {
 		dagSubscriberMetrics.IncCompleteResultEmpty()
 	}
 
 	if ev.Success {
-		advanceNodeDone(ctx, flow, logger, node, resultBytes)
+		resultBytes, failure := materializeTurnCompletedResult(ctx, deps.SharedFileWriter, node, ev.Result)
+		if failure != nil {
+			if failure.SizeCapExceeded {
+				dagSubscriberMetrics.IncCompleteSizeCapExceeded()
+			}
+			logger.Warn("dag subscriber: materialize agent output failed",
+				"dag_key", node.DagKey, "node_key", node.NodeKey, "reason", failure.Reason)
+			advanceNodeFailedWithReason(ctx, deps.FlowStore, logger, node, failure.Reason)
+			return
+		}
+		if len(resultBytes) > completeNodeResultCap {
+			dagSubscriberMetrics.IncCompleteSizeCapExceeded()
+			logger.Warn("dag subscriber: complete result exceeds ADR-006 4KB cap",
+				"dag_key", node.DagKey, "node_key", node.NodeKey, "size", len(resultBytes))
+			// Legacy non-agent path keeps the A1 behavior: surface the metric and
+			// let the store layer reject if needed. Agent outputs are enforced by
+			// materializeTurnCompletedResult before any CompleteNode call.
+		}
+		advanceNodeDone(ctx, deps.FlowStore, logger, node, resultBytes)
 		return
 	}
-	advanceNodeFailed(ctx, flow, logger, node, ev)
+	advanceNodeFailed(ctx, deps.FlowStore, logger, node, ev)
 }
 
 // advanceNodeDone calls CompleteNodeAndScheduleDownstream and records the
@@ -284,6 +299,16 @@ func advanceNodeFailed(
 	if reason == "" {
 		reason = "turn_completed_failure"
 	}
+	advanceNodeFailedWithReason(ctx, flow, logger, node, reason)
+}
+
+func advanceNodeFailedWithReason(
+	ctx context.Context,
+	flow taskdag.NodeFlowStore,
+	logger *slog.Logger,
+	node *taskdag.Node,
+	reason string,
+) {
 	_, err := flow.FailNodeAndCancelDownstream(ctx, taskdag.FailNodeInput{
 		DagKey:   node.DagKey,
 		NodeKey:  node.NodeKey,
@@ -325,6 +350,133 @@ func encodeTurnResultForNodeUpdate(raw string) json.RawMessage {
 		return json.RawMessage(`{}`)
 	}
 	return json.RawMessage(wrapped)
+}
+
+type turnOutputMaterializationFailure struct {
+	Reason          string
+	SizeCapExceeded bool
+}
+
+// materializeTurnCompletedResult is the ADR-018/A2 boundary: agent nodes use
+// the real TurnCompleted.Result, not launch metadata, as their persisted
+// output. Non-agent rows keep the ADR-017 normalization path for compatibility.
+func materializeTurnCompletedResult(
+	ctx context.Context,
+	writer nodeexec.SharedFileWriter,
+	node *taskdag.Node,
+	rawResult string,
+) (json.RawMessage, *turnOutputMaterializationFailure) {
+	if node == nil || strings.TrimSpace(node.NodeType) != "agent" {
+		return encodeTurnResultForNodeUpdate(rawResult), nil
+	}
+	cfg, failure := parseAgentOutputConfig(node.Config)
+	if failure != nil {
+		return nil, failure
+	}
+	path := configuredSharedfilePath(cfg.Outputs)
+	emitNodeResult := shouldMaterializeAgentNodeResult(cfg.Outputs)
+	nodeResult, failure := buildAgentNodeResult(rawResult, emitNodeResult)
+	if failure != nil {
+		return nil, failure
+	}
+	if failure := writeAgentTurnSharedfile(ctx, writer, path, rawResult); failure != nil {
+		return nil, failure
+	}
+	return finalAgentMaterializedResult(rawResult, nodeResult, path, emitNodeResult), nil
+}
+
+func parseAgentOutputConfig(raw json.RawMessage) (*nodeexec.AgentNodeConfig, *turnOutputMaterializationFailure) {
+	cfg, err := nodeexec.ParseAgentConfig(raw)
+	if err != nil {
+		return nil, validationMaterializationFailure("decode agent config: " + err.Error())
+	}
+	if cfg == nil {
+		return nil, validationMaterializationFailure("decode agent config: nil parsed config")
+	}
+	return cfg, nil
+}
+
+func buildAgentNodeResult(rawResult string, emit bool) (json.RawMessage, *turnOutputMaterializationFailure) {
+	if !emit {
+		return nil, nil
+	}
+	nodeResult := encodeTurnResultForNodeUpdate(rawResult)
+	if len(nodeResult) <= completeNodeResultCap {
+		return nodeResult, nil
+	}
+	return nil, &turnOutputMaterializationFailure{
+		Reason: fmt.Sprintf(
+			"result exceeds 4KB size cap (%d > %d bytes), configure outputs.to_sharedfile (ADR-006)",
+			len(nodeResult), completeNodeResultCap,
+		),
+		SizeCapExceeded: true,
+	}
+}
+
+func writeAgentTurnSharedfile(
+	ctx context.Context,
+	writer nodeexec.SharedFileWriter,
+	path string,
+	rawResult string,
+) *turnOutputMaterializationFailure {
+	if path == "" {
+		return nil
+	}
+	if writer == nil {
+		return infrastructureMaterializationFailure(
+			"outputs.to_sharedfile configured but SharedFileWriter not wired in DAG subscriber")
+	}
+	if err := writer.WriteSharedFile(ctx, path, rawResult); err != nil {
+		return infrastructureMaterializationFailure(fmt.Sprintf("outputs.to_sharedfile[%q]: %v", path, err))
+	}
+	return nil
+}
+
+func finalAgentMaterializedResult(rawResult string, nodeResult json.RawMessage, path string, emit bool) json.RawMessage {
+	switch {
+	case emit:
+		return nodeResult
+	case path != "":
+		return encodeSharedfileResultRef(path)
+	default:
+		return encodeTurnResultForNodeUpdate(rawResult)
+	}
+}
+
+func shouldMaterializeAgentNodeResult(out nodeexec.OutputsConfig) bool {
+	if out.ToNodeResult {
+		return true
+	}
+	return configuredSharedfilePath(out) == ""
+}
+
+func configuredSharedfilePath(out nodeexec.OutputsConfig) string {
+	if out.ToSharedfile == nil {
+		return ""
+	}
+	return strings.TrimSpace(out.ToSharedfile.Path)
+}
+
+func encodeSharedfileResultRef(path string) json.RawMessage {
+	payload, err := json.Marshal(struct {
+		Sharedfile struct {
+			Path string `json:"path"`
+		} `json:"sharedfile"`
+	}{Sharedfile: struct {
+		Path string `json:"path"`
+	}{Path: path}})
+	if err != nil {
+		return json.RawMessage(`{}`)
+	}
+	return payload
+}
+
+func validationMaterializationFailure(reason string) *turnOutputMaterializationFailure {
+	return &turnOutputMaterializationFailure{Reason: "validation: " + reason}
+}
+
+func infrastructureMaterializationFailure(reason string) *turnOutputMaterializationFailure {
+	return &turnOutputMaterializationFailure{Reason: "infrastructure: " + reason}
 }
 
 // stopSpawnedAgentForSubscriber is the §2.8 helper hook. ADR-016 v1.2 §3.2

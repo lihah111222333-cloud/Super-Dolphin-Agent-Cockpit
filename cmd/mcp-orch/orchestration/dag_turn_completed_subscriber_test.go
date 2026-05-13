@@ -81,13 +81,26 @@ func (s *dagSubscriberThreadSpy) GetByThreadID(_ context.Context, _ string) (*Pe
 }
 
 type dagSubscriberStopSpy struct {
-	stopErr  error
-	stopped  []string
+	stopErr error
+	stopped []string
 }
 
 func (s *dagSubscriberStopSpy) StopAgent(_ context.Context, agentID string) error {
 	s.stopped = append(s.stopped, agentID)
 	return s.stopErr
+}
+
+type dagSubscriberSharedFileWriterSpy struct {
+	writes []struct{ Path, Content string }
+	err    error
+}
+
+func (s *dagSubscriberSharedFileWriterSpy) WriteSharedFile(_ context.Context, path, content string) error {
+	if s.err != nil {
+		return s.err
+	}
+	s.writes = append(s.writes, struct{ Path, Content string }{Path: path, Content: content})
+	return nil
 }
 
 // helper：构造 deps + reset metric singletons 让每 case 独立计数。
@@ -364,6 +377,218 @@ func TestDAGSubscriber_CompleteSizeCapExceeded(t *testing.T) {
 	// CompleteDone must NOT advance because the store returned err.
 	if d.CompleteDone != 0 {
 		t.Fatalf("CompleteDone delta = %d, want 0 (store err)", d.CompleteDone)
+	}
+}
+
+func TestDAGSubscriber_A2_DefaultAgentResultMaterializesTurnResult(t *testing.T) {
+	payload := `{"summary":"real agent output"}`
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey:   "dag-a2",
+		NodeKey:  "agent-default",
+		NodeType: "agent",
+		Status:   "running",
+		Config:   []byte(`{"exec":{"agent_key":"implementer"}}`),
+	}}}
+	flow := &dagSubscriberFlowSpy{}
+	deps := setupDAGSubscriberDeps(
+		lookup,
+		flow,
+		&dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-a2-default", AgentID: "agent-a2-default"}},
+		&dagSubscriberStopSpy{},
+	)
+
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-a2-default", true, payload))
+
+	if len(flow.completeCalls) != 1 {
+		t.Fatalf("completeCalls = %d, want 1", len(flow.completeCalls))
+	}
+	if got := string(flow.completeCalls[0].Result); got != payload {
+		t.Fatalf("CompleteNodeInput.Result = %s, want real TurnCompleted result %s", got, payload)
+	}
+}
+
+func TestDAGSubscriber_A2_SharedfileOnlyDoesNotStoreLargeTurnResult(t *testing.T) {
+	hugePayload := `{"data":"` + strings.Repeat("x", completeNodeResultCap+1) + `"}`
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey:   "dag-a2",
+		NodeKey:  "agent-sharedfile",
+		NodeType: "agent",
+		Status:   "running",
+		Config: []byte(`{
+			"exec":{"agent_key":"implementer"},
+			"outputs":{
+				"to_sharedfile":{"path":"reports/agent.json","lock_mode":"exclusive"},
+				"to_node_result":false
+			}
+		}`),
+	}}}
+	flow := &dagSubscriberFlowSpy{}
+	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-a2-sharedfile", AgentID: "agent-a2"}}
+	stop := &dagSubscriberStopSpy{}
+	writer := &dagSubscriberSharedFileWriterSpy{}
+	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
+	deps.SharedFileWriter = writer
+
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-a2-sharedfile", true, hugePayload))
+
+	if len(writer.writes) != 1 {
+		t.Fatalf("sharedfile writes = %d, want 1", len(writer.writes))
+	}
+	if writer.writes[0].Path != "reports/agent.json" {
+		t.Fatalf("sharedfile path = %q, want reports/agent.json", writer.writes[0].Path)
+	}
+	if writer.writes[0].Content != hugePayload {
+		t.Fatalf("sharedfile content size = %d, want exact TurnCompleted result size %d", len(writer.writes[0].Content), len(hugePayload))
+	}
+	if len(flow.completeCalls) != 1 {
+		t.Fatalf("completeCalls = %d, want 1", len(flow.completeCalls))
+	}
+	got := string(flow.completeCalls[0].Result)
+	if len(got) > completeNodeResultCap || strings.Contains(got, strings.Repeat("x", 128)) {
+		t.Fatalf("CompleteNodeInput.Result stored large TurnCompleted payload; size=%d", len(got))
+	}
+	if got != `{"sharedfile":{"path":"reports/agent.json"}}` {
+		t.Fatalf("CompleteNodeInput.Result = %s, want sharedfile reference envelope", got)
+	}
+}
+
+func TestDAGSubscriber_A2_SharedfileAndNodeResultWritesBoth(t *testing.T) {
+	payload := `{"summary":"real agent output"}`
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey:   "dag-a2",
+		NodeKey:  "agent-both",
+		NodeType: "agent",
+		Status:   "running",
+		Config: []byte(`{
+			"exec":{"agent_key":"implementer"},
+			"outputs":{
+				"to_sharedfile":{"path":"reports/agent-both.json","lock_mode":"exclusive"},
+				"to_node_result":true
+			}
+		}`),
+	}}}
+	flow := &dagSubscriberFlowSpy{}
+	writer := &dagSubscriberSharedFileWriterSpy{}
+	deps := setupDAGSubscriberDeps(
+		lookup,
+		flow,
+		&dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-a2-both", AgentID: "agent-a2-both"}},
+		&dagSubscriberStopSpy{},
+	)
+	deps.SharedFileWriter = writer
+
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-a2-both", true, payload))
+
+	if len(writer.writes) != 1 {
+		t.Fatalf("sharedfile writes = %d, want 1", len(writer.writes))
+	}
+	if writer.writes[0].Path != "reports/agent-both.json" || writer.writes[0].Content != payload {
+		t.Fatalf("sharedfile write = %+v, want reports/agent-both.json with real payload", writer.writes[0])
+	}
+	if len(flow.completeCalls) != 1 {
+		t.Fatalf("completeCalls = %d, want 1", len(flow.completeCalls))
+	}
+	if got := string(flow.completeCalls[0].Result); got != payload {
+		t.Fatalf("CompleteNodeInput.Result = %s, want real TurnCompleted result %s", got, payload)
+	}
+}
+
+func TestDAGSubscriber_A2_SharedfileMissingWriterFails(t *testing.T) {
+	payload := `{"summary":"real agent output"}`
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey:   "dag-a2",
+		NodeKey:  "agent-no-writer",
+		NodeType: "agent",
+		Status:   "running",
+		Config: []byte(`{
+			"exec":{"agent_key":"implementer"},
+			"outputs":{"to_sharedfile":{"path":"reports/agent.json","lock_mode":"exclusive"}}
+		}`),
+	}}}
+	flow := &dagSubscriberFlowSpy{}
+	deps := setupDAGSubscriberDeps(
+		lookup,
+		flow,
+		&dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-a2-no-writer", AgentID: "agent-a2-no-writer"}},
+		&dagSubscriberStopSpy{},
+	)
+
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-a2-no-writer", true, payload))
+
+	if len(flow.completeCalls) != 0 {
+		t.Fatalf("completeCalls = %d, want 0 when sharedfile writer is missing", len(flow.completeCalls))
+	}
+	if len(flow.failCalls) != 1 {
+		t.Fatalf("failCalls = %d, want 1", len(flow.failCalls))
+	}
+	if !strings.Contains(flow.failCalls[0].Reason, "SharedFileWriter not wired") {
+		t.Fatalf("fail reason = %q, want SharedFileWriter not wired", flow.failCalls[0].Reason)
+	}
+}
+
+func TestDAGSubscriber_A2_SharedfileWriteErrorFails(t *testing.T) {
+	payload := `{"summary":"real agent output"}`
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey:   "dag-a2",
+		NodeKey:  "agent-write-error",
+		NodeType: "agent",
+		Status:   "running",
+		Config: []byte(`{
+			"exec":{"agent_key":"implementer"},
+			"outputs":{"to_sharedfile":{"path":"reports/fail.json","lock_mode":"exclusive"}}
+		}`),
+	}}}
+	flow := &dagSubscriberFlowSpy{}
+	writer := &dagSubscriberSharedFileWriterSpy{err: errors.New("disk full")}
+	deps := setupDAGSubscriberDeps(
+		lookup,
+		flow,
+		&dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-a2-write-error", AgentID: "agent-a2-write-error"}},
+		&dagSubscriberStopSpy{},
+	)
+	deps.SharedFileWriter = writer
+
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-a2-write-error", true, payload))
+
+	if len(flow.completeCalls) != 0 {
+		t.Fatalf("completeCalls = %d, want 0 when sharedfile write fails", len(flow.completeCalls))
+	}
+	if len(flow.failCalls) != 1 {
+		t.Fatalf("failCalls = %d, want 1", len(flow.failCalls))
+	}
+	reason := flow.failCalls[0].Reason
+	if !strings.Contains(reason, "reports/fail.json") || !strings.Contains(reason, "disk full") {
+		t.Fatalf("fail reason = %q, want path and disk full", reason)
+	}
+}
+
+func TestDAGSubscriber_A2_ToNodeResultOversizeFailsWithoutFallback(t *testing.T) {
+	hugePayload := `{"data":"` + strings.Repeat("x", completeNodeResultCap+1) + `"}`
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey:   "dag-a2",
+		NodeKey:  "agent-result",
+		NodeType: "agent",
+		Status:   "running",
+		Config: []byte(`{
+			"exec":{"agent_key":"reviewer"},
+			"outputs":{"to_node_result":true}
+		}`),
+	}}}
+	flow := &dagSubscriberFlowSpy{}
+	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-a2-result", AgentID: "agent-a2-result"}}
+	stop := &dagSubscriberStopSpy{}
+	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
+
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-a2-result", true, hugePayload))
+
+	if len(flow.completeCalls) != 0 {
+		t.Fatalf("completeCalls = %d, want 0 because oversized to_node_result must fail instead of completing", len(flow.completeCalls))
+	}
+	if len(flow.failCalls) != 1 {
+		t.Fatalf("failCalls = %d, want 1 for ADR-006 size-cap failure", len(flow.failCalls))
+	}
+	if !strings.Contains(flow.failCalls[0].Reason, "4KB") && !strings.Contains(flow.failCalls[0].Reason, "ADR-006") {
+		t.Fatalf("fail reason = %q, want 4KB/ADR-006 context", flow.failCalls[0].Reason)
 	}
 }
 

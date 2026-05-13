@@ -26,4 +26,4 @@
 - [ADR-005：F4.5 与 F6.5 联动 —— 多 run 并发后 running 受限的判定主体](./ADR-005-f4.5-f6.5-running-semantics.md)
 - [ADR-010：DAG 上下文与 token budget 兜底阈值](./ADR-010-dag-context-token-budget.md)
 - [ADR-011 v2 部分（F3.2/F3.3/F3.4）](./ADR-011-hybrid-executor-topology.md#) — 占位，拍板后拆分为 ADR-011a/b/c
-
+- [ADR-018：agent 节点真实输出物化（A2）](./ADR-018-agent-output-materialization.md) — Proposed；A2 MVP：复用 `CompleteNodeAndScheduleDownstream` 的 result 更新，不新增 SQL/sqlc
