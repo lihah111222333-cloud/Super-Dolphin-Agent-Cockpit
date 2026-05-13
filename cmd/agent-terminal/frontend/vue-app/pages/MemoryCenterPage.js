@@ -4,6 +4,7 @@ import {
   useDurableMemoryEditor,
   useInlineDeleteConfirm,
 } from '../composables/useMemoryEditors.js';
+import { useSimilarityIgnore, pairKey } from '../composables/useSimilarityIgnore.js';
 
 const TYPE_BADGE_CLASS = Object.freeze({
   project: 'jr-badge-primary',
@@ -149,37 +150,28 @@ export const MemoryCenterPage = {
     }
 
     const mergingGroup = ref(null);
-    const mergeConfirm = reactive({ target: null, index: -1, crossScope: false });
+    const mergeConfirm = reactive({ target: null, index: -1 });
 
     function resetMergeConfirm() {
       mergeConfirm.target = null;
       mergeConfirm.index = -1;
-      mergeConfirm.crossScope = false;
     }
 
     function askMergeGroup(group, idx) {
       if (!group || mergingGroup.value !== null) return;
       mergeConfirm.target = group;
       mergeConfirm.index = idx;
-      mergeConfirm.crossScope = (group.targetA || '') !== (group.targetB || '');
     }
 
     async function confirmMergeGroup() {
       const group = mergeConfirm.target;
       if (!group || mergingGroup.value !== null) return;
-      if (mergeConfirm.crossScope) {
-        setNotice('warning', '跨作用域相似条目不会自动整合，请手动整理私有/团队记忆');
-        resetMergeConfirm();
-        return;
-      }
       mergingGroup.value = mergeConfirm.index;
       try {
         await callAPI('ui/memory/entry/merge', {
           cwd: currentCwd.value,
-          targetA: group.targetA,
-          pathA: group.pathA,
-          targetB: group.targetB,
-          pathB: group.pathB,
+          targetA: group.targetA, pathA: group.pathA,
+          targetB: group.targetB, pathB: group.pathB,
         });
         setNotice('info', `已整合「${group.nameA}」与「${group.nameB}」`);
         resetMergeConfirm();
@@ -197,25 +189,33 @@ export const MemoryCenterPage = {
 
     const mergingAll = ref(false);
     async function mergeAllGroups() {
-      const groups = (health.value?.similarGroups || [])
-        .filter(g => (g.targetA || '') === (g.targetB || ''));
-      if (!groups.length || mergingAll.value) return;
+      const total = (health.value?.similarGroups || []).length;
+      if (!total || mergingAll.value) return;
       mergingAll.value = true;
-      let ok = 0, fail = 0;
-      for (const group of groups) {
-        try {
-          await callAPI('ui/memory/entry/merge', {
-            cwd: currentCwd.value,
-            targetA: group.targetA, pathA: group.pathA,
-            targetB: group.targetB, pathB: group.pathB,
-          });
-          ok++;
-        } catch { fail++; }
+      setNotice('info', '智能整合中（通常 10-20 秒），请勿离开', true);
+      try {
+        const res = await callAPI('ui/memory/similarity/consolidate-all', { cwd: currentCwd.value });
+        const merged = (res && res.merged) || 0;
+        const ignored = (res && res.ignored) || 0;
+        const failed = (res && res.failed) || 0;
+        const skipped = (res && res.skipped) || 0;
+        const firstErr = res && Array.isArray(res.errors) && res.errors[0];
+        const parts = [`已整合 ${merged} 组`];
+        if (ignored) parts.push(`${ignored} 组判定不应合（已忽略）`);
+        if (failed) parts.push(`${failed} 组失败`);
+        if (skipped) parts.push(`${skipped} 组跳过`);
+        const detail = firstErr ? `，原因：${firstErr}` : '';
+        const level = failed || skipped ? 'warning' : 'info';
+        setNotice(level, parts.join('，') + detail);
+        emit('refresh');
+      } catch (error) {
+        setNotice('error', `智能整合失败：${(error && error.message) || String(error || '')}`);
+      } finally {
+        mergingAll.value = false;
       }
-      mergingAll.value = false;
-      setNotice(fail ? 'warning' : 'info', `已整合 ${ok} 组${fail ? `，${fail} 组失败` : ''}`);
-      emit('refresh');
     }
+
+
 
     // --- Type-based grouping ---
     const preferenceEntries = computed(() => {
@@ -242,11 +242,15 @@ export const MemoryCenterPage = {
     const filteredProjectEntries = computed(() => filterEntries(projectEntries.value, searchText.value));
     const totalEntries = computed(() => preferenceEntries.value.length + projectEntries.value.length);
 
-    function setNotice(level, message) {
+    function setNotice(level, message, persistent) {
       notice.level = level || 'info';
-      notice.message = (message || '').toString().trim();
+      const text = (message || '').toString().trim();
+      // C7: 截到 120 字符防止超长 LLM/RPC 错误把通知条撑爆。
+      notice.message = text.length > 120 ? text.slice(0, 119) + '…' : text;
       if (noticeTimer) { clearTimeout(noticeTimer); noticeTimer = null; }
-      if (notice.message && level !== 'error') {
+      // B2: persistent=true 跳过 5.2s 自清，给 long-running RPC (LLM 整合 10-20s) 用；
+      //     正常 info/warning 仍走自清避免通知条永久挂着。
+      if (notice.message && level !== 'error' && !persistent) {
         noticeTimer = setTimeout(() => { notice.message = ''; }, 5200);
       }
     }
@@ -385,8 +389,9 @@ export const MemoryCenterPage = {
       resetMergeConfirm,
       similarExpanded,
       toggleSimilarExpand,
-      mergingAll,
-      mergeAllGroups,
+      mergingAll, mergeAllGroups,
+      ...useSimilarityIgnore({ currentCwd, setNotice, emit }),
+      pairKey,
       headlineOf,
       formatTimestamp,
       statusLabel,
@@ -492,7 +497,7 @@ export const MemoryCenterPage = {
               <path d="M8 1.5L14.5 13H1.5Z" stroke-linejoin="round"/><path d="M8 6v3" stroke-linecap="round"/><circle cx="8" cy="11.5" r="0.5" fill="currentColor"/>
             </svg>
             <span>{{ health.similarGroups.length }} 组条目内容相似</span>
-            <button class="mc-similar-btn" :disabled="mergingAll" @click="mergeAllGroups">
+            <button v-if="health.similarGroups.length > 1" class="mc-similar-btn" :disabled="mergingAll || mergingGroup !== null || ignoringGroup !== null" @click="mergeAllGroups">
               {{ mergingAll ? '整合中...' : '一键整合全部' }}
             </button>
             <button class="mc-similar-btn" @click="toggleSimilarExpand">
@@ -500,11 +505,11 @@ export const MemoryCenterPage = {
             </button>
           </div>
           <div v-if="similarExpanded" class="mc-similar-list">
-            <div v-for="(group, gi) in health.similarGroups" :key="gi" class="mc-similar-item">
+            <div v-for="(group, gi) in health.similarGroups" :key="pairKey(group)" class="mc-similar-item">
               <span class="mc-similar-names">「{{ group.nameA }}」与「{{ group.nameB }}」</span>
               <span class="mc-similar-score">{{ formatScore(group.score) }}</span>
-              <button class="btn btn-secondary btn-xs" :disabled="mergingGroup !== null" @click="askMergeGroup(group, gi)">整合</button>
-              <button class="btn btn-ghost btn-xs" style="opacity:0.5" @click="health.similarGroups.splice(gi, 1)">忽略</button>
+              <button class="btn btn-secondary btn-xs" :disabled="mergingGroup !== null || mergingAll || ignoringGroup !== null" @click="askMergeGroup(group, gi)">整合</button>
+              <button class="btn btn-ghost btn-xs" style="opacity:0.5" :disabled="ignoringGroup !== null || mergingAll || mergingGroup !== null" @click="ignoreGroup(group)">{{ ignoringGroup === pairKey(group) ? '...' : '忽略' }}</button>
             </div>
           </div>
         </div>

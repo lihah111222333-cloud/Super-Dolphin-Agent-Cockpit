@@ -165,22 +165,9 @@ describe('MemoryCenterPage health and destructive actions', () => {
     expect(apiMock.callAPI).not.toHaveBeenCalledWith('ui/memory/entry/merge', expect.anything());
     expect(vm.mergeConfirm.target).toEqual(group);
     expect(vm.mergeConfirm.index).toBe(0);
-    expect(vm.mergeConfirm.crossScope).toBe(true);
   });
 
-  it('does not merge cross-scope groups from confirmation', async () => {
-    const group = { nameA: 'A', pathA: 'a.md', targetA: 'private', nameB: 'B', pathB: 'b.md', targetB: 'team', score: 0.8 };
-    const { vm } = setupPage({ health: { maxPerCategory: 15, preferenceCount: 2, projectCount: 0 } });
-    vm.askMergeGroup(group, 1);
-
-    await vm.confirmMergeGroup();
-
-    expect(apiMock.callAPI).not.toHaveBeenCalledWith('ui/memory/entry/merge', expect.anything());
-    expect(vm.notice.level).toBe('warning');
-    expect(vm.notice.message).toContain('跨作用域');
-  });
-
-  it('confirms same-scope merge with full payload', async () => {
+  it('confirms merge with full payload (same-scope)', async () => {
     const group = { nameA: 'A', pathA: 'a.md', targetA: 'private', nameB: 'B', pathB: 'b.md', targetB: 'private', score: 0.8 };
     const { vm, emit } = setupPage({ projectRoot: '/repo', health: { maxPerCategory: 15, preferenceCount: 2, projectCount: 0 } });
     vm.askMergeGroup(group, 2);
@@ -189,13 +176,28 @@ describe('MemoryCenterPage health and destructive actions', () => {
 
     expect(apiMock.callAPI).toHaveBeenCalledWith('ui/memory/entry/merge', {
       cwd: '/repo',
-      targetA: 'private',
-      pathA: 'a.md',
-      targetB: 'private',
-      pathB: 'b.md',
+      targetA: 'private', pathA: 'a.md',
+      targetB: 'private', pathB: 'b.md',
     });
     expect(emit).toHaveBeenCalledWith('refresh');
     expect(vm.mergeConfirm.target).toBe(null);
+  });
+
+  it('confirms cross-scope merge without warning (cross-scope unlocked)', async () => {
+    const group = { nameA: 'P', pathA: 'a.md', targetA: 'private', nameB: 'T', pathB: 'b.md', targetB: 'team', score: 0.8 };
+    const { vm, emit } = setupPage({ projectRoot: '/repo', health: { maxPerCategory: 15, preferenceCount: 2, projectCount: 0 } });
+    vm.askMergeGroup(group, 0);
+
+    await vm.confirmMergeGroup();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/memory/entry/merge', {
+      cwd: '/repo',
+      targetA: 'private', pathA: 'a.md',
+      targetB: 'team', pathB: 'b.md',
+    });
+    expect(vm.notice.level).toBe('info');
+    expect(vm.notice.message).not.toContain('跨作用域');
+    expect(emit).toHaveBeenCalledWith('refresh');
   });
 
   it('routes editor delete through inline confirmation instead of deleting immediately', () => {
@@ -208,5 +210,175 @@ describe('MemoryCenterPage health and destructive actions', () => {
     expect(vm.inlineDelete.target).toEqual({ target: 'private', path: 'project/a.md', name: 'A' });
     expect(vm.memoryEditor.open).toBe(false);
   });
+
+
+  it('mergeAllGroups calls consolidate-all LLM RPC and surfaces summary', async () => {
+    const groups = [
+      { nameA: 'A', pathA: 'a.md', targetA: 'private', nameB: 'B', pathB: 'b.md', targetB: 'private', score: 0.9 },
+      { nameA: 'C', pathA: 'c.md', targetA: 'private', nameB: 'D', pathB: 'd.md', targetB: 'team', score: 0.7 },
+    ];
+    const { vm, emit } = setupPage({ projectRoot: '/repo', health: { similarGroups: groups } });
+    apiMock.callAPI.mockResolvedValueOnce({ merged: 1, ignored: 1, failed: 0, skipped: 0 });
+
+    await vm.mergeAllGroups();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/memory/similarity/consolidate-all', { cwd: '/repo' });
+    expect(vm.notice.message).toContain('已整合 1 组');
+    expect(vm.notice.message).toContain('1 组判定不应合');
+    expect(emit).toHaveBeenCalledWith('refresh');
+    expect(vm.mergingAll.value).toBe(false);
+  });
+
+  it('mergeAllGroups exposes first error message when partial failure happens', async () => {
+    const groups = [
+      { nameA: 'A', pathA: 'a.md', targetA: 'private', nameB: 'B', pathB: 'b.md', targetB: 'private', score: 0.9 },
+      { nameA: 'C', pathA: 'c.md', targetA: 'private', nameB: 'D', pathB: 'd.md', targetB: 'team', score: 0.7 },
+    ];
+    const { vm } = setupPage({ projectRoot: '/repo', health: { similarGroups: groups } });
+    apiMock.callAPI.mockResolvedValueOnce({
+      merged: 0,
+      ignored: 0,
+      failed: 1,
+      skipped: 0,
+      errors: ['group 0 merge: invalid keep "X"'],
+    });
+
+    await vm.mergeAllGroups();
+
+    expect(vm.notice.level).toBe('warning');
+    expect(vm.notice.message).toContain('1 组失败');
+    expect(vm.notice.message).toContain('invalid keep');
+  });
+
+  it('mergeAllGroups surfaces LLM-not-configured error', async () => {
+    const groups = [
+      { nameA: 'A', pathA: 'a.md', targetA: 'private', nameB: 'B', pathB: 'b.md', targetB: 'team', score: 0.8 },
+      { nameA: 'C', pathA: 'c.md', targetA: 'private', nameB: 'D', pathB: 'd.md', targetB: 'private', score: 0.7 },
+    ];
+    const { vm, emit } = setupPage({ projectRoot: '/repo', health: { similarGroups: groups } });
+    apiMock.callAPI.mockRejectedValueOnce(new Error('dream executor is not configured'));
+
+    await vm.mergeAllGroups();
+
+    expect(vm.notice.level).toBe('error');
+    expect(vm.notice.message).toContain('智能整合失败');
+    expect(vm.notice.message).toContain('dream executor');
+    expect(emit).not.toHaveBeenCalledWith('refresh');
+    expect(vm.mergingAll.value).toBe(false);
+  });
+
+  it('mergeAllGroups noop when no similar groups present', async () => {
+    const { vm } = setupPage({ projectRoot: '/repo', health: { similarGroups: [] } });
+
+    await vm.mergeAllGroups();
+
+    expect(apiMock.callAPI).not.toHaveBeenCalledWith('ui/memory/similarity/consolidate-all', expect.anything());
+  });
+
+  it('ignoreGroup calls similarity ignore RPC then emits refresh', async () => {
+    const group = { nameA: 'A', pathA: 'feedback/a.md', targetA: 'private', nameB: 'B', pathB: 'feedback/b.md', targetB: 'team', score: 0.8 };
+    const { vm, emit } = setupPage({ projectRoot: '/repo', health: { similarGroups: [group] } });
+
+    await vm.ignoreGroup(group);
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/memory/similarity/ignore', {
+      cwd: '/repo',
+      targetA: 'private',
+      pathA: 'feedback/a.md',
+      targetB: 'team',
+      pathB: 'feedback/b.md',
+    });
+    expect(vm.notice.level).toBe('info');
+    expect(vm.notice.message).toContain('已忽略');
+    expect(emit).toHaveBeenCalledWith('refresh');
+    expect(vm.ignoringGroup.value).toBe(null);
+  });
+
+  it('ignoreGroup surfaces RPC error as error notice', async () => {
+    const group = { nameA: 'A', pathA: 'a.md', targetA: 'private', nameB: 'B', pathB: 'b.md', targetB: 'private', score: 0.8 };
+    const { vm, emit } = setupPage({ projectRoot: '/repo', health: { similarGroups: [group] } });
+    apiMock.callAPI.mockRejectedValueOnce(new Error('boom'));
+
+    await vm.ignoreGroup(group);
+
+    expect(vm.notice.level).toBe('error');
+    expect(vm.notice.message).toContain('boom');
+    expect(emit).not.toHaveBeenCalledWith('refresh');
+    expect(vm.ignoringGroup.value).toBe(null);
+  });
+
+  it('ignoreGroup is reentrancy-safe while another call is in flight', async () => {
+    const group = { nameA: 'A', pathA: 'a.md', targetA: 'private', nameB: 'B', pathB: 'b.md', targetB: 'private', score: 0.8 };
+    const { vm } = setupPage({ projectRoot: '/repo', health: { similarGroups: [group] } });
+    let resolveCall;
+    apiMock.callAPI.mockReturnValueOnce(new Promise((r) => { resolveCall = r; }));
+
+    const first = vm.ignoreGroup(group);
+    await vm.ignoreGroup(group); // should noop while first is pending
+
+    expect(apiMock.callAPI).toHaveBeenCalledTimes(1);
+    resolveCall(null);
+    await first;
+    expect(vm.ignoringGroup.value).toBe(null);
+  });
+
+  it('mergeAllGroups noop when health is null', async () => {
+    const { vm } = setupPage({ projectRoot: '/repo' }); // 无 health overview
+
+    await vm.mergeAllGroups();
+
+    expect(apiMock.callAPI).not.toHaveBeenCalledWith('ui/memory/similarity/consolidate-all', expect.anything());
+    expect(vm.mergingAll.value).toBe(false);
+  });
+
+  it('notice message truncates over-long error to 120 chars with ellipsis', async () => {
+    const longErr = 'X'.repeat(200);
+    const { vm } = setupPage({ projectRoot: '/repo' });
+    vm.askEditorDelete?.(); // noop reset
+    // 直接通过现成路径触发：mergeAllGroups 失败时 notice 透出 error.message
+    // count>=2：单条相似不再触发 mergeAllGroups（UI 隐藏按钮），测试用真实可触发场景。
+    const groups = [
+      { nameA: 'A', pathA: 'a.md', targetA: 'private', nameB: 'B', pathB: 'b.md', targetB: 'team', score: 0.8 },
+      { nameA: 'C', pathA: 'c.md', targetA: 'private', nameB: 'D', pathB: 'd.md', targetB: 'private', score: 0.7 },
+    ];
+    const fresh = setupPage({ projectRoot: '/repo', health: { similarGroups: groups } });
+    apiMock.callAPI.mockRejectedValueOnce(new Error(longErr));
+
+    await fresh.vm.mergeAllGroups();
+
+    expect(fresh.vm.notice.message.length).toBeLessThanOrEqual(120);
+    expect(fresh.vm.notice.message).toMatch(/…$/);
+  });
+
+  it('pairKey returns stable string from path and target', () => {
+    const { vm } = setupPage();
+    const k1 = vm.pairKey({ targetA: 'private', pathA: 'a.md', targetB: 'team', pathB: 'b.md' });
+    const k2 = vm.pairKey({ targetA: 'private', pathA: 'a.md', targetB: 'team', pathB: 'b.md' });
+    expect(k1).toBe(k2);
+    expect(k1).toBe('private:a.md|team:b.md');
+  });
+
+  it('mergeAllGroups loading toast survives 5.2s auto-clear timer (persistent=true)', async () => {
+    vi.useFakeTimers();
+    try {
+      const groups = [{ nameA: 'A', pathA: 'a.md', targetA: 'private', nameB: 'B', pathB: 'b.md', targetB: 'private', score: 0.9 }];
+      const { vm } = setupPage({ projectRoot: '/repo', health: { similarGroups: groups } });
+      let resolveCall;
+      apiMock.callAPI.mockReturnValueOnce(new Promise((r) => { resolveCall = r; }));
+
+      const inflight = vm.mergeAllGroups();
+      // Inflight: loading toast set with persistent=true; default info timer = 5200ms.
+      expect(vm.notice.message).toContain('智能整合中');
+      vi.advanceTimersByTime(10000);
+      expect(vm.notice.message).toContain('智能整合中'); // 仍然在，没被自清
+
+      resolveCall({ merged: 1 });
+      await inflight;
+      expect(vm.notice.message).toContain('已整合 1 组');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
 
 });
