@@ -5,7 +5,60 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
+
+func TestNewServiceDefersInitialThreadLoad(t *testing.T) {
+	t.Parallel()
+
+	threadErr := errors.New("schema not migrated")
+	lister := &threadListerStub{err: threadErr}
+
+	svc, _, err := NewService(nil, lister, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	if lister.calls != 0 {
+		t.Fatalf("List() calls during NewService = %d, want 0", lister.calls)
+	}
+	state, err := svc.GetState(context.Background())
+	if err != nil {
+		t.Fatalf("GetState() error = %v", err)
+	}
+	if len(state.Threads) != 0 {
+		t.Fatalf("initial Threads = %#v, want empty before lifecycle load", state.Threads)
+	}
+}
+
+func TestLoadInitialStatePopulatesThreads(t *testing.T) {
+	t.Parallel()
+
+	lister := &threadListerStub{refs: []contract.ThreadRef{{
+		ID:      "thread-1",
+		Name:    "Demo",
+		AgentID: "agent-1",
+		Status:  "running",
+	}}}
+	svc, _, err := NewService(nil, lister, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	if err := svc.loadInitialState(context.Background()); err != nil {
+		t.Fatalf("loadInitialState() error = %v", err)
+	}
+	if lister.calls != 1 {
+		t.Fatalf("List() calls = %d, want 1", lister.calls)
+	}
+	state, err := svc.GetState(context.Background())
+	if err != nil {
+		t.Fatalf("GetState() error = %v", err)
+	}
+	if len(state.Threads) != 1 || state.Threads[0].ID != "thread-1" || state.Threads[0].LifecycleStatus != "running" {
+		t.Fatalf("Threads = %#v, want loaded thread", state.Threads)
+	}
+}
 
 func TestApplyTaskRuntimeToThreadRuntime_Pin(t *testing.T) {
 	t.Parallel()
@@ -130,6 +183,17 @@ func TestApplyTaskRuntimeToThreadRuntime_Pin(t *testing.T) {
 			}
 		})
 	}
+}
+
+type threadListerStub struct {
+	refs  []contract.ThreadRef
+	err   error
+	calls int
+}
+
+func (s *threadListerStub) List(context.Context) ([]contract.ThreadRef, error) {
+	s.calls++
+	return s.refs, s.err
 }
 
 type runtimeConfigLookupStub struct {

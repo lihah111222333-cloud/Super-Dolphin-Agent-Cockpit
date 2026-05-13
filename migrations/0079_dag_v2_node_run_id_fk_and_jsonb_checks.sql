@@ -58,6 +58,18 @@ ALTER TABLE task_dag_nodes
 CREATE INDEX IF NOT EXISTS idx_task_dag_nodes_run_id
   ON task_dag_nodes (run_id);
 
+-- 历史脏数据自动收敛：reads/writes 只有数组语义；非数组值无法可靠解释为
+-- sharedfile 集合，统一降级为空集合，保证后续 CHECK 可在旧本地库上完成。
+UPDATE task_dag_nodes
+SET reads = '[]'::jsonb
+WHERE reads IS NULL
+   OR jsonb_typeof(reads) IS DISTINCT FROM 'array';
+
+UPDATE task_dag_nodes
+SET writes = '[]'::jsonb
+WHERE writes IS NULL
+   OR jsonb_typeof(writes) IS DISTINCT FROM 'array';
+
 -- (3a) reads array CHECK
 ALTER TABLE task_dag_nodes
   ADD CONSTRAINT chk_reads_is_array
