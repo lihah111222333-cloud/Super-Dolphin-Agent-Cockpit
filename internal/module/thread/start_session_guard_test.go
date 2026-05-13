@@ -188,6 +188,44 @@ func TestServiceStartRequiresProviderUUID(t *testing.T) {
 	}
 }
 
+func TestServiceStartAllowsDeferredClaudeProviderUUID(t *testing.T) {
+	t.Parallel()
+
+	threads := &stubThreadStore{}
+	bindings := &stubBindingStore{}
+	sessions := &stubSessionProvider{}
+	starter := &startOnlySessionStarter{
+		onStart: func(context.Context, dto.StartSessionRequest) (contract.Session, error) {
+			session := &stubSession{threadID: "agent-start-claude"}
+			sessions.session = session
+			return session, nil
+		},
+	}
+	orch := &stubThreadOrchestration{}
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)
+
+	result, err := svc.Start(context.Background(), StartRequest{
+		AgentID:  "agent-start-claude",
+		Provider: "claude",
+		Name:     "worker-agent",
+	})
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if result.ThreadID != "agent-start-claude" || result.SessionID != "agent-start-claude" {
+		t.Fatalf("result = %#v, want public thread fallback while Claude UUID is deferred", result)
+	}
+	if bindings.upsert.ProviderThreadID != "" || bindings.upsert.SessionUUID != "" {
+		t.Fatalf("binding upsert provider identifiers = %q/%q, want empty until system:init", bindings.upsert.ProviderThreadID, bindings.upsert.SessionUUID)
+	}
+	if bindings.upsert.CodexThreadID != "agent-start-claude" {
+		t.Fatalf("binding CodexThreadID = %q, want public thread id", bindings.upsert.CodexThreadID)
+	}
+	if orch.stoppedAgentID != "" {
+		t.Fatalf("stopped agent = %q, want no stop on deferred Claude UUID", orch.stoppedAgentID)
+	}
+}
+
 func TestServiceStartDoesNotPersistProviderThreadIDWithoutHistoryFile(t *testing.T) {
 	t.Parallel()
 

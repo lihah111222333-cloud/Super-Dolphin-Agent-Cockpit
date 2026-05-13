@@ -543,7 +543,19 @@ func requireStartedProviderUUID(session contract.Session, provider, agentID stri
 	if id != "" {
 		return id, nil
 	}
+	if allowDeferredStartedProviderUUID(session, provider, agentID) {
+		return "", nil
+	}
 	return "", fmt.Errorf("thread: provider session UUID required to start agent %q (%s)", strings.TrimSpace(agentID), strings.TrimSpace(provider))
+}
+
+func allowDeferredStartedProviderUUID(session contract.Session, provider, agentID string) bool {
+	if session == nil || !strings.EqualFold(strings.TrimSpace(provider), "claude") {
+		return false
+	}
+	threadID := strings.TrimSpace(session.ThreadID())
+	agentID = strings.TrimSpace(agentID)
+	return threadID == "" || threadID == agentID || strings.HasPrefix(strings.ToLower(threadID), "agent_")
 }
 
 // isBindingConflictError reports whether err is a binding-uniqueness
