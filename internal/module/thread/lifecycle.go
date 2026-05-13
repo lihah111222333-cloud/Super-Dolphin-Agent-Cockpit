@@ -179,7 +179,7 @@ func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, 
 	req.Provider = util.FirstNonEmpty(req.Provider, state.Provider)
 	req.Model = util.FirstNonEmpty(req.Model, state.Model)
 	req.CWD = util.FirstNonEmpty(req.CWD, state.CWD, s.lookupBindingCWD(ctx, req.AgentID))
-	displayName := strings.TrimSpace(state.Prompt)
+	displayName := resolveDisplayName(ctx, s.threadStore, req.AgentID, "", state.Prompt)
 	session, err := s.establishResumedSession(ctx, req, state, displayName)
 	if err != nil {
 		return ResumeResult{}, err
@@ -218,6 +218,11 @@ func (s *service) persistStartedSession(
 	agentID, displayName string,
 	session contract.Session,
 ) (StartResult, error) {
+	providerUUID, err := requireStartedProviderUUID(session, req.Provider, agentID)
+	if err != nil {
+		s.stopAgent(ctx, agentID)
+		return StartResult{}, err
+	}
 	effectiveModel, effectiveCWD, _ := enrichFromSessionConfig(session, req.Model, req.CWD)
 	configOverride, err := encodeStoredThreadConfig(buildStartStoredThreadConfig(req, input, assembly))
 	if err != nil {
@@ -231,19 +236,21 @@ func (s *service) persistStartedSession(
 	}
 	codexHome := util.FirstNonEmpty(identity.Home, sessionRuntimeConfigString(session, "codexHome"))
 	s.logStartedSessionCodexIdentity(req, agentID, codexHome, identity, session)
+	rolloutPath := session.RolloutPath()
+	providerThreadID := recoverableProviderThreadID(req.Provider, providerUUID, agentID, rolloutPath, codexHome)
 	state := newThreadState(threadStateStartKind, threadStateFields{
 		AgentID:            agentID,
 		ParentAgentID:      req.ParentAgentID,
 		AgentType:          req.AgentType,
 		AgentMemoryScope:   req.AgentMemoryScope,
-		ProviderThreadID:   resolvedProviderUUID(session),
+		ProviderThreadID:   providerThreadID,
 		Provider:           req.Provider,
 		CWD:                effectiveCWD,
 		Model:              effectiveModel,
 		Name:               displayName,
 		Prompt:             displayName,
-		RolloutPath:        session.RolloutPath(),
-		SessionUUID:        resolvedProviderUUID(session),
+		RolloutPath:        rolloutPath,
+		SessionUUID:        providerUUID,
 		ConfigOverride:     configOverride,
 		CodexHome:          codexHome,
 		CodexInstanceKey:   identity.InstanceKey,
@@ -254,7 +261,7 @@ func (s *service) persistStartedSession(
 		OwnerThreadID:      req.OwnerThreadID,
 	})
 	publicThreadID := state.PublicThreadID
-	providerThreadID := state.ProviderThreadID
+	providerThreadID = state.ProviderThreadID
 	if err := s.persistThreadState(ctx, state, true); err != nil {
 		s.stopAgent(ctx, agentID)
 		return StartResult{}, err
@@ -267,23 +274,7 @@ func (s *service) persistStartedSession(
 		SourceThreadID: publicThreadID,
 		Status:         "running",
 	}))
-	return StartResult{
-		ThreadID:        publicThreadID,
-		AgentID:         agentID,
-		SessionID:       util.FirstNonEmpty(providerThreadID, publicThreadID),
-		Status:          "running",
-		Model:           effectiveModel,
-		Provider:        req.Provider,
-		ModelProvider:   req.ModelProvider,
-		CWD:             effectiveCWD,
-		ApprovalPolicy:  req.ApprovalPolicy,
-		AgentKey:        req.AgentKey,
-		AgentTitle:      req.AgentTitle,
-		PromptKey:       req.PromptKey,
-		PromptVersionID: req.PromptVersionID,
-		TaskID:          firstConfigString(req.Config, taskConfigKeyID, taskConfigKeyIDSnake),
-		HandoffFile:     firstConfigString(req.Config, taskConfigKeyHandoffFile, taskConfigKeyHandoffFileSnake),
-	}, nil
+	return newStartResult(req, publicThreadID, agentID, providerUUID, providerThreadID, effectiveModel, effectiveCWD), nil
 }
 
 func resolveStartCodexIdentity(config map[string]any) (contract.CodexIdentity, error) {
@@ -367,7 +358,9 @@ func (s *service) persistResumedSession(
 			"session_runtime_codex_home", sessionRuntimeConfigString(session, "codexHome"),
 			"rollout_path", util.FirstNonEmpty(state.RolloutPath, session.RolloutPath()))
 	}
-	providerThreadID := normalizeProviderThreadID(req.Provider, util.FirstNonEmpty(resolvedProviderUUID(session), req.ProviderThreadID, state.ProviderThreadID, state.SessionUUID))
+	rolloutPath := util.FirstNonEmpty(state.RolloutPath, session.RolloutPath())
+	sessionUUID := util.FirstNonEmpty(resolvedProviderUUID(session), state.SessionUUID, req.ProviderThreadID, state.ProviderThreadID)
+	providerThreadID := recoverableProviderThreadID(req.Provider, sessionUUID, state.PublicThreadID, rolloutPath, codexHome)
 	threadState := newThreadState(threadStateResumeKind, threadStateFields{
 		RequestedThreadID:  req.ThreadID,
 		PublicThreadID:     state.PublicThreadID,
@@ -381,8 +374,8 @@ func (s *service) persistResumedSession(
 		Model:              model,
 		Name:               displayName,
 		Prompt:             displayName,
-		RolloutPath:        util.FirstNonEmpty(state.RolloutPath, session.RolloutPath()),
-		SessionUUID:        util.FirstNonEmpty(state.SessionUUID, resolvedProviderUUID(session)),
+		RolloutPath:        rolloutPath,
+		SessionUUID:        sessionUUID,
 		ConfigOverride:     clone.RawMessage(state.ConfigOverrideRaw),
 		CodexHome:          codexHome,
 		CodexInstanceKey:   codexInstanceKey,
@@ -543,6 +536,26 @@ func resolvedProviderUUID(session contract.Session) string {
 		return id
 	}
 	return ""
+}
+
+func requireStartedProviderUUID(session contract.Session, provider, agentID string) (string, error) {
+	id := resolvedProviderUUID(session)
+	if id != "" {
+		return id, nil
+	}
+	if allowDeferredStartedProviderUUID(session, provider, agentID) {
+		return "", nil
+	}
+	return "", fmt.Errorf("thread: provider session UUID required to start agent %q (%s)", strings.TrimSpace(agentID), strings.TrimSpace(provider))
+}
+
+func allowDeferredStartedProviderUUID(session contract.Session, provider, agentID string) bool {
+	if session == nil || !strings.EqualFold(strings.TrimSpace(provider), "claude") {
+		return false
+	}
+	threadID := strings.TrimSpace(session.ThreadID())
+	agentID = strings.TrimSpace(agentID)
+	return threadID == "" || threadID == agentID || strings.HasPrefix(strings.ToLower(threadID), "agent_")
 }
 
 // isBindingConflictError reports whether err is a binding-uniqueness

@@ -132,7 +132,7 @@ func TestServiceStartPassesFullPromptAssemblyContext(t *testing.T) {
 		if req.StartAssembly.DisplayName != "assembled name" {
 			t.Fatalf("StartAssembly.DisplayName = %q, want assembled name", req.StartAssembly.DisplayName)
 		}
-		session := &stubSession{threadID: "provider-thread-ctx"}
+		session := &stubSession{threadID: "019d5f6b-fb3c-7760-9d6f-54005553f60a"}
 		sessions.session = session
 		return session, nil
 	}}

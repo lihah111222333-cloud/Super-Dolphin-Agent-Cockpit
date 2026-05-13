@@ -27,7 +27,7 @@ export function normalizeCmdCardCols(value) {
 export function normalizeThread(item) {
   return {
     id: item?.id || '',
-    name: item?.name || item?.id || '',
+    name: item?.name || '',
     state: normalizeStatus(item?.state || 'idle'),
   };
 }

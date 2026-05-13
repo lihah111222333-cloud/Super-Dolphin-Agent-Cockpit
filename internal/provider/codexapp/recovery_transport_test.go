@@ -87,6 +87,76 @@ func TestTransportReconnectReinitializes(t *testing.T) {
 	}
 }
 
+func TestRecoveryCheckHealthUsesWebSocketPingOnly(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	methods := make([]string, 0, 2)
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		for {
+			_, rawBytes, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var msg jsonRPCMessage
+			if err := json.Unmarshal(rawBytes, &msg); err != nil || strings.TrimSpace(msg.Method) == "" {
+				continue
+			}
+			mu.Lock()
+			methods = append(methods, msg.Method)
+			mu.Unlock()
+			if len(msg.ID) == 0 {
+				continue
+			}
+			resp := mustJSON(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      json.RawMessage(append([]byte(nil), msg.ID...)),
+				"result":  map[string]any{"ok": true},
+			})
+			if err := conn.WriteMessage(websocket.TextMessage, resp); err != nil {
+				return
+			}
+		}
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	transport, err := newTransport(ctx, "ws"+strings.TrimPrefix(server.URL, "http"))
+	if err != nil {
+		t.Fatalf("newTransport() error = %v", err)
+	}
+	defer func() { _ = transport.Kill() }()
+
+	recovery := &recoveryManager{transport: transport}
+	if err := recovery.CheckHealth(ctx); err != nil {
+		t.Fatalf("CheckHealth() error = %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	for _, method := range methods {
+		if method == "app/list" {
+			t.Fatalf("CheckHealth() sent app/list; methods=%v", methods)
+		}
+	}
+	initializeCount := 0
+	for _, method := range methods {
+		if method == "initialize" {
+			initializeCount++
+		}
+	}
+	if got := initializeCount; got != 1 {
+		t.Fatalf("initialize count = %d, want 1; methods=%v", got, methods)
+	}
+}
+
 func TestTransportReconnectDoesNotDispatchConnectionDeadForSupersededReader(t *testing.T) {
 	t.Parallel()
 

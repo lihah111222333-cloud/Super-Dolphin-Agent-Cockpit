@@ -27,7 +27,7 @@ func TestStartSessionUsesPromptAssembly(t *testing.T) {
 			if got := req.Config["developerInstructions"]; got != "assembled dev" {
 				t.Fatalf("developerInstructions = %#v, want assembled dev", got)
 			}
-			session := &stubSession{threadID: "provider-thread-assembly"}
+			session := &stubSession{threadID: "019d5f6b-fb3c-7760-9d6f-54005553f606"}
 			sessions.session = session
 			return session, nil
 		},
@@ -84,7 +84,7 @@ func TestBaseInstructionsNotFoldedIntoPrompt(t *testing.T) {
 			if req.Instructions != "system prompt" {
 				t.Fatalf("instructions = %q, want system prompt", req.Instructions)
 			}
-			session := &stubSession{threadID: "provider-thread-base"}
+			session := &stubSession{threadID: "019d5f6b-fb3c-7760-9d6f-54005553f607"}
 			sessions.session = session
 			return session, nil
 		},
@@ -99,13 +99,11 @@ func TestBaseInstructionsNotFoldedIntoPrompt(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	// Auto-naming: no prompt supplied → fallback to "对话 #N".
-	wantName := defaultThreadName()
-	if orch.launchReq.Name != wantName {
-		t.Fatalf("launch name = %q, want %q", orch.launchReq.Name, wantName)
+	if orch.launchReq.Name != "" {
+		t.Fatalf("launch name = %q, want empty", orch.launchReq.Name)
 	}
-	if threads.upsert.Prompt != wantName {
-		t.Fatalf("persisted prompt = %q, want %q", threads.upsert.Prompt, wantName)
+	if threads.upsert.Name != "" || threads.upsert.Prompt != "" {
+		t.Fatalf("persisted name/prompt = %q/%q, want empty", threads.upsert.Name, threads.upsert.Prompt)
 	}
 }
 
@@ -130,11 +128,14 @@ func TestResumeRestoresFromSnapshot(t *testing.T) {
 		CreatedAt: 123,
 		Status:    statusCreated,
 	}}
+	const providerThreadID = "019d5f6b-fb3c-7760-9d6f-54005553f608"
+	rolloutPath := writeExistingProviderHistoryFile(t)
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-assembly",
 		Provider:         "codex",
-		ProviderThreadID: "provider-thread-assembly",
+		ProviderThreadID: providerThreadID,
 		CodexThreadID:    "thread-assembly",
+		RolloutPath:      rolloutPath,
 		Cwd:              "/repo",
 	}}
 	sessions := &stubSessionProvider{}
@@ -143,13 +144,13 @@ func TestResumeRestoresFromSnapshot(t *testing.T) {
 			if req.ThreadID != "thread-assembly" {
 				t.Fatalf("ThreadID = %q, want thread-assembly", req.ThreadID)
 			}
-			if req.ProviderThreadID != "provider-thread-assembly" {
-				t.Fatalf("ProviderThreadID = %q, want provider-thread-assembly", req.ProviderThreadID)
+			if req.ProviderThreadID != providerThreadID {
+				t.Fatalf("ProviderThreadID = %q, want %s", req.ProviderThreadID, providerThreadID)
 			}
 			if !reflect.DeepEqual(req.PromptSnapshot, snapshot) {
 				t.Fatalf("PromptSnapshot = %#v, want %#v", req.PromptSnapshot, snapshot)
 			}
-			session := &stubSession{threadID: "provider-thread-assembly"}
+			session := &stubSession{threadID: providerThreadID, rolloutPath: rolloutPath}
 			sessions.session = session
 			return session, nil
 		},
@@ -164,7 +165,7 @@ func TestResumeRestoresFromSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resume() error = %v", err)
 	}
-	if result.ThreadID != "thread-assembly" || result.SessionID != "provider-thread-assembly" {
+	if result.ThreadID != "thread-assembly" || result.SessionID != providerThreadID {
 		t.Fatalf("Resume() result = %#v", result)
 	}
 	if orch.launchReq.Name != snapshot.DisplayName {
@@ -342,7 +343,7 @@ func TestNameNotPollutedByPrompt(t *testing.T) {
 			if req.Instructions != "" {
 				t.Fatalf("instructions = %q, want empty", req.Instructions)
 			}
-			session := &stubSession{threadID: "provider-thread-name"}
+			session := &stubSession{threadID: "019d5f6b-fb3c-7760-9d6f-54005553f609"}
 			sessions.session = session
 			return session, nil
 		},

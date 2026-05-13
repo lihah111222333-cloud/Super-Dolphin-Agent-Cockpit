@@ -2,6 +2,8 @@ package thread
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -9,6 +11,15 @@ import (
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
+
+func writeExistingProviderHistoryFile(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "history.jsonl")
+	if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write provider history file: %v", err)
+	}
+	return path
+}
 
 func TestServiceResumePrefersSessionUUIDOverStaleProviderThreadID(t *testing.T) {
 	t.Parallel()
@@ -23,13 +34,15 @@ func TestServiceResumePrefersSessionUUIDOverStaleProviderThreadID(t *testing.T) 
 		Status:    statusCreated,
 	}}
 	// SessionUUID must look like a real UUID so the resume logic prefers it
-	// over the stale ProviderThreadID placeholder.
+	// over the stale ProviderThreadID placeholder when the CLI file exists.
 	const realUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5b3"
+	rolloutPath := writeExistingProviderHistoryFile(t)
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-1",
 		Provider:         "claude",
 		ProviderThreadID: "agent-1",
 		CodexThreadID:    "thread-public",
+		RolloutPath:      rolloutPath,
 		SessionUUID:      realUUID,
 		Cwd:              "/repo",
 	}}
@@ -41,7 +54,7 @@ func TestServiceResumePrefersSessionUUIDOverStaleProviderThreadID(t *testing.T) 
 		if req.ProviderThreadID != realUUID {
 			t.Fatalf("ProviderThreadID = %q, want %s", req.ProviderThreadID, realUUID)
 		}
-		session := &stubSession{threadID: realUUID}
+		session := &stubSession{threadID: realUUID, rolloutPath: rolloutPath}
 		sessions.session = session
 		return session, nil
 	}}

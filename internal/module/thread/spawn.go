@@ -451,20 +451,22 @@ func publishPendingSpawnLaunched(
 	agentID, threadID, displayName string,
 ) {
 	effectiveModel, effectiveCWD, _ := enrichFromSessionConfig(session, req.Model, req.CWD)
+	providerUUID := resolvedProviderUUID(session)
+	rolloutPath := session.RolloutPath()
 	spawnedState := newThreadState(threadStateStartKind, threadStateFields{
 		PublicThreadID:   threadID,
 		AgentID:          agentID,
 		ParentAgentID:    req.ParentAgentID,
 		AgentType:        req.AgentType,
 		AgentMemoryScope: req.AgentMemoryScope,
-		ProviderThreadID: resolvedProviderUUID(session),
+		ProviderThreadID: recoverableProviderThreadID(req.Provider, providerUUID, threadID, rolloutPath, ""),
 		Provider:         req.Provider,
 		CWD:              effectiveCWD,
 		Model:            effectiveModel,
 		Name:             displayName,
 		Prompt:           displayName,
-		RolloutPath:      session.RolloutPath(),
-		SessionUUID:      resolvedProviderUUID(session),
+		RolloutPath:      rolloutPath,
+		SessionUUID:      providerUUID,
 		CreatedAt:        row.CreatedAt,
 		AgentKey:         req.AgentKey,
 		PromptVersionID:  req.PromptVersionID,

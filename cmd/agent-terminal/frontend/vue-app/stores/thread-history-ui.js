@@ -371,13 +371,84 @@ export function applyImmediateTimelineFromMessages({ threadId, response, state, 
     return !incomingUserTexts.has((it?.text || '').trim());
   });
 
+  const thread = Array.isArray(state?.threads) ? state.threads.find((t) => normalizeThreadID(t?.id) === id) : null;
+  const isStreaming = !thread?.isTurnCompletedLocally && (thread?.state === 'responding' || thread?.state === 'thinking' || thread?.state === 'starting');
+
+  let hasPreservedStreamingItem = false;
+  let localStreamingItemToPreserve = null;
+
+  if (isStreaming) {
+    const localStreamingItem = existing.find(it => it?.kind === 'assistant' && it?.done === false);
+    if (localStreamingItem) {
+      let lastIncomingAssistantIndex = -1;
+      for (let i = timeline.length - 1; i >= 0; i--) {
+        if (timeline[i].kind === 'assistant') { lastIncomingAssistantIndex = i; break; }
+      }
+      if (lastIncomingAssistantIndex >= 0) {
+        const incomingItem = timeline[lastIncomingAssistantIndex];
+        const streamingText = (localStreamingItem.text || '').trim();
+        const incomingText = (incomingItem.text || '').trim();
+        const matchLen = Math.min(10, Math.min(streamingText.length, incomingText.length));
+        if (matchLen > 0 && (streamingText.startsWith(incomingText.slice(0, matchLen)) || incomingText.startsWith(streamingText.slice(0, matchLen)))) {
+          if (incomingText.length > streamingText.length) {
+            // DB is ahead (rare but possible). Mark incoming as streaming and drop local.
+            incomingItem.done = false;
+          } else {
+            // Local is ahead or equal. Drop incoming and keep local buffer.
+            timeline.splice(lastIncomingAssistantIndex, 1);
+            localStreamingItemToPreserve = localStreamingItem;
+          }
+        } else {
+          localStreamingItemToPreserve = localStreamingItem;
+        }
+      } else {
+        localStreamingItemToPreserve = localStreamingItem;
+      }
+    }
+  }
+
   const existingNonDialogItems = existing.filter((it) => {
     const kind = (it?.kind || '').toString().trim();
-    if (kind === 'assistant' || kind === 'user') return false;
+    if (kind === 'assistant' || kind === 'user') {
+      if (localStreamingItemToPreserve && it === localStreamingItemToPreserve) {
+        hasPreservedStreamingItem = true;
+        return true;
+      }
+      return false;
+    }
     if ((it?.id || '').toString().includes('-optimistic-')) return false;
     if (shouldFilterStaleThinkingItem(it, latestIncomingAssistantTs, hasRuntimeHistoryContext)) return false;
     return true;
   });
+
+  if (isStreaming && !hasPreservedStreamingItem && thread?.lastMessage) {
+    let lastIncomingAssistantIndex = -1;
+    for (let i = timeline.length - 1; i >= 0; i--) {
+      if (timeline[i].kind === 'assistant') { lastIncomingAssistantIndex = i; break; }
+    }
+
+    let isSameMessage = false;
+    if (lastIncomingAssistantIndex >= 0) {
+      const incomingText = (timeline[lastIncomingAssistantIndex].text || '').trim();
+      const lastMsgText = (thread.lastMessage || '').trim();
+      const matchLen = Math.min(10, Math.min(incomingText.length, lastMsgText.length));
+      if (matchLen > 0 && (incomingText.startsWith(lastMsgText.slice(0, matchLen)) || lastMsgText.startsWith(incomingText.slice(0, matchLen)))) {
+        isSameMessage = true;
+      }
+    }
+
+    if (isSameMessage) {
+      timeline[lastIncomingAssistantIndex].done = false;
+    } else {
+      existingNonDialogItems.push({
+        id: `${id}-streaming-fallback`,
+        kind: 'assistant',
+        text: thread.lastMessage,
+        done: false,
+        ts: new Date().toISOString()
+      });
+    }
+  }
 
   if (existingNonDialogItems.length > 0 && typeof logDiagnostic === 'function') {
     logDiagnostic('thread', 'history.preserved_runtime_items', {

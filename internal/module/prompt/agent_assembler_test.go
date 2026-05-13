@@ -39,6 +39,26 @@ func TestAssembleAgent_OverrideSystemPromptTakesPriority(t *testing.T) {
 	}
 }
 
+func TestAssembleAgent_OverrideSystemPromptDoesNotUsePromptAsDisplayName(t *testing.T) {
+	t.Setenv(envClaudeSimple, "")
+	svc := NewService(&Config{}, nil)
+	assembly, err := svc.AssembleAgent(context.Background(), AgentInput{
+		StartInput: StartInput{
+			Prompt:   "user task must not become a name",
+			Provider: "claudecli",
+			CWD:      t.TempDir(),
+		},
+		AgentType:            AgentTypeExplore,
+		OverrideSystemPrompt: "OVERRIDE-ONLY-TEXT",
+	})
+	if err != nil {
+		t.Fatalf("AssembleAgent() error = %v", err)
+	}
+	if assembly.DisplayName != "" {
+		t.Fatalf("DisplayName = %q, want empty", assembly.DisplayName)
+	}
+}
+
 // TestAssembleAgent_ExploreRedactsClaudeMdAndGitStatus verifies the
 // Explore/Plan agent-type post-processing: claudeMd is scrubbed from
 // UserContext and SystemContext (gitStatus) is nilled so the subagent does
