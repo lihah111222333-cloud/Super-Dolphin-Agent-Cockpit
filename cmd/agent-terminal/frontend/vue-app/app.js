@@ -297,6 +297,7 @@ export const AppRoot = {
       skills: [],
       commandCards: [],
       memory: [],
+      finalOutputRefs: [],
     });
     const { pendingCandidates, sidebarBadges: skillSidebarBadges, refreshPendingCandidates } = usePendingCandidates(
       () => (threadScopeCwd.value || '').toString().trim(),
@@ -363,6 +364,7 @@ export const AppRoot = {
       dashboard.skills = Array.isArray(res?.skills) ? res.skills : [];
       dashboard.commandCards = Array.isArray(res?.commandCards) ? res.commandCards : [];
       dashboard.memory = Array.isArray(res?.memory) ? res.memory : [];
+      dashboard.finalOutputRefs = Array.isArray(res?.finalOutputRefs) ? res.finalOutputRefs : [];
     }
 
     async function refreshMemoryCenter() {
@@ -615,6 +617,7 @@ export const AppRoot = {
           v-if="page === 'memory'"
           :files="dashboard.memory"
           :cwd="threadScopeCwd"
+          :final-output-refs="dashboard.finalOutputRefs"
           @open-memory-center="page = 'memory-center'"
           @refresh="refreshDashboardByPage('memory')"
           @start-inherited-chat="startInheritedChatFromSharedFile"
@@ -635,6 +638,9 @@ export const AppRoot = {
         :error="dagDetail.state.error"
         :dag="dagDetail.state.dag"
         :nodes="dagDetail.state.nodes"
+        :runs="dagDetail.state.runs"
+        :run="dagDetail.state.run"
+        :final-output="dagDetail.state.finalOutput"
         :saving-node-key="dagDetail.state.savingNodeKey"
         :save-error="dagDetail.state.saveError"
         @close="dagDetail.close"

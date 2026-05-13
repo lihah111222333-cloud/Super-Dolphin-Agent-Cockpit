@@ -123,13 +123,49 @@ func TestGetDAGDetailUsesOrchestration(t *testing.T) {
 	}
 }
 
+func TestListDAGRunsUsesOrchestration(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{
+		orchestration: &stubDashboardOrchestration{
+			listRunsResult: contract.ListRunsResponse{
+				Runs: []contract.Run{{RunKey: "run-1", DagKey: "dag-1", Status: "succeeded"}},
+			},
+		},
+	}
+
+	got, err := svc.ListDAGRuns(context.Background(), " dag-1 ", 5)
+	if err != nil {
+		t.Fatalf("ListDAGRuns() error = %v", err)
+	}
+	stub := svc.orchestration.(*stubDashboardOrchestration)
+	if stub.listRunsRequest.DagKey != "dag-1" || stub.listRunsRequest.Limit != 5 {
+		t.Fatalf("ListRuns() request = %#v", stub.listRunsRequest)
+	}
+	if len(got) != 1 || got[0].RunKey != "run-1" {
+		t.Fatalf("ListDAGRuns() = %#v", got)
+	}
+}
+
+func TestListDAGRunsRequiresDAGKey(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{orchestration: &stubDashboardOrchestration{}}
+	_, err := svc.ListDAGRuns(context.Background(), " ", 5)
+	if err == nil {
+		t.Fatal("ListDAGRuns() error = nil, want dag key required")
+	}
+}
+
 type stubDashboardOrchestration struct {
-	snapshot       contract.AgentSnapshot
-	report         contract.AgentReportResult
-	listDAGsResult []contract.DAGSummary
-	listDAGsFilter contract.ListDAGsFilter
-	dagDetail      contract.DAGDetail
-	getDAGKey      string
+	snapshot        contract.AgentSnapshot
+	report          contract.AgentReportResult
+	listDAGsResult  []contract.DAGSummary
+	listDAGsFilter  contract.ListDAGsFilter
+	dagDetail       contract.DAGDetail
+	getDAGKey       string
+	listRunsResult  contract.ListRunsResponse
+	listRunsRequest contract.ListRunsRequest
 }
 
 // 中文：编译期断言 — stubDashboardOrchestration 必须实现
@@ -218,8 +254,9 @@ func (s *stubDashboardOrchestration) ApplyOps(context.Context, contract.ApplyOps
 	return contract.ApplyOpsResponse{}, nil
 }
 
-func (s *stubDashboardOrchestration) ListRuns(context.Context, contract.ListRunsRequest) (contract.ListRunsResponse, error) {
-	return contract.ListRunsResponse{}, nil
+func (s *stubDashboardOrchestration) ListRuns(_ context.Context, req contract.ListRunsRequest) (contract.ListRunsResponse, error) {
+	s.listRunsRequest = req
+	return s.listRunsResult, nil
 }
 
 func (s *stubDashboardOrchestration) DispatchNode(context.Context, contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error) {

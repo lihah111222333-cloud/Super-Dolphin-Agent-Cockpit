@@ -203,6 +203,24 @@ describe('AppRoot behavior', () => {
     expect(apiMock.callAPI).toHaveBeenCalledWith('ui/dashboard/get', { page: 'skills', cwd: '/repo' });
   });
 
+  it('keeps final output refs from the memory dashboard response', async () => {
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/dashboard/get' && payload?.page === 'memory') {
+        return {
+          memory: [{ path: 'reports/final.pptx' }],
+          finalOutputRefs: [{ path: 'reports/final.pptx', runKey: 'run-1' }],
+        };
+      }
+      return {};
+    });
+
+    const vm = AppRoot.setup();
+    await vm.refreshDashboardByPage('memory');
+
+    expect(vm.dashboard.memory).toEqual([{ path: 'reports/final.pptx' }]);
+    expect(vm.dashboard.finalOutputRefs).toEqual([{ path: 'reports/final.pptx', runKey: 'run-1' }]);
+  });
+
   it('consumes window bootstrap snapshot and starts the continued task in a new window', async () => {
     apiMock.getBuildInfo.mockResolvedValueOnce({ version: '1.0.0' });
     apiMock.callAPI.mockImplementation(async (method) => {

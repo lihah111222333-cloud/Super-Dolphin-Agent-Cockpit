@@ -57,3 +57,25 @@ func (s *service) GetDAGDetail(ctx context.Context, dagKey string) (*contract.DA
 	}
 	return &detail, nil
 }
+
+func (s *service) ListDAGRuns(ctx context.Context, dagKey string, limit int32) ([]contract.Run, error) {
+	if s.orchestration == nil {
+		return nil, errOrchestrationServiceNotAvailable
+	}
+	key := strings.TrimSpace(dagKey)
+	if key == "" {
+		return nil, errors.New("dashboard: dag key is required")
+	}
+	limit = int32(util.ClampLimit(int(limit), 1, maxLogLimit, int(dashboardFinalOutputRunLimit)))
+	resp, err := s.orchestration.ListRuns(ctx, contract.ListRunsRequest{
+		DagKey: key,
+		Limit:  limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if resp.Runs == nil {
+		return []contract.Run{}, nil
+	}
+	return resp.Runs, nil
+}

@@ -88,6 +88,11 @@ type dagDetailParams struct {
 	DAGKey string `json:"dagKey,omitempty"`
 }
 
+type dagRunsParams struct {
+	DAGKey string `json:"dagKey,omitempty"`
+	Limit  int32  `json:"limit,omitempty"`
+}
+
 // --- typed RPC response structs (replace map[string]any wrappers) ---
 
 type agentsResponse struct {
@@ -137,6 +142,10 @@ type dagsResponse struct {
 type dagDetailResponse struct {
 	DAG   contract.DAGSummary `json:"dag"`
 	Nodes []contract.DAGNode  `json:"nodes"`
+}
+
+type dagRunsResponse struct {
+	Runs []contract.Run `json:"runs"`
 }
 
 type aiLogStatsResponse struct {
@@ -247,6 +256,13 @@ func registerDashboardDataHandlers(m handler.Map, svc Service) {
 			return nil, err
 		}
 		return dagDetailResponse{DAG: detail.DAG, Nodes: detail.Nodes}, nil
+	})
+	m["dashboard/dagRuns"] = platformrpc.StrictHandler(func(ctx context.Context, p dagRunsParams) (any, error) {
+		runs, err := svc.ListDAGRuns(ctx, p.DAGKey, p.Limit)
+		if err != nil {
+			return nil, err
+		}
+		return dagRunsResponse{Runs: runs}, nil
 	})
 	m["dashboard/aiLogs/recent"] = platformrpc.StrictHandler(func(ctx context.Context, p limitParams) (any, error) {
 		logs, err := svc.GetRecentAILogs(ctx, p.Limit)
