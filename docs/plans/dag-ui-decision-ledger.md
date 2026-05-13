@@ -41,6 +41,12 @@ DAG 后端、C-A lifecycle、final_output、sharedfile、prompt_template-first �
 | UI-D16 | 运行中编辑策略 | 运行中 DAG 只允许已完成节点后追加满足条件的新节点；普通 edit/remove/update_dag 在 UI 禁用并解释原因。 | F4.5/F8 |
 | UI-D17 | 多 run 并发可视化 | F6.5 前 UI 可以按当前单 running run 认知；F6.5 后 Run History 必须区分并发 run，不把模板状态和 run 状态混在一起。 | F6.5/F10 |
 | UI-D18 | Wails 壳范围 | 不把 `internal/ui/wails/frontend/index.html` 当 DAG UI 主目标；如要迁移/替换壳，另开桌面壳任务。 | UI 基建后续 |
+| UI-D19 | 实时事件与大规模拓扑阈值 | v1 继续用 3-5s polling；WS/订阅、cursor node page、cluster/virtualized topology 只在真实大 DAG 或 stale UI 痛点出现后恢复。禁止提前渲染 10000-node mermaid。 | T5/T7/F9/H6b |
+| UI-D20 | 金融/合规模板预设 | 不在当前 DAG Console v1 做金融预设 badge、合规说明、模板 Use/Save preview；等 P9/P12/P13 和真实金融 dogfood 同时触发后再设计。 | P10/P12/P13 后续 |
+| UI-D21 | 编辑历史、回滚与多人冲突 | v1 不做 realtime collaboration、不做 revision history UI；先依赖版本/CAS 错误提示。H4 触发后再做“正在编辑”、undo/rollback、revision diff。 | H4/F8 |
+| UI-D22 | 通知噪音与本地化 | `dag_node_completed` 等后台清理 reason 不应原样进用户通知；后续通知层做本地化映射或白名单 skip。final_output/cron miss/run timeout 通知需要统一降噪策略。 | ADR-016/H6b/H15 |
+| UI-D23 | 节点对话入口 | H9 `task_post_message` 未落地前，不在 DAG 页做节点 chat surface；v1 用子 thread 链接 + sharedfile/final_output 承接上下文和产物。 | H9/T6 |
+| UI-D24 | 高级字段注册表 | verify/activity/cost/growth/swarm/output_schema 等 P8-P13 字段不进 v1 主表单；后续必须通过 typed registry + feature gate 暴露，不让用户直接编辑 raw JSON/YAML。 | P8-P13/F8 后续 |
 
 ## 4. 推荐实现顺序
 
@@ -57,11 +63,11 @@ DAG 后端、C-A lifecycle、final_output、sharedfile、prompt_template-first �
    覆盖 H15/F11：final_output 保护、中间产物折叠、TTL/软删/批量清理、reads/writes/lock_mode 联动。
 
 5. **U4：H 阶段高级产品化**
-   错误 catalog、HITL、通知入口、Hybrid/external action、模板库/Save as template、复杂 cost preview 等按真实场景逐项恢复，不提前堆复杂度。
+   错误 catalog、HITL、通知入口、Hybrid/external action、模板库/Save as template、复杂 cost preview、编辑历史/回滚、task_post_message、WS/大规模拓扑、监控告警 UI 等按真实场景逐项恢复，不提前堆复杂度。
 
 ## 5. 当前文档缺口已收敛为本台账
 
 - H14 已完成 final_output UI；F11 不再承担 final_output 高亮，只剩 sharedfile 锁可视化和中间产物体验深化。
 - Need 1 还缺 T7 列表字段和 F10 run 历史 UI 才算用户可见闭环。
 - Need 2 的后端与 prompt_template seed 已基本到位，剩余主要是 T8/F8/F9 UI 设计与实现。
-- 旧 P10 的模板库/preview/lineage/cost preview 是历史愿景，不是当前 DAG UI v1 必做项。
+- 旧 P10 的模板库/preview/lineage/cost preview、金融预设、大规模 UI、WS 实时事件、多人编辑冲突均已登记为后续项，不是当前 DAG UI v1 必做项。
