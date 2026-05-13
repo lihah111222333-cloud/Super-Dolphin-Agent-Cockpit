@@ -20,7 +20,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 | ADR-015 v1（thread.stopped-driven） | ❌ 推翻：ev.Reason 字符串语义模糊，user_stop / crashed 不分 |
 | ADR-015 v2（双驱动 + fast-path）| ❌ 推翻：fast-path 物理基础不存在（dag_key/node_key 没注入 prompt）+ 双链路理解错（event_relay 桥）|
 | ADR-015 v3（turn.completed-driven）+ ADR-016 | ❌ 删除：ev.Result 在 codex 侧不发，4 轮实证证伪 |
-| **C-A**（本计划） | ✅ 采纳 |
+| **C-A**（本计划） | ✅ 采纳；C1/C2/C3/A1 全部落地（commit `f923ebd7`/`cddb3ea2`/`00864aa7` 升 ADR 状态），下一站 A2 （ADR-018） |
 
 ---
 
@@ -237,11 +237,11 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 
 | ADR | 范围 | 阶段 | 状态 |
 |---|---|---|---|
-| **ADR-X1**（编号 ADR-015 v4，复用编号） | provider 层 TurnCompleted.Result 补完（codex + claude）| C1 + C2 | ⏳ 待立 |
-| **ADR-016**（编号 ADR-016）| codex/claude spawned agent 自动 stop | C3 | ⏳ 待立 |
-| **ADR-017**（编号 ADR-017）| DAG turn.completed subscriber + thread.stopped fallback | A1 | ⏳ 待立 |
+| **ADR-015 v4.1**（复用编号） | provider 层 TurnCompleted.Result 补完（codex + claude）| C1 + C2 | ✅ Accepted（`f923ebd7`）|
+| **ADR-016 v1.2** | codex/claude spawned agent 自动 stop | C3 | ✅ Accepted（`cddb3ea2`）|
+| **ADR-017 v1.2** | DAG turn.completed subscriber + thread.stopped fallback | A1 | ✅ Accepted（`00864aa7`）|
 | **ADR-X5**（编号 ADR-018）| F1.3 outputs 重做（jsonb merge + turn-completed-time）| A2 | ⏳ 待立 |
-| **ADR-006 修订** | to_node_result 字段升对象 `{enabled, size_cap_bytes}` | A2 同步 | ⏳ 待修 |
+| **ADR-006 修订** | to_node_result 字段升对象 `{enabled, size_cap_bytes}` | A2 同步 | ⏳ 待修（诸多论证后推向“不升对象 + 沿用 ADR-006 §5.2 bool 决议”，ADR-018 拍板项 #4 详谈）|
 
 > 编号说明：ADR-015 / ADR-016 之前的内容已删，编号回收复用。
 
