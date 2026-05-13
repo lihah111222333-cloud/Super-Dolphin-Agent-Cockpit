@@ -204,6 +204,16 @@ func (s *store) UpdateNodeStatusFlexible(ctx context.Context, input FlexibleNode
 	}, "update_status_flexible")
 }
 
+func (s *store) ClaimNodeOutputMaterialization(ctx context.Context, input OutputMaterializationClaimInput) (*Node, error) {
+	return updateNodeStatus(func() (sqlc.TaskDagNode, error) {
+		return s.q.ClaimTaskDagNodeOutputMaterialization(ctx, sqlc.ClaimTaskDagNodeOutputMaterializationParams{
+			Result:  input.Result,
+			DagKey:  input.DagKey,
+			NodeKey: input.NodeKey,
+		})
+	}, "claim_output_materialization")
+}
+
 func int64Ptr(value int64) sqlc.Int8 {
 	return sqlc.Int8ValuePtr(&value)
 }

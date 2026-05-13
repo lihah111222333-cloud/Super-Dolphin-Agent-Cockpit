@@ -221,28 +221,80 @@ func advanceNodeForTurnCompleted(
 	}
 
 	if ev.Success {
-		resultBytes, failure := materializeTurnCompletedResult(ctx, deps.SharedFileWriter, node, ev.Result)
-		if failure != nil {
-			if failure.SizeCapExceeded {
-				dagSubscriberMetrics.IncCompleteSizeCapExceeded()
-			}
-			logger.Warn("dag subscriber: materialize agent output failed",
-				"dag_key", node.DagKey, "node_key", node.NodeKey, "reason", failure.Reason)
-			advanceNodeFailedWithReason(ctx, deps.FlowStore, logger, node, failure.Reason)
-			return
-		}
-		if len(resultBytes) > completeNodeResultCap {
-			dagSubscriberMetrics.IncCompleteSizeCapExceeded()
-			logger.Warn("dag subscriber: complete result exceeds ADR-006 4KB cap",
-				"dag_key", node.DagKey, "node_key", node.NodeKey, "size", len(resultBytes))
-			// Legacy non-agent path keeps the A1 behavior: surface the metric and
-			// let the store layer reject if needed. Agent outputs are enforced by
-			// materializeTurnCompletedResult before any CompleteNode call.
-		}
-		advanceNodeDone(ctx, deps.FlowStore, logger, node, resultBytes)
+		advanceNodeDoneForSuccess(ctx, deps, logger, node, ev.Result)
 		return
 	}
 	advanceNodeFailed(ctx, deps.FlowStore, logger, node, ev)
+}
+
+func advanceNodeDoneForSuccess(
+	ctx context.Context,
+	deps DAGSubscriberDeps,
+	logger *slog.Logger,
+	node *taskdag.Node,
+	rawResult string,
+) {
+	materialized, failure := prepareTurnCompletedResult(node, rawResult)
+	if failure != nil {
+		failNodeForMaterializationFailure(ctx, deps.FlowStore, logger, node, failure)
+		return
+	}
+	recordLegacyResultCapMetric(logger, node, materialized.Result)
+	if !materializeSharedfileAfterClaim(ctx, deps, logger, node, materialized) {
+		return
+	}
+	advanceNodeDone(ctx, deps.FlowStore, logger, node, materialized.Result)
+}
+
+func failNodeForMaterializationFailure(
+	ctx context.Context,
+	flow taskdag.NodeFlowStore,
+	logger *slog.Logger,
+	node *taskdag.Node,
+	failure *turnOutputMaterializationFailure,
+) {
+	if failure.SizeCapExceeded {
+		dagSubscriberMetrics.IncCompleteSizeCapExceeded()
+	}
+	logger.Warn("dag subscriber: materialize agent output failed",
+		"dag_key", node.DagKey, "node_key", node.NodeKey, "reason", failure.Reason)
+	advanceNodeFailedWithReason(ctx, flow, logger, node, failure.Reason)
+}
+
+func recordLegacyResultCapMetric(logger *slog.Logger, node *taskdag.Node, result json.RawMessage) {
+	if len(result) <= completeNodeResultCap {
+		return
+	}
+	dagSubscriberMetrics.IncCompleteSizeCapExceeded()
+	logger.Warn("dag subscriber: complete result exceeds ADR-006 4KB cap",
+		"dag_key", node.DagKey, "node_key", node.NodeKey, "size", len(result))
+	// Legacy non-agent path keeps the A1 behavior: surface the metric and let
+	// the store layer reject if needed. Agent outputs are enforced by
+	// prepareTurnCompletedResult before any CompleteNode call.
+}
+
+func materializeSharedfileAfterClaim(
+	ctx context.Context,
+	deps DAGSubscriberDeps,
+	logger *slog.Logger,
+	node *taskdag.Node,
+	materialized turnOutputMaterialization,
+) bool {
+	if materialized.SharedfilePath == "" {
+		return true
+	}
+	if failure := validateAgentSharedfileWriter(deps.SharedFileWriter); failure != nil {
+		failNodeForMaterializationFailure(ctx, deps.FlowStore, logger, node, failure)
+		return false
+	}
+	if !claimNodeOutputMaterialization(ctx, deps.FlowStore, logger, node, materialized.Result) {
+		return false
+	}
+	if failure := writeAgentTurnSharedfile(ctx, deps.SharedFileWriter, materialized.SharedfilePath, materialized.RawResult); failure != nil {
+		failNodeForMaterializationFailure(ctx, deps.FlowStore, logger, node, failure)
+		return false
+	}
+	return true
 }
 
 // advanceNodeDone calls CompleteNodeAndScheduleDownstream and records the
@@ -327,6 +379,44 @@ func advanceNodeFailedWithReason(
 	}
 }
 
+type nodeOutputMaterializationClaimer interface {
+	ClaimNodeOutputMaterialization(context.Context, taskdag.OutputMaterializationClaimInput) (*taskdag.Node, error)
+}
+
+func claimNodeOutputMaterialization(
+	ctx context.Context,
+	flow taskdag.NodeFlowStore,
+	logger *slog.Logger,
+	node *taskdag.Node,
+	result json.RawMessage,
+) bool {
+	claimer, ok := flow.(nodeOutputMaterializationClaimer)
+	if !ok {
+		logger.Warn("dag subscriber: output materialization claim not wired",
+			"dag_key", node.DagKey, "node_key", node.NodeKey)
+		advanceNodeFailedWithReason(ctx, flow, logger, node, "infrastructure: output materialization claim not wired")
+		return false
+	}
+	_, err := claimer.ClaimNodeOutputMaterialization(ctx, taskdag.OutputMaterializationClaimInput{
+		DagKey:  node.DagKey,
+		NodeKey: node.NodeKey,
+		Result:  result,
+	})
+	switch {
+	case err == nil:
+		return true
+	case errors.Is(err, pgx.ErrNoRows) || platformdb.IsNotFound(err):
+		dagSubscriberMetrics.IncIdempotentSkipped()
+		logger.Debug("dag subscriber: output materialization claim rejected, node already claimed or terminal",
+			"dag_key", node.DagKey, "node_key", node.NodeKey)
+		return false
+	default:
+		logger.Warn("dag subscriber: output materialization claim failed",
+			"dag_key", node.DagKey, "node_key", node.NodeKey, "error", err)
+		return false
+	}
+}
+
 // encodeTurnResultForNodeUpdate prepares ev.Result for storage in
 // task_dag_nodes.result (jsonb). It normalizes empty into `{}` so the store's
 // NOT NULL constraint stays happy and wraps non-JSON text in a compact envelope.
@@ -355,32 +445,37 @@ type turnOutputMaterializationFailure struct {
 	SizeCapExceeded bool
 }
 
-// materializeTurnCompletedResult is the ADR-018/A2 boundary: agent nodes use
+type turnOutputMaterialization struct {
+	Result         json.RawMessage
+	SharedfilePath string
+	RawResult      string
+}
+
+// prepareTurnCompletedResult is the ADR-018/A2 boundary: agent nodes use
 // the real TurnCompleted.Result, not launch metadata, as their persisted
 // output. Non-agent rows keep the ADR-017 normalization path for compatibility.
-func materializeTurnCompletedResult(
-	ctx context.Context,
-	writer nodeexec.SharedFileWriter,
+func prepareTurnCompletedResult(
 	node *taskdag.Node,
 	rawResult string,
-) (json.RawMessage, *turnOutputMaterializationFailure) {
+) (turnOutputMaterialization, *turnOutputMaterializationFailure) {
 	if node == nil || strings.TrimSpace(node.NodeType) != "agent" {
-		return encodeTurnResultForNodeUpdate(rawResult), nil
+		return turnOutputMaterialization{Result: encodeTurnResultForNodeUpdate(rawResult)}, nil
 	}
 	cfg, failure := parseAgentOutputConfig(node.Config)
 	if failure != nil {
-		return nil, failure
+		return turnOutputMaterialization{}, failure
 	}
 	path := configuredSharedfilePath(cfg.Outputs)
 	emitNodeResult := shouldMaterializeAgentNodeResult(cfg.Outputs)
 	nodeResult, failure := buildAgentNodeResult(rawResult, emitNodeResult)
 	if failure != nil {
-		return nil, failure
+		return turnOutputMaterialization{}, failure
 	}
-	if failure := writeAgentTurnSharedfile(ctx, writer, path, rawResult); failure != nil {
-		return nil, failure
-	}
-	return finalAgentMaterializedResult(rawResult, nodeResult, path, emitNodeResult), nil
+	return turnOutputMaterialization{
+		Result:         finalAgentMaterializedResult(rawResult, nodeResult, path, emitNodeResult),
+		SharedfilePath: path,
+		RawResult:      rawResult,
+	}, nil
 }
 
 func parseAgentOutputConfig(raw json.RawMessage) (*nodeexec.AgentNodeConfig, *turnOutputMaterializationFailure) {
@@ -420,14 +515,21 @@ func writeAgentTurnSharedfile(
 	if path == "" {
 		return nil
 	}
-	if writer == nil {
-		return infrastructureMaterializationFailure(
-			"outputs.to_sharedfile configured but SharedFileWriter not wired in DAG subscriber")
+	if failure := validateAgentSharedfileWriter(writer); failure != nil {
+		return failure
 	}
 	if err := writer.WriteSharedFile(ctx, path, rawResult); err != nil {
 		return infrastructureMaterializationFailure(fmt.Sprintf("outputs.to_sharedfile[%q]: %v", path, err))
 	}
 	return nil
+}
+
+func validateAgentSharedfileWriter(writer nodeexec.SharedFileWriter) *turnOutputMaterializationFailure {
+	if writer != nil {
+		return nil
+	}
+	return infrastructureMaterializationFailure(
+		"outputs.to_sharedfile configured but SharedFileWriter not wired in DAG subscriber")
 }
 
 func finalAgentMaterializedResult(rawResult string, nodeResult json.RawMessage, path string, emit bool) json.RawMessage {

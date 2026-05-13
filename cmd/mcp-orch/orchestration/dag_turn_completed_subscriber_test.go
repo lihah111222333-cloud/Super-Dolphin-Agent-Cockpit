@@ -41,6 +41,8 @@ type dagSubscriberFlowSpy struct {
 	completeErr   error
 	failCalls     []taskdag.FailNodeInput
 	failErr       error
+	claimCalls    []taskdag.OutputMaterializationClaimInput
+	claimErr      error
 	flexibleCalls []taskdag.FlexibleNodeStatusUpdate
 }
 
@@ -62,6 +64,14 @@ func (s *dagSubscriberFlowSpy) FailNodeAndCancelDownstream(_ context.Context, in
 	return &taskdag.FailNodeResult{
 		Node: &taskdag.Node{DagKey: input.DagKey, NodeKey: input.NodeKey, Status: "failed"},
 	}, nil
+}
+
+func (s *dagSubscriberFlowSpy) ClaimNodeOutputMaterialization(_ context.Context, input taskdag.OutputMaterializationClaimInput) (*taskdag.Node, error) {
+	s.claimCalls = append(s.claimCalls, input)
+	if s.claimErr != nil {
+		return nil, s.claimErr
+	}
+	return &taskdag.Node{DagKey: input.DagKey, NodeKey: input.NodeKey, Status: "awaiting_verify", Result: input.Result}, nil
 }
 
 func (s *dagSubscriberFlowSpy) UpdateNodeStatusFlexible(_ context.Context, input taskdag.FlexibleNodeStatusUpdate) (*taskdag.Node, error) {
@@ -449,6 +459,89 @@ func TestDAGSubscriber_A2_SharedfileOnlyDoesNotStoreLargeTurnResult(t *testing.T
 	}
 	if got != `{"sharedfile":{"path":"reports/agent.json"}}` {
 		t.Fatalf("CompleteNodeInput.Result = %s, want sharedfile reference envelope", got)
+	}
+}
+
+func TestDAGSubscriber_A2_SharedfileSkippedWhenCompleteFenceRejects(t *testing.T) {
+	payload := `{"summary":"late duplicate output"}`
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey:   "dag-a2",
+		NodeKey:  "agent-fence",
+		NodeType: "agent",
+		Status:   "running",
+		Config: []byte(`{
+			"exec":{"agent_key":"implementer"},
+			"outputs":{"to_sharedfile":{"path":"reports/agent-fence.json","lock_mode":"exclusive"}}
+		}`),
+	}}}
+	flow := &dagSubscriberFlowSpy{claimErr: pgx.ErrNoRows}
+	writer := &dagSubscriberSharedFileWriterSpy{}
+	deps := setupDAGSubscriberDeps(
+		lookup,
+		flow,
+		&dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-a2-fence", AgentID: "agent-a2-fence"}},
+		&dagSubscriberStopSpy{},
+	)
+	deps.SharedFileWriter = writer
+
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-a2-fence", true, payload))
+
+	if len(flow.claimCalls) != 1 {
+		t.Fatalf("claimCalls = %d, want 1", len(flow.claimCalls))
+	}
+	if len(flow.completeCalls) != 0 {
+		t.Fatalf("completeCalls = %d, want 0 when materialization claim rejects", len(flow.completeCalls))
+	}
+	if len(writer.writes) != 0 {
+		t.Fatalf("sharedfile writes = %d, want 0 when materialization claim rejects", len(writer.writes))
+	}
+}
+
+func TestDAGSubscriber_A2_AwaitingVerifyReplayCompletesAfterPriorCompleteError(t *testing.T) {
+	payload := `{"summary":"retry after complete error"}`
+	node := taskdag.Node{
+		DagKey:   "dag-a2",
+		NodeKey:  "agent-replay",
+		NodeType: "agent",
+		Status:   "running",
+		Config: []byte(`{
+			"exec":{"agent_key":"implementer"},
+			"outputs":{"to_sharedfile":{"path":"reports/agent-replay.json","lock_mode":"exclusive"}}
+		}`),
+	}
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{node}}
+	flow := &dagSubscriberFlowSpy{completeErr: errors.New("temporary complete failure")}
+	writer := &dagSubscriberSharedFileWriterSpy{}
+	deps := setupDAGSubscriberDeps(
+		lookup,
+		flow,
+		&dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-a2-replay", AgentID: "agent-a2-replay"}},
+		&dagSubscriberStopSpy{},
+	)
+	deps.SharedFileWriter = writer
+
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-a2-replay", true, payload))
+
+	if len(flow.claimCalls) != 1 || len(writer.writes) != 1 || len(flow.completeCalls) != 1 {
+		t.Fatalf("first attempt claim/write/complete = %d/%d/%d, want 1/1/1",
+			len(flow.claimCalls), len(writer.writes), len(flow.completeCalls))
+	}
+
+	lookup.nodes[0].Status = "awaiting_verify"
+	flow.completeErr = nil
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-a2-replay", true, payload))
+
+	if len(flow.claimCalls) != 2 {
+		t.Fatalf("claimCalls = %d, want 2 with awaiting_verify replay claim", len(flow.claimCalls))
+	}
+	if len(flow.completeCalls) != 2 {
+		t.Fatalf("completeCalls = %d, want 2 with replay completing node", len(flow.completeCalls))
+	}
+	if flow.completeCalls[1].Status != "done" {
+		t.Fatalf("replay complete status = %q, want done", flow.completeCalls[1].Status)
+	}
+	if got := string(flow.completeCalls[1].Result); got != `{"sharedfile":{"path":"reports/agent-replay.json"}}` {
+		t.Fatalf("replay CompleteNodeInput.Result = %s, want sharedfile reference", got)
 	}
 }
 

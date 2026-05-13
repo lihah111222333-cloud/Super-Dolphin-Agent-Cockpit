@@ -61,6 +61,52 @@ func (q *Queries) UpdateTaskDagNodeStatusFlexible(ctx context.Context, arg Updat
 	return i, err
 }
 
+const claimTaskDagNodeOutputMaterialization = `-- name: ClaimTaskDagNodeOutputMaterialization :one
+UPDATE task_dag_nodes
+SET status = 'awaiting_verify', result = $1::jsonb, updated_at = NOW()
+WHERE dag_key = $2
+  AND node_key = $3
+  AND status IN ('ready', 'running', 'awaiting_verify')
+RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
+`
+
+type ClaimTaskDagNodeOutputMaterializationParams struct {
+	Result  []byte `json:"result"`
+	DagKey  string `json:"dag_key"`
+	NodeKey string `json:"node_key"`
+}
+
+func (q *Queries) ClaimTaskDagNodeOutputMaterialization(ctx context.Context, arg ClaimTaskDagNodeOutputMaterializationParams) (TaskDagNode, error) {
+	row := q.db.QueryRow(ctx, claimTaskDagNodeOutputMaterialization,
+		arg.Result,
+		arg.DagKey,
+		arg.NodeKey,
+	)
+	var i TaskDagNode
+	err := row.Scan(
+		&i.ID,
+		&i.DagKey,
+		&i.NodeKey,
+		&i.Title,
+		&i.NodeType,
+		&i.AssignedTo,
+		&i.DependsOn,
+		&i.Status,
+		&i.CommandRef,
+		&i.Config,
+		&i.Result,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ActiveTurnID,
+		&i.ActiveWakeupID,
+		&i.LastEventAt,
+		&i.SpawningThreadID,
+	)
+	return i, err
+}
+
 const failTaskDagNodeIfNonTerminal = `-- name: FailTaskDagNodeIfNonTerminal :one
 UPDATE task_dag_nodes
 SET status = $1, result = $2::jsonb, updated_at = NOW()
