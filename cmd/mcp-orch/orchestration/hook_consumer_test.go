@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/kelindar/event"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
@@ -256,6 +257,66 @@ func TestHookConsumerAfter_TurnCompletedMarksIdleAndPersistsReport(t *testing.T)
 	}
 	if snapshot.LastReport != "ORCH_OK" {
 		t.Fatalf("snapshot.LastReport = %q, want ORCH_OK", snapshot.LastReport)
+	}
+}
+
+func TestHookConsumerAfter_TurnCompletedAdvancesDAGNodeFromHook(t *testing.T) {
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
+	agent := addHookTestAgent(t, svc, "agent-1")
+	agent.state = agentdto.StateTurnRunning
+	agent.threadID = "thread-1"
+	agent.remoteThreadID = "thread-1"
+	agent.activeTurnID = "turn-1"
+
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey:   "dag-1",
+		NodeKey:  "node-1",
+		NodeType: "agent",
+		Status:   "running",
+		Config:   json.RawMessage(`{"exec":{"agent_key":"source_monitor"},"outputs":{"to_node_result":true}}`),
+	}}}
+	flow := &dagSubscriberFlowSpy{}
+	consumer := newHookConsumerInternal(
+		svc,
+		silentLogger(),
+		nil,
+		lookup,
+		flow,
+		withHookTurnCompletedDAGDeps(DAGSubscriberDeps{
+			LookupStore: lookup,
+			FlowStore:   flow,
+		}),
+	)
+	completed := turndto.TurnCompleted{
+		TurnHeader: sharedto.TurnHeader{
+			AgentHeader: sharedto.AgentHeader{
+				ThreadHeader: sharedto.ThreadHeader{
+					EventHeader: sharedto.EventHeader{Timestamp: time.Unix(21, 0).UTC()},
+					ThreadID:    "thread-1",
+				},
+				AgentID: "agent-1",
+			},
+			TurnIDHeader: sharedto.TurnIDHeader{TurnID: "turn-1"},
+		},
+		Success: true,
+		Result:  `{"summary":"ok"}`,
+	}
+	if _, err := consumer.After(context.Background(), hookPayload(t, hookTopicTurnAfter, hookRelayKindTurnCompleted, completed)); err != nil {
+		t.Fatalf("After(turn completed) error = %v", err)
+	}
+
+	if lookup.lastThread != "thread-1" {
+		t.Fatalf("lookup thread = %q, want thread-1", lookup.lastThread)
+	}
+	if len(flow.completeCalls) != 1 {
+		t.Fatalf("CompleteNode calls = %d, want 1", len(flow.completeCalls))
+	}
+	got := flow.completeCalls[0]
+	if got.DagKey != "dag-1" || got.NodeKey != "node-1" || got.Status != "done" {
+		t.Fatalf("CompleteNode input = %+v, want dag-1/node-1 done", got)
+	}
+	if string(got.Result) != `{"summary":"ok"}` {
+		t.Fatalf("CompleteNode result = %s, want turn result", got.Result)
 	}
 }
 
