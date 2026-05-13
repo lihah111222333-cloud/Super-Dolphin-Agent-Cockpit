@@ -20,7 +20,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 | ADR-015 v1（thread.stopped-driven） | ❌ 推翻：ev.Reason 字符串语义模糊，user_stop / crashed 不分 |
 | ADR-015 v2（双驱动 + fast-path）| ❌ 推翻：fast-path 物理基础不存在（dag_key/node_key 没注入 prompt）+ 双链路理解错（event_relay 桥）|
 | ADR-015 v3（turn.completed-driven）+ ADR-016 | ❌ 删除：ev.Result 在 codex 侧不发，4 轮实证证伪 |
-| **C-A**（本计划） | ✅ 采纳；C1/C2/C3/A1/A2 全部落地（commit `f923ebd7`/`cddb3ea2`/`00864aa7`/`3e70e468` + A2 review-fix `02009e22` 升 ADR 状态）；Phase 4 dogfood 已通过并补 runtime follow-up `b9e8269d` / `ddf1b16f` + harness fix `019cf8a5`；final output 后端 MVP `362be7f0` 已将显式 final node 产物升格到 run metadata |
+| **C-A**（本计划） | ✅ 采纳；C1/C2/C3/A1/A2 全部落地（commit `f923ebd7`/`cddb3ea2`/`00864aa7`/`3e70e468` + A2 review-fix `02009e22` 升 ADR 状态）；Phase 4 dogfood 已通过并补 runtime follow-up `b9e8269d` / `ddf1b16f` + harness fix `019cf8a5`；final output 后端 MVP `362be7f0` 已将显式 final node 产物升格到 run metadata，H14 UI 入口 `253e7244` + merge `c772b6ac` 已让 run/detail 与 Shared Files 消费该索引 |
 
 ---
 
@@ -35,6 +35,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 | ~~**A2**~~ ✅ done：F1.3 outputs 重做（真实输出物化）| DAG 层 | ADR-018 Accepted（`3e70e468` + review-fix `02009e22`） | `executor_agent.go` + A1 subscriber outputs 落地；复用 `CompleteNodeAndScheduleDownstream` 的 result 更新，sharedfile 路径加 `ClaimTaskDagNodeOutputMaterialization` fence | ~680-780 行（含 review-fix） |
 | ~~Phase 4 dogfood~~ ✅ done | 验收 | — | 10 节点 DAG 端到端；hook-delivered turn completion + sharedfile 防覆盖 + runtime hints follow-up 已补 | ~80 行脚本 + runtime follow-up |
 | **Final output MVP** ✅ done | 结果入口 | — | `task_dags.metadata.final_node_key` 显式指定最终节点；run 成功终态时把 final node 的 sharedfile/text/json 结果升格到 `task_dag_runs.metadata.final_output`，`task_get_run` 通过既有 Run.Metadata 暴露 | 1 commit `362be7f0` |
+| ~~**H14 final output UI**~~ ✅ done | 结果入口 | — | dashboard `dagRuns` RPC + DAG detail final_output 展示 + Shared Files final_output 高亮/筛选；仍以 sharedfile 存 file body，以 `metadata.final_output` 做 run-level index | 1 commit `253e7244` + merge `c772b6ac` |
 
 **总计**（v2.9 Phase 4 dogfood 同步）：情况 A **~3730-4600 行 / 5 ADR / 20-24 commit**；情况 B **~3960-4830 行 / 5 ADR / 22-26 commit**（详 §9 工程量盘点；Phase 4 runtime follow-up 不回写 C/A 估算行数）。
 
@@ -306,8 +307,8 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 - DAG 模板通过 `task_dags.metadata.final_node_key` 显式声明最终节点，避免隐式猜测“最后完成的节点”。
 - run 成功终态时，`FinalizeTaskDagRunIfAllNodesTerminal` 将 final node 的结果索引到 `task_dag_runs.metadata.final_output`：sharedfile 引用变为 `kind=file/path`，小 JSON 变为 `kind=json/result`，JSON string 变为 `kind=text/text`。
 - 缺 `final_node_key`、final node 不存在、失败/取消 run 均保持 run metadata 不变；非 object run metadata 以 `{}` 作为 merge base，避免历史脏数据回滚 finalization。
-- UI/产品后续应在 run/task 详情、通知、Shared Files 页面共同使用 `metadata.final_output` 作为“最终产物索引”；Shared Files 页面默认折叠中间产物，优先高亮被 final_output 引用的文件。
-- 清理策略另立后续任务：未被 final_output 引用的 working/debug sharedfiles 可按 TTL / run 状态清理；final_output 引用文件按用户可收产物保留或走更长 TTL。
+- H14 UI 已在 DAG detail 与 Shared Files 页面共同使用 `metadata.final_output` 作为“最终产物索引”：file 输出显示 path 并可按现有 shared file get 读取，text/json 直接展示摘要；Shared Files 支持 final_output 高亮/筛选。
+- 清理策略另立 H15：未被 final_output 引用的 working/debug sharedfiles 可按 TTL / run 状态清理；final_output 引用文件按用户可收产物保留或走更长 TTL。
 
 ---
 
@@ -323,7 +324,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 1. **F2.2 automation outputs 是否同步改造**：当前 automation 是 Execute 同步写 outputs；ADR-018 明确 A2 不改 automation，后续如需统一另立任务
 2. **多 turn 场景的 result 形状**：second TurnCompleted 到达时 ev.Result 是覆盖还是 append 到 first turn？
 3. **dogfood v4 旧卡死节点 backfill**：本计划默认不 backfill（由用户手动重跑或 task_update_node）
-4. **final output 前端与 retention**：后端 MVP 已暴露 `Run.Metadata.final_output`；UI 需要让 run/task 详情和 Shared Files 页面都能基于 final_output 筛选/高亮最终产物，同时折叠中间 sharedfiles，sharedfile TTL/保留策略仍待单独实现。
+4. **final output retention / notification**：H14 UI 已让 DAG detail 与 Shared Files 页面基于 final_output 筛选/高亮最终产物；sharedfile TTL/保留策略仍待 H15 单独实现，通知入口是否也突出 final_output 仍待产品化时确认。
 
 ---
 
