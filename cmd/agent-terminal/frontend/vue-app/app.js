@@ -600,15 +600,19 @@ export const AppRoot = {
           @run-command="runCommandCard"
         />
 
-        <MemoryCenterPage
-          v-else-if="page === 'memory-center'"
-          :model="memoryCenter"
-          @refresh="refreshMemoryCenter"
-          @open-shared-files="page = 'memory'"
-        />
+        <!-- KeepAlive: 让 MemoryCenterPage 在切走时不卸载，避免 LLM 整合等 long-running RPC 被 abort。 -->
+        <KeepAlive>
+          <MemoryCenterPage
+            v-if="page === 'memory-center'"
+            :model="memoryCenter"
+            @refresh="refreshMemoryCenter"
+            @open-shared-files="page = 'memory'"
+            @vue:activated="refreshMemoryCenter"
+          />
+        </KeepAlive>
 
         <SharedFilesPage
-          v-else-if="page === 'memory'"
+          v-if="page === 'memory'"
           :files="dashboard.memory"
           :cwd="threadScopeCwd"
           @open-memory-center="page = 'memory-center'"
@@ -617,7 +621,7 @@ export const AppRoot = {
         />
 
         <SettingsPage
-          v-else
+          v-if="page === 'settings'"
           :build-info="buildInfo"
           :project-store="projectStore"
           @refresh="refreshBuildInfo"
