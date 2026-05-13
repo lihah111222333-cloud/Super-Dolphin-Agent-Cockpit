@@ -52,6 +52,30 @@ First-run side effects (auto, no manual step):
 - Per-workspace `.claude/settings.json` is rendered with `permissions.deny` (skill name + tool) and `permissions.allow` from active skills' `replaces_native` / `allowed_tools` (P5 nativefilter, default ON post-merge).
 - Codex skill manifest renders via FBSD frequency tier when tracker is wired (P6, default ON post-merge).
 
+### Optional: Codex Fast Mode
+
+If you use the Codex provider, you can opt into Codex's server-side fast tier (~1.5× speedup, 2–2.5× credit cost). The toggle lives in your **personal** `~/.codex/config.toml` (not in this repo), so each developer enables it independently.
+
+Prerequisite: `codex login` with a ChatGPT account. API-key auth has no fast credits.
+
+Add this line to the top level of `~/.codex/config.toml` (not inside any `[section]`):
+
+```toml
+service_tier = "fast"
+```
+
+Verify it's wired through:
+
+```bash
+RUST_LOG=codex=debug codex exec --json <<< "hi" 2>&1 | grep service_tier
+# Expect: service_tier: Some(Fast)
+```
+
+Notes:
+- Whether the upstream model provider honors `service_tier` depends on the provider. The codex CLI side will always send it; the speedup is upstream-dependent.
+- To disable, delete the line and restart any long-running codex subprocess.
+- See https://developers.openai.com/codex/speed for tier semantics.
+
 ### Build & Run
 
 ```bash
