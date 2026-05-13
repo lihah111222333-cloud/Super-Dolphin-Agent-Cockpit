@@ -17,7 +17,7 @@
 
 ### 2.1 表结构补强（F7.3 前置必需落地，未跟进不能走 DO UPDATE 模板）
 
-预计在 `migrations/0086_prompt_template_manually_edited.sql` 落地，状态 **⚠️ 未实装**（为了不阻塞 F7.3 起动者，该 task 需于 F7.3 worker 启动前作为头几个子提交落地）。**2026-05-12 编号调整**：原计划 0085，但 F7.2（AI 设计师英文版 seed）已先占 0085，F7.3 的 manually_edited 列让位到 0086、配套 seed 让位到 0087。`prompt_templates` 表加列：
+已在 `migrations/0086_prompt_template_manually_edited.sql` 落地，状态 **✅ 已实装**。**2026-05-12 编号调整**：原计划 0085，但 F7.2（AI 设计师英文版 seed）已先占 0085，F7.3 的 manually_edited 列让位到 0086、配套 seed 让位到 0087。`prompt_templates` 表加列：
 
 ```sql
 ALTER TABLE public.prompt_templates
@@ -49,7 +49,7 @@ WHERE public.prompt_templates.manually_edited = FALSE;  -- 关键守护
 
 ### 2.3 UI 写路径同步
 
-UI / 后台改 prompt 时必须把 `manually_edited` 置 TRUE。当前 store 写路径（`cmd/mcp-orch/store/prompt/store.go` 的 `UpsertPromptTemplate`）需扩展支持显式写 flag。**2026-05-12 状态**：本调整尚未实装，F7.3 前置必须完成（与 §2.1 0086 migration 同批运作；编号让位详 §2.1）。
+UI / 后台改 prompt 时必须把 `manually_edited` 置 TRUE。`cmd/mcp-orch` prompt store 已扩展显式写 flag，root/internal prompt store 与 UI/后台写路径也已同步：更新已有 prompt 时置 TRUE，新增 prompt 保持默认 FALSE。
 
 ### 2.4 路由与表字段废弃补况（避免误导 F7.3 作者）
 
@@ -74,4 +74,3 @@ DO NOTHING + 「升级走新 migration（DELETE + INSERT）」也是候选方案
 
 - 若 manually_edited flag 在 UI 侧无法可靠维护（用户手工改 DB 不走 UI 改了 prompt 但 flag 仍 FALSE）→ 加 trigger 在 UPDATE prompt_templates 时自动置 TRUE。
 - 若 prompt seed 数量超 50 条 → 评估走单独的「prompt seed manifest」机制（JSON / YAML 声明式 + go embed + 启动时 reconcile），不再每次写 SQL migration。
-
