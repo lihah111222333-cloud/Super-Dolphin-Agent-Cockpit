@@ -17,6 +17,7 @@ import (
 type fakeTaskDAGDB struct {
 	mu      sync.Mutex
 	now     time.Time
+	dags    map[string]sqlc.TaskDag
 	wakeups map[int64]sqlc.TaskDagWakeup
 	nodes   map[string]sqlc.TaskDagNode
 	// F6.2: runs 用于模拟 task_dag_runs 一行，键是 run_key；finalize SQL 拦截会读写它。
@@ -31,6 +32,7 @@ type fakeTaskDAGDB struct {
 func newFakeTaskDAGDB(now time.Time) *fakeTaskDAGDB {
 	return &fakeTaskDAGDB{
 		now:     now.UTC(),
+		dags:    make(map[string]sqlc.TaskDag),
 		wakeups: make(map[int64]sqlc.TaskDagWakeup),
 		nodes:   make(map[string]sqlc.TaskDagNode),
 		runs:    make(map[string]sqlc.TaskDagRun),
@@ -209,10 +211,95 @@ func (db *fakeTaskDAGDB) finalizeRunIfAllNodesTerminal(args ...any) ([][]any, er
 		run.Status = finalStatus
 		run.FinishedAt = timestamptzValue(db.now)
 		run.UpdatedAt = timestamptzValue(db.now)
+		if finalStatus == "succeeded" {
+			metadata, err := db.metadataWithFinalOutput(dagKey, run.Metadata)
+			if err != nil {
+				return nil, err
+			}
+			run.Metadata = metadata
+		}
 		db.runs[runKey] = run
 		rows = append(rows, []any{run.RunKey, run.Status})
 	}
 	return rows, nil
+}
+
+func (db *fakeTaskDAGDB) metadataWithFinalOutput(dagKey string, metadata []byte) ([]byte, error) {
+	dag, ok := db.dags[dagKey]
+	if !ok || len(dag.Metadata) == 0 {
+		return metadata, nil
+	}
+	var dagMeta struct {
+		FinalNodeKey string `json:"final_node_key"`
+	}
+	if err := json.Unmarshal(dag.Metadata, &dagMeta); err != nil {
+		return nil, fmt.Errorf("decode dag metadata: %w", err)
+	}
+	if dagMeta.FinalNodeKey == "" {
+		return metadata, nil
+	}
+	node, ok := db.nodes[dagNodeKey(dagKey, dagMeta.FinalNodeKey)]
+	if !ok || len(node.Result) == 0 {
+		return metadata, nil
+	}
+	finalOutput, ok, err := finalOutputFromNodeResult(node)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return metadata, nil
+	}
+	runMetadata := map[string]any{}
+	if len(metadata) > 0 {
+		var raw any
+		if err := json.Unmarshal(metadata, &raw); err != nil {
+			return nil, fmt.Errorf("decode run metadata: %w", err)
+		}
+		if obj, ok := raw.(map[string]any); ok {
+			runMetadata = obj
+		}
+	}
+	runMetadata["final_output"] = finalOutput
+	encoded, err := json.Marshal(runMetadata)
+	if err != nil {
+		return nil, fmt.Errorf("encode run metadata: %w", err)
+	}
+	return encoded, nil
+}
+
+func finalOutputFromNodeResult(node sqlc.TaskDagNode) (map[string]any, bool, error) {
+	var result any
+	if err := json.Unmarshal(node.Result, &result); err != nil {
+		return nil, false, fmt.Errorf("decode final node result: %w", err)
+	}
+	title := node.Title
+	if title == "" {
+		title = "Final output"
+	}
+	out := map[string]any{
+		"role":            "final_output",
+		"title":           title,
+		"source_node_key": node.NodeKey,
+	}
+	switch typed := result.(type) {
+	case map[string]any:
+		if sf, ok := typed["sharedfile"].(map[string]any); ok {
+			if path, ok := sf["path"].(string); ok && path != "" {
+				out["kind"] = "file"
+				out["path"] = path
+				return out, true, nil
+			}
+		}
+		out["kind"] = "json"
+		out["result"] = result
+	case string:
+		out["kind"] = "text"
+		out["text"] = typed
+	default:
+		out["kind"] = "json"
+		out["result"] = result
+	}
+	return out, true, nil
 }
 
 func (db *fakeTaskDAGDB) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {
