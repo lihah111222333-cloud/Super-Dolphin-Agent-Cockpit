@@ -61,6 +61,12 @@ WHERE dag_key = $1
 -- aggregated terminal status with the priority above and set finished_at.
 -- Otherwise the statement is a no-op and the run stays 'running'.
 --
+-- DAG final-output MVP: if task_dags.metadata.final_node_key points at a node
+-- and the aggregate final status is succeeded, promote that node's result into
+-- task_dag_runs.metadata.final_output. Large payloads should keep using the
+-- existing {"sharedfile":{"path":"..."}} node.result envelope; the run metadata
+-- stores only the sharedfile path as the user-facing final output pointer.
+--
 -- 与 0080 status CHECK 对齐：枚举锁定 running|succeeded|failed|cancelled，
 -- final_status 取值都在白名单内、不会触发 CHECK 违例。
 --
@@ -85,11 +91,68 @@ final AS (
     ELSE 'succeeded'
   END AS final_status
   FROM node_counts
+),
+dag_meta AS (
+  SELECT NULLIF(metadata->>'final_node_key', '') AS final_node_key
+  FROM task_dags
+  WHERE dag_key = $1
+),
+final_node AS (
+  SELECT n.node_key, n.title, n.result
+  FROM task_dag_nodes n
+  JOIN dag_meta dm ON dm.final_node_key = n.node_key
+  WHERE n.dag_key = $1
+  LIMIT 1
+),
+final_output AS (
+  SELECT CASE
+    WHEN result IS NULL THEN NULL
+    WHEN jsonb_typeof(result) = 'object'
+      AND jsonb_typeof(result->'sharedfile') = 'object'
+      AND NULLIF(result->'sharedfile'->>'path', '') IS NOT NULL
+    THEN jsonb_build_object(
+      'kind', 'file',
+      'role', 'final_output',
+      'title', COALESCE(NULLIF(title, ''), 'Final output'),
+      'path', result->'sharedfile'->>'path',
+      'source_node_key', node_key
+    )
+    WHEN jsonb_typeof(result) = 'string'
+    THEN jsonb_build_object(
+      'kind', 'text',
+      'role', 'final_output',
+      'title', COALESCE(NULLIF(title, ''), 'Final output'),
+      'source_node_key', node_key,
+      'text', result #>> '{}'
+    )
+    ELSE jsonb_build_object(
+      'kind', 'json',
+      'role', 'final_output',
+      'title', COALESCE(NULLIF(title, ''), 'Final output'),
+      'source_node_key', node_key,
+      'result', result
+    )
+  END AS value
+  FROM final_node
 )
 UPDATE task_dag_runs r
 SET status      = (SELECT final_status FROM final),
     finished_at = NOW(),
-    updated_at  = NOW()
+    updated_at  = NOW(),
+    metadata    = CASE
+      WHEN (SELECT final_status FROM final) = 'succeeded'
+        AND (SELECT value FROM final_output) IS NOT NULL
+      THEN jsonb_set(
+        CASE
+          WHEN jsonb_typeof(r.metadata) = 'object' THEN r.metadata
+          ELSE '{}'::jsonb
+        END,
+        '{final_output}',
+        (SELECT value FROM final_output),
+        true
+      )
+      ELSE r.metadata
+    END
 WHERE r.dag_key = $1
   AND r.status = 'running'
   AND (SELECT final_status FROM final) IS NOT NULL
@@ -133,4 +196,3 @@ SET events     = CASE
     updated_at = NOW()
 WHERE dag_key = $1 AND status = 'running'
 RETURNING run_key;
-

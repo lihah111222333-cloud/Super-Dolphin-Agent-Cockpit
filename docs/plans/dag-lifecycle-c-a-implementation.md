@@ -20,7 +20,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 | ADR-015 v1（thread.stopped-driven） | ❌ 推翻：ev.Reason 字符串语义模糊，user_stop / crashed 不分 |
 | ADR-015 v2（双驱动 + fast-path）| ❌ 推翻：fast-path 物理基础不存在（dag_key/node_key 没注入 prompt）+ 双链路理解错（event_relay 桥）|
 | ADR-015 v3（turn.completed-driven）+ ADR-016 | ❌ 删除：ev.Result 在 codex 侧不发，4 轮实证证伪 |
-| **C-A**（本计划） | ✅ 采纳；C1/C2/C3/A1/A2 全部落地（commit `f923ebd7`/`cddb3ea2`/`00864aa7`/`3e70e468` + A2 review-fix `02009e22` 升 ADR 状态）；Phase 4 dogfood 已通过并补 runtime follow-up `b9e8269d` / `ddf1b16f` + harness fix `019cf8a5` |
+| **C-A**（本计划） | ✅ 采纳；C1/C2/C3/A1/A2 全部落地（commit `f923ebd7`/`cddb3ea2`/`00864aa7`/`3e70e468` + A2 review-fix `02009e22` 升 ADR 状态）；Phase 4 dogfood 已通过并补 runtime follow-up `b9e8269d` / `ddf1b16f` + harness fix `019cf8a5`；final output 后端 MVP `362be7f0` 已将显式 final node 产物升格到 run metadata |
 
 ---
 
@@ -34,6 +34,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 | **A1**：DAG subscriber 订阅 TurnCompleted 推进 lifecycle | DAG 层 | ADR-017 v1.2 | `dag_turn_completed_subscriber.go` + `hook_consumer.go` fallback（移出 withAgentLocked）+ 扩 SQL 白名单（CompleteTaskDagNode）+ dispatchAgent ready→running（用 UpdateRunningTaskDagNodeStatus）| ~1790-2270 行（v2.5 reviewer 二审修订；4 处 P0 设计层修正 + 工程量上调 360%）|
 | ~~**A2**~~ ✅ done：F1.3 outputs 重做（真实输出物化）| DAG 层 | ADR-018 Accepted（`3e70e468` + review-fix `02009e22`） | `executor_agent.go` + A1 subscriber outputs 落地；复用 `CompleteNodeAndScheduleDownstream` 的 result 更新，sharedfile 路径加 `ClaimTaskDagNodeOutputMaterialization` fence | ~680-780 行（含 review-fix） |
 | ~~Phase 4 dogfood~~ ✅ done | 验收 | — | 10 节点 DAG 端到端；hook-delivered turn completion + sharedfile 防覆盖 + runtime hints follow-up 已补 | ~80 行脚本 + runtime follow-up |
+| **Final output MVP** ✅ done | 结果入口 | — | `task_dags.metadata.final_node_key` 显式指定最终节点；run 成功终态时把 final node 的 sharedfile/text/json 结果升格到 `task_dag_runs.metadata.final_output`，`task_get_run` 通过既有 Run.Metadata 暴露 | 1 commit `362be7f0` |
 
 **总计**（v2.9 Phase 4 dogfood 同步）：情况 A **~3730-4600 行 / 5 ADR / 20-24 commit**；情况 B **~3960-4830 行 / 5 ADR / 22-26 commit**（详 §9 工程量盘点；Phase 4 runtime follow-up 不回写 C/A 估算行数）。
 
@@ -298,6 +299,16 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 
 **Phase 4 工程量 ~80 行单列**，不计入 C/A 阶段 ~3300-4080 行（情况 A）/ ~3530-4310 行（情况 B）（详 §9）。2026-05-13 dogfood 实跑额外揭示并修复 3 个集成缺陷：hook-delivered `turn.completed` 未复用 DAG completion path（`b9e8269d`）、configured sharedfile 已由 agent 写入时被短 summary 覆盖（`b9e8269d`）、agent runtime hints 未完整传到 remote `thread/start`（`ddf1b16f`）。harness 代理绕过与 metric fallback 口径由 `019cf8a5` 收口。
 
+### 6.4 Final output MVP — 用户可收最终产物入口
+
+2026-05-14 后端 MVP `362be7f0` 落地以下边界：
+- `sharedfile` 定位为存储层与节点协作载体，不是用户找最终结果的主入口。
+- DAG 模板通过 `task_dags.metadata.final_node_key` 显式声明最终节点，避免隐式猜测“最后完成的节点”。
+- run 成功终态时，`FinalizeTaskDagRunIfAllNodesTerminal` 将 final node 的结果升格到 `task_dag_runs.metadata.final_output`：sharedfile 引用变为 `kind=file/path`，小 JSON 变为 `kind=json/result`，JSON string 变为 `kind=text/text`。
+- 缺 `final_node_key`、final node 不存在、失败/取消 run 均保持 run metadata 不变；非 object run metadata 以 `{}` 作为 merge base，避免历史脏数据回滚 finalization。
+- UI/产品后续应优先在 run/task 详情突出 `metadata.final_output`；Shared Files 页面默认折叠中间产物，只突出被 final_output 引用的文件。
+- 清理策略另立后续任务：未被 final_output 引用的 working/debug sharedfiles 可按 TTL / run 状态清理；final_output 引用文件按用户可收产物保留或走更长 TTL。
+
 ---
 
 ## 7. 风险与未解问题
@@ -312,6 +323,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 1. **F2.2 automation outputs 是否同步改造**：当前 automation 是 Execute 同步写 outputs；ADR-018 明确 A2 不改 automation，后续如需统一另立任务
 2. **多 turn 场景的 result 形状**：second TurnCompleted 到达时 ev.Result 是覆盖还是 append 到 first turn？
 3. **dogfood v4 旧卡死节点 backfill**：本计划默认不 backfill（由用户手动重跑或 task_update_node）
+4. **final output 前端与 retention**：后端 MVP 已暴露 `Run.Metadata.final_output`；UI 默认折叠中间 sharedfiles、只突出 final_output 引用文件，以及 sharedfile TTL/保留策略仍待单独实现。
 
 ---
 
@@ -508,6 +520,10 @@ ADR-018 已升 Accepted（`3e70e468` + review-fix `02009e22`）；A2 outputs 重
 
 ## 10. 变更记录
 
+- 2026-05-14 v3.0（同步 final output 后端 MVP）：
+  - **最终产物入口后端 MVP**：commit `362be7f0` 在 run finalization 同事务内读取 `task_dags.metadata.final_node_key`，把 final node 的 sharedfile/text/json 结果升格到 `task_dag_runs.metadata.final_output`；`task_get_run` 通过既有 Run.Metadata 暴露，不新增 migration/UI。
+  - **Shared Files 定位收口**：sharedfile 仍是存储层和节点协作载体；用户可收最终产物优先从 run/task 详情的 `final_output` 呈现，Shared Files 页面后续默认折叠中间产物。
+  - **边界与验证**：缺 key/缺节点/失败 run no-op，非 object run metadata 用 `{}` merge base；`go test ./cmd/mcp-orch/... -count=1`、关键 archtest、临时单 query `sqlc compile` 均通过；全目录 `sqlc compile` 仍受既有 `0083 spawning_thread_id` schema list 缺口阻塞。
 - 2026-05-13 v2.9（同步 Phase 4 dogfood 通过 + runtime follow-up）：
   - **Phase 4 dogfood 通过**：10 节点 DAG 正向 run 10/10 done；负向 `to_node_result=true` 大结果按 ADR-006 validation failure；metrics 端点读取通过
   - **dogfood 暴露的 runtime follow-up 已修复**：hook-delivered `turn.completed` 复用 DAG completion path；configured sharedfile 已存在时保留 agent-authored 内容；provider/model/effort/disabled_tools 通过 remote launcher config 传递
