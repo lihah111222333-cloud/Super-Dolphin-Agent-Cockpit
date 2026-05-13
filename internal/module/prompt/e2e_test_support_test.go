@@ -20,6 +20,10 @@ type capturingSessionBridge struct {
 
 func newMockSession(threadID string) contractpkg.Session { return &mockSession{threadID: threadID} }
 
+func newMockSessionWithRolloutPath(threadID, rolloutPath string) contractpkg.Session {
+	return &mockSession{threadID: threadID, rolloutPath: rolloutPath}
+}
+
 func (b *capturingSessionBridge) StartSession(_ context.Context, req dto.StartSessionRequest) (contractpkg.Session, error) {
 	b.startReq = req
 	if b.session == nil {
@@ -41,10 +45,13 @@ func (b *capturingSessionBridge) GetSession(string) (contractpkg.Session, error)
 
 func (b *capturingSessionBridge) RemoveSession(string) { b.session = nil }
 
-type mockSession struct{ threadID string }
+type mockSession struct {
+	threadID    string
+	rolloutPath string
+}
 
 func (s *mockSession) ThreadID() string              { return s.threadID }
-func (*mockSession) RolloutPath() string             { return "" }
+func (s *mockSession) RolloutPath() string           { return s.rolloutPath }
 func (*mockSession) Capabilities() dto.CapabilitySet { return nil }
 func (*mockSession) StartTurn(context.Context, dto.TurnRequest) (contractpkg.TurnHandle, error) {
 	return nil, errors.New("not implemented")

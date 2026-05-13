@@ -12,7 +12,6 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -551,7 +550,7 @@ func (s *service) lookupResumeState(ctx context.Context, threadID string) resume
 		state.AgentType = util.FirstNonEmpty(state.AgentType, strings.TrimSpace(binding.AgentType))
 		state.AgentMemoryScope = util.FirstNonEmpty(state.AgentMemoryScope, strings.TrimSpace(binding.AgentMemoryScope))
 		state.Provider = strings.TrimSpace(binding.Provider)
-		state.ProviderThreadID = util.FirstNonEmpty(state.ProviderThreadID, binding.ProviderThreadID)
+		state.ProviderThreadID = util.FirstNonEmpty(state.ProviderThreadID, recoverableBindingProviderThreadID(binding))
 		state.PublicThreadID = util.FirstNonEmpty(state.PublicThreadID, binding.CodexThreadID)
 		state.RolloutPath = strings.TrimSpace(binding.RolloutPath)
 		state.SessionUUID = strings.TrimSpace(binding.SessionUUID)
@@ -559,18 +558,8 @@ func (s *service) lookupResumeState(ctx context.Context, threadID string) resume
 		state.CodexInstanceKey = strings.TrimSpace(binding.CodexInstanceKey)
 		state.CodexModelProvider = strings.TrimSpace(binding.CodexModelProvider)
 		state.CWD = util.FirstNonEmpty(state.CWD, binding.Cwd)
-		// SessionUUID is updated asynchronously by onAgentLaunched when the
-		// real provider UUID arrives (e.g. claude system:init).  If it
-		// differs from ProviderThreadID the latter is stale — prefer
-		// SessionUUID so resume uses the correct provider session.
-		// However, SessionUUID itself can be an agent_id placeholder
-		// (e.g. "agent_17754...") that is NOT a valid provider UUID.
-		// Only override when SessionUUID looks like a real UUID.
-		if state.SessionUUID != "" &&
-			state.SessionUUID != state.ProviderThreadID &&
-			identifier.LooksLikeUUID(state.SessionUUID) {
-			state.ProviderThreadID = state.SessionUUID
-		}
+		// SessionUUID is useful for diagnostics, but it is only a resumable
+		// provider_thread_id when the corresponding CLI history file exists.
 	}
 	state.StoredCWD = state.CWD
 	return state

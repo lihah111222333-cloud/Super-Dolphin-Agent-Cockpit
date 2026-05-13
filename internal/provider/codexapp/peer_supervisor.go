@@ -293,9 +293,10 @@ func (s *PeerSupervisor) superviseOne(ctx context.Context, name string, initial 
 
 		select {
 		case <-ctx.Done():
-			// Let shutdown close the pipe / escalate signals so Wait returns;
-			// we don't block this goroutine here — the outer wg.Wait in
-			// shutdown joins once Wait() unblocks and waitCh drains.
+			// Close the current handle here as well as in shutdown. A cancel can
+			// race between Launch returning and replacePeer updating the
+			// supervisor snapshot, so shutdown may not yet know about current.
+			s.closePeerPipe(current)
 			<-waitCh
 			return
 		case waitErr := <-waitCh:
@@ -382,10 +383,17 @@ func (s *PeerSupervisor) shutdown(wg *sync.WaitGroup) {
 // is treated as a benign race (handle already drained by Wait) and not logged.
 func (s *PeerSupervisor) closePeerPipes(peers []peerHandle) {
 	for _, h := range peers {
-		if err := h.ClosePipe(); err != nil && !errors.Is(err, os.ErrClosed) {
-			s.logger.Debug("peer_supervisor: close stdin pipe",
-				"peer", h.Name(), "error", err)
-		}
+		s.closePeerPipe(h)
+	}
+}
+
+func (s *PeerSupervisor) closePeerPipe(h peerHandle) {
+	if h == nil {
+		return
+	}
+	if err := h.ClosePipe(); err != nil && !errors.Is(err, os.ErrClosed) {
+		s.logger.Debug("peer_supervisor: close stdin pipe",
+			"peer", h.Name(), "error", err)
 	}
 }
 

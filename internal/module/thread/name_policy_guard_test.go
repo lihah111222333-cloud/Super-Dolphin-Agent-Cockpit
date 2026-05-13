@@ -6,14 +6,13 @@ package thread
 //   Agent name MUST only come from:
 //     1. An explicit `name` field in StartRequest (set by main agent or frontend).
 //     2. The frontend calling `thread/name/set` RPC to rename.
-//     3. Auto-naming in completeStart: ExtractTitle(prompt) or "对话 #N" fallback.
 //
 //   At the PARSING / NORMALIZATION / ASSEMBLY layers the `prompt` field
-//   MUST NOT leak into the `Name` field.  Auto-naming happens later,
-//   inside completeStart, after assembly.
+//   MUST NOT leak into the `Name` field.  The service layer must also not
+//   invent a default persisted name like "新对话".
 //
 // If you are reading this because a test broke: the layer-isolation policy is
-// intentional. DO NOT move auto-naming into the parsing or assembly layers.
+// intentional. DO NOT reintroduce prompt/default-name derivation.
 
 import (
 	"context"
@@ -138,14 +137,14 @@ func TestNamePolicy_NormalizeTruncatesLongName(t *testing.T) {
 // §3  Service.Start: end-to-end guard on launch request name
 // ---------------------------------------------------------------------------
 
-func TestNamePolicy_StartWithoutNameGetsAutoName(t *testing.T) {
+func TestNamePolicy_StartWithoutNameStaysUnnamed(t *testing.T) {
 	t.Parallel()
 
 	threads := &stubThreadStore{}
 	sessions := &stubSessionProvider{}
 	starter := &startOnlySessionStarter{
 		onStart: func(_ context.Context, _ dto.StartSessionRequest) (contract.Session, error) {
-			session := &stubSession{threadID: "provider-thread-noname"}
+			session := &stubSession{threadID: "019d5f6b-fb3c-7760-9d6f-54005553f604"}
 			sessions.session = session
 			return session, nil
 		},
@@ -160,10 +159,11 @@ func TestNamePolicy_StartWithoutNameGetsAutoName(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	// Auto-naming: "hello world" is too short for ExtractTitle (≤2 display units) → fallback.
-	wantName := defaultThreadName()
-	if orch.launchReq.Name != wantName {
-		t.Fatalf("launch name = %q, want %q (auto-naming fallback)", orch.launchReq.Name, wantName)
+	if orch.launchReq.Name != "" {
+		t.Fatalf("launch name = %q, want empty", orch.launchReq.Name)
+	}
+	if threads.upsert.Name != "" || threads.upsert.Prompt != "" {
+		t.Fatalf("persisted name/prompt = %q/%q, want empty", threads.upsert.Name, threads.upsert.Prompt)
 	}
 }
 
@@ -174,7 +174,7 @@ func TestNamePolicy_StartWithExplicitNamePropagatesToLaunch(t *testing.T) {
 	sessions := &stubSessionProvider{}
 	starter := &startOnlySessionStarter{
 		onStart: func(_ context.Context, _ dto.StartSessionRequest) (contract.Session, error) {
-			session := &stubSession{threadID: "provider-thread-named"}
+			session := &stubSession{threadID: "019d5f6b-fb3c-7760-9d6f-54005553f605"}
 			sessions.session = session
 			return session, nil
 		},

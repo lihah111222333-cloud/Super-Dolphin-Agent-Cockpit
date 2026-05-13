@@ -10,6 +10,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
@@ -20,6 +21,8 @@ import (
 func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 	t.Parallel()
 
+	const providerThreadID = "11111111-2222-3333-4444-555555555551"
+	rolloutPath := writeExistingProviderHistoryFile(t)
 	threads := &stubThreadStore{thread: &threadstore.Thread{
 		ThreadID:      "thread-1",
 		AgentID:       "agent-1",
@@ -33,8 +36,9 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:            "agent-1",
 		Provider:           "codex",
-		ProviderThreadID:   "provider-thread-1",
+		ProviderThreadID:   providerThreadID,
 		CodexThreadID:      "thread-1",
+		RolloutPath:        rolloutPath,
 		Cwd:                "/repo",
 		CodexHome:          "/repo/.codex",
 		CodexInstanceKey:   "default",
@@ -52,13 +56,13 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 			if req.ThreadID != "thread-1" {
 				t.Fatalf("ThreadID = %q, want thread-1", req.ThreadID)
 			}
-			if req.ProviderThreadID != "provider-thread-1" {
-				t.Fatalf("ProviderThreadID = %q, want provider-thread-1", req.ProviderThreadID)
+			if req.ProviderThreadID != providerThreadID {
+				t.Fatalf("ProviderThreadID = %q, want %s", req.ProviderThreadID, providerThreadID)
 			}
 			if req.Model != "override-model" {
 				t.Fatalf("Model = %q, want override-model", req.Model)
 			}
-			session := &stubSession{threadID: "provider-thread-1"}
+			session := &stubSession{threadID: providerThreadID, rolloutPath: rolloutPath}
 			sessions.session = session
 			return session, nil
 		},
@@ -79,8 +83,8 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 	if result.ThreadID != "thread-1" {
 		t.Fatalf("ThreadID = %q, want thread-1", result.ThreadID)
 	}
-	if result.SessionID != "provider-thread-1" {
-		t.Fatalf("SessionID = %q, want provider-thread-1", result.SessionID)
+	if result.SessionID != providerThreadID {
+		t.Fatalf("SessionID = %q, want %s", result.SessionID, providerThreadID)
 	}
 	if result.Status != "resumed" {
 		t.Fatalf("Status = %q, want resumed", result.Status)
@@ -111,9 +115,75 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 	}
 }
 
+func TestServiceResumeDropsDefaultPlaceholderName(t *testing.T) {
+	t.Parallel()
+
+	const providerThreadID = "11111111-2222-3333-4444-555555555556"
+	const agentID = "agent-placeholder-name"
+	rolloutPath := writeExistingProviderHistoryFile(t)
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:        agentID,
+		AgentID:         agentID,
+		Name:            defaultThreadName(),
+		Prompt:          defaultThreadName(),
+		Model:           "gpt-5.5",
+		Cwd:             "/repo",
+		CreatedAt:       123,
+		Status:          statusCreated,
+		ManuallyRenamed: false,
+	}}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          agentID,
+		Provider:         "codex",
+		ProviderThreadID: providerThreadID,
+		CodexThreadID:    agentID,
+		RolloutPath:      rolloutPath,
+		Cwd:              "/repo",
+	}}
+	sessions := &stubSessionProvider{}
+	starter := &stubSessionStarter{
+		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+			if req.ProviderThreadID != providerThreadID {
+				t.Fatalf("ProviderThreadID = %q, want %s", req.ProviderThreadID, providerThreadID)
+			}
+			session := &stubSession{threadID: providerThreadID, rolloutPath: rolloutPath}
+			sessions.session = session
+			return session, nil
+		},
+	}
+	orch := &stubThreadOrchestration{}
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)
+	var startedEvents []threaddto.Started
+	svc.emitStarted = func(ev threaddto.Started) {
+		startedEvents = append(startedEvents, ev)
+	}
+
+	result, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: agentID})
+	if err != nil {
+		t.Fatalf("Resume() error = %v", err)
+	}
+	if result.ThreadID != agentID || result.SessionID != providerThreadID {
+		t.Fatalf("Resume() result = %#v", result)
+	}
+	if orch.launchReq.Name != "" {
+		t.Fatalf("launch name = %q, want empty", orch.launchReq.Name)
+	}
+	if threads.upsert.Name != "" || threads.upsert.Prompt != "" {
+		t.Fatalf("persisted name/prompt = %q/%q, want empty", threads.upsert.Name, threads.upsert.Prompt)
+	}
+	if len(startedEvents) != 1 {
+		t.Fatalf("thread.Started events = %d, want 1", len(startedEvents))
+	}
+	if startedEvents[0].Name != "" {
+		t.Fatalf("thread.Started name = %q, want empty", startedEvents[0].Name)
+	}
+}
+
 func TestServiceResumeBackfillsDefaultCodexIdentityWhenOptedIn(t *testing.T) {
 	codexHome := t.TempDir()
 	t.Setenv(legacyDefaultCodexHomeEnvVar, legacyDefaultCodexHomeEnabled)
+	const providerThreadID = "11111111-2222-3333-4444-555555555552"
+	rolloutPath := writeExistingProviderHistoryFile(t)
 	threads := &stubThreadStore{thread: &threadstore.Thread{
 		ThreadID:  "thread-1",
 		AgentID:   "agent-1",
@@ -126,8 +196,9 @@ func TestServiceResumeBackfillsDefaultCodexIdentityWhenOptedIn(t *testing.T) {
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-1",
 		Provider:         "codex",
-		ProviderThreadID: "provider-thread-1",
+		ProviderThreadID: providerThreadID,
 		CodexThreadID:    "thread-1",
+		RolloutPath:      rolloutPath,
 		Cwd:              "/repo",
 		CodexHome:        codexHome,
 	}}
@@ -145,7 +216,7 @@ func TestServiceResumeBackfillsDefaultCodexIdentityWhenOptedIn(t *testing.T) {
 					defaultCodexInstanceKey,
 					defaultCodexModelProvider)
 			}
-			session := &stubSession{threadID: "provider-thread-1"}
+			session := &stubSession{threadID: providerThreadID, rolloutPath: rolloutPath}
 			sessions.session = session
 			return session, nil
 		},
@@ -172,6 +243,8 @@ func TestServiceResumeBackfillsDefaultCodexIdentityWhenOptedIn(t *testing.T) {
 func TestServiceResumePrefersStoredPromptSnapshot(t *testing.T) {
 	t.Parallel()
 
+	const providerThreadID = "11111111-2222-3333-4444-555555555553"
+	rolloutPath := writeExistingProviderHistoryFile(t)
 	stored := threadstore.PromptSnapshot{
 		DisplayName:           "resume",
 		BaseInstructions:      "stored base",
@@ -196,8 +269,9 @@ func TestServiceResumePrefersStoredPromptSnapshot(t *testing.T) {
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-1",
 		Provider:         "codex",
-		ProviderThreadID: "provider-thread-1",
+		ProviderThreadID: providerThreadID,
 		CodexThreadID:    "thread-1",
+		RolloutPath:      rolloutPath,
 		Cwd:              "/repo",
 	}}
 	sessions := &stubSessionProvider{}
@@ -206,7 +280,7 @@ func TestServiceResumePrefersStoredPromptSnapshot(t *testing.T) {
 			if req.PromptSnapshot.BaseInstructions != stored.BaseInstructions || req.PromptSnapshot.DeveloperInstructions != stored.DeveloperInstructions {
 				t.Fatalf("PromptSnapshot = %#v, want stored snapshot", req.PromptSnapshot)
 			}
-			session := &stubSession{threadID: "provider-thread-1"}
+			session := &stubSession{threadID: providerThreadID, rolloutPath: rolloutPath}
 			sessions.session = session
 			return session, nil
 		},
@@ -232,6 +306,8 @@ func TestServiceResumeRehydratesClaudeOverrideConfig(t *testing.T) {
 
 	model := "claude-sonnet-4-20250514[1m]"
 	effort := "max"
+	const providerThreadID = "11111111-2222-3333-4444-555555555554"
+	rolloutPath := writeExistingProviderHistoryFile(t)
 	threads := &stubThreadStore{thread: &threadstore.Thread{
 		ThreadID:       "thread-1",
 		AgentID:        "agent-1",
@@ -245,8 +321,9 @@ func TestServiceResumeRehydratesClaudeOverrideConfig(t *testing.T) {
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-1",
 		Provider:         "claude",
-		ProviderThreadID: "provider-thread-1",
+		ProviderThreadID: providerThreadID,
 		CodexThreadID:    "thread-1",
+		RolloutPath:      rolloutPath,
 		Cwd:              "/repo",
 	}}
 	sessions := &stubSessionProvider{}
@@ -267,7 +344,7 @@ func TestServiceResumeRehydratesClaudeOverrideConfig(t *testing.T) {
 			if req.ConfigOverride.Effort == nil || *req.ConfigOverride.Effort != effort {
 				t.Fatalf("ConfigOverride.Effort = %#v, want %q", req.ConfigOverride.Effort, effort)
 			}
-			session := &stubSession{threadID: "provider-thread-1"}
+			session := &stubSession{threadID: providerThreadID, rolloutPath: rolloutPath}
 			sessions.session = session
 			return session, nil
 		},
@@ -290,6 +367,8 @@ func TestServiceResumeRehydratesClaudeOverrideConfig(t *testing.T) {
 func TestServiceResumeClaudeWithoutStoredOverrideDoesNotInventConfigOverride(t *testing.T) {
 	t.Parallel()
 
+	const providerThreadID = "11111111-2222-3333-4444-555555555555"
+	rolloutPath := writeExistingProviderHistoryFile(t)
 	threads := &stubThreadStore{thread: &threadstore.Thread{
 		ThreadID:      "thread-1",
 		AgentID:       "agent-1",
@@ -303,8 +382,9 @@ func TestServiceResumeClaudeWithoutStoredOverrideDoesNotInventConfigOverride(t *
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-1",
 		Provider:         "claude",
-		ProviderThreadID: "provider-thread-1",
+		ProviderThreadID: providerThreadID,
 		CodexThreadID:    "thread-1",
+		RolloutPath:      rolloutPath,
 		Cwd:              "/repo",
 	}}
 	sessions := &stubSessionProvider{}
@@ -319,7 +399,7 @@ func TestServiceResumeClaudeWithoutStoredOverrideDoesNotInventConfigOverride(t *
 			if req.ConfigOverride.Model != nil || req.ConfigOverride.Effort != nil {
 				t.Fatalf("ConfigOverride = %#v, want empty", req.ConfigOverride)
 			}
-			session := &stubSession{threadID: "provider-thread-1"}
+			session := &stubSession{threadID: providerThreadID, rolloutPath: rolloutPath}
 			sessions.session = session
 			return session, nil
 		},
@@ -341,6 +421,7 @@ func TestBackgroundResumeIfNeededRehydratesClaudeOverrideConfig(t *testing.T) {
 	model := "claude-sonnet-4-20250514[1m]"
 	effort := "max"
 	const providerThreadID = "11111111-2222-3333-4444-555555555555"
+	rolloutPath := writeExistingProviderHistoryFile(t)
 	threads := &stubThreadStore{thread: &threadstore.Thread{
 		ThreadID:       "thread-1",
 		AgentID:        "agent-1",
@@ -356,6 +437,7 @@ func TestBackgroundResumeIfNeededRehydratesClaudeOverrideConfig(t *testing.T) {
 		Provider:         "claude",
 		ProviderThreadID: providerThreadID,
 		CodexThreadID:    "thread-1",
+		RolloutPath:      rolloutPath,
 		Cwd:              "/repo",
 	}}
 	sessions := &stubSessionProvider{}
@@ -366,7 +448,7 @@ func TestBackgroundResumeIfNeededRehydratesClaudeOverrideConfig(t *testing.T) {
 			case resumeReqCh <- req:
 			default:
 			}
-			session := &stubSession{threadID: providerThreadID}
+			session := &stubSession{threadID: providerThreadID, rolloutPath: rolloutPath}
 			sessions.session = session
 			return session, nil
 		},
@@ -718,6 +800,7 @@ func (p *stubSessionProvider) RemoveSession(agentID string) {
 
 type stubSession struct {
 	threadID           string
+	rolloutPath        string
 	allowedModels      []string
 	configureErr       error
 	configurePatch     dto.ThreadConfigPatch
@@ -731,7 +814,7 @@ type stubSession struct {
 }
 
 func (s *stubSession) ThreadID() string    { return s.threadID }
-func (s *stubSession) RolloutPath() string { return "" }
+func (s *stubSession) RolloutPath() string { return s.rolloutPath }
 
 func (s *stubSession) Capabilities() dto.CapabilitySet { return s.caps }
 

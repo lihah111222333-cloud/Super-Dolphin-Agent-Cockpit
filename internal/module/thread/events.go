@@ -125,6 +125,11 @@ func (s *service) processAgentLaunched(ev agentdto.AgentLaunched) {
 	if agentID == "" || sessionID == "" || !identifier.LooksLikeUUID(sessionID) {
 		return
 	}
+	s.recordAgentLaunchSessionUUID(ctx, binding, threadID, agentID, sessionID)
+	s.recordAgentLaunchProviderThreadID(ctx, binding, threadID, agentID, sessionID)
+}
+
+func (s *service) recordAgentLaunchSessionUUID(ctx context.Context, binding *bindingstore.Binding, threadID, agentID, sessionID string) {
 	if strings.TrimSpace(binding.SessionUUID) == sessionID {
 		return
 	}
@@ -138,6 +143,40 @@ func (s *service) processAgentLaunched(ev agentdto.AgentLaunched) {
 	}
 	binding.SessionUUID = sessionID
 	s.logger.Info("thread: updated session_uuid from agent event", "thread_id", threadID, "agent_id", agentID, "session_uuid", sessionID)
+}
+
+func (s *service) recordAgentLaunchProviderThreadID(ctx context.Context, binding *bindingstore.Binding, threadID, agentID, sessionID string) {
+	providerThreadID := normalizeProviderThreadID(binding.Provider, sessionID)
+	if providerThreadID == "" {
+		return
+	}
+	current := strings.TrimSpace(binding.ProviderThreadID)
+	if current == providerThreadID {
+		return
+	}
+	if current != "" && current != agentID && identifier.LooksLikeUUID(current) {
+		return
+	}
+	if !bindingHasProviderHistoryForUUID(binding, providerThreadID) {
+		if s.logger != nil {
+			s.logger.Info("thread: provider_thread_id from agent event is not recoverable",
+				"thread_id", threadID,
+				"agent_id", agentID,
+				"provider_thread_id", providerThreadID,
+				"rollout_path", binding.RolloutPath)
+		}
+		return
+	}
+	if err := s.bindingStore.UpdateProviderThreadID(ctx, bindingstore.UpdateProviderThreadIDParams{
+		AgentID:          agentID,
+		ProviderThreadID: providerThreadID,
+		UpdatedAt:        time.Now().Unix(),
+	}); err != nil {
+		s.logger.Warn("thread: update provider_thread_id from agent event failed", "thread_id", threadID, "agent_id", agentID, "provider_thread_id", providerThreadID, "error", err)
+		return
+	}
+	binding.ProviderThreadID = providerThreadID
+	s.logger.Info("thread: updated provider_thread_id from agent event", "thread_id", threadID, "agent_id", agentID, "provider_thread_id", providerThreadID)
 }
 
 func (s *service) syncAgentLaunchCWD(ctx context.Context, binding *bindingstore.Binding, threadID, nextCWD string) {

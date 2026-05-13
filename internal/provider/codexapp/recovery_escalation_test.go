@@ -38,6 +38,18 @@ func TestMaxRecoveryAttemptsIsTwo(t *testing.T) {
 	}
 }
 
+func TestNewSessionTransportReconnectAttemptsIsTwo(t *testing.T) {
+	t.Parallel()
+	_, url := newRecoveryOrderServer(t)
+	s := newTestRuntimeSession(t, url)
+	if s.recovery == nil {
+		t.Fatal("newSession() recovery manager is nil")
+	}
+	if got := s.recovery.maxRetry; got != maxRecoveryAttempts {
+		t.Fatalf("recovery.maxRetry = %d, want %d", got, maxRecoveryAttempts)
+	}
+}
+
 // TestAttemptRecoveryExhaustsAtTwo confirms the escalation boundary:
 // after maxRecoveryAttempts (2), the (count+1)th call is immediately
 // rejected with "max recovery attempts exceeded" and all pending turns

@@ -51,7 +51,10 @@ type bindingEntry struct {
 	AgentID          string
 	Provider         string
 	ProviderThreadID string
+	CodexThreadID    string
+	RolloutPath      string
 	SessionUUID      string
+	CodexHome        string
 	Cwd              string
 }
 

@@ -17,6 +17,7 @@ import (
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 )
 
 const (
@@ -453,16 +454,69 @@ func historyTargetID(binding *bindingstore.Binding, threadID string) string {
 	return util.FirstNonEmpty(binding.ProviderThreadID, publicThreadID, agentID, requestedID)
 }
 
+func recoverableProviderThreadID(provider, providerUUID, publicThreadID, rolloutPath, codexHome string) string {
+	providerThreadID := normalizeProviderThreadID(provider, providerUUID)
+	if providerThreadID == "" || !identifier.LooksLikeUUID(providerThreadID) {
+		return ""
+	}
+	if _, err := historyjsonl.ExistingProviderPath(historyjsonl.ReadRequest{
+		Provider:         provider,
+		RolloutPath:      rolloutPath,
+		ThreadID:         publicThreadID,
+		ProviderThreadID: providerThreadID,
+		SessionUUID:      providerThreadID,
+		CodexHome:        codexHome,
+	}); err != nil {
+		return ""
+	}
+	return providerThreadID
+}
+
+func recoverableBindingProviderThreadID(binding *bindingstore.Binding) string {
+	if binding == nil {
+		return ""
+	}
+	for _, candidate := range []string{binding.ProviderThreadID, binding.SessionUUID} {
+		providerThreadID := normalizeProviderThreadID(binding.Provider, candidate)
+		if providerThreadID == "" || !identifier.LooksLikeUUID(providerThreadID) {
+			continue
+		}
+		if bindingHasProviderHistoryForUUID(binding, providerThreadID) {
+			return providerThreadID
+		}
+	}
+	return ""
+}
+
+func bindingHasProviderHistoryForUUID(binding *bindingstore.Binding, providerThreadID string) bool {
+	if binding == nil {
+		return false
+	}
+	providerThreadID = normalizeProviderThreadID(binding.Provider, providerThreadID)
+	if providerThreadID == "" || !identifier.LooksLikeUUID(providerThreadID) {
+		return false
+	}
+	_, err := historyjsonl.ExistingProviderPath(historyjsonl.ReadRequest{
+		Provider:         binding.Provider,
+		RolloutPath:      binding.RolloutPath,
+		ThreadID:         binding.CodexThreadID,
+		ProviderThreadID: providerThreadID,
+		SessionUUID:      providerThreadID,
+		CodexHome:        binding.CodexHome,
+	})
+	return err == nil
+}
+
 func toRef(thread threadstore.Thread) Ref {
 	name := strings.TrimSpace(util.FirstNonEmpty(thread.Name, thread.Prompt))
-	if name == "" {
-		name = util.FirstNonEmpty(strings.TrimSpace(thread.ThreadID), strings.TrimSpace(thread.AgentID))
-	}
 	return Ref{
 		ID:      strings.TrimSpace(thread.ThreadID),
 		Name:    name,
 		AgentID: strings.TrimSpace(thread.AgentID),
 		Status:  strings.TrimSpace(thread.Status),
+		CWD:     strings.TrimSpace(thread.Cwd),
+		Model:   strings.TrimSpace(thread.Model),
+		Port:    int(thread.Port),
 	}
 }
 
@@ -529,5 +583,6 @@ func (s *service) readPersistedMessages(ctx context.Context, threadID string, bi
 		ThreadID:         threadID,
 		ProviderThreadID: binding.ProviderThreadID,
 		SessionUUID:      binding.SessionUUID,
+		CodexHome:        binding.CodexHome,
 	})
 }

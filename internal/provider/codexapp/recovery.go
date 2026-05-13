@@ -37,11 +37,13 @@ type turnReplayState struct {
 }
 
 func (r *recoveryManager) CheckHealth(ctx context.Context) error {
-	if r.transport == nil || !r.transport.Running() {
+	if r.transport == nil {
 		return errors.New("codexapp: transport not running")
 	}
-	_, err := callWithTimeout(ctx, r.transport, 3*time.Second, "app/list", map[string]any{})
-	return err
+	// Keep liveness local to the app-server transport. Capability calls such
+	// as app/list depend on ChatGPT connectors/catalog availability and must
+	// not decide whether this session is alive.
+	return r.transport.CheckHealth(ctx)
 }
 
 func (r *recoveryManager) Reconnect(ctx context.Context) error {

@@ -333,6 +333,20 @@ func (s *service) applyTurnStarted(ev turndto.TurnStarted) {
 			ID:      threadID,
 			AgentID: agentID,
 		})
+		for i := range s.state.Threads {
+			if s.state.Threads[i].ID == threadID {
+				s.state.Threads[i].LastMessage = ""
+				break
+			}
+		}
+		if agentID != "" {
+			for i := range s.state.Agents {
+				if s.state.Agents[i].ID == agentID {
+					s.state.Agents[i].LastMessage = ""
+					break
+				}
+			}
+		}
 		s.clearThreadOverlayLocked(threadID, overlayTypeMCPStartup)
 	}, func() uidto.UIThreadPatch {
 		if duplicate {
