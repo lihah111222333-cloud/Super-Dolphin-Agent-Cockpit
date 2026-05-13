@@ -179,6 +179,8 @@ f972627d  T0.8 doc-sync script
 - T0.1 / T0.2 / T0.3 → 需本地 PG 环境（T1.2 / T3.1 / T3.2 已完成）
 - T5.x / T6.1 / T7.1 / T8.x → 需前端方案用户审认过
 
+**UI 决策台账**：2026-05-14 已新增 `docs/plans/dag-ui-decision-ledger.md`，集中记录 DAG UI 已锁边界、仍需用户拍板项、旧 P10 愿景降级项与推荐实现顺序；后续前端任务开工前先对齐该台账。
+
 详见审查报告 `handoff/t-phase-audit-{pass1-adr,pass2-layer,pass3-tests,pass4-t0-closed,synthesis,final-verdict}.md`。
 
 ---
@@ -273,7 +275,7 @@ f972627d  T0.8 doc-sync script
 | **F8.2** | UI 表单下拉框接 `list_models` / `list_prompt_templates` | 同上 | e2e：下拉框数据正确 | F8.1, T4.1-T4.4 | M | N |
 | **F9.1** | UI mermaid 拓扑图（DAG → mermaid 字符串） | `components/DagTopology.js` 新建 | e2e：截图对比 | T5.2 | M | Y |
 | **F10.1** | UI run 历史时间轴 | `components/RunHistoryPanel.js` 新建 | e2e：点 run 看那次状态 | T3.2 | M | Y |
-| **F11.1** | UI sharedfile 锁可视化（节点 reads/writes 联动） | `pages/SharedFilesPage.js` 修改 | e2e：sharedfile 显示"被节点 X 占用" | F1.3 | M | Y |
+| **F11.1** | UI sharedfile 锁可视化（节点 reads/writes 联动；final_output 高亮已由 H14 完成，F11 不再重复承担） | `pages/SharedFilesPage.js` 修改 | e2e：sharedfile 显示"被节点 X 占用" | F1.3 | M | Y |
 | **F12.1** | 智能重试 strategy dispatcher：`by_class` 分发（capability→escalate_model / validation→append_error / 关键节点→replan spawn planner） | `retry_strategy.go` 修改 | 集成测试：模拟 capability 失败 → 升级到 Opus 重跑；validation 失败 → schema 错误注入重跑；replan 策略 spawn planner agent | F1.4 | L | N |
 | **F13.1** | lifecycle hooks 真实触发（before/after/on_state_change/on_failure） | `node_executor_dispatch.go` 新建 | 集成测试：hooks 在正确时机被调 | S1.1, S10 | M | Y |
 | ~~**F14.1**~~（工具升级）✅ done | `list_models` 改读 provider registry（PT-1）+ env 覆盖 + fx fallback 到 StaticRegistry 防止启动失败 + Reload error 日志化 | `cmd/mcp-orch/tools/modelregistry/`（新建包：registry.go + models.yaml + test）+ `cmd/mcp-orch/tools/registry_tools.go`（HandleListModels 改 Registry 注入）+ `cmd/mcp-orch/runtime.go` fx provider / commits `9a395e5e` `2cbf389f` `737fcc7b` `90195458` + merge `0b3078f4`（2026-05-12 第五轮 codex 实装 + claude 互审两视角抓 2 blocker） | 单测：env 覆盖 / yaml 损坏保留旧数据 / fx fallback / 增改 yaml 即时反映 | T4.1 | S | Y |
@@ -347,7 +349,7 @@ f972627d  T0.8 doc-sync script
 **Need 2（AI 帮你设计流程）落地必备 task**：
 - S1.1 ✅, S2.2 ✅, S4 ✅, S5 ✅（NodeExecutor + ops + typed schema）
 - T2.1 ✅ / T2.2 ✅ / T4.1 ✅ / T4.2 ✅ / T4.3 ✅ / T4.4 ✅ / T5.2 / T8.1 / T8.2（ops 工具 + registry + UI 按钮）
-- F1.1-F1.3, F4.1-F4.5, **F7.1 ✅ / F7.2 / F7.3（新增 seed 库 ← M3 真打通最后一公里）**, F8.1, F8.2（Executor + ApplyOps + 设计师 prompt + 微技能 seed + 表单）
+- F1.1-F1.3 ✅, F4.1-F4.5 ✅, **F7.1 ✅ / F7.2 ✅ / F7.3 ✅（seed 库已落地）**, F8.1, F8.2（剩余主缺口是 UI 微调表单与下拉选择）
 
 ---
 
