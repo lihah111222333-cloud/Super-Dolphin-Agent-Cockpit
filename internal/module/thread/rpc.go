@@ -153,6 +153,33 @@ func logStartRPCReceived(p startParams) {
 		"config_effort", configTraceString(cfg, "effort"),
 		"has_config", len(cfg) > 0,
 	)
+	if shouldWarnStartProviderIdentity(p, cfg) {
+		pkglogger.Warn("thread/start: provider identity trace",
+			"agent_id", p.AgentID,
+			"provider", p.Provider,
+			"model_provider", p.ModelProvider,
+			"model", p.Model,
+			"effort", p.Effort,
+			"config_provider", configTraceString(cfg, "provider"),
+			"config_model_provider", configTraceString(cfg, "modelProvider"),
+			"config_codex_model_provider", configTraceString(cfg, "codexModelProvider"),
+			"config_model", configTraceString(cfg, "model"),
+			"config_effort", configTraceString(cfg, "effort"),
+			"has_config", len(cfg) > 0,
+		)
+	}
+}
+
+func shouldWarnStartProviderIdentity(p startParams, cfg map[string]any) bool {
+	if strings.EqualFold(strings.TrimSpace(p.Provider), "codex") {
+		return true
+	}
+	if strings.TrimSpace(p.ModelProvider) != "" {
+		return true
+	}
+	return configTraceString(cfg, "provider") != "" ||
+		configTraceString(cfg, "modelProvider") != "" ||
+		configTraceString(cfg, "codexModelProvider") != ""
 }
 
 func buildStartRequestFromParams(p startParams) StartRequest {
