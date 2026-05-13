@@ -85,7 +85,9 @@ func autoMigrate(ctx context.Context, pool *pgxpool.Pool, projectRoot string) er
 //   - 0084: AI 设计师中文 prompt seed（F7.1）；dispatcher wiring batch 默认依赖；
 //   - dispatcher wiring batch（dispatch-wire）：UpdateRunningTaskDagNodeStatus
 //     fence 放宽 + dispatcher 路由 NodeExecutor 抽象，要求 0083 spawning_thread_id
-//     字段已在位；最高强依赖落在 0084。
+//     字段已在位；
+//   - 0088: 修复 0012 增量路径遗漏的 agent_threads baseline 兼容列，
+//     当前 thread sqlc 查询会无条件读取这些列。
 //
 // MinRequiredSchemaVersion is the lower bound this binary needs in
 // schema_migrations.version to operate correctly. Bumping it here forces a
@@ -93,7 +95,7 @@ func autoMigrate(ctx context.Context, pool *pgxpool.Pool, projectRoot string) er
 // that has not had `make migrate` (or the autoMigrate path) reach the
 // required level. Update the constant together with the corresponding
 // migration file when adding a hard dependency.
-const MinRequiredSchemaVersion = 84
+const MinRequiredSchemaVersion = 88
 
 // schemaVersionQueryRow 是 verifyMinSchemaVersion 的最小依赖面。
 // *pgxpool.Pool 天然满足；测试可注入纯内存桩。
@@ -237,10 +239,10 @@ const migrationSplitSentinel = "-- SPLIT --"
 func executeMigration(ctx context.Context, pool *pgxpool.Pool, dir, f string) error {
 	c, err := os.ReadFile(filepath.Join(dir, f))
 	if err != nil {
-		return err
+		return fmt.Errorf("read migration %s: %w", f, err)
 	}
 	if err := execMigrationBody(ctx, pool, string(c)); err != nil {
-		return err
+		return fmt.Errorf("execute migration %s: %w", f, err)
 	}
 	var version int
 	_, _ = fmt.Sscanf(f, "%d_", &version)
@@ -263,15 +265,26 @@ func execMigrationBody(ctx context.Context, pool *pgxpool.Pool, body string) err
 // 非空段（原本 trim 前的 segment，保留原 start/end 空白以不干扰 PG 解析）。
 // 无 sentinel 时返 [body] 一项（这使 exec 路径与原语义一致）。
 func splitMigrationBody(body string) []string {
-	if !strings.Contains(body, migrationSplitSentinel) {
-		return []string{body}
-	}
-	parts := strings.Split(body, migrationSplitSentinel)
-	out := make([]string, 0, len(parts))
-	for _, segment := range parts {
-		if strings.TrimSpace(segment) == "" {
+	var (
+		out   []string
+		part  strings.Builder
+		found bool
+	)
+	for _, line := range strings.SplitAfter(body, "\n") {
+		if strings.TrimSpace(line) == migrationSplitSentinel {
+			found = true
+			if segment := part.String(); strings.TrimSpace(segment) != "" {
+				out = append(out, segment)
+			}
+			part.Reset()
 			continue
 		}
+		part.WriteString(line)
+	}
+	if !found {
+		return []string{body}
+	}
+	if segment := part.String(); strings.TrimSpace(segment) != "" {
 		out = append(out, segment)
 	}
 	return out

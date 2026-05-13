@@ -18,6 +18,8 @@ import (
 
 type service struct {
 	logger                *slog.Logger
+	threads               contract.ThreadLister
+	agents                contract.OrchestrationService
 	preferences           uipreference.Store
 	bindings              bindingLookup
 	runtimeConfig         runtimeConfigLookup
@@ -70,16 +72,14 @@ func NewService(
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
-	state, err := buildInitialState(context.Background(), threads, agents)
-	if err != nil {
-		return nil, nil, err
-	}
 	svc := &service{
 		logger:                logger,
+		threads:               threads,
+		agents:                agents,
 		preferences:           preferences,
 		bindings:              bindings,
 		runtimeConfig:         runtimeCfg,
-		state:                 state,
+		state:                 UIState{},
 		workspaceByKey:        map[string]WorkspaceRunSummary{},
 		activityByThread:      map[string]*threadActivity{},
 		overlayExpiryByThread: map[string]time.Time{},
@@ -91,6 +91,22 @@ func NewService(
 	}
 	return svc, svc, nil
 }
+
+func (s *service) loadInitialState(ctx context.Context) error {
+	if s == nil {
+		return nil
+	}
+	state, err := buildInitialState(ctx, s.threads, s.agents)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.state.Threads = state.Threads
+	s.state.Agents = state.Agents
+	s.mu.Unlock()
+	return nil
+}
+
 func buildInitialState(ctx context.Context, threads contract.ThreadLister, agents contract.OrchestrationService) (UIState, error) {
 	state := UIState{}
 	if threads != nil {
