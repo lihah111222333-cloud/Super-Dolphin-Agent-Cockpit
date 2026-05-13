@@ -2,7 +2,6 @@ package format
 
 import (
 	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -299,6 +298,12 @@ func FoldingRanges(items []protocol.FoldingRange) []protocol.FoldingRange {
 	return out
 }
 
+// URIToPath converts a file:// URI to a display path. Paths are always
+// returned absolute (with forward slashes) so that consumers don't need
+// to guess what "workspace root" the path is relative to; an earlier
+// version called tryMakeRelative using mcp-lsp's startup os.Getwd(),
+// which produced misleading ../../other-project/foo.go output when the
+// caller's binding cwd differed from the manager startup directory.
 func URIToPath(uri string) string {
 	trimmed := strings.TrimSpace(uri)
 	if trimmed == "" {
@@ -306,7 +311,6 @@ func URIToPath(uri string) string {
 	}
 	path := parseFileURI(trimmed)
 	path = filepath.Clean(path)
-	path = tryMakeRelative(path)
 	return filepath.ToSlash(path)
 }
 
@@ -325,17 +329,6 @@ func parseFileURI(raw string) string {
 	return path
 }
 
-func tryMakeRelative(path string) string {
-	cwd, err := os.Getwd()
-	if err != nil || !filepath.IsAbs(path) {
-		return path
-	}
-	if rel, err := filepath.Rel(cwd, path); err == nil && withinWorkspace(rel) {
-		return rel
-	}
-	return path
-}
-
 func hierarchyItem(item protocol.CallHierarchyItem) protocol.CallHierarchyItem {
 	item.URI = URIToPath(item.URI)
 	item.Range = Range(item.Range)
@@ -348,8 +341,4 @@ func typeHierarchyItem(item protocol.TypeHierarchyItem) protocol.TypeHierarchyIt
 	item.Range = Range(item.Range)
 	item.SelectionRange = Range(item.SelectionRange)
 	return item
-}
-
-func withinWorkspace(rel string) bool {
-	return rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }

@@ -167,8 +167,8 @@ func requirePosition(line, column int) (protocol.Position, error) {
 	}, nil
 }
 
-func resolveFilePositionRequest(params filePositionParams) (string, protocol.Position, error) {
-	filePath, err := resolveFilePath(params.FilePath)
+func resolveFilePositionRequest(ctx context.Context, params filePositionParams) (string, protocol.Position, error) {
+	filePath, err := resolveFilePath(ctx, params.FilePath)
 	if err != nil {
 		return "", protocol.Position{}, err
 	}

@@ -63,9 +63,13 @@ func run() error {
 					var req struct {
 						Name      string          `json:"name"`
 						Arguments json.RawMessage `json:"arguments"`
+						MetaCWD   string          `json:"_cwd,omitempty"`
 					}
 					if err := json.Unmarshal(params, &req); err != nil {
 						return nil, err
+					}
+					if strings.TrimSpace(req.MetaCWD) != "" {
+						ctx = context.WithValue(ctx, common.CwdContextKey, req.MetaCWD)
 					}
 					result, err := tp.CallTool(ctx, req.Name, req.Arguments)
 					if err != nil {
