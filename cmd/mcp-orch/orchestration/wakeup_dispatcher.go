@@ -107,6 +107,8 @@ type WakeupDispatcher struct {
 	// NodeExecutor abstraction; otherwise it falls back to the legacy
 	// WakeupLauncher.LaunchAgent path.
 	nodeRouter *NodeExecutorRouter
+
+	retryAlertSink DispatchRetryAlertSink
 }
 
 // NewWakeupDispatcher 构造 dispatcher。store 必传；launcher 可为 nil
@@ -138,6 +140,13 @@ func NewWakeupDispatcher(store taskdag.Store, launcher WakeupLauncher, logger *s
 func (d *WakeupDispatcher) WithNodeRouter(router *NodeExecutorRouter) *WakeupDispatcher {
 	if d != nil {
 		d.nodeRouter = router
+	}
+	return d
+}
+
+func (d *WakeupDispatcher) WithDispatchRetryAlertSink(sink DispatchRetryAlertSink) *WakeupDispatcher {
+	if d != nil {
+		d.retryAlertSink = sink
 	}
 	return d
 }
@@ -351,6 +360,7 @@ func (d *WakeupDispatcher) markPermanentFail(ctx context.Context, w *taskdag.Wak
 			"target_agent_id", w.TargetAgentID)
 		return false
 	}
+	recordDispatchFailedMetric()
 	d.logger.Warn("wakeup dispatcher: launch permanent failure → failed",
 		"wakeup_id", w.ID,
 		"target_agent_id", w.TargetAgentID,
@@ -384,17 +394,37 @@ func (d *WakeupDispatcher) markTransientRetry(ctx context.Context, w *taskdag.Wa
 	if rows == 0 {
 		// SQL 层 attempt_count >= 8 硬上限达到（Phase 3.5 metadata 化前的
 		// 兜底）。直接转 FailWakeup 避免 wakeup 一直停在 dispatching 死锁。
-		d.markPermanentFail(ctx, w, fence, "retry attempts exhausted: "+lastErr, launchErr)
+		if d.markPermanentFail(ctx, w, fence, "retry attempts exhausted: "+lastErr, launchErr) {
+			if alert, shouldAlert := recordDispatchRetryMetric(w, lastErr); shouldAlert {
+				d.emitDispatchRetryAlert(ctx, alert)
+			}
+		}
 		d.logger.Warn("wakeup dispatcher: retry attempts exhausted → failed",
 			"wakeup_id", w.ID,
 			"target_agent_id", w.TargetAgentID)
 		return
+	}
+	if alert, shouldAlert := recordDispatchRetryMetric(w, lastErr); shouldAlert {
+		d.emitDispatchRetryAlert(ctx, alert)
 	}
 	d.logger.Info("wakeup dispatcher: launch transient failure → retry",
 		"wakeup_id", w.ID,
 		"target_agent_id", w.TargetAgentID,
 		"retry_interval", d.cfg.RetryInterval,
 		"error", launchErr)
+}
+
+func (d *WakeupDispatcher) emitDispatchRetryAlert(ctx context.Context, alert DispatchRetryAlert) {
+	if d == nil || d.retryAlertSink == nil {
+		return
+	}
+	if err := d.retryAlertSink.AlertDispatchRetry(ctx, alert); err != nil {
+		d.logger.Warn("wakeup dispatcher: retry alert enqueue failed",
+			"wakeup_id", alert.WakeupID,
+			"dag_key", alert.DagKey,
+			"node_key", alert.NodeKey,
+			"error", err)
+	}
 }
 
 // buildLaunchRequestFromWakeup 把 wakeup 行映射到 LaunchRequest。
@@ -530,6 +560,9 @@ func (d *WakeupDispatcher) tryDAGFailWithCascade(ctx context.Context, w *taskdag
 	}
 	if !d.markPermanentFail(ctx, w, fence, "max attempts reached: "+lastErr, launchErr) {
 		return true
+	}
+	if alert, shouldAlert := recordDispatchRetryMetric(w, lastErr); shouldAlert {
+		d.emitDispatchRetryAlert(ctx, alert)
 	}
 	d.failDAGNodeAndCancelDownstream(ctx, w, lastErr, policy.FailFast)
 	return true

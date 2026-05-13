@@ -196,6 +196,7 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 		// 单独提供一个 *WakeupDispatcher provider，供 Runner / router-wire invoke 复用。
 		fx.Provide(orchestration.ProvideWakeupDispatcher),
 		fx.Invoke(orchestration.WireWakeupDispatcherRouter),
+		fx.Invoke(orchestration.WireWakeupDispatcherRetryAlertSink),
 	}
 	if remoteAddr == "" {
 		options = append(options, fx.Provide(
