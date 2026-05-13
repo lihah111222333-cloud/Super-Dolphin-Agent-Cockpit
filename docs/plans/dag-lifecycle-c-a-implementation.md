@@ -28,10 +28,10 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 
 | 阶段 | 子项 | ADR | 主要文件 | 工程量 |
 |---|---|---|---|---|
-| **C1**：codex provider 补完 TurnCompleted.Result | provider 层 | ADR-X1 | `internal/provider/codexapp/session_dispatch.go` + session 累加器 | ~250 行 |
-| **C2**：claude provider 长内容完整性核验 + 必要补完 | provider 层 | ADR-X1（共享）| `internal/provider/claudecli/event_map.go` + 端到端测 | ~150-200 行（情况 B；情况 A 仅 0 行）+ ~80-120 行 e2e 基础设施前置 |
+| **C1**：codex provider 补完 TurnCompleted.Result | provider 层 | ADR-015 v4.1 | `internal/provider/codexapp/session_approval.go` + turn output 累加器 + cleanup hooks | ~320-380 行 |
+| **C2**：claude provider 长内容完整性核验 + 必要补完 | provider 层 | ADR-015 v4.1（共享）| `internal/provider/claudecli/event_map.go` + 端到端测 | 情况 A 0 行代码 + e2e 脚手架；情况 B ~220-280 行 |
 | **C3**：codex/claude spawned agent 自动 stop | service 层 | ADR-016 v1.2 | 拆 stop_helper.go（方案 P1 已采纳；3 commit：sentinel / stop_helper+单测 / metric+e2e）| ~550-700 行（v1.2 reviewer 三审修订）|
-| **A1**：DAG subscriber 订阅 TurnCompleted 推进 lifecycle | DAG 层 | ADR-017 v1.1 | `dag_turn_completed_subscriber.go` + `hook_consumer.go` fallback（移出 withAgentLocked）+ 扩 SQL 白名单（CompleteTaskDagNode）+ dispatchAgent ready→running（用 UpdateRunningTaskDagNodeStatus）| ~1790-2270 行（v2.5 reviewer 二审修订；4 处 P0 设计层修正 + 工程量上调 360%）|
+| **A1**：DAG subscriber 订阅 TurnCompleted 推进 lifecycle | DAG 层 | ADR-017 v1.2 | `dag_turn_completed_subscriber.go` + `hook_consumer.go` fallback（移出 withAgentLocked）+ 扩 SQL 白名单（CompleteTaskDagNode）+ dispatchAgent ready→running（用 UpdateRunningTaskDagNodeStatus）| ~1790-2270 行（v2.5 reviewer 二审修订；4 处 P0 设计层修正 + 工程量上调 360%）|
 | ~~**A2**~~ ✅ done：F1.3 outputs 重做（真实输出物化）| DAG 层 | ADR-018 Accepted（`3e70e468` + review-fix `02009e22`） | `executor_agent.go` + A1 subscriber outputs 落地；复用 `CompleteNodeAndScheduleDownstream` 的 result 更新，sharedfile 路径加 `ClaimTaskDagNodeOutputMaterialization` fence | ~680-780 行（含 review-fix） |
 | Phase 4 dogfood | 验收 | — | 10 节点 DAG 端到端 | ~80 行 |
 
@@ -69,10 +69,10 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 - 缺点：跨模块依赖，TurnCompleted 事件本身仍不携带内容（语义不干净）
 - 工程量：~250 行
 
-**ADR-X1 拍板项**：
+**ADR-015 v4.1 拍板项**：
 1. C1-a 或 C1-b 二选一（推荐 C1-a）
-2. **累加器挂载点**：session_dispatch.go 事件预处理路径（不是 transport.go；reviewer 修订）
-3. **buffer 内存上限策略**：**provider 层不截断**（让 TurnCompleted.Result 携带完整 N KB），由 A2 按 ADR-006 决定 `node.result` 4KB validation failure 或显式 sharedfile 主路径（reviewer 修订：4KB 上限在 provider 层会与 M3 验收硬阈值「单节点 result > 4KB」倒置，蓝图 §3 line 280）。仅保留 hard cap 防 OOM（候选：单 turn 1MB 极限上限，超限 log + fail）
+2. **累加器挂载点**：`session_approval.go` 的 `onNotification` 入口（在 suppress 之前 sniff；v4.1 reviewer 修订）
+3. **buffer 内存上限策略**：**provider 层不做 4KB 业务截断**（让 TurnCompleted.Result 携带完整 N KB），由 A2 按 ADR-006 决定 `node.result` 4KB validation failure 或显式 sharedfile 主路径；仅保留单 turn 1MB hard cap 防 OOM，超限标 `truncated=true`
 4. 释放策略（TurnCompleted 后立即清 / lazy 清 / TTL）
 5. 多 turn 重复 turn-id 的处理（codex turn-id 在同 thread 内单调递增？）
 
@@ -88,7 +88,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 
 **修法路径**：
 
-#### 步骤 0：实测基础设施核对（**ADR-X1 起草前必做**）
+#### 步骤 0：实测基础设施核对（**ADR-015 v4.1 起草前必做，已随 C2 落地闭环**）
 
 > **2026-05-12 reviewer 修订**：独立 reviewer 揭出项目搜不到 `internal/provider/claudecli/*_e2e_test.go` 类基础设施。让 claude spawned agent 真回复 3KB 需要 mock CLI 或真启 claude（依赖环境 + API key + 网络稳定性）。这是**未核就写决策**的隐患重现。
 
@@ -96,7 +96,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 - `find internal/provider/claudecli/ -name "*_e2e_test.go"` 看是否有 e2e 测试基础设施
 - 看 `internal/provider/codexapp/` 是否有 mock CLI 测试可参考
 - 如果都没有：**C2 工程量必须扩到"建 e2e 基础设施 + 实测"**，~80-120 行额外
-- ADR-X1 拍板项加入：**C2 实测方案**（真启 claude / mock CLI / 跳过 e2e 仅做单测）
+- ADR-015 v4.1 拍板项加入：**C2 实测方案**（真启 claude / mock CLI / 跳过 e2e 仅做单测）
 
 #### 步骤 1：实测验证
 - 写一个端到端测试：让 claude spawned agent 回复 3KB 内容（要求 agent 输出特定长字符串）
@@ -112,7 +112,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 - claude 累加点：监听 `assistant:message_delta` 事件（`claudecli/event_map.go:103-115`），按 turn-id 累加到 per-session 状态
 - 工程量：~150-200 行（含 session 层累加器 + 单测，**比 codex 略多因为需要新建 session 状态机**）
 
-**ADR-X1 包含 claude 部分**：与 codex 同 ADR，因为是同一问题（provider 层 TurnCompleted 内容填充）。
+**ADR-015 v4.1 包含 claude 部分**：与 codex 同 ADR，因为是同一问题（provider 层 TurnCompleted 内容填充）。
 
 **验收**：
 - 单测：mock claude 流式 delta → 断言 TurnCompleted.Result
@@ -303,7 +303,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 ## 7. 风险与未解问题
 
 ### 7.1 已知风险
-1. **C1 方案 C1-a buffer 内存上限**：单 turn 真有大回复（>4KB）时累加器策略未定 — ADR-X1 拍板
+1. **C1 方案 C1-a buffer 内存上限**：已由 ADR-015 v4.1 拍板为 provider 层不做 4KB 业务截断 + 单 turn 1MB hard cap；后续只剩 H7 summarization / 超长输出体验优化
 2. **claude CLI 长内容截断**：C2 实测可能揭示需要补 provider 层（情况 B 增 ~100 行）
 3. **C3 stop API race**：subscriber 推 done 与 service.Stop 之间的事务边界 — ADR-016 拍板
 4. **A2 sharedfile 端口接入 + fence**：已由 `DAGSubscriberDeps.SharedFileWriter optional` + 现有 sharedfile adapter 接入（`3e70e468`）；review-fix `02009e22` 在 sharedfile 写入前增加 DB claim fence，缺 writer / 写失败走 fail-node reason 前缀
@@ -317,14 +317,14 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 
 ## 8. 推进流程
 
-### Phase 0：立 ADR-X1（C1+C2 共享）
+### Phase 0：立 ADR-015 v4.1（C1+C2 共享）
 
-起草 ADR-X1，回答 §2.1 + §2.2 的拍板项；reviewer 审；用户拍板。
+ADR-015 v4.1 已起草、reviewer 二审通过并随 C1/C2 落地，回答 §2.1 + §2.2 的拍板项。
 
 ### Phase 1：C1 + C2 + C3 并行落地
 
 启 3 个 worktree worker：
-- W-C1：codex provider 累加器（含 ADR-X1 codex 部分）
+- W-C1：codex provider 累加器（含 ADR-015 v4.1 codex 部分）
 - W-C2：claude provider 实测 + 必要补完
 - W-C3：spawned agent 自动 stop（含 ADR-016）
 
@@ -428,7 +428,7 @@ ADR-018 已升 Accepted（`3e70e468` + review-fix `02009e22`）；A2 outputs 重
 **ADR-018 v1.x 修订时检查清单**（v2.6 新增，针对 A2 阶段；与 ADR-016 / ADR-017 模板同构）：
 
 ```
-□ ADR-018 §2 决策项（A1/A2 分工、无 SQL/sqlc、ADR-006 沿用、明确不做）
+□ ADR-018 §2 决策项（A1/A2 分工、无通用 result merge/backfill/migration，仅 sharedfile materialization claim fence、ADR-006 沿用、明确不做）
 □ C-A 计划 line 6 文首"总工程量预估"
 □ C-A 计划 §1 总览表 A2 行
 □ C-A 计划 §1 总览"总计"行
@@ -454,7 +454,7 @@ ADR-018 已升 Accepted（`3e70e468` + review-fix `02009e22`）；A2 outputs 重
 修订时确认占位编号已实化：
 
 ```
-□ ADR-015 v4.x 编号在 C-A §1 + §4 ADR 列表 + ADR-016/017/018 配套段都已实化（不是 "ADR-X1"）
+□ ADR-015 v4.x 编号在 C-A §1 + §4 ADR 列表 + ADR-016/017/018 配套段都已实化（不是占位编号）
 □ ADR-016 编号同上（v1.x 起立时检查，确保 X4 占位已删）
 □ ADR-017 起立时 X3 占位应实化
 □ ADR-018 起立时 X5 占位应实化
@@ -489,7 +489,7 @@ ADR-018 已升 Accepted（`3e70e468` + review-fix `02009e22`）；A2 outputs 重
 | **v2.5 → v2.5'（ADR-017 v1.2 反思）** | **§11 checklist 生效但 ADR-017 自身 §4.2 同步段又漂移**（v1 → v1.1 升级时 §4 升了但 §4.2 stale 数据未升）+ ADR 内部矛盾（§2.5 锁外 vs §3.4 锁内） | 5 处 stale 同步 + 1 处内部矛盾 | **真根因揭露：§11 checklist 缺自动化载体，仅靠人工自律不可持续** |
 | v2.6 修订（ADR-018 初稿同步）| A2 从 jsonb merge SQL/sqlc 扩面收敛为复用 `CompleteNodeAndScheduleDownstream` result 更新；同步 F1.3/F7.3 依赖口径 | 15 个同步点初稿建账 | A2 MVP 决策必须把"不做"写清，否则很容易回到 SQL/sqlc 扩面 |
 | v2.7 修订（A2 Accepted 同步）| ADR-018 升 Accepted + A2 hash `3e70e468` 回填；README 从 Proposed 挪到 Accepted | 15 个同步点闭账 | 先实现 commit，再做 hash 回填 commit，避免自引用 hash |
-| v2.8 修订（A2 review-fix 同步）| review-fix `02009e22` 新增 sharedfile materialization claim fence 后，ADR-018 / C-A / 主计划仍残留“无 SQL/sqlc”口径 | 3 组同步点 | 外部副作用 race 修复会改变原 ADR 的 scope 事实，review-fix 后必须回写 ADR/计划 |
+| v2.8 修订（A2 review-fix 同步）| review-fix `02009e22` 新增 sharedfile materialization claim fence 后，ADR-018 / C-A / 主计划曾残留旧 SQL/sqlc 口径 | 3 组同步点 | 外部副作用 race 修复会改变原 ADR 的 scope 事实，review-fix 后必须回写 ADR/计划 |
 
 五 + 一轮反复证明：**无 checklist = 漂移必复发**。**v2.5 元规则强化**：每个新 ADR 阶段（A1/A2/...）落地必须扩 §11.1 对应模板段。
 
@@ -517,7 +517,7 @@ ADR-018 已升 Accepted（`3e70e468` + review-fix `02009e22`）；A2 outputs 重
   - C-A §1 / §4 / §9 与主实施计划 F1.3 行回填 A2 落地状态
   - A2 当时按 1 commit 完成记账，合计 commit 估算情况 A 18-23 → 17-21；情况 B 20-25 → 19-23（v2.8 已修订为 2 实现 commit）
 - 2026-05-13 v2.8（同步 A2 review-fix）：
-  - ADR-018 补记 review-fix `02009e22`，将“无 SQL/sqlc”修订为“仅新增 sharedfile materialization claim fence”
+  - ADR-018 补记 review-fix `02009e22`，将旧 SQL/sqlc 口径修订为“仅新增 sharedfile materialization claim fence”
   - C-A §1 / §3.2 / §4 / §7 / §9 与主实施计划 F1.3/F1.4 行回填最终 fence 事实
   - A2 实际实现 commit 从 1 → 2，合计 commit 估算情况 A 17-21 → 18-22；情况 B 19-23 → 20-24
 - 2026-05-12 v2.5（同步 ADR-017 v1.1 reviewer 二审修订 + §11 新增 ADR-017 v1.x 修订模板）：

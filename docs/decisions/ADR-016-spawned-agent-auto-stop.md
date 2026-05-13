@@ -324,10 +324,10 @@ ADR-016 v1.2 落地同 PR 必须修 C-A 计划 → v2.4：
   - subscriber 已是 `ResilientSubscribe` 异步上下文，单 stop 调用阻塞不影响其他 subscriber
   - **决策**：同步调；若实测 stop IPC 慢，加 context.WithTimeout（独立 task，不在 ADR-016 范围）
 
-### 7.2 真正开放（落码前需协同决策）
+### 7.2 落码时已闭环
 
-- **Q1（待 ADR-017 起草协同）**：A1 subscriber 路径上做 `errAgentNotRunning` sentinel 改造的具体时机 — 是与 ADR-016 同 PR 改 service 层（§2.4 v1.1）还是独立 PR？倾向：同 PR（避免 ADR-016 落码 + ADR-017 起草中间窗口 string-match 兜底脆弱）
-- **Q2（待 metric 注册路径决策）**：metric 挂载点 — 扩 `dispatcher/metric.go` 还是新建 `stop_metric.go`？倾向：新建 `stop_metric.go`（与 dispatcher metric 解耦，C3 独立可测）
+- **Q1（已随 C3 落地闭环）**：A1 subscriber 路径需要的 `errAgentNotRunning` sentinel 改造已与 ADR-016 同批落地，避免 ADR-017 起草窗口继续依赖 string-match 兜底。
+- **Q2（已随 C3 落地闭环）**：metric 挂载点采用新建 `stop_metric.go`，与 dispatcher metric 解耦，C3 独立可测。
 
 ## 8. 变更记录
 
@@ -346,6 +346,6 @@ ADR-016 v1.2 落地同 PR 必须修 C-A 计划 → v2.4：
   - **E-1~5（工程量）**：§4 v1.1 上调 ~155 → **~450-550 行 / 2-3 commit**（stop_helper.go 60→90-130；单测 60→200-280；e2e 20→80-150；metric 10→30-60 — 项目无通用 IncCounter framework；service 层 errAgentNotRunning sentinel 改造 +20-30）
   - **D-1/2（跨文档）**：§4.2 v1.1 加 C-A 计划同 PR 同步要求 — 替换 9 处 ADR-X4 → ADR-016 + 工程量 120 → 450-550 + §9 合计上调
   - **D-3（接口契约）**：§3.2 v1.1 改为语义化契约 — 删 4 参数固定签名，明列 5 条 ADR-017 必须满足的语义约束（反查 / stop / 失败处理 / 空 agentID / 幂等识别）
-  - **Q-1~4（决策化）**：§7 v1.1 — D1（reason 进 UI 通知）/ D2（metric 合并）/ D3（multi-turn 单 turn 语义）/ D4（同步调）四项升决策项；保留 Q1/Q2 真正开放
+  - **Q-1~4（决策化）**：§7 v1.1 — D1（reason 进 UI 通知）/ D2（metric 合并）/ D3（multi-turn 单 turn 语义）/ D4（同步调）四项升决策项；Q1/Q2 后续已随 v1.2/C3 落码闭环
 - 2026-05-12 v1 初稿：基于 C-A 实施计划 §2.3 v2.2 拍板项 + Explorer 单 agent 调研（含 3 处事实层错误 + 工程量低估 50-100%）。
 - 编号说明：ADR-016 编号曾被废弃的 lifecycle-thread-stopped-driven ADR 占用过（从未 git-tracked，已删）。本 ADR 是 C-A 路径下 C3 决策的首份记录。
