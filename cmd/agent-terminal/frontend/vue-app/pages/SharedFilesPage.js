@@ -65,6 +65,51 @@ function isTaskHandoffPath(path) {
   return (path || '').toString().trim().startsWith('handoff/tasks/');
 }
 
+function normalizeFinalOutputRefs(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => {
+    if (typeof item === 'string') return { path: item.trim() };
+    if (!item || typeof item !== 'object') return null;
+    const path = (item.path || item.sharedfile?.path || '').toString().trim();
+    if (!path) return null;
+    return {
+      path,
+      runKey: (item.runKey || item.run_key || '').toString().trim(),
+      dagKey: (item.dagKey || item.dag_key || '').toString().trim(),
+      sourceNodeKey: (item.sourceNodeKey || item.source_node_key || '').toString().trim(),
+    };
+  }).filter(Boolean);
+}
+
+function useFinalOutputMarkers(props) {
+  const showFinalOnly = ref(false);
+  const finalOutputRefByPath = computed(() => {
+    const refs = normalizeFinalOutputRefs(props.finalOutputRefs);
+    return new Map(refs.map((ref) => [ref.path, ref]));
+  });
+  const finalOutputCount = computed(() => finalOutputRefByPath.value.size);
+
+  watch(finalOutputCount, (next) => {
+    if (next === 0) showFinalOnly.value = false;
+  });
+
+  function finalOutputRefFor(file) {
+    const path = (file?.path || '').toString().trim();
+    if (!path) return null;
+    return finalOutputRefByPath.value.get(path) || null;
+  }
+
+  function isFinalOutputFile(file) {
+    return Boolean(finalOutputRefFor(file));
+  }
+
+  function toggleFinalOnly() {
+    showFinalOnly.value = !showFinalOnly.value;
+  }
+
+  return { showFinalOnly, finalOutputCount, finalOutputRefFor, isFinalOutputFile, toggleFinalOnly };
+}
+
 function emptyPromoteForm() {
   return {
     sharedPath: '',
@@ -99,6 +144,7 @@ export const SharedFilesPage = {
   props: {
     files: { type: Array, default: () => [] },
     cwd: { type: String, default: '' },
+    finalOutputRefs: { type: Array, default: () => [] },
   },
   emits: ['open-memory-center', 'refresh', 'start-inherited-chat'],
   setup(props, { emit }) {
@@ -112,6 +158,7 @@ export const SharedFilesPage = {
     const selectedFile = reactive({ path: '', content: '', updatedBy: '', updatedAt: '' });
     const promoteForm = reactive(emptyPromoteForm());
     const searchText = ref('');
+    const finalOutput = useFinalOutputMarkers(props);
     const guideCollapsed = ref(false);
     const sortMode = ref('updated-desc');
     const refreshing = ref(false);
@@ -133,6 +180,7 @@ export const SharedFilesPage = {
     const filteredItems = computed(() => {
       const needle = searchText.value.trim().toLowerCase();
       const list = items.value.filter((item) => {
+        if (finalOutput.showFinalOnly.value && !finalOutput.isFinalOutputFile(item)) return false;
         if (!needle) return true;
         const path = (item?.path || '').toString().toLowerCase();
         const updatedBy = (item?.updated_by || item?.updatedBy || '').toString().toLowerCase();
@@ -334,14 +382,18 @@ export const SharedFilesPage = {
       selectedFile,
       promoteForm,
       searchText,
+      showFinalOnly: finalOutput.showFinalOnly,
       sortMode,
       guideCollapsed,
       refreshing,
       copiedInViewer,
+      finalOutputCount: finalOutput.finalOutputCount,
       formatTimestamp,
       previewText,
       splitPath,
       formatBytes,
+      finalOutputRefFor: finalOutput.finalOutputRefFor,
+      isFinalOutputFile: finalOutput.isFinalOutputFile,
       openViewer,
       closeViewer,
       openPromote,
@@ -353,6 +405,7 @@ export const SharedFilesPage = {
       copyViewerContent,
       toggleGuide,
       clearSearch,
+      toggleFinalOnly: finalOutput.toggleFinalOnly,
       changeSort,
       handleRefresh,
       openMemoryCenter: () => emit('open-memory-center'),
@@ -401,6 +454,13 @@ export const SharedFilesPage = {
             <option value="updated-asc">最早更新</option>
             <option value="path-asc">按 Path</option>
           </select>
+          <button
+            class="btn btn-secondary btn-toolbar-sm"
+            data-testid="shared-files-final-toggle"
+            :class="{ 'btn-primary': showFinalOnly }"
+            :disabled="finalOutputCount === 0"
+            @click="toggleFinalOnly"
+          >最终产物 {{ finalOutputCount }}</button>
           <button
             class="btn btn-secondary btn-toolbar-sm"
             data-testid="shared-files-refresh"
@@ -511,6 +571,7 @@ export const SharedFilesPage = {
             v-for="(item, idx) in filteredItems"
             :key="item.path || idx"
             class="data-card-vue memory-entry-card"
+            :class="{ 'is-final-output': isFinalOutputFile(item) }"
           >
             <div class="memory-entry-head">
               <div class="shared-files-title-row">
@@ -519,6 +580,11 @@ export const SharedFilesPage = {
                   <div v-if="splitPath(item.path).dir" class="shared-files-dirname" :title="item.path">{{ splitPath(item.path).dir }}</div>
                   <span class="memory-sr-only">{{ item.path }}</span>
                 </div>
+                <span
+                  v-if="isFinalOutputFile(item)"
+                  class="jr-badge jr-badge-success"
+                  data-testid="shared-files-final-badge"
+                >最终产物</span>
               </div>
               <div class="memory-entry-updated">{{ formatTimestamp(item.updated_at) }}</div>
             </div>

@@ -86,6 +86,7 @@ func TestDashboardExtraHandlersRegistered(t *testing.T) {
 		"dashboard/busLogs",
 		"dashboard/dags",
 		"dashboard/dagDetail",
+		"dashboard/dagRuns",
 	} {
 		if _, ok := handlers[method]; !ok {
 			t.Fatalf("%s handler missing from %#v", method, handlers)
@@ -197,6 +198,9 @@ func TestDashboardDAGHandlersReturnData(t *testing.T) {
 			DAG:   contract.DAGSummary{DagKey: "dag-1", Title: "Dag One"},
 			Nodes: []contract.DAGNode{{NodeKey: "node-1", Title: "Node One"}},
 		},
+		listRunsResult: contract.ListRunsResponse{
+			Runs: []contract.Run{{RunKey: "run-1", DagKey: "dag-1", Status: "succeeded"}},
+		},
 	}
 	server := newDashboardTestServer(t, &service{orchestration: orchestration})
 
@@ -225,6 +229,19 @@ func TestDashboardDAGHandlersReturnData(t *testing.T) {
 	}
 	if detailResp.DAG.DagKey != "dag-1" || len(detailResp.Nodes) != 1 || detailResp.Nodes[0].NodeKey != "node-1" {
 		t.Fatalf("dag detail response = %#v", detailResp)
+	}
+
+	var runsResp struct {
+		Runs []contract.Run `json:"runs"`
+	}
+	if err := dispatchDashboardInto(server, "dashboard/dagRuns", `{"dagKey":"dag-1","limit":5}`, &runsResp); err != nil {
+		t.Fatalf("dispatch dag runs error = %v", err)
+	}
+	if orchestration.listRunsRequest.DagKey != "dag-1" || orchestration.listRunsRequest.Limit != 5 {
+		t.Fatalf("ListRuns() request = %#v", orchestration.listRunsRequest)
+	}
+	if len(runsResp.Runs) != 1 || runsResp.Runs[0].RunKey != "run-1" {
+		t.Fatalf("dag runs response = %#v", runsResp)
 	}
 }
 

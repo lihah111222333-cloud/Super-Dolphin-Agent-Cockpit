@@ -34,7 +34,7 @@ describe('DataPage', () => {
     });
 
     const vm = DataPage.setup(props);
-    expect(vm).toEqual({});
+    expect(typeof vm.selectItem).toBe('function');
 
     props.items.push({ id: 'agent-1' });
     await nextTick();
@@ -43,5 +43,23 @@ describe('DataPage', () => {
       page: 'agents',
       count: 1,
     });
+  });
+
+  it('emits selected rows when clickable', () => {
+    const props = reactive({
+      pageId: 'dags',
+      title: 'DAG',
+      icon: 'D',
+      items: [{ dag_key: 'dag-1' }],
+      emptyText: '暂无 DAG',
+      fields: [{ key: 'dag_key', label: 'DAG' }],
+      clickable: true,
+    });
+    const emit = vi.fn();
+
+    const vm = DataPage.setup(props, { emit });
+    vm.selectItem(props.items[0]);
+
+    expect(emit).toHaveBeenCalledWith('select', props.items[0]);
   });
 });
