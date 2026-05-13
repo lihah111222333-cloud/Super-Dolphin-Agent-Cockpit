@@ -302,11 +302,11 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 ### 6.4 Final output MVP — 用户可收最终产物入口
 
 2026-05-14 后端 MVP `362be7f0` 落地以下边界：
-- `sharedfile` 定位为存储层与节点协作载体，不是用户找最终结果的主入口。
+- `sharedfile` 是文件存储与协作空间，也可以承载用户最终产物；问题不在 sharedfile 本身，而在无差别列表会把最终产物淹没在中间产物里。
 - DAG 模板通过 `task_dags.metadata.final_node_key` 显式声明最终节点，避免隐式猜测“最后完成的节点”。
-- run 成功终态时，`FinalizeTaskDagRunIfAllNodesTerminal` 将 final node 的结果升格到 `task_dag_runs.metadata.final_output`：sharedfile 引用变为 `kind=file/path`，小 JSON 变为 `kind=json/result`，JSON string 变为 `kind=text/text`。
+- run 成功终态时，`FinalizeTaskDagRunIfAllNodesTerminal` 将 final node 的结果索引到 `task_dag_runs.metadata.final_output`：sharedfile 引用变为 `kind=file/path`，小 JSON 变为 `kind=json/result`，JSON string 变为 `kind=text/text`。
 - 缺 `final_node_key`、final node 不存在、失败/取消 run 均保持 run metadata 不变；非 object run metadata 以 `{}` 作为 merge base，避免历史脏数据回滚 finalization。
-- UI/产品后续应优先在 run/task 详情突出 `metadata.final_output`；Shared Files 页面默认折叠中间产物，只突出被 final_output 引用的文件。
+- UI/产品后续应在 run/task 详情、通知、Shared Files 页面共同使用 `metadata.final_output` 作为“最终产物索引”；Shared Files 页面默认折叠中间产物，优先高亮被 final_output 引用的文件。
 - 清理策略另立后续任务：未被 final_output 引用的 working/debug sharedfiles 可按 TTL / run 状态清理；final_output 引用文件按用户可收产物保留或走更长 TTL。
 
 ---
@@ -323,7 +323,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 1. **F2.2 automation outputs 是否同步改造**：当前 automation 是 Execute 同步写 outputs；ADR-018 明确 A2 不改 automation，后续如需统一另立任务
 2. **多 turn 场景的 result 形状**：second TurnCompleted 到达时 ev.Result 是覆盖还是 append 到 first turn？
 3. **dogfood v4 旧卡死节点 backfill**：本计划默认不 backfill（由用户手动重跑或 task_update_node）
-4. **final output 前端与 retention**：后端 MVP 已暴露 `Run.Metadata.final_output`；UI 默认折叠中间 sharedfiles、只突出 final_output 引用文件，以及 sharedfile TTL/保留策略仍待单独实现。
+4. **final output 前端与 retention**：后端 MVP 已暴露 `Run.Metadata.final_output`；UI 需要让 run/task 详情和 Shared Files 页面都能基于 final_output 筛选/高亮最终产物，同时折叠中间 sharedfiles，sharedfile TTL/保留策略仍待单独实现。
 
 ---
 
@@ -521,8 +521,8 @@ ADR-018 已升 Accepted（`3e70e468` + review-fix `02009e22`）；A2 outputs 重
 ## 10. 变更记录
 
 - 2026-05-14 v3.0（同步 final output 后端 MVP）：
-  - **最终产物入口后端 MVP**：commit `362be7f0` 在 run finalization 同事务内读取 `task_dags.metadata.final_node_key`，把 final node 的 sharedfile/text/json 结果升格到 `task_dag_runs.metadata.final_output`；`task_get_run` 通过既有 Run.Metadata 暴露，不新增 migration/UI。
-  - **Shared Files 定位收口**：sharedfile 仍是存储层和节点协作载体；用户可收最终产物优先从 run/task 详情的 `final_output` 呈现，Shared Files 页面后续默认折叠中间产物。
+  - **最终产物入口后端 MVP**：commit `362be7f0` 在 run finalization 同事务内读取 `task_dags.metadata.final_node_key`，把 final node 的 sharedfile/text/json 结果索引到 `task_dag_runs.metadata.final_output`；`task_get_run` 通过既有 Run.Metadata 暴露，不新增 migration/UI。
+  - **Shared Files 定位收口**：sharedfile 是文件存储与协作空间，也可承载最终产物；`final_output` 负责标记/索引哪些 sharedfile/text/json 是本次 run 的最终交付物，Shared Files 页面后续应基于该索引高亮最终产物并折叠中间产物。
   - **边界与验证**：缺 key/缺节点/失败 run no-op，非 object run metadata 用 `{}` merge base；`go test ./cmd/mcp-orch/... -count=1`、关键 archtest、临时单 query `sqlc compile` 均通过；全目录 `sqlc compile` 仍受既有 `0083 spawning_thread_id` schema list 缺口阻塞。
 - 2026-05-13 v2.9（同步 Phase 4 dogfood 通过 + runtime follow-up）：
   - **Phase 4 dogfood 通过**：10 节点 DAG 正向 run 10/10 done；负向 `to_node_result=true` 大结果按 ADR-006 validation failure；metrics 端点读取通过

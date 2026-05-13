@@ -72,7 +72,7 @@ MCP 工具层      ✅ 完整 (task_create_dag / get_dag / update_node)
 | 输出校验 | **`outputs.schema` 字段位** | 🤖 | JSON Schema 自动校验，配合 `validation` 失败分类 |
 | 实时进度 | **T 阶段先 polling，WS 升级放加固阶段** | 🤖 | 用户高频痛点；不补骨架 |
 | **result vs sharedfile 边界** | **`to_node_result` 仅 < 4KB 摘要；大输出必须 `to_sharedfile`** | 🤖 | 防止 task_dag_nodes.result JSONB 列膨胀；F1.3 enforce |
-| **final output 边界** | **run 级最终产物看 `task_dag_runs.metadata.final_output`；sharedfile 只是存储层** | 🤖 | `task_dags.metadata.final_node_key` 显式声明最终节点；Shared Files 页面后续只突出被 final_output 引用的文件 |
+| **final output 边界** | **sharedfile 可承载最终产物；`task_dag_runs.metadata.final_output` 标记本次 run 的最终交付物** | 🤖 | `task_dags.metadata.final_node_key` 显式声明最终节点；Shared Files 页面后续基于 final_output 高亮/筛选最终产物 |
 
 ## 6. 改造决策矩阵
 
