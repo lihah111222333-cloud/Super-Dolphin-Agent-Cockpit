@@ -207,7 +207,7 @@ func (e *AgentExecutor) Execute(ctx context.Context, node Node, runCtx RunContex
 	if launchErr == nil {
 		// F1.5 写回逻辑外刷到 spawnWriteback，避免 Execute 本体圈复杂度 CC 超阈。
 		errorSummary := e.spawnWriteback(ctx, node, runCtx, threadID)
-		return finalizeAgentOutcome(ctx, cfg, runCtx, threadID, errorSummary)
+		return finalizeAgentOutcome(errorSummary), nil
 	}
 
 	// 7. 失败 → 分类。F1.4 智能重试 dispatcher 据此查 cfg.Exec.OnFailure.ByClass。
@@ -227,11 +227,6 @@ func (e *AgentExecutor) Execute(ctx context.Context, node Node, runCtx RunContex
 // Hooks reports lifecycle hook handlers. F13 wires real hooks; today nil.
 func (e *AgentExecutor) Hooks() map[HookPoint]HookHandler { return nil }
 
-type agentLaunchResult struct {
-	ThreadID string `json:"thread_id"`
-	AgentKey string `json:"agent_key,omitempty"`
-}
-
 var agentOutputsForbiddenKeys = []string{"webhook_url", "command_ref"}
 
 func validateAgentOutputs(raw json.RawMessage, _ *AgentNodeConfig) *NodeOutcome {
@@ -244,58 +239,8 @@ func validateAgentOutputs(raw json.RawMessage, _ *AgentNodeConfig) *NodeOutcome 
 	})
 }
 
-func finalizeAgentOutcome(ctx context.Context, cfg *AgentNodeConfig, runCtx RunContext, threadID, errorSummary string) (NodeOutcome, error) {
-	result := agentLaunchResult{
-		ThreadID: strings.TrimSpace(threadID),
-		AgentKey: strings.TrimSpace(cfg.Exec.AgentKey),
-	}
-	payload, err := json.Marshal(result)
-	if err != nil {
-		return NodeOutcome{
-			Status:       NodeStatusFailed,
-			FailureClass: FailureClassValidation,
-			ErrorSummary: truncateErrSummary("marshal agent result: " + err.Error()),
-		}, nil
-	}
-	if failure := writeAgentSharedfile(ctx, cfg, runCtx, payload); failure != nil {
-		return *failure, nil
-	}
-	outcome := NodeOutcome{Status: NodeStatusDone, ErrorSummary: errorSummary}
-	if shouldEmitNodeResult(cfg.Outputs) {
-		if failure := enforceNodeResultSizeCap(payload); failure != nil {
-			return *failure, nil
-		}
-		outcome.Result = payload
-	}
-	return outcome, nil
-}
-
-func writeAgentSharedfile(ctx context.Context, cfg *AgentNodeConfig, runCtx RunContext, payload []byte) *NodeOutcome {
-	target := cfg.Outputs.ToSharedfile
-	if target == nil {
-		return nil
-	}
-	path := strings.TrimSpace(target.Path)
-	if path == "" {
-		return nil
-	}
-	if runCtx.SharedFileWriter == nil {
-		outcome := NodeOutcome{
-			Status:       NodeStatusFailed,
-			FailureClass: FailureClassInfrastructure,
-			ErrorSummary: "outputs.to_sharedfile configured but SharedFileWriter not wired in RunContext",
-		}
-		return &outcome
-	}
-	if err := runCtx.SharedFileWriter.WriteSharedFile(ctx, path, string(payload)); err != nil {
-		outcome := NodeOutcome{
-			Status:       NodeStatusFailed,
-			FailureClass: FailureClassInfrastructure,
-			ErrorSummary: truncateErrSummary(fmt.Sprintf("outputs.to_sharedfile[%q]: %v", path, err)),
-		}
-		return &outcome
-	}
-	return nil
+func finalizeAgentOutcome(errorSummary string) NodeOutcome {
+	return NodeOutcome{Status: NodeStatusDone, ErrorSummary: errorSummary}
 }
 
 // spawnWriteback 是 F1.5 写回路径的独立 helper：luach 成功 → 调 recorder 记录
