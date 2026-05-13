@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	taskdag "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
+	platformmetrics "github.com/anthropic-ai/super-agent-v3/internal/platform/metrics"
 )
 
 // dispatcherStubStore 是 Phase 3.1/3.2 单测用的 taskdag.Store 假实现，
@@ -143,6 +147,19 @@ func (l *dispatcherStubLauncher) LaunchAgent(_ context.Context, req LaunchReques
 	err := l.errs[0]
 	l.errs = l.errs[1:]
 	return err
+}
+
+type recordingDispatchRetryAlertSink struct {
+	calls []DispatchRetryAlert
+	err   error
+}
+
+func (s *recordingDispatchRetryAlertSink) AlertDispatchRetry(_ context.Context, alert DispatchRetryAlert) error {
+	if s.err != nil {
+		return s.err
+	}
+	s.calls = append(s.calls, alert)
+	return nil
 }
 
 func TestNewWakeupDispatcherRejectsNilStore(t *testing.T) {
@@ -389,6 +406,7 @@ func TestWakeupDispatcherProcessBatchTransientFailureCallsRetry(t *testing.T) {
 }
 
 func TestWakeupDispatcherProcessBatchPermanentFailureCallsFail(t *testing.T) {
+	resetDispatchRetryMetricsForTesting()
 	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
 	store := &dispatcherStubStore{
 		claimReply: []taskdag.Wakeup{makeClaimedWakeup(13, "agent-Z", 2, now)},
@@ -411,6 +429,32 @@ func TestWakeupDispatcherProcessBatchPermanentFailureCallsFail(t *testing.T) {
 	}
 	if len(store.retryCalls) != 0 {
 		t.Fatalf("retry must not be called on permanent")
+	}
+	if got := DispatchRetryCounters().DispatchFailedTotal; got != 1 {
+		t.Fatalf("dispatch_failed_total = %d, want 1 after successful FailWakeup", got)
+	}
+}
+
+func TestWakeupDispatcherDispatchFailedMetricSkipsFenceMiss(t *testing.T) {
+	resetDispatchRetryMetricsForTesting()
+	now := time.Date(2026, 5, 13, 14, 0, 0, 0, time.UTC)
+	store := &dispatcherStubStore{
+		claimReply:  []taskdag.Wakeup{makeClaimedWakeup(131, "agent-Z", 2, now)},
+		failRowsSet: true,
+		failRows:    0,
+	}
+	launcher := &dispatcherStubLauncher{
+		errs: []error{errors.New("HTTP 401 unauthorized")},
+	}
+	d, _ := NewWakeupDispatcher(store, launcher, nil, WakeupDispatcherConfig{ClaimedBy: "mcp-orch-dispatcher-test"})
+	if _, err := d.ProcessBatch(context.Background()); err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	if len(store.failCalls) != 1 {
+		t.Fatalf("fail calls = %d, want 1", len(store.failCalls))
+	}
+	if got := DispatchRetryCounters().DispatchFailedTotal; got != 0 {
+		t.Fatalf("dispatch_failed_total = %d, want 0 when FailWakeup fence misses", got)
 	}
 }
 
@@ -557,6 +601,7 @@ func dagDefaultRetryMetadata(t *testing.T, defaultRetry int, failFast bool) json
 // TestDispatcherDAGRetryRetriesUntilMaxAttempts 验证：default_retry=2 时 MaxAttempts=3，
 // AttemptCount=1（首次失败）应该继续走 RetryWakeup 不直接 fail。
 func TestDispatcherDAGRetryRetriesUntilMaxAttempts(t *testing.T) {
+	resetDispatchRetryMetricsForTesting()
 	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
 	store := &dispatcherStubStore{
 		claimReply: []taskdag.Wakeup{makeDAGWakeup(20, "dag-x", "node-A", "agent-A", 1, now)},
@@ -578,6 +623,152 @@ func TestDispatcherDAGRetryRetriesUntilMaxAttempts(t *testing.T) {
 	}
 	if len(store.failNodeCalls) != 0 {
 		t.Fatalf("failNodeCalls = %d, want 0 (no cascade yet)", len(store.failNodeCalls))
+	}
+	if got := DispatchRetryCounters().RetryCountPerNode["dag-x/node-A"]; got != 1 {
+		t.Fatalf("retry_count_per_node[dag-x/node-A] = %d, want 1", got)
+	}
+}
+
+func TestDispatcherDAGRetryAlertsAtThirdAttempt(t *testing.T) {
+	resetDispatchRetryMetricsForTesting()
+	now := time.Date(2026, 5, 13, 14, 20, 0, 0, time.UTC)
+	store := &dispatcherStubStore{
+		claimReply: []taskdag.Wakeup{makeDAGWakeup(202, "dag-alert", "node-hot", "agent-hot", 3, now)},
+	}
+	launcher := &dispatcherStubLauncher{errs: []error{errors.New("connection refused")}}
+	sink := &recordingDispatchRetryAlertSink{}
+	d, _ := NewWakeupDispatcher(store, launcher, nil, WakeupDispatcherConfig{})
+	d.WithDispatchRetryAlertSink(sink)
+	if _, err := d.ProcessBatch(context.Background()); err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	metrics := DispatchRetryCounters()
+	if got := metrics.RetryCountPerNode["dag-alert/node-hot"]; got != 3 {
+		t.Fatalf("retry_count_per_node[dag-alert/node-hot] = %d, want 3", got)
+	}
+	if got := metrics.RetryAlertTotal; got != 1 {
+		t.Fatalf("retry_alert_total = %d, want 1", got)
+	}
+	if len(sink.calls) != 1 {
+		t.Fatalf("alert calls = %d, want 1", len(sink.calls))
+	}
+	alert := sink.calls[0]
+	if alert.DagKey != "dag-alert" || alert.NodeKey != "node-hot" {
+		t.Fatalf("alert keys = %s/%s, want dag-alert/node-hot", alert.DagKey, alert.NodeKey)
+	}
+	if alert.AttemptCount != 3 {
+		t.Fatalf("alert AttemptCount = %d, want 3", alert.AttemptCount)
+	}
+}
+
+func TestDispatcherDAGRetryExhaustionAlertsAtThirdAttempt(t *testing.T) {
+	resetDispatchRetryMetricsForTesting()
+	now := time.Date(2026, 5, 13, 14, 22, 0, 0, time.UTC)
+	store := &dispatcherStubStore{
+		claimReply: []taskdag.Wakeup{makeDAGWakeup(204, "dag-alert", "node-exhausted", "agent-hot", 3, now)},
+		dagReply: &taskdag.DAG{
+			DagKey:   "dag-alert",
+			Metadata: dagDefaultRetryMetadata(t, 2, false),
+		},
+	}
+	launcher := &dispatcherStubLauncher{errs: []error{errors.New("connection refused")}}
+	sink := &recordingDispatchRetryAlertSink{}
+	d, _ := NewWakeupDispatcher(store, launcher, nil, WakeupDispatcherConfig{})
+	d.WithDispatchRetryAlertSink(sink)
+	if _, err := d.ProcessBatch(context.Background()); err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	if len(store.retryCalls) != 0 {
+		t.Fatalf("retryCalls = %d, want 0 at max attempts", len(store.retryCalls))
+	}
+	if len(store.failCalls) != 1 {
+		t.Fatalf("failCalls = %d, want 1 at max attempts", len(store.failCalls))
+	}
+	if got := DispatchRetryCounters().RetryCountPerNode["dag-alert/node-exhausted"]; got != 3 {
+		t.Fatalf("retry_count_per_node[dag-alert/node-exhausted] = %d, want 3", got)
+	}
+	if len(sink.calls) != 1 {
+		t.Fatalf("alert calls = %d, want 1 at max attempts", len(sink.calls))
+	}
+}
+
+func TestDispatcherDAGRetryBelowThresholdDoesNotAlert(t *testing.T) {
+	resetDispatchRetryMetricsForTesting()
+	now := time.Date(2026, 5, 13, 14, 25, 0, 0, time.UTC)
+	store := &dispatcherStubStore{
+		claimReply: []taskdag.Wakeup{makeDAGWakeup(203, "dag-alert", "node-cool", "agent-cool", 1, now)},
+	}
+	launcher := &dispatcherStubLauncher{errs: []error{errors.New("connection refused")}}
+	sink := &recordingDispatchRetryAlertSink{}
+	d, _ := NewWakeupDispatcher(store, launcher, nil, WakeupDispatcherConfig{})
+	d.WithDispatchRetryAlertSink(sink)
+	if _, err := d.ProcessBatch(context.Background()); err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	if got := DispatchRetryCounters().RetryAlertTotal; got != 0 {
+		t.Fatalf("retry_alert_total = %d, want 0 below threshold", got)
+	}
+	if len(sink.calls) != 0 {
+		t.Fatalf("alert calls = %d, want 0 below threshold", len(sink.calls))
+	}
+}
+
+func TestDispatcherF151FiveNodeDAGMetricsEndpointAndAlert(t *testing.T) {
+	resetDispatchRetryMetricsForTesting()
+	now := time.Date(2026, 5, 13, 14, 30, 0, 0, time.UTC)
+	nodes := make([]taskdag.Node, 0, 5)
+	for i := 1; i <= 5; i++ {
+		nodes = append(nodes, taskdag.Node{
+			DagKey:  "dag-five",
+			NodeKey: "node-" + strconv.Itoa(i),
+			Status:  string(nodeexec.NodeStatusReady),
+		})
+	}
+	store := &dispatcherStubStore{
+		claimReply: []taskdag.Wakeup{makeDAGWakeup(205, "dag-five", "node-3", "agent-hot", 3, now)},
+		dagReply: &taskdag.DAG{
+			DagKey:   "dag-five",
+			Metadata: dagDefaultRetryMetadata(t, 5, false),
+		},
+		nodesReply: nodes,
+	}
+	launcher := &dispatcherStubLauncher{
+		errs: []error{errors.New("connection refused")},
+	}
+	sink := &recordingDispatchRetryAlertSink{}
+	d, _ := NewWakeupDispatcher(store, launcher, nil, WakeupDispatcherConfig{})
+	d.WithDispatchRetryAlertSink(sink)
+	if _, err := d.ProcessBatch(context.Background()); err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	if len(sink.calls) != 1 {
+		t.Fatalf("alert calls = %d, want 1", len(sink.calls))
+	}
+	store.claimReply = []taskdag.Wakeup{
+		makeDAGWakeup(211, "dag-five", "node-1", "agent-1", 1, now),
+		makeDAGWakeup(212, "dag-five", "node-2", "agent-2", 1, now),
+		makeDAGWakeup(213, "dag-five", "node-3", "agent-hot", 4, now),
+		makeDAGWakeup(214, "dag-five", "node-4", "agent-4", 1, now),
+		makeDAGWakeup(215, "dag-five", "node-5", "agent-5", 1, now),
+	}
+	if processed, err := d.ProcessBatch(context.Background()); err != nil {
+		t.Fatalf("ProcessBatch second err = %v", err)
+	} else if processed != 5 {
+		t.Fatalf("second batch processed = %d, want 5", processed)
+	}
+	if len(store.markSentCalls) != 5 {
+		t.Fatalf("markSentCalls = %d, want 5-node DAG run-through", len(store.markSentCalls))
+	}
+	store.claimReply = []taskdag.Wakeup{makeClaimedWakeup(216, "agent-fail", 1, now)}
+	launcher.errs = []error{errors.New("HTTP 401 unauthorized")}
+	if _, err := d.ProcessBatch(context.Background()); err != nil {
+		t.Fatalf("ProcessBatch failure err = %v", err)
+	}
+	rec := httptest.NewRecorder()
+	platformmetrics.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, platformmetrics.PrometheusMetricsPath, nil))
+	if body := rec.Body.String(); !strings.Contains(body, "dispatch_failed_total 1") ||
+		!strings.Contains(body, `retry_count_per_node{dag_key="dag-five",node_key="node-3"} 3`) {
+		t.Fatalf("metrics endpoint missing F15.1 counters:\n%s", body)
 	}
 }
 

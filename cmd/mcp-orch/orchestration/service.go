@@ -74,16 +74,16 @@ var (
 )
 
 type service struct {
-	logger                 *slog.Logger
-	eventBus               *event.Dispatcher
-	launcher               AgentLauncher
-	sessionCleaner         SessionCleaner
-	turnStarter            TurnStarter
-	dagStore               taskdag.OrchestrationStore
-	runStore               taskdag.RunStore // T1.2: StartDAG / T3.x 跳入 RunStore；Tx 交给 runStore.WithRunTx 起
+	logger         *slog.Logger
+	eventBus       *event.Dispatcher
+	launcher       AgentLauncher
+	sessionCleaner SessionCleaner
+	turnStarter    TurnStarter
+	dagStore       taskdag.OrchestrationStore
+	runStore       taskdag.RunStore // T1.2: StartDAG / T3.x 跳入 RunStore；Tx 交给 runStore.WithRunTx 起
 	// dispatchStore 是 task_dispatch_node (ADR-004 §Open Q1) 使用的窄端口。
 	// 生产未绑时为 nil；service.DispatchNode 返 ErrDispatchStoreUnset。
-	dispatchStore taskdag.DispatchNodeStore
+	dispatchStore          taskdag.DispatchNodeStore
 	recoveryStore          recoveryTurnStore
 	agentThreads           AgentThreadStore
 	agentBindings          AgentBindingStore
@@ -397,6 +397,20 @@ func WireWakeupDispatcherRouter(dispatcher *WakeupDispatcher, router *NodeExecut
 		return
 	}
 	dispatcher.WithNodeRouter(router)
+}
+
+type WireWakeupDispatcherRetryAlertSinkIn struct {
+	fx.In
+
+	Dispatcher *WakeupDispatcher      `optional:"true"`
+	Sink       DispatchRetryAlertSink `optional:"true"`
+}
+
+func WireWakeupDispatcherRetryAlertSink(in WireWakeupDispatcherRetryAlertSinkIn) {
+	if in.Dispatcher == nil {
+		return
+	}
+	in.Dispatcher.WithDispatchRetryAlertSink(in.Sink)
 }
 
 func withEventTime(ctx context.Context, timestamp time.Time) context.Context {
