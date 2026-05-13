@@ -1,6 +1,8 @@
 # ADR-016 v1.2：DAG agent 节点完成后 spawned agent 自动 stop（C3）
 
-> 状态：📝 Proposed（v1.2 reviewer 三审修订）| 日期：2026-05-12 | 决策者：项目维护者
+> 状态：✅ Accepted（v1.2 reviewer 三审通过 + 2026-05-12 实装落地）| 日期：2026-05-12 | 决策者：项目维护者
+>
+> **实装落地说明**（2026-05-12 W-C3 worker 实装）：4 commit `9ff6059f`/`6e6ad8e2`/`9030a6ca`/`a5345514`。新建 `cmd/mcp-orch/orchestration/stop_helper.go`（`StopSpawnedAgent` 5 条语义契约 / 7 StopResult 分支）+ `stop_metric.go`（`dag_node_stop_spawned_agent_total{result}` atomic.Int64 counter）+ `stop_helper_test.go` 7 分支 10 case 全 PASS + `freeze_registry.go` baseline 33→35。贴近 v1.2 §2.1-§2.6 描述；grep 揭出：dispatcher/metric.go 不存在（是 F15.1 将来新建位），worker 改照 `notify/subscribers.go` 范式。A1 subscriber 调 `StopSpawnedAgent` 大写函数（hard constraint §2.8）未 inline 。
 > 相关：C-A 实施计划 §2.3（`docs/plans/dag-lifecycle-c-a-implementation.md`）/ ADR-015 v4.1（C1+C2 TurnCompleted.Result 补完，配套）/ ADR-017（A1 DAG subscriber，调用方）/ F1.x 审计 §8.2 实证 #1（codex CLI 长进程不自动退出）
 > 编号说明：ADR-016 编号被废弃的 v1/v2 占用过（从未 git-tracked），本次复用编号为 C-A 路径下的全新决策。
 
