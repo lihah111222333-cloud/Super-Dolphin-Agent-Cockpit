@@ -12,7 +12,7 @@ DAG 后端、C-A lifecycle、final_output、sharedfile、prompt_template-first �
 
 1. **DAG 是一等入口**：左侧 DAG 入口保留，目标是让用户在 UI 上看到 DAG 列表、详情、Start、节点进度、run 历史和最终产物。
 2. **实时刷新先 polling**：节点状态和列表最新 run 状态先用 3-5s polling；WebSocket/订阅升级放加固阶段，除非 polling 体验已证明不够。
-3. **final_output 单产物优先**：H14 只支持单 `final_output` pointer；文件型展示打开/读取/下载，小 text/json 展示摘要；bundle/multi-artifact 等真实 dogfood 证明强需求后再升级。
+3. **final_output 单产物优先**：H14 只支持单 `final_output` pointer；文件型展示路径与读取入口，小 text/json 展示摘要；bundle/multi-artifact 等真实 dogfood 证明强需求后再升级。
 4. **Shared Files 不是废弃入口**：sharedfile 是文件存储/协作空间，也可承载最终文件；UI 通过 `final_output` 高亮/筛选最终产物，折叠 working/debug 中间产物。
 5. **prompt_template-first 优先**：当前不恢复命令卡模板库/管理 UI，不做 shell/http kind 管理界面；需要外部系统集成时另立 ADR/任务。
 6. **旧 P10 模板库降级**：旧 P10 的 DAG 模板库、fork preview、lineage、复杂 cost preview 不进入当前 M3/M4 主线；当前只保留“AI 设计 DAG + 用户微调 + Start”的产品闭环。
@@ -41,12 +41,12 @@ DAG 后端、C-A lifecycle、final_output、sharedfile、prompt_template-first �
 | UI-D16 | 运行中编辑策略 | 运行中 DAG 只允许已完成节点后追加满足条件的新节点；普通 edit/remove/update_dag 在 UI 禁用并解释原因。 | F4.5/F8 |
 | UI-D17 | 多 run 并发可视化 | F6.5 前 UI 可以按当前单 running run 认知；F6.5 后 Run History 必须区分并发 run，不把模板状态和 run 状态混在一起。 | F6.5/F10 |
 | UI-D18 | Wails 壳范围 | 不把 `internal/ui/wails/frontend/index.html` 当 DAG UI 主目标；如要迁移/替换壳，另开桌面壳任务。 | UI 基建后续 |
-| UI-D19 | 实时事件与大规模拓扑阈值 | v1 继续用 3-5s polling；WS/订阅、cursor node page、cluster/virtualized topology 只在真实大 DAG 或 stale UI 痛点出现后恢复。禁止提前渲染 10000-node mermaid。 | T5/T7/F9/H6b |
-| UI-D20 | 金融/合规模板预设 | 不在当前 DAG Console v1 做金融预设 badge、合规说明、模板 Use/Save preview；等 P9/P12/P13 和真实金融 dogfood 同时触发后再设计。 | P10/P12/P13 后续 |
+| UI-D19 | 实时事件与大规模拓扑阈值 | v1 继续用 3-5s polling；WS/订阅、cursor node page、cluster/virtualized topology 只在真实大 DAG 或 stale UI 痛点出现后恢复。禁止提前渲染 10000-node mermaid。 | T5/T7/F9/scale 后续 |
+| UI-D20 | 金融/合规模板预设 | 不在当前 DAG Console v1 做金融预设 badge、合规说明、模板 Use/Save preview；旧 P9/P12/P13 已在蓝图中砍掉，如真实金融 dogfood 需要恢复，必须另立新 ADR/任务。 | 旧 P10 概念/新任务后续 |
 | UI-D21 | 编辑历史、回滚与多人冲突 | v1 不做 realtime collaboration、不做 revision history UI；先依赖版本/CAS 错误提示。H4 触发后再做“正在编辑”、undo/rollback、revision diff。 | H4/F8 |
 | UI-D22 | 通知噪音与本地化 | `dag_node_completed` 等后台清理 reason 不应原样进用户通知；后续通知层做本地化映射或白名单 skip。final_output/cron miss/run timeout 通知需要统一降噪策略。 | ADR-016/H6b/H15 |
 | UI-D23 | 节点对话入口 | H9 `task_post_message` 未落地前，不在 DAG 页做节点 chat surface；v1 用子 thread 链接 + sharedfile/final_output 承接上下文和产物。 | H9/T6 |
-| UI-D24 | 高级字段注册表 | verify/activity/cost/growth/swarm/output_schema 等 P8-P13 字段不进 v1 主表单；后续必须通过 typed registry + feature gate 暴露，不让用户直接编辑 raw JSON/YAML。 | P8-P13/F8 后续 |
+| UI-D24 | 高级字段注册表 | verify/activity/cost/growth/swarm/output_schema 等旧 P8-P13 概念不进 v1 主表单；如恢复必须另立新 ADR/任务，并通过 typed registry + feature gate 暴露，不让用户直接编辑 raw JSON/YAML。 | F8/新任务后续 |
 
 ## 4. 推荐实现顺序
 
@@ -70,4 +70,4 @@ DAG 后端、C-A lifecycle、final_output、sharedfile、prompt_template-first �
 - H14 已完成 final_output UI；F11 不再承担 final_output 高亮，只剩 sharedfile 锁可视化和中间产物体验深化。
 - Need 1 还缺 T7 列表字段和 F10 run 历史 UI 才算用户可见闭环。
 - Need 2 的后端与 prompt_template seed 已基本到位，剩余主要是 T8/F8/F9 UI 设计与实现。
-- 旧 P10 的模板库/preview/lineage/cost preview、金融预设、大规模 UI、WS 实时事件、多人编辑冲突均已登记为后续项，不是当前 DAG UI v1 必做项。
+- 旧 P10 的模板库/preview/lineage/cost preview、金融预设、大规模 UI、WS 实时事件、多人编辑冲突均已登记为非 v1 项；其中已被蓝图砍掉的旧 P8/P9/P12/P13 类能力，恢复时必须另立新 ADR/任务。
