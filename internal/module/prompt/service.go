@@ -407,18 +407,19 @@ func buildPromptTemplate(
 ) promptstore.PromptTemplate {
 	baseTags := clientTagsOrDefault(p.Tags, nil)
 	template := promptstore.PromptTemplate{
-		PromptKey:   key,
-		Title:       strings.TrimSpace(p.Name),
-		AgentKey:    promptAgentType(p.AgentType),
-		PromptText:  p.Content,
-		Variables:   json.RawMessage("{}"),
-		Tags:        withPromptScopeTag(baseTags, promptScopeForWrite(current, cwd)),
-		Enabled:     true,
-		CreatedBy:   promptUpdatedBy,
-		UpdatedBy:   promptUpdatedBy,
-		Description: strings.TrimSpace(p.Description),
-		MatchWhen:   append(json.RawMessage(nil), p.MatchWhen...),
-		Priority:    p.Priority,
+		PromptKey:      key,
+		Title:          strings.TrimSpace(p.Name),
+		AgentKey:       promptAgentType(p.AgentType),
+		PromptText:     p.Content,
+		Variables:      json.RawMessage("{}"),
+		Tags:           withPromptScopeTag(baseTags, promptScopeForWrite(current, cwd)),
+		Enabled:        true,
+		ManuallyEdited: current != nil,
+		CreatedBy:      promptUpdatedBy,
+		UpdatedBy:      promptUpdatedBy,
+		Description:    strings.TrimSpace(p.Description),
+		MatchWhen:      append(json.RawMessage(nil), p.MatchWhen...),
+		Priority:       p.Priority,
 	}
 	if current == nil {
 		return template
