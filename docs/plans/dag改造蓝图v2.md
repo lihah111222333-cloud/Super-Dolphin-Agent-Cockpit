@@ -74,6 +74,12 @@ MCP 工具层      ✅ 完整 (task_create_dag / get_dag / update_node)
 | **result vs sharedfile 边界** | **`to_node_result` 仅 < 4KB 摘要；大输出必须 `to_sharedfile`** | 🤖 | 防止 task_dag_nodes.result JSONB 列膨胀；F1.3 enforce |
 | **final output 边界** | **sharedfile 可承载最终产物；`task_dag_runs.metadata.final_output` 标记本次 run 的最终交付物** | 🤖 | `task_dags.metadata.final_node_key` 显式声明最终节点；Shared Files 页面后续基于 final_output 高亮/筛选最终产物 |
 
+### 5.1 final_output 单产物优先，bundle 暂缓
+
+短期 H14 UI 按单 `final_output` pointer 实现，不马上把 bundle 做复杂：文件型最终产物展示打开/读取/下载入口；小体量 text/json 最终产物在 run/task 详情里展示摘要。这里的 `final_output` 是跨场景的“本次 run 用户可收最终产物”索引，不绑定 PPT/report：金融可以是 market brief PPT、风险 PDF、组合 Excel、指标 JSON；编程可以是 patch/diff、code review 报告、测试报告、release notes；研究/运营/监控也可以产出 markdown/PDF/CSV/截图/告警摘要等。
+
+`sharedfile` 仍是存储/协作层，既能承载中间文件，也能承载最终文件；`task_dag_runs.metadata.final_output` 只负责标记用户应该优先看到的最终交付物，避免 Shared Files 列表噪音。等真实金融/编程/研究 dogfood 出现“一个 run 多个最终交付物”的强需求，再升级 bundle/multi-artifact 形态；未来可考虑 `kind=bundle`、`primary`、`attachments`，但必须由真实工作流驱动，而不是提前扩 schema/UI。
+
 ## 6. 改造决策矩阵
 
 ### 6.1 留下（p23 已规划且高 ROI）
