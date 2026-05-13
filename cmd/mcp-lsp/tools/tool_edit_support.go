@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -160,8 +161,8 @@ func runeOffset(line string, character int) (int, error) {
 	return offset, nil
 }
 
-func resolveFilePath(path string) (string, error) {
-	return resolveWorkspacePath("", path)
+func resolveFilePath(ctx context.Context, path string) (string, error) {
+	return resolveWorkspacePath(toolWorkspaceRoot(ctx, ""), path)
 }
 
 func resolveWorkspacePath(root string, uri string) (string, error) {

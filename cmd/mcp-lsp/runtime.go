@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/gopls"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/installer"
@@ -121,11 +122,20 @@ func createGenericManager(executable string, args []string, root string, log *sl
 	}
 	return gopls.NewManager(gopls.Config{
 		WorkspaceRoot: root,
-		ClientFactory: gopls.ClientFactoryFunc(func(h protocol.NotificationHandler) (gopls.Client, error) {
+		ClientFactory: gopls.ClientFactoryFunc(func(rootDir string, h protocol.NotificationHandler) (gopls.Client, error) {
+			// rootDir is supplied per-call from cfg.rootPath so the gopls
+			// subprocess Dir tracks the workspace being initialised
+			// (e.g. ctx _cwd from an agent in another project). Falling
+			// back to the manager's startup root only when the caller
+			// has not resolved a specific workspace yet.
+			dir := rootDir
+			if strings.TrimSpace(dir) == "" {
+				dir = root
+			}
 			return gopls.NewClientWithOptions(gopls.Options{
 				Binary:              executable,
 				Args:                args,
-				Dir:                 root,
+				Dir:                 dir,
 				InitOptions:         opts,
 				NotificationHandler: h,
 			})
