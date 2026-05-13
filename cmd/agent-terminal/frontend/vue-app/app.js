@@ -1,5 +1,5 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from '../lib/vue.esm-browser.prod.js';
-import { callAPI, getBuildInfo, onAgentEvent, onBridgeEvent, onAppWillQuit } from './services/api.js';
+import { callAPI, getBuildInfo, onBridgeEvent, onAppWillQuit } from './services/api.js';
 import { usePendingCandidates } from './composables/usePendingCandidates.js';
 import { SidebarNav } from './components/SidebarNav.js';
 import { ProjectModal } from './components/ProjectModal.js';
@@ -382,9 +382,8 @@ export const AppRoot = {
     async function bootstrap() {
       // Subscribe to events FIRST, before any await — ensures no events are missed
       // even if subsequent initialization steps hang or take long.
-      unsubscribeAgentEvent = onAgentEvent(/** @param {unknown} evt */ (evt) => {
-        threadStore.handleAgentEvent(evt);
-      });
+      // legacy agent-event channel removed to prevent duplicate event processing
+      unsubscribeAgentEvent = () => {};
       unsubscribeBridgeEvent = onBridgeEvent(/** @param {BridgeEventEnvelope} evt */ (evt) => {
         threadStore.handleBridgeEvent(evt);
         const eventType = (evt?.type || evt?.params?.type || evt?.payload?.type || evt?.data?.type || '').toString().trim().toLowerCase();
