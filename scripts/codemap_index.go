@@ -278,7 +278,13 @@ func buildCompactFilesIndex(rawFilesIndex map[string][]rawRef) (map[string]*File
 	}
 
 	filesIndex := make(map[string]*FileEntry, len(rawFilesIndex))
-	for src, raws := range rawFilesIndex {
+	sources := make([]string, 0, len(rawFilesIndex))
+	for src := range rawFilesIndex {
+		sources = append(sources, src)
+	}
+	sort.Strings(sources)
+	for _, src := range sources {
+		raws := rawFilesIndex[src]
 		refs := make([]Ref, len(raws))
 		for i, r := range raws {
 			refs[i] = Ref{

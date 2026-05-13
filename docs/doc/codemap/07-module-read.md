@@ -64,15 +64,16 @@ graph TD
   - 注入 `agentstatus / ailog / auditlog / buslog / commandcard / dbquery / prompt / sharedfile / systemlog / tasktrace`
   - 注入 `skillmodule.SkillLister`（不是完整 `skill.Service`）
   - `fx.Provide(NewDashboardHandlers)` 暴露 RPC
-- **RPC 面**：`rpc.go:82-147`
+- **RPC 面**：`rpc.go:155-270`
   - 页面聚合：`ui/dashboard/get`
-  - 细分读取：`dashboard/{agentStatus,taskTraces,commandCards,prompts,sharedFiles,skills,agent/detail,system/info,query,aiLogs,auditLogs,busLogs,dags,dagDetail,logs}`
+  - 细分读取：`dashboard/{agentStatus,taskTraces,commandCards,prompts,sharedFiles,skills,agent/detail,system/info,query,aiLogs,auditLogs,busLogs,dags,dagDetail,dagRuns,logs}`
 - **服务核心**：`service.go:35-340`
   - `GetDashboardPage` / `GetAgentDetail` / `GetLogs` / `Query`
   - `GetAgentDetail` 里用 `errgroup` 并发 `Snapshot + GetReport`
-- **页内装配**：`ui_page.go:21-202`
-  - `DashboardPage` 聚合 `Agents/TaskTraces/Skills/CommandCards/Prompts/Memory`
+- **页内装配**：`ui_page.go:17-340`
+  - `DashboardPage` 聚合 `Agents/DAGs/TaskTraces/Skills/CommandCards/Prompts/Memory/FinalOutputRefs`
   - `commands` 页是唯一多 loader 并发页（`commandCards + prompts`）
+  - `memory` 页在 sharedfile 列表外额外提取近期 DAG run 的 file 型 `metadata.final_output`，只作为高亮/筛选索引
 
 ### 2.2 `ui/dashboard/get` 分发链
 
@@ -92,6 +93,7 @@ sequenceDiagram
     participant CC as commandcard.List
     participant PR as prompt.List + dashboard filter
     participant M as sharedfile.List
+    participant R as orchestration.ListRuns
 
     C->>H: ui/dashboard/get {page}
     H->>S: GetDashboardPage(ctx, page)
@@ -113,6 +115,7 @@ sequenceDiagram
         end
     else page=memory
         G->>M: populateDashboardMemory()
+        G->>R: listDashboardFinalOutputRefs()
     else unknown/empty
         L-->>P: nil
     end
@@ -130,13 +133,13 @@ sequenceDiagram
 | `tasks` | `populateDashboardTaskTraces` | `tasktrace.Store.List` | 固定 `Limit=100` |
 | `skills` | `populateDashboardSkills` | `skillmodule.SkillLister.ListSkills` | 只读窄端口复用技能扫描层 |
 | `commands` | `populateDashboardCommandCards` + `populateDashboardPrompts` | `commandcard.Reader.List` + `prompt.Reader.List` | 两路并发 |
-| `memory` | `populateDashboardMemory` | `sharedfile.Reader.List` | 固定 `Limit=500` |
+| `memory` | `populateDashboardMemory` | `sharedfile.Reader.List` + `orchestration.ListDAGs/ListRuns` | sharedfile 固定 `Limit=500`；`FinalOutputRefs` 只扫最近 20 个 DAG、每 DAG 最近 3 个 run |
 
 补充：
 
 - `dashboard/commandCards` 只是 `GetDashboardPage("commands")` 后取 `page.CommandCards`。
 - `dashboard/prompts` **不是**简单的 page-field wrapper：`rpc.go:102-108` 会先写入 `withDashboardPromptScopeCWD(ctx, p.Cwd)`，再返回 `page.Prompts`。
-- `dashboard/sharedFiles` 只是 `GetDashboardPage("memory")` 后取 `page.Memory`，返回 key 为 `files`。
+- `dashboard/sharedFiles` 只是 `GetDashboardPage("memory")` 后取 `page.Memory`，返回 key 为 `files`；`finalOutputRefs` 只在 `ui/dashboard/get?page=memory` 的页面 payload 暴露。
 - `dashboard/skills` 也会继承同一份 `{cwd}`：`rpc.go:113-115` → `ui_page.go:158-162` → `skillmodule.SkillLister.ListSkills(skillmodule.WithCWD(...))`。
 
 ### 2.4 `dashboard/prompts` 的 `{cwd}` 过滤接线
@@ -193,7 +196,12 @@ sequenceDiagram
   - `resolveLogSource` 把 `all/system/ai` 归一成组合读取模式
   - `appendSystemLogs` / `appendAILogs` 合流后统一排序与裁剪
 - **DAG 查询**：`rpc.go:132-136` / `detail.go`
-  - 直接透传 `contract.OrchestrationService` 的 list/detail 能力
+  - `dashboard/dags` 与 `dashboard/dagDetail` 透传 `contract.OrchestrationService` 的 list/detail 能力
+  - `dashboard/dagRuns` 走 `ListDAGRuns()`，内部 clamp limit 后调用 `orchestration.ListRuns`（`detail.go:61-80`, `rpc.go:260-266`）
+- **final_output 索引**：`ui_page.go:250-340`
+  - `listDashboardFinalOutputRefs()` 先取最近 DAG，再并发取每个 DAG 最近 run，解析 `run.metadata.final_output`
+  - 只接收 `kind=file` 或未显式 kind 但有 `path/sharedfile.path` 的输出；text/json 最终产物留 DAG detail 展示，不进入 Shared Files 文件筛选
+  - enrichment 错误不阻断 memory page：`populateDashboardMemory()` 对 refErr 静默降级为空列表（`ui_page.go:163-172`）
 - **任意 DB 查询**：`rpc.go:120-122` → `service.Query()` → `dbquery.Store.Query`
 
 ### 2.6 依赖图
@@ -224,7 +232,7 @@ flowchart TD
 | `rpc.go` | `ui/dashboard/get` 与各细分 `dashboard/*` 路由。 |
 | `service.go` | `GetDashboard` / `GetAgentDetail` / `GetLogs` / `Query` / cwd-scope ctx helper。 |
 | `ui_page.go` | `DashboardPage`、loader switch、页内并发装配、prompt tag 过滤。 |
-| `detail.go` | DAG list/detail 与 Agent turn history 辅助逻辑。 |
+| `detail.go` | DAG list/detail/run-list 与 Agent turn history 辅助逻辑。 |
 | `logs.go` / `ai_logs.go` / `factory.go` | 日志统一包装、过滤与 DTO 组装。 |
 | `agent_status.go` / `types.go` / `contract.go` | DTO 与查询接口定义。 |
 
