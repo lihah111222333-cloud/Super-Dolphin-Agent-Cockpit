@@ -101,7 +101,7 @@ func TestPhase45BaseInstructionsStayOutOfPromptStorage(t *testing.T) {
 		if req.Instructions != "system prompt" {
 			t.Fatalf("instructions = %q, want system prompt", req.Instructions)
 		}
-		session := &stubSession{threadID: "provider-thread-base"}
+		session := &stubSession{threadID: "019d5f6b-fb3c-7760-9d6f-54005553f601"}
 		sessions.session = session
 		return session, nil
 	}}
@@ -115,13 +115,11 @@ func TestPhase45BaseInstructionsStayOutOfPromptStorage(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	// Auto-naming: no prompt supplied → fallback to "对话 #N" (CountAll stub returns 0 → "对话 #1").
-	wantName := defaultThreadName()
-	if orch.launchReq.Name != wantName {
-		t.Fatalf("launch name = %q, want %q", orch.launchReq.Name, wantName)
+	if orch.launchReq.Name != "" {
+		t.Fatalf("launch name = %q, want empty", orch.launchReq.Name)
 	}
-	if threads.upsert.Prompt != wantName {
-		t.Fatalf("persisted prompt = %q, want %q", threads.upsert.Prompt, wantName)
+	if threads.upsert.Name != "" || threads.upsert.Prompt != "" {
+		t.Fatalf("persisted name/prompt = %q/%q, want empty", threads.upsert.Name, threads.upsert.Prompt)
 	}
 }
 
@@ -145,11 +143,14 @@ func TestPhase45ResumeForwardsPromptSnapshot(t *testing.T) {
 		CreatedAt: 123,
 		Status:    statusCreated,
 	}}
+	const providerThreadID = "11111111-2222-3333-4444-555555555561"
+	rolloutPath := writeExistingProviderHistoryFile(t)
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-1",
 		Provider:         "codex",
-		ProviderThreadID: "provider-thread-1",
+		ProviderThreadID: providerThreadID,
 		CodexThreadID:    "thread-1",
+		RolloutPath:      rolloutPath,
 		Cwd:              "/repo",
 	}}
 	sessions := &stubSessionProvider{}
@@ -162,7 +163,7 @@ func TestPhase45ResumeForwardsPromptSnapshot(t *testing.T) {
 			req.PromptSnapshot.Hash != snapshot.Hash {
 			t.Fatalf("PromptSnapshot = %#v, want %#v", req.PromptSnapshot, snapshot)
 		}
-		session := &stubSession{threadID: "provider-thread-1"}
+		session := &stubSession{threadID: providerThreadID, rolloutPath: rolloutPath}
 		sessions.session = session
 		return session, nil
 	}}
@@ -176,8 +177,8 @@ func TestPhase45ResumeForwardsPromptSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resume() error = %v", err)
 	}
-	if result.SessionID != "provider-thread-1" || result.Status != "resumed" {
-		t.Fatalf("Resume() result = %#v, want provider-thread-1/resumed", result)
+	if result.SessionID != providerThreadID || result.Status != "resumed" {
+		t.Fatalf("Resume() result = %#v, want %s/resumed", result, providerThreadID)
 	}
 }
 
@@ -196,14 +197,17 @@ func TestPhaseGResumeRebuildsPromptSnapshotFromStoredAgentIdentity(t *testing.T)
 		CreatedAt:        123,
 		Status:           statusCreated,
 	}}
+	const providerThreadID = "11111111-2222-3333-4444-555555555562"
+	rolloutPath := writeExistingProviderHistoryFile(t)
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-1",
 		ParentAgentID:    "agent-root",
 		AgentType:        "worker",
 		AgentMemoryScope: "local",
 		Provider:         "codex",
-		ProviderThreadID: "provider-thread-1",
+		ProviderThreadID: providerThreadID,
 		CodexThreadID:    "thread-1",
+		RolloutPath:      rolloutPath,
 		Cwd:              "/repo",
 	}}
 	sessions := &stubSessionProvider{}
@@ -212,7 +216,7 @@ func TestPhaseGResumeRebuildsPromptSnapshotFromStoredAgentIdentity(t *testing.T)
 		if req.PromptSnapshot.BaseInstructions != "rebuilt base" || req.PromptSnapshot.DeveloperInstructions != "rebuilt dev" {
 			t.Fatalf("PromptSnapshot = %#v, want rebuilt snapshot", req.PromptSnapshot)
 		}
-		session := &stubSession{threadID: "provider-thread-1"}
+		session := &stubSession{threadID: providerThreadID, rolloutPath: rolloutPath}
 		sessions.session = session
 		return session, nil
 	}}
@@ -265,7 +269,7 @@ func TestPhase45StartPersistsPromptSnapshot(t *testing.T) {
 	threads := &stubThreadStore{}
 	sessions := &stubSessionProvider{}
 	starter := &phase45StartOnlySessionStarter{onStart: func(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
-		session := &stubSession{threadID: "provider-thread-start"}
+		session := &stubSession{threadID: "019d5f6b-fb3c-7760-9d6f-54005553f602"}
 		sessions.session = session
 		return session, nil
 	}}
@@ -312,7 +316,7 @@ func TestPhase45ExplicitNameWinsOverLegacyPromptFallback(t *testing.T) {
 		if req.StartAssembly.DisplayName != "clean name" {
 			t.Fatalf("start assembly display name = %q, want clean name", req.StartAssembly.DisplayName)
 		}
-		session := &stubSession{threadID: "provider-thread-name"}
+		session := &stubSession{threadID: "019d5f6b-fb3c-7760-9d6f-54005553f603"}
 		sessions.session = session
 		return session, nil
 	}}

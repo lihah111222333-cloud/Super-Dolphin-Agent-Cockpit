@@ -96,7 +96,7 @@ func runDocumentSymbols(
 	manager lspmanager.Manager,
 	req structureParams,
 ) (any, error) {
-	filePath, err := resolveFilePath(req.FilePath)
+	filePath, err := resolveFilePath(ctx, req.FilePath)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +144,7 @@ func runFoldingRanges(
 	manager lspmanager.Manager,
 	req structureParams,
 ) (any, error) {
-	filePath, err := resolveFilePath(req.FilePath)
+	filePath, err := resolveFilePath(ctx, req.FilePath)
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +162,7 @@ func runSemanticTokens(
 	manager lspmanager.Manager,
 	req structureParams,
 ) (any, error) {
-	filePath, err := resolveFilePath(req.FilePath)
+	filePath, err := resolveFilePath(ctx, req.FilePath)
 	if err != nil {
 		return nil, err
 	}

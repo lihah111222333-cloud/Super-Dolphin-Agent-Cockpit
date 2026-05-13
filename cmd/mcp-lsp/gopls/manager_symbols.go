@@ -153,7 +153,7 @@ func (m *manager) resolveTypeDirections(ctx context.Context, client Client, item
 }
 
 func (m *manager) DocumentSymbol(ctx context.Context, uri string) ([]protocol.DocumentSymbol, error) {
-	ref, err := m.resolveDocumentRef(uri, "")
+	ref, err := m.resolveDocumentRef(ctx, uri, "")
 	if err != nil {
 		return nil, err
 	}

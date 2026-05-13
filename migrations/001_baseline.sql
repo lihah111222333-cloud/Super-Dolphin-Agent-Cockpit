@@ -153,7 +153,7 @@ CREATE TABLE public.prompts (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
-CREATE TABLE public.schema_migrations (
+CREATE TABLE IF NOT EXISTS public.schema_migrations (
     version integer NOT NULL, name text NOT NULL, filename text NOT NULL,
     applied_at timestamp with time zone DEFAULT now() NOT NULL
 );

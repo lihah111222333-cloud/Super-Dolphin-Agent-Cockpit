@@ -35,7 +35,7 @@ type documentSnapshot struct {
 }
 
 func (m *manager) bootstrapDocument(ctx context.Context, uri string) error {
-	ref, cfg, err := m.bootstrapTarget(uri)
+	ref, cfg, err := m.bootstrapTarget(ctx, uri)
 	if err != nil {
 		return err
 	}
@@ -52,7 +52,7 @@ func (m *manager) bootstrapDocument(ctx context.Context, uri string) error {
 }
 
 func (m *manager) bootstrapDocumentOpenOnly(ctx context.Context, uri string) error {
-	ref, cfg, err := m.bootstrapTarget(uri)
+	ref, cfg, err := m.bootstrapTarget(ctx, uri)
 	if err != nil {
 		return err
 	}
@@ -98,15 +98,15 @@ func closeBootstrapCoordinator(m *manager) {
 	coordinator.cache.Close()
 }
 
-func (m *manager) bootstrapTarget(uri string) (documentRef, workspaceConfig, error) {
-	ref, err := m.resolveDocumentRef(uri, "")
+func (m *manager) bootstrapTarget(ctx context.Context, uri string) (documentRef, workspaceConfig, error) {
+	ref, err := m.resolveDocumentRef(ctx, uri, "")
 	if err != nil {
 		return documentRef{}, workspaceConfig{}, err
 	}
 	if !shouldUseClientForLanguage(ref.languageID) {
 		return ref, workspaceConfig{}, nil
 	}
-	cfg, err := m.resolveWorkspaceForDocument(ref)
+	cfg, err := m.resolveWorkspaceForDocument(ctx, ref)
 	if err != nil {
 		return documentRef{}, workspaceConfig{}, err
 	}
@@ -193,7 +193,7 @@ func (c *bootstrapCoordinator) refreshWorkspace(ctx context.Context, m *manager,
 		if record.Key.URI == excludeURI {
 			return
 		}
-		ref, err := m.resolveDocumentRef(record.Key.URI, record.Key.Language)
+		ref, err := m.resolveDocumentRef(ctx, record.Key.URI, record.Key.Language)
 		if err != nil {
 			logBootstrapWarning(m, record.Key.URI, err)
 			return

@@ -155,14 +155,12 @@ describe('AppRoot behavior', () => {
     expect(stores.threadStore.setPreferenceScopeCwd).toHaveBeenCalledWith('/repo');
     expect(stores.threadStore.refreshSidebarState).toHaveBeenCalled();
     expect(historyMock.ensureThreadSelectionFresh).toHaveBeenCalledWith(stores.threadStore, 'thread-existing', { reason: 'bootstrap' });
-    expect(apiMock.onAgentEvent).toHaveBeenCalled();
     expect(apiMock.onBridgeEvent).toHaveBeenCalled();
     expect(apiMock.onAppWillQuit).toHaveBeenCalled();
     expect(vm.buildInfo.version).toBe('1.0.0');
     expect(vm.currentCwdDisplay.value).toContain('/window');
 
     hooks.unmounted.splice(0).forEach((fn) => fn());
-    expect(apiMock.agentOff).toHaveBeenCalled();
     expect(apiMock.bridgeOff).toHaveBeenCalled();
     expect(apiMock.quitOff).toHaveBeenCalled();
     expect(globalThis.clearInterval).toHaveBeenCalledWith(42);

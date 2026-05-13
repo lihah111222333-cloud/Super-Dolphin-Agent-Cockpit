@@ -105,3 +105,38 @@ func TestMigration0071EnforcesClaudeProviderThreadUUID(t *testing.T) {
 		"provider_thread_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'",
 	})
 }
+
+func TestMigration0078RepairsDependsOnBeforeArrayCheck(t *testing.T) {
+	t.Parallel()
+
+	assertMigrationContains(t, "0078_dag_v2_node_depends_on_array_check.sql", []string{
+		"SET depends_on = '[]'::jsonb",
+		"jsonb_typeof(depends_on) IS DISTINCT FROM 'array'",
+		"ADD CONSTRAINT chk_depends_on_is_array",
+		"VALIDATE CONSTRAINT chk_depends_on_is_array",
+	})
+}
+
+func TestMigration0079RepairsReadsWritesBeforeArrayChecks(t *testing.T) {
+	t.Parallel()
+
+	assertMigrationContains(t, "0079_dag_v2_node_run_id_fk_and_jsonb_checks.sql", []string{
+		"SET reads = '[]'::jsonb",
+		"jsonb_typeof(reads) IS DISTINCT FROM 'array'",
+		"SET writes = '[]'::jsonb",
+		"jsonb_typeof(writes) IS DISTINCT FROM 'array'",
+		"ADD CONSTRAINT chk_reads_is_array",
+		"ADD CONSTRAINT chk_writes_is_array",
+	})
+}
+
+func TestMigration0088RepairsAgentThreadsBaselineCompatColumns(t *testing.T) {
+	t.Parallel()
+
+	assertMigrationContains(t, "0088_agent_threads_baseline_compat_columns.sql", []string{
+		"ADD COLUMN IF NOT EXISTS workspace_run_key TEXT NOT NULL DEFAULT ''",
+		"ADD COLUMN IF NOT EXISTS owner_thread_id   TEXT NOT NULL DEFAULT ''",
+		"idx_agent_threads_workspace_run_key",
+		"idx_agent_threads_owner_thread_id",
+	})
+}

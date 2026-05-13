@@ -48,6 +48,17 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_x_y ON x (y);
 	}
 }
 
+func TestSplitMigrationBody_InlineMentionDoesNotSplit(t *testing.T) {
+	body := "BEGIN;\n-- prose mentions “-- SPLIT --” but is not the sentinel line\nALTER TABLE x ADD COLUMN y INT;\nCOMMIT;\n"
+	got := splitMigrationBody(body)
+	if len(got) != 1 {
+		t.Fatalf("inline mention: got %d segments, want 1; segments=%v", len(got), got)
+	}
+	if got[0] != body {
+		t.Fatalf("inline mention: segment not preserved; got %q want %q", got[0], body)
+	}
+}
+
 func TestSplitMigrationBody_MultipleSentinels_DropsEmptySegments(t *testing.T) {
 	// 连续 sentinel 之间无内容（仅空白）应被跳过。
 	body := "ALTER TABLE x ADD COLUMN a INT;\n-- SPLIT --\n   \n-- SPLIT --\nCREATE INDEX CONCURRENTLY i1 ON x(a);\n"

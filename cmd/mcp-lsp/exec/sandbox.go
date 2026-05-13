@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
@@ -73,7 +74,7 @@ func (s *Sandbox) Run(ctx context.Context, req Request) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	workDir, err := s.resolveWorkDir(req.WorkDir)
+	workDir, err := s.resolveWorkDir(ctx, req.WorkDir)
 	if err != nil {
 		return Result{}, err
 	}
@@ -130,24 +131,44 @@ func (s *Sandbox) ShellRequest(command string, workDir string, timeout time.Dura
 	}
 }
 
-func (s *Sandbox) resolveWorkDir(workDir string) (string, error) {
+// effectiveRoot picks the workspace root that bounds work_dir.
+// When the MCP toolbridge has injected a per-call _cwd into ctx (see
+// internal/mcpserver/common/server.go + cmd/mcp-lsp/fx.go OnToolsCall),
+// the sandbox MUST follow that cwd instead of the build-time s.rootDir,
+// otherwise calls from agents bound to a different project root than the
+// mcp-lsp startup directory get a stale "work_dir must stay within …"
+// rejection even though the upstream binding has already authorised the
+// target cwd.
+func (s *Sandbox) effectiveRoot(ctx context.Context) string {
+	if ctx != nil {
+		if cwd, ok := ctx.Value(common.CwdContextKey).(string); ok {
+			if normalized, err := normalizePath(strings.TrimSpace(cwd)); err == nil && normalized != "" {
+				return normalized
+			}
+		}
+	}
+	return s.rootDir
+}
+
+func (s *Sandbox) resolveWorkDir(ctx context.Context, workDir string) (string, error) {
+	root := s.effectiveRoot(ctx)
 	if strings.TrimSpace(workDir) == "" {
-		return s.rootDir, nil
+		return root, nil
 	}
 	candidate := workDir
 	if !filepath.IsAbs(candidate) {
-		candidate = filepath.Join(s.rootDir, candidate)
+		candidate = filepath.Join(root, candidate)
 	}
 	normalized, err := normalizePath(candidate)
 	if err != nil {
 		return "", err
 	}
-	rel, err := filepath.Rel(s.rootDir, normalized)
+	rel, err := filepath.Rel(root, normalized)
 	if err != nil {
 		return "", fmt.Errorf("validate work_dir: %w", err)
 	}
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("work_dir must stay within %s", s.rootDir)
+		return "", fmt.Errorf("work_dir must stay within %s", root)
 	}
 	info, err := os.Stat(normalized)
 	if err != nil {

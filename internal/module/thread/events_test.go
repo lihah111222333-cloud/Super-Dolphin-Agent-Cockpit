@@ -21,7 +21,7 @@ func TestThreadSubscriptionsUpdateSessionUUIDFromAgentLaunched(t *testing.T) {
 	defer func() { _ = dispatcher.Close() }()
 
 	bindings := &eventBindingStore{
-		binding:  &bindingstore.Binding{AgentID: "agent-1", SessionUUID: "fallback-agent-1"},
+		binding:  &bindingstore.Binding{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "agent-1", SessionUUID: "fallback-agent-1", RolloutPath: writeExistingProviderHistoryFile(t)},
 		updateCh: make(chan struct{}, 1),
 	}
 	svc := NewService(silentLogger(), nil, bindings, nil, nil, nil, nil, nil).(*service)
@@ -54,6 +54,43 @@ func TestThreadSubscriptionsUpdateSessionUUIDFromAgentLaunched(t *testing.T) {
 	}
 	if gotBinding := bindings.Binding(); gotBinding == nil || gotBinding.SessionUUID != realUUID {
 		t.Fatalf("binding.SessionUUID = %q, want %s", bindingSessionUUID(gotBinding), realUUID)
+	}
+	providerUpdates := waitForProviderThreadUpdates(t, bindings, 1, time.Second)
+	if len(providerUpdates) != 1 {
+		t.Fatalf("len(providerUpdates) = %d, want 1", len(providerUpdates))
+	}
+	if got := providerUpdates[0]; got.AgentID != "agent-1" || got.ProviderThreadID != realUUID || got.UpdatedAt == 0 {
+		t.Fatalf("provider thread update = %#v", got)
+	}
+	if gotBinding := bindings.Binding(); gotBinding == nil || gotBinding.ProviderThreadID != realUUID {
+		t.Fatalf("binding.ProviderThreadID = %q, want %s", bindingProviderThreadID(gotBinding), realUUID)
+	}
+}
+
+func TestAgentLaunchedDoesNotPromoteProviderThreadIDWithoutHistoryFile(t *testing.T) {
+	t.Parallel()
+
+	const realUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5b3"
+	bindings := &eventBindingStore{
+		binding: &bindingstore.Binding{
+			AgentID:          "agent-1",
+			Provider:         "codex",
+			ProviderThreadID: "agent-1",
+			SessionUUID:      "fallback-agent-1",
+		},
+	}
+	svc := NewService(silentLogger(), nil, bindings, nil, nil, nil, nil, nil).(*service)
+
+	svc.processAgentLaunched(newAgentLaunchedEvent("agent-1", "thread-1", realUUID))
+
+	if len(bindings.SessionUpdates()) != 1 {
+		t.Fatalf("session updates = %d, want 1", len(bindings.SessionUpdates()))
+	}
+	if providerUpdates := bindings.ProviderThreadUpdates(); len(providerUpdates) != 0 {
+		t.Fatalf("provider thread updates = %#v, want none without history file", providerUpdates)
+	}
+	if gotBinding := bindings.Binding(); gotBinding == nil || gotBinding.ProviderThreadID != "agent-1" {
+		t.Fatalf("binding.ProviderThreadID = %q, want placeholder retained", bindingProviderThreadID(gotBinding))
 	}
 }
 
@@ -134,12 +171,26 @@ func cancelThreadSubscriptions(cancels []context.CancelFunc) {
 	}
 }
 
+func waitForProviderThreadUpdates(t *testing.T, bindings *eventBindingStore, want int, d time.Duration) []bindingstore.UpdateProviderThreadIDParams {
+	t.Helper()
+	deadline := time.Now().Add(d)
+	for time.Now().Before(deadline) {
+		updates := bindings.ProviderThreadUpdates()
+		if len(updates) >= want {
+			return updates
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return bindings.ProviderThreadUpdates()
+}
+
 type eventBindingStore struct {
-	mu             sync.RWMutex
-	binding        *bindingstore.Binding
-	sessionUpdates []bindingstore.UpdateSessionUUIDParams
-	cwdUpdates     []bindingstore.UpdateAgentCwdParams
-	updateCh       chan struct{}
+	mu              sync.RWMutex
+	binding         *bindingstore.Binding
+	sessionUpdates  []bindingstore.UpdateSessionUUIDParams
+	providerUpdates []bindingstore.UpdateProviderThreadIDParams
+	cwdUpdates      []bindingstore.UpdateAgentCwdParams
+	updateCh        chan struct{}
 }
 
 func (s *eventBindingStore) GetByProviderThread(context.Context, string, string) (*bindingstore.Binding, error) {
@@ -166,7 +217,13 @@ func (s *eventBindingStore) UpdateSessionUUID(_ context.Context, params bindings
 func (s *eventBindingStore) SetArchived(context.Context, bindingstore.SetArchivedParams) error {
 	return nil
 }
-func (s *eventBindingStore) UpdateProviderThreadID(context.Context, bindingstore.UpdateProviderThreadIDParams) error {
+func (s *eventBindingStore) UpdateProviderThreadID(_ context.Context, params bindingstore.UpdateProviderThreadIDParams) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.providerUpdates = append(s.providerUpdates, params)
+	if s.binding != nil && s.binding.AgentID == params.AgentID {
+		s.binding.ProviderThreadID = params.ProviderThreadID
+	}
 	return nil
 }
 func (s *eventBindingStore) GetByAgentID(_ context.Context, agentID string) (*bindingstore.Binding, error) {
@@ -216,6 +273,14 @@ func (s *eventBindingStore) SessionUpdates() []bindingstore.UpdateSessionUUIDPar
 	return out
 }
 
+func (s *eventBindingStore) ProviderThreadUpdates() []bindingstore.UpdateProviderThreadIDParams {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]bindingstore.UpdateProviderThreadIDParams, len(s.providerUpdates))
+	copy(out, s.providerUpdates)
+	return out
+}
+
 func (s *eventBindingStore) CWDUpdates() []bindingstore.UpdateAgentCwdParams {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -239,6 +304,13 @@ func bindingSessionUUID(binding *bindingstore.Binding) string {
 		return ""
 	}
 	return binding.SessionUUID
+}
+
+func bindingProviderThreadID(binding *bindingstore.Binding) string {
+	if binding == nil {
+		return ""
+	}
+	return binding.ProviderThreadID
 }
 
 func bindingCWD(binding *bindingstore.Binding) string {

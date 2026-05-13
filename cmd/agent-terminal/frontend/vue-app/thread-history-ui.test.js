@@ -401,4 +401,113 @@ describe('thread-history-ui immediate hydration', () => {
     expect(applied).toBe(true);
     expect(state.timelinesByThread['thread-new']).toHaveLength(1);
   });
+
+  // ─── 回归: 防止流输出期间出现 double-text 重复气泡 ───
+
+  it('[regression] drops stale DB message when local streaming buffer is ahead', () => {
+    // 模拟本地正处于 streaming 状态，且本地 buffer 的文本已经比 DB 拉取到的文本长
+    const existingTimeline = [
+      { id: 'thread-stream-user', kind: 'user', text: '请求', ts: '2026-03-10T12:00:00Z' },
+      { id: 'thread-stream-streaming', kind: 'assistant', text: '嗨，我在。直接说要处理的任务', done: false, ts: '2026-03-10T12:00:01Z' }
+    ];
+    const state = { 
+      timelinesByThread: { 'thread-stream': existingTimeline },
+      threads: [{ id: 'thread-stream', state: 'responding', isTurnCompletedLocally: false }]
+    };
+    
+    // DB 刚返回的 timeline 中的文本较短（滞后），但增加前一轮消息强行绕过 sameOrNewer 拦截进入合并逻辑
+    const applied = applyImmediateTimelineFromMessages({
+      threadId: 'thread-stream',
+      response: {
+        messages: [
+          { id: 0, role: 'user', content: '上轮', createdAt: '2026-03-10T11:00:00Z' },
+          { id: 1, role: 'user', content: '请求', createdAt: '2026-03-10T12:00:00Z' },
+          { id: 2, role: 'assistant', content: '嗨，我在。', createdAt: '2026-03-10T12:00:01Z' }, // 滞后于本地
+        ],
+      },
+      state,
+      normalizeThreadID: (value) => value,
+      freezeTimelineItemsAtomic: (items) => ({ changed: true, items }),
+      logInfo: vi.fn(),
+    });
+
+    expect(applied).toBe(true);
+    const resultTimeline = state.timelinesByThread['thread-stream'];
+    // 断言：DB 中滞后的 assistant 消息被剔除，本地超前的 buffer 被保留，防止重复
+    expect(resultTimeline).toHaveLength(3);
+    expect(resultTimeline[2].id).toBe('thread-stream-streaming');
+    expect(resultTimeline[2].text).toBe('嗨，我在。直接说要处理的任务');
+    expect(resultTimeline[2].done).toBe(false);
+  });
+
+  it('[regression] drops local buffer and takes over DB message when DB is ahead', () => {
+    // 模拟本地由于断网等原因，流缓冲停留在较短的文本
+    const existingTimeline = [
+      { id: 'thread-stream-user', kind: 'user', text: '请求', ts: '2026-03-10T12:00:00Z' },
+      { id: 'thread-stream-streaming', kind: 'assistant', text: '嗨', done: false, ts: '2026-03-10T12:00:01Z' }
+    ];
+    const state = { 
+      timelinesByThread: { 'thread-stream': existingTimeline },
+      threads: [{ id: 'thread-stream', state: 'responding', isTurnCompletedLocally: false }]
+    };
+    
+    // DB 返回的 timeline 中的文本更长（超前）
+    const applied = applyImmediateTimelineFromMessages({
+      threadId: 'thread-stream',
+      response: {
+        messages: [
+          { id: 1, role: 'user', content: '请求', createdAt: '2026-03-10T12:00:00Z' },
+          { id: 2, role: 'assistant', content: '嗨，我在。直接说', createdAt: '2026-03-10T12:00:01Z' },
+        ],
+      },
+      state,
+      normalizeThreadID: (value) => value,
+      freezeTimelineItemsAtomic: (items) => ({ changed: true, items }),
+      logInfo: vi.fn(),
+    });
+
+    expect(applied).toBe(true);
+    const resultTimeline = state.timelinesByThread['thread-stream'];
+    // 断言：保留 DB 最新消息，丢弃本地 buffer，但将 DB 消息设为 done: false 以便继续接收 stream
+    expect(resultTimeline).toHaveLength(2);
+    expect(resultTimeline[1].id).not.toBe('thread-stream-streaming');
+    expect(resultTimeline[1].text).toBe('嗨，我在。直接说');
+    expect(resultTimeline[1].done).toBe(false); // DB item is taken over as the streaming buffer
+  });
+
+  it('[regression] forces state transition cleanly without preserving buffers if turn completed locally', () => {
+    const existingTimeline = [
+      { id: 'thread-stream-user', kind: 'user', text: '请求', ts: '2026-03-10T12:00:00Z' },
+      { id: 'thread-stream-streaming', kind: 'assistant', text: '嗨，我在。直接说要处理的任务或贴报错。即可', done: false, ts: '2026-03-10T12:00:01Z' }
+    ];
+    const state = { 
+      timelinesByThread: { 'thread-stream': existingTimeline },
+      // 尽管后端轮询状态还是 responding，但本地刚刚收到了 turn/completed
+      threads: [{ id: 'thread-stream', state: 'responding', isTurnCompletedLocally: true }]
+    };
+    
+    // 加一个历史记录，强行让 incoming 更长，以防被拦截
+    const applied = applyImmediateTimelineFromMessages({
+      threadId: 'thread-stream',
+      response: {
+        messages: [
+          { id: 0, role: 'user', content: '上轮', createdAt: '2026-03-10T11:00:00Z' },
+          { id: 1, role: 'user', content: '请求', createdAt: '2026-03-10T12:00:00Z' },
+          { id: 2, role: 'assistant', content: '嗨，我在。直接说要处理的任务或贴报错即可。', createdAt: '2026-03-10T12:00:01Z' }, // finalized message
+        ],
+      },
+      state,
+      normalizeThreadID: (value) => value,
+      freezeTimelineItemsAtomic: (items) => ({ changed: true, items }),
+      logInfo: vi.fn(),
+    });
+
+    expect(applied).toBe(true);
+    const resultTimeline = state.timelinesByThread['thread-stream'];
+    // 断言：由于 turn 已经 local completed，不再当作 streaming 对待，直接采纳 DB finalized 状态，无重复
+    expect(resultTimeline).toHaveLength(3);
+    expect(resultTimeline[2].id).not.toBe('thread-stream-streaming');
+    expect(resultTimeline[2].text).toBe('嗨，我在。直接说要处理的任务或贴报错即可。');
+    expect(resultTimeline[2].done).not.toBe(false); 
+  });
 });

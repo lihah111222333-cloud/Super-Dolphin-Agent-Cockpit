@@ -22,6 +22,7 @@ import (
 	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
@@ -99,9 +100,13 @@ func buildBootstrapConfig(shutdowner fx.Shutdowner, hookAfter contract.Bootstrap
 		var req struct {
 			Name      string          `json:"name"`
 			Arguments json.RawMessage `json:"arguments"`
+			MetaCWD   string          `json:"_cwd,omitempty"`
 		}
 		if err := json.Unmarshal(params, &req); err != nil {
 			return nil, err
+		}
+		if strings.TrimSpace(req.MetaCWD) != "" {
+			ctx = context.WithValue(ctx, common.CwdContextKey, req.MetaCWD)
 		}
 		result, err := p.CallTool(ctx, req.Name, req.Arguments)
 		if err != nil {

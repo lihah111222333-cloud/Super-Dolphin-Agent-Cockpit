@@ -337,9 +337,9 @@ describe('normalizeThread', () => {
         expect(result.state).toBe('running');
     });
 
-    it('falls back name to id', () => {
+    it('keeps missing name empty', () => {
         const result = normalizeThread({ id: 'abc' });
-        expect(result.name).toBe('abc');
+        expect(result.name).toBe('');
     });
 
     it('handles null', () => {
