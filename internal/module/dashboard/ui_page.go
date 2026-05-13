@@ -166,10 +166,9 @@ func (s *service) populateDashboardMemory(ctx context.Context, out *DashboardPag
 		return err
 	}
 	out.Memory = items
-	if refs, refErr := s.listDashboardFinalOutputRefs(ctx); refErr == nil {
-		out.FinalOutputRefs = refs
-	}
-	return nil
+	refs, err := s.listDashboardFinalOutputRefs(ctx)
+	out.FinalOutputRefs = refs
+	return err
 }
 
 func (s *service) listDashboardTaskTraces(ctx context.Context) ([]tasktracestore.TaskTrace, error) {
@@ -265,7 +264,7 @@ func (s *service) listDashboardFinalOutputRefs(ctx context.Context) ([]FinalOutp
 		group.Go(func() error {
 			runs, runErr := s.ListDAGRuns(groupCtx, dag.DagKey, dashboardFinalOutputRunLimit)
 			if runErr != nil {
-				return nil
+				return runErr
 			}
 			for _, run := range runs {
 				ref, ok := finalOutputRefFromRun(run)

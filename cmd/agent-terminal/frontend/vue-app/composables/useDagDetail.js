@@ -110,7 +110,10 @@ export function useDagDetail() {
 
   function handleStatusEvent(payload = {}) {
     const nodeKey = (payload.node_key || payload.nodeKey || '').toString().trim();
-    const status = (payload.status || '').toString().trim();
+    const eventDagKey = (payload.dag_key || payload.dagKey || '').toString().trim();
+    const currentDagKey = dagKeyFromItem(state.dag);
+    if (eventDagKey && currentDagKey && eventDagKey !== currentDagKey) return;
+    const status = (payload.new_status || payload.newStatus || payload.status || '').toString().trim();
     if (!nodeKey || !status || !Array.isArray(state.nodes)) return;
     const node = state.nodes.find((item) => (item?.node_key || item?.nodeKey || '').toString().trim() === nodeKey);
     if (node) node.status = status;

@@ -117,6 +117,23 @@ func TestGetDashboardPageMemoryIncludesFinalOutputRefs(t *testing.T) {
 	}
 }
 
+func TestGetDashboardPageMemoryPropagatesFinalOutputRefErrors(t *testing.T) {
+	t.Parallel()
+
+	shared := &stubSharedFileReader{
+		result: []sharedfilestore.SharedFile{{Path: "reports/daily-brief.pptx", Content: "deck"}},
+	}
+	orchestration := &stubDashboardOrchestration{
+		listDAGsResult: []contract.DAGSummary{{DagKey: "dag-1", Title: "Daily Brief"}},
+		listRunsErr:    errDashboardStub,
+	}
+	svc := &service{sharedFiles: shared, orchestration: orchestration}
+
+	if _, err := svc.GetDashboardPage(context.Background(), "memory"); err == nil {
+		t.Fatal("GetDashboardPage(memory) error = nil, want final output ref error")
+	}
+}
+
 func TestGetDashboardPageKeepsSkillDisclosureTier(t *testing.T) {
 	t.Parallel()
 

@@ -227,6 +227,42 @@ retry_count_per_node_overflow_total 0
             ["retry_count_per_node"],
         )
 
+    def test_parse_args_requires_metric_samples_by_default(self):
+        dogfood = load_script()
+
+        strict = dogfood.parse_args(["--mode", "run"])
+        family_only = dogfood.parse_args(["--mode", "run", "--metrics-family-only"])
+
+        self.assertTrue(strict.require_metric_samples)
+        self.assertFalse(family_only.require_metric_samples)
+
+    def test_negative_failure_reason_rejects_sharedfile_hint_without_size_cap(self):
+        dogfood = load_script()
+        bad = {
+            "node_key": "long_node_result_rejected",
+            "result": json.dumps({"kind": "exhausted_retries", "reason": "configure outputs.to_sharedfile"}),
+        }
+
+        with self.assertRaises(dogfood.MCPError):
+            dogfood.assert_size_cap_failure([bad])
+
+    def test_wait_for_dag_requires_expected_node_keys_before_terminal_success(self):
+        dogfood = load_script()
+        client = FakeDAGClient([{
+            "nodes": [{"node_key": "only-one", "status": "done"}],
+        }])
+
+        with self.assertRaises(dogfood.MCPError):
+            dogfood.wait_for_dag(
+                client,
+                "dag-a",
+                timeout_sec=0.01,
+                poll_sec=0,
+                assignee="agent_m3",
+                expect_failed=False,
+                expected_node_keys=["only-one", "missing-node"],
+            )
+
 
 class FakeClient:
     def __init__(self):
@@ -235,6 +271,22 @@ class FakeClient:
     def request(self, method, params):
         self.calls.append((params["name"], params["arguments"]))
         return {"structuredContent": {"ok": True}}
+
+
+class FakeDAGClient:
+    def __init__(self, details):
+        self.details = list(details)
+        self.calls = []
+
+    def request(self, method, params):
+        self.calls.append((method, params))
+        if params["name"] == "task_get_dag":
+            if len(self.details) > 1:
+                return {"structuredContent": self.details.pop(0)}
+            return {"structuredContent": self.details[0]}
+        if params["name"] == "task_dispatch_node":
+            return {"structuredContent": {"ok": True}}
+        raise AssertionError("unexpected tool %s" % params["name"])
 
 
 class FakeMCPHandler(BaseHTTPRequestHandler):

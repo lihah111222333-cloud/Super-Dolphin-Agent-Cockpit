@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -150,15 +151,45 @@ func (l *dispatcherStubLauncher) LaunchAgent(_ context.Context, req LaunchReques
 }
 
 type recordingDispatchRetryAlertSink struct {
+	mu    sync.Mutex
 	calls []DispatchRetryAlert
 	err   error
+	block chan struct{}
 }
 
 func (s *recordingDispatchRetryAlertSink) AlertDispatchRetry(_ context.Context, alert DispatchRetryAlert) error {
+	if s.block != nil {
+		<-s.block
+	}
 	if s.err != nil {
 		return s.err
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.calls = append(s.calls, alert)
+	return nil
+}
+
+func (s *recordingDispatchRetryAlertSink) snapshot() []DispatchRetryAlert {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]DispatchRetryAlert, len(s.calls))
+	copy(out, s.calls)
+	return out
+}
+
+func (s *recordingDispatchRetryAlertSink) waitForCalls(t *testing.T, want int) []DispatchRetryAlert {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		calls := s.snapshot()
+		if len(calls) >= want {
+			return calls
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	calls := s.snapshot()
+	t.Fatalf("alert calls = %d, want %d", len(calls), want)
 	return nil
 }
 
@@ -649,10 +680,8 @@ func TestDispatcherDAGRetryAlertsAtThirdAttempt(t *testing.T) {
 	if got := metrics.RetryAlertTotal; got != 1 {
 		t.Fatalf("retry_alert_total = %d, want 1", got)
 	}
-	if len(sink.calls) != 1 {
-		t.Fatalf("alert calls = %d, want 1", len(sink.calls))
-	}
-	alert := sink.calls[0]
+	calls := sink.waitForCalls(t, 1)
+	alert := calls[0]
 	if alert.DagKey != "dag-alert" || alert.NodeKey != "node-hot" {
 		t.Fatalf("alert keys = %s/%s, want dag-alert/node-hot", alert.DagKey, alert.NodeKey)
 	}
@@ -687,9 +716,7 @@ func TestDispatcherDAGRetryExhaustionAlertsAtThirdAttempt(t *testing.T) {
 	if got := DispatchRetryCounters().RetryCountPerNode["dag-alert/node-exhausted"]; got != 3 {
 		t.Fatalf("retry_count_per_node[dag-alert/node-exhausted] = %d, want 3", got)
 	}
-	if len(sink.calls) != 1 {
-		t.Fatalf("alert calls = %d, want 1 at max attempts", len(sink.calls))
-	}
+	sink.waitForCalls(t, 1)
 }
 
 func TestDispatcherDAGRetryBelowThresholdDoesNotAlert(t *testing.T) {
@@ -708,8 +735,8 @@ func TestDispatcherDAGRetryBelowThresholdDoesNotAlert(t *testing.T) {
 	if got := DispatchRetryCounters().RetryAlertTotal; got != 0 {
 		t.Fatalf("retry_alert_total = %d, want 0 below threshold", got)
 	}
-	if len(sink.calls) != 0 {
-		t.Fatalf("alert calls = %d, want 0 below threshold", len(sink.calls))
+	if calls := sink.snapshot(); len(calls) != 0 {
+		t.Fatalf("alert calls = %d, want 0 below threshold", len(calls))
 	}
 }
 
@@ -741,9 +768,7 @@ func TestDispatcherF151FiveNodeDAGMetricsEndpointAndAlert(t *testing.T) {
 	if _, err := d.ProcessBatch(context.Background()); err != nil {
 		t.Fatalf("ProcessBatch err = %v", err)
 	}
-	if len(sink.calls) != 1 {
-		t.Fatalf("alert calls = %d, want 1", len(sink.calls))
-	}
+	sink.waitForCalls(t, 1)
 	store.claimReply = []taskdag.Wakeup{
 		makeDAGWakeup(211, "dag-five", "node-1", "agent-1", 1, now),
 		makeDAGWakeup(212, "dag-five", "node-2", "agent-2", 1, now),
@@ -936,6 +961,65 @@ func TestDispatcherAgentHardValidationFailureFailsWithoutRetry(t *testing.T) {
 	}
 	if len(store.failNodeCalls) != 1 {
 		t.Fatalf("failNodeCalls = %d, want 1 for non-retryable config validation", len(store.failNodeCalls))
+	}
+}
+
+func TestDispatcherAgentPermanentFailureAtThirdAttemptRecordsRetryAlert(t *testing.T) {
+	resetDispatchRetryMetricsForTesting()
+	now := time.Date(2026, 5, 13, 9, 45, 0, 0, time.UTC)
+	store := newAgentFailureClassStore(t, "bad-config-alert", 3, now)
+	store.nodesReply[0].Config = json.RawMessage(`{"exec":`)
+	sink := &recordingDispatchRetryAlertSink{}
+	d := newAgentFailureClassDispatcher(t, store, errors.New("launcher should not be called"))
+	d.WithDispatchRetryAlertSink(sink)
+
+	if _, err := d.ProcessBatch(context.Background()); err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	key := store.claimReply[0].DagKey + "/" + store.claimReply[0].NodeKey
+	if got := DispatchRetryCounters().RetryCountPerNode[key]; got != 3 {
+		t.Fatalf("retry_count_per_node[%s] = %d, want 3", key, got)
+	}
+	calls := sink.waitForCalls(t, 1)
+	if calls[0].DagKey != store.claimReply[0].DagKey || calls[0].NodeKey != store.claimReply[0].NodeKey {
+		t.Fatalf("alert keys = %+v, want %s/%s", calls[0], store.claimReply[0].DagKey, store.claimReply[0].NodeKey)
+	}
+}
+
+func TestDispatcherRetryAlertSinkDoesNotBlockBatch(t *testing.T) {
+	resetDispatchRetryMetricsForTesting()
+	now := time.Date(2026, 5, 13, 9, 50, 0, 0, time.UTC)
+	store := &dispatcherStubStore{
+		claimReply: []taskdag.Wakeup{makeDAGWakeup(260, "dag-alert", "node-hot", "agent-hot", 3, now)},
+	}
+	launcher := &dispatcherStubLauncher{errs: []error{errors.New("connection refused")}}
+	block := make(chan struct{})
+	sink := &recordingDispatchRetryAlertSink{block: block}
+	d, _ := NewWakeupDispatcher(store, launcher, nil, WakeupDispatcherConfig{})
+	d.WithDispatchRetryAlertSink(sink)
+	done := make(chan error, 1)
+	go func() {
+		_, err := d.ProcessBatch(context.Background())
+		done <- err
+	}()
+
+	closed := false
+	unblock := func() {
+		if !closed {
+			closed = true
+			close(block)
+		}
+	}
+	defer unblock()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("ProcessBatch err = %v", err)
+		}
+	case <-time.After(100 * time.Millisecond):
+		unblock()
+		<-done
+		t.Fatal("ProcessBatch blocked on retry alert sink")
 	}
 }
 

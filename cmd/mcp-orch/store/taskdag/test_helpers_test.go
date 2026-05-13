@@ -290,16 +290,48 @@ func finalOutputFromNodeResult(node sqlc.TaskDagNode) (map[string]any, bool, err
 				return out, true, nil
 			}
 		}
+		if path := configuredSharedfilePathFromNodeConfig(node.Config); path != "" {
+			out["kind"] = "file"
+			out["path"] = path
+			return out, true, nil
+		}
 		out["kind"] = "json"
 		out["result"] = result
 	case string:
+		if path := configuredSharedfilePathFromNodeConfig(node.Config); path != "" {
+			out["kind"] = "file"
+			out["path"] = path
+			return out, true, nil
+		}
 		out["kind"] = "text"
 		out["text"] = typed
 	default:
+		if path := configuredSharedfilePathFromNodeConfig(node.Config); path != "" {
+			out["kind"] = "file"
+			out["path"] = path
+			return out, true, nil
+		}
 		out["kind"] = "json"
 		out["result"] = result
 	}
 	return out, true, nil
+}
+
+func configuredSharedfilePathFromNodeConfig(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var cfg struct {
+		Outputs struct {
+			ToSharedfile *struct {
+				Path string `json:"path"`
+			} `json:"to_sharedfile"`
+		} `json:"outputs"`
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil || cfg.Outputs.ToSharedfile == nil {
+		return ""
+	}
+	return strings.TrimSpace(cfg.Outputs.ToSharedfile.Path)
 }
 
 func (db *fakeTaskDAGDB) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {

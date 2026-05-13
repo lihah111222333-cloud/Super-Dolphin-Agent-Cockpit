@@ -212,7 +212,11 @@ dag_meta AS (
   WHERE dag_key = $1
 ),
 final_node AS (
-  SELECT n.node_key, n.title, n.result
+  SELECT
+    n.node_key,
+    n.title,
+    n.result,
+    NULLIF(n.config->'outputs'->'to_sharedfile'->>'path', '') AS configured_sharedfile_path
   FROM task_dag_nodes n
   JOIN dag_meta dm ON dm.final_node_key = n.node_key
   WHERE n.dag_key = $1
@@ -220,8 +224,8 @@ final_node AS (
 ),
 final_output AS (
   SELECT CASE
-    WHEN result IS NULL THEN NULL
-    WHEN jsonb_typeof(result) = 'object'
+    WHEN result IS NOT NULL
+      AND jsonb_typeof(result) = 'object'
       AND jsonb_typeof(result->'sharedfile') = 'object'
       AND NULLIF(result->'sharedfile'->>'path', '') IS NOT NULL
     THEN jsonb_build_object(
@@ -231,6 +235,15 @@ final_output AS (
       'path', result->'sharedfile'->>'path',
       'source_node_key', node_key
     )
+    WHEN configured_sharedfile_path IS NOT NULL
+    THEN jsonb_build_object(
+      'kind', 'file',
+      'role', 'final_output',
+      'title', COALESCE(NULLIF(title, ''), 'Final output'),
+      'path', configured_sharedfile_path,
+      'source_node_key', node_key
+    )
+    WHEN result IS NULL THEN NULL
     WHEN jsonb_typeof(result) = 'string'
     THEN jsonb_build_object(
       'kind', 'text',
