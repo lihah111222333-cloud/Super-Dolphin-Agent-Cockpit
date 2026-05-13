@@ -736,7 +736,7 @@ type SessionResolver interface {
 | `internal/module/turn` | `Session`、`TurnHandle`、`SessionResolver`、`ApprovalResponder`、`OrchestrationTurnStarter`、`PromptAssemblyService`、`ErrSessionNotFound` |
 | `internal/module/skill` | `ApprovalRequester` |
 | `internal/module/memory` | `PromptAssemblyService`、`ThreadMetadataStore`、`TeamMemoryManager`、`BuildCtx`、`InvalidateReason` |
-| `internal/module/dashboard` | `OrchestrationService`、`AgentSnapshot`、`AgentReportResult`、`ListDAGsFilter`、`DAGSummary`、`DAGDetail` |
+| `internal/module/dashboard` | `OrchestrationService`、`AgentSnapshot`、`AgentReportResult`、`ListDAGsFilter`、`DAGSummary`、`DAGDetail`、`Run`、`FinalOutputRef` |
 | `internal/module/uistate` | `OrchestrationService`、`AgentSnapshot` |
 | `internal/ui/wails` | `OrchestrationService` |
 | `internal/store/thread` | `ThreadMetadataStore` |

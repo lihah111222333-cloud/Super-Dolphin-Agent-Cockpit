@@ -17,9 +17,9 @@
 |---|---|---|
 | `services/` | 唯一系统桥；封装 Wails by-ID / RPC、技能 API、日志回传；不持有页面响应式状态。 | `services/api.js:195-289`, `services/skills-api.js:3-14` |
 | `stores/` | 全局状态中心；负责 snapshot/live patch、thread action、project scope、composer 输入。 | `stores/threads.js:36-151`, `stores/projects.js:14-209`, `stores/composer.js:5-307`, `stores/thread-prefs.js:37-190` |
-| `composables/` | 把页面交互拆成 orchestration 单元；连接 store 与 view，不直接持有模板。 | `composables/useThreadActions.js:179-449`, `composables/useLaunchSkillSelection.js:53-281`, `composables/useSkillPreview.js:19-250`, `composables/useThreadSelection.js:16-91` |
-| `components/` | 视图与 emit 边界；负责局部渲染、局部交互、少量近边界系统调用。 | `components/ChatTimeline.js:18-279`, `components/LaunchSkillPicker.js:22-140`, `components/unified-chat/WorkspaceChatPanel.js:7-91`, `components/DiffPanel.js:257-458` |
-| `pages/` | 页面级编排、依赖装配、跨组件时序控制；把 stores/composables/components 组装成完整工作台。 | `app.js:115-389`, `pages/UnifiedChatPage.js:247-530`, `pages/UnifiedChatPage.template.js:1-203` |
+| `composables/` | 把页面交互拆成 orchestration 单元；连接 store 与 view，不直接持有模板。 | `composables/useThreadActions.js:179-449`, `composables/useLaunchSkillSelection.js:53-281`, `composables/useSkillPreview.js:19-250`, `composables/useDagDetail.js:36-119`, `composables/useThreadSelection.js:16-91` |
+| `components/` | 视图与 emit 边界；负责局部渲染、局部交互、少量近边界系统调用。 | `components/ChatTimeline.js:18-279`, `components/LaunchSkillPicker.js:22-140`, `components/DagDetailModal.js:17-99`, `components/DiffPanel.js:257-458` |
+| `pages/` | 页面级编排、依赖装配、跨组件时序控制；把 stores/composables/components 组装成完整工作台。 | `app.js:292-367`, `app.js:574-648`, `pages/UnifiedChatPage.js:247-530`, `pages/SharedFilesPage.js:142-520` |
 
 ```mermaid
 flowchart LR
@@ -154,6 +154,32 @@ flowchart LR
 - **Diff lazy sync**：`composables/useDiffPreview.js:6-171` 消费 `threadStore.getThreadDiff()`；真正的 revision 对账在 `stores/thread-diff-sync.js:52-131`。
 - **File ref / citation 预览**：`composables/useFileRefPreview.js:27-233` 与 `composables/useFileRefPreview.helpers.js` 负责从 timeline/citation 跳到 DiffPanel；模板触发点在 `pages/UnifiedChatPage.template.js:103-120`。
 - **生命周期副作用**：`composables/usePageLifecycle.js:18-42` 统一接入 Escape、原生文件拖放、provider 偏好加载与卸载清理；接线点在 `pages/UnifiedChatPage.js:472-479`。
+- **DAG final output 入口**：`app.js:292-300,356-367` 把 `ui/dashboard/get?page=memory` 返回的 `finalOutputRefs` 放入 dashboard state；`DagsPage` 通过 `@select="dagDetail.open"` 打开详情（`app.js:574-579`），`DagDetailModal` 消费 `dagDetail.state.finalOutput`（`app.js:635-648`）。
+- **Shared Files 最终产物筛选**：`SharedFilesPage` 通过 `finalOutputRefs` prop 建 path 索引（`pages/SharedFilesPage.js:68-110,142-148`），toolbar 的“最终产物 N”只筛选被 `metadata.final_output` 引用的 sharedfile（`pages/SharedFilesPage.js:180-202,457-463`），正文读取仍走 `ui/memory/shared-file/get`（`pages/SharedFilesPage.js:215-244`）。
+
+### 6.1 DAG detail / final_output 读取链
+
+```mermaid
+sequenceDiagram
+  participant Card as DagsPage/DataPage card
+  participant App as app.js
+  participant Hook as useDagDetail
+  participant RPC as dashboard RPC
+  participant Modal as DagDetailModal
+
+  Card->>App: select(dag)
+  App->>Hook: dagDetail.open(dag)
+  Hook->>RPC: dashboard/dagDetail {dagKey}
+  RPC-->>Hook: dag + nodes
+  Hook->>RPC: dashboard/dagRuns {dagKey, limit:5}
+  RPC-->>Hook: recent runs
+  Hook->>Hook: parse run.metadata.final_output
+  Hook-->>Modal: finalOutput file/text/json
+```
+
+- `useDagDetail.open()` 先拉 `dashboard/dagDetail`，再拉 `dashboard/dagRuns`；run 拉取失败只清空 run/finalOutput 并写 warn，不阻断 DAG 基础详情（`composables/useDagDetail.js:73-91`）。
+- `openSeq` 防止快速切换 DAG 时旧请求覆盖新详情（`composables/useDagDetail.js:37-45,58-99`）。
+- `DagDetailModal` 对 file 输出显示 path，对 text/json 使用 `previewValue()`，避免对象渲染成 `[object Object]`（`components/DagDetailModal.js:3-15,42-56,82-86`）。
 
 ## 7. 文档 / 代码现状差异
 
