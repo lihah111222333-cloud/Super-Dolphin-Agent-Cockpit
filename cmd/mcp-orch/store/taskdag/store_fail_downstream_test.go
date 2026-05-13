@@ -48,6 +48,70 @@ func TestFailNodeAndCancelDownstream_FailFastFalse_OnlyMarksCurrent(t *testing.T
 	}
 }
 
+func TestFailNodeAndCancelDownstream_PrimaryTerminalFence(t *testing.T) {
+	t.Parallel()
+
+	store, db, now := newTaskDAGTestStore()
+	seedDAG(t, db, now, []seedNode{
+		{key: "A", deps: nil, status: "done", agent: "agent-a"},
+		{key: "B", deps: []string{"A"}, status: "pending", agent: "agent-b"},
+	})
+
+	_, err := store.FailNodeAndCancelDownstream(context.Background(), FailNodeInput{
+		DagKey:   "dag-1",
+		NodeKey:  "A",
+		Reason:   "late materialization failure",
+		FailFast: true,
+	})
+	if err == nil {
+		t.Fatalf("FailNodeAndCancelDownstream on done primary error = nil, want fence rejection")
+	}
+	if got := db.nodes[dagNodeKey("dag-1", "A")].Status; got != "done" {
+		t.Fatalf("A status = %q, want done (terminal primary must not be rewritten)", got)
+	}
+	if got := db.nodes[dagNodeKey("dag-1", "B")].Status; got != "pending" {
+		t.Fatalf("B status = %q, want pending (cascade must not run after primary fence rejection)", got)
+	}
+}
+
+func TestFailNodeAndCancelDownstream_CascadeTerminalRaceSkips(t *testing.T) {
+	t.Parallel()
+
+	store, db, now := newTaskDAGTestStore()
+	seedDAG(t, db, now, []seedNode{
+		{key: "A", deps: nil, status: "running", agent: "agent-a"},
+		{key: "B", deps: []string{"A"}, status: "pending", agent: "agent-b"},
+	})
+	db.beforeFailNonTerminal = func(dagKey, nodeKey string) {
+		if dagKey != "dag-1" || nodeKey != "B" {
+			return
+		}
+		key := dagNodeKey(dagKey, nodeKey)
+		row := db.nodes[key]
+		row.Status = "done"
+		db.nodes[key] = row
+	}
+
+	res, err := store.FailNodeAndCancelDownstream(context.Background(), FailNodeInput{
+		DagKey:   "dag-1",
+		NodeKey:  "A",
+		Reason:   "retry exhausted",
+		FailFast: true,
+	})
+	if err != nil {
+		t.Fatalf("FailNodeAndCancelDownstream error = %v, want nil when cascade row races terminal", err)
+	}
+	if res.Node == nil || res.Node.Status != "failed" {
+		t.Fatalf("primary node = %+v, want failed", res.Node)
+	}
+	if len(res.CanceledDownstream) != 0 {
+		t.Fatalf("CanceledDownstream = %+v, want empty for raced terminal downstream", res.CanceledDownstream)
+	}
+	if got := db.nodes[dagNodeKey("dag-1", "B")].Status; got != "done" {
+		t.Fatalf("B status = %q, want done (cascade race must not rewrite terminal)", got)
+	}
+}
+
 func TestFailNodeAndCancelDownstream_FailFastTrue_CascadesTransitivePending(t *testing.T) {
 	t.Parallel()
 

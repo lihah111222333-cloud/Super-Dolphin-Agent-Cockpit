@@ -22,9 +22,10 @@ type fakeTaskDAGDB struct {
 	// F6.2: runs 用于模拟 task_dag_runs 一行，键是 run_key；finalize SQL 拦截会读写它。
 	// F6.2: runs simulates task_dag_runs rows keyed by run_key so the finalize
 	// SQL interceptor can mutate run.status when all nodes reach terminal.
-	runs      map[string]sqlc.TaskDagRun
-	wakeupSeq int64
-	runSeq    int64
+	runs                  map[string]sqlc.TaskDagRun
+	beforeFailNonTerminal func(dagKey, nodeKey string)
+	wakeupSeq             int64
+	runSeq                int64
 }
 
 func newFakeTaskDAGDB(now time.Time) *fakeTaskDAGDB {
@@ -55,6 +56,8 @@ func (db *fakeTaskDAGDB) Exec(_ context.Context, sql string, args ...any) (pgcon
 		return updateTag(db.reclaimStaleWakeups())
 	case strings.Contains(sql, "EnqueueTaskDagWakeup"):
 		return updateTag(db.enqueueWakeup(args...))
+	case strings.Contains(sql, "CascadeFailPendingTaskDagNode"):
+		return updateTag(db.cascadeFailPendingNode(args...))
 	case strings.Contains(sql, "PromoteSingleNodePendingToReady"):
 		return updateTag(db.promoteSingleNodePendingToReady(args...))
 	default:
@@ -84,6 +87,37 @@ func (db *fakeTaskDAGDB) promoteSingleNodePendingToReady(args ...any) (int64, er
 		return 0, nil
 	}
 	row.Status = "ready"
+	row.UpdatedAt = timestamptzValue(db.now)
+	db.nodes[key] = row
+	return 1, nil
+}
+
+func (db *fakeTaskDAGDB) cascadeFailPendingNode(args ...any) (int64, error) {
+	if len(args) != 3 {
+		return 0, fmt.Errorf("cascade fail args len = %d, want 3", len(args))
+	}
+	result, ok := args[0].([]byte)
+	if !ok {
+		return 0, fmt.Errorf("result arg = %T", args[0])
+	}
+	dagKey, ok := args[1].(string)
+	if !ok {
+		return 0, fmt.Errorf("dag key arg = %T", args[1])
+	}
+	nodeKey, ok := args[2].(string)
+	if !ok {
+		return 0, fmt.Errorf("node key arg = %T", args[2])
+	}
+	key := dagNodeKey(dagKey, nodeKey)
+	if db.beforeFailNonTerminal != nil {
+		db.beforeFailNonTerminal(dagKey, nodeKey)
+	}
+	row, ok := db.nodes[key]
+	if !ok || row.Status != "pending" {
+		return 0, nil
+	}
+	row.Status = "failed"
+	row.Result = append([]byte(nil), result...)
 	row.UpdatedAt = timestamptzValue(db.now)
 	db.nodes[key] = row
 	return 1, nil
@@ -191,6 +225,9 @@ func (db *fakeTaskDAGDB) QueryRow(_ context.Context, sql string, args ...any) pg
 		return stubTaskDAGRow{values: values, err: err}
 	case strings.Contains(sql, "CompleteTaskDagNode"):
 		values, err := db.completeNode(args...)
+		return stubTaskDAGRow{values: values, err: err}
+	case strings.Contains(sql, "FailTaskDagNodeIfNonTerminal"):
+		values, err := db.failNodeIfNonTerminal(args...)
 		return stubTaskDAGRow{values: values, err: err}
 	case strings.Contains(sql, "UpdateTaskDagNodeStatusFlexible"):
 		values, err := db.updateNodeStatusFlexible(args...)
@@ -678,6 +715,50 @@ func (db *fakeTaskDAGDB) updateNodeStatusFlexible(args ...any) ([]any, error) {
 	row.UpdatedAt = timestamptzValue(db.now)
 	db.nodes[key] = row
 	return taskDagNodeValues(row), nil
+}
+
+func (db *fakeTaskDAGDB) failNodeIfNonTerminal(args ...any) ([]any, error) {
+	if len(args) != 4 {
+		return nil, fmt.Errorf("fail non-terminal args len = %d, want 4", len(args))
+	}
+	status, ok := args[0].(string)
+	if !ok {
+		return nil, fmt.Errorf("status arg = %T", args[0])
+	}
+	result, ok := args[1].([]byte)
+	if !ok {
+		return nil, fmt.Errorf("result arg = %T", args[1])
+	}
+	dagKey, ok := args[2].(string)
+	if !ok {
+		return nil, fmt.Errorf("dag key arg = %T", args[2])
+	}
+	nodeKey, ok := args[3].(string)
+	if !ok {
+		return nil, fmt.Errorf("node key arg = %T", args[3])
+	}
+	key := dagNodeKey(dagKey, nodeKey)
+	if db.beforeFailNonTerminal != nil {
+		db.beforeFailNonTerminal(dagKey, nodeKey)
+	}
+	row, ok := db.nodes[key]
+	if !ok || isFakeTerminalStatus(row.Status) {
+		return nil, pgx.ErrNoRows
+	}
+	row.Status = status
+	row.Result = append([]byte(nil), result...)
+	row.UpdatedAt = timestamptzValue(db.now)
+	db.nodes[key] = row
+	return taskDagNodeValues(row), nil
+}
+
+func isFakeTerminalStatus(status string) bool {
+	switch status {
+	case "done", "failed", "cancelled", "skipped":
+		return true
+	default:
+		return false
+	}
 }
 
 func matchesClaimFence(row sqlc.TaskDagWakeup, claimedAt sqlc.Timestamptz, claimedBy string, leaseExpiresAt sqlc.Timestamptz, now time.Time) bool {

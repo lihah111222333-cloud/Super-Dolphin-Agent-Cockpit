@@ -15,8 +15,10 @@ import (
 // 直接或间接依赖该节点且仍处 pending 的下游节点级联标记 failed，避免它们
 // 永远卡在 pending（依赖永远不会变 done）。
 //
-// SQL 路径用既有 UpdateTaskDagNodeStatusFlexible（无状态前置约束），失败原
-// 因写入 result 列方便事后排查；status 统一用 \"failed\"，避免再引入新枚举。
+// Primary node failure uses a non-terminal SQL fence so a late failure path
+// cannot rewrite a node another path already completed. The failure reason is
+// still written into result for forensic visibility; status stays "failed" to
+// avoid another enum.
 
 const (
 	failNodeKindExhaustedRetries = "exhausted_retries"
@@ -60,12 +62,14 @@ func failNodeTx(ctx context.Context, txStore *store, dagKey, nodeKey string, rea
 	if err != nil {
 		return nil, fmt.Errorf("marshal fail reason for %s/%s: %w", dagKey, nodeKey, err)
 	}
-	return txStore.UpdateNodeStatusFlexible(ctx, FlexibleNodeStatusUpdate{
-		DagKey:  dagKey,
-		NodeKey: nodeKey,
-		Status:  "failed",
-		Result:  encoded,
-	})
+	return updateNodeStatus(func() (sqlc.TaskDagNode, error) {
+		return txStore.q.FailTaskDagNodeIfNonTerminal(ctx, sqlc.FailTaskDagNodeIfNonTerminalParams{
+			Status:  "failed",
+			Column2: encoded,
+			DagKey:  dagKey,
+			NodeKey: nodeKey,
+		})
+	}, "fail_non_terminal")
 }
 
 // cancelDownstreamTx walks the reverse-dependency graph from the failed node
@@ -102,7 +106,7 @@ func cancelDownstreamTx(ctx context.Context, txStore *store, dagKey, failedNodeK
 		if nodeStatusByKey[key] != "pending" {
 			continue
 		}
-		_, failErr := failNodeTx(ctx, txStore, dagKey, key, failNodeReason{
+		inserted, failErr := cascadeFailPendingNodeTx(ctx, txStore, dagKey, key, failNodeReason{
 			Kind:         failNodeKindCascade,
 			Reason:       reason,
 			CausedByNode: failedNodeKey,
@@ -110,9 +114,28 @@ func cancelDownstreamTx(ctx context.Context, txStore *store, dagKey, failedNodeK
 		if failErr != nil {
 			return nil, failErr
 		}
+		if !inserted {
+			continue
+		}
 		canceled = append(canceled, CanceledDownstreamNode{DagKey: dagKey, NodeKey: key})
 	}
 	return canceled, nil
+}
+
+func cascadeFailPendingNodeTx(ctx context.Context, txStore *store, dagKey, nodeKey string, reason failNodeReason) (bool, error) {
+	encoded, err := json.Marshal(reason)
+	if err != nil {
+		return false, fmt.Errorf("marshal cascade fail reason for %s/%s: %w", dagKey, nodeKey, err)
+	}
+	rows, err := txStore.q.CascadeFailPendingTaskDagNode(ctx, sqlc.CascadeFailPendingTaskDagNodeParams{
+		Result:  encoded,
+		DagKey:  dagKey,
+		NodeKey: nodeKey,
+	})
+	if err != nil {
+		return false, err
+	}
+	return rows > 0, nil
 }
 
 // buildDependentIndex inverts each node's depends_on list so callers can
