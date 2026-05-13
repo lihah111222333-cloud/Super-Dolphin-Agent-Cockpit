@@ -1,6 +1,11 @@
 # ADR-015 v4.1：codex/claude provider TurnCompleted.Result 补完（C1 + C2）
 
-> 状态：📝 Proposed（v4.1 reviewer 二审修订）| 日期：2026-05-12 | 决策者：项目维护者
+> 状态：✅ Accepted（v4.1 reviewer 二审通过 + 2026-05-12 实装落地）| 日期：2026-05-12 | 决策者：项目维护者
+>
+> **实装落地说明**（2026-05-12 W-C1 + W-C2 worker 并行实装）：
+> - **C1 codex 累加器**：4 commit `2a392e61`/`5dd5486e`/`026a9cce`/`3c115ebf`。新建 `internal/provider/codexapp/turn_output_accumulator.go` + `session_approval.go` sniff + `event_map.go` 4 字段补完 + 3 处 cleanup hook + 2 个单测文件（10 文件 / +716 / -17）。贴近 v4.1 §2.1 描述；grep 揭出 2 处实际与 ADR 描述偏差已修（事件 method 字面量 3 种 + encodePayload 函数不存在）。
+> - **C2 claude e2e 脚手架**：2 commit `b2220bb7`/`fe5572b0`。实测揭出 §2.4 情况 A（CLI 不截断，3KB gotLen=4509 纯 ABC）；8KB/16KB 未拿到证据（模型拒绝 / timeout）立 H12 follow-up。
+> - **文档漂移修**：`4a2cba3f` 修正 §2.1 + §2.2 + §4 共 4 处 `failTurns` 文件名（`factory.go:178-188` → `session_dispatch.go:182-196`）。
 > 相关：C-A 实施计划 §2.1 + §2.2（`docs/plans/dag-lifecycle-c-a-implementation.md`）/ F1.x lifecycle 审计 §8.1 实证 #1+#2（`docs/design/F1-lifecycle-audit-2026-05-12.md`）/ ADR-016（C3 auto stop，配套独立 ADR）/ ADR-017（A1 DAG subscriber 消费 ev.Result）
 > 编号说明：ADR-015 编号被 v1/v2/v3 占用过，v1-v3 从未 git-tracked 已删；本 v4 是基于 C-A 路径的全新决策记录。
 
