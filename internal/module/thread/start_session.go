@@ -179,11 +179,21 @@ func trimStartRequest(req StartRequest) StartRequest {
 func resolveStartConfig(req StartRequest) (StartRequest, error) {
 	// ModelProvider from frontend (e.g. "claude") should drive provider selection
 	// when Provider is not explicitly set.
+	providerInput := req.Provider
+	modelProviderInput := req.ModelProvider
 	provider, err := resolveStartProvider(util.FirstNonEmpty(req.Provider, req.ModelProvider))
 	if err != nil {
 		return StartRequest{}, err
 	}
 	req.Provider = provider
+	if strings.EqualFold(provider, "codex") || strings.TrimSpace(req.ModelProvider) != "" {
+		pkglogger.Warn("thread/start: provider resolved",
+			"provider_input", providerInput,
+			"model_provider_input", modelProviderInput,
+			"resolved_provider", provider,
+			"cwd", req.CWD,
+		)
+	}
 	req.CWD = resolveStartCWD(req.CWD)
 	req.Sandbox = sanitizeStartSandbox(req.Sandbox)
 	req.ApprovalPolicy, err = resolveStartApprovalPolicy(req.ApprovalPolicy, req.Sandbox)
@@ -288,6 +298,7 @@ func (s *service) startSession(ctx context.Context, req StartRequest, input cont
 		"config_model", configTraceString(config, "model"),
 		"config_effort", configTraceString(config, "effort"),
 	)
+	logStartProviderSessionIdentity(agentID, req, config)
 	sessionCtx := context.WithoutCancel(ctx)
 	return s.starter.StartSession(sessionCtx, dto.StartSessionRequest{
 		Provider:      req.Provider,
@@ -303,6 +314,28 @@ func (s *service) startSession(ctx context.Context, req StartRequest, input cont
 		LaunchSkillNames:  append([]string(nil), req.LaunchSkillNames...),
 		ForceLaunchSkills: req.ForceLaunchSkills,
 	})
+}
+
+func logStartProviderSessionIdentity(agentID string, req StartRequest, config map[string]any) {
+	if !strings.EqualFold(strings.TrimSpace(req.Provider), "codex") &&
+		strings.TrimSpace(req.ModelProvider) == "" &&
+		configTraceString(config, "provider") == "" &&
+		configTraceString(config, "modelProvider") == "" &&
+		configTraceString(config, "codexModelProvider") == "" {
+		return
+	}
+	pkglogger.Warn("thread/start: provider session identity trace",
+		"agent_id", agentID,
+		"provider", req.Provider,
+		"req_model_provider", req.ModelProvider,
+		"req_model", req.Model,
+		"req_effort", req.Effort,
+		"config_provider", configTraceString(config, "provider"),
+		"config_model_provider", configTraceString(config, "modelProvider"),
+		"config_codex_model_provider", configTraceString(config, "codexModelProvider"),
+		"config_model", configTraceString(config, "model"),
+		"config_effort", configTraceString(config, "effort"),
+	)
 }
 
 func (s *service) resumeSession(ctx context.Context, req ResumeRequest) (contract.Session, error) {
