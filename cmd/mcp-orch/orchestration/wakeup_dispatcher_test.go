@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	taskdag "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 )
 
@@ -27,7 +28,7 @@ type dispatcherStubStore struct {
 	markSentErr   error
 
 	retryCalls []taskdag.RetryWakeupInput
-	retryRows  int64 // 0 = 模拟 SQL attempt_count >= 8 触发的兜底 fail
+	retryRows  int64 // <0 = 模拟 SQL attempt_count >= 8 触发的兜底 fail
 	retryErr   error
 
 	failCalls []taskdag.FailWakeupInput
@@ -102,7 +103,7 @@ func (s *dispatcherStubStore) RetryWakeup(_ context.Context, input taskdag.Retry
 	if s.retryErr != nil {
 		return 0, s.retryErr
 	}
-	// 默认返回 1（重试成功写入）；显式设 retryRows=0 模拟 SQL 兜底（attempt 上限）。
+	// 默认返回 1（重试成功写入）；显式设 retryRows<0 模拟 SQL 兜底（attempt 上限）。
 	if s.retryRows == 0 {
 		return 1, nil
 	}
@@ -633,6 +634,109 @@ func TestDispatcherDAGRetryFailsAtMaxAttemptsNoFailFast(t *testing.T) {
 	if store.failNodeCalls[0].FailFast {
 		t.Fatalf("FailNodeInput.FailFast = true, want false")
 	}
+}
+
+// TestDispatcherAgentFailureClassesRetryUntilMaxAttempts verifies the F1.4
+// basic retry contract for AgentExecutor failure classes. transient/quota/
+// validation all get the same bounded retry treatment here; smarter by_class
+// routing remains F12.1.
+func TestDispatcherAgentFailureClassesRetryUntilMaxAttempts(t *testing.T) {
+	now := time.Date(2026, 5, 13, 9, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name      string
+		launchErr error
+	}{
+		{name: "transient", launchErr: errors.New("connection refused")},
+		{name: "quota", launchErr: errors.New("context_length_exceeded")},
+		{name: "validation", launchErr: errors.New("401 unauthorized")},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name+"_first_failure_retries", func(t *testing.T) {
+			store := newAgentFailureClassStore(t, tt.name, 1, now)
+			d := newAgentFailureClassDispatcher(t, store, tt.launchErr)
+			if _, err := d.ProcessBatch(context.Background()); err != nil {
+				t.Fatalf("ProcessBatch err = %v", err)
+			}
+			if len(store.retryCalls) != 1 {
+				t.Fatalf("retryCalls = %d, want 1", len(store.retryCalls))
+			}
+			if len(store.failCalls) != 0 {
+				t.Fatalf("failCalls = %d, want 0 before max attempts", len(store.failCalls))
+			}
+			if len(store.failNodeCalls) != 0 {
+				t.Fatalf("failNodeCalls = %d, want 0 before max attempts", len(store.failNodeCalls))
+			}
+		})
+		t.Run(tt.name+"_second_failure_exhausts", func(t *testing.T) {
+			store := newAgentFailureClassStore(t, tt.name, 2, now)
+			d := newAgentFailureClassDispatcher(t, store, tt.launchErr)
+			if _, err := d.ProcessBatch(context.Background()); err != nil {
+				t.Fatalf("ProcessBatch err = %v", err)
+			}
+			if len(store.retryCalls) != 0 {
+				t.Fatalf("retryCalls = %d, want 0 at max attempts", len(store.retryCalls))
+			}
+			if len(store.failCalls) != 1 {
+				t.Fatalf("failCalls = %d, want 1 at max attempts", len(store.failCalls))
+			}
+			if len(store.failNodeCalls) != 1 {
+				t.Fatalf("failNodeCalls = %d, want 1 at max attempts", len(store.failNodeCalls))
+			}
+		})
+	}
+}
+
+func TestDispatcherAgentHardValidationFailureFailsWithoutRetry(t *testing.T) {
+	now := time.Date(2026, 5, 13, 9, 30, 0, 0, time.UTC)
+	store := newAgentFailureClassStore(t, "bad-config", 1, now)
+	store.nodesReply[0].Config = json.RawMessage(`{"exec":`)
+	d := newAgentFailureClassDispatcher(t, store, errors.New("launcher should not be called"))
+
+	if _, err := d.ProcessBatch(context.Background()); err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	if len(store.retryCalls) != 0 {
+		t.Fatalf("retryCalls = %d, want 0 for non-retryable config validation", len(store.retryCalls))
+	}
+	if len(store.failCalls) != 1 {
+		t.Fatalf("failCalls = %d, want 1 for non-retryable config validation", len(store.failCalls))
+	}
+	if len(store.failNodeCalls) != 1 {
+		t.Fatalf("failNodeCalls = %d, want 1 for non-retryable config validation", len(store.failNodeCalls))
+	}
+}
+
+func newAgentFailureClassStore(t *testing.T, suffix string, attempt int32, now time.Time) *dispatcherStubStore {
+	t.Helper()
+	dagKey := "dag-f14-" + suffix
+	nodeKey := "agent-" + suffix
+	return &dispatcherStubStore{
+		claimReply: []taskdag.Wakeup{makeDAGWakeup(70+int64(attempt), dagKey, nodeKey, "agent-"+suffix, attempt, now)},
+		dagReply: &taskdag.DAG{
+			DagKey:   dagKey,
+			Metadata: dagDefaultRetryMetadata(t, 1, true),
+		},
+		nodesReply: []taskdag.Node{{
+			DagKey:   dagKey,
+			NodeKey:  nodeKey,
+			NodeType: "agent",
+			Title:    nodeKey,
+			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha"},"first_turn":"go"}`),
+			Status:   string(nodeexec.NodeStatusReady),
+		}},
+	}
+}
+
+func newAgentFailureClassDispatcher(t *testing.T, store *dispatcherStubStore, launchErr error) *WakeupDispatcher {
+	t.Helper()
+	agentExec := nodeexec.NewAgentExecutor(&stubAgentLauncher{err: launchErr})
+	router := NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil)
+	d, err := NewWakeupDispatcher(store, &dispatcherStubLauncher{}, nil, WakeupDispatcherConfig{})
+	if err != nil {
+		t.Fatalf("NewWakeupDispatcher err = %v", err)
+	}
+	return d.WithNodeRouter(router)
 }
 
 // TestDispatcherNonDAGWakeupKeepsLegacyRetry 验证：Wakeup 没有 DagKey/NodeKey

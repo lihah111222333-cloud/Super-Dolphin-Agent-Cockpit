@@ -3,6 +3,8 @@ package orchestration
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 )
 
 func TestResolveRetryPolicy_DAGMetadata(t *testing.T) {
@@ -94,6 +96,77 @@ func TestResolveRetryPolicy_NodeConfigOverridesDAGRetry(t *testing.T) {
 			got := ResolveRetryPolicy(dagMetadata, json.RawMessage(tt.config))
 			if got != tt.want {
 				t.Fatalf("ResolveRetryPolicy(node=%q) = %+v, want %+v", tt.config, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFailureClassPermanent_F14BasicRetryClasses(t *testing.T) {
+	t.Parallel()
+
+	retryable := []nodeexec.FailureClass{
+		nodeexec.FailureClassTransient,
+		nodeexec.FailureClassQuota,
+		nodeexec.FailureClassValidation,
+	}
+	for _, class := range retryable {
+		class := class
+		t.Run(string(class)+"_uses_bounded_retry", func(t *testing.T) {
+			t.Parallel()
+			if failureClassPermanent(class) {
+				t.Fatalf("failureClassPermanent(%q) = true, want false", class)
+			}
+		})
+	}
+
+	permanent := []nodeexec.FailureClass{
+		nodeexec.FailureClassHard,
+		nodeexec.FailureClassNeedsHuman,
+	}
+	for _, class := range permanent {
+		class := class
+		t.Run(string(class)+"_bypasses_retry", func(t *testing.T) {
+			t.Parallel()
+			if !failureClassPermanent(class) {
+				t.Fatalf("failureClassPermanent(%q) = false, want true", class)
+			}
+		})
+	}
+}
+
+func TestFailureOutcomePermanent_ValidationLaunchOnlyRetries(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		outcome nodeexec.NodeOutcome
+		want    bool
+	}{
+		{
+			name: "launch_validation_uses_bounded_retry",
+			outcome: nodeexec.NodeOutcome{
+				Status:       nodeexec.NodeStatusFailed,
+				FailureClass: nodeexec.FailureClassValidation,
+				ErrorSummary: "launch agent: 401 unauthorized",
+			},
+			want: false,
+		},
+		{
+			name: "config_validation_bypasses_retry",
+			outcome: nodeexec.NodeOutcome{
+				Status:       nodeexec.NodeStatusFailed,
+				FailureClass: nodeexec.FailureClassValidation,
+				ErrorSummary: "decode agent config: invalid json",
+			},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := failureOutcomePermanent(tt.outcome); got != tt.want {
+				t.Fatalf("failureOutcomePermanent() = %v, want %v", got, tt.want)
 			}
 		})
 	}

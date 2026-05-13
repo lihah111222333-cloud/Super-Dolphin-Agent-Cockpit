@@ -101,7 +101,7 @@
   - `nodeexec/inputs.go`：`RunContext` + `InputsConfig` 沉淀 + `BuildPromptPrefix`（F1.2 / commit `3317b00f`）；AgentExecutor / AutomationExecutor 共用。
   - `nodeexec/executor_agent.go`：AgentExecutor；F1.1 解码 exec、F1.2 注入 inputs、**F1.5** spawn 成功后调 `NodeSpawnRecorderStore.RecordNodeSpawn` 写回 `spawning_thread_id`（commit `2c2e0044`）。
   - `nodeexec/executor_automation.go`：AutomationExecutor；F2.1 解码 command_ref + F2.2 处理 inputs/outputs（commit `3d8526ab` + merge `4dd5307a`）。
-- `dag_retry_policy.go`：Phase 3.5 helper —— 把 DAG metadata `schedule.{default_retry, fail_fast}` + node `config.execution.retry` 解析为 `RetryPolicy{MaxAttempts, FailFast}`，给 dispatcher 决定 retry vs fail 用。
+- `retry_strategy.go`：Phase 3.5 / F1.4 helper —— 把 DAG metadata `schedule.{default_retry, fail_fast}` + node `config.execution.retry` 解析为 `RetryPolicy{MaxAttempts, FailFast}`，并把 F1.4 transient/quota/validation 基础重试收敛到 dispatcher retry/fail 决策。
 - `rpc.go`：编排 JSON-RPC handler 映射；把 RPC 参数转成 `contract` 请求。
 - `rpc_types.go`：RPC 入参结构与旧字段兼容（如 `agentId` / `dagKey` / `selectedSkills` / `outputSchema`）。
 - `events.go`：封装 state / launched / stopped / recovering / failed / runtime / stalled / resumed 事件发布。
@@ -109,7 +109,7 @@
 - `recover.go`：agent 恢复与基于 DAG wakeup 的 turn replay。
 - `wakeup_dispatcher.go`：Phase 3.1/3.2/3.5w/3.9 wakeup dispatcher。10s ticker 调 `taskdag.Store.ClaimDueWakeups` 拿到一批 `dispatching` wakeup，按 `buildLaunchRequestFromWakeup` 解 `taskdag.DownstreamWakeupPayload`（3.9 起把 `UpstreamOutputs` 的路径列表渲染成中文 prompt 注入下游 launch），调 `WakeupLauncher.LaunchAgent`；成功 → `MarkWakeupSent`；失败按 1.8b `classifyLaunchError` 分 transient/permanent，DAG-driven wakeup（DagKey/NodeKey 非空）走 `tryDAGFailWithCascade` → `resolveDAGRetryPolicy(GetDAG metadata + ListNodes node config → ResolveRetryPolicy)`，AttemptCount ≥ MaxAttempts 时 `markPermanentFail` + `FailNodeAndCancelDownstream(FailFast)`；非 DAG wakeup 走旧 `RetryWakeup`/`FailWakeup`。`buildLaunchRequestFromWakeup` 解不出 DownstreamWakeupPayload 时 fallback 到老式 `LaunchRequest` 形状（兼容手工 enqueue / 测试）。
 - `wakeup_reclaim.go`：Phase 3.3 wakeup lease 过期回收。独立 30s ticker 调 `taskdag.Store.ReclaimStaleDispatchingWakeups`，把 lease 过期的 `dispatching` wakeup 回收为 `pending`；与 dispatcher 解耦，store 错误不退出 loop（DB 抖动由下次 tick 吸收）。
-- 测试文件：`execution_test.go`、`hook_consumer_test.go`、`launcher_test.go`、`recover_test.go`、`rpc_golden_test.go`、`runtime_report_test.go`、`runtime_test.go`、`stop_test.go`、`submission_test.go`、`turn_lifecycle_test.go`、`user_input_test.go`、`wakeup_dispatcher_test.go`（dispatcher 决策分支 + 3.9 prompt 注入 4 case）、`wakeup_reclaim_test.go`（lease 过期回收 9 case）、`dag_complete_downstream_test.go`（service.UpdateNodeStatus done 分支 type-assert 路由 3 case）、`dag_retry_policy_test.go`（ResolveRetryPolicy 10 case）；`testdata/golden/turn-agent/rpc_samples.golden.json` 是 RPC golden fixture。
+- 测试文件：`execution_test.go`、`hook_consumer_test.go`、`launcher_test.go`、`recover_test.go`、`rpc_golden_test.go`、`runtime_report_test.go`、`runtime_test.go`、`stop_test.go`、`submission_test.go`、`turn_lifecycle_test.go`、`user_input_test.go`、`wakeup_dispatcher_test.go`（dispatcher 决策分支 + 3.9 prompt 注入 4 case）、`wakeup_reclaim_test.go`（lease 过期回收 9 case）、`dag_complete_downstream_test.go`（service.UpdateNodeStatus done 分支 type-assert 路由 3 case）、`retry_strategy_test.go`（ResolveRetryPolicy + F1.4 failure-class retry 策略）；`testdata/golden/turn-agent/rpc_samples.golden.json` 是 RPC golden fixture。
 
 ### `tools/`
 
