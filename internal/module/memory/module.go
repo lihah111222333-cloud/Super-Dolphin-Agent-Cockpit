@@ -47,6 +47,7 @@ type memoryHandlerDeps struct {
 	SharedFilesUpserter sharedfilestore.Upserter    `optional:"true"`
 	Sections            contract.SectionInvalidator `optional:"true"`
 	Logger              *slog.Logger                `optional:"true"`
+	DreamExecutor       contract.DreamExecutor      `optional:"true"`
 }
 
 type historySource interface {

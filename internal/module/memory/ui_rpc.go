@@ -13,6 +13,7 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/dedup"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/similarity"
 )
 
 const uiMemoryPreviewLimit = 320
@@ -150,8 +151,14 @@ func populateUIMemoryHealthSimilarGroups(health *UIMemoryHealth, privateRoot str
 	if len(pairs) == 0 {
 		return
 	}
+	// ignored set 持久化在 private root 下；加载失败按空 set 处理，
+	// 避免 ignored 文件损坏阻塞 banner 渲染。
+	ignored, _ := similarity.LoadIgnored(privateRoot)
 	groups := make([]UISimilarGroup, 0, len(pairs))
 	for _, p := range pairs {
+		if _, hit := ignored[similarity.IgnoreKey(p.ScopeA, p.PathA, p.ScopeB, p.PathB)]; hit {
+			continue
+		}
 		groups = append(groups, UISimilarGroup{
 			NameA: p.NameA, NameB: p.NameB,
 			PathA: p.PathA, PathB: p.PathB,
@@ -464,4 +471,89 @@ func promoteSharedFileToMemory(ctx context.Context, deps memoryHandlerDeps, req 
 		Type:        req.Type,
 		Content:     content,
 	})
+}
+
+// ---------------------------------------------------------------------------
+// similarity.Deps adapter
+// 把子包 internal/module/memory/similarity 反向依赖到主包私有 API 上。
+// ---------------------------------------------------------------------------
+
+type similarityAdapter struct {
+	deps memoryHandlerDeps
+}
+
+func newSimilarityAdapter(d memoryHandlerDeps) similarityAdapter {
+	return similarityAdapter{deps: d}
+}
+
+func (s similarityAdapter) Logger() *slog.Logger { return s.deps.Logger }
+
+func (s similarityAdapter) PrivateRoot(_ context.Context, cwd string) (string, error) {
+	if s.deps.Service == nil {
+		return "", errors.New("memory service is not configured")
+	}
+	cfg := s.deps.Service.Config()
+	projectRoot := strings.TrimSpace(cwd)
+	if projectRoot == "" {
+		projectRoot = strings.TrimSpace(cfg.ProjectRoot)
+	}
+	return resolvedStoreRoot(cfg.RootDir, projectRoot, cfg.AutoMemPathOverride)
+}
+
+func (s similarityAdapter) SimilarPairs(ctx context.Context, cwd string) ([]similarity.SimilarPair, error) {
+	snap, err := buildUIMemorySnapshot(ctx, s.deps.Service, s.deps.Logger, cwd)
+	if err != nil {
+		return nil, err
+	}
+	if snap.Overview.Health == nil {
+		return nil, nil
+	}
+	groups := snap.Overview.Health.SimilarGroups
+	out := make([]similarity.SimilarPair, 0, len(groups))
+	for _, g := range groups {
+		out = append(out, similarity.SimilarPair{
+			NameA: g.NameA, NameB: g.NameB,
+			PathA: g.PathA, PathB: g.PathB,
+			TargetA: g.TargetA, TargetB: g.TargetB,
+			Score: g.Score,
+		})
+	}
+	return out, nil
+}
+
+func (s similarityAdapter) ReadEntry(ctx context.Context, cwd, target, path string) (similarity.EntrySnapshot, error) {
+	root, _, err := resolveUIMemoryTargetRoot(ctx, s.deps.Service, cwd, target)
+	if err != nil {
+		return similarity.EntrySnapshot{}, err
+	}
+	entry, _, err := readUIMemoryEntryByPath(root, target, path)
+	if err != nil {
+		return similarity.EntrySnapshot{}, err
+	}
+	return similarity.EntrySnapshot{
+		Name:        entry.Frontmatter.Name,
+		Description: entry.Frontmatter.Description,
+		Content:     entry.Content,
+		Type:        string(entry.Type()),
+	}, nil
+}
+
+func (s similarityAdapter) Merge(ctx context.Context, req similarity.MergeRequest) error {
+	_, err := mergeUIMemoryEntries(ctx, s.deps, uiMemoryEntryMergeParams{
+		CWD:               req.CWD,
+		TargetA:           req.TargetA,
+		PathA:             req.PathA,
+		TargetB:           req.TargetB,
+		PathB:             req.PathB,
+		MergedDescription: req.MergedDescription,
+		MergedContent:     req.MergedContent,
+	})
+	return err
+}
+
+func (s similarityAdapter) DreamExecute(ctx context.Context, prompt string) (string, error) {
+	if s.deps.DreamExecutor == nil {
+		return "", contract.ErrDreamExecutorNotConfigured
+	}
+	return s.deps.DreamExecutor.ExecuteDream(ctx, prompt)
 }
