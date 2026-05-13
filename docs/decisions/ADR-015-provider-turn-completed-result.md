@@ -198,7 +198,7 @@ v4.1 reviewer 揭出：`ev.Result` 已经在被消费但当前 codex 侧零值�
 |---|---|
 | **C3（auto stop）** | 由 ADR-016 单独决定。C3 决策点正交于 C1/C2（C1/C2 改 provider 内部累加，C3 改 service 调用层 + stop API + threadID→agentID 反查路径），合并起草不增加效率反而切换 context |
 | **A1（DAG subscriber）** | ADR-017 定。subscriber 消费 ev.Result，依赖 C1+C2 的输出格式契约：完整字符串 / UTF-8 / 不带终止符 |
-| **A2（F1.3 outputs 重做）** | ADR-018 定。jsonb merge / _handshake / 4KB cap fallback to sharedfile 都由 A2 处理；C1/C2 仅保证 ev.Result 字段完整可用 |
+| **A2（F1.3 outputs 重做）** | ADR-018 定。A2 处理真实输出物化、`node.result` / sharedfile 写入策略与 ADR-006 4KB cap；不做通用 jsonb merge / `_handshake` / 隐式 fallback。C1/C2 仅保证 ev.Result 字段完整可用 |
 
 ## 4. 落地范围（v4.1 工程量上调）
 
@@ -338,10 +338,10 @@ func TestTurnResultLong_3KB(t *testing.T) {
   - 旧 providerID 的累加器 buffer 必须**显式清**（v4.1 §2.1 加 hook）
   - 不存在"复用同一 turn-id 起新 turn"的场景
 
-### 7.2 真正开放（落码前需确认）
+### 7.2 落码时已确认
 
-- **Q3**：CI 环境**不跑** `e2e_claude` tag（v4.1 §5.2 已确认 — 与 `e2e_vision` 同样是本地 manual gate）。落 main 时 commit message 必须包含 manual verification protocol（§5.3）。
-- **Q4**：spawned agent multi-turn 场景下，ev.Result 每个 turn 独立（v4.1 §2.2 决定）；A1 subscriber（ADR-017）按"first turn 完成 = node 完成"消费，与本决策一致。
+- **Q3（已确认）**：CI 环境**不跑** `e2e_claude` tag（v4.1 §5.2 已确认 — 与 `e2e_vision` 同样是本地 manual gate）。落 main 时 commit message 必须包含 manual verification protocol（§5.3）。
+- **Q4（已对齐）**：spawned agent multi-turn 场景下，ev.Result 每个 turn 独立（v4.1 §2.2 决定）；A1 subscriber（ADR-017）按"first turn 完成 = node 完成"消费，与本决策一致。
 
 ## 8. 变更记录
 

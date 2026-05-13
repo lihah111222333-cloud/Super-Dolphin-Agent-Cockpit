@@ -127,7 +127,7 @@ Explorer 揭示 + ADR-016 reviewer 已核：`task_dag_node_runtime.sql:37-42 Com
 >
 > **v1.2 reviewer 揭出 sqlc 类型错位**：v1.1 代码示例用 `updated == nil` 判 0 rows，但 sqlc 真实签名（`task_dag_node_runtime.sql.go:226`）是 `(TaskDagNode, error)` **不是 `*TaskDagNode`** — 无法与 nil 比较，落码会编译失败。**正解**：通过 `errors.Is(err, pgx.ErrNoRows)` 判 0 rows（sqlc :one + RETURNING + 0 rows 会返 ErrNoRows）。
 >
-> **v1.2 reviewer 揭出虚构 metric API**：v1.1 代码用 `r.metric.IncDAGNodeRunningSkipped(...)` — 项目无此 helper，是 ADR 自造 API。**v1.2 修正**：暂用通用 `IncCounter(name, labels)`（即便 ADR-016 §7 Q2 metric 注册路径仍 OPEN，通用接口形态比 fluent helper 更安全）；落码时按 ADR-016 §7 Q2 决策结果调整 helper 命名。
+> **v1.2 reviewer 揭出虚构 metric API**：v1.1 代码用 `r.metric.IncDAGNodeRunningSkipped(...)` — 项目无此 helper，是 ADR 自造 API。**v1.2 修正**：暂用通用 `IncCounter(name, labels)` 的接口形态；落码时已按 ADR-016 v1.2 结论接入独立 metric collector。
 
 ```go
 // cmd/mcp-orch/orchestration/node_router.go:291-296 dispatchAgent 改造
@@ -154,7 +154,7 @@ func (r *NodeExecutorRouter) dispatchAgent(ctx, node, runCtx) (NodeOutcome, erro
     case errors.Is(updateErr, pgx.ErrNoRows):
         // 0 rows affected — 节点已被 subscriber 先推到 done/failed（反向 race Window D，§2.6）
         // 正常路径（不算错），用 metric 区分 DB 错与 race
-        // v1.2: metric 注册路径待 ADR-016 §7 Q2 协同决策（暂用通用 collector + label）
+        // v1.2: metric 注册路径已由 ADR-016 v1.2 闭环，保持通用 collector + label 形态。
         r.metric.IncCounter("dag_node_running_skipped_already_terminal_total",
             map[string]string{"reason": "already_terminal"})
         r.logger.Debug("dispatch agent: node already terminal, skip running write",
@@ -259,15 +259,15 @@ func (c *hookConsumer) handleThreadStopped(ctx context.Context, ev threaddto.Sto
 - SQL 层：CompleteTaskDagNode + UpdateRunningTaskDagNodeStatus 双白名单兜底（已 done/failed 状态不在白名单内，SQL 自身返 0 rows）
 - Metric：`dag_node_status_idempotent_skipped_total`
 
-### 2.7 result payload 写入 — A1 不处理（推迟 ADR-018）
+### 2.7 result payload 写入 — A1 不拥有输出策略（最终由 ADR-018 定）
 
 依据 Explorer Q7 决策：
 
 - A1 subscriber **只写状态机**（status=done/failed），不写 result payload
-- ev.Result 透传给 `CompleteNodeAndScheduleDownstream(CompleteNodeInput{Result: ev.Result, ...})` 但 A1 不做 jsonb merge / 不做 4KB cap 检查
-- ADR-018 / A2 阶段做 outputs 重做（jsonb merge + _handshake + sharedfile fallback）
+- A1 初版仅把 ev.Result 作为 completion 输入透传给 `CompleteNodeAndScheduleDownstream(CompleteNodeInput{Result: ev.Result, ...})`，但不拥有 outputs 物化策略
+- ADR-018 / A2 已落定最终形态：不做通用 jsonb merge / `_handshake` / 隐式 fallback 到 sharedfile；基于 `TurnCompleted.Result` + node `config.outputs` 构造 `node.result` / sharedfile 输出，sharedfile 路径加 `ClaimTaskDagNodeOutputMaterialization` fence
 
-**当前 result 形态**（A1 落地后、A2 落地前）：node.result = ev.Result 字符串（受 ADR-006 4KB cap，超 cap 由 store 层 validation 失败 → A1 metric `dag_node_complete_size_cap_exceeded_total`）。
+**过渡 result 形态**（仅指 A1 单独落地后、A2 落地前）：node.result = ev.Result 字符串（受 ADR-006 4KB cap，超 cap 由 store 层 validation 失败 → A1 metric `dag_node_complete_size_cap_exceeded_total`）。A2 落地后以下游输出形态以 ADR-018 为准。
 
 ### 2.8 stop_helper 调用 — done/failed 推进**之后**异步调
 
@@ -345,11 +345,11 @@ type DAGSubscriberDeps struct {
 - 落地顺序：C3 必须先于 A1 完成（A1 落码时 stop_helper.go 必须存在）
 
 ### 3.3 与 ADR-018（A2 outputs 重做）的边界
-- A1 只写状态机，**不**写 jsonb merge / _handshake
-- A1 落码时 node.result 形态 = ev.Result 字符串（A2 落地前的临时状态）
-- A2 落地后才会做 `result = jsonb_set(result, '{_handshake}', ...)` 这种 merge
+- A1 只写状态机，**不拥有** outputs 物化策略
+- A1 单独落码时 node.result 过渡形态 = ev.Result 字符串（A2 落地前的临时状态）
+- A2 已由 ADR-018 落定：不做 `jsonb_set(..., '{_handshake}', ...)` 这类通用 merge；真实输出按 `config.outputs` 写 `node.result` / sharedfile，sharedfile 路径先 claim fence
 - A1 单测**不验证** result payload 形态 — 只验证 status 推进
-- **过渡期约束**（v1.1 reviewer P3-2 揭出 — v1 假设"< 1 周"无依据，删除）：A1 落地后 ADR-018 起草前，**禁止其他 PR 消费 node.result 字段**；过渡期长度由 ADR-018 起草进度决定，非排期假设
+- **过渡期约束**（历史）：A1 落地后 ADR-018 起草前，**禁止其他 PR 消费 node.result 字段**；A2 落地后该约束由 ADR-018 的输出合同取代
 
 ### 3.4 与 hookConsumer 现有逻辑的边界（v1.2 与 §2.5 锁外修正同步）
 - A1 thread.stopped fallback 挂在 `handleThreadStopped:269-295` 函数内，**保留**所有现有 agent runtime 推进逻辑
@@ -458,8 +458,8 @@ type DAGSubscriberDeps struct {
 
 ## 6. 不做的事
 
-- **不**写 result payload jsonb merge / _handshake（推迟 ADR-018）
-- **不**支持 agent fast-path（推迟 ADR-018 / 与 close-out 协同）
+- **不**拥有 result payload 物化策略（由 ADR-018 处理；最终不做通用 jsonb merge / `_handshake`）
+- **不**支持 agent fast-path（ADR-018 已明确 A2 也不做；未来如需另立任务）
 - **不**在 subscriber 内调 stop_helper 同步阻塞等待（同步调但失败不抛）
 - **不**改 dispatcher 调度逻辑（pending→ready promote 已在 F6.3 done）
 - **不**改 service.go RegisterTurnLifecycle 现有订阅（A1 平行新增，不破坏 agent runtime 推进）
@@ -469,12 +469,12 @@ type DAGSubscriberDeps struct {
 ### 7.1 落码前需协同决策
 
 - ~~Q1（已删 v1.1）~~：原 Q1 "Race C 检查位置" 与 §2.6 拍板"应用层 + SQL 双层兜底"双出违反 §11.3 元规则，删除
-- **Q1**（原 Q2）：subscriber 内 stop_helper 调用是否需要 context.WithTimeout 防 IPC 慢？ADR-016 §7 Q2 留 OPEN，A1 此处采用同步直接调，若实测慢可加 timeout（独立 task）
+- **Q1**（原 Q2）：subscriber 内 stop_helper 调用是否需要 context.WithTimeout 防 IPC 慢？ADR-016 已决定同步调；若实测慢可加 timeout（独立 task）
 
-### 7.2 待 A2（ADR-018）协同
+### 7.2 A2（ADR-018）已落定后的边界
 
-- **Q3**：fast-path（agent 自调 task_update_node）落地时机？倾向：A2 内一起设计，A1 不预留接口
-- **Q4**：node.result 形态：A1 写字符串（ev.Result）vs A2 改 jsonb merge。中间过渡期是否有破坏？A1 临时形态：node.result 是 plain string（兼容 ADR-006 cap）；A2 落地后改 jsonb 结构。中间期 < 1 周（A1 / A2 同 sprint）。
+- **Q3（已由 ADR-018 关闭）**：fast-path / agent 自调 `task_update_node` 不纳入 A2；未来如需另立任务。
+- **Q4（已由 ADR-018 关闭）**：node.result 最终形态由 A2 outputs 物化规则决定；默认写真实 `ev.Result`，sharedfile-only 时 `node.result` 只保留小引用 envelope，同时沿用 ADR-006 4KB cap。
 
 ## 8. 变更记录
 
