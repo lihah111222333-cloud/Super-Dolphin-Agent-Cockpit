@@ -29,7 +29,7 @@ func NewInspectHandler(registry lspmanager.Registry) ToolHandler {
 		if err != nil {
 			return nil, err
 		}
-		filePath, position, err := resolveFilePositionRequest(req.filePositionParams)
+		filePath, position, err := resolveFilePositionRequest(ctx, req.filePositionParams)
 		if err != nil {
 			return nil, err
 		}
