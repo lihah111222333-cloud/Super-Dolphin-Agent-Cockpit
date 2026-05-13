@@ -1,12 +1,17 @@
 package orchestration
 
 import (
+	"context"
 	"encoding/json"
+	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
+	taskdag "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 )
 
 // 导航注（DAG v2 骨架阶段后）：
-// 本文件 (`RetryPolicy / DAGSchedulePolicy / NodeExecutionPolicy`) 是 Phase 3.5 生产
-// dispatcher 路径的重试策略 (拿 DAG metadata 里的 default_retry / fail_fast)。
+// 本文件 (`RetryPolicy / DAGSchedulePolicy / NodeExecutionPolicy`) 是 Phase 3.5
+// 生产 dispatcher 路径的重试策略 (拿 DAG metadata 里的 default_retry / fail_fast)。
 // DAG v2 骨架阶段加了 typed `nodeexec.OnFailureConfig` 提供智能重试
 // (by_class 分发 + escalate_model + replan + skip + ask_human)。两者骨架阶段
 // 共存，F 阶段 dispatcher 重做时一并收敛 (见 ADR `docs/adr/0001-dag-v2-contracts.md` §2.7)。
@@ -108,4 +113,62 @@ func decodeNodeExecutionPolicy(raw json.RawMessage) NodeExecutionPolicy {
 		return NodeExecutionPolicy{}
 	}
 	return NodeExecutionPolicy{Retry: *envelope.Execution.Retry, HasRetry: true}
+}
+
+// failureClassPermanent reports whether a failed NodeOutcome should bypass the
+// basic bounded retry path. F1.4 keeps this intentionally small: AgentExecutor
+// transient/quota/validation failures all use the existing RetryPolicy attempt
+// budget. F12.1 owns smarter by_class actions such as append_error,
+// escalate_model, and replan.
+func failureClassPermanent(class nodeexec.FailureClass) bool {
+	switch class {
+	case nodeexec.FailureClassHard,
+		nodeexec.FailureClassNeedsHuman:
+		return true
+	}
+	return false
+}
+
+func failureOutcomePermanent(outcome nodeexec.NodeOutcome) bool {
+	if failureClassPermanent(outcome.FailureClass) {
+		return true
+	}
+	if outcome.FailureClass == nodeexec.FailureClassValidation {
+		return !retryableValidationOutcome(outcome)
+	}
+	return false
+}
+
+func retryableValidationOutcome(outcome nodeexec.NodeOutcome) bool {
+	return strings.HasPrefix(outcome.ErrorSummary, "launch agent:")
+}
+
+func (d *WakeupDispatcher) failDAGNodeAndCancelDownstream(ctx context.Context, w *taskdag.Wakeup, lastErr string, failFast bool) {
+	if w == nil || strings.TrimSpace(w.DagKey) == "" || strings.TrimSpace(w.NodeKey) == "" {
+		return
+	}
+	flow, ok := d.store.(taskdag.NodeFlowStore)
+	if !ok {
+		d.logger.Warn("wakeup dispatcher: store missing NodeFlowStore, skip cascade",
+			"wakeup_id", w.ID, "dag_key", w.DagKey, "node_key", w.NodeKey)
+		return
+	}
+	res, err := flow.FailNodeAndCancelDownstream(ctx, taskdag.FailNodeInput{
+		DagKey:   w.DagKey,
+		NodeKey:  w.NodeKey,
+		Reason:   lastErr,
+		FailFast: failFast,
+	})
+	if err != nil {
+		d.logger.Warn("wakeup dispatcher: fail-node cascade write failed",
+			"wakeup_id", w.ID, "dag_key", w.DagKey, "node_key", w.NodeKey, "error", err)
+		return
+	}
+	d.logger.Warn("wakeup dispatcher: DAG node failed",
+		"wakeup_id", w.ID,
+		"dag_key", w.DagKey,
+		"node_key", w.NodeKey,
+		"attempt_count", w.AttemptCount,
+		"fail_fast", failFast,
+		"canceled_downstream", len(res.CanceledDownstream))
 }

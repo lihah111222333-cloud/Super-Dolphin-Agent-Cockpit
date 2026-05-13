@@ -63,7 +63,7 @@ type OnFailureConfig struct {
 	Default OnFailureStrategy `json:"default,omitempty"`
 	// ByClass 按 FailureClass 分发不同策略（智能重试核心）。
 	ByClass map[FailureClass]OnFailureStrategy `json:"by_class,omitempty"`
-	// MaxAttempts 是包含首发的总尝试次数；与 dag_retry_policy.RetryPolicy.MaxAttempts 同语义。
+	// MaxAttempts 是包含首发的总尝试次数；与 retry_strategy.RetryPolicy.MaxAttempts 同语义。
 	MaxAttempts int `json:"max_attempts,omitempty"`
 	// EscalationChain 是 escalate_model 策略的 model 升级链（如 ["sonnet", "opus"]）。
 	EscalationChain []string `json:"escalation_chain,omitempty"`

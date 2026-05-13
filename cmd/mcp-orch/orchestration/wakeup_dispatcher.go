@@ -297,8 +297,13 @@ func (d *WakeupDispatcher) handleClaimedViaRouter(ctx context.Context, w *taskda
 	case nodeexec.NodeStatusFailed:
 		synthErr := errors.New(string(outcome.FailureClass) + ": " + outcome.ErrorSummary)
 		lastErr := truncateWakeupError(synthErr.Error())
-		if failureClassPermanent(outcome.FailureClass) {
+		if failureOutcomePermanent(outcome) {
 			d.markPermanentFail(ctx, w, fence, lastErr, synthErr)
+			failFast := false
+			if policy, ok := d.resolveDAGRetryPolicy(ctx, w.DagKey, w.NodeKey); ok {
+				failFast = policy.FailFast
+			}
+			d.failDAGNodeAndCancelDownstream(ctx, w, lastErr, failFast)
 			return
 		}
 		d.markTransientRetry(ctx, w, fence, lastErr, synthErr)
@@ -306,20 +311,6 @@ func (d *WakeupDispatcher) handleClaimedViaRouter(ctx context.Context, w *taskda
 		// done / skipped / waiting_human / 零值均视为“wakeup 使命完成”。
 		d.markLaunched(ctx, w, fence)
 	}
-}
-
-// failureClassPermanent 判定 NodeExecutor 返的 FailureClass 是否应被 dispatcher
-// 看作不可重试。对齐 service 层 classifyLaunchError 的 launchClassPermanent
-// 语义：validation / hard / needs_human 是「资源/配置/人工」问题，
-// transient / quota / capability / infrastructure 交给 retry-with-backoff。
-func failureClassPermanent(class nodeexec.FailureClass) bool {
-	switch class {
-	case nodeexec.FailureClassValidation,
-		nodeexec.FailureClassHard,
-		nodeexec.FailureClassNeedsHuman:
-		return true
-	}
-	return false
 }
 
 func (d *WakeupDispatcher) markLaunched(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence) {
@@ -528,31 +519,7 @@ func (d *WakeupDispatcher) tryDAGFailWithCascade(ctx context.Context, w *taskdag
 		return false
 	}
 	d.markPermanentFail(ctx, w, fence, "max attempts reached: "+lastErr, launchErr)
-	flow, ok := d.store.(taskdag.NodeFlowStore)
-	if !ok {
-		d.logger.Warn("wakeup dispatcher: store missing NodeFlowStore, skip cascade",
-			"wakeup_id", w.ID, "dag_key", w.DagKey, "node_key", w.NodeKey)
-		return true
-	}
-	res, err := flow.FailNodeAndCancelDownstream(ctx, taskdag.FailNodeInput{
-		DagKey:   w.DagKey,
-		NodeKey:  w.NodeKey,
-		Reason:   lastErr,
-		FailFast: policy.FailFast,
-	})
-	if err != nil {
-		d.logger.Warn("wakeup dispatcher: fail-node cascade write failed",
-			"wakeup_id", w.ID, "dag_key", w.DagKey, "node_key", w.NodeKey, "error", err)
-		return true
-	}
-	d.logger.Warn("wakeup dispatcher: DAG node max attempts reached → failed",
-		"wakeup_id", w.ID,
-		"dag_key", w.DagKey,
-		"node_key", w.NodeKey,
-		"attempt_count", w.AttemptCount,
-		"max_attempts", policy.MaxAttempts,
-		"fail_fast", policy.FailFast,
-		"canceled_downstream", len(res.CanceledDownstream))
+	d.failDAGNodeAndCancelDownstream(ctx, w, lastErr, policy.FailFast)
 	return true
 }
 

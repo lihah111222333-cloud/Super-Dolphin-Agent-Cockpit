@@ -184,9 +184,9 @@ SharedfileTarget { Path; LockMode }   // exclusive | append | shared
 - 空 raw → 返回 zero-value config（旧 DAG 兼容）
 - 未知 node_type → `ErrUnknownNodeType`
 
-### 2.7 与现有 `dag_retry_policy.go` 的协调（M-6）
+### 2.7 与现有 dispatcher retry strategy 的协调（M-6）
 
-现有 `cmd/mcp-orch/orchestration/dag_retry_policy.go` 定义了：
+现有 `cmd/mcp-orch/orchestration/retry_strategy.go` 定义了：
 - `DAGSchedulePolicy { DefaultRetry, FailFast }` ← DAG metadata 的 schedule 子树
 - `NodeExecutionPolicy { Retry, HasRetry }` ← node.config 的 execution 子树
 - `RetryPolicy { MaxAttempts, FailFast }` ← dispatcher 派生的最终决策
@@ -195,10 +195,10 @@ SharedfileTarget { Path; LockMode }   // exclusive | append | shared
 
 | 来源 | 定位 |
 |---|---|
-| `dag_retry_policy.go::RetryPolicy` | dispatcher 路径（生产 wakeup_dispatcher → store.UpdateRunningNodeStatus）的最终决策；不接 by_class 分发 |
+| `retry_strategy.go::RetryPolicy` | dispatcher 路径（生产 wakeup_dispatcher → store.UpdateRunningNodeStatus）的最终决策；F1.4 仅做基础 bounded retry，不接 by_class 分发 |
 | `nodeexec.OnFailureConfig` | service 路径 + ApplyOps + AgentExecutor.on_failure 的 typed schema；含 by_class / escalation_chain |
 
-**F 阶段统一时机**（不在骨架阶段做）：当 dispatcher 重做时（与 S2.4 一并），把两条路径合到 `nodeexec.OnFailureConfig`，淘汰 `dag_retry_policy.go::RetryPolicy`，或反之。决策延迟到 F-stage ADR 0002。
+**F 阶段统一时机**：F1.4 仅把 transient/quota/validation 接入现有 `RetryPolicy` 的基础重试次数；F12.1 再决定是否把两条路径合到 `nodeexec.OnFailureConfig`，淘汰 `RetryPolicy`，或反之。
 
 ### 2.8 dispatcher fast-lane（S2.4 推迟说明）
 
@@ -308,16 +308,16 @@ discussion.
 ### 正面后果
 - T/F 阶段任意 worker 拿到本 ADR 即可独立动手，不需要再读跨多个 commit 的设计上下文
 - 状态转移矩阵 / 失败分类 / ops 动词等被代码（含单测）和文档双向锁定
-- 与 dag_retry_policy.go 的协调路径明确，避免重复造轮子
+- 与 retry_strategy.go 的协调路径明确，避免重复造轮子
 
 ### 负面后果
-- `nodeexec.OnFailureConfig` 与 `dag_retry_policy.RetryPolicy` 短期共存增加认知负担（F-stage ADR 0002 收敛）
+- `nodeexec.OnFailureConfig` 与 `retry_strategy.RetryPolicy` 短期共存增加认知负担（F12.1 收敛）
 - dispatcher fast-lane（外部 API 与内部 dispatcher 状态机不一致）短期存在；用户在 UI 上看不到 `ready` 状态，看到的永远是 pending → running（F-stage 修复）
 - 包文件数 30/30 顶到上限；后续新 typed 文件必须放 `nodeexec/` 子包或合并到现有文件
 
 ### 已知风险（已在审查中识别）
 - B-14 节点完成后下游 status 不自动 promote → 推迟到 F 阶段
-- S5.1 与 dag_retry_policy.go 协调策略未最终定，依赖 F-stage ADR 0002
+- S5.1 与 retry_strategy.go 协调策略未最终定，依赖 F12.1
 - 状态机校验（S7.2）只覆盖外部 API，dispatcher 路径不校验
 
 ## 5. 引用
