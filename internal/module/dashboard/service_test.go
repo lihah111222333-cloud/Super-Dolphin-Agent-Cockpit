@@ -10,6 +10,7 @@ import (
 	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
+	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 )
 
 func TestGetDashboardPageReturnsStructuredPage(t *testing.T) {
@@ -67,6 +68,55 @@ func TestGetDashboardPageDAGsWithoutOrchestrationIsEmpty(t *testing.T) {
 	}
 }
 
+func TestGetDashboardPageMemoryIncludesFinalOutputRefs(t *testing.T) {
+	t.Parallel()
+
+	shared := &stubSharedFileReader{
+		result: []sharedfilestore.SharedFile{
+			{Path: "reports/daily-brief.pptx", Content: "deck"},
+			{Path: "scratch/intermediate.json", Content: "{}"},
+		},
+	}
+	orchestration := &stubDashboardOrchestration{
+		listDAGsResult: []contract.DAGSummary{{DagKey: "dag-1", Title: "Daily Brief"}},
+		listRunsResult: contract.ListRunsResponse{Runs: []contract.Run{{
+			RunKey: "run-1",
+			DagKey: "dag-1",
+			Status: "succeeded",
+			Metadata: json.RawMessage(`{
+				"final_output": {
+					"kind": "file",
+					"role": "final_output",
+					"path": "reports/daily-brief.pptx",
+					"source_node_key": "report"
+				}
+			}`),
+		}}},
+	}
+	svc := &service{sharedFiles: shared, orchestration: orchestration}
+
+	got, err := svc.GetDashboardPage(context.Background(), "memory")
+	if err != nil {
+		t.Fatalf("GetDashboardPage(memory) error = %v", err)
+	}
+	if shared.lastFilter.Limit != dashboardMemoryLimit {
+		t.Fatalf("shared file List() filter = %#v", shared.lastFilter)
+	}
+	if orchestration.listRunsRequest.DagKey != "dag-1" || orchestration.listRunsRequest.Limit != dashboardFinalOutputRunLimit {
+		t.Fatalf("ListRuns() request = %#v", orchestration.listRunsRequest)
+	}
+	if len(got.Memory) != 2 {
+		t.Fatalf("GetDashboardPage(memory).Memory = %#v", got.Memory)
+	}
+	if len(got.FinalOutputRefs) != 1 {
+		t.Fatalf("FinalOutputRefs len = %d, want 1 (%#v)", len(got.FinalOutputRefs), got.FinalOutputRefs)
+	}
+	ref := got.FinalOutputRefs[0]
+	if ref.Path != "reports/daily-brief.pptx" || ref.RunKey != "run-1" || ref.DagKey != "dag-1" || ref.SourceNodeKey != "report" {
+		t.Fatalf("FinalOutputRefs[0] = %#v", ref)
+	}
+}
+
 func TestGetDashboardPageKeepsSkillDisclosureTier(t *testing.T) {
 	t.Parallel()
 
@@ -88,6 +138,28 @@ type stubSkillLister struct {
 
 func (s stubSkillLister) ListSkills(context.Context) ([]contract.SkillInfo, error) {
 	return s.items, nil
+}
+
+type stubSharedFileReader struct {
+	result     []sharedfilestore.SharedFile
+	err        error
+	lastFilter sharedfilestore.ListFilter
+}
+
+var _ sharedfilestore.Reader = (*stubSharedFileReader)(nil)
+
+func (s *stubSharedFileReader) Get(_ context.Context, path string) (*sharedfilestore.SharedFile, error) {
+	for _, item := range s.result {
+		if item.Path == path {
+			return &item, nil
+		}
+	}
+	return nil, s.err
+}
+
+func (s *stubSharedFileReader) List(_ context.Context, filter sharedfilestore.ListFilter) ([]sharedfilestore.SharedFile, error) {
+	s.lastFilter = filter
+	return s.result, s.err
 }
 
 func TestGetDashboardPageFiltersPromptsByScopedCWD(t *testing.T) {
