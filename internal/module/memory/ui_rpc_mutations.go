@@ -10,6 +10,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/dedup"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/similarity"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2/handler"
 )
@@ -80,6 +81,12 @@ func registerUIMemoryMutationHandlers(p memoryHandlerDeps) handler.Map {
 		}),
 		"ui/memory/entry/merge": platformrpc.StrictHandler(func(ctx context.Context, req uiMemoryEntryMergeParams) (UIMemoryEntryDetail, error) {
 			return mergeUIMemoryEntries(ctx, p, req)
+		}),
+		"ui/memory/similarity/ignore": platformrpc.StrictHandler(func(ctx context.Context, req uiSimilarityIgnoreParams) (map[string]any, error) {
+			return ignoreSimilarityPairHandler(ctx, p, req)
+		}),
+		"ui/memory/similarity/consolidate-all": platformrpc.StrictHandler(func(ctx context.Context, req uiSimilarityConsolidateAllParams) (uiSimilarityConsolidateAllResult, error) {
+			return consolidateAllHandler(ctx, p, req)
 		}),
 	}
 	for name, item := range registerAutoContinueStateHandlers(p) {
@@ -369,6 +376,10 @@ type uiMemoryEntryMergeParams struct {
 	PathA   string `json:"pathA"`   // kept entry
 	TargetB string `json:"targetB"`
 	PathB   string `json:"pathB"` // absorbed entry (deleted after merge)
+	// MergedDescription/MergedContent: 可选 LLM 整合输出。两者同时非空时覆盖默认的
+	// dedup.MergeContent 字面融合行为，写入 keep 侧 entry。任一为空走旧路径。
+	MergedDescription string `json:"mergedDescription,omitempty"`
+	MergedContent     string `json:"mergedContent,omitempty"`
 }
 
 type uiMemoryMergeResolved struct {
@@ -413,7 +424,7 @@ func mergeUIMemoryEntries(ctx context.Context, deps memoryHandlerDeps, req uiMem
 		return UIMemoryEntryDetail{}, err
 	}
 
-	writeReq := buildUIMemoryMergeWriteRequest(resolved.entryA, resolved.entryB)
+	writeReq := buildUIMemoryMergeWriteRequest(resolved.entryA, resolved.entryB, req.MergedDescription, req.MergedContent)
 	storeA, err := newUIMemoryMutationStore(deps.Service, resolved.rootA, resolved.targetA)
 	if err != nil {
 		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "merge_open_store_a",
@@ -441,7 +452,91 @@ func mergeUIMemoryEntries(ctx context.Context, deps memoryHandlerDeps, req uiMem
 	return toUIMemoryEntryDetail(resolved.targetA, resolved.rootA, mergedPath, merged), nil
 }
 
-func buildUIMemoryMergeWriteRequest(entryA, entryB MemoryEntry) MemoryWriteRequest {
+type uiSimilarityIgnoreParams struct {
+	CWD     string `json:"cwd,omitempty"`
+	TargetA string `json:"targetA"`
+	PathA   string `json:"pathA"`
+	TargetB string `json:"targetB"`
+	PathB   string `json:"pathB"`
+}
+
+// uiSimilarityConsolidateAllParams 是 ui/memory/similarity/consolidate-all RPC 入参。
+type uiSimilarityConsolidateAllParams struct {
+	CWD string `json:"cwd,omitempty"`
+}
+
+// uiSimilarityConsolidateAllResult 是 RPC 出参（字段语义与 similarity.ConsolidateResult 对齐）。
+type uiSimilarityConsolidateAllResult struct {
+	Merged  int      `json:"merged"`
+	Ignored int      `json:"ignored"`
+	Failed  int      `json:"failed"`
+	Skipped int      `json:"skipped"`
+	Errors  []string `json:"errors,omitempty"`
+}
+
+// ignoreSimilarityPairHandler 是 ui/memory/similarity/ignore 的 RPC 入口。
+// 实际持久化逻辑在 similarity 子包；本函数负责参数校验 + 错误 redact。
+func ignoreSimilarityPairHandler(ctx context.Context, p memoryHandlerDeps, req uiSimilarityIgnoreParams) (map[string]any, error) {
+	if p.Service == nil {
+		return nil, errors.New("memory service is not configured")
+	}
+	if strings.TrimSpace(req.PathA) == "" || strings.TrimSpace(req.PathB) == "" {
+		return nil, publicValidationErr("pathA and pathB are required")
+	}
+	// M3: 规范化 target 值，防外部脚本通过非标 (e.g. "Private") 写入永不命中的 ignored key。
+	targetA := normalizeUIMemoryTarget(req.TargetA)
+	targetB := normalizeUIMemoryTarget(req.TargetB)
+	adapter := newSimilarityAdapter(p)
+	if err := similarity.IgnorePair(ctx, adapter, req.CWD, targetA, req.PathA, targetB, req.PathB); err != nil {
+		return nil, redactIfPathBearing(p.Logger, "similarity_ignore",
+			errDurableMemorySaveFailed, err)
+	}
+	key := similarity.IgnoreKey(targetA, req.PathA, targetB, req.PathB)
+	return map[string]any{"ignored": true, "key": key}, nil
+}
+
+// consolidateAllHandler 是 ui/memory/similarity/consolidate-all 的 RPC 入口。
+// 主流程在 similarity 子包；本函数负责 ErrDreamExecutorNotConfigured 哨兵透传 + 路径 redact。
+func consolidateAllHandler(ctx context.Context, p memoryHandlerDeps, req uiSimilarityConsolidateAllParams) (uiSimilarityConsolidateAllResult, error) {
+	if p.Service == nil {
+		return uiSimilarityConsolidateAllResult{}, errors.New("memory service is not configured")
+	}
+	adapter := newSimilarityAdapter(p)
+	res, err := similarity.ConsolidateAll(ctx, adapter, req.CWD)
+	if err != nil {
+		// 哨兵直透：LLM 不可用 / team-memory secret 命中两类错误前端要据此提示用户，
+		// 走 redact 会让用户看到模糊的 "durable memory entry save failed" 而失去 actionable 信息。
+		if errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
+			return uiSimilarityConsolidateAllResult{}, err
+		}
+		if errors.Is(err, ErrTeamMemSecretDetected) {
+			// 透出**裸 sentinel** 而不是原 *TeamMemSecretError —— 后者 Error() 含
+			// validated path / 行号 / rule id，泄露到前端会违反 redact 策略。
+			// 详细路径已经在 mergeUIMemoryEntries 内部经 redactIfPathBearing 进 logger。
+			return uiSimilarityConsolidateAllResult{}, ErrTeamMemSecretDetected
+		}
+		return uiSimilarityConsolidateAllResult{}, redactIfPathBearing(p.Logger, "consolidate_all",
+			errDurableMemorySaveFailed, err)
+	}
+	return uiSimilarityConsolidateAllResult{
+		Merged: res.Merged, Ignored: res.Ignored,
+		Failed: res.Failed, Skipped: res.Skipped,
+		Errors: res.Errors,
+	}, nil
+}
+
+func buildUIMemoryMergeWriteRequest(entryA, entryB MemoryEntry, overrideDescription, overrideContent string) MemoryWriteRequest {
+	// LLM 整合 override 优先：两个字段同时非空才采用，避免半空 LLM 输出污染 entry。
+	overrideDescription = strings.TrimSpace(overrideDescription)
+	overrideContent = strings.TrimSpace(overrideContent)
+	if overrideDescription != "" && overrideContent != "" {
+		return MemoryWriteRequest{
+			Name:        entryA.Frontmatter.Name,
+			Description: overrideDescription,
+			Type:        ParseMemoryType(string(entryA.Type())),
+			Body:        overrideContent,
+		}
+	}
 	mergedDesc := entryA.Frontmatter.Description
 	if len(entryB.Frontmatter.Description) > len(mergedDesc) {
 		mergedDesc = entryB.Frontmatter.Description
