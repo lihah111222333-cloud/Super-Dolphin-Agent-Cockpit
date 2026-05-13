@@ -21,6 +21,26 @@ SET status = $1, result = $2::jsonb, updated_at = NOW()
 WHERE dag_key = $3 AND node_key = $4
 RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
 
+-- name: FailTaskDagNodeIfNonTerminal :one
+-- FailNodeAndCancelDownstream 的 primary-node fence：只允许非终态节点被改成 failed。
+-- subscriber / dispatcher 都可能在 lookup 或 retry 决策后遇到并发终态推进；此处用
+-- status 谓词作为最后一道原子护栏，避免 done/failed/cancelled/skipped 被迟到失败覆盖。
+UPDATE task_dag_nodes
+SET status = $1, result = $2::jsonb, updated_at = NOW()
+WHERE dag_key = $3
+  AND node_key = $4
+  AND status NOT IN ('done', 'failed', 'cancelled', 'skipped')
+RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
+
+-- name: CascadeFailPendingTaskDagNode :execrows
+-- fail_fast cascade 只认领仍处 pending 的下游。若并发路径已把下游推进到
+-- done/failed/cancelled/skipped/running，本语句返回 0 rows，由调用方当作幂等 skip。
+UPDATE task_dag_nodes
+SET status = 'failed', result = $1::jsonb, updated_at = NOW()
+WHERE dag_key = $2
+  AND node_key = $3
+  AND status = 'pending';
+
 -- name: PromoteSingleNodePendingToReady :execrows
 -- F6.3: 节点完成后自动 promote 单个下游 pending 节点到 ready。
 -- 调用方（store_complete_downstream.scheduleDownstreamWakeupsTx）已在 Go 侧

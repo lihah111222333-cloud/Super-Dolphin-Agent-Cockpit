@@ -20,9 +20,9 @@ import (
 )
 
 // completeNodeResultCap is the 4KB upper bound ADR-006 places on
-// task_dag_nodes.result. ADR-017 v1.2 §2.7 marks values exceeding this cap
-// with a metric counter; A1 itself does not attempt jsonb merge (that goes
-// into ADR-018 / A2).
+// task_dag_nodes.result. A2 enforces it for agent node.result materialization;
+// legacy non-agent rows still only emit the ADR-017 soft metric before store
+// handling.
 const completeNodeResultCap = 4 * 1024
 
 // isTerminalNodeStatus is the application-side idempotency short-circuit
@@ -30,9 +30,8 @@ const completeNodeResultCap = 4 * 1024
 // CompleteNode/FailNode so it can skip SQL when another path (fallback /
 // duplicate TurnCompleted / retry) already landed a terminal state.
 //
-// SQL fences (CompleteTaskDagNode / FailNode UpdateNodeStatusFlexible)
-// still guard from below — this is a defense-in-depth check, not the only
-// barrier.
+// SQL fences (CompleteTaskDagNode / FailTaskDagNodeIfNonTerminal) still guard
+// from below — this is a defense-in-depth check, not the only barrier.
 func isTerminalNodeStatus(status string) bool {
 	switch strings.TrimSpace(strings.ToLower(status)) {
 	case "done", "failed", "cancelled", "skipped":
@@ -146,8 +145,8 @@ func RegisterDAGTurnCompletedSubscriber(
 //
 // Important guarantees:
 //   - ctx.Err() short-circuit on every iteration (lifecycle cancel propagation).
-//   - The subscriber never invokes nodeexec / dispatcher — it only operates
-//     on store-level narrow ports.
+//   - The subscriber never invokes dispatcher. A2 uses nodeexec's config parser
+//     and sharedfile writer port, but still avoids aggregate store / service access.
 func handleDAGTurnCompleted(
 	ctx context.Context,
 	deps DAGSubscriberDeps,
@@ -329,17 +328,16 @@ func advanceNodeFailedWithReason(
 }
 
 // encodeTurnResultForNodeUpdate prepares ev.Result for storage in
-// task_dag_nodes.result (jsonb). ADR-017 v1.2 §2.7 explicitly defers the
-// jsonb merge / _handshake to ADR-018 — here we only normalize empty into
-// `{}` so the store's NOT NULL constraint stays happy.
+// task_dag_nodes.result (jsonb). It normalizes empty into `{}` so the store's
+// NOT NULL constraint stays happy and wraps non-JSON text in a compact envelope.
 func encodeTurnResultForNodeUpdate(raw string) json.RawMessage {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return json.RawMessage(`{}`)
 	}
 	// If raw is already valid JSON, pass through. Otherwise wrap as a
-	// {"text": "..."} envelope so the column remains valid jsonb without
-	// committing to a richer shape (ADR-018 will redo).
+	// {"text": "..."} envelope so the column remains valid jsonb while
+	// preserving the raw model text.
 	if json.Valid([]byte(trimmed)) {
 		return json.RawMessage(trimmed)
 	}

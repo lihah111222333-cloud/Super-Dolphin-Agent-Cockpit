@@ -61,6 +61,76 @@ func (q *Queries) UpdateTaskDagNodeStatusFlexible(ctx context.Context, arg Updat
 	return i, err
 }
 
+const failTaskDagNodeIfNonTerminal = `-- name: FailTaskDagNodeIfNonTerminal :one
+UPDATE task_dag_nodes
+SET status = $1, result = $2::jsonb, updated_at = NOW()
+WHERE dag_key = $3
+  AND node_key = $4
+  AND status NOT IN ('done', 'failed', 'cancelled', 'skipped')
+RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
+`
+
+type FailTaskDagNodeIfNonTerminalParams struct {
+	Status  string `json:"status"`
+	Column2 []byte `json:"column_2"`
+	DagKey  string `json:"dag_key"`
+	NodeKey string `json:"node_key"`
+}
+
+func (q *Queries) FailTaskDagNodeIfNonTerminal(ctx context.Context, arg FailTaskDagNodeIfNonTerminalParams) (TaskDagNode, error) {
+	row := q.db.QueryRow(ctx, failTaskDagNodeIfNonTerminal,
+		arg.Status,
+		arg.Column2,
+		arg.DagKey,
+		arg.NodeKey,
+	)
+	var i TaskDagNode
+	err := row.Scan(
+		&i.ID,
+		&i.DagKey,
+		&i.NodeKey,
+		&i.Title,
+		&i.NodeType,
+		&i.AssignedTo,
+		&i.DependsOn,
+		&i.Status,
+		&i.CommandRef,
+		&i.Config,
+		&i.Result,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ActiveTurnID,
+		&i.ActiveWakeupID,
+		&i.LastEventAt,
+		&i.SpawningThreadID,
+	)
+	return i, err
+}
+
+const cascadeFailPendingTaskDagNode = `-- name: CascadeFailPendingTaskDagNode :execrows
+UPDATE task_dag_nodes
+SET status = 'failed', result = $1::jsonb, updated_at = NOW()
+WHERE dag_key = $2
+  AND node_key = $3
+  AND status = 'pending'
+`
+
+type CascadeFailPendingTaskDagNodeParams struct {
+	Result  []byte `json:"result"`
+	DagKey  string `json:"dag_key"`
+	NodeKey string `json:"node_key"`
+}
+
+func (q *Queries) CascadeFailPendingTaskDagNode(ctx context.Context, arg CascadeFailPendingTaskDagNodeParams) (int64, error) {
+	result, err := q.db.Exec(ctx, cascadeFailPendingTaskDagNode, arg.Result, arg.DagKey, arg.NodeKey)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const upsertTaskDagNode = `-- name: UpsertTaskDagNode :one
 INSERT INTO task_dag_nodes (dag_key, node_key, title, node_type, assigned_to, depends_on, command_ref, config)
 VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8::jsonb)
