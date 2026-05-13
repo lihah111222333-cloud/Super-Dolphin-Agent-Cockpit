@@ -12,6 +12,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
@@ -212,6 +213,56 @@ func TestArchiveStopsManagedAgentBeforeArchiving(t *testing.T) {
 	}
 }
 
+func TestArchiveFallsBackWhenBindingMissing(t *testing.T) {
+	t.Parallel()
+
+	calls := []string{}
+	turns := &stubTurnService{calls: &calls}
+	orch := &stubThreadOrchestration{calls: &calls}
+	// No binding row (e.g. agent_provider_binding wiped during a DB rebuild
+	// while agent_threads survived). GetByAgentID returns platformdb.ErrNotFound
+	// — without the C2 fallback Archive() would return that error and the
+	// frontend would silently swallow it, leaving the archive button
+	// non-reactive.
+	bindingStore := &stubThreadBindingStore{
+		getByAgentIDErr: platformdb.ErrNotFound,
+		calls:           &calls,
+	}
+	threadStore := &recordingThreadStore{
+		stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-orphan", Status: statusCreated}},
+		calls:           &calls,
+	}
+	var stopped threaddto.Stopped
+	svc := &service{
+		bindingStore:  bindingStore,
+		threadStore:   threadStore,
+		turns:         turns,
+		orchestration: orch,
+		emitStopped: func(evt threaddto.Stopped) {
+			stopped = evt
+		},
+	}
+
+	if err := svc.Archive(context.Background(), "thread-orphan"); err != nil {
+		t.Fatalf("Archive() error = %v, want nil (no-binding fallback)", err)
+	}
+	if threadStore.status.Status != statusArchived {
+		t.Fatalf("thread status = %#v, want archived", threadStore.status)
+	}
+	if threadStore.status.ThreadID != "thread-orphan" {
+		t.Fatalf("status update target = %q, want thread-orphan", threadStore.status.ThreadID)
+	}
+	if len(bindingStore.archived) != 0 {
+		t.Fatalf("binding archive calls = %#v, want none (no binding to update)", bindingStore.archived)
+	}
+	if orch.stoppedAgentID != "" {
+		t.Fatalf("orchestration stop called with agent = %q, want none", orch.stoppedAgentID)
+	}
+	if stopped.ThreadID != "thread-orphan" || stopped.Status != statusArchived || stopped.Reason != "archived_no_binding" {
+		t.Fatalf("stopped event = %#v, want thread-orphan/archived/archived_no_binding", stopped)
+	}
+}
+
 func TestUnarchivePublishesCreatedLifecycleEvent(t *testing.T) {
 	t.Parallel()
 
@@ -368,6 +419,7 @@ type stubThreadBindingStore struct {
 	archived        []bindingstore.SetArchivedParams
 	deletedAgentIDs []string
 	calls           *[]string
+	getByAgentIDErr error
 }
 
 func (s *stubThreadBindingStore) GetByProviderThread(context.Context, string, string) (*bindingstore.Binding, error) {
@@ -398,6 +450,9 @@ func (s *stubThreadBindingStore) SetArchived(_ context.Context, params bindingst
 func (s *stubThreadBindingStore) GetByAgentID(_ context.Context, agentID string) (*bindingstore.Binding, error) {
 	if s.binding != nil && s.binding.AgentID == agentID {
 		return s.binding, nil
+	}
+	if s.getByAgentIDErr != nil {
+		return nil, s.getByAgentIDErr
 	}
 	return nil, errors.New("not found")
 }

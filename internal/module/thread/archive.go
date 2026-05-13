@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"strings"
 
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -35,6 +36,29 @@ func (s *service) Archive(ctx context.Context, threadID string) error {
 	}
 	stopState, err := s.resolveThreadStopState(ctx, threadID)
 	if err != nil {
+		// C2 fallback: binding row missing (agent_provider_binding lost while
+		// agent_threads survived, e.g. after a DB rebuild). Without a binding we
+		// can't stop a runtime or update binding.archived, but the agent_threads
+		// row still exists — flip its status so the card moves to the archived
+		// bucket. Returning err here lets the frontend silently swallow it and
+		// the archive button appears non-reactive.
+		if platformdb.IsNotFound(err) {
+			id := strings.TrimSpace(threadID)
+			if updateErr := s.updateThreadStatus(ctx, id, statusArchived); updateErr != nil {
+				pkglogger.Warn("thread: Archive() no-binding fallback FAILED",
+					"thread_id", id,
+					"error", updateErr,
+					"caller", caller,
+				)
+				return updateErr
+			}
+			s.publishThreadStopped(id, "", statusArchived, "archived_no_binding")
+			pkglogger.Warn("thread: Archive() no-binding fallback applied",
+				"thread_id", id,
+				"caller", caller,
+			)
+			return nil
+		}
 		pkglogger.Warn("thread: Archive() resolveThreadStopState FAILED",
 			"thread_id", threadID,
 			"error", err,
