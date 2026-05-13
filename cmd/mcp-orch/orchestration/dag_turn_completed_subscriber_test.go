@@ -113,6 +113,24 @@ func (s *dagSubscriberSharedFileWriterSpy) WriteSharedFile(_ context.Context, pa
 	return nil
 }
 
+type dagSubscriberSharedFileReaderSpy struct {
+	contents map[string]string
+	err      error
+	reads    []string
+}
+
+func (s *dagSubscriberSharedFileReaderSpy) ReadSharedFile(_ context.Context, path string) (string, bool, error) {
+	s.reads = append(s.reads, path)
+	if s.err != nil {
+		return "", false, s.err
+	}
+	if s.contents == nil {
+		return "", false, nil
+	}
+	content, ok := s.contents[path]
+	return content, ok, nil
+}
+
 // helper：构造 deps + reset metric singletons 让每 case 独立计数。
 func setupDAGSubscriberDeps(
 	lookup *dagSubscriberLookupSpy,
@@ -437,6 +455,7 @@ func TestDAGSubscriber_A2_SharedfileOnlyDoesNotStoreLargeTurnResult(t *testing.T
 	stop := &dagSubscriberStopSpy{}
 	writer := &dagSubscriberSharedFileWriterSpy{}
 	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
+	deps.SharedFileReader = &dagSubscriberSharedFileReaderSpy{}
 	deps.SharedFileWriter = writer
 
 	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-a2-sharedfile", true, hugePayload))
@@ -482,6 +501,7 @@ func TestDAGSubscriber_A2_SharedfileSkippedWhenCompleteFenceRejects(t *testing.T
 		&dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-a2-fence", AgentID: "agent-a2-fence"}},
 		&dagSubscriberStopSpy{},
 	)
+	deps.SharedFileReader = &dagSubscriberSharedFileReaderSpy{}
 	deps.SharedFileWriter = writer
 
 	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-a2-fence", true, payload))
@@ -511,6 +531,7 @@ func TestDAGSubscriber_A2_AwaitingVerifyReplayCompletesAfterPriorCompleteError(t
 	}
 	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{node}}
 	flow := &dagSubscriberFlowSpy{completeErr: errors.New("temporary complete failure")}
+	reader := &dagSubscriberSharedFileReaderSpy{}
 	writer := &dagSubscriberSharedFileWriterSpy{}
 	deps := setupDAGSubscriberDeps(
 		lookup,
@@ -518,6 +539,7 @@ func TestDAGSubscriber_A2_AwaitingVerifyReplayCompletesAfterPriorCompleteError(t
 		&dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-a2-replay", AgentID: "agent-a2-replay"}},
 		&dagSubscriberStopSpy{},
 	)
+	deps.SharedFileReader = reader
 	deps.SharedFileWriter = writer
 
 	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-a2-replay", true, payload))
@@ -529,6 +551,7 @@ func TestDAGSubscriber_A2_AwaitingVerifyReplayCompletesAfterPriorCompleteError(t
 
 	lookup.nodes[0].Status = "awaiting_verify"
 	flow.completeErr = nil
+	reader.contents = map[string]string{"reports/agent-replay.json": payload}
 	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-a2-replay", true, payload))
 
 	if len(flow.claimCalls) != 2 {
@@ -542,6 +565,9 @@ func TestDAGSubscriber_A2_AwaitingVerifyReplayCompletesAfterPriorCompleteError(t
 	}
 	if got := string(flow.completeCalls[1].Result); got != `{"sharedfile":{"path":"reports/agent-replay.json"}}` {
 		t.Fatalf("replay CompleteNodeInput.Result = %s, want sharedfile reference", got)
+	}
+	if len(writer.writes) != 1 {
+		t.Fatalf("sharedfile writes = %d, want 1 because awaiting_verify replay preserves existing file", len(writer.writes))
 	}
 }
 
@@ -568,6 +594,7 @@ func TestDAGSubscriber_A2_SharedfileAndNodeResultWritesBoth(t *testing.T) {
 		&dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-a2-both", AgentID: "agent-a2-both"}},
 		&dagSubscriberStopSpy{},
 	)
+	deps.SharedFileReader = &dagSubscriberSharedFileReaderSpy{}
 	deps.SharedFileWriter = writer
 
 	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-a2-both", true, payload))
@@ -583,6 +610,140 @@ func TestDAGSubscriber_A2_SharedfileAndNodeResultWritesBoth(t *testing.T) {
 	}
 	if got := string(flow.completeCalls[0].Result); got != payload {
 		t.Fatalf("CompleteNodeInput.Result = %s, want real TurnCompleted result %s", got, payload)
+	}
+}
+
+func TestDAGSubscriber_A2_PreservesAgentWrittenSharedfileWithNodeResultEnabled(t *testing.T) {
+	payload := `{"summary":"short turn summary"}`
+	existing := strings.Repeat("agent-authored report\n", 300)
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey:   "dag-a2",
+		NodeKey:  "agent-preserve-both",
+		NodeType: "agent",
+		Status:   "running",
+		Config: []byte(`{
+			"exec":{"agent_key":"paper_summarizer"},
+			"outputs":{
+				"to_sharedfile":{"path":"reports/agent-preserve-both.md","lock_mode":"exclusive"},
+				"to_node_result":true
+			}
+		}`),
+	}}}
+	flow := &dagSubscriberFlowSpy{}
+	reader := &dagSubscriberSharedFileReaderSpy{contents: map[string]string{
+		"reports/agent-preserve-both.md": existing,
+	}}
+	writer := &dagSubscriberSharedFileWriterSpy{}
+	deps := setupDAGSubscriberDeps(
+		lookup,
+		flow,
+		&dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-a2-preserve-both", AgentID: "agent-a2-preserve-both"}},
+		&dagSubscriberStopSpy{},
+	)
+	deps.SharedFileReader = reader
+	deps.SharedFileWriter = writer
+
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-a2-preserve-both", true, payload))
+
+	if len(writer.writes) != 0 {
+		t.Fatalf("sharedfile writes = %d, want 0 to preserve agent-authored content", len(writer.writes))
+	}
+	if len(flow.claimCalls) != 1 {
+		t.Fatalf("claimCalls = %d, want 1", len(flow.claimCalls))
+	}
+	wantRef := `{"sharedfile":{"path":"reports/agent-preserve-both.md"}}`
+	if got := string(flow.claimCalls[0].Result); got != wantRef {
+		t.Fatalf("ClaimNodeOutputMaterialization.Result = %s, want sharedfile reference", got)
+	}
+	if len(flow.completeCalls) != 1 {
+		t.Fatalf("completeCalls = %d, want 1", len(flow.completeCalls))
+	}
+	if got := string(flow.completeCalls[0].Result); got != wantRef {
+		t.Fatalf("CompleteNodeInput.Result = %s, want sharedfile reference", got)
+	}
+}
+
+func TestDAGSubscriber_A2_PreservesAgentWrittenSharedfile(t *testing.T) {
+	payload := `{"summary":"short turn summary"}`
+	existing := strings.Repeat("agent-authored report\n", 300)
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey:   "dag-a2",
+		NodeKey:  "agent-preserve",
+		NodeType: "agent",
+		Status:   "running",
+		Config: []byte(`{
+			"exec":{"agent_key":"paper_summarizer"},
+			"outputs":{"to_sharedfile":{"path":"reports/agent-preserve.md","lock_mode":"exclusive"}}
+		}`),
+	}}}
+	flow := &dagSubscriberFlowSpy{}
+	reader := &dagSubscriberSharedFileReaderSpy{contents: map[string]string{
+		"reports/agent-preserve.md": existing,
+	}}
+	writer := &dagSubscriberSharedFileWriterSpy{}
+	deps := setupDAGSubscriberDeps(
+		lookup,
+		flow,
+		&dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-a2-preserve", AgentID: "agent-a2-preserve"}},
+		&dagSubscriberStopSpy{},
+	)
+	deps.SharedFileReader = reader
+	deps.SharedFileWriter = writer
+
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-a2-preserve", true, payload))
+
+	if len(reader.reads) != 1 || reader.reads[0] != "reports/agent-preserve.md" {
+		t.Fatalf("reader reads = %+v, want configured sharedfile path", reader.reads)
+	}
+	if len(writer.writes) != 0 {
+		t.Fatalf("sharedfile writes = %d, want 0 to preserve agent-authored content", len(writer.writes))
+	}
+	if len(flow.completeCalls) != 1 {
+		t.Fatalf("completeCalls = %d, want 1", len(flow.completeCalls))
+	}
+	if got := string(flow.completeCalls[0].Result); got != `{"sharedfile":{"path":"reports/agent-preserve.md"}}` {
+		t.Fatalf("CompleteNodeInput.Result = %s, want sharedfile reference", got)
+	}
+}
+
+func TestDAGSubscriber_A2_SharedfileMissingReaderFailsWithoutOverwrite(t *testing.T) {
+	payload := `{"summary":"short turn summary"}`
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey:   "dag-a2",
+		NodeKey:  "agent-no-reader",
+		NodeType: "agent",
+		Status:   "running",
+		Config: []byte(`{
+			"exec":{"agent_key":"paper_summarizer"},
+			"outputs":{"to_sharedfile":{"path":"reports/agent-no-reader.md","lock_mode":"exclusive"}}
+		}`),
+	}}}
+	flow := &dagSubscriberFlowSpy{}
+	writer := &dagSubscriberSharedFileWriterSpy{}
+	deps := setupDAGSubscriberDeps(
+		lookup,
+		flow,
+		&dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-a2-no-reader", AgentID: "agent-a2-no-reader"}},
+		&dagSubscriberStopSpy{},
+	)
+	deps.SharedFileWriter = writer
+
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-a2-no-reader", true, payload))
+
+	if len(writer.writes) != 0 {
+		t.Fatalf("sharedfile writes = %d, want 0 when sharedfile reader is missing", len(writer.writes))
+	}
+	if len(flow.claimCalls) != 0 {
+		t.Fatalf("claimCalls = %d, want 0 when sharedfile reader is missing", len(flow.claimCalls))
+	}
+	if len(flow.completeCalls) != 0 {
+		t.Fatalf("completeCalls = %d, want 0 when sharedfile reader is missing", len(flow.completeCalls))
+	}
+	if len(flow.failCalls) != 1 {
+		t.Fatalf("failCalls = %d, want 1", len(flow.failCalls))
+	}
+	if !strings.Contains(flow.failCalls[0].Reason, "SharedFileReader not wired") {
+		t.Fatalf("fail reason = %q, want SharedFileReader not wired", flow.failCalls[0].Reason)
 	}
 }
 
@@ -605,6 +766,7 @@ func TestDAGSubscriber_A2_SharedfileMissingWriterFails(t *testing.T) {
 		&dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-a2-no-writer", AgentID: "agent-a2-no-writer"}},
 		&dagSubscriberStopSpy{},
 	)
+	deps.SharedFileReader = &dagSubscriberSharedFileReaderSpy{}
 
 	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-a2-no-writer", true, payload))
 
@@ -639,6 +801,7 @@ func TestDAGSubscriber_A2_SharedfileWriteErrorFails(t *testing.T) {
 		&dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-a2-write-error", AgentID: "agent-a2-write-error"}},
 		&dagSubscriberStopSpy{},
 	)
+	deps.SharedFileReader = &dagSubscriberSharedFileReaderSpy{}
 	deps.SharedFileWriter = writer
 
 	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-a2-write-error", true, payload))

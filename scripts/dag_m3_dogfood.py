@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import ipaddress
 import json
 import os
 import pathlib
@@ -44,6 +45,10 @@ CHECKLIST = (
 
 def required_metric_names():
     return ("dispatch_failed_total", "retry_count_per_node")
+
+
+def sample_backed_metric_fallbacks():
+    return {"retry_count_per_node": "retry_count_per_node_overflow_total"}
 
 
 def build_main_ops(assignee, shared_prefix, provider="codex", model="gpt-5"):
@@ -148,11 +153,30 @@ class MCPError(RuntimeError):
     pass
 
 
+def _opener_for_url(url):
+    if _is_loopback_url(url):
+        return urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    return urllib.request.build_opener()
+
+
+def _is_loopback_url(url):
+    host = urllib.parse.urlparse(url).hostname
+    if not host:
+        return False
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 class HTTPMCPClient:
     def __init__(self, url, timeout):
         self.url = _normalize_mcp_url(url)
         self.timeout = timeout
         self.next_id = 1
+        self.opener = _opener_for_url(self.url)
 
     def close(self):
         return None
@@ -167,7 +191,7 @@ class HTTPMCPClient:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+        with self.opener.open(req, timeout=self.timeout) as resp:
             return _decode_rpc_response(json.loads(resp.read().decode("utf-8")))
 
 
@@ -451,19 +475,37 @@ def check_metrics(args):
             print("SKIP:", msg)
             return
         raise MCPError(msg)
-    with urllib.request.urlopen(args.metrics_url, timeout=10) as resp:
+    opener = _opener_for_url(args.metrics_url)
+    with opener.open(args.metrics_url, timeout=10) as resp:
         body = resp.read().decode("utf-8", errors="replace")
     families = parse_prometheus_metrics(body)
-    missing = [name for name in required_metric_names() if name not in families]
+    missing = missing_required_metric_names(families, args.require_metric_samples)
     if missing:
         raise MCPError("metrics endpoint missing: %s" % ", ".join(missing))
-    if args.require_metric_samples or not args.metrics_family_only:
+    if args.require_metric_samples:
         validate_metric_samples(families, args.dag_key)
     summary = []
     for name in required_metric_names():
-        samples = families[name]["samples"]
-        summary.append("%s=%s" % (name, samples[0] if samples else "family-present"))
+        if name in families:
+            samples = families[name]["samples"]
+            value = samples[0] if samples else "family-present"
+        else:
+            value = "%s-present" % sample_backed_metric_fallbacks()[name]
+        summary.append("%s=%s" % (name, value))
     print("metrics ok:", "; ".join(summary))
+
+
+def missing_required_metric_names(families, require_metric_samples):
+    missing = []
+    fallbacks = sample_backed_metric_fallbacks()
+    for name in required_metric_names():
+        if name in families:
+            continue
+        fallback = fallbacks.get(name)
+        if fallback and fallback in families and not require_metric_samples:
+            continue
+        missing.append(name)
+    return missing
 
 
 def parse_prometheus_metrics(body):

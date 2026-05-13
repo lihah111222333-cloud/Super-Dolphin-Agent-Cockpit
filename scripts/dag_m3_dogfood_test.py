@@ -1,7 +1,10 @@
 import importlib.util
 import json
+import os
 import pathlib
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 
 SCRIPT_PATH = pathlib.Path(__file__).with_name("dag_m3_dogfood.py")
@@ -12,6 +15,20 @@ def load_script():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def start_test_http_server(testcase, handler):
+    server = HTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    def cleanup():
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+    testcase.addCleanup(cleanup)
+    return server
 
 
 class M3DogfoodHarnessTest(unittest.TestCase):
@@ -70,6 +87,55 @@ class M3DogfoodHarnessTest(unittest.TestCase):
             dogfood._normalize_mcp_url("http://127.0.0.1:1234"),
             "http://127.0.0.1:1234/mcp",
         )
+        self.assertEqual(
+            dogfood._normalize_mcp_url("http://127.0.0.1:1234/mcp"),
+            "http://127.0.0.1:1234/mcp",
+        )
+
+    def test_http_client_bypasses_environment_proxy_for_local_mcp(self):
+        dogfood = load_script()
+        server = start_test_http_server(self, FakeMCPHandler)
+
+        set_proxy_env(self, "http://127.0.0.1:1")
+
+        client = dogfood.HTTPMCPClient("http://127.0.0.1:%d" % server.server_port, 5)
+        result = client.request("initialize", {"protocolVersion": "2024-11-05"})
+
+        self.assertEqual(result["serverInfo"]["name"], "fake-mcp")
+
+    def test_metrics_fetch_keeps_environment_proxy_for_remote_url(self):
+        dogfood = load_script()
+        proxy = start_test_http_server(self, FakeMetricsProxyHandler)
+        proxy.requests = 0
+        set_proxy_env(self, "http://127.0.0.1:%d" % proxy.server_port)
+        args = Args(
+            metrics_url="http://example.invalid/metrics",
+            allow_missing_metrics=False,
+            require_metric_samples=False,
+            metrics_family_only=True,
+            dag_key="test-dag",
+        )
+
+        dogfood.check_metrics(args)
+
+        self.assertEqual(proxy.requests, 1)
+
+    def test_metrics_fetch_bypasses_environment_proxy_for_local_url(self):
+        dogfood = load_script()
+        server = start_test_http_server(self, FakeMetricsProxyHandler)
+        server.requests = 0
+        set_proxy_env(self, "http://127.0.0.1:1")
+        args = Args(
+            metrics_url="http://127.0.0.1:%d/metrics" % server.server_port,
+            allow_missing_metrics=False,
+            require_metric_samples=False,
+            metrics_family_only=True,
+            dag_key="test-dag",
+        )
+
+        dogfood.check_metrics(args)
+
+        self.assertEqual(server.requests, 1)
 
     def test_dispatch_ready_nodes_only_assigns_ready_unassigned_nodes(self):
         dogfood = load_script()
@@ -148,6 +214,19 @@ retry_count_per_node{dag_key="test-dag",node_key="n1"} 3
         with self.assertRaises(dogfood.MCPError):
             dogfood.validate_metric_samples(zero_dispatch, "test-dag")
 
+    def test_metric_family_check_accepts_retry_collector_without_samples(self):
+        dogfood = load_script()
+        families = dogfood.parse_prometheus_metrics("""
+dispatch_failed_total 0
+retry_count_per_node_overflow_total 0
+""")
+
+        self.assertEqual(dogfood.missing_required_metric_names(families, require_metric_samples=False), [])
+        self.assertEqual(
+            dogfood.missing_required_metric_names(families, require_metric_samples=True),
+            ["retry_count_per_node"],
+        )
+
 
 class FakeClient:
     def __init__(self):
@@ -156,10 +235,79 @@ class FakeClient:
     def request(self, method, params):
         self.calls.append((params["name"], params["arguments"]))
         return {"structuredContent": {"ok": True}}
-        self.assertEqual(
-            dogfood._normalize_mcp_url("http://127.0.0.1:1234/mcp"),
-            "http://127.0.0.1:1234/mcp",
-        )
+
+
+class FakeMCPHandler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        if length:
+            self.rfile.read(length)
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "capabilities": {"tools": {}},
+                "protocolVersion": "2024-11-05",
+                "serverInfo": {"name": "fake-mcp", "version": "test"},
+            },
+        }
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format, *args):
+        return
+
+
+class FakeMetricsProxyHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.server.requests += 1
+        body = b"dispatch_failed_total 1\nretry_count_per_node{dag_key=\"test-dag\",node_key=\"n1\"} 1\n"
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format, *args):
+        return
+
+
+class Args:
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+
+
+PROXY_ENV_VARS = (
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "no_proxy",
+    "NO_PROXY",
+)
+
+
+def set_proxy_env(testcase, proxy_url):
+    old = {name: os.environ.get(name) for name in PROXY_ENV_VARS}
+    for name in PROXY_ENV_VARS:
+        os.environ.pop(name, None)
+    for name in ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
+        os.environ[name] = proxy_url
+    testcase.addCleanup(restore_proxy_env, old)
+
+
+def restore_proxy_env(old):
+    for name in PROXY_ENV_VARS:
+        if old[name] is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = old[name]
 
 
 if __name__ == "__main__":
