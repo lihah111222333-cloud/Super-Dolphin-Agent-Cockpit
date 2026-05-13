@@ -29,7 +29,7 @@ func NewXRefHandler(registry lspmanager.Registry) ToolHandler {
 		if err != nil {
 			return nil, err
 		}
-		filePath, position, err := resolveFilePositionRequest(filePositionParams{
+		filePath, position, err := resolveFilePositionRequest(ctx, filePositionParams{
 			FilePath: req.FilePath,
 			Line:     req.Line,
 			Column:   req.Column,
