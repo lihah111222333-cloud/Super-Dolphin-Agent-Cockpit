@@ -1,6 +1,6 @@
 # V3 架构决策记录（Architecture Decision Records）
 
-> 更新日期：2026-05-12
+> 更新日期：2026-05-13
 
 本目录用于沉淀 V3 的正式架构决策记录（ADR），只记录已经裁决、需要长期引用的技术选择，不替代执行计划、review 记录或 session-summary。
 
@@ -20,10 +20,10 @@
 - [ADR-009：DAG node ↔ child thread 双向追溯（spawning_thread_id）](./ADR-009-thread-dag-traceability.md) — 2026-05-12 升 Accepted（F1.5 落地 + DTO 透出 + archtest 守护）
 - [ADR-011：HybridExecutor 拓扑边界与未来扩展](./ADR-011-hybrid-executor-topology.md) — 2026-05-12 v1 升 Accepted（F3.1 等同 AutomationWithVerifier 语义稳定）；v2 拓扑（F3.2/F3.3/F3.4）仍 Proposed
 - [ADR-012：taskdag 聚合 Store 接口 7/7 嵌入端口预算锁死](./ADR-012-store-aggregate-frozen.md) — 2026-05-12 Accepted（禁止再向聚合 Store 加 embedded port，新端口走独立窄接口 + var _ 编译期断言）
+- [ADR-018：agent 节点真实输出物化（A2）](./ADR-018-agent-output-materialization.md) — 2026-05-13 升 Accepted（`df3aac86`；复用 `CompleteNodeAndScheduleDownstream` 的 result 更新，不新增 SQL/sqlc）
 
 ### Proposed（DAG 改造修补单 §7 占位 + 返修轮新立，待拍板）
 
 - [ADR-005：F4.5 与 F6.5 联动 —— 多 run 并发后 running 受限的判定主体](./ADR-005-f4.5-f6.5-running-semantics.md)
 - [ADR-010：DAG 上下文与 token budget 兜底阈值](./ADR-010-dag-context-token-budget.md)
 - [ADR-011 v2 部分（F3.2/F3.3/F3.4）](./ADR-011-hybrid-executor-topology.md#) — 占位，拍板后拆分为 ADR-011a/b/c
-- [ADR-018：agent 节点真实输出物化（A2）](./ADR-018-agent-output-materialization.md) — Proposed；A2 MVP：复用 `CompleteNodeAndScheduleDownstream` 的 result 更新，不新增 SQL/sqlc

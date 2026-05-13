@@ -1,6 +1,7 @@
 # ADR-018：agent 节点真实输出物化（A2）
 
-> 状态：Proposed | 日期：2026-05-13 | 决策者：待主线程代码验证后拍板
+> 状态：✅ Accepted | 日期：2026-05-13 | 决策者：Codex A2 implementation + reviewer 复核
+> 实装：`df3aac86`（feat(orch): materialize agent outputs on turn completion）
 >
 > 相关：ADR-015（provider `TurnCompleted.Result` 补完）/ ADR-016（spawned agent stop）/ ADR-017（DAG turn.completed subscriber）/ ADR-006（`node.result` 4KB cap）/ C-A 实施计划 §3.2。
 
@@ -87,11 +88,11 @@ A2 不新增 `MergeTaskDagNodeResult`，不改 sqlc。
 - 大输出显式 sharedfile 且未配置 `to_node_result` 时通过；
 - 下游 `inputs.from_nodes` 读到上游真实 agent 输出，而不是 launch metadata。
 
-## 5. 状态待更新
+## 5. 落地状态
 
-本 ADR 初稿保持 Proposed。代码落地并通过 A2 验证后，主线程需要更新：
+本 ADR 已随 A2 implementation 落地并升 Accepted：
 
-- 状态：Proposed → Accepted（或按 review 结果调整）；
-- 实装 commit hash；
-- C-A 计划 A2 状态与主实施计划 F1.3 行；
-- 若代码验证揭示 `CompleteNodeAndScheduleDownstream` result 更新无法承载 A2，再回到本 ADR 修订，而不是静默新增 SQL/sqlc。
+- 实装 commit：`df3aac86`；
+- 代码验证确认 `CompleteNodeAndScheduleDownstream` 的 result 参数可以承载 A2 MVP；
+- reviewer 复核确认无新增 SQL/sqlc、无 import cycle / fx 基础编译失败，sharedfile-only reference envelope 与文档一致；
+- 后续若要扩展结构化 FailureClass、automation outputs 或历史 backfill，另立任务，不回填到本 A2 MVP。
