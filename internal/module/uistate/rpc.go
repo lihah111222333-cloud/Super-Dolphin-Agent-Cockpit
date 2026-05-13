@@ -2,11 +2,14 @@ package uistate
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/creachadair/jrpc2/handler"
 
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type scopeParams struct {
@@ -50,7 +53,9 @@ func NewUIStateHandlers(svc Service) platformrpc.HandlerMapResult {
 			if strings.TrimSpace(p.Key) == "" {
 				return prefs, nil
 			}
-			return preferenceValue(*prefs, p.Key), nil
+			value := preferenceValue(*prefs, p.Key)
+			logProviderPreferenceTrace("ui/preferences/get: trace", p.Cwd, p.Key, value)
+			return value, nil
 		}),
 		"ui/preferences/getAll": platformrpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
 			return svc.GetPreferences(withPreferenceScope(ctx, p.Cwd))
@@ -59,6 +64,7 @@ func NewUIStateHandlers(svc Service) platformrpc.HandlerMapResult {
 			if err := svc.SetPreference(withPreferenceScope(ctx, p.Cwd), p.Key, p.Value); err != nil {
 				return nil, err
 			}
+			logProviderPreferenceTrace("ui/preferences/set: trace", p.Cwd, p.Key, p.Value)
 			return map[string]any{"ok": true}, nil
 		}),
 		"ui/projects/get": platformrpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
@@ -74,4 +80,58 @@ func NewUIStateHandlers(svc Service) platformrpc.HandlerMapResult {
 			return svc.RemoveProject(withPreferenceScope(ctx, p.Cwd), p.Path)
 		}),
 	}}
+}
+
+func logProviderPreferenceTrace(msg, cwd, key string, value any) {
+	key = strings.TrimSpace(key)
+	if !shouldTraceProviderPreference(key) {
+		return
+	}
+	valueText, valueKind := providerPreferenceTraceValue(value)
+	pkglogger.Info(msg,
+		"cwd", strings.TrimSpace(cwd),
+		"key", key,
+		"has_value", value != nil,
+		"value_kind", valueKind,
+		"value", valueText)
+}
+
+func shouldTraceProviderPreference(key string) bool {
+	if key == "settings.provider.active" {
+		return true
+	}
+	if !strings.HasPrefix(key, "settings.provider.") {
+		return false
+	}
+	return strings.HasSuffix(key, ".model") ||
+		strings.HasSuffix(key, ".effort") ||
+		strings.HasSuffix(key, ".codexModelProvider")
+}
+
+func providerPreferenceTraceValue(value any) (string, string) {
+	switch v := value.(type) {
+	case nil:
+		return "", "nil"
+	case string:
+		return truncatePreferenceTraceValue(v), "string"
+	case bool:
+		return strconv.FormatBool(v), "bool"
+	case int:
+		return strconv.Itoa(v), "number"
+	case int64:
+		return strconv.FormatInt(v, 10), "number"
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64), "number"
+	default:
+		return "", fmt.Sprintf("%T", value)
+	}
+}
+
+func truncatePreferenceTraceValue(value string) string {
+	const maxPreferenceTraceValueLen = 160
+	value = strings.TrimSpace(value)
+	if len(value) <= maxPreferenceTraceValueLen {
+		return value
+	}
+	return value[:maxPreferenceTraceValueLen] + "...(truncated)"
 }

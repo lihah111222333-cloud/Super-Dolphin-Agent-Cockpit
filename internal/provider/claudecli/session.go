@@ -105,7 +105,20 @@ func (s *session) ThreadID() string {
 	return s.threadID
 }
 
-func (s *session) RolloutPath() string { return "" }
+func (s *session) RolloutPath() string {
+	if s == nil || s.history == nil {
+		return ""
+	}
+	threadID := s.ThreadID()
+	if threadID == "" {
+		return ""
+	}
+	path, err := s.history.sessionPath(threadID)
+	if err != nil {
+		return ""
+	}
+	return path
+}
 
 func (s *session) EventThreadID() string {
 	s.mu.Lock()

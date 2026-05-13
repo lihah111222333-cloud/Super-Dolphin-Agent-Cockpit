@@ -34,7 +34,7 @@ describe('thread-ui-normalize', () => {
   it('normalizes thread records and timestamp maps', () => {
     expect(normalizeThread({ id: 'thread-1', state: 'RUNNING' })).toEqual({
       id: 'thread-1',
-      name: 'thread-1',
+      name: '',
       state: 'running',
     });
     expect(normalizeThread({ id: 'thread-2', name: 'Worker', state: 'unknown' })).toEqual({

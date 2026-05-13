@@ -21,6 +21,7 @@ const (
 	transportStderrLimitBytes    = 8 * 1024
 	transportConnectRetryDelay   = 150 * time.Millisecond
 	transportConnectRetryMaxWait = time.Second
+	transportHealthPingTimeout   = time.Second
 )
 
 type transport struct {
@@ -144,6 +145,37 @@ func (t *transport) Running() bool {
 		return false
 	}
 	return !t.local || t.processRunning()
+}
+
+func (t *transport) CheckHealth(ctx context.Context) error {
+	if t == nil {
+		return errors.New("codexapp: transport unavailable")
+	}
+	if !t.Running() {
+		if err := t.localProcessFailure(); err != nil {
+			return err
+		}
+		return errors.New("codexapp: transport not running")
+	}
+	pingCtx, cancel := withTimeout(ctx, transportHealthPingTimeout)
+	defer cancel()
+	if err := shared.CheckCtx(pingCtx); err != nil {
+		return err
+	}
+	deadline := time.Now().Add(transportHealthPingTimeout)
+	if ctxDeadline, ok := pingCtx.Deadline(); ok && ctxDeadline.Before(deadline) {
+		deadline = ctxDeadline
+	}
+	t.writeMu.Lock()
+	defer t.writeMu.Unlock()
+	ws, err := t.currentWSOrErr()
+	if err != nil {
+		return err
+	}
+	if err := ws.WriteControl(websocket.PingMessage, []byte("health"), deadline); err != nil {
+		return err
+	}
+	return shared.CheckCtx(pingCtx)
 }
 
 func (t *transport) InitializeCodexHome() string {

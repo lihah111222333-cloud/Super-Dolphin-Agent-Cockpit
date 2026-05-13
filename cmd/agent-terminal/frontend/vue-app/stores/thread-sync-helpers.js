@@ -63,13 +63,13 @@ const DIRECT_THREAD_SYNC_METHODS = new Set([
   'item/commandexecution/outputdelta',
   'item/filechange/outputdelta',
   'item/plan/delta',
+  'turn/output/delta',
 ]);
 
 function isDirectThreadSyncSignal(methodLower, sourceLower) {
   if (DIRECT_THREAD_SYNC_METHODS.has(methodLower)) return true;
-  return methodLower === 'ui/thread/changed' && DIRECT_THREAD_SYNC_METHODS.has(sourceLower);
+  return (methodLower === 'ui/thread/changed' || methodLower === THREAD_PATCH_METHOD) && DIRECT_THREAD_SYNC_METHODS.has(sourceLower);
 }
-
 
 const REGRESSION_GUARD_THROTTLE_MS = 30_000;
 const _regressionGuardLastWarnByThread = new Map();
@@ -428,6 +428,26 @@ export function handleBridgeEvent(ctx, evt) {
       method: eventMethod, source: sourceLower, thread_id: eventThreadTarget,
       is_active: Boolean(activeThreadTarget),
     });
+  }
+
+  if (methodLower === 'item/agentmessage/delta' && activeThreadTarget) {
+    const delta = evt?.payload?.delta;
+    if (delta) {
+      const existing = ctx.state.timelinesByThread?.[activeThreadTarget] || [];
+      const isStreamingItem = (it) => it?.kind === 'assistant' && it?.done === false;
+      let lastIndex = -1;
+      for (let i = existing.length - 1; i >= 0; i--) {
+        if (isStreamingItem(existing[i])) { lastIndex = i; break; }
+      }
+      const nextTimelines = [...existing];
+      if (lastIndex >= 0) {
+        nextTimelines[lastIndex] = { ...nextTimelines[lastIndex], text: (nextTimelines[lastIndex].text || '') + delta };
+      } else {
+        const ts = new Date().toISOString();
+        nextTimelines.push({ id: `${activeThreadTarget}-streaming`, kind: 'assistant', text: delta, done: false, ts });
+      }
+      ctx.state.timelinesByThread = { ...ctx.state.timelinesByThread, [activeThreadTarget]: nextTimelines };
+    }
   }
   if (methodLower === THREAD_PATCH_METHOD && activeThreadTarget) {
     const patchPayload = evt?.payload || evt?.params?.payload || evt?.params || evt?.data || evt || {};

@@ -46,9 +46,6 @@ func (s *service) AssembleAgent(ctx context.Context, in AgentInput) (StartAssemb
 
 func (s *service) overrideAgentAssembly(in StartInput, override string) StartAssembly {
 	displayName := strings.TrimSpace(in.Name)
-	if displayName == "" {
-		displayName = strings.TrimSpace(in.Prompt)
-	}
 	dev := strings.TrimSpace(in.DeveloperInstructions)
 	return StartAssembly{
 		DisplayName:           displayName,

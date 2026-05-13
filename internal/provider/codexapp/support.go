@@ -351,6 +351,14 @@ func (d *driver) startDynamicSession(ctx context.Context, s *session, req dto.St
 	)
 	result, err := d.startRemoteThreadWithDynamicTools(ctx, s.transport, req, tools)
 	if err != nil {
+		pkglogger.Warn("codexapp: startDynamicSession failed before cleanup",
+			"agent_id", strings.TrimSpace(req.AgentID),
+			"provider", strings.TrimSpace(req.Provider),
+			"model", strings.TrimSpace(req.Model),
+			"config_model_provider", configString(req.Config, "modelProvider"),
+			"config_codex_model_provider", configString(req.Config, "codexModelProvider"),
+			"error", err,
+		)
 		cleanupFailedSession(s, "force stop failed on start error")
 		return nil, err
 	}
@@ -415,6 +423,7 @@ func startRemoteThreadWithParams(ctx context.Context, t *transport, req dto.Star
 		"has_mcp", hasAnyConfigKey(req.Config, "mcp", "mcpConfig", "mcp_config", "mcpServers", "mcp_servers"),
 		"has_hooks", hasAnyConfigKey(req.Config, "hooks", "hookConfig", "hook_config"),
 	)
+	logThreadStartIdentityTrace("codexapp: thread/start identity trace", t.serverURL, req, params, nil)
 	if len(params.DynamicTools) > 0 {
 		firstTool, _ := json.Marshal(params.DynamicTools[0])
 		pkglogger.Info("codexapp: thread/start payload debug",
@@ -424,9 +433,39 @@ func startRemoteThreadWithParams(ctx context.Context, t *transport, req dto.Star
 	}
 	raw, err := callWithTimeout(ctx, t, 30*time.Second, "thread/start", params)
 	if err != nil {
+		logThreadStartIdentityTrace("codexapp: thread/start request failed", t.serverURL, req, params, err)
 		return startResult{}, err
 	}
 	return decodeStartResult(raw)
+}
+
+func logThreadStartIdentityTrace(msg, serverURL string, req dto.StartSessionRequest, params threadStartParams, err error) {
+	provider := strings.TrimSpace(req.Provider)
+	configModelProvider := configString(req.Config, "modelProvider")
+	configCodexModelProvider := configString(req.Config, "codexModelProvider")
+	if !strings.EqualFold(provider, "codex") &&
+		strings.TrimSpace(params.ModelProvider) == "" &&
+		configModelProvider == "" &&
+		configCodexModelProvider == "" {
+		return
+	}
+	fields := []any{
+		"agent_id", strings.TrimSpace(req.AgentID),
+		"provider", provider,
+		"server_url", strings.TrimSpace(serverURL),
+		"params_model_provider", strings.TrimSpace(params.ModelProvider),
+		"config_model_provider", configModelProvider,
+		"config_codex_model_provider", configCodexModelProvider,
+		"model", strings.TrimSpace(params.Model),
+		"effort", strings.TrimSpace(params.Effort),
+		"approval_policy", strings.TrimSpace(params.ApprovalPolicy),
+		"cwd", strings.TrimSpace(params.Cwd),
+		"config_keys", sortedConfigKeys(req.Config),
+	}
+	if err != nil {
+		fields = append(fields, "error", err)
+	}
+	pkglogger.Warn(msg, fields...)
 }
 
 func (d *driver) restoreApprovalPolicy(ctx context.Context, s *session, threadID string) {

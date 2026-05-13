@@ -253,10 +253,16 @@ type LaunchAgentRequest struct {
 }
 
 type Ref struct {
-	ID      string `json:"id"`
-	Name    string `json:"name,omitempty"`
-	AgentID string `json:"agent_id,omitempty"`
-	Status  string `json:"status,omitempty"`
+	ID               string `json:"id"`
+	Name             string `json:"name,omitempty"`
+	AgentID          string `json:"agent_id,omitempty"`
+	Status           string `json:"status,omitempty"`
+	Provider         string `json:"provider,omitempty"`
+	ProviderThreadID string `json:"providerThreadId,omitempty"`
+	SessionID        string `json:"sessionId,omitempty"`
+	CWD              string `json:"cwd,omitempty"`
+	Model            string `json:"model,omitempty"`
+	Port             int    `json:"port,omitempty"`
 }
 
 type ReadHistoryThread struct {

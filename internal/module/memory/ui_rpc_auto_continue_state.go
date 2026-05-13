@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	"github.com/creachadair/jrpc2/handler"
@@ -120,6 +121,9 @@ func getAutoContinueState(ctx context.Context, deps memoryHandlerDeps, req uiAut
 	}
 	item, err := deps.SharedFiles.Get(ctx, cleaned)
 	if err != nil {
+		if errors.Is(err, contract.ErrNotFound) {
+			return UIAutoContinueStateDetail{Path: cleaned, ThreadID: threadID}, nil
+		}
 		return UIAutoContinueStateDetail{}, err
 	}
 	return UIAutoContinueStateDetail{

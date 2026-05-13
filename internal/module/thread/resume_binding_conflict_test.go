@@ -29,8 +29,10 @@ import (
 func TestResumeBindingConflictSuppressesThreadStartedEvent(t *testing.T) {
 	t.Parallel()
 
+	const conflictUUID = "11111111-2222-3333-4444-555555555571"
+	rolloutPath := writeExistingProviderHistoryFile(t)
 	// Agent A resumes. The binding for agent A has provider "codex" and
-	// provider_thread_id = "conflict-uuid", but that UUID is ALSO bound
+	// provider_thread_id = conflictUUID, but that UUID is ALSO bound
 	// to agent B. This triggers ensureProviderThreadAvailable → error.
 
 	threads := &stubThreadStore{thread: &threadstore.Thread{
@@ -44,32 +46,33 @@ func TestResumeBindingConflictSuppressesThreadStartedEvent(t *testing.T) {
 	}}
 
 	// The conflicting binding store: agent-A's binding claims
-	// provider_thread_id "conflict-uuid", but GetByProviderThread for
+	// provider_thread_id conflictUUID, but GetByProviderThread for
 	// that UUID returns agent-B's binding.
 	bindings := &conflictBindingStore{
 		agentBinding: &bindingstore.Binding{
 			AgentID:          "agent-A",
 			Provider:         "codex",
-			ProviderThreadID: "conflict-uuid",
+			ProviderThreadID: conflictUUID,
 			CodexThreadID:    "thread-A",
+			RolloutPath:      rolloutPath,
 			Cwd:              "/repo",
 		},
 		conflictBinding: &bindingstore.Binding{
 			AgentID:          "agent-B",
 			Provider:         "codex",
-			ProviderThreadID: "conflict-uuid",
+			ProviderThreadID: conflictUUID,
 			CodexThreadID:    "thread-B",
 			Cwd:              "/repo",
 		},
 	}
 
 	// Agent B has an active session — this is not an orphan binding.
-	agentBSession := &stubSession{threadID: "conflict-uuid"}
+	agentBSession := &stubSession{threadID: conflictUUID, rolloutPath: rolloutPath}
 	sessions := &stubSessionProvider{}
 	sessions.sessions = map[string]contract.Session{"agent-B": agentBSession}
 	starter := &stubSessionStarter{
 		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
-			session := &stubSession{threadID: "conflict-uuid"}
+			session := &stubSession{threadID: conflictUUID, rolloutPath: rolloutPath}
 			sessions.session = session
 			return session, nil
 		},
@@ -110,6 +113,8 @@ func TestResumeBindingConflictSuppressesThreadStartedEvent(t *testing.T) {
 func TestResumeNonConflictPersistFailureStillEmitsThreadStarted(t *testing.T) {
 	t.Parallel()
 
+	const providerThreadID = "11111111-2222-3333-4444-555555555572"
+	rolloutPath := writeExistingProviderHistoryFile(t)
 	threads := &stubThreadStore{
 		thread: &threadstore.Thread{
 			ThreadID:  "thread-1",
@@ -125,14 +130,15 @@ func TestResumeNonConflictPersistFailureStillEmitsThreadStarted(t *testing.T) {
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-1",
 		Provider:         "codex",
-		ProviderThreadID: "provider-thread-1",
+		ProviderThreadID: providerThreadID,
 		CodexThreadID:    "thread-1",
+		RolloutPath:      rolloutPath,
 		Cwd:              "/repo",
 	}}
 	sessions := &stubSessionProvider{}
 	starter := &stubSessionStarter{
 		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
-			session := &stubSession{threadID: "provider-thread-1"}
+			session := &stubSession{threadID: providerThreadID, rolloutPath: rolloutPath}
 			sessions.session = session
 			return session, nil
 		},
@@ -165,6 +171,8 @@ func TestResumeNonConflictPersistFailureStillEmitsThreadStarted(t *testing.T) {
 func TestResumeEvictsStaleBindingWhenBlockingAgentIsDead(t *testing.T) {
 	t.Parallel()
 
+	const conflictUUID = "11111111-2222-3333-4444-555555555573"
+	rolloutPath := writeExistingProviderHistoryFile(t)
 	threads := &stubThreadStore{thread: &threadstore.Thread{
 		ThreadID:  "thread-A",
 		AgentID:   "agent-A",
@@ -179,14 +187,15 @@ func TestResumeEvictsStaleBindingWhenBlockingAgentIsDead(t *testing.T) {
 		agentBinding: &bindingstore.Binding{
 			AgentID:          "agent-A",
 			Provider:         "codex",
-			ProviderThreadID: "conflict-uuid",
+			ProviderThreadID: conflictUUID,
 			CodexThreadID:    "thread-A",
+			RolloutPath:      rolloutPath,
 			Cwd:              "/repo",
 		},
 		conflictBinding: &bindingstore.Binding{
 			AgentID:          "agent-B",
 			Provider:         "codex",
-			ProviderThreadID: "conflict-uuid",
+			ProviderThreadID: conflictUUID,
 			CodexThreadID:    "thread-B",
 			Cwd:              "/repo",
 		},
@@ -198,7 +207,7 @@ func TestResumeEvictsStaleBindingWhenBlockingAgentIsDead(t *testing.T) {
 	sessions := &stubSessionProvider{sessions: make(map[string]contract.Session)}
 	starter := &stubSessionStarter{
 		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
-			session := &stubSession{threadID: "conflict-uuid"}
+			session := &stubSession{threadID: conflictUUID, rolloutPath: rolloutPath}
 			sessions.sessions["agent-A"] = session
 			return session, nil
 		},

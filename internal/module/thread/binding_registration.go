@@ -559,7 +559,7 @@ func (r *bindingRecoveryReporter) RecordProviderSessionUUID(ctx context.Context,
 	}
 	agentID = strings.TrimSpace(agentID)
 	sessionUUID = strings.TrimSpace(sessionUUID)
-	if agentID == "" || !identifier.IsClaudeCLISessionUUID(sessionUUID) {
+	if agentID == "" || !identifier.LooksLikeUUID(sessionUUID) {
 		return nil
 	}
 	binding, err := r.store.GetByAgentID(ctx, agentID)
@@ -589,7 +589,16 @@ func (r *bindingRecoveryReporter) recordSessionUUID(ctx context.Context, agentID
 
 func (r *bindingRecoveryReporter) recordProviderThreadID(ctx context.Context, binding *bindingstore.Binding, agentID, sessionUUID string, updatedAt int64) error {
 	current := strings.TrimSpace(binding.ProviderThreadID)
-	if current != "" && current != agentID {
+	if current != "" && current != agentID && identifier.LooksLikeUUID(current) {
+		return nil
+	}
+	if !bindingHasProviderHistoryForUUID(binding, sessionUUID) {
+		if r.logger != nil {
+			r.logger.Info("thread: provider session uuid is not recoverable",
+				"agent_id", agentID,
+				"session_uuid", sessionUUID,
+				"rollout_path", binding.RolloutPath)
+		}
 		return nil
 	}
 	return r.store.UpdateProviderThreadID(ctx, bindingstore.UpdateProviderThreadIDParams{

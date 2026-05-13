@@ -9,6 +9,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/historyjsonl"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -163,12 +164,19 @@ func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contra
 	if provider == "" {
 		return nil, fmt.Errorf("resolve session: binding for %q has no provider", binding.AgentID)
 	}
-	// Reject bindings whose provider_thread_id is missing or non-UUID. The
-	// only resume path that can succeed needs a real provider session UUID;
-	// passing a placeholder (e.g. agent_xxx) used to flow into the driver and
-	// trigger a 5s system:init wait followed by ForceStop. Returning
-	// ErrSessionNotFound lets the caller take the fresh-start path explicitly.
-	if !identifier.LooksLikeUUID(strings.TrimSpace(binding.ProviderThreadID)) {
+	// Reject bindings whose UUID is not backed by a provider CLI history file.
+	// A DB-only UUID can be an unmaterialized placeholder; sending it into the
+	// driver used to end in resume failure/ForceStop and surface as WS 1006.
+	// Returning ErrSessionNotFound lets the caller take the fresh-start path.
+	providerThreadID, err := recoverableAutoResumeProviderThreadID(binding)
+	if err != nil {
+		pkglogger.Warn("resolve session: provider thread is not recoverable",
+			"agent_id", binding.AgentID,
+			"provider", provider,
+			"provider_thread_id", binding.ProviderThreadID,
+			"session_uuid", binding.SessionUUID,
+			"rollout_path", binding.RolloutPath,
+			"error", err)
 		return nil, contract.ErrSessionNotFound
 	}
 	if r.registry == nil {
@@ -196,7 +204,7 @@ func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contra
 		Provider:           provider,
 		AgentID:            binding.AgentID,
 		ThreadID:           threadID,
-		ProviderThreadID:   binding.ProviderThreadID,
+		ProviderThreadID:   providerThreadID,
 		CWD:                binding.Cwd,
 		CodexHome:          binding.CodexHome,
 		CodexInstanceKey:   binding.CodexInstanceKey,
@@ -205,7 +213,7 @@ func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contra
 	pkglogger.Warn("resolve session: auto-resume binding snapshot from DB",
 		"agent_id", binding.AgentID,
 		"provider", provider,
-		"provider_thread_id", binding.ProviderThreadID,
+		"provider_thread_id", providerThreadID,
 		"codex_thread_id", binding.CodexThreadID,
 		"rollout_path", binding.RolloutPath,
 		"session_uuid", binding.SessionUUID,
@@ -215,7 +223,7 @@ func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contra
 	pkglogger.Info("resolve session: auto-resuming after restart",
 		"agent_id", binding.AgentID,
 		"provider", provider,
-		"provider_thread_id", binding.ProviderThreadID,
+		"provider_thread_id", providerThreadID,
 	)
 	session, err := driver.ResumeSession(ctx, req)
 	if err != nil {
@@ -229,6 +237,35 @@ func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contra
 		"thread_id", session.ThreadID(),
 	)
 	return session, nil
+}
+
+func recoverableAutoResumeProviderThreadID(binding *contract.SessionBinding) (string, error) {
+	if binding == nil {
+		return "", contract.ErrSessionNotFound
+	}
+	var lastErr error
+	for _, candidate := range []string{binding.ProviderThreadID, binding.SessionUUID} {
+		providerThreadID := strings.TrimSpace(candidate)
+		if !identifier.LooksLikeUUID(providerThreadID) {
+			continue
+		}
+		if _, err := historyjsonl.ExistingProviderPath(historyjsonl.ReadRequest{
+			Provider:         binding.Provider,
+			RolloutPath:      binding.RolloutPath,
+			ThreadID:         binding.CodexThreadID,
+			ProviderThreadID: providerThreadID,
+			SessionUUID:      providerThreadID,
+			CodexHome:        binding.CodexHome,
+		}); err != nil {
+			lastErr = err
+			continue
+		}
+		return providerThreadID, nil
+	}
+	if lastErr != nil {
+		return "", lastErr
+	}
+	return "", contract.ErrSessionNotFound
 }
 
 func (r *sessionResolver) providerNames() []string {

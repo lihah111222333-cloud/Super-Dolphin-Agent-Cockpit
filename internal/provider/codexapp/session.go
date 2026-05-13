@@ -133,7 +133,7 @@ func newSessionWithOptions(
 		transport:             t,
 		manager:               manager,
 		caps:                  cloneCaps(codexCapabilities),
-		recovery:              &recoveryManager{transport: t, logger: agentLog, maxRetry: 3},
+		recovery:              &recoveryManager{transport: t, logger: agentLog, maxRetry: maxRecoveryAttempts},
 		history:               &rolloutReader{logger: agentLog, transport: t},
 		logger:                agentLog,
 		dispatcher:            dispatcher,

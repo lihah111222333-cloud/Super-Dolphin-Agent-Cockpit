@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +20,7 @@ type ReadRequest struct {
 	ThreadID         string
 	ProviderThreadID string
 	SessionUUID      string
+	CodexHome        string
 }
 
 type textItem struct {
@@ -51,6 +53,21 @@ func ReadProviderMessages(req ReadRequest) ([]dto.Message, error) {
 	return out, nil
 }
 
+func ExistingProviderPath(req ReadRequest) (string, error) {
+	path, _, err := resolvePath(req)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("persisted thread history not found: %w", err)
+	}
+	if info.IsDir() {
+		return "", errors.New("persisted thread history path is a directory")
+	}
+	return path, nil
+}
+
 func resolvePath(req ReadRequest) (string, string, error) {
 	provider := strings.ToLower(strings.TrimSpace(req.Provider))
 	if path := strings.TrimSpace(req.RolloutPath); path != "" {
@@ -68,7 +85,7 @@ func discoverPath(provider string, req ReadRequest) string {
 	case "claude":
 		return discoverClaudePath(req)
 	default:
-		return latestExistingMatch(filepath.Join(codexRoot(), "sessions", "*", "*", "*", "rollout-*-"+historyID(req, false)+".jsonl"))
+		return latestExistingMatch(filepath.Join(codexRoot(req.CodexHome), "sessions", "*", "*", "*", "rollout-*-"+historyID(req, false)+".jsonl"))
 	}
 }
 
@@ -111,7 +128,10 @@ func claudeRoot() string {
 	return filepath.Join(home, ".claude")
 }
 
-func codexRoot() string {
+func codexRoot(raw string) string {
+	if root := strings.TrimSpace(raw); root != "" {
+		return root
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
