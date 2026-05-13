@@ -956,3 +956,18 @@
     display: flex;
   }
 }
+
+.shared-files-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.memory-entry-card.is-final-output {
+  border-color: var(--success);
+}
+
+.dag-final-output {
+  margin-top: 8px;
+}

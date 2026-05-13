@@ -27,6 +27,14 @@ type AgentDetail struct {
 	LastReport  string        `json:"last_report"`
 }
 
+type FinalOutputRef struct {
+	Path          string `json:"path"`
+	RunKey        string `json:"runKey,omitempty"`
+	DagKey        string `json:"dagKey,omitempty"`
+	SourceNodeKey string `json:"sourceNodeKey,omitempty"`
+	Kind          string `json:"kind,omitempty"`
+}
+
 type TokenUsage struct {
 	InputTokens         int `json:"input_tokens,omitempty"`
 	OutputTokens        int `json:"output_tokens,omitempty"`

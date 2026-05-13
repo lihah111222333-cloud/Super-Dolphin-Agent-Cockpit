@@ -12,8 +12,11 @@ export const DataPage = {
     fields: { type: Array, default: () => [] },
     description: { type: String, default: '' },
     tips: { type: Array, default: () => [] },
+    clickable: { type: Boolean, default: false },
   },
-  setup(props) {
+  emits: ['select'],
+  setup(props, ctx = {}) {
+    const emit = typeof ctx.emit === 'function' ? ctx.emit : () => {};
     watch(
       () => props.items.length,
       (next, prev) => {
@@ -36,7 +39,11 @@ export const DataPage = {
         page: props.pageId,
       });
     });
-    return {};
+    function selectItem(item) {
+      if (!props.clickable) return;
+      emit('select', item);
+    }
+    return { selectItem };
   },
   template: `
     <section :id="'page-' + pageId" class="page active" :data-testid="'data-page-' + pageId">
@@ -66,7 +73,11 @@ export const DataPage = {
             v-for="(item, idx) in items"
             :key="item.id || item[fields[0]?.key] || idx"
             class="data-card-vue"
+            :class="{ 'data-card-clickable': clickable }"
             :data-testid="'data-page-card-' + pageId + '-' + idx"
+            :tabindex="clickable ? 0 : undefined"
+            @click="selectItem(item)"
+            @keydown.enter.prevent="selectItem(item)"
           >
             <div v-for="field in fields" :key="field.key" class="data-row-vue">
               <strong>{{ field.label }}</strong>
