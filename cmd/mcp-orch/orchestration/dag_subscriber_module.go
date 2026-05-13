@@ -40,6 +40,13 @@ func ProvideDAGSubscriberStopAgentService(s *service) StopAgentService {
 // Returning a nil AgentThreadLookup when *service has no agentThreads
 // wired is intentional: StopSpawnedAgent's preflight handles a nil
 // AgentThreadLookup with StopResultSkippedLookupFailed (stop_helper.go:150).
+//
+// ⚠️ P2 风险（W-A1 reviewer B 二审揭出，未阅手）：当前 nil 返回依赖
+// 唯一 consumer（dag_turn_completed_subscriber.go:341 stopSpawnedAgentForSubscriber）
+// 在调用前判 deps.AgentThreads == nil 即 return 的应用层短路；未来若新增
+// AgentThreadLookup consumer 未判 nil 即 deref 会 nil panic。根治修法详 H13
+// follow-up：改返非 nil 哨兵 lookup（GetByThreadID 永返 ErrNotFound）避免
+// consumer 变多后隔离失效。
 func ProvideDAGSubscriberAgentThreadLookup(s *service) AgentThreadLookup {
 	if s == nil || s.agentThreads == nil {
 		return nil

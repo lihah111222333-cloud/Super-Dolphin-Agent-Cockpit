@@ -89,3 +89,6 @@ cmd/agent-terminal/frontend/node_modules
 .agnet/shared/_internal/
 # 本地真跑产生的 task handoff 实例（每个开发者不同）
 .agnet/shared/handoff/
+
+# orchestration runtime sqlite db (super-agent.db / agnet local state)
+.agnet/
