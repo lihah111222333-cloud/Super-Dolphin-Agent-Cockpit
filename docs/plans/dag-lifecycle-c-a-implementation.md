@@ -521,6 +521,9 @@ ADR-018 已升 Accepted（`3e70e468` + review-fix `02009e22`）；A2 outputs 重
 
 ## 10. 变更记录
 
+- 2026-05-14 v3.1（同步 H14 UI 与 UI 决策台账）：
+  - **H14 UI 已落地**：DAG detail 与 Shared Files 已消费 `task_dag_runs.metadata.final_output`；file 输出显示 path 并可读取，text/json 展示摘要，Shared Files 支持最终产物高亮/筛选。
+  - **UI 决策台账**：新增 `docs/plans/dag-ui-decision-ledger.md`，集中记录 T5/T6/T7/T8/F8/F9/F10/F11/H15 等前端项的已锁边界、待用户拍板项和推荐实现顺序。
 - 2026-05-14 v3.0（同步 final output 后端 MVP）：
   - **最终产物入口后端 MVP**：commit `362be7f0` 在 run finalization 同事务内读取 `task_dags.metadata.final_node_key`，把 final node 的 sharedfile/text/json 结果索引到 `task_dag_runs.metadata.final_output`；`task_get_run` 通过既有 Run.Metadata 暴露，不新增 migration/UI。
   - **Shared Files 定位收口**：sharedfile 是文件存储与协作空间，也可承载最终产物；`final_output` 负责标记/索引哪些 sharedfile/text/json 是本次 run 的最终交付物，Shared Files 页面后续应基于该索引高亮最终产物并折叠中间产物。

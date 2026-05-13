@@ -72,7 +72,7 @@ MCP 工具层      ✅ 完整 (task_create_dag / get_dag / update_node)
 | 输出校验 | **`outputs.schema` 字段位** | 🤖 | JSON Schema 自动校验，配合 `validation` 失败分类 |
 | 实时进度 | **T 阶段先 polling，WS 升级放加固阶段** | 🤖 | 用户高频痛点；不补骨架 |
 | **result vs sharedfile 边界** | **`to_node_result` 仅 < 4KB 摘要；大输出必须 `to_sharedfile`** | 🤖 | 防止 task_dag_nodes.result JSONB 列膨胀；F1.3 enforce |
-| **final output 边界** | **sharedfile 可承载最终产物；`task_dag_runs.metadata.final_output` 标记本次 run 的最终交付物** | 🤖 | `task_dags.metadata.final_node_key` 显式声明最终节点；Shared Files 页面后续基于 final_output 高亮/筛选最终产物 |
+| **final output 边界** | **sharedfile 可承载最终产物；`task_dag_runs.metadata.final_output` 标记本次 run 的最终交付物** | 🤖 | `task_dags.metadata.final_node_key` 显式声明最终节点；H14 已让 DAG detail 与 Shared Files 基于 final_output 展示/高亮/筛选最终产物 |
 
 ### 5.1 final_output 单产物优先，bundle 暂缓
 
@@ -289,7 +289,7 @@ ops 在不同 status 下允许的子集：
 - F8 UI 节点编辑表单（typed schema 自动渲染）
 - F9 UI mermaid 拓扑图
 - F10 UI run 历史时间轴
-- F11 UI sharedfile 锁可视化（节点 reads/writes 联动）+ final_output 高亮（默认折叠中间产物）
+- F11 UI sharedfile 锁可视化（节点 reads/writes 联动；final_output 高亮已由 H14 完成，默认折叠中间产物/清理策略留 H15）
 - F12 智能重试 strategy dispatcher（by_class + escalation_chain + `replan` 策略：spawn planner agent 改图）
 - F13 lifecycle hooks 真实触发
 - 验收：端到端用例 ——「AI 帮我设计每天 8 点的报告生成 DAG → AI 设计 → 用户改一处 prompt → Start → 第一个 run 跑通 → 第二天 8 点自动起第二个 run → run 历史里看到两次执行 → 一次故意失败 → 状态正确反映」
@@ -381,6 +381,8 @@ ops 在不同 status 下允许的子集：
 6. 节点能声明 reads/writes 共享文件，UI 上看到锁
 7. 智能重试：节点失败按 FailureClass 分发策略，capability 类失败能升级 model 重跑
 8. p23 各 Phase 状态在 README.md 更新为"v2 已合并 / v2 砍 / v2 推迟"
+
+UI 方案拍板入口：`docs/plans/dag-ui-decision-ledger.md` 记录当前所有 DAG UI 已锁边界、待用户决策项与推荐实现顺序；T5/T6/T7/T8/F8/F9/F10/F11/H15 开工前以该台账为准。
 
 ## 18. 下一步动作
 
