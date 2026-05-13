@@ -3,7 +3,7 @@
 > 日期：2026-05-12 | 范围：F1-followup-3 + F1.3-rework 合并 ticket
 > 前置：`docs/design/F1-lifecycle-audit-2026-05-12.md`（4 轮实证 + 跨 4 层缺陷盘点）
 > 路径：**C 阶段（provider 层基础设施）→ A 阶段（DAG lifecycle 层）**
-> 总工程量预估（v2.8 A2 review-fix 同步）：情况 A **~3730-4600 行 / 5 ADR / 18-22 commit**；情况 B **~3960-4830 行 / 5 ADR / 20-24 commit**（详 §9 工程量盘点）
+> 总工程量预估（v2.9 Phase 4 dogfood 同步）：情况 A **~3730-4600 行 / 5 ADR / 20-24 commit**；情况 B **~3960-4830 行 / 5 ADR / 22-26 commit**（详 §9 工程量盘点；Phase 4 dogfood 触发 2 个 runtime follow-up + 1 个 harness fix）
 
 ---
 
@@ -20,7 +20,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 | ADR-015 v1（thread.stopped-driven） | ❌ 推翻：ev.Reason 字符串语义模糊，user_stop / crashed 不分 |
 | ADR-015 v2（双驱动 + fast-path）| ❌ 推翻：fast-path 物理基础不存在（dag_key/node_key 没注入 prompt）+ 双链路理解错（event_relay 桥）|
 | ADR-015 v3（turn.completed-driven）+ ADR-016 | ❌ 删除：ev.Result 在 codex 侧不发，4 轮实证证伪 |
-| **C-A**（本计划） | ✅ 采纳；C1/C2/C3/A1/A2 全部落地（commit `f923ebd7`/`cddb3ea2`/`00864aa7`/`3e70e468` + A2 review-fix `02009e22` 升 ADR 状态），下一站 Phase 4 dogfood |
+| **C-A**（本计划） | ✅ 采纳；C1/C2/C3/A1/A2 全部落地（commit `f923ebd7`/`cddb3ea2`/`00864aa7`/`3e70e468` + A2 review-fix `02009e22` 升 ADR 状态）；Phase 4 dogfood 已通过并补 runtime follow-up `b9e8269d` / `ddf1b16f` + harness fix `019cf8a5` |
 
 ---
 
@@ -33,9 +33,9 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 | **C3**：codex/claude spawned agent 自动 stop | service 层 | ADR-016 v1.2 | 拆 stop_helper.go（方案 P1 已采纳；3 commit：sentinel / stop_helper+单测 / metric+e2e）| ~550-700 行（v1.2 reviewer 三审修订）|
 | **A1**：DAG subscriber 订阅 TurnCompleted 推进 lifecycle | DAG 层 | ADR-017 v1.2 | `dag_turn_completed_subscriber.go` + `hook_consumer.go` fallback（移出 withAgentLocked）+ 扩 SQL 白名单（CompleteTaskDagNode）+ dispatchAgent ready→running（用 UpdateRunningTaskDagNodeStatus）| ~1790-2270 行（v2.5 reviewer 二审修订；4 处 P0 设计层修正 + 工程量上调 360%）|
 | ~~**A2**~~ ✅ done：F1.3 outputs 重做（真实输出物化）| DAG 层 | ADR-018 Accepted（`3e70e468` + review-fix `02009e22`） | `executor_agent.go` + A1 subscriber outputs 落地；复用 `CompleteNodeAndScheduleDownstream` 的 result 更新，sharedfile 路径加 `ClaimTaskDagNodeOutputMaterialization` fence | ~680-780 行（含 review-fix） |
-| Phase 4 dogfood | 验收 | — | 10 节点 DAG 端到端 | ~80 行 |
+| ~~Phase 4 dogfood~~ ✅ done | 验收 | — | 10 节点 DAG 端到端；hook-delivered turn completion + sharedfile 防覆盖 + runtime hints follow-up 已补 | ~80 行脚本 + runtime follow-up |
 
-**总计**（v2.8 A2 review-fix 同步）：情况 A **~3730-4600 行 / 5 ADR / 18-22 commit**；情况 B **~3960-4830 行 / 5 ADR / 20-24 commit**（详 §9 工程量盘点）。
+**总计**（v2.9 Phase 4 dogfood 同步）：情况 A **~3730-4600 行 / 5 ADR / 20-24 commit**；情况 B **~3960-4830 行 / 5 ADR / 22-26 commit**（详 §9 工程量盘点；Phase 4 runtime follow-up 不回写 C/A 估算行数）。
 
 ---
 
@@ -296,7 +296,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 - **metric 验证**：跑完后从 metric 端点读 `dispatch_failed_total` / `retry_count_per_node`（F15.1 已 done）
 - **工程量**：~80 行（端到端 dogfood 脚本 + 验收 checklist + 失败重跑机制），独立计入
 
-**Phase 4 工程量 ~80 行单列**，不计入 C/A 阶段 ~3300-4080 行（情况 A）/ ~3530-4310 行（情况 B）（详 §9）。
+**Phase 4 工程量 ~80 行单列**，不计入 C/A 阶段 ~3300-4080 行（情况 A）/ ~3530-4310 行（情况 B）（详 §9）。2026-05-13 dogfood 实跑额外揭示并修复 3 个集成缺陷：hook-delivered `turn.completed` 未复用 DAG completion path（`b9e8269d`）、configured sharedfile 已由 agent 写入时被短 summary 覆盖（`b9e8269d`）、agent runtime hints 未完整传到 remote `thread/start`（`ddf1b16f`）。harness 代理绕过与 metric fallback 口径由 `019cf8a5` 收口。
 
 ---
 
@@ -340,7 +340,7 @@ ADR-018 已升 Accepted（`3e70e468` + review-fix `02009e22`）；A2 outputs 重
 
 ### Phase 4：端到端 dogfood
 
-跑一个 10 节点 multi-agent-node DAG（用 F7.3 prompt_template seed 库的 morning_briefer / paper_summarizer 等），验证下游 agent 节点 inputs.from_nodes 真拿到上游内容。
+已跑 10 节点 multi-agent-node DAG（用 F7.3 prompt_template seed 库的 morning_briefer / paper_summarizer 等），下游 agent 节点通过 inputs.from_nodes 拿到上游内容；正向 run 10/10 done，负向 `to_node_result=true` 大结果按 ADR-006 validation failure，metrics 端点读取通过。
 
 ---
 
@@ -354,9 +354,9 @@ ADR-018 已升 Accepted（`3e70e468` + review-fix `02009e22`）；A2 outputs 重
 | C3 | ~550-700 行（含 threadID→agentID 反查 + errAgentNotRunning sentinel + 6 种错误分类（含 is stopping）+ metric 从零自建 collector + 9 case 单测 + 2 节点 DAG e2e + fx wiring + ADR-017 接口适配）| 1 | 3 | 方案 P1 拆 stop_helper.go 与 A1 并行 |
 | A1 | ~1790-2270 行（含 subscriber + fallback 锁外 + dispatchAgent 用 UpdateRunningTaskDagNodeStatus + 9 case subscriber 单测 + 5 case handleStopped 单测 + 2 节点 DAG e2e + metric + 扩白名单 SQL + sqlc 手维；v2.5 reviewer 4 处 P0 设计层修正）| 1 | 6 | 单 worker |
 | A2 | ~680-780 行（复用 `CompleteNodeAndScheduleDownstream` result 更新；sharedfile materialization claim fence；不新增 migration，不修订 ADR-006） | 1 | 2（`3e70e468` + `02009e22`） | 单 worker |
-| Phase 4 dogfood | ~80 行（10 节点 DAG 验收脚本） | — | 1 | 单 worker |
-| **合计**（情况 A）| **~3730-4600 行** | **5 份** | **18-22 commit** | 跨 4 层 |
-| **合计**（情况 B）| **~3960-4830 行** | **5 份** | **20-24 commit** | 跨 4 层 |
+| Phase 4 dogfood | ~80 行脚本 + dogfood 暴露的 runtime follow-up（hook completion / sharedfile preserve / runtime hints） | — | 3（`b9e8269d` / `ddf1b16f` / `019cf8a5`） | 单 worker + 2 reviewer |
+| **合计**（情况 A）| **~3730-4600 行** | **5 份** | **20-24 commit** | 跨 4 层 |
+| **合计**（情况 B）| **~3960-4830 行** | **5 份** | **22-26 commit** | 跨 4 层 |
 
 > **2026-05-12 reviewer 修订**：初稿估算 ~1050-1150 行 / 7-11 commit。reviewer 指出 F1.x 历史每次估算偏低 30%（F1.5/F1.3 类似规模都超 500 行）。修订后 ~1530-1620 行 / 9-13 commit 更稳。
 >
@@ -373,6 +373,8 @@ ADR-018 已升 Accepted（`3e70e468` + review-fix `02009e22`）；A2 outputs 重
 > **2026-05-13 v2.7 A2 Accepted 同步**：A2 实装 commit `3e70e468`，ADR-018 升 Accepted；当时口径为实际未新增 SQL/sqlc，单 commit 完成实现 + ADR 初稿。commit 估算下调：情况 A 17-21，情况 B 19-23。（v2.8 已修订为窄 claim fence。）
 >
 > **2026-05-13 v2.8 A2 review-fix 同步**：review-fix `02009e22` 揭示 sharedfile 写入是 DB 外部副作用，A2 最终新增窄 `ClaimTaskDagNodeOutputMaterialization` SQL/sqlc fence；ADR-018 从“完全不改 SQL/sqlc”修订为“不新增通用 merge/backfill/migration，只加 sharedfile materialization claim fence”。commit 估算上调：情况 A 18-22，情况 B 20-24。
+>
+> **2026-05-13 v2.9 Phase 4 dogfood 同步**：10 节点 dogfood 实跑通过，同时暴露真实 runtime 集成缺陷并在同轮修复：hook-delivered `turn.completed` 未推进 DAG 节点、configured sharedfile agent 已写入内容被 subscriber 覆盖、provider/model/effort/disabled_tools runtime hints 未完整传到 remote launcher。Phase 4 从 1 个 harness commit 上调为 3 个 follow-up commit（`b9e8269d` / `ddf1b16f` / `019cf8a5`）；情况 A commit 估算 18-22 → 20-24，情况 B 20-24 → 22-26。
 
 **关键里程碑**：阶段 C 完成 → DAG layer 改造工程量大幅降低（A 阶段不再需要订阅 TurnOutputDelta 自带累加器，节省 ~200 行）。
 
@@ -506,6 +508,11 @@ ADR-018 已升 Accepted（`3e70e468` + review-fix `02009e22`）；A2 outputs 重
 
 ## 10. 变更记录
 
+- 2026-05-13 v2.9（同步 Phase 4 dogfood 通过 + runtime follow-up）：
+  - **Phase 4 dogfood 通过**：10 节点 DAG 正向 run 10/10 done；负向 `to_node_result=true` 大结果按 ADR-006 validation failure；metrics 端点读取通过
+  - **dogfood 暴露的 runtime follow-up 已修复**：hook-delivered `turn.completed` 复用 DAG completion path；configured sharedfile 已存在时保留 agent-authored 内容；provider/model/effort/disabled_tools 通过 remote launcher config 传递
+  - **harness 收口**：local loopback MCP/metrics URL 绕过环境代理，remote URL 保留代理；metric family check 接受 sample-backed overflow collector
+  - **工程量同步**：Phase 4 从 1 个 harness commit 上调为 3 个 follow-up commit（`b9e8269d` / `ddf1b16f` / `019cf8a5`）；总计情况 A 18-22 → 20-24 commit，情况 B 20-24 → 22-26 commit
 - 2026-05-13 v2.6（同步 ADR-018 初稿）：
   - **ADR-X5 实化为 ADR-018**：新增 Proposed ADR，明确 A2 负责 agent 真实输出物化，A1 只负责 lifecycle/status/stop
   - **A2 范围收敛（初稿口径）**：不新增 `MergeTaskDagNodeResult`，不改 sqlc；复用 `CompleteNodeAndScheduleDownstream` 的 result 更新（v2.8 已补 sharedfile fence 例外）
