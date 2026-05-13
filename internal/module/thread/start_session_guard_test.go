@@ -95,6 +95,7 @@ func TestServiceStartUsesResolvedStartConfig(t *testing.T) {
 	threads := &stubThreadStore{}
 	bindings := &stubBindingStore{}
 	sessions := &stubSessionProvider{}
+	rolloutPath := writeExistingProviderHistoryFile(t)
 	starter := &startOnlySessionStarter{
 		onStart: func(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
 			if req.Provider != "claude" {
@@ -113,7 +114,7 @@ func TestServiceStartUsesResolvedStartConfig(t *testing.T) {
 			if sandbox["type"] != "danger-full-access" {
 				t.Fatalf("sandbox = %#v, want danger-full-access", req.Config["sandbox"])
 			}
-			session := &stubSession{threadID: "019d5f6b-fb3c-7760-9d6f-54005553f5b3"}
+			session := &stubSession{threadID: "019d5f6b-fb3c-7760-9d6f-54005553f5b3", rolloutPath: rolloutPath}
 			sessions.session = session
 			return session, nil
 		},
@@ -139,13 +140,11 @@ func TestServiceStartUsesResolvedStartConfig(t *testing.T) {
 	if orch.launchReq.Cwd != wantStartCWD(t) {
 		t.Fatalf("launch cwd = %q, want %q", orch.launchReq.Cwd, wantStartCWD(t))
 	}
-	// Auto-naming: no prompt supplied → fallback to "对话 #N".
-	wantName := defaultThreadName()
-	if orch.launchReq.Name != wantName {
-		t.Fatalf("launch name = %q, want %q", orch.launchReq.Name, wantName)
+	if orch.launchReq.Name != "" {
+		t.Fatalf("launch name = %q, want empty", orch.launchReq.Name)
 	}
-	if threads.upsert.Prompt != wantName {
-		t.Fatalf("persisted prompt = %q, want %q", threads.upsert.Prompt, wantName)
+	if threads.upsert.Name != "" || threads.upsert.Prompt != "" {
+		t.Fatalf("persisted name/prompt = %q/%q, want empty", threads.upsert.Name, threads.upsert.Prompt)
 	}
 	if threads.upsert.Cwd != wantStartCWD(t) || bindings.upsert.Cwd != wantStartCWD(t) {
 		t.Fatalf("persisted cwd = %q/%q, want %q", threads.upsert.Cwd, bindings.upsert.Cwd, wantStartCWD(t))
@@ -155,6 +154,72 @@ func TestServiceStartUsesResolvedStartConfig(t *testing.T) {
 	}
 	if bindings.upsert.ProviderThreadID != "019d5f6b-fb3c-7760-9d6f-54005553f5b3" || bindings.upsert.CodexThreadID != "agent-start" {
 		t.Fatalf("binding upsert = %#v", bindings.upsert)
+	}
+}
+
+func TestServiceStartRequiresProviderUUID(t *testing.T) {
+	t.Parallel()
+
+	threads := &stubThreadStore{}
+	bindings := &stubBindingStore{}
+	sessions := &stubSessionProvider{}
+	starter := &startOnlySessionStarter{
+		onStart: func(context.Context, dto.StartSessionRequest) (contract.Session, error) {
+			session := &stubSession{threadID: "agent-start"}
+			sessions.session = session
+			return session, nil
+		},
+	}
+	orch := &stubThreadOrchestration{}
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)
+
+	_, err := svc.Start(context.Background(), StartRequest{
+		AgentID:  "agent-start",
+		Provider: "codex",
+	})
+	if err == nil || !strings.Contains(err.Error(), "provider session UUID required") {
+		t.Fatalf("Start() error = %v, want provider session UUID required", err)
+	}
+	if orch.stoppedAgentID != "agent-start" {
+		t.Fatalf("stopped agent = %q, want agent-start", orch.stoppedAgentID)
+	}
+	if bindings.upsert.AgentID != "" {
+		t.Fatalf("binding upsert = %#v, want none", bindings.upsert)
+	}
+}
+
+func TestServiceStartDoesNotPersistProviderThreadIDWithoutHistoryFile(t *testing.T) {
+	t.Parallel()
+
+	const providerUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5b8"
+	threads := &stubThreadStore{}
+	bindings := &stubBindingStore{}
+	sessions := &stubSessionProvider{}
+	starter := &startOnlySessionStarter{
+		onStart: func(context.Context, dto.StartSessionRequest) (contract.Session, error) {
+			session := &stubSession{threadID: providerUUID}
+			sessions.session = session
+			return session, nil
+		},
+	}
+	orch := &stubThreadOrchestration{}
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)
+
+	result, err := svc.Start(context.Background(), StartRequest{
+		AgentID:  "agent-start-no-history",
+		Provider: "codex",
+	})
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if result.SessionID != providerUUID {
+		t.Fatalf("SessionID = %q, want %s", result.SessionID, providerUUID)
+	}
+	if bindings.upsert.ProviderThreadID != "" {
+		t.Fatalf("binding provider_thread_id = %q, want empty without history file", bindings.upsert.ProviderThreadID)
+	}
+	if bindings.upsert.SessionUUID != providerUUID {
+		t.Fatalf("binding session_uuid = %q, want %s", bindings.upsert.SessionUUID, providerUUID)
 	}
 }
 
@@ -168,7 +233,7 @@ func TestServiceStartPrefersExplicitNameForLaunchAndPersist(t *testing.T) {
 			if req.Instructions != "system prompt" {
 				t.Fatalf("instructions = %q, want system prompt", req.Instructions)
 			}
-			session := &stubSession{threadID: "provider-thread-name"}
+			session := &stubSession{threadID: "019d5f6b-fb3c-7760-9d6f-54005553f5b4"}
 			sessions.session = session
 			return session, nil
 		},
@@ -206,7 +271,7 @@ func TestServiceStartUsesPromptAssemblyRef(t *testing.T) {
 			if got := req.Config["developerInstructions"]; got != "assembled dev" {
 				t.Fatalf("developerInstructions = %#v, want assembled dev", got)
 			}
-			session := &stubSession{threadID: "provider-thread-assembly"}
+			session := &stubSession{threadID: "019d5f6b-fb3c-7760-9d6f-54005553f5b5"}
 			sessions.session = session
 			return session, nil
 		},
@@ -269,7 +334,7 @@ func TestServiceStartForwardsLaunchSkills(t *testing.T) {
 	starter := &startOnlySessionStarter{
 		onStart: func(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
 			got = req
-			session := &stubSession{threadID: "provider-thread-launch-skills"}
+			session := &stubSession{threadID: "019d5f6b-fb3c-7760-9d6f-54005553f5b6"}
 			sessions.session = session
 			return session, nil
 		},
@@ -304,7 +369,7 @@ func TestServiceStartLeavesLaunchSkillsEmptyByDefault(t *testing.T) {
 	starter := &startOnlySessionStarter{
 		onStart: func(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
 			got = req
-			session := &stubSession{threadID: "provider-thread-legacy"}
+			session := &stubSession{threadID: "019d5f6b-fb3c-7760-9d6f-54005553f5b7"}
 			sessions.session = session
 			return session, nil
 		},

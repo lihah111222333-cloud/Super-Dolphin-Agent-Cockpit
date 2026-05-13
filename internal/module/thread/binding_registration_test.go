@@ -119,6 +119,7 @@ func TestBindingRecoveryReporterRecordsProviderSessionUUID(t *testing.T) {
 		AgentID:          "agent-1",
 		Provider:         "claude",
 		ProviderThreadID: "agent-1",
+		RolloutPath:      writeExistingProviderHistoryFile(t),
 	}}
 	reporter := NewBindingRecoveryReporter(bindings, silentLogger())
 
@@ -133,6 +134,28 @@ func TestBindingRecoveryReporterRecordsProviderSessionUUID(t *testing.T) {
 	}
 	if bindings.updateProviderThreadID.ProviderThreadID != sessionUUID {
 		t.Fatalf("provider_thread_id update = %q, want %s", bindings.updateProviderThreadID.ProviderThreadID, sessionUUID)
+	}
+}
+
+func TestBindingRecoveryReporterDoesNotPromoteProviderThreadIDWithoutHistoryFile(t *testing.T) {
+	t.Parallel()
+
+	const sessionUUID = "11111111-2222-3333-4444-555555555555"
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-1",
+		Provider:         "claude",
+		ProviderThreadID: "agent-1",
+	}}
+	reporter := NewBindingRecoveryReporter(bindings, silentLogger())
+
+	if err := reporter.RecordProviderSessionUUID(context.Background(), "agent-1", sessionUUID); err != nil {
+		t.Fatalf("RecordProviderSessionUUID() error = %v", err)
+	}
+	if len(bindings.sessionUpdates) != 1 {
+		t.Fatalf("session updates = %d, want 1", len(bindings.sessionUpdates))
+	}
+	if bindings.updateProviderThreadID.ProviderThreadID != "" {
+		t.Fatalf("provider_thread_id update = %q, want none without history file", bindings.updateProviderThreadID.ProviderThreadID)
 	}
 }
 

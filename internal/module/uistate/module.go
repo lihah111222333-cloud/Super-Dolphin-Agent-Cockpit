@@ -8,6 +8,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/historyjsonl"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 	"go.uber.org/fx"
 )
 
@@ -85,7 +87,10 @@ func (a *bindingAdapter) ListAgentThreadBindings(ctx context.Context) ([]binding
 			AgentID:          strings.TrimSpace(r.AgentID),
 			Provider:         strings.TrimSpace(r.Provider),
 			ProviderThreadID: strings.TrimSpace(r.ProviderThreadID),
+			CodexThreadID:    strings.TrimSpace(r.CodexThreadID),
+			RolloutPath:      strings.TrimSpace(r.RolloutPath),
 			SessionUUID:      strings.TrimSpace(r.SessionUUID),
+			CodexHome:        strings.TrimSpace(r.CodexHome),
 			Cwd:              strings.TrimSpace(r.Cwd),
 		}
 	}
@@ -130,6 +135,12 @@ func applyBindingToThreadRuntime(thread ThreadSummary, idx map[string]bindingEnt
 	if rt["provider"] == nil || rt["provider"] == "" {
 		rt["provider"] = entry.Provider
 	}
+	if providerThreadID := resolveProviderThreadID(entry); providerThreadID != "" && runtimeProviderThreadIDNeedsBackfill(rt["providerThreadId"]) {
+		rt["providerThreadId"] = providerThreadID
+	}
+	if entry.Cwd != "" && runtimeString(rt["cwd"]) == "" {
+		rt["cwd"] = entry.Cwd
+	}
 }
 
 func ensureThreadRuntime(thread ThreadSummary, entry bindingEntry, runtimeMap map[string]map[string]any) map[string]any {
@@ -140,7 +151,7 @@ func ensureThreadRuntime(thread ThreadSummary, entry bindingEntry, runtimeMap ma
 	rt = map[string]any{
 		"agentId":          thread.AgentID,
 		"state":            "idle",
-		"providerThreadId": entry.ProviderThreadID,
+		"providerThreadId": resolveProviderThreadID(entry),
 	}
 	runtimeMap[thread.ID] = rt
 	return rt
@@ -222,9 +233,34 @@ func applyBindingToAgent(agent *AgentSummary, idx map[string]bindingEntry) {
 }
 
 func resolveProviderThreadID(b bindingEntry) string {
-	ptid := strings.TrimSpace(b.ProviderThreadID)
-	if su := strings.TrimSpace(b.SessionUUID); su != "" && su != ptid {
-		return su
+	for _, candidate := range []string{b.ProviderThreadID, b.SessionUUID} {
+		ptid := strings.TrimSpace(candidate)
+		if !identifier.LooksLikeUUID(ptid) {
+			continue
+		}
+		if _, err := historyjsonl.ExistingProviderPath(historyjsonl.ReadRequest{
+			Provider:         b.Provider,
+			RolloutPath:      b.RolloutPath,
+			ThreadID:         b.CodexThreadID,
+			ProviderThreadID: ptid,
+			SessionUUID:      ptid,
+			CodexHome:        b.CodexHome,
+		}); err == nil {
+			return ptid
+		}
 	}
-	return ptid
+	return ""
+}
+
+func runtimeProviderThreadIDNeedsBackfill(value any) bool {
+	text := runtimeString(value)
+	return text == "" || strings.HasPrefix(text, "agent_")
+}
+
+func runtimeString(value any) string {
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(text)
 }

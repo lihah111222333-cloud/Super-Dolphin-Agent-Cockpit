@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -231,7 +232,11 @@ func newFxHarness(t *testing.T) *fxHarness {
 	t.Setenv("ENABLE_MEMORY_SYSTEM", "1")
 	t.Setenv("MULTI_AGENT_MEMORY_FEATURE_TEAMMEM", "1")
 	t.Setenv("MULTI_AGENT_MEMORY_DIR", filepath.Join(h.projectRoot, "memory"))
-	h.bridge = &capturingSessionBridge{session: newMockSession("019e0bcb-0cf7-7982-964f-c2654783ba17")}
+	rolloutPath := filepath.Join(h.projectRoot, "rollout-019e0bcb-0cf7-7982-964f-c2654783ba17.jsonl")
+	if err := os.WriteFile(rolloutPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write rollout fixture: %v", err)
+	}
+	h.bridge = &capturingSessionBridge{session: newMockSessionWithRolloutPath("019e0bcb-0cf7-7982-964f-c2654783ba17", rolloutPath)}
 	h.threadStore = &capturingThreadStore{}
 	h.bindingStore = &capturingBindingStore{}
 	h.orchestration = &capturingOrchestration{}

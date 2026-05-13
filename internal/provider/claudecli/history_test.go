@@ -55,6 +55,29 @@ func TestReadHistoryReturnsEmptyForNewSession(t *testing.T) {
 	}
 }
 
+func TestSessionRolloutPathReturnsClaudeHistoryFile(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	projectsDir := dir + "/projects/test-project"
+	if err := os.MkdirAll(projectsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	claudeUUID := "882e42ab-6ee2-4d32-86ce-a4fb11027ba6"
+	jsonlPath := projectsDir + "/" + claudeUUID + ".jsonl"
+	if err := os.WriteFile(jsonlPath, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := &session{
+		threadID: claudeUUID,
+		history:  &historyBackend{sessionDir: dir},
+	}
+	if got := s.RolloutPath(); got != jsonlPath {
+		t.Fatalf("RolloutPath() = %q, want %q", got, jsonlPath)
+	}
+}
+
 func TestParseHistoryLineExtractsImageContentBlocksMetadata(t *testing.T) {
 	// Vision turn shape: claude CLI persists native image content blocks
 	// alongside the user prompt. The history parser must surface those blocks

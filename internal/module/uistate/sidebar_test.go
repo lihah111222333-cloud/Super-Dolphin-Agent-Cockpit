@@ -2,6 +2,8 @@ package uistate
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -67,6 +69,88 @@ func TestGetSidebarBuildsCompatibilitySnapshot(t *testing.T) {
 	if got, _ := runtime["cwd"].(string); got != "/tmp/demo" {
 		t.Fatalf("agentRuntimeById[thread-1].cwd = %q, want /tmp/demo", got)
 	}
+}
+
+func TestApplyBindingToThreadRuntimeBackfillsProviderIdentity(t *testing.T) {
+	t.Parallel()
+
+	const providerUUID = "019e218f-b514-7733-be85-b3ee7f6a78a6"
+	rolloutPath := writeExistingProviderHistoryFile(t)
+	runtimeMap := map[string]map[string]any{
+		"thread-1": {
+			"agentId":          "agent-1",
+			"state":            "syncing",
+			"providerThreadId": "agent_1778679524655355000",
+		},
+	}
+	applyBindingToThreadRuntime(
+		ThreadSummary{ID: "thread-1", AgentID: "agent-1"},
+		map[string]bindingEntry{
+			"agent-1": {
+				AgentID:          "agent-1",
+				Provider:         "codex",
+				ProviderThreadID: "agent_1778679524655355000",
+				SessionUUID:      providerUUID,
+				RolloutPath:      rolloutPath,
+				Cwd:              "/repo",
+			},
+		},
+		runtimeMap,
+	)
+
+	runtime := runtimeMap["thread-1"]
+	if got, _ := runtime["provider"].(string); got != "codex" {
+		t.Fatalf("runtime.provider = %q, want codex", got)
+	}
+	if got, _ := runtime["providerThreadId"].(string); got != providerUUID {
+		t.Fatalf("runtime.providerThreadId = %q, want %s", got, providerUUID)
+	}
+	if got, _ := runtime["cwd"].(string); got != "/repo" {
+		t.Fatalf("runtime.cwd = %q, want /repo", got)
+	}
+	if got, _ := runtime["state"].(string); got != "syncing" {
+		t.Fatalf("runtime.state = %q, want syncing", got)
+	}
+}
+
+func TestApplyBindingToThreadRuntimeDoesNotBackfillProviderIdentityWithoutHistoryFile(t *testing.T) {
+	t.Parallel()
+
+	const providerUUID = "019e218f-b514-7733-be85-b3ee7f6a78a6"
+	runtimeMap := map[string]map[string]any{
+		"thread-1": {
+			"agentId":          "agent-1",
+			"state":            "syncing",
+			"providerThreadId": "agent_1778679524655355000",
+		},
+	}
+	applyBindingToThreadRuntime(
+		ThreadSummary{ID: "thread-1", AgentID: "agent-1"},
+		map[string]bindingEntry{
+			"agent-1": {
+				AgentID:          "agent-1",
+				Provider:         "codex",
+				ProviderThreadID: "agent_1778679524655355000",
+				SessionUUID:      providerUUID,
+				Cwd:              "/repo",
+			},
+		},
+		runtimeMap,
+	)
+
+	runtime := runtimeMap["thread-1"]
+	if got, _ := runtime["providerThreadId"].(string); got != "agent_1778679524655355000" {
+		t.Fatalf("runtime.providerThreadId = %q, want placeholder retained", got)
+	}
+}
+
+func writeExistingProviderHistoryFile(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "history.jsonl")
+	if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write provider history file: %v", err)
+	}
+	return path
 }
 
 func TestGetSidebarIncludesTaskHandoffMetadataInRuntime(t *testing.T) {

@@ -346,6 +346,17 @@ describe('UnifiedChatPage preflight coverage', () => {
     expect(resolveThreadIdentity).toHaveBeenCalledWith('thread-active'); const payload = JSON.parse(vi.mocked(copyTextToClipboard).mock.calls[0][0]); expect(payload.providerThreadId).toBe('provider-2'); expect(payload.uuid).toBe('provider-2'); expect(payload.port).toBe(9911); expect(payload.provider).toBe('claude'); expect(payload.model).toBe('gpt-5.5'); expect(payload.effort).toBe('high'); expect(payload.cwd).toBe('/Users/mima0000/Desktop/wj/go-agent-v2'); expect(payload['log-path']).toBe('~/.multi-agent/log/go-agent-v2/'); expect(payload.copiedAt).toBe('2026-03-09 09:02:03 UTC+8');
   });
 
+  it('copies raw thread name without display fallback', async () => {
+    const { vm } = await createVm({
+      selectedId: 'thread-active',
+      threads: [{ id: 'thread-active', name: '' }],
+      runtime: { 'thread-active': { providerThreadId: '019e21e0-a4cb-7ea1-be81-c48ae16054d8', provider: 'codex' } },
+    });
+    await vm.copySelectedThreadId();
+    const payload = JSON.parse(vi.mocked(copyTextToClipboard).mock.calls[0][0]);
+    expect(payload.name).toBe('');
+  });
+
   it('resolves placeholder provider thread id before copying', async () => {
     const placeholder = 'agent_1778322950141345000';
     const uuid = '58d9a5b6-f622-409b-82ae-4c4c42224311';
