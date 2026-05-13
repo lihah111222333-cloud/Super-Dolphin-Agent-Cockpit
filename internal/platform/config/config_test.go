@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -60,6 +61,52 @@ func TestNew_PreservesDatabaseURLFromEnv(t *testing.T) {
 	cfg := New()
 	if cfg.DatabaseURL != "postgres://tester@127.0.0.1:54320/custom_db?sslmode=disable" {
 		t.Fatalf("DatabaseURL = %q", cfg.DatabaseURL)
+	}
+	if got := os.Getenv("DATABASE_URL"); got != cfg.DatabaseURL {
+		t.Fatalf("DATABASE_URL = %q, want %q", got, cfg.DatabaseURL)
+	}
+}
+
+func TestNew_UsesPostgresConnectionStringCompat(t *testing.T) {
+	t.Setenv("GO_AGENT_CTL_RPC_ADDR", "")
+	t.Setenv("DATABASE_URL", "")
+	t.Setenv("POSTGRES_CONNECTION_STRING", "postgres://compat@127.0.0.1:54320/compat_db?sslmode=disable")
+
+	var buf bytes.Buffer
+	restoreConfigLogger(t, &buf)
+
+	cfg := New()
+	if cfg.DatabaseURL != "postgres://compat@127.0.0.1:54320/compat_db?sslmode=disable" {
+		t.Fatalf("DatabaseURL = %q", cfg.DatabaseURL)
+	}
+	if got := os.Getenv("DATABASE_URL"); got != cfg.DatabaseURL {
+		t.Fatalf("DATABASE_URL = %q, want %q", got, cfg.DatabaseURL)
+	}
+	if logs := buf.String(); !strings.Contains(logs, "POSTGRES_CONNECTION_STRING is deprecated; use DATABASE_URL instead") {
+		t.Fatalf("logs = %q", logs)
+	}
+}
+
+func TestNew_LoadsDotEnvFromProjectRoot(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PROJECT_ROOT", root)
+	t.Setenv("GO_AGENT_CTL_RPC_ADDR", "")
+	t.Setenv("DATABASE_URL", "")
+	t.Setenv("POSTGRES_CONNECTION_STRING", "")
+
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("POSTGRES_CONNECTION_STRING=postgres://dotenv@127.0.0.1:54320/dotenv_db?sslmode=disable\nLOG_LEVEL=debug\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := New()
+	if cfg.ProjectRoot != root {
+		t.Fatalf("ProjectRoot = %q, want %q", cfg.ProjectRoot, root)
+	}
+	if cfg.DatabaseURL != "postgres://dotenv@127.0.0.1:54320/dotenv_db?sslmode=disable" {
+		t.Fatalf("DatabaseURL = %q", cfg.DatabaseURL)
+	}
+	if cfg.LogLevel != "debug" {
+		t.Fatalf("LogLevel = %q, want debug", cfg.LogLevel)
 	}
 	if got := os.Getenv("DATABASE_URL"); got != cfg.DatabaseURL {
 		t.Fatalf("DATABASE_URL = %q, want %q", got, cfg.DatabaseURL)
