@@ -228,10 +228,10 @@ type RecordNodeSpawnInput struct {
 // record or there is no running run for the dag_key (the latter is treated as
 // a soft miss, not an error).
 type RecordNodeSpawnResult struct {
-	Node               *Node
-	PreviousThreadID   string
-	AppendedEvent      bool
-	RunKey             string
+	Node             *Node
+	PreviousThreadID string
+	AppendedEvent    bool
+	RunKey           string
 }
 
 type WakeupStore interface {
@@ -297,6 +297,12 @@ type AwaitingVerifyNodeStatusUpdate struct {
 
 type CompleteNodeInput struct {
 	Status  string
+	Result  json.RawMessage
+	DagKey  string
+	NodeKey string
+}
+
+type OutputMaterializationClaimInput struct {
 	Result  json.RawMessage
 	DagKey  string
 	NodeKey string

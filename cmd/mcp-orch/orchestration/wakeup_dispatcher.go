@@ -298,7 +298,9 @@ func (d *WakeupDispatcher) handleClaimedViaRouter(ctx context.Context, w *taskda
 		synthErr := errors.New(string(outcome.FailureClass) + ": " + outcome.ErrorSummary)
 		lastErr := truncateWakeupError(synthErr.Error())
 		if failureOutcomePermanent(outcome) {
-			d.markPermanentFail(ctx, w, fence, lastErr, synthErr)
+			if !d.markPermanentFail(ctx, w, fence, lastErr, synthErr) {
+				return
+			}
 			failFast := false
 			if policy, ok := d.resolveDAGRetryPolicy(ctx, w.DagKey, w.NodeKey); ok {
 				failFast = policy.FailFast
@@ -330,22 +332,30 @@ func (d *WakeupDispatcher) markLaunched(ctx context.Context, w *taskdag.Wakeup, 
 		"attempt_count", w.AttemptCount)
 }
 
-func (d *WakeupDispatcher) markPermanentFail(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, lastErr string, launchErr error) {
-	if _, err := d.store.FailWakeup(ctx, taskdag.FailWakeupInput{
+func (d *WakeupDispatcher) markPermanentFail(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, lastErr string, launchErr error) bool {
+	rows, err := d.store.FailWakeup(ctx, taskdag.FailWakeupInput{
 		ID:             w.ID,
 		LastError:      lastErr,
 		ClaimedAt:      fence.claimedAt,
 		ClaimedBy:      w.ClaimedBy,
 		LeaseExpiresAt: fence.leaseAt,
-	}); err != nil {
+	})
+	if err != nil {
 		d.logger.Warn("wakeup dispatcher: fail-wakeup write failed",
 			"wakeup_id", w.ID, "error", err)
-		return
+		return false
+	}
+	if rows == 0 {
+		d.logger.Warn("wakeup dispatcher: fail-wakeup fence missed",
+			"wakeup_id", w.ID,
+			"target_agent_id", w.TargetAgentID)
+		return false
 	}
 	d.logger.Warn("wakeup dispatcher: launch permanent failure → failed",
 		"wakeup_id", w.ID,
 		"target_agent_id", w.TargetAgentID,
 		"error", launchErr)
+	return true
 }
 
 func (d *WakeupDispatcher) markTransientRetry(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, lastErr string, launchErr error) {
@@ -518,7 +528,9 @@ func (d *WakeupDispatcher) tryDAGFailWithCascade(ctx context.Context, w *taskdag
 	if int(w.AttemptCount) < policy.MaxAttempts {
 		return false
 	}
-	d.markPermanentFail(ctx, w, fence, "max attempts reached: "+lastErr, launchErr)
+	if !d.markPermanentFail(ctx, w, fence, "max attempts reached: "+lastErr, launchErr) {
+		return true
+	}
 	d.failDAGNodeAndCancelDownstream(ctx, w, lastErr, policy.FailFast)
 	return true
 }

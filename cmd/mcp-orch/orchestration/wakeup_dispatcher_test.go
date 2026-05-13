@@ -31,9 +31,10 @@ type dispatcherStubStore struct {
 	retryRows  int64 // <0 = 模拟 SQL attempt_count >= 8 触发的兜底 fail
 	retryErr   error
 
-	failCalls []taskdag.FailWakeupInput
-	failRows  int64
-	failErr   error
+	failCalls   []taskdag.FailWakeupInput
+	failRows    int64
+	failRowsSet bool
+	failErr     error
 
 	// Phase 3.5w: DAG-aware 决策需要的 stub 字段。默认 dagReply=nil 让
 	// resolveDAGRetryPolicy 退化到旧 RetryWakeup 路径，老用例不受影响。
@@ -117,6 +118,9 @@ func (s *dispatcherStubStore) FailWakeup(_ context.Context, input taskdag.FailWa
 	s.failCalls = append(s.failCalls, input)
 	if s.failErr != nil {
 		return 0, s.failErr
+	}
+	if s.failRowsSet {
+		return s.failRows, nil
 	}
 	if s.failRows == 0 {
 		return 1, nil
@@ -611,6 +615,43 @@ func TestDispatcherDAGRetryFailsAtMaxAttemptsWithFailFastCascade(t *testing.T) {
 	}
 }
 
+func TestDispatcherDAGPermanentFailureSkipsCascadeWhenFailWakeupFenceMisses(t *testing.T) {
+	now := time.Date(2026, 5, 13, 10, 0, 0, 0, time.UTC)
+	store := newAgentFailureClassStore(t, "permanent-fence-miss", 1, now)
+	store.nodesReply[0].Config = json.RawMessage(`{"exec":`)
+	store.failRowsSet = true
+	store.failRows = 0
+	d := newAgentFailureClassDispatcher(t, store, errors.New("launcher should not be called"))
+
+	if _, err := d.ProcessBatch(context.Background()); err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	if len(store.failCalls) != 1 {
+		t.Fatalf("failCalls = %d, want 1", len(store.failCalls))
+	}
+	if len(store.failNodeCalls) != 0 {
+		t.Fatalf("failNodeCalls = %d, want 0 when FailWakeup fence misses", len(store.failNodeCalls))
+	}
+}
+
+func TestDispatcherDAGRetryExhaustionSkipsCascadeWhenFailWakeupFenceMisses(t *testing.T) {
+	now := time.Date(2026, 5, 13, 10, 15, 0, 0, time.UTC)
+	store := newAgentFailureClassStore(t, "exhausted-fence-miss", 2, now)
+	store.failRowsSet = true
+	store.failRows = 0
+	d := newAgentFailureClassDispatcher(t, store, errors.New("connection refused"))
+
+	if _, err := d.ProcessBatch(context.Background()); err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	if len(store.failCalls) != 1 {
+		t.Fatalf("failCalls = %d, want 1", len(store.failCalls))
+	}
+	if len(store.failNodeCalls) != 0 {
+		t.Fatalf("failNodeCalls = %d, want 0 when FailWakeup fence misses", len(store.failNodeCalls))
+	}
+}
+
 // TestDispatcherDAGRetryFailsAtMaxAttemptsNoFailFast 验证 fail_fast=false 时仍调
 // FailNodeAndCancelDownstream（store 层根据 FailFast 自决是否级联，这里只验
 // dispatcher 把 FailFast=false 透传过去）。
@@ -744,6 +785,8 @@ func newAgentFailureClassDispatcher(t *testing.T, store *dispatcherStubStore, la
 func TestDispatcherNonDAGWakeupKeepsLegacyRetry(t *testing.T) {
 	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
 	w := makeClaimedWakeup(23, "agent-D", 5, now) // DagKey/NodeKey 留空
+	w.DagKey = ""
+	w.NodeKey = ""
 	store := &dispatcherStubStore{
 		claimReply: []taskdag.Wakeup{w},
 	}

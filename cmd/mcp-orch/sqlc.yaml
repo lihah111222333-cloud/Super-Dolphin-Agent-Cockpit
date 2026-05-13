@@ -37,7 +37,8 @@ sql:
       #   3. task_dag_node_runtime.sql.go       — SELECT list + Scan (F1.5)
       #   4. task_dag_node_write.sql.go         — INSERT/UPDATE columns + RETURNING
       #                                            + PromoteSingleNodePendingToReady
-      #                                            (F1.5 + F6.3)
+      #                                            + ClaimTaskDagNodeOutputMaterialization
+      #                                            (F1.5 + F6.3 + A2)
       #   5. task_dag_node_spawning_thread.sql.go — entire file new (F1.5 CTE)
       #   5b. task_dag_node_lookup.sql.go — entire file new (ADR-017 §2.2 reverse lookup)
       #   6. task_dag_run.sql.go                — AppendTaskDagRunEvent + jsonb_build_array

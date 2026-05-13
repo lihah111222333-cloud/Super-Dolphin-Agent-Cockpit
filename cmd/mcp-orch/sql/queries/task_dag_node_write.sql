@@ -21,6 +21,19 @@ SET status = $1, result = $2::jsonb, updated_at = NOW()
 WHERE dag_key = $3 AND node_key = $4
 RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
 
+-- name: ClaimTaskDagNodeOutputMaterialization :one
+-- A2 turn.completed sharedfile writes have an external side effect. Claim the
+-- node through a SQL status fence before writing sharedfile so stale duplicate
+-- completions cannot write after another path already reached a terminal state.
+-- awaiting_verify is accepted so a redelivered turn.completed can recover if
+-- the prior attempt wrote sharedfile but hit a transient CompleteNode failure.
+UPDATE task_dag_nodes
+SET status = 'awaiting_verify', result = $1::jsonb, updated_at = NOW()
+WHERE dag_key = $2
+  AND node_key = $3
+  AND status IN ('ready', 'running', 'awaiting_verify')
+RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
+
 -- name: FailTaskDagNodeIfNonTerminal :one
 -- FailNodeAndCancelDownstream 的 primary-node fence：只允许非终态节点被改成 failed。
 -- subscriber / dispatcher 都可能在 lookup 或 retry 决策后遇到并发终态推进；此处用
