@@ -19,20 +19,21 @@ type promptGetInput struct {
 }
 
 type promptTemplateDTO struct {
-	ID          int64           `json:"id"`
-	PromptKey   string          `json:"prompt_key"`
-	Title       string          `json:"title"`
-	AgentKey    string          `json:"agent_key"`
-	ToolName    string          `json:"tool_name"`
-	PromptText  string          `json:"prompt_text"`
-	Variables   json.RawMessage `json:"variables,omitempty"`
-	Tags        json.RawMessage `json:"tags,omitempty"`
-	Enabled     bool            `json:"enabled"`
-	CreatedBy   string          `json:"created_by"`
-	UpdatedBy   string          `json:"updated_by"`
-	CreatedAt   time.Time       `json:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at"`
-	Description string          `json:"description"`
+	ID             int64           `json:"id"`
+	PromptKey      string          `json:"prompt_key"`
+	Title          string          `json:"title"`
+	AgentKey       string          `json:"agent_key"`
+	ToolName       string          `json:"tool_name"`
+	PromptText     string          `json:"prompt_text"`
+	Variables      json.RawMessage `json:"variables,omitempty"`
+	Tags           json.RawMessage `json:"tags,omitempty"`
+	Enabled        bool            `json:"enabled"`
+	ManuallyEdited bool            `json:"manually_edited"`
+	CreatedBy      string          `json:"created_by"`
+	UpdatedBy      string          `json:"updated_by"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
+	Description    string          `json:"description"`
 }
 
 func HandlePromptList(store promptstore.Store) ToolHandler {
@@ -101,19 +102,20 @@ func mapPromptTemplates(templates []promptstore.PromptTemplate) []promptTemplate
 
 func promptTemplateFromStore(template promptstore.PromptTemplate) promptTemplateDTO {
 	return promptTemplateDTO{
-		ID:          template.ID,
-		PromptKey:   template.PromptKey,
-		Title:       template.Title,
-		AgentKey:    template.AgentKey,
-		ToolName:    template.ToolName,
-		PromptText:  template.PromptText,
-		Variables:   shared.CloneRawMessage(template.Variables),
-		Tags:        shared.CloneRawMessage(template.Tags),
-		Enabled:     template.Enabled,
-		CreatedBy:   template.CreatedBy,
-		UpdatedBy:   template.UpdatedBy,
-		CreatedAt:   template.CreatedAt,
-		UpdatedAt:   template.UpdatedAt,
-		Description: template.Description,
+		ID:             template.ID,
+		PromptKey:      template.PromptKey,
+		Title:          template.Title,
+		AgentKey:       template.AgentKey,
+		ToolName:       template.ToolName,
+		PromptText:     template.PromptText,
+		Variables:      shared.CloneRawMessage(template.Variables),
+		Tags:           shared.CloneRawMessage(template.Tags),
+		Enabled:        template.Enabled,
+		ManuallyEdited: template.ManuallyEdited,
+		CreatedBy:      template.CreatedBy,
+		UpdatedBy:      template.UpdatedBy,
+		CreatedAt:      template.CreatedAt,
+		UpdatedAt:      template.UpdatedAt,
+		Description:    template.Description,
 	}
 }

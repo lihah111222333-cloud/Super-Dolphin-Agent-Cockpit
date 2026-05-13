@@ -25,26 +25,27 @@ func (q *Queries) DeletePromptTemplate(ctx context.Context, promptKey string) (i
 }
 
 const getPromptTemplate = `-- name: GetPromptTemplate :one
-SELECT id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, enabled, created_by, updated_by, created_at, updated_at
+SELECT id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, enabled, manually_edited, created_by, updated_by, created_at, updated_at
 FROM prompt_templates
 WHERE prompt_key = $1
 `
 
 type GetPromptTemplateRow struct {
-	ID          int64              `json:"id"`
-	PromptKey   string             `json:"prompt_key"`
-	Title       string             `json:"title"`
-	AgentKey    string             `json:"agent_key"`
-	ToolName    string             `json:"tool_name"`
-	PromptText  string             `json:"prompt_text"`
-	Variables   []byte             `json:"variables"`
-	Tags        []byte             `json:"tags"`
-	Description string             `json:"description"`
-	Enabled     bool               `json:"enabled"`
-	CreatedBy   string             `json:"created_by"`
-	UpdatedBy   string             `json:"updated_by"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	ID             int64              `json:"id"`
+	PromptKey      string             `json:"prompt_key"`
+	Title          string             `json:"title"`
+	AgentKey       string             `json:"agent_key"`
+	ToolName       string             `json:"tool_name"`
+	PromptText     string             `json:"prompt_text"`
+	Variables      []byte             `json:"variables"`
+	Tags           []byte             `json:"tags"`
+	Description    string             `json:"description"`
+	Enabled        bool               `json:"enabled"`
+	ManuallyEdited bool               `json:"manually_edited"`
+	CreatedBy      string             `json:"created_by"`
+	UpdatedBy      string             `json:"updated_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
 func (q *Queries) GetPromptTemplate(ctx context.Context, promptKey string) (GetPromptTemplateRow, error) {
@@ -61,6 +62,7 @@ func (q *Queries) GetPromptTemplate(ctx context.Context, promptKey string) (GetP
 		&i.Tags,
 		&i.Description,
 		&i.Enabled,
+		&i.ManuallyEdited,
 		&i.CreatedBy,
 		&i.UpdatedBy,
 		&i.CreatedAt,
@@ -113,7 +115,7 @@ func (q *Queries) InsertPromptVersion(ctx context.Context, arg InsertPromptVersi
 }
 
 const listPromptTemplates = `-- name: ListPromptTemplates :many
-SELECT id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, enabled, created_by, updated_by, created_at, updated_at
+SELECT id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, enabled, manually_edited, created_by, updated_by, created_at, updated_at
 FROM prompt_templates
 WHERE ($1::text = '' OR agent_key = $1)
   AND ($2::text = ''
@@ -131,20 +133,21 @@ type ListPromptTemplatesParams struct {
 }
 
 type ListPromptTemplatesRow struct {
-	ID          int64              `json:"id"`
-	PromptKey   string             `json:"prompt_key"`
-	Title       string             `json:"title"`
-	AgentKey    string             `json:"agent_key"`
-	ToolName    string             `json:"tool_name"`
-	PromptText  string             `json:"prompt_text"`
-	Variables   []byte             `json:"variables"`
-	Tags        []byte             `json:"tags"`
-	Description string             `json:"description"`
-	Enabled     bool               `json:"enabled"`
-	CreatedBy   string             `json:"created_by"`
-	UpdatedBy   string             `json:"updated_by"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	ID             int64              `json:"id"`
+	PromptKey      string             `json:"prompt_key"`
+	Title          string             `json:"title"`
+	AgentKey       string             `json:"agent_key"`
+	ToolName       string             `json:"tool_name"`
+	PromptText     string             `json:"prompt_text"`
+	Variables      []byte             `json:"variables"`
+	Tags           []byte             `json:"tags"`
+	Description    string             `json:"description"`
+	Enabled        bool               `json:"enabled"`
+	ManuallyEdited bool               `json:"manually_edited"`
+	CreatedBy      string             `json:"created_by"`
+	UpdatedBy      string             `json:"updated_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
 func (q *Queries) ListPromptTemplates(ctx context.Context, arg ListPromptTemplatesParams) ([]ListPromptTemplatesRow, error) {
@@ -167,6 +170,7 @@ func (q *Queries) ListPromptTemplates(ctx context.Context, arg ListPromptTemplat
 			&i.Tags,
 			&i.Description,
 			&i.Enabled,
+			&i.ManuallyEdited,
 			&i.CreatedBy,
 			&i.UpdatedBy,
 			&i.CreatedAt,
@@ -185,8 +189,8 @@ func (q *Queries) ListPromptTemplates(ctx context.Context, arg ListPromptTemplat
 const upsertPromptTemplate = `-- name: UpsertPromptTemplate :one
 INSERT INTO prompt_templates (
     prompt_key, title, agent_key, tool_name, prompt_text,
-    variables, tags, description, enabled, created_by, updated_by, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, NOW())
+    variables, tags, description, enabled, manually_edited, created_by, updated_by, updated_at
+) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12, NOW())
 ON CONFLICT (prompt_key) DO UPDATE
 SET title = EXCLUDED.title,
     agent_key = EXCLUDED.agent_key,
@@ -196,40 +200,43 @@ SET title = EXCLUDED.title,
     tags = EXCLUDED.tags,
     description = EXCLUDED.description,
     enabled = EXCLUDED.enabled,
+    manually_edited = EXCLUDED.manually_edited,
     updated_by = EXCLUDED.updated_by,
     updated_at = NOW()
-RETURNING id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, enabled, created_by, updated_by, created_at, updated_at
+RETURNING id, prompt_key, title, agent_key, tool_name, prompt_text, variables, tags, description, enabled, manually_edited, created_by, updated_by, created_at, updated_at
 `
 
 type UpsertPromptTemplateParams struct {
-	PromptKey   string `json:"prompt_key"`
-	Title       string `json:"title"`
-	AgentKey    string `json:"agent_key"`
-	ToolName    string `json:"tool_name"`
-	PromptText  string `json:"prompt_text"`
-	Column6     []byte `json:"column_6"`
-	Column7     []byte `json:"column_7"`
-	Description string `json:"description"`
-	Enabled     bool   `json:"enabled"`
-	CreatedBy   string `json:"created_by"`
-	UpdatedBy   string `json:"updated_by"`
+	PromptKey      string `json:"prompt_key"`
+	Title          string `json:"title"`
+	AgentKey       string `json:"agent_key"`
+	ToolName       string `json:"tool_name"`
+	PromptText     string `json:"prompt_text"`
+	Column6        []byte `json:"column_6"`
+	Column7        []byte `json:"column_7"`
+	Description    string `json:"description"`
+	Enabled        bool   `json:"enabled"`
+	ManuallyEdited bool   `json:"manually_edited"`
+	CreatedBy      string `json:"created_by"`
+	UpdatedBy      string `json:"updated_by"`
 }
 
 type UpsertPromptTemplateRow struct {
-	ID          int64              `json:"id"`
-	PromptKey   string             `json:"prompt_key"`
-	Title       string             `json:"title"`
-	AgentKey    string             `json:"agent_key"`
-	ToolName    string             `json:"tool_name"`
-	PromptText  string             `json:"prompt_text"`
-	Variables   []byte             `json:"variables"`
-	Tags        []byte             `json:"tags"`
-	Description string             `json:"description"`
-	Enabled     bool               `json:"enabled"`
-	CreatedBy   string             `json:"created_by"`
-	UpdatedBy   string             `json:"updated_by"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	ID             int64              `json:"id"`
+	PromptKey      string             `json:"prompt_key"`
+	Title          string             `json:"title"`
+	AgentKey       string             `json:"agent_key"`
+	ToolName       string             `json:"tool_name"`
+	PromptText     string             `json:"prompt_text"`
+	Variables      []byte             `json:"variables"`
+	Tags           []byte             `json:"tags"`
+	Description    string             `json:"description"`
+	Enabled        bool               `json:"enabled"`
+	ManuallyEdited bool               `json:"manually_edited"`
+	CreatedBy      string             `json:"created_by"`
+	UpdatedBy      string             `json:"updated_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
 func (q *Queries) UpsertPromptTemplate(ctx context.Context, arg UpsertPromptTemplateParams) (UpsertPromptTemplateRow, error) {
@@ -243,6 +250,7 @@ func (q *Queries) UpsertPromptTemplate(ctx context.Context, arg UpsertPromptTemp
 		arg.Column7,
 		arg.Description,
 		arg.Enabled,
+		arg.ManuallyEdited,
 		arg.CreatedBy,
 		arg.UpdatedBy,
 	)
@@ -258,6 +266,7 @@ func (q *Queries) UpsertPromptTemplate(ctx context.Context, arg UpsertPromptTemp
 		&i.Tags,
 		&i.Description,
 		&i.Enabled,
+		&i.ManuallyEdited,
 		&i.CreatedBy,
 		&i.UpdatedBy,
 		&i.CreatedAt,
