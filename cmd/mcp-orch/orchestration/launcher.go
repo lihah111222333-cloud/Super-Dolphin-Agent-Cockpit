@@ -165,13 +165,13 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 	displayName := managedAgentLaunchDisplayName(req.Name)
 	model := shared.FirstTrimmed(envValue(req.Env, "AGENT_MODEL"), commandFlagValue(launchCommandArgs(req.Command), "--model"))
 	effort := shared.FirstTrimmed(envValue(req.Env, "AGENT_EFFORT"), commandFlagValue(launchCommandArgs(req.Command), "--effort"))
-	disabledTools := envValue(req.Env, "AGENT_DISABLED_TOOLS")
 	pkglogger.Debug("remoteLauncher: thread/start config trace",
 		"agent_id", agent.id,
 		"provider", launchProvider(req),
 		"model", model,
 		"effort", effort,
 		"env_has_effort", envValue(req.Env, "AGENT_EFFORT") != "",
+		"env_has_disabled_tools", envValue(req.Env, "AGENT_DISABLED_TOOLS") != "",
 	)
 	params := map[string]any{
 		LauncherParamAgentID:          strings.TrimSpace(agent.id),
@@ -187,8 +187,8 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 		LauncherParamEffort:           effort,
 		LauncherParamLanguage:         strings.TrimSpace(req.Language),
 	}
-	if disabledTools != "" {
-		params[LauncherParamDisabledTools] = disabledTools
+	if cfg := launchConfigFromEnv(req.Env); len(cfg) > 0 {
+		params[LauncherParamConfig] = cfg
 	}
 	resp, err := rpcCall[map[string]any](ctx, r, LauncherMethodThreadStart, params)
 	elapsed := time.Since(start)
@@ -218,6 +218,14 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 	agent.startedAt = now
 	agent.updatedAt = now
 	return result, nil
+}
+
+func launchConfigFromEnv(env []string) map[string]any {
+	cfg := map[string]any{}
+	if disabledTools := envValue(env, "AGENT_DISABLED_TOOLS"); disabledTools != "" {
+		cfg["disallowed_tools"] = disabledTools
+	}
+	return cfg
 }
 
 func (r *remoteLauncher) Stop(ctx context.Context, agent *agentRuntime) error {

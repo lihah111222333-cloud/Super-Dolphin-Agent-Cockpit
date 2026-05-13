@@ -44,6 +44,16 @@ func (r *stubNodeSpawnRecorder) RecordNodeSpawn(_ context.Context, dagKey, nodeK
 	return r.err
 }
 
+func launchEnvValue(env []string, key string) string {
+	prefix := key + "="
+	for _, item := range env {
+		if strings.HasPrefix(item, prefix) {
+			return strings.TrimPrefix(item, prefix)
+		}
+	}
+	return ""
+}
+
 // makeAgentNode 构造一个 agent 类型节点 + json 编码的 AgentNodeConfig。
 func makeAgentNode(t *testing.T, cfg AgentNodeConfig) Node {
 	t.Helper()
@@ -91,6 +101,34 @@ func TestBuildLaunchRequestFromAgentConfigFillsAgentIDAndName(t *testing.T) {
 	}
 	if req.Prompt != cfg.FirstTurn {
 		t.Fatalf("Prompt = %q, want first turn %q", req.Prompt, cfg.FirstTurn)
+	}
+}
+
+func TestBuildLaunchRequestFromAgentConfigForwardsRuntimeHints(t *testing.T) {
+	t.Parallel()
+	cfg := AgentNodeConfig{
+		Exec: AgentExecConfig{
+			Provider:      " CLAUDE ",
+			Model:         " opus ",
+			Effort:        " high ",
+			AgentKey:      "implementer",
+			DisabledTools: []string{"shell", " browser "},
+		},
+	}
+
+	req := buildLaunchRequestFromAgentConfig(&cfg, Node{NodeType: "agent", Title: "node"}, RunContext{})
+
+	if got := launchEnvValue(req.Env, "AGENT_PROVIDER"); got != "claude" {
+		t.Fatalf("AGENT_PROVIDER = %q, want claude", got)
+	}
+	if got := launchEnvValue(req.Env, "AGENT_MODEL"); got != "opus" {
+		t.Fatalf("AGENT_MODEL = %q, want opus", got)
+	}
+	if got := launchEnvValue(req.Env, "AGENT_EFFORT"); got != "high" {
+		t.Fatalf("AGENT_EFFORT = %q, want high", got)
+	}
+	if got := launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"); got != "shell,browser" {
+		t.Fatalf("AGENT_DISABLED_TOOLS = %q, want shell,browser", got)
 	}
 }
 
@@ -185,6 +223,37 @@ func TestAgentExecutor_Execute_InvalidConfig_MissingAgentKey(t *testing.T) {
 	}
 	if out.FailureClass != FailureClassValidation {
 		t.Fatalf("FailureClass = %q, want %q", out.FailureClass, FailureClassValidation)
+	}
+	if launcher.called != 0 {
+		t.Fatalf("LaunchAgent should not be called, got %d", launcher.called)
+	}
+}
+
+func TestAgentExecutor_Execute_InvalidProvider(t *testing.T) {
+	t.Parallel()
+	launcher := &stubAgentLauncher{}
+	exec := NewAgentExecutor(launcher)
+
+	cfg := AgentNodeConfig{
+		Exec: AgentExecConfig{
+			AgentKey: "implementer",
+			Provider: "openai",
+		},
+	}
+	node := makeAgentNode(t, cfg)
+
+	out, err := exec.Execute(context.Background(), node, RunContext{})
+	if err != nil {
+		t.Fatalf("Execute() framework error = %v, want nil", err)
+	}
+	if out.Status != NodeStatusFailed {
+		t.Fatalf("Status = %q, want %q", out.Status, NodeStatusFailed)
+	}
+	if out.FailureClass != FailureClassValidation {
+		t.Fatalf("FailureClass = %q, want %q", out.FailureClass, FailureClassValidation)
+	}
+	if !strings.Contains(out.ErrorSummary, "invalid provider") {
+		t.Fatalf("ErrorSummary = %q, want invalid provider", out.ErrorSummary)
 	}
 	if launcher.called != 0 {
 		t.Fatalf("LaunchAgent should not be called, got %d", launcher.called)

@@ -85,6 +85,33 @@ func TestRemoteLauncher_LaunchStop(t *testing.T) {
 	}
 }
 
+func TestRemoteLauncher_DisabledToolsUseStartConfig(t *testing.T) {
+	var started map[string]any
+	launcher := remoteLocalLauncher(t, handler.Map{
+		"thread/start": handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
+			started = req
+			return map[string]any{"thread": map[string]any{"id": "thread-1"}, "agentId": "remote-1"}, nil
+		}),
+	})
+
+	_, err := launcher.Launch(context.Background(), &agentRuntime{id: "agent-1"}, LaunchRequest{
+		Env: []string{"AGENT_DISABLED_TOOLS=Read, Bash"},
+	})
+	if err != nil {
+		t.Fatalf("Launch() error = %v", err)
+	}
+	if _, ok := started["disabled_tools"]; ok {
+		t.Fatalf("thread/start got top-level disabled_tools=%#v; want config.disallowed_tools", started["disabled_tools"])
+	}
+	cfg, ok := started["config"].(map[string]any)
+	if !ok {
+		t.Fatalf("thread/start config = %#v, want object", started["config"])
+	}
+	if got := cfg["disallowed_tools"]; got != "Read, Bash" {
+		t.Fatalf("config.disallowed_tools = %#v, want %q", got, "Read, Bash")
+	}
+}
+
 func TestRemoteLauncher_Archive(t *testing.T) {
 	var archived map[string]any
 	launcher := remoteLocalLauncher(t, handler.Map{
