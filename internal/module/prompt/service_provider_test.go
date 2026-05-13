@@ -223,4 +223,25 @@ func TestPromptMutationsRespectCwdScope(t *testing.T) {
 			t.Fatal("DeletePrompt() removed prompt unexpectedly")
 		}
 	})
+
+	t.Run("write existing prompt marks manually edited", func(t *testing.T) {
+		store := newInMemoryPromptStore()
+		store.templates[promptKey] = scopedPromptTemplate(promptKey, "/repo/a")
+		svc := newPromptService(store)
+
+		got, err := svc.WritePrompt(ctx, "/repo/a", PromptWriteRequest{
+			ID:      promptKey,
+			Name:    "Scoped Prompt",
+			Content: "updated by user",
+		})
+		if err != nil {
+			t.Fatalf("WritePrompt() unexpected error: %v", err)
+		}
+		if got == nil || !got.ManuallyEdited {
+			t.Fatalf("WritePrompt() manually_edited = false, want true: %+v", got)
+		}
+		if saved := store.templates[promptKey]; !saved.ManuallyEdited || saved.PromptText != "updated by user" {
+			t.Fatalf("stored prompt = %+v, want manually edited updated prompt", saved)
+		}
+	})
 }

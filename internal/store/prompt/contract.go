@@ -50,6 +50,9 @@ type PromptTemplate struct {
 	Variables  json.RawMessage `json:"variables"`
 	Tags       json.RawMessage `json:"tags"`
 	Enabled    bool            `json:"enabled"`
+	// ManuallyEdited protects seed-owned prompts from later seed migrations.
+	// UI/admin write paths set it true when updating an existing template.
+	ManuallyEdited bool `json:"manually_edited"`
 	// MatchWhen is the template-level auto-routing rule (JSONB, opt-in).
 	// nil → 不参与自动路由（只能 pin / 分类器命中）
 	// "{}" → 永远匹配（参与竞争但无筛选条件，用 priority 平溢）

@@ -51,9 +51,23 @@ func TestDAGSkillPromptSeeds_CoverSkillCardLibrary(t *testing.T) {
 		"main/learning_card",
 		"main/trip_briefer",
 	}
+	seedBlocks := promptTemplateSeedBlocks(content)
+	if got := len(seedBlocks); got != len(requiredKeys) {
+		t.Fatalf("migration 0087 seed count = %d, want exactly %d", got, len(requiredKeys))
+	}
 	for _, key := range requiredKeys {
-		if !strings.Contains(content, key) {
+		block, ok := seedBlocks[key]
+		if !ok {
 			t.Errorf("migration 0087 missing required skill seed %q", key)
+			continue
+		}
+		for _, must := range []string{
+			"    '{}'::jsonb,",
+			"\n    TRUE,\n    FALSE,\n    'system.seed',\n    'system.seed',",
+		} {
+			if !strings.Contains(block, must) {
+				t.Errorf("migration 0087 seed %q missing per-row contract %q", key, must)
+			}
 		}
 	}
 
@@ -61,16 +75,29 @@ func TestDAGSkillPromptSeeds_CoverSkillCardLibrary(t *testing.T) {
 		"INSERT INTO public.prompt_templates",
 		"ON CONFLICT (prompt_key) DO UPDATE SET",
 		"WHERE public.prompt_templates.manually_edited = FALSE",
-		"manually_edited",
-		"FALSE",
-		"'{}'::jsonb",
-		"enabled",
-		"system.seed",
 	} {
 		if !strings.Contains(content, must) {
 			t.Errorf("migration 0087 missing seed contract marker %q", must)
 		}
 	}
+}
+
+func promptTemplateSeedBlocks(content string) map[string]string {
+	const rowStart = "(\n    '"
+	parts := strings.Split(content, rowStart)
+	blocks := make(map[string]string)
+	for _, part := range parts[1:] {
+		keyEnd := strings.Index(part, "',")
+		if keyEnd < 0 {
+			continue
+		}
+		key := part[:keyEnd]
+		if !strings.HasPrefix(key, "main/") {
+			continue
+		}
+		blocks[key] = rowStart + part
+	}
+	return blocks
 }
 
 func TestDAGSkillPromptSeeds_AvoidDeadRoutingAndTemplatePlaceholders(t *testing.T) {

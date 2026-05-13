@@ -166,20 +166,21 @@ func TestStoreGetUpsertDeleteAndInsertVersion(t *testing.T) {
 				promptKey := arg.PromptKey
 				capturedKey = promptKey
 				return sqlc.GetPromptTemplateRow{
-					ID:          7,
-					PromptKey:   promptKey,
-					Title:       "Scoped Prompt",
-					AgentKey:    "main",
-					ToolName:    "tool",
-					PromptText:  "body",
-					Variables:   []byte(`{"lang":"go"}`),
-					Tags:        []byte(`{"unexpected":true}`),
-					Description: "desc",
-					Enabled:     true,
-					CreatedBy:   "creator",
-					UpdatedBy:   "editor",
-					CreatedAt:   now,
-					UpdatedAt:   now,
+					ID:             7,
+					PromptKey:      promptKey,
+					Title:          "Scoped Prompt",
+					AgentKey:       "main",
+					ToolName:       "tool",
+					PromptText:     "body",
+					Variables:      []byte(`{"lang":"go"}`),
+					Tags:           []byte(`{"unexpected":true}`),
+					Description:    "desc",
+					Enabled:        true,
+					ManuallyEdited: true,
+					CreatedBy:      "creator",
+					UpdatedBy:      "editor",
+					CreatedAt:      now,
+					UpdatedAt:      now,
 				}, nil
 			},
 		}}
@@ -191,7 +192,7 @@ func TestStoreGetUpsertDeleteAndInsertVersion(t *testing.T) {
 		if capturedKey != "main/scoped" {
 			t.Fatalf("Get() prompt key = %q, want main/scoped", capturedKey)
 		}
-		if got == nil || got.ID != 7 || got.Title != "Scoped Prompt" || got.AgentKey != "main" {
+		if got == nil || got.ID != 7 || got.Title != "Scoped Prompt" || got.AgentKey != "main" || !got.ManuallyEdited {
 			t.Fatalf("Get() mapped row incorrectly: %+v", got)
 		}
 	})
@@ -202,36 +203,38 @@ func TestStoreGetUpsertDeleteAndInsertVersion(t *testing.T) {
 			upsertFn: func(_ context.Context, arg sqlc.UpsertPromptTemplateParams) (sqlc.UpsertPromptTemplateRow, error) {
 				captured = arg
 				return sqlc.UpsertPromptTemplateRow{
-					ID:          8,
-					PromptKey:   arg.PromptKey,
-					Title:       arg.Title,
-					AgentKey:    arg.AgentKey,
-					ToolName:    arg.ToolName,
-					PromptText:  arg.PromptText,
-					Variables:   arg.Column6,
-					Tags:        arg.Column7,
-					Description: arg.Description,
-					Enabled:     arg.Enabled,
-					CreatedBy:   arg.CreatedBy,
-					UpdatedBy:   arg.UpdatedBy,
-					CreatedAt:   now,
-					UpdatedAt:   now,
+					ID:             8,
+					PromptKey:      arg.PromptKey,
+					Title:          arg.Title,
+					AgentKey:       arg.AgentKey,
+					ToolName:       arg.ToolName,
+					PromptText:     arg.PromptText,
+					Variables:      arg.Column6,
+					Tags:           arg.Column7,
+					Description:    arg.Description,
+					Enabled:        arg.Enabled,
+					ManuallyEdited: arg.ManuallyEdited,
+					CreatedBy:      arg.CreatedBy,
+					UpdatedBy:      arg.UpdatedBy,
+					CreatedAt:      now,
+					UpdatedAt:      now,
 				}, nil
 			},
 		}}
 
 		got, err := s.Upsert(context.Background(), PromptTemplate{
-			PromptKey:   "main/scoped",
-			Title:       "Scoped Prompt",
-			AgentKey:    "main",
-			ToolName:    "tool",
-			PromptText:  "body",
-			Variables:   []byte(`{"lang":"go"}`),
-			Tags:        []byte(`["scope.cwd:/repo"]`),
-			Description: "desc",
-			Enabled:     true,
-			CreatedBy:   "creator",
-			UpdatedBy:   "editor",
+			PromptKey:      "main/scoped",
+			Title:          "Scoped Prompt",
+			AgentKey:       "main",
+			ToolName:       "tool",
+			PromptText:     "body",
+			Variables:      []byte(`{"lang":"go"}`),
+			Tags:           []byte(`["scope.cwd:/repo"]`),
+			Description:    "desc",
+			Enabled:        true,
+			ManuallyEdited: true,
+			CreatedBy:      "creator",
+			UpdatedBy:      "editor",
 		})
 		if err != nil {
 			t.Fatalf("Upsert() unexpected error: %v", err)
@@ -239,7 +242,10 @@ func TestStoreGetUpsertDeleteAndInsertVersion(t *testing.T) {
 		if captured.PromptKey != "main/scoped" || captured.Title != "Scoped Prompt" || captured.UpdatedBy != "editor" {
 			t.Fatalf("Upsert() forwarded wrong params: %+v", captured)
 		}
-		if got == nil || got.ID != 8 || string(got.Tags) != `["scope.cwd:/repo"]` {
+		if !captured.ManuallyEdited {
+			t.Fatalf("Upsert() manually_edited = false, want true")
+		}
+		if got == nil || got.ID != 8 || string(got.Tags) != `["scope.cwd:/repo"]` || !got.ManuallyEdited {
 			t.Fatalf("Upsert() mapped row incorrectly: %+v", got)
 		}
 	})
