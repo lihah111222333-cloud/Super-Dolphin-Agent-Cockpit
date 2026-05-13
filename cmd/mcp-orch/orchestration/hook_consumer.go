@@ -402,8 +402,9 @@ func (c *hookConsumer) runThreadStoppedDAGFallback(ctx context.Context, threadID
 			return
 		}
 		n := nodes[i]
-		// 应用层幂等：已 done/failed 跳过（§2.6 race C）。
-		if isTerminalNodeStatus(n.Status) {
+		// 应用层幂等：终态和 awaiting_verify 都不再抢占。awaiting_verify
+		// 表示 TurnCompleted 已 claim，sharedfile 物化可能仍在收尾。
+		if !isDAGFallbackFailEligibleStatus(n.Status) {
 			dagFallbackMetrics.IncIdempotentSkipped()
 			continue
 		}
@@ -421,6 +422,15 @@ func (c *hookConsumer) runThreadStoppedDAGFallback(ctx context.Context, threadID
 			c.logger.Warn("thread stopped fallback: fail node failed",
 				"dag_key", n.DagKey, "node_key", n.NodeKey, "error", failErr)
 		}
+	}
+}
+
+func isDAGFallbackFailEligibleStatus(status string) bool {
+	switch strings.TrimSpace(status) {
+	case "done", "failed", "cancelled", "skipped", "awaiting_verify":
+		return false
+	default:
+		return true
 	}
 }
 
@@ -456,9 +466,29 @@ func (c *hookConsumer) handleDAGTurnCompletedFromHook(ctx context.Context, ev tu
 
 func (c *hookConsumer) handleTurnInterrupted(ctx context.Context, ev turndto.TurnInterrupted) {
 	handleTurnInterruptedEvent(c.svc, c.logger, ev)
+	c.handleDAGTurnInterruptedFromHook(ctx, ev)
 	if c.notifyTap != nil {
 		c.notifyTap.OnTurnInterrupted(ctx, ev)
 	}
+}
+
+func (c *hookConsumer) handleDAGTurnInterruptedFromHook(ctx context.Context, ev turndto.TurnInterrupted) {
+	if c == nil {
+		return
+	}
+	deps := c.dagTurnCompletedDeps
+	if deps.LookupStore == nil || deps.FlowStore == nil {
+		return
+	}
+	reason := strings.TrimSpace(ev.Reason)
+	if reason == "" {
+		reason = "turn_interrupted"
+	}
+	handleDAGTurnCompleted(ctx, deps, c.logger, turndto.TurnCompleted{
+		TurnHeader: ev.TurnHeader,
+		Success:    false,
+		Reason:     reason,
+	})
 }
 
 func (c *hookConsumer) handleItemCompleted(ctx context.Context, ev turndto.ItemCompleted) {

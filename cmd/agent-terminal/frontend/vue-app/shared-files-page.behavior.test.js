@@ -65,4 +65,23 @@ describe('SharedFilesPage final output highlighting', () => {
     expect(apiMock.callAPI).toHaveBeenCalledWith('ui/memory/shared-file/get', { path: 'reports/daily-brief.pptx' });
     expect(vm.selectedFile.content).toBe('full content');
   });
+
+  it('counts only final output refs that are present in the current file list', async () => {
+    const props = reactive({
+      cwd: '/repo',
+      files: [{ path: 'scratch/intermediate.json', content: '{}' }],
+      finalOutputRefs: [{ path: 'reports/missing-final.pptx', runKey: 'run-1' }],
+    });
+
+    const vm = SharedFilesPage.setup(props, { emit: vi.fn() });
+
+    expect(vm.finalOutputCount.value).toBe(0);
+    expect(vm.isFinalOutputFile(props.files[0])).toBe(false);
+
+    vm.toggleFinalOnly();
+    await nextTick();
+
+    expect(vm.showFinalOnly.value).toBe(false);
+    expect(vm.filteredItems.value.map((item) => item.path)).toEqual(['scratch/intermediate.json']);
+  });
 });

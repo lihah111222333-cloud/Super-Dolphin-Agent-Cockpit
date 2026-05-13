@@ -122,6 +122,25 @@ func TestThreadStoppedDAGFallback_SkipsTerminalNode(t *testing.T) {
 	}
 }
 
+func TestThreadStoppedDAGFallback_SkipsAwaitingVerifyNode(t *testing.T) {
+	lookup := &fakeFallbackLookup{
+		nodes: []taskdag.Node{{DagKey: "dag-a", NodeKey: "node-1", Status: "awaiting_verify"}},
+	}
+	flow := &fakeFallbackFlow{}
+	hc := hookConsumerWithFallback(t, lookup, flow)
+
+	delta := fallbackMetricDelta(t, func() {
+		hc.runThreadStoppedDAGFallback(context.Background(), "thread-1")
+	})
+
+	if flow.failCalls.Load() != 0 {
+		t.Fatalf("expected 0 FailNode calls while output materialization may complete, got %d", flow.failCalls.Load())
+	}
+	if delta.IdempotentSkipped != 1 {
+		t.Fatalf("expected metric IdempotentSkipped=1, got %+v", delta)
+	}
+}
+
 // Case 3: 反查失败 — DB 错 → log warn + metric LookupFailed=1，不抛 error。
 func TestThreadStoppedDAGFallback_LookupFailedLogsAndContinues(t *testing.T) {
 	lookup := &fakeFallbackLookup{err: errors.New("db down")}

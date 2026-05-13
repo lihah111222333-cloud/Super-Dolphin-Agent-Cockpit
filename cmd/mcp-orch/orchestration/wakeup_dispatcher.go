@@ -13,6 +13,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	taskdag "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -310,6 +311,11 @@ func (d *WakeupDispatcher) handleClaimedViaRouter(ctx context.Context, w *taskda
 			if !d.markPermanentFail(ctx, w, fence, lastErr, synthErr) {
 				return
 			}
+			if w.AttemptCount >= 3 {
+				if alert, shouldAlert := recordDispatchRetryMetric(w, lastErr); shouldAlert {
+					d.emitDispatchRetryAlert(ctx, alert)
+				}
+			}
 			failFast := false
 			if policy, ok := d.resolveDAGRetryPolicy(ctx, w.DagKey, w.NodeKey); ok {
 				failFast = policy.FailFast
@@ -418,13 +424,23 @@ func (d *WakeupDispatcher) emitDispatchRetryAlert(ctx context.Context, alert Dis
 	if d == nil || d.retryAlertSink == nil {
 		return
 	}
-	if err := d.retryAlertSink.AlertDispatchRetry(ctx, alert); err != nil {
-		d.logger.Warn("wakeup dispatcher: retry alert enqueue failed",
-			"wakeup_id", alert.WakeupID,
-			"dag_key", alert.DagKey,
-			"node_key", alert.NodeKey,
-			"error", err)
+	sink := d.retryAlertSink
+	logger := d.logger
+	baseCtx := context.Background()
+	if ctx != nil {
+		baseCtx = context.WithoutCancel(ctx)
 	}
+	runtimesafe.SafeGo(baseCtx, logger, "wakeupDispatcher.retryAlert", func(runCtx context.Context) {
+		alertCtx, cancel := context.WithTimeout(runCtx, 5*time.Second)
+		defer cancel()
+		if err := sink.AlertDispatchRetry(alertCtx, alert); err != nil {
+			logger.Warn("wakeup dispatcher: retry alert enqueue failed",
+				"wakeup_id", alert.WakeupID,
+				"dag_key", alert.DagKey,
+				"node_key", alert.NodeKey,
+				"error", err)
+		}
+	})
 }
 
 // buildLaunchRequestFromWakeup 把 wakeup 行映射到 LaunchRequest。

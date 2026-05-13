@@ -320,6 +320,65 @@ func TestHookConsumerAfter_TurnCompletedAdvancesDAGNodeFromHook(t *testing.T) {
 	}
 }
 
+func TestHookConsumerAfter_TurnInterruptedAdvancesDAGNodeFromHook(t *testing.T) {
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
+	agent := addHookTestAgent(t, svc, "agent-1")
+	agent.state = agentdto.StateTurnRunning
+	agent.threadID = "thread-1"
+	agent.remoteThreadID = "thread-1"
+	agent.activeTurnID = "turn-1"
+
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey:   "dag-1",
+		NodeKey:  "node-1",
+		NodeType: "agent",
+		Status:   "running",
+		Config:   json.RawMessage(`{"exec":{"agent_key":"source_monitor"},"outputs":{"to_node_result":true}}`),
+	}}}
+	flow := &dagSubscriberFlowSpy{}
+	consumer := newHookConsumerInternal(
+		svc,
+		silentLogger(),
+		nil,
+		lookup,
+		flow,
+		withHookTurnCompletedDAGDeps(DAGSubscriberDeps{
+			LookupStore: lookup,
+			FlowStore:   flow,
+		}),
+	)
+	interrupted := turndto.TurnInterrupted{
+		TurnHeader: sharedto.TurnHeader{
+			AgentHeader: sharedto.AgentHeader{
+				ThreadHeader: sharedto.ThreadHeader{
+					EventHeader: sharedto.EventHeader{Timestamp: time.Unix(21, 0).UTC()},
+					ThreadID:    "thread-1",
+				},
+				AgentID: "agent-1",
+			},
+			TurnIDHeader: sharedto.TurnIDHeader{TurnID: "turn-1"},
+		},
+		Reason: "provider disconnected",
+	}
+	if _, err := consumer.After(context.Background(), hookPayload(t, hookTopicTurnFailed, hookRelayKindTurnInterrupted, interrupted)); err != nil {
+		t.Fatalf("After(turn interrupted) error = %v", err)
+	}
+
+	if lookup.lastThread != "thread-1" {
+		t.Fatalf("lookup thread = %q, want thread-1", lookup.lastThread)
+	}
+	if len(flow.failCalls) != 1 {
+		t.Fatalf("FailNode calls = %d, want 1", len(flow.failCalls))
+	}
+	got := flow.failCalls[0]
+	if got.DagKey != "dag-1" || got.NodeKey != "node-1" || got.Reason != "provider disconnected" {
+		t.Fatalf("FailNode input = %+v, want dag-1/node-1 provider disconnected", got)
+	}
+	if len(flow.completeCalls) != 0 {
+		t.Fatalf("CompleteNode calls = %d, want 0", len(flow.completeCalls))
+	}
+}
+
 func TestHookConsumerAfter_FinalAnswerItemPersistsReport(t *testing.T) {
 	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
 	agent := addHookTestAgent(t, svc, "agent-1")

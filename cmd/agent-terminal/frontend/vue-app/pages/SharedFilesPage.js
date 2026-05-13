@@ -83,9 +83,10 @@ function normalizeFinalOutputRefs(value) {
 
 function useFinalOutputMarkers(props) {
   const showFinalOnly = ref(false);
+  const currentFilePaths = computed(() => new Set(ensureArray(props.files).map((file) => (file?.path || '').toString().trim()).filter(Boolean)));
   const finalOutputRefByPath = computed(() => {
     const refs = normalizeFinalOutputRefs(props.finalOutputRefs);
-    return new Map(refs.map((ref) => [ref.path, ref]));
+    return new Map(refs.filter((ref) => currentFilePaths.value.has(ref.path)).map((ref) => [ref.path, ref]));
   });
   const finalOutputCount = computed(() => finalOutputRefByPath.value.size);
 
@@ -104,6 +105,10 @@ function useFinalOutputMarkers(props) {
   }
 
   function toggleFinalOnly() {
+    if (finalOutputCount.value === 0) {
+      showFinalOnly.value = false;
+      return;
+    }
     showFinalOnly.value = !showFinalOnly.value;
   }
 

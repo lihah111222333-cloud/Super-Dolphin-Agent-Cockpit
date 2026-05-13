@@ -370,7 +370,15 @@ def run(args):
             "idempotency_key": "m3-main-%s" % int(time.time()),
         })
         print("started main run:", json.dumps(started, ensure_ascii=False))
-        wait_for_dag(client, args.dag_key, args.timeout_sec, args.poll_sec, args.assignee, expect_failed=False)
+        wait_for_dag(
+            client,
+            args.dag_key,
+            args.timeout_sec,
+            args.poll_sec,
+            args.assignee,
+            expect_failed=False,
+            expected_node_keys=node_keys_from_ops(ops),
+        )
         if not args.skip_negative:
             run_negative_probe(client, args)
         check_metrics(args)
@@ -389,10 +397,26 @@ def run_negative_probe(client, args):
         "idempotency_key": "m3-negative-%s" % int(time.time()),
     })
     print("started negative run:", json.dumps(started, ensure_ascii=False))
-    wait_for_dag(client, neg_key, args.timeout_sec, args.poll_sec, args.assignee, expect_failed=True)
+    wait_for_dag(
+        client,
+        neg_key,
+        args.timeout_sec,
+        args.poll_sec,
+        args.assignee,
+        expect_failed=True,
+        expected_node_keys=node_keys_from_ops(ops),
+    )
 
 
-def wait_for_dag(client, dag_key, timeout_sec, poll_sec, assignee, expect_failed):
+def node_keys_from_ops(ops):
+    return [
+        op.get("node", {}).get("node_key")
+        for op in ops
+        if op.get("op") == "add_node" and op.get("node", {}).get("node_key")
+    ]
+
+
+def wait_for_dag(client, dag_key, timeout_sec, poll_sec, assignee, expect_failed, expected_node_keys=None):
     deadline = time.time() + timeout_sec
     last_counts = {}
     while time.time() < deadline:
@@ -401,7 +425,10 @@ def wait_for_dag(client, dag_key, timeout_sec, poll_sec, assignee, expect_failed
         dispatch_ready_nodes(client, dag_key, nodes, assignee)
         last_counts = count_statuses(nodes)
         print("poll %s: %s" % (dag_key, last_counts))
+        missing_nodes = missing_expected_node_keys(nodes, expected_node_keys)
         if nodes and all(n.get("status") in ("done", "failed") for n in nodes):
+            if missing_nodes:
+                raise MCPError("%s missing expected nodes before terminal success: %s" % (dag_key, ", ".join(missing_nodes)))
             failed = [n for n in nodes if n.get("status") == "failed"]
             if expect_failed and not failed:
                 raise MCPError("%s finished without expected validation failure" % dag_key)
@@ -412,6 +439,14 @@ def wait_for_dag(client, dag_key, timeout_sec, poll_sec, assignee, expect_failed
             return
         time.sleep(poll_sec)
     raise MCPError("timeout waiting for %s; last status counts=%s" % (dag_key, last_counts))
+
+
+def missing_expected_node_keys(nodes, expected_node_keys):
+    expected = sorted({key for key in (expected_node_keys or []) if key})
+    if not expected:
+        return []
+    seen = {n.get("node_key") for n in nodes}
+    return [key for key in expected if key not in seen]
 
 
 def count_statuses(nodes):
@@ -448,7 +483,7 @@ def assert_size_cap_failure(failed_nodes):
     if not target:
         raise MCPError("negative probe failed a different node: %s" % [n.get("node_key") for n in failed_nodes])
     reason = node_failure_reason(target)
-    markers = ("4KB", "ADR-006", "to_sharedfile", "size cap")
+    markers = ("4KB", "ADR-006", "size cap")
     if not any(marker in reason for marker in markers):
         raise MCPError("negative probe failure reason does not look like ADR-006 size-cap validation: %s" % reason)
 
@@ -637,8 +672,11 @@ def parse_args(argv):
     parser.add_argument("--skip-negative", action="store_true")
     parser.add_argument("--allow-missing-metrics", action="store_true")
     parser.add_argument("--metrics-family-only", action="store_true")
-    parser.add_argument("--require-metric-samples", action="store_true", help=argparse.SUPPRESS)
-    return parser.parse_args(argv)
+    parser.add_argument("--require-metric-samples", action="store_true", default=None, help=argparse.SUPPRESS)
+    args = parser.parse_args(argv)
+    if args.require_metric_samples is None:
+        args.require_metric_samples = not args.metrics_family_only
+    return args
 
 
 def main(argv):

@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -147,6 +148,24 @@ func TestListDAGRunsUsesOrchestration(t *testing.T) {
 	}
 }
 
+func TestListDAGRunsDefaultLimitMatchesOrchestration(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{
+		orchestration: &stubDashboardOrchestration{
+			listRunsResult: contract.ListRunsResponse{Runs: []contract.Run{}},
+		},
+	}
+
+	if _, err := svc.ListDAGRuns(context.Background(), "dag-1", 0); err != nil {
+		t.Fatalf("ListDAGRuns() error = %v", err)
+	}
+	stub := svc.orchestration.(*stubDashboardOrchestration)
+	if stub.listRunsRequest.Limit != 50 {
+		t.Fatalf("ListRuns() request limit = %d, want orchestration default 50", stub.listRunsRequest.Limit)
+	}
+}
+
 func TestListDAGRunsRequiresDAGKey(t *testing.T) {
 	t.Parallel()
 
@@ -161,10 +180,12 @@ type stubDashboardOrchestration struct {
 	snapshot        contract.AgentSnapshot
 	report          contract.AgentReportResult
 	listDAGsResult  []contract.DAGSummary
+	listDAGsErr     error
 	listDAGsFilter  contract.ListDAGsFilter
 	dagDetail       contract.DAGDetail
 	getDAGKey       string
 	listRunsResult  contract.ListRunsResponse
+	listRunsErr     error
 	listRunsRequest contract.ListRunsRequest
 }
 
@@ -235,6 +256,9 @@ func (s *stubDashboardOrchestration) GetDAG(_ context.Context, dagKey string) (c
 
 func (s *stubDashboardOrchestration) ListDAGs(_ context.Context, filter contract.ListDAGsFilter) ([]contract.DAGSummary, error) {
 	s.listDAGsFilter = filter
+	if s.listDAGsErr != nil {
+		return nil, s.listDAGsErr
+	}
 	return s.listDAGsResult, nil
 }
 
@@ -256,8 +280,13 @@ func (s *stubDashboardOrchestration) ApplyOps(context.Context, contract.ApplyOps
 
 func (s *stubDashboardOrchestration) ListRuns(_ context.Context, req contract.ListRunsRequest) (contract.ListRunsResponse, error) {
 	s.listRunsRequest = req
+	if s.listRunsErr != nil {
+		return contract.ListRunsResponse{}, s.listRunsErr
+	}
 	return s.listRunsResult, nil
 }
+
+var errDashboardStub = errors.New("dashboard stub error")
 
 func (s *stubDashboardOrchestration) DispatchNode(context.Context, contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error) {
 	return contract.DispatchNodeResponse{}, nil

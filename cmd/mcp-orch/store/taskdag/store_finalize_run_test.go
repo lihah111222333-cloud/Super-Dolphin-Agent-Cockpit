@@ -170,6 +170,48 @@ func TestCompleteNode_FinalNodeSharedfileRefPromotesRunFinalOutput(t *testing.T)
 	}
 }
 
+func TestCompleteNode_FinalNodeConfiguredSharedfilePromotesRunFinalOutput(t *testing.T) {
+	t.Parallel()
+
+	store, db, now := newTaskDAGTestStore()
+	seedDAG(t, db, now, []seedNode{
+		{key: "final-report", deps: nil, status: "running", agent: "agent-b"},
+	})
+	seedDAGMetadata(db, "dag-1", json.RawMessage(`{"final_node_key":"final-report"}`))
+	seedRun(db, "dag-1", "run-final-configured-file")
+
+	node := db.nodes[dagNodeKey("dag-1", "final-report")]
+	node.Config = json.RawMessage(`{
+		"exec":{"agent_key":"paper_summarizer"},
+		"outputs":{
+			"to_sharedfile":{"path":"reports/daily/final_report.pptx","lock_mode":"exclusive"},
+			"to_node_result":true
+		}
+	}`)
+	db.nodes[dagNodeKey("dag-1", "final-report")] = node
+
+	_, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
+		DagKey:  "dag-1",
+		NodeKey: "final-report",
+		Status:  "done",
+		Result:  json.RawMessage(`{"summary":"short node result"}`),
+	})
+	if err != nil {
+		t.Fatalf("complete final-report error = %v", err)
+	}
+
+	out := finalOutputByRunKey(t, db, "run-final-configured-file")
+	if out["kind"] != "file" || out["role"] != "final_output" || out["source_node_key"] != "final-report" {
+		t.Fatalf("final_output identity = %v, want file final-report", out)
+	}
+	if out["path"] != "reports/daily/final_report.pptx" {
+		t.Fatalf("final_output.path = %v", out["path"])
+	}
+	if _, ok := out["result"]; ok {
+		t.Fatalf("file final_output must not duplicate raw node result: %v", out)
+	}
+}
+
 func TestCompleteNode_FinalNodeJSONPromotesRunFinalOutput(t *testing.T) {
 	t.Parallel()
 

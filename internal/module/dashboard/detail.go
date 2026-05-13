@@ -66,7 +66,7 @@ func (s *service) ListDAGRuns(ctx context.Context, dagKey string, limit int32) (
 	if key == "" {
 		return nil, errors.New("dashboard: dag key is required")
 	}
-	limit = int32(util.ClampLimit(int(limit), 1, maxLogLimit, int(dashboardFinalOutputRunLimit)))
+	limit = int32(util.ClampLimit(int(limit), 1, maxLogLimit, 50))
 	resp, err := s.orchestration.ListRuns(ctx, contract.ListRunsRequest{
 		DagKey: key,
 		Limit:  limit,
