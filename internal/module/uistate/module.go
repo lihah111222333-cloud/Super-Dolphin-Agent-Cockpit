@@ -51,7 +51,16 @@ var Module = fx.Module("uistate",
 		fx.ParamTags("", "", "", "", `optional:"true"`, ""),
 	)),
 	fx.Provide(NewUIStateSubscribers),
+	fx.Invoke(registerInitialStateLifecycle),
 )
+
+func registerInitialStateLifecycle(lc fx.Lifecycle, svc *service) {
+	lc.Append(fx.Hook{
+		OnStart: func(ctx context.Context) error {
+			return svc.loadInitialState(ctx)
+		},
+	})
+}
 
 // bindingAdapter adapts binding.Store to the minimal bindingLookup interface.
 type bindingAdapter struct {

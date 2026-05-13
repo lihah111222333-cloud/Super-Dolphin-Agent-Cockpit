@@ -3,11 +3,14 @@ package config
 import (
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
+
+const defaultDatabaseURL = "postgres://postgres:123@127.0.0.1:5432/go_agent_v2?sslmode=disable"
 
 // Type aliases – canonical definitions live in contract.
 type (
@@ -18,11 +21,14 @@ type (
 )
 
 func New() *Config {
+	projectRoot := resolveProjectRoot()
+	loadDotEnv(projectRoot)
+
 	cfg := &Config{
-		DatabaseURL: envOr("DATABASE_URL", "postgres://postgres:123@127.0.0.1:5432/go_agent_v2?sslmode=disable"),
+		DatabaseURL: databaseURLFromEnv(defaultDatabaseURL),
 		RPCAddr:     envOrCompat("GO_AGENT_CTL_RPC_ADDR", "RPC_ADDR", "127.0.0.1:8090"),
 		LogLevel:    envOr("LOG_LEVEL", "info"),
-		ProjectRoot: resolveProjectRoot(),
+		ProjectRoot: projectRoot,
 		Skill: SkillConfig{
 			ProgressiveDisclosure: envBoolOr("SKILL_PROGRESSIVE_DISCLOSURE", false),
 			TokenBudget:           envPositiveIntOr("SKILL_TOKEN_BUDGET", 3000),
@@ -41,6 +47,57 @@ func New() *Config {
 	exportRPCAddrIfMissing(cfg.RPCAddr)
 	exportDatabaseURLIfMissing(cfg.DatabaseURL)
 	return cfg
+}
+
+func loadDotEnv(projectRoot string) {
+	path := filepath.Join(strings.TrimSpace(projectRoot), ".env")
+	if strings.TrimSpace(projectRoot) == "" {
+		return
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(content), "\n") {
+		key, value, ok := parseDotEnvLine(line)
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(os.Getenv(key)) != "" {
+			continue
+		}
+		_ = os.Setenv(key, value)
+	}
+}
+
+func parseDotEnvLine(line string) (string, string, bool) {
+	line = strings.TrimSpace(line)
+	if line == "" || strings.HasPrefix(line, "#") {
+		return "", "", false
+	}
+	line = strings.TrimPrefix(line, "export ")
+	key, value, ok := strings.Cut(line, "=")
+	if !ok {
+		return "", "", false
+	}
+	key = strings.TrimSpace(key)
+	if key == "" || strings.ContainsAny(key, " \t") {
+		return "", "", false
+	}
+	value = strings.TrimSpace(value)
+	value = strings.Trim(value, `"'`)
+	return key, value, true
+}
+
+func databaseURLFromEnv(fallback string) string {
+	if value := strings.TrimSpace(os.Getenv("DATABASE_URL")); value != "" {
+		return value
+	}
+	if value := strings.TrimSpace(os.Getenv("POSTGRES_CONNECTION_STRING")); value != "" {
+		log.Printf("config env POSTGRES_CONNECTION_STRING is deprecated; use DATABASE_URL instead")
+		return value
+	}
+	return fallback
 }
 
 // exportRPCAddrIfMissing sets GO_AGENT_CTL_RPC_ADDR in the process environment
