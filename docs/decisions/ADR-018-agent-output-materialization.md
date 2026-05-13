@@ -1,7 +1,7 @@
 # ADR-018：agent 节点真实输出物化（A2）
 
 > 状态：✅ Accepted | 日期：2026-05-13 | 决策者：Codex A2 implementation + reviewer 复核
-> 实装：`df3aac86`（feat(orch): materialize agent outputs on turn completion）
+> 实装：`3e70e468`（feat(orch): materialize agent outputs on turn completion）+ review-fix `02009e22`（fix(dag): fence output materialization races）
 >
 > 相关：ADR-015（provider `TurnCompleted.Result` 补完）/ ADR-016（spawned agent stop）/ ADR-017（DAG turn.completed subscriber）/ ADR-006（`node.result` 4KB cap）/ C-A 实施计划 §3.2。
 
@@ -19,11 +19,13 @@ A1 已负责 DAG agent 节点 lifecycle：订阅 `TurnCompleted`，反查 `spawn
 - **A2**：负责 agent 节点真实输出物化。输入来自 `TurnCompleted.Result`，配置来自 node `config.outputs`。
 - 不做 agent fast-path / self `task_update_node`；不把外部 webhook / command card 作为 agent outputs 路径；automation outputs 不纳入本 ADR。
 
-### 2.2 不新增 SQL / sqlc
+### 2.2 SQL / sqlc 范围
 
-A2 不新增 `MergeTaskDagNodeResult`，不改 sqlc。
+A2 不新增通用 `MergeTaskDagNodeResult`，也不新增 migration / schema column。
 
-落地复用现有 `CompleteNodeAndScheduleDownstream` 的 `result=jsonb` 更新路径：subscriber 在完成节点时一次性传入按 outputs 规则构造好的 result payload。这样保持 MVP 范围，避免再开 store/sqlc/migration 面。
+原始落地复用现有 `CompleteNodeAndScheduleDownstream` 的 `result=jsonb` 更新路径：subscriber 在完成节点时一次性传入按 outputs 规则构造好的 result payload。
+
+review-fix 后，sharedfile 路径新增一条窄 SQL/sqlc fence：`ClaimTaskDagNodeOutputMaterialization`。原因是 sharedfile 写入是 DB 外部副作用，必须先通过 `ready/running/awaiting_verify` 状态 fence claim 节点，再写 sharedfile，避免迟到 duplicate `turn.completed` 在 DB complete 被拒后仍写外部文件。`awaiting_verify` 允许“sharedfile 已写、CompleteNode 临时失败”后的重放恢复。
 
 ### 2.3 launch 成功不写 outputs
 
@@ -59,8 +61,8 @@ A2 不新增 `MergeTaskDagNodeResult`，不改 sqlc。
 
 - 不做 automation outputs 改造；
 - 不做历史 DAG / 已完成节点 backfill；
-- 不新增 `MergeTaskDagNodeResult` SQL；
-- 不改 sqlc；
+- 不新增通用 `MergeTaskDagNodeResult` SQL；
+- 不新增 migration / schema column；
 - 不做 agent fast-path / self `task_update_node`；
 - 不把 launch metadata 写成 outputs；
 - 不因 H12/H13 未完成而阻塞 A2。H12 claude long-result e2e 与 H13 A1 e2e/race 补测仍是非阻塞 follow-up。
@@ -74,8 +76,9 @@ A2 不新增 `MergeTaskDagNodeResult`，不改 sqlc。
 | `to_node_result` 超 4KB | 走 fail-node，reason 带 `validation:` / ADR-006 语义；不 fallback |
 | sharedfile writer 缺失 / 写失败 | 走 fail-node，reason 带 `infrastructure:` 语义 |
 | 同时配置 node.result + sharedfile | 两边都写；任一路失败按 reason 前缀暴露 validation/infrastructure 语义 |
+| duplicate / stale `turn.completed` | sharedfile 写入前先 claim；claim 被 terminal fence 拒绝时不写 sharedfile，不推进 CompleteNode |
 
-> 当前 `FailNodeAndCancelDownstream` 只接收 `Reason`，没有结构化 `FailureClass` 字段；A2 不扩 store 合同，避免为 MVP 引入额外 SQL/store 面。
+> 当前 `FailNodeAndCancelDownstream` 只接收 `Reason`，没有结构化 `FailureClass` 字段；A2 不扩失败合同。新增的 store 面仅限 sharedfile materialization claim fence，不承担通用 result merge / backfill。
 
 ## 4. 验收
 
@@ -92,7 +95,7 @@ A2 不新增 `MergeTaskDagNodeResult`，不改 sqlc。
 
 本 ADR 已随 A2 implementation 落地并升 Accepted：
 
-- 实装 commit：`df3aac86`；
-- 代码验证确认 `CompleteNodeAndScheduleDownstream` 的 result 参数可以承载 A2 MVP；
-- reviewer 复核确认无新增 SQL/sqlc、无 import cycle / fx 基础编译失败，sharedfile-only reference envelope 与文档一致；
+- 实装 commit：`3e70e468`；review-fix commit：`02009e22`；
+- 代码验证确认 `CompleteNodeAndScheduleDownstream` 的 result 参数可以承载 A2 MVP，sharedfile 外部副作用需要额外 claim fence；
+- reviewer 复核确认无 import cycle / fx 基础编译失败，sharedfile-only reference envelope、`awaiting_verify` replay 与文档一致；
 - 后续若要扩展结构化 FailureClass、automation outputs 或历史 backfill，另立任务，不回填到本 A2 MVP。

@@ -3,7 +3,7 @@
 > 日期：2026-05-12 | 范围：F1-followup-3 + F1.3-rework 合并 ticket
 > 前置：`docs/design/F1-lifecycle-audit-2026-05-12.md`（4 轮实证 + 跨 4 层缺陷盘点）
 > 路径：**C 阶段（provider 层基础设施）→ A 阶段（DAG lifecycle 层）**
-> 总工程量预估（v2.7 A2 Accepted 同步）：情况 A **~3300-4080 行 / 5 ADR / 17-21 commit**；情况 B **~3530-4310 行 / 5 ADR / 19-23 commit**（详 §9 工程量盘点）
+> 总工程量预估（v2.8 A2 review-fix 同步）：情况 A **~3730-4600 行 / 5 ADR / 18-22 commit**；情况 B **~3960-4830 行 / 5 ADR / 20-24 commit**（详 §9 工程量盘点）
 
 ---
 
@@ -20,7 +20,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 | ADR-015 v1（thread.stopped-driven） | ❌ 推翻：ev.Reason 字符串语义模糊，user_stop / crashed 不分 |
 | ADR-015 v2（双驱动 + fast-path）| ❌ 推翻：fast-path 物理基础不存在（dag_key/node_key 没注入 prompt）+ 双链路理解错（event_relay 桥）|
 | ADR-015 v3（turn.completed-driven）+ ADR-016 | ❌ 删除：ev.Result 在 codex 侧不发，4 轮实证证伪 |
-| **C-A**（本计划） | ✅ 采纳；C1/C2/C3/A1/A2 全部落地（commit `f923ebd7`/`cddb3ea2`/`00864aa7`/`df3aac86` 升 ADR 状态），下一站 Phase 4 dogfood |
+| **C-A**（本计划） | ✅ 采纳；C1/C2/C3/A1/A2 全部落地（commit `f923ebd7`/`cddb3ea2`/`00864aa7`/`3e70e468` + A2 review-fix `02009e22` 升 ADR 状态），下一站 Phase 4 dogfood |
 
 ---
 
@@ -32,10 +32,10 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 | **C2**：claude provider 长内容完整性核验 + 必要补完 | provider 层 | ADR-X1（共享）| `internal/provider/claudecli/event_map.go` + 端到端测 | ~150-200 行（情况 B；情况 A 仅 0 行）+ ~80-120 行 e2e 基础设施前置 |
 | **C3**：codex/claude spawned agent 自动 stop | service 层 | ADR-016 v1.2 | 拆 stop_helper.go（方案 P1 已采纳；3 commit：sentinel / stop_helper+单测 / metric+e2e）| ~550-700 行（v1.2 reviewer 三审修订）|
 | **A1**：DAG subscriber 订阅 TurnCompleted 推进 lifecycle | DAG 层 | ADR-017 v1.1 | `dag_turn_completed_subscriber.go` + `hook_consumer.go` fallback（移出 withAgentLocked）+ 扩 SQL 白名单（CompleteTaskDagNode）+ dispatchAgent ready→running（用 UpdateRunningTaskDagNodeStatus）| ~1790-2270 行（v2.5 reviewer 二审修订；4 处 P0 设计层修正 + 工程量上调 360%）|
-| ~~**A2**~~ ✅ done：F1.3 outputs 重做（真实输出物化）| DAG 层 | ADR-018 Accepted（`df3aac86`） | `executor_agent.go` + A1 subscriber outputs 落地；复用 `CompleteNodeAndScheduleDownstream` 的 result 更新，不新增 SQL/sqlc | ~200-260 行 |
+| ~~**A2**~~ ✅ done：F1.3 outputs 重做（真实输出物化）| DAG 层 | ADR-018 Accepted（`3e70e468` + review-fix `02009e22`） | `executor_agent.go` + A1 subscriber outputs 落地；复用 `CompleteNodeAndScheduleDownstream` 的 result 更新，sharedfile 路径加 `ClaimTaskDagNodeOutputMaterialization` fence | ~680-780 行（含 review-fix） |
 | Phase 4 dogfood | 验收 | — | 10 节点 DAG 端到端 | ~80 行 |
 
-**总计**（v2.7 A2 Accepted 同步）：情况 A **~3300-4080 行 / 5 ADR / 17-21 commit**；情况 B **~3530-4310 行 / 5 ADR / 19-23 commit**（详 §9 工程量盘点）。
+**总计**（v2.8 A2 review-fix 同步）：情况 A **~3730-4600 行 / 5 ADR / 18-22 commit**；情况 B **~3960-4830 行 / 5 ADR / 20-24 commit**（详 §9 工程量盘点）。
 
 ---
 
@@ -203,7 +203,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 **前置**：A1 subscriber 框架就绪
 
 **核心**：
-1. **不新增 SQL / sqlc**：不做 `MergeTaskDagNodeResult`，不改 `sqlc.yaml` 或生成代码；复用 A1 已调用的 `CompleteNodeAndScheduleDownstream` result 更新路径。
+1. **SQL / sqlc 范围收敛**：不做通用 `MergeTaskDagNodeResult`，不新增 migration / schema column；node.result 复用 A1 已调用的 `CompleteNodeAndScheduleDownstream` result 更新路径，sharedfile 路径因外部副作用新增窄 `ClaimTaskDagNodeOutputMaterialization` fence。
 2. **launch 阶段改动**（`executor_agent.go finalizeAgentOutcome`）：
    - launch 成功不再把 `{thread_id, agent_key}` 等 launch metadata 作为 outputs 写入 `sharedfile` / `node.result`
    - traceability 继续走既有 `spawning_thread_id`，不把 handshake 当下游业务输出
@@ -223,7 +223,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 
 **明确不做**：automation outputs 改造、agent fast-path/self `task_update_node`、历史 backfill、`outputs.to_node_result` bool 升对象、H12/H13 补测阻塞 A2。
 
-**工程量**：~200-260 行（executor 移除 launch-time outputs + subscriber 物化 + sharedfile 端口接入 + 单测改写；不含 SQL/sqlc）。
+**工程量**：原始 A2 ~200-260 行（executor 移除 launch-time outputs + subscriber 物化 + sharedfile 端口接入 + 单测改写）；review-fix 为 sharedfile materialization claim fence 追加 `02009e22`（482 insertions / 48 deletions）。
 
 ---
 
@@ -234,7 +234,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 | **ADR-015 v4.1**（复用编号） | provider 层 TurnCompleted.Result 补完（codex + claude）| C1 + C2 | ✅ Accepted（`f923ebd7`）|
 | **ADR-016 v1.2** | codex/claude spawned agent 自动 stop | C3 | ✅ Accepted（`cddb3ea2`）|
 | **ADR-017 v1.2** | DAG turn.completed subscriber + thread.stopped fallback | A1 | ✅ Accepted（`00864aa7`）|
-| **ADR-018** | F1.3 outputs 重做（agent 真实输出物化）| A2 | ✅ Accepted（`df3aac86`） |
+| **ADR-018** | F1.3 outputs 重做（agent 真实输出物化）| A2 | ✅ Accepted（`3e70e468` + review-fix `02009e22`） |
 | **ADR-006** | to_node_result 4KB cap + bool 字段形态 | A2 同步 | ✅ 沿用现行 Accepted 决议；不升对象，不做 fallback |
 
 > 编号说明：ADR-015 / ADR-016 之前的内容已删，编号回收复用。
@@ -306,7 +306,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 1. **C1 方案 C1-a buffer 内存上限**：单 turn 真有大回复（>4KB）时累加器策略未定 — ADR-X1 拍板
 2. **claude CLI 长内容截断**：C2 实测可能揭示需要补 provider 层（情况 B 增 ~100 行）
 3. **C3 stop API race**：subscriber 推 done 与 service.Stop 之间的事务边界 — ADR-016 拍板
-4. **A2 sharedfile 端口接入**：已由 `DAGSubscriberDeps.SharedFileWriter optional` + 现有 sharedfile adapter 接入（`df3aac86`）；缺 writer / 写失败走 fail-node reason 前缀，不扩大 SQL/sqlc 改造
+4. **A2 sharedfile 端口接入 + fence**：已由 `DAGSubscriberDeps.SharedFileWriter optional` + 现有 sharedfile adapter 接入（`3e70e468`）；review-fix `02009e22` 在 sharedfile 写入前增加 DB claim fence，缺 writer / 写失败走 fail-node reason 前缀
 
 ### 7.2 未解问题
 1. **F2.2 automation outputs 是否同步改造**：当前 automation 是 Execute 同步写 outputs；ADR-018 明确 A2 不改 automation，后续如需统一另立任务
@@ -336,7 +336,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 
 ### Phase 3：立 ADR-018 + W-A2 落地
 
-ADR-018 已升 Accepted（`df3aac86`）；A2 outputs 重做已落地并通过 reviewer 复核。
+ADR-018 已升 Accepted（`3e70e468` + review-fix `02009e22`）；A2 outputs 重做已落地并通过 reviewer 复核。
 
 ### Phase 4：端到端 dogfood
 
@@ -353,10 +353,10 @@ ADR-018 已升 Accepted（`df3aac86`）；A2 outputs 重做已落地并通过 re
 | C2 e2e 基础设施前置 | ~80-120 行（若需要新建） | — | 1 | C2 起步前置 |
 | C3 | ~550-700 行（含 threadID→agentID 反查 + errAgentNotRunning sentinel + 6 种错误分类（含 is stopping）+ metric 从零自建 collector + 9 case 单测 + 2 节点 DAG e2e + fx wiring + ADR-017 接口适配）| 1 | 3 | 方案 P1 拆 stop_helper.go 与 A1 并行 |
 | A1 | ~1790-2270 行（含 subscriber + fallback 锁外 + dispatchAgent 用 UpdateRunningTaskDagNodeStatus + 9 case subscriber 单测 + 5 case handleStopped 单测 + 2 节点 DAG e2e + metric + 扩白名单 SQL + sqlc 手维；v2.5 reviewer 4 处 P0 设计层修正）| 1 | 6 | 单 worker |
-| A2 | ~200-260 行（复用 `CompleteNodeAndScheduleDownstream` result 更新；不新增 SQL/sqlc，不修订 ADR-006） | 1 | 1（`df3aac86`） | 单 worker |
+| A2 | ~680-780 行（复用 `CompleteNodeAndScheduleDownstream` result 更新；sharedfile materialization claim fence；不新增 migration，不修订 ADR-006） | 1 | 2（`3e70e468` + `02009e22`） | 单 worker |
 | Phase 4 dogfood | ~80 行（10 节点 DAG 验收脚本） | — | 1 | 单 worker |
-| **合计**（情况 A）| **~3300-4080 行** | **5 份** | **17-21 commit** | 跨 4 层 |
-| **合计**（情况 B）| **~3530-4310 行** | **5 份** | **19-23 commit** | 跨 4 层 |
+| **合计**（情况 A）| **~3730-4600 行** | **5 份** | **18-22 commit** | 跨 4 层 |
+| **合计**（情况 B）| **~3960-4830 行** | **5 份** | **20-24 commit** | 跨 4 层 |
 
 > **2026-05-12 reviewer 修订**：初稿估算 ~1050-1150 行 / 7-11 commit。reviewer 指出 F1.x 历史每次估算偏低 30%（F1.5/F1.3 类似规模都超 500 行）。修订后 ~1530-1620 行 / 9-13 commit 更稳。
 >
@@ -368,9 +368,11 @@ ADR-018 已升 Accepted（`df3aac86`）；A2 outputs 重做已落地并通过 re
 >
 > **2026-05-12 v2.4 ADR-016 v1.2 reviewer 三审修订**：v1.1 → v1.2 二审 reviewer C2 揭出**跨文档工程量数字漂移在 v2.3 又复发**（v2.1 修过一次的 BUG），4 处必修：C-A line 6 文首 + line 305 §6.3 + line 143 §2.3 + 主实施计划 line 237 F1.3 cell。同时 reviewer B2 揭出 v1.1 工程量仍偏低 30%（单测应 9 case 全覆盖 + metric 零基建从零自建 collector + fx wiring + ADR-017 接口适配遗漏项）。C3 ~450-550 → ~550-700 行 / 3 commit（v1.1 拆 2 commit 单 commit 440+ 行违反 prefer-small-commits）。情况 A 合计 ~2160-2400 / 12-17 commit；情况 B 合计 ~2390-2630 / 14-19 commit。**根因预防**：本次同 PR 新增 §11 "跨文档同步 must-check 清单"，固化避免漂移反复复发。
 >
-> **2026-05-13 v2.6 ADR-018 初稿同步**：A2 改为最小 MVP：不新增 `MergeTaskDagNodeResult`，不改 sqlc，复用 `CompleteNodeAndScheduleDownstream` 的 result 更新；ADR-006 沿用 bool + 4KB validation failure，不升对象、不 fallback。A2 ~350 → ~200-260 行；情况 A 合计 ~3300-4080 / 18-23 commit；情况 B 合计 ~3530-4310 / 20-25 commit。
+> **2026-05-13 v2.6 ADR-018 初稿同步**：A2 改为最小 MVP：不新增 `MergeTaskDagNodeResult`，不改 sqlc，复用 `CompleteNodeAndScheduleDownstream` 的 result 更新；ADR-006 沿用 bool + 4KB validation failure，不升对象、不 fallback。A2 ~350 → ~200-260 行；情况 A 合计 ~3300-4080 / 18-23 commit；情况 B 合计 ~3530-4310 / 20-25 commit。（v2.8 已因 sharedfile 外部副作用补充 claim fence 例外。）
 >
-> **2026-05-13 v2.7 A2 Accepted 同步**：A2 实装 commit `df3aac86`，ADR-018 升 Accepted；实际未新增 SQL/sqlc，单 commit 完成实现 + ADR 初稿。commit 估算下调：情况 A 17-21，情况 B 19-23。
+> **2026-05-13 v2.7 A2 Accepted 同步**：A2 实装 commit `3e70e468`，ADR-018 升 Accepted；当时口径为实际未新增 SQL/sqlc，单 commit 完成实现 + ADR 初稿。commit 估算下调：情况 A 17-21，情况 B 19-23。（v2.8 已修订为窄 claim fence。）
+>
+> **2026-05-13 v2.8 A2 review-fix 同步**：review-fix `02009e22` 揭示 sharedfile 写入是 DB 外部副作用，A2 最终新增窄 `ClaimTaskDagNodeOutputMaterialization` SQL/sqlc fence；ADR-018 从“完全不改 SQL/sqlc”修订为“不新增通用 merge/backfill/migration，只加 sharedfile materialization claim fence”。commit 估算上调：情况 A 18-22，情况 B 20-24。
 
 **关键里程碑**：阶段 C 完成 → DAG layer 改造工程量大幅降低（A 阶段不再需要订阅 TurnOutputDelta 自带累加器，节省 ~200 行）。
 
@@ -486,7 +488,8 @@ ADR-018 已升 Accepted（`df3aac86`）；A2 outputs 重做已落地并通过 re
 | v2.5 修订（ADR-017 v1.1 同步）| 4 处 P0 设计层错误（SQL 选型 / fx ctx / 锁内 DB / 漏 race Window）+ 6 处 ADR-X3 残留 + 工程量 290% 上调 | 4+6 = 10 | §11.1 模板必须扩展到每个新 ADR 阶段 |
 | **v2.5 → v2.5'（ADR-017 v1.2 反思）** | **§11 checklist 生效但 ADR-017 自身 §4.2 同步段又漂移**（v1 → v1.1 升级时 §4 升了但 §4.2 stale 数据未升）+ ADR 内部矛盾（§2.5 锁外 vs §3.4 锁内） | 5 处 stale 同步 + 1 处内部矛盾 | **真根因揭露：§11 checklist 缺自动化载体，仅靠人工自律不可持续** |
 | v2.6 修订（ADR-018 初稿同步）| A2 从 jsonb merge SQL/sqlc 扩面收敛为复用 `CompleteNodeAndScheduleDownstream` result 更新；同步 F1.3/F7.3 依赖口径 | 15 个同步点初稿建账 | A2 MVP 决策必须把"不做"写清，否则很容易回到 SQL/sqlc 扩面 |
-| v2.7 修订（A2 Accepted 同步）| ADR-018 升 Accepted + A2 hash `df3aac86` 回填；README 从 Proposed 挪到 Accepted | 15 个同步点闭账 | 先实现 commit，再做 hash 回填 commit，避免自引用 hash |
+| v2.7 修订（A2 Accepted 同步）| ADR-018 升 Accepted + A2 hash `3e70e468` 回填；README 从 Proposed 挪到 Accepted | 15 个同步点闭账 | 先实现 commit，再做 hash 回填 commit，避免自引用 hash |
+| v2.8 修订（A2 review-fix 同步）| review-fix `02009e22` 新增 sharedfile materialization claim fence 后，ADR-018 / C-A / 主计划仍残留“无 SQL/sqlc”口径 | 3 组同步点 | 外部副作用 race 修复会改变原 ADR 的 scope 事实，review-fix 后必须回写 ADR/计划 |
 
 五 + 一轮反复证明：**无 checklist = 漂移必复发**。**v2.5 元规则强化**：每个新 ADR 阶段（A1/A2/...）落地必须扩 §11.1 对应模板段。
 
@@ -505,14 +508,18 @@ ADR-018 已升 Accepted（`df3aac86`）；A2 outputs 重做已落地并通过 re
 
 - 2026-05-13 v2.6（同步 ADR-018 初稿）：
   - **ADR-X5 实化为 ADR-018**：新增 Proposed ADR，明确 A2 负责 agent 真实输出物化，A1 只负责 lifecycle/status/stop
-  - **A2 范围收敛**：不新增 `MergeTaskDagNodeResult`，不改 sqlc；复用 `CompleteNodeAndScheduleDownstream` 的 result 更新
+  - **A2 范围收敛（初稿口径）**：不新增 `MergeTaskDagNodeResult`，不改 sqlc；复用 `CompleteNodeAndScheduleDownstream` 的 result 更新（v2.8 已补 sharedfile fence 例外）
   - **ADR-006 沿用**：`outputs.to_node_result` 保持 bool；4KB cap 超限是 validation failure，不 fallback 到 sharedfile
   - **工程量同步**：A2 ~350 → ~200-260 行；总计情况 A ~3300-4080 / 18-23 commit，情况 B ~3530-4310 / 20-25 commit
   - **§11.1 新增 ADR-018 v1.x 修订检查清单**（15 个同步点），覆盖 C-A、主实施计划和 ADR README
 - 2026-05-13 v2.7（同步 A2 Accepted）：
-  - ADR-018 状态 Proposed → Accepted，实装 commit `df3aac86`
+  - ADR-018 状态 Proposed → Accepted，实装 commit `3e70e468`
   - C-A §1 / §4 / §9 与主实施计划 F1.3 行回填 A2 落地状态
-  - A2 实际 1 commit 完成，合计 commit 估算情况 A 18-23 → 17-21；情况 B 20-25 → 19-23
+  - A2 当时按 1 commit 完成记账，合计 commit 估算情况 A 18-23 → 17-21；情况 B 20-25 → 19-23（v2.8 已修订为 2 实现 commit）
+- 2026-05-13 v2.8（同步 A2 review-fix）：
+  - ADR-018 补记 review-fix `02009e22`，将“无 SQL/sqlc”修订为“仅新增 sharedfile materialization claim fence”
+  - C-A §1 / §3.2 / §4 / §7 / §9 与主实施计划 F1.3/F1.4 行回填最终 fence 事实
+  - A2 实际实现 commit 从 1 → 2，合计 commit 估算情况 A 17-21 → 18-22；情况 B 19-23 → 20-24
 - 2026-05-12 v2.5（同步 ADR-017 v1.1 reviewer 二审修订 + §11 新增 ADR-017 v1.x 修订模板）：
   - **跨文档 X3 占位清理**：全文 6 处 ADR-X3 → ADR-017
   - **§11.1 新增 ADR-017 v1.x 修订检查清单**（12 个同步点，含 §11.5 历史表）+ v2.5 元规则补充
