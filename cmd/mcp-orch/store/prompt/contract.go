@@ -17,20 +17,21 @@ type ListFilter struct {
 }
 
 type PromptTemplate struct {
-	ID          int64           `json:"id"`
-	PromptKey   string          `json:"prompt_key"`
-	Title       string          `json:"title"`
-	AgentKey    string          `json:"agent_key"`
-	ToolName    string          `json:"tool_name"`
-	PromptText  string          `json:"prompt_text"`
-	Variables   json.RawMessage `json:"variables"`
-	Tags        json.RawMessage `json:"tags"`
-	Enabled     bool            `json:"enabled"`
-	CreatedBy   string          `json:"created_by"`
-	UpdatedBy   string          `json:"updated_by"`
-	CreatedAt   time.Time       `json:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at"`
-	Description string          `json:"description"`
+	ID             int64           `json:"id"`
+	PromptKey      string          `json:"prompt_key"`
+	Title          string          `json:"title"`
+	AgentKey       string          `json:"agent_key"`
+	ToolName       string          `json:"tool_name"`
+	PromptText     string          `json:"prompt_text"`
+	Variables      json.RawMessage `json:"variables"`
+	Tags           json.RawMessage `json:"tags"`
+	Enabled        bool            `json:"enabled"`
+	ManuallyEdited bool            `json:"manually_edited"`
+	CreatedBy      string          `json:"created_by"`
+	UpdatedBy      string          `json:"updated_by"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
+	Description    string          `json:"description"`
 }
 
 type Store interface {
