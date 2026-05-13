@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/qmuntal/stateless"
 	"go.uber.org/fx"
 
@@ -64,6 +65,10 @@ type hookConsumer struct {
 	// 时 runThreadStoppedDAGFallback 直接 return，不影响现有 hook 语义。
 	dagFallbackLookup taskdag.NodeSpawningThreadLookup
 	dagFallbackFlow   taskdag.NodeFlowStore
+
+	// dagTurnCompletedDeps lets hook-delivered turn.completed events reuse
+	// the same DAG node completion path as the in-process bus subscriber.
+	dagTurnCompletedDeps DAGSubscriberDeps
 }
 
 type hookContextEnvelope struct {
@@ -103,10 +108,14 @@ type HookAfterHandlerParams struct {
 	fx.In
 
 	Service           *service
-	Logger            *slog.Logger                  `optional:"true"`
-	NotifyTap         NotifyTap                     `optional:"true"`
+	Logger            *slog.Logger                     `optional:"true"`
+	NotifyTap         NotifyTap                        `optional:"true"`
 	DAGFallbackLookup taskdag.NodeSpawningThreadLookup `optional:"true"`
-	DAGFallbackFlow   taskdag.NodeFlowStore         `optional:"true"`
+	DAGFallbackFlow   taskdag.NodeFlowStore            `optional:"true"`
+	AgentThreads      AgentThreadLookup                `optional:"true"`
+	SvcStopper        StopAgentService                 `optional:"true"`
+	SharedFileReader  nodeexec.SharedFileReader        `optional:"true"`
+	SharedFileWriter  nodeexec.SharedFileWriter        `optional:"true"`
 }
 
 // ProvideHookAfterHandler is the fx-facing constructor. It returns the
@@ -114,7 +123,29 @@ type HookAfterHandlerParams struct {
 // so the root assembly plumbs it straight into bootstrap.HookConfig.OnAfter
 // without typing on any orchestration subpackage interface.
 func ProvideHookAfterHandler(p HookAfterHandlerParams) contract.BootstrapHookAfterHandler {
-	return newHookConsumerInternal(p.Service, p.Logger, p.NotifyTap, p.DAGFallbackLookup, p.DAGFallbackFlow).After
+	return newHookConsumerInternal(
+		p.Service,
+		p.Logger,
+		p.NotifyTap,
+		p.DAGFallbackLookup,
+		p.DAGFallbackFlow,
+		withHookTurnCompletedDAGDeps(DAGSubscriberDeps{
+			LookupStore:      p.DAGFallbackLookup,
+			FlowStore:        p.DAGFallbackFlow,
+			AgentThreads:     p.AgentThreads,
+			SvcStopper:       p.SvcStopper,
+			SharedFileReader: p.SharedFileReader,
+			SharedFileWriter: p.SharedFileWriter,
+		}),
+	).After
+}
+
+type hookConsumerOption func(*hookConsumer)
+
+func withHookTurnCompletedDAGDeps(deps DAGSubscriberDeps) hookConsumerOption {
+	return func(c *hookConsumer) {
+		c.dagTurnCompletedDeps = deps
+	}
 }
 
 func newHookConsumerInternal(
@@ -123,14 +154,21 @@ func newHookConsumerInternal(
 	tap NotifyTap,
 	fallbackLookup taskdag.NodeSpawningThreadLookup,
 	fallbackFlow taskdag.NodeFlowStore,
+	opts ...hookConsumerOption,
 ) *hookConsumer {
-	return &hookConsumer{
+	c := &hookConsumer{
 		svc:               svc,
 		logger:            loggerOrDefault(logger),
 		notifyTap:         tap,
 		dagFallbackLookup: fallbackLookup,
 		dagFallbackFlow:   fallbackFlow,
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(c)
+		}
+	}
+	return c
 }
 
 func (c *hookConsumer) After(ctx context.Context, payload mcp.HookPayload) (mcp.AfterDecision, error) {
@@ -399,9 +437,21 @@ func (c *hookConsumer) handleTurnCompleted(ctx context.Context, ev turndto.TurnC
 	})
 	c.logUnexpectedHookError("turn completed report", ev.AgentID, ev.ThreadID, err)
 	handleTurnCompletedEvent(c.svc, c.logger, ev)
+	c.handleDAGTurnCompletedFromHook(ctx, ev)
 	if c.notifyTap != nil {
 		c.notifyTap.OnTurnCompleted(ctx, ev)
 	}
+}
+
+func (c *hookConsumer) handleDAGTurnCompletedFromHook(ctx context.Context, ev turndto.TurnCompleted) {
+	if c == nil {
+		return
+	}
+	deps := c.dagTurnCompletedDeps
+	if deps.LookupStore == nil || deps.FlowStore == nil {
+		return
+	}
+	handleDAGTurnCompleted(ctx, deps, c.logger, ev)
 }
 
 func (c *hookConsumer) handleTurnInterrupted(ctx context.Context, ev turndto.TurnInterrupted) {
