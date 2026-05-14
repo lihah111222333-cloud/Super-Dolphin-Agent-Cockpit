@@ -139,10 +139,13 @@ func (h *Handler) resolveAndWarnCurrentToolCallCWD(ctx context.Context, req Tool
 }
 
 func shouldWarnToolCWDTrace(toolName string) bool {
-	toolName = strings.TrimSpace(toolName)
-	return strings.HasPrefix(toolName, "lsp_") ||
-		strings.HasPrefix(toolName, "code_") ||
-		toolName == "orchestration_launch_agent"
+	trimmed := strings.TrimSpace(toolName)
+	switch canonicalToolName(trimmed) {
+	case "file", "grep", "inspect", "xref", "structure", "edit", "completion", "code_run", "code_run_test", "orchestration_launch_agent":
+		return true
+	default:
+		return strings.HasPrefix(trimmed, "lsp_")
+	}
 }
 
 func (h *Handler) warnPeerToolCWDTrace(ctx context.Context, req ToolCallRequest, forwardedCWD string) {

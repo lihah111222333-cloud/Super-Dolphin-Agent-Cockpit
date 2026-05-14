@@ -26,9 +26,9 @@ import (
 //	{"tags_has":"refactor"}     → case-insensitive substring in userPrompt
 //	{"tags_has":["rename","trace","impact"]}
 //	                            → OR across the array; any substring hit passes
-//	{"enabled_tools_has":"lsp_grep"}
+//	{"enabled_tools_has":"grep"}
 //	                            → BuildCtx.EnabledTools contains this short tool name
-//	{"enabled_tools_has":["lsp_grep","lsp_xref"]}
+//	{"enabled_tools_has":["grep","xref"]}
 //	                            → OR across the array; any match passes
 //
 // Step 3b kept the DSL deliberately tiny; tags_has and enabled_tools_has are
@@ -79,8 +79,9 @@ func sectionEnableKeyMatches(key string, want any, buildCtx contract.BuildCtx, u
 
 // matchEnabledToolsHas implements enabled_tools_has for section-level
 // enable_when: string value matches one tool; array value is OR across each
-// string element. Comparison is exact (case-sensitive) against the short tool
-// names in BuildCtx.EnabledTools (e.g. "lsp_grep", "code_run").
+// string element. Comparison is exact (case-sensitive) against canonical short
+// tool names in BuildCtx.EnabledTools (e.g. "grep", "code_run"). Legacy
+// "lsp_*" names are accepted as aliases during the tool rename migration.
 func matchEnabledToolsHas(want any, enabled []string) bool {
 	if len(enabled) == 0 {
 		return false
@@ -108,12 +109,60 @@ func containsExact(values []string, want string) bool {
 	if want == "" {
 		return false
 	}
+	want = canonicalPromptToolName(want)
 	for _, v := range values {
-		if v == want {
+		if canonicalPromptToolName(v) == want {
 			return true
 		}
 	}
 	return false
+}
+
+func canonicalPromptToolName(name string) string {
+	switch strings.TrimSpace(name) {
+	case "lsp_file":
+		return "file"
+	case "lsp_grep":
+		return "grep"
+	case "lsp_inspect":
+		return "inspect"
+	case "lsp_xref":
+		return "xref"
+	case "lsp_structure":
+		return "structure"
+	case "lsp_edit":
+		return "edit"
+	case "lsp_completion":
+		return "completion"
+	default:
+		return strings.TrimSpace(name)
+	}
+}
+
+func canonicalPromptLSPTools(values []string) []string {
+	tools := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range sortedPromptValues(values) {
+		tool := canonicalPromptToolName(value)
+		if !isPromptLSPToolName(tool) {
+			continue
+		}
+		if _, ok := seen[tool]; ok {
+			continue
+		}
+		seen[tool] = struct{}{}
+		tools = append(tools, tool)
+	}
+	return tools
+}
+
+func isPromptLSPToolName(name string) bool {
+	switch strings.TrimSpace(name) {
+	case "file", "grep", "inspect", "xref", "structure", "edit", "completion":
+		return true
+	default:
+		return false
+	}
 }
 
 // matchSectionTagsHas implements tags_has for section-level enable_when:

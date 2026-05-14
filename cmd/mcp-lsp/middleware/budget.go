@@ -8,15 +8,15 @@ import (
 const defaultOutputBudget = 64 * 1024
 
 var defaultToolBudgets = map[string]int{
-	"lsp_grep":       24 * 1024,
-	"lsp_file":       16 * 1024,
-	"lsp_inspect":    8 * 1024,
-	"lsp_xref":       16 * 1024,
-	"lsp_structure":  16 * 1024,
-	"lsp_edit":       16 * 1024,
-	"lsp_completion": 16 * 1024,
-	"code_run":       32 * 1024,
-	"code_run_test":  32 * 1024,
+	"grep":          24 * 1024,
+	"file":          16 * 1024,
+	"inspect":       8 * 1024,
+	"xref":          16 * 1024,
+	"structure":     16 * 1024,
+	"edit":          16 * 1024,
+	"completion":    16 * 1024,
+	"code_run":      32 * 1024,
+	"code_run_test": 32 * 1024,
 }
 
 type Budget struct {
@@ -73,7 +73,7 @@ func overflowEnvelope(toolName string, value any, maxBytes int) map[string]any {
 
 func structuredOverflow(toolName string, payload map[string]any, actualBytes, budgetBytes int) map[string]any {
 	switch toolName {
-	case "lsp_edit":
+	case "edit":
 		return editOverflowEnvelope(toolName, payload, actualBytes, budgetBytes)
 	default:
 		hint := lookupHint(toolName)

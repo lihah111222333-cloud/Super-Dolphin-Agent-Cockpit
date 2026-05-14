@@ -18,7 +18,7 @@ type completionParams struct {
 }
 
 func NewCompletionHandler(registry lspmanager.Registry) ToolHandler {
-	return newManagerTool("lsp_completion", middleware.TierFast, registry, decodeStrict, func(ctx context.Context, registry lspmanager.Registry, req completionParams) (any, error) {
+	return newManagerTool("completion", middleware.TierFast, registry, decodeStrict, func(ctx context.Context, registry lspmanager.Registry, req completionParams) (any, error) {
 		manager, err := registry.GetManagerForFile(ctx, req.FilePath)
 		if err != nil {
 			return nil, err

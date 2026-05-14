@@ -4,13 +4,13 @@ import { computed, ref } from '../../lib/vue.esm-browser.prod.js';
 // 早期按 LSP 协议方法逐个导出（lsp_hover / lsp_definition / ...）已合并成
 // 这 7 条；前端按 normalizeToolName 后的短名匹配。
 const LSP_TOOL_NAMES = [
-  'lsp_grep',
-  'lsp_file',
-  'lsp_inspect',
-  'lsp_xref',
-  'lsp_structure',
-  'lsp_edit',
-  'lsp_completion',
+  'grep',
+  'file',
+  'inspect',
+  'xref',
+  'structure',
+  'edit',
+  'completion',
 ];
 const JSON_RENDER_TOOL_NAMES = ['json_render'];
 const GO_RUN_TOOL_NAMES = ['go_run', 'code_run', 'code_run_test'];
@@ -40,13 +40,25 @@ function normalizeToolName(name) {
     .replace(/^tools_+/, '')
     .replace(/^tool_+/, '')
     // strip MCP namespace prefix (mcp__<server>__): runtime emits the full
-    // method name (e.g. mcp__lsp__lsp_grep), but our category lists use the
-    // short canonical names (lsp_grep). Without this strip every MCP-served
-    // tool falls into the catch-all 工具 bucket and category counts read 0.
+    // method name (e.g. mcp__lsp__grep), but our category lists use the
+    // short canonical names (grep). Without this strip every MCP-served tool
+    // falls into the catch-all 工具 bucket and category counts read 0.
     .replace(/^mcp_+[a-z0-9]+_+/, '')
     .replace(/_+/g, '_')
     .replace(/^_+|_+$/g, '');
-  return normalized;
+  return canonicalLspToolName(normalized);
+}
+
+function canonicalLspToolName(name) {
+  return ({
+    lsp_file: 'file',
+    lsp_grep: 'grep',
+    lsp_inspect: 'inspect',
+    lsp_xref: 'xref',
+    lsp_structure: 'structure',
+    lsp_edit: 'edit',
+    lsp_completion: 'completion',
+  })[name] || name;
 }
 
 /**

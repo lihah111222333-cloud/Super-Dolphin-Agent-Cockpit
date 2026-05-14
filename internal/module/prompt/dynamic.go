@@ -185,9 +185,19 @@ func sessionGuidanceExploreItem(enabled map[string]struct{}) string {
 
 func sessionGuidanceDirectedSearchTools(enabled map[string]struct{}) string {
 	tools := make([]string, 0, 3)
-	for _, name := range []string{"lsp_grep", "lsp_file", "lsp_inspect"} {
-		if sessionGuidanceToolEnabled(enabled, name) {
-			tools = append(tools, "`"+name+"`")
+	for _, entry := range []struct {
+		display string
+		aliases []string
+	}{
+		{display: "grep", aliases: []string{"grep", "lsp_grep"}},
+		{display: "file", aliases: []string{"file", "lsp_file"}},
+		{display: "inspect", aliases: []string{"inspect", "lsp_inspect"}},
+	} {
+		for _, name := range entry.aliases {
+			if sessionGuidanceToolEnabled(enabled, name) {
+				tools = append(tools, "`"+entry.display+"`")
+				break
+			}
 		}
 	}
 	switch len(tools) {

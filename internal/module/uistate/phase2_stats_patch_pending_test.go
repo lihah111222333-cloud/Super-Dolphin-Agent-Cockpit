@@ -81,18 +81,18 @@ func TestActivityStats_LSPToolIncrementsLSPCalls(t *testing.T) {
 	turnHeader := testTurnHeader(testAgentSessionHeader("thread-stats-lsp", "agent-1"), "turn-1")
 
 	svc.applyToolCallBegin(tooldto.ToolCallBegin{
-		ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-lsp-1", ToolName: "lsp_edit"},
+		ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-lsp-1", ToolName: "edit"},
 	})
 	svc.applyToolCallBegin(tooldto.ToolCallBegin{
-		ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-lsp-2", ToolName: "lsp_edit"},
+		ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-lsp-2", ToolName: "edit"},
 	})
 
 	stats := activityStatsForThread(t, svc, "thread-stats-lsp")
 	if stats.LSPCalls != 2 {
 		t.Fatalf("stats.LSPCalls = %d, want 2", stats.LSPCalls)
 	}
-	if got := stats.ToolCalls["lsp_edit"]; got != 2 {
-		t.Fatalf("stats.ToolCalls[lsp_edit] = %d, want 2", got)
+	if got := stats.ToolCalls["edit"]; got != 2 {
+		t.Fatalf("stats.ToolCalls[edit] = %d, want 2", got)
 	}
 }
 
@@ -105,10 +105,10 @@ func TestActivityStats_MCPNamespacedLSPToolIncrementsLSPCalls(t *testing.T) {
 	// Runtime-emitted ToolName is the full MCP method (mcp__<server>__<name>).
 	// LSPCalls must still recognize it as an LSP call after prefix stripping.
 	svc.applyToolCallBegin(tooldto.ToolCallBegin{
-		ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-mcp-lsp-1", ToolName: "mcp__lsp__lsp_grep"},
+		ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-mcp-lsp-1", ToolName: "mcp__lsp__grep"},
 	})
 	svc.applyToolCallBegin(tooldto.ToolCallBegin{
-		ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-mcp-lsp-2", ToolName: "mcp__lsp__lsp_xref"},
+		ToolCallHeader: sharedto.ToolCallHeader{TurnHeader: turnHeader, CallID: "call-mcp-lsp-2", ToolName: "mcp__lsp__xref"},
 	})
 
 	stats := activityStatsForThread(t, svc, "thread-stats-mcp-lsp")
@@ -116,11 +116,11 @@ func TestActivityStats_MCPNamespacedLSPToolIncrementsLSPCalls(t *testing.T) {
 		t.Fatalf("stats.LSPCalls = %d, want 2 (MCP-namespaced LSP tools should still count)", stats.LSPCalls)
 	}
 	// ToolCalls map preserves the original ev.ToolName key as the runtime sent it.
-	if got := stats.ToolCalls["mcp__lsp__lsp_grep"]; got != 1 {
-		t.Fatalf("stats.ToolCalls[mcp__lsp__lsp_grep] = %d, want 1", got)
+	if got := stats.ToolCalls["mcp__lsp__grep"]; got != 1 {
+		t.Fatalf("stats.ToolCalls[mcp__lsp__grep] = %d, want 1", got)
 	}
-	if got := stats.ToolCalls["mcp__lsp__lsp_xref"]; got != 1 {
-		t.Fatalf("stats.ToolCalls[mcp__lsp__lsp_xref] = %d, want 1", got)
+	if got := stats.ToolCalls["mcp__lsp__xref"]; got != 1 {
+		t.Fatalf("stats.ToolCalls[mcp__lsp__xref] = %d, want 1", got)
 	}
 }
 
@@ -153,15 +153,18 @@ func TestNormalizeToolName(t *testing.T) {
 	}{
 		{"empty", "", ""},
 		{"whitespace", "   \t\n", ""},
-		{"short bare name", "lsp_grep", "lsp_grep"},
-		{"short bare name uppercase", "LSP_GREP", "lsp_grep"},
-		{"mcp lsp namespaced", "mcp__lsp__lsp_grep", "lsp_grep"},
+		{"short bare name", "grep", "grep"},
+		{"legacy bare name", "lsp_grep", "grep"},
+		{"legacy bare name uppercase", "LSP_GREP", "grep"},
+		{"mcp lsp namespaced", "mcp__lsp__grep", "grep"},
+		{"legacy mcp lsp namespaced", "mcp__lsp__lsp_grep", "grep"},
 		{"mcp orch namespaced", "mcp__orch__orchestration_launch_agent", "orchestration_launch_agent"},
 		{"mcp playwright namespaced", "mcp__playwright__browser_click", "browser_click"},
 		{"mcp prefix without server", "mcp__", "mcp__"},
 		{"mcp prefix only", "mcp__lsp", "mcp__lsp"},
 		{"non-mcp keeps name", "shell_exec", "shell_exec"},
-		{"trims and lowercases", "  MCP__LSP__lsp_xref  ", "lsp_xref"},
+		{"trims and lowercases", "  MCP__LSP__xref  ", "xref"},
+		{"trims and lowercases legacy", "  MCP__LSP__lsp_xref  ", "xref"},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -185,7 +188,7 @@ func TestClassifyToolActivity_HandlesMCPNamespace(t *testing.T) {
 		{"bare collab tool", "orchestration_launch_agent", "collab"},
 		{"mcp namespaced collab tool", "mcp__orch__orchestration_launch_agent", "collab"},
 		{"mcp namespaced collab tool uppercase", "MCP__ORCH__SPAWN_AGENT", "collab"},
-		{"mcp namespaced regular tool", "mcp__lsp__lsp_grep", "tool"},
+		{"mcp namespaced regular tool", "mcp__lsp__grep", "tool"},
 		{"non-collab bare tool", "shell_exec", "tool"},
 	}
 	for _, tc := range cases {

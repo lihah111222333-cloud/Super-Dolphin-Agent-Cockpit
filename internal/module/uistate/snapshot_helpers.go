@@ -164,11 +164,12 @@ func classifyItemActivity(itemType, rawType, command, file string) string {
 	}
 }
 
-// normalizeToolName strips the MCP namespace prefix ("mcp__<server>__") and
-// lowercases the tool name so backend classifiers see the canonical short form.
-// Runtime-emitted ToolName carries the full MCP method (e.g. mcp__lsp__lsp_grep)
-// while the classification tables and prefix gates here use short names
-// (e.g. lsp_grep). Without this normalization every MCP-served tool falls
+// normalizeToolName strips the MCP namespace prefix ("mcp__<server>__"),
+// lowercases the tool name, and maps legacy LSP names to the canonical short
+// form. Runtime-emitted ToolName may carry the full MCP method
+// (e.g. mcp__lsp__lsp_grep or mcp__lsp__grep), while the classification tables
+// and prefix gates here use short names (e.g. grep). Without this normalization
+// every MCP-served tool falls
 // through into the default branch and counters silently zero out.
 func normalizeToolName(name string) string {
 	s := strings.ToLower(strings.TrimSpace(name))
@@ -178,10 +179,41 @@ func normalizeToolName(name string) string {
 	if strings.HasPrefix(s, "mcp__") {
 		rest := strings.TrimPrefix(s, "mcp__")
 		if i := strings.Index(rest, "__"); i >= 0 {
-			return rest[i+2:]
+			return canonicalLSPToolName(rest[i+2:])
 		}
 	}
-	return s
+	return canonicalLSPToolName(s)
+}
+
+func canonicalLSPToolName(name string) string {
+	switch strings.TrimSpace(name) {
+	case "lsp_file":
+		return "file"
+	case "lsp_grep":
+		return "grep"
+	case "lsp_inspect":
+		return "inspect"
+	case "lsp_xref":
+		return "xref"
+	case "lsp_structure":
+		return "structure"
+	case "lsp_edit":
+		return "edit"
+	case "lsp_completion":
+		return "completion"
+	default:
+		return strings.TrimSpace(name)
+	}
+}
+
+func isLSPActivityTool(name string) bool {
+	trimmed := strings.TrimSpace(name)
+	switch trimmed {
+	case "file", "grep", "inspect", "xref", "structure", "edit", "completion":
+		return true
+	default:
+		return strings.HasPrefix(trimmed, "lsp_")
+	}
 }
 
 func classifyToolActivity(toolName string) string {
