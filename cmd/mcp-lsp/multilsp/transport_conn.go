@@ -1,4 +1,4 @@
-package gopls
+package multilsp
 
 import (
 	"encoding/json"
@@ -19,7 +19,7 @@ const (
 	// defaultResponderDrainTimeout bounds how long Close() waits for
 	// in-flight server-request responder goroutines to drain. Keep it
 	// ≤ defaultShutdownTimeout so Close() as a whole still fits the
-	// caller-side stop budget (P22 P2 gopls-S3, plan §492).
+	// caller-side stop budget (P22 P2 LSP-S3, plan §492).
 	defaultResponderDrainTimeout = 2 * time.Second
 	stderrLimitBytes             = 8 * 1024
 )
@@ -32,19 +32,19 @@ func startTransport(options transportOptions) (*exec.Cmd, io.WriteCloser, io.Rea
 	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("gopls start stdin pipe: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("LSP server start stdin pipe: %w", err)
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		_ = stdin.Close()
-		return nil, nil, nil, nil, fmt.Errorf("gopls start stdout pipe: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("LSP server start stdout pipe: %w", err)
 	}
 	stderr := &limitedBuffer{limit: stderrLimitBytes}
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
 		_ = stdout.Close()
-		return nil, nil, nil, nil, fmt.Errorf("gopls start process: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("LSP server start process: %w", err)
 	}
 	return cmd, stdin, stdout, stderr, nil
 }
@@ -77,7 +77,7 @@ func (t *transport) drainResponders(timeout time.Duration) error {
 	case <-done:
 		return nil
 	case <-time.After(timeout):
-		return fmt.Errorf("gopls: server-request responders did not drain within %s", timeout)
+		return fmt.Errorf("LSP server-request responders did not drain within %s", timeout)
 	}
 }
 
@@ -108,18 +108,18 @@ func (t *transport) readMessage() (json.RawMessage, error) {
 		}
 		name, value, ok := strings.Cut(line, ":")
 		if !ok {
-			return nil, fmt.Errorf("gopls: malformed header %q", line)
+			return nil, fmt.Errorf("LSP malformed header %q", line)
 		}
 		if !strings.EqualFold(strings.TrimSpace(name), "Content-Length") {
 			continue
 		}
 		length, err = strconv.Atoi(strings.TrimSpace(value))
 		if err != nil || length < 0 {
-			return nil, fmt.Errorf("gopls: invalid Content-Length %q", value)
+			return nil, fmt.Errorf("LSP invalid Content-Length %q", value)
 		}
 	}
 	if length < 0 {
-		return nil, errors.New("gopls: missing Content-Length header")
+		return nil, errors.New("LSP missing Content-Length header")
 	}
 	body := make([]byte, length)
 	if _, err := io.ReadFull(t.stdout, body); err != nil {
@@ -134,7 +134,7 @@ func (t *transport) writeMessage(message any) error {
 	}
 	payload, err := protocol.EncodeMessage(message)
 	if err != nil {
-		return fmt.Errorf("gopls: encode message: %w", err)
+		return fmt.Errorf("LSP encode message: %w", err)
 	}
 	t.writeMu.Lock()
 	defer t.writeMu.Unlock()
@@ -177,7 +177,7 @@ func (t *transport) waitForExit(timeout time.Duration) error {
 	case <-t.done:
 		return nil
 	case <-time.After(timeout):
-		return fmt.Errorf("gopls: process did not exit within %s", timeout)
+		return fmt.Errorf("LSP process did not exit within %s", timeout)
 	}
 }
 
@@ -219,7 +219,7 @@ func (t *transport) stopWithError(err error) {
 	t.closeInput()
 	// Drain in-flight server-request responders before killing the
 	// process so writeMessage failures do not cascade into goroutine
-	// leaks (P22 P2 gopls-S3).
+	// leaks (P22 P2 LSP-S3).
 	_ = t.drainResponders(defaultResponderDrainTimeout)
 	_ = t.killProcess()
 }

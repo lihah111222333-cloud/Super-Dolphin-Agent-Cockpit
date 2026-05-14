@@ -1,4 +1,4 @@
-package gopls
+package multilsp
 
 import (
 	"bufio"
@@ -49,7 +49,7 @@ type transport struct {
 	doneErr             error
 
 	// responderWG tracks server-initiated request responder
-	// goroutines. P22 P2 gopls-S3 (plan §484 / §489) owns the
+	// goroutines. P22 P2 LSP-S3 (plan §484 / §489) owns the
 	// contract: dispatchMessage must register with Add(1) before
 	// spawning, and Close must Wait (bounded by
 	// defaultResponderDrainTimeout) to drain them instead of leaving
@@ -135,7 +135,7 @@ func (t *transport) dispatchMessage(payload json.RawMessage) error {
 }
 
 // spawnResponder launches a server-request responder goroutine while
-// keeping its lifecycle owned by the transport. Post-P22 P2 gopls-S3
+// keeping its lifecycle owned by the transport. Post-P22 P2 LSP-S3
 // the responder is no longer fire-and-forget: Add(1) runs before the
 // go statement so Close() can Wait for the goroutine to drain, and a
 // late spawn that races past Close returns without spawning so we
@@ -151,7 +151,7 @@ func (t *transport) spawnResponder(envelope protocol.Envelope) {
 		defer t.responderWG.Done()
 		defer func() {
 			if r := recover(); r != nil {
-				slog.Error("gopls: responder panic", "panic", fmt.Sprint(r))
+				slog.Error("LSP responder panic", "panic", fmt.Sprint(r))
 			}
 		}()
 		t.respondToServerRequest(envelope)

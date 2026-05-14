@@ -1,4 +1,4 @@
-package gopls
+package multilsp
 
 import (
 	"os"
@@ -37,7 +37,7 @@ func NewManagerPool(primary *manager, size int) *ManagerPool {
 		size:    clampPoolSize(size),
 		leases:  map[Client]int{},
 	}
-	// P22 P2 gopls-S1: do not start the recycler loop from the
+	// P22 P2 LSP-S1: do not start the recycler loop from the
 	// constructor. The root `group:"runners"` aggregation owns it via
 	// RecyclerRunner() below so shutdown is driven by ctx cancellation.
 	pool.recycler = newPoolRecycler(pool)

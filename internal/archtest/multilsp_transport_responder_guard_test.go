@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// TestGoplsTransportResponderOwnedByWaitGroup enforces P22 P2 gopls-S3:
-// the gopls transport must not spawn server-request responder
+// TestMultiLSPTransportResponderOwnedByWaitGroup enforces P22 P2 LSP-S3:
+// the multilsp transport must not spawn server-request responder
 // goroutines fire-and-forget. Every dispatch path goes through
 // spawnResponder, which Add(1)s the responderWG before launching the
 // goroutine, so Close()/stopWithError can drainResponders() and wait
@@ -21,8 +21,8 @@ import (
 //
 // Also asserts that transport_conn.go keeps the drainResponders(
 // call so future refactors can't silently drop the drain.
-func TestGoplsTransportResponderOwnedByWaitGroup(t *testing.T) {
-	const dir = "../../cmd/mcp-lsp/gopls"
+func TestMultiLSPTransportResponderOwnedByWaitGroup(t *testing.T) {
+	const dir = "../../cmd/mcp-lsp/multilsp"
 
 	forbidden := []string{
 		"go t.respondToServerRequest(",
@@ -50,7 +50,7 @@ func TestGoplsTransportResponderOwnedByWaitGroup(t *testing.T) {
 		text := string(data)
 		for _, tok := range forbidden {
 			if strings.Contains(text, tok) {
-				t.Errorf("%s: forbidden responder spawn literal %q present (P22 P2 gopls-S3: route through spawnResponder so responderWG can drain)", path, tok)
+				t.Errorf("%s: forbidden responder spawn literal %q present (P22 P2 LSP-S3: route through spawnResponder so responderWG can drain)", path, tok)
 			}
 		}
 		if strings.Contains(text, "drainResponders(") {
@@ -58,6 +58,6 @@ func TestGoplsTransportResponderOwnedByWaitGroup(t *testing.T) {
 		}
 	}
 	if !drainFound {
-		t.Errorf("cmd/mcp-lsp/gopls: expected at least one drainResponders( call to remain wired into the transport lifecycle")
+		t.Errorf("cmd/mcp-lsp/multilsp: expected at least one drainResponders( call to remain wired into the transport lifecycle")
 	}
 }

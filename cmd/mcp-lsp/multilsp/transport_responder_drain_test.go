@@ -1,4 +1,4 @@
-package gopls
+package multilsp
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 
 // newTestTransport builds an in-memory transport shell (no subprocess)
 // suitable for unit testing spawnResponder / drainResponders semantics
-// without spinning up a real gopls binary. Fields touched by the
+// without spinning up a real language server binary. Fields touched by the
 // responder (writeMu, pending, done) are populated so writeMessage
 // can fail predictably via a nil stdin.
 func newTestTransport() *transport {
@@ -22,7 +22,7 @@ func newTestTransport() *transport {
 	}
 }
 
-// TestTransportSpawnResponderAfterCloseIsNoop asserts P22 P2 gopls-S3:
+// TestTransportSpawnResponderAfterCloseIsNoop asserts P22 P2 LSP-S3:
 // once Close has flipped the closed flag, spawnResponder must not
 // register a new goroutine — otherwise the drain would race against
 // fresh work spawned behind its back.

@@ -13,7 +13,7 @@
 - `mcp-lsp` 是完整 MCP 工具服务：**stdio MCP server 始终开启**，**HTTP MCP server 仅在 peer mode 开启**。
 - `mcp-lsp` 的工具面固定为 9 个，其中 LSP 家族 7 个：`lsp_file`、`lsp_inspect`、`lsp_xref`、`lsp_grep`、`lsp_structure`、`lsp_edit`、`lsp_completion`；另有 `code_run`、`code_run_test`。
 - `mcp-lsp` 的真正 handler 全在 `cmd/mcp-lsp/tools/*`；传输层统一落在 `internal/mcpserver/common/server.go:92` 与 `internal/mcpserver/common/http_transport.go:40`。
-- **首个真正依赖语言服务器的工具调用**会懒触发：`registry.GetManagerForFile/GetManagerForLanguage` → `installer.EnsureInstalled` → `gopls.Manager.EnsureClient`（`ClientEnsurer`）→ `client.Initialize` / `initialized`。
+- **首个真正依赖语言服务器的工具调用**会懒触发：`registry.GetManagerForFile/GetManagerForLanguage` → `installer.EnsureInstalled` → `multilsp.Manager.EnsureClient`（`ClientEnsurer`）→ `client.Initialize` / `initialized`。
 - `mcp-ida` 当前只有 `tools/ida` bootstrap 能力，没有本地 `tools/list` / `tools/call`、没有 schema / manifest / handler 映射，也没有 stdio/HTTP MCP tool server。
 - `ast_search`、`semantic_tokens`、markdown/json/yaml 文档符号 fallback 都属于 **LSP toolchain**；当前 **不属于** `mcp-ida` 暴露面。
 
@@ -34,7 +34,7 @@ flowchart LR
         Search[search/*\ntext_search / ast_search]
         Edit[edit/* + format/*\nreplace_range / render]
         Installer[installer.Provider\ncmd/mcp-lsp/installer/installer.go:27]
-        LSPMgr[gopls manager 基座\ncmd/mcp-lsp/gopls/*]
+        LSPMgr[multilsp manager 基座\ncmd/mcp-lsp/multilsp/*]
     end
     subgraph IDA[mcp-ida]
         IDAMain[main/fx\ncmd/mcp-ida/main.go:10\ncmd/mcp-ida/fx.go:30]
@@ -92,7 +92,7 @@ flowchart LR
 - `newServer()` 以 `common.NewStdioTransport(os.Stdin, stdout)` 构建 stdio MCP server：`cmd/mcp-lsp/fx.go:105`。
 - `common.Server.dispatch()` 只认 `initialize`、`notifications/initialized`、`ping`、`shutdown`、`exit`、`tools/list`、`tools/call`：`internal/mcpserver/common/server.go:160`。
 - 真正 tool 调用链是 `tools/call` → `registryToolProvider.CallTool` → `handleToolCall` → `toolDefinition.Handler`：`internal/mcpserver/common/server.go:221`、`cmd/mcp-lsp/fx.go:136`、`cmd/mcp-lsp/fx.go:151`。
-- 若 handler 需要语言服务器，则继续进入 `registry.GetManagerForFile`，并懒触发语言服务器 `Initialize` / `initialized`：`cmd/mcp-lsp/manager/registry.go:76`、`cmd/mcp-lsp/gopls/client.go:98`。
+- 若 handler 需要语言服务器，则继续进入 `registry.GetManagerForFile`，并懒触发语言服务器 `Initialize` / `initialized`：`cmd/mcp-lsp/manager/registry.go:76`、`cmd/mcp-lsp/multilsp/client.go:98`。
 
 ```mermaid
 sequenceDiagram
@@ -221,11 +221,11 @@ sequenceDiagram
 |---|---|---|
 | runtime 组装 | `newManager()` 先 `setupInstaller()`，再 `manager.NewRegistry(inst)`，随后把 `go/gomod/gosum/gowork/javascript/typescript/python/css/rust/java` 注册到 registry。 | `cmd/mcp-lsp/runtime.go:24`、`cmd/mcp-lsp/runtime.go:30`、`cmd/mcp-lsp/runtime.go:32`、`cmd/mcp-lsp/runtime.go:35`、`cmd/mcp-lsp/runtime.go:42`、`cmd/mcp-lsp/runtime.go:47`、`cmd/mcp-lsp/runtime.go:51`、`cmd/mcp-lsp/runtime.go:55`、`cmd/mcp-lsp/runtime.go:59` |
 | installer 口径 | `setupInstaller()` 只登记“语言 → binary/install cmd”；真正触发安装发生在 `registry.GetManagerForFile/GetManagerForLanguage` 内部的 `EnsureInstalled`。 | `cmd/mcp-lsp/runtime.go:65`、`cmd/mcp-lsp/installer/installer.go:35`、`cmd/mcp-lsp/installer/installer.go:44` |
-| generic manager 口径 | `createGenericManager()` 并不区分“专用 manager 类型”；所有语言都复用 `gopls.NewManager(Config{ClientFactory: ...})`，差别只在 binary / args / initOpts。 | `cmd/mcp-lsp/runtime.go:107`、`cmd/mcp-lsp/runtime.go:112`、`cmd/mcp-lsp/runtime.go:114`、`cmd/mcp-lsp/runtime.go:127` |
+| generic manager 口径 | `createGenericManager()` 并不区分“专用 manager 类型”；所有语言都复用 `multilsp.NewManager(Config{ClientFactory: ...})`，差别只在 binary / args / initOpts。 | `cmd/mcp-lsp/runtime.go:107`、`cmd/mcp-lsp/runtime.go:112`、`cmd/mcp-lsp/runtime.go:114`、`cmd/mcp-lsp/runtime.go:127` |
 | file → languageID | 文件型工具进入 `registry.GetManagerForFile()` 后，先跑 `DetectLanguageID(filePath)`：优先 basename 映射 `go.mod/go.sum/go.work`，再看扩展名映射，最后才 fallback 为去点扩展名。 | `cmd/mcp-lsp/manager/registry.go:16`、`cmd/mcp-lsp/manager/registry.go:22`、`cmd/mcp-lsp/manager/registry.go:76`、`cmd/mcp-lsp/manager/registry.go:130` |
 | language → manager | `GetManagerForLanguage()` 只 lower-case + trim，再查已注册 manager；如果没注册，直接 `ErrUnsupportedLanguage`，不会进入安装。 | `cmd/mcp-lsp/manager/registry.go:96`、`cmd/mcp-lsp/manager/registry.go:103` |
-| manager 二次检测 | 进入 gopls manager 后，`resolveDocumentRef()` 在调用方没显式给 languageID 时会再次 `DetectLanguageID(absPath)`；随后 `resolveProjectRoot()` 按 Go/JSTS/Java 选择 workspace root。 | `cmd/mcp-lsp/gopls/manager.go:151`、`:180`、`:193` |
-| 惰性 client 初始化 | `gopls.Manager` 先由 `ClientEnsurer + lspmanager.Manager + BackgroundRunnerProvider` 组合出对外端口；`EnsureClient()` → `ensureClientForFile/ensureClientForLanguage()` → `ensureClient()` → `createAndRegisterClient()` → `client.Initialize()` + `initialized`，这才是真正拉起外部语言服务器的点。 | `cmd/mcp-lsp/gopls/manager.go:36`、`:42`、`:46`、`cmd/mcp-lsp/gopls/manager_lifecycle.go:30`、`:105`、`:117`、`:231`、`:260`、`cmd/mcp-lsp/gopls/client.go:98`、`:119` |
+| manager 二次检测 | 进入 multilsp manager 后，`resolveDocumentRef()` 在调用方没显式给 languageID 时会再次 `DetectLanguageID(absPath)`；随后 `resolveProjectRoot()` 按 Go/JSTS/Java 选择 workspace root。 | `cmd/mcp-lsp/multilsp/manager.go:151`、`:180`、`:193` |
+| 惰性 client 初始化 | `multilsp.Manager` 先由 `ClientEnsurer + lspmanager.Manager + BackgroundRunnerProvider` 组合出对外端口；`EnsureClient()` → `ensureClientForFile/ensureClientForLanguage()` → `ensureClient()` → `createAndRegisterClient()` → `client.Initialize()` + `initialized`，这才是真正拉起外部语言服务器的点。 | `cmd/mcp-lsp/multilsp/manager.go:36`、`:42`、`:46`、`cmd/mcp-lsp/multilsp/manager_lifecycle.go:30`、`:105`、`:117`、`:231`、`:260`、`cmd/mcp-lsp/multilsp/client.go:98`、`:119` |
 | workspace symbol 特例 | `lsp_structure.workspace_symbol` 是唯一可直接走 `language` 的 tool action：`resolveWorkspaceSymbolManager()` 强制 `file_path` 与 `language` 二选一；language 模式走 `GetManagerForLanguage()`，file 模式仍会经 `DetectLanguageID()`。 | `cmd/mcp-lsp/tools/tool_structure.go:68`、`cmd/mcp-lsp/tools/tool_structure.go:75`、`cmd/mcp-lsp/tools/tool_structure.go:84`、`cmd/mcp-lsp/tools/tool_structure.go:91` |
 | 非 registry 旁路 | `lsp_grep.text_search` / `ast_search` 都是搜索子系统直连：前者本地 walk，后者 `sg`，不经过 `manager.Registry`。 | `cmd/mcp-lsp/tools/tool_grep.go:73`、`cmd/mcp-lsp/search/searchutil.go:64`、`cmd/mcp-lsp/search/searchutil.go:84` |
 
@@ -245,7 +245,7 @@ sequenceDiagram
 | 文本搜索 | `cmd/mcp-lsp/search/searchutil.go:64` | **独立于** LSP server | 纯本地扫描，适合 grep/批量验真。 |
 | AST 搜索 | `cmd/mcp-lsp/search/searchutil.go:84` | **独立于** LSP server，但依赖 `sg` | `lsp_grep.ast_search` 不走 `manager.Registry`。 |
 | semantic tokens | `cmd/mcp-lsp/tools/tool_structure.go:160` | **依赖** LSP server | 由具体语言服务器返回 token data。 |
-| markdown/json/yaml 文档符号 fallback | `cmd/mcp-lsp/gopls/manager_symbols_fallback.go:33` | **不依赖** 外部 LSP server | 能力存在于 manager 基座，但当前 cmd 层未把这些 language ID 注册进 registry。 |
+| markdown/json/yaml 文档符号 fallback | `cmd/mcp-lsp/multilsp/manager_symbols_fallback.go:33` | **不依赖** 外部 LSP server | 能力存在于 manager 基座，但当前 cmd 层未把这些 language ID 注册进 registry。 |
 
 ### 7.2 `mcp-ida` 当前独立能力
 
@@ -305,7 +305,7 @@ sequenceDiagram
 
 1. **stdio 与 HTTP 只是两种 MCP transport，工具注册与 handler 完全共用。** 真正差异只有入口 runner、discovery file 和 HTTP `POST /mcp` 包装。
 2. **下游语言服务器 handshake 是惰性的。** `mcp-lsp` 启动时并不会一次性初始化全部语言服务器，只有首个相关工具调用才触发 `Initialize` / `initialized`。
-3. **Manager 端口已完成接口隔离。** `manager.Manager` 聚合细分 LSP 能力端口，`gopls.Manager` 再组合 `ClientEnsurer`、`lspmanager.Manager` 与 `BackgroundRunnerProvider`，不要按旧的直铺方法签名理解。
+3. **Manager 端口已完成接口隔离。** `manager.Manager` 聚合细分 LSP 能力端口，`multilsp.Manager` 再组合 `ClientEnsurer`、`lspmanager.Manager` 与 `BackgroundRunnerProvider`，不要按旧的直铺方法签名理解。
 4. **`ast_search` 是“搜索子系统能力”，不是 LSP server 能力。** 它依赖 `sg`，不依赖 `manager.Registry`。
 5. **`semantic_tokens` 是“结构子系统能力”，但依赖具体语言服务器是否支持。** handler 只做请求与裁剪，不自行生成 token。
 6. **manager 基座已有 markdown/json/yaml 文档符号 fallback，但 cmd 层没把这些语言注册进 registry。** 这就是“能力已写、工具面未完全打通”的真实断点。
@@ -318,7 +318,7 @@ sequenceDiagram
 | 包 | 测试文件 | 核心 Test* | freeze |
 |---|---|---|---|
 | `edit` | `cmd/mcp-lsp/edit/patchparse_test.go` | `TestParseImplicitSingleHunk` (`cmd/mcp-lsp/edit/patchparse_test.go:9`) | — |
-| `gopls` | `cmd/mcp-lsp/gopls/gomod_test.go` | `TestFindJSTSProjectRootWithinFindsFirstValidProject` (`cmd/mcp-lsp/gopls/gomod_test.go:9`) | — |
+| `multilsp` | `cmd/mcp-lsp/multilsp/gomod_test.go` | `TestFindJSTSProjectRootWithinFindsFirstValidProject` (`cmd/mcp-lsp/multilsp/gomod_test.go:9`) | — |
 | `manager` | `cmd/mcp-lsp/manager/registry_multilang_e2e_test.go` | `TestMultiLanguageLSP_E2E` (`cmd/mcp-lsp/manager/registry_multilang_e2e_test.go:242`) | — |
 | `search` | `cmd/mcp-lsp/search/language_inference_test.go` | `TestInferLanguage` (`cmd/mcp-lsp/search/language_inference_test.go:5`) | — |
 | `tools` | `cmd/mcp-lsp/tools/tool_edit_support_test.go` | `TestReadFileWithModeNormalizesCRLF` (`cmd/mcp-lsp/tools/tool_edit_support_test.go:11`) | — |

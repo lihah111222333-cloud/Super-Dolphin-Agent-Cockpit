@@ -12,21 +12,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/gopls"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/installer"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/multilsp"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 )
 
 func createGenericManager(executable string, args []string, root string, log *slog.Logger) manager.Manager {
-	return gopls.NewManager(gopls.Config{
+	return multilsp.NewManager(multilsp.Config{
 		WorkspaceRoot: root,
-		ClientFactory: gopls.ClientFactoryFunc(func(rootDir string, h protocol.NotificationHandler) (gopls.Client, error) {
+		ClientFactory: multilsp.ClientFactoryFunc(func(rootDir string, h protocol.NotificationHandler) (multilsp.Client, error) {
 			dir := rootDir
 			if strings.TrimSpace(dir) == "" {
 				dir = root
 			}
-			return gopls.NewClientWithOptions(gopls.Options{
+			return multilsp.NewClientWithOptions(multilsp.Options{
 				Binary:              executable,
 				Args:                args,
 				Dir:                 dir,

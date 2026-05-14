@@ -1,4 +1,4 @@
-package gopls
+package multilsp
 
 import (
 	"context"
@@ -23,7 +23,7 @@ const (
 )
 
 // poolRecycler is the background loop that periodically scans managed
-// gopls processes and recycles ones whose RSS exceeds the configured
+// LSP server processes and recycles ones whose RSS exceeds the configured
 // limit. Pre-P22 P2 it spun itself up from NewManagerPool via a
 // self-owned goroutine + stopCh pair; it is now a plain
 // platformrunner.Runner owned by the root `group:"runners"` bridge.
@@ -108,10 +108,10 @@ func (r *poolRecycler) recycleIfNeeded(mgr *manager, workspace workspaceClient) 
 		return
 	}
 	if mgr.logger != nil {
-		mgr.logger.Warn("recycling gopls process", "workspace", workspace.key, "pid", pid, "rss_bytes", rssBytes)
+		mgr.logger.Warn("recycling LSP process", "workspace", workspace.key, "pid", pid, "rss_bytes", rssBytes)
 	}
 	if err := recycleWorkspaceClient(mgr, workspace); err != nil && mgr.logger != nil {
-		mgr.logger.Warn("gopls recycle failed", "workspace", workspace.key, "pid", pid, "err", err)
+		mgr.logger.Warn("LSP recycle failed", "workspace", workspace.key, "pid", pid, "err", err)
 	}
 }
 
