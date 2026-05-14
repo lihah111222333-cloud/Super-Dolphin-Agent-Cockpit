@@ -59,15 +59,12 @@ type OrchestrationService interface {
 	DispatchNode(ctx context.Context, req DispatchNodeRequest) (DispatchNodeResponse, error)
 }
 
-// DispatchNodeRequest 是 OrchestrationService.DispatchNode 的入参。
-// 三个字段均必填；service 层 trim 后拒绝空串。
-//
-// DispatchNodeRequest is the input for OrchestrationService.DispatchNode.
-// All three fields are required; the service trims and rejects empties.
+// DispatchNodeRequest is the input for OrchestrationService.DispatchNode. F6.5
+// requires RunID so manual dispatch targets a runtime node, not the template.
 type DispatchNodeRequest struct {
-	DagKey     string
-	NodeKey    string
-	AssignedTo string
+	DagKey, NodeKey string
+	RunID           int64
+	AssignedTo      string
 }
 
 // DispatchNodeResponse 报告本次 dispatch 的后果：是否新 enqueue 了

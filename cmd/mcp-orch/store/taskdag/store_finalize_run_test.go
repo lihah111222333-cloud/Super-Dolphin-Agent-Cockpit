@@ -49,6 +49,36 @@ func seedRunWithMetadata(db *fakeTaskDAGDB, dagKey, runKey string, metadata json
 	}
 }
 
+func seedRunWithTemplateNodes(t *testing.T, db *fakeTaskDAGDB, dagKey, runKey string) int64 {
+	t.Helper()
+	seedRun(db, dagKey, runKey)
+	return cloneTemplateNodesToRun(t, db, dagKey, runKey)
+}
+
+func seedRunWithMetadataAndTemplateNodes(t *testing.T, db *fakeTaskDAGDB, dagKey, runKey string, metadata json.RawMessage) int64 {
+	t.Helper()
+	seedRunWithMetadata(db, dagKey, runKey, metadata)
+	return cloneTemplateNodesToRun(t, db, dagKey, runKey)
+}
+
+func cloneTemplateNodesToRun(t *testing.T, db *fakeTaskDAGDB, dagKey, runKey string) int64 {
+	t.Helper()
+	run, ok := db.runs[runKey]
+	if !ok {
+		t.Fatalf("run %q not found", runKey)
+	}
+	for _, row := range db.nodes {
+		if row.DagKey != dagKey || row.RunID.Valid {
+			continue
+		}
+		copy := cloneTaskDagNode(row)
+		copy.ID = int64(len(db.nodes) + 1)
+		copy.RunID = sqlc.Int8ValuePtr(&run.ID)
+		db.nodes[dagRunNodeKey(dagKey, row.NodeKey, run.ID)] = copy
+	}
+	return run.ID
+}
+
 func seedDAGMetadata(db *fakeTaskDAGDB, dagKey string, metadata json.RawMessage) {
 	if len(metadata) == 0 {
 		metadata = json.RawMessage(`{}`)
@@ -114,10 +144,10 @@ func TestCompleteNode_AllTerminal_AllDone_RunSucceeded(t *testing.T) {
 		{key: "B", deps: nil, status: "done", agent: "agent-b"},
 		{key: "C", deps: nil, status: "running", agent: "agent-c"},
 	})
-	seedRun(db, "dag-1", "run-success")
+	runID := seedRunWithTemplateNodes(t, db, "dag-1", "run-success")
 
 	res, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey: "dag-1", NodeKey: "C", Status: "done", Result: json.RawMessage(`{}`),
+		DagKey: "dag-1", NodeKey: "C", RunID: runID, Status: "done", Result: json.RawMessage(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("complete C error = %v", err)
@@ -139,11 +169,12 @@ func TestCompleteNode_FinalNodeSharedfileRefPromotesRunFinalOutput(t *testing.T)
 		{key: "final-report", deps: nil, status: "running", agent: "agent-b"},
 	})
 	seedDAGMetadata(db, "dag-1", json.RawMessage(`{"final_node_key":"final-report"}`))
-	seedRunWithMetadata(db, "dag-1", "run-final-file", json.RawMessage(`{"request_id":"req-1"}`))
+	runID := seedRunWithMetadataAndTemplateNodes(t, db, "dag-1", "run-final-file", json.RawMessage(`{"request_id":"req-1"}`))
 
 	res, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
 		DagKey:  "dag-1",
 		NodeKey: "final-report",
+		RunID:   runID,
 		Status:  "done",
 		Result:  json.RawMessage(`{"sharedfile":{"path":"reports/daily/final_report.pptx"}}`),
 	})
@@ -178,7 +209,6 @@ func TestCompleteNode_FinalNodeConfiguredSharedfilePromotesRunFinalOutput(t *tes
 		{key: "final-report", deps: nil, status: "running", agent: "agent-b"},
 	})
 	seedDAGMetadata(db, "dag-1", json.RawMessage(`{"final_node_key":"final-report"}`))
-	seedRun(db, "dag-1", "run-final-configured-file")
 
 	node := db.nodes[dagNodeKey("dag-1", "final-report")]
 	node.Config = json.RawMessage(`{
@@ -189,10 +219,12 @@ func TestCompleteNode_FinalNodeConfiguredSharedfilePromotesRunFinalOutput(t *tes
 		}
 	}`)
 	db.nodes[dagNodeKey("dag-1", "final-report")] = node
+	runID := seedRunWithTemplateNodes(t, db, "dag-1", "run-final-configured-file")
 
 	_, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
 		DagKey:  "dag-1",
 		NodeKey: "final-report",
+		RunID:   runID,
 		Status:  "done",
 		Result:  json.RawMessage(`{"summary":"short node result"}`),
 	})
@@ -220,7 +252,6 @@ func TestCompleteNode_FinalNodeConfiguredSharedfileWithEmptyResultPromotesRunFin
 		{key: "final-report", deps: nil, status: "running", agent: "agent-b"},
 	})
 	seedDAGMetadata(db, "dag-1", json.RawMessage(`{"final_node_key":"final-report"}`))
-	seedRun(db, "dag-1", "run-final-configured-empty")
 
 	node := db.nodes[dagNodeKey("dag-1", "final-report")]
 	node.Config = json.RawMessage(`{
@@ -231,10 +262,12 @@ func TestCompleteNode_FinalNodeConfiguredSharedfileWithEmptyResultPromotesRunFin
 		}
 	}`)
 	db.nodes[dagNodeKey("dag-1", "final-report")] = node
+	runID := seedRunWithTemplateNodes(t, db, "dag-1", "run-final-configured-empty")
 
 	_, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
 		DagKey:  "dag-1",
 		NodeKey: "final-report",
+		RunID:   runID,
 		Status:  "done",
 		Result:  nil,
 	})
@@ -262,11 +295,12 @@ func TestCompleteNode_FinalNodeJSONPromotesRunFinalOutput(t *testing.T) {
 		{key: "final-json", deps: nil, status: "running", agent: "agent-a"},
 	})
 	seedDAGMetadata(db, "dag-1", json.RawMessage(`{"final_node_key":"final-json"}`))
-	seedRun(db, "dag-1", "run-final-json")
+	runID := seedRunWithTemplateNodes(t, db, "dag-1", "run-final-json")
 
 	_, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
 		DagKey:  "dag-1",
 		NodeKey: "final-json",
+		RunID:   runID,
 		Status:  "done",
 		Result:  json.RawMessage(`{"summary":"ok","count":2}`),
 	})
@@ -295,11 +329,12 @@ func TestCompleteNode_FinalNodeTextPromotesRunFinalOutput(t *testing.T) {
 		{key: "final-text", deps: nil, status: "running", agent: "agent-a"},
 	})
 	seedDAGMetadata(db, "dag-1", json.RawMessage(`{"final_node_key":"final-text"}`))
-	seedRun(db, "dag-1", "run-final-text")
+	runID := seedRunWithTemplateNodes(t, db, "dag-1", "run-final-text")
 
 	_, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
 		DagKey:  "dag-1",
 		NodeKey: "final-text",
+		RunID:   runID,
 		Status:  "done",
 		Result:  json.RawMessage(`"daily summary ready"`),
 	})
@@ -321,10 +356,10 @@ func TestCompleteNode_NoFinalNodeKeyLeavesRunMetadataUnchanged(t *testing.T) {
 		{key: "A", deps: nil, status: "running", agent: "agent-a"},
 	})
 	seedDAGMetadata(db, "dag-1", json.RawMessage(`{"owner":"ops"}`))
-	seedRunWithMetadata(db, "dag-1", "run-no-final-key", json.RawMessage(`{"request_id":"req-2"}`))
+	runID := seedRunWithMetadataAndTemplateNodes(t, db, "dag-1", "run-no-final-key", json.RawMessage(`{"request_id":"req-2"}`))
 
 	_, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey: "dag-1", NodeKey: "A", Status: "done", Result: json.RawMessage(`{"ok":true}`),
+		DagKey: "dag-1", NodeKey: "A", RunID: runID, Status: "done", Result: json.RawMessage(`{"ok":true}`),
 	})
 	if err != nil {
 		t.Fatalf("complete A error = %v", err)
@@ -344,10 +379,10 @@ func TestCompleteNode_MissingFinalNodeLeavesRunMetadataUnchanged(t *testing.T) {
 		{key: "A", deps: nil, status: "running", agent: "agent-a"},
 	})
 	seedDAGMetadata(db, "dag-1", json.RawMessage(`{"final_node_key":"missing-final"}`))
-	seedRunWithMetadata(db, "dag-1", "run-missing-final-node", json.RawMessage(`{"request_id":"req-3"}`))
+	runID := seedRunWithMetadataAndTemplateNodes(t, db, "dag-1", "run-missing-final-node", json.RawMessage(`{"request_id":"req-3"}`))
 
 	_, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey: "dag-1", NodeKey: "A", Status: "done", Result: json.RawMessage(`{"ok":true}`),
+		DagKey: "dag-1", NodeKey: "A", RunID: runID, Status: "done", Result: json.RawMessage(`{"ok":true}`),
 	})
 	if err != nil {
 		t.Fatalf("complete A error = %v", err)
@@ -379,11 +414,12 @@ func TestCompleteNode_NonObjectRunMetadataStillPromotesFinalOutput(t *testing.T)
 			})
 			seedDAGMetadata(db, "dag-1", json.RawMessage(`{"final_node_key":"final-report"}`))
 			runKey := "run-non-object-" + tt.name
-			seedRunWithMetadata(db, "dag-1", runKey, tt.metadata)
+			runID := seedRunWithMetadataAndTemplateNodes(t, db, "dag-1", runKey, tt.metadata)
 
 			_, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
 				DagKey:  "dag-1",
 				NodeKey: "final-report",
+				RunID:   runID,
 				Status:  "done",
 				Result:  json.RawMessage(`{"sharedfile":{"path":"reports/daily/final_report.pptx"}}`),
 			})
@@ -416,10 +452,10 @@ func TestCompleteNode_FailedRunDoesNotPromoteFinalOutput(t *testing.T) {
 		json.RawMessage(`{"sharedfile":{"path":"reports/daily/final_report.pptx"}}`),
 	)
 	seedDAGMetadata(db, "dag-1", json.RawMessage(`{"final_node_key":"final-report"}`))
-	seedRunWithMetadata(db, "dag-1", "run-failed-no-final-output", json.RawMessage(`{"request_id":"req-4"}`))
+	runID := seedRunWithMetadataAndTemplateNodes(t, db, "dag-1", "run-failed-no-final-output", json.RawMessage(`{"request_id":"req-4"}`))
 
 	res, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey: "dag-1", NodeKey: "failed-node", Status: "failed", Result: json.RawMessage(`{"error":"boom"}`),
+		DagKey: "dag-1", NodeKey: "failed-node", RunID: runID, Status: "failed", Result: json.RawMessage(`{"error":"boom"}`),
 	})
 	if err != nil {
 		t.Fatalf("complete failed-node error = %v", err)
@@ -443,10 +479,10 @@ func TestCompleteNode_AllTerminal_AnyFailed_RunFailed(t *testing.T) {
 		{key: "B", deps: nil, status: "done", agent: "agent-b"},
 		{key: "C", deps: nil, status: "running", agent: "agent-c"},
 	})
-	seedRun(db, "dag-1", "run-fail")
+	runID := seedRunWithTemplateNodes(t, db, "dag-1", "run-fail")
 
 	res, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey: "dag-1", NodeKey: "C", Status: "done", Result: json.RawMessage(`{}`),
+		DagKey: "dag-1", NodeKey: "C", RunID: runID, Status: "done", Result: json.RawMessage(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("complete C error = %v", err)
@@ -469,10 +505,10 @@ func TestCompleteNode_AllTerminal_FailedAndCancelled_RunFailed(t *testing.T) {
 		{key: "B", deps: nil, status: "cancelled", agent: "agent-b"},
 		{key: "C", deps: nil, status: "running", agent: "agent-c"},
 	})
-	seedRun(db, "dag-1", "run-fail-over-cancel")
+	runID := seedRunWithTemplateNodes(t, db, "dag-1", "run-fail-over-cancel")
 
 	if _, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey: "dag-1", NodeKey: "C", Status: "done", Result: json.RawMessage(`{}`),
+		DagKey: "dag-1", NodeKey: "C", RunID: runID, Status: "done", Result: json.RawMessage(`{}`),
 	}); err != nil {
 		t.Fatalf("complete C error = %v", err)
 	}
@@ -490,10 +526,10 @@ func TestCompleteNode_AllTerminal_CancelledNoFailed_RunCancelled(t *testing.T) {
 		{key: "B", deps: nil, status: "done", agent: "agent-b"},
 		{key: "C", deps: nil, status: "running", agent: "agent-c"},
 	})
-	seedRun(db, "dag-1", "run-cancel")
+	runID := seedRunWithTemplateNodes(t, db, "dag-1", "run-cancel")
 
 	if _, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey: "dag-1", NodeKey: "C", Status: "done", Result: json.RawMessage(`{}`),
+		DagKey: "dag-1", NodeKey: "C", RunID: runID, Status: "done", Result: json.RawMessage(`{}`),
 	}); err != nil {
 		t.Fatalf("complete C error = %v", err)
 	}
@@ -512,10 +548,10 @@ func TestCompleteNode_AllTerminal_DoneAndSkipped_RunSucceeded(t *testing.T) {
 		{key: "B", deps: nil, status: "done", agent: "agent-b"},
 		{key: "C", deps: nil, status: "running", agent: "agent-c"},
 	})
-	seedRun(db, "dag-1", "run-skip-success")
+	runID := seedRunWithTemplateNodes(t, db, "dag-1", "run-skip-success")
 
 	if _, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey: "dag-1", NodeKey: "C", Status: "done", Result: json.RawMessage(`{}`),
+		DagKey: "dag-1", NodeKey: "C", RunID: runID, Status: "done", Result: json.RawMessage(`{}`),
 	}); err != nil {
 		t.Fatalf("complete C error = %v", err)
 	}
@@ -534,10 +570,10 @@ func TestCompleteNode_NotAllTerminal_RunUnchanged(t *testing.T) {
 		{key: "B", deps: nil, status: "pending", agent: "agent-b"},
 		{key: "C", deps: nil, status: "running", agent: "agent-c"},
 	})
-	seedRun(db, "dag-1", "run-still-running")
+	runID := seedRunWithTemplateNodes(t, db, "dag-1", "run-still-running")
 
 	res, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey: "dag-1", NodeKey: "C", Status: "done", Result: json.RawMessage(`{}`),
+		DagKey: "dag-1", NodeKey: "C", RunID: runID, Status: "done", Result: json.RawMessage(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("complete C error = %v", err)

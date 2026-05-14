@@ -1,7 +1,7 @@
 -- name: UpsertTaskDagNode :one
 INSERT INTO task_dag_nodes (dag_key, node_key, title, node_type, assigned_to, depends_on, command_ref, config)
 VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8::jsonb)
-ON CONFLICT (dag_key, node_key) DO UPDATE
+ON CONFLICT (dag_key, node_key) WHERE run_id IS NULL DO UPDATE
 SET title = EXCLUDED.title,
     node_type = EXCLUDED.node_type,
     assigned_to = EXCLUDED.assigned_to,
@@ -9,7 +9,7 @@ SET title = EXCLUDED.title,
     command_ref = EXCLUDED.command_ref,
     config = EXCLUDED.config,
     updated_at = NOW()
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
+RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
 
 -- name: PatchTaskDagNodeConfigIfUnchanged :one
 -- Smart retry mutates only node.config after RetryWakeup's wakeup fence has
@@ -20,15 +20,29 @@ UPDATE task_dag_nodes
 SET config = $3::jsonb, updated_at = NOW()
 WHERE dag_key = $1
   AND node_key = $2
+  AND (($5::bigint = 0 AND run_id IS NULL) OR run_id = $5)
   AND config = $4::jsonb
   AND status NOT IN ('done', 'failed', 'cancelled', 'skipped')
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
+RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
 
 -- name: DeleteTaskDagNode :execrows
 DELETE FROM task_dag_nodes
 WHERE dag_key = $1
   AND node_key = $2
+  AND run_id IS NULL
   AND status IN ('pending', 'ready');
+
+-- name: AssignTaskDagNode :one
+-- task_dispatch_node runs against runtime rows only after F6.5. Template
+-- assigned_to changes still flow through UpsertTaskDagNode / ApplyOps.
+UPDATE task_dag_nodes
+SET assigned_to = $1,
+    updated_at = NOW()
+WHERE dag_key = $2
+  AND node_key = $3
+  AND run_id = $4
+  AND status IN ('pending', 'ready')
+RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
 
 -- name: UpdateTaskDagNodeStatusFlexible :one
 -- 名字 "Flexible" 表示不附带 status 前置约束——调用方负责检查状态机合法转移。
@@ -38,7 +52,8 @@ WHERE dag_key = $1
 UPDATE task_dag_nodes
 SET status = $1, result = $2::jsonb, updated_at = NOW()
 WHERE dag_key = $3 AND node_key = $4
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
+  AND (($5::bigint = 0 AND run_id IS NULL) OR run_id = $5)
+RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
 
 -- name: ClaimTaskDagNodeOutputMaterialization :one
 -- A2 turn.completed sharedfile writes have an external side effect. Claim the
@@ -50,8 +65,9 @@ UPDATE task_dag_nodes
 SET status = 'awaiting_verify', result = $1::jsonb, updated_at = NOW()
 WHERE dag_key = $2
   AND node_key = $3
+  AND (($4::bigint = 0 AND run_id IS NULL) OR run_id = $4)
   AND status IN ('ready', 'running', 'awaiting_verify')
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
+RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
 
 -- name: FailTaskDagNodeIfNonTerminal :one
 -- FailNodeAndCancelDownstream 的 primary-node fence：只允许非终态节点被改成 failed。
@@ -61,8 +77,9 @@ UPDATE task_dag_nodes
 SET status = $1, result = $2::jsonb, updated_at = NOW()
 WHERE dag_key = $3
   AND node_key = $4
+  AND (($5::bigint = 0 AND run_id IS NULL) OR run_id = $5)
   AND status NOT IN ('done', 'failed', 'cancelled', 'skipped')
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
+RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
 
 -- name: CascadeFailPendingTaskDagNode :execrows
 -- fail_fast cascade 只认领仍处 pending 的下游。若并发路径已把下游推进到
@@ -71,6 +88,7 @@ UPDATE task_dag_nodes
 SET status = 'failed', result = $1::jsonb, updated_at = NOW()
 WHERE dag_key = $2
   AND node_key = $3
+  AND (($4::bigint = 0 AND run_id IS NULL) OR run_id = $4)
   AND status = 'pending';
 
 -- name: PromoteSingleNodePendingToReady :execrows
@@ -88,4 +106,5 @@ SET status = 'ready',
     updated_at = NOW()
 WHERE dag_key = $1
   AND node_key = $2
+  AND (($3::bigint = 0 AND run_id IS NULL) OR run_id = $3)
   AND status = 'pending';

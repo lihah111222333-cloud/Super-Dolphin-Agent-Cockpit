@@ -29,7 +29,7 @@ func (s *store) FailNodeAndCancelDownstream(ctx context.Context, input FailNodeI
 	var result FailNodeResult
 	err := sqlc.WithTxOrReuse(ctx, s.q, func(txq *sqlc.Queries) error {
 		txStore := &store{q: txq}
-		node, failErr := failNodeTx(ctx, txStore, input.DagKey, input.NodeKey, failNodeReason{
+		node, failErr := failNodeTx(ctx, txStore, input.DagKey, input.NodeKey, input.RunID, failNodeReason{
 			Kind:   failNodeKindExhaustedRetries,
 			Reason: input.Reason,
 		})
@@ -40,7 +40,7 @@ func (s *store) FailNodeAndCancelDownstream(ctx context.Context, input FailNodeI
 		if !input.FailFast {
 			return nil
 		}
-		canceled, cascadeErr := cancelDownstreamTx(ctx, txStore, input.DagKey, input.NodeKey, input.Reason)
+		canceled, cascadeErr := cancelDownstreamTx(ctx, txStore, input.DagKey, input.NodeKey, input.RunID, input.Reason)
 		if cascadeErr != nil {
 			return cascadeErr
 		}
@@ -57,7 +57,7 @@ func (s *store) FailNodeAndCancelDownstream(ctx context.Context, input FailNodeI
 // given transaction. The reason struct is JSON-encoded into the node's
 // `result` column so operators can distinguish primary vs cascade failures
 // without joining other tables.
-func failNodeTx(ctx context.Context, txStore *store, dagKey, nodeKey string, reason failNodeReason) (*Node, error) {
+func failNodeTx(ctx context.Context, txStore *store, dagKey, nodeKey string, runID int64, reason failNodeReason) (*Node, error) {
 	encoded, err := json.Marshal(reason)
 	if err != nil {
 		return nil, fmt.Errorf("marshal fail reason for %s/%s: %w", dagKey, nodeKey, err)
@@ -68,6 +68,7 @@ func failNodeTx(ctx context.Context, txStore *store, dagKey, nodeKey string, rea
 			Column2: encoded,
 			DagKey:  dagKey,
 			NodeKey: nodeKey,
+			RunID:   runID,
 		})
 	}, "fail_non_terminal")
 }
@@ -76,8 +77,14 @@ func failNodeTx(ctx context.Context, txStore *store, dagKey, nodeKey string, rea
 // and marks every transitively-dependent pending node as failed (cascade).
 // Nodes already in non-pending states are left alone — once a node has
 // started running or reached terminal we don't rewrite history.
-func cancelDownstreamTx(ctx context.Context, txStore *store, dagKey, failedNodeKey, reason string) ([]CanceledDownstreamNode, error) {
-	nodes, listErr := txStore.ListNodes(ctx, dagKey)
+func cancelDownstreamTx(ctx context.Context, txStore *store, dagKey, failedNodeKey string, runID int64, reason string) ([]CanceledDownstreamNode, error) {
+	var nodes []Node
+	var listErr error
+	if runID == 0 {
+		nodes, listErr = txStore.ListNodes(ctx, dagKey)
+	} else {
+		nodes, listErr = txStore.ListRunNodes(ctx, dagKey, runID)
+	}
 	if listErr != nil {
 		return nil, listErr
 	}
@@ -106,7 +113,7 @@ func cancelDownstreamTx(ctx context.Context, txStore *store, dagKey, failedNodeK
 		if nodeStatusByKey[key] != "pending" {
 			continue
 		}
-		inserted, failErr := cascadeFailPendingNodeTx(ctx, txStore, dagKey, key, failNodeReason{
+		inserted, failErr := cascadeFailPendingNodeTx(ctx, txStore, dagKey, key, runID, failNodeReason{
 			Kind:         failNodeKindCascade,
 			Reason:       reason,
 			CausedByNode: failedNodeKey,
@@ -117,12 +124,12 @@ func cancelDownstreamTx(ctx context.Context, txStore *store, dagKey, failedNodeK
 		if !inserted {
 			continue
 		}
-		canceled = append(canceled, CanceledDownstreamNode{DagKey: dagKey, NodeKey: key})
+		canceled = append(canceled, CanceledDownstreamNode{DagKey: dagKey, NodeKey: key, RunID: runID})
 	}
 	return canceled, nil
 }
 
-func cascadeFailPendingNodeTx(ctx context.Context, txStore *store, dagKey, nodeKey string, reason failNodeReason) (bool, error) {
+func cascadeFailPendingNodeTx(ctx context.Context, txStore *store, dagKey, nodeKey string, runID int64, reason failNodeReason) (bool, error) {
 	encoded, err := json.Marshal(reason)
 	if err != nil {
 		return false, fmt.Errorf("marshal cascade fail reason for %s/%s: %w", dagKey, nodeKey, err)
@@ -131,6 +138,7 @@ func cascadeFailPendingNodeTx(ctx context.Context, txStore *store, dagKey, nodeK
 		Result:  encoded,
 		DagKey:  dagKey,
 		NodeKey: nodeKey,
+		RunID:   runID,
 	})
 	if err != nil {
 		return false, err

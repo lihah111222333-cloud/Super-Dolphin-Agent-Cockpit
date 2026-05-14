@@ -1,6 +1,6 @@
 -- name: EnqueueTaskDagWakeup :execrows
-INSERT INTO task_dag_wakeups (dag_key, node_key, wakeup_kind, target_agent_id, prompt_payload, idempotency_key)
-VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+INSERT INTO task_dag_wakeups (dag_key, node_key, run_id, wakeup_kind, target_agent_id, prompt_payload, idempotency_key)
+VALUES ($1, $2, NULLIF($3::bigint, 0), $4, $5, $6::jsonb, $7)
 ON CONFLICT (idempotency_key) DO NOTHING;
 
 -- name: ClaimDueTaskDagWakeups :many
@@ -15,7 +15,7 @@ WHERE id IN (
     LIMIT $3
     FOR UPDATE SKIP LOCKED
 )
-RETURNING id, dag_key, node_key, wakeup_kind, target_agent_id, prompt_payload, idempotency_key, status, attempt_count, next_retry_at, claimed_at, claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at, last_error, created_at, updated_at;
+RETURNING id, dag_key, node_key, run_id, wakeup_kind, target_agent_id, prompt_payload, idempotency_key, status, attempt_count, next_retry_at, claimed_at, claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at, last_error, created_at, updated_at;
 
 -- name: MarkTaskDagWakeupSent :execrows
 UPDATE task_dag_wakeups

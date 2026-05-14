@@ -72,13 +72,14 @@ type UpdateNodeInput struct {
 }
 
 // DispatchNodeInput 是 task_dispatch_node MCP 工具的 typed 入参。
-// 三个字段都是必填；service 层 trim 后拒绝空。
+// F6.5 后 run_id 必填，用来定位当前 run 的 runtime node。
 //
 // DispatchNodeInput is the typed input for the task_dispatch_node MCP tool.
-// All three fields are required.
+// All fields are required; run_id scopes the runtime node.
 type DispatchNodeInput struct {
 	DagKey     string `json:"dag_key"`
 	NodeKey    string `json:"node_key"`
+	RunID      int64  `json:"run_id"`
 	AssignedTo string `json:"assigned_to"`
 }
 
@@ -124,6 +125,7 @@ func HandleDispatchNode(svc contract.OrchestrationService) ToolHandler {
 		resp, err := svc.DispatchNode(ctx, contract.DispatchNodeRequest{
 			DagKey:     in.DagKey,
 			NodeKey:    in.NodeKey,
+			RunID:      in.RunID,
 			AssignedTo: in.AssignedTo,
 		})
 		if err != nil {
@@ -406,8 +408,9 @@ func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 		defineTool("task_dispatch_node", "Explicitly assign an agent to a pending/ready DAG node and enqueue a wakeup so the dispatcher launches it. Use when a node has assigned_to='' (ADR-004 §Open Q1).", ObjectSchema(map[string]Schema{
 			"dag_key":     StringSchema("DAG key."),
 			"node_key":    StringSchema("Node key within the DAG."),
+			"run_id":      IntegerSchema("Task DAG run id that owns the runtime node."),
 			"assigned_to": StringSchema("Agent id to dispatch the node to."),
-		}, "dag_key", "node_key", "assigned_to"), HandleDispatchNode(svc)),
+		}, "dag_key", "node_key", "run_id", "assigned_to"), HandleDispatchNode(svc)),
 		// ---- lifecycle ----
 		defineTool("task_start_dag", "Trigger a new DAG execution (creates a run, snapshots dag.version). Skeleton stage returns ErrLifecycleNotImplemented; T1.2 wires the real path.", ObjectSchema(map[string]Schema{
 			"dag_key":         StringSchema("DAG to start."),

@@ -51,15 +51,22 @@ func (db *fakeTaskDAGDB) Begin(context.Context) (pgx.Tx, error) {
 		parent := db
 		working.beforeFailNonTerminal = func(dagKey, nodeKey string) {
 			beforeFailNonTerminal(dagKey, nodeKey)
-			key := dagNodeKey(dagKey, nodeKey)
 			parent.mu.Lock()
-			row, ok := parent.nodes[key]
-			parent.mu.Unlock()
-			if ok {
-				working.nodes[key] = cloneTaskDagNode(row)
-				return
+			refreshed := make(map[string]sqlc.TaskDagNode)
+			for key, row := range parent.nodes {
+				if row.DagKey == dagKey && row.NodeKey == nodeKey {
+					refreshed[key] = cloneTaskDagNode(row)
+				}
 			}
-			delete(working.nodes, key)
+			parent.mu.Unlock()
+			for key, row := range working.nodes {
+				if row.DagKey == dagKey && row.NodeKey == nodeKey {
+					delete(working.nodes, key)
+				}
+			}
+			for key, row := range refreshed {
+				working.nodes[key] = row
+			}
 		}
 	}
 	return &fakeTaskDAGTx{
@@ -203,6 +210,10 @@ func (db *fakeTaskDAGDB) Exec(_ context.Context, sql string, args ...any) (pgcon
 		return updateTag(db.reclaimStaleWakeups())
 	case strings.Contains(sql, "EnqueueTaskDagWakeup"):
 		return updateTag(db.enqueueWakeup(args...))
+	case strings.Contains(sql, "CloneTaskDagNodesForRun"):
+		return updateTag(db.cloneTaskDagNodesForRun(args...))
+	case strings.Contains(sql, "PromoteRootNodesToReady"):
+		return updateTag(db.promoteRootNodesToReady(args...))
 	case strings.Contains(sql, "CascadeFailPendingTaskDagNode"):
 		return updateTag(db.cascadeFailPendingNode(args...))
 	case strings.Contains(sql, "PromoteSingleNodePendingToReady"):
@@ -238,6 +249,36 @@ func (db *fakeTaskDAGDB) deleteTaskDagNode(args ...any) (int64, error) {
 	return 1, nil
 }
 
+func (db *fakeTaskDAGDB) assignNode(args ...any) ([]any, error) {
+	if len(args) != 4 {
+		return nil, fmt.Errorf("assign node args len = %d, want 4", len(args))
+	}
+	assignedTo, ok := args[0].(string)
+	if !ok {
+		return nil, fmt.Errorf("assigned_to arg = %T", args[0])
+	}
+	dagKey, ok := args[1].(string)
+	if !ok {
+		return nil, fmt.Errorf("dag key arg = %T", args[1])
+	}
+	nodeKey, ok := args[2].(string)
+	if !ok {
+		return nil, fmt.Errorf("node key arg = %T", args[2])
+	}
+	runID, ok := args[3].(int64)
+	if !ok {
+		return nil, fmt.Errorf("run id arg = %T", args[3])
+	}
+	row, ok := db.nodes[dagRunNodeKey(dagKey, nodeKey, runID)]
+	if !ok || (row.Status != "pending" && row.Status != "ready") {
+		return nil, pgx.ErrNoRows
+	}
+	row.AssignedTo = assignedTo
+	row.UpdatedAt = timestamptzValue(db.now)
+	db.nodes[dagRunNodeKey(dagKey, nodeKey, runID)] = row
+	return taskDagNodeValues(row), nil
+}
+
 func (db *fakeTaskDAGDB) countActiveTaskDagRunsByKey(args ...any) ([]any, error) {
 	if len(args) != 1 {
 		return nil, fmt.Errorf("count active runs args len = %d, want 1", len(args))
@@ -255,13 +296,85 @@ func (db *fakeTaskDAGDB) countActiveTaskDagRunsByKey(args ...any) ([]any, error)
 	return []any{active}, nil
 }
 
+func (db *fakeTaskDAGDB) cloneTaskDagNodesForRun(args ...any) (int64, error) {
+	if len(args) != 2 {
+		return 0, fmt.Errorf("clone nodes args len = %d, want 2", len(args))
+	}
+	dagKey, ok := args[0].(string)
+	if !ok {
+		return 0, fmt.Errorf("dag key arg = %T", args[0])
+	}
+	runID, ok := args[1].(int64)
+	if !ok {
+		return 0, fmt.Errorf("run id arg = %T", args[1])
+	}
+	var cloned int64
+	for _, row := range db.nodes {
+		if row.DagKey != dagKey || row.RunID.Valid {
+			continue
+		}
+		key := dagRunNodeKey(dagKey, row.NodeKey, runID)
+		if _, exists := db.nodes[key]; exists {
+			continue
+		}
+		copy := cloneTaskDagNode(row)
+		copy.ID = int64(len(db.nodes) + 1)
+		copy.RunID = sqlc.Int8{Int64: runID, Valid: true}
+		copy.Status = "pending"
+		copy.Result = nil
+		copy.StartedAt = sqlc.Timestamptz{}
+		copy.FinishedAt = sqlc.Timestamptz{}
+		copy.ActiveTurnID = sqlc.Text{}
+		copy.ActiveWakeupID = sqlc.Int8{}
+		copy.LastEventAt = sqlc.Timestamptz{}
+		copy.SpawningThreadID = sqlc.Text{}
+		copy.CreatedAt = timestamptzValue(db.now)
+		copy.UpdatedAt = timestamptzValue(db.now)
+		db.nodes[key] = copy
+		cloned++
+	}
+	return cloned, nil
+}
+
+func (db *fakeTaskDAGDB) promoteRootNodesToReady(args ...any) (int64, error) {
+	if len(args) != 2 {
+		return 0, fmt.Errorf("promote root args len = %d, want 2", len(args))
+	}
+	dagKey, ok := args[0].(string)
+	if !ok {
+		return 0, fmt.Errorf("dag key arg = %T", args[0])
+	}
+	runID, ok := args[1].(int64)
+	if !ok {
+		return 0, fmt.Errorf("run id arg = %T", args[1])
+	}
+	var promoted int64
+	for key, row := range db.nodes {
+		if row.DagKey != dagKey || fakeRunID(row) != runID || row.Status != "pending" {
+			continue
+		}
+		deps, err := decodeDependsOn(row.DependsOn)
+		if err != nil {
+			return 0, err
+		}
+		if len(deps) != 0 {
+			continue
+		}
+		row.Status = "ready"
+		row.UpdatedAt = timestamptzValue(db.now)
+		db.nodes[key] = row
+		promoted++
+	}
+	return promoted, nil
+}
+
 // promoteSingleNodePendingToReady 复现 F6.3 PromoteSingleNodePendingToReady SQL
 // 的语义：仅当 node 还在 pending 时才推进到 ready，并返回受影响行数。
 // promoteSingleNodePendingToReady mirrors the F6.3 SQL: only flip when the
 // node row is still in 'pending', otherwise return 0 affected rows.
 func (db *fakeTaskDAGDB) promoteSingleNodePendingToReady(args ...any) (int64, error) {
-	if len(args) != 2 {
-		return 0, fmt.Errorf("promote args len = %d, want 2", len(args))
+	if len(args) != 3 {
+		return 0, fmt.Errorf("promote args len = %d, want 3", len(args))
 	}
 	dagKey, ok := args[0].(string)
 	if !ok {
@@ -271,7 +384,11 @@ func (db *fakeTaskDAGDB) promoteSingleNodePendingToReady(args ...any) (int64, er
 	if !ok {
 		return 0, fmt.Errorf("node key arg = %T", args[1])
 	}
-	key := dagNodeKey(dagKey, nodeKey)
+	runID, ok := args[2].(int64)
+	if !ok {
+		return 0, fmt.Errorf("run id arg = %T", args[2])
+	}
+	key := dagNodeLookupKey(dagKey, nodeKey, runID)
 	row, ok := db.nodes[key]
 	if !ok || row.Status != "pending" {
 		return 0, nil
@@ -283,8 +400,8 @@ func (db *fakeTaskDAGDB) promoteSingleNodePendingToReady(args ...any) (int64, er
 }
 
 func (db *fakeTaskDAGDB) cascadeFailPendingNode(args ...any) (int64, error) {
-	if len(args) != 3 {
-		return 0, fmt.Errorf("cascade fail args len = %d, want 3", len(args))
+	if len(args) != 4 {
+		return 0, fmt.Errorf("cascade fail args len = %d, want 4", len(args))
 	}
 	result, ok := args[0].([]byte)
 	if !ok {
@@ -298,7 +415,11 @@ func (db *fakeTaskDAGDB) cascadeFailPendingNode(args ...any) (int64, error) {
 	if !ok {
 		return 0, fmt.Errorf("node key arg = %T", args[2])
 	}
-	key := dagNodeKey(dagKey, nodeKey)
+	runID, ok := args[3].(int64)
+	if !ok {
+		return 0, fmt.Errorf("run id arg = %T", args[3])
+	}
+	key := dagNodeLookupKey(dagKey, nodeKey, runID)
 	if db.beforeFailNonTerminal != nil {
 		db.beforeFailNonTerminal(dagKey, nodeKey)
 	}
@@ -320,6 +441,12 @@ func (db *fakeTaskDAGDB) Query(_ context.Context, sql string, args ...any) (pgx.
 	switch {
 	case strings.Contains(sql, "ClaimDueTaskDagWakeups"):
 		rows, err := db.claimDueWakeups(args...)
+		if err != nil {
+			return nil, err
+		}
+		return &stubTaskDAGRows{rows: rows}, nil
+	case strings.Contains(sql, "ListTaskDagRunNodes"):
+		rows, err := db.listTaskDagRunNodes(args...)
 		if err != nil {
 			return nil, err
 		}
@@ -355,16 +482,20 @@ func (db *fakeTaskDAGDB) Query(_ context.Context, sql string, args ...any) (pgx.
 // the fake DB. Empty result rows mean either some nodes are still non-terminal
 // or no 'running' run exists for dag_key.
 func (db *fakeTaskDAGDB) finalizeRunIfAllNodesTerminal(args ...any) ([][]any, error) {
-	if len(args) != 1 {
-		return nil, fmt.Errorf("finalize args len = %d, want 1", len(args))
+	if len(args) != 2 {
+		return nil, fmt.Errorf("finalize args len = %d, want 2", len(args))
 	}
 	dagKey, ok := args[0].(string)
 	if !ok {
 		return nil, fmt.Errorf("finalize dag_key arg = %T", args[0])
 	}
+	runID, ok := args[1].(int64)
+	if !ok {
+		return nil, fmt.Errorf("finalize run_id arg = %T", args[1])
+	}
 	var total, nonTerminal, failedCnt, cancelledCnt int
 	for _, n := range db.nodes {
-		if n.DagKey != dagKey {
+		if n.DagKey != dagKey || fakeRunID(n) != runID {
 			continue
 		}
 		total++
@@ -393,14 +524,14 @@ func (db *fakeTaskDAGDB) finalizeRunIfAllNodesTerminal(args ...any) ([][]any, er
 	}
 	rows := make([][]any, 0, 1)
 	for runKey, run := range db.runs {
-		if run.DagKey != dagKey || run.Status != "running" {
+		if run.DagKey != dagKey || run.Status != "running" || run.ID != runID {
 			continue
 		}
 		run.Status = finalStatus
 		run.FinishedAt = timestamptzValue(db.now)
 		run.UpdatedAt = timestamptzValue(db.now)
 		if finalStatus == "succeeded" {
-			metadata, err := db.metadataWithFinalOutput(dagKey, run.Metadata)
+			metadata, err := db.metadataWithFinalOutput(dagKey, runID, run.Metadata)
 			if err != nil {
 				return nil, err
 			}
@@ -412,7 +543,7 @@ func (db *fakeTaskDAGDB) finalizeRunIfAllNodesTerminal(args ...any) ([][]any, er
 	return rows, nil
 }
 
-func (db *fakeTaskDAGDB) metadataWithFinalOutput(dagKey string, metadata []byte) ([]byte, error) {
+func (db *fakeTaskDAGDB) metadataWithFinalOutput(dagKey string, runID int64, metadata []byte) ([]byte, error) {
 	dag, ok := db.dags[dagKey]
 	if !ok || len(dag.Metadata) == 0 {
 		return metadata, nil
@@ -426,7 +557,7 @@ func (db *fakeTaskDAGDB) metadataWithFinalOutput(dagKey string, metadata []byte)
 	if dagMeta.FinalNodeKey == "" {
 		return metadata, nil
 	}
-	node, ok := db.nodes[dagNodeKey(dagKey, dagMeta.FinalNodeKey)]
+	node, ok := db.nodes[dagNodeLookupKey(dagKey, dagMeta.FinalNodeKey, runID)]
 	if !ok {
 		return metadata, nil
 	}
@@ -538,6 +669,9 @@ func (db *fakeTaskDAGDB) QueryRow(_ context.Context, sql string, args ...any) pg
 	switch {
 	case strings.Contains(sql, "CountActiveTaskDagRunsByKey"):
 		values, err := db.countActiveTaskDagRunsByKey(args...)
+		return stubTaskDAGRow{values: values, err: err}
+	case strings.Contains(sql, "AssignTaskDagNode"):
+		values, err := db.assignNode(args...)
 		return stubTaskDAGRow{values: values, err: err}
 	case strings.Contains(sql, "BindRunningTaskDagNodeTurn"):
 		values, err := db.bindRunningNodeTurn(args...)
@@ -779,8 +913,8 @@ func (db *fakeTaskDAGDB) reclaimStaleWakeups() (int64, error) {
 }
 
 func (db *fakeTaskDAGDB) bindRunningNodeTurn(args ...any) ([]any, error) {
-	if len(args) != 4 {
-		return nil, fmt.Errorf("bind node args len = %d, want 4", len(args))
+	if len(args) != 5 {
+		return nil, fmt.Errorf("bind node args len = %d, want 5", len(args))
 	}
 	turnID, ok := args[0].(sqlc.Text)
 	if !ok {
@@ -798,7 +932,11 @@ func (db *fakeTaskDAGDB) bindRunningNodeTurn(args ...any) ([]any, error) {
 	if !ok {
 		return nil, fmt.Errorf("wakeup id arg = %T", args[3])
 	}
-	key := dagNodeKey(dagKey, nodeKey)
+	runID, ok := args[4].(int64)
+	if !ok {
+		return nil, fmt.Errorf("run id arg = %T", args[4])
+	}
+	key := dagNodeLookupKey(dagKey, nodeKey, runID)
 	row, ok := db.nodes[key]
 	if !ok || row.Status != "running" || row.ActiveTurnID.Valid || !sameInt8(row.ActiveWakeupID, wakeupID) {
 		return nil, pgx.ErrNoRows
@@ -811,8 +949,8 @@ func (db *fakeTaskDAGDB) bindRunningNodeTurn(args ...any) ([]any, error) {
 }
 
 func (db *fakeTaskDAGDB) completeNode(args ...any) ([]any, error) {
-	if len(args) != 4 {
-		return nil, fmt.Errorf("complete args len = %d, want 4", len(args))
+	if len(args) != 5 {
+		return nil, fmt.Errorf("complete args len = %d, want 5", len(args))
 	}
 	status, ok := args[0].(string)
 	if !ok {
@@ -830,7 +968,11 @@ func (db *fakeTaskDAGDB) completeNode(args ...any) ([]any, error) {
 	if !ok {
 		return nil, fmt.Errorf("node key arg = %T", args[3])
 	}
-	key := dagNodeKey(dagKey, nodeKey)
+	runID, ok := args[4].(int64)
+	if !ok {
+		return nil, fmt.Errorf("run id arg = %T", args[4])
+	}
+	key := dagNodeLookupKey(dagKey, nodeKey, runID)
 	row, ok := db.nodes[key]
 	// ADR-017 v1.2 §2.3 白名单扩 'ready'。
 	if !ok || (row.Status != "ready" && row.Status != "running" && row.Status != "awaiting_verify") {
@@ -849,8 +991,8 @@ func (db *fakeTaskDAGDB) completeNode(args ...any) ([]any, error) {
 }
 
 func (db *fakeTaskDAGDB) enqueueWakeup(args ...any) (int64, error) {
-	if len(args) != 6 {
-		return 0, fmt.Errorf("enqueue args len = %d, want 6", len(args))
+	if len(args) != 7 {
+		return 0, fmt.Errorf("enqueue args len = %d, want 7", len(args))
 	}
 	dagKey, ok := args[0].(string)
 	if !ok {
@@ -860,21 +1002,25 @@ func (db *fakeTaskDAGDB) enqueueWakeup(args ...any) (int64, error) {
 	if !ok {
 		return 0, fmt.Errorf("node key arg = %T", args[1])
 	}
-	wakeupKind, ok := args[2].(string)
+	runID, ok := args[2].(int64)
 	if !ok {
-		return 0, fmt.Errorf("wakeup_kind arg = %T", args[2])
+		return 0, fmt.Errorf("run_id arg = %T", args[2])
 	}
-	targetAgentID, ok := args[3].(string)
+	wakeupKind, ok := args[3].(string)
 	if !ok {
-		return 0, fmt.Errorf("target_agent_id arg = %T", args[3])
+		return 0, fmt.Errorf("wakeup_kind arg = %T", args[3])
 	}
-	payload, ok := args[4].([]byte)
+	targetAgentID, ok := args[4].(string)
 	if !ok {
-		return 0, fmt.Errorf("payload arg = %T", args[4])
+		return 0, fmt.Errorf("target_agent_id arg = %T", args[4])
 	}
-	idempotencyKey, ok := args[5].(string)
+	payload, ok := args[5].([]byte)
 	if !ok {
-		return 0, fmt.Errorf("idempotency_key arg = %T", args[5])
+		return 0, fmt.Errorf("payload arg = %T", args[5])
+	}
+	idempotencyKey, ok := args[6].(string)
+	if !ok {
+		return 0, fmt.Errorf("idempotency_key arg = %T", args[6])
 	}
 	// Simulate `ON CONFLICT (idempotency_key) DO NOTHING` by scanning existing rows.
 	for _, existing := range db.wakeups {
@@ -888,6 +1034,7 @@ func (db *fakeTaskDAGDB) enqueueWakeup(args ...any) (int64, error) {
 		ID:             id,
 		DagKey:         dagKey,
 		NodeKey:        nodeKey,
+		RunID:          sqlc.Int8ValuePtr(nilIfZero(runID)),
 		WakeupKind:     wakeupKind,
 		TargetAgentID:  targetAgentID,
 		PromptPayload:  append([]byte(nil), payload...),
@@ -945,7 +1092,40 @@ func (db *fakeTaskDAGDB) listTaskDagNodes(args ...any) ([][]any, error) {
 	}
 	keys := make([]string, 0, len(db.nodes))
 	for k, row := range db.nodes {
-		if row.DagKey != dagKey {
+		if row.DagKey != dagKey || row.RunID.Valid {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		left, right := db.nodes[keys[i]], db.nodes[keys[j]]
+		if !left.CreatedAt.Time.Equal(right.CreatedAt.Time) {
+			return left.CreatedAt.Time.Before(right.CreatedAt.Time)
+		}
+		return left.ID < right.ID
+	})
+	rows := make([][]any, 0, len(keys))
+	for _, k := range keys {
+		rows = append(rows, taskDagNodeValues(db.nodes[k]))
+	}
+	return rows, nil
+}
+
+func (db *fakeTaskDAGDB) listTaskDagRunNodes(args ...any) ([][]any, error) {
+	if len(args) != 2 {
+		return nil, fmt.Errorf("list run nodes args len = %d, want 2", len(args))
+	}
+	dagKey, ok := args[0].(string)
+	if !ok {
+		return nil, fmt.Errorf("dag key arg = %T", args[0])
+	}
+	runID, ok := args[1].(int64)
+	if !ok {
+		return nil, fmt.Errorf("run id arg = %T", args[1])
+	}
+	keys := make([]string, 0, len(db.nodes))
+	for k, row := range db.nodes {
+		if row.DagKey != dagKey || fakeRunID(row) != runID {
 			continue
 		}
 		keys = append(keys, k)
@@ -969,8 +1149,8 @@ func (db *fakeTaskDAGDB) listTaskDagNodes(args ...any) ([][]any, error) {
 // production fence post W4 fix). Returns pgx.ErrNoRows otherwise so the store
 // surfaces the same "not in fence" path as production.
 func (db *fakeTaskDAGDB) updateRunningNodeStatus(args ...any) ([]any, error) {
-	if len(args) != 5 {
-		return nil, fmt.Errorf("running update args len = %d, want 5", len(args))
+	if len(args) != 6 {
+		return nil, fmt.Errorf("running update args len = %d, want 6", len(args))
 	}
 	status, ok := args[0].(string)
 	if !ok {
@@ -992,7 +1172,11 @@ func (db *fakeTaskDAGDB) updateRunningNodeStatus(args ...any) ([]any, error) {
 	if !ok {
 		return nil, fmt.Errorf("node key arg = %T", args[4])
 	}
-	key := dagNodeKey(dagKey, nodeKey)
+	runID, ok := args[5].(int64)
+	if !ok {
+		return nil, fmt.Errorf("run id arg = %T", args[5])
+	}
+	key := dagNodeLookupKey(dagKey, nodeKey, runID)
 	row, ok := db.nodes[key]
 	if !ok || (row.Status != "pending" && row.Status != "ready") {
 		return nil, pgx.ErrNoRows
@@ -1011,8 +1195,8 @@ func (db *fakeTaskDAGDB) updateRunningNodeStatus(args ...any) ([]any, error) {
 }
 
 func (db *fakeTaskDAGDB) updateNodeStatusFlexible(args ...any) ([]any, error) {
-	if len(args) != 4 {
-		return nil, fmt.Errorf("flexible update args len = %d, want 4", len(args))
+	if len(args) != 5 {
+		return nil, fmt.Errorf("flexible update args len = %d, want 5", len(args))
 	}
 	status, ok := args[0].(string)
 	if !ok {
@@ -1030,7 +1214,11 @@ func (db *fakeTaskDAGDB) updateNodeStatusFlexible(args ...any) ([]any, error) {
 	if !ok {
 		return nil, fmt.Errorf("node key arg = %T", args[3])
 	}
-	key := dagNodeKey(dagKey, nodeKey)
+	runID, ok := args[4].(int64)
+	if !ok {
+		return nil, fmt.Errorf("run id arg = %T", args[4])
+	}
+	key := dagNodeLookupKey(dagKey, nodeKey, runID)
 	row, ok := db.nodes[key]
 	if !ok {
 		return nil, pgx.ErrNoRows
@@ -1043,8 +1231,8 @@ func (db *fakeTaskDAGDB) updateNodeStatusFlexible(args ...any) ([]any, error) {
 }
 
 func (db *fakeTaskDAGDB) patchNodeConfigIfUnchanged(args ...any) ([]any, error) {
-	if len(args) != 4 {
-		return nil, fmt.Errorf("patch config args len = %d, want 4", len(args))
+	if len(args) != 5 {
+		return nil, fmt.Errorf("patch config args len = %d, want 5", len(args))
 	}
 	dagKey, ok := args[0].(string)
 	if !ok {
@@ -1062,7 +1250,11 @@ func (db *fakeTaskDAGDB) patchNodeConfigIfUnchanged(args ...any) ([]any, error) 
 	if !ok {
 		return nil, fmt.Errorf("previous config arg = %T", args[3])
 	}
-	key := dagNodeKey(dagKey, nodeKey)
+	runID, ok := args[4].(int64)
+	if !ok {
+		return nil, fmt.Errorf("run id arg = %T", args[4])
+	}
+	key := dagNodeLookupKey(dagKey, nodeKey, runID)
 	row, ok := db.nodes[key]
 	if !ok || isFakeTerminalStatus(row.Status) || !jsonBytesEqual(row.Config, previousConfig) {
 		return nil, pgx.ErrNoRows
@@ -1086,8 +1278,8 @@ func jsonBytesEqual(left, right []byte) bool {
 }
 
 func (db *fakeTaskDAGDB) claimNodeOutputMaterialization(args ...any) ([]any, error) {
-	if len(args) != 3 {
-		return nil, fmt.Errorf("claim output materialization args len = %d, want 3", len(args))
+	if len(args) != 4 {
+		return nil, fmt.Errorf("claim output materialization args len = %d, want 4", len(args))
 	}
 	result, ok := args[0].([]byte)
 	if !ok {
@@ -1101,7 +1293,11 @@ func (db *fakeTaskDAGDB) claimNodeOutputMaterialization(args ...any) ([]any, err
 	if !ok {
 		return nil, fmt.Errorf("node key arg = %T", args[2])
 	}
-	key := dagNodeKey(dagKey, nodeKey)
+	runID, ok := args[3].(int64)
+	if !ok {
+		return nil, fmt.Errorf("run id arg = %T", args[3])
+	}
+	key := dagNodeLookupKey(dagKey, nodeKey, runID)
 	row, ok := db.nodes[key]
 	if !ok || (row.Status != "ready" && row.Status != "running" && row.Status != "awaiting_verify") {
 		return nil, pgx.ErrNoRows
@@ -1114,8 +1310,8 @@ func (db *fakeTaskDAGDB) claimNodeOutputMaterialization(args ...any) ([]any, err
 }
 
 func (db *fakeTaskDAGDB) failNodeIfNonTerminal(args ...any) ([]any, error) {
-	if len(args) != 4 {
-		return nil, fmt.Errorf("fail non-terminal args len = %d, want 4", len(args))
+	if len(args) != 5 {
+		return nil, fmt.Errorf("fail non-terminal args len = %d, want 5", len(args))
 	}
 	status, ok := args[0].(string)
 	if !ok {
@@ -1133,7 +1329,11 @@ func (db *fakeTaskDAGDB) failNodeIfNonTerminal(args ...any) ([]any, error) {
 	if !ok {
 		return nil, fmt.Errorf("node key arg = %T", args[3])
 	}
-	key := dagNodeKey(dagKey, nodeKey)
+	runID, ok := args[4].(int64)
+	if !ok {
+		return nil, fmt.Errorf("run id arg = %T", args[4])
+	}
+	key := dagNodeLookupKey(dagKey, nodeKey, runID)
 	if db.beforeFailNonTerminal != nil {
 		db.beforeFailNonTerminal(dagKey, nodeKey)
 	}
@@ -1175,14 +1375,46 @@ func updateTag(count int64, err error) (pgconn.CommandTag, error) {
 
 func dagNodeKey(dagKey, nodeKey string) string { return dagKey + "\x00" + nodeKey }
 
+func dagRunNodeKey(dagKey, nodeKey string, runID int64) string {
+	return fmt.Sprintf("%s\x00%d\x00%s", dagKey, runID, nodeKey)
+}
+
+func dagNodeLookupKey(dagKey, nodeKey string, runID int64) string {
+	if runID == 0 {
+		return dagNodeKey(dagKey, nodeKey)
+	}
+	return dagRunNodeKey(dagKey, nodeKey, runID)
+}
+
+func fakeRunID(row sqlc.TaskDagNode) int64 {
+	if !row.RunID.Valid {
+		return 0
+	}
+	return row.RunID.Int64
+}
+
+func fakeWakeupRunID(row sqlc.TaskDagWakeup) int64 {
+	if !row.RunID.Valid {
+		return 0
+	}
+	return row.RunID.Int64
+}
+
+func nilIfZero(value int64) *int64 {
+	if value == 0 {
+		return nil
+	}
+	return &value
+}
+
 // updateNodeSpawningThread mirrors the F1.5 CTE SQL: capture previous value
 // then UPDATE. The CTE row has 20 columns (18 node columns +
 // spawning_thread_id + previous_spawning_thread_id); the order must match
 // task_dag_node_spawning_thread.sql.go's Scan call so stubTaskDAGRow can
 // assign cleanly.
 func (db *fakeTaskDAGDB) updateNodeSpawningThread(args ...any) ([]any, error) {
-	if len(args) != 3 {
-		return nil, fmt.Errorf("spawning thread args len = %d, want 3", len(args))
+	if len(args) != 4 {
+		return nil, fmt.Errorf("spawning thread args len = %d, want 4", len(args))
 	}
 	spawningThread, ok := args[0].(sqlc.Text)
 	if !ok {
@@ -1196,7 +1428,11 @@ func (db *fakeTaskDAGDB) updateNodeSpawningThread(args ...any) ([]any, error) {
 	if !ok {
 		return nil, fmt.Errorf("node key arg = %T", args[2])
 	}
-	key := dagNodeKey(dagKey, nodeKey)
+	runID, ok := args[3].(int64)
+	if !ok {
+		return nil, fmt.Errorf("run id arg = %T", args[3])
+	}
+	key := dagNodeLookupKey(dagKey, nodeKey, runID)
 	row, ok := db.nodes[key]
 	if !ok {
 		return nil, pgx.ErrNoRows
@@ -1219,8 +1455,8 @@ func (db *fakeTaskDAGDB) updateNodeSpawningThread(args ...any) ([]any, error) {
 // than the previous raw-bytes concat trick) so that the ring trim semantics
 // match production: when length > 50 keep only the last 50 entries.
 func (db *fakeTaskDAGDB) appendRunEvent(args ...any) ([]any, error) {
-	if len(args) != 2 {
-		return nil, fmt.Errorf("append event args len = %d, want 2", len(args))
+	if len(args) != 3 {
+		return nil, fmt.Errorf("append event args len = %d, want 3", len(args))
 	}
 	dagKey, ok := args[0].(string)
 	if !ok {
@@ -1230,13 +1466,17 @@ func (db *fakeTaskDAGDB) appendRunEvent(args ...any) ([]any, error) {
 	if !ok {
 		return nil, fmt.Errorf("payload arg = %T", args[1])
 	}
+	runID, ok := args[2].(int64)
+	if !ok {
+		return nil, fmt.Errorf("run id arg = %T", args[2])
+	}
 	// Decode new event payload as opaque json value (object).
 	var newEvent any
 	if err := json.Unmarshal(payload, &newEvent); err != nil {
 		return nil, fmt.Errorf("decode event payload: %w", err)
 	}
 	for runKey, run := range db.runs {
-		if run.DagKey != dagKey || run.Status != "running" {
+		if run.DagKey != dagKey || run.Status != "running" || run.ID != runID {
 			continue
 		}
 		// Decode existing events array; missing/empty → start with [].

@@ -38,6 +38,8 @@ type stubRunStore struct {
 
 	createReply *taskdag.Run
 	createErr   error
+	cloneRows   int64
+	cloneErr    error
 	promoteRows int64
 	promoteErr  error
 
@@ -58,12 +60,19 @@ type stubRunStore struct {
 	listRunsLastFilter taskdag.ListRunsFilter
 
 	// 调用观测
-	countCalls   []string
-	lockCalls    []string
-	createCalls  []taskdag.CreateRunInput
-	promoteCalls []string
-	getRunCalls  []string
-	callOrder    []string
+	countCalls    []string
+	lockCalls     []string
+	createCalls   []taskdag.CreateRunInput
+	cloneCalls    []runNodeCall
+	promoteCalls  []string
+	promoteRunIDs []int64
+	getRunCalls   []string
+	callOrder     []string
+}
+
+type runNodeCall struct {
+	DagKey string
+	RunID  int64
 }
 
 func (s *stubRunStore) CountActiveRunsByDagKey(_ context.Context, dagKey string) (int64, error) {
@@ -87,6 +96,7 @@ func (s *stubRunStore) CreateRun(_ context.Context, input taskdag.CreateRunInput
 		return s.createReply, nil
 	}
 	return &taskdag.Run{
+		ID:                 99,
 		RunKey:             input.RunKey,
 		DagKey:             input.DagKey,
 		DagVersionSnapshot: input.DagVersionSnapshot,
@@ -95,8 +105,15 @@ func (s *stubRunStore) CreateRun(_ context.Context, input taskdag.CreateRunInput
 	}, nil
 }
 
-func (s *stubRunStore) PromoteRootNodesToReady(_ context.Context, dagKey string) (int64, error) {
+func (s *stubRunStore) CloneNodesForRun(_ context.Context, dagKey string, runID int64) (int64, error) {
+	s.cloneCalls = append(s.cloneCalls, runNodeCall{DagKey: dagKey, RunID: runID})
+	s.callOrder = append(s.callOrder, "clone:"+dagKey)
+	return s.cloneRows, s.cloneErr
+}
+
+func (s *stubRunStore) PromoteRootNodesToReady(_ context.Context, dagKey string, runID int64) (int64, error) {
 	s.promoteCalls = append(s.promoteCalls, dagKey)
+	s.promoteRunIDs = append(s.promoteRunIDs, runID)
 	s.callOrder = append(s.callOrder, "promote:"+dagKey)
 	return s.promoteRows, s.promoteErr
 }
@@ -157,8 +174,17 @@ func TestStartDAG_HappyPath(t *testing.T) {
 	if runStore.createCalls[0].TriggerSource != "manual" {
 		t.Errorf("CreateRun TriggerSource = %q, want 'manual'", runStore.createCalls[0].TriggerSource)
 	}
+	if got := len(runStore.cloneCalls); got != 1 {
+		t.Errorf("CloneNodesForRun calls = %d, want 1", got)
+	}
+	if len(runStore.cloneCalls) == 1 && runStore.cloneCalls[0].RunID != 99 {
+		t.Errorf("CloneNodesForRun run_id = %d, want 99", runStore.cloneCalls[0].RunID)
+	}
 	if got := len(runStore.promoteCalls); got != 1 {
 		t.Errorf("PromoteRootNodesToReady calls = %d, want 1", got)
+	}
+	if len(runStore.promoteRunIDs) == 1 && runStore.promoteRunIDs[0] != 99 {
+		t.Errorf("PromoteRootNodesToReady run_id = %d, want 99", runStore.promoteRunIDs[0])
 	}
 }
 
@@ -171,7 +197,7 @@ func TestStartDAG_LocksDAGBeforeCreateRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartDAG() error = %v, want nil", err)
 	}
-	want := []string{"lock:dag-1", "create:dag-1", "promote:dag-1"}
+	want := []string{"lock:dag-1", "create:dag-1", "clone:dag-1", "promote:dag-1"}
 	if strings.Join(runStore.callOrder, ",") != strings.Join(want, ",") {
 		t.Fatalf("call order = %v, want %v", runStore.callOrder, want)
 	}
