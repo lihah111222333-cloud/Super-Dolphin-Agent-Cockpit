@@ -2,12 +2,14 @@ package orchestration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
 	"sync/atomic"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	sharedevt "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
@@ -214,6 +216,30 @@ func TestDAGSubscriber_HappyPath_Done(t *testing.T) {
 	}
 }
 
+func TestDAGSubscriber_DoneInvokesLifecycleHooks(t *testing.T) {
+	events := []string{}
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey:   "dag-1",
+		NodeKey:  "n1",
+		NodeType: "agent",
+		Status:   "running",
+		Config:   json.RawMessage(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),
+	}}}
+	flow := &dagSubscriberFlowSpy{}
+	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-hooks-done", AgentID: "agent-hooks"}}
+	stop := &dagSubscriberStopSpy{}
+	agentExec := nodeexec.NewAgentExecutor(&stubAgentLauncher{}, nodeexec.WithHooks(recordingLifecycleHooks(&events)))
+	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
+	deps.NodeRouter = NewNodeExecutorRouter(&stubRouterStore{}, agentExec, nil, nil, nil, nil)
+
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-hooks-done", true, `{"summary":"ok"}`))
+
+	want := []string{"on_state_change:n1:done"}
+	if got := strings.Join(events, "|"); got != strings.Join(want, "|") {
+		t.Fatalf("events = %v, want %v", events, want)
+	}
+}
+
 // 2. happy path - failed: TurnCompleted.Success=false →
 // FailNodeAndCancelDownstream, metric CompleteFailed +1.
 func TestDAGSubscriber_HappyPath_Failed(t *testing.T) {
@@ -240,6 +266,35 @@ func TestDAGSubscriber_HappyPath_Failed(t *testing.T) {
 	d := metricDelta(before, DAGSubscriberCounters())
 	if d.CompleteFailed != 1 {
 		t.Fatalf("CompleteFailed delta = %d, want 1", d.CompleteFailed)
+	}
+}
+
+func TestDAGSubscriber_FailedInvokesLifecycleHooks(t *testing.T) {
+	events := []string{}
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey:   "dag-1",
+		NodeKey:  "n1",
+		NodeType: "agent",
+		Status:   "running",
+		Config:   json.RawMessage(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),
+	}}}
+	flow := &dagSubscriberFlowSpy{}
+	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-hooks", AgentID: "agent-hooks"}}
+	stop := &dagSubscriberStopSpy{}
+	agentExec := nodeexec.NewAgentExecutor(&stubAgentLauncher{}, nodeexec.WithHooks(recordingLifecycleHooks(&events)))
+	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
+	deps.NodeRouter = NewNodeExecutorRouter(&stubRouterStore{}, agentExec, nil, nil, nil, nil)
+
+	ev := newTurnCompletedEvent("thr-hooks", false, "")
+	ev.Error = "explicit failure"
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), ev)
+
+	want := []string{
+		"on_state_change:n1:failed",
+		"on_failure:n1:failed",
+	}
+	if got := strings.Join(events, "|"); got != strings.Join(want, "|") {
+		t.Fatalf("events = %v, want %v", events, want)
 	}
 }
 

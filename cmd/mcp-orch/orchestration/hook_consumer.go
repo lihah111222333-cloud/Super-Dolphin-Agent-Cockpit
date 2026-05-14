@@ -116,6 +116,7 @@ type HookAfterHandlerParams struct {
 	SvcStopper        StopAgentService                 `optional:"true"`
 	SharedFileReader  nodeexec.SharedFileReader        `optional:"true"`
 	SharedFileWriter  nodeexec.SharedFileWriter        `optional:"true"`
+	NodeRouter        *NodeExecutorRouter              `optional:"true"`
 }
 
 // ProvideHookAfterHandler is the fx-facing constructor. It returns the
@@ -136,6 +137,7 @@ func ProvideHookAfterHandler(p HookAfterHandlerParams) contract.BootstrapHookAft
 			SvcStopper:       p.SvcStopper,
 			SharedFileReader: p.SharedFileReader,
 			SharedFileWriter: p.SharedFileWriter,
+			NodeRouter:       p.NodeRouter,
 		}),
 	).After
 }

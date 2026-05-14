@@ -282,7 +282,7 @@ func (d *WakeupDispatcher) handleClaimedViaLegacyLauncher(ctx context.Context, w
 		d.markPermanentFail(ctx, w, fence, lastErr, launchErr)
 		return
 	}
-	d.markTransientRetry(ctx, w, fence, lastErr, launchErr)
+	d.markTransientRetry(ctx, w, fence, dispatchFailureFrom(lastErr, launchErr, failedWakeupOutcome(lastErr)))
 }
 
 // handleClaimedViaRouter 走 dispatcher wiring batch 的 NodeExecutor 抽象路由。
@@ -300,7 +300,7 @@ func (d *WakeupDispatcher) handleClaimedViaRouter(ctx context.Context, w *taskda
 		d.logger.Warn("wakeup dispatcher: router framework error → retry",
 			"wakeup_id", w.ID, "dag_key", w.DagKey, "node_key", w.NodeKey,
 			"error", err)
-		d.markTransientRetry(ctx, w, fence, lastErr, err)
+		d.markTransientRetry(ctx, w, fence, dispatchFailureFrom(lastErr, err, failedWakeupOutcome(lastErr)))
 		return
 	}
 	switch outcome.Status {
@@ -320,10 +320,10 @@ func (d *WakeupDispatcher) handleClaimedViaRouter(ctx context.Context, w *taskda
 			if policy, ok := d.resolveDAGRetryPolicy(ctx, w.DagKey, w.NodeKey); ok {
 				failFast = policy.FailFast
 			}
-			d.failDAGNodeAndCancelDownstream(ctx, w, lastErr, failFast)
+			d.failDAGNodeAndCancelDownstream(ctx, w, lastErr, failFast, outcome)
 			return
 		}
-		d.markTransientRetry(ctx, w, fence, lastErr, synthErr)
+		d.markTransientRetry(ctx, w, fence, dispatchFailureFrom(lastErr, synthErr, outcome))
 	default:
 		// done / skipped / waiting_human / 零值均视为“wakeup 使命完成”。
 		d.markLaunched(ctx, w, fence)
@@ -374,20 +374,20 @@ func (d *WakeupDispatcher) markPermanentFail(ctx context.Context, w *taskdag.Wak
 	return true
 }
 
-func (d *WakeupDispatcher) markTransientRetry(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, lastErr string, launchErr error) {
+func (d *WakeupDispatcher) markTransientRetry(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure) {
 	// Phase 3.5w: DAG-driven wakeup 走 metadata 决策（ResolveRetryPolicy）。
 	// 当前 attempt_count >= MaxAttempts 直接 fail + cascade 下游（按
 	// FailFast）；attempt_count 还没到上限走旧的 RetryWakeup 路径。
 	// 非 DAG wakeup（DagKey/NodeKey 空）走兼容路径，保留 SQL 8 paranoid。
 	if w.DagKey != "" && w.NodeKey != "" {
-		if d.tryDAGFailWithCascade(ctx, w, fence, lastErr, launchErr) {
+		if d.tryDAGFailWithCascade(ctx, w, fence, failure) {
 			return
 		}
 	}
 	rows, err := d.store.RetryWakeup(ctx, taskdag.RetryWakeupInput{
 		ID:             w.ID,
 		RetryInterval:  d.cfg.RetryInterval,
-		LastError:      lastErr,
+		LastError:      failure.lastErr,
 		ClaimedAt:      fence.claimedAt,
 		ClaimedBy:      w.ClaimedBy,
 		LeaseExpiresAt: fence.leaseAt,
@@ -398,26 +398,18 @@ func (d *WakeupDispatcher) markTransientRetry(ctx context.Context, w *taskdag.Wa
 		return
 	}
 	if rows == 0 {
-		// SQL 层 attempt_count >= 8 硬上限达到（Phase 3.5 metadata 化前的
-		// 兜底）。直接转 FailWakeup 避免 wakeup 一直停在 dispatching 死锁。
-		if d.markPermanentFail(ctx, w, fence, "retry attempts exhausted: "+lastErr, launchErr) {
-			if alert, shouldAlert := recordDispatchRetryMetric(w, lastErr); shouldAlert {
-				d.emitDispatchRetryAlert(ctx, alert)
-			}
-		}
-		d.logger.Warn("wakeup dispatcher: retry attempts exhausted → failed",
-			"wakeup_id", w.ID,
-			"target_agent_id", w.TargetAgentID)
+		// SQL 层 attempt_count >= 8 硬上限兜底：转 FailWakeup，避免 dispatching 死锁。
+		d.handleRetryHardCap(ctx, w, fence, failure)
 		return
 	}
-	if alert, shouldAlert := recordDispatchRetryMetric(w, lastErr); shouldAlert {
+	if alert, shouldAlert := recordDispatchRetryMetric(w, failure.lastErr); shouldAlert {
 		d.emitDispatchRetryAlert(ctx, alert)
 	}
 	d.logger.Info("wakeup dispatcher: launch transient failure → retry",
 		"wakeup_id", w.ID,
 		"target_agent_id", w.TargetAgentID,
 		"retry_interval", d.cfg.RetryInterval,
-		"error", launchErr)
+		"error", failure.launchErr)
 }
 
 func (d *WakeupDispatcher) emitDispatchRetryAlert(ctx context.Context, alert DispatchRetryAlert) {
@@ -431,7 +423,7 @@ func (d *WakeupDispatcher) emitDispatchRetryAlert(ctx context.Context, alert Dis
 		baseCtx = context.WithoutCancel(ctx)
 	}
 	runtimesafe.SafeGo(baseCtx, logger, "wakeupDispatcher.retryAlert", func(runCtx context.Context) {
-		alertCtx, cancel := context.WithTimeout(runCtx, 5*time.Second)
+		alertCtx, cancel := withDispatchRetryAlertTimeout(runCtx)
 		defer cancel()
 		if err := sink.AlertDispatchRetry(alertCtx, alert); err != nil {
 			logger.Warn("wakeup dispatcher: retry alert enqueue failed",
@@ -566,7 +558,7 @@ func (d *WakeupDispatcher) Tick(ctx context.Context) (int, error) {
 //
 // 退化策略：DAG metadata / node config 拿不到时返 false，让旧路径接管 —
 // 软策略不触发不影响生产路径，硬上限（SQL attempt_count<8）仍然兜底。
-func (d *WakeupDispatcher) tryDAGFailWithCascade(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, lastErr string, launchErr error) bool {
+func (d *WakeupDispatcher) tryDAGFailWithCascade(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure) bool {
 	policy, ok := d.resolveDAGRetryPolicy(ctx, w.DagKey, w.NodeKey)
 	if !ok {
 		return false
@@ -574,13 +566,13 @@ func (d *WakeupDispatcher) tryDAGFailWithCascade(ctx context.Context, w *taskdag
 	if int(w.AttemptCount) < policy.MaxAttempts {
 		return false
 	}
-	if !d.markPermanentFail(ctx, w, fence, "max attempts reached: "+lastErr, launchErr) {
+	if !d.markPermanentFail(ctx, w, fence, "max attempts reached: "+failure.lastErr, failure.launchErr) {
 		return true
 	}
-	if alert, shouldAlert := recordDispatchRetryMetric(w, lastErr); shouldAlert {
+	if alert, shouldAlert := recordDispatchRetryMetric(w, failure.lastErr); shouldAlert {
 		d.emitDispatchRetryAlert(ctx, alert)
 	}
-	d.failDAGNodeAndCancelDownstream(ctx, w, lastErr, policy.FailFast)
+	d.failDAGNodeAndCancelDownstream(ctx, w, failure.lastErr, policy.FailFast, failure.outcome)
 	return true
 }
 
