@@ -40,6 +40,7 @@ func TestDependencyDirection(t *testing.T) {
 	assertMCPServerDependencyRules(t, root)
 	assertPlatformIsolationRules(t, root)
 	assertModuleSiblingDependencyRules(t, root)
+	assertModuleDBIsolationRules(t, root)
 }
 
 func assertCoreDependencyRules(t *testing.T, root string) {
@@ -135,6 +136,22 @@ func assertModuleSiblingDependencyRules(t *testing.T, root string) {
 			}
 		}
 		failIfViolations(t, violations)
+	})
+}
+
+func assertModuleDBIsolationRules(t *testing.T, root string) {
+	t.Helper()
+	t.Run("rule17_module_cannot_import_sql", func(t *testing.T) {
+		if !dirExists(root, "internal/module") {
+			t.Skip("directory not yet created")
+		}
+		forbidden := []string{
+			"database/sql",
+			"github.com/jackc/pgx/v5",
+			"github.com/jackc/pgx/v5/pgxpool",
+			"github.com/jackc/pgx/v5/pgconn",
+		}
+		assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/module"), forbidden)
 	})
 }
 
