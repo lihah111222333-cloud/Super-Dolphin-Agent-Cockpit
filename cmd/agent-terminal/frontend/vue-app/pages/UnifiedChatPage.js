@@ -113,6 +113,13 @@ function resolvePageActiveCwdSource(props) {
   });
 }
 
+function resolveVisibleSelectedThreadId(threadStore, mode, visibleThreads) {
+  const id = (threadStore?.getCurrentThreadId?.(mode) || '').toString().trim();
+  if (!id) return '';
+  const list = Array.isArray(visibleThreads) ? visibleThreads : [];
+  return list.some((/** @type {any} */ item) => item?.id === id) ? id : '';
+}
+
 function createPageLaunchSkillSelection(props, composer, selectedThreadId, skillRevision) {
   const activeCwdSource = resolvePageActiveCwdSource(props);
   const featureSource = computed(() => ({
@@ -658,7 +665,7 @@ export const UnifiedChatPage = {
       props.projectStore?.state?.active || '.',
     ));
     const selectedThreadId = computed({
-      get: () => props.threadStore.getCurrentThreadId(modeKey.value) || '',
+      get: () => resolveVisibleSelectedThreadId(props.threadStore, modeKey.value, threads.value),
       set: (/** @type {string} */ value) => {
         if (isCmd.value) {
           props.threadStore.saveActiveCmdThread(value || '');
