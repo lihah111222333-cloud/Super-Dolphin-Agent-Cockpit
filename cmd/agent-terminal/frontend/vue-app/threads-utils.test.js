@@ -86,6 +86,25 @@ describe('parseThreadCreatedAtFromID', () => {
         const ts = parseThreadCreatedAtFromID('thread-1700000000000-abc');
         expect(ts).toBe(1700000000000);
     });
+
+    it('parses 19-digit nanosecond agent ids from idgen.NewAgentID()', () => {
+        // Regression: Go's time.Now().UnixNano() produces 19-digit chunks
+        // which the old 16-digit upper bound rejected, sending every fresh
+        // thread to the bottom of the chat rail.
+        expect(parseThreadCreatedAtFromID('agent_1778748074684743000')).toBe(1778748074684);
+        // Child agent suffix (`-<seq>`) must not break parent ns parsing.
+        expect(parseThreadCreatedAtFromID('agent_1778748074684743000-1')).toBe(1778748074684);
+    });
+
+    it('still parses legacy 13-digit ms agent ids with hex suffix', () => {
+        // idgen.NewID('agent') format used by codex sessions:
+        // agent_<13-digit ms>_<8-byte hex>. Must remain unchanged.
+        expect(parseThreadCreatedAtFromID('agent_1774720455588_04820e21fd876e3b')).toBe(1774720455588);
+    });
+
+    it('rejects 20+ digit chunks as out-of-range', () => {
+        expect(parseThreadCreatedAtFromID('thread-99999999999999999999')).toBe(0);
+    });
 });
 
 // ─── normalizePreferenceScopeCwd ────────────────────────────────────
