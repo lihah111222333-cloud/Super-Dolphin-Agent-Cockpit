@@ -58,9 +58,7 @@ export function createThreadViewHelpers(state) {
       ? deriveCmdAgents({ threads: state.threads })
       : sortChatThreadsByPinned(deriveChatAgents({ threads: state.threads }));
     if (!activeProjectPath || activeProjectPath === '.') return all;
-    const activeId = mode === 'cmd' ? state.activeCmdThreadId : state.activeThreadId;
     return all.filter((t) => {
-      if (t.id && t.id === activeId) return true;
       const cwd = (state.agentRuntimeById[t.id]?.cwd || '').toString();
       if (!cwd) return true;
       return cwd === activeProjectPath || cwd.startsWith(activeProjectPath + '/') || cwd.endsWith('/' + activeProjectPath);
