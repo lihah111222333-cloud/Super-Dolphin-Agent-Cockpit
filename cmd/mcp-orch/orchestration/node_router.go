@@ -12,6 +12,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/jackc/pgx/v5"
 )
@@ -75,6 +76,48 @@ func NewNodeExecutorRouter(
 		sharedFileWriter: sharedFileWriter,
 		logger:           logger,
 	}
+}
+
+func (d *WakeupDispatcher) spawnReplanPlanner(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure, failFast bool) {
+	if d == nil {
+		return
+	}
+	if d.launcher == nil {
+		d.failSmartRetryPrepare(ctx, w, fence, failure, fmt.Errorf("replan planner unavailable"), failFast)
+		return
+	}
+	req := LaunchRequest{
+		AgentID:   idgen.NewAgentID(),
+		Name:      sanitizeReplanLaunchName(w.DagKey, w.NodeKey),
+		AgentKey:  replanPlannerAgentKey,
+		AgentType: "agent",
+		Prompt:    buildReplanPlannerPrompt(w, failure),
+	}
+	if err := d.launcher.LaunchAgent(ctx, req); err != nil {
+		d.failSmartRetryPrepare(ctx, w, fence, failure, fmt.Errorf("replan planner launch failed: %w", err), failFast)
+		return
+	}
+	d.markLaunched(ctx, w, fence)
+}
+
+func sanitizeReplanLaunchName(dagKey, nodeKey string) string {
+	name := strings.TrimSpace("Replan " + strings.TrimSpace(dagKey) + "/" + strings.TrimSpace(nodeKey))
+	if len(name) > 80 {
+		return name[:80]
+	}
+	return name
+}
+
+func buildReplanPlannerPrompt(w *taskdag.Wakeup, failure dispatchFailure) string {
+	var b strings.Builder
+	b.WriteString("A DAG node failed and its on_failure strategy is replan.\n\n")
+	fmt.Fprintf(&b, "DAG key: %s\n", strings.TrimSpace(w.DagKey))
+	fmt.Fprintf(&b, "Node key: %s\n", strings.TrimSpace(w.NodeKey))
+	fmt.Fprintf(&b, "Failure class: %s\n", failure.outcome.FailureClass)
+	fmt.Fprintf(&b, "Error: %s\n\n", strings.TrimSpace(failure.outcome.ErrorSummary))
+	b.WriteString("Inspect the DAG, decide the smallest graph change, then use task_dag_apply_ops with the current base_version. ")
+	b.WriteString("Do not rerun unrelated nodes and keep the patch scoped to recovering this failed node.")
+	return b.String()
 }
 
 // RouteByWakeup 是 dispatcher 调用入口：根据 wakeup 拿到的 dag/node 信息读取

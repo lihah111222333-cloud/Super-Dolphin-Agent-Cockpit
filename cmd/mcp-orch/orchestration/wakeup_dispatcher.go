@@ -388,11 +388,7 @@ func (d *WakeupDispatcher) retryWakeup(ctx context.Context, w *taskdag.Wakeup, f
 		d.handleRetryHardCap(ctx, w, fence, failure)
 		return false
 	}
-	if alert, shouldAlert := recordDispatchRetryMetric(w, failure.lastErr); shouldAlert {
-		d.emitDispatchRetryAlert(ctx, alert)
-	}
-	d.logger.Info("wakeup dispatcher: launch transient failure → retry",
-		"wakeup_id", w.ID, "target_agent_id", w.TargetAgentID, "retry_interval", d.cfg.RetryInterval, "error", failure.launchErr)
+	d.recordRetryAccepted(ctx, w, failure)
 	return true
 }
 

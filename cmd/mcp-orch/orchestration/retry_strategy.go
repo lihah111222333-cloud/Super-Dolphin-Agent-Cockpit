@@ -10,7 +10,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	taskdag "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
 )
 
 // 导航注（DAG v2 骨架阶段后）：
@@ -393,7 +392,7 @@ func (d *WakeupDispatcher) dispatchSmartRetryAction(
 	case nodeexec.OnFailureAppendError:
 		d.appendValidationErrorAndRetry(ctx, w, fence, failure, retryCtx.node, retryCtx.policy.FailFast)
 	case nodeexec.OnFailureReplan:
-		d.spawnReplanPlanner(ctx, w, fence, failure)
+		d.spawnReplanPlanner(ctx, w, fence, failure, retryCtx.policy.FailFast)
 	default:
 		return false
 	}
@@ -473,9 +472,7 @@ func (d *WakeupDispatcher) escalateModelAndRetry(
 		return
 	}
 	failure.lastErr = truncateWakeupError(fmt.Sprintf("strategy=escalate_model model=%s: %s", next, failure.lastErr))
-	if d.retryWakeup(ctx, w, fence, failure) {
-		d.persistSmartRetryConfigAfterRetry(ctx, node, updated)
-	}
+	d.retryWakeupWithSmartRetryConfig(ctx, w, fence, failure, node, updated, failFast)
 }
 
 func (d *WakeupDispatcher) appendValidationErrorAndRetry(
@@ -497,120 +494,55 @@ func (d *WakeupDispatcher) appendValidationErrorAndRetry(
 		return
 	}
 	failure.lastErr = truncateWakeupError("strategy=append_error: " + failure.lastErr)
-	if d.retryWakeup(ctx, w, fence, failure) {
-		d.persistSmartRetryConfigAfterRetry(ctx, node, updated)
-	}
+	d.retryWakeupWithSmartRetryConfig(ctx, w, fence, failure, node, updated, failFast)
 }
 
-func (d *WakeupDispatcher) persistSmartRetryConfigAfterRetry(ctx context.Context, node *taskdag.Node, config json.RawMessage) {
-	if err := d.persistSmartRetryConfig(ctx, node, config); err != nil {
-		d.logger.Warn("wakeup dispatcher: smart retry config patch failed after retry",
-			"dag_key", node.DagKey, "node_key", node.NodeKey, "error", err)
+func (d *WakeupDispatcher) retryWakeupWithSmartRetryConfig(
+	ctx context.Context,
+	w *taskdag.Wakeup,
+	fence wakeupFence,
+	failure dispatchFailure,
+	node *taskdag.Node,
+	config json.RawMessage,
+	failFast bool,
+) {
+	if d == nil {
+		return
 	}
-}
-
-func (d *WakeupDispatcher) persistSmartRetryConfig(ctx context.Context, node *taskdag.Node, config json.RawMessage) error {
-	if d == nil || d.store == nil || node == nil {
-		return fmt.Errorf("smart retry config patch: missing dispatcher store or node")
+	if d.store == nil || node == nil {
+		d.failSmartRetryPrepare(ctx, w, fence, failure, fmt.Errorf("smart retry config patch: missing dispatcher store or node"), failFast)
+		return
 	}
-	patcher, ok := any(d.store).(taskdag.NodeConfigPatchStore)
+	patcher, ok := any(d.store).(taskdag.SmartRetryConfigStore)
 	if !ok {
-		return fmt.Errorf("smart retry config patch: store missing NodeConfigPatchStore")
+		d.failSmartRetryPrepare(ctx, w, fence, failure, fmt.Errorf("smart retry config patch: store missing SmartRetryConfigStore"), failFast)
+		return
 	}
-	if _, err := patcher.PatchNodeConfigIfUnchanged(ctx, taskdag.NodeConfigPatchInput{
-		DagKey:         node.DagKey,
-		NodeKey:        node.NodeKey,
-		PreviousConfig: node.Config,
-		Config:         append(json.RawMessage(nil), config...),
-	}); err != nil {
-		return fmt.Errorf("smart retry config patch %s/%s: %w", node.DagKey, node.NodeKey, err)
-	}
-	return nil
-}
-
-func currentAgentModel(node *taskdag.Node) string {
-	if node == nil {
-		return ""
-	}
-	cfg, err := nodeexec.ParseAgentConfig(node.Config)
-	if err != nil || cfg == nil {
-		return ""
-	}
-	return strings.TrimSpace(cfg.Exec.Model)
-}
-
-func patchAgentExecModel(raw json.RawMessage, model string) (json.RawMessage, error) {
-	root, err := rawJSONObject(raw)
+	rows, err := patcher.RetryWakeupWithNodeConfigPatch(ctx, taskdag.RetryWakeupWithNodeConfigPatchInput{
+		RetryWakeup: taskdag.RetryWakeupInput{
+			ID:             w.ID,
+			RetryInterval:  d.cfg.RetryInterval,
+			LastError:      failure.lastErr,
+			ClaimedAt:      fence.claimedAt,
+			ClaimedBy:      w.ClaimedBy,
+			LeaseExpiresAt: fence.leaseAt,
+		},
+		NodeConfig: taskdag.NodeConfigPatchInput{
+			DagKey:         node.DagKey,
+			NodeKey:        node.NodeKey,
+			PreviousConfig: node.Config,
+			Config:         append(json.RawMessage(nil), config...),
+		},
+	})
 	if err != nil {
-		return nil, err
+		d.failSmartRetryPrepare(ctx, w, fence, failure, err, failFast)
+		return
 	}
-	execObj, err := nestedJSONObject(root, "exec")
-	if err != nil {
-		return nil, err
+	if rows == 0 {
+		d.handleRetryHardCap(ctx, w, fence, failure)
+		return
 	}
-	modelBytes, err := json.Marshal(strings.TrimSpace(model))
-	if err != nil {
-		return nil, err
-	}
-	execObj["model"] = modelBytes
-	execBytes, err := json.Marshal(execObj)
-	if err != nil {
-		return nil, err
-	}
-	root["exec"] = execBytes
-	return json.Marshal(root)
-}
-
-func appendAgentValidationDiagnostic(raw json.RawMessage, summary string) (json.RawMessage, error) {
-	root, err := rawJSONObject(raw)
-	if err != nil {
-		return nil, err
-	}
-	firstTurn := ""
-	if rawFirst, ok := root["first_turn"]; ok && len(rawFirst) > 0 {
-		if err := json.Unmarshal(rawFirst, &firstTurn); err != nil {
-			return nil, fmt.Errorf("parse first_turn: %w", err)
-		}
-	}
-	diagnostic := "Previous validation error:\n" + strings.TrimSpace(summary)
-	if strings.TrimSpace(firstTurn) != "" {
-		firstTurn = strings.TrimSpace(firstTurn) + "\n\n" + diagnostic
-	} else {
-		firstTurn = diagnostic
-	}
-	firstBytes, err := json.Marshal(firstTurn)
-	if err != nil {
-		return nil, err
-	}
-	root["first_turn"] = firstBytes
-	return json.Marshal(root)
-}
-
-func rawJSONObject(raw json.RawMessage) (map[string]json.RawMessage, error) {
-	if len(raw) == 0 {
-		return map[string]json.RawMessage{}, nil
-	}
-	var root map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &root); err != nil {
-		return nil, fmt.Errorf("parse node config object: %w", err)
-	}
-	if root == nil {
-		root = map[string]json.RawMessage{}
-	}
-	return root, nil
-}
-
-func nestedJSONObject(root map[string]json.RawMessage, key string) (map[string]json.RawMessage, error) {
-	var obj map[string]json.RawMessage
-	if raw, ok := root[key]; ok && len(raw) > 0 {
-		if err := json.Unmarshal(raw, &obj); err != nil {
-			return nil, fmt.Errorf("parse node config %s object: %w", key, err)
-		}
-	}
-	if obj == nil {
-		obj = map[string]json.RawMessage{}
-	}
-	return obj, nil
+	d.recordRetryAccepted(ctx, w, failure)
 }
 
 func (d *WakeupDispatcher) failSmartRetryPrepare(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure, err error, failFast bool) {
@@ -640,43 +572,10 @@ func (d *WakeupDispatcher) failSmartRetry(ctx context.Context, w *taskdag.Wakeup
 	d.failDAGNodeAndCancelDownstream(ctx, w, reason, failFast, failure.outcome)
 }
 
-func (d *WakeupDispatcher) spawnReplanPlanner(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure) {
-	if d == nil || d.launcher == nil {
-		failure.lastErr = truncateWakeupError("strategy=replan planner unavailable: " + failure.lastErr)
-		d.retryWakeup(ctx, w, fence, failure)
-		return
+func (d *WakeupDispatcher) recordRetryAccepted(ctx context.Context, w *taskdag.Wakeup, failure dispatchFailure) {
+	if alert, shouldAlert := recordDispatchRetryMetric(w, failure.lastErr); shouldAlert {
+		d.emitDispatchRetryAlert(ctx, alert)
 	}
-	req := LaunchRequest{
-		AgentID:   idgen.NewAgentID(),
-		Name:      sanitizeReplanLaunchName(w.DagKey, w.NodeKey),
-		AgentKey:  replanPlannerAgentKey,
-		AgentType: "agent",
-		Prompt:    buildReplanPlannerPrompt(w, failure),
-	}
-	if err := d.launcher.LaunchAgent(ctx, req); err != nil {
-		failure.lastErr = truncateWakeupError("strategy=replan planner launch failed: " + err.Error())
-		d.retryWakeup(ctx, w, fence, failure)
-		return
-	}
-	d.markLaunched(ctx, w, fence)
-}
-
-func sanitizeReplanLaunchName(dagKey, nodeKey string) string {
-	name := strings.TrimSpace("Replan " + strings.TrimSpace(dagKey) + "/" + strings.TrimSpace(nodeKey))
-	if len(name) > 80 {
-		return name[:80]
-	}
-	return name
-}
-
-func buildReplanPlannerPrompt(w *taskdag.Wakeup, failure dispatchFailure) string {
-	var b strings.Builder
-	b.WriteString("A DAG node failed and its on_failure strategy is replan.\n\n")
-	fmt.Fprintf(&b, "DAG key: %s\n", strings.TrimSpace(w.DagKey))
-	fmt.Fprintf(&b, "Node key: %s\n", strings.TrimSpace(w.NodeKey))
-	fmt.Fprintf(&b, "Failure class: %s\n", failure.outcome.FailureClass)
-	fmt.Fprintf(&b, "Error: %s\n\n", strings.TrimSpace(failure.outcome.ErrorSummary))
-	b.WriteString("Inspect the DAG, decide the smallest graph change, then use task_dag_apply_ops with the current base_version. ")
-	b.WriteString("Do not rerun unrelated nodes and keep the patch scoped to recovering this failed node.")
-	return b.String()
+	d.logger.Info("wakeup dispatcher: launch transient failure → retry",
+		"wakeup_id", w.ID, "target_agent_id", w.TargetAgentID, "retry_interval", d.cfg.RetryInterval, "error", failure.launchErr)
 }

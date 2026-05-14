@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -168,6 +169,91 @@ func (r *NodeExecutorRouter) invokeFailureHookForTaskNode(ctx context.Context, t
 	hooks := exec.Hooks()
 	node := nodeFromTaskNode(target, nodeType)
 	r.invokeLifecycleHook(ctx, hooks, nodeexec.HookOnFailure, node, outcome)
+}
+
+func currentAgentModel(node *taskdag.Node) string {
+	if node == nil {
+		return ""
+	}
+	cfg, err := nodeexec.ParseAgentConfig(node.Config)
+	if err != nil || cfg == nil {
+		return ""
+	}
+	return strings.TrimSpace(cfg.Exec.Model)
+}
+
+func patchAgentExecModel(raw json.RawMessage, model string) (json.RawMessage, error) {
+	root, err := rawJSONObject(raw)
+	if err != nil {
+		return nil, err
+	}
+	execObj, err := nestedJSONObject(root, "exec")
+	if err != nil {
+		return nil, err
+	}
+	modelBytes, err := json.Marshal(strings.TrimSpace(model))
+	if err != nil {
+		return nil, err
+	}
+	execObj["model"] = modelBytes
+	execBytes, err := json.Marshal(execObj)
+	if err != nil {
+		return nil, err
+	}
+	root["exec"] = execBytes
+	return json.Marshal(root)
+}
+
+func appendAgentValidationDiagnostic(raw json.RawMessage, summary string) (json.RawMessage, error) {
+	root, err := rawJSONObject(raw)
+	if err != nil {
+		return nil, err
+	}
+	firstTurn := ""
+	if rawFirst, ok := root["first_turn"]; ok && len(rawFirst) > 0 {
+		if err := json.Unmarshal(rawFirst, &firstTurn); err != nil {
+			return nil, fmt.Errorf("parse first_turn: %w", err)
+		}
+	}
+	diagnostic := "Previous validation error:\n" + strings.TrimSpace(summary)
+	if strings.TrimSpace(firstTurn) != "" {
+		firstTurn = strings.TrimSpace(firstTurn) + "\n\n" + diagnostic
+	} else {
+		firstTurn = diagnostic
+	}
+	firstBytes, err := json.Marshal(firstTurn)
+	if err != nil {
+		return nil, err
+	}
+	root["first_turn"] = firstBytes
+	return json.Marshal(root)
+}
+
+func rawJSONObject(raw json.RawMessage) (map[string]json.RawMessage, error) {
+	if len(raw) == 0 {
+		return map[string]json.RawMessage{}, nil
+	}
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return nil, fmt.Errorf("parse node config object: %w", err)
+	}
+	if root == nil {
+		root = map[string]json.RawMessage{}
+	}
+	return root, nil
+}
+
+func nestedJSONObject(root map[string]json.RawMessage, key string) (map[string]json.RawMessage, error) {
+	var obj map[string]json.RawMessage
+	if raw, ok := root[key]; ok && len(raw) > 0 {
+		if err := json.Unmarshal(raw, &obj); err != nil {
+			return nil, fmt.Errorf("parse node config %s object: %w", key, err)
+		}
+	}
+	if obj == nil {
+		obj = map[string]json.RawMessage{}
+	}
+	return obj, nil
 }
 
 func (r *NodeExecutorRouter) executorForNodeType(nodeType string) nodeexec.NodeExecutor {

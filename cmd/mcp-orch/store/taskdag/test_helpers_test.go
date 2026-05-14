@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -919,13 +920,25 @@ func (db *fakeTaskDAGDB) patchNodeConfigIfUnchanged(args ...any) ([]any, error) 
 	}
 	key := dagNodeKey(dagKey, nodeKey)
 	row, ok := db.nodes[key]
-	if !ok || isFakeTerminalStatus(row.Status) || string(row.Config) != string(previousConfig) {
+	if !ok || isFakeTerminalStatus(row.Status) || !jsonBytesEqual(row.Config, previousConfig) {
 		return nil, pgx.ErrNoRows
 	}
 	row.Config = append([]byte(nil), config...)
 	row.UpdatedAt = timestamptzValue(db.now)
 	db.nodes[key] = row
 	return taskDagNodeValues(row), nil
+}
+
+func jsonBytesEqual(left, right []byte) bool {
+	var leftValue any
+	var rightValue any
+	if err := json.Unmarshal(left, &leftValue); err != nil {
+		return string(left) == string(right)
+	}
+	if err := json.Unmarshal(right, &rightValue); err != nil {
+		return string(left) == string(right)
+	}
+	return reflect.DeepEqual(leftValue, rightValue)
 }
 
 func (db *fakeTaskDAGDB) claimNodeOutputMaterialization(args ...any) ([]any, error) {
