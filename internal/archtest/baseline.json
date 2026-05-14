@@ -113,7 +113,7 @@
     "todo_count": 0
   },
   "cmd/mcp-orch/orchestration/dag.go": {
-    "lines": 477,
+    "lines": 506,
     "max_func_len": 33,
     "max_nesting": 2,
     "max_complexity": 9,
@@ -363,7 +363,7 @@
     "max_struct_fields": 3
   },
   "internal/contract/orchestration.go": {
-    "lines": 320,
+    "lines": 321,
     "max_func_len": 27,
     "max_nesting": 2,
     "max_complexity": 10,
