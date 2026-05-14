@@ -210,8 +210,20 @@ func (s *session) onInboundMessage(ctx context.Context, resp Responder, msg RawM
 		// P20.18 Phase 1：Codex 发的 item/tool/call params 只含 name + arguments，不包含
 		// agentId（agent 是宿主概念 codex 不知道）。旧的 peer-routed 工具不需 agentId，但
 		// host-direct 分支（skill_read_section）需要从 agentId 解析 cwd，
-		// 不 enrich 会 100% 失败。这里把 session 持有的 agentID 覆盖写入 msg.Params 后再转发。
-		enriched := enrichToolCallParams(msg, s.agentID)
+		// 不 enrich 会 100% 失败；LSP peer 也需要 session cwd 才能避开共享进程启动目录。
+		// 这里把 session 持有的 agentID / cwd 覆盖写入 msg.Params 后再转发。
+		toolName := toolCallParamString(msg.Params, "name")
+		sessionCWD := s.runtimeConfigString("cwd")
+		if shouldWarnToolCWDTrace(toolName) {
+			s.logger.Warn("codexapp: tool call cwd trace",
+				"agent_id", s.agentID,
+				"thread_id", s.ThreadID(),
+				"method", msg.Method,
+				"tool", toolName,
+				"session_cwd", sessionCWD,
+			)
+		}
+		enriched := enrichToolCallParams(msg, s.agentID, sessionCWD)
 		runtimesafe.SafeGo(s.ctx, s.logger, "codexapp.session.toolCall", func(_ context.Context) {
 			result, err := toolHandler(ctx, enriched)
 			if respErr := resp.RespondWithID(msg.ID, result, err); respErr != nil {

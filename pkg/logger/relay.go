@@ -22,6 +22,8 @@ type relayHookHolder struct {
 	hook RelayHook
 }
 
+type relayDisabledKey struct{}
+
 var relayHookState atomic.Value
 
 func init() {
@@ -41,6 +43,21 @@ func currentRelayHook() RelayHook {
 	return holder.hook
 }
 
+func WithRelayDisabled(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, relayDisabledKey{}, true)
+}
+
+func relayDisabled(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	disabled, _ := ctx.Value(relayDisabledKey{}).(bool)
+	return disabled
+}
+
 type relayHandler struct {
 	next   slog.Handler
 	attrs  []slog.Attr
@@ -48,7 +65,7 @@ type relayHandler struct {
 }
 
 func wrapRelayHandler(next slog.Handler) slog.Handler {
-	if next == nil || currentRelayHook() == nil {
+	if next == nil {
 		return next
 	}
 	return &relayHandler{next: next}
@@ -60,6 +77,9 @@ func (h *relayHandler) Enabled(ctx context.Context, level slog.Level) bool {
 
 func (h *relayHandler) Handle(ctx context.Context, rec slog.Record) error {
 	err := h.next.Handle(ctx, rec)
+	if relayDisabled(ctx) {
+		return err
+	}
 	hook := currentRelayHook()
 	if hook == nil {
 		return err
@@ -166,8 +186,21 @@ func relayValueAny(value slog.Value) any {
 	case slog.KindTime:
 		return value.Time().Format(time.RFC3339Nano)
 	case slog.KindAny:
-		return value.Any()
+		return relayAnyValue(value.Any())
 	default:
 		return fmt.Sprint(value)
+	}
+}
+
+func relayAnyValue(value any) any {
+	switch typed := value.(type) {
+	case nil:
+		return nil
+	case error:
+		return typed.Error()
+	case fmt.Stringer:
+		return typed.String()
+	default:
+		return value
 	}
 }

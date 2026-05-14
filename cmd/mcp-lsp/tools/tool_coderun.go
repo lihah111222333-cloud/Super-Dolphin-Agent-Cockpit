@@ -102,6 +102,8 @@ func (h CodeRunHandler) handleRun(ctx context.Context, req CodeRunRequest) (any,
 		return nil, err
 	}
 	defer cleanup()
+	request.TraceTool = "code_run"
+	request.TraceMode = "run"
 	return h.execute(ctx, request, language, "run")
 }
 
@@ -116,6 +118,8 @@ func (h CodeRunHandler) handleProjectCommand(ctx context.Context, req CodeRunReq
 	}
 	timeout := middleware.ClampTimeout(req.Timeout, defaultCodeRunTimeout(), middleware.TierExec)
 	request := h.sandbox.ShellRequest(req.Command, req.WorkDir, timeout)
+	request.TraceTool = "code_run"
+	request.TraceMode = "project_cmd"
 	return h.execute(ctx, request, "", "project_cmd")
 }
 

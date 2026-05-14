@@ -209,34 +209,6 @@ func (c *Client) EmitEvent(ctx context.Context, eventType string, payload any) e
 	return nil
 }
 
-func (c *Client) Log(ctx context.Context, level, message string, fields map[string]string) error {
-	lease := c.currentLease()
-	entry := mcp.LogNotify{
-		InstanceID: lease.InstanceID,
-		Generation: lease.Generation,
-		Seq:        c.nextLogSeq(),
-		Level:      strings.TrimSpace(level),
-		Message:    message,
-		Fields:     cloneStringMapAny(fields),
-		TS:         time.Now().UnixMilli(),
-	}
-	conn, degraded := c.currentConn()
-	if conn == nil || degraded {
-		c.localLogFallback(entry, nil)
-		return nil
-	}
-	noteCtx, cancel := withTimeoutIfNone(ctx, c.currentSendTimeout())
-	defer cancel()
-	if err := conn.Notify(noteCtx, mcp.MethodLog, entry); err != nil {
-		if isTransportErr(err) {
-			c.localLogFallback(entry, err)
-			return nil
-		}
-		return err
-	}
-	return nil
-}
-
 func (c *Client) RequestApproval(ctx context.Context, req mcp.ApprovalRequest) (*mcp.ApprovalResponse, error) {
 	conn, degraded := c.currentConn()
 	if conn == nil || degraded {

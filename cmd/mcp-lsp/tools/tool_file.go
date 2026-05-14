@@ -15,7 +15,9 @@ import (
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/search"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 const (
@@ -87,6 +89,27 @@ type indexedBatchItem struct {
 	Item  batchReadItem
 }
 
+func (h handlerBase) warnFileCWDTrace(ctx context.Context, input fileToolInput) {
+	metaCWD, _ := ctx.Value(common.CwdContextKey).(string)
+	pkglogger.Get().Warn("mcp-lsp: lsp_file cwd trace",
+		"action", strings.TrimSpace(input.Action),
+		"fallback_root", strings.TrimSpace(h.root),
+		"meta_cwd", strings.TrimSpace(metaCWD),
+		"effective_root", toolWorkspaceRoot(ctx, h.root),
+		"file_path", strings.TrimSpace(input.FilePath),
+		"file_paths", input.FilePaths,
+	)
+}
+
+func warnFileReadFailure(action, root, rawPath string, err error) {
+	pkglogger.Get().Warn("mcp-lsp: lsp_file cwd failure",
+		"action", strings.TrimSpace(action),
+		"effective_root", strings.TrimSpace(root),
+		"file_path", strings.TrimSpace(rawPath),
+		"error", err,
+	)
+}
+
 func NewFileHandler(cfg Config) Handler {
 	handler := handlerBase{
 		root:     resolveRoot(cfg.WorkspaceRoot),
@@ -100,6 +123,7 @@ func (h handlerBase) handleFile(ctx context.Context, params json.RawMessage) (an
 	if err != nil {
 		return nil, err
 	}
+	h.warnFileCWDTrace(ctx, input)
 	return dispatchToolAction(ctx, "lsp_file", input.Action, input, map[string]actionHandler[fileToolInput]{
 		"open_file": func(ctx context.Context, input fileToolInput) (any, error) {
 			return h.openFile(ctx, input.FilePath)
@@ -120,8 +144,10 @@ func (h handlerBase) openFile(ctx context.Context, rawPath string) (openFileResu
 	if h.registry == nil {
 		return openFileResult{}, errManagerUnavailable
 	}
-	file, err := search.ReadToolFileContent(toolWorkspaceRoot(ctx, h.root), rawPath, maxReadFileBytes)
+	root := toolWorkspaceRoot(ctx, h.root)
+	file, err := search.ReadToolFileContent(root, rawPath, maxReadFileBytes)
 	if err != nil {
+		warnFileReadFailure("open_file", root, rawPath, err)
 		return openFileResult{}, err
 	}
 	uri := fileURI(file.Path.AbsPath)
@@ -140,8 +166,10 @@ func (h handlerBase) openFile(ctx context.Context, rawPath string) (openFileResu
 }
 
 func (h handlerBase) readSingle(ctx context.Context, rawPath string, offset, limit int) (string, error) {
-	file, err := search.ReadToolFileContent(toolWorkspaceRoot(ctx, h.root), rawPath, maxReadFileBytes)
+	root := toolWorkspaceRoot(ctx, h.root)
+	file, err := search.ReadToolFileContent(root, rawPath, maxReadFileBytes)
 	if err != nil {
+		warnFileReadFailure("read_file", root, rawPath, err)
 		return "", err
 	}
 	return renderReadContent(file.Content, offset, limit), nil
@@ -156,8 +184,10 @@ func (h handlerBase) readBatch(ctx context.Context, rawPaths []string, offset, l
 		go func(idx int, target string) {
 			defer wg.Done()
 			item := batchReadItem{FilePath: strings.TrimSpace(target)}
-			file, err := search.ReadToolFileContent(toolWorkspaceRoot(ctx, h.root), target, maxReadFileBytes)
+			root := toolWorkspaceRoot(ctx, h.root)
+			file, err := search.ReadToolFileContent(root, target, maxReadFileBytes)
 			if err != nil {
+				warnFileReadFailure("read_file", root, target, err)
 				item.Error = err.Error()
 				results <- indexedBatchItem{Index: idx, Item: item}
 				return
