@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# pre-push — 推送前跑 fix-test guard + make ci-l0（约 13 秒）
+# pre-push — 推送前跑 fix-test guard + 变更语言/包对应测试
 # Bypass: git push --no-verify
 set -e
 
@@ -36,9 +36,12 @@ ensure_clean_push_tree() {
 ensure_clean_push_tree
 
 PUSH_RANGES=$(mktemp -t pre-push-ranges.XXXXXX)
+GO_LIST_ERR=$(mktemp -t pre-push-golist.XXXXXX)
 LOG=
+GO_PKG_CANDIDATES=()
+HAS_FRONTEND_CODE_CHANGES=0
 cleanup() {
-  rm -f "$PUSH_RANGES"
+  rm -f "$PUSH_RANGES" "$GO_LIST_ERR"
   if [ -n "${LOG:-}" ]; then
     rm -f "$LOG"
   fi
@@ -73,6 +76,190 @@ record_push_range() {
   else
     printf '%s\n' "$local_sha" >>"$PUSH_RANGES"
   fi
+}
+
+array_contains() {
+  local needle existing
+  needle=$1
+  shift
+  for existing in "$@"; do
+    if [ "$existing" = "$needle" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+is_go_path() {
+  case "$1" in
+    *.go) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+pkg_for_path() {
+  local dir
+  dir=$(dirname "$1")
+  if [ "$dir" = "." ]; then
+    printf '.'
+  else
+    printf './%s' "$dir"
+  fi
+}
+
+add_go_pkg_for_path() {
+  local pkg
+  is_go_path "$1" || return 0
+  pkg=$(pkg_for_path "$1")
+  if ! array_contains "$pkg" "${GO_PKG_CANDIDATES[@]}"; then
+    GO_PKG_CANDIDATES+=("$pkg")
+  fi
+}
+
+is_frontend_code_path() {
+  case "$1" in
+    cmd/agent-terminal/frontend/node_modules/*|\
+    cmd/agent-terminal/frontend/.vite-cache/*|\
+    cmd/agent-terminal/frontend/.build-cache/*|\
+    cmd/agent-terminal/frontend/dist/*|\
+    cmd/agent-terminal/frontend/playwright-report/*|\
+    cmd/agent-terminal/frontend/test-results/*|\
+    cmd/agent-terminal/frontend/review/*|\
+    cmd/agent-terminal/frontend/full_test_output.txt|\
+    cmd/agent-terminal/frontend/.DS_Store)
+      return 1
+      ;;
+    cmd/agent-terminal/frontend/*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+add_frontend_path() {
+  if is_frontend_code_path "$1"; then
+    HAS_FRONTEND_CODE_CHANGES=1
+  fi
+}
+
+record_changed_path() {
+  add_go_pkg_for_path "$1"
+  add_frontend_path "$1"
+}
+
+consume_name_status_stream() {
+  local status old_path new_path path
+  while IFS= read -r -d '' status; do
+    case "$status" in
+      R*|C*)
+        IFS= read -r -d '' old_path || { echo "❌ 解析 changed rename/copy old path 失败" >&2; exit 1; }
+        IFS= read -r -d '' new_path || { echo "❌ 解析 changed rename/copy new path 失败" >&2; exit 1; }
+        record_changed_path "$old_path"
+        record_changed_path "$new_path"
+        ;;
+      *)
+        IFS= read -r -d '' path || { echo "❌ 解析 changed path 失败" >&2; exit 1; }
+        record_changed_path "$path"
+        ;;
+    esac
+  done
+}
+
+collect_changed_paths_for_range() {
+  local range=$1
+  if [[ "$range" == *..* ]]; then
+    consume_name_status_stream < <(git diff --name-status -z --diff-filter=ACMRD "$range")
+  else
+    consume_name_status_stream < <(git diff-tree --root --no-commit-id --name-status -z -r "$range")
+  fi
+}
+
+collect_changed_test_scopes() {
+  if [ ! -s "$PUSH_RANGES" ]; then
+    return 0
+  fi
+  while IFS= read -r range; do
+    [ -n "$range" ] || continue
+    collect_changed_paths_for_range "$range"
+  done < <(sort -u "$PUSH_RANGES")
+}
+
+resolve_go_pkgs() {
+  local p pkg_dir
+  GO_PKGS=()
+  for p in "${GO_PKG_CANDIDATES[@]}"; do
+    pkg_dir=${p#./}
+    if [ "$p" = "." ]; then
+      pkg_dir="."
+    fi
+    if [ ! -d "$pkg_dir" ]; then
+      continue
+    fi
+    if run_without_git_env go list "$p" >/dev/null 2>"$GO_LIST_ERR"; then
+      GO_PKGS+=("$p")
+      continue
+    fi
+    if grep -q "no Go files" "$GO_LIST_ERR"; then
+      continue
+    fi
+    echo "❌ go list 失败：$p" >&2
+    cat "$GO_LIST_ERR" >&2
+    exit 1
+  done
+}
+
+run_go_package_tests() {
+  resolve_go_pkgs
+  if [ ${#GO_PKGS[@]} -eq 0 ]; then
+    if [ ${#GO_PKG_CANDIDATES[@]} -gt 0 ]; then
+      echo "[pre-push] go package tests... (skipped: no remaining Go package)"
+    fi
+    return 0
+  fi
+
+  echo "[pre-push] go package tests: ${GO_PKGS[*]}"
+  LOG=$(mktemp -t pre-push-go.XXXXXX)
+  if run_without_git_env ./scripts/test_with_guard.sh "${GO_PKGS[@]}" -count=1 >"$LOG" 2>&1; then
+    grep -v '^ld: warning:' "$LOG" || true
+    rm -f "$LOG"
+    LOG=
+    return 0
+  else
+    local rc=$?
+    grep -v '^ld: warning:' "$LOG" >&2 || true
+    echo "" >&2
+    echo "❌ Go 包级测试未通过，push 已拒绝" >&2
+    echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git push --no-verify" >&2
+    exit "$rc"
+  fi
+}
+
+run_frontend_package_tests() {
+  if [ "$HAS_FRONTEND_CODE_CHANGES" -ne 1 ]; then
+    return 0
+  fi
+
+  echo "[pre-push] frontend codebase guard..."
+  (
+    cd cmd/agent-terminal/frontend
+    if ! node scripts/size-guard.cjs; then
+      echo "❌ 前端代码守卫未通过，push 已拒绝" >&2
+      echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git push --no-verify" >&2
+      exit 1
+    fi
+  )
+
+  echo "[pre-push] frontend package tests..."
+  (
+    cd cmd/agent-terminal/frontend
+    if ! npx vitest run; then
+      echo "❌ 前端包测试失败，push 已拒绝" >&2
+      echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git push --no-verify" >&2
+      exit 1
+    fi
+  )
 }
 
 ensure_pushed_refs_match_head() {
@@ -115,23 +302,8 @@ if [ -s "$PUSH_RANGES" ]; then
   done < <(sort -u "$PUSH_RANGES")
 fi
 
-echo "[pre-push] make ci-l0..."
+collect_changed_test_scopes
+run_go_package_tests
+run_frontend_package_tests
 
-# 用临时文件捕获输出，过滤 ld 链接器噪声后再展示，最后看真实 RC
-LOG=$(mktemp -t pre-push.XXXXXX)
-
-if run_without_git_env make ci-l0 >"$LOG" 2>&1; then
-  # 通过：仍展示输出（去 ld warning 噪声），让用户看到通过的包
-  grep -v '^ld: warning:' "$LOG" || true
-  echo "✅ pre-push OK"
-  exit 0
-else
-  rc=$?
-fi
-
-# 失败：吐出去噪后的日志 + 拒绝 push，并保留 make 的失败码
-grep -v '^ld: warning:' "$LOG" >&2 || true
-echo "" >&2
-echo "❌ ci-l0 未通过，push 已拒绝" >&2
-echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git push --no-verify" >&2
-exit "$rc"
+echo "✅ pre-push OK"
