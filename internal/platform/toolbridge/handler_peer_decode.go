@@ -98,6 +98,7 @@ func decodeToolCallRequest(params json.RawMessage) (ToolCallRequest, error) {
 		ThreadID:   firstString(payload, "threadId", "thread_id"),
 		TurnID:     firstString(payload, "turnId", "turn_id"),
 		CallID:     firstString(payload, "callId", "call_id"),
+		CWD:        firstString(payload, "_cwd"),
 		ClientKind: firstString(payload, "clientKind", "client_kind", "family"),
 	}
 	if req.Name == "" {
@@ -119,6 +120,49 @@ func decodeToolCallRequest(params json.RawMessage) (ToolCallRequest, error) {
 		return ToolCallRequest{}, fmt.Errorf("toolbridge: missing tool name")
 	}
 	return req, nil
+}
+
+func (h *Handler) resolveCurrentToolCallCWD(ctx context.Context, req ToolCallRequest) string {
+	if cwd := strings.TrimSpace(req.CWD); cwd != "" {
+		return cwd
+	}
+	if binding, ok := h.resolveCurrentToolCallBinding(ctx, req); ok {
+		return strings.TrimSpace(binding.CWD)
+	}
+	return ""
+}
+
+func (h *Handler) resolveAndWarnCurrentToolCallCWD(ctx context.Context, req ToolCallRequest) string {
+	cwd := h.resolveCurrentToolCallCWD(ctx, req)
+	h.warnPeerToolCWDTrace(ctx, req, cwd)
+	return cwd
+}
+
+func shouldWarnToolCWDTrace(toolName string) bool {
+	toolName = strings.TrimSpace(toolName)
+	return strings.HasPrefix(toolName, "lsp_") ||
+		strings.HasPrefix(toolName, "code_") ||
+		toolName == "orchestration_launch_agent"
+}
+
+func (h *Handler) warnPeerToolCWDTrace(ctx context.Context, req ToolCallRequest, forwardedCWD string) {
+	if !shouldWarnToolCWDTrace(req.Name) {
+		return
+	}
+	bindingCWD := ""
+	if binding, ok := h.resolveCurrentToolCallBinding(ctx, req); ok {
+		bindingCWD = strings.TrimSpace(binding.CWD)
+	}
+	h.warn("toolbridge: peer tool cwd trace",
+		"tool", strings.TrimSpace(req.Name),
+		"agent_id", strings.TrimSpace(req.AgentID),
+		"thread_id", strings.TrimSpace(req.ThreadID),
+		"call_id", strings.TrimSpace(req.CallID),
+		"req_cwd", strings.TrimSpace(req.CWD),
+		"binding_cwd", bindingCWD,
+		"forwarded_cwd", strings.TrimSpace(forwardedCWD),
+		"client_kind", strings.TrimSpace(req.ClientKind),
+	)
 }
 
 func firstString(payload map[string]json.RawMessage, keys ...string) string {

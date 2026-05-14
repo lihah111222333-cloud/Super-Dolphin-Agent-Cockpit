@@ -259,7 +259,7 @@
     "max_struct_fields": 6
   },
   "cmd/mcp-orch/runtime.go": {
-    "lines": 275,
+    "lines": 273,
     "max_func_len": 45,
     "max_nesting": 2,
     "max_complexity": 8,
@@ -848,8 +848,8 @@
     "max_struct_fields": 2
   },
   "internal/platform/toolbridge/handler.go": {
-    "lines": 390,
-    "max_func_len": 27,
+    "lines": 386,
+    "max_func_len": 26,
     "max_nesting": 4,
     "max_complexity": 9,
     "max_params": 4,

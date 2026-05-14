@@ -45,6 +45,7 @@ type bootstrapRunner struct {
 }
 
 type bootstrapClient interface {
+	InstallLogRelay()
 	Start(context.Context) error
 	Close() error
 	hookSubscriber
@@ -59,9 +60,7 @@ type runtimeParams struct {
 }
 
 func newLogger(cfg *platformconfig.Config) *slog.Logger {
-	// MCP stdio transport uses stdout for JSON-RPC messages.
-	// Write logs to a file so they are visible for debugging.
-	// stderr is swallowed by the codex app-server parent process.
+	// MCP stdio uses stdout for JSON-RPC; keep local fallback logs off stdout.
 	logPath := fmt.Sprintf("/tmp/mcp-orch-%d.log", os.Getpid())
 	if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
 		pkglogger.InitWithConsoleWriter(f)
@@ -71,13 +70,9 @@ func newLogger(cfg *platformconfig.Config) *slog.Logger {
 	return pkglogger.Get()
 }
 
-func newPool(cfg *platformconfig.Config) (*pgxpool.Pool, error) {
-	return platformdb.NewPool(cfg)
-}
+func newPool(cfg *platformconfig.Config) (*pgxpool.Pool, error) { return platformdb.NewPool(cfg) }
 
-func newQueries(pool *pgxpool.Pool) *sqlc.Queries {
-	return sqlc.New(pool)
-}
+func newQueries(pool *pgxpool.Pool) *sqlc.Queries { return sqlc.New(pool) }
 
 func newAgentThreadStore(pool *pgxpool.Pool) orchestration.AgentThreadStore {
 	return agentstore.NewThreadStore(pool)
@@ -239,10 +234,7 @@ func handleToolCall(ctx context.Context, registry tools.Registry, name string, a
 }
 
 func (r bootstrapRunner) Run(ctx context.Context) error {
-	// Dual-channel startup ordering: wait for the local stdio MCP server
-	// to be ready before connecting to the control-plane jrpc2. This
-	// guarantees the tool-execution surface is available when the
-	// control plane starts dispatching requests.
+	r.client.InstallLogRelay()
 	if r.stdioReady != nil {
 		select {
 		case <-r.stdioReady:

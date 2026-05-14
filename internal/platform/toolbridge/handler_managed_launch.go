@@ -22,8 +22,9 @@ func (h *Handler) injectManagedLaunchContext(ctx context.Context, req ToolCallRe
 	if args == nil {
 		args = make(map[string]any)
 	}
-	provider, model, effort := h.resolveManagedLaunchDefaults(ctx, binding, args)
-	changed := injectManagedLaunchArgs(args, binding, provider, model, effort)
+	launchCWD := firstNonEmptyString(req.CWD, binding.CWD)
+	provider, model, effort := h.resolveManagedLaunchDefaults(ctx, binding, args, launchCWD)
+	changed := injectManagedLaunchArgs(args, binding, launchCWD, provider, model, effort)
 	if !changed {
 		return req
 	}
@@ -50,8 +51,8 @@ func (h *Handler) injectManagedLaunchContext(ctx context.Context, req ToolCallRe
 	return req
 }
 
-func (h *Handler) resolveManagedLaunchDefaults(ctx context.Context, binding toolCallBinding, args map[string]any) (string, string, string) {
-	provider, prefModel, prefEffort := h.resolveManagedLaunchDefaultsFromPreferences(ctx, binding, args)
+func (h *Handler) resolveManagedLaunchDefaults(ctx context.Context, binding toolCallBinding, args map[string]any, launchCWD string) (string, string, string) {
+	provider, prefModel, prefEffort := h.resolveManagedLaunchDefaultsFromPreferences(ctx, binding, args, launchCWD)
 	model, effort := h.resolveManagedLaunchModelEffortFromParent(ctx, binding)
 	model, effort = compatibleManagedLaunchModelEffort(provider, model, effort)
 	return provider, firstNonEmptyString(model, prefModel), firstNonEmptyString(effort, prefEffort)
@@ -73,8 +74,8 @@ func (h *Handler) resolveManagedLaunchModelEffortFromParent(ctx context.Context,
 	return "", ""
 }
 
-func (h *Handler) resolveManagedLaunchDefaultsFromPreferences(ctx context.Context, binding toolCallBinding, args map[string]any) (string, string, string) {
-	prefs, ok := h.readMergedUIPreferences(ctx, firstNonEmptyString(mapString(args, "cwd"), binding.CWD))
+func (h *Handler) resolveManagedLaunchDefaultsFromPreferences(ctx context.Context, binding toolCallBinding, args map[string]any, launchCWD string) (string, string, string) {
+	prefs, ok := h.readMergedUIPreferences(ctx, firstNonEmptyString(mapString(args, "cwd"), launchCWD, binding.CWD))
 	if !ok {
 		return "", "", ""
 	}

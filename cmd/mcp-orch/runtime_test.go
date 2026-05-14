@@ -24,10 +24,15 @@ type stubBootstrapClient struct {
 	startCalls     int
 	closeCalls     int
 	subscribeCalls int
+	relayCalls     int
 
 	subscriptionID string
 	topics         []string
 	mode           string
+}
+
+func (s *stubBootstrapClient) InstallLogRelay() {
+	s.relayCalls++
 }
 
 func (s *stubBootstrapClient) Start(context.Context) error {

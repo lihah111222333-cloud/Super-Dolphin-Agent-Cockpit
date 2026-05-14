@@ -133,6 +133,55 @@ func TestToolBridge_RouteToolCall_EmitsDiffForTrackedLspEdit(t *testing.T) {
 	}
 }
 
+func TestToolBridge_RouteToolCall_EmitsDiffWithInjectedCWD(t *testing.T) {
+	repo := initGitRepo(t, map[string]string{"tracked.txt": "before\n"})
+	args := mustRawJSON(t, map[string]any{"action": "rename"})
+	peer := &mcpcontrol.ToolInstance{Peer: &stubPeer{callbackFn: func(_ context.Context, method string, params any, result any) error {
+		if method != "tools/call" {
+			t.Fatalf("Callback() method = %q, want tools/call", method)
+		}
+		if err := os.WriteFile(filepath.Join(repo, "tracked.txt"), []byte("after\n"), 0o644); err != nil {
+			return err
+		}
+		resp, ok := result.(*peerToolCallResponse)
+		if !ok {
+			t.Fatalf("Callback() result type = %T, want *peerToolCallResponse", result)
+		}
+		*resp = peerToolCallResponse{Content: []peerToolCallContent{{Type: "text", Text: "diff ok"}}}
+		return nil
+	}}}
+	h, _ := newHandlerForTest(peer)
+	resolver := &stubCWDResolver{cwd: initGitRepo(t, map[string]string{"tracked.txt": "stale\n"})}
+	h.resolver = resolver
+	var emitted []difftracker.DiffResult
+	h.emitter = func(_ context.Context, diff difftracker.DiffResult) error {
+		emitted = append(emitted, diff)
+		return nil
+	}
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:      "lsp_edit",
+		Arguments: args,
+		AgentID:   "agent-9",
+		ThreadID:  "thread-9",
+		CallID:    "call-9",
+		CWD:       repo,
+	})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	assertSingleTextItem(t, got, "diff ok", true)
+	if len(emitted) != 1 {
+		t.Fatalf("emitted diff count = %d, want 1", len(emitted))
+	}
+	if resolver.callSeen {
+		t.Fatalf("resolver should not be called when request carries trusted cwd")
+	}
+	if len(emitted[0].Files) != 1 || emitted[0].Files[0] != "tracked.txt" {
+		t.Fatalf("emitted Files = %#v, want [tracked.txt]", emitted[0].Files)
+	}
+}
+
 func initGitRepo(t *testing.T, files map[string]string) string {
 	t.Helper()
 	repo := t.TempDir()

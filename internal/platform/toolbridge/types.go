@@ -30,6 +30,7 @@ type ToolCallRequest struct {
 	ThreadID   string          `json:"threadId,omitempty"`
 	TurnID     string          `json:"turnId,omitempty"`
 	CallID     string          `json:"callId,omitempty"`
+	CWD        string          `json:"_cwd,omitempty"`
 	ClientKind string          `json:"clientKind,omitempty"`
 }
 
