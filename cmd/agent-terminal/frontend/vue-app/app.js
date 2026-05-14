@@ -314,11 +314,7 @@ export const AppRoot = {
     const sidebarBadges = createSidebarBadges(skillSidebarBadges, memoryCenter);
 
     let refreshTimer;
-    let unsubscribeAgentEvent = () => { };
-    let unsubscribeBridgeEvent = () => { };
-    let unsubscribeAppWillQuit = () => { };
-    let removeBeforeUnload = () => { };
-    let removePageHide = () => { };
+    let unsubscribeAgentEvent = () => { }, unsubscribeBridgeEvent = () => { }, unsubscribeAppWillQuit = () => { }, removeBeforeUnload = () => { }, removePageHide = () => { };
     let chatPageRefreshPromise;
 
 
@@ -472,7 +468,10 @@ export const AppRoot = {
           threadStore.setPreferenceScopeCwd(next || '');
         }
         if (!next || next === prev) return;
-        threadStore.refreshSidebarState().catch((/** @type {unknown} */ error) => {
+        console.warn('[TRACE-CWD] threadScopeCwd changed', { next, prev, ts: Date.now() });
+        threadStore.refreshSidebarState({ force: true }).then(() => {
+          console.warn('[TRACE-CWD] refreshSidebarState completed', { ts: Date.now() });
+        }).catch((/** @type {unknown} */ error) => {
           console.warn('refresh threads after scope change failed', error);
         });
         if (page.value === 'memory-center') {

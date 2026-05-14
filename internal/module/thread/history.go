@@ -14,6 +14,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
+	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 )
@@ -112,6 +114,101 @@ func (s *service) ReadThreadHistory(ctx context.Context, threadID string) (*Read
 		return nil, err
 	}
 	return buildReadHistoryResultFromThreads(threads, fallbackID), nil
+}
+
+func resolveBatchBinding(threadID string, thread *threadstore.Thread, allBindings []bindingstore.Binding, bindingByAgent map[string]*bindingstore.Binding) *bindingstore.Binding {
+	if b, ok := bindingByAgent[threadID]; ok {
+		return b
+	}
+	if thread != nil && thread.AgentID != "" && thread.AgentID != threadID {
+		if b, ok := bindingByAgent[thread.AgentID]; ok {
+			return b
+		}
+	}
+	for i := range allBindings {
+		b := allBindings[i]
+		if b.ProviderThreadID == threadID || b.CodexThreadID == threadID {
+			return &b
+		}
+	}
+	return nil
+}
+
+func (s *service) resolveBatchSessionCfg(binding *bindingstore.Binding) map[string]any {
+	if binding == nil || s.sessions == nil {
+		return nil
+	}
+	sess, _ := s.sessions.GetSession(binding.AgentID)
+	if sess == nil {
+		return nil
+	}
+	if reader, ok := sess.(runtimeConfigReaderSession); ok {
+		return reader.RuntimeConfigSnapshot()
+	}
+	return nil
+}
+
+func (s *service) ReadRuntimeConfigs(ctx context.Context, threadIDs []string) (map[string]map[string]any, error) {
+	allBindings, bindingByAgent := s.loadBatchBindingIndex(ctx)
+	threadByID := s.loadBatchThreadIndex(ctx, threadIDs)
+
+	result := make(map[string]map[string]any, len(threadIDs))
+	for _, threadID := range threadIDs {
+		result[threadID] = s.resolveBatchRuntime(threadID, threadByID[threadID], allBindings, bindingByAgent)
+	}
+
+	return result, nil
+}
+
+func (s *service) loadBatchBindingIndex(ctx context.Context) ([]bindingstore.Binding, map[string]*bindingstore.Binding) {
+	var allBindings []bindingstore.Binding
+	if s.bindingStore != nil {
+		allBindings, _ = s.bindingStore.ListAgentThreadBindings(ctx)
+	}
+	idx := make(map[string]*bindingstore.Binding, len(allBindings))
+	for i := range allBindings {
+		b := allBindings[i]
+		idx[b.AgentID] = &b
+	}
+	return allBindings, idx
+}
+
+func (s *service) loadBatchThreadIndex(ctx context.Context, threadIDs []string) map[string]*threadstore.Thread {
+	idx := make(map[string]*threadstore.Thread)
+	if s.threadStore == nil {
+		return idx
+	}
+	threads, err := s.threadStore.ListConfigsByIDs(ctx, threadIDs)
+	if err != nil {
+		return idx
+	}
+	for i := range threads {
+		t := threads[i]
+		idx[t.ThreadID] = &t
+	}
+	return idx
+}
+
+func (s *service) resolveBatchRuntime(
+	threadID string,
+	thread *threadstore.Thread,
+	allBindings []bindingstore.Binding,
+	bindingByAgent map[string]*bindingstore.Binding,
+) map[string]any {
+	binding := resolveBatchBinding(threadID, thread, allBindings, bindingByAgent)
+
+	var offlineCfg storedThreadConfig
+	if thread != nil {
+		offlineCfg = decodeStoredThreadConfig(offlineThreadConfigRaw(thread))
+	}
+
+	baseRuntime := buildOfflineRuntimeConfig(offlineCfg, thread)
+	sessionCfg := s.resolveBatchSessionCfg(binding)
+
+	if sessionCfg != nil {
+		return mergeRuntimeConfig(baseRuntime, sessionCfg)
+	}
+	return clone.RuntimeConfigMap(baseRuntime)
 }
 
 func fallbackReadThreadHistory(ctx context.Context, svc Service, threadID string) (*ReadHistoryResult, error) {

@@ -288,3 +288,15 @@ func (s *configThreadServiceStub) ReadRuntimeConfig(_ context.Context, threadID 
 	s.runtimeConfigIDs = append(s.runtimeConfigIDs, threadID)
 	return s.runtimeConfigResult, s.runtimeConfigErr
 }
+
+func (s *configThreadServiceStub) ReadRuntimeConfigs(ctx context.Context, threadIDs []string) (map[string]map[string]any, error) {
+	s.runtimeConfigIDs = append(s.runtimeConfigIDs, threadIDs...)
+	if s.runtimeConfigErr != nil {
+		return nil, s.runtimeConfigErr
+	}
+	result := make(map[string]map[string]any)
+	for _, id := range threadIDs {
+		result[id] = s.runtimeConfigResult
+	}
+	return result, nil
+}

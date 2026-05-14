@@ -64,8 +64,10 @@ async function reloadProjects() {
 async function setActive(path) {
   const next = normalizePath(path) || '.';
   try {
+    logWarn('project', 'active.set.start', { path: next, ts: Date.now() });
     const res = await callProjectAPI('ui/projects/setActive', { path: next });
     applyProjectsState(res || {});
+    logWarn('project', 'active.set.done', { active: state.active, ts: Date.now() });
     logInfo('project', 'active.changed', { active: state.active });
   } catch (error) {
     logWarn('project', 'active.set.failed', { path: next, error });

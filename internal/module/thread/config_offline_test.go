@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
@@ -627,5 +628,126 @@ func TestSetConfigOfflineRejectsInvalidEffort(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("SetConfig() error = nil, want invalid effort error")
+	}
+}
+
+func TestServiceReadRuntimeConfigsMergesBatch(t *testing.T) {
+	t.Parallel()
+
+	session1 := &stubSession{
+		threadID: "thread-1",
+		runtimeConfig: map[string]any{
+			"approvalPolicy": "on-request",
+		},
+	}
+	session2 := &stubSession{
+		threadID: "thread-2",
+		runtimeConfig: map[string]any{
+			"approvalPolicy": "never",
+		},
+	}
+	threads := &stubThreadStore{
+		thread: &threadstore.Thread{
+			ThreadID:       "thread-1",
+			Model:          "gpt-5.5",
+			AgentID:        "agent-1",
+			ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Personality: "balanced", Approvals: "never"}),
+		},
+		threads: []threadstore.Thread{
+			{
+				ThreadID:       "thread-1",
+				Model:          "gpt-5.5",
+				AgentID:        "agent-1",
+				ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Personality: "balanced", Approvals: "never"}),
+			},
+			{
+				ThreadID:       "thread-2",
+				Model:          "claude-opus",
+				AgentID:        "agent-2",
+				ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Personality: "creative"}),
+			},
+			{
+				ThreadID: "thread-3",
+				AgentID:  "agent-3",
+			},
+		},
+		threadByID: map[string]*threadstore.Thread{
+			"thread-1": {
+				ThreadID:       "thread-1",
+				Model:          "gpt-5.5",
+				AgentID:        "agent-1",
+				ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Personality: "balanced", Approvals: "never"}),
+			},
+			"thread-2": {
+				ThreadID:       "thread-2",
+				Model:          "claude-opus",
+				AgentID:        "agent-2",
+				ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Personality: "creative"}),
+			},
+			"thread-3": {
+				ThreadID: "thread-3",
+				AgentID:  "agent-3",
+			},
+		},
+	}
+	bindings := []bindingstore.Binding{
+		{
+			AgentID:          "agent-1",
+			Provider:         "codex",
+			ProviderThreadID: "thread-1",
+		},
+		{
+			AgentID:          "agent-2",
+			Provider:         "claude",
+			ProviderThreadID: "thread-2",
+		},
+	}
+	svc, ok := NewService(
+		silentLogger(),
+		threads,
+		&stubBindingStore{bindings: bindings},
+		&stubSessionProvider{
+			session: session1, // For default
+			sessions: map[string]contract.Session{
+				"agent-1": session1,
+				"agent-2": session2,
+			},
+		},
+		nil,
+		nil,
+		nil,
+		nil,
+	).(*service)
+	if !ok {
+		t.Fatal("NewService() type assertion failed")
+	}
+
+	gotMap, err := svc.ReadRuntimeConfigs(context.Background(), []string{"thread-1", "thread-2", "thread-3", "thread-4"})
+	if err != nil {
+		t.Fatalf("ReadRuntimeConfigs() error = %v", err)
+	}
+
+	if len(gotMap) != 4 {
+		t.Fatalf("ReadRuntimeConfigs() expected 4 results, got %d", len(gotMap))
+	}
+
+	got1 := gotMap["thread-1"]
+	if got1["approvalPolicy"] != "on-request" || got1["personality"] != "balanced" {
+		t.Fatalf("ReadRuntimeConfigs()[thread-1] = %#v", got1)
+	}
+
+	got2 := gotMap["thread-2"]
+	if got2["approvalPolicy"] != "never" || got2["personality"] != "creative" {
+		t.Fatalf("ReadRuntimeConfigs()[thread-2] = %#v", got2)
+	}
+
+	got3 := gotMap["thread-3"]
+	if got3["approvalPolicy"] != "on-failure" || got3["model"] != nil {
+		t.Fatalf("ReadRuntimeConfigs()[thread-3] = %#v", got3)
+	}
+
+	got4 := gotMap["thread-4"]
+	if got4["approvalPolicy"] != "on-failure" {
+		t.Fatalf("ReadRuntimeConfigs()[thread-4] = %#v", got4)
 	}
 }

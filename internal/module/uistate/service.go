@@ -190,13 +190,25 @@ func (s *service) GetState(ctx context.Context) (*UIState, error) {
 	return snapshot, nil
 }
 func (s *service) GetSidebar(ctx context.Context) (*Sidebar, error) {
+	t0 := time.Now()
 	prefs, err := s.GetPreferences(ctx)
 	if err != nil {
 		return nil, err
 	}
+	t1 := time.Now()
 	snapshot := s.sidebarSnapshot()
+	t2 := time.Now()
 	s.enrichFromDB(ctx, snapshot.Agents, snapshot.Threads, snapshot.AgentRuntimeByID)
+	t3 := time.Now()
 	applyPreferencesToSidebar(snapshot, prefs)
+
+	s.logger.Info("ui.sidebar.get.duration",
+		"total_ms", time.Since(t0).Milliseconds(),
+		"get_prefs_ms", t1.Sub(t0).Milliseconds(),
+		"snapshot_ms", t2.Sub(t1).Milliseconds(),
+		"enrich_db_ms", t3.Sub(t2).Milliseconds(),
+	)
+
 	return snapshot, nil
 }
 func (s *service) GetPreferences(ctx context.Context) (*Preferences, error) {

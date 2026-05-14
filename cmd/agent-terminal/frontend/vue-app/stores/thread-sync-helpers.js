@@ -250,17 +250,24 @@ export async function syncThreadState(ctx, threadId, options = {}) {
   return request;
 }
 
-export async function refreshSidebarState(ctx) {
+export async function refreshSidebarState(ctx, options = {}) {
   const { callAPI, logDebug, logWarn } = ctx;
-  if (ctx.sidebarRefreshPromise) {
+  if (ctx.sidebarRefreshPromise && !options.force) {
     ctx.sidebarRefreshPending = true;
+    logWarn('thread', 'sidebar.refresh.pending_join', { ts: Date.now() });
     return ctx.sidebarRefreshPromise;
   }
   const start = perfNow();
-  ctx.sidebarRefreshPromise = (async () => {
+  logWarn('thread', 'sidebar.refresh.start', { ts: Date.now(), force: options.force });
+  
+  ctx.sidebarRefreshPending = false;
+  
+  const currentPromise = (async () => {
     try {
       const snapshotRequest = beginRuntimeSnapshotRequest(ctx, (ctx.state.activeThreadId || '').toString().trim() || '__sidebar__');
+      logWarn('thread', 'sidebar.refresh.api_call_start', { ts: Date.now() });
       const sidebar = await callAPI('ui/sidebar/get', ctx.withPreferenceScope({}));
+      logWarn('thread', 'sidebar.refresh.api_call_done', { duration_ms: perfNow() - start, ts: Date.now() });
       if (!isLatestRuntimeSnapshotRequest(ctx, snapshotRequest)) return;
       if (typeof ctx.saveScrollPosition === 'function') ctx.saveScrollPosition();
       ctx.applyRuntimeSnapshot(ctx.state, sidebar || {}, {
@@ -273,8 +280,9 @@ export async function refreshSidebarState(ctx) {
     } catch (error) {
       logWarn('thread', 'sidebar.refresh.failed', { error, duration_ms: Math.round(perfNow() - start) });
     } finally {
-      ctx.sidebarRefreshPromise = null;
-      if (ctx.sidebarRefreshPending) {
+      const isLatest = (ctx.sidebarRefreshPromise === currentPromise);
+      if (isLatest) ctx.sidebarRefreshPromise = null;
+      if (isLatest && ctx.sidebarRefreshPending) {
         ctx.sidebarRefreshPending = false;
         await refreshSidebarState(ctx).catch((error) => {
           logWarn('thread', 'sidebar.refresh.replay_failed', { error });
@@ -282,7 +290,8 @@ export async function refreshSidebarState(ctx) {
       }
     }
   })();
-  return ctx.sidebarRefreshPromise;
+  ctx.sidebarRefreshPromise = currentPromise;
+  return currentPromise;
 }
 
 export async function loadMessages(ctx, threadId, limit = 300, options = {}) {
@@ -598,8 +607,8 @@ export function buildSyncContext(state, deps) {
     sidebarSyncThrottleLastRun: 0,
     THREAD_HISTORY_FRESH_TTL_MS: 30_000,
     THREAD_PATCH_RECENT_WINDOW_MS: 250,
-    SYNC_THROTTLE_MS: 500,
-    STREAMING_SYNC_THROTTLE_MS: 800,
-    SIDEBAR_SYNC_THROTTLE_MS: 1200,
+    SYNC_THROTTLE_MS: 100,
+    STREAMING_SYNC_THROTTLE_MS: 200,
+    SIDEBAR_SYNC_THROTTLE_MS: 250,
   };
 }

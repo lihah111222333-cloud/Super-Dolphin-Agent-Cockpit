@@ -97,18 +97,55 @@ func (a *bindingAdapter) ListAgentThreadBindings(ctx context.Context) ([]binding
 	return out, nil
 }
 
-// enrichAgentsFromDB overwrites in-memory agent fields with DB binding
-// truth.  Called outside the service mutex so DB queries are safe.
+func (s *service) loadBatchConfigs(ctx context.Context, threads []ThreadSummary) map[string]map[string]any {
+	if s.runtimeConfig == nil {
+		return nil
+	}
+	bulkReader, ok := s.runtimeConfig.(contract.ThreadRuntimeConfigReader)
+	if !ok {
+		return nil
+	}
+	var threadIDs []string
+	for _, thread := range threads {
+		if id := strings.TrimSpace(thread.ID); id != "" {
+			threadIDs = append(threadIDs, id)
+		}
+	}
+	if len(threadIDs) == 0 {
+		return nil
+	}
+	batchConfigs, _ := bulkReader.ReadRuntimeConfigs(ctx, threadIDs)
+	return batchConfigs
+}
+
 func (s *service) enrichFromDB(ctx context.Context, agents []AgentSummary, threads []ThreadSummary, runtimeMap map[string]map[string]any) {
 	var byAgent map[string]bindingEntry
 	if s.bindings != nil {
 		byAgent = s.loadBindingIndex(ctx)
 	}
+
+	batchConfigs := s.loadBatchConfigs(ctx, threads)
+
 	for _, thread := range threads {
 		if len(byAgent) > 0 {
 			applyBindingToThreadRuntime(thread, byAgent, runtimeMap)
 		}
-		s.applyTaskRuntimeToThreadRuntime(ctx, thread, runtimeMap)
+
+		threadID := strings.TrimSpace(thread.ID)
+		if threadID == "" {
+			continue
+		}
+
+		var cfg map[string]any
+		if batchConfigs != nil {
+			cfg = batchConfigs[threadID]
+		} else if s.runtimeConfig != nil {
+			cfg, _ = s.runtimeConfig.ReadRuntimeConfig(ctx, threadID)
+		}
+
+		if len(cfg) > 0 {
+			applyTaskRuntimeToThreadRuntimeConfig(threadID, cfg, runtimeMap)
+		}
 	}
 	if len(byAgent) == 0 {
 		return
@@ -157,18 +194,7 @@ func ensureThreadRuntime(thread ThreadSummary, entry bindingEntry, runtimeMap ma
 	return rt
 }
 
-func (s *service) applyTaskRuntimeToThreadRuntime(ctx context.Context, thread ThreadSummary, runtimeMap map[string]map[string]any) {
-	if s == nil || s.runtimeConfig == nil {
-		return
-	}
-	threadID := strings.TrimSpace(thread.ID)
-	if threadID == "" {
-		return
-	}
-	cfg, err := s.runtimeConfig.ReadRuntimeConfig(ctx, threadID)
-	if err != nil || len(cfg) == 0 {
-		return
-	}
+func applyTaskRuntimeToThreadRuntimeConfig(threadID string, cfg map[string]any, runtimeMap map[string]map[string]any) {
 	rt := runtimeMap[threadID]
 	if rt == nil {
 		rt = map[string]any{}

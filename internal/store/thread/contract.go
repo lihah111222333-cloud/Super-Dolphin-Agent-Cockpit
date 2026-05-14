@@ -10,6 +10,7 @@ type Store interface {
 	GetByThreadID(ctx context.Context, threadID string) (*Thread, error)
 	GetByPort(ctx context.Context, port int32) (*Thread, error)
 	ListAll(ctx context.Context) ([]Thread, error)
+	ListConfigsByIDs(ctx context.Context, threadIDs []string) ([]Thread, error)
 	ListRunning(ctx context.Context) ([]Thread, error)
 	ListRecoverable(ctx context.Context) ([]Thread, error)
 	ListRunningAgents(ctx context.Context) ([]RunningAgent, error)

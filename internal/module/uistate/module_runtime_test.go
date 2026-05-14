@@ -60,64 +60,27 @@ func TestLoadInitialStatePopulatesThreads(t *testing.T) {
 	}
 }
 
-func TestApplyTaskRuntimeToThreadRuntime_Pin(t *testing.T) {
+func TestApplyTaskRuntimeToThreadRuntimeConfig_Pin(t *testing.T) {
 	t.Parallel()
-
-	readErr := errors.New("boom")
 
 	tests := []struct {
 		name       string
-		svc        *service
-		thread     ThreadSummary
+		threadID   string
+		cfg        map[string]any
 		runtimeMap map[string]map[string]any
 		want       map[string]map[string]any
-		wantReads  []string
 	}{
 		{
-			name:       "nil service returns without mutation",
-			svc:        nil,
-			thread:     ThreadSummary{ID: "thread-1"},
-			runtimeMap: map[string]map[string]any{"thread-1": {"taskId": "keep"}},
-			want:       map[string]map[string]any{"thread-1": {"taskId": "keep"}},
-		},
-		{
-			name:       "nil runtime config reader returns without mutation",
-			svc:        &service{},
-			thread:     ThreadSummary{ID: "thread-2"},
-			runtimeMap: map[string]map[string]any{"thread-2": {"taskId": "keep"}},
-			want:       map[string]map[string]any{"thread-2": {"taskId": "keep"}},
-		},
-		{
-			name:   "blank thread id skips runtime config lookup",
-			svc:    &service{runtimeConfig: &runtimeConfigLookupStub{cfg: map[string]any{"taskId": "task-1"}}},
-			thread: ThreadSummary{ID: "   "},
-			runtimeMap: map[string]map[string]any{
-				"thread-3": {"taskId": "keep"},
-			},
-			want: map[string]map[string]any{
-				"thread-3": {"taskId": "keep"},
-			},
-		},
-		{
-			name:       "lookup error leaves runtime map unchanged",
-			svc:        &service{runtimeConfig: &runtimeConfigLookupStub{cfg: map[string]any{"taskId": "task-1"}, err: readErr}},
-			thread:     ThreadSummary{ID: "thread-4"},
-			runtimeMap: map[string]map[string]any{"thread-4": {"taskId": "keep"}},
-			want:       map[string]map[string]any{"thread-4": {"taskId": "keep"}},
-			wantReads:  []string{"thread-4"},
-		},
-		{
 			name:       "empty config leaves runtime map unchanged",
-			svc:        &service{runtimeConfig: &runtimeConfigLookupStub{cfg: map[string]any{}}},
-			thread:     ThreadSummary{ID: "thread-5"},
+			threadID:   "thread-5",
+			cfg:        map[string]any{},
 			runtimeMap: map[string]map[string]any{"thread-5": {"taskId": "keep"}},
 			want:       map[string]map[string]any{"thread-5": {"taskId": "keep"}},
-			wantReads:  []string{"thread-5"},
 		},
 		{
 			name:       "creates runtime entry from canonical keys",
-			svc:        &service{runtimeConfig: &runtimeConfigLookupStub{cfg: map[string]any{"taskId": "task-1", "taskTitle": "Title", "handoffFile": "handoff.md", "ownerThreadId": "thread-parent", "rootTaskId": "task-root"}}},
-			thread:     ThreadSummary{ID: "thread-6"},
+			threadID:   "thread-6",
+			cfg:        map[string]any{"taskId": "task-1", "taskTitle": "Title", "handoffFile": "handoff.md", "ownerThreadId": "thread-parent", "rootTaskId": "task-root"},
 			runtimeMap: map[string]map[string]any{},
 			want: map[string]map[string]any{
 				"thread-6": {
@@ -128,18 +91,17 @@ func TestApplyTaskRuntimeToThreadRuntime_Pin(t *testing.T) {
 					"rootTaskId":    "task-root",
 				},
 			},
-			wantReads: []string{"thread-6"},
 		},
 		{
-			name: "updates existing runtime entry from alias keys and skips blank values",
-			svc: &service{runtimeConfig: &runtimeConfigLookupStub{cfg: map[string]any{
+			name:     "updates existing runtime entry from alias keys and skips blank values",
+			threadID: "thread-7",
+			cfg: map[string]any{
 				"task_id":         " task-2 ",
 				"task_title":      42,
 				"handoff_file":    "  ",
 				"owner_thread_id": " owner-thread ",
 				"root_task_id":    " task-root-snake ",
-			}}},
-			thread: ThreadSummary{ID: "thread-7"},
+			},
 			runtimeMap: map[string]map[string]any{
 				"thread-7": {
 					"taskId":      "keep-task",
@@ -158,7 +120,6 @@ func TestApplyTaskRuntimeToThreadRuntime_Pin(t *testing.T) {
 					"stable":        true,
 				},
 			},
-			wantReads: []string{"thread-7"},
 		},
 	}
 
@@ -166,20 +127,10 @@ func TestApplyTaskRuntimeToThreadRuntime_Pin(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			tt.svc.applyTaskRuntimeToThreadRuntime(context.Background(), tt.thread, tt.runtimeMap)
+			applyTaskRuntimeToThreadRuntimeConfig(tt.threadID, tt.cfg, tt.runtimeMap)
 
 			if !reflect.DeepEqual(tt.runtimeMap, tt.want) {
 				t.Fatalf("runtimeMap mismatch (-got +want):\n got: %#v\nwant: %#v", tt.runtimeMap, tt.want)
-			}
-			if tt.svc == nil || tt.svc.runtimeConfig == nil {
-				return
-			}
-			stub, ok := tt.svc.runtimeConfig.(*runtimeConfigLookupStub)
-			if !ok {
-				t.Fatalf("runtimeConfig type = %T, want *runtimeConfigLookupStub", tt.svc.runtimeConfig)
-			}
-			if !reflect.DeepEqual(stub.threadIDs, tt.wantReads) {
-				t.Fatalf("ReadRuntimeConfig() threadIDs = %#v, want %#v", stub.threadIDs, tt.wantReads)
 			}
 		})
 	}
@@ -205,4 +156,16 @@ type runtimeConfigLookupStub struct {
 func (s *runtimeConfigLookupStub) ReadRuntimeConfig(_ context.Context, threadID string) (map[string]any, error) {
 	s.threadIDs = append(s.threadIDs, threadID)
 	return s.cfg, s.err
+}
+
+func (s *runtimeConfigLookupStub) ReadRuntimeConfigs(ctx context.Context, threadIDs []string) (map[string]map[string]any, error) {
+	s.threadIDs = append(s.threadIDs, threadIDs...)
+	if s.err != nil {
+		return nil, s.err
+	}
+	result := make(map[string]map[string]any)
+	for _, id := range threadIDs {
+		result[id] = s.cfg
+	}
+	return result, nil
 }
