@@ -41,10 +41,13 @@ func TestCompleteTaskDagNode_FenceAcceptsReadyRunningAwaitingVerify(t *testing.T
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			store, db, now := newTaskDAGTestStore()
-			db.nodes[dagNodeKey("dag-1", "node-1")] = sqlc.TaskDagNode{
+			runID := db.runs["run-1"].ID
+			key := dagRunNodeKey("dag-1", "node-1", runID)
+			db.nodes[key] = sqlc.TaskDagNode{
 				ID:        42,
 				DagKey:    "dag-1",
 				NodeKey:   "node-1",
+				RunID:     sqlc.Int8ValuePtr(&runID),
 				Title:     "n1",
 				Status:    tc.initial,
 				DependsOn: []byte(`[]`),
@@ -59,6 +62,7 @@ func TestCompleteTaskDagNode_FenceAcceptsReadyRunningAwaitingVerify(t *testing.T
 				Result:  json.RawMessage(`{}`),
 				DagKey:  "dag-1",
 				NodeKey: "node-1",
+				RunID:   runID,
 			})
 			if tc.wantSuccess {
 				if err != nil {
@@ -72,7 +76,7 @@ func TestCompleteTaskDagNode_FenceAcceptsReadyRunningAwaitingVerify(t *testing.T
 			if err == nil {
 				t.Fatalf("CompleteNode(%s) error = nil, want fence rejection", tc.initial)
 			}
-			persisted := db.nodes[dagNodeKey("dag-1", "node-1")]
+			persisted := db.nodes[key]
 			if persisted.Status != tc.initial {
 				t.Fatalf("persisted status mutated from %q to %q on rejected fence", tc.initial, persisted.Status)
 			}

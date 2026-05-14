@@ -457,6 +457,7 @@ type FailNodeInput struct {
 type FailNodeResult struct {
 	Node               *Node
 	CanceledDownstream []CanceledDownstreamNode
+	FinalizedRun       *FinalizedRunInfo
 }
 
 // CanceledDownstreamNode describes a single downstream node that was

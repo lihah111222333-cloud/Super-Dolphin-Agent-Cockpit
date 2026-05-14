@@ -731,6 +731,9 @@ func (db *fakeTaskDAGDB) claimDueWakeups(args ...any) ([][]any, error) {
 		if row.Status != "pending" || row.NextRetryAt.Time.After(db.now) {
 			continue
 		}
+		if !db.fakeWakeupHasClaimableRun(row) {
+			continue
+		}
 		ids = append(ids, id)
 	}
 	sort.Slice(ids, func(i, j int) bool {
@@ -758,6 +761,21 @@ func (db *fakeTaskDAGDB) claimDueWakeups(args ...any) ([][]any, error) {
 		rows = append(rows, taskDagWakeupValues(row))
 	}
 	return rows, nil
+}
+
+func (db *fakeTaskDAGDB) fakeWakeupHasClaimableRun(row sqlc.TaskDagWakeup) bool {
+	if strings.TrimSpace(row.DagKey) == "" || strings.TrimSpace(row.NodeKey) == "" {
+		return true
+	}
+	if !row.RunID.Valid || row.RunID.Int64 <= 0 {
+		return false
+	}
+	for _, run := range db.runs {
+		if run.ID == row.RunID.Int64 && run.DagKey == row.DagKey && run.Status == "running" {
+			return true
+		}
+	}
+	return false
 }
 
 func (db *fakeTaskDAGDB) bindWakeupTurn(args ...any) (int64, error) {
@@ -1061,6 +1079,9 @@ func (db *fakeTaskDAGDB) lookupNodesBySpawningThread(args ...any) ([][]any, erro
 	keys := make([]string, 0)
 	for k, row := range db.nodes {
 		if !row.SpawningThreadID.Valid {
+			continue
+		}
+		if !row.RunID.Valid || row.RunID.Int64 <= 0 {
 			continue
 		}
 		if row.SpawningThreadID.String != threadID {
@@ -1380,8 +1401,8 @@ func dagRunNodeKey(dagKey, nodeKey string, runID int64) string {
 }
 
 func dagNodeLookupKey(dagKey, nodeKey string, runID int64) string {
-	if runID == 0 {
-		return dagNodeKey(dagKey, nodeKey)
+	if runID <= 0 {
+		return dagRunNodeKey(dagKey, nodeKey, runID)
 	}
 	return dagRunNodeKey(dagKey, nodeKey, runID)
 }

@@ -33,6 +33,23 @@ func (s *stubRouterStore) ListNodes(_ context.Context, _ string) ([]taskdag.Node
 	return out, nil
 }
 
+func (s *stubRouterStore) ListRunNodes(_ context.Context, _ string, runID int64) ([]taskdag.Node, error) {
+	if s.listErr != nil {
+		return nil, s.listErr
+	}
+	out := make([]taskdag.Node, 0, len(s.nodes))
+	for i := range s.nodes {
+		node := s.nodes[i]
+		if node.RunID == nil || *node.RunID != runID {
+			continue
+		}
+		out = append(out, node)
+	}
+	return out, nil
+}
+
+func routerTestRunID(id int64) *int64 { return &id }
+
 // UpdateRunningNodeStatus 覆盖 taskdag.Store 嵌入，避免 advanceAgentNodeToRunning
 // nil-embedding panic。记录调用 + 返 runningStatusErr（默认 nil = success）。
 func (s *stubRouterStore) UpdateRunningNodeStatus(_ context.Context, input taskdag.RunningNodeStatusUpdate) (*taskdag.Node, error) {
@@ -48,11 +65,17 @@ func (s *stubRouterStore) UpdateRunningNodeStatus(_ context.Context, input taskd
 type stubAgentLauncher struct {
 	threadID string
 	err      error
+	errs     []error
 	calls    []contract.LaunchRequest
 }
 
 func (l *stubAgentLauncher) LaunchAgent(_ context.Context, req contract.LaunchRequest) (string, error) {
 	l.calls = append(l.calls, req)
+	if len(l.errs) > 0 {
+		err := l.errs[0]
+		l.errs = l.errs[1:]
+		return l.threadID, err
+	}
 	return l.threadID, l.err
 }
 
@@ -66,6 +89,7 @@ func TestNodeExecutorRouter_RoutesAgentNode(t *testing.T) {
 		nodes: []taskdag.Node{{
 			DagKey:   "dag-1",
 			NodeKey:  "n1",
+			RunID:    routerTestRunID(7),
 			NodeType: "agent",
 			Title:    "n1",
 			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),
@@ -77,6 +101,7 @@ func TestNodeExecutorRouter_RoutesAgentNode(t *testing.T) {
 		ID:      1,
 		DagKey:  "dag-1",
 		NodeKey: "n1",
+		RunID:   routerTestRunID(7),
 	})
 	if err != nil {
 		t.Fatalf("RouteByWakeup err = %v", err)
@@ -100,6 +125,7 @@ func TestNodeExecutorRouter_AgentLifecycleHooks(t *testing.T) {
 		nodes: []taskdag.Node{{
 			DagKey:   "dag-1",
 			NodeKey:  "n1",
+			RunID:    routerTestRunID(7),
 			NodeType: "agent",
 			Title:    "n1",
 			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),
@@ -112,6 +138,7 @@ func TestNodeExecutorRouter_AgentLifecycleHooks(t *testing.T) {
 		ID:      101,
 		DagKey:  "dag-1",
 		NodeKey: "n1",
+		RunID:   routerTestRunID(7),
 	})
 	if err != nil {
 		t.Fatalf("RouteByWakeup err = %v", err)
@@ -151,6 +178,7 @@ func TestNodeExecutorRouter_LifecycleHookTimeoutDoesNotBlockDispatch(t *testing.
 		nodes: []taskdag.Node{{
 			DagKey:   "dag-1",
 			NodeKey:  "n1",
+			RunID:    routerTestRunID(7),
 			NodeType: "agent",
 			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),
 			Status:   string(nodeexec.NodeStatusReady),
@@ -163,6 +191,7 @@ func TestNodeExecutorRouter_LifecycleHookTimeoutDoesNotBlockDispatch(t *testing.
 		ID:      102,
 		DagKey:  "dag-1",
 		NodeKey: "n1",
+		RunID:   routerTestRunID(7),
 	})
 	elapsed := time.Since(started)
 	if err != nil {
@@ -194,6 +223,7 @@ func TestNodeExecutorRouter_EmptyNodeTypeDefaultsToAgent(t *testing.T) {
 		nodes: []taskdag.Node{{
 			DagKey:   "dag-1",
 			NodeKey:  "n1",
+			RunID:    routerTestRunID(7),
 			NodeType: "", // 空
 			Title:    "n1",
 			Config:   json.RawMessage(`{"exec":{"agent_key":"a"},"first_turn":"x"}`),
@@ -202,7 +232,7 @@ func TestNodeExecutorRouter_EmptyNodeTypeDefaultsToAgent(t *testing.T) {
 	}
 	router := NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil)
 	outcome, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
-		DagKey: "dag-1", NodeKey: "n1",
+		DagKey: "dag-1", NodeKey: "n1", RunID: routerTestRunID(7),
 	})
 	if err != nil {
 		t.Fatalf("RouteByWakeup err = %v", err)
@@ -217,11 +247,11 @@ func TestNodeExecutorRouter_EmptyNodeTypeDefaultsToAgent(t *testing.T) {
 func TestNodeExecutorRouter_HybridReturnsValidationFailure(t *testing.T) {
 	t.Parallel()
 	store := &stubRouterStore{
-		nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", NodeType: "hybrid"}},
+		nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", RunID: routerTestRunID(7), NodeType: "hybrid"}},
 	}
 	router := NewNodeExecutorRouter(store, nil, nil, nil, nil, nil)
 	outcome, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
-		DagKey: "dag-1", NodeKey: "n1",
+		DagKey: "dag-1", NodeKey: "n1", RunID: routerTestRunID(7),
 	})
 	if err != nil {
 		t.Fatalf("RouteByWakeup hybrid err = %v", err)
@@ -241,7 +271,7 @@ func TestNodeExecutorRouter_NodeNotFoundIsFrameworkError(t *testing.T) {
 	store := &stubRouterStore{nodes: []taskdag.Node{}}
 	router := NewNodeExecutorRouter(store, nil, nil, nil, nil, nil)
 	_, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
-		DagKey: "dag-1", NodeKey: "ghost",
+		DagKey: "dag-1", NodeKey: "ghost", RunID: routerTestRunID(7),
 	})
 	if err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("err = %v, want not-found framework error", err)
@@ -256,7 +286,7 @@ func TestNodeExecutorRouter_StoreListErrorPropagates(t *testing.T) {
 	store := &stubRouterStore{listErr: sentinel}
 	router := NewNodeExecutorRouter(store, nil, nil, nil, nil, nil)
 	_, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
-		DagKey: "dag-1", NodeKey: "n1",
+		DagKey: "dag-1", NodeKey: "n1", RunID: routerTestRunID(7),
 	})
 	if err == nil || !errors.Is(err, sentinel) {
 		t.Fatalf("err = %v, want wrapping sentinel", err)
@@ -269,10 +299,21 @@ func TestNodeExecutorRouter_MissingDagInfoIsFrameworkError(t *testing.T) {
 	t.Parallel()
 	router := NewNodeExecutorRouter(&stubRouterStore{}, nil, nil, nil, nil, nil)
 	_, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
-		DagKey: "", NodeKey: "n1",
+		DagKey: "", NodeKey: "n1", RunID: routerTestRunID(7),
 	})
 	if err == nil {
 		t.Fatalf("expected error for missing dag_key")
+	}
+}
+
+func TestNodeExecutorRouter_MissingRunIDIsFrameworkError(t *testing.T) {
+	t.Parallel()
+	router := NewNodeExecutorRouter(&stubRouterStore{}, nil, nil, nil, nil, nil)
+	_, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
+		ID: 9, DagKey: "dag-1", NodeKey: "n1",
+	})
+	if err == nil || !strings.Contains(err.Error(), "run_id") {
+		t.Fatalf("err = %v, want run_id required", err)
 	}
 }
 
@@ -358,12 +399,12 @@ func TestNodeExecutorRouter_PrefetchPrevResults_FromNodes_NonEmpty(t *testing.T)
 	store := &stubRouterStore{
 		nodes: []taskdag.Node{
 			{
-				DagKey: "dag-1", NodeKey: "upstream", NodeType: "agent",
+				DagKey: "dag-1", NodeKey: "upstream", RunID: routerTestRunID(7), NodeType: "agent",
 				Status: string(nodeexec.NodeStatusDone),
 				Result: json.RawMessage(`{"summary":"upstream done"}`),
 			},
 			{
-				DagKey: "dag-1", NodeKey: "downstream", NodeType: "agent",
+				DagKey: "dag-1", NodeKey: "downstream", RunID: routerTestRunID(7), NodeType: "agent",
 				Title: "downstream", Status: string(nodeexec.NodeStatusReady),
 				Config: json.RawMessage(`{"exec":{"agent_key":"a"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go"}`),
 			},
@@ -371,7 +412,7 @@ func TestNodeExecutorRouter_PrefetchPrevResults_FromNodes_NonEmpty(t *testing.T)
 	}
 	router := NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil)
 	outcome, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
-		DagKey: "dag-1", NodeKey: "downstream",
+		DagKey: "dag-1", NodeKey: "downstream", RunID: routerTestRunID(7),
 	})
 	if err != nil {
 		t.Fatalf("RouteByWakeup err = %v", err)
@@ -391,6 +432,59 @@ func TestNodeExecutorRouter_PrefetchPrevResults_FromNodes_NonEmpty(t *testing.T)
 	}
 }
 
+func TestNodeExecutorRouter_PrefetchPrevResults_StaysInsideRun(t *testing.T) {
+	t.Parallel()
+	runA := int64(1001)
+	runB := int64(1002)
+	launcher := &recordingAgentLauncher{threadID: "thr-run-b"}
+	agentExec := nodeexec.NewAgentExecutor(launcher, nil)
+	store := &stubRouterStore{
+		nodes: []taskdag.Node{
+			{
+				DagKey: "dag-1", NodeKey: "upstream", RunID: &runA, NodeType: "agent",
+				Status: string(nodeexec.NodeStatusDone),
+				Result: json.RawMessage(`{"summary":"wrong run"}`),
+			},
+			{
+				DagKey: "dag-1", NodeKey: "downstream", RunID: &runA, NodeType: "agent",
+				Status: string(nodeexec.NodeStatusReady),
+				Config: json.RawMessage(`{"exec":{"agent_key":"a"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go A"}`),
+			},
+			{
+				DagKey: "dag-1", NodeKey: "upstream", RunID: &runB, NodeType: "agent",
+				Status: string(nodeexec.NodeStatusDone),
+				Result: json.RawMessage(`{"summary":"right run"}`),
+			},
+			{
+				DagKey: "dag-1", NodeKey: "downstream", RunID: &runB, NodeType: "agent",
+				Status: string(nodeexec.NodeStatusReady),
+				Config: json.RawMessage(`{"exec":{"agent_key":"a"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go B"}`),
+			},
+		},
+	}
+	router := NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil)
+
+	outcome, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
+		DagKey: "dag-1", NodeKey: "downstream", RunID: &runB,
+	})
+	if err != nil {
+		t.Fatalf("RouteByWakeup err = %v", err)
+	}
+	if outcome.Status != nodeexec.NodeStatusDone {
+		t.Fatalf("outcome.Status = %v, want done", outcome.Status)
+	}
+	if len(launcher.calls) != 1 {
+		t.Fatalf("launcher calls = %d, want 1", len(launcher.calls))
+	}
+	prompt := launcher.calls[0].Prompt
+	if !strings.Contains(prompt, "right run") {
+		t.Fatalf("prompt missing run B upstream result: %q", prompt)
+	}
+	if strings.Contains(prompt, "wrong run") {
+		t.Fatalf("prompt leaked run A upstream result: %q", prompt)
+	}
+}
+
 // TestNodeExecutorRouter_PrefetchPrevResults_FiltersNonDoneUpstream:
 // 上游节点 status != done → 不入 PrevResults map；nodeexec.loadFromNodes 因此
 // 报 validation "references unknown node_key"，保 fail-loud。
@@ -401,12 +495,12 @@ func TestNodeExecutorRouter_PrefetchPrevResults_FiltersNonDoneUpstream(t *testin
 	store := &stubRouterStore{
 		nodes: []taskdag.Node{
 			{
-				DagKey: "dag-1", NodeKey: "upstream", NodeType: "agent",
+				DagKey: "dag-1", NodeKey: "upstream", RunID: routerTestRunID(7), NodeType: "agent",
 				Status: string(nodeexec.NodeStatusRunning), // 未 done
 				Result: json.RawMessage(`{"x":1}`),
 			},
 			{
-				DagKey: "dag-1", NodeKey: "downstream", NodeType: "agent",
+				DagKey: "dag-1", NodeKey: "downstream", RunID: routerTestRunID(7), NodeType: "agent",
 				Status: string(nodeexec.NodeStatusReady),
 				Config: json.RawMessage(`{"exec":{"agent_key":"a"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go"}`),
 			},
@@ -414,7 +508,7 @@ func TestNodeExecutorRouter_PrefetchPrevResults_FiltersNonDoneUpstream(t *testin
 	}
 	router := NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil)
 	outcome, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
-		DagKey: "dag-1", NodeKey: "downstream",
+		DagKey: "dag-1", NodeKey: "downstream", RunID: routerTestRunID(7),
 	})
 	if err != nil {
 		t.Fatalf("RouteByWakeup err = %v", err)
@@ -434,12 +528,12 @@ func TestNodeExecutorRouter_PrefetchPrevResults_EmptyResultPlaceholder(t *testin
 	store := &stubRouterStore{
 		nodes: []taskdag.Node{
 			{
-				DagKey: "dag-1", NodeKey: "upstream", NodeType: "agent",
+				DagKey: "dag-1", NodeKey: "upstream", RunID: routerTestRunID(7), NodeType: "agent",
 				Status: string(nodeexec.NodeStatusDone),
 				Result: nil, // NULL
 			},
 			{
-				DagKey: "dag-1", NodeKey: "downstream", NodeType: "agent",
+				DagKey: "dag-1", NodeKey: "downstream", RunID: routerTestRunID(7), NodeType: "agent",
 				Status: string(nodeexec.NodeStatusReady),
 				Config: json.RawMessage(`{"exec":{"agent_key":"a"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go"}`),
 			},
@@ -447,7 +541,7 @@ func TestNodeExecutorRouter_PrefetchPrevResults_EmptyResultPlaceholder(t *testin
 	}
 	router := NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil)
 	outcome, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
-		DagKey: "dag-1", NodeKey: "downstream",
+		DagKey: "dag-1", NodeKey: "downstream", RunID: routerTestRunID(7),
 	})
 	if err != nil {
 		t.Fatalf("RouteByWakeup err = %v", err)
@@ -470,14 +564,14 @@ func TestNodeExecutorRouter_SharedFileReader_Injected(t *testing.T) {
 	reader := &stubRouterPrevReader{contents: map[string]string{"plan.md": "plan content"}}
 	store := &stubRouterStore{
 		nodes: []taskdag.Node{{
-			DagKey: "dag-1", NodeKey: "n1", NodeType: "agent",
+			DagKey: "dag-1", NodeKey: "n1", RunID: routerTestRunID(7), NodeType: "agent",
 			Status: string(nodeexec.NodeStatusReady),
 			Config: json.RawMessage(`{"exec":{"agent_key":"a"},"inputs":{"from_sharedfiles":["plan.md"]},"first_turn":"go"}`),
 		}},
 	}
 	router := NewNodeExecutorRouter(store, agentExec, nil, reader, nil, nil)
 	outcome, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
-		DagKey: "dag-1", NodeKey: "n1",
+		DagKey: "dag-1", NodeKey: "n1", RunID: routerTestRunID(7),
 	})
 	if err != nil {
 		t.Fatalf("RouteByWakeup err = %v", err)
@@ -506,7 +600,7 @@ func TestNodeExecutorRouter_SharedFileWriter_Injected(t *testing.T) {
 	store := &stubRouterAutoStore{
 		stubRouterStore: stubRouterStore{
 			nodes: []taskdag.Node{{
-				DagKey: "dag-1", NodeKey: "auto1", NodeType: "automation",
+				DagKey: "dag-1", NodeKey: "auto1", RunID: routerTestRunID(7), NodeType: "automation",
 				Status: string(nodeexec.NodeStatusReady),
 				Config: json.RawMessage(`{"exec":{"command_ref":"build"},"outputs":{"to_sharedfile":{"path":"reports/out.log","lock_mode":"exclusive"}}}`),
 			}},
@@ -514,7 +608,7 @@ func TestNodeExecutorRouter_SharedFileWriter_Injected(t *testing.T) {
 	}
 	router := NewNodeExecutorRouter(store, nil, autoExec, nil, writer, nil)
 	outcome, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
-		DagKey: "dag-1", NodeKey: "auto1",
+		DagKey: "dag-1", NodeKey: "auto1", RunID: routerTestRunID(7),
 	})
 	if err != nil {
 		t.Fatalf("RouteByWakeup err = %v", err)
@@ -543,7 +637,7 @@ func TestNodeExecutorRouter_AutomationLifecycleHooks(t *testing.T) {
 	store := &stubRouterAutoStore{
 		stubRouterStore: stubRouterStore{
 			nodes: []taskdag.Node{{
-				DagKey: "dag-1", NodeKey: "auto1", NodeType: "automation",
+				DagKey: "dag-1", NodeKey: "auto1", RunID: routerTestRunID(7), NodeType: "automation",
 				Status: string(nodeexec.NodeStatusReady),
 				Config: json.RawMessage(`{"exec":{"command_ref":"build"},"outputs":{"to_node_result":true}}`),
 			}},
@@ -552,7 +646,7 @@ func TestNodeExecutorRouter_AutomationLifecycleHooks(t *testing.T) {
 	router := NewNodeExecutorRouter(store, nil, autoExec, nil, nil, nil)
 
 	outcome, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
-		DagKey: "dag-1", NodeKey: "auto1",
+		DagKey: "dag-1", NodeKey: "auto1", RunID: routerTestRunID(7),
 	})
 	if err != nil {
 		t.Fatalf("RouteByWakeup err = %v", err)
@@ -580,14 +674,14 @@ func TestNodeExecutorRouter_EmptyConfig_PortsStillNonNil(t *testing.T) {
 	writer := &stubRouterPrevWriter{}
 	store := &stubRouterStore{
 		nodes: []taskdag.Node{{
-			DagKey: "dag-1", NodeKey: "n1", NodeType: "agent",
+			DagKey: "dag-1", NodeKey: "n1", RunID: routerTestRunID(7), NodeType: "agent",
 			Status: string(nodeexec.NodeStatusReady),
 			Config: json.RawMessage(`{"exec":{"agent_key":"a"},"first_turn":"go"}`),
 		}},
 	}
 	router := NewNodeExecutorRouter(store, agentExec, nil, reader, writer, nil)
 	outcome, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
-		DagKey: "dag-1", NodeKey: "n1",
+		DagKey: "dag-1", NodeKey: "n1", RunID: routerTestRunID(7),
 	})
 	if err != nil {
 		t.Fatalf("RouteByWakeup err = %v", err)
@@ -616,7 +710,7 @@ func TestNodeExecutorRouter_ListNodesErrorPropagatesAsFrameworkErr(t *testing.T)
 	store := &stubRouterFlipFailStore{
 		stubRouterStore: stubRouterStore{
 			nodes: []taskdag.Node{{
-				DagKey: "dag-1", NodeKey: "n1", NodeType: "agent",
+				DagKey: "dag-1", NodeKey: "n1", RunID: routerTestRunID(7), NodeType: "agent",
 				Status: string(nodeexec.NodeStatusReady),
 				Config: json.RawMessage(`{"exec":{"agent_key":"a"},"inputs":{"from_nodes":["upstream"]},"first_turn":"go"}`),
 			}},
@@ -624,7 +718,7 @@ func TestNodeExecutorRouter_ListNodesErrorPropagatesAsFrameworkErr(t *testing.T)
 		failAfter: 1, // 首次 lookupTargetNode 成功，prefetch 调用失败
 	}
 	_, err := router_helper_New(store, agentExec).RouteByWakeup(context.Background(), &taskdag.Wakeup{
-		DagKey: "dag-1", NodeKey: "n1",
+		DagKey: "dag-1", NodeKey: "n1", RunID: routerTestRunID(7),
 	})
 	if err == nil {
 		t.Fatalf("expected framework err from prefetch ListNodes failure, got nil")
@@ -663,6 +757,14 @@ func (s *stubRouterFlipFailStore) ListNodes(ctx context.Context, dagKey string) 
 		return nil, errors.New("stub: flip-fail list nodes")
 	}
 	return s.stubRouterStore.ListNodes(ctx, dagKey)
+}
+
+func (s *stubRouterFlipFailStore) ListRunNodes(ctx context.Context, dagKey string, runID int64) ([]taskdag.Node, error) {
+	s.calls++
+	if s.calls > s.failAfter {
+		return nil, errors.New("stub: flip-fail list run nodes")
+	}
+	return s.stubRouterStore.ListRunNodes(ctx, dagKey, runID)
 }
 
 // stubAutomationCmdGetter 是 AutomationExecutor 测试用的 CommandGetter 假实现。

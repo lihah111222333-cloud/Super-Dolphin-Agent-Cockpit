@@ -26,6 +26,9 @@ const (
 )
 
 func (s *store) FailNodeAndCancelDownstream(ctx context.Context, input FailNodeInput) (*FailNodeResult, error) {
+	if err := requireRuntimeRunID("fail_and_cancel_downstream", input.RunID); err != nil {
+		return nil, err
+	}
 	var result FailNodeResult
 	err := sqlc.WithTxOrReuse(ctx, s.q, func(txq *sqlc.Queries) error {
 		txStore := &store{q: txq}
@@ -37,14 +40,18 @@ func (s *store) FailNodeAndCancelDownstream(ctx context.Context, input FailNodeI
 			return failErr
 		}
 		result.Node = node
-		if !input.FailFast {
-			return nil
+		if input.FailFast {
+			canceled, cascadeErr := cancelDownstreamTx(ctx, txStore, input.DagKey, input.NodeKey, input.RunID, input.Reason)
+			if cascadeErr != nil {
+				return cascadeErr
+			}
+			result.CanceledDownstream = canceled
 		}
-		canceled, cascadeErr := cancelDownstreamTx(ctx, txStore, input.DagKey, input.NodeKey, input.RunID, input.Reason)
-		if cascadeErr != nil {
-			return cascadeErr
+		finalized, finalizeErr := maybeFinalizeRunTx(ctx, txStore, input.DagKey, input.RunID)
+		if finalizeErr != nil {
+			return finalizeErr
 		}
-		result.CanceledDownstream = canceled
+		result.FinalizedRun = finalized
 		return nil
 	})
 	if err != nil {
@@ -78,13 +85,10 @@ func failNodeTx(ctx context.Context, txStore *store, dagKey, nodeKey string, run
 // Nodes already in non-pending states are left alone — once a node has
 // started running or reached terminal we don't rewrite history.
 func cancelDownstreamTx(ctx context.Context, txStore *store, dagKey, failedNodeKey string, runID int64, reason string) ([]CanceledDownstreamNode, error) {
-	var nodes []Node
-	var listErr error
-	if runID == 0 {
-		nodes, listErr = txStore.ListNodes(ctx, dagKey)
-	} else {
-		nodes, listErr = txStore.ListRunNodes(ctx, dagKey, runID)
+	if err := requireRuntimeRunID("cancel_downstream", runID); err != nil {
+		return nil, err
 	}
+	nodes, listErr := txStore.ListRunNodes(ctx, dagKey, runID)
 	if listErr != nil {
 		return nil, listErr
 	}

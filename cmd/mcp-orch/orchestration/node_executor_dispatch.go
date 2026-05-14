@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -290,5 +291,52 @@ func nodeFromTaskNode(target *taskdag.Node, nodeType string) nodeexec.Node {
 		NodeType: nodeType,
 		Title:    target.Title,
 		Config:   append(json.RawMessage(nil), target.Config...),
+	}
+}
+
+func isDAGWakeup(w *taskdag.Wakeup) bool {
+	return w != nil &&
+		strings.TrimSpace(w.DagKey) != "" && strings.TrimSpace(w.NodeKey) != ""
+}
+
+// handleClaimedViaRouter 走 dispatcher wiring batch 的 NodeExecutor 抽象路由。
+// 映射表：
+//   - router 返错（framework fault） → markTransientRetry，下轮 tick 重试。
+//   - outcome.Status == done                 → markLaunched。
+//   - outcome.Status == failed                → 按 FailureClass 拆分 permanent / retry。
+//   - 其他 (skipped / waiting_human 等暂不纳入 dispatcher 判定)→ markLaunched
+//     (设计上该多状态是 node.status 的事实，wakeup 只负责代推一下)。
+func (d *WakeupDispatcher) handleClaimedViaRouter(ctx context.Context, w *taskdag.Wakeup) {
+	fence := extractFence(w)
+	if routeRunID(w) <= 0 {
+		lastErr := "dag wakeup missing run_id for runtime node dispatch"
+		d.logger.Warn("wakeup dispatcher: dag wakeup missing run_id → failed",
+			"wakeup_id", w.ID, "dag_key", w.DagKey, "node_key", w.NodeKey)
+		d.markPermanentFail(ctx, w, fence, lastErr, errors.New(lastErr))
+		return
+	}
+	if d.nodeRouter == nil {
+		lastErr := "dag wakeup missing node router for runtime node dispatch"
+		err := errors.New(lastErr)
+		d.logger.Warn("wakeup dispatcher: dag wakeup missing node router → retry",
+			"wakeup_id", w.ID, "dag_key", w.DagKey, "node_key", w.NodeKey)
+		d.markTransientRetry(ctx, w, fence, dispatchFailureFrom(lastErr, err, failedWakeupOutcome(lastErr)))
+		return
+	}
+	outcome, err := d.nodeRouter.RouteByWakeup(ctx, w)
+	if err != nil {
+		lastErr := truncateWakeupError(err.Error())
+		d.logger.Warn("wakeup dispatcher: router framework error → retry",
+			"wakeup_id", w.ID, "dag_key", w.DagKey, "node_key", w.NodeKey,
+			"error", err)
+		d.markTransientRetry(ctx, w, fence, dispatchFailureFrom(lastErr, err, failedWakeupOutcome(lastErr)))
+		return
+	}
+	switch outcome.Status {
+	case nodeexec.NodeStatusFailed:
+		d.handleFailedRouterOutcome(ctx, w, fence, outcome)
+	default:
+		// done / skipped / waiting_human / zero-value all mean this wakeup is complete.
+		d.markLaunched(ctx, w, fence)
 	}
 }

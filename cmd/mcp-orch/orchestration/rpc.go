@@ -294,6 +294,7 @@ func updateNodeRequestFromParams(p updateNodeParams) UpdateNodeStatusRequest {
 	return UpdateNodeStatusRequest{
 		DagKey:  p.DagKey,
 		NodeKey: p.NodeKey,
+		RunID:   p.RunID,
 		Status:  p.Status,
 		Result:  append(json.RawMessage(nil), p.Result...),
 	}

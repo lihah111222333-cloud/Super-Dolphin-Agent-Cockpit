@@ -279,12 +279,14 @@ func TestBindRunningNodeTurnBindsWakeupAndClearsActiveWakeupOnCompletion(t *test
 	t.Parallel()
 
 	store, db, now := newTaskDAGTestStore()
+	runID := db.runs["run-1"].ID
 	db.wakeups[7] = newSentWakeup(now, 7)
-	db.nodes[dagNodeKey("dag-1", "node-1")] = newRunningNode(now, 7)
+	db.nodes[dagRunNodeKey("dag-1", "node-1", runID)] = newRunningNode(now, 7)
 
 	node, err := store.BindRunningNodeTurn(context.Background(), BindRunningNodeTurnInput{
 		DagKey:   "dag-1",
 		NodeKey:  "node-1",
+		RunID:    runID,
 		WakeupID: 7,
 		TurnID:   "turn-1",
 	})
@@ -301,6 +303,7 @@ func TestBindRunningNodeTurnBindsWakeupAndClearsActiveWakeupOnCompletion(t *test
 	completed, err := store.CompleteNode(context.Background(), CompleteNodeInput{
 		DagKey:  "dag-1",
 		NodeKey: "node-1",
+		RunID:   runID,
 		Status:  "done",
 		Result:  json.RawMessage(`{"ok":true}`),
 	})
@@ -316,12 +319,14 @@ func TestBindRunningNodeTurnRejectsSecondWorkerForSameWakeup(t *testing.T) {
 	t.Parallel()
 
 	store, db, now := newTaskDAGTestStore()
+	runID := db.runs["run-1"].ID
 	db.wakeups[7] = newSentWakeup(now, 7)
-	db.nodes[dagNodeKey("dag-1", "node-1")] = newRunningNode(now, 7)
+	db.nodes[dagRunNodeKey("dag-1", "node-1", runID)] = newRunningNode(now, 7)
 
 	if _, err := store.BindRunningNodeTurn(context.Background(), BindRunningNodeTurnInput{
 		DagKey:   "dag-1",
 		NodeKey:  "node-1",
+		RunID:    runID,
 		WakeupID: 7,
 		TurnID:   "turn-1",
 	}); err != nil {
@@ -330,6 +335,7 @@ func TestBindRunningNodeTurnRejectsSecondWorkerForSameWakeup(t *testing.T) {
 	if _, err := store.BindRunningNodeTurn(context.Background(), BindRunningNodeTurnInput{
 		DagKey:   "dag-1",
 		NodeKey:  "node-1",
+		RunID:    runID,
 		WakeupID: 7,
 		TurnID:   "turn-2",
 	}); err == nil {
@@ -343,14 +349,17 @@ func TestBindRunningNodeTurnRejectsSecondWorkerForSameWakeup(t *testing.T) {
 func newTaskDAGTestStore() (Store, *fakeTaskDAGDB, time.Time) {
 	now := time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC)
 	db := newFakeTaskDAGDB(now)
+	seedRun(db, "dag-1", "run-1")
 	return NewStore(sqlc.New(db)), db, now
 }
 
 func newPendingWakeup(now time.Time, id int64) sqlc.TaskDagWakeup {
+	runID := int64(1)
 	return sqlc.TaskDagWakeup{
 		ID:            id,
 		DagKey:        "dag-1",
 		NodeKey:       "node-1",
+		RunID:         sqlc.Int8ValuePtr(&runID),
 		WakeupKind:    "start",
 		TargetAgentID: "agent-1",
 		Status:        "pending",
@@ -379,10 +388,12 @@ func newSentWakeup(now time.Time, id int64) sqlc.TaskDagWakeup {
 }
 
 func newRunningNode(now time.Time, wakeupID int64) sqlc.TaskDagNode {
+	runID := int64(1)
 	return sqlc.TaskDagNode{
 		ID:             1,
 		DagKey:         "dag-1",
 		NodeKey:        "node-1",
+		RunID:          sqlc.Int8ValuePtr(&runID),
 		Title:          "node-1",
 		Status:         "running",
 		DependsOn:      []byte(`[]`),

@@ -113,7 +113,7 @@
     "todo_count": 0
   },
   "cmd/mcp-orch/orchestration/dag.go": {
-    "lines": 474,
+    "lines": 477,
     "max_func_len": 33,
     "max_nesting": 2,
     "max_complexity": 9,
@@ -244,7 +244,7 @@
     "max_struct_fields": 7
   },
   "cmd/mcp-orch/orchestration/wakeup_dispatcher.go": {
-    "lines": 404,
+    "lines": 384,
     "max_func_len": 36,
     "max_nesting": 3,
     "max_complexity": 7,

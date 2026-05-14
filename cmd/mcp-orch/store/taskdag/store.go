@@ -2,6 +2,7 @@ package taskdag
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
@@ -13,6 +14,13 @@ type store struct {
 }
 
 func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
+
+func requireRuntimeRunID(op string, runID int64) error {
+	if runID <= 0 {
+		return fmt.Errorf("%s: run_id required", op)
+	}
+	return nil
+}
 
 // WithTx only scopes a pool-backed SQL transaction and rebinds sqlc queries.
 // Unlike V2's DAG-specific WithDAGTx helper, it does not pre-lock the DAG row
@@ -69,6 +77,9 @@ func (s *store) UpsertNode(ctx context.Context, node Node) (*Node, error) {
 }
 
 func (s *store) PatchNodeConfigIfUnchanged(ctx context.Context, input NodeConfigPatchInput) (*Node, error) {
+	if err := requireRuntimeRunID("patch_config", input.RunID); err != nil {
+		return nil, err
+	}
 	return queryOne(func() (sqlc.TaskDagNode, error) {
 		return s.q.PatchTaskDagNodeConfigIfUnchanged(ctx, sqlc.PatchTaskDagNodeConfigIfUnchangedParams{
 			DagKey:         input.DagKey,
@@ -89,6 +100,9 @@ func (s *store) DeleteNode(ctx context.Context, dagKey, nodeKey string) (int64, 
 }
 
 func (s *store) UpdateNodeStatus(ctx context.Context, input NodeStatusUpdate) (*Node, error) {
+	if err := requireRuntimeRunID("update_status", input.RunID); err != nil {
+		return nil, err
+	}
 	// R1 dead code 清理：原 2 份 SQL（UpdateTaskDagNodeStatus / UpdateTaskDagNodeStatusFlexible）
 	// 逻辑上完全重复，合并为 Flexible 一份。本函数保留为发布层 sentinel（NodeStatusUpdate
 	// 与 FlexibleNodeStatusUpdate 输入名字不同），但底层走同一 query。
@@ -110,6 +124,9 @@ func (s *store) ListNodes(ctx context.Context, dagKey string) ([]Node, error) {
 }
 
 func (s *store) AssignNode(ctx context.Context, input AssignNodeInput) (*Node, error) {
+	if err := requireRuntimeRunID("assign", input.RunID); err != nil {
+		return nil, err
+	}
 	return queryOne(func() (sqlc.TaskDagNode, error) {
 		return s.q.AssignTaskDagNode(ctx, sqlc.AssignTaskDagNodeParams{
 			AssignedTo: input.AssignedTo,
@@ -162,6 +179,9 @@ func (s *store) GetNodesForUpdate(ctx context.Context, dagKey string) ([]Node, e
 }
 
 func (s *store) BindRunningNodeTurn(ctx context.Context, input BindRunningNodeTurnInput) (*Node, error) {
+	if err := requireRuntimeRunID("bind_running_turn", input.RunID); err != nil {
+		return nil, err
+	}
 	var mapped Node
 	err := sqlc.WithTxOrReuse(ctx, s.q, func(txq *sqlc.Queries) error {
 		_, err := bindWakeupTurnTx(ctx, txq, BindWakeupTurnInput{
@@ -191,6 +211,9 @@ func (s *store) BindRunningNodeTurn(ctx context.Context, input BindRunningNodeTu
 }
 
 func (s *store) TouchRunningNodeEvent(ctx context.Context, input TouchRunningNodeEventInput) (*Node, error) {
+	if err := requireRuntimeRunID("touch_running_event", input.RunID); err != nil {
+		return nil, err
+	}
 	return queryOne(func() (sqlc.TaskDagNode, error) {
 		return s.q.TouchRunningTaskDagNodeEvent(ctx, sqlc.TouchRunningTaskDagNodeEventParams{
 			LastEventAt:  sqlc.Timestamptz{Time: input.ObservedAt, Valid: !input.ObservedAt.IsZero()},
@@ -203,6 +226,9 @@ func (s *store) TouchRunningNodeEvent(ctx context.Context, input TouchRunningNod
 }
 
 func (s *store) UpdateRunningNodeStatus(ctx context.Context, input RunningNodeStatusUpdate) (*Node, error) {
+	if err := requireRuntimeRunID("update_running_status", input.RunID); err != nil {
+		return nil, err
+	}
 	return updateNodeStatus(func() (sqlc.TaskDagNode, error) {
 		return s.q.UpdateRunningTaskDagNodeStatus(ctx, sqlc.UpdateRunningTaskDagNodeStatusParams{
 			Status:         input.Status,
@@ -216,6 +242,9 @@ func (s *store) UpdateRunningNodeStatus(ctx context.Context, input RunningNodeSt
 }
 
 func (s *store) UpdateAwaitingVerifyNodeStatus(ctx context.Context, input AwaitingVerifyNodeStatusUpdate) (*Node, error) {
+	if err := requireRuntimeRunID("update_awaiting_verify_status", input.RunID); err != nil {
+		return nil, err
+	}
 	return updateNodeStatus(func() (sqlc.TaskDagNode, error) {
 		return s.q.UpdateAwaitingVerifyTaskDagNodeStatus(ctx, sqlc.UpdateAwaitingVerifyTaskDagNodeStatusParams{
 			Status:  input.Status,
@@ -228,6 +257,9 @@ func (s *store) UpdateAwaitingVerifyNodeStatus(ctx context.Context, input Awaiti
 }
 
 func (s *store) CompleteNode(ctx context.Context, input CompleteNodeInput) (*Node, error) {
+	if err := requireRuntimeRunID("complete", input.RunID); err != nil {
+		return nil, err
+	}
 	return updateNodeStatus(func() (sqlc.TaskDagNode, error) {
 		return s.q.CompleteTaskDagNode(ctx, sqlc.CompleteTaskDagNodeParams{
 			Status:  input.Status,
@@ -240,6 +272,9 @@ func (s *store) CompleteNode(ctx context.Context, input CompleteNodeInput) (*Nod
 }
 
 func (s *store) UpdateNodeStatusFlexible(ctx context.Context, input FlexibleNodeStatusUpdate) (*Node, error) {
+	if err := requireRuntimeRunID("update_status_flexible", input.RunID); err != nil {
+		return nil, err
+	}
 	return updateNodeStatus(func() (sqlc.TaskDagNode, error) {
 		return s.q.UpdateTaskDagNodeStatusFlexible(ctx, sqlc.UpdateTaskDagNodeStatusFlexibleParams{
 			Status:  input.Status,
@@ -252,6 +287,9 @@ func (s *store) UpdateNodeStatusFlexible(ctx context.Context, input FlexibleNode
 }
 
 func (s *store) ClaimNodeOutputMaterialization(ctx context.Context, input OutputMaterializationClaimInput) (*Node, error) {
+	if err := requireRuntimeRunID("claim_output_materialization", input.RunID); err != nil {
+		return nil, err
+	}
 	return updateNodeStatus(func() (sqlc.TaskDagNode, error) {
 		return s.q.ClaimTaskDagNodeOutputMaterialization(ctx, sqlc.ClaimTaskDagNodeOutputMaterializationParams{
 			Result:  input.Result,

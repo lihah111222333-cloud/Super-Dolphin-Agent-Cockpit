@@ -2,11 +2,15 @@ package taskdag
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 )
 
 func (s *store) EnqueueWakeup(ctx context.Context, input EnqueueWakeupInput) (int64, error) {
+	if input.RunID <= 0 {
+		return 0, fmt.Errorf("enqueue task dag wakeup: run_id required")
+	}
 	return queryValue(func() (int64, error) {
 		return s.q.EnqueueTaskDagWakeup(ctx, sqlc.EnqueueTaskDagWakeupParams{
 			DagKey:         input.DagKey,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	taskdag "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
@@ -20,6 +21,7 @@ type stubNodeFlowStore struct {
 	completeCalls []taskdag.CompleteNodeInput
 	completeReply *taskdag.CompleteNodeWithDownstreamResult
 	completeErr   error
+	listRunCalls  []int64
 
 	// fromStatus 是 ListNodes 返回的当前 node.status（供 S7.2 转移校验取用）。
 	// 未设默认 "running" 让 done 转移合法，适配多数测试不需显式设置。
@@ -27,11 +29,20 @@ type stubNodeFlowStore struct {
 }
 
 func (s *stubNodeFlowStore) ListNodes(_ context.Context, dagKey string) ([]taskdag.Node, error) {
+	return s.nodeList(dagKey, nil), nil
+}
+
+func (s *stubNodeFlowStore) ListRunNodes(_ context.Context, dagKey string, runID int64) ([]taskdag.Node, error) {
+	s.listRunCalls = append(s.listRunCalls, runID)
+	return s.nodeList(dagKey, &runID), nil
+}
+
+func (s *stubNodeFlowStore) nodeList(dagKey string, runID *int64) []taskdag.Node {
 	status := s.fromStatus
 	if status == "" {
 		status = "running"
 	}
-	return []taskdag.Node{{DagKey: dagKey, NodeKey: "A", Status: status}}, nil
+	return []taskdag.Node{{DagKey: dagKey, NodeKey: "A", RunID: runID, Status: status}}
 }
 
 func (s *stubNodeFlowStore) UpdateNodeStatus(_ context.Context, input taskdag.NodeStatusUpdate) (*taskdag.Node, error) {
@@ -81,6 +92,7 @@ func TestUpdateNodeStatusDone_RoutesToCompleteNodeAndScheduleDownstream(t *testi
 	_, err := s.UpdateNodeStatus(context.Background(), UpdateNodeStatusRequest{
 		DagKey:  "dag-1",
 		NodeKey: "A",
+		RunID:   42,
 		Status:  "done",
 		Result:  json.RawMessage(`{}`),
 	})
@@ -94,8 +106,11 @@ func TestUpdateNodeStatusDone_RoutesToCompleteNodeAndScheduleDownstream(t *testi
 		t.Fatalf("updateCalls = %d, want 0 (legacy UpdateNodeStatus path should be skipped for status=done)", len(stub.updateCalls))
 	}
 	got := stub.completeCalls[0]
-	if got.DagKey != "dag-1" || got.NodeKey != "A" || got.Status != "done" {
+	if got.DagKey != "dag-1" || got.NodeKey != "A" || got.RunID != 42 || got.Status != "done" {
 		t.Fatalf("CompleteNodeInput wrong: %+v", got)
+	}
+	if len(stub.listRunCalls) != 1 || stub.listRunCalls[0] != 42 {
+		t.Fatalf("ListRunNodes calls = %v, want [42]", stub.listRunCalls)
 	}
 }
 
@@ -107,6 +122,7 @@ func TestUpdateNodeStatusNonDone_KeepsLegacyUpdate(t *testing.T) {
 	_, err := s.UpdateNodeStatus(context.Background(), UpdateNodeStatusRequest{
 		DagKey:  "dag-1",
 		NodeKey: "A",
+		RunID:   43,
 		Status:  "running",
 		Result:  json.RawMessage(`{}`),
 	})
@@ -119,6 +135,26 @@ func TestUpdateNodeStatusNonDone_KeepsLegacyUpdate(t *testing.T) {
 	if len(stub.completeCalls) != 0 {
 		t.Fatalf("completeCalls = %d, want 0 (no spawn for non-done)", len(stub.completeCalls))
 	}
+	if got := stub.updateCalls[0]; got.RunID != 43 {
+		t.Fatalf("UpdateNodeStatus RunID = %d, want 43", got.RunID)
+	}
+}
+
+func TestUpdateNodeStatusRequiresRunID(t *testing.T) {
+	stub := &stubNodeFlowStore{fromStatus: "ready"}
+	s := makeServiceWithStub(stub)
+	_, err := s.UpdateNodeStatus(context.Background(), UpdateNodeStatusRequest{
+		DagKey:  "dag-1",
+		NodeKey: "A",
+		Status:  "running",
+	})
+	if err == nil || !strings.Contains(err.Error(), "run_id") {
+		t.Fatalf("UpdateNodeStatus err = %v, want run_id required", err)
+	}
+	if len(stub.updateCalls) != 0 || len(stub.completeCalls) != 0 || len(stub.listRunCalls) != 0 {
+		t.Fatalf("store should not be called without run_id: update=%d complete=%d listRun=%d",
+			len(stub.updateCalls), len(stub.completeCalls), len(stub.listRunCalls))
+	}
 }
 
 // TestUpdateNodeStatus_RejectsIllegalTransition:
@@ -129,6 +165,7 @@ func TestUpdateNodeStatus_RejectsIllegalTransition(t *testing.T) {
 	_, err := s.UpdateNodeStatus(context.Background(), UpdateNodeStatusRequest{
 		DagKey:  "dag-1",
 		NodeKey: "A",
+		RunID:   44,
 		Status:  "done",
 		Result:  json.RawMessage(`{}`),
 	})
@@ -149,6 +186,7 @@ func TestUpdateNodeStatus_RejectsTerminalSourceTransition(t *testing.T) {
 	_, err := s.UpdateNodeStatus(context.Background(), UpdateNodeStatusRequest{
 		DagKey:  "dag-1",
 		NodeKey: "A",
+		RunID:   45,
 		Status:  "ready",
 	})
 	if err == nil {
@@ -168,6 +206,10 @@ func (s *nonFlowStub) ListNodes(_ context.Context, dagKey string) ([]taskdag.Nod
 	return []taskdag.Node{{DagKey: dagKey, NodeKey: "A", Status: "running"}}, nil
 }
 
+func (s *nonFlowStub) ListRunNodes(_ context.Context, dagKey string, runID int64) ([]taskdag.Node, error) {
+	return []taskdag.Node{{DagKey: dagKey, NodeKey: "A", RunID: &runID, Status: "running"}}, nil
+}
+
 func (s *nonFlowStub) UpdateNodeStatus(_ context.Context, input taskdag.NodeStatusUpdate) (*taskdag.Node, error) {
 	s.updateCalls = append(s.updateCalls, input)
 	return &taskdag.Node{DagKey: input.DagKey, NodeKey: input.NodeKey, Status: input.Status}, nil
@@ -181,6 +223,7 @@ func TestUpdateNodeStatusDone_FallsBackWhenStoreLacksNodeFlowStore(t *testing.T)
 	_, err := s.UpdateNodeStatus(context.Background(), UpdateNodeStatusRequest{
 		DagKey:  "dag-1",
 		NodeKey: "A",
+		RunID:   46,
 		Status:  "done",
 		Result:  json.RawMessage(`{}`),
 	})

@@ -138,10 +138,11 @@ func TestUpdateNodeRequestFromInput_EnumValidation(t *testing.T) {
 		wantErr    string
 		wantStatus string
 	}{
-		{name: "valid", in: UpdateNodeInput{DagKey: "dag-1", NodeKey: "n", Status: "running"}, wantStatus: "running"},
-		{name: "empty", in: UpdateNodeInput{DagKey: "dag-1", NodeKey: "n", Status: ""}, wantErr: "status is required"},
-		{name: "whitespace", in: UpdateNodeInput{DagKey: "dag-1", NodeKey: "n", Status: "  "}, wantErr: "status is required"},
-		{name: "invalid", in: UpdateNodeInput{DagKey: "dag-1", NodeKey: "n", Status: "skipped"}, wantErr: "status"},
+		{name: "valid", in: UpdateNodeInput{DagKey: "dag-1", NodeKey: "n", RunID: 7, Status: "running"}, wantStatus: "running"},
+		{name: "missing-run-id", in: UpdateNodeInput{DagKey: "dag-1", NodeKey: "n", Status: "running"}, wantErr: "run_id"},
+		{name: "empty", in: UpdateNodeInput{DagKey: "dag-1", NodeKey: "n", RunID: 7, Status: ""}, wantErr: "status is required"},
+		{name: "whitespace", in: UpdateNodeInput{DagKey: "dag-1", NodeKey: "n", RunID: 7, Status: "  "}, wantErr: "status is required"},
+		{name: "invalid", in: UpdateNodeInput{DagKey: "dag-1", NodeKey: "n", RunID: 7, Status: "skipped"}, wantErr: "status"},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -158,6 +159,9 @@ func TestUpdateNodeRequestFromInput_EnumValidation(t *testing.T) {
 			}
 			if req.Status != tc.wantStatus {
 				t.Fatalf("status = %q, want %q", req.Status, tc.wantStatus)
+			}
+			if req.RunID != tc.in.RunID {
+				t.Fatalf("run_id = %d, want %d", req.RunID, tc.in.RunID)
 			}
 		})
 	}

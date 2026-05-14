@@ -78,7 +78,7 @@ func fallbackMetricDelta(t *testing.T, fn func()) DAGFallbackMetrics {
 // Case 1: fallback 触发 — 节点 ready → FailNode + metric Failed=1.
 func TestThreadStoppedDAGFallback_FailsReadyNode(t *testing.T) {
 	lookup := &fakeFallbackLookup{
-		nodes: []taskdag.Node{{DagKey: "dag-a", NodeKey: "node-1", Status: "ready"}},
+		nodes: []taskdag.Node{{DagKey: "dag-a", NodeKey: "node-1", RunID: int64Ptr(7101), Status: "ready"}},
 	}
 	flow := &fakeFallbackFlow{}
 	hc := hookConsumerWithFallback(t, lookup, flow)
@@ -93,7 +93,7 @@ func TestThreadStoppedDAGFallback_FailsReadyNode(t *testing.T) {
 	if flow.failCalls.Load() != 1 {
 		t.Fatalf("expected 1 FailNode call, got %d", flow.failCalls.Load())
 	}
-	if flow.lastInput.DagKey != "dag-a" || flow.lastInput.NodeKey != "node-1" {
+	if flow.lastInput.DagKey != "dag-a" || flow.lastInput.NodeKey != "node-1" || flow.lastInput.RunID != 7101 {
 		t.Fatalf("FailNodeInput mismatch: %+v", flow.lastInput)
 	}
 	if flow.lastInput.Reason != "thread_stopped_fallback" {
@@ -110,6 +110,7 @@ func TestThreadStoppedDAGFallback_InvokesLifecycleHooks(t *testing.T) {
 		nodes: []taskdag.Node{{
 			DagKey:   "dag-a",
 			NodeKey:  "node-1",
+			RunID:    int64Ptr(7102),
 			NodeType: "agent",
 			Status:   "running",
 			Config:   []byte(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),

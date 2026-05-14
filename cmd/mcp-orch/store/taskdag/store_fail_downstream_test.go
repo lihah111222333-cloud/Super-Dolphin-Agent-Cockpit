@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"sort"
 	"testing"
+	"time"
 )
 
 func TestFailNodeAndCancelDownstream_FailFastFalse_OnlyMarksCurrent(t *testing.T) {
 	t.Parallel()
 
 	store, db, now := newTaskDAGTestStore()
-	seedDAG(t, db, now, []seedNode{
+	runID := seedFailDownstreamRuntimeDAG(t, db, now, []seedNode{
 		{key: "A", deps: nil, status: "running", agent: "agent-a"},
 		{key: "B", deps: []string{"A"}, status: "pending", agent: "agent-b"},
 		{key: "C", deps: []string{"B"}, status: "pending", agent: "agent-c"},
@@ -20,6 +21,7 @@ func TestFailNodeAndCancelDownstream_FailFastFalse_OnlyMarksCurrent(t *testing.T
 	res, err := store.FailNodeAndCancelDownstream(context.Background(), FailNodeInput{
 		DagKey:   "dag-1",
 		NodeKey:  "A",
+		RunID:    runID,
 		Reason:   "launch transient exhausted",
 		FailFast: false,
 	})
@@ -32,10 +34,10 @@ func TestFailNodeAndCancelDownstream_FailFastFalse_OnlyMarksCurrent(t *testing.T
 	if len(res.CanceledDownstream) != 0 {
 		t.Fatalf("canceled = %v, want []", res.CanceledDownstream)
 	}
-	if got := db.nodes[dagNodeKey("dag-1", "B")].Status; got != "pending" {
+	if got := db.nodes[dagRunNodeKey("dag-1", "B", runID)].Status; got != "pending" {
 		t.Fatalf("B status = %q, want pending (no fail-fast cascade)", got)
 	}
-	if got := db.nodes[dagNodeKey("dag-1", "C")].Status; got != "pending" {
+	if got := db.nodes[dagRunNodeKey("dag-1", "C", runID)].Status; got != "pending" {
 		t.Fatalf("C status = %q, want pending (no fail-fast cascade)", got)
 	}
 	// Primary failure result must be tagged as exhausted_retries.
@@ -52,7 +54,7 @@ func TestFailNodeAndCancelDownstream_PrimaryTerminalFence(t *testing.T) {
 	t.Parallel()
 
 	store, db, now := newTaskDAGTestStore()
-	seedDAG(t, db, now, []seedNode{
+	runID := seedFailDownstreamRuntimeDAG(t, db, now, []seedNode{
 		{key: "A", deps: nil, status: "done", agent: "agent-a"},
 		{key: "B", deps: []string{"A"}, status: "pending", agent: "agent-b"},
 	})
@@ -60,16 +62,17 @@ func TestFailNodeAndCancelDownstream_PrimaryTerminalFence(t *testing.T) {
 	_, err := store.FailNodeAndCancelDownstream(context.Background(), FailNodeInput{
 		DagKey:   "dag-1",
 		NodeKey:  "A",
+		RunID:    runID,
 		Reason:   "late materialization failure",
 		FailFast: true,
 	})
 	if err == nil {
 		t.Fatalf("FailNodeAndCancelDownstream on done primary error = nil, want fence rejection")
 	}
-	if got := db.nodes[dagNodeKey("dag-1", "A")].Status; got != "done" {
+	if got := db.nodes[dagRunNodeKey("dag-1", "A", runID)].Status; got != "done" {
 		t.Fatalf("A status = %q, want done (terminal primary must not be rewritten)", got)
 	}
-	if got := db.nodes[dagNodeKey("dag-1", "B")].Status; got != "pending" {
+	if got := db.nodes[dagRunNodeKey("dag-1", "B", runID)].Status; got != "pending" {
 		t.Fatalf("B status = %q, want pending (cascade must not run after primary fence rejection)", got)
 	}
 }
@@ -78,7 +81,7 @@ func TestFailNodeAndCancelDownstream_CascadeTerminalRaceSkips(t *testing.T) {
 	t.Parallel()
 
 	store, db, now := newTaskDAGTestStore()
-	seedDAG(t, db, now, []seedNode{
+	runID := seedFailDownstreamRuntimeDAG(t, db, now, []seedNode{
 		{key: "A", deps: nil, status: "running", agent: "agent-a"},
 		{key: "B", deps: []string{"A"}, status: "pending", agent: "agent-b"},
 	})
@@ -86,7 +89,7 @@ func TestFailNodeAndCancelDownstream_CascadeTerminalRaceSkips(t *testing.T) {
 		if dagKey != "dag-1" || nodeKey != "B" {
 			return
 		}
-		key := dagNodeKey(dagKey, nodeKey)
+		key := dagRunNodeKey(dagKey, nodeKey, runID)
 		row := db.nodes[key]
 		row.Status = "done"
 		db.nodes[key] = row
@@ -95,6 +98,7 @@ func TestFailNodeAndCancelDownstream_CascadeTerminalRaceSkips(t *testing.T) {
 	res, err := store.FailNodeAndCancelDownstream(context.Background(), FailNodeInput{
 		DagKey:   "dag-1",
 		NodeKey:  "A",
+		RunID:    runID,
 		Reason:   "retry exhausted",
 		FailFast: true,
 	})
@@ -107,7 +111,7 @@ func TestFailNodeAndCancelDownstream_CascadeTerminalRaceSkips(t *testing.T) {
 	if len(res.CanceledDownstream) != 0 {
 		t.Fatalf("CanceledDownstream = %+v, want empty for raced terminal downstream", res.CanceledDownstream)
 	}
-	if got := db.nodes[dagNodeKey("dag-1", "B")].Status; got != "done" {
+	if got := db.nodes[dagRunNodeKey("dag-1", "B", runID)].Status; got != "done" {
 		t.Fatalf("B status = %q, want done (cascade race must not rewrite terminal)", got)
 	}
 }
@@ -118,7 +122,7 @@ func TestFailNodeAndCancelDownstream_FailFastTrue_CascadesTransitivePending(t *t
 	// A → B → C ; A → D ; D done already (must not be touched).
 	// Failing A with fail_fast=true must cascade-fail B + C, leave D done.
 	store, db, now := newTaskDAGTestStore()
-	seedDAG(t, db, now, []seedNode{
+	runID := seedFailDownstreamRuntimeDAG(t, db, now, []seedNode{
 		{key: "A", deps: nil, status: "running", agent: "agent-a"},
 		{key: "B", deps: []string{"A"}, status: "pending", agent: "agent-b"},
 		{key: "C", deps: []string{"B"}, status: "pending", agent: "agent-c"},
@@ -128,6 +132,7 @@ func TestFailNodeAndCancelDownstream_FailFastTrue_CascadesTransitivePending(t *t
 	res, err := store.FailNodeAndCancelDownstream(context.Background(), FailNodeInput{
 		DagKey:   "dag-1",
 		NodeKey:  "A",
+		RunID:    runID,
 		Reason:   "launch transient exhausted",
 		FailFast: true,
 	})
@@ -141,19 +146,19 @@ func TestFailNodeAndCancelDownstream_FailFastTrue_CascadesTransitivePending(t *t
 	if want := []string{"B", "C"}; !equalStrings(gotKeys, want) {
 		t.Fatalf("canceled = %v, want %v", gotKeys, want)
 	}
-	if got := db.nodes[dagNodeKey("dag-1", "B")].Status; got != "failed" {
+	if got := db.nodes[dagRunNodeKey("dag-1", "B", runID)].Status; got != "failed" {
 		t.Fatalf("B status = %q, want failed", got)
 	}
-	if got := db.nodes[dagNodeKey("dag-1", "C")].Status; got != "failed" {
+	if got := db.nodes[dagRunNodeKey("dag-1", "C", runID)].Status; got != "failed" {
 		t.Fatalf("C status = %q, want failed", got)
 	}
 	// D was already done — fail-fast must not rewrite terminal nodes.
-	if got := db.nodes[dagNodeKey("dag-1", "D")].Status; got != "done" {
+	if got := db.nodes[dagRunNodeKey("dag-1", "D", runID)].Status; got != "done" {
 		t.Fatalf("D status = %q, want done (terminal must not be rewritten)", got)
 	}
 	// Cascade reason on B should reference A as the originator.
 	var reason failNodeReason
-	if err := json.Unmarshal(db.nodes[dagNodeKey("dag-1", "B")].Result, &reason); err != nil {
+	if err := json.Unmarshal(db.nodes[dagRunNodeKey("dag-1", "B", runID)].Result, &reason); err != nil {
 		t.Fatalf("unmarshal B result: %v", err)
 	}
 	if reason.Kind != "cascade" || reason.CausedByNode != "A" {
@@ -167,7 +172,7 @@ func TestFailNodeAndCancelDownstream_FailFastTrue_DiamondCascade(t *testing.T) {
 	// A → {B, C} → D ; D depends on both B and C.
 	// Failing A with fail-fast must cascade B, C, AND D (transitive closure).
 	store, db, now := newTaskDAGTestStore()
-	seedDAG(t, db, now, []seedNode{
+	runID := seedFailDownstreamRuntimeDAG(t, db, now, []seedNode{
 		{key: "A", deps: nil, status: "running", agent: "agent-a"},
 		{key: "B", deps: []string{"A"}, status: "pending", agent: "agent-b"},
 		{key: "C", deps: []string{"A"}, status: "pending", agent: "agent-c"},
@@ -175,7 +180,7 @@ func TestFailNodeAndCancelDownstream_FailFastTrue_DiamondCascade(t *testing.T) {
 	})
 
 	res, err := store.FailNodeAndCancelDownstream(context.Background(), FailNodeInput{
-		DagKey: "dag-1", NodeKey: "A", Reason: "boom", FailFast: true,
+		DagKey: "dag-1", NodeKey: "A", RunID: runID, Reason: "boom", FailFast: true,
 	})
 	if err != nil {
 		t.Fatalf("fail A error = %v", err)
@@ -184,7 +189,7 @@ func TestFailNodeAndCancelDownstream_FailFastTrue_DiamondCascade(t *testing.T) {
 	if want := []string{"B", "C", "D"}; !equalStrings(gotKeys, want) {
 		t.Fatalf("canceled = %v, want %v", gotKeys, want)
 	}
-	if got := db.nodes[dagNodeKey("dag-1", "D")].Status; got != "failed" {
+	if got := db.nodes[dagRunNodeKey("dag-1", "D", runID)].Status; got != "failed" {
 		t.Fatalf("D status = %q, want failed", got)
 	}
 }
@@ -195,14 +200,14 @@ func TestFailNodeAndCancelDownstream_FailFastTrue_RunningDownstreamNotTouched(t 
 	// Once a downstream node is already running it must not be rewritten —
 	// the running attempt finishes on its own; cascade only affects pending.
 	store, db, now := newTaskDAGTestStore()
-	seedDAG(t, db, now, []seedNode{
+	runID := seedFailDownstreamRuntimeDAG(t, db, now, []seedNode{
 		{key: "A", deps: nil, status: "running", agent: "agent-a"},
 		{key: "B", deps: []string{"A"}, status: "running", agent: "agent-b"},
 		{key: "C", deps: []string{"B"}, status: "pending", agent: "agent-c"},
 	})
 
 	res, err := store.FailNodeAndCancelDownstream(context.Background(), FailNodeInput{
-		DagKey: "dag-1", NodeKey: "A", Reason: "boom", FailFast: true,
+		DagKey: "dag-1", NodeKey: "A", RunID: runID, Reason: "boom", FailFast: true,
 	})
 	if err != nil {
 		t.Fatalf("fail A error = %v", err)
@@ -211,12 +216,19 @@ func TestFailNodeAndCancelDownstream_FailFastTrue_RunningDownstreamNotTouched(t 
 	if want := []string{"C"}; !equalStrings(gotKeys, want) {
 		t.Fatalf("canceled = %v, want %v (B was running, must skip; C still cascaded transitively)", gotKeys, want)
 	}
-	if got := db.nodes[dagNodeKey("dag-1", "B")].Status; got != "running" {
+	if got := db.nodes[dagRunNodeKey("dag-1", "B", runID)].Status; got != "running" {
 		t.Fatalf("B status = %q, want running (must not be rewritten)", got)
 	}
-	if got := db.nodes[dagNodeKey("dag-1", "C")].Status; got != "failed" {
+	if got := db.nodes[dagRunNodeKey("dag-1", "C", runID)].Status; got != "failed" {
 		t.Fatalf("C status = %q, want failed", got)
 	}
+}
+
+func seedFailDownstreamRuntimeDAG(t *testing.T, db *fakeTaskDAGDB, now time.Time, nodes []seedNode) int64 {
+	t.Helper()
+	runID := db.runs["run-1"].ID
+	seedDAGRows(t, db, now, nodes, runID)
+	return runID
 }
 
 func canceledKeys(items []CanceledDownstreamNode) []string {

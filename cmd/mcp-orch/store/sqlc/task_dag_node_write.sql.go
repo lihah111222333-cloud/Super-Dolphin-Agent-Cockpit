@@ -19,7 +19,8 @@ const updateTaskDagNodeStatusFlexible = `-- name: UpdateTaskDagNodeStatusFlexibl
 UPDATE task_dag_nodes
 SET status = $1, result = $2::jsonb, updated_at = NOW()
 WHERE dag_key = $3 AND node_key = $4
-  AND (($5::bigint = 0 AND run_id IS NULL) OR run_id = $5)
+  AND run_id = $5
+  AND $5::bigint > 0
 RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
 `
 
@@ -70,7 +71,8 @@ UPDATE task_dag_nodes
 SET status = 'awaiting_verify', result = $1::jsonb, updated_at = NOW()
 WHERE dag_key = $2
   AND node_key = $3
-  AND (($4::bigint = 0 AND run_id IS NULL) OR run_id = $4)
+  AND run_id = $4
+  AND $4::bigint > 0
   AND status IN ('ready', 'running', 'awaiting_verify')
 RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
 `
@@ -120,7 +122,8 @@ UPDATE task_dag_nodes
 SET status = $1, result = $2::jsonb, updated_at = NOW()
 WHERE dag_key = $3
   AND node_key = $4
-  AND (($5::bigint = 0 AND run_id IS NULL) OR run_id = $5)
+  AND run_id = $5
+  AND $5::bigint > 0
   AND status NOT IN ('done', 'failed', 'cancelled', 'skipped')
 RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
 `
@@ -172,7 +175,8 @@ UPDATE task_dag_nodes
 SET config = $3::jsonb, updated_at = NOW()
 WHERE dag_key = $1
   AND node_key = $2
-  AND (($5::bigint = 0 AND run_id IS NULL) OR run_id = $5)
+  AND run_id = $5
+  AND $5::bigint > 0
   AND config = $4::jsonb
   AND status NOT IN ('done', 'failed', 'cancelled', 'skipped')
 RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
@@ -228,7 +232,8 @@ UPDATE task_dag_nodes
 SET status = 'failed', result = $1::jsonb, updated_at = NOW()
 WHERE dag_key = $2
   AND node_key = $3
-  AND (($4::bigint = 0 AND run_id IS NULL) OR run_id = $4)
+  AND run_id = $4
+  AND $4::bigint > 0
   AND status = 'pending'
 `
 
@@ -352,7 +357,8 @@ SET status = 'ready',
     updated_at = NOW()
 WHERE dag_key = $1
   AND node_key = $2
-  AND (($3::bigint = 0 AND run_id IS NULL) OR run_id = $3)
+  AND run_id = $3
+  AND $3::bigint > 0
   AND status = 'pending'
 `
 

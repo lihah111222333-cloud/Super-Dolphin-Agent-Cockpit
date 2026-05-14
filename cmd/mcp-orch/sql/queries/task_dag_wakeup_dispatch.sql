@@ -1,6 +1,6 @@
 -- name: EnqueueTaskDagWakeup :execrows
 INSERT INTO task_dag_wakeups (dag_key, node_key, run_id, wakeup_kind, target_agent_id, prompt_payload, idempotency_key)
-VALUES ($1, $2, NULLIF($3::bigint, 0), $4, $5, $6::jsonb, $7)
+VALUES ($1, $2, $3::bigint, $4, $5, $6::jsonb, $7)
 ON CONFLICT (idempotency_key) DO NOTHING;
 
 -- name: ClaimDueTaskDagWakeups :many
@@ -8,9 +8,21 @@ UPDATE task_dag_wakeups
 SET status = 'dispatching', claimed_at = NOW(), claimed_by = $1,
     lease_expires_at = NOW() + $2::interval, attempt_count = attempt_count + 1, updated_at = NOW()
 WHERE id IN (
-    SELECT id
-    FROM task_dag_wakeups
-    WHERE status = 'pending' AND next_retry_at <= NOW()
+    SELECT w.id
+    FROM task_dag_wakeups w
+    WHERE w.status = 'pending'
+      AND w.next_retry_at <= NOW()
+      AND (
+        BTRIM(w.dag_key) = ''
+        OR BTRIM(w.node_key) = ''
+        OR EXISTS (
+          SELECT 1
+          FROM task_dag_runs r
+          WHERE r.id = w.run_id
+            AND r.dag_key = w.dag_key
+            AND r.status = 'running'
+        )
+      )
     ORDER BY next_retry_at, id
     LIMIT $3
     FOR UPDATE SKIP LOCKED
