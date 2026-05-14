@@ -155,6 +155,58 @@ func (q *Queries) FailTaskDagNodeIfNonTerminal(ctx context.Context, arg FailTask
 	return i, err
 }
 
+const patchTaskDagNodeConfigIfUnchanged = `-- name: PatchTaskDagNodeConfigIfUnchanged :one
+UPDATE task_dag_nodes
+SET config = $3::jsonb, updated_at = NOW()
+WHERE dag_key = $1
+  AND node_key = $2
+  AND config = $4::jsonb
+  AND status NOT IN ('done', 'failed', 'cancelled', 'skipped')
+RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
+`
+
+type PatchTaskDagNodeConfigIfUnchangedParams struct {
+	DagKey         string `json:"dag_key"`
+	NodeKey        string `json:"node_key"`
+	Config         []byte `json:"config"`
+	PreviousConfig []byte `json:"previous_config"`
+}
+
+// PatchTaskDagNodeConfigIfUnchanged is hand-maintained alongside the F1.5/A2
+// task_dag_node_write sqlc output until the sqlc schema list can include all
+// DAG migrations again.
+func (q *Queries) PatchTaskDagNodeConfigIfUnchanged(ctx context.Context, arg PatchTaskDagNodeConfigIfUnchangedParams) (TaskDagNode, error) {
+	row := q.db.QueryRow(ctx, patchTaskDagNodeConfigIfUnchanged,
+		arg.DagKey,
+		arg.NodeKey,
+		arg.Config,
+		arg.PreviousConfig,
+	)
+	var i TaskDagNode
+	err := row.Scan(
+		&i.ID,
+		&i.DagKey,
+		&i.NodeKey,
+		&i.Title,
+		&i.NodeType,
+		&i.AssignedTo,
+		&i.DependsOn,
+		&i.Status,
+		&i.CommandRef,
+		&i.Config,
+		&i.Result,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ActiveTurnID,
+		&i.ActiveWakeupID,
+		&i.LastEventAt,
+		&i.SpawningThreadID,
+	)
+	return i, err
+}
+
 const cascadeFailPendingTaskDagNode = `-- name: CascadeFailPendingTaskDagNode :execrows
 UPDATE task_dag_nodes
 SET status = 'failed', result = $1::jsonb, updated_at = NOW()
