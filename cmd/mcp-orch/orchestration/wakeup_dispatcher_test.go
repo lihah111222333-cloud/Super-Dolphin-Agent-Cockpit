@@ -103,6 +103,18 @@ func (s *dispatcherStubStore) PatchNodeConfigIfUnchanged(_ context.Context, inpu
 	}, nil
 }
 
+func (s *dispatcherStubStore) RetryWakeupWithNodeConfigPatch(ctx context.Context, input taskdag.RetryWakeupWithNodeConfigPatchInput) (int64, error) {
+	rows, err := s.RetryWakeup(ctx, input.RetryWakeup)
+	if err != nil || rows == 0 {
+		return rows, err
+	}
+	_, err = s.PatchNodeConfigIfUnchanged(ctx, input.NodeConfig)
+	if err != nil {
+		return 0, err
+	}
+	return rows, nil
+}
+
 func (s *dispatcherStubStore) ClaimDueWakeups(_ context.Context, input taskdag.ClaimDueWakeupsInput) ([]taskdag.Wakeup, error) {
 	s.claimCalls = append(s.claimCalls, input)
 	if s.claimErr != nil {
@@ -1256,6 +1268,97 @@ func TestDispatcherSmartRetryReplanSpawnsPlannerAgent(t *testing.T) {
 	}
 }
 
+func TestDispatcherSmartRetryReplanPlannerFailureFailsClosed(t *testing.T) {
+	now := time.Date(2026, 5, 14, 10, 35, 0, 0, time.UTC)
+	tests := []struct {
+		name            string
+		plannerLauncher WakeupLauncher
+	}{
+		{name: "unavailable", plannerLauncher: nil},
+		{name: "launch_error", plannerLauncher: &dispatcherStubLauncher{errs: []error{errors.New("planner offline")}}},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			store := newAgentFailureClassStore(t, "replan-planner-"+tt.name, 1, now)
+			store.nodesReply[0].Config = json.RawMessage(`{
+				"exec":{
+					"agent_key":"alpha",
+					"on_failure":{
+						"default":"replan",
+						"max_attempts":2
+					}
+				},
+				"first_turn":"go"
+			}`)
+			d, err := NewWakeupDispatcher(store, tt.plannerLauncher, nil, WakeupDispatcherConfig{})
+			if err != nil {
+				t.Fatalf("NewWakeupDispatcher err = %v", err)
+			}
+			w := store.claimReply[0]
+
+			d.handleFailedRouterOutcome(context.Background(), &w, extractFence(&w), nodeexec.NodeOutcome{
+				Status:       nodeexec.NodeStatusFailed,
+				FailureClass: nodeexec.FailureClassCapability,
+				ErrorSummary: "model lacks capability",
+			})
+
+			if len(store.retryCalls) != 0 {
+				t.Fatalf("retryCalls = %d, want 0 when replan planner cannot start", len(store.retryCalls))
+			}
+			if len(store.markSentCalls) != 0 {
+				t.Fatalf("markSentCalls = %d, want 0 when replan planner cannot start", len(store.markSentCalls))
+			}
+			if len(store.failCalls) != 1 || len(store.failNodeCalls) != 1 {
+				t.Fatalf("fail calls = wakeup %d node %d, want 1/1", len(store.failCalls), len(store.failNodeCalls))
+			}
+			if !strings.Contains(store.failCalls[0].LastError, "smart retry prepare failed") {
+				t.Fatalf("FailWakeup LastError = %q, want smart retry prepare failure", store.failCalls[0].LastError)
+			}
+			if !store.failNodeCalls[0].FailFast {
+				t.Fatalf("FailFast = false, want DAG policy fail_fast on replan planner failure")
+			}
+		})
+	}
+}
+
+func TestDispatcherSmartRetryPermanentReplanPlannerFailureDoesNotRetryOriginalNode(t *testing.T) {
+	now := time.Date(2026, 5, 14, 10, 40, 0, 0, time.UTC)
+	store := newAgentFailureClassStore(t, "needs-human-replan-planner-fail", 1, now)
+	store.nodesReply[0].Config = json.RawMessage(`{
+		"exec":{
+			"agent_key":"alpha",
+			"on_failure":{
+				"by_class":{"needs_human":"replan"},
+				"max_attempts":2
+			}
+		},
+		"first_turn":"go"
+	}`)
+	plannerLauncher := &dispatcherStubLauncher{errs: []error{errors.New("planner offline")}}
+	d, err := NewWakeupDispatcher(store, plannerLauncher, nil, WakeupDispatcherConfig{})
+	if err != nil {
+		t.Fatalf("NewWakeupDispatcher err = %v", err)
+	}
+	w := store.claimReply[0]
+
+	d.handleFailedRouterOutcome(context.Background(), &w, extractFence(&w), nodeexec.NodeOutcome{
+		Status:       nodeexec.NodeStatusFailed,
+		FailureClass: nodeexec.FailureClassNeedsHuman,
+		ErrorSummary: "requires operator decision",
+	})
+
+	if len(plannerLauncher.calls) != 1 {
+		t.Fatalf("planner calls = %d, want 1 explicit replan attempt", len(plannerLauncher.calls))
+	}
+	if len(store.retryCalls) != 0 {
+		t.Fatalf("retryCalls = %d, want 0 for needs_human planner failure", len(store.retryCalls))
+	}
+	if len(store.failCalls) != 1 || len(store.failNodeCalls) != 1 {
+		t.Fatalf("fail calls = wakeup %d node %d, want 1/1", len(store.failCalls), len(store.failNodeCalls))
+	}
+}
+
 func TestDispatcherSmartRetryPermanentFailureWithoutClassMappingDoesNotRetry(t *testing.T) {
 	now := time.Date(2026, 5, 14, 10, 45, 0, 0, time.UTC)
 	store := newAgentFailureClassStore(t, "hard-unmapped", 1, now)
@@ -1494,6 +1597,46 @@ func TestDispatcherSmartRetryDoesNotPatchConfigWhenRetryFenceMisses(t *testing.T
 	}
 	if len(store.patchConfigCalls) != 0 {
 		t.Fatalf("patchConfigCalls = %d, want 0 when RetryWakeup writes 0 rows", len(store.patchConfigCalls))
+	}
+}
+
+func TestDispatcherSmartRetryConfigPatchFailureFailsClosed(t *testing.T) {
+	now := time.Date(2026, 5, 14, 11, 10, 0, 0, time.UTC)
+	store := newAgentFailureClassStore(t, "patch-failure", 1, now)
+	store.patchConfigErr = errors.New("stale node config")
+	store.nodesReply[0].Config = json.RawMessage(`{
+		"exec":{
+			"agent_key":"alpha",
+			"model":"sonnet",
+			"on_failure":{
+				"by_class":{"capability":"escalate_model"},
+				"max_attempts":2,
+				"escalation_chain":["sonnet","opus"]
+			}
+		},
+		"first_turn":"go"
+	}`)
+	d, err := NewWakeupDispatcher(store, &dispatcherStubLauncher{}, nil, WakeupDispatcherConfig{})
+	if err != nil {
+		t.Fatalf("NewWakeupDispatcher err = %v", err)
+	}
+	w := store.claimReply[0]
+
+	d.handleFailedRouterOutcome(context.Background(), &w, extractFence(&w), nodeexec.NodeOutcome{
+		Status:       nodeexec.NodeStatusFailed,
+		FailureClass: nodeexec.FailureClassCapability,
+		ErrorSummary: "model lacks capability",
+	})
+
+	if len(store.failCalls) != 1 || len(store.failNodeCalls) != 1 {
+		t.Fatalf("fail calls = wakeup %d node %d, want 1/1 on config patch failure", len(store.failCalls), len(store.failNodeCalls))
+	}
+	if !strings.Contains(store.failCalls[0].LastError, "smart retry prepare failed") ||
+		!strings.Contains(store.failCalls[0].LastError, "stale node config") {
+		t.Fatalf("FailWakeup LastError = %q, want smart retry prepare failure with patch error", store.failCalls[0].LastError)
+	}
+	if len(store.patchConfigCalls) != 1 {
+		t.Fatalf("patchConfigCalls = %d, want 1", len(store.patchConfigCalls))
 	}
 }
 

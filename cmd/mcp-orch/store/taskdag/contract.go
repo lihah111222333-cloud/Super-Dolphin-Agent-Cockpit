@@ -76,6 +76,14 @@ type NodeConfigPatchStore interface {
 	PatchNodeConfigIfUnchanged(ctx context.Context, input NodeConfigPatchInput) (*Node, error)
 }
 
+// SmartRetryConfigStore is the dispatcher-only port for atomic smart-retry
+// preparation. RetryWakeupWithNodeConfigPatch writes the wakeup retry fence and
+// the node.config CAS patch in one transaction: a patch miss or DB error rolls
+// back the retry so the caller can fail/park the same claimed wakeup visibly.
+type SmartRetryConfigStore interface {
+	RetryWakeupWithNodeConfigPatch(ctx context.Context, input RetryWakeupWithNodeConfigPatchInput) (int64, error)
+}
+
 // DAGOpsStore 是 task_dag_apply_ops 业务（F4.1+）的窄接口。包含：
 //   - GetDAGVersionForUpdate: SELECT version FROM task_dags WHERE dag_key = ?
 //     FOR UPDATE — 拿当前 OCC 版本，并在事务内锁定行避免双写。
@@ -320,6 +328,11 @@ type NodeConfigPatchInput struct {
 	NodeKey        string
 	PreviousConfig json.RawMessage
 	Config         json.RawMessage
+}
+
+type RetryWakeupWithNodeConfigPatchInput struct {
+	RetryWakeup RetryWakeupInput
+	NodeConfig  NodeConfigPatchInput
 }
 
 type OutputMaterializationClaimInput struct {

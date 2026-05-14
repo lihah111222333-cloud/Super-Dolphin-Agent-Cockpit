@@ -67,6 +67,46 @@ func (s *store) RetryWakeup(ctx context.Context, input RetryWakeupInput) (int64,
 	})
 }
 
+func (s *store) RetryWakeupWithNodeConfigPatch(ctx context.Context, input RetryWakeupWithNodeConfigPatchInput) (int64, error) {
+	retryInterval, err := parseLeaseDuration(input.RetryWakeup.RetryInterval, "retry_with_config_patch", "task_dag_wakeup")
+	if err != nil {
+		return 0, err
+	}
+	fence := wakeupFenceFromRetry(input.RetryWakeup)
+	var rows int64
+	err = sqlc.WithTxOrReuse(ctx, s.q, func(txq *sqlc.Queries) error {
+		retryRows, retryErr := txq.RetryTaskDagWakeup(ctx, sqlc.RetryTaskDagWakeupParams{
+			Column1:        retryInterval,
+			LastError:      input.RetryWakeup.LastError,
+			ID:             fence.ID,
+			ClaimedAt:      timestampValue(fence.ClaimedAt),
+			ClaimedBy:      fence.ClaimedBy,
+			LeaseExpiresAt: timestampValue(fence.LeaseExpiresAt),
+		})
+		if retryErr != nil {
+			return retryErr
+		}
+		rows = retryRows
+		if retryRows == 0 {
+			return nil
+		}
+		_, patchErr := txq.PatchTaskDagNodeConfigIfUnchanged(ctx, sqlc.PatchTaskDagNodeConfigIfUnchangedParams{
+			DagKey:         input.NodeConfig.DagKey,
+			NodeKey:        input.NodeConfig.NodeKey,
+			Config:         input.NodeConfig.Config,
+			PreviousConfig: input.NodeConfig.PreviousConfig,
+		})
+		if patchErr != nil {
+			return wrapTaskDAGError(patchErr, "patch_config", "task_dag_node")
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, wrapTaskDAGError(err, "retry_with_config_patch", "task_dag_wakeup")
+	}
+	return rows, nil
+}
+
 func (s *store) FailWakeup(ctx context.Context, input FailWakeupInput) (int64, error) {
 	fence := wakeupFenceFromFail(input)
 	return fencedWakeupMutation("fail", fence, func(fence wakeupFence) (int64, error) {
