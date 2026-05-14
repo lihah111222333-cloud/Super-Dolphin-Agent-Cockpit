@@ -277,6 +277,21 @@ retry_count_per_node_overflow_total 0
         self.assertFalse(family_only.require_metric_samples)
         self.assertTrue(forced_strict.require_metric_samples)
 
+    def test_parse_args_derives_default_shared_prefix_from_dag_key(self):
+        dogfood = load_script()
+        old_shared_prefix = os.environ.pop("M3_DOGFOOD_SHARED_PREFIX", None)
+        self.addCleanup(restore_env_var, "M3_DOGFOOD_SHARED_PREFIX", old_shared_prefix)
+
+        args = dogfood.parse_args(["--mode", "dry-run", "--dag-key", "m3-dogfood-20260514-130000"])
+        explicit = dogfood.parse_args([
+            "--mode", "dry-run",
+            "--dag-key", "m3-dogfood-20260514-130000",
+            "--shared-prefix", "reports/custom",
+        ])
+
+        self.assertEqual(args.shared_prefix, "reports/m3-dogfood-20260514-130000")
+        self.assertEqual(explicit.shared_prefix, "reports/custom")
+
     def test_negative_failure_reason_rejects_sharedfile_hint_without_size_cap(self):
         dogfood = load_script()
         bad = {
@@ -426,6 +441,13 @@ def restore_proxy_env(old):
             os.environ.pop(name, None)
         else:
             os.environ[name] = old[name]
+
+
+def restore_env_var(name, value):
+    if value is None:
+        os.environ.pop(name, None)
+    else:
+        os.environ[name] = value
 
 
 if __name__ == "__main__":
