@@ -143,6 +143,103 @@ func TestPrePushRunsFixTestGuardForPushedRange(t *testing.T) {
 	}
 }
 
+func TestPrePushScopesPackageTestsByChangedLanguage(t *testing.T) {
+	t.Run("go only runs go package tests", func(t *testing.T) {
+		root := preparePrePushScopeRepo(t)
+		base := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
+		logPath := filepath.Join(t.TempDir(), "hook-scope.log")
+		binDir := writePrePushScopeFakeBins(t, logPath)
+
+		writeFixTestGuardFile(t, root, "go.mod", "module example.com/prepushscope\n\ngo 1.22\n")
+		writeFixTestGuardFile(t, root, "internal/app/app.go", "package app\n\nfunc App() {}\n")
+		runFixTestGuardGit(t, root, "add", "go.mod", "internal/app/app.go")
+		runFixTestGuardGit(t, root, "commit", "-m", "chore: update app package")
+		head := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
+
+		out, err := runPrePushScopeHook(t, root, prePushStdin(base, head), binDir, logPath)
+		if err != nil {
+			t.Fatalf("pre-push failed: %v\n%s", err, out)
+		}
+		for _, want := range []string{"[pre-push] go package tests: ./internal/app", "fake go package test ./internal/app -count=1", "pre-push OK"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("pre-push output missing %q\n%s", want, out)
+			}
+		}
+		if strings.Contains(out, "frontend package tests") {
+			t.Fatalf("frontend tests ran for go-only push\n%s", out)
+		}
+		log := readPrePushScopeLog(t, logPath)
+		if !strings.Contains(log, "go-test ./internal/app -count=1") {
+			t.Fatalf("go package test log missing package\n%s", log)
+		}
+		if strings.Contains(log, "node ") || strings.Contains(log, "npx ") {
+			t.Fatalf("frontend commands ran for go-only push\n%s", log)
+		}
+	})
+
+	t.Run("frontend only runs frontend package tests", func(t *testing.T) {
+		root := preparePrePushScopeRepo(t)
+		base := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
+		logPath := filepath.Join(t.TempDir(), "hook-scope.log")
+		binDir := writePrePushScopeFakeBins(t, logPath)
+
+		writeFixTestGuardFile(t, root, "cmd/agent-terminal/frontend/scripts/size-guard.cjs", "console.log('ok')\n")
+		writeFixTestGuardFile(t, root, "cmd/agent-terminal/frontend/vue-app/app.js", "export const app = true\n")
+		runFixTestGuardGit(t, root, "add", "cmd/agent-terminal/frontend")
+		runFixTestGuardGit(t, root, "commit", "-m", "chore: update frontend package")
+		head := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
+
+		out, err := runPrePushScopeHook(t, root, prePushStdin(base, head), binDir, logPath)
+		if err != nil {
+			t.Fatalf("pre-push failed: %v\n%s", err, out)
+		}
+		for _, want := range []string{"[pre-push] frontend codebase guard", "[pre-push] frontend package tests", "pre-push OK"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("pre-push output missing %q\n%s", want, out)
+			}
+		}
+		if strings.Contains(out, "go package tests") {
+			t.Fatalf("go tests ran for frontend-only push\n%s", out)
+		}
+		log := readPrePushScopeLog(t, logPath)
+		for _, want := range []string{"node scripts/size-guard.cjs", "npx vitest run"} {
+			if !strings.Contains(log, want) {
+				t.Fatalf("frontend command log missing %q\n%s", want, log)
+			}
+		}
+		if strings.Contains(log, "go-test ") {
+			t.Fatalf("go tests ran for frontend-only push\n%s", log)
+		}
+	})
+
+	t.Run("docs only runs no package tests", func(t *testing.T) {
+		root := preparePrePushScopeRepo(t)
+		base := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
+		logPath := filepath.Join(t.TempDir(), "hook-scope.log")
+		binDir := writePrePushScopeFakeBins(t, logPath)
+
+		writeFixTestGuardFile(t, root, "docs/readme.md", "docs only\n")
+		runFixTestGuardGit(t, root, "add", "docs/readme.md")
+		runFixTestGuardGit(t, root, "commit", "-m", "docs: update guide")
+		head := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
+
+		out, err := runPrePushScopeHook(t, root, prePushStdin(base, head), binDir, logPath)
+		if err != nil {
+			t.Fatalf("pre-push failed: %v\n%s", err, out)
+		}
+		if strings.Contains(out, "go package tests") || strings.Contains(out, "frontend package tests") {
+			t.Fatalf("package tests ran for docs-only push\n%s", out)
+		}
+		if !strings.Contains(out, "pre-push OK") {
+			t.Fatalf("pre-push output missing success\n%s", out)
+		}
+		log := readPrePushScopeLog(t, logPath)
+		if log != "" {
+			t.Fatalf("package command log should be empty for docs-only push\n%s", log)
+		}
+	})
+}
+
 func prepareFixTestGuardRepo(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -166,6 +263,69 @@ func prepareFixTestGuardRepo(t *testing.T) string {
 	runFixTestGuardGit(t, root, "add", "README.md")
 	runFixTestGuardGit(t, root, "commit", "-m", "chore: init")
 	return root
+}
+
+func preparePrePushScopeRepo(t *testing.T) string {
+	t.Helper()
+	root := prepareFixTestGuardRepo(t)
+	copyFixTestGuardRepoFile(t, root, ".githooks/pre-push", 0o755)
+	writePrePushFakeGoTestScript(t, root)
+	runFixTestGuardGit(t, root, "add", ".githooks/pre-push", "scripts/guard_fix_commits_have_tests.sh", "scripts/test_with_guard.sh")
+	runFixTestGuardGit(t, root, "commit", "-m", "chore: install pre-push scope fixture")
+	return root
+}
+
+func writePrePushFakeGoTestScript(t *testing.T, root string) {
+	t.Helper()
+	content := "#!/usr/bin/env bash\nset -e\nprintf 'go-test %s\\n' \"$*\" >>\"$HOOK_SCOPE_LOG\"\nprintf 'fake go package test %s\\n' \"$*\"\n"
+	path := filepath.Join(root, "scripts", "test_with_guard.sh")
+	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+		t.Fatalf("write fake test_with_guard.sh: %v", err)
+	}
+}
+
+func writePrePushScopeFakeBins(t *testing.T, logPath string) string {
+	t.Helper()
+	binDir := t.TempDir()
+	for name, content := range map[string]string{
+		"node": "#!/usr/bin/env bash\nprintf 'node %s\\n' \"$*\" >>\"$HOOK_SCOPE_LOG\"\n",
+		"npx":  "#!/usr/bin/env bash\nprintf 'npx %s\\n' \"$*\" >>\"$HOOK_SCOPE_LOG\"\n",
+	} {
+		path := filepath.Join(binDir, name)
+		if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+			t.Fatalf("write fake %s: %v", name, err)
+		}
+	}
+	if err := os.WriteFile(logPath, nil, 0o644); err != nil {
+		t.Fatalf("write log file: %v", err)
+	}
+	return binDir
+}
+
+func prePushStdin(base, head string) string {
+	return "refs/heads/main " + head + " refs/heads/main " + base + "\n"
+}
+
+func runPrePushScopeHook(t *testing.T, root, stdin, binDir, logPath string) (string, error) {
+	t.Helper()
+	cmd := exec.Command("bash", filepath.Join(".githooks", "pre-push"))
+	cmd.Dir = root
+	cmd.Stdin = strings.NewReader(stdin)
+	cmd.Env = append(os.Environ(),
+		"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"HOOK_SCOPE_LOG="+logPath,
+	)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+func readPrePushScopeLog(t *testing.T, logPath string) string {
+	t.Helper()
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	return string(data)
 }
 
 func copyFixTestGuardRepoFile(t *testing.T, root, path string, mode os.FileMode) {
