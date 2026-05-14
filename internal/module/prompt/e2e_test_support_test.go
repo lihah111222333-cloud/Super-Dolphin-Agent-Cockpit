@@ -85,6 +85,9 @@ func (*capturingThreadStore) GetByPort(context.Context, int32) (*threadstore.Thr
 	return nil, platformdb.ErrNotFound
 }
 func (*capturingThreadStore) ListAll(context.Context) ([]threadstore.Thread, error) { return nil, nil }
+func (*capturingThreadStore) ListConfigsByIDs(context.Context, []string) ([]threadstore.Thread, error) {
+	return nil, nil
+}
 func (*capturingThreadStore) ListRunning(context.Context) ([]threadstore.Thread, error) {
 	return nil, nil
 }

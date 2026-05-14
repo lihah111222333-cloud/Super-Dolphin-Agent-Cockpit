@@ -48,6 +48,9 @@ func (*persistentFlowThreadStore) GetByPort(context.Context, int32) (*threadstor
 	return nil, platformdb.ErrNotFound
 }
 
+func (*persistentFlowThreadStore) ListConfigsByIDs(context.Context, []string) ([]threadstore.Thread, error) {
+	return nil, nil
+}
 func (*persistentFlowThreadStore) ListAll(context.Context) ([]threadstore.Thread, error) {
 	return nil, nil
 }
