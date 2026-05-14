@@ -22,29 +22,31 @@ const (
 )
 
 type DashboardPage struct {
-	Agents          []AgentOverview                `json:"agents"`
-	DAGs            []contract.DAGSummary          `json:"dags"`
-	TaskTraces      []tasktracestore.TaskTrace     `json:"taskTraces"`
-	Skills          []contract.SkillInfo           `json:"skills"`
-	CommandCards    []commandcardstore.CommandCard `json:"commandCards"`
-	Prompts         []promptstore.PromptTemplate   `json:"prompts"`
-	Memory          []sharedfilestore.SharedFile   `json:"memory"`
-	FinalOutputRefs []FinalOutputRef               `json:"finalOutputRefs"`
+	Agents              []AgentOverview                `json:"agents"`
+	DAGs                []contract.DAGSummary          `json:"dags"`
+	TaskTraces          []tasktracestore.TaskTrace     `json:"taskTraces"`
+	Skills              []contract.SkillInfo           `json:"skills"`
+	CommandCards        []commandcardstore.CommandCard `json:"commandCards"`
+	Prompts             []promptstore.PromptTemplate   `json:"prompts"`
+	Memory              []sharedfilestore.SharedFile   `json:"memory"`
+	FinalOutputRefs     []FinalOutputRef               `json:"finalOutputRefs"`
+	SharedFileRetention SharedFileRetention            `json:"sharedFileRetention"`
 }
 
 type dashboardPageLoader func(context.Context) error
 
-type finalOutputEnvelope struct {
-	FinalOutput json.RawMessage `json:"final_output"`
+type SharedFileRetention struct {
+	Items                 []SharedFileRetentionItem `json:"items"`
+	ProtectedCount        int                       `json:"protectedCount"`
+	CleanupCandidateCount int                       `json:"cleanupCandidateCount"`
 }
 
-type finalOutputPayload struct {
-	Kind          string `json:"kind"`
-	Path          string `json:"path"`
-	SourceNodeKey string `json:"source_node_key"`
-	SharedFile    *struct {
-		Path string `json:"path"`
-	} `json:"sharedfile"`
+type SharedFileRetentionItem struct {
+	Path             string          `json:"path"`
+	Protected        bool            `json:"protected"`
+	CleanupCandidate bool            `json:"cleanupCandidate"`
+	Reason           string          `json:"reason,omitempty"`
+	FinalOutput      *FinalOutputRef `json:"finalOutput,omitempty"`
 }
 
 func (s *service) GetDashboardPage(ctx context.Context, page string) (*DashboardPage, error) {
@@ -57,14 +59,15 @@ func (s *service) GetDashboardPage(ctx context.Context, page string) (*Dashboard
 
 func newDashboardPage() *DashboardPage {
 	return &DashboardPage{
-		Agents:          []AgentOverview{},
-		DAGs:            []contract.DAGSummary{},
-		TaskTraces:      []tasktracestore.TaskTrace{},
-		Skills:          []contract.SkillInfo{},
-		CommandCards:    []commandcardstore.CommandCard{},
-		Prompts:         []promptstore.PromptTemplate{},
-		Memory:          []sharedfilestore.SharedFile{},
-		FinalOutputRefs: []FinalOutputRef{},
+		Agents:              []AgentOverview{},
+		DAGs:                []contract.DAGSummary{},
+		TaskTraces:          []tasktracestore.TaskTrace{},
+		Skills:              []contract.SkillInfo{},
+		CommandCards:        []commandcardstore.CommandCard{},
+		Prompts:             []promptstore.PromptTemplate{},
+		Memory:              []sharedfilestore.SharedFile{},
+		FinalOutputRefs:     []FinalOutputRef{},
+		SharedFileRetention: SharedFileRetention{Items: []SharedFileRetentionItem{}},
 	}
 }
 
@@ -175,6 +178,7 @@ func (s *service) populateDashboardMemory(ctx context.Context, out *DashboardPag
 		refs = []FinalOutputRef{}
 	}
 	out.FinalOutputRefs = refs
+	out.SharedFileRetention = buildSharedFileRetention(items, refs)
 	return nil
 }
 
@@ -295,16 +299,12 @@ func (s *service) listDashboardFinalOutputRefs(ctx context.Context) ([]FinalOutp
 }
 
 func finalOutputRefFromRun(run contract.Run) (FinalOutputRef, bool) {
-	finalOutput, ok := finalOutputFromMetadata(run.Metadata)
-	if !ok {
-		return FinalOutputRef{}, false
-	}
-	output, path, ok := finalOutputFilePayload(finalOutput)
+	output, ok := contract.FinalOutputFileFromRunMetadata(run.Metadata)
 	if !ok {
 		return FinalOutputRef{}, false
 	}
 	return FinalOutputRef{
-		Path:          path,
+		Path:          output.Path,
 		RunKey:        strings.TrimSpace(run.RunKey),
 		DagKey:        strings.TrimSpace(run.DagKey),
 		SourceNodeKey: strings.TrimSpace(output.SourceNodeKey),
@@ -312,40 +312,37 @@ func finalOutputRefFromRun(run contract.Run) (FinalOutputRef, bool) {
 	}, true
 }
 
-func finalOutputFromMetadata(metadataJSON json.RawMessage) (json.RawMessage, bool) {
-	if isEmptyJSON(metadataJSON) {
-		return nil, false
+func buildSharedFileRetention(files []sharedfilestore.SharedFile, refs []FinalOutputRef) SharedFileRetention {
+	refByPath := make(map[string]FinalOutputRef, len(refs))
+	for _, ref := range refs {
+		path := strings.TrimSpace(ref.Path)
+		if path != "" {
+			ref.Path = path
+			refByPath[path] = ref
+		}
 	}
-	var metadata finalOutputEnvelope
-	if err := json.Unmarshal(metadataJSON, &metadata); err != nil || isEmptyJSON(metadata.FinalOutput) {
-		return nil, false
+	out := SharedFileRetention{Items: make([]SharedFileRetentionItem, 0, len(files))}
+	for _, file := range files {
+		path := strings.TrimSpace(file.Path)
+		if path == "" {
+			continue
+		}
+		item := SharedFileRetentionItem{
+			Path:             path,
+			CleanupCandidate: true,
+			Reason:           "unreferenced",
+		}
+		if ref, ok := refByPath[path]; ok {
+			refCopy := ref
+			item.Protected = true
+			item.CleanupCandidate = false
+			item.Reason = "final_output"
+			item.FinalOutput = &refCopy
+			out.ProtectedCount++
+		} else {
+			out.CleanupCandidateCount++
+		}
+		out.Items = append(out.Items, item)
 	}
-	return metadata.FinalOutput, true
-}
-
-func finalOutputFilePayload(finalOutput json.RawMessage) (finalOutputPayload, string, bool) {
-	var output finalOutputPayload
-	if err := json.Unmarshal(finalOutput, &output); err != nil {
-		return finalOutputPayload{}, "", false
-	}
-	if kind := strings.TrimSpace(output.Kind); kind != "" && kind != "file" {
-		return finalOutputPayload{}, "", false
-	}
-	path := finalOutputSharedFilePath(output)
-	if path == "" {
-		return finalOutputPayload{}, "", false
-	}
-	return output, path, true
-}
-
-func finalOutputSharedFilePath(output finalOutputPayload) string {
-	path := strings.TrimSpace(output.Path)
-	if path == "" && output.SharedFile != nil {
-		path = strings.TrimSpace(output.SharedFile.Path)
-	}
-	return path
-}
-
-func isEmptyJSON(raw json.RawMessage) bool {
-	return strings.TrimSpace(string(raw)) == "" || strings.TrimSpace(string(raw)) == "null"
+	return out
 }

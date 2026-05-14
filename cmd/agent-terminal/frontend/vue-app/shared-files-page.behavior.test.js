@@ -84,4 +84,24 @@ describe('SharedFilesPage final output highlighting', () => {
     expect(vm.showFinalOnly.value).toBe(false);
     expect(vm.filteredItems.value.map((item) => item.path)).toEqual(['scratch/intermediate.json']);
   });
+
+  it('does not open delete confirmation for final output files', async () => {
+    const props = reactive({
+      cwd: '/repo',
+      files: [{ path: 'reports/daily-brief.pptx', content: 'deck' }],
+      finalOutputRefs: [{ path: 'reports/daily-brief.pptx', runKey: 'run-1' }],
+      sharedFileRetention: {
+        items: [{ path: 'reports/daily-brief.pptx', protected: true, reason: 'final_output' }],
+      },
+    });
+
+    const vm = SharedFilesPage.setup(props, { emit: vi.fn() });
+    vm.askDelete(props.files[0]);
+    await nextTick();
+
+    expect(vm.confirmDeletePath.value).toBe('');
+    expect(vm.notice.level).toBe('error');
+    expect(vm.notice.message).toContain('最终产物');
+    expect(apiMock.callAPI).not.toHaveBeenCalledWith('ui/memory/shared-file/delete', { path: 'reports/daily-brief.pptx' });
+  });
 });

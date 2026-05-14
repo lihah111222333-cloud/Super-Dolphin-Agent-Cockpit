@@ -3,6 +3,7 @@ package memory
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -847,6 +848,68 @@ func TestPromoteSharedFileToMemory(t *testing.T) {
 	}
 }
 
+func TestDeleteUISharedFileRejectsFinalOutputReference(t *testing.T) {
+	t.Parallel()
+
+	deleter := &recordingSharedFileDeleter{}
+	deps := memoryHandlerDeps{
+		SharedFilesDeleter: deleter,
+		Orchestration: &finalOutputOrchestrationStub{
+			dags: []contract.DAGSummary{{DagKey: "dag-1"}},
+			runs: []contract.Run{{
+				RunKey: "run-1",
+				DagKey: "dag-1",
+				Metadata: json.RawMessage(`{
+					"final_output": {
+						"kind": "file",
+						"path": "reports/final.md",
+						"source_node_key": "report"
+					}
+				}`),
+			}},
+		},
+	}
+
+	deleted, err := deleteUISharedFile(context.Background(), deps, uiSharedFileDeleteParams{Path: "reports/final.md"})
+	if err == nil {
+		t.Fatal("deleteUISharedFile() error = nil, want final_output protection")
+	}
+	if deleted {
+		t.Fatal("deleteUISharedFile() deleted = true, want false")
+	}
+	if deleter.calls != 0 {
+		t.Fatalf("Delete() calls = %d, want 0", deleter.calls)
+	}
+}
+
+func TestDeleteUISharedFileAllowsUnreferencedSharedFile(t *testing.T) {
+	t.Parallel()
+
+	deleter := &recordingSharedFileDeleter{}
+	deps := memoryHandlerDeps{
+		SharedFilesDeleter: deleter,
+		Orchestration: &finalOutputOrchestrationStub{
+			dags: []contract.DAGSummary{{DagKey: "dag-1"}},
+			runs: []contract.Run{{
+				RunKey:   "run-1",
+				DagKey:   "dag-1",
+				Metadata: json.RawMessage(`{"final_output":{"kind":"file","path":"reports/final.md"}}`),
+			}},
+		},
+	}
+
+	deleted, err := deleteUISharedFile(context.Background(), deps, uiSharedFileDeleteParams{Path: "scratch/intermediate.md"})
+	if err != nil {
+		t.Fatalf("deleteUISharedFile() error = %v", err)
+	}
+	if !deleted {
+		t.Fatal("deleteUISharedFile() deleted = false, want true")
+	}
+	if deleter.calls != 1 || deleter.paths[0] != "scratch/intermediate.md" {
+		t.Fatalf("Delete() calls=%d paths=%v", deleter.calls, deleter.paths)
+	}
+}
+
 type stubSharedFileReader struct {
 	files map[string]sharedfilestore.SharedFile
 }
@@ -862,6 +925,37 @@ func (s stubSharedFileReader) Get(_ context.Context, path string) (*sharedfilest
 
 func (s stubSharedFileReader) List(context.Context, sharedfilestore.ListFilter) ([]sharedfilestore.SharedFile, error) {
 	return nil, nil
+}
+
+type recordingSharedFileDeleter struct {
+	calls int
+	paths []string
+}
+
+func (r *recordingSharedFileDeleter) Delete(_ context.Context, path string) (int64, error) {
+	r.calls++
+	r.paths = append(r.paths, path)
+	return 1, nil
+}
+
+type finalOutputOrchestrationStub struct {
+	contract.OrchestrationService
+	dags []contract.DAGSummary
+	runs []contract.Run
+}
+
+func (s *finalOutputOrchestrationStub) ListDAGs(context.Context, contract.ListDAGsFilter) ([]contract.DAGSummary, error) {
+	return s.dags, nil
+}
+
+func (s *finalOutputOrchestrationStub) ListRuns(_ context.Context, req contract.ListRunsRequest) (contract.ListRunsResponse, error) {
+	out := make([]contract.Run, 0, len(s.runs))
+	for _, run := range s.runs {
+		if run.DagKey == req.DagKey {
+			out = append(out, run)
+		}
+	}
+	return contract.ListRunsResponse{Runs: out}, nil
 }
 
 // recordingSectionInvalidator implements contract.SectionInvalidator with
