@@ -76,19 +76,20 @@ beforeEach(() => {
   };
 });
 
-function makeProjectStore() {
+function makeProjectStore(overrides = {}) {
   return {
-    state: reactive({ active: '.', showModal: false, projects: ['.'] }),
+    state: reactive({ active: overrides.active ?? '.', showModal: false, projects: overrides.projects ?? ['.'] }),
     projectOptions: { value: [] },
     setActive: () => {},
   };
 }
 
-function makeThreadStore() {
-  const currentThreadId = ref('thread-active');
-  const statuses = reactive({ 'thread-active': 'idle' });
-  const statusHeaders = reactive({ 'thread-active': '等待指示' });
-  const timelinesByThread = reactive({ 'thread-active': [] });
+function makeThreadStore(overrides = {}) {
+  const currentThreadId = ref(overrides.currentThreadId ?? 'thread-active');
+  const statuses = reactive(overrides.statuses ?? { 'thread-active': 'idle' });
+  const statusHeaders = reactive(overrides.statusHeaders ?? { 'thread-active': '等待指示' });
+  const timelinesByThread = reactive(overrides.timelinesByThread ?? { 'thread-active': [] });
+  const visibleThreads = overrides.visibleThreads ?? [{ id: 'thread-active', name: 'Active' }];
   return {
     state: reactive({
       pinnedThreadAtById: {},
@@ -108,7 +109,7 @@ function makeThreadStore() {
     getCurrentThreadId: () => currentThreadId.value,
     saveActiveThread: (value) => { currentThreadId.value = value || ''; },
     saveActiveCmdThread: (value) => { currentThreadId.value = value || ''; },
-    getThreadsByMode: () => [{ id: 'thread-active', name: 'Active' }],
+    getThreadsByMode: () => visibleThreads,
     displayName: (thread) => thread.name,
     getThreadStatus: (threadId) => statuses[threadId] || 'idle',
     getThreadStatusHeader: (threadId) => statusHeaders[threadId] || '等待指示',
@@ -223,5 +224,25 @@ describe('UnifiedChatPage.setup public contract', () => {
       expect(vm, `vm should have non-enumerable key "${key}"`).toHaveProperty(key);
       expect(vm[key], `vm.${key} should not be undefined (white-list mismatch?)`).not.toBeUndefined();
     }
+  });
+
+  it('clears the visible selection when the stored active thread is outside the current project', () => {
+    const vm = UnifiedChatPage.setup({
+      mode: 'chat',
+      projectStore: makeProjectStore({ active: '/repo-b' }),
+      threadStore: makeThreadStore({
+        currentThreadId: 'thread-a',
+        visibleThreads: [{ id: 'thread-b', name: 'Repo B' }],
+        timelinesByThread: {
+          'thread-a': [{ id: 'old-a', kind: 'assistant', text: 'old repo output' }],
+          'thread-b': [{ id: 'new-b', kind: 'assistant', text: 'new repo output' }],
+        },
+      }),
+    });
+
+    expect(vm.threads.value.map((thread) => thread.id)).toEqual(['thread-b']);
+    expect(vm.selectedThreadId.value).toBe('');
+    expect(vm.activeThread.value).toBeNull();
+    expect(vm.activeTimeline.value).toEqual([]);
   });
 });
