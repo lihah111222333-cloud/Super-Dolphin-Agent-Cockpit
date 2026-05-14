@@ -52,6 +52,10 @@ func (*persistentFlowThreadStore) ListAll(context.Context) ([]threadstore.Thread
 	return nil, nil
 }
 
+func (*persistentFlowThreadStore) ListConfigsByIDs(context.Context, []string) ([]threadstore.Thread, error) {
+	return nil, nil
+}
+
 func (*persistentFlowThreadStore) ListRunning(context.Context) ([]threadstore.Thread, error) {
 	return nil, nil
 }

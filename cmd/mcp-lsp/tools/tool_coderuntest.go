@@ -51,9 +51,11 @@ func (h CodeRunTestHandler) Handle(ctx context.Context, params json.RawMessage) 
 	}
 	timeout := middleware.ClampTimeout(req.Timeout, defaultCodeRunTimeout(), middleware.TierExec)
 	request := lspexec.Request{
-		Args:    []string{"go", "test", "-run", "^" + req.TestFunc + "$", pkg},
-		WorkDir: toolWorkspaceRoot(ctx, h.sandbox.RootDir()),
-		Timeout: timeout,
+		Args:      []string{"go", "test", "-run", "^" + req.TestFunc + "$", pkg},
+		WorkDir:   toolWorkspaceRoot(ctx, h.sandbox.RootDir()),
+		Timeout:   timeout,
+		TraceTool: "code_run_test",
+		TraceMode: "test",
 	}
 	return executeSandbox(ctx, h.sandbox, request, "go", "test")
 }

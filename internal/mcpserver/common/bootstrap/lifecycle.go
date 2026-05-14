@@ -322,18 +322,3 @@ func (c *Client) auditEventFallback(eventType string, payload json.RawMessage, s
 		"error", sendErr,
 	)
 }
-
-func (c *Client) localLogFallback(entry mcp.LogNotify, sendErr error) {
-	level := pkglogger.LevelInfo
-	if sendErr != nil {
-		level = pkglogger.LevelWarn
-	}
-	pkglogger.Get().Log(context.Background(), level, "bootstrap local log fallback",
-		"instance_id", c.instanceID,
-		"callback_method", mcp.MethodLog,
-		"level", entry.Level,
-		"message", entry.Message,
-		"fields", entry.Fields,
-		"error", sendErr,
-	)
-}

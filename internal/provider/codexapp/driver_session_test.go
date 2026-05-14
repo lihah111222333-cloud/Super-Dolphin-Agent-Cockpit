@@ -211,7 +211,7 @@ func TestDriverStartSessionInjectsInitializeCodexHome(t *testing.T) {
 				result = mustJSON(map[string]any{"codexHome": home})
 			case "thread/start":
 				result = mustJSON(map[string]any{
-					"thread": map[string]any{"id": "provider-thread-1", "cwd": "/repo"},
+					"thread": map[string]any{"id": "provider-thread-1", "cwd": "/app-server/startup"},
 					"model":  "gpt-5.5",
 				})
 			default:
@@ -241,7 +241,7 @@ func TestDriverStartSessionInjectsInitializeCodexHome(t *testing.T) {
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		Provider: "codex",
 		AgentID:  "agent-1",
-		CWD:      "/repo",
+		CWD:      "/repo/request",
 	})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
@@ -253,6 +253,9 @@ func TestDriverStartSessionInjectsInitializeCodexHome(t *testing.T) {
 	defer closeCodexTestSession(t, s)
 	if cfg := s.RuntimeConfigSnapshot(); cfg["codexHome"] != home {
 		t.Fatalf("runtime codexHome = %#v, want %q; cfg=%#v", cfg["codexHome"], home, cfg)
+	}
+	if cfg := s.RuntimeConfigSnapshot(); cfg["cwd"] != "/repo/request" {
+		t.Fatalf("runtime cwd = %#v, want /repo/request; cfg=%#v", cfg["cwd"], cfg)
 	}
 }
 
@@ -403,6 +406,7 @@ func TestDriverResumeSessionRestoresApprovalPolicy(t *testing.T) {
 		Provider: "codex",
 		AgentID:  "agent-1",
 		ThreadID: "thread-1",
+		CWD:      "/repo/resume",
 	})
 	if err != nil {
 		t.Fatalf("ResumeSession() error = %v", err)
@@ -417,6 +421,9 @@ func TestDriverResumeSessionRestoresApprovalPolicy(t *testing.T) {
 	}
 	if s.approvalPolicyValue() != "never" {
 		t.Fatalf("approvalPolicy = %q, want never", s.approvalPolicyValue())
+	}
+	if cfg := s.RuntimeConfigSnapshot(); cfg["cwd"] != "/repo/resume" {
+		t.Fatalf("runtime cwd = %#v, want /repo/resume; cfg=%#v", cfg["cwd"], cfg)
 	}
 }
 

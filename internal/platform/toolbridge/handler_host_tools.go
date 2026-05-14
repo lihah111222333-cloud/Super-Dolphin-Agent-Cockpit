@@ -159,7 +159,7 @@ func validateHostToolGuards(enabled, toolsEnabled bool, callName, expectedName, 
 }
 
 // callHostTool 是 routeToolCall 的 host-direct 分支：在调用 hostTools.CallHostTool 之前
-// 从 agentID 解析 cwd，打包返回值为 ToolCallResult，路径上与 peer 分支对齐。
+// 优先使用请求携带的可信 cwd，缺省时再从 agentID 解析 cwd，打包返回值为 ToolCallResult。
 func (h *Handler) callHostTool(ctx context.Context, req ToolCallRequest) (*ToolCallResult, error) {
 	started := time.Now()
 	outcome := skillmetrics.HostToolOutcomeError
@@ -174,7 +174,10 @@ func (h *Handler) callHostTool(ctx context.Context, req ToolCallRequest) (*ToolC
 			"duration_ms", time.Since(started).Milliseconds(),
 		)
 	}()
-	cwd := h.resolveAgentCWD(ctx, req.AgentID)
+	cwd := strings.TrimSpace(req.CWD)
+	if cwd == "" {
+		cwd = h.resolveAgentCWD(ctx, req.AgentID)
+	}
 	if strings.TrimSpace(cwd) == "" {
 		h.warn("toolbridge host-direct cwd missing before call",
 			"tool", strings.TrimSpace(req.Name),

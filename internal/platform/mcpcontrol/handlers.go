@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"log/slog"
+	"sort"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -248,21 +250,62 @@ type defaultLogSink struct {
 	logger *pkglogger.Logger
 }
 
-func (s defaultLogSink) HandleLog(_ context.Context, instance *ToolInstance, req dto.LogNotify) error {
-	if strings.TrimSpace(req.Message) == "" {
+func (s defaultLogSink) HandleLog(ctx context.Context, instance *ToolInstance, req dto.LogNotify) error {
+	message := strings.TrimSpace(req.Message)
+	if message == "" {
 		return errInvalidParams("mcp log message is required")
 	}
 	if s.logger == nil {
 		return nil
 	}
-	s.logger.Info("mcp control log",
-		"instance_id", instance.Lease.InstanceID,
-		"generation", instance.Lease.Generation,
-		"level", req.Level,
-		"message", req.Message,
-		"fields", req.Fields,
-	)
+	s.logger.Log(ctx, controlLogLevel(req.Level), message, controlLogArgs(instance, req)...)
 	return nil
+}
+
+func controlLogLevel(level string) slog.Level {
+	switch strings.ToUpper(strings.TrimSpace(level)) {
+	case "DEBUG":
+		return slog.LevelDebug
+	case "WARN", "WARNING":
+		return slog.LevelWarn
+	case "ERROR":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
+
+func controlLogArgs(instance *ToolInstance, req dto.LogNotify) []any {
+	if instance == nil {
+		instance = &ToolInstance{}
+	}
+	args := []any{
+		"source", "mcp-control",
+		"mcp_instance_id", instance.Lease.InstanceID,
+		"mcp_generation", instance.Lease.Generation,
+		"mcp_binary_name", instance.BinaryName,
+		"mcp_client_kind", instance.ClientKind,
+		"mcp_pid", instance.PID,
+		"mcp_log_seq", req.Seq,
+		"mcp_log_ts", req.TS,
+	}
+	if agentID := strings.TrimSpace(instance.AgentID); agentID != "" {
+		args = append(args, "agent_id", agentID)
+	}
+	if threadID := strings.TrimSpace(instance.ThreadID); threadID != "" {
+		args = append(args, "thread_id", threadID)
+	}
+	keys := make([]string, 0, len(req.Fields))
+	for key := range req.Fields {
+		if strings.TrimSpace(key) != "" {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		args = append(args, key, req.Fields[key])
+	}
+	return args
 }
 
 func serverFromContext(ctx context.Context) (server *jrpc2.Server, err error) {

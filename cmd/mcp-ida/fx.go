@@ -95,6 +95,7 @@ func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client, server *
 }
 
 func (r bootstrapRunner) Run(ctx context.Context) error {
+	r.client.InstallLogRelay()
 	// Dual-channel startup ordering: wait for the local stdio MCP server
 	// to be ready before connecting to the control-plane jrpc2. This
 	// guarantees the tool-execution surface is available when the

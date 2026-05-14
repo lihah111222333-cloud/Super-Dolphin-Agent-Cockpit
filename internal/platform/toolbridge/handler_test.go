@@ -553,6 +553,85 @@ func TestToolBridge_OrchestrationLaunchPreservesExplicitParentContext(t *testing
 	assertSingleTextItem(t, got, "launching", true)
 }
 
+func TestToolBridge_OrchestrationLaunchUsesInjectedCWDOverStaleBinding(t *testing.T) {
+	args := mustRawJSON(t, map[string]any{
+		"name":     "idle-agent",
+		"provider": "codex",
+	})
+	wantArgs := mustRawJSON(t, map[string]any{
+		"cwd":       "/repo/current",
+		"name":      "idle-agent",
+		"parent_id": "agent-parent",
+		"provider":  "codex",
+	})
+	h, _ := newHandlerForTest(newToolCallPeer(t, "orchestration_launch_agent", wantArgs, "launching", nil))
+	h.bindingStore = &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
+		"agent-parent": {
+			AgentID: "agent-parent",
+			CWD:     "/repo/stale",
+		},
+	}}
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:      "orchestration_launch_agent",
+		Arguments: args,
+		AgentID:   "agent-parent",
+		CWD:       "/repo/current",
+	})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	assertSingleTextItem(t, got, "launching", true)
+}
+
+func TestToolBridge_ForwardsInjectedCWDToPeer(t *testing.T) {
+	args := mustRawJSON(t, map[string]any{"action": "read_file", "file_path": "go.mod"})
+	peer := &mcpcontrol.ToolInstance{Peer: &stubPeer{callbackFn: func(_ context.Context, method string, params any, result any) error {
+		if method != ProxyMethodToolsCall {
+			t.Fatalf("Callback() method = %q, want %s", method, ProxyMethodToolsCall)
+		}
+		payload, ok := params.(map[string]any)
+		if !ok {
+			t.Fatalf("Callback() params type = %T, want map[string]any", params)
+		}
+		if got := payload[MetadataKeyCWD]; got != "/repo/wjboot-v2" {
+			t.Fatalf("Callback() _cwd = %#v, want /repo/wjboot-v2", got)
+		}
+		resp, ok := result.(*peerToolCallResponse)
+		if !ok {
+			t.Fatalf("Callback() result type = %T, want *peerToolCallResponse", result)
+		}
+		*resp = peerToolCallResponse{Content: []peerToolCallContent{{Type: "text", Text: "ok"}}}
+		return nil
+	}}}
+	h, registry := newHandlerForTest(peer)
+	h.bindingStore = &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
+		"agent-1": {AgentID: "agent-1", CWD: "/stale/startup/root"},
+	}}
+
+	result, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{
+		ID:     json.RawMessage(`1`),
+		Method: "item/tool/call",
+		Params: mustRawJSON(t, map[string]any{
+			"name":      "lsp_file",
+			"arguments": args,
+			"agentId":   "agent-1",
+			"_cwd":      "/repo/wjboot-v2",
+		}),
+	})
+	if err != nil {
+		t.Fatalf("HandleToolCall() error = %v", err)
+	}
+	got, ok := result.(*ToolCallResult)
+	if !ok {
+		t.Fatalf("HandleToolCall() result type = %T, want *ToolCallResult", result)
+	}
+	assertSingleTextItem(t, got, "ok", true)
+	if len(registry.gotKinds) != 1 || registry.gotKinds[0] != dto.ClientKindLSP {
+		t.Fatalf("FindActiveByKind() kinds = %#v, want [%q]", registry.gotKinds, dto.ClientKindLSP)
+	}
+}
+
 func TestToolBridge_NoPeer_FailFast(t *testing.T) {
 	h, _ := newHandlerForTest()
 

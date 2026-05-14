@@ -9,15 +9,25 @@ import (
 )
 
 func (h *Handler) beginToolDiffSnapshot(ctx context.Context, req ToolCallRequest) *difftracker.Snapshot {
-	if h == nil || h.resolver == nil {
+	if h == nil {
 		return nil
 	}
 	if !shouldTrackDiff(req.Name, req.Arguments) || strings.TrimSpace(req.AgentID) == "" {
 		return nil
 	}
-	cwd, err := h.resolver.ResolveAgentCWD(ctx, req.AgentID)
-	if err != nil || cwd == "" {
-		return nil
+	cwd := strings.TrimSpace(req.CWD)
+	if cwd == "" {
+		if h.resolver == nil {
+			return nil
+		}
+		resolved, err := h.resolver.ResolveAgentCWD(ctx, req.AgentID)
+		if err != nil {
+			return nil
+		}
+		cwd = strings.TrimSpace(resolved)
+		if cwd == "" {
+			return nil
+		}
 	}
 	snapshot, _ := difftracker.BeginSnapshot(ctx, cwd)
 	return snapshot

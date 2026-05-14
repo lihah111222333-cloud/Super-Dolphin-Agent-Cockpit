@@ -232,6 +232,9 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	}
 	s.setThreadID(threadID)
 	s.ensureRuntimeCodexHomeFromInitialize("resume")
+	if cwd := strings.TrimSpace(req.CWD); cwd != "" {
+		s.setRuntimeConfigValue("cwd", cwd)
+	}
 	if m := strings.TrimSpace(req.Model); m != "" {
 		s.setRuntimeConfigValue("model", m)
 	}
@@ -274,7 +277,6 @@ func (s *session) AllowedModels(ctx context.Context) ([]string, error) {
 type startResult struct {
 	threadID string
 	model    string
-	cwd      string
 }
 
 func resumeRemoteThread(ctx context.Context, t *transport, req dto.ResumeSessionRequest) (string, error) {
@@ -370,7 +372,6 @@ func decodeStartResult(raw json.RawMessage) (startResult, error) {
 	return startResult{
 		threadID: id,
 		model:    strings.TrimSpace(resp.Model),
-		cwd:      strings.TrimSpace(resp.Thread.Cwd),
 	}, nil
 }
 
