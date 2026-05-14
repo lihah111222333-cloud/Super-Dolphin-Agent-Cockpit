@@ -21,7 +21,7 @@ export function createThreadViewHelpers(state) {
     const threadName = (thread.name || '').toString().trim();
     if (threadName && threadName !== thread.id) return threadName;
     const alias = (state.agentMetaById[thread.id]?.alias || '').toString().trim();
-    return alias || threadName || thread.id;
+    return alias || threadName || '新对话';
   }
 
   function sortChatThreadsByPinned(threads) {
