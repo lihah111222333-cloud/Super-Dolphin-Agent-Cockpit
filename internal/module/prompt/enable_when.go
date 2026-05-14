@@ -258,7 +258,12 @@ func matchWhenKeyMatches(key string, want any, buildCtx contract.BuildCtx, userP
 	case "cwd_prefix":
 		return matchCWDPrefix(matchWhenStringValue(want), buildCtx.CWD)
 	case "tags_has":
-		return matchTagsHas(matchWhenStringValue(want), userPrompt)
+		// Reuse the section-level evaluator so template-level tags_has accepts
+		// both string ("代码") and array (["代码","bug"]) forms. Without this,
+		// any DB row whose match_when stores tags_has as a JSON array (the
+		// shape the SystemPromptPage UI auto-generates from chip tags) silently
+		// fails to match — defeating the whole point of two-stage routing.
+		return matchSectionTagsHas(want, userPrompt)
 	default:
 		// Fall through to the shared BuildCtx equality table (language /
 		// provider / model / cwd / gitRoot / isWorktree / sessionFlags.*).
