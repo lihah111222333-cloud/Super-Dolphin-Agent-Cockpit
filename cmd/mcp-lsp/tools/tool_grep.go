@@ -3,6 +3,9 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"regexp/syntax"
+	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
@@ -34,11 +37,14 @@ type grepFileRows struct {
 }
 
 type grepResponse struct {
-	Files     map[string]grepFileRows `json:"files"`
-	Total     int                     `json:"total"`
-	Showing   int                     `json:"showing"`
-	Truncated bool                    `json:"truncated,omitempty"`
-	Hint      string                  `json:"hint,omitempty"`
+	Files             map[string]grepFileRows `json:"files"`
+	Total             int                     `json:"total"`
+	Showing           int                     `json:"showing"`
+	Truncated         bool                    `json:"truncated,omitempty"`
+	DroppedForPayload int                     `json:"dropped_for_payload,omitempty"`
+	RegexFallback     bool                    `json:"regex_fallback,omitempty"`
+	Message           string                  `json:"message,omitempty"`
+	Hint              string                  `json:"hint,omitempty"`
 }
 
 type documentSymbolProvider struct {
@@ -63,12 +69,13 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 	limit := shared.ClampLimit(input.MaxResults, 1, maxSearchResults, defaultSearchResults)
 
 	var (
-		matches []search.SearchMatch
-		runErr  error
+		matches       []search.SearchMatch
+		runErr        error
+		regexFallback bool
 	)
 	if _, err := dispatchToolAction(ctx, "grep", input.Action, input, map[string]actionHandler[grepToolInput]{
 		"text_search": func(ctx context.Context, input grepToolInput) (any, error) {
-			matches, runErr = search.SearchText(ctx, search.TextSearchOptions{
+			opts := search.TextSearchOptions{
 				Root:          toolWorkspaceRoot(ctx, h.root),
 				Path:          input.Path,
 				Glob:          input.Glob,
@@ -77,7 +84,13 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 				CaseSensitive: input.CaseSensitive,
 				MaxResults:    limit,
 				MaxFileBytes:  maxReadFileBytes,
-			})
+			}
+			matches, runErr = search.SearchText(ctx, opts)
+			if runErr != nil && input.Regex && isRegexSyntaxError(runErr) {
+				opts.Regex = false
+				matches, runErr = search.SearchText(ctx, opts)
+				regexFallback = runErr == nil
+			}
 			return nil, runErr
 		},
 		"ast_search": func(ctx context.Context, input grepToolInput) (any, error) {
@@ -100,14 +113,46 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 	h.attachFuncRanges(ctx, filtered)
 	if len(filtered) == 0 {
 		return grepResponse{
-			Files:   map[string]grepFileRows{},
-			Total:   0,
-			Showing: 0,
+			Files:         map[string]grepFileRows{},
+			Total:         0,
+			Showing:       0,
+			RegexFallback: regexFallback,
+			Message:       emptyGrepMessage(regexFallback),
 		}, nil
 	}
 	resp := buildGrepResponse(filtered, total, truncated)
+	resp.RegexFallback = regexFallback
+	if message := grepMessage(regexFallback, resp.DroppedForPayload); message != "" {
+		resp.Message = message
+	}
 	capGrepResponseBytes(&resp, middleware.ToolBudget("grep"))
 	return resp, nil
+}
+
+func isRegexSyntaxError(err error) bool {
+	var syntaxErr *syntax.Error
+	return errors.As(err, &syntaxErr)
+}
+
+func grepMessage(regexFallback bool, dropped int) string {
+	parts := make([]string, 0, 2)
+	if regexFallback {
+		parts = append(parts, "regex parse failed; retried query as literal text")
+	}
+	if dropped > 0 {
+		parts = append(parts, "payload truncated; narrow query/path/glob or reduce max_results")
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, "; ")
+}
+
+func emptyGrepMessage(regexFallback bool) string {
+	if regexFallback {
+		return "regex parse failed; retried query as literal text; no matches found"
+	}
+	return "no matches found"
 }
 
 func (h handlerBase) attachFuncRanges(ctx context.Context, matches []search.SearchMatch) {
@@ -150,12 +195,19 @@ func capGrepResponseBytes(resp *grepResponse, maxBytes int) {
 	for {
 		raw, err := json.Marshal(resp)
 		if err != nil || len(raw) <= maxBytes {
+			if message := grepMessage(resp.RegexFallback, resp.DroppedForPayload); message != "" {
+				resp.Message = message
+			}
 			return
 		}
 		if !dropLastGrepRow(resp) {
+			if message := grepMessage(resp.RegexFallback, resp.DroppedForPayload); message != "" {
+				resp.Message = message
+			}
 			return
 		}
 		resp.Truncated = true
+		resp.DroppedForPayload++
 	}
 }
 
@@ -189,8 +241,9 @@ func buildGrepResponse(matches []search.SearchMatch, total int, truncated bool) 
 	files := make(map[string]grepFileRows, len(matches))
 	hint := ""
 	for _, match := range matches {
-		row := []any{match.Line, match.Col, match.Text, match.FuncStart, match.FuncEnd}
+		row := []any{match.Line, match.Col, match.Text}
 		if match.FuncStart > 0 && match.FuncEnd >= match.FuncStart {
+			row = append(row, match.FuncStart, match.FuncEnd)
 			hint = "step 2: use the returned func_start/func_end to read that function range, e.g. read_file(offset=func_start, limit=func_end-func_start+1)"
 		}
 		block := files[match.File]

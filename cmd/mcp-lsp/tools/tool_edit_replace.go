@@ -73,6 +73,8 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 	if err != nil {
 		return nil, err
 	}
+	unlock := lockEditFile(path)
+	defer unlock()
 	file, err := readFileWithMode(path)
 	if err != nil {
 		return nil, err
@@ -102,17 +104,13 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 		}, nil
 	}
 	updatedContent := file.diskContent(plan.updatedContent)
-	if err := os.WriteFile(path, []byte(updatedContent), file.mode); err != nil {
-		return h.replaceFailure(ctx, manager, path, content, req.Line, err), nil
-	}
-	lspSync := false
 	warning := managerWarning
-	if manager != nil {
-		lspSync, warning, err = h.syncDocument(ctx, manager, path, updatedContent, normalizeEditVersion(req.Version))
-		if err != nil {
-			rollbackErr := os.WriteFile(path, []byte(file.raw), file.mode)
-			return h.replaceFailure(ctx, manager, path, content, plan.functionLookupLine, withRollbackError(err, rollbackErr)), nil
-		}
+	lspSync, syncWarning, err := h.applyReplaceRangeUpdate(ctx, manager, path, file, updatedContent, normalizeEditVersion(req.Version))
+	if err != nil {
+		return h.replaceFailure(ctx, manager, path, content, plan.functionLookupLine, err), nil
+	}
+	if syncWarning != "" {
+		warning = syncWarning
 	}
 	functionCtx := h.lookupFunctionContext(ctx, manager, path, plan.functionLookupLine, plan.updatedContent)
 	return replaceRangeResult{
@@ -146,6 +144,24 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 	}, nil
 }
 
+func (h EditHandler) applyReplaceRangeUpdate(ctx context.Context, manager lspmanager.Manager, path string, file editableFile, updatedContent string, version int) (bool, string, error) {
+	if err := os.WriteFile(path, []byte(updatedContent), file.mode); err != nil {
+		return false, "", err
+	}
+	if manager == nil {
+		return false, "", nil
+	}
+	lspSync, warning, err := h.syncDocument(ctx, manager, path, updatedContent, version)
+	if err == nil {
+		return lspSync, warning, nil
+	}
+	rollbackErr := os.WriteFile(path, []byte(file.raw), file.mode)
+	if rollbackErr == nil {
+		rollbackErr = h.syncRollbackDocument(ctx, manager, path, file.raw, version)
+	}
+	return false, "", withRollbackError(err, rollbackErr)
+}
+
 func (h EditHandler) replaceRangeManager(ctx context.Context, path string) (lspmanager.Manager, string, error) {
 	manager, err := h.registry.GetManagerForFile(ctx, path)
 	if err == nil {
@@ -172,7 +188,14 @@ func (h EditHandler) replaceFailure(ctx context.Context, manager lspmanager.Mana
 }
 
 func (h EditHandler) applyWorkspaceEdit(ctx context.Context, manager lspmanager.Manager, workspaceEdit *protocol.WorkspaceEdit, version int) (applyWorkspaceEditResult, error) {
-	originals, updated, err := loadWorkspaceEditUpdates(toolWorkspaceRoot(ctx, h.root), workspaceEdit)
+	root := toolWorkspaceRoot(ctx, h.root)
+	files, err := collectWorkspaceEdits(root, workspaceEdit)
+	if err != nil {
+		return applyWorkspaceEditResult{}, err
+	}
+	unlock := lockEditFiles(sortedKeys(files))
+	defer unlock()
+	originals, updated, err := loadWorkspaceEditUpdatesFromFiles(files)
 	if err != nil {
 		return applyWorkspaceEditResult{}, err
 	}
@@ -183,9 +206,14 @@ func (h EditHandler) applyWorkspaceEdit(ctx context.Context, manager lspmanager.
 	if err != nil {
 		return applyWorkspaceEditResult{}, withRollbackError(err, restoreFiles(originals, updated))
 	}
+	version = normalizeEditVersion(version)
 	lspSync, warning, err := h.syncDocuments(ctx, manager, written, version)
 	if err != nil {
-		return applyWorkspaceEditResult{}, withRollbackError(err, restoreFiles(originals, updated))
+		rollbackErr := restoreFiles(originals, updated)
+		if rollbackErr == nil {
+			rollbackErr = h.syncRollbackDocuments(ctx, manager, originals, written, version)
+		}
+		return applyWorkspaceEditResult{}, withRollbackError(err, rollbackErr)
 	}
 	return applyWorkspaceEditResult{
 		AppliedCount: len(updated),
@@ -216,6 +244,10 @@ func loadWorkspaceEditUpdates(root string, workspaceEdit *protocol.WorkspaceEdit
 	if err != nil {
 		return nil, nil, err
 	}
+	return loadWorkspaceEditUpdatesFromFiles(files)
+}
+
+func loadWorkspaceEditUpdatesFromFiles(files map[string][]protocol.TextEdit) (map[string]editableFile, map[string]string, error) {
 	originals := make(map[string]editableFile, len(files))
 	updated := make(map[string]string, len(files))
 	for _, path := range sortedKeys(files) {
@@ -264,6 +296,26 @@ func (h EditHandler) syncDocuments(ctx context.Context, manager lspmanager.Manag
 	return true, strings.Join(warnings, "; "), nil
 }
 
+func (h EditHandler) syncRollbackDocuments(ctx context.Context, manager lspmanager.Manager, originals map[string]editableFile, updated map[string]string, version int) error {
+	if manager == nil {
+		return nil
+	}
+	contents := make(map[string]string, len(updated))
+	for _, path := range sortedKeys(updated) {
+		contents[path] = originals[path].raw
+	}
+	_, _, err := h.syncDocuments(ctx, manager, contents, nextEditVersion(version))
+	return err
+}
+
+func (h EditHandler) syncRollbackDocument(ctx context.Context, manager lspmanager.Manager, path string, content string, version int) error {
+	if manager == nil {
+		return nil
+	}
+	_, _, err := h.syncDocument(ctx, manager, path, content, nextEditVersion(version))
+	return err
+}
+
 func (h EditHandler) syncDocument(ctx context.Context, manager lspmanager.Manager, path string, content string, version int) (bool, string, error) {
 	if editpkg.ShouldForceBypass(len(content)) {
 		if err := manager.BootstrapDocumentOpenOnly(ctx, path); err != nil {
@@ -292,6 +344,13 @@ func withRollbackError(err error, rollbackErr error) error {
 		return err
 	}
 	return fmt.Errorf("%w; rollback failed: %v", err, rollbackErr)
+}
+
+func nextEditVersion(version int) int {
+	if version <= 0 {
+		return defaultEditVersion + 1
+	}
+	return version + 1
 }
 
 func (h EditHandler) lookupFunctionContext(ctx context.Context, manager lspmanager.Manager, path string, line int, content string) functionContext {
@@ -326,11 +385,21 @@ func buildReplacePlan(content string, req EditRequest) (replacePlan, error) {
 		return buildPatchReplacePlan(content, req.Patch)
 	case len(req.Edits) > 0:
 		return buildEditsReplacePlan(content, req.Edits)
-	case strings.TrimSpace(req.NewText) != "":
+	case hasCoordinateReplace(req):
 		return buildRangeReplacePlan(content, req)
 	default:
 		return replacePlan{}, errors.New("replace_range requires patch, edits, or new_text")
 	}
+}
+
+func hasCoordinateReplace(req EditRequest) bool {
+	if req.Line <= 0 || req.Column <= 0 {
+		return false
+	}
+	if strings.TrimSpace(req.NewText) != "" {
+		return true
+	}
+	return req.EndLine > 0 || req.EndColumn > 0
 }
 
 func buildPatchReplacePlan(content string, patch string) (replacePlan, error) {
@@ -338,6 +407,10 @@ func buildPatchReplacePlan(content string, patch string) (replacePlan, error) {
 	if err != nil {
 		return replacePlan{}, err
 	}
+	return buildHunksReplacePlan(content, hunks)
+}
+
+func buildHunksReplacePlan(content string, hunks []editpkg.Hunk) (replacePlan, error) {
 	matches, err := editpkg.MatchContext(content, hunks)
 	if err != nil {
 		return replacePlan{}, err
@@ -380,7 +453,7 @@ func buildEditsReplacePlan(content string, edits []ReplaceEdit) (replacePlan, er
 		}
 		hunks = append(hunks, editpkg.Hunk{OldText: item.OldString, NewText: item.NewString})
 	}
-	return buildPatchReplacePlan(content, joinHunksAsPatch(hunks))
+	return buildPatchReplacePlan(content, joinHunksAsPatch(normalizeHunks(hunks)))
 }
 
 func buildRangeReplacePlan(content string, req EditRequest) (replacePlan, error) {
@@ -388,12 +461,9 @@ func buildRangeReplacePlan(content string, req EditRequest) (replacePlan, error)
 	if err != nil {
 		return replacePlan{}, err
 	}
-	end := start
-	if req.EndLine > 0 && req.EndColumn > 0 {
-		end, err = requirePosition(req.EndLine, req.EndColumn)
-		if err != nil {
-			return replacePlan{}, err
-		}
+	end, err := resolveOptionalEndPosition(start, req.EndLine, req.EndColumn)
+	if err != nil {
+		return replacePlan{}, err
 	}
 	startOffset, err := offsetForPosition(content, start)
 	if err != nil {

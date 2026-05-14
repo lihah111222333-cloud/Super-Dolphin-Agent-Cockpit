@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"time"
 
@@ -98,7 +99,7 @@ func decodeStrictToolParams[T any](raw json.RawMessage, value *T) error {
 	decoder := json.NewDecoder(bytes.NewReader(normalizeOptionalToolParams(raw)))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(value); err != nil {
-		return fmt.Errorf("decode params: %w", err)
+		return formatDecodeParamsError(err)
 	}
 	var extra struct{}
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
@@ -117,9 +118,13 @@ func normalizeOptionalToolParams(raw json.RawMessage) []byte {
 
 func unmarshalToolParams[T any](raw []byte, value *T) error {
 	if err := json.Unmarshal(raw, value); err != nil {
-		return fmt.Errorf("decode params: %w", err)
+		return formatDecodeParamsError(err)
 	}
 	return nil
+}
+
+func formatDecodeParamsError(err error) error {
+	return fmt.Errorf("decode params: %w; hint: pass numeric fields as JSON numbers, string fields as JSON strings, and remove unknown fields", err)
 }
 
 func dispatchToolAction[T any](
@@ -129,11 +134,109 @@ func dispatchToolAction[T any](
 	req T,
 	handlers map[string]actionHandler[T],
 ) (any, error) {
-	handler, ok := handlers[normalizeAction(action)]
+	normalized := normalizeAction(action)
+	if alias := legacyActionAlias(label, normalized); alias != "" {
+		normalized = alias
+	}
+	handler, ok := handlers[normalized]
 	if !ok {
-		return nil, fmt.Errorf("unsupported %s action %q", label, action)
+		return nil, unsupportedActionError(label, action, handlers)
 	}
 	return handler(ctx, req)
+}
+
+func unsupportedActionError[T any](label string, action string, handlers map[string]actionHandler[T]) error {
+	valid := validActionNames(handlers)
+	message := fmt.Sprintf("unsupported %s action %q (valid actions: %s)", label, action, strings.Join(valid, ", "))
+	if closest := closestAction(normalizeAction(action), valid); closest != "" {
+		message += fmt.Sprintf("; did you mean %q?", closest)
+	}
+	if hint := legacyActionHint(label, normalizeAction(action)); hint != "" {
+		message += "; " + hint
+	}
+	return errors.New(message)
+}
+
+func validActionNames[T any](handlers map[string]actionHandler[T]) []string {
+	names := make([]string, 0, len(handlers))
+	for name := range handlers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func legacyActionAlias(label string, action string) string {
+	switch label {
+	case "file":
+		switch action {
+		case "read":
+			return "read_file"
+		case "open":
+			return "open_file"
+		}
+	}
+	return ""
+}
+
+func legacyActionHint(label string, action string) string {
+	switch label {
+	case "file":
+		switch action {
+		case "read":
+			return `legacy action "read" is accepted as "read_file"`
+		case "open":
+			return `legacy action "open" is accepted as "open_file"`
+		}
+	case "edit":
+		switch action {
+		case "did_change", "change":
+			return `use "replace_range" with patch, edits, or coordinates`
+		}
+	case "xref":
+		if action == "references" {
+			return `use tool "xref" with action "references"`
+		}
+	}
+	return ""
+}
+
+func closestAction(action string, valid []string) string {
+	if action == "" {
+		return ""
+	}
+	best := ""
+	bestDistance := 3
+	for _, candidate := range valid {
+		distance := editDistance(action, candidate)
+		if distance < bestDistance {
+			bestDistance = distance
+			best = candidate
+		}
+	}
+	return best
+}
+
+func editDistance(a string, b string) int {
+	ar := []rune(a)
+	br := []rune(b)
+	prev := make([]int, len(br)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(ar); i++ {
+		cur := make([]int, len(br)+1)
+		cur[0] = i
+		for j := 1; j <= len(br); j++ {
+			cost := 0
+			if ar[i-1] != br[j-1] {
+				cost = 1
+			}
+			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
+		}
+		prev = cur
+	}
+	return prev[len(br)]
 }
 
 func missingDependencyHandler(message string) ToolHandler {

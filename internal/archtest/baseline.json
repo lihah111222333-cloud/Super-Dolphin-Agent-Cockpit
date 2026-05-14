@@ -41,6 +41,20 @@
     "empty_funcs": 1,
     "todo_count": 0
   },
+  "cmd/mcp-lsp/main.go": {
+    "lines": 27,
+    "max_func_len": 8,
+    "max_nesting": 1,
+    "max_complexity": 2,
+    "max_params": 0,
+    "max_returns": 1,
+    "max_underscore": 0,
+    "global_vars": 1,
+    "panic_count": 0,
+    "naked_returns": 0,
+    "empty_funcs": 0,
+    "todo_count": 0
+  },
   "cmd/mcp-lsp/multilsp/bootstrap_doc.go": {
     "lines": 302,
     "max_func_len": 31,
@@ -70,23 +84,9 @@
     "empty_funcs": 0,
     "todo_count": 0
   },
-  "cmd/mcp-lsp/main.go": {
-    "lines": 27,
-    "max_func_len": 8,
-    "max_nesting": 1,
-    "max_complexity": 2,
-    "max_params": 0,
-    "max_returns": 1,
-    "max_underscore": 0,
-    "global_vars": 1,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0
-  },
   "cmd/mcp-lsp/schema.go": {
     "lines": 126,
-    "max_func_len": 17,
+    "max_func_len": 14,
     "max_nesting": 2,
     "max_complexity": 4,
     "max_params": 2,

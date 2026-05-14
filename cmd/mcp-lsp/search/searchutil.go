@@ -256,7 +256,7 @@ func searchTextFile(ctx context.Context, root, candidate, glob string, maxFileBy
 			File:    displayPath(candidate),
 			Line:    lineNum,
 			Col:     col + 1,
-			Text:    strings.TrimSpace(line),
+			Text:    truncateSnippet(strings.TrimSpace(line)),
 		})
 	}
 	return results, scanner.Err()

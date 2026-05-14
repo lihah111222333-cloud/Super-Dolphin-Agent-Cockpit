@@ -191,14 +191,61 @@ func (h EditHandler) resolveFilePositionRequest(ctx context.Context, req EditReq
 	return path, position, nil
 }
 
+func (h EditHandler) resolveFileRangeRequest(ctx context.Context, req EditRequest) (string, protocol.Range, error) {
+	path, start, err := h.resolveFilePositionRequest(ctx, req)
+	if err != nil {
+		return "", protocol.Range{}, err
+	}
+	end, err := resolveOptionalEndPosition(start, req.EndLine, req.EndColumn)
+	if err != nil {
+		return "", protocol.Range{}, err
+	}
+	return path, protocol.Range{Start: start, End: end}, nil
+}
+
+func resolveOptionalEndPosition(start protocol.Position, endLine int, endColumn int) (protocol.Position, error) {
+	if endLine == 0 && endColumn == 0 {
+		return start, nil
+	}
+	if endLine <= 0 || endColumn <= 0 {
+		return protocol.Position{}, errors.New("end_line and end_column must be provided together and be >= 1")
+	}
+	end, err := requirePosition(endLine, endColumn)
+	if err != nil {
+		return protocol.Position{}, err
+	}
+	if comparePosition(end, start) < 0 {
+		return protocol.Position{}, errors.New("end position must be greater than or equal to start position")
+	}
+	return end, nil
+}
+
+func comparePosition(left protocol.Position, right protocol.Position) int {
+	if left.Line < right.Line {
+		return -1
+	}
+	if left.Line > right.Line {
+		return 1
+	}
+	if left.Character < right.Character {
+		return -1
+	}
+	if left.Character > right.Character {
+		return 1
+	}
+	return 0
+}
+
 func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any, error) {
-	path, position, err := h.resolveFilePositionRequest(ctx, req)
+	path, rng, err := h.resolveFileRangeRequest(ctx, req)
 	if err != nil {
 		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: edit code_action rejected",
 			"action", "code_action",
 			"file_path", req.FilePath,
 			"line", req.Line,
 			"column", req.Column,
+			"end_line", req.EndLine,
+			"end_column", req.EndColumn,
 			"only", req.Only,
 			"error", err,
 		)
@@ -211,18 +258,22 @@ func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any
 			"file_path", path,
 			"line", req.Line,
 			"column", req.Column,
+			"end_line", req.EndLine,
+			"end_column", req.EndColumn,
 			"only", req.Only,
 			"error", err,
 		)
 		return nil, err
 	}
-	actions, err := manager.CodeAction(ctx, path, protocol.Range{Start: position, End: position}, req.Only)
+	actions, err := manager.CodeAction(ctx, path, rng, req.Only)
 	if err != nil {
 		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: edit code_action request failed",
 			"action", "code_action",
 			"file_path", path,
 			"line", req.Line,
 			"column", req.Column,
+			"end_line", req.EndLine,
+			"end_column", req.EndColumn,
 			"only", req.Only,
 			"error", err,
 		)
@@ -234,6 +285,8 @@ func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any
 			"file_path", path,
 			"line", req.Line,
 			"column", req.Column,
+			"end_line", req.EndLine,
+			"end_column", req.EndColumn,
 			"only", req.Only,
 			"code_action_count", len(actions),
 			"error", err,
@@ -246,6 +299,8 @@ func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any
 		"file_path", path,
 		"line", req.Line,
 		"column", req.Column,
+		"end_line", req.EndLine,
+		"end_column", req.EndColumn,
 		"only", req.Only,
 		"code_action_count", len(actions),
 		"structured_action_count", structuredCount,

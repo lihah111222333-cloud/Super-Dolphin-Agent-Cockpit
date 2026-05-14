@@ -25,17 +25,11 @@ func arrayOfStringsProp(desc string) schema {
 }
 
 func arrayOfObjectsProp(desc string) schema {
-	return schema{
-		"type": "array", "description": desc,
-		"items": map[string]any{"type": "object", "additionalProperties": true},
-	}
+	return schema{"type": "array", "description": desc, "items": map[string]any{"type": "object", "additionalProperties": true}}
 }
 
 func objectSchema(props map[string]schema, required ...string) schema {
-	s := schema{
-		"type":                 "object",
-		"additionalProperties": false,
-	}
+	s := schema{"type": "object", "additionalProperties": false}
 	if len(props) > 0 {
 		mapped := make(map[string]any, len(props))
 		for k, v := range props {
@@ -93,11 +87,14 @@ var lspGrepSchema = objectSchema(map[string]schema{
 var lspGrepOutputSchema = schema{
 	"type": "object",
 	"properties": map[string]any{
-		"files":     map[string]any{"type": "object", "description": "matched files with rows"},
-		"total":     map[string]any{"type": "integer"},
-		"showing":   map[string]any{"type": "integer"},
-		"truncated": map[string]any{"type": "boolean"},
-		"hint":      map[string]any{"type": "string"},
+		"files":               map[string]any{"type": "object", "description": "matched files with rows"},
+		"total":               map[string]any{"type": "integer"},
+		"showing":             map[string]any{"type": "integer"},
+		"truncated":           map[string]any{"type": "boolean"},
+		"dropped_for_payload": map[string]any{"type": "integer"},
+		"regex_fallback":      map[string]any{"type": "boolean"},
+		"message":             map[string]any{"type": "string"},
+		"hint":                map[string]any{"type": "string"},
 	},
 	"required": []string{"total"},
 }
@@ -105,6 +102,7 @@ var lspGrepOutputSchema = schema{
 var lspStructureSchema = objectSchema(map[string]schema{
 	"action":      enumProp("Operation", "document_symbol", "workspace_symbol", "folding_range", "semantic_tokens"),
 	"file_path":   stringProp("File path (absolute or relative, auto-resolved)"),
+	"path":        stringProp("Legacy alias for file_path"),
 	"query":       stringProp("Symbol query"),
 	"language":    stringProp("Language filter"),
 	"verbosity":   enumProp("Output verbosity", "compact", "full"),
@@ -112,17 +110,19 @@ var lspStructureSchema = objectSchema(map[string]schema{
 }, "action")
 
 var lspEditSchema = objectSchema(map[string]schema{
-	"action":     enumProp("Operation", "rename", "code_action", "format", "replace_range"),
-	"file_path":  stringProp("File path (absolute or relative, auto-resolved)"),
-	"line":       integerProp("1-based line (for rename/code_action)"),
-	"column":     integerProp("1-based column (for rename/code_action)"),
-	"end_line":   integerProp("End line for code_action range"),
-	"end_column": integerProp("End column for code_action range"),
-	"patch":      stringProp("Single-hunk patch text for replace_range"),
-	"edits":      arrayOfObjectsProp("Array of edits for replace_range: [{old_string, new_string}]"),
-	"new_name":   stringProp("New name for rename"),
-	"new_text":   stringProp("Legacy rename alias; replacement text for replace_range"),
-	"only":       arrayOfStringsProp("Code action kinds filter"),
+	"action":          enumProp("Operation", "rename", "code_action", "format", "replace_range"),
+	"file_path":       stringProp("File path (absolute or relative, auto-resolved)"),
+	"line":            integerProp("1-based line (for rename/code_action)"),
+	"column":          integerProp("1-based column (for rename/code_action)"),
+	"end_line":        integerProp("End line for code_action range"),
+	"end_column":      integerProp("End column for code_action range"),
+	"patch":           stringProp("Single-hunk patch text for replace_range"),
+	"edits":           arrayOfObjectsProp("Array of edits for replace_range: [{old_string, new_string}]"),
+	"new_name":        stringProp("New name for rename"),
+	"new_text":        stringProp("Legacy rename alias; replacement text for replace_range"),
+	"persist_to_disk": booleanProp("Compatibility flag for rename; default true. Set false to return workspace_edit without applying"),
+	"version":         integerProp("Document version for applied edit flow. Default: 2"),
+	"only":            arrayOfStringsProp("Code action kinds filter"),
 }, "action", "file_path")
 
 var lspCompletionSchema = objectSchema(map[string]schema{

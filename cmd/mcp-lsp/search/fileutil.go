@@ -304,7 +304,16 @@ func collapseSnippet(primary, fallback string) string {
 	if idx := strings.IndexByte(text, '\n'); idx >= 0 {
 		text = text[:idx]
 	}
-	return strings.TrimSpace(text)
+	return truncateSnippet(strings.TrimSpace(text))
+}
+
+func truncateSnippet(text string) string {
+	const maxSnippetRunes = 150
+	runes := []rune(text)
+	if len(runes) <= maxSnippetRunes {
+		return text
+	}
+	return string(runes[:maxSnippetRunes]) + "..."
 }
 
 func maxInt(left, right int) int {

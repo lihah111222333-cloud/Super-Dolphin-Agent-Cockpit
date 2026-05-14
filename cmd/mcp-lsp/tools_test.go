@@ -34,3 +34,25 @@ func TestHandleToolCallAcceptsLegacyLSPAlias(t *testing.T) {
 		t.Fatalf("handleToolCall(lsp_file) result = %#v, want ok payload", result)
 	}
 }
+
+func TestEditSchemaExposesRuntimeFields(t *testing.T) {
+	props, ok := lspEditSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("edit schema properties type = %T", lspEditSchema["properties"])
+	}
+	for _, field := range []string{"persist_to_disk", "version"} {
+		if _, ok := props[field]; !ok {
+			t.Fatalf("edit schema missing runtime field %q", field)
+		}
+	}
+}
+
+func TestStructureSchemaExposesLegacyPathAlias(t *testing.T) {
+	props, ok := lspStructureSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("structure schema properties type = %T", lspStructureSchema["properties"])
+	}
+	if _, ok := props["path"]; !ok {
+		t.Fatalf("structure schema missing legacy path alias")
+	}
+}
