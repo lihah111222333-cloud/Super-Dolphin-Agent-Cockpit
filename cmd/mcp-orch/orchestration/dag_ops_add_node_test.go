@@ -32,6 +32,8 @@ type stubDAGOpsStore struct {
 	versionErr     error
 	dagStatus      string // F4.5 现 DAG 状态；空串 = "draft" (默认)
 	getDagErr      error  // F4.5 模拟 GetDAG 错误用
+	dagTrigger     string
+	dagCronExpr    string
 
 	nodes   []taskdag.Node // 当前 DAG 已存的节点
 	listErr error
@@ -48,6 +50,7 @@ type stubDAGOpsStore struct {
 	getVersionLockCalls int // = getVersionCalls 别名，错误消息里表达「锁」意图
 	getVersionReadCalls int // 调用 GetDAGVersion 次数（事务外、不加锁）
 	listCalls           int
+	dagPatchCalls       []taskdag.UpdateDAGPatchInput
 	upsertCalls         []taskdag.Node
 	deleteCalls         []string
 	bumpCalls           []int64 // 调用 BumpDAGVersion 时传入的 expectedVersion
@@ -115,6 +118,18 @@ func (s *stubDAGOpsStore) CountRunningRunsByDagKey(_ context.Context, _ string) 
 		return 0, s.activeRunsErr
 	}
 	return s.activeRuns, nil
+}
+
+func (s *stubDAGOpsStore) GetDAGSchedule(_ context.Context, _ string) (taskdag.DAGSchedule, error) {
+	return taskdag.DAGSchedule{
+		Trigger:  s.dagTrigger,
+		CronExpr: s.dagCronExpr,
+	}, nil
+}
+
+func (s *stubDAGOpsStore) UpdateDAGPatch(_ context.Context, input taskdag.UpdateDAGPatchInput) (int64, error) {
+	s.dagPatchCalls = append(s.dagPatchCalls, input)
+	return 1, nil
 }
 
 func (s *stubDAGOpsStore) UpsertNode(_ context.Context, node taskdag.Node) (*taskdag.Node, error) {

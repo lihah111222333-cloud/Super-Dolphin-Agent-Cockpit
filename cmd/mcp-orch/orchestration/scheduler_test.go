@@ -55,21 +55,20 @@ func TestService_TerminateDAG_NotImplemented(t *testing.T) {
 	}
 }
 
-// TestService_ApplyOps_NotImplemented 验证 F4.3 后：update_dag 仍为 F4.4 待接接口位，
-// 走到业务层后被 fail-fast 拒为 ErrLifecycleNotImplemented。要让路径走到业务
-// 阶段，需要 dagStore 非 nil（不然先报 ErrApplyOpsStoreNotConfigured）。
-func TestService_ApplyOps_NotImplemented(t *testing.T) {
-	s := &service{dagStore: &stubStartDAGStore{}}
+// TestService_ApplyOps_UpdateDAGImplemented 验证 F4.4 后 update_dag 已接业务层。
+func TestService_ApplyOps_UpdateDAGImplemented(t *testing.T) {
+	stub := &stubDAGOpsStore{currentVersion: 1}
+	s := makeApplyOpsService(stub)
 	req := contract.ApplyOpsRequest{
 		DagKey:      "dag-x",
 		BaseVersion: 1,
 		Ops:         json.RawMessage(`[{"op":"update_dag","patch":{"title":"x"}}]`),
 	}
 	resp, err := s.ApplyOps(context.Background(), req)
-	if !errors.Is(err, ErrLifecycleNotImplemented) {
-		t.Fatalf("ApplyOps err = %v, want ErrLifecycleNotImplemented", err)
+	if err != nil {
+		t.Fatalf("ApplyOps err = %v, want nil", err)
 	}
-	if resp.NewVersion != 0 {
-		t.Fatalf("ApplyOps resp should be zero value, got %+v", resp)
+	if resp.NewVersion != 2 {
+		t.Fatalf("NewVersion = %d, want 2", resp.NewVersion)
 	}
 }
