@@ -18,22 +18,22 @@ import (
 // shapes (unmarshal / invalid op / missing op / negative base_version) before
 // any business work, and valid ops should fall through to the lifecycle stub.
 
-// TestApplyOps_UpdateDAGReturnsNotImplemented 验证「F4.3 后 update_dag 仍未接上」
-// 进业务层后被 fail-fast 拒为 ErrLifecycleNotImplemented。dagStore 注入任何
-// OrchestrationStore stub 让预检透过，计算 fail-fast 是在 op kind 状能检查阶段。
-func TestApplyOps_UpdateDAGReturnsNotImplemented(t *testing.T) {
+// TestApplyOps_UpdateDAGDispatches 验证 F4.4 后 update_dag 已接入业务层，
+// 不再走 ErrLifecycleNotImplemented。
+func TestApplyOps_UpdateDAGDispatches(t *testing.T) {
 	t.Parallel()
-	s := &service{dagStore: &stubStartDAGStore{}}
+	stub := &stubDAGOpsStore{currentVersion: 1}
+	s := makeApplyOpsService(stub)
 	ops := json.RawMessage(`[
 		{"op":"update_dag","patch":{"title":"t"}}
 	]`)
 	req := contract.ApplyOpsRequest{DagKey: "dag-a", BaseVersion: 1, Ops: ops}
 	resp, err := s.ApplyOps(context.Background(), req)
-	if !errors.Is(err, ErrLifecycleNotImplemented) {
-		t.Fatalf("ApplyOps err = %v, want ErrLifecycleNotImplemented", err)
+	if err != nil {
+		t.Fatalf("ApplyOps err = %v, want nil", err)
 	}
-	if resp.NewVersion != 0 {
-		t.Fatalf("ApplyOps resp should be zero value, got %+v", resp)
+	if resp.NewVersion != 2 {
+		t.Fatalf("NewVersion = %d, want 2", resp.NewVersion)
 	}
 }
 

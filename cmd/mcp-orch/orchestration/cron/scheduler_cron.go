@@ -440,7 +440,8 @@ func (s *SQLDAGScheduleStore) DueDAGs(ctx context.Context, now time.Time) ([]Due
 	rows, err := s.db.Query(ctx, `
 SELECT dag_key, cron_expr
 FROM task_dags
-WHERE cron_expr <> ''
+WHERE trigger = 'scheduled'
+  AND cron_expr <> ''
   AND next_run_at IS NOT NULL
   AND next_run_at <= $1
 ORDER BY next_run_at ASC, id ASC

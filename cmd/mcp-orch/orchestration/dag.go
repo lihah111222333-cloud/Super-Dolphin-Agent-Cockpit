@@ -628,12 +628,11 @@ func (s *service) ApplyOps(ctx context.Context, req contract.ApplyOpsRequest) (c
 }
 
 // applyTypedOps 是 4 个 op_kind 业务实现的容器（F4.1-F4.4）。F4.1 接 add_node、
-// F4.2 接 update_node，F4.3 接 remove_node；其余 op_kind 被 fail-fast 拒为
-// ErrLifecycleNotImplemented。空 ops 返 noop。
+// F4.2 接 update_node，F4.3 接 remove_node，F4.4 接 update_dag。空 ops 返 noop。
 //
 // applyTypedOps dispatches typed ops. F4.1 wires add_node, F4.2 wires
-// update_node, and F4.3 wires remove_node; other kinds fail-fast to
-// ErrLifecycleNotImplemented. Empty ops is a valid noop.
+// update_node, F4.3 wires remove_node, and F4.4 wires update_dag. Empty ops is
+// a valid noop.
 func (s *service) applyTypedOps(ctx context.Context, dagKey string, baseVersion int64, ops nodeexec.Ops) (contract.ApplyOpsResponse, error) {
 	if s == nil || s.dagStore == nil {
 		return contract.ApplyOpsResponse{}, ErrApplyOpsStoreNotConfigured
@@ -672,7 +671,7 @@ func (s *service) applyTypedOps(ctx context.Context, dagKey string, baseVersion 
 }
 
 func isNoopOpsBatch(parts partitionedOps) bool {
-	return len(parts.adds) == 0 && len(parts.updates) == 0 && len(parts.removes) == 0
+	return len(parts.dagUpdates) == 0 && len(parts.adds) == 0 && len(parts.updates) == 0 && len(parts.removes) == 0
 }
 
 // applyEmptyOpsShortCircuit 事务外 noop 路径：仅读当前 task_dags.version，校 OCC
