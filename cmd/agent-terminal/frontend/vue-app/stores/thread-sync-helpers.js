@@ -423,6 +423,24 @@ export function handleBridgeEvent(ctx, evt) {
   const eventThreadTarget = normalizeThreadID(eventThreadId);
   const activeThreadTarget = eventThreadTarget && (eventThreadTarget === normalizeThreadID(ctx.state.activeThreadId) || eventThreadTarget === normalizeThreadID(ctx.state.activeCmdThreadId)) ? eventThreadTarget : '';
   const historyHydrationSignal = turnCompletedSignal;
+
+  if (turnCompletedSignal && activeThreadTarget) {
+    const existing = ctx.state.timelinesByThread?.[activeThreadTarget];
+    if (Array.isArray(existing) && existing.length > 0) {
+      let mutated = false;
+      const next = existing.map((it) => {
+        if (it?.kind === 'assistant' && it?.done === false && !it?.streamingFinalized) {
+          mutated = true;
+          return { ...it, streamingFinalized: true };
+        }
+        return it;
+      });
+      if (mutated) {
+        ctx.state.timelinesByThread = { ...ctx.state.timelinesByThread, [activeThreadTarget]: next };
+      }
+    }
+  }
+
   if (directThreadSyncSignal) {
     logInfo('thread', 'bridge.streaming_delta_received', {
       method: eventMethod, source: sourceLower, thread_id: eventThreadTarget,
@@ -434,7 +452,7 @@ export function handleBridgeEvent(ctx, evt) {
     const delta = evt?.payload?.delta;
     if (delta) {
       const existing = ctx.state.timelinesByThread?.[activeThreadTarget] || [];
-      const isStreamingItem = (it) => it?.kind === 'assistant' && it?.done === false;
+      const isStreamingItem = (it) => it?.kind === 'assistant' && it?.done === false && !it?.streamingFinalized;
       let lastIndex = -1;
       for (let i = existing.length - 1; i >= 0; i--) {
         if (isStreamingItem(existing[i])) { lastIndex = i; break; }

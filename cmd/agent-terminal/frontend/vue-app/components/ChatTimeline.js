@@ -333,10 +333,10 @@ export const ChatTimeline = {
                 v-if="!itemHasSpec(item.text)"
                 key="assistant-body"
                 class="chat-item-body chat-item-markdown agent-markdown-root"
-                :data-stream-version="item.done === false ? streamingFrameVersion : undefined"
+                :data-stream-version="item.done === false && !item.streamingFinalized ? streamingFrameVersion : undefined"
                 @click="onAssistantBodyClick"
               >
-                <template v-if="item.done === false">
+                <template v-if="item.done === false && !item.streamingFinalized">
                   <template v-for="s in [streamingAssistantState(item)]" :key="0">
                     <pre class="chat-item-plain chat-item-streaming" :style="s.heightPx ? { minHeight: s.heightPx + 'px' } : undefined">{{ s.text }}</pre>
                   </template>
