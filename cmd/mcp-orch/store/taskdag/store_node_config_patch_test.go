@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
@@ -70,6 +71,60 @@ func TestPatchNodeConfigIfUnchangedRejectsStaleConfig(t *testing.T) {
 	})
 	if !errors.Is(err, platformdb.ErrNotFound) {
 		t.Fatalf("PatchNodeConfigIfUnchanged err = %v, want ErrNotFound", err)
+	}
+	if got := string(db.nodes[key].Config); got != `{"exec":{"model":"opus"}}` {
+		t.Fatalf("stored config = %s, want unchanged opus config", got)
+	}
+}
+
+func TestRetryWakeupWithNodeConfigPatchRollsBackRetryOnStaleConfig(t *testing.T) {
+	store, db, now := newTaskDAGTestStore()
+	patcher := store.(SmartRetryConfigStore)
+
+	db.wakeups[7] = newDispatchingWakeup(now, 7, "worker-a", 30*time.Second)
+	originalWakeup := db.wakeups[7]
+	key := dagNodeKey("dag-1", "node-1")
+	db.nodes[key] = sqlc.TaskDagNode{
+		ID:        1,
+		DagKey:    "dag-1",
+		NodeKey:   "node-1",
+		NodeType:  "agent",
+		Status:    "ready",
+		Config:    json.RawMessage(`{"exec":{"model":"opus"}}`),
+		CreatedAt: timestamptzValue(now),
+		UpdatedAt: timestamptzValue(now),
+	}
+
+	rows, err := patcher.RetryWakeupWithNodeConfigPatch(context.Background(), RetryWakeupWithNodeConfigPatchInput{
+		RetryWakeup: RetryWakeupInput{
+			ID:             7,
+			RetryInterval:  "00:02:00",
+			LastError:      "smart retry prepare failed",
+			ClaimedAt:      now,
+			ClaimedBy:      "worker-a",
+			LeaseExpiresAt: now.Add(30 * time.Second),
+		},
+		NodeConfig: NodeConfigPatchInput{
+			DagKey:         "dag-1",
+			NodeKey:        "node-1",
+			PreviousConfig: json.RawMessage(`{"exec":{"model":"sonnet"}}`),
+			Config:         json.RawMessage(`{"exec":{"model":"haiku"}}`),
+		},
+	})
+	if rows != 0 {
+		t.Fatalf("RetryWakeupWithNodeConfigPatch rows = %d, want 0 on patch miss", rows)
+	}
+	if !errors.Is(err, platformdb.ErrNotFound) {
+		t.Fatalf("RetryWakeupWithNodeConfigPatch err = %v, want ErrNotFound", err)
+	}
+
+	gotWakeup := db.wakeups[7]
+	if gotWakeup.Status != originalWakeup.Status || gotWakeup.LastError != originalWakeup.LastError ||
+		gotWakeup.ClaimedBy != originalWakeup.ClaimedBy || gotWakeup.AttemptCount != originalWakeup.AttemptCount ||
+		!sameTimestamp(gotWakeup.ClaimedAt, originalWakeup.ClaimedAt) ||
+		!sameTimestamp(gotWakeup.LeaseExpiresAt, originalWakeup.LeaseExpiresAt) ||
+		!sameTimestamp(gotWakeup.NextRetryAt, originalWakeup.NextRetryAt) {
+		t.Fatalf("wakeup mutated despite patch miss: got %+v, want original %+v", gotWakeup, originalWakeup)
 	}
 	if got := string(db.nodes[key].Config); got != `{"exec":{"model":"opus"}}` {
 		t.Fatalf("stored config = %s, want unchanged opus config", got)

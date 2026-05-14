@@ -42,6 +42,150 @@ func newFakeTaskDAGDB(now time.Time) *fakeTaskDAGDB {
 
 func (db *fakeTaskDAGDB) advance(delta time.Duration) { db.now = db.now.Add(delta) }
 
+func (db *fakeTaskDAGDB) Begin(context.Context) (pgx.Tx, error) {
+	db.mu.Lock()
+	working := db.cloneLocked()
+	beforeFailNonTerminal := db.beforeFailNonTerminal
+	defer db.mu.Unlock()
+	if beforeFailNonTerminal != nil {
+		parent := db
+		working.beforeFailNonTerminal = func(dagKey, nodeKey string) {
+			beforeFailNonTerminal(dagKey, nodeKey)
+			key := dagNodeKey(dagKey, nodeKey)
+			parent.mu.Lock()
+			row, ok := parent.nodes[key]
+			parent.mu.Unlock()
+			if ok {
+				working.nodes[key] = cloneTaskDagNode(row)
+				return
+			}
+			delete(working.nodes, key)
+		}
+	}
+	return &fakeTaskDAGTx{
+		parent:  db,
+		working: working,
+	}, nil
+}
+
+func (db *fakeTaskDAGDB) clone() *fakeTaskDAGDB {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	return db.cloneLocked()
+}
+
+func (db *fakeTaskDAGDB) cloneLocked() *fakeTaskDAGDB {
+	cloned := newFakeTaskDAGDB(db.now)
+	cloned.wakeupSeq = db.wakeupSeq
+	cloned.runSeq = db.runSeq
+	for key, row := range db.dags {
+		row.Metadata = cloneBytes(row.Metadata)
+		cloned.dags[key] = row
+	}
+	for key, row := range db.wakeups {
+		row.PromptPayload = cloneBytes(row.PromptPayload)
+		cloned.wakeups[key] = row
+	}
+	for key, row := range db.nodes {
+		cloned.nodes[key] = cloneTaskDagNode(row)
+	}
+	for key, row := range db.runs {
+		row.Events = cloneBytes(row.Events)
+		row.Metadata = cloneBytes(row.Metadata)
+		cloned.runs[key] = row
+	}
+	return cloned
+}
+
+func (db *fakeTaskDAGDB) replaceLocked(snapshot *fakeTaskDAGDB) {
+	db.now = snapshot.now
+	db.dags = snapshot.dags
+	db.wakeups = snapshot.wakeups
+	db.nodes = snapshot.nodes
+	db.runs = snapshot.runs
+	db.wakeupSeq = snapshot.wakeupSeq
+	db.runSeq = snapshot.runSeq
+}
+
+func cloneTaskDagNode(row sqlc.TaskDagNode) sqlc.TaskDagNode {
+	row.DependsOn = cloneBytes(row.DependsOn)
+	row.Config = cloneBytes(row.Config)
+	row.Result = cloneBytes(row.Result)
+	return row
+}
+
+func cloneBytes(value []byte) []byte {
+	if value == nil {
+		return nil
+	}
+	return append([]byte(nil), value...)
+}
+
+type fakeTaskDAGTx struct {
+	parent  *fakeTaskDAGDB
+	working *fakeTaskDAGDB
+	closed  bool
+}
+
+func (*fakeTaskDAGTx) Begin(context.Context) (pgx.Tx, error) {
+	return nil, fmt.Errorf("fakeTaskDAGTx: nested transaction not implemented")
+}
+
+func (tx *fakeTaskDAGTx) Commit(context.Context) error {
+	if tx.closed {
+		return pgx.ErrTxClosed
+	}
+	snapshot := tx.working.clone()
+	tx.parent.mu.Lock()
+	defer tx.parent.mu.Unlock()
+	tx.parent.replaceLocked(snapshot)
+	tx.closed = true
+	return nil
+}
+
+func (tx *fakeTaskDAGTx) Rollback(context.Context) error {
+	if tx.closed {
+		return pgx.ErrTxClosed
+	}
+	tx.closed = true
+	return nil
+}
+
+func (*fakeTaskDAGTx) CopyFrom(context.Context, pgx.Identifier, []string, pgx.CopyFromSource) (int64, error) {
+	return 0, fmt.Errorf("fakeTaskDAGTx: copyfrom not implemented")
+}
+
+func (*fakeTaskDAGTx) SendBatch(context.Context, *pgx.Batch) pgx.BatchResults { return nil }
+
+func (*fakeTaskDAGTx) LargeObjects() pgx.LargeObjects { return pgx.LargeObjects{} }
+
+func (*fakeTaskDAGTx) Prepare(context.Context, string, string) (*pgconn.StatementDescription, error) {
+	return nil, fmt.Errorf("fakeTaskDAGTx: prepare not implemented")
+}
+
+func (tx *fakeTaskDAGTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	if tx.closed {
+		return pgconn.CommandTag{}, pgx.ErrTxClosed
+	}
+	return tx.working.Exec(ctx, sql, args...)
+}
+
+func (tx *fakeTaskDAGTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	if tx.closed {
+		return nil, pgx.ErrTxClosed
+	}
+	return tx.working.Query(ctx, sql, args...)
+}
+
+func (tx *fakeTaskDAGTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	if tx.closed {
+		return stubTaskDAGRow{err: pgx.ErrTxClosed}
+	}
+	return tx.working.QueryRow(ctx, sql, args...)
+}
+
+func (*fakeTaskDAGTx) Conn() *pgx.Conn { return nil }
+
 func (db *fakeTaskDAGDB) Exec(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
