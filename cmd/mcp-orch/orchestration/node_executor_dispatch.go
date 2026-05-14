@@ -13,7 +13,10 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-const lifecycleHookDispatchWait = 100 * time.Millisecond
+const (
+	lifecycleHookDispatchWait     = 100 * time.Millisecond
+	lifecycleHookExecutionTimeout = time.Second
+)
 
 // NodeLifecycleHooks is the production hook set injected into node executors.
 // Keeping it as a named type lets fx distinguish the lifecycle hook map from
@@ -85,8 +88,10 @@ func (r *NodeExecutorRouter) invokeLifecycleHook(
 	if ctx != nil {
 		hookCtx = context.WithoutCancel(ctx)
 	}
+	runCtx, cancel := context.WithTimeout(hookCtx, lifecycleHookExecutionTimeout)
 	done := make(chan struct{})
-	runtimesafe.SafeGo(hookCtx, lifecycleLogger(r), "nodeExecutor.lifecycleHook", func(runCtx context.Context) {
+	runtimesafe.SafeGo(runCtx, lifecycleLogger(r), "nodeExecutor.lifecycleHook", func(runCtx context.Context) {
+		defer cancel()
 		defer close(done)
 		if err := handler.Handle(runCtx, point, node, outcome); err != nil {
 			lifecycleLogger(r).Warn("node router: lifecycle hook failed",

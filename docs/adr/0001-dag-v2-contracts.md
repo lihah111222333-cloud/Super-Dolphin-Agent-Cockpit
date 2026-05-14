@@ -111,7 +111,7 @@ F13.1 后，`NodeExecutorRouter` 负责真实触发：
 
 生产 wiring 通过 `ProvideNodeLifecycleHooks` 给 agent / automation executor 注入默认 structured-log hook map；测试或后续审计实现可在构造 executor 时替换为自定义 `HookHandler`。hook-consumer 侧收到的 bootstrap `turn.completed` / `turn.interrupted` 复用同一 `DAGSubscriberDeps.NodeRouter`，与 in-process bus subscriber 保持一致。
 
-Hook 是 bounded best-effort lifecycle side effect：handler error / panic 仅 Warn/Error log，不改写 executor outcome / wakeup retry / node status；dispatcher 只短等待 `lifecycleHookDispatchWait`，慢 hook 会带独立 context 转异步继续，避免审计类 hook 故障或卡顿造成重复 launch、lease 过期或状态回滚。`RetryWakeup` SQL hard-cap fallback 转终态时，也必须先成功写 `FailWakeup`，再 `FailNodeAndCancelDownstream` 并触发 terminal failure hooks。
+Hook 是 bounded best-effort lifecycle side effect：handler error / panic 仅 Warn/Error log，不改写 executor outcome / wakeup retry / node status；dispatcher 只短等待 `lifecycleHookDispatchWait`，慢 hook 会带独立 bounded context 转异步继续，并在 `lifecycleHookExecutionTimeout` 后取消，避免审计类 hook 故障或卡顿造成重复 launch、lease 过期、资源悬挂或状态回滚。`RetryWakeup` SQL hard-cap fallback 转终态时，也必须先成功写 `FailWakeup`，再 `FailNodeAndCancelDownstream` 并触发 terminal failure hooks。
 
 ### 2.5 typed ops payload（S4.1+S4.2）
 

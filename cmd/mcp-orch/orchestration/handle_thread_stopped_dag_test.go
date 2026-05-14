@@ -3,9 +3,11 @@ package orchestration
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/kelindar/event"
 )
@@ -99,6 +101,41 @@ func TestThreadStoppedDAGFallback_FailsReadyNode(t *testing.T) {
 	}
 	if delta.Failed != 1 {
 		t.Fatalf("expected metric Failed=1, got %+v", delta)
+	}
+}
+
+func TestThreadStoppedDAGFallback_InvokesLifecycleHooks(t *testing.T) {
+	events := []string{}
+	lookup := &fakeFallbackLookup{
+		nodes: []taskdag.Node{{
+			DagKey:   "dag-a",
+			NodeKey:  "node-1",
+			NodeType: "agent",
+			Status:   "running",
+			Config:   []byte(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),
+		}},
+	}
+	flow := &fakeFallbackFlow{}
+	agentExec := nodeexec.NewAgentExecutor(&stubAgentLauncher{}, nodeexec.WithHooks(recordingLifecycleHooks(&events)))
+	router := NewNodeExecutorRouter(&stubRouterStore{}, agentExec, nil, nil, nil, nil)
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
+	hc := newHookConsumerInternal(
+		svc,
+		silentLogger(),
+		nil,
+		lookup,
+		flow,
+		withHookTurnCompletedDAGDeps(DAGSubscriberDeps{NodeRouter: router}),
+	)
+
+	hc.runThreadStoppedDAGFallback(context.Background(), "thread-1")
+
+	want := []string{
+		"on_state_change:node-1:failed",
+		"on_failure:node-1:failed",
+	}
+	if got := strings.Join(events, "|"); got != strings.Join(want, "|") {
+		t.Fatalf("events = %v, want %v", events, want)
 	}
 }
 

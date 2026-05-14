@@ -142,11 +142,10 @@ func TestProvideExecutorsWireLifecycleHooks(t *testing.T) {
 }
 
 func TestNodeExecutorRouter_LifecycleHookTimeoutDoesNotBlockDispatch(t *testing.T) {
-	completed := make(chan struct{})
 	canceled := make(chan struct{})
 	launcher := &stubAgentLauncher{threadID: "thread-hook-timeout"}
 	agentExec := nodeexec.NewAgentExecutor(launcher, nodeexec.WithHooks(map[nodeexec.HookPoint]nodeexec.HookHandler{
-		nodeexec.HookBeforeExecute: slowLifecycleHook{completed: completed, canceled: canceled},
+		nodeexec.HookBeforeExecute: blockingLifecycleHook{canceled: canceled},
 	}))
 	store := &stubRouterStore{
 		nodes: []taskdag.Node{{
@@ -179,11 +178,9 @@ func TestNodeExecutorRouter_LifecycleHookTimeoutDoesNotBlockDispatch(t *testing.
 		t.Fatalf("launcher calls = %d, want 1", len(launcher.calls))
 	}
 	select {
-	case <-completed:
 	case <-canceled:
-		t.Fatal("slow hook context was canceled; want async continuation")
-	case <-time.After(time.Second):
-		t.Fatal("slow hook did not complete asynchronously")
+	case <-time.After(lifecycleHookExecutionTimeout + lifecycleHookDispatchWait):
+		t.Fatal("slow hook context was not canceled")
 	}
 }
 
@@ -744,4 +741,14 @@ func (h slowLifecycleHook) Handle(ctx context.Context, _ nodeexec.HookPoint, _ n
 		close(h.canceled)
 		return ctx.Err()
 	}
+}
+
+type blockingLifecycleHook struct {
+	canceled chan<- struct{}
+}
+
+func (h blockingLifecycleHook) Handle(ctx context.Context, _ nodeexec.HookPoint, _ nodeexec.Node, _ nodeexec.NodeOutcome) error {
+	<-ctx.Done()
+	close(h.canceled)
+	return ctx.Err()
 }

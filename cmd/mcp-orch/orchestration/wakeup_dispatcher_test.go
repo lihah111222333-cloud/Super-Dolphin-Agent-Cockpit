@@ -357,6 +357,12 @@ func TestWakeupDispatcher_RetryExhaustedLifecycleHooksKeepFailureClass(t *testin
 	if len(store.failNodeCalls) != 1 {
 		t.Fatalf("FailNodeAndCancelDownstream calls = %d, want 1", len(store.failNodeCalls))
 	}
+	if len(store.failCalls) != 1 {
+		t.Fatalf("FailWakeup calls = %d, want 1", len(store.failCalls))
+	}
+	if store.failNodeCalls[0].Reason != store.failCalls[0].LastError {
+		t.Fatalf("FailNode reason = %q, want same as FailWakeup last_error %q", store.failNodeCalls[0].Reason, store.failCalls[0].LastError)
+	}
 	want := []string{
 		"before_execute:n1::",
 		"after_execute:n1:failed:quota",
