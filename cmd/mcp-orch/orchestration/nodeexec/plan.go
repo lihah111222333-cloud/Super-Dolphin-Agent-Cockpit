@@ -264,3 +264,102 @@ func applyDependsOnPatch(idx int, change UpdateNodeChange, adjacency map[string]
 	adjacency[change.NodeKey] = deps
 	return nil
 }
+
+// =====================================================
+// F4.3: PlanRemoveNodes —— remove_node ops 校验 + adjacency 推导
+// =====================================================
+
+// ErrRemoveNodePlan 是 PlanRemoveNodes 校验失败时的 sentinel。
+// 调用方（service.applyTypedOps）会把它包成 ErrApplyOpsInvalid。
+var ErrRemoveNodePlan = errors.New("remove_node plan: invalid request")
+
+// RemoveNodeChange 是 PlanRemoveNodes 输出的已校验、待持久化删除。
+type RemoveNodeChange struct {
+	NodeKey string
+}
+
+var removeNodeStatusAllowed = map[string]struct{}{
+	string(NodeStatusPending): {},
+	string(NodeStatusReady):   {},
+}
+
+// PlanRemoveNodes 校验 remove_node，并返回移除目标后的 adjacency。
+// 它不会自动改写下游 depends_on；仍被其它节点依赖的目标会被拒绝。
+func PlanRemoveNodes(ops Ops, existing []ExistingNodeFull, adjacency map[string][]string) (map[string][]string, []RemoveNodeChange, error) {
+	pruned := cloneAdjacency(adjacency)
+	byKey := indexExistingFull(existing)
+	seen := make(map[string]int, len(ops))
+	changes := make([]RemoveNodeChange, 0, len(ops))
+	for i, op := range ops {
+		change, err := removeChangeFromOp(i, op)
+		if err != nil {
+			return nil, nil, err
+		}
+		if prev, dup := seen[change.NodeKey]; dup {
+			return nil, nil, fmt.Errorf("%w: ops[%d] and ops[%d] both remove node_key %q", ErrRemoveNodePlan, prev, i, change.NodeKey)
+		}
+		seen[change.NodeKey] = i
+		node, ok := byKey[change.NodeKey]
+		if !ok {
+			return nil, nil, fmt.Errorf("%w: ops[%d] remove_node node_key %q not found", ErrRemoveNodePlan, i, change.NodeKey)
+		}
+		if err := ensureRemovableStatus(i, change.NodeKey, node.Status); err != nil {
+			return nil, nil, err
+		}
+		if dependent := firstDependentOn(pruned, change.NodeKey); dependent != "" {
+			return nil, nil, fmt.Errorf("%w: ops[%d] remove_node %q is depended on by %q", ErrRemoveNodePlan, i, change.NodeKey, dependent)
+		}
+		delete(pruned, change.NodeKey)
+		changes = append(changes, change)
+	}
+	return pruned, changes, nil
+}
+
+func cloneAdjacency(adjacency map[string][]string) map[string][]string {
+	out := make(map[string][]string, len(adjacency))
+	for k, deps := range adjacency {
+		out[k] = append([]string(nil), deps...)
+	}
+	return out
+}
+
+func indexExistingFull(existing []ExistingNodeFull) map[string]ExistingNodeFull {
+	out := make(map[string]ExistingNodeFull, len(existing))
+	for _, n := range existing {
+		out[n.NodeKey] = n
+	}
+	return out
+}
+
+func removeChangeFromOp(idx int, op Op) (RemoveNodeChange, error) {
+	rm, ok := op.(OpRemoveNode)
+	if !ok {
+		return RemoveNodeChange{}, fmt.Errorf("%w: ops[%d] not remove_node (got %s)", ErrRemoveNodePlan, idx, op.Kind())
+	}
+	key := strings.TrimSpace(rm.NodeKey)
+	if key == "" {
+		return RemoveNodeChange{}, fmt.Errorf("%w: ops[%d] remove_node node_key required", ErrRemoveNodePlan, idx)
+	}
+	return RemoveNodeChange{NodeKey: key}, nil
+}
+
+func ensureRemovableStatus(idx int, key, status string) error {
+	if _, ok := removeNodeStatusAllowed[status]; !ok {
+		return fmt.Errorf("%w: ops[%d] remove_node %q status=%q not removable (allowed: pending|ready)", ErrRemoveNodePlan, idx, key, status)
+	}
+	return nil
+}
+
+func firstDependentOn(adjacency map[string][]string, target string) string {
+	for nodeKey, deps := range adjacency {
+		if nodeKey == target {
+			continue
+		}
+		for _, dep := range deps {
+			if dep == target {
+				return nodeKey
+			}
+		}
+	}
+	return ""
+}

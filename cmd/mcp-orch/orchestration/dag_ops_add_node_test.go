@@ -38,14 +38,19 @@ type stubDAGOpsStore struct {
 
 	upsertErr error
 	bumpErr   error
+	// activeRuns simulates task_dag_runs.status='running' rows for this dag.
+	activeRuns    int64
+	activeRunsErr error
+	deleteRows    *int64
 
 	// 调用观测
-	getVersionCalls      int // 调用 GetDAGVersionForUpdate 次数（事务内、带 FOR UPDATE）
-	getVersionLockCalls  int // = getVersionCalls 别名，错误消息里表达「锁」意图
-	getVersionReadCalls  int // 调用 GetDAGVersion 次数（事务外、不加锁）
-	listCalls            int
-	upsertCalls          []taskdag.Node
-	bumpCalls            []int64 // 调用 BumpDAGVersion 时传入的 expectedVersion
+	getVersionCalls     int // 调用 GetDAGVersionForUpdate 次数（事务内、带 FOR UPDATE）
+	getVersionLockCalls int // = getVersionCalls 别名，错误消息里表达「锁」意图
+	getVersionReadCalls int // 调用 GetDAGVersion 次数（事务外、不加锁）
+	listCalls           int
+	upsertCalls         []taskdag.Node
+	deleteCalls         []string
+	bumpCalls           []int64 // 调用 BumpDAGVersion 时传入的 expectedVersion
 }
 
 // GetDAGVersion (DAGVersionReader): 事务外只读路径，独立计数。
@@ -105,6 +110,13 @@ func (s *stubDAGOpsStore) BumpDAGVersion(_ context.Context, _ string, expectedVe
 	return s.currentVersion, nil
 }
 
+func (s *stubDAGOpsStore) CountRunningRunsByDagKey(_ context.Context, _ string) (int64, error) {
+	if s.activeRunsErr != nil {
+		return 0, s.activeRunsErr
+	}
+	return s.activeRuns, nil
+}
+
 func (s *stubDAGOpsStore) UpsertNode(_ context.Context, node taskdag.Node) (*taskdag.Node, error) {
 	s.upsertCalls = append(s.upsertCalls, node)
 	if s.upsertErr != nil {
@@ -115,6 +127,23 @@ func (s *stubDAGOpsStore) UpsertNode(_ context.Context, node taskdag.Node) (*tas
 	saved.Status = "pending"
 	s.nodes = append(s.nodes, saved)
 	return &saved, nil
+}
+
+func (s *stubDAGOpsStore) DeleteNode(_ context.Context, dagKey, nodeKey string) (int64, error) {
+	s.deleteCalls = append(s.deleteCalls, nodeKey)
+	if s.deleteRows != nil {
+		return *s.deleteRows, nil
+	}
+	for i, node := range s.nodes {
+		if node.DagKey != "" && node.DagKey != dagKey {
+			continue
+		}
+		if node.NodeKey == nodeKey {
+			s.nodes = append(s.nodes[:i], s.nodes[i+1:]...)
+			return 1, nil
+		}
+	}
+	return 0, nil
 }
 
 func (s *stubDAGOpsStore) WithDAGOpsTx(ctx context.Context, fn func(taskdag.DAGOpsStore) error) error {

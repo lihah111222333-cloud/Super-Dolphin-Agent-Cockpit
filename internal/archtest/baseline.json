@@ -113,12 +113,12 @@
     "todo_count": 0
   },
   "cmd/mcp-orch/orchestration/dag.go": {
-    "lines": 557,
+    "lines": 474,
     "max_func_len": 33,
     "max_nesting": 2,
-    "max_complexity": 10,
+    "max_complexity": 9,
     "max_params": 4,
-    "max_returns": 3,
+    "max_returns": 2,
     "max_underscore": 0,
     "global_vars": 0,
     "panic_count": 0,

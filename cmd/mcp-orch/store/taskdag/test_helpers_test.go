@@ -62,9 +62,52 @@ func (db *fakeTaskDAGDB) Exec(_ context.Context, sql string, args ...any) (pgcon
 		return updateTag(db.cascadeFailPendingNode(args...))
 	case strings.Contains(sql, "PromoteSingleNodePendingToReady"):
 		return updateTag(db.promoteSingleNodePendingToReady(args...))
+	case strings.Contains(sql, "DeleteTaskDagNode"):
+		return updateTag(db.deleteTaskDagNode(args...))
 	default:
 		return pgconn.CommandTag{}, fmt.Errorf("unexpected Exec call: %s", firstLine(sql))
 	}
+}
+
+func (db *fakeTaskDAGDB) deleteTaskDagNode(args ...any) (int64, error) {
+	if len(args) != 2 {
+		return 0, fmt.Errorf("delete node args len = %d, want 2", len(args))
+	}
+	dagKey, ok := args[0].(string)
+	if !ok {
+		return 0, fmt.Errorf("dag key arg = %T", args[0])
+	}
+	nodeKey, ok := args[1].(string)
+	if !ok {
+		return 0, fmt.Errorf("node key arg = %T", args[1])
+	}
+	key := dagNodeKey(dagKey, nodeKey)
+	row, ok := db.nodes[key]
+	if !ok {
+		return 0, nil
+	}
+	if row.Status != "pending" && row.Status != "ready" {
+		return 0, nil
+	}
+	delete(db.nodes, key)
+	return 1, nil
+}
+
+func (db *fakeTaskDAGDB) countActiveTaskDagRunsByKey(args ...any) ([]any, error) {
+	if len(args) != 1 {
+		return nil, fmt.Errorf("count active runs args len = %d, want 1", len(args))
+	}
+	dagKey, ok := args[0].(string)
+	if !ok {
+		return nil, fmt.Errorf("dag key arg = %T", args[0])
+	}
+	var active int64
+	for _, run := range db.runs {
+		if run.DagKey == dagKey && run.Status == "running" {
+			active++
+		}
+	}
+	return []any{active}, nil
 }
 
 // promoteSingleNodePendingToReady 复现 F6.3 PromoteSingleNodePendingToReady SQL
@@ -348,6 +391,9 @@ func (db *fakeTaskDAGDB) QueryRow(_ context.Context, sql string, args ...any) pg
 	defer db.mu.Unlock()
 
 	switch {
+	case strings.Contains(sql, "CountActiveTaskDagRunsByKey"):
+		values, err := db.countActiveTaskDagRunsByKey(args...)
+		return stubTaskDAGRow{values: values, err: err}
 	case strings.Contains(sql, "BindRunningTaskDagNodeTurn"):
 		values, err := db.bindRunningNodeTurn(args...)
 		return stubTaskDAGRow{values: values, err: err}

@@ -11,6 +11,12 @@ SET title = EXCLUDED.title,
     updated_at = NOW()
 RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
 
+-- name: DeleteTaskDagNode :execrows
+DELETE FROM task_dag_nodes
+WHERE dag_key = $1
+  AND node_key = $2
+  AND status IN ('pending', 'ready');
+
 -- name: UpdateTaskDagNodeStatusFlexible :one
 -- 名字 "Flexible" 表示不附带 status 前置约束——调用方负责检查状态机合法转移。
 -- 历史上曾与 UpdateTaskDagNodeStatus 两份 SQL 并存，但后者在 F4.2 / F6 后变成

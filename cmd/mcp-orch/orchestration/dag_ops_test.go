@@ -18,18 +18,14 @@ import (
 // shapes (unmarshal / invalid op / missing op / negative base_version) before
 // any business work, and valid ops should fall through to the lifecycle stub.
 
-// TestApplyOps_NonAddNodeOpsReturnNotImplemented 验证「F4.1 仅接上 add_node、
-// 其余 op_kind （update_dag / update_node / remove_node）进业务层后被 fail-fast
-// 拒为 ErrLifecycleNotImplemented」。dagStore 注入任何 OrchestrationStore stub
-// 让预检透过，计算 fail-fast 是在 op kind 状能检查阶段。
-func TestApplyOps_NonAddNodeOpsReturnNotImplemented(t *testing.T) {
+// TestApplyOps_UpdateDAGReturnsNotImplemented 验证「F4.3 后 update_dag 仍未接上」
+// 进业务层后被 fail-fast 拒为 ErrLifecycleNotImplemented。dagStore 注入任何
+// OrchestrationStore stub 让预检透过，计算 fail-fast 是在 op kind 状能检查阶段。
+func TestApplyOps_UpdateDAGReturnsNotImplemented(t *testing.T) {
 	t.Parallel()
 	s := &service{dagStore: &stubStartDAGStore{}}
 	ops := json.RawMessage(`[
-		{"op":"update_dag","patch":{"title":"t"}},
-		{"op":"add_node","node":{"node_key":"n1","title":"x","node_type":"agent"}},
-		{"op":"update_node","node_key":"n1","patch":{"title":"y"}},
-		{"op":"remove_node","node_key":"n1"}
+		{"op":"update_dag","patch":{"title":"t"}}
 	]`)
 	req := contract.ApplyOpsRequest{DagKey: "dag-a", BaseVersion: 1, Ops: ops}
 	resp, err := s.ApplyOps(context.Background(), req)
