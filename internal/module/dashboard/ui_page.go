@@ -167,8 +167,15 @@ func (s *service) populateDashboardMemory(ctx context.Context, out *DashboardPag
 	}
 	out.Memory = items
 	refs, err := s.listDashboardFinalOutputRefs(ctx)
+	if err != nil {
+		out.FinalOutputRefs = []FinalOutputRef{}
+		return nil
+	}
+	if refs == nil {
+		refs = []FinalOutputRef{}
+	}
 	out.FinalOutputRefs = refs
-	return err
+	return nil
 }
 
 func (s *service) listDashboardTaskTraces(ctx context.Context) ([]tasktracestore.TaskTrace, error) {

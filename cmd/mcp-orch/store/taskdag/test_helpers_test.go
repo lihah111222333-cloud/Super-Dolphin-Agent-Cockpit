@@ -239,7 +239,7 @@ func (db *fakeTaskDAGDB) metadataWithFinalOutput(dagKey string, metadata []byte)
 		return metadata, nil
 	}
 	node, ok := db.nodes[dagNodeKey(dagKey, dagMeta.FinalNodeKey)]
-	if !ok || len(node.Result) == 0 {
+	if !ok {
 		return metadata, nil
 	}
 	finalOutput, ok, err := finalOutputFromNodeResult(node)
@@ -268,18 +268,27 @@ func (db *fakeTaskDAGDB) metadataWithFinalOutput(dagKey string, metadata []byte)
 }
 
 func finalOutputFromNodeResult(node sqlc.TaskDagNode) (map[string]any, bool, error) {
-	var result any
-	if err := json.Unmarshal(node.Result, &result); err != nil {
-		return nil, false, fmt.Errorf("decode final node result: %w", err)
-	}
 	title := node.Title
 	if title == "" {
 		title = "Final output"
 	}
+	configuredPath := configuredSharedfilePathFromNodeConfig(node.Config)
 	out := map[string]any{
 		"role":            "final_output",
 		"title":           title,
 		"source_node_key": node.NodeKey,
+	}
+	if len(node.Result) == 0 {
+		if configuredPath == "" {
+			return nil, false, nil
+		}
+		out["kind"] = "file"
+		out["path"] = configuredPath
+		return out, true, nil
+	}
+	var result any
+	if err := json.Unmarshal(node.Result, &result); err != nil {
+		return nil, false, fmt.Errorf("decode final node result: %w", err)
 	}
 	switch typed := result.(type) {
 	case map[string]any:
@@ -290,25 +299,25 @@ func finalOutputFromNodeResult(node sqlc.TaskDagNode) (map[string]any, bool, err
 				return out, true, nil
 			}
 		}
-		if path := configuredSharedfilePathFromNodeConfig(node.Config); path != "" {
+		if configuredPath != "" {
 			out["kind"] = "file"
-			out["path"] = path
+			out["path"] = configuredPath
 			return out, true, nil
 		}
 		out["kind"] = "json"
 		out["result"] = result
 	case string:
-		if path := configuredSharedfilePathFromNodeConfig(node.Config); path != "" {
+		if configuredPath != "" {
 			out["kind"] = "file"
-			out["path"] = path
+			out["path"] = configuredPath
 			return out, true, nil
 		}
 		out["kind"] = "text"
 		out["text"] = typed
 	default:
-		if path := configuredSharedfilePathFromNodeConfig(node.Config); path != "" {
+		if configuredPath != "" {
 			out["kind"] = "file"
-			out["path"] = path
+			out["path"] = configuredPath
 			return out, true, nil
 		}
 		out["kind"] = "json"

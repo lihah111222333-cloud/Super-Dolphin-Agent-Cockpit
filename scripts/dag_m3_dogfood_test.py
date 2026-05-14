@@ -173,6 +173,13 @@ class M3DogfoodHarnessTest(unittest.TestCase):
         with self.assertRaises(dogfood.MCPError):
             dogfood.assert_size_cap_failure([bad])
 
+        too_broad = {
+            "node_key": "long_node_result_rejected",
+            "result": json.dumps({"kind": "exhausted_retries", "reason": "task asked for >4KB but launch failed"}),
+        }
+        with self.assertRaises(dogfood.MCPError):
+            dogfood.assert_size_cap_failure([too_broad])
+
     def test_prometheus_parser_distinguishes_families_and_samples(self):
         dogfood = load_script()
 
@@ -191,28 +198,60 @@ retry_count_per_node{dag_key="d",node_key="n"} 3
             ['retry_count_per_node{dag_key="d",node_key="n"} 3'],
         )
 
-    def test_metric_sample_validation_requires_current_dag_retry(self):
+    def test_metric_sample_validation_requires_explicit_retry_probe_dag(self):
         dogfood = load_script()
         families = dogfood.parse_prometheus_metrics("""
 dispatch_failed_total 1
+retry_count_per_node{dag_key="retry-probe",node_key="n1"} 3
+""")
+
+        dogfood.validate_metric_samples(families, "retry-probe")
+
+        current_dag_only = dogfood.parse_prometheus_metrics("""
+dispatch_failed_total 1
 retry_count_per_node{dag_key="test-dag",node_key="n1"} 3
 """)
-
-        dogfood.validate_metric_samples(families, "test-dag")
-
-        wrong_dag = dogfood.parse_prometheus_metrics("""
-dispatch_failed_total 1
-retry_count_per_node{dag_key="other",node_key="n1"} 3
-""")
         with self.assertRaises(dogfood.MCPError):
-            dogfood.validate_metric_samples(wrong_dag, "test-dag")
+            dogfood.validate_metric_samples(current_dag_only, "retry-probe")
 
         zero_dispatch = dogfood.parse_prometheus_metrics("""
 dispatch_failed_total 0
-retry_count_per_node{dag_key="test-dag",node_key="n1"} 3
+retry_count_per_node{dag_key="retry-probe",node_key="n1"} 3
 """)
         with self.assertRaises(dogfood.MCPError):
-            dogfood.validate_metric_samples(zero_dispatch, "test-dag")
+            dogfood.validate_metric_samples(zero_dispatch, "retry-probe")
+
+    def test_strict_metrics_requires_explicit_retry_probe_key(self):
+        dogfood = load_script()
+        server = start_test_http_server(self, FakeMetricsProxyHandler)
+        server.requests = 0
+        args = Args(
+            metrics_url="http://127.0.0.1:%d/metrics" % server.server_port,
+            allow_missing_metrics=False,
+            require_metric_samples=True,
+            metrics_family_only=False,
+            dag_key="test-dag",
+        )
+
+        with self.assertRaises(dogfood.MCPError):
+            dogfood.check_metrics(args)
+
+    def test_strict_metrics_accepts_explicit_retry_probe_key(self):
+        dogfood = load_script()
+        server = start_test_http_server(self, FakeMetricsProxyHandler)
+        server.requests = 0
+        args = Args(
+            metrics_url="http://127.0.0.1:%d/metrics" % server.server_port,
+            allow_missing_metrics=False,
+            require_metric_samples=True,
+            metrics_family_only=False,
+            dag_key="test-dag",
+            retry_metrics_dag_key="test-dag",
+        )
+
+        dogfood.check_metrics(args)
+
+        self.assertEqual(server.requests, 1)
 
     def test_metric_family_check_accepts_retry_collector_without_samples(self):
         dogfood = load_script()
@@ -232,9 +271,11 @@ retry_count_per_node_overflow_total 0
 
         strict = dogfood.parse_args(["--mode", "run"])
         family_only = dogfood.parse_args(["--mode", "run", "--metrics-family-only"])
+        forced_strict = dogfood.parse_args(["--mode", "run", "--metrics-family-only", "--require-metric-samples"])
 
         self.assertTrue(strict.require_metric_samples)
         self.assertFalse(family_only.require_metric_samples)
+        self.assertTrue(forced_strict.require_metric_samples)
 
     def test_negative_failure_reason_rejects_sharedfile_hint_without_size_cap(self):
         dogfood = load_script()
@@ -262,6 +303,31 @@ retry_count_per_node_overflow_total 0
                 expect_failed=False,
                 expected_node_keys=["only-one", "missing-node"],
             )
+
+    def test_wait_for_dag_accepts_partial_poll_before_full_terminal_success(self):
+        dogfood = load_script()
+        client = FakeDAGClient([
+            {"nodes": [{"node_key": "first", "status": "running"}]},
+            {"nodes": [
+                {"node_key": "first", "status": "done"},
+                {"node_key": "second", "status": "done"},
+            ]},
+        ])
+
+        dogfood.wait_for_dag(
+            client,
+            "dag-a",
+            timeout_sec=1,
+            poll_sec=0,
+            assignee="agent_m3",
+            expect_failed=False,
+            expected_node_keys=["first", "second"],
+        )
+
+        self.assertEqual(
+            [call[1]["name"] for call in client.calls],
+            ["task_get_dag", "task_get_dag"],
+        )
 
 
 class FakeClient:
