@@ -403,6 +403,9 @@ func (db *fakeTaskDAGDB) QueryRow(_ context.Context, sql string, args ...any) pg
 	case strings.Contains(sql, "FailTaskDagNodeIfNonTerminal"):
 		values, err := db.failNodeIfNonTerminal(args...)
 		return stubTaskDAGRow{values: values, err: err}
+	case strings.Contains(sql, "PatchTaskDagNodeConfigIfUnchanged"):
+		values, err := db.patchNodeConfigIfUnchanged(args...)
+		return stubTaskDAGRow{values: values, err: err}
 	case strings.Contains(sql, "ClaimTaskDagNodeOutputMaterialization"):
 		values, err := db.claimNodeOutputMaterialization(args...)
 		return stubTaskDAGRow{values: values, err: err}
@@ -889,6 +892,37 @@ func (db *fakeTaskDAGDB) updateNodeStatusFlexible(args ...any) ([]any, error) {
 	}
 	row.Status = status
 	row.Result = append([]byte(nil), result...)
+	row.UpdatedAt = timestamptzValue(db.now)
+	db.nodes[key] = row
+	return taskDagNodeValues(row), nil
+}
+
+func (db *fakeTaskDAGDB) patchNodeConfigIfUnchanged(args ...any) ([]any, error) {
+	if len(args) != 4 {
+		return nil, fmt.Errorf("patch config args len = %d, want 4", len(args))
+	}
+	dagKey, ok := args[0].(string)
+	if !ok {
+		return nil, fmt.Errorf("dag key arg = %T", args[0])
+	}
+	nodeKey, ok := args[1].(string)
+	if !ok {
+		return nil, fmt.Errorf("node key arg = %T", args[1])
+	}
+	config, ok := args[2].([]byte)
+	if !ok {
+		return nil, fmt.Errorf("config arg = %T", args[2])
+	}
+	previousConfig, ok := args[3].([]byte)
+	if !ok {
+		return nil, fmt.Errorf("previous config arg = %T", args[3])
+	}
+	key := dagNodeKey(dagKey, nodeKey)
+	row, ok := db.nodes[key]
+	if !ok || isFakeTerminalStatus(row.Status) || string(row.Config) != string(previousConfig) {
+		return nil, pgx.ErrNoRows
+	}
+	row.Config = append([]byte(nil), config...)
 	row.UpdatedAt = timestamptzValue(db.now)
 	db.nodes[key] = row
 	return taskDagNodeValues(row), nil

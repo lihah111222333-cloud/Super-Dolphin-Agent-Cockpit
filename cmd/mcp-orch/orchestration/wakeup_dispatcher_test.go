@@ -43,16 +43,19 @@ type dispatcherStubStore struct {
 
 	// Phase 3.5w: DAG-aware 决策需要的 stub 字段。默认 dagReply=nil 让
 	// resolveDAGRetryPolicy 退化到旧 RetryWakeup 路径，老用例不受影响。
-	dagReply      *taskdag.DAG
-	dagErr        error
-	nodesReply    []taskdag.Node
-	nodesErr      error
-	failNodeCalls []taskdag.FailNodeInput
-	failNodeReply *taskdag.FailNodeResult
-	failNodeErr   error
-	completeCalls []taskdag.CompleteNodeInput
-	completeReply *taskdag.CompleteNodeWithDownstreamResult
-	completeErr   error
+	dagReply         *taskdag.DAG
+	dagErr           error
+	nodesReply       []taskdag.Node
+	nodesErr         error
+	failNodeCalls    []taskdag.FailNodeInput
+	failNodeReply    *taskdag.FailNodeResult
+	failNodeErr      error
+	completeCalls    []taskdag.CompleteNodeInput
+	completeReply    *taskdag.CompleteNodeWithDownstreamResult
+	completeErr      error
+	patchConfigCalls []taskdag.NodeConfigPatchInput
+	patchConfigReply *taskdag.Node
+	patchConfigErr   error
 }
 
 func (s *dispatcherStubStore) GetDAG(_ context.Context, _ string) (*taskdag.DAG, error) {
@@ -83,6 +86,21 @@ func (s *dispatcherStubStore) CompleteNodeAndScheduleDownstream(_ context.Contex
 		return s.completeReply, nil
 	}
 	return &taskdag.CompleteNodeWithDownstreamResult{}, nil
+}
+
+func (s *dispatcherStubStore) PatchNodeConfigIfUnchanged(_ context.Context, input taskdag.NodeConfigPatchInput) (*taskdag.Node, error) {
+	s.patchConfigCalls = append(s.patchConfigCalls, input)
+	if s.patchConfigErr != nil {
+		return nil, s.patchConfigErr
+	}
+	if s.patchConfigReply != nil {
+		return s.patchConfigReply, nil
+	}
+	return &taskdag.Node{
+		DagKey:  input.DagKey,
+		NodeKey: input.NodeKey,
+		Config:  input.Config,
+	}, nil
 }
 
 func (s *dispatcherStubStore) ClaimDueWakeups(_ context.Context, input taskdag.ClaimDueWakeupsInput) ([]taskdag.Wakeup, error) {
@@ -1101,6 +1119,381 @@ func TestDispatcherAgentFailureClassesRetryUntilMaxAttempts(t *testing.T) {
 				t.Fatalf("failNodeCalls = %d, want 1 at max attempts", len(store.failNodeCalls))
 			}
 		})
+	}
+}
+
+func TestDispatcherSmartRetryCapabilityEscalatesModelAndRetries(t *testing.T) {
+	now := time.Date(2026, 5, 14, 10, 0, 0, 0, time.UTC)
+	store := newAgentFailureClassStore(t, "capability-escalate", 1, now)
+	store.nodesReply[0].Config = json.RawMessage(`{
+		"exec":{
+			"agent_key":"alpha",
+			"model":"sonnet",
+			"on_failure":{
+				"by_class":{"capability":"escalate_model"},
+				"max_attempts":2,
+				"escalation_chain":["sonnet","opus"]
+			}
+		},
+		"first_turn":"go"
+	}`)
+	d := newAgentFailureClassDispatcher(t, store, errors.New("model lacks capability for this task"))
+
+	if _, err := d.ProcessBatch(context.Background()); err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	if len(store.retryCalls) != 1 {
+		t.Fatalf("retryCalls = %d, want 1", len(store.retryCalls))
+	}
+	if len(store.patchConfigCalls) != 1 {
+		t.Fatalf("patchConfigCalls = %d, want 1", len(store.patchConfigCalls))
+	}
+	var cfg nodeexec.AgentNodeConfig
+	if err := json.Unmarshal(store.patchConfigCalls[0].Config, &cfg); err != nil {
+		t.Fatalf("unmarshal patched config: %v", err)
+	}
+	if cfg.Exec.Model != "opus" {
+		t.Fatalf("config exec.model = %q, want opus", cfg.Exec.Model)
+	}
+	if string(store.patchConfigCalls[0].PreviousConfig) != string(store.nodesReply[0].Config) {
+		t.Fatalf("PreviousConfig = %s, want original node config", store.patchConfigCalls[0].PreviousConfig)
+	}
+	if !strings.Contains(store.retryCalls[0].LastError, "strategy=escalate_model") ||
+		!strings.Contains(store.retryCalls[0].LastError, "model=opus") {
+		t.Fatalf("LastError missing escalate marker/model: %q", store.retryCalls[0].LastError)
+	}
+	if len(store.failCalls) != 0 || len(store.failNodeCalls) != 0 {
+		t.Fatalf("unexpected fail calls: wakeup=%d node=%d", len(store.failCalls), len(store.failNodeCalls))
+	}
+}
+
+func TestDispatcherSmartRetryValidationAppendsErrorAndRetries(t *testing.T) {
+	now := time.Date(2026, 5, 14, 10, 15, 0, 0, time.UTC)
+	store := newAgentFailureClassStore(t, "validation-append", 1, now)
+	store.nodesReply[0].Config = json.RawMessage(`{
+		"exec":{
+			"agent_key":"alpha",
+			"on_failure":{
+				"by_class":{"validation":"append_error"},
+				"max_attempts":2
+			}
+		},
+		"inputs":{"from_nodes":["missing-upstream"]},
+		"first_turn":"produce valid json"
+	}`)
+	d := newAgentFailureClassDispatcher(t, store, errors.New("launcher should not be called"))
+
+	if _, err := d.ProcessBatch(context.Background()); err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	if len(store.retryCalls) != 1 {
+		t.Fatalf("retryCalls = %d, want 1", len(store.retryCalls))
+	}
+	if len(store.patchConfigCalls) != 1 {
+		t.Fatalf("patchConfigCalls = %d, want 1", len(store.patchConfigCalls))
+	}
+	var cfg nodeexec.AgentNodeConfig
+	if err := json.Unmarshal(store.patchConfigCalls[0].Config, &cfg); err != nil {
+		t.Fatalf("unmarshal patched config: %v", err)
+	}
+	if !strings.Contains(cfg.FirstTurn, "produce valid json") ||
+		!strings.Contains(cfg.FirstTurn, "Previous validation error") ||
+		!strings.Contains(cfg.FirstTurn, "missing-upstream") {
+		t.Fatalf("first_turn missing original prompt or validation diagnostic:\n%s", cfg.FirstTurn)
+	}
+	if !strings.Contains(store.retryCalls[0].LastError, "strategy=append_error") {
+		t.Fatalf("LastError missing append_error marker: %q", store.retryCalls[0].LastError)
+	}
+	if len(store.failCalls) != 0 || len(store.failNodeCalls) != 0 {
+		t.Fatalf("unexpected fail calls: wakeup=%d node=%d", len(store.failCalls), len(store.failNodeCalls))
+	}
+}
+
+func TestDispatcherSmartRetryReplanSpawnsPlannerAgent(t *testing.T) {
+	now := time.Date(2026, 5, 14, 10, 30, 0, 0, time.UTC)
+	store := newAgentFailureClassStore(t, "replan", 1, now)
+	store.nodesReply[0].Config = json.RawMessage(`{
+		"exec":{
+			"agent_key":"alpha",
+			"on_failure":{
+				"default":"replan",
+				"max_attempts":2
+			}
+		},
+		"first_turn":"go"
+	}`)
+	routerLauncher := &stubAgentLauncher{err: errors.New("model lacks capability for this graph")}
+	agentExec := nodeexec.NewAgentExecutor(routerLauncher)
+	router := NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil)
+	plannerLauncher := &dispatcherStubLauncher{}
+	d, err := NewWakeupDispatcher(store, plannerLauncher, nil, WakeupDispatcherConfig{})
+	if err != nil {
+		t.Fatalf("NewWakeupDispatcher err = %v", err)
+	}
+	d.WithNodeRouter(router)
+
+	if _, err := d.ProcessBatch(context.Background()); err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	if len(plannerLauncher.calls) != 1 {
+		t.Fatalf("planner launcher calls = %d, want 1", len(plannerLauncher.calls))
+	}
+	call := plannerLauncher.calls[0]
+	if call.AgentKey != "dag_designer" {
+		t.Fatalf("planner AgentKey = %q, want dag_designer", call.AgentKey)
+	}
+	if !strings.Contains(call.Prompt, "dag-f14-replan") ||
+		!strings.Contains(call.Prompt, "agent-replan") ||
+		!strings.Contains(call.Prompt, "task_dag_apply_ops") {
+		t.Fatalf("planner prompt missing DAG/node/apply_ops context:\n%s", call.Prompt)
+	}
+	if len(store.markSentCalls) != 1 {
+		t.Fatalf("markSentCalls = %d, want 1 after planner spawn", len(store.markSentCalls))
+	}
+	if len(store.retryCalls) != 0 || len(store.failCalls) != 0 || len(store.failNodeCalls) != 0 {
+		t.Fatalf("unexpected retry/fail calls: retry=%d fail=%d failNode=%d",
+			len(store.retryCalls), len(store.failCalls), len(store.failNodeCalls))
+	}
+}
+
+func TestDispatcherSmartRetryPermanentFailureWithoutClassMappingDoesNotRetry(t *testing.T) {
+	now := time.Date(2026, 5, 14, 10, 45, 0, 0, time.UTC)
+	store := newAgentFailureClassStore(t, "hard-unmapped", 1, now)
+	store.nodesReply[0].Config = json.RawMessage(`{
+		"exec":{
+			"agent_key":"alpha",
+			"on_failure":{"max_attempts":2}
+		},
+		"first_turn":"go"
+	}`)
+	d, err := NewWakeupDispatcher(store, &dispatcherStubLauncher{}, nil, WakeupDispatcherConfig{})
+	if err != nil {
+		t.Fatalf("NewWakeupDispatcher err = %v", err)
+	}
+	w := store.claimReply[0]
+
+	d.handleFailedRouterOutcome(context.Background(), &w, extractFence(&w), nodeexec.NodeOutcome{
+		Status:       nodeexec.NodeStatusFailed,
+		FailureClass: nodeexec.FailureClassHard,
+		ErrorSummary: "disabled command card",
+	})
+
+	if len(store.retryCalls) != 0 {
+		t.Fatalf("retryCalls = %d, want 0 for unmapped hard failure", len(store.retryCalls))
+	}
+	if len(store.failCalls) != 1 || len(store.failNodeCalls) != 1 {
+		t.Fatalf("fail calls = wakeup %d node %d, want 1/1", len(store.failCalls), len(store.failNodeCalls))
+	}
+	if !store.failNodeCalls[0].FailFast {
+		t.Fatalf("FailFast = false, want DAG policy fail_fast for permanent hard failure")
+	}
+}
+
+func TestDispatcherSmartRetryPermanentFailureDoesNotUseDefaultReplan(t *testing.T) {
+	now := time.Date(2026, 5, 14, 10, 47, 0, 0, time.UTC)
+	tests := []struct {
+		name  string
+		class nodeexec.FailureClass
+	}{
+		{name: "hard", class: nodeexec.FailureClassHard},
+		{name: "needs_human", class: nodeexec.FailureClassNeedsHuman},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			store := newAgentFailureClassStore(t, "permanent-default-replan-"+tt.name, 1, now)
+			store.nodesReply[0].Config = json.RawMessage(`{
+				"exec":{
+					"agent_key":"alpha",
+					"on_failure":{"default":"replan","max_attempts":2}
+				},
+				"first_turn":"go"
+			}`)
+			plannerLauncher := &dispatcherStubLauncher{}
+			d, err := NewWakeupDispatcher(store, plannerLauncher, nil, WakeupDispatcherConfig{})
+			if err != nil {
+				t.Fatalf("NewWakeupDispatcher err = %v", err)
+			}
+			w := store.claimReply[0]
+
+			d.handleFailedRouterOutcome(context.Background(), &w, extractFence(&w), nodeexec.NodeOutcome{
+				Status:       nodeexec.NodeStatusFailed,
+				FailureClass: tt.class,
+				ErrorSummary: "requires operator decision",
+			})
+
+			if len(plannerLauncher.calls) != 0 {
+				t.Fatalf("planner calls = %d, want 0 for unmapped permanent failure", len(plannerLauncher.calls))
+			}
+			if len(store.retryCalls) != 0 || len(store.markSentCalls) != 0 {
+				t.Fatalf("unexpected retry/mark-sent calls: retry=%d markSent=%d", len(store.retryCalls), len(store.markSentCalls))
+			}
+			if len(store.failCalls) != 1 || len(store.failNodeCalls) != 1 {
+				t.Fatalf("fail calls = wakeup %d node %d, want 1/1", len(store.failCalls), len(store.failNodeCalls))
+			}
+		})
+	}
+}
+
+func TestDispatcherSmartRetryReplanRespectsMaxAttempts(t *testing.T) {
+	now := time.Date(2026, 5, 14, 10, 50, 0, 0, time.UTC)
+	store := newAgentFailureClassStore(t, "replan-max", 1, now)
+	store.nodesReply[0].Config = json.RawMessage(`{
+		"exec":{
+			"agent_key":"alpha",
+			"on_failure":{"default":"replan","max_attempts":1}
+		},
+		"first_turn":"go"
+	}`)
+	plannerLauncher := &dispatcherStubLauncher{}
+	d, err := NewWakeupDispatcher(store, plannerLauncher, nil, WakeupDispatcherConfig{})
+	if err != nil {
+		t.Fatalf("NewWakeupDispatcher err = %v", err)
+	}
+	w := store.claimReply[0]
+
+	d.handleFailedRouterOutcome(context.Background(), &w, extractFence(&w), nodeexec.NodeOutcome{
+		Status:       nodeexec.NodeStatusFailed,
+		FailureClass: nodeexec.FailureClassTransient,
+		ErrorSummary: "connection refused",
+	})
+
+	if len(plannerLauncher.calls) != 0 {
+		t.Fatalf("planner calls = %d, want 0 when max_attempts reached", len(plannerLauncher.calls))
+	}
+	if len(store.retryCalls) != 0 {
+		t.Fatalf("retryCalls = %d, want 0 when max_attempts reached", len(store.retryCalls))
+	}
+	if len(store.failCalls) != 1 || len(store.failNodeCalls) != 1 {
+		t.Fatalf("fail calls = wakeup %d node %d, want 1/1", len(store.failCalls), len(store.failNodeCalls))
+	}
+	if !store.failNodeCalls[0].FailFast {
+		t.Fatalf("FailFast = false, want DAG policy fail_fast on smart retry exhaustion")
+	}
+}
+
+func TestDispatcherSmartRetryUnsupportedStrategiesFailClosed(t *testing.T) {
+	now := time.Date(2026, 5, 14, 10, 55, 0, 0, time.UTC)
+	tests := []struct {
+		name     string
+		strategy nodeexec.OnFailureStrategy
+	}{
+		{name: "skip", strategy: nodeexec.OnFailureSkip},
+		{name: "ask_human", strategy: nodeexec.OnFailureAskHuman},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			store := newAgentFailureClassStore(t, tt.name, 1, now)
+			store.nodesReply[0].Config = json.RawMessage(`{
+				"exec":{
+					"agent_key":"alpha",
+					"on_failure":{"default":"` + string(tt.strategy) + `","max_attempts":2}
+				},
+				"first_turn":"go"
+			}`)
+			d, err := NewWakeupDispatcher(store, &dispatcherStubLauncher{}, nil, WakeupDispatcherConfig{})
+			if err != nil {
+				t.Fatalf("NewWakeupDispatcher err = %v", err)
+			}
+			w := store.claimReply[0]
+
+			d.handleFailedRouterOutcome(context.Background(), &w, extractFence(&w), nodeexec.NodeOutcome{
+				Status:       nodeexec.NodeStatusFailed,
+				FailureClass: nodeexec.FailureClassTransient,
+				ErrorSummary: "connection refused",
+			})
+
+			if len(store.retryCalls) != 0 {
+				t.Fatalf("retryCalls = %d, want 0 for unsupported strategy %s", len(store.retryCalls), tt.strategy)
+			}
+			if len(store.markSentCalls) != 0 {
+				t.Fatalf("markSentCalls = %d, want 0 for unsupported strategy %s", len(store.markSentCalls), tt.strategy)
+			}
+			if len(store.failCalls) != 1 || len(store.failNodeCalls) != 1 {
+				t.Fatalf("fail calls = wakeup %d node %d, want 1/1", len(store.failCalls), len(store.failNodeCalls))
+			}
+			if !strings.Contains(store.failCalls[0].LastError, "unsupported smart retry strategy") {
+				t.Fatalf("FailWakeup LastError = %q, want unsupported strategy reason", store.failCalls[0].LastError)
+			}
+			if !store.failNodeCalls[0].FailFast {
+				t.Fatalf("FailFast = false, want DAG policy fail_fast for unsupported strategy")
+			}
+		})
+	}
+}
+
+func TestDispatcherSmartRetryEscalationExhaustionUsesDAGFailFast(t *testing.T) {
+	now := time.Date(2026, 5, 14, 11, 0, 0, 0, time.UTC)
+	store := newAgentFailureClassStore(t, "escalate-exhausted", 1, now)
+	store.nodesReply[0].Config = json.RawMessage(`{
+		"exec":{
+			"agent_key":"alpha",
+			"model":"opus",
+			"on_failure":{
+				"by_class":{"capability":"escalate_model"},
+				"max_attempts":2,
+				"escalation_chain":["sonnet","opus"]
+			}
+		},
+		"first_turn":"go"
+	}`)
+	d, err := NewWakeupDispatcher(store, &dispatcherStubLauncher{}, nil, WakeupDispatcherConfig{})
+	if err != nil {
+		t.Fatalf("NewWakeupDispatcher err = %v", err)
+	}
+	w := store.claimReply[0]
+
+	d.handleFailedRouterOutcome(context.Background(), &w, extractFence(&w), nodeexec.NodeOutcome{
+		Status:       nodeexec.NodeStatusFailed,
+		FailureClass: nodeexec.FailureClassCapability,
+		ErrorSummary: "model lacks capability",
+	})
+
+	if len(store.retryCalls) != 0 {
+		t.Fatalf("retryCalls = %d, want 0 when escalation chain is exhausted", len(store.retryCalls))
+	}
+	if len(store.failCalls) != 1 || len(store.failNodeCalls) != 1 {
+		t.Fatalf("fail calls = wakeup %d node %d, want 1/1", len(store.failCalls), len(store.failNodeCalls))
+	}
+	if !store.failNodeCalls[0].FailFast {
+		t.Fatalf("FailFast = false, want DAG policy fail_fast when escalation is exhausted")
+	}
+}
+
+func TestDispatcherSmartRetryDoesNotPatchConfigWhenRetryFenceMisses(t *testing.T) {
+	now := time.Date(2026, 5, 14, 11, 5, 0, 0, time.UTC)
+	store := newAgentFailureClassStore(t, "retry-fence-miss", 1, now)
+	store.retryRows = -1
+	store.nodesReply[0].Config = json.RawMessage(`{
+		"exec":{
+			"agent_key":"alpha",
+			"model":"sonnet",
+			"on_failure":{
+				"by_class":{"capability":"escalate_model"},
+				"max_attempts":2,
+				"escalation_chain":["sonnet","opus"]
+			}
+		},
+		"first_turn":"go"
+	}`)
+	d, err := NewWakeupDispatcher(store, &dispatcherStubLauncher{}, nil, WakeupDispatcherConfig{})
+	if err != nil {
+		t.Fatalf("NewWakeupDispatcher err = %v", err)
+	}
+	w := store.claimReply[0]
+
+	d.handleFailedRouterOutcome(context.Background(), &w, extractFence(&w), nodeexec.NodeOutcome{
+		Status:       nodeexec.NodeStatusFailed,
+		FailureClass: nodeexec.FailureClassCapability,
+		ErrorSummary: "model lacks capability",
+	})
+
+	if len(store.retryCalls) != 1 {
+		t.Fatalf("retryCalls = %d, want 1", len(store.retryCalls))
+	}
+	if len(store.patchConfigCalls) != 0 {
+		t.Fatalf("patchConfigCalls = %d, want 0 when RetryWakeup writes 0 rows", len(store.patchConfigCalls))
 	}
 }
 

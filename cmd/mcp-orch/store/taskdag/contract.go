@@ -69,6 +69,13 @@ type NodeStatusStore interface {
 	UpdateNodeStatus(ctx context.Context, input NodeStatusUpdate) (*Node, error)
 }
 
+// NodeConfigPatchStore is the narrow port used by dispatcher smart retry. It
+// patches only task_dag_nodes.config under an old-config fence, avoiding the
+// full UpsertNode overwrite semantics used by ApplyOps.
+type NodeConfigPatchStore interface {
+	PatchNodeConfigIfUnchanged(ctx context.Context, input NodeConfigPatchInput) (*Node, error)
+}
+
 // DAGOpsStore 是 task_dag_apply_ops 业务（F4.1+）的窄接口。包含：
 //   - GetDAGVersionForUpdate: SELECT version FROM task_dags WHERE dag_key = ?
 //     FOR UPDATE — 拿当前 OCC 版本，并在事务内锁定行避免双写。
@@ -306,6 +313,13 @@ type CompleteNodeInput struct {
 	Result  json.RawMessage
 	DagKey  string
 	NodeKey string
+}
+
+type NodeConfigPatchInput struct {
+	DagKey         string
+	NodeKey        string
+	PreviousConfig json.RawMessage
+	Config         json.RawMessage
 }
 
 type OutputMaterializationClaimInput struct {
