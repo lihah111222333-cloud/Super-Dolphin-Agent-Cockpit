@@ -126,7 +126,7 @@ func (r *NodeExecutorRouter) invokeTerminalFailureHooksForWakeup(ctx context.Con
 	if dagKey == "" || nodeKey == "" {
 		return
 	}
-	target, err := r.lookupTargetNode(ctx, dagKey, nodeKey)
+	target, err := r.lookupTargetNode(ctx, dagKey, nodeKey, routeRunID(w))
 	if err != nil {
 		lifecycleLogger(r).Warn("node router: lookup failed for terminal failure hook",
 			"dag_key", dagKey, "node_key", nodeKey, "error", err)

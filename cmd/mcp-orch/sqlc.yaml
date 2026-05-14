@@ -22,6 +22,7 @@ sql:
       - "../../migrations/0081_dag_v2_dag_trigger_check.sql"
       - "../../migrations/0084_seed_dag_designer_prompt_zh.sql"
       - "../../migrations/0086_prompt_template_manually_edited.sql"
+      - "../../migrations/0089_dag_v2_multi_run_node_isolation.sql"
       # =====================================================================
       # HAND-MAINTAINED SQLC OUTPUT — read before running `make sqlc` or upgrading sqlc.
       # =====================================================================

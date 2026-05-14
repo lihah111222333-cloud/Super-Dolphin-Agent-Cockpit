@@ -55,10 +55,13 @@ func (s *store) RecordNodeSpawn(ctx context.Context, input RecordNodeSpawnInput)
 		// nil/empty; overwriting with empty would erase a valid prior value.
 		return nil, fmt.Errorf("record_node_spawn: thread_id required (refusing to overwrite with empty)")
 	}
+	if input.RunID <= 0 {
+		return nil, fmt.Errorf("record_node_spawn: run_id required")
+	}
 
 	var result RecordNodeSpawnResult
 	err := sqlc.WithTxOrReuse(ctx, s.q, func(txq *sqlc.Queries) error {
-		return recordNodeSpawnTx(ctx, txq, dagKey, nodeKey, threadID, &result)
+		return recordNodeSpawnTx(ctx, txq, dagKey, nodeKey, input.RunID, threadID, &result)
 	})
 	if err != nil {
 		return nil, wrapTaskDAGError(err, "record_node_spawn", "task_dag_node")
@@ -73,11 +76,12 @@ func (s *store) RecordNodeSpawn(ctx context.Context, input RecordNodeSpawnInput)
 // optionally append a node_spawn event on retry). Extracted as a free
 // function so the public RecordNodeSpawn stays under the cyclomatic
 // complexity guard (10).
-func recordNodeSpawnTx(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKey, threadID string, result *RecordNodeSpawnResult) error {
+func recordNodeSpawnTx(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKey string, runID int64, threadID string, result *RecordNodeSpawnResult) error {
 	row, err := txq.UpdateTaskDagNodeSpawningThread(ctx, sqlc.UpdateTaskDagNodeSpawningThreadParams{
 		SpawningThreadID: pgtype.Text{String: threadID, Valid: true},
 		DagKey:           dagKey,
 		NodeKey:          nodeKey,
+		RunID:            runID,
 	})
 	if err != nil {
 		return err
@@ -90,7 +94,7 @@ func recordNodeSpawnTx(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKey, 
 	if result.PreviousThreadID == "" || result.PreviousThreadID == threadID {
 		return nil
 	}
-	return appendNodeSpawnEvent(ctx, txq, dagKey, nodeKey, threadID, result)
+	return appendNodeSpawnEvent(ctx, txq, dagKey, nodeKey, runID, threadID, result)
 }
 
 // appendNodeSpawnEvent 封装「构造 payload + AppendTaskDagRunEvent + 软失败处理」三部分。
@@ -98,7 +102,7 @@ func recordNodeSpawnTx(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKey, 
 //
 // appendNodeSpawnEvent wraps the marshal + append + soft-miss path so
 // recordNodeSpawnTx stays linear and under the complexity ceiling.
-func appendNodeSpawnEvent(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKey, threadID string, result *RecordNodeSpawnResult) error {
+func appendNodeSpawnEvent(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKey string, runID int64, threadID string, result *RecordNodeSpawnResult) error {
 	payload, err := json.Marshal(nodeSpawnEvent{
 		Kind:         "node_spawn",
 		NodeKey:      nodeKey,
@@ -112,6 +116,7 @@ func appendNodeSpawnEvent(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKe
 	runKey, err := txq.AppendTaskDagRunEvent(ctx, sqlc.AppendTaskDagRunEventParams{
 		DagKey:  dagKey,
 		Column2: payload,
+		RunID:   runID,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -149,6 +154,7 @@ func nodeFromSpawnRow(row sqlc.UpdateTaskDagNodeSpawningThreadRow) *Node {
 		ID:               row.ID,
 		DagKey:           row.DagKey,
 		NodeKey:          row.NodeKey,
+		RunID:            sqlc.Int8Ptr(row.RunID),
 		Title:            row.Title,
 		NodeType:         row.NodeType,
 		AssignedTo:       row.AssignedTo,

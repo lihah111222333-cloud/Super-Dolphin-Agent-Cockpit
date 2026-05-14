@@ -42,7 +42,7 @@ WHERE id IN (
     LIMIT $3
     FOR UPDATE SKIP LOCKED
 )
-RETURNING id, dag_key, node_key, wakeup_kind, target_agent_id, prompt_payload, idempotency_key, status, attempt_count, next_retry_at, claimed_at, claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at, last_error, created_at, updated_at
+RETURNING id, dag_key, node_key, run_id, wakeup_kind, target_agent_id, prompt_payload, idempotency_key, status, attempt_count, next_retry_at, claimed_at, claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at, last_error, created_at, updated_at
 `
 
 type ClaimDueTaskDagWakeupsParams struct {
@@ -64,6 +64,7 @@ func (q *Queries) ClaimDueTaskDagWakeups(ctx context.Context, arg ClaimDueTaskDa
 			&i.ID,
 			&i.DagKey,
 			&i.NodeKey,
+			&i.RunID,
 			&i.WakeupKind,
 			&i.TargetAgentID,
 			&i.PromptPayload,
@@ -92,14 +93,15 @@ func (q *Queries) ClaimDueTaskDagWakeups(ctx context.Context, arg ClaimDueTaskDa
 }
 
 const enqueueTaskDagWakeup = `-- name: EnqueueTaskDagWakeup :execrows
-INSERT INTO task_dag_wakeups (dag_key, node_key, wakeup_kind, target_agent_id, prompt_payload, idempotency_key)
-VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+INSERT INTO task_dag_wakeups (dag_key, node_key, run_id, wakeup_kind, target_agent_id, prompt_payload, idempotency_key)
+VALUES ($1, $2, NULLIF($3::bigint, 0), $4, $5, $6::jsonb, $7)
 ON CONFLICT (idempotency_key) DO NOTHING
 `
 
 type EnqueueTaskDagWakeupParams struct {
 	DagKey         string `json:"dag_key"`
 	NodeKey        string `json:"node_key"`
+	RunID          int64  `json:"run_id"`
 	WakeupKind     string `json:"wakeup_kind"`
 	TargetAgentID  string `json:"target_agent_id"`
 	Column5        []byte `json:"column_5"`
@@ -110,6 +112,7 @@ func (q *Queries) EnqueueTaskDagWakeup(ctx context.Context, arg EnqueueTaskDagWa
 	result, err := q.db.Exec(ctx, enqueueTaskDagWakeup,
 		arg.DagKey,
 		arg.NodeKey,
+		arg.RunID,
 		arg.WakeupKind,
 		arg.TargetAgentID,
 		arg.Column5,

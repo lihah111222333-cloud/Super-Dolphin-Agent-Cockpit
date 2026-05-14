@@ -18,18 +18,20 @@ WITH old AS (
   SELECT spawning_thread_id AS previous_spawning_thread_id
   FROM task_dag_nodes
   WHERE dag_key = $2 AND node_key = $3
+    AND (($4::bigint = 0 AND run_id IS NULL) OR run_id = $4)
 ),
 updated AS (
   UPDATE task_dag_nodes
   SET spawning_thread_id = $1,
       updated_at = NOW()
   WHERE dag_key = $2 AND node_key = $3
-  RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on,
+    AND (($4::bigint = 0 AND run_id IS NULL) OR run_id = $4)
+  RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on,
             status, command_ref, config, result, started_at, finished_at,
             created_at, updated_at, active_turn_id, active_wakeup_id,
             last_event_at, spawning_thread_id
 )
-SELECT updated.id, updated.dag_key, updated.node_key, updated.title,
+SELECT updated.id, updated.dag_key, updated.node_key, updated.run_id, updated.title,
        updated.node_type, updated.assigned_to, updated.depends_on,
        updated.status, updated.command_ref, updated.config, updated.result,
        updated.started_at, updated.finished_at, updated.created_at,

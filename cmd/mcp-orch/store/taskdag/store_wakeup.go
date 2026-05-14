@@ -11,6 +11,7 @@ func (s *store) EnqueueWakeup(ctx context.Context, input EnqueueWakeupInput) (in
 		return s.q.EnqueueTaskDagWakeup(ctx, sqlc.EnqueueTaskDagWakeupParams{
 			DagKey:         input.DagKey,
 			NodeKey:        input.NodeKey,
+			RunID:          input.RunID,
 			WakeupKind:     input.WakeupKind,
 			TargetAgentID:  input.TargetAgentID,
 			Column5:        input.PromptPayload,
@@ -95,6 +96,7 @@ func (s *store) RetryWakeupWithNodeConfigPatch(ctx context.Context, input RetryW
 			NodeKey:        input.NodeConfig.NodeKey,
 			Config:         input.NodeConfig.Config,
 			PreviousConfig: input.NodeConfig.PreviousConfig,
+			RunID:          input.NodeConfig.RunID,
 		})
 		if patchErr != nil {
 			return wrapTaskDAGError(patchErr, "patch_config", "task_dag_node")
@@ -149,6 +151,7 @@ func fromWakeup(row sqlc.TaskDagWakeup) Wakeup {
 		ID:             row.ID,
 		DagKey:         row.DagKey,
 		NodeKey:        row.NodeKey,
+		RunID:          sqlc.Int8Ptr(row.RunID),
 		WakeupKind:     row.WakeupKind,
 		TargetAgentID:  row.TargetAgentID,
 		PromptPayload:  row.PromptPayload,

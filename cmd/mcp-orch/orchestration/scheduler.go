@@ -121,7 +121,10 @@ func (s *service) runStartDAGWithFallback(ctx context.Context, dagKey, runKey st
 		if err != nil {
 			return fmt.Errorf("CreateRun: %w", err)
 		}
-		if _, err := tx.PromoteRootNodesToReady(ctx, dagKey); err != nil {
+		if _, err := tx.CloneNodesForRun(ctx, dagKey, run.ID); err != nil {
+			return fmt.Errorf("CloneNodesForRun: %w", err)
+		}
+		if _, err := tx.PromoteRootNodesToReady(ctx, dagKey, run.ID); err != nil {
 			return fmt.Errorf("PromoteRootNodesToReady: %w", err)
 		}
 		resp = StartDAGResponse{RunKey: run.RunKey, Version: run.DagVersionSnapshot}

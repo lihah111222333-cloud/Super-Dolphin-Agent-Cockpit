@@ -380,7 +380,7 @@ func TestAgentExecutor_Inputs_PreservesF15_ThreadIDWriteback(t *testing.T) {
 	node := makeAgentNode(t, cfg)
 
 	prev := map[string]json.RawMessage{"node-a": json.RawMessage(`{"ok":true}`)}
-	out, err := exec.Execute(context.Background(), node, RunContext{DagKey: "dag-x", NodeKey: "node-b", PrevResults: prev})
+	out, err := exec.Execute(context.Background(), node, RunContext{DagKey: "dag-x", NodeKey: "node-b", RunID: 3003, PrevResults: prev})
 	if err != nil {
 		t.Fatalf("Execute() = %v", err)
 	}
@@ -392,6 +392,9 @@ func TestAgentExecutor_Inputs_PreservesF15_ThreadIDWriteback(t *testing.T) {
 	}
 	if recorder.lastThreadID != "thread-1" {
 		t.Fatalf("recorder.lastThreadID = %q, want thread-1", recorder.lastThreadID)
+	}
+	if recorder.lastRunID != 3003 {
+		t.Fatalf("recorder.lastRunID = %d, want 3003", recorder.lastRunID)
 	}
 }
 

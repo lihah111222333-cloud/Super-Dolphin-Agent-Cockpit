@@ -75,6 +75,7 @@ func (s *store) PatchNodeConfigIfUnchanged(ctx context.Context, input NodeConfig
 			NodeKey:        input.NodeKey,
 			Config:         input.Config,
 			PreviousConfig: input.PreviousConfig,
+			RunID:          input.RunID,
 		})
 	}, "patch_config", "task_dag_node", fromNode)
 }
@@ -97,6 +98,7 @@ func (s *store) UpdateNodeStatus(ctx context.Context, input NodeStatusUpdate) (*
 			Column2: input.Result,
 			DagKey:  input.DagKey,
 			NodeKey: input.NodeKey,
+			RunID:   input.RunID,
 		})
 	}, "update_status")
 }
@@ -105,6 +107,26 @@ func (s *store) ListNodes(ctx context.Context, dagKey string) ([]Node, error) {
 	return queryMany(func() ([]sqlc.TaskDagNode, error) {
 		return s.q.ListTaskDagNodes(ctx, dagKey)
 	}, "list", "task_dag_node", fromNode)
+}
+
+func (s *store) AssignNode(ctx context.Context, input AssignNodeInput) (*Node, error) {
+	return queryOne(func() (sqlc.TaskDagNode, error) {
+		return s.q.AssignTaskDagNode(ctx, sqlc.AssignTaskDagNodeParams{
+			AssignedTo: input.AssignedTo,
+			DagKey:     input.DagKey,
+			NodeKey:    input.NodeKey,
+			RunID:      input.RunID,
+		})
+	}, "assign", "task_dag_node", fromNode)
+}
+
+func (s *store) ListRunNodes(ctx context.Context, dagKey string, runID int64) ([]Node, error) {
+	return queryMany(func() ([]sqlc.TaskDagNode, error) {
+		return s.q.ListTaskDagRunNodes(ctx, sqlc.ListTaskDagRunNodesParams{
+			DagKey: dagKey,
+			RunID:  runID,
+		})
+	}, "list_run", "task_dag_node", fromNode)
 }
 
 // LookupNodesBySpawningThread reverses task_dag_nodes.spawning_thread_id back
@@ -154,6 +176,7 @@ func (s *store) BindRunningNodeTurn(ctx context.Context, input BindRunningNodeTu
 			DagKey:         input.DagKey,
 			NodeKey:        input.NodeKey,
 			ActiveWakeupID: int64Ptr(input.WakeupID),
+			RunID:          input.RunID,
 		})
 		if err != nil {
 			return wrapTaskDAGError(err, "bind_running_turn", "task_dag_node")
@@ -174,6 +197,7 @@ func (s *store) TouchRunningNodeEvent(ctx context.Context, input TouchRunningNod
 			DagKey:       input.DagKey,
 			NodeKey:      input.NodeKey,
 			ActiveTurnID: stringPtr(input.TurnID),
+			RunID:        input.RunID,
 		})
 	}, "touch_running_event", "task_dag_node", fromNode)
 }
@@ -186,6 +210,7 @@ func (s *store) UpdateRunningNodeStatus(ctx context.Context, input RunningNodeSt
 			ActiveWakeupID: int64Ptr(input.WakeupID),
 			DagKey:         input.DagKey,
 			NodeKey:        input.NodeKey,
+			RunID:          input.RunID,
 		})
 	}, "update_running_status")
 }
@@ -197,6 +222,7 @@ func (s *store) UpdateAwaitingVerifyNodeStatus(ctx context.Context, input Awaiti
 			Column2: input.Result,
 			DagKey:  input.DagKey,
 			NodeKey: input.NodeKey,
+			RunID:   input.RunID,
 		})
 	}, "update_awaiting_verify_status")
 }
@@ -208,6 +234,7 @@ func (s *store) CompleteNode(ctx context.Context, input CompleteNodeInput) (*Nod
 			Column2: input.Result,
 			DagKey:  input.DagKey,
 			NodeKey: input.NodeKey,
+			RunID:   input.RunID,
 		})
 	}, "complete")
 }
@@ -219,6 +246,7 @@ func (s *store) UpdateNodeStatusFlexible(ctx context.Context, input FlexibleNode
 			Column2: input.Result,
 			DagKey:  input.DagKey,
 			NodeKey: input.NodeKey,
+			RunID:   input.RunID,
 		})
 	}, "update_status_flexible")
 }
@@ -229,6 +257,7 @@ func (s *store) ClaimNodeOutputMaterialization(ctx context.Context, input Output
 			Result:  input.Result,
 			DagKey:  input.DagKey,
 			NodeKey: input.NodeKey,
+			RunID:   input.RunID,
 		})
 	}, "claim_output_materialization")
 }
@@ -262,6 +291,7 @@ func fromNode(row sqlc.TaskDagNode) Node {
 		ID:               row.ID,
 		DagKey:           row.DagKey,
 		NodeKey:          row.NodeKey,
+		RunID:            sqlc.Int8Ptr(row.RunID),
 		Title:            row.Title,
 		NodeType:         row.NodeType,
 		AssignedTo:       row.AssignedTo,

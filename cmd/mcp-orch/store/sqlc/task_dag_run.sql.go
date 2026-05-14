@@ -162,16 +162,49 @@ UPDATE task_dag_nodes
 SET status = 'ready',
     updated_at = NOW()
 WHERE dag_key = $1
+  AND run_id = $2
   AND status = 'pending'
   AND jsonb_array_length(depends_on) = 0
 `
+
+const cloneTaskDagNodesForRun = `-- name: CloneTaskDagNodesForRun :execrows
+INSERT INTO task_dag_nodes (
+  dag_key, node_key, title, node_type, assigned_to, depends_on,
+  status, command_ref, config, result, run_id, reads, writes
+)
+SELECT
+  n.dag_key, n.node_key, n.title, n.node_type, n.assigned_to, n.depends_on,
+  'pending', n.command_ref, n.config, NULL, $2, n.reads, n.writes
+FROM task_dag_nodes n
+WHERE n.dag_key = $1
+  AND n.run_id IS NULL
+ON CONFLICT (dag_key, run_id, node_key) WHERE run_id IS NOT NULL DO NOTHING
+`
+
+type CloneTaskDagNodesForRunParams struct {
+	DagKey string `json:"dag_key"`
+	RunID  int64  `json:"run_id"`
+}
+
+func (q *Queries) CloneTaskDagNodesForRun(ctx context.Context, arg CloneTaskDagNodesForRunParams) (int64, error) {
+	result, err := q.db.Exec(ctx, cloneTaskDagNodesForRun, arg.DagKey, arg.RunID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
 
 // StartDAG 在新 run 创建后调用：把 dag_key 下所有 depends_on=[] 且 status='pending'
 // 的根节点提升为 'ready'。返回受影响行数（service 层用于断言至少一个根节点被
 // 提升，否则视为 DAG 无可执行起点）。
 // 状态机：pending → ready 是合法转移（见 nodeexec/types.go ValidTransitions）。
-func (q *Queries) PromoteRootNodesToReady(ctx context.Context, dagKey string) (int64, error) {
-	result, err := q.db.Exec(ctx, promoteRootNodesToReady, dagKey)
+type PromoteRootNodesToReadyParams struct {
+	DagKey string `json:"dag_key"`
+	RunID  int64  `json:"run_id"`
+}
+
+func (q *Queries) PromoteRootNodesToReady(ctx context.Context, arg PromoteRootNodesToReadyParams) (int64, error) {
+	result, err := q.db.Exec(ctx, promoteRootNodesToReady, arg.DagKey, arg.RunID)
 	if err != nil {
 		return 0, err
 	}
@@ -195,6 +228,7 @@ WITH node_counts AS (
     COUNT(*)                                     AS total
   FROM task_dag_nodes
   WHERE dag_key = $1
+    AND run_id = $2
 ),
 final AS (
   SELECT CASE
@@ -220,6 +254,7 @@ final_node AS (
   FROM task_dag_nodes n
   JOIN dag_meta dm ON dm.final_node_key = n.node_key
   WHERE n.dag_key = $1
+    AND n.run_id = $2
   LIMIT 1
 ),
 final_output AS (
@@ -280,7 +315,8 @@ SET status      = (SELECT final_status FROM final),
       )
       ELSE r.metadata
     END
-WHERE r.dag_key = $1
+WHERE r.id = $2
+  AND r.dag_key = $1
   AND r.status = 'running'
   AND (SELECT final_status FROM final) IS NOT NULL
 RETURNING r.run_key, r.status
@@ -302,8 +338,13 @@ type FinalizeTaskDagRunIfAllNodesTerminalRow struct {
 // means the statement was a no-op (either some nodes are still non-terminal
 // or no 'running' run exists for dag_key). A one-element slice carries the
 // (run_key, status) of the row that was just flipped to its terminal status.
-func (q *Queries) FinalizeTaskDagRunIfAllNodesTerminal(ctx context.Context, dagKey string) ([]FinalizeTaskDagRunIfAllNodesTerminalRow, error) {
-	rows, err := q.db.Query(ctx, finalizeTaskDagRunIfAllNodesTerminal, dagKey)
+type FinalizeTaskDagRunIfAllNodesTerminalParams struct {
+	DagKey string `json:"dag_key"`
+	RunID  int64  `json:"run_id"`
+}
+
+func (q *Queries) FinalizeTaskDagRunIfAllNodesTerminal(ctx context.Context, arg FinalizeTaskDagRunIfAllNodesTerminalParams) ([]FinalizeTaskDagRunIfAllNodesTerminalRow, error) {
+	rows, err := q.db.Query(ctx, finalizeTaskDagRunIfAllNodesTerminal, arg.DagKey, arg.RunID)
 	if err != nil {
 		return nil, err
 	}
@@ -334,7 +375,9 @@ SET events     = CASE
         ), '[]'::jsonb)
     END,
     updated_at = NOW()
-WHERE dag_key = $1 AND status = 'running'
+WHERE dag_key = $1
+  AND status = 'running'
+  AND id = $3
 RETURNING run_key
 `
 
@@ -347,14 +390,15 @@ RETURNING run_key
 type AppendTaskDagRunEventParams struct {
 	DagKey  string `json:"dag_key"`
 	Column2 []byte `json:"column_2"`
+	RunID   int64  `json:"run_id"`
 }
 
 // AppendTaskDagRunEvent appends a JSON event to the running run's events
-// jsonb array. Returns pgx.ErrNoRows when there is no running run for the
-// dag_key (callers may treat that as a soft miss; the store layer wraps with
-// platformdb.IsNotFound).
+// jsonb array. Returns pgx.ErrNoRows when the targeted run is missing or no
+// longer running (callers may treat that as a soft miss; the store layer wraps
+// with platformdb.IsNotFound).
 func (q *Queries) AppendTaskDagRunEvent(ctx context.Context, arg AppendTaskDagRunEventParams) (string, error) {
-	row := q.db.QueryRow(ctx, appendTaskDagRunEvent, arg.DagKey, arg.Column2)
+	row := q.db.QueryRow(ctx, appendTaskDagRunEvent, arg.DagKey, arg.Column2, arg.RunID)
 	var runKey string
 	err := row.Scan(&runKey)
 	return runKey, err
