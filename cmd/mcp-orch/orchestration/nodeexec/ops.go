@@ -34,7 +34,7 @@ type Op interface {
 type DAGPatch struct {
 	Title       *string `json:"title,omitempty"`
 	Description *string `json:"description,omitempty"`
-	Trigger     *string `json:"trigger,omitempty"`   // manual | auto | scheduled
+	Trigger     *string `json:"trigger,omitempty"`   // manual | auto | scheduled | external
 	CronExpr    *string `json:"cron_expr,omitempty"` // 仅 trigger=scheduled 时有意义
 	OwnerID     *string `json:"owner_id,omitempty"`
 }
