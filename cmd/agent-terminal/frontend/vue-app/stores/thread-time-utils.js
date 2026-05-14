@@ -75,8 +75,11 @@ export function parseThreadCreatedAtFromID(threadId) {
   const minEpochMs = Date.UTC(2000, 0, 1);
   const maxEpochMs = Date.UTC(2100, 0, 1);
   for (const chunk of chunks) {
-    if (chunk.length < 10 || chunk.length > 16) continue;
-    const ts = parseEpochMillis(chunk);
+    if (chunk.length < 10 || chunk.length > 19) continue;
+    // chunk.slice(0, 13) collapses any precision-richer-than-ms encoding
+    // (16-digit μs, 19-digit ns from Go's time.Now().UnixNano()) back to
+    // milliseconds. 10/13-digit chunks are unchanged by the slice.
+    const ts = parseEpochMillis(chunk.slice(0, 13));
     if (ts < minEpochMs || ts > maxEpochMs) continue;
     return ts;
   }

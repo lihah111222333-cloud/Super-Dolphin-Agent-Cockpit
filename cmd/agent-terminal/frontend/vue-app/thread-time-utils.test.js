@@ -45,4 +45,17 @@ describe('thread-time-utils', () => {
     expect(parseThreadCreatedAtFromID('thread-1710028800000-worker')).toBe(1710028800000);
     expect(parseThreadCreatedAtFromID('thread-without-timestamp')).toBe(0);
   });
+
+  it('parses 19-digit nanosecond agent ids (Go time.Now().UnixNano())', () => {
+    // idgen.NewAgentID() yields agent_<19-digit ns>; previously rejected by
+    // the 16-digit upper bound which made every fresh thread sort to the
+    // bottom of the chat rail.
+    expect(parseThreadCreatedAtFromID('agent_1778748074684743000')).toBe(1778748074684);
+    // child agent suffix (`-<seq>`) must not break parsing of the parent ns.
+    expect(parseThreadCreatedAtFromID('agent_1778748074684743000-1')).toBe(1778748074684);
+    // legacy codex/idgen NewID format: agent_<13-digit ms>_<hex> still works.
+    expect(parseThreadCreatedAtFromID('agent_1774720455588_04820e21fd876e3b')).toBe(1774720455588);
+    // 20-digit garbage is still rejected.
+    expect(parseThreadCreatedAtFromID('thread-99999999999999999999')).toBe(0);
+  });
 });
