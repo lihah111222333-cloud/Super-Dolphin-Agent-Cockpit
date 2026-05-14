@@ -81,6 +81,22 @@ function normalizeFinalOutputRefs(value) {
   }).filter(Boolean);
 }
 
+function normalizeRetentionItems(value) {
+  const rawItems = Array.isArray(value) ? value : ensureArray(value?.items);
+  return rawItems.map((item) => {
+    if (!item || typeof item !== 'object') return null;
+    const path = (item.path || '').toString().trim();
+    if (!path) return null;
+    return {
+      path,
+      protected: Boolean(item.protected),
+      cleanupCandidate: Boolean(item.cleanupCandidate),
+      reason: (item.reason || '').toString().trim(),
+      finalOutput: item.finalOutput || item.final_output || null,
+    };
+  }).filter(Boolean);
+}
+
 function useFinalOutputMarkers(props) {
   const showFinalOnly = ref(false);
   const currentFilePaths = computed(() => new Set(ensureArray(props.files).map((file) => (file?.path || '').toString().trim()).filter(Boolean)));
@@ -115,6 +131,36 @@ function useFinalOutputMarkers(props) {
   return { showFinalOnly, finalOutputCount, finalOutputRefFor, isFinalOutputFile, toggleFinalOnly };
 }
 
+function useSharedFileRetention(props, finalOutput) {
+  const protectedByPath = computed(() => {
+    const items = normalizeRetentionItems(props.sharedFileRetention);
+    return new Map(items.filter((item) => item.protected).map((item) => [item.path, item]));
+  });
+
+  function deletionProtectionFor(file) {
+    const path = (file?.path || '').toString().trim();
+    if (!path) return null;
+    const retentionItem = protectedByPath.value.get(path);
+    if (retentionItem) return retentionItem;
+    const finalRef = finalOutput.finalOutputRefFor(file);
+    if (finalRef) return { path, protected: true, reason: 'final_output', finalOutput: finalRef };
+    return null;
+  }
+
+  function isDeletionProtected(file) {
+    return Boolean(deletionProtectionFor(file));
+  }
+
+  function deletionProtectionLabel(file) {
+    const protection = deletionProtectionFor(file);
+    if (!protection) return '';
+    if (protection.reason === 'final_output') return '最终产物由 DAG run 引用，不能直接删除。';
+    return '该共享文件受保留策略保护。';
+  }
+
+  return { deletionProtectionFor, isDeletionProtected, deletionProtectionLabel };
+}
+
 function emptyPromoteForm() {
   return {
     sharedPath: '',
@@ -144,12 +190,18 @@ async function savePreference(key, value) {
   }
 }
 
+function emitStartInheritedChat(emit, file) {
+  const path = (file?.path || '').toString().trim();
+  if (path) emit('start-inherited-chat', { sharedFilePath: path });
+}
+
 export const SharedFilesPage = {
   name: 'SharedFilesPage',
   props: {
     files: { type: Array, default: () => [] },
     cwd: { type: String, default: '' },
     finalOutputRefs: { type: Array, default: () => [] },
+    sharedFileRetention: { type: Object, default: () => ({}) },
   },
   emits: ['open-memory-center', 'refresh', 'start-inherited-chat'],
   setup(props, { emit }) {
@@ -164,6 +216,7 @@ export const SharedFilesPage = {
     const promoteForm = reactive(emptyPromoteForm());
     const searchText = ref('');
     const finalOutput = useFinalOutputMarkers(props);
+    const retention = useSharedFileRetention(props, finalOutput);
     const guideCollapsed = ref(false);
     const sortMode = ref('updated-desc');
     const refreshing = ref(false);
@@ -299,6 +352,10 @@ export const SharedFilesPage = {
     function askDelete(file) {
       const target = (file?.path || '').toString().trim();
       if (!target || deletingPath.value) return;
+      if (retention.isDeletionProtected(file)) {
+        setNotice('error', `最终产物不能直接删除：${target}`);
+        return;
+      }
       confirmDeletePath.value = target;
     }
 
@@ -399,6 +456,8 @@ export const SharedFilesPage = {
       formatBytes,
       finalOutputRefFor: finalOutput.finalOutputRefFor,
       isFinalOutputFile: finalOutput.isFinalOutputFile,
+      isDeletionProtected: retention.isDeletionProtected,
+      deletionProtectionLabel: retention.deletionProtectionLabel,
       openViewer,
       closeViewer,
       openPromote,
@@ -414,12 +473,7 @@ export const SharedFilesPage = {
       changeSort,
       handleRefresh,
       openMemoryCenter: () => emit('open-memory-center'),
-      // Phase 2: 跨页面「用此文件新建对话」
-      startInheritedChat: (file) => {
-        const path = (file?.path || '').toString().trim();
-        if (!path) return;
-        emit('start-inherited-chat', { sharedFilePath: path });
-      },
+      startInheritedChat: (file) => emitStartInheritedChat(emit, file),
     };
   },
   template: `
@@ -614,9 +668,10 @@ export const SharedFilesPage = {
               <button
                 class="btn btn-danger btn-xs"
                 :data-testid="'shared-files-delete-' + idx"
-                :disabled="deletingPath === item.path"
+                :disabled="deletingPath === item.path || isDeletionProtected(item)"
+                :title="deletionProtectionLabel(item)"
                 @click="askDelete(item)"
-              >{{ deletingPath === item.path ? '删除中...' : '删除' }}</button>
+              >{{ isDeletionProtected(item) ? '已保护' : (deletingPath === item.path ? '删除中...' : '删除') }}</button>
               <button
                 class="btn btn-ghost btn-xs"
                 :data-testid="'shared-files-fork-' + idx"

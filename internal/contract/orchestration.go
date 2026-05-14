@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
@@ -335,6 +336,57 @@ type Run struct {
 	Metadata           json.RawMessage `json:"metadata,omitempty"`
 	CreatedAt          time.Time       `json:"created_at"`
 	UpdatedAt          time.Time       `json:"updated_at"`
+}
+
+type FinalOutputFileRef struct {
+	Path          string
+	SourceNodeKey string
+}
+
+type finalOutputMetadataEnvelope struct {
+	FinalOutput json.RawMessage `json:"final_output"`
+}
+
+type finalOutputFilePayload struct {
+	Kind          string `json:"kind"`
+	Path          string `json:"path"`
+	SourceNodeKey string `json:"source_node_key"`
+	SharedFile    *struct {
+		Path string `json:"path"`
+	} `json:"sharedfile"`
+}
+
+func FinalOutputFileFromRunMetadata(metadataJSON json.RawMessage) (FinalOutputFileRef, bool) {
+	if isEmptyJSON(metadataJSON) {
+		return FinalOutputFileRef{}, false
+	}
+	var metadata finalOutputMetadataEnvelope
+	if err := json.Unmarshal(metadataJSON, &metadata); err != nil || isEmptyJSON(metadata.FinalOutput) {
+		return FinalOutputFileRef{}, false
+	}
+	var output finalOutputFilePayload
+	if err := json.Unmarshal(metadata.FinalOutput, &output); err != nil {
+		return FinalOutputFileRef{}, false
+	}
+	if kind := strings.TrimSpace(output.Kind); kind != "" && kind != "file" {
+		return FinalOutputFileRef{}, false
+	}
+	path := strings.TrimSpace(output.Path)
+	if path == "" && output.SharedFile != nil {
+		path = strings.TrimSpace(output.SharedFile.Path)
+	}
+	if path == "" {
+		return FinalOutputFileRef{}, false
+	}
+	return FinalOutputFileRef{
+		Path:          path,
+		SourceNodeKey: strings.TrimSpace(output.SourceNodeKey),
+	}, true
+}
+
+func isEmptyJSON(raw json.RawMessage) bool {
+	trimmed := strings.TrimSpace(string(raw))
+	return trimmed == "" || trimmed == "null"
 }
 
 type DAGSummary struct {
