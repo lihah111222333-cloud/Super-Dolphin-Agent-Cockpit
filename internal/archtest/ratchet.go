@@ -33,12 +33,12 @@ func (r CheckResult) OK() bool {
 	return len(r.Violations) == 0 && len(r.NewFileViolations) == 0
 }
 
-// RatchetCheck 对比当前指标与 frozen baseline，返回所有恶化方向的违规。
-// 只报告 cur > frozen 的字段（恶化）。cur <= frozen 视为改善或持平，不报违规。
+// RatchetCheck 对比当前指标与 frozen baseline，返回违规字段的恶化。
+// 只报告 cur > frozen 且当前值已越过对应守卫阈值的字段；绿色指标增长不报违规。
 func RatchetCheck(path string, cur, frozen FileMetrics) []RatchetViolation {
 	var vs []RatchetViolation
 	check := func(field string, curV, frozenV int) {
-		if curV > frozenV {
+		if curV > frozenV && isRatchetIntViolation(path, field, curV) {
 			vs = append(vs, RatchetViolation{File: path, Field: field, Frozen: frozenV, Current: curV})
 		}
 	}
@@ -64,6 +64,55 @@ func RatchetCheck(path string, cur, frozen FileMetrics) []RatchetViolation {
 		vs = append(vs, RatchetViolation{File: path, Field: "has_init", Frozen: 0, Current: 1})
 	}
 	return vs
+}
+
+func isRatchetIntViolation(path, field string, value int) bool {
+	if limit, ok := ratchetHardLimit(path, field); ok {
+		return value > limit
+	}
+	return isZeroThresholdRatchetField(field) && value > 0
+}
+
+func shouldTightenRatchetField(path, field string, curV, frozenV int) bool {
+	if curV >= frozenV {
+		return false
+	}
+	if isZeroThresholdRatchetField(field) {
+		return true
+	}
+	if limit, ok := ratchetHardLimit(path, field); ok {
+		return curV > limit || frozenV > limit
+	}
+	return false
+}
+
+func ratchetHardLimit(path, field string) (int, bool) {
+	switch field {
+	case "lines":
+		if path == "" {
+			return MaxFileLines, true
+		}
+		return fileLineLimit(path, isFactoryFile(path)), true
+	case "max_func_len":
+		return MaxFuncLines, true
+	case "max_nesting":
+		return MaxNestingDepth, true
+	case "max_complexity":
+		return MaxCCComplexity, true
+	case "max_underscore":
+		return MaxUnderscores, true
+	default:
+		return 0, false
+	}
+}
+
+func isZeroThresholdRatchetField(field string) bool {
+	switch field {
+	case "global_vars", "panic_count", "naked_returns", "empty_funcs", "todo_count", "naked_goroutines":
+		return true
+	default:
+		return false
+	}
 }
 
 // HasViolation 判断 metrics 是否超过任一硬阈值。

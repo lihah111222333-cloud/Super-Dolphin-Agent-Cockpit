@@ -32,7 +32,7 @@ func ShrinkBaseline(oldBL Baseline, fileSet map[string]bool, measure func(string
 			stats.Graduated++
 			continue
 		}
-		tight, changed := TightenMetrics(cur, frozen)
+		tight, changed := TightenMetricsForPath(path, cur, frozen)
 		if changed {
 			stats.Shrunk++
 		}
@@ -41,35 +41,41 @@ func ShrinkBaseline(oldBL Baseline, fileSet map[string]bool, measure func(string
 	return newBL, stats
 }
 
-// TightenMetrics 按「只缩不放宽」原则合并 cur 与 frozen：
-// 各数值字段独立取 min；HasInit 仅允许 true → false（删除 init() 视为收紧）。
+// TightenMetrics 按「只缩不放宽」原则合并 cur 与 frozen。
+// 只有仍属于守卫债务的数值字段会取 min；HasInit 仅允许 true → false（删除 init() 视为收紧）。
 // 任何「恶化方向」（cur > frozen）都保持 frozen 原值不变，由 RatchetCheck 报错。
 func TightenMetrics(cur, frozen FileMetrics) (FileMetrics, bool) {
+	return TightenMetricsForPath("", cur, frozen)
+}
+
+// TightenMetricsForPath 按单文件实际阈值收紧 baseline。
+// 未越过守卫阈值的大小/复杂度字段不参与收缩，避免绿色指标制造 baseline churn。
+func TightenMetricsForPath(path string, cur, frozen FileMetrics) (FileMetrics, bool) {
 	out := frozen
 	changed := false
-	tighten := func(curV int, outV *int) {
-		if curV < *outV {
+	tighten := func(field string, curV int, outV *int) {
+		if shouldTightenRatchetField(path, field, curV, *outV) {
 			*outV = curV
 			changed = true
 		}
 	}
 	// Size
-	tighten(cur.Lines, &out.Lines)
-	tighten(cur.MaxFuncLen, &out.MaxFuncLen)
+	tighten("lines", cur.Lines, &out.Lines)
+	tighten("max_func_len", cur.MaxFuncLen, &out.MaxFuncLen)
 	// Complexity
-	tighten(cur.MaxNesting, &out.MaxNesting)
-	tighten(cur.MaxComplexity, &out.MaxComplexity)
-	tighten(cur.MaxParams, &out.MaxParams)
-	tighten(cur.MaxReturns, &out.MaxReturns)
-	tighten(cur.MaxUnderscore, &out.MaxUnderscore)
+	tighten("max_nesting", cur.MaxNesting, &out.MaxNesting)
+	tighten("max_complexity", cur.MaxComplexity, &out.MaxComplexity)
+	tighten("max_params", cur.MaxParams, &out.MaxParams)
+	tighten("max_returns", cur.MaxReturns, &out.MaxReturns)
+	tighten("max_underscore", cur.MaxUnderscore, &out.MaxUnderscore)
 	// Quality
-	tighten(cur.GlobalVars, &out.GlobalVars)
-	tighten(cur.PanicCount, &out.PanicCount)
-	tighten(cur.NakedReturns, &out.NakedReturns)
-	tighten(cur.EmptyFuncs, &out.EmptyFuncs)
-	tighten(cur.TodoCount, &out.TodoCount)
-	tighten(cur.MaxStructFields, &out.MaxStructFields)
-	tighten(cur.NakedGoroutines, &out.NakedGoroutines)
+	tighten("global_vars", cur.GlobalVars, &out.GlobalVars)
+	tighten("panic_count", cur.PanicCount, &out.PanicCount)
+	tighten("naked_returns", cur.NakedReturns, &out.NakedReturns)
+	tighten("empty_funcs", cur.EmptyFuncs, &out.EmptyFuncs)
+	tighten("todo_count", cur.TodoCount, &out.TodoCount)
+	tighten("max_struct_fields", cur.MaxStructFields, &out.MaxStructFields)
+	tighten("naked_goroutines", cur.NakedGoroutines, &out.NakedGoroutines)
 	// HasInit: true → false 是收紧
 	if !cur.HasInit && frozen.HasInit {
 		out.HasInit = false

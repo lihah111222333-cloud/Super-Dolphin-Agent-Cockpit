@@ -39,7 +39,7 @@ func TestShrinkBaseline_Shrunk(t *testing.T) {
 	}
 	fileSet := map[string]bool{"improving.go": true}
 	measure := func(_ string) FileMetrics {
-		// panic 减少但 todo 仍有 → 仍违规，但应收紧
+		// panic 减少但 todo 仍有 → 仍违规，质量指标应收紧；未违规的行数不应 churn
 		return FileMetrics{
 			SizeMetrics:    SizeMetrics{Lines: 400},
 			QualityMetrics: QualityMetrics{PanicCount: 1, TodoCount: 2},
@@ -50,14 +50,37 @@ func TestShrinkBaseline_Shrunk(t *testing.T) {
 		t.Errorf("Shrunk: got %d, want 1", stats.Shrunk)
 	}
 	m := newBL["improving.go"]
-	if m.Lines != 400 {
-		t.Errorf("Lines: got %d, want 400 (tightened)", m.Lines)
+	if m.Lines != 500 {
+		t.Errorf("Lines: got %d, want 500 (clean metric should not churn)", m.Lines)
 	}
 	if m.PanicCount != 1 {
 		t.Errorf("PanicCount: got %d, want 1 (tightened)", m.PanicCount)
 	}
 	if m.TodoCount != 2 {
 		t.Errorf("TodoCount: got %d, want 2 (tightened)", m.TodoCount)
+	}
+}
+
+func TestShrinkBaseline_ShrinksHardMetricOnlyWhileViolating(t *testing.T) {
+	t.Parallel()
+	oldBL := Baseline{
+		"long.go": FileMetrics{
+			SizeMetrics: SizeMetrics{Lines: MaxFileLines + 100},
+		},
+	}
+	fileSet := map[string]bool{"long.go": true}
+	measure := func(_ string) FileMetrics {
+		return FileMetrics{
+			SizeMetrics: SizeMetrics{Lines: MaxFileLines + 50},
+		}
+	}
+	newBL, stats := ShrinkBaseline(oldBL, fileSet, measure)
+	if stats.Shrunk != 1 {
+		t.Errorf("Shrunk: got %d, want 1", stats.Shrunk)
+	}
+	m := newBL["long.go"]
+	if m.Lines != MaxFileLines+50 {
+		t.Errorf("Lines: got %d, want %d (still-over-limit metric should tighten)", m.Lines, MaxFileLines+50)
 	}
 }
 
