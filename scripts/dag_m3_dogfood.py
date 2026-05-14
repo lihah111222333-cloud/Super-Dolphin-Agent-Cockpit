@@ -38,7 +38,7 @@ CHECKLIST = (
     "Large output positive path: paper_summarizer asks for >4KB and writes sharedfile with to_node_result=false.",
     "Large output negative path: optional one-node probe asks for >4KB with to_node_result=true and should fail validation.",
     "Dispatch: script manually dispatches ready unassigned nodes via task_dispatch_node as they become ready.",
-    "Metrics: /metrics contains dispatch_failed_total and retry_count_per_node after the run.",
+    "Metrics: /metrics contains dispatch_failed_total and retry_count_per_node; strict sample mode requires --retry-metrics-dag-key from a dispatcher retry probe.",
     "Rerun: use a fresh --dag-key or the default timestamped dag key; use a new idempotency key for each manual retry.",
 )
 
@@ -483,8 +483,12 @@ def assert_size_cap_failure(failed_nodes):
     if not target:
         raise MCPError("negative probe failed a different node: %s" % [n.get("node_key") for n in failed_nodes])
     reason = node_failure_reason(target)
-    markers = ("4KB", "ADR-006", "size cap")
-    if not any(marker in reason for marker in markers):
+    normalized = reason.lower()
+    if not (
+        "result exceeds" in normalized
+        and "4kb" in normalized
+        and ("size cap" in normalized or "adr-006" in normalized)
+    ):
         raise MCPError("negative probe failure reason does not look like ADR-006 size-cap validation: %s" % reason)
 
 
@@ -518,7 +522,13 @@ def check_metrics(args):
     if missing:
         raise MCPError("metrics endpoint missing: %s" % ", ".join(missing))
     if args.require_metric_samples:
-        validate_metric_samples(families, args.dag_key)
+        retry_metrics_dag_key = (getattr(args, "retry_metrics_dag_key", "") or "").strip()
+        if not retry_metrics_dag_key:
+            raise MCPError(
+                "strict metrics require --retry-metrics-dag-key from a dispatcher retry probe, "
+                "or pass --metrics-family-only for family presence only"
+            )
+        validate_metric_samples(families, retry_metrics_dag_key)
     summary = []
     for name in required_metric_names():
         if name in families:
@@ -559,20 +569,20 @@ def parse_prometheus_metrics(body):
     return families
 
 
-def validate_metric_samples(families, dag_key):
+def validate_metric_samples(families, retry_metrics_dag_key):
     dispatch = [parse_metric_sample(s) for s in families["dispatch_failed_total"]["samples"]]
     dispatch_values = [s["value"] for s in dispatch if s and s["value"] is not None]
     if not dispatch_values or max(dispatch_values) <= 0:
         raise MCPError("dispatch_failed_total has no positive sample after dogfood failure probe")
 
-    allowed_dags = {dag_key, "%s-negative" % dag_key}
     retry = [parse_metric_sample(s) for s in families["retry_count_per_node"]["samples"]]
-    retry = [s for s in retry if s and s["labels"].get("dag_key") in allowed_dags]
+    retry = [s for s in retry if s and s["labels"].get("dag_key") == retry_metrics_dag_key]
     retry_values = [s["value"] for s in retry if s["value"] is not None]
     if not retry_values or max(retry_values) <= 0:
         raise MCPError(
-            "retry_count_per_node has no positive sample for dag_key in %s; run a retry probe or pass --metrics-family-only"
-            % sorted(allowed_dags)
+            "retry_count_per_node has no positive sample for retry metrics dag_key %s; "
+            "run a dispatcher retry probe or pass --metrics-family-only"
+            % retry_metrics_dag_key
         )
 
 
@@ -648,6 +658,7 @@ def print_dry_run(args):
             "ops": build_negative_ops(args.assignee, args.shared_prefix, args.provider, args.model),
         },
         "metrics": required_metric_names(),
+        "retry_metrics_dag_key": args.retry_metrics_dag_key,
         "checklist": CHECKLIST,
     }
     print(json.dumps(payload, indent=2, ensure_ascii=False))
@@ -666,6 +677,7 @@ def parse_args(argv):
     parser.add_argument("--mcp-url", default=os.getenv("M3_DOGFOOD_MCP_URL", os.getenv("MCP_ORCH_HTTP_URL", "")))
     parser.add_argument("--mcp-cmd", default=os.getenv("MCP_ORCH_CMD", default_mcp_cmd()))
     parser.add_argument("--metrics-url", default=os.getenv("M3_DOGFOOD_METRICS_URL", ""))
+    parser.add_argument("--retry-metrics-dag-key", default=os.getenv("M3_DOGFOOD_RETRY_METRICS_DAG_KEY", ""))
     parser.add_argument("--timeout-sec", type=int, default=int(os.getenv("M3_DOGFOOD_TIMEOUT_SEC", "900")))
     parser.add_argument("--poll-sec", type=int, default=int(os.getenv("M3_DOGFOOD_POLL_SEC", "10")))
     parser.add_argument("--rpc-timeout-sec", type=int, default=int(os.getenv("M3_DOGFOOD_RPC_TIMEOUT_SEC", "60")))

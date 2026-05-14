@@ -117,7 +117,7 @@ func TestGetDashboardPageMemoryIncludesFinalOutputRefs(t *testing.T) {
 	}
 }
 
-func TestGetDashboardPageMemoryPropagatesFinalOutputRefErrors(t *testing.T) {
+func TestGetDashboardPageMemoryDowngradesFinalOutputRefErrors(t *testing.T) {
 	t.Parallel()
 
 	shared := &stubSharedFileReader{
@@ -129,8 +129,15 @@ func TestGetDashboardPageMemoryPropagatesFinalOutputRefErrors(t *testing.T) {
 	}
 	svc := &service{sharedFiles: shared, orchestration: orchestration}
 
-	if _, err := svc.GetDashboardPage(context.Background(), "memory"); err == nil {
-		t.Fatal("GetDashboardPage(memory) error = nil, want final output ref error")
+	got, err := svc.GetDashboardPage(context.Background(), "memory")
+	if err != nil {
+		t.Fatalf("GetDashboardPage(memory) error = %v, want nil when only final output refs fail", err)
+	}
+	if len(got.Memory) != 1 || got.Memory[0].Path != "reports/daily-brief.pptx" {
+		t.Fatalf("GetDashboardPage(memory).Memory = %#v, want shared files", got.Memory)
+	}
+	if got.FinalOutputRefs == nil || len(got.FinalOutputRefs) != 0 {
+		t.Fatalf("FinalOutputRefs = %#v, want empty slice after downgrade", got.FinalOutputRefs)
 	}
 }
 
