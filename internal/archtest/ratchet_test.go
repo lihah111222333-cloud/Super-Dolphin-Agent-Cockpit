@@ -24,6 +24,24 @@ func TestRatchetCheck_Improvement(t *testing.T) {
 	}
 }
 
+func TestRatchetCheck_IgnoresCleanMetricGrowth(t *testing.T) {
+	t.Parallel()
+	cur := FileMetrics{
+		SizeMetrics:       SizeMetrics{Lines: 132, MaxFuncLen: 40},
+		ComplexityMetrics: ComplexityMetrics{MaxParams: 5, MaxReturns: 3},
+		QualityMetrics:    QualityMetrics{GlobalVars: 9, MaxStructFields: 8},
+	}
+	frozen := FileMetrics{
+		SizeMetrics:       SizeMetrics{Lines: 126, MaxFuncLen: 14},
+		ComplexityMetrics: ComplexityMetrics{MaxParams: 2, MaxReturns: 1},
+		QualityMetrics:    QualityMetrics{GlobalVars: 9, MaxStructFields: 4},
+	}
+	vs := RatchetCheck("cmd/mcp-lsp/schema.go", cur, frozen)
+	if len(vs) != 0 {
+		t.Fatalf("expected 0 violations for clean metric growth, got %d: %v", len(vs), vs)
+	}
+}
+
 func TestRatchetCheck_Regression(t *testing.T) {
 	t.Parallel()
 	cur := FileMetrics{
