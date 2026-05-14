@@ -110,7 +110,10 @@ func (s *threadStoreStub) GetByThreadID(_ context.Context, threadID string) (*th
 func (*threadStoreStub) GetByPort(context.Context, int32) (*threadstore.Thread, error) {
 	return nil, nil
 }
-func (*threadStoreStub) ListAll(context.Context) ([]threadstore.Thread, error)     { return nil, nil }
+func (*threadStoreStub) ListAll(context.Context) ([]threadstore.Thread, error) { return nil, nil }
+func (*threadStoreStub) ListConfigsByIDs(context.Context, []string) ([]threadstore.Thread, error) {
+	return nil, nil
+}
 func (*threadStoreStub) ListRunning(context.Context) ([]threadstore.Thread, error) { return nil, nil }
 func (*threadStoreStub) ListRecoverable(context.Context) ([]threadstore.Thread, error) {
 	return nil, nil
