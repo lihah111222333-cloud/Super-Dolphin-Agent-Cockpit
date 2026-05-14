@@ -6,12 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
@@ -524,179 +522,6 @@ type TerminateDAGRequest struct {
 	Reason string // 可选，写入 events 字段
 }
 
-// StartDAG 幂等语义（路线 N）：
-//   - 同 idempotency_key 重发：
-//   - 旧 run 处于 running/succeeded → 返回旧 RunKey（去重）
-//   - 旧 run 处于 failed/cancelled → 返回 ErrIdempotencyKeyExhausted
-//     （要求换 idem 重试）
-//   - 不同 idempotency_key → 总是新启 run
-//
-// 注意：T1.2-mid 单 run 约束下，同 dag_key 已有 running run 时仍返 ErrDAGAlreadyRunning
-// （与 idem 维度正交：idem 决定是否复用 RunKey，dag_key partial unique 决定是否允许启新 run）。
-//
-// StartDAG idempotency semantics (route N):
-//   - Same idempotency_key replay:
-//   - existing run is running/succeeded → return existing RunKey (dedup)
-//   - existing run is failed/cancelled → return ErrIdempotencyKeyExhausted
-//     (caller must use new key)
-//   - Different idempotency_key → always start a new run
-//
-// Note: under T1.2-mid single-run constraint, if the same dag_key already has a
-// running run, ErrDAGAlreadyRunning is returned regardless of idem (idem and
-// dag_key partial-unique are orthogonal: idem decides RunKey reuse, dag_key
-// partial-unique decides whether a new run may start).
-//
-// StartDAG 触发 DAG 一次新执行。T1.2-mid 范围（L3 根治后）：
-//
-//  1. validateStartDAGPrereq: 检 service 预设 + dag_key 非空 + GetDAG 取
-//     dag.version 作为 run.dag_version_snapshot。不再在应用层做
-//     CountActiveRunsByDagKey 预检（原方案有 TOCTOU race；0076 partial
-//     unique 把该约束下沉到 DB 兑底）。
-//  2. WithRunTx 原子化 CreateRun + PromoteRootNodesToReady。任一失败回
-//     滚、避免“run 已建却根节点未 ready”脱状态。
-//  3. PG unique violation (SQLSTATE 23505) 后备路径（L3 GetRun-first 策略）：
-//     事务已回滚后在 tx 外 GetRun(run_key)：
-//     - 命中 → 同 IdempotencyKey 重入，幂等返已有 run
-//     - 未命中 → 冲突来自 dag_key partial unique → ErrDAGAlreadyRunning
-//     不依赖 ConstraintName 字符串 (PG 同时冲突哪个先报不可控)。
-//
-// run_key 生成：IdempotencyKey 非空 → “<dagKey>#run-<idem>”；IdempotencyKey
-// 为空 → “<dagKey>#run-<unix_nano>” 保证唯一。
-func (s *service) StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGResponse, error) {
-	dagKey, dag, err := s.validateStartDAGPrereq(ctx, req)
-	if err != nil {
-		return StartDAGResponse{}, err
-	}
-	runKey := generateRunKey(dagKey, req.IdempotencyKey)
-	triggerSource := strings.TrimSpace(req.TriggerSource)
-	dagVersion := dagVersionFor(dag) // 初期 dag.Version 未同步到 contract.DAG，需从 sqlc 走
-	input := taskdag.CreateRunInput{
-		RunKey:             runKey,
-		DagKey:             dagKey,
-		DagVersionSnapshot: dagVersion,
-		TriggerSource:      triggerSource,
-	}
-	return s.runStartDAGWithFallback(ctx, dagKey, runKey, input)
-}
-
-// validateStartDAGPrereq 检 service 预设 + dag_key 非空 + 调 GetDAG。
-// 不再检 CountActiveRunsByDagKey——原预检不冲突有 TOCTOU race；
-// 0076 partial unique on (dag_key) WHERE status='running' 负责 DB 兑底。
-// 返回三元组 (dagKey, dag, error)。拆出 helper 让 StartDAG 主体保持在 CC≤10。
-func (s *service) validateStartDAGPrereq(ctx context.Context, req StartDAGRequest) (string, *taskdag.DAG, error) {
-	if s == nil || s.dagStore == nil {
-		return "", nil, ErrLifecycleNotImplemented
-	}
-	if s.runStore == nil {
-		return "", nil, ErrRunStoreUnset
-	}
-	dagKey := strings.TrimSpace(req.DagKey)
-	if dagKey == "" {
-		return "", nil, fmt.Errorf("orchestration: StartDAG: dag_key required")
-	}
-	dag, err := s.dagStore.GetDAG(ctx, dagKey)
-	if err != nil {
-		return "", nil, fmt.Errorf("orchestration: StartDAG: GetDAG(%q): %w", dagKey, err)
-	}
-	if dag == nil {
-		return "", nil, fmt.Errorf("%w: %s", ErrDAGNotFound, dagKey)
-	}
-	return dagKey, dag, nil
-}
-
-// runStartDAGWithFallback 走 WithRunTx CreateRun + Promote。失败是 PG unique
-// violation 时：tx 已回滚，在 tx 外 GetRun(run_key) 处理 幂等返已有 run
-// 还是判定为 dag_key partial unique 冲突 → ErrDAGAlreadyRunning。不依赖
-// ConstraintName（PG 同时冲突哪个先报 OID 顺序不可控）。
-func (s *service) runStartDAGWithFallback(ctx context.Context, dagKey, runKey string, input taskdag.CreateRunInput) (StartDAGResponse, error) {
-	var resp StartDAGResponse
-	txErr := s.runStore.WithRunTx(ctx, func(tx taskdag.RunStore) error {
-		run, err := tx.CreateRun(ctx, input)
-		if err != nil {
-			return fmt.Errorf("CreateRun: %w", err)
-		}
-		if _, err := tx.PromoteRootNodesToReady(ctx, dagKey); err != nil {
-			return fmt.Errorf("PromoteRootNodesToReady: %w", err)
-		}
-		resp = StartDAGResponse{RunKey: run.RunKey, Version: run.DagVersionSnapshot}
-		return nil
-	})
-	if txErr == nil {
-		return resp, nil
-	}
-	if !platformdb.IsUniqueViolation(txErr) {
-		return StartDAGResponse{}, fmt.Errorf("orchestration: StartDAG(%q): %w", dagKey, txErr)
-	}
-	return s.resolveStartDAGUniqueViolation(ctx, dagKey, runKey, txErr)
-}
-
-// resolveStartDAGUniqueViolation 是 WithRunTx 遭 unique violation 后的备路径。
-// 事务已回滚、在 tx 外 GetRun(run_key)。拆出 helper 保 runStartDAGWithFallback
-// CC≤10。
-//
-// 幂等语义（路线 N）：
-//   - 命中 existing：
-//   - status = running   → 返旧 RunKey（去重网络重试）
-//   - status = succeeded → 返旧 RunKey（幂等成功结果）
-//   - status = failed/cancelled → 返 ErrIdempotencyKeyExhausted
-//     （调用方需换新 idempotency key 重试）
-//   - 未知 status → 防御性报错
-//   - 未命中 → 冲突来自 dag_key partial unique → ErrDAGAlreadyRunning
-//
-// Idempotency semantics (route N):
-//   - GetRun hit:
-//   - status running   → return existing RunKey (network-retry dedup)
-//   - status succeeded → return existing RunKey (idempotent success)
-//   - status failed/cancelled → ErrIdempotencyKeyExhausted (caller must use new key)
-//   - unknown status → defensive error
-//   - GetRun miss → conflict came from dag_key partial unique → ErrDAGAlreadyRunning
-//
-// 设计取舍：succeeded 与 running 同 case 复用 RunKey。这是 RFC-Idempotency 标准做法
-// （如 Stripe Idempotency-Key），把成功的幂等结果回放给重试调用方。
-// 如团队选"更激进版 N"（succeeded 也 exhausted），需把 succeeded 移到 exhausted
-// case 并补迁移说明（已交付调用方可能依赖当前语义）。
-//
-// Design trade-off: succeeded shares the running case to replay the idempotent
-// success result, following the RFC-Idempotency convention (e.g. Stripe
-// Idempotency-Key). For a "stricter route N" where succeeded is also exhausted,
-// move succeeded into the exhausted case and add migration notes (existing
-// callers may rely on the current semantics).
-func (s *service) resolveStartDAGUniqueViolation(ctx context.Context, dagKey, runKey string, txErr error) (StartDAGResponse, error) {
-	existing, getErr := s.runStore.GetRun(ctx, runKey)
-	if getErr == nil && existing != nil {
-		switch existing.Status {
-		case "running", "succeeded":
-			return StartDAGResponse{RunKey: existing.RunKey, Version: existing.DagVersionSnapshot}, nil
-		case "failed", "cancelled":
-			return StartDAGResponse{}, &IdempotencyKeyExhaustedError{RunKey: existing.RunKey, Status: existing.Status}
-		default:
-			// 防御未知 status：不静默复用也不错误重导，显式报错让上层可见。
-			return StartDAGResponse{}, fmt.Errorf("orchestration: StartDAG(%q): unexpected run status %q for run_key=%s", dagKey, existing.Status, runKey)
-		}
-	}
-	if getErr != nil && !platformdb.IsNotFound(getErr) {
-		return StartDAGResponse{}, fmt.Errorf("orchestration: StartDAG(%q): GetRun fallback: %w (original tx error: %v)", dagKey, getErr, txErr)
-	}
-	return StartDAGResponse{}, fmt.Errorf("%w: %s", ErrDAGAlreadyRunning, dagKey)
-}
-
-// generateRunKey 生成 task_dag_runs.run_key，与 UNIQUE 约束兼容。
-func generateRunKey(dagKey, idempotencyKey string) string {
-	idempotencyKey = strings.TrimSpace(idempotencyKey)
-	if idempotencyKey != "" {
-		return fmt.Sprintf("%s#run-%s", dagKey, idempotencyKey)
-	}
-	return fmt.Sprintf("%s#run-%d", dagKey, time.Now().UnixNano())
-}
-
-// dagVersionFor 从 contract.DAG 取 version 字段。骨架阶段 contract.DAG 未伸
-// version 字段（task_dags.version 在 0072 migration 后才加，sqlc 生成中仍未
-// 随 sqlc-1.30 realignment 运行），这里先返 0。F4.x ApplyOps OCC 落地后
-// version 会被写进 run。
-func dagVersionFor(_ *taskdag.DAG) int64 {
-	return 0
-}
-
 // TerminateDAG 终止一次 run（标 cancelled，级联取消 pending/ready 节点）。
 // 骨架阶段：仅返回 ErrLifecycleNotImplemented；F6.x 真实落地。
 func (s *service) TerminateDAG(_ context.Context, _ TerminateDAGRequest) error {
@@ -803,12 +628,12 @@ func (s *service) ApplyOps(ctx context.Context, req contract.ApplyOpsRequest) (c
 }
 
 // applyTypedOps 是 4 个 op_kind 业务实现的容器（F4.1-F4.4）。F4.1 接 add_node、
-// F4.2 接 update_node；其余 op_kind 被 fail-fast 拒为 ErrLifecycleNotImplemented。
-// 空 ops 返 noop。
+// F4.2 接 update_node，F4.3 接 remove_node；其余 op_kind 被 fail-fast 拒为
+// ErrLifecycleNotImplemented。空 ops 返 noop。
 //
 // applyTypedOps dispatches typed ops. F4.1 wires add_node, F4.2 wires
-// update_node; other kinds fail-fast to ErrLifecycleNotImplemented. Empty
-// ops is a valid noop.
+// update_node, and F4.3 wires remove_node; other kinds fail-fast to
+// ErrLifecycleNotImplemented. Empty ops is a valid noop.
 func (s *service) applyTypedOps(ctx context.Context, dagKey string, baseVersion int64, ops nodeexec.Ops) (contract.ApplyOpsResponse, error) {
 	if s == nil || s.dagStore == nil {
 		return contract.ApplyOpsResponse{}, ErrApplyOpsStoreNotConfigured
@@ -821,10 +646,10 @@ func (s *service) applyTypedOps(ctx context.Context, dagKey string, baseVersion 
 	if err != nil {
 		return contract.ApplyOpsResponse{}, err
 	}
-	// R3 P2 #3 空 ops 事务外短路：apply_ops 不带 add/update 时不需走事务也不需 FOR UPDATE
+	// R3 P2 #3 空 ops 事务外短路：apply_ops 不带 add/update/remove 时不需走事务也不需 FOR UPDATE
 	// 锁。仅需拿到当前 task_dags.version 与 base_version 对齐判 OCC 同庄、返回同一 version
 	// 即可。避免「合法调用但什么都不干」仍然白付 OCC 锁代价（并发则反过来变成锁竞争热点）。
-	if len(parts.adds) == 0 && len(parts.updates) == 0 {
+	if isNoopOpsBatch(parts) {
 		return s.applyEmptyOpsShortCircuit(ctx, dagKey, baseVersion)
 	}
 	runner, ok := s.dagStore.(taskdag.DAGOpsTxRunner)
@@ -844,6 +669,10 @@ func (s *service) applyTypedOps(ctx context.Context, dagKey string, baseVersion 
 		return contract.ApplyOpsResponse{}, txErr
 	}
 	return resp, nil
+}
+
+func isNoopOpsBatch(parts partitionedOps) bool {
+	return len(parts.adds) == 0 && len(parts.updates) == 0 && len(parts.removes) == 0
 }
 
 // applyEmptyOpsShortCircuit 事务外 noop 路径：仅读当前 task_dags.version，校 OCC

@@ -183,10 +183,11 @@ func dagRunDTO(row taskdag.Run) contract.Run {
 type partitionedOps struct {
 	adds    nodeexec.Ops
 	updates nodeexec.Ops
+	removes nodeexec.Ops
 }
 
 // ErrDuplicateOpForNode 是同一 ApplyOps 批里出现两个针对同一 node_key 的
-// update_node （或未来可能的 add+update / update+remove）时返回的 sentinel。
+// add_node / update_node / remove_node 时返回的 sentinel。
 // errors.Is(err, ErrDuplicateOpForNode) 可命中；service 层仍会同时包一层
 // ErrApplyOpsInvalid 让上层 errors.Is 路径不变。
 //
@@ -196,36 +197,59 @@ type partitionedOps struct {
 // 需「合并 patch」语义可以让调用方自己合完后发一个 update_node。
 var ErrDuplicateOpForNode = errors.New("orchestration: duplicate op for same node_key in batch")
 
-// partitionOps 把 ops 按 op_kind 分组：add_node → adds，update_node → updates。
-// remove_node / update_dag 留给 F4.3 / F4.4，本阶段命中即返
+// partitionOps 把 ops 按 op_kind 分组：add_node → adds，update_node → updates，
+// remove_node → removes。update_dag 留给 F4.4，本阶段命中即返
 // ErrLifecycleNotImplemented，让请求 fail-fast。
 //
-// 同批 dedup（R2 P1）：update_node 不允许出现两次针对同一 node_key——护住
-// 「后写覆盖还是合并 patch」的语义歧义。重复命中 → fail-fast 包
-// ErrDuplicateOpForNode / ErrApplyOpsInvalid，service 层抦下。add_node 重复
-// 已由下游 PlanAddNodes 内部 dedup 抦（「already exists」错误），本函数不重复。
+// 同批 dedup（R2 P1）：同一个 node_key 不允许被多条 node-scoped op 同时命中，
+// 护住「后写覆盖/先改再删/先加再删」这类语义歧义。重复命中 → fail-fast 包
+// ErrDuplicateOpForNode / ErrApplyOpsInvalid。
 func partitionOps(ops nodeexec.Ops) (partitionedOps, error) {
 	var p partitionedOps
-	seenUpdates := make(map[string]int) // node_key -> first ops index
+	seenNodeOps := make(map[string]seenNodeOp) // normalized node_key -> first op
 	for i, op := range ops {
 		if op == nil {
 			return p, fmt.Errorf("%w: ops[%d] nil op", ErrApplyOpsInvalid, i)
 		}
 		switch v := op.(type) {
 		case nodeexec.OpAddNode:
+			if err := rememberNodeOp(seenNodeOps, v.Node.NodeKey, i, op.Kind()); err != nil {
+				return p, err
+			}
 			p.adds = append(p.adds, op)
 		case nodeexec.OpUpdateNode:
-			if prev, dup := seenUpdates[v.NodeKey]; dup {
-				return p, fmt.Errorf("%w: %w: ops[%d] and ops[%d] both update node_key=%q",
-					ErrApplyOpsInvalid, ErrDuplicateOpForNode, prev, i, v.NodeKey)
+			if err := rememberNodeOp(seenNodeOps, v.NodeKey, i, op.Kind()); err != nil {
+				return p, err
 			}
-			seenUpdates[v.NodeKey] = i
 			p.updates = append(p.updates, op)
+		case nodeexec.OpRemoveNode:
+			if err := rememberNodeOp(seenNodeOps, v.NodeKey, i, op.Kind()); err != nil {
+				return p, err
+			}
+			p.removes = append(p.removes, op)
 		default:
-			return p, fmt.Errorf("%w: ops[%d] kind=%s (only add_node/update_node implemented through F4.2)", ErrLifecycleNotImplemented, i, op.Kind())
+			return p, fmt.Errorf("%w: ops[%d] kind=%s (only add_node/update_node/remove_node implemented through F4.3)", ErrLifecycleNotImplemented, i, op.Kind())
 		}
 	}
 	return p, nil
+}
+
+type seenNodeOp struct {
+	index int
+	kind  nodeexec.OpKind
+}
+
+func rememberNodeOp(seen map[string]seenNodeOp, nodeKey string, index int, kind nodeexec.OpKind) error {
+	key := strings.TrimSpace(nodeKey)
+	if key == "" {
+		return nil
+	}
+	if prev, dup := seen[key]; dup {
+		return fmt.Errorf("%w: %w: ops[%d] (%s) and ops[%d] (%s) both target node_key=%q",
+			ErrApplyOpsInvalid, ErrDuplicateOpForNode, prev.index, prev.kind, index, kind, key)
+	}
+	seen[key] = seenNodeOp{index: index, kind: kind}
+	return nil
 }
 
 // runOpsBatch 在 PG 事务内跑一批已 partition 的 ops：F4.1 add + F4.2 update + F4.5
@@ -234,21 +258,21 @@ func partitionOps(ops nodeexec.Ops) (partitionedOps, error) {
 //
 // 步骤：
 //  1. GetDAGVersionForUpdate + 比对 base_version
-//  2. GetDAG 读 dag.status (同事务内、上锁后读)
-//  3. F4.5 不变量：若 status='running'——
+//  2. GetDAG 读 dag.status + CountRunningRunsByDagKey 读 active run
+//  3. F4.5 不变量：若 dag.status='running' 或存在 running run——
 //     a. parts.updates 非空 → 拒为 ErrApplyOpsInvalid
 //     b. ListNodes 拿现有节点 → 验证 add_node.depends_on 全部指向一个 status='done' 节点
-//        否则拒为 ErrApplyOpsInvalid
+//     否则拒为 ErrApplyOpsInvalid
 //  4. 空 ops → 直接返当前 version（noop）
-//  5. plan add + plan update → 合并 adjacency → DetectCycle
-//  6. 顺序 UpsertNode（先 add 后 update，update 合并 patch 与旧 Node）
+//  5. plan add + plan update + plan remove → 合并 adjacency → DetectCycle
+//  6. 顺序持久化：先 add，再 update，最后 delete
 //  7. BumpDAGVersion
 func runOpsBatch(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string, baseVersion int64, parts partitionedOps) (contract.ApplyOpsResponse, error) {
 	current, existing, err := preflightOpsBatch(ctx, tx, dagKey, baseVersion, parts)
 	if err != nil {
 		return contract.ApplyOpsResponse{}, err
 	}
-	if len(parts.adds) == 0 && len(parts.updates) == 0 {
+	if len(parts.adds) == 0 && len(parts.updates) == 0 && len(parts.removes) == 0 {
 		return contract.ApplyOpsResponse{NewVersion: current}, nil
 	}
 	plan, err := planOpsBatch(parts, existing)
@@ -282,11 +306,15 @@ func preflightOpsBatch(ctx context.Context, tx taskdag.DAGOpsStore, dagKey strin
 	if dag == nil {
 		return 0, nil, fmt.Errorf("%w: dag=%s vanished mid-tx", ErrApplyOpsInvalid, dagKey)
 	}
+	activeRuns, err := tx.CountRunningRunsByDagKey(ctx, dagKey)
+	if err != nil {
+		return 0, nil, fmt.Errorf("count running runs: %w", err)
+	}
 	existing, err := tx.ListNodes(ctx, dagKey)
 	if err != nil {
 		return 0, nil, fmt.Errorf("list nodes: %w", err)
 	}
-	if err := enforceRunningDAGInvariants(dag.Status, parts, existing); err != nil {
+	if err := enforceRunningDAGInvariants(dag.Status, activeRuns, parts, existing); err != nil {
 		return 0, nil, err
 	}
 	return current, existing, nil
@@ -304,29 +332,51 @@ func bumpDAGVersionTx(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string
 	return newVersion, nil
 }
 
-// enforceRunningDAGInvariants 是 F4.5 主体：在 DAG 状态为 running 时仅允许 add_node，
-// 且新节点的 depends_on 必须全部指向 status='done' 的现有节点。与 PlanAddNodes 独立调
-// 试点不同：后者不读 dag.status，这里专门面向 running DAG 动态补改场景。
+// enforceRunningDAGInvariants 是 F4.5 主体：在 DAG 状态为 running 或存在
+// running run 时仅允许 add_node，且新节点的 depends_on 必须全部指向
+// status='done' 的现有节点。与 PlanAddNodes 独立调试点不同：后者不读运行态，
+// 这里专门面向 running DAG 动态补改场景。
 //
 // 设计取舍：
-//   - update_node / remove_node / update_dag 被 partitionOps 阶段已处理 (都走
-//     ErrLifecycleNotImplemented 分支，仅 update_node 在 draft 下是合法的)。本函数只
-//     需在 running 下多一层抲 update_node 拒。
+//   - update_dag 被 partitionOps 阶段拒为 ErrLifecycleNotImplemented；
+//     update_node/remove_node 在 draft 下合法，但 running 下必须显式拒绝。
 //   - add_node.depends_on 指向现有节点 (existing) 中 status='done' 才可插入。同批
 //     加入的新节点 (status 默认 pending) 不能作为 depends_on 目标 —— 这会让新节点
 //     互相等什么都不能跑。这是蓝图 v2 §5 “dynamic patch” 的宝贵限制。
-func enforceRunningDAGInvariants(dagStatus string, parts partitionedOps, existing []taskdag.Node) error {
-	if dagStatus != "running" {
+func enforceRunningDAGInvariants(dagStatus string, activeRuns int64, parts partitionedOps, existing []taskdag.Node) error {
+	reason, running := runningDAGReason(dagStatus, activeRuns)
+	if !running {
 		return nil
 	}
+	if err := rejectMutableOpsInRunningDAG(reason, parts); err != nil {
+		return err
+	}
+	return enforceRunningAddNodeDeps(reason, parts.adds, existing)
+}
+
+func runningDAGReason(dagStatus string, activeRuns int64) (string, bool) {
+	if dagStatus == "running" {
+		return "dag is running", true
+	}
+	if activeRuns > 0 {
+		return "dag has active running run", true
+	}
+	return "", false
+}
+
+func rejectMutableOpsInRunningDAG(reason string, parts partitionedOps) error {
 	if len(parts.updates) > 0 {
-		return fmt.Errorf("%w: dag is running, update_node not allowed (only add_node depends_on done nodes)", ErrApplyOpsInvalid)
+		return fmt.Errorf("%w: %s, update_node not allowed (only add_node depends_on done nodes)", ErrApplyOpsInvalid, reason)
 	}
-	if len(parts.adds) == 0 {
-		return nil
+	if len(parts.removes) > 0 {
+		return fmt.Errorf("%w: %s, remove_node not allowed (only add_node depends_on done nodes)", ErrApplyOpsInvalid, reason)
 	}
+	return nil
+}
+
+func enforceRunningAddNodeDeps(reason string, adds nodeexec.Ops, existing []taskdag.Node) error {
 	doneSet := doneNodeKeys(existing)
-	for i, op := range parts.adds {
+	for i, op := range adds {
 		add, ok := op.(nodeexec.OpAddNode)
 		if !ok {
 			// 防御：partitionOps 保证 parts.adds 只包含 OpAddNode。
@@ -334,7 +384,7 @@ func enforceRunningDAGInvariants(dagStatus string, parts partitionedOps, existin
 		}
 		for _, dep := range nodeexec.NormalizeDependsOn(add.Node.DependsOn) {
 			if _, done := doneSet[dep]; !done {
-				return fmt.Errorf("%w: dag is running, add_node %q depends_on %q must reference a done node", ErrApplyOpsInvalid, add.Node.NodeKey, dep)
+				return fmt.Errorf("%w: %s, add_node %q depends_on %q must reference a done node", ErrApplyOpsInvalid, reason, add.Node.NodeKey, dep)
 			}
 		}
 	}
@@ -357,9 +407,10 @@ func doneNodeKeys(existing []taskdag.Node) map[string]struct{} {
 type opsBatchPlan struct {
 	addSpecs []nodeexec.NodeSpec
 	updates  []nodeexec.UpdateNodeChange
+	removes  []nodeexec.RemoveNodeChange
 }
 
-// planOpsBatch 跑两路 plan + 合并 adjacency + 跑 DetectCycle。
+// planOpsBatch 跑 add/update/remove 三路 plan + 合并 adjacency + 跑 DetectCycle。
 //
 // 关键设计：两路 plan 共享同一份 adjacency 是通过 service 层手动合并实现的，
 // 而非让 plan 函数互相耦合：
@@ -369,7 +420,8 @@ type opsBatchPlan struct {
 //     adjacency_u。
 //   - 合并：adjacency_u 已含 existing + update patch；adjacency_a 含 existing
 //   - add 节点。最终 adjacency = adjacency_u + adjacency_a 中 add 节点。
-//   - DetectCycle 跑一次合并图。
+//   - PlanRemoveNodes 基于合并图拒绝仍被依赖的节点，再从图中删掉目标。
+//   - DetectCycle 跑一次删除后的最终图。
 func planOpsBatch(parts partitionedOps, existing []taskdag.Node) (opsBatchPlan, error) {
 	adjAdd, addSpecs, err := nodeexec.PlanAddNodes(parts.adds, existingNodesForPlan(existing))
 	if err != nil {
@@ -381,10 +433,14 @@ func planOpsBatch(parts partitionedOps, existing []taskdag.Node) (opsBatchPlan, 
 		return opsBatchPlan{}, fmt.Errorf("%w: %w", ErrApplyOpsInvalid, err)
 	}
 	merged := mergeAdjacency(adjAdd, adjUpd)
-	if cycleErr := nodeexec.DetectCycle(merged); cycleErr != nil {
+	pruned, removes, err := nodeexec.PlanRemoveNodes(parts.removes, extended, merged)
+	if err != nil {
+		return opsBatchPlan{}, fmt.Errorf("%w: %w", ErrApplyOpsInvalid, err)
+	}
+	if cycleErr := nodeexec.DetectCycle(pruned); cycleErr != nil {
 		return opsBatchPlan{}, fmt.Errorf("%w: %w", ErrApplyOpsInvalid, cycleErr)
 	}
-	return opsBatchPlan{addSpecs: addSpecs, updates: changes}, nil
+	return opsBatchPlan{addSpecs: addSpecs, updates: changes, removes: removes}, nil
 }
 
 // existingNodesForPlan 把 taskdag.Node 列表转为 nodeexec.PlanAddNodes 需要的
@@ -439,14 +495,17 @@ func mergeAdjacency(adjAdd, adjUpd map[string][]string) map[string][]string {
 }
 
 // persistOpsBatch 顺序写入 plan 结果：先 add（新节点），再 update（合并 patch
-// 到旧 Node 后整行写回）。UpsertNode 走 ON CONFLICT DO UPDATE，把 plan 的
-// 输出整行覆盖回库——故 update 路径必须把未在 patch 中的字段从旧 Node 复制
-// 回去，否则会被空值覆盖。
+// 到旧 Node 后整行写回），最后 remove。UpsertNode 走 ON CONFLICT DO UPDATE，
+// 把 plan 的输出整行覆盖回库——故 update 路径必须把未在 patch 中的字段从旧
+// Node 复制回去，否则会被空值覆盖。
 func persistOpsBatch(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string, existing []taskdag.Node, plan opsBatchPlan) error {
 	if err := persistAddNodeSpecs(ctx, tx, dagKey, plan.addSpecs); err != nil {
 		return err
 	}
-	return persistUpdateChanges(ctx, tx, dagKey, existing, plan.updates)
+	if err := persistUpdateChanges(ctx, tx, dagKey, existing, plan.updates); err != nil {
+		return err
+	}
+	return persistRemoveChanges(ctx, tx, dagKey, plan.removes)
 }
 
 // persistAddNodeSpecs 顺序调 UpsertNode 把 NodeSpec 转为 taskdag.Node 写入表。
@@ -488,6 +547,19 @@ func persistUpdateChanges(ctx context.Context, tx taskdag.DAGOpsStore, dagKey st
 		merged := mergeNodePatch(old, c.Patch, dagKey)
 		if _, err := tx.UpsertNode(ctx, merged); err != nil {
 			return fmt.Errorf("upsert (update) node %s: %w", c.NodeKey, err)
+		}
+	}
+	return nil
+}
+
+func persistRemoveChanges(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string, changes []nodeexec.RemoveNodeChange) error {
+	for _, c := range changes {
+		rows, err := tx.DeleteNode(ctx, dagKey, c.NodeKey)
+		if err != nil {
+			return fmt.Errorf("delete node %s: %w", c.NodeKey, err)
+		}
+		if rows == 0 {
+			return fmt.Errorf("%w: delete node %s: no rows affected (node status changed or node missing)", ErrApplyOpsInvalid, c.NodeKey)
 		}
 	}
 	return nil
