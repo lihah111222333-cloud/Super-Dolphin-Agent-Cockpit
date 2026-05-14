@@ -402,18 +402,19 @@ func sanitizeLaunchName(value string) string {
 //
 // 与 cmd/mcp-orch/orchestration/service_launcher_errors.go::classifyLaunchError
 // 同源思路（关键字命中），但目标空间不同：service 层只分 transient/permanent/
-// unknown，nodeexec 这层细化到 FailureClass{transient,quota,validation}，
+// unknown，nodeexec 这层细化到 FailureClass{transient,quota,capability,validation}，
 // 让 OnFailureConfig.ByClass 能直接路由。
 //
 // 优先级（高 → 低）：
 //  1. quota（context length / usage limit / credits）—— 必须先于通用 permanent
 //     匹配，否则会被 401/403 之类的关键字捷足先登。
-//  2. permanent（401/403/auth/payment）→ validation。
-//  3. transient（connection / timeout / rate limit）→ transient。
-//  4. 未知 → transient（保守兜底，让 dispatcher 走 by_class[transient] 重试）。
+//  2. capability（模型能力不足）→ capability。
+//  3. permanent（401/403/auth/payment）→ validation。
+//  4. transient（connection / timeout / rate limit）→ transient。
+//  5. 未知 → transient（保守兜底，让 dispatcher 走 by_class[transient] 重试）。
 //
 // classifyAgentLaunchError maps a launcher error to a FailureClass. The
-// priority order is quota → validation → transient → transient-fallback so
+// priority order is quota → capability → validation → transient → fallback so
 // that overlapping substrings (e.g. "context_length_exceeded 401") resolve to
 // quota, matching the operator intent: quota issues need budget action, not
 // retry. Unknown errors default to transient (conservative).
@@ -422,9 +423,22 @@ func classifyAgentLaunchError(err error) FailureClass {
 		return FailureClassTransient
 	}
 	msg := strings.ToLower(err.Error())
+	switch {
+	case launchErrorMatchesAny(msg, launchQuotaKeywords()):
+		return FailureClassQuota
+	case launchErrorMatchesAny(msg, launchCapabilityKeywords()):
+		return FailureClassCapability
+	case launchErrorMatchesAny(msg, launchValidationKeywords()):
+		return FailureClassValidation
+	case launchErrorIsTransient(err, msg):
+		return FailureClassTransient
+	default:
+		return FailureClassTransient
+	}
+}
 
-	// 1. quota 关键字（先于 permanent，避免与 401/403 共词时漏判）。
-	quotaKeywords := []string{
+func launchQuotaKeywords() []string {
+	return []string{
 		"context_length_exceeded",
 		"context length exceeded",
 		"maximum context",
@@ -434,29 +448,33 @@ func classifyAgentLaunchError(err error) FailureClass {
 		"usage limit",
 		"out of credits",
 	}
-	for _, k := range quotaKeywords {
-		if strings.Contains(msg, k) {
-			return FailureClassQuota
-		}
-	}
+}
 
-	// 2. permanent（鉴权 / 授权 / 支付）→ validation。
-	permanentKeywords := []string{
+func launchCapabilityKeywords() []string {
+	return []string{
+		"capability",
+		"not capable",
+		"cannot solve",
+		"can't solve",
+		"model too weak",
+		"requires stronger model",
+		"needs stronger model",
+	}
+}
+
+func launchValidationKeywords() []string {
+	return []string{
 		"401", "unauthoriz", "invalid api key", "invalid_api_key",
 		"403", "forbidden", "permission denied",
 		"402", "payment_required", "subscription expired",
 	}
-	for _, k := range permanentKeywords {
-		if strings.Contains(msg, k) {
-			return FailureClassValidation
-		}
-	}
+}
 
-	// 3. transient（连接 / 超时 / 限流）。
+func launchErrorIsTransient(err error, msg string) bool {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-		return FailureClassTransient
+		return true
 	}
-	transientKeywords := []string{
+	return launchErrorMatchesAny(msg, []string{
 		"deadline exceeded",
 		"connection refused",
 		"transport unavailable",
@@ -471,16 +489,16 @@ func classifyAgentLaunchError(err error) FailureClass {
 		" 429 ",
 		"status 429",
 		"status: 429",
-	}
-	for _, k := range transientKeywords {
+	})
+}
+
+func launchErrorMatchesAny(msg string, keywords []string) bool {
+	for _, k := range keywords {
 		if strings.Contains(msg, k) {
-			return FailureClassTransient
+			return true
 		}
 	}
-
-	// 4. 未知 → transient 兜底。与 service 层 launchClassUnknown 的语义对齐：
-	//    宁可让 dispatcher 多试一次也不要因为不认识的关键字直接 hard fail。
-	return FailureClassTransient
+	return false
 }
 
 // truncateErrSummary 限制 ErrorSummary 长度（< 1KB 内），与 NodeOutcome 注释

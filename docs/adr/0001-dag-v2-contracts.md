@@ -204,10 +204,19 @@ SharedfileTarget { Path; LockMode }   // exclusive | append | shared
 
 | 来源 | 定位 |
 |---|---|
-| `retry_strategy.go::RetryPolicy` | dispatcher 路径（生产 wakeup_dispatcher → store.UpdateRunningNodeStatus）的最终决策；F1.4 仅做基础 bounded retry，不接 by_class 分发 |
-| `nodeexec.OnFailureConfig` | service 路径 + ApplyOps + AgentExecutor.on_failure 的 typed schema；含 by_class / escalation_chain |
+| `retry_strategy.go::RetryPolicy` | dispatcher fallback：节点未配置 `exec.on_failure`、非 DAG wakeup、或 framework/legacy error 时，继续按 DAG `metadata.schedule.default_retry/fail_fast` 与 node `execution.retry` 做 bounded retry |
+| `nodeexec.OnFailureConfig` | dispatcher node-level override：节点配置 `exec.on_failure` 且 executor 返回 `NodeOutcome{Status: failed, FailureClass: ...}` 时，按 `by_class`/`default` 分发智能重试策略 |
 
-**F 阶段统一时机**：F1.4 仅把 transient/quota/validation 接入现有 `RetryPolicy` 的基础重试次数；F12.1 再决定是否把两条路径合到 `nodeexec.OnFailureConfig`，淘汰 `RetryPolicy`，或反之。
+**F12.1 收敛结果**：
+- `retry`：沿用 `RetryWakeup`，仍受 SQL attempt_count<8 paranoid hard-cap 保护。
+- `escalate_model`：仅支持 agent 节点；先执行 `RetryWakeup`，fence 成功后再走 `PatchTaskDagNodeConfigIfUnchanged` 窄口 patch `node.config.exec.model` 为 escalation_chain 下一档，避免 stale lease 或并发 `apply_ops` 被整行 `UpsertNode` 覆盖。
+- `append_error`：仅支持 agent 节点；先执行 `RetryWakeup`，fence 成功后再走 `PatchTaskDagNodeConfigIfUnchanged` 把上一轮 validation 诊断追加进 `first_turn`。
+- `replan`：在 `max_attempts` 尚未耗尽时 spawn `dag_designer` planner agent，并在 prompt 中要求使用 `task_dag_apply_ops` 做最小改图。
+- `fail_fast`：立即 `FailWakeup` + `FailNodeAndCancelDownstream(fail_fast=true)`。
+- `skip` / `ask_human`：状态机枚举保留，但 dispatcher 业务语义未落地前 fail-closed，不 silent fallback 到 retry。
+- `hard` / `needs_human` 未显式映射到非重跑策略时保持永久失败，不被 `on_failure.max_attempts` 或默认 retry 误重试。
+
+**范围边界**：F12.1 只覆盖 dispatcher-time `NodeExecutor.Execute` 返回的失败；`dag_turn_completed_subscriber.go` 的 output/materialization validation 失败仍按当前终态失败处理。若后续真实 dogfood 需要“完成后输出校验失败再 append_error/replan”，另立 follow-up，不混入本 ADR 基线。
 
 ### 2.8 dispatcher fast-lane（S2.4 推迟说明）
 
@@ -320,13 +329,13 @@ discussion.
 - 与 retry_strategy.go 的协调路径明确，避免重复造轮子
 
 ### 负面后果
-- `nodeexec.OnFailureConfig` 与 `retry_strategy.RetryPolicy` 短期共存增加认知负担（F12.1 收敛）
+- `nodeexec.OnFailureConfig` 与 `retry_strategy.RetryPolicy` 仍共存，但边界已收敛为 node-level override 与 fallback 的关系
 - dispatcher fast-lane（外部 API 与内部 dispatcher 状态机不一致）短期存在；用户在 UI 上看不到 `ready` 状态，看到的永远是 pending → running（F-stage 修复）
 - 包文件数 30/30 顶到上限；后续新 typed 文件必须放 `nodeexec/` 子包或合并到现有文件
 
 ### 已知风险（已在审查中识别）
 - B-14 节点完成后下游 status 不自动 promote → 推迟到 F 阶段
-- S5.1 与 retry_strategy.go 协调策略未最终定，依赖 F12.1
+- subscriber/output materialization validation 失败暂不进入 F12.1 智能重试，后续按真实需求另立 follow-up
 - 状态机校验（S7.2）只覆盖外部 API，dispatcher 路径不校验
 
 ## 5. 引用
