@@ -79,6 +79,7 @@ function flushPending(state) {
       changed = true;
     }
   }
+  trimDisplayedByItemId(state);
 
   const flushDurationMs = Math.round(performance.now() - flushStart);
   const flushedCount = state.pendingByItemId.size;
@@ -101,6 +102,16 @@ function flushPending(state) {
 function scheduleFlush(state) {
   if (state.scheduledFrame || state.disposed) return;
   state.scheduledFrame = state.scheduleFrame(() => flushPending(state));
+}
+
+const DISPLAYED_BY_ITEM_ID_CAP = 64;
+
+function trimDisplayedByItemId(state) {
+  while (state.displayedByItemId.size > DISPLAYED_BY_ITEM_ID_CAP) {
+    const oldestKey = state.displayedByItemId.keys().next().value;
+    if (oldestKey === undefined) break;
+    state.displayedByItemId.delete(oldestKey);
+  }
 }
 
 function resolveStreamingState(state, item) {
@@ -132,6 +143,7 @@ function resolveStreamingState(state, item) {
     const nextState = getStateByText(state, text);
     const initial = { text, state: nextState };
     state.displayedByItemId.set(itemId, initial);
+    trimDisplayedByItemId(state);
     return nextState;
   }
   if (displayed.text === text) {

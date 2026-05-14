@@ -444,7 +444,11 @@ export function handleBridgeEvent(ctx, evt) {
         nextTimelines[lastIndex] = { ...nextTimelines[lastIndex], text: (nextTimelines[lastIndex].text || '') + delta };
       } else {
         const ts = new Date().toISOString();
-        nextTimelines.push({ id: `${activeThreadTarget}-streaming`, kind: 'assistant', text: delta, done: false, ts });
+        const turnId = (evt?.payload?.turnId || evt?.payload?.turn_id || '').toString().trim();
+        const streamingId = turnId
+          ? `${activeThreadTarget}-${turnId}-streaming`
+          : `${activeThreadTarget}-stream-${Date.now()}-streaming`;
+        nextTimelines.push({ id: streamingId, kind: 'assistant', text: delta, done: false, ts });
       }
       ctx.state.timelinesByThread = { ...ctx.state.timelinesByThread, [activeThreadTarget]: nextTimelines };
     }
