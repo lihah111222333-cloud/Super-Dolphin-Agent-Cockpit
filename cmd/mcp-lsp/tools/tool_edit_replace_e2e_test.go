@@ -73,6 +73,24 @@ func TestReplaceRangeUnsupportedTextFilesE2EAppliesPatchForms(t *testing.T) {
 			want: "ALPHA\nbeta\nOMEGA\n",
 		},
 		{
+			name:    "plaintext lenient bare header patch",
+			file:    "bare-header.txt",
+			content: "alpha\nbeta\nomega\n",
+			req: func(path string) EditRequest {
+				return EditRequest{
+					Action:   "replace_range",
+					FilePath: path,
+					Patch: strings.Join([]string{
+						"@@",
+						"-beta",
+						"+BETA",
+						"",
+					}, "\n"),
+				}
+			},
+			want: "alpha\nBETA\nomega\n",
+		},
+		{
 			name:    "json coordinate edit",
 			file:    "config.json",
 			content: "{\n  \"enabled\": false,\n  \"name\": \"demo\"\n}\n",
