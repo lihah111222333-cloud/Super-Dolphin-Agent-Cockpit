@@ -33,7 +33,7 @@ export { normalizeEpochMillis, parseEpochMillis, parseThreadCreatedAtFromID, ens
 export { normalizePreferenceScopeCwd, normalizeSplitRatio, normalizeThreadRailWidth, normalizeCmdCardCols, normalizeThread, normalizeThreadTimestampMap } from './thread-ui-normalize.js';
 export { withPreferenceScope, shouldSyncAfterPreferencePersist } from './thread-prefs.js';
 
-const state = reactive({ activeThreadId: '', activeCmdThreadId: '', pinnedThreadAtById: {}, archivedThreadAtById: {} });
+const state = reactive({ activeThreadId: '', activeCmdThreadId: '', pinnedThreadAtById: {}, archivedThreadAtById: {}, promptStaleNotice: '' });
 const runtimeRootState = reactive({
   threads: [], statuses: {}, interruptibleByThread: {}, viewPrefsChat: null, viewPrefsCmd: null,
   statusHeadersByThread: {}, statusDetailsByThread: {}, overlayTextByThread: {}, overlayTypeByThread: {}, overlayPriorityByThread: {},

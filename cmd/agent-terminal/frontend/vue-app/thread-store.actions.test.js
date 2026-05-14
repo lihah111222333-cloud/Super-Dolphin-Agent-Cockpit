@@ -91,6 +91,7 @@ function resetThreadStore(store) {
   Object.assign(store.state, {
     activeThreadId: '',
     activeCmdThreadId: '',
+    promptStaleNotice: '',
 
     pinnedThreadAtById: {},
     archivedThreadAtById: {},
@@ -717,6 +718,102 @@ describe('thread store actions', () => {
       key: 'threadPins.chat',
       value: { 'thread-live': store.getThreadPinnedAt('thread-live') },
       cwd: '/repo',
+    });
+  });
+
+  // Regression coverage for P1: when the backend reports the caller-supplied
+  // prompt_key resolved to a deleted / disabled prompt_template row, the UI
+  // must self-clear the cwd-scoped activePromptKey pref so the next launch
+  // doesn't keep re-sending the stale pin (and the user is no longer misled
+  // by a '已强制使用' badge that no longer takes effect).
+  it('clears the activePromptKey pref when thread/start reports prompt_key_stale', async () => {
+    const store = useThreadStore();
+    const prefSetCalls = [];
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get') {
+        return mockStartPreference(payload, { provider: 'codex', activePromptKey: 'main/missing' });
+      }
+      if (method === 'thread/start') return {
+        thread: { id: 'thread-stale' },
+        prompt_key_stale: true,
+        prompt_key: 'main/missing',
+      };
+      if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-stale', activeThreadId: '' });
+      if (method === 'ui/preferences/set') {
+        prefSetCalls.push(payload);
+        return {};
+      }
+      return {};
+    });
+
+    await store.startThread('/repo-stale', {});
+    await flushAsync();
+
+    expect(prefSetCalls).toContainEqual({
+      key: 'settings.activePromptKey',
+      value: '',
+      cwd: '/repo-stale',
+    });
+    expect(store.state.promptStaleNotice).toMatch(/已自动取消激活/);
+  });
+
+  // Negative coverage: a successful launch must NOT clear the pref. Otherwise
+  // every start wipes the user's active prompt and they have to re-pin.
+  it('does not clear activePromptKey when thread/start succeeds without stale flag', async () => {
+    const store = useThreadStore();
+    const prefSetCalls = [];
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get') {
+        return mockStartPreference(payload, { provider: 'codex', activePromptKey: 'main/launch-fav' });
+      }
+      if (method === 'thread/start') return {
+        thread: { id: 'thread-happy' },
+        prompt_key: 'main/launch-fav',
+      };
+      if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-happy', activeThreadId: '' });
+      if (method === 'ui/preferences/set') {
+        prefSetCalls.push(payload);
+        return {};
+      }
+      return {};
+    });
+
+    await store.startThread('/repo-happy', {});
+    await flushAsync();
+
+    expect(prefSetCalls.some((p) => p?.key === 'settings.activePromptKey')).toBe(false);
+    expect(store.state.promptStaleNotice || '').toBe('');
+  });
+
+  // Accept the camelCase alias as well — backend emits both keys with omitempty;
+  // dropping either would silently break this self-clean path in deployments that
+  // happen to surface the camelCase variant first.
+  it('accepts camelCase promptKeyStale alias from thread/start response', async () => {
+    const store = useThreadStore();
+    const prefSetCalls = [];
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get') {
+        return mockStartPreference(payload, { provider: 'codex', activePromptKey: 'main/missing' });
+      }
+      if (method === 'thread/start') return {
+        thread: { id: 'thread-stale-camel' },
+        promptKeyStale: true,
+      };
+      if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-stale-camel', activeThreadId: '' });
+      if (method === 'ui/preferences/set') {
+        prefSetCalls.push(payload);
+        return {};
+      }
+      return {};
+    });
+
+    await store.startThread('/repo-stale-camel', {});
+    await flushAsync();
+
+    expect(prefSetCalls).toContainEqual({
+      key: 'settings.activePromptKey',
+      value: '',
+      cwd: '/repo-stale-camel',
     });
   });
 });

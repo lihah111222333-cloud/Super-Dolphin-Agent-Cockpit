@@ -3,6 +3,10 @@ const UI_LOCAL_STATE_KEYS = Object.freeze([
   'activeCmdThreadId',
   'pinnedThreadAtById',
   'archivedThreadAtById',
+  // Surfaced when thread/start reports the caller's prompt_key is stale
+  // (template was deleted / disabled). startThread sets a notice string;
+  // UI components consume it to render a one-shot toast and reset to ''.
+  'promptStaleNotice',
 ]);
 
 const RUNTIME_STATE_KEYS = Object.freeze([
