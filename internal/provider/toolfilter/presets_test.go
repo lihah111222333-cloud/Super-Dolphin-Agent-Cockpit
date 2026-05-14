@@ -17,7 +17,7 @@ func assertAllow(t *testing.T, got mcp.BeforeDecision) {
 func TestReviewerPreset_AllowsReadOnlyTools(t *testing.T) {
 	got := ReviewerDecision()
 	assertAllow(t, got)
-	want := []string{"lsp_file", "lsp_grep", "lsp_inspect", "lsp_xref", "lsp_structure", "lsp_completion", "shared_file_read"}
+	want := []string{"file", "grep", "inspect", "xref", "structure", "completion", "lsp_file", "lsp_grep", "lsp_inspect", "lsp_xref", "lsp_structure", "lsp_completion", "shared_file_read"}
 	if !slices.Equal(got.AllowedTools, want) {
 		t.Fatalf("allowed = %#v, want %#v", got.AllowedTools, want)
 	}
@@ -26,7 +26,7 @@ func TestReviewerPreset_AllowsReadOnlyTools(t *testing.T) {
 func TestReviewerPreset_DeniesWriteTools(t *testing.T) {
 	got := ReviewerDecision()
 	assertAllow(t, got)
-	want := []string{"lsp_edit", "code_run", "code_run_test", "orchestration_launch_agent", "orchestration_stop_agent"}
+	want := []string{"edit", "lsp_edit", "code_run", "code_run_test", "orchestration_launch_agent", "orchestration_stop_agent"}
 	if !slices.Equal(got.DeniedTools, want) {
 		t.Fatalf("denied = %#v, want %#v", got.DeniedTools, want)
 	}

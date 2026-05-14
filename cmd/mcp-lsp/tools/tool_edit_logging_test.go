@@ -36,7 +36,7 @@ func TestEditFormatLogsResultOnlyBehavior(t *testing.T) {
 
 	output := logs.String()
 	for _, want := range []string{
-		"mcp-lsp: lsp_edit format result",
+		"mcp-lsp: edit format result",
 		"action=format",
 		"text_edit_count=1",
 		"applied=false",
@@ -78,7 +78,7 @@ func TestEditCodeActionLogsResultOnlyBehavior(t *testing.T) {
 
 	output := logs.String()
 	for _, want := range []string{
-		"mcp-lsp: lsp_edit code_action result",
+		"mcp-lsp: edit code_action result",
 		"action=code_action",
 		"code_action_count=1",
 		"actions_with_workspace_edit=1",

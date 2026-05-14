@@ -481,7 +481,7 @@
     "max_struct_fields": 6
   },
   "internal/module/prompt/env_provider.go": {
-    "lines": 300,
+    "lines": 294,
     "max_func_len": 48,
     "max_nesting": 2,
     "max_complexity": 9,

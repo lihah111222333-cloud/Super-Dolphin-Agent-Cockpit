@@ -17,7 +17,7 @@ func TestStartAssemblyFullContext(t *testing.T) {
 		CWD:                          worktree,
 		GitRoot:                      h.projectRoot,
 		Language:                     "Chinese",
-		EnabledTools:                 []string{"lsp_file", "request_user_input", "spawn_agent"},
+		EnabledTools:                 []string{"file", "request_user_input", "spawn_agent"},
 		AdditionalWorkingDirectories: []string{extraDir},
 		MCPSnapshot: promptpkg.MCPSnapshot{
 			Servers: []string{"orch"},
@@ -34,7 +34,7 @@ func TestStartAssemblyFullContext(t *testing.T) {
 	env := sectionContent(start.ResolvedSections, promptpkg.DynamicSectionEnvInfoSimple)
 	mustContain(t, env, worktree)
 	mustContain(t, env, h.projectRoot)
-	mustContain(t, env, "enabled (lsp_file)")
+	mustContain(t, env, "enabled (file)")
 	mustContain(t, env, extraDir)
 
 	language := sectionContent(start.ResolvedSections, promptpkg.DynamicSectionLanguage)

@@ -23,7 +23,7 @@ type structureParams struct {
 }
 
 func NewStructureHandler(registry lspmanager.Registry) ToolHandler {
-	return newManagerTool("lsp_structure", middleware.TierNormal, registry, decodeStrict, func(ctx context.Context, registry lspmanager.Registry, req structureParams) (any, error) {
+	return newManagerTool("structure", middleware.TierNormal, registry, decodeStrict, func(ctx context.Context, registry lspmanager.Registry, req structureParams) (any, error) {
 		// Resolve the manager lazily per action: workspace_symbol can use
 		// the "language" parameter instead of "file_path", so we must not
 		// call GetManagerForFile unconditionally.
@@ -84,7 +84,7 @@ func resolveWorkspaceSymbolManager(ctx context.Context, registry lspmanager.Regi
 	manager, err := registry.GetManagerForFile(ctx, filePath)
 	if err != nil {
 		if errors.Is(err, lspmanager.ErrUnsupportedLanguage) {
-			return nil, "", errors.New("path must point to a source file with a configured language server; use language for workspace-wide search, and use lsp_file/lsp_grep for docs or config files")
+			return nil, "", errors.New("path must point to a source file with a configured language server; use language for workspace-wide search, and use file/grep for docs or config files")
 		}
 		return nil, "", err
 	}

@@ -65,11 +65,11 @@ type editEnvelope struct {
 }
 
 func NewEditHandler(registry lspmanager.Registry) middleware.Handler {
-	return wrapToolHandler("lsp_edit", middleware.TierNormal, EditHandler{registry: registry}.Handle)
+	return wrapToolHandler("edit", middleware.TierNormal, EditHandler{registry: registry}.Handle)
 }
 
 func NewEditHandlerWithRoot(root string, registry lspmanager.Registry) middleware.Handler {
-	return wrapToolHandler("lsp_edit", middleware.TierNormal, EditHandler{registry: registry, root: resolveRoot(root)}.Handle)
+	return wrapToolHandler("edit", middleware.TierNormal, EditHandler{registry: registry, root: resolveRoot(root)}.Handle)
 }
 
 func HandleEdit(ctx context.Context, registry lspmanager.Registry, params json.RawMessage) (any, error) {
@@ -82,9 +82,9 @@ func (h EditHandler) Handle(ctx context.Context, params json.RawMessage) (any, e
 	}
 	req, err := decodeToolParams[EditRequest](params, decodeRaw)
 	if err != nil {
-		return nil, fmt.Errorf("decode lsp_edit request: %w", err)
+		return nil, fmt.Errorf("decode edit request: %w", err)
 	}
-	return dispatchToolAction(ctx, "lsp_edit", req.Action, req, map[string]actionHandler[EditRequest]{
+	return dispatchToolAction(ctx, "edit", req.Action, req, map[string]actionHandler[EditRequest]{
 		"rename": func(ctx context.Context, req EditRequest) (any, error) {
 			return h.handleRename(ctx, req)
 		},
@@ -194,7 +194,7 @@ func (h EditHandler) resolveFilePositionRequest(ctx context.Context, req EditReq
 func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any, error) {
 	path, position, err := h.resolveFilePositionRequest(ctx, req)
 	if err != nil {
-		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: lsp_edit code_action rejected",
+		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: edit code_action rejected",
 			"action", "code_action",
 			"file_path", req.FilePath,
 			"line", req.Line,
@@ -206,7 +206,7 @@ func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any
 	}
 	manager, err := h.registry.GetManagerForFile(ctx, path)
 	if err != nil {
-		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: lsp_edit code_action manager failed",
+		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: edit code_action manager failed",
 			"action", "code_action",
 			"file_path", path,
 			"line", req.Line,
@@ -218,7 +218,7 @@ func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any
 	}
 	actions, err := manager.CodeAction(ctx, path, protocol.Range{Start: position, End: position}, req.Only)
 	if err != nil {
-		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: lsp_edit code_action request failed",
+		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: edit code_action request failed",
 			"action", "code_action",
 			"file_path", path,
 			"line", req.Line,
@@ -229,7 +229,7 @@ func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any
 		return nil, err
 	}
 	if err := validateCodeActionWorkspaceEditPaths(toolWorkspaceRoot(ctx, h.root), actions); err != nil {
-		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: lsp_edit code_action unsafe workspace edit",
+		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: edit code_action unsafe workspace edit",
 			"action", "code_action",
 			"file_path", path,
 			"line", req.Line,
@@ -241,7 +241,7 @@ func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any
 		return nil, err
 	}
 	structuredCount, commandCount, editActionCount, textEditCount := codeActionResultStats(actions)
-	pkglogger.FromContext(ctx).InfoContext(ctx, "mcp-lsp: lsp_edit code_action result",
+	pkglogger.FromContext(ctx).InfoContext(ctx, "mcp-lsp: edit code_action result",
 		"action", "code_action",
 		"file_path", path,
 		"line", req.Line,
@@ -263,7 +263,7 @@ func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any
 func (h EditHandler) handleFormat(ctx context.Context, req EditRequest) (any, error) {
 	path, err := resolveWorkspacePath(toolWorkspaceRoot(ctx, h.root), req.FilePath)
 	if err != nil {
-		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: lsp_edit format rejected",
+		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: edit format rejected",
 			"action", "format",
 			"file_path", req.FilePath,
 			"error", err,
@@ -272,7 +272,7 @@ func (h EditHandler) handleFormat(ctx context.Context, req EditRequest) (any, er
 	}
 	manager, err := h.registry.GetManagerForFile(ctx, path)
 	if err != nil {
-		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: lsp_edit format manager failed",
+		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: edit format manager failed",
 			"action", "format",
 			"file_path", path,
 			"error", err,
@@ -284,14 +284,14 @@ func (h EditHandler) handleFormat(ctx context.Context, req EditRequest) (any, er
 		InsertSpaces: false,
 	})
 	if err != nil {
-		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: lsp_edit format request failed",
+		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: edit format request failed",
 			"action", "format",
 			"file_path", path,
 			"error", err,
 		)
 		return nil, err
 	}
-	pkglogger.FromContext(ctx).InfoContext(ctx, "mcp-lsp: lsp_edit format result",
+	pkglogger.FromContext(ctx).InfoContext(ctx, "mcp-lsp: edit format result",
 		"action", "format",
 		"file_path", path,
 		"text_edit_count", len(edits),

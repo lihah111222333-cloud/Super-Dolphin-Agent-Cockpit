@@ -52,7 +52,7 @@ func NewGrepHandler(cfg Config) Handler {
 		root:     resolveRoot(cfg.WorkspaceRoot),
 		registry: cfg.Registry,
 	}
-	return Handler(wrapToolHandler("lsp_grep", middleware.TierSlow, handler.handleGrep))
+	return Handler(wrapToolHandler("grep", middleware.TierSlow, handler.handleGrep))
 }
 
 func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (any, error) {
@@ -66,7 +66,7 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 		matches []search.SearchMatch
 		runErr  error
 	)
-	if _, err := dispatchToolAction(ctx, "lsp_grep", input.Action, input, map[string]actionHandler[grepToolInput]{
+	if _, err := dispatchToolAction(ctx, "grep", input.Action, input, map[string]actionHandler[grepToolInput]{
 		"text_search": func(ctx context.Context, input grepToolInput) (any, error) {
 			matches, runErr = search.SearchText(ctx, search.TextSearchOptions{
 				Root:          toolWorkspaceRoot(ctx, h.root),
@@ -106,7 +106,7 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 		}, nil
 	}
 	resp := buildGrepResponse(filtered, total, truncated)
-	capGrepResponseBytes(&resp, middleware.ToolBudget("lsp_grep"))
+	capGrepResponseBytes(&resp, middleware.ToolBudget("grep"))
 	return resp, nil
 }
 

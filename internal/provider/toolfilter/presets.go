@@ -3,12 +3,13 @@ package toolfilter
 import mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 
 var reviewerAllowedTools = []string{
-	"lsp_file", "lsp_grep", "lsp_inspect", "lsp_xref",
-	"lsp_structure", "lsp_completion", "shared_file_read",
+	"file", "grep", "inspect", "xref", "structure", "completion",
+	"lsp_file", "lsp_grep", "lsp_inspect", "lsp_xref", "lsp_structure", "lsp_completion",
+	"shared_file_read",
 }
 
 var reviewerDeniedTools = []string{
-	"lsp_edit", "code_run", "code_run_test",
+	"edit", "lsp_edit", "code_run", "code_run_test",
 	"orchestration_launch_agent", "orchestration_stop_agent",
 }
 

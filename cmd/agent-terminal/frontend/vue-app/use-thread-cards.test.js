@@ -190,8 +190,8 @@ describe('useThreadCards', () => {
   it('shortens tool names and summarizes known and unknown tool results', () => {
     const vm = createThreadCards({
       activeTimeline: [
-        { id: 'tool-edit', kind: 'tool', tool: 'mcp__lsp__lsp_edit', preview: '{"success":true,"action":"replace_range"}', status: 'completed', success: true, ts: '2026-03-09T10:00:00Z' },
-        { id: 'tool-grep', kind: 'tool', tool: 'mcp__lsp__lsp_grep', preview: '{"files":{},"total":0,"showing":0}', status: 'completed', success: true, ts: '2026-03-09T10:00:01Z' },
+        { id: 'tool-edit', kind: 'tool', tool: 'mcp__lsp__edit', preview: '{"success":true,"action":"replace_range"}', status: 'completed', success: true, ts: '2026-03-09T10:00:00Z' },
+        { id: 'tool-grep', kind: 'tool', tool: 'mcp__lsp__grep', preview: '{"files":{},"total":0,"showing":0}', status: 'completed', success: true, ts: '2026-03-09T10:00:01Z' },
         { id: 'tool-run', kind: 'tool', tool: 'mcp__lsp__code_run', preview: '{"success":false,"output":"cat: missing file"}', status: 'completed', success: false, ts: '2026-03-09T10:00:02Z' },
         { id: 'tool-workspace', kind: 'tool', tool: 'mcp__orch__workspace_merge_run', status: 'completed', success: true, ts: '2026-03-09T10:00:03Z' },
         { id: 'tool-unknown', kind: 'tool', tool: 'future.vendor/scan', status: 'completed', success: true, ts: '2026-03-09T10:00:04Z' },
@@ -202,8 +202,8 @@ describe('useThreadCards', () => {
       expect.objectContaining({ kind: 'tool', message: 'future_vendor_scan · 已完成', status: 'done' }),
       expect.objectContaining({ kind: 'tool', message: 'workspace_merge_run · 已合并工作区', status: 'done' }),
       expect.objectContaining({ kind: 'tool', message: 'code_run · 命令执行失败：cat: missing file', status: 'failed' }),
-      expect.objectContaining({ kind: 'tool', message: 'lsp_grep · 搜索无结果', status: 'done' }),
-      expect.objectContaining({ kind: 'tool', message: 'lsp_edit · 已替换文件内容', status: 'done' }),
+      expect.objectContaining({ kind: 'tool', message: 'grep · 搜索无结果', status: 'done' }),
+      expect.objectContaining({ kind: 'tool', message: 'edit · 已替换文件内容', status: 'done' }),
     ]);
   });
 
@@ -223,4 +223,3 @@ describe('useThreadCards', () => {
     ]);
   });
 });
-
