@@ -157,6 +157,33 @@ func TestPoolRoutingSuccessPath(t *testing.T) {
 	}
 }
 
+func TestPoolRoutingPassesStartCWDToSpawnerWorkDir(t *testing.T) {
+	t.Setenv(poolRoutingEnvVar, "1")
+	workDir := t.TempDir()
+	var got string
+	pool := NewServerPool(slog.Default(), func(ctx context.Context, home string) (SpawnedServer, error) {
+		got = poolSpawnWorkDir(ctx)
+		return newFakeServer("ws://127.0.0.1:7788"), nil
+	}, PoolConfig{})
+	defer pool.Close(context.Background())
+	d := newRoutingDriver(t, pool)
+
+	cfg := identityConfig(t, "cwd")
+	opts, err := d.resolveSessionOptions(context.Background(), dto.StartSessionRequest{AgentID: "agent-cwd", CWD: workDir, Config: cfg})
+	if err != nil {
+		t.Fatalf("resolveSessionOptions() error = %v", err)
+	}
+	if len(opts) != 1 {
+		t.Fatalf("options = %d, want 1", len(opts))
+	}
+	if got != workDir {
+		t.Fatalf("spawn WorkDir = %q, want %q", got, workDir)
+	}
+	var so sessionOptions
+	opts[0](&so)
+	so.poolRelease()
+}
+
 // TestPoolRoutingSurfacesPoolError asserts pool acquire errors are
 // not swallowed: retry / observability must see them.
 func TestPoolRoutingSurfacesPoolError(t *testing.T) {
