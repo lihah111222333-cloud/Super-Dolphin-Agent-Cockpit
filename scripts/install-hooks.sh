@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 安装 super-agent-v3 git hooks
-# 通过 core.hooksPath 指向 .githooks/，让 pre-commit 等钩子随仓库分发。
+# 通过 core.hooksPath 指向 .githooks/，让 pre-commit / commit-msg / pre-push 等钩子随仓库分发。
 # 用法：在仓库根目录执行 `bash scripts/install-hooks.sh`
 
 set -euo pipefail

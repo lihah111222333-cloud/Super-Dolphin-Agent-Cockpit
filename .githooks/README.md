@@ -23,9 +23,10 @@ make install-hooks
 | Hook | 触发 | 做什么 | 大约耗时 |
 |---|---|---|---|
 | `pre-commit` | `git commit` | 检查 **staged `.go` 影响面**：拒绝 staged/worktree 不一致和 AD 状态，`gofmt -l` + `go vet` + `go test -short`；删除/重命名会覆盖旧/新包 | 1–3 秒 |
-| `pre-push` | `git push` | 要求 worktree/index/untracked 干净，且只允许推送当前 `HEAD` 后调 `make ci-l0`（claudecli + platform/runner + app + platform/rpc 的快速门控） | ~13 秒 |
+| `commit-msg` | `git commit` | 提交主题属于 `fix` / `hotfix` / `bugfix` / `修复` 时，要求同一提交修改锁定 bug 的测试、fixture、golden 或 snapshot | <1 秒 |
+| `pre-push` | `git push` | 要求 worktree/index/untracked 干净，只允许推送当前 `HEAD`；检查本次 push 的 fix commits 都带锁定 bug 的测试，再调 `make ci-l0` | ~13 秒 |
 
-`pre-commit` 只跑 staged `.go` 影响到的包，pre-push 跑全 ci-l0。两者都**不**做格式自动修复，只拦下不通过的提交/推送。为保证检查对象就是将被提交的内容，`pre-commit` 会拒绝 staged Go 影响包内仍有未暂存/未跟踪 `.go` 改动，也会拒绝 `git add` 后又删除的 AD 状态。
+`pre-commit` 只跑 staged `.go` 影响到的包，`commit-msg` 用提交主题识别 fix 类提交，`pre-push` 跑 push 范围兜底和全 ci-l0。三者都**不**做格式自动修复，只拦下不通过的提交/推送。为保证检查对象就是将被提交的内容，`pre-commit` 会拒绝 staged Go 影响包内仍有未暂存/未跟踪 `.go` 改动，也会拒绝 `git add` 后又删除的 AD 状态。
 
 ## 跳过钩子（仅限紧急）
 
@@ -85,6 +86,17 @@ internal/foo/bar.go
 
 按报告改代码，重新 commit。
 
+### fix 缺少锁定 bug 测试
+
+```
+[commit-msg] fix-test guard...
+❌ fix 提交缺少锁定 bug 的测试
+  subject: fix: repair parser panic
+  规则: fix/hotfix/bugfix/修复 提交必须在同一提交修改测试、fixture、golden 或 snapshot。
+```
+
+给同一个提交补上能复现并锁定该 bug 的 `*_test.go`、`*.test.ts`、`tests/**`、`testdata/**`、`fixtures/**`、`golden/**` 或 snapshot 变更后重新 commit。
+
 ### pre-push（ci-l0 失败）
 
 ```
@@ -101,7 +113,7 @@ FAIL  github.com/.../internal/app    0.5s
 
 | 现象 | 检查命令 |
 |---|---|
-| commit 一直被拒看不懂错误 | `bash .githooks/pre-commit` 直接跑一遍看完整输出 |
+| commit 一直被拒看不懂错误 | `bash .githooks/pre-commit` 直接跑一遍看完整输出；fix-test 规则可用 `bash .githooks/commit-msg .git/COMMIT_EDITMSG` 复现 |
 | 想确认 hook 装没装 | `git config --get core.hooksPath`（应输出本仓库的绝对路径 `.githooks`） |
 | 怀疑 hook 没执行 | `git commit -v` 看完整流程；或临时 `git commit --no-verify` 比对 |
 | build/test 时看到"git hooks 未装"提示 | 跑一次 `make install-hooks` |
@@ -126,7 +138,7 @@ git config --get core.hooksPath
 
 ### rebase / cherry-pick / merge / revert 中间提交会怎样？
 
-`pre-commit` 不覆盖所有 sequencer 自动产生的中间提交；这是 Git 客户端 hook 的结构性限制。`pre-push` 会在最终 push 前要求 worktree/index/untracked 干净，并要求每个非删除 ref 的 `local_sha` 等于当前 `HEAD`，再跑 `make ci-l0`，确保兜底检查的是将要推送的 commit。
+`pre-commit` / `commit-msg` 不覆盖所有 sequencer 自动产生的中间提交；这是 Git 客户端 hook 的结构性限制。`pre-push` 会在最终 push 前要求 worktree/index/untracked 干净，并要求每个非删除 ref 的 `local_sha` 等于当前 `HEAD`，再检查本次 push 范围内所有 fix commits 都带锁定 bug 的测试，最后跑 `make ci-l0`，确保兜底检查的是将要推送的 commit。
 
 ### Linux 能用吗？
 
@@ -144,11 +156,12 @@ git config --unset core.hooksPath
 
 - **本地工作流约束**：只在你的电脑上跑，不影响远端仓库或他人
 - **同事不装即裸推**：core.hooksPath 仅本机生效。要让所有人都用，需要每个人各自 `make install-hooks`
-- **rebase / amend 也跑**：交互式人工提交会跑；sequencer 自动中间提交不保证由 pre-commit 拦截，最终由 pre-push 兜底
+- **fix 必须带回归测试**：`fix` / `hotfix` / `bugfix` / `修复` 提交必须在同一提交修改测试、fixture、golden 或 snapshot；commit-msg 拦当前提交，pre-push 拦历史补推
+- **rebase / amend 也跑**：交互式人工提交会跑；sequencer 自动中间提交不保证由 pre-commit / commit-msg 拦截，最终由 pre-push 兜底
 - **环境降噪**：pre-commit 会清空 `GOFLAGS`；pre-push 会清理 Git hook 环境后跑 `make ci-l0`，并过滤 `ld: warning:` 链接器噪声
 - **CI 可短路 hook 检查提示**：`MAKE_HOOK_CHECK=0 make build` 可关闭 build 末尾的本地 hooksPath 提示，避免 CI 日志噪声
 - **失败信息不自动进 agent 上下文**：你需要复制错误给 agent，让 agent 改
 
 ## 修改钩子内容
 
-直接编辑 `.githooks/pre-commit` 或 `.githooks/pre-push`，git 追踪它们，提交后所有装了 hook 的人下次 pull 自动生效。
+直接编辑 `.githooks/pre-commit`、`.githooks/commit-msg` 或 `.githooks/pre-push`，git 追踪它们，提交后所有装了 hook 的人下次 pull 自动生效。
