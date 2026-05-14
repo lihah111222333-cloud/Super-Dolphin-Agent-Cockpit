@@ -22,6 +22,7 @@ import (
 type AutomationExecutor struct {
 	commandGetter AutomationCommandGetter
 	runner        AutomationCommandRunner
+	hooks         map[HookPoint]HookHandler
 }
 
 type AutomationCommandGetter interface {
@@ -98,8 +99,21 @@ func (e CommandExitError) Error() string {
 
 func (e CommandExitError) Unwrap() error { return e.Err }
 
-func NewAutomationExecutor(getter AutomationCommandGetter, runner AutomationCommandRunner) *AutomationExecutor {
-	return &AutomationExecutor{commandGetter: getter, runner: runner}
+type AutomationOption func(*AutomationExecutor)
+
+// WithAutomationHooks registers lifecycle hooks for automation nodes.
+func WithAutomationHooks(hooks map[HookPoint]HookHandler) AutomationOption {
+	return func(e *AutomationExecutor) { e.hooks = cloneHookHandlers(hooks) }
+}
+
+func NewAutomationExecutor(getter AutomationCommandGetter, runner AutomationCommandRunner, opts ...AutomationOption) *AutomationExecutor {
+	e := &AutomationExecutor{commandGetter: getter, runner: runner}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(e)
+		}
+	}
+	return e
 }
 
 func (e *AutomationExecutor) Execute(ctx context.Context, node Node, runCtx RunContext) (NodeOutcome, error) {
@@ -258,7 +272,12 @@ func (e *AutomationExecutor) loadCommandCard(ctx context.Context, cfg *Automatio
 	return card, nil
 }
 
-func (e *AutomationExecutor) Hooks() map[HookPoint]HookHandler { return nil }
+func (e *AutomationExecutor) Hooks() map[HookPoint]HookHandler {
+	if e == nil {
+		return nil
+	}
+	return cloneHookHandlers(e.hooks)
+}
 
 func failedAutomationOutcome(class FailureClass, summary string) NodeOutcome {
 	return NodeOutcome{

@@ -304,13 +304,18 @@ func (r *NodeExecutorRouter) dispatchAgent(ctx context.Context, node nodeexec.No
 	if r.agentExec == nil {
 		return validationOutcome("node router: agent executor not wired"), nil
 	}
-	outcome, err := r.agentExec.Execute(ctx, node, runCtx)
+	hooks := r.agentExec.Hooks()
+	outcome, err := r.executeNodeWithLifecycleHooks(ctx, hooks, r.agentExec, node, runCtx)
 	if err != nil || outcome.Status == nodeexec.NodeStatusFailed {
 		// launch 失败 / executor 框架错：不写 running；dispatcher 会走 retry / fail 路径。
 		return outcome, err
 	}
 	// launch 成功：推 ready→running，让 subscriber 后续推 done/failed。
-	r.advanceAgentNodeToRunning(ctx, node.DagKey, node.NodeKey, wakeupID)
+	if r.advanceAgentNodeToRunning(ctx, node.DagKey, node.NodeKey, wakeupID) {
+		r.invokeLifecycleHook(ctx, hooks, nodeexec.HookOnStateChange, node, nodeexec.NodeOutcome{
+			Status: nodeexec.NodeStatusRunning,
+		})
+	}
 	return outcome, nil
 }
 
@@ -320,17 +325,17 @@ func (r *NodeExecutorRouter) dispatchAgent(ctx context.Context, node nodeexec.No
 //     metric IncDispatchAgentRunningSkippedAlreadyTerminal +Debug log；
 //   - 其它 DB 错误：Warn log + metric IncDispatchAgentRunningWriteFailed；
 //   - 成功：metric IncDispatchAgentRunningWritten。
-func (r *NodeExecutorRouter) advanceAgentNodeToRunning(ctx context.Context, dagKey, nodeKey string, wakeupID int64) {
+func (r *NodeExecutorRouter) advanceAgentNodeToRunning(ctx context.Context, dagKey, nodeKey string, wakeupID int64) bool {
 	if r.store == nil {
 		r.logger.Warn("node router: store nil, skip ready->running write",
 			"dag_key", dagKey, "node_key", nodeKey)
-		return
+		return false
 	}
 	runStore, ok := any(r.store).(taskdag.RunningNodeStore)
 	if !ok {
 		r.logger.Warn("node router: store does not implement RunningNodeStore",
 			"dag_key", dagKey, "node_key", nodeKey)
-		return
+		return false
 	}
 	_, updateErr := runStore.UpdateRunningNodeStatus(ctx, taskdag.RunningNodeStatusUpdate{
 		Status:   "running",
@@ -342,15 +347,18 @@ func (r *NodeExecutorRouter) advanceAgentNodeToRunning(ctx context.Context, dagK
 	switch {
 	case updateErr == nil:
 		dispatchAgentRunningMetrics.IncWritten()
+		return true
 	case errors.Is(updateErr, pgx.ErrNoRows) || platformdb.IsNotFound(updateErr):
 		// race window D：subscriber 已推终态，不在白名单 IN ('pending','ready')。
 		dispatchAgentRunningMetrics.IncSkippedAlreadyTerminal()
 		r.logger.Debug("node router: ready->running skipped, node already terminal",
 			"dag_key", dagKey, "node_key", nodeKey)
+		return false
 	default:
 		dispatchAgentRunningMetrics.IncWriteFailed()
 		r.logger.Warn("node router: ready->running write failed",
 			"dag_key", dagKey, "node_key", nodeKey, "error", updateErr)
+		return false
 	}
 }
 
@@ -358,7 +366,8 @@ func (r *NodeExecutorRouter) dispatchAutomation(ctx context.Context, node nodeex
 	if r.autoExec == nil {
 		return validationOutcome("node router: automation executor not wired"), nil
 	}
-	outcome, execErr := r.autoExec.Execute(ctx, node, runCtx)
+	hooks := r.autoExec.Hooks()
+	outcome, execErr := r.executeNodeWithLifecycleHooks(ctx, hooks, r.autoExec, node, runCtx)
 	if execErr != nil {
 		return outcome, execErr
 	}
@@ -367,6 +376,11 @@ func (r *NodeExecutorRouter) dispatchAutomation(ctx context.Context, node nodeex
 		if err := r.completeAutomationNode(ctx, node.DagKey, node.NodeKey, outcome.Result); err != nil {
 			r.logger.Warn("node router: automation complete propagate failed",
 				"dag_key", node.DagKey, "node_key", node.NodeKey, "error", err)
+		} else {
+			r.invokeLifecycleHook(ctx, hooks, nodeexec.HookOnStateChange, node, nodeexec.NodeOutcome{
+				Status: nodeexec.NodeStatusDone,
+				Result: outcome.Result,
+			})
 		}
 	}
 	return outcome, nil
@@ -475,6 +489,14 @@ func (a *storeNodeSpawnRecorderAdapter) RecordNodeSpawn(ctx context.Context, dag
 // ProvideAgentExecutor wires the AgentLauncher + NodeSpawnRecorder into an
 // *AgentExecutor with WithRecorder() so the F1.5 write-back stays active
 // after W2's functional-options refactor.
-func ProvideAgentExecutor(launcher nodeexec.AgentLauncher, recorder nodeexec.NodeSpawnRecorder) *nodeexec.AgentExecutor {
-	return nodeexec.NewAgentExecutor(launcher, nodeexec.WithRecorder(recorder))
+func ProvideAgentExecutor(
+	launcher nodeexec.AgentLauncher,
+	recorder nodeexec.NodeSpawnRecorder,
+	hooks NodeLifecycleHooks,
+) *nodeexec.AgentExecutor {
+	return nodeexec.NewAgentExecutor(
+		launcher,
+		nodeexec.WithRecorder(recorder),
+		nodeexec.WithHooks(map[nodeexec.HookPoint]nodeexec.HookHandler(hooks)),
+	)
 }

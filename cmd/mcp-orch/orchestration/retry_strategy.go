@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	taskdag "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 // 导航注（DAG v2 骨架阶段后）：
@@ -143,7 +145,25 @@ func retryableValidationOutcome(outcome nodeexec.NodeOutcome) bool {
 	return strings.HasPrefix(outcome.ErrorSummary, "launch agent:")
 }
 
-func (d *WakeupDispatcher) failDAGNodeAndCancelDownstream(ctx context.Context, w *taskdag.Wakeup, lastErr string, failFast bool) {
+type dispatchFailure struct {
+	lastErr   string
+	launchErr error
+	outcome   nodeexec.NodeOutcome
+}
+
+func dispatchFailureFrom(lastErr string, launchErr error, outcome nodeexec.NodeOutcome) dispatchFailure {
+	return dispatchFailure{lastErr: lastErr, launchErr: launchErr, outcome: outcome}
+}
+
+func failedWakeupOutcome(summary string) nodeexec.NodeOutcome {
+	return nodeexec.NodeOutcome{Status: nodeexec.NodeStatusFailed, ErrorSummary: summary}
+}
+
+func withDispatchRetryAlertTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	return platformconfig.WithTimeout(ctx, 5*time.Second)
+}
+
+func (d *WakeupDispatcher) failDAGNodeAndCancelDownstream(ctx context.Context, w *taskdag.Wakeup, lastErr string, failFast bool, outcome nodeexec.NodeOutcome) {
 	if w == nil || strings.TrimSpace(w.DagKey) == "" || strings.TrimSpace(w.NodeKey) == "" {
 		return
 	}
@@ -171,4 +191,34 @@ func (d *WakeupDispatcher) failDAGNodeAndCancelDownstream(ctx context.Context, w
 		"attempt_count", w.AttemptCount,
 		"fail_fast", failFast,
 		"canceled_downstream", len(res.CanceledDownstream))
+	if d.nodeRouter != nil {
+		if outcome.Status == "" {
+			outcome.Status = nodeexec.NodeStatusFailed
+		}
+		if outcome.ErrorSummary == "" {
+			outcome.ErrorSummary = lastErr
+		}
+		d.nodeRouter.invokeTerminalFailureHooksForWakeup(ctx, w, outcome)
+	}
+}
+
+func (d *WakeupDispatcher) handleRetryHardCap(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure) {
+	exhaustedErr := "retry attempts exhausted: " + failure.lastErr
+	if d.markPermanentFail(ctx, w, fence, exhaustedErr, failure.launchErr) {
+		if alert, shouldAlert := recordDispatchRetryMetric(w, failure.lastErr); shouldAlert {
+			d.emitDispatchRetryAlert(ctx, alert)
+		}
+		d.failDAGNodeForRetryHardCap(ctx, w, exhaustedErr, failure)
+	}
+	d.logger.Warn("wakeup dispatcher: retry attempts exhausted → failed",
+		"wakeup_id", w.ID,
+		"target_agent_id", w.TargetAgentID)
+}
+
+func (d *WakeupDispatcher) failDAGNodeForRetryHardCap(ctx context.Context, w *taskdag.Wakeup, lastErr string, failure dispatchFailure) {
+	failFast := false
+	if policy, ok := d.resolveDAGRetryPolicy(ctx, w.DagKey, w.NodeKey); ok {
+		failFast = policy.FailFast
+	}
+	d.failDAGNodeAndCancelDownstream(ctx, w, lastErr, failFast, failure.outcome)
 }

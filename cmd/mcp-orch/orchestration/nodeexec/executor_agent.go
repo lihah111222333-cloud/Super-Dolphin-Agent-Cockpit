@@ -39,6 +39,7 @@ import (
 type AgentExecutor struct {
 	launcher AgentLauncher
 	recorder NodeSpawnRecorder
+	hooks    map[HookPoint]HookHandler
 }
 
 // AgentLauncher 是 AgentExecutor 拉起子 agent 的最小接口面。
@@ -106,6 +107,13 @@ type Option func(*AgentExecutor)
 // is auxiliary, not part of agent semantics.
 func WithRecorder(recorder NodeSpawnRecorder) Option {
 	return func(e *AgentExecutor) { e.recorder = recorder }
+}
+
+// WithHooks registers lifecycle hooks for this executor. Hooks are best-effort:
+// router-level dispatch invokes and logs hook errors without changing the node
+// execution outcome.
+func WithHooks(hooks map[HookPoint]HookHandler) Option {
+	return func(e *AgentExecutor) { e.hooks = cloneHookHandlers(hooks) }
 }
 
 // NewAgentExecutor 构造一个 AgentExecutor。launcher 为 nil 时仍返回非 nil
@@ -231,10 +239,15 @@ func (e *AgentExecutor) Execute(ctx context.Context, node Node, runCtx RunContex
 	}, nil
 }
 
-// Hooks 返回 lifecycle hooks。F13 真实实现；骨架阶段返回 nil。
+// Hooks 返回 lifecycle hooks。未配置时返回 nil，保持骨架阶段兼容。
 //
-// Hooks reports lifecycle hook handlers. F13 wires real hooks; today nil.
-func (e *AgentExecutor) Hooks() map[HookPoint]HookHandler { return nil }
+// Hooks reports lifecycle hook handlers. Nil means no hooks registered.
+func (e *AgentExecutor) Hooks() map[HookPoint]HookHandler {
+	if e == nil {
+		return nil
+	}
+	return cloneHookHandlers(e.hooks)
+}
 
 var agentOutputsForbiddenKeys = []string{"webhook_url", "command_ref"}
 

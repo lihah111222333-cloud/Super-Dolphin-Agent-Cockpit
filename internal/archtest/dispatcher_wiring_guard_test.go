@@ -56,7 +56,8 @@ func TestDispatcherWiringGuard(t *testing.T) {
 				// WithRecorder option（W2 端口收敛后 NewAgentExecutor 变 variadic Option），
 				// 保证 launcher + NodeSpawnRecorder 同步落到 executor。
 				"orchestration.ProvideAgentExecutor",
-				"nodeexec.NewAutomationExecutor",
+				"orchestration.ProvideAutomationExecutor",
+				"orchestration.ProvideNodeLifecycleHooks",
 				// + NodeExecutorRouter 单例
 				"orchestration.NewNodeExecutorRouter",
 				// + serviceAgentLauncher adapter (让 AgentExecutor 用上生产 launcher)
@@ -83,10 +84,8 @@ func TestDispatcherWiringGuard(t *testing.T) {
 				`case "agent":`,
 				`case "automation":`,
 				`case "hybrid":`,
-				// agent 路径必须真调 AgentExecutor.Execute
-				"r.agentExec.Execute(",
-				// automation 路径必须真调 AutomationExecutor.Execute
-				"r.autoExec.Execute(",
+				// agent / automation 路径必须经 F13.1 lifecycle helper 真调 Execute
+				"executeNodeWithLifecycleHooks",
 				// automation Status=done 路径必须代推 CompleteNodeAndScheduleDownstream
 				"CompleteNodeAndScheduleDownstream",
 				// hybrid 必须返 validation 类失败，不能悄悄变 done
@@ -101,6 +100,19 @@ func TestDispatcherWiringGuard(t *testing.T) {
 				"PrevResults:      prevResults",
 				"SharedFileReader: r.sharedFileReader",
 				"SharedFileWriter: r.sharedFileWriter",
+			},
+		},
+		{
+			name: "node_executor_dispatch.go wraps real executor Execute with lifecycle hooks",
+			path: filepath.Join("cmd", "mcp-orch", "orchestration", "node_executor_dispatch.go"),
+			mustHave: []string{
+				"HookBeforeExecute",
+				"exec.Execute(ctx, node, runCtx)",
+				"HookAfterExecute",
+				"HookOnStateChange",
+				"HookOnFailure",
+				"runtimesafe.SafeGo",
+				"lifecycleHookDispatchWait",
 			},
 		},
 		{

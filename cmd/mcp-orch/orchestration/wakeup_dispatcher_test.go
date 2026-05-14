@@ -266,6 +266,160 @@ func TestWakeupDispatcherTickFillsDefaultsForZeroConfig(t *testing.T) {
 	}
 }
 
+func TestWakeupDispatcher_RouterTerminalFailureLifecycleHooks(t *testing.T) {
+	events := []string{}
+	store := &dispatcherStubStore{
+		claimReply: []taskdag.Wakeup{{
+			ID:            55,
+			DagKey:        "dag-1",
+			NodeKey:       "auto1",
+			ClaimedBy:     "worker-a",
+			AttemptCount:  1,
+			PromptPayload: json.RawMessage(`{}`),
+		}},
+		nodesReply: []taskdag.Node{{
+			DagKey:   "dag-1",
+			NodeKey:  "auto1",
+			NodeType: "automation",
+			Status:   string(nodeexec.NodeStatusReady),
+			Config:   json.RawMessage(`{"exec":{"command_ref":"missing-runner"}}`),
+		}},
+	}
+	d, err := NewWakeupDispatcher(store, &dispatcherStubLauncher{}, nil, WakeupDispatcherConfig{ClaimedBy: "worker-a"})
+	if err != nil {
+		t.Fatalf("NewWakeupDispatcher err = %v", err)
+	}
+	autoExec := nodeexec.NewAutomationExecutor(nil, nil, nodeexec.WithAutomationHooks(recordingLifecycleOutcomeHooks(&events)))
+	router := NewNodeExecutorRouter(store, nil, autoExec, nil, nil, nil)
+	d.WithNodeRouter(router)
+
+	n, err := d.ProcessBatch(context.Background())
+	if err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("ProcessBatch handled = %d, want 1", n)
+	}
+	if len(store.failCalls) != 1 {
+		t.Fatalf("FailWakeup calls = %d, want 1", len(store.failCalls))
+	}
+	if len(store.failNodeCalls) != 1 {
+		t.Fatalf("FailNodeAndCancelDownstream calls = %d, want 1", len(store.failNodeCalls))
+	}
+	want := []string{
+		"before_execute:auto1::",
+		"after_execute:auto1:failed:validation",
+		"on_state_change:auto1:failed:validation",
+		"on_failure:auto1:failed:validation",
+	}
+	if got := strings.Join(events, "|"); got != strings.Join(want, "|") {
+		t.Fatalf("events = %v, want %v", events, want)
+	}
+}
+
+func TestWakeupDispatcher_RetryExhaustedLifecycleHooksKeepFailureClass(t *testing.T) {
+	events := []string{}
+	store := &dispatcherStubStore{
+		claimReply: []taskdag.Wakeup{{
+			ID:           56,
+			DagKey:       "dag-1",
+			NodeKey:      "n1",
+			ClaimedBy:    "worker-a",
+			AttemptCount: 1,
+		}},
+		dagReply: &taskdag.DAG{
+			DagKey:   "dag-1",
+			Metadata: json.RawMessage(`{"schedule":{"default_retry":0}}`),
+		},
+		nodesReply: []taskdag.Node{{
+			DagKey:   "dag-1",
+			NodeKey:  "n1",
+			NodeType: "agent",
+			Status:   string(nodeexec.NodeStatusReady),
+			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),
+		}},
+	}
+	d, err := NewWakeupDispatcher(store, &dispatcherStubLauncher{}, nil, WakeupDispatcherConfig{ClaimedBy: "worker-a"})
+	if err != nil {
+		t.Fatalf("NewWakeupDispatcher err = %v", err)
+	}
+	launcher := &stubAgentLauncher{err: errors.New("context_length_exceeded")}
+	agentExec := nodeexec.NewAgentExecutor(launcher, nodeexec.WithHooks(recordingLifecycleOutcomeHooks(&events)))
+	d.WithNodeRouter(NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil))
+
+	n, err := d.ProcessBatch(context.Background())
+	if err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("ProcessBatch handled = %d, want 1", n)
+	}
+	if len(store.failNodeCalls) != 1 {
+		t.Fatalf("FailNodeAndCancelDownstream calls = %d, want 1", len(store.failNodeCalls))
+	}
+	want := []string{
+		"before_execute:n1::",
+		"after_execute:n1:failed:quota",
+		"on_state_change:n1:failed:quota",
+		"on_failure:n1:failed:quota",
+	}
+	if got := strings.Join(events, "|"); got != strings.Join(want, "|") {
+		t.Fatalf("events = %v, want %v", events, want)
+	}
+}
+
+func TestWakeupDispatcher_SQLRetryHardCapInvokesLifecycleHooks(t *testing.T) {
+	events := []string{}
+	now := time.Date(2026, 5, 14, 15, 0, 0, 0, time.UTC)
+	store := &dispatcherStubStore{
+		claimReply: []taskdag.Wakeup{makeDAGWakeup(57, "dag-1", "n1", "agent-W", 8, now)},
+		retryRows:  -1,
+		nodesReply: []taskdag.Node{{
+			DagKey:   "dag-1",
+			NodeKey:  "n1",
+			NodeType: "agent",
+			Status:   string(nodeexec.NodeStatusReady),
+			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),
+		}},
+	}
+	d, err := NewWakeupDispatcher(store, &dispatcherStubLauncher{}, nil, WakeupDispatcherConfig{ClaimedBy: "worker-a"})
+	if err != nil {
+		t.Fatalf("NewWakeupDispatcher err = %v", err)
+	}
+	launcher := &stubAgentLauncher{err: errors.New("connection refused")}
+	agentExec := nodeexec.NewAgentExecutor(launcher, nodeexec.WithHooks(recordingLifecycleOutcomeHooks(&events)))
+	d.WithNodeRouter(NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil))
+
+	n, err := d.ProcessBatch(context.Background())
+	if err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("ProcessBatch handled = %d, want 1", n)
+	}
+	if len(store.retryCalls) != 1 {
+		t.Fatalf("RetryWakeup calls = %d, want 1 before hard-cap fallback", len(store.retryCalls))
+	}
+	if len(store.failCalls) != 1 {
+		t.Fatalf("FailWakeup calls = %d, want 1", len(store.failCalls))
+	}
+	if len(store.failNodeCalls) != 1 {
+		t.Fatalf("FailNodeAndCancelDownstream calls = %d, want 1", len(store.failNodeCalls))
+	}
+	if !strings.Contains(store.failNodeCalls[0].Reason, "retry attempts exhausted") {
+		t.Fatalf("FailNode reason = %q, want exhausted prefix", store.failNodeCalls[0].Reason)
+	}
+	want := []string{
+		"before_execute:n1::",
+		"after_execute:n1:failed:transient",
+		"on_state_change:n1:failed:transient",
+		"on_failure:n1:failed:transient",
+	}
+	if got := strings.Join(events, "|"); got != strings.Join(want, "|") {
+		t.Fatalf("events = %v, want %v", events, want)
+	}
+}
+
 func TestWakeupDispatcherTickReturnsClaimCountAndPreservesFence(t *testing.T) {
 	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
 	leaseAt := now.Add(30 * time.Second)
