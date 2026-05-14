@@ -191,6 +191,26 @@ SET title = EXCLUDED.title,
 RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
 `
 
+const deleteTaskDagNode = `-- name: DeleteTaskDagNode :execrows
+DELETE FROM task_dag_nodes
+WHERE dag_key = $1
+  AND node_key = $2
+  AND status IN ('pending', 'ready')
+`
+
+type DeleteTaskDagNodeParams struct {
+	DagKey  string `json:"dag_key"`
+	NodeKey string `json:"node_key"`
+}
+
+func (q *Queries) DeleteTaskDagNode(ctx context.Context, arg DeleteTaskDagNodeParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteTaskDagNode, arg.DagKey, arg.NodeKey)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 type UpsertTaskDagNodeParams struct {
 	DagKey     string `json:"dag_key"`
 	NodeKey    string `json:"node_key"`

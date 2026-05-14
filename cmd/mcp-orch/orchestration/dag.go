@@ -548,12 +548,14 @@ type TerminateDAGRequest struct {
 //
 // StartDAG 触发 DAG 一次新执行。T1.2-mid 范围（L3 根治后）：
 //
-//  1. validateStartDAGPrereq: 检 service 预设 + dag_key 非空 + GetDAG 取
-//     dag.version 作为 run.dag_version_snapshot。不再在应用层做
+//  1. validateStartDAGPrereq: 检 service 预设 + dag_key 非空 + GetDAG 预检存在性。
+//     不再在应用层做
 //     CountActiveRunsByDagKey 预检（原方案有 TOCTOU race；0076 partial
 //     unique 把该约束下沉到 DB 兑底）。
-//  2. WithRunTx 原子化 CreateRun + PromoteRootNodesToReady。任一失败回
-//     滚、避免“run 已建却根节点未 ready”脱状态。
+//  2. WithRunTx 内先 GetDAGForUpdate 锁 DAG row，再原子化 CreateRun +
+//     PromoteRootNodesToReady。任一失败回滚、避免“run 已建却根节点未 ready”
+//     脱状态；DAG row lock 与 ApplyOps 共用同一序列化点，避免 start 与
+//     remove/update 交错。
 //  3. PG unique violation (SQLSTATE 23505) 后备路径（L3 GetRun-first 策略）：
 //     事务已回滚后在 tx 外 GetRun(run_key)：
 //     - 命中 → 同 IdempotencyKey 重入，幂等返已有 run
@@ -579,9 +581,10 @@ func (s *service) StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGRe
 	return s.runStartDAGWithFallback(ctx, dagKey, runKey, input)
 }
 
-// validateStartDAGPrereq 检 service 预设 + dag_key 非空 + 调 GetDAG。
+// validateStartDAGPrereq 检 service 预设 + dag_key 非空 + 调 GetDAG 做存在性预检。
 // 不再检 CountActiveRunsByDagKey——原预检不冲突有 TOCTOU race；
 // 0076 partial unique on (dag_key) WHERE status='running' 负责 DB 兑底。
+// 权威 DAG row lock 在 runStartDAGWithFallback 的事务内执行。
 // 返回三元组 (dagKey, dag, error)。拆出 helper 让 StartDAG 主体保持在 CC≤10。
 func (s *service) validateStartDAGPrereq(ctx context.Context, req StartDAGRequest) (string, *taskdag.DAG, error) {
 	if s == nil || s.dagStore == nil {
@@ -604,13 +607,18 @@ func (s *service) validateStartDAGPrereq(ctx context.Context, req StartDAGReques
 	return dagKey, dag, nil
 }
 
-// runStartDAGWithFallback 走 WithRunTx CreateRun + Promote。失败是 PG unique
-// violation 时：tx 已回滚，在 tx 外 GetRun(run_key) 处理 幂等返已有 run
-// 还是判定为 dag_key partial unique 冲突 → ErrDAGAlreadyRunning。不依赖
-// ConstraintName（PG 同时冲突哪个先报 OID 顺序不可控）。
+// runStartDAGWithFallback 走 WithRunTx GetDAGForUpdate + CreateRun + Promote。
+// 失败是 PG unique violation 时：tx 已回滚，在 tx 外 GetRun(run_key) 处理
+// 幂等返已有 run 还是判定为 dag_key partial unique 冲突 → ErrDAGAlreadyRunning。
+// 不依赖 ConstraintName（PG 同时冲突哪个先报 OID 顺序不可控）。
 func (s *service) runStartDAGWithFallback(ctx context.Context, dagKey, runKey string, input taskdag.CreateRunInput) (StartDAGResponse, error) {
 	var resp StartDAGResponse
 	txErr := s.runStore.WithRunTx(ctx, func(tx taskdag.RunStore) error {
+		lockedDAG, err := lockDAGForRunStart(ctx, tx, dagKey)
+		if err != nil {
+			return err
+		}
+		input.DagVersionSnapshot = dagVersionFor(lockedDAG)
 		run, err := tx.CreateRun(ctx, input)
 		if err != nil {
 			return fmt.Errorf("CreateRun: %w", err)
@@ -628,6 +636,28 @@ func (s *service) runStartDAGWithFallback(ctx context.Context, dagKey, runKey st
 		return StartDAGResponse{}, fmt.Errorf("orchestration: StartDAG(%q): %w", dagKey, txErr)
 	}
 	return s.resolveStartDAGUniqueViolation(ctx, dagKey, runKey, txErr)
+}
+
+type runStartDAGDAGLocker interface {
+	GetDAGForUpdate(ctx context.Context, dagKey string) (*taskdag.DAG, error)
+}
+
+func lockDAGForRunStart(ctx context.Context, tx taskdag.RunStore, dagKey string) (*taskdag.DAG, error) {
+	locker, ok := tx.(runStartDAGDAGLocker)
+	if !ok {
+		return nil, fmt.Errorf("%w: run tx store does not support DAG row lock", ErrRunStoreUnset)
+	}
+	dag, err := locker.GetDAGForUpdate(ctx, dagKey)
+	if err != nil {
+		if platformdb.IsNotFound(err) {
+			return nil, fmt.Errorf("%w: %s", ErrDAGNotFound, dagKey)
+		}
+		return nil, fmt.Errorf("GetDAGForUpdate: %w", err)
+	}
+	if dag == nil {
+		return nil, fmt.Errorf("%w: %s", ErrDAGNotFound, dagKey)
+	}
+	return dag, nil
 }
 
 // resolveStartDAGUniqueViolation 是 WithRunTx 遭 unique violation 后的备路径。
@@ -803,12 +833,12 @@ func (s *service) ApplyOps(ctx context.Context, req contract.ApplyOpsRequest) (c
 }
 
 // applyTypedOps 是 4 个 op_kind 业务实现的容器（F4.1-F4.4）。F4.1 接 add_node、
-// F4.2 接 update_node；其余 op_kind 被 fail-fast 拒为 ErrLifecycleNotImplemented。
-// 空 ops 返 noop。
+// F4.2 接 update_node，F4.3 接 remove_node；其余 op_kind 被 fail-fast 拒为
+// ErrLifecycleNotImplemented。空 ops 返 noop。
 //
 // applyTypedOps dispatches typed ops. F4.1 wires add_node, F4.2 wires
-// update_node; other kinds fail-fast to ErrLifecycleNotImplemented. Empty
-// ops is a valid noop.
+// update_node, and F4.3 wires remove_node; other kinds fail-fast to
+// ErrLifecycleNotImplemented. Empty ops is a valid noop.
 func (s *service) applyTypedOps(ctx context.Context, dagKey string, baseVersion int64, ops nodeexec.Ops) (contract.ApplyOpsResponse, error) {
 	if s == nil || s.dagStore == nil {
 		return contract.ApplyOpsResponse{}, ErrApplyOpsStoreNotConfigured
@@ -821,10 +851,10 @@ func (s *service) applyTypedOps(ctx context.Context, dagKey string, baseVersion 
 	if err != nil {
 		return contract.ApplyOpsResponse{}, err
 	}
-	// R3 P2 #3 空 ops 事务外短路：apply_ops 不带 add/update 时不需走事务也不需 FOR UPDATE
+	// R3 P2 #3 空 ops 事务外短路：apply_ops 不带 add/update/remove 时不需走事务也不需 FOR UPDATE
 	// 锁。仅需拿到当前 task_dags.version 与 base_version 对齐判 OCC 同庄、返回同一 version
 	// 即可。避免「合法调用但什么都不干」仍然白付 OCC 锁代价（并发则反过来变成锁竞争热点）。
-	if len(parts.adds) == 0 && len(parts.updates) == 0 {
+	if isNoopOpsBatch(parts) {
 		return s.applyEmptyOpsShortCircuit(ctx, dagKey, baseVersion)
 	}
 	runner, ok := s.dagStore.(taskdag.DAGOpsTxRunner)
@@ -844,6 +874,10 @@ func (s *service) applyTypedOps(ctx context.Context, dagKey string, baseVersion 
 		return contract.ApplyOpsResponse{}, txErr
 	}
 	return resp, nil
+}
+
+func isNoopOpsBatch(parts partitionedOps) bool {
+	return len(parts.adds) == 0 && len(parts.updates) == 0 && len(parts.removes) == 0
 }
 
 // applyEmptyOpsShortCircuit 事务外 noop 路径：仅读当前 task_dags.version，校 OCC

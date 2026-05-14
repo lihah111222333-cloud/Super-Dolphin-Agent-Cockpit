@@ -76,6 +76,8 @@ type NodeStatusStore interface {
 //     WHERE dag_key = ? AND version = ? RETURNING version；
 //     0 行受影响 → expected/actual 不匹配，调用方判 OCC 冲突。
 //   - UpsertNode + ListNodes: 复用既有 store 接口。
+//   - CountRunningRunsByDagKey: 在 DAG row FOR UPDATE 锁内读取 active run；
+//     与 StartDAG 曾经的事务外预检不同，ApplyOps 用它来保护运行中的模板节点。
 //
 // 设计取舍：单独窄接口而非塞进 DAGMutationStore，原因同 BatchUpsertingNodeStore
 // 注释 — DAGMutationStore 当前 2 direct + 1 embedded 处于 InterfaceIsolation
@@ -88,7 +90,9 @@ type DAGOpsStore interface {
 	DAGDetailStore // GetDAG / ListNodes
 	GetDAGVersionForUpdate(ctx context.Context, dagKey string) (int64, error)
 	BumpDAGVersion(ctx context.Context, dagKey string, expectedVersion int64) (int64, error)
+	CountRunningRunsByDagKey(ctx context.Context, dagKey string) (int64, error)
 	UpsertNode(ctx context.Context, node Node) (*Node, error)
+	DeleteNode(ctx context.Context, dagKey, nodeKey string) (int64, error)
 }
 
 // DAGOpsTxRunner 是 task_dag_apply_ops 在 PG 事务内跑业务的窄接口。调用方传

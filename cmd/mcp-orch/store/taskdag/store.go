@@ -68,6 +68,14 @@ func (s *store) UpsertNode(ctx context.Context, node Node) (*Node, error) {
 	}, "upsert", "task_dag_node", fromNode)
 }
 
+func (s *store) DeleteNode(ctx context.Context, dagKey, nodeKey string) (int64, error) {
+	rows, err := s.q.DeleteTaskDagNode(ctx, sqlc.DeleteTaskDagNodeParams{
+		DagKey:  dagKey,
+		NodeKey: nodeKey,
+	})
+	return rows, wrapTaskDAGError(err, "delete", "task_dag_node")
+}
+
 func (s *store) UpdateNodeStatus(ctx context.Context, input NodeStatusUpdate) (*Node, error) {
 	// R1 dead code 清理：原 2 份 SQL（UpdateTaskDagNodeStatus / UpdateTaskDagNodeStatusFlexible）
 	// 逻辑上完全重复，合并为 Flexible 一份。本函数保留为发布层 sentinel（NodeStatusUpdate

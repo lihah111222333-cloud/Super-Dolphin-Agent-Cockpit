@@ -17,8 +17,8 @@ FROM task_dag_runs
 WHERE dag_key = $1 AND status = 'running'
 `
 
-// StartDAG 用于多 run 并发 reject：当且仅当 0 时才允许新 run。
-// T1.2-mid 限制；F6.5 升级 multi-run 后此 query 不再被 StartDAG 调用。
+// ApplyOps 在持有 task_dags 行锁后读取 active run，用于保护运行中的 DAG 模板；
+// 这不是 StartDAG 的事务外预检，StartDAG 仍由 0076 partial unique 兜底。
 func (q *Queries) CountActiveTaskDagRunsByKey(ctx context.Context, dagKey string) (int64, error) {
 	row := q.db.QueryRow(ctx, countActiveTaskDagRunsByKey, dagKey)
 	var active int64
