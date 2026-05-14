@@ -161,7 +161,7 @@ app-cover-report:
 
 .PHONY: ci-l0 ci-l1 ci-l2-claude ci-l3-release install-hooks _hook_check protocol-sync-check rpc-regression-check
 
-# install-hooks: 一次性激活 .githooks/ 下的 pre-commit / pre-push
+# install-hooks: 一次性激活 .githooks/ 下的 pre-commit / commit-msg / pre-push
 # 用绝对路径写入 core.hooksPath，让 linked worktree 也能正确找到 hook
 # 检测到既有不同的 core.hooksPath 会先 warn，不阻断
 INSTALL_HOOKS_DIR := $(abspath .githooks)
@@ -171,7 +171,7 @@ install-hooks:
 	  echo "⚠️  既有 core.hooksPath = $$CURRENT (将被覆盖为 $(INSTALL_HOOKS_DIR))"; \
 	fi
 	@git config core.hooksPath "$(INSTALL_HOOKS_DIR)"
-	@echo "✅ git hooks installed ($(INSTALL_HOOKS_DIR)/pre-commit + pre-push)"
+	@echo "✅ git hooks installed ($(INSTALL_HOOKS_DIR)/pre-commit + commit-msg + pre-push)"
 	@echo "   绕过仅限紧急（仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»）：git commit/push --no-verify"
 
 # _hook_check: build 完成后的 hook 装设 + 路径有效性检查，warn-only 不阻断

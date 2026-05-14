@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# pre-push — 推送前跑 make ci-l0（约 13 秒）
+# pre-push — 推送前跑 fix-test guard + make ci-l0（约 13 秒）
 # Bypass: git push --no-verify
 set -e
 
@@ -35,6 +35,46 @@ ensure_clean_push_tree() {
 
 ensure_clean_push_tree
 
+PUSH_RANGES=$(mktemp -t pre-push-ranges.XXXXXX)
+LOG=
+cleanup() {
+  rm -f "$PUSH_RANGES"
+  if [ -n "${LOG:-}" ]; then
+    rm -f "$LOG"
+  fi
+}
+trap cleanup EXIT
+
+record_push_range() {
+  local local_sha="$1"
+  local remote_sha="$2"
+  local zero_sha base candidate
+  zero_sha=0000000000000000000000000000000000000000
+
+  if [ "$remote_sha" != "$zero_sha" ]; then
+    printf '%s..%s\n' "$remote_sha" "$local_sha" >>"$PUSH_RANGES"
+    return 0
+  fi
+
+  base=
+  for candidate in "$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)" origin/main origin/master; do
+    [ -n "$candidate" ] || continue
+    if ! git rev-parse --verify --quiet "$candidate" >/dev/null; then
+      continue
+    fi
+    base="$(git merge-base "$local_sha" "$candidate" 2>/dev/null || true)"
+    if [ -n "$base" ]; then
+      break
+    fi
+  done
+
+  if [ -n "$base" ]; then
+    printf '%s..%s\n' "$base" "$local_sha" >>"$PUSH_RANGES"
+  else
+    printf '%s\n' "$local_sha" >>"$PUSH_RANGES"
+  fi
+}
+
 ensure_pushed_refs_match_head() {
   # 手工直接运行脚本时 stdin 是终端；不要阻塞等待输入。
   if [ -t 0 ]; then
@@ -61,16 +101,24 @@ ensure_pushed_refs_match_head() {
       echo "  请先 checkout 到要推送的 commit/branch，再保持工作区干净后 push。" >&2
       exit 1
     fi
+    record_push_range "$local_sha" "$remote_sha"
   done
 }
 
 ensure_pushed_refs_match_head
 
+if [ -s "$PUSH_RANGES" ]; then
+  echo "[pre-push] fix-test guard..."
+  while IFS= read -r range; do
+    [ -n "$range" ] || continue
+    run_without_git_env ./scripts/guard_fix_commits_have_tests.sh --range "$range"
+  done < <(sort -u "$PUSH_RANGES")
+fi
+
 echo "[pre-push] make ci-l0..."
 
 # 用临时文件捕获输出，过滤 ld 链接器噪声后再展示，最后看真实 RC
 LOG=$(mktemp -t pre-push.XXXXXX)
-trap 'rm -f "$LOG"' EXIT
 
 if run_without_git_env make ci-l0 >"$LOG" 2>&1; then
   # 通过：仍展示输出（去 ld warning 噪声），让用户看到通过的包

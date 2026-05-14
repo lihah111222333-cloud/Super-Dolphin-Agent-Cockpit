@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# commit-msg — 拒绝没有锁定 bug 测试的 fix 提交
+# Bypass: git commit --no-verify
+set -e
+
+MSG_FILE="${1:?commit message file is required}"
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+echo "[commit-msg] fix-test guard..."
+./scripts/guard_fix_commits_have_tests.sh --cached "$MSG_FILE"
