@@ -12,6 +12,7 @@ import (
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 const (
@@ -193,29 +194,89 @@ func (h EditHandler) resolveFilePositionRequest(ctx context.Context, req EditReq
 func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any, error) {
 	path, position, err := h.resolveFilePositionRequest(ctx, req)
 	if err != nil {
+		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: lsp_edit code_action rejected",
+			"action", "code_action",
+			"file_path", req.FilePath,
+			"line", req.Line,
+			"column", req.Column,
+			"only", req.Only,
+			"error", err,
+		)
 		return nil, err
 	}
 	manager, err := h.registry.GetManagerForFile(ctx, path)
 	if err != nil {
+		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: lsp_edit code_action manager failed",
+			"action", "code_action",
+			"file_path", path,
+			"line", req.Line,
+			"column", req.Column,
+			"only", req.Only,
+			"error", err,
+		)
 		return nil, err
 	}
 	actions, err := manager.CodeAction(ctx, path, protocol.Range{Start: position, End: position}, req.Only)
 	if err != nil {
+		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: lsp_edit code_action request failed",
+			"action", "code_action",
+			"file_path", path,
+			"line", req.Line,
+			"column", req.Column,
+			"only", req.Only,
+			"error", err,
+		)
 		return nil, err
 	}
 	if err := validateCodeActionWorkspaceEditPaths(toolWorkspaceRoot(ctx, h.root), actions); err != nil {
+		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: lsp_edit code_action unsafe workspace edit",
+			"action", "code_action",
+			"file_path", path,
+			"line", req.Line,
+			"column", req.Column,
+			"only", req.Only,
+			"code_action_count", len(actions),
+			"error", err,
+		)
 		return nil, err
 	}
+	structuredCount, commandCount, editActionCount, textEditCount := codeActionResultStats(actions)
+	pkglogger.FromContext(ctx).InfoContext(ctx, "mcp-lsp: lsp_edit code_action result",
+		"action", "code_action",
+		"file_path", path,
+		"line", req.Line,
+		"column", req.Column,
+		"only", req.Only,
+		"code_action_count", len(actions),
+		"structured_action_count", structuredCount,
+		"command_action_count", commandCount,
+		"actions_with_workspace_edit", editActionCount,
+		"workspace_text_edit_count", textEditCount,
+		"applied", false,
+		"persisted", false,
+		"auto_apply_supported", false,
+		"result_only", true,
+	)
 	return format.CodeActionResults(actions), nil
 }
 
 func (h EditHandler) handleFormat(ctx context.Context, req EditRequest) (any, error) {
 	path, err := resolveWorkspacePath(toolWorkspaceRoot(ctx, h.root), req.FilePath)
 	if err != nil {
+		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: lsp_edit format rejected",
+			"action", "format",
+			"file_path", req.FilePath,
+			"error", err,
+		)
 		return nil, err
 	}
 	manager, err := h.registry.GetManagerForFile(ctx, path)
 	if err != nil {
+		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: lsp_edit format manager failed",
+			"action", "format",
+			"file_path", path,
+			"error", err,
+		)
 		return nil, err
 	}
 	edits, err := manager.Format(ctx, path, protocol.FormattingOptions{
@@ -223,8 +284,22 @@ func (h EditHandler) handleFormat(ctx context.Context, req EditRequest) (any, er
 		InsertSpaces: false,
 	})
 	if err != nil {
+		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: lsp_edit format request failed",
+			"action", "format",
+			"file_path", path,
+			"error", err,
+		)
 		return nil, err
 	}
+	pkglogger.FromContext(ctx).InfoContext(ctx, "mcp-lsp: lsp_edit format result",
+		"action", "format",
+		"file_path", path,
+		"text_edit_count", len(edits),
+		"applied", false,
+		"persisted", false,
+		"auto_apply_supported", false,
+		"result_only", true,
+	)
 	return format.TextEdits(edits), nil
 }
 
@@ -237,6 +312,42 @@ func workspaceEditSize(edit *protocol.WorkspaceEdit) int {
 		count += len(edits)
 	}
 	count += len(edit.DocumentChanges)
+	return count
+}
+
+func codeActionResultStats(actions []protocol.CodeActionResult) (structuredCount, commandCount, editActionCount, textEditCount int) {
+	for _, result := range actions {
+		if result.CodeAction != nil {
+			structuredCount++
+			if result.CodeAction.Edit != nil {
+				edits := workspaceTextEditCount(result.CodeAction.Edit)
+				if edits > 0 {
+					editActionCount++
+					textEditCount += edits
+				}
+			}
+			if result.CodeAction.Command != nil {
+				commandCount++
+			}
+		}
+		if result.Command != nil {
+			commandCount++
+		}
+	}
+	return structuredCount, commandCount, editActionCount, textEditCount
+}
+
+func workspaceTextEditCount(edit *protocol.WorkspaceEdit) int {
+	if edit == nil {
+		return 0
+	}
+	count := 0
+	for _, edits := range edit.Changes {
+		count += len(edits)
+	}
+	for _, doc := range edit.DocumentChanges {
+		count += len(doc.Edits)
+	}
 	return count
 }
 
