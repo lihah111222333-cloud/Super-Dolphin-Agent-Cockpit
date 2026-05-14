@@ -369,3 +369,26 @@ func TestBuildStartResponse_PromptKeyStaleOmittedOnHappyPath(t *testing.T) {
 		t.Fatalf("happy path response leaked stale key: %s", wireStr)
 	}
 }
+
+// TestNewStartResult_StalePromptKeyPropagated 守护 factory.go::newStartResult
+// 里 PromptKeyStale: req.PromptKeyStale 这一行 — stale 信号 "router → wire"
+// 链路的关键一跳。pickRoutedTemplate 设 req.PromptKeyStale=true，newStartResult
+// 把它复制到 StartResult，buildStartResponse 再 surface 到 wire。没有这条
+// 独立守护，mutation 删 factory.go 那一行不会被任何现有测试拦截
+// （router_resolve_test 只测到 req 侧，rpc_types_test 只测从 StartResult 起手）。
+func TestNewStartResult_StalePromptKeyPropagated(t *testing.T) {
+	t.Parallel()
+	staleReq := StartRequest{PromptKey: "main/missing", PromptKeyStale: true}
+	staleResult := newStartResult(staleReq, "tid", "aid", "puuid", "ptid", "model", "/cwd")
+	if !staleResult.PromptKeyStale {
+		t.Fatalf("PromptKeyStale must propagate from req to result, got %+v", staleResult)
+	}
+	if staleResult.PromptKey != "main/missing" {
+		t.Fatalf("PromptKey should propagate alongside stale: %q", staleResult.PromptKey)
+	}
+	happyReq := StartRequest{PromptKey: "main/ok", PromptKeyStale: false}
+	happyResult := newStartResult(happyReq, "tid", "aid", "puuid", "ptid", "model", "/cwd")
+	if happyResult.PromptKeyStale {
+		t.Fatalf("PromptKeyStale must stay false when req has false: %+v", happyResult)
+	}
+}

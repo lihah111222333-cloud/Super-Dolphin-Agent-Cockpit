@@ -712,3 +712,35 @@ func TestResolveRoutedPrompt_NoStoreKeepsStaleFalse(t *testing.T) {
 		t.Fatalf("caller-pinned prompt_key should be preserved on degrade: %q", req.PromptKey)
 	}
 }
+
+// TestResolveRoutedPrompt_MatchWhenSpecificBeatsFallback_ArrayForm: same shape
+// as MatchWhenSpecificBeatsFallback, but uses tags_has=["sql","db"] array form,
+// which is what SystemPromptPage UI auto-generates from chip tags and what real
+// DB rows store. Hot fix 3f8c27ff lets matchWhenKeyMatches accept []any via
+// matchSectionTagsHas; this test guards that the array DSL stays wired into
+// the two-stage auto-route path. Reverting hot fix turns matchWhenStringValue
+// on a []any into "", matchTagsHas("","...") returns false, specific pool
+// becomes empty, fallback main/claude-style ({}) wins — test goes red.
+func TestResolveRoutedPrompt_MatchWhenSpecificBeatsFallback_ArrayForm(t *testing.T) {
+	t.Parallel()
+	store := &fakePromptStore{
+		templates: []promptstore.PromptTemplate{
+			sqlTemplateWithMatchWhen("main/claude-style", "main",
+				"fallback body", []byte(`{}`), 150),
+			sqlTemplateWithMatchWhen("user/sql", "sql_expert",
+				"specific body", []byte(`{"tags_has":["sql","db"]}`), 0),
+			sqlTemplate(defaultPromptKey, "main", "default body", nil),
+		},
+	}
+	s := newServiceWithRouter(store)
+
+	req := &StartRequest{Prompt: "please write me some sql"}
+	s.resolveRoutedPrompt(context.Background(), req)
+
+	if req.PromptKey != "user/sql" {
+		t.Fatalf("want user/sql (array tags_has hit), got %q", req.PromptKey)
+	}
+	if req.BaseInstructions != "specific body" {
+		t.Fatalf("want specific body injected, got %q", req.BaseInstructions)
+	}
+}
