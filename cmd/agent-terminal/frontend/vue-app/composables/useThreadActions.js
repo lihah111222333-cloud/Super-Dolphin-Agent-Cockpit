@@ -2,6 +2,12 @@ import { ref } from '../../lib/vue.esm-browser.prod.js';
 import { callAPI } from '../services/api.js';
 import { logInfo, logWarn } from '../services/log.js';
 
+export function resolveProjectActionCwd(projectStore, windowCwd = '') {
+  const active = (projectStore?.state?.active || '').toString().trim();
+  if (active && active !== '.') return active;
+  return (windowCwd || '').toString().trim() || '.';
+}
+
 function getThreadConfigFromStore(threadStore, threadId) {
   if (typeof threadStore?.getThreadConfig !== 'function') return Promise.resolve(null);
   return threadStore.getThreadConfig(threadId);
@@ -135,6 +141,7 @@ async function performSend({
   modeKey,
   threadStore,
   projectStore,
+  windowCwd,
   resolveComposerSkillSelectionForSend,
   resolveLaunchSkillSelectionForStart,
   clearLaunchSkillSelection,
@@ -147,9 +154,10 @@ async function performSend({
   if (!text.trim() && attachments.length === 0) return;
 
   let skillSelection = EMPTY_SKILL_SELECTION;
+  const actionCwd = resolveProjectActionCwd(projectStore, windowCwd);
   if (!threadId) {
     skillSelection = await resolveLaunchStartPayload(text, modeKey.value, resolveLaunchSkillSelectionForStart);
-    threadId = await threadStore.startThread(projectStore?.state?.active || '.', skillSelection.startOptions);
+    threadId = await threadStore.startThread(actionCwd, skillSelection.startOptions);
     if (!threadId) return;
     selectedThreadId.value = threadId;
     if (typeof clearLaunchSkillSelection === 'function') {
@@ -170,7 +178,7 @@ async function performSend({
     await threadStore.sendMessage(threadId, text, attachments, {
       selectedSkills,
       manualSkillSelection,
-      cwd: projectStore?.state?.active || '',
+      cwd: actionCwd,
     });
     scheduleScrollToBottom(true);
   } catch (err) {
@@ -209,7 +217,7 @@ export function useThreadActions(props, deps) {
   const recoveringSelected = ref(false);
 
   const launchOne = () => resolveLaunchStartPayload(composer?.state?.text || '', modeKey.value, resolveLaunchSkillSelectionForStart)
-    .then(({ startOptions }) => props.threadStore.startThread(props.projectStore.state.active || '.', startOptions))
+    .then(({ startOptions }) => props.threadStore.startThread(resolveProjectActionCwd(props.projectStore, props.windowCwd), startOptions))
     .then((id) => {
       if (!id) return;
       if (typeof clearLaunchSkillSelection === 'function') clearLaunchSkillSelection();
@@ -223,8 +231,8 @@ export function useThreadActions(props, deps) {
     selectedThreadId,
     composer,
     modeKey,
-    threadStore: props.threadStore,
-    projectStore: props.projectStore,
+    threadStore: props.threadStore, projectStore: props.projectStore,
+    windowCwd: props.windowCwd,
     resolveComposerSkillSelectionForSend,
     resolveLaunchSkillSelectionForStart,
     clearLaunchSkillSelection,

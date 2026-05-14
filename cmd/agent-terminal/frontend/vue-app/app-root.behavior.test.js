@@ -166,6 +166,20 @@ describe('AppRoot behavior', () => {
     expect(globalThis.clearInterval).toHaveBeenCalledWith(42);
   });
 
+  it('uses the runtime cwd as thread scope when the active project is dot', async () => {
+    stores.projectStore.state.active = '.';
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'config/read') return { cwd: '/window-root' };
+      return {};
+    });
+
+    AppRoot.setup();
+    hooks.mounted.forEach((fn) => fn());
+    await flush();
+
+    expect(stores.threadStore.setPreferenceScopeCwd).toHaveBeenCalledWith('/window-root');
+  });
+
   it('runs command cards through an ensured active thread', async () => {
     stores.threadStore.state.activeThreadId = '';
     const vm = AppRoot.setup();

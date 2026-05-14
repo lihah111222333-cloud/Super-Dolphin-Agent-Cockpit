@@ -122,7 +122,7 @@ async function flushAsync() {
   await Promise.resolve();
 }
 
-async function startThreadUntilSync(store, res, runtime = {}) {
+async function startThreadUntilSync(store, res, runtime = {}, cwd = '/repo') {
   let releaseSync = () => {};
   const syncGate = new Promise((resolve) => { releaseSync = resolve; });
   store.state.agentRuntimeById = runtime;
@@ -136,7 +136,7 @@ async function startThreadUntilSync(store, res, runtime = {}) {
     if (method === 'ui/preferences/set') return {};
     return {};
   });
-  const pending = store.startThread('/repo', {});
+  const pending = store.startThread(cwd, {});
   for (let i = 0; i < 10 && !apiMock.callAPI.mock.calls.some(([method]) => method === 'ui/state/get'); i += 1) await flushAsync();
   return { pending, releaseSync };
 }
@@ -170,6 +170,22 @@ describe('thread store actions', () => {
     expect(store.state.activeThreadId).toBe('thread-new');
     expect(store.state.threads.some((item) => item.id === 'thread-new')).toBe(true);
     expect(apiMock.callAPI).toHaveBeenCalledWith('thread/start', { cwd: '/repo', modelProvider: 'claude-3.7-sonnet' });
+  });
+
+  it('scopes an optimistic started thread to its launch cwd before runtime sync returns', async () => {
+    const store = useThreadStore();
+    store.state.threads = [{ id: 'thread-a', name: 'Repo A', state: 'idle' }];
+    store.state.agentRuntimeById = { 'thread-a': { cwd: '/repo-a' } };
+
+    const { pending, releaseSync } = await startThreadUntilSync(store, { thread: { id: 'thread-b' } }, { 'thread-a': { cwd: '/repo-a' } }, '/repo-b');
+    const repoAVisibleThreadIds = store.getThreadsByMode('chat', '/repo-a').map((thread) => thread.id);
+    const repoBVisibleThreadIds = store.getThreadsByMode('chat', '/repo-b').map((thread) => thread.id);
+
+    releaseSync();
+    await pending;
+
+    expect(repoAVisibleThreadIds).toEqual(['thread-a']);
+    expect(repoBVisibleThreadIds).toEqual(['thread-b']);
   });
 
   it('forwards explicit config payload when starting a thread', async () => {
@@ -512,8 +528,9 @@ describe('thread store actions', () => {
     const { pending, releaseSync } = await startThreadUntilSync(store, res);
     try {
       const id = res.thread.id;
+      expect(store.state.agentRuntimeById[id]?.cwd).toBe('/repo');
       if (written) expect(store.state.agentRuntimeById[id]?.provider).toBe(expected);
-      else expect(store.state.agentRuntimeById).not.toHaveProperty(id);
+      else expect(store.state.agentRuntimeById[id]).not.toHaveProperty('provider');
     } finally {
       releaseSync();
       await pending;

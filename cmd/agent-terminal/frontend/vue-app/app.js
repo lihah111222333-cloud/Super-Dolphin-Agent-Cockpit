@@ -331,7 +331,7 @@ export const AppRoot = {
     });
     const activeProjectCwd = computed(() => {
       const active = (projectStore.state?.active || '').toString().trim();
-      if (!active || active === '.') return '';
+      if (!active || active === '.') return windowCwd.value;
       return active;
     });
     const currentCwdDisplay = computed(() => {
