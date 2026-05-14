@@ -45,6 +45,15 @@ func (s *store) GetDAGVersion(ctx context.Context, dagKey string) (int64, error)
 	return version, nil
 }
 
+// CountRunningRunsByDagKey is used by ApplyOps after GetDAGVersionForUpdate has
+// locked the DAG row. This is not a StartDAG pre-check; it is part of the
+// template mutation transaction that protects running executions.
+func (s *store) CountRunningRunsByDagKey(ctx context.Context, dagKey string) (int64, error) {
+	return queryValue(func() (int64, error) {
+		return s.q.CountActiveTaskDagRunsByKey(ctx, dagKey)
+	}, "count_running", "task_dag_run")
+}
+
 // BumpDAGVersion 把 task_dags.version 从 expectedVersion 推到 expectedVersion+1。
 // 受影响行数 0 → expected 与 actual 不匹配（OCC 冲突），返回 nil error +
 // version=0 由上层用「row not found」语义判断（注：用 RETURNING 的 :one

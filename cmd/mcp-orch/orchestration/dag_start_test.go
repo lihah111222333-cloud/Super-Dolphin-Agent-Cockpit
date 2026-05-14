@@ -59,9 +59,11 @@ type stubRunStore struct {
 
 	// 调用观测
 	countCalls   []string
+	lockCalls    []string
 	createCalls  []taskdag.CreateRunInput
 	promoteCalls []string
 	getRunCalls  []string
+	callOrder    []string
 }
 
 func (s *stubRunStore) CountActiveRunsByDagKey(_ context.Context, dagKey string) (int64, error) {
@@ -69,8 +71,15 @@ func (s *stubRunStore) CountActiveRunsByDagKey(_ context.Context, dagKey string)
 	return s.activeCount, s.activeErr
 }
 
+func (s *stubRunStore) GetDAGForUpdate(_ context.Context, dagKey string) (*taskdag.DAG, error) {
+	s.lockCalls = append(s.lockCalls, dagKey)
+	s.callOrder = append(s.callOrder, "lock:"+dagKey)
+	return &taskdag.DAG{DagKey: dagKey}, nil
+}
+
 func (s *stubRunStore) CreateRun(_ context.Context, input taskdag.CreateRunInput) (*taskdag.Run, error) {
 	s.createCalls = append(s.createCalls, input)
+	s.callOrder = append(s.callOrder, "create:"+input.DagKey)
 	if s.createErr != nil {
 		return nil, s.createErr
 	}
@@ -88,6 +97,7 @@ func (s *stubRunStore) CreateRun(_ context.Context, input taskdag.CreateRunInput
 
 func (s *stubRunStore) PromoteRootNodesToReady(_ context.Context, dagKey string) (int64, error) {
 	s.promoteCalls = append(s.promoteCalls, dagKey)
+	s.callOrder = append(s.callOrder, "promote:"+dagKey)
 	return s.promoteRows, s.promoteErr
 }
 
@@ -149,6 +159,21 @@ func TestStartDAG_HappyPath(t *testing.T) {
 	}
 	if got := len(runStore.promoteCalls); got != 1 {
 		t.Errorf("PromoteRootNodesToReady calls = %d, want 1", got)
+	}
+}
+
+func TestStartDAG_LocksDAGBeforeCreateRun(t *testing.T) {
+	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
+	runStore := &stubRunStore{}
+	svc := makeStartDAGService(dagStore, runStore)
+
+	_, err := svc.StartDAG(context.Background(), StartDAGRequest{DagKey: "dag-1"})
+	if err != nil {
+		t.Fatalf("StartDAG() error = %v, want nil", err)
+	}
+	want := []string{"lock:dag-1", "create:dag-1", "promote:dag-1"}
+	if strings.Join(runStore.callOrder, ",") != strings.Join(want, ",") {
+		t.Fatalf("call order = %v, want %v", runStore.callOrder, want)
 	}
 }
 
