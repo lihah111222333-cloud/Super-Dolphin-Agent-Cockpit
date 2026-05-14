@@ -174,14 +174,15 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 			newAutomationCommandGetter,
 			nodeexec.NewShellCommandRunner,
 			// AutomationCommandRunner 接口适配：ShellCommandRunner 是 *T 类型，
-			// NewAutomationExecutor 要要 AutomationCommandRunner 接口，fx 不会自动推断。
+			// ProvideAutomationExecutor 要 AutomationCommandRunner 接口，fx 不会自动推断。
 			func(r *nodeexec.ShellCommandRunner) nodeexec.AutomationCommandRunner { return r },
-			nodeexec.NewAutomationExecutor,
 			// dispatcher-wiring batch §1：AgentExecutor / NodeExecutorRouter
 			// fx singletons + serviceAgentLauncher adapter。这些 provider 让 W1/W2 以来
 			// “孤儿”的 AgentExecutor / AutomationExecutor 代码正式被危口调到。
 			orchestration.NewServiceAgentLauncher,
 			orchestration.NewStoreNodeSpawnRecorder,
+			orchestration.ProvideNodeLifecycleHooks,
+			orchestration.ProvideAutomationExecutor,
 			// dispatcher-wiring closure：sharedfile 端口 adapter —— store/sharedfile.Store
 			// 适配成 nodeexec.SharedFileReader / SharedFileWriter，供 NodeExecutorRouter 预填
 			// RunContext。是 W2 端口收敛后 dispatcher 路径能走 dogfood-grade DAG

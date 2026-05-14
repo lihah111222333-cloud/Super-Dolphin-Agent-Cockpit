@@ -3,9 +3,11 @@ package orchestration
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/kelindar/event"
 
@@ -276,6 +278,8 @@ func TestHookConsumerAfter_TurnCompletedAdvancesDAGNodeFromHook(t *testing.T) {
 		Config:   json.RawMessage(`{"exec":{"agent_key":"source_monitor"},"outputs":{"to_node_result":true}}`),
 	}}}
 	flow := &dagSubscriberFlowSpy{}
+	events := []string{}
+	agentExec := nodeexec.NewAgentExecutor(&stubAgentLauncher{}, nodeexec.WithHooks(recordingLifecycleHooks(&events)))
 	consumer := newHookConsumerInternal(
 		svc,
 		silentLogger(),
@@ -285,6 +289,7 @@ func TestHookConsumerAfter_TurnCompletedAdvancesDAGNodeFromHook(t *testing.T) {
 		withHookTurnCompletedDAGDeps(DAGSubscriberDeps{
 			LookupStore: lookup,
 			FlowStore:   flow,
+			NodeRouter:  NewNodeExecutorRouter(&stubRouterStore{}, agentExec, nil, nil, nil, nil),
 		}),
 	)
 	completed := turndto.TurnCompleted{
@@ -318,6 +323,9 @@ func TestHookConsumerAfter_TurnCompletedAdvancesDAGNodeFromHook(t *testing.T) {
 	if string(got.Result) != `{"summary":"ok"}` {
 		t.Fatalf("CompleteNode result = %s, want turn result", got.Result)
 	}
+	if want := []string{"on_state_change:node-1:done"}; strings.Join(events, "|") != strings.Join(want, "|") {
+		t.Fatalf("lifecycle events = %v, want %v", events, want)
+	}
 }
 
 func TestHookConsumerAfter_TurnInterruptedAdvancesDAGNodeFromHook(t *testing.T) {
@@ -336,6 +344,8 @@ func TestHookConsumerAfter_TurnInterruptedAdvancesDAGNodeFromHook(t *testing.T) 
 		Config:   json.RawMessage(`{"exec":{"agent_key":"source_monitor"},"outputs":{"to_node_result":true}}`),
 	}}}
 	flow := &dagSubscriberFlowSpy{}
+	events := []string{}
+	agentExec := nodeexec.NewAgentExecutor(&stubAgentLauncher{}, nodeexec.WithHooks(recordingLifecycleHooks(&events)))
 	consumer := newHookConsumerInternal(
 		svc,
 		silentLogger(),
@@ -345,6 +355,7 @@ func TestHookConsumerAfter_TurnInterruptedAdvancesDAGNodeFromHook(t *testing.T) 
 		withHookTurnCompletedDAGDeps(DAGSubscriberDeps{
 			LookupStore: lookup,
 			FlowStore:   flow,
+			NodeRouter:  NewNodeExecutorRouter(&stubRouterStore{}, agentExec, nil, nil, nil, nil),
 		}),
 	)
 	interrupted := turndto.TurnInterrupted{
@@ -376,6 +387,13 @@ func TestHookConsumerAfter_TurnInterruptedAdvancesDAGNodeFromHook(t *testing.T) 
 	}
 	if len(flow.completeCalls) != 0 {
 		t.Fatalf("CompleteNode calls = %d, want 0", len(flow.completeCalls))
+	}
+	want := []string{
+		"on_state_change:node-1:failed",
+		"on_failure:node-1:failed",
+	}
+	if strings.Join(events, "|") != strings.Join(want, "|") {
+		t.Fatalf("lifecycle events = %v, want %v", events, want)
 	}
 }
 

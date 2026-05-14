@@ -57,6 +57,7 @@ type DAGSubscriberDeps struct {
 	// after TurnCompleted carries the real child response.
 	SharedFileReader nodeexec.SharedFileReader `optional:"true"`
 	SharedFileWriter nodeexec.SharedFileWriter `optional:"true"`
+	NodeRouter       *NodeExecutorRouter       `optional:"true"`
 }
 
 // RegisterDAGTurnCompletedSubscriber wires the third TurnCompleted
@@ -225,7 +226,7 @@ func advanceNodeForTurnCompleted(
 		advanceNodeDoneForSuccess(ctx, deps, logger, node, ev.Result)
 		return
 	}
-	advanceNodeFailed(ctx, deps.FlowStore, logger, node, ev)
+	advanceNodeFailed(ctx, deps.FlowStore, deps.NodeRouter, logger, node, ev)
 }
 
 func advanceNodeDoneForSuccess(
@@ -237,7 +238,7 @@ func advanceNodeDoneForSuccess(
 ) {
 	materialized, failure := prepareTurnCompletedResult(node, rawResult)
 	if failure != nil {
-		failNodeForMaterializationFailure(ctx, deps.FlowStore, logger, node, failure)
+		failNodeForMaterializationFailure(ctx, deps, logger, node, failure)
 		return
 	}
 	result, ok := materializeSharedfileAfterClaim(ctx, deps, logger, node, materialized)
@@ -245,12 +246,17 @@ func advanceNodeDoneForSuccess(
 		return
 	}
 	recordLegacyResultCapMetric(logger, node, result)
-	advanceNodeDone(ctx, deps.FlowStore, logger, node, result)
+	if advanceNodeDone(ctx, deps.FlowStore, logger, node, result) && deps.NodeRouter != nil {
+		deps.NodeRouter.invokeStateChangeHooksForTaskNode(ctx, node, nodeexec.NodeOutcome{
+			Status: nodeexec.NodeStatusDone,
+			Result: result,
+		})
+	}
 }
 
 func failNodeForMaterializationFailure(
 	ctx context.Context,
-	flow taskdag.NodeFlowStore,
+	deps DAGSubscriberDeps,
 	logger *slog.Logger,
 	node *taskdag.Node,
 	failure *turnOutputMaterializationFailure,
@@ -260,7 +266,12 @@ func failNodeForMaterializationFailure(
 	}
 	logger.Warn("dag subscriber: materialize agent output failed",
 		"dag_key", node.DagKey, "node_key", node.NodeKey, "reason", failure.Reason)
-	advanceNodeFailedWithReason(ctx, flow, logger, node, failure.Reason)
+	if advanceNodeFailedWithReason(ctx, deps.FlowStore, logger, node, failure.Reason) && deps.NodeRouter != nil {
+		deps.NodeRouter.invokeTerminalFailureHooksForTaskNode(ctx, node, nodeexec.NodeOutcome{
+			Status:       nodeexec.NodeStatusFailed,
+			ErrorSummary: failure.Reason,
+		})
+	}
 }
 
 func recordLegacyResultCapMetric(logger *slog.Logger, node *taskdag.Node, result json.RawMessage) {
@@ -288,7 +299,7 @@ func materializeSharedfileAfterClaim(
 	}
 	exists, failure := configuredSharedfileAlreadyExists(ctx, deps.SharedFileReader, materialized.SharedfilePath)
 	if failure != nil {
-		failNodeForMaterializationFailure(ctx, deps.FlowStore, logger, node, failure)
+		failNodeForMaterializationFailure(ctx, deps, logger, node, failure)
 		return nil, false
 	}
 	if exists {
@@ -301,14 +312,14 @@ func materializeSharedfileAfterClaim(
 		return result, true
 	}
 	if failure := validateAgentSharedfileWriter(deps.SharedFileWriter); failure != nil {
-		failNodeForMaterializationFailure(ctx, deps.FlowStore, logger, node, failure)
+		failNodeForMaterializationFailure(ctx, deps, logger, node, failure)
 		return nil, false
 	}
 	if !claimNodeOutputMaterialization(ctx, deps.FlowStore, logger, node, result) {
 		return nil, false
 	}
 	if failure := writeAgentTurnSharedfile(ctx, deps.SharedFileWriter, materialized.SharedfilePath, materialized.RawResult); failure != nil {
-		failNodeForMaterializationFailure(ctx, deps.FlowStore, logger, node, failure)
+		failNodeForMaterializationFailure(ctx, deps, logger, node, failure)
 		return nil, false
 	}
 	return result, true
@@ -323,7 +334,7 @@ func advanceNodeDone(
 	logger *slog.Logger,
 	node *taskdag.Node,
 	result json.RawMessage,
-) {
+) bool {
 	_, err := flow.CompleteNodeAndScheduleDownstream(ctx, taskdag.CompleteNodeInput{
 		Status:  "done",
 		Result:  result,
@@ -333,6 +344,7 @@ func advanceNodeDone(
 	switch {
 	case err == nil:
 		dagSubscriberMetrics.IncCompleteDone()
+		return true
 	case errors.Is(err, pgx.ErrNoRows) || platformdb.IsNotFound(err):
 		// SQL fence rejection — another path (fallback / duplicate event)
 		// already pushed terminal status. Count as idempotent skip.
@@ -343,6 +355,7 @@ func advanceNodeDone(
 		logger.Warn("dag subscriber: complete node failed",
 			"dag_key", node.DagKey, "node_key", node.NodeKey, "error", err)
 	}
+	return false
 }
 
 // advanceNodeFailed calls FailNodeAndCancelDownstream with a synthesized
@@ -356,6 +369,7 @@ func advanceNodeDone(
 func advanceNodeFailed(
 	ctx context.Context,
 	flow taskdag.NodeFlowStore,
+	router *NodeExecutorRouter,
 	logger *slog.Logger,
 	node *taskdag.Node,
 	ev turndto.TurnCompleted,
@@ -367,7 +381,12 @@ func advanceNodeFailed(
 	if reason == "" {
 		reason = "turn_completed_failure"
 	}
-	advanceNodeFailedWithReason(ctx, flow, logger, node, reason)
+	if advanceNodeFailedWithReason(ctx, flow, logger, node, reason) && router != nil {
+		router.invokeTerminalFailureHooksForTaskNode(ctx, node, nodeexec.NodeOutcome{
+			Status:       nodeexec.NodeStatusFailed,
+			ErrorSummary: reason,
+		})
+	}
 }
 
 func advanceNodeFailedWithReason(
@@ -376,7 +395,7 @@ func advanceNodeFailedWithReason(
 	logger *slog.Logger,
 	node *taskdag.Node,
 	reason string,
-) {
+) bool {
 	_, err := flow.FailNodeAndCancelDownstream(ctx, taskdag.FailNodeInput{
 		DagKey:   node.DagKey,
 		NodeKey:  node.NodeKey,
@@ -386,6 +405,7 @@ func advanceNodeFailedWithReason(
 	switch {
 	case err == nil:
 		dagSubscriberMetrics.IncCompleteFailed()
+		return true
 	case errors.Is(err, pgx.ErrNoRows) || platformdb.IsNotFound(err):
 		dagSubscriberMetrics.IncIdempotentSkipped()
 		logger.Debug("dag subscriber: fail fence rejected, node already terminal",
@@ -394,6 +414,7 @@ func advanceNodeFailedWithReason(
 		logger.Warn("dag subscriber: fail node failed",
 			"dag_key", node.DagKey, "node_key", node.NodeKey, "error", err)
 	}
+	return false
 }
 
 type nodeOutputMaterializationClaimer interface {

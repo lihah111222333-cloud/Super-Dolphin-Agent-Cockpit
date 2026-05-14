@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
@@ -19,7 +20,7 @@ type stubRouterStore struct {
 	nodes   []taskdag.Node
 	listErr error
 	// ADR-017 v1.2 §2.4：dispatchAgent 调 UpdateRunningNodeStatus 推 ready→running。
-	runningStatusErr   error                              // 默认 nil（成功路径）
+	runningStatusErr   error                             // 默认 nil（成功路径）
 	runningStatusCalls []taskdag.RunningNodeStatusUpdate // 记录调用详情
 }
 
@@ -88,6 +89,101 @@ func TestNodeExecutorRouter_RoutesAgentNode(t *testing.T) {
 	}
 	if launcher.calls[0].AgentKey != "alpha" {
 		t.Fatalf("launcher.AgentKey = %q, want alpha", launcher.calls[0].AgentKey)
+	}
+}
+
+func TestNodeExecutorRouter_AgentLifecycleHooks(t *testing.T) {
+	events := []string{}
+	launcher := &stubAgentLauncher{threadID: "thread-hook"}
+	agentExec := nodeexec.NewAgentExecutor(launcher, nodeexec.WithHooks(recordingLifecycleHooks(&events)))
+	store := &stubRouterStore{
+		nodes: []taskdag.Node{{
+			DagKey:   "dag-1",
+			NodeKey:  "n1",
+			NodeType: "agent",
+			Title:    "n1",
+			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),
+			Status:   string(nodeexec.NodeStatusReady),
+		}},
+	}
+	router := NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil)
+
+	outcome, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
+		ID:      101,
+		DagKey:  "dag-1",
+		NodeKey: "n1",
+	})
+	if err != nil {
+		t.Fatalf("RouteByWakeup err = %v", err)
+	}
+	if outcome.Status != nodeexec.NodeStatusDone {
+		t.Fatalf("outcome.Status = %v, want done", outcome.Status)
+	}
+	want := []string{
+		"before_execute:n1:",
+		"after_execute:n1:done",
+		"on_state_change:n1:running",
+	}
+	if got := strings.Join(events, "|"); got != strings.Join(want, "|") {
+		t.Fatalf("events = %v, want %v", events, want)
+	}
+}
+
+func TestProvideExecutorsWireLifecycleHooks(t *testing.T) {
+	hooks := ProvideNodeLifecycleHooks(discardLogger())
+	agentExec := ProvideAgentExecutor(&stubAgentLauncher{}, nil, hooks)
+	if got := agentExec.Hooks(); got[nodeexec.HookBeforeExecute] == nil || got[nodeexec.HookOnFailure] == nil {
+		t.Fatalf("agent hooks = %v, want production lifecycle hooks wired", got)
+	}
+	autoExec := ProvideAutomationExecutor(stubAutomationCmdGetter{}, stubAutomationCmdRunner{}, hooks)
+	if got := autoExec.Hooks(); got[nodeexec.HookBeforeExecute] == nil || got[nodeexec.HookOnFailure] == nil {
+		t.Fatalf("automation hooks = %v, want production lifecycle hooks wired", got)
+	}
+}
+
+func TestNodeExecutorRouter_LifecycleHookTimeoutDoesNotBlockDispatch(t *testing.T) {
+	completed := make(chan struct{})
+	canceled := make(chan struct{})
+	launcher := &stubAgentLauncher{threadID: "thread-hook-timeout"}
+	agentExec := nodeexec.NewAgentExecutor(launcher, nodeexec.WithHooks(map[nodeexec.HookPoint]nodeexec.HookHandler{
+		nodeexec.HookBeforeExecute: slowLifecycleHook{completed: completed, canceled: canceled},
+	}))
+	store := &stubRouterStore{
+		nodes: []taskdag.Node{{
+			DagKey:   "dag-1",
+			NodeKey:  "n1",
+			NodeType: "agent",
+			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),
+			Status:   string(nodeexec.NodeStatusReady),
+		}},
+	}
+	router := NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil)
+
+	started := time.Now()
+	outcome, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
+		ID:      102,
+		DagKey:  "dag-1",
+		NodeKey: "n1",
+	})
+	elapsed := time.Since(started)
+	if err != nil {
+		t.Fatalf("RouteByWakeup err = %v", err)
+	}
+	if outcome.Status != nodeexec.NodeStatusDone {
+		t.Fatalf("outcome.Status = %v, want done", outcome.Status)
+	}
+	if elapsed > time.Second {
+		t.Fatalf("RouteByWakeup blocked on hook for %s, want bounded under 1s", elapsed)
+	}
+	if len(launcher.calls) != 1 {
+		t.Fatalf("launcher calls = %d, want 1", len(launcher.calls))
+	}
+	select {
+	case <-completed:
+	case <-canceled:
+		t.Fatal("slow hook context was canceled; want async continuation")
+	case <-time.After(time.Second):
+		t.Fatal("slow hook did not complete asynchronously")
 	}
 }
 
@@ -440,6 +536,43 @@ func TestNodeExecutorRouter_SharedFileWriter_Injected(t *testing.T) {
 	}
 }
 
+func TestNodeExecutorRouter_AutomationLifecycleHooks(t *testing.T) {
+	events := []string{}
+	autoExec := nodeexec.NewAutomationExecutor(
+		stubAutomationCmdGetter{},
+		stubAutomationCmdRunner{stdout: "build ok"},
+		nodeexec.WithAutomationHooks(recordingLifecycleHooks(&events)),
+	)
+	store := &stubRouterAutoStore{
+		stubRouterStore: stubRouterStore{
+			nodes: []taskdag.Node{{
+				DagKey: "dag-1", NodeKey: "auto1", NodeType: "automation",
+				Status: string(nodeexec.NodeStatusReady),
+				Config: json.RawMessage(`{"exec":{"command_ref":"build"},"outputs":{"to_node_result":true}}`),
+			}},
+		},
+	}
+	router := NewNodeExecutorRouter(store, nil, autoExec, nil, nil, nil)
+
+	outcome, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
+		DagKey: "dag-1", NodeKey: "auto1",
+	})
+	if err != nil {
+		t.Fatalf("RouteByWakeup err = %v", err)
+	}
+	if outcome.Status != nodeexec.NodeStatusDone {
+		t.Fatalf("outcome.Status = %v, want done", outcome.Status)
+	}
+	want := []string{
+		"before_execute:auto1:",
+		"after_execute:auto1:done",
+		"on_state_change:auto1:done",
+	}
+	if got := strings.Join(events, "|"); got != strings.Join(want, "|") {
+		t.Fatalf("events = %v, want %v", events, want)
+	}
+}
+
 // TestNodeExecutorRouter_EmptyConfig_PortsStillNonNil:
 // 空 cfg → 三端口字段保持 nil/empty 不报错；向后兼容 F1.0 dogfood DAG。
 func TestNodeExecutorRouter_EmptyConfig_PortsStillNonNil(t *testing.T) {
@@ -557,4 +690,58 @@ func (s stubAutomationCmdRunner) RunCommandCard(_ context.Context, card nodeexec
 		Stdout:   s.stdout,
 		ExitCode: 0,
 	}, nil
+}
+
+type recordingLifecycleHook struct {
+	events *[]string
+}
+
+func recordingLifecycleHooks(events *[]string) map[nodeexec.HookPoint]nodeexec.HookHandler {
+	hook := recordingLifecycleHook{events: events}
+	return map[nodeexec.HookPoint]nodeexec.HookHandler{
+		nodeexec.HookBeforeExecute: hook,
+		nodeexec.HookAfterExecute:  hook,
+		nodeexec.HookOnStateChange: hook,
+		nodeexec.HookOnFailure:     hook,
+	}
+}
+
+func (h recordingLifecycleHook) Handle(_ context.Context, point nodeexec.HookPoint, node nodeexec.Node, outcome nodeexec.NodeOutcome) error {
+	*h.events = append(*h.events, string(point)+":"+node.NodeKey+":"+string(outcome.Status))
+	return nil
+}
+
+type recordingLifecycleOutcomeHook struct {
+	events *[]string
+}
+
+func recordingLifecycleOutcomeHooks(events *[]string) map[nodeexec.HookPoint]nodeexec.HookHandler {
+	hook := recordingLifecycleOutcomeHook{events: events}
+	return map[nodeexec.HookPoint]nodeexec.HookHandler{
+		nodeexec.HookBeforeExecute: hook,
+		nodeexec.HookAfterExecute:  hook,
+		nodeexec.HookOnStateChange: hook,
+		nodeexec.HookOnFailure:     hook,
+	}
+}
+
+func (h recordingLifecycleOutcomeHook) Handle(_ context.Context, point nodeexec.HookPoint, node nodeexec.Node, outcome nodeexec.NodeOutcome) error {
+	*h.events = append(*h.events, string(point)+":"+node.NodeKey+":"+string(outcome.Status)+":"+string(outcome.FailureClass))
+	return nil
+}
+
+type slowLifecycleHook struct {
+	completed chan<- struct{}
+	canceled  chan<- struct{}
+}
+
+func (h slowLifecycleHook) Handle(ctx context.Context, _ nodeexec.HookPoint, _ nodeexec.Node, _ nodeexec.NodeOutcome) error {
+	select {
+	case <-time.After(lifecycleHookDispatchWait * 2):
+		close(h.completed)
+		return nil
+	case <-ctx.Done():
+		close(h.canceled)
+		return ctx.Err()
+	}
 }
