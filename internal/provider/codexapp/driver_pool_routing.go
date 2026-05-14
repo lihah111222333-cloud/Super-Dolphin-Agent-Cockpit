@@ -56,7 +56,8 @@ func (d *driver) resolveSessionOptions(ctx context.Context, req dto.StartSession
 		return nil, fmt.Errorf("codex identity required: %w", err)
 	}
 	owner := strings.TrimSpace(req.AgentID)
-	server, release, acquireErr := d.pool.Acquire(ctx, identity, owner)
+	workDir := strings.TrimSpace(req.CWD)
+	server, release, acquireErr := d.pool.Acquire(withPoolSpawnWorkDir(ctx, workDir), identity, owner)
 	if acquireErr != nil {
 		return nil, acquireErr
 	}
@@ -71,6 +72,7 @@ func (d *driver) resolveSessionOptions(ctx context.Context, req dto.StartSession
 			slog.String("codex_home", identity.Home),
 			slog.String("instance_key", identity.InstanceKey),
 			slog.String("owner", owner),
+			slog.String("work_dir", workDir),
 			slog.String("server_url", url),
 		)
 	}
@@ -110,7 +112,8 @@ func (d *driver) resolveResumeOptions(ctx context.Context, req dto.ResumeSession
 		return nil, errors.New("codex identity required for resume")
 	}
 	owner := strings.TrimSpace(req.AgentID)
-	server, release, err := d.pool.Acquire(ctx, identity, owner)
+	workDir := strings.TrimSpace(req.CWD)
+	server, release, err := d.pool.Acquire(withPoolSpawnWorkDir(ctx, workDir), identity, owner)
 	if err != nil {
 		return nil, err
 	}
@@ -125,6 +128,7 @@ func (d *driver) resolveResumeOptions(ctx context.Context, req dto.ResumeSession
 			slog.String("codex_home", identity.Home),
 			slog.String("instance_key", identity.InstanceKey),
 			slog.String("owner", owner),
+			slog.String("work_dir", workDir),
 			slog.String("server_url", url),
 		)
 	}

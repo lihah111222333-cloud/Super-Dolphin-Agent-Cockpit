@@ -2,6 +2,7 @@ package codexapp
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -67,5 +68,43 @@ func TestBuildPoolSpawnCmdDefaultsParentEnvToOSEnviron(t *testing.T) {
 	}
 	if !strings.Contains(env, "TZ=UTC") {
 		t.Fatalf("allowlisted OS-Environ value missing:\n%s", env)
+	}
+}
+
+func TestBuildPoolSpawnCmdSetsWorkDirAndPWD(t *testing.T) {
+	t.Parallel()
+	workDir := t.TempDir()
+	realWorkDir, err := filepath.EvalSymlinks(workDir)
+	if err != nil {
+		t.Fatalf("realpath work dir: %v", err)
+	}
+	ctx := withPoolSpawnWorkDir(context.Background(), workDir)
+	cmd, err := BuildPoolSpawnCmd(ctx, PoolSpawnArgs{
+		Home: "/realpath/home",
+		ParentEnv: []string{
+			"PATH=/usr/bin",
+			"PWD=/stale/workdir",
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildPoolSpawnCmd error = %v", err)
+	}
+	if cmd.Dir != realWorkDir {
+		t.Fatalf("cmd.Dir = %q, want %q", cmd.Dir, realWorkDir)
+	}
+	env := strings.Join(cmd.Env, "\n")
+	if !strings.Contains(env, "PWD="+realWorkDir) {
+		t.Fatalf("PWD override missing:\n%s", env)
+	}
+	if strings.Contains(env, "PWD=/stale/workdir") {
+		t.Fatalf("stale PWD leaked:\n%s", env)
+	}
+}
+
+func TestBuildPoolSpawnCmdRejectsRelativeWorkDir(t *testing.T) {
+	t.Parallel()
+	ctx := withPoolSpawnWorkDir(context.Background(), "relative/workdir")
+	if _, err := BuildPoolSpawnCmd(ctx, PoolSpawnArgs{Home: "/realpath/home"}); err == nil {
+		t.Fatal("relative work dir should error")
 	}
 }

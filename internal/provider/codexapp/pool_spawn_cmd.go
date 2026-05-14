@@ -8,18 +8,12 @@ import (
 	"strings"
 )
 
-// PoolSpawnArgs drives BuildPoolSpawnCmd. Home is the canonicalized
-// codexHome the child process must operate as — the value is injected
-// as CODEX_HOME in the spawned environment and wins over anything the
-// parent exported. ExtraArgs are appended after `codex app-server` so
-// callers can opt into flags (for example a fixed --listen address in
-// tests) without bypassing the shared ulimit wrapper.
+// PoolSpawnArgs drives BuildPoolSpawnCmd. Home is injected as CODEX_HOME,
+// ExtraArgs are appended after `codex app-server`, and ParentEnv keeps the
+// builder unit-testable with synthetic parent environments.
 type PoolSpawnArgs struct {
 	Home      string
 	ExtraArgs []string
-	// ParentEnv is usually os.Environ(); taking it as an argument keeps
-	// the function pure and unit-testable against a synthetic parent
-	// environment.
 	ParentEnv []string
 }
 
@@ -81,6 +75,10 @@ func BuildPoolSpawnCmd(ctx context.Context, args PoolSpawnArgs) (*exec.Cmd, erro
 	if home == "" {
 		return nil, fmt.Errorf("codexapp: BuildPoolSpawnCmd requires a codex home")
 	}
+	workDir, err := poolSpawnNormalizedWorkDir(ctx)
+	if err != nil {
+		return nil, err
+	}
 	// NOTE: ctx is intentionally NOT threaded into exec.CommandContext.
 	// exec.CommandContext kills the child process when ctx is done;
 	// callers typically pass a short "startup timeout" ctx that cancels
@@ -90,21 +88,16 @@ func BuildPoolSpawnCmd(ctx context.Context, args PoolSpawnArgs) (*exec.Cmd, erro
 	// for the I/O-level waits further up the stack. Keeping the param
 	// preserves the signature for callers that want to reject a
 	// pre-cancelled ctx early.
-	if ctx != nil {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-	}
-	argv := append([]string(nil), codexAppServerArgs...)
-	if len(args.ExtraArgs) > 0 {
-		argv = append(argv, args.ExtraArgs...)
-	}
+	argv := append(append([]string(nil), codexAppServerArgs...), args.ExtraArgs...)
 	cmd := wrapWithFDLimit(argv)
+	if workDir != "" {
+		cmd.Dir = workDir
+	}
 	parent := args.ParentEnv
 	if parent == nil {
 		parent = os.Environ()
 	}
-	cmd.Env = buildAllowlistedSpawnEnv(parent, map[string]string{"CODEX_HOME": home})
+	cmd.Env = buildPoolSpawnEnv(parent, home, workDir)
 	setCodexProcessAttrs(cmd)
 	return cmd, nil
 }
