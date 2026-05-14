@@ -139,9 +139,6 @@ func splitPatchHeaders(lines []string) ([][]string, error) {
 			current = []string{line}
 			continue
 		}
-		if looksLikeMalformedHeader(line) {
-			return nil, fmt.Errorf("%w: patch header must start with \"@@ \"", ErrInvalidPatch)
-		}
 		if current == nil {
 			return nil, fmt.Errorf("%w: patch must begin with an @@ header", ErrInvalidPatch)
 		}
@@ -214,25 +211,19 @@ func classifyBodyLines(body []string, startOffset int) ([]patchBodyLine, int, in
 
 func parseHeaderLine(line string) (string, error) {
 	if !isPatchHeader(line) {
-		return "", fmt.Errorf("%w: patch header must start with \"@@ \"", ErrInvalidPatch)
+		return "", fmt.Errorf("%w: patch header must start with \"@@\"", ErrInvalidPatch)
 	}
-	return strings.TrimPrefix(line, "@@ "), nil
+	rest := strings.TrimPrefix(line, "@@")
+	return strings.TrimPrefix(rest, " "), nil
 }
 
 func isPatchHeader(line string) bool {
-	return strings.HasPrefix(line, "@@ ")
-}
-
-func looksLikeMalformedHeader(line string) bool {
-	return strings.HasPrefix(line, "@@") && !isPatchHeader(line)
+	return strings.HasPrefix(line, "@@")
 }
 
 func parsePatchBodyLine(line string) (patchBodyLine, error) {
 	if line == "" {
 		return patchBodyLine{}, errors.New("patch body lines must start with ' ', '-', or '+'")
-	}
-	if looksLikeMalformedHeader(line) {
-		return patchBodyLine{}, errors.New("patch header must start with \"@@ \"")
 	}
 	prefix := line[0]
 	switch prefix {
