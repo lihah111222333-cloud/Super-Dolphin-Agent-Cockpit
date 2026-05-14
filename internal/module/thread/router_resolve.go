@@ -293,12 +293,26 @@ func resolvePromptClassificationInput(req *StartRequest) (string, bool) {
 	return userInput, true
 }
 
+// classifierBackendDisabledHint is the diagnostic the router emits when the
+// per-request UseClassifier opt-in is set but the backend cannot run. After
+// the P2 fix the UI toggle is the only opt-in gate — there is no
+// ENABLE_PROMPT_CLASSIFIER env var anywhere in the codebase. The only real
+// reasons Enabled() can be false are:
+//
+//   - `claude` CLI is not on PATH (NewClaudeCLIClassifier auto-degrades to
+//     NoopClassifier in that case).
+//   - The operator force-disabled the backend with DISABLE_PROMPT_CLASSIFIER=true.
+//
+// Both are surfaced verbatim so support can grep this log line and tell the
+// user which real condition to check.
+const classifierBackendDisabledHint = "ensure `claude` CLI is on PATH and DISABLE_PROMPT_CLASSIFIER is not set to true"
+
 func (s *service) classifierReady() bool {
 	if s.classifier != nil && s.classifier.Enabled() {
 		return true
 	}
 	pkglogger.Info("router: classifier opt-in but backend disabled",
-		"hint", "set ENABLE_PROMPT_CLASSIFIER=true and ensure `claude` is on PATH")
+		"hint", classifierBackendDisabledHint)
 	return false
 }
 
