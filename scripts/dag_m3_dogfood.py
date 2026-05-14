@@ -39,7 +39,7 @@ CHECKLIST = (
     "Large output negative path: optional one-node probe asks for >4KB with to_node_result=true and should fail validation.",
     "Dispatch: script manually dispatches ready unassigned nodes via task_dispatch_node as they become ready.",
     "Metrics: /metrics contains dispatch_failed_total and retry_count_per_node; strict sample mode requires --retry-metrics-dag-key from a dispatcher retry probe.",
-    "Rerun: use a fresh --dag-key or the default timestamped dag key; use a new idempotency key for each manual retry.",
+    "Rerun: use a fresh --dag-key or the default timestamped dag key; default shared_prefix follows dag_key; use a new idempotency key for each manual retry.",
 )
 
 
@@ -49,6 +49,13 @@ def required_metric_names():
 
 def sample_backed_metric_fallbacks():
     return {"retry_count_per_node": "retry_count_per_node_overflow_total"}
+
+
+def default_shared_prefix(dag_key):
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", (dag_key or "").strip()).strip(".-_")
+    if not slug:
+        slug = "m3-dogfood"
+    return "reports/%s" % slug
 
 
 def build_main_ops(assignee, shared_prefix, provider="codex", model="gpt-5"):
@@ -671,7 +678,7 @@ def parse_args(argv):
     parser.add_argument("--dag-key", default=os.getenv("M3_DOGFOOD_DAG_KEY", "m3-dogfood-%s" % now))
     parser.add_argument("--creator", default=os.getenv("M3_DOGFOOD_AGENT_ID", "agent_m3_dogfood_runner"))
     parser.add_argument("--assignee", default=os.getenv("M3_DOGFOOD_ASSIGN_TO", os.getenv("M3_DOGFOOD_AGENT_ID", "agent_m3_dogfood_runner")))
-    parser.add_argument("--shared-prefix", default=os.getenv("M3_DOGFOOD_SHARED_PREFIX", "reports/m3-dogfood"))
+    parser.add_argument("--shared-prefix", default=os.getenv("M3_DOGFOOD_SHARED_PREFIX", ""))
     parser.add_argument("--provider", default=os.getenv("M3_DOGFOOD_PROVIDER", "codex"))
     parser.add_argument("--model", default=os.getenv("M3_DOGFOOD_MODEL", "gpt-5"))
     parser.add_argument("--mcp-url", default=os.getenv("M3_DOGFOOD_MCP_URL", os.getenv("MCP_ORCH_HTTP_URL", "")))
@@ -686,6 +693,9 @@ def parse_args(argv):
     parser.add_argument("--metrics-family-only", action="store_true")
     parser.add_argument("--require-metric-samples", action="store_true", default=None, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    args.shared_prefix = (args.shared_prefix or "").strip()
+    if not args.shared_prefix:
+        args.shared_prefix = default_shared_prefix(args.dag_key)
     if args.require_metric_samples is None:
         args.require_metric_samples = not args.metrics_family_only
     return args
