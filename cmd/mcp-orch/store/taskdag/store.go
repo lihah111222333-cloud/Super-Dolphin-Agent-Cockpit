@@ -68,6 +68,17 @@ func (s *store) UpsertNode(ctx context.Context, node Node) (*Node, error) {
 	}, "upsert", "task_dag_node", fromNode)
 }
 
+func (s *store) PatchNodeConfigIfUnchanged(ctx context.Context, input NodeConfigPatchInput) (*Node, error) {
+	return queryOne(func() (sqlc.TaskDagNode, error) {
+		return s.q.PatchTaskDagNodeConfigIfUnchanged(ctx, sqlc.PatchTaskDagNodeConfigIfUnchangedParams{
+			DagKey:         input.DagKey,
+			NodeKey:        input.NodeKey,
+			Config:         input.Config,
+			PreviousConfig: input.PreviousConfig,
+		})
+	}, "patch_config", "task_dag_node", fromNode)
+}
+
 func (s *store) DeleteNode(ctx context.Context, dagKey, nodeKey string) (int64, error) {
 	rows, err := s.q.DeleteTaskDagNode(ctx, sqlc.DeleteTaskDagNodeParams{
 		DagKey:  dagKey,

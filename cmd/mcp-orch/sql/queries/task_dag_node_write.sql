@@ -11,6 +11,19 @@ SET title = EXCLUDED.title,
     updated_at = NOW()
 RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
 
+-- name: PatchTaskDagNodeConfigIfUnchanged :one
+-- Smart retry mutates only node.config after RetryWakeup's wakeup fence has
+-- succeeded. Keep this as a narrow, compare-and-swap style patch so stale
+-- dispatcher attempts cannot overwrite apply_ops changes to assignment,
+-- dependencies, or config.
+UPDATE task_dag_nodes
+SET config = $3::jsonb, updated_at = NOW()
+WHERE dag_key = $1
+  AND node_key = $2
+  AND config = $4::jsonb
+  AND status NOT IN ('done', 'failed', 'cancelled', 'skipped')
+RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id;
+
 -- name: DeleteTaskDagNode :execrows
 DELETE FROM task_dag_nodes
 WHERE dag_key = $1

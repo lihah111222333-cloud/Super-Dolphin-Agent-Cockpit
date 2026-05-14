@@ -420,6 +420,7 @@ func TestClassifyAgentLaunchError(t *testing.T) {
 		{"prompt_too_long_quota", errors.New("prompt is too long"), FailureClassQuota},
 		{"usage_limit_quota", errors.New("usage limit"), FailureClassQuota},
 		{"out_of_credits_quota", errors.New("out of credits"), FailureClassQuota},
+		{"capability", errors.New("model lacks capability for this task"), FailureClassCapability},
 		{"unauthorized_validation", errors.New("401 unauthorized"), FailureClassValidation},
 		{"forbidden_validation", errors.New("403 forbidden"), FailureClassValidation},
 		{"unknown_default_transient", errors.New("strange new failure"), FailureClassTransient},
