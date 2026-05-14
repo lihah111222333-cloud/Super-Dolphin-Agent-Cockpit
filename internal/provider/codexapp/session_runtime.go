@@ -201,7 +201,7 @@ func (r *SessionRuntime) DroppedSignalsTotal() int64    { return r.droppedSignal
 
 func (r *SessionRuntime) safeRunHealthLoop() {
 	defer r.wg.Done()
-	defer r.recoverWorkerPanic("session_runtime.healthLoop")
+	defer func() { r.recoverWorkerPanic("session_runtime.healthLoop", recover()) }()
 	r.runHealthLoop()
 }
 
@@ -253,7 +253,7 @@ func (r *SessionRuntime) tickHealth() {
 
 func (r *SessionRuntime) safeRunRecoveryWorker() {
 	defer r.wg.Done()
-	defer r.recoverWorkerPanic("session_runtime.recoveryWorker")
+	defer func() { r.recoverWorkerPanic("session_runtime.recoveryWorker", recover()) }()
 	r.runRecoveryWorker()
 }
 
@@ -302,8 +302,8 @@ func (r *SessionRuntime) spawnReader() bool {
 	r.readerDone = done
 	r.readerCancel = cancel
 	go func() {
+		defer func() { r.recoverWorkerPanic("session_runtime.reader", recover()) }()
 		defer close(done)
-		defer r.recoverWorkerPanic("session_runtime.reader")
 		r.s.transport.ReadLoop(readCtx, r.s.onInboundMessage)
 		r.logger.Warn("codexapp: read loop exited",
 			"agent_id", r.s.agentID,
@@ -367,8 +367,8 @@ var errRuntimeStopped = errors.New("codexapp: session runtime stopped")
 // recoverWorkerPanic catches any panic from a session runtime worker goroutine,
 // logging it with structured context so the process stays alive. This replaces
 // what would otherwise be a fatal crash from an unrecovered panic.
-func (r *SessionRuntime) recoverWorkerPanic(label string) {
-	if rec := recover(); rec != nil {
+func (r *SessionRuntime) recoverWorkerPanic(label string, rec any) {
+	if rec != nil {
 		r.logger.Error("codexapp: recovered worker panic",
 			"label", label,
 			"agent_id", r.s.agentID,

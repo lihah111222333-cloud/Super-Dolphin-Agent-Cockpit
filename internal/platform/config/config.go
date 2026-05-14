@@ -1,13 +1,13 @@
 package config
 
 import (
-	"log"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 const defaultDatabaseURL = "postgres://postgres:123@127.0.0.1:5432/go_agent_v2?sslmode=disable"
@@ -94,7 +94,7 @@ func databaseURLFromEnv(fallback string) string {
 		return value
 	}
 	if value := strings.TrimSpace(os.Getenv("POSTGRES_CONNECTION_STRING")); value != "" {
-		log.Printf("config env POSTGRES_CONNECTION_STRING is deprecated; use DATABASE_URL instead")
+		pkglogger.Get().Warn("config env POSTGRES_CONNECTION_STRING is deprecated; use DATABASE_URL instead")
 		return value
 	}
 	return fallback
@@ -149,7 +149,7 @@ func envOrCompat(canonical, legacy, fallback string) string {
 		return value
 	}
 	if value := strings.TrimSpace(os.Getenv(legacy)); value != "" {
-		log.Printf("config env %s is deprecated; use %s instead before 2026-06-30", legacy, canonical)
+		pkglogger.Get().Warn("config env deprecated", "legacy", legacy, "canonical", canonical)
 		return value
 	}
 	return fallback

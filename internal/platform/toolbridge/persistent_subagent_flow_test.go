@@ -164,7 +164,7 @@ type persistentFlowStarter struct {
 func (s *persistentFlowStarter) StartSession(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
 	s.captured = req
 	session := &persistentFlowSession{
-		threadID: "provider-thread-persistent",
+		threadID: "123e4567-e89b-12d3-a456-426614174000",
 		rollout:  "/tmp/rollout",
 		runtime:  map[string]any{"cwd": req.CWD},
 	}

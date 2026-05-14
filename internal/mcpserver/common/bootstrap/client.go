@@ -337,6 +337,7 @@ func (c *Client) Close() error {
 func (c *Client) drainCallbacks(timeout time.Duration) error {
 	done := make(chan struct{})
 	go func() {
+		defer func() { _ = recover() }()
 		c.callbackWG.Wait()
 		close(done)
 	}()

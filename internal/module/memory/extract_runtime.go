@@ -230,6 +230,7 @@ func (h *MemoryLifecycleHooks) DrainPendingExtraction(ctx context.Context) error
 	h.drainMu.Unlock()
 	done := make(chan struct{})
 	go func() {
+		defer func() { _ = recover() }()
 		h.extractWG.Wait()
 		close(done)
 	}()
