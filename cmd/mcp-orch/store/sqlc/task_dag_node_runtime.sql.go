@@ -18,10 +18,11 @@ SET active_turn_id = $1,
     updated_at = NOW()
 WHERE dag_key = $2
   AND node_key = $3
+  AND (($5::bigint = 0 AND run_id IS NULL) OR run_id = $5)
   AND status = 'running'
   AND active_turn_id IS NULL
   AND active_wakeup_id = $4
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
+RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
 `
 
 type BindRunningTaskDagNodeTurnParams struct {
@@ -29,6 +30,7 @@ type BindRunningTaskDagNodeTurnParams struct {
 	DagKey         string      `json:"dag_key"`
 	NodeKey        string      `json:"node_key"`
 	ActiveWakeupID pgtype.Int8 `json:"active_wakeup_id"`
+	RunID          int64       `json:"run_id"`
 }
 
 func (q *Queries) BindRunningTaskDagNodeTurn(ctx context.Context, arg BindRunningTaskDagNodeTurnParams) (TaskDagNode, error) {
@@ -37,12 +39,14 @@ func (q *Queries) BindRunningTaskDagNodeTurn(ctx context.Context, arg BindRunnin
 		arg.DagKey,
 		arg.NodeKey,
 		arg.ActiveWakeupID,
+		arg.RunID,
 	)
 	var i TaskDagNode
 	err := row.Scan(
 		&i.ID,
 		&i.DagKey,
 		&i.NodeKey,
+		&i.RunID,
 		&i.Title,
 		&i.NodeType,
 		&i.AssignedTo,
@@ -67,8 +71,10 @@ const completeTaskDagNode = `-- name: CompleteTaskDagNode :one
 UPDATE task_dag_nodes
 SET status = $1, result = $2::jsonb, active_turn_id = NULL, active_wakeup_id = NULL,
     finished_at = COALESCE(finished_at, NOW()), updated_at = NOW()
-WHERE dag_key = $3 AND node_key = $4 AND status IN ('ready', 'running', 'awaiting_verify')
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
+WHERE dag_key = $3 AND node_key = $4
+  AND (($5::bigint = 0 AND run_id IS NULL) OR run_id = $5)
+  AND status IN ('ready', 'running', 'awaiting_verify')
+RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
 `
 
 type CompleteTaskDagNodeParams struct {
@@ -76,6 +82,7 @@ type CompleteTaskDagNodeParams struct {
 	Column2 []byte `json:"column_2"`
 	DagKey  string `json:"dag_key"`
 	NodeKey string `json:"node_key"`
+	RunID   int64  `json:"run_id"`
 }
 
 func (q *Queries) CompleteTaskDagNode(ctx context.Context, arg CompleteTaskDagNodeParams) (TaskDagNode, error) {
@@ -84,12 +91,14 @@ func (q *Queries) CompleteTaskDagNode(ctx context.Context, arg CompleteTaskDagNo
 		arg.Column2,
 		arg.DagKey,
 		arg.NodeKey,
+		arg.RunID,
 	)
 	var i TaskDagNode
 	err := row.Scan(
 		&i.ID,
 		&i.DagKey,
 		&i.NodeKey,
+		&i.RunID,
 		&i.Title,
 		&i.NodeType,
 		&i.AssignedTo,
@@ -116,10 +125,11 @@ SET last_event_at = $1,
     updated_at = NOW()
 WHERE dag_key = $2
   AND node_key = $3
+  AND (($5::bigint = 0 AND run_id IS NULL) OR run_id = $5)
   AND status = 'running'
   AND active_turn_id = $4
   AND (last_event_at IS NULL OR last_event_at < $1)
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
+RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
 `
 
 type TouchRunningTaskDagNodeEventParams struct {
@@ -127,6 +137,7 @@ type TouchRunningTaskDagNodeEventParams struct {
 	DagKey       string             `json:"dag_key"`
 	NodeKey      string             `json:"node_key"`
 	ActiveTurnID pgtype.Text        `json:"active_turn_id"`
+	RunID        int64              `json:"run_id"`
 }
 
 func (q *Queries) TouchRunningTaskDagNodeEvent(ctx context.Context, arg TouchRunningTaskDagNodeEventParams) (TaskDagNode, error) {
@@ -135,12 +146,14 @@ func (q *Queries) TouchRunningTaskDagNodeEvent(ctx context.Context, arg TouchRun
 		arg.DagKey,
 		arg.NodeKey,
 		arg.ActiveTurnID,
+		arg.RunID,
 	)
 	var i TaskDagNode
 	err := row.Scan(
 		&i.ID,
 		&i.DagKey,
 		&i.NodeKey,
+		&i.RunID,
 		&i.Title,
 		&i.NodeType,
 		&i.AssignedTo,
@@ -164,8 +177,10 @@ func (q *Queries) TouchRunningTaskDagNodeEvent(ctx context.Context, arg TouchRun
 const updateAwaitingVerifyTaskDagNodeStatus = `-- name: UpdateAwaitingVerifyTaskDagNodeStatus :one
 UPDATE task_dag_nodes
 SET status = $1, result = $2::jsonb, active_turn_id = NULL, active_wakeup_id = NULL, updated_at = NOW()
-WHERE dag_key = $3 AND node_key = $4 AND status IN ('running')
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
+WHERE dag_key = $3 AND node_key = $4
+  AND (($5::bigint = 0 AND run_id IS NULL) OR run_id = $5)
+  AND status IN ('running')
+RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
 `
 
 type UpdateAwaitingVerifyTaskDagNodeStatusParams struct {
@@ -173,6 +188,7 @@ type UpdateAwaitingVerifyTaskDagNodeStatusParams struct {
 	Column2 []byte `json:"column_2"`
 	DagKey  string `json:"dag_key"`
 	NodeKey string `json:"node_key"`
+	RunID   int64  `json:"run_id"`
 }
 
 func (q *Queries) UpdateAwaitingVerifyTaskDagNodeStatus(ctx context.Context, arg UpdateAwaitingVerifyTaskDagNodeStatusParams) (TaskDagNode, error) {
@@ -181,12 +197,14 @@ func (q *Queries) UpdateAwaitingVerifyTaskDagNodeStatus(ctx context.Context, arg
 		arg.Column2,
 		arg.DagKey,
 		arg.NodeKey,
+		arg.RunID,
 	)
 	var i TaskDagNode
 	err := row.Scan(
 		&i.ID,
 		&i.DagKey,
 		&i.NodeKey,
+		&i.RunID,
 		&i.Title,
 		&i.NodeType,
 		&i.AssignedTo,
@@ -211,8 +229,10 @@ const updateRunningTaskDagNodeStatus = `-- name: UpdateRunningTaskDagNodeStatus 
 UPDATE task_dag_nodes
 SET status = $1, result = $2::jsonb, active_turn_id = NULL, active_wakeup_id = $3,
     last_event_at = NULL, started_at = COALESCE(started_at, NOW()), updated_at = NOW()
-WHERE dag_key = $4 AND node_key = $5 AND status IN ('pending', 'ready')
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
+WHERE dag_key = $4 AND node_key = $5
+  AND (($6::bigint = 0 AND run_id IS NULL) OR run_id = $6)
+  AND status IN ('pending', 'ready')
+RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
 `
 
 type UpdateRunningTaskDagNodeStatusParams struct {
@@ -221,6 +241,7 @@ type UpdateRunningTaskDagNodeStatusParams struct {
 	ActiveWakeupID pgtype.Int8 `json:"active_wakeup_id"`
 	DagKey         string      `json:"dag_key"`
 	NodeKey        string      `json:"node_key"`
+	RunID          int64       `json:"run_id"`
 }
 
 func (q *Queries) UpdateRunningTaskDagNodeStatus(ctx context.Context, arg UpdateRunningTaskDagNodeStatusParams) (TaskDagNode, error) {
@@ -230,12 +251,14 @@ func (q *Queries) UpdateRunningTaskDagNodeStatus(ctx context.Context, arg Update
 		arg.ActiveWakeupID,
 		arg.DagKey,
 		arg.NodeKey,
+		arg.RunID,
 	)
 	var i TaskDagNode
 	err := row.Scan(
 		&i.ID,
 		&i.DagKey,
 		&i.NodeKey,
+		&i.RunID,
 		&i.Title,
 		&i.NodeType,
 		&i.AssignedTo,

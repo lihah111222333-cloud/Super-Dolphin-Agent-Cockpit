@@ -67,13 +67,15 @@ type AgentLauncher interface {
 
 // NodeSpawnRecorder 是 F1.5 / ADR-009 引入的 thread_id 写回端口。
 // 生产实现是 store/taskdag.NodeSpawnRecorderStore —— *store 类型同时满足该
-// 接口；测试注入 stub recorder 断言写回入参与重试 events 是否被 append。
+// 接口；runID 限定本次 run 的节点行，测试注入 stub recorder 断言写回入参与
+// 重试 events 是否被 append。
 //
 // NodeSpawnRecorder is the F1.5 / ADR-009 write-back port. Production wiring
 // binds it to store/taskdag.NodeSpawnRecorderStore (*store satisfies it);
-// tests inject a stub that captures the inputs and returns an injected error.
+// runID scopes the write-back to the current run; tests inject a stub that
+// captures the inputs and returns an injected error.
 type NodeSpawnRecorder interface {
-	RecordNodeSpawn(ctx context.Context, dagKey, nodeKey, threadID string) error
+	RecordNodeSpawn(ctx context.Context, dagKey, nodeKey string, runID int64, threadID string) error
 }
 
 // PrevNodeResultReader 以及 SharedfileReader 的 F1.2 端口已于收敛 batch 走。
@@ -289,7 +291,7 @@ func (e *AgentExecutor) spawnWriteback(ctx context.Context, node Node, runCtx Ru
 	if dagKey == "" || nodeKey == "" {
 		return ""
 	}
-	if err := e.recorder.RecordNodeSpawn(ctx, dagKey, nodeKey, threadID); err != nil {
+	if err := e.recorder.RecordNodeSpawn(ctx, dagKey, nodeKey, runCtx.RunID, threadID); err != nil {
 		return truncateErrSummary(fmt.Sprintf("spawning_thread_id write-back failed: %v", err))
 	}
 	return ""

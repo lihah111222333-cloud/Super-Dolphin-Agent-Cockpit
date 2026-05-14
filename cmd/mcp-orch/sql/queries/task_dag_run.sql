@@ -1,4 +1,4 @@
--- DAG v2 T1.2-mid: task_dag_runs CRUD + 根节点 promote 入口。
+-- DAG v2 F6.5: task_dag_runs CRUD + runtime node snapshot 入口。
 -- 蓝图 v2 §5 决策 C 混合：每次 StartDAG 创建一条 run；T1.2-mid 阶段单 DAG
 -- 单 run，多并发 reject。F6.5 升级为 multi-run + 节点复制带 run_id。
 
@@ -32,20 +32,36 @@ SELECT COUNT(*)::bigint AS active
 FROM task_dag_runs
 WHERE dag_key = $1 AND status = 'running';
 
+-- name: CloneTaskDagNodesForRun :execrows
+-- StartDAG 调用：把 DAG 模板节点(run_id IS NULL)复制为当前 run 的 runtime
+-- 节点。status/result/active fields 重置为执行实例自己的生命周期；模板行不变。
+INSERT INTO task_dag_nodes (
+  dag_key, node_key, title, node_type, assigned_to, depends_on,
+  status, command_ref, config, result, run_id, reads, writes
+)
+SELECT
+  n.dag_key, n.node_key, n.title, n.node_type, n.assigned_to, n.depends_on,
+  'pending', n.command_ref, n.config, NULL, $2, n.reads, n.writes
+FROM task_dag_nodes n
+WHERE n.dag_key = $1
+  AND n.run_id IS NULL
+ON CONFLICT (dag_key, run_id, node_key) WHERE run_id IS NOT NULL DO NOTHING;
+
 -- name: PromoteRootNodesToReady :execrows
 -- StartDAG 在新 run 创建后调用：把 dag_key 下所有 depends_on=[] 且 status='pending'
--- 的根节点提升为 'ready'。返回受影响行数（service 层用于断言至少一个根节点被
+-- 且属于当前 run_id 的根节点提升为 'ready'。返回受影响行数（service 层用于断言至少一个根节点被
 -- 提升，否则视为 DAG 无可执行起点）。
 -- 状态机：pending → ready 是合法转移（见 nodeexec/types.go ValidTransitions）。
 UPDATE task_dag_nodes
 SET status = 'ready',
     updated_at = NOW()
 WHERE dag_key = $1
+  AND run_id = $2
   AND status = 'pending'
   AND jsonb_array_length(depends_on) = 0;
 
 -- name: FinalizeTaskDagRunIfAllNodesTerminal :many
--- F6.2: run 终态判定 — 当 dag_key 下所有 task_dag_nodes.status 已进入终态
+-- F6.5: run 终态判定 — 当 dag_key + run_id 下所有 task_dag_nodes.status 已进入终态
 -- (done/failed/cancelled/skipped) 时，按优先级把 status='running' 的 run
 -- 推进到对应终态并写 finished_at；否则 0 行受影响、run 保持 'running'。
 --
@@ -70,9 +86,7 @@ WHERE dag_key = $1
 -- 与 0080 status CHECK 对齐：枚举锁定 running|succeeded|failed|cancelled，
 -- final_status 取值都在白名单内、不会触发 CHECK 违例。
 --
--- 单 DAG 单 run（0076 partial unique on (dag_key) WHERE status='running'）：
--- WHERE r.dag_key=$1 AND r.status='running' 命中至多 1 行；F6.5 升级
--- multi-run + 节点带 run_id 后，本 query 需带 run_id 参数定位目标 run。
+-- F6.5 multi-run：WHERE r.id=$2 AND r.dag_key=$1 精确定位目标 run。
 WITH node_counts AS (
   SELECT
     COUNT(*) FILTER (WHERE status NOT IN ('done','failed','cancelled','skipped')) AS non_terminal,
@@ -81,6 +95,7 @@ WITH node_counts AS (
     COUNT(*)                                     AS total
   FROM task_dag_nodes
   WHERE dag_key = $1
+    AND run_id = $2
 ),
 final AS (
   SELECT CASE
@@ -106,6 +121,7 @@ final_node AS (
   FROM task_dag_nodes n
   JOIN dag_meta dm ON dm.final_node_key = n.node_key
   WHERE n.dag_key = $1
+    AND n.run_id = $2
   LIMIT 1
 ),
 final_output AS (
@@ -166,7 +182,8 @@ SET status      = (SELECT final_status FROM final),
       )
       ELSE r.metadata
     END
-WHERE r.dag_key = $1
+WHERE r.id = $2
+  AND r.dag_key = $1
   AND r.status = 'running'
   AND (SELECT final_status FROM final) IS NOT NULL
 RETURNING r.run_key, r.status;
@@ -194,8 +211,8 @@ RETURNING r.run_key, r.status;
 -- 走 jsonb_array_elements WITH ORDINALITY 重组。50 是经验值，覆盖典型 retry 链
 -- （单节点 7 次重试 × 多节点）仍留富余；阈值需要调整时改 50 字面常量即可。
 --
--- WHERE 用 dag_key + status='running' 定位 0076 partial unique 保证的唯一 running run；
--- 0 行返回（无 running run）调用方静默吞，不视为错误。
+-- F6.5 后同 dag_key 可以同时有多个 running run；调用方必须传 run_id，
+-- 0 行返回（run 不存在/非 running）调用方静默吞，不视为错误。
 UPDATE task_dag_runs
 SET events     = CASE
         WHEN jsonb_array_length(events || jsonb_build_array($2::jsonb)) <= 50
@@ -207,5 +224,7 @@ SET events     = CASE
         ), '[]'::jsonb)
     END,
     updated_at = NOW()
-WHERE dag_key = $1 AND status = 'running'
+WHERE dag_key = $1
+  AND status = 'running'
+  AND id = $3
 RETURNING run_key;

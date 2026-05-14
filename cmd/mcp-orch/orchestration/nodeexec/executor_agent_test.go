@@ -32,14 +32,16 @@ type stubNodeSpawnRecorder struct {
 	called       int
 	lastDagKey   string
 	lastNodeKey  string
+	lastRunID    int64
 	lastThreadID string
 	err          error
 }
 
-func (r *stubNodeSpawnRecorder) RecordNodeSpawn(_ context.Context, dagKey, nodeKey, threadID string) error {
+func (r *stubNodeSpawnRecorder) RecordNodeSpawn(_ context.Context, dagKey, nodeKey string, runID int64, threadID string) error {
 	r.called++
 	r.lastDagKey = dagKey
 	r.lastNodeKey = nodeKey
+	r.lastRunID = runID
 	r.lastThreadID = threadID
 	return r.err
 }
@@ -451,7 +453,7 @@ func TestAgentExecutor_Execute_Spawn_WritesBackThreadID(t *testing.T) {
 	node := makeAgentNode(t, cfg)
 
 	out, err := exec.Execute(context.Background(), node, RunContext{
-		DagKey: "dag-x", NodeKey: "node-a", RunID: 1,
+		DagKey: "dag-x", NodeKey: "node-a", RunID: 1001,
 	})
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -468,6 +470,9 @@ func TestAgentExecutor_Execute_Spawn_WritesBackThreadID(t *testing.T) {
 	if recorder.lastDagKey != "dag-x" || recorder.lastNodeKey != "node-a" {
 		t.Fatalf("RecordNodeSpawn keys = (%q,%q), want (dag-x,node-a)",
 			recorder.lastDagKey, recorder.lastNodeKey)
+	}
+	if recorder.lastRunID != 1001 {
+		t.Fatalf("RecordNodeSpawn runID = %d, want 1001", recorder.lastRunID)
 	}
 	if recorder.lastThreadID != "thread-success" {
 		t.Fatalf("RecordNodeSpawn threadID = %q, want thread-success", recorder.lastThreadID)
@@ -486,7 +491,7 @@ func TestAgentExecutor_Execute_Spawn_FallsBackToNodeKeys(t *testing.T) {
 	cfg := AgentNodeConfig{Exec: AgentExecConfig{AgentKey: "implementer"}}
 	node := makeAgentNode(t, cfg) // node has DagKey=dag-x NodeKey=node-a
 
-	_, err := exec.Execute(context.Background(), node, RunContext{})
+	_, err := exec.Execute(context.Background(), node, RunContext{RunID: 2002})
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
@@ -496,6 +501,9 @@ func TestAgentExecutor_Execute_Spawn_FallsBackToNodeKeys(t *testing.T) {
 	if recorder.lastDagKey != "dag-x" || recorder.lastNodeKey != "node-a" {
 		t.Fatalf("RecordNodeSpawn keys = (%q,%q), want fallback (dag-x,node-a)",
 			recorder.lastDagKey, recorder.lastNodeKey)
+	}
+	if recorder.lastRunID != 2002 {
+		t.Fatalf("RecordNodeSpawn runID = %d, want 2002", recorder.lastRunID)
 	}
 }
 

@@ -417,6 +417,7 @@ func (c *hookConsumer) failThreadStoppedFallbackNode(ctx context.Context, flow t
 	res, failErr := flow.FailNodeAndCancelDownstream(ctx, taskdag.FailNodeInput{
 		DagKey:   n.DagKey,
 		NodeKey:  n.NodeKey,
+		RunID:    taskNodeRunID(&n),
 		Reason:   "thread_stopped_fallback",
 		FailFast: false,
 	})

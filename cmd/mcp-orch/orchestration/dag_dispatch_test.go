@@ -11,12 +11,12 @@ import (
 )
 
 // stubDispatchStore 是 task_dispatch_node 单测的最小 DispatchNodeStore 桩。
-// 不嵌入 taskdag.OrchestrationStore — 接口面已经把所需方法穷尽（4 个）。
+// 不嵌入 taskdag.OrchestrationStore — 接口面已经把所需方法穷尽。
 type stubDispatchStore struct {
 	nodes        []taskdag.Node
 	listErr      error
-	upsertErr    error
-	upserted     *taskdag.Node
+	assignErr    error
+	assigned     *taskdag.Node
 	enqueued     []taskdag.EnqueueWakeupInput
 	enqueueID    int64
 	enqueueErr   error
@@ -43,12 +43,38 @@ func (s *stubDispatchStore) ListNodes(_ context.Context, _ string) ([]taskdag.No
 	return out, nil
 }
 
-func (s *stubDispatchStore) UpsertNode(_ context.Context, node taskdag.Node) (*taskdag.Node, error) {
-	if s.upsertErr != nil {
-		return nil, s.upsertErr
+func (s *stubDispatchStore) ListRunNodes(_ context.Context, _ string, runID int64) ([]taskdag.Node, error) {
+	if s.listErr != nil {
+		return nil, s.listErr
 	}
-	clone := node
-	s.upserted = &clone
+	out := make([]taskdag.Node, 0, len(s.nodes))
+	for i := range s.nodes {
+		if s.nodes[i].RunID != nil && *s.nodes[i].RunID == runID {
+			out = append(out, s.nodes[i])
+		}
+	}
+	return out, nil
+}
+
+func (s *stubDispatchStore) AssignNode(_ context.Context, input taskdag.AssignNodeInput) (*taskdag.Node, error) {
+	if s.assignErr != nil {
+		return nil, s.assignErr
+	}
+	clone := taskdag.Node{
+		DagKey:     input.DagKey,
+		NodeKey:    input.NodeKey,
+		RunID:      &input.RunID,
+		Status:     "ready",
+		AssignedTo: input.AssignedTo,
+	}
+	for i := range s.nodes {
+		if s.nodes[i].NodeKey == input.NodeKey && s.nodes[i].RunID != nil && *s.nodes[i].RunID == input.RunID {
+			clone = s.nodes[i]
+			clone.AssignedTo = input.AssignedTo
+			break
+		}
+	}
+	s.assigned = &clone
 	return &clone, nil
 }
 
@@ -67,17 +93,22 @@ func newServiceForDispatch(store taskdag.DispatchNodeStore) *service {
 	return &service{dispatchStore: store}
 }
 
+func dispatchTestRunID(id int64) *int64 {
+	return &id
+}
+
 // TestDispatchNode_HappyPath_ReadyNode_AssignsAndEnqueues：节点 ready/无 assignee
 // 时应被 upsert assigned_to + enqueue manual_dispatch wakeup。
 func TestDispatchNode_HappyPath_ReadyNode_AssignsAndEnqueues(t *testing.T) {
 	t.Parallel()
 	stub := &stubDispatchStore{
-		nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", Title: "n1", Status: "ready"}},
+		nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", RunID: dispatchTestRunID(7), Title: "n1", Status: "ready"}},
 	}
 	svc := newServiceForDispatch(stub)
 	resp, err := svc.DispatchNode(context.Background(), contract.DispatchNodeRequest{
 		DagKey:     "dag-1",
 		NodeKey:    "n1",
+		RunID:      7,
 		AssignedTo: "agent-alpha",
 	})
 	if err != nil {
@@ -86,8 +117,8 @@ func TestDispatchNode_HappyPath_ReadyNode_AssignsAndEnqueues(t *testing.T) {
 	if !resp.Enqueued || resp.WakeupID != 42 {
 		t.Fatalf("resp = %+v, want Enqueued=true WakeupID=42", resp)
 	}
-	if stub.upserted == nil || stub.upserted.AssignedTo != "agent-alpha" {
-		t.Fatalf("upserted = %+v, want AssignedTo=agent-alpha", stub.upserted)
+	if stub.assigned == nil || stub.assigned.AssignedTo != "agent-alpha" || stub.assigned.RunID == nil || *stub.assigned.RunID != 7 {
+		t.Fatalf("assigned = %+v, want run_id=7 AssignedTo=agent-alpha", stub.assigned)
 	}
 	if len(stub.enqueued) != 1 {
 		t.Fatalf("enqueued len = %d, want 1", len(stub.enqueued))
@@ -96,7 +127,10 @@ func TestDispatchNode_HappyPath_ReadyNode_AssignsAndEnqueues(t *testing.T) {
 	if got.WakeupKind != "manual_dispatch" || got.TargetAgentID != "agent-alpha" {
 		t.Fatalf("enqueue input = %+v", got)
 	}
-	if !strings.HasPrefix(got.IdempotencyKey, "manual_dispatch:dag-1:n1:agent-alpha") {
+	if got.RunID != 7 {
+		t.Fatalf("wakeup run_id = %d, want 7", got.RunID)
+	}
+	if !strings.HasPrefix(got.IdempotencyKey, "manual_dispatch:dag-1:7:n1:agent-alpha") {
 		t.Fatalf("idempotency key = %q", got.IdempotencyKey)
 	}
 }
@@ -106,12 +140,13 @@ func TestDispatchNode_HappyPath_ReadyNode_AssignsAndEnqueues(t *testing.T) {
 func TestDispatchNode_PendingAccepted(t *testing.T) {
 	t.Parallel()
 	stub := &stubDispatchStore{
-		nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", Status: "pending"}},
+		nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", RunID: dispatchTestRunID(7), Status: "pending"}},
 	}
 	svc := newServiceForDispatch(stub)
 	_, err := svc.DispatchNode(context.Background(), contract.DispatchNodeRequest{
 		DagKey:     "dag-1",
 		NodeKey:    "n1",
+		RunID:      7,
 		AssignedTo: "agent-a",
 	})
 	if err != nil {
@@ -124,19 +159,20 @@ func TestDispatchNode_PendingAccepted(t *testing.T) {
 func TestDispatchNode_RejectsRunning(t *testing.T) {
 	t.Parallel()
 	stub := &stubDispatchStore{
-		nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", Status: "running"}},
+		nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", RunID: dispatchTestRunID(7), Status: "running"}},
 	}
 	svc := newServiceForDispatch(stub)
 	_, err := svc.DispatchNode(context.Background(), contract.DispatchNodeRequest{
 		DagKey:     "dag-1",
 		NodeKey:    "n1",
+		RunID:      7,
 		AssignedTo: "agent-a",
 	})
 	if err == nil || !errors.Is(err, ErrDispatchNodeIneligible) {
 		t.Fatalf("DispatchNode(running) err = %v, want ErrDispatchNodeIneligible", err)
 	}
-	if stub.upserted != nil {
-		t.Fatalf("UpsertNode called on rejected dispatch: %+v", stub.upserted)
+	if stub.assigned != nil {
+		t.Fatalf("AssignNode called on rejected dispatch: %+v", stub.assigned)
 	}
 }
 
@@ -148,12 +184,13 @@ func TestDispatchNode_RejectsTerminalDone(t *testing.T) {
 		t.Run(status, func(t *testing.T) {
 			t.Parallel()
 			stub := &stubDispatchStore{
-				nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", Status: status}},
+				nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", RunID: dispatchTestRunID(7), Status: status}},
 			}
 			svc := newServiceForDispatch(stub)
 			_, err := svc.DispatchNode(context.Background(), contract.DispatchNodeRequest{
 				DagKey:     "dag-1",
 				NodeKey:    "n1",
+				RunID:      7,
 				AssignedTo: "agent-a",
 			})
 			if err == nil || !errors.Is(err, ErrDispatchNodeIneligible) {
@@ -171,6 +208,7 @@ func TestDispatchNode_NodeNotFound(t *testing.T) {
 	_, err := svc.DispatchNode(context.Background(), contract.DispatchNodeRequest{
 		DagKey:     "dag-1",
 		NodeKey:    "unknown",
+		RunID:      7,
 		AssignedTo: "agent-a",
 	})
 	if err == nil || !strings.Contains(err.Error(), "not found") {
@@ -184,7 +222,7 @@ func TestDispatchNode_StoreUnset(t *testing.T) {
 	t.Parallel()
 	svc := &service{}
 	_, err := svc.DispatchNode(context.Background(), contract.DispatchNodeRequest{
-		DagKey: "dag-1", NodeKey: "n1", AssignedTo: "agent-a",
+		DagKey: "dag-1", NodeKey: "n1", RunID: 7, AssignedTo: "agent-a",
 	})
 	if !errors.Is(err, ErrDispatchStoreUnset) {
 		t.Fatalf("err = %v, want ErrDispatchStoreUnset", err)
@@ -197,9 +235,10 @@ func TestDispatchNode_RejectsBlankFields(t *testing.T) {
 	stub := &stubDispatchStore{}
 	svc := newServiceForDispatch(stub)
 	cases := []contract.DispatchNodeRequest{
-		{DagKey: "", NodeKey: "n", AssignedTo: "a"},
-		{DagKey: "d", NodeKey: "  ", AssignedTo: "a"},
-		{DagKey: "d", NodeKey: "n", AssignedTo: " "},
+		{DagKey: "", NodeKey: "n", RunID: 7, AssignedTo: "a"},
+		{DagKey: "d", NodeKey: "  ", RunID: 7, AssignedTo: "a"},
+		{DagKey: "d", NodeKey: "n", RunID: 7, AssignedTo: " "},
+		{DagKey: "d", NodeKey: "n", RunID: 0, AssignedTo: "a"},
 	}
 	for i, req := range cases {
 		_, err := svc.DispatchNode(context.Background(), req)
