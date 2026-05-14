@@ -244,10 +244,10 @@
     "max_struct_fields": 7
   },
   "cmd/mcp-orch/orchestration/wakeup_dispatcher.go": {
-    "lines": 443,
-    "max_func_len": 39,
+    "lines": 436,
+    "max_func_len": 36,
     "max_nesting": 4,
-    "max_complexity": 9,
+    "max_complexity": 8,
     "max_params": 5,
     "max_returns": 2,
     "max_underscore": 0,

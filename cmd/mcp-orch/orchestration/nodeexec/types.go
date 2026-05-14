@@ -67,7 +67,8 @@ const (
 // Lifecycle hooks（F13 真实触发）
 // =====================================================
 
-// HookPoint 是 lifecycle hook 触发点。骨架阶段只占 enum 位，dispatcher 不调用。
+// HookPoint 是 lifecycle hook 触发点。F13.1 起由 NodeExecutorRouter 在真实
+// dispatch / terminal paths 上 best-effort 触发。
 type HookPoint string
 
 const (
@@ -77,7 +78,8 @@ const (
 	HookOnFailure     HookPoint = "on_failure"      // 终态失败时
 )
 
-// HookHandler 是 hook 触发时的回调。骨架阶段不触发；F13 真实实现。
+// HookHandler 是 hook 触发时的回调。handler 失败只影响 hook side effect，
+// 不改写 node execution outcome。
 type HookHandler interface {
 	Handle(ctx context.Context, point HookPoint, node Node, outcome NodeOutcome) error
 }
@@ -191,8 +193,8 @@ type RetryHint struct {
 // 这是蓝图 v2 §1 的核心抽象：DAG 是统一抽象，所有节点类型平等对待，
 // 自动化任务收敛成 DAG 的一种节点。
 //
-// 骨架阶段：所有实现 stub，Execute 返回 NodeOutcome{Status: NodeStatusDone}，Hooks 返回 nil。
-// 真实行为在 F1.x / F2.x / F3.x 落地。
+// 实现可返回 nil Hooks 表示不注册 lifecycle side effect；生产 agent /
+// automation executor 由 fx 注入默认 hook set。
 type NodeExecutor interface {
 	// Execute 执行节点。失败也是正常返回（NodeOutcome.Status=failed +
 	// FailureClass）；只有框架级错误（panic / context cancel）才走 error 通道。

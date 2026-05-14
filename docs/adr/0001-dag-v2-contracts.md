@@ -102,7 +102,16 @@ type HookHandler interface {
 }
 ```
 
-骨架阶段 `Hooks()` 返回 nil，dispatcher 不调用；F13.1 真实触发。
+F13.1 后，`NodeExecutorRouter` 负责真实触发：
+
+- `before_execute`：调用 `NodeExecutor.Execute` 前；
+- `after_execute`：`Execute` 返回后（含 failed outcome / framework error）；
+- `on_state_change`：确认节点状态已推进后触发；当前覆盖 agent `ready/pending → running`、agent subscriber `→ done/failed`、automation `→ done`、dispatcher 终态失败 `→ failed`；
+- `on_failure`：`FailNodeAndCancelDownstream` 成功后触发；仍会重试的非终态失败不触发。
+
+生产 wiring 通过 `ProvideNodeLifecycleHooks` 给 agent / automation executor 注入默认 structured-log hook map；测试或后续审计实现可在构造 executor 时替换为自定义 `HookHandler`。hook-consumer 侧收到的 bootstrap `turn.completed` / `turn.interrupted` 复用同一 `DAGSubscriberDeps.NodeRouter`，与 in-process bus subscriber 保持一致。
+
+Hook 是 bounded best-effort lifecycle side effect：handler error / panic 仅 Warn/Error log，不改写 executor outcome / wakeup retry / node status；dispatcher 只短等待 `lifecycleHookDispatchWait`，慢 hook 会带独立 context 转异步继续，避免审计类 hook 故障或卡顿造成重复 launch、lease 过期或状态回滚。`RetryWakeup` SQL hard-cap fallback 转终态时，也必须先成功写 `FailWakeup`，再 `FailNodeAndCancelDownstream` 并触发 terminal failure hooks。
 
 ### 2.5 typed ops payload（S4.1+S4.2）
 
