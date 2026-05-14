@@ -513,14 +513,14 @@ type startResponse struct {
 	// resolve to an enabled prompt_template row. The UI listens for either
 	// the snake_case or camelCase variant and clears its activePromptKey
 	// pref + notifies the user when it sees true.
-	PromptKeyStale       *bool   `json:"prompt_key_stale,omitempty"`
-	PromptKeyStaleCamel  *bool   `json:"promptKeyStale,omitempty"`
-	PendingLaunch    *bool   `json:"pending_launch,omitempty"`
-	PendingLaunchC   *bool   `json:"pendingLaunch,omitempty"`
-	TaskID           *string `json:"task_id,omitempty"`
-	TaskIDCamel      *string `json:"taskId,omitempty"`
-	HandoffFile      *string `json:"handoff_file,omitempty"`
-	HandoffFileCamel *string `json:"handoffFile,omitempty"`
+	PromptKeyStale      *bool   `json:"prompt_key_stale,omitempty"`
+	PromptKeyStaleCamel *bool   `json:"promptKeyStale,omitempty"`
+	PendingLaunch       *bool   `json:"pending_launch,omitempty"`
+	PendingLaunchC      *bool   `json:"pendingLaunch,omitempty"`
+	TaskID              *string `json:"task_id,omitempty"`
+	TaskIDCamel         *string `json:"taskId,omitempty"`
+	HandoffFile         *string `json:"handoff_file,omitempty"`
+	HandoffFileCamel    *string `json:"handoffFile,omitempty"`
 }
 
 // attachPromptKeyStale stamps the dual-key prompt_key_stale pointers on a
