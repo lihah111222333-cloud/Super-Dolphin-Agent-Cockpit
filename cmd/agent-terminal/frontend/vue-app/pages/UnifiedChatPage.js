@@ -34,7 +34,7 @@ import { useThreadStatus } from '../composables/useThreadStatus.js';
 import { useThreadCards } from '../composables/useThreadCards.js';
 import { useThreadSelection } from '../composables/useThreadSelection.js';
 import { useInlineRename } from '../composables/useInlineRename.js';
-import { useThreadActions } from '../composables/useThreadActions.js';
+import { useThreadActions, resolveProjectActionCwd } from '../composables/useThreadActions.js';
 import { useKeyboardShortcuts } from '../composables/useKeyboardShortcuts.js';
 import { useFileRefPreview } from '../composables/useFileRefPreview.js';
 import { useCopyThreadInfo } from '../composables/useCopyThreadInfo.js';
@@ -662,7 +662,7 @@ export const UnifiedChatPage = {
 
     const threads = computed(() => props.threadStore.getThreadsByMode(
       modeKey.value,
-      props.projectStore?.state?.active || '.',
+      resolveProjectActionCwd(props.projectStore, props.windowCwd),
     ));
     const selectedThreadId = computed({
       get: () => resolveVisibleSelectedThreadId(props.threadStore, modeKey.value, threads.value),
@@ -722,7 +722,7 @@ export const UnifiedChatPage = {
       resetLaunchSkillSelection,
     } = createPageLaunchSkillSelection(props, composer, selectedThreadId, skillRevision);
     const activeThread = computed(() => threads.value.find((/** @type {any} */ item) => item.id === selectedThreadId.value) || null);
-    const activeProjectCwd = computed(() => (props.projectStore?.state?.active || '').toString().trim());
+    const activeProjectCwd = computed(() => resolveProjectActionCwd(props.projectStore, props.windowCwd));
     const chatThreadOptions = computed(() => {
       if (isCmd.value) return [];
       return threads.value;
