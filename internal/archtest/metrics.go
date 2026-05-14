@@ -27,6 +27,12 @@ func MeasureFileMetrics(path string) FileMetrics {
 // measureFileMetricsFromAST 在已解析的 AST 上执行全量指标采集。
 func measureFileMetricsFromAST(rawLines []string, fset *token.FileSet, node *ast.File) FileMetrics {
 	var m FileMetrics
+
+	// 代码生成文件豁免：如果包含标准的 "Code generated ... DO NOT EDIT." 注释，直接当做无违规处理。
+	if ast.IsGenerated(node) {
+		return m
+	}
+
 	m.Lines = countEffectiveLinesFromRaw(rawLines)
 	m.GlobalVars = countGlobalVarsV3(node)
 	m.HasInit = hasInitFunc(node)
