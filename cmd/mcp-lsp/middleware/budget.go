@@ -102,10 +102,13 @@ func editOverflowEnvelope(toolName string, payload map[string]any, actualBytes, 
 		"hint":                  hint.Hint,
 		"success":               payload["success"],
 		"action":                payload["action"],
+		"error":                 payload["error"],
 		"status":                payload["status"],
 		"applied":               payload["applied"],
 		"applied_count":         payload["applied_count"],
 		"persisted":             payload["persisted"],
+		"lsp_sync":              payload["lsp_sync"],
+		"warning":               payload["warning"],
 		"diagnostic_generation": payload["diagnostic_generation"],
 	}
 	if ctx, ok := payload["edit_context"].(string); ok && len(ctx) > 2048 {
@@ -116,12 +119,41 @@ func editOverflowEnvelope(toolName string, payload map[string]any, actualBytes, 
 	} else if ok {
 		envelope["edit_context"] = ctx
 	}
-	for _, key := range []string{"func_start", "func_end", "affected_start_line", "affected_end_line"} {
+	if current, ok := payload["current_content"].(string); ok {
+		envelope["current_content_excerpt"] = centerExcerpt(current, 2048)
+		envelope["current_content_truncated"] = len(current) > 2048
+	}
+	if body, ok := payload["func_body"].(string); ok {
+		envelope["func_body"] = centerExcerpt(body, 2048)
+		envelope["func_body_truncated"] = len(body) > 2048
+	}
+	for _, key := range []string{
+		"matched_by",
+		"resolved_start_offset",
+		"resolved_end_offset",
+		"resolved_lsp_line",
+		"affected_start_line",
+		"affected_end_line",
+		"replaced_len",
+		"replacement_len",
+		"func_start",
+		"func_end",
+	} {
 		if v, ok := payload[key]; ok {
 			envelope[key] = v
 		}
 	}
 	return envelope
+}
+
+func centerExcerpt(text string, maxBytes int) string {
+	if len(text) <= maxBytes {
+		return text
+	}
+	mid := len(text) / 2
+	start := max(0, mid-(maxBytes/2))
+	end := min(len(text), start+maxBytes)
+	return text[start:end]
 }
 
 func numericField(payload map[string]any, key string) any {

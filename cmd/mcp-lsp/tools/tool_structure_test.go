@@ -208,6 +208,22 @@ func TestStructureWorkspaceSymbolUsesLanguageManager(t *testing.T) {
 	}
 }
 
+func TestStructureDocumentSymbolAcceptsLegacyPathAlias(t *testing.T) {
+	registry := &structureTestRegistry{fileManager: &structureTestManager{}}
+	handler := NewStructureHandler(registry)
+	input, err := json.Marshal(structureParams{Action: "document_symbol", Path: "/tmp/sample.go"})
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+
+	if _, err := handler(context.Background(), input); err != nil {
+		t.Fatalf("document_symbol with path alias returned error: %v", err)
+	}
+	if registry.gotFilePath != "/tmp/sample.go" {
+		t.Fatalf("GetManagerForFile path = %q, want legacy path alias", registry.gotFilePath)
+	}
+}
+
 func TestStructureWorkspaceSymbolDetectsLanguageFromFilePath(t *testing.T) {
 	manager := &structureTestManager{
 		workspaceSymbols: []protocol.WorkspaceSymbolResult{{

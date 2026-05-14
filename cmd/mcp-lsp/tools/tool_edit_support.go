@@ -331,10 +331,12 @@ func joinHunksAsPatch(hunks []editpkg.Hunk) string {
 			block.WriteString(line)
 			block.WriteByte('\n')
 		}
-		for _, line := range splitNormalizedLines(hunk.NewText) {
-			block.WriteString("+")
-			block.WriteString(line)
-			block.WriteByte('\n')
+		if hunk.NewText != "" {
+			for _, line := range splitNormalizedLines(hunk.NewText) {
+				block.WriteString("+")
+				block.WriteString(line)
+				block.WriteByte('\n')
+			}
 		}
 		blocks = append(blocks, strings.TrimRight(block.String(), "\n"))
 	}

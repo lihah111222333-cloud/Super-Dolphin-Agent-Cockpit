@@ -16,6 +16,7 @@ import (
 type structureParams struct {
 	Action     string `json:"action"`
 	FilePath   string `json:"file_path"`
+	Path       string `json:"path"`
 	Query      string `json:"query"`
 	Language   string `json:"language"`
 	Verbosity  string `json:"verbosity"`
@@ -24,6 +25,7 @@ type structureParams struct {
 
 func NewStructureHandler(registry lspmanager.Registry) ToolHandler {
 	return newManagerTool("structure", middleware.TierNormal, registry, decodeStrict, func(ctx context.Context, registry lspmanager.Registry, req structureParams) (any, error) {
+		req.FilePath = firstNonEmpty(req.FilePath, req.Path)
 		// Resolve the manager lazily per action: workspace_symbol can use
 		// the "language" parameter instead of "file_path", so we must not
 		// call GetManagerForFile unconditionally.
@@ -61,6 +63,15 @@ func NewStructureHandler(registry lspmanager.Registry) ToolHandler {
 			},
 		})
 	})
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // resolveWorkspaceSymbolManager picks the right manager based on language or
