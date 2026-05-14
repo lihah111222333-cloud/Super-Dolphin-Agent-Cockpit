@@ -14,6 +14,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	taskdag "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -431,7 +432,7 @@ func (d *WakeupDispatcher) emitDispatchRetryAlert(ctx context.Context, alert Dis
 		baseCtx = context.WithoutCancel(ctx)
 	}
 	runtimesafe.SafeGo(baseCtx, logger, "wakeupDispatcher.retryAlert", func(runCtx context.Context) {
-		alertCtx, cancel := context.WithTimeout(runCtx, 5*time.Second)
+		alertCtx, cancel := ctxutil.WithTimeout(runCtx, 5*time.Second)
 		defer cancel()
 		if err := sink.AlertDispatchRetry(alertCtx, alert); err != nil {
 			logger.Warn("wakeup dispatcher: retry alert enqueue failed",

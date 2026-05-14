@@ -244,7 +244,7 @@
     "max_struct_fields": 7
   },
   "cmd/mcp-orch/orchestration/wakeup_dispatcher.go": {
-    "lines": 443,
+    "lines": 444,
     "max_func_len": 39,
     "max_nesting": 4,
     "max_complexity": 9,
@@ -319,7 +319,7 @@
     "max_struct_fields": 7
   },
   "internal/archtest/metrics.go": {
-    "lines": 275,
+    "lines": 278,
     "max_func_len": 25,
     "max_nesting": 4,
     "max_complexity": 9,
@@ -1097,36 +1097,6 @@
     "empty_funcs": 0,
     "todo_count": 1,
     "max_struct_fields": 3
-  },
-  "internal/store/sqlc/agent_thread.sql.go": {
-    "lines": 720,
-    "max_func_len": 44,
-    "max_nesting": 2,
-    "max_complexity": 5,
-    "max_params": 2,
-    "max_returns": 2,
-    "max_underscore": 1,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0,
-    "max_struct_fields": 24
-  },
-  "internal/store/sqlc/cron_job.sql.go": {
-    "lines": 947,
-    "max_func_len": 58,
-    "max_nesting": 2,
-    "max_complexity": 5,
-    "max_params": 2,
-    "max_returns": 2,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0,
-    "max_struct_fields": 17
   },
   "internal/testutil/golden/golden.go": {
     "lines": 122,
