@@ -175,7 +175,7 @@ func TestStaticSectionsToolPreferencesUsePlannerAwareHint(t *testing.T) {
 			continue
 		}
 		content, err := section.Compute(context.Background(), SectionContext{
-			BuildCtx: BuildCtx{EnabledTools: []string{"lsp_file", "update_plan"}},
+			BuildCtx: BuildCtx{EnabledTools: []string{"file", "update_plan"}},
 		})
 		if err != nil {
 			t.Fatalf("tool_preferences Compute() error = %v", err)

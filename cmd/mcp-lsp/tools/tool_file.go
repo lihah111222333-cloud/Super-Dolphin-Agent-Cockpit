@@ -91,7 +91,7 @@ type indexedBatchItem struct {
 
 func (h handlerBase) warnFileCWDTrace(ctx context.Context, input fileToolInput) {
 	metaCWD, _ := ctx.Value(common.CwdContextKey).(string)
-	pkglogger.Get().Warn("mcp-lsp: lsp_file cwd trace",
+	pkglogger.Get().Warn("mcp-lsp: file cwd trace",
 		"action", strings.TrimSpace(input.Action),
 		"fallback_root", strings.TrimSpace(h.root),
 		"meta_cwd", strings.TrimSpace(metaCWD),
@@ -102,7 +102,7 @@ func (h handlerBase) warnFileCWDTrace(ctx context.Context, input fileToolInput) 
 }
 
 func warnFileReadFailure(action, root, rawPath string, err error) {
-	pkglogger.Get().Warn("mcp-lsp: lsp_file cwd failure",
+	pkglogger.Get().Warn("mcp-lsp: file cwd failure",
 		"action", strings.TrimSpace(action),
 		"effective_root", strings.TrimSpace(root),
 		"file_path", strings.TrimSpace(rawPath),
@@ -115,7 +115,7 @@ func NewFileHandler(cfg Config) Handler {
 		root:     resolveRoot(cfg.WorkspaceRoot),
 		registry: cfg.Registry,
 	}
-	return Handler(wrapToolHandler("lsp_file", middleware.TierNormal, handler.handleFile))
+	return Handler(wrapToolHandler("file", middleware.TierNormal, handler.handleFile))
 }
 
 func (h handlerBase) handleFile(ctx context.Context, params json.RawMessage) (any, error) {
@@ -124,7 +124,7 @@ func (h handlerBase) handleFile(ctx context.Context, params json.RawMessage) (an
 		return nil, err
 	}
 	h.warnFileCWDTrace(ctx, input)
-	return dispatchToolAction(ctx, "lsp_file", input.Action, input, map[string]actionHandler[fileToolInput]{
+	return dispatchToolAction(ctx, "file", input.Action, input, map[string]actionHandler[fileToolInput]{
 		"open_file": func(ctx context.Context, input fileToolInput) (any, error) {
 			return h.openFile(ctx, input.FilePath)
 		},

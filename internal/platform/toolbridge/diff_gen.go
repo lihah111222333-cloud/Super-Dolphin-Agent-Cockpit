@@ -58,8 +58,8 @@ func (h *Handler) emitToolDiff(ctx context.Context, req ToolCallRequest, snapsho
 
 // shouldTrackDiff 判断工具调用是否需要 diff 追踪
 func shouldTrackDiff(toolName string, arguments json.RawMessage) bool {
-	switch strings.TrimSpace(toolName) {
-	case "lsp_edit":
+	switch canonicalToolName(toolName) {
+	case "edit":
 		return lspEditActionIsDiff(arguments)
 	}
 	return false

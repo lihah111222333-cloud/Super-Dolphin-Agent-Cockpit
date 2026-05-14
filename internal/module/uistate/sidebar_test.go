@@ -318,6 +318,9 @@ func TestProjectionSubscriptionsUpdateSidebarFromLifecycleAndOutputEvents(t *tes
 			},
 		},
 	})
+	waitForSidebarState(t, svc, func(sidebar *Sidebar) bool {
+		return sidebar.ActiveTurn != nil
+	})
 	event.Publish(dispatcher, turndto.TurnOutputDelta{
 		TurnHeader: sharedto.TurnHeader{
 			AgentHeader: header.AgentHeader,
@@ -328,6 +331,9 @@ func TestProjectionSubscriptionsUpdateSidebarFromLifecycleAndOutputEvents(t *tes
 		Stream: "message",
 		Delta:  "hello world",
 	})
+	waitForSidebarState(t, svc, func(sidebar *Sidebar) bool {
+		return len(sidebar.Threads) > 0 && sidebar.Threads[0].LastMessage == "hello world"
+	})
 	event.Publish(dispatcher, turndto.TurnInterrupted{
 		TurnHeader: sharedto.TurnHeader{
 			AgentHeader: header.AgentHeader,
@@ -337,24 +343,12 @@ func TestProjectionSubscriptionsUpdateSidebarFromLifecycleAndOutputEvents(t *tes
 		},
 		Reason: "user_requested",
 	})
-	var sidebar *Sidebar
-	deadline := time.Now().Add(time.Second)
-	for {
-		sidebar, err = svc.GetSidebar(context.Background())
-		if err != nil {
-			t.Fatalf("GetSidebar() error = %v", err)
-		}
-		if sidebar.ActiveTurn == nil &&
+	sidebar := waitForSidebarState(t, svc, func(sidebar *Sidebar) bool {
+		return sidebar.ActiveTurn == nil &&
 			sidebar.Statuses["thread-1"] == "idle" &&
 			len(sidebar.Threads) > 0 &&
-			sidebar.Threads[0].LastMessage == "hello world" {
-			break
-		}
-		if time.Now().After(deadline) {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+			sidebar.Threads[0].LastMessage == "hello world"
+	})
 	if sidebar.ActiveTurn != nil {
 		t.Fatalf("sidebar.ActiveTurn = %#v, want nil after interrupt", sidebar.ActiveTurn)
 	}
@@ -374,6 +368,24 @@ func TestProjectionSubscriptionsUpdateSidebarFromLifecycleAndOutputEvents(t *tes
 	if got, _ := runtime["state"].(string); got != "running" {
 		t.Fatalf("agentRuntimeById[thread-1].state = %q, want running", got)
 	}
+}
+
+func waitForSidebarState(t *testing.T, svc *service, match func(*Sidebar) bool) *Sidebar {
+	t.Helper()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		sidebar, err := svc.GetSidebar(context.Background())
+		if err != nil {
+			t.Fatalf("GetSidebar() error = %v", err)
+		}
+		if match(sidebar) {
+			return sidebar
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("sidebar did not reach expected state")
+	return nil
 }
 
 func mustReceivePreferenceChanged(t *testing.T, ch <-chan uidto.UIPreferencesChanged) uidto.UIPreferencesChanged {

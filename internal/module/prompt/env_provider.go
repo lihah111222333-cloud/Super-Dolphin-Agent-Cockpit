@@ -276,13 +276,7 @@ func promptLanguageServerStatus(build BuildCtx) string {
 }
 
 func promptLanguageServerTools(build BuildCtx) []string {
-	tools := make([]string, 0, len(build.EnabledTools))
-	for _, tool := range sortedPromptValues(build.EnabledTools) {
-		if strings.HasPrefix(tool, "lsp_") {
-			tools = append(tools, tool)
-		}
-	}
-	return tools
+	return canonicalPromptLSPTools(build.EnabledTools)
 }
 
 func promptModelMetadata(build BuildCtx) string {

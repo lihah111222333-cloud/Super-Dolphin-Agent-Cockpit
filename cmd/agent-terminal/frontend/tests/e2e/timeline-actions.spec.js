@@ -218,7 +218,7 @@ test('tool ticker remains visible on hover and preserves collapsed-tool summary'
           {
             id: 'tool-item-1',
             kind: 'tool',
-            tool: 'lsp_grep',
+            tool: 'grep',
             preview: 'search timeline-actions.spec.js',
             elapsedMs: 38,
             status: 'done',
@@ -256,12 +256,12 @@ test('tool ticker remains visible on hover and preserves collapsed-tool summary'
   const ticker = page.locator('.chat-status-tool-ticker').first();
   const presence = page.locator('.chat-status-presence').first();
   await expect(ticker).toBeVisible();
-  await expect(ticker).toContainText('lsp_grep');
+  await expect(ticker).toContainText('grep');
   await expect(presence).toHaveAttribute('title', /已收起 2 个工具调用/);
 
   await ticker.hover();
   await page.waitForTimeout(300);
-  await expect(ticker).toContainText('lsp_grep');
+  await expect(ticker).toContainText('grep');
 
   await presence.hover();
   const popover = page.locator('.chat-thinking-hover-popover').first();

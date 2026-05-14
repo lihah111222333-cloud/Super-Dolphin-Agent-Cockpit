@@ -158,18 +158,25 @@ func TestEnableWhen_TagsHas(t *testing.T) {
 
 func TestEnableWhen_EnabledToolsHas(t *testing.T) {
 	t.Parallel()
-	withLsp := contract.BuildCtx{EnabledTools: []string{"code_run", "lsp_grep", "lsp_file"}}
+	withLsp := contract.BuildCtx{EnabledTools: []string{"code_run", "grep", "file"}}
+	withLegacyLsp := contract.BuildCtx{EnabledTools: []string{"code_run", "lsp_grep", "lsp_file"}}
 	noLsp := contract.BuildCtx{EnabledTools: []string{"code_run"}}
 	noTools := contract.BuildCtx{}
 
 	// Single string hit / miss.
-	if !EvaluateEnableWhen([]byte(`{"enabled_tools_has":"lsp_grep"}`), withLsp, "") {
+	if !EvaluateEnableWhen([]byte(`{"enabled_tools_has":"grep"}`), withLsp, "") {
 		t.Fatalf("must hit when EnabledTools contains the tool")
 	}
-	if EvaluateEnableWhen([]byte(`{"enabled_tools_has":"lsp_grep"}`), noLsp, "") {
+	if !EvaluateEnableWhen([]byte(`{"enabled_tools_has":"lsp_grep"}`), withLsp, "") {
+		t.Fatalf("legacy wanted tool name must match canonical EnabledTools")
+	}
+	if !EvaluateEnableWhen([]byte(`{"enabled_tools_has":"grep"}`), withLegacyLsp, "") {
+		t.Fatalf("canonical wanted tool name must match legacy EnabledTools")
+	}
+	if EvaluateEnableWhen([]byte(`{"enabled_tools_has":"grep"}`), noLsp, "") {
 		t.Fatalf("must miss when EnabledTools lacks the tool")
 	}
-	if EvaluateEnableWhen([]byte(`{"enabled_tools_has":"lsp_grep"}`), noTools, "") {
+	if EvaluateEnableWhen([]byte(`{"enabled_tools_has":"grep"}`), noTools, "") {
 		t.Fatalf("must miss when EnabledTools is empty")
 	}
 
@@ -179,7 +186,7 @@ func TestEnableWhen_EnabledToolsHas(t *testing.T) {
 	}
 
 	// Array value: OR across entries.
-	arr := []byte(`{"enabled_tools_has":["lsp_xref","lsp_grep","lsp_inspect"]}`)
+	arr := []byte(`{"enabled_tools_has":["xref","grep","inspect"]}`)
 	if !EvaluateEnableWhen(arr, withLsp, "") {
 		t.Fatalf("array must hit when any element matches")
 	}
@@ -188,7 +195,7 @@ func TestEnableWhen_EnabledToolsHas(t *testing.T) {
 	}
 
 	// AND with tags_has: both must satisfy.
-	bothKeys := []byte(`{"enabled_tools_has":"lsp_grep","tags_has":"refactor"}`)
+	bothKeys := []byte(`{"enabled_tools_has":"grep","tags_has":"refactor"}`)
 	if !EvaluateEnableWhen(bothKeys, withLsp, "please refactor") {
 		t.Fatalf("AND should pass when both conditions match")
 	}
