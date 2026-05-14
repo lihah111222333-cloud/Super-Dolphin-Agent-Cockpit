@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"os"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/app"
@@ -10,7 +10,7 @@ import (
 
 func main() {
 	if err := app.RunDesktop(frontendDistFS()); err != nil {
-		fmt.Fprintf(os.Stderr, "agent-terminal: %v\n", err)
+		pkglogger.Get().Error("agent-terminal failed", "error", err)
 		os.Exit(1)
 	}
 }

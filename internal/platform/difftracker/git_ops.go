@@ -81,7 +81,8 @@ func execGitCommand(ctx context.Context, dir string, args ...string) ([]byte, er
 			return output, nil
 		}
 		lastErr = err
-		if !strings.Contains(err.Error(), "index.lock") || attempt == gitRetryAttempts {
+		errMsg := err.Error()
+		if !strings.Contains(errMsg, "index.lock") || attempt == gitRetryAttempts {
 			return nil, err
 		}
 		if waitErr := sleepWithContext(ctx, time.Duration(attempt+1)*150*time.Millisecond); waitErr != nil {

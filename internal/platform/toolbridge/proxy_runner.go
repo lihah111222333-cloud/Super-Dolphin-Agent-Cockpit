@@ -88,7 +88,10 @@ func (r *ProxyRunner) Run(ctx context.Context) error {
 	}
 
 	serveErr := make(chan error, 1)
-	go func() { serveErr <- h.ServeProxy(ln) }()
+	go func() {
+		defer func() { _ = recover() }()
+		serveErr <- h.ServeProxy(ln)
+	}()
 
 	select {
 	case err := <-serveErr:

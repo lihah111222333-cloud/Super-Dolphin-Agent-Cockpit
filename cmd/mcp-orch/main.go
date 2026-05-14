@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"os"
 	"runtime"
 
@@ -28,7 +28,7 @@ func main() {
 	os.Stdout = os.Stderr
 
 	if err := run(); err != nil {
-		fmt.Fprintf(os.Stderr, "mcp-orch: %v\n", err)
+		pkglogger.Get().Error("mcp-orch failed", "error", err)
 		os.Exit(1)
 	}
 }

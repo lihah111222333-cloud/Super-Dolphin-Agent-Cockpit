@@ -209,13 +209,13 @@ func (c *Client) spawnCallback(fn func()) {
 	}
 	c.callbackWG.Add(1)
 	go func() {
-		defer c.callbackWG.Done()
 		defer func() {
 			if rec := recover(); rec != nil {
 				pkglogger.Error("bootstrap: recovered callback panic",
 					"instance_id", c.instanceID, "panic", rec)
 			}
 		}()
+		defer c.callbackWG.Done()
 		fn()
 	}()
 }

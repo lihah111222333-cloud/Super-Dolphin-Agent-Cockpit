@@ -134,7 +134,8 @@ func (p *NodePatch) UnmarshalJSON(data []byte) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&plain); err != nil {
-		if strings.Contains(err.Error(), "unknown field") {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "unknown field") {
 			return fmt.Errorf("%w: %v (allowed: title/assigned_to/depends_on/config)", ErrNodePatchBannedField, err)
 		}
 		return fmt.Errorf("node patch decode: %w", err)

@@ -35,6 +35,7 @@ func (h *Handler) listPeerToolsForCodex(ctx context.Context, kinds ...string) []
 	ch := make(chan indexedOutcome, len(kinds))
 	for index, kind := range kinds {
 		go func() {
+			defer func() { _ = recover() }()
 			tools, err := h.listPeerTools(ctx, kind)
 			ch <- indexedOutcome{
 				index: index,

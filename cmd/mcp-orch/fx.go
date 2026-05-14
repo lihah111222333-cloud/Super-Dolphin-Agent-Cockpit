@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"log/slog"
 	"os"
 	"strings"
@@ -130,7 +129,7 @@ func buildBootstrapConfig(shutdowner fx.Shutdowner, hookAfter contract.Bootstrap
 		}}
 	}
 	cfg.OnConfigChanged = func(n mcp.ConfigChangedNotify) {
-		log.Printf("mcp-orch config changed: scope=%s version=%d", n.Scope, n.ConfigVersion)
+		pkglogger.Get().Info("mcp-orch config changed", "scope", n.Scope, "version", n.ConfigVersion)
 	}
 	cfg.OnShutdown = func(mcp.ShutdownRequest) {
 		platformshared.LogIgnoredError(pkglogger.Get(), "mcp-orch: OnShutdown", shutdowner.Shutdown())

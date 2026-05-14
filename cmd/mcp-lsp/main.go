@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"os"
 	"runtime"
 
@@ -29,7 +29,7 @@ func main() {
 
 func runMain() int {
 	if err := run(); err != nil {
-		fmt.Fprintf(os.Stderr, "%s: %v\n", binaryName, err)
+		pkglogger.Get().Error("mcp-lsp failed", "error", err)
 		return 1
 	}
 	return 0

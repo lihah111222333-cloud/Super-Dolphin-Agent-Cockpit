@@ -190,6 +190,7 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 	}
 	done := make(chan struct{})
 	go func() {
+		defer func() { _ = recover() }()
 		m.pingInflight.Wait()
 		close(done)
 	}()

@@ -212,7 +212,8 @@ func enrichSpawnError(err error, proc *localProcess) error {
 		return nil
 	}
 	stderr := proc.stderrSummary()
-	if stderr == "" || strings.Contains(err.Error(), stderr) {
+	errMsg := err.Error()
+	if stderr == "" || strings.Contains(errMsg, stderr) {
 		return err
 	}
 	return fmt.Errorf("%w: %s", err, stderr)

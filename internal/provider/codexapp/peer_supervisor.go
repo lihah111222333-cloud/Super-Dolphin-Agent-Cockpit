@@ -289,7 +289,10 @@ func (s *PeerSupervisor) superviseOne(ctx context.Context, name string, initial 
 		// so we bridge via a buffered channel. The goroutine exits once Wait
 		// returns (guaranteed once shutdown closes the pipe / signals the peer).
 		waitCh := make(chan error, 1)
-		go func(h peerHandle) { waitCh <- h.Wait() }(current)
+		go func(h peerHandle) {
+			defer func() { _ = recover() }()
+			waitCh <- h.Wait()
+		}(current)
 
 		select {
 		case <-ctx.Done():
@@ -402,7 +405,11 @@ func (s *PeerSupervisor) closePeerPipe(h peerHandle) {
 // sends SIGKILL as the last-resort escalation.
 func (s *PeerSupervisor) drainOrEscalate(peers []peerHandle, wg *sync.WaitGroup) {
 	done := make(chan struct{})
-	go func() { wg.Wait(); close(done) }()
+	go func() {
+		defer func() { _ = recover() }()
+		wg.Wait()
+		close(done)
+	}()
 	select {
 	case <-done:
 		return

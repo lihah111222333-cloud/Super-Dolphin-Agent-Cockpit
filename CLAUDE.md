@@ -29,3 +29,24 @@ bash scripts/install-hooks.sh
 - pre-commit **只跑两个守卫和短测**，不跑长测试 / gosec / race —— 这些重活归 `make test` 与 CI。
 - pre-commit **不会**自动执行 `--freeze`，避免悄悄放宽 baseline；freeze 必须开发者显式决策。
 - **紧急绕过**：`git commit --no-verify` 仅限事故/热修复场景（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»），事后**必须**补跑全面复检。
+
+### Baseline 棘轮（Per-File Ratchet）
+
+后端代码守卫增加了 per-file baseline 棘轮机制，基于 `internal/archtest/baseline.json`：
+
+**三种模式：**
+
+| 模式 | 命令 | 说明 |
+|------|------|------|
+| 检查（默认） | `go run scripts/code_size_guard.go` | CheckAll + baseline 棘轮 + 自动收缩 |
+| 冻结 | `go run scripts/code_size_guard.go --freeze` | 全仓扫描建立/重建 baseline |
+| 严格 | `go run scripts/code_size_guard.go --strict` | 无 baseline 全量检查 |
+
+**核心规则：**
+
+- baseline 只缩不放宽（ratchet）：代码改善时自动收紧指标阈值
+- 指标恶化 → 守卫拦截，必须修复才能提交
+- 文件删除 → 自动从 baseline 清理
+- 文件指标全绿 → 自动毕业，从 baseline 移出
+
+**红线：** 禁止随意 `--freeze` 全仓覆盖来逃避棘轮，freeze 必须有正当理由（如守卫规则变更）。
