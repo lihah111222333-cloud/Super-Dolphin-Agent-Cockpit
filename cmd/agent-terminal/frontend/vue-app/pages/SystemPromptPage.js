@@ -310,6 +310,7 @@ export const SystemPromptPage = defineComponent({
     const classifierEnabled = ref(false);
     const editingHasSections = ref(false);
     const advancedOpen = ref(false);
+    const matchWhenDirty = ref(false);
     const form = reactive({
       id: '', name: '', content: '', description: '',
       agentKey: '',
@@ -457,9 +458,11 @@ export const SystemPromptPage = defineComponent({
           priority: Number.isFinite(Number(form.priority)) ? Number(form.priority) : 0,
         };
         if (form.tags && form.tags.length > 0) {
-          payload.tags = JSON.stringify(form.tags);
+          payload.tags = form.tags;
         }
-        const userMatchWhen = (form.matchWhen || '').trim();
+        // 仅当用户实际敲过 matchWhen textarea（matchWhenDirty=true）才尊重它；
+        // 否则视为"自动生成"，从 form.tags 重新派生，避免旧值锁死 tag 变更。
+        const userMatchWhen = matchWhenDirty.value ? (form.matchWhen || '').trim() : '';
         if (userMatchWhen) {
           const matchWhenErr = applyMatchWhenToPayload(payload, userMatchWhen);
           if (matchWhenErr) { setNotice('error', matchWhenErr); saving.value = false; return; }
@@ -522,8 +525,7 @@ export const SystemPromptPage = defineComponent({
     function openCreate() {
       if (fallbackMode.value) { setReadonlyActionNotice('新建'); return; }
       Object.assign(form, { id: '', name: '', content: '', description: '', agentKey: '', tags: [], matchWhen: '', priority: 0 });
-      editingHasSections.value = false;
-      advancedOpen.value = false;
+      editingHasSections.value = false; advancedOpen.value = false; matchWhenDirty.value = false;
       editorMode.value = 'create'; editorOpen.value = true; editorTab.value = 'basic';
       setNotice('info', '');
       logDebug('system-prompt', 'editor.create');
@@ -537,8 +539,7 @@ export const SystemPromptPage = defineComponent({
         matchWhen: serializeMatchWhenForEditor(item.match_when),
         priority: Number.isFinite(Number(item.priority)) ? Number(item.priority) : 0,
       });
-      editingHasSections.value = false;
-      advancedOpen.value = false;
+      editingHasSections.value = false; advancedOpen.value = false; matchWhenDirty.value = false;
       editorMode.value = 'edit'; editorOpen.value = true; editorTab.value = 'basic';
       setNotice('info', '');
       logDebug('system-prompt', 'editor.edit', { id: item.id });
@@ -613,7 +614,7 @@ export const SystemPromptPage = defineComponent({
       createDisabled, saveDisabled, deleteDisabled,
       activePromptId, activatingId, activateDisabled,
       classifierEnabled,
-      form, editingHasSections, advancedOpen, cwdDisplay, currentProjectCwd,
+      form, editingHasSections, advancedOpen, matchWhenDirty, cwdDisplay, currentProjectCwd,
       switchTab, loadPrompts, savePrompt, deletePrompt,
       copyPromptContent, openCreate, openEdit, closeEditor,
       setLaunchPrompt, clearLaunchPrompt, loadActivePromptId,
@@ -836,6 +837,7 @@ export const SystemPromptPage = defineComponent({
                     data-testid="sp-matchwhen-input"
                     rows="3"
                     v-model="form.matchWhen"
+                    @input="matchWhenDirty = true"
                     placeholder="留空则从场景标签自动生成"
                     :disabled="saving || fallbackMode"
                   ></textarea>

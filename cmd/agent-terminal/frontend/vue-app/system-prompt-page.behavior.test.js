@@ -492,7 +492,7 @@ describe('SystemPromptPage behavior', () => {
     const payload = writeCalls[0][1];
 
     // tags sent
-    expect(payload.tags).toBe(JSON.stringify(['代码审查', 'bug']));
+    expect(payload.tags).toEqual(['代码审查', 'bug']);
     // match_when auto-generated from tags (not manually set)
     expect(payload.match_when).toEqual({ tags_has: ['代码审查', 'bug'] });
     // agentType from role selection
@@ -546,5 +546,66 @@ describe('SystemPromptPage behavior', () => {
     const payload = apiMock.callAPI.mock.calls.find(c => c[0] === 'prompts/write')[1];
     expect(payload.match_when).toBeUndefined();
     expect(payload.tags).toBeUndefined();
+  });
+
+  it('openEdit + tag change without touching matchWhen regenerates match_when from new tags', async () => {
+    // Regression: 之前 openEdit 把现有 match_when 回填到 textarea 后，
+    // 即使用户只改 tags，保存仍把"回填值"原样写回，导致 tags 与 match_when 脱节。
+    const existing = {
+      id: 'coder/prompt',
+      name: '编码执行代理',
+      content: '...',
+      agentType: 'coder',
+      tags: ['old-long-tag'],
+      match_when: { tags_has: ['old-long-tag'] },
+    };
+    apiMock.callAPI.mockResolvedValueOnce({ prompts: [existing] });
+    const { vm } = createPage();
+    await vm.loadPrompts();
+    vm.openEdit(existing);
+
+    // sanity: matchWhen textarea 被回填，但 dirty flag 应为 false
+    expect(vm.form.matchWhen).toContain('old-long-tag');
+    expect(vm.matchWhenDirty.value).toBe(false);
+
+    // 用户只改 tags，从不动 textarea
+    vm.form.tags = ['代码', 'bug'];
+
+    apiMock.callAPI
+      .mockResolvedValueOnce({ prompt: {} })
+      .mockResolvedValueOnce({ prompts: [existing] });
+    await vm.savePrompt();
+
+    const payload = apiMock.callAPI.mock.calls.find(c => c[0] === 'prompts/write')[1];
+    // match_when 必须用"当前 tags"生成，不能是旧的回填值
+    expect(payload.match_when).toEqual({ tags_has: ['代码', 'bug'] });
+    expect(payload.tags).toEqual(['代码', 'bug']);
+  });
+
+  it('openEdit + user edits matchWhen textarea keeps user value (dirty=true path)', async () => {
+    const existing = {
+      id: 'coder/prompt',
+      name: '编码执行代理',
+      content: '...',
+      agentType: 'coder',
+      tags: ['代码'],
+      match_when: { tags_has: ['代码'] },
+    };
+    apiMock.callAPI.mockResolvedValueOnce({ prompts: [existing] });
+    const { vm } = createPage();
+    await vm.loadPrompts();
+    vm.openEdit(existing);
+
+    // 模拟用户敲键盘改 matchWhen textarea
+    vm.form.matchWhen = '{"tags_has":["手动定制"]}';
+    vm.matchWhenDirty.value = true;
+
+    apiMock.callAPI
+      .mockResolvedValueOnce({ prompt: {} })
+      .mockResolvedValueOnce({ prompts: [existing] });
+    await vm.savePrompt();
+
+    const payload = apiMock.callAPI.mock.calls.find(c => c[0] === 'prompts/write')[1];
+    expect(payload.match_when).toEqual({ tags_has: ['手动定制'] });
   });
 });
