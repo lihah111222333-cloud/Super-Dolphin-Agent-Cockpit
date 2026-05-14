@@ -65,6 +65,12 @@ type DAGDetailStore interface {
 	ListNodes(ctx context.Context, dagKey string) ([]Node, error)
 }
 
+// RunNodeReadStore exposes runtime node snapshots without widening the
+// aggregate Store interface. RunID=0 is reserved for template/legacy rows.
+type RunNodeReadStore interface {
+	ListRunNodes(ctx context.Context, dagKey string, runID int64) ([]Node, error)
+}
+
 type NodeStatusStore interface {
 	UpdateNodeStatus(ctx context.Context, input NodeStatusUpdate) (*Node, error)
 }
@@ -203,9 +209,10 @@ type NodeSpawningThreadLookup interface {
 }
 
 // DispatchNodeStore 是 task_dispatch_node MCP 工具需要的窄端口：
-//   - DAGDetailStore: 拿 GetDAG + ListNodes 验证节点存在 + 读取现状
-//   - UpsertNode:     赋值 assigned_to (及保留其它列)
-//   - EnqueueWakeup:  入队一条 wakeup 让 dispatcher 能 pick
+//   - DAGDetailStore:    保留 GetDAG + 模板 ListNodes 兼容读取能力
+//   - RunNodeReadStore:  F6.5 按 run_id 读取 runtime node
+//   - AssignNode:        赋值 runtime node assigned_to
+//   - EnqueueWakeup:     入队一条带 run_id 的 wakeup 让 dispatcher 能 pick
 //
 // 生产依赖仍然是同一个 *store (由 ProvideDispatchNodeStore type-assert)，
 // 此处窄接口仅为了避免 service 层頻繁拿到全集合 Store 接口。
@@ -216,7 +223,8 @@ type NodeSpawningThreadLookup interface {
 // layer from depending on the aggregate Store.
 type DispatchNodeStore interface {
 	DAGDetailStore
-	UpsertNode(ctx context.Context, node Node) (*Node, error)
+	RunNodeReadStore
+	AssignNode(ctx context.Context, input AssignNodeInput) (*Node, error)
 	EnqueueWakeup(ctx context.Context, input EnqueueWakeupInput) (int64, error)
 }
 
@@ -232,6 +240,7 @@ type DispatchNodeStore interface {
 type RecordNodeSpawnInput struct {
 	DagKey   string
 	NodeKey  string
+	RunID    int64
 	ThreadID string
 }
 
@@ -285,12 +294,21 @@ type NodeStatusUpdate struct {
 	Result  json.RawMessage
 	DagKey  string
 	NodeKey string
+	RunID   int64
+}
+
+type AssignNodeInput struct {
+	DagKey     string
+	NodeKey    string
+	RunID      int64
+	AssignedTo string
 }
 
 type BindRunningNodeTurnInput struct {
 	TurnID   string
 	DagKey   string
 	NodeKey  string
+	RunID    int64
 	WakeupID int64
 }
 
@@ -298,6 +316,7 @@ type TouchRunningNodeEventInput struct {
 	ObservedAt time.Time
 	DagKey     string
 	NodeKey    string
+	RunID      int64
 	TurnID     string
 }
 
@@ -307,6 +326,7 @@ type RunningNodeStatusUpdate struct {
 	WakeupID int64
 	DagKey   string
 	NodeKey  string
+	RunID    int64
 }
 
 type AwaitingVerifyNodeStatusUpdate struct {
@@ -314,6 +334,7 @@ type AwaitingVerifyNodeStatusUpdate struct {
 	Result  json.RawMessage
 	DagKey  string
 	NodeKey string
+	RunID   int64
 }
 
 type CompleteNodeInput struct {
@@ -321,11 +342,13 @@ type CompleteNodeInput struct {
 	Result  json.RawMessage
 	DagKey  string
 	NodeKey string
+	RunID   int64
 }
 
 type NodeConfigPatchInput struct {
 	DagKey         string
 	NodeKey        string
+	RunID          int64
 	PreviousConfig json.RawMessage
 	Config         json.RawMessage
 }
@@ -339,6 +362,7 @@ type OutputMaterializationClaimInput struct {
 	Result  json.RawMessage
 	DagKey  string
 	NodeKey string
+	RunID   int64
 }
 
 // CompleteNodeWithDownstreamResult is returned by
@@ -376,6 +400,7 @@ type CompleteNodeWithDownstreamResult struct {
 type PromotedDownstreamNode struct {
 	DagKey  string
 	NodeKey string
+	RunID   int64
 }
 
 // FinalizedRunInfo 是 maybeFinalizeRun 报告给上层的最小投影（被推进的 run_key + 新 status）。
@@ -391,6 +416,7 @@ type FinalizedRunInfo struct {
 type ScheduledDownstreamWakeup struct {
 	DagKey         string
 	NodeKey        string
+	RunID          int64
 	TargetAgentID  string
 	IdempotencyKey string
 }
@@ -419,6 +445,7 @@ type DownstreamUpstreamRef struct {
 type FailNodeInput struct {
 	DagKey   string
 	NodeKey  string
+	RunID    int64
 	Reason   string
 	FailFast bool
 }
@@ -437,6 +464,7 @@ type FailNodeResult struct {
 type CanceledDownstreamNode struct {
 	DagKey  string
 	NodeKey string
+	RunID   int64
 }
 
 // failNodeReason is the JSON shape written into task_dag_nodes.result when a
@@ -454,11 +482,13 @@ type FlexibleNodeStatusUpdate struct {
 	Result  json.RawMessage
 	DagKey  string
 	NodeKey string
+	RunID   int64
 }
 
 type EnqueueWakeupInput struct {
 	DagKey         string
 	NodeKey        string
+	RunID          int64
 	WakeupKind     string
 	TargetAgentID  string
 	PromptPayload  json.RawMessage
@@ -550,6 +580,7 @@ type Node struct {
 	ID             int64
 	DagKey         string
 	NodeKey        string
+	RunID          *int64
 	Title          string
 	NodeType       string
 	AssignedTo     string
@@ -575,6 +606,7 @@ type Wakeup struct {
 	ID             int64
 	DagKey         string
 	NodeKey        string
+	RunID          *int64
 	WakeupKind     string
 	TargetAgentID  string
 	PromptPayload  json.RawMessage
@@ -666,6 +698,7 @@ type RunStore interface {
 	CreateRun(ctx context.Context, input CreateRunInput) (*Run, error)
 	GetRun(ctx context.Context, runKey string) (*Run, error)
 	ListRuns(ctx context.Context, filter ListRunsFilter) ([]Run, error)
-	PromoteRootNodesToReady(ctx context.Context, dagKey string) (int64, error)
+	CloneNodesForRun(ctx context.Context, dagKey string, runID int64) (int64, error)
+	PromoteRootNodesToReady(ctx context.Context, dagKey string, runID int64) (int64, error)
 	WithRunTx(ctx context.Context, fn func(tx RunStore) error) error
 }

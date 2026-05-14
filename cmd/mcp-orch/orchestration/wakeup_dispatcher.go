@@ -539,7 +539,7 @@ func (d *WakeupDispatcher) Tick(ctx context.Context) (int, error) {
 // 退化策略：DAG metadata / node config 拿不到时返 false，让旧路径接管 —
 // 软策略不触发不影响生产路径，硬上限（SQL attempt_count<8）仍然兜底。
 func (d *WakeupDispatcher) tryDAGFailWithCascade(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure) bool {
-	policy, ok := d.resolveDAGRetryPolicy(ctx, w.DagKey, w.NodeKey)
+	policy, ok := d.resolveDAGRetryPolicy(ctx, w.DagKey, w.NodeKey, routeRunID(w))
 	if !ok {
 		return false
 	}
@@ -559,8 +559,8 @@ func (d *WakeupDispatcher) tryDAGFailWithCascade(ctx context.Context, w *taskdag
 // resolveDAGRetryPolicy 拉取 DAG metadata + node config 派生 RetryPolicy。
 // metadata/listNodes 任一报错返 (zero, false) 让调用方退化；node 不存在
 // 时仅基于 DAG 默认派生（仍返 true，policy 含 fail_fast）。
-func (d *WakeupDispatcher) resolveDAGRetryPolicy(ctx context.Context, dagKey, nodeKey string) (RetryPolicy, bool) {
-	retryCtx, ok := d.resolveDAGRetryContext(ctx, dagKey, nodeKey)
+func (d *WakeupDispatcher) resolveDAGRetryPolicy(ctx context.Context, dagKey, nodeKey string, runID int64) (RetryPolicy, bool) {
+	retryCtx, ok := d.resolveDAGRetryContext(ctx, dagKey, nodeKey, runID)
 	if !ok {
 		return RetryPolicy{}, false
 	}

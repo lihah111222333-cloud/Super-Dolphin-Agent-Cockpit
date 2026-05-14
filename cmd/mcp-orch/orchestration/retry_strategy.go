@@ -178,6 +178,7 @@ func (d *WakeupDispatcher) failDAGNodeAndCancelDownstream(ctx context.Context, w
 	res, err := flow.FailNodeAndCancelDownstream(ctx, taskdag.FailNodeInput{
 		DagKey:   w.DagKey,
 		NodeKey:  w.NodeKey,
+		RunID:    routeRunID(w),
 		Reason:   lastErr,
 		FailFast: failFast,
 	})
@@ -219,7 +220,7 @@ func (d *WakeupDispatcher) handleRetryHardCap(ctx context.Context, w *taskdag.Wa
 
 func (d *WakeupDispatcher) failDAGNodeForRetryHardCap(ctx context.Context, w *taskdag.Wakeup, lastErr string, failure dispatchFailure) {
 	failFast := false
-	if policy, ok := d.resolveDAGRetryPolicy(ctx, w.DagKey, w.NodeKey); ok {
+	if policy, ok := d.resolveDAGRetryPolicy(ctx, w.DagKey, w.NodeKey, routeRunID(w)); ok {
 		failFast = policy.FailFast
 	}
 	d.failDAGNodeAndCancelDownstream(ctx, w, lastErr, failFast, failure.outcome)
@@ -249,7 +250,7 @@ func (d *WakeupDispatcher) recordPermanentRouterFailure(ctx context.Context, w *
 		}
 	}
 	failFast := false
-	if policy, ok := d.resolveDAGRetryPolicy(ctx, w.DagKey, w.NodeKey); ok {
+	if policy, ok := d.resolveDAGRetryPolicy(ctx, w.DagKey, w.NodeKey, routeRunID(w)); ok {
 		failFast = policy.FailFast
 	}
 	d.failDAGNodeAndCancelDownstream(ctx, w, lastErr, failFast, outcome)
@@ -267,7 +268,7 @@ func (d *WakeupDispatcher) trySmartDAGRetry(ctx context.Context, w *taskdag.Wake
 	if !canSmartRetry(d, w) {
 		return false
 	}
-	retryCtx, ok := d.resolveDAGRetryContext(ctx, w.DagKey, w.NodeKey)
+	retryCtx, ok := d.resolveDAGRetryContext(ctx, w.DagKey, w.NodeKey, routeRunID(w))
 	if !ok || retryCtx.node == nil || retryCtx.onFailure == nil {
 		return false
 	}
@@ -399,12 +400,12 @@ func (d *WakeupDispatcher) dispatchSmartRetryAction(
 	return true
 }
 
-func (d *WakeupDispatcher) resolveDAGRetryContext(ctx context.Context, dagKey, nodeKey string) (dagRetryContext, bool) {
+func (d *WakeupDispatcher) resolveDAGRetryContext(ctx context.Context, dagKey, nodeKey string, runID int64) (dagRetryContext, bool) {
 	dag, err := d.store.GetDAG(ctx, dagKey)
 	if err != nil || dag == nil {
 		return dagRetryContext{}, false
 	}
-	nodes, err := d.store.ListNodes(ctx, dagKey)
+	nodes, err := listDispatcherNodesForRun(ctx, d.store, dagKey, runID)
 	if err != nil {
 		return dagRetryContext{policy: ResolveRetryPolicy(dag.Metadata, nil)}, true
 	}
@@ -414,6 +415,17 @@ func (d *WakeupDispatcher) resolveDAGRetryContext(ctx context.Context, dagKey, n
 		node:      target,
 		onFailure: nodeOnFailureConfig(target),
 	}, true
+}
+
+func listDispatcherNodesForRun(ctx context.Context, store taskdag.Store, dagKey string, runID int64) ([]taskdag.Node, error) {
+	if runID == 0 {
+		return store.ListNodes(ctx, dagKey)
+	}
+	runReader, ok := any(store).(taskdag.RunNodeReadStore)
+	if !ok {
+		return nil, fmt.Errorf("store does not implement RunNodeReadStore for run_id=%d", runID)
+	}
+	return runReader.ListRunNodes(ctx, dagKey, runID)
 }
 
 func findRetryNode(nodes []taskdag.Node, nodeKey string) (*taskdag.Node, json.RawMessage) {
@@ -530,6 +542,7 @@ func (d *WakeupDispatcher) retryWakeupWithSmartRetryConfig(
 		NodeConfig: taskdag.NodeConfigPatchInput{
 			DagKey:         node.DagKey,
 			NodeKey:        node.NodeKey,
+			RunID:          taskNodeRunID(node),
 			PreviousConfig: node.Config,
 			Config:         append(json.RawMessage(nil), config...),
 		},

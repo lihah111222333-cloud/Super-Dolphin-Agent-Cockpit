@@ -137,7 +137,8 @@ func (r *NodeExecutorRouter) RouteByWakeup(ctx context.Context, w *taskdag.Wakeu
 	}
 	dagKey := strings.TrimSpace(w.DagKey)
 	nodeKey := strings.TrimSpace(w.NodeKey)
-	target, err := r.lookupTargetNode(ctx, dagKey, nodeKey)
+	runID := routeRunID(w)
+	target, err := r.lookupTargetNode(ctx, dagKey, nodeKey, runID)
 	if err != nil {
 		return nodeexec.NodeOutcome{}, err
 	}
@@ -149,7 +150,7 @@ func (r *NodeExecutorRouter) RouteByWakeup(ctx context.Context, w *taskdag.Wakeu
 		Title:    target.Title,
 		Config:   append(json.RawMessage(nil), target.Config...),
 	}
-	runCtx, runCtxErr := r.buildRunContext(ctx, dagKey, nodeKey, nodeType, target.Config)
+	runCtx, runCtxErr := r.buildRunContext(ctx, dagKey, nodeKey, runID, nodeType, target.Config)
 	if runCtxErr != nil {
 		return runCtxErr.outcome, runCtxErr.frameworkErr
 	}
@@ -171,7 +172,9 @@ type runContextBuildErr struct {
 //   - prefetch 遇 store 报错 → framework err。
 func (r *NodeExecutorRouter) buildRunContext(
 	ctx context.Context,
-	dagKey, nodeKey, nodeType string,
+	dagKey, nodeKey string,
+	runID int64,
+	nodeType string,
 	cfgRaw json.RawMessage,
 ) (nodeexec.RunContext, *runContextBuildErr) {
 	fromNodes, parseErr := extractFromNodes(nodeType, cfgRaw)
@@ -181,13 +184,14 @@ func (r *NodeExecutorRouter) buildRunContext(
 				"node router: parse %s config for prefetch failed: %v", nodeType, parseErr)),
 		}
 	}
-	prevResults, fetchErr := r.prefetchPrevResults(ctx, dagKey, fromNodes)
+	prevResults, fetchErr := r.prefetchPrevResults(ctx, dagKey, runID, fromNodes)
 	if fetchErr != nil {
 		return nodeexec.RunContext{}, &runContextBuildErr{frameworkErr: fetchErr}
 	}
 	return nodeexec.RunContext{
 		DagKey:           dagKey,
 		NodeKey:          nodeKey,
+		RunID:            runID,
 		PrevResults:      prevResults,
 		SharedFileReader: r.sharedFileReader,
 		SharedFileWriter: r.sharedFileWriter,
@@ -237,6 +241,7 @@ func extractFromNodes(nodeType string, cfgRaw json.RawMessage) ([]string, error)
 func (r *NodeExecutorRouter) prefetchPrevResults(
 	ctx context.Context,
 	dagKey string,
+	runID int64,
 	fromNodes []string,
 ) (map[string]json.RawMessage, error) {
 	if len(fromNodes) == 0 {
@@ -251,7 +256,7 @@ func (r *NodeExecutorRouter) prefetchPrevResults(
 	if len(want) == 0 {
 		return nil, nil
 	}
-	nodes, err := r.store.ListNodes(ctx, dagKey)
+	nodes, err := r.listRouteNodes(ctx, dagKey, runID)
 	if err != nil {
 		return nil, fmt.Errorf("node router: prefetch prev results list nodes %s: %w", dagKey, err)
 	}
@@ -290,10 +295,10 @@ func validateRouteInputs(r *NodeExecutorRouter, w *taskdag.Wakeup) error {
 	return nil
 }
 
-// lookupTargetNode 走 store.ListNodes 拿节点列表、按 node_key 定位。
+// lookupTargetNode 走 store.ListNodes/ListRunNodes 拿节点列表、按 node_key 定位。
 // 拆出独立函数为了让 RouteByWakeup 主高还清，压住 CC。
-func (r *NodeExecutorRouter) lookupTargetNode(ctx context.Context, dagKey, nodeKey string) (*taskdag.Node, error) {
-	nodes, err := r.store.ListNodes(ctx, dagKey)
+func (r *NodeExecutorRouter) lookupTargetNode(ctx context.Context, dagKey, nodeKey string, runID int64) (*taskdag.Node, error) {
+	nodes, err := r.listRouteNodes(ctx, dagKey, runID)
 	if err != nil {
 		return nil, fmt.Errorf("node router: list nodes %s: %w", dagKey, err)
 	}
@@ -303,6 +308,31 @@ func (r *NodeExecutorRouter) lookupTargetNode(ctx context.Context, dagKey, nodeK
 		}
 	}
 	return nil, fmt.Errorf("node router: node %s/%s not found", dagKey, nodeKey)
+}
+
+func (r *NodeExecutorRouter) listRouteNodes(ctx context.Context, dagKey string, runID int64) ([]taskdag.Node, error) {
+	if runID == 0 {
+		return r.store.ListNodes(ctx, dagKey)
+	}
+	runReader, ok := any(r.store).(taskdag.RunNodeReadStore)
+	if !ok {
+		return nil, fmt.Errorf("store does not implement RunNodeReadStore for run_id=%d", runID)
+	}
+	return runReader.ListRunNodes(ctx, dagKey, runID)
+}
+
+func routeRunID(w *taskdag.Wakeup) int64 {
+	if w == nil || w.RunID == nil {
+		return 0
+	}
+	return *w.RunID
+}
+
+func taskNodeRunID(node *taskdag.Node) int64 {
+	if node == nil || node.RunID == nil {
+		return 0
+	}
+	return *node.RunID
 }
 
 // resolveNodeType 处理 nodeType 兜底逻辑：空串/未识别 → "agent" (F1.0 默认)。
@@ -354,7 +384,7 @@ func (r *NodeExecutorRouter) dispatchAgent(ctx context.Context, node nodeexec.No
 		return outcome, err
 	}
 	// launch 成功：推 ready→running，让 subscriber 后续推 done/failed。
-	if r.advanceAgentNodeToRunning(ctx, node.DagKey, node.NodeKey, wakeupID) {
+	if r.advanceAgentNodeToRunning(ctx, node.DagKey, node.NodeKey, runCtx.RunID, wakeupID) {
 		r.invokeLifecycleHook(ctx, hooks, nodeexec.HookOnStateChange, node, nodeexec.NodeOutcome{
 			Status: nodeexec.NodeStatusRunning,
 		})
@@ -368,7 +398,7 @@ func (r *NodeExecutorRouter) dispatchAgent(ctx context.Context, node nodeexec.No
 //     metric IncDispatchAgentRunningSkippedAlreadyTerminal +Debug log；
 //   - 其它 DB 错误：Warn log + metric IncDispatchAgentRunningWriteFailed；
 //   - 成功：metric IncDispatchAgentRunningWritten。
-func (r *NodeExecutorRouter) advanceAgentNodeToRunning(ctx context.Context, dagKey, nodeKey string, wakeupID int64) bool {
+func (r *NodeExecutorRouter) advanceAgentNodeToRunning(ctx context.Context, dagKey, nodeKey string, runID int64, wakeupID int64) bool {
 	if r.store == nil {
 		r.logger.Warn("node router: store nil, skip ready->running write",
 			"dag_key", dagKey, "node_key", nodeKey)
@@ -386,6 +416,7 @@ func (r *NodeExecutorRouter) advanceAgentNodeToRunning(ctx context.Context, dagK
 		WakeupID: wakeupID,
 		DagKey:   dagKey,
 		NodeKey:  nodeKey,
+		RunID:    runID,
 	})
 	switch {
 	case updateErr == nil:
@@ -416,7 +447,7 @@ func (r *NodeExecutorRouter) dispatchAutomation(ctx context.Context, node nodeex
 	}
 	// Automation 节点没有 child agent 在外面驱动 CompleteNode；路由器代为推进。
 	if outcome.Status == nodeexec.NodeStatusDone {
-		if err := r.completeAutomationNode(ctx, node.DagKey, node.NodeKey, outcome.Result); err != nil {
+		if err := r.completeAutomationNode(ctx, node.DagKey, node.NodeKey, runCtx.RunID, outcome.Result); err != nil {
 			r.logger.Warn("node router: automation complete propagate failed",
 				"dag_key", node.DagKey, "node_key", node.NodeKey, "error", err)
 		} else {
@@ -432,7 +463,7 @@ func (r *NodeExecutorRouter) dispatchAutomation(ctx context.Context, node nodeex
 // completeAutomationNode 在 automation 节点 Execute 成功后同步推进 status=done
 // + 调度下游。失败仅 logWarn 不阻塞主流（dispatcher 仍会 MarkWakeupSent，
 // 后续 reclaim cron / 重试可补救）。
-func (r *NodeExecutorRouter) completeAutomationNode(ctx context.Context, dagKey, nodeKey string, result json.RawMessage) error {
+func (r *NodeExecutorRouter) completeAutomationNode(ctx context.Context, dagKey, nodeKey string, runID int64, result json.RawMessage) error {
 	if r.store == nil {
 		return errors.New("node router: store nil, cannot complete automation node")
 	}
@@ -451,6 +482,7 @@ func (r *NodeExecutorRouter) completeAutomationNode(ctx context.Context, dagKey,
 		Result:  resBytes,
 		DagKey:  dagKey,
 		NodeKey: nodeKey,
+		RunID:   runID,
 	}); err != nil {
 		return err
 	}
@@ -506,13 +538,14 @@ func NewStoreNodeSpawnRecorder(store taskdag.NodeSpawnRecorderStore) nodeexec.No
 	return &storeNodeSpawnRecorderAdapter{store: store}
 }
 
-func (a *storeNodeSpawnRecorderAdapter) RecordNodeSpawn(ctx context.Context, dagKey, nodeKey, threadID string) error {
+func (a *storeNodeSpawnRecorderAdapter) RecordNodeSpawn(ctx context.Context, dagKey, nodeKey string, runID int64, threadID string) error {
 	if a == nil || a.store == nil {
 		return errors.New("store node spawn recorder: nil receiver")
 	}
 	_, err := a.store.RecordNodeSpawn(ctx, taskdag.RecordNodeSpawnInput{
 		DagKey:   dagKey,
 		NodeKey:  nodeKey,
+		RunID:    runID,
 		ThreadID: threadID,
 	})
 	return err

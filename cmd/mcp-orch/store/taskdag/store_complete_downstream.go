@@ -53,7 +53,7 @@ func (s *store) CompleteNodeAndScheduleDownstream(ctx context.Context, input Com
 		// F6.2 同事务内推进 run.status：节点全终态时按优先级
 		// (failed > cancelled > succeeded) 写 task_dag_runs.status + finished_at。
 		// F6.2: same-tx run finalize — priority failed > cancelled > succeeded.
-		finalized, finalizeErr := maybeFinalizeRunTx(ctx, txStore, node.DagKey)
+		finalized, finalizeErr := maybeFinalizeRunTx(ctx, txStore, node.DagKey, runIDValue(node.RunID))
 		if finalizeErr != nil {
 			return finalizeErr
 		}
@@ -73,8 +73,11 @@ func (s *store) CompleteNodeAndScheduleDownstream(ctx context.Context, input Com
 // maybeFinalizeRunTx invokes the F6.2 finalize SQL; it is idempotent because
 // the WHERE clause only matches a 'running' run, so re-running it after the
 // first successful flip simply returns zero rows.
-func maybeFinalizeRunTx(ctx context.Context, txStore *store, dagKey string) (*FinalizedRunInfo, error) {
-	rows, err := txStore.q.FinalizeTaskDagRunIfAllNodesTerminal(ctx, dagKey)
+func maybeFinalizeRunTx(ctx context.Context, txStore *store, dagKey string, runID int64) (*FinalizedRunInfo, error) {
+	rows, err := txStore.q.FinalizeTaskDagRunIfAllNodesTerminal(ctx, sqlc.FinalizeTaskDagRunIfAllNodesTerminalParams{
+		DagKey: dagKey,
+		RunID:  runID,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("finalize run for dag %s: %w", dagKey, err)
 	}
@@ -105,7 +108,14 @@ func maybeFinalizeRunTx(ctx context.Context, txStore *store, dagKey string) (*Fi
 // stays gated on a non-empty assigned_to per F6.4. The two concerns are
 // decoupled: promote = state-machine truth; enqueue = dispatch routing.
 func scheduleDownstreamWakeupsTx(ctx context.Context, txStore *store, completed *Node) ([]ScheduledDownstreamWakeup, []PromotedDownstreamNode, error) {
-	nodes, listErr := txStore.ListNodes(ctx, completed.DagKey)
+	completedRunID := runIDValue(completed.RunID)
+	var nodes []Node
+	var listErr error
+	if completedRunID == 0 {
+		nodes, listErr = txStore.ListNodes(ctx, completed.DagKey)
+	} else {
+		nodes, listErr = txStore.ListRunNodes(ctx, completed.DagKey, completedRunID)
+	}
 	if listErr != nil {
 		return nil, nil, listErr
 	}
@@ -130,6 +140,7 @@ func scheduleDownstreamWakeupsTx(ctx context.Context, txStore *store, completed 
 		rowsAffected, promoteErr := txStore.q.PromoteSingleNodePendingToReady(ctx, sqlc.PromoteSingleNodePendingToReadyParams{
 			DagKey:  cand.DagKey,
 			NodeKey: cand.NodeKey,
+			RunID:   completedRunID,
 		})
 		if promoteErr != nil {
 			return nil, nil, fmt.Errorf("promote %s/%s pending→ready: %w", cand.DagKey, cand.NodeKey, promoteErr)
@@ -141,6 +152,7 @@ func scheduleDownstreamWakeupsTx(ctx context.Context, txStore *store, completed 
 		promoted = append(promoted, PromotedDownstreamNode{
 			DagKey:  cand.DagKey,
 			NodeKey: cand.NodeKey,
+			RunID:   completedRunID,
 		})
 		// F6.4: assigned_to 为空 → 跳过 wakeup enqueue（promote 已发生，
 		// 节点停在 ready 等外部 dispatcher / 人工接管）。
@@ -203,7 +215,8 @@ func tryEnqueueDownstream(
 	if agentID == "" {
 		return nil, nil
 	}
-	idempotencyKey := downstreamIdempotencyKey(cand.DagKey, cand.NodeKey)
+	candRunID := runIDValue(cand.RunID)
+	idempotencyKey := downstreamIdempotencyKey(cand.DagKey, cand.NodeKey, candRunID)
 	payload, payloadErr := json.Marshal(DownstreamWakeupPayload{
 		AgentID:         agentID,
 		UpstreamOutputs: []DownstreamUpstreamRef{upstreamRef},
@@ -214,6 +227,7 @@ func tryEnqueueDownstream(
 	rows, enqErr := txStore.EnqueueWakeup(ctx, EnqueueWakeupInput{
 		DagKey:         cand.DagKey,
 		NodeKey:        cand.NodeKey,
+		RunID:          candRunID,
 		WakeupKind:     downstreamWakeupKind,
 		TargetAgentID:  agentID,
 		PromptPayload:  payload,
@@ -232,9 +246,17 @@ func tryEnqueueDownstream(
 	return &ScheduledDownstreamWakeup{
 		DagKey:         cand.DagKey,
 		NodeKey:        cand.NodeKey,
+		RunID:          candRunID,
 		TargetAgentID:  agentID,
 		IdempotencyKey: idempotencyKey,
 	}, nil
+}
+
+func runIDValue(runID *int64) int64 {
+	if runID == nil {
+		return 0
+	}
+	return *runID
 }
 
 func decodeDependsOn(raw json.RawMessage) ([]string, error) {
@@ -272,6 +294,9 @@ func allDependenciesSatisfied(deps []string, statusByKey map[string]string) bool
 
 // downstreamIdempotencyKey 返回 `dag/<dagKey>/<nodeKey>/start` 形式的去重键。
 // dispatcher 端永远不要依赖这个键做语义分支；它只是 SQL ON CONFLICT 的输入。
-func downstreamIdempotencyKey(dagKey, nodeKey string) string {
+func downstreamIdempotencyKey(dagKey, nodeKey string, runID int64) string {
+	if runID > 0 {
+		return fmt.Sprintf("dag/%s/run/%d/%s/start", dagKey, runID, nodeKey)
+	}
 	return "dag/" + dagKey + "/" + nodeKey + "/start"
 }

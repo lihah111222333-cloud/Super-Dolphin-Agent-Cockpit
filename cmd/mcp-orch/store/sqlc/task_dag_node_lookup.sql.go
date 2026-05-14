@@ -11,7 +11,7 @@ import (
 )
 
 const lookupNodesBySpawningThread = `-- name: LookupNodesBySpawningThread :many
-SELECT id, dag_key, node_key, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
+SELECT id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
 FROM task_dag_nodes
 WHERE spawning_thread_id = $1
   AND spawning_thread_id IS NOT NULL
@@ -37,6 +37,7 @@ func (q *Queries) LookupNodesBySpawningThread(ctx context.Context, spawningThrea
 			&i.ID,
 			&i.DagKey,
 			&i.NodeKey,
+			&i.RunID,
 			&i.Title,
 			&i.NodeType,
 			&i.AssignedTo,

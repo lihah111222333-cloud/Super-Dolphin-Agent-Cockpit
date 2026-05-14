@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 )
 
 // F1.5 / ADR-009 — RecordNodeSpawn 写入回路单测。
@@ -28,15 +30,14 @@ func newSpawnRecorderTestStore() (NodeSpawnRecorderStore, *fakeTaskDAGDB, time.T
 }
 
 func TestRecordNodeSpawn_FirstSpawn_WritesFieldNoEvents(t *testing.T) {
-	store, db, _ := newSpawnRecorderTestStore()
-	seedDAG(t, db, db.now, []seedNode{
-		{key: "n1", deps: nil, status: "running", agent: "agent-a"},
-	})
-	seedRun(db, "dag-1", "run-A")
+	store, db, now := newSpawnRecorderTestStore()
+	runID := seedRunID(db, "dag-1", "run-A")
+	seedRuntimeNode(t, db, now, runID, "n1", nil, "running", "agent-a")
 
 	res, err := store.RecordNodeSpawn(context.Background(), RecordNodeSpawnInput{
 		DagKey:   "dag-1",
 		NodeKey:  "n1",
+		RunID:    runID,
 		ThreadID: "thread-1",
 	})
 	if err != nil {
@@ -62,22 +63,20 @@ func TestRecordNodeSpawn_FirstSpawn_WritesFieldNoEvents(t *testing.T) {
 }
 
 func TestRecordNodeSpawn_RetryOverwrite_AppendsEvent(t *testing.T) {
-	store, db, _ := newSpawnRecorderTestStore()
-	seedDAG(t, db, db.now, []seedNode{
-		{key: "n1", deps: nil, status: "running", agent: "agent-a"},
-	})
-	seedRun(db, "dag-1", "run-A")
+	store, db, now := newSpawnRecorderTestStore()
+	runID := seedRunID(db, "dag-1", "run-A")
+	seedRuntimeNode(t, db, now, runID, "n1", nil, "running", "agent-a")
 
 	// 先写一遍 thread-1（首次 spawn）。
 	if _, err := store.RecordNodeSpawn(context.Background(), RecordNodeSpawnInput{
-		DagKey: "dag-1", NodeKey: "n1", ThreadID: "thread-1",
+		DagKey: "dag-1", NodeKey: "n1", RunID: runID, ThreadID: "thread-1",
 	}); err != nil {
 		t.Fatalf("first spawn error = %v", err)
 	}
 
 	// 再写 thread-2 —— 重试场景：旧 thread-1 应进 events 历史。
 	res, err := store.RecordNodeSpawn(context.Background(), RecordNodeSpawnInput{
-		DagKey: "dag-1", NodeKey: "n1", ThreadID: "thread-2",
+		DagKey: "dag-1", NodeKey: "n1", RunID: runID, ThreadID: "thread-2",
 	})
 	if err != nil {
 		t.Fatalf("retry spawn error = %v", err)
@@ -117,16 +116,15 @@ func TestRecordNodeSpawn_RetryOverwrite_AppendsEvent(t *testing.T) {
 }
 
 func TestRecordNodeSpawn_RetryWithoutRunningRun_SoftMiss(t *testing.T) {
-	store, db, _ := newSpawnRecorderTestStore()
-	seedDAG(t, db, db.now, []seedNode{
-		{key: "n1", deps: nil, status: "running", agent: "agent-a"},
-	})
+	store, db, now := newSpawnRecorderTestStore()
+	const runID int64 = 101
+	seedRuntimeNode(t, db, now, runID, "n1", nil, "running", "agent-a")
 	// 故意不 seedRun —— 模拟「DAG 有节点但没有 running run」（M3 之前
 	// dispatcher-only 路径常见状态）。
 
 	// First spawn 写入。
 	if _, err := store.RecordNodeSpawn(context.Background(), RecordNodeSpawnInput{
-		DagKey: "dag-1", NodeKey: "n1", ThreadID: "thread-1",
+		DagKey: "dag-1", NodeKey: "n1", RunID: runID, ThreadID: "thread-1",
 	}); err != nil {
 		t.Fatalf("first spawn error = %v", err)
 	}
@@ -134,7 +132,7 @@ func TestRecordNodeSpawn_RetryWithoutRunningRun_SoftMiss(t *testing.T) {
 	// 重试：覆盖应成功，但 append events 命中 0 行；store 把这种 case 视为
 	// 软失败，不返回 error。
 	res, err := store.RecordNodeSpawn(context.Background(), RecordNodeSpawnInput{
-		DagKey: "dag-1", NodeKey: "n1", ThreadID: "thread-2",
+		DagKey: "dag-1", NodeKey: "n1", RunID: runID, ThreadID: "thread-2",
 	})
 	if err != nil {
 		t.Fatalf("retry spawn (no running run) error = %v, want nil", err)
@@ -153,6 +151,55 @@ func TestRecordNodeSpawn_RetryWithoutRunningRun_SoftMiss(t *testing.T) {
 	}
 }
 
+func TestRecordNodeSpawn_RunScopedRowsAndEvents(t *testing.T) {
+	store, db, now := newSpawnRecorderTestStore()
+	runA := seedRunID(db, "dag-1", "run-a")
+	runB := seedRunID(db, "dag-1", "run-b")
+	seedRuntimeNode(t, db, now, runA, "n1", nil, "running", "agent-a")
+	seedRuntimeNode(t, db, now, runB, "n1", nil, "running", "agent-a")
+
+	if _, err := store.RecordNodeSpawn(context.Background(), RecordNodeSpawnInput{
+		DagKey: "dag-1", NodeKey: "n1", RunID: runA, ThreadID: "thread-a1",
+	}); err != nil {
+		t.Fatalf("run A first spawn error = %v", err)
+	}
+	if _, err := store.RecordNodeSpawn(context.Background(), RecordNodeSpawnInput{
+		DagKey: "dag-1", NodeKey: "n1", RunID: runB, ThreadID: "thread-b1",
+	}); err != nil {
+		t.Fatalf("run B first spawn error = %v", err)
+	}
+	res, err := store.RecordNodeSpawn(context.Background(), RecordNodeSpawnInput{
+		DagKey: "dag-1", NodeKey: "n1", RunID: runA, ThreadID: "thread-a2",
+	})
+	if err != nil {
+		t.Fatalf("run A retry spawn error = %v", err)
+	}
+	if got := stringValue(res.Node.SpawningThreadID); got != "thread-a2" {
+		t.Fatalf("run A returned spawning thread = %q, want thread-a2", got)
+	}
+	if res.RunKey != "run-a" {
+		t.Fatalf("run A retry RunKey = %q, want run-a", res.RunKey)
+	}
+	nodeA := db.nodes[dagRunNodeKey("dag-1", "n1", runA)]
+	nodeB := db.nodes[dagRunNodeKey("dag-1", "n1", runB)]
+	if got := sqlc.TextPtr(nodeA.SpawningThreadID); got == nil || *got != "thread-a2" {
+		t.Fatalf("run A stored spawning thread = %v, want thread-a2", got)
+	}
+	if got := sqlc.TextPtr(nodeB.SpawningThreadID); got == nil || *got != "thread-b1" {
+		t.Fatalf("run B stored spawning thread = %v, want thread-b1", got)
+	}
+	var runAEvents []nodeSpawnEvent
+	if err := json.Unmarshal(db.runs["run-a"].Events, &runAEvents); err != nil {
+		t.Fatalf("decode run A events: %v", err)
+	}
+	if len(runAEvents) != 1 || runAEvents[0].ThreadID != "thread-a2" || runAEvents[0].PrevThreadID != "thread-a1" {
+		t.Fatalf("run A events = %+v, want one a1->a2 event", runAEvents)
+	}
+	if len(db.runs["run-b"].Events) != 0 {
+		t.Fatalf("run B events = %s, want empty after only first spawn", db.runs["run-b"].Events)
+	}
+}
+
 func TestRecordNodeSpawn_InputValidation(t *testing.T) {
 	store, db, _ := newSpawnRecorderTestStore()
 	seedDAG(t, db, db.now, []seedNode{
@@ -168,6 +215,7 @@ func TestRecordNodeSpawn_InputValidation(t *testing.T) {
 		{"whitespace_thread_id", RecordNodeSpawnInput{DagKey: "dag-1", NodeKey: "n1", ThreadID: "   "}, "thread_id required"},
 		{"empty_dag_key", RecordNodeSpawnInput{NodeKey: "n1", ThreadID: "t"}, "dag_key and node_key required"},
 		{"empty_node_key", RecordNodeSpawnInput{DagKey: "dag-1", ThreadID: "t"}, "dag_key and node_key required"},
+		{"missing_run_id", RecordNodeSpawnInput{DagKey: "dag-1", NodeKey: "n1", ThreadID: "t"}, "run_id required"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -203,16 +251,14 @@ func TestRecordNodeSpawn_EventsRingTrim_KeepsLastFifty(t *testing.T) {
 	const expectedCap = 50
 	const totalSpawns = 60
 
-	store, db, _ := newSpawnRecorderTestStore()
-	seedDAG(t, db, db.now, []seedNode{
-		{key: "n1", deps: nil, status: "running", agent: "agent-a"},
-	})
-	seedRun(db, "dag-1", "run-A")
+	store, db, now := newSpawnRecorderTestStore()
+	runID := seedRunID(db, "dag-1", "run-A")
+	seedRuntimeNode(t, db, now, runID, "n1", nil, "running", "agent-a")
 
 	for i := 1; i <= totalSpawns; i++ {
 		threadID := "thread-" + itoa(i)
 		_, err := store.RecordNodeSpawn(context.Background(), RecordNodeSpawnInput{
-			DagKey: "dag-1", NodeKey: "n1", ThreadID: threadID,
+			DagKey: "dag-1", NodeKey: "n1", RunID: runID, ThreadID: threadID,
 		})
 		if err != nil {
 			t.Fatalf("spawn %d error = %v", i, err)

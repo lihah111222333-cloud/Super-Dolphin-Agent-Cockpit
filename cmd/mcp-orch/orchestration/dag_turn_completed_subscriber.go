@@ -351,6 +351,7 @@ func advanceNodeDone(
 		Result:  result,
 		DagKey:  node.DagKey,
 		NodeKey: node.NodeKey,
+		RunID:   taskNodeRunID(node),
 	})
 	switch {
 	case err == nil:
@@ -410,6 +411,7 @@ func advanceNodeFailedWithReason(
 	_, err := flow.FailNodeAndCancelDownstream(ctx, taskdag.FailNodeInput{
 		DagKey:   node.DagKey,
 		NodeKey:  node.NodeKey,
+		RunID:    taskNodeRunID(node),
 		Reason:   reason,
 		FailFast: false,
 	})
@@ -449,6 +451,7 @@ func claimNodeOutputMaterialization(
 	_, err := claimer.ClaimNodeOutputMaterialization(ctx, taskdag.OutputMaterializationClaimInput{
 		DagKey:  node.DagKey,
 		NodeKey: node.NodeKey,
+		RunID:   taskNodeRunID(node),
 		Result:  result,
 	})
 	switch {

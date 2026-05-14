@@ -60,9 +60,21 @@ func (s *store) ListRuns(ctx context.Context, filter ListRunsFilter) ([]Run, err
 // PromoteRootNodesToReady 把 dag_key 下所有 depends_on=[] 且 status='pending'
 // 的根节点提升为 'ready'。返回受影响行数（service 层用于断言至少一个根节点
 // 被提升，否则视为 DAG 无可执行起点 → 报错 / 警告）。
-func (s *store) PromoteRootNodesToReady(ctx context.Context, dagKey string) (int64, error) {
+func (s *store) CloneNodesForRun(ctx context.Context, dagKey string, runID int64) (int64, error) {
 	return queryValue(func() (int64, error) {
-		return s.q.PromoteRootNodesToReady(ctx, dagKey)
+		return s.q.CloneTaskDagNodesForRun(ctx, sqlc.CloneTaskDagNodesForRunParams{
+			DagKey: dagKey,
+			RunID:  runID,
+		})
+	}, "clone_nodes_for_run", "task_dag_node")
+}
+
+func (s *store) PromoteRootNodesToReady(ctx context.Context, dagKey string, runID int64) (int64, error) {
+	return queryValue(func() (int64, error) {
+		return s.q.PromoteRootNodesToReady(ctx, sqlc.PromoteRootNodesToReadyParams{
+			DagKey: dagKey,
+			RunID:  runID,
+		})
 	}, "promote_root_nodes_to_ready", "task_dag_node")
 }
 
