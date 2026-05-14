@@ -517,7 +517,6 @@ func TestResolveRoutedPrompt_MatchWhenDisabledRowIgnored(t *testing.T) {
 	}
 }
 
-
 // TestResolveRoutedPrompt_MatchWhenSpecificBeatsFallback: when a specific
 // (non-empty match_when) row matches, it must win even though a higher-
 // priority fallback (match_when={}) row exists. Reproduces the production
