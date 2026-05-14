@@ -18,6 +18,7 @@ type querier interface {
 	ExpireStaleAgentThreads(ctx context.Context, arg sqlc.ExpireStaleAgentThreadsParams) (int64, error)
 	GetAgentThreadByID(ctx context.Context, arg sqlc.GetAgentThreadByIDParams) (sqlc.GetAgentThreadByIDRow, error)
 	GetAgentThreadByPort(ctx context.Context, arg sqlc.GetAgentThreadByPortParams) (sqlc.GetAgentThreadByPortRow, error)
+	ListAgentThreadConfigsByIDs(ctx context.Context, arg sqlc.ListAgentThreadConfigsByIDsParams) ([]sqlc.ListAgentThreadConfigsByIDsRow, error)
 	ListAgentThreadCwds(ctx context.Context) ([]sqlc.ListAgentThreadCwdsRow, error)
 	ListAgentThreadCwdsByPrefix(ctx context.Context, arg sqlc.ListAgentThreadCwdsByPrefixParams) ([]sqlc.ListAgentThreadCwdsByPrefixRow, error)
 	ListAgentThreads(ctx context.Context) ([]sqlc.ListAgentThreadsRow, error)
@@ -64,6 +65,13 @@ func (s *store) ListAll(ctx context.Context) ([]Thread, error) {
 		return nil, wrapThreadError(err, "list_all")
 	}
 	return mapThreadList(rows), nil
+}
+func (s *store) ListConfigsByIDs(ctx context.Context, threadIDs []string) ([]Thread, error) {
+	rows, err := s.q.ListAgentThreadConfigsByIDs(ctx, sqlc.ListAgentThreadConfigsByIDsParams{ThreadIds: threadIDs})
+	if err != nil {
+		return nil, wrapThreadError(err, "list_configs_by_ids")
+	}
+	return mapConfigList(rows), nil
 }
 
 func (s *store) ListRunning(ctx context.Context) ([]Thread, error) {
@@ -311,7 +319,20 @@ func mapThreadByPort(row sqlc.GetAgentThreadByPortRow) Thread {
 	}
 }
 
+func mapConfigList(rows []sqlc.ListAgentThreadConfigsByIDsRow) []Thread {
+	result := make([]Thread, len(rows))
+	for i, row := range rows {
+		result[i] = Thread{
+			ThreadID:       row.ThreadID,
+			Model:          row.Model,
+			ConfigOverride: row.ConfigOverride,
+		}
+	}
+	return result
+}
+
 func mapThreadList(rows []sqlc.ListAgentThreadsRow) []Thread {
+
 	result := make([]Thread, len(rows))
 	for i, row := range rows {
 		result[i] = Thread{

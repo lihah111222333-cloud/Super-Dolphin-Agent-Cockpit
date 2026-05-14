@@ -64,4 +64,5 @@ type ThreadConfigReader interface {
 // config handler probes for this via type assertion.
 type ThreadRuntimeConfigReader interface {
 	ReadRuntimeConfig(ctx context.Context, threadID string) (map[string]any, error)
+	ReadRuntimeConfigs(ctx context.Context, threadIDs []string) (map[string]map[string]any, error)
 }

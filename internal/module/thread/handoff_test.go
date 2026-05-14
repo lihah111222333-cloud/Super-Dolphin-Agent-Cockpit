@@ -26,6 +26,9 @@ func (f *fakeThreadStoreForHandoff) GetByPort(context.Context, int32) (*threadst
 func (f *fakeThreadStoreForHandoff) ListAll(context.Context) ([]threadstore.Thread, error) {
 	panic("unused")
 }
+func (f *fakeThreadStoreForHandoff) ListConfigsByIDs(context.Context, []string) ([]threadstore.Thread, error) {
+	panic("unused")
+}
 func (f *fakeThreadStoreForHandoff) ListRunning(context.Context) ([]threadstore.Thread, error) {
 	panic("unused")
 }

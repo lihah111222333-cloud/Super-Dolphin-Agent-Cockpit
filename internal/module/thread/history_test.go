@@ -295,6 +295,20 @@ func (s *historyTestThreadStore) ListAll(context.Context) ([]threadstore.Thread,
 	return out, nil
 }
 
+func (s *historyTestThreadStore) ListConfigsByIDs(ctx context.Context, threadIDs []string) ([]threadstore.Thread, error) {
+	idMap := make(map[string]bool)
+	for _, id := range threadIDs {
+		idMap[id] = true
+	}
+	var result []threadstore.Thread
+	for _, id := range threadIDs {
+		if t, ok := s.threads[id]; ok {
+			result = append(result, t)
+		}
+	}
+	return result, nil
+}
+
 func (s *historyTestThreadStore) ListRunning(context.Context) ([]threadstore.Thread, error) {
 	return nil, nil
 }

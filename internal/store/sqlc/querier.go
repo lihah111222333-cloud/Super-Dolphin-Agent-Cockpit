@@ -108,6 +108,7 @@ type Querier interface {
 	ListAgentFeedbackEventsByThread(ctx context.Context, arg ListAgentFeedbackEventsByThreadParams) ([]AgentFeedbackEvent, error)
 	ListAgentStatuses(ctx context.Context, arg ListAgentStatusesParams) ([]AgentStatus, error)
 	ListAgentThreadBindings(ctx context.Context) ([]ListAgentThreadBindingsRow, error)
+	ListAgentThreadConfigsByIDs(ctx context.Context, arg ListAgentThreadConfigsByIDsParams) ([]ListAgentThreadConfigsByIDsRow, error)
 	ListAgentThreadCwds(ctx context.Context) ([]ListAgentThreadCwdsRow, error)
 	ListAgentThreadCwdsByPrefix(ctx context.Context, arg ListAgentThreadCwdsByPrefixParams) ([]ListAgentThreadCwdsByPrefixRow, error)
 	ListAgentThreads(ctx context.Context) ([]ListAgentThreadsRow, error)

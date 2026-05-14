@@ -417,7 +417,7 @@ describe('thread store runtime sync', () => {
 
       store.handleBridgeEvent({ method: 'ui/thread/changed', payload: { source: 'item/completed', threadId: 'thread-other' } });
       store.handleBridgeEvent({ method: 'ui/thread/changed', payload: { source: 'item/completed', threadId: 'thread-live' } });
-      vi.advanceTimersByTime(250);
+      vi.advanceTimersByTime(50);
       await Promise.resolve();
       await Promise.resolve();
       expect(methods.filter((method) => method === 'ui/state/get')).toHaveLength(1);

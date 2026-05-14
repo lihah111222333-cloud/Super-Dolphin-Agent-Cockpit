@@ -117,10 +117,10 @@ SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updat
        COALESCE((
             SELECT b.agent_id
             FROM agent_provider_binding b
-           WHERE b.provider_thread_id = agent_threads.thread_id
-              OR b.codex_thread_id = agent_threads.thread_id
-           ORDER BY b.updated_at DESC
-           LIMIT 1
+            WHERE b.provider_thread_id = agent_threads.thread_id
+               OR b.codex_thread_id = agent_threads.thread_id
+            ORDER BY b.updated_at DESC
+            LIMIT 1
         ), '') AS agent_id
 FROM agent_threads
 WHERE thread_id = $1
@@ -195,10 +195,10 @@ SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updat
        COALESCE((
             SELECT b.agent_id
             FROM agent_provider_binding b
-           WHERE b.provider_thread_id = agent_threads.thread_id
-              OR b.codex_thread_id = agent_threads.thread_id
-           ORDER BY b.updated_at DESC
-           LIMIT 1
+            WHERE b.provider_thread_id = agent_threads.thread_id
+               OR b.codex_thread_id = agent_threads.thread_id
+            ORDER BY b.updated_at DESC
+            LIMIT 1
         ), '') AS agent_id
 FROM agent_threads
 WHERE port = $1 AND status = 'running'
@@ -267,6 +267,42 @@ func (q *Queries) GetAgentThreadByPort(ctx context.Context, arg GetAgentThreadBy
 		&i.AgentID,
 	)
 	return i, err
+}
+
+const listAgentThreadConfigsByIDs = `-- name: ListAgentThreadConfigsByIDs :many
+SELECT thread_id, model, config_override
+FROM agent_threads
+WHERE thread_id IN ($1)
+`
+
+type ListAgentThreadConfigsByIDsParams struct {
+	ThreadIds []string `db:"thread_ids" json:"thread_ids"`
+}
+
+type ListAgentThreadConfigsByIDsRow struct {
+	ThreadID       string `db:"thread_id" json:"thread_id"`
+	Model          string `db:"model" json:"model"`
+	ConfigOverride []byte `db:"config_override" json:"config_override"`
+}
+
+func (q *Queries) ListAgentThreadConfigsByIDs(ctx context.Context, arg ListAgentThreadConfigsByIDsParams) ([]ListAgentThreadConfigsByIDsRow, error) {
+	rows, err := q.db.Query(ctx, listAgentThreadConfigsByIDs, arg.ThreadIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAgentThreadConfigsByIDsRow{}
+	for rows.Next() {
+		var i ListAgentThreadConfigsByIDsRow
+		if err := rows.Scan(&i.ThreadID, &i.Model, &i.ConfigOverride); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listAgentThreadCwds = `-- name: ListAgentThreadCwds :many
@@ -343,10 +379,10 @@ SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updat
        COALESCE((
             SELECT b.agent_id
             FROM agent_provider_binding b
-           WHERE b.provider_thread_id = agent_threads.thread_id
-              OR b.codex_thread_id = agent_threads.thread_id
-           ORDER BY b.updated_at DESC
-           LIMIT 1
+            WHERE b.provider_thread_id = agent_threads.thread_id
+               OR b.codex_thread_id = agent_threads.thread_id
+            ORDER BY b.updated_at DESC
+            LIMIT 1
         ), '') AS agent_id
 FROM agent_threads
 ORDER BY created_at DESC
@@ -429,10 +465,10 @@ SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updat
        COALESCE((
             SELECT b.agent_id
             FROM agent_provider_binding b
-           WHERE b.provider_thread_id = agent_threads.thread_id
-              OR b.codex_thread_id = agent_threads.thread_id
-           ORDER BY b.updated_at DESC
-           LIMIT 1
+            WHERE b.provider_thread_id = agent_threads.thread_id
+               OR b.codex_thread_id = agent_threads.thread_id
+            ORDER BY b.updated_at DESC
+            LIMIT 1
         ), '') AS agent_id
 FROM agent_threads
 WHERE status = 'created'
@@ -516,10 +552,10 @@ SELECT thread_id, name, prompt, model, cwd, status, port, pid, created_at, updat
        COALESCE((
             SELECT b.agent_id
             FROM agent_provider_binding b
-           WHERE b.provider_thread_id = agent_threads.thread_id
-              OR b.codex_thread_id = agent_threads.thread_id
-           ORDER BY b.updated_at DESC
-           LIMIT 1
+            WHERE b.provider_thread_id = agent_threads.thread_id
+               OR b.codex_thread_id = agent_threads.thread_id
+            ORDER BY b.updated_at DESC
+            LIMIT 1
         ), '') AS agent_id
 FROM agent_threads
 WHERE status = 'running'

@@ -80,6 +80,16 @@ func (a *serviceConfigReaderAdapter) ReadRuntimeConfig(ctx context.Context, thre
 	return nil, nil
 }
 
+func (a *serviceConfigReaderAdapter) ReadRuntimeConfigs(ctx context.Context, threadIDs []string) (map[string]map[string]any, error) {
+	type runtimeReader interface {
+		ReadRuntimeConfigs(ctx context.Context, threadIDs []string) (map[string]map[string]any, error)
+	}
+	if reader, ok := a.svc.(runtimeReader); ok {
+		return reader.ReadRuntimeConfigs(ctx, threadIDs)
+	}
+	return nil, nil
+}
+
 // ---------------------------------------------------------------------------
 // CronStarterAdapter (was cron_adapter.go)
 // ---------------------------------------------------------------------------

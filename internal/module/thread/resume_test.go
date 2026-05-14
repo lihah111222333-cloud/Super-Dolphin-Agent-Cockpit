@@ -866,6 +866,7 @@ func (s *stubSession) SetThreadName(_ context.Context, threadID, name string) er
 
 type stubThreadStore struct {
 	thread              *threadstore.Thread
+	threads             []threadstore.Thread
 	threadByID          map[string]*threadstore.Thread
 	upsert              threadstore.UpsertParams
 	upsertErr           error
@@ -896,7 +897,30 @@ func (s *stubThreadStore) GetByPort(context.Context, int32) (*threadstore.Thread
 	return nil, errors.New("not implemented")
 }
 
-func (s *stubThreadStore) ListAll(context.Context) ([]threadstore.Thread, error) { return nil, nil }
+func (s *stubThreadStore) ListAll(context.Context) ([]threadstore.Thread, error) {
+	if s.threads != nil {
+		return s.threads, nil
+	}
+	if s.thread != nil {
+		return []threadstore.Thread{*s.thread}, nil
+	}
+	return nil, nil
+}
+
+func (s *stubThreadStore) ListConfigsByIDs(ctx context.Context, threadIDs []string) ([]threadstore.Thread, error) {
+	idMap := make(map[string]bool)
+	for _, id := range threadIDs {
+		idMap[id] = true
+	}
+	var result []threadstore.Thread
+	all, _ := s.ListAll(ctx)
+	for _, t := range all {
+		if idMap[t.ThreadID] {
+			result = append(result, t)
+		}
+	}
+	return result, nil
+}
 
 func (s *stubThreadStore) ListRunning(context.Context) ([]threadstore.Thread, error) { return nil, nil }
 
@@ -996,6 +1020,7 @@ func (s *stubThreadStore) CountAll(context.Context) (int64, error) { return 0, n
 
 type stubBindingStore struct {
 	binding                *bindingstore.Binding
+	bindings               []bindingstore.Binding
 	upsert                 bindingstore.UpsertParams
 	upserts                []bindingstore.UpsertParams
 	deleteAgentIDs         []string
@@ -1090,6 +1115,9 @@ func (s *stubBindingStore) BindAgentThread(context.Context, bindingstore.BindAge
 func (s *stubBindingStore) UnbindAgentThread(context.Context, string) error { return nil }
 
 func (s *stubBindingStore) ListAgentThreadBindings(context.Context) ([]bindingstore.Binding, error) {
+	if s.bindings != nil {
+		return s.bindings, nil
+	}
 	if s.binding == nil {
 		return nil, nil
 	}

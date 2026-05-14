@@ -57,6 +57,10 @@ func (*threadQuerierStub) GetAgentThreadByPort(context.Context, sqlc.GetAgentThr
 	return sqlc.GetAgentThreadByPortRow{}, nil
 }
 
+func (*threadQuerierStub) ListAgentThreadConfigsByIDs(context.Context, sqlc.ListAgentThreadConfigsByIDsParams) ([]sqlc.ListAgentThreadConfigsByIDsRow, error) {
+	return nil, nil
+}
+
 func (*threadQuerierStub) ListAgentThreadCwds(context.Context) ([]sqlc.ListAgentThreadCwdsRow, error) {
 	return nil, nil
 }
