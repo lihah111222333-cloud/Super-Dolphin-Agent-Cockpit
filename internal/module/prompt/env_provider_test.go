@@ -17,7 +17,7 @@ func TestEnvInfoProviderResolveBuildsEnvironmentDetails(t *testing.T) {
 			IsWorktree:                   true,
 			Provider:                     "codex",
 			Model:                        "gpt-5.5",
-			EnabledTools:                 []string{"code_run", "lsp_file", "lsp_grep", "lsp_file"},
+			EnabledTools:                 []string{"code_run", "file", "grep", "lsp_file"},
 			AdditionalWorkingDirectories: []string{"/repo/extra", " /repo/extra-two ", "/repo/extra"},
 		},
 	})
@@ -38,7 +38,7 @@ func TestEnvInfoProviderResolveBuildsEnvironmentDetails(t *testing.T) {
 		"- Platform: ",
 		"- Shell: zsh",
 		"- OS version: ",
-		"- Language server status: enabled (lsp_file, lsp_grep)",
+		"- Language server status: enabled (file, grep)",
 		"- Additional working directory: /repo/extra",
 		"- Additional working directory: /repo/extra-two",
 		"- Provider: codex",

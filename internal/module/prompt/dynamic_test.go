@@ -96,13 +96,13 @@ func TestSessionGuidanceProviderResolveBranchMatrix(t *testing.T) {
 
 func sessionGuidanceCases() []sessionGuidanceCase {
 	return []sessionGuidanceCase{
-		{name: "headless_without_other_branches_returns_nil", enabledTools: []string{"lsp_file"}, flags: map[string]bool{"non_interactive": true}, wantNil: true},
-		{name: "interactive_session_shows_login_reminder", enabledTools: []string{"lsp_file"}, want: []string{"# Session-specific guidance", "! <command>", "gcloud auth login"}, absent: []string{"Verification protocol", "/<skill-name>"}},
+		{name: "headless_without_other_branches_returns_nil", enabledTools: []string{"file"}, flags: map[string]bool{"non_interactive": true}, wantNil: true},
+		{name: "interactive_session_shows_login_reminder", enabledTools: []string{"file"}, want: []string{"# Session-specific guidance", "! <command>", "gcloud auth login"}, absent: []string{"Verification protocol", "/<skill-name>"}},
 		{
 			name:         "traditional_agent_skills_discover_and_verification",
-			enabledTools: []string{"request_user_input", "spawn_agent", "lsp_grep", "lsp_file"},
+			enabledTools: []string{"request_user_input", "spawn_agent", "grep", "file"},
 			flags:        map[string]bool{"explore_agent_enabled": true, "user_invocable_skills": true, "discover_skills_enabled": true, "verification_required": true},
-			want:         []string{"request_user_input", "! <command>", "Use `spawn_agent` only for well-scoped parallel subtasks.", "explore-oriented `spawn_agent` subtask", "`lsp_grep` and `lsp_file`", "/<skill-name>", "discovery flow", "Verification protocol", "3+ file edits", "`PASS`, `FAIL`, or `PARTIAL`"},
+			want:         []string{"request_user_input", "! <command>", "Use `spawn_agent` only for well-scoped parallel subtasks.", "explore-oriented `spawn_agent` subtask", "`grep` and `file`", "/<skill-name>", "discovery flow", "Verification protocol", "3+ file edits", "`PASS`, `FAIL`, or `PARTIAL`"},
 		},
 		{
 			name:         "fork_mode_suppresses_explore_guidance",
@@ -113,7 +113,7 @@ func sessionGuidanceCases() []sessionGuidanceCase {
 		},
 		{
 			name:         "persistent_child_agents_prefer_managed_launch",
-			enabledTools: []string{"spawn_agent", "orchestration_launch_agent", "lsp_grep", "lsp_file"},
+			enabledTools: []string{"spawn_agent", "orchestration_launch_agent", "grep", "file"},
 			flags:        map[string]bool{"persistent_subagent_default": true, "explore_agent_enabled": true},
 			want:         []string{"`orchestration_launch_agent`", "persistent UI-visible agent"},
 			absent:       []string{"`spawn_agent`", "temporary background subtasks", "explore-oriented `spawn_agent` subtask", "Use `spawn_agent` only for well-scoped parallel subtasks."},

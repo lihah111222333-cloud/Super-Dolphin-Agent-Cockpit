@@ -24,7 +24,7 @@ type inspectParams struct {
 }
 
 func NewInspectHandler(registry lspmanager.Registry) ToolHandler {
-	return newManagerTool("lsp_inspect", middleware.TierNormal, registry, decodeStrict, func(ctx context.Context, registry lspmanager.Registry, req inspectParams) (any, error) {
+	return newManagerTool("inspect", middleware.TierNormal, registry, decodeStrict, func(ctx context.Context, registry lspmanager.Registry, req inspectParams) (any, error) {
 		manager, err := registry.GetManagerForFile(ctx, req.FilePath)
 		if err != nil {
 			return nil, err

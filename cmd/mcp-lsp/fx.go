@@ -174,8 +174,13 @@ func (p registryToolProvider) CallTool(ctx context.Context, name string, args js
 }
 
 func shouldWarnLSPCWDTrace(toolName string) bool {
-	toolName = strings.TrimSpace(toolName)
-	return strings.HasPrefix(toolName, "lsp_") || strings.HasPrefix(toolName, "code_")
+	toolName = canonicalToolName(toolName)
+	switch toolName {
+	case "file", "inspect", "xref", "grep", "structure", "edit", "completion", "code_run", "code_run_test":
+		return true
+	default:
+		return false
+	}
 }
 
 func warnLSPToolsCallCWDTrace(toolName, metaCWD string) {
@@ -201,7 +206,7 @@ func marshalInputSchema(schema map[string]any) (json.RawMessage, error) {
 }
 
 func handleToolCall(ctx context.Context, defs []toolDefinition, name string, args json.RawMessage) (any, error) {
-	trimmed := strings.TrimSpace(name)
+	trimmed := canonicalToolName(name)
 	for _, def := range defs {
 		if def.Manifest.Name != trimmed {
 			continue
@@ -211,7 +216,7 @@ func handleToolCall(ctx context.Context, defs []toolDefinition, name string, arg
 		}
 		return def.Handler(ctx, args)
 	}
-	return nil, errors.New("unknown tool: " + trimmed)
+	return nil, errors.New("unknown tool: " + strings.TrimSpace(name))
 }
 
 func (r bootstrapRunner) Run(ctx context.Context) error {

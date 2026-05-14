@@ -6,42 +6,42 @@ type toolOverflowHint struct {
 }
 
 var toolOverflowHints = map[string]toolOverflowHint{
-	"lsp_grep": {
+	"grep": {
 		Hint: "Narrow search: add path/glob filter, or reduce max_results",
 		NextAction: map[string]any{
-			"tool":         "lsp_grep",
+			"tool":         "grep",
 			"suggest_args": map[string]any{"max_results": 10},
 			"tip":          "Scope search to a subdirectory or single file",
 		},
 	},
-	"lsp_file": {
+	"file": {
 		Hint: "Use offset/limit pagination to read file in chunks",
 		NextAction: map[string]any{
-			"tool":         "lsp_file",
+			"tool":         "file",
 			"suggest_args": map[string]any{"limit": 100},
 			"tip":          "Read a specific range with offset and limit",
 		},
 	},
-	"lsp_inspect": {
+	"inspect": {
 		Hint: "Hover result is large; try a more specific location",
 	},
-	"lsp_xref": {
+	"xref": {
 		Hint: "Use compact verbosity or reduce max_results",
 		NextAction: map[string]any{
-			"tool":         "lsp_xref",
+			"tool":         "xref",
 			"suggest_args": map[string]any{"verbosity": "compact", "max_results": 10},
 		},
 	},
-	"lsp_structure": {
+	"structure": {
 		Hint: "Use compact verbosity or limit to document_symbol action",
 	},
-	"lsp_edit": {
+	"edit": {
 		Hint: "Edit result truncated; check success/applied fields for status",
 	},
-	"lsp_completion": {
+	"completion": {
 		Hint: "Too many completions; use a more specific prefix",
 		NextAction: map[string]any{
-			"tool":         "lsp_completion",
+			"tool":         "completion",
 			"suggest_args": map[string]any{"max_results": 10},
 		},
 	},
@@ -65,7 +65,7 @@ func extractSummary(toolName string, payload map[string]any) map[string]any {
 		return map[string]any{}
 	}
 	switch toolName {
-	case "lsp_grep":
+	case "grep":
 		s := map[string]any{
 			"total":   numericField(payload, "total"),
 			"showing": numericField(payload, "showing"),
@@ -81,12 +81,12 @@ func extractSummary(toolName string, payload map[string]any) map[string]any {
 			s["top_files"] = names
 		}
 		return s
-	case "lsp_xref":
+	case "xref":
 		return map[string]any{
 			"total":   numericField(payload, "total"),
 			"showing": numericField(payload, "showing"),
 		}
-	case "lsp_edit":
+	case "edit":
 		return map[string]any{
 			"success": payload["success"],
 			"applied": payload["applied"],

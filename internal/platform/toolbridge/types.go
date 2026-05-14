@@ -57,14 +57,35 @@ type peerToolCallContent struct {
 	Text string `json:"text,omitempty"`
 }
 
+var legacyLSPToolAliases = map[string]string{
+	"lsp_file":       "file",
+	"lsp_grep":       "grep",
+	"lsp_inspect":    "inspect",
+	"lsp_xref":       "xref",
+	"lsp_structure":  "structure",
+	"lsp_edit":       "edit",
+	"lsp_completion": "completion",
+}
+
+func canonicalToolName(name string) string {
+	trimmed := strings.TrimSpace(name)
+	if alias, ok := legacyLSPToolAliases[trimmed]; ok {
+		return alias
+	}
+	return trimmed
+}
+
 func classifyTool(name string) string {
 	trimmed := strings.TrimSpace(name)
-	switch {
-	case strings.HasPrefix(trimmed, "lsp_"):
+	switch canonicalToolName(trimmed) {
+	case "file", "grep", "inspect", "xref", "structure", "edit", "completion":
 		return dto.ClientKindLSP
-	case trimmed == "code_run", trimmed == "code_run_test":
+	case "code_run", "code_run_test":
 		return dto.ClientKindLSP
 	default:
+		if strings.HasPrefix(trimmed, "lsp_") {
+			return dto.ClientKindLSP
+		}
 		return dto.ClientKindOrch
 	}
 }
