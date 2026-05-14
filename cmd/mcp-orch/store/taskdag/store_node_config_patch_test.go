@@ -14,10 +14,12 @@ import (
 func TestPatchNodeConfigIfUnchangedPatchesOnlyConfig(t *testing.T) {
 	store, db, now := newTaskDAGTestStore()
 	patcher := store.(NodeConfigPatchStore)
-	db.nodes[dagNodeKey("dag-1", "node-1")] = sqlc.TaskDagNode{
+	runID := db.runs["run-1"].ID
+	db.nodes[dagRunNodeKey("dag-1", "node-1", runID)] = sqlc.TaskDagNode{
 		ID:         1,
 		DagKey:     "dag-1",
 		NodeKey:    "node-1",
+		RunID:      sqlc.Int8ValuePtr(&runID),
 		Title:      "Original title",
 		NodeType:   "agent",
 		AssignedTo: "agent-A",
@@ -33,6 +35,7 @@ func TestPatchNodeConfigIfUnchangedPatchesOnlyConfig(t *testing.T) {
 	patched, err := patcher.PatchNodeConfigIfUnchanged(context.Background(), NodeConfigPatchInput{
 		DagKey:         "dag-1",
 		NodeKey:        "node-1",
+		RunID:          runID,
 		PreviousConfig: json.RawMessage(`{"exec":{"model":"sonnet"}}`),
 		Config:         json.RawMessage(`{"exec":{"model":"opus"}}`),
 	})
@@ -51,11 +54,13 @@ func TestPatchNodeConfigIfUnchangedPatchesOnlyConfig(t *testing.T) {
 func TestPatchNodeConfigIfUnchangedRejectsStaleConfig(t *testing.T) {
 	store, db, now := newTaskDAGTestStore()
 	patcher := store.(NodeConfigPatchStore)
-	key := dagNodeKey("dag-1", "node-1")
+	runID := db.runs["run-1"].ID
+	key := dagRunNodeKey("dag-1", "node-1", runID)
 	db.nodes[key] = sqlc.TaskDagNode{
 		ID:        1,
 		DagKey:    "dag-1",
 		NodeKey:   "node-1",
+		RunID:     sqlc.Int8ValuePtr(&runID),
 		NodeType:  "agent",
 		Status:    "ready",
 		Config:    json.RawMessage(`{"exec":{"model":"opus"}}`),
@@ -66,6 +71,7 @@ func TestPatchNodeConfigIfUnchangedRejectsStaleConfig(t *testing.T) {
 	_, err := patcher.PatchNodeConfigIfUnchanged(context.Background(), NodeConfigPatchInput{
 		DagKey:         "dag-1",
 		NodeKey:        "node-1",
+		RunID:          runID,
 		PreviousConfig: json.RawMessage(`{"exec":{"model":"sonnet"}}`),
 		Config:         json.RawMessage(`{"exec":{"model":"haiku"}}`),
 	})
@@ -81,13 +87,15 @@ func TestRetryWakeupWithNodeConfigPatchRollsBackRetryOnStaleConfig(t *testing.T)
 	store, db, now := newTaskDAGTestStore()
 	patcher := store.(SmartRetryConfigStore)
 
+	runID := db.runs["run-1"].ID
 	db.wakeups[7] = newDispatchingWakeup(now, 7, "worker-a", 30*time.Second)
 	originalWakeup := db.wakeups[7]
-	key := dagNodeKey("dag-1", "node-1")
+	key := dagRunNodeKey("dag-1", "node-1", runID)
 	db.nodes[key] = sqlc.TaskDagNode{
 		ID:        1,
 		DagKey:    "dag-1",
 		NodeKey:   "node-1",
+		RunID:     sqlc.Int8ValuePtr(&runID),
 		NodeType:  "agent",
 		Status:    "ready",
 		Config:    json.RawMessage(`{"exec":{"model":"opus"}}`),
@@ -107,6 +115,7 @@ func TestRetryWakeupWithNodeConfigPatchRollsBackRetryOnStaleConfig(t *testing.T)
 		NodeConfig: NodeConfigPatchInput{
 			DagKey:         "dag-1",
 			NodeKey:        "node-1",
+			RunID:          runID,
 			PreviousConfig: json.RawMessage(`{"exec":{"model":"sonnet"}}`),
 			Config:         json.RawMessage(`{"exec":{"model":"haiku"}}`),
 		},

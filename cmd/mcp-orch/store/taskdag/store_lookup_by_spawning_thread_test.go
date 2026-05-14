@@ -15,10 +15,12 @@ func TestLookupNodesBySpawningThread_ReverseLookupReturnsMatchingRows(t *testing
 	t.Parallel()
 	store, db, now := newTaskDAGTestStore()
 	thr := "thr-aaa"
-	db.nodes[dagNodeKey("dag-1", "node-1")] = sqlc.TaskDagNode{
+	runID := db.runs["run-1"].ID
+	db.nodes[dagRunNodeKey("dag-1", "node-1", runID)] = sqlc.TaskDagNode{
 		ID:               1,
 		DagKey:           "dag-1",
 		NodeKey:          "node-1",
+		RunID:            sqlc.Int8ValuePtr(&runID),
 		Title:            "n1",
 		Status:           "running",
 		DependsOn:        []byte(`[]`),
@@ -65,11 +67,13 @@ func TestLookupNodesBySpawningThread_NoMatch_ReturnsEmptySliceNoError(t *testing
 func TestLookupNodesBySpawningThread_FiltersNullSpawningThread(t *testing.T) {
 	t.Parallel()
 	store, db, now := newTaskDAGTestStore()
+	runID := db.runs["run-1"].ID
 	// node without spawning_thread_id (NULL): must never match.
-	db.nodes[dagNodeKey("dag-1", "node-1")] = sqlc.TaskDagNode{
+	db.nodes[dagRunNodeKey("dag-1", "node-1", runID)] = sqlc.TaskDagNode{
 		ID:        10,
 		DagKey:    "dag-1",
 		NodeKey:   "node-1",
+		RunID:     sqlc.Int8ValuePtr(&runID),
 		Status:    "pending",
 		DependsOn: []byte(`[]`),
 		Config:    []byte(`{}`),
@@ -96,12 +100,14 @@ func TestLookupNodesBySpawningThread_MultipleRowsReturnedDescByUpdatedAt(t *test
 	t.Parallel()
 	store, db, now := newTaskDAGTestStore()
 	thr := "thr-shared"
+	runID := db.runs["run-1"].ID
 	older := now
 	newer := now.Add(10 * time.Second)
-	db.nodes[dagNodeKey("dag-1", "older")] = sqlc.TaskDagNode{
+	db.nodes[dagRunNodeKey("dag-1", "older", runID)] = sqlc.TaskDagNode{
 		ID:               1,
 		DagKey:           "dag-1",
 		NodeKey:          "older",
+		RunID:            sqlc.Int8ValuePtr(&runID),
 		Status:           "ready",
 		DependsOn:        []byte(`[]`),
 		Config:           []byte(`{}`),
@@ -110,10 +116,11 @@ func TestLookupNodesBySpawningThread_MultipleRowsReturnedDescByUpdatedAt(t *test
 		UpdatedAt:        timestamptzValue(older),
 		SpawningThreadID: sqlc.TextValuePtr(&thr),
 	}
-	db.nodes[dagNodeKey("dag-1", "newer")] = sqlc.TaskDagNode{
+	db.nodes[dagRunNodeKey("dag-1", "newer", runID)] = sqlc.TaskDagNode{
 		ID:               2,
 		DagKey:           "dag-1",
 		NodeKey:          "newer",
+		RunID:            sqlc.Int8ValuePtr(&runID),
 		Status:           "running",
 		DependsOn:        []byte(`[]`),
 		Config:           []byte(`{}`),
@@ -140,10 +147,12 @@ func TestLookupNodesBySpawningThread_DoesNotMatchDifferentThreadID(t *testing.T)
 	t.Parallel()
 	store, db, now := newTaskDAGTestStore()
 	thrA, thrB := "thr-A", "thr-B"
-	db.nodes[dagNodeKey("dag-1", "node-1")] = sqlc.TaskDagNode{
+	runID := db.runs["run-1"].ID
+	db.nodes[dagRunNodeKey("dag-1", "node-1", runID)] = sqlc.TaskDagNode{
 		ID:               1,
 		DagKey:           "dag-1",
 		NodeKey:          "node-1",
+		RunID:            sqlc.Int8ValuePtr(&runID),
 		Status:           "running",
 		DependsOn:        []byte(`[]`),
 		Config:           []byte(`{}`),

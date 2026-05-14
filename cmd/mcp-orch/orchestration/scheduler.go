@@ -44,12 +44,11 @@ func NewNoopScheduler() Scheduler {
 	return noopScheduler{}
 }
 
-// StartDAG 触发 DAG 一次新执行。T1.2-mid 范围（L3 根治后）：
+// StartDAG 触发 DAG 一次新执行。F6.5 后同一 DAG 可有多个 running run：
 //
 //  1. validateStartDAGPrereq: 检 service 预设 + dag_key 非空 + GetDAG 预检存在性。
-//     不再在应用层做
-//     CountActiveRunsByDagKey 预检（原方案有 TOCTOU race；0076 partial
-//     unique 把该约束下沉到 DB 兑底）。
+//     不再在应用层做 CountActiveRunsByDagKey 预检；0089 已移除 dag-level
+//     single-running-run 约束。
 //  2. WithRunTx 内先 GetDAGForUpdate 锁 DAG row，再原子化 CreateRun +
 //     PromoteRootNodesToReady。任一失败回滚、避免“run 已建却根节点未 ready”
 //     脱状态；DAG row lock 与 ApplyOps 共用同一序列化点，避免 start 与
@@ -57,7 +56,7 @@ func NewNoopScheduler() Scheduler {
 //  3. PG unique violation (SQLSTATE 23505) 后备路径（L3 GetRun-first 策略）：
 //     事务已回滚后在 tx 外 GetRun(run_key)：
 //     - 命中 → 同 IdempotencyKey 重入，幂等返已有 run
-//     - 未命中 → 冲突来自 dag_key partial unique → ErrDAGAlreadyRunning
+//     - 未命中 → 非 run_key 唯一冲突，带原始 tx error 返回
 //     不依赖 ConstraintName 字符串 (PG 同时冲突哪个先报不可控)。
 //
 // run_key 生成：IdempotencyKey 非空 → “<dagKey>#run-<idem>”；IdempotencyKey
@@ -80,8 +79,7 @@ func (s *service) StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGRe
 }
 
 // validateStartDAGPrereq 检 service 预设 + dag_key 非空 + 调 GetDAG 做存在性预检。
-// 不再检 CountActiveRunsByDagKey——原预检不冲突有 TOCTOU race；
-// 0076 partial unique on (dag_key) WHERE status='running' 负责 DB 兑底。
+// 不再检 CountActiveRunsByDagKey；F6.5 允许同 DAG 多 run 并发。
 // 权威 DAG row lock 在 runStartDAGWithFallback 的事务内执行。
 // 返回三元组 (dagKey, dag, error)。拆出 helper 让 StartDAG 主体保持在 CC≤10。
 func (s *service) validateStartDAGPrereq(ctx context.Context, req StartDAGRequest) (string, *taskdag.DAG, error) {
@@ -107,7 +105,7 @@ func (s *service) validateStartDAGPrereq(ctx context.Context, req StartDAGReques
 
 // runStartDAGWithFallback 走 WithRunTx GetDAGForUpdate + CreateRun + Promote。
 // 失败是 PG unique violation 时：tx 已回滚，在 tx 外 GetRun(run_key) 处理
-// 幂等返已有 run 还是判定为 dag_key partial unique 冲突 → ErrDAGAlreadyRunning。
+// 幂等返已有 run。GetRun miss 表示不是 run_key 幂等冲突，返回原 tx error。
 // 不依赖 ConstraintName（PG 同时冲突哪个先报 OID 顺序不可控）。
 func (s *service) runStartDAGWithFallback(ctx context.Context, dagKey, runKey string, input taskdag.CreateRunInput) (StartDAGResponse, error) {
 	var resp StartDAGResponse
@@ -172,7 +170,7 @@ func lockDAGForRunStart(ctx context.Context, tx taskdag.RunStore, dagKey string)
 //   - status = failed/cancelled → 返 ErrIdempotencyKeyExhausted
 //     （调用方需换新 idempotency key 重试）
 //   - 未知 status → 防御性报错
-//   - 未命中 → 冲突来自 dag_key partial unique → ErrDAGAlreadyRunning
+//   - 未命中 → 非 run_key 唯一冲突，返回原 tx error
 //
 // Idempotency semantics (route N):
 //   - GetRun hit:
@@ -180,7 +178,7 @@ func lockDAGForRunStart(ctx context.Context, tx taskdag.RunStore, dagKey string)
 //   - status succeeded → return existing RunKey (idempotent success)
 //   - status failed/cancelled → ErrIdempotencyKeyExhausted (caller must use new key)
 //   - unknown status → defensive error
-//   - GetRun miss → conflict came from dag_key partial unique → ErrDAGAlreadyRunning
+//   - GetRun miss → non-run_key unique violation, return the original tx error
 //
 // 设计取舍：succeeded 与 running 同 case 复用 RunKey。这是 RFC-Idempotency 标准做法
 // （如 Stripe Idempotency-Key），把成功的幂等结果回放给重试调用方。
@@ -207,7 +205,7 @@ func (s *service) resolveStartDAGUniqueViolation(ctx context.Context, dagKey, ru
 	if getErr != nil && !platformdb.IsNotFound(getErr) {
 		return StartDAGResponse{}, fmt.Errorf("orchestration: StartDAG(%q): GetRun fallback: %w (original tx error: %v)", dagKey, getErr, txErr)
 	}
-	return StartDAGResponse{}, fmt.Errorf("%w: %s", ErrDAGAlreadyRunning, dagKey)
+	return StartDAGResponse{}, fmt.Errorf("orchestration: StartDAG(%q): unresolved unique violation for run_key=%s: %w", dagKey, runKey, txErr)
 }
 
 // generateRunKey 生成 task_dag_runs.run_key，与 UNIQUE 约束兼容。

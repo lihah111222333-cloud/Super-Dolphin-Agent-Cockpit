@@ -292,6 +292,9 @@ func validateRouteInputs(r *NodeExecutorRouter, w *taskdag.Wakeup) error {
 	if strings.TrimSpace(w.DagKey) == "" || strings.TrimSpace(w.NodeKey) == "" {
 		return fmt.Errorf("node router: wakeup %d missing dag_key/node_key", w.ID)
 	}
+	if w.RunID == nil || *w.RunID <= 0 {
+		return fmt.Errorf("node router: wakeup %d missing run_id for runtime node dispatch", w.ID)
+	}
 	return nil
 }
 
@@ -311,8 +314,8 @@ func (r *NodeExecutorRouter) lookupTargetNode(ctx context.Context, dagKey, nodeK
 }
 
 func (r *NodeExecutorRouter) listRouteNodes(ctx context.Context, dagKey string, runID int64) ([]taskdag.Node, error) {
-	if runID == 0 {
-		return r.store.ListNodes(ctx, dagKey)
+	if runID <= 0 {
+		return nil, fmt.Errorf("run_id required for runtime node dispatch")
 	}
 	runReader, ok := any(r.store).(taskdag.RunNodeReadStore)
 	if !ok {

@@ -56,6 +56,8 @@ type dispatcherStubStore struct {
 	patchConfigCalls []taskdag.NodeConfigPatchInput
 	patchConfigReply *taskdag.Node
 	patchConfigErr   error
+	runningCalls     []taskdag.RunningNodeStatusUpdate
+	runningErr       error
 }
 
 func (s *dispatcherStubStore) GetDAG(_ context.Context, _ string) (*taskdag.DAG, error) {
@@ -64,6 +66,21 @@ func (s *dispatcherStubStore) GetDAG(_ context.Context, _ string) (*taskdag.DAG,
 
 func (s *dispatcherStubStore) ListNodes(_ context.Context, _ string) ([]taskdag.Node, error) {
 	return s.nodesReply, s.nodesErr
+}
+
+func (s *dispatcherStubStore) ListRunNodes(_ context.Context, _ string, runID int64) ([]taskdag.Node, error) {
+	if s.nodesErr != nil {
+		return nil, s.nodesErr
+	}
+	out := make([]taskdag.Node, len(s.nodesReply))
+	for i := range s.nodesReply {
+		out[i] = s.nodesReply[i]
+		if out[i].RunID == nil {
+			id := runID
+			out[i].RunID = &id
+		}
+	}
+	return out, nil
 }
 
 func (s *dispatcherStubStore) FailNodeAndCancelDownstream(_ context.Context, input taskdag.FailNodeInput) (*taskdag.FailNodeResult, error) {
@@ -113,6 +130,14 @@ func (s *dispatcherStubStore) RetryWakeupWithNodeConfigPatch(ctx context.Context
 		return 0, err
 	}
 	return rows, nil
+}
+
+func (s *dispatcherStubStore) UpdateRunningNodeStatus(_ context.Context, input taskdag.RunningNodeStatusUpdate) (*taskdag.Node, error) {
+	s.runningCalls = append(s.runningCalls, input)
+	if s.runningErr != nil {
+		return nil, s.runningErr
+	}
+	return &taskdag.Node{DagKey: input.DagKey, NodeKey: input.NodeKey, RunID: &input.RunID, Status: input.Status}, nil
 }
 
 func (s *dispatcherStubStore) ClaimDueWakeups(_ context.Context, input taskdag.ClaimDueWakeupsInput) ([]taskdag.Wakeup, error) {
@@ -229,6 +254,33 @@ func TestNewWakeupDispatcherRejectsNilStore(t *testing.T) {
 	}
 }
 
+func TestWakeupDispatcherFailsDAGWakeupMissingRunID(t *testing.T) {
+	store := &dispatcherStubStore{}
+	d, err := NewWakeupDispatcher(store, &dispatcherStubLauncher{}, nil, WakeupDispatcherConfig{ClaimedBy: "worker-a"})
+	if err != nil {
+		t.Fatalf("NewWakeupDispatcher err = %v", err)
+	}
+	d.WithNodeRouter(NewNodeExecutorRouter(store, nil, nil, nil, nil, nil))
+
+	d.handleClaimed(context.Background(), &taskdag.Wakeup{
+		ID:            77,
+		DagKey:        "dag-1",
+		NodeKey:       "n1",
+		TargetAgentID: "agent-a",
+		ClaimedBy:     "worker-a",
+	})
+
+	if len(store.failCalls) != 1 {
+		t.Fatalf("failCalls = %d, want 1", len(store.failCalls))
+	}
+	if !strings.Contains(store.failCalls[0].LastError, "run_id") {
+		t.Fatalf("FailWakeup LastError = %q, want run_id", store.failCalls[0].LastError)
+	}
+	if len(store.retryCalls) != 0 || len(store.markSentCalls) != 0 {
+		t.Fatalf("retry=%d markSent=%d, want 0/0 for malformed DAG wakeup", len(store.retryCalls), len(store.markSentCalls))
+	}
+}
+
 func TestWakeupDispatcherTickEmptyClaimReturnsZero(t *testing.T) {
 	store := &dispatcherStubStore{} // claimReply 默认 nil → 空 slice 等价
 	d, err := NewWakeupDispatcher(store, nil, nil, WakeupDispatcherConfig{})
@@ -303,6 +355,7 @@ func TestWakeupDispatcher_RouterTerminalFailureLifecycleHooks(t *testing.T) {
 			ID:            55,
 			DagKey:        "dag-1",
 			NodeKey:       "auto1",
+			RunID:         int64Ptr(7001),
 			ClaimedBy:     "worker-a",
 			AttemptCount:  1,
 			PromptPayload: json.RawMessage(`{}`),
@@ -354,6 +407,7 @@ func TestWakeupDispatcher_RetryExhaustedLifecycleHooksKeepFailureClass(t *testin
 			ID:           56,
 			DagKey:       "dag-1",
 			NodeKey:      "n1",
+			RunID:        int64Ptr(7002),
 			ClaimedBy:    "worker-a",
 			AttemptCount: 1,
 		}},
@@ -547,8 +601,6 @@ func makeClaimedWakeup(id int64, agentID string, attempt int32, now time.Time) t
 	lease := now.Add(30 * time.Second)
 	return taskdag.Wakeup{
 		ID:             id,
-		DagKey:         "dag-x",
-		NodeKey:        "node-x",
 		WakeupKind:     "start",
 		TargetAgentID:  agentID,
 		Status:         "dispatching",
@@ -801,6 +853,7 @@ func makeDAGWakeup(id int64, dagKey, nodeKey, agent string, attempt int32, ts ti
 	w := makeClaimedWakeup(id, agent, attempt, ts)
 	w.DagKey = dagKey
 	w.NodeKey = nodeKey
+	w.RunID = int64Ptr(9001)
 	return w
 }
 
@@ -935,10 +988,14 @@ func TestDispatcherF151FiveNodeDAGMetricsEndpointAndAlert(t *testing.T) {
 	now := time.Date(2026, 5, 13, 14, 30, 0, 0, time.UTC)
 	nodes := make([]taskdag.Node, 0, 5)
 	for i := 1; i <= 5; i++ {
+		runID := int64(9001)
 		nodes = append(nodes, taskdag.Node{
-			DagKey:  "dag-five",
-			NodeKey: "node-" + strconv.Itoa(i),
-			Status:  string(nodeexec.NodeStatusReady),
+			DagKey:   "dag-five",
+			NodeKey:  "node-" + strconv.Itoa(i),
+			RunID:    &runID,
+			NodeType: "agent",
+			Config:   json.RawMessage(`{"exec":{"agent_key":"metrics"},"first_turn":"hi"}`),
+			Status:   string(nodeexec.NodeStatusReady),
 		})
 	}
 	store := &dispatcherStubStore{
@@ -952,8 +1009,13 @@ func TestDispatcherF151FiveNodeDAGMetricsEndpointAndAlert(t *testing.T) {
 	launcher := &dispatcherStubLauncher{
 		errs: []error{errors.New("connection refused")},
 	}
+	agentLauncher := &stubAgentLauncher{
+		threadID: "thread-five",
+		errs:     []error{errors.New("connection refused")},
+	}
 	sink := &recordingDispatchRetryAlertSink{}
 	d, _ := NewWakeupDispatcher(store, launcher, nil, WakeupDispatcherConfig{})
+	d.WithNodeRouter(NewNodeExecutorRouter(store, nodeexec.NewAgentExecutor(agentLauncher, nil), nil, nil, nil, nil))
 	d.WithDispatchRetryAlertSink(sink)
 	if _, err := d.ProcessBatch(context.Background()); err != nil {
 		t.Fatalf("ProcessBatch err = %v", err)

@@ -169,6 +169,12 @@ func (d *WakeupDispatcher) failDAGNodeAndCancelDownstream(ctx context.Context, w
 	if w == nil || strings.TrimSpace(w.DagKey) == "" || strings.TrimSpace(w.NodeKey) == "" {
 		return
 	}
+	runID := routeRunID(w)
+	if runID <= 0 {
+		d.logger.Warn("wakeup dispatcher: skip DAG node failure without run_id",
+			"wakeup_id", w.ID, "dag_key", w.DagKey, "node_key", w.NodeKey)
+		return
+	}
 	flow, ok := d.store.(taskdag.NodeFlowStore)
 	if !ok {
 		d.logger.Warn("wakeup dispatcher: store missing NodeFlowStore, skip cascade",
@@ -178,7 +184,7 @@ func (d *WakeupDispatcher) failDAGNodeAndCancelDownstream(ctx context.Context, w
 	res, err := flow.FailNodeAndCancelDownstream(ctx, taskdag.FailNodeInput{
 		DagKey:   w.DagKey,
 		NodeKey:  w.NodeKey,
-		RunID:    routeRunID(w),
+		RunID:    runID,
 		Reason:   lastErr,
 		FailFast: failFast,
 	})
@@ -401,6 +407,9 @@ func (d *WakeupDispatcher) dispatchSmartRetryAction(
 }
 
 func (d *WakeupDispatcher) resolveDAGRetryContext(ctx context.Context, dagKey, nodeKey string, runID int64) (dagRetryContext, bool) {
+	if runID <= 0 {
+		return dagRetryContext{}, false
+	}
 	dag, err := d.store.GetDAG(ctx, dagKey)
 	if err != nil || dag == nil {
 		return dagRetryContext{}, false
@@ -418,8 +427,8 @@ func (d *WakeupDispatcher) resolveDAGRetryContext(ctx context.Context, dagKey, n
 }
 
 func listDispatcherNodesForRun(ctx context.Context, store taskdag.Store, dagKey string, runID int64) ([]taskdag.Node, error) {
-	if runID == 0 {
-		return store.ListNodes(ctx, dagKey)
+	if runID <= 0 {
+		return nil, fmt.Errorf("run_id required for dispatcher node lookup")
 	}
 	runReader, ok := any(store).(taskdag.RunNodeReadStore)
 	if !ok {

@@ -67,6 +67,7 @@ type DAGKeyInput struct {
 type UpdateNodeInput struct {
 	DagKey  string `json:"dag_key"`
 	NodeKey string `json:"node_key"`
+	RunID   int64  `json:"run_id"`
 	Status  string `json:"status"`
 	Result  string `json:"result,omitempty"`
 }
@@ -308,14 +309,13 @@ func startDAGRequestFromInput(in StartDAGInput) (contract.StartDAGRequest, error
 }
 
 // HandleGetRun 是 task_get_run MCP 工具的 handler（T3.1）。
-// 调用 service.GetRun 返回 contract.GetRunResponse（仅 run，不 inline 节点）。
+// 调用 service.GetRun 返回 contract.GetRunResponse（run + runtime nodes）。
 //
 // 错误转译：
 //   - ErrRunNotFound → 中英双语提示 + run_key。
 //
 // HandleGetRun is the task_get_run MCP tool handler (T3.1). It calls
-// service.GetRun and returns contract.GetRunResponse (run only; nodes are
-// not inlined).
+// service.GetRun and returns contract.GetRunResponse (run + runtime nodes).
 //
 // Error translation:
 //   - ErrRunNotFound → bilingual hint with the offending run_key.
@@ -402,9 +402,10 @@ func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 		defineTool("task_update_node", "Update the runtime status for a DAG node.", ObjectSchema(map[string]Schema{
 			"dag_key":  StringSchema("DAG key."),
 			"node_key": StringSchema("Node key within the DAG."),
+			"run_id":   IntegerSchema("Task DAG run id that owns the runtime node."),
 			"status":   EnumStringSchema("New node status.", updateNodeStatusEnum...),
 			"result":   StringSchema("Optional result summary."),
-		}, "dag_key", "node_key", "status"), HandleUpdateNode(svc)),
+		}, "dag_key", "node_key", "run_id", "status"), HandleUpdateNode(svc)),
 		defineTool("task_dispatch_node", "Explicitly assign an agent to a pending/ready DAG node and enqueue a wakeup so the dispatcher launches it. Use when a node has assigned_to='' (ADR-004 §Open Q1).", ObjectSchema(map[string]Schema{
 			"dag_key":     StringSchema("DAG key."),
 			"node_key":    StringSchema("Node key within the DAG."),
@@ -421,7 +422,7 @@ func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 		defineTool("task_get_dag", "Fetch a DAG and all of its nodes.", ObjectSchema(map[string]Schema{
 			"dag_key": StringSchema("Unique DAG key."),
 		}, "dag_key"), HandleGetDAG(svc)),
-		defineTool("task_get_run", "Fetch a single DAG run by run_key. Returns the run row only; node-level data is fetched separately via task_get_dag.", ObjectSchema(map[string]Schema{
+		defineTool("task_get_run", "Fetch a single DAG run by run_key, including the run's runtime node snapshot. task_get_dag reads the DAG template.", ObjectSchema(map[string]Schema{
 			"run_key": StringSchema("Run key returned by task_start_dag."),
 		}, "run_key"), HandleGetRun(svc)),
 		defineTool("task_list_runs", "List recent runs for a DAG (object response wraps the runs slice for forward-compatibility). Status enum mirrors migration 0080 task_dag_runs.status CHECK.", ObjectSchema(map[string]Schema{
@@ -535,6 +536,9 @@ func updateNodeRequestFromInput(in UpdateNodeInput) (contract.UpdateNodeStatusRe
 	if err != nil {
 		return contract.UpdateNodeStatusRequest{}, err
 	}
+	if in.RunID <= 0 {
+		return contract.UpdateNodeStatusRequest{}, fmt.Errorf("run_id is required for runtime node status update")
+	}
 	// status 必填 + 必须命中 schema enum；ValidateTransition (service 层) 仍会
 	// 进一步检查 from→to 的合法性。
 	// status is required and must hit the schema enum; ValidateTransition
@@ -550,6 +554,7 @@ func updateNodeRequestFromInput(in UpdateNodeInput) (contract.UpdateNodeStatusRe
 	return contract.UpdateNodeStatusRequest{
 		DagKey:  dagKey,
 		NodeKey: nodeKey,
+		RunID:   in.RunID,
 		Status:  status,
 		Result:  result,
 	}, nil

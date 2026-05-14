@@ -14,7 +14,7 @@ func TestCompleteNodeAndScheduleDownstream_Sequential_AtoB_BtoC(t *testing.T) {
 	t.Parallel()
 
 	store, db, now := newTaskDAGTestStore()
-	seedDAG(t, db, now, []seedNode{
+	seedRuntimeDAG(t, db, now, []seedNode{
 		{key: "A", deps: nil, status: "running", agent: "agent-a"},
 		{key: "B", deps: []string{"A"}, status: "pending", agent: "agent-b"},
 		{key: "C", deps: []string{"B"}, status: "pending", agent: "agent-c"},
@@ -23,6 +23,7 @@ func TestCompleteNodeAndScheduleDownstream_Sequential_AtoB_BtoC(t *testing.T) {
 	res, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
 		DagKey:  "dag-1",
 		NodeKey: "A",
+		RunID:   completeDownstreamRunID,
 		Status:  "done",
 		Result:  json.RawMessage(`{"ok":true}`),
 	})
@@ -40,8 +41,8 @@ func TestCompleteNodeAndScheduleDownstream_Sequential_AtoB_BtoC(t *testing.T) {
 		t.Fatalf("C wakeup count = %d, want 0", pendingForNode(db, "C"))
 	}
 	// idempotency_key for B must follow plan convention.
-	if got := res.ScheduledDownstream[0].IdempotencyKey; got != "dag/dag-1/B/start" {
-		t.Fatalf("B idempotency_key = %q, want dag/dag-1/B/start", got)
+	if want := downstreamIdempotencyKey("dag-1", "B", completeDownstreamRunID); res.ScheduledDownstream[0].IdempotencyKey != want {
+		t.Fatalf("B idempotency_key = %q, want %s", res.ScheduledDownstream[0].IdempotencyKey, want)
 	}
 	// Payload must include upstream output path for A.
 	bWakeup := lookupPendingWakeup(t, db, "B")
@@ -52,6 +53,7 @@ func TestCompleteNodeAndScheduleDownstream_Sequential_AtoB_BtoC(t *testing.T) {
 	res2, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
 		DagKey:  "dag-1",
 		NodeKey: "B",
+		RunID:   completeDownstreamRunID,
 		Status:  "done",
 		Result:  json.RawMessage(`{}`),
 	})
@@ -67,7 +69,7 @@ func TestCompleteNodeAndScheduleDownstream_Parallel_FanOut(t *testing.T) {
 	t.Parallel()
 
 	store, db, now := newTaskDAGTestStore()
-	seedDAG(t, db, now, []seedNode{
+	seedRuntimeDAG(t, db, now, []seedNode{
 		{key: "A", deps: nil, status: "running", agent: "agent-a"},
 		{key: "B", deps: []string{"A"}, status: "pending", agent: "agent-b"},
 		{key: "C", deps: []string{"A"}, status: "pending", agent: "agent-c"},
@@ -76,6 +78,7 @@ func TestCompleteNodeAndScheduleDownstream_Parallel_FanOut(t *testing.T) {
 	res, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
 		DagKey:  "dag-1",
 		NodeKey: "A",
+		RunID:   completeDownstreamRunID,
 		Status:  "done",
 		Result:  json.RawMessage(`{}`),
 	})
@@ -91,7 +94,7 @@ func TestCompleteNodeAndScheduleDownstream_Diamond_WaitsForAllUpstreams(t *testi
 	t.Parallel()
 
 	store, db, now := newTaskDAGTestStore()
-	seedDAG(t, db, now, []seedNode{
+	seedRuntimeDAG(t, db, now, []seedNode{
 		{key: "A", deps: nil, status: "running", agent: "agent-a"},
 		{key: "B", deps: []string{"A"}, status: "pending", agent: "agent-b"},
 		{key: "C", deps: []string{"A"}, status: "pending", agent: "agent-c"},
@@ -99,7 +102,7 @@ func TestCompleteNodeAndScheduleDownstream_Diamond_WaitsForAllUpstreams(t *testi
 	})
 
 	if _, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey: "dag-1", NodeKey: "A", Status: "done", Result: json.RawMessage(`{}`),
+		DagKey: "dag-1", NodeKey: "A", RunID: completeDownstreamRunID, Status: "done", Result: json.RawMessage(`{}`),
 	}); err != nil {
 		t.Fatalf("complete A error = %v", err)
 	}
@@ -107,7 +110,7 @@ func TestCompleteNodeAndScheduleDownstream_Diamond_WaitsForAllUpstreams(t *testi
 	transitionToRunning(t, db, "C")
 
 	resB, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey: "dag-1", NodeKey: "B", Status: "done", Result: json.RawMessage(`{}`),
+		DagKey: "dag-1", NodeKey: "B", RunID: completeDownstreamRunID, Status: "done", Result: json.RawMessage(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("complete B error = %v", err)
@@ -117,7 +120,7 @@ func TestCompleteNodeAndScheduleDownstream_Diamond_WaitsForAllUpstreams(t *testi
 	}
 
 	resC, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey: "dag-1", NodeKey: "C", Status: "done", Result: json.RawMessage(`{}`),
+		DagKey: "dag-1", NodeKey: "C", RunID: completeDownstreamRunID, Status: "done", Result: json.RawMessage(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("complete C error = %v", err)
@@ -135,7 +138,7 @@ func TestCompleteNodeAndScheduleDownstream_PreExistingWakeupSkippedByIdempotency
 	// the SQL ON CONFLICT path: zero new wakeup rows inserted, the result
 	// slice empty, and the original wakeup unaffected.
 	store, db, now := newTaskDAGTestStore()
-	seedDAG(t, db, now, []seedNode{
+	seedRuntimeDAG(t, db, now, []seedNode{
 		{key: "A", deps: nil, status: "running", agent: "agent-a"},
 		{key: "B", deps: []string{"A"}, status: "pending", agent: "agent-b"},
 	})
@@ -147,7 +150,8 @@ func TestCompleteNodeAndScheduleDownstream_PreExistingWakeupSkippedByIdempotency
 		WakeupKind:     "node_start",
 		TargetAgentID:  "agent-b",
 		PromptPayload:  []byte(`{"agent_id":"agent-b","note":"pre-seeded"}`),
-		IdempotencyKey: "dag/dag-1/B/start",
+		RunID:          completeDownstreamRunIDValue(),
+		IdempotencyKey: downstreamIdempotencyKey("dag-1", "B", completeDownstreamRunID),
 		Status:         "pending",
 		NextRetryAt:    timestamptzValue(now),
 		CreatedAt:      timestamptzValue(now),
@@ -155,7 +159,7 @@ func TestCompleteNodeAndScheduleDownstream_PreExistingWakeupSkippedByIdempotency
 	}
 
 	res, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey: "dag-1", NodeKey: "A", Status: "done", Result: json.RawMessage(`{}`),
+		DagKey: "dag-1", NodeKey: "A", RunID: completeDownstreamRunID, Status: "done", Result: json.RawMessage(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("complete error = %v", err)
@@ -185,18 +189,18 @@ func TestCompleteNodeAndScheduleDownstream_SecondCompleteOnDoneNodeIsNoRowsError
 	// the tx is short-circuited so no downstream scheduling runs and no
 	// duplicate wakeup row is created.
 	store, db, now := newTaskDAGTestStore()
-	seedDAG(t, db, now, []seedNode{
+	seedRuntimeDAG(t, db, now, []seedNode{
 		{key: "A", deps: nil, status: "running", agent: "agent-a"},
 		{key: "B", deps: []string{"A"}, status: "pending", agent: "agent-b"},
 	})
 
 	if _, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey: "dag-1", NodeKey: "A", Status: "done", Result: json.RawMessage(`{}`),
+		DagKey: "dag-1", NodeKey: "A", RunID: completeDownstreamRunID, Status: "done", Result: json.RawMessage(`{}`),
 	}); err != nil {
 		t.Fatalf("first complete error = %v", err)
 	}
 	if _, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey: "dag-1", NodeKey: "A", Status: "done", Result: json.RawMessage(`{}`),
+		DagKey: "dag-1", NodeKey: "A", RunID: completeDownstreamRunID, Status: "done", Result: json.RawMessage(`{}`),
 	}); err == nil {
 		t.Fatal("second complete error = nil, want fence rejection")
 	}
@@ -212,14 +216,14 @@ func TestCompleteNodeAndScheduleDownstream_ConcurrentUpstreamsConvergeOnSameDown
 	// idempotency-key conflict (B was already queued by the first), so the
 	// returned ScheduledDownstream slice excludes it.
 	store, db, now := newTaskDAGTestStore()
-	seedDAG(t, db, now, []seedNode{
+	seedRuntimeDAG(t, db, now, []seedNode{
 		{key: "A1", deps: nil, status: "running", agent: "agent-a1"},
 		{key: "A2", deps: nil, status: "running", agent: "agent-a2"},
 		{key: "B", deps: []string{"A1", "A2"}, status: "pending", agent: "agent-b"},
 	})
 
 	if _, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey: "dag-1", NodeKey: "A1", Status: "done", Result: json.RawMessage(`{}`),
+		DagKey: "dag-1", NodeKey: "A1", RunID: completeDownstreamRunID, Status: "done", Result: json.RawMessage(`{}`),
 	}); err != nil {
 		t.Fatalf("complete A1 error = %v", err)
 	}
@@ -229,7 +233,7 @@ func TestCompleteNodeAndScheduleDownstream_ConcurrentUpstreamsConvergeOnSameDown
 	}
 	// Complete A2 → B becomes ready and is enqueued exactly once.
 	resA2, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey: "dag-1", NodeKey: "A2", Status: "done", Result: json.RawMessage(`{}`),
+		DagKey: "dag-1", NodeKey: "A2", RunID: completeDownstreamRunID, Status: "done", Result: json.RawMessage(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("complete A2 error = %v", err)
@@ -257,7 +261,7 @@ func TestCompleteNodeAndScheduleDownstream_SkipsWakeupForUnassignedNode(t *testi
 	t.Parallel()
 
 	store, db, now := newTaskDAGTestStore()
-	seedDAG(t, db, now, []seedNode{
+	seedRuntimeDAG(t, db, now, []seedNode{
 		{key: "A", deps: nil, status: "running", agent: "agent-a"},
 		{key: "B", deps: []string{"A"}, status: "pending", agent: ""},
 	})
@@ -265,6 +269,7 @@ func TestCompleteNodeAndScheduleDownstream_SkipsWakeupForUnassignedNode(t *testi
 	res, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
 		DagKey:  "dag-1",
 		NodeKey: "A",
+		RunID:   completeDownstreamRunID,
 		Status:  "done",
 		Result:  json.RawMessage(`{}`),
 	})
@@ -283,7 +288,7 @@ func TestCompleteNodeAndScheduleDownstream_SkipsWakeupForUnassignedNode(t *testi
 		t.Fatalf("B wakeup count = %d, want 0 (unassigned must skip enqueue)", c)
 	}
 	// 关键断言 3（F6.3）：B 节点状态被 promote 到 ready（即使 unassigned）。
-	if got := db.nodes[dagNodeKey("dag-1", "B")].Status; got != "ready" {
+	if got := db.nodes[dagRunNodeKey("dag-1", "B", completeDownstreamRunID)].Status; got != "ready" {
 		t.Fatalf("B status = %q, want ready (F6.3 promote pending→ready)", got)
 	}
 	// 关键断言 4（F6.3）：PromotedDownstream 应包含 B（状态机真相 vs F6.4 路由）。
@@ -304,7 +309,7 @@ func TestCompleteNodeAndScheduleDownstream_SkipsWakeupForWhitespaceAssignedTo(t 
 	t.Parallel()
 
 	store, db, now := newTaskDAGTestStore()
-	seedDAG(t, db, now, []seedNode{
+	seedRuntimeDAG(t, db, now, []seedNode{
 		{key: "A", deps: nil, status: "running", agent: "agent-a"},
 		{key: "B", deps: []string{"A"}, status: "pending", agent: "   "},
 	})
@@ -312,6 +317,7 @@ func TestCompleteNodeAndScheduleDownstream_SkipsWakeupForWhitespaceAssignedTo(t 
 	res, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
 		DagKey:  "dag-1",
 		NodeKey: "A",
+		RunID:   completeDownstreamRunID,
 		Status:  "done",
 		Result:  json.RawMessage(`{}`),
 	})
@@ -330,7 +336,7 @@ func TestCompleteNodeAndScheduleDownstream_SkipsWakeupForWhitespaceAssignedTo(t 
 		t.Fatalf("B wakeup count = %d, want 0 (whitespace assigned_to must skip enqueue)", c)
 	}
 	// 关键断言 3（F6.3）：B 状态被 promote 到 ready（无论 assigned_to 是否空白）。
-	if got := db.nodes[dagNodeKey("dag-1", "B")].Status; got != "ready" {
+	if got := db.nodes[dagRunNodeKey("dag-1", "B", completeDownstreamRunID)].Status; got != "ready" {
 		t.Fatalf("B status = %q, want ready (F6.3 promote pending→ready)", got)
 	}
 }
@@ -345,7 +351,7 @@ func TestCompleteNodeAndScheduleDownstream_MixedAssignmentFanOut(t *testing.T) {
 	t.Parallel()
 
 	store, db, now := newTaskDAGTestStore()
-	seedDAG(t, db, now, []seedNode{
+	seedRuntimeDAG(t, db, now, []seedNode{
 		{key: "A", deps: nil, status: "running", agent: "agent-a"},
 		{key: "B", deps: []string{"A"}, status: "pending", agent: "agent-b"},
 		{key: "C", deps: []string{"A"}, status: "pending", agent: ""},
@@ -355,6 +361,7 @@ func TestCompleteNodeAndScheduleDownstream_MixedAssignmentFanOut(t *testing.T) {
 	res, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
 		DagKey:  "dag-1",
 		NodeKey: "A",
+		RunID:   completeDownstreamRunID,
 		Status:  "done",
 		Result:  json.RawMessage(`{}`),
 	})
@@ -384,18 +391,18 @@ func TestCompleteNodeAndScheduleDownstream_F63_PromotesPendingToReadyWithAssigne
 	t.Parallel()
 
 	store, db, now := newTaskDAGTestStore()
-	seedDAG(t, db, now, []seedNode{
+	seedRuntimeDAG(t, db, now, []seedNode{
 		{key: "A", deps: nil, status: "running", agent: "agent-a"},
 		{key: "B", deps: []string{"A"}, status: "pending", agent: "agent-b"},
 	})
 
 	res, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey: "dag-1", NodeKey: "A", Status: "done", Result: json.RawMessage(`{}`),
+		DagKey: "dag-1", NodeKey: "A", RunID: completeDownstreamRunID, Status: "done", Result: json.RawMessage(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("complete A error = %v", err)
 	}
-	if got := db.nodes[dagNodeKey("dag-1", "B")].Status; got != "ready" {
+	if got := db.nodes[dagRunNodeKey("dag-1", "B", completeDownstreamRunID)].Status; got != "ready" {
 		t.Fatalf("B status = %q, want ready (F6.3 promote)", got)
 	}
 	if keys := promotedKeys(res.PromotedDownstream); !equalStrings(keys, []string{"B"}) {
@@ -414,7 +421,7 @@ func TestCompleteNodeAndScheduleDownstream_F63_DiamondPartialUpstreamNoPromote(t
 	t.Parallel()
 
 	store, db, now := newTaskDAGTestStore()
-	seedDAG(t, db, now, []seedNode{
+	seedRuntimeDAG(t, db, now, []seedNode{
 		{key: "A", deps: nil, status: "running", agent: "agent-a"},
 		{key: "B", deps: []string{"A"}, status: "pending", agent: "agent-b"},
 		{key: "C", deps: []string{"A"}, status: "pending", agent: "agent-c"},
@@ -423,7 +430,7 @@ func TestCompleteNodeAndScheduleDownstream_F63_DiamondPartialUpstreamNoPromote(t
 
 	// 1) A done → promote B, C 但不 promote D。
 	resA, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey: "dag-1", NodeKey: "A", Status: "done", Result: json.RawMessage(`{}`),
+		DagKey: "dag-1", NodeKey: "A", RunID: completeDownstreamRunID, Status: "done", Result: json.RawMessage(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("complete A error = %v", err)
@@ -431,14 +438,14 @@ func TestCompleteNodeAndScheduleDownstream_F63_DiamondPartialUpstreamNoPromote(t
 	if keys := promotedKeys(resA.PromotedDownstream); !equalStrings(keys, []string{"B", "C"}) {
 		t.Fatalf("after A promoted = %v, want [B C]", keys)
 	}
-	if got := db.nodes[dagNodeKey("dag-1", "D")].Status; got != "pending" {
+	if got := db.nodes[dagRunNodeKey("dag-1", "D", completeDownstreamRunID)].Status; got != "pending" {
 		t.Fatalf("after A: D status = %q, want pending (deps B,C still pending)", got)
 	}
 
 	// 2) 调度上上 B 进运行后 done，D 仍不能 promote（C 未 done）。
 	transitionToRunning(t, db, "B")
 	resB, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey: "dag-1", NodeKey: "B", Status: "done", Result: json.RawMessage(`{}`),
+		DagKey: "dag-1", NodeKey: "B", RunID: completeDownstreamRunID, Status: "done", Result: json.RawMessage(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("complete B error = %v", err)
@@ -446,14 +453,14 @@ func TestCompleteNodeAndScheduleDownstream_F63_DiamondPartialUpstreamNoPromote(t
 	if keys := promotedKeys(resB.PromotedDownstream); len(keys) != 0 {
 		t.Fatalf("after B alone promoted = %v, want [] (D deps not fully satisfied)", keys)
 	}
-	if got := db.nodes[dagNodeKey("dag-1", "D")].Status; got != "pending" {
+	if got := db.nodes[dagRunNodeKey("dag-1", "D", completeDownstreamRunID)].Status; got != "pending" {
 		t.Fatalf("after B: D status = %q, want pending", got)
 	}
 
 	// 3) C done → D 依赖全部满足 → promote。
 	transitionToRunning(t, db, "C")
 	resC, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey: "dag-1", NodeKey: "C", Status: "done", Result: json.RawMessage(`{}`),
+		DagKey: "dag-1", NodeKey: "C", RunID: completeDownstreamRunID, Status: "done", Result: json.RawMessage(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("complete C error = %v", err)
@@ -461,7 +468,7 @@ func TestCompleteNodeAndScheduleDownstream_F63_DiamondPartialUpstreamNoPromote(t
 	if keys := promotedKeys(resC.PromotedDownstream); !equalStrings(keys, []string{"D"}) {
 		t.Fatalf("after C promoted = %v, want [D]", keys)
 	}
-	if got := db.nodes[dagNodeKey("dag-1", "D")].Status; got != "ready" {
+	if got := db.nodes[dagRunNodeKey("dag-1", "D", completeDownstreamRunID)].Status; got != "ready" {
 		t.Fatalf("after C: D status = %q, want ready", got)
 	}
 }
@@ -474,14 +481,14 @@ func TestCompleteNodeAndScheduleDownstream_F63_ChainAToBToC(t *testing.T) {
 	t.Parallel()
 
 	store, db, now := newTaskDAGTestStore()
-	seedDAG(t, db, now, []seedNode{
+	seedRuntimeDAG(t, db, now, []seedNode{
 		{key: "A", deps: nil, status: "running", agent: "agent-a"},
 		{key: "B", deps: []string{"A"}, status: "pending", agent: "agent-b"},
 		{key: "C", deps: []string{"B"}, status: "pending", agent: "agent-c"},
 	})
 
 	resA, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey: "dag-1", NodeKey: "A", Status: "done", Result: json.RawMessage(`{}`),
+		DagKey: "dag-1", NodeKey: "A", RunID: completeDownstreamRunID, Status: "done", Result: json.RawMessage(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("complete A error = %v", err)
@@ -489,16 +496,16 @@ func TestCompleteNodeAndScheduleDownstream_F63_ChainAToBToC(t *testing.T) {
 	if keys := promotedKeys(resA.PromotedDownstream); !equalStrings(keys, []string{"B"}) {
 		t.Fatalf("after A promoted = %v, want [B]", keys)
 	}
-	if got := db.nodes[dagNodeKey("dag-1", "B")].Status; got != "ready" {
+	if got := db.nodes[dagRunNodeKey("dag-1", "B", completeDownstreamRunID)].Status; got != "ready" {
 		t.Fatalf("after A: B status = %q, want ready", got)
 	}
-	if got := db.nodes[dagNodeKey("dag-1", "C")].Status; got != "pending" {
+	if got := db.nodes[dagRunNodeKey("dag-1", "C", completeDownstreamRunID)].Status; got != "pending" {
 		t.Fatalf("after A: C status = %q, want pending (B not done yet)", got)
 	}
 
 	transitionToRunning(t, db, "B")
 	resB, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey: "dag-1", NodeKey: "B", Status: "done", Result: json.RawMessage(`{}`),
+		DagKey: "dag-1", NodeKey: "B", RunID: completeDownstreamRunID, Status: "done", Result: json.RawMessage(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("complete B error = %v", err)
@@ -506,7 +513,7 @@ func TestCompleteNodeAndScheduleDownstream_F63_ChainAToBToC(t *testing.T) {
 	if keys := promotedKeys(resB.PromotedDownstream); !equalStrings(keys, []string{"C"}) {
 		t.Fatalf("after B promoted = %v, want [C]", keys)
 	}
-	if got := db.nodes[dagNodeKey("dag-1", "C")].Status; got != "ready" {
+	if got := db.nodes[dagRunNodeKey("dag-1", "C", completeDownstreamRunID)].Status; got != "ready" {
 		t.Fatalf("after B: C status = %q, want ready", got)
 	}
 }
@@ -522,7 +529,7 @@ func TestCompleteNodeAndScheduleDownstream_F63_PromoteEvenWithoutAssignedTo(t *t
 	t.Parallel()
 
 	store, db, now := newTaskDAGTestStore()
-	seedDAG(t, db, now, []seedNode{
+	seedRuntimeDAG(t, db, now, []seedNode{
 		{key: "A", deps: nil, status: "running", agent: "agent-a"},
 		{key: "B", deps: []string{"A"}, status: "pending", agent: "agent-b"},
 		{key: "C", deps: []string{"A"}, status: "pending", agent: ""},
@@ -530,7 +537,7 @@ func TestCompleteNodeAndScheduleDownstream_F63_PromoteEvenWithoutAssignedTo(t *t
 	})
 
 	res, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey: "dag-1", NodeKey: "A", Status: "done", Result: json.RawMessage(`{}`),
+		DagKey: "dag-1", NodeKey: "A", RunID: completeDownstreamRunID, Status: "done", Result: json.RawMessage(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("complete A error = %v", err)
@@ -540,7 +547,7 @@ func TestCompleteNodeAndScheduleDownstream_F63_PromoteEvenWithoutAssignedTo(t *t
 		t.Fatalf("PromotedDownstream = %v, want [B C D] (promote ignores assigned_to)", keys)
 	}
 	for _, k := range []string{"B", "C", "D"} {
-		if got := db.nodes[dagNodeKey("dag-1", k)].Status; got != "ready" {
+		if got := db.nodes[dagRunNodeKey("dag-1", k, completeDownstreamRunID)].Status; got != "ready" {
 			t.Errorf("%s status = %q, want ready (F6.3 promote)", k, got)
 		}
 	}
@@ -559,13 +566,13 @@ func TestCompleteNodeAndScheduleDownstream_F63_ReentrantSecondCompleteNoDoublePr
 	t.Parallel()
 
 	store, db, now := newTaskDAGTestStore()
-	seedDAG(t, db, now, []seedNode{
+	seedRuntimeDAG(t, db, now, []seedNode{
 		{key: "A", deps: nil, status: "running", agent: "agent-a"},
 		{key: "B", deps: []string{"A"}, status: "pending", agent: "agent-b"},
 	})
 
 	res1, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey: "dag-1", NodeKey: "A", Status: "done", Result: json.RawMessage(`{}`),
+		DagKey: "dag-1", NodeKey: "A", RunID: completeDownstreamRunID, Status: "done", Result: json.RawMessage(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("first complete A error = %v", err)
@@ -576,11 +583,11 @@ func TestCompleteNodeAndScheduleDownstream_F63_ReentrantSecondCompleteNoDoublePr
 	// 第二次 complete A 被 CompleteTaskDagNode fence 拒（这部分原有测试覆盖）；
 	// 不会走到 promote。B 仍然为 ready、PromotedDownstream 未重复上报。
 	if _, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey: "dag-1", NodeKey: "A", Status: "done", Result: json.RawMessage(`{}`),
+		DagKey: "dag-1", NodeKey: "A", RunID: completeDownstreamRunID, Status: "done", Result: json.RawMessage(`{}`),
 	}); err == nil {
 		t.Fatal("second complete A error = nil, want fence rejection")
 	}
-	if got := db.nodes[dagNodeKey("dag-1", "B")].Status; got != "ready" {
+	if got := db.nodes[dagRunNodeKey("dag-1", "B", completeDownstreamRunID)].Status; got != "ready" {
 		t.Fatalf("B status = %q, want ready (idempotent)", got)
 	}
 }
@@ -603,7 +610,24 @@ type seedNode struct {
 	agent  string
 }
 
+const completeDownstreamRunID int64 = 501
+
+func completeDownstreamRunIDValue() sqlc.Int8 {
+	id := completeDownstreamRunID
+	return sqlc.Int8ValuePtr(&id)
+}
+
 func seedDAG(t *testing.T, db *fakeTaskDAGDB, now time.Time, nodes []seedNode) {
+	t.Helper()
+	seedDAGRows(t, db, now, nodes, 0)
+}
+
+func seedRuntimeDAG(t *testing.T, db *fakeTaskDAGDB, now time.Time, nodes []seedNode) {
+	t.Helper()
+	seedDAGRows(t, db, now, nodes, completeDownstreamRunID)
+}
+
+func seedDAGRows(t *testing.T, db *fakeTaskDAGDB, now time.Time, nodes []seedNode, runID int64) {
 	t.Helper()
 	for i, n := range nodes {
 		depsJSON := []byte(`[]`)
@@ -627,13 +651,19 @@ func seedDAG(t *testing.T, db *fakeTaskDAGDB, now time.Time, nodes []seedNode) {
 			CreatedAt:  timestamptzValue(now.Add(time.Duration(i) * time.Millisecond)),
 			UpdatedAt:  timestamptzValue(now),
 		}
-		db.nodes[dagNodeKey("dag-1", n.key)] = row
+		key := dagNodeKey("dag-1", n.key)
+		if runID > 0 {
+			id := runID
+			row.RunID = sqlc.Int8ValuePtr(&id)
+			key = dagRunNodeKey("dag-1", n.key, runID)
+		}
+		db.nodes[key] = row
 	}
 }
 
 func transitionToRunning(t *testing.T, db *fakeTaskDAGDB, nodeKey string) {
 	t.Helper()
-	key := dagNodeKey("dag-1", nodeKey)
+	key := dagRunNodeKey("dag-1", nodeKey, completeDownstreamRunID)
 	row, ok := db.nodes[key]
 	if !ok {
 		t.Fatalf("node %s not found", nodeKey)

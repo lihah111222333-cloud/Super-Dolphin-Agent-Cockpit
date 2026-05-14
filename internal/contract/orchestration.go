@@ -36,11 +36,10 @@ type OrchestrationService interface {
 	// StartDAG 触发 DAG 一次新执行（骨架阶段 stub，返回 ErrLifecycleNotImplemented）。
 	StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGResponse, error)
 	// GetRun 按 run_key 查询单条 run（task_get_run MCP 工具承载点）。
-	// 节点信息不内联，调用方需另查 task_get_dag。
-	//
+	// F6.5 后返回该 run 的 runtime nodes；task_get_dag 只读 DAG 模板节点。
 	// GetRun fetches a single run by run_key (backs the task_get_run MCP tool).
-	// Node-level data is intentionally not inlined; callers go through
-	// task_get_dag for that.
+	// After F6.5 it returns the run's runtime nodes; task_get_dag reads only
+	// DAG template nodes.
 	GetRun(ctx context.Context, req GetRunRequest) (GetRunResponse, error)
 	// ApplyOps 对 DAG 执行一组 typed ops (add/update/remove/update_dag) + base_version OCC。
 	// Ops 字段是 raw JSON（wire 格式），service 内部解码为 nodeexec.Ops。
@@ -253,10 +252,10 @@ type ListDAGsFilter struct {
 }
 
 type UpdateNodeStatusRequest struct {
-	DagKey  string
-	NodeKey string
-	Status  string
-	Result  json.RawMessage
+	DagKey, NodeKey string
+	RunID           int64
+	Status          string
+	Result          json.RawMessage
 }
 
 // DAG v2 骨架阶段 T1.1: StartDAG 生命周期入参出参。
@@ -299,15 +298,14 @@ type GetRunRequest struct {
 }
 
 // GetRunResponse 是 task_get_run / OrchestrationService.GetRun 的出参。
-// 决策：不 inline 节点信息（调用方走 task_get_dag 拿 DAG 模板 + 节点），
-// 保证单一职责、避免与 DAG 表联查 N+1。
+// F6.5 后 Nodes 是当前 run 的 runtime node 快照；DAG 模板仍由 task_get_dag 读取。
 //
 // GetRunResponse is the output for task_get_run / OrchestrationService.GetRun.
-// Decision: nodes are intentionally NOT inlined; callers fetch DAG template +
-// nodes via task_get_dag, keeping responsibilities single and avoiding an
-// implicit join with the dag-node table.
+// After F6.5 Nodes carries the runtime-node snapshot for this run; the DAG
+// template remains available through task_get_dag.
 type GetRunResponse struct {
-	Run Run `json:"run"`
+	Run   Run       `json:"run"`
+	Nodes []DAGNode `json:"nodes,omitempty"`
 }
 
 // Run 是 task_dag_runs 的外露 DTO，镜像 cmd/mcp-orch/store/taskdag.Run 字段。

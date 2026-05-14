@@ -23,6 +23,7 @@ func TestDispatchAgent_WritesRunningOnSuccess(t *testing.T) {
 		nodes: []taskdag.Node{{
 			DagKey:   "dag-1",
 			NodeKey:  "n1",
+			RunID:    routerTestRunID(7),
 			NodeType: "agent",
 			Title:    "n1",
 			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),
@@ -32,7 +33,7 @@ func TestDispatchAgent_WritesRunningOnSuccess(t *testing.T) {
 	router := NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil)
 
 	outcome, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
-		ID: 42, DagKey: "dag-1", NodeKey: "n1",
+		ID: 42, DagKey: "dag-1", NodeKey: "n1", RunID: routerTestRunID(7),
 	})
 	if err != nil {
 		t.Fatalf("RouteByWakeup err = %v", err)
@@ -44,7 +45,7 @@ func TestDispatchAgent_WritesRunningOnSuccess(t *testing.T) {
 		t.Fatalf("runningStatusCalls = %d, want 1", len(store.runningStatusCalls))
 	}
 	got := store.runningStatusCalls[0]
-	if got.DagKey != "dag-1" || got.NodeKey != "n1" || got.Status != "running" || got.WakeupID != 42 {
+	if got.DagKey != "dag-1" || got.NodeKey != "n1" || got.RunID != 7 || got.Status != "running" || got.WakeupID != 42 {
 		t.Fatalf("got = %+v, want dag-1/n1/running/wakeup=42", got)
 	}
 	after := DispatchAgentRunningCounters()
@@ -67,6 +68,7 @@ func TestDispatchAgent_RaceWindowD_NoRowsIsSilent(t *testing.T) {
 		nodes: []taskdag.Node{{
 			DagKey:   "dag-1",
 			NodeKey:  "n1",
+			RunID:    routerTestRunID(7),
 			NodeType: "agent",
 			Title:    "n1",
 			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),
@@ -77,7 +79,7 @@ func TestDispatchAgent_RaceWindowD_NoRowsIsSilent(t *testing.T) {
 	router := NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil)
 
 	outcome, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
-		ID: 7, DagKey: "dag-1", NodeKey: "n1",
+		ID: 7, DagKey: "dag-1", NodeKey: "n1", RunID: routerTestRunID(7),
 	})
 	if err != nil {
 		t.Fatalf("RouteByWakeup err = %v (race D should be silent)", err)
@@ -111,6 +113,7 @@ func TestDispatchAgent_DBErrorIsLoggedNotPropagated(t *testing.T) {
 		nodes: []taskdag.Node{{
 			DagKey:   "dag-1",
 			NodeKey:  "n1",
+			RunID:    routerTestRunID(7),
 			NodeType: "agent",
 			Title:    "n1",
 			Config:   json.RawMessage(`{"exec":{"agent_key":"alpha"},"first_turn":"hi"}`),
@@ -121,7 +124,7 @@ func TestDispatchAgent_DBErrorIsLoggedNotPropagated(t *testing.T) {
 	router := NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil)
 
 	outcome, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
-		ID: 99, DagKey: "dag-1", NodeKey: "n1",
+		ID: 99, DagKey: "dag-1", NodeKey: "n1", RunID: routerTestRunID(7),
 	})
 	if err != nil {
 		t.Fatalf("RouteByWakeup err = %v, want nil (db err must not propagate)", err)
@@ -146,6 +149,7 @@ func TestDispatchAgent_LaunchFailedDoesNotWriteRunning(t *testing.T) {
 		nodes: []taskdag.Node{{
 			DagKey:   "dag-1",
 			NodeKey:  "n1",
+			RunID:    routerTestRunID(7),
 			NodeType: "agent",
 			Title:    "n1",
 			Config:   json.RawMessage(`{"exec":{"agent_key":"bad"},"first_turn":"hi"}`),
@@ -155,7 +159,7 @@ func TestDispatchAgent_LaunchFailedDoesNotWriteRunning(t *testing.T) {
 	router := NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil)
 
 	outcome, _ := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
-		ID: 1, DagKey: "dag-1", NodeKey: "n1",
+		ID: 1, DagKey: "dag-1", NodeKey: "n1", RunID: routerTestRunID(7),
 	})
 	if outcome.Status != nodeexec.NodeStatusFailed {
 		t.Fatalf("outcome.Status = %v, want failed (launch refused)", outcome.Status)

@@ -18,7 +18,8 @@ SET active_turn_id = $1,
     updated_at = NOW()
 WHERE dag_key = $2
   AND node_key = $3
-  AND (($5::bigint = 0 AND run_id IS NULL) OR run_id = $5)
+  AND run_id = $5
+  AND $5::bigint > 0
   AND status = 'running'
   AND active_turn_id IS NULL
   AND active_wakeup_id = $4
@@ -72,7 +73,8 @@ UPDATE task_dag_nodes
 SET status = $1, result = $2::jsonb, active_turn_id = NULL, active_wakeup_id = NULL,
     finished_at = COALESCE(finished_at, NOW()), updated_at = NOW()
 WHERE dag_key = $3 AND node_key = $4
-  AND (($5::bigint = 0 AND run_id IS NULL) OR run_id = $5)
+  AND run_id = $5
+  AND $5::bigint > 0
   AND status IN ('ready', 'running', 'awaiting_verify')
 RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
 `
@@ -125,7 +127,8 @@ SET last_event_at = $1,
     updated_at = NOW()
 WHERE dag_key = $2
   AND node_key = $3
-  AND (($5::bigint = 0 AND run_id IS NULL) OR run_id = $5)
+  AND run_id = $5
+  AND $5::bigint > 0
   AND status = 'running'
   AND active_turn_id = $4
   AND (last_event_at IS NULL OR last_event_at < $1)
@@ -178,7 +181,8 @@ const updateAwaitingVerifyTaskDagNodeStatus = `-- name: UpdateAwaitingVerifyTask
 UPDATE task_dag_nodes
 SET status = $1, result = $2::jsonb, active_turn_id = NULL, active_wakeup_id = NULL, updated_at = NOW()
 WHERE dag_key = $3 AND node_key = $4
-  AND (($5::bigint = 0 AND run_id IS NULL) OR run_id = $5)
+  AND run_id = $5
+  AND $5::bigint > 0
   AND status IN ('running')
 RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
 `
@@ -230,7 +234,8 @@ UPDATE task_dag_nodes
 SET status = $1, result = $2::jsonb, active_turn_id = NULL, active_wakeup_id = $3,
     last_event_at = NULL, started_at = COALESCE(started_at, NOW()), updated_at = NOW()
 WHERE dag_key = $4 AND node_key = $5
-  AND (($6::bigint = 0 AND run_id IS NULL) OR run_id = $6)
+  AND run_id = $6
+  AND $6::bigint > 0
   AND status IN ('pending', 'ready')
 RETURNING id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on, status, command_ref, config, result, started_at, finished_at, created_at, updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
 `

@@ -23,16 +23,15 @@ import (
 // =====================================================
 //
 // service.GetRun 接通 RunStore.GetRun(run_key)，把存储域 Run 转换为
-// contract.Run DTO 返回给 MCP 调用方。节点信息不内联（用户决策 A2）：
-// 调用方需另查 task_get_dag 拿 DAG 模板 + 节点。
+// contract.Run DTO，并返回该 run 的 runtime nodes。task_get_dag 只读
+// DAG 模板节点。
 //
 // service.ListRuns 接通 RunStore.ListRuns(filter)，列出指定 DAG 的最近 run。
 // dag_key 必填、status 透传、limit 默认 50。
 //
-// service.GetRun wires through RunStore.GetRun(run_key) and converts the
-// storage-domain Run into a contract.Run DTO for MCP callers. Nodes are
-// intentionally not inlined (user decision A2): callers fetch the DAG
-// template + nodes via task_get_dag.
+// service.GetRun wires through RunStore.GetRun(run_key), converts the
+// storage-domain Run into a contract.Run DTO, and returns that run's runtime
+// nodes. task_get_dag reads only DAG template nodes.
 //
 // service.ListRuns wires through RunStore.ListRuns(filter), listing recent
 // runs for a DAG. dag_key required; status passed through; limit defaults to 50.
@@ -80,15 +79,7 @@ func (s *service) GetRun(ctx context.Context, req contract.GetRunRequest) (contr
 		}
 		return contract.GetRunResponse{}, fmt.Errorf("orchestration: GetRun(%q): %w", runKey, err)
 	}
-	if run == nil {
-		// 防御：实现规范 GetRun 在未命中时返回 IsNotFound 域错误而非 (nil, nil)，
-		// 此分支只为兜底未来实现退化（例如新 store 后端忘记包错误）。
-		// Defensive: the GetRun contract returns an IsNotFound error on miss
-		// rather than (nil, nil); this branch only guards against future store
-		// backends that forget to wrap the error.
-		return contract.GetRunResponse{}, fmt.Errorf("%w: %s", ErrRunNotFound, runKey)
-	}
-	return contract.GetRunResponse{Run: dagRunDTO(*run)}, nil
+	return getRunResponse(ctx, s.runStore, runKey, run)
 }
 
 // ListRuns 列出指定 DAG 的最近 run（T3.2）。

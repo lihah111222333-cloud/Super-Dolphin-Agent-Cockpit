@@ -15,6 +15,7 @@ SELECT id, dag_key, node_key, run_id, title, node_type, assigned_to, depends_on,
 FROM task_dag_nodes
 WHERE spawning_thread_id = $1
   AND spawning_thread_id IS NOT NULL
+  AND run_id IS NOT NULL
 ORDER BY updated_at DESC, id DESC
 `
 

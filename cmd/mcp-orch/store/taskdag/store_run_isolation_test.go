@@ -172,10 +172,19 @@ func TestFailNodeAndCancelDownstreamStaysInsideRun(t *testing.T) {
 	if len(res.CanceledDownstream) != 1 || res.CanceledDownstream[0].NodeKey != "child" || res.CanceledDownstream[0].RunID != runA {
 		t.Fatalf("CanceledDownstream = %+v, want run A child only", res.CanceledDownstream)
 	}
+	if res.FinalizedRun == nil || res.FinalizedRun.RunKey != "run-a" || res.FinalizedRun.Status != "failed" {
+		t.Fatalf("FinalizedRun = %+v, want run-a failed", res.FinalizedRun)
+	}
 	assertRunNodeStatus(t, db, runA, "root", "failed")
 	assertRunNodeStatus(t, db, runA, "child", "failed")
 	assertRunNodeStatus(t, db, runB, "root", "running")
 	assertRunNodeStatus(t, db, runB, "child", "pending")
+	if got := runStatusByKey(t, db, "run-a"); got != "failed" {
+		t.Fatalf("run-a status = %q, want failed", got)
+	}
+	if got := runStatusByKey(t, db, "run-b"); got != "running" {
+		t.Fatalf("run-b status = %q, want running", got)
+	}
 }
 
 func seedRunID(db *fakeTaskDAGDB, dagKey, runKey string) int64 {

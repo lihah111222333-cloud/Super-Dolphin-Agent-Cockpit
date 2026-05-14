@@ -79,6 +79,63 @@ func TestGetRun_HappyPath(t *testing.T) {
 	}
 }
 
+func TestGetRun_IncludesRuntimeNodesForRun(t *testing.T) {
+	now := time.Date(2026, 5, 14, 8, 0, 0, 0, time.UTC)
+	runID := int64(9001)
+	stub := &stubRunStore{
+		getRunReply: &taskdag.Run{
+			ID:                 runID,
+			RunKey:             "dag-1#run-9001",
+			DagKey:             "dag-1",
+			DagVersionSnapshot: 12,
+			Status:             "running",
+			StartedAt:          now,
+			CreatedAt:          now,
+			UpdatedAt:          now,
+		},
+		listRunNodesReply: []taskdag.Node{
+			{
+				ID:        1,
+				DagKey:    "dag-1",
+				NodeKey:   "n1",
+				RunID:     &runID,
+				Title:     "N1",
+				Status:    "ready",
+				DependsOn: json.RawMessage(`[]`),
+				Config:    json.RawMessage(`{"exec":{"agent_key":"coder"}}`),
+				CreatedAt: now,
+				UpdatedAt: now,
+			},
+		},
+	}
+	svc := makeGetRunService(stub)
+
+	resp, err := svc.GetRun(context.Background(), contract.GetRunRequest{RunKey: "dag-1#run-9001"})
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if got := stub.listRunNodesCalls; len(got) != 1 || got[0].DagKey != "dag-1" || got[0].RunID != runID {
+		t.Fatalf("ListRunNodes calls = %+v, want dag-1 run_id=%d", got, runID)
+	}
+	if len(resp.Nodes) != 1 {
+		t.Fatalf("resp.Nodes len = %d, want 1 runtime node", len(resp.Nodes))
+	}
+	if got := resp.Nodes[0]; got.NodeKey != "n1" || got.Status != "ready" {
+		t.Fatalf("resp.Nodes[0] = %+v, want n1 ready", got)
+	}
+}
+
+func TestUpdateNodeParams_UnmarshalLegacyRunIDAlias(t *testing.T) {
+	var params updateNodeParams
+	if err := json.Unmarshal([]byte(`{"dagKey":"dag-1","nodeKey":"n1","runId":77,"status":"done"}`), &params); err != nil {
+		t.Fatalf("json.Unmarshal(updateNodeParams) error = %v", err)
+	}
+	req := updateNodeRequestFromParams(params)
+	if req.DagKey != "dag-1" || req.NodeKey != "n1" || req.RunID != 77 || req.Status != "done" {
+		t.Fatalf("updateNodeRequestFromParams = %+v, want dag-1/n1 run_id=77 status=done", req)
+	}
+}
+
 // ---- run_key 缺失 → required 校验 ----
 func TestGetRun_BlankRunKey_Rejected(t *testing.T) {
 	stub := &stubRunStore{}

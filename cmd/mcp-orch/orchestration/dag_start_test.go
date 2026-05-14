@@ -46,7 +46,11 @@ type stubRunStore struct {
 	withTxErr error // 模拟事务整体失败 (L3: 可传 *pgconn.PgError 走 unique violation 路径)
 
 	getRunReply *taskdag.Run // 不为 nil 代表 GetRun 命中 (幂等路径)
-	getRunErr   error        // 不为 nil 走 GetRun 错误路径；IsNotFound 表示未命中 → ErrDAGAlreadyRunning
+	getRunErr   error        // 不为 nil 走 GetRun 错误路径；IsNotFound 表示未命中 → unresolved unique violation
+
+	listRunNodesReply []taskdag.Node
+	listRunNodesErr   error
+	listRunNodesCalls []runNodeCall
 
 	// ListRuns 行为定制（T3.2）。listRunsReply 默认 nil（store 返空 slice），
 	// listRunsErr 非 nil 走错误路径。listRunsCalls / listRunsLastFilter 用于
@@ -133,6 +137,14 @@ func (s *stubRunStore) GetRun(_ context.Context, runKey string) (*taskdag.Run, e
 	return s.getRunReply, nil
 }
 
+func (s *stubRunStore) ListRunNodes(_ context.Context, dagKey string, runID int64) ([]taskdag.Node, error) {
+	s.listRunNodesCalls = append(s.listRunNodesCalls, runNodeCall{DagKey: dagKey, RunID: runID})
+	if s.listRunNodesErr != nil {
+		return nil, s.listRunNodesErr
+	}
+	return s.listRunNodesReply, nil
+}
+
 // uniqueViolationErr 交付一个 SQLSTATE 23505 错误供 stub.WithRunTx 返回，
 // 以便驱动 service 走 GetRun-first fallback 路径。
 func uniqueViolationErr(constraintName string) error {
@@ -164,7 +176,7 @@ func TestStartDAG_HappyPath(t *testing.T) {
 	if !strings.HasPrefix(resp.RunKey, "dag-1#run-") {
 		t.Errorf("resp.RunKey = %q, want prefix dag-1#run-", resp.RunKey)
 	}
-	// L3 后 service 不再调 CountActiveRunsByDagKey（DB partial unique 兑底）。
+	// F6.5 后 service 不再调 CountActiveRunsByDagKey；同 DAG 可并发多 run。
 	if got := len(runStore.countCalls); got != 0 {
 		t.Errorf("CountActiveRunsByDagKey calls = %d, want 0 (L3: DB-side guard)", got)
 	}
@@ -457,22 +469,27 @@ func TestStartDAG_CreateRunGenericError_NoFallback(t *testing.T) {
 	}
 }
 
-// ---- DB 冲突 (partial unique on running run) + GetRun 未命中 → ErrDAGAlreadyRunning ----
+// ---- DB unique 冲突 + GetRun 未命中 → 原始 unique error 透出 ----
 //
-// L3 后 service 不再在应用层预检 active run，DB partial unique 兑底。本测驱动
-// WithRunTx 返回一个 SQLSTATE 23505 错误，然后 GetRun 返 nil/IsNotFound 表示
-// run_key 未命中，证明冲突来自 dag_key partial unique → service 返 ErrDAGAlreadyRunning。
-func TestStartDAG_DBUniqueViolation_DAGAlreadyRunning(t *testing.T) {
+// F6.5 移除了 dag-level single-running-run unique。unique violation fallback
+// 现在只用于 run_key 幂等复用；GetRun miss 说明不是当前 run_key 的幂等冲突。
+func TestStartDAG_DBUniqueViolation_GetRunMissPropagatesOriginal(t *testing.T) {
 	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
 	runStore := &stubRunStore{
-		withTxErr: uniqueViolationErr("uniq_task_dag_runs_one_running_per_dag"),
+		withTxErr: uniqueViolationErr("some_other_unique"),
 		getRunErr: platformdb.ErrNotFound, // GetRun 未命中
 	}
 	svc := makeStartDAGService(dagStore, runStore)
 
 	_, err := svc.StartDAG(context.Background(), StartDAGRequest{DagKey: "dag-1"})
-	if !errors.Is(err, ErrDAGAlreadyRunning) {
-		t.Fatalf("StartDAG() error = %v, want errors.Is(ErrDAGAlreadyRunning)", err)
+	if err == nil {
+		t.Fatalf("StartDAG() error = nil, want unresolved unique violation")
+	}
+	if errors.Is(err, ErrDAGAlreadyRunning) {
+		t.Fatalf("StartDAG() error = %v, should not match legacy ErrDAGAlreadyRunning", err)
+	}
+	if !strings.Contains(err.Error(), "unresolved unique violation") {
+		t.Fatalf("StartDAG() error = %v, want unresolved unique violation context", err)
 	}
 	if got := len(runStore.getRunCalls); got != 1 {
 		t.Errorf("GetRun fallback calls = %d, want 1", got)

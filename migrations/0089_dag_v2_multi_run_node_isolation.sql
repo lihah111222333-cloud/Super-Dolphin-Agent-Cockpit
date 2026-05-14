@@ -8,6 +8,9 @@
 --   DROP INDEX IF EXISTS uq_task_dag_nodes_runtime_dag_run_node;
 --   DROP INDEX IF EXISTS uq_task_dag_nodes_template_dag_node;
 --   ALTER TABLE task_dag_nodes ADD CONSTRAINT uq_task_dag_nodes_dag_node UNIQUE (dag_key, node_key);
+--   -- Only safe before runtime clone rows exist, or after deleting/merging all
+--   -- run_id IS NOT NULL task_dag_nodes rows for this DAG model.
+--   ALTER TABLE task_dag_wakeups DROP CONSTRAINT IF EXISTS chk_task_dag_wakeups_runtime_run_id;
 --   ALTER TABLE task_dag_wakeups DROP CONSTRAINT IF EXISTS fk_task_dag_wakeups_run_id;
 --   DROP INDEX IF EXISTS idx_task_dag_wakeups_run_id;
 --   ALTER TABLE task_dag_wakeups DROP COLUMN IF EXISTS run_id;
@@ -15,6 +18,35 @@
 --     ON task_dag_runs (dag_key) WHERE status = 'running';
 
 BEGIN;
+
+-- F6.5 changes existing run_id IS NULL nodes back to template-only rows.
+-- Upgrade must happen with no in-flight DAG run/wakeup; otherwise old runtime
+-- rows would be indistinguishable from templates under the new identity model.
+CREATE TEMP TABLE dag_v2_0089_guard_active_runs (
+  violation BOOLEAN NOT NULL CHECK (violation = FALSE)
+) ON COMMIT DROP;
+
+INSERT INTO dag_v2_0089_guard_active_runs (violation)
+SELECT TRUE
+WHERE EXISTS (
+  SELECT 1
+  FROM task_dag_runs
+  WHERE status = 'running'
+);
+
+CREATE TEMP TABLE dag_v2_0089_guard_active_wakeups (
+  violation BOOLEAN NOT NULL CHECK (violation = FALSE)
+) ON COMMIT DROP;
+
+INSERT INTO dag_v2_0089_guard_active_wakeups (violation)
+SELECT TRUE
+WHERE EXISTS (
+  SELECT 1
+  FROM task_dag_wakeups
+  WHERE status IN ('pending', 'dispatching')
+    AND BTRIM(dag_key) <> ''
+    AND BTRIM(node_key) <> ''
+);
 
 -- F6.5 removes the T1.2-mid "one running run per dag_key" guard.
 DROP INDEX IF EXISTS uniq_task_dag_runs_one_running_per_dag;
@@ -49,6 +81,19 @@ ALTER TABLE task_dag_wakeups
 
 ALTER TABLE task_dag_wakeups
   VALIDATE CONSTRAINT fk_task_dag_wakeups_run_id;
+
+ALTER TABLE task_dag_wakeups
+  ADD CONSTRAINT chk_task_dag_wakeups_runtime_run_id
+  CHECK (
+    status NOT IN ('pending', 'dispatching')
+    OR BTRIM(dag_key) = ''
+    OR BTRIM(node_key) = ''
+    OR run_id IS NOT NULL
+  )
+  NOT VALID;
+
+ALTER TABLE task_dag_wakeups
+  VALIDATE CONSTRAINT chk_task_dag_wakeups_runtime_run_id;
 
 CREATE INDEX IF NOT EXISTS idx_task_dag_wakeups_run_id
   ON task_dag_wakeups (run_id);

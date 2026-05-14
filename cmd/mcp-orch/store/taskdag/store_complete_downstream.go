@@ -27,6 +27,9 @@ const (
 )
 
 func (s *store) CompleteNodeAndScheduleDownstream(ctx context.Context, input CompleteNodeInput) (*CompleteNodeWithDownstreamResult, error) {
+	if err := requireRuntimeRunID("complete_and_schedule_downstream", input.RunID); err != nil {
+		return nil, err
+	}
 	var result CompleteNodeWithDownstreamResult
 	err := sqlc.WithTxOrReuse(ctx, s.q, func(txq *sqlc.Queries) error {
 		txStore := &store{q: txq}
@@ -74,6 +77,9 @@ func (s *store) CompleteNodeAndScheduleDownstream(ctx context.Context, input Com
 // the WHERE clause only matches a 'running' run, so re-running it after the
 // first successful flip simply returns zero rows.
 func maybeFinalizeRunTx(ctx context.Context, txStore *store, dagKey string, runID int64) (*FinalizedRunInfo, error) {
+	if err := requireRuntimeRunID("finalize_run", runID); err != nil {
+		return nil, err
+	}
 	rows, err := txStore.q.FinalizeTaskDagRunIfAllNodesTerminal(ctx, sqlc.FinalizeTaskDagRunIfAllNodesTerminalParams{
 		DagKey: dagKey,
 		RunID:  runID,
@@ -109,13 +115,10 @@ func maybeFinalizeRunTx(ctx context.Context, txStore *store, dagKey string, runI
 // decoupled: promote = state-machine truth; enqueue = dispatch routing.
 func scheduleDownstreamWakeupsTx(ctx context.Context, txStore *store, completed *Node) ([]ScheduledDownstreamWakeup, []PromotedDownstreamNode, error) {
 	completedRunID := runIDValue(completed.RunID)
-	var nodes []Node
-	var listErr error
-	if completedRunID == 0 {
-		nodes, listErr = txStore.ListNodes(ctx, completed.DagKey)
-	} else {
-		nodes, listErr = txStore.ListRunNodes(ctx, completed.DagKey, completedRunID)
+	if err := requireRuntimeRunID("schedule_downstream", completedRunID); err != nil {
+		return nil, nil, err
 	}
+	nodes, listErr := txStore.ListRunNodes(ctx, completed.DagKey, completedRunID)
 	if listErr != nil {
 		return nil, nil, listErr
 	}

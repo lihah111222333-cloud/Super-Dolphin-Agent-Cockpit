@@ -34,10 +34,13 @@ func TestClaimNodeOutputMaterialization_FenceAcceptsReadyRunningAwaitingVerify(t
 			t.Parallel()
 			store, db, now := newTaskDAGTestStore()
 			claimer := store.(outputMaterializationClaimer)
-			db.nodes[dagNodeKey("dag-1", "node-1")] = sqlc.TaskDagNode{
+			runID := db.runs["run-1"].ID
+			key := dagRunNodeKey("dag-1", "node-1", runID)
+			db.nodes[key] = sqlc.TaskDagNode{
 				ID:        42,
 				DagKey:    "dag-1",
 				NodeKey:   "node-1",
+				RunID:     sqlc.Int8ValuePtr(&runID),
 				Title:     "n1",
 				Status:    tc.initial,
 				DependsOn: []byte(`[]`),
@@ -52,6 +55,7 @@ func TestClaimNodeOutputMaterialization_FenceAcceptsReadyRunningAwaitingVerify(t
 				Result:  result,
 				DagKey:  "dag-1",
 				NodeKey: "node-1",
+				RunID:   runID,
 			})
 			if tc.wantSuccess {
 				if err != nil {
@@ -60,7 +64,7 @@ func TestClaimNodeOutputMaterialization_FenceAcceptsReadyRunningAwaitingVerify(t
 				if node == nil || node.Status != "awaiting_verify" {
 					t.Fatalf("node = %+v, want status=awaiting_verify", node)
 				}
-				if got := string(db.nodes[dagNodeKey("dag-1", "node-1")].Result); got != string(result) {
+				if got := string(db.nodes[key].Result); got != string(result) {
 					t.Fatalf("persisted result = %s, want %s", got, result)
 				}
 				return
@@ -68,7 +72,7 @@ func TestClaimNodeOutputMaterialization_FenceAcceptsReadyRunningAwaitingVerify(t
 			if err == nil {
 				t.Fatalf("ClaimNodeOutputMaterialization(%s) error = nil, want fence rejection", tc.initial)
 			}
-			persisted := db.nodes[dagNodeKey("dag-1", "node-1")]
+			persisted := db.nodes[key]
 			if persisted.Status != tc.initial {
 				t.Fatalf("persisted status mutated from %q to %q on rejected fence", tc.initial, persisted.Status)
 			}

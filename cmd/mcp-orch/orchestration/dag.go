@@ -88,22 +88,38 @@ type listDAGsParams struct {
 
 type updateNodeParams struct {
 	dagNodeParams
+	RunID  int64           `json:"run_id"`
 	Status string          `json:"status"`
 	Result json.RawMessage `json:"result,omitempty"`
 }
 
 func (p *updateNodeParams) UnmarshalJSON(data []byte) error {
-	type current updateNodeParams
-	return decodeLegacyAlias(data, new(current), func(raw *current, legacy *struct {
+	type wire struct {
+		DagKey  string          `json:"dag_key"`
+		NodeKey string          `json:"node_key"`
+		RunID   int64           `json:"run_id"`
+		Status  string          `json:"status"`
+		Result  json.RawMessage `json:"result,omitempty"`
+	}
+	return decodeLegacyAlias(data, new(wire), func(raw *wire, legacy *struct {
 		DagKey  string `json:"dagKey"`
 		NodeKey string `json:"nodeKey"`
+		RunID   int64  `json:"runId"`
 	}) error {
-		*p = updateNodeParams(*raw)
+		*p = updateNodeParams{
+			dagNodeParams: dagNodeParams{DagKey: raw.DagKey, NodeKey: raw.NodeKey},
+			RunID:         raw.RunID,
+			Status:        raw.Status,
+			Result:        append(json.RawMessage(nil), raw.Result...),
+		}
 		if strings.TrimSpace(p.DagKey) == "" {
 			p.DagKey = strings.TrimSpace(legacy.DagKey)
 		}
 		if strings.TrimSpace(p.NodeKey) == "" {
 			p.NodeKey = strings.TrimSpace(legacy.NodeKey)
+		}
+		if p.RunID == 0 {
+			p.RunID = legacy.RunID
 		}
 		return nil
 	})
@@ -174,16 +190,9 @@ func (s *service) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequ
 	}
 	var result DAGNode
 	err = s.withDAGStore(func(store taskdag.OrchestrationStore) error {
-		// S7.2: 状态转移合法性校验。用 ListNodes 拿当前 from 状态，用
-		// nodeexec.ValidateTransition 检查；接口不提供单节点读，用 ListNodes
-		// + 筛选是当前唯一路径。F 阶段可加 GetNode 小接口优化。
 		if vErr := s.validateNodeTransition(ctx, store, input); vErr != nil {
 			return vErr
 		}
-		// Phase 3.5w: status="done" 切到 CompleteNodeAndScheduleDownstream
-		// 让 store 同事务自动 enqueue 下游 ready 节点（生产路径自动 spawn）。
-		// 生产 dagStore 实际是 taskdag.Store（embed NodeFlowStore），type
-		// assertion 拿到该能力；测试 mock 落到普通 UpdateNodeStatus 不破。
 		if input.Status == "done" {
 			if flow, ok := store.(taskdag.NodeFlowStore); ok {
 				return s.completeNodeWithDownstream(ctx, flow, input, &result)
@@ -202,22 +211,16 @@ func (s *service) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequ
 	return result, nil
 }
 
-// validateNodeTransition 走 ListNodes 取当前 node.status，交 nodeexec.ValidateTransition
-// 检查。节点不存在时返回明确错误（防 typo / 并发删节点）。
-//
-// 设计说明：本函数仅拦截走外部 API 路径的 service.UpdateNodeStatus。
-// 生产 dispatcher 的 store.UpdateRunningNodeStatus 不走 service，走 SQL
-// `WHERE status IN ('pending')` 的 “pending→running 快车道”，本骨架阶段
-// 不拦截也不修复（见实施计划 S2.4 推迟说明）。并存后果：
-//   - 外部 API（task_update_node）：遵守完整 9 态机，pending→done 跳态被拒
-//   - 内部 dispatcher：走 pending→running 快车道，不经 ready 中转
-//
-// F 阶段 dispatcher 重做时会一并修复（CompleteNodeAndScheduleDownstream
-// 同事务修下游 status 为 ready + dispatcher SQL 接受 ready）。
+// validateNodeTransition checks the run-scoped current status before public
+// task_update_node writes; dispatcher fast paths use SQL fences instead.
 func (s *service) validateNodeTransition(ctx context.Context, store taskdag.OrchestrationStore, input taskdag.NodeStatusUpdate) error {
-	nodes, err := store.ListNodes(ctx, input.DagKey)
+	runReader, ok := any(store).(taskdag.RunNodeReadStore)
+	if !ok {
+		return fmt.Errorf("validate transition: store does not implement RunNodeReadStore for run_id=%d", input.RunID)
+	}
+	nodes, err := runReader.ListRunNodes(ctx, input.DagKey, input.RunID)
 	if err != nil {
-		return fmt.Errorf("validate transition: list nodes %s: %w", input.DagKey, err)
+		return fmt.Errorf("validate transition: list run nodes %s run_id=%d: %w", input.DagKey, input.RunID, err)
 	}
 	var fromStatus string
 	found := false
@@ -348,12 +351,25 @@ func nodeStatusUpdateFromRequest(req UpdateNodeStatusRequest) (taskdag.NodeStatu
 	if strings.TrimSpace(req.Status) == "" {
 		return taskdag.NodeStatusUpdate{}, errors.New("status is required")
 	}
-	return taskdag.NodeStatusUpdate{
-		DagKey:  strings.TrimSpace(req.DagKey),
-		NodeKey: strings.TrimSpace(req.NodeKey),
-		Status:  strings.TrimSpace(req.Status),
-		Result:  append(json.RawMessage(nil), req.Result...),
-	}, nil
+	if req.RunID <= 0 {
+		return taskdag.NodeStatusUpdate{}, fmt.Errorf("run_id is required for runtime node status update")
+	}
+	return taskdag.NodeStatusUpdate{DagKey: strings.TrimSpace(req.DagKey), NodeKey: strings.TrimSpace(req.NodeKey), RunID: req.RunID, Status: strings.TrimSpace(req.Status), Result: append(json.RawMessage(nil), req.Result...)}, nil
+}
+
+func getRunResponse(ctx context.Context, runStore taskdag.RunStore, runKey string, run *taskdag.Run) (contract.GetRunResponse, error) {
+	if run == nil {
+		return contract.GetRunResponse{}, fmt.Errorf("%w: %s", ErrRunNotFound, runKey)
+	}
+	runReader, ok := any(runStore).(taskdag.RunNodeReadStore)
+	if !ok {
+		return contract.GetRunResponse{}, fmt.Errorf("orchestration: GetRun(%q): run store does not implement RunNodeReadStore for run_id=%d", runKey, run.ID)
+	}
+	nodes, err := runReader.ListRunNodes(ctx, run.DagKey, run.ID)
+	if err != nil {
+		return contract.GetRunResponse{}, fmt.Errorf("orchestration: GetRun(%q): list runtime nodes for dag_key=%q run_id=%d: %w", runKey, run.DagKey, run.ID, err)
+	}
+	return contract.GetRunResponse{Run: dagRunDTO(*run), Nodes: mapDAGNodes(nodes)}, nil
 }
 
 func mapDAGSummaries(items []taskdag.DAG) []DAGSummary {
@@ -461,8 +477,8 @@ var ErrLifecycleNotImplemented = errors.New("orchestration lifecycle: not implem
 // dag_key that does not exist in storage.
 var ErrDAGNotFound = errors.New("orchestration: dag_key not found")
 
-// ErrDAGAlreadyRunning 表示 T1.2-mid 限制下同 DAG 已有 running run，拒绝多
-// run 并发。F6.5 升级 multi-run 后不再出。
+// ErrDAGAlreadyRunning 是 F6.5 前 T1.2-mid 单 run 约束的历史 sentinel。
+// 0089 移除 dag-level running unique 后 StartDAG 不再正常返回它。
 //
 // 处理建议（与 ErrIdempotencyKeyExhausted 对照，"前者等/取消，后者换 idem"）：
 // 调用方应轮询当前 run 直至完成 / 主动 Terminate 后用同 idem 重试，不需要换 idem。
@@ -470,7 +486,7 @@ var ErrDAGNotFound = errors.New("orchestration: dag_key not found")
 // Handling guidance (contrast with ErrIdempotencyKeyExhausted, "wait/cancel here
 // vs new idem there"): caller should poll the active run until completion or
 // Terminate it, then retry with the same idem; no new idem required.
-var ErrDAGAlreadyRunning = errors.New("orchestration: dag has an active run (T1.2-mid single-run constraint)")
+var ErrDAGAlreadyRunning = errors.New("orchestration: dag has an active run (legacy single-run constraint)")
 
 // ErrIdempotencyKeyExhausted 当 StartDAG 用同 idempotency key 调用，
 // 但对应的 run 已是终态 (failed/cancelled) 时返回。
