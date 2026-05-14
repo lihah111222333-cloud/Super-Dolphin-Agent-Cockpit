@@ -36,6 +36,7 @@ C-A 策略：**先把基础设施（provider 层 + spawned agent 资源管理）
 | ~~Phase 4 dogfood~~ ✅ done | 验收 | — | 10 节点 DAG 端到端；hook-delivered turn completion + sharedfile 防覆盖 + runtime hints follow-up 已补 | ~80 行脚本 + runtime follow-up |
 | **Final output MVP** ✅ done | 结果入口 | — | `task_dags.metadata.final_node_key` 显式指定最终节点；run 成功终态时把 final node 的 sharedfile/text/json 结果升格到 `task_dag_runs.metadata.final_output`，`task_get_run` 通过既有 Run.Metadata 暴露 | 1 commit `362be7f0` |
 | ~~**H14 final output UI**~~ ✅ done | 结果入口 | — | dashboard `dagRuns` RPC + DAG detail final_output 展示 + Shared Files final_output 高亮/筛选；仍以 sharedfile 存 file body，以 `metadata.final_output` 做 run-level index | 1 commit `253e7244` + merge `c772b6ac` |
+| **H15 retention/delete guard 首切** ✅ done | 产物保留 | — | dashboard memory payload 增加 `sharedFileRetention` 预览；`ui/memory/shared-file/delete` 拒绝删除被 DAG run `metadata.final_output` 引用的文件；Shared Files 页禁用 final_output 删除按钮。TTL / 批量清理 / pinned / running run 保护继续留 H15 后续 | 1 atomic slice |
 
 **总计**（v2.9 Phase 4 dogfood 同步）：情况 A **~3730-4600 行 / 5 ADR / 20-24 commit**；情况 B **~3960-4830 行 / 5 ADR / 22-26 commit**（详 §9 工程量盘点；Phase 4 runtime follow-up 不回写 C/A 估算行数）。
 

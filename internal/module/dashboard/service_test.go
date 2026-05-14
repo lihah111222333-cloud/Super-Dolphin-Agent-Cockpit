@@ -115,6 +115,19 @@ func TestGetDashboardPageMemoryIncludesFinalOutputRefs(t *testing.T) {
 	if ref.Path != "reports/daily-brief.pptx" || ref.RunKey != "run-1" || ref.DagKey != "dag-1" || ref.SourceNodeKey != "report" {
 		t.Fatalf("FinalOutputRefs[0] = %#v", ref)
 	}
+	if got.SharedFileRetention.ProtectedCount != 1 || got.SharedFileRetention.CleanupCandidateCount != 1 {
+		t.Fatalf("SharedFileRetention counts = %#v", got.SharedFileRetention)
+	}
+	retentionByPath := map[string]SharedFileRetentionItem{}
+	for _, item := range got.SharedFileRetention.Items {
+		retentionByPath[item.Path] = item
+	}
+	if item := retentionByPath["reports/daily-brief.pptx"]; !item.Protected || item.CleanupCandidate || item.Reason != "final_output" {
+		t.Fatalf("final output retention item = %#v", item)
+	}
+	if item := retentionByPath["scratch/intermediate.json"]; item.Protected || !item.CleanupCandidate || item.Reason != "unreferenced" {
+		t.Fatalf("intermediate retention item = %#v", item)
+	}
 }
 
 func TestGetDashboardPageMemoryDowngradesFinalOutputRefErrors(t *testing.T) {

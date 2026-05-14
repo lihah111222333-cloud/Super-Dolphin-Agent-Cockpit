@@ -41,13 +41,14 @@ type promptProviderParams struct {
 type memoryHandlerDeps struct {
 	fx.In
 
-	Service             Service                     `optional:"true"`
-	SharedFiles         sharedfilestore.Reader      `optional:"true"`
-	SharedFilesDeleter  sharedfilestore.Deleter     `optional:"true"`
-	SharedFilesUpserter sharedfilestore.Upserter    `optional:"true"`
-	Sections            contract.SectionInvalidator `optional:"true"`
-	Logger              *slog.Logger                `optional:"true"`
-	DreamExecutor       contract.DreamExecutor      `optional:"true"`
+	Service             Service                       `optional:"true"`
+	Orchestration       contract.OrchestrationService `optional:"true"`
+	SharedFiles         sharedfilestore.Reader        `optional:"true"`
+	SharedFilesDeleter  sharedfilestore.Deleter       `optional:"true"`
+	SharedFilesUpserter sharedfilestore.Upserter      `optional:"true"`
+	Sections            contract.SectionInvalidator   `optional:"true"`
+	Logger              *slog.Logger                  `optional:"true"`
+	DreamExecutor       contract.DreamExecutor        `optional:"true"`
 }
 
 type historySource interface {

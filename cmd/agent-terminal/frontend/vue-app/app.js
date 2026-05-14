@@ -298,6 +298,7 @@ export const AppRoot = {
       commandCards: [],
       memory: [],
       finalOutputRefs: [],
+      sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
     });
     const { pendingCandidates, sidebarBadges: skillSidebarBadges, refreshPendingCandidates } = usePendingCandidates(
       () => (threadScopeCwd.value || '').toString().trim(),
@@ -365,6 +366,9 @@ export const AppRoot = {
       dashboard.commandCards = Array.isArray(res?.commandCards) ? res.commandCards : [];
       dashboard.memory = Array.isArray(res?.memory) ? res.memory : [];
       dashboard.finalOutputRefs = Array.isArray(res?.finalOutputRefs) ? res.finalOutputRefs : [];
+      dashboard.sharedFileRetention = (res?.sharedFileRetention && typeof res.sharedFileRetention === 'object')
+        ? res.sharedFileRetention
+        : { items: [], protectedCount: 0, cleanupCandidateCount: 0 };
     }
 
     async function refreshMemoryCenter() {
@@ -617,6 +621,7 @@ export const AppRoot = {
           :files="dashboard.memory"
           :cwd="threadScopeCwd"
           :final-output-refs="dashboard.finalOutputRefs"
+          :shared-file-retention="dashboard.sharedFileRetention"
           @open-memory-center="page = 'memory-center'"
           @refresh="refreshDashboardByPage('memory')"
           @start-inherited-chat="startInheritedChatFromSharedFile"

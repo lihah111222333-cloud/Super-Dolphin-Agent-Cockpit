@@ -60,7 +60,7 @@ DAG 后端、C-A lifecycle、final_output、sharedfile、prompt_template-first �
    覆盖 T8/F8/F9：AI 设计按钮、typed schema 表单、mermaid 拓扑、用户改一处 prompt 后 Start。目标是 Need 2 端到端。
 
 4. **U3：Shared Files / retention / cleanup**
-   覆盖 H15/F11：final_output 保护、中间产物折叠、TTL/软删/批量清理、reads/writes/lock_mode 联动。
+   覆盖 H15/F11：final_output 保护、中间产物折叠、TTL/软删/批量清理、reads/writes/lock_mode 联动。H15 首切只落安全底座：retention 元数据 + final_output 删除保护；批量清理 UI 仍按本项后续设计。
 
 5. **U4：H 阶段高级产品化**
    错误 catalog、HITL、通知入口、Hybrid/external action、模板库/Save as template、复杂 cost preview、编辑历史/回滚、task_post_message、WS/大规模拓扑、监控告警 UI 等按真实场景逐项恢复，不提前堆复杂度。
@@ -68,6 +68,7 @@ DAG 后端、C-A lifecycle、final_output、sharedfile、prompt_template-first �
 ## 5. 当前文档缺口已收敛为本台账
 
 - H14 已完成 final_output UI；F11 不再承担 final_output 高亮，只剩 sharedfile 锁可视化和中间产物体验深化。
+- H15 首切已把 final_output 引用文件纳入删除保护和 retention 元数据；还没有做 TTL 规则、批量清理、导出确认、pinned / running run 保护 UI。
 - Need 1 还缺 T7 列表字段和 F10 run 历史 UI 才算用户可见闭环。
 - Need 2 的后端与 prompt_template seed 已基本到位，剩余主要是 T8/F8/F9 UI 设计与实现。
 - 旧 P10 的模板库/preview/lineage/cost preview、金融预设、大规模 UI、WS 实时事件、多人编辑冲突均已登记为非 v1 项；其中已被蓝图砍掉的旧 P8/P9/P12/P13 类能力，恢复时必须另立新 ADR/任务。
