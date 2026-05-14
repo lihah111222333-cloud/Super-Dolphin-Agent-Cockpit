@@ -644,7 +644,7 @@
     "max_struct_fields": 2
   },
   "internal/module/thread/rpc.go": {
-    "lines": 471,
+    "lines": 468,
     "max_func_len": 61,
     "max_nesting": 1,
     "max_complexity": 8,

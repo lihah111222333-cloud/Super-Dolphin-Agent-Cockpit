@@ -148,6 +148,7 @@ func newStartResult(
 		AgentTitle:      req.AgentTitle,
 		PromptKey:       req.PromptKey,
 		PromptVersionID: req.PromptVersionID,
+		PromptKeyStale:  req.PromptKeyStale,
 		TaskID:          firstConfigString(req.Config, taskConfigKeyID, taskConfigKeyIDSnake),
 		HandoffFile:     firstConfigString(req.Config, taskConfigKeyHandoffFile, taskConfigKeyHandoffFileSnake),
 	}
