@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -88,7 +89,7 @@ func (r *NodeExecutorRouter) invokeLifecycleHook(
 	if ctx != nil {
 		hookCtx = context.WithoutCancel(ctx)
 	}
-	runCtx, cancel := context.WithTimeout(hookCtx, lifecycleHookExecutionTimeout)
+	runCtx, cancel := platformconfig.WithTimeout(hookCtx, lifecycleHookExecutionTimeout)
 	done := make(chan struct{})
 	runtimesafe.SafeGo(runCtx, lifecycleLogger(r), "nodeExecutor.lifecycleHook", func(runCtx context.Context) {
 		defer cancel()
