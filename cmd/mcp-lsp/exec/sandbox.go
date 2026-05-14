@@ -16,6 +16,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 const defaultOutputLimit = 256 * 1024
@@ -26,12 +27,14 @@ type Sandbox struct {
 }
 
 type Request struct {
-	Args    []string
-	Command string
-	WorkDir string
-	Env     []string
-	Stdin   string
-	Timeout time.Duration
+	Args      []string
+	Command   string
+	WorkDir   string
+	Env       []string
+	Stdin     string
+	Timeout   time.Duration
+	TraceTool string
+	TraceMode string
 }
 
 type Result struct {
@@ -78,6 +81,7 @@ func (s *Sandbox) Run(ctx context.Context, req Request) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	s.warnExecCWDTrace(ctx, req, args, workDir)
 	runCtx, cancel := withTimeout(ctx, req.Timeout)
 	defer cancel()
 
@@ -178,6 +182,29 @@ func (s *Sandbox) resolveWorkDir(ctx context.Context, workDir string) (string, e
 		return "", fmt.Errorf("work_dir is not a directory: %s", normalized)
 	}
 	return normalized, nil
+}
+
+func (s *Sandbox) warnExecCWDTrace(ctx context.Context, req Request, args []string, workDir string) {
+	pkglogger.Warn("mcp-lsp: sandbox exec cwd trace",
+		"tool", req.TraceTool,
+		"mode", req.TraceMode,
+		"root_dir", s.rootDir,
+		"meta_cwd", contextCWD(ctx),
+		"effective_root", s.effectiveRoot(ctx),
+		"requested_work_dir", req.WorkDir,
+		"exec_dir", workDir,
+		"command", req.Command,
+		"args", args,
+		"timeout_ms", req.Timeout.Milliseconds(),
+	)
+}
+
+func contextCWD(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	cwd, _ := ctx.Value(common.CwdContextKey).(string)
+	return strings.TrimSpace(cwd)
 }
 
 func normalizeArgs(req Request) ([]string, error) {

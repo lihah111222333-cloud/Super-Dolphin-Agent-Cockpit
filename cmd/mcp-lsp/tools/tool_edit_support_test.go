@@ -11,6 +11,7 @@ import (
 
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
 func TestReadFileWithModeNormalizesCRLF(t *testing.T) {
@@ -35,6 +36,36 @@ func TestReadFileWithModeNormalizesCRLF(t *testing.T) {
 	}
 	if restored := file.diskContent(file.content); restored != raw {
 		t.Fatalf("restored mismatch: %q", restored)
+	}
+}
+
+func TestReadFileUsesMetaCWDForExternalAbsolutePath(t *testing.T) {
+	mainRoot := t.TempDir()
+	externalRoot := t.TempDir()
+	externalFile := filepath.Join(externalRoot, "go.mod")
+	if err := os.WriteFile(externalFile, []byte("module external.test\n"), 0o600); err != nil {
+		t.Fatalf("write external fixture: %v", err)
+	}
+	handler := NewFileHandler(Config{WorkspaceRoot: mainRoot})
+	ctx := context.WithValue(context.Background(), common.CwdContextKey, externalRoot)
+	req, err := json.Marshal(fileToolInput{
+		Action:   "read_file",
+		FilePath: externalFile,
+	})
+	if err != nil {
+		t.Fatalf("marshal read_file input: %v", err)
+	}
+
+	got, err := handler(ctx, req)
+	if err != nil {
+		t.Fatalf("read_file returned error: %v", err)
+	}
+	text, ok := got.(string)
+	if !ok {
+		t.Fatalf("read_file result type = %T, want string", got)
+	}
+	if !strings.Contains(text, "module external.test") {
+		t.Fatalf("read_file result = %q, want external file content", text)
 	}
 }
 

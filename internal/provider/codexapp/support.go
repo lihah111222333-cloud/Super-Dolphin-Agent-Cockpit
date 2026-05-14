@@ -362,16 +362,16 @@ func (d *driver) startDynamicSession(ctx context.Context, s *session, req dto.St
 		cleanupFailedSession(s, "force stop failed on start error")
 		return nil, err
 	}
-	return d.finishStartedSession(s, result), nil
+	return d.finishStartedSession(s, req, result), nil
 }
 
-func (d *driver) finishStartedSession(s *session, result startResult) contract.Session {
+func (d *driver) finishStartedSession(s *session, req dto.StartSessionRequest, result startResult) contract.Session {
 	s.setThreadID(result.threadID)
 	if result.model != "" {
 		s.setRuntimeConfigValue("model", result.model)
 	}
-	if result.cwd != "" {
-		s.setRuntimeConfigValue("cwd", result.cwd)
+	if cwd := strings.TrimSpace(req.CWD); cwd != "" {
+		s.setRuntimeConfigValue("cwd", cwd)
 	}
 	if port := parsePortFromURL(s.transport.serverURL); port > 0 {
 		s.setRuntimeConfigValue("port", port)

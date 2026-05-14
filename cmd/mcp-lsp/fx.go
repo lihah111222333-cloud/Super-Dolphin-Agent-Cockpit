@@ -68,6 +68,7 @@ func run() error {
 					if err := json.Unmarshal(params, &req); err != nil {
 						return nil, err
 					}
+					warnLSPToolsCallCWDTrace(req.Name, req.MetaCWD)
 					if strings.TrimSpace(req.MetaCWD) != "" {
 						ctx = context.WithValue(ctx, common.CwdContextKey, req.MetaCWD)
 					}
@@ -172,6 +173,22 @@ func (p registryToolProvider) CallTool(ctx context.Context, name string, args js
 	return handleToolCall(ctx, p.defs, name, args)
 }
 
+func shouldWarnLSPCWDTrace(toolName string) bool {
+	toolName = strings.TrimSpace(toolName)
+	return strings.HasPrefix(toolName, "lsp_") || strings.HasPrefix(toolName, "code_")
+}
+
+func warnLSPToolsCallCWDTrace(toolName, metaCWD string) {
+	if !shouldWarnLSPCWDTrace(toolName) {
+		return
+	}
+	pkglogger.Warn("mcp-lsp: tools/call cwd trace",
+		"tool", strings.TrimSpace(toolName),
+		"meta_cwd", strings.TrimSpace(metaCWD),
+		"has_meta_cwd", strings.TrimSpace(metaCWD) != "",
+	)
+}
+
 func marshalInputSchema(schema map[string]any) (json.RawMessage, error) {
 	if len(schema) == 0 {
 		return json.RawMessage("{}"), nil
@@ -198,6 +215,7 @@ func handleToolCall(ctx context.Context, defs []toolDefinition, name string, arg
 }
 
 func (r bootstrapRunner) Run(ctx context.Context) error {
+	r.client.InstallLogRelay()
 	// Dual-channel startup ordering: wait for the local stdio MCP server
 	// to be ready before connecting to the control-plane jrpc2. This
 	// guarantees the tool-execution surface is available when the

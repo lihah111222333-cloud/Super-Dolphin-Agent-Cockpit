@@ -191,6 +191,34 @@ func TestRouteToolCall_HostToolBypassesPeer_UsesResolvedCWD(t *testing.T) {
 	}
 }
 
+func TestRouteToolCall_HostToolPrefersInjectedCWD(t *testing.T) {
+	host := &stubHostToolRegistry{
+		hasToolName: "skill_expand_body",
+		result:      map[string]any{"name": "foo", "content": "body"},
+	}
+	resolver := &stubCWDResolver{cwd: "/stale/resolved/cwd"}
+	h := &Handler{registry: &stubRegistry{}, resolver: resolver, hostTools: host}
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:      "skill_expand_body",
+		Arguments: json.RawMessage(`{"name":"foo"}`),
+		AgentID:   "agent-1",
+		CWD:       "/injected/cwd",
+	})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	if got == nil || !got.Success {
+		t.Fatalf("routeToolCall() result = %#v, want success", got)
+	}
+	if host.last.CWD != "/injected/cwd" {
+		t.Fatalf("host call cwd = %q, want /injected/cwd", host.last.CWD)
+	}
+	if resolver.callSeen {
+		t.Fatalf("resolver should not be called when request carries trusted cwd")
+	}
+}
+
 func TestCallHostTool_ObservabilityCountersAndLogs(t *testing.T) {
 	skillmetrics.ResetForTesting()
 	t.Cleanup(skillmetrics.ResetForTesting)
