@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
@@ -36,6 +39,7 @@ func runPoolSpawn(ctx context.Context, home string, registry *pidregistry.Regist
 	if err != nil {
 		return nil, err
 	}
+	workDir := cmd.Dir
 	cmd.Stdout = io.Discard
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
@@ -66,7 +70,7 @@ func runPoolSpawn(ctx context.Context, home string, registry *pidregistry.Regist
 	go t.watchLocalProcess(proc)
 	if registry != nil {
 		if pid := t.localPID(); pid > 0 {
-			registry.Register(pid, "codex-app-server-pool", map[string]string{"codex_home": home})
+			registry.Register(pid, "codex-app-server-pool", map[string]string{"codex_home": home, "work_dir": workDir})
 		}
 	}
 	// Establish a control WebSocket + JSON-RPC initialize handshake so
@@ -81,9 +85,76 @@ func runPoolSpawn(ctx context.Context, home string, registry *pidregistry.Regist
 	}
 	logger.Info("codexapp: pool spawned app-server",
 		slog.String("codex_home", home),
+		slog.String("work_dir", workDir),
 		slog.String("server_url", serverURL),
 	)
 	return t, nil
+}
+
+type poolSpawnWorkDirContextKey struct{}
+
+func withPoolSpawnWorkDir(ctx context.Context, raw string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, poolSpawnWorkDirContextKey{}, raw)
+}
+
+func poolSpawnWorkDir(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	value, _ := ctx.Value(poolSpawnWorkDirContextKey{}).(string)
+	return strings.TrimSpace(value)
+}
+
+func poolSpawnNormalizedWorkDir(ctx context.Context) (string, error) {
+	if err := poolSpawnContextErr(ctx); err != nil {
+		return "", err
+	}
+	return normalizePoolSpawnWorkDir(poolSpawnWorkDir(ctx))
+}
+
+func poolSpawnContextErr(ctx context.Context) error {
+	if ctx == nil {
+		return nil
+	}
+	return ctx.Err()
+}
+
+func normalizePoolSpawnWorkDir(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+	clean := filepath.Clean(raw)
+	if !filepath.IsAbs(clean) {
+		return "", fmt.Errorf("codexapp: pool work dir must be absolute: %q", raw)
+	}
+	info, err := os.Stat(clean)
+	if err != nil {
+		return "", fmt.Errorf("codexapp: pool work dir stat %q: %w", clean, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("codexapp: pool work dir is not a directory: %q", clean)
+	}
+	real, err := filepath.EvalSymlinks(clean)
+	if err != nil {
+		return "", fmt.Errorf("codexapp: pool work dir realpath %q: %w", clean, err)
+	}
+	return real, nil
+}
+
+func buildPoolSpawnEnv(parent []string, home, workDir string) []string {
+	overrides := map[string]string{"CODEX_HOME": strings.TrimSpace(home)}
+	if workDir = strings.TrimSpace(workDir); workDir != "" {
+		overrides["PWD"] = workDir
+	}
+	return buildAllowlistedSpawnEnv(parent, overrides)
 }
 
 // NewTransportSpawner returns a Spawner suitable for ServerPool. Each
