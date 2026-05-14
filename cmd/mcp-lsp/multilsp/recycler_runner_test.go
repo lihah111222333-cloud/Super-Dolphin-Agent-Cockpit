@@ -1,4 +1,4 @@
-package gopls
+package multilsp
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// TestPoolRecyclerRunExitsOnCtxCancel asserts the P22 P2 gopls-S1
+// TestPoolRecyclerRunExitsOnCtxCancel asserts the P22 P2 LSP-S1
 // runner contract: poolRecycler.Run must return once the supplied
 // ctx is cancelled, with no residual goroutine. Pre-P22 P2 the
 // recycler was driven by a constructor-launched goroutine and its
@@ -38,7 +38,7 @@ func TestPoolRecyclerRunExitsOnCtxCancel(t *testing.T) {
 }
 
 // TestNewManagerPoolDoesNotLaunchRecyclerGoroutine asserts the P22 P2
-// gopls-S1 invariant that the constructor no longer self-spawns the
+// LSP-S1 invariant that the constructor no longer self-spawns the
 // recycler goroutine. After construction the recycler must exist
 // (TouchShard still works) but the loop goroutine must not be
 // running yet — only Run(ctx) starts it.

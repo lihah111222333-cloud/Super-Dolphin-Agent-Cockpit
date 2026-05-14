@@ -1,4 +1,4 @@
-package gopls
+package multilsp
 
 import (
 	"bytes"
@@ -15,15 +15,13 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 )
 
-const (
-	defaultBinary = "gopls"
-	methodExit    = "exit"
-)
+const methodExit = "exit"
 
 var (
-	ErrClientClosed       = errors.New("gopls: client closed")
-	ErrMethodNotSupported = errors.New("gopls: server request not supported")
-	ErrTransportClosed    = errors.New("gopls: transport closed")
+	ErrClientClosed       = errors.New("LSP client closed")
+	ErrMethodNotSupported = errors.New("LSP server request not supported")
+	ErrTransportClosed    = errors.New("LSP transport closed")
+	ErrBinaryRequired     = errors.New("LSP binary is required")
 )
 
 type Client interface {
@@ -72,13 +70,20 @@ type responseError struct {
 	Data    json.RawMessage
 }
 
-func NewClient(handler protocol.NotificationHandler) (Client, error) {
-	return NewClientWithOptions(Options{NotificationHandler: handler})
+func NewClient(binary string, handler protocol.NotificationHandler) (Client, error) {
+	return NewClientWithOptions(Options{
+		Binary:              binary,
+		NotificationHandler: handler,
+	})
 }
 
 func NewClientWithOptions(options Options) (Client, error) {
+	binary := strings.TrimSpace(options.Binary)
+	if binary == "" {
+		return nil, ErrBinaryRequired
+	}
 	transport, err := newTransport(transportOptions{
-		Binary:              coalesceString(options.Binary, defaultBinary),
+		Binary:              binary,
 		Args:                defaultArgs(options.Args),
 		Dir:                 options.Dir,
 		Env:                 append([]string(nil), options.Env...),
@@ -114,10 +119,10 @@ func (c *client) Initialize(ctx context.Context, rootURI string) error {
 	}
 	result, err := c.transport.request(ctx, protocol.MethodInitialize, params)
 	if err != nil {
-		return fmt.Errorf("gopls initialize request: %w", err)
+		return fmt.Errorf("LSP initialize request: %w", err)
 	}
 	if err := c.transport.notify(ctx, protocol.MethodInitialized, struct{}{}); err != nil {
-		return fmt.Errorf("gopls initialized notification: %w", err)
+		return fmt.Errorf("LSP initialized notification: %w", err)
 	}
 	if err := decodeInitializeResult(result); err != nil {
 		return err
@@ -140,10 +145,10 @@ func (c *client) Shutdown(ctx context.Context) error {
 		return nil
 	}
 	if _, err := c.transport.request(ctx, "shutdown", nil); err != nil && !errors.Is(err, ErrTransportClosed) {
-		return fmt.Errorf("gopls shutdown request: %w", err)
+		return fmt.Errorf("LSP shutdown request: %w", err)
 	}
 	if err := c.transport.notify(ctx, methodExit, nil); err != nil && !errors.Is(err, ErrTransportClosed) {
-		return fmt.Errorf("gopls exit notification: %w", err)
+		return fmt.Errorf("LSP exit notification: %w", err)
 	}
 	c.markShutdown()
 	return nil
@@ -155,7 +160,7 @@ func (c *client) Request(ctx context.Context, method string, params any) (json.R
 	}
 	result, err := requestMessage(ctx, method, params, c.transport.request)
 	if err != nil {
-		return nil, fmt.Errorf("gopls request %s: %w", method, err)
+		return nil, fmt.Errorf("LSP request %s: %w", method, err)
 	}
 	return result, nil
 }
@@ -165,7 +170,7 @@ func (c *client) Notify(ctx context.Context, method string, params any) error {
 		return err
 	}
 	if err := notifyMessage(ctx, method, params, c.transport.notify); err != nil {
-		return fmt.Errorf("gopls notify %s: %w", method, err)
+		return fmt.Errorf("LSP notify %s: %w", method, err)
 	}
 	return nil
 }
@@ -217,7 +222,7 @@ func (c *client) canInitialize(rootURI string) error {
 	if c.rootURI == rootURI {
 		return nil
 	}
-	return fmt.Errorf("gopls already initialized for %q", c.rootURI)
+	return fmt.Errorf("LSP client already initialized for %q", c.rootURI)
 }
 
 func (c *client) ensureOpen() error {
@@ -368,13 +373,6 @@ func normalizeProcessID(processID int) int {
 		return processID
 	}
 	return os.Getpid()
-}
-
-func coalesceString(value, fallback string) string {
-	if strings.TrimSpace(value) == "" {
-		return fallback
-	}
-	return value
 }
 
 func (t *transport) joinWaitError(err error) error {

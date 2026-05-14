@@ -4,7 +4,7 @@
 ok  	github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/edit	(cached)
 ?   	github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/exec	[no test files]
 ?   	github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format	[no test files]
-ok  	github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/gopls	(cached)
+ok  	github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/multilsp	(cached)
 ?   	github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/installer	[no test files]
 ?   	github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager	[no test files]
 ?   	github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware	[no test files]

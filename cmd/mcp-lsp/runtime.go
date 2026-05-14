@@ -7,9 +7,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/gopls"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/installer"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/multilsp"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
@@ -25,7 +25,7 @@ type Manager struct {
 
 // BackgroundRunners returns the long-running owners this Manager
 // contributes to the root `group:"runners"` aggregation. Currently
-// the per-language ManagerPool recyclers. See P22 P2 gopls-S1
+// the per-language ManagerPool recyclers. See P22 P2 LSP-S1
 // (docs/plans/迁移/p22/P2_BusRuntimeDecoupling.md §480-494).
 func (m *Manager) BackgroundRunners() []platformrunner.Runner {
 	if m == nil {
@@ -48,7 +48,7 @@ func newManager() (*Manager, error) {
 
 	registry := manager.NewRegistry(inst)
 	backgroundRunners := make([]platformrunner.Runner, 0, 6)
-	registerLang := func(langIDs []string, mgr gopls.Manager) {
+	registerLang := func(langIDs []string, mgr multilsp.Manager) {
 		for _, langID := range langIDs {
 			registry.Register(langID, mgr)
 		}
@@ -115,24 +115,26 @@ func setupInstaller() *installer.Provider {
 	return inst
 }
 
-func createGenericManager(executable string, args []string, root string, log *slog.Logger, initOpts ...map[string]any) gopls.Manager {
+func createGenericManager(executable string, args []string, root string, log *slog.Logger, initOpts ...map[string]any) multilsp.Manager {
 	var opts map[string]any
 	if len(initOpts) > 0 {
 		opts = initOpts[0]
 	}
-	return gopls.NewManager(gopls.Config{
+	return multilsp.NewManager(multilsp.Config{
 		WorkspaceRoot: root,
-		ClientFactory: gopls.ClientFactoryFunc(func(rootDir string, h protocol.NotificationHandler) (gopls.Client, error) {
-			// rootDir is supplied per-call from cfg.rootPath so the gopls
-			// subprocess Dir tracks the workspace being initialised
-			// (e.g. ctx _cwd from an agent in another project). Falling
-			// back to the manager's startup root only when the caller
-			// has not resolved a specific workspace yet.
+		ClientFactory: multilsp.ClientFactoryFunc(func(rootDir string, h protocol.NotificationHandler) (multilsp.Client, error) {
+			// rootDir is supplied per-call from cfg.rootPath so the
+			// language server subprocess Dir tracks the workspace being
+			// initialised.
+			// For example, this follows ctx _cwd from an agent in
+			// another project. It falls back to the manager's startup
+			// root only when the caller has not resolved a specific
+			// workspace yet.
 			dir := rootDir
 			if strings.TrimSpace(dir) == "" {
 				dir = root
 			}
-			return gopls.NewClientWithOptions(gopls.Options{
+			return multilsp.NewClientWithOptions(multilsp.Options{
 				Binary:              executable,
 				Args:                args,
 				Dir:                 dir,

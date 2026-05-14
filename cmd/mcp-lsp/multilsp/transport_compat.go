@@ -1,4 +1,4 @@
-package gopls
+package multilsp
 
 import (
 	"encoding/json"
@@ -7,9 +7,9 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// Compatibility protocol contract for the gopls LSP transport.
+// Compatibility protocol contract for the multi-language LSP transport.
 // Collapses the previously inline `defaultServerRequestResult` switch
-// into an explicit, named set so the P4 plan's "gopls transport
+// into an explicit, named set so the P4 plan's "LSP transport
 // compat fallback 需要显式 protocol contract 与守卫测试, 不能继续散落
 // 在 transport/client 实现中" (§309-311) becomes concrete and guardable.
 //
@@ -25,48 +25,48 @@ import (
 // methods as JSON-RPC `MethodNotFound` rather than silently ACK'ing.
 //
 // The archtest in
-// internal/archtest/gopls_transport_compat_guard_test.go pins the
+// internal/archtest/multilsp_transport_compat_guard_test.go pins the
 // method literals to this file so future additions have to land in
 // the contract file rather than buried inside transport.go.
 
-// gopls-initiated server requests ACK'd with an empty struct result.
+// Server-initiated requests ACK'd with an empty struct result.
 const (
-	GoplsCompatMethodClientRegisterCapability     = "client/registerCapability"
-	GoplsCompatMethodClientUnregisterCapability   = "client/unregisterCapability"
-	GoplsCompatMethodWindowWorkDoneProgressCreate = "window/workDoneProgress/create"
+	LSPCompatMethodClientRegisterCapability     = "client/registerCapability"
+	LSPCompatMethodClientUnregisterCapability   = "client/unregisterCapability"
+	LSPCompatMethodWindowWorkDoneProgressCreate = "window/workDoneProgress/create"
 )
 
-// gopls-initiated workspace/*/refresh notifications ACK'd with an
+// Server-initiated workspace/*/refresh notifications ACK'd with an
 // empty struct result.
 const (
-	GoplsCompatMethodWorkspaceSemanticTokensRefresh = "workspace/semanticTokens/refresh"
-	GoplsCompatMethodWorkspaceCodeLensRefresh       = "workspace/codeLens/refresh"
-	GoplsCompatMethodWorkspaceInlayHintRefresh      = "workspace/inlayHint/refresh"
-	GoplsCompatMethodWorkspaceDiagnosticRefresh     = "workspace/diagnostic/refresh"
+	LSPCompatMethodWorkspaceSemanticTokensRefresh = "workspace/semanticTokens/refresh"
+	LSPCompatMethodWorkspaceCodeLensRefresh       = "workspace/codeLens/refresh"
+	LSPCompatMethodWorkspaceInlayHintRefresh      = "workspace/inlayHint/refresh"
+	LSPCompatMethodWorkspaceDiagnosticRefresh     = "workspace/diagnostic/refresh"
 )
 
-// gopls-initiated server request answered with an empty []any slice
+// Server-initiated request answered with an empty []any slice
 // whose length matches the requested `items` count.
-const GoplsCompatMethodWorkspaceConfiguration = "workspace/configuration"
+const LSPCompatMethodWorkspaceConfiguration = "workspace/configuration"
 
-// goplsCompatEmptyStructMethods lists every server-initiated method
+// lspCompatEmptyStructMethods lists every server-initiated method
 // this transport ACKs with `struct{}{}`. Adding a new method here
 // makes it the only place the freeze needs to change.
-var goplsCompatEmptyStructMethods = []string{
-	GoplsCompatMethodClientRegisterCapability,
-	GoplsCompatMethodClientUnregisterCapability,
-	GoplsCompatMethodWindowWorkDoneProgressCreate,
-	GoplsCompatMethodWorkspaceSemanticTokensRefresh,
-	GoplsCompatMethodWorkspaceCodeLensRefresh,
-	GoplsCompatMethodWorkspaceInlayHintRefresh,
-	GoplsCompatMethodWorkspaceDiagnosticRefresh,
+var lspCompatEmptyStructMethods = []string{
+	LSPCompatMethodClientRegisterCapability,
+	LSPCompatMethodClientUnregisterCapability,
+	LSPCompatMethodWindowWorkDoneProgressCreate,
+	LSPCompatMethodWorkspaceSemanticTokensRefresh,
+	LSPCompatMethodWorkspaceCodeLensRefresh,
+	LSPCompatMethodWorkspaceInlayHintRefresh,
+	LSPCompatMethodWorkspaceDiagnosticRefresh,
 }
 
-// goplsCompatEmptyStructMethodSet materialises the slice as an O(1)
+// lspCompatEmptyStructMethodSet materialises the slice as an O(1)
 // lookup table for dispatchCompatServerRequest.
-var goplsCompatEmptyStructMethodSet = func() map[string]struct{} {
-	out := make(map[string]struct{}, len(goplsCompatEmptyStructMethods))
-	for _, m := range goplsCompatEmptyStructMethods {
+var lspCompatEmptyStructMethodSet = func() map[string]struct{} {
+	out := make(map[string]struct{}, len(lspCompatEmptyStructMethods))
+	for _, m := range lspCompatEmptyStructMethods {
 		out[m] = struct{}{}
 	}
 	return out
@@ -85,16 +85,16 @@ var goplsCompatEmptyStructMethodSet = func() map[string]struct{} {
 // JSON-RPC MethodNotFound and belongs to a different contract
 // (future observability: genuinely unknown methods).
 func dispatchCompatServerRequest(method string, params json.RawMessage) (any, error) {
-	if _, ok := goplsCompatEmptyStructMethodSet[method]; ok {
-		pkglogger.Get().Info("gopls compat fallback hit",
+	if _, ok := lspCompatEmptyStructMethodSet[method]; ok {
+		pkglogger.Get().Info("LSP compat fallback hit",
 			"event", "gopls.compat_fallback.hit",
 			"method", method,
 			"variant", "empty_struct",
 		)
 		return struct{}{}, nil
 	}
-	if method == GoplsCompatMethodWorkspaceConfiguration {
-		pkglogger.Get().Info("gopls compat fallback hit",
+	if method == LSPCompatMethodWorkspaceConfiguration {
+		pkglogger.Get().Info("LSP compat fallback hit",
 			"event", "gopls.compat_fallback.hit",
 			"method", method,
 			"variant", "workspace_configuration",

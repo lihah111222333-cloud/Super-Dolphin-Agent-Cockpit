@@ -61,7 +61,7 @@ sequenceDiagram
   participant S as common.Server
   participant T as tools handler
   participant R as manager.Registry
-  participant G as gopls transport
+  participant G as LSP transport
   participant L as LSP process
   C->>S: tools/call
   S->>T: handler
@@ -144,9 +144,9 @@ sequenceDiagram
 
 ## 2.2 `cmd/mcp-lsp/`
 
-> 迁移后 `cmd/mcp-lsp/` 下生产源码分布为：根目录 6 个入口文件，子包合计 51 个文件；其中子包分布为 `edit` 4、`exec` 1、`format` 4、`gopls` 15、`installer` 1、`manager` 2、`middleware` 4、`protocol` 5、`search` 2、`tools` 13；以下逐项覆盖。
+> 迁移后 `cmd/mcp-lsp/` 下生产源码分布为：根目录 6 个入口文件，子包合计 56 个文件；其中子包分布为 `edit` 4、`exec` 3、`format` 4、`multilsp` 16、`installer` 1、`manager` 2、`middleware` 5、`protocol` 5、`search` 2、`tools` 14；以下逐项覆盖。
 >
-> 迁移补记（2026-04-17）：当前仓库 `internal/mcpserver/` 仅保留 `common/` 与 `common/bootstrap/`；LSP 真实落点已经迁到 `cmd/mcp-lsp/{tools,manager,gopls,middleware,...}`，本仓未见 `internal/mcpserver/lsp/` 子包。
+> 迁移补记（2026-04-17）：当前仓库 `internal/mcpserver/` 仅保留 `common/` 与 `common/bootstrap/`；LSP 真实落点已经迁到 `cmd/mcp-lsp/{tools,manager,multilsp,middleware,...}`，本仓未见 `internal/mcpserver/lsp/` 子包。
 
 ### 2.2.0 入口层（`cmd/mcp-lsp/*.go`）
 - `main.go`（36 行，入口）
@@ -203,7 +203,7 @@ sequenceDiagram
   - JSON pretty render、带行号文本 render、grouped location render。
   - `NormalizeForDisplay()` 用反射统一处理多种 LSP 返回结构。
 
-### `gopls/`：通用 LSP 子进程管理骨架
+### `multilsp/`：通用 LSP 子进程管理骨架
 - `client.go`
   - `Client` 接口与默认实现。
   - 负责 `initialize/shutdown/request/notify/didOpen/didChange/didClose`。
@@ -224,11 +224,11 @@ sequenceDiagram
 - `transport_conn.go`
   - 启动子进程、读写 `Content-Length` framed 消息、收集 stderr（8KB ring buffer）、关闭/kill/等待退出。
 - `manager.go`
-  - `gopls.Manager` 现在只组合三段端口：`ClientEnsurer + lspmanager.Manager + BackgroundRunnerProvider`；具体 LSP 能力来自 `lspmanager.Manager`，不再在本接口里直铺方法签名。
+  - `multilsp.Manager` 现在只组合三段端口：`ClientEnsurer + lspmanager.Manager + BackgroundRunnerProvider`；具体 LSP 能力来自 `lspmanager.Manager`，不再在本接口里直铺方法签名。
   - `manager` 主结构：workspace root、workspace->client 映射、diagnostics generation、logger、pool。
   - 构造时会规范化 root，并初始化 `ManagerPool`。
 - `factory.go`
-  - 这里不是“工厂模式注册器”，而是 `gopls` 包内部的**泛型公共管线**。
+  - 这里不是“工厂模式注册器”，而是 `multilsp` 包内部的**泛型公共管线**。
   - 提供 `requestDocument()`、`queryHierarchy()`、union decode、cache persistence、bootstrap sync 辅助函数。
   - 也是 `bootstrap_doc.go / cache.go / manager_symbols.go` 的共享胶水层。
 - `manager_lifecycle.go`
@@ -409,25 +409,25 @@ sequenceDiagram
 | `middleware.Handler` | `cmd/mcp-lsp/middleware/logging.go` | 工具处理器统一签名 |
 | `middleware.Middleware` | `cmd/mcp-lsp/middleware/logging.go` | 工具中间件签名 |
 
-### 3.4 `gopls/` 内部核心抽象
+### 3.4 `multilsp/` 内部核心抽象
 
 | 类型 | 位置 | 作用 |
 |---|---|---|
-| `gopls.Client` | `gopls/client.go` | 单个 LSP 子进程客户端抽象 |
-| `gopls.Manager` | `gopls/manager.go` | 对外组合 `ClientEnsurer + lspmanager.Manager + BackgroundRunnerProvider` |
-| `ClientEnsurer` | `gopls/manager.go` | 只暴露 `EnsureClient()`，作为惰性拉起 LSP client 的端口 |
-| `BackgroundRunnerProvider` | `gopls/manager.go` | 只暴露 recycler 等后台 runner 入口 |
-| `ClientFactory` | `gopls/manager.go` | 注入具体 LSP binary 的 client 构造器 |
-| `manager` | `gopls/manager.go` | workspace -> client 管理核心 |
-| `workspaceClient` | `gopls/manager.go` | 一个 workspace 对应一个 LSP client |
-| `transport` | `gopls/transport.go` | 子进程 JSON-RPC 传输层 |
-| `lspCacheStore` | `gopls/cache.go` | bootstrap 文档缓存 |
-| `bootstrapStateStore` | `gopls/state.go` | bootstrap 状态机 |
-| `ManagerPool` | `gopls/pool.go` | client lease 计数与 recycler 容器 |
-| `poolRecycler` | `gopls/recycler.go` | 基于 RSS 的 client 回收器 |
-| `bootstrapCoordinator` | `gopls/bootstrap_doc.go` | 文档 bootstrap 协调器 |
+| `multilsp.Client` | `multilsp/client.go` | 单个 LSP 子进程客户端抽象 |
+| `multilsp.Manager` | `multilsp/manager.go` | 对外组合 `ClientEnsurer + lspmanager.Manager + BackgroundRunnerProvider` |
+| `ClientEnsurer` | `multilsp/manager.go` | 只暴露 `EnsureClient()`，作为惰性拉起 LSP client 的端口 |
+| `BackgroundRunnerProvider` | `multilsp/manager.go` | 只暴露 recycler 等后台 runner 入口 |
+| `ClientFactory` | `multilsp/manager.go` | 注入具体 LSP binary 的 client 构造器 |
+| `manager` | `multilsp/manager.go` | workspace -> client 管理核心 |
+| `workspaceClient` | `multilsp/manager.go` | 一个 workspace 对应一个 LSP client |
+| `transport` | `multilsp/transport.go` | 子进程 JSON-RPC 传输层 |
+| `lspCacheStore` | `multilsp/cache.go` | bootstrap 文档缓存 |
+| `bootstrapStateStore` | `multilsp/state.go` | bootstrap 状态机 |
+| `ManagerPool` | `multilsp/pool.go` | client lease 计数与 recycler 容器 |
+| `poolRecycler` | `multilsp/recycler.go` | 基于 RSS 的 client 回收器 |
+| `bootstrapCoordinator` | `multilsp/bootstrap_doc.go` | 文档 bootstrap 协调器 |
 
-**关键事实：** `gopls/` 包名带历史色彩，但 `cmd/mcp-lsp/runtime.go` 已把它复用于 Go、JS/TS、Python、CSS、Rust、Java 等语言场景。
+**关键事实：** `multilsp/` 是通用 LSP 进程管理层；`cmd/mcp-lsp/runtime.go` 已把它复用于 Go、JS/TS、Python、CSS、Rust、Java 等语言场景。
 
 ---
 
@@ -528,13 +528,13 @@ control plane 可反向调工具进程：
 
 ---
 
-## 7. gopls / `internal/mcpserver/lsp/` 接入状态
+## 7. `multilsp` / `internal/mcpserver/lsp/` 接入状态
 
 截至 2026-04-20，仓内未检出 `internal/mcpserver/lsp/`：
 
 - `find internal/mcpserver -type f` 仅有 `common/` 与 `common/bootstrap/`
 - `grep` 未命中 `internal/mcpserver/lsp`
-- 本卷因此只能确认：framework 层已经为 LSP 类进程预留了 **ToolProvider + bootstrap callback + HTTP discovery** 三个接入点，但 **gopls manager / ToolSearch / Router** 尚未进入 `internal/mcpserver` 目录树
+- 本卷因此只能确认：framework 层已经为 LSP 类进程预留了 **ToolProvider + bootstrap callback + HTTP discovery** 三个接入点，但 **multilsp manager / ToolSearch / Router** 尚未进入 `internal/mcpserver` 目录树
 
 这也是本卷与任务说明的主要落差：LSP 迁入点在代码中尚未落地，本卷不能用旧路径充数。
 
@@ -642,7 +642,7 @@ graph TD
   - replay hook subscriptions
 - `Context()` 断连时可退化为 boot snapshot；`RequestApproval()` 不退化。
 
-## 6.6 LSP 子进程 transport（`gopls/transport*.go`）
+## 6.6 LSP 子进程 transport（`multilsp/transport*.go`）
 
 这一套与上面的 MCP transport 是另一层协议：用于本进程与 LSP server 子进程之间通信。
 
@@ -677,8 +677,8 @@ graph TD
 2. **`ToolProvider` 是 MCP server 与工具框架的关键解耦点。**
 3. **`common` 没有统一 transport 抽象，而是 `Server + StdioTransport` 与 `HTTPServer` 双实现并存。**
 4. **`bootstrap.Client` 已经不只是 register/heartbeat 客户端，而是完整的 control-plane peer。**
-5. **`gopls/` 实际上是通用 LSP 进程管理层，不只服务 Go。**
-6. **`markdown/json/yaml` 的 fallback 能力存在于 `gopls` manager 内部**，但当前 `cmd/mcp-lsp/runtime.go` 未注册这些语言；要触发 fallback 需要装配层显式把这些语言路由到该 manager。
+5. **`multilsp/` 实际上是通用 LSP 进程管理层，不只服务 Go。**
+6. **`markdown/json/yaml` 的 fallback 能力存在于 `multilsp` manager 内部**，但当前 `cmd/mcp-lsp/runtime.go` 未注册这些语言；要触发 fallback 需要装配层显式把这些语言路由到该 manager。
 7. **`replace_range` 是本层最复杂的写路径**：匹配、落盘、LSP 同步、回滚、函数上下文回显都在这里收束。
 8. **Output Budget 不是默认全局中间件**，当前仅 `lsp_file` / `lsp_grep` 使用。
 9. **`ManagerPool` / `recycler` 基础设施已经存在，但当前仍明显偏 primary-manager 模式。**
@@ -692,8 +692,8 @@ graph TD
 1. `common/server.go` + `stdio.go`
 2. `common/bootstrap/client.go` + `lifecycle.go` + `reconnect.go`
 3. `cmd/mcp-lsp/tools/factory.go` + `cmd/mcp-lsp/tools.go`
-4. `cmd/mcp-lsp/manager/registry.go` + `cmd/mcp-lsp/gopls/manager*.go`
-5. `cmd/mcp-lsp/gopls/client.go` + `cmd/mcp-lsp/gopls/transport*.go`
+4. `cmd/mcp-lsp/manager/registry.go` + `cmd/mcp-lsp/multilsp/manager*.go`
+5. `cmd/mcp-lsp/multilsp/client.go` + `cmd/mcp-lsp/multilsp/transport*.go`
 6. `cmd/mcp-lsp/tools/tool_edit*.go` + `cmd/mcp-lsp/edit/*.go`
 
 这样能最快建立“从 MCP 调用入口到 LSP 子进程，再到控制面生命周期”的完整心智模型。
@@ -702,7 +702,7 @@ graph TD
 
 1. **已更正 `report_queue.go` 的性质**：当前实现是**有界内存队列**，并不会落磁盘；原地图里“durable queue”的说法不准确。
 2. **已补齐 bootstrap 生命周期缺口**：`Context/EmitEvent/Log/Approval`、`ctl/shutdown + ctl/config/changed` 回调、hook 默认决策、断连退化/不可退化行为，现在都已写入地图。
-3. **已补齐 `gopls/factory.go` 的职责**：它不是对外注册工厂，而是 `gopls` 包内的泛型公共胶水层；原地图缺了这一层。
+3. **已补齐 `multilsp/factory.go` 的职责**：它不是对外注册工厂，而是 `multilsp` 包内的泛型公共胶水层；原地图缺了这一层。
 4. **已更正 `StdioTransport` 描述**：它只有 raw JSON / framed 两种探测模式；没有公开 `Flush()` API，只是在底层 writer 支持时由 `WriteMessage()` 顺手 flush。
 5. **已补齐 bootstrap API 与注册细节**：
    - `client.go` 的公开入口补上了 `New()`
@@ -715,7 +715,7 @@ graph TD
     - `lsp_edit` 会保留文件权限与行尾风格，并在 LSP 同步失败时回滚
     - `replace_range` 的匹配策略已按 `seeksequence.go + patchmatch.go` 更正，补上了 `substring_exact` fallback 与多候选歧义行为
     - `code_run` 的非零退出与执行器错误是两种不同返回模型
-8. **已补齐 `gopls` 子包遗漏职责**：JSTS/Java bootstrap、cache 持久化开关、bootstrap 文档协调器、fallback-only 语言策略都已纳入，并注明当前 runtime 尚未注册 markdown/json/yaml manager。
+8. **已补齐 `multilsp` 子包遗漏职责**：JSTS/Java bootstrap、cache 持久化开关、bootstrap 文档协调器、fallback-only 语言策略都已纳入，并注明当前 runtime 尚未注册 markdown/json/yaml manager。
 9. **保留一条实现观察**：`ManagerPool.snapshotManagers()` 当前只返回 primary manager；`recycler` 的重建路径也仍带明显 Go-centric 痕迹，说明池化/回收基础设施仍在演进中。
 
 ---

@@ -41,7 +41,7 @@
     "empty_funcs": 1,
     "todo_count": 0
   },
-  "cmd/mcp-lsp/gopls/bootstrap_doc.go": {
+  "cmd/mcp-lsp/multilsp/bootstrap_doc.go": {
     "lines": 302,
     "max_func_len": 31,
     "max_nesting": 2,
@@ -56,7 +56,7 @@
     "todo_count": 0,
     "max_struct_fields": 5
   },
-  "cmd/mcp-lsp/gopls/transport_compat.go": {
+  "cmd/mcp-lsp/multilsp/transport_compat.go": {
     "lines": 53,
     "max_func_len": 19,
     "max_nesting": 1,

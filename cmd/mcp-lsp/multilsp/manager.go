@@ -1,4 +1,4 @@
-package gopls
+package multilsp
 
 import (
 	"bytes"
@@ -22,8 +22,8 @@ import (
 )
 
 var (
-	ErrManagerClosed       = errors.New("gopls manager is closed")
-	ErrClientFactoryNil    = errors.New("gopls client factory is nil")
+	ErrManagerClosed       = errors.New("LSP manager is closed")
+	ErrClientFactoryNil    = errors.New("LSP client factory is nil")
 	ErrWorkspaceRootEmpty  = errors.New("workspace root is empty")
 	ErrDocumentTargetEmpty = errors.New("document target is empty")
 )
@@ -49,7 +49,7 @@ type BackgroundRunnerProvider interface {
 	// manager's background work (currently the ManagerPool recycler).
 	// The root `group:"runners"` aggregation drives them via ctx; nil
 	// is returned when the manager has no background work to own.
-	// P22 P2 gopls-S1 — docs/plans/迁移/p22/P2_BusRuntimeDecoupling.md
+	// P22 P2 LSP-S1 — docs/plans/迁移/p22/P2_BusRuntimeDecoupling.md
 	// §480-494.
 	BackgroundRunner() platformrunner.Runner
 }
@@ -58,9 +58,9 @@ type ClientFactory interface {
 	// NewClient creates a language client whose subprocess Dir is bound
 	// to rootDir. rootDir is the per-workspace root resolved at call
 	// time (cfg.rootPath in createAndRegisterClient); the factory MUST
-	// NOT capture mcp-lsp's startup CWD via closure, otherwise gopls
-	// inherits the wrong project root when sessions span multiple
-	// workspaces.
+	// NOT capture mcp-lsp's startup CWD via closure, otherwise the
+	// language server inherits the wrong project root when sessions
+	// span multiple workspaces.
 	NewClient(rootDir string, handler protocol.NotificationHandler) (Client, error)
 }
 

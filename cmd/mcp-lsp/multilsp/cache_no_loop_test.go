@@ -1,4 +1,4 @@
-package gopls
+package multilsp
 
 import (
 	"testing"
@@ -6,7 +6,7 @@ import (
 )
 
 // TestNewLSPCacheStoreDoesNotSpawnCleanupGoroutine asserts P22 P2
-// gopls-S2: the cache store constructor must not launch a background
+// LSP-S2: the cache store constructor must not launch a background
 // cleanup goroutine. Pre-P22 P2 it called `go store.cleanupLoop()`,
 // which held its own stopCh and outlived every caller. Cleanup is
 // now amortised on access, so the goroutine is gone entirely.
@@ -16,7 +16,7 @@ func TestNewLSPCacheStoreDoesNotSpawnCleanupGoroutine(t *testing.T) {
 		t.Fatalf("newLSPCacheStore returned nil")
 	}
 
-	// Close is a no-op after P22 P2 gopls-S2; it must not panic or
+	// Close is a no-op after P22 P2 LSP-S2; it must not panic or
 	// leak even when invoked multiple times in a row.
 	store.Close()
 	store.Close()

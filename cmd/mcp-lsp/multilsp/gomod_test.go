@@ -1,4 +1,4 @@
-package gopls
+package multilsp
 
 import (
 	"os"

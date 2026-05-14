@@ -1,4 +1,4 @@
-package gopls
+package multilsp
 
 import (
 	"context"
@@ -15,11 +15,11 @@ import (
 
 const managerShutdownTimeout = 5 * time.Second
 
-// BackgroundRunner satisfies the gopls.Manager contract (see
+// BackgroundRunner satisfies the multilsp.Manager contract (see
 // manager.go) by returning the pool's recycler as a
 // platformrunner.Runner. A nil receiver or nil pool yields nil so the
 // root collector can safely drop it from `group:"runners"`. P22 P2
-// gopls-S1.
+// LSP-S1.
 func (m *manager) BackgroundRunner() platformrunner.Runner {
 	if m == nil || m.pool == nil {
 		return nil
@@ -134,7 +134,7 @@ func (m *manager) ensureClientForLanguage(ctx context.Context, languageID string
 
 func (m *manager) resolveLanguageWorkspace(ctx context.Context, languageID string) (string, string, error) {
 	if !shouldUseClientForLanguage(languageID) {
-		return "", "", fmt.Errorf("language %q is not managed by gopls", languageID)
+		return "", "", fmt.Errorf("language %q is not managed by the LSP manager", languageID)
 	}
 	root := m.effectiveWorkspaceRoot(ctx)
 	if root == "" {
@@ -269,11 +269,11 @@ func (m *manager) createAndRegisterClient(ctx context.Context, cfg workspaceConf
 		logMessage: m.LogMessage,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("create gopls client: %w", err)
+		return nil, fmt.Errorf("create LSP client: %w", err)
 	}
 	if err := client.Initialize(ctx, cfg.rootURI); err != nil {
 		_ = client.Close()
-		return nil, fmt.Errorf("initialize gopls client: %w", err)
+		return nil, fmt.Errorf("initialize LSP client: %w", err)
 	}
 
 	m.mu.Lock()
@@ -329,11 +329,11 @@ func (m *manager) LogMessage(params protocol.LogMessageParams) error {
 	}
 	switch params.Type {
 	case protocol.LogMessageError:
-		m.logger.Error("gopls", "message", params.Message)
+		m.logger.Error("lsp", "message", params.Message)
 	case protocol.LogMessageWarning:
-		m.logger.Warn("gopls", "message", params.Message)
+		m.logger.Warn("lsp", "message", params.Message)
 	default:
-		m.logger.Debug("gopls", "message", params.Message)
+		m.logger.Debug("lsp", "message", params.Message)
 	}
 	return nil
 }
@@ -363,6 +363,9 @@ func (m *manager) documentClient(ctx context.Context, uri string) (Client, docum
 	}
 	if !shouldUseClientForLanguage(ref.languageID) {
 		return nil, ref, nil
+	}
+	if err := m.bootstrapDocument(ctx, ref.uri); err != nil {
+		return nil, documentRef{}, err
 	}
 	client, err := m.ensureClientForFile(ctx, ref.absPath, ref.languageID)
 	if err != nil {

@@ -1,4 +1,4 @@
-package gopls
+package multilsp
 
 import (
 	"context"
@@ -324,5 +324,5 @@ func logBootstrapWarning(m *manager, uri string, err error) {
 	if m == nil || m.logger == nil || err == nil {
 		return
 	}
-	m.logger.Warn("gopls bootstrap skipped document", "uri", uri, "err", err)
+	m.logger.Warn("LSP bootstrap skipped document", "uri", uri, "err", err)
 }

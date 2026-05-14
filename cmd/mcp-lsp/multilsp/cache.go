@@ -1,4 +1,4 @@
-package gopls
+package multilsp
 
 import (
 	"encoding/json"
@@ -14,7 +14,7 @@ import (
 
 const (
 	defaultLSPCacheTTL = 7 * 24 * time.Hour
-	lspCacheFileName   = "gopls-cache.json"
+	lspCacheFileName   = "lsp-cache.json"
 )
 
 const (
@@ -45,7 +45,7 @@ type lspCacheConfig struct {
 }
 
 // lspCacheStore holds per-workspace LSP document bootstrap state and
-// lets expired entries age out. Pre-P22 P2 gopls-S2 the struct also
+// lets expired entries age out. Pre-P22 P2 LSP-S2 the struct also
 // owned a 1h background cleanup loop launched from newLSPCacheStore.
 // The cleanup is now amortised across every
 // Load/Upsert/WorkspaceDocuments via maybeCleanup, which the plan
@@ -93,7 +93,7 @@ func newLSPCacheStore(cfg lspCacheConfig) *lspCacheStore {
 		store.ensurePersistentReady()
 		_ = store.loadPersistent()
 	}
-	// P22 P2 gopls-S2: no background cleanup goroutine; TTL expiry is
+	// P22 P2 LSP-S2: no background cleanup goroutine; TTL expiry is
 	// applied inline by maybeCleanup on every Load/Upsert/WorkspaceDocuments.
 	return store
 }
@@ -194,13 +194,13 @@ func (s *lspCacheStore) cachePath() string {
 		if err != nil {
 			return ""
 		}
-		dir = filepath.Join(cacheDir, "super-agent-v3", "gopls")
+		dir = filepath.Join(cacheDir, "super-agent-v3", "mcp-lsp")
 	}
 	return filepath.Join(dir, lspCacheFileName)
 }
 
 // Close is retained as the *lspCacheStore shutdown hook for API
-// stability. Pre-P22 P2 gopls-S2 it closed the stopCh that drove the
+// stability. Pre-P22 P2 LSP-S2 it closed the stopCh that drove the
 // background cleanupLoop; cleanup is now amortised across every access,
 // so this method is a no-op. Keeping the method means callers like
 // closeBootstrapCoordinator don't need to change and a future persistent
@@ -305,7 +305,7 @@ func (s *lspCacheStore) fallbackToMemory(err error) {
 		return
 	}
 	s.fallbackWarned = true
-	s.config.Logger.Warn("gopls cache fell back to memory", "err", err)
+	s.config.Logger.Warn("LSP cache fell back to memory", "err", err)
 }
 
 func (s *lspCacheStore) expired(value lspCacheValue, now time.Time) bool {

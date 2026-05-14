@@ -31,7 +31,7 @@ func TestInterfaceIsolationBudgets(t *testing.T) {
 		{relPath: "cmd/mcp-orch/store/taskdag/contract.go", name: "WakeupStore", maxMethods: 10, maxEmbedded: 0},
 		{relPath: "cmd/mcp-orch/store/taskdag/contract.go", name: "WorkerLeaseStore", maxMethods: 3, maxEmbedded: 0},
 		{relPath: "internal/module/skill/contract.go", name: "Service", maxMethods: 0, maxEmbedded: 12},
-		{relPath: "cmd/mcp-lsp/gopls/manager.go", name: "Manager", maxMethods: 0, maxEmbedded: 3},
+		{relPath: "cmd/mcp-lsp/multilsp/manager.go", name: "Manager", maxMethods: 0, maxEmbedded: 3},
 		{relPath: "cmd/mcp-lsp/manager/manager.go", name: "Manager", maxMethods: 0, maxEmbedded: 8},
 	}
 

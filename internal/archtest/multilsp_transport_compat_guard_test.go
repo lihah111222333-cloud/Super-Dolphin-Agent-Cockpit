@@ -7,18 +7,18 @@ import (
 	"testing"
 )
 
-// TestGoplsTransportCompatFreeze enforces P22 P4 §309-311: the gopls
+// TestMultiLSPTransportCompatFreeze enforces P22 P4 §309-311: the multilsp
 // transport's server-request compatibility contract must live in a
-// single authoritative file (cmd/mcp-lsp/gopls/transport_compat.go),
-// not inlined inside transport.go or elsewhere under cmd/mcp-lsp/gopls.
+// single authoritative file (cmd/mcp-lsp/multilsp/transport_compat.go),
+// not inlined inside transport.go or elsewhere under cmd/mcp-lsp/multilsp.
 //
 // The guard pins every frozen method literal in the compat contract
 // to the producer file. Any future entry must land in
 // transport_compat.go so code review and downstream consumers see the
 // contract change as a single-file diff.
-func TestGoplsTransportCompatFreeze(t *testing.T) {
+func TestMultiLSPTransportCompatFreeze(t *testing.T) {
 	const (
-		dir      = "../../cmd/mcp-lsp/gopls"
+		dir      = "../../cmd/mcp-lsp/multilsp"
 		producer = "transport_compat.go"
 	)
 
@@ -56,7 +56,7 @@ func TestGoplsTransportCompatFreeze(t *testing.T) {
 		text := string(data)
 		for _, tok := range frozen {
 			if strings.Contains(text, tok) {
-				t.Errorf("%s: frozen gopls compat literal %s appears outside %s (P22 P4 §309-311: register the method + response shape in %s instead of inlining)", path, tok, producer, producer)
+				t.Errorf("%s: frozen LSP compat literal %s appears outside %s (P22 P4 §309-311: register the method + response shape in %s instead of inlining)", path, tok, producer, producer)
 			}
 		}
 	}
@@ -70,7 +70,7 @@ func TestGoplsTransportCompatFreeze(t *testing.T) {
 	text := string(data)
 	for _, tok := range frozen {
 		if !strings.Contains(text, tok) {
-			t.Errorf("%s: expected frozen gopls compat literal %s to be present", producer, tok)
+			t.Errorf("%s: expected frozen LSP compat literal %s to be present", producer, tok)
 		}
 	}
 }

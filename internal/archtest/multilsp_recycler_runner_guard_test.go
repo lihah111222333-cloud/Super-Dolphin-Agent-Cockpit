@@ -7,20 +7,20 @@ import (
 	"testing"
 )
 
-// TestGoplsPoolRecyclerOwnedByRunner enforces P22 P2 gopls-S1:
+// TestMultiLSPPoolRecyclerOwnedByRunner enforces P22 P2 LSP-S1:
 // NewManagerPool must not launch the recycler loop from its
 // constructor, and poolRecycler must not expose an ad-hoc
 // Start()/Stop() pair or a self-spawned loop goroutine. The runtime
 // owner is platformrunner.Runner via `group:"runners"`, so the only
 // allowed entry point is the ctx-driven Run(ctx) method.
 //
-// The guard scans non-test .go files under cmd/mcp-lsp/gopls for the
+// The guard scans non-test .go files under cmd/mcp-lsp/multilsp for the
 // forbidden shapes (`pool.recycler.Start(`, `p.recycler.Start(`,
 // `r.recycler.Stop(`, `go r.loop()`, `func (r *poolRecycler) Start(`
 // and `func (r *poolRecycler) Stop(`) and fails if any of them
 // reappears.
-func TestGoplsPoolRecyclerOwnedByRunner(t *testing.T) {
-	const dir = "../../cmd/mcp-lsp/gopls"
+func TestMultiLSPPoolRecyclerOwnedByRunner(t *testing.T) {
+	const dir = "../../cmd/mcp-lsp/multilsp"
 
 	forbidden := []string{
 		"pool.recycler.Start(",
@@ -51,7 +51,7 @@ func TestGoplsPoolRecyclerOwnedByRunner(t *testing.T) {
 		text := string(data)
 		for _, tok := range forbidden {
 			if strings.Contains(text, tok) {
-				t.Errorf("%s: forbidden recycler lifecycle literal %q present (P22 P2 gopls-S1: use Run(ctx) as Runner owner, not self-launched goroutine / Start()/Stop() pair)", path, tok)
+				t.Errorf("%s: forbidden recycler lifecycle literal %q present (P22 P2 LSP-S1: use Run(ctx) as Runner owner, not self-launched goroutine / Start()/Stop() pair)", path, tok)
 			}
 		}
 	}
