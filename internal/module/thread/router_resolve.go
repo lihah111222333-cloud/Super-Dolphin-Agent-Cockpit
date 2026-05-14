@@ -413,10 +413,14 @@ func findByPromptKey(templates []promptstore.PromptTemplate, promptKey string) *
 
 // maybeAutoRouteByMatchWhen fills req.PromptKey when no explicit pin was
 // supplied and the classifier either was off or did not score a winner. It
-// iterates enabled templates with a non-nil match_when (opt-in), sorted by
-// Priority DESC (stable), and stamps the first one whose rules match the
-// synthesized BuildCtx. All failure modes leave req.PromptKey untouched so
-// the main/default fallback still applies.
+// evaluates auto-route candidates in two stages: first the "specific" pool
+// (rows whose match_when has real filter conditions), then the "fallback"
+// pool (rows whose match_when is `{}`, opt-in always-match). Each pool is
+// sorted by Priority DESC (stable). Splitting the pools prevents a high-
+// priority `{}` row (e.g. main/claude-style priority=150) from shadowing
+// every user-tagged prompt — the production bug that motivated this split.
+// All failure modes leave req.PromptKey untouched so the main/default
+// fallback still applies.
 func (s *service) maybeAutoRouteByMatchWhen(req *StartRequest, templates []promptstore.PromptTemplate) {
 	if req == nil {
 		return
@@ -430,34 +434,70 @@ func (s *service) maybeAutoRouteByMatchWhen(req *StartRequest, templates []promp
 	if s.matchWhenEval == nil {
 		return
 	}
-	candidates := autoRouteCandidates(templates)
-	if len(candidates) == 0 {
+	specific, fallback := autoRouteCandidates(templates)
+	if len(specific) == 0 && len(fallback) == 0 {
 		return
 	}
 	buildCtx := buildMatchWhenCtx(req)
 	userPrompt := req.Prompt
-	for i := range candidates {
-		cand := &candidates[i]
-		if !s.matchWhenEval(cand.MatchWhen, buildCtx, userPrompt) {
-			continue
-		}
-		pkglogger.Info("router: match_when auto-routed",
-			"prompt_key", cand.PromptKey,
-			"priority", cand.Priority,
-			"candidate_count", len(candidates))
-		req.PromptKey = cand.PromptKey
+	if s.evaluateMatchWhenPool("specific", specific, len(fallback), buildCtx, userPrompt, req) {
+		return
+	}
+	if s.evaluateMatchWhenPool("fallback", fallback, len(specific), buildCtx, userPrompt, req) {
 		return
 	}
 	pkglogger.Info("router: match_when no auto-route hit",
-		"candidate_count", len(candidates))
+		"specific_count", len(specific),
+		"fallback_count", len(fallback))
 }
 
-// autoRouteCandidates filters the template list down to enabled rows that
-// opted into auto-routing (non-nil match_when) and returns them sorted by
-// Priority DESC with a stable secondary order. The caller is expected to
-// apply the match_when evaluator to the returned slice.
-func autoRouteCandidates(templates []promptstore.PromptTemplate) []promptstore.PromptTemplate {
-	out := make([]promptstore.PromptTemplate, 0, len(templates))
+// evaluateMatchWhenPool walks one match_when pool (specific or fallback) in
+// the order the caller provided (already priority-DESC). On the first hit it
+// stamps req.PromptKey and returns true; otherwise returns false so the
+// caller can move on to the next stage. The peer-pool count is logged purely
+// for observability so a single line tells operators which stage fired.
+func (s *service) evaluateMatchWhenPool(
+	stage string,
+	pool []promptstore.PromptTemplate,
+	peerCount int,
+	buildCtx contract.BuildCtx,
+	userPrompt string,
+	req *StartRequest,
+) bool {
+	for i := range pool {
+		cand := &pool[i]
+		if !s.matchWhenEval(cand.MatchWhen, buildCtx, userPrompt) {
+			continue
+		}
+		specificCount, fallbackCount := len(pool), peerCount
+		if stage == "fallback" {
+			specificCount, fallbackCount = peerCount, len(pool)
+		}
+		pkglogger.Info("router: match_when auto-routed",
+			"stage", stage,
+			"prompt_key", cand.PromptKey,
+			"priority", cand.Priority,
+			"specific_count", specificCount,
+			"fallback_count", fallbackCount)
+		req.PromptKey = cand.PromptKey
+		return true
+	}
+	return false
+}
+
+// autoRouteCandidates partitions enabled match_when rows into two pools:
+//   - specific: match_when decodes to a non-empty object (real filter rules)
+//   - fallback: match_when decodes to the empty object `{}` (opt-in always-
+//     match). nil / null / invalid JSON are dropped entirely because they
+//     can never satisfy EvaluateMatchWhen anyway — keeping them in the pool
+//     would just be wasted iteration.
+//
+// Each pool is sorted by Priority DESC (stable). The caller evaluates
+// specific first, then fallback, so a low-priority user prompt with real
+// match rules wins over a high-priority `{}` row.
+func autoRouteCandidates(templates []promptstore.PromptTemplate) (specific, fallback []promptstore.PromptTemplate) {
+	specific = make([]promptstore.PromptTemplate, 0, len(templates))
+	fallback = make([]promptstore.PromptTemplate, 0, len(templates))
 	for i := range templates {
 		t := &templates[i]
 		if !t.Enabled {
@@ -466,12 +506,49 @@ func autoRouteCandidates(templates []promptstore.PromptTemplate) []promptstore.P
 		if len(t.MatchWhen) == 0 {
 			continue
 		}
-		out = append(out, *t)
+		if isFallbackMatchWhen(t.MatchWhen) {
+			fallback = append(fallback, *t)
+			continue
+		}
+		if hasSpecificMatchWhen(t.MatchWhen) {
+			specific = append(specific, *t)
+		}
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		return out[i].Priority > out[j].Priority
+	sortByPriorityDesc(specific)
+	sortByPriorityDesc(fallback)
+	return specific, fallback
+}
+
+// isFallbackMatchWhen reports whether the raw JSON is the empty object `{}`.
+// nil / null / non-object / invalid JSON return false: only a real `{}` body
+// counts as the opt-in always-match fallback bucket. The nil check guards
+// against jsonb `null` decoding to a nil map and being mistaken for `{}`.
+func isFallbackMatchWhen(raw []byte) bool {
+	var expr map[string]any
+	if err := json.Unmarshal(raw, &expr); err != nil {
+		return false
+	}
+	return expr != nil && len(expr) == 0
+}
+
+// hasSpecificMatchWhen reports whether the raw JSON decodes to a non-empty
+// object with at least one filter key. Used to filter the specific pool —
+// anything else (null, [], string, number, invalid) is dropped because
+// EvaluateMatchWhen will not accept it anyway.
+func hasSpecificMatchWhen(raw []byte) bool {
+	var expr map[string]any
+	if err := json.Unmarshal(raw, &expr); err != nil {
+		return false
+	}
+	return len(expr) > 0
+}
+
+// sortByPriorityDesc sorts the rows in-place by Priority descending with
+// stable secondary order (insertion order from the store).
+func sortByPriorityDesc(rows []promptstore.PromptTemplate) {
+	sort.SliceStable(rows, func(i, j int) bool {
+		return rows[i].Priority > rows[j].Priority
 	})
-	return out
 }
 
 // buildMatchWhenCtx synthesizes a lightweight BuildCtx for router-phase

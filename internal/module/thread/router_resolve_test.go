@@ -516,3 +516,91 @@ func TestResolveRoutedPrompt_MatchWhenDisabledRowIgnored(t *testing.T) {
 		t.Fatalf("disabled auto-route row must be ignored, got %q", req.PromptKey)
 	}
 }
+
+// TestResolveRoutedPrompt_MatchWhenSpecificBeatsFallback: when a specific
+// (non-empty match_when) row matches, it must win even though a higher-
+// priority fallback (match_when={}) row exists. Reproduces the production
+// bug where main/claude-style (priority=150, match_when={}) shadowed every
+// user-created tag-based prompt. Uses tags_has string form because the
+// template-level match_when DSL only supports string today; array form is
+// the section-level dialect and would test something different.
+func TestResolveRoutedPrompt_MatchWhenSpecificBeatsFallback(t *testing.T) {
+	t.Parallel()
+	store := &fakePromptStore{
+		templates: []promptstore.PromptTemplate{
+			sqlTemplateWithMatchWhen("main/claude-style", "main",
+				"fallback body", []byte(`{}`), 150),
+			sqlTemplateWithMatchWhen("user/sql", "sql_expert",
+				"specific body", []byte(`{"tags_has":"sql"}`), 0),
+			sqlTemplate(defaultPromptKey, "main", "default body", nil),
+		},
+	}
+	s := newServiceWithRouter(store)
+
+	req := &StartRequest{Prompt: "please write me some sql"}
+	s.resolveRoutedPrompt(context.Background(), req)
+
+	if req.PromptKey != "user/sql" {
+		t.Fatalf("want user/sql (specific beats fallback), got %q", req.PromptKey)
+	}
+	if req.BaseInstructions != "specific body" {
+		t.Fatalf("want specific body injected, got %q", req.BaseInstructions)
+	}
+}
+
+// TestResolveRoutedPrompt_MatchWhenFallbackKicksInWhenNoSpecificMatches: with
+// no specific match (tags_has miss), the {} fallback row should pick up the
+// auto-route slot before main/default ultimate fallback.
+func TestResolveRoutedPrompt_MatchWhenFallbackKicksInWhenNoSpecificMatches(t *testing.T) {
+	t.Parallel()
+	store := &fakePromptStore{
+		templates: []promptstore.PromptTemplate{
+			sqlTemplateWithMatchWhen("main/claude-style", "claude_main",
+				"fallback body", []byte(`{}`), 150),
+			sqlTemplateWithMatchWhen("user/sql", "sql_expert",
+				"specific body", []byte(`{"tags_has":"sql"}`), 0),
+			sqlTemplate(defaultPromptKey, "main", "default body", nil),
+		},
+	}
+	s := newServiceWithRouter(store)
+
+	req := &StartRequest{Prompt: "hello world, nothing to do with the tag keyword"}
+	s.resolveRoutedPrompt(context.Background(), req)
+
+	if req.PromptKey != "main/claude-style" {
+		t.Fatalf("want main/claude-style (fallback after specific miss), got %q", req.PromptKey)
+	}
+	if req.BaseInstructions != "fallback body" {
+		t.Fatalf("want fallback body injected, got %q", req.BaseInstructions)
+	}
+}
+
+// TestResolveRoutedPrompt_MatchWhenSpecificPoolPriorityOrder: within the
+// specific pool, the higher-priority row must win when both match. Guards
+// the per-pool DESC ordering after the two-stage split.
+func TestResolveRoutedPrompt_MatchWhenSpecificPoolPriorityOrder(t *testing.T) {
+	t.Parallel()
+	store := &fakePromptStore{
+		templates: []promptstore.PromptTemplate{
+			sqlTemplateWithMatchWhen("user/sql-low", "sql_low",
+				"low body", []byte(`{"tags_has":"sql"}`), 1),
+			sqlTemplateWithMatchWhen("user/sql-hi", "sql_hi",
+				"hi body", []byte(`{"tags_has":"sql"}`), 10),
+			sqlTemplateWithMatchWhen("main/claude-style", "main",
+				"fallback body", []byte(`{}`), 150),
+			sqlTemplate(defaultPromptKey, "main", "default body", nil),
+		},
+	}
+	s := newServiceWithRouter(store)
+
+	req := &StartRequest{Prompt: "sql please"}
+	s.resolveRoutedPrompt(context.Background(), req)
+
+	if req.PromptKey != "user/sql-hi" {
+		t.Fatalf("want user/sql-hi (higher priority specific), got %q", req.PromptKey)
+	}
+	if req.BaseInstructions != "hi body" {
+		t.Fatalf("want hi body injected, got %q", req.BaseInstructions)
+	}
+}
+
