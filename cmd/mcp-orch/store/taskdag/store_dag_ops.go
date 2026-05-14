@@ -2,6 +2,7 @@ package taskdag
 
 import (
 	"context"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 )
@@ -52,6 +53,71 @@ func (s *store) CountRunningRunsByDagKey(ctx context.Context, dagKey string) (in
 	return queryValue(func() (int64, error) {
 		return s.q.CountActiveTaskDagRunsByKey(ctx, dagKey)
 	}, "count_running", "task_dag_run")
+}
+
+// GetDAGSchedule reads the scheduling columns omitted by the current sqlc
+// TaskDag model. ApplyOps calls this after GetDAGVersionForUpdate has locked
+// the row in the same transaction.
+func (s *store) GetDAGSchedule(ctx context.Context, dagKey string) (DAGSchedule, error) {
+	const q = `SELECT trigger, cron_expr FROM task_dags WHERE dag_key = $1`
+	row := sqlcDB(s.q).QueryRow(ctx, q, dagKey)
+	var schedule DAGSchedule
+	if err := row.Scan(&schedule.Trigger, &schedule.CronExpr); err != nil {
+		return DAGSchedule{}, wrapTaskDAGError(err, "get_schedule", "task_dag")
+	}
+	return schedule, nil
+}
+
+// UpdateDAGPatch applies the F4.4 update_dag metadata whitelist under the
+// caller's DAGOps transaction. Nil pointer fields mean "leave the column as-is";
+// empty strings are deliberate values and are written through.
+func (s *store) UpdateDAGPatch(ctx context.Context, input UpdateDAGPatchInput) (int64, error) {
+	const q = `
+-- name: UpdateTaskDagPatch :execrows
+UPDATE task_dags
+SET title = COALESCE($2, title),
+    description = COALESCE($3, description),
+    trigger = COALESCE($4, trigger),
+    cron_expr = COALESCE($5, cron_expr),
+    owner_id = COALESCE($6, owner_id),
+    next_run_at = CASE
+      WHEN COALESCE($4, trigger) = 'scheduled'
+        AND COALESCE($5, cron_expr) <> ''
+      THEN CASE
+        WHEN $4 IS NOT NULL OR $5 IS NOT NULL OR next_run_at IS NULL THEN COALESCE($7, next_run_at)
+        ELSE next_run_at
+      END
+      ELSE NULL
+    END,
+    updated_at = NOW()
+WHERE dag_key = $1`
+	tag, err := sqlcDB(s.q).Exec(ctx, q,
+		input.DagKey,
+		nullableStringArg(input.Title),
+		nullableStringArg(input.Description),
+		nullableStringArg(input.Trigger),
+		nullableStringArg(input.CronExpr),
+		nullableStringArg(input.OwnerID),
+		nullableTimeArg(input.NextRunAt),
+	)
+	if err != nil {
+		return 0, wrapTaskDAGError(err, "update_patch", "task_dag")
+	}
+	return tag.RowsAffected(), nil
+}
+
+func nullableStringArg(value *string) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func nullableTimeArg(value *time.Time) any {
+	if value == nil {
+		return nil
+	}
+	return *value
 }
 
 // BumpDAGVersion 把 task_dags.version 从 expectedVersion 推到 expectedVersion+1。

@@ -91,6 +91,8 @@ type DAGOpsStore interface {
 	GetDAGVersionForUpdate(ctx context.Context, dagKey string) (int64, error)
 	BumpDAGVersion(ctx context.Context, dagKey string, expectedVersion int64) (int64, error)
 	CountRunningRunsByDagKey(ctx context.Context, dagKey string) (int64, error)
+	GetDAGSchedule(ctx context.Context, dagKey string) (DAGSchedule, error)
+	UpdateDAGPatch(ctx context.Context, input UpdateDAGPatchInput) (int64, error)
 	UpsertNode(ctx context.Context, node Node) (*Node, error)
 	DeleteNode(ctx context.Context, dagKey, nodeKey string) (int64, error)
 }
@@ -500,6 +502,21 @@ type DAG struct {
 	FinishedAt  *time.Time
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+}
+
+type DAGSchedule struct {
+	Trigger  string
+	CronExpr string
+}
+
+type UpdateDAGPatchInput struct {
+	DagKey      string
+	Title       *string
+	Description *string
+	Trigger     *string
+	CronExpr    *string
+	OwnerID     *string
+	NextRunAt   *time.Time
 }
 
 type Node struct {
