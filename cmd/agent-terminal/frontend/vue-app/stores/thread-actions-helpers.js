@@ -542,7 +542,7 @@ export async function startThread(ctx, cwd = '.', options = {}) {
       has_config: Object.keys(finalConfig).length > 0, is_codex_provider: isCodexProvider,
     });
   }
-  const res = await callAPI('thread/start', payload);
+  const res = (ctx._lastStartResponse = await callAPI('thread/start', payload));
   const id = res?.thread?.id;
   if (!id) return '';
   // Capture routing metadata the backend surfaced (see

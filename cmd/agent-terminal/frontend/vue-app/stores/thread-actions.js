@@ -22,6 +22,7 @@ import {
   PREF_ARCHIVED_THREADS_CHAT,
   PREF_PINNED_THREADS_CHAT,
 } from './thread-preference.model.js';
+import { maybeHandleStalePromptKey } from './thread-stale-prompt.js';
 
 async function batchDeleteStaleThreads(ctx, threadIds) {
   const ids = Array.isArray(threadIds) ? threadIds.filter(id => id) : [];
@@ -67,7 +68,20 @@ export function createThreadActions(state, deps) {
     renameThread: (threadId, name) => renameThread(ctx, threadId, name),
     getThreadConfig: (threadId) => getThreadConfig(ctx, threadId),
     setThreadConfig: (threadId, config) => setThreadConfig(ctx, threadId, config),
-    startThread: (cwd, options) => startThread(ctx, cwd, options),
+    startThread: async (cwd, options) => {
+      // Wrap startThread so we can intercept the thread/start response after
+      // it completes and self-clean the cwd-scoped activePromptKey pref when
+      // the backend marked it stale. We pass through the original return
+      // value (the new thread id) unchanged. Doing this in the action wrapper
+      // (instead of inside helpers.startThread) keeps thread-actions-helpers.js
+      // under the per-file size-guard ceiling.
+      const id = await startThread(ctx, cwd, options);
+      // startThread caches the raw response on ctx for our use, see
+      // thread-stale-prompt.js for the stale detection contract.
+      await maybeHandleStalePromptKey(ctx, ctx._lastStartResponse, cwd);
+      ctx._lastStartResponse = null;
+      return id;
+    },
     stopThread: (threadId, options) => stopThread(ctx, threadId, options),
     recoverThread: (threadId) => recoverThread(ctx, threadId),
     sendMessage: (threadId, prompt, attachments, options) => sendMessage(ctx, threadId, prompt, attachments, options),
