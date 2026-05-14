@@ -269,9 +269,20 @@ func failNodeForMaterializationFailure(
 	if advanceNodeFailedWithReason(ctx, deps.FlowStore, logger, node, failure.Reason) && deps.NodeRouter != nil {
 		deps.NodeRouter.invokeTerminalFailureHooksForTaskNode(ctx, node, nodeexec.NodeOutcome{
 			Status:       nodeexec.NodeStatusFailed,
+			FailureClass: classifyMaterializationFailure(failure),
 			ErrorSummary: failure.Reason,
 		})
 	}
+}
+
+func classifyMaterializationFailure(failure *turnOutputMaterializationFailure) nodeexec.FailureClass {
+	if failure == nil {
+		return nodeexec.FailureClassValidation
+	}
+	if strings.HasPrefix(failure.Reason, "infrastructure:") {
+		return nodeexec.FailureClassInfrastructure
+	}
+	return nodeexec.FailureClassValidation
 }
 
 func recordLegacyResultCapMetric(logger *slog.Logger, node *taskdag.Node, result json.RawMessage) {

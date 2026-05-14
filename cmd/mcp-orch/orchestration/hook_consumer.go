@@ -403,28 +403,60 @@ func (c *hookConsumer) runThreadStoppedDAGFallback(ctx context.Context, threadID
 		if ctx.Err() != nil {
 			return
 		}
-		n := nodes[i]
-		// 应用层幂等：终态和 awaiting_verify 都不再抢占。awaiting_verify
-		// 表示 TurnCompleted 已 claim，sharedfile 物化可能仍在收尾。
-		if !isDAGFallbackFailEligibleStatus(n.Status) {
-			dagFallbackMetrics.IncIdempotentSkipped()
-			continue
-		}
-		_, failErr := flow.FailNodeAndCancelDownstream(ctx, taskdag.FailNodeInput{
-			DagKey:   n.DagKey,
-			NodeKey:  n.NodeKey,
-			Reason:   "thread_stopped_fallback",
-			FailFast: false,
+		c.failThreadStoppedFallbackNode(ctx, flow, nodes[i])
+	}
+}
+
+func (c *hookConsumer) failThreadStoppedFallbackNode(ctx context.Context, flow taskdag.NodeFlowStore, n taskdag.Node) {
+	// 应用层幂等：终态和 awaiting_verify 都不再抢占。awaiting_verify
+	// 表示 TurnCompleted 已 claim，sharedfile 物化可能仍在收尾。
+	if !isDAGFallbackFailEligibleStatus(n.Status) {
+		dagFallbackMetrics.IncIdempotentSkipped()
+		return
+	}
+	res, failErr := flow.FailNodeAndCancelDownstream(ctx, taskdag.FailNodeInput{
+		DagKey:   n.DagKey,
+		NodeKey:  n.NodeKey,
+		Reason:   "thread_stopped_fallback",
+		FailFast: false,
+	})
+	if failErr != nil {
+		dagFallbackMetrics.IncFailNodeErr()
+		c.logger.Warn("thread stopped fallback: fail node failed",
+			"dag_key", n.DagKey, "node_key", n.NodeKey, "error", failErr)
+		return
+	}
+	dagFallbackMetrics.IncFailed()
+	c.invokeThreadStoppedFallbackLifecycleHook(ctx, n, res)
+}
+
+func (c *hookConsumer) invokeThreadStoppedFallbackLifecycleHook(ctx context.Context, n taskdag.Node, res *taskdag.FailNodeResult) {
+	if router := c.dagTurnCompletedDeps.NodeRouter; router != nil {
+		router.invokeTerminalFailureHooksForTaskNode(ctx, failedNodeForLifecycle(n, res), nodeexec.NodeOutcome{
+			Status:       nodeexec.NodeStatusFailed,
+			ErrorSummary: "thread_stopped_fallback",
 		})
-		switch {
-		case failErr == nil:
-			dagFallbackMetrics.IncFailed()
-		default:
-			dagFallbackMetrics.IncFailNodeErr()
-			c.logger.Warn("thread stopped fallback: fail node failed",
-				"dag_key", n.DagKey, "node_key", n.NodeKey, "error", failErr)
+	}
+}
+
+func failedNodeForLifecycle(original taskdag.Node, result *taskdag.FailNodeResult) *taskdag.Node {
+	node := original
+	if result != nil && result.Node != nil {
+		node = *result.Node
+		if node.NodeType == "" {
+			node.NodeType = original.NodeType
+		}
+		if node.Title == "" {
+			node.Title = original.Title
+		}
+		if len(node.Config) == 0 {
+			node.Config = append(node.Config[:0], original.Config...)
 		}
 	}
+	if node.Status == "" {
+		node.Status = string(nodeexec.NodeStatusFailed)
+	}
+	return &node
 }
 
 func isDAGFallbackFailEligibleStatus(status string) bool {

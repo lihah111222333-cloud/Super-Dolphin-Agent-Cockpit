@@ -298,6 +298,39 @@ func TestDAGSubscriber_FailedInvokesLifecycleHooks(t *testing.T) {
 	}
 }
 
+func TestDAGSubscriber_MaterializationFailureLifecycleHooksKeepFailureClass(t *testing.T) {
+	events := []string{}
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey:   "dag-a2",
+		NodeKey:  "agent-sharedfile",
+		NodeType: "agent",
+		Status:   "running",
+		Config: []byte(`{
+			"exec":{"agent_key":"implementer"},
+			"outputs":{"to_sharedfile":{"path":"reports/agent.json","lock_mode":"exclusive"}}
+		}`),
+	}}}
+	flow := &dagSubscriberFlowSpy{}
+	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-a2-materialize-fail", AgentID: "agent-a2"}}
+	stop := &dagSubscriberStopSpy{}
+	agentExec := nodeexec.NewAgentExecutor(&stubAgentLauncher{}, nodeexec.WithHooks(recordingLifecycleOutcomeHooks(&events)))
+	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)
+	deps.NodeRouter = NewNodeExecutorRouter(&stubRouterStore{}, agentExec, nil, nil, nil, nil)
+
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-a2-materialize-fail", true, `{"summary":"done"}`))
+
+	if len(flow.failCalls) != 1 {
+		t.Fatalf("failCalls = %d, want 1", len(flow.failCalls))
+	}
+	want := []string{
+		"on_state_change:agent-sharedfile:failed:infrastructure",
+		"on_failure:agent-sharedfile:failed:infrastructure",
+	}
+	if got := strings.Join(events, "|"); got != strings.Join(want, "|") {
+		t.Fatalf("events = %v, want %v", events, want)
+	}
+}
+
 // 3. race A — TurnCompleted 早于 dispatchAgent 写 running：节点仍 ready。
 // CompleteNode 白名单含 ready（commit 2）→ stub flow 返成功，metric
 // CompleteDone +1（subscriber 不区分 ready/running 转 done）。
