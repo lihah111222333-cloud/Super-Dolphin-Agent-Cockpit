@@ -98,7 +98,7 @@ func CheckAll(opts CheckOptions) []Violation {
 		violations = append(violations, scanRoot(repoRoot, root, opts.skipDirs(), stats)...)
 	}
 	violations = append(violations, packageViolations(stats)...)
-	violations = append(violations, deadKeyViolations(repoRoot, scanRoots, stats)...)
+	violations = append(violations, postScanViolations(repoRoot, scanRoots, stats)...)
 	slices.SortFunc(violations, func(a, b Violation) int {
 		if c := strings.Compare(a.File, b.File); c != 0 {
 			return c
