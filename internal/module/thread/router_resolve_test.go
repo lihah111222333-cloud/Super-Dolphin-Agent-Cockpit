@@ -517,6 +517,7 @@ func TestResolveRoutedPrompt_MatchWhenDisabledRowIgnored(t *testing.T) {
 	}
 }
 
+
 // TestResolveRoutedPrompt_MatchWhenSpecificBeatsFallback: when a specific
 // (non-empty match_when) row matches, it must win even though a higher-
 // priority fallback (match_when={}) row exists. Reproduces the production
@@ -604,3 +605,111 @@ func TestResolveRoutedPrompt_MatchWhenSpecificPoolPriorityOrder(t *testing.T) {
 	}
 }
 
+// TestResolveRoutedPrompt_UnknownPromptKeyMarksStale: when the caller pinned a
+// prompt_key that does not exist, the router must surface a stale signal so
+// the UI can self-clean its activePromptKey preference. Without this the user
+// keeps seeing the "已强制使用" badge for a prompt that no longer affects the
+// next thread launch.
+func TestResolveRoutedPrompt_UnknownPromptKeyMarksStale(t *testing.T) {
+	t.Parallel()
+	store := &fakePromptStore{
+		templates: []promptstore.PromptTemplate{
+			sqlTemplate(defaultPromptKey, "main", "default body", nil),
+		},
+	}
+	s := newServiceWithRouter(store)
+
+	req := &StartRequest{PromptKey: "main/missing"}
+	s.resolveRoutedPrompt(context.Background(), req)
+
+	if !req.PromptKeyStale {
+		t.Fatalf("want PromptKeyStale=true when pinned prompt_key is unknown, got %+v", req)
+	}
+	if req.PromptKey != "main/missing" {
+		t.Fatalf("pinned prompt_key must be preserved alongside stale flag: %q", req.PromptKey)
+	}
+	if req.BaseInstructions != "" || req.AgentKey != "" {
+		t.Fatalf("stale path must not inject a fallback persona: %+v", req)
+	}
+}
+
+// TestResolveRoutedPrompt_DisabledPromptKeyMarksStale: an enabled-false row
+// resolved by the pinned prompt_key behaves the same as a deleted row from the
+// UI's perspective — both must trip the stale flag.
+func TestResolveRoutedPrompt_DisabledPromptKeyMarksStale(t *testing.T) {
+	t.Parallel()
+	tpl := sqlTemplate("main/launch-fav", "main", "fav body", nil)
+	tpl.Enabled = false
+	store := &fakePromptStore{
+		templates: []promptstore.PromptTemplate{
+			tpl,
+			sqlTemplate(defaultPromptKey, "main", "default body", nil),
+		},
+	}
+	s := newServiceWithRouter(store)
+
+	req := &StartRequest{PromptKey: "main/launch-fav"}
+	s.resolveRoutedPrompt(context.Background(), req)
+
+	if !req.PromptKeyStale {
+		t.Fatalf("want PromptKeyStale=true when pinned prompt_key is disabled, got %+v", req)
+	}
+}
+
+// TestResolveRoutedPrompt_KnownPromptKeyKeepsStaleFalse: when the explicit pin
+// resolves to an enabled row, the stale flag must remain false. Otherwise the
+// UI would clear pref on every successful launch.
+func TestResolveRoutedPrompt_KnownPromptKeyKeepsStaleFalse(t *testing.T) {
+	t.Parallel()
+	store := &fakePromptStore{
+		templates: []promptstore.PromptTemplate{
+			sqlTemplate("main/launch-fav", "main", "fav body", nil),
+		},
+	}
+	s := newServiceWithRouter(store)
+
+	req := &StartRequest{PromptKey: "main/launch-fav"}
+	s.resolveRoutedPrompt(context.Background(), req)
+
+	if req.PromptKeyStale {
+		t.Fatalf("PromptKeyStale must remain false on successful pin: %+v", req)
+	}
+}
+
+// TestResolveRoutedPrompt_EmptyPromptKeyKeepsStaleFalse: caller did not pin
+// any prompt_key — the router takes the default-fallback / auto-route path,
+// which must not flip the stale flag (there is nothing to invalidate).
+func TestResolveRoutedPrompt_EmptyPromptKeyKeepsStaleFalse(t *testing.T) {
+	t.Parallel()
+	store := &fakePromptStore{
+		templates: []promptstore.PromptTemplate{
+			sqlTemplate(defaultPromptKey, "main", "default body", nil),
+		},
+	}
+	s := newServiceWithRouter(store)
+
+	req := &StartRequest{Prompt: "hello"}
+	s.resolveRoutedPrompt(context.Background(), req)
+
+	if req.PromptKeyStale {
+		t.Fatalf("PromptKeyStale must remain false when caller did not pin: %+v", req)
+	}
+}
+
+// TestResolveRoutedPrompt_NoStoreKeepsStaleFalse: store-not-wired degrade path
+// is not a stale signal — req.PromptKey is preserved untouched and the UI
+// should NOT clear the pref. Otherwise a transient backend wiring issue would
+// silently wipe the user's active prompt selection.
+func TestResolveRoutedPrompt_NoStoreKeepsStaleFalse(t *testing.T) {
+	t.Parallel()
+	s := &service{} // no promptStore wired
+	req := &StartRequest{PromptKey: "main/launch-fav"}
+	s.resolveRoutedPrompt(context.Background(), req)
+
+	if req.PromptKeyStale {
+		t.Fatalf("degrade path (no store) must not flip PromptKeyStale: %+v", req)
+	}
+	if req.PromptKey != "main/launch-fav" {
+		t.Fatalf("caller-pinned prompt_key should be preserved on degrade: %q", req.PromptKey)
+	}
+}

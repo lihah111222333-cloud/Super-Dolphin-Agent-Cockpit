@@ -307,3 +307,65 @@ func TestStartParamsRejectsInvalidSelectedSkillsType(t *testing.T) {
 		t.Fatalf("expected selectedSkills type error, got %v", err)
 	}
 }
+
+// TestBuildStartResponse_PromptKeyStaleSurfacedToWire verifies the
+// buildStartResponse helper echoes the stale flag on both snake_case and
+// camelCase keys (matching the rest of this dual-key response shape). The UI
+// reads `prompt_key_stale` / `promptKeyStale` to decide whether to clean its
+// `settings.activePromptKey` preference; if either key drops on the wire the
+// UI loses the signal and the pref never self-clears.
+func TestBuildStartResponse_PromptKeyStaleSurfacedToWire(t *testing.T) {
+	t.Parallel()
+
+	resp := buildStartResponse(StartResult{
+		ThreadID:       "thread-x",
+		PromptKey:      "main/missing",
+		PromptKeyStale: true,
+	})
+
+	if resp.PromptKeyStale == nil || !*resp.PromptKeyStale {
+		t.Fatalf("snake-case prompt_key_stale missing or false: %#v", resp.PromptKeyStale)
+	}
+	if resp.PromptKeyStaleCamel == nil || !*resp.PromptKeyStaleCamel {
+		t.Fatalf("camelCase promptKeyStale missing or false: %#v", resp.PromptKeyStaleCamel)
+	}
+
+	wire, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	wireStr := string(wire)
+	if !strings.Contains(wireStr, `"prompt_key_stale":true`) {
+		t.Fatalf("wire payload missing snake_case prompt_key_stale=true: %s", wireStr)
+	}
+	if !strings.Contains(wireStr, `"promptKeyStale":true`) {
+		t.Fatalf("wire payload missing camelCase promptKeyStale=true: %s", wireStr)
+	}
+}
+
+// TestBuildStartResponse_PromptKeyStaleOmittedOnHappyPath ensures the new
+// field is fully omitempty on the success path so today's wire shape stays
+// byte-identical. A truthy stale field on a successful launch would cause the
+// UI to wipe the user's launch-prompt preference on every start.
+func TestBuildStartResponse_PromptKeyStaleOmittedOnHappyPath(t *testing.T) {
+	t.Parallel()
+
+	resp := buildStartResponse(StartResult{
+		ThreadID:       "thread-x",
+		PromptKey:      "main/sql",
+		PromptKeyStale: false,
+	})
+
+	if resp.PromptKeyStale != nil || resp.PromptKeyStaleCamel != nil {
+		t.Fatalf("happy path must leave stale pointers nil: snake=%v camel=%v",
+			resp.PromptKeyStale, resp.PromptKeyStaleCamel)
+	}
+	wire, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	wireStr := string(wire)
+	if strings.Contains(wireStr, "prompt_key_stale") || strings.Contains(wireStr, "promptKeyStale") {
+		t.Fatalf("happy path response leaked stale key: %s", wireStr)
+	}
+}

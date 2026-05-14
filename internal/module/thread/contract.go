@@ -135,6 +135,15 @@ type StartRequest struct {
 	// sidebar can show a human-readable persona label ("SQL 与数据建模专家")
 	// next to the thread name instead of the opaque agent_key slug.
 	AgentTitle string
+	// PromptKeyStale is set to true by pickRoutedTemplate when the caller
+	// supplied a non-empty PromptKey that does not resolve to any enabled
+	// prompt_template row (either the row was deleted or its Enabled flag
+	// was flipped off). It propagates through newStartResult into the RPC
+	// response so the UI can self-clean its activePromptKey preference and
+	// notify the user. Not an input. Must remain false for the wire-degrade
+	// path (no promptStore wired) — that case is a transient backend issue
+	// rather than a stale pin and the UI must not clear the user's pref.
+	PromptKeyStale bool
 	// UseClassifier opts this thread into Plan B: when the caller has NOT
 	// pinned a PromptKey and the router has real user input to work with,
 	// resolveRoutedPrompt runs the prompt classifier (claude -p subprocess
@@ -175,6 +184,12 @@ type StartResult struct {
 	AgentTitle      string `json:"agent_title,omitempty"`
 	PromptKey       string `json:"prompt_key,omitempty"`
 	PromptVersionID *int64 `json:"prompt_version_id,omitempty"`
+	// PromptKeyStale mirrors StartRequest.PromptKeyStale: when true, the
+	// caller-supplied prompt_key did not resolve to an enabled template row
+	// and the UI should clear its activePromptKey preference. False (zero
+	// value) means the pin resolved successfully or the caller never pinned
+	// anything; either way the UI must preserve the pref unchanged.
+	PromptKeyStale bool `json:"prompt_key_stale,omitempty"`
 	// PendingLaunch=true means the backend wrote the thread row but did not
 	// fork the provider CLI yet. The real spawn happens on the first turn,
 	// once router has a real user input to classify. UI should render such

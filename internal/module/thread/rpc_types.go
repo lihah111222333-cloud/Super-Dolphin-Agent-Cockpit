@@ -509,12 +509,32 @@ type startResponse struct {
 	PromptKeyCamel   *string `json:"promptKey,omitempty"`
 	PromptVersionID  *int64  `json:"prompt_version_id,omitempty"`
 	PromptVersionIDC *int64  `json:"promptVersionId,omitempty"`
+	// PromptKeyStale: true when the caller-supplied prompt_key did not
+	// resolve to an enabled prompt_template row. The UI listens for either
+	// the snake_case or camelCase variant and clears its activePromptKey
+	// pref + notifies the user when it sees true.
+	PromptKeyStale       *bool   `json:"prompt_key_stale,omitempty"`
+	PromptKeyStaleCamel  *bool   `json:"promptKeyStale,omitempty"`
 	PendingLaunch    *bool   `json:"pending_launch,omitempty"`
 	PendingLaunchC   *bool   `json:"pendingLaunch,omitempty"`
 	TaskID           *string `json:"task_id,omitempty"`
 	TaskIDCamel      *string `json:"taskId,omitempty"`
 	HandoffFile      *string `json:"handoff_file,omitempty"`
 	HandoffFileCamel *string `json:"handoffFile,omitempty"`
+}
+
+// attachPromptKeyStale stamps the dual-key prompt_key_stale pointers on a
+// thread/start response when the router flagged the caller-supplied
+// prompt_key as stale (template deleted / disabled). Sits in rpc_types.go
+// alongside startResponse so buildStartResponse can keep its cyclomatic
+// ratchet baseline; tests in rpc_types_test.go cover both snake/camel wire
+// keys + the happy-path omitempty contract.
+func attachPromptKeyStale(resp *startResponse, stale bool) {
+	if !stale {
+		return
+	}
+	resp.PromptKeyStale = &stale
+	resp.PromptKeyStaleCamel = &stale
 }
 
 // promoteTaskResponse is the wire response for ui/thread/promote-task.

@@ -265,6 +265,7 @@ func buildStartResponse(result StartResult) startResponse {
 		resp.PromptVersionID = result.PromptVersionID
 		resp.PromptVersionIDC = result.PromptVersionID
 	}
+	attachPromptKeyStale(&resp, result.PromptKeyStale)
 	if result.PendingLaunch {
 		resp.PendingLaunch = &result.PendingLaunch
 		resp.PendingLaunchC = &result.PendingLaunch
@@ -320,11 +321,7 @@ func configTraceString(cfg map[string]any, key string) string {
 	if len(cfg) == 0 {
 		return ""
 	}
-	value, ok := cfg[key]
-	if !ok {
-		return ""
-	}
-	text, ok := value.(string)
+	text, ok := cfg[key].(string)
 	if !ok {
 		return ""
 	}

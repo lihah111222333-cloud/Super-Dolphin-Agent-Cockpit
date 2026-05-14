@@ -177,6 +177,15 @@ func (s *service) pickRoutedTemplate(
 			req.AgentTitle = picked.Title
 			return picked
 		}
+		// Caller pinned a prompt_key that did not resolve to an enabled
+		// row (deleted or disabled). Mark the request stale so newStartResult
+		// can echo the signal to the UI, which then clears its launch-prompt
+		// preference. We do NOT modify req.PromptKey — keeping the original
+		// pin lets the UI compare against its own pref for safety.
+		req.PromptKeyStale = true
+		pkglogger.Warn("router: pinned prompt_key not found",
+			"prompt_key", pinned,
+			"candidate_count", len(templates))
 		return nil
 	}
 	if explicit := strings.TrimSpace(req.AgentKey); explicit != "" {
