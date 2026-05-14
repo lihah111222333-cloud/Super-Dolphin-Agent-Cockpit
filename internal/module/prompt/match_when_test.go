@@ -64,6 +64,15 @@ func TestMatchWhen_TagsHas_CaseInsensitive(t *testing.T) {
 	if EvaluateMatchWhen([]byte(`{"tags_has":"deploy"}`), ctx, "帮我看看代码") {
 		t.Fatalf("tags_has must not match absent keyword")
 	}
+	// 用户 DB 实际存的 match_when 是数组形式（SystemPromptPage UI 自动从 tag chip 生成）。
+	// template-level tags_has 必须支持数组，否则 specific 池就算被两阶段评估
+	// 选中也命中不了，等于修法 A 在生产 DB 上空跑。
+	if !EvaluateMatchWhen([]byte(`{"tags_has":["代码","bug","review"]}`), ctx, "帮我 Review 这个文件") {
+		t.Fatalf("tags_has array must hit when any element matches userPrompt substring")
+	}
+	if EvaluateMatchWhen([]byte(`{"tags_has":["代码","bug"]}`), ctx, "帮我看看天气") {
+		t.Fatalf("tags_has array must miss when no element matches")
+	}
 }
 
 func TestMatchWhen_SharedBuildCtxFields(t *testing.T) {
