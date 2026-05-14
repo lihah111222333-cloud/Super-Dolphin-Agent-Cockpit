@@ -996,10 +996,10 @@
     "max_struct_fields": 13
   },
   "internal/provider/codexapp/pool_spawn_cmd.go": {
-    "lines": 59,
-    "max_func_len": 23,
+    "lines": 58,
+    "max_func_len": 22,
     "max_nesting": 2,
-    "max_complexity": 6,
+    "max_complexity": 5,
     "max_params": 2,
     "max_returns": 2,
     "max_underscore": 0,
