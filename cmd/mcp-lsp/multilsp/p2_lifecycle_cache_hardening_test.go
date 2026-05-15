@@ -75,6 +75,44 @@ func TestRequestFailureAdvancesGenerationAndRebootstrap(t *testing.T) {
 	}
 }
 
+func TestRequestDeadClientDoesNotAutoReplayRename(t *testing.T) {
+	root := canonicalScopePath(t.TempDir(), "")
+	writeGenericTestFile(t, filepath.Join(root, "package.json"), `{"name":"rename-web"}`)
+	target := filepath.Join(root, "src", "app.ts")
+	writeGenericTestFile(t, target, "export const oldName = 1\n")
+	factory := &p2LifecycleFactory{requestFailures: []error{ErrTransportClosed, nil}}
+	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory, DiagnosticsMaxWait: 1}).(*manager)
+	t.Cleanup(func() { _ = mgr.Close() })
+
+	_, err := mgr.Rename(context.Background(), target, protocol.Position{Line: 0, Character: 13}, "newName")
+	if err == nil {
+		t.Fatalf("Rename error = nil, want retryable dead-client error without auto replay")
+	}
+	first := factory.clientAt(t, 0)
+	if got := first.requestCount(); got != 1 {
+		t.Fatalf("first client Request count = %d, want exactly one rename attempt", got)
+	}
+	if got := first.requestMethods(); len(got) != 1 || got[0] != protocol.MethodRename {
+		t.Fatalf("first client Request methods = %#v, want one %s", got, protocol.MethodRename)
+	}
+	if !first.closed {
+		t.Fatalf("dead rename client was not closed/detached")
+	}
+	if got := factory.callCount(); got != 2 {
+		t.Fatalf("factory calls = %d, want rebuild for retryable follow-up without replay", got)
+	}
+	second := factory.clientAt(t, 1)
+	if got := second.requestCount(); got != 0 {
+		t.Fatalf("rebuilt client Request count = %d, want no automatic rename replay; methods=%#v", got, second.requestMethods())
+	}
+	if !second.opened(fileURIFromPath(target), "typescript") {
+		t.Fatalf("rebuilt client did not restore bootstrapped document; opens=%#v", second.openEvents())
+	}
+	if !errors.Is(err, ErrClientClosed) {
+		t.Fatalf("Rename error = %v, want retryable ErrClientClosed marker", err)
+	}
+}
+
 func TestInitializeFailureDoesNotLeaveStaleWorkspaceClient(t *testing.T) {
 	root := canonicalScopePath(t.TempDir(), "")
 	writeGenericTestFile(t, filepath.Join(root, "package.json"), `{"name":"web"}`)
@@ -514,6 +552,50 @@ func TestDidChangeFailureFallsBackToReopenThenRestart(t *testing.T) {
 	}
 }
 
+func TestDidChangeDeadClientDoesNotAutoReplayNotify(t *testing.T) {
+	root := canonicalScopePath(t.TempDir(), "")
+	writeGenericTestFile(t, filepath.Join(root, "package.json"), `{"name":"dead-change"}`)
+	target := filepath.Join(root, "app.js")
+	writeGenericTestFile(t, target, "let value = 1\n")
+	factory := &p2DiagnosticsFactory{didChangeErrors: []error{ErrTransportClosed, nil}}
+	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
+	t.Cleanup(func() { _ = mgr.Close() })
+	ctx := context.Background()
+	if err := mgr.BootstrapDocument(ctx, target); err != nil {
+		t.Fatalf("BootstrapDocument: %v", err)
+	}
+
+	nextText := "let value = 2\n"
+	writeGenericTestFile(t, target, nextText)
+	err := mgr.DidChange(ctx, target, 2, []protocol.TextDocumentContentChangeEvent{{Text: nextText}})
+	if err == nil {
+		t.Fatalf("DidChange error = nil, want retryable dead-client error without notify replay")
+	}
+	first := factory.clientAt(t, 0)
+	if got := first.didChangeCount(); got != 1 {
+		t.Fatalf("first client DidChange count = %d, want exactly one attempt", got)
+	}
+	if got := first.openCount(); got != 1 {
+		t.Fatalf("first client DidOpen count = %d, want no reopen replay on dead DidChange", got)
+	}
+	if !first.closed {
+		t.Fatalf("dead DidChange client was not closed/detached")
+	}
+	if got := factory.callCount(); got != 2 {
+		t.Fatalf("factory calls = %d, want repair rebuild without replay", got)
+	}
+	second := factory.clientAt(t, 1)
+	if got := second.didChangeCount(); got != 0 {
+		t.Fatalf("rebuilt client DidChange count = %d, want no automatic DidChange replay", got)
+	}
+	if !second.opened(fileURIFromPath(target), "javascript") {
+		t.Fatalf("rebuilt client did not restore safe bootstrap open; opens=%#v", second.opens)
+	}
+	if !errors.Is(err, ErrClientClosed) {
+		t.Fatalf("DidChange error = %v, want retryable ErrClientClosed marker", err)
+	}
+}
+
 func TestDidCloseClearsBootstrapReadyAndNextOpenReopens(t *testing.T) {
 	root := canonicalScopePath(t.TempDir(), "")
 	writeGenericTestFile(t, filepath.Join(root, "package.json"), `{"name":"close"}`)
@@ -850,6 +932,7 @@ type p2LifecycleClient struct {
 	closed            bool
 	documents         map[string]string
 	opens             []genericOpenEvent
+	requestLog        []string
 	initializeFailure error
 	requestFailure    error
 }
@@ -876,7 +959,10 @@ func (c *p2LifecycleClient) Initialize(context.Context, string) error {
 
 func (c *p2LifecycleClient) Shutdown(context.Context) error { return nil }
 
-func (c *p2LifecycleClient) Request(context.Context, string, any) (json.RawMessage, error) {
+func (c *p2LifecycleClient) Request(_ context.Context, method string, _ any) (json.RawMessage, error) {
+	c.mu.Lock()
+	c.requestLog = append(c.requestLog, method)
+	c.mu.Unlock()
 	if c.requestFailure != nil {
 		c.markUnhealthy()
 		return nil, c.requestFailure
@@ -935,6 +1021,18 @@ func (c *p2LifecycleClient) openEvents() []genericOpenEvent {
 	return append([]genericOpenEvent(nil), c.opens...)
 }
 
+func (c *p2LifecycleClient) requestCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.requestLog)
+}
+
+func (c *p2LifecycleClient) requestMethods() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.requestLog...)
+}
+
 type p2DiagnosticsFactory struct {
 	mu              sync.Mutex
 	clients         []*p2DiagnosticsClient
@@ -982,6 +1080,7 @@ type p2DiagnosticsClient struct {
 	closed         bool
 	documents      map[string]string
 	opens          []genericOpenEvent
+	didChanges     []string
 	publishOnOpen  string
 	didChangeError error
 	didCloseError  error
@@ -1016,6 +1115,7 @@ func (c *p2DiagnosticsClient) DidOpen(_ context.Context, uri, languageID string,
 func (c *p2DiagnosticsClient) DidChange(_ context.Context, uri string, _ int, changes []protocol.TextDocumentContentChangeEvent) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.didChanges = append(c.didChanges, uri)
 	if c.didChangeError != nil {
 		c.healthy = false
 		return c.didChangeError
@@ -1059,6 +1159,12 @@ func (c *p2DiagnosticsClient) openCount() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return len(c.opens)
+}
+
+func (c *p2DiagnosticsClient) didChangeCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.didChanges)
 }
 
 func setupPersistentCacheEnv(t *testing.T) (string, string) {
