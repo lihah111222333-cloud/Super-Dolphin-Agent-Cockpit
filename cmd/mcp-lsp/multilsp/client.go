@@ -47,9 +47,10 @@ type Options struct {
 }
 
 type client struct {
-	transport   *transport
-	processID   int
-	initOptions map[string]any
+	transport        *transport
+	processID        int
+	initOptions      map[string]any
+	workspaceFolders []protocol.WorkspaceFolder
 
 	lifecycleMu sync.Mutex
 	stateMu     sync.RWMutex
@@ -114,7 +115,7 @@ func (c *client) Initialize(ctx context.Context, rootURI string) error {
 		ProcessID:             c.processID,
 		RootURI:               rootURI,
 		Capabilities:          clientCapabilities(),
-		WorkspaceFolders:      workspaceFolders(rootURI),
+		WorkspaceFolders:      c.workspaceFoldersForInitialize(rootURI),
 		InitializationOptions: initOpts,
 	}
 	result, err := c.transport.request(ctx, protocol.MethodInitialize, params)
@@ -265,6 +266,9 @@ func decodeInitializeResult(result json.RawMessage) error {
 
 func clientCapabilities() protocol.ClientCapabilities {
 	return protocol.ClientCapabilities{
+		Workspace: &protocol.WorkspaceClientCapability{
+			WorkspaceFolders: true,
+		},
 		TextDocument: &protocol.TextDocumentClientCapabilities{
 			PublishDiagnostics: &protocol.PublishDiagnosticsCapability{
 				RelatedInformation: true,
@@ -338,7 +342,23 @@ func clientCapabilities() protocol.ClientCapabilities {
 	}
 }
 
-func workspaceFolders(rootURI string) []protocol.WorkspaceFolder {
+func (c *client) setWorkspaceFolders(folders []protocol.WorkspaceFolder) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c.workspaceFolders = cloneWorkspaceFolders(folders)
+}
+
+func (c *client) workspaceFoldersForInitialize(rootURI string) []protocol.WorkspaceFolder {
+	c.stateMu.RLock()
+	folders := cloneWorkspaceFolders(c.workspaceFolders)
+	c.stateMu.RUnlock()
+	if len(folders) != 0 {
+		return folders
+	}
+	return workspaceFoldersFromRootURI(rootURI)
+}
+
+func workspaceFoldersFromRootURI(rootURI string) []protocol.WorkspaceFolder {
 	rootURI = strings.TrimSpace(rootURI)
 	if rootURI == "" {
 		return nil
@@ -347,6 +367,13 @@ func workspaceFolders(rootURI string) []protocol.WorkspaceFolder {
 		URI:  rootURI,
 		Name: workspaceName(rootURI),
 	}}
+}
+
+func cloneWorkspaceFolders(folders []protocol.WorkspaceFolder) []protocol.WorkspaceFolder {
+	if len(folders) == 0 {
+		return nil
+	}
+	return append([]protocol.WorkspaceFolder(nil), folders...)
 }
 
 func workspaceName(rootURI string) string {

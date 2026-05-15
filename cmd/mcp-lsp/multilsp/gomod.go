@@ -11,23 +11,11 @@ import (
 )
 
 func findGoModRoot(path string) (string, error) {
-	absPath, err := platformshared.NormalizeAbsolutePath(path)
-	if err != nil {
+	goModPath, err := findGoModPath(path)
+	if err != nil || goModPath == "" {
 		return "", err
 	}
-	startDir, err := resolveStartDir(absPath)
-	if err != nil {
-		return "", err
-	}
-	for dir := startDir; dir != "" && dir != "."; dir = filepath.Dir(dir) {
-		if fileExists(filepath.Join(dir, "go.mod")) {
-			return dir, nil
-		}
-		if filepath.Dir(dir) == dir {
-			break
-		}
-	}
-	return "", nil
+	return filepath.Dir(goModPath), nil
 }
 
 func resolveStartDir(absPath string) (string, error) {
