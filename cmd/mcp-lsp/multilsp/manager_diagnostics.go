@@ -10,6 +10,7 @@ import (
 
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
@@ -21,8 +22,7 @@ type managerNotificationHandler struct {
 type diagnosticState string
 
 const (
-	diagnosticStateReady   diagnosticState = "ready"
-	diagnosticStateDeleted diagnosticState = "deleted"
+	diagnosticStateReady diagnosticState = "ready"
 )
 
 type diagnosticStoreKey struct {
@@ -49,7 +49,6 @@ type lspScopeContextKey string
 const (
 	lspScopeAgentIDContextKey  lspScopeContextKey = "lsp_agent_id"
 	lspScopeThreadIDContextKey lspScopeContextKey = "lsp_thread_id"
-	lspScopeCallIDContextKey   lspScopeContextKey = "lsp_call_id"
 )
 
 func (h managerNotificationHandler) PublishDiagnostics(params protocol.PublishDiagnosticsParams) error {
@@ -259,7 +258,7 @@ func (m *manager) cleanupDeletedDiagnostics(ctx context.Context, filter diagnost
 	}
 }
 
-func (m *manager) cleanupDeletedDocument(ctx context.Context, ref documentRef, current lspResolvedScope) {
+func (m *manager) cleanupDeletedDocument(_ context.Context, ref documentRef, current lspResolvedScope) {
 	scopes := []lspResolvedScope{current}
 	if indexed, ok := bootstrapCoordinatorFor(m).cache.LastResolvedScope(ref.uri); ok {
 		scopes = append(scopes, indexed.LastResolvedScope)
@@ -299,7 +298,7 @@ func (m *manager) scopeForPublishedDiagnostics(uri string) lspResolvedScope {
 	if indexed, ok := bootstrapCoordinatorFor(m).cache.LastResolvedScope(uri); ok {
 		return indexed.LastResolvedScope
 	}
-	_, _, scope, err := m.resolvedScopeForURI(nil, uri, "")
+	_, _, scope, err := m.resolvedScopeForURI(context.TODO(), uri, "")
 	if err != nil {
 		return lspResolvedScope{LanguageID: languageFromURI(uri)}
 	}
@@ -369,6 +368,13 @@ func managerKeyFor(scopeKey, workspaceKey string) string {
 func lspScopeKeyFromContext(ctx context.Context) string {
 	if ctx == nil {
 		return ""
+	}
+	if scope, ok := common.ToolScopeFromContext(ctx); ok {
+		if scope.AgentID == "" && scope.ThreadID == "" {
+			return ""
+		}
+		family := normalizeScopeFamily(scope.Family)
+		return family + "\x00" + scope.AgentID + "\x00" + scope.ThreadID
 	}
 	agentID := firstContextString(ctx, lspScopeAgentIDContextKey, "_agentId", "agent_id")
 	threadID := firstContextString(ctx, lspScopeThreadIDContextKey, "_threadId", "thread_id")
