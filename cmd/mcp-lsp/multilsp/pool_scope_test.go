@@ -1,6 +1,7 @@
 package multilsp
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -51,8 +52,94 @@ func TestResolveLSPToolScopeCanonicalKeysStable(t *testing.T) {
 	if resolvedA.ManagerKey != resolvedB.ManagerKey {
 		t.Fatalf("ManagerKey changed across turn/call IDs:\nA=%q\nB=%q", resolvedA.ManagerKey, resolvedB.ManagerKey)
 	}
+	if strings.Contains(resolvedA.WorkspaceKey, "turn-") || strings.Contains(resolvedA.WorkspaceKey, "call-") {
+		t.Fatalf("WorkspaceKey must not include turn/call identity: %q", resolvedA.WorkspaceKey)
+	}
 	if strings.Contains(resolvedA.ManagerKey, "turn-") || strings.Contains(resolvedA.ManagerKey, "call-") {
 		t.Fatalf("ManagerKey must not include turn/call identity: %q", resolvedA.ManagerKey)
+	}
+}
+
+func TestResolveLSPToolScopeGoTopologyLanguageSpecificStable(t *testing.T) {
+	repo := canonicalScopePath(t.TempDir(), "")
+	backend := filepath.Join(repo, "backend")
+	tools := filepath.Join(repo, "tools")
+	infoA := GoRootInfo{
+		RootKind:      goRootKindGoWork,
+		WorkspaceRoot: repo,
+		GoWorkPath:    filepath.Join(repo, "go.work"),
+		ModuleRoot:    backend,
+		GoModPath:     filepath.Join(backend, "go.mod"),
+		ModuleRoots:   []string{tools, backend},
+		GOWORKMode:    goworkModeAuto,
+		ProjectRoot:   repo,
+	}
+	infoB := infoA
+	infoB.ModuleRoots = []string{backend, tools}
+	specificA := goLanguageSpecific(infoA)
+	specificB := goLanguageSpecific(infoB)
+
+	scopeA := LSPToolScope{
+		AgentID:               "agent-a",
+		ThreadID:              "thread-1",
+		TurnID:                "turn-1",
+		CallID:                "call-1",
+		LanguageID:            "go",
+		WorkspaceRoot:         infoA.WorkspaceRoot,
+		LanguageWorkspaceRoot: infoA.ModuleRoot,
+		ProjectRoot:           infoA.ProjectRoot,
+		RootKind:              infoA.RootKind,
+		LanguageSpecific:      specificA,
+	}
+	scopeB := scopeA
+	scopeB.TurnID = "turn-2"
+	scopeB.CallID = "call-2"
+	scopeB.LanguageSpecific = map[string]string{
+		"workspaceFoldersHash": specificB["workspaceFoldersHash"],
+		"moduleRootsHash":      specificB["moduleRootsHash"],
+		"goWorkPath":           specificB["goWorkPath"],
+		"moduleRoot":           specificB["moduleRoot"],
+		"goworkMode":           specificB["goworkMode"],
+		"goModPath":            specificB["goModPath"],
+	}
+
+	resolvedA, err := ResolveLSPToolScope(scopeA)
+	if err != nil {
+		t.Fatalf("ResolveLSPToolScope(scopeA): %v", err)
+	}
+	resolvedB, err := ResolveLSPToolScope(scopeB)
+	if err != nil {
+		t.Fatalf("ResolveLSPToolScope(scopeB): %v", err)
+	}
+	if resolvedA.WorkspaceKey != resolvedB.WorkspaceKey {
+		t.Fatalf("WorkspaceKey changed when Go topology order changed:\nA=%q\nB=%q", resolvedA.WorkspaceKey, resolvedB.WorkspaceKey)
+	}
+	for _, key := range []string{"goModPath", "goWorkPath", "goworkMode", "moduleRoot", "moduleRootsHash", "workspaceFoldersHash"} {
+		if got := resolvedA.LanguageSpecific[key]; got != specificA[key] {
+			t.Fatalf("LanguageSpecific[%s] = %q, want %q", key, got, specificA[key])
+		}
+	}
+
+	parts := strings.Split(resolvedA.WorkspaceKey, scopeKeySeparator)
+	expectedSuffix := []string{
+		"goModPath=" + specificA["goModPath"],
+		"goWorkPath=" + specificA["goWorkPath"],
+		"goworkMode=" + specificA["goworkMode"],
+		"moduleRoot=" + specificA["moduleRoot"],
+		"moduleRootsHash=" + specificA["moduleRootsHash"],
+		"workspaceFoldersHash=" + specificA["workspaceFoldersHash"],
+	}
+	if len(parts) != 5+len(expectedSuffix) {
+		t.Fatalf("WorkspaceKey parts = %#v, want 5 canonical fields plus Go topology suffix", parts)
+	}
+	expectedPrefix := []string{"go", goRootKindGoWork, repo, backend, repo}
+	for i, want := range expectedPrefix {
+		if parts[i] != want {
+			t.Fatalf("WorkspaceKey part[%d] = %q, want %q in %q", i, parts[i], want, resolvedA.WorkspaceKey)
+		}
+	}
+	if got, want := strings.Join(parts[5:], scopeKeySeparator), strings.Join(expectedSuffix, scopeKeySeparator); got != want {
+		t.Fatalf("Go topology suffix not sorted/stable:\ngot  %q\nwant %q", got, want)
 	}
 }
 
@@ -171,10 +258,30 @@ func TestManagerPoolShardCollisionKeepsDistinctClones(t *testing.T) {
 	}
 }
 
-func TestManagerPoolWorkspaceCloneRootAndClose(t *testing.T) {
-	root := t.TempDir()
+func TestManagerPoolGoWorkWorkspaceCloneUsesWorkspaceRootAndClose(t *testing.T) {
+	root := canonicalScopePath(t.TempDir(), "")
+	moduleRoot := filepath.Join(root, "backend")
+	info := GoRootInfo{
+		RootKind:      goRootKindGoWork,
+		WorkspaceRoot: root,
+		GoWorkPath:    filepath.Join(root, "go.work"),
+		ModuleRoot:    moduleRoot,
+		GoModPath:     filepath.Join(moduleRoot, "go.mod"),
+		ModuleRoots:   []string{moduleRoot},
+		GOWORKMode:    goworkModeAuto,
+		ProjectRoot:   root,
+	}
 	mgr := newManagerPoolTestManager(t, root)
-	scoped, err := mgr.pool.ForScope(testLSPToolScope(root, "agent-a", "thread-1"))
+	scoped, err := mgr.pool.ForScope(LSPToolScope{
+		AgentID:               "agent-a",
+		ThreadID:              "thread-1",
+		LanguageID:            "go",
+		WorkspaceRoot:         info.WorkspaceRoot,
+		LanguageWorkspaceRoot: info.ModuleRoot,
+		ProjectRoot:           info.ProjectRoot,
+		RootKind:              info.RootKind,
+		LanguageSpecific:      goLanguageSpecific(info),
+	})
 	if err != nil {
 		t.Fatalf("ForScope: %v", err)
 	}
@@ -182,8 +289,15 @@ func TestManagerPoolWorkspaceCloneRootAndClose(t *testing.T) {
 	if !ok {
 		t.Fatalf("scoped manager type = %T, want *manager", scoped.Manager)
 	}
-	if clone.workspaceRoot != scoped.ResolvedScope.LanguageWorkspaceRoot {
-		t.Fatalf("clone workspaceRoot = %q, want %q", clone.workspaceRoot, scoped.ResolvedScope.LanguageWorkspaceRoot)
+	if clone.workspaceRoot != scoped.ResolvedScope.WorkspaceRoot {
+		t.Fatalf("go.work clone workspaceRoot = %q, want canonical WorkspaceRoot %q", clone.workspaceRoot, scoped.ResolvedScope.WorkspaceRoot)
+	}
+	if scoped.ResolvedScope.LanguageWorkspaceRoot != moduleRoot {
+		t.Fatalf("LanguageWorkspaceRoot = %q, want module root %q", scoped.ResolvedScope.LanguageWorkspaceRoot, moduleRoot)
+	}
+	workspaceKeyParts := strings.Split(scoped.ResolvedScope.WorkspaceKey, scopeKeySeparator)
+	if len(workspaceKeyParts) < 5 || workspaceKeyParts[3] != moduleRoot {
+		t.Fatalf("WorkspaceKey must retain module root as LanguageWorkspaceRoot dimension: %q", scoped.ResolvedScope.WorkspaceKey)
 	}
 	if err := mgr.pool.Close(); err != nil {
 		t.Fatalf("pool.Close(): %v", err)
