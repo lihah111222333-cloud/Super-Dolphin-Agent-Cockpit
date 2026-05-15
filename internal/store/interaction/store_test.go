@@ -100,28 +100,140 @@ func TestCreateForwardsParamsAndMapsResult(t *testing.T) {
 	if got == nil {
 		t.Fatal("Create() returned nil *Interaction")
 	}
-	if captured.ThreadID != "thread-1" ||
-		captured.Sender != "orchestrator" ||
-		captured.Receiver != "agent-A" ||
-		captured.MsgType != "request" ||
-		captured.Status != "pending" ||
-		!captured.RequiresReview ||
-		captured.ParentID == nil || *captured.ParentID != 42 ||
-		string(captured.Column8) != `{"a":1}` {
-		t.Fatalf("Create() forwarded wrong params: %+v", captured)
+	assertCreateParams(t, captured)
+	assertCreatedInteraction(t, got, fixture)
+}
+
+type createParamsView struct {
+	ThreadID       string
+	ParentID       int64
+	HasParentID    bool
+	Sender         string
+	Receiver       string
+	MsgType        string
+	Status         string
+	RequiresReview bool
+	Payload        string
+}
+
+type interactionView struct {
+	ID             int64
+	ThreadID       string
+	ParentID       int64
+	HasParentID    bool
+	Sender         string
+	Receiver       string
+	MsgType        string
+	Status         string
+	RequiresReview bool
+	ReviewedBy     string
+	ReviewNote     string
+	ReviewedAt     time.Time
+	HasReviewedAt  bool
+	Payload        string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+func assertCreateParams(t *testing.T, got sqlc.CreateInteractionParams) {
+	t.Helper()
+	want := createParamsView{
+		ThreadID:       "thread-1",
+		ParentID:       42,
+		HasParentID:    true,
+		Sender:         "orchestrator",
+		Receiver:       "agent-A",
+		MsgType:        "request",
+		Status:         "pending",
+		RequiresReview: true,
+		Payload:        `{"a":1}`,
 	}
-	if got.ID != fixture.ID || got.ThreadID != fixture.ThreadID ||
-		got.Sender != fixture.Sender || got.Receiver != fixture.Receiver ||
-		got.Status != fixture.Status || !got.RequiresReview ||
-		got.ReviewedBy != fixture.ReviewedBy || got.ReviewNote != fixture.ReviewNote ||
-		got.ParentID == nil || *got.ParentID != 42 ||
-		got.ReviewedAt == nil || !got.ReviewedAt.Equal(*fixture.ReviewedAt) ||
-		!got.CreatedAt.Equal(fixture.CreatedAt) || !got.UpdatedAt.Equal(fixture.UpdatedAt) {
+	if createParamsViewOf(got) != want {
+		t.Fatalf("Create() forwarded wrong params: %+v", got)
+	}
+}
+
+func assertCreatedInteraction(t *testing.T, got *Interaction, fixture sqlc.AgentInteraction) {
+	t.Helper()
+	want := interactionViewOfFixture(fixture)
+	if interactionViewOf(got) != want {
 		t.Fatalf("Create() mapped result = %+v", got)
 	}
-	if string(got.Payload) != `{"a":1}` {
-		t.Fatalf("Create() payload mapping = %s", got.Payload)
+}
+
+func createParamsViewOf(arg sqlc.CreateInteractionParams) createParamsView {
+	parentID, hasParentID := int64PointerView(arg.ParentID)
+	return createParamsView{
+		ThreadID:       arg.ThreadID,
+		ParentID:       parentID,
+		HasParentID:    hasParentID,
+		Sender:         arg.Sender,
+		Receiver:       arg.Receiver,
+		MsgType:        arg.MsgType,
+		Status:         arg.Status,
+		RequiresReview: arg.RequiresReview,
+		Payload:        string(arg.Column8),
 	}
+}
+
+func interactionViewOf(got *Interaction) interactionView {
+	parentID, hasParentID := int64PointerView(got.ParentID)
+	reviewedAt, hasReviewedAt := timePointerView(got.ReviewedAt)
+	return interactionView{
+		ID:             got.ID,
+		ThreadID:       got.ThreadID,
+		ParentID:       parentID,
+		HasParentID:    hasParentID,
+		Sender:         got.Sender,
+		Receiver:       got.Receiver,
+		MsgType:        got.MsgType,
+		Status:         got.Status,
+		RequiresReview: got.RequiresReview,
+		ReviewedBy:     got.ReviewedBy,
+		ReviewNote:     got.ReviewNote,
+		ReviewedAt:     reviewedAt,
+		HasReviewedAt:  hasReviewedAt,
+		Payload:        string(got.Payload),
+		CreatedAt:      got.CreatedAt,
+		UpdatedAt:      got.UpdatedAt,
+	}
+}
+
+func interactionViewOfFixture(fixture sqlc.AgentInteraction) interactionView {
+	parentID, hasParentID := int64PointerView(fixture.ParentID)
+	reviewedAt, hasReviewedAt := timePointerView(fixture.ReviewedAt)
+	return interactionView{
+		ID:             fixture.ID,
+		ThreadID:       fixture.ThreadID,
+		ParentID:       parentID,
+		HasParentID:    hasParentID,
+		Sender:         fixture.Sender,
+		Receiver:       fixture.Receiver,
+		MsgType:        fixture.MsgType,
+		Status:         fixture.Status,
+		RequiresReview: fixture.RequiresReview,
+		ReviewedBy:     fixture.ReviewedBy,
+		ReviewNote:     fixture.ReviewNote,
+		ReviewedAt:     reviewedAt,
+		HasReviewedAt:  hasReviewedAt,
+		Payload:        string(fixture.Payload),
+		CreatedAt:      fixture.CreatedAt,
+		UpdatedAt:      fixture.UpdatedAt,
+	}
+}
+
+func int64PointerView(value *int64) (int64, bool) {
+	if value == nil {
+		return 0, false
+	}
+	return *value, true
+}
+
+func timePointerView(value *time.Time) (time.Time, bool) {
+	if value == nil {
+		return time.Time{}, false
+	}
+	return *value, true
 }
 
 func TestCreateWrapsQuerierError(t *testing.T) {

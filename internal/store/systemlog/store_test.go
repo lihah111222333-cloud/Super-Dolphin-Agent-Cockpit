@@ -73,21 +73,64 @@ func TestListForwardsAll9ColumnsAndLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List() unexpected error: %v", err)
 	}
-	if captured.Column1 != "info" || captured.Column2 != "app" || captured.Column3 != "src" ||
-		captured.Column4 != "cmp" || captured.Column5 != "a1" || captured.Column6 != "t1" ||
-		captured.Column7 != "evt" || captured.Column8 != "tool" || captured.Column9 != "hel" ||
-		captured.Limit != 10 {
-		t.Fatalf("List() forwarded wrong params: %+v", captured)
+	assertSystemLogListParams(t, captured)
+	assertSystemLogListRow(t, got)
+}
+
+func assertSystemLogListParams(t *testing.T, captured sqlc.ListSystemLogsParams) {
+	t.Helper()
+	for _, check := range []struct {
+		name string
+		got  string
+		want string
+	}{
+		{name: "level", got: captured.Column1, want: "info"},
+		{name: "logger", got: captured.Column2, want: "app"},
+		{name: "source", got: captured.Column3, want: "src"},
+		{name: "component", got: captured.Column4, want: "cmp"},
+		{name: "agent", got: captured.Column5, want: "a1"},
+		{name: "thread", got: captured.Column6, want: "t1"},
+		{name: "event", got: captured.Column7, want: "evt"},
+		{name: "tool", got: captured.Column8, want: "tool"},
+		{name: "keyword", got: captured.Column9, want: "hel"},
+	} {
+		if check.got != check.want {
+			t.Fatalf("List() %s param = %q, want %q; all params=%+v", check.name, check.got, check.want, captured)
+		}
 	}
+	if captured.Limit != 10 {
+		t.Fatalf("List() Limit = %d, want 10; all params=%+v", captured.Limit, captured)
+	}
+}
+
+func assertSystemLogListRow(t *testing.T, got []SystemLog) {
+	t.Helper()
 	if len(got) != 1 {
 		t.Fatalf("List() len = %d, want 1", len(got))
 	}
 	row := got[0]
-	if row.ID != 1 || row.Level != "info" || row.AgentID != "a1" || row.DurationMs == nil || *row.DurationMs != 42 {
-		t.Fatalf("List() row mapped incorrectly: %+v", row)
-	}
+	assertSystemLogCoreFields(t, row)
 	if string(row.Extra) != `{"ok":true}` {
 		t.Fatalf("List() Extra = %s", row.Extra)
+	}
+}
+
+func assertSystemLogCoreFields(t *testing.T, row SystemLog) {
+	t.Helper()
+	if row.ID != 1 {
+		t.Fatalf("List() row ID = %d, want 1", row.ID)
+	}
+	if row.Level != "info" {
+		t.Fatalf("List() row Level = %q, want info", row.Level)
+	}
+	if row.AgentID != "a1" {
+		t.Fatalf("List() row AgentID = %q, want a1", row.AgentID)
+	}
+	if row.DurationMs == nil {
+		t.Fatalf("List() row DurationMs = nil, want 42")
+	}
+	if *row.DurationMs != 42 {
+		t.Fatalf("List() row DurationMs = %d, want 42", *row.DurationMs)
 	}
 }
 

@@ -20,28 +20,14 @@ func TestConfigureStoresPendingOverrideWithoutChangingLiveState(t *testing.T) {
 	if err := s.Configure(context.Background(), dto.ThreadConfigPatch{Model: &model, Effort: &effort}); err != nil {
 		t.Fatalf("Configure() error = %v", err)
 	}
-	if s.model != "opus" || s.config.Effort != "high" {
-		t.Fatalf("live state mutated early: model=%q effort=%q", s.model, s.config.Effort)
-	}
-	if s.overrideModel != model || s.overrideEffort != effort {
-		t.Fatalf("override state = %#v, want model=%q effort=%q", s, model, effort)
-	}
-	if s.pendingModel == nil || *s.pendingModel != model || s.pendingEffort == nil || *s.pendingEffort != effort || !s.configDirty {
-		t.Fatalf("pending state not captured: %#v", s)
-	}
-	cfg, err := s.ReadConfig(context.Background(), "")
-	if err != nil {
-		t.Fatalf("ReadConfig() error = %v", err)
-	}
-	if !cfg.SupportsThreadOverride {
-		t.Fatal("SupportsThreadOverride = false, want true")
-	}
-	if cfg.Override.Model != model || cfg.Override.Effort != effort {
-		t.Fatalf("Override = %#v, want model=%q effort=%q", cfg.Override, model, effort)
-	}
-	if cfg.Effective.Model != "opus" || cfg.Effective.Effort != "high" {
-		t.Fatalf("Effective = %#v, want model=opus effort=high", cfg.Effective)
-	}
+	assertLiveConfigState(t, s, "opus", "high")
+	assertOverrideState(t, s, model, effort)
+	assertPendingConfig(t, s, model, effort)
+	assertConfigDirty(t, s, true)
+	cfg := readSessionConfig(t, s)
+	assertThreadOverrideSupported(t, cfg)
+	assertThreadConfigValues(t, "Override", cfg.Override, model, effort)
+	assertThreadConfigValues(t, "Effective", cfg.Effective, "opus", "high")
 }
 
 func TestConfigureAllowsExplicitClear(t *testing.T) {
@@ -58,18 +44,78 @@ func TestConfigureAllowsExplicitClear(t *testing.T) {
 	if err := s.Configure(context.Background(), dto.ThreadConfigPatch{Model: &empty, Effort: &empty}); err != nil {
 		t.Fatalf("Configure() error = %v", err)
 	}
-	if s.pendingModel == nil || *s.pendingModel != "" || s.pendingEffort == nil || *s.pendingEffort != "" {
-		t.Fatalf("pending clear not preserved: %#v", s)
+	assertPendingConfig(t, s, "", "")
+	cfg := readSessionConfig(t, s)
+	assertThreadConfigValues(t, "Override", cfg.Override, "", "")
+	assertThreadConfigValues(t, "Effective", cfg.Effective, "opus", "high")
+}
+
+func assertLiveConfigState(t *testing.T, s *session, wantModel, wantEffort string) {
+	t.Helper()
+	if s.model != wantModel {
+		t.Fatalf("live model = %q, want %q", s.model, wantModel)
 	}
+	if s.config.Effort != wantEffort {
+		t.Fatalf("live effort = %q, want %q", s.config.Effort, wantEffort)
+	}
+}
+
+func assertOverrideState(t *testing.T, s *session, wantModel, wantEffort string) {
+	t.Helper()
+	if s.overrideModel != wantModel {
+		t.Fatalf("overrideModel = %q, want %q", s.overrideModel, wantModel)
+	}
+	if s.overrideEffort != wantEffort {
+		t.Fatalf("overrideEffort = %q, want %q", s.overrideEffort, wantEffort)
+	}
+}
+
+func assertPendingConfig(t *testing.T, s *session, wantModel, wantEffort string) {
+	t.Helper()
+	assertPendingString(t, "pendingModel", s.pendingModel, wantModel)
+	assertPendingString(t, "pendingEffort", s.pendingEffort, wantEffort)
+}
+
+func assertConfigDirty(t *testing.T, s *session, want bool) {
+	t.Helper()
+	if s.configDirty != want {
+		t.Fatalf("configDirty = %v, want %v", s.configDirty, want)
+	}
+}
+
+func assertPendingString(t *testing.T, field string, got *string, want string) {
+	t.Helper()
+	if got == nil {
+		t.Fatalf("%s = nil, want %q", field, want)
+	}
+	if *got != want {
+		t.Fatalf("%s = %q, want %q", field, *got, want)
+	}
+}
+
+func readSessionConfig(t *testing.T, s *session) dto.ThreadConfig {
+	t.Helper()
 	cfg, err := s.ReadConfig(context.Background(), "")
 	if err != nil {
 		t.Fatalf("ReadConfig() error = %v", err)
 	}
-	if cfg.Override.Model != "" || cfg.Override.Effort != "" {
-		t.Fatalf("Override = %#v, want explicit clear", cfg.Override)
+	return cfg
+}
+
+func assertThreadOverrideSupported(t *testing.T, cfg dto.ThreadConfig) {
+	t.Helper()
+	if !cfg.SupportsThreadOverride {
+		t.Fatal("SupportsThreadOverride = false, want true")
 	}
-	if cfg.Effective.Model != "opus" || cfg.Effective.Effort != "high" {
-		t.Fatalf("Effective = %#v, want unchanged live state", cfg.Effective)
+}
+
+func assertThreadConfigValues(t *testing.T, field string, got dto.ThreadConfigValues, wantModel, wantEffort string) {
+	t.Helper()
+	if got.Model != wantModel {
+		t.Fatalf("%s.Model = %q, want %q", field, got.Model, wantModel)
+	}
+	if got.Effort != wantEffort {
+		t.Fatalf("%s.Effort = %q, want %q", field, got.Effort, wantEffort)
 	}
 }
 

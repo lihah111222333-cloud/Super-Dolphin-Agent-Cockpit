@@ -11,6 +11,11 @@ import (
 	"time"
 )
 
+type localTransportSpawnResult struct {
+	transport *transport
+	err       error
+}
+
 func TestSpawnLocalConcurrentDoesNotCollide(t *testing.T) {
 	helper := installLocalCodexHelper(t, "serve")
 	const transportsN = 8
@@ -18,53 +23,76 @@ func TestSpawnLocalConcurrentDoesNotCollide(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	type result struct {
-		transport *transport
-		err       error
-	}
-
-	results := make(chan result, transportsN)
-	var wg sync.WaitGroup
-	for range transportsN {
-		wg.Go(func() {
-			transport, err := newTransport(ctx, "")
-			results <- result{transport: transport, err: err}
-		})
-	}
-	wg.Wait()
-	close(results)
-
-	var (
-		transports []*transport
-		seen       = make(map[string]struct{}, transportsN)
-		failures   []string
-	)
-	for result := range results {
-		if result.transport != nil {
-			transports = append(transports, result.transport)
-		}
-		if result.err != nil {
-			failures = append(failures, result.err.Error())
-			continue
-		}
-		if !result.transport.local {
-			failures = append(failures, "transport.local=false")
-		}
-		if !result.transport.Running() {
-			failures = append(failures, fmt.Sprintf("transport not running: %s", result.transport.serverURL))
-		}
-		if _, exists := seen[result.transport.serverURL]; exists {
-			failures = append(failures, "duplicate serverURL: "+result.transport.serverURL)
-			continue
-		}
-		seen[result.transport.serverURL] = struct{}{}
-	}
+	results := spawnLocalTransportsConcurrently(ctx, transportsN)
+	transports, seen, failures := collectLocalTransportResults(results, transportsN)
 	t.Cleanup(func() {
 		for _, transport := range transports {
 			_ = transport.Close()
 		}
 	})
 
+	assertSpawnLocalFailures(t, failures)
+	assertSpawnLocalCounts(t, transports, seen, transportsN)
+
+	events := waitForHelperEvents(t, helper.logPath, transportsN, 5*time.Second)
+	if got := countEvent(events, "initialize"); got != transportsN {
+		t.Fatalf("initialize events = %d, want %d; events=%v", got, transportsN, events)
+	}
+}
+
+func spawnLocalTransportsConcurrently(ctx context.Context, count int) <-chan localTransportSpawnResult {
+	results := make(chan localTransportSpawnResult, count)
+	var wg sync.WaitGroup
+	for range count {
+		wg.Go(func() {
+			transport, err := newTransport(ctx, "")
+			results <- localTransportSpawnResult{transport: transport, err: err}
+		})
+	}
+	wg.Wait()
+	close(results)
+	return results
+}
+
+func collectLocalTransportResults(results <-chan localTransportSpawnResult, count int) ([]*transport, map[string]struct{}, []string) {
+	var transports []*transport
+	seen := make(map[string]struct{}, count)
+	var failures []string
+	for result := range results {
+		transports, failures = appendLocalTransportResult(transports, failures, result)
+		if result.err == nil && result.transport != nil {
+			failures = appendUniqueServerURL(failures, seen, result.transport.serverURL)
+		}
+	}
+	return transports, seen, failures
+}
+
+func appendLocalTransportResult(transports []*transport, failures []string, result localTransportSpawnResult) ([]*transport, []string) {
+	if result.transport != nil {
+		transports = append(transports, result.transport)
+	}
+	if result.err != nil {
+		return transports, append(failures, result.err.Error())
+	}
+	if !result.transport.local {
+		failures = append(failures, "transport.local=false")
+	}
+	if !result.transport.Running() {
+		failures = append(failures, fmt.Sprintf("transport not running: %s", result.transport.serverURL))
+	}
+	return transports, failures
+}
+
+func appendUniqueServerURL(failures []string, seen map[string]struct{}, serverURL string) []string {
+	if _, exists := seen[serverURL]; exists {
+		return append(failures, "duplicate serverURL: "+serverURL)
+	}
+	seen[serverURL] = struct{}{}
+	return failures
+}
+
+func assertSpawnLocalFailures(t *testing.T, failures []string) {
+	t.Helper()
 	for _, failure := range failures {
 		if strings.Contains(failure, "use of closed network connection") {
 			t.Fatalf("spawnLocal hit closed network connection race: %v", failures)
@@ -76,16 +104,15 @@ func TestSpawnLocalConcurrentDoesNotCollide(t *testing.T) {
 	if len(failures) > 0 {
 		t.Fatalf("spawnLocal concurrent failures: %v", failures)
 	}
-	if len(transports) != transportsN {
-		t.Fatalf("successful transports = %d, want %d", len(transports), transportsN)
-	}
-	if len(seen) != transportsN {
-		t.Fatalf("unique serverURLs = %d, want %d", len(seen), transportsN)
-	}
+}
 
-	events := waitForHelperEvents(t, helper.logPath, transportsN, 5*time.Second)
-	if got := countEvent(events, "initialize"); got != transportsN {
-		t.Fatalf("initialize events = %d, want %d; events=%v", got, transportsN, events)
+func assertSpawnLocalCounts(t *testing.T, transports []*transport, seen map[string]struct{}, want int) {
+	t.Helper()
+	if len(transports) != want {
+		t.Fatalf("successful transports = %d, want %d", len(transports), want)
+	}
+	if len(seen) != want {
+		t.Fatalf("unique serverURLs = %d, want %d", len(seen), want)
 	}
 }
 

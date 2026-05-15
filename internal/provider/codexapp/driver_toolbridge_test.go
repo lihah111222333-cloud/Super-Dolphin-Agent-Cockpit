@@ -36,19 +36,14 @@ func TestToolBridge_StartSession_UsesDynamicTools(t *testing.T) {
 	manager := &ServerManager{}
 
 	listToolsCalls := 0
-	got, ok := newDriver(nil, nil, nil, nil, manager, nil, nil, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+	got := requireToolBridgeDriver(t, newDriver(nil, nil, nil, nil, manager, nil, nil, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 		listToolsCalls++
 		return []codexprotocol.DynamicToolSchema{{
 			Name:        "tool.echo",
 			Description: "echo payload",
 			InputSchema: json.RawMessage(`{"type":"object"}`),
 		}}, nil
-	}).(*driver)
-	if !ok {
-		t.Fatalf("newDriver() type = %T, want *driver", newDriver(nil, nil, nil, nil, manager, nil, nil, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
-			return nil, nil
-		}))
-	}
+	}))
 	if got.listTools == nil {
 		t.Fatal("listTools = nil, want configured")
 	}
@@ -60,29 +55,10 @@ func TestToolBridge_StartSession_UsesDynamicTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
 	}
-	s, ok := sessionAny.(*session)
-	if !ok {
-		t.Fatalf("StartSession() type = %T, want *session", sessionAny)
-	}
+	s := requireCodexSession(t, sessionAny, "StartSession")
 	defer closeCodexTestSession(t, s)
 
-	if listToolsCalls != 1 {
-		t.Fatalf("listTools calls = %d, want 1", listToolsCalls)
-	}
-	if calls := recorder.calls("thread/start"); calls != 1 {
-		t.Fatalf("thread/start calls = %d, want 1", calls)
-	}
-	params := recorder.threadStartParamsSnapshot()
-	if len(params) == 0 {
-		t.Fatal("thread/start params not recorded")
-	}
-	tools, ok := params["dynamicTools"].([]any)
-	if !ok || len(tools) != 1 {
-		t.Fatalf("dynamicTools = %#v, want one tool", params["dynamicTools"])
-	}
-	if s.ThreadID() != "provider-thread-1" {
-		t.Fatalf("ThreadID() = %q, want provider-thread-1", s.ThreadID())
-	}
+	assertDynamicToolsStartSession(t, recorder, s, listToolsCalls)
 }
 
 func TestToolBridge_StartSession_InjectsMemoryReadDynamicTool(t *testing.T) {
@@ -284,49 +260,126 @@ func startDynamicToolsResumeServer(t *testing.T, state *dynamicToolsResumeState,
 			return
 		}
 		defer conn.Close()
-		for {
-			_, rawBytes, err := conn.ReadMessage()
-			if err != nil {
-				return
-			}
-			var msg jsonRPCMessage
-			if err := json.Unmarshal(rawBytes, &msg); err != nil {
-				continue
-			}
-			if strings.TrimSpace(msg.Method) == "" {
-				toolResponses <- msg
-				continue
-			}
-			if len(msg.ID) == 0 {
-				continue
-			}
-			var params map[string]any
-			if len(msg.Params) > 0 {
-				_ = json.Unmarshal(msg.Params, &params)
-			}
-			result := map[string]any{"ok": true}
-			sendToolCall := false
-			switch msg.Method {
-			case "initialize":
-			case "thread/start":
-				state.markStart(params)
-				result = map[string]any{"thread": map[string]any{"id": "provider-thread-1"}}
-			case "thread/resume":
-				sendToolCall = state.markResume(params)
-				result = map[string]any{"thread": map[string]any{"id": "provider-thread-1"}}
-			}
-			resp := mustJSON(map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(append([]byte(nil), msg.ID...)), "result": mustJSON(result)})
-			writeMu.Lock()
-			if err := conn.WriteMessage(websocket.TextMessage, resp); err != nil {
-				writeMu.Unlock()
-				return
-			}
-			writeMu.Unlock()
-			if sendToolCall {
-				sendCodexToolCall(t, writeMu, conn, 99, testDynamicSkillExpandBodyToolName, map[string]any{"name": "demo"})
-			}
-		}
+		serveDynamicToolsResumeConn(t, conn, state, toolResponses, writeMu)
 	}))
+}
+
+func requireToolBridgeDriver(t *testing.T, raw any) *driver {
+	t.Helper()
+	got, ok := raw.(*driver)
+	if !ok {
+		t.Fatalf("newDriver() type = %T, want *driver", raw)
+	}
+	return got
+}
+
+func requireCodexSession(t *testing.T, raw any, op string) *session {
+	t.Helper()
+	s, ok := raw.(*session)
+	if !ok {
+		t.Fatalf("%s() type = %T, want *session", op, raw)
+	}
+	return s
+}
+
+func assertDynamicToolsStartSession(t *testing.T, recorder *toolBridgeRPCRecorder, s *session, listToolsCalls int) {
+	t.Helper()
+	if listToolsCalls != 1 {
+		t.Fatalf("listTools calls = %d, want 1", listToolsCalls)
+	}
+	if calls := recorder.calls("thread/start"); calls != 1 {
+		t.Fatalf("thread/start calls = %d, want 1", calls)
+	}
+	params := recorder.threadStartParamsSnapshot()
+	if len(params) == 0 {
+		t.Fatal("thread/start params not recorded")
+	}
+	tools, ok := params["dynamicTools"].([]any)
+	if !ok {
+		t.Fatalf("dynamicTools = %#v, want array", params["dynamicTools"])
+	}
+	if len(tools) != 1 {
+		t.Fatalf("dynamicTools = %#v, want one tool", params["dynamicTools"])
+	}
+	if s.ThreadID() != "provider-thread-1" {
+		t.Fatalf("ThreadID() = %q, want provider-thread-1", s.ThreadID())
+	}
+}
+
+func serveDynamicToolsResumeConn(t *testing.T, conn *websocket.Conn, state *dynamicToolsResumeState, toolResponses chan<- jsonRPCMessage, writeMu *sync.Mutex) {
+	t.Helper()
+	for {
+		if !handleDynamicToolsResumeMessage(t, conn, state, toolResponses, writeMu) {
+			return
+		}
+	}
+}
+
+func handleDynamicToolsResumeMessage(t *testing.T, conn *websocket.Conn, state *dynamicToolsResumeState, toolResponses chan<- jsonRPCMessage, writeMu *sync.Mutex) bool {
+	t.Helper()
+	_, rawBytes, err := conn.ReadMessage()
+	if err != nil {
+		return false
+	}
+	msg, ok := decodeDynamicToolsResumeMessage(rawBytes)
+	if !ok {
+		return true
+	}
+	if strings.TrimSpace(msg.Method) == "" {
+		toolResponses <- msg
+		return true
+	}
+	if len(msg.ID) == 0 {
+		return true
+	}
+	params := decodeJSONRPCParams(msg.Params)
+	result, sendToolCall := dynamicToolsResumeResult(state, msg.Method, params)
+	if !writeDynamicToolsResumeResponse(conn, writeMu, msg.ID, result) {
+		return false
+	}
+	if sendToolCall {
+		sendCodexToolCall(t, writeMu, conn, 99, testDynamicSkillExpandBodyToolName, map[string]any{"name": "demo"})
+	}
+	return true
+}
+
+func decodeDynamicToolsResumeMessage(rawBytes []byte) (jsonRPCMessage, bool) {
+	var msg jsonRPCMessage
+	if err := json.Unmarshal(rawBytes, &msg); err != nil {
+		return jsonRPCMessage{}, false
+	}
+	return msg, true
+}
+
+func decodeJSONRPCParams(raw json.RawMessage) map[string]any {
+	var params map[string]any
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &params)
+	}
+	return params
+}
+
+func dynamicToolsResumeResult(state *dynamicToolsResumeState, method string, params map[string]any) (map[string]any, bool) {
+	result := map[string]any{"ok": true}
+	switch method {
+	case "thread/start":
+		state.markStart(params)
+		result = map[string]any{"thread": map[string]any{"id": "provider-thread-1"}}
+	case "thread/resume":
+		return map[string]any{"thread": map[string]any{"id": "provider-thread-1"}}, state.markResume(params)
+	}
+	return result, false
+}
+
+func writeDynamicToolsResumeResponse(conn *websocket.Conn, writeMu *sync.Mutex, id json.RawMessage, result map[string]any) bool {
+	resp := mustJSON(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      json.RawMessage(append([]byte(nil), id...)),
+		"result":  mustJSON(result),
+	})
+	writeMu.Lock()
+	defer writeMu.Unlock()
+	return conn.WriteMessage(websocket.TextMessage, resp) == nil
 }
 
 type toolBridgeRPCRecorder struct {

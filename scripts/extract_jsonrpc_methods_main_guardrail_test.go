@@ -20,23 +20,48 @@ func TestExtractJSONRPCMethodsMainShapeAndFileOwnership(t *testing.T) {
 		t.Fatalf("script path = %q, want extract_jsonrpc_methods.go", scriptPath)
 	}
 
+	file := parseExtractJSONRPCMethodsScript(t, scriptPath)
+	mainDecl := findExtractJSONRPCMethodsMain(t, file)
+	assertExtractJSONRPCMethodsMainShape(t, mainDecl)
+
+	roots := extractMainRoots(mainDecl)
+	wantRoots := []string{"internal/module/thread", "internal/module/turn", "internal/module/uistate"}
+	if !reflect.DeepEqual(roots, wantRoots) {
+		t.Fatalf("main roots = %v, want %v", roots, wantRoots)
+	}
+	assertExtractJSONRPCMethodsMainFeatures(t, inspectExtractJSONRPCMethodsMain(mainDecl))
+}
+
+func parseExtractJSONRPCMethodsScript(t *testing.T, scriptPath string) *ast.File {
+	t.Helper()
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, scriptPath, nil, parser.SkipObjectResolution)
 	if err != nil {
 		t.Fatalf("parse script: %v", err)
 	}
+	return file
+}
 
-	var mainDecl *ast.FuncDecl
+func findExtractJSONRPCMethodsMain(t *testing.T, file *ast.File) *ast.FuncDecl {
+	t.Helper()
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
-		if ok && fn.Name != nil && fn.Name.Name == "main" {
-			mainDecl = fn
-			break
+		if !ok {
+			continue
+		}
+		if fn.Name == nil {
+			continue
+		}
+		if fn.Name.Name == "main" {
+			return fn
 		}
 	}
-	if mainDecl == nil {
-		t.Fatal("main function not found in extract_jsonrpc_methods.go")
-	}
+	t.Fatal("main function not found in extract_jsonrpc_methods.go")
+	return nil
+}
+
+func assertExtractJSONRPCMethodsMainShape(t *testing.T, mainDecl *ast.FuncDecl) {
+	t.Helper()
 	if mainDecl.Recv != nil {
 		t.Fatal("main must not be a method")
 	}
@@ -46,53 +71,94 @@ func TestExtractJSONRPCMethodsMainShapeAndFileOwnership(t *testing.T) {
 	if mainDecl.Type.Results != nil && len(mainDecl.Type.Results.List) > 0 {
 		t.Fatalf("main results = %#v, want none", mainDecl.Type.Results.List)
 	}
+}
 
-	roots := extractMainRoots(mainDecl)
-	wantRoots := []string{"internal/module/thread", "internal/module/turn", "internal/module/uistate"}
-	if !reflect.DeepEqual(roots, wantRoots) {
-		t.Fatalf("main roots = %v, want %v", roots, wantRoots)
-	}
+type extractMainFeatures struct {
+	hasWalkDir     bool
+	hasInspect     bool
+	hasSort        bool
+	skipsTestFiles bool
+}
 
-	var hasWalkDir, hasInspect, hasSort, skipsTestFiles bool
+func inspectExtractJSONRPCMethodsMain(mainDecl *ast.FuncDecl) extractMainFeatures {
+	features := extractMainFeatures{}
 	ast.Inspect(mainDecl.Body, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || sel.Sel == nil {
-			return true
-		}
-		pkg, ok := sel.X.(*ast.Ident)
-		if !ok {
-			return true
-		}
-		switch {
-		case pkg.Name == "filepath" && sel.Sel.Name == "WalkDir":
-			hasWalkDir = true
-		case pkg.Name == "ast" && sel.Sel.Name == "Inspect":
-			hasInspect = true
-		case pkg.Name == "sort" && sel.Sel.Name == "Strings" && len(call.Args) == 1:
-			if ident, ok := call.Args[0].(*ast.Ident); ok && ident.Name == "out" {
-				hasSort = true
-			}
-		case pkg.Name == "strings" && sel.Sel.Name == "HasSuffix" && len(call.Args) == 2:
-			if lit, ok := call.Args[1].(*ast.BasicLit); ok && strings.Trim(lit.Value, "\"") == "_test.go" {
-				skipsTestFiles = true
-			}
-		}
+		features.observe(n)
 		return true
 	})
-	if !hasWalkDir {
+	return features
+}
+
+func (f *extractMainFeatures) observe(n ast.Node) {
+	call, ok := n.(*ast.CallExpr)
+	if !ok {
+		return
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return
+	}
+	if sel.Sel == nil {
+		return
+	}
+	pkg, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return
+	}
+	f.observeSelector(pkg.Name, sel.Sel.Name, call.Args)
+}
+
+func (f *extractMainFeatures) observeSelector(pkg, name string, args []ast.Expr) {
+	switch pkg + "." + name {
+	case "filepath.WalkDir":
+		f.hasWalkDir = true
+	case "ast.Inspect":
+		f.hasInspect = true
+	case "sort.Strings":
+		if callHasIdentArg(args, "out") {
+			f.hasSort = true
+		}
+	case "strings.HasSuffix":
+		if callHasStringArg(args, 1, "_test.go") {
+			f.skipsTestFiles = true
+		}
+	}
+}
+
+func callHasIdentArg(args []ast.Expr, want string) bool {
+	if len(args) != 1 {
+		return false
+	}
+	ident, ok := args[0].(*ast.Ident)
+	if !ok {
+		return false
+	}
+	return ident.Name == want
+}
+
+func callHasStringArg(args []ast.Expr, index int, want string) bool {
+	if len(args) <= index {
+		return false
+	}
+	lit, ok := args[index].(*ast.BasicLit)
+	if !ok {
+		return false
+	}
+	return strings.Trim(lit.Value, "\"") == want
+}
+
+func assertExtractJSONRPCMethodsMainFeatures(t *testing.T, features extractMainFeatures) {
+	t.Helper()
+	if !features.hasWalkDir {
 		t.Fatal("main must walk the configured roots with filepath.WalkDir")
 	}
-	if !hasInspect {
+	if !features.hasInspect {
 		t.Fatal("main must inspect parsed files with ast.Inspect")
 	}
-	if !hasSort {
+	if !features.hasSort {
 		t.Fatal("main must sort extracted methods before printing")
 	}
-	if !skipsTestFiles {
+	if !features.skipsTestFiles {
 		t.Fatal("main must explicitly skip _test.go files")
 	}
 }

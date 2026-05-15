@@ -89,32 +89,40 @@ func (db *hookStoreDBStub) Query(_ context.Context, query string, args ...any) (
 func (db *hookStoreDBStub) QueryRow(_ context.Context, query string, args ...any) pgx.Row {
 	switch compactSQL(query) {
 	case getPendingReviewSQL:
-		hookCallID, ok := args[0].(string)
-		if !ok {
-			return hookRowStub{err: fmt.Errorf("hook_call_id arg type = %T, want string", args[0])}
-		}
-		record, ok := db.records[hookCallID]
-		if !ok || record.status != "pending" {
-			return hookRowStub{err: pgx.ErrNoRows}
-		}
-		return hookRowStub{values: reviewValues(record.review)}
+		return db.queryPendingReviewRow(args)
 	case resolveIdempotencySQL:
-		hookCallID, ok := args[0].(string)
-		if !ok {
-			return hookRowStub{err: fmt.Errorf("hook_call_id arg type = %T, want string", args[0])}
-		}
-		idempotencyKey, ok := args[1].(string)
-		if !ok {
-			return hookRowStub{err: fmt.Errorf("idempotency_key arg type = %T, want string", args[1])}
-		}
-		record, ok := db.records[hookCallID]
-		if !ok || record.status != "resolved" || record.idempotencyKey != idempotencyKey {
-			return hookRowStub{err: pgx.ErrNoRows}
-		}
-		return hookRowStub{values: []any{1}}
+		return db.queryResolveIdempotencyRow(args)
 	default:
 		return hookRowStub{err: fmt.Errorf("unexpected QueryRow query: %s", compactSQL(query))}
 	}
+}
+
+func (db *hookStoreDBStub) queryPendingReviewRow(args []any) pgx.Row {
+	hookCallID, ok := args[0].(string)
+	if !ok {
+		return hookRowStub{err: fmt.Errorf("hook_call_id arg type = %T, want string", args[0])}
+	}
+	record, ok := db.records[hookCallID]
+	if !ok || record.status != "pending" {
+		return hookRowStub{err: pgx.ErrNoRows}
+	}
+	return hookRowStub{values: reviewValues(record.review)}
+}
+
+func (db *hookStoreDBStub) queryResolveIdempotencyRow(args []any) pgx.Row {
+	hookCallID, ok := args[0].(string)
+	if !ok {
+		return hookRowStub{err: fmt.Errorf("hook_call_id arg type = %T, want string", args[0])}
+	}
+	idempotencyKey, ok := args[1].(string)
+	if !ok {
+		return hookRowStub{err: fmt.Errorf("idempotency_key arg type = %T, want string", args[1])}
+	}
+	record, ok := db.records[hookCallID]
+	if !ok || record.status != "resolved" || record.idempotencyKey != idempotencyKey {
+		return hookRowStub{err: pgx.ErrNoRows}
+	}
+	return hookRowStub{values: []any{1}}
 }
 
 func (db *hookStoreDBStub) execSave(args []any) (pgconn.CommandTag, error) {

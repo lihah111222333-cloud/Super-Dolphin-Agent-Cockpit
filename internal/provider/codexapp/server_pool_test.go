@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -27,6 +28,13 @@ func newFakeServer(url string) *fakeServer {
 	f := &fakeServer{url: url}
 	f.alive.Store(true)
 	return f
+}
+
+func newCountingFakeSpawner(calls *atomic.Int32) Spawner {
+	return func(_ context.Context, home string) (SpawnedServer, error) {
+		calls.Add(1)
+		return newFakeServer("ws://" + filepath.Base(home)), nil
+	}
 }
 
 func (f *fakeServer) ServerURL() string { return f.url }
@@ -103,10 +111,7 @@ func waitForFakeClosed(t *testing.T, server *fakeServer) {
 func TestServerPoolAcquireHappyPathSpawnAndRelease(t *testing.T) {
 	t.Parallel()
 	spawnCalls := atomic.Int32{}
-	spawner := func(_ context.Context, home string) (SpawnedServer, error) {
-		spawnCalls.Add(1)
-		return newFakeServer("ws://" + filepath.Base(home)), nil
-	}
+	spawner := newCountingFakeSpawner(&spawnCalls)
 	p, _ := newPoolForTest(t, spawner, PoolConfig{})
 	defer p.Close(context.Background())
 
@@ -143,10 +148,7 @@ func TestServerPoolAcquireHappyPathSpawnAndRelease(t *testing.T) {
 func TestServerPoolAcquireAliveCacheHitReusesServer(t *testing.T) {
 	t.Parallel()
 	spawnCalls := atomic.Int32{}
-	spawner := func(_ context.Context, home string) (SpawnedServer, error) {
-		spawnCalls.Add(1)
-		return newFakeServer("ws://" + filepath.Base(home)), nil
-	}
+	spawner := newCountingFakeSpawner(&spawnCalls)
 	p, _ := newPoolForTest(t, spawner, PoolConfig{})
 	defer p.Close(context.Background())
 
@@ -172,10 +174,7 @@ func TestServerPoolAcquireAliveCacheHitReusesServer(t *testing.T) {
 func TestServerPoolAcquireSameIdentityDifferentOwnersIsolated(t *testing.T) {
 	t.Parallel()
 	spawnCalls := atomic.Int32{}
-	spawner := func(_ context.Context, home string) (SpawnedServer, error) {
-		spawnCalls.Add(1)
-		return newFakeServer("ws://" + filepath.Base(home)), nil
-	}
+	spawner := newCountingFakeSpawner(&spawnCalls)
 	p, _ := newPoolForTest(t, spawner, PoolConfig{})
 	defer p.Close(context.Background())
 
@@ -207,10 +206,7 @@ func TestServerPoolAcquireSameIdentityDifferentOwnersIsolated(t *testing.T) {
 func TestServerPoolAcquireSameHomeKeyDifferentModelProviderIsolated(t *testing.T) {
 	t.Parallel()
 	spawnCalls := atomic.Int32{}
-	spawner := func(_ context.Context, home string) (SpawnedServer, error) {
-		spawnCalls.Add(1)
-		return newFakeServer("ws://" + filepath.Base(home)), nil
-	}
+	spawner := newCountingFakeSpawner(&spawnCalls)
 	p, _ := newPoolForTest(t, spawner, PoolConfig{})
 	defer p.Close(context.Background())
 
@@ -304,7 +300,7 @@ func TestServerPoolAcquireNilSpawnerReturnsInvalidIdentity(t *testing.T) {
 	if !errors.Is(err, ErrInvalidIdentity) {
 		t.Fatalf("want ErrInvalidIdentity, got %v", err)
 	}
-	if err == nil || !contains(err.Error(), "pool has no spawner") {
+	if err == nil || !strings.Contains(err.Error(), "pool has no spawner") {
 		t.Fatalf("want nil spawner detail, got %v", err)
 	}
 	if server != nil {
@@ -348,10 +344,7 @@ func TestServerPoolAcquireNormalizeIdentityError(t *testing.T) {
 func TestServerPoolAcquireDoesNotApplyCapacityLimit(t *testing.T) {
 	t.Parallel()
 	spawnCalls := atomic.Int32{}
-	spawner := func(_ context.Context, home string) (SpawnedServer, error) {
-		spawnCalls.Add(1)
-		return newFakeServer("ws://" + filepath.Base(home)), nil
-	}
+	spawner := newCountingFakeSpawner(&spawnCalls)
 	p, _ := newPoolForTest(t, spawner, PoolConfig{})
 	defer p.Close(context.Background())
 
@@ -491,7 +484,7 @@ func TestServerPoolAcquireBackoffActiveReturnsWrappedError(t *testing.T) {
 	if !errors.Is(err, ErrSpawnBackoff) {
 		t.Fatalf("want ErrSpawnBackoff, got %v", err)
 	}
-	if err == nil || !contains(err.Error(), spawnErr.Error()) {
+	if err == nil || !strings.Contains(err.Error(), spawnErr.Error()) {
 		t.Fatalf("want cached spawn error in backoff message, got %v", err)
 	}
 	if spawnCalls.Load() != 1 {
@@ -593,28 +586,10 @@ func TestServerPoolCloseTearsEverythingDown(t *testing.T) {
 	}
 }
 
-// contains is a small helper mirrored from other tests in this tree;
-// the stdlib strings import keeps this file's top already importing
-// strings-free helpers deliberately.
-func contains(s, sub string) bool {
-	if len(sub) == 0 {
-		return true
-	}
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
-}
-
 func TestServerPoolAcquireSameHomeDifferentInstanceKeyIsolated(t *testing.T) {
 	t.Parallel()
 	spawnCalls := atomic.Int32{}
-	p, _ := newPoolForTest(t, func(_ context.Context, home string) (SpawnedServer, error) {
-		spawnCalls.Add(1)
-		return newFakeServer("ws://" + filepath.Base(home)), nil
-	}, PoolConfig{})
+	p, _ := newPoolForTest(t, newCountingFakeSpawner(&spawnCalls), PoolConfig{})
 	defer p.Close(context.Background())
 
 	id := identityFor(t, "glm")

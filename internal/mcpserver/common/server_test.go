@@ -170,8 +170,24 @@ func TestServerToolsCallUsesTrustedTopLevelScope(t *testing.T) {
 	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"demo_tool","arguments":{"agent_id":"evil","cwd":"/evil"},"_agentId":"trusted-agent","_threadId":"trusted-thread","_callId":"trusted-call","_cwd":"/trusted/root"}}`)
 	var output bytes.Buffer
 	called := false
-	provider := captureToolProvider{call: func(ctx context.Context, name string, args json.RawMessage) (any, error) {
-		called = true
+	provider := trustedTopLevelScopeProvider(t, &called)
+
+	server := NewServer("test", "dev", NewStdioTransport(input, &output), provider)
+	if err := server.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !called {
+		t.Fatal("CallTool() was not called")
+	}
+	if !bytes.Contains(output.Bytes(), []byte(`"ok":true`)) {
+		t.Fatalf("Run() output = %s", output.String())
+	}
+}
+
+func trustedTopLevelScopeProvider(t *testing.T, called *bool) captureToolProvider {
+	t.Helper()
+	return captureToolProvider{call: func(ctx context.Context, name string, args json.RawMessage) (any, error) {
+		*called = true
 		if name != "demo_tool" {
 			t.Fatalf("CallTool() name = %q, want demo_tool", name)
 		}
@@ -193,17 +209,6 @@ func TestServerToolsCallUsesTrustedTopLevelScope(t *testing.T) {
 		}
 		return map[string]any{"ok": true}, nil
 	}}
-
-	server := NewServer("test", "dev", NewStdioTransport(input, &output), provider)
-	if err := server.Run(context.Background()); err != nil {
-		t.Fatalf("Run() error = %v", err)
-	}
-	if !called {
-		t.Fatal("CallTool() was not called")
-	}
-	if !bytes.Contains(output.Bytes(), []byte(`"ok":true`)) {
-		t.Fatalf("Run() output = %s", output.String())
-	}
 }
 
 func TestHTTPDirectPeerRequiresTrustedScopeMetadata(t *testing.T) {

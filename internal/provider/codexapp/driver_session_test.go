@@ -116,6 +116,12 @@ func TestNewSessionInitializesStateAndCapabilities(t *testing.T) {
 	}
 	defer closeCodexTestSession(t, s)
 
+	assertNewCodexSessionState(t, s)
+	assertCodexSessionCapabilities(t, s)
+}
+
+func assertNewCodexSessionState(t *testing.T, s *session) {
+	t.Helper()
 	if s.agentID != "agent-1" {
 		t.Fatalf("agentID = %q, want agent-1", s.agentID)
 	}
@@ -134,6 +140,10 @@ func TestNewSessionInitializesStateAndCapabilities(t *testing.T) {
 	if s.runtime.Started() {
 		t.Fatal("newSession() must not implicitly Start() the runtime")
 	}
+}
+
+func assertCodexSessionCapabilities(t *testing.T, s *session) {
+	t.Helper()
 	for cap, want := range codexCapabilities {
 		if s.caps[cap] != want {
 			t.Fatalf("caps[%q] = %v, want %v", cap, s.caps[cap], want)
@@ -216,54 +226,11 @@ func TestSessionRuntimeConfigSnapshotIncludesPromptInstructions(t *testing.T) {
 
 func TestDriverStartSessionInjectsInitializeCodexHome(t *testing.T) {
 	home := t.TempDir()
-	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-		for {
-			_, rawBytes, err := conn.ReadMessage()
-			if err != nil {
-				return
-			}
-			var msg jsonRPCMessage
-			if err := json.Unmarshal(rawBytes, &msg); err != nil || len(msg.ID) == 0 {
-				continue
-			}
-			var result json.RawMessage
-			switch msg.Method {
-			case "initialize":
-				result = mustJSON(map[string]any{"codexHome": home})
-			case "thread/start":
-				result = mustJSON(map[string]any{
-					"thread": map[string]any{"id": "provider-thread-1", "cwd": "/app-server/startup"},
-					"model":  "gpt-5.5",
-				})
-			default:
-				result = mustJSON(map[string]any{"ok": true})
-			}
-			resp, err := json.Marshal(map[string]any{
-				"jsonrpc": "2.0",
-				"id":      json.RawMessage(append([]byte(nil), msg.ID...)),
-				"result":  json.RawMessage(append([]byte(nil), result...)),
-			})
-			if err != nil {
-				t.Fatalf("marshal response: %v", err)
-			}
-			if err := conn.WriteMessage(websocket.TextMessage, resp); err != nil {
-				return
-			}
-		}
-	}))
-	t.Cleanup(server.Close)
-
 	d := &driver{
-		serverURL: "ws" + strings.TrimPrefix(server.URL, "http"),
-		listTools: func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
-			return nil, nil
-		},
+		serverURL: startCodexRPCServer(t, func(method string) json.RawMessage {
+			return startSessionInjectResult(method, home)
+		}),
+		listTools: noopCodexToolLister,
 	}
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		Provider: "codex",
@@ -273,83 +240,40 @@ func TestDriverStartSessionInjectsInitializeCodexHome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
 	}
-	s, ok := got.(*session)
-	if !ok {
-		t.Fatalf("StartSession() type = %T, want *session", got)
-	}
+	s := mustCodexSession(t, got, "StartSession")
 	defer closeCodexTestSession(t, s)
-	if cfg := s.RuntimeConfigSnapshot(); cfg["codexHome"] != home {
-		t.Fatalf("runtime codexHome = %#v, want %q; cfg=%#v", cfg["codexHome"], home, cfg)
-	}
-	if cfg := s.RuntimeConfigSnapshot(); cfg["cwd"] != "/repo/request" {
-		t.Fatalf("runtime cwd = %#v, want /repo/request; cfg=%#v", cfg["cwd"], cfg)
+	assertRuntimeConfigValue(t, s, "codexHome", home)
+	assertRuntimeConfigValue(t, s, "cwd", "/repo/request")
+}
+
+func startSessionInjectResult(method, home string) json.RawMessage {
+	switch method {
+	case "initialize":
+		return mustJSON(map[string]any{"codexHome": home})
+	case "thread/start":
+		return mustJSON(map[string]any{
+			"thread": map[string]any{"id": "provider-thread-1", "cwd": "/app-server/startup"},
+			"model":  "gpt-5.5",
+		})
+	default:
+		return mustJSON(map[string]any{"ok": true})
 	}
 }
 
 func TestDriverStartSessionCanonicalizesRuntimeCodexHome(t *testing.T) {
 	home := t.TempDir()
-	codexHome := filepath.Join(home, ".codex")
-	if err := os.MkdirAll(codexHome, 0o755); err != nil {
-		t.Fatalf("mkdir codex home: %v", err)
-	}
+	wantHome := mustCanonicalCodexHome(t, home)
 	t.Setenv("HOME", home)
-	wantHome, err := filepath.EvalSymlinks(codexHome)
-	if err != nil {
-		t.Fatalf("canonicalize test codex home: %v", err)
-	}
-	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-		for {
-			_, rawBytes, err := conn.ReadMessage()
-			if err != nil {
-				return
-			}
-			var msg jsonRPCMessage
-			if err := json.Unmarshal(rawBytes, &msg); err != nil || len(msg.ID) == 0 {
-				continue
-			}
-			var result json.RawMessage
-			switch msg.Method {
-			case "initialize":
-				result = mustJSON(map[string]any{"codexHome": wantHome})
-			case "thread/start":
-				result = mustJSON(map[string]any{
-					"thread": map[string]any{"id": "provider-thread-canonical", "cwd": "/repo"},
-					"model":  "gpt-5.5",
-				})
-			default:
-				result = mustJSON(map[string]any{"ok": true})
-			}
-			resp, err := json.Marshal(map[string]any{
-				"jsonrpc": "2.0",
-				"id":      json.RawMessage(append([]byte(nil), msg.ID...)),
-				"result":  json.RawMessage(append([]byte(nil), result...)),
-			})
-			if err != nil {
-				t.Fatalf("marshal response: %v", err)
-			}
-			if err := conn.WriteMessage(websocket.TextMessage, resp); err != nil {
-				return
-			}
-		}
-	}))
-	t.Cleanup(server.Close)
-
 	config := map[string]any{
 		"codexHome":          "~/.codex",
 		"codexInstanceKey":   "default",
 		"codexModelProvider": "openai",
 	}
 	d := &driver{
-		serverURL: "ws" + strings.TrimPrefix(server.URL, "http"),
-		listTools: func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
-			return nil, nil
-		},
+		serverURL: startCodexRPCServer(t, func(method string) json.RawMessage {
+			return canonicalCodexHomeResult(method, wantHome)
+		}),
+		listTools: noopCodexToolLister,
 	}
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		Provider: "codex",
@@ -360,14 +284,41 @@ func TestDriverStartSessionCanonicalizesRuntimeCodexHome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
 	}
-	s, ok := got.(*session)
-	if !ok {
-		t.Fatalf("StartSession() type = %T, want *session", got)
-	}
+	s := mustCodexSession(t, got, "StartSession")
 	defer closeCodexTestSession(t, s)
-	if gotHome := s.RuntimeConfigSnapshot()["codexHome"]; gotHome != wantHome {
-		t.Fatalf("runtime codexHome = %#v, want %q", gotHome, wantHome)
+	assertRuntimeConfigValue(t, s, "codexHome", wantHome)
+	assertCodexHomeConfigUnchanged(t, config)
+}
+
+func mustCanonicalCodexHome(t *testing.T, home string) string {
+	t.Helper()
+	codexHome := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexHome, 0o755); err != nil {
+		t.Fatalf("mkdir codex home: %v", err)
 	}
+	wantHome, err := filepath.EvalSymlinks(codexHome)
+	if err != nil {
+		t.Fatalf("canonicalize test codex home: %v", err)
+	}
+	return wantHome
+}
+
+func canonicalCodexHomeResult(method, wantHome string) json.RawMessage {
+	switch method {
+	case "initialize":
+		return mustJSON(map[string]any{"codexHome": wantHome})
+	case "thread/start":
+		return mustJSON(map[string]any{
+			"thread": map[string]any{"id": "provider-thread-canonical", "cwd": "/repo"},
+			"model":  "gpt-5.5",
+		})
+	default:
+		return mustJSON(map[string]any{"ok": true})
+	}
+}
+
+func assertCodexHomeConfigUnchanged(t *testing.T, config map[string]any) {
+	t.Helper()
 	if config["codexHome"] != "~/.codex" {
 		t.Fatalf("StartSession mutated input config codexHome = %#v", config["codexHome"])
 	}
@@ -376,59 +327,7 @@ func TestDriverStartSessionCanonicalizesRuntimeCodexHome(t *testing.T) {
 func TestDriverResumeSessionRestoresApprovalPolicy(t *testing.T) {
 	t.Parallel()
 
-	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-		for {
-			_, rawBytes, err := conn.ReadMessage()
-			if err != nil {
-				return
-			}
-			raw := string(rawBytes)
-			var msg jsonRPCMessage
-			if err := json.Unmarshal([]byte(raw), &msg); err != nil {
-				continue
-			}
-			if len(msg.ID) == 0 {
-				continue
-			}
-			var result json.RawMessage
-			switch msg.Method {
-			case "initialize":
-				result = mustJSON(map[string]any{"ok": true})
-			case "thread/resume":
-				result = mustJSON(map[string]any{"thread": map[string]any{"id": "provider-thread-1"}})
-			case "thread/config/get":
-				result = mustJSON(map[string]any{
-					"threadId": "provider-thread-1",
-					"provider": "codex",
-					"effective": map[string]any{
-						"approvals": "never",
-					},
-				})
-			default:
-				result = mustJSON(map[string]any{"ok": true})
-			}
-			resp, err := json.Marshal(map[string]any{
-				"jsonrpc": "2.0",
-				"id":      json.RawMessage(append([]byte(nil), msg.ID...)),
-				"result":  json.RawMessage(append([]byte(nil), result...)),
-			})
-			if err != nil {
-				t.Fatalf("marshal response: %v", err)
-			}
-			if err := conn.WriteMessage(websocket.TextMessage, resp); err != nil {
-				return
-			}
-		}
-	}))
-	t.Cleanup(server.Close)
-
-	d := &driver{serverURL: "ws" + strings.TrimPrefix(server.URL, "http")}
+	d := &driver{serverURL: startCodexRPCServer(t, resumeApprovalPolicyResult)}
 	got, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
 		Provider: "codex",
 		AgentID:  "agent-1",
@@ -438,60 +337,119 @@ func TestDriverResumeSessionRestoresApprovalPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResumeSession() error = %v", err)
 	}
-	s, ok := got.(*session)
-	if !ok {
-		t.Fatalf("ResumeSession() type = %T, want *session", got)
-	}
+	s := mustCodexSession(t, got, "ResumeSession")
 	defer closeCodexTestSession(t, s)
+	assertResumeApprovalSession(t, s)
+}
+
+func resumeApprovalPolicyResult(method string) json.RawMessage {
+	switch method {
+	case "initialize":
+		return mustJSON(map[string]any{"ok": true})
+	case "thread/resume":
+		return mustJSON(map[string]any{"thread": map[string]any{"id": "provider-thread-1"}})
+	case "thread/config/get":
+		return mustJSON(map[string]any{
+			"threadId":  "provider-thread-1",
+			"provider":  "codex",
+			"effective": map[string]any{"approvals": "never"},
+		})
+	default:
+		return mustJSON(map[string]any{"ok": true})
+	}
+}
+
+func assertResumeApprovalSession(t *testing.T, s *session) {
+	t.Helper()
 	if s.ThreadID() != "provider-thread-1" {
 		t.Fatalf("ThreadID() = %q, want provider-thread-1", s.ThreadID())
 	}
 	if s.approvalPolicyValue() != "never" {
 		t.Fatalf("approvalPolicy = %q, want never", s.approvalPolicyValue())
 	}
-	if cfg := s.RuntimeConfigSnapshot(); cfg["cwd"] != "/repo/resume" {
-		t.Fatalf("runtime cwd = %#v, want /repo/resume; cfg=%#v", cfg["cwd"], cfg)
+	assertRuntimeConfigValue(t, s, "cwd", "/repo/resume")
+}
+
+func noopCodexToolLister(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+	return nil, nil
+}
+
+func mustCodexSession(t *testing.T, got contract.Session, method string) *session {
+	t.Helper()
+	s, ok := got.(*session)
+	if !ok {
+		t.Fatalf("%s() type = %T, want *session", method, got)
+	}
+	return s
+}
+
+func assertRuntimeConfigValue(t *testing.T, s *session, key string, want any) {
+	t.Helper()
+	cfg := s.RuntimeConfigSnapshot()
+	if cfg[key] != want {
+		t.Fatalf("runtime %s = %#v, want %#v; cfg=%#v", key, cfg[key], want, cfg)
 	}
 }
 
-func startCodexTestServer(t *testing.T) string {
+func startCodexRPCServer(t *testing.T, resultFor func(string) json.RawMessage) string {
 	t.Helper()
-
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			return
 		}
-		defer conn.Close()
-		for {
-			_, rawBytes, err := conn.ReadMessage()
-			if err != nil {
-				return
-			}
-			raw := string(rawBytes)
-			var msg jsonRPCMessage
-			if err := json.Unmarshal([]byte(raw), &msg); err != nil {
-				continue
-			}
-			if len(msg.ID) == 0 {
-				continue
-			}
-			resp, err := json.Marshal(map[string]any{
-				"jsonrpc": "2.0",
-				"id":      json.RawMessage(append([]byte(nil), msg.ID...)),
-				"result":  mustJSON(map[string]any{"ok": true}),
-			})
-			if err != nil {
-				t.Fatalf("marshal response: %v", err)
-			}
-			if err := conn.WriteMessage(websocket.TextMessage, resp); err != nil {
-				return
-			}
-		}
+		serveCodexRPCConnection(t, conn, resultFor)
 	}))
 	t.Cleanup(server.Close)
 	return "ws" + strings.TrimPrefix(server.URL, "http")
+}
+
+func serveCodexRPCConnection(t *testing.T, conn *websocket.Conn, resultFor func(string) json.RawMessage) {
+	t.Helper()
+	defer conn.Close()
+	for {
+		_, rawBytes, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		msg, ok := decodeCodexTestRPCMessage(rawBytes)
+		if !ok {
+			continue
+		}
+		if !writeCodexTestRPCResponse(t, conn, msg.ID, resultFor(msg.Method)) {
+			return
+		}
+	}
+}
+
+func decodeCodexTestRPCMessage(raw []byte) (jsonRPCMessage, bool) {
+	var msg jsonRPCMessage
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		return jsonRPCMessage{}, false
+	}
+	return msg, len(msg.ID) != 0
+}
+
+func writeCodexTestRPCResponse(t *testing.T, conn *websocket.Conn, id json.RawMessage, result json.RawMessage) bool {
+	t.Helper()
+	resp, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      json.RawMessage(append([]byte(nil), id...)),
+		"result":  json.RawMessage(append([]byte(nil), result...)),
+	})
+	if err != nil {
+		t.Fatalf("marshal response: %v", err)
+	}
+	return conn.WriteMessage(websocket.TextMessage, resp) == nil
+}
+
+func startCodexTestServer(t *testing.T) string {
+	t.Helper()
+
+	return startCodexRPCServer(t, func(string) json.RawMessage {
+		return mustJSON(map[string]any{"ok": true})
+	})
 }
 
 func closeCodexTestSession(t *testing.T, s *session) {

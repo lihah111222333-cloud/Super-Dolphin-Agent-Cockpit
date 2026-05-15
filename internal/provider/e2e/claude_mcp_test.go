@@ -30,6 +30,28 @@ type claudeManifestServer struct {
 }
 
 func TestClaudeMCPManifest_E2E(t *testing.T) {
+	manifest := claudeMCPManifestFixture()
+	path, cleanup, err := writeManifestConfig(manifest, "/tmp/claude-e2e/work")
+	if err != nil {
+		t.Fatalf("writeManifestConfig() error = %v", err)
+	}
+	cleaned := false
+	t.Cleanup(func() {
+		if !cleaned && cleanup != nil {
+			cleanup()
+		}
+	})
+
+	raw, doc := readClaudeManifest(t, path)
+	assertClaudeMCPManifest(t, raw, doc)
+	cleanup()
+	cleaned = true
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Stat(%q) error = %v, want removed file", path, err)
+	}
+}
+
+func claudeMCPManifestFixture() dto.MCPManifest {
 	manifest := manifestbuilder.BuildManifest(dto.ManifestContext{
 		BinaryDir: "/tmp/claude-e2e/bin",
 		Env: map[string]string{
@@ -43,19 +65,11 @@ func TestClaudeMCPManifest_E2E(t *testing.T) {
 		"--transport", "stdio",
 		"--log-level", "debug",
 	}
+	return manifest
+}
 
-	path, cleanup, err := writeManifestConfig(manifest, "/tmp/claude-e2e/work")
-	if err != nil {
-		t.Fatalf("writeManifestConfig() error = %v", err)
-	}
-	cleaned := false
-	t.Cleanup(func() {
-		if !cleaned && cleanup != nil {
-			cleanup()
-		}
-	})
-
-	raw, doc := readClaudeManifest(t, path)
+func assertClaudeMCPManifest(t *testing.T, raw []byte, doc claudeManifestFile) {
+	t.Helper()
 	if strings.Contains(string(raw), "env_vars") {
 		t.Fatalf("manifest = %s, got env_vars key", raw)
 	}
@@ -87,12 +101,6 @@ func TestClaudeMCPManifest_E2E(t *testing.T) {
 	}
 	if lsp.CWD != "/tmp/claude-e2e/work" {
 		t.Fatalf("lsp.cwd = %q, want /tmp/claude-e2e/work", lsp.CWD)
-	}
-
-	cleanup()
-	cleaned = true
-	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("Stat(%q) error = %v, want removed file", path, err)
 	}
 }
 

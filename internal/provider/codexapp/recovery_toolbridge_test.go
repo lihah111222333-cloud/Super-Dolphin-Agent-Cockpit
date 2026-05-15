@@ -139,6 +139,24 @@ func TestToolBridge_Recovery_CancelInflight(t *testing.T) {
 	started := make(chan struct{}, 1)
 	canceled := make(chan error, 1)
 	manager := &ServerManager{}
+	setCancelInflightHandler(manager, started, canceled)
+	server := startCancelInflightToolBridgeServer(t)
+	defer server.Close()
+
+	s := newStartedRecoverySession(t, server.URL, manager)
+	defer closeIfOpenCodexSession(t, s)
+
+	waitForInflightToolCall(t, started)
+	if err := s.Close(context.Background()); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	assertInflightCanceled(t, canceled)
+	// P22 P1c: s.Close() already drained the runtime above; the historical
+	// waitReadLoopStopped assertion is now redundant because runtime.Stop()
+	// joins the reader before Close returns.
+}
+
+func setCancelInflightHandler(manager *ServerManager, started chan<- struct{}, canceled chan<- error) {
 	manager.SetToolHandler(func(ctx context.Context, msg RawMessage) (any, error) {
 		if msg.Method != "item/tool/call" {
 			return nil, fmt.Errorf("unexpected method: %s", msg.Method)
@@ -154,10 +172,13 @@ func TestToolBridge_Recovery_CancelInflight(t *testing.T) {
 		}
 		return nil, ctx.Err()
 	})
+}
 
+func startCancelInflightToolBridgeServer(t *testing.T) *httptest.Server {
+	t.Helper()
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	var writeMu sync.Mutex
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			return
@@ -184,29 +205,38 @@ func TestToolBridge_Recovery_CancelInflight(t *testing.T) {
 			}
 		}
 	}))
-	defer server.Close()
+}
 
-	s, err := newSession(context.Background(), pkglogger.Get(), "ws"+strings.TrimPrefix(server.URL, "http"), "agent-1", nil, nil, manager)
+func newStartedRecoverySession(t *testing.T, serverURL string, manager *ServerManager) *session {
+	t.Helper()
+	s, err := newSession(context.Background(), pkglogger.Get(), "ws"+strings.TrimPrefix(serverURL, "http"), "agent-1", nil, nil, manager)
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}
 	// P22 P1c: production code starts the runtime via driver.StartSession /
 	// ResumeSession. Tests that call newSession directly must mimic that.
 	s.runtime.Start()
-	defer func() {
-		if s.ctx.Err() == nil {
-			closeCodexTestSession(t, s)
-		}
-	}()
+	return s
+}
 
+func closeIfOpenCodexSession(t *testing.T, s *session) {
+	t.Helper()
+	if s.ctx.Err() == nil {
+		closeCodexTestSession(t, s)
+	}
+}
+
+func waitForInflightToolCall(t *testing.T, started <-chan struct{}) {
+	t.Helper()
 	select {
 	case <-started:
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for in-flight tool call")
 	}
-	if err := s.Close(context.Background()); err != nil {
-		t.Fatalf("Close() error = %v", err)
-	}
+}
+
+func assertInflightCanceled(t *testing.T, canceled <-chan error) {
+	t.Helper()
 	select {
 	case got := <-canceled:
 		if !errors.Is(got, context.Canceled) {
@@ -215,9 +245,6 @@ func TestToolBridge_Recovery_CancelInflight(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for tool ctx cancellation")
 	}
-	// P22 P1c: s.Close() already drained the runtime above; the historical
-	// waitReadLoopStopped assertion is now redundant because runtime.Stop()
-	// joins the reader before Close returns.
 }
 
 func TestToolBridge_Recovery_ResumeToolCall(t *testing.T) {
@@ -225,13 +252,7 @@ func TestToolBridge_Recovery_ResumeToolCall(t *testing.T) {
 	responses := make(chan jsonRPCMessage, 1)
 	connections := make(chan *websocket.Conn, 2)
 	manager := &ServerManager{}
-	manager.SetToolHandler(func(ctx context.Context, msg RawMessage) (any, error) {
-		select {
-		case toolCalls <- msg:
-		default:
-		}
-		return map[string]any{"ok": true, "phase": "recovered"}, nil
-	})
+	setRecordingToolHandler(manager, toolCalls, "recovered")
 
 	var mu sync.Mutex
 	var writeMu sync.Mutex
@@ -239,14 +260,49 @@ func TestToolBridge_Recovery_ResumeToolCall(t *testing.T) {
 	server := startRecoveryToolBridgeServer(t, connections, responses, &mu, &writeMu, &initializeCount, &threadResumes)
 	defer server.Close()
 
-	s, err := newSession(context.Background(), pkglogger.Get(), "ws"+strings.TrimPrefix(server.URL, "http"), "agent-1", nil, nil, manager)
-	if err != nil {
-		t.Fatalf("newSession() error = %v", err)
-	}
-	// P22 P1c: newSession builds the runtime but does not Start it; tests
-	// that drive reader-dependent flows must Start explicitly.
-	s.runtime.Start()
+	s := newStartedRecoverySession(t, server.URL, manager)
 	defer closeCodexTestSession(t, s)
+	second := reconnectRecoverySession(t, s, connections)
+	sendCodexToolCall(t, &writeMu, second, 88, "code_run", map[string]any{"command": "pwd"})
+	assertRecoveredToolCall(t, toolCalls)
+	assertToolResponse(t, responses, "88")
+	assertRecoveryCounters(t, &mu, &initializeCount, &threadResumes)
+}
+
+func TestRecoveryResume_DynamicSkillToolsStillCallable(t *testing.T) {
+	toolCalls := make(chan RawMessage, 1)
+	responses := make(chan jsonRPCMessage, 1)
+	connections := make(chan *websocket.Conn, 2)
+	manager := &ServerManager{}
+	setRecordingToolHandler(manager, toolCalls, "recovered-skill")
+
+	var mu sync.Mutex
+	var writeMu sync.Mutex
+	initializeCount, threadResumes := 0, 0
+	server := startRecoveryToolBridgeServer(t, connections, responses, &mu, &writeMu, &initializeCount, &threadResumes)
+	defer server.Close()
+
+	s := newStartedRecoverySession(t, server.URL, manager)
+	defer closeCodexTestSession(t, s)
+	second := reconnectRecoverySession(t, s, connections)
+	sendCodexToolCall(t, &writeMu, second, 89, testDynamicSkillExpandBodyToolName, map[string]any{"name": "demo"})
+	assertRecoveredDynamicSkillToolCall(t, toolCalls)
+	assertToolResponse(t, responses, "89")
+	assertRecoveryCounters(t, &mu, &initializeCount, &threadResumes)
+}
+
+func setRecordingToolHandler(manager *ServerManager, toolCalls chan<- RawMessage, phase string) {
+	manager.SetToolHandler(func(ctx context.Context, msg RawMessage) (any, error) {
+		select {
+		case toolCalls <- msg:
+		default:
+		}
+		return map[string]any{"ok": true, "phase": phase}, nil
+	})
+}
+
+func reconnectRecoverySession(t *testing.T, s *session, connections <-chan *websocket.Conn) *websocket.Conn {
+	t.Helper()
 	first := waitCodexTestConn(t, connections)
 	s.setThreadID("thread-1")
 	stopReadLoopForReconnect(t, s)
@@ -266,7 +322,11 @@ func TestToolBridge_Recovery_ResumeToolCall(t *testing.T) {
 	if err := s.resumeThreadAfterRecovery(s.ctx); err != nil {
 		t.Fatalf("resumeThreadAfterRecovery() error = %v", err)
 	}
-	sendCodexToolCall(t, &writeMu, second, 88, "code_run", map[string]any{"command": "pwd"})
+	return second
+}
+
+func assertRecoveredToolCall(t *testing.T, toolCalls <-chan RawMessage) {
+	t.Helper()
 	select {
 	case msg := <-toolCalls:
 		if msg.Method != "item/tool/call" {
@@ -275,83 +335,40 @@ func TestToolBridge_Recovery_ResumeToolCall(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for resumed tool call")
 	}
-	assertToolResponse(t, responses, "88")
-	mu.Lock()
-	defer mu.Unlock()
-	if initializeCount != 2 {
-		t.Fatalf("initialize count = %d, want 2", initializeCount)
-	}
-	if threadResumes != 1 {
-		t.Fatalf("thread/resume count = %d, want 1", threadResumes)
-	}
 }
 
-func TestRecoveryResume_DynamicSkillToolsStillCallable(t *testing.T) {
-	toolCalls := make(chan RawMessage, 1)
-	responses := make(chan jsonRPCMessage, 1)
-	connections := make(chan *websocket.Conn, 2)
-	manager := &ServerManager{}
-	manager.SetToolHandler(func(ctx context.Context, msg RawMessage) (any, error) {
-		select {
-		case toolCalls <- msg:
-		default:
-		}
-		return map[string]any{"ok": true, "phase": "recovered-skill"}, nil
-	})
-
-	var mu sync.Mutex
-	var writeMu sync.Mutex
-	initializeCount, threadResumes := 0, 0
-	server := startRecoveryToolBridgeServer(t, connections, responses, &mu, &writeMu, &initializeCount, &threadResumes)
-	defer server.Close()
-
-	s, err := newSession(context.Background(), pkglogger.Get(), "ws"+strings.TrimPrefix(server.URL, "http"), "agent-1", nil, nil, manager)
-	if err != nil {
-		t.Fatalf("newSession() error = %v", err)
-	}
-	s.runtime.Start()
-	defer closeCodexTestSession(t, s)
-	first := waitCodexTestConn(t, connections)
-	s.setThreadID("thread-1")
-	stopReadLoopForReconnect(t, s)
-	reconnectCtx, reconnectCancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer reconnectCancel()
-	if err := s.recovery.Reconnect(reconnectCtx); err != nil {
-		t.Fatalf("Reconnect() error = %v", err)
-	}
-	second := waitCodexTestConn(t, connections)
-	if first == second {
-		t.Fatal("reconnect did not establish a new websocket connection")
-	}
-	if s.runtime != nil && !s.runtime.restartReader() {
-		t.Fatal("runtime.restartReader() returned false")
-	}
-	if err := s.resumeThreadAfterRecovery(s.ctx); err != nil {
-		t.Fatalf("resumeThreadAfterRecovery() error = %v", err)
-	}
-	sendCodexToolCall(t, &writeMu, second, 89, testDynamicSkillExpandBodyToolName, map[string]any{"name": "demo"})
+func assertRecoveredDynamicSkillToolCall(t *testing.T, toolCalls <-chan RawMessage) {
+	t.Helper()
 	select {
 	case msg := <-toolCalls:
-		if msg.Method != "item/tool/call" {
-			t.Fatalf("tool method = %q, want item/tool/call", msg.Method)
-		}
-		var params map[string]any
-		if err := json.Unmarshal(msg.Params, &params); err != nil {
-			t.Fatalf("json.Unmarshal(tool params) error = %v", err)
-		}
-		if stringValue(params, "name") != testDynamicSkillExpandBodyToolName {
-			t.Fatalf("tool name = %#v, want %s", params["name"], testDynamicSkillExpandBodyToolName)
-		}
+		assertDynamicSkillToolCall(t, msg)
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for resumed dynamic skill tool call")
 	}
-	assertToolResponse(t, responses, "89")
+}
+
+func assertDynamicSkillToolCall(t *testing.T, msg RawMessage) {
+	t.Helper()
+	if msg.Method != "item/tool/call" {
+		t.Fatalf("tool method = %q, want item/tool/call", msg.Method)
+	}
+	var params map[string]any
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		t.Fatalf("json.Unmarshal(tool params) error = %v", err)
+	}
+	if stringValue(params, "name") != testDynamicSkillExpandBodyToolName {
+		t.Fatalf("tool name = %#v, want %s", params["name"], testDynamicSkillExpandBodyToolName)
+	}
+}
+
+func assertRecoveryCounters(t *testing.T, mu *sync.Mutex, initializeCount, threadResumes *int) {
+	t.Helper()
 	mu.Lock()
 	defer mu.Unlock()
-	if initializeCount != 2 {
-		t.Fatalf("initialize count = %d, want 2", initializeCount)
+	if *initializeCount != 2 {
+		t.Fatalf("initialize count = %d, want 2", *initializeCount)
 	}
-	if threadResumes != 1 {
-		t.Fatalf("thread/resume count = %d, want 1", threadResumes)
+	if *threadResumes != 1 {
+		t.Fatalf("thread/resume count = %d, want 1", *threadResumes)
 	}
 }

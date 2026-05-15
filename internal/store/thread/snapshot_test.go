@@ -123,7 +123,12 @@ func TestSavePromptSnapshotConcurrentSafety(t *testing.T) {
 
 func assertPromptSnapshotEqual(t *testing.T, got, want PromptSnapshot) {
 	t.Helper()
+	assertPromptSnapshotFieldsEqual(t, got, want)
+	assertSectionSnapshotEqual(t, got.SectionSnapshot, want.SectionSnapshot)
+}
 
+func assertPromptSnapshotFieldsEqual(t *testing.T, got, want PromptSnapshot) {
+	t.Helper()
 	if got.BaseInstructions != want.BaseInstructions ||
 		got.DeveloperInstructions != want.DeveloperInstructions ||
 		got.DisplayName != want.DisplayName ||
@@ -134,9 +139,13 @@ func assertPromptSnapshotEqual(t *testing.T, got, want PromptSnapshot) {
 		len(got.SectionSnapshot) != len(want.SectionSnapshot) {
 		t.Fatalf("PromptSnapshot = %#v, want %#v", got, want)
 	}
-	for key, value := range want.SectionSnapshot {
-		if got.SectionSnapshot[key] != value {
-			t.Fatalf("SectionSnapshot[%q] = %q, want %q", key, got.SectionSnapshot[key], value)
+}
+
+func assertSectionSnapshotEqual(t *testing.T, got, want map[string]string) {
+	t.Helper()
+	for key, value := range want {
+		if got[key] != value {
+			t.Fatalf("SectionSnapshot[%q] = %q, want %q", key, got[key], value)
 		}
 	}
 }

@@ -68,14 +68,27 @@ func TestCreateForwardsParamsAndMapsResult(t *testing.T) {
 
 	fixture := fullTopologyApprovalFixture()
 	var captured sqlc.CreateTopologyApprovalParams
-	s := &store{q: &topologyApprovalQuerierStub{
+	s := newCreateTopologyApprovalTestStore(fixture, &captured)
+
+	got, err := s.Create(context.Background(), topologyApprovalCreateInput(fixture))
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	requireCreateTopologyApprovalParams(t, captured, fixture)
+	requireCreatedTopologyApproval(t, got, fixture)
+}
+
+func newCreateTopologyApprovalTestStore(fixture sqlc.TopologyApproval, captured *sqlc.CreateTopologyApprovalParams) *store {
+	return &store{q: &topologyApprovalQuerierStub{
 		createFn: func(_ context.Context, arg sqlc.CreateTopologyApprovalParams) (sqlc.TopologyApproval, error) {
-			captured = arg
+			*captured = arg
 			return fixture, nil
 		},
 	}}
+}
 
-	input := TopologyApproval{
+func topologyApprovalCreateInput(fixture sqlc.TopologyApproval) TopologyApproval {
+	return TopologyApproval{
 		ID:                   "appr-1",
 		RequestedBy:          "alice",
 		Reason:               "add-node",
@@ -84,21 +97,40 @@ func TestCreateForwardsParamsAndMapsResult(t *testing.T) {
 		ArchHash:             "hash-xyz",
 		ProposedArchitecture: json.RawMessage(`{"nodes":1}`),
 	}
+}
 
-	got, err := s.Create(context.Background(), input)
-	if err != nil {
-		t.Fatalf("Create() error = %v", err)
+func requireCreateTopologyApprovalParams(t *testing.T, captured sqlc.CreateTopologyApprovalParams, fixture sqlc.TopologyApproval) {
+	t.Helper()
+	if captured.ID != "appr-1" {
+		t.Fatalf("Create() ID = %q, want appr-1", captured.ID)
 	}
-	if captured.ID != "appr-1" || captured.RequestedBy != "alice" || captured.Reason != "add-node" ||
-		!captured.CreatedAt.Equal(fixture.CreatedAt) || !captured.ExpireAt.Equal(fixture.ExpireAt) ||
-		captured.ArchHash != "hash-xyz" || string(captured.Column7) != `{"nodes":1}` {
+	if captured.RequestedBy != "alice" || captured.Reason != "add-node" {
 		t.Fatalf("Create() forwarded wrong params: %+v", captured)
 	}
-	if got == nil || got.ID != "appr-1" || got.Status != "pending" || got.Reviewer != "bob" ||
-		got.ReviewNote != "ok" || got.ArchHash != "hash-xyz" ||
-		got.ReviewedAt == nil || !got.ReviewedAt.Equal(*fixture.ReviewedAt) ||
-		string(got.ProposedArchitecture) != `{"nodes":1}` {
-		t.Fatalf("Create() = %+v", got)
+	if !captured.CreatedAt.Equal(fixture.CreatedAt) || !captured.ExpireAt.Equal(fixture.ExpireAt) {
+		t.Fatalf("Create() forwarded wrong times: %+v", captured)
+	}
+	if captured.ArchHash != "hash-xyz" || string(captured.Column7) != `{"nodes":1}` {
+		t.Fatalf("Create() forwarded wrong payload: %+v", captured)
+	}
+}
+
+func requireCreatedTopologyApproval(t *testing.T, got *TopologyApproval, fixture sqlc.TopologyApproval) {
+	t.Helper()
+	if got == nil {
+		t.Fatal("Create() = nil, want mapped result")
+	}
+	if got.ID != "appr-1" || got.Status != "pending" || got.Reviewer != "bob" {
+		t.Fatalf("Create() identity/status = %+v", got)
+	}
+	if got.ReviewNote != "ok" || got.ArchHash != "hash-xyz" {
+		t.Fatalf("Create() review/hash = %+v", got)
+	}
+	if got.ReviewedAt == nil || !got.ReviewedAt.Equal(*fixture.ReviewedAt) {
+		t.Fatalf("Create() ReviewedAt = %+v, want %+v", got.ReviewedAt, fixture.ReviewedAt)
+	}
+	if string(got.ProposedArchitecture) != `{"nodes":1}` {
+		t.Fatalf("Create() ProposedArchitecture = %s", got.ProposedArchitecture)
 	}
 }
 

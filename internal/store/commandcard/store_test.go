@@ -60,7 +60,11 @@ func TestListForwardsFilterAndMapsRows(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("List() len = %d, want 1", len(got))
 	}
-	card := got[0]
+	assertMappedCommandCardRow(t, got[0], lastRun)
+}
+
+func assertMappedCommandCardRow(t *testing.T, card CommandCard, lastRun time.Time) {
+	t.Helper()
 	if card.ID != 42 || card.CardKey != "deploy.rollback" || card.RiskLevel != "high" || !card.Enabled || card.RunCount != 7 {
 		t.Fatalf("List() row mapped incorrectly: %+v", card)
 	}

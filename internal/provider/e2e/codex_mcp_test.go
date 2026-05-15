@@ -252,6 +252,11 @@ func TestCodexStartSession_PreservesUserConfigFields_E2E(t *testing.T) {
 
 	params := recorder.threadStartParamsSnapshot()
 	assertDynamicToolNames(t, params, []string{"tool.echo", "tool.sum"})
+	assertCodexUserConfigFields(t, params)
+}
+
+func assertCodexUserConfigFields(t *testing.T, params map[string]any) {
+	t.Helper()
 	if params["model"] != "gpt-5-codex" {
 		t.Fatalf("model = %#v, want gpt-5-codex", params["model"])
 	}

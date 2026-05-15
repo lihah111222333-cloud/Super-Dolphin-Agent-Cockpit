@@ -140,18 +140,42 @@ func TestOpenNewWindowRouteDefaultsGroupAndEncodesSnapshot(t *testing.T) {
 	if err := json.Unmarshal(raw, &result); err != nil {
 		t.Fatalf("Unmarshal(ui/openNewWindow) error = %v", err)
 	}
-	if !result.OK || result.WindowID != "window-7" || result.CWD != "/tmp/project" {
-		t.Fatalf("ui/openNewWindow result = %#v", result)
-	}
-	if capturedGroup != "team-alpha" || capturedN != 0 || capturedCWD != "/tmp/project" {
-		t.Fatalf("captured open params = (%q,%d,%q)", capturedGroup, capturedN, capturedCWD)
-	}
+	assertOpenNewWindowResult(t, result.OK, result.WindowID, result.CWD)
+	assertOpenNewWindowParams(t, capturedGroup, capturedN, capturedCWD)
 	snapshot, err := decodeWindowBootstrapSnapshot(capturedBootstrap)
 	if err != nil {
 		t.Fatalf("decodeWindowBootstrapSnapshot() error = %v", err)
 	}
 	if snapshot["page"] != "chat" {
 		t.Fatalf("captured snapshot = %#v, want page=chat", snapshot)
+	}
+}
+
+func assertOpenNewWindowResult(t *testing.T, ok bool, windowID, cwd string) {
+	t.Helper()
+
+	if !ok {
+		t.Fatal("ui/openNewWindow ok = false, want true")
+	}
+	if windowID != "window-7" {
+		t.Fatalf("ui/openNewWindow windowID = %q, want window-7", windowID)
+	}
+	if cwd != "/tmp/project" {
+		t.Fatalf("ui/openNewWindow cwd = %q, want /tmp/project", cwd)
+	}
+}
+
+func assertOpenNewWindowParams(t *testing.T, group string, n int, cwd string) {
+	t.Helper()
+
+	if group != "team-alpha" {
+		t.Fatalf("captured group = %q, want team-alpha", group)
+	}
+	if n != 0 {
+		t.Fatalf("captured n = %d, want 0", n)
+	}
+	if cwd != "/tmp/project" {
+		t.Fatalf("captured cwd = %q, want /tmp/project", cwd)
 	}
 }
 

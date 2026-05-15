@@ -68,8 +68,16 @@ func TestVisionEndToEnd(t *testing.T) {
 		t.Fatalf("claude CLI run: %v\noutput: %s", err, out.String())
 	}
 
+	if !sawClaudeVisionSuccess(t, out.String()) {
+		t.Fatalf("no result event in output: %s", out.String())
+	}
+}
+
+func sawClaudeVisionSuccess(t *testing.T, output string) bool {
+	t.Helper()
+
 	var sawSuccess bool
-	for _, line := range strings.Split(out.String(), "\n") {
+	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -94,7 +102,5 @@ func TestVisionEndToEnd(t *testing.T) {
 			sawSuccess = true
 		}
 	}
-	if !sawSuccess {
-		t.Fatalf("no result event in output: %s", out.String())
-	}
+	return sawSuccess
 }

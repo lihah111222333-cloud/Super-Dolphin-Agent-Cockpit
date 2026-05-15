@@ -30,27 +30,48 @@ func TestStartTurnRestartsUnavailableTransportWithoutSettingsChange(t *testing.T
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	results := make(chan startTurnResult, 1)
-	go func() {
-		handle, err := s.StartTurn(ctx, turnRequest("claude-same"))
-		results <- startTurnResult{handle: handle, err: err}
-	}()
+	results := startTurnAsync(ctx, s, "claude-same")
 
 	ready := waitForReadySwap(t, s, oldReady)
 	next.emitSystemInit(t, "11111111-2222-3333-4444-555555555555")
+	waitForReplacementReady(t, ready)
+	assertTransportWrite(t, next, "hello")
+	assertStartTurnSuccess(t, results)
+	assertResumeID(t, resumeIDs, "11111111-2222-3333-4444-555555555555")
+}
+
+func startTurnAsync(ctx context.Context, s *session, model string) <-chan startTurnResult {
+	results := make(chan startTurnResult, 1)
+	go func() {
+		handle, err := s.StartTurn(ctx, turnRequest(model))
+		results <- startTurnResult{handle: handle, err: err}
+	}()
+	return results
+}
+
+func waitForReplacementReady(t *testing.T, ready <-chan struct{}) {
+	t.Helper()
 	select {
 	case <-ready:
 	case <-time.After(time.Second):
 		t.Fatal("replacement ready channel did not close")
 	}
+}
+
+func assertTransportWrite(t *testing.T, next *scriptedTransport, want string) {
+	t.Helper()
 	select {
 	case write := <-next.stdin.writes:
-		if !strings.Contains(write, "hello") {
+		if !strings.Contains(write, want) {
 			t.Fatalf("transport write = %q, want turn payload", write)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("StartTurn did not write after transport recovery")
 	}
+}
+
+func assertStartTurnSuccess(t *testing.T, results <-chan startTurnResult) {
+	t.Helper()
 	select {
 	case res := <-results:
 		if res.err != nil || res.handle == nil {
@@ -59,9 +80,13 @@ func TestStartTurnRestartsUnavailableTransportWithoutSettingsChange(t *testing.T
 	case <-time.After(time.Second):
 		t.Fatal("StartTurn did not finish after transport recovery")
 	}
+}
+
+func assertResumeID(t *testing.T, resumeIDs <-chan string, want string) {
+	t.Helper()
 	select {
 	case resumeID := <-resumeIDs:
-		if resumeID != "11111111-2222-3333-4444-555555555555" {
+		if resumeID != want {
 			t.Fatalf("resumeID = %q, want UUID", resumeID)
 		}
 	default:

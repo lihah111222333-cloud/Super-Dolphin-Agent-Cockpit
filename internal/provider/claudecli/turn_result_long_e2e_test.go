@@ -60,12 +60,32 @@ func runClaudeLongResultProbe(t *testing.T, copies int) {
 		t.Skip("claude CLI not on PATH")
 	}
 
+	payload := buildClaudeLongPromptPayload(t, copies)
+
+	// Long replies can take noticeably longer than vision tests — bump timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	defer cancel()
+
+	out := runClaudeLongPromptCommand(t, ctx, copies, payload)
+	resultText := parseClaudeLongResult(t, copies, out)
+	assertClaudeLongResultNotTruncated(t, copies, resultText)
+}
+
+func buildClaudeLongPromptPayload(t *testing.T, copies int) []byte {
+	t.Helper()
 	// Build a stable prompt that asks for an exact, easy-to-verify pattern.
 	prompt := fmt.Sprintf(
 		"Please reply with EXACTLY %d concatenated copies of the 3-character string \"%s\" with no spaces, no newlines, no markdown, and no other text before or after. Just output the raw concatenated string. The total length should be exactly %d characters.",
 		copies, longResultChunk, copies*len(longResultChunk),
 	)
+	payload, err := json.Marshal(newClaudeLongPromptWrapper(prompt))
+	if err != nil {
+		t.Fatalf("marshal prompt: %v", err)
+	}
+	return payload
+}
 
+func newClaudeLongPromptWrapper(prompt string) any {
 	// Encode the prompt as a single user stream-json line — matches the shape
 	// used by image_block_e2e_test.go so we exercise the same CLI mode the
 	// provider drives in production.
@@ -81,21 +101,14 @@ func runClaudeLongResultProbe(t *testing.T, copies int) {
 		Type    string  `json:"type"`
 		Message message `json:"message"`
 	}
-	payload, err := json.Marshal(wrapper{
-		Type: "user",
-		Message: message{
-			Role:    "user",
-			Content: []contentBlock{{Type: "text", Text: prompt}},
-		},
-	})
-	if err != nil {
-		t.Fatalf("marshal prompt: %v", err)
+	return wrapper{
+		Type:    "user",
+		Message: message{Role: "user", Content: []contentBlock{{Type: "text", Text: prompt}}},
 	}
+}
 
-	// Long replies can take noticeably longer than vision tests — bump timeout.
-	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
-	defer cancel()
-
+func runClaudeLongPromptCommand(t *testing.T, ctx context.Context, copies int, payload []byte) string {
+	t.Helper()
 	cmd := exec.CommandContext(ctx,
 		"claude", "-p",
 		"--input-format", "stream-json",
@@ -106,14 +119,17 @@ func runClaudeLongResultProbe(t *testing.T, copies int) {
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
-
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("claude CLI run (copies=%d): %v\noutput tail: %s", copies, err, tailString(out.String(), 600))
 	}
+	return out.String()
+}
 
+func parseClaudeLongResult(t *testing.T, copies int, output string) string {
+	t.Helper()
 	var sawSuccess bool
 	var resultText string
-	for _, line := range strings.Split(out.String(), "\n") {
+	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -141,9 +157,13 @@ func runClaudeLongResultProbe(t *testing.T, copies int) {
 		// keep iterating so multiple result events would each be inspected
 	}
 	if !sawSuccess {
-		t.Fatalf("no result event in output (copies=%d). raw tail: %s", copies, tailString(out.String(), 600))
+		t.Fatalf("no result event in output (copies=%d). raw tail: %s", copies, tailString(output, 600))
 	}
+	return resultText
+}
 
+func assertClaudeLongResultNotTruncated(t *testing.T, copies int, resultText string) {
+	t.Helper()
 	lower := expectedResultLowerBound(copies)
 	gotLen := len(resultText)
 	sum := sha256.Sum256([]byte(resultText))

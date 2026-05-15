@@ -79,25 +79,7 @@ func TestServerPoolMultiProviderSmoke(t *testing.T) {
 	if urlA == urlB {
 		t.Fatalf("two identities must land on distinct app-servers, both = %q", urlA)
 	}
-	if !srvA.Alive() || !srvB.Alive() {
-		// Dump whatever the transport captured so we can triage a
-		// silent crash instead of just seeing "false".
-		tsA, _ := srvA.(*transportServer)
-		tsB, _ := srvB.(*transportServer)
-		var exitA error
-		var tailA string
-		var exitB error
-		var tailB string
-		if tsA != nil {
-			tailA, exitA = tsA.DiagnoseExit()
-		}
-		if tsB != nil {
-			tailB, exitB = tsB.DiagnoseExit()
-		}
-		t.Fatalf("alive check failed:\n  A alive=%v url=%s exit=%v stderr=%q\n  B alive=%v url=%s exit=%v stderr=%q",
-			srvA.Alive(), urlA, exitA, tailA,
-			srvB.Alive(), urlB, exitB, tailB)
-	}
+	requireSmokeServersAlive(t, srvA, srvB, urlA, urlB)
 
 	// Second Acquire of identity A must hit the same cached server.
 	srvA2, relA2, err := pool.Acquire(ctx, idA, "agent-a")
@@ -115,4 +97,24 @@ func TestServerPoolMultiProviderSmoke(t *testing.T) {
 
 	t.Logf("smoke ok: pool size=%d homeA=%s -> %s homeB=%s -> %s",
 		pool.Size(), homeA, urlA, homeB, urlB)
+}
+
+func requireSmokeServersAlive(t *testing.T, srvA, srvB SpawnedServer, urlA, urlB string) {
+	t.Helper()
+	if srvA.Alive() && srvB.Alive() {
+		return
+	}
+	tailA, exitA := smokeServerExitDetails(srvA)
+	tailB, exitB := smokeServerExitDetails(srvB)
+	t.Fatalf("alive check failed:\n  A alive=%v url=%s exit=%v stderr=%q\n  B alive=%v url=%s exit=%v stderr=%q",
+		srvA.Alive(), urlA, exitA, tailA,
+		srvB.Alive(), urlB, exitB, tailB)
+}
+
+func smokeServerExitDetails(srv SpawnedServer) (string, error) {
+	ts, _ := srv.(*transportServer)
+	if ts == nil {
+		return "", nil
+	}
+	return ts.DiagnoseExit()
 }

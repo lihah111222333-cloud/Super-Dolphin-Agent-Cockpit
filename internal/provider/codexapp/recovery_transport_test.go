@@ -17,200 +17,251 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-func TestTransportReconnectReinitializes(t *testing.T) {
-	t.Parallel()
+type rpcMethodRecorder struct {
+	mu      sync.Mutex
+	methods []string
+}
 
-	var mu sync.Mutex
-	methods := make([]string, 0, 4)
+func (r *rpcMethodRecorder) record(method string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.methods = append(r.methods, method)
+}
+
+func (r *rpcMethodRecorder) snapshot() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.methods...)
+}
+
+func (r *rpcMethodRecorder) count(method string) int {
+	count := 0
+	for _, got := range r.snapshot() {
+		if got == method {
+			count++
+		}
+	}
+	return count
+}
+
+func (r *rpcMethodRecorder) contains(method string) bool {
+	for _, got := range r.snapshot() {
+		if got == method {
+			return true
+		}
+	}
+	return false
+}
+
+type codexRPCHandler func(jsonRPCMessage) (json.RawMessage, bool)
+
+func newCodexTestRPCServer(t *testing.T, handler codexRPCHandler) *httptest.Server {
+	t.Helper()
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			return
 		}
-		defer conn.Close()
-		for {
-			_, rawBytes, err := conn.ReadMessage()
-			if err != nil {
-				return
-			}
-			raw := string(rawBytes)
-			var msg jsonRPCMessage
-			if err := json.Unmarshal([]byte(raw), &msg); err != nil {
-				continue
-			}
-			if strings.TrimSpace(msg.Method) == "" {
-				continue
-			}
-			mu.Lock()
-			methods = append(methods, msg.Method)
-			mu.Unlock()
-			if len(msg.ID) == 0 {
-				continue
-			}
-			resp, err := json.Marshal(map[string]any{
-				"jsonrpc": "2.0",
-				"id":      json.RawMessage(append([]byte(nil), msg.ID...)),
-				"result":  map[string]any{"ok": true},
-			})
-			if err != nil {
-				t.Fatalf("marshal response: %v", err)
-			}
-			if err := conn.WriteMessage(websocket.TextMessage, resp); err != nil {
-				return
-			}
-		}
+		serveCodexTestRPCConn(t, conn, handler)
 	}))
-	defer server.Close()
+}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
+func serveCodexTestRPCConn(t *testing.T, conn *websocket.Conn, handler codexRPCHandler) {
+	t.Helper()
+	defer conn.Close()
+	for {
+		_, rawBytes, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		msg, ok := decodeRecoveryTransportRPCMessage(rawBytes)
+		if !ok {
+			continue
+		}
+		result, respond := handler(msg)
+		if !respond || len(msg.ID) == 0 {
+			continue
+		}
+		if !writeRecoveryTransportRPCResponse(t, conn, msg, result) {
+			return
+		}
+	}
+}
+
+func decodeRecoveryTransportRPCMessage(raw []byte) (jsonRPCMessage, bool) {
+	var msg jsonRPCMessage
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		return jsonRPCMessage{}, false
+	}
+	return msg, true
+}
+
+func writeRecoveryTransportRPCResponse(t *testing.T, conn *websocket.Conn, msg jsonRPCMessage, result json.RawMessage) bool {
+	t.Helper()
+	resp, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      json.RawMessage(append([]byte(nil), msg.ID...)),
+		"result":  json.RawMessage(append([]byte(nil), result...)),
+	})
+	if err != nil {
+		t.Fatalf("marshal response: %v", err)
+	}
+	return conn.WriteMessage(websocket.TextMessage, resp) == nil
+}
+
+func recordMethodsAndOK(recorder *rpcMethodRecorder) codexRPCHandler {
+	return func(msg jsonRPCMessage) (json.RawMessage, bool) {
+		if strings.TrimSpace(msg.Method) == "" {
+			return nil, false
+		}
+		recorder.record(msg.Method)
+		return mustJSON(map[string]any{"ok": true}), true
+	}
+}
+
+func okIDOnlyHandler(msg jsonRPCMessage) (json.RawMessage, bool) {
+	return mustJSON(map[string]any{"ok": true}), len(msg.ID) > 0
+}
+
+func newOneShotCodexTestRPCServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		respondToFirstCodexTestRPCMessage(t, conn)
+	}))
+}
+
+func respondToFirstCodexTestRPCMessage(t *testing.T, conn *websocket.Conn) {
+	t.Helper()
+	defer conn.Close()
+	for {
+		_, rawBytes, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		msg, ok := decodeRecoveryTransportRPCMessage(rawBytes)
+		if !ok || len(msg.ID) == 0 {
+			continue
+		}
+		writeRecoveryTransportRPCResponse(t, conn, msg, mustJSON(map[string]any{"ok": true}))
+		return
+	}
+}
+
+func newTestTransport(t *testing.T, ctx context.Context, server *httptest.Server) *transport {
+	t.Helper()
 	transport, err := newTransport(ctx, "ws"+strings.TrimPrefix(server.URL, "http"))
 	if err != nil {
 		t.Fatalf("newTransport() error = %v", err)
 	}
-	defer func() { _ = transport.Kill() }()
+	t.Cleanup(func() { _ = transport.Kill() })
+	return transport
+}
+
+func TestTransportReconnectReinitializes(t *testing.T) {
+	t.Parallel()
+
+	recorder := &rpcMethodRecorder{methods: make([]string, 0, 4)}
+	server := newCodexTestRPCServer(t, recordMethodsAndOK(recorder))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	transport := newTestTransport(t, ctx, server)
 
 	if err := transport.reconnect(ctx); err != nil {
 		t.Fatalf("reconnect() error = %v", err)
 	}
 
-	mu.Lock()
-	defer mu.Unlock()
-	initializeCount := 0
-	for _, method := range methods {
-		if method == "initialize" {
-			initializeCount++
-		}
-	}
-	if initializeCount != 2 {
-		t.Fatalf("initialize count = %d, want 2 after startup+reconnect; methods=%v", initializeCount, methods)
+	if got := recorder.count("initialize"); got != 2 {
+		t.Fatalf("initialize count = %d, want 2 after startup+reconnect; methods=%v", got, recorder.snapshot())
 	}
 }
 
 func TestRecoveryCheckHealthUsesWebSocketPingOnly(t *testing.T) {
 	t.Parallel()
 
-	var mu sync.Mutex
-	methods := make([]string, 0, 2)
-	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-		for {
-			_, rawBytes, err := conn.ReadMessage()
-			if err != nil {
-				return
-			}
-			var msg jsonRPCMessage
-			if err := json.Unmarshal(rawBytes, &msg); err != nil || strings.TrimSpace(msg.Method) == "" {
-				continue
-			}
-			mu.Lock()
-			methods = append(methods, msg.Method)
-			mu.Unlock()
-			if len(msg.ID) == 0 {
-				continue
-			}
-			resp := mustJSON(map[string]any{
-				"jsonrpc": "2.0",
-				"id":      json.RawMessage(append([]byte(nil), msg.ID...)),
-				"result":  map[string]any{"ok": true},
-			})
-			if err := conn.WriteMessage(websocket.TextMessage, resp); err != nil {
-				return
-			}
-		}
-	}))
+	recorder := &rpcMethodRecorder{methods: make([]string, 0, 2)}
+	server := newCodexTestRPCServer(t, recordMethodsAndOK(recorder))
 	defer server.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	transport, err := newTransport(ctx, "ws"+strings.TrimPrefix(server.URL, "http"))
-	if err != nil {
-		t.Fatalf("newTransport() error = %v", err)
-	}
-	defer func() { _ = transport.Kill() }()
+	transport := newTestTransport(t, ctx, server)
 
 	recovery := &recoveryManager{transport: transport}
 	if err := recovery.CheckHealth(ctx); err != nil {
 		t.Fatalf("CheckHealth() error = %v", err)
 	}
 
-	mu.Lock()
-	defer mu.Unlock()
-	for _, method := range methods {
-		if method == "app/list" {
-			t.Fatalf("CheckHealth() sent app/list; methods=%v", methods)
-		}
+	if recorder.contains("app/list") {
+		t.Fatalf("CheckHealth() sent app/list; methods=%v", recorder.snapshot())
 	}
-	initializeCount := 0
-	for _, method := range methods {
-		if method == "initialize" {
-			initializeCount++
-		}
-	}
-	if got := initializeCount; got != 1 {
-		t.Fatalf("initialize count = %d, want 1; methods=%v", got, methods)
+	if got := recorder.count("initialize"); got != 1 {
+		t.Fatalf("initialize count = %d, want 1; methods=%v", got, recorder.snapshot())
 	}
 }
 
 func TestTransportReconnectDoesNotDispatchConnectionDeadForSupersededReader(t *testing.T) {
 	t.Parallel()
 
-	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-		for {
-			_, rawBytes, err := conn.ReadMessage()
-			if err != nil {
-				return
-			}
-			var msg jsonRPCMessage
-			if err := json.Unmarshal(rawBytes, &msg); err != nil || len(msg.ID) == 0 {
-				continue
-			}
-			resp, err := json.Marshal(map[string]any{
-				"jsonrpc": "2.0",
-				"id":      json.RawMessage(append([]byte(nil), msg.ID...)),
-				"result":  map[string]any{"ok": true},
-			})
-			if err != nil {
-				t.Fatalf("marshal response: %v", err)
-			}
-			if err := conn.WriteMessage(websocket.TextMessage, resp); err != nil {
-				return
-			}
-		}
-	}))
+	server := newCodexTestRPCServer(t, okIDOnlyHandler)
 	defer server.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	transport, err := newTransport(ctx, "ws"+strings.TrimPrefix(server.URL, "http"))
-	if err != nil {
-		t.Fatalf("newTransport() error = %v", err)
-	}
-	defer func() { _ = transport.Kill() }()
+	transport := newTestTransport(t, ctx, server)
 
+	dead, done := startConnectionDeadReadLoop(ctx, transport)
+	waitForTransportLooping(t, transport)
+
+	if err := transport.reconnect(ctx); err != nil {
+		t.Fatalf("reconnect() error = %v", err)
+	}
+	waitForReadLoopDone(t, done)
+	assertNoConnectionDead(t, dead)
+}
+
+func TestTransportPassiveDisconnectDispatchesConnectionDead(t *testing.T) {
+	t.Parallel()
+
+	server := newOneShotCodexTestRPCServer(t)
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	transport := newTestTransport(t, ctx, server)
+
+	dead := make(chan RawMessage, 1)
+	transport.ReadLoop(ctx, connectionDeadRecorder(dead))
+	assertConnectionDeadReceived(t, dead)
+}
+
+func startConnectionDeadReadLoop(ctx context.Context, transport *transport) (<-chan RawMessage, <-chan struct{}) {
 	dead := make(chan RawMessage, 1)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		transport.ReadLoop(ctx, func(_ context.Context, _ Responder, msg RawMessage) {
-			if strings.TrimSpace(msg.Method) == "connection.dead" {
-				dead <- msg
-			}
-		})
+		transport.ReadLoop(ctx, connectionDeadRecorder(dead))
 	}()
+	return dead, done
+}
 
+func connectionDeadRecorder(dead chan<- RawMessage) func(context.Context, Responder, RawMessage) {
+	return func(_ context.Context, _ Responder, msg RawMessage) {
+		if strings.TrimSpace(msg.Method) == "connection.dead" {
+			dead <- msg
+		}
+	}
+}
+
+func waitForTransportLooping(t *testing.T, transport *transport) {
+	t.Helper()
 	deadline := time.Now().Add(time.Second)
 	for !transport.looping.Load() && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
@@ -218,15 +269,19 @@ func TestTransportReconnectDoesNotDispatchConnectionDeadForSupersededReader(t *t
 	if !transport.looping.Load() {
 		t.Fatal("read loop did not start")
 	}
+}
 
-	if err := transport.reconnect(ctx); err != nil {
-		t.Fatalf("reconnect() error = %v", err)
-	}
+func waitForReadLoopDone(t *testing.T, done <-chan struct{}) {
+	t.Helper()
 	select {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("read loop did not exit after reconnect closed old socket")
 	}
+}
+
+func assertNoConnectionDead(t *testing.T, dead <-chan RawMessage) {
+	t.Helper()
 	select {
 	case msg := <-dead:
 		t.Fatalf("unexpected connection.dead from superseded reader: %+v", msg)
@@ -234,53 +289,8 @@ func TestTransportReconnectDoesNotDispatchConnectionDeadForSupersededReader(t *t
 	}
 }
 
-func TestTransportPassiveDisconnectDispatchesConnectionDead(t *testing.T) {
-	t.Parallel()
-
-	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-		for {
-			_, rawBytes, err := conn.ReadMessage()
-			if err != nil {
-				return
-			}
-			var msg jsonRPCMessage
-			if err := json.Unmarshal(rawBytes, &msg); err != nil || len(msg.ID) == 0 {
-				continue
-			}
-			resp, err := json.Marshal(map[string]any{
-				"jsonrpc": "2.0",
-				"id":      json.RawMessage(append([]byte(nil), msg.ID...)),
-				"result":  map[string]any{"ok": true},
-			})
-			if err != nil {
-				t.Fatalf("marshal response: %v", err)
-			}
-			_ = conn.WriteMessage(websocket.TextMessage, resp)
-			return
-		}
-	}))
-	defer server.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	transport, err := newTransport(ctx, "ws"+strings.TrimPrefix(server.URL, "http"))
-	if err != nil {
-		t.Fatalf("newTransport() error = %v", err)
-	}
-	defer func() { _ = transport.Kill() }()
-
-	dead := make(chan RawMessage, 1)
-	transport.ReadLoop(ctx, func(_ context.Context, _ Responder, msg RawMessage) {
-		if strings.TrimSpace(msg.Method) == "connection.dead" {
-			dead <- msg
-		}
-	})
+func assertConnectionDeadReceived(t *testing.T, dead <-chan RawMessage) {
+	t.Helper()
 	select {
 	case <-dead:
 	case <-time.After(time.Second):
@@ -350,76 +360,103 @@ func TestTransportClosingErrorDoesNotTriggerReconnect(t *testing.T) {
 }
 
 func TestSessionAttemptRecoveryReplaysPendingTurn(t *testing.T) {
-	var mu sync.Mutex
-	turnStarts := 0
-	initializeCalls := 0
-	threadResumes := 0
-	upgrader2 := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader2.Upgrade(w, r, nil)
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-		for {
-			_, rawBytes, err := conn.ReadMessage()
-			if err != nil {
-				return
-			}
-			raw := string(rawBytes)
-			var msg jsonRPCMessage
-			if err := json.Unmarshal([]byte(raw), &msg); err != nil {
-				continue
-			}
-			var result json.RawMessage
-			switch msg.Method {
-			case "initialize":
-				mu.Lock()
-				initializeCalls++
-				mu.Unlock()
-				result = mustJSON(map[string]any{"ok": true})
-			case "thread/resume":
-				mu.Lock()
-				threadResumes++
-				mu.Unlock()
-				result = mustJSON(map[string]any{"thread": map[string]any{"id": "thread-1"}})
-			case "turn/start":
-				mu.Lock()
-				turnStarts++
-				current := turnStarts
-				mu.Unlock()
-				result = mustJSON(map[string]any{"turn": map[string]any{"id": fmt.Sprintf("turn-%d", current)}})
-			default:
-				result = mustJSON(map[string]any{"ok": true})
-			}
-			if len(msg.ID) == 0 {
-				continue
-			}
-			resp, err := json.Marshal(map[string]any{
-				"jsonrpc": "2.0",
-				"id":      json.RawMessage(append([]byte(nil), msg.ID...)),
-				"result":  json.RawMessage(append([]byte(nil), result...)),
-			})
-			if err != nil {
-				t.Fatalf("marshal response: %v", err)
-			}
-			if err := conn.WriteMessage(websocket.TextMessage, resp); err != nil {
-				return
-			}
-		}
-	}))
+	recorder := &sessionRecoveryRPCRecorder{}
+	server := newCodexTestRPCServer(t, recorder.handle)
 	defer server.Close()
 
+	s := newRecoveryTestSession(t, server)
+	defer closeCodexTestSession(t, s)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	handle := startRecoveryTestTurn(t, ctx, s)
+	beforeReadAt := prepareRecoveryReplayState(s)
+
+	if err := s.attemptRecovery("test recovery"); err != nil {
+		t.Fatalf("attemptRecovery() error = %v", err)
+	}
+
+	assertRecoveryReplayedTurn(t, s, handle, beforeReadAt)
+	recorder.assertCounts(t)
+}
+
+type sessionRecoveryRPCRecorder struct {
+	mu              sync.Mutex
+	turnStarts      int
+	initializeCalls int
+	threadResumes   int
+}
+
+func (r *sessionRecoveryRPCRecorder) handle(msg jsonRPCMessage) (json.RawMessage, bool) {
+	if len(msg.ID) == 0 {
+		return nil, false
+	}
+	switch msg.Method {
+	case "initialize":
+		r.incrementInitialize()
+		return mustJSON(map[string]any{"ok": true}), true
+	case "thread/resume":
+		r.incrementThreadResume()
+		return mustJSON(map[string]any{"thread": map[string]any{"id": "thread-1"}}), true
+	case "turn/start":
+		current := r.incrementTurnStart()
+		return mustJSON(map[string]any{"turn": map[string]any{"id": fmt.Sprintf("turn-%d", current)}}), true
+	default:
+		return mustJSON(map[string]any{"ok": true}), true
+	}
+}
+
+func (r *sessionRecoveryRPCRecorder) incrementInitialize() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.initializeCalls++
+}
+
+func (r *sessionRecoveryRPCRecorder) incrementThreadResume() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.threadResumes++
+}
+
+func (r *sessionRecoveryRPCRecorder) incrementTurnStart() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.turnStarts++
+	return r.turnStarts
+}
+
+func (r *sessionRecoveryRPCRecorder) assertCounts(t *testing.T) {
+	t.Helper()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.turnStarts != 2 {
+		t.Fatalf("turn/start count = %d, want 2", r.turnStarts)
+	}
+	if r.initializeCalls != 2 {
+		t.Fatalf("initialize count = %d, want 2", r.initializeCalls)
+	}
+	if r.threadResumes != 1 {
+		t.Fatalf("thread/resume count = %d, want 1", r.threadResumes)
+	}
+}
+
+func newRecoveryTestSession(t *testing.T, server *httptest.Server) *session {
+	t.Helper()
 	s, err := newSession(context.Background(), pkglogger.Get(), "ws"+strings.TrimPrefix(server.URL, "http"), "agent-1", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}
 	// P22 P1c: mirror driver.StartSession's explicit runtime.Start().
 	s.runtime.Start()
-	defer closeCodexTestSession(t, s)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
+	return s
+}
 
+type recoveryTestTurnHandle interface {
+	ProviderID() string
+}
+
+func startRecoveryTestTurn(t *testing.T, ctx context.Context, s *session) recoveryTestTurnHandle {
+	t.Helper()
 	handle, err := s.StartTurn(ctx, dto.TurnRequest{
 		ThreadID: "thread-1",
 		Inputs:   []dto.InputItem{{Type: "text", Content: "hello"}},
@@ -430,49 +467,42 @@ func TestSessionAttemptRecoveryReplaysPendingTurn(t *testing.T) {
 	if got := handle.ProviderID(); got != "turn-1" {
 		t.Fatalf("initial ProviderID() = %q, want turn-1", got)
 	}
+	return handle
+}
 
+func prepareRecoveryReplayState(s *session) int64 {
 	s.setThreadID("thread-1")
 	beforeReadAt := time.Now().Add(-time.Second).UnixNano()
 	s.lastReadAt.Store(beforeReadAt)
 	s.mu.Lock()
 	s.suppressed["stale-turn"] = struct{}{}
 	s.mu.Unlock()
+	return beforeReadAt
+}
 
-	if err := s.attemptRecovery("test recovery"); err != nil {
-		t.Fatalf("attemptRecovery() error = %v", err)
-	}
-
+func assertRecoveryReplayedTurn(t *testing.T, s *session, handle recoveryTestTurnHandle, beforeReadAt int64) {
+	t.Helper()
 	if got := handle.ProviderID(); got != "turn-2" {
 		t.Fatalf("ProviderID() after replay = %q, want turn-2", got)
 	}
 	if got := s.activeTurnID; got != "turn-2" {
 		t.Fatalf("activeTurnID = %q, want turn-2", got)
 	}
-
 	if got := s.recoveryCount.Load(); got != 0 {
 		t.Fatalf("recoveryCount = %d, want 0 after successful recovery", got)
 	}
 	if got := s.lastReadAt.Load(); got <= beforeReadAt {
 		t.Fatalf("lastReadAt = %d, want value newer than %d after successful recovery", got, beforeReadAt)
 	}
-	s.mu.Lock()
-	suppressedLen := len(s.suppressed)
-	s.mu.Unlock()
-	if suppressedLen != 0 {
+	if suppressedLen := suppressedTurnCount(s); suppressedLen != 0 {
 		t.Fatalf("suppressed size = %d, want 0 after successful recovery", suppressedLen)
 	}
+}
 
-	mu.Lock()
-	defer mu.Unlock()
-	if turnStarts != 2 {
-		t.Fatalf("turn/start count = %d, want 2", turnStarts)
-	}
-	if initializeCalls != 2 {
-		t.Fatalf("initialize count = %d, want 2", initializeCalls)
-	}
-	if threadResumes != 1 {
-		t.Fatalf("thread/resume count = %d, want 1", threadResumes)
-	}
+func suppressedTurnCount(s *session) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.suppressed)
 }
 
 func TestSessionAttemptRecoveryStopsAfterMaxAttempts(t *testing.T) {
