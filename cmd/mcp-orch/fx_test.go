@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	taskdagstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
@@ -123,5 +125,40 @@ func TestFxStoresAllProvided(t *testing.T) {
 	)
 	if err := app.Err(); err != nil {
 		t.Fatalf("fx.New() error = %v", err)
+	}
+}
+
+func TestHandleScopedToolsCallWithCallerUsesTrustedScope(t *testing.T) {
+	params := json.RawMessage(`{"name":"orchestration_list_agents","arguments":{"agent_id":"evil","cwd":"/evil"},"_agentId":"agent-1","_threadId":"thread-1","_callId":"call-1","_cwd":"/trusted/orch"}`)
+	called := false
+
+	result, err := handleScopedToolsCallWithCaller(context.Background(), "orch", params, func(ctx context.Context, name string, args json.RawMessage) (any, error) {
+		called = true
+		if name != "orchestration_list_agents" {
+			t.Fatalf("tool name = %q, want orchestration_list_agents", name)
+		}
+		scope, ok := common.ToolScopeFromContext(ctx)
+		if !ok {
+			t.Fatal("ToolScopeFromContext() missing scope")
+		}
+		if scope.AgentID != "agent-1" || scope.ThreadID != "thread-1" || scope.CallID != "call-1" {
+			t.Fatalf("scope = %#v, want trusted identity", scope)
+		}
+		if got := common.WorkspaceRootFromContext(ctx, "/fallback"); got != "/trusted/orch" {
+			t.Fatalf("WorkspaceRootFromContext() = %q, want /trusted/orch", got)
+		}
+		if !json.Valid(args) {
+			t.Fatalf("args is not valid json: %s", args)
+		}
+		return map[string]any{"ok": true}, nil
+	})
+	if err != nil {
+		t.Fatalf("handleScopedToolsCallWithCaller() error = %v", err)
+	}
+	if !called {
+		t.Fatal("caller was not invoked")
+	}
+	if payload, ok := result.(map[string]any); !ok || payload["structuredContent"] == nil {
+		t.Fatalf("result = %#v, want structured content", result)
 	}
 }

@@ -96,26 +96,7 @@ func buildBootstrapConfig(shutdowner fx.Shutdowner, hookAfter contract.Bootstrap
 		return map[string]any{"tools": tools}, nil
 	}
 	cfg.OnToolsCall = func(ctx context.Context, params json.RawMessage) (any, error) {
-		var req struct {
-			Name      string          `json:"name"`
-			Arguments json.RawMessage `json:"arguments"`
-			MetaCWD   string          `json:"_cwd,omitempty"`
-		}
-		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, err
-		}
-		if strings.TrimSpace(req.MetaCWD) != "" {
-			ctx = context.WithValue(ctx, common.CwdContextKey, req.MetaCWD)
-		}
-		result, err := p.CallTool(ctx, req.Name, req.Arguments)
-		if err != nil {
-			return nil, err
-		}
-		text, _ := json.Marshal(result)
-		return map[string]any{
-			"content":           []map[string]string{{"type": "text", "text": string(text)}},
-			"structuredContent": json.RawMessage(text),
-		}, nil
+		return handleScopedToolsCall(ctx, p, mcp.ClientKindOrch, params)
 	}
 	cfg.Capabilities = []string{
 		"tools/orchestration", "tools/task", "tools/workspace",
@@ -138,6 +119,36 @@ func buildBootstrapConfig(shutdowner fx.Shutdowner, hookAfter contract.Bootstrap
 		cfg.Hooks = bootstrap.HookConfig{OnAfter: bootstrap.HookAfterHandler(hookAfter)}
 	}
 	return cfg
+}
+
+func handleScopedToolsCall(ctx context.Context, p registryToolProvider, family string, params json.RawMessage) (any, error) {
+	return handleScopedToolsCallWithCaller(ctx, family, params, p.CallTool)
+}
+
+func handleScopedToolsCallWithCaller(
+	ctx context.Context,
+	family string,
+	params json.RawMessage,
+	call func(context.Context, string, json.RawMessage) (any, error),
+) (any, error) {
+	req, err := common.DecodeToolCallParams(params)
+	if err != nil {
+		return nil, err
+	}
+	scope := req.Scope(family)
+	ctx = common.WithToolScope(ctx, scope)
+	result, err := call(ctx, req.Name, req.Arguments)
+	if err != nil {
+		return nil, err
+	}
+	text, err := json.Marshal(result)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"content":           []map[string]string{{"type": "text", "text": string(text)}},
+		"structuredContent": json.RawMessage(text),
+	}, nil
 }
 
 func buildOrchestrationOptions(remoteAddr string) []fx.Option {
