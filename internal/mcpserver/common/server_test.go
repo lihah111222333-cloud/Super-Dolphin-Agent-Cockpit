@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -60,6 +61,72 @@ func TestServerHandlesToolsCall(t *testing.T) {
 	}
 }
 
+func TestToolsCallReturnsStructuredToolError(t *testing.T) {
+	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"demo_tool","arguments":{"bad":true}}}`)
+	var output bytes.Buffer
+	provider := captureToolProvider{call: func(context.Context, string, json.RawMessage) (any, error) {
+		return nil, errors.New("decode params: json: unknown field \"bad\"")
+	}}
+
+	server := NewServer("test", "dev", NewStdioTransport(input, &output), provider)
+	if err := server.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	envelope := decodeToolErrorEnvelopeFromOutput(t, output.Bytes())
+	if envelope.Success {
+		t.Fatalf("envelope success = true, want false")
+	}
+	if envelope.Code != "schema_invalid" {
+		t.Fatalf("envelope code = %q, want schema_invalid; output=%s", envelope.Code, output.String())
+	}
+	if envelope.Error == "" || envelope.Hint == "" {
+		t.Fatalf("envelope missing error/hint: %#v", envelope)
+	}
+}
+
+func TestTimeoutErrorIsStructuredRetryable(t *testing.T) {
+	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"slow_tool","arguments":{}}}`)
+	var output bytes.Buffer
+	provider := captureToolProvider{call: func(context.Context, string, json.RawMessage) (any, error) {
+		return nil, context.DeadlineExceeded
+	}}
+
+	server := NewServer("test", "dev", NewStdioTransport(input, &output), provider)
+	if err := server.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	envelope := decodeToolErrorEnvelopeFromOutput(t, output.Bytes())
+	if envelope.Code != "lsp_timeout" {
+		t.Fatalf("envelope code = %q, want lsp_timeout; output=%s", envelope.Code, output.String())
+	}
+	if !envelope.Retryable {
+		t.Fatalf("envelope retryable = false, want true")
+	}
+}
+
+func TestRecoveryErrorIsStructured(t *testing.T) {
+	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"panic_tool","arguments":{}}}`)
+	var output bytes.Buffer
+	provider := captureToolProvider{call: func(context.Context, string, json.RawMessage) (any, error) {
+		panic("boom")
+	}}
+
+	server := NewServer("test", "dev", NewStdioTransport(input, &output), provider)
+	if err := server.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	envelope := decodeToolErrorEnvelopeFromOutput(t, output.Bytes())
+	if envelope.Code != "internal_panic" {
+		t.Fatalf("envelope code = %q, want internal_panic; output=%s", envelope.Code, output.String())
+	}
+	if envelope.Retryable {
+		t.Fatalf("envelope retryable = true, want false")
+	}
+	if !strings.Contains(envelope.Error, "panic") {
+		t.Fatalf("envelope error = %q, want panic context", envelope.Error)
+	}
+}
+
 func TestToolCallParamsScopeNormalizesKnownMCPFamilies(t *testing.T) {
 	params := ToolCallParams{}
 	cases := map[string]string{
@@ -73,6 +140,30 @@ func TestToolCallParamsScopeNormalizesKnownMCPFamilies(t *testing.T) {
 			t.Fatalf("Scope(%q).Family = %q, want %q", input, got, want)
 		}
 	}
+}
+
+func decodeToolErrorEnvelopeFromOutput(t *testing.T, raw []byte) ToolErrorEnvelope {
+	t.Helper()
+	var resp struct {
+		Error  *jsonRPCError `json:"error,omitempty"`
+		Result struct {
+			StructuredContent json.RawMessage `json:"structuredContent"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(raw), &resp); err != nil {
+		t.Fatalf("unmarshal response %s: %v", raw, err)
+	}
+	if resp.Error != nil {
+		t.Fatalf("response has JSON-RPC error %#v, want structured tool result; raw=%s", resp.Error, raw)
+	}
+	if len(resp.Result.StructuredContent) == 0 {
+		t.Fatalf("response missing structuredContent; raw=%s", raw)
+	}
+	var envelope ToolErrorEnvelope
+	if err := json.Unmarshal(resp.Result.StructuredContent, &envelope); err != nil {
+		t.Fatalf("unmarshal structuredContent %s: %v", resp.Result.StructuredContent, err)
+	}
+	return envelope
 }
 
 func TestServerToolsCallUsesTrustedTopLevelScope(t *testing.T) {

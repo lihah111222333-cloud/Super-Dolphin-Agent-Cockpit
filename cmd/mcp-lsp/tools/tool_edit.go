@@ -26,6 +26,7 @@ var errEditManagerNil = errors.New("edit manager is nil")
 type EditRequest struct {
 	Action        string        `json:"action"`
 	FilePath      string        `json:"file_path"`
+	LanguageID    string        `json:"language_id,omitempty"`
 	Line          int           `json:"line,omitempty"`
 	Column        int           `json:"column,omitempty"`
 	EndLine       int           `json:"end_line,omitempty"`
@@ -37,6 +38,7 @@ type EditRequest struct {
 	PersistToDisk *bool         `json:"persist_to_disk,omitempty"`
 	Version       int           `json:"version,omitempty"`
 	Only          []string      `json:"only,omitempty"`
+	Force         bool          `json:"force,omitempty"`
 }
 
 type ReplaceEdit struct {
@@ -105,7 +107,7 @@ func (h EditHandler) handleRename(ctx context.Context, req EditRequest) (any, er
 	if err != nil {
 		return nil, err
 	}
-	manager, err := h.registry.GetManagerForFile(ctx, path)
+	manager, err := managerForFile(ctx, h.registry, path, req.LanguageID)
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +253,7 @@ func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any
 		)
 		return nil, err
 	}
-	manager, err := h.registry.GetManagerForFile(ctx, path)
+	manager, err := managerForFile(ctx, h.registry, path, req.LanguageID)
 	if err != nil {
 		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: edit code_action manager failed",
 			"action", "code_action",
@@ -325,7 +327,7 @@ func (h EditHandler) handleFormat(ctx context.Context, req EditRequest) (any, er
 		)
 		return nil, err
 	}
-	manager, err := h.registry.GetManagerForFile(ctx, path)
+	manager, err := managerForFile(ctx, h.registry, path, req.LanguageID)
 	if err != nil {
 		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: edit format manager failed",
 			"action", "format",

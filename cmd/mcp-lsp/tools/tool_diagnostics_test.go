@@ -25,6 +25,10 @@ func (r *diagnosticsTestRegistry) GetManagerForFile(context.Context, string) (ls
 	return nil, lspmanager.ErrUnsupportedLanguage
 }
 
+func (r *diagnosticsTestRegistry) GetManagerForFileWithLanguage(context.Context, string, string) (lspmanager.Manager, error) {
+	return nil, lspmanager.ErrUnsupportedLanguage
+}
+
 func (r *diagnosticsTestRegistry) GetManagerForLanguage(context.Context, string) (lspmanager.Manager, error) {
 	return nil, lspmanager.ErrUnsupportedLanguage
 }

@@ -183,18 +183,29 @@ func warnLSPToolsCallScopeTrace(toolName string, scope common.ToolScope) {
 	)
 }
 
-func handleScopedToolsCall(ctx context.Context, tp registryToolProvider, family string, params json.RawMessage) (any, error) {
+func handleScopedToolsCall(ctx context.Context, tp registryToolProvider, family string, params json.RawMessage) (result any, err error) {
+	toolName := "tools/call"
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			result, err = wrapScopedToolResult(common.NewToolErrorEnvelope(toolName, common.NewPanicToolError(recovered)))
+		}
+	}()
 	req, err := common.DecodeToolCallParams(params)
 	if err != nil {
 		return nil, err
 	}
+	toolName = req.Name
 	scope := req.Scope(family)
 	warnLSPToolsCallScopeTrace(req.Name, scope)
 	ctx = common.WithToolScope(ctx, scope)
-	result, err := tp.CallTool(ctx, req.Name, req.Arguments)
+	result, err = tp.CallTool(ctx, req.Name, req.Arguments)
 	if err != nil {
-		return nil, err
+		result = common.NewToolErrorEnvelope(req.Name, err)
 	}
+	return wrapScopedToolResult(result)
+}
+
+func wrapScopedToolResult(result any) (any, error) {
 	text, err := json.Marshal(result)
 	if err != nil {
 		return nil, err
@@ -219,7 +230,7 @@ func marshalInputSchema(schema map[string]any) (json.RawMessage, error) {
 func handleToolCall(ctx context.Context, defs []toolDefinition, name string, args json.RawMessage) (any, error) {
 	trimmed := canonicalToolName(name)
 	for _, def := range defs {
-		if def.Manifest.Name != trimmed {
+		if canonicalToolName(def.Manifest.Name) != trimmed {
 			continue
 		}
 		if def.Handler == nil {

@@ -17,6 +17,7 @@ type structureParams struct {
 	Action     string `json:"action"`
 	FilePath   string `json:"file_path"`
 	Path       string `json:"path"`
+	LanguageID string `json:"language_id,omitempty"`
 	Query      string `json:"query"`
 	Language   string `json:"language"`
 	Verbosity  string `json:"verbosity"`
@@ -30,7 +31,7 @@ func NewStructureHandler(registry lspmanager.Registry) ToolHandler {
 		// the "language" parameter instead of "file_path", so we must not
 		// call GetManagerForFile unconditionally.
 		resolveManager := func() (lspmanager.Manager, error) {
-			return registry.GetManagerForFile(ctx, req.FilePath)
+			return managerForFile(ctx, registry, req.FilePath, req.LanguageID)
 		}
 		return dispatchToolAction(ctx, "structure", req.Action, req, map[string]actionHandler[structureParams]{
 			"document_symbol": func(ctx context.Context, req structureParams) (any, error) {
@@ -41,7 +42,7 @@ func NewStructureHandler(registry lspmanager.Registry) ToolHandler {
 				return runDocumentSymbols(ctx, mgr, req)
 			},
 			"workspace_symbol": func(ctx context.Context, req structureParams) (any, error) {
-				mgr, languageID, err := resolveWorkspaceSymbolManager(ctx, registry, req.FilePath, req.Language)
+				mgr, languageID, err := resolveWorkspaceSymbolManager(ctx, registry, req.FilePath, firstNonEmpty(req.Language, req.LanguageID))
 				if err != nil {
 					return nil, err
 				}
@@ -92,7 +93,7 @@ func resolveWorkspaceSymbolManager(ctx context.Context, registry lspmanager.Regi
 	if err := validateWorkspaceSymbolFilePath(filePath); err != nil {
 		return nil, "", err
 	}
-	manager, err := registry.GetManagerForFile(ctx, filePath)
+	manager, err := managerForFile(ctx, registry, filePath, "")
 	if err != nil {
 		if errors.Is(err, lspmanager.ErrUnsupportedLanguage) {
 			return nil, "", errors.New("path must point to a source file with a configured language server; use language for workspace-wide search, and use file/grep for docs or config files")
@@ -140,7 +141,11 @@ func runWorkspaceSymbols(
 	total := len(results)
 	results = limitSlice(results, limit)
 	if len(results) == 0 {
-		return "no symbols found", nil
+		return emptyListEnvelope{
+			Success: true,
+			Data:    []any{},
+			Meta:    resultMeta{Count: 0, Message: "no symbols found"},
+		}, nil
 	}
 	return renderByVerbosity(results, total, verbosity,
 		func(items []protocol.WorkspaceSymbolResult) any { return format.NormalizeForDisplay(items) },
@@ -187,7 +192,11 @@ func runSemanticTokens(
 	}
 	result = capSemanticTokens(result, limit)
 	if result == nil || (len(result.Data) == 0 && len(result.Decoded) == 0) {
-		return "no semantic tokens found", nil
+		return emptyListEnvelope{
+			Success: true,
+			Data:    []any{},
+			Meta:    resultMeta{Count: 0, Message: "no semantic tokens found"},
+		}, nil
 	}
 	return format.NormalizeForDisplay(result), nil
 }
