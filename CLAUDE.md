@@ -1,52 +1,174 @@
-# 任务完成验证：代码守卫
+# Super Agent v3 项目指令
 
-本规范强制具化了「验证闭环」：跑测试 + 构建/lint 之外，必须再跑代码守卫。
-与 `@完成前验证` 技能配合：守卫绿 → 完成前验证 → 交付。
+## 本地技能索引
 
-### Git Hook 已落地（pre-commit 强制守卫）
+> 使用方法：只有用户显式输入 `@触发词`、`请参考 <path>`，或给出具体 `SKILL.md` 路径时，才读取对应技能文件。
+> 不要因为任务类型、任务结束、或本文件出现技能名而自动加载 `.agent/skills/**/SKILL.md`。
 
-仓库通过 `.githooks/pre-commit` 在每次 `git commit` 时强制运行：
+| 触发词 | 技能路径 |
+|--------|----------|
+| @后端 | `.agent/skills/后端/SKILL.md` |
+| @Agent工程学 | `.agent/skills/Agent工程学/SKILL.md` |
+| @MCP协议 | `.agent/skills/MCP协议/SKILL.md` |
+| @Vue3 | `.agent/skills/vue3/SKILL.md` |
+| @UI设计 | `.agent/skills/ui-ux-design/SKILL.md` |
+| @测试驱动开发 | `.agent/skills/测试驱动开发/SKILL.md` |
+| @编写计划 | `.agent/skills/编写计划/SKILL.md` |
+| @执行计划 | `.agent/skills/执行计划/SKILL.md` |
+| @调度并行代理 | `.agent/skills/调度并行代理/SKILL.md` |
+| @子代理驱动开发 | `.agent/skills/子代理驱动开发/SKILL.md` |
+| @系统化调试 | `.agent/skills/系统化调试/SKILL.md` |
+| @头脑风暴 | `.agent/skills/头脑风暴/SKILL.md` |
+| @思维与决策辅助 | `.agent/skills/思维与决策辅助/SKILL.md` |
+| @请求代码审查 | `.agent/skills/请求代码审查/SKILL.md` |
+| @接收代码审查 | `.agent/skills/接收代码审查/SKILL.md` |
+| @完成前验证 | `.agent/skills/完成前验证/SKILL.md` |
+| @使用git工作区 | `.agent/skills/使用git工作区/SKILL.md` |
+| @使用超能力 | `.agent/skills/使用超能力/SKILL.md` |
+| @结束开发分支 | `.agent/skills/结束开发分支/SKILL.md` |
+| @编写技能 | `.agent/skills/编写技能/SKILL.md` |
+| @安全工程师 | `.agent/skills/安全工程师/SKILL.md` |
+| @核心信息提取与总结 | `.agent/skills/核心信息提取与总结/SKILL.md` |
 
-1. **后端代码守卫**：`test_with_guard.sh`
-2. **前端代码守卫**：`size-guard.cjs` 以及前端测试
+### 技能系统说明
 
-任一失败 → 中止 commit。落实「守卫不绿不得交付」红线，挡住人手疏漏。
+- 上表只约束 agent 在本仓库内是否读取 `.agent/skills/**/SKILL.md` 作为工作指令。
+- 产品运行时的技能系统是另一条链路：内置技能会 seed 到 `~/.multi-agent/skills-library/`，cache 到 `~/.multi-agent/skills-cache/`，Claude workspace 通过 `.claude/skills` symlink 发现，Codex 通过 `skill_read_section` host-direct 读取。
+- 不要把“本文件禁止自动加载 `.agent/skills/**`”误解为关闭产品运行时技能能力；涉及运行时技能行为时，以 `internal/module/skill*`、`internal/platform/toolbridge/skill_read_section.go` 和相关测试为准。
 
-**首次克隆或换机后启用：**
+## 代码地图与上下文加载
+
+定位文件路径、模块入口、或改动影响面时，按低 token 顺序读取：
+
+1. `README.md`：项目结构、启动方式、核心模块概览。
+2. `docs/doc/codemap/README.md`：代码地图目录和阅读边界。
+3. 根据问题选择单个代码地图卷，例如：
+   - `docs/doc/codemap/01-terminal-ui.md`
+   - `docs/doc/codemap/02-mcp-orch.md`
+   - `docs/doc/codemap/04-app-contract.md`
+   - `docs/doc/codemap/07-module.md`
+   - `docs/doc/codemap/08-platform.md`
+   - `docs/doc/codemap/09-provider.md`
+   - `docs/doc/codemap/10-store.md`
+   - `docs/doc/codemap/11-memory-prompt-thread.md`
+4. 用 `rg` 在 `docs/doc/codemap/ai-index.json` 或具体源码目录里精确检索。
+5. 打开目标源码和同包测试；行为问题以代码和测试为准。
+
+架构/契约问题优先读 `docs/decisions/*.md`、`docs/adr/*.md`、`docs/契约/*.md`；`docs/plans/**`、`docs/迁移/**`、`docs/superpowers/plans/**`、历史报告默认视为历史材料。
+
+避免默认扫描 `.build-cache/`、`bin/`、`cmd/agent-terminal/frontend/node_modules/`、`cmd/agent-terminal/frontend/dist/`、`.worktrees/`、`.workspace/`、`.claude/`、`.agent/code_exec/`、`.agent/workspaces/`、`.agnet/report/`、`.agnet/shared/_internal/`、`.agnet/shared/handoff/`、历史迁移文档和报告目录，除非用户明确要求。
+
+## 项目现状
+
+- Go module：`github.com/anthropic-ai/super-agent-v3`，Go `1.25.7`。
+- 主入口：
+  - `cmd/agent-terminal`：Wails/Vue 桌面 UI 与 HTTP server。
+  - `cmd/mcp-orch`：agent lifecycle、DAG、cron、toolbridge orchestration peer。
+  - `cmd/mcp-lsp`：gopls/LSP 代码智能 peer。
+  - `cmd/mcp-ida`：IDA MCP peer。
+- 核心目录：
+  - `internal/app`：应用装配、runner、toolbridge adapters。
+  - `internal/contract`：跨模块接口和 DTO。
+  - `internal/module`：turn、prompt、cron、memory、skill 等业务模块。
+  - `internal/platform`：db、rpc、config、runtime safety、toolbridge。
+  - `internal/provider`：Claude CLI、Codex 等 provider 适配。
+  - `internal/store`：sqlc 生成的数据访问层。
+  - `internal/archtest`：架构守卫和 baseline 棘轮。
+  - `pkg`：可复用公共库。
+  - `cmd/agent-terminal/frontend`：Vue/Vite 前端包。
+
+## 任务完成验证
+
+每次声称 done/fixed/ready-to-commit/ready-to-merge 前，根据改动范围跑对应验证。不要套用 `wjboot-v2` 的 `backend/`、`GOWORK=off go -C backend`、`docs/guide` 或 `cmd/code_guard` 命令。
+
+### Go 代码
+
+常规包级验证：
 
 ```bash
-make install-hooks
+./scripts/test_with_guard.sh <affected packages> -count=1
 ```
-或执行：
+
+只需要快速跑仓库守卫时：
+
 ```bash
-bash scripts/install-hooks.sh
+make guard
 ```
 
-脚本把 `core.hooksPath` 指向 `.githooks/`（受版本控制，团队同步一致）。
+大范围改动或发布前：
 
-**边界与说明：**
+```bash
+make test
+make build-plain
+```
 
-- pre-commit **只跑两个守卫和短测**，不跑长测试 / gosec / race —— 这些重活归 `make test` 与 CI。
-- pre-commit **不会**自动执行 `--freeze`，避免悄悄放宽 baseline；freeze 必须开发者显式决策。
-- **紧急绕过**：`git commit --no-verify` 仅限事故/热修复场景（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»），事后**必须**补跑全面复检。
+修改 `internal/archtest`、守卫、baseline 或架构边界时，至少补跑：
 
-### Baseline 棘轮（Per-File Ratchet）
+```bash
+./scripts/test_with_guard.sh ./internal/archtest -count=1
+```
 
-后端代码守卫增加了 per-file baseline 棘轮机制，基于 `internal/archtest/baseline.json`：
+### 前端代码
 
-**三种模式：**
+```bash
+cd cmd/agent-terminal/frontend
+node scripts/size-guard.cjs
+npx vitest run
+npm run build
+```
 
-| 模式 | 命令 | 说明 |
-|------|------|------|
-| 检查（默认） | `go run scripts/code_size_guard.go` | CheckAll + baseline 棘轮 + 自动收缩 |
-| 冻结 | `go run scripts/code_size_guard.go --freeze` | 全仓扫描建立/重建 baseline |
-| 严格 | `go run scripts/code_size_guard.go --strict` | 无 baseline 全量检查 |
+`cmd/agent-terminal` 的前端资源依赖 `cmd/agent-terminal/frontend/dist`。该目录内容被 gitignore，首次 clone、清理 dist 后、或需要验证 agent-terminal build/run 前，先执行前端 build，确保 `go:embed` 能拿到最新 bundle。
 
-**核心规则：**
+### SQL / store
 
-- baseline 只缩不放宽（ratchet）：代码改善时自动收紧指标阈值
-- 指标恶化 → 守卫拦截，必须修复才能提交
-- 文件删除 → 自动从 baseline 清理
-- 文件指标全绿 → 自动毕业，从 baseline 移出
+修改 `sql/queries/**`、migrations、或 `internal/store/sqlc/**` 时：
 
-**红线：** 禁止随意 `--freeze` 全仓覆盖来逃避棘轮，freeze 必须有正当理由（如守卫规则变更）。
+```bash
+make sqlc-verify
+```
+
+需要重生成时先运行：
+
+```bash
+make sqlc-generate
+```
+
+### 代码地图
+
+修改影响代码地图覆盖范围时：
+
+```bash
+make codemap-check
+```
+
+需要刷新 `docs/doc/codemap/ai-index.json` 时：
+
+```bash
+make codemap-refresh
+```
+
+## 守卫和 baseline 红线
+
+1. 守卫任一失败 = 任务未完成；不得声称完成、提交或合并。
+2. `internal/archtest/baseline.json` 是 per-file ratchet baseline。默认 guard 可自动收缩，不应手工放宽。
+3. `go run scripts/code_size_guard.go --freeze` 只能在守卫规则变化或用户明确同意时使用；不能用来掩盖代码恶化。
+4. fix/hotfix/bugfix/修复 类提交必须在同一提交包含锁定 bug 的测试、fixture、golden 或 snapshot。
+5. `git commit --no-verify` / `git push --no-verify` 仅限紧急事故；使用后必须补跑遗漏验证。
+
+## Git Hook
+
+- 首次 clone、仓库移动、或新 worktree 首次开发前运行：
+  ```bash
+  make install-hooks
+  ```
+- 用 `git config --get core.hooksPath` 确认 hooks 指向当前仓库的 `.githooks` 绝对路径。
+- `pre-commit` 会检查 staged Go 影响面、拒绝 staged/worktree 不一致、运行 gofmt/go vet/短测，并在 Go 改动时跑守卫。
+- `commit-msg` 会拦截缺少同提交 bug-locking 测试的 fix/hotfix/bugfix/修复 类提交。
+- `pre-push` 要求 worktree/index/untracked 干净，只允许推送当前 `HEAD`，并按 push range 复查 fix-test 规则和受影响包测试。
+
+## Git 与工作区纪律
+
+- 开始前看 `git status --short`；不要覆盖或整理无关本地改动。
+- 不使用 `git add .`；只 stage 本任务拥有的文件。
+- 需要原子提交/推送时，保持一个主题一个提交，修复与锁定测试同提交。
+- 多 worktree / 多代理并行时，先确认各自 owns 的路径，避免跨工作区修改。
