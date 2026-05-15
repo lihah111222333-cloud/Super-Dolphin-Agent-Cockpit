@@ -88,6 +88,7 @@ func (fn ClientFactoryWithEnvFunc) NewClientWithEnv(rootDir string, env []string
 type Config struct {
 	WorkspaceRoot           string
 	ClientFactory           ClientFactory
+	LanguageAdapters        *LanguageAdapterRegistry
 	DiagnosticsInitialDelay time.Duration
 	DiagnosticsPollInterval time.Duration
 	DiagnosticsMaxWait      time.Duration
@@ -97,6 +98,7 @@ type Config struct {
 type manager struct {
 	workspaceRoot string
 	factory       ClientFactory
+	adapters      *LanguageAdapterRegistry
 	logger        *slog.Logger
 	pool          *ManagerPool
 
@@ -172,12 +174,16 @@ func NewManager(cfg Config) Manager {
 	mgr := &manager{
 		workspaceRoot: root,
 		factory:       cfg.ClientFactory,
+		adapters:      cfg.LanguageAdapters,
 		logger:        cfg.Logger,
 		workspaces:    make(map[string]*workspaceClient),
 		diagnostics:   make(map[string]diagnosticSnapshot),
 		diagInitial:   chooseDuration(cfg.DiagnosticsInitialDelay, defaultDiagnosticsInitialDelay),
 		diagPoll:      chooseDuration(cfg.DiagnosticsPollInterval, defaultDiagnosticsPollInterval),
 		diagMaxWait:   chooseDuration(cfg.DiagnosticsMaxWait, defaultDiagnosticsMaxWait),
+	}
+	if mgr.adapters == nil {
+		mgr.adapters = NewDefaultLanguageAdapterRegistry()
 	}
 	mgr.diagGeneration.Store(1)
 	mgr.pool = NewManagerPool(mgr, PoolSizeFromEnv())
@@ -199,6 +205,7 @@ func (m *manager) cloneForWorkspace(workspaceRoot string) *manager {
 	}
 	if m != nil {
 		clone.factory = m.factory
+		clone.adapters = m.adapters
 		clone.logger = m.logger
 		clone.pool = m.pool
 		clone.diagInitial = m.diagInitial
@@ -227,6 +234,34 @@ func (m *manager) effectiveWorkspaceRoot(ctx context.Context) string {
 		}
 	}
 	return m.workspaceRoot
+}
+
+func (m *manager) adapterForLanguage(languageID string) (LanguageAdapter, error) {
+	lang := normalizeLanguageID(languageID)
+	if lang == "" {
+		return nil, fmt.Errorf("LSP language is empty")
+	}
+	registry := m.adapters
+	if registry == nil {
+		registry = NewDefaultLanguageAdapterRegistry()
+	}
+	adapter, ok := registry.AdapterForLanguage(lang)
+	if !ok {
+		return nil, fmt.Errorf("unsupported language adapter %q", lang)
+	}
+	return adapter, nil
+}
+
+func (m *manager) capabilityPolicy(languageID string) ToolCapabilityPolicy {
+	adapter, err := m.adapterForLanguage(languageID)
+	if err != nil {
+		return ToolCapabilityPolicy{RequiresLSPClient: true}
+	}
+	return adapter.CapabilityPolicy()
+}
+
+func (m *manager) shouldUseClientForLanguage(languageID string) bool {
+	return m.capabilityPolicy(languageID).RequiresLSPClient
 }
 
 func (m *manager) resolveDocumentRef(ctx context.Context, target, languageID string) (documentRef, error) {
@@ -261,88 +296,102 @@ func (m *manager) resolveDocumentRef(ctx context.Context, target, languageID str
 	}, nil
 }
 
-func resolveProjectRoot(languageID, absPath string) (string, error) {
-	switch {
-	case shouldUseGoWorkspace(languageID):
-		return findGoModRoot(absPath)
-	case shouldUseJSTSWorkspace(languageID):
-		return findJSTSProjectRoot(absPath)
-	case shouldUseJavaWorkspace(languageID):
-		return findJavaProjectRoot(absPath)
-	default:
-		return "", nil
-	}
-}
-
 func (m *manager) resolveWorkspaceForDocument(ctx context.Context, ref documentRef) (workspaceConfig, error) {
 	if ref.absPath == "" {
 		return workspaceConfig{}, ErrWorkspaceRootEmpty
 	}
-	if shouldUseGoWorkspace(ref.languageID) {
-		return m.resolveGoWorkspaceForDocument(ctx, ref)
-	}
-	root := m.effectiveWorkspaceRoot(ctx)
-	langRoot, err := resolveProjectRoot(ref.languageID, ref.absPath)
+	scope, adapter, err := m.resolveLanguageScope(ctx, ref.languageID, ref.absPath, ref.uri)
 	if err != nil {
 		return workspaceConfig{}, err
 	}
-	if langRoot != "" {
-		root = langRoot
-	}
-	if root == "" {
-		root = filepath.Dir(ref.absPath)
-	}
-	root, err = platformshared.NormalizeAbsolutePath(root)
-	if err != nil {
-		return workspaceConfig{}, err
-	}
-	return workspaceConfigForRoot(root, ref.languageID), nil
+	return workspaceConfigForLanguageScope(scope, adapter)
 }
 
-func (m *manager) resolveGoWorkspaceForDocument(ctx context.Context, ref documentRef) (workspaceConfig, error) {
-	info, err := ResolveGoRoot(GoRootRequest{
-		CWD:      m.effectiveWorkspaceRoot(ctx),
-		FilePath: ref.absPath,
-		Env:      os.Environ(),
+func (m *manager) resolveLanguageScope(ctx context.Context, languageID, targetPath, targetURI string) (ResolvedLanguageScope, LanguageAdapter, error) {
+	adapter, err := m.adapterForLanguage(languageID)
+	if err != nil {
+		return ResolvedLanguageScope{}, nil, err
+	}
+	scope := m.adapterToolScope(ctx, languageID, targetPath, targetURI)
+	resolved, err := adapter.ResolveRoot(ctx, scope, targetPath)
+	if err != nil {
+		return ResolvedLanguageScope{}, nil, err
+	}
+	resolved = completeResolvedLanguageScope(resolved, scope)
+	resolved.LanguageSpecific = mergeLanguageSpecific(resolved.LanguageSpecific, adapter.CacheKeyParts(resolved))
+	return resolved, adapter, nil
+}
+
+func (m *manager) adapterToolScope(ctx context.Context, languageID, targetPath, targetURI string) LSPToolScope {
+	scope := lspToolScopeFromContext(ctx)
+	if scope.CWD == "" {
+		scope.CWD = m.effectiveWorkspaceRoot(ctx)
+	}
+	scope.LanguageID = normalizeLanguageID(languageID)
+	scope.TargetPath = targetPath
+	scope.TargetURI = targetURI
+	return scope
+}
+
+func completeResolvedLanguageScope(resolved ResolvedLanguageScope, scope LSPToolScope) ResolvedLanguageScope {
+	if resolved.LanguageID == "" {
+		resolved.LanguageID = scope.LanguageID
+	}
+	if resolved.WorkspaceRoot == "" {
+		resolved.WorkspaceRoot = firstNonEmpty(scope.WorkspaceRoot, scope.CWD, filepath.Dir(scope.TargetPath))
+	}
+	if resolved.LanguageWorkspaceRoot == "" {
+		resolved.LanguageWorkspaceRoot = resolved.WorkspaceRoot
+	}
+	if resolved.ProjectRoot == "" {
+		resolved.ProjectRoot = resolved.WorkspaceRoot
+	}
+	if resolved.RootKind == "" {
+		resolved.RootKind = "dir_fallback"
+	}
+	return resolved
+}
+
+func workspaceConfigForLanguageScope(scope ResolvedLanguageScope, adapter LanguageAdapter) (workspaceConfig, error) {
+	key, err := buildWorkspaceKey(LSPToolScope{
+		LanguageID:            scope.LanguageID,
+		RootKind:              scope.RootKind,
+		WorkspaceRoot:         scope.WorkspaceRoot,
+		LanguageWorkspaceRoot: scope.LanguageWorkspaceRoot,
+		ProjectRoot:           scope.ProjectRoot,
+		LanguageSpecific:      scope.LanguageSpecific,
 	})
 	if err != nil {
 		return workspaceConfig{}, err
 	}
-	return workspaceConfigForGoRoot(info, ref.languageID), nil
-}
-
-func workspaceConfigForRoot(root, languageID string) workspaceConfig {
-	rootURI := fileURIFromPath(root)
+	rootURI := fileURIFromPath(scope.WorkspaceRoot)
+	folders := scope.WorkspaceFolders
+	if len(folders) == 0 {
+		folders = workspaceFoldersFromRootURI(rootURI)
+	}
 	return workspaceConfig{
-		key:              root,
-		rootPath:         root,
+		key:              key,
+		rootPath:         scope.WorkspaceRoot,
 		rootURI:          rootURI,
-		languageID:       languageID,
-		workspaceFolders: workspaceFoldersFromRootURI(rootURI),
-	}
+		languageID:       scope.LanguageID,
+		env:              adapter.EnvPolicy(scope),
+		workspaceFolders: cloneWorkspaceFolders(folders),
+	}, nil
 }
 
-func workspaceConfigForGoRoot(info GoRootInfo, languageID string) workspaceConfig {
-	root := info.WorkspaceRoot
-	if root == "" {
-		root = info.ProjectRoot
+func mergeLanguageSpecific(base, extra map[string]string) map[string]string {
+	merged := copyLanguageSpecific(base)
+	for key, value := range extra {
+		trimmed := strings.TrimSpace(key)
+		if trimmed == "" {
+			continue
+		}
+		if merged == nil {
+			merged = map[string]string{}
+		}
+		merged[trimmed] = strings.TrimSpace(value)
 	}
-	rootURI := fileURIFromPath(root)
-	return workspaceConfig{
-		key:              goWorkspaceKey(info),
-		rootPath:         root,
-		rootURI:          rootURI,
-		languageID:       normalizeGoWorkspaceLanguageID(languageID),
-		env:              goRootEnv(info),
-		workspaceFolders: workspaceFolders(info),
-	}
-}
-
-func normalizeGoWorkspaceLanguageID(languageID string) string {
-	if normalized := normalizeLanguageID(languageID); normalized != "" {
-		return normalized
-	}
-	return "go"
+	return merged
 }
 
 func chooseDuration(given, fallback time.Duration) time.Duration {

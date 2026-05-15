@@ -1,9 +1,8 @@
 package multilsp
 
 import (
+	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
@@ -71,20 +70,36 @@ func (r registryScopedResolver) CurrentManagersForToolScope(scope lspmanager.Too
 }
 
 func (r registryScopedResolver) resolveRegistryScope(scope lspmanager.ToolScope) (LSPToolScope, error) {
-	resolved := r.registryBaseScope(scope)
-	if shouldUseGoWorkspace(resolved.LanguageID) {
-		return registryGoScope(resolved)
-	}
-
-	root, err := registryWorkspaceRoot(resolved.LanguageID, resolved.TargetPath, resolved.CWD)
+	base := r.registryBaseScope(scope)
+	adapter, err := r.adapterForLanguage(base.LanguageID)
 	if err != nil {
 		return LSPToolScope{}, err
 	}
-	resolved.RootKind = "dir_fallback"
-	resolved.WorkspaceRoot = root
-	resolved.LanguageWorkspaceRoot = root
-	resolved.ProjectRoot = root
-	return resolved, nil
+	resolved, err := adapter.ResolveRoot(context.Background(), base, base.TargetPath)
+	if err != nil {
+		return LSPToolScope{}, err
+	}
+	resolved = completeResolvedLanguageScope(resolved, base)
+	resolved.LanguageSpecific = mergeLanguageSpecific(resolved.LanguageSpecific, adapter.CacheKeyParts(resolved))
+	base.LanguageID = resolved.LanguageID
+	base.RootKind = resolved.RootKind
+	base.WorkspaceRoot = resolved.WorkspaceRoot
+	base.LanguageWorkspaceRoot = resolved.LanguageWorkspaceRoot
+	base.ProjectRoot = resolved.ProjectRoot
+	base.LanguageSpecific = copyLanguageSpecific(resolved.LanguageSpecific)
+	return base, nil
+}
+
+func (r registryScopedResolver) adapterForLanguage(languageID string) (LanguageAdapter, error) {
+	if r.pool != nil && r.pool.primary != nil {
+		return r.pool.primary.adapterForLanguage(languageID)
+	}
+	registry := NewDefaultLanguageAdapterRegistry()
+	adapter, ok := registry.AdapterForLanguage(languageID)
+	if !ok {
+		return nil, errors.New("unsupported language adapter " + normalizeLanguageID(languageID))
+	}
+	return adapter, nil
 }
 
 func (r registryScopedResolver) registryBaseScope(scope lspmanager.ToolScope) LSPToolScope {
@@ -116,71 +131,6 @@ func (r registryScopedResolver) registryBaseScope(scope lspmanager.ToolScope) LS
 		TargetPath: targetPath,
 		TargetURI:  targetURI,
 	}
-}
-
-func registryGoScope(scope LSPToolScope) (LSPToolScope, error) {
-	info, err := ResolveGoRoot(GoRootRequest{CWD: scope.CWD, FilePath: scope.TargetPath, Env: os.Environ()})
-	if err != nil {
-		return LSPToolScope{}, err
-	}
-	parts := goWorkspaceKeyPartsFor(info)
-	scope.RootKind = parts.RootKind
-	scope.WorkspaceRoot = parts.WorkspaceRoot
-	scope.LanguageWorkspaceRoot = parts.LanguageWorkspaceRoot
-	scope.ProjectRoot = parts.ProjectRoot
-	scope.LanguageSpecific = parts.LanguageSpecific
-	return scope, nil
-}
-
-func registryWorkspaceRoot(languageID, targetPath, cwd string) (string, error) {
-	root, err := registryProjectRoot(languageID, targetPath, cwd)
-	if err != nil {
-		return "", err
-	}
-	root, err = registryLanguageRoot(languageID, root)
-	if err != nil {
-		return "", err
-	}
-	return normalizeRegistryWorkspaceRoot(root)
-}
-
-func registryProjectRoot(languageID, targetPath, cwd string) (string, error) {
-	root := firstNonEmpty(cwd, filepath.Dir(targetPath))
-	if targetPath != "" {
-		if projectRoot, err := resolveProjectRoot(languageID, targetPath); err != nil {
-			return "", err
-		} else if projectRoot != "" {
-			root = projectRoot
-		}
-	}
-	return root, nil
-}
-
-func registryLanguageRoot(languageID, root string) (string, error) {
-	switch {
-	case shouldUseJSTSWorkspace(languageID):
-		return registryJSTSRoot(root)
-	case shouldUseJavaWorkspace(languageID):
-		return registryJavaRoot(root)
-	default:
-		return root, nil
-	}
-}
-
-func registryJSTSRoot(root string) (string, error) {
-	jsRoot, err := findJSTSProjectRoot(root)
-	if err != nil {
-		return "", err
-	}
-	return firstNonEmpty(jsRoot, findJSTSProjectRootWithin(root), root), nil
-}
-
-func registryJavaRoot(root string) (string, error) {
-	javaRoot, err := findJavaProjectRoot(root)
-	if err != nil {
-		return "", err
-	}
-	return firstNonEmpty(javaRoot, findJavaProjectRootWithin(root), root), nil
 }
 
 func normalizeRegistryWorkspaceRoot(root string) (string, error) {
