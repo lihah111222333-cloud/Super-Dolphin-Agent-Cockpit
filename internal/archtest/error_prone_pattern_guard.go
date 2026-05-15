@@ -29,6 +29,9 @@ func errorPronePatternViolations(repoRoot string) []Violation {
 	g.guardAsyncStateTransitionFencePattern()
 	g.guardFailClosedPreparationPattern()
 	g.guardAtomicConfigPatchPattern()
+	g.guardToolbridgePayloadSpoofingPattern()
+	g.guardMissingContextSuppressionPattern()
+	g.guardMultiAgentGlobalStatePattern()
 	return g.violations
 }
 
@@ -161,6 +164,32 @@ func (g *errorPronePatternGuard) guardAtomicConfigPatchPattern() {
 	g.requireContains(contractRel, "callers must depend on a narrow atomic patch port rather than broad overwrite semantics",
 		"type SmartRetryConfigStore interface",
 		"RetryWakeupWithNodeConfigPatch(ctx context.Context, input RetryWakeupWithNodeConfigPatchInput) (int64, error)",
+	)
+}
+
+func (g *errorPronePatternGuard) guardToolbridgePayloadSpoofingPattern() {
+	const rel = "internal/provider/codexapp/session_enrich.go"
+	g.requireContains(rel, "toolbridge payload enrichment must explicitly inject trusted cwd",
+		"enrichToolCallParams(msg RawMessage, agentID, cwd string)",
+		"injectToolCallMetadata(payload map[string]json.RawMessage, agentID, cwd string)",
+	)
+	g.requireContains(rel, "untrusted top-level aliases must be dropped",
+		"delete(payload, \"cwd\")",
+		"delete(payload, \"agent_id\")",
+	)
+}
+
+func (g *errorPronePatternGuard) guardMissingContextSuppressionPattern() {
+	const rel = "pkg/logger/relay.go"
+	g.requireContains(rel, "global relay handlers must check for context-specific suppression",
+		"relayDisabled(ctx)",
+	)
+}
+
+func (g *errorPronePatternGuard) guardMultiAgentGlobalStatePattern() {
+	const rel = "cmd/mcp-lsp/multilsp/manager.go"
+	g.requireContains(rel, "managers must be explicitly instantiated without global singleton wrappers",
+		"func NewManager(cfg Config) Manager",
 	)
 }
 
