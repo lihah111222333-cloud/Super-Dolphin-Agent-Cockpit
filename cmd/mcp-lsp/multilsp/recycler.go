@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 )
@@ -161,8 +162,11 @@ func recycleRestoreContext(managerKey string) context.Context {
 	}
 	parts := strings.Split(scopeKey, scopeKeySeparator)
 	if len(parts) >= 3 {
-		ctx = context.WithValue(ctx, lspScopeAgentIDContextKey, parts[1])
-		ctx = context.WithValue(ctx, lspScopeThreadIDContextKey, parts[2])
+		ctx = common.WithToolScope(ctx, common.ToolScope{
+			Family:   parts[0],
+			AgentID:  parts[1],
+			ThreadID: parts[2],
+		})
 	}
 	return ctx
 }

@@ -22,8 +22,7 @@ type managerNotificationHandler struct {
 type diagnosticState string
 
 const (
-	diagnosticStateReady   diagnosticState = "ready"
-	diagnosticStateDeleted diagnosticState = "deleted"
+	diagnosticStateReady diagnosticState = "ready"
 )
 
 type diagnosticStoreKey struct {
