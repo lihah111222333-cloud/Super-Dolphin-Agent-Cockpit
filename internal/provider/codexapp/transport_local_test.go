@@ -91,6 +91,84 @@ func TestTransportCloseGracefullyStopsLocalProcess(t *testing.T) {
 	}
 }
 
+func TestSessionShutdownClosingStillStopsLocalProcess(t *testing.T) {
+	helper := installLocalCodexHelper(t, "serve-with-child")
+
+	transport, err := newTransport(context.Background(), "")
+	if err != nil {
+		t.Fatalf("newTransport() error = %v", err)
+	}
+	childPID := waitForHelperChildPID(t, helper.childPIDPath, time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &session{
+		transport: transport,
+		ctx:       ctx,
+		cancel:    cancel,
+		turns:     map[string]*turnHandle{},
+	}
+	if err := s.shutdownSession(true); err != nil {
+		t.Fatalf("shutdownSession() error = %v", err)
+	}
+
+	waitForProcessExit(t, childPID, 5*time.Second)
+	if got := transport.currentProcess(); got != nil {
+		t.Fatalf("currentProcess() = %v, want nil", got)
+	}
+	events := waitForHelperEvents(t, helper.logPath, 3, 2*time.Second)
+	if !containsEvent(events, "shutdown") {
+		t.Fatalf("helper events = %v, want graceful shutdown notification", events)
+	}
+	if !containsEvent(events, "signal:terminated") {
+		t.Fatalf("helper events = %v, want SIGTERM record", events)
+	}
+}
+
+func TestSessionForceStopClosingStillKillsLocalProcess(t *testing.T) {
+	helper := installLocalCodexHelper(t, "serve-with-child")
+
+	transport, err := newTransport(context.Background(), "")
+	if err != nil {
+		t.Fatalf("newTransport() error = %v", err)
+	}
+	childPID := waitForHelperChildPID(t, helper.childPIDPath, time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &session{
+		transport: transport,
+		ctx:       ctx,
+		cancel:    cancel,
+		turns:     map[string]*turnHandle{},
+	}
+	if err := s.shutdownSession(false); err != nil {
+		t.Fatalf("shutdownSession(false) error = %v", err)
+	}
+
+	waitForProcessExit(t, childPID, 5*time.Second)
+	if got := transport.currentProcess(); got != nil {
+		t.Fatalf("currentProcess() = %v, want nil", got)
+	}
+}
+
+func TestWatchLocalProcessIgnoresClosingExit(t *testing.T) {
+	proc := &localProcess{
+		guard:      &processGuard{},
+		done:       make(chan struct{}),
+		stderrDone: make(chan struct{}),
+	}
+	transport := &transport{process: proc}
+	transport.closing.Store(true)
+	close(proc.done)
+	close(proc.stderrDone)
+
+	transport.watchLocalProcess(proc)
+
+	if got := transport.currentProcess(); got != nil {
+		t.Fatalf("currentProcess() = %v, want nil", got)
+	}
+	if err := transport.processFailure(); err != nil {
+		t.Fatalf("processFailure() = %v, want nil during closing", err)
+	}
+}
+
 func TestTransportStartupFailureCleansUpOrphans(t *testing.T) {
 	helper := installLocalCodexHelper(t, "fail-with-child")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
