@@ -274,6 +274,77 @@ function saveBaseline(data) {
     fs.writeFileSync(BASELINE_PATH, JSON.stringify(data, null, 2) + '\n', 'utf8');
 }
 
+/**
+ * detectBadParadigms — 检测已知的坏代码范式
+ * @param {string[]} lines - 文件按行分割的数组
+ * @param {string} rel - 文件相对路径
+ * @returns {Array<{file: string, line: number, message: string}>}
+ */
+function detectBadParadigms(lines, rel) {
+    const localViolations = [];
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
+        if (trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) continue;
+
+        // 移除字符串内容，减少误判
+        const noStr = line.replace(/(["'`]).*?(?<!\\)\1/g, '""');
+        // 移除可选链 ?. 和空值合并 ??
+        const noOpt = noStr.replace(/\?\./g, '');
+        const noNullish = noOpt.replace(/\?\?/g, '');
+
+        // 1. 嵌套三元表达式 (Nested Ternary)
+        const qCount = (noNullish.match(/\?/g) || []).length;
+        const cCount = (noNullish.match(/:/g) || []).length;
+        if (qCount >= 2 && cCount >= 2) {
+            if (/\?.*?\?.*?:/.test(noNullish) || /\?.*?:.*?\?.*?:/.test(noNullish)) {
+                localViolations.push({
+                    file: rel,
+                    line: i + 1,
+                    message: `[坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。`,
+                });
+            }
+        }
+
+        // 2. 冗余的条件对象展开
+        if (/\.\.\.\s*\(.*?\?.*?\{.*?\}.*?:\s*\{\}\s*\)/.test(noStr)) {
+            localViolations.push({
+                file: rel,
+                line: i + 1,
+                message: `[坏范式] 冗余的内联条件对象展开 \`...(cond ? {k:v} : {})\`。请在外部提前判断并赋值。`,
+            });
+        }
+
+        // 3. 伪 LRU 缓存清理
+        if (/\.cache\.delete\(.*?\.cache\.keys\(\)\.next\(\)\.value\)/.test(noStr)) {
+            localViolations.push({
+                file: rel,
+                line: i + 1,
+                message: `[坏范式] Map 伪 LRU 删除逻辑 \`cache.delete(cache.keys().next().value)\`。此方式在命中时未更新插入顺序，会导致活跃数据被踢出。`,
+            });
+        }
+
+        // 4. 纳秒大数隐式截断守卫 (BigInt Precision Loss)
+        if (/(?:parseInt|Number)\s*\([^)]*(?:agent_id|trace_id|timestamp|_ts)\b[^)]*\)/i.test(noStr)) {
+            localViolations.push({
+                file: rel,
+                line: i + 1,
+                message: `[坏范式] 严禁对含有 id/ts 等纳秒级字段使用 parseInt/Number() 强转，会导致 19 位精度丢失错排。请使用 BigInt 或字符串字典序。`,
+            });
+        }
+
+        // 5. CWD 全局状态逃逸守卫 (Cross-Project State Pollution)
+        if (/callAPI\s*\(\s*['"](?:ui\/(?:dashboard|memory|window)|threads\/)[^'"]*['"]\s*,\s*\{(?![^}]*\bcwd\b)[^}]*\}/.test(noStr)) {
+            localViolations.push({
+                file: rel,
+                line: i + 1,
+                message: `[坏范式] 全局状态逃逸。调用特定多项目敏感接口时，单行 Payload 必须显式携带 cwd 参数。`,
+            });
+        }
+    }
+    return localViolations;
+}
+
 // ─── 主逻辑 ──────────────────────────────────────────────────────────
 
 function run() {
@@ -403,6 +474,25 @@ function run() {
                 // ✨ 达标：之前超限，现在已回落 → 自动解冻
                 autoShrunk.push({ type: 'nesting', key: funcKey, from: nestBaseline, to: maxDepth });
             }
+        }
+
+        // ── 坏范式检查 ──
+        const badParadigms = detectBadParadigms(lines, rel);
+        if (!newBaseline.paradigms) newBaseline.paradigms = [];
+        
+        for (const bp of badParadigms) {
+            const key = bp.file + ':' + bp.line;
+            newBaseline.paradigms.push(key);
+            
+            if (baseline.paradigms && baseline.paradigms.includes(key)) {
+                continue; // 存量不追溯
+            }
+            
+            violations.push({
+                type: 'paradigm',
+                file: bp.file,
+                message: `${bp.file}:${bp.line} ${bp.message}`,
+            });
         }
     }
 

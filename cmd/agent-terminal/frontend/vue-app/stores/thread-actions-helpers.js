@@ -549,14 +549,22 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   const agentKey = (res?.agent_key || res?.agentKey || '').toString().trim();
   const agentTitle = (res?.agent_title || res?.agentTitle || '').toString().trim();
   const promptKey = (res?.prompt_key || res?.promptKey || '').toString().trim();
-  const promptVersionId = typeof res?.prompt_version_id === 'number' ? res.prompt_version_id : typeof res?.promptVersionId === 'number' ? res.promptVersionId : null;
+  let promptVersionId = null;
+  if (typeof res?.prompt_version_id === 'number') {
+    promptVersionId = res.prompt_version_id;
+  } else if (typeof res?.promptVersionId === 'number') {
+    promptVersionId = res.promptVersionId;
+  }
   const responseProvider = getStartResponseProvider(res);
   const launchCwd = (cwd || '').toString().trim();
   if (responseProvider || (launchCwd && launchCwd !== '.')) {
     const prevRuntime = (ctx.state.agentRuntimeById?.[id] && typeof ctx.state.agentRuntimeById[id] === 'object') ? ctx.state.agentRuntimeById[id] : {};
+    const updates = { ...prevRuntime };
+    if (launchCwd && launchCwd !== '.') updates.cwd = launchCwd;
+    if (responseProvider) updates.provider = responseProvider;
     ctx.state.agentRuntimeById = {
       ...ctx.state.agentRuntimeById,
-      [id]: { ...prevRuntime, ...(launchCwd && launchCwd !== '.' ? { cwd: launchCwd } : {}), ...(responseProvider ? { provider: responseProvider } : {}) },
+      [id]: updates,
     };
   }
   if (agentKey || agentTitle || promptKey || promptVersionId != null) {

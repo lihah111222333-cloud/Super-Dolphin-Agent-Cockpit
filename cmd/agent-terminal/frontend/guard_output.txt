@@ -1,0 +1,48 @@
+
+> agent-terminal-frontend@0.1.0 guard
+> node scripts/size-guard.cjs
+
+📏 size-guard: 153 文件, 1 超限文件, 5 超限函数
+
+❌ 发现 37 处违规:
+
+  🚫 components/ComposerBar.js:186 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 components/ContextUsageBanner.js:177 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 components/JsonRenderWidgets.js:372 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 components/JsonRenderWidgets.js:378 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 components/cron/CronJobForm.js:305 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 components/timeline/useTimelineItems.js:4 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 composables/useThreadCards.js:74 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 composables/useThreadCards.js:93 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 pages/MemoryCenterPage.js:116 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 pages/SharedFilesPage.js:674 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 pages/SkillsPage.js:568 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 pages/SystemPromptPage.js:517 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 pages/SystemPromptPage.js:702 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 pages/SystemPromptPage.js:775 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 pages/SystemPromptPage.js:835 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 services/diff.js:91 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 文件 stores/thread-actions-helpers.js 突破上限：805 有效行（上限 800）
+  🚫 stores/thread-actions-helpers.js:170 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 stores/thread-actions-helpers.js:836 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 stores/thread-history-ui.js:252 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 stores/thread-live-patch.js:294 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 stores/thread-live-patch.js:347 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 stores/thread-sync-helpers.js:575 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 utils/assistant-markdown-codex-ui.js:5 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 utils/assistant-markdown-codex.js:17 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 utils/assistant-markdown-streaming.js:6 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 utils/assistant-markdown-streaming.js:8 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 utils/assistant-markdown-streaming.js:180 [坏范式] Map 伪 LRU 删除逻辑 `cache.delete(cache.keys().next().value)`。此方式在命中时未更新插入顺序，会导致活跃数据被踢出。
+  🚫 utils/assistant-markdown.js:20 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 utils/assistant-markdown.js:21 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 utils/assistant-markdown.js:22 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 utils/assistant-markdown.js:303 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 utils/assistant-markdown.js:410 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 utils/assistant-markdown.js:428 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 utils/assistant-markdown.js:430 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 utils/citation-preview-utils.js:11 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+  🚫 utils/skill-match-utils.js:89 [坏范式] 嵌套三元表达式 (Nested Ternary)。请改用 if-else 或抽取变量，以提升可读性。
+
+💡 修复方法: 拆分文件/函数后重新运行。若为合理增长，运行 --update 更新基线。
+
