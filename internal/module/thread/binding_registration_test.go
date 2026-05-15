@@ -319,3 +319,46 @@ func TestBindingRegistrationPersistsCodexIdentity(t *testing.T) {
 			bindings.upsert.CodexModelProvider)
 	}
 }
+
+func TestPersistThreadStateUpdatesExistingBindingSessionUUID(t *testing.T) {
+	t.Parallel()
+
+	const sessionUUID = "019e2c35-42ef-75b3-9f73-31cf7cc4cf2e"
+	threads := &stubThreadStore{}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:            "agent-session",
+		Provider:           "codex",
+		ProviderThreadID:   "",
+		CodexThreadID:      "agent-session",
+		Cwd:                "/repo",
+		CodexHome:          "/Users/mac/.codex",
+		CodexInstanceKey:   "default",
+		CodexModelProvider: "openai",
+		CreatedAt:          123,
+	}}
+	svc := NewService(silentLogger(), threads, bindings, nil, nil, nil, nil, nil).(*service)
+
+	err := svc.persistThreadState(context.Background(), threadState{
+		PublicThreadID:     "agent-session",
+		AgentID:            "agent-session",
+		Provider:           "codex",
+		CWD:                "/repo",
+		SessionUUID:        sessionUUID,
+		CodexHome:          "/Users/mac/.codex",
+		CodexInstanceKey:   "default",
+		CodexModelProvider: "openai",
+		CreatedAt:          123,
+	}, true)
+	if err != nil {
+		t.Fatalf("persistThreadState() error = %v", err)
+	}
+	if len(bindings.upserts) != 1 {
+		t.Fatalf("binding upserts = %d, want 1", len(bindings.upserts))
+	}
+	if bindings.upsert.SessionUUID != sessionUUID {
+		t.Fatalf("binding session_uuid = %q, want %s", bindings.upsert.SessionUUID, sessionUUID)
+	}
+	if bindings.upsert.ProviderThreadID != "" {
+		t.Fatalf("binding provider_thread_id = %q, want empty until history is recoverable", bindings.upsert.ProviderThreadID)
+	}
+}
