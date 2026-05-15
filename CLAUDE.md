@@ -54,7 +54,7 @@
 4. 用 `rg` 在 `docs/doc/codemap/ai-index.json` 或具体源码目录里精确检索。
 5. 打开目标源码和同包测试；行为问题以代码和测试为准。
 
-架构/契约问题优先读 `docs/decisions/*.md`、`docs/adr/*.md`、`docs/契约/*.md`；`docs/plans/**`、`docs/迁移/**`、`docs/superpowers/plans/**`、历史报告默认视为历史材料。
+架构/契约问题优先读 `docs/decisions/*.md`、`docs/adr/*.md`、`docs/契约/*.md`；LSP 工具链规范必读 `docs/internal-notes/LSP系统提示词.md`；`docs/plans/**`、`docs/迁移/**`、`docs/superpowers/plans/**`、历史报告默认视为历史材料。
 
 避免默认扫描 `.build-cache/`、`bin/`、`cmd/agent-terminal/frontend/node_modules/`、`cmd/agent-terminal/frontend/dist/`、`.worktrees/`、`.workspace/`、`.claude/`、`.agent/code_exec/`、`.agent/workspaces/`、`.agnet/report/`、`.agnet/shared/_internal/`、`.agnet/shared/handoff/`、历史迁移文档和报告目录，除非用户明确要求。
 

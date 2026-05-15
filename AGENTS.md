@@ -21,6 +21,8 @@ Behavior reading mode, when the user asks how something works:
 3. Use `docs/契约/*.md` for conventions such as fx, rungroup, jrpc2, sqlc, stateless, MCP service, and onion architecture.
 4. Use `docs/doc/codemap/*.md` to navigate large subsystems.
 5. Treat `docs/plans/**`, `docs/迁移/**`, `docs/superpowers/plans/**`, and old reports as historical planning material unless the user explicitly asks for migration history.
+6. Read `docs/internal-notes/LSP系统提示词.md` for mandatory LSP tool chain usage guidelines and workflow before using any LSP tools.
+
 
 ## Context Budget Hygiene
 
