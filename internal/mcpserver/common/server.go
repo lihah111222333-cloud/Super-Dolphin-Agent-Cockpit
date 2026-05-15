@@ -266,18 +266,15 @@ func (s *Server) handleToolsCall(ctx context.Context, req jsonRPCRequest) *jsonR
 		"req_id", string(req.ID))
 	start := time.Now()
 
-	if s.tools == nil {
-		return errorResponse(req.ID, codeToolCall, "tool provider is not configured")
-	}
-	value, err := s.tools.CallTool(ctx, strings.TrimSpace(params.Name), params.Arguments)
+	value, err := callToolSafely(ctx, s.tools, strings.TrimSpace(params.Name), params.Arguments)
 	elapsed := time.Since(start)
 	if err != nil {
 		pkglogger.Warn("mcp: tools/call error",
 			"server", s.name, "tool", params.Name,
 			"elapsed", elapsed, "error", err)
-		return errorResponse(req.ID, codeToolCall, err.Error())
+		value = NewToolErrorEnvelope(params.Name, err)
 	}
-	raw, err := json.Marshal(value)
+	resp, raw, err := toolCallResultResponse(req.ID, value)
 	if err != nil {
 		return errorResponse(req.ID, codeInternal, err.Error())
 	}
@@ -288,10 +285,7 @@ func (s *Server) handleToolsCall(ctx context.Context, req jsonRPCRequest) *jsonR
 	pkglogger.Info("mcp: tools/call done",
 		"server", s.name, "tool", params.Name,
 		"elapsed", elapsed, "result_len", len(raw))
-	return maybeResult(req.ID, map[string]any{
-		"content":           []textContent{{Type: "text", Text: string(raw)}},
-		"structuredContent": json.RawMessage(raw),
-	})
+	return resp
 }
 
 func (s *Server) listTools(ctx context.Context) ([]MCPTool, error) {
@@ -334,6 +328,30 @@ func errorResponse(id json.RawMessage, code int, message string) *jsonRPCRespons
 			Message: strings.TrimSpace(message),
 		},
 	}
+}
+
+func callToolSafely(ctx context.Context, provider ToolProvider, name string, args json.RawMessage) (value any, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = NewPanicToolError(recovered)
+			value = nil
+		}
+	}()
+	if provider == nil {
+		return nil, NewCodedToolError("lsp_unavailable", errors.New("tool provider is not configured"), true, "Retry after the MCP server finishes tool registration.")
+	}
+	return provider.CallTool(ctx, name, args)
+}
+
+func toolCallResultResponse(id json.RawMessage, value any) (*jsonRPCResponse, []byte, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil, nil, err
+	}
+	return maybeResult(id, map[string]any{
+		"content":           []textContent{{Type: "text", Text: string(raw)}},
+		"structuredContent": json.RawMessage(raw),
+	}), raw, nil
 }
 
 func hasRequestID(id json.RawMessage) bool {

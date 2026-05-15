@@ -15,14 +15,53 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
-func TestLSPToolManifestsExposeCanonicalNames(t *testing.T) {
+func TestLSPToolManifestsExposeVisibleLegacyNames(t *testing.T) {
 	got := make([]string, 0, len(lspToolManifests))
 	for _, manifest := range lspToolManifests {
 		got = append(got, manifest.Name)
 	}
-	want := []string{"file", "inspect", "xref", "grep", "structure", "edit", "completion", "code_run", "code_run_test"}
+	want := []string{"lsp_file", "lsp_inspect", "lsp_xref", "lsp_grep", "lsp_structure", "lsp_edit", "lsp_completion", "code_run", "code_run_test"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("manifest names = %#v, want %#v", got, want)
+	}
+}
+
+func TestToolsListExposesLegacyLSPNames(t *testing.T) {
+	provider := registryToolProvider{defs: toolDefinitions(ToolHandlers{})}
+	list, err := provider.ListTools(context.Background())
+	if err != nil {
+		t.Fatalf("ListTools() error = %v", err)
+	}
+	got := make(map[string]bool, len(list))
+	for _, tool := range list {
+		got[tool.Name] = true
+	}
+	for _, want := range []string{"lsp_file", "lsp_inspect", "lsp_xref", "lsp_grep", "lsp_structure", "lsp_edit", "lsp_completion"} {
+		if !got[want] {
+			t.Fatalf("tools/list missing visible legacy tool %q; got %#v", want, got)
+		}
+	}
+	for _, hiddenShort := range []string{"file", "inspect", "xref", "grep", "structure", "edit", "completion"} {
+		if got[hiddenShort] {
+			t.Fatalf("tools/list exposed hidden short alias %q; got %#v", hiddenShort, got)
+		}
+	}
+}
+
+func TestToolsListKeepsCodeRunHelpersVisible(t *testing.T) {
+	provider := registryToolProvider{defs: toolDefinitions(ToolHandlers{})}
+	list, err := provider.ListTools(context.Background())
+	if err != nil {
+		t.Fatalf("ListTools() error = %v", err)
+	}
+	got := make(map[string]bool, len(list))
+	for _, tool := range list {
+		got[tool.Name] = true
+	}
+	for _, want := range []string{"code_run", "code_run_test"} {
+		if !got[want] {
+			t.Fatalf("tools/list missing execution helper %q; got %#v", want, got)
+		}
 	}
 }
 
@@ -40,6 +79,24 @@ func TestHandleToolCallAcceptsLegacyLSPAlias(t *testing.T) {
 	payload, ok := result.(map[string]any)
 	if !ok || payload["ok"] != true {
 		t.Fatalf("handleToolCall(lsp_file) result = %#v, want ok payload", result)
+	}
+}
+
+func TestToolsCallAcceptsShortAndLegacyLSPNames(t *testing.T) {
+	defs := toolDefinitions(ToolHandlers{
+		"file": func(_ context.Context, _ json.RawMessage) (any, error) {
+			return map[string]any{"tool": "file"}, nil
+		},
+	})
+	for _, name := range []string{"file", "lsp_file"} {
+		result, err := handleToolCall(context.Background(), defs, name, json.RawMessage(`{}`))
+		if err != nil {
+			t.Fatalf("handleToolCall(%q) error = %v", name, err)
+		}
+		payload, ok := result.(map[string]any)
+		if !ok || payload["tool"] != "file" {
+			t.Fatalf("handleToolCall(%q) result = %#v, want file payload", name, result)
+		}
 	}
 }
 
@@ -321,6 +378,20 @@ func TestEditSchemaExposesRuntimeFields(t *testing.T) {
 		if _, ok := props[field]; !ok {
 			t.Fatalf("edit schema missing runtime field %q", field)
 		}
+	}
+}
+
+func TestEditSchemaIncludesForce(t *testing.T) {
+	props, ok := lspEditSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("edit schema properties type = %T", lspEditSchema["properties"])
+	}
+	force, ok := props["force"].(map[string]any)
+	if !ok {
+		t.Fatalf("edit schema missing boolean force property; props=%#v", props)
+	}
+	if force["type"] != "boolean" {
+		t.Fatalf("force schema type = %#v, want boolean", force["type"])
 	}
 }
 
