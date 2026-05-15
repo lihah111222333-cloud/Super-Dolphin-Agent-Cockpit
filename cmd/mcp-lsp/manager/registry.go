@@ -44,6 +44,7 @@ var languageIDByExtension = map[string]string{
 // Registry route requests to different LSP Managers based on file type.
 type Registry interface {
 	GetManagerForFile(ctx context.Context, filePath string) (Manager, error)
+	GetManagerForFileWithLanguage(ctx context.Context, filePath string, languageID string) (Manager, error)
 	GetManagerForLanguage(ctx context.Context, languageID string) (Manager, error)
 	Diagnostics(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, error)
 	WaitDiagnosticsStable(ctx context.Context, uris []string) error
@@ -102,6 +103,22 @@ func (r *dynamicRegistry) GetManagerForFile(ctx context.Context, filePath string
 
 func (r *dynamicRegistry) ResolveManagerForFile(ctx context.Context, filePath string) (ScopedManager, error) {
 	return r.resolveManagerForTarget(ctx, DetectLanguageID(filePath), filePath, "")
+}
+
+func (r *dynamicRegistry) GetManagerForFileWithLanguage(ctx context.Context, filePath string, languageID string) (Manager, error) {
+	scoped, err := r.ResolveManagerForFileWithLanguage(ctx, filePath, languageID)
+	if err != nil {
+		return nil, err
+	}
+	return scoped.Manager, nil
+}
+
+func (r *dynamicRegistry) ResolveManagerForFileWithLanguage(ctx context.Context, filePath string, languageID string) (ScopedManager, error) {
+	lang := strings.ToLower(strings.TrimSpace(languageID))
+	if lang == "" {
+		lang = DetectLanguageID(filePath)
+	}
+	return r.resolveManagerForTarget(ctx, lang, filePath, "")
 }
 
 func (r *dynamicRegistry) resolveManagerForTarget(ctx context.Context, lang, targetPath, targetURI string) (ScopedManager, error) {

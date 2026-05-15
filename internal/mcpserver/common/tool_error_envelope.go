@@ -1,0 +1,232 @@
+package common
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"strings"
+)
+
+// ToolErrorEnvelope is the machine-readable tool error payload returned from
+// tools/call after a specific tool handler has been selected. JSON-RPC
+// transport/protocol errors still use JSON-RPC error responses.
+type ToolErrorEnvelope struct {
+	Success   bool           `json:"success"`
+	Error     string         `json:"error"`
+	Code      string         `json:"code,omitempty"`
+	Retryable bool           `json:"retryable,omitempty"`
+	Hint      string         `json:"hint,omitempty"`
+	Meta      map[string]any `json:"meta,omitempty"`
+}
+
+// CodedToolError allows call sites and recovery code to pin a stable error
+// code when string classification would be ambiguous.
+type CodedToolError struct {
+	Err       error
+	Code      string
+	Retryable bool
+	Hint      string
+	Meta      map[string]any
+}
+
+func (e *CodedToolError) Error() string {
+	if e == nil || e.Err == nil {
+		return ""
+	}
+	return e.Err.Error()
+}
+
+func (e *CodedToolError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+func NewCodedToolError(code string, err error, retryable bool, hint string) error {
+	if err == nil {
+		err = errors.New(strings.TrimSpace(code))
+	}
+	return &CodedToolError{Err: err, Code: strings.TrimSpace(code), Retryable: retryable, Hint: strings.TrimSpace(hint)}
+}
+
+func NewPanicToolError(recovered any) error {
+	return &CodedToolError{
+		Err:       fmt.Errorf("panic recovered: %v", recovered),
+		Code:      "internal_panic",
+		Retryable: false,
+		Hint:      "The tool handler panicked; inspect logs and retry only after the bug is fixed.",
+	}
+}
+
+func NewToolErrorEnvelope(toolName string, err error) ToolErrorEnvelope {
+	return NewToolErrorEnvelopeWithMeta(toolName, "", err, nil)
+}
+
+func NewToolErrorEnvelopeWithMeta(toolName, languageID string, err error, extraMeta map[string]any) ToolErrorEnvelope {
+	code, retryable, hint, codedMeta := ClassifyToolError(toolName, err)
+	meta := map[string]any{"tool": strings.TrimSpace(toolName)}
+	if languageID = normalizeEnvelopeLanguageID(languageID); languageID != "" {
+		meta["language_id"] = languageID
+	}
+	for k, v := range codedMeta {
+		if strings.TrimSpace(k) != "" {
+			meta[k] = v
+		}
+	}
+	for k, v := range extraMeta {
+		if strings.TrimSpace(k) != "" {
+			meta[k] = v
+		}
+	}
+	return ToolErrorEnvelope{
+		Success:   false,
+		Error:     errorText(err),
+		Code:      code,
+		Retryable: retryable,
+		Hint:      hint,
+		Meta:      meta,
+	}
+}
+
+func ClassifyToolError(toolName string, err error) (code string, retryable bool, hint string, meta map[string]any) {
+	if err == nil {
+		return "unknown", false, "No tool error was provided.", nil
+	}
+	var coded *CodedToolError
+	if errors.As(err, &coded) && coded != nil {
+		return firstNonEmptyString(coded.Code, "unknown"), coded.Retryable, coded.Hint, coded.Meta
+	}
+	message := strings.ToLower(err.Error())
+	normalizedTool := strings.ToLower(strings.TrimSpace(toolName))
+	for _, classifier := range toolErrorClassifiers {
+		if classifier.match(err, message, normalizedTool) {
+			return classifier.code, classifier.retryable, classifier.hint(normalizedTool, message), nil
+		}
+	}
+	return "lsp_unavailable", true, "Retry if the language server is starting; otherwise inspect manager diagnostics.", nil
+}
+
+type toolErrorClassifier struct {
+	code      string
+	retryable bool
+	hint      func(toolName, message string) string
+	match     func(error, string, string) bool
+}
+
+var toolErrorClassifiers = []toolErrorClassifier{
+	{
+		code: "internal_panic",
+		hint: staticToolHint("The tool handler panicked; inspect logs and retry only after the bug is fixed."),
+		match: func(_ error, message string, _ string) bool {
+			return strings.Contains(message, "panic recovered")
+		},
+	},
+	{
+		code: "capability_unsupported",
+		hint: staticToolHint("Use a tool/action/language supported by this helper or language adapter."),
+		match: func(_ error, message string, _ string) bool {
+			return strings.Contains(message, "unsupported run language") ||
+				strings.Contains(message, "unsupported helper language") ||
+				(strings.Contains(message, "unsupported") && strings.Contains(message, "capability"))
+		},
+	},
+	{
+		code: "language_unsupported",
+		hint: staticToolHint("Choose a file or language_id with a registered language adapter."),
+		match: func(_ error, message string, _ string) bool {
+			return strings.Contains(message, "unsupported language") ||
+				strings.Contains(message, "unsupported language adapter") ||
+				strings.Contains(message, "unsupported language for lsp toolchain")
+		},
+	},
+	{
+		code: "schema_invalid",
+		hint: staticToolHint("Check the tool schema: use documented field names and JSON value types."),
+		match: func(_ error, message string, _ string) bool {
+			return strings.Contains(message, "decode params") ||
+				strings.Contains(message, "decode ") ||
+				strings.Contains(message, "unknown field") ||
+				strings.Contains(message, "json:")
+		},
+	},
+	{
+		code: "file_not_found",
+		hint: staticToolHint("Verify file_path is under the trusted workspace and exists on disk."),
+		match: func(err error, message string, _ string) bool {
+			return errors.Is(err, os.ErrNotExist) ||
+				strings.Contains(message, "not found") ||
+				strings.Contains(message, "no such file")
+		},
+	},
+	{
+		code:      "lsp_timeout",
+		retryable: true,
+		hint:      staticToolHint("Retry with a narrower query, smaller max_results, or after the language server finishes indexing."),
+		match: func(err error, message string, _ string) bool {
+			return errors.Is(err, context.DeadlineExceeded) ||
+				strings.Contains(message, "timeout") ||
+				strings.Contains(message, "deadline")
+		},
+	},
+	{
+		code: "position_invalid",
+		hint: func(toolName, _ string) string {
+			if toolName == "edit" || toolName == "lsp_edit" {
+				return "Line/column inputs are 1-based; for replace_range coordinate errors, prefer patch or edits when possible."
+			}
+			return "Line and column inputs are 1-based; move the cursor onto an identifier."
+		},
+		match: func(_ error, message string, _ string) bool {
+			return strings.Contains(message, "line must") ||
+				strings.Contains(message, "column must") ||
+				strings.Contains(message, "line is out of range") ||
+				strings.Contains(message, "column is out of range") ||
+				strings.Contains(message, "end_line") ||
+				strings.Contains(message, "end position") ||
+				strings.Contains(message, "position must")
+		},
+	},
+	{
+		code:      "lsp_client_closed",
+		retryable: true,
+		hint:      staticToolHint("Retry once so the manager can recreate the language server client."),
+		match: func(_ error, message string, _ string) bool {
+			return strings.Contains(message, "client") && strings.Contains(message, "closed")
+		},
+	},
+	{
+		code: "scope_ambiguous",
+		hint: staticToolHint("Provide exactly one unambiguous scope selector such as file_path or language."),
+		match: func(_ error, message string, _ string) bool {
+			return strings.Contains(message, "ambiguous") ||
+				strings.Contains(message, "exactly one of") ||
+				strings.Contains(message, "could not resolve scope")
+		},
+	},
+}
+
+func staticToolHint(value string) func(string, string) string {
+	return func(string, string) string { return value }
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func errorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+func normalizeEnvelopeLanguageID(languageID string) string {
+	return strings.ToLower(strings.TrimSpace(languageID))
+}

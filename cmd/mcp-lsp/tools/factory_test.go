@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -44,5 +45,45 @@ func TestDecodeToolParamsAddsAIFriendlyHint(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "numeric fields as JSON numbers") {
 		t.Fatalf("decode error = %q, want numeric hint", err.Error())
+	}
+}
+
+func TestCursorErrorIncludesOneBasedHint(t *testing.T) {
+	envelope := newToolErrorEnvelope("lsp_edit", "go", errors.New("line must be >= 1"))
+	if envelope.Success {
+		t.Fatalf("envelope success = true, want false")
+	}
+	if envelope.Code != "position_invalid" {
+		t.Fatalf("envelope code = %q, want position_invalid", envelope.Code)
+	}
+	if !strings.Contains(strings.ToLower(envelope.Hint), "1-based") {
+		t.Fatalf("envelope hint = %q, want one-based cursor guidance", envelope.Hint)
+	}
+
+	replaceEnvelope := newToolErrorEnvelope("lsp_edit", "go", errors.New("column is out of range"))
+	if !strings.Contains(strings.ToLower(replaceEnvelope.Hint), "patch") {
+		t.Fatalf("replace_range-style cursor hint = %q, want patch guidance", replaceEnvelope.Hint)
+	}
+}
+
+func TestRenderListResultEmptyEnvelope(t *testing.T) {
+	got, err := renderListResult([]string{}, 10, "no symbols found", func(items []string, total int) any {
+		return map[string]any{"items": items, "total": total}
+	})
+	if err != nil {
+		t.Fatalf("renderListResult() error = %v", err)
+	}
+	payload, ok := got.(emptyListEnvelope)
+	if !ok {
+		t.Fatalf("empty render result type = %T (%#v), want emptyListEnvelope", got, got)
+	}
+	if !payload.Success {
+		t.Fatalf("empty envelope success = false, want true")
+	}
+	if len(payload.Data) != 0 || payload.Meta.Count != 0 {
+		t.Fatalf("empty envelope = %#v, want empty data/count=0", payload)
+	}
+	if payload.Meta.Message != "no symbols found" {
+		t.Fatalf("empty envelope message = %q", payload.Meta.Message)
 	}
 }

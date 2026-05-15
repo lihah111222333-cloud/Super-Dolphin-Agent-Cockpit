@@ -52,14 +52,18 @@ type replaceRangeResult struct {
 }
 
 type replaceRangeFailure struct {
-	Success              bool   `json:"success"`
-	Action               string `json:"action,omitempty"`
-	Error                string `json:"error"`
-	CurrentContent       string `json:"current_content,omitempty"`
-	FuncStart            int    `json:"func_start,omitempty"`
-	FuncEnd              int    `json:"func_end,omitempty"`
-	FuncBody             string `json:"func_body,omitempty"`
-	DiagnosticGeneration uint64 `json:"diagnostic_generation,omitempty"`
+	Success              bool           `json:"success"`
+	Action               string         `json:"action,omitempty"`
+	Error                string         `json:"error"`
+	Code                 string         `json:"code,omitempty"`
+	Retryable            bool           `json:"retryable,omitempty"`
+	Hint                 string         `json:"hint,omitempty"`
+	Meta                 map[string]any `json:"meta,omitempty"`
+	CurrentContent       string         `json:"current_content,omitempty"`
+	FuncStart            int            `json:"func_start,omitempty"`
+	FuncEnd              int            `json:"func_end,omitempty"`
+	FuncBody             string         `json:"func_body,omitempty"`
+	DiagnosticGeneration uint64         `json:"diagnostic_generation,omitempty"`
 }
 
 type functionContext struct {
@@ -79,7 +83,7 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 	if err != nil {
 		return nil, err
 	}
-	manager, managerWarning, err := h.replaceRangeManager(ctx, path)
+	manager, managerWarning, err := h.replaceRangeManager(ctx, path, req.LanguageID)
 	if err != nil {
 		return nil, err
 	}
@@ -162,12 +166,12 @@ func (h EditHandler) applyReplaceRangeUpdate(ctx context.Context, manager lspman
 	return false, "", withRollbackError(err, rollbackErr)
 }
 
-func (h EditHandler) replaceRangeManager(ctx context.Context, path string) (lspmanager.Manager, string, error) {
-	manager, err := h.registry.GetManagerForFile(ctx, path)
+func (h EditHandler) replaceRangeManager(ctx context.Context, path string, languageID string) (lspmanager.Manager, string, error) {
+	manager, err := managerForFile(ctx, h.registry, path, languageID)
 	if err == nil {
 		return manager, "", nil
 	}
-	if errors.Is(err, lspmanager.ErrUnsupportedLanguage) {
+	if normalizeLanguageIDOverride(languageID) == "" && errors.Is(err, lspmanager.ErrUnsupportedLanguage) {
 		return nil, fmt.Sprintf("LSP sync skipped: %v", err), nil
 	}
 	return nil, "", err
@@ -175,10 +179,15 @@ func (h EditHandler) replaceRangeManager(ctx context.Context, path string) (lspm
 
 func (h EditHandler) replaceFailure(ctx context.Context, manager lspmanager.Manager, path string, content string, line int, err error) replaceRangeFailure {
 	functionCtx := h.lookupFunctionContext(ctx, manager, path, line, content)
+	envelope := newToolErrorEnvelope("lsp_edit", "", err)
 	return replaceRangeFailure{
 		Success:              false,
 		Action:               "replace_range",
 		Error:                err.Error(),
+		Code:                 envelope.Code,
+		Retryable:            envelope.Retryable,
+		Hint:                 envelope.Hint,
+		Meta:                 envelope.Meta,
 		CurrentContent:       content,
 		FuncStart:            functionCtx.Start,
 		FuncEnd:              functionCtx.End,

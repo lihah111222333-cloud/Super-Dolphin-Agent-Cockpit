@@ -249,6 +249,17 @@ func missingManagerHandler() ToolHandler {
 	return missingDependencyHandler("lsp manager is required")
 }
 
+func managerForFile(ctx context.Context, registry lspmanager.Registry, filePath string, languageID string) (lspmanager.Manager, error) {
+	if registry == nil {
+		return nil, errManagerUnavailable
+	}
+	return registry.GetManagerForFileWithLanguage(ctx, filePath, normalizeLanguageIDOverride(languageID))
+}
+
+func normalizeLanguageIDOverride(languageID string) string {
+	return strings.ToLower(strings.TrimSpace(languageID))
+}
+
 func requireFilePath(raw string) (string, error) {
 	filePath := strings.TrimSpace(raw)
 	if filePath == "" {
@@ -290,7 +301,11 @@ func renderListResult[T any](items []T, limit int, emptyMessage string, render f
 	total := len(items)
 	items = limitSlice(items, limit)
 	if len(items) == 0 {
-		return emptyMessage, nil
+		return emptyListEnvelope{
+			Success: true,
+			Data:    []any{},
+			Meta:    resultMeta{Count: 0, Message: emptyMessage},
+		}, nil
 	}
 	return render(items, total), nil
 }
