@@ -155,6 +155,31 @@ func NewManager(cfg Config) Manager {
 	return mgr
 }
 
+func (m *manager) cloneForWorkspace(workspaceRoot string) *manager {
+	root := strings.TrimSpace(workspaceRoot)
+	if root == "" && m != nil {
+		root = m.workspaceRoot
+	}
+	if normalized, err := platformshared.NormalizeAbsolutePath(root); err == nil && normalized != "" {
+		root = normalized
+	}
+	clone := &manager{
+		workspaceRoot: root,
+		workspaces:    make(map[string]*workspaceClient),
+		diagnostics:   make(map[string]diagnosticSnapshot),
+	}
+	if m != nil {
+		clone.factory = m.factory
+		clone.logger = m.logger
+		clone.pool = m.pool
+		clone.diagInitial = m.diagInitial
+		clone.diagPoll = m.diagPoll
+		clone.diagMaxWait = m.diagMaxWait
+	}
+	clone.diagGeneration.Store(1)
+	return clone
+}
+
 // effectiveWorkspaceRoot picks the workspace root for resolving relative
 // paths / language-only workspace lookups. When the MCP toolbridge has
 // injected a per-call _cwd into ctx (see internal/mcpserver/common +
