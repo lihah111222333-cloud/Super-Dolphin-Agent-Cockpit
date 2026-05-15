@@ -120,6 +120,20 @@ func TestDiagnosticsWithoutMetaCWDRejectsExternalAbsolutePath(t *testing.T) {
 	}
 }
 
+func TestDiagnosticsDeletedFileStillCallsRegistryForCleanup(t *testing.T) {
+	root := t.TempDir()
+	deletedFile := filepath.Join(root, "deleted.go")
+
+	registry := &diagnosticsTestRegistry{}
+	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
+	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: "deleted.go"})
+
+	if _, err := handler(context.Background(), req); err != nil {
+		t.Fatalf("diagnostics returned error for deleted file: %v", err)
+	}
+	assertDiagnosticURIs(t, registry.lastURIs, []string{canonicalDeletedFileURI(t, deletedFile)})
+}
+
 func writeDiagnosticsFixture(t *testing.T, root, name string) string {
 	t.Helper()
 	path := filepath.Join(root, name)
@@ -139,6 +153,15 @@ func marshalDiagnosticsInput(t *testing.T, input fileToolInput) json.RawMessage 
 }
 
 func canonicalFileURI(t *testing.T, path string) string {
+	t.Helper()
+	parent, err := filepath.EvalSymlinks(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("resolve fixture parent: %v", err)
+	}
+	return fileURI(filepath.Join(parent, filepath.Base(path)))
+}
+
+func canonicalDeletedFileURI(t *testing.T, path string) string {
 	t.Helper()
 	parent, err := filepath.EvalSymlinks(filepath.Dir(path))
 	if err != nil {
