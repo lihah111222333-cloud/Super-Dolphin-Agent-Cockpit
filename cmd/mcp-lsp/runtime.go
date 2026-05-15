@@ -35,49 +35,97 @@ func (m *Manager) BackgroundRunners() []platformrunner.Runner {
 }
 
 func newManager() (*Manager, error) {
-	root := os.Getenv("GO_AGENT_LSP_ROOT")
-	if root == "" {
-		var err error
-		root, err = os.Getwd()
-		if err != nil {
-			return nil, err
-		}
+	root, err := runtimeRoot()
+	if err != nil {
+		return nil, err
 	}
 	log := pkglogger.Get()
 	inst := setupInstaller()
 	adapters := multilsp.NewDefaultLanguageAdapterRegistry()
 
 	registry := manager.NewRegistry(inst)
-	backgroundRunners := make([]platformrunner.Runner, 0, 6)
-	registerLang := func(adapter multilsp.LanguageAdapter) error {
-		if !adapter.CapabilityPolicy().RequiresLSPClient {
-			return nil
-		}
-		mgr, err := createGenericManager(adapter, adapters, root, log)
-		if err != nil {
-			return err
-		}
-		scopedResolver := multilsp.NewRegistryScopedResolver(mgr)
-		for _, langID := range adapter.LanguageIDs() {
-			registry.Register(langID, mgr, scopedResolver)
-		}
-		if r := mgr.BackgroundRunner(); r != nil {
-			backgroundRunners = append(backgroundRunners, r)
-		}
-		return nil
-	}
-
-	for _, primaryLanguageID := range []string{"go", "javascript", "python", "css", "rust", "java"} {
+	backgroundRunners := make([]platformrunner.Runner, 0, len(runtimePrimaryLanguageIDs()))
+	for _, primaryLanguageID := range runtimePrimaryLanguageIDs() {
 		adapter, ok := adapters.AdapterForLanguage(primaryLanguageID)
 		if !ok {
 			return nil, errors.New("missing LSP language adapter: " + primaryLanguageID)
 		}
-		if err := registerLang(adapter); err != nil {
+		runner, err := registerRuntimeAdapter(registry, adapter, adapters, root, log)
+		if err != nil {
 			return nil, err
 		}
+		backgroundRunners = appendBackgroundRunner(backgroundRunners, runner)
 	}
 
 	return &Manager{registry: registry, root: root, backgroundRunners: backgroundRunners}, nil
+}
+
+func runtimeRoot() (string, error) {
+	root := os.Getenv("GO_AGENT_LSP_ROOT")
+	if root != "" {
+		return root, nil
+	}
+	return os.Getwd()
+}
+
+func runtimePrimaryLanguageIDs() []string {
+	return []string{"go", "javascript", "python", "css", "rust", "java", "markdown"}
+}
+
+func appendBackgroundRunner(runners []platformrunner.Runner, runner platformrunner.Runner) []platformrunner.Runner {
+	if runner == nil {
+		return runners
+	}
+	return append(runners, runner)
+}
+
+func registerRuntimeAdapter(
+	registry interface {
+		Register(string, manager.Manager, ...manager.ScopedManagerResolver)
+		RegisterNoInstall(string, manager.Manager, ...manager.ScopedManagerResolver)
+	},
+	adapter multilsp.LanguageAdapter,
+	adapters *multilsp.LanguageAdapterRegistry,
+	root string,
+	log *slog.Logger,
+) (platformrunner.Runner, error) {
+	if !adapter.CapabilityPolicy().RequiresLSPClient {
+		mgr := createFallbackManager(adapters, root, log)
+		registerAdapterLanguagesNoInstall(registry, adapter, mgr)
+		return nil, nil
+	}
+	mgr, err := createGenericManager(adapter, adapters, root, log)
+	if err != nil {
+		return nil, err
+	}
+	registerAdapterLanguages(registry, adapter, mgr)
+	return mgr.BackgroundRunner(), nil
+}
+
+func registerAdapterLanguages(
+	registry interface {
+		Register(string, manager.Manager, ...manager.ScopedManagerResolver)
+	},
+	adapter multilsp.LanguageAdapter,
+	mgr multilsp.Manager,
+) {
+	scopedResolver := multilsp.NewRegistryScopedResolver(mgr)
+	for _, langID := range adapter.LanguageIDs() {
+		registry.Register(langID, mgr, scopedResolver)
+	}
+}
+
+func registerAdapterLanguagesNoInstall(
+	registry interface {
+		RegisterNoInstall(string, manager.Manager, ...manager.ScopedManagerResolver)
+	},
+	adapter multilsp.LanguageAdapter,
+	mgr multilsp.Manager,
+) {
+	scopedResolver := multilsp.NewRegistryScopedResolver(mgr)
+	for _, langID := range adapter.LanguageIDs() {
+		registry.RegisterNoInstall(langID, mgr, scopedResolver)
+	}
 }
 
 func setupInstaller() *installer.Provider {
@@ -137,6 +185,14 @@ func setupInstaller() *installer.Provider {
 	}
 
 	return inst
+}
+
+func createFallbackManager(adapters *multilsp.LanguageAdapterRegistry, root string, log *slog.Logger) multilsp.Manager {
+	return multilsp.NewManager(multilsp.Config{
+		WorkspaceRoot:    root,
+		LanguageAdapters: adapters,
+		Logger:           log,
+	})
 }
 
 func createGenericManager(adapter multilsp.LanguageAdapter, adapters *multilsp.LanguageAdapterRegistry, root string, log *slog.Logger) (multilsp.Manager, error) {
