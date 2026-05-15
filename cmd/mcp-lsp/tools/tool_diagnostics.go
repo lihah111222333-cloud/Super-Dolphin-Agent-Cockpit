@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -27,6 +28,17 @@ type diagnosticsResponse struct {
 }
 
 func (h handlerBase) fetchDiagnosticsWithRetry(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, string, error) {
+	existingURIs := existingDiagnosticURIs(uris)
+	source := "manager"
+	if len(existingURIs) > 0 {
+		bootstrapped, err := h.reactiveBootstrap(ctx, existingURIs)
+		if err != nil {
+			return nil, "", err
+		}
+		if bootstrapped > 0 {
+			source = "reactive_bootstrap"
+		}
+	}
 	if _, err := h.waitDiagnosticsStable(ctx, uris); err != nil {
 		return nil, "", err
 	}
@@ -35,23 +47,9 @@ func (h handlerBase) fetchDiagnosticsWithRetry(ctx context.Context, uris []strin
 		return nil, "", err
 	}
 	if len(items) > 0 || len(uris) == 0 {
-		return items, "manager", nil
+		return items, source, nil
 	}
-	bootstrapped, err := h.reactiveBootstrap(ctx, uris)
-	if err != nil {
-		return nil, "", err
-	}
-	if bootstrapped == 0 {
-		return items, "manager", nil
-	}
-	if _, err := h.waitDiagnosticsStable(ctx, uris); err != nil {
-		return nil, "", err
-	}
-	items, err = h.registry.Diagnostics(ctx, uris)
-	if err != nil {
-		return nil, "", err
-	}
-	return items, "reactive_bootstrap", nil
+	return items, source, nil
 }
 
 func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput) (any, error) {
@@ -105,7 +103,7 @@ func (h handlerBase) collectDiagnosticURIs(ctx context.Context, input fileToolIn
 		if err != nil {
 			return nil, err
 		}
-		if err := ensureDiagnosticFile(pathInfo.AbsPath, pathInfo.DisplayPath); err != nil {
+		if err := ensureDiagnosticFile(pathInfo.AbsPath, pathInfo.DisplayPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, err
 		}
 		uri := fileURI(pathInfo.AbsPath)
@@ -116,6 +114,20 @@ func (h handlerBase) collectDiagnosticURIs(ctx context.Context, input fileToolIn
 		uris = append(uris, uri)
 	}
 	return uris, nil
+}
+
+func existingDiagnosticURIs(uris []string) []string {
+	if len(uris) == 0 {
+		return nil
+	}
+	existing := make([]string, 0, len(uris))
+	for _, uri := range uris {
+		path := format.URIToPath(uri)
+		if info, err := os.Lstat(path); err == nil && info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
+			existing = append(existing, uri)
+		}
+	}
+	return existing
 }
 
 func ensureDiagnosticFile(absPath, displayPath string) error {

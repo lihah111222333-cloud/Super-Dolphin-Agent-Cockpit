@@ -289,7 +289,16 @@ func (c *bootstrapCoordinator) syncSnapshotToClient(
 		return err
 	}
 	c.cache.Upsert(cacheValueFromSnapshot(req.key, snapshot, req.version))
-	c.states.complete(cfg.key, snapshot.ref.uri, snapshot.fingerprint, req.version)
+	scope := lspResolvedScope{
+		ScopeKey:             req.key.ScopeKey,
+		WorkspaceKey:         cacheKeyWorkspace(req.key),
+		ManagerKey:           managerKeyFor(req.key.ScopeKey, cacheKeyWorkspace(req.key)),
+		WorkspaceRoot:        cfg.rootPath,
+		LanguageID:           cacheKeyLanguage(req.key),
+		LanguageSpecificHash: req.key.LanguageSpecificHash,
+	}
+	c.cache.RememberDocumentScope(snapshot.ref.uri, scope, snapshot.fingerprint)
+	c.states.complete(scope.bootstrapKey(), snapshot.ref.uri, snapshot.fingerprint, req.version)
 	return nil
 }
 
