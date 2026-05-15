@@ -38,28 +38,7 @@ func TestOrchestrationGenerationAwareSessionCleanerContractGuard(t *testing.T) {
 	const forbiddenDecl = "type generationAwareSessionCleaner interface"
 	const forbiddenAssert = ".(generationAwareSessionCleaner)"
 
-	var declHits, assertHits []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		path := filepath.Join(dir, name)
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", path, err)
-		}
-		src := string(data)
-		if strings.Contains(src, forbiddenDecl) {
-			declHits = append(declHits, name)
-		}
-		if strings.Contains(src, forbiddenAssert) {
-			assertHits = append(assertHits, name)
-		}
-	}
+	declHits, assertHits := collectSessionCleanerContractHits(t, dir, entries, forbiddenDecl, forbiddenAssert)
 
 	if len(declHits) > 0 {
 		t.Errorf("cmd/mcp-orch/orchestration reintroduced `type generationAwareSessionCleaner interface` (P4 §279 side-channel violation); offending files: %v", declHits)
@@ -67,4 +46,39 @@ func TestOrchestrationGenerationAwareSessionCleanerContractGuard(t *testing.T) {
 	if len(assertHits) > 0 {
 		t.Errorf("cmd/mcp-orch/orchestration performs a `.(generationAwareSessionCleaner)` type assertion (P4 §279 side-channel violation); offending files: %v", assertHits)
 	}
+}
+
+func collectSessionCleanerContractHits(t *testing.T, dir string, entries []os.DirEntry, forbiddenDecl, forbiddenAssert string) ([]string, []string) {
+	t.Helper()
+
+	var declHits, assertHits []string
+	for _, entry := range entries {
+		if !isProductionGoEntry(entry) {
+			continue
+		}
+		name := entry.Name()
+		src := readGuardSource(t, filepath.Join(dir, name))
+		if strings.Contains(src, forbiddenDecl) {
+			declHits = append(declHits, name)
+		}
+		if strings.Contains(src, forbiddenAssert) {
+			assertHits = append(assertHits, name)
+		}
+	}
+	return declHits, assertHits
+}
+
+func isProductionGoEntry(entry os.DirEntry) bool {
+	name := entry.Name()
+	return !entry.IsDir() && strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go")
+}
+
+func readGuardSource(t *testing.T, path string) string {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(data)
 }

@@ -1,6 +1,7 @@
 package archtest
 
 import (
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
@@ -31,78 +32,115 @@ func TestStructuredLogGuard(t *testing.T) {
 	root := repoRootForGuardTests(t)
 	scanRoots := []string{"internal", "cmd"}
 	skipDirs := DefaultSkipDirs()
-
-	// 豁免目录
-	allowedDirs := []string{
-		"internal/archtest",
-		"internal/platform/rlimit",
-	}
-
-	var violations []string
-	for _, sr := range scanRoots {
-		abs := filepath.Join(root, sr)
-		err := filepath.Walk(abs, func(path string, info os.FileInfo, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			if info.IsDir() {
-				if _, skip := skipDirs[info.Name()]; skip {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-				return nil
-			}
-			rel, relErr := filepath.Rel(root, path)
-			if relErr != nil {
-				return relErr
-			}
-			relSlash := filepath.ToSlash(rel)
-			for _, dir := range allowedDirs {
-				if strings.HasPrefix(relSlash, dir+"/") {
-					return nil
-				}
-			}
-			data, readErr := os.ReadFile(path)
-			if readErr != nil {
-				return nil
-			}
-			fset := token.NewFileSet()
-			node, parseErr := parser.ParseFile(fset, path, data, parser.ImportsOnly|parser.SkipObjectResolution)
-			if parseErr != nil {
-				return nil
-			}
-			// 规则 1: 禁止 "log" 包导入
-			for _, imp := range node.Imports {
-				importPath := strings.Trim(imp.Path.Value, "\"")
-				if importPath == "log" {
-					violations = append(violations,
-						relSlash+": 禁止导入 \"log\" 包 — 使用 slog 或 pkg/logger 代替 log.Printf/Println")
-				}
-			}
-			// 规则 2: 禁止 fmt.Fprintf(os.Stderr) — 绕过日志管道
-			lines := strings.Split(string(data), "\n")
-			for lineNo, line := range lines {
-				trimmed := strings.TrimSpace(line)
-				if strings.HasPrefix(trimmed, "//") {
-					continue
-				}
-				if strings.Contains(trimmed, "fmt.Fprintf(os.Stderr") ||
-					strings.Contains(trimmed, "fmt.Fprintln(os.Stderr") {
-					violations = append(violations,
-						relSlash+":"+itoa(lineNo+1)+": 禁止 fmt.Fprintf(os.Stderr) — 使用 slog 或 pkg/logger")
-				}
-			}
-			return nil
-		})
-		if err != nil {
-			t.Fatalf("walk %s: %v", sr, err)
-		}
-	}
+	violations := collectStructuredLogViolations(t, root, scanRoots, skipDirs)
 
 	if len(violations) > 0 {
 		t.Fatalf("Structured log guard violations (%d):\n  %s",
 			len(violations), strings.Join(violations, "\n  "))
 	}
+}
+
+func collectStructuredLogViolations(t *testing.T, root string, scanRoots []string, skipDirs map[string]bool) []string {
+	t.Helper()
+	var violations []string
+	for _, sr := range scanRoots {
+		abs := filepath.Join(root, sr)
+		err := filepath.Walk(abs, func(path string, info os.FileInfo, walkErr error) error {
+			fileViolations, err := structuredLogPathViolations(root, path, info, walkErr, skipDirs)
+			violations = append(violations, fileViolations...)
+			return err
+		})
+		if err != nil {
+			t.Fatalf("walk %s: %v", sr, err)
+		}
+	}
+	return violations
+}
+
+func structuredLogPathViolations(root, path string, info os.FileInfo, walkErr error, skipDirs map[string]bool) ([]string, error) {
+	if walkErr != nil {
+		return nil, walkErr
+	}
+	if info.IsDir() {
+		if _, skip := skipDirs[info.Name()]; skip {
+			return nil, filepath.SkipDir
+		}
+		return nil, nil
+	}
+	if !isStructuredLogGuardTarget(path) {
+		return nil, nil
+	}
+	rel, relErr := filepath.Rel(root, path)
+	if relErr != nil {
+		return nil, relErr
+	}
+	relSlash := filepath.ToSlash(rel)
+	if structuredLogPathAllowed(relSlash) {
+		return nil, nil
+	}
+	return structuredLogFileViolations(path, relSlash), nil
+}
+
+func isStructuredLogGuardTarget(path string) bool {
+	return strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go")
+}
+
+func structuredLogPathAllowed(relSlash string) bool {
+	allowedDirs := []string{
+		"internal/archtest",
+		"internal/platform/rlimit",
+	}
+	for _, dir := range allowedDirs {
+		if strings.HasPrefix(relSlash, dir+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func structuredLogFileViolations(path, relSlash string) []string {
+	data, readErr := os.ReadFile(path)
+	if readErr != nil {
+		return nil
+	}
+	fset := token.NewFileSet()
+	node, parseErr := parser.ParseFile(fset, path, data, parser.ImportsOnly|parser.SkipObjectResolution)
+	if parseErr != nil {
+		return nil
+	}
+	violations := structuredLogImportViolations(relSlash, node)
+	return append(violations, structuredLogStderrViolations(relSlash, data)...)
+}
+
+func structuredLogImportViolations(relSlash string, node *ast.File) []string {
+	var violations []string
+	for _, imp := range node.Imports {
+		importPath := strings.Trim(imp.Path.Value, "\"")
+		if importPath == "log" {
+			violations = append(violations,
+				relSlash+": 禁止导入 \"log\" 包 — 使用 slog 或 pkg/logger 代替 log.Printf/Println")
+		}
+	}
+	return violations
+}
+
+func structuredLogStderrViolations(relSlash string, data []byte) []string {
+	var violations []string
+	lines := strings.Split(string(data), "\n")
+	for lineNo, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "//") {
+			continue
+		}
+		if isStructuredLogStderrWrite(trimmed) {
+			violations = append(violations,
+				relSlash+":"+itoa(lineNo+1)+": 禁止 fmt.Fprintf(os.Stderr) — 使用 slog 或 pkg/logger")
+		}
+	}
+	return violations
+}
+
+func isStructuredLogStderrWrite(trimmed string) bool {
+	return strings.Contains(trimmed, "fmt.Fprintf(os.Stderr") ||
+		strings.Contains(trimmed, "fmt.Fprintln(os.Stderr")
 }

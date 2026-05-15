@@ -36,6 +36,17 @@ func TestOrchestrationSessionReadyWaiterContractGuard(t *testing.T) {
 	const forbiddenDecl = "type sessionReadyWaiter interface"
 	const forbiddenAssert = ".(sessionReadyWaiter)"
 
+	declHits, assertHits := orchestrationSessionReadyGuardHits(t, entries, dir, forbiddenDecl, forbiddenAssert)
+	if len(declHits) > 0 {
+		t.Errorf("cmd/mcp-orch/orchestration reintroduced `type sessionReadyWaiter interface` (P4 §279 side-channel violation); offending files: %v", declHits)
+	}
+	if len(assertHits) > 0 {
+		t.Errorf("cmd/mcp-orch/orchestration performs a `.(sessionReadyWaiter)` type assertion (P4 §279 side-channel violation); offending files: %v", assertHits)
+	}
+}
+
+func orchestrationSessionReadyGuardHits(t *testing.T, entries []os.DirEntry, dir, forbiddenDecl, forbiddenAssert string) ([]string, []string) {
+	t.Helper()
 	var declHits, assertHits []string
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -58,11 +69,5 @@ func TestOrchestrationSessionReadyWaiterContractGuard(t *testing.T) {
 			assertHits = append(assertHits, name)
 		}
 	}
-
-	if len(declHits) > 0 {
-		t.Errorf("cmd/mcp-orch/orchestration reintroduced `type sessionReadyWaiter interface` (P4 §279 side-channel violation); offending files: %v", declHits)
-	}
-	if len(assertHits) > 0 {
-		t.Errorf("cmd/mcp-orch/orchestration performs a `.(sessionReadyWaiter)` type assertion (P4 §279 side-channel violation); offending files: %v", assertHits)
-	}
+	return declHits, assertHits
 }

@@ -33,42 +33,54 @@ import (
 func TestLifecycleOnStartGuard(t *testing.T) {
 	t.Parallel()
 
-	t.Run("shared_root_bridge_allowlist_is_consumable", func(t *testing.T) {
-		t.Parallel()
-		if len(rootBridgeAllowlist) == 0 {
-			t.Fatal("rootBridgeAllowlist is empty; TestLifecycleOnStartGuard must " +
-				"share the same seed as TestFXInvokeGuard")
-		}
-	})
+	t.Run("shared_root_bridge_allowlist_is_consumable", assertRootBridgeAllowlistConsumable)
+	t.Run("root_bridge_entries_exempted_by_call_site_and_symbol", assertRootBridgeEntries)
+	runLifecycleMatcherSkeletonSubtests(t)
+	t.Run("onstart_must_not_start_ticker_goroutine", assertNoOnStartTickerGoroutine)
+	t.Run("onstart_must_not_fire_and_forget_serve_proxy", assertNoFireAndForgetServeProxy)
+}
 
-	t.Run("root_bridge_entries_exempted_by_call_site_and_symbol", func(t *testing.T) {
-		t.Parallel()
-		exempt := []struct{ path, symbol string }{
-			{"internal/app/app.go", "BindRuntime"},
-			{"cmd/mcp-orch/fx.go", "bindRuntime"},
-			{"cmd/mcp-lsp/fx.go", "bindRuntime"},
-			{"cmd/mcp-ida/fx.go", "bindRuntime"},
-		}
-		for _, e := range exempt {
-			if !isRootBridgeException(e.path, e.symbol) {
-				t.Errorf("expected root-bridge exemption for %s#%s", e.path, e.symbol)
-			}
-		}
+func assertRootBridgeAllowlistConsumable(t *testing.T) {
+	t.Parallel()
+	if len(rootBridgeAllowlist) == 0 {
+		t.Fatal("rootBridgeAllowlist is empty; TestLifecycleOnStartGuard must " +
+			"share the same seed as TestFXInvokeGuard")
+	}
+}
 
-		// Negative: an OnStart inside a module package must NOT be exempt.
-		notExempt := []struct{ path, symbol string }{
-			{"internal/platform/mcpcontrol/module.go", "registerSweeper"},
-			{"internal/platform/rpc/module.go", "registerApprovalCleanup"},
-			{"internal/platform/toolbridge/module.go", "startProxy"},
-			{"internal/module/memory/module.go", "startTeamSync"},
+func assertRootBridgeEntries(t *testing.T) {
+	t.Parallel()
+	for _, e := range rootBridgeExemptCases() {
+		if !isRootBridgeException(e.path, e.symbol) {
+			t.Errorf("expected root-bridge exemption for %s#%s", e.path, e.symbol)
 		}
-		for _, e := range notExempt {
-			if isRootBridgeException(e.path, e.symbol) {
-				t.Errorf("unexpected root-bridge exemption for %s#%s", e.path, e.symbol)
-			}
+	}
+	for _, e := range rootBridgeNegativeCases() {
+		if isRootBridgeException(e.path, e.symbol) {
+			t.Errorf("unexpected root-bridge exemption for %s#%s", e.path, e.symbol)
 		}
-	})
+	}
+}
 
+func rootBridgeExemptCases() []struct{ path, symbol string } {
+	return []struct{ path, symbol string }{
+		{"internal/app/app.go", "BindRuntime"},
+		{"cmd/mcp-orch/fx.go", "bindRuntime"},
+		{"cmd/mcp-lsp/fx.go", "bindRuntime"},
+		{"cmd/mcp-ida/fx.go", "bindRuntime"},
+	}
+}
+
+func rootBridgeNegativeCases() []struct{ path, symbol string } {
+	return []struct{ path, symbol string }{
+		{"internal/platform/mcpcontrol/module.go", "registerSweeper"},
+		{"internal/platform/rpc/module.go", "registerApprovalCleanup"},
+		{"internal/platform/toolbridge/module.go", "startProxy"},
+		{"internal/module/memory/module.go", "startTeamSync"},
+	}
+}
+
+func runLifecycleMatcherSkeletonSubtests(t *testing.T) {
 	matcherCases := []struct {
 		name        string
 		owningSlice string
@@ -89,84 +101,72 @@ func TestLifecycleOnStartGuard(t *testing.T) {
 			t.Skipf("matcher skeleton only; owning slice will flip red→green: %s", tc.owningSlice)
 		})
 	}
+}
 
-	// P22 P1b live matcher (Findings 3 + 4): after the sweeper and approval-
-	// cleanup loops moved to platformrunner.Runner providers, neither module
-	// file may re-introduce the pre-P1b OnStart ticker spawn. Scope is limited
-	// to the two hot files so unrelated packages are not force-flipped.
-	t.Run("onstart_must_not_start_ticker_goroutine", func(t *testing.T) {
-		t.Parallel()
-		root := repoRootForGuardTests(t)
-		targets := []struct {
-			path      string
-			forbidden []string
-		}{
-			{
-				path: filepath.Join(root, "internal", "platform", "mcpcontrol", "module.go"),
-				forbidden: []string{
-					"func registerSweeperLifecycle",
-					"go sweeper.Run(",
-				},
+func assertNoOnStartTickerGoroutine(t *testing.T) {
+	t.Parallel()
+	root := repoRootForGuardTests(t)
+	targets := []struct {
+		path      string
+		forbidden []string
+	}{
+		{
+			path: filepath.Join(root, "internal", "platform", "mcpcontrol", "module.go"),
+			forbidden: []string{
+				"func registerSweeperLifecycle",
+				"go sweeper.Run(",
 			},
-			{
-				path: filepath.Join(root, "internal", "platform", "rpc", "module.go"),
-				forbidden: []string{
-					"func startApprovalLifecycle",
-					"go startApprovalCleanupLoop(",
-				},
+		},
+		{
+			path: filepath.Join(root, "internal", "platform", "rpc", "module.go"),
+			forbidden: []string{
+				"func startApprovalLifecycle",
+				"go startApprovalCleanupLoop(",
 			},
-			{
-				path: filepath.Join(root, "internal", "platform", "rpc", "approval_lifecycle.go"),
-				forbidden: []string{
-					"func startApprovalCleanupLoop(",
-				},
+		},
+		{
+			path: filepath.Join(root, "internal", "platform", "rpc", "approval_lifecycle.go"),
+			forbidden: []string{
+				"func startApprovalCleanupLoop(",
 			},
-		}
-		for _, target := range targets {
-			data, err := os.ReadFile(target.path)
-			if err != nil {
-				t.Fatalf("read %s: %v", target.path, err)
-			}
-			src := string(data)
-			var hits []string
-			for _, token := range target.forbidden {
-				if strings.Contains(src, token) {
-					hits = append(hits, token)
-				}
-			}
-			if len(hits) > 0 {
-				t.Errorf("%s reintroduced pre-P1b OnStart ticker path; forbidden tokens present: %v", target.path, hits)
-			}
-		}
-	})
+		},
+	}
+	for _, target := range targets {
+		assertFileExcludesTokens(t, target.path, target.forbidden,
+			"reintroduced pre-P1b OnStart ticker path")
+	}
+}
 
-	// P22 P2 Finding 9 live matcher: ProxyRunner now owns the ServeProxy
-	// blocking call. internal/platform/toolbridge/module.go must only wire
-	// the listener + addr publish; it cannot re-introduce the pre-P2
-	// `go h.ServeProxy(...)` pattern inside registerProxyLifecycle.
-	t.Run("onstart_must_not_fire_and_forget_serve_proxy", func(t *testing.T) {
-		t.Parallel()
-		root := repoRootForGuardTests(t)
-		path := filepath.Join(root, "internal", "platform", "toolbridge", "module.go")
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", path, err)
+func assertNoFireAndForgetServeProxy(t *testing.T) {
+	t.Parallel()
+	root := repoRootForGuardTests(t)
+	path := filepath.Join(root, "internal", "platform", "toolbridge", "module.go")
+	assertFileExcludesTokens(t, path, []string{
+		"go h.ServeProxy(",
+		"go func(proxyListener",
+	}, "reintroduced pre-P2 ServeProxy fire-and-forget path")
+}
+
+func assertFileExcludesTokens(t *testing.T, path string, forbidden []string, label string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	hits := containedTokens(string(data), forbidden)
+	if len(hits) > 0 {
+		t.Fatalf("%s %s; forbidden tokens present: %v", path, label, hits)
+	}
+}
+
+func containedTokens(src string, tokens []string) []string {
+	var hits []string
+	for _, token := range tokens {
+		if strings.Contains(src, token) {
+			hits = append(hits, token)
 		}
-		src := string(data)
-		forbidden := []string{
-			"go h.ServeProxy(",
-			"go func(proxyListener",
-		}
-		var hits []string
-		for _, token := range forbidden {
-			if strings.Contains(src, token) {
-				hits = append(hits, token)
-			}
-		}
-		if len(hits) > 0 {
-			t.Fatalf("toolbridge/module.go reintroduced pre-P2 ServeProxy fire-and-forget path; forbidden tokens present: %v", hits)
-		}
-	})
+	}
+	return hits
 }
 
 func TestShutdownOrdering(t *testing.T) {
@@ -201,35 +201,52 @@ func TestShutdownOrdering(t *testing.T) {
 func bindRuntimeOnStopBody(t *testing.T, file *ast.File) *ast.BlockStmt {
 	t.Helper()
 	for _, decl := range file.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Name.Name != "BindRuntime" || fn.Body == nil {
+		fn, ok := bindRuntimeFunc(decl)
+		if !ok {
 			continue
 		}
-		var body *ast.BlockStmt
-		ast.Inspect(fn.Body, func(n ast.Node) bool {
-			if body != nil {
-				return false
-			}
-			cl, ok := n.(*ast.CompositeLit)
-			if !ok || !isFxHookComposite(cl) {
-				return true
-			}
-			for _, elt := range cl.Elts {
-				kv, ok := elt.(*ast.KeyValueExpr)
-				if !ok || keyName(kv.Key) != "OnStop" {
-					continue
-				}
-				if lit, ok := kv.Value.(*ast.FuncLit); ok && lit.Body != nil {
-					body = lit.Body
-				}
-			}
-			return true
-		})
-		if body != nil {
+		if body := findFxOnStopBody(fn.Body); body != nil {
 			return body
 		}
 	}
 	t.Fatal("BindRuntime fx.Hook OnStop func literal not found")
+	return nil
+}
+
+func bindRuntimeFunc(decl ast.Decl) (*ast.FuncDecl, bool) {
+	fn, ok := decl.(*ast.FuncDecl)
+	if !ok || fn.Name.Name != "BindRuntime" || fn.Body == nil {
+		return nil, false
+	}
+	return fn, true
+}
+
+func findFxOnStopBody(body *ast.BlockStmt) *ast.BlockStmt {
+	var onStop *ast.BlockStmt
+	ast.Inspect(body, func(n ast.Node) bool {
+		if onStop != nil {
+			return false
+		}
+		cl, ok := n.(*ast.CompositeLit)
+		if !ok || !isFxHookComposite(cl) {
+			return true
+		}
+		onStop = fxOnStopFuncBody(cl)
+		return onStop == nil
+	})
+	return onStop
+}
+
+func fxOnStopFuncBody(cl *ast.CompositeLit) *ast.BlockStmt {
+	for _, elt := range cl.Elts {
+		kv, ok := elt.(*ast.KeyValueExpr)
+		if !ok || keyName(kv.Key) != "OnStop" {
+			continue
+		}
+		if lit, ok := kv.Value.(*ast.FuncLit); ok && lit.Body != nil {
+			return lit.Body
+		}
+	}
 	return nil
 }
 

@@ -27,21 +27,31 @@ func TestDAGDesignerPromptSeed_ENCoversCoreSurface(t *testing.T) {
 		t.Fatalf("migration 0085 is empty; F7.2 seed must contain a prompt body")
 	}
 
+	assertDAGDesignerPromptIdentity(t, content)
+	assertDAGDesignerPromptToolSurface(t, content)
+	assertDAGDesignerPromptSections(t, content)
+	assertDAGDesignerPromptTypedSchemas(t, content)
+	assertDAGDesignerPromptBlueprintRules(t, content)
+	assertDAGDesignerPromptRoutingTags(t, content)
+	assertDAGDesignerPromptSize(t, content)
+}
+
+func assertDAGDesignerPromptIdentity(t *testing.T, content string) {
+	t.Helper()
 	// Identity markers: prompt_key / agent_key / English title / idempotency guard.
-	for _, must := range []string{
+	assertContainsAll(t, content, "missing identity marker", []string{
 		"main/dag_designer_en",
 		"'dag_designer'",
 		"AI Flow Designer (English)",
 		"ON CONFLICT (prompt_key) DO NOTHING",
-	} {
-		if !strings.Contains(content, must) {
-			t.Errorf("migration 0085 missing identity marker %q", must)
-		}
-	}
+	})
+}
 
+func assertDAGDesignerPromptToolSurface(t *testing.T, content string) {
+	t.Helper()
 	// MCP tool surface: reviewers should immediately see which tools the designer
 	// is allowed to use. Quiet deletion of any one is prompt degradation.
-	for _, tool := range []string{
+	assertContainsAll(t, content, "must reference MCP tool", []string{
 		"list_models",
 		"prompt_list",
 		"command_list",
@@ -52,14 +62,13 @@ func TestDAGDesignerPromptSeed_ENCoversCoreSurface(t *testing.T) {
 		"task_get_dag",
 		"task_get_run",
 		"task_list_runs",
-	} {
-		if !strings.Contains(content, tool) {
-			t.Errorf("migration 0085 must reference MCP tool %q in prompt body", tool)
-		}
-	}
+	})
+}
 
+func assertDAGDesignerPromptSections(t *testing.T, content string) {
+	t.Helper()
 	// English section anchors: keep the usable prompt structure intact.
-	for _, section := range []string{
+	assertContainsAll(t, content, "must keep English section anchor", []string{
 		"# Your Work Loop",
 		"# Available MCP Tools (mcp-orch)",
 		"## Resource Discovery",
@@ -69,25 +78,23 @@ func TestDAGDesignerPromptSeed_ENCoversCoreSurface(t *testing.T) {
 		"# Blueprint v2 Guardrails",
 		"# Example Conversation",
 		"# Style",
-	} {
-		if !strings.Contains(content, section) {
-			t.Errorf("migration 0085 must keep English section anchor %q", section)
-		}
-	}
+	})
+}
 
+func assertDAGDesignerPromptTypedSchemas(t *testing.T, content string) {
+	t.Helper()
 	// The three node_type typed schemas are the S5.1 contract entry points.
-	for _, nodeType := range []string{
+	assertContainsAll(t, content, "must describe typed schema", []string{
 		`node_type = "agent"`,
 		`node_type = "automation"`,
 		`node_type = "hybrid"`,
-	} {
-		if !strings.Contains(content, nodeType) {
-			t.Errorf("migration 0085 must describe %s typed schema", nodeType)
-		}
-	}
+	})
+}
 
+func assertDAGDesignerPromptBlueprintRules(t *testing.T, content string) {
+	t.Helper()
 	// Blueprint v2 constraints that the English prompt must not lose.
-	for _, rule := range []string{
+	assertContainsAll(t, content, "must keep blueprint rule keyword", []string{
 		"base_version", // OCC optimistic lock
 		"running",      // dynamic rewrite constrained state
 		"FailureClass", // intelligent retry classification
@@ -96,34 +103,28 @@ func TestDAGDesignerPromptSeed_ENCoversCoreSurface(t *testing.T) {
 		"scheduled", // trigger mode
 		"cron",      // cron expression context
 		"inputs.summarization",
-	} {
-		if !strings.Contains(content, rule) {
-			t.Errorf("migration 0085 must keep blueprint rule keyword %q", rule)
-		}
-	}
+	})
+}
 
+func assertDAGDesignerPromptRoutingTags(t *testing.T, content string) {
+	t.Helper()
 	// Routing tags are intentionally kept aligned with the F7.1 seed fields.
-	for _, tag := range []string{
+	assertContainsAll(t, content, "tags missing routing keyword", []string{
 		"设计 DAG",
 		"流程编排",
 		"定时任务",
-	} {
-		if !strings.Contains(content, tag) {
-			t.Errorf("migration 0085 tags missing routing keyword %q", tag)
-		}
-	}
+	})
 
 	// English routing tags must keep the English seed discoverable directly.
-	for _, tag := range []string{
+	assertContainsAll(t, content, "tags missing English routing keyword", []string{
 		"AI design flow",
 		"schedule task",
 		"cron expression",
-	} {
-		if !strings.Contains(content, tag) {
-			t.Errorf("migration 0085 tags missing English routing keyword %q", tag)
-		}
-	}
+	})
+}
 
+func assertDAGDesignerPromptSize(t *testing.T, content string) {
+	t.Helper()
 	// Size guard: a useful prompt should not be suspiciously tiny; over 600 lines
 	// is only logged to avoid blocking deliberate prompt growth.
 	lines := strings.Count(content, "\n")
@@ -132,5 +133,14 @@ func TestDAGDesignerPromptSeed_ENCoversCoreSurface(t *testing.T) {
 	}
 	if lines > 600 {
 		t.Logf("migration 0085 has %d lines; consider whether prompt body grew bloat", lines)
+	}
+}
+
+func assertContainsAll(t *testing.T, content, failure string, values []string) {
+	t.Helper()
+	for _, value := range values {
+		if !strings.Contains(content, value) {
+			t.Errorf("migration 0085 %s %q", failure, value)
+		}
 	}
 }

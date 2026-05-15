@@ -16,50 +16,67 @@ import (
 func TestErrorStringMatchGuard(t *testing.T) {
 	t.Parallel()
 	root := repoRootForGuardTests(t)
-	scanRoots := []string{"internal", "cmd"}
-	skipDirs := DefaultSkipDirs()
-
-	var violations []string
-	for _, sr := range scanRoots {
-		abs := filepath.Join(root, sr)
-		err := filepath.Walk(abs, func(path string, info os.FileInfo, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			if info.IsDir() {
-				if _, skip := skipDirs[info.Name()]; skip {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-				return nil
-			}
-			rel, err := filepath.Rel(root, path)
-			if err != nil {
-				return err
-			}
-			fset := token.NewFileSet()
-			node, parseErr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-			if parseErr != nil {
-				return nil
-			}
-			count := countErrorStringMatches(node)
-			if count > 0 {
-				violations = append(violations,
-					rel+": 发现 "+itoa(count)+" 处 err.Error() 字符串匹配 — 应使用 errors.Is/errors.As")
-			}
-			return nil
-		})
-		if err != nil {
-			t.Fatalf("walk %s: %v", sr, err)
-		}
+	violations, err := collectErrorStringMatchViolations(root)
+	if err != nil {
+		t.Fatal(err)
 	}
-
 	if len(violations) > 0 {
 		t.Fatalf("Error string match guard violations (%d):\n  %s",
 			len(violations), strings.Join(violations, "\n  "))
 	}
+}
+
+func collectErrorStringMatchViolations(root string) ([]string, error) {
+	skipDirs := DefaultSkipDirs()
+
+	var violations []string
+	for _, sr := range []string{"internal", "cmd"} {
+		err := filepath.Walk(filepath.Join(root, sr), func(path string, info os.FileInfo, walkErr error) error {
+			return collectErrorStringMatchFile(root, skipDirs, &violations, path, info, walkErr)
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return violations, nil
+}
+
+func collectErrorStringMatchFile(root string, skipDirs map[string]bool, violations *[]string, path string, info os.FileInfo, walkErr error) error {
+	if walkErr != nil {
+		return walkErr
+	}
+	if info.IsDir() {
+		return errorStringMatchDirAction(skipDirs, info.Name())
+	}
+	if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+		return nil
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return err
+	}
+	count := countErrorStringMatchesInFile(path)
+	if count > 0 {
+		*violations = append(*violations,
+			rel+": 发现 "+itoa(count)+" 处 err.Error() 字符串匹配 — 应使用 errors.Is/errors.As")
+	}
+	return nil
+}
+
+func errorStringMatchDirAction(skipDirs map[string]bool, name string) error {
+	if _, skip := skipDirs[name]; skip {
+		return filepath.SkipDir
+	}
+	return nil
+}
+
+func countErrorStringMatchesInFile(path string) int {
+	fset := token.NewFileSet()
+	node, parseErr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+	if parseErr != nil {
+		return 0
+	}
+	return countErrorStringMatches(node)
 }
 
 // countErrorStringMatches 计算 strings.Contains(xxx.Error(), ...) 调用数量。

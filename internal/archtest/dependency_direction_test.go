@@ -46,97 +46,156 @@ func TestDependencyDirection(t *testing.T) {
 func assertCoreDependencyRules(t *testing.T, root string) {
 	t.Helper()
 	t.Run("rule1_contract_dto_no_framework_imports", func(t *testing.T) {
-		dirs := existingDirs(root, "internal/contract", "internal/dto")
-		if len(dirs) == 0 {
-			t.Skip("directory not yet created")
-		}
-		forbidden := []string{"go.uber.org/fx", "github.com/creachadair/jrpc2", "github.com/jackc/pgx/v5", "github.com/wailsapp/wails"}
-		assertNoImportPrefixes(t, parseImportFiles(t, root, dirs...), forbidden)
+		assertNoFrameworkImportsInContractDTO(t, root)
 	})
 
 	t.Run("rule2_module_impls_no_fx", func(t *testing.T) {
-		if !dirExists(root, "internal/module") {
-			t.Skip("directory not yet created")
-		}
-		var violations []string
-		for _, file := range parseImportFiles(t, root, "internal/module") {
-			if filepath.Base(file.RelPath) == "module.go" {
-				continue
-			}
-			if hasImport(file.Imports, "go.uber.org/fx") {
-				violations = append(violations, fmt.Sprintf("%s imports go.uber.org/fx outside module.go", file.RelPath))
-			}
-		}
-		failIfViolations(t, violations)
+		assertModuleImplsNoFX(t, root)
 	})
 
 	t.Run("rule3_provider_cannot_import_store", func(t *testing.T) {
-		dirs := existingDirs(root, "internal/provider/claudecli", "internal/provider/codexapp", "internal/provider/unified")
-		if len(dirs) == 0 {
-			t.Skip("directory not yet created")
-		}
-		assertNoImportPrefixes(t, parseImportFiles(t, root, dirs...), []string{internalPrefix("internal/store")})
+		assertProviderCannotImportStore(t, root)
 	})
 
 	t.Run("rule3b_provider_external_whitelist", func(t *testing.T) {
-		dirs := existingDirs(root, "internal/provider/claudecli", "internal/provider/codexapp", "internal/provider/unified")
-		if len(dirs) == 0 {
-			t.Skip("directory not yet created")
-		}
-		var violations []string
-		for _, file := range parseImportFiles(t, root, dirs...) {
-			if filepath.Base(file.RelPath) == "module.go" {
-				continue
-			}
-			for _, imp := range file.Imports {
-				if isStdlibImport(imp) || strings.HasPrefix(imp, modulePath+"/") {
-					continue
-				}
-				if !providerAllowedExternal[externalModuleRoot(imp)] {
-					violations = append(violations, fmt.Sprintf("%s imports %s outside provider external whitelist", file.RelPath, imp))
-				}
-			}
-		}
-		failIfViolations(t, violations)
+		assertProviderExternalWhitelist(t, root)
 	})
 
 	t.Run("rule4_platform_cannot_import_module", func(t *testing.T) {
-		if !dirExists(root, "internal/platform") || !dirExists(root, "internal/module") {
-			t.Skip("directory not yet created")
-		}
-		assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/platform"), []string{internalPrefix("internal/module")})
+		assertPlatformCannotImportModule(t, root)
 	})
+}
+
+func assertNoFrameworkImportsInContractDTO(t *testing.T, root string) {
+	t.Helper()
+
+	dirs := existingDirs(root, "internal/contract", "internal/dto")
+	if len(dirs) == 0 {
+		t.Skip("directory not yet created")
+	}
+	forbidden := []string{"go.uber.org/fx", "github.com/creachadair/jrpc2", "github.com/jackc/pgx/v5", "github.com/wailsapp/wails"}
+	assertNoImportPrefixes(t, parseImportFiles(t, root, dirs...), forbidden)
+}
+
+func assertModuleImplsNoFX(t *testing.T, root string) {
+	t.Helper()
+
+	if !dirExists(root, "internal/module") {
+		t.Skip("directory not yet created")
+	}
+	var violations []string
+	for _, file := range parseImportFiles(t, root, "internal/module") {
+		if filepath.Base(file.RelPath) == "module.go" {
+			continue
+		}
+		if hasImport(file.Imports, "go.uber.org/fx") {
+			violations = append(violations, fmt.Sprintf("%s imports go.uber.org/fx outside module.go", file.RelPath))
+		}
+	}
+	failIfViolations(t, violations)
+}
+
+func assertProviderCannotImportStore(t *testing.T, root string) {
+	t.Helper()
+
+	dirs := existingDirs(root, "internal/provider/claudecli", "internal/provider/codexapp", "internal/provider/unified")
+	if len(dirs) == 0 {
+		t.Skip("directory not yet created")
+	}
+	assertNoImportPrefixes(t, parseImportFiles(t, root, dirs...), []string{internalPrefix("internal/store")})
+}
+
+func assertProviderExternalWhitelist(t *testing.T, root string) {
+	t.Helper()
+
+	dirs := existingDirs(root, "internal/provider/claudecli", "internal/provider/codexapp", "internal/provider/unified")
+	if len(dirs) == 0 {
+		t.Skip("directory not yet created")
+	}
+	var violations []string
+	for _, file := range parseImportFiles(t, root, dirs...) {
+		if filepath.Base(file.RelPath) == "module.go" {
+			continue
+		}
+		violations = append(violations, providerExternalWhitelistViolations(file)...)
+	}
+	failIfViolations(t, violations)
+}
+
+func providerExternalWhitelistViolations(file parsedFile) []string {
+	var violations []string
+	for _, imp := range file.Imports {
+		if isStdlibImport(imp) || strings.HasPrefix(imp, modulePath+"/") {
+			continue
+		}
+		if !providerAllowedExternal[externalModuleRoot(imp)] {
+			violations = append(violations, fmt.Sprintf("%s imports %s outside provider external whitelist", file.RelPath, imp))
+		}
+	}
+	return violations
+}
+
+func assertPlatformCannotImportModule(t *testing.T, root string) {
+	t.Helper()
+
+	if !dirExists(root, "internal/platform") || !dirExists(root, "internal/module") {
+		t.Skip("directory not yet created")
+	}
+	assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/platform"), []string{internalPrefix("internal/module")})
 }
 
 func assertModuleSiblingDependencyRules(t *testing.T, root string) {
 	t.Helper()
 	t.Run("rule16_module_siblings_no_concrete_imports", func(t *testing.T) {
-		if !dirExists(root, "internal/module") {
-			t.Skip("directory not yet created")
-		}
-		var violations []string
-		for _, file := range parseImportFiles(t, root, "internal/module") {
-			if strings.HasSuffix(file.RelPath, "_test.go") || filepath.Base(file.RelPath) == "module.go" {
-				continue
-			}
-			parts := strings.Split(filepath.ToSlash(file.RelPath), "/")
-			if len(parts) < 3 || parts[0] != "internal" || parts[1] != "module" {
-				continue
-			}
-			owner := parts[2]
-			for _, imp := range file.Imports {
-				if !strings.HasPrefix(imp, internalPrefix("internal/module/")) {
-					continue
-				}
-				importRel := strings.TrimPrefix(imp, internalPrefix("internal/module/"))
-				importModule := strings.Split(importRel, "/")[0]
-				if importModule != owner {
-					violations = append(violations, fmt.Sprintf("%s imports sibling module %s", file.RelPath, imp))
-				}
-			}
-		}
-		failIfViolations(t, violations)
+		assertModuleSiblingsNoConcreteImports(t, root)
 	})
+}
+
+func assertModuleSiblingsNoConcreteImports(t *testing.T, root string) {
+	t.Helper()
+
+	if !dirExists(root, "internal/module") {
+		t.Skip("directory not yet created")
+	}
+	var violations []string
+	for _, file := range parseImportFiles(t, root, "internal/module") {
+		owner, ok := moduleOwnerForImportCheck(file.RelPath)
+		if !ok {
+			continue
+		}
+		violations = append(violations, moduleSiblingImportViolations(file, owner)...)
+	}
+	failIfViolations(t, violations)
+}
+
+func moduleOwnerForImportCheck(relPath string) (string, bool) {
+	if strings.HasSuffix(relPath, "_test.go") || filepath.Base(relPath) == "module.go" {
+		return "", false
+	}
+	parts := strings.Split(filepath.ToSlash(relPath), "/")
+	if len(parts) < 3 || parts[0] != "internal" || parts[1] != "module" {
+		return "", false
+	}
+	return parts[2], true
+}
+
+func moduleSiblingImportViolations(file parsedFile, owner string) []string {
+	var violations []string
+	for _, imp := range file.Imports {
+		importModule, ok := importedModuleName(imp)
+		if ok && importModule != owner {
+			violations = append(violations, fmt.Sprintf("%s imports sibling module %s", file.RelPath, imp))
+		}
+	}
+	return violations
+}
+
+func importedModuleName(imp string) (string, bool) {
+	if !strings.HasPrefix(imp, internalPrefix("internal/module/")) {
+		return "", false
+	}
+	importRel := strings.TrimPrefix(imp, internalPrefix("internal/module/"))
+	return strings.Split(importRel, "/")[0], true
 }
 
 func assertModuleDBIsolationRules(t *testing.T, root string) {
@@ -158,77 +217,130 @@ func assertModuleDBIsolationRules(t *testing.T, root string) {
 func assertStoreAndToolDependencyRules(t *testing.T, root string) {
 	t.Helper()
 	t.Run("rule5_store_subpackages_boundary", func(t *testing.T) {
-		if !dirExists(root, "internal/store") {
-			t.Skip("directory not yet created")
-		}
-		storeFiles := parseImportFiles(t, root, "internal/store")
-		if len(storeFiles) == 0 {
-			t.Skip("directory not yet created")
-		}
-		allowed := []string{
-			internalPrefix("internal/platform/config"),
-			internalPrefix("internal/platform/db"),
-			internalPrefix("internal/platform/sharedfilefs"),
-			internalPrefix("internal/platform/sharedfilegitignore"),
-			internalPrefix("internal/platform/sharedfilepath"),
-			internalPrefix("internal/store/sqlc"),
-			internalPrefix("internal/contract"),
-			internalPrefix("internal/dto"),
-		}
-		var violations []string
-		for _, file := range storeFiles {
-			for _, imp := range file.Imports {
-				if isStdlibImport(imp) || strings.HasPrefix(imp, modulePath+"/internal/store/"+packageSuffix(file.RelPath)) {
-					continue
-				}
-				if file.RelPath == "internal/store/module.go" {
-					if imp == "go.uber.org/fx" || imp == "github.com/jackc/pgx/v5/pgxpool" || hasAllowedPrefix(imp, []string{internalPrefix("internal/store")}) {
-						continue
-					}
-				} else if filepath.Base(file.RelPath) == "module.go" && (imp == "go.uber.org/fx" || imp == "github.com/jackc/pgx/v5/pgxpool") {
-					continue
-				}
-				if imp == "github.com/jackc/pgx/v5/pgtype" {
-					continue
-				}
-				if !hasAllowedPrefix(imp, allowed) {
-					violations = append(violations, fmt.Sprintf("%s imports %s outside store boundary", file.RelPath, imp))
-				}
-			}
-		}
-		failIfViolations(t, violations)
+		assertStoreSubpackagesBoundary(t, root)
 	})
 
 	t.Run("rule6_tooling_runtime_cannot_import_ui_state_directly", func(t *testing.T) {
-		dirs := existingDirs(root, "cmd/mcp-lsp", "cmd/mcp-orch", "cmd/mcp-ida", "internal/mcpserver/common")
-		if len(dirs) == 0 {
-			t.Skip("tooling runtime directories not yet created")
-		}
-		assertNoImportPrefixes(t, parseImportFiles(t, root, dirs...), []string{internalPrefix("internal/uistate"), internalPrefix("internal/module/uistate"), internalPrefix("internal/ui/")})
+		assertToolingRuntimeCannotImportUIStateDirectly(t, root)
 	})
 
 	t.Run("rule10_fx_import_scope", func(t *testing.T) {
-		var violations []string
-		for _, file := range parseImportFiles(t, root, "internal", "cmd") {
-			if !hasImport(file.Imports, "go.uber.org/fx") {
-				continue
-			}
-			if strings.HasPrefix(file.RelPath, "internal/app/") || filepath.Base(file.RelPath) == "module.go" {
-				continue
-			}
-			if strings.HasPrefix(file.RelPath, "cmd/mcp-orch/") || strings.HasPrefix(file.RelPath, "cmd/mcp-ida/") {
-				continue
-			}
-			if rel, ok := strings.CutPrefix(file.RelPath, "cmd/"); ok && len(strings.Split(rel, "/")) == 2 {
-				continue
-			}
-			if strings.HasPrefix(file.RelPath, "cmd/mcp-lsp/") && filepath.Base(file.RelPath) == "fx.go" {
-				continue
-			}
-			violations = append(violations, fmt.Sprintf("%s imports go.uber.org/fx outside an assembly entry", file.RelPath))
-		}
-		failIfViolations(t, violations)
+		assertFXImportScope(t, root)
 	})
+}
+
+func assertStoreSubpackagesBoundary(t *testing.T, root string) {
+	t.Helper()
+
+	if !dirExists(root, "internal/store") {
+		t.Skip("directory not yet created")
+	}
+	storeFiles := parseImportFiles(t, root, "internal/store")
+	if len(storeFiles) == 0 {
+		t.Skip("directory not yet created")
+	}
+	failIfViolations(t, storeBoundaryViolations(storeFiles))
+}
+
+func storeBoundaryViolations(storeFiles []parsedFile) []string {
+	allowed := []string{
+		internalPrefix("internal/platform/config"),
+		internalPrefix("internal/platform/db"),
+		internalPrefix("internal/platform/sharedfilefs"),
+		internalPrefix("internal/platform/sharedfilegitignore"),
+		internalPrefix("internal/platform/sharedfilepath"),
+		internalPrefix("internal/store/sqlc"),
+		internalPrefix("internal/contract"),
+		internalPrefix("internal/dto"),
+	}
+	var violations []string
+	for _, file := range storeFiles {
+		for _, imp := range file.Imports {
+			if storeImportAllowed(file, imp, allowed) {
+				continue
+			}
+			violations = append(violations, fmt.Sprintf("%s imports %s outside store boundary", file.RelPath, imp))
+		}
+	}
+	return violations
+}
+
+func storeImportAllowed(file parsedFile, imp string, allowed []string) bool {
+	if isStdlibImport(imp) {
+		return true
+	}
+	if strings.HasPrefix(imp, modulePath+"/internal/store/"+packageSuffix(file.RelPath)) {
+		return true
+	}
+	if file.RelPath == "internal/store/module.go" {
+		return storeRootModuleImportAllowed(imp)
+	}
+	if storePackageModuleImportAllowed(file.RelPath, imp) {
+		return true
+	}
+	if imp == "github.com/jackc/pgx/v5/pgtype" {
+		return true
+	}
+	return hasAllowedPrefix(imp, allowed)
+}
+
+func storeRootModuleImportAllowed(imp string) bool {
+	return imp == "go.uber.org/fx" ||
+		imp == "github.com/jackc/pgx/v5/pgxpool" ||
+		hasAllowedPrefix(imp, []string{internalPrefix("internal/store")})
+}
+
+func storePackageModuleImportAllowed(relPath, imp string) bool {
+	if filepath.Base(relPath) != "module.go" {
+		return false
+	}
+	return imp == "go.uber.org/fx" || imp == "github.com/jackc/pgx/v5/pgxpool"
+}
+
+func assertToolingRuntimeCannotImportUIStateDirectly(t *testing.T, root string) {
+	t.Helper()
+
+	dirs := existingDirs(root, "cmd/mcp-lsp", "cmd/mcp-orch", "cmd/mcp-ida", "internal/mcpserver/common")
+	if len(dirs) == 0 {
+		t.Skip("tooling runtime directories not yet created")
+	}
+	assertNoImportPrefixes(t, parseImportFiles(t, root, dirs...), []string{
+		internalPrefix("internal/uistate"),
+		internalPrefix("internal/module/uistate"),
+		internalPrefix("internal/ui/"),
+	})
+}
+
+func assertFXImportScope(t *testing.T, root string) {
+	t.Helper()
+
+	var violations []string
+	for _, file := range parseImportFiles(t, root, "internal", "cmd") {
+		if !hasImport(file.Imports, "go.uber.org/fx") {
+			continue
+		}
+		if fxImportAllowed(file.RelPath) {
+			continue
+		}
+		violations = append(violations, fmt.Sprintf("%s imports go.uber.org/fx outside an assembly entry", file.RelPath))
+	}
+	failIfViolations(t, violations)
+}
+
+func fxImportAllowed(relPath string) bool {
+	if strings.HasPrefix(relPath, "internal/app/") {
+		return true
+	}
+	if filepath.Base(relPath) == "module.go" {
+		return true
+	}
+	if strings.HasPrefix(relPath, "cmd/mcp-orch/") || strings.HasPrefix(relPath, "cmd/mcp-ida/") {
+		return true
+	}
+	if rel, ok := strings.CutPrefix(relPath, "cmd/"); ok {
+		return len(strings.Split(rel, "/")) == 2
+	}
+	return strings.HasPrefix(relPath, "cmd/mcp-lsp/") && filepath.Base(relPath) == "fx.go"
 }
 
 func assertMCPServerDependencyRules(t *testing.T, root string) {

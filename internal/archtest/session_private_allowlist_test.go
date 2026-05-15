@@ -102,6 +102,17 @@ func sessionPrivateRuntimeScopeFiles(t *testing.T, root string) []string {
 
 func sessionPrivateSafeGoLaunchesInSymbol(t *testing.T, root, rel, symbol string) []sessionPrivateRuntimeLaunch {
 	t.Helper()
+	fset, funcs := parseSessionPrivateFuncDecls(t, root, rel)
+	fn := requireSessionPrivateFunc(t, funcs, symbol, rel)
+	launches := collectSessionPrivateSafeGo(fset, symbol, fn.Body)
+	for _, helper := range calledSessionPrivateHelpers(fn.Body, funcs) {
+		launches = append(launches, collectSessionPrivateSafeGo(fset, symbol, helper.Body)...)
+	}
+	return launches
+}
+
+func parseSessionPrivateFuncDecls(t *testing.T, root, rel string) (*token.FileSet, map[string]*ast.FuncDecl) {
+	t.Helper()
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, filepath.Join(root, filepath.FromSlash(rel)), nil, 0)
 	if err != nil {
@@ -109,25 +120,35 @@ func sessionPrivateSafeGoLaunchesInSymbol(t *testing.T, root, rel, symbol string
 	}
 	funcs := map[string]*ast.FuncDecl{}
 	for _, decl := range file.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if ok && fn.Body != nil {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Body != nil {
 			funcs[funcDeclSymbol(fn)] = fn
 		}
 	}
+	return fset, funcs
+}
+
+func requireSessionPrivateFunc(t *testing.T, funcs map[string]*ast.FuncDecl, symbol, rel string) *ast.FuncDecl {
+	t.Helper()
 	fn := funcs[symbol]
 	if fn == nil {
 		t.Fatalf("symbol %s not found in %s", symbol, rel)
 	}
+	return fn
+}
+
+func collectSessionPrivateSafeGo(fset *token.FileSet, symbol string, body *ast.BlockStmt) []sessionPrivateRuntimeLaunch {
 	var launches []sessionPrivateRuntimeLaunch
-	collectSafeGo := func(body *ast.BlockStmt, enclosing string) {
-		for _, launch := range sessionPrivateLaunchesInNode(fset, enclosing, body) {
-			if launch.Kind == "safego" {
-				launches = append(launches, launch)
-			}
+	for _, launch := range sessionPrivateLaunchesInNode(fset, symbol, body) {
+		if launch.Kind == "safego" {
+			launches = append(launches, launch)
 		}
 	}
-	collectSafeGo(fn.Body, symbol)
-	ast.Inspect(fn.Body, func(n ast.Node) bool {
+	return launches
+}
+
+func calledSessionPrivateHelpers(body *ast.BlockStmt, funcs map[string]*ast.FuncDecl) []*ast.FuncDecl {
+	var helpers []*ast.FuncDecl
+	ast.Inspect(body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
 			return true
@@ -137,11 +158,11 @@ func sessionPrivateSafeGoLaunchesInSymbol(t *testing.T, root, rel, symbol string
 			return true
 		}
 		if helper := funcs[ident.Name]; helper != nil {
-			collectSafeGo(helper.Body, symbol)
+			helpers = append(helpers, helper)
 		}
 		return true
 	})
-	return launches
+	return helpers
 }
 
 func sessionPrivateRuntimeLaunchesInFile(t *testing.T, root, rel string) []sessionPrivateRuntimeLaunch {
