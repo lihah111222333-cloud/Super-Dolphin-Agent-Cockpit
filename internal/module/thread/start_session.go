@@ -354,19 +354,20 @@ func (s *service) resumeSession(ctx context.Context, req ResumeRequest) (contrac
 	}
 	sessionCtx := context.WithoutCancel(ctx)
 	return s.starter.ResumeSession(sessionCtx, dto.ResumeSessionRequest{
-		Provider:           resolvedReq.Provider,
-		AgentID:            resolvedReq.AgentID,
-		ThreadID:           resolvedReq.ThreadID,
-		ProviderThreadID:   resolvedReq.ProviderThreadID,
-		Path:               resolvedReq.Path,
-		CWD:                cwd,
-		Model:              resolvedReq.Model,
-		Effort:             resolvedReq.Effort,
-		PromptSnapshot:     toProviderPromptSnapshot(resolvedReq.PromptSnapshot),
-		ConfigOverride:     resolvedReq.ConfigOverride,
-		CodexHome:          resolvedReq.CodexHome,
-		CodexInstanceKey:   resolvedReq.CodexInstanceKey,
-		CodexModelProvider: resolvedReq.CodexModelProvider,
+		Provider:                 resolvedReq.Provider,
+		AgentID:                  resolvedReq.AgentID,
+		ThreadID:                 resolvedReq.ThreadID,
+		ProviderThreadID:         resolvedReq.ProviderThreadID,
+		Path:                     resolvedReq.Path,
+		CWD:                      cwd,
+		Model:                    resolvedReq.Model,
+		Effort:                   resolvedReq.Effort,
+		PromptSnapshot:           toProviderPromptSnapshot(resolvedReq.PromptSnapshot),
+		ConfigOverride:           resolvedReq.ConfigOverride,
+		CodexHome:                resolvedReq.CodexHome,
+		CodexInstanceKey:         resolvedReq.CodexInstanceKey,
+		CodexModelProvider:       resolvedReq.CodexModelProvider,
+		CodexDisabledNativeTools: append([]string(nil), resolvedReq.CodexDisabledNativeTools...),
 	})
 }
 
@@ -417,6 +418,7 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	req.CodexHome = util.FirstNonEmpty(req.CodexHome, state.CodexHome)
 	req.CodexInstanceKey = util.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey)
 	req.CodexModelProvider = util.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
+	req.CodexDisabledNativeTools = resolveResumeCodexDisabledNativeTools(req.CodexDisabledNativeTools, state.ConfigOverride.Runtime)
 	req = s.injectDefaultCodexIdentityForResume(req)
 	req.ConfigOverride = resolveResumeConfigOverride(req, state)
 	req.Model = resolveResumeModel(req, state)
@@ -474,6 +476,7 @@ func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeReq
 	req.CodexHome = util.FirstNonEmpty(req.CodexHome, state.CodexHome)
 	req.CodexInstanceKey = util.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey)
 	req.CodexModelProvider = util.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
+	req.CodexDisabledNativeTools = resolveResumeCodexDisabledNativeTools(req.CodexDisabledNativeTools, state.ConfigOverride.Runtime)
 	req = s.injectDefaultCodexIdentityForResume(req)
 	req.PromptSnapshot = s.resolveResumePromptSnapshot(ctx, req, state)
 	if req.ConfigOverride.Model == nil {

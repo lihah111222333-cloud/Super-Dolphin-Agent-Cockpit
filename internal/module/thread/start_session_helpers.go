@@ -127,6 +127,7 @@ func toProviderStartAssembly(assembly contract.StartAssembly) dto.StartAssembly 
 		DeveloperInstructions: strings.TrimSpace(assembly.DeveloperInstructions),
 		ResolvedSections:      toProviderResolvedSections(assembly.ResolvedSections),
 		Snapshot:              toProviderPromptSnapshot(assembly.Snapshot),
+		SuppressedTools:       append([]string(nil), assembly.SuppressedTools...),
 	}
 }
 
@@ -202,6 +203,9 @@ func buildStartSessionConfig(req StartRequest, input contract.StartInput, assemb
 	putConfigBoolMap(cfg, "sessionFlags", input.SessionFlags)
 	for _, key := range []string{"outputStyleConfig", "output_style_config"} {
 		putConfigOutputStyleConfig(cfg, key, input.OutputStyleConfig)
+	}
+	if strings.EqualFold(strings.TrimSpace(input.Provider), "codex") {
+		putConfigStrings(cfg, "codexDisabledNativeTools", assembly.SuppressedTools)
 	}
 	putConfigJSON(cfg, "sandbox", req.Sandbox)
 	for key, value := range req.Config {

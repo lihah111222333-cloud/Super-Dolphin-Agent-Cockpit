@@ -123,11 +123,36 @@ func NewDriverFactory(
 			return newDriver(logger, dispatcher, approvals, reporter, manager, pool, factory.manifestRenderer, factory.recovery, factory.currentListTools())
 		},
 		NativeTools: []contract.NativeToolDescriptor{
-			{ID: "read_file", Label: "读文件", Description: "Codex 内置读文件", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
-			{ID: "write_new_file", Label: "写新文件", Description: "Codex 内置写新文件", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
-			{ID: "apply_patch", Label: "应用补丁", Description: "Codex 内置 apply_patch 修改文件", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
-			{ID: "shell", Label: "执行命令", Description: "Codex 内置 shell 执行", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
-			{ID: "list_dir", Label: "列目录", Description: "Codex 内置列目录", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolReadFile, Label: "直接读项目文件", Description: "绕过项目文件工具直接读取文件。", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolWriteNewFile, Label: "直接新建文件", Description: "绕过项目文件编辑链路直接创建文件。", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolApplyPatch, Label: "直接改文件", Description: "绕过项目文件编辑链路直接修改文件。", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolShell, Label: "直接执行命令", Description: "绕过项目命令治理直接执行本地命令。", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolListDir, Label: "直接列目录", Description: "绕过项目文件工具直接读取目录。", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolMultiAgent, Label: "自行编排子任务", Description: "让 Codex 自己创建和管理子任务；本项目已有任务编排。", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolMultiToolParallel, Label: "同时使用多个工具", Description: "让 Codex 一次使用多个内置工具；本项目已有工具调度。", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolSpawnAgent, Label: "创建子任务", Description: "让 Codex 自己创建子任务；本项目已有任务编排。", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolSendInput, Label: "给子任务发消息", Description: "绕过项目任务消息流直接给子任务发送输入。", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolResumeAgent, Label: "恢复子任务", Description: "绕过项目任务生命周期直接恢复子任务。", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolWaitAgent, Label: "等待子任务", Description: "绕过项目任务状态流直接等待子任务。", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolCloseAgent, Label: "关闭子任务", Description: "绕过项目任务生命周期直接关闭子任务。", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolToolSearch, Label: "自行发现工具", Description: "绕过项目工具清单自行发现可用工具。", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolWebSearch, Label: "网页搜索", Description: "让模型自行搜索网页。", DefaultDisabled: false, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolImageGen, Label: "生成图片", Description: "让模型自行生成图片。", DefaultDisabled: false, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolViewImage, Label: "查看图片", Description: "让模型自行查看本地图片。", DefaultDisabled: false, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolRequestInput, Label: "向用户提问", Description: "绕过项目对话流直接向用户发起提问。", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolRequestPerms, Label: "请求放行权限", Description: "绕过项目审批入口直接请求放行。", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolPluginInstall, Label: "请求安装插件", Description: "绕过项目插件管理入口请求安装插件。", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolListMCPResources, Label: "列出外部资源", Description: "绕过项目工具面直接读取外部资源列表。", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolListMCPResourceTemplates, Label: "列出资源模板", Description: "绕过项目工具面直接读取外部资源模板。", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolReadMCPResource, Label: "读取外部资源", Description: "绕过项目工具面直接读取外部资源内容。", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolBrowserUse, Label: "操作内置浏览器", Description: "让模型自行操作内置浏览器。", DefaultDisabled: false, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolBrowserUseExternal, Label: "操作外部浏览器", Description: "让模型自行操作外部浏览器。", DefaultDisabled: false, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolComputerUse, Label: "操作本机应用", Description: "让模型自行操作本机应用。", DefaultDisabled: false, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolWorkspaceDeps, Label: "读取运行环境", Description: "绕过项目环境入口直接读取工作区运行环境。", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolApps, Label: "使用连接器", Description: "绕过项目连接器管理直接使用连接器。", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolPlugins, Label: "使用插件", Description: "绕过项目插件管理直接使用插件。", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolGoals, Label: "自行管理目标", Description: "绕过项目任务视图自行管理目标。", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
+			{ID: contract.CodexNativeToolUpdatePlan, Label: "自行更新计划", Description: "绕过项目计划和任务视图自行更新计划。", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
 		},
 	}
 
@@ -204,7 +229,12 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	if developerInstructions != "" {
 		s.setRuntimeConfigValue("developerInstructions", developerInstructions)
 	}
-	s.setApprovalPolicy(resolveApprovalPolicy(req.Config))
+	startPolicy := codexNativeToolPolicyFromConfig(req.Config)
+	approvalPolicy := resolveApprovalPolicy(req.Config)
+	if startPolicy.RequiresReadOnlySandbox() {
+		approvalPolicy = "never"
+	}
+	s.setApprovalPolicy(approvalPolicy)
 	return d.startDynamicSession(ctx, s, req)
 }
 
@@ -246,7 +276,11 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	if developerInstructions != "" {
 		s.setRuntimeConfigValue("developerInstructions", developerInstructions)
 	}
+	if len(req.CodexDisabledNativeTools) > 0 {
+		s.setRuntimeConfigValue("codexDisabledNativeTools", append([]string(nil), req.CodexDisabledNativeTools...))
+	}
 	d.restoreApprovalPolicy(ctx, s, threadID)
+	applyResumeNativeToolRuntimePolicy(s, req.CodexDisabledNativeTools)
 	d.reportRuntime(s.agentID)
 	return s, nil
 }
@@ -324,13 +358,15 @@ func promptSnapshotInstructions(snapshot dto.PromptAssemblySnapshot) (string, st
 
 func buildThreadResumeParams(req dto.ResumeSessionRequest) threadResumeParams {
 	baseInstructions, developerInstructions := promptSnapshotInstructions(req.PromptSnapshot)
-	return threadResumeParams{
+	params := threadResumeParams{
 		Cwd:                   strings.TrimSpace(req.CWD),
 		Model:                 strings.TrimSpace(req.Model),
 		BaseInstructions:      baseInstructions,
 		DeveloperInstructions: developerInstructions,
 		Effort:                strings.TrimSpace(req.Effort),
 	}
+	codexNativeToolPolicyFromDisabled(req.CodexDisabledNativeTools).ApplyThreadResumeParams(&params)
+	return params
 }
 
 func configJSON(cfg map[string]any, key string) json.RawMessage {

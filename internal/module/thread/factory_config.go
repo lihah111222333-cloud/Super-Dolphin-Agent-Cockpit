@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -137,6 +138,50 @@ func buildOfflineRuntimeConfig(stored storedThreadConfig, thread *threadstore.Th
 		cfg["model"] = model
 	}
 	return cfg
+}
+
+func resolveResumeCodexDisabledNativeTools(current []string, runtime map[string]any) []string {
+	if len(current) > 0 {
+		return append([]string(nil), current...)
+	}
+	return codexDisabledNativeToolsFromRuntime(runtime)
+}
+
+func codexDisabledNativeToolsFromRuntime(runtime map[string]any) []string {
+	if len(runtime) == 0 {
+		return nil
+	}
+	return cleanResumeStringList(runtime["codexDisabledNativeTools"])
+}
+
+func cleanResumeStringList(value any) []string {
+	var raw []string
+	switch typed := value.(type) {
+	case []string:
+		raw = typed
+	case []any:
+		raw = make([]string, 0, len(typed))
+		for _, item := range typed {
+			if text, ok := item.(string); ok {
+				raw = append(raw, text)
+			}
+		}
+	default:
+		return nil
+	}
+	seen := make(map[string]struct{}, len(raw))
+	for _, item := range raw {
+		text := strings.TrimSpace(item)
+		if text != "" {
+			seen[text] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for item := range seen {
+		out = append(out, item)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func offlineThreadProvider(binding *bindingstore.Binding) string {

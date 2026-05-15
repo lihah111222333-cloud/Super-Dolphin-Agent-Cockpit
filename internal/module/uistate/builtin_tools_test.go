@@ -129,12 +129,58 @@ func TestResolveDisabledBuiltinToolsHonorsExplicitEmptyOverride(t *testing.T) {
 	}
 }
 
+func TestResolveDisabledBuiltinToolsMergesDefaultsForLegacyStoredSet(t *testing.T) {
+	t.Parallel()
+	prefs := &uiPreferenceStoreStub{values: map[string]json.RawMessage{
+		preferenceStubKey("/repo", builtinToolsDisabledKey): json.RawMessage(`["shell"]`),
+	}}
+	got := ResolveDisabledBuiltinTools(context.Background(), prefs, "/repo", testNativeTools, testNativeToolIndex)
+	want := []string{"Bash", "Read", "Write", "shell"}
+	if !equalSortedStrings(got, want) {
+		t.Fatalf("ResolveDisabledBuiltinTools(legacy prefs) = %#v, want %#v", got, want)
+	}
+}
+
+func TestResolveDisabledBuiltinToolsRespectsKnownEnabledDefaults(t *testing.T) {
+	t.Parallel()
+	prefs := &uiPreferenceStoreStub{values: map[string]json.RawMessage{
+		preferenceStubKey("/repo", builtinToolsDisabledKey): json.RawMessage(`["shell"]`),
+		preferenceStubKey("/repo", builtinToolsKnownIDsKey): json.RawMessage(`["Bash","shell"]`),
+	}}
+	got := ResolveDisabledBuiltinTools(context.Background(), prefs, "/repo", testNativeTools, testNativeToolIndex)
+	want := []string{"Read", "Write", "shell"}
+	if !equalSortedStrings(got, want) {
+		t.Fatalf("ResolveDisabledBuiltinTools(known prefs) = %#v, want %#v", got, want)
+	}
+}
+
 func TestResolveSoftFilteredBuiltinToolsReturnsOnlySoftTools(t *testing.T) {
 	t.Parallel()
 	got := ResolveSoftFilteredBuiltinTools(context.Background(), nil, "/repo", testNativeTools, testNativeToolIndex)
 	want := []string{"shell"}
 	if !equalSortedStrings(got, want) {
 		t.Fatalf("ResolveSoftFilteredBuiltinTools(nil prefs) = %#v, want %#v", got, want)
+	}
+}
+
+func TestBuiltinToolsReadReturnsEnforcementTier(t *testing.T) {
+	t.Parallel()
+	prefs := &uiPreferenceStoreStub{}
+	res, err := readBuiltinTools(context.Background(), prefs, nil, testNativeTools, testNativeToolIndex, "/repo")
+	if err != nil {
+		t.Fatalf("readBuiltinTools error = %v", err)
+	}
+	want := map[string]string{
+		"Read":     string(contract.NativeToolEnforcementNativeHard),
+		"Write":    string(contract.NativeToolEnforcementNativeHard),
+		"Bash":     string(contract.NativeToolEnforcementNativeHard),
+		"WebFetch": "",
+		"shell":    string(contract.NativeToolEnforcementNativeHard),
+	}
+	for _, view := range res.Tools {
+		if view.Enforcement != want[view.ID] {
+			t.Fatalf("tool %q Enforcement = %q, want %q", view.ID, view.Enforcement, want[view.ID])
+		}
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -42,6 +43,32 @@ func TestNewDriverUsesEnvServerURLAndName(t *testing.T) {
 	}
 	if got.Name() != "codex" {
 		t.Fatalf("Name() = %q, want codex", got.Name())
+	}
+}
+
+func TestCodexNativeToolPolicyMapsDisabledToolsToProcessFlags(t *testing.T) {
+	policy := codexNativeToolPolicyFromConfig(map[string]any{
+		codexDisabledNativeToolsConfigKey: []any{"write_new_file", "shell", "apply_patch"},
+	})
+	wantArgs := []string{"--disable", "shell_tool", "--disable", "unified_exec"}
+	if got := policy.AppServerArgs(); !reflect.DeepEqual(got, wantArgs) {
+		t.Fatalf("AppServerArgs = %#v, want %#v", got, wantArgs)
+	}
+	if tier := policy.Tier(contract.CodexNativeToolApplyPatch); tier != contract.NativeToolEnforcementNativeHard {
+		t.Fatalf("apply_patch tier = %q, want native hard", tier)
+	}
+}
+
+func TestCodexNativeToolPolicyUsesReadOnlySandboxForPartialWriteDisable(t *testing.T) {
+	params := threadStartParams{}
+	codexNativeToolPolicyFromConfig(map[string]any{
+		codexDisabledNativeToolsConfigKey: []string{"apply_patch"},
+	}).ApplyThreadStartParams(&params)
+	if params.ApprovalPolicy != "never" {
+		t.Fatalf("ApprovalPolicy = %q, want never", params.ApprovalPolicy)
+	}
+	if string(params.Sandbox) != `{"mode":"read-only"}` {
+		t.Fatalf("Sandbox = %s, want read-only object", string(params.Sandbox))
 	}
 }
 

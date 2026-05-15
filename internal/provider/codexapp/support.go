@@ -316,7 +316,7 @@ func resolveApprovalPolicy(cfg map[string]any) string {
 
 func (d *driver) buildThreadStartParams(req dto.StartSessionRequest) threadStartParams {
 	baseInstructions, developerInstructions := d.startAssemblyInstructions(req)
-	return threadStartParams{
+	params := threadStartParams{
 		Cwd:                   strings.TrimSpace(req.CWD),
 		Model:                 strings.TrimSpace(req.Model),
 		ModelProvider:         configString(req.Config, "modelProvider"),
@@ -328,6 +328,8 @@ func (d *driver) buildThreadStartParams(req dto.StartSessionRequest) threadStart
 		Effort:                configString(req.Config, "effort"),
 		Sandbox:               configJSON(req.Config, "sandbox"),
 	}
+	codexNativeToolPolicyFromConfig(req.Config).ApplyThreadStartParams(&params)
+	return params
 }
 
 func (d *driver) startDynamicSession(ctx context.Context, s *session, req dto.StartSessionRequest) (contract.Session, error) {

@@ -2,14 +2,17 @@ package codexapp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 )
@@ -37,8 +40,9 @@ const poolRoutingEnvVar = "CODEXAPP_USE_POOL"
 //     ErrSpawnBackoff is surfaced to the caller so retry pressure is
 //     visible at the StartSession seam.
 func (d *driver) resolveSessionOptions(ctx context.Context, req dto.StartSessionRequest) ([]sessionOption, error) {
+	policy := codexNativeToolPolicyFromConfig(req.Config)
 	if d == nil || d.pool == nil {
-		return []sessionOption(nil), nil
+		return legacySessionOptionsForNativeToolPolicy(policy)
 	}
 	identity, err := providershared.ResolveCodexIdentity(req.Config)
 	enabled, strict := poolRoutingDecision()
@@ -46,7 +50,7 @@ func (d *driver) resolveSessionOptions(ctx context.Context, req dto.StartSession
 		if err != nil {
 			d.warnLegacyIdentityFallback(req.AgentID, err)
 		}
-		return []sessionOption(nil), nil
+		return legacySessionOptionsForNativeToolPolicy(policy)
 	}
 	if err != nil {
 		if !strict {
@@ -57,7 +61,8 @@ func (d *driver) resolveSessionOptions(ctx context.Context, req dto.StartSession
 	}
 	owner := strings.TrimSpace(req.AgentID)
 	workDir := strings.TrimSpace(req.CWD)
-	server, release, acquireErr := d.pool.Acquire(withPoolSpawnWorkDir(ctx, workDir), identity, owner)
+	spawnCtx := withPoolSpawnNativeToolPolicy(withPoolSpawnWorkDir(ctx, workDir), policy)
+	server, release, acquireErr := d.pool.Acquire(spawnCtx, identity, owner)
 	if acquireErr != nil {
 		return nil, acquireErr
 	}
@@ -79,6 +84,13 @@ func (d *driver) resolveSessionOptions(ctx context.Context, req dto.StartSession
 	return []sessionOption{withPoolServer(url, release)}, nil
 }
 
+func legacySessionOptionsForNativeToolPolicy(policy codexNativeToolPolicy) ([]sessionOption, error) {
+	if policy.HasProcessFlags() {
+		return nil, errors.New("codexapp: native tool policy requires pool-backed app-server")
+	}
+	return []sessionOption(nil), nil
+}
+
 func canonicalStartRuntimeConfig(config map[string]any) map[string]any {
 	if len(config) == 0 {
 		return nil
@@ -96,12 +108,13 @@ func canonicalStartRuntimeConfig(config map[string]any) map[string]any {
 }
 
 func (d *driver) resolveResumeOptions(ctx context.Context, req dto.ResumeSessionRequest) ([]sessionOption, error) {
+	policy := codexNativeToolPolicyFromDisabled(req.CodexDisabledNativeTools)
 	if d == nil || d.pool == nil {
-		return []sessionOption(nil), nil
+		return legacySessionOptionsForNativeToolPolicy(policy)
 	}
 	enabled, strict := poolRoutingDecision()
 	if !enabled {
-		return []sessionOption(nil), nil
+		return legacySessionOptionsForNativeToolPolicy(policy)
 	}
 	identity, ok := resumeIdentity(req)
 	if !ok {
@@ -113,7 +126,8 @@ func (d *driver) resolveResumeOptions(ctx context.Context, req dto.ResumeSession
 	}
 	owner := strings.TrimSpace(req.AgentID)
 	workDir := strings.TrimSpace(req.CWD)
-	server, release, err := d.pool.Acquire(withPoolSpawnWorkDir(ctx, workDir), identity, owner)
+	spawnCtx := withPoolSpawnNativeToolPolicy(withPoolSpawnWorkDir(ctx, workDir), policy)
+	server, release, err := d.pool.Acquire(spawnCtx, identity, owner)
 	if err != nil {
 		return nil, err
 	}
@@ -175,4 +189,112 @@ func poolRoutingDecision() (enabled bool, strict bool) {
 		return false, false
 	}
 	return enabled, enabled
+}
+
+const codexDisabledNativeToolsConfigKey = "codexDisabledNativeTools"
+
+type codexNativeToolPolicy struct {
+	contract.CodexNativeToolPolicy
+}
+
+func codexNativeToolPolicyFromConfig(cfg map[string]any) codexNativeToolPolicy {
+	return codexNativeToolPolicy{CodexNativeToolPolicy: contract.NewCodexNativeToolPolicy(codexDisabledNativeToolIDs(cfg))}
+}
+
+func codexNativeToolPolicyFromDisabled(ids []string) codexNativeToolPolicy {
+	return codexNativeToolPolicy{CodexNativeToolPolicy: contract.NewCodexNativeToolPolicy(cleanCodexNativeToolIDs(ids))}
+}
+
+func codexDisabledNativeToolIDs(cfg map[string]any) []string {
+	if len(cfg) == 0 {
+		return nil
+	}
+	return cleanCodexNativeToolIDs(rawStringList(cfg[codexDisabledNativeToolsConfigKey]))
+}
+
+func rawStringList(value any) []string {
+	switch v := value.(type) {
+	case []string:
+		return append([]string(nil), v...)
+	case []any:
+		return stringListFromAny(v)
+	case string:
+		return []string{v}
+	default:
+		return nil
+	}
+}
+
+func stringListFromAny(values []any) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		text, _ := value.(string)
+		out = append(out, text)
+	}
+	return out
+}
+
+func cleanCodexNativeToolIDs(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		id := strings.TrimSpace(value)
+		if id != "" {
+			seen[id] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for id := range seen {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (p codexNativeToolPolicy) ApplyThreadStartParams(params *threadStartParams) {
+	if params == nil || !p.RequiresReadOnlySandbox() {
+		return
+	}
+	params.Sandbox = codexReadOnlySandbox(params.Sandbox)
+	params.ApprovalPolicy = "never"
+}
+
+func (p codexNativeToolPolicy) ApplyThreadResumeParams(params *threadResumeParams) {
+	if params == nil || !p.RequiresReadOnlySandbox() {
+		return
+	}
+	params.Sandbox = "read-only"
+	params.ApprovalPolicy = "never"
+}
+
+func applyResumeNativeToolRuntimePolicy(s *session, disabled []string) {
+	if s == nil || !codexNativeToolPolicyFromDisabled(disabled).RequiresReadOnlySandbox() {
+		return
+	}
+	s.setApprovalPolicy("never")
+	s.setRuntimeConfigValue("approvalPolicy", "never")
+	s.setRuntimeConfigValue("sandbox", "read-only")
+}
+
+func codexReadOnlySandbox(raw json.RawMessage) json.RawMessage {
+	if codexSandboxIsReadOnly(raw) {
+		return append(json.RawMessage(nil), raw...)
+	}
+	return json.RawMessage(`{"mode":"read-only"}`)
+}
+
+func codexSandboxIsReadOnly(raw json.RawMessage) bool {
+	raw = json.RawMessage(strings.TrimSpace(string(raw)))
+	if len(raw) == 0 {
+		return false
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return strings.EqualFold(strings.TrimSpace(text), "read-only")
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return false
+	}
+	mode, _ := obj["mode"].(string)
+	return strings.EqualFold(strings.TrimSpace(mode), "read-only")
 }

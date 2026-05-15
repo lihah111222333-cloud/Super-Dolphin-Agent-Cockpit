@@ -94,6 +94,7 @@ type poolEntryKey struct {
 	home          string
 	instanceKey   string
 	modelProvider string
+	processPolicy string
 	ownerKey      string
 }
 
@@ -149,7 +150,13 @@ func (p *ServerPool) Acquire(ctx context.Context, identity providershared.CodexI
 	if ownerKey == "" {
 		return nil, noopRelease, fmt.Errorf("%w: pool owner agentID is empty", ErrInvalidIdentity)
 	}
-	entryKey := poolEntryKey{home: home, instanceKey: key, modelProvider: provider, ownerKey: ownerKey}
+	entryKey := poolEntryKey{
+		home:          home,
+		instanceKey:   key,
+		modelProvider: provider,
+		processPolicy: poolSpawnPolicySignature(ctx),
+		ownerKey:      ownerKey,
+	}
 	p.mu.Lock()
 	fastPath := p.acquireFastPathLocked(entryKey)
 	if fastPath.done {

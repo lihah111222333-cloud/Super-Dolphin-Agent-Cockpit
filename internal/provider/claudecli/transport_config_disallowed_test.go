@@ -5,12 +5,12 @@ import (
 	"testing"
 )
 
-func TestBuildCLIArgsUsesLegacyDisallowedListByDefault(t *testing.T) {
+func TestBuildCLIArgsUsesDefaultDisabledNativeToolsByDefault(t *testing.T) {
 	t.Parallel()
 
 	args := buildCLIArgs("claude-sonnet", "system", "/tmp/mcp.json", cliLaunchConfig{})
 	got := flagValues(args, "--disallowedTools")
-	want := []string{"Read,Write,Edit,MultiEdit,Bash,Grep,Glob,LS"}
+	want := []string{"Read,Write,Edit,MultiEdit,Bash,BashOutput,KillShell,Grep,Glob,LS,Agent,AskUserQuestion,CronCreate,CronDelete,CronList,EnterPlanMode,ExitPlanMode,EnterWorktree,ExitWorktree,TodoWrite,ListMcpResources,ReadMcpResource,PushNotification,RemoteTrigger,ScheduleWakeup,SendUserFile,SendUserMessage,SendMessage,Skill,Task,TaskCreate,TaskGet,TaskList,TaskOutput,TaskStop,TaskUpdate,TeamCreate,TeamDelete,ToolSearch,WaitForMcpServers,ShareOnboardingGuide"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("--disallowedTools = %#v, want %#v", got, want)
 	}
@@ -69,14 +69,16 @@ func TestBuildCLIArgsSkipsDisallowedFlagWhenOverrideExplicitlyEmpty(t *testing.T
 	}
 }
 
-func TestBuildCLIArgsOmitsDisallowedFlagWhenNoMCPConfig(t *testing.T) {
+func TestBuildCLIArgsKeepsHardFilterWhenNoMCPConfig(t *testing.T) {
 	t.Parallel()
 
 	args := buildCLIArgs("claude-sonnet", "system", "", cliLaunchConfig{
 		DisallowedTools: []string{"Read"},
 	})
-	if got := flagValues(args, "--disallowedTools"); len(got) != 0 {
-		t.Fatalf("--disallowedTools without --mcp-config = %#v, want none", got)
+	got := flagValues(args, "--disallowedTools")
+	want := []string{"Read"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("--disallowedTools without --mcp-config = %#v, want %#v", got, want)
 	}
 }
 

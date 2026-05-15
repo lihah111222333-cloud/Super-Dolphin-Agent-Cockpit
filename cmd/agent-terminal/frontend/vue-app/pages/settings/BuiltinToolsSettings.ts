@@ -4,7 +4,7 @@ import { useSettingsScope } from './useSettingsScope.ts';
 
 type BuiltinToolsProjectStore = { state?: { active?: string } } | null;
 type BuiltinToolsSettingsProps = { projectStore?: BuiltinToolsProjectStore };
-type BuiltinToolView = { id: string; label: string; description?: string; enabled: boolean; provider?: string; replacedBy?: string; filterMode?: string };
+type BuiltinToolView = { id: string; label: string; description?: string; enabled: boolean; provider?: string; replacedBy?: string; filterMode?: string; enforcement?: string };
 type BuiltinToolsReadResult = { tools?: BuiltinToolView[] };
 type BuiltinToolsNoticeState = { level: string; message: string };
 type BuiltinToolGroup = {
@@ -18,9 +18,28 @@ type BuiltinToolGroup = {
 
 // PROVIDER_LABELS gives each provider a short Chinese display name.
 const PROVIDER_LABELS: Record<string, string> = {
-  claude: 'Claude 内置工具',
-  codex: 'Codex 内置工具',
+  claude: 'Claude',
+  codex: 'Codex',
 };
+
+const ENFORCEMENT_LABELS: Record<string, string> = {
+  'native-hard': '启动前已关闭',
+  'effect-hard': '已限制为只读',
+  'soft-audit': '仅提醒使用项目工具',
+};
+
+const GROUP_NOTES: Record<string, string> = {
+  'native-hard': '模型启动前就看不到这些能力。',
+  'effect-hard': 'Codex 暂不支持单独关闭这类能力，已限制为只读，避免它直接改文件或执行命令。',
+  'soft-audit': 'Codex 暂不支持可靠关闭这类能力，只能提示模型优先使用本项目工具；这不是强制拦截。',
+};
+
+function enforcementBucket(tool: BuiltinToolView): string {
+  const enforcement = (tool.enforcement || '').toString().trim();
+  if (enforcement) return enforcement;
+  if (tool.filterMode === 'hard') return 'native-hard';
+  return 'soft-audit';
+}
 
 function setupBuiltinToolsSettings(props: BuiltinToolsSettingsProps) {
   const tools = ref([]) as { value: BuiltinToolView[] };
@@ -42,57 +61,76 @@ function setupBuiltinToolsSettings(props: BuiltinToolsSettingsProps) {
       label: (item.label || item.id || '').toString(),
       description: (item.description || '').toString(),
       enabled: Boolean(item.enabled),
-      provider: (item.provider || 'claude').toString(),
-      replacedBy: item.replacedBy ? (item.replacedBy || '').toString() : undefined,
-      filterMode: (item.filterMode || '').toString() || undefined,
-    }));
-  }
+	      provider: (item.provider || 'claude').toString(),
+	      replacedBy: item.replacedBy ? (item.replacedBy || '').toString() : undefined,
+	      filterMode: (item.filterMode || '').toString() || undefined,
+	      enforcement: (item.enforcement || '').toString() || undefined,
+	    }));
+	  }
 
-  // groups splits tools into three filter-mode buckets:
-  //   hard       — disabled tools whose filterMode is "hard" (blocked at CLI startup)
-  //   soft       — disabled tools whose filterMode is "soft" (suppressed via prompt)
-  //   unfiltered — enabled tools (not yet filtered)
-  const groups = computed<BuiltinToolGroup[]>(() => {
-    const disabled = tools.value.filter((t) => !t.enabled || t.replacedBy);
-    const hardDisabled = disabled.filter((t) => t.filterMode === 'hard');
-    const softDisabled = disabled.filter((t) => t.filterMode !== 'hard');
-    const notFiltered = tools.value.filter((t) => t.enabled && !t.replacedBy);
+	  function pushGroup(result: BuiltinToolGroup[], key: string, label: string, items: BuiltinToolView[], note?: string): void {
+	    if (items.length === 0) return;
+	    result.push({
+	      key,
+	      label: `${label}（${items.length}）`,
+	      tools: items,
+	      note,
+	      disabledCount: items.length,
+	      canToggle: true,
+	    });
+	  }
 
-    const result: BuiltinToolGroup[] = [];
+	  // groups splits tools by the actual backend enforcement tier, not only by
+	  // the provider-declared filterMode. Codex can be native-hard, effect-hard,
+	  // or soft-audit depending on the disabled tool combination.
+	  const groups = computed<BuiltinToolGroup[]>(() => {
+	    const disabled = tools.value.filter((t) => !t.enabled || t.replacedBy);
+	    const nativeHard = disabled.filter((t) => enforcementBucket(t) === 'native-hard');
+	    const effectHard = disabled.filter((t) => enforcementBucket(t) === 'effect-hard');
+	    const softAudit = disabled.filter((t) => enforcementBucket(t) === 'soft-audit');
+	    const notFiltered = tools.value.filter((t) => t.enabled && !t.replacedBy);
 
-    if (hardDisabled.length > 0) {
-      result.push({
-        key: 'hard',
-        label: `启动时过滤（${hardDisabled.length}）—— CLI 启动参数直接屏蔽`,
-        tools: hardDisabled,
-        disabledCount: hardDisabled.length,
-        canToggle: true,
-      });
-    }
-    if (softDisabled.length > 0) {
-      result.push({
-        key: 'soft',
-        label: `软过滤提示（${softDisabled.length}）—— 通过 prompt 指令抑制`,
-        tools: softDisabled,
-        disabledCount: softDisabled.length,
-        canToggle: true,
-      });
-    }
-    if (notFiltered.length > 0) {
-      result.push({
-        key: 'unfiltered',
-        label: `未过滤（${notFiltered.length}）`,
-        tools: notFiltered,
-        disabledCount: 0,
-        canToggle: true,
+	    const result: BuiltinToolGroup[] = [];
+
+	    pushGroup(result, 'native-hard', ENFORCEMENT_LABELS['native-hard'], nativeHard, GROUP_NOTES['native-hard']);
+	    pushGroup(result, 'effect-hard', ENFORCEMENT_LABELS['effect-hard'], effectHard, GROUP_NOTES['effect-hard']);
+	    pushGroup(result, 'soft-audit', ENFORCEMENT_LABELS['soft-audit'], softAudit, GROUP_NOTES['soft-audit']);
+	    if (notFiltered.length > 0) {
+	      result.push({
+	        key: 'unfiltered',
+	        label: `保持可用（${notFiltered.length}）`,
+	        tools: notFiltered,
+	        disabledCount: 0,
+	        canToggle: true,
       });
     }
 
     return result;
   });
 
-  const filteredCount = computed(() => tools.value.filter((t) => t.replacedBy || !t.enabled).length);
-  const totalToolCount = computed(() => tools.value.length);
+	  const filteredCount = computed(() => tools.value.filter((t) => t.replacedBy || !t.enabled).length);
+	  const totalToolCount = computed(() => tools.value.length);
+
+	  function groupSummary(group: BuiltinToolGroup): string {
+	    if (group.key === 'unfiltered') return `可用 ${group.tools.length} 项`;
+	    return `已管控 ${group.disabledCount} 项`;
+	  }
+
+	  function toolStatusLabel(tool: BuiltinToolView): string {
+	    if (tool.replacedBy) return '已由项目工具接管';
+	    if (tool.enabled) return '保持可用';
+	    return ENFORCEMENT_LABELS[enforcementBucket(tool)] || '已管控';
+	  }
+
+	  function toolMetaText(tool: BuiltinToolView): string {
+	    const parts: string[] = [];
+	    const description = (tool.description || '').toString().trim();
+	    if (description) parts.push(description);
+	    const provider = PROVIDER_LABELS[(tool.provider || '').toString()] || (tool.provider || '').toString().trim();
+	    if (provider) parts.push(provider);
+	    parts.push(toolStatusLabel(tool));
+	    return parts.join(' · ');
+	  }
 
   function toggleGroupExpanded(provider: string): void {
     if (!provider) return;
@@ -164,11 +202,13 @@ function setupBuiltinToolsSettings(props: BuiltinToolsSettingsProps) {
     expanded,
     notice,
     loadBuiltinTools,
-    toggleBuiltinTool,
-    toggleGroupExpanded,
-    isGroupExpanded,
-  };
-}
+	    toggleBuiltinTool,
+	    toggleGroupExpanded,
+	    isGroupExpanded,
+	    groupSummary,
+	    toolMetaText,
+	  };
+	}
 
 export const BuiltinToolsSettings = {
   name: 'BuiltinToolsSettings',
@@ -177,16 +217,16 @@ export const BuiltinToolsSettings = {
   },
   setup: setupBuiltinToolsSettings,
   template: `
-    <div class="section-header">原生工具过滤</div>
-    <div class="data-card-vue" data-testid="settings-builtin-tools-card">
-      <div class="data-row-vue">
-        <strong>原生工具过滤</strong>
-        <span data-testid="settings-builtin-tools-summary">
-          {{ loading ? '加载中...' : '已过滤 ' + filteredCount + ' / ' + totalToolCount }}
-        </span>
-      </div>
-      <div class="settings-prompt-desc">
-        过滤底层 CLI 原生工具
+	    <div class="section-header">模型内置能力</div>
+	    <div class="data-card-vue" data-testid="settings-builtin-tools-card">
+	      <div class="data-row-vue">
+	        <strong>内置能力开关</strong>
+	        <span data-testid="settings-builtin-tools-summary">
+	          {{ loading ? '加载中...' : '已管控 ' + filteredCount + ' / ' + totalToolCount }}
+	        </span>
+	      </div>
+	      <div class="settings-prompt-desc">
+	        默认管控与本项目文件、命令、编排、计划、权限、插件管理重复，或会绕过项目治理的能力。
       </div>
 
       <div v-if="tools.length === 0 && !loading" class="settings-log-empty" data-testid="settings-builtin-tools-empty">
@@ -207,11 +247,10 @@ export const BuiltinToolsSettings = {
             @click="toggleGroupExpanded(group.key)"
           >
             <span class="settings-builtin-tool-group-chevron" :class="{ 'is-open': isGroupExpanded(group.key) }">▸</span>
-            <span class="settings-builtin-tool-group-name">{{ group.label }}</span>
-            <span class="settings-builtin-tool-group-summary">
-              <template v-if="group.tools.length > 0">已过滤 {{ group.disabledCount }} / {{ group.tools.length }}</template>
-              <template v-else>仅说明</template>
-            </span>
+	            <span class="settings-builtin-tool-group-name">{{ group.label }}</span>
+	            <span class="settings-builtin-tool-group-summary">
+	              {{ groupSummary(group) }}
+	            </span>
           </button>
           <div v-if="isGroupExpanded(group.key)" class="settings-builtin-tool-group-body">
             <p v-if="group.note" class="settings-builtin-tool-group-note" :data-testid="'settings-builtin-tool-group-note-' + group.key">
@@ -224,12 +263,12 @@ export const BuiltinToolsSettings = {
               :class="{ 'is-disabled-tool': !tool.enabled || tool.replacedBy }"
               :data-testid="'settings-builtin-tool-' + tool.id"
             >
-              <div class="settings-prompt-toggle-copy">
-                <span class="settings-prompt-toggle-title">{{ tool.label }}</span>
-                <span class="settings-prompt-toggle-desc">
-{{ tool.description || tool.id }}<span v-if="tool.description" class="settings-builtin-tool-id"> · {{ tool.id }}</span><span v-if="tool.provider" class="settings-builtin-tool-provider"> [{{ tool.provider }}]</span><span v-if="tool.filterMode" class="settings-builtin-tool-filter-mode"> [{{ tool.filterMode }}]</span><span v-if="tool.replacedBy" class="settings-builtin-tool-replaced"> ← {{ tool.replacedBy }}</span>
-                </span>
-              </div>
+	              <div class="settings-prompt-toggle-copy">
+	                <span class="settings-prompt-toggle-title">{{ tool.label }}</span>
+	                <span class="settings-prompt-toggle-desc">
+	                  {{ toolMetaText(tool) }}
+	                </span>
+	              </div>
               <input
                 type="checkbox"
                 class="settings-prompt-toggle-input"

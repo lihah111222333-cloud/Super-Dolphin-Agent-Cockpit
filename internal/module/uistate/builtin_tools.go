@@ -14,6 +14,7 @@ import (
 // disabled set for the upstream Claude CLI built-in tools. Persisted as a JSON
 // string array of canonical tool IDs.
 const builtinToolsDisabledKey = "config/builtinTools.disabled"
+const builtinToolsKnownIDsKey = "config/builtinTools.knownIDs"
 
 // errUnknownBuiltinTool is returned by the RPC write handler when the caller
 // supplies an ID that is not part of the registry.
@@ -28,6 +29,7 @@ type BuiltinToolView struct {
 	Provider    string `json:"provider,omitempty"`
 	ReplacedBy  string `json:"replacedBy,omitempty"`
 	FilterMode  string `json:"filterMode,omitempty"`
+	Enforcement string `json:"enforcement,omitempty"`
 }
 
 // builtinToolsReadResult is the payload returned from config/builtinTools/read.
@@ -61,6 +63,8 @@ func readBuiltinTools(ctx context.Context, prefs uipreference.Store, store contr
 	if err != nil {
 		return nil, err
 	}
+	filtered := filteredBuiltinToolSet(disabled, replaced)
+	codexPolicy := contract.NewCodexNativeToolPolicy(setKeys(filtered))
 	tools := make([]BuiltinToolView, 0, len(registry))
 	for _, item := range registry {
 		skillName := replaced[item.ID]
@@ -73,9 +77,49 @@ func readBuiltinTools(ctx context.Context, prefs uipreference.Store, store contr
 			Provider:    item.Provider,
 			ReplacedBy:  skillName,
 			FilterMode:  string(item.FilterMode),
+			Enforcement: builtinToolEnforcement(item, filtered, codexPolicy),
 		})
 	}
 	return &builtinToolsReadResult{Tools: tools}, nil
+}
+
+func filteredBuiltinToolSet(disabled map[string]struct{}, replaced map[string]string) map[string]struct{} {
+	out := make(map[string]struct{}, len(disabled)+len(replaced))
+	for id := range disabled {
+		out[id] = struct{}{}
+	}
+	for id, skill := range replaced {
+		if strings.TrimSpace(skill) != "" {
+			out[id] = struct{}{}
+		}
+	}
+	return out
+}
+
+func builtinToolEnforcement(item contract.NativeToolDescriptor, filtered map[string]struct{}, codexPolicy contract.CodexNativeToolPolicy) string {
+	if _, ok := filtered[item.ID]; !ok {
+		return ""
+	}
+	if strings.EqualFold(strings.TrimSpace(item.Provider), "codex") {
+		return string(codexPolicy.Tier(item.ID))
+	}
+	switch item.FilterMode {
+	case contract.NativeToolFilterModeHard:
+		return string(contract.NativeToolEnforcementNativeHard)
+	case contract.NativeToolFilterModeSoft:
+		return string(contract.NativeToolEnforcementSoftAudit)
+	default:
+		return ""
+	}
+}
+
+func setKeys(set map[string]struct{}) []string {
+	out := make([]string, 0, len(set))
+	for id := range set {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // aggregateReplacementSources 返回 map[toolName]skillName，记录每个被替代工具
@@ -118,6 +162,9 @@ func writeBuiltinTool(ctx context.Context, prefs uipreference.Store, store contr
 		current[id] = struct{}{}
 	}
 	if err := storeDisabledBuiltinToolSet(ctx, prefs, p.Cwd, current); err != nil {
+		return nil, err
+	}
+	if err := storeKnownBuiltinToolSet(ctx, prefs, p.Cwd, registry); err != nil {
 		return nil, err
 	}
 	return readBuiltinTools(ctx, prefs, store, registry, index, p.Cwd)
@@ -197,7 +244,14 @@ func effectiveDisabledBuiltinToolSet(ctx context.Context, prefs uipreference.Sto
 	if !present {
 		return defaultDisabledBuiltinToolSet(registry), nil
 	}
-	return stored, nil
+	if len(stored) == 0 {
+		return stored, nil
+	}
+	known, knownPresent, err := loadStoredBuiltinToolKnownSet(ctx, prefs, cwd, index)
+	if err != nil {
+		return nil, err
+	}
+	return mergeNewDefaultDisabledTools(stored, known, knownPresent, registry), nil
 }
 
 // defaultDisabledBuiltinToolSet returns a fresh copy of the descriptor
@@ -255,4 +309,66 @@ func storeDisabledBuiltinToolSet(ctx context.Context, prefs uipreference.Store, 
 	}
 	sort.Strings(ids)
 	return storePreference(ctx, prefs, strings.TrimSpace(cwd), builtinToolsDisabledKey, ids)
+}
+
+func loadStoredBuiltinToolKnownSet(ctx context.Context, prefs uipreference.Store, cwd string, index map[string]contract.NativeToolDescriptor) (map[string]struct{}, bool, error) {
+	if prefs == nil {
+		return nil, false, nil
+	}
+	raw, err := prefs.GetValue(ctx, strings.TrimSpace(cwd), builtinToolsKnownIDsKey)
+	switch {
+	case err == nil:
+	case contract.IsNotFound(err):
+		return nil, false, nil
+	default:
+		return nil, false, err
+	}
+	value := decodePreferenceValue(raw)
+	ids, ok := value.([]any)
+	if !ok {
+		return nil, false, nil
+	}
+	out := make(map[string]struct{}, len(ids))
+	for _, entry := range ids {
+		id, _ := entry.(string)
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, known := index[id]; !known {
+			continue
+		}
+		out[id] = struct{}{}
+	}
+	return out, true, nil
+}
+
+func mergeNewDefaultDisabledTools(stored map[string]struct{}, known map[string]struct{}, knownPresent bool, registry []contract.NativeToolDescriptor) map[string]struct{} {
+	out := make(map[string]struct{}, len(stored)+len(registry))
+	for id := range stored {
+		out[id] = struct{}{}
+	}
+	for _, item := range registry {
+		if !item.DefaultDisabled {
+			continue
+		}
+		if knownPresent {
+			if _, ok := known[item.ID]; ok {
+				continue
+			}
+		}
+		out[item.ID] = struct{}{}
+	}
+	return out
+}
+
+func storeKnownBuiltinToolSet(ctx context.Context, prefs uipreference.Store, cwd string, registry []contract.NativeToolDescriptor) error {
+	ids := make([]string, 0, len(registry))
+	for _, item := range registry {
+		if strings.TrimSpace(item.ID) != "" {
+			ids = append(ids, item.ID)
+		}
+	}
+	sort.Strings(ids)
+	return storePreference(ctx, prefs, strings.TrimSpace(cwd), builtinToolsKnownIDsKey, ids)
 }

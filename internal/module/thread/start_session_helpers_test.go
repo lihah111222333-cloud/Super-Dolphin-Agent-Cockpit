@@ -1,6 +1,7 @@
 package thread
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -74,6 +75,30 @@ func TestBuildStartSessionConfigCarriesTurnContextFields(t *testing.T) {
 	}
 	if cfg["parentAgentId"] != "agent-root" || cfg["agentType"] != "worker" || cfg["threadKind"] != "child_agent" {
 		t.Fatalf("buildStartSessionConfig() child metadata = %#v", cfg)
+	}
+}
+
+func TestBuildStartSessionConfigCarriesCodexDisabledNativeTools(t *testing.T) {
+	cfg := buildStartSessionConfig(StartRequest{}, contract.StartInput{
+		Provider: "codex",
+	}, contract.StartAssembly{
+		SuppressedTools: []string{" apply_patch ", "", "shell"},
+	})
+	got, ok := cfg["codexDisabledNativeTools"].([]string)
+	if !ok {
+		t.Fatalf("codexDisabledNativeTools = %#v, want []string", cfg["codexDisabledNativeTools"])
+	}
+	if want := []string{"apply_patch", "shell"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("codexDisabledNativeTools = %#v, want %#v", got, want)
+	}
+
+	claudeCfg := buildStartSessionConfig(StartRequest{}, contract.StartInput{
+		Provider: "claude",
+	}, contract.StartAssembly{
+		SuppressedTools: []string{"shell"},
+	})
+	if _, exists := claudeCfg["codexDisabledNativeTools"]; exists {
+		t.Fatalf("claude config must not carry Codex policy key: %#v", claudeCfg)
 	}
 }
 

@@ -35,7 +35,10 @@ func runPoolSpawn(ctx context.Context, home string, registry *pidregistry.Regist
 	}
 	startupCtx, cancel := withTimeout(ctx, transportReadyTimeout)
 	defer cancel()
-	cmd, err := BuildPoolSpawnCmd(startupCtx, PoolSpawnArgs{Home: home})
+	cmd, err := BuildPoolSpawnCmd(startupCtx, PoolSpawnArgs{
+		Home:      home,
+		ExtraArgs: poolSpawnAppServerArgs(startupCtx),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -92,6 +95,8 @@ func runPoolSpawn(ctx context.Context, home string, registry *pidregistry.Regist
 }
 
 type poolSpawnWorkDirContextKey struct{}
+type poolSpawnAppServerArgsContextKey struct{}
+type poolSpawnPolicySignatureContextKey struct{}
 
 func withPoolSpawnWorkDir(ctx context.Context, raw string) context.Context {
 	if ctx == nil {
@@ -109,6 +114,34 @@ func poolSpawnWorkDir(ctx context.Context) string {
 		return ""
 	}
 	value, _ := ctx.Value(poolSpawnWorkDirContextKey{}).(string)
+	return strings.TrimSpace(value)
+}
+
+func withPoolSpawnNativeToolPolicy(ctx context.Context, policy codexNativeToolPolicy) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	args := policy.AppServerArgs()
+	if len(args) == 0 {
+		return ctx
+	}
+	ctx = context.WithValue(ctx, poolSpawnAppServerArgsContextKey{}, args)
+	return context.WithValue(ctx, poolSpawnPolicySignatureContextKey{}, policy.ProcessSignature())
+}
+
+func poolSpawnAppServerArgs(ctx context.Context) []string {
+	if ctx == nil {
+		return nil
+	}
+	value, _ := ctx.Value(poolSpawnAppServerArgsContextKey{}).([]string)
+	return append([]string(nil), value...)
+}
+
+func poolSpawnPolicySignature(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	value, _ := ctx.Value(poolSpawnPolicySignatureContextKey{}).(string)
 	return strings.TrimSpace(value)
 }
 

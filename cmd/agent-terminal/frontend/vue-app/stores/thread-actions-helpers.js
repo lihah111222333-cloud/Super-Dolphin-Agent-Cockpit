@@ -9,6 +9,7 @@ import {
   PREF_ARCHIVED_THREADS_CHAT,
 } from './thread-preference.model.js';
 import { _optimisticThreadIds, OPTIMISTIC_LEAK_GUARD_MS } from './thread-optimistic.js';
+import { resolveBuiltinToolLaunchPolicy } from './builtin-tool-policy.js';
 import { CODEX_IDENTITY_DEFAULTS, normalizeProviderConfigValue } from '../provider-config-options.js';
 
 function isSessionNotAvailableError(err) {
@@ -311,19 +312,6 @@ export async function setThreadConfig(ctx, threadId, config = {}) {
   }
 }
 
-async function resolveClaudeAllowedBuiltinTools(ctx, cwd) {
-  try {
-    const res = await ctx.callAPI('config/builtinTools/read', ctx.withPreferenceScope({ cwd }));
-    if (!res || !Array.isArray(res.tools)) return null;
-    return res.tools
-      .filter((tool) => tool && (tool.provider || 'claude') === 'claude' && tool.enabled === true && !tool.replacedBy)
-      .map((tool) => (typeof tool.id === 'string' ? tool.id.trim() : ''))
-      .filter((id) => id !== '');
-  } catch {
-    return null;
-  }
-}
-
 // Per-thread routing metadata captured from thread/start responses.
 // Consumers (sidebar badge, live preview, diagnostics) read via
 // getThreadRouting(threadId). Kept as a module-scoped Map rather than in
@@ -394,6 +382,14 @@ function getStartResponseProvider(res) {
   return (res?.modelProvider || res?.model_provider || '').toString().trim();
 }
 
+async function resolveLaunchProviderPreference(getPref, cwd) {
+  const [toolbarPref, scopedPref] = await Promise.all([
+    getPref({ key: 'settings.provider.active' }),
+    getPref({ key: 'settings.provider.active', cwd }),
+  ]);
+  return normalizeProviderConfigValue(toolbarPref) || normalizeProviderConfigValue(scopedPref);
+}
+
 export async function startThread(ctx, cwd = '.', options = {}) {
   const { callAPI, logInfo, logWarn } = ctx;
   const start = perfNow();
@@ -415,11 +411,11 @@ export async function startThread(ctx, cwd = '.', options = {}) {
     providerPref,
     activePromptKey,
     classifierEnabled,
-  ] = await Promise.all([
-    getPref({ key: 'settings.provider.active' }),
-    needsActivePromptKey ? getPref({ key: 'settings.activePromptKey', cwd }) : Promise.resolve(undefined),
-    getPref({ key: 'settings.classifierEnabled', cwd }),
-  ]);
+	  ] = await Promise.all([
+	    resolveLaunchProviderPreference(getPref, cwd),
+	    needsActivePromptKey ? getPref({ key: 'settings.activePromptKey', cwd }) : Promise.resolve(undefined),
+	    getPref({ key: 'settings.classifierEnabled', cwd }),
+	  ]);
 
   const modelProvider = normalizeProviderConfigValue(providerPref);
   if (!modelProvider) {
@@ -520,9 +516,12 @@ export async function startThread(ctx, cwd = '.', options = {}) {
   // skips the Claude CLI fork; the spawn happens lazily on the first
   // turn/start via SpawnIfNeeded. See internal/module/thread/spawn.go.
   if (options?.deferSpawn === true) payload.defer_spawn = true;
-  const claudeAllowedTools = await resolveClaudeAllowedBuiltinTools(ctx, cwd);
-  if (Array.isArray(claudeAllowedTools)) {
-    payload.config = { ...(payload.config || {}), claude_builtin_tools: claudeAllowedTools };
+  const builtinToolPolicy = await resolveBuiltinToolLaunchPolicy(callAPI, cwd);
+  if (providerScope === 'claude' && Array.isArray(builtinToolPolicy?.claudeAllowedTools)) {
+    payload.config = { ...(payload.config || {}), claude_builtin_tools: builtinToolPolicy.claudeAllowedTools };
+  }
+  if (isCodexProvider && (builtinToolPolicy?.codexDisabledNativeTools || []).length > 0) {
+    payload.config = { ...(payload.config || {}), codexDisabledNativeTools: builtinToolPolicy.codexDisabledNativeTools };
   }
 
   if (options?.config && typeof options.config === 'object' && !Array.isArray(options.config)) {
