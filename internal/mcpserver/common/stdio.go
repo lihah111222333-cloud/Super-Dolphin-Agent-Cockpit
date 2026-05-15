@@ -157,6 +157,13 @@ func (t *StdioTransport) readFramed() (json.RawMessage, error) {
 	if _, err := io.ReadFull(t.reader, body); err != nil {
 		return nil, err
 	}
+	return validateFramedJSON(body)
+}
+
+func validateFramedJSON(body []byte) (json.RawMessage, error) {
+	if !json.Valid(body) {
+		return nil, errors.New("mcp stdio: malformed framed JSON")
+	}
 	return json.RawMessage(body), nil
 }
 

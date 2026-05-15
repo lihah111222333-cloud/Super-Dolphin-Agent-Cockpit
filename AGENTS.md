@@ -53,7 +53,7 @@ This policy governs agent instruction loading from `.agent/skills/**`. It does n
 - Entrypoints:
   - `cmd/agent-terminal`: Wails/Vue desktop UI and HTTP server.
   - `cmd/mcp-orch`: orchestration peer for agent lifecycle, DAG, cron, and toolbridge.
-  - `cmd/mcp-lsp`: LSP/gopls peer.
+  - `cmd/mcp-lsp`: generic multi-language LSP peer.
   - `cmd/mcp-ida`: IDA MCP peer.
 - Core packages:
   - `internal/app`: app assembly, runner, adapters.

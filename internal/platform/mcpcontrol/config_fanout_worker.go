@@ -232,4 +232,11 @@ func (w *configFanoutWorker) dispatch(req configFanoutRequest) {
 			w.logger.Warn("mcp config change notify failed", "topic", req.topic, "config_version", configVersion, "err", err)
 		}
 	}
+	if dispatcher, ok := w.notifier.(lspReleaseScopeDispatcher); ok {
+		if releaseReq, shouldDispatch := releaseScopeRequestFromConfigPayload(req.payload); shouldDispatch {
+			if _, err := dispatcher.DispatchLSPReleaseScope(w.fanoutCtx, releaseReq); err != nil && w.logger != nil {
+				w.logger.Warn("mcp lsp release-scope dispatch failed", "topic", req.topic, "err", err)
+			}
+		}
+	}
 }

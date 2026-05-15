@@ -739,6 +739,62 @@ func TestToolBridge_ScopedLSPPeerRoutingUsesTrustedMetadata(t *testing.T) {
 	}
 }
 
+func TestToolbridgeHTTPPeerProxyInjectsTrustedScopeMetadata(t *testing.T) {
+	args := mustRawJSON(t, map[string]any{
+		"action":    "read_file",
+		"file_path": "go.mod",
+		"agent_id":  "forged-agent",
+		"cwd":       "/forged/root",
+	})
+	peer := &mcpcontrol.ToolInstance{
+		AgentID:    "agent-http",
+		ThreadID:   "thread-http",
+		ClientKind: dto.ClientKindLSP,
+		Peer: &stubPeer{callbackFn: func(_ context.Context, method string, params any, result any) error {
+			if method != ProxyMethodToolsCall {
+				t.Fatalf("Callback() method = %q, want %s", method, ProxyMethodToolsCall)
+			}
+			payload, ok := params.(map[string]any)
+			if !ok {
+				t.Fatalf("Callback() params type = %T, want map[string]any", params)
+			}
+			if got := payload[MetadataKeyAgentID]; got != "agent-http" {
+				t.Fatalf("Callback() _agentId = %#v, want agent-http", got)
+			}
+			if got := payload[MetadataKeyThreadID]; got != "thread-http" {
+				t.Fatalf("Callback() _threadId = %#v, want thread-http", got)
+			}
+			if got := payload[MetadataKeyCallID]; got != "call-http" {
+				t.Fatalf("Callback() _callId = %#v, want call-http", got)
+			}
+			if got := payload[MetadataKeyCWD]; got != "/trusted/http/root" {
+				t.Fatalf("Callback() _cwd = %#v, want trusted cwd", got)
+			}
+			if _, ok := payload["agent_id"]; ok {
+				t.Fatalf("Callback() leaked public agent_id in top-level payload: %#v", payload)
+			}
+			resp := result.(*peerToolCallResponse)
+			*resp = peerToolCallResponse{Content: []peerToolCallContent{{Type: "text", Text: "metadata injected"}}}
+			return nil
+		}},
+	}
+	h, registry := newHandlerForTest(peer)
+	registry.scoped = true
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:      "lsp_file",
+		Arguments: args,
+		AgentID:   "agent-http",
+		ThreadID:  "thread-http",
+		CallID:    "call-http",
+		CWD:       "/trusted/http/root",
+	})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	assertSingleTextItem(t, got, "metadata injected", true)
+}
+
 func TestToolBridge_NoPeer_FailFast(t *testing.T) {
 	h, _ := newHandlerForTest()
 

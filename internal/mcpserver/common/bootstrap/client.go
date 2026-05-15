@@ -85,6 +85,7 @@ type Config struct {
 	FinalReport          func() *mcp.ReportRequest
 	OnShutdown           func(mcp.ShutdownRequest)
 	OnConfigChanged      func(mcp.ConfigChangedNotify)
+	OnLSPReleaseScope    func(context.Context, mcp.LSPReleaseScopeRequest) (mcp.LSPReleaseScopeResult, error)
 	Hooks                HookConfig
 	OnToolsList          func(context.Context) (any, error)                             // P15: tools/list callback
 	OnToolsCall          func(ctx context.Context, params json.RawMessage) (any, error) // P15: tools/call callback

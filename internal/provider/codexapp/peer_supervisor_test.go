@@ -293,6 +293,58 @@ func TestPeerSupervisorRestartsExitedPeer(t *testing.T) {
 	}
 }
 
+func TestPeerSupervisorClearsDiscoveryOnPeerExitBeforeRestart(t *testing.T) {
+	const peerName = "test-peer"
+	if err := discovery.WriteDiscoveryFile(peerName, os.Getpid(), "127.0.0.1:65535"); err != nil {
+		t.Fatalf("WriteDiscoveryFile() error = %v", err)
+	}
+	t.Cleanup(func() { _ = discovery.CleanupDiscoveryFile(peerName, os.Getpid()) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s, launcher, _ := newTestSupervisor(t)
+	done := runSupervisor(ctx, s)
+
+	launcher.waitLaunch(t, peerName, time.Second)
+	first := launcher.snapshotHandles(peerName)[0]
+	first.triggerExit(errors.New("peer crashed"))
+
+	waitUntil(t, time.Second, func() bool {
+		_, err := discovery.ReadDiscoveryAddr(peerName, os.Getpid())
+		return os.IsNotExist(err)
+	}, "discovery file removed before restart")
+	launcher.waitLaunch(t, peerName, time.Second)
+	cancel()
+	<-done
+}
+
+func TestPeerSupervisorClearsDiscoveryOnRestartFailure(t *testing.T) {
+	const peerName = "test-peer"
+	if err := discovery.WriteDiscoveryFile(peerName, os.Getpid(), "127.0.0.1:65535"); err != nil {
+		t.Fatalf("WriteDiscoveryFile() error = %v", err)
+	}
+	t.Cleanup(func() { _ = discovery.CleanupDiscoveryFile(peerName, os.Getpid()) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s, launcher, _ := newTestSupervisor(t)
+	done := runSupervisor(ctx, s)
+
+	launcher.waitLaunch(t, peerName, time.Second)
+	launcher.mu.Lock()
+	launcher.launchErr[peerName] = errors.New("restart unavailable")
+	launcher.mu.Unlock()
+	first := launcher.snapshotHandles(peerName)[0]
+	first.triggerExit(errors.New("peer crashed"))
+
+	waitUntil(t, time.Second, func() bool {
+		_, err := discovery.ReadDiscoveryAddr(peerName, os.Getpid())
+		return os.IsNotExist(err)
+	}, "discovery file removed after restart failure")
+	cancel()
+	<-done
+}
+
 func TestPeerSupervisorShutdownSuppressesRestart(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 

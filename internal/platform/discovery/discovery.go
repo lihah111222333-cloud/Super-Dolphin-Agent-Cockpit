@@ -1,15 +1,21 @@
 package discovery
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const discoveryDir = "/tmp"
+const peerHealthProbeTimeout = 250 * time.Millisecond
 
 // discoveryPath returns the conventional path for the peer discovery file.
 // Format: /tmp/super-agent-mcp-{binary}-{parentPID}.port
@@ -50,11 +56,60 @@ func CleanupDiscoveryFile(binaryName string, parentPID int) error {
 	return os.Remove(discoveryPath(binaryName, parentPID))
 }
 
-// DiscoverPeerHTTPAddr is a convenience function that tries to read the
-// discovery file using the current process's PID as the parent PID.
-// This is intended for use inside the parent process (super-agent-debug).
+// DiscoverPeerHTTPAddr reads and verifies a peer HTTP endpoint. Stale
+// discovery is fail-closed: if the address cannot answer a short MCP ping, the
+// discovery file is removed and no address is returned.
 func DiscoverPeerHTTPAddr(binaryName string) (string, error) {
-	return ReadDiscoveryAddr(binaryName, os.Getpid())
+	return DiscoverPeerHTTPAddrForParent(binaryName, os.Getpid())
+}
+
+// DiscoverPeerHTTPAddrForParent is the parent-PID-aware form used by tests and
+// parent processes that need to inspect a specific discovery file.
+func DiscoverPeerHTTPAddrForParent(binaryName string, parentPID int) (string, error) {
+	addr, err := ReadDiscoveryAddr(binaryName, parentPID)
+	if err != nil {
+		return "", err
+	}
+	if err := ProbePeerHTTPAddr(addr); err != nil {
+		_ = CleanupDiscoveryFile(binaryName, parentPID)
+		return "", err
+	}
+	return addr, nil
+}
+
+// ProbePeerHTTPAddr verifies that addr speaks the MCP HTTP ping endpoint.
+func ProbePeerHTTPAddr(addr string) error {
+	addr = strings.TrimSpace(addr)
+	if !IsValidHTTPAddr(addr) {
+		return fmt.Errorf("invalid peer HTTP address %q", addr)
+	}
+	body := bytes.NewBufferString(`{"jsonrpc":"2.0","id":1,"method":"ping"}`)
+	client := &http.Client{Timeout: peerHealthProbeTimeout}
+	resp, err := client.Post("http://"+addr+"/mcp", "application/json", body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("peer health probe status %d", resp.StatusCode)
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return err
+	}
+	var envelope struct {
+		JSONRPC string          `json:"jsonrpc"`
+		ID      json.RawMessage `json:"id"`
+		Error   json.RawMessage `json:"error,omitempty"`
+		Result  json.RawMessage `json:"result,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return fmt.Errorf("peer health probe response decode: %w", err)
+	}
+	if strings.TrimSpace(envelope.JSONRPC) != "2.0" || len(envelope.Error) != 0 {
+		return fmt.Errorf("peer health probe unhealthy response")
+	}
+	return nil
 }
 
 // WritePeerDiscovery writes the discovery file using the current process's

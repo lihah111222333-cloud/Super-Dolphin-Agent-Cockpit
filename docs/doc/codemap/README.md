@@ -5,6 +5,7 @@
 ## 阅读边界提示
 
 - **02**：先看 sidecar / registry / bootstrap / tools 暴露；不展开 `internal/module/{memory,prompt,thread}` 的内部组装链。
+- **03**：`cmd/mcp-lsp` 是 generic multi-language LSP peer；阅读时按通用多语言 LSP peer 入口处理，不把它收窄成单一语言服务。
 - **07**：先看 `internal/module` 的职责切面、消费面与入口边界；07 已拆成读侧/写侧两份子卷。
 - **10**：先看 store / sql / migrations 的持久化 contract 与实现，回答“是否落库、落到哪里”。
 - **11**：再看 `start / resume / fork` 中 memory / prompt / thread / prompt snapshot / provider bridge 的运行态串联，回答“运行时到底怎么接上”。
