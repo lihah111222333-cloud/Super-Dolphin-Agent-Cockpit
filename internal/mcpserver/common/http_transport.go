@@ -50,7 +50,11 @@ func (h *HTTPServer) Start(ctx context.Context, listenAddr string) (string, erro
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mcp", h.handleMCP)
 
-	h.server = &http.Server{Handler: mux}
+	h.server = &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+	}
 	go func() {
 		defer func() {
 			if rec := recover(); rec != nil {

@@ -5,7 +5,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/discovery"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/discovery"
 )
 
 type manifestBuilder struct {

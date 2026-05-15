@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/discovery"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -227,6 +228,7 @@ func (s *PeerSupervisor) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
 	for _, name := range s.peerNames {
 		name := name
+		s.clearPeerDiscovery(name)
 		h, err := s.launcher.Launch(ctx, name)
 		if err != nil {
 			s.logger.Warn("peer_supervisor: initial launch failed, peer skipped",
@@ -305,6 +307,7 @@ func (s *PeerSupervisor) superviseOne(ctx context.Context, name string, initial 
 		case waitErr := <-waitCh:
 			s.logger.Warn("peer_supervisor: peer exited, scheduling restart",
 				"peer", name, "pid", current.PID(), "error", waitErr)
+			s.clearPeerDiscovery(name)
 		}
 
 		timer := time.NewTimer(s.restartBackoff)
@@ -320,6 +323,7 @@ func (s *PeerSupervisor) superviseOne(ctx context.Context, name string, initial 
 			return
 		}
 
+		s.clearPeerDiscovery(name)
 		next, err := s.launcher.Launch(ctx, name)
 		if err != nil {
 			s.logger.Warn("peer_supervisor: restart failed, peer degraded until shutdown",
@@ -329,6 +333,13 @@ func (s *PeerSupervisor) superviseOne(ctx context.Context, name string, initial 
 		}
 		s.replacePeer(current, next)
 		current = next
+	}
+}
+
+func (s *PeerSupervisor) clearPeerDiscovery(name string) {
+	if err := discovery.CleanupDiscoveryFile(name, os.Getpid()); err != nil && !os.IsNotExist(err) {
+		s.logger.Debug("peer_supervisor: discovery cleanup failed",
+			"peer", name, "error", err)
 	}
 }
 
