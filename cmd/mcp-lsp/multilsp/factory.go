@@ -99,7 +99,7 @@ func (m *manager) notifyDocument(
 	if err != nil {
 		return err
 	}
-	if !shouldUseClientForLanguage(ref.languageID) {
+	if !m.shouldUseClientForLanguage(ref.languageID) {
 		return nil
 	}
 	client, err := m.ensureClientForFile(ctx, ref.absPath, ref.languageID)

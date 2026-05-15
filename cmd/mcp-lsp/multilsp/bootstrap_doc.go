@@ -39,7 +39,7 @@ func (m *manager) bootstrapDocument(ctx context.Context, uri string) error {
 	if err != nil {
 		return err
 	}
-	if !shouldUseClientForLanguage(ref.languageID) {
+	if !m.shouldUseClientForLanguage(ref.languageID) {
 		return nil
 	}
 	coordinator := bootstrapCoordinatorFor(m)
@@ -56,7 +56,7 @@ func (m *manager) bootstrapDocumentOpenOnly(ctx context.Context, uri string) err
 	if err != nil {
 		return err
 	}
-	if !shouldUseClientForLanguage(ref.languageID) {
+	if !m.shouldUseClientForLanguage(ref.languageID) {
 		return nil
 	}
 	coordinator := bootstrapCoordinatorFor(m)
@@ -107,7 +107,7 @@ func (m *manager) bootstrapTarget(ctx context.Context, uri string) (documentRef,
 	if err != nil {
 		return documentRef{}, workspaceConfig{}, err
 	}
-	if !shouldUseClientForLanguage(ref.languageID) {
+	if !m.shouldUseClientForLanguage(ref.languageID) {
 		return ref, workspaceConfig{}, nil
 	}
 	cfg, err := m.resolveWorkspaceForDocument(ctx, ref)
@@ -118,7 +118,7 @@ func (m *manager) bootstrapTarget(ctx context.Context, uri string) (documentRef,
 }
 
 func (c *bootstrapCoordinator) syncDocument(ctx context.Context, m *manager, cfg workspaceConfig, ref documentRef) error {
-	if ref.uri == "" || !shouldUseClientForLanguage(ref.languageID) {
+	if ref.uri == "" || !m.shouldUseClientForLanguage(ref.languageID) {
 		return nil
 	}
 	scope, err := m.resolvedScopeForConfig(ctx, cfg)
@@ -262,10 +262,16 @@ func (s *bootstrapStateStore) delete(workspace, uri string) {
 }
 
 func (c *bootstrapCoordinator) bootstrapSiblings(ctx context.Context, m *manager, cfg workspaceConfig, target documentRef) {
-	if target.languageID != "go" {
+	scope, adapter, err := m.resolveLanguageScope(ctx, target.languageID, target.absPath, target.uri)
+	if err != nil {
+		logBootstrapWarning(m, target.uri, err)
 		return
 	}
-	refs, err := siblingDocumentRefs(target)
+	policy := adapter.BootstrapPolicy(scope)
+	if !policy.OpenSiblingDocuments {
+		return
+	}
+	refs, err := siblingDocumentRefs(target, policy.SiblingExtensions)
 	if err != nil {
 		logBootstrapWarning(m, target.uri, err)
 		return
@@ -295,18 +301,19 @@ func readDocumentSnapshot(ref documentRef) (documentSnapshot, error) {
 	}, nil
 }
 
-func siblingDocumentRefs(target documentRef) ([]documentRef, error) {
+func siblingDocumentRefs(target documentRef, extensions []string) ([]documentRef, error) {
 	entries, err := os.ReadDir(filepath.Dir(target.absPath))
 	if err != nil {
 		return nil, err
 	}
+	allowedExtensions := extensionSet(extensions)
 	refs := make([]documentRef, 0, maxSiblingBootstrap)
 	for _, entry := range entries {
 		if entry.IsDir() || len(refs) >= maxSiblingBootstrap {
 			continue
 		}
 		name := entry.Name()
-		if !strings.HasSuffix(strings.ToLower(name), ".go") {
+		if _, ok := allowedExtensions[strings.ToLower(filepath.Ext(name))]; !ok {
 			continue
 		}
 		path := filepath.Join(filepath.Dir(target.absPath), name)
@@ -321,7 +328,7 @@ func siblingDocumentRefs(target documentRef) ([]documentRef, error) {
 			raw:        absPath,
 			uri:        fileURIFromPath(absPath),
 			absPath:    absPath,
-			languageID: "go",
+			languageID: target.languageID,
 		})
 	}
 	return refs, nil

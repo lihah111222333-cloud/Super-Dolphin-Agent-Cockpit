@@ -34,6 +34,7 @@ type diagnosticStoreKey struct {
 type diagnosticFilter struct {
 	keys          map[string]struct{}
 	scopeKey      string
+	workspaceKey  string
 	workspaceRoot string
 	all           bool
 }
@@ -97,7 +98,7 @@ func (m *manager) refreshExistingDiagnosticTargets(ctx context.Context, uris []s
 		if err != nil {
 			return err
 		}
-		if !shouldUseClientForLanguage(ref.languageID) || !fileExists(ref.absPath) {
+		if !m.shouldUseClientForLanguage(ref.languageID) || !fileExists(ref.absPath) {
 			continue
 		}
 		if err := m.bootstrapDocument(ctx, ref.uri); err != nil {
@@ -198,6 +199,14 @@ func (m *manager) latestDiagnosticUpdate(filter diagnosticFilter) time.Time {
 
 func (m *manager) normalizeDiagnosticFilter(ctx context.Context, uris []string) (diagnosticFilter, error) {
 	if len(uris) == 0 {
+		if resolved, ok := resolvedLSPToolScopeFromContext(ctx); ok {
+			return diagnosticFilter{
+				scopeKey:      resolved.ScopeKey,
+				workspaceKey:  resolved.WorkspaceKey,
+				workspaceRoot: resolved.WorkspaceRoot,
+				all:           true,
+			}, nil
+		}
 		return diagnosticFilter{
 			scopeKey:      lspScopeKeyFromContext(ctx),
 			workspaceRoot: m.effectiveWorkspaceRoot(ctx),
@@ -255,6 +264,9 @@ func (f diagnosticFilter) matches(key string, snapshot diagnosticSnapshot) bool 
 		return false
 	}
 	if snapshot.scopeKey != f.scopeKey {
+		return false
+	}
+	if f.workspaceKey != "" && snapshot.workspaceKey != f.workspaceKey {
 		return false
 	}
 	if strings.TrimSpace(f.workspaceRoot) == "" {
@@ -353,7 +365,7 @@ func (m *manager) resolvedScopeForURI(ctx context.Context, uri, languageID strin
 }
 
 func (m *manager) workspaceConfigForDiagnosticRef(ctx context.Context, ref documentRef) (workspaceConfig, error) {
-	if shouldUseClientForLanguage(ref.languageID) {
+	if m.shouldUseClientForLanguage(ref.languageID) {
 		return m.resolveWorkspaceForDocument(ctx, ref)
 	}
 	root := m.effectiveWorkspaceRoot(ctx)
