@@ -65,6 +65,7 @@ type LSPToolScope struct {
     // user-controlled request JSON.
     AgentID   string
     ThreadID  string
+    Family    string // lsp/orch/ida; ManagerPool only accepts lsp, but key keeps namespace explicit
 
     // resolved language/workspace target. The registry/tool layer must fill
     // these before calling ForScope; the pool must not guess workspaceKey from
@@ -105,25 +106,39 @@ scopeKey != "" ? scopeKey \x00 workspaceKey : workspaceKey
 ## API
 
 ```go
-func (p *ManagerPool) ForScope(scope LSPToolScope) (Manager, error)
+type ScopedManager struct {
+    Manager      Manager
+    ResolvedScope ResolvedLSPToolScope // contains ScopeKey/WorkspaceKey/ShardKey/ManagerKey
+}
+
+type ResolvedLSPToolScope struct {
+    LSPToolScope
+    ScopeKey     string
+    WorkspaceKey string
+    ShardKey     string
+    ManagerKey   string
+}
+
+func (p *ManagerPool) ForScope(scope LSPToolScope) (ScopedManager, error)
 func (p *ManagerPool) SnapshotManagers() []poolManagerSnapshot
 ```
 
 说明：
 
-- `ForScope` 接收的是已解析 scope；它只负责 scope/workspace 到 manager 的路由与 activity touch。
+- `ForScope` 接收的是已解析 scope；它负责 canonical key 派生、scope/workspace 到 manager 的路由与 activity touch。
+- `ForScope` 必须把同一份 canonical `ResolvedLSPToolScope` 返回给 caller；diagnostics/cache/bootstrap 必须复用它，禁止各自重新拼 key。
 - registry/tool 层必须先根据 ctx、target file/URI、languageID 解析 `LSPToolScope`，再调用 `ForScope`。
 - 现有 per-client lease 继续由 `withPooledClient` 的 acquire/release 保护 active client，避免把 scope lease 与 client lease 混成两套生命周期。
 
 `ForScope` 流程：
 
-1. 计算 shard index。
-2. 计算 workspace key。
-3. 从已解析 `LSPToolScope` 计算 scope key；scope 为空则只使用 workspace key。
-4. 拼出 manager key。
+1. 计算 workspace key。
+2. 从已解析 `LSPToolScope` 计算 scope key；scope 为空则只使用 workspace key。
+3. 拼出 manager key。
+4. 计算 shard key 与 shard index。
 5. clone 不存在则调用 internal `ManagerFactory` 创建 manager；创建失败返回 error。
 6. touch manager key 的 `lastUsedAt`。
-7. 返回 scoped manager。
+7. 返回 `ScopedManager{Manager, ResolvedScope}`。
 
 ## Shard 策略
 
@@ -192,7 +207,7 @@ type ManagerFactory interface {
 2. 把 `PoolSizeFromEnv` 保留，但真实创建 N 个 shard。
 3. 新增 `ForScope`，从 context scope 自动路由并 touch `lastUsedAt`；不要暴露 shared/strict 模式配置。
 4. registry/tool 层新增 scope resolver：从 caller ctx 读取 trusted identity，从 target file/URI 与 languageID 解析 workspace/root/languageSpecific，构造 `LSPToolScope`。
-5. registry 调 `ForScope` 获取 manager，而不是直接返回 language singleton。
+5. registry 调 `ForScope` 获取 `ScopedManager`，而不是直接返回 language singleton；后续 diagnostics/cache/bootstrap 使用 `ScopedManager.ResolvedScope`。
 6. registry 的 `Diagnostics` / `WaitDiagnosticsStable` / `BootstrapDocument` / URI grouping 必须传递 caller ctx，并通过同一个 `LSPToolScope` 路由；禁止用 `context.Background()` 重新取 manager。
 7. `Diagnostics(ctx, nil)` 只能枚举当前 caller scope 下的 manager-key clones；不能扫全局所有 language singleton / shard。
 8. recycler snapshot 扫描所有 shard/clone。
