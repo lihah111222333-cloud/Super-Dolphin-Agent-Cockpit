@@ -2,8 +2,8 @@
 
 ## 本地技能索引
 
-> 使用方法：只有用户显式输入 `@触发词`、`请参考 <path>`，或给出具体 `SKILL.md` 路径时，才读取对应技能文件。
-> 不要因为任务类型、任务结束、或本文件出现技能名而自动加载 `.agent/skills/**/SKILL.md`。
+> 使用方法：Agent 应根据上下文语义、任务类型或涉及的文件自动加载并应用对应的技能。
+> 也可以通过 `@触发词` 或 `请参考 <path>` 显式指定，但系统默认支持基于上下文的自动感知触发。
 
 | 触发词 | 技能路径 |
 |--------|----------|
@@ -32,9 +32,9 @@
 
 ### 技能系统说明
 
-- 上表只约束 agent 在本仓库内是否读取 `.agent/skills/**/SKILL.md` 作为工作指令。
-- 产品运行时的技能系统是另一条链路：内置技能会 seed 到 `~/.multi-agent/skills-library/`，cache 到 `~/.multi-agent/skills-cache/`，Claude workspace 通过 `.claude/skills` symlink 发现，Codex 通过 `skill_read_section` host-direct 读取。
-- 不要把“本文件禁止自动加载 `.agent/skills/**`”误解为关闭产品运行时技能能力；涉及运行时技能行为时，以 `internal/module/skill*`、`internal/platform/toolbridge/skill_read_section.go` 和相关测试为准。
+- 上表规定了 agent 在本仓库内读取 `.agent/skills/**/SKILL.md` 的触发映射关系。
+- 产品运行时的技能系统：内置技能会 seed 到 `~/.multi-agent/skills-library/`，cache 到 `~/.multi-agent/skills-cache/`，Claude workspace 通过 `.claude/skills` symlink 发现，Codex 通过 `skill_read_section` host-direct 读取。
+- 涉及运行时技能行为时，以 `internal/module/skill*`、`internal/platform/toolbridge/skill_read_section.go` 和相关测试为准。
 
 ## 代码地图与上下文加载
 
