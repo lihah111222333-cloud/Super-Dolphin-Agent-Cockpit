@@ -27,7 +27,6 @@ import {
 
 import { callAPI, copyTextToClipboard } from '../services/api.js';
 import { logDebug, logInfo, logWarn } from '../services/log.js';
-import { SectionsEditor } from './SectionsEditor.js';
 import { TagInput } from '../components/TagInput.js';
 import { RoleBar } from '../components/RoleBar.js';
 
@@ -275,7 +274,7 @@ function createLaunchPromptActions(deps) {
 
 export const SystemPromptPage = defineComponent({
   name: 'SystemPromptPage',
-  components: { SectionsEditor, TagInput, RoleBar },
+  components: { TagInput, RoleBar },
   props: {
     projectStore: { type: Object, default: null },
     threadStore: { type: Object, default: null },
@@ -825,39 +824,6 @@ export const SystemPromptPage = defineComponent({
                 <div class="sp-field-meta">{{ countStats(form.content).lines }} 行 · {{ countStats(form.content).chars }} 字符</div>
               </div>
 
-              <!-- 高级设置折叠区 -->
-              <div class="sp-advanced-toggle" @click="advancedOpen = !advancedOpen">
-                {{ advancedOpen ? '▼' : '▶' }} 高级设置（开发者选项）
-              </div>
-              <div v-show="advancedOpen" class="sp-advanced-body">
-                <div class="sp-field">
-                  <label>自动匹配条件（JSON）</label>
-                  <textarea
-                    class="sp-textarea"
-                    data-testid="sp-matchwhen-input"
-                    rows="3"
-                    v-model="form.matchWhen"
-                    @input="matchWhenDirty = true"
-                    placeholder="留空则从场景标签自动生成"
-                    :disabled="saving || fallbackMode"
-                  ></textarea>
-                  <div class="sp-field-hint">手动设置会覆盖标签自动生成的匹配条件</div>
-                </div>
-
-                <div class="sp-field">
-                  <label>优先级（整数，默认 0）</label>
-                  <input type="number" class="modal-input" data-testid="sp-priority-input" v-model.number="form.priority" :disabled="saving || fallbackMode" />
-                  <div class="sp-field-hint">数字越大越优先，同时命中多条时生效</div>
-                </div>
-
-                <sections-editor
-                  :prompt-id="form.id"
-                  :cwd="currentProjectCwd"
-                  :fallback-mode="fallbackMode"
-                  :visible="advancedOpen && editorOpen"
-                  data-testid="sp-editor-advanced"
-                />
-              </div>
 
               <div v-if="notice.message" class="sp-notice" :class="'is-' + notice.level" data-testid="sp-editor-notice">
                 {{ notice.message }}
