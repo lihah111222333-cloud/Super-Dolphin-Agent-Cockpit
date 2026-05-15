@@ -53,8 +53,9 @@ type Registry interface {
 }
 
 type languageConfig struct {
-	manager Manager
-	scoped  ScopedManagerResolver
+	manager       Manager
+	scoped        ScopedManagerResolver
+	skipInstaller bool
 }
 
 type dynamicRegistry struct {
@@ -71,6 +72,14 @@ func NewRegistry(inst *installer.Provider) *dynamicRegistry {
 }
 
 func (r *dynamicRegistry) Register(languageID string, manager Manager, scoped ...ScopedManagerResolver) {
+	r.register(languageID, manager, false, scoped...)
+}
+
+func (r *dynamicRegistry) RegisterNoInstall(languageID string, manager Manager, scoped ...ScopedManagerResolver) {
+	r.register(languageID, manager, true, scoped...)
+}
+
+func (r *dynamicRegistry) register(languageID string, manager Manager, skipInstaller bool, scoped ...ScopedManagerResolver) {
 	var resolver ScopedManagerResolver
 	for _, candidate := range scoped {
 		if candidate != nil {
@@ -80,7 +89,7 @@ func (r *dynamicRegistry) Register(languageID string, manager Manager, scoped ..
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.managers[strings.ToLower(languageID)] = &languageConfig{manager: manager, scoped: resolver}
+	r.managers[strings.ToLower(languageID)] = &languageConfig{manager: manager, scoped: resolver, skipInstaller: skipInstaller}
 }
 
 func (r *dynamicRegistry) GetManagerForFile(ctx context.Context, filePath string) (Manager, error) {
@@ -106,10 +115,8 @@ func (r *dynamicRegistry) resolveManagerForTarget(ctx context.Context, lang, tar
 		return ScopedManager{}, ErrUnsupportedLanguage
 	}
 
-	if r.installer != nil {
-		if _, err := r.installer.EnsureInstalled(ctx, lang); err != nil {
-			return ScopedManager{}, err
-		}
+	if err := r.ensureInstalled(ctx, lang, config); err != nil {
+		return ScopedManager{}, err
 	}
 
 	return r.scopedManagerForConfig(ctx, config, lang, targetPath, targetURI)
@@ -134,13 +141,19 @@ func (r *dynamicRegistry) ResolveManagerForLanguage(ctx context.Context, languag
 		return ScopedManager{}, ErrUnsupportedLanguage
 	}
 
-	if r.installer != nil {
-		if _, err := r.installer.EnsureInstalled(ctx, lang); err != nil {
-			return ScopedManager{}, err
-		}
+	if err := r.ensureInstalled(ctx, lang, config); err != nil {
+		return ScopedManager{}, err
 	}
 
 	return r.scopedManagerForConfig(ctx, config, lang, "", "")
+}
+
+func (r *dynamicRegistry) ensureInstalled(ctx context.Context, lang string, config *languageConfig) error {
+	if r.installer == nil || config == nil || config.skipInstaller {
+		return nil
+	}
+	_, err := r.installer.EnsureInstalled(ctx, lang)
+	return err
 }
 
 func (r *dynamicRegistry) scopedManagerForConfig(ctx context.Context, config *languageConfig, lang, targetPath, targetURI string) (ScopedManager, error) {
