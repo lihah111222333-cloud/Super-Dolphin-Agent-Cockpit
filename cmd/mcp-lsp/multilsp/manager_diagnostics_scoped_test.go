@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
@@ -212,6 +213,48 @@ func TestDiagnosticsResolvedScopeCanBeInjected(t *testing.T) {
 	}
 	if got.ManagerKey != canonical.ManagerKey || got.WorkspaceKey != canonical.WorkspaceKey || got.ScopeKey != canonical.ScopeKey {
 		t.Fatalf("resolved scope = %#v, want injected canonical %#v", got, canonical)
+	}
+}
+
+func TestDiagnosticsManagerResolvedScopeCanBeInjected(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module generic\n"), 0o600); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	target := filepath.Join(root, "main.go")
+	if err := os.WriteFile(target, []byte("package main\n"), 0o600); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+
+	mgr := NewManager(Config{WorkspaceRoot: root}).(*manager)
+	defer func() {
+		if err := mgr.Close(); err != nil {
+			t.Fatalf("close manager: %v", err)
+		}
+	}()
+
+	ctx := lspmanager.WithResolvedToolScope(context.Background(), lspmanager.ResolvedToolScope{
+		ToolScope: lspmanager.ToolScope{
+			AgentID:               "agent-generic",
+			ThreadID:              "thread-generic",
+			Family:                defaultLSPToolFamily,
+			LanguageID:            "go",
+			WorkspaceRoot:         root,
+			LanguageWorkspaceRoot: root,
+			ProjectRoot:           root,
+			RootKind:              goRootKindGoMod,
+		},
+		ScopeKey:     "lsp\x00agent-generic\x00thread-generic",
+		WorkspaceKey: "workspace-generic",
+		ManagerKey:   "manager-generic",
+	})
+
+	_, _, got, err := mgr.resolvedScopeForURI(ctx, fileURIFromPath(target), "")
+	if err != nil {
+		t.Fatalf("resolve injected manager scope: %v", err)
+	}
+	if got.ManagerKey != "manager-generic" || got.WorkspaceKey != "workspace-generic" || got.ScopeKey != "lsp\x00agent-generic\x00thread-generic" {
+		t.Fatalf("resolved manager scope = %#v, want generic injected scope", got)
 	}
 }
 

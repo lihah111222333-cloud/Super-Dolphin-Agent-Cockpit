@@ -307,11 +307,7 @@ func (m *manager) scopeForPublishedDiagnostics(uri string) ResolvedLSPToolScope 
 	if indexed, ok := bootstrapCoordinatorFor(m).cache.LastResolvedScope(uri); ok {
 		return indexed.LastResolvedScope
 	}
-	_, _, scope, err := m.resolvedScopeForURI(context.Background(), uri, "")
-	if err != nil {
-		return ResolvedLSPToolScope{LSPToolScope: LSPToolScope{LanguageID: languageFromURI(uri)}}
-	}
-	return scope
+	return ResolvedLSPToolScope{LSPToolScope: LSPToolScope{LanguageID: languageFromURI(uri)}}
 }
 
 func (m *manager) resolvedScopeForURI(ctx context.Context, uri, languageID string) (documentRef, workspaceConfig, ResolvedLSPToolScope, error) {
@@ -369,10 +365,38 @@ func resolvedLSPToolScopeFromContext(ctx context.Context) (ResolvedLSPToolScope,
 		return ResolvedLSPToolScope{}, false
 	}
 	scope, ok := ctx.Value(resolvedLSPToolScopeContextKey{}).(ResolvedLSPToolScope)
-	if !ok || (scope.WorkspaceKey == "" && scope.ManagerKey == "") {
-		return ResolvedLSPToolScope{}, false
+	if ok && (scope.WorkspaceKey != "" || scope.ManagerKey != "") {
+		return scope, true
 	}
-	return scope, true
+	if generic, ok := lspmanager.ResolvedToolScopeFromContext(ctx); ok {
+		return resolvedLSPToolScopeFromManagerScope(generic), true
+	}
+	return ResolvedLSPToolScope{}, false
+}
+
+func resolvedLSPToolScopeFromManagerScope(scope lspmanager.ResolvedToolScope) ResolvedLSPToolScope {
+	return ResolvedLSPToolScope{
+		LSPToolScope: LSPToolScope{
+			AgentID:               scope.AgentID,
+			ThreadID:              scope.ThreadID,
+			TurnID:                scope.TurnID,
+			CallID:                scope.CallID,
+			CWD:                   scope.CWD,
+			Family:                scope.Family,
+			LanguageID:            scope.LanguageID,
+			TargetPath:            scope.TargetPath,
+			TargetURI:             scope.TargetURI,
+			WorkspaceRoot:         scope.WorkspaceRoot,
+			RootKind:              scope.RootKind,
+			LanguageWorkspaceRoot: scope.LanguageWorkspaceRoot,
+			ProjectRoot:           scope.ProjectRoot,
+			LanguageSpecific:      copyLanguageSpecific(scope.LanguageSpecific),
+		},
+		ScopeKey:     scope.ScopeKey,
+		WorkspaceKey: scope.WorkspaceKey,
+		ShardKey:     scope.ShardKey,
+		ManagerKey:   scope.ManagerKey,
+	}
 }
 
 func (m *manager) lspToolScopeForConfig(ctx context.Context, cfg workspaceConfig) LSPToolScope {
