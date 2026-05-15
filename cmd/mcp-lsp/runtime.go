@@ -11,6 +11,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/multilsp"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -21,6 +22,7 @@ type Manager struct {
 	registry          manager.Registry
 	root              string
 	backgroundRunners []platformrunner.Runner
+	releaseScopes     []multilsp.ScopeReleaser
 }
 
 // BackgroundRunners returns the long-running owners this Manager
@@ -45,19 +47,21 @@ func newManager() (*Manager, error) {
 
 	registry := manager.NewRegistry(inst)
 	backgroundRunners := make([]platformrunner.Runner, 0, len(runtimePrimaryLanguageIDs()))
+	releaseScopes := make([]multilsp.ScopeReleaser, 0, len(runtimePrimaryLanguageIDs()))
 	for _, primaryLanguageID := range runtimePrimaryLanguageIDs() {
 		adapter, ok := adapters.AdapterForLanguage(primaryLanguageID)
 		if !ok {
 			return nil, errors.New("missing LSP language adapter: " + primaryLanguageID)
 		}
-		runner, err := registerRuntimeAdapter(registry, adapter, adapters, root, log)
+		runner, releaser, err := registerRuntimeAdapter(registry, adapter, adapters, root, log)
 		if err != nil {
 			return nil, err
 		}
 		backgroundRunners = appendBackgroundRunner(backgroundRunners, runner)
+		releaseScopes = appendReleaseScopeReleaser(releaseScopes, releaser)
 	}
 
-	return &Manager{registry: registry, root: root, backgroundRunners: backgroundRunners}, nil
+	return &Manager{registry: registry, root: root, backgroundRunners: backgroundRunners, releaseScopes: releaseScopes}, nil
 }
 
 func runtimeRoot() (string, error) {
@@ -88,18 +92,30 @@ func registerRuntimeAdapter(
 	adapters *multilsp.LanguageAdapterRegistry,
 	root string,
 	log *slog.Logger,
-) (platformrunner.Runner, error) {
+) (platformrunner.Runner, multilsp.ScopeReleaser, error) {
 	if !adapter.CapabilityPolicy().RequiresLSPClient {
 		mgr := createFallbackManager(adapters, root, log)
 		registerAdapterLanguagesNoInstall(registry, adapter, mgr)
-		return nil, nil
+		return nil, scopeReleaserFromManager(mgr), nil
 	}
 	mgr, err := createGenericManager(adapter, adapters, root, log)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	registerAdapterLanguages(registry, adapter, mgr)
-	return mgr.BackgroundRunner(), nil
+	return mgr.BackgroundRunner(), scopeReleaserFromManager(mgr), nil
+}
+
+func appendReleaseScopeReleaser(releasers []multilsp.ScopeReleaser, releaser multilsp.ScopeReleaser) []multilsp.ScopeReleaser {
+	if releaser == nil {
+		return releasers
+	}
+	return append(releasers, releaser)
+}
+
+func scopeReleaserFromManager(mgr multilsp.Manager) multilsp.ScopeReleaser {
+	releaser, _ := mgr.(multilsp.ScopeReleaser)
+	return releaser
 }
 
 func registerAdapterLanguages(
@@ -236,6 +252,57 @@ func (m *Manager) Close() error {
 		return m.registry.Close()
 	}
 	return nil
+}
+
+func (m *Manager) ReleaseScope(req mcpdto.LSPReleaseScopeRequest) (mcpdto.LSPReleaseScopeResult, error) {
+	if m == nil {
+		return mcpdto.LSPReleaseScopeResult{}, nil
+	}
+	translated := multilsp.ReleaseScopeRequest{
+		ScopeKind:  req.ScopeKind,
+		AgentID:    req.AgentID,
+		ThreadID:   req.ThreadID,
+		ManagerKey: req.ManagerKey,
+		Drain:      req.Drain,
+		Reason:     req.Reason,
+	}
+	var combined mcpdto.LSPReleaseScopeResult
+	var firstErr error
+	for _, releaser := range m.releaseScopes {
+		if releaser == nil {
+			continue
+		}
+		result, err := releaser.ReleaseScope(translated)
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+		combined.MatchedManagers += result.MatchedManagers
+		combined.ClosedManagers += result.ClosedManagers
+		combined.BusyLeases += result.BusyLeases
+		combined.Drained = combined.Drained || result.Drained
+		combined.ScopeKeys = appendRuntimeUnique(combined.ScopeKeys, result.ScopeKeys...)
+		combined.ManagerKeys = appendRuntimeUnique(combined.ManagerKeys, result.ManagerKeys...)
+	}
+	return combined, firstErr
+}
+
+func appendRuntimeUnique(dst []string, values ...string) []string {
+	seen := make(map[string]struct{}, len(dst)+len(values))
+	for _, value := range dst {
+		seen[value] = struct{}{}
+	}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		dst = append(dst, value)
+	}
+	return dst
 }
 
 type stdioRunner struct {

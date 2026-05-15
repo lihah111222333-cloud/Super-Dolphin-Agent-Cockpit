@@ -106,18 +106,11 @@ func (c *Client) handleNotify(req *jrpc2.Request) {
 // MethodNotFound error for anything else unless a handler is
 // explicitly registered.
 func (c *Client) handleCallback(ctx context.Context, req *jrpc2.Request) (any, error) {
-	// P15: route tools/list and tools/call to registered handlers.
-	switch req.Method() {
-	case "tools/list":
-		if c.cfg.OnToolsList != nil {
-			return c.cfg.OnToolsList(ctx)
-		}
-		return nil, errBootstrapUnknownMethod(req.Method())
-	case "tools/call":
-		if c.cfg.OnToolsCall != nil {
-			return c.cfg.OnToolsCall(ctx, json.RawMessage(req.ParamString()))
-		}
-		return nil, errBootstrapUnknownMethod(req.Method())
+	if resp, handled, err := c.dispatchToolCallback(ctx, req); handled {
+		return resp, err
+	}
+	if resp, handled, err := c.dispatchLSPAdminCallback(ctx, req); handled {
+		return resp, err
 	}
 	if resp, handled, err := c.dispatchHookCallback(ctx, req); handled {
 		return resp, err
@@ -130,6 +123,41 @@ func (c *Client) handleCallback(ctx context.Context, req *jrpc2.Request) (any, e
 		return nil, errBootstrapUnknownMethod(req.Method())
 	}
 	return map[string]bool{"ok": true}, nil
+}
+
+func (c *Client) dispatchToolCallback(ctx context.Context, req *jrpc2.Request) (any, bool, error) {
+	// P15: route tools/list and tools/call to registered handlers.
+	switch req.Method() {
+	case "tools/list":
+		if c.cfg.OnToolsList == nil {
+			return nil, true, errBootstrapUnknownMethod(req.Method())
+		}
+		resp, err := c.cfg.OnToolsList(ctx)
+		return resp, true, err
+	case "tools/call":
+		if c.cfg.OnToolsCall == nil {
+			return nil, true, errBootstrapUnknownMethod(req.Method())
+		}
+		resp, err := c.cfg.OnToolsCall(ctx, json.RawMessage(req.ParamString()))
+		return resp, true, err
+	default:
+		return nil, false, nil
+	}
+}
+
+func (c *Client) dispatchLSPAdminCallback(ctx context.Context, req *jrpc2.Request) (any, bool, error) {
+	if req.Method() != mcp.MethodLSPReleaseScope {
+		return nil, false, nil
+	}
+	if c.cfg.OnLSPReleaseScope == nil {
+		return nil, true, errBootstrapUnknownMethod(req.Method())
+	}
+	var payload mcp.LSPReleaseScopeRequest
+	if err := req.UnmarshalParams(&payload); err != nil {
+		return nil, true, err
+	}
+	resp, err := c.cfg.OnLSPReleaseScope(ctx, payload)
+	return resp, true, err
 }
 
 // dispatchRequest is the notification-path entry point

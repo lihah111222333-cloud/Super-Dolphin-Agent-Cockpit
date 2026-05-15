@@ -16,10 +16,13 @@ import (
 )
 
 type stubConfigPeer struct {
-	mu       sync.Mutex
-	methods  []string
-	params   []any
-	notifyFn func(context.Context, string, any) error
+	mu              sync.Mutex
+	methods         []string
+	params          []any
+	callbackMethods []string
+	callbackParams  []any
+	notifyFn        func(context.Context, string, any) error
+	callbackFn      func(context.Context, string, any, any) error
 }
 
 func (s *stubConfigPeer) Notify(ctx context.Context, method string, params any) error {
@@ -33,7 +36,19 @@ func (s *stubConfigPeer) Notify(ctx context.Context, method string, params any) 
 	return nil
 }
 
-func (s *stubConfigPeer) Callback(context.Context, string, any, any) error { return nil }
+func (s *stubConfigPeer) Callback(ctx context.Context, method string, params any, result any) error {
+	s.mu.Lock()
+	s.callbackMethods = append(s.callbackMethods, method)
+	s.callbackParams = append(s.callbackParams, params)
+	s.mu.Unlock()
+	if typed, ok := result.(*dto.LSPReleaseScopeResult); ok {
+		*typed = dto.LSPReleaseScopeResult{MatchedManagers: 1, ClosedManagers: 1, ScopeKeys: []string{"lsp\x00agent-1\x00thread-1"}}
+	}
+	if s.callbackFn != nil {
+		return s.callbackFn(ctx, method, params, result)
+	}
+	return nil
+}
 
 func (s *stubConfigPeer) Close() error { return nil }
 
@@ -52,6 +67,21 @@ func (s *stubConfigPeer) count() int {
 	return len(s.methods)
 }
 
+func (s *stubConfigPeer) callbackCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.callbackMethods)
+}
+
+func (s *stubConfigPeer) snapshotLastCallback() (string, any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.callbackMethods) == 0 {
+		return "", nil
+	}
+	return s.callbackMethods[len(s.callbackMethods)-1], s.callbackParams[len(s.callbackParams)-1]
+}
+
 func waitForNotifyCount(t *testing.T, peer *stubConfigPeer, want int) {
 	t.Helper()
 
@@ -63,6 +93,19 @@ func waitForNotifyCount(t *testing.T, peer *stubConfigPeer, want int) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("Notify() count = %d, want %d", peer.count(), want)
+}
+
+func waitForCallbackCount(t *testing.T, peer *stubConfigPeer, want int) {
+	t.Helper()
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if peer.callbackCount() == want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("Callback() count = %d, want %d", peer.callbackCount(), want)
 }
 
 func TestNotifyConfigChanged_MapsScopeFromTopic(t *testing.T) {
@@ -243,5 +286,90 @@ func TestConfigChangeSubscriptions_BroadcastsAgentAndThreadUpdates(t *testing.T)
 	}
 	if got := threadPayload["reason"]; got != "archived" {
 		t.Fatalf("thread payload reason = %#v, want archived", got)
+	}
+}
+
+func TestAgentLifecycleDispatchesLSPReleaseScopeAdminCall(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := platformbus.NewDispatcher()
+	t.Cleanup(func() {
+		_ = dispatcher.Close()
+	})
+
+	registry := NewRegistry()
+	lspPeer := &stubConfigPeer{}
+	unrelatedPeer := &stubConfigPeer{}
+	addIndexedInstance(registry, &ToolInstance{
+		Lease:         dto.LeaseKey{InstanceID: "lsp-agent-1", Generation: 1},
+		AgentID:       "agent-1",
+		ThreadID:      "thread-1",
+		ClientKind:    dto.ClientKindLSP,
+		PeerKind:      dto.PeerKindTool,
+		Status:        dto.StatusActive,
+		Subscriptions: []string{configTopicAgent},
+		Peer:          lspPeer,
+	})
+	addIndexedInstance(registry, &ToolInstance{
+		Lease:      dto.LeaseKey{InstanceID: "lsp-agent-2", Generation: 1},
+		AgentID:    "agent-2",
+		ThreadID:   "thread-2",
+		ClientKind: dto.ClientKindLSP,
+		PeerKind:   dto.PeerKindTool,
+		Status:     dto.StatusActive,
+		Peer:       unrelatedPeer,
+	})
+
+	worker := newConfigFanoutWorker(registry, registry, nil)
+	worker.Start()
+	cancels := registerConfigChangeSubscriptions(dispatcher, worker, nil)
+	t.Cleanup(func() {
+		for _, cancel := range cancels {
+			if cancel != nil {
+				cancel()
+			}
+		}
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), time.Second)
+		defer stopCancel()
+		_ = worker.Stop(stopCtx)
+	})
+
+	event.Publish(dispatcher, agentdto.AgentStopped{
+		AgentSessionHeader: shareddto.AgentSessionHeader{
+			AgentHeader: shareddto.AgentHeader{
+				ThreadHeader: shareddto.ThreadHeader{
+					EventHeader: shareddto.EventHeader{Timestamp: time.Now()},
+					ThreadID:    "thread-1",
+				},
+				AgentID: "agent-1",
+			},
+			SessionID: "session-1",
+		},
+		Reason: "shutdown",
+	})
+
+	waitForCallbackCount(t, lspPeer, 1)
+	method, params := lspPeer.snapshotLastCallback()
+	if method != dto.MethodLSPReleaseScope {
+		t.Fatalf("Callback() method = %q, want %q", method, dto.MethodLSPReleaseScope)
+	}
+	req, ok := params.(dto.LSPReleaseScopeRequest)
+	if !ok {
+		t.Fatalf("Callback() params type = %T, want dto.LSPReleaseScopeRequest", params)
+	}
+	if req.ScopeKind != dto.LSPReleaseScopeAgentAllThreads {
+		t.Fatalf("release scope kind = %q, want %q", req.ScopeKind, dto.LSPReleaseScopeAgentAllThreads)
+	}
+	if req.AgentID != "agent-1" || req.ThreadID != "" {
+		t.Fatalf("release scope identity = agent %q thread %q, want agent-1/all threads", req.AgentID, req.ThreadID)
+	}
+	if !req.Drain {
+		t.Fatalf("release scope Drain = false, want true for lifecycle stop")
+	}
+	if req.Reason != "shutdown" {
+		t.Fatalf("release scope Reason = %q, want shutdown", req.Reason)
+	}
+	if unrelatedPeer.callbackCount() != 0 {
+		t.Fatalf("unrelated LSP peer received release callback count=%d, want 0", unrelatedPeer.callbackCount())
 	}
 }

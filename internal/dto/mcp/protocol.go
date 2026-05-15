@@ -19,6 +19,7 @@ type RegisterRequest struct {
 	BootID               string   `json:"boot_id,omitempty"`
 	ClientKind           string   `json:"client_kind"` // orch/lsp/ida/custom
 	PeerKind             string   `json:"peer_kind,omitempty"`
+	Shared               bool     `json:"shared,omitempty"`
 	CapabilitiesOffered  []string `json:"capabilities_offered,omitempty"`
 	CapabilitiesRequired []string `json:"capabilities_required,omitempty"`
 	Subscriptions        []string `json:"subscriptions,omitempty"`
@@ -198,4 +199,26 @@ type ConfigChangedNotify struct {
 	Scope         string          `json:"scope,omitempty"`
 	ConfigVersion int64           `json:"config_version"`
 	Payload       json.RawMessage `json:"payload"`
+}
+
+// LSPReleaseScopeRequest is the admin callback payload used by mcpcontrol to
+// tell the mcp-lsp process to release managers/cache for a trusted scope.
+type LSPReleaseScopeRequest struct {
+	ScopeKind  string `json:"scope_kind"`
+	AgentID    string `json:"agent_id,omitempty"`
+	ThreadID   string `json:"thread_id,omitempty"`
+	ManagerKey string `json:"manager_key,omitempty"`
+	Drain      bool   `json:"drain,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+// LSPReleaseScopeResult reports the process-local cleanup performed by
+// mcp-lsp for a ReleaseScope admin callback.
+type LSPReleaseScopeResult struct {
+	MatchedManagers int      `json:"matched_managers"`
+	ClosedManagers  int      `json:"closed_managers"`
+	BusyLeases      int      `json:"busy_leases"`
+	Drained         bool     `json:"drained,omitempty"`
+	ScopeKeys       []string `json:"scope_keys,omitempty"`
+	ManagerKeys     []string `json:"manager_keys,omitempty"`
 }

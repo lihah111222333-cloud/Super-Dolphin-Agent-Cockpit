@@ -175,6 +175,7 @@ func toContractInstance(instance *ToolInstance) contract.ToolInstance {
 		Subscriptions: platformshared.CloneStrings(instance.Subscriptions),
 		PeerKind:      instance.PeerKind,
 		ClientKind:    instance.ClientKind,
+		Shared:        instance.Shared,
 		Status:        instance.Status,
 		ConfigVersion: instance.ConfigVersion,
 	}
@@ -217,6 +218,8 @@ func normalizePeerKind(peerKind, clientKind string) string {
 		return dto.PeerKindUI
 	case dto.PeerKindTool:
 		return dto.PeerKindTool
+	case dto.PeerKindSharedService:
+		return dto.PeerKindSharedService
 	}
 	switch strings.ToLower(strings.TrimSpace(clientKind)) {
 	case dto.PeerKindUI:

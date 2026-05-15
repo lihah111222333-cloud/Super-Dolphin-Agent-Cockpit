@@ -20,6 +20,7 @@ type ToolInstance struct {
 	Subscriptions []string
 	PeerKind      string
 	ClientKind    string
+	Shared        bool
 	Status        string
 	ConfigVersion int64
 }

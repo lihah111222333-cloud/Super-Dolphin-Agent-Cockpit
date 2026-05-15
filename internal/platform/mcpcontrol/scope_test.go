@@ -35,28 +35,69 @@ func TestFindActiveForScopeRelaxesToAgent(t *testing.T) {
 	}
 }
 
-func TestFindActiveForScopeReturnsCandidatesForAmbiguousFallback(t *testing.T) {
+func TestFindActiveForScopeRejectsUnrelatedAgentPeer(t *testing.T) {
 	registry := NewRegistry()
 	_ = addActiveScopeTestPeer(registry, "alpha", dto.ClientKindLSP, "agent-a", "thread-a")
 	_ = addActiveScopeTestPeer(registry, "beta", dto.ClientKindLSP, "agent-b", "thread-b")
 
-	got := registry.FindActiveForScope(ToolScope{Family: dto.ClientKindLSP})
-	if len(got) != 2 {
-		t.Fatalf("FindActiveForScope() len = %d, want 2 ambiguous candidates", len(got))
+	got := registry.FindActiveForScope(ToolScope{
+		Family:   dto.ClientKindLSP,
+		AgentID:  "agent-missing",
+		ThreadID: "thread-missing",
+	})
+	if len(got) != 0 {
+		t.Fatalf("FindActiveForScope() = %#v, want fail-closed no unrelated agent fallback", got)
 	}
 }
 
-func TestFindActiveForScopeSingletonFallback(t *testing.T) {
+func TestFindActiveForScopeRejectsSingletonUnrelatedFallback(t *testing.T) {
 	registry := NewRegistry()
-	only := addActiveScopeTestPeer(registry, "only", dto.ClientKindLSP, "agent-a", "thread-a")
+	_ = addActiveScopeTestPeer(registry, "only", dto.ClientKindLSP, "agent-a", "thread-a")
 
 	got := registry.FindActiveForScope(ToolScope{
 		Family:   dto.ClientKindLSP,
 		AgentID:  "missing-agent",
 		ThreadID: "missing-thread",
 	})
-	if len(got) != 1 || got[0] != only {
-		t.Fatalf("FindActiveForScope() = %#v, want singleton fallback", got)
+	if len(got) != 0 {
+		t.Fatalf("FindActiveForScope() = %#v, want fail-closed no singleton unrelated fallback", got)
+	}
+}
+
+func TestPeerFallbackAllowsExplicitSharedPeerOnly(t *testing.T) {
+	registry := NewRegistry()
+	shared := addActiveScopeTestPeer(registry, "shared", dto.ClientKindLSP, "", "")
+	shared.PeerKind = dto.PeerKindSharedService
+	shared.Shared = true
+	_ = addActiveScopeTestPeer(registry, "agent-b", dto.ClientKindLSP, "agent-b", "thread-b")
+
+	got := registry.FindActiveForScope(ToolScope{
+		Family:   dto.ClientKindLSP,
+		AgentID:  "missing-agent",
+		ThreadID: "missing-thread",
+	})
+	if len(got) != 1 || got[0] != shared {
+		t.Fatalf("FindActiveForScope() = %#v, want explicit shared peer only", got)
+	}
+}
+
+func TestSharedPeerRequiresRegistrySharedFlagAndPeerKind(t *testing.T) {
+	registry := NewRegistry()
+	kindOnly := addActiveScopeTestPeer(registry, "kind-only", dto.ClientKindLSP, "", "")
+	kindOnly.PeerKind = dto.PeerKindSharedService
+	sharedFlagOnly := addActiveScopeTestPeer(registry, "shared-flag-only", dto.ClientKindLSP, "", "")
+	sharedFlagOnly.Shared = true
+	valid := addActiveScopeTestPeer(registry, "valid", dto.ClientKindLSP, "", "")
+	valid.PeerKind = dto.PeerKindSharedService
+	valid.Shared = true
+
+	got := registry.FindActiveForScope(ToolScope{
+		Family:   dto.ClientKindLSP,
+		AgentID:  "missing-agent",
+		ThreadID: "missing-thread",
+	})
+	if len(got) != 1 || got[0] != valid {
+		t.Fatalf("FindActiveForScope() = %#v, want only peer with shared flag and shared-service kind", got)
 	}
 }
 
