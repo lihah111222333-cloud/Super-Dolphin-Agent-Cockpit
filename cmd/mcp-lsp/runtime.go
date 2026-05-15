@@ -49,8 +49,9 @@ func newManager() (*Manager, error) {
 	registry := manager.NewRegistry(inst)
 	backgroundRunners := make([]platformrunner.Runner, 0, 6)
 	registerLang := func(langIDs []string, mgr multilsp.Manager) {
+		scopedResolver := multilsp.NewRegistryScopedResolver(mgr)
 		for _, langID := range langIDs {
-			registry.Register(langID, mgr)
+			registry.Register(langID, mgr, scopedResolver)
 		}
 		if r := mgr.BackgroundRunner(); r != nil {
 			backgroundRunners = append(backgroundRunners, r)

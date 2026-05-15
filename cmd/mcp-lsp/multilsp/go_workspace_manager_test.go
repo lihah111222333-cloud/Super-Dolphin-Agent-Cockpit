@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
 func TestGoWorkWorkspaceFolderInitializeAndEnv(t *testing.T) {
@@ -155,8 +156,11 @@ func TestGOWORKOffManagerEnvIgnoresGoWork(t *testing.T) {
 
 func TestRecyclerRestoresGoWorkspaceWithSavedRootEnvAndScope(t *testing.T) {
 	t.Setenv("GOWORK", "")
-	ctx := context.WithValue(context.Background(), lspScopeAgentIDContextKey, "agent-worker-d")
-	ctx = context.WithValue(ctx, lspScopeThreadIDContextKey, "thread-go")
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{
+		Family:   defaultLSPToolFamily,
+		AgentID:  "agent-worker-d",
+		ThreadID: "thread-go",
+	})
 	repo := normalizedTempDir(t)
 	backend := filepath.Join(repo, "backend")
 	tools := filepath.Join(repo, "tools")
@@ -193,7 +197,11 @@ func TestRecyclerRestoresGoWorkspaceWithSavedRootEnvAndScope(t *testing.T) {
 		env:              append([]string(nil), workspace.env...),
 		workspaceFolders: cloneWorkspaceFolders(workspace.workspaceFolders),
 	}
-	managerKey := managerKeyFor(lspScopeKeyFromContext(ctx), workspaceKeyForConfig(cfg))
+	resolved, err := manager.resolvedScopeForConfig(ctx, cfg)
+	if err != nil {
+		t.Fatalf("resolve scope for recycle: %v", err)
+	}
+	managerKey := resolved.ManagerKey
 	if err := recycleWorkspaceClient(manager, managerKey, workspace); err != nil {
 		t.Fatalf("recycle go workspace client: %v", err)
 	}
