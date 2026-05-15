@@ -2,10 +2,133 @@
 import { logWarn } from '../services/log.js';
 import { measureTailHeight, getWidthVersion, getFontVersion, setInvalidateCallback } from '../services/pretext-layout.js';
 
-function buildStreamingMarkdownState(text, emptyState) {
+const FENCE_DELIMITER_RE = /^(`{3,}|~{3,})/;
+const BLOCKISH_TRAILING_LINE_RE = /^\s*(?:#{1,6}\s|>\s|\|.*\|?|(?:-{3,}|\*{3,}|_{3,})\s*$)/;
+const INLINE_BALANCED_MARKDOWN_RE = /(`[^`\n]+`|\*\*[^*\n]+\*\*|(^|[^*])\*[^*\n]+\*([^*]|$)|~~[^~\n]+~~|\[[^\]\n]+\]\([^\)\n]+\))/;
+const SENTENCE_END_RE = /[。！？!?；;：:.…](?:[)\]"'”’`*_~]+)?$/;
+
+function normalizeStreamingMarkdownText(rawText) {
+  return (rawText || '').toString().replace(/\r\n?/g, '\n');
+}
+
+function readFenceMarker(line) {
+  const trimmed = (line || '').toString().trimStart();
+  const match = trimmed.match(FENCE_DELIMITER_RE);
+  if (!match) return null;
+  return { char: match[1][0], size: match[1].length };
+}
+
+function isFenceClose(line, fenceMarker) {
+  if (!fenceMarker) return false;
+  const nextMarker = readFenceMarker(line);
+  if (!nextMarker) return false;
+  return nextMarker.char === fenceMarker.char && nextMarker.size >= fenceMarker.size;
+}
+
+function countUnescapedToken(source, token) {
+  if (!source || !token) return 0;
+  let count = 0;
+  for (let index = 0; index <= source.length - token.length; index += 1) {
+    if (source.slice(index, index + token.length) !== token) continue;
+    let slashCount = 0;
+    for (let cursor = index - 1; cursor >= 0 && source[cursor] === '\\'; cursor -= 1) slashCount += 1;
+    if (slashCount % 2 === 1) continue;
+    count += 1;
+    index += token.length - 1;
+  }
+  return count;
+}
+
+function hasBalancedPairs(source, openChar, closeChar) {
+  let depth = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === '\\') {
+      index += 1;
+      continue;
+    }
+    if (char === openChar) depth += 1;
+    else if (char === closeChar) {
+      depth -= 1;
+      if (depth < 0) return false;
+    }
+  }
+  return depth === 0;
+}
+
+function hasUnclosedInlineMarkdown(line) {
+  const normalized = (line || '').toString().trim();
+  if (!normalized) return false;
+  if (countUnescapedToken(normalized, '`') % 2 === 1) return true;
+  if (countUnescapedToken(normalized, '**') % 2 === 1) return true;
+  if (countUnescapedToken(normalized, '~~') % 2 === 1) return true;
+  if (!hasBalancedPairs(normalized, '[', ']')) return true;
+  if (normalized.includes('](') && !hasBalancedPairs(normalized, '(', ')')) return true;
+  return false;
+}
+
+function shouldPromoteTrailingLine(line) {
+  const normalized = (line || '').toString().trim();
+  if (!normalized) return false;
+  if (readFenceMarker(normalized)) return false;
+  if (hasUnclosedInlineMarkdown(normalized)) return false;
+  if (BLOCKISH_TRAILING_LINE_RE.test(normalized)) return true;
+  if (SENTENCE_END_RE.test(normalized)) return true;
+  return INLINE_BALANCED_MARKDOWN_RE.test(normalized);
+}
+
+export function splitStreamingMarkdownForDisplay(rawText) {
+  const text = normalizeStreamingMarkdownText(rawText);
+  if (!text) return { stableText: '', tailText: '' };
+
+  const lines = text.split('\n');
+  let boundary = 0;
+  let offset = 0;
+  let openFenceMarker = null;
+  let openFenceBoundary = 0;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const lineEnd = offset + line.length;
+    const hasLineBreak = index < lines.length - 1;
+    const fenceMarker = readFenceMarker(line);
+
+    if (fenceMarker) {
+      if (!openFenceMarker) {
+        openFenceMarker = fenceMarker;
+        openFenceBoundary = boundary;
+      } else if (isFenceClose(line, openFenceMarker)) {
+        openFenceMarker = null;
+        boundary = hasLineBreak ? lineEnd + 1 : lineEnd;
+      }
+    } else if (!openFenceMarker && hasLineBreak) {
+      boundary = lineEnd + 1;
+    }
+
+    offset = lineEnd + 1;
+  }
+
+  if (openFenceMarker) boundary = openFenceBoundary;
+  else {
+    const trailingText = text.slice(boundary);
+    if (trailingText && shouldPromoteTrailingLine(trailingText)) boundary = text.length;
+  }
+
+  if (boundary <= 0) return { stableText: '', tailText: text };
+  if (boundary >= text.length) return { stableText: text, tailText: '' };
+  return {
+    stableText: text.slice(0, boundary),
+    tailText: text.slice(boundary),
+  };
+}
+
+function buildStreamingMarkdownState(text, renderAssistantBody, emptyState) {
   if (!text) return emptyState;
-  const heightPx = measureTailHeight(text);
-  return Object.freeze({ text, heightPx });
+  const parts = splitStreamingMarkdownForDisplay(text);
+  const html = parts.stableText ? renderAssistantBody(parts.stableText) : '';
+  const tailText = parts.tailText || '';
+  const heightPx = tailText ? measureTailHeight(tailText) : 0;
+  return Object.freeze({ text, html, tailText, heightPx });
 }
 
 function createFrameScheduler() {
@@ -36,7 +159,7 @@ function clearStaleGuard(state) {
   }
 }
 
-function getStateByText(state, text) {
+function getStateByText(state, text, renderAssistantBody) {
   if (!text) return state.emptyState;
   const wv = getWidthVersion();
   const fv = getFontVersion();
@@ -46,7 +169,7 @@ function getStateByText(state, text) {
     state.lastFontVer = fv;
   }
   if (state.cache.has(text)) return state.cache.get(text) || state.emptyState;
-  const next = buildStreamingMarkdownState(text, state.emptyState);
+  const next = buildStreamingMarkdownState(text, renderAssistantBody, state.emptyState);
   state.cache.set(text, next);
   if (state.cache.size > 280) state.cache.delete(state.cache.keys().next().value);
   return next;
@@ -73,7 +196,7 @@ function flushPending(state) {
   
   for (const [itemId, entry] of state.pendingByItemId.entries()) {
     const current = state.displayedByItemId.get(itemId);
-    if (!entry.state) entry.state = getStateByText(state, entry.text);
+    if (!entry.state) entry.state = getStateByText(state, entry.text, state.renderAssistantBody);
     if (!current || current.text !== entry.text || current.state !== entry.state) {
       state.displayedByItemId.set(itemId, entry);
       changed = true;
@@ -135,12 +258,12 @@ function resolveStreamingState(state, item) {
       state.displayedByItemId.delete(itemId);
       state.pendingByItemId.delete(itemId);
     }
-    return getStateByText(state, text);
+    return getStateByText(state, text, state.renderAssistantBody);
   }
 
   const displayed = state.displayedByItemId.get(itemId);
   if (!displayed) {
-    const nextState = getStateByText(state, text);
+    const nextState = getStateByText(state, text, state.renderAssistantBody);
     const initial = { text, state: nextState };
     state.displayedByItemId.set(itemId, initial);
     trimDisplayedByItemId(state);
@@ -185,12 +308,13 @@ function disposeStreamingMarkdownStateResolver(state) {
   clearStaleGuard(state);
 }
 
-export function createStreamingMarkdownStateResolver(onStateFlush = null, onStallDetected = null) {
+export function createStreamingMarkdownStateResolver(renderAssistantBody, onStateFlush = null, onStallDetected = null) {
   const state = {
     cache: new Map(),
     displayedByItemId: new Map(),
     pendingByItemId: new Map(),
-    emptyState: Object.freeze({ text: '', heightPx: 0 }),
+    emptyState: Object.freeze({ text: '', html: '', tailText: '', heightPx: 0 }),
+    renderAssistantBody,
     lastWidthVer: 0,
     lastFontVer: 0,
     scheduleFrame: createFrameScheduler(),
