@@ -373,3 +373,64 @@ func TestAgentLifecycleDispatchesLSPReleaseScopeAdminCall(t *testing.T) {
 		t.Fatalf("unrelated LSP peer received release callback count=%d, want 0", unrelatedPeer.callbackCount())
 	}
 }
+
+func TestAgentStopDispatchesLSPReleaseScopeAdminCall(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := platformbus.NewDispatcher()
+	t.Cleanup(func() {
+		_ = dispatcher.Close()
+	})
+
+	registry := NewRegistry()
+	lspPeer := &stubConfigPeer{}
+	addIndexedInstance(registry, &ToolInstance{
+		Lease:      dto.LeaseKey{InstanceID: "lsp-agent-stop", Generation: 1},
+		AgentID:    "agent-stop",
+		ThreadID:   "thread-stop",
+		ClientKind: dto.ClientKindLSP,
+		PeerKind:   dto.PeerKindTool,
+		Status:     dto.StatusActive,
+		Peer:       lspPeer,
+	})
+	worker := newConfigFanoutWorker(registry, registry, nil)
+	worker.Start()
+	cancels := registerConfigChangeSubscriptions(dispatcher, worker, nil)
+	t.Cleanup(func() {
+		for _, cancel := range cancels {
+			if cancel != nil {
+				cancel()
+			}
+		}
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), time.Second)
+		defer stopCancel()
+		_ = worker.Stop(stopCtx)
+	})
+
+	event.Publish(dispatcher, agentdto.AgentStopped{
+		AgentSessionHeader: shareddto.AgentSessionHeader{
+			AgentHeader: shareddto.AgentHeader{
+				ThreadHeader: shareddto.ThreadHeader{
+					EventHeader: shareddto.EventHeader{Timestamp: time.Now()},
+					ThreadID:    "thread-stop",
+				},
+				AgentID: "agent-stop",
+			},
+			SessionID: "session-stop",
+		},
+		Reason: "agent_stop",
+	})
+
+	waitForCallbackCount(t, lspPeer, 1)
+	method, params := lspPeer.snapshotLastCallback()
+	if method != dto.MethodLSPReleaseScope {
+		t.Fatalf("Callback() method = %q, want %q", method, dto.MethodLSPReleaseScope)
+	}
+	req, ok := params.(dto.LSPReleaseScopeRequest)
+	if !ok {
+		t.Fatalf("Callback() params type = %T, want dto.LSPReleaseScopeRequest", params)
+	}
+	if req.ScopeKind != dto.LSPReleaseScopeAgentAllThreads || req.AgentID != "agent-stop" || req.ThreadID != "" || !req.Drain {
+		t.Fatalf("release scope request = %#v, want trusted agent all-threads drain", req)
+	}
+}

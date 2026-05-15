@@ -739,6 +739,69 @@ func TestToolBridge_ScopedLSPPeerRoutingUsesTrustedMetadata(t *testing.T) {
 	}
 }
 
+func TestLSPReleaseScopeAdminCallCarriesTrustedScope(t *testing.T) {
+	args := mustRawJSON(t, map[string]any{
+		"action":    "read_file",
+		"file_path": "go.mod",
+		"agent_id":  "forged-agent",
+		"thread_id": "forged-thread",
+		"cwd":       "/forged/root",
+	})
+	peer := &mcpcontrol.ToolInstance{
+		AgentID:    "trusted-agent",
+		ThreadID:   "trusted-thread",
+		ClientKind: dto.ClientKindLSP,
+		Peer: &stubPeer{callbackFn: func(_ context.Context, method string, params any, result any) error {
+			if method != ProxyMethodToolsCall {
+				t.Fatalf("Callback() method = %q, want %s", method, ProxyMethodToolsCall)
+			}
+			payload, ok := params.(map[string]any)
+			if !ok {
+				t.Fatalf("Callback() params type = %T, want map[string]any", params)
+			}
+			if got := payload[MetadataKeyAgentID]; got != "trusted-agent" {
+				t.Fatalf("Callback() _agentId = %#v, want trusted-agent", got)
+			}
+			if got := payload[MetadataKeyThreadID]; got != "trusted-thread" {
+				t.Fatalf("Callback() _threadId = %#v, want trusted-thread", got)
+			}
+			if got := payload[MetadataKeyCallID]; got != "trusted-call" {
+				t.Fatalf("Callback() _callId = %#v, want trusted-call", got)
+			}
+			if got := payload[MetadataKeyCWD]; got != "/trusted/root" {
+				t.Fatalf("Callback() _cwd = %#v, want trusted root", got)
+			}
+			if _, ok := payload["agent_id"]; ok {
+				t.Fatalf("Callback() leaked untrusted top-level agent_id: %#v", payload)
+			}
+			resp := result.(*peerToolCallResponse)
+			*resp = peerToolCallResponse{Content: []peerToolCallContent{{Type: "text", Text: "trusted scope"}}}
+			return nil
+		}},
+	}
+	h, registry := newHandlerForTest(peer)
+	registry.scoped = true
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:      "lsp_file",
+		Arguments: args,
+		AgentID:   "trusted-agent",
+		ThreadID:  "trusted-thread",
+		CallID:    "trusted-call",
+		CWD:       "/trusted/root",
+	})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	assertSingleTextItem(t, got, "trusted scope", true)
+	if len(registry.gotScopes) != 1 {
+		t.Fatalf("FindActiveForScope() calls = %d, want 1", len(registry.gotScopes))
+	}
+	if scope := registry.gotScopes[0]; scope.AgentID != "trusted-agent" || scope.ThreadID != "trusted-thread" || scope.CallID != "trusted-call" || scope.CWD != "/trusted/root" || scope.Family != dto.ClientKindLSP {
+		t.Fatalf("FindActiveForScope() scope = %#v, want trusted LSP scope", scope)
+	}
+}
+
 func TestToolbridgeHTTPPeerProxyInjectsTrustedScopeMetadata(t *testing.T) {
 	args := mustRawJSON(t, map[string]any{
 		"action":    "read_file",

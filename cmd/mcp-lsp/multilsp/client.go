@@ -35,6 +35,11 @@ type Client interface {
 	Close() error
 }
 
+type HealthCheckedClient interface {
+	Client
+	Healthy() bool
+}
+
 type Options struct {
 	Binary              string
 	Args                []string
@@ -120,9 +125,11 @@ func (c *client) Initialize(ctx context.Context, rootURI string) error {
 	}
 	result, err := c.transport.request(ctx, protocol.MethodInitialize, params)
 	if err != nil {
+		c.markDeadIfClientFailure(err)
 		return fmt.Errorf("LSP initialize request: %w", err)
 	}
 	if err := c.transport.notify(ctx, protocol.MethodInitialized, struct{}{}); err != nil {
+		c.markDeadIfClientFailure(err)
 		return fmt.Errorf("LSP initialized notification: %w", err)
 	}
 	if err := decodeInitializeResult(result); err != nil {
@@ -161,6 +168,7 @@ func (c *client) Request(ctx context.Context, method string, params any) (json.R
 	}
 	result, err := requestMessage(ctx, method, params, c.transport.request)
 	if err != nil {
+		c.markDeadIfClientFailure(err)
 		return nil, fmt.Errorf("LSP request %s: %w", method, err)
 	}
 	return result, nil
@@ -171,6 +179,7 @@ func (c *client) Notify(ctx context.Context, method string, params any) error {
 		return err
 	}
 	if err := notifyMessage(ctx, method, params, c.transport.notify); err != nil {
+		c.markDeadIfClientFailure(err)
 		return fmt.Errorf("LSP notify %s: %w", method, err)
 	}
 	return nil
@@ -209,6 +218,19 @@ func (c *client) DidClose(ctx context.Context, uri string) error {
 func (c *client) Close() error {
 	c.markShutdown()
 	return c.transport.Close()
+}
+
+func (c *client) Healthy() bool {
+	if c == nil {
+		return false
+	}
+	c.stateMu.RLock()
+	shutdown := c.shutdown
+	c.stateMu.RUnlock()
+	if shutdown {
+		return false
+	}
+	return c.transport != nil && !c.transport.closed.Load()
 }
 
 func (c *client) canInitialize(rootURI string) error {
@@ -251,6 +273,12 @@ func (c *client) markShutdown() {
 	c.stateMu.Lock()
 	c.shutdown = true
 	c.stateMu.Unlock()
+}
+
+func (c *client) markDeadIfClientFailure(err error) {
+	if isClientDeadError(err) {
+		c.markShutdown()
+	}
 }
 
 func decodeInitializeResult(result json.RawMessage) error {
