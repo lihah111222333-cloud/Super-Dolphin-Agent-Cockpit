@@ -24,57 +24,87 @@ func TestNakedGoroutineGuard(t *testing.T) {
 	root := repoRootForGuardTests(t)
 	scanRoots := []string{"internal"}
 	skipDirs := DefaultSkipDirs()
-
-	allowedFiles := map[string]struct{}{
-		filepath.Join("internal", "util", "safego", "safego.go"):      {},
-		filepath.Join("internal", "platform", "shared", "safe_go.go"): {},
-		filepath.Join("internal", "contract", "contracttest"):         {}, // test helpers
-	}
-
-	var violations []string
-	for _, sr := range scanRoots {
-		abs := filepath.Join(root, sr)
-		err := filepath.Walk(abs, func(path string, info os.FileInfo, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			if info.IsDir() {
-				if _, skip := skipDirs[info.Name()]; skip {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-				return nil
-			}
-			rel, err := filepath.Rel(root, path)
-			if err != nil {
-				return err
-			}
-			if isAllowedForNakedGoroutine(rel, allowedFiles) {
-				return nil
-			}
-			fset := token.NewFileSet()
-			node, parseErr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-			if parseErr != nil {
-				return nil
-			}
-			count := countNakedGoStmts(node)
-			if count > 0 {
-				violations = append(violations,
-					rel+": 发现 "+itoa(count)+" 处裸 go func() — 必须使用 safego.Go(ctx, logger, label, fn)")
-			}
-			return nil
-		})
-		if err != nil {
-			t.Fatalf("walk %s: %v", sr, err)
-		}
-	}
+	violations := findNakedGoroutineViolations(t, root, scanRoots, skipDirs, nakedGoroutineAllowedFiles())
 
 	if len(violations) > 0 {
 		t.Fatalf("Naked goroutine guard violations (%d):\n  %s",
 			len(violations), strings.Join(violations, "\n  "))
 	}
+}
+
+func nakedGoroutineAllowedFiles() map[string]struct{} {
+	return map[string]struct{}{
+		filepath.Join("internal", "util", "safego", "safego.go"):      {},
+		filepath.Join("internal", "platform", "shared", "safe_go.go"): {},
+		filepath.Join("internal", "contract", "contracttest"):         {}, // test helpers
+	}
+}
+
+func findNakedGoroutineViolations(
+	t *testing.T,
+	root string,
+	scanRoots []string,
+	skipDirs map[string]bool,
+	allowedFiles map[string]struct{},
+) []string {
+	t.Helper()
+	var violations []string
+	for _, sr := range scanRoots {
+		rootViolations, err := scanNakedGoroutineRoot(root, sr, skipDirs, allowedFiles)
+		if err != nil {
+			t.Fatalf("walk %s: %v", sr, err)
+		}
+		violations = append(violations, rootViolations...)
+	}
+	return violations
+}
+
+func scanNakedGoroutineRoot(root, scanRoot string, skipDirs map[string]bool, allowedFiles map[string]struct{}) ([]string, error) {
+	var violations []string
+	abs := filepath.Join(root, scanRoot)
+	err := filepath.Walk(abs, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if info.IsDir() {
+			if _, skip := skipDirs[info.Name()]; skip {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		violation, ok, err := nakedGoroutineViolationForFile(root, path, allowedFiles)
+		if err != nil {
+			return err
+		}
+		if ok {
+			violations = append(violations, violation)
+		}
+		return nil
+	})
+	return violations, err
+}
+
+func nakedGoroutineViolationForFile(root, path string, allowedFiles map[string]struct{}) (string, bool, error) {
+	if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+		return "", false, nil
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return "", false, err
+	}
+	if isAllowedForNakedGoroutine(rel, allowedFiles) {
+		return "", false, nil
+	}
+	fset := token.NewFileSet()
+	node, parseErr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+	if parseErr != nil {
+		return "", false, nil
+	}
+	count := countNakedGoStmts(node)
+	if count == 0 {
+		return "", false, nil
+	}
+	return rel + ": 发现 " + itoa(count) + " 处裸 go func() — 必须使用 safego.Go(ctx, logger, label, fn)", true, nil
 }
 
 func isAllowedForNakedGoroutine(rel string, allowedFiles map[string]struct{}) bool {

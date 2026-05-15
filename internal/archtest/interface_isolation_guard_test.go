@@ -148,30 +148,56 @@ func interfaceShape(t *testing.T, root, relPath, name string) (methods int, embe
 func structFieldType(t *testing.T, root, relPath, structName, fieldName string) (string, bool) {
 	t.Helper()
 	file := parseGoFileForInterfaceGuard(t, root, relPath)
+	typeSpec, ok := findTypeSpec(file, structName)
+	if !ok {
+		return "", false
+	}
+	st, ok := typeSpec.Type.(*ast.StructType)
+	if !ok {
+		return "", false
+	}
+	return structFieldTypeString(st, fieldName)
+}
+
+func findTypeSpec(file *ast.File, name string) (*ast.TypeSpec, bool) {
 	for _, decl := range file.Decls {
 		gen, ok := decl.(*ast.GenDecl)
 		if !ok || gen.Tok != token.TYPE {
 			continue
 		}
-		for _, spec := range gen.Specs {
-			typeSpec, ok := spec.(*ast.TypeSpec)
-			if !ok || typeSpec.Name.Name != structName {
-				continue
-			}
-			st, ok := typeSpec.Type.(*ast.StructType)
-			if !ok {
-				return "", false
-			}
-			for _, field := range st.Fields.List {
-				for _, name := range field.Names {
-					if name.Name == fieldName {
-						return exprTypeString(field.Type), true
-					}
-				}
-			}
+		if typeSpec, ok := findTypeSpecInGenDecl(gen, name); ok {
+			return typeSpec, true
+		}
+	}
+	return nil, false
+}
+
+func findTypeSpecInGenDecl(gen *ast.GenDecl, name string) (*ast.TypeSpec, bool) {
+	for _, spec := range gen.Specs {
+		typeSpec, ok := spec.(*ast.TypeSpec)
+		if ok && typeSpec.Name.Name == name {
+			return typeSpec, true
+		}
+	}
+	return nil, false
+}
+
+func structFieldTypeString(st *ast.StructType, fieldName string) (string, bool) {
+	for _, field := range st.Fields.List {
+		if fieldHasName(field, fieldName) {
+			return exprTypeString(field.Type), true
 		}
 	}
 	return "", false
+}
+
+func fieldHasName(field *ast.Field, fieldName string) bool {
+	for _, name := range field.Names {
+		if name.Name == fieldName {
+			return true
+		}
+	}
+	return false
 }
 
 func functionParamType(t *testing.T, root, relPath, funcName, paramName string) (string, bool) {

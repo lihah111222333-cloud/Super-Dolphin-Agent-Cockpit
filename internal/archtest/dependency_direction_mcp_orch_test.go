@@ -63,35 +63,52 @@ func assertNoRPCHostSelectors(t *testing.T, files []parsedFile) {
 		if err != nil {
 			t.Fatalf("parse %s: %v", file.RelPath, err)
 		}
-		aliases := map[string]bool{}
-		for _, spec := range node.Imports {
-			path, err := strconv.Unquote(spec.Path.Value)
-			if err != nil {
-				t.Fatalf("unquote import %s: %v", spec.Path.Value, err)
-			}
-			if path != internalPrefix("internal/platform/rpc") {
-				continue
-			}
-			if spec.Name != nil {
-				aliases[spec.Name.Name] = true
-			} else {
-				aliases["rpc"] = true
-			}
-		}
-		if aliases["."] {
-			violations = append(violations, fmt.Sprintf("%s dot-imports internal/platform/rpc", file.RelPath))
-		}
-		ast.Inspect(node, func(n ast.Node) bool {
-			sel, ok := n.(*ast.SelectorExpr)
-			if !ok {
-				return true
-			}
-			id, okID := sel.X.(*ast.Ident)
-			if okID && aliases[id.Name] && strings.Contains(mcpOrchRPCHostSymbols, ","+sel.Sel.Name+",") {
-				violations = append(violations, fmt.Sprintf("%s uses internal/platform/rpc host symbol %s", file.RelPath, sel.Sel.Name))
-			}
-			return true
-		})
+		aliases := rpcImportAliases(t, node)
+		violations = append(violations, rpcAliasViolations(file, aliases)...)
+		violations = append(violations, rpcHostSelectorViolations(file, node, aliases)...)
 	}
 	failIfViolations(t, violations)
+}
+
+func rpcImportAliases(t *testing.T, node *ast.File) map[string]bool {
+	t.Helper()
+	aliases := map[string]bool{}
+	for _, spec := range node.Imports {
+		path, err := strconv.Unquote(spec.Path.Value)
+		if err != nil {
+			t.Fatalf("unquote import %s: %v", spec.Path.Value, err)
+		}
+		if path != internalPrefix("internal/platform/rpc") {
+			continue
+		}
+		if spec.Name != nil {
+			aliases[spec.Name.Name] = true
+			continue
+		}
+		aliases["rpc"] = true
+	}
+	return aliases
+}
+
+func rpcAliasViolations(file parsedFile, aliases map[string]bool) []string {
+	if aliases["."] {
+		return []string{fmt.Sprintf("%s dot-imports internal/platform/rpc", file.RelPath)}
+	}
+	return nil
+}
+
+func rpcHostSelectorViolations(file parsedFile, node *ast.File, aliases map[string]bool) []string {
+	var violations []string
+	ast.Inspect(node, func(n ast.Node) bool {
+		sel, ok := n.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		id, okID := sel.X.(*ast.Ident)
+		if okID && aliases[id.Name] && strings.Contains(mcpOrchRPCHostSymbols, ","+sel.Sel.Name+",") {
+			violations = append(violations, fmt.Sprintf("%s uses internal/platform/rpc host symbol %s", file.RelPath, sel.Sel.Name))
+		}
+		return true
+	})
+	return violations
 }

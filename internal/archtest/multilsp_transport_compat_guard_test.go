@@ -21,8 +21,13 @@ func TestMultiLSPTransportCompatFreeze(t *testing.T) {
 		dir      = "../../cmd/mcp-lsp/multilsp"
 		producer = "transport_compat.go"
 	)
+	frozen := frozenMultilspTransportCompatLiterals()
+	assertFrozenCompatLiteralsOutsideProducer(t, dir, producer, frozen)
+	assertFrozenCompatLiteralsInProducer(t, dir, producer, frozen)
+}
 
-	frozen := []string{
+func frozenMultilspTransportCompatLiterals() []string {
+	return []string{
 		"\"client/registerCapability\"",
 		"\"client/unregisterCapability\"",
 		"\"window/workDoneProgress/create\"",
@@ -32,7 +37,10 @@ func TestMultiLSPTransportCompatFreeze(t *testing.T) {
 		"\"workspace/inlayHint/refresh\"",
 		"\"workspace/diagnostic/refresh\"",
 	}
+}
 
+func assertFrozenCompatLiteralsOutsideProducer(t *testing.T, dir, producer string, frozen []string) {
+	t.Helper()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("read dir %s: %v", dir, err)
@@ -60,9 +68,10 @@ func TestMultiLSPTransportCompatFreeze(t *testing.T) {
 			}
 		}
 	}
+}
 
-	// Also verify transport_compat.go still contains each frozen
-	// literal, so deletions don't silently weaken the freeze.
+func assertFrozenCompatLiteralsInProducer(t *testing.T, dir, producer string, frozen []string) {
+	t.Helper()
 	data, err := os.ReadFile(filepath.Join(dir, producer))
 	if err != nil {
 		t.Fatalf("read %s: %v", producer, err)

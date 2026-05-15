@@ -28,10 +28,17 @@ func TestThreadTurnPendingLaunchSpawnerContractGuard(t *testing.T) {
 	t.Parallel()
 	root := repoRootForGuardTests(t)
 
-	// 1. turn must not re-export PendingLaunchSpawner as an interface
-	//    type. Comments that mention the old name are fine — the token
-	//    `type PendingLaunchSpawner interface` is the real violation.
 	turnDir := filepath.Join(root, "internal", "module", "turn")
+	assertTurnDoesNotDeclarePendingLaunchSpawner(t, turnDir)
+	assertThreadModuleUsesContractPendingLaunchSpawner(t, root)
+}
+
+func assertTurnDoesNotDeclarePendingLaunchSpawner(t *testing.T, turnDir string) {
+	t.Helper()
+
+	// turn must not re-export PendingLaunchSpawner as an interface type.
+	// Comments that mention the old name are fine — the token below is the
+	// real violation.
 	entries, err := os.ReadDir(turnDir)
 	if err != nil {
 		t.Fatalf("read %s: %v", turnDir, err)
@@ -58,13 +65,14 @@ func TestThreadTurnPendingLaunchSpawnerContractGuard(t *testing.T) {
 	if len(declHits) > 0 {
 		t.Fatalf("internal/module/turn reintroduced the PendingLaunchSpawner interface (P4 §2.5 side-channel violation); offending files: %v", declHits)
 	}
+}
 
-	// 2. thread/module.go must reference contract.PendingLaunchSpawner
-	//    (the post-S2 home) and must NOT reference
-	//    turn.PendingLaunchSpawner in code positions. We allow comment
-	//    mentions of the old name (historical context in the P22 P4 S2
-	//    migration notes), so the check is token-shaped rather than
-	//    substring-wide.
+func assertThreadModuleUsesContractPendingLaunchSpawner(t *testing.T, root string) {
+	t.Helper()
+
+	// thread/module.go must reference contract.PendingLaunchSpawner (the
+	// post-S2 home) and must NOT reference turn.PendingLaunchSpawner in code
+	// positions. Comment mentions of the old name are allowed.
 	threadModule := filepath.Join(root, "internal", "module", "thread", "module.go")
 	data, err := os.ReadFile(threadModule)
 	if err != nil {

@@ -37,6 +37,13 @@ func TestSqlcStrictOrderByAtSQLBlockLevel(t *testing.T) {
 
 func TestHookstoreUsesGeneratedSQLC(t *testing.T) {
 	root := repoRoot(t)
+	violations := collectHookstoreSQLCBypassViolations(t, root)
+	violations = append(violations, missingHookSQLCMethodViolations(t, root)...)
+	failIfViolations(t, violations)
+}
+
+func collectHookstoreSQLCBypassViolations(t *testing.T, root string) []string {
+	t.Helper()
 	storeDir := filepath.Join(root, "internal", "store", "hookstore")
 	entries, err := os.ReadDir(storeDir)
 	if err != nil {
@@ -60,13 +67,18 @@ func TestHookstoreUsesGeneratedSQLC(t *testing.T) {
 			}
 		}
 	}
+	return violations
+}
 
+func missingHookSQLCMethodViolations(t *testing.T, root string) []string {
+	t.Helper()
 	generatedPath := filepath.Join(root, "internal", "store", "sqlc", "hook_pending_review.sql.go")
 	generated, err := os.ReadFile(generatedPath)
 	if err != nil {
 		t.Fatalf("read generated hook sqlc file: %v", err)
 	}
 	generatedContent := string(generated)
+	var violations []string
 	for _, method := range []string{
 		"SaveHookPendingReview",
 		"GetHookPendingReview",
@@ -83,7 +95,7 @@ func TestHookstoreUsesGeneratedSQLC(t *testing.T) {
 			violations = append(violations, fmt.Sprintf("generated hook_pending_review sqlc file missing %s", method))
 		}
 	}
-	failIfViolations(t, violations)
+	return violations
 }
 
 func TestMigrationNumberUniqueness(t *testing.T) {

@@ -45,55 +45,57 @@ func TestOrchestrationLauncherProtocolFreeze(t *testing.T) {
 		"LauncherMethodTurnStart = contract.TurnRPCStart",
 	}
 
+	assertFrozenLauncherLiteralsOnlyInProducer(t, dir, producer, frozen)
+	assertFileContainsAll(t, filepath.Join(dir, producer), requiredAliases, "expected launcher protocol alias")
+	assertFileContainsAll(t, contractProducer, frozen, "expected shared RPC method literal")
+}
+
+func assertFrozenLauncherLiteralsOnlyInProducer(t *testing.T, dir, producer string, frozen []string) {
+	t.Helper()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("read dir %s: %v", dir, err)
 	}
 	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		name := e.Name()
-		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		if name == producer {
+		name, ok := launcherProtocolScanFile(e, producer)
+		if !ok {
 			continue
 		}
 		path := filepath.Join(dir, name)
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", path, err)
-		}
-		text := string(data)
 		for _, tok := range frozen {
-			if strings.Contains(text, tok) {
+			if strings.Contains(readGuardTextFile(t, path), tok) {
 				t.Errorf("%s: frozen launcher-protocol literal %s appears outside %s (P22 P4 §62/§120/§280: add/rename it in %s instead of inlining)", path, tok, producer, producer)
 			}
 		}
 	}
+}
 
-	// Also verify launcher_protocol.go aliases each outbound method to the shared
-	// contract constant, so deletions don't accidentally weaken the freeze.
-	data, err := os.ReadFile(filepath.Join(dir, producer))
-	if err != nil {
-		t.Fatalf("read %s: %v", producer, err)
+func launcherProtocolScanFile(e os.DirEntry, producer string) (string, bool) {
+	if e.IsDir() {
+		return "", false
 	}
-	text := string(data)
-	for _, alias := range requiredAliases {
-		if !strings.Contains(text, alias) {
-			t.Errorf("%s: expected launcher protocol alias %q to be present", producer, alias)
-		}
+	name := e.Name()
+	if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+		return "", false
 	}
+	return name, name != producer
+}
 
-	contractData, err := os.ReadFile(contractProducer)
+func readGuardTextFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("read %s: %v", contractProducer, err)
+		t.Fatalf("read %s: %v", path, err)
 	}
-	contractText := string(contractData)
-	for _, tok := range frozen {
-		if !strings.Contains(contractText, tok) {
-			t.Errorf("%s: expected shared RPC method literal %s to be present", contractProducer, tok)
+	return string(data)
+}
+
+func assertFileContainsAll(t *testing.T, path string, required []string, label string) {
+	t.Helper()
+	text := readGuardTextFile(t, path)
+	for _, token := range required {
+		if !strings.Contains(text, token) {
+			t.Errorf("%s: %s %q to be present", path, label, token)
 		}
 	}
 }

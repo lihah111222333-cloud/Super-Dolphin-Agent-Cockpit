@@ -26,11 +26,23 @@ func TestDispatcherWiringGuard(t *testing.T) {
 	t.Parallel()
 	root := repoRootForGuardTests(t)
 
-	cases := []struct {
-		name     string
-		path     string
-		mustHave []string
-	}{
+	for _, tc := range dispatcherWiringGuardCases() {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assertDispatcherWiringMarkers(t, root, tc)
+		})
+	}
+}
+
+type dispatcherWiringGuardCase struct {
+	name     string
+	path     string
+	mustHave []string
+}
+
+func dispatcherWiringGuardCases() []dispatcherWiringGuardCase {
+	return []dispatcherWiringGuardCase{
 		{
 			name: "wakeup_dispatcher routes through NodeExecutorRouter",
 			path: filepath.Join("cmd", "mcp-orch", "orchestration", "wakeup_dispatcher.go"),
@@ -131,23 +143,21 @@ func TestDispatcherWiringGuard(t *testing.T) {
 			},
 		},
 	}
+}
 
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			abs := filepath.Join(root, tc.path)
-			data, err := os.ReadFile(abs)
-			if err != nil {
-				t.Fatalf("read %s: %v", tc.path, err)
-			}
-			content := string(data)
-			for _, must := range tc.mustHave {
-				if !strings.Contains(content, must) {
-					t.Errorf("%s missing required marker %q (wiring regression?)", tc.path, must)
-				}
-			}
-		})
+func assertDispatcherWiringMarkers(t *testing.T, root string, tc dispatcherWiringGuardCase) {
+	t.Helper()
+
+	abs := filepath.Join(root, tc.path)
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		t.Fatalf("read %s: %v", tc.path, err)
+	}
+	content := string(data)
+	for _, must := range tc.mustHave {
+		if !strings.Contains(content, must) {
+			t.Errorf("%s missing required marker %q (wiring regression?)", tc.path, must)
+		}
 	}
 }
 

@@ -3,6 +3,8 @@ package archtest
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestMeasureFileMetrics_Sample(t *testing.T) {
@@ -13,46 +15,22 @@ func TestMeasureFileMetrics_Sample(t *testing.T) {
 	m := MeasureFileMetrics(path)
 
 	// Size checks
-	if m.Lines == 0 {
-		t.Error("Lines should be > 0")
-	}
-	if m.MaxFuncLen == 0 {
-		t.Error("MaxFuncLen should be > 0 (complexFunc has multiple lines)")
-	}
+	require.NotZero(t, m.Lines, "Lines should be > 0")
+	require.NotZero(t, m.MaxFuncLen, "MaxFuncLen should be > 0 (complexFunc has multiple lines)")
 
 	// Complexity
-	if m.MaxNesting < 3 {
-		t.Errorf("MaxNesting: got %d, want >= 3 (deepNesting has nesting 4)", m.MaxNesting)
-	}
-	if m.MaxComplexity < 5 {
-		t.Errorf("MaxComplexity: got %d, want >= 5 (complexFunc is complex)", m.MaxComplexity)
-	}
-	if m.MaxParams < 8 {
-		t.Errorf("MaxParams: got %d, want >= 8 (manyParams has 8)", m.MaxParams)
-	}
-	if m.MaxReturns < 4 {
-		t.Errorf("MaxReturns: got %d, want >= 4 (manyReturns has 5)", m.MaxReturns)
-	}
+	require.GreaterOrEqual(t, m.MaxNesting, 3, "MaxNesting: got %d, want >= 3 (deepNesting has nesting 4)", m.MaxNesting)
+	require.GreaterOrEqual(t, m.MaxComplexity, 5, "MaxComplexity: got %d, want >= 5 (complexFunc is complex)", m.MaxComplexity)
+	require.GreaterOrEqual(t, m.MaxParams, 8, "MaxParams: got %d, want >= 8 (manyParams has 8)", m.MaxParams)
+	require.GreaterOrEqual(t, m.MaxReturns, 4, "MaxReturns: got %d, want >= 4 (manyReturns has 5)", m.MaxReturns)
 
 	// Quality
-	if m.GlobalVars < 1 {
-		t.Errorf("GlobalVars: got %d, want >= 1 (globalCounter)", m.GlobalVars)
-	}
-	if m.PanicCount < 1 {
-		t.Errorf("PanicCount: got %d, want >= 1 (panicFunc)", m.PanicCount)
-	}
-	if m.NakedReturns < 1 {
-		t.Errorf("NakedReturns: got %d, want >= 1 (nakedReturnFunc)", m.NakedReturns)
-	}
-	if m.EmptyFuncs < 1 {
-		t.Errorf("EmptyFuncs: got %d, want >= 1 (emptyFunc)", m.EmptyFuncs)
-	}
-	if m.TodoCount < 2 {
-		t.Errorf("TodoCount: got %d, want >= 2 (two TODO comments)", m.TodoCount)
-	}
-	if m.MaxStructFields < 16 {
-		t.Errorf("MaxStructFields: got %d, want >= 16 (BigStruct)", m.MaxStructFields)
-	}
+	require.GreaterOrEqual(t, m.GlobalVars, 1, "GlobalVars: got %d, want >= 1 (globalCounter)", m.GlobalVars)
+	require.GreaterOrEqual(t, m.PanicCount, 1, "PanicCount: got %d, want >= 1 (panicFunc)", m.PanicCount)
+	require.GreaterOrEqual(t, m.NakedReturns, 1, "NakedReturns: got %d, want >= 1 (nakedReturnFunc)", m.NakedReturns)
+	require.GreaterOrEqual(t, m.EmptyFuncs, 1, "EmptyFuncs: got %d, want >= 1 (emptyFunc)", m.EmptyFuncs)
+	require.GreaterOrEqual(t, m.TodoCount, 2, "TodoCount: got %d, want >= 2 (two TODO comments)", m.TodoCount)
+	require.GreaterOrEqual(t, m.MaxStructFields, 16, "MaxStructFields: got %d, want >= 16 (BigStruct)", m.MaxStructFields)
 }
 
 func TestMeasureFileMetrics_NotFound(t *testing.T) {

@@ -29,10 +29,40 @@ import (
 func TestDeterministicTimeGuard(t *testing.T) {
 	t.Parallel()
 	root := repoRootForGuardTests(t)
-	scanRoots := []string{"internal"}
-	skipDirs := DefaultSkipDirs()
+	violations := collectDeterministicTimeViolations(t, root, []string{"internal"}, DefaultSkipDirs())
 
-	allowedDirs := []string{
+	if len(violations) > 0 {
+		t.Fatalf("Deterministic time guard violations (%d):\n  %s",
+			len(violations), strings.Join(violations, "\n  "))
+	}
+}
+
+type deterministicTimeScan struct {
+	root        string
+	skipDirs    map[string]bool
+	allowedDirs []string
+	violations  *[]string
+}
+
+func collectDeterministicTimeViolations(t *testing.T, root string, scanRoots []string, skipDirs map[string]bool) []string {
+	t.Helper()
+	violations := []string{}
+	scan := deterministicTimeScan{
+		root:        root,
+		skipDirs:    skipDirs,
+		allowedDirs: deterministicTimeAllowedDirs(),
+		violations:  &violations,
+	}
+	for _, sr := range scanRoots {
+		if err := filepath.Walk(filepath.Join(root, sr), scan.visit); err != nil {
+			t.Fatalf("walk %s: %v", sr, err)
+		}
+	}
+	return violations
+}
+
+func deterministicTimeAllowedDirs() []string {
+	return []string{
 		"internal/util/idgen",
 		"internal/platform",
 		"internal/ui",
@@ -42,58 +72,69 @@ func TestDeterministicTimeGuard(t *testing.T) {
 		"internal/module",
 		"internal/mcpserver",
 	}
+}
 
-	var violations []string
-	for _, sr := range scanRoots {
-		abs := filepath.Join(root, sr)
-		err := filepath.Walk(abs, func(path string, info os.FileInfo, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			if info.IsDir() {
-				if _, skip := skipDirs[info.Name()]; skip {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-				return nil
-			}
-			rel, relErr := filepath.Rel(root, path)
-			if relErr != nil {
-				return relErr
-			}
-			relSlash := filepath.ToSlash(rel)
-			for _, dir := range allowedDirs {
-				if strings.HasPrefix(relSlash, dir+"/") || relSlash == dir {
-					return nil
-				}
-			}
-			fset := token.NewFileSet()
-			node, parseErr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-			if parseErr != nil {
-				return nil
-			}
-			// 如果文件已有 nowFunc 注入点，则豁免
-			if hasNowFuncInjection(node) {
-				return nil
-			}
-			count := countTimeNowCalls(node)
-			if count > 0 {
-				violations = append(violations,
-					relSlash+": 发现 "+itoa(count)+" 处 time.Now() 直接调用 — 应注入 nowFunc 或使用可测试时间源")
-			}
-			return nil
-		})
-		if err != nil {
-			t.Fatalf("walk %s: %v", sr, err)
+func (s deterministicTimeScan) visit(path string, info os.FileInfo, walkErr error) error {
+	if walkErr != nil {
+		return walkErr
+	}
+	if info.IsDir() {
+		return s.visitDir(info)
+	}
+	if !isProductionGoPath(path) {
+		return nil
+	}
+	relSlash, err := s.relSlash(path)
+	if err != nil {
+		return err
+	}
+	if isAllowedDeterministicTimePath(relSlash, s.allowedDirs) {
+		return nil
+	}
+	node, parseErr := parser.ParseFile(token.NewFileSet(), path, nil, parser.SkipObjectResolution)
+	if parseErr != nil {
+		return nil
+	}
+	if hasNowFuncInjection(node) {
+		return nil
+	}
+	s.recordViolation(relSlash, countTimeNowCalls(node))
+	return nil
+}
+
+func (s deterministicTimeScan) visitDir(info os.FileInfo) error {
+	if _, skip := s.skipDirs[info.Name()]; skip {
+		return filepath.SkipDir
+	}
+	return nil
+}
+
+func (s deterministicTimeScan) relSlash(path string) (string, error) {
+	rel, err := filepath.Rel(s.root, path)
+	if err != nil {
+		return "", err
+	}
+	return filepath.ToSlash(rel), nil
+}
+
+func (s deterministicTimeScan) recordViolation(relSlash string, count int) {
+	if count > 0 {
+		*s.violations = append(*s.violations,
+			relSlash+": 发现 "+itoa(count)+" 处 time.Now() 直接调用 — 应注入 nowFunc 或使用可测试时间源")
+	}
+}
+
+func isProductionGoPath(path string) bool {
+	return strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go")
+}
+
+func isAllowedDeterministicTimePath(relSlash string, allowedDirs []string) bool {
+	for _, dir := range allowedDirs {
+		if strings.HasPrefix(relSlash, dir+"/") || relSlash == dir {
+			return true
 		}
 	}
-
-	if len(violations) > 0 {
-		t.Fatalf("Deterministic time guard violations (%d):\n  %s",
-			len(violations), strings.Join(violations, "\n  "))
-	}
+	return false
 }
 
 // countTimeNowCalls 计算文件中 time.Now() 调用次数。
@@ -138,30 +179,42 @@ func hasNowFuncInjection(node *ast.File) bool {
 		if found {
 			return false
 		}
-		switch x := n.(type) {
-		case *ast.Field:
-			// struct 字段: nowFunc func() time.Time
-			for _, name := range x.Names {
-				if strings.Contains(strings.ToLower(name.Name), "now") &&
-					strings.Contains(strings.ToLower(name.Name), "func") {
-					found = true
-					return false
-				}
-				if name.Name == "now" || name.Name == "nowFn" || name.Name == "clock" {
-					found = true
-					return false
-				}
-			}
-		case *ast.ValueSpec:
-			// var nowFunc = ...
-			for _, name := range x.Names {
-				if name.Name == "nowFunc" || name.Name == "now" || name.Name == "defaultNow" {
-					found = true
-					return false
-				}
-			}
+		if field, ok := n.(*ast.Field); ok {
+			found = fieldHasNowInjection(field)
+			return !found
+		}
+		if spec, ok := n.(*ast.ValueSpec); ok {
+			found = valueSpecHasNowInjection(spec)
+			return !found
 		}
 		return true
 	})
 	return found
+}
+
+func fieldHasNowInjection(field *ast.Field) bool {
+	for _, name := range field.Names {
+		if nowFieldNameIndicatesFunc(name.Name) || isNowFieldName(name.Name) {
+			return true
+		}
+	}
+	return false
+}
+
+func nowFieldNameIndicatesFunc(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.Contains(lower, "now") && strings.Contains(lower, "func")
+}
+
+func isNowFieldName(name string) bool {
+	return name == "now" || name == "nowFn" || name == "clock"
+}
+
+func valueSpecHasNowInjection(spec *ast.ValueSpec) bool {
+	for _, name := range spec.Names {
+		if name.Name == "nowFunc" || name.Name == "now" || name.Name == "defaultNow" {
+			return true
+		}
+	}
+	return false
 }

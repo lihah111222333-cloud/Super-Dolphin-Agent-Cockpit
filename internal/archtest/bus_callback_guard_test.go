@@ -40,34 +40,7 @@ import (
 func TestBusCallbackGuard(t *testing.T) {
 	t.Parallel()
 
-	t.Run("forbidden_token_catalogue_is_locked", func(t *testing.T) {
-		t.Parallel()
-		// Freezing the catalogue here prevents silent drift between P0 and
-		// the owning-slice matchers. Any add/remove in the catalogue must
-		// land in the same PR that flips a matcher red→green.
-		want := []string{
-			"go ",                                   // bare go-statement in callback body
-			"runtimesafe.SafeGo(",                   // SafeGo dispatch from callback
-			"time.Sleep(",                           // blocking sleep
-			"exec.Command(", "exec.CommandContext(", // process spawn
-			"StartSession(", "StopSession(", // session lifecycle driven from callback
-			"NotifyConfigChanged(",          // fan-out config reload
-			"DispatchAfter(",                // timer-backed slow-path
-			"AddToolReadResult(",            // NestedRuntime slow read (Finding 10)
-			"os.ReadFile(", "os.WriteFile(", // synchronous disk I/O
-		}
-		if len(want) == 0 {
-			t.Fatal("bus-callback forbidden token catalogue is empty")
-		}
-		// Sanity: no duplicates — drift would mask a true regression later.
-		seen := map[string]struct{}{}
-		for _, token := range want {
-			if _, dup := seen[token]; dup {
-				t.Errorf("duplicate forbidden token in catalogue: %q", token)
-			}
-			seen[token] = struct{}{}
-		}
-	})
+	runBusCallbackGuardSubtest(t, "forbidden_token_catalogue_is_locked", assertForbiddenTokenCatalogueLocked)
 
 	// P2 (thread wiring) live matcher: after the thread S1 slice lands
 	// (NewServiceWithPromptAssemblyAndSharedFiles now takes promptStore +
@@ -75,61 +48,27 @@ func TestBusCallbackGuard(t *testing.T) {
 	// reintroduce the late-setter injection pattern. All three setter
 	// tokens are forbidden in module.go; `fx.Invoke` is still allowed
 	// because registerSubscriptions now only wires the lifecycle hook.
-	t.Run("bus_callback_must_not_register_late_setter", func(t *testing.T) {
-		t.Parallel()
-		root := repoRootForGuardTests(t)
-		path := filepath.Join(root, "internal", "module", "thread", "module.go")
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", path, err)
-		}
-		src := string(data)
-		forbidden := []string{
+	runBusCallbackGuardSubtest(t, "bus_callback_must_not_register_late_setter", func(t *testing.T) {
+		assertFileLacksForbiddenTokens(t, "internal/module/thread/module.go", []string{
 			"svc.bindDispatcher(",
 			"svc.bindPromptStore(",
 			"svc.bindClassifier(",
 			".bindDispatcher(",
 			".bindPromptStore(",
 			".bindClassifier(",
-		}
-		var hits []string
-		for _, token := range forbidden {
-			if strings.Contains(src, token) {
-				hits = append(hits, token)
-			}
-		}
-		if len(hits) > 0 {
-			t.Fatalf("thread/module.go reintroduced pre-P2 late-setter injection from registerSubscriptions; forbidden tokens present: %v", hits)
-		}
+		}, "thread/module.go reintroduced pre-P2 late-setter injection from registerSubscriptions")
 	})
 
 	// P2 Finding 7 live matcher: after commit 7837d6b+1 the auto-dream
 	// subscription must only enqueue into autoDreamScheduler; the old fire-
 	// and-forget path (onThreadStopped + `go maybeScheduleAutoDream`) is
 	// forbidden from reappearing in internal/module/memory/auto_dream_task.go.
-	t.Run("bus_callback_must_not_schedule_auto_dream", func(t *testing.T) {
-		t.Parallel()
-		root := repoRootForGuardTests(t)
-		path := filepath.Join(root, "internal", "module", "memory", "auto_dream_task.go")
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", path, err)
-		}
-		src := string(data)
-		forbidden := []string{
+	runBusCallbackGuardSubtest(t, "bus_callback_must_not_schedule_auto_dream", func(t *testing.T) {
+		assertFileLacksForbiddenTokens(t, "internal/module/memory/auto_dream_task.go", []string{
 			"func (h *MemoryLifecycleHooks) onThreadStopped",
 			"go func() {\n\t\tif _, err := h.maybeScheduleAutoDream",
 			"p.Hooks.onThreadStopped(",
-		}
-		var hits []string
-		for _, token := range forbidden {
-			if strings.Contains(src, token) {
-				hits = append(hits, token)
-			}
-		}
-		if len(hits) > 0 {
-			t.Fatalf("auto_dream_task.go reintroduced pre-P2 fire-and-forget auto-dream scheduling; forbidden tokens present: %v", hits)
-		}
+		}, "auto_dream_task.go reintroduced pre-P2 fire-and-forget auto-dream scheduling")
 	})
 
 	// P2 Finding 10 live matcher: after the nestedIngestWorker slice lands
@@ -138,29 +77,12 @@ func TestBusCallbackGuard(t *testing.T) {
 	// directly. AddToolReadResult (which os.ReadFile's the persisted tool
 	// result) belongs to the worker; os.ReadFile / os.WriteFile must not
 	// reappear in the callback wiring file either.
-	t.Run("bus_callback_must_not_do_synchronous_file_io", func(t *testing.T) {
-		t.Parallel()
-		root := repoRootForGuardTests(t)
-		path := filepath.Join(root, "internal", "module", "memory", "module.go")
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", path, err)
-		}
-		src := string(data)
-		forbidden := []string{
+	runBusCallbackGuardSubtest(t, "bus_callback_must_not_do_synchronous_file_io", func(t *testing.T) {
+		assertFileLacksForbiddenTokens(t, "internal/module/memory/module.go", []string{
 			"p.NestedRuntime.AddToolReadResult(",
 			"os.ReadFile(",
 			"os.WriteFile(",
-		}
-		var hits []string
-		for _, token := range forbidden {
-			if strings.Contains(src, token) {
-				hits = append(hits, token)
-			}
-		}
-		if len(hits) > 0 {
-			t.Fatalf("memory/module.go reintroduced pre-P2 synchronous nested-read / file I/O on bus callback path; forbidden tokens present: %v", hits)
-		}
+		}, "memory/module.go reintroduced pre-P2 synchronous nested-read / file I/O on bus callback path")
 	})
 
 	// P2 Finding 5/6 live matcher: after the teamSyncCoordinator slice lands
@@ -170,30 +92,13 @@ func TestBusCallbackGuard(t *testing.T) {
 	// lifecycle verbs (StartSession / StopSession) are forbidden in the
 	// callback-wiring file; the coordinator is the only caller that may
 	// keep a reference to the helpers, and it lives in a separate file.
-	t.Run("bus_callback_must_not_start_session", func(t *testing.T) {
-		t.Parallel()
-		root := repoRootForGuardTests(t)
-		path := filepath.Join(root, "internal", "module", "memory", "module.go")
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", path, err)
-		}
-		src := string(data)
-		forbidden := []string{
+	runBusCallbackGuardSubtest(t, "bus_callback_must_not_start_session", func(t *testing.T) {
+		assertFileLacksForbiddenTokens(t, "internal/module/memory/module.go", []string{
 			"teampkg.StartSessionFromThreadEvent(",
 			"teampkg.StopSessionFromThreadEvent(",
 			".StartSession(",
 			".StopSession(",
-		}
-		var hits []string
-		for _, token := range forbidden {
-			if strings.Contains(src, token) {
-				hits = append(hits, token)
-			}
-		}
-		if len(hits) > 0 {
-			t.Fatalf("memory/module.go reintroduced pre-P2 TeamSync lifecycle calls on bus callback path; forbidden tokens present: %v", hits)
-		}
+		}, "memory/module.go reintroduced pre-P2 TeamSync lifecycle calls on bus callback path")
 	})
 
 	// P2 (hooks/event_relay fanout) live matcher: after the
@@ -201,42 +106,85 @@ func TestBusCallbackGuard(t *testing.T) {
 	// spawn bare `go` goroutines or invoke Manager.DispatchAfter from the
 	// bus callback body. The worker owns that slow-path under a tracked
 	// Stop(ctx) drain.
-	t.Run("bus_callback_must_not_fire_and_forget_goroutine", func(t *testing.T) {
-		t.Parallel()
-		root := repoRootForGuardTests(t)
-		path := filepath.Join(root, "internal", "platform", "hooks", "event_relay.go")
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", path, err)
-		}
-		src := string(data)
-		forbidden := []string{
+	runBusCallbackGuardSubtest(t, "bus_callback_must_not_fire_and_forget_goroutine", func(t *testing.T) {
+		assertFileLacksForbiddenTokens(t, "internal/platform/hooks/event_relay.go", []string{
 			"go func()",
 			"runtimesafe.SafeGo(",
 			"manager.DispatchAfter(",
 			"Manager.DispatchAfter(",
-		}
-		var hits []string
-		for _, token := range forbidden {
-			if strings.Contains(src, token) {
-				hits = append(hits, token)
-			}
-		}
-		if len(hits) > 0 {
-			t.Fatalf("hooks/event_relay.go reintroduced pre-P2 fire-and-forget dispatch on bus callback path; forbidden tokens present: %v", hits)
-		}
+		}, "hooks/event_relay.go reintroduced pre-P2 fire-and-forget dispatch on bus callback path")
 	})
-	t.Run("subscriber_group_ownership_warning", func(t *testing.T) {
+	runBusCallbackGuardSubtest(t, "subscriber_group_ownership_warning", func(t *testing.T) {
+		assertSubscriberGroupOwnership(t)
+	})
+}
+
+func runBusCallbackGuardSubtest(t *testing.T, name string, fn func(*testing.T)) {
+	t.Helper()
+	t.Run(name, func(t *testing.T) {
 		t.Parallel()
-		root := repoRootForGuardTests(t)
-		hits := findLifecycleOnStartCallHits(t, root, map[string]bool{
-			"Subscribe":          true,
-			"ResilientSubscribe": true,
-		})
-		for _, hit := range hits {
-			t.Errorf("subscriber ownership regression: %s:%d OnStart calls %s", hit.Path, hit.Line, hit.Call)
-		}
+		fn(t)
 	})
+}
+
+func assertForbiddenTokenCatalogueLocked(t *testing.T) {
+	// Freezing the catalogue here prevents silent drift between P0 and the
+	// owning-slice matchers. Any add/remove in the catalogue must land in the
+	// same PR that flips a matcher red→green.
+	want := []string{
+		"go ",                                   // bare go-statement in callback body
+		"runtimesafe.SafeGo(",                   // SafeGo dispatch from callback
+		"time.Sleep(",                           // blocking sleep
+		"exec.Command(", "exec.CommandContext(", // process spawn
+		"StartSession(", "StopSession(", // session lifecycle driven from callback
+		"NotifyConfigChanged(",          // fan-out config reload
+		"DispatchAfter(",                // timer-backed slow-path
+		"AddToolReadResult(",            // NestedRuntime slow read (Finding 10)
+		"os.ReadFile(", "os.WriteFile(", // synchronous disk I/O
+	}
+	if len(want) == 0 {
+		t.Fatal("bus-callback forbidden token catalogue is empty")
+	}
+	seen := map[string]struct{}{}
+	for _, token := range want {
+		if _, dup := seen[token]; dup {
+			t.Errorf("duplicate forbidden token in catalogue: %q", token)
+		}
+		seen[token] = struct{}{}
+	}
+}
+
+func assertFileLacksForbiddenTokens(t *testing.T, rel string, forbidden []string, message string) {
+	t.Helper()
+	path := filepath.Join(repoRootForGuardTests(t), filepath.FromSlash(rel))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	if hits := forbiddenTokenHits(string(data), forbidden); len(hits) > 0 {
+		t.Fatalf("%s; forbidden tokens present: %v", message, hits)
+	}
+}
+
+func forbiddenTokenHits(src string, forbidden []string) []string {
+	var hits []string
+	for _, token := range forbidden {
+		if strings.Contains(src, token) {
+			hits = append(hits, token)
+		}
+	}
+	return hits
+}
+
+func assertSubscriberGroupOwnership(t *testing.T) {
+	root := repoRootForGuardTests(t)
+	hits := findLifecycleOnStartCallHits(t, root, map[string]bool{
+		"Subscribe":          true,
+		"ResilientSubscribe": true,
+	})
+	for _, hit := range hits {
+		t.Errorf("subscriber ownership regression: %s:%d OnStart calls %s", hit.Path, hit.Line, hit.Call)
+	}
 }
 
 func callName(expr ast.Expr) string {
@@ -327,6 +275,16 @@ func findLifecycleOnStartCallHitsInFile(t *testing.T, root, rel string, forbidde
 	if err != nil {
 		t.Fatalf("parse %s: %v", rel, err)
 	}
+	fileDecls := fileFuncDecls(file)
+	var hits []lifecycleCallHit
+	ast.Inspect(file, func(n ast.Node) bool {
+		hits = append(hits, findOnStartCallsInNode(fset, rel, n, forbidden, fileDecls)...)
+		return true
+	})
+	return hits
+}
+
+func fileFuncDecls(file *ast.File) map[string]*ast.FuncDecl {
 	fileDecls := map[string]*ast.FuncDecl{}
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
@@ -334,25 +292,30 @@ func findLifecycleOnStartCallHitsInFile(t *testing.T, root, rel string, forbidde
 			fileDecls[fn.Name.Name] = fn
 		}
 	}
+	return fileDecls
+}
+
+func findOnStartCallsInNode(fset *token.FileSet, rel string, n ast.Node, forbidden map[string]bool, fileDecls map[string]*ast.FuncDecl) []lifecycleCallHit {
+	cl, ok := n.(*ast.CompositeLit)
+	if !ok || !isFxHookComposite(cl) {
+		return nil
+	}
+	return findOnStartCallsInComposite(fset, rel, cl, forbidden, fileDecls)
+}
+
+func findOnStartCallsInComposite(fset *token.FileSet, rel string, cl *ast.CompositeLit, forbidden map[string]bool, fileDecls map[string]*ast.FuncDecl) []lifecycleCallHit {
 	var hits []lifecycleCallHit
-	ast.Inspect(file, func(n ast.Node) bool {
-		cl, ok := n.(*ast.CompositeLit)
-		if !ok || !isFxHookComposite(cl) {
-			return true
+	for _, elt := range cl.Elts {
+		kv, ok := elt.(*ast.KeyValueExpr)
+		if !ok || keyName(kv.Key) != "OnStart" {
+			continue
 		}
-		for _, elt := range cl.Elts {
-			kv, ok := elt.(*ast.KeyValueExpr)
-			if !ok || keyName(kv.Key) != "OnStart" {
-				continue
-			}
-			fn, ok := kv.Value.(*ast.FuncLit)
-			if !ok || fn.Body == nil {
-				continue
-			}
-			hits = append(hits, findForbiddenCallsInNode(fset, rel, fn.Body, forbidden, fileDecls)...)
+		fn, ok := kv.Value.(*ast.FuncLit)
+		if !ok || fn.Body == nil {
+			continue
 		}
-		return true
-	})
+		hits = append(hits, findForbiddenCallsInNode(fset, rel, fn.Body, forbidden, fileDecls)...)
+	}
 	return hits
 }
 

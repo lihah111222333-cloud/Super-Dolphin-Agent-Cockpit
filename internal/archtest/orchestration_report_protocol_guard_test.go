@@ -30,6 +30,13 @@ func TestOrchestrationReportProtocolFreeze(t *testing.T) {
 		"\"thread/status/changed\"",
 	}
 
+	assertNoFrozenReportLiteralsOutsideProducer(t, dir, producer, frozen)
+	assertReportProtocolProducerOwnsLiterals(t, dir, producer, frozen)
+}
+
+func assertNoFrozenReportLiteralsOutsideProducer(t *testing.T, dir, producer string, frozen []string) {
+	t.Helper()
+
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("read dir %s: %v", dir, err)
@@ -57,6 +64,10 @@ func TestOrchestrationReportProtocolFreeze(t *testing.T) {
 			}
 		}
 	}
+}
+
+func assertReportProtocolProducerOwnsLiterals(t *testing.T, dir, producer string, frozen []string) {
+	t.Helper()
 
 	// Also verify report_protocol.go still owns each frozen literal,
 	// so deletions cannot silently weaken the freeze.

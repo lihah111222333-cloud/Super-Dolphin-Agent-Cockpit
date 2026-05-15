@@ -33,6 +33,12 @@ func TestOrchestrationReverseLookupConfinedToFactory(t *testing.T) {
 		"remoteThreadID == agentID",
 	}
 
+	assertReverseLookupConfinedToOwner(t, dir, owner, forbidden)
+	assertReverseLookupOwnerContainsTokens(t, dir, owner, forbidden)
+}
+
+func assertReverseLookupConfinedToOwner(t *testing.T, dir string, owner string, forbidden []string) {
+	t.Helper()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("read dir %s: %v", dir, err)
@@ -60,10 +66,10 @@ func TestOrchestrationReverseLookupConfinedToFactory(t *testing.T) {
 			}
 		}
 	}
+}
 
-	// Also verify factory.go still contains the reverse-lookup, so a
-	// future refactor that drops it can't silently leave the guard
-	// passing on an empty surface.
+func assertReverseLookupOwnerContainsTokens(t *testing.T, dir string, owner string, forbidden []string) {
+	t.Helper()
 	data, err := os.ReadFile(filepath.Join(dir, owner))
 	if err != nil {
 		t.Fatalf("read %s: %v", owner, err)
