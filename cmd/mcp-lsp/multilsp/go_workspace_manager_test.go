@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 
@@ -152,6 +153,105 @@ func TestGOWORKOffManagerEnvIgnoresGoWork(t *testing.T) {
 		t.Fatalf("GOWORK=off client env = %#v", call.env)
 	}
 	assertFolderURIs(t, factory.clientAt(t, 0).initializedFolders, []string{backend})
+}
+
+func TestGOWORKDoesNotAffectNonGoLanguageAdapters(t *testing.T) {
+	for _, tc := range nonGoGOWORKPollutionCases(t) {
+		t.Run(tc.name, func(t *testing.T) {
+			assertGOWORKDoesNotAffectWorkspace(t, tc)
+		})
+	}
+}
+
+func TestGOWORKDoesNotAffectJSTSWorkspaceRoot(t *testing.T) {
+	assertGOWORKDoesNotAffectWorkspace(t, nonGoGOWORKPollutionCase(t, "javascript"))
+	assertGOWORKDoesNotAffectWorkspace(t, nonGoGOWORKPollutionCase(t, "typescript"))
+}
+
+func TestGOWORKDoesNotAffectJavaWorkspaceRoot(t *testing.T) {
+	assertGOWORKDoesNotAffectWorkspace(t, nonGoGOWORKPollutionCase(t, "java"))
+}
+
+func TestGOWORKDoesNotAffectPythonWorkspaceRoot(t *testing.T) {
+	assertGOWORKDoesNotAffectWorkspace(t, nonGoGOWORKPollutionCase(t, "python"))
+}
+
+func TestGOWORKDoesNotAffectRustWorkspaceRoot(t *testing.T) {
+	assertGOWORKDoesNotAffectWorkspace(t, nonGoGOWORKPollutionCase(t, "rust"))
+}
+
+func TestGOWORKDoesNotAffectCSSWorkspaceRoot(t *testing.T) {
+	assertGOWORKDoesNotAffectWorkspace(t, nonGoGOWORKPollutionCase(t, "css"))
+}
+
+func TestGOWORKDoesNotAffectJSONYAMLMarkdownFallback(t *testing.T) {
+	assertGOWORKDoesNotAffectWorkspace(t, nonGoGOWORKPollutionCase(t, "json"))
+	assertGOWORKDoesNotAffectWorkspace(t, nonGoGOWORKPollutionCase(t, "yaml"))
+	assertGOWORKDoesNotAffectWorkspace(t, nonGoGOWORKPollutionCase(t, "markdown"))
+}
+
+func TestEmptyLanguageIDDoesNotDefaultToGoAdapter(t *testing.T) {
+	tc := nonGoGOWORKPollutionCase(t, "javascript")
+	t.Setenv("GOWORK", tc.externalGoWork)
+	manager := NewManager(Config{
+		WorkspaceRoot:      tc.repo,
+		ClientFactory:      &goWorkspaceClientFactory{},
+		DiagnosticsMaxWait: 1,
+	}).(*manager)
+	defer func() {
+		if err := manager.Close(); err != nil {
+			t.Fatalf("close manager: %v", err)
+		}
+	}()
+
+	ref, err := manager.resolveDocumentRef(context.Background(), tc.target, "")
+	if err != nil {
+		t.Fatalf("resolve empty-language JS document ref: %v", err)
+	}
+	if ref.languageID != "javascript" {
+		t.Fatalf("empty language id should be inferred from JS target; got %q", ref.languageID)
+	}
+	cfg, err := manager.resolveWorkspaceForDocument(context.Background(), ref)
+	if err != nil {
+		t.Fatalf("resolve workspace with empty language id for JS target: %v", err)
+	}
+	if cfg.languageID != "javascript" {
+		t.Fatalf("workspace config should use inferred JS language id; got %q", cfg.languageID)
+	}
+	if cfg.rootPath != tc.wantRoot {
+		t.Fatalf("empty language id JS target root = %q, want %q", cfg.rootPath, tc.wantRoot)
+	}
+	if len(cfg.env) != 0 {
+		t.Fatalf("empty language id JS target should not inherit GOWORK env: %#v", cfg.env)
+	}
+}
+
+func TestGoLanguageSpecificHashNotAddedToNonGoCacheKey(t *testing.T) {
+	repo := normalizedTempDir(t)
+	target := filepath.Join(repo, "web", "src", "app.ts")
+	writeFile(t, target, "export const app = 1\n")
+
+	resolved, err := ResolveLSPToolScope(LSPToolScope{
+		Family:                defaultLSPToolFamily,
+		LanguageID:            "typescript",
+		CWD:                   repo,
+		TargetPath:            target,
+		WorkspaceRoot:         filepath.Join(repo, "web"),
+		LanguageWorkspaceRoot: filepath.Join(repo, "web"),
+		ProjectRoot:           repo,
+		RootKind:              "dir_fallback",
+	})
+	if err != nil {
+		t.Fatalf("resolve non-Go LSP tool scope: %v", err)
+	}
+	if len(resolved.LanguageSpecific) != 0 {
+		t.Fatalf("non-Go resolved scope should not have Go language-specific values: %#v", resolved.LanguageSpecific)
+	}
+	for _, goOnly := range []string{"goWorkPath=", "goModPath=", "goworkMode=", "moduleRootsHash=", "workspaceFoldersHash="} {
+		if strings.Contains(resolved.WorkspaceKey, goOnly) {
+			t.Fatalf("non-Go workspace key %q contains Go-only fragment %q", resolved.WorkspaceKey, goOnly)
+		}
+	}
 }
 
 func TestRecyclerRestoresGoWorkspaceWithSavedRootEnvAndScope(t *testing.T) {
@@ -347,6 +447,118 @@ func TestRecyclerDoesNotRecycleActiveLease(t *testing.T) {
 	}
 	if got := factory.callCount(); got != 2 {
 		t.Fatalf("recycle after lease release should create replacement client, calls=%d", got)
+	}
+}
+
+type nonGoGOWORKPollutionTestCase struct {
+	name           string
+	languageID     string
+	repo           string
+	target         string
+	wantRoot       string
+	externalGoWork string
+}
+
+func nonGoGOWORKPollutionCases(t *testing.T) []nonGoGOWORKPollutionTestCase {
+	t.Helper()
+	languages := []string{"javascript", "typescript", "java", "python", "rust", "css", "json", "yaml", "markdown"}
+	cases := make([]nonGoGOWORKPollutionTestCase, 0, len(languages))
+	for _, lang := range languages {
+		cases = append(cases, nonGoGOWORKPollutionCase(t, lang))
+	}
+	return cases
+}
+
+func nonGoGOWORKPollutionCase(t *testing.T, languageID string) nonGoGOWORKPollutionTestCase {
+	t.Helper()
+	repo := normalizedTempDir(t)
+	external := normalizedTempDir(t)
+	externalModule := filepath.Join(external, "external")
+	writeGoMod(t, externalModule, "example.com/external")
+	externalGoWork := filepath.Join(external, "go.work")
+	writeFile(t, externalGoWork, "go 1.25.0\n\nuse ./external\n")
+
+	targetRoot := repo
+	var target string
+	switch languageID {
+	case "javascript":
+		targetRoot = filepath.Join(repo, "web-js")
+		writeFile(t, filepath.Join(targetRoot, "package.json"), `{"type":"module"}`+"\n")
+		target = filepath.Join(targetRoot, "src", "app.js")
+		writeFile(t, target, "export const app = 1\n")
+	case "typescript":
+		targetRoot = filepath.Join(repo, "web-ts")
+		writeFile(t, filepath.Join(targetRoot, "tsconfig.json"), `{"compilerOptions":{}}`+"\n")
+		target = filepath.Join(targetRoot, "src", "app.ts")
+		writeFile(t, target, "export const app = 1\n")
+	case "java":
+		targetRoot = filepath.Join(repo, "java-app")
+		writeFile(t, filepath.Join(targetRoot, "pom.xml"), "<project></project>\n")
+		target = filepath.Join(targetRoot, "src", "main", "java", "App.java")
+		writeFile(t, target, "class App {}\n")
+	case "python":
+		target = filepath.Join(repo, "py", "app.py")
+		writeFile(t, target, "print('ok')\n")
+	case "rust":
+		target = filepath.Join(repo, "rust", "src", "main.rs")
+		writeFile(t, target, "fn main() {}\n")
+	case "css":
+		target = filepath.Join(repo, "assets", "style.css")
+		writeFile(t, target, "body { color: black; }\n")
+	case "json":
+		target = filepath.Join(repo, "config", "settings.json")
+		writeFile(t, target, "{}\n")
+	case "yaml":
+		target = filepath.Join(repo, "config", "settings.yaml")
+		writeFile(t, target, "key: value\n")
+	case "markdown":
+		target = filepath.Join(repo, "docs", "readme.md")
+		writeFile(t, target, "# readme\n")
+	default:
+		t.Fatalf("unsupported non-Go test language %q", languageID)
+	}
+
+	return nonGoGOWORKPollutionTestCase{
+		name:           languageID,
+		languageID:     languageID,
+		repo:           repo,
+		target:         target,
+		wantRoot:       targetRoot,
+		externalGoWork: externalGoWork,
+	}
+}
+
+func assertGOWORKDoesNotAffectWorkspace(t *testing.T, tc nonGoGOWORKPollutionTestCase) {
+	t.Helper()
+	t.Setenv("GOWORK", tc.externalGoWork)
+	manager := NewManager(Config{
+		WorkspaceRoot:      tc.repo,
+		ClientFactory:      &goWorkspaceClientFactory{},
+		DiagnosticsMaxWait: 1,
+	}).(*manager)
+	defer func() {
+		if err := manager.Close(); err != nil {
+			t.Fatalf("close manager: %v", err)
+		}
+	}()
+
+	cfg, err := manager.resolveWorkspaceForDocument(context.Background(), documentRef{
+		raw:        tc.target,
+		uri:        fileURIFromPath(tc.target),
+		absPath:    tc.target,
+		languageID: tc.languageID,
+	})
+	if err != nil {
+		t.Fatalf("%s workspace should ignore ambient GOWORK: %v", tc.languageID, err)
+	}
+	if cfg.rootPath != tc.wantRoot {
+		t.Fatalf("%s workspace root = %q, want %q", tc.languageID, cfg.rootPath, tc.wantRoot)
+	}
+	if len(cfg.env) != 0 {
+		t.Fatalf("%s workspace should not receive GOWORK env: %#v", tc.languageID, cfg.env)
+	}
+	if cfg.languageID != tc.languageID {
+		t.Fatalf("%s workspace language id = %q", tc.languageID, cfg.languageID)
 	}
 }
 
