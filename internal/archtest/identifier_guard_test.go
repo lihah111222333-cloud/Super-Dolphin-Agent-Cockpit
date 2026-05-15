@@ -10,11 +10,19 @@ import (
 func TestIdentifierGuard(t *testing.T) {
 	t.Parallel()
 
-	violations := filterViolationsByKind(CheckAll(CheckOptions{
+	allViolations := filterViolationsByKind(CheckAll(CheckOptions{
 		RepoRoot:  repoRootForGuardTests(t),
 		ScanRoots: DefaultScanRoots(),
 		SkipDirs:  DefaultSkipDirs(),
 	}), ViolationIdentifier)
+
+	// 测试文件的命名下划线由 baseline_test.json 棘轮管理，此处只检查生产文件。
+	var violations []Violation
+	for _, v := range allViolations {
+		if !IsTestFile(v.File) {
+			violations = append(violations, v)
+		}
+	}
 	if len(violations) == 0 {
 		return
 	}

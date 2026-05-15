@@ -56,10 +56,10 @@
     "todo_count": 0
   },
   "cmd/mcp-lsp/multilsp/bootstrap_doc.go": {
-    "lines": 302,
-    "max_func_len": 31,
+    "lines": 365,
+    "max_func_len": 32,
     "max_nesting": 2,
-    "max_complexity": 8,
+    "max_complexity": 10,
     "max_params": 6,
     "max_returns": 3,
     "max_underscore": 0,
@@ -85,7 +85,7 @@
     "todo_count": 0
   },
   "cmd/mcp-lsp/schema.go": {
-    "lines": 126,
+    "lines": 133,
     "max_func_len": 14,
     "max_nesting": 2,
     "max_complexity": 4,
@@ -93,6 +93,20 @@
     "max_returns": 1,
     "max_underscore": 0,
     "global_vars": 9,
+    "panic_count": 0,
+    "naked_returns": 0,
+    "empty_funcs": 0,
+    "todo_count": 0
+  },
+  "cmd/mcp-lsp/tools/tool_edit_lock.go": {
+    "lines": 28,
+    "max_func_len": 22,
+    "max_nesting": 2,
+    "max_complexity": 6,
+    "max_params": 1,
+    "max_returns": 1,
+    "max_underscore": 0,
+    "global_vars": 1,
     "panic_count": 0,
     "naked_returns": 0,
     "empty_funcs": 0,
@@ -318,8 +332,8 @@
     "max_struct_fields": 4
   },
   "internal/archtest/guardlib.go": {
-    "lines": 365,
-    "max_func_len": 33,
+    "lines": 366,
+    "max_func_len": 34,
     "max_nesting": 2,
     "max_complexity": 9,
     "max_params": 4,
@@ -848,8 +862,8 @@
     "max_struct_fields": 2
   },
   "internal/platform/toolbridge/handler.go": {
-    "lines": 386,
-    "max_func_len": 26,
+    "lines": 402,
+    "max_func_len": 30,
     "max_nesting": 4,
     "max_complexity": 9,
     "max_params": 4,
@@ -952,7 +966,7 @@
     "max_struct_fields": 13
   },
   "internal/provider/claudecli/transport_config.go": {
-    "lines": 451,
+    "lines": 468,
     "max_func_len": 44,
     "max_nesting": 3,
     "max_complexity": 9,
@@ -981,8 +995,8 @@
     "todo_count": 0
   },
   "internal/provider/codexapp/peer_supervisor.go": {
-    "lines": 448,
-    "max_func_len": 41,
+    "lines": 458,
+    "max_func_len": 43,
     "max_nesting": 3,
     "max_complexity": 9,
     "max_params": 4,
@@ -1025,8 +1039,8 @@
     "todo_count": 0
   },
   "internal/provider/codexapp/server_pool.go": {
-    "lines": 305,
-    "max_func_len": 33,
+    "lines": 312,
+    "max_func_len": 39,
     "max_nesting": 3,
     "max_complexity": 6,
     "max_params": 4,
@@ -1040,7 +1054,7 @@
     "max_struct_fields": 10
   },
   "internal/provider/codexapp/support.go": {
-    "lines": 453,
+    "lines": 455,
     "max_func_len": 49,
     "max_nesting": 2,
     "max_complexity": 8,

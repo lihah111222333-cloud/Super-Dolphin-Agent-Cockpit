@@ -222,7 +222,7 @@ func scanRoot(repoRoot, root string, skip map[string]bool, stats map[string]*pac
 			}
 			return nil
 		}
-		if filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
+		if filepath.Ext(path) != ".go" {
 			return nil
 		}
 		relPath, err := filepath.Rel(repoRoot, path)
@@ -251,7 +251,9 @@ func checkSingleFile(path, relPath string, stats map[string]*packageStat) []Viol
 		stats[filepath.ToSlash(filepath.Dir(relPath))] = stat
 	}
 	factory := isFactoryFile(relPath)
-	if !factory {
+	isTest := strings.HasSuffix(relPath, "_test.go")
+	// 测试文件不计入包文件数/行数统计（逻辑上属于独立的 _test 包），但仍参与单文件级检查。
+	if !factory && !isTest {
 		stat.Files++
 		stat.Lines += fileLines
 		if fileLines > stat.MaxFileLines {
