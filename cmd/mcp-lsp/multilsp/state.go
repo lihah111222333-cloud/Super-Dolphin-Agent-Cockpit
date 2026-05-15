@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+const bootstrapInFlightTTL = 30 * time.Second
+
 type bootstrapStatus string
 
 const (
@@ -96,7 +98,11 @@ func (s *bootstrapStateStore) prepare(workspace, uri, fingerprint string) bootst
 
 	switch {
 	case entry.status == bootstrapBootstrapping && entry.wait != nil:
-		return bootstrapDecision{action: bootstrapActionWait, previous: previous, wait: entry.wait}
+		if time.Since(entry.updatedAt) <= bootstrapInFlightTTL {
+			return bootstrapDecision{action: bootstrapActionWait, previous: previous, wait: entry.wait}
+		}
+		close(entry.wait)
+		entry.wait = nil
 	case entry.status == bootstrapReady && entry.fingerprint == fingerprint:
 		return bootstrapDecision{action: bootstrapActionSkip, previous: previous}
 	case entry.status == bootstrapReady && entry.fingerprint != fingerprint:

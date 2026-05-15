@@ -69,11 +69,11 @@ func (h managerNotificationHandler) LogMessage(params protocol.LogMessageParams)
 }
 
 func (m *manager) Diagnostics(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, error) {
-	if err := m.refreshExistingDiagnosticTargets(ctx, uris); err != nil {
-		return nil, err
-	}
 	filter, err := m.normalizeDiagnosticFilter(ctx, uris)
 	if err != nil {
+		return nil, err
+	}
+	if err := m.refreshExistingDiagnosticTargets(ctx, uris, filter); err != nil {
 		return nil, err
 	}
 	m.cleanupDeletedDiagnostics(ctx, filter)
@@ -85,9 +85,12 @@ func (m *manager) Diagnostics(ctx context.Context, uris []string) ([]protocol.Pu
 	return items, nil
 }
 
-func (m *manager) refreshExistingDiagnosticTargets(ctx context.Context, uris []string) error {
+func (m *manager) refreshExistingDiagnosticTargets(ctx context.Context, uris []string, filter diagnosticFilter) error {
 	if m.factory == nil {
 		return nil
+	}
+	if len(uris) == 0 {
+		return m.refreshAllDiagnosticTargets(ctx, filter)
 	}
 	for _, uri := range uris {
 		uri = strings.TrimSpace(uri)
@@ -101,7 +104,7 @@ func (m *manager) refreshExistingDiagnosticTargets(ctx context.Context, uris []s
 		if !m.shouldUseClientForLanguage(ref.languageID) || !fileExists(ref.absPath) {
 			continue
 		}
-		if err := m.bootstrapDocument(ctx, ref.uri); err != nil {
+		if err := m.refreshDiagnosticRef(ctx, ref); err != nil {
 			return err
 		}
 	}
