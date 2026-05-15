@@ -202,7 +202,7 @@ export function useAssistantBodyActions(props, emit, { copyTextToClipboard }) {
   const activeCitationItemId = ref('');
   const state = { citationTargetClearTimer: 0 };
   const renderAssistantBody = createRenderAssistantBody(assistantMarkdownCache);
-  const rawStreamingAssistantState = createStreamingMarkdownStateResolver(() => {
+  const rawStreamingAssistantState = createStreamingMarkdownStateResolver(renderAssistantBody, () => {
     streamingFrameVersion.value += 1;
   }, (stallInfo) => {
     logWarn('ui', 'chat.streaming.stall_detected', stallInfo);
