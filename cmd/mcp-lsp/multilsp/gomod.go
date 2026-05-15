@@ -1,10 +1,14 @@
 package multilsp
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -16,6 +20,209 @@ func findGoModRoot(path string) (string, error) {
 		return "", err
 	}
 	return filepath.Dir(goModPath), nil
+}
+
+type goWorkEditJSON struct {
+	Use []struct {
+		DiskPath string `json:"DiskPath"`
+	} `json:"Use"`
+}
+
+func parseGoWorkModuleRoots(goWorkPath string) ([]string, error) {
+	roots, err := parseGoWorkModuleRootsWithGoCommand(goWorkPath)
+	if err == nil {
+		return cleanSortedUniquePaths(roots), nil
+	}
+	var execErr *exec.Error
+	if !errors.As(err, &execErr) {
+		return nil, err
+	}
+	return parseGoWorkModuleRootsFallback(goWorkPath)
+}
+
+func parseGoWorkModuleRootsWithGoCommand(goWorkPath string) ([]string, error) {
+	cmd := exec.Command("go", "work", "edit", "-json", goWorkPath)
+	cmd.Dir = filepath.Dir(goWorkPath)
+	output, err := cmd.Output()
+	if err != nil {
+		if exitErr := new(exec.ExitError); errors.As(err, &exitErr) {
+			stderr := strings.TrimSpace(string(exitErr.Stderr))
+			if stderr != "" {
+				return nil, fmt.Errorf("parse go.work with go command: %w: %s", err, stderr)
+			}
+		}
+		return nil, err
+	}
+	var parsed goWorkEditJSON
+	if err := json.Unmarshal(output, &parsed); err != nil {
+		return nil, fmt.Errorf("decode go work edit -json: %w", err)
+	}
+	workDir := filepath.Dir(goWorkPath)
+	roots := make([]string, 0, len(parsed.Use))
+	for _, use := range parsed.Use {
+		roots = appendGoWorkUseRoot(roots, workDir, use.DiskPath)
+	}
+	return roots, nil
+}
+
+func parseGoWorkModuleRootsFallback(goWorkPath string) ([]string, error) {
+	data, err := os.ReadFile(goWorkPath)
+	if err != nil {
+		return nil, err
+	}
+	parser := goWorkUseParser{workDir: filepath.Dir(goWorkPath)}
+	for rawLine := range strings.SplitSeq(string(data), "\n") {
+		parser.parseLine(rawLine)
+	}
+	return cleanSortedUniquePaths(parser.roots), nil
+}
+
+type goWorkUseParser struct {
+	workDir    string
+	roots      []string
+	inUseBlock bool
+}
+
+func (p *goWorkUseParser) parseLine(rawLine string) {
+	fields := goWorkFields(rawLine)
+	if len(fields) == 0 {
+		return
+	}
+	if p.inUseBlock {
+		p.parseUseFields(fields)
+		return
+	}
+	if fields[0] == "use" {
+		p.parseUseFields(fields[1:])
+	}
+}
+
+func goWorkFields(rawLine string) []string {
+	return tokenizeGoWorkLine(rawLine)
+}
+
+func tokenizeGoWorkLine(rawLine string) []string {
+	line := strings.TrimSpace(rawLine)
+	tokens := make([]string, 0, 4)
+	for i := 0; i < len(line); {
+		i = skipGoWorkSpace(line, i)
+		if i >= len(line) || strings.HasPrefix(line[i:], "//") {
+			break
+		}
+		if line[i] == '(' || line[i] == ')' {
+			tokens = append(tokens, line[i:i+1])
+			i++
+			continue
+		}
+		token, next := scanGoWorkToken(line, i)
+		i = next
+		if token != "" {
+			tokens = append(tokens, token)
+		}
+	}
+	return tokens
+}
+
+func skipGoWorkSpace(line string, i int) int {
+	for i < len(line) && (line[i] == ' ' || line[i] == '\t' || line[i] == '\r') {
+		i++
+	}
+	return i
+}
+
+func scanGoWorkToken(line string, start int) (string, int) {
+	if line[start] == '"' || line[start] == '`' {
+		return scanGoWorkQuotedToken(line, start)
+	}
+	i := start
+	for i < len(line) && !isGoWorkTokenBoundary(line, i) {
+		i++
+	}
+	return line[start:i], i
+}
+
+func scanGoWorkQuotedToken(line string, start int) (string, int) {
+	quote := line[start]
+	i := start + 1
+	for i < len(line) {
+		if quote == '"' && line[i] == '\\' {
+			i += 2
+			continue
+		}
+		if line[i] == quote {
+			return line[start : i+1], i + 1
+		}
+		i++
+	}
+	return line[start:], len(line)
+}
+
+func isGoWorkTokenBoundary(line string, i int) bool {
+	switch line[i] {
+	case ' ', '\t', '\r', '(', ')':
+		return true
+	default:
+		return strings.HasPrefix(line[i:], "//")
+	}
+}
+
+func (p *goWorkUseParser) parseUseFields(fields []string) {
+	for _, field := range fields {
+		p.parseUseField(field)
+	}
+}
+
+func (p *goWorkUseParser) parseUseField(field string) {
+	for _, token := range splitGoWorkUseToken(field) {
+		switch token {
+		case "(":
+			p.inUseBlock = true
+		case ")":
+			p.inUseBlock = false
+		default:
+			p.roots = appendGoWorkUseRoot(p.roots, p.workDir, token)
+		}
+	}
+}
+
+func splitGoWorkUseToken(field string) []string {
+	field = strings.TrimSpace(field)
+	if field == "" {
+		return nil
+	}
+	var tokens []string
+	for strings.HasPrefix(field, "(") {
+		tokens = append(tokens, "(")
+		field = strings.TrimPrefix(field, "(")
+	}
+	closed := strings.HasSuffix(field, ")")
+	field = strings.TrimSuffix(field, ")")
+	if field != "" {
+		tokens = append(tokens, field)
+	}
+	if closed {
+		tokens = append(tokens, ")")
+	}
+	return tokens
+}
+
+func appendGoWorkUseRoot(roots []string, workDir, raw string) []string {
+	entry := strings.TrimSpace(raw)
+	if unquoted, err := strconv.Unquote(entry); err == nil {
+		entry = unquoted
+	} else {
+		entry = strings.Trim(entry, `"`)
+	}
+	if entry == "" || entry == ")" || entry == "(" {
+		return roots
+	}
+	if !filepath.IsAbs(entry) {
+		entry = filepath.Join(workDir, entry)
+	}
+	if normalized, err := platformshared.NormalizeAbsolutePath(entry); err == nil && normalized != "" {
+		roots = append(roots, normalized)
+	}
+	return roots
 }
 
 func resolveStartDir(absPath string) (string, error) {
