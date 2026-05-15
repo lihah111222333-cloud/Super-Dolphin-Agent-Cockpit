@@ -109,7 +109,7 @@ function makeThreadStore(overrides = {}) {
     getCurrentThreadId: () => currentThreadId.value,
     saveActiveThread: (value) => { currentThreadId.value = value || ''; },
     saveActiveCmdThread: (value) => { currentThreadId.value = value || ''; },
-    getThreadsByMode: () => visibleThreads,
+    getThreadsByMode: overrides.getThreadsByMode ?? (() => visibleThreads),
     displayName: (thread) => thread.name,
     getThreadStatus: (threadId) => statuses[threadId] || 'idle',
     getThreadStatusHeader: (threadId) => statusHeaders[threadId] || '等待指示',
@@ -244,5 +244,18 @@ describe('UnifiedChatPage.setup public contract', () => {
     expect(vm.selectedThreadId.value).toBe('');
     expect(vm.activeThread.value).toBeNull();
     expect(vm.activeTimeline.value).toEqual([]);
+  });
+
+  it('uses the window cwd as the thread list scope when the active project is dot', () => {
+    const getThreadsByMode = vi.fn(() => [{ id: 'thread-root', name: 'Root' }]);
+    const vm = UnifiedChatPage.setup({
+      mode: 'chat',
+      windowCwd: '/repo-root',
+      projectStore: makeProjectStore({ active: '.' }),
+      threadStore: makeThreadStore({ getThreadsByMode }),
+    });
+
+    expect(vm.threads.value.map((thread) => thread.id)).toEqual(['thread-root']);
+    expect(getThreadsByMode).toHaveBeenCalledWith('chat', '/repo-root');
   });
 });
