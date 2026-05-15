@@ -124,9 +124,18 @@ type workspaceClient struct {
 }
 
 type diagnosticSnapshot struct {
-	params     protocol.PublishDiagnosticsParams
-	generation uint64
-	updatedAt  time.Time
+	scopeKey     string
+	workspaceKey string
+	language     string
+	uri          string
+	generation   uint64
+	fingerprint  string
+	mtimeNS      int64
+	size         int64
+	updatedAt    time.Time
+	source       string
+	state        diagnosticState
+	params       protocol.PublishDiagnosticsParams
 }
 
 type documentRef struct {
