@@ -36,6 +36,7 @@ type snapshotSyncRequest struct {
 	cached   bool
 	previous bootstrapStatus
 	openOnly bool
+	scope    ResolvedLSPToolScope
 }
 
 func requestDocument[T any](
@@ -289,17 +290,20 @@ func (c *bootstrapCoordinator) syncSnapshotToClient(
 		return err
 	}
 	c.cache.Upsert(cacheValueFromSnapshot(req.key, snapshot, req.version))
-	scope := lspResolvedScope{
-		ScopeKey:             req.key.ScopeKey,
-		WorkspaceKey:         cacheKeyWorkspace(req.key),
-		ManagerKey:           managerKeyFor(req.key.ScopeKey, cacheKeyWorkspace(req.key)),
-		WorkspaceRoot:        cfg.rootPath,
-		LanguageID:           cacheKeyLanguage(req.key),
-		LanguageSpecificHash: req.key.LanguageSpecificHash,
-	}
+	scope := req.scope
 	c.cache.RememberDocumentScope(snapshot.ref.uri, scope, snapshot.fingerprint)
 	c.states.complete(scope.bootstrapKey(), snapshot.ref.uri, snapshot.fingerprint, req.version)
 	return nil
+}
+
+func cacheValueMatchesSnapshot(value lspCacheValue, snapshot documentSnapshot) bool {
+	if value.Fingerprint != "" && snapshot.fingerprint != "" && value.Fingerprint != snapshot.fingerprint {
+		return false
+	}
+	if value.Size > 0 && snapshot.size > 0 && value.Size != snapshot.size {
+		return false
+	}
+	return true
 }
 
 func cacheValueFromSnapshot(key lspCacheKey, snapshot documentSnapshot, version int) lspCacheValue {
