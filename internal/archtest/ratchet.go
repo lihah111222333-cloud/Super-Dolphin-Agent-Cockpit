@@ -162,13 +162,27 @@ func CheckWithBaseline(opts CheckOptions, bl Baseline) CheckResult {
 	return result
 }
 
-// FreezeBaseline 全仓扫描生成 baseline。只冻结有真实违规的文件。
+// IsTestFile 判断文件路径是否为测试文件。
+func IsTestFile(path string) bool {
+	return strings.HasSuffix(path, "_test.go")
+}
+
+// FreezeBaseline 全仓扫描生成生产文件 baseline。只冻结有真实违规的非测试文件。
 func FreezeBaseline(opts CheckOptions) Baseline {
+	return freezeBaselineFiltered(opts, false)
+}
+
+// FreezeTestBaseline 全仓扫描生成测试文件 baseline。只冻结有真实违规的测试文件。
+func FreezeTestBaseline(opts CheckOptions) Baseline {
+	return freezeBaselineFiltered(opts, true)
+}
+
+func freezeBaselineFiltered(opts CheckOptions, testsOnly bool) Baseline {
 	repoRoot := opts.RepoRoot
 	if repoRoot == "" {
 		repoRoot = "."
 	}
-	files := collectGoFiles(repoRoot, opts.scanRoots(), opts.skipDirs())
+	files := collectGoFilesFiltered(repoRoot, opts.scanRoots(), opts.skipDirs(), testsOnly)
 	bl := make(Baseline)
 	for _, absPath := range files {
 		relPath, err := filepath.Rel(repoRoot, absPath)
@@ -184,8 +198,12 @@ func FreezeBaseline(opts CheckOptions) Baseline {
 	return bl
 }
 
-// collectGoFiles 收集扫描根下的所有非测试 Go 文件绝对路径。
+// collectGoFiles 收集扫描根下的所有 Go 文件绝对路径（含测试文件）。
 func collectGoFiles(repoRoot string, scanRoots []string, skipDirs map[string]bool) []string {
+	return collectGoFilesFiltered(repoRoot, scanRoots, skipDirs, false)
+}
+
+func collectGoFilesFiltered(repoRoot string, scanRoots []string, skipDirs map[string]bool, testsOnly bool) []string {
 	var files []string
 	for _, root := range scanRoots {
 		absRoot := filepath.Join(repoRoot, root)
@@ -199,7 +217,11 @@ func collectGoFiles(repoRoot string, scanRoots []string, skipDirs map[string]boo
 				}
 				return nil
 			}
-			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			if !strings.HasSuffix(path, ".go") {
+				return nil
+			}
+			isTest := strings.HasSuffix(path, "_test.go")
+			if testsOnly != isTest {
 				return nil
 			}
 			files = append(files, path)

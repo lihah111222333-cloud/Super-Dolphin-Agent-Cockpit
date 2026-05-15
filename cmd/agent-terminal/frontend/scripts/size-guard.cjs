@@ -29,13 +29,16 @@ const NESTING_DEPTH_LIMIT = 5;
 // ─── 扫描范围 ────────────────────────────────────────────────────────
 const SCAN_DIR = path.resolve(__dirname, '..', 'vue-app');
 const BASELINE_PATH = path.resolve(__dirname, 'size-guard-baseline.json');
+const TEST_BASELINE_PATH = path.resolve(__dirname, 'size-guard-baseline-test.json');
 const IGNORE_PATTERNS = [
     /node_modules/,
-    /\.test\.js$/,
-    /\.spec\.js$/,
     /\/lib\//,
     /\/dist\//,
 ];
+
+function isTestFile(rel) {
+    return /\.test\.js$/.test(rel) || /\.spec\.js$/.test(rel);
+}
 
 // ─── 工具函数 ────────────────────────────────────────────────────────
 
@@ -261,17 +264,17 @@ function measureNestingDepth(lines, startIdx, endIdx) {
     return { maxDepth, maxDepthLine };
 }
 
-function loadBaseline() {
-    if (!fs.existsSync(BASELINE_PATH)) return {};
+function loadBaselineFrom(p) {
+    if (!fs.existsSync(p)) return {};
     try {
-        return JSON.parse(fs.readFileSync(BASELINE_PATH, 'utf8'));
+        return JSON.parse(fs.readFileSync(p, 'utf8'));
     } catch {
         return {};
     }
 }
 
-function saveBaseline(data) {
-    fs.writeFileSync(BASELINE_PATH, JSON.stringify(data, null, 2) + '\n', 'utf8');
+function saveBaselineTo(p, data) {
+    fs.writeFileSync(p, JSON.stringify(data, null, 2) + '\n', 'utf8');
 }
 
 /**
@@ -347,219 +350,167 @@ function detectBadParadigms(lines, rel) {
 
 // ─── 主逻辑 ──────────────────────────────────────────────────────────
 
-function run() {
-    const isUpdate = process.argv.includes('--update');
-    const files = collectJsFiles(SCAN_DIR);
-    const baseline = loadBaseline();
+/**
+ * scanFilesWithBaseline — 扫描文件列表，对比 baseline 生成违规/收缩/嵌套报告。
+ * 返回 { newBaseline, violations, autoShrunk, nestingViolations }
+ */
+function scanFilesWithBaseline(files, baseline) {
     const violations = [];
-    const autoShrunk = [];   // 自动收缩记录
-    const nestingViolations = [];  // 嵌套深度违规（仅报告，不阻断）
-    const newBaseline = { _meta: { updatedAt: new Date().toISOString(), fileLimit: FILE_LINE_LIMIT, funcLimit: FUNC_LINE_LIMIT, nestingLimit: NESTING_DEPTH_LIMIT }, files: {}, functions: {}, nesting: {} };
+    const autoShrunk = [];
+    const nestingViolations = [];
+    const newBaseline = { _meta: { updatedAt: new Date().toISOString(), fileLimit: FILE_LINE_LIMIT, funcLimit: FUNC_LINE_LIMIT, nestingLimit: NESTING_DEPTH_LIMIT }, files: {}, functions: {}, nesting: {}, paradigms: [] };
 
     for (const { abs, rel } of files) {
         const content = fs.readFileSync(abs, 'utf8');
         const lines = content.split('\n');
-        // 只统计有效代码行（剔除空行与注释），防止 agent 删注释来缩减体积
         const lineCount = countEffectiveLines(lines);
 
-        // ── 文件行数检查 ──
         newBaseline.files[rel] = lineCount;
-        const fileBaseline = baseline.files?.[rel];
+        checkFileLines(rel, lineCount, baseline, violations, autoShrunk);
 
-        if (lineCount > FILE_LINE_LIMIT) {
-            if (typeof fileBaseline === 'number' && fileBaseline > FILE_LINE_LIMIT) {
-                if (lineCount > fileBaseline) {
-                    // 已有基线锁定：不允许增长
-                    violations.push({
-                        type: 'file',
-                        file: rel,
-                        current: lineCount,
-                        baseline: fileBaseline,
-                        limit: FILE_LINE_LIMIT,
-                        message: `文件 ${rel} 超过基线：${lineCount} 有效行（基线 ${fileBaseline}，上限 ${FILE_LINE_LIMIT}）`,
-                    });
-                } else if (lineCount < fileBaseline) {
-                    // 仍超限但已缩小 → 自动收紧基线
-                    autoShrunk.push({ type: 'file', key: rel, from: fileBaseline, to: lineCount });
-                }
-            } else {
-                // 新突破阈值
-                violations.push({
-                    type: 'file',
-                    file: rel,
-                    current: lineCount,
-                    baseline: null,
-                    limit: FILE_LINE_LIMIT,
-                    message: `文件 ${rel} 突破上限：${lineCount} 有效行（上限 ${FILE_LINE_LIMIT}）`,
-                });
-            }
-        } else if (typeof fileBaseline === 'number' && fileBaseline > FILE_LINE_LIMIT) {
-            // ✨ 达标：之前超限，现在已回落到阈值内 → 自动解冻
-            autoShrunk.push({ type: 'file', key: rel, from: fileBaseline, to: lineCount });
-        }
-
-        // ── 函数行数检查（只统计有效代码行）──
         const functions = extractFunctions(lines);
         for (const func of functions) {
             const funcKey = `${rel}::${func.name}`;
-            // func.start / func.end 是 1-indexed 行号，转成 0-indexed 下标
             const effectiveLines = countEffectiveLines(lines, func.start - 1, func.end - 1);
             newBaseline.functions[funcKey] = effectiveLines;
-            const funcBaseline = baseline.functions?.[funcKey];
+            checkFuncLines(rel, func, funcKey, effectiveLines, baseline, violations, autoShrunk);
 
-            if (effectiveLines > FUNC_LINE_LIMIT) {
-                if (typeof funcBaseline === 'number' && funcBaseline > FUNC_LINE_LIMIT) {
-                    if (effectiveLines > funcBaseline) {
-                        violations.push({
-                            type: 'function',
-                            file: rel,
-                            func: func.name,
-                            start: func.start,
-                            end: func.end,
-                            current: effectiveLines,
-                            baseline: funcBaseline,
-                            limit: FUNC_LINE_LIMIT,
-                            message: `函数 ${rel}::${func.name} 超过基线：${effectiveLines} 有效行（基线 ${funcBaseline}，上限 ${FUNC_LINE_LIMIT}）`,
-                        });
-                    } else if (effectiveLines < funcBaseline) {
-                        // 仍超限但已缩小 → 自动收紧基线
-                        autoShrunk.push({ type: 'function', key: funcKey, from: funcBaseline, to: effectiveLines });
-                    }
-                } else {
-                    violations.push({
-                        type: 'function',
-                        file: rel,
-                        func: func.name,
-                        start: func.start,
-                        end: func.end,
-                        current: effectiveLines,
-                        baseline: null,
-                        limit: FUNC_LINE_LIMIT,
-                        message: `函数 ${rel}::${func.name} 突破上限：${effectiveLines} 有效行（上限 ${FUNC_LINE_LIMIT}）`,
-                    });
-                }
-            } else if (typeof funcBaseline === 'number' && funcBaseline > FUNC_LINE_LIMIT) {
-                // ✨ 达标：之前超限，现在已回落到阈值内 → 自动解冻
-                autoShrunk.push({ type: 'function', key: funcKey, from: funcBaseline, to: effectiveLines });
-            }
-
-            // ── 嵌套深度检查 ──
             const { maxDepth, maxDepthLine } = measureNestingDepth(lines, func.start - 1, func.end - 1);
             newBaseline.nesting[funcKey] = maxDepth;
-            const nestBaseline = baseline.nesting?.[funcKey];
-
-            if (maxDepth > NESTING_DEPTH_LIMIT) {
-                if (typeof nestBaseline === 'number' && nestBaseline > NESTING_DEPTH_LIMIT) {
-                    if (maxDepth > nestBaseline) {
-                        // 已冻结但继续加深 → 违规
-                        nestingViolations.push({
-                            file: rel, func: func.name, maxDepth, line: maxDepthLine,
-                            limit: NESTING_DEPTH_LIMIT,
-                            message: `函数 ${funcKey} 嵌套深度 ${maxDepth} 层，超过冻结基线 ${nestBaseline}（上限 ${NESTING_DEPTH_LIMIT}，最深处 L${maxDepthLine}）`,
-                        });
-                    } else if (maxDepth < nestBaseline) {
-                        // 仍超限但已缩小 → 自动收紧
-                        autoShrunk.push({ type: 'nesting', key: funcKey, from: nestBaseline, to: maxDepth });
-                    }
-                    // maxDepth === nestBaseline → 冻结不变，静默通过
-                } else {
-                    // 新突破嵌套阈值
-                    nestingViolations.push({
-                        file: rel, func: func.name, maxDepth, line: maxDepthLine,
-                        limit: NESTING_DEPTH_LIMIT,
-                        message: `函数 ${funcKey} 嵌套深度 ${maxDepth} 层（上限 ${NESTING_DEPTH_LIMIT}，最深处 L${maxDepthLine}）`,
-                    });
-                }
-            } else if (typeof nestBaseline === 'number' && nestBaseline > NESTING_DEPTH_LIMIT) {
-                // ✨ 达标：之前超限，现在已回落 → 自动解冻
-                autoShrunk.push({ type: 'nesting', key: funcKey, from: nestBaseline, to: maxDepth });
-            }
+            checkNesting(funcKey, rel, func.name, maxDepth, maxDepthLine, baseline, nestingViolations, autoShrunk);
         }
 
-        // ── 坏范式检查 ──
         const badParadigms = detectBadParadigms(lines, rel);
-        if (!newBaseline.paradigms) newBaseline.paradigms = [];
-        
         for (const bp of badParadigms) {
             const key = bp.file + ':' + bp.line;
             newBaseline.paradigms.push(key);
-            
-            if (baseline.paradigms && baseline.paradigms.includes(key)) {
-                continue; // 存量不追溯
+            if (!(baseline.paradigms && baseline.paradigms.includes(key))) {
+                violations.push({ type: 'paradigm', file: bp.file, message: `${bp.file}:${bp.line} ${bp.message}` });
             }
-            
-            violations.push({
-                type: 'paradigm',
-                file: bp.file,
-                message: `${bp.file}:${bp.line} ${bp.message}`,
-            });
         }
     }
+    return { newBaseline, violations, autoShrunk, nestingViolations };
+}
 
-    // ── 更新模式 ──
+function checkFileLines(rel, lineCount, baseline, violations, autoShrunk) {
+    const fileBaseline = baseline.files?.[rel];
+    if (lineCount > FILE_LINE_LIMIT) {
+        if (typeof fileBaseline === 'number' && fileBaseline > FILE_LINE_LIMIT) {
+            if (lineCount > fileBaseline) {
+                violations.push({ type: 'file', file: rel, current: lineCount, baseline: fileBaseline, limit: FILE_LINE_LIMIT, message: `文件 ${rel} 超过基线：${lineCount} 有效行（基线 ${fileBaseline}，上限 ${FILE_LINE_LIMIT}）` });
+            } else if (lineCount < fileBaseline) {
+                autoShrunk.push({ type: 'file', key: rel, from: fileBaseline, to: lineCount });
+            }
+        } else {
+            violations.push({ type: 'file', file: rel, current: lineCount, baseline: null, limit: FILE_LINE_LIMIT, message: `文件 ${rel} 突破上限：${lineCount} 有效行（上限 ${FILE_LINE_LIMIT}）` });
+        }
+    } else if (typeof fileBaseline === 'number' && fileBaseline > FILE_LINE_LIMIT) {
+        autoShrunk.push({ type: 'file', key: rel, from: fileBaseline, to: lineCount });
+    }
+}
+
+function checkFuncLines(rel, func, funcKey, effectiveLines, baseline, violations, autoShrunk) {
+    const funcBaseline = baseline.functions?.[funcKey];
+    if (effectiveLines > FUNC_LINE_LIMIT) {
+        if (typeof funcBaseline === 'number' && funcBaseline > FUNC_LINE_LIMIT) {
+            if (effectiveLines > funcBaseline) {
+                violations.push({ type: 'function', file: rel, func: func.name, start: func.start, end: func.end, current: effectiveLines, baseline: funcBaseline, limit: FUNC_LINE_LIMIT, message: `函数 ${funcKey} 超过基线：${effectiveLines} 有效行（基线 ${funcBaseline}，上限 ${FUNC_LINE_LIMIT}）` });
+            } else if (effectiveLines < funcBaseline) {
+                autoShrunk.push({ type: 'function', key: funcKey, from: funcBaseline, to: effectiveLines });
+            }
+        } else {
+            violations.push({ type: 'function', file: rel, func: func.name, start: func.start, end: func.end, current: effectiveLines, baseline: null, limit: FUNC_LINE_LIMIT, message: `函数 ${funcKey} 突破上限：${effectiveLines} 有效行（上限 ${FUNC_LINE_LIMIT}）` });
+        }
+    } else if (typeof funcBaseline === 'number' && funcBaseline > FUNC_LINE_LIMIT) {
+        autoShrunk.push({ type: 'function', key: funcKey, from: funcBaseline, to: effectiveLines });
+    }
+}
+
+function checkNesting(funcKey, rel, funcName, maxDepth, maxDepthLine, baseline, nestingViolations, autoShrunk) {
+    const nestBaseline = baseline.nesting?.[funcKey];
+    if (maxDepth > NESTING_DEPTH_LIMIT) {
+        if (typeof nestBaseline === 'number' && nestBaseline > NESTING_DEPTH_LIMIT) {
+            if (maxDepth > nestBaseline) {
+                nestingViolations.push({ file: rel, func: funcName, maxDepth, line: maxDepthLine, limit: NESTING_DEPTH_LIMIT, message: `函数 ${funcKey} 嵌套深度 ${maxDepth} 层，超过冻结基线 ${nestBaseline}（上限 ${NESTING_DEPTH_LIMIT}，最深处 L${maxDepthLine}）` });
+            } else if (maxDepth < nestBaseline) {
+                autoShrunk.push({ type: 'nesting', key: funcKey, from: nestBaseline, to: maxDepth });
+            }
+        } else {
+            nestingViolations.push({ file: rel, func: funcName, maxDepth, line: maxDepthLine, limit: NESTING_DEPTH_LIMIT, message: `函数 ${funcKey} 嵌套深度 ${maxDepth} 层（上限 ${NESTING_DEPTH_LIMIT}，最深处 L${maxDepthLine}）` });
+        }
+    } else if (typeof nestBaseline === 'number' && nestBaseline > NESTING_DEPTH_LIMIT) {
+        autoShrunk.push({ type: 'nesting', key: funcKey, from: nestBaseline, to: maxDepth });
+    }
+}
+
+function reportUpdate(label, blPath, newBaseline) {
+    const overFiles = Object.entries(newBaseline.files).filter(([, v]) => v > FILE_LINE_LIMIT);
+    const overFuncs = Object.entries(newBaseline.functions).filter(([, v]) => v > FUNC_LINE_LIMIT);
+    const overNest = Object.entries(newBaseline.nesting).filter(([, v]) => v > NESTING_DEPTH_LIMIT);
+    console.log(`✅ ${label}基线已更新 → ${path.basename(blPath)}`);
+    if (overFiles.length > 0) { console.log(`   ⚠ 超限文件 (>${FILE_LINE_LIMIT} 行):`); overFiles.forEach(([k, v]) => console.log(`     ${k}: ${v}`)); }
+    if (overFuncs.length > 0) { console.log(`   ⚠ 超限函数 (>${FUNC_LINE_LIMIT} 行):`); overFuncs.forEach(([k, v]) => console.log(`     ${k}: ${v}`)); }
+    if (overNest.length > 0) { console.log(`   ⚠ 超限嵌套 (>${NESTING_DEPTH_LIMIT} 层):`); overNest.forEach(([k, v]) => console.log(`     ${k}: ${v}`)); }
+}
+
+function applyShrink(label, blPath, newBaseline, autoShrunk) {
+    if (autoShrunk.length === 0) return;
+    saveBaselineTo(blPath, newBaseline);
+    console.log(`🔽 ${label}自动收缩 ${autoShrunk.length} 项：`);
+    for (const s of autoShrunk) {
+        const lbl = s.type === 'nesting' ? `嵌套 ${s.key}` : s.type === 'file' ? `文件 ${s.key}` : `函数 ${s.key}`;
+        const limit = s.type === 'nesting' ? NESTING_DEPTH_LIMIT : s.type === 'file' ? FILE_LINE_LIMIT : FUNC_LINE_LIMIT;
+        console.log(`  ${s.to <= limit ? '✅ 已解冻' : '📉 已收紧'} ${lbl}: ${s.from} → ${s.to}`);
+    }
+}
+
+function run() {
+    const isUpdate = process.argv.includes('--update');
+    const allFiles = collectJsFiles(SCAN_DIR);
+    const prodFiles = allFiles.filter(f => !isTestFile(f.rel));
+    const testFiles = allFiles.filter(f => isTestFile(f.rel));
+
+    const prodBaseline = loadBaselineFrom(BASELINE_PATH);
+    const testBaseline = loadBaselineFrom(TEST_BASELINE_PATH);
+
+    const prod = scanFilesWithBaseline(prodFiles, prodBaseline);
+    const test = scanFilesWithBaseline(testFiles, testBaseline);
+
     if (isUpdate) {
-        saveBaseline(newBaseline);
-        const overLimitFiles = Object.entries(newBaseline.files).filter(([, v]) => v > FILE_LINE_LIMIT);
-        const overLimitFuncs = Object.entries(newBaseline.functions).filter(([, v]) => v > FUNC_LINE_LIMIT);
-        const overLimitNest = Object.entries(newBaseline.nesting).filter(([, v]) => v > NESTING_DEPTH_LIMIT);
-        console.log(`✅ 基线已更新 → ${path.basename(BASELINE_PATH)}`);
-        console.log(`   文件总数: ${files.length}`);
-        if (overLimitFiles.length > 0) {
-            console.log(`   ⚠ 超限文件 (>${FILE_LINE_LIMIT} 行):`);
-            overLimitFiles.forEach(([k, v]) => console.log(`     ${k}: ${v}`));
-        }
-        if (overLimitFuncs.length > 0) {
-            console.log(`   ⚠ 超限函数 (>${FUNC_LINE_LIMIT} 行):`);
-            overLimitFuncs.forEach(([k, v]) => console.log(`     ${k}: ${v}`));
-        }
-        if (overLimitNest.length > 0) {
-            console.log(`   ⚠ 超限嵌套 (>${NESTING_DEPTH_LIMIT} 层):`);
-            overLimitNest.forEach(([k, v]) => console.log(`     ${k}: ${v}`));
-        }
+        saveBaselineTo(BASELINE_PATH, prod.newBaseline);
+        saveBaselineTo(TEST_BASELINE_PATH, test.newBaseline);
+        reportUpdate('生产', BASELINE_PATH, prod.newBaseline);
+        console.log(`   生产文件: ${prodFiles.length}`);
+        reportUpdate('测试', TEST_BASELINE_PATH, test.newBaseline);
+        console.log(`   测试文件: ${testFiles.length}`);
         return 0;
     }
 
-    // ── 检查模式 ──
-    if (!baseline.files && !baseline.functions) {
-        console.error('❌ 基线文件不存在，请先运行: node scripts/size-guard.js --update');
+    if (!prodBaseline.files && !prodBaseline.functions && !testBaseline.files && !testBaseline.functions) {
+        console.error('❌ 基线文件不存在，请先运行: node scripts/size-guard.cjs --update');
         return 1;
     }
 
-    // ── 自动收缩：达标项自动更新基线 ──
-    if (autoShrunk.length > 0) {
-        // 将收缩后的值写回基线（newBaseline 已经是最新值）
-        saveBaseline(newBaseline);
-        console.log(`🔽 自动收缩 ${autoShrunk.length} 项基线：`);
-        for (const s of autoShrunk) {
-            const label = s.type === 'nesting' ? `嵌套 ${s.key}` : s.type === 'file' ? `文件 ${s.key}` : `函数 ${s.key}`;
-            const limit = s.type === 'nesting' ? NESTING_DEPTH_LIMIT : s.type === 'file' ? FILE_LINE_LIMIT : FUNC_LINE_LIMIT;
-            const tag = s.to <= limit ? '✅ 已解冻' : '📉 已收紧';
-            console.log(`  ${tag} ${label}: ${s.from} → ${s.to}`);
-        }
+    applyShrink('生产', BASELINE_PATH, prod.newBaseline, prod.autoShrunk);
+    applyShrink('测试', TEST_BASELINE_PATH, test.newBaseline, test.autoShrunk);
+
+    const allViolations = [...prod.violations, ...test.violations];
+    const allNesting = [...prod.nestingViolations, ...test.nestingViolations];
+
+    console.log(`📏 size-guard: ${allFiles.length} 文件 (生产 ${prodFiles.length}, 测试 ${testFiles.length})`);
+
+    if (allNesting.length > 0) {
+        console.warn(`\n🔀 嵌套深度超限 ${allNesting.length} 处（上限 ${NESTING_DEPTH_LIMIT} 层）：`);
+        for (const nv of allNesting) { console.warn(`  ⚠ ${nv.message}`); }
     }
 
-    // 打印统计
-    const overLimitFiles = Object.entries(newBaseline.files).filter(([, v]) => v > FILE_LINE_LIMIT);
-    const overLimitFuncs = Object.entries(newBaseline.functions).filter(([, v]) => v > FUNC_LINE_LIMIT);
-    console.log(`📏 size-guard: ${files.length} 文件, ${overLimitFiles.length} 超限文件, ${overLimitFuncs.length} 超限函数`);
-
-    // ── 嵌套深度报告 ──
-    if (nestingViolations.length > 0) {
-        console.warn(`\n🔀 嵌套深度超限 ${nestingViolations.length} 处（上限 ${NESTING_DEPTH_LIMIT} 层）：`);
-        for (const nv of nestingViolations) {
-            console.warn(`  ⚠ ${nv.message}`);
-        }
-    }
-
-    if (violations.length === 0) {
+    if (allViolations.length === 0) {
         console.log('✅ 体积守卫通过 — 无新增超限');
-        return nestingViolations.length > 0 ? 1 : 0;
+        return allNesting.length > 0 ? 1 : 0;
     }
 
-    console.error(`\n❌ 发现 ${violations.length} 处违规:\n`);
-    for (const v of violations) {
-        console.error(`  🚫 ${v.message}`);
-    }
+    console.error(`\n❌ 发现 ${allViolations.length} 处违规:\n`);
+    for (const v of allViolations) { console.error(`  🚫 ${v.message}`); }
     console.error('\n💡 修复方法: 拆分文件/函数后重新运行。若为合理增长，运行 --update 更新基线。\n');
     return 1;
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/archtest"
 )
@@ -23,14 +24,15 @@ func main() {
 		SkipDirs:  archtest.DefaultSkipDirs(),
 	}
 	baselinePath := filepath.Join(repoRoot, "internal/archtest/baseline.json")
+	testBaselinePath := filepath.Join(repoRoot, "internal/archtest/baseline_test.json")
 
 	switch mode {
 	case "freeze":
-		runFreeze(opts, baselinePath)
+		runFreeze(opts, baselinePath, testBaselinePath)
 	case "strict":
 		runStrict(opts)
 	default:
-		runCheck(opts, baselinePath)
+		runCheck(opts, baselinePath, testBaselinePath)
 	}
 }
 
@@ -46,129 +48,144 @@ func parseMode() string {
 	return "check"
 }
 
-// runFreeze 全仓扫描建立/重建 baseline。
-func runFreeze(opts archtest.CheckOptions, baselinePath string) {
+// runFreeze 全仓扫描建立/重建 baseline（生产 + 测试分文件）。
+func runFreeze(opts archtest.CheckOptions, baselinePath, testBaselinePath string) {
 	fmt.Println("🔒  代码守卫: freeze 模式 — 建立 baseline")
 	bl := archtest.FreezeBaseline(opts)
 	if err := archtest.SaveBaseline(baselinePath, bl); err != nil {
-		fmt.Fprintf(os.Stderr, "❌  代码守卫: 保存 baseline 失败: %v\n", err)
+		fmt.Fprintf(os.Stderr, "❌  保存 baseline 失败: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("✅  代码守卫: baseline 已建立 — %d 个文件已冻结\n", len(bl))
+	fmt.Printf("✅  生产 baseline — %d 个文件已冻结\n", len(bl))
+
+	testBL := archtest.FreezeTestBaseline(opts)
+	if err := archtest.SaveBaseline(testBaselinePath, testBL); err != nil {
+		fmt.Fprintf(os.Stderr, "❌  保存 test baseline 失败: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("✅  测试 baseline — %d 个文件已冻结\n", len(testBL))
 }
 
-// runStrict 无 baseline 全量检查（现有 CheckAll 逻辑）。
+// runStrict 无 baseline 全量检查。
 func runStrict(opts archtest.CheckOptions) {
-	fmt.Println("🔍  代码守卫: strict 模式 — 无 baseline 全量检查")
+	fmt.Println("🔍  代码守卫: strict 模式")
 	runFreezeRegistryAutoRepair(opts)
 	violations := archtest.CheckAll(opts)
 	printThresholds()
 	if len(violations) > 0 {
-		fmt.Fprintf(os.Stderr, "\n❌  代码守卫: 发现 %d 项违规\n\n", len(violations))
-		for _, violation := range violations {
-			fmt.Fprintln(os.Stderr, "  •", violation.String())
-		}
-		fmt.Fprintln(os.Stderr)
-		os.Exit(1)
+		reportAndExit("strict", violations)
 	}
-	fmt.Printf("✅  代码守卫: strict 模式全量通过\n")
+	fmt.Println("✅  strict 模式全量通过")
 }
 
-// runCheck 默认棘轮模式：现有 CheckAll + baseline 棘轮 + 自动收缩。
-func runCheck(opts archtest.CheckOptions, baselinePath string) {
-	// Phase 1: 现有 freeze registry auto-repair + CheckAll（保持向后兼容）
+// runCheck 默认棘轮模式。
+func runCheck(opts archtest.CheckOptions, blPath, testBLPath string) {
 	runFreezeRegistryAutoRepair(opts)
 	violations := archtest.CheckAll(opts)
 	printThresholds()
-	if len(violations) > 0 {
-		fmt.Fprintf(os.Stderr, "\n❌  代码守卫: 发现 %d 项违规\n\n", len(violations))
-		for _, violation := range violations {
-			fmt.Fprintln(os.Stderr, "  •", violation.String())
-		}
-		fmt.Fprintln(os.Stderr)
-		os.Exit(1)
+
+	prodViolations := filterProdViolations(violations)
+	if len(prodViolations) > 0 {
+		reportAndExit("生产文件", prodViolations)
 	}
 
-	// Phase 2: baseline 棘轮检查（如果 baseline 存在且非空）
-	blInfo, err := archtest.LoadBaseline(baselinePath)
+	root := resolveRoot(opts)
+	runRatchetPhase("生产", blPath, opts, root, false)
+	runRatchetPhase("测试", testBLPath, opts, root, true)
+	printPassSummary()
+}
+
+func filterProdViolations(all []archtest.Violation) []archtest.Violation {
+	var out []archtest.Violation
+	for _, v := range all {
+		if !archtest.IsTestFile(v.File) {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+func resolveRoot(opts archtest.CheckOptions) string {
+	if opts.RepoRoot != "" {
+		return opts.RepoRoot
+	}
+	return "."
+}
+
+func reportAndExit(label string, vs []archtest.Violation) {
+	fmt.Fprintf(os.Stderr, "\n❌  %s违规 (%d):\n\n", label, len(vs))
+	for _, v := range vs {
+		fmt.Fprintln(os.Stderr, "  •", v.String())
+	}
+	fmt.Fprintln(os.Stderr)
+	os.Exit(1)
+}
+
+func runRatchetPhase(label, blPath string, opts archtest.CheckOptions, root string, testsOnly bool) {
+	blInfo, err := archtest.LoadBaseline(blPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "⚠️  代码守卫: 加载 baseline 失败: %v（跳过棘轮检查）\n", err)
-	} else if len(blInfo.Data) > 0 {
-		result := archtest.CheckWithBaseline(opts, blInfo.Data)
-		if !result.OK() {
-			fmt.Fprintf(os.Stderr, "\n❌  代码守卫: 棘轮检查发现 %d 项恶化\n\n", len(result.Violations))
-			for _, v := range result.Violations {
-				fmt.Fprintln(os.Stderr, "  •", v.String())
-			}
-			fmt.Fprintln(os.Stderr)
-			os.Exit(1)
-		}
-
-		// Phase 3: 自动收缩
-		fileSet := buildFileSet(opts)
-		repoRoot := opts.RepoRoot
-		if repoRoot == "" {
-			repoRoot = "."
-		}
-		newBL, stats := archtest.ShrinkBaseline(blInfo.Data, fileSet, func(relPath string) archtest.FileMetrics {
-			return archtest.MeasureFileMetrics(filepath.Join(repoRoot, filepath.FromSlash(relPath)))
-		})
-		if stats.Changed() {
-			if err := archtest.SaveBaseline(baselinePath, newBL); err != nil {
-				fmt.Fprintf(os.Stderr, "⚠️  代码守卫: 保存收缩 baseline 失败: %v\n", err)
-			} else {
-				fmt.Printf("🧹  代码守卫: baseline 自动收缩 — 收紧 %d, 毕业 %d, 清理 %d\n",
-					stats.Shrunk, stats.Graduated, stats.Removed)
-			}
-		}
-		fmt.Printf("📊  代码守卫: baseline 棘轮通过 — %d 个文件冻结中\n", len(newBL))
+		fmt.Fprintf(os.Stderr, "⚠️  加载 %s baseline 失败: %v\n", label, err)
+		return
 	}
+	if len(blInfo.Data) == 0 {
+		return
+	}
+	checkRatchetResult(label, opts, blInfo.Data)
+	shrinkAndSave(label, blPath, blInfo.Data, opts, root, testsOnly)
+}
 
-	fmt.Printf("✅  代码守卫: 全部通过 — 文件 ≤ %d 行, 函数 ≤ %d 行, 嵌套 ≤ %d 层, 圈复杂度 ≤ %d, 命名下划线 ≤ %d 个, 包文件数 ≤ %d, 包行数 ≤ %d\n",
-		archtest.MaxFileLines,
-		archtest.MaxFuncLines,
-		archtest.MaxNestingDepth,
-		archtest.MaxCCComplexity,
-		archtest.MaxUnderscores,
-		archtest.MaxPackageFiles,
-		archtest.MaxPackageLines,
-	)
+func checkRatchetResult(label string, opts archtest.CheckOptions, bl archtest.Baseline) {
+	result := archtest.CheckWithBaseline(opts, bl)
+	if result.OK() {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "\n❌  %s棘轮恶化 (%d):\n\n", label, len(result.Violations))
+	for _, v := range result.Violations {
+		fmt.Fprintln(os.Stderr, "  •", v.String())
+	}
+	fmt.Fprintln(os.Stderr)
+	os.Exit(1)
+}
+
+func shrinkAndSave(label, blPath string, bl archtest.Baseline, opts archtest.CheckOptions, root string, testsOnly bool) {
+	fileSet := buildFileSet(root, opts, testsOnly)
+	measure := func(rel string) archtest.FileMetrics {
+		return archtest.MeasureFileMetrics(filepath.Join(root, filepath.FromSlash(rel)))
+	}
+	newBL, stats := archtest.ShrinkBaseline(bl, fileSet, measure)
+	if stats.Changed() {
+		if err := archtest.SaveBaseline(blPath, newBL); err != nil {
+			fmt.Fprintf(os.Stderr, "⚠️  保存收缩 %s baseline 失败: %v\n", label, err)
+		} else {
+			fmt.Printf("🧹  %s baseline 收缩 — 收紧 %d, 毕业 %d, 清理 %d\n",
+				label, stats.Shrunk, stats.Graduated, stats.Removed)
+		}
+	}
+	fmt.Printf("📊  %s baseline 棘轮通过 — %d 个文件冻结中\n", label, len(newBL))
 }
 
 func runFreezeRegistryAutoRepair(opts archtest.CheckOptions) {
 	fixes, err := archtest.AutoRepairFreezeRegistry(opts)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌  代码守卫: auto-fix freeze registry 失败: %v\n", err)
+		fmt.Fprintf(os.Stderr, "❌  auto-fix freeze registry 失败: %v\n", err)
 		os.Exit(1)
 	}
 	for _, fix := range fixes {
-		fmt.Printf("🧹  代码守卫: %s\n", fix.String())
+		fmt.Printf("🧹  %s\n", fix.String())
 	}
 }
 
 func printThresholds() {
-	fmt.Printf("📏  代码守卫: 默认 文件 ≤ %d 行, 函数 ≤ %d 行, 嵌套 ≤ %d 层, 圈复杂度 ≤ %d, 命名下划线 ≤ %d 个, 包文件数 ≤ %d, 包行数 ≤ %d\n",
-		archtest.MaxFileLines,
-		archtest.MaxFuncLines,
-		archtest.MaxNestingDepth,
-		archtest.MaxCCComplexity,
-		archtest.MaxUnderscores,
-		archtest.MaxPackageFiles,
-		archtest.MaxPackageLines,
-	)
-	fmt.Printf("   核心包(memory/prompt/thread/turn): 文件 ≤ %d 行, 包文件数 ≤ %d, 包行数 ≤ %d\n",
-		archtest.MaxCorePackageFileLines,
-		archtest.MaxCorePackageFiles,
-		archtest.MaxCorePackageLines,
-	)
+	fmt.Printf("📏  文件≤%d 函数≤%d 嵌套≤%d CC≤%d 下划线≤%d 包文件≤%d 包行≤%d\n",
+		archtest.MaxFileLines, archtest.MaxFuncLines, archtest.MaxNestingDepth,
+		archtest.MaxCCComplexity, archtest.MaxUnderscores, archtest.MaxPackageFiles, archtest.MaxPackageLines)
 }
 
-// buildFileSet 构建当前仓库中所有非测试 Go 文件的 relPath set。
-func buildFileSet(opts archtest.CheckOptions) map[string]bool {
-	repoRoot := opts.RepoRoot
-	if repoRoot == "" {
-		repoRoot = "."
-	}
+func printPassSummary() {
+	fmt.Println("✅  代码守卫: 全部通过")
+}
+
+func buildFileSet(root string, opts archtest.CheckOptions, testsOnly bool) map[string]bool {
 	scanRoots := opts.ScanRoots
 	if len(scanRoots) == 0 {
 		scanRoots = archtest.DefaultScanRoots()
@@ -177,31 +194,32 @@ func buildFileSet(opts archtest.CheckOptions) map[string]bool {
 	if len(skipDirs) == 0 {
 		skipDirs = archtest.DefaultSkipDirs()
 	}
-	fileSet := make(map[string]bool)
-	for _, root := range scanRoots {
-		absRoot := filepath.Join(repoRoot, root)
-		_ = filepath.Walk(absRoot, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return nil
-			}
-			if info.IsDir() {
-				if skipDirs[info.Name()] {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if filepath.Ext(path) != ".go" {
-				return nil
-			}
-			rel, relErr := filepath.Rel(repoRoot, path)
-			if relErr != nil {
-				return nil
-			}
-			fileSet[filepath.ToSlash(rel)] = true
-			return nil
-		})
+	out := make(map[string]bool)
+	for _, sr := range scanRoots {
+		walkCollect(filepath.Join(root, sr), root, skipDirs, testsOnly, out)
 	}
-	return fileSet
+	return out
+}
+
+func walkCollect(absRoot, repoRoot string, skip map[string]bool, testsOnly bool, out map[string]bool) {
+	_ = filepath.Walk(absRoot, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() && skip[info.Name()] {
+			return filepath.SkipDir
+		}
+		if info.IsDir() || filepath.Ext(p) != ".go" {
+			return nil
+		}
+		if testsOnly != strings.HasSuffix(p, "_test.go") {
+			return nil
+		}
+		if rel, e := filepath.Rel(repoRoot, p); e == nil {
+			out[filepath.ToSlash(rel)] = true
+		}
+		return nil
+	})
 }
 
 func findRepoRoot() (string, error) {
