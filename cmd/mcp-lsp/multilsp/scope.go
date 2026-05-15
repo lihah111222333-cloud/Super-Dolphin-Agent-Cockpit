@@ -158,7 +158,7 @@ func buildWorkspaceKey(scope LSPToolScope) (string, error) {
 }
 
 func managerWorkspaceRoot(scope ResolvedLSPToolScope) string {
-	return firstNonEmpty(scope.LanguageWorkspaceRoot, scope.WorkspaceRoot, scope.ProjectRoot, scope.CWD)
+	return firstNonEmpty(scope.WorkspaceRoot, scope.LanguageWorkspaceRoot, scope.ProjectRoot, scope.CWD)
 }
 
 func normalizeScopeFamily(family string) string {

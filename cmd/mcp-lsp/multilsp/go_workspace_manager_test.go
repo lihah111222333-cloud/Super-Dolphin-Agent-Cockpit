@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
 func TestGoWorkWorkspaceFolderInitializeAndEnv(t *testing.T) {
@@ -153,6 +154,113 @@ func TestGOWORKOffManagerEnvIgnoresGoWork(t *testing.T) {
 	assertFolderURIs(t, factory.clientAt(t, 0).initializedFolders, []string{backend})
 }
 
+func TestRecyclerRestoresGoWorkspaceWithSavedRootEnvAndScope(t *testing.T) {
+	t.Setenv("GOWORK", "")
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{
+		Family:   defaultLSPToolFamily,
+		AgentID:  "agent-worker-d",
+		ThreadID: "thread-go",
+	})
+	repo := normalizedTempDir(t)
+	backend := filepath.Join(repo, "backend")
+	tools := filepath.Join(repo, "tools")
+	writeGoMod(t, backend, "example.com/backend")
+	writeGoMod(t, tools, "example.com/tools")
+	goWorkPath := filepath.Join(repo, "go.work")
+	writeFile(t, goWorkPath, "go 1.25.0\n\nuse (\n\t./backend\n\t./tools\n)\n")
+	target := writeGoFile(t, backend, "main.go")
+	factory := &goWorkspaceClientFactory{}
+	manager := NewManager(Config{
+		WorkspaceRoot:      repo,
+		ClientFactory:      factory,
+		DiagnosticsMaxWait: 1,
+	}).(*manager)
+	defer func() {
+		if err := manager.Close(); err != nil {
+			t.Fatalf("close manager: %v", err)
+		}
+	}()
+
+	if _, err := manager.EnsureClient(ctx, target, "go"); err != nil {
+		t.Fatalf("ensure go client before recycle: %v", err)
+	}
+	workspaces := snapshotWorkspaceClients(manager)
+	if len(workspaces) != 1 {
+		t.Fatalf("workspace snapshot count = %d, want 1", len(workspaces))
+	}
+	workspace := workspaces[0]
+	cfg := workspaceConfig{
+		key:              workspace.key,
+		rootPath:         workspace.rootPath,
+		rootURI:          workspace.rootURI,
+		languageID:       workspace.languageID,
+		env:              append([]string(nil), workspace.env...),
+		workspaceFolders: cloneWorkspaceFolders(workspace.workspaceFolders),
+	}
+	resolved, err := manager.resolvedScopeForConfig(ctx, cfg)
+	if err != nil {
+		t.Fatalf("resolve scope for recycle: %v", err)
+	}
+	fallbackCtx := recycleRestoreContext(ResolvedLSPToolScope{}, cfg)
+	fallbackResolved, ok := resolvedLSPToolScopeFromContext(fallbackCtx)
+	if !ok {
+		t.Fatalf("recycle restore ctx without stored scope did not rebuild from saved workspace config")
+	}
+	if fallbackResolved.WorkspaceKey != resolved.WorkspaceKey {
+		t.Fatalf("fallback recycle workspace key = %q, want %q", fallbackResolved.WorkspaceKey, resolved.WorkspaceKey)
+	}
+	if !reflect.DeepEqual(fallbackResolved.LanguageSpecific, resolved.LanguageSpecific) {
+		t.Fatalf("fallback recycle language-specific = %#v, want %#v", fallbackResolved.LanguageSpecific, resolved.LanguageSpecific)
+	}
+	targetURI := fileURIFromPath(target)
+	coordinator := bootstrapCoordinatorFor(manager)
+	coordinator.cache.Upsert(lspCacheValue{
+		Key:         resolved.cacheKey("go", targetURI),
+		Version:     1,
+		Fingerprint: "stale-before-recycle",
+	})
+	if err := recycleWorkspaceClient(manager, resolved, workspace); err != nil {
+		t.Fatalf("recycle go workspace client: %v", err)
+	}
+
+	if got := factory.callCount(); got != 2 {
+		t.Fatalf("recycle should create replacement client, calls=%d", got)
+	}
+	call := factory.callAt(t, 1)
+	if call.rootDir != repo {
+		t.Fatalf("recycled gopls rootDir = %q, want %q", call.rootDir, repo)
+	}
+	if !reflect.DeepEqual(call.env, []string{"GOWORK=" + goWorkPath}) {
+		t.Fatalf("recycled gopls env = %#v", call.env)
+	}
+	recycled := factory.clientAt(t, 1)
+	assertFolderURIs(t, recycled.initializedFolders, []string{repo, backend, tools})
+	if !recycled.initResolvedOK {
+		t.Fatalf("recycled Initialize ctx missing canonical ResolvedLSPToolScope")
+	}
+	if recycled.initScopeKey != resolved.ScopeKey {
+		t.Fatalf("recycled init scope key = %q, want %q", recycled.initScopeKey, resolved.ScopeKey)
+	}
+	if recycled.initWorkspaceKey != resolved.WorkspaceKey {
+		t.Fatalf("recycled init workspace key = %q, want %q", recycled.initWorkspaceKey, resolved.WorkspaceKey)
+	}
+	if recycled.initManagerKey != resolved.ManagerKey {
+		t.Fatalf("recycled init manager key = %q, want %q", recycled.initManagerKey, resolved.ManagerKey)
+	}
+	if !reflect.DeepEqual(recycled.initLanguageSpecific, resolved.LanguageSpecific) {
+		t.Fatalf("recycled init language-specific = %#v, want %#v", recycled.initLanguageSpecific, resolved.LanguageSpecific)
+	}
+	if !recycled.initToolScopeOK {
+		t.Fatalf("recycled Initialize ctx missing common ToolScope compatibility")
+	}
+	if recycled.initToolScope.AgentID != "agent-worker-d" || recycled.initToolScope.ThreadID != "thread-go" {
+		t.Fatalf("recycled common ToolScope = %#v, want stored agent/thread", recycled.initToolScope)
+	}
+	if status := coordinator.states.status(resolved.bootstrapKey(), targetURI); status != bootstrapReady {
+		t.Fatalf("bootstrap status for canonical scope = %s, want %s", status, bootstrapReady)
+	}
+}
+
 type goWorkspaceClientFactory struct {
 	mu      sync.Mutex
 	calls   []goWorkspaceFactoryCall
@@ -207,10 +315,17 @@ func (f *goWorkspaceClientFactory) clientAt(t *testing.T, index int) *goWorkspac
 }
 
 type goWorkspaceClient struct {
-	mu                 sync.Mutex
-	rootURI            string
-	workspaceFolders   []protocol.WorkspaceFolder
-	initializedFolders []protocol.WorkspaceFolder
+	mu                   sync.Mutex
+	rootURI              string
+	workspaceFolders     []protocol.WorkspaceFolder
+	initializedFolders   []protocol.WorkspaceFolder
+	initScopeKey         string
+	initWorkspaceKey     string
+	initManagerKey       string
+	initLanguageSpecific map[string]string
+	initResolvedOK       bool
+	initToolScope        common.ToolScope
+	initToolScopeOK      bool
 }
 
 func (c *goWorkspaceClient) setWorkspaceFolders(folders []protocol.WorkspaceFolder) {
@@ -219,11 +334,22 @@ func (c *goWorkspaceClient) setWorkspaceFolders(folders []protocol.WorkspaceFold
 	c.workspaceFolders = cloneWorkspaceFolders(folders)
 }
 
-func (c *goWorkspaceClient) Initialize(_ context.Context, rootURI string) error {
+func (c *goWorkspaceClient) Initialize(ctx context.Context, rootURI string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.rootURI = rootURI
 	c.initializedFolders = cloneWorkspaceFolders(c.workspaceFolders)
+	c.initScopeKey = lspScopeKeyFromContext(ctx)
+	if resolved, ok := resolvedLSPToolScopeFromContext(ctx); ok {
+		c.initResolvedOK = true
+		c.initWorkspaceKey = resolved.WorkspaceKey
+		c.initManagerKey = resolved.ManagerKey
+		c.initLanguageSpecific = copyLanguageSpecific(resolved.LanguageSpecific)
+	}
+	if toolScope, ok := common.ToolScopeFromContext(ctx); ok {
+		c.initToolScopeOK = true
+		c.initToolScope = toolScope
+	}
 	return nil
 }
 

@@ -59,6 +59,33 @@ func TestGoRootResolverGoWork(t *testing.T) {
 	assertGoLanguageSpecificContainsTopology(t, info)
 }
 
+func TestGoRootResolverGoWorkQuotedUsePath(t *testing.T) {
+	repo := normalizedTempDir(t)
+	spaced := filepath.Join(repo, "module with space")
+	tools := filepath.Join(repo, "tools")
+	writeGoMod(t, spaced, "example.com/spaced")
+	writeGoMod(t, tools, "example.com/tools")
+	writeFile(t, filepath.Join(repo, "go.work"), "go 1.25.0\n\nuse (\n\t\"./module with space\"\n\t./tools\n)\n")
+	target := writeGoFile(t, spaced, "main.go")
+
+	info, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: target, Env: []string{}})
+	if err != nil {
+		t.Fatalf("resolve go.work quoted use path: %v", err)
+	}
+
+	assertGoRoot(t, info, GoRootInfo{
+		RootKind:      goRootKindGoWork,
+		WorkspaceRoot: repo,
+		GoWorkPath:    filepath.Join(repo, "go.work"),
+		ModuleRoot:    spaced,
+		GoModPath:     filepath.Join(spaced, "go.mod"),
+		ModuleRoots:   []string{spaced, tools},
+		GOWORKMode:    goworkModeAuto,
+		ProjectRoot:   repo,
+	})
+	assertFolderPaths(t, info.workspaceFolderPaths(), []string{repo, spaced, tools})
+}
+
 func TestGoRootResolverGoWorkFileTarget(t *testing.T) {
 	repo := normalizedTempDir(t)
 	backend := filepath.Join(repo, "backend")
@@ -226,6 +253,43 @@ func TestWorkspaceFolderAndGoWorkspaceKeyHashes(t *testing.T) {
 	key := goWorkspaceKey(info)
 	if !strings.Contains(key, "moduleRootsHash=") || !strings.Contains(key, "workspaceFoldersHash=") {
 		t.Fatalf("workspace key does not include topology hashes: %q", key)
+	}
+}
+
+func TestGoWorkspaceKeyTopologyHashesAreCanonical(t *testing.T) {
+	repo := normalizedTempDir(t)
+	backend := filepath.Join(repo, "backend")
+	tools := filepath.Join(repo, "tools")
+	base := GoRootInfo{
+		RootKind:      goRootKindGoWork,
+		WorkspaceRoot: repo,
+		GoWorkPath:    filepath.Join(repo, "go.work"),
+		ModuleRoot:    backend,
+		GoModPath:     filepath.Join(backend, "go.mod"),
+		GOWORKMode:    goworkModeAuto,
+		ProjectRoot:   repo,
+	}
+	withUnsortedDuplicates := base
+	withUnsortedDuplicates.ModuleRoots = []string{tools, backend, backend}
+	withSortedUnique := base
+	withSortedUnique.ModuleRoots = []string{backend, tools}
+
+	unsortedSpecific := goLanguageSpecific(withUnsortedDuplicates)
+	sortedSpecific := goLanguageSpecific(withSortedUnique)
+	if unsortedSpecific["moduleRootsHash"] != sortedSpecific["moduleRootsHash"] {
+		t.Fatalf("moduleRootsHash should be stable after sort/dedupe: %q vs %q", unsortedSpecific["moduleRootsHash"], sortedSpecific["moduleRootsHash"])
+	}
+	if unsortedSpecific["workspaceFoldersHash"] != sortedSpecific["workspaceFoldersHash"] {
+		t.Fatalf("workspaceFoldersHash should be stable after sort/dedupe: %q vs %q", unsortedSpecific["workspaceFoldersHash"], sortedSpecific["workspaceFoldersHash"])
+	}
+	if goWorkspaceKey(withUnsortedDuplicates) != goWorkspaceKey(withSortedUnique) {
+		t.Fatalf("canonical-equivalent Go topology should produce the same workspace key")
+	}
+
+	withoutTools := base
+	withoutTools.ModuleRoots = []string{backend}
+	if goWorkspaceKey(withSortedUnique) == goWorkspaceKey(withoutTools) {
+		t.Fatalf("workspace key must change when Go module topology changes")
 	}
 }
 
