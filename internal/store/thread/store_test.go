@@ -168,16 +168,37 @@ func TestGetAndListMapConfigOverride(t *testing.T) {
 	t.Parallel()
 
 	raw := []byte(`{"approvals":"never"}`)
-	s := &store{q: &threadQuerierStub{
+	s := newThreadConfigOverrideStore(raw)
+
+	thread, err := s.GetByThreadID(context.Background(), "thread-1")
+	if err != nil {
+		t.Fatalf("GetByThreadID() error = %v", err)
+	}
+	assertThreadConfigOverride(t, "GetByThreadID()", *thread, raw)
+
+	all, err := s.ListAll(context.Background())
+	if err != nil {
+		t.Fatalf("ListAll() error = %v", err)
+	}
+	assertThreadListConfigOverride(t, "ListAll()", all, raw)
+
+	running, err := s.ListRunning(context.Background())
+	if err != nil {
+		t.Fatalf("ListRunning() error = %v", err)
+	}
+	assertThreadListConfigOverride(t, "ListRunning()", running, raw)
+
+	recoverable, err := s.ListRecoverable(context.Background())
+	if err != nil {
+		t.Fatalf("ListRecoverable() error = %v", err)
+	}
+	assertThreadListConfigOverride(t, "ListRecoverable()", recoverable, raw)
+}
+
+func newThreadConfigOverrideStore(raw []byte) *store {
+	return &store{q: &threadQuerierStub{
 		getByIDFn: func(context.Context, string) (sqlc.GetAgentThreadByIDRow, error) {
-			return sqlc.GetAgentThreadByIDRow{
-				ThreadID:         "thread-1",
-				Name:             "display name",
-				ParentAgentID:    "agent-root",
-				AgentType:        "reviewer",
-				AgentMemoryScope: "project",
-				ConfigOverride:   raw,
-			}, nil
+			return sqlc.GetAgentThreadByIDRow{ThreadID: "thread-1", Name: "display name", ParentAgentID: "agent-root", AgentType: "reviewer", AgentMemoryScope: "project", ConfigOverride: raw}, nil
 		},
 		listAllFn: func(context.Context) ([]sqlc.ListAgentThreadsRow, error) {
 			return []sqlc.ListAgentThreadsRow{{ThreadID: "thread-1", Name: "display name", ParentAgentID: "agent-root", AgentType: "reviewer", AgentMemoryScope: "project", ConfigOverride: raw}}, nil
@@ -189,51 +210,27 @@ func TestGetAndListMapConfigOverride(t *testing.T) {
 			return []sqlc.ListRecoverableAgentThreadsRow{{ThreadID: "thread-1", Name: "display name", ParentAgentID: "agent-root", AgentType: "reviewer", AgentMemoryScope: "project", ConfigOverride: raw}}, nil
 		},
 	}}
+}
 
-	thread, err := s.GetByThreadID(context.Background(), "thread-1")
-	if err != nil {
-		t.Fatalf("GetByThreadID() error = %v", err)
+func assertThreadListConfigOverride(t *testing.T, label string, threads []Thread, raw []byte) {
+	t.Helper()
+	if len(threads) != 1 {
+		t.Fatalf("%s threads = %#v, want one thread", label, threads)
 	}
+	assertThreadConfigOverride(t, label, threads[0], raw)
+}
+
+func assertThreadConfigOverride(t *testing.T, label string, thread Thread, raw []byte) {
+	t.Helper()
 	if thread.ParentAgentID != "agent-root" || thread.AgentType != "reviewer" || thread.AgentMemoryScope != "project" {
-		t.Fatalf("GetByThreadID() identity = %#v, want parent/type/scope mapped", thread)
+		t.Fatalf("%s identity = %#v, want parent/type/scope mapped", label, thread)
 	}
 	if thread.Name != "display name" {
-		t.Fatalf("GetByThreadID().Name = %q, want display name", thread.Name)
+		t.Fatalf("%s Name = %q, want display name", label, thread.Name)
 	}
 	if string(thread.ConfigOverride) != string(raw) {
-		t.Fatalf("GetByThreadID().ConfigOverride = %s, want %s", thread.ConfigOverride, raw)
+		t.Fatalf("%s ConfigOverride = %s, want %s", label, thread.ConfigOverride, raw)
 	}
-
-	assertListConfigOverride := func(label string, threads []Thread) {
-		t.Helper()
-		if len(threads) != 1 || string(threads[0].ConfigOverride) != string(raw) {
-			t.Fatalf("%s ConfigOverride = %#v, want %s", label, threads, raw)
-		}
-		if threads[0].ParentAgentID != "agent-root" || threads[0].AgentType != "reviewer" || threads[0].AgentMemoryScope != "project" {
-			t.Fatalf("%s identity = %#v, want parent/type/scope mapped", label, threads[0])
-		}
-		if threads[0].Name != "display name" {
-			t.Fatalf("%s Name = %q, want display name", label, threads[0].Name)
-		}
-	}
-
-	all, err := s.ListAll(context.Background())
-	if err != nil {
-		t.Fatalf("ListAll() error = %v", err)
-	}
-	assertListConfigOverride("ListAll()", all)
-
-	running, err := s.ListRunning(context.Background())
-	if err != nil {
-		t.Fatalf("ListRunning() error = %v", err)
-	}
-	assertListConfigOverride("ListRunning()", running)
-
-	recoverable, err := s.ListRecoverable(context.Background())
-	if err != nil {
-		t.Fatalf("ListRecoverable() error = %v", err)
-	}
-	assertListConfigOverride("ListRecoverable()", recoverable)
 }
 
 func TestAgentThreadAgentIDQueriesUseDirectBindingOnly(t *testing.T) {
@@ -267,52 +264,14 @@ func TestAgentThreadAgentIDQueriesUseDirectBindingOnly(t *testing.T) {
 func TestSaveAndLoadPromptSnapshot(t *testing.T) {
 	t.Parallel()
 
-	want := PromptSnapshot{
-		DisplayName:           "thread-1",
-		BaseInstructions:      "base",
-		DeveloperInstructions: "dev",
-		Provider:              "codex",
-		Version:               1,
-		Hash:                  "hash-1",
-		SectionSnapshot: map[string]string{
-			"cwd":  "/tmp/project",
-			"date": "2026-04-14",
-		},
-		Generation: 9,
-	}
+	want := testPromptSnapshot()
 	var saved sqlc.UpdateAgentThreadPromptSnapshotParams
-	s := &store{q: &threadQuerierStub{
-		savePromptSnapshotFn: func(_ context.Context, arg sqlc.UpdateAgentThreadPromptSnapshotParams) (int64, error) {
-			saved = arg
-			return 1, nil
-		},
-		loadPromptSnapshotFn: func(context.Context, string) ([]byte, error) {
-			return []byte(`{"display_name":"thread-1","base_instructions":"base","developer_instructions":"dev","provider":"codex","version":1,"hash":"hash-1","section_snapshot":{"cwd":"/tmp/project","date":"2026-04-14"},"generation":9}`), nil
-		},
-	}}
+	s := newPromptSnapshotStore(&saved)
 
 	if err := s.SavePromptSnapshot(context.Background(), "thread-1", want); err != nil {
 		t.Fatalf("SavePromptSnapshot() error = %v", err)
 	}
-	if saved.ThreadID != "thread-1" {
-		t.Fatalf("SavePromptSnapshot() thread_id = %q, want %q", saved.ThreadID, "thread-1")
-	}
-	var stored PromptSnapshot
-	if err := json.Unmarshal(saved.PromptSnapshot, &stored); err != nil {
-		t.Fatalf("json.Unmarshal(saved prompt_snapshot) error = %v", err)
-	}
-	if stored.DisplayName != want.DisplayName ||
-		stored.BaseInstructions != want.BaseInstructions ||
-		stored.DeveloperInstructions != want.DeveloperInstructions ||
-		stored.Provider != want.Provider ||
-		stored.Version != want.Version ||
-		stored.Hash != want.Hash ||
-		stored.Generation != want.Generation ||
-		len(stored.SectionSnapshot) != len(want.SectionSnapshot) ||
-		stored.SectionSnapshot["cwd"] != want.SectionSnapshot["cwd"] ||
-		stored.SectionSnapshot["date"] != want.SectionSnapshot["date"] {
-		t.Fatalf("stored prompt snapshot = %#v, want %#v", stored, want)
-	}
+	assertSavedPromptSnapshot(t, saved, want)
 
 	got, err := s.LoadPromptSnapshot(context.Background(), "thread-1")
 	if err != nil {
@@ -321,16 +280,78 @@ func TestSaveAndLoadPromptSnapshot(t *testing.T) {
 	if got == nil {
 		t.Fatal("LoadPromptSnapshot() = nil, want snapshot")
 	}
-	if got.DisplayName != want.DisplayName ||
-		got.BaseInstructions != want.BaseInstructions ||
-		got.DeveloperInstructions != want.DeveloperInstructions ||
-		got.Provider != want.Provider ||
-		got.Version != want.Version ||
-		got.Hash != want.Hash ||
-		got.Generation != want.Generation ||
-		got.SectionSnapshot["cwd"] != want.SectionSnapshot["cwd"] ||
-		got.SectionSnapshot["date"] != want.SectionSnapshot["date"] {
-		t.Fatalf("LoadPromptSnapshot() = %#v, want %#v", got, want)
+	assertStorePromptSnapshotEqual(t, "LoadPromptSnapshot()", *got, want)
+}
+
+func testPromptSnapshot() PromptSnapshot {
+	return PromptSnapshot{
+		DisplayName:           "thread-1",
+		BaseInstructions:      "base",
+		DeveloperInstructions: "dev",
+		Provider:              "codex",
+		Version:               1,
+		Hash:                  "hash-1",
+		SectionSnapshot:       map[string]string{"cwd": "/tmp/project", "date": "2026-04-14"},
+		Generation:            9,
+	}
+}
+
+func newPromptSnapshotStore(saved *sqlc.UpdateAgentThreadPromptSnapshotParams) *store {
+	return &store{q: &threadQuerierStub{
+		savePromptSnapshotFn: func(_ context.Context, arg sqlc.UpdateAgentThreadPromptSnapshotParams) (int64, error) {
+			*saved = arg
+			return 1, nil
+		},
+		loadPromptSnapshotFn: func(context.Context, string) ([]byte, error) {
+			return []byte(`{"display_name":"thread-1","base_instructions":"base","developer_instructions":"dev","provider":"codex","version":1,"hash":"hash-1","section_snapshot":{"cwd":"/tmp/project","date":"2026-04-14"},"generation":9}`), nil
+		},
+	}}
+}
+
+func assertSavedPromptSnapshot(t *testing.T, saved sqlc.UpdateAgentThreadPromptSnapshotParams, want PromptSnapshot) {
+	t.Helper()
+	if saved.ThreadID != "thread-1" {
+		t.Fatalf("SavePromptSnapshot() thread_id = %q, want %q", saved.ThreadID, "thread-1")
+	}
+	var stored PromptSnapshot
+	if err := json.Unmarshal(saved.PromptSnapshot, &stored); err != nil {
+		t.Fatalf("json.Unmarshal(saved prompt_snapshot) error = %v", err)
+	}
+	assertStorePromptSnapshotEqual(t, "stored prompt snapshot", stored, want)
+}
+
+func assertStorePromptSnapshotEqual(t *testing.T, label string, got, want PromptSnapshot) {
+	t.Helper()
+	assertStorePromptSnapshotMetadata(t, label, got, want)
+	assertStorePromptSnapshotSections(t, label, got, want)
+}
+
+func assertStorePromptSnapshotMetadata(t *testing.T, label string, got, want PromptSnapshot) {
+	t.Helper()
+	if got.DisplayName != want.DisplayName {
+		t.Fatalf("%s DisplayName = %q, want %q", label, got.DisplayName, want.DisplayName)
+	}
+	if got.BaseInstructions != want.BaseInstructions {
+		t.Fatalf("%s BaseInstructions = %q, want %q", label, got.BaseInstructions, want.BaseInstructions)
+	}
+	if got.DeveloperInstructions != want.DeveloperInstructions {
+		t.Fatalf("%s DeveloperInstructions = %q, want %q", label, got.DeveloperInstructions, want.DeveloperInstructions)
+	}
+	if got.Provider != want.Provider || got.Version != want.Version || got.Hash != want.Hash || got.Generation != want.Generation {
+		t.Fatalf("%s metadata = %#v, want %#v", label, got, want)
+	}
+}
+
+func assertStorePromptSnapshotSections(t *testing.T, label string, got, want PromptSnapshot) {
+	t.Helper()
+	if len(got.SectionSnapshot) != len(want.SectionSnapshot) {
+		t.Fatalf("%s sections = %#v, want %#v", label, got.SectionSnapshot, want.SectionSnapshot)
+	}
+	if got.SectionSnapshot["cwd"] != want.SectionSnapshot["cwd"] {
+		t.Fatalf("%s cwd section = %q, want %q", label, got.SectionSnapshot["cwd"], want.SectionSnapshot["cwd"])
+	}
+	if got.SectionSnapshot["date"] != want.SectionSnapshot["date"] {
+		t.Fatalf("%s date section = %q, want %q", label, got.SectionSnapshot["date"], want.SectionSnapshot["date"])
 	}
 }
 

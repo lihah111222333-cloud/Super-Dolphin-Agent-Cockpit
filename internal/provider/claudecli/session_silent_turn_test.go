@@ -45,8 +45,25 @@ func TestSendKeepaliveNormalFlow(t *testing.T) {
 	stdin := &recordingWriteCloser{writes: make(chan string, 1)}
 	tr := &transport{stdin: stdin, stderr: newLimitedBuffer(stderrLimitBytes), done: make(chan struct{})}
 	s, rawEvents, turnCompleted := newSilentTurnTestSession(t, tr)
+	errCh := startKeepaliveForTest(s)
+
+	expectKeepaliveWrite(t, stdin)
+	turnID := requireActiveSilentTurn(t, s)
+	completeSilentTurn(t, s, tr, turnID)
+	awaitKeepaliveSuccess(t, errCh, "after turn:complete")
+	assertNoActiveSilentTurn(t, s)
+	assertRawKeepaliveCompletion(t, rawEvents, turnID)
+	assertTranslatedKeepaliveCompletion(t, turnCompleted, turnID)
+}
+
+func startKeepaliveForTest(s *session) chan error {
 	errCh := make(chan error, 1)
 	go func() { errCh <- s.SendKeepalive(context.Background()) }()
+	return errCh
+}
+
+func expectKeepaliveWrite(t *testing.T, stdin *recordingWriteCloser) {
+	t.Helper()
 	select {
 	case write := <-stdin.writes:
 		if !strings.Contains(write, "CACHE-KEEPALIVE") {
@@ -55,22 +72,43 @@ func TestSendKeepaliveNormalFlow(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("SendKeepalive() did not write payload")
 	}
+}
+
+func requireActiveSilentTurn(t *testing.T, s *session) string {
+	t.Helper()
 	turnID := currentActiveTurnID(s)
 	if turnID == "" {
 		t.Fatal("SendKeepalive() did not create active silent turn")
 	}
+	return turnID
+}
+
+func completeSilentTurn(t *testing.T, s *session, tr *transport, turnID string) {
+	t.Helper()
 	s.applyRaw(tr, dto.RawProviderEvent{EventType: "turn:complete", Data: map[string]any{"turn_id": turnID, "success": true}})
+}
+
+func awaitKeepaliveSuccess(t *testing.T, errCh <-chan error, stage string) {
+	t.Helper()
 	select {
 	case err := <-errCh:
 		if err != nil {
 			t.Fatalf("SendKeepalive() error = %v", err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("SendKeepalive() did not finish after turn:complete")
+		t.Fatalf("SendKeepalive() did not finish %s", stage)
 	}
+}
+
+func assertNoActiveSilentTurn(t *testing.T, s *session) {
+	t.Helper()
 	if got := currentActiveTurnID(s); got != "" {
 		t.Fatalf("activeTurn = %q, want cleared", got)
 	}
+}
+
+func assertRawKeepaliveCompletion(t *testing.T, rawEvents <-chan dto.BusRawProviderEvent, turnID string) {
+	t.Helper()
 	select {
 	case raw := <-rawEvents:
 		if raw.Event.EventType != "turn:complete" {
@@ -82,6 +120,10 @@ func TestSendKeepaliveNormalFlow(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("expected raw keepalive completion event")
 	}
+}
+
+func assertTranslatedKeepaliveCompletion(t *testing.T, turnCompleted <-chan turndto.TurnCompleted, turnID string) {
+	t.Helper()
 	select {
 	case completed := <-turnCompleted:
 		if !completed.Success {
@@ -127,13 +169,27 @@ func TestSendKeepaliveLockModel(t *testing.T) {
 	writer := &blockingWriteCloser{started: make(chan struct{}), release: make(chan struct{}), writes: make(chan string, 1)}
 	tr := &transport{stdin: writer, stderr: newLimitedBuffer(stderrLimitBytes), done: make(chan struct{})}
 	s := &session{transport: tr}
-	errCh := make(chan error, 1)
-	go func() { errCh <- s.SendKeepalive(context.Background()) }()
+	errCh := startKeepaliveForTest(s)
+
+	waitForBlockingWriteStart(t, writer)
+	lockAcquired := assertSessionMutexHeldDuringSend(t, s)
+	releaseWriterAndWaitForMutex(t, writer, lockAcquired)
+	turnID := requireActiveSilentTurn(t, s)
+	completeSilentTurn(t, s, tr, turnID)
+	awaitKeepaliveSuccess(t, errCh, "after write release")
+}
+
+func waitForBlockingWriteStart(t *testing.T, writer *blockingWriteCloser) {
+	t.Helper()
 	select {
 	case <-writer.started:
 	case <-time.After(time.Second):
 		t.Fatal("SendKeepalive() did not enter transport.Send")
 	}
+}
+
+func assertSessionMutexHeldDuringSend(t *testing.T, s *session) chan struct{} {
+	t.Helper()
 	lockAcquired := make(chan struct{})
 	go func() {
 		s.mu.Lock()
@@ -146,23 +202,15 @@ func TestSendKeepaliveLockModel(t *testing.T) {
 		t.Fatal("session mutex unlocked before SendKeepalive transport.Send completed")
 	case <-time.After(100 * time.Millisecond):
 	}
+	return lockAcquired
+}
+
+func releaseWriterAndWaitForMutex(t *testing.T, writer *blockingWriteCloser, lockAcquired <-chan struct{}) {
+	t.Helper()
 	close(writer.release)
 	select {
 	case <-lockAcquired:
 	case <-time.After(time.Second):
 		t.Fatal("session mutex remained locked after SendKeepalive transport.Send completed")
-	}
-	turnID := currentActiveTurnID(s)
-	if turnID == "" {
-		t.Fatal("SendKeepalive() did not preserve active silent turn after send")
-	}
-	s.applyRaw(tr, dto.RawProviderEvent{EventType: "turn:complete", Data: map[string]any{"turn_id": turnID, "success": true}})
-	select {
-	case err := <-errCh:
-		if err != nil {
-			t.Fatalf("SendKeepalive() error = %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("SendKeepalive() did not finish after write release")
 	}
 }

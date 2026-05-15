@@ -466,179 +466,175 @@ func TestDreamExecutor_ZeroMaxPromptBytesSkipsCheck(t *testing.T) {
 	}
 }
 
-func TestDreamExecutor_LogsKeyEvents(t *testing.T) {
-	t.Run("success path emits Info with provider and size_bytes", func(t *testing.T) {
-		logger, buf := newCapturingLogger()
-		providers := []contract.DreamExecutorProvider{
-			{Name: "claude", Executor: &fakeDreamExecutor{result: "ok"}},
-		}
-		d := NewDreamExecutor(providers, logger)
-		if _, err := d.ExecuteDream(context.Background(), "p"); err != nil {
-			t.Fatalf("expected success, got %v", err)
-		}
-		assertLogContains(t, buf.String(),
-			"level=INFO",
-			"dream executor succeeded",
-			"provider=claude",
-			"size_bytes=2",
-		)
-	})
-
-	t.Run("all not configured emits Warn aggregate", func(t *testing.T) {
-		logger, buf := newCapturingLogger()
-		notCfg := fmt.Errorf("%w: claude", contract.ErrDreamExecutorNotConfigured)
-		providers := []contract.DreamExecutorProvider{
-			{Name: "claude", Executor: &fakeDreamExecutor{err: notCfg}},
-		}
-		d := NewDreamExecutor(providers, logger)
-		if _, err := d.ExecuteDream(context.Background(), "p"); !errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
-			t.Fatalf("expected ErrDreamExecutorNotConfigured, got %v", err)
-		}
-		assertLogContains(t, buf.String(),
-			"level=WARN",
-			"all dream executors not configured",
-		)
-	})
-
-	t.Run("real provider error emits Warn with provider and error", func(t *testing.T) {
-		logger, buf := newCapturingLogger()
-		boom := errors.New("provider boom")
-		providers := []contract.DreamExecutorProvider{
-			{Name: "claude", Executor: &fakeDreamExecutor{err: boom}},
-		}
-		d := NewDreamExecutor(providers, logger)
-		if _, err := d.ExecuteDream(context.Background(), "p"); !errors.Is(err, boom) {
-			t.Fatalf("expected boom, got %v", err)
-		}
-		assertLogContains(t, buf.String(),
-			"level=WARN",
-			"dream executor failed",
-			"provider=claude",
-			"provider boom",
-		)
-	})
-
-	t.Run("prompt size cap emits Warn with size_bytes and max_bytes", func(t *testing.T) {
-		logger, buf := newCapturingLogger()
-		providers := []contract.DreamExecutorProvider{
-			{Name: "claude", Executor: &fakeDreamExecutor{result: "unreachable"}},
-		}
-		d := newDreamExecutorWithMaxPromptBytes(t, providers, 50, logger)
-		oversized := strings.Repeat("x", 60)
-		if _, err := d.ExecuteDream(context.Background(), oversized); err == nil {
-			t.Fatalf("expected size cap error, got nil")
-		}
-		assertLogContains(t, buf.String(),
-			"level=WARN",
-			"dream prompt exceeds size limit",
-			"size_bytes=60",
-			"max_bytes=50",
-		)
-	})
-
-	t.Run("env-overridden order emits Info at registration", func(t *testing.T) {
-		t.Setenv(dreamProviderOrderEnv, "codex,claude")
-		logger, buf := newCapturingLogger()
-		providers := []contract.DreamExecutorProvider{
-			{Name: "claude", Executor: &fakeDreamExecutor{result: "unused"}},
-			{Name: "codex", Executor: &fakeDreamExecutor{result: "unused"}},
-		}
-		_ = NewDreamExecutor(providers, logger)
-		assertLogContains(t, buf.String(),
-			"level=INFO",
-			"dream provider order overridden",
-			"env=codex,claude",
-		)
-	})
+func TestDreamExecutorLogsSuccessEvent(t *testing.T) {
+	logger, buf := newCapturingLogger()
+	providers := []contract.DreamExecutorProvider{
+		{Name: "claude", Executor: &fakeDreamExecutor{result: "ok"}},
+	}
+	d := NewDreamExecutor(providers, logger)
+	if _, err := d.ExecuteDream(context.Background(), "p"); err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	assertLogContains(t, buf.String(),
+		"level=INFO",
+		"dream executor succeeded",
+		"provider=claude",
+		"size_bytes=2",
+	)
 }
 
-func TestDreamExecutor_MetricsCounters(t *testing.T) {
-	t.Run("success path increments SuccessTotal", func(t *testing.T) {
-		dreammetrics.ResetForTesting()
-		t.Cleanup(dreammetrics.ResetForTesting)
-		providers := []contract.DreamExecutorProvider{
-			{Name: "claude", Executor: &fakeDreamExecutor{result: "ok"}},
-		}
-		d := NewDreamExecutor(providers, newSilentLogger())
-		if _, err := d.ExecuteDream(context.Background(), "p"); err != nil {
-			t.Fatalf("expected success, got %v", err)
-		}
-		if got := dreammetrics.Success(); got != 1 {
-			t.Errorf("SuccessTotal: got %d, want 1", got)
-		}
-	})
+func TestDreamExecutorLogsAllNotConfiguredEvent(t *testing.T) {
+	logger, buf := newCapturingLogger()
+	notCfg := fmt.Errorf("%w: claude", contract.ErrDreamExecutorNotConfigured)
+	providers := []contract.DreamExecutorProvider{
+		{Name: "claude", Executor: &fakeDreamExecutor{err: notCfg}},
+	}
+	d := NewDreamExecutor(providers, logger)
+	if _, err := d.ExecuteDream(context.Background(), "p"); !errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
+		t.Fatalf("expected ErrDreamExecutorNotConfigured, got %v", err)
+	}
+	assertLogContains(t, buf.String(),
+		"level=WARN",
+		"all dream executors not configured",
+	)
+}
 
-	t.Run("NotConfigured skip increments ProviderSkippedTotal", func(t *testing.T) {
-		dreammetrics.ResetForTesting()
-		t.Cleanup(dreammetrics.ResetForTesting)
-		notCfg := fmt.Errorf("%w: claude", contract.ErrDreamExecutorNotConfigured)
-		providers := []contract.DreamExecutorProvider{
-			{Name: "claude", Executor: &fakeDreamExecutor{err: notCfg}},
-			{Name: "codex", Executor: &fakeDreamExecutor{result: "codex-ok"}},
-		}
-		d := NewDreamExecutor(providers, newSilentLogger())
-		if _, err := d.ExecuteDream(context.Background(), "p"); err != nil {
-			t.Fatalf("expected success after failover, got %v", err)
-		}
-		if got := dreammetrics.ProviderSkipped(); got != 1 {
-			t.Errorf("ProviderSkippedTotal: got %d, want 1", got)
-		}
-		if got := dreammetrics.Success(); got != 1 {
-			t.Errorf("SuccessTotal: got %d, want 1", got)
-		}
-	})
+func TestDreamExecutorLogsProviderFailureEvent(t *testing.T) {
+	logger, buf := newCapturingLogger()
+	boom := errors.New("provider boom")
+	providers := []contract.DreamExecutorProvider{
+		{Name: "claude", Executor: &fakeDreamExecutor{err: boom}},
+	}
+	d := NewDreamExecutor(providers, logger)
+	if _, err := d.ExecuteDream(context.Background(), "p"); !errors.Is(err, boom) {
+		t.Fatalf("expected boom, got %v", err)
+	}
+	assertLogContains(t, buf.String(),
+		"level=WARN",
+		"dream executor failed",
+		"provider=claude",
+		"provider boom",
+	)
+}
 
-	t.Run("real provider error increments ProviderFailedTotal", func(t *testing.T) {
-		dreammetrics.ResetForTesting()
-		t.Cleanup(dreammetrics.ResetForTesting)
-		boom := errors.New("provider boom")
-		providers := []contract.DreamExecutorProvider{
-			{Name: "claude", Executor: &fakeDreamExecutor{err: boom}},
-		}
-		d := NewDreamExecutor(providers, newSilentLogger())
-		if _, err := d.ExecuteDream(context.Background(), "p"); !errors.Is(err, boom) {
-			t.Fatalf("expected boom, got %v", err)
-		}
-		if got := dreammetrics.ProviderFailed(); got != 1 {
-			t.Errorf("ProviderFailedTotal: got %d, want 1", got)
-		}
-	})
+func TestDreamExecutorLogsPromptSizeCapEvent(t *testing.T) {
+	logger, buf := newCapturingLogger()
+	providers := []contract.DreamExecutorProvider{
+		{Name: "claude", Executor: &fakeDreamExecutor{result: "unreachable"}},
+	}
+	d := newDreamExecutorWithMaxPromptBytes(t, providers, 50, logger)
+	oversized := strings.Repeat("x", 60)
+	if _, err := d.ExecuteDream(context.Background(), oversized); err == nil {
+		t.Fatalf("expected size cap error, got nil")
+	}
+	assertLogContains(t, buf.String(),
+		"level=WARN",
+		"dream prompt exceeds size limit",
+		"size_bytes=60",
+		"max_bytes=50",
+	)
+}
 
-	t.Run("all not configured increments AllNotConfiguredTotal", func(t *testing.T) {
-		dreammetrics.ResetForTesting()
-		t.Cleanup(dreammetrics.ResetForTesting)
-		notCfg := fmt.Errorf("%w: claude", contract.ErrDreamExecutorNotConfigured)
-		providers := []contract.DreamExecutorProvider{
-			{Name: "claude", Executor: &fakeDreamExecutor{err: notCfg}},
-		}
-		d := NewDreamExecutor(providers, newSilentLogger())
-		if _, err := d.ExecuteDream(context.Background(), "p"); !errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
-			t.Fatalf("expected ErrDreamExecutorNotConfigured, got %v", err)
-		}
-		if got := dreammetrics.AllNotConfigured(); got != 1 {
-			t.Errorf("AllNotConfiguredTotal: got %d, want 1", got)
-		}
-		if got := dreammetrics.ProviderSkipped(); got != 1 {
-			t.Errorf("ProviderSkippedTotal: got %d, want 1", got)
-		}
-	})
+func TestDreamExecutorLogsEnvOverriddenOrderEvent(t *testing.T) {
+	t.Setenv(dreamProviderOrderEnv, "codex,claude")
+	logger, buf := newCapturingLogger()
+	providers := []contract.DreamExecutorProvider{
+		{Name: "claude", Executor: &fakeDreamExecutor{result: "unused"}},
+		{Name: "codex", Executor: &fakeDreamExecutor{result: "unused"}},
+	}
+	_ = NewDreamExecutor(providers, logger)
+	assertLogContains(t, buf.String(),
+		"level=INFO",
+		"dream provider order overridden",
+		"env=codex,claude",
+	)
+}
 
-	t.Run("prompt size cap increments PromptOversizeTotal", func(t *testing.T) {
-		dreammetrics.ResetForTesting()
-		t.Cleanup(dreammetrics.ResetForTesting)
-		providers := []contract.DreamExecutorProvider{
-			{Name: "claude", Executor: &fakeDreamExecutor{result: "unreachable"}},
-		}
-		d := newDreamExecutorWithMaxPromptBytes(t, providers, 10, nil)
-		oversized := strings.Repeat("x", 20)
-		if _, err := d.ExecuteDream(context.Background(), oversized); err == nil {
-			t.Fatalf("expected size cap error, got nil")
-		}
-		if got := dreammetrics.PromptOversize(); got != 1 {
-			t.Errorf("PromptOversizeTotal: got %d, want 1", got)
-		}
-		if got := dreammetrics.Success(); got != 0 {
-			t.Errorf("SuccessTotal should not increment when size cap fails fast: got %d", got)
-		}
-	})
+func TestDreamExecutorMetricSuccessTotal(t *testing.T) {
+	dreammetrics.ResetForTesting()
+	t.Cleanup(dreammetrics.ResetForTesting)
+	providers := []contract.DreamExecutorProvider{
+		{Name: "claude", Executor: &fakeDreamExecutor{result: "ok"}},
+	}
+	d := NewDreamExecutor(providers, newSilentLogger())
+	if _, err := d.ExecuteDream(context.Background(), "p"); err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if got := dreammetrics.Success(); got != 1 {
+		t.Errorf("SuccessTotal: got %d, want 1", got)
+	}
+}
+
+func TestDreamExecutorMetricProviderSkippedTotal(t *testing.T) {
+	dreammetrics.ResetForTesting()
+	t.Cleanup(dreammetrics.ResetForTesting)
+	notCfg := fmt.Errorf("%w: claude", contract.ErrDreamExecutorNotConfigured)
+	providers := []contract.DreamExecutorProvider{
+		{Name: "claude", Executor: &fakeDreamExecutor{err: notCfg}},
+		{Name: "codex", Executor: &fakeDreamExecutor{result: "codex-ok"}},
+	}
+	d := NewDreamExecutor(providers, newSilentLogger())
+	if _, err := d.ExecuteDream(context.Background(), "p"); err != nil {
+		t.Fatalf("expected success after failover, got %v", err)
+	}
+	if got := dreammetrics.ProviderSkipped(); got != 1 {
+		t.Errorf("ProviderSkippedTotal: got %d, want 1", got)
+	}
+	if got := dreammetrics.Success(); got != 1 {
+		t.Errorf("SuccessTotal: got %d, want 1", got)
+	}
+}
+
+func TestDreamExecutorMetricProviderFailedTotal(t *testing.T) {
+	dreammetrics.ResetForTesting()
+	t.Cleanup(dreammetrics.ResetForTesting)
+	boom := errors.New("provider boom")
+	providers := []contract.DreamExecutorProvider{
+		{Name: "claude", Executor: &fakeDreamExecutor{err: boom}},
+	}
+	d := NewDreamExecutor(providers, newSilentLogger())
+	if _, err := d.ExecuteDream(context.Background(), "p"); !errors.Is(err, boom) {
+		t.Fatalf("expected boom, got %v", err)
+	}
+	if got := dreammetrics.ProviderFailed(); got != 1 {
+		t.Errorf("ProviderFailedTotal: got %d, want 1", got)
+	}
+}
+
+func TestDreamExecutorMetricAllNotConfiguredTotal(t *testing.T) {
+	dreammetrics.ResetForTesting()
+	t.Cleanup(dreammetrics.ResetForTesting)
+	notCfg := fmt.Errorf("%w: claude", contract.ErrDreamExecutorNotConfigured)
+	providers := []contract.DreamExecutorProvider{
+		{Name: "claude", Executor: &fakeDreamExecutor{err: notCfg}},
+	}
+	d := NewDreamExecutor(providers, newSilentLogger())
+	if _, err := d.ExecuteDream(context.Background(), "p"); !errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
+		t.Fatalf("expected ErrDreamExecutorNotConfigured, got %v", err)
+	}
+	if got := dreammetrics.AllNotConfigured(); got != 1 {
+		t.Errorf("AllNotConfiguredTotal: got %d, want 1", got)
+	}
+	if got := dreammetrics.ProviderSkipped(); got != 1 {
+		t.Errorf("ProviderSkippedTotal: got %d, want 1", got)
+	}
+}
+
+func TestDreamExecutorMetricPromptOversizeTotal(t *testing.T) {
+	dreammetrics.ResetForTesting()
+	t.Cleanup(dreammetrics.ResetForTesting)
+	providers := []contract.DreamExecutorProvider{
+		{Name: "claude", Executor: &fakeDreamExecutor{result: "unreachable"}},
+	}
+	d := newDreamExecutorWithMaxPromptBytes(t, providers, 10, nil)
+	oversized := strings.Repeat("x", 20)
+	if _, err := d.ExecuteDream(context.Background(), oversized); err == nil {
+		t.Fatalf("expected size cap error, got nil")
+	}
+	if got := dreammetrics.PromptOversize(); got != 1 {
+		t.Errorf("PromptOversizeTotal: got %d, want 1", got)
+	}
+	if got := dreammetrics.Success(); got != 0 {
+		t.Errorf("SuccessTotal should not increment when size cap fails fast: got %d", got)
+	}
 }

@@ -73,12 +73,22 @@ func TestInsertForwardsAllColumnsAndMapsResult(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Insert() unexpected error: %v", err)
 	}
+	assertInsertTaskTraceParams(t, captured)
+	assertInsertedTaskTraceRow(t, got, finished)
+}
+
+func assertInsertTaskTraceParams(t *testing.T, captured sqlc.InsertTaskTraceParams) {
+	t.Helper()
 	if captured.TraceID != "trace-1" || captured.SpanID != "span-1" || captured.Component != "orch" ||
 		captured.Status != "ok" || captured.DurationMs != 500 ||
 		string(captured.Column6) != `{"a":1}` || string(captured.Column7) != `{"b":2}` ||
 		string(captured.Column11) != `{"tag":"x"}` {
 		t.Fatalf("Insert() forwarded wrong params: %+v", captured)
 	}
+}
+
+func assertInsertedTaskTraceRow(t *testing.T, got *TaskTrace, finished time.Time) {
+	t.Helper()
 	if got == nil || got.ID != 11 || got.TraceID != "trace-1" || got.FinishedAt == nil || !got.FinishedAt.Equal(finished) {
 		t.Fatalf("Insert() row mapped incorrectly: %+v", got)
 	}

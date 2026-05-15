@@ -7,6 +7,7 @@ import (
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/manifestbuilder"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBuildManifest_DefaultFamilies(t *testing.T) {
@@ -135,34 +136,16 @@ func TestBuildManifest_NormalizesControlEnvNames(t *testing.T) {
 			"GO_AGENT_MCP_BOOT_CONTEXT":  `{"instance_id":"snap-old"}`,
 		},
 	})
-	if len(got.Binaries) == 0 {
-		t.Fatal("expected manifest binaries")
-	}
+	require.NotEmpty(t, got.Binaries)
 	for _, bin := range got.Binaries {
-		if bin.Env["FOO"] != "bar" {
-			t.Fatalf("binary %q env = %#v, want propagated env", bin.Name, bin.Env)
-		}
-		if got := bin.Env["GO_AGENT_CTL_RPC_ADDR"]; got != "127.0.0.1:9000" {
-			t.Fatalf("binary %q GO_AGENT_CTL_RPC_ADDR = %q", bin.Name, got)
-		}
-		if got := bin.Env["GO_AGENT_CTL_INSTANCE_ID"]; got != "instance-old" {
-			t.Fatalf("binary %q GO_AGENT_CTL_INSTANCE_ID = %q", bin.Name, got)
-		}
-		if got := bin.Env["GO_AGENT_CTL_THREAD_ID"]; got != "thread-new" {
-			t.Fatalf("binary %q GO_AGENT_CTL_THREAD_ID = %q", bin.Name, got)
-		}
-		if got := bin.Env["GO_AGENT_CTL_BINARY_NAME"]; got != "mcp-lsp" {
-			t.Fatalf("binary %q GO_AGENT_CTL_BINARY_NAME = %q", bin.Name, got)
-		}
-		if got := bin.Env["GO_AGENT_CTL_CLIENT_KIND"]; got != "lsp" {
-			t.Fatalf("binary %q GO_AGENT_CTL_CLIENT_KIND = %q", bin.Name, got)
-		}
-		if got := bin.Env["GO_AGENT_CTL_SESSION_TOKEN"]; got != "token-old" {
-			t.Fatalf("binary %q GO_AGENT_CTL_SESSION_TOKEN = %q", bin.Name, got)
-		}
-		if got := bin.Env["GO_AGENT_CTL_BOOTSTRAP_JSON"]; got != `{"instance_id":"snap-old"}` {
-			t.Fatalf("binary %q GO_AGENT_CTL_BOOTSTRAP_JSON = %q", bin.Name, got)
-		}
+		require.Equal(t, "bar", bin.Env["FOO"], "binary %q env = %#v", bin.Name, bin.Env)
+		require.Equal(t, "127.0.0.1:9000", bin.Env["GO_AGENT_CTL_RPC_ADDR"], "binary %q", bin.Name)
+		require.Equal(t, "instance-old", bin.Env["GO_AGENT_CTL_INSTANCE_ID"], "binary %q", bin.Name)
+		require.Equal(t, "thread-new", bin.Env["GO_AGENT_CTL_THREAD_ID"], "binary %q", bin.Name)
+		require.Equal(t, "mcp-lsp", bin.Env["GO_AGENT_CTL_BINARY_NAME"], "binary %q", bin.Name)
+		require.Equal(t, "lsp", bin.Env["GO_AGENT_CTL_CLIENT_KIND"], "binary %q", bin.Name)
+		require.Equal(t, "token-old", bin.Env["GO_AGENT_CTL_SESSION_TOKEN"], "binary %q", bin.Name)
+		require.Equal(t, `{"instance_id":"snap-old"}`, bin.Env["GO_AGENT_CTL_BOOTSTRAP_JSON"], "binary %q", bin.Name)
 		for _, legacy := range []string{
 			"RPC_ADDR",
 			"GO_AGENT_MCP_INSTANCE_ID",
@@ -172,9 +155,7 @@ func TestBuildManifest_NormalizesControlEnvNames(t *testing.T) {
 			"GO_AGENT_MCP_SESSION_TOKEN",
 			"GO_AGENT_MCP_BOOT_CONTEXT",
 		} {
-			if _, ok := bin.Env[legacy]; ok {
-				t.Fatalf("binary %q env = %#v, want no legacy key %q", bin.Name, bin.Env, legacy)
-			}
+			require.NotContains(t, bin.Env, legacy, "binary %q env = %#v", bin.Name, bin.Env)
 		}
 	}
 }

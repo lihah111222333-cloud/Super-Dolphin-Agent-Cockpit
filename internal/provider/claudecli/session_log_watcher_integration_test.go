@@ -49,27 +49,14 @@ func TestHandleSystemInitRawStartsLogWatcherAndUsesRuntimeContextWindow(t *testi
 
 	dir := t.TempDir()
 	sessionID := "11111111-2222-3333-4444-555555555555"
-	projectDir := filepath.Join(dir, "projects", "proj")
-	if err := os.MkdirAll(projectDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll(%q) error = %v", projectDir, err)
-	}
-	path := filepath.Join(projectDir, sessionID+".jsonl")
-	if err := os.WriteFile(path, append(watcherIntegrationLine(t, sessionID, "2026-04-13T00:00:00Z", 2, 3), '\n'), 0o644); err != nil {
-		t.Fatalf("WriteFile(%q) error = %v", path, err)
-	}
+	writeWatcherIntegrationLog(t, dir, sessionID)
 
 	bus := event.NewDispatcher()
 	defer func() { _ = bus.Close() }()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
 	RegisterTranslators(dispatcher)
 
-	rawEvents := make(chan dto.BusRawProviderEvent, 8)
-	cancel := event.Subscribe(bus, func(ev dto.BusRawProviderEvent) {
-		if ev.Event.EventType == "tokens:log_watcher" {
-			rawEvents <- ev
-		}
-	})
-	defer cancel()
+	rawEvents := subscribeLogWatcherEvents(t, bus)
 
 	tr := &transport{}
 	s := &session{
@@ -86,21 +73,54 @@ func TestHandleSystemInitRawStartsLogWatcherAndUsesRuntimeContextWindow(t *testi
 	s.markThreadReady()
 
 	s.handleSystemInitRaw(tr, dto.RawProviderEvent{EventType: "system:init", Data: map[string]any{"session_id": sessionID, "context_window": 888}})
+	assertLogWatcherEvent(t, rawEvents)
+}
 
+func writeWatcherIntegrationLog(t *testing.T, dir, sessionID string) {
+	t.Helper()
+	projectDir := filepath.Join(dir, "projects", "proj")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", projectDir, err)
+	}
+	path := filepath.Join(projectDir, sessionID+".jsonl")
+	if err := os.WriteFile(path, append(watcherIntegrationLine(t, sessionID, "2026-04-13T00:00:00Z", 2, 3), '\n'), 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", path, err)
+	}
+}
+
+func subscribeLogWatcherEvents(t *testing.T, bus *event.Dispatcher) <-chan dto.BusRawProviderEvent {
+	t.Helper()
+	rawEvents := make(chan dto.BusRawProviderEvent, 8)
+	cancel := event.Subscribe(bus, func(ev dto.BusRawProviderEvent) {
+		if ev.Event.EventType == "tokens:log_watcher" {
+			rawEvents <- ev
+		}
+	})
+	t.Cleanup(cancel)
+	return rawEvents
+}
+
+func assertLogWatcherEvent(t *testing.T, rawEvents <-chan dto.BusRawProviderEvent) {
+	t.Helper()
 	select {
 	case ev := <-rawEvents:
 		data, _ := ev.Event.Data.(map[string]any)
-		if data["thread_id"] != "thread-public" {
-			t.Fatalf("thread_id = %#v, want thread-public", data["thread_id"])
-		}
-		if data["context_window"] != 888 {
-			t.Fatalf("context_window = %#v, want 888", data["context_window"])
-		}
-		if data["input_tokens"] != 2 || data["output_tokens"] != 3 || data["total_tokens"] != 5 {
-			t.Fatalf("token payload = %#v, want input=2 output=3 total=5", data)
-		}
+		assertWatcherPayload(t, data)
 	case <-time.After(time.Second):
 		t.Fatal("tokens:log_watcher event was not published")
+	}
+}
+
+func assertWatcherPayload(t *testing.T, data map[string]any) {
+	t.Helper()
+	if data["thread_id"] != "thread-public" {
+		t.Fatalf("thread_id = %#v, want thread-public", data["thread_id"])
+	}
+	if data["context_window"] != 888 {
+		t.Fatalf("context_window = %#v, want 888", data["context_window"])
+	}
+	if data["input_tokens"] != 2 || data["output_tokens"] != 3 || data["total_tokens"] != 5 {
+		t.Fatalf("token payload = %#v, want input=2 output=3 total=5", data)
 	}
 }
 

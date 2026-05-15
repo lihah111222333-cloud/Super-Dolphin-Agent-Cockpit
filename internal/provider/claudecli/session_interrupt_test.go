@@ -64,6 +64,11 @@ type blockingWriteCloser struct {
 	writes  chan string
 }
 
+type interruptStartResult struct {
+	handle contract.TurnHandle
+	err    error
+}
+
 func (w *blockingWriteCloser) Write(p []byte) (int, error) {
 	select {
 	case <-w.started:
@@ -91,22 +96,36 @@ func runInterruptRestartScenario(t *testing.T, script string) {
 		resumeIDs <- resumeID
 		return next.tr, nil, nil
 	})
+	cleanupCalled := false
+	s, active, oldTransport := newInterruptRestartSession(t, script, &cleanupCalled)
+	assertInterruptStopsSession(t, s, active, oldTransport, &cleanupCalled)
+	startTurnAfterInterrupt(t, s)
+	assertInterruptRestartWrite(t, next)
+	assertInterruptRestartReady(t, s)
+	assertInterruptRestartResumeID(t, resumeIDs)
+}
+
+func newInterruptRestartSession(t *testing.T, script string, cleanupCalled *bool) (*session, *turnHandle, *transport) {
+	t.Helper()
 	oldReady := make(chan struct{})
 	close(oldReady)
 	oldTransport := newInterruptTestTransport(t, script)
-	cleanupCalled := false
 	active := newTurnHandle("local-1", "turn-1")
-	s := &session{
+	return &session{
 		threadID:        "11111111-2222-3333-4444-555555555555",
 		sessionID:       "11111111-2222-3333-4444-555555555555",
 		publicThreadID:  "thread-public",
 		threadReady:     oldReady,
 		transport:       oldTransport,
-		cleanup:         func() { cleanupCalled = true },
+		cleanup:         func() { *cleanupCalled = true },
 		activeTurn:      active,
 		suppressedTurns: map[string]struct{}{},
 		model:           "claude-old",
-	}
+	}, active, oldTransport
+}
+
+func assertInterruptStopsSession(t *testing.T, s *session, active *turnHandle, oldTransport *transport, cleanupCalled *bool) {
+	t.Helper()
 	if err := s.Interrupt(context.Background(), dto.InterruptRequest{Source: "ui_stop"}); err != nil {
 		t.Fatalf("Interrupt() error = %v", err)
 	}
@@ -118,7 +137,7 @@ func runInterruptRestartScenario(t *testing.T, script string) {
 	if !errors.Is(active.Err(), context.Canceled) {
 		t.Fatalf("active.Err() = %v, want context.Canceled", active.Err())
 	}
-	if !cleanupCalled {
+	if !*cleanupCalled {
 		t.Fatal("interrupt cleanup was not called")
 	}
 	if oldTransport.Running() {
@@ -131,6 +150,10 @@ func runInterruptRestartScenario(t *testing.T, script string) {
 	if handle != nil {
 		t.Fatal("active turn was not cleared after interrupt")
 	}
+}
+
+func startTurnAfterInterrupt(t *testing.T, s *session) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 	newHandle, err := s.StartTurn(ctx, turnRequest("claude-next"))
@@ -140,6 +163,10 @@ func runInterruptRestartScenario(t *testing.T, script string) {
 	if newHandle == nil {
 		t.Fatal("StartTurn() after interrupt returned nil handle")
 	}
+}
+
+func assertInterruptRestartWrite(t *testing.T, next *scriptedTransport) {
+	t.Helper()
 	select {
 	case write := <-next.stdin.writes:
 		if !strings.Contains(write, "hello") {
@@ -148,12 +175,20 @@ func runInterruptRestartScenario(t *testing.T, script string) {
 	case <-time.After(time.Second):
 		t.Fatal("StartTurn() did not write payload after interrupt restart")
 	}
+}
+
+func assertInterruptRestartReady(t *testing.T, s *session) {
+	t.Helper()
 	_, _, ready := snapshotSessionState(s)
 	select {
 	case <-ready:
 	default:
 		t.Fatal("restart did not reuse known thread readiness")
 	}
+}
+
+func assertInterruptRestartResumeID(t *testing.T, resumeIDs <-chan string) {
+	t.Helper()
 	select {
 	case resumeID := <-resumeIDs:
 		if resumeID != "11111111-2222-3333-4444-555555555555" {
@@ -199,6 +234,12 @@ func TestInterruptDispatchesSyntheticToolEnd(t *testing.T) {
 		t.Fatalf("Interrupt() error = %v", err)
 	}
 
+	assertSyntheticToolEnd(t, toolEnds)
+	assertTurnInterrupted(t, turnInterrupted)
+}
+
+func assertSyntheticToolEnd(t *testing.T, toolEnds <-chan tooldto.ToolCallEnd) {
+	t.Helper()
 	select {
 	case ev := <-toolEnds:
 		if ev.CallID != "call-1" || ev.ToolName != "lsp_read" {
@@ -213,7 +254,10 @@ func TestInterruptDispatchesSyntheticToolEnd(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Interrupt() did not dispatch synthetic ToolCallEnd")
 	}
+}
 
+func assertTurnInterrupted(t *testing.T, turnInterrupted <-chan turndto.TurnInterrupted) {
+	t.Helper()
 	select {
 	case ev := <-turnInterrupted:
 		if ev.TurnID != "turn-1" {
@@ -242,52 +286,72 @@ func TestInterruptWaitsForConcurrentStartTurnSend(t *testing.T) {
 		model:           "claude-old",
 	}
 
-	startResult := make(chan struct {
-		handle any
-		err    error
-	}, 1)
+	startResult := startBlockingStartTurn(s)
+	waitForBlockingWriterStarted(t, writer)
+	interruptDone := startInterrupt(s)
+	assertInterruptStillWaiting(t, interruptDone)
+
+	close(writer.release)
+
+	startedHandle := awaitBlockingStartResult(t, startResult)
+	awaitInterruptDone(t, interruptDone)
+	assertTurnHandleCanceled(t, startedHandle)
+}
+
+func startBlockingStartTurn(s *session) <-chan interruptStartResult {
+	startResult := make(chan interruptStartResult, 1)
 	go func() {
 		handle, err := s.StartTurn(context.Background(), turnRequest("claude-old"))
-		startResult <- struct {
-			handle any
-			err    error
-		}{handle: handle, err: err}
+		startResult <- interruptStartResult{handle: handle, err: err}
 	}()
+	return startResult
+}
 
+func waitForBlockingWriterStarted(t *testing.T, writer *blockingWriteCloser) {
+	t.Helper()
 	select {
-	case <-writer.started:
 	case <-time.After(time.Second):
 		t.Fatal("StartTurn() did not begin transport write")
+	case <-writer.started:
 	}
+}
 
+func startInterrupt(s *session) <-chan error {
 	interruptDone := make(chan error, 1)
 	go func() {
 		interruptDone <- s.Interrupt(context.Background(), dto.InterruptRequest{Source: "ui_stop"})
 	}()
+	return interruptDone
+}
 
+func assertInterruptStillWaiting(t *testing.T, interruptDone <-chan error) {
+	t.Helper()
 	select {
 	case err := <-interruptDone:
 		t.Fatalf("Interrupt() returned before send completed: %v", err)
 	case <-time.After(100 * time.Millisecond):
 	}
+}
 
-	close(writer.release)
-
-	var startedHandle contract.TurnHandle
+func awaitBlockingStartResult(t *testing.T, startResult <-chan interruptStartResult) contract.TurnHandle {
+	t.Helper()
 	select {
+	case <-time.After(time.Second):
+		t.Fatal("StartTurn() did not finish after write release")
 	case result := <-startResult:
 		if result.err != nil {
 			t.Fatalf("StartTurn() error = %v", result.err)
 		}
-		var ok bool
-		startedHandle, ok = result.handle.(contract.TurnHandle)
-		if !ok || startedHandle == nil {
+		if result.handle == nil {
 			t.Fatalf("StartTurn() handle = %#v, want contract.TurnHandle", result.handle)
 		}
-	case <-time.After(time.Second):
-		t.Fatal("StartTurn() did not finish after write release")
+		return result.handle
 	}
+	return nil
+}
 
+func awaitInterruptDone(t *testing.T, interruptDone <-chan error) {
+	t.Helper()
 	select {
 	case err := <-interruptDone:
 		if err != nil {
@@ -296,11 +360,14 @@ func TestInterruptWaitsForConcurrentStartTurnSend(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Interrupt() did not finish after write release")
 	}
+}
 
+func assertTurnHandleCanceled(t *testing.T, startedHandle contract.TurnHandle) {
+	t.Helper()
 	select {
-	case <-startedHandle.Done():
 	case <-time.After(time.Second):
 		t.Fatal("interrupted handle was not finished")
+	case <-startedHandle.Done():
 	}
 	if !errors.Is(startedHandle.Err(), context.Canceled) {
 		t.Fatalf("handle.Err() = %v, want context.Canceled", startedHandle.Err())

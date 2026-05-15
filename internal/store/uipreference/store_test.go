@@ -148,13 +148,34 @@ func TestListForwardsCwdAndMapsRows(t *testing.T) {
 	if capturedCwd != "/proj" {
 		t.Fatalf("List() forwarded cwd = %q, want /proj", capturedCwd)
 	}
+	assertUIPreferenceRows(t, got, now)
+}
+
+func assertUIPreferenceRows(t *testing.T, got []UIPreference, now time.Time) {
+	t.Helper()
+
 	if len(got) != 2 {
 		t.Fatalf("List() len = %d, want 2", len(got))
 	}
-	if got[0].Key != "theme" || got[0].Cwd != "" || string(got[0].Value) != `"dark"` || !got[0].UpdatedAt.Equal(now) {
+	if got[0].Key != "theme" {
 		t.Fatalf("List()[0] = %+v", got[0])
 	}
-	if got[1].Key != "layout" || got[1].Cwd != "/proj" || string(got[1].Value) != `"wide"` {
+	if got[0].Cwd != "" {
+		t.Fatalf("List()[0] = %+v", got[0])
+	}
+	if string(got[0].Value) != `"dark"` {
+		t.Fatalf("List()[0] = %+v", got[0])
+	}
+	if !got[0].UpdatedAt.Equal(now) {
+		t.Fatalf("List()[0] = %+v", got[0])
+	}
+	if got[1].Key != "layout" {
+		t.Fatalf("List()[1] = %+v", got[1])
+	}
+	if got[1].Cwd != "/proj" {
+		t.Fatalf("List()[1] = %+v", got[1])
+	}
+	if string(got[1].Value) != `"wide"` {
 		t.Fatalf("List()[1] = %+v", got[1])
 	}
 }

@@ -180,30 +180,37 @@ func TestOnInboundMessage_ToolCall_AsyncNoBlockReadLoop(t *testing.T) {
 		close(returned)
 	}()
 
+	waitSignal(t, returned, 100*time.Millisecond, "onInboundMessage blocked on toolHandler")
+	assertNoEarlyToolResponse(t, resp.ch)
+	waitSignal(t, started, time.Second, "toolHandler did not start")
+
+	close(release)
+	waitSignal(t, handlerDone, time.Second, "toolHandler did not finish")
+
+	call := waitResponseCall(t, resp.ch)
+	assertAsyncToolResponse(t, call)
+}
+
+func waitSignal(t *testing.T, ch <-chan struct{}, timeout time.Duration, msg string) {
+	t.Helper()
 	select {
-	case <-returned:
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("onInboundMessage blocked on toolHandler")
+	case <-ch:
+	case <-time.After(timeout):
+		t.Fatal(msg)
 	}
+}
+
+func assertNoEarlyToolResponse(t *testing.T, ch <-chan recordedResponse) {
+	t.Helper()
 	select {
-	case <-resp.ch:
+	case <-ch:
 		t.Fatal("RespondWithID returned before toolHandler completed")
 	case <-time.After(50 * time.Millisecond):
 	}
-	select {
-	case <-started:
-	case <-time.After(time.Second):
-		t.Fatal("toolHandler did not start")
-	}
+}
 
-	close(release)
-	select {
-	case <-handlerDone:
-	case <-time.After(time.Second):
-		t.Fatal("toolHandler did not finish")
-	}
-
-	call := waitResponseCall(t, resp.ch)
+func assertAsyncToolResponse(t *testing.T, call recordedResponse) {
+	t.Helper()
 	if string(call.id) != "9" {
 		t.Fatalf("response id = %s, want 9", string(call.id))
 	}

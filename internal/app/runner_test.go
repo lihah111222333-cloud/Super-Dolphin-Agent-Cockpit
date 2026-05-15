@@ -67,13 +67,8 @@ func TestBindRuntimeWaitsRunGroupBeforeDrain(t *testing.T) {
 		Shutdowner:        runtimeTestShutdowner{},
 		ExtractionDrainer: drainer,
 	})
-	if len(lifecycle.hooks) != 1 {
-		t.Fatalf("len(hooks) = %d, want 1", len(lifecycle.hooks))
-	}
-	hook := lifecycle.hooks[0]
-	if err := hook.OnStart(context.Background()); err != nil {
-		t.Fatalf("OnStart() error = %v", err)
-	}
+	hook := singleRuntimeHook(t, lifecycle)
+	requireRuntimeNoError(t, "OnStart()", hook.OnStart(context.Background()))
 
 	stopDone := make(chan error, 1)
 	go func() {
@@ -82,31 +77,54 @@ func TestBindRuntimeWaitsRunGroupBeforeDrain(t *testing.T) {
 		stopDone <- hook.OnStop(ctx)
 	}()
 
-	select {
-	case <-runner.canceled:
-	case <-time.After(time.Second):
-		t.Fatal("runner was not canceled before RunGroup wait")
-	}
-
-	select {
-	case <-drainer.started:
-		t.Fatal("DrainPendingExtraction() started before RunGroup completed")
-	case <-time.After(150 * time.Millisecond):
-	}
+	waitRuntimeSignal(t, runner.canceled, time.Second, "runner was not canceled before RunGroup wait")
+	assertRuntimeSignalBlocked(t, drainer.started, 150*time.Millisecond, "DrainPendingExtraction() started before RunGroup completed")
 
 	close(runner.release)
-	select {
-	case <-drainer.started:
-	case <-time.After(time.Second):
-		t.Fatal("DrainPendingExtraction() was not called after RunGroup completed")
-	}
+	waitRuntimeSignal(t, drainer.started, time.Second, "DrainPendingExtraction() was not called after RunGroup completed")
 
 	close(drainer.release)
+	waitRuntimeStop(t, stopDone)
+}
+
+func singleRuntimeHook(t *testing.T, lifecycle *runtimeTestLifecycle) fx.Hook {
+	t.Helper()
+	if len(lifecycle.hooks) != 1 {
+		t.Fatalf("len(hooks) = %d, want 1", len(lifecycle.hooks))
+	}
+	return lifecycle.hooks[0]
+}
+
+func requireRuntimeNoError(t *testing.T, label string, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatalf("%s error = %v", label, err)
+	}
+}
+
+func waitRuntimeSignal(t *testing.T, signal <-chan struct{}, timeout time.Duration, timeoutMessage string) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-time.After(timeout):
+		t.Fatal(timeoutMessage)
+	}
+}
+
+func assertRuntimeSignalBlocked(t *testing.T, signal <-chan struct{}, timeout time.Duration, failMessage string) {
+	t.Helper()
+	select {
+	case <-signal:
+		t.Fatal(failMessage)
+	case <-time.After(timeout):
+	}
+}
+
+func waitRuntimeStop(t *testing.T, stopDone <-chan error) {
+	t.Helper()
 	select {
 	case err := <-stopDone:
-		if err != nil {
-			t.Fatalf("OnStop() error = %v", err)
-		}
+		requireRuntimeNoError(t, "OnStop()", err)
 	case <-time.After(2 * time.Second):
 		t.Fatal("OnStop() did not finish")
 	}

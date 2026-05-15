@@ -21,7 +21,22 @@ func TestRestartIfNeededLockedCommitsPendingConfigAfterReady(t *testing.T) {
 	pendingEffort := "max"
 	oldReady := make(chan struct{})
 	close(oldReady)
-	s := &session{
+	s := newPendingConfigRestartSession(oldReady, &pendingModel, &pendingEffort)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	result := restartLockedAsync(s, ctx)
+
+	_ = waitForReadySwap(t, s, oldReady)
+	assertPendingConfigWaiting(t, s, pendingModel, pendingEffort)
+
+	next.emitSystemInit(t, "11111111-2222-3333-4444-555555555555")
+	waitRestartResult(t, result, "did not return after ready")
+	assertPendingConfigCommitted(t, s, pendingModel)
+	assertPendingConfigReadback(t, s, pendingModel, pendingEffort)
+}
+
+func newPendingConfigRestartSession(oldReady chan struct{}, pendingModel, pendingEffort *string) *session {
+	return &session{
 		threadID:        "pending",
 		sessionID:       "pending",
 		threadReady:     oldReady,
@@ -29,13 +44,14 @@ func TestRestartIfNeededLockedCommitsPendingConfigAfterReady(t *testing.T) {
 		model:           "opus",
 		transportModel:  "opus",
 		config:          cliLaunchConfig{Effort: "high"},
-		pendingModel:    &pendingModel,
-		pendingEffort:   &pendingEffort,
+		pendingModel:    pendingModel,
+		pendingEffort:   pendingEffort,
 		configDirty:     true,
 		suppressedTurns: map[string]struct{}{},
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
+}
+
+func restartLockedAsync(s *session, ctx context.Context) <-chan error {
 	result := make(chan error, 1)
 	go func() {
 		s.mu.Lock()
@@ -43,30 +59,43 @@ func TestRestartIfNeededLockedCommitsPendingConfigAfterReady(t *testing.T) {
 		s.mu.Unlock()
 		result <- err
 	}()
+	return result
+}
 
-	_ = waitForReadySwap(t, s, oldReady)
+func assertPendingConfigWaiting(t *testing.T, s *session, pendingModel, pendingEffort string) {
+	t.Helper()
 	if s.model != "opus" || s.config.Effort != "high" {
 		t.Fatalf("live state mutated before ready: model=%q effort=%q", s.model, s.config.Effort)
 	}
 	if s.pendingModel == nil || *s.pendingModel != pendingModel || s.pendingEffort == nil || *s.pendingEffort != pendingEffort {
 		t.Fatalf("pending state lost before ready: %#v", s)
 	}
+}
 
-	next.emitSystemInit(t, "11111111-2222-3333-4444-555555555555")
+func waitRestartResult(t *testing.T, result <-chan error, timeoutMessage string) {
+	t.Helper()
 	select {
 	case err := <-result:
 		if err != nil {
 			t.Fatalf("restartIfNeededLocked() error = %v", err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("restartIfNeededLocked() did not return after ready")
+		t.Fatal(timeoutMessage)
 	}
+}
+
+func assertPendingConfigCommitted(t *testing.T, s *session, pendingModel string) {
+	t.Helper()
 	if s.model != pendingModel || s.config.Effort != "high" {
 		t.Fatalf("live state after commit = model:%q effort:%q, want %q/high", s.model, s.config.Effort, pendingModel)
 	}
 	if s.pendingModel != nil || s.pendingEffort != nil || s.configDirty {
 		t.Fatalf("pending state not cleared after commit: %#v", s)
 	}
+}
+
+func assertPendingConfigReadback(t *testing.T, s *session, pendingModel, pendingEffort string) {
+	t.Helper()
 	cfg, err := s.ReadConfig(context.Background(), "")
 	if err != nil {
 		t.Fatalf("ReadConfig() error = %v", err)

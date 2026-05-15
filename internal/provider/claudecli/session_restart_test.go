@@ -309,47 +309,19 @@ func TestRestartIfNeededLockedRebuildsReadyAndPreservesIDs(t *testing.T) {
 	}()
 
 	newReady := waitForReadySwap(t, s, oldReady)
-	threadID, sessionID, _ := snapshotSessionState(s)
-	if threadID != "pending" || sessionID != "pending" {
-		t.Fatalf("ids before new ready = %q/%q, want pending/pending", threadID, sessionID)
-	}
-	select {
-	case <-newReady:
-		t.Fatal("replacement ready channel closed before new system:init")
-	default:
-	}
+	assertSessionIDs(t, s, "pending", "pending", "before new ready")
+	assertReadyNotClosed(t, newReady, "replacement ready channel closed before new system:init")
 
 	next.emitSystemInit(t, "11111111-2222-3333-4444-555555555555")
-	select {
-	case err := <-result:
-		if err != nil {
-			t.Fatalf("restartIfNeededLocked() error = %v", err)
-		}
-	case <-time.After(restartTestTimeout):
-		t.Fatal("restartIfNeededLocked() did not return after system:init")
-	}
-	select {
-	case <-newReady:
-	default:
-		t.Fatal("replacement ready channel was not closed")
-	}
+	awaitRestartIfNeededResult(t, result)
+	assertReadyClosed(t, newReady, "replacement ready channel was not closed")
 
-	threadID, sessionID, _ = snapshotSessionState(s)
 	const wantID = "11111111-2222-3333-4444-555555555555"
-	if threadID != wantID || sessionID != wantID {
-		t.Fatalf("ids after new ready = %q/%q, want %q/%q", threadID, sessionID, wantID, wantID)
-	}
+	assertSessionIDs(t, s, wantID, wantID, "after new ready")
 	if got := suppressedTurnsLen(s); got != 0 {
 		t.Fatalf("suppressedTurns len = %d, want 0 after restart", got)
 	}
-	select {
-	case resumeID := <-resumeIDs:
-		if resumeID != "" {
-			t.Fatalf("resumeID = %q, want empty resume id for unresolved thread", resumeID)
-		}
-	default:
-		t.Fatal("restart launch was not invoked")
-	}
+	assertRestartResumeID(t, resumeIDs, "")
 }
 
 func TestRestartIfNeededLockedKeepsEarlyReadyEvent(t *testing.T) {
@@ -424,6 +396,69 @@ func TestStartTurnBlocksConcurrentSubmitUntilRestartReady(t *testing.T) {
 		results <- startTurnResult{handle: handle, err: err}
 	}()
 
+	assertNoStartTurnBeforeRestartReady(t, next, results)
+
+	s.setResolvedThreadIDForTransport(next.tr, "thread-1")
+	waitForRestartReady(t, ready)
+	assertStartTurnWriteAfterReady(t, next)
+	successCount, errorCount := collectStartTurnResults(t, results)
+	if successCount == 0 || successCount+errorCount != 2 {
+		t.Fatalf("StartTurn results = success:%d error:%d, want at least one success and two completions", successCount, errorCount)
+	}
+}
+
+func assertSessionIDs(t *testing.T, s *session, wantThreadID, wantSessionID, phase string) {
+	t.Helper()
+	threadID, sessionID, _ := snapshotSessionState(s)
+	if threadID != wantThreadID || sessionID != wantSessionID {
+		t.Fatalf("ids %s = %q/%q, want %q/%q", phase, threadID, sessionID, wantThreadID, wantSessionID)
+	}
+}
+
+func assertReadyNotClosed(t *testing.T, ready <-chan struct{}, message string) {
+	t.Helper()
+	select {
+	case <-ready:
+		t.Fatal(message)
+	default:
+	}
+}
+
+func awaitRestartIfNeededResult(t *testing.T, result <-chan error) {
+	t.Helper()
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("restartIfNeededLocked() error = %v", err)
+		}
+	case <-time.After(restartTestTimeout):
+		t.Fatal("restartIfNeededLocked() did not return after system:init")
+	}
+}
+
+func assertReadyClosed(t *testing.T, ready <-chan struct{}, message string) {
+	t.Helper()
+	select {
+	case <-ready:
+	default:
+		t.Fatal(message)
+	}
+}
+
+func assertRestartResumeID(t *testing.T, resumeIDs <-chan string, want string) {
+	t.Helper()
+	select {
+	case resumeID := <-resumeIDs:
+		if resumeID != want {
+			t.Fatalf("resumeID = %q, want %q", resumeID, want)
+		}
+	default:
+		t.Fatal("restart launch was not invoked")
+	}
+}
+
+func assertNoStartTurnBeforeRestartReady(t *testing.T, next *scriptedTransport, results <-chan startTurnResult) {
+	t.Helper()
 	select {
 	case write := <-next.stdin.writes:
 		t.Fatalf("StartTurn wrote before restart ready: %q", write)
@@ -434,13 +469,19 @@ func TestStartTurnBlocksConcurrentSubmitUntilRestartReady(t *testing.T) {
 		t.Fatalf("StartTurn returned before restart ready: handle=%v err=%v", res.handle, res.err)
 	default:
 	}
+}
 
-	s.setResolvedThreadIDForTransport(next.tr, "thread-1")
+func waitForRestartReady(t *testing.T, ready <-chan struct{}) {
+	t.Helper()
 	select {
 	case <-ready:
 	case <-time.After(restartTestTimeout):
 		t.Fatal("replacement ready channel did not close")
 	}
+}
+
+func assertStartTurnWriteAfterReady(t *testing.T, next *scriptedTransport) {
+	t.Helper()
 	select {
 	case write := <-next.stdin.writes:
 		if !strings.Contains(write, "hello") {
@@ -448,9 +489,5 @@ func TestStartTurnBlocksConcurrentSubmitUntilRestartReady(t *testing.T) {
 		}
 	case <-time.After(restartTestTimeout):
 		t.Fatal("StartTurn did not write after ready")
-	}
-	successCount, errorCount := collectStartTurnResults(t, results)
-	if successCount == 0 || successCount+errorCount != 2 {
-		t.Fatalf("StartTurn results = success:%d error:%d, want at least one success and two completions", successCount, errorCount)
 	}
 }

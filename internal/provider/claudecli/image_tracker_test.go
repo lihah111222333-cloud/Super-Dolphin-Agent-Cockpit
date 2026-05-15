@@ -205,69 +205,88 @@ func TestPrepareTurnLockedDedupesImageAcrossTurns(t *testing.T) {
 		},
 	}
 
-	s.mu.Lock()
-	payload1, _, _, err := s.prepareTurnLocked(context.Background(), req)
-	s.activeTurn = nil // release for the next turn
-	s.mu.Unlock()
-	if err != nil {
-		t.Fatalf("turn1 prepareTurnLocked error: %v", err)
-	}
+	payload1 := prepareImageTrackerTurnPayload(t, s, req, "turn1")
+	payload2 := prepareImageTrackerTurnPayload(t, s, req, "turn2")
+	env1 := decodeImagePayloadEnvelope(t, payload1, "turn1")
+	env2 := decodeImagePayloadEnvelope(t, payload2, "turn2")
+
+	assertImagePayloadsDeduped(t, payload1, payload2, env1.Message.Content, env2.Message.Content)
+}
+
+type imagePayloadContent struct {
+	Type   string `json:"type"`
+	Text   string `json:"text"`
+	Source any    `json:"source"`
+}
+
+type imagePayloadEnvelope struct {
+	Message struct {
+		Content []imagePayloadContent `json:"content"`
+	} `json:"message"`
+}
+
+func prepareImageTrackerTurnPayload(t *testing.T, s *session, req dto.TurnRequest, label string) []byte {
+	t.Helper()
 
 	s.mu.Lock()
-	payload2, _, _, err := s.prepareTurnLocked(context.Background(), req)
+	payload, _, _, err := s.prepareTurnLocked(context.Background(), req)
 	s.activeTurn = nil
 	s.mu.Unlock()
 	if err != nil {
-		t.Fatalf("turn2 prepareTurnLocked error: %v", err)
+		t.Fatalf("%s prepareTurnLocked error: %v", label, err)
 	}
+	return payload
+}
 
-	type contentItem struct {
-		Type   string `json:"type"`
-		Text   string `json:"text"`
-		Source any    `json:"source"`
-	}
-	var env1, env2 struct {
-		Message struct {
-			Content []contentItem `json:"content"`
-		} `json:"message"`
-	}
-	if err := json.Unmarshal(payload1, &env1); err != nil {
-		t.Fatalf("unmarshal turn1: %v", err)
-	}
-	if err := json.Unmarshal(payload2, &env2); err != nil {
-		t.Fatalf("unmarshal turn2: %v", err)
-	}
+func decodeImagePayloadEnvelope(t *testing.T, payload []byte, label string) imagePayloadEnvelope {
+	t.Helper()
 
-	// Turn 1 must carry the real image content block.
-	var sawImage1 bool
-	for _, c := range env1.Message.Content {
+	var env imagePayloadEnvelope
+	if err := json.Unmarshal(payload, &env); err != nil {
+		t.Fatalf("unmarshal %s: %v", label, err)
+	}
+	return env
+}
+
+func assertImagePayloadsDeduped(t *testing.T, payload1, payload2 []byte, content1, content2 []imagePayloadContent) {
+	t.Helper()
+
+	if !hasImagePayloadContent(content1) {
+		t.Errorf("turn1 payload missing image block: %+v", content1)
+	}
+	assertNoImagePayloadContent(t, content2)
+	if !hasDedupPlaceholder(content2) {
+		t.Errorf("turn2 missing dedup placeholder text: %+v", content2)
+	}
+	if len(payload2) >= len(payload1) {
+		t.Errorf("turn2 payload should be smaller than turn1; got %d vs %d", len(payload2), len(payload1))
+	}
+}
+
+func hasImagePayloadContent(content []imagePayloadContent) bool {
+	for _, c := range content {
 		if c.Type == "image" && c.Source != nil {
-			sawImage1 = true
+			return true
 		}
 	}
-	if !sawImage1 {
-		t.Errorf("turn1 payload missing image block: %+v", env1.Message.Content)
-	}
+	return false
+}
 
-	// Turn 2 must NOT carry an image block, and must carry a deduped placeholder.
-	for _, c := range env2.Message.Content {
+func assertNoImagePayloadContent(t *testing.T, content []imagePayloadContent) {
+	t.Helper()
+
+	for _, c := range content {
 		if c.Type == "image" {
 			t.Errorf("turn2 payload still has image block (dedup failed): %+v", c)
 		}
 	}
-	var sawPlaceholder bool
-	for _, c := range env2.Message.Content {
+}
+
+func hasDedupPlaceholder(content []imagePayloadContent) bool {
+	for _, c := range content {
 		if c.Type == "text" && strings.Contains(c.Text, "previously attached") {
-			sawPlaceholder = true
+			return true
 		}
 	}
-	if !sawPlaceholder {
-		t.Errorf("turn2 missing dedup placeholder text: %+v", env2.Message.Content)
-	}
-
-	// Sanity-check: turn2 payload should be dramatically smaller than turn1
-	// because it no longer carries the base64 bytes.
-	if len(payload2) >= len(payload1) {
-		t.Errorf("turn2 payload should be smaller than turn1; got %d vs %d", len(payload2), len(payload1))
-	}
+	return false
 }

@@ -40,6 +40,12 @@ func TestSubscribeHooks_PersistsDesiredStateOnLiveCallFailure(t *testing.T) {
 		t.Fatalf("SubscribeHooks() returned nil err, want propagation of peer failure")
 	}
 
+	assertSubscribeHooksState(t, client, scope, filters)
+	assertSubscribeHooksReplayPending(t, client)
+}
+
+func assertSubscribeHooksState(t *testing.T, client *Client, scope mcpdto.Selector, filters json.RawMessage) {
+	t.Helper()
 	subID, storedTopics, storedScope, storedFilters, mode, ok := client.hooks.load()
 	if !ok {
 		t.Fatalf("hooks.load() after live-call failure = not stored; expected desired state to persist for replay")
@@ -59,7 +65,10 @@ func TestSubscribeHooks_PersistsDesiredStateOnLiveCallFailure(t *testing.T) {
 	if mode != "sync" {
 		t.Fatalf("stored mode = %q, want %q", mode, "sync")
 	}
+}
 
+func assertSubscribeHooksReplayPending(t *testing.T, client *Client) {
+	t.Helper()
 	// markReplayPending is part of the contract — diagnostics must
 	// distinguish this "initial call failed" path from a
 	// reconnect-time replay failure.

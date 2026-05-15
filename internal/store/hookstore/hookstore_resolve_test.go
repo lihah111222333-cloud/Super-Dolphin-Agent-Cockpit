@@ -11,155 +11,161 @@ import (
 
 func TestResolvePendingReview(t *testing.T) {
 	t.Parallel()
+	t.Run("resolve pending", testResolvePendingReviewResolved)
+	t.Run("idempotent when key matches existing resolved record", testResolvePendingReviewIdempotent)
+	t.Run("non pending returns not found", testResolvePendingReviewNotFound)
+}
 
-	t.Run("resolve pending", func(t *testing.T) {
-		now := time.Date(2026, 3, 24, 13, 0, 0, 0, time.UTC)
-		review := testPendingReview("call-resolve", "agent-resolve", "reject", now, now.Add(15*time.Minute))
-		store, db := newTestStore(testRecord{review: review, status: "pending"})
+func testResolvePendingReviewResolved(t *testing.T) {
+	now := time.Date(2026, 3, 24, 13, 0, 0, 0, time.UTC)
+	review := testPendingReview("call-resolve", "agent-resolve", "reject", now, now.Add(15*time.Minute))
+	store, db := newTestStore(testRecord{review: review, status: "pending"})
 
-		err := store.ResolvePendingReview(context.Background(), review.HookCallID, "approve", "looks good", "idem-1", "reviewer-store")
-		if err != nil {
-			t.Fatalf("ResolvePendingReview() error = %v", err)
-		}
+	err := store.ResolvePendingReview(context.Background(), review.HookCallID, "approve", "looks good", "idem-1", "reviewer-store")
+	if err != nil {
+		t.Fatalf("ResolvePendingReview() error = %v", err)
+	}
 
-		got := db.mustRecord(t, review.HookCallID)
-		if got.status != "resolved" {
-			t.Fatalf("resolved status = %q, want resolved", got.status)
-		}
-		if got.decision != "approve" || got.reason != "looks good" || got.idempotencyKey != "idem-1" || got.resolvedBy != "reviewer-store" {
-			t.Fatalf("resolved record = %+v", got)
-		}
-		if got.resolvedAt.IsZero() {
-			t.Fatal("resolvedAt = zero, want non-zero")
-		}
-		if db.execCount("resolve") != 1 {
-			t.Fatalf("resolve exec count = %d, want 1", db.execCount("resolve"))
-		}
+	got := db.mustRecord(t, review.HookCallID)
+	if got.status != "resolved" {
+		t.Fatalf("resolved status = %q, want resolved", got.status)
+	}
+	if got.decision != "approve" || got.reason != "looks good" || got.idempotencyKey != "idem-1" || got.resolvedBy != "reviewer-store" {
+		t.Fatalf("resolved record = %+v", got)
+	}
+	if got.resolvedAt.IsZero() {
+		t.Fatal("resolvedAt = zero, want non-zero")
+	}
+	if db.execCount("resolve") != 1 {
+		t.Fatalf("resolve exec count = %d, want 1", db.execCount("resolve"))
+	}
+}
+
+func testResolvePendingReviewIdempotent(t *testing.T) {
+	now := time.Date(2026, 3, 24, 13, 30, 0, 0, time.UTC)
+	review := testPendingReview("call-idempotent", "agent-resolve", "reject", now, now.Add(15*time.Minute))
+	store, db := newTestStore(testRecord{
+		review:         review,
+		status:         "resolved",
+		decision:       "approve",
+		reason:         "already done",
+		idempotencyKey: "idem-same",
+		resolvedBy:     "reviewer-existing",
+		resolvedAt:     now.Add(time.Minute),
 	})
 
-	t.Run("idempotent when key matches existing resolved record", func(t *testing.T) {
-		now := time.Date(2026, 3, 24, 13, 30, 0, 0, time.UTC)
-		review := testPendingReview("call-idempotent", "agent-resolve", "reject", now, now.Add(15*time.Minute))
-		store, db := newTestStore(testRecord{
-			review:         review,
-			status:         "resolved",
-			decision:       "approve",
-			reason:         "already done",
-			idempotencyKey: "idem-same",
-			resolvedBy:     "reviewer-existing",
-			resolvedAt:     now.Add(time.Minute),
-		})
+	err := store.ResolvePendingReview(context.Background(), review.HookCallID, "approve", "ignored", "idem-same", "reviewer-new")
+	if err != nil {
+		t.Fatalf("ResolvePendingReview() idempotent error = %v", err)
+	}
+	if db.execCount("resolve") != 0 {
+		t.Fatalf("resolve exec count = %d, want 0", db.execCount("resolve"))
+	}
+	got := db.mustRecord(t, review.HookCallID)
+	if got.reason != "already done" || got.resolvedBy != "reviewer-existing" {
+		t.Fatalf("idempotent resolve changed record = %+v", got)
+	}
+}
 
-		err := store.ResolvePendingReview(context.Background(), review.HookCallID, "approve", "ignored", "idem-same", "reviewer-new")
-		if err != nil {
-			t.Fatalf("ResolvePendingReview() idempotent error = %v", err)
-		}
-		if db.execCount("resolve") != 0 {
-			t.Fatalf("resolve exec count = %d, want 0", db.execCount("resolve"))
-		}
-		got := db.mustRecord(t, review.HookCallID)
-		if got.reason != "already done" || got.resolvedBy != "reviewer-existing" {
-			t.Fatalf("idempotent resolve changed record = %+v", got)
-		}
+func testResolvePendingReviewNotFound(t *testing.T) {
+	now := time.Date(2026, 3, 24, 14, 0, 0, 0, time.UTC)
+	review := testPendingReview("call-not-pending", "agent-resolve", "reject", now, now.Add(15*time.Minute))
+	store, _ := newTestStore(testRecord{
+		review:         review,
+		status:         "cancelled",
+		reason:         "shutdown",
+		idempotencyKey: "idem-old",
+		resolvedAt:     now.Add(time.Minute),
 	})
 
-	t.Run("non pending returns not found", func(t *testing.T) {
-		now := time.Date(2026, 3, 24, 14, 0, 0, 0, time.UTC)
-		review := testPendingReview("call-not-pending", "agent-resolve", "reject", now, now.Add(15*time.Minute))
-		store, _ := newTestStore(testRecord{
-			review:         review,
-			status:         "cancelled",
-			reason:         "shutdown",
-			idempotencyKey: "idem-old",
-			resolvedAt:     now.Add(time.Minute),
-		})
-
-		err := store.ResolvePendingReview(context.Background(), review.HookCallID, "approve", "retry", "idem-new", "reviewer-missing")
-		assertStoreError(t, err, "resolve", "hook_pending_review", contract.ErrHookReviewNotFound)
-		if !errors.Is(err, contract.ErrHookReviewNotFound) {
-			t.Fatalf("ResolvePendingReview() error = %v, want ErrHookReviewNotFound", err)
-		}
-	})
+	err := store.ResolvePendingReview(context.Background(), review.HookCallID, "approve", "retry", "idem-new", "reviewer-missing")
+	assertStoreError(t, err, "resolve", "hook_pending_review", contract.ErrHookReviewNotFound)
+	if !errors.Is(err, contract.ErrHookReviewNotFound) {
+		t.Fatalf("ResolvePendingReview() error = %v, want ErrHookReviewNotFound", err)
+	}
 }
 
 func TestCancelExpiredReviews(t *testing.T) {
 	t.Parallel()
+	t.Run("empty table returns zero", testCancelExpiredReviewsEmpty)
+	t.Run("deadline boundary is inclusive", testCancelExpiredReviewsDeadlineBoundary)
+	t.Run("marks only expired pending reviews", testCancelExpiredReviewsOnlyExpiredPending)
+}
 
-	t.Run("empty table returns zero", func(t *testing.T) {
-		store, db := newTestStore()
+func testCancelExpiredReviewsEmpty(t *testing.T) {
+	store, db := newTestStore()
 
-		count, err := store.CancelExpiredReviews(context.Background())
-		if err != nil {
-			t.Fatalf("CancelExpiredReviews() error = %v", err)
-		}
-		if count != 0 {
-			t.Fatalf("CancelExpiredReviews() count = %d, want 0", count)
-		}
-		if db.execCount("cancel_expired") != 1 {
-			t.Fatalf("cancel_expired exec count = %d, want 1", db.execCount("cancel_expired"))
-		}
-	})
+	count, err := store.CancelExpiredReviews(context.Background())
+	if err != nil {
+		t.Fatalf("CancelExpiredReviews() error = %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("CancelExpiredReviews() count = %d, want 0", count)
+	}
+	if db.execCount("cancel_expired") != 1 {
+		t.Fatalf("cancel_expired exec count = %d, want 1", db.execCount("cancel_expired"))
+	}
+}
 
-	t.Run("deadline boundary is inclusive", func(t *testing.T) {
-		base := time.Date(2026, 3, 24, 14, 30, 0, 0, time.UTC)
-		equalDeadline := testPendingReview("call-expired-equal", "agent-expired", "reject", base, base)
-		futureDeadline := testPendingReview("call-expired-future", "agent-expired", "approve", base, base)
-		store, db := newTestStore(
-			testRecord{review: equalDeadline, status: "pending"},
-			testRecord{review: futureDeadline, status: "pending"},
-		)
-		db.beforeCancelExpired = func(now time.Time) {
-			db.records[equalDeadline.HookCallID].review.DeadlineAt = now
-			db.records[futureDeadline.HookCallID].review.DeadlineAt = now.Add(time.Nanosecond)
-		}
+func testCancelExpiredReviewsDeadlineBoundary(t *testing.T) {
+	base := time.Date(2026, 3, 24, 14, 30, 0, 0, time.UTC)
+	equalDeadline := testPendingReview("call-expired-equal", "agent-expired", "reject", base, base)
+	futureDeadline := testPendingReview("call-expired-future", "agent-expired", "approve", base, base)
+	store, db := newTestStore(
+		testRecord{review: equalDeadline, status: "pending"},
+		testRecord{review: futureDeadline, status: "pending"},
+	)
+	db.beforeCancelExpired = func(now time.Time) {
+		db.records[equalDeadline.HookCallID].review.DeadlineAt = now
+		db.records[futureDeadline.HookCallID].review.DeadlineAt = now.Add(time.Nanosecond)
+	}
 
-		count, err := store.CancelExpiredReviews(context.Background())
-		if err != nil {
-			t.Fatalf("CancelExpiredReviews() error = %v", err)
-		}
-		if count != 1 {
-			t.Fatalf("CancelExpiredReviews() count = %d, want 1", count)
-		}
+	count, err := store.CancelExpiredReviews(context.Background())
+	if err != nil {
+		t.Fatalf("CancelExpiredReviews() error = %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("CancelExpiredReviews() count = %d, want 1", count)
+	}
 
-		equalRecord := db.mustRecord(t, equalDeadline.HookCallID)
-		if equalRecord.status != "expired" || equalRecord.decision != equalDeadline.DefaultAction {
-			t.Fatalf("equal deadline record = %+v", equalRecord)
-		}
-		if db.mustRecord(t, futureDeadline.HookCallID).status != "pending" {
-			t.Fatalf("future deadline status = %q, want pending", db.mustRecord(t, futureDeadline.HookCallID).status)
-		}
-	})
+	equalRecord := db.mustRecord(t, equalDeadline.HookCallID)
+	if equalRecord.status != "expired" || equalRecord.decision != equalDeadline.DefaultAction {
+		t.Fatalf("equal deadline record = %+v", equalRecord)
+	}
+	if db.mustRecord(t, futureDeadline.HookCallID).status != "pending" {
+		t.Fatalf("future deadline status = %q, want pending", db.mustRecord(t, futureDeadline.HookCallID).status)
+	}
+}
 
-	t.Run("marks only expired pending reviews", func(t *testing.T) {
-		now := time.Now().UTC()
-		expired := testPendingReview("call-expired", "agent-expired", "reject", now.Add(-2*time.Hour), now.Add(-time.Minute))
-		active := testPendingReview("call-active", "agent-expired", "approve", now.Add(-time.Hour), now.Add(time.Hour))
-		resolved := testPendingReview("call-resolved-expired", "agent-expired", "reject", now.Add(-3*time.Hour), now.Add(-2*time.Hour))
-		store, db := newTestStore(
-			testRecord{review: expired, status: "pending"},
-			testRecord{review: active, status: "pending"},
-			testRecord{review: resolved, status: "resolved", decision: "approve", idempotencyKey: "idem-expired", resolvedAt: now.Add(-30 * time.Minute)},
-		)
+func testCancelExpiredReviewsOnlyExpiredPending(t *testing.T) {
+	now := time.Now().UTC()
+	expired := testPendingReview("call-expired", "agent-expired", "reject", now.Add(-2*time.Hour), now.Add(-time.Minute))
+	active := testPendingReview("call-active", "agent-expired", "approve", now.Add(-time.Hour), now.Add(time.Hour))
+	resolved := testPendingReview("call-resolved-expired", "agent-expired", "reject", now.Add(-3*time.Hour), now.Add(-2*time.Hour))
+	store, db := newTestStore(
+		testRecord{review: expired, status: "pending"},
+		testRecord{review: active, status: "pending"},
+		testRecord{review: resolved, status: "resolved", decision: "approve", idempotencyKey: "idem-expired", resolvedAt: now.Add(-30 * time.Minute)},
+	)
 
-		count, err := store.CancelExpiredReviews(context.Background())
-		if err != nil {
-			t.Fatalf("CancelExpiredReviews() error = %v", err)
-		}
-		if count != 1 {
-			t.Fatalf("CancelExpiredReviews() count = %d, want 1", count)
-		}
+	count, err := store.CancelExpiredReviews(context.Background())
+	if err != nil {
+		t.Fatalf("CancelExpiredReviews() error = %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("CancelExpiredReviews() count = %d, want 1", count)
+	}
 
-		expiredRecord := db.mustRecord(t, expired.HookCallID)
-		if expiredRecord.status != "expired" || expiredRecord.decision != expired.DefaultAction || expiredRecord.resolvedAt.IsZero() {
-			t.Fatalf("expired record = %+v", expiredRecord)
-		}
-		if db.mustRecord(t, active.HookCallID).status != "pending" {
-			t.Fatalf("active record status = %q, want pending", db.mustRecord(t, active.HookCallID).status)
-		}
-		if db.mustRecord(t, resolved.HookCallID).status != "resolved" {
-			t.Fatalf("resolved record status = %q, want resolved", db.mustRecord(t, resolved.HookCallID).status)
-		}
-	})
+	expiredRecord := db.mustRecord(t, expired.HookCallID)
+	if expiredRecord.status != "expired" || expiredRecord.decision != expired.DefaultAction || expiredRecord.resolvedAt.IsZero() {
+		t.Fatalf("expired record = %+v", expiredRecord)
+	}
+	if db.mustRecord(t, active.HookCallID).status != "pending" {
+		t.Fatalf("active record status = %q, want pending", db.mustRecord(t, active.HookCallID).status)
+	}
+	if db.mustRecord(t, resolved.HookCallID).status != "resolved" {
+		t.Fatalf("resolved record status = %q, want resolved", db.mustRecord(t, resolved.HookCallID).status)
+	}
 }
 
 func TestCancelPendingReviewsByAgent(t *testing.T) {

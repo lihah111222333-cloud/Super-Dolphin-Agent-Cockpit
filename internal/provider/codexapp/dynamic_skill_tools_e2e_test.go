@@ -191,61 +191,110 @@ func startDynamicSkillModelServer(t *testing.T, recorder *dynamicSkillModelRecor
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	var writeMu sync.Mutex
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-		finalSent := false
-		for {
-			_, rawBytes, err := conn.ReadMessage()
-			if err != nil {
-				return
-			}
-			var msg jsonRPCMessage
-			if err := json.Unmarshal(rawBytes, &msg); err != nil {
-				continue
-			}
-			if strings.TrimSpace(msg.Method) == "" && len(msg.ID) != 0 {
-				recorder.recordToolResponse(msg)
-				if strings.TrimSpace(finalDelta) != "" && !finalSent {
-					finalSent = true
-					writeDynamicSkillNotification(t, &writeMu, conn, "item/agentMessage/delta", map[string]any{
-						"threadId": "provider-thread-1",
-						"turnId":   "turn-1",
-						"delta":    finalDelta,
-					})
-				}
-				continue
-			}
-			if len(msg.ID) == 0 {
-				continue
-			}
-			var result any = map[string]any{"ok": true}
-			sendToolCall := false
-			switch msg.Method {
-			case "initialize":
-				result = map[string]any{"codexHome": codexHome}
-			case "thread/start":
-				recorder.recordThreadStart(msg.Params)
-				result = map[string]any{"thread": map[string]any{"id": "provider-thread-1"}}
-			case "turn/start":
-				result = map[string]any{"turn": map[string]any{"id": "turn-1"}}
-				sendToolCall = true
-			}
-			writeDynamicSkillResponse(t, &writeMu, conn, msg.ID, result)
-			if sendToolCall {
-				writeDynamicSkillRequest(t, &writeMu, conn, "tool-call-1", "item/tool/call", map[string]any{
-					"name":      "skill_expand_body",
-					"callId":    "tool-call-1",
-					"turnId":    "turn-1",
-					"arguments": map[string]any{"name": "demo"},
-				})
-			}
-		}
+		handleDynamicSkillModelConnection(t, dynamicSkillModelHandlerConfig{
+			upgrader:   upgrader,
+			writeMu:    &writeMu,
+			recorder:   recorder,
+			codexHome:  codexHome,
+			finalDelta: finalDelta,
+		}, w, r)
 	}))
 	t.Cleanup(server.Close)
 	return "ws" + strings.TrimPrefix(server.URL, "http")
+}
+
+type dynamicSkillModelHandlerConfig struct {
+	upgrader   websocket.Upgrader
+	writeMu    *sync.Mutex
+	recorder   *dynamicSkillModelRecorder
+	codexHome  string
+	finalDelta string
+}
+
+func handleDynamicSkillModelConnection(t *testing.T, cfg dynamicSkillModelHandlerConfig, w http.ResponseWriter, r *http.Request) {
+	t.Helper()
+	conn, err := cfg.upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+	state := dynamicSkillModelConnectionState{cfg: cfg, conn: conn}
+	for {
+		msg, ok := readDynamicSkillRPCMessage(conn)
+		if !ok {
+			return
+		}
+		if state.handleToolResponse(t, msg) {
+			continue
+		}
+		if len(msg.ID) == 0 {
+			continue
+		}
+		result, sendToolCall := dynamicSkillRPCResult(cfg, msg)
+		writeDynamicSkillResponse(t, cfg.writeMu, conn, msg.ID, result)
+		if sendToolCall {
+			writeDynamicSkillToolCall(t, cfg.writeMu, conn)
+		}
+	}
+}
+
+type dynamicSkillModelConnectionState struct {
+	cfg       dynamicSkillModelHandlerConfig
+	conn      *websocket.Conn
+	finalSent bool
+}
+
+func readDynamicSkillRPCMessage(conn *websocket.Conn) (jsonRPCMessage, bool) {
+	_, rawBytes, err := conn.ReadMessage()
+	if err != nil {
+		return jsonRPCMessage{}, false
+	}
+	var msg jsonRPCMessage
+	if err := json.Unmarshal(rawBytes, &msg); err != nil {
+		return jsonRPCMessage{}, true
+	}
+	return msg, true
+}
+
+func (s *dynamicSkillModelConnectionState) handleToolResponse(t *testing.T, msg jsonRPCMessage) bool {
+	t.Helper()
+	if strings.TrimSpace(msg.Method) != "" || len(msg.ID) == 0 {
+		return false
+	}
+	s.cfg.recorder.recordToolResponse(msg)
+	if strings.TrimSpace(s.cfg.finalDelta) != "" && !s.finalSent {
+		s.finalSent = true
+		writeDynamicSkillNotification(t, s.cfg.writeMu, s.conn, "item/agentMessage/delta", map[string]any{
+			"threadId": "provider-thread-1",
+			"turnId":   "turn-1",
+			"delta":    s.cfg.finalDelta,
+		})
+	}
+	return true
+}
+
+func dynamicSkillRPCResult(cfg dynamicSkillModelHandlerConfig, msg jsonRPCMessage) (any, bool) {
+	switch msg.Method {
+	case "initialize":
+		return map[string]any{"codexHome": cfg.codexHome}, false
+	case "thread/start":
+		cfg.recorder.recordThreadStart(msg.Params)
+		return map[string]any{"thread": map[string]any{"id": "provider-thread-1"}}, false
+	case "turn/start":
+		return map[string]any{"turn": map[string]any{"id": "turn-1"}}, true
+	default:
+		return map[string]any{"ok": true}, false
+	}
+}
+
+func writeDynamicSkillToolCall(t *testing.T, writeMu *sync.Mutex, conn *websocket.Conn) {
+	t.Helper()
+	writeDynamicSkillRequest(t, writeMu, conn, "tool-call-1", "item/tool/call", map[string]any{
+		"name":      "skill_expand_body",
+		"callId":    "tool-call-1",
+		"turnId":    "turn-1",
+		"arguments": map[string]any{"name": "demo"},
+	})
 }
 
 func writeDynamicSkillResponse(t *testing.T, writeMu *sync.Mutex, conn *websocket.Conn, id json.RawMessage, result any) {

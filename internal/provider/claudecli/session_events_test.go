@@ -157,16 +157,7 @@ func TestDriverResumeSessionDoesNotWaitForSystemInit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResumeSession() error = %v", err)
 	}
-	s, ok := resumed.(*session)
-	if !ok {
-		t.Fatalf("ResumeSession() type = %T, want *session", resumed)
-	}
-	if s.ThreadID() != resumedUUID {
-		t.Fatalf("ThreadID() = %q, want %s", s.ThreadID(), resumedUUID)
-	}
-	if s.EventThreadID() != "thread-public" {
-		t.Fatalf("EventThreadID() = %q, want thread-public", s.EventThreadID())
-	}
+	assertResumedSessionIDs(t, resumed, resumedUUID, "thread-public")
 }
 
 func TestDriverResumeSessionPublishesPublicThreadID(t *testing.T) {
@@ -183,15 +174,7 @@ func TestDriverResumeSessionPublishesPublicThreadID(t *testing.T) {
 
 	next := newBufferedTransport(t, "provider-thread-1")
 	overrideLaunchCLI(t, func(_, _, _, instructions string, cfg cliLaunchConfig, _ dto.MCPManifest, resumeID string) (*transport, func(), error) {
-		if resumeID != "provider-thread-1" {
-			t.Fatalf("resumeID = %q, want provider-thread-1", resumeID)
-		}
-		if instructions != "stored base" {
-			t.Fatalf("instructions = %q, want stored base", instructions)
-		}
-		if cfg.PromptSnapshot.BaseInstructions != "stored base" || cfg.PromptSnapshot.DeveloperInstructions != "stored dev" {
-			t.Fatalf("PromptSnapshot = %#v, want stored snapshot", cfg.PromptSnapshot)
-		}
+		assertPublicResumeLaunchConfig(t, instructions, cfg, resumeID)
 		return next.tr, nil, nil
 	})
 
@@ -214,29 +197,8 @@ func TestDriverResumeSessionPublishesPublicThreadID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResumeSession() error = %v", err)
 	}
-	s, ok := resumed.(*session)
-	if !ok {
-		t.Fatalf("ResumeSession() type = %T, want *session", resumed)
-	}
-	if s.ThreadID() != "provider-thread-1" {
-		t.Fatalf("ThreadID() = %q, want provider-thread-1", s.ThreadID())
-	}
-	if s.EventThreadID() != "thread-public" {
-		t.Fatalf("EventThreadID() = %q, want thread-public", s.EventThreadID())
-	}
-	for i := 0; i < 2; i++ {
-		select {
-		case ev := <-got:
-			if ev.ThreadID != "thread-public" {
-				t.Fatalf("AgentLaunched.ThreadID = %q, want thread-public", ev.ThreadID)
-			}
-			if ev.SessionID != "provider-thread-1" {
-				t.Fatalf("AgentLaunched.SessionID = %q, want provider-thread-1", ev.SessionID)
-			}
-		case <-time.After(time.Second):
-			t.Fatal("AgentLaunched event was not published")
-		}
-	}
+	assertResumedSessionIDs(t, resumed, "provider-thread-1", "thread-public")
+	assertAgentLaunchedEvents(t, got, 2, "thread-public", "provider-thread-1")
 }
 
 func TestDriverResumeSessionRehydratesClaudeOverrideState(t *testing.T) {
@@ -245,15 +207,7 @@ func TestDriverResumeSessionRehydratesClaudeOverrideState(t *testing.T) {
 	effectiveEffort := "high"
 	overrideEffort := "max"
 	overrideLaunchCLI(t, func(_, _, passedModel, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, resumeID string) (*transport, func(), error) {
-		if resumeID != "provider-thread-override" {
-			t.Fatalf("resumeID = %q, want provider-thread-override", resumeID)
-		}
-		if passedModel != model {
-			t.Fatalf("launch model = %q, want %q", passedModel, model)
-		}
-		if cfg.Effort != effectiveEffort {
-			t.Fatalf("launch effort = %q, want %q", cfg.Effort, effectiveEffort)
-		}
+		assertClaudeOverrideLaunchConfig(t, passedModel, cfg, resumeID, model, effectiveEffort, "provider-thread-override")
 		return next.tr, nil, nil
 	})
 
@@ -274,26 +228,10 @@ func TestDriverResumeSessionRehydratesClaudeOverrideState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResumeSession() error = %v", err)
 	}
-	s, ok := resumed.(*session)
-	if !ok {
-		t.Fatalf("ResumeSession() type = %T, want *session", resumed)
-	}
-	if !s.overrideModelSet || s.overrideModel != model {
-		t.Fatalf("override model state = (%v, %q), want true/%q", s.overrideModelSet, s.overrideModel, model)
-	}
-	if !s.overrideEffortSet || s.overrideEffort != overrideEffort {
-		t.Fatalf("override effort state = (%v, %q), want true/%q", s.overrideEffortSet, s.overrideEffort, overrideEffort)
-	}
-	cfg, err := s.ReadConfig(context.Background(), "")
-	if err != nil {
-		t.Fatalf("ReadConfig() error = %v", err)
-	}
-	if cfg.Override.Model != model || cfg.Override.Effort != overrideEffort {
-		t.Fatalf("Override = %#v, want model=%q effort=%q", cfg.Override, model, overrideEffort)
-	}
-	if cfg.Effective.Model != model || cfg.Effective.Effort != effectiveEffort {
-		t.Fatalf("Effective = %#v, want model=%q effort=%q", cfg.Effective, model, effectiveEffort)
-	}
+	s := requireResumedSession(t, resumed)
+	assertClaudeOverrideState(t, s, model, overrideEffort)
+	cfg := readClaudeSessionConfig(t, s)
+	assertClaudeConfigState(t, cfg, model, overrideEffort, model, effectiveEffort)
 }
 
 func TestDriverResumeSessionPreservesExplicitClearOverrideState(t *testing.T) {
@@ -302,15 +240,7 @@ func TestDriverResumeSessionPreservesExplicitClearOverrideState(t *testing.T) {
 	effectiveModel := "sonnet"
 	effectiveEffort := "high"
 	overrideLaunchCLI(t, func(_, _, passedModel, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, resumeID string) (*transport, func(), error) {
-		if resumeID != "provider-thread-clear" {
-			t.Fatalf("resumeID = %q, want provider-thread-clear", resumeID)
-		}
-		if passedModel != effectiveModel {
-			t.Fatalf("launch model = %q, want %q", passedModel, effectiveModel)
-		}
-		if cfg.Effort != effectiveEffort {
-			t.Fatalf("launch effort = %q, want %q", cfg.Effort, effectiveEffort)
-		}
+		assertClaudeOverrideLaunchConfig(t, passedModel, cfg, resumeID, effectiveModel, effectiveEffort, "provider-thread-clear")
 		return next.tr, nil, nil
 	})
 
@@ -331,24 +261,115 @@ func TestDriverResumeSessionPreservesExplicitClearOverrideState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResumeSession() error = %v", err)
 	}
+	s := requireResumedSession(t, resumed)
+	assertClaudeOverrideState(t, s, "", "")
+	cfg := readClaudeSessionConfig(t, s)
+	assertClaudeConfigState(t, cfg, "", "", effectiveModel, effectiveEffort)
+}
+
+func requireResumedSession(t *testing.T, resumed contract.Session) *session {
+	t.Helper()
+
 	s, ok := resumed.(*session)
 	if !ok {
 		t.Fatalf("ResumeSession() type = %T, want *session", resumed)
 	}
-	if !s.overrideModelSet || s.overrideModel != "" {
-		t.Fatalf("override model clear state = (%v, %q), want true/empty", s.overrideModelSet, s.overrideModel)
+	return s
+}
+
+func assertResumedSessionIDs(t *testing.T, resumed contract.Session, providerThreadID, publicThreadID string) *session {
+	t.Helper()
+
+	s := requireResumedSession(t, resumed)
+	if s.ThreadID() != providerThreadID {
+		t.Fatalf("ThreadID() = %q, want %s", s.ThreadID(), providerThreadID)
 	}
-	if !s.overrideEffortSet || s.overrideEffort != "" {
-		t.Fatalf("override effort clear state = (%v, %q), want true/empty", s.overrideEffortSet, s.overrideEffort)
+	if s.EventThreadID() != publicThreadID {
+		t.Fatalf("EventThreadID() = %q, want %s", s.EventThreadID(), publicThreadID)
 	}
+	return s
+}
+
+func assertPublicResumeLaunchConfig(t *testing.T, instructions string, cfg cliLaunchConfig, resumeID string) {
+	t.Helper()
+
+	if resumeID != "provider-thread-1" {
+		t.Fatalf("resumeID = %q, want provider-thread-1", resumeID)
+	}
+	if instructions != "stored base" {
+		t.Fatalf("instructions = %q, want stored base", instructions)
+	}
+	if cfg.PromptSnapshot.BaseInstructions != "stored base" || cfg.PromptSnapshot.DeveloperInstructions != "stored dev" {
+		t.Fatalf("PromptSnapshot = %#v, want stored snapshot", cfg.PromptSnapshot)
+	}
+}
+
+func assertAgentLaunchedEvents(t *testing.T, got <-chan agentdto.AgentLaunched, count int, threadID, sessionID string) {
+	t.Helper()
+
+	for i := 0; i < count; i++ {
+		select {
+		case ev := <-got:
+			assertAgentLaunchedEvent(t, ev, threadID, sessionID)
+		case <-time.After(time.Second):
+			t.Fatal("AgentLaunched event was not published")
+		}
+	}
+}
+
+func assertAgentLaunchedEvent(t *testing.T, ev agentdto.AgentLaunched, threadID, sessionID string) {
+	t.Helper()
+
+	if ev.ThreadID != threadID {
+		t.Fatalf("AgentLaunched.ThreadID = %q, want %s", ev.ThreadID, threadID)
+	}
+	if ev.SessionID != sessionID {
+		t.Fatalf("AgentLaunched.SessionID = %q, want %s", ev.SessionID, sessionID)
+	}
+}
+
+func assertClaudeOverrideLaunchConfig(t *testing.T, passedModel string, cfg cliLaunchConfig, resumeID, wantModel, wantEffort, wantResumeID string) {
+	t.Helper()
+
+	if resumeID != wantResumeID {
+		t.Fatalf("resumeID = %q, want %s", resumeID, wantResumeID)
+	}
+	if passedModel != wantModel {
+		t.Fatalf("launch model = %q, want %q", passedModel, wantModel)
+	}
+	if cfg.Effort != wantEffort {
+		t.Fatalf("launch effort = %q, want %q", cfg.Effort, wantEffort)
+	}
+}
+
+func assertClaudeOverrideState(t *testing.T, s *session, model, effort string) {
+	t.Helper()
+
+	if !s.overrideModelSet || s.overrideModel != model {
+		t.Fatalf("override model state = (%v, %q), want true/%q", s.overrideModelSet, s.overrideModel, model)
+	}
+	if !s.overrideEffortSet || s.overrideEffort != effort {
+		t.Fatalf("override effort state = (%v, %q), want true/%q", s.overrideEffortSet, s.overrideEffort, effort)
+	}
+}
+
+func readClaudeSessionConfig(t *testing.T, s *session) dto.ThreadConfig {
+	t.Helper()
+
 	cfg, err := s.ReadConfig(context.Background(), "")
 	if err != nil {
 		t.Fatalf("ReadConfig() error = %v", err)
 	}
-	if cfg.Override.Model != "" || cfg.Override.Effort != "" {
-		t.Fatalf("Override = %#v, want explicit clear reflected as empty override", cfg.Override)
+	return cfg
+}
+
+func assertClaudeConfigState(t *testing.T, cfg dto.ThreadConfig, overrideModel, overrideEffort, effectiveModel, effectiveEffort string) {
+	t.Helper()
+
+	if cfg.Override.Model != overrideModel || cfg.Override.Effort != overrideEffort {
+		t.Fatalf("Override = %#v, want model=%q effort=%q", cfg.Override, overrideModel, overrideEffort)
 	}
 	if cfg.Effective.Model != effectiveModel || cfg.Effective.Effort != effectiveEffort {
-		t.Fatalf("Effective = %#v, want %q/%q", cfg.Effective, effectiveModel, effectiveEffort)
+		t.Fatalf("Effective = %#v, want model=%q effort=%q", cfg.Effective, effectiveModel, effectiveEffort)
 	}
 }

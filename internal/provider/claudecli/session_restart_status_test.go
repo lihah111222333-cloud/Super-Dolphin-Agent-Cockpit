@@ -50,40 +50,32 @@ func TestRestartIfNeededLockedPublishesRestartStatusPatch(t *testing.T) {
 	}
 	ctx, cancelCtx := context.WithTimeout(context.Background(), time.Second)
 	defer cancelCtx()
-	result := make(chan error, 1)
-	go func() {
-		s.mu.Lock()
-		err := s.restartIfNeededLocked(ctx, dto.TurnRequest{})
-		s.mu.Unlock()
-		result <- err
-	}()
+	result := restartLockedAsync(s, ctx)
 
 	select {
 	case patch := <-patches:
-		if patch.ThreadID != "thread-public" {
-			t.Fatalf("status patch threadID = %q, want thread-public", patch.ThreadID)
-		}
-		if patch.Status != "syncing" {
-			t.Fatalf("status patch status = %q, want syncing", patch.Status)
-		}
-		if patch.StatusHeader != "Claude 重启中…" {
-			t.Fatalf("status patch header = %q, want Claude 重启中…", patch.StatusHeader)
-		}
-		if patch.StatusDetails == "" {
-			t.Fatal("status patch details = empty, want restart details")
-		}
+		assertRestartStatusPatch(t, patch)
 	case <-time.After(time.Second):
 		t.Fatal("restart status patch was not published")
 	}
 
 	next.emitSystemInit(t, "11111111-2222-3333-4444-555555555555")
-	select {
-	case err := <-result:
-		if err != nil {
-			t.Fatalf("restartIfNeededLocked() error = %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("restartIfNeededLocked() did not finish")
+	waitRestartResult(t, result, "restartIfNeededLocked() did not finish")
+}
+
+func assertRestartStatusPatch(t *testing.T, patch uidto.UIThreadPatch) {
+	t.Helper()
+	if patch.ThreadID != "thread-public" {
+		t.Fatalf("status patch threadID = %q, want thread-public", patch.ThreadID)
+	}
+	if patch.Status != "syncing" {
+		t.Fatalf("status patch status = %q, want syncing", patch.Status)
+	}
+	if patch.StatusHeader != "Claude 重启中…" {
+		t.Fatalf("status patch header = %q, want Claude 重启中…", patch.StatusHeader)
+	}
+	if patch.StatusDetails == "" {
+		t.Fatal("status patch details = empty, want restart details")
 	}
 }
 
@@ -124,6 +116,13 @@ func TestDriverStartCanonicalizesEffectiveEffort(t *testing.T) {
 	if !ok {
 		t.Fatalf("StartSession() type = %T, want *session", sess)
 	}
+	assertCanonicalEffortConfig(t, s)
+	assertCanonicalEffortLaunch(t, launchedInstructions, launchedConfig)
+	assertCanonicalRuntimeConfig(t, s)
+}
+
+func assertCanonicalEffortConfig(t *testing.T, s *session) {
+	t.Helper()
 	cfg, err := s.ReadConfig(context.Background(), "")
 	if err != nil {
 		t.Fatalf("ReadConfig() error = %v", err)
@@ -134,6 +133,10 @@ func TestDriverStartCanonicalizesEffectiveEffort(t *testing.T) {
 	if cfg.Effective.Model != "sonnet" || cfg.Effective.Effort != "high" {
 		t.Fatalf("Effective = %#v, want sonnet/high", cfg.Effective)
 	}
+}
+
+func assertCanonicalEffortLaunch(t *testing.T, launchedInstructions string, launchedConfig cliLaunchConfig) {
+	t.Helper()
 	if launchedInstructions != "assembled base" {
 		t.Fatalf("launch instructions = %q, want assembled base", launchedInstructions)
 	}
@@ -141,6 +144,10 @@ func TestDriverStartCanonicalizesEffectiveEffort(t *testing.T) {
 		launchedConfig.PromptSnapshot.DeveloperInstructions != "assembled developer" {
 		t.Fatalf("launch prompt snapshot = %#v", launchedConfig.PromptSnapshot)
 	}
+}
+
+func assertCanonicalRuntimeConfig(t *testing.T, s *session) {
+	t.Helper()
 	runtimeCfg := s.RuntimeConfigSnapshot()
 	if runtimeCfg["baseInstructions"] != "assembled base" ||
 		runtimeCfg["developerInstructions"] != "assembled developer" {

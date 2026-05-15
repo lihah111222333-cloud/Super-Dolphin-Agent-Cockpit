@@ -15,117 +15,22 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-type bindingQuerierStub struct {
-	bindAgentThreadFn                  func(context.Context, sqlc.BindAgentThreadParams) error
-	deleteAgentProviderBindingByIDFn   func(context.Context, string) error
-	getAgentProviderBindingByAgentIDFn func(context.Context, string) (sqlc.GetAgentProviderBindingByAgentIDRow, error)
-	getByProviderThreadFn              func(context.Context, sqlc.GetAgentProviderBindingByProviderThreadParams) (sqlc.GetAgentProviderBindingByProviderThreadRow, error)
-	getThreadByAgentFn                 func(context.Context, string) (string, error)
-	listAgentThreadBindingsFn          func(context.Context) ([]sqlc.ListAgentThreadBindingsRow, error)
-	unbindAgentThreadFn                func(context.Context, string) error
-	updateAgentCwdFn                   func(context.Context, sqlc.UpdateAgentCwdParams) error
-	updateArchivedFn                   func(context.Context, sqlc.UpdateAgentProviderBindingArchivedParams) error
-	updateProviderThreadIDFn           func(context.Context, sqlc.UpdateAgentProviderBindingProviderThreadIDParams) error
-	updateSessionUUIDFn                func(context.Context, sqlc.UpdateAgentProviderBindingSessionUUIDParams) error
-	upsertAgentProviderBindingFn       func(context.Context, sqlc.UpsertAgentProviderBindingParams) error
-	rebindAgentThreadTxFn              func(context.Context, sqlc.RebindAgentThreadTxParams) error
-}
-
-func (s *bindingQuerierStub) RebindAgentThreadTx(ctx context.Context, arg sqlc.RebindAgentThreadTxParams) error {
-	if s.rebindAgentThreadTxFn != nil {
-		return s.rebindAgentThreadTxFn(ctx, arg)
-	}
-	return nil
-}
-
-func (s *bindingQuerierStub) BindAgentThread(ctx context.Context, arg sqlc.BindAgentThreadParams) error {
-	if s.bindAgentThreadFn != nil {
-		return s.bindAgentThreadFn(ctx, arg)
-	}
-	return nil
-}
-
-func (s *bindingQuerierStub) DeleteAgentProviderBindingByAgentID(ctx context.Context, arg sqlc.DeleteAgentProviderBindingByAgentIDParams) error {
-	if s.deleteAgentProviderBindingByIDFn != nil {
-		return s.deleteAgentProviderBindingByIDFn(ctx, arg.AgentID)
-	}
-	return nil
-}
-
-func (s *bindingQuerierStub) GetAgentProviderBindingByAgentID(ctx context.Context, arg sqlc.GetAgentProviderBindingByAgentIDParams) (sqlc.GetAgentProviderBindingByAgentIDRow, error) {
-	if s.getAgentProviderBindingByAgentIDFn != nil {
-		return s.getAgentProviderBindingByAgentIDFn(ctx, arg.AgentID)
-	}
-	return sqlc.GetAgentProviderBindingByAgentIDRow{}, nil
-}
-
-func (s *bindingQuerierStub) GetAgentProviderBindingByProviderThread(ctx context.Context, arg sqlc.GetAgentProviderBindingByProviderThreadParams) (sqlc.GetAgentProviderBindingByProviderThreadRow, error) {
-	if s.getByProviderThreadFn != nil {
-		return s.getByProviderThreadFn(ctx, arg)
-	}
-	return sqlc.GetAgentProviderBindingByProviderThreadRow{}, nil
-}
-
-func (s *bindingQuerierStub) GetThreadByAgent(ctx context.Context, arg sqlc.GetThreadByAgentParams) (string, error) {
-	if s.getThreadByAgentFn != nil {
-		return s.getThreadByAgentFn(ctx, arg.AgentID)
-	}
-	return "", nil
-}
-
-func (s *bindingQuerierStub) ListAgentThreadBindings(ctx context.Context) ([]sqlc.ListAgentThreadBindingsRow, error) {
-	if s.listAgentThreadBindingsFn != nil {
-		return s.listAgentThreadBindingsFn(ctx)
-	}
-	return nil, nil
-}
-
-func (s *bindingQuerierStub) UnbindAgentThread(ctx context.Context, arg sqlc.UnbindAgentThreadParams) error {
-	if s.unbindAgentThreadFn != nil {
-		return s.unbindAgentThreadFn(ctx, arg.AgentID)
-	}
-	return nil
-}
-
-func (s *bindingQuerierStub) UpdateAgentCwd(ctx context.Context, arg sqlc.UpdateAgentCwdParams) error {
-	if s.updateAgentCwdFn != nil {
-		return s.updateAgentCwdFn(ctx, arg)
-	}
-	return nil
-}
-
-func (s *bindingQuerierStub) UpdateAgentProviderBindingArchived(ctx context.Context, arg sqlc.UpdateAgentProviderBindingArchivedParams) error {
-	if s.updateArchivedFn != nil {
-		return s.updateArchivedFn(ctx, arg)
-	}
-	return nil
-}
-
-func (s *bindingQuerierStub) UpdateAgentProviderBindingProviderThreadID(ctx context.Context, arg sqlc.UpdateAgentProviderBindingProviderThreadIDParams) error {
-	if s.updateProviderThreadIDFn != nil {
-		return s.updateProviderThreadIDFn(ctx, arg)
-	}
-	return nil
-}
-
-func (s *bindingQuerierStub) UpdateAgentProviderBindingSessionUUID(ctx context.Context, arg sqlc.UpdateAgentProviderBindingSessionUUIDParams) error {
-	if s.updateSessionUUIDFn != nil {
-		return s.updateSessionUUIDFn(ctx, arg)
-	}
-	return nil
-}
-
-func (s *bindingQuerierStub) UpsertAgentProviderBinding(ctx context.Context, arg sqlc.UpsertAgentProviderBindingParams) error {
-	if s.upsertAgentProviderBindingFn != nil {
-		return s.upsertAgentProviderBindingFn(ctx, arg)
-	}
-	return nil
-}
-
 func TestUpsertAgentProviderBinding(t *testing.T) {
 	t.Parallel()
 
-	params := UpsertParams{
+	params := sampleUpsertParams()
+
+	t.Run("success", func(t *testing.T) {
+		runUpsertSuccessCase(t, params)
+	})
+
+	t.Run("unique violation fallback", func(t *testing.T) {
+		runUpsertUniqueFallbackCase(t, params)
+	})
+}
+
+func sampleUpsertParams() UpsertParams {
+	return UpsertParams{
 		AgentID:          "agent-upsert",
 		Provider:         "codex",
 		ProviderThreadID: "provider-thread-upsert",
@@ -135,65 +40,85 @@ func TestUpsertAgentProviderBinding(t *testing.T) {
 		CreatedAt:        100,
 		UpdatedAt:        200,
 	}
+}
 
-	t.Run("success", func(t *testing.T) {
-		var got sqlc.UpsertAgentProviderBindingParams
-		lookupCalls := 0
-		s := &store{q: &bindingQuerierStub{
-			upsertAgentProviderBindingFn: func(_ context.Context, arg sqlc.UpsertAgentProviderBindingParams) error {
-				got = arg
-				return nil
-			},
-			getByProviderThreadFn: func(_ context.Context, arg sqlc.GetAgentProviderBindingByProviderThreadParams) (sqlc.GetAgentProviderBindingByProviderThreadRow, error) {
-				lookupCalls++
-				return sqlc.GetAgentProviderBindingByProviderThreadRow{AgentID: arg.ProviderThreadID}, nil
-			},
-		}}
+func runUpsertSuccessCase(t *testing.T, params UpsertParams) {
+	t.Helper()
 
-		if err := s.Upsert(context.Background(), params); err != nil {
-			t.Fatalf("Upsert() error = %v", err)
-		}
-		if got.AgentID != params.AgentID || got.Provider != params.Provider || got.ProviderThreadID != params.ProviderThreadID {
-			t.Fatalf("Upsert() forwarded wrong identity params: %+v", got)
-		}
-		if got.CodexThreadID != params.CodexThreadID || got.RolloutPath != params.RolloutPath || got.CWD != params.Cwd {
-			t.Fatalf("Upsert() forwarded wrong payload params: %+v", got)
-		}
-		if got.CreatedAt != params.CreatedAt || got.UpdatedAt != params.UpdatedAt {
-			t.Fatalf("Upsert() forwarded wrong timestamps: %+v", got)
-		}
-		if lookupCalls != 0 {
-			t.Fatalf("Upsert() lookupCalls = %d, want 0", lookupCalls)
-		}
-	})
+	var got sqlc.UpsertAgentProviderBindingParams
+	lookupCalls := 0
+	s := &store{q: &bindingQuerierStub{
+		upsertAgentProviderBindingFn: func(_ context.Context, arg sqlc.UpsertAgentProviderBindingParams) error {
+			got = arg
+			return nil
+		},
+		getByProviderThreadFn: func(_ context.Context, arg sqlc.GetAgentProviderBindingByProviderThreadParams) (sqlc.GetAgentProviderBindingByProviderThreadRow, error) {
+			lookupCalls++
+			return sqlc.GetAgentProviderBindingByProviderThreadRow{AgentID: arg.ProviderThreadID}, nil
+		},
+	}}
 
-	t.Run("unique violation fallback", func(t *testing.T) {
-		lookupCalls := 0
-		var gotLookup sqlc.GetAgentProviderBindingByProviderThreadParams
-		s := &store{q: &bindingQuerierStub{
-			upsertAgentProviderBindingFn: func(_ context.Context, arg sqlc.UpsertAgentProviderBindingParams) error {
-				if arg.AgentID != params.AgentID {
-					t.Fatalf("Upsert() AgentID = %q, want %q", arg.AgentID, params.AgentID)
-				}
-				return &pgconn.PgError{Code: "23505", Message: "duplicate key"}
-			},
-			getByProviderThreadFn: func(_ context.Context, arg sqlc.GetAgentProviderBindingByProviderThreadParams) (sqlc.GetAgentProviderBindingByProviderThreadRow, error) {
-				lookupCalls++
-				gotLookup = arg
-				return sqlc.GetAgentProviderBindingByProviderThreadRow{AgentID: params.AgentID}, nil
-			},
-		}}
+	if err := s.Upsert(context.Background(), params); err != nil {
+		t.Fatalf("Upsert() error = %v", err)
+	}
+	assertUpsertForwardedParams(t, got, params)
+	if lookupCalls != 0 {
+		t.Fatalf("Upsert() lookupCalls = %d, want 0", lookupCalls)
+	}
+}
 
-		if err := s.Upsert(context.Background(), params); err != nil {
-			t.Fatalf("Upsert() unique violation fallback error = %v", err)
-		}
-		if lookupCalls != 1 {
-			t.Fatalf("Upsert() lookupCalls = %d, want 1", lookupCalls)
-		}
-		if gotLookup.Provider != params.Provider || gotLookup.ProviderThreadID != params.ProviderThreadID {
-			t.Fatalf("Upsert() fallback lookup = %+v", gotLookup)
-		}
-	})
+func runUpsertUniqueFallbackCase(t *testing.T, params UpsertParams) {
+	t.Helper()
+
+	lookupCalls := 0
+	var gotLookup sqlc.GetAgentProviderBindingByProviderThreadParams
+	s := &store{q: &bindingQuerierStub{
+		upsertAgentProviderBindingFn: func(_ context.Context, arg sqlc.UpsertAgentProviderBindingParams) error {
+			if arg.AgentID != params.AgentID {
+				t.Fatalf("Upsert() AgentID = %q, want %q", arg.AgentID, params.AgentID)
+			}
+			return &pgconn.PgError{Code: "23505", Message: "duplicate key"}
+		},
+		getByProviderThreadFn: func(_ context.Context, arg sqlc.GetAgentProviderBindingByProviderThreadParams) (sqlc.GetAgentProviderBindingByProviderThreadRow, error) {
+			lookupCalls++
+			gotLookup = arg
+			return sqlc.GetAgentProviderBindingByProviderThreadRow{AgentID: params.AgentID}, nil
+		},
+	}}
+
+	if err := s.Upsert(context.Background(), params); err != nil {
+		t.Fatalf("Upsert() unique violation fallback error = %v", err)
+	}
+	if lookupCalls != 1 {
+		t.Fatalf("Upsert() lookupCalls = %d, want 1", lookupCalls)
+	}
+	assertProviderThreadLookup(t, gotLookup, params)
+}
+
+func assertUpsertForwardedParams(t *testing.T, got sqlc.UpsertAgentProviderBindingParams, want UpsertParams) {
+	t.Helper()
+
+	if got.AgentID != want.AgentID || got.Provider != want.Provider || got.ProviderThreadID != want.ProviderThreadID {
+		t.Fatalf("Upsert() forwarded wrong identity params: %+v", got)
+	}
+	if got.CodexThreadID != want.CodexThreadID || got.RolloutPath != want.RolloutPath || got.CWD != want.Cwd {
+		t.Fatalf("Upsert() forwarded wrong payload params: %+v", got)
+	}
+	if got.CreatedAt != want.CreatedAt || got.UpdatedAt != want.UpdatedAt {
+		t.Fatalf("Upsert() forwarded wrong timestamps: %+v", got)
+	}
+}
+
+func assertProviderThreadLookup(
+	t *testing.T,
+	got sqlc.GetAgentProviderBindingByProviderThreadParams,
+	want UpsertParams,
+) {
+	t.Helper()
+
+	if got.Provider != want.Provider || got.ProviderThreadID != want.ProviderThreadID {
+		t.Fatalf("Upsert() fallback lookup = %+v", got)
+	}
 }
 
 func TestGetByProviderThread(t *testing.T) {
