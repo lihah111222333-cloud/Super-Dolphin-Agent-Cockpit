@@ -55,6 +55,21 @@ func TestServerHandlesToolsCall(t *testing.T) {
 	}
 }
 
+func TestToolCallParamsScopeNormalizesKnownMCPFamilies(t *testing.T) {
+	params := ToolCallParams{}
+	cases := map[string]string{
+		"mcp-lsp":  "lsp",
+		"MCP-ORCH": "orch",
+		"mcp-ida":  "ida",
+		"custom":   "custom",
+	}
+	for input, want := range cases {
+		if got := params.Scope(input).Family; got != want {
+			t.Fatalf("Scope(%q).Family = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func TestServerToolsCallUsesTrustedTopLevelScope(t *testing.T) {
 	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"demo_tool","arguments":{"agent_id":"evil","cwd":"/evil"},"_agentId":"trusted-agent","_threadId":"trusted-thread","_callId":"trusted-call","_cwd":"/trusted/root"}}`)
 	var output bytes.Buffer

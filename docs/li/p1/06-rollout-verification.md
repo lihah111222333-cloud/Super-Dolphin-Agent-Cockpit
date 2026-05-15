@@ -1,16 +1,22 @@
 # P1-06：验证、灰度与回滚
 
-## Feature flags
+## 当前开关事实
 
-建议分阶段引入：
+当前 `main@b19d2f94` 没有 `AGENT_LSP_MULTI_AGENT` 或
+`AGENT_LSP_GO_WORK` 运行时 gate：scoped manager 与 Go root resolver 已是当前
+代码路径的一部分，验收文档不得要求设置或回滚这两个不存在的开关。
+
+当前仍存在并可用于验收/调试的 LSP 相关环境变量：
 
 ```text
-AGENT_LSP_MULTI_AGENT=1         # 开启 scoped LSP manager
-AGENT_LSP_GO_WORK=1             # 开启 go.work resolver
+AGENT_LSP_POOL_SIZE             # 控制 ManagerPool shard 数
 AGENT_LSP_CACHE_PERSISTENT=0    # 默认不持久化 scoped LSP cache
+AGENT_LSP_CACHE_DIR             # persistent cache 目录，仅在开启 persistent 时使用
+AGENT_LSP_RSS_LIMIT_MB          # recycler RSS 阈值
 ```
 
-不设置 `AGENT_LSP_SCOPE_STRICT`：LSP 隔离统一从 trusted scope 自动派生，不提供 `agent/pool/shared` 运行时模式。
+不设置 `AGENT_LSP_SCOPE_STRICT`：LSP 隔离统一从 trusted scope 自动派生，不提供
+`agent/pool/shared` 运行时模式。
 
 不设置 `AGENT_LSP_HTTP_MCP`：HTTP MCP 兼容路径在 P1 中保留，不作为本轮删除/回滚开关。
 
@@ -90,79 +96,122 @@ go test ./cmd/mcp-lsp/multilsp -run 'GoRoot|GoWork|WorkspaceFolder|GoMod'
 - `rg` 必须命中真实测试函数，禁止 `[no tests to run]` 空跑绿灯。
 - `go.work`、单子模块、多子模块、nested module、linked worktree 均有测试。
 
-### Wave 5：端到端
+### Wave 5：端到端 / cross-scope regression
 
-必须构造两个临时 agent / 两个 worktree，并把 fixture 路径显式传给 integration test 或脚本：
+Wave 5 只承认以下脚本级验收：先用 `rg` 证明每个 E2E / cross-scope test 函数存在，
+再运行对应 `go test`。其中 `cmd/mcp-lsp/manager/go_work_e2e_test.go` 带
+`lsp_integration` build tag，因此执行命令必须包含 `-tags lsp_integration`。任一
+`rg` 失败即 `BLOCKED`，不得继续把 `go test` 结果记为 PASS；任何
+`[no tests to run]` 输出都必须按失败处理。
 
 ```bash
-#!/usr/bin/env bash
 set -euo pipefail
 
-tmp="$(mktemp -d)"
-cleanup() {
-  git worktree remove "$tmp/wt-a" --force >/dev/null 2>&1 || true
-  git worktree remove "$tmp/wt-b" --force >/dev/null 2>&1 || true
-  rm -rf "$tmp"
-}
-trap cleanup EXIT
+wave5_tests=(
+  'cmd/mcp-lsp/tools:TestTwoAgentsSameRepoNoDiagnosticLeak'
+  'cmd/mcp-lsp/tools:TestAgentStopCleansScopeWithoutKillingOtherAgent'
+  'cmd/mcp-lsp/manager:TestTwoWorktreesNoWorkspaceKeyCollision'
+  'cmd/mcp-lsp/manager:TestGoWorkMultiModuleDiagnostics'
+  'cmd/mcp-lsp/multilsp:TestRecyclerDoesNotRecycleActiveLease'
+)
 
-git worktree add --detach "$tmp/wt-a" HEAD
-git worktree add --detach "$tmp/wt-b" HEAD
+for item in "${wave5_tests[@]}"; do
+  pkg="${item%%:*}"
+  test="${item##*:}"
+  rg -n "func ${test}\\(" "$pkg" --glob '*_test.go' >/dev/null
+done
 
-rg 'func (TestTwoAgentsSameRepoNoDiagnosticLeak|TestTwoWorktreesNoWorkspaceKeyCollision|TestAgentStopCleansScopeWithoutKillingOtherAgent)' cmd/mcp-lsp/tools cmd/mcp-lsp/manager
-
-AGENT_LSP_E2E_WORKTREE_A="$tmp/wt-a" \
-AGENT_LSP_E2E_WORKTREE_B="$tmp/wt-b" \
-AGENT_LSP_E2E_AGENT_A="agent-p1-a" \
-AGENT_LSP_E2E_AGENT_B="agent-p1-b" \
-go test ./cmd/mcp-lsp/tools ./cmd/mcp-lsp/manager -run 'TestTwoAgentsSameRepoNoDiagnosticLeak|TestTwoWorktreesNoWorkspaceKeyCollision|TestAgentStopCleansScopeWithoutKillingOtherAgent'
+output="$(
+  go test -tags lsp_integration ./cmd/mcp-lsp/tools ./cmd/mcp-lsp/manager ./cmd/mcp-lsp/multilsp \
+    -run 'TestTwoAgentsSameRepoNoDiagnosticLeak|TestAgentStopCleansScopeWithoutKillingOtherAgent|TestTwoWorktreesNoWorkspaceKeyCollision|TestGoWorkMultiModuleDiagnostics|TestRecyclerDoesNotRecycleActiveLease' \
+    -count=1 2>&1
+)"
+printf '%s\n' "$output"
+if printf '%s\n' "$output" | rg '\[no tests to run\]'; then
+  echo 'P1 Wave 5 failed: go test reported [no tests to run]' >&2
+  exit 1
+fi
 ```
 
 断言：
 
-- Agent A 与 Agent B 同时调用 `lsp_file diagnostics`。
-- A 修改文件后 B 的 diagnostics 不返回 A 的旧状态。
-- B 在另一个 worktree 中 `definition/references/diagnostics` 正常。
-- `diagnostics(all)` 在 A/B 两个 scope 中返回的 URI 集合互不包含对方 manager-key clone。
+- Agent A 与 Agent B 同 repo / 同 URI 不串 diagnostics。
+- 两个 worktree 使用不同 workspace key，不共享 gopls client/cache/bootstrap。
+- `go.work` multi-module diagnostics 返回当前 caller scope 的结果。
+- agent stop 清理当前 agent scope，不杀其他 agent scope。
+- recycler 遇到 active lease 时不回收正在使用的 client。
 
 ## 回滚策略
 
-- scoped manager 可通过 `AGENT_LSP_MULTI_AGENT=0` 回到 legacy singleton。
-- go.work resolver 可通过 `AGENT_LSP_GO_WORK=0` 回到 `go.mod` only。
+- scoped manager 与 Go root resolver 当前没有 env gate；回滚必须通过代码回滚/后续补丁
+  实现，不得写成 `AGENT_LSP_MULTI_AGENT=0` 或 `AGENT_LSP_GO_WORK=0`。
 - scoped cache 默认不持久化，降低回滚污染。
 - HTTP MCP 不在本 P1 中删除，因此无需 HTTP 删除回滚策略。
 
 ## 必要测试清单
 
-### Unit
+### 当前 required exact tests
 
-以下是必须新增或保留的测试；执行验收前必须用 `rg 'func TestName'` 证明测试函数存在，不能只依赖 `go test -run` 的空跑成功。
+以下是当前 main 的必要测试清单。执行验收前必须用 `rg 'func TestName'` 证明每个测试函数
+存在，不能只依赖 `go test -run` 的空跑成功。
 
-- `TestToolBridgeSelectsPeerByScope`
-- `TestToolBridgeAmbiguousWithoutScope`
-- `TestLSPOnToolsCallInjectsScopeContext`
-- `TestManagerPoolForScopeStableShard`
-- `TestManagerPoolWorkspaceCloneIsolation`
-- `TestDiagnosticsDropsOldGeneration`
-- `TestDiagnosticsRefreshesStaleFileBeforeReturn`
-- `TestDiagnosticsClearsDeletedFile`
-- `TestDiagnosticsAllUsesCallerScopeOnly`
-- `TestRegistryGroupURIsUsesCallerContext`
-- `TestDeletedFileClearsBootstrapAndCache`
-- `TestGoRootResolverGoWork`
-- `TestGoRootResolverSingleSubmodule`
-- `TestGoRootResolverMultiModule`
-- `TestGoRootResolverGOWORKOff`
+| 包/目录 | 必要测试 |
+| --- | --- |
+| `internal/platform/toolbridge` | `TestToolBridgeSelectsPeerByScope` |
+| `internal/platform/toolbridge` | `TestToolBridgeAmbiguousWithoutScope` |
+| `cmd/mcp-lsp` | `TestLSPOnToolsCallInjectsScopeContext` |
+| `cmd/mcp-lsp/multilsp` | `TestManagerPoolForScopeStableShard` |
+| `cmd/mcp-lsp/multilsp` | `TestManagerPoolWorkspaceCloneIsolation` |
+| `cmd/mcp-lsp/multilsp` | `TestDiagnosticsDropsOldGeneration` |
+| `cmd/mcp-lsp/multilsp` | `TestDiagnosticsRefreshesStaleFileBeforeReturn` |
+| `cmd/mcp-lsp/multilsp` | `TestDiagnosticsClearsDeletedFile` |
+| `cmd/mcp-lsp/manager` | `TestDiagnosticsAllUsesCallerScopeOnly` |
+| `cmd/mcp-lsp/manager` | `TestRegistryGroupURIsUsesCallerContext` |
+| `cmd/mcp-lsp/multilsp` | `TestDeletedFileClearsBootstrapAndCache` |
+| `cmd/mcp-lsp/multilsp` | `TestGoRootResolverGoWork` |
+| `cmd/mcp-lsp/multilsp` | `TestGoRootResolverSingleSubmodule` |
+| `cmd/mcp-lsp/multilsp` | `TestGoRootResolverMultiModule` |
+| `cmd/mcp-lsp/multilsp` | `TestGoRootResolverGOWORKOff` |
+| `cmd/mcp-lsp/tools` | `TestTwoAgentsSameRepoNoDiagnosticLeak` |
+| `cmd/mcp-lsp/manager` | `TestTwoWorktreesNoWorkspaceKeyCollision` |
+| `cmd/mcp-lsp/manager` | `TestGoWorkMultiModuleDiagnostics` |
+| `cmd/mcp-lsp/multilsp` | `TestRecyclerDoesNotRecycleActiveLease` |
+| `cmd/mcp-lsp/tools` | `TestAgentStopCleansScopeWithoutKillingOtherAgent` |
 
-### Integration
+可复制的存在性检查：
 
-以下 integration 测试当前是 P1 计划要求；如果实现前尚不存在，报告必须标为 BLOCKED，不得把 E2E 命令作为已通过证据。
+```bash
+set -euo pipefail
 
-- `TestTwoAgentsSameRepoNoDiagnosticLeak`
-- `TestTwoWorktreesNoWorkspaceKeyCollision`
-- `TestGoWorkMultiModuleDiagnostics`
-- `TestRecyclerDoesNotRecycleActiveLease`
-- `TestAgentStopCleansScopeWithoutKillingOtherAgent`
+required_tests=(
+  'internal/platform/toolbridge:TestToolBridgeSelectsPeerByScope'
+  'internal/platform/toolbridge:TestToolBridgeAmbiguousWithoutScope'
+  'cmd/mcp-lsp:TestLSPOnToolsCallInjectsScopeContext'
+  'cmd/mcp-lsp/multilsp:TestManagerPoolForScopeStableShard'
+  'cmd/mcp-lsp/multilsp:TestManagerPoolWorkspaceCloneIsolation'
+  'cmd/mcp-lsp/multilsp:TestDiagnosticsDropsOldGeneration'
+  'cmd/mcp-lsp/multilsp:TestDiagnosticsRefreshesStaleFileBeforeReturn'
+  'cmd/mcp-lsp/multilsp:TestDiagnosticsClearsDeletedFile'
+  'cmd/mcp-lsp/manager:TestDiagnosticsAllUsesCallerScopeOnly'
+  'cmd/mcp-lsp/manager:TestRegistryGroupURIsUsesCallerContext'
+  'cmd/mcp-lsp/multilsp:TestDeletedFileClearsBootstrapAndCache'
+  'cmd/mcp-lsp/multilsp:TestGoRootResolverGoWork'
+  'cmd/mcp-lsp/multilsp:TestGoRootResolverSingleSubmodule'
+  'cmd/mcp-lsp/multilsp:TestGoRootResolverMultiModule'
+  'cmd/mcp-lsp/multilsp:TestGoRootResolverGOWORKOff'
+  'cmd/mcp-lsp/tools:TestTwoAgentsSameRepoNoDiagnosticLeak'
+  'cmd/mcp-lsp/manager:TestTwoWorktreesNoWorkspaceKeyCollision'
+  'cmd/mcp-lsp/manager:TestGoWorkMultiModuleDiagnostics'
+  'cmd/mcp-lsp/multilsp:TestRecyclerDoesNotRecycleActiveLease'
+  'cmd/mcp-lsp/tools:TestAgentStopCleansScopeWithoutKillingOtherAgent'
+)
+
+for item in "${required_tests[@]}"; do
+  pkg="${item%%:*}"
+  test="${item##*:}"
+  rg -n "func ${test}\\(" "$pkg" --glob '*_test.go' >/dev/null
+done
+```
 
 ## 完成定义
 

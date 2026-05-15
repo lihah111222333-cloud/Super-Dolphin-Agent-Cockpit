@@ -189,6 +189,107 @@ func TestManagerPoolForScopeReusesSameScopedManager(t *testing.T) {
 	}
 }
 
+func TestManagerPoolForScopeStableShard(t *testing.T) {
+	root := t.TempDir()
+	mgr := newManagerPoolTestManager(t, root)
+
+	firstScope := testLSPToolScope(root, "agent-stable", "thread-stable")
+	firstScope.TurnID = "turn-1"
+	firstScope.CallID = "call-1"
+	secondScope := firstScope
+	secondScope.TurnID = "turn-2"
+	secondScope.CallID = "call-2"
+
+	first, err := mgr.pool.ForScope(firstScope)
+	if err != nil {
+		t.Fatalf("ForScope(first): %v", err)
+	}
+	second, err := mgr.pool.ForScope(secondScope)
+	if err != nil {
+		t.Fatalf("ForScope(second): %v", err)
+	}
+
+	if first.ResolvedScope.ShardKey == "" {
+		t.Fatalf("ShardKey is empty for trusted scope: %#v", first.ResolvedScope)
+	}
+	if first.ResolvedScope.ShardKey != second.ResolvedScope.ShardKey {
+		t.Fatalf("ShardKey changed across turn/call IDs:\nfirst=%q\nsecond=%q", first.ResolvedScope.ShardKey, second.ResolvedScope.ShardKey)
+	}
+	firstShard := shardIndexForKey(first.ResolvedScope.ShardKey, mgr.pool.Size())
+	secondShard := shardIndexForKey(second.ResolvedScope.ShardKey, mgr.pool.Size())
+	if firstShard != secondShard {
+		t.Fatalf("same stable ShardKey routed to different shards: first=%d second=%d", firstShard, secondShard)
+	}
+	if first.Manager != second.Manager {
+		t.Fatalf("stable shard should reuse scoped clone: first=%p second=%p", first.Manager, second.Manager)
+	}
+
+	found := false
+	for _, clone := range mgr.pool.shards[firstShard].snapshotClones() {
+		if clone.key == first.ResolvedScope.ManagerKey && clone.manager == first.Manager {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("stable shard %d missing scoped clone for ManagerKey %q", firstShard, first.ResolvedScope.ManagerKey)
+	}
+}
+
+func TestManagerPoolWorkspaceCloneIsolation(t *testing.T) {
+	root := t.TempDir()
+	otherRoot := t.TempDir()
+	mgr := newManagerPoolTestManager(t, root)
+
+	base, err := mgr.pool.ForScope(testLSPToolScope(root, "agent-a", "thread-1"))
+	if err != nil {
+		t.Fatalf("ForScope(base): %v", err)
+	}
+	same, err := mgr.pool.ForScope(testLSPToolScope(root, "agent-a", "thread-1"))
+	if err != nil {
+		t.Fatalf("ForScope(same): %v", err)
+	}
+	otherAgent, err := mgr.pool.ForScope(testLSPToolScope(root, "agent-b", "thread-1"))
+	if err != nil {
+		t.Fatalf("ForScope(other agent): %v", err)
+	}
+	otherWorkspace, err := mgr.pool.ForScope(testLSPToolScope(otherRoot, "agent-a", "thread-1"))
+	if err != nil {
+		t.Fatalf("ForScope(other workspace): %v", err)
+	}
+
+	if base.Manager != same.Manager {
+		t.Fatalf("same agent/workspace should reuse clone: base=%p same=%p", base.Manager, same.Manager)
+	}
+	if otherAgent.Manager == base.Manager {
+		t.Fatalf("different agent reused base clone: %p", base.Manager)
+	}
+	if otherWorkspace.Manager == base.Manager {
+		t.Fatalf("different workspace reused base clone: %p", base.Manager)
+	}
+	if otherAgent.ResolvedScope.ManagerKey == base.ResolvedScope.ManagerKey {
+		t.Fatalf("different agent kept ManagerKey %q", base.ResolvedScope.ManagerKey)
+	}
+	if otherWorkspace.ResolvedScope.WorkspaceKey == base.ResolvedScope.WorkspaceKey {
+		t.Fatalf("different workspace kept WorkspaceKey %q", base.ResolvedScope.WorkspaceKey)
+	}
+
+	baseClone, ok := base.Manager.(*manager)
+	if !ok {
+		t.Fatalf("base manager type = %T, want *manager", base.Manager)
+	}
+	otherWorkspaceClone, ok := otherWorkspace.Manager.(*manager)
+	if !ok {
+		t.Fatalf("other workspace manager type = %T, want *manager", otherWorkspace.Manager)
+	}
+	if baseClone.workspaceRoot != base.ResolvedScope.WorkspaceRoot {
+		t.Fatalf("base clone workspaceRoot = %q, want %q", baseClone.workspaceRoot, base.ResolvedScope.WorkspaceRoot)
+	}
+	if otherWorkspaceClone.workspaceRoot != otherWorkspace.ResolvedScope.WorkspaceRoot {
+		t.Fatalf("other workspace clone workspaceRoot = %q, want %q", otherWorkspaceClone.workspaceRoot, otherWorkspace.ResolvedScope.WorkspaceRoot)
+	}
+}
+
 func TestManagerPoolForScopeFallsBackToWorkspaceOnlyWithoutTrustedIdentity(t *testing.T) {
 	root := t.TempDir()
 	mgr := newManagerPoolTestManager(t, root)

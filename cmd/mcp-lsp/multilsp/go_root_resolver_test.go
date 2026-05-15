@@ -156,6 +156,8 @@ func TestGoRootResolverGOWORKOff(t *testing.T) {
 	if got := goRootEnv(info); !reflect.DeepEqual(got, []string{"GOWORK=off"}) {
 		t.Fatalf("GOWORK=off env = %#v", got)
 	}
+	assertFolderPaths(t, info.workspaceFolderPaths(), []string{backend})
+	assertGoLanguageSpecificContainsTopology(t, info)
 }
 
 func TestGoRootResolverSingleSubmodule(t *testing.T) {
@@ -177,6 +179,8 @@ func TestGoRootResolverSingleSubmodule(t *testing.T) {
 		GOWORKMode:    goworkModeAuto,
 		ProjectRoot:   repo,
 	})
+	assertFolderPaths(t, info.workspaceFolderPaths(), []string{backend})
+	assertGoLanguageSpecificContainsTopology(t, info)
 }
 
 func TestGoRootResolverMultiModule(t *testing.T) {
@@ -199,6 +203,7 @@ func TestGoRootResolverMultiModule(t *testing.T) {
 		ProjectRoot:   repo,
 	})
 	assertFolderPaths(t, info.workspaceFolderPaths(), []string{repo, backend, tools})
+	assertGoLanguageSpecificContainsTopology(t, info)
 }
 
 func TestGoRootResolverNestedModule(t *testing.T) {
@@ -222,6 +227,8 @@ func TestGoRootResolverNestedModule(t *testing.T) {
 		GOWORKMode:    goworkModeAuto,
 		ProjectRoot:   repo,
 	})
+	assertFolderPaths(t, info.workspaceFolderPaths(), []string{nested})
+	assertGoLanguageSpecificContainsTopology(t, info)
 }
 
 func TestWorkspaceFolderAndGoWorkspaceKeyHashes(t *testing.T) {
@@ -328,8 +335,20 @@ func assertGoLanguageSpecificContainsTopology(t *testing.T, info GoRootInfo) {
 			t.Fatalf("languageSpecific missing %s: %#v", key, specific)
 		}
 	}
-	if specific["goWorkPath"] != info.GoWorkPath || specific["moduleRoot"] != info.ModuleRoot {
-		t.Fatalf("languageSpecific did not preserve go paths: %#v for %#v", specific, info)
+	if specific["goWorkPath"] != info.GoWorkPath ||
+		specific["goModPath"] != info.GoModPath ||
+		specific["moduleRoot"] != info.ModuleRoot ||
+		specific["goworkMode"] != info.GOWORKMode {
+		t.Fatalf("languageSpecific did not preserve go paths/mode: %#v for %#v", specific, info)
+	}
+	if specific["moduleRootsHash"] == "" || specific["workspaceFoldersHash"] == "" {
+		t.Fatalf("languageSpecific missing topology hashes: %#v", specific)
+	}
+	key := goWorkspaceKey(info)
+	for _, fragment := range []string{"goModPath=", "goWorkPath=", "goworkMode=", "moduleRoot=", "moduleRootsHash=", "workspaceFoldersHash="} {
+		if !strings.Contains(key, fragment) {
+			t.Fatalf("workspace key %q missing %q", key, fragment)
+		}
 	}
 }
 
