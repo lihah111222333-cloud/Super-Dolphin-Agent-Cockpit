@@ -60,27 +60,7 @@ func run() error {
 					return map[string]any{"tools": tools}, nil
 				}
 				cfg.OnToolsCall = func(ctx context.Context, params json.RawMessage) (any, error) {
-					var req struct {
-						Name      string          `json:"name"`
-						Arguments json.RawMessage `json:"arguments"`
-						MetaCWD   string          `json:"_cwd,omitempty"`
-					}
-					if err := json.Unmarshal(params, &req); err != nil {
-						return nil, err
-					}
-					warnLSPToolsCallCWDTrace(req.Name, req.MetaCWD)
-					if strings.TrimSpace(req.MetaCWD) != "" {
-						ctx = context.WithValue(ctx, common.CwdContextKey, req.MetaCWD)
-					}
-					result, err := tp.CallTool(ctx, req.Name, req.Arguments)
-					if err != nil {
-						return nil, err
-					}
-					text, _ := json.Marshal(result)
-					return map[string]any{
-						"content":           []map[string]string{{"type": "text", "text": string(text)}},
-						"structuredContent": json.RawMessage(text),
-					}, nil
+					return handleScopedToolsCall(ctx, tp, mcp.ClientKindLSP, params)
 				}
 				cfg.FinalReport = func() *mcp.ReportRequest {
 					return &mcp.ReportRequest{Report: mcp.ReportEnvelope{Type: mcp.ReportVariantCompletion, Completion: &mcp.CompletionReport{Status: "done", Report: "mcp-lsp shutdown"}}}
@@ -183,15 +163,40 @@ func shouldWarnLSPCWDTrace(toolName string) bool {
 	}
 }
 
-func warnLSPToolsCallCWDTrace(toolName, metaCWD string) {
+func warnLSPToolsCallScopeTrace(toolName string, scope common.ToolScope) {
 	if !shouldWarnLSPCWDTrace(toolName) {
 		return
 	}
-	pkglogger.Warn("mcp-lsp: tools/call cwd trace",
+	pkglogger.Warn("mcp-lsp: tools/call scope trace",
 		"tool", strings.TrimSpace(toolName),
-		"meta_cwd", strings.TrimSpace(metaCWD),
-		"has_meta_cwd", strings.TrimSpace(metaCWD) != "",
+		"agent_id", scope.AgentID,
+		"thread_id", scope.ThreadID,
+		"call_id", scope.CallID,
+		"cwd", scope.CWD,
+		"has_cwd", scope.CWD != "",
 	)
+}
+
+func handleScopedToolsCall(ctx context.Context, tp registryToolProvider, family string, params json.RawMessage) (any, error) {
+	req, err := common.DecodeToolCallParams(params)
+	if err != nil {
+		return nil, err
+	}
+	scope := req.Scope(family)
+	warnLSPToolsCallScopeTrace(req.Name, scope)
+	ctx = common.WithToolScope(ctx, scope)
+	result, err := tp.CallTool(ctx, req.Name, req.Arguments)
+	if err != nil {
+		return nil, err
+	}
+	text, err := json.Marshal(result)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"content":           []map[string]string{{"type": "text", "text": string(text)}},
+		"structuredContent": json.RawMessage(text),
+	}, nil
 }
 
 func marshalInputSchema(schema map[string]any) (json.RawMessage, error) {

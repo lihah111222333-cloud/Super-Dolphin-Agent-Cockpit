@@ -20,8 +20,11 @@ type contextKey string
 const CwdContextKey = contextKey("mcp_cwd")
 
 func WorkspaceRootFromContext(ctx context.Context, fallback string) string {
+	if scope, ok := ToolScopeFromContext(ctx); ok && scope.CWD != "" {
+		return scope.CWD
+	}
 	if cwd, ok := ctx.Value(CwdContextKey).(string); ok && cwd != "" {
-		return cwd
+		return NormalizeToolScope(ToolScope{CWD: cwd}).CWD
 	}
 	return fallback
 }
@@ -74,12 +77,6 @@ type jsonRPCError struct {
 
 type initializeParams struct {
 	ProtocolVersion string `json:"protocolVersion,omitempty"`
-}
-
-type toolCallParams struct {
-	Name      string          `json:"name"`
-	Arguments json.RawMessage `json:"arguments,omitempty"`
-	MetaCWD   string          `json:"_cwd,omitempty"`
 }
 
 type textContent struct {
@@ -253,21 +250,21 @@ func (s *Server) handleToolsList(ctx context.Context, req jsonRPCRequest) *jsonR
 }
 
 func (s *Server) handleToolsCall(ctx context.Context, req jsonRPCRequest) *jsonRPCResponse {
-	var params toolCallParams
-	if err := platformshared.DecodeInput(req.Params, &params); err != nil {
+	params, err := DecodeToolCallParams(req.Params)
+	if err != nil {
 		err = fmt.Errorf("decode params: %w", err)
 		pkglogger.Warn("mcp: tools/call decode error",
 			"server", s.name, "error", err)
 		return errorResponse(req.ID, codeInvalidParams, err.Error())
 	}
+	scope := params.Scope(s.name)
+	ctx = WithToolScope(ctx, scope)
 	pkglogger.Info("mcp: tools/call begin",
 		"server", s.name, "tool", params.Name,
+		"agent_id", scope.AgentID, "thread_id", scope.ThreadID,
+		"call_id", scope.CallID, "cwd", scope.CWD,
 		"req_id", string(req.ID))
 	start := time.Now()
-
-	if params.MetaCWD != "" {
-		ctx = context.WithValue(ctx, CwdContextKey, params.MetaCWD)
-	}
 
 	if s.tools == nil {
 		return errorResponse(req.ID, codeToolCall, "tool provider is not configured")

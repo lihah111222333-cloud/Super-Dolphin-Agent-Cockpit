@@ -79,6 +79,33 @@ func buildContextResponse(scope string, payload map[string]any) (dto.ContextResp
 func (r *ToolRegistry) FindActiveByKind(clientKind string) []*ToolInstance {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	return r.findActiveByKindLocked(strings.TrimSpace(clientKind))
+}
+
+func (r *ToolRegistry) FindActiveForScope(scope ToolScope) []*ToolInstance {
+	scope = normalizeToolScope(scope)
+	peers := r.FindActiveByKind(scope.Family)
+	if len(peers) == 0 {
+		return nil
+	}
+	if scope.AgentID != "" && scope.ThreadID != "" {
+		if exact := filterActivePeers(peers, func(inst *ToolInstance) bool {
+			return strings.TrimSpace(inst.AgentID) == scope.AgentID && strings.TrimSpace(inst.ThreadID) == scope.ThreadID
+		}); len(exact) != 0 {
+			return exact
+		}
+	}
+	if scope.AgentID != "" {
+		if relaxed := filterActivePeers(peers, func(inst *ToolInstance) bool {
+			return strings.TrimSpace(inst.AgentID) == scope.AgentID
+		}); len(relaxed) != 0 {
+			return relaxed
+		}
+	}
+	return peers
+}
+
+func (r *ToolRegistry) findActiveByKindLocked(clientKind string) []*ToolInstance {
 	keys, ok := r.byClientKind[clientKind]
 	if !ok {
 		return nil
@@ -88,6 +115,19 @@ func (r *ToolRegistry) FindActiveByKind(clientKind string) []*ToolInstance {
 		inst, ok := r.instances[key]
 		if ok && inst.Status == dto.StatusActive {
 			result = append(result, inst)
+		}
+	}
+	return result
+}
+
+func filterActivePeers(peers []*ToolInstance, keep func(*ToolInstance) bool) []*ToolInstance {
+	if keep == nil {
+		return nil
+	}
+	var result []*ToolInstance
+	for _, peer := range peers {
+		if peer != nil && keep(peer) {
+			result = append(result, peer)
 		}
 	}
 	return result

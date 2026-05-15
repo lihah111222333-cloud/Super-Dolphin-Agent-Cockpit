@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
@@ -94,11 +95,11 @@ func decodeToolCallRequest(params json.RawMessage) (ToolCallRequest, error) {
 	req := ToolCallRequest{
 		Name:       firstString(payload, "name", "tool", "toolName", "tool_name"),
 		Arguments:  firstRaw(payload, "arguments", "args"),
-		AgentID:    firstString(payload, "agentId", "agent_id"),
-		ThreadID:   firstString(payload, "threadId", "thread_id"),
+		AgentID:    firstString(payload, MetadataKeyAgentID, "agentId", "agent_id"),
+		ThreadID:   firstString(payload, MetadataKeyThreadID, "threadId", "thread_id"),
 		TurnID:     firstString(payload, "turnId", "turn_id"),
-		CallID:     firstString(payload, "callId", "call_id"),
-		CWD:        firstString(payload, "_cwd"),
+		CallID:     firstString(payload, MetadataKeyCallID, "callId", "call_id"),
+		CWD:        firstString(payload, MetadataKeyCWD),
 		ClientKind: firstString(payload, "clientKind", "client_kind", "family"),
 	}
 	if req.Name == "" {
@@ -123,13 +124,28 @@ func decodeToolCallRequest(params json.RawMessage) (ToolCallRequest, error) {
 }
 
 func (h *Handler) resolveCurrentToolCallCWD(ctx context.Context, req ToolCallRequest) string {
-	if cwd := strings.TrimSpace(req.CWD); cwd != "" {
+	if cwd := normalizeToolCallCWD(req.CWD); cwd != "" {
 		return cwd
 	}
 	if binding, ok := h.resolveCurrentToolCallBinding(ctx, req); ok {
-		return strings.TrimSpace(binding.CWD)
+		return normalizeToolCallCWD(binding.CWD)
 	}
 	return ""
+}
+
+func normalizeToolCallCWD(cwd string) string {
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" {
+		return ""
+	}
+	if filepath.IsAbs(cwd) {
+		return filepath.Clean(cwd)
+	}
+	abs, err := filepath.Abs(cwd)
+	if err != nil {
+		return filepath.Clean(cwd)
+	}
+	return filepath.Clean(abs)
 }
 
 func (h *Handler) resolveAndWarnCurrentToolCallCWD(ctx context.Context, req ToolCallRequest) string {

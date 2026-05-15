@@ -165,12 +165,16 @@ func (h *HTTPServer) handleToolsList(ctx context.Context, req jsonRPCRequest) *j
 }
 
 func (h *HTTPServer) handleToolsCall(ctx context.Context, req jsonRPCRequest) *jsonRPCResponse {
-	var params toolCallParams
-	if err := platformshared.DecodeInput(req.Params, &params); err != nil {
+	params, err := DecodeToolCallParams(req.Params)
+	if err != nil {
 		return errorResponse(req.ID, codeInvalidParams, err.Error())
 	}
+	scope := params.Scope(h.name)
+	ctx = WithToolScope(ctx, scope)
 	pkglogger.Info("mcp http: tools/call begin",
 		"server", h.name, "tool", params.Name,
+		"agent_id", scope.AgentID, "thread_id", scope.ThreadID,
+		"call_id", scope.CallID, "cwd", scope.CWD,
 		"req_id", string(req.ID))
 	start := time.Now()
 
