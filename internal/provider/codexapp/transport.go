@@ -35,6 +35,7 @@ type transport struct {
 	pending    sync.Map
 	nextID     atomic.Int64
 	looping    atomic.Bool
+	closing    atomic.Bool
 	closed     atomic.Bool
 	codexHome  atomic.Value
 }
@@ -189,6 +190,9 @@ func (t *transport) InitializeCodexHome() string {
 func (t *transport) reconnect(ctx context.Context) error {
 	if t == nil {
 		return errors.New("codexapp: transport unavailable")
+	}
+	if t.closing.Load() {
+		return errSessionClosing
 	}
 	// Reset the closed flag so the reconnection can proceed. This is safe
 	// because reconnect is only called from attemptRecovery which serializes

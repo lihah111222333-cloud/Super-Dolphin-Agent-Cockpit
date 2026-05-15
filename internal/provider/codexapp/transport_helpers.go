@@ -254,18 +254,52 @@ func (t *transport) writeJSON(v any) error {
 	return ws.WriteJSON(v)
 }
 
+func (t *transport) notifyDirect(method string, params any) error {
+	t.writeMu.Lock()
+	defer t.writeMu.Unlock()
+	ws := t.currentWS()
+	if ws == nil {
+		return errors.New("codexapp: websocket not connected")
+	}
+	_ = ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	return ws.WriteJSON(struct {
+		JSONRPC string `json:"jsonrpc"`
+		Method  string `json:"method"`
+		Params  any    `json:"params,omitempty"`
+	}{JSONRPC: "2.0", Method: method, Params: sanitizeProviderPayload(method, params)})
+}
+
 func (t *transport) endReadLoop(ctx context.Context, handler any, ws *websocket.Conn, err error, message string) bool {
 	superseded := t.readSocketSuperseded(ws)
-	pkglogger.Warn("codexapp: transport read loop ending",
-		"server_url", t.serverURL, "local", t.local, "closed", t.closed.Load(),
-		"superseded", superseded, "error", err, "message", message)
+	closed := t.closed.Load()
+	closing := t.closing.Load()
+	ctxErr := shared.CheckCtx(ctx)
+	expected := readLoopExpectedExit(closed, closing, superseded, ctxErr)
+	t.logReadLoopEnd(expected, closed, closing, superseded, ctxErr, err, message)
 	if err != nil {
 		t.failPending(err)
 	}
-	if handler != nil && !t.closed.Load() && !superseded && shared.CheckCtx(ctx) == nil {
+	if handler != nil && !expected {
 		invokeReadHandler(ctx, t, RawMessage{Method: "connection.dead", Params: mustJSON(map[string]any{"error": message})}, handler)
 	}
 	return false
+}
+
+func readLoopExpectedExit(closed, closing, superseded bool, ctxErr error) bool {
+	return closed || closing || superseded || ctxErr != nil
+}
+
+func (t *transport) logReadLoopEnd(expected, closed, closing, superseded bool, ctxErr error, err error, message string) {
+	if expected {
+		pkglogger.Info("codexapp: transport read loop ending",
+			"server_url", t.serverURL, "local", t.local, "closed", closed,
+			"closing", closing, "superseded", superseded, "ctx_err", ctxErr,
+			"error", err, "message", message)
+		return
+	}
+	pkglogger.Warn("codexapp: transport read loop ending",
+		"server_url", t.serverURL, "local", t.local, "closed", closed,
+		"closing", closing, "superseded", superseded, "error", err, "message", message)
 }
 
 func (t *transport) dispatchReadMessage(ctx context.Context, data []byte, handler any) bool {

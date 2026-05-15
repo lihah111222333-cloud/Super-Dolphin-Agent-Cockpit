@@ -194,6 +194,9 @@ func (t *transport) ensureOpen() error {
 	if t.closed.Load() {
 		return errors.New("codexapp: transport closed")
 	}
+	if t.closing.Load() {
+		return errors.New("codexapp: transport closing")
+	}
 	return nil
 }
 
@@ -218,8 +221,8 @@ func (t *transport) shutdownTransport(graceful bool) error {
 	// Only send shutdown notification and stop process when this transport
 	// owns the process (local spawn). Non-local transports connect to a
 	// shared app-server and must NOT kill it.
-	if graceful && t.local {
-		_ = t.Notify("shutdown", nil)
+	if graceful && t.local && !t.closing.Load() {
+		_ = t.notifyDirect("shutdown", nil)
 	}
 	t.closed.Store(true)
 	err := t.stopProcess(graceful)
@@ -243,7 +246,6 @@ func (s *session) shutdownSession(graceful bool) error {
 		s.failTurns(errors.New("codexapp: session stopped"))
 	}
 	s.clearProcessedApprovals()
-	s.shutdownSessionCleanup() // unregister from idle tracking
 	// P22 P1c: drain reader / health / recovery via the single runtime handle
 	// before tearing down the transport. runtime.Stop() closes the stop gate,
 	// cancels s.ctx, and joins every runtime-owned goroutine; callers no
@@ -253,10 +255,13 @@ func (s *session) shutdownSession(graceful bool) error {
 	// — it only unblocks when the underlying socket closes. So we pre-close
 	// the socket here before asking the runtime to join the reader; otherwise
 	// runtime.waitReaderDone would block forever waiting on a read that never
-	// returns. Marking closed=true up-front also suppresses connection.dead
-	// re-entry via endReadLoop during the shutdown window.
+	// returns. Marking closing=true also classifies the resulting EOF as
+	// expected shutdown rather than passive connection death.
 	if s.transport != nil {
-		s.transport.closed.Store(true)
+		s.transport.closing.Store(true)
+		if graceful && s.transport.local {
+			_ = s.transport.notifyDirect("shutdown", nil)
+		}
 		s.transport.closeSocket()
 	}
 	if s.runtime != nil {
@@ -264,6 +269,7 @@ func (s *session) shutdownSession(graceful bool) error {
 	} else {
 		s.cancel()
 	}
+	s.shutdownSessionCleanup() // unregister from idle tracking
 	return s.transport.shutdownTransport(graceful)
 }
 
@@ -306,6 +312,9 @@ func (s *session) failRecovery(reason string, err error) error {
 func (s *session) recoveryShutdownErr() error {
 	if s == nil {
 		return nil
+	}
+	if s.transport != nil && s.transport.closing.Load() {
+		return errSessionClosing
 	}
 	if s.runtime != nil && s.runtime.Stopped() {
 		return errRuntimeStopped
