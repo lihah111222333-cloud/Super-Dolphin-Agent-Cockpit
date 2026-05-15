@@ -139,7 +139,11 @@ func recycleWorkspaceClient(mgr *manager, scope ResolvedLSPToolScope, workspace 
 
 	languageID := workspace.languageID
 	if languageID == "" {
-		languageID = "go"
+		languageID = scope.LanguageID
+	}
+	languageID = normalizeLanguageID(languageID)
+	if languageID == "" {
+		return true, errors.Join(shutdownErr, closeErr, fmt.Errorf("recycle LSP client: workspace language is empty"))
 	}
 	cfg := workspaceConfig{
 		key:              workspace.key,

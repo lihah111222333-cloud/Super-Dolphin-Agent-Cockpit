@@ -174,7 +174,7 @@ func (m *manager) DocumentSymbol(ctx context.Context, uri string) ([]protocol.Do
 func (m *manager) WorkspaceSymbol(ctx context.Context, query string, languageID string) ([]protocol.WorkspaceSymbolResult, error) {
 	languageID = normalizeLanguageID(languageID)
 	if languageID == "" {
-		languageID = "go"
+		return nil, fmt.Errorf("workspace symbol language is required when no file path is provided")
 	}
 	client, err := m.ensureClientForLanguage(ctx, languageID)
 	if err != nil {

@@ -45,31 +45,37 @@ func newManager() (*Manager, error) {
 	}
 	log := pkglogger.Get()
 	inst := setupInstaller()
+	adapters := multilsp.NewDefaultLanguageAdapterRegistry()
 
 	registry := manager.NewRegistry(inst)
 	backgroundRunners := make([]platformrunner.Runner, 0, 6)
-	registerLang := func(langIDs []string, mgr multilsp.Manager) {
+	registerLang := func(adapter multilsp.LanguageAdapter) error {
+		if !adapter.CapabilityPolicy().RequiresLSPClient {
+			return nil
+		}
+		mgr, err := createGenericManager(adapter, adapters, root, log)
+		if err != nil {
+			return err
+		}
 		scopedResolver := multilsp.NewRegistryScopedResolver(mgr)
-		for _, langID := range langIDs {
+		for _, langID := range adapter.LanguageIDs() {
 			registry.Register(langID, mgr, scopedResolver)
 		}
 		if r := mgr.BackgroundRunner(); r != nil {
 			backgroundRunners = append(backgroundRunners, r)
 		}
+		return nil
 	}
 
-	// Register Go manager
-	registerLang([]string{"go", "gomod", "gosum", "gowork"}, createGenericManager("gopls", nil, root, log))
-	// Register JS/TS manager
-	registerLang([]string{"javascript", "typescript"}, createGenericManager("typescript-language-server", []string{"--stdio"}, root, log))
-	// Register Python manager
-	registerLang([]string{"python"}, createGenericManager("pyright-langserver", []string{"--stdio"}, root, log))
-	// Register CSS manager
-	registerLang([]string{"css"}, createGenericManager("vscode-css-language-server", []string{"--stdio"}, root, log))
-	// Register Rust manager
-	registerLang([]string{"rust"}, createGenericManager("rust-analyzer", nil, root, log))
-	// Register Java manager
-	registerLang([]string{"java"}, createGenericManager("jdtls", nil, root, log, jdtlsInitOptions()))
+	for _, primaryLanguageID := range []string{"go", "javascript", "python", "css", "rust", "java"} {
+		adapter, ok := adapters.AdapterForLanguage(primaryLanguageID)
+		if !ok {
+			return nil, errors.New("missing LSP language adapter: " + primaryLanguageID)
+		}
+		if err := registerLang(adapter); err != nil {
+			return nil, err
+		}
+	}
 
 	return &Manager{registry: registry, root: root, backgroundRunners: backgroundRunners}, nil
 }
@@ -82,7 +88,17 @@ func setupInstaller() *installer.Provider {
 		InstallCmd:  "npm",
 		InstallArgs: []string{"install", "-g", "typescript-language-server", "typescript"},
 	})
+	inst.Register("javascriptreact", installer.InstallerConfig{
+		BinaryName:  "typescript-language-server",
+		InstallCmd:  "npm",
+		InstallArgs: []string{"install", "-g", "typescript-language-server", "typescript"},
+	})
 	inst.Register("typescript", installer.InstallerConfig{
+		BinaryName:  "typescript-language-server",
+		InstallCmd:  "npm",
+		InstallArgs: []string{"install", "-g", "typescript-language-server", "typescript"},
+	})
+	inst.Register("typescriptreact", installer.InstallerConfig{
 		BinaryName:  "typescript-language-server",
 		InstallCmd:  "npm",
 		InstallArgs: []string{"install", "-g", "typescript-language-server", "typescript"},
@@ -112,17 +128,28 @@ func setupInstaller() *installer.Provider {
 		InstallCmd:  "go",
 		InstallArgs: []string{"install", "golang.org/x/tools/gopls@latest"},
 	})
+	for _, alias := range []string{"gomod", "gosum", "gowork"} {
+		inst.Register(alias, installer.InstallerConfig{
+			BinaryName:  "gopls",
+			InstallCmd:  "go",
+			InstallArgs: []string{"install", "golang.org/x/tools/gopls@latest"},
+		})
+	}
 
 	return inst
 }
 
-func createGenericManager(executable string, args []string, root string, log *slog.Logger, initOpts ...map[string]any) multilsp.Manager {
-	var opts map[string]any
-	if len(initOpts) > 0 {
-		opts = initOpts[0]
+func createGenericManager(adapter multilsp.LanguageAdapter, adapters *multilsp.LanguageAdapterRegistry, root string, log *slog.Logger) (multilsp.Manager, error) {
+	command, err := adapter.ServerCommand(context.Background(), multilsp.ResolvedLanguageScope{})
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(command.Executable) == "" {
+		return nil, errors.New("language adapter server command is empty")
 	}
 	return multilsp.NewManager(multilsp.Config{
-		WorkspaceRoot: root,
+		WorkspaceRoot:    root,
+		LanguageAdapters: adapters,
 		ClientFactory: multilsp.ClientFactoryWithEnvFunc(func(rootDir string, env []string, h protocol.NotificationHandler) (multilsp.Client, error) {
 			// rootDir is supplied per-call from cfg.rootPath so the
 			// language server subprocess Dir tracks the workspace being
@@ -136,35 +163,16 @@ func createGenericManager(executable string, args []string, root string, log *sl
 				dir = root
 			}
 			return multilsp.NewClientWithOptions(multilsp.Options{
-				Binary:              executable,
-				Args:                args,
+				Binary:              command.Executable,
+				Args:                command.Args,
 				Dir:                 dir,
 				Env:                 env,
-				InitOptions:         opts,
+				InitOptions:         adapter.InitOptions(multilsp.ResolvedLanguageScope{}),
 				NotificationHandler: h,
 			})
 		}),
 		Logger: log,
-	})
-}
-
-func jdtlsInitOptions() map[string]any {
-	return map[string]any{
-		"settings": map[string]any{
-			"java": map[string]any{
-				"configuration": map[string]any{
-					"updateBuildConfiguration": "automatic",
-				},
-				"import": map[string]any{
-					"gradle": map[string]any{"enabled": true},
-					"maven":  map[string]any{"enabled": true},
-				},
-			},
-		},
-		"extendedClientCapabilities": map[string]any{
-			"classFileContentsSupport": true,
-		},
-	}
+	}), nil
 }
 
 func (m *Manager) Close() error {

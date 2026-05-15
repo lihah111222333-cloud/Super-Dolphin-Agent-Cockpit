@@ -147,107 +147,41 @@ func (m *manager) ensureClientForLanguage(ctx context.Context, languageID string
 }
 
 func (m *manager) resolveLanguageWorkspace(ctx context.Context, languageID string) (workspaceConfig, error) {
-	if !shouldUseClientForLanguage(languageID) {
+	langID := normalizeLanguageID(languageID)
+	if !m.shouldUseClientForLanguage(langID) {
 		return workspaceConfig{}, fmt.Errorf("language %q is not managed by the LSP manager", languageID)
 	}
 	root := m.effectiveWorkspaceRoot(ctx)
 	if root == "" {
 		return workspaceConfig{}, ErrWorkspaceRootEmpty
 	}
-	langID := normalizeLanguageID(languageID)
-	if shouldUseGoWorkspace(langID) {
-		info, err := ResolveGoRoot(GoRootRequest{
-			CWD:      root,
-			FilePath: root,
-			Env:      os.Environ(),
-		})
-		if err != nil {
-			return workspaceConfig{}, err
-		}
-		return workspaceConfigForGoRoot(info, langID), nil
+	scope, adapter, err := m.resolveLanguageScope(ctx, langID, root, "")
+	if err != nil {
+		return workspaceConfig{}, err
 	}
-	if shouldUseJSTSWorkspace(langID) {
-		return workspaceConfigForRoot(m.resolveJSTSWorkspaceRoot(root), langID), nil
-	}
-	if shouldUseJavaWorkspace(langID) {
-		return workspaceConfigForRoot(m.resolveJavaWorkspaceRoot(root), langID), nil
-	}
-	return workspaceConfigForRoot(root, langID), nil
-}
-
-func (m *manager) resolveJSTSWorkspaceRoot(root string) string {
-	if jsRoot, err := findJSTSProjectRoot(root); err == nil && jsRoot != "" {
-		m.warnJSTS("jsts: found project root walking up", "root", jsRoot)
-		return jsRoot
-	}
-	if jsRoot := findJSTSProjectRootWithin(root); jsRoot != "" {
-		m.warnJSTS("jsts: found project root walking down", "root", jsRoot)
-		return jsRoot
-	}
-	m.warnJSTS("jsts: no project root found", "workspaceRoot", root)
-	return root
+	return workspaceConfigForLanguageScope(scope, adapter)
 }
 
 func (m *manager) bootstrapLanguageClient(ctx context.Context, client Client, root, languageID string) {
-	if shouldUseJSTSWorkspace(languageID) {
-		m.bootstrapJSTSClient(ctx, client, root, languageID)
-	} else if shouldUseJavaWorkspace(languageID) {
-		m.bootstrapJavaClient(ctx, client, root, languageID)
+	scope, adapter, err := m.resolveLanguageScope(ctx, languageID, root, "")
+	if err != nil {
+		m.logBootstrapPolicy("bootstrap policy resolve failed", "lang", languageID, "root", root, "err", err)
+		return
 	}
-}
-
-func (m *manager) warnJSTS(message string, args ...any) {
-	if m.logger != nil {
-		m.logger.Warn(message, args...)
-	}
-}
-
-// bootstrapJSTSClient opens the first JS/TS file found under root so that
-// tsserver creates a project context for workspace-wide queries.
-func (m *manager) bootstrapJSTSClient(ctx context.Context, client Client, root, languageID string) {
-	target := findJSTSBootstrapFileWithin(root)
+	policy := adapter.BootstrapPolicy(scope)
+	target := findBootstrapFileWithin(root, policy.FirstSourceExtensions, policy.IgnoredDirNames)
 	if target == "" {
-		m.warnJSTS("jsts: bootstrap - no JS/TS file found", "root", root)
 		return
 	}
 	content, err := os.ReadFile(target)
 	if err != nil {
-		m.warnJSTS("jsts: bootstrap - failed to read file", "file", target, "err", err)
+		m.logBootstrapPolicy("bootstrap policy read failed", "lang", languageID, "file", target, "err", err)
 		return
 	}
-	m.warnJSTS("jsts: bootstrap - opening file for tsserver", "file", target, "root", root, "lang", languageID)
 	_ = client.DidOpen(ctx, fileURIFromPath(target), languageID, 0, string(content))
 }
 
-func (m *manager) resolveJavaWorkspaceRoot(root string) string {
-	if javaRoot, err := findJavaProjectRoot(root); err == nil && javaRoot != "" {
-		m.logJava("java: found project root walking up", "root", javaRoot)
-		return javaRoot
-	}
-	if javaRoot := findJavaProjectRootWithin(root); javaRoot != "" {
-		m.logJava("java: found project root walking down", "root", javaRoot)
-		return javaRoot
-	}
-	m.logJava("java: no project root found", "workspaceRoot", root)
-	return root
-}
-
-func (m *manager) bootstrapJavaClient(ctx context.Context, client Client, root, languageID string) {
-	target := findJavaBootstrapFileWithin(root)
-	if target == "" {
-		m.logJava("java: bootstrap - no .java file found", "root", root)
-		return
-	}
-	content, err := os.ReadFile(target)
-	if err != nil {
-		m.logJava("java: bootstrap - failed to read file", "file", target, "err", err)
-		return
-	}
-	m.logJava("java: bootstrap - opening file for jdtls", "file", target, "root", root)
-	_ = client.DidOpen(ctx, fileURIFromPath(target), languageID, 0, string(content))
-}
-
-func (m *manager) logJava(message string, args ...any) {
+func (m *manager) logBootstrapPolicy(message string, args ...any) {
 	if m.logger != nil {
 		m.logger.Warn(message, args...)
 	}
@@ -437,7 +371,7 @@ func (m *manager) documentClient(ctx context.Context, uri string) (Client, docum
 	if err != nil {
 		return nil, documentRef{}, err
 	}
-	if !shouldUseClientForLanguage(ref.languageID) {
+	if !m.shouldUseClientForLanguage(ref.languageID) {
 		return nil, ref, nil
 	}
 	if err := m.bootstrapDocument(ctx, ref.uri); err != nil {
