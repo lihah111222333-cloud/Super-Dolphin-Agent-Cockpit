@@ -512,6 +512,93 @@ func TestService_SubmitTurnLocalMode(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Regression guard: child agents spawned via orchestration_launch_agent must
+// inherit cwd from their parent when the tool call omits it.
+//
+// Root cause (2026-05-15, bug "纯抽奖"): the orchestration_launch_agent tool
+// schema makes cwd optional, and parent LLMs typically omit it. Without
+// inheritance, req.Cwd reaches the launcher as "", propagates through
+// thread/start to agent_threads.cwd, and the sidebar snapshot omits the cwd
+// key entirely (sidebar_compat.go gates the key on agent.CWD != ""). On the
+// frontend, thread-store-view.js getThreadsByMode treats an absent cwd as
+// "include in every project view" (`if (!cwd) return true`), so the spawned
+// child shows up in every non-dot project's list.
+//
+// DO NOT delete these tests without first removing the corresponding frontend
+// "empty cwd ⇒ include" branch — they together prevent the regression.
+// ---------------------------------------------------------------------------
+
+func TestService_LaunchAgent_InheritsParentCwdWhenChildOmits(t *testing.T) {
+	var started map[string]any
+	svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{
+		"thread/start": handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
+			started = req
+			return map[string]any{"thread": map[string]any{"id": "thread-1"}, "agentId": "remote-1"}, nil
+		}),
+	}), nil, nil, nil)
+	parent := svc.newAgentLocked("parent-1")
+	parent.cwd = "/repo/foo"
+	svc.agents[parent.id] = parent
+	if err := svc.LaunchAgent(context.Background(), LaunchRequest{
+		AgentID:  "child-1",
+		ParentID: "parent-1",
+		Command:  []string{"ignored"},
+	}); err != nil {
+		t.Fatalf("LaunchAgent() error = %v", err)
+	}
+	if got, _ := started["cwd"].(string); got != "/repo/foo" {
+		t.Fatalf("REGRESSION: thread/start cwd = %q, want %q (child must inherit parent's cwd when its own is empty)", got, "/repo/foo")
+	}
+}
+
+func TestService_LaunchAgent_RespectsExplicitChildCwd(t *testing.T) {
+	var started map[string]any
+	svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{
+		"thread/start": handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
+			started = req
+			return map[string]any{"thread": map[string]any{"id": "thread-1"}, "agentId": "remote-1"}, nil
+		}),
+	}), nil, nil, nil)
+	parent := svc.newAgentLocked("parent-1")
+	parent.cwd = "/repo/foo"
+	svc.agents[parent.id] = parent
+	if err := svc.LaunchAgent(context.Background(), LaunchRequest{
+		AgentID:  "child-1",
+		ParentID: "parent-1",
+		Cwd:      "/repo/bar",
+		Command:  []string{"ignored"},
+	}); err != nil {
+		t.Fatalf("LaunchAgent() error = %v", err)
+	}
+	if got, _ := started["cwd"].(string); got != "/repo/bar" {
+		t.Fatalf("explicit child cwd overridden: thread/start cwd = %q, want %q", got, "/repo/bar")
+	}
+}
+
+func TestService_LaunchAgentSnapshot_InheritsParentCwdWhenChildOmits(t *testing.T) {
+	var started map[string]any
+	svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{
+		"thread/start": handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
+			started = req
+			return map[string]any{"thread": map[string]any{"id": "thread-1"}, "agentId": "remote-1"}, nil
+		}),
+	}), nil, nil, nil)
+	parent := svc.newAgentLocked("parent-1")
+	parent.cwd = "/repo/foo"
+	svc.agents[parent.id] = parent
+	if _, err := svc.LaunchAgentSnapshot(context.Background(), LaunchRequest{
+		AgentID:  "child-1",
+		ParentID: "parent-1",
+		Command:  []string{"ignored"},
+	}); err != nil {
+		t.Fatalf("LaunchAgentSnapshot() error = %v", err)
+	}
+	if got, _ := started["cwd"].(string); got != "/repo/foo" {
+		t.Fatalf("REGRESSION: LaunchAgentSnapshot thread/start cwd = %q, want %q", got, "/repo/foo")
+	}
+}
+
 func remoteLocalLauncher(t *testing.T, methods handler.Map) *remoteLauncher {
 	local := jrpcserver.NewLocal(methods, nil)
 	t.Cleanup(func() { local.Close() })
