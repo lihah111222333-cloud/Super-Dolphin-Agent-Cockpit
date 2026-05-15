@@ -121,48 +121,72 @@ func TestPhaseSelf1a_UpsertStructuredConcurrentRaceFree(t *testing.T) {
 		concurrency = 16
 		rounds      = 50
 	)
-	var (
-		wg            sync.WaitGroup
-		alreadyExists atomic.Int64
-		otherErrors   atomic.Int64
-		successWrites atomic.Int64
-	)
+	counters := runConcurrentUpserts(t, store, name, concurrency, rounds)
+	assertConcurrentUpsertCounters(t, counters, concurrency*rounds)
+	assertConcurrentUpsertFinalContent(t, store, name)
+}
+
+type upsertRaceCounters struct {
+	alreadyExists atomic.Int64
+	otherErrors   atomic.Int64
+	successWrites atomic.Int64
+}
+
+func runConcurrentUpserts(t *testing.T, store *diskStore, name string, concurrency, rounds int) *upsertRaceCounters {
+	t.Helper()
+	counters := &upsertRaceCounters{}
+	var wg sync.WaitGroup
 	wg.Add(concurrency)
 	for i := 0; i < concurrency; i++ {
-		go func(workerID int) {
-			defer wg.Done()
-			for r := 0; r < rounds; r++ {
-				content := fmt.Sprintf("rule worker=%d round=%d\nWhy: race exercise.\nHow to apply: concurrent upsert.", workerID, r)
-				req := MemoryWriteRequest{
-					Name:        name,
-					Description: "concurrent fixture",
-					Type:        MemoryTypeFeedback,
-					Body:        content,
-				}
-				_, err := store.UpsertStructured(req)
-				switch {
-				case err == nil:
-					successWrites.Add(1)
-				case errors.Is(err, ErrMemoryAlreadyExists):
-					alreadyExists.Add(1)
-				default:
-					otherErrors.Add(1)
-					t.Errorf("worker %d round %d: UpsertStructured() unexpected error: %v", workerID, r, err)
-					return
-				}
-			}
-		}(i)
+		go upsertRaceWorker(t, store, name, i, rounds, counters, &wg)
 	}
 	wg.Wait()
-	if otherErrors.Load() != 0 {
-		t.Fatalf("got %d unexpected errors", otherErrors.Load())
+	return counters
+}
+
+func upsertRaceWorker(t *testing.T, store *diskStore, name string, workerID, rounds int, counters *upsertRaceCounters, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for r := 0; r < rounds; r++ {
+		req := upsertRaceRequest(name, workerID, r)
+		_, err := store.UpsertStructured(req)
+		switch {
+		case err == nil:
+			counters.successWrites.Add(1)
+		case errors.Is(err, ErrMemoryAlreadyExists):
+			counters.alreadyExists.Add(1)
+		default:
+			counters.otherErrors.Add(1)
+			t.Errorf("worker %d round %d: UpsertStructured() unexpected error: %v", workerID, r, err)
+			return
+		}
 	}
-	if alreadyExists.Load() != 0 {
-		t.Fatalf("Upsert leaked ErrMemoryAlreadyExists in %d calls (legacy Create-then-Update regression — Phase 自有.1a invariant violated)", alreadyExists.Load())
+}
+
+func upsertRaceRequest(name string, workerID, round int) MemoryWriteRequest {
+	content := fmt.Sprintf("rule worker=%d round=%d\nWhy: race exercise.\nHow to apply: concurrent upsert.", workerID, round)
+	return MemoryWriteRequest{
+		Name:        name,
+		Description: "concurrent fixture",
+		Type:        MemoryTypeFeedback,
+		Body:        content,
 	}
-	if got, want := successWrites.Load(), int64(concurrency*rounds); got != want {
+}
+
+func assertConcurrentUpsertCounters(t *testing.T, counters *upsertRaceCounters, wantSuccess int) {
+	t.Helper()
+	if counters.otherErrors.Load() != 0 {
+		t.Fatalf("got %d unexpected errors", counters.otherErrors.Load())
+	}
+	if counters.alreadyExists.Load() != 0 {
+		t.Fatalf("Upsert leaked ErrMemoryAlreadyExists in %d calls (legacy Create-then-Update regression — Phase 自有.1a invariant violated)", counters.alreadyExists.Load())
+	}
+	if got, want := counters.successWrites.Load(), int64(wantSuccess); got != want {
 		t.Fatalf("expected %d successful writes, got %d", want, got)
 	}
+}
+
+func assertConcurrentUpsertFinalContent(t *testing.T, store *diskStore, name string) {
+	t.Helper()
 	final, err := store.Read(name)
 	if err != nil {
 		t.Fatalf("Read() error = %v", err)

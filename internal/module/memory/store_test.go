@@ -20,36 +20,56 @@ func TestDiskStoreCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	if !strings.Contains(created.FilePath, filepath.Join(root, string(MemoryTypeUser))) {
-		t.Fatalf("Create() FilePath = %q, want under %q", created.FilePath, filepath.Join(root, string(MemoryTypeUser)))
-	}
-	if created.CanonicalName != CanonicalName("CAFÉ preference") {
-		t.Fatalf("Create() CanonicalName = %q, want %q", created.CanonicalName, CanonicalName("CAFÉ preference"))
-	}
-
-	if _, err := store.Create(testMemoryEntry("café preference", "duplicate", MemoryTypeUser, "duplicate body")); !errors.Is(err, ErrMemoryAlreadyExists) {
-		t.Fatalf("duplicate Create() error = %v, want %v", err, ErrMemoryAlreadyExists)
-	}
-
-	readEntry, err := store.Read("CAFÉ preference")
-	if err != nil {
-		t.Fatalf("Read() error = %v", err)
-	}
-	if readEntry.FilePath != created.FilePath {
-		t.Fatalf("Read() FilePath = %q, want %q", readEntry.FilePath, created.FilePath)
-	}
+	assertDiskStoreCreatedEntry(t, root, created)
+	assertDiskStoreDuplicateRejected(t, store)
+	assertDiskStoreReadPath(t, store, created.FilePath)
 
 	updated, err := store.Update(testMemoryEntry(" café  preference ", "Prefer focused diffs.", MemoryTypeUser, "Prefer focused diffs.\nWhy: it keeps reviews short.\nHow to apply: land changes in small slices."))
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
-	if updated.FilePath != created.FilePath {
-		t.Fatalf("Update() FilePath = %q, want reuse %q", updated.FilePath, created.FilePath)
+	assertDiskStoreUpdatedEntry(t, root, created.FilePath, updated)
+	assertDiskStoreDeleteClearsIndex(t, root, store)
+}
+
+func assertDiskStoreCreatedEntry(t *testing.T, root string, created MemoryEntry) {
+	t.Helper()
+	wantRoot := filepath.Join(root, string(MemoryTypeUser))
+	if !strings.Contains(created.FilePath, wantRoot) {
+		t.Fatalf("Create() FilePath = %q, want under %q", created.FilePath, wantRoot)
+	}
+	if created.CanonicalName != CanonicalName("CAFÉ preference") {
+		t.Fatalf("Create() CanonicalName = %q, want %q", created.CanonicalName, CanonicalName("CAFÉ preference"))
+	}
+}
+
+func assertDiskStoreDuplicateRejected(t *testing.T, store *diskStore) {
+	t.Helper()
+	_, err := store.Create(testMemoryEntry("café preference", "duplicate", MemoryTypeUser, "duplicate body"))
+	if !errors.Is(err, ErrMemoryAlreadyExists) {
+		t.Fatalf("duplicate Create() error = %v, want %v", err, ErrMemoryAlreadyExists)
+	}
+}
+
+func assertDiskStoreReadPath(t *testing.T, store *diskStore, wantPath string) {
+	t.Helper()
+	readEntry, err := store.Read("CAFÉ preference")
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	if readEntry.FilePath != wantPath {
+		t.Fatalf("Read() FilePath = %q, want %q", readEntry.FilePath, wantPath)
+	}
+}
+
+func assertDiskStoreUpdatedEntry(t *testing.T, root, createdPath string, updated MemoryEntry) {
+	t.Helper()
+	if updated.FilePath != createdPath {
+		t.Fatalf("Update() FilePath = %q, want reuse %q", updated.FilePath, createdPath)
 	}
 	if updated.Frontmatter.Description != "Prefer focused diffs." {
 		t.Fatalf("Update() Description = %q, want first content line", updated.Frontmatter.Description)
 	}
-
 	indexEntries := readIndexEntries(t, root)
 	if len(indexEntries) != 1 {
 		t.Fatalf("ReadMemoryIndex() entries = %d, want 1", len(indexEntries))
@@ -57,7 +77,10 @@ func TestDiskStoreCRUD(t *testing.T) {
 	if indexEntries[0].Hook != "Prefer focused diffs." {
 		t.Fatalf("index hook = %q, want updated hook", indexEntries[0].Hook)
 	}
+}
 
+func assertDiskStoreDeleteClearsIndex(t *testing.T, root string, store *diskStore) {
+	t.Helper()
 	if err := store.Delete("cafe\u0301 preference"); err != nil {
 		t.Fatalf("Delete() error = %v", err)
 	}

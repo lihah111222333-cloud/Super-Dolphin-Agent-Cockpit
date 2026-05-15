@@ -17,15 +17,7 @@ func TestMemoryExtractorExtractParsesEnvelope(t *testing.T) {
 	called := 0
 	memories, err := extractor.Extract(context.Background(), func(_ context.Context, prompt string) (string, error) {
 		called++
-		if !strings.Contains(prompt, "Conversation transcript:") {
-			t.Fatalf("prompt missing transcript header: %q", prompt)
-		}
-		if !strings.Contains(prompt, "scope") || !strings.Contains(prompt, "description") {
-			t.Fatalf("prompt missing structured extractor contract: %q", prompt)
-		}
-		if !strings.Contains(prompt, "keep diffs focused") {
-			t.Fatalf("prompt missing transcript body: %q", prompt)
-		}
+		assertExtractEnvelopePrompt(t, prompt)
 		return `{"memories":[{"scope":"private","name":"Review style","description":"Keep diffs focused in reviews","content":"Always keep diffs focused.\nWhy: Focused diffs speed up review.\nHow to apply: Split unrelated edits before asking for review.","type":"feedback"},{"scope":"private","name":"Grafana dashboard","description":"Grafana dashboard for the core team","content":"Grafana dashboard lives at https://grafana.example.com/team/core.","type":"reference"}]}`, nil
 	}, ExtractParams{Transcript: []providerdto.Message{{Role: "user", Content: "keep diffs focused"}}, MaxItems: 2})
 	if err != nil {
@@ -34,23 +26,50 @@ func TestMemoryExtractorExtractParsesEnvelope(t *testing.T) {
 	if called != 1 {
 		t.Fatalf("extract func called %d times, want 1", called)
 	}
+	assertExtractEnvelopeMemories(t, memories)
+}
+
+func assertExtractEnvelopePrompt(t *testing.T, prompt string) {
+	t.Helper()
+	for _, snippet := range []string{
+		"Conversation transcript:",
+		"scope",
+		"description",
+		"keep diffs focused",
+	} {
+		if !strings.Contains(prompt, snippet) {
+			t.Fatalf("prompt missing %q: %q", snippet, prompt)
+		}
+	}
+}
+
+func assertExtractEnvelopeMemories(t *testing.T, memories []ExtractedMemory) {
+	t.Helper()
 	if len(memories) != 2 {
 		t.Fatalf("len(memories) = %d, want 2", len(memories))
 	}
-	if got, want := memories[0].Type, MemoryTypeFeedback; got != want {
-		t.Fatalf("memories[0].Type = %q, want %q", got, want)
-	}
-	if got, want := memories[0].Scope, extractScopePrivate; got != want {
+	assertExtractEnvelopePrimaryMemory(t, memories[0])
+	assertMemoryType(t, memories[1], MemoryTypeReference, "memories[1]")
+}
+
+func assertExtractEnvelopePrimaryMemory(t *testing.T, memory ExtractedMemory) {
+	t.Helper()
+	assertMemoryType(t, memory, MemoryTypeFeedback, "memories[0]")
+	if got, want := memory.Scope, extractScopePrivate; got != want {
 		t.Fatalf("memories[0].Scope = %q, want %q", got, want)
 	}
-	if got, want := memories[0].Name, "Review style"; got != want {
+	if got, want := memory.Name, "Review style"; got != want {
 		t.Fatalf("memories[0].Name = %q, want %q", got, want)
 	}
-	if got, want := memories[0].Description, "Keep diffs focused in reviews"; got != want {
+	if got, want := memory.Description, "Keep diffs focused in reviews"; got != want {
 		t.Fatalf("memories[0].Description = %q, want %q", got, want)
 	}
-	if got, want := memories[1].Type, MemoryTypeReference; got != want {
-		t.Fatalf("memories[1].Type = %q, want %q", got, want)
+}
+
+func assertMemoryType(t *testing.T, memory ExtractedMemory, want MemoryType, label string) {
+	t.Helper()
+	if got := memory.Type; got != want {
+		t.Fatalf("%s.Type = %q, want %q", label, got, want)
 	}
 }
 
@@ -184,12 +203,7 @@ func TestAutoDreamConsolidatorConsolidateRemovesDuplicatesAndRebuildsIndex(t *te
 	writeExtractFixture(t, stalePath, testMemoryEntry("Empty note", "stale", MemoryTypeFeedback, "   "))
 
 	now := time.Now()
-	if err := os.Chtimes(olderPath, now.Add(-time.Hour), now.Add(-time.Hour)); err != nil {
-		t.Fatalf("Chtimes(%q) error = %v", olderPath, err)
-	}
-	if err := os.Chtimes(newerPath, now, now); err != nil {
-		t.Fatalf("Chtimes(%q) error = %v", newerPath, err)
-	}
+	setExtractFixtureTimes(t, olderPath, newerPath, now)
 
 	consolidator := NewAutoDreamConsolidator(NewMemoryExtractor())
 	consolidator.cfg = &Config{Enabled: true, RootDir: root}
@@ -207,6 +221,21 @@ func TestAutoDreamConsolidatorConsolidateRemovesDuplicatesAndRebuildsIndex(t *te
 	if called != 1 {
 		t.Fatalf("extract func called %d times, want 1", called)
 	}
+	assertAutoDreamConsolidation(t, root, olderPath, newerPath, stalePath)
+}
+
+func setExtractFixtureTimes(t *testing.T, olderPath, newerPath string, now time.Time) {
+	t.Helper()
+	if err := os.Chtimes(olderPath, now.Add(-time.Hour), now.Add(-time.Hour)); err != nil {
+		t.Fatalf("Chtimes(%q) error = %v", olderPath, err)
+	}
+	if err := os.Chtimes(newerPath, now, now); err != nil {
+		t.Fatalf("Chtimes(%q) error = %v", newerPath, err)
+	}
+}
+
+func assertAutoDreamConsolidation(t *testing.T, root, olderPath, newerPath, stalePath string) {
+	t.Helper()
 	if _, err := os.Stat(olderPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected %q removed, err=%v", olderPath, err)
 	}

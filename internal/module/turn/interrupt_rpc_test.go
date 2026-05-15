@@ -51,22 +51,58 @@ func TestTurnInterruptHandlerReturnsEnvelope(t *testing.T) {
 	if err := json.Unmarshal(raw, &result); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
-	if !result.OK || result.TurnID != "local-1" || result.Status != "interrupted" {
-		t.Fatalf("interrupt result = %#v, want ok/local-1/interrupted", result)
-	}
-	if !result.Confirmed || result.Mode != "interrupt_confirmed" || !result.InterruptSent {
-		t.Fatalf("interrupt result = %#v, want confirmed envelope", result)
-	}
-	if result.StateBefore != "running" || result.StateAfter != "idle" {
-		t.Fatalf("interrupt result = %#v, want running->idle envelope", result)
-	}
-	if result.WaitedMS == nil || *result.WaitedMS <= 0 {
-		t.Fatalf("interrupt result waitedMs = %#v, want >0", result.WaitedMS)
-	}
-	if result.ActiveObserved == nil || !*result.ActiveObserved {
-		t.Fatalf("interrupt result activeObserved = %#v, want true", result.ActiveObserved)
-	}
+	assertInterruptEnvelope(t, result)
 	if session.lastInterrupt.TurnID != "provider-1" {
 		t.Fatalf("interrupt request turn id = %q, want provider-1", session.lastInterrupt.TurnID)
+	}
+}
+
+func assertInterruptEnvelope(t *testing.T, result turnInterruptResult) {
+	t.Helper()
+	if !result.OK {
+		t.Fatalf("interrupt result = %#v, want OK", result)
+	}
+	if result.TurnID != "local-1" {
+		t.Fatalf("interrupt result = %#v, want TurnID local-1", result)
+	}
+	if result.Status != "interrupted" {
+		t.Fatalf("interrupt result = %#v, want interrupted status", result)
+	}
+	if !result.Confirmed {
+		t.Fatalf("interrupt result = %#v, want confirmed", result)
+	}
+	if result.Mode != "interrupt_confirmed" {
+		t.Fatalf("interrupt result = %#v, want interrupt_confirmed mode", result)
+	}
+	if !result.InterruptSent {
+		t.Fatalf("interrupt result = %#v, want InterruptSent", result)
+	}
+	assertInterruptStateTransition(t, result)
+	assertInterruptObservation(t, result)
+}
+
+func assertInterruptStateTransition(t *testing.T, result turnInterruptResult) {
+	t.Helper()
+	if result.StateBefore != "running" {
+		t.Fatalf("interrupt result = %#v, want StateBefore running", result)
+	}
+	if result.StateAfter != "idle" {
+		t.Fatalf("interrupt result = %#v, want StateAfter idle", result)
+	}
+}
+
+func assertInterruptObservation(t *testing.T, result turnInterruptResult) {
+	t.Helper()
+	if result.WaitedMS == nil {
+		t.Fatalf("interrupt result waitedMs = nil, want >0")
+	}
+	if *result.WaitedMS <= 0 {
+		t.Fatalf("interrupt result waitedMs = %d, want >0", *result.WaitedMS)
+	}
+	if result.ActiveObserved == nil {
+		t.Fatalf("interrupt result activeObserved = nil, want true")
+	}
+	if !*result.ActiveObserved {
+		t.Fatalf("interrupt result activeObserved = false, want true")
 	}
 }

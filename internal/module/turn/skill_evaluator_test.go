@@ -6,15 +6,35 @@ import (
 
 func boolPtr(v bool) *bool { return &v }
 
+type evaluatorCase struct {
+	name     string
+	eval     DefaultEvaluator
+	traj     Trajectory
+	eligible bool
+	reason   string
+}
+
 func TestEvaluator_TableDriven(t *testing.T) {
-	type tc struct {
-		name     string
-		eval     DefaultEvaluator
-		traj     Trajectory
-		eligible bool
-		reason   string
+	for _, c := range evaluatorTableCases() {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			got := c.eval.Evaluate(c.traj)
+			if got.Eligible != c.eligible || got.Reason != c.reason {
+				t.Fatalf("Evaluate() = (%v, %q), want (%v, %q)", got.Eligible, got.Reason, c.eligible, c.reason)
+			}
+		})
 	}
-	cases := []tc{
+}
+
+func evaluatorTableCases() []evaluatorCase {
+	cases := evaluatorRuleOneCases()
+	cases = append(cases, evaluatorRuleTwoThreeCases()...)
+	cases = append(cases, evaluatorRuleFourFiveCases()...)
+	return cases
+}
+
+func evaluatorRuleOneCases() []evaluatorCase {
+	return []evaluatorCase{
 		{
 			name: "happy path: completed + 2 successful tools",
 			eval: DefaultEvaluator{MinToolCalls: 2},
@@ -68,6 +88,11 @@ func TestEvaluator_TableDriven(t *testing.T) {
 			eligible: true,
 			reason:   ReasonOK,
 		},
+	}
+}
+
+func evaluatorRuleTwoThreeCases() []evaluatorCase {
+	return []evaluatorCase{
 		{
 			name:     "rule 2: explicit Success=false rejects",
 			eval:     DefaultEvaluator{MinToolCalls: 0},
@@ -100,6 +125,11 @@ func TestEvaluator_TableDriven(t *testing.T) {
 			eligible: true,
 			reason:   ReasonOK,
 		},
+	}
+}
+
+func evaluatorRuleFourFiveCases() []evaluatorCase {
+	return []evaluatorCase{
 		{
 			name: "rule 4: above MaxToolCalls",
 			eval: DefaultEvaluator{MinToolCalls: 0, MaxToolCalls: 2},
@@ -117,7 +147,9 @@ func TestEvaluator_TableDriven(t *testing.T) {
 			traj: Trajectory{
 				TerminalState: "completed",
 				Success:       boolPtr(true),
-				ToolCalls:     []ToolCall{{Failed: false}, {Failed: false}, {Failed: false}, {Failed: false}, {Failed: false}},
+				ToolCalls: []ToolCall{
+					{Failed: false}, {Failed: false}, {Failed: false}, {Failed: false}, {Failed: false},
+				},
 			},
 			eligible: true,
 			reason:   ReasonOK,
@@ -144,16 +176,6 @@ func TestEvaluator_TableDriven(t *testing.T) {
 			eligible: true,
 			reason:   ReasonOK,
 		},
-	}
-
-	for _, c := range cases {
-		c := c
-		t.Run(c.name, func(t *testing.T) {
-			got := c.eval.Evaluate(c.traj)
-			if got.Eligible != c.eligible || got.Reason != c.reason {
-				t.Fatalf("Evaluate() = (%v, %q), want (%v, %q)", got.Eligible, got.Reason, c.eligible, c.reason)
-			}
-		})
 	}
 }
 

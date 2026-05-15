@@ -42,6 +42,15 @@ func TestPromoteTaskFromThreadHappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PromoteTaskFromThread() error = %v", err)
 	}
+	assertFirstPromoteResult(t, result)
+	assertPromotedThreadConfig(t, svc, result)
+	assertPromoteHandoffUpsert(t, files, result.HandoffFile)
+	assertPromoteEmitUpdated(t, *emitted)
+}
+
+func assertFirstPromoteResult(t *testing.T, result PromoteTaskResult) {
+	t.Helper()
+
 	if result.AlreadyTask {
 		t.Fatalf("AlreadyTask = true, want false on first promote")
 	}
@@ -57,8 +66,11 @@ func TestPromoteTaskFromThreadHappyPath(t *testing.T) {
 	if result.HandoffShellWarning != "" {
 		t.Fatalf("HandoffShellWarning = %q, want empty", result.HandoffShellWarning)
 	}
+}
 
-	// verify ConfigOverride was upserted with task fields
+func assertPromotedThreadConfig(t *testing.T, svc *service, result PromoteTaskResult) {
+	t.Helper()
+
 	stored := decodeStoredThreadConfig(svc.threadStore.(*stubThreadStore).thread.ConfigOverride)
 	meta := taskHandoffMetaFromRuntimeConfig(stored.Runtime)
 	if meta.TaskID != result.TaskID {
@@ -70,21 +82,30 @@ func TestPromoteTaskFromThreadHappyPath(t *testing.T) {
 	if got, _ := stored.Runtime[taskConfigKeyAuto].(bool); !got {
 		t.Fatalf("stored autoTaskHandoff = %v, want true", stored.Runtime[taskConfigKeyAuto])
 	}
+}
 
-	// handoff shell created
+func assertPromoteHandoffUpsert(t *testing.T, files *stubSharedFileStore, handoffFile string) {
+	t.Helper()
+
 	if len(files.upserts) != 1 {
 		t.Fatalf("shared file upserts = %d, want 1", len(files.upserts))
 	}
-	if files.upserts[0].Path != result.HandoffFile {
-		t.Fatalf("upsert path = %q, want %q", files.upserts[0].Path, result.HandoffFile)
+	if files.upserts[0].Path != handoffFile {
+		t.Fatalf("upsert path = %q, want %q", files.upserts[0].Path, handoffFile)
 	}
+}
 
-	// emitUpdated nudge sent so projector refreshes runtime patch
-	if len(*emitted) != 1 || (*emitted)[0].ThreadID != "thread-promo" {
-		t.Fatalf("emitUpdated = %#v, want one event for thread-promo", *emitted)
+func assertPromoteEmitUpdated(t *testing.T, emitted []threaddto.Updated) {
+	t.Helper()
+
+	if len(emitted) != 1 {
+		t.Fatalf("emitUpdated = %#v, want one event", emitted)
 	}
-	if (*emitted)[0].Model != nil {
-		t.Fatalf("emitUpdated.Model = %v, want nil (refresh-only nudge)", *(*emitted)[0].Model)
+	if emitted[0].ThreadID != "thread-promo" {
+		t.Fatalf("emitUpdated = %#v, want thread-promo", emitted)
+	}
+	if emitted[0].Model != nil {
+		t.Fatalf("emitUpdated.Model = %v, want nil (refresh-only nudge)", *emitted[0].Model)
 	}
 }
 

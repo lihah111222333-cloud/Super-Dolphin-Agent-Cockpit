@@ -9,29 +9,11 @@ import (
 func TestAutoDreamIntentRoundTrip(t *testing.T) {
 	root := t.TempDir()
 
-	got, err := ReadAutoDreamIntent(root)
-	if err != nil {
-		t.Fatalf("ReadAutoDreamIntent(empty) error = %v", err)
-	}
-	if got != nil {
-		t.Fatalf("ReadAutoDreamIntent(empty) = %v, want nil", *got)
-	}
-
-	if err := WriteAutoDreamIntent(root, true); err != nil {
-		t.Fatalf("WriteAutoDreamIntent(true) error = %v", err)
-	}
-	got, err = ReadAutoDreamIntent(root)
-	if err != nil || got == nil || *got != true {
-		t.Fatalf("ReadAutoDreamIntent(after true) = %v err=%v, want *true", got, err)
-	}
-
-	if err := WriteAutoDreamIntent(root, false); err != nil {
-		t.Fatalf("WriteAutoDreamIntent(false) error = %v", err)
-	}
-	got, err = ReadAutoDreamIntent(root)
-	if err != nil || got == nil || *got != false {
-		t.Fatalf("ReadAutoDreamIntent(after false) = %v err=%v, want *false", got, err)
-	}
+	assertAutoDreamIntentNil(t, root, "empty")
+	writeAutoDreamIntent(t, root, true)
+	assertAutoDreamIntentValue(t, root, true, "after true")
+	writeAutoDreamIntent(t, root, false)
+	assertAutoDreamIntentValue(t, root, false, "after false")
 }
 
 func TestAutoDreamIntentEmptyRootDir(t *testing.T) {
@@ -73,5 +55,31 @@ func TestSetAutoDreamIntentRPCPersists(t *testing.T) {
 	got, _ = ReadAutoDreamIntent(root)
 	if got == nil || *got != false {
 		t.Fatalf("ReadAutoDreamIntent after RPC(false) = %v, want *false", got)
+	}
+}
+
+func writeAutoDreamIntent(t *testing.T, root string, enabled bool) {
+	t.Helper()
+	if err := WriteAutoDreamIntent(root, enabled); err != nil {
+		t.Fatalf("WriteAutoDreamIntent(%v) error = %v", enabled, err)
+	}
+}
+
+func assertAutoDreamIntentNil(t *testing.T, root, label string) {
+	t.Helper()
+	got, err := ReadAutoDreamIntent(root)
+	if err != nil {
+		t.Fatalf("ReadAutoDreamIntent(%s) error = %v", label, err)
+	}
+	if got != nil {
+		t.Fatalf("ReadAutoDreamIntent(%s) = %v, want nil", label, *got)
+	}
+}
+
+func assertAutoDreamIntentValue(t *testing.T, root string, want bool, label string) {
+	t.Helper()
+	got, err := ReadAutoDreamIntent(root)
+	if err != nil || got == nil || *got != want {
+		t.Fatalf("ReadAutoDreamIntent(%s) = %v err=%v, want *%v", label, got, err, want)
 	}
 }

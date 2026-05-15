@@ -16,7 +16,14 @@ func TestBuildStartCtxFallsBackToConfigAndRegistry(t *testing.T) {
 	t.Parallel()
 
 	repoRoot, cwd := newPromptGitFixture(t)
-	ctx := buildStartCtx(StartRequest{
+	ctx := buildConfigFallbackStartCtx(repoRoot, cwd)
+	assertStartCtxPaths(t, ctx, repoRoot, cwd)
+	assertStartCtxConfigValues(t, ctx)
+	assertStartCtxTools(t, ctx, repoRoot)
+}
+
+func buildConfigFallbackStartCtx(repoRoot, cwd string) contract.BuildCtx {
+	return buildStartCtx(StartRequest{
 		Provider: "codex",
 		CWD:      cwd,
 		Model:    "gpt-5.5",
@@ -37,7 +44,10 @@ func TestBuildStartCtxFallsBackToConfigAndRegistry(t *testing.T) {
 		{BinaryName: "mcp-orch", ClientKind: "orch", Status: mcpdto.StatusActive},
 		{BinaryName: "mcp-ida", ClientKind: "ida", Status: mcpdto.StatusDisconnected},
 	}})
+}
 
+func assertStartCtxPaths(t *testing.T, ctx contract.BuildCtx, repoRoot, cwd string) {
+	t.Helper()
 	if ctx.CWD != cwd {
 		t.Fatalf("CWD = %q, want %q", ctx.CWD, cwd)
 	}
@@ -47,18 +57,12 @@ func TestBuildStartCtxFallsBackToConfigAndRegistry(t *testing.T) {
 	if !ctx.IsWorktree {
 		t.Fatal("IsWorktree = false, want true")
 	}
+}
+
+func assertStartCtxConfigValues(t *testing.T, ctx contract.BuildCtx) {
+	t.Helper()
 	if ctx.Language != "Chinese" {
 		t.Fatalf("Language = %q, want Chinese", ctx.Language)
-	}
-	if got := sortedStrings(ctx.EnabledTools); !slices.Equal(got, []string{"request_user_input", "spawn_agent"}) {
-		t.Fatalf("EnabledTools = %#v", ctx.EnabledTools)
-	}
-	wantDirs := []string{filepath.Join(repoRoot, "extra"), filepath.Join(repoRoot, "extra-two")}
-	if got := sortedStrings(ctx.AdditionalWorkingDirectories); !slices.Equal(got, wantDirs) {
-		t.Fatalf("AdditionalWorkingDirectories = %#v, want %#v", ctx.AdditionalWorkingDirectories, wantDirs)
-	}
-	if got := sortedStrings(ctx.ClaudeMdExcludes); !slices.Equal(got, []string{filepath.Join(repoRoot, "**", "CLAUDE.local.md")}) {
-		t.Fatalf("ClaudeMdExcludes = %#v", ctx.ClaudeMdExcludes)
 	}
 	if !ctx.SessionFlags["verification_required"] {
 		t.Fatalf("SessionFlags = %#v, want verification_required=true", ctx.SessionFlags)
@@ -68,6 +72,20 @@ func TestBuildStartCtxFallsBackToConfigAndRegistry(t *testing.T) {
 	}
 	if ctx.KeepCodingInstructions == nil || !*ctx.KeepCodingInstructions {
 		t.Fatalf("KeepCodingInstructions = %#v, want true", ctx.KeepCodingInstructions)
+	}
+}
+
+func assertStartCtxTools(t *testing.T, ctx contract.BuildCtx, repoRoot string) {
+	t.Helper()
+	if got := sortedStrings(ctx.EnabledTools); !slices.Equal(got, []string{"request_user_input", "spawn_agent"}) {
+		t.Fatalf("EnabledTools = %#v", ctx.EnabledTools)
+	}
+	wantDirs := []string{filepath.Join(repoRoot, "extra"), filepath.Join(repoRoot, "extra-two")}
+	if got := sortedStrings(ctx.AdditionalWorkingDirectories); !slices.Equal(got, wantDirs) {
+		t.Fatalf("AdditionalWorkingDirectories = %#v, want %#v", ctx.AdditionalWorkingDirectories, wantDirs)
+	}
+	if got := sortedStrings(ctx.ClaudeMdExcludes); !slices.Equal(got, []string{filepath.Join(repoRoot, "**", "CLAUDE.local.md")}) {
+		t.Fatalf("ClaudeMdExcludes = %#v", ctx.ClaudeMdExcludes)
 	}
 	if got := sortedStrings(ctx.MCPSnapshot.Servers); !slices.Equal(got, []string{"lsp", "orch"}) {
 		t.Fatalf("MCPSnapshot.Servers = %#v, want [lsp orch]", ctx.MCPSnapshot.Servers)
@@ -125,6 +143,18 @@ func TestServiceStartPassesFullPromptAssemblyContext(t *testing.T) {
 	t.Parallel()
 
 	repoRoot, cwd := newPromptGitFixture(t)
+	svc, assembly, orch := newPromptAssemblyStartService(t, repoRoot)
+
+	if _, err := svc.Start(context.Background(), promptAssemblyStartRequest(cwd)); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	assertPromptAssemblyStartInput(t, assembly.startInput, repoRoot, cwd)
+	assertPromptAssemblyLaunchRequest(t, orch)
+}
+
+func newPromptAssemblyStartService(t *testing.T, repoRoot string) (*service, *capturingPromptAssembly, *stubThreadOrchestration) {
+	t.Helper()
 	assembly := &capturingPromptAssembly{start: contract.StartAssembly{DisplayName: "assembled name"}}
 	threads := &stubThreadStore{}
 	sessions := &stubSessionProvider{}
@@ -150,8 +180,11 @@ func TestServiceStartPassesFullPromptAssemblyContext(t *testing.T) {
 		&contract.Config{ProjectRoot: repoRoot},
 		promptToolRegistryStub{instances: []contract.ToolInstance{{BinaryName: "mcp-lsp", ClientKind: "lsp", Status: mcpdto.StatusActive}}},
 	).(*service)
+	return svc, assembly, orch
+}
 
-	if _, err := svc.Start(context.Background(), StartRequest{
+func promptAssemblyStartRequest(cwd string) StartRequest {
+	return StartRequest{
 		AgentID:          "agent-ctx",
 		Provider:         "codex",
 		ParentAgentID:    "agent-root",
@@ -163,17 +196,28 @@ func TestServiceStartPassesFullPromptAssemblyContext(t *testing.T) {
 		Language:         "Chinese",
 		EnabledTools:     []string{"lsp_file", "spawn_agent", "lsp_file"},
 		SessionFlags:     map[string]bool{"verification_required": true},
-	}); err != nil {
-		t.Fatalf("Start() error = %v", err)
 	}
+}
 
-	got := assembly.startInput
+func assertPromptAssemblyStartInput(t *testing.T, got contract.StartInput, repoRoot, cwd string) {
+	t.Helper()
+	assertPromptAssemblyIdentity(t, got)
+	assertPromptAssemblyPaths(t, got, repoRoot, cwd)
+	assertPromptAssemblyOptions(t, got)
+}
+
+func assertPromptAssemblyIdentity(t *testing.T, got contract.StartInput) {
+	t.Helper()
 	if got.ThreadID != "agent-ctx" {
 		t.Fatalf("ThreadID = %q, want agent-ctx", got.ThreadID)
 	}
 	if got.ParentAgentID != "agent-root" || got.AgentType != "worker" || got.AgentMemoryScope != "project" {
 		t.Fatalf("child agent metadata = %#v", got)
 	}
+}
+
+func assertPromptAssemblyPaths(t *testing.T, got contract.StartInput, repoRoot, cwd string) {
+	t.Helper()
 	if got.CWD != cwd {
 		t.Fatalf("CWD = %q, want %q", got.CWD, cwd)
 	}
@@ -183,21 +227,29 @@ func TestServiceStartPassesFullPromptAssemblyContext(t *testing.T) {
 	if !got.IsWorktree {
 		t.Fatal("IsWorktree = false, want true")
 	}
+}
+
+func assertPromptAssemblyOptions(t *testing.T, got contract.StartInput) {
+	t.Helper()
 	if got.Language != "Chinese" {
 		t.Fatalf("Language = %q, want Chinese", got.Language)
 	}
-	if got := sortedStrings(got.EnabledTools); !slices.Equal(got, []string{"lsp_file", "spawn_agent"}) {
-		t.Fatalf("EnabledTools = %#v", assembly.startInput.EnabledTools)
+	if enabled := sortedStrings(got.EnabledTools); !slices.Equal(enabled, []string{"lsp_file", "spawn_agent"}) {
+		t.Fatalf("EnabledTools = %#v", enabled)
 	}
-	if !assembly.startInput.SessionFlags["verification_required"] {
-		t.Fatalf("SessionFlags = %#v, want verification_required=true", assembly.startInput.SessionFlags)
+	if !got.SessionFlags["verification_required"] {
+		t.Fatalf("SessionFlags = %#v, want verification_required=true", got.SessionFlags)
 	}
-	if assembly.startInput.OutputStyleConfig != nil {
-		t.Fatalf("OutputStyleConfig = %#v, want nil when not configured", assembly.startInput.OutputStyleConfig)
+	if got.OutputStyleConfig != nil {
+		t.Fatalf("OutputStyleConfig = %#v, want nil when not configured", got.OutputStyleConfig)
 	}
-	if got := sortedStrings(assembly.startInput.MCPSnapshot.Servers); !slices.Equal(got, []string{"lsp"}) {
-		t.Fatalf("MCPSnapshot.Servers = %#v, want [lsp]", assembly.startInput.MCPSnapshot.Servers)
+	if gotServers := sortedStrings(got.MCPSnapshot.Servers); !slices.Equal(gotServers, []string{"lsp"}) {
+		t.Fatalf("MCPSnapshot.Servers = %#v, want [lsp]", got.MCPSnapshot.Servers)
 	}
+}
+
+func assertPromptAssemblyLaunchRequest(t *testing.T, orch *stubThreadOrchestration) {
+	t.Helper()
 	if orch.launchReq.ParentID != "agent-root" || orch.launchReq.AgentType != "worker" || orch.launchReq.MemoryScope != "project" {
 		t.Fatalf("launch request metadata = %#v", orch.launchReq)
 	}

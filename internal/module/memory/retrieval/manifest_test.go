@@ -9,6 +9,15 @@ import (
 
 func TestManifestBuilderBuildManifestScansMemoryFiles(t *testing.T) {
 	root := newTestMemoryRoot(t)
+	_, newerPath := writeManifestScanFixtures(t, root)
+
+	manifest := buildManifestForTest(t, root)
+	wantNewerPath := validateReadPathForTest(t, root, newerPath)
+	assertScannedManifest(t, manifest, wantNewerPath)
+}
+
+func writeManifestScanFixtures(t *testing.T, root string) (string, string) {
+	t.Helper()
 	older := testMemoryEntry("Review Style", "Keep review diffs focused", MemoryTypeUser, "Review focused changes first.")
 	older.Frontmatter.Aliases = []string{"review preference"}
 	newer := testMemoryEntry("Build Guard", "Use guarded build commands", MemoryTypeProject, "Run ./scripts/go_with_guard.sh build ./...")
@@ -32,16 +41,29 @@ func TestManifestBuilderBuildManifestScansMemoryFiles(t *testing.T) {
 	if err := os.Chtimes(newerPath, newerTime, newerTime); err != nil {
 		t.Fatalf("Chtimes(%q) error = %v", newerPath, err)
 	}
+	return olderPath, newerPath
+}
 
-	builder := NewManifestBuilder()
-	manifest, err := builder.BuildManifest(root)
+func buildManifestForTest(t *testing.T, root string) []MemoryEntry {
+	t.Helper()
+	manifest, err := NewManifestBuilder().BuildManifest(root)
 	if err != nil {
 		t.Fatalf("BuildManifest() error = %v", err)
 	}
-	wantNewerPath, err := validateMemoryReadPath(root, newerPath)
+	return manifest
+}
+
+func validateReadPathForTest(t *testing.T, root, path string) string {
+	t.Helper()
+	wantPath, err := validateMemoryReadPath(root, path)
 	if err != nil {
-		t.Fatalf("validateMemoryReadPath(%q) error = %v", newerPath, err)
+		t.Fatalf("validateMemoryReadPath(%q) error = %v", path, err)
 	}
+	return wantPath
+}
+
+func assertScannedManifest(t *testing.T, manifest []MemoryEntry, wantNewerPath string) {
+	t.Helper()
 	if len(manifest) != 2 {
 		t.Fatalf("BuildManifest() entries = %d, want 2", len(manifest))
 	}
@@ -54,7 +76,6 @@ func TestManifestBuilderBuildManifestScansMemoryFiles(t *testing.T) {
 	if manifest[0].Frontmatter.Title != "Guard" {
 		t.Fatalf("BuildManifest()[0].Frontmatter.Title = %q, want %q", manifest[0].Frontmatter.Title, "Guard")
 	}
-
 	if manifest[1].CanonicalName != CanonicalName("Review Style") {
 		t.Fatalf("BuildManifest()[1].CanonicalName = %q, want %q", manifest[1].CanonicalName, CanonicalName("Review Style"))
 	}
@@ -62,6 +83,16 @@ func TestManifestBuilderBuildManifestScansMemoryFiles(t *testing.T) {
 
 func TestScanHeadersSafeAndBuildManifestSkipUnsafeFiles(t *testing.T) {
 	root := newTestMemoryRoot(t)
+	insidePath := writeSafeAndUnsafeManifestFixtures(t, root)
+	wantPath := validateReadPathForTest(t, root, insidePath)
+
+	headers := scanHeadersForTest(t, root)
+	assertSingleHeaderPath(t, headers, wantPath)
+	assertSingleManifestPath(t, buildManifestForTest(t, root), wantPath)
+}
+
+func writeSafeAndUnsafeManifestFixtures(t *testing.T, root string) string {
+	t.Helper()
 	insidePath := filepath.Join(root, string(MemoryTypeUser), "inside.md")
 	writeTestTopicFile(t, insidePath, testMemoryEntry("Inside", "safe entry", MemoryTypeUser, "Keep this entry."))
 
@@ -76,15 +107,20 @@ func TestScanHeadersSafeAndBuildManifestSkipUnsafeFiles(t *testing.T) {
 	if err := os.Symlink(outsidePath, linkPath); err != nil {
 		t.Skipf("Symlink unsupported: %v", err)
 	}
+	return insidePath
+}
 
+func scanHeadersForTest(t *testing.T, root string) []MemoryEntry {
+	t.Helper()
 	headers, err := ScanHeadersSafe(root)
 	if err != nil {
 		t.Fatalf("ScanHeadersSafe() error = %v", err)
 	}
-	wantPath, err := validateMemoryReadPath(root, insidePath)
-	if err != nil {
-		t.Fatalf("validateMemoryReadPath(%q) error = %v", insidePath, err)
-	}
+	return headers
+}
+
+func assertSingleHeaderPath(t *testing.T, headers []MemoryEntry, wantPath string) {
+	t.Helper()
 	if len(headers) != 1 {
 		t.Fatalf("ScanHeadersSafe() entries = %d, want 1", len(headers))
 	}
@@ -94,11 +130,10 @@ func TestScanHeadersSafeAndBuildManifestSkipUnsafeFiles(t *testing.T) {
 	if headers[0].Content != "" {
 		t.Fatalf("ScanHeadersSafe() should not preload content, got %q", headers[0].Content)
 	}
+}
 
-	manifest, err := NewManifestBuilder().BuildManifest(root)
-	if err != nil {
-		t.Fatalf("BuildManifest() error = %v", err)
-	}
+func assertSingleManifestPath(t *testing.T, manifest []MemoryEntry, wantPath string) {
+	t.Helper()
 	if len(manifest) != 1 {
 		t.Fatalf("BuildManifest() entries = %d, want 1", len(manifest))
 	}

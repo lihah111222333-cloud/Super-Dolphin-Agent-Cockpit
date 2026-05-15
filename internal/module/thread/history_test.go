@@ -77,6 +77,24 @@ func TestReadMessagesSupportsTimestampCursorCompatibility(t *testing.T) {
 func TestForkedThreadHistoryUsesForkThreadID(t *testing.T) {
 	t.Parallel()
 
+	fixture := newForkedThreadHistoryFixture(t)
+	result, err := fixture.svc.Fork(context.Background(), "thread-1")
+	if err != nil {
+		t.Fatalf("Fork() error = %v", err)
+	}
+	requireForkedThreadResult(t, result, fixture.threadStore)
+	requireForkedHistoryUsesForkThreadID(t, fixture)
+}
+
+type forkedThreadHistoryFixture struct {
+	svc         Service
+	parent      *historyTestSession
+	forked      *historyTestSession
+	threadStore *historyTestThreadStore
+}
+
+func newForkedThreadHistoryFixture(t *testing.T) forkedThreadHistoryFixture {
+	t.Helper()
 	parentSession := &historyTestSession{
 		threadID:   "thread-1",
 		forkResult: dto.ForkResult{NewThreadID: "thread-2"},
@@ -123,29 +141,37 @@ func TestForkedThreadHistoryUsesForkThreadID(t *testing.T) {
 		&forkOrchestrationStub{},
 		nil,
 	)
-
-	result, err := svc.Fork(context.Background(), "thread-1")
-	if err != nil {
-		t.Fatalf("Fork() error = %v", err)
+	return forkedThreadHistoryFixture{
+		svc:         svc,
+		parent:      parentSession,
+		forked:      forkedSession,
+		threadStore: threadStore,
 	}
+}
+
+func requireForkedThreadResult(t *testing.T, result ForkResult, threadStore *historyTestThreadStore) {
+	t.Helper()
 	if result.NewThreadID != "thread-2" {
 		t.Fatalf("Fork() new thread id = %q, want thread-2", result.NewThreadID)
 	}
 	if len(threadStore.upserts) != 1 || threadStore.upserts[0].OwnerThreadID != "thread-1" {
 		t.Fatalf("fork upserts = %#v, want owner_thread_id thread-1", threadStore.upserts)
 	}
+}
 
-	if _, err := svc.ReadHistory(context.Background(), "thread-2", 5); err != nil {
+func requireForkedHistoryUsesForkThreadID(t *testing.T, fixture forkedThreadHistoryFixture) {
+	t.Helper()
+	if _, err := fixture.svc.ReadHistory(context.Background(), "thread-2", 5); err != nil {
 		t.Fatalf("ReadHistory(fork) error = %v", err)
 	}
-	if len(forkedSession.readCalls) == 0 {
+	if len(fixture.forked.readCalls) == 0 {
 		t.Fatal("expected forked thread history read to hit session")
 	}
-	if got := forkedSession.readCalls[len(forkedSession.readCalls)-1].ThreadID; got != "thread-2" {
+	if got := fixture.forked.readCalls[len(fixture.forked.readCalls)-1].ThreadID; got != "thread-2" {
 		t.Fatalf("forked thread history target = %q, want thread-2", got)
 	}
-	if len(parentSession.readCalls) != 0 {
-		t.Fatalf("parent session read calls = %#v, want no reads after forked history lookup", parentSession.readCalls)
+	if len(fixture.parent.readCalls) != 0 {
+		t.Fatalf("parent session read calls = %#v, want no reads after forked history lookup", fixture.parent.readCalls)
 	}
 }
 

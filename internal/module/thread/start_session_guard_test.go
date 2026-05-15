@@ -96,29 +96,7 @@ func TestServiceStartUsesResolvedStartConfig(t *testing.T) {
 	bindings := &stubBindingStore{}
 	sessions := &stubSessionProvider{}
 	rolloutPath := writeExistingProviderHistoryFile(t)
-	starter := &startOnlySessionStarter{
-		onStart: func(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
-			if req.Provider != "claude" {
-				t.Fatalf("provider = %q, want claude", req.Provider)
-			}
-			if req.CWD != wantStartCWD(t) {
-				t.Fatalf("cwd = %q, want %q", req.CWD, wantStartCWD(t))
-			}
-			if req.Instructions != "launch me" {
-				t.Fatalf("instructions = %q, want launch me", req.Instructions)
-			}
-			if got := req.Config["approvalPolicy"]; got != "never" {
-				t.Fatalf("approvalPolicy = %#v, want never", got)
-			}
-			sandbox, _ := req.Config["sandbox"].(map[string]any)
-			if sandbox["type"] != "danger-full-access" {
-				t.Fatalf("sandbox = %#v, want danger-full-access", req.Config["sandbox"])
-			}
-			session := &stubSession{threadID: "019d5f6b-fb3c-7760-9d6f-54005553f5b3", rolloutPath: rolloutPath}
-			sessions.session = session
-			return session, nil
-		},
-	}
+	starter := startConfigAssertingStarter(t, sessions, rolloutPath)
 	orch := &stubThreadOrchestration{}
 	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)
 
@@ -131,18 +109,65 @@ func TestServiceStartUsesResolvedStartConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
+	assertResolvedStartResult(t, result)
+	assertResolvedStartLaunch(t, orch)
+	assertResolvedStartPersistence(t, threads, bindings)
+}
+
+func startConfigAssertingStarter(t *testing.T, sessions *stubSessionProvider, rolloutPath string) *startOnlySessionStarter {
+	t.Helper()
+	return &startOnlySessionStarter{
+		onStart: func(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+			assertResolvedStartRequest(t, req)
+			session := &stubSession{threadID: "019d5f6b-fb3c-7760-9d6f-54005553f5b3", rolloutPath: rolloutPath}
+			sessions.session = session
+			return session, nil
+		},
+	}
+}
+
+func assertResolvedStartRequest(t *testing.T, req dto.StartSessionRequest) {
+	t.Helper()
+	if req.Provider != "claude" {
+		t.Fatalf("provider = %q, want claude", req.Provider)
+	}
+	if req.CWD != wantStartCWD(t) {
+		t.Fatalf("cwd = %q, want %q", req.CWD, wantStartCWD(t))
+	}
+	if req.Instructions != "launch me" {
+		t.Fatalf("instructions = %q, want launch me", req.Instructions)
+	}
+	if got := req.Config["approvalPolicy"]; got != "never" {
+		t.Fatalf("approvalPolicy = %#v, want never", got)
+	}
+	sandbox, ok := req.Config["sandbox"].(map[string]any)
+	if !ok || sandbox["type"] != "danger-full-access" {
+		t.Fatalf("sandbox = %#v, want danger-full-access", req.Config["sandbox"])
+	}
+}
+
+func assertResolvedStartResult(t *testing.T, result StartResult) {
+	t.Helper()
 	if result.ThreadID != "agent-start" || result.SessionID != "019d5f6b-fb3c-7760-9d6f-54005553f5b3" || result.AgentID != "agent-start" {
 		t.Fatalf("result = %#v", result)
 	}
 	if result.Provider != "claude" || result.CWD != wantStartCWD(t) || result.ApprovalPolicy != "never" {
 		t.Fatalf("effective start result = %#v", result)
 	}
+}
+
+func assertResolvedStartLaunch(t *testing.T, orch *stubThreadOrchestration) {
+	t.Helper()
 	if orch.launchReq.Cwd != wantStartCWD(t) {
 		t.Fatalf("launch cwd = %q, want %q", orch.launchReq.Cwd, wantStartCWD(t))
 	}
 	if orch.launchReq.Name != "" {
 		t.Fatalf("launch name = %q, want empty", orch.launchReq.Name)
 	}
+}
+
+func assertResolvedStartPersistence(t *testing.T, threads *stubThreadStore, bindings *stubBindingStore) {
+	t.Helper()
 	if threads.upsert.Name != "" || threads.upsert.Prompt != "" {
 		t.Fatalf("persisted name/prompt = %q/%q, want empty", threads.upsert.Name, threads.upsert.Prompt)
 	}

@@ -122,6 +122,13 @@ func TestExtractor_GoldenRedactsSecrets(t *testing.T) {
 		t.Fatal("expected ExtractedSkill, got nil")
 	}
 	forbidden := []string{"abc.def-secret_value", "sk-1234567890abcdef", "eyJhbGciOiJIUzI1NiJ9", "eyJzdWIiOiJ4In0"}
+	assertExtractedSkillRedacted(t, extracted, forbidden)
+	assertGoldenExtractionStore(t, e, store)
+	assertSupersedeCall(t, store.supersedeCalls[0], extracted)
+}
+
+func assertExtractedSkillRedacted(t *testing.T, extracted *ExtractedSkill, forbidden []string) {
+	t.Helper()
 	for _, f := range forbidden {
 		if strings.Contains(extracted.SKILLMd, f) {
 			t.Fatalf("SKILLMd still contains %q: %s", f, extracted.SKILLMd)
@@ -130,6 +137,10 @@ func TestExtractor_GoldenRedactsSecrets(t *testing.T) {
 			t.Fatalf("Sample still contains %q: %s", f, extracted.Sample)
 		}
 	}
+}
+
+func assertGoldenExtractionStore(t *testing.T, e *DefaultExtractor, store *fakeStore) {
+	t.Helper()
 	if len(store.inserts) != 1 {
 		t.Fatalf("expected 1 insert, got %d", len(store.inserts))
 	}
@@ -142,8 +153,15 @@ func TestExtractor_GoldenRedactsSecrets(t *testing.T) {
 	if len(store.supersedeCalls) != 1 {
 		t.Fatalf("expected 1 supersede call, got %d", len(store.supersedeCalls))
 	}
-	if store.supersedeCalls[0].Scope != extracted.Scope || store.supersedeCalls[0].Slug != extracted.Slug || store.supersedeCalls[0].RepoFingerprint != extracted.RepoFingerprint || store.supersedeCalls[0].KeepID != 1 {
-		t.Fatalf("supersede call = %+v, extracted = %+v", store.supersedeCalls[0], extracted)
+}
+
+func assertSupersedeCall(t *testing.T, call struct {
+	Scope, Slug, RepoFingerprint string
+	KeepID                       int64
+}, extracted *ExtractedSkill) {
+	t.Helper()
+	if call.Scope != extracted.Scope || call.Slug != extracted.Slug || call.RepoFingerprint != extracted.RepoFingerprint || call.KeepID != 1 {
+		t.Fatalf("supersede call = %+v, extracted = %+v", call, extracted)
 	}
 }
 

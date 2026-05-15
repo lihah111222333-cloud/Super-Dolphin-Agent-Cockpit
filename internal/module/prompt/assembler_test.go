@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -93,55 +92,15 @@ func TestAssembleStartIncludesBuiltinsAndDynamicSections(t *testing.T) {
 	if assembly.DisplayName != "legacy display" {
 		t.Fatalf("DisplayName = %q, want %q", assembly.DisplayName, "legacy display")
 	}
-	identityContent := ""
-	for _, section := range assembly.ResolvedSections {
-		if section.Name == SectionIdentity {
-			identityContent = section.Content
-			break
-		}
-	}
-	if identityContent == "" {
-		t.Fatalf("ResolvedSections missing %q: %#v", SectionIdentity, assembly.ResolvedSections)
-	}
-	if !strings.Contains(assembly.BaseInstructions, identityContent) {
-		t.Fatalf("BaseInstructions missing built-in section content: %q", assembly.BaseInstructions)
-	}
-	if strings.Contains(assembly.BaseInstructions, "## "+SectionIdentity) {
-		t.Fatalf("BaseInstructions unexpectedly injected section heading: %q", assembly.BaseInstructions)
-	}
-	if !strings.Contains(assembly.BaseInstructions, "CWD: /repo") {
-		t.Fatalf("BaseInstructions missing dynamic section text: %q", assembly.BaseInstructions)
-	}
-	if !strings.Contains(assembly.BaseInstructions, "legacy base") {
-		t.Fatalf("BaseInstructions missing legacy base payload: %q", assembly.BaseInstructions)
-	}
+	identityContent := requireResolvedPromptSectionContent(t, assembly.ResolvedSections, SectionIdentity)
+	assertStartAssemblyBaseContent(t, assembly, identityContent)
 	if assembly.DeveloperInstructions != "developer tail" {
 		t.Fatalf("DeveloperInstructions = %q, want %q", assembly.DeveloperInstructions, "developer tail")
 	}
 	if assembly.Snapshot.Version != SnapshotVersion || assembly.Snapshot.Hash == "" {
 		t.Fatalf("unexpected snapshot = %#v", assembly.Snapshot)
 	}
-	if assembly.Boundary == nil {
-		t.Fatalf("Boundary = nil, want cached/uncached split metadata")
-	}
-	if !strings.Contains(assembly.Boundary.CachedPrefix, identityContent) {
-		t.Fatalf("CachedPrefix = %q, want identity section", assembly.Boundary.CachedPrefix)
-	}
-	if strings.Contains(assembly.Boundary.CachedPrefix, "CWD: /repo") {
-		t.Fatalf("CachedPrefix unexpectedly contains dynamic section: %q", assembly.Boundary.CachedPrefix)
-	}
-	if !strings.Contains(assembly.Boundary.UncachedTail, "CWD: /repo") || !strings.Contains(assembly.Boundary.UncachedTail, "legacy base") {
-		t.Fatalf("UncachedTail = %q, want dynamic section and legacy base", assembly.Boundary.UncachedTail)
-	}
-	// The boundary blocks compose the boundary portion of BaseInstructions;
-	// the full BaseInstructions also includes the appended system prompt.
-	boundaryComposed := joinBlocks(assembly.Boundary.CachedPrefix, assembly.Boundary.UncachedTail)
-	if !strings.HasPrefix(assembly.BaseInstructions, boundaryComposed) {
-		t.Fatalf("BaseInstructions does not start with boundary blocks: boundary=%#v base=%q", assembly.Boundary, assembly.BaseInstructions)
-	}
-	if assembly.Snapshot.Boundary == nil || *assembly.Snapshot.Boundary != *assembly.Boundary {
-		t.Fatalf("Snapshot.Boundary = %#v, want %#v", assembly.Snapshot.Boundary, assembly.Boundary)
-	}
+	assertStartAssemblyBoundary(t, assembly, identityContent)
 }
 
 func TestAssembleStartKeepsStaticSectionsAheadOfDynamicSections(t *testing.T) {
@@ -295,28 +254,12 @@ func TestSimpleAssembleStartHardEarlyReturn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AssembleStart() error = %v", err)
 	}
-	if called {
-		t.Fatal("simple mode still evaluated registered sections")
-	}
-	if len(assembly.ResolvedSections) != 0 {
-		t.Fatalf("ResolvedSections = %#v, want nil/empty in simple mode", assembly.ResolvedSections)
-	}
 	want := simpleStartIdentityLine + "\nCWD: /repo\nDate: 2026-04-22"
-	if assembly.BaseInstructions != want {
-		t.Fatalf("BaseInstructions = %q, want strict three-line form %q", assembly.BaseInstructions, want)
-	}
-	if strings.Contains(assembly.BaseInstructions, "<system-reminder>") {
-		t.Fatalf("CLAUDE_CODE_SIMPLE ultraSimple must not inject system-reminder: %q", assembly.BaseInstructions)
-	}
-	if strings.Contains(assembly.BaseInstructions, "legacy base") || strings.Contains(assembly.BaseInstructions, text) {
-		t.Fatalf("BaseInstructions unexpectedly kept normal-path content: %q", assembly.BaseInstructions)
-	}
+	assertSimpleStartHardEarlyReturn(t, assembly, called, want, text)
 	if assembly.DeveloperInstructions != "developer tail" {
 		t.Fatalf("DeveloperInstructions = %q, want developer tail", assembly.DeveloperInstructions)
 	}
-	if assembly.UserContext != nil || assembly.UserContextText != "" || assembly.SystemContext != nil {
-		t.Fatalf("ultraSimple must leave UserContext/SystemContext empty: %#v / %q / %#v", assembly.UserContext, assembly.UserContextText, assembly.SystemContext)
-	}
+	assertSimpleStartContextEmpty(t, assembly)
 }
 
 func TestSimpleAssembleStartUsesSessionFlag(t *testing.T) {
@@ -424,12 +367,7 @@ func TestStartOnlyDynamicSectionCachesStartWithoutLeakingToTurn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first AssembleTurn() error = %v", err)
 	}
-	if calls != 0 {
-		t.Fatalf("memory provider calls after turn = %d, want 0", calls)
-	}
-	if strings.Contains(firstTurn.UserContextText, "memory build #") {
-		t.Fatalf("turn unexpectedly rendered memory content: %q", firstTurn.UserContextText)
-	}
+	assertMemoryProviderSkippedOnTurn(t, firstTurn, calls)
 
 	firstStart, err := svc.AssembleStart(context.Background(), StartInput{})
 	if err != nil {
@@ -439,26 +377,13 @@ func TestStartOnlyDynamicSectionCachesStartWithoutLeakingToTurn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second AssembleStart() error = %v", err)
 	}
-	if calls != 1 {
-		t.Fatalf("memory provider calls after repeated start = %d, want 1", calls)
-	}
-	if !strings.Contains(firstStart.BaseInstructions, "memory build #1") {
-		t.Fatalf("start missing cached memory content: %q", firstStart.BaseInstructions)
-	}
-	if firstStart.BaseInstructions != secondStart.BaseInstructions {
-		t.Fatalf("cached start mismatch: first=%q second=%q", firstStart.BaseInstructions, secondStart.BaseInstructions)
-	}
+	assertCachedMemoryStart(t, firstStart, secondStart, calls)
 
 	secondTurn, err := svc.AssembleTurn(context.Background(), TurnInput{})
 	if err != nil {
 		t.Fatalf("second AssembleTurn() error = %v", err)
 	}
-	if calls != 1 {
-		t.Fatalf("memory provider calls after second turn = %d, want 1", calls)
-	}
-	if strings.Contains(secondTurn.UserContextText, "memory build #") {
-		t.Fatalf("turn unexpectedly reused cached memory content: %q", secondTurn.UserContextText)
-	}
+	assertMemoryProviderStillSkippedOnTurn(t, secondTurn, calls)
 
 	if err := svc.Invalidate(context.Background(), InvalidateClear); err != nil {
 		t.Fatalf("Invalidate() error = %v", err)
@@ -467,12 +392,7 @@ func TestStartOnlyDynamicSectionCachesStartWithoutLeakingToTurn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("third AssembleStart() error = %v", err)
 	}
-	if calls != 2 {
-		t.Fatalf("memory provider calls after invalidate = %d, want 2", calls)
-	}
-	if !strings.Contains(thirdStart.BaseInstructions, "memory build #2") {
-		t.Fatalf("start missing rebuilt memory content: %q", thirdStart.BaseInstructions)
-	}
+	assertRebuiltMemoryStart(t, thirdStart, calls)
 }
 
 func TestInputScopedSectionCachesOnlyDependencyFields(t *testing.T) {
@@ -504,24 +424,10 @@ func TestInputScopedSectionCachesOnlyDependencyFields(t *testing.T) {
 	if calls != 2 {
 		t.Fatalf("language provider calls = %d, want 2", calls)
 	}
-	firstLanguage, ok := resolvedSectionContent(first.ResolvedSections, DynamicSectionLanguage)
-	if !ok {
-		t.Fatalf("first turn missing %q section", DynamicSectionLanguage)
-	}
-	secondLanguage, ok := resolvedSectionContent(second.ResolvedSections, DynamicSectionLanguage)
-	if !ok {
-		t.Fatalf("second turn missing %q section", DynamicSectionLanguage)
-	}
-	thirdLanguage, ok := resolvedSectionContent(third.ResolvedSections, DynamicSectionLanguage)
-	if !ok {
-		t.Fatalf("third turn missing %q section", DynamicSectionLanguage)
-	}
-	if firstLanguage != secondLanguage {
-		t.Fatalf("input-scoped cache missed on unrelated input changes: first=%q second=%q", firstLanguage, secondLanguage)
-	}
-	if thirdLanguage == firstLanguage {
-		t.Fatalf("language section did not rebuild after dependency change: first=%q third=%q", firstLanguage, thirdLanguage)
-	}
+	firstLanguage := requireResolvedPromptSectionContent(t, first.ResolvedSections, DynamicSectionLanguage)
+	secondLanguage := requireResolvedPromptSectionContent(t, second.ResolvedSections, DynamicSectionLanguage)
+	thirdLanguage := requireResolvedPromptSectionContent(t, third.ResolvedSections, DynamicSectionLanguage)
+	assertInputScopedLanguageCache(t, firstLanguage, secondLanguage, thirdLanguage)
 }
 
 func TestCacheByNameSectionIgnoresInputNoise(t *testing.T) {
@@ -602,55 +508,8 @@ func TestResolveSectionsRunsIndependentSectionsInParallel(t *testing.T) {
 		resultCh <- assembly
 	}()
 
-	for range 2 {
-		select {
-		case <-ready:
-		case err := <-errCh:
-			t.Fatalf("AssembleTurn() error before both sections started = %v", err)
-		case <-ctx.Done():
-			t.Fatal("independent sections did not start in parallel")
-		}
-	}
+	waitForParallelSectionsReady(t, ctx, ready, errCh)
 	close(release)
 
-	select {
-	case err := <-errCh:
-		t.Fatalf("AssembleTurn() error = %v", err)
-	case assembly := <-resultCh:
-		outputStyleIndex := resolvedSectionIndex(assembly.ResolvedSections, DynamicSectionOutputStyle)
-		scratchpadIndex := resolvedSectionIndex(assembly.ResolvedSections, DynamicSectionScratchpad)
-		if outputStyleIndex == -1 || scratchpadIndex == -1 {
-			t.Fatalf("resolved sections missing parallel test sections: %#v", assembly.ResolvedSections)
-		}
-		if outputStyleIndex > scratchpadIndex {
-			t.Fatalf("resolved section order changed: output_style=%d scratchpad=%d", outputStyleIndex, scratchpadIndex)
-		}
-	case <-ctx.Done():
-		t.Fatal("AssembleTurn() timed out")
-	}
-}
-
-func runGit(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git %v error = %v\n%s", args, err, string(output))
-	}
-}
-
-func resolvedSectionContent(sections []ResolvedPromptSection, name string) (string, bool) {
-	for _, section := range sections {
-		if section.Name == name {
-			return section.Content, true
-		}
-	}
-	return "", false
-}
-func resolvedSectionIndex(sections []ResolvedPromptSection, name string) int {
-	for idx, section := range sections {
-		if section.Name == name {
-			return idx
-		}
-	}
-	return -1
+	assertParallelSectionAssembly(t, ctx, resultCh, errCh)
 }

@@ -33,7 +33,20 @@ func TestManualAutoDreamE2EPipeline(t *testing.T) {
 	dreammetrics.ResetForTesting()
 	t.Cleanup(dreammetrics.ResetForTesting)
 
-	// 1. 临时 memory root + 初始 fixture（让 consolidation 有内容可整合）
+	root := prepareManualAutoDreamMemoryRoot(t)
+	now := time.Date(2026, 4, 15, 9, 0, 0, 0, time.UTC)
+	recordManualAutoDreamConsolidation(t, root, now)
+	hooks := newManualAutoDreamHooks(t, root, now, manualAutoDreamExecutor())
+
+	runManualAutoDream(t, ctx, hooks, now)
+	assertManualAutoDreamStamp(t, root)
+	assertManualAutoDreamMetrics(t)
+	assertManualAutoDreamEntries(t, root)
+}
+
+func prepareManualAutoDreamMemoryRoot(t *testing.T) string {
+	t.Helper()
+
 	root := newTestMemoryRoot(t)
 	writeExtractFixture(t, filepath.Join(root, "feedback", "keep-answers-short.md"), testMemoryEntry(
 		"Keep answers short",
@@ -41,21 +54,28 @@ func TestManualAutoDreamE2EPipeline(t *testing.T) {
 		MemoryTypeFeedback,
 		"Keep answers short\nWhy: older guidance.",
 	))
+	return root
+}
 
-	// 2. consolidationStamp 设 48h 前，绕过节流
-	now := time.Date(2026, 4, 15, 9, 0, 0, 0, time.UTC)
+func recordManualAutoDreamConsolidation(t *testing.T, root string, now time.Time) {
+	t.Helper()
+
 	if err := recordConsolidation(root, now.Add(-48*time.Hour)); err != nil {
 		t.Fatalf("recordConsolidation() error = %v", err)
 	}
+}
 
-	// 3. 构造真 dispatcher：双 provider failover 链
+func manualAutoDreamExecutor() contract.DreamExecutor {
 	providers := []contract.DreamExecutorProvider{
 		claudecli.NewDreamExecutorProviderForManualTest(),
 		codexapp.NewDreamExecutorProviderForManualTest(),
 	}
-	dispatcher := unified.NewDreamExecutor(providers, nil)
+	return unified.NewDreamExecutor(providers, nil)
+}
 
-	// 4. thread store stub：6 sessions + current 共 7 条，过 minSessions=5 阈值
+func newManualAutoDreamHooks(t *testing.T, root string, now time.Time, dispatcher contract.DreamExecutor) *MemoryLifecycleHooks {
+	t.Helper()
+
 	store := &autoDreamThreadStoreStub{
 		thread: newAutoDreamRootThread(t, "thread-e2e", now, map[string]any{"threadKind": "main"}),
 		threads: append(
@@ -63,8 +83,6 @@ func TestManualAutoDreamE2EPipeline(t *testing.T) {
 			*newAutoDreamRootThread(t, "thread-e2e", now, map[string]any{"threadKind": "main"}),
 		),
 	}
-
-	// 5. hooks，注入真 dispatcher 作为 extractFn
 	hooks := newMemoryLifecycleHooks(
 		&Config{Enabled: true, RootDir: root},
 		NewAutoDreamConsolidator(NewMemoryExtractor()),
@@ -74,8 +92,12 @@ func TestManualAutoDreamE2EPipeline(t *testing.T) {
 	)
 	hooks.timeNow = func() time.Time { return now }
 	hooks.extractFn = dispatcher.ExecuteDream
+	return hooks
+}
 
-	// 6. 触发 dream pipeline（模拟 thread.stopped 事件后的 hooks 调用）
+func runManualAutoDream(t *testing.T, ctx context.Context, hooks *MemoryLifecycleHooks, now time.Time) {
+	t.Helper()
+
 	t.Logf("triggering auto-dream for thread-e2e at %v", now.Format(time.RFC3339))
 	started, err := hooks.maybeScheduleAutoDream(ctx, "thread-e2e")
 	if err != nil {
@@ -85,15 +107,16 @@ func TestManualAutoDreamE2EPipeline(t *testing.T) {
 		t.Fatal("maybeScheduleAutoDream() = false, want true (sessions ≥ 5 + 48h since last consolidation)")
 	}
 
-	// 7. 等 SafeGo 异步任务完成（waitDreamTask 阻塞 done channel）
 	waitStart := time.Now()
 	if err := hooks.waitDreamTask(ctx); err != nil {
 		t.Fatalf("waitDreamTask() error = %v", err)
 	}
-	waitElapsed := time.Since(waitStart)
-	t.Logf("dream task completed in %v", waitElapsed)
+	t.Logf("dream task completed in %v", time.Since(waitStart))
+}
 
-	// 8. 验证 consolidation stamp 更新（lastSuccessTime != zero）
+func assertManualAutoDreamStamp(t *testing.T, root string) {
+	t.Helper()
+
 	stamp, err := loadConsolidationStamp(root)
 	if err != nil {
 		t.Fatalf("loadConsolidationStamp() error = %v", err)
@@ -103,8 +126,11 @@ func TestManualAutoDreamE2EPipeline(t *testing.T) {
 		t.Fatal("lastSuccessTime() = zero, want recorded consolidation success")
 	}
 	t.Logf("consolidation lastSuccess updated to: %v", lastSuccess.Format(time.RFC3339))
+}
 
-	// 9. 验证 dispatcher metrics 反映真 LLM 调用成功
+func assertManualAutoDreamMetrics(t *testing.T) {
+	t.Helper()
+
 	snap := dreammetrics.Read()
 	t.Logf("dispatcher metrics: %+v", snap)
 	if snap.SuccessTotal != 1 {
@@ -116,8 +142,11 @@ func TestManualAutoDreamE2EPipeline(t *testing.T) {
 	if got := dreammetrics.TokensInput(); got == 0 {
 		t.Errorf("TokensInput() = %d, want > 0 (dream usage should be recorded)", got)
 	}
+}
 
-	// 10. 验证 memory entries 真被写到磁盘
+func assertManualAutoDreamEntries(t *testing.T, root string) {
+	t.Helper()
+
 	entries, err := scanMemoryEntries(root)
 	if err != nil {
 		t.Fatalf("scanMemoryEntries() error = %v", err)

@@ -65,28 +65,38 @@ func TestGetStateDiffSnapshotHonorsKnownRevision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetState(full) error = %v", err)
 	}
-	if full.Unchanged {
-		t.Fatalf("full.Unchanged = true, want false")
-	}
-	if got := full.DiffTextByAgent["thread-1"]; got != "diff-1" {
-		t.Fatalf("full.DiffTextByAgent[thread-1] = %q, want diff-1", got)
-	}
-	if got := full.DiffRevisionByAgent["thread-1"]; got != 1 {
-		t.Fatalf("full.DiffRevisionByAgent[thread-1] = %d, want 1", got)
-	}
+	assertDiffSnapshotChanged(t, full, "diff-1", 1)
 
 	unchanged, err := svc.GetState(withDiffStateRequest(context.Background(), "thread-1", true, 1))
 	if err != nil {
 		t.Fatalf("GetState(unchanged) error = %v", err)
 	}
-	if !unchanged.Unchanged {
+	assertDiffSnapshotUnchanged(t, unchanged, 1)
+}
+
+func assertDiffSnapshotChanged(t *testing.T, state *UIState, text string, revision int64) {
+	t.Helper()
+	if state.Unchanged {
+		t.Fatalf("full.Unchanged = true, want false")
+	}
+	if got := state.DiffTextByAgent["thread-1"]; got != text {
+		t.Fatalf("full.DiffTextByAgent[thread-1] = %q, want %s", got, text)
+	}
+	if got := state.DiffRevisionByAgent["thread-1"]; got != revision {
+		t.Fatalf("full.DiffRevisionByAgent[thread-1] = %d, want %d", got, revision)
+	}
+}
+
+func assertDiffSnapshotUnchanged(t *testing.T, state *UIState, revision int64) {
+	t.Helper()
+	if !state.Unchanged {
 		t.Fatalf("unchanged.Unchanged = false, want true")
 	}
-	if len(unchanged.DiffTextByAgent) != 0 {
-		t.Fatalf("unchanged.DiffTextByAgent = %#v, want empty map", unchanged.DiffTextByAgent)
+	if len(state.DiffTextByAgent) != 0 {
+		t.Fatalf("unchanged.DiffTextByAgent = %#v, want empty map", state.DiffTextByAgent)
 	}
-	if got := unchanged.DiffRevisionByAgent["thread-1"]; got != 1 {
-		t.Fatalf("unchanged.DiffRevisionByAgent[thread-1] = %d, want 1", got)
+	if got := state.DiffRevisionByAgent["thread-1"]; got != revision {
+		t.Fatalf("unchanged.DiffRevisionByAgent[thread-1] = %d, want %d", got, revision)
 	}
 }
 

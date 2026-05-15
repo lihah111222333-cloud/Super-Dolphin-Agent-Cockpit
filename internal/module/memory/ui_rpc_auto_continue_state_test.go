@@ -163,12 +163,14 @@ func TestUpsertAutoContinueStateRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	path := "_internal/auto-continue/state/thread_abc.json"
 
-	// Upsert
-	upserted, err := upsertAutoContinueState(ctx, deps, uiAutoContinueStateUpsertParams{
-		Path:     path,
-		ThreadID: "thread_abc",
-		Content:  validACSContent,
-	})
+	assertAutoContinueStateUpsert(t, ctx, deps, path)
+	assertAutoContinueStateGet(t, ctx, deps, path)
+	assertAutoContinueStateDelete(t, ctx, deps, store, path)
+}
+
+func assertAutoContinueStateUpsert(t *testing.T, ctx context.Context, deps memoryHandlerDeps, path string) {
+	t.Helper()
+	upserted, err := upsertAutoContinueState(ctx, deps, uiAutoContinueStateUpsertParams{Path: path, ThreadID: "thread_abc", Content: validACSContent})
 	if err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
@@ -181,8 +183,10 @@ func TestUpsertAutoContinueStateRoundTrip(t *testing.T) {
 	if upserted.Content != validACSContent {
 		t.Fatalf("content roundtrip mismatch")
 	}
+}
 
-	// Get
+func assertAutoContinueStateGet(t *testing.T, ctx context.Context, deps memoryHandlerDeps, path string) {
+	t.Helper()
 	got, err := getAutoContinueState(ctx, deps, uiAutoContinueStateGetParams{Path: path})
 	if err != nil {
 		t.Fatalf("get: %v", err)
@@ -190,8 +194,10 @@ func TestUpsertAutoContinueStateRoundTrip(t *testing.T) {
 	if got.ThreadID != "thread_abc" || got.Content != validACSContent {
 		t.Fatalf("get returned %+v", got)
 	}
+}
 
-	// Delete
+func assertAutoContinueStateDelete(t *testing.T, ctx context.Context, deps memoryHandlerDeps, store *fakeSharedFileStore, path string) {
+	t.Helper()
 	deleted, err := deleteAutoContinueState(ctx, deps, uiAutoContinueStateDeleteParams{Path: path})
 	if err != nil {
 		t.Fatalf("delete: %v", err)
@@ -203,7 +209,6 @@ func TestUpsertAutoContinueStateRoundTrip(t *testing.T) {
 		t.Fatalf("store still contains %q after delete", path)
 	}
 
-	// Delete again -> false (not error)
 	deleted2, err := deleteAutoContinueState(ctx, deps, uiAutoContinueStateDeleteParams{Path: path})
 	if err != nil {
 		t.Fatalf("second delete returned err: %v", err)

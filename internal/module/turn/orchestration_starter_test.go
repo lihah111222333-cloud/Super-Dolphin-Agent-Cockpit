@@ -8,6 +8,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/stretchr/testify/require"
 )
 
 func TestOrchestrationTurnStarterStartsQueuedTurn(t *testing.T) {
@@ -16,24 +17,14 @@ func TestOrchestrationTurnStarterStartsQueuedTurn(t *testing.T) {
 	session := &stubSession{
 		threadID: "thread-1",
 		startTurn: func(_ context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {
-			if req.LocalID != "turn-1" {
-				t.Fatalf("LocalID = %q, want turn-1", req.LocalID)
-			}
-			if req.ThreadID != "thread-1" {
-				t.Fatalf("ThreadID = %q, want thread-1", req.ThreadID)
-			}
-			if len(req.Inputs) != 1 || req.Inputs[0].Content != "hello" {
-				t.Fatalf("Inputs = %#v, want queued text input", req.Inputs)
-			}
-			if len(req.Skills) != 1 || req.Skills[0].Name != "debug" {
-				t.Fatalf("Skills = %#v, want selected skill", req.Skills)
-			}
-			if !req.ManualSkillSelection {
-				t.Fatal("ManualSkillSelection = false, want true")
-			}
-			if string(req.OutputSchema) != `{"type":"object"}` {
-				t.Fatalf("OutputSchema = %s, want object schema", string(req.OutputSchema))
-			}
+			require.Equal(t, "turn-1", req.LocalID)
+			require.Equal(t, "thread-1", req.ThreadID)
+			require.Len(t, req.Inputs, 1)
+			require.Equal(t, "hello", req.Inputs[0].Content)
+			require.Len(t, req.Skills, 1)
+			require.Equal(t, "debug", req.Skills[0].Name)
+			require.True(t, req.ManualSkillSelection)
+			require.JSONEq(t, `{"type":"object"}`, string(req.OutputSchema))
 			handle := newStubTurnHandle(req.LocalID, "provider-1")
 			handle.complete(nil)
 			return handle, nil
@@ -54,12 +45,8 @@ func TestOrchestrationTurnStarterStartsQueuedTurn(t *testing.T) {
 		ManualSkillSelection: true,
 		OutputSchema:         []byte(`{"type":"object"}`),
 	})
-	if err != nil {
-		t.Fatalf("StartTurn() error = %v", err)
-	}
-	if turnID != "turn-1" {
-		t.Fatalf("turnID = %q, want turn-1", turnID)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "turn-1", turnID)
 }
 
 func TestOrchestrationTurnStarterFallsBackToThreadRuntimeConfig(t *testing.T) {
@@ -91,27 +78,16 @@ func TestOrchestrationTurnStarterFallsBackToThreadRuntimeConfig(t *testing.T) {
 		}},
 	)
 
-	if _, err := starter.StartTurn(context.Background(), contract.TurnSubmission{AgentID: "agent-1", ThreadID: "thread-1", Inputs: []InputItem{{Type: "text", Content: "hello"}}}); err != nil {
-		t.Fatalf("StartTurn() error = %v", err)
-	}
-	if assembly.lastTurnInput.Provider != "codex-thread" || assembly.lastTurnInput.GitRoot != "/thread-repo" || !assembly.lastTurnInput.IsWorktree {
-		t.Fatalf("last turn env context = %#v", assembly.lastTurnInput)
-	}
-	if assembly.lastTurnInput.Language != "Japanese" {
-		t.Fatalf("last turn language = %q, want Japanese", assembly.lastTurnInput.Language)
-	}
-	if got := assembly.lastTurnInput.EnabledTools; len(got) != 2 || got[0] != "lsp_file" || got[1] != "lsp_grep" {
-		t.Fatalf("EnabledTools = %#v, want thread-state tools", got)
-	}
-	if got := assembly.lastTurnInput.AdditionalWorkingDirectories; len(got) != 1 || got[0] != "/repo/thread-extra" {
-		t.Fatalf("AdditionalWorkingDirectories = %#v, want thread-state dirs", got)
-	}
-	if assembly.lastTurnInput.MCPSnapshot.Instructions["lsp"] != "Use the LSP thread fallback." {
-		t.Fatalf("MCPSnapshot.Instructions = %#v", assembly.lastTurnInput.MCPSnapshot.Instructions)
-	}
-	if !assembly.lastTurnInput.SessionFlags["verification_required"] {
-		t.Fatalf("SessionFlags = %#v, want verification_required", assembly.lastTurnInput.SessionFlags)
-	}
+	_, err := starter.StartTurn(context.Background(), contract.TurnSubmission{AgentID: "agent-1", ThreadID: "thread-1", Inputs: []InputItem{{Type: "text", Content: "hello"}}})
+	require.NoError(t, err)
+	require.Equal(t, "codex-thread", assembly.lastTurnInput.Provider)
+	require.Equal(t, "/thread-repo", assembly.lastTurnInput.GitRoot)
+	require.True(t, assembly.lastTurnInput.IsWorktree)
+	require.Equal(t, "Japanese", assembly.lastTurnInput.Language)
+	require.Equal(t, []string{"lsp_file", "lsp_grep"}, assembly.lastTurnInput.EnabledTools)
+	require.Equal(t, []string{"/repo/thread-extra"}, assembly.lastTurnInput.AdditionalWorkingDirectories)
+	require.Equal(t, "Use the LSP thread fallback.", assembly.lastTurnInput.MCPSnapshot.Instructions["lsp"])
+	require.True(t, assembly.lastTurnInput.SessionFlags["verification_required"])
 }
 
 type stubSessionProvider struct {

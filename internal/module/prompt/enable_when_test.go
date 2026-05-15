@@ -111,49 +111,27 @@ func TestEnableWhen_TagsHas(t *testing.T) {
 	ctx := contract.BuildCtx{}
 
 	// Single string value: case-insensitive substring match against userPrompt.
-	if !EvaluateEnableWhen([]byte(`{"tags_has":"refactor"}`), ctx, "please refactor the Foo interface") {
-		t.Fatalf("tags_has string must hit when userPrompt contains the keyword")
-	}
-	if !EvaluateEnableWhen([]byte(`{"tags_has":"REFACTOR"}`), ctx, "please refactor the Foo interface") {
-		t.Fatalf("tags_has must be case-insensitive")
-	}
-	if EvaluateEnableWhen([]byte(`{"tags_has":"refactor"}`), ctx, "add a new feature") {
-		t.Fatalf("tags_has string must miss when keyword absent")
-	}
-	if EvaluateEnableWhen([]byte(`{"tags_has":"refactor"}`), ctx, "") {
-		t.Fatalf("tags_has must fail-closed on empty userPrompt")
-	}
+	assertEnableWhen(t, "tags_has string hit", []byte(`{"tags_has":"refactor"}`), ctx, "please refactor the Foo interface", true)
+	assertEnableWhen(t, "tags_has case-insensitive", []byte(`{"tags_has":"REFACTOR"}`), ctx, "please refactor the Foo interface", true)
+	assertEnableWhen(t, "tags_has string miss", []byte(`{"tags_has":"refactor"}`), ctx, "add a new feature", false)
+	assertEnableWhen(t, "tags_has empty prompt", []byte(`{"tags_has":"refactor"}`), ctx, "", false)
 
 	// Array value: OR across entries.
 	arr := []byte(`{"tags_has":["rename","trace","impact"]}`)
-	if !EvaluateEnableWhen(arr, ctx, "analyze the impact of changing Bar") {
-		t.Fatalf("tags_has array must hit when any entry matches")
-	}
-	if !EvaluateEnableWhen(arr, ctx, "rename the symbol") {
-		t.Fatalf("tags_has array must hit on any element (case-insensitive)")
-	}
-	if EvaluateEnableWhen(arr, ctx, "say hello") {
-		t.Fatalf("tags_has array must miss when no element matches")
-	}
+	assertEnableWhen(t, "tags_has array impact", arr, ctx, "analyze the impact of changing Bar", true)
+	assertEnableWhen(t, "tags_has array rename", arr, ctx, "rename the symbol", true)
+	assertEnableWhen(t, "tags_has array miss", arr, ctx, "say hello", false)
 
 	// Combined with other keys: AND semantics.
 	bothKeys := []byte(`{"language":"zh","tags_has":"refactor"}`)
 	zh := contract.BuildCtx{Language: "zh"}
-	if !EvaluateEnableWhen(bothKeys, zh, "帮我 refactor 这段逻辑") {
-		t.Fatalf("AND with language should pass when both match")
-	}
-	if EvaluateEnableWhen(bothKeys, zh, "just a greeting") {
-		t.Fatalf("AND with language should fail when tags_has misses")
-	}
+	assertEnableWhen(t, "tags_has AND pass", bothKeys, zh, "帮我 refactor 这段逻辑", true)
+	assertEnableWhen(t, "tags_has AND tag miss", bothKeys, zh, "just a greeting", false)
 	en := contract.BuildCtx{Language: "en"}
-	if EvaluateEnableWhen(bothKeys, en, "please refactor this") {
-		t.Fatalf("AND with language should fail when language mismatches")
-	}
+	assertEnableWhen(t, "tags_has AND language miss", bothKeys, en, "please refactor this", false)
 
 	// Invalid value types: non-string / non-array → mismatch.
-	if EvaluateEnableWhen([]byte(`{"tags_has":42}`), ctx, "anything") {
-		t.Fatalf("tags_has with non-string non-array value must fail-closed")
-	}
+	assertEnableWhen(t, "tags_has invalid type", []byte(`{"tags_has":42}`), ctx, "anything", false)
 }
 
 func TestEnableWhen_EnabledToolsHas(t *testing.T) {
@@ -164,56 +142,37 @@ func TestEnableWhen_EnabledToolsHas(t *testing.T) {
 	noTools := contract.BuildCtx{}
 
 	// Single string hit / miss.
-	if !EvaluateEnableWhen([]byte(`{"enabled_tools_has":"grep"}`), withLsp, "") {
-		t.Fatalf("must hit when EnabledTools contains the tool")
-	}
-	if !EvaluateEnableWhen([]byte(`{"enabled_tools_has":"lsp_grep"}`), withLsp, "") {
-		t.Fatalf("legacy wanted tool name must match canonical EnabledTools")
-	}
-	if !EvaluateEnableWhen([]byte(`{"enabled_tools_has":"grep"}`), withLegacyLsp, "") {
-		t.Fatalf("canonical wanted tool name must match legacy EnabledTools")
-	}
-	if EvaluateEnableWhen([]byte(`{"enabled_tools_has":"grep"}`), noLsp, "") {
-		t.Fatalf("must miss when EnabledTools lacks the tool")
-	}
-	if EvaluateEnableWhen([]byte(`{"enabled_tools_has":"grep"}`), noTools, "") {
-		t.Fatalf("must miss when EnabledTools is empty")
-	}
+	assertEnableWhen(t, "enabled tool direct hit", []byte(`{"enabled_tools_has":"grep"}`), withLsp, "", true)
+	assertEnableWhen(t, "enabled tool legacy want", []byte(`{"enabled_tools_has":"lsp_grep"}`), withLsp, "", true)
+	assertEnableWhen(t, "enabled tool canonical want", []byte(`{"enabled_tools_has":"grep"}`), withLegacyLsp, "", true)
+	assertEnableWhen(t, "enabled tool miss", []byte(`{"enabled_tools_has":"grep"}`), noLsp, "", false)
+	assertEnableWhen(t, "enabled tool empty", []byte(`{"enabled_tools_has":"grep"}`), noTools, "", false)
 
 	// Exact match, not substring.
-	if EvaluateEnableWhen([]byte(`{"enabled_tools_has":"lsp"}`), withLsp, "") {
-		t.Fatalf("must require exact tool name, not substring")
-	}
+	assertEnableWhen(t, "enabled tool exact only", []byte(`{"enabled_tools_has":"lsp"}`), withLsp, "", false)
 
 	// Array value: OR across entries.
 	arr := []byte(`{"enabled_tools_has":["xref","grep","inspect"]}`)
-	if !EvaluateEnableWhen(arr, withLsp, "") {
-		t.Fatalf("array must hit when any element matches")
-	}
-	if EvaluateEnableWhen(arr, noLsp, "") {
-		t.Fatalf("array must miss when no element matches")
-	}
+	assertEnableWhen(t, "enabled tool array hit", arr, withLsp, "", true)
+	assertEnableWhen(t, "enabled tool array miss", arr, noLsp, "", false)
 
 	// AND with tags_has: both must satisfy.
 	bothKeys := []byte(`{"enabled_tools_has":"grep","tags_has":"refactor"}`)
-	if !EvaluateEnableWhen(bothKeys, withLsp, "please refactor") {
-		t.Fatalf("AND should pass when both conditions match")
-	}
-	if EvaluateEnableWhen(bothKeys, withLsp, "hello") {
-		t.Fatalf("AND should fail when tags_has misses")
-	}
-	if EvaluateEnableWhen(bothKeys, noLsp, "please refactor") {
-		t.Fatalf("AND should fail when tool missing")
-	}
+	assertEnableWhen(t, "enabled tool AND pass", bothKeys, withLsp, "please refactor", true)
+	assertEnableWhen(t, "enabled tool AND tags miss", bothKeys, withLsp, "hello", false)
+	assertEnableWhen(t, "enabled tool AND tool miss", bothKeys, noLsp, "please refactor", false)
 
 	// Invalid value type → mismatch.
-	if EvaluateEnableWhen([]byte(`{"enabled_tools_has":42}`), withLsp, "") {
-		t.Fatalf("non-string non-array value must fail-closed")
-	}
+	assertEnableWhen(t, "enabled tool invalid type", []byte(`{"enabled_tools_has":42}`), withLsp, "", false)
 
 	// Empty string in array is ignored, not treated as match-all.
-	if EvaluateEnableWhen([]byte(`{"enabled_tools_has":""}`), withLsp, "") {
-		t.Fatalf("empty string want must miss (never match)")
+	assertEnableWhen(t, "enabled tool empty string", []byte(`{"enabled_tools_has":""}`), withLsp, "", false)
+}
+
+func assertEnableWhen(t *testing.T, name string, raw []byte, ctx contract.BuildCtx, prompt string, want bool) {
+	t.Helper()
+	if got := EvaluateEnableWhen(raw, ctx, prompt); got != want {
+		t.Fatalf("%s: EvaluateEnableWhen() = %v, want %v", name, got, want)
 	}
 }
 
@@ -284,36 +243,42 @@ func TestMergeAndBoundary_StaticToCachedDynamicToUncached(t *testing.T) {
 	}
 
 	// Static contract: both static blocks land in CachedPrefix.
-	for _, want := range []string{"STATIC-IDENTITY", "STATIC-TOOL-PREFS"} {
-		if !strings.Contains(boundary.CachedPrefix, want) {
-			t.Fatalf("CachedPrefix missing %q:\n%s", want, boundary.CachedPrefix)
-		}
-	}
+	assertContainsAll(t, "CachedPrefix", boundary.CachedPrefix, []string{"STATIC-IDENTITY", "STATIC-TOOL-PREFS"})
 	// Static blocks MUST NOT leak into UncachedTail (region partitioning).
-	for _, leak := range []string{"STATIC-IDENTITY", "STATIC-TOOL-PREFS"} {
-		if strings.Contains(boundary.UncachedTail, leak) {
-			t.Fatalf("static block %q leaked into UncachedTail:\n%s", leak, boundary.UncachedTail)
-		}
-	}
+	assertContainsNone(t, "UncachedTail static leak", boundary.UncachedTail, []string{"STATIC-IDENTITY", "STATIC-TOOL-PREFS"})
 
 	// Dynamic contract: worktree + always land in UncachedTail; en_only dropped.
-	for _, want := range []string{"DYN-WORKTREE", "DYN-ALWAYS"} {
-		if !strings.Contains(boundary.UncachedTail, want) {
-			t.Fatalf("UncachedTail missing %q:\n%s", want, boundary.UncachedTail)
-		}
-	}
-	if strings.Contains(boundary.UncachedTail, "DYN-EN-ONLY") {
-		t.Fatalf("EnableWhen-filtered block leaked into UncachedTail:\n%s", boundary.UncachedTail)
-	}
-	if strings.Contains(boundary.CachedPrefix, "DYN-") {
-		t.Fatalf("dynamic block leaked into CachedPrefix:\n%s", boundary.CachedPrefix)
-	}
+	assertContainsAll(t, "UncachedTail", boundary.UncachedTail, []string{"DYN-WORKTREE", "DYN-ALWAYS"})
+	assertContainsNone(t, "UncachedTail gated leak", boundary.UncachedTail, []string{"DYN-EN-ONLY"})
+	assertContainsNone(t, "CachedPrefix dynamic leak", boundary.CachedPrefix, []string{"DYN-"})
 
 	// Ordinal order within CachedPrefix: identity (0) must precede tool_prefs (10).
-	identityIdx := strings.Index(boundary.CachedPrefix, "STATIC-IDENTITY")
-	toolsIdx := strings.Index(boundary.CachedPrefix, "STATIC-TOOL-PREFS")
-	if identityIdx < 0 || toolsIdx < 0 || identityIdx > toolsIdx {
-		t.Fatalf("CachedPrefix ordinal order broken: identity@%d tools@%d\n%s",
-			identityIdx, toolsIdx, boundary.CachedPrefix)
+	assertSubstringOrder(t, "CachedPrefix", boundary.CachedPrefix, "STATIC-IDENTITY", "STATIC-TOOL-PREFS")
+}
+
+func assertContainsAll(t *testing.T, label, text string, values []string) {
+	t.Helper()
+	for _, want := range values {
+		if !strings.Contains(text, want) {
+			t.Fatalf("%s missing %q:\n%s", label, want, text)
+		}
+	}
+}
+
+func assertContainsNone(t *testing.T, label, text string, values []string) {
+	t.Helper()
+	for _, leak := range values {
+		if strings.Contains(text, leak) {
+			t.Fatalf("%s contains %q:\n%s", label, leak, text)
+		}
+	}
+}
+
+func assertSubstringOrder(t *testing.T, label, text, before, after string) {
+	t.Helper()
+	beforeIdx := strings.Index(text, before)
+	afterIdx := strings.Index(text, after)
+	if beforeIdx < 0 || afterIdx < 0 || beforeIdx > afterIdx {
+		t.Fatalf("%s order broken: %s@%d %s@%d\n%s", label, before, beforeIdx, after, afterIdx, text)
 	}
 }

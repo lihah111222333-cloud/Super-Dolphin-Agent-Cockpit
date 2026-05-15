@@ -13,10 +13,7 @@ func TestNestedRuntimeLifecycleResetAndMatcherRoot(t *testing.T) {
 	buildA := contract.BuildCtx{GitRoot: "/repo", CWD: "/repo/service"}
 	firstTarget := filepath.Join(buildA.CWD, "main.go")
 	runtime.AddTriggers("thread-1", buildA, []string{"main.go"})
-	pending := runtime.ConsumePending("thread-1", buildA)
-	if len(pending) != 1 || pending[0] != firstTarget {
-		t.Fatalf("ConsumePending() = %#v, want [%q]", pending, firstTarget)
-	}
+	assertPendingTrigger(t, runtime, buildA, firstTarget, "ConsumePending()")
 	loadedPath := filepath.Join(buildA.CWD, ".claude", "rules", "go.md")
 	loaded := ClaudeMdSource{Path: loadedPath, Origin: sourceOriginProject, Type: sourceTypeProject, Digest: "digest-a"}
 	if !runtime.MarkLoaded("thread-1", buildA, loaded) {
@@ -26,38 +23,46 @@ func TestNestedRuntimeLifecycleResetAndMatcherRoot(t *testing.T) {
 		t.Fatal("MarkLoaded(second) = true, want false")
 	}
 	snapshot := runtime.snapshot("thread-1")
-	if snapshot.Generation != 1 || len(snapshot.LoadedPaths) != 1 || len(snapshot.PendingTriggers) != 0 {
-		t.Fatalf("snapshot after load = %#v, want generation=1 loaded=1 pending=0", snapshot)
-	}
+	assertNestedSnapshot(t, snapshot, 1, 1, 0, "snapshot after load")
 
 	runtime.OnPromptInvalidate(contract.InvalidateProviderSwitch)
 	snapshot = runtime.snapshot("thread-1")
-	if snapshot.Generation != 1 || len(snapshot.LoadedPaths) != 1 {
-		t.Fatalf("provider switch snapshot = %#v, want unchanged generation+loaded", snapshot)
-	}
+	assertNestedSnapshot(t, snapshot, 1, 1, -1, "provider switch snapshot")
 
 	buildB := contract.BuildCtx{GitRoot: "/repo", CWD: "/repo/other"}
 	secondTarget := filepath.Join(buildB.CWD, "other.go")
 	runtime.AddTriggers("thread-1", buildB, []string{"other.go"})
 	snapshot = runtime.snapshot("thread-1")
-	if snapshot.Generation != 2 || len(snapshot.LoadedPaths) != 0 || len(snapshot.PendingTriggers) != 1 {
-		t.Fatalf("snapshot after matcher root change = %#v, want generation=2 cleared loaded with one pending", snapshot)
-	}
-	pending = runtime.ConsumePending("thread-1", buildB)
-	if len(pending) != 1 || pending[0] != secondTarget {
-		t.Fatalf("ConsumePending(second) = %#v, want [%q]", pending, secondTarget)
-	}
+	assertNestedSnapshot(t, snapshot, 2, 0, 1, "snapshot after matcher root change")
+	assertPendingTrigger(t, runtime, buildB, secondTarget, "ConsumePending(second)")
 
 	runtime.OnPromptInvalidate(contract.InvalidateCompact)
 	snapshot = runtime.snapshot("thread-1")
-	if snapshot.Generation != 3 || len(snapshot.LoadedPaths) != 0 || len(snapshot.PendingTriggers) != 0 {
-		t.Fatalf("snapshot after compact = %#v, want generation=3 and cleared state", snapshot)
-	}
+	assertNestedSnapshot(t, snapshot, 3, 0, 0, "snapshot after compact")
 
 	runtime.OnThreadStart("thread-1")
 	snapshot = runtime.snapshot("thread-1")
-	if snapshot.Generation != 1 || len(snapshot.LoadedPaths) != 0 || len(snapshot.PendingTriggers) != 0 {
-		t.Fatalf("snapshot after thread start = %#v, want fresh generation=1", snapshot)
+	assertNestedSnapshot(t, snapshot, 1, 0, 0, "snapshot after thread start")
+}
+
+func assertPendingTrigger(t *testing.T, runtime *NestedRuntime, buildCtx contract.BuildCtx, want string, label string) {
+	t.Helper()
+	pending := runtime.ConsumePending("thread-1", buildCtx)
+	if len(pending) != 1 || pending[0] != want {
+		t.Fatalf("%s = %#v, want [%q]", label, pending, want)
+	}
+}
+
+func assertNestedSnapshot(t *testing.T, snapshot nestedSessionState, generation uint64, loadedCount, pendingCount int, label string) {
+	t.Helper()
+	if snapshot.Generation != generation {
+		t.Fatalf("%s = %#v, want generation=%d", label, snapshot, generation)
+	}
+	if loadedCount >= 0 && len(snapshot.LoadedPaths) != loadedCount {
+		t.Fatalf("%s = %#v, want loaded=%d", label, snapshot, loadedCount)
+	}
+	if pendingCount >= 0 && len(snapshot.PendingTriggers) != pendingCount {
+		t.Fatalf("%s = %#v, want pending=%d", label, snapshot, pendingCount)
 	}
 }
 

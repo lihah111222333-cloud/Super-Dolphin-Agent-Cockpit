@@ -247,6 +247,21 @@ func TestResolveMemoryGateSupportsSettingsAndModeSelection(t *testing.T) {
 
 	t.Setenv(envClaudeDisableAutoMemory, "0")
 	gate = ResolveMemoryGate(buildCtx, cfg)
+	assertKairosMemoryGateSnapshot(t, gate)
+
+	gate = ResolveMemoryGate(contract.BuildCtx{}, &Config{Enabled: true})
+	if gate.EnableRelevantPrefetch {
+		t.Fatalf("ResolveMemoryGate(default).EnableRelevantPrefetch = true, want false")
+	}
+
+	gate = ResolveMemoryGate(contract.BuildCtx{}, &Config{Enabled: true, Features: MemoryFeatureFlags{SearchPastContext: true}})
+	if gate.EnableRelevantPrefetch {
+		t.Fatalf("ResolveMemoryGate(searchPastContext).EnableRelevantPrefetch = true, want false without skipIndex")
+	}
+}
+
+func assertKairosMemoryGateSnapshot(t *testing.T, gate MemoryGateSnapshot) {
+	t.Helper()
 	if !gate.AutoEnabled || !gate.ForceEnabledByEnvFalsy {
 		t.Fatalf("ResolveMemoryGate(env falsy) = %+v, want forced enabled snapshot", gate)
 	}
@@ -270,16 +285,6 @@ func TestResolveMemoryGateSupportsSettingsAndModeSelection(t *testing.T) {
 	}
 	if gate.AutoMemPathSource != AutoMemPathSourceSettings {
 		t.Fatalf("AutoMemPathSource = %q, want %q", gate.AutoMemPathSource, AutoMemPathSourceSettings)
-	}
-
-	gate = ResolveMemoryGate(contract.BuildCtx{}, &Config{Enabled: true})
-	if gate.EnableRelevantPrefetch {
-		t.Fatalf("ResolveMemoryGate(default).EnableRelevantPrefetch = true, want false")
-	}
-
-	gate = ResolveMemoryGate(contract.BuildCtx{}, &Config{Enabled: true, Features: MemoryFeatureFlags{SearchPastContext: true}})
-	if gate.EnableRelevantPrefetch {
-		t.Fatalf("ResolveMemoryGate(searchPastContext).EnableRelevantPrefetch = true, want false without skipIndex")
 	}
 }
 

@@ -17,6 +17,16 @@ import (
 func TestConfigHandlersReadAndWriteLSPPromptHint(t *testing.T) {
 	t.Parallel()
 
+	server, prefs, threads := newConfigPromptHintFixture(t)
+	cfg := dispatchConfig[runtimeConfigResult](t, server, "config/read", `{}`)
+	assertConfigReadResult(t, cfg, threads)
+	assertLSPPromptHintRead(t, server)
+	assertLSPPromptHintWrite(t, server)
+	assertStoredLSPPromptHintOverride(t, prefs)
+}
+
+func newConfigPromptHintFixture(t *testing.T) (*platformrpc.Server, *uiPreferenceStoreStub, *configThreadServiceStub) {
+	t.Helper()
 	prefs := &uiPreferenceStoreStub{values: map[string]json.RawMessage{
 		preferenceStubKey("/repo", lspPromptHintOverrideKey):                           mustJSONRaw(t, "custom prompt"),
 		preferenceStubKey("/window", normalizePreferenceKey(preferenceActiveThreadID)): mustJSONRaw(t, "thread-7"),
@@ -53,21 +63,45 @@ func TestConfigHandlersReadAndWriteLSPPromptHint(t *testing.T) {
 		sharedFiles,
 		threads,
 	)
+	return server, prefs, threads
+}
 
-	cfg := dispatchConfig[runtimeConfigResult](t, server, "config/read", `{}`)
+func assertConfigReadResult(t *testing.T, cfg runtimeConfigResult, threads *configThreadServiceStub) {
+	t.Helper()
+	assertConfigBasics(t, cfg)
+	assertConfigThreadLookups(t, threads)
+	assertConfigRuntimeFields(t, cfg)
+	assertConfigToolRouting(t, cfg.ToolRouting)
+	assertConfigSandbox(t, cfg.Sandbox)
+}
+
+func assertConfigBasics(t *testing.T, cfg runtimeConfigResult) {
+	t.Helper()
 	if cfg.CWD != "/window" || cfg.Model != "gpt-5.5" || cfg.ApprovalPolicy != "never" {
 		t.Fatalf("config/read = %#v", cfg)
 	}
+}
+
+func assertConfigThreadLookups(t *testing.T, threads *configThreadServiceStub) {
+	t.Helper()
 	if len(threads.getConfigIDs) != 1 || threads.getConfigIDs[0] != "thread-7" {
 		t.Fatalf("GetConfig thread ids = %#v, want [thread-7]", threads.getConfigIDs)
 	}
 	if len(threads.runtimeConfigIDs) != 1 || threads.runtimeConfigIDs[0] != "thread-7" {
 		t.Fatalf("ReadRuntimeConfig thread ids = %#v, want [thread-7]", threads.runtimeConfigIDs)
 	}
+}
+
+func assertConfigRuntimeFields(t *testing.T, cfg runtimeConfigResult) {
+	t.Helper()
 	if cfg.ModelProvider != "openai" || cfg.Config != nil || cfg.BaseInstructions != nil || cfg.DeveloperInstructions != "be precise" || cfg.Personality != "balanced" {
 		t.Fatalf("config/read nullable defaults = %#v", cfg)
 	}
-	if cfg.ToolRouting != (runtimeConfigToolRouting{
+}
+
+func assertConfigToolRouting(t *testing.T, got runtimeConfigToolRouting) {
+	t.Helper()
+	if got != (runtimeConfigToolRouting{
 		Mode:                "dynamic",
 		RouterModel:         "router-1",
 		RouterProvider:      "router-x",
@@ -76,23 +110,36 @@ func TestConfigHandlersReadAndWriteLSPPromptHint(t *testing.T) {
 		ConfidenceThreshold: 0.9,
 		TimeoutSec:          11,
 	}) {
-		t.Fatalf("config/read toolRouting = %#v", cfg.ToolRouting)
+		t.Fatalf("config/read toolRouting = %#v", got)
 	}
-	sandbox, _ := cfg.Sandbox.(map[string]any)
-	if sandbox["type"] != "workspace-write" {
-		t.Fatalf("config/read sandbox = %#v", cfg.Sandbox)
-	}
+}
 
+func assertConfigSandbox(t *testing.T, got any) {
+	t.Helper()
+	sandbox, _ := got.(map[string]any)
+	if sandbox["type"] != "workspace-write" {
+		t.Fatalf("config/read sandbox = %#v", got)
+	}
+}
+
+func assertLSPPromptHintRead(t *testing.T, server *platformrpc.Server) {
+	t.Helper()
 	readRes := dispatchConfig[lspPromptHintResult](t, server, "config/lspPromptHint/read", `{"cwd":"/repo"}`)
 	if readRes.Hint != "custom prompt" || readRes.DefaultHint != "default prompt" || readRes.UsingDefault {
 		t.Fatalf("config/lspPromptHint/read = %#v", readRes)
 	}
+}
 
+func assertLSPPromptHintWrite(t *testing.T, server *platformrpc.Server) {
+	t.Helper()
 	writeRes := dispatchConfig[lspPromptHintResult](t, server, "config/lspPromptHint/write", `{"cwd":"/repo","hint":""}`)
 	if writeRes.Hint != "default prompt" || !writeRes.UsingDefault || writeRes.OverrideHint != "" {
 		t.Fatalf("config/lspPromptHint/write = %#v", writeRes)
 	}
+}
 
+func assertStoredLSPPromptHintOverride(t *testing.T, prefs *uiPreferenceStoreStub) {
+	t.Helper()
 	raw, err := prefs.GetValue(context.Background(), "/repo", lspPromptHintOverrideKey)
 	if err != nil {
 		t.Fatalf("GetValue() error = %v", err)

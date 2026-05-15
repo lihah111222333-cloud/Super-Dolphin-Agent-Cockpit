@@ -198,9 +198,7 @@ func TestWriteAgentMemoryFeedbackWritesPrivateAndInvalidates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WriteAgentMemory() error = %v", err)
 	}
-	if res.ActualTarget != "private" || res.RequestedScope != contract.MemoryScopeUser || res.Type != contract.MemoryTypeFeedback || res.Path == "" {
-		t.Fatalf("result = %+v", res)
-	}
+	assertAgentMemoryWriteResult(t, res)
 	storeRoot, err := resolvedStoreRoot(root, projectRoot, "")
 	if err != nil {
 		t.Fatalf("resolvedStoreRoot() error = %v", err)
@@ -209,12 +207,7 @@ func TestWriteAgentMemoryFeedbackWritesPrivateAndInvalidates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("scanMemoryEntries() error = %v", err)
 	}
-	if len(entries) != 1 {
-		t.Fatalf("entries = %d, want 1", len(entries))
-	}
-	if entries[0].Frontmatter.Description != "Concise reports" || entries[0].Type() != MemoryTypeFeedback || entries[0].Frontmatter.Source != "agent_tool" {
-		t.Fatalf("entry = %+v", entries[0])
-	}
+	assertAgentMemoryStoredFeedback(t, entries)
 	snapshot, err := buildUIMemorySnapshot(context.Background(), newServiceWithConsolidator(cfg, nil, nil, nil), nil, projectRoot)
 	if err != nil {
 		t.Fatalf("buildUIMemorySnapshot() error = %v", err)
@@ -222,6 +215,41 @@ func TestWriteAgentMemoryFeedbackWritesPrivateAndInvalidates(t *testing.T) {
 	assertUIMemoryEntryVisible(t, snapshot.Private.Entries, "daily-report-style", "agent_tool")
 
 	assertInvalidatedEntrypoint(t, invalidator, "after WriteAgentMemory")
+}
+
+func assertAgentMemoryWriteResult(t *testing.T, res contract.AgentMemoryWriteResult) {
+	t.Helper()
+
+	if res.ActualTarget != "private" {
+		t.Fatalf("ActualTarget = %q, want private", res.ActualTarget)
+	}
+	if res.RequestedScope != contract.MemoryScopeUser {
+		t.Fatalf("RequestedScope = %q, want user", res.RequestedScope)
+	}
+	if res.Type != contract.MemoryTypeFeedback {
+		t.Fatalf("Type = %q, want feedback", res.Type)
+	}
+	if res.Path == "" {
+		t.Fatalf("Path = empty, result = %+v", res)
+	}
+}
+
+func assertAgentMemoryStoredFeedback(t *testing.T, entries []MemoryEntry) {
+	t.Helper()
+
+	if len(entries) != 1 {
+		t.Fatalf("entries = %d, want 1", len(entries))
+	}
+	entry := entries[0]
+	if entry.Frontmatter.Description != "Concise reports" {
+		t.Fatalf("entry description = %+v", entry)
+	}
+	if entry.Type() != MemoryTypeFeedback {
+		t.Fatalf("entry type = %+v", entry)
+	}
+	if entry.Frontmatter.Source != "agent_tool" {
+		t.Fatalf("entry source = %+v", entry)
+	}
 }
 
 func TestReadAgentMemoryReadsEntryVisibleInMemoryCenter(t *testing.T) {

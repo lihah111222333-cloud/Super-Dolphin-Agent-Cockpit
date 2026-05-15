@@ -31,9 +31,7 @@ func makeScanFunc(entries []EntrySnapshot) ScanFunc {
 // Filter.Check tests
 // ---------------------------------------------------------------------------
 
-func TestFilterCheck(t *testing.T) {
-	// Shared "old" entry used across multiple sub-tests.
-	// Content is long enough to produce many meaningful bigrams.
+func filterCheckOldEntry() (string, EntrySnapshot) {
 	oldContent := "面向用户的正文一律用中文。commit message 用中文。代码注释保持英文风格。严格遵守输出规范。"
 	oldEntry := EntrySnapshot{
 		Name:    "reply-in-chinese",
@@ -45,374 +43,275 @@ func TestFilterCheck(t *testing.T) {
 		Scope:   "private",
 		Path:    "/mem/feedback_reply.md",
 	}
+	return oldContent, oldEntry
+}
 
-	t.Run("fresh_memory_no_match", func(t *testing.T) {
-		existing := []EntrySnapshot{oldEntry}
-		f := NewFilter(makeScanFunc(existing), nil)
+func requireFilterCheck(t *testing.T, f *Filter, candidate EntrySnapshot) CheckResult {
+	t.Helper()
+	res, err := f.Check(candidate)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	return res
+}
 
-		candidate := EntrySnapshot{
-			Name:    "daily-report-format",
-			Type:    "feedback",
-			Content: "日报固定四段落：进展、阻塞、计划、风险。每段不超过三行。格式严格执行。",
-			Scope:   "private",
-		}
-		res, err := f.Check(candidate)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if res.Action != WriteNew {
-			t.Errorf("expected WriteNew, got %v", res.Action)
-		}
-	})
+func assertFilterAction(t *testing.T, got, want Decision, label string) {
+	t.Helper()
+	if got != want {
+		t.Fatalf("%s: got %v, want %v", label, got, want)
+	}
+}
 
-	t.Run("name_exact_dup_old_contains_new_skip", func(t *testing.T) {
-		// Candidate content is a strict subset of the old content.
-		// Nearly all candidate bigrams exist in the old entry -> Skip.
-		existing := []EntrySnapshot{oldEntry}
-		f := NewFilter(makeScanFunc(existing), nil)
+func TestFilterCheckFreshMemoryNoMatch(t *testing.T) {
+	_, oldEntry := filterCheckOldEntry()
+	f := NewFilter(makeScanFunc([]EntrySnapshot{oldEntry}), nil)
+	candidate := EntrySnapshot{
+		Name:    "daily-report-format",
+		Type:    "feedback",
+		Content: "日报固定四段落：进展、阻塞、计划、风险。每段不超过三行。格式严格执行。",
+		Scope:   "private",
+	}
+	res := requireFilterCheck(t, f, candidate)
+	assertFilterAction(t, res.Action, WriteNew, "fresh memory action")
+}
 
-		// Use the first part of oldContent -- largely contained in old.
-		subContent := "面向用户的正文一律用中文"
-		candidate := EntrySnapshot{
-			Name:    "reply-in-chinese", // exact name match
-			Type:    "feedback",
-			Content: subContent,
-			Scope:   "private",
-		}
-		res, err := f.Check(candidate)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if res.Action != Skip {
-			t.Errorf("expected Skip (old contains new >=90%%), got %v", res.Action)
-		}
-	})
+func TestFilterCheckNameExactDupOldContainsNewSkip(t *testing.T) {
+	_, oldEntry := filterCheckOldEntry()
+	f := NewFilter(makeScanFunc([]EntrySnapshot{oldEntry}), nil)
+	candidate := EntrySnapshot{
+		Name:    "reply-in-chinese",
+		Type:    "feedback",
+		Content: "面向用户的正文一律用中文",
+		Scope:   "private",
+	}
+	res := requireFilterCheck(t, f, candidate)
+	assertFilterAction(t, res.Action, Skip, "old contains new action")
+}
 
-	t.Run("name_exact_dup_with_novel_content_merge", func(t *testing.T) {
-		// Candidate has same name but adds genuinely new rules (>=15% novel bigrams).
-		existing := []EntrySnapshot{oldEntry}
-		f := NewFilter(makeScanFunc(existing), nil)
+func TestFilterCheckNameExactDupWithNovelContentMerge(t *testing.T) {
+	oldContent, oldEntry := filterCheckOldEntry()
+	f := NewFilter(makeScanFunc([]EntrySnapshot{oldEntry}), nil)
+	candidate := EntrySnapshot{
+		Name:    "reply-in-chinese",
+		Type:    "feedback",
+		Content: oldContent + "禁止在回复中使用表情符号。邮件主题行必须全英文。所有标题用粗体显示。",
+		Scope:   "private",
+	}
+	res := requireFilterCheck(t, f, candidate)
+	assertFilterAction(t, res.Action, Merge, "novel same-name action")
+	if res.MergedEntry == nil {
+		t.Fatal("MergedEntry must not be nil on Merge")
+	}
+	if res.TargetPath != oldEntry.Path {
+		t.Fatalf("TargetPath = %q, want %q", res.TargetPath, oldEntry.Path)
+	}
+	if !strings.Contains(res.MergedEntry.Content, "面向用户的正文") {
+		t.Fatal("MergedEntry.Content should contain original old content")
+	}
+}
 
-		// Append brand-new sentences that share almost no bigrams with oldContent.
-		newContent := oldContent + "禁止在回复中使用表情符号。邮件主题行必须全英文。所有标题用粗体显示。"
-		candidate := EntrySnapshot{
-			Name:    "reply-in-chinese",
-			Type:    "feedback",
-			Content: newContent,
-			Scope:   "private",
-		}
-		res, err := f.Check(candidate)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if res.Action != Merge {
-			t.Errorf("expected Merge, got %v", res.Action)
-		}
-		if res.MergedEntry == nil {
-			t.Fatal("MergedEntry must not be nil on Merge")
-		}
-		if res.TargetPath != oldEntry.Path {
-			t.Errorf("TargetPath = %q, want %q", res.TargetPath, oldEntry.Path)
-		}
-		// Merged content must contain the original old text.
-		if !strings.Contains(res.MergedEntry.Content, "面向用户的正文") {
-			t.Error("MergedEntry.Content should contain original old content")
-		}
-	})
+func TestFilterCheckContentContainmentDupSkip(t *testing.T) {
+	existing := []EntrySnapshot{{
+		Name:    "language-rules",
+		Type:    "feedback",
+		Content: "用中文回复用户消息，包括详细背景说明，语言风格自然友好，避免机器翻译腔调，保持专业而温暖的语气。",
+		Scope:   "private",
+		Path:    "/mem/lang.md",
+	}}
+	f := NewFilter(makeScanFunc(existing), nil)
+	candidate := EntrySnapshot{
+		Name:    "different-name",
+		Type:    "feedback",
+		Content: "用中文回复用户消息，包括详细背景说明",
+		Scope:   "private",
+	}
+	res := requireFilterCheck(t, f, candidate)
+	assertFilterAction(t, res.Action, Skip, "content-contained action")
+}
 
-	t.Run("content_containment_dup_skip", func(t *testing.T) {
-		// No name match, but candidate content is fully contained inside existing.
-		existing := []EntrySnapshot{{
-			Name:    "language-rules",
-			Type:    "feedback",
-			Content: "用中文回复用户消息，包括详细背景说明，语言风格自然友好，避免机器翻译腔调，保持专业而温暖的语气。",
-			Scope:   "private",
-			Path:    "/mem/lang.md",
-		}}
-		f := NewFilter(makeScanFunc(existing), nil)
+func TestFilterCheckContentContainmentDupWithNovelMerge(t *testing.T) {
+	existing := []EntrySnapshot{{
+		Name:    "language-rules",
+		Type:    "feedback",
+		Content: "用中文回复用户消息，语言风格自然友好，避免机器翻译腔调。",
+		Scope:   "private",
+		Path:    "/mem/lang2.md",
+	}}
+	f := NewFilter(makeScanFunc(existing), nil)
+	candidate := EntrySnapshot{
+		Name:    "different-name-novel",
+		Type:    "feedback",
+		Content: "用中文回复用户消息，语言风格自然友好，避免机器翻译腔调。禁止使用正式公文语气。段落间加空行。所有列表用序号。",
+		Scope:   "private",
+	}
+	res := requireFilterCheck(t, f, candidate)
+	assertFilterAction(t, res.Action, Merge, "content-matched novel action")
+}
 
-		// Candidate: short subset of the existing content.
-		candidate := EntrySnapshot{
-			Name:    "different-name",
-			Type:    "feedback",
-			Content: "用中文回复用户消息，包括详细背景说明",
-			Scope:   "private",
-		}
-		res, err := f.Check(candidate)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if res.Action != Skip {
-			t.Errorf("expected Skip for content-contained candidate, got %v", res.Action)
-		}
+func TestFilterCheckCrossScopeMatchWithNovelWriteNew(t *testing.T) {
+	oldContent, _ := filterCheckOldEntry()
+	teamEntry := EntrySnapshot{
+		Name:    "reply-in-chinese",
+		Type:    "feedback",
+		Content: oldContent,
+		Scope:   "team",
+		Path:    "/team/feedback_reply.md",
+	}
+	f := NewFilter(makeScanFunc(nil), makeScanFunc([]EntrySnapshot{teamEntry}))
+	candidate := EntrySnapshot{
+		Name:    "reply-in-chinese",
+		Type:    "feedback",
+		Content: oldContent + "禁止在回复中使用表情符号。邮件主题全英文。标题粗体显示。",
+		Scope:   "private",
+	}
+	res := requireFilterCheck(t, f, candidate)
+	assertFilterAction(t, res.Action, WriteNew, "cross-scope novel action")
+}
 
-	})
+func TestFilterCheckTeamCandidatePrefersTeamDuplicateWhenPrivateSameNameExists(t *testing.T) {
+	oldContent, _ := filterCheckOldEntry()
+	privateEntry := filterCheckScopedEntry(oldContent, "private", "/private/feedback_reply.md")
+	teamEntry := filterCheckScopedEntry(oldContent, "team", "/team/feedback_reply.md")
+	f := NewFilter(makeScanFunc([]EntrySnapshot{privateEntry}), makeScanFunc([]EntrySnapshot{teamEntry}))
+	candidate := EntrySnapshot{
+		Name:    "reply-in-chinese",
+		Type:    "feedback",
+		Content: "面向用户的正文一律用中文",
+		Scope:   "team",
+	}
+	res := requireFilterCheck(t, f, candidate)
+	assertFilterAction(t, res.Action, Skip, "team same-scope skip action")
+}
 
-	t.Run("content_containment_dup_with_novel_merge", func(t *testing.T) {
-		// Candidate matches by content containment and has novel content -> Merge.
-		existing := []EntrySnapshot{{
-			Name:    "language-rules",
-			Type:    "feedback",
-			Content: "用中文回复用户消息，语言风格自然友好，避免机器翻译腔调。",
-			Scope:   "private",
-			Path:    "/mem/lang2.md",
-		}}
-		f := NewFilter(makeScanFunc(existing), nil)
+func TestFilterCheckTeamCandidatePrefersTeamDuplicateForMergeWhenPrivateSameNameExists(t *testing.T) {
+	oldContent, _ := filterCheckOldEntry()
+	privateEntry := filterCheckScopedEntry(oldContent, "private", "/private/feedback_reply.md")
+	teamEntry := filterCheckScopedEntry(oldContent, "team", "/team/feedback_reply.md")
+	f := NewFilter(makeScanFunc([]EntrySnapshot{privateEntry}), makeScanFunc([]EntrySnapshot{teamEntry}))
+	candidate := EntrySnapshot{
+		Name:    "reply-in-chinese",
+		Type:    "feedback",
+		Content: oldContent + "禁止在回复中使用表情符号。邮件主题行必须全英文。所有标题用粗体显示。",
+		Scope:   "team",
+	}
+	res := requireFilterCheck(t, f, candidate)
+	assertFilterAction(t, res.Action, Merge, "team same-scope merge action")
+	if res.TargetPath != teamEntry.Path {
+		t.Fatalf("merge target path = %q, want team path %q", res.TargetPath, teamEntry.Path)
+	}
+}
 
-		// Candidate: overlapping content plus significant new addition.
-		candidate := EntrySnapshot{
-			Name:    "different-name-novel",
-			Type:    "feedback",
-			Content: "用中文回复用户消息，语言风格自然友好，避免机器翻译腔调。禁止使用正式公文语气。段落间加空行。所有列表用序号。",
-			Scope:   "private",
-		}
-		res, err := f.Check(candidate)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if res.Action != Merge {
-			t.Errorf("expected Merge for content-matched candidate with novel content, got %v", res.Action)
-		}
+func filterCheckScopedEntry(content, scope, path string) EntrySnapshot {
+	return EntrySnapshot{
+		Name:    "reply-in-chinese",
+		Type:    "feedback",
+		Content: content,
+		Scope:   scope,
+		Path:    path,
+	}
+}
 
-	})
+func TestFilterCheckPrivateScanAliasOfTeamEntryKeepsCrossScopeWriteNew(t *testing.T) {
+	teamEntryAsPrivate := EntrySnapshot{
+		Name:    "deploy-checklist",
+		Type:    "user",
+		Content: "Team deploy checklist requires rollback owner and release window confirmation.",
+		Scope:   "private",
+		Path:    "/mem/team/user/deploy-checklist.md",
+	}
+	teamEntry := teamEntryAsPrivate
+	teamEntry.Scope = "team"
+	f := NewFilter(makeScanFunc([]EntrySnapshot{teamEntryAsPrivate}), makeScanFunc([]EntrySnapshot{teamEntry}))
+	candidate := EntrySnapshot{
+		Name:    "deploy-checklist",
+		Type:    "user",
+		Content: "Team deploy checklist requires rollback owner and release window confirmation.",
+		Scope:   "private",
+	}
+	res := requireFilterCheck(t, f, candidate)
+	assertFilterAction(t, res.Action, WriteNew, "private scan alias action")
+}
 
-	t.Run("cross_scope_match_with_novel_write_new", func(t *testing.T) {
-		// Existing entry is in "team" scope; candidate is in "private" scope.
-		// Even with novel content the filter must NOT merge across scopes -> WriteNew.
-		teamEntry := EntrySnapshot{
-			Name:    "reply-in-chinese",
-			Type:    "feedback",
-			Content: oldContent,
-			Scope:   "team",
-			Path:    "/team/feedback_reply.md",
-		}
-		// scanPrivate returns nothing; scanTeam returns teamEntry.
-		f := NewFilter(
-			makeScanFunc(nil),
-			makeScanFunc([]EntrySnapshot{teamEntry}),
-		)
+func TestFilterCheckCrossScopeMatchNoNovelSkip(t *testing.T) {
+	oldContent, _ := filterCheckOldEntry()
+	teamEntry := EntrySnapshot{
+		Name:    "reply-in-chinese",
+		Type:    "feedback",
+		Content: oldContent,
+		Scope:   "team",
+		Path:    "/team/feedback_reply.md",
+	}
+	f := NewFilter(makeScanFunc(nil), makeScanFunc([]EntrySnapshot{teamEntry}))
+	candidate := EntrySnapshot{
+		Name:    "reply-in-chinese",
+		Type:    "feedback",
+		Content: "面向用户的正文一律用中文",
+		Scope:   "private",
+	}
+	res := requireFilterCheck(t, f, candidate)
+	assertFilterAction(t, res.Action, WriteNew, "cross-scope duplicate action")
+}
 
-		newContent2 := oldContent + "禁止在回复中使用表情符号。邮件主题全英文。标题粗体显示。"
-		candidate := EntrySnapshot{
-			Name:    "reply-in-chinese",
-			Type:    "feedback",
-			Content: newContent2,
-			Scope:   "private",
-		}
-		res, err := f.Check(candidate)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if res.Action != WriteNew {
-			t.Errorf("cross-scope merge must not happen: expected WriteNew, got %v", res.Action)
-		}
-	})
+func TestFilterCheckMergedEntryPreservesLangAliasesSource(t *testing.T) {
+	oldContent, _ := filterCheckOldEntry()
+	existing := []EntrySnapshot{{
+		Name:    "reply-in-chinese",
+		Type:    "feedback",
+		Lang:    "zh",
+		Aliases: []string{"chinese-reply", "lang-rule"},
+		Source:  "human",
+		Content: oldContent,
+		Scope:   "private",
+		Path:    "/mem/feedback_reply.md",
+	}}
+	f := NewFilter(makeScanFunc(existing), nil)
+	candidate := EntrySnapshot{
+		Name:    "reply-in-chinese",
+		Type:    "feedback",
+		Lang:    "en",
+		Aliases: []string{"new-alias"},
+		Source:  "dream",
+		Content: oldContent + "禁止使用表情符号。邮件主题全英文。标题粓体。所有序号统一格式。",
+		Scope:   "private",
+	}
+	res := requireFilterCheck(t, f, candidate)
+	assertFilterAction(t, res.Action, Merge, "preserve metadata action")
+	assertMergedEntryMetadata(t, res.MergedEntry)
+}
 
-	t.Run("team_candidate_prefers_team_duplicate_when_private_same_name_exists", func(t *testing.T) {
-		privateEntry := EntrySnapshot{
-			Name:    "reply-in-chinese",
-			Type:    "feedback",
-			Content: oldContent,
-			Scope:   "private",
-			Path:    "/private/feedback_reply.md",
+func assertMergedEntryMetadata(t *testing.T, merged *EntrySnapshot) {
+	t.Helper()
+	if merged == nil {
+		t.Fatal("MergedEntry must not be nil on Merge")
+	}
+	if merged.Lang != "zh" {
+		t.Fatalf("Lang should be preserved from old entry: got %q, want %q", merged.Lang, "zh")
+	}
+	aliasSet := make(map[string]struct{}, len(merged.Aliases))
+	for _, alias := range merged.Aliases {
+		aliasSet[alias] = struct{}{}
+	}
+	for _, want := range []string{"chinese-reply", "lang-rule"} {
+		if _, ok := aliasSet[want]; !ok {
+			t.Fatalf("Aliases missing %q; got %v", want, merged.Aliases)
 		}
-		teamEntry := EntrySnapshot{
-			Name:    "reply-in-chinese",
-			Type:    "feedback",
-			Content: oldContent,
-			Scope:   "team",
-			Path:    "/team/feedback_reply.md",
-		}
-		f := NewFilter(
-			makeScanFunc([]EntrySnapshot{privateEntry}),
-			makeScanFunc([]EntrySnapshot{teamEntry}),
-		)
+	}
+	if merged.Source != "human" {
+		t.Fatalf("Source should be kept from old entry: got %q, want %q", merged.Source, "human")
+	}
+}
 
-		candidate := EntrySnapshot{
-			Name:    "reply-in-chinese",
-			Type:    "feedback",
-			Content: "面向用户的正文一律用中文",
-			Scope:   "team",
-		}
-		res, err := f.Check(candidate)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if res.Action != Skip {
-			t.Fatalf("team candidate must dedup against same-scope team entry: got %v, want %v", res.Action, Skip)
-		}
-	})
-
-	t.Run("team_candidate_prefers_team_duplicate_for_merge_when_private_same_name_exists", func(t *testing.T) {
-		privateEntry := EntrySnapshot{
-			Name:    "reply-in-chinese",
-			Type:    "feedback",
-			Content: oldContent,
-			Scope:   "private",
-			Path:    "/private/feedback_reply.md",
-		}
-		teamEntry := EntrySnapshot{
-			Name:    "reply-in-chinese",
-			Type:    "feedback",
-			Content: oldContent,
-			Scope:   "team",
-			Path:    "/team/feedback_reply.md",
-		}
-		f := NewFilter(
-			makeScanFunc([]EntrySnapshot{privateEntry}),
-			makeScanFunc([]EntrySnapshot{teamEntry}),
-		)
-
-		candidate := EntrySnapshot{
-			Name:    "reply-in-chinese",
-			Type:    "feedback",
-			Content: oldContent + "禁止在回复中使用表情符号。邮件主题行必须全英文。所有标题用粗体显示。",
-			Scope:   "team",
-		}
-		res, err := f.Check(candidate)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if res.Action != Merge {
-			t.Fatalf("team candidate must merge same-scope team entry: got %v, want %v", res.Action, Merge)
-		}
-		if res.TargetPath != teamEntry.Path {
-			t.Fatalf("merge target path = %q, want team path %q", res.TargetPath, teamEntry.Path)
-		}
-	})
-
-	t.Run("private_scan_alias_of_team_entry_keeps_cross_scope_write_new", func(t *testing.T) {
-		teamEntryAsPrivate := EntrySnapshot{
-			Name:    "deploy-checklist",
-			Type:    "user",
-			Content: "Team deploy checklist requires rollback owner and release window confirmation.",
-			Scope:   "private",
-			Path:    "/mem/team/user/deploy-checklist.md",
-		}
-		teamEntry := teamEntryAsPrivate
-		teamEntry.Scope = "team"
-		f := NewFilter(
-			makeScanFunc([]EntrySnapshot{teamEntryAsPrivate}),
-			makeScanFunc([]EntrySnapshot{teamEntry}),
-		)
-
-		candidate := EntrySnapshot{
-			Name:    "deploy-checklist",
-			Type:    "user",
-			Content: "Team deploy checklist requires rollback owner and release window confirmation.",
-			Scope:   "private",
-		}
-		res, err := f.Check(candidate)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if res.Action != WriteNew {
-			t.Fatalf("team entry discovered through private scan must remain cross-scope: got %v, want %v", res.Action, WriteNew)
-		}
-	})
-
-	t.Run("cross_scope_match_no_novel_skip", func(t *testing.T) {
-		// Existing in "team"; candidate in "private" with content contained in team entry.
-		// Cross-scope duplicates must not skip the current scope write.
-		teamEntry := EntrySnapshot{
-			Name:    "reply-in-chinese",
-			Type:    "feedback",
-			Content: oldContent,
-			Scope:   "team",
-			Path:    "/team/feedback_reply.md",
-		}
-		f := NewFilter(
-			makeScanFunc(nil),
-			makeScanFunc([]EntrySnapshot{teamEntry}),
-		)
-
-		// Candidate is the same short subset -- fully contained in the team entry.
-		candidate := EntrySnapshot{
-			Name:    "reply-in-chinese",
-			Type:    "feedback",
-			Content: "面向用户的正文一律用中文",
-			Scope:   "private",
-		}
-		res, err := f.Check(candidate)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if res.Action != WriteNew {
-			t.Errorf("cross-scope duplicate must still write current scope: expected WriteNew, got %v", res.Action)
-		}
-	})
-
-	t.Run("merged_entry_preserves_lang_aliases_source", func(t *testing.T) {
-		// Verify that Lang, Aliases, and Source are not lost after a Merge.
-		existing := []EntrySnapshot{{
-			Name:    "reply-in-chinese",
-			Type:    "feedback",
-			Lang:    "zh",
-			Aliases: []string{"chinese-reply", "lang-rule"},
-			Source:  "human",
-			Content: oldContent,
-			Scope:   "private",
-			Path:    "/mem/feedback_reply.md",
-		}}
-		f := NewFilter(makeScanFunc(existing), nil)
-
-		newContent3 := oldContent + "禁止使用表情符号。邮件主题全英文。标题粓体。所有序号统一格式。"
-		candidate := EntrySnapshot{
-			Name:    "reply-in-chinese",
-			Type:    "feedback",
-			Lang:    "en",                  // should be overridden by old
-			Aliases: []string{"new-alias"}, // old's aliases should be kept
-			Source:  "dream",               // old is "human" -> keep "human"
-			Content: newContent3,
-			Scope:   "private",
-		}
-		res, err := f.Check(candidate)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if res.Action != Merge {
-			t.Fatalf("expected Merge, got %v", res.Action)
-		}
-		m := res.MergedEntry
-		if m.Lang != "zh" {
-			t.Errorf("Lang should be preserved from old entry: got %q, want %q", m.Lang, "zh")
-		}
-		// Aliases: old aliases must be present in merged result.
-		aliasSet := make(map[string]struct{}, len(m.Aliases))
-		for _, a := range m.Aliases {
-			aliasSet[a] = struct{}{}
-		}
-		for _, want := range []string{"chinese-reply", "lang-rule"} {
-			if _, ok := aliasSet[want]; !ok {
-				t.Errorf("Aliases missing %q; got %v", want, m.Aliases)
-			}
-		}
-		// Source: old is "human" (not "dream") -> keep "human".
-		if m.Source != "human" {
-			t.Errorf("Source should be kept from old entry: got %q, want %q", m.Source, "human")
-		}
-	})
-
-	t.Run("scan_team_nil_private_only", func(t *testing.T) {
-		// scanTeam is nil -- filter must still work using private entries only.
-		existing := []EntrySnapshot{oldEntry}
-		f := NewFilter(makeScanFunc(existing), nil)
-
-		// A totally new candidate.
-		candidate := EntrySnapshot{
-			Name:    "freeze-policy",
-			Type:    "feedback",
-			Content: "限额一旦设定不可更改，即使管理员也无权调低冻结上限。",
-			Scope:   "private",
-		}
-		res, err := f.Check(candidate)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if res.Action != WriteNew {
-			t.Errorf("expected WriteNew with nil scanTeam, got %v", res.Action)
-		}
-	})
+func TestFilterCheckScanTeamNilPrivateOnly(t *testing.T) {
+	_, oldEntry := filterCheckOldEntry()
+	f := NewFilter(makeScanFunc([]EntrySnapshot{oldEntry}), nil)
+	candidate := EntrySnapshot{
+		Name:    "freeze-policy",
+		Type:    "feedback",
+		Content: "限额一旦设定不可更改，即使管理员也无权调低冻结上限。",
+		Scope:   "private",
+	}
+	res := requireFilterCheck(t, f, candidate)
+	assertFilterAction(t, res.Action, WriteNew, "nil team scan action")
 }
 
 // ---------------------------------------------------------------------------

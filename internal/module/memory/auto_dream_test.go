@@ -87,6 +87,21 @@ func TestAutoDreamStopHookNoOpWhenKairosActive(t *testing.T) {
 func TestAutoDreamStopHookRequiresMinSessionsAndExcludesCurrent(t *testing.T) {
 	root := newTestMemoryRoot(t)
 	now := time.Date(2026, 4, 15, 9, 0, 0, 0, time.UTC)
+	store, hooks, calls := newAutoDreamMinSessionsHarness(t, root, now, func() time.Time { return now })
+
+	assertAutoDreamMinSessionsNotStarted(t, hooks, calls)
+	store.threads = append(store.threads, *newAutoDreamRootThread(t, "thread-5", now.Add(-time.Minute), map[string]any{"threadKind": "main"}))
+	now = now.Add(11 * time.Minute)
+	assertAutoDreamMinSessionsStarted(t, root, hooks, calls)
+}
+
+func newAutoDreamMinSessionsHarness(
+	t *testing.T,
+	root string,
+	now time.Time,
+	nowFn func() time.Time,
+) (*autoDreamThreadStoreStub, *MemoryLifecycleHooks, *int) {
+	t.Helper()
 	writeExtractFixture(t, filepath.Join(root, "feedback", "keep-answers-short.md"), testMemoryEntry(
 		"Keep answers short",
 		"legacy",
@@ -113,16 +128,20 @@ func TestAutoDreamStopHookRequiresMinSessionsAndExcludesCurrent(t *testing.T) {
 		NewMemoryExtractor(),
 		NewManifestBuilder(),
 	)
-	hooks.timeNow = func() time.Time { return now }
-	calls := 0
+	hooks.timeNow = nowFn
+	calls := new(int)
 	hooks.extractFn = func(_ context.Context, prompt string) (string, error) {
-		calls++
+		*calls++
 		if prompt == "" {
 			t.Fatal("auto-dream prompt should not be empty")
 		}
 		return `{"memories":[{"content":"Keep answers short\nWhy: default to concise responses.","type":"feedback"}]}`, nil
 	}
+	return store, hooks, calls
+}
 
+func assertAutoDreamMinSessionsNotStarted(t *testing.T, hooks *MemoryLifecycleHooks, calls *int) {
+	t.Helper()
 	started, err := hooks.maybeScheduleAutoDream(context.Background(), "thread-current")
 	if err != nil {
 		t.Fatalf("maybeScheduleAutoDream(first) error = %v", err)
@@ -130,13 +149,14 @@ func TestAutoDreamStopHookRequiresMinSessionsAndExcludesCurrent(t *testing.T) {
 	if started {
 		t.Fatal("maybeScheduleAutoDream(first) = true, want false with only four other sessions")
 	}
-	if calls != 0 {
-		t.Fatalf("extractFn calls after first schedule = %d, want 0", calls)
+	if *calls != 0 {
+		t.Fatalf("extractFn calls after first schedule = %d, want 0", *calls)
 	}
+}
 
-	store.threads = append(store.threads, *newAutoDreamRootThread(t, "thread-5", now.Add(-time.Minute), map[string]any{"threadKind": "main"}))
-	now = now.Add(11 * time.Minute)
-	started, err = hooks.maybeScheduleAutoDream(context.Background(), "thread-current")
+func assertAutoDreamMinSessionsStarted(t *testing.T, root string, hooks *MemoryLifecycleHooks, calls *int) {
+	t.Helper()
+	started, err := hooks.maybeScheduleAutoDream(context.Background(), "thread-current")
 	if err != nil {
 		t.Fatalf("maybeScheduleAutoDream(second) error = %v", err)
 	}
@@ -146,8 +166,8 @@ func TestAutoDreamStopHookRequiresMinSessionsAndExcludesCurrent(t *testing.T) {
 	if err := hooks.waitDreamTask(context.Background()); err != nil {
 		t.Fatalf("waitDreamTask() error = %v", err)
 	}
-	if calls != 1 {
-		t.Fatalf("extractFn calls = %d, want 1", calls)
+	if *calls != 1 {
+		t.Fatalf("extractFn calls = %d, want 1", *calls)
 	}
 	stamp, err := loadConsolidationStamp(root)
 	if err != nil {

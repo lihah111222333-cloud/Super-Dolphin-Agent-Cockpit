@@ -237,16 +237,7 @@ func TestTeamSync413LearnsServerMaxEntriesForNextPush(t *testing.T) {
 	guard := NewTeamMemoryGuard(manager)
 	invalidator := &teamSyncInvalidatorStub{}
 	remote := &teamSyncRemoteStub{oauthReady: true}
-	remote.pushFilesFn = func(_ context.Context, req TeamSyncPushRequest) (TeamSyncPushResponse, error) {
-		if len(req.Uploads) > 1 {
-			return TeamSyncPushResponse{MaxEntries: 1}, nil
-		}
-		applied := make(map[string]string, len(req.Uploads))
-		for path, content := range req.Uploads {
-			applied[path] = checksumContent([]byte(content))
-		}
-		return TeamSyncPushResponse{ETag: "etag-next", Applied: applied}, nil
-	}
+	remote.pushFilesFn = teamSync413PushFiles
 	store, err := newTeamSyncStateStore(teamRoot)
 	if err != nil {
 		t.Fatalf("newTeamSyncStateStore() error = %v", err)
@@ -263,29 +254,50 @@ func TestTeamSync413LearnsServerMaxEntriesForNextPush(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Push() error = %v", err)
 	}
+	assertTeamSync413FirstPush(t, first, svc.state.ServerMaxEntries)
+	second, err := svc.pushLocalChanges(context.Background(), TeamSyncTriggerManual)
+	if err != nil {
+		t.Fatalf("second Push() error = %v", err)
+	}
+	assertTeamSync413SecondPush(t, second, remote.pushBatchSizes)
+}
+
+func teamSync413PushFiles(_ context.Context, req TeamSyncPushRequest) (TeamSyncPushResponse, error) {
+	if len(req.Uploads) > 1 {
+		return TeamSyncPushResponse{MaxEntries: 1}, nil
+	}
+	applied := make(map[string]string, len(req.Uploads))
+	for path, content := range req.Uploads {
+		applied[path] = checksumContent([]byte(content))
+	}
+	return TeamSyncPushResponse{ETag: "etag-next", Applied: applied}, nil
+}
+
+func assertTeamSync413FirstPush(t *testing.T, first TeamSyncPushResult, serverMaxEntries int) {
+	t.Helper()
 	if !first.LearnedMaxEntries {
 		t.Fatal("first Push() did not learn serverMaxEntries")
 	}
 	if first.Applied {
 		t.Fatal("first Push() applied unexpectedly")
 	}
-	if svc.state.ServerMaxEntries != 1 {
-		t.Fatalf("ServerMaxEntries = %d, want 1", svc.state.ServerMaxEntries)
+	if serverMaxEntries != 1 {
+		t.Fatalf("ServerMaxEntries = %d, want 1", serverMaxEntries)
 	}
-	second, err := svc.pushLocalChanges(context.Background(), TeamSyncTriggerManual)
-	if err != nil {
-		t.Fatalf("second Push() error = %v", err)
-	}
+}
+
+func assertTeamSync413SecondPush(t *testing.T, second TeamSyncPushResult, pushBatchSizes []int) {
+	t.Helper()
 	if !second.Applied {
 		t.Fatal("second Push() = not applied, want true")
 	}
-	if len(remote.pushBatchSizes) < 3 {
-		t.Fatalf("pushBatchSizes = %#v, want first oversized call then split calls", remote.pushBatchSizes)
+	if len(pushBatchSizes) < 3 {
+		t.Fatalf("pushBatchSizes = %#v, want first oversized call then split calls", pushBatchSizes)
 	}
-	if remote.pushBatchSizes[0] != 2 {
-		t.Fatalf("first push batch size = %d, want 2", remote.pushBatchSizes[0])
+	if pushBatchSizes[0] != 2 {
+		t.Fatalf("first push batch size = %d, want 2", pushBatchSizes[0])
 	}
-	for _, size := range remote.pushBatchSizes[1:] {
+	for _, size := range pushBatchSizes[1:] {
 		if size > 1 {
 			t.Fatalf("split push batch size = %d, want <= 1", size)
 		}

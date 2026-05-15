@@ -49,35 +49,23 @@ func TestTeamSyncWatcherDetectDirtyOnlyForTeamMarkdown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newTeamSyncWatcher() error = %v", err)
 	}
+	assertTeamSyncDirtyState(t, watcher, "baseline", false)
+	writeTeamSyncTestFile(t, filepath.Join(root, "ignore.txt"), "y")
+	assertTeamSyncDirtyState(t, watcher, "txt change", false)
+	writeTeamSyncTestFile(t, outside, "outside-2")
+	assertTeamSyncDirtyState(t, watcher, "outside change", false)
+	writeTeamSyncTestFile(t, filepath.Join(root, "keep.md"), "three")
+	assertTeamSyncDirtyState(t, watcher, "md change", true)
+}
+
+func assertTeamSyncDirtyState(t *testing.T, watcher *teamSyncWatcher, label string, want bool) {
+	t.Helper()
+
 	changed, err := watcher.detectDirty()
 	if err != nil {
-		t.Fatalf("detectDirty() baseline error = %v", err)
+		t.Fatalf("detectDirty() %s error = %v", label, err)
 	}
-	if changed {
-		t.Fatal("detectDirty() baseline = true, want false")
-	}
-	writeTeamSyncTestFile(t, filepath.Join(root, "ignore.txt"), "y")
-	changed, err = watcher.detectDirty()
-	if err != nil {
-		t.Fatalf("detectDirty() txt change error = %v", err)
-	}
-	if changed {
-		t.Fatal("detectDirty() txt change = true, want false")
-	}
-	writeTeamSyncTestFile(t, outside, "outside-2")
-	changed, err = watcher.detectDirty()
-	if err != nil {
-		t.Fatalf("detectDirty() outside change error = %v", err)
-	}
-	if changed {
-		t.Fatal("detectDirty() outside change = true, want false")
-	}
-	writeTeamSyncTestFile(t, filepath.Join(root, "keep.md"), "three")
-	changed, err = watcher.detectDirty()
-	if err != nil {
-		t.Fatalf("detectDirty() md change error = %v", err)
-	}
-	if !changed {
-		t.Fatal("detectDirty() md change = false, want true")
+	if changed != want {
+		t.Fatalf("detectDirty() %s = %t, want %t", label, changed, want)
 	}
 }

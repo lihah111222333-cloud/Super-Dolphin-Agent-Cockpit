@@ -89,14 +89,27 @@ func TestApprovalCache_ApproveAndLookup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Approve() error = %v", err)
 	}
+	assertApprovedEntry(t, entry, hash)
+
+	// Lookup 命中
+	assertLookupEntry(t, cache, hash)
+
+	// 文件确实落盘
+	assertApprovalFileContains(t, cache.Path(), hash, "foo")
+}
+
+func assertApprovedEntry(t *testing.T, entry ApprovalEntry, hash string) {
+	t.Helper()
 	if entry.Name != "foo" || entry.ContentHash != hash || entry.Trust != TrustProject {
 		t.Fatalf("entry = %+v", entry)
 	}
 	if entry.ApprovedAt.IsZero() {
 		t.Fatalf("ApprovedAt should be set")
 	}
+}
 
-	// Lookup 命中
+func assertLookupEntry(t *testing.T, cache *ApprovalCache, hash string) {
+	t.Helper()
 	got, ok := cache.Lookup("foo", hash)
 	if !ok {
 		t.Fatalf("lookup miss after approve")
@@ -104,13 +117,15 @@ func TestApprovalCache_ApproveAndLookup(t *testing.T) {
 	if got.Name != "foo" || got.ContentHash != hash {
 		t.Fatalf("lookup returned wrong entry: %+v", got)
 	}
+}
 
-	// 文件确实落盘
-	data, err := os.ReadFile(cache.Path())
+func assertApprovalFileContains(t *testing.T, path, hash, name string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read file failed: %v", err)
 	}
-	if !strings.Contains(string(data), hash) || !strings.Contains(string(data), "foo") {
+	if !strings.Contains(string(data), hash) || !strings.Contains(string(data), name) {
 		t.Fatalf("file content missing expected fields: %s", data)
 	}
 }

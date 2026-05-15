@@ -55,26 +55,39 @@ func TestBuildStartSessionConfigCarriesTurnContextFields(t *testing.T) {
 		},
 		SessionFlags: map[string]bool{"verification_required": true},
 	}, contract.StartAssembly{DeveloperInstructions: "dev prompt"})
-	if cfg["provider"] != "codex" || cfg["gitRoot"] != "/repo" || cfg["language"] != "Chinese" {
-		t.Fatalf("buildStartSessionConfig() basic context = %#v", cfg)
+	requireSessionConfigValue(t, cfg, "provider", "codex")
+	requireSessionConfigValue(t, cfg, "gitRoot", "/repo")
+	requireSessionConfigValue(t, cfg, "language", "Chinese")
+	requireSessionConfigValue(t, cfg, "isWorktree", true)
+	requireSessionConfigStringSlice(t, cfg, "enabledTools", []string{"lsp_file", "spawn_agent"})
+	requireSessionConfigMapValue(t, cfg, "mcpInstructions", "lsp", "Use the LSP MCP first.")
+	requireSessionConfigMapValue(t, cfg, "sessionFlags", "verification_required", true)
+	requireSessionConfigStringSlice(t, cfg, "claudeMdExcludes", []string{"/repo/**/CLAUDE.local.md"})
+	requireSessionConfigValue(t, cfg, "parentAgentId", "agent-root")
+	requireSessionConfigValue(t, cfg, "agentType", "worker")
+	requireSessionConfigValue(t, cfg, "threadKind", "child_agent")
+}
+
+func requireSessionConfigValue(t *testing.T, cfg map[string]any, key string, want any) {
+	t.Helper()
+	if cfg[key] != want {
+		t.Fatalf("buildStartSessionConfig() %s = %#v, want %#v", key, cfg[key], want)
 	}
-	if cfg["isWorktree"] != true {
-		t.Fatalf("buildStartSessionConfig() isWorktree = %#v, want true", cfg["isWorktree"])
+}
+
+func requireSessionConfigStringSlice(t *testing.T, cfg map[string]any, key string, want []string) {
+	t.Helper()
+	got, ok := cfg[key].([]string)
+	if !ok || !reflect.DeepEqual(got, want) {
+		t.Fatalf("buildStartSessionConfig() %s = %#v, want %#v", key, cfg[key], want)
 	}
-	if got, ok := cfg["enabledTools"].([]string); !ok || len(got) != 2 || got[0] != "lsp_file" || got[1] != "spawn_agent" {
-		t.Fatalf("buildStartSessionConfig() enabledTools = %#v", cfg["enabledTools"])
-	}
-	if got, ok := cfg["mcpInstructions"].(map[string]any); !ok || got["lsp"] != "Use the LSP MCP first." {
-		t.Fatalf("buildStartSessionConfig() mcpInstructions = %#v", cfg["mcpInstructions"])
-	}
-	if got, ok := cfg["sessionFlags"].(map[string]any); !ok || got["verification_required"] != true {
-		t.Fatalf("buildStartSessionConfig() sessionFlags = %#v", cfg["sessionFlags"])
-	}
-	if got, ok := cfg["claudeMdExcludes"].([]string); !ok || len(got) != 1 || got[0] != "/repo/**/CLAUDE.local.md" {
-		t.Fatalf("buildStartSessionConfig() claudeMdExcludes = %#v", cfg["claudeMdExcludes"])
-	}
-	if cfg["parentAgentId"] != "agent-root" || cfg["agentType"] != "worker" || cfg["threadKind"] != "child_agent" {
-		t.Fatalf("buildStartSessionConfig() child metadata = %#v", cfg)
+}
+
+func requireSessionConfigMapValue(t *testing.T, cfg map[string]any, key, nestedKey string, want any) {
+	t.Helper()
+	got, ok := cfg[key].(map[string]any)
+	if !ok || got[nestedKey] != want {
+		t.Fatalf("buildStartSessionConfig() %s = %#v, want %s=%#v", key, cfg[key], nestedKey, want)
 	}
 }
 

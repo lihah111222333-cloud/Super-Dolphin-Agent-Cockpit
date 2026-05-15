@@ -58,11 +58,7 @@ func TestPublishSkillsChangedDebouncesBurst(t *testing.T) {
 		t.Fatalf("debounced event = %#v", ev)
 	}
 
-	select {
-	case extra := <-got:
-		t.Fatalf("unexpected extra skills changed event = %#v", extra)
-	case <-time.After(200 * time.Millisecond):
-	}
+	assertNoExtraSkillsChanged(t, got)
 }
 
 func TestPublishSkillsChangedDedupesRepeatedActions(t *testing.T) {
@@ -86,11 +82,7 @@ func TestPublishSkillsChangedDedupesRepeatedActions(t *testing.T) {
 		t.Fatalf("deduped event = %#v", ev)
 	}
 
-	select {
-	case extra := <-got:
-		t.Fatalf("unexpected extra skills changed event = %#v", extra)
-	case <-time.After(200 * time.Millisecond):
-	}
+	assertNoExtraSkillsChanged(t, got)
 }
 
 func mustReceiveSkillsChanged(t *testing.T, ch <-chan uidto.SkillsChanged) uidto.SkillsChanged {
@@ -102,6 +94,38 @@ func mustReceiveSkillsChanged(t *testing.T, ch <-chan uidto.SkillsChanged) uidto
 	case <-time.After(time.Second):
 		t.Fatal("expected skills changed event")
 		return uidto.SkillsChanged{}
+	}
+}
+
+func assertNoExtraSkillsChanged(t *testing.T, ch <-chan uidto.SkillsChanged) {
+	t.Helper()
+	select {
+	case extra := <-ch:
+		t.Fatalf("unexpected extra skills changed event = %#v", extra)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func assertSkillsEventBasics(t *testing.T, label string, ev uidto.SkillsChanged, scope, name, action string, count int) {
+	t.Helper()
+	if ev.Scope != scope {
+		t.Fatalf("%s scope = %q, want %q; ev=%#v", label, ev.Scope, scope, ev)
+	}
+	if ev.Name != name {
+		t.Fatalf("%s name = %q, want %q; ev=%#v", label, ev.Name, name, ev)
+	}
+	if ev.Count != count || ev.Action != action {
+		t.Fatalf("%s action/count mismatch; ev=%#v", label, ev)
+	}
+}
+
+func assertProjectRepoEvent(t *testing.T, label string, ev uidto.SkillsChanged, projectRoot string) {
+	t.Helper()
+	if ev.Cwd != "" {
+		t.Fatalf("%s cwd leaked absolute path; ev=%#v", label, ev)
+	}
+	if ev.RepoFingerprint != RepoFingerprint(projectRoot) || ev.RelativePath != "." {
+		t.Fatalf("%s repo location mismatch; ev=%#v want fp=%q rel=.", label, ev, RepoFingerprint(projectRoot))
 	}
 }
 
@@ -221,41 +245,16 @@ func TestServiceCrossScopeFlushesBothEvents(t *testing.T) {
 	svc.publishSkillsChanged(context.Background(), "remote_write", "second", skillScopeSystem)
 
 	first := mustReceiveSkillsChanged(t, got)
-	if first.Scope != "project" {
-		t.Fatalf("first scope = %q, want project; ev=%#v", first.Scope, first)
-	}
-	if first.Name != "first" {
-		t.Fatalf("first name = %q, want first; ev=%#v", first.Name, first)
-	}
-	if first.Cwd != "" {
-		t.Fatalf("first cwd leaked absolute path; ev=%#v", first)
-	}
-	if first.RepoFingerprint != RepoFingerprint(projectRoot) || first.RelativePath != "." {
-		t.Fatalf("first repo location mismatch; ev=%#v", first)
-	}
-	if first.Count != 1 || first.Action != "write" {
-		t.Fatalf("first action/count mismatch; ev=%#v", first)
-	}
+	assertSkillsEventBasics(t, "first", first, "project", "first", "write", 1)
+	assertProjectRepoEvent(t, "first", first, projectRoot)
 
 	second := mustReceiveSkillsChanged(t, got)
-	if second.Scope != "system" {
-		t.Fatalf("second scope = %q, want system; ev=%#v", second.Scope, second)
-	}
-	if second.Name != "second" {
-		t.Fatalf("second name = %q, want second; ev=%#v", second.Name, second)
-	}
+	assertSkillsEventBasics(t, "second", second, "system", "second", "write", 1)
 	if second.Cwd != "" {
 		t.Fatalf("second cwd = %q, want empty (system); ev=%#v", second.Cwd, second)
 	}
-	if second.Count != 1 || second.Action != "write" {
-		t.Fatalf("second action/count mismatch; ev=%#v", second)
-	}
 
-	select {
-	case extra := <-got:
-		t.Fatalf("unexpected extra skills changed event = %#v", extra)
-	case <-time.After(200 * time.Millisecond):
-	}
+	assertNoExtraSkillsChanged(t, got)
 }
 
 // P0b F12: same-scope but cross-repo project events must flush separately.
@@ -278,26 +277,14 @@ func TestServiceCrossCwdFlushesBothEvents(t *testing.T) {
 	svc.publishSkillsChanged(skillTestContext(projectRootB), "import_dir", "second", skillScopeProject)
 
 	first := mustReceiveSkillsChanged(t, got)
-	if first.Scope != "project" || first.Cwd != "" || first.RepoFingerprint != RepoFingerprint(projectRootA) || first.RelativePath != "." || first.Name != "first" {
-		t.Fatalf("first event mismatch; ev=%#v want scope=project fp=%q rel=. name=first", first, RepoFingerprint(projectRootA))
-	}
-	if first.Count != 1 || first.Action != "write" {
-		t.Fatalf("first action/count mismatch; ev=%#v", first)
-	}
+	assertSkillsEventBasics(t, "first", first, "project", "first", "write", 1)
+	assertProjectRepoEvent(t, "first", first, projectRootA)
 
 	second := mustReceiveSkillsChanged(t, got)
-	if second.Scope != "project" || second.Cwd != "" || second.RepoFingerprint != RepoFingerprint(projectRootB) || second.RelativePath != "." || second.Name != "second" {
-		t.Fatalf("second event mismatch; ev=%#v want scope=project fp=%q rel=. name=second", second, RepoFingerprint(projectRootB))
-	}
-	if second.Count != 1 || second.Action != "import" {
-		t.Fatalf("second action/count mismatch; ev=%#v", second)
-	}
+	assertSkillsEventBasics(t, "second", second, "project", "second", "import", 1)
+	assertProjectRepoEvent(t, "second", second, projectRootB)
 
-	select {
-	case extra := <-got:
-		t.Fatalf("unexpected extra skills changed event = %#v", extra)
-	case <-time.After(200 * time.Millisecond):
-	}
+	assertNoExtraSkillsChanged(t, got)
 }
 
 // P0b F12: events in the same (Scope, RepoFingerprint, RelativePath) bucket should still coalesce.
@@ -320,9 +307,8 @@ func TestServiceMergeableEventsStillCoalesce(t *testing.T) {
 	svc.publishSkillsChanged(ctx, "import_dir", "second", skillScopeProject)
 
 	ev := mustReceiveSkillsChanged(t, got)
-	if ev.Scope != "project" || ev.Cwd != "" || ev.RepoFingerprint != RepoFingerprint(projectRoot) || ev.RelativePath != "." {
-		t.Fatalf("scope/repo location mismatch; ev=%#v want scope=project fp=%q rel=.", ev, RepoFingerprint(projectRoot))
-	}
+	assertProjectRepoEvent(t, "coalesced", ev, projectRoot)
+	assertSkillsEventBasics(t, "coalesced", ev, "project", "", "", 2)
 	if ev.Name != "" || ev.Action != "" || ev.Count != 2 {
 		t.Fatalf("coalesced summary mismatch; ev=%#v", ev)
 	}
@@ -330,9 +316,5 @@ func TestServiceMergeableEventsStillCoalesce(t *testing.T) {
 		t.Fatalf("coalesced actions mismatch; ev=%#v", ev)
 	}
 
-	select {
-	case extra := <-got:
-		t.Fatalf("unexpected extra skills changed event = %#v", extra)
-	case <-time.After(200 * time.Millisecond):
-	}
+	assertNoExtraSkillsChanged(t, got)
 }

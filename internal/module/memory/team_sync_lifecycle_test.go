@@ -96,6 +96,14 @@ func TestMemorySubscribersWireTeamSyncToThreadLifecycle(t *testing.T) {
 	event.Publish(dispatcher, threaddto.Started{ThreadID: "thread-1", CWD: repoRoot})
 	event.Publish(dispatcher, threaddto.Stopped{ThreadID: "thread-1"})
 
+	waitForTeamSyncLifecycle(t, syncer)
+	startCalls, stopCalls := syncer.snapshot()
+	assertTeamSyncStart(t, startCalls[0], repoRoot)
+	assertTeamSyncStop(t, stopCalls[0])
+}
+
+func waitForTeamSyncLifecycle(t *testing.T, syncer *recordingTeamSync) {
+	t.Helper()
 	deadline := time.After(2 * time.Second)
 	for {
 		startCount, stopCount := syncer.counts()
@@ -110,25 +118,30 @@ func TestMemorySubscribersWireTeamSyncToThreadLifecycle(t *testing.T) {
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
+}
 
-	startCalls, stopCalls := syncer.snapshot()
-
-	if startCalls[0].threadID != "thread-1" {
-		t.Fatalf("StartSession threadID = %q, want thread-1", startCalls[0].threadID)
+func assertTeamSyncStart(t *testing.T, call teamSyncCall, repoRoot string) {
+	t.Helper()
+	if call.threadID != "thread-1" {
+		t.Fatalf("StartSession threadID = %q, want thread-1", call.threadID)
 	}
-	if startCalls[0].buildCtx.CWD != repoRoot {
-		t.Fatalf("StartSession buildCtx.CWD = %q, want %q", startCalls[0].buildCtx.CWD, repoRoot)
+	if call.buildCtx.CWD != repoRoot {
+		t.Fatalf("StartSession buildCtx.CWD = %q, want %q", call.buildCtx.CWD, repoRoot)
 	}
-	if startCalls[0].buildCtx.GitRoot != repoRoot {
-		t.Fatalf("StartSession buildCtx.GitRoot = %q, want %q", startCalls[0].buildCtx.GitRoot, repoRoot)
+	if call.buildCtx.GitRoot != repoRoot {
+		t.Fatalf("StartSession buildCtx.GitRoot = %q, want %q", call.buildCtx.GitRoot, repoRoot)
 	}
-	if !startCalls[0].buildCtx.IsWorktree {
+	if !call.buildCtx.IsWorktree {
 		t.Fatal("StartSession buildCtx.IsWorktree = false, want true")
 	}
-	if !startCalls[0].buildCtx.SessionFlags["memory_kairos"] {
-		t.Fatalf("StartSession SessionFlags = %#v, want memory_kairos=true", startCalls[0].buildCtx.SessionFlags)
+	if !call.buildCtx.SessionFlags["memory_kairos"] {
+		t.Fatalf("StartSession SessionFlags = %#v, want memory_kairos=true", call.buildCtx.SessionFlags)
 	}
-	if stopCalls[0] != "thread-1" {
-		t.Fatalf("StopSession threadID = %q, want thread-1", stopCalls[0])
+}
+
+func assertTeamSyncStop(t *testing.T, threadID string) {
+	t.Helper()
+	if threadID != "thread-1" {
+		t.Fatalf("StopSession threadID = %q, want thread-1", threadID)
 	}
 }

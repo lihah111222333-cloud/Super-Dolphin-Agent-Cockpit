@@ -66,12 +66,37 @@ func TestNestedToolReadIngestEnqueueOnly(t *testing.T) {
 	w := newNestedIngestWorker(rt, pkglogger.Get())
 	w.Start()
 	w.Enqueue("thread-A", "Read", "payload", "/tmp/blocked")
+	waitNestedWorkerStarted(t, rt)
+	enqueueNestedIngestBurst(t, w)
+
+	// While still blocked, no calls may have landed on the runtime.
+	if got := len(rt.Calls()); got != 0 {
+		t.Fatalf("AddToolReadResult invoked %d times while worker was blocked; bus callback must not drive it", got)
+	}
+
+	// --- Invariant 3: repeated same-key enqueues coalesce ---
+	assertNestedIngestCoalesced(t, w)
+
+	// --- Invariant 2: worker drives AddToolReadResult once unblocked ---
+	close(block)
+	waitNestedIngestProcessed(t, w)
+	if got := len(rt.Calls()); got != 2 {
+		t.Fatalf("AddToolReadResult call count after drain = %d, want 2 (blocked + coalesced)", got)
+	}
+	stopNestedIngestWorker(t, w)
+}
+
+func waitNestedWorkerStarted(t *testing.T, rt *fakeNestedIngestRuntime) {
+	t.Helper()
 	select {
 	case <-rt.started:
 	case <-time.After(time.Second):
 		t.Fatal("worker did not enter AddToolReadResult")
 	}
+}
 
+func enqueueNestedIngestBurst(t *testing.T, w *nestedIngestWorker) {
+	t.Helper()
 	enqueueDone := make(chan struct{})
 	go func() {
 		for i := 0; i < 16; i++ {
@@ -84,36 +109,32 @@ func TestNestedToolReadIngestEnqueueOnly(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatalf("Enqueue blocked while AddToolReadResult was stuck; callback path must be non-blocking")
 	}
+}
 
-	// While still blocked, no calls may have landed on the runtime.
-	if got := len(rt.Calls()); got != 0 {
-		t.Fatalf("AddToolReadResult invoked %d times while worker was blocked; bus callback must not drive it", got)
-	}
-
-	// --- Invariant 3: repeated same-key enqueues coalesce ---
+func assertNestedIngestCoalesced(t *testing.T, w *nestedIngestWorker) {
+	t.Helper()
 	if enq := w.EnqueuedTotal(); enq != 17 {
 		t.Fatalf("EnqueuedTotal = %d, want 17", enq)
 	}
 	if coal := w.CoalescedTotal(); coal != 15 {
 		t.Fatalf("CoalescedTotal = %d, want 15 (16 events - 1 distinct key)", coal)
 	}
+}
 
-	// --- Invariant 2: worker drives AddToolReadResult once unblocked ---
-	close(block)
+func waitNestedIngestProcessed(t *testing.T, w *nestedIngestWorker) {
+	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		if w.ProcessedTotal() >= 1 {
-			break
+			return
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	if got := w.ProcessedTotal(); got < 1 {
-		t.Fatalf("ProcessedTotal = %d, want >= 1 after unblocking runtime", got)
-	}
-	if got := len(rt.Calls()); got != 2 {
-		t.Fatalf("AddToolReadResult call count after drain = %d, want 2 (blocked + coalesced)", got)
-	}
+	t.Fatalf("ProcessedTotal = %d, want >= 1 after unblocking runtime", w.ProcessedTotal())
+}
 
+func stopNestedIngestWorker(t *testing.T, w *nestedIngestWorker) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	if err := w.Stop(ctx); err != nil {

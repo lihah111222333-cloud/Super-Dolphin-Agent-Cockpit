@@ -36,261 +36,193 @@ func (s *pinDeleteBindingStore) DeleteByAgentID(_ context.Context, agentID strin
 	return s.deleteErr
 }
 
-func TestDelete_Pin(t *testing.T) {
+func TestDeletePinPendingLaunchHardDelete(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name     string
-		threadID string
-		setup    func(t *testing.T) *service
-		assert   func(t *testing.T, svc *service, err error)
-	}{
-		{
-			name:     "pending launch hard delete cleans mutex and emits pending reason",
-			threadID: "thread-pending",
-			setup: func(t *testing.T) *service {
-				t.Helper()
-				store := &pinDeleteThreadStore{
-					stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
-						ThreadID:      "thread-pending",
-						Status:        statusCreated,
-						PendingLaunch: true,
-					}},
-				}
-				svc := &service{threadStore: store}
-				_ = svc.acquirePendingLaunchLock("thread-pending")
-				svc.emitStopped = func(evt threaddto.Stopped) {
-					store.thread = &threadstore.Thread{
-						ThreadID: evt.ThreadID,
-						AgentID:  evt.AgentID,
-						Status:   evt.Status,
-						Prompt:   evt.Reason,
-					}
-				}
-				return svc
-			},
-			assert: func(t *testing.T, svc *service, err error) {
-				t.Helper()
-				if err != nil {
-					t.Fatalf("Delete() error = %v", err)
-				}
-				store := svc.threadStore.(*pinDeleteThreadStore)
-				if len(store.deletedIDs) != 1 || store.deletedIDs[0] != "thread-pending" {
-					t.Fatalf("deletedIDs = %v, want [thread-pending]", store.deletedIDs)
-				}
-				if _, loaded := svc.pendingLaunchMu.Load("thread-pending"); loaded {
-					t.Fatal("pendingLaunchMu still contains deleted pending thread")
-				}
-				if store.thread == nil || store.thread.Status != "deleted" || store.thread.Prompt != "deleted_pending_launch" {
-					t.Fatalf("stopped event snapshot = %#v, want status=deleted reason=deleted_pending_launch", store.thread)
-				}
-			},
-		},
-		{
-			name:     "active thread soft delete stops runtime before deleting durable state",
-			threadID: "thread-1",
-			setup: func(t *testing.T) *service {
-				t.Helper()
-				calls := []string{}
-				store := &pinDeleteThreadStore{
-					stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
-						ThreadID: "thread-1",
-						AgentID:  "agent-1",
-						Status:   statusCreated,
-					}},
-					calls: &calls,
-				}
-				return &service{
-					threadStore: store,
-					bindingStore: &pinDeleteBindingStore{stubThreadBindingStore: &stubThreadBindingStore{
-						binding: &bindingstore.Binding{
-							AgentID:          "agent-1",
-							Provider:         "codex",
-							ProviderThreadID: "provider-thread-1",
-							CodexThreadID:    "thread-1",
-						},
-						calls: &calls,
-					}},
-					sessions:      &stubThreadSessions{agentID: "agent-1", session: &stubThreadSession{threadID: "thread-1", calls: &calls}},
-					turns:         &stubTurnService{calls: &calls},
-					orchestration: &stubThreadOrchestration{calls: &calls},
-				}
-			},
-			assert: func(t *testing.T, svc *service, err error) {
-				t.Helper()
-				if err != nil {
-					t.Fatalf("Delete() error = %v", err)
-				}
-				store := svc.threadStore.(*pinDeleteThreadStore)
-				if len(store.deletedIDs) != 1 || store.deletedIDs[0] != "thread-1" {
-					t.Fatalf("deletedIDs = %v, want [thread-1]", store.deletedIDs)
-				}
-				orch := svc.orchestration.(*stubThreadOrchestration)
-				if orch.stoppedAgentID != "agent-1" {
-					t.Fatalf("stopped agent = %q, want agent-1", orch.stoppedAgentID)
-				}
-				bindingStore := svc.bindingStore.(*pinDeleteBindingStore)
-				if len(bindingStore.deletedAgentIDs) != 1 || bindingStore.deletedAgentIDs[0] != "agent-1" {
-					t.Fatalf("deletedAgentIDs = %v, want [agent-1]", bindingStore.deletedAgentIDs)
-				}
-				calls := append([]string(nil), (*orch.calls)...)
-				if callIndex(calls, "agent_stop:agent-1") > callIndex(calls, "binding_delete:agent-1") {
-					t.Fatalf("call order = %v, want agent stop before binding delete", calls)
-				}
-				if callIndex(calls, "agent_stop:agent-1") > callIndex(calls, "thread_delete:thread-1") {
-					t.Fatalf("call order = %v, want agent stop before thread delete", calls)
-				}
-				if callIndex(calls, "turn_cleanup:thread-1:thread_deleted") == -1 {
-					t.Fatalf("call order = %v, want thread cleanup", calls)
-				}
-			},
-		},
-		{
-			name:     "missing thread still falls through to thread store delete",
-			threadID: "thread-missing",
-			setup: func(t *testing.T) *service {
-				t.Helper()
-				return &service{
-					threadStore: &pinDeleteThreadStore{stubThreadStore: &stubThreadStore{}},
-				}
-			},
-			assert: func(t *testing.T, svc *service, err error) {
-				t.Helper()
-				if err != nil {
-					t.Fatalf("Delete() error = %v", err)
-				}
-				store := svc.threadStore.(*pinDeleteThreadStore)
-				if len(store.deletedIDs) != 1 || store.deletedIDs[0] != "thread-missing" {
-					t.Fatalf("deletedIDs = %v, want [thread-missing]", store.deletedIDs)
-				}
-			},
-		},
-		{
-			name:     "unmanaged scratchpad path is preserved by cleanup guard",
-			threadID: "thread-external",
-			setup: func(t *testing.T) *service {
-				t.Helper()
-				external := t.TempDir()
-				raw := mustStoredThreadConfigRaw(t, storedThreadConfig{
-					Runtime: map[string]any{"scratchpadDir": external},
-				})
-				return &service{
-					threadStore: &pinDeleteThreadStore{stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
-						ThreadID:       "thread-external",
-						ConfigOverride: raw,
-					}}},
-					emitStopped: func(threaddto.Stopped) {
-						if _, err := os.Stat(external); err != nil {
-							t.Fatalf("external scratchpad removed: %v", err)
-						}
-					},
-				}
-			},
-			assert: func(t *testing.T, svc *service, err error) {
-				t.Helper()
-				if err != nil {
-					t.Fatalf("Delete() error = %v", err)
-				}
-			},
-		},
-		{
-			name:     "missing managed agent does not block delete",
-			threadID: "thread-404-agent",
-			setup: func(t *testing.T) *service {
-				t.Helper()
-				calls := []string{}
-				return &service{
-					threadStore: &pinDeleteThreadStore{stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
-						ThreadID: "thread-404-agent",
-						AgentID:  "agent-404",
-						Status:   statusCreated,
-					}}, calls: &calls},
-					bindingStore: &pinDeleteBindingStore{stubThreadBindingStore: &stubThreadBindingStore{
-						binding: &bindingstore.Binding{
-							AgentID:          "agent-404",
-							Provider:         "codex",
-							ProviderThreadID: "provider-thread-404",
-							CodexThreadID:    "thread-404-agent",
-						},
-						calls: &calls,
-					}},
-					sessions:      &stubThreadSessions{agentID: "agent-404", session: &stubThreadSession{threadID: "thread-404-agent", calls: &calls}},
-					turns:         &stubTurnService{calls: &calls},
-					orchestration: &stubThreadOrchestration{calls: &calls, stopErr: contract.ErrAgentNotFound},
-				}
-			},
-			assert: func(t *testing.T, svc *service, err error) {
-				t.Helper()
-				if err != nil {
-					t.Fatalf("Delete() error = %v", err)
-				}
-				orch := svc.orchestration.(*stubThreadOrchestration)
-				if len(orch.stopCalls) != 1 || orch.stopCalls[0] != "agent-404" {
-					t.Fatalf("stopCalls = %v, want [agent-404]", orch.stopCalls)
-				}
-				store := svc.threadStore.(*pinDeleteThreadStore)
-				if len(store.deletedIDs) != 1 || store.deletedIDs[0] != "thread-404-agent" {
-					t.Fatalf("deletedIDs = %v, want [thread-404-agent]", store.deletedIDs)
-				}
-			},
-		},
-		{
-			name:     "binding delete failure aborts before thread delete",
-			threadID: "thread-bind-fail",
-			setup: func(t *testing.T) *service {
-				t.Helper()
-				calls := []string{}
-				return &service{
-					threadStore: &pinDeleteThreadStore{stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
-						ThreadID: "thread-bind-fail",
-						AgentID:  "agent-bind-fail",
-						Status:   statusCreated,
-					}}, calls: &calls},
-					bindingStore: &pinDeleteBindingStore{
-						stubThreadBindingStore: &stubThreadBindingStore{
-							binding: &bindingstore.Binding{
-								AgentID:          "agent-bind-fail",
-								Provider:         "codex",
-								ProviderThreadID: "provider-thread-bind-fail",
-								CodexThreadID:    "thread-bind-fail",
-							},
-							calls: &calls,
-						},
-						deleteErr: errors.New("binding delete failed"),
-					},
-					sessions:      &stubThreadSessions{agentID: "agent-bind-fail", session: &stubThreadSession{threadID: "thread-bind-fail", calls: &calls}},
-					turns:         &stubTurnService{calls: &calls},
-					orchestration: &stubThreadOrchestration{calls: &calls},
-				}
-			},
-			assert: func(t *testing.T, svc *service, err error) {
-				t.Helper()
-				if err == nil || err.Error() != "binding delete failed" {
-					t.Fatalf("Delete() error = %v, want binding delete failed", err)
-				}
-				store := svc.threadStore.(*pinDeleteThreadStore)
-				if len(store.deletedIDs) != 0 {
-					t.Fatalf("deletedIDs = %v, want none", store.deletedIDs)
-				}
-				calls := append([]string(nil), (*svc.orchestration.(*stubThreadOrchestration).calls)...)
-				if callIndex(calls, "agent_stop:agent-bind-fail") == -1 {
-					t.Fatalf("call order = %v, want agent stop attempt", calls)
-				}
-				if callIndex(calls, "binding_delete:agent-bind-fail") == -1 {
-					t.Fatalf("call order = %v, want binding delete attempt", calls)
-				}
-				if callIndex(calls, "thread_delete:thread-bind-fail") != -1 {
-					t.Fatalf("call order = %v, thread delete should not run after binding failure", calls)
-				}
-			},
+	store := &pinDeleteThreadStore{
+		stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
+			ThreadID:      "thread-pending",
+			Status:        statusCreated,
+			PendingLaunch: true,
+		}},
+	}
+	svc := &service{threadStore: store}
+	_ = svc.acquirePendingLaunchLock("thread-pending")
+	svc.emitStopped = func(evt threaddto.Stopped) {
+		store.thread = &threadstore.Thread{
+			ThreadID: evt.ThreadID,
+			AgentID:  evt.AgentID,
+			Status:   evt.Status,
+			Prompt:   evt.Reason,
+		}
+	}
+
+	err := svc.Delete(context.Background(), "thread-pending")
+
+	assertDeleteOK(t, err)
+	assertDeletedIDs(t, store, "thread-pending")
+	if _, loaded := svc.pendingLaunchMu.Load("thread-pending"); loaded {
+		t.Fatal("pendingLaunchMu still contains deleted pending thread")
+	}
+	if store.thread == nil || store.thread.Status != "deleted" || store.thread.Prompt != "deleted_pending_launch" {
+		t.Fatalf("stopped event snapshot = %#v, want status=deleted reason=deleted_pending_launch", store.thread)
+	}
+}
+
+func TestDeletePinActiveThreadSoftDelete(t *testing.T) {
+	t.Parallel()
+
+	calls := []string{}
+	svc := newPinDeleteManagedService("thread-1", "agent-1", "provider-thread-1", &calls, nil, nil)
+
+	err := svc.Delete(context.Background(), "thread-1")
+
+	assertDeleteOK(t, err)
+	assertDeletedIDs(t, svc.threadStore.(*pinDeleteThreadStore), "thread-1")
+	orch := svc.orchestration.(*stubThreadOrchestration)
+	if orch.stoppedAgentID != "agent-1" {
+		t.Fatalf("stopped agent = %q, want agent-1", orch.stoppedAgentID)
+	}
+	bindingStore := svc.bindingStore.(*pinDeleteBindingStore)
+	if len(bindingStore.deletedAgentIDs) != 1 || bindingStore.deletedAgentIDs[0] != "agent-1" {
+		t.Fatalf("deletedAgentIDs = %v, want [agent-1]", bindingStore.deletedAgentIDs)
+	}
+	callLog := deleteCallLog(t, svc)
+	assertCallBefore(t, callLog, "agent_stop:agent-1", "binding_delete:agent-1")
+	assertCallBefore(t, callLog, "agent_stop:agent-1", "thread_delete:thread-1")
+	assertCallPresent(t, callLog, "turn_cleanup:thread-1:thread_deleted")
+}
+
+func TestDeletePinMissingThreadFallsThrough(t *testing.T) {
+	t.Parallel()
+
+	store := &pinDeleteThreadStore{stubThreadStore: &stubThreadStore{}}
+	svc := &service{threadStore: store}
+
+	err := svc.Delete(context.Background(), "thread-missing")
+
+	assertDeleteOK(t, err)
+	assertDeletedIDs(t, store, "thread-missing")
+}
+
+func TestDeletePinPreservesUnmanagedScratchpad(t *testing.T) {
+	t.Parallel()
+
+	external := t.TempDir()
+	raw := mustStoredThreadConfigRaw(t, storedThreadConfig{
+		Runtime: map[string]any{"scratchpadDir": external},
+	})
+	svc := &service{
+		threadStore: &pinDeleteThreadStore{stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
+			ThreadID:       "thread-external",
+			ConfigOverride: raw,
+		}}},
+		emitStopped: func(threaddto.Stopped) {
+			if _, err := os.Stat(external); err != nil {
+				t.Fatalf("external scratchpad removed: %v", err)
+			}
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			svc := tt.setup(t)
-			err := svc.Delete(context.Background(), tt.threadID)
-			tt.assert(t, svc, err)
-		})
+	err := svc.Delete(context.Background(), "thread-external")
+
+	assertDeleteOK(t, err)
+}
+
+func TestDeletePinMissingManagedAgentDoesNotBlockDelete(t *testing.T) {
+	t.Parallel()
+
+	calls := []string{}
+	svc := newPinDeleteManagedService("thread-404-agent", "agent-404", "provider-thread-404", &calls, contract.ErrAgentNotFound, nil)
+
+	err := svc.Delete(context.Background(), "thread-404-agent")
+
+	assertDeleteOK(t, err)
+	orch := svc.orchestration.(*stubThreadOrchestration)
+	if len(orch.stopCalls) != 1 || orch.stopCalls[0] != "agent-404" {
+		t.Fatalf("stopCalls = %v, want [agent-404]", orch.stopCalls)
+	}
+	assertDeletedIDs(t, svc.threadStore.(*pinDeleteThreadStore), "thread-404-agent")
+}
+
+func TestDeletePinBindingDeleteFailureAbortsBeforeThreadDelete(t *testing.T) {
+	t.Parallel()
+
+	calls := []string{}
+	svc := newPinDeleteManagedService("thread-bind-fail", "agent-bind-fail", "provider-thread-bind-fail", &calls, nil, errors.New("binding delete failed"))
+
+	err := svc.Delete(context.Background(), "thread-bind-fail")
+
+	if err == nil || err.Error() != "binding delete failed" {
+		t.Fatalf("Delete() error = %v, want binding delete failed", err)
+	}
+	store := svc.threadStore.(*pinDeleteThreadStore)
+	if len(store.deletedIDs) != 0 {
+		t.Fatalf("deletedIDs = %v, want none", store.deletedIDs)
+	}
+	callLog := deleteCallLog(t, svc)
+	assertCallPresent(t, callLog, "agent_stop:agent-bind-fail")
+	assertCallPresent(t, callLog, "binding_delete:agent-bind-fail")
+	if callIndex(callLog, "thread_delete:thread-bind-fail") != -1 {
+		t.Fatalf("call order = %v, thread delete should not run after binding failure", callLog)
+	}
+}
+
+func newPinDeleteManagedService(threadID, agentID, providerThreadID string, calls *[]string, stopErr, bindingErr error) *service {
+	return &service{
+		threadStore: &pinDeleteThreadStore{stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
+			ThreadID: threadID,
+			AgentID:  agentID,
+			Status:   statusCreated,
+		}}, calls: calls},
+		bindingStore: &pinDeleteBindingStore{
+			stubThreadBindingStore: &stubThreadBindingStore{
+				binding: &bindingstore.Binding{
+					AgentID:          agentID,
+					Provider:         "codex",
+					ProviderThreadID: providerThreadID,
+					CodexThreadID:    threadID,
+				},
+				calls: calls,
+			},
+			deleteErr: bindingErr,
+		},
+		sessions:      &stubThreadSessions{agentID: agentID, session: &stubThreadSession{threadID: threadID, calls: calls}},
+		turns:         &stubTurnService{calls: calls},
+		orchestration: &stubThreadOrchestration{calls: calls, stopErr: stopErr},
+	}
+}
+
+func assertDeleteOK(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+}
+
+func assertDeletedIDs(t *testing.T, store *pinDeleteThreadStore, want string) {
+	t.Helper()
+	if len(store.deletedIDs) != 1 || store.deletedIDs[0] != want {
+		t.Fatalf("deletedIDs = %v, want [%s]", store.deletedIDs, want)
+	}
+}
+
+func deleteCallLog(t *testing.T, svc *service) []string {
+	t.Helper()
+	orch := svc.orchestration.(*stubThreadOrchestration)
+	return append([]string(nil), (*orch.calls)...)
+}
+
+func assertCallBefore(t *testing.T, calls []string, before, after string) {
+	t.Helper()
+	if callIndex(calls, before) > callIndex(calls, after) {
+		t.Fatalf("call order = %v, want %s before %s", calls, before, after)
+	}
+}
+
+func assertCallPresent(t *testing.T, calls []string, want string) {
+	t.Helper()
+	if callIndex(calls, want) == -1 {
+		t.Fatalf("call order = %v, want %s", calls, want)
 	}
 }

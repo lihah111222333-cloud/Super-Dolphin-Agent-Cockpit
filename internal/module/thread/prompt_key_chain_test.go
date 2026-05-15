@@ -39,32 +39,14 @@ func TestPromptKeyChain_FrontendPayloadToBaseInstructions(t *testing.T) {
 	}`)
 
 	// --- (2) startParams decode ----------------------------------------------
-	var p startParams
-	if err := json.Unmarshal(rawPayload, &p); err != nil {
-		t.Fatalf("layer 2 (rpc decode): json.Unmarshal err = %v", err)
-	}
-	if p.PromptKey != "main/launch-fav" {
-		t.Fatalf("layer 2 (rpc decode): startParams.PromptKey = %q, want main/launch-fav", p.PromptKey)
-	}
-	if p.CWD != "/repo-x" {
-		t.Fatalf("layer 2 (rpc decode): startParams.CWD = %q, want /repo-x", p.CWD)
-	}
+	p := decodePinnedStartParams(t, rawPayload)
 
 	// --- (3) StartRequest construction ---------------------------------------
 	// Mirrors the field copy inside newStartHandler. We don't call the real
 	// handler because Service.Start() does provider launch / persistence we
 	// can't fake in a unit test; the chain we care about (decode -> request
 	// -> router) is pure data flow and is fully covered here.
-	req := StartRequest{
-		Provider:      p.Provider,
-		CWD:           p.CWD,
-		ModelProvider: p.ModelProvider,
-		AgentKey:      p.AgentKey,
-		PromptKey:     p.PromptKey,
-	}
-	if req.PromptKey != "main/launch-fav" {
-		t.Fatalf("layer 3 (handler->request): StartRequest.PromptKey = %q", req.PromptKey)
-	}
+	req := startRequestFromParams(t, p)
 
 	// --- (4)+(5) Router resolve + BaseInstructions injection -----------------
 	// Fake store mirrors what the user would have authored via SystemPromptPage:
@@ -79,19 +61,7 @@ func TestPromptKeyChain_FrontendPayloadToBaseInstructions(t *testing.T) {
 	}
 	svc := newServiceWithRouter(store)
 	svc.resolveRoutedPrompt(context.Background(), &req)
-
-	if req.BaseInstructions != "PromptText authored by the user via SystemPromptPage" {
-		t.Fatalf("layer 5 (BaseInstructions inject): got %q\nthe user's prompt did not reach the provider system prompt slot", req.BaseInstructions)
-	}
-	if req.AgentKey != "main" {
-		t.Fatalf("layer 4 (router stamp agent_key): got %q, want main", req.AgentKey)
-	}
-	if req.PromptKey != "main/launch-fav" {
-		t.Fatalf("layer 4 (router preserve prompt_key): got %q", req.PromptKey)
-	}
-	if req.PromptVersionID == nil {
-		t.Fatalf("layer 4 (router materialize version): PromptVersionID nil; observability would be blind")
-	}
+	assertPinnedPromptResolved(t, req)
 
 	// --- (6) Response map ----------------------------------------------------
 	// Mirrors the response builder in newStartHandler. Frontend's
@@ -104,6 +74,57 @@ func TestPromptKeyChain_FrontendPayloadToBaseInstructions(t *testing.T) {
 		PromptKey:       req.PromptKey,
 		PromptVersionID: req.PromptVersionID,
 	}
+	response := startResponseMap(result)
+	assertPinnedPromptResponse(t, response)
+}
+
+func decodePinnedStartParams(t *testing.T, rawPayload []byte) startParams {
+	t.Helper()
+	var p startParams
+	if err := json.Unmarshal(rawPayload, &p); err != nil {
+		t.Fatalf("layer 2 (rpc decode): json.Unmarshal err = %v", err)
+	}
+	if p.PromptKey != "main/launch-fav" {
+		t.Fatalf("layer 2 (rpc decode): startParams.PromptKey = %q, want main/launch-fav", p.PromptKey)
+	}
+	if p.CWD != "/repo-x" {
+		t.Fatalf("layer 2 (rpc decode): startParams.CWD = %q, want /repo-x", p.CWD)
+	}
+	return p
+}
+
+func startRequestFromParams(t *testing.T, p startParams) StartRequest {
+	t.Helper()
+	req := StartRequest{
+		Provider:      p.Provider,
+		CWD:           p.CWD,
+		ModelProvider: p.ModelProvider,
+		AgentKey:      p.AgentKey,
+		PromptKey:     p.PromptKey,
+	}
+	if req.PromptKey != "main/launch-fav" {
+		t.Fatalf("layer 3 (handler->request): StartRequest.PromptKey = %q", req.PromptKey)
+	}
+	return req
+}
+
+func assertPinnedPromptResolved(t *testing.T, req StartRequest) {
+	t.Helper()
+	if req.BaseInstructions != "PromptText authored by the user via SystemPromptPage" {
+		t.Fatalf("layer 5 (BaseInstructions inject): got %q\nthe user's prompt did not reach the provider system prompt slot", req.BaseInstructions)
+	}
+	if req.AgentKey != "main" {
+		t.Fatalf("layer 4 (router stamp agent_key): got %q, want main", req.AgentKey)
+	}
+	if req.PromptKey != "main/launch-fav" {
+		t.Fatalf("layer 4 (router preserve prompt_key): got %q", req.PromptKey)
+	}
+	if req.PromptVersionID == nil {
+		t.Fatalf("layer 4 (router materialize version): PromptVersionID nil; observability would be blind")
+	}
+}
+
+func startResponseMap(result StartResult) map[string]any {
 	response := map[string]any{
 		"thread":    threadInfo{ID: result.ThreadID, Status: "running"},
 		"thread_id": result.ThreadID,
@@ -117,7 +138,11 @@ func TestPromptKeyChain_FrontendPayloadToBaseInstructions(t *testing.T) {
 	if result.PromptVersionID != nil {
 		response["prompt_version_id"] = *result.PromptVersionID
 	}
+	return response
+}
 
+func assertPinnedPromptResponse(t *testing.T, response map[string]any) {
+	t.Helper()
 	if response["prompt_key"] != "main/launch-fav" {
 		t.Fatalf("layer 6 (response echo): prompt_key = %v", response["prompt_key"])
 	}

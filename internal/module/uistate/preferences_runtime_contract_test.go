@@ -13,6 +13,12 @@ func TestSetPreferenceAppliesV2PreferenceRuntimeSideEffects(t *testing.T) {
 		t.Fatalf("NewService() error = %v", err)
 	}
 
+	assertStallThresholdPreferenceSideEffects(t, svc)
+	assertInjectedPromptPreferenceSideEffects(t, svc)
+}
+
+func assertStallThresholdPreferenceSideEffects(t *testing.T, svc *service) {
+	t.Helper()
 	if err := svc.SetPreference(context.Background(), preferenceStallThresholdSec, 480); err != nil {
 		t.Fatalf("SetPreference(stallThresholdSec) error = %v", err)
 	}
@@ -33,7 +39,10 @@ func TestSetPreferenceAppliesV2PreferenceRuntimeSideEffects(t *testing.T) {
 	if prefs.StallThresholdSec != 480 {
 		t.Fatalf("prefs.StallThresholdSec after invalid write = %d, want 480", prefs.StallThresholdSec)
 	}
+}
 
+func assertInjectedPromptPreferenceSideEffects(t *testing.T, svc *service) {
+	t.Helper()
 	if err := svc.SetPreference(context.Background(), preferenceShowInjectedPromptInChat, true); err != nil {
 		t.Fatalf("SetPreference(settings.showInjectedPromptInChat=true) error = %v", err)
 	}

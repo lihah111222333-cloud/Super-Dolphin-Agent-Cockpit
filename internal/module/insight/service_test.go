@@ -64,7 +64,11 @@ func TestServiceListRecentMapsRows(t *testing.T) {
 	if len(snaps) != 1 {
 		t.Fatalf("len = %d, want 1", len(snaps))
 	}
-	s := snaps[0]
+	assertRecentInsightSnapshot(t, snaps[0])
+}
+
+func assertRecentInsightSnapshot(t *testing.T, s Snapshot) {
+	t.Helper()
 	if s.ID != 42 || s.Status != insightstore.StatusFailed || s.ToolCalls != 3 {
 		t.Fatalf("basic fields wrong: %+v", s)
 	}

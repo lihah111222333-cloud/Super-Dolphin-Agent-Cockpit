@@ -74,7 +74,27 @@ func TestFlusherBuildsUpsertFromObservation(t *testing.T) {
 	t.Parallel()
 
 	mem := moduleobs.NewMemory()
-	// Seed observation with a completed turn.
+	seedCompletedFlusherObservation(mem)
+
+	var got insightstore.UpsertParams
+	store := &fakeInsightStore{
+		upsertFn: func(_ context.Context, p insightstore.UpsertParams) (insightstore.Insight, error) {
+			got = p
+			return insightstore.Insight{ID: 1}, nil
+		},
+	}
+	f, _ := newTestFlusher(t, mem, store)
+	f.handle(context.Background(), flushSignal{
+		LocalTurnID: "local-1",
+		ThreadID:    "thread-1",
+		AgentID:     "agent-1",
+		Provider:    "codex",
+	})
+
+	assertCompletedFlusherUpsert(t, got)
+}
+
+func seedCompletedFlusherObservation(mem *moduleobs.Memory) {
 	start := time.Unix(1_700_000_000, 0).UTC()
 	end := start.Add(3 * time.Second)
 	mem.MapTurn("local-1", "provider-1")
@@ -92,28 +112,30 @@ func TestFlusherBuildsUpsertFromObservation(t *testing.T) {
 	mem.IncrementToolFailures("local-1")
 	mem.IncrementApprovalRequests("local-1")
 	mem.SetSkillsSelected("local-1", []string{"skill-a", "skill-b"})
+}
 
-	var got insightstore.UpsertParams
-	store := &fakeInsightStore{
-		upsertFn: func(_ context.Context, p insightstore.UpsertParams) (insightstore.Insight, error) {
-			got = p
-			return insightstore.Insight{ID: 1}, nil
-		},
-	}
-	f, _ := newTestFlusher(t, mem, store)
-	f.handle(context.Background(), flushSignal{
-		LocalTurnID: "local-1",
-		ThreadID:    "thread-1",
-		AgentID:     "agent-1",
-		Provider:    "codex",
-	})
+func assertCompletedFlusherUpsert(t *testing.T, got insightstore.UpsertParams) {
+	t.Helper()
+	assertCompletedFlusherStatus(t, got)
+	assertCompletedFlusherCounts(t, got)
+	assertCompletedFlusherIdentity(t, got)
+}
 
+func assertCompletedFlusherStatus(t *testing.T, got insightstore.UpsertParams) {
+	t.Helper()
 	if got.Status != insightstore.StatusCompleted {
 		t.Fatalf("Status = %q, want completed", got.Status)
 	}
 	if got.Success == nil || !*got.Success {
 		t.Fatalf("Success = %v, want pointer to true", got.Success)
 	}
+	if got.DurationMS != 3000 {
+		t.Fatalf("DurationMS = %d, want 3000 (3s)", got.DurationMS)
+	}
+}
+
+func assertCompletedFlusherCounts(t *testing.T, got insightstore.UpsertParams) {
+	t.Helper()
 	if got.ToolCalls != 2 || got.ToolFailures != 1 || !got.ToolCallsObserved || !got.ToolFailuresObserved {
 		t.Fatalf("tool counts wrong: calls=%d callsObserved=%t failures=%d failuresObserved=%t", got.ToolCalls, got.ToolCallsObserved, got.ToolFailures, got.ToolFailuresObserved)
 	}
@@ -123,9 +145,10 @@ func TestFlusherBuildsUpsertFromObservation(t *testing.T) {
 	if got.TokenInput != 11 || got.TokenOutput != 22 || got.TokenTotal != 33 {
 		t.Fatalf("token counts wrong: %+v", got)
 	}
-	if got.DurationMS != 3000 {
-		t.Fatalf("DurationMS = %d, want 3000 (3s)", got.DurationMS)
-	}
+}
+
+func assertCompletedFlusherIdentity(t *testing.T, got insightstore.UpsertParams) {
+	t.Helper()
 	if got.ProviderTurnID != "provider-1" {
 		t.Fatalf("ProviderTurnID = %q, want provider-1 (from MapTurn)", got.ProviderTurnID)
 	}

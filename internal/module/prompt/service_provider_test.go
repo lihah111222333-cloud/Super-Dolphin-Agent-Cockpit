@@ -9,6 +9,7 @@ import (
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewServiceRegistersBuiltInDynamicProviders(t *testing.T) {
@@ -168,12 +169,9 @@ func TestPromptMutationsRespectCwdScope(t *testing.T) {
 		svc := newPromptService(store)
 
 		_, err := svc.WritePrompt(ctx, "   ", PromptWriteRequest{Name: "Scoped Prompt", Content: "updated"})
-		if err == nil || !strings.Contains(err.Error(), "cwd is required") {
-			t.Fatalf("WritePrompt() error = %v, want cwd required", err)
-		}
-		if store.txCalls != 0 {
-			t.Fatalf("WritePrompt() txCalls = %d, want 0", store.txCalls)
-		}
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "cwd is required")
+		require.Zero(t, store.txCalls)
 	})
 
 	t.Run("delete rejects empty cwd", func(t *testing.T) {
@@ -182,12 +180,11 @@ func TestPromptMutationsRespectCwdScope(t *testing.T) {
 		svc := newPromptService(store)
 
 		err := svc.DeletePrompt(ctx, "", promptKey)
-		if err == nil || !strings.Contains(err.Error(), "cwd is required") {
-			t.Fatalf("DeletePrompt() error = %v, want cwd required", err)
-		}
-		if store.txCalls != 0 || store.deleteCalls != 0 || len(store.versions) != 0 {
-			t.Fatalf("DeletePrompt() mutated store unexpectedly: tx=%d delete=%d versions=%d", store.txCalls, store.deleteCalls, len(store.versions))
-		}
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "cwd is required")
+		require.Zero(t, store.txCalls)
+		require.Zero(t, store.deleteCalls)
+		require.Empty(t, store.versions)
 	})
 
 	t.Run("write rejects cross cwd", func(t *testing.T) {
@@ -196,15 +193,11 @@ func TestPromptMutationsRespectCwdScope(t *testing.T) {
 		svc := newPromptService(store)
 
 		_, err := svc.WritePrompt(ctx, "/repo/b", PromptWriteRequest{ID: promptKey, Name: "Scoped Prompt", Content: "updated"})
-		if err == nil || !strings.Contains(err.Error(), "outside cwd scope") {
-			t.Fatalf("WritePrompt() error = %v, want outside cwd scope", err)
-		}
-		if store.upsertCalls != 0 || len(store.versions) != 0 {
-			t.Fatalf("WritePrompt() mutated store unexpectedly: upsert=%d versions=%d", store.upsertCalls, len(store.versions))
-		}
-		if got := store.templates[promptKey].PromptText; got != "original" {
-			t.Fatalf("WritePrompt() prompt text = %q, want original", got)
-		}
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "outside cwd scope")
+		require.Zero(t, store.upsertCalls)
+		require.Empty(t, store.versions)
+		require.Equal(t, "original", store.templates[promptKey].PromptText)
 	})
 
 	t.Run("delete rejects cross cwd", func(t *testing.T) {
@@ -213,15 +206,11 @@ func TestPromptMutationsRespectCwdScope(t *testing.T) {
 		svc := newPromptService(store)
 
 		err := svc.DeletePrompt(ctx, "/repo/b", promptKey)
-		if err == nil || !strings.Contains(err.Error(), "outside cwd scope") {
-			t.Fatalf("DeletePrompt() error = %v, want outside cwd scope", err)
-		}
-		if store.deleteCalls != 0 || len(store.versions) != 0 {
-			t.Fatalf("DeletePrompt() mutated store unexpectedly: delete=%d versions=%d", store.deleteCalls, len(store.versions))
-		}
-		if _, ok := store.templates[promptKey]; !ok {
-			t.Fatal("DeletePrompt() removed prompt unexpectedly")
-		}
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "outside cwd scope")
+		require.Zero(t, store.deleteCalls)
+		require.Empty(t, store.versions)
+		require.Contains(t, store.templates, promptKey)
 	})
 
 	t.Run("write existing prompt marks manually edited", func(t *testing.T) {
@@ -237,9 +226,8 @@ func TestPromptMutationsRespectCwdScope(t *testing.T) {
 		if err != nil {
 			t.Fatalf("WritePrompt() unexpected error: %v", err)
 		}
-		if got == nil || !got.ManuallyEdited {
-			t.Fatalf("WritePrompt() manually_edited = false, want true: %+v", got)
-		}
+		require.NotNil(t, got)
+		require.Truef(t, got.ManuallyEdited, "WritePrompt() manually_edited = false, want true: %+v", got)
 		if saved := store.templates[promptKey]; !saved.ManuallyEdited || saved.PromptText != "updated by user" {
 			t.Fatalf("stored prompt = %+v, want manually edited updated prompt", saved)
 		}

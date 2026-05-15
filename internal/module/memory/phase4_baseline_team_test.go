@@ -27,45 +27,16 @@ import (
 func TestPhase4BaselineEntrypointProviderInjectsTeamBlock(t *testing.T) {
 	t.Setenv(envHarnessKind, "")
 	withTeamMemoryRuntimeReady(t, true)
-	projectRoot := t.TempDir()
-	privateRoot := filepath.Join(t.TempDir(), "private")
-	cfg := &Config{
-		Enabled:             true,
-		EnableTools:         true,
-		RootDir:             t.TempDir(),
-		ProjectRoot:         projectRoot,
-		AutoMemPathOverride: privateRoot,
-		Features:            MemoryFeatureFlags{TeamMemory: true},
-	}
-	if err := os.MkdirAll(privateRoot, 0o755); err != nil {
-		t.Fatalf("MkdirAll(privateRoot) error = %v", err)
-	}
-	privateBody := strings.Join([]string{
-		"- [Architecture](architecture.md) — start here",
-	}, "\n")
-	if err := os.WriteFile(filepath.Join(privateRoot, "MEMORY.md"), []byte(privateBody), 0o644); err != nil {
-		t.Fatalf("WriteFile(private MEMORY.md) error = %v", err)
-	}
 
-	teamRoot, err := configuredTeamMemRoot(cfg)
-	if err != nil {
-		t.Fatalf("configuredTeamMemRoot() error = %v", err)
-	}
-	if err := os.MkdirAll(teamRoot, 0o755); err != nil {
-		t.Fatalf("MkdirAll(teamRoot) error = %v", err)
-	}
-	teamBody := strings.Join([]string{
-		"- [Dashboard owner](owner.md) — team-side guidance",
-	}, "\n")
-	if err := os.WriteFile(filepath.Join(teamRoot, "MEMORY.md"), []byte(teamBody), 0o644); err != nil {
-		t.Fatalf("WriteFile(team MEMORY.md) error = %v", err)
-	}
+	cfg := newPhase4BaselineConfig(t, true)
+	writePhase4BaselineMemory(t, cfg.AutoMemPathOverride, "- [Architecture](architecture.md) — start here")
+	writePhase4BaselineMemory(t, mustConfiguredTeamMemRoot(t, cfg), "- [Dashboard owner](owner.md) — team-side guidance")
 
 	team := NewTeamMemoryManager(cfg)
 	provider := NewEntrypointProvider(cfg, team, nil)
 	out, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Start:    &contract.StartInput{},
-		BuildCtx: contract.BuildCtx{CWD: projectRoot, GitRoot: projectRoot},
+		BuildCtx: contract.BuildCtx{CWD: cfg.ProjectRoot, GitRoot: cfg.ProjectRoot},
 	})
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
@@ -74,18 +45,12 @@ func TestPhase4BaselineEntrypointProviderInjectsTeamBlock(t *testing.T) {
 		t.Fatal("Resolve() = nil, want wrapped block with team injection")
 	}
 	got := *out
-	if !strings.Contains(got, "source=auto") {
-		t.Fatalf("Resolve() missing private auto block:\n%s", got)
-	}
-	if !strings.Contains(got, "source=team") {
-		t.Fatalf("Resolve() missing team block (team=non-nil baseline):\n%s", got)
-	}
-	if !strings.Contains(got, "Dashboard owner") {
-		t.Fatalf("Resolve() missing team entry content:\n%s", got)
-	}
-	if !strings.Contains(got, "Architecture") {
-		t.Fatalf("Resolve() missing private entry content:\n%s", got)
-	}
+	assertPhase4BaselineContainsAll(t, got, "team=non-nil baseline", []string{
+		"source=auto",
+		"source=team",
+		"Dashboard owner",
+		"Architecture",
+	})
 }
 
 func TestPhase4BaselineEntrypointProviderTeamDisabledOmitsTeamBlock(t *testing.T) {
@@ -100,29 +65,14 @@ func TestPhase4BaselineEntrypointProviderTeamDisabledOmitsTeamBlock(t *testing.T
 	// (currently TeamMemEnabled=false alone suffices to omit the block).
 	t.Setenv(envHarnessKind, "")
 	withTeamMemoryRuntimeReady(t, true)
-	projectRoot := t.TempDir()
-	privateRoot := filepath.Join(t.TempDir(), "private")
-	cfg := &Config{
-		Enabled:             true,
-		EnableTools:         true,
-		RootDir:             t.TempDir(),
-		ProjectRoot:         projectRoot,
-		AutoMemPathOverride: privateRoot,
-		// TeamMemory NOT enabled — gate.InjectTeamMemIndex stays false.
-	}
-	if err := os.MkdirAll(privateRoot, 0o755); err != nil {
-		t.Fatalf("MkdirAll(privateRoot) error = %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(privateRoot, "MEMORY.md"),
-		[]byte("- [Private only](private.md)\n"), 0o644); err != nil {
-		t.Fatalf("WriteFile(private MEMORY.md) error = %v", err)
-	}
+	cfg := newPhase4BaselineConfig(t, false)
+	writePhase4BaselineMemory(t, cfg.AutoMemPathOverride, "- [Private only](private.md)")
 
 	team := NewTeamMemoryManager(cfg)
 	provider := NewEntrypointProvider(cfg, team, nil)
 	out, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Start:    &contract.StartInput{},
-		BuildCtx: contract.BuildCtx{CWD: projectRoot, GitRoot: projectRoot},
+		BuildCtx: contract.BuildCtx{CWD: cfg.ProjectRoot, GitRoot: cfg.ProjectRoot},
 	})
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
@@ -131,11 +81,57 @@ func TestPhase4BaselineEntrypointProviderTeamDisabledOmitsTeamBlock(t *testing.T
 		t.Fatal("Resolve() = nil, want private-only block")
 	}
 	got := *out
-	if strings.Contains(got, "source=team") {
-		t.Fatalf("Resolve() leaked team block under TeamMemory=false:\n%s", got)
+	assertPhase4BaselineOmits(t, got, "source=team", "TeamMemory=false")
+	assertPhase4BaselineContainsAll(t, got, "private-only block", []string{"source=auto"})
+}
+
+func newPhase4BaselineConfig(t *testing.T, enableTeam bool) *Config {
+	t.Helper()
+	cfg := &Config{
+		Enabled:             true,
+		EnableTools:         true,
+		RootDir:             t.TempDir(),
+		ProjectRoot:         t.TempDir(),
+		AutoMemPathOverride: filepath.Join(t.TempDir(), "private"),
 	}
-	if !strings.Contains(got, "source=auto") {
-		t.Fatalf("Resolve() missing private auto block:\n%s", got)
+	if enableTeam {
+		cfg.Features = MemoryFeatureFlags{TeamMemory: true}
+	}
+	return cfg
+}
+
+func mustConfiguredTeamMemRoot(t *testing.T, cfg *Config) string {
+	t.Helper()
+	teamRoot, err := configuredTeamMemRoot(cfg)
+	if err != nil {
+		t.Fatalf("configuredTeamMemRoot() error = %v", err)
+	}
+	return teamRoot
+}
+
+func writePhase4BaselineMemory(t *testing.T, root, body string) {
+	t.Helper()
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%s) error = %v", root, err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "MEMORY.md"), []byte(body+"\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(MEMORY.md) error = %v", err)
+	}
+}
+
+func assertPhase4BaselineContainsAll(t *testing.T, got, context string, values []string) {
+	t.Helper()
+	for _, value := range values {
+		if !strings.Contains(got, value) {
+			t.Fatalf("Resolve() missing %s marker %q:\n%s", context, value, got)
+		}
+	}
+}
+
+func assertPhase4BaselineOmits(t *testing.T, got, value, context string) {
+	t.Helper()
+	if strings.Contains(got, value) {
+		t.Fatalf("Resolve() leaked %s under %s:\n%s", value, context, got)
 	}
 }
 
@@ -151,64 +147,70 @@ func TestPhase4BaselineCrossScopeFilePathDisjoint(t *testing.T) {
 	// Use two completely disjoint temp roots so each BuildManifest scans
 	// only its own scope. (Default cfg.AutoMemPathOverride layout puts
 	// teamRoot under privateRoot, which would let walkDir cross scopes.)
-	privateRoot := filepath.Join(t.TempDir(), "private-scope")
-	teamRoot := filepath.Join(t.TempDir(), "team-scope")
-	if err := os.MkdirAll(privateRoot, 0o755); err != nil {
-		t.Fatalf("MkdirAll(privateRoot) error = %v", err)
-	}
-	if err := os.MkdirAll(teamRoot, 0o755); err != nil {
-		t.Fatalf("MkdirAll(teamRoot) error = %v", err)
-	}
+	privateRoot, teamRoot := newPhase4CrossScopeRoots(t)
 
 	const sharedName = "Cross-scope baseline name"
 
-	privateStore, err := newDiskStore(privateRoot, nil)
-	if err != nil {
-		t.Fatalf("newDiskStore(private) error = %v", err)
-	}
-	if _, err := privateStore.CreateStructured(MemoryWriteRequest{
+	createPhase4CrossScopeEntry(t, privateRoot, MemoryWriteRequest{
 		Name:        sharedName,
 		Description: "private-side same-name fixture",
 		Type:        MemoryTypeFeedback,
 		Body:        "fact\nWhy: lock cross-scope baseline.\nHow to apply: see team variant for rationale.",
-	}); err != nil {
-		t.Fatalf("CreateStructured(private) error = %v", err)
-	}
-	teamStore, err := newDiskStore(teamRoot, nil)
-	if err != nil {
-		t.Fatalf("newDiskStore(team) error = %v", err)
-	}
-	if _, err := teamStore.CreateStructured(MemoryWriteRequest{
+	})
+	createPhase4CrossScopeEntry(t, teamRoot, MemoryWriteRequest{
 		Name:        sharedName,
 		Description: "team-side same-name fixture",
 		Type:        MemoryTypeFeedback,
 		Body:        "fact\nWhy: cross-team coordination.\nHow to apply: this is the project-wide variant.",
-	}); err != nil {
-		t.Fatalf("CreateStructured(team) error = %v", err)
-	}
+	})
 
 	builder := NewManifestBuilder()
-	privateEntries, err := builder.BuildManifest(privateRoot)
-	if err != nil {
-		t.Fatalf("BuildManifest(private) error = %v", err)
-	}
-	teamEntries, err := builder.BuildManifest(teamRoot)
-	if err != nil {
-		t.Fatalf("BuildManifest(team) error = %v", err)
-	}
-
-	privHits := findEntriesByName(privateEntries, sharedName)
-	teamHits := findEntriesByName(teamEntries, sharedName)
-	if len(privHits) != 1 {
-		t.Fatalf("private side: hits for %q = %d, want 1; entries=%#v", sharedName, len(privHits), privateEntries)
-	}
-	if len(teamHits) != 1 {
-		t.Fatalf("team side: hits for %q = %d, want 1; entries=%#v", sharedName, len(teamHits), teamEntries)
-	}
-	if privHits[0].FilePath == teamHits[0].FilePath {
-		t.Fatalf("baseline expected distinct FilePath across scopes; got both=%q", privHits[0].FilePath)
+	privateFilePath := buildPhase4CrossScopeFilePath(t, builder, privateRoot, sharedName, "private side")
+	teamFilePath := buildPhase4CrossScopeFilePath(t, builder, teamRoot, sharedName, "team side")
+	if privateFilePath == teamFilePath {
+		t.Fatalf("baseline expected distinct FilePath across scopes; got both=%q", privateFilePath)
 	}
 	// FilePath-disjoint fixture established. A real Phase 4.1 子项 3
 	// ranking baseline must additionally drive the same-name pair through
 	// the ranking pipeline and assert the team-side score advantage.
+}
+
+func newPhase4CrossScopeRoots(t *testing.T) (string, string) {
+	t.Helper()
+	privateRoot := filepath.Join(t.TempDir(), "private-scope")
+	teamRoot := filepath.Join(t.TempDir(), "team-scope")
+	mkdirPhase4Root(t, privateRoot, "privateRoot")
+	mkdirPhase4Root(t, teamRoot, "teamRoot")
+	return privateRoot, teamRoot
+}
+
+func mkdirPhase4Root(t *testing.T, root, label string) {
+	t.Helper()
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%s) error = %v", label, err)
+	}
+}
+
+func createPhase4CrossScopeEntry(t *testing.T, root string, req MemoryWriteRequest) {
+	t.Helper()
+	store, err := newDiskStore(root, nil)
+	if err != nil {
+		t.Fatalf("newDiskStore(%s) error = %v", root, err)
+	}
+	if _, err := store.CreateStructured(req); err != nil {
+		t.Fatalf("CreateStructured(%s) error = %v", root, err)
+	}
+}
+
+func buildPhase4CrossScopeFilePath(t *testing.T, builder *ManifestBuilder, root, sharedName, label string) string {
+	t.Helper()
+	entries, err := builder.BuildManifest(root)
+	if err != nil {
+		t.Fatalf("BuildManifest(%s) error = %v", label, err)
+	}
+	hits := findEntriesByName(entries, sharedName)
+	if len(hits) != 1 {
+		t.Fatalf("%s: hits for %q = %d, want 1; entries=%#v", label, sharedName, len(hits), entries)
+	}
+	return hits[0].FilePath
 }
