@@ -90,11 +90,11 @@ func fallbackProviderModels() []ProviderModels {
 	return []ProviderModels{
 		{
 			Provider: "claude",
-			Models:   []string{"opus", "sonnet", "haiku"},
+			Models:   []string{"opus", "opus[1m]", "sonnet", "sonnet[1m]", "haiku"},
 		},
 		{
 			Provider: "codex",
-			Models:   []string{"gpt-5", "o3"},
+			Models:   []string{"gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2", "codex-auto-review"},
 		},
 	}
 }

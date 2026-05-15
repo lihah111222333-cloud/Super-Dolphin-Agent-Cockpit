@@ -37,8 +37,6 @@ export const CODEX_IDENTITY_DEFAULTS = Object.freeze({
 const CLAUDE_LONG_TO_SHORT = Object.freeze({
   'claude-opus-4-7': 'opus',
   'claude-opus-4-7[1m]': 'opus[1m]',
-  'claude-sonnet-4-7': 'sonnet',
-  'claude-sonnet-4-7[1m]': 'sonnet[1m]',
   'claude-haiku-4-5': 'haiku',
 });
 
@@ -59,7 +57,6 @@ export const MODEL_OPTIONS_BY_PROVIDER = Object.freeze({
     { value: 'gpt-5.5', label: 'GPT-5.5' },
     { value: 'gpt-5.4', label: 'GPT-5.4' },
     { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' },
-    { value: 'gpt-5.2-codex', label: 'GPT-5.2 Codex' },
     { value: 'gpt-5.2', label: 'GPT-5.2' },
   ]),
   claude: Object.freeze([

@@ -2,9 +2,16 @@ providers:
   - provider: claude
     models:
       - opus
+      - opus[1m]
       - sonnet
+      - sonnet[1m]
       - haiku
   - provider: codex
     models:
-      - gpt-5
-      - o3
+      - gpt-5.5
+      - gpt-5.4
+      - gpt-5.4-mini
+      - gpt-5.3-codex
+      - gpt-5.2
+      - codex-auto-review
+
