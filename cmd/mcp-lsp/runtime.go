@@ -122,7 +122,7 @@ func createGenericManager(executable string, args []string, root string, log *sl
 	}
 	return multilsp.NewManager(multilsp.Config{
 		WorkspaceRoot: root,
-		ClientFactory: multilsp.ClientFactoryFunc(func(rootDir string, h protocol.NotificationHandler) (multilsp.Client, error) {
+		ClientFactory: multilsp.ClientFactoryWithEnvFunc(func(rootDir string, env []string, h protocol.NotificationHandler) (multilsp.Client, error) {
 			// rootDir is supplied per-call from cfg.rootPath so the
 			// language server subprocess Dir tracks the workspace being
 			// initialised.
@@ -138,6 +138,7 @@ func createGenericManager(executable string, args []string, root string, log *sl
 				Binary:              executable,
 				Args:                args,
 				Dir:                 dir,
+				Env:                 env,
 				InitOptions:         opts,
 				NotificationHandler: h,
 			})

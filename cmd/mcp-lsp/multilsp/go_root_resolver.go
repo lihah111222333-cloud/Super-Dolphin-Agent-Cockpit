@@ -1,0 +1,593 @@
+package multilsp
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+)
+
+const (
+	goRootKindGoWork          = "go_work"
+	goRootKindGoMod           = "go_mod"
+	goRootKindSingleSubmodule = "single_submodule"
+	goRootKindMultiModule     = "multi_module"
+	goRootKindDirFallback     = "dir_fallback"
+
+	goworkModeAuto     = "auto"
+	goworkModeOff      = "off"
+	goworkModeExplicit = "explicit"
+)
+
+type GoRootRequest struct {
+	CWD      string
+	FilePath string
+	Env      []string
+}
+
+type GoRootInfo struct {
+	RootKind      string
+	WorkspaceRoot string
+	GoWorkPath    string
+	ModuleRoot    string
+	GoModPath     string
+	ModuleRoots   []string
+	GOWORKMode    string
+	ProjectRoot   string
+}
+
+type goWorkspaceKeyParts struct {
+	Language              string
+	RootKind              string
+	WorkspaceRoot         string
+	LanguageWorkspaceRoot string
+	ProjectRoot           string
+	LanguageSpecific      map[string]string
+}
+
+func ResolveGoRoot(req GoRootRequest) (GoRootInfo, error) {
+	target, projectRoot, err := resolveGoRootRequestPaths(req)
+	if err != nil {
+		return GoRootInfo{}, err
+	}
+	env := goRootRequestEnv(req)
+	if info, handled, err := resolveGoRootFromGOWORK(target, projectRoot, env); handled || err != nil {
+		return info, err
+	}
+	goWorkPath, err := findGoWorkPath(target)
+	if err != nil {
+		return GoRootInfo{}, err
+	}
+	if goWorkPath != "" {
+		return resolveGoWorkRoot(target, projectRoot, goWorkPath, goworkModeAuto)
+	}
+	return resolveGoRootWithoutGoWork(target, projectRoot, goworkModeAuto)
+}
+
+func resolveGoRootRequestPaths(req GoRootRequest) (string, string, error) {
+	projectRoot, err := normalizeOptionalPath(req.CWD, "")
+	if err != nil {
+		return "", "", err
+	}
+	target, err := resolveGoTargetPath(req.FilePath, projectRoot)
+	if err != nil {
+		return "", "", err
+	}
+	if target == "" {
+		target = projectRoot
+	}
+	if projectRoot == "" {
+		projectRoot = fallbackProjectRoot(target)
+	}
+	if target == "" {
+		return "", "", ErrWorkspaceRootEmpty
+	}
+	return target, projectRoot, nil
+}
+
+func goRootRequestEnv(req GoRootRequest) []string {
+	if req.Env != nil {
+		return req.Env
+	}
+	return os.Environ()
+}
+
+func resolveGoRootFromGOWORK(target, projectRoot string, env []string) (GoRootInfo, bool, error) {
+	gowork, ok := envValue(env, "GOWORK")
+	if !ok {
+		return GoRootInfo{}, false, nil
+	}
+	trimmed := strings.TrimSpace(gowork)
+	if strings.EqualFold(trimmed, goworkModeOff) {
+		info, err := resolveGoRootWithoutGoWork(target, projectRoot, goworkModeOff)
+		return info, true, err
+	}
+	if trimmed == "" {
+		return GoRootInfo{}, false, nil
+	}
+	goWorkPath, err := normalizeOptionalPath(trimmed, "")
+	if err != nil {
+		return GoRootInfo{}, true, err
+	}
+	if !fileExists(goWorkPath) {
+		return GoRootInfo{}, true, fmt.Errorf("GOWORK path does not exist: %s", goWorkPath)
+	}
+	info, err := resolveGoWorkRoot(target, projectRoot, goWorkPath, goworkModeExplicit)
+	return info, true, err
+}
+
+func resolveGoRootWithoutGoWork(target, projectRoot, mode string) (GoRootInfo, error) {
+	if goModPath, err := findGoModPath(target); err != nil {
+		return GoRootInfo{}, err
+	} else if goModPath != "" {
+		moduleRoot := filepath.Dir(goModPath)
+		return GoRootInfo{
+			RootKind:      goRootKindGoMod,
+			WorkspaceRoot: moduleRoot,
+			ModuleRoot:    moduleRoot,
+			GoModPath:     goModPath,
+			ModuleRoots:   []string{moduleRoot},
+			GOWORKMode:    mode,
+			ProjectRoot:   fallbackProjectRootValue(projectRoot, moduleRoot),
+		}, nil
+	}
+
+	fallbackRoot := projectRoot
+	if fallbackRoot == "" {
+		fallbackRoot = fallbackProjectRoot(target)
+	}
+	if fallbackRoot == "" {
+		fallbackRoot = filepath.Dir(target)
+	}
+	modules, err := findFirstLevelGoModRoots(fallbackRoot)
+	if err != nil {
+		return GoRootInfo{}, err
+	}
+	switch len(modules) {
+	case 0:
+		return GoRootInfo{
+			RootKind:      goRootKindDirFallback,
+			WorkspaceRoot: fallbackRoot,
+			GOWORKMode:    mode,
+			ProjectRoot:   fallbackProjectRootValue(projectRoot, fallbackRoot),
+		}, nil
+	case 1:
+		return GoRootInfo{
+			RootKind:      goRootKindSingleSubmodule,
+			WorkspaceRoot: modules[0],
+			ModuleRoot:    modules[0],
+			GoModPath:     filepath.Join(modules[0], "go.mod"),
+			ModuleRoots:   modules,
+			GOWORKMode:    mode,
+			ProjectRoot:   fallbackProjectRootValue(projectRoot, fallbackRoot),
+		}, nil
+	default:
+		return GoRootInfo{
+			RootKind:      goRootKindMultiModule,
+			WorkspaceRoot: fallbackRoot,
+			ModuleRoots:   modules,
+			GOWORKMode:    mode,
+			ProjectRoot:   fallbackProjectRootValue(projectRoot, fallbackRoot),
+		}, nil
+	}
+}
+
+func resolveGoWorkRoot(target, projectRoot, goWorkPath, mode string) (GoRootInfo, error) {
+	goWorkPath, err := normalizeOptionalPath(goWorkPath, "")
+	if err != nil {
+		return GoRootInfo{}, err
+	}
+	workspaceRoot := filepath.Dir(goWorkPath)
+	moduleRoots, err := parseGoWorkModuleRoots(goWorkPath)
+	if err != nil {
+		return GoRootInfo{}, err
+	}
+	moduleRoot := longestContainingRoot(target, moduleRoots)
+	goModPath := ""
+	if moduleRoot != "" {
+		goModPath = filepath.Join(moduleRoot, "go.mod")
+	}
+	return GoRootInfo{
+		RootKind:      goRootKindGoWork,
+		WorkspaceRoot: workspaceRoot,
+		GoWorkPath:    goWorkPath,
+		ModuleRoot:    moduleRoot,
+		GoModPath:     goModPath,
+		ModuleRoots:   moduleRoots,
+		GOWORKMode:    mode,
+		ProjectRoot:   fallbackProjectRootValue(projectRoot, workspaceRoot),
+	}, nil
+}
+
+func findGoModPath(path string) (string, error) {
+	return findUpwardFile(path, "go.mod")
+}
+
+func findGoWorkPath(path string) (string, error) {
+	return findUpwardFile(path, "go.work")
+}
+
+func findUpwardFile(path, name string) (string, error) {
+	absPath, err := platformshared.NormalizeAbsolutePath(path)
+	if err != nil {
+		return "", err
+	}
+	startDir, err := resolveStartDir(absPath)
+	if err != nil {
+		return "", err
+	}
+	for dir := startDir; dir != "" && dir != "."; dir = filepath.Dir(dir) {
+		candidate := filepath.Join(dir, name)
+		if fileExists(candidate) {
+			return candidate, nil
+		}
+		if filepath.Dir(dir) == dir {
+			break
+		}
+	}
+	return "", nil
+}
+
+func findFirstLevelGoModRoots(root string) ([]string, error) {
+	root, err := normalizeOptionalPath(root, "")
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	modules := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if fileExists(filepath.Join(root, entry.Name(), "go.mod")) {
+			modules = append(modules, filepath.Join(root, entry.Name()))
+		}
+	}
+	return cleanSortedUniquePaths(modules), nil
+}
+
+func parseGoWorkModuleRoots(goWorkPath string) ([]string, error) {
+	data, err := os.ReadFile(goWorkPath)
+	if err != nil {
+		return nil, err
+	}
+	parser := goWorkUseParser{workDir: filepath.Dir(goWorkPath)}
+	for _, rawLine := range strings.Split(string(data), "\n") {
+		parser.parseLine(rawLine)
+	}
+	return cleanSortedUniquePaths(parser.roots), nil
+}
+
+type goWorkUseParser struct {
+	workDir    string
+	roots      []string
+	inUseBlock bool
+}
+
+func (p *goWorkUseParser) parseLine(rawLine string) {
+	fields := goWorkFields(rawLine)
+	if len(fields) == 0 {
+		return
+	}
+	if p.inUseBlock {
+		p.parseUseFields(fields)
+		return
+	}
+	if fields[0] == "use" {
+		p.parseUseFields(fields[1:])
+	}
+}
+
+func goWorkFields(rawLine string) []string {
+	line := strings.TrimSpace(stripGoWorkLineComment(rawLine))
+	if line == "" {
+		return nil
+	}
+	return strings.Fields(line)
+}
+
+func (p *goWorkUseParser) parseUseFields(fields []string) {
+	for _, field := range fields {
+		p.parseUseField(field)
+	}
+}
+
+func (p *goWorkUseParser) parseUseField(field string) {
+	for _, token := range splitGoWorkUseToken(field) {
+		switch token {
+		case "(":
+			p.inUseBlock = true
+		case ")":
+			p.inUseBlock = false
+		default:
+			p.roots = appendGoWorkUseRoot(p.roots, p.workDir, token)
+		}
+	}
+}
+
+func splitGoWorkUseToken(field string) []string {
+	field = strings.TrimSpace(field)
+	if field == "" {
+		return nil
+	}
+	var tokens []string
+	for strings.HasPrefix(field, "(") {
+		tokens = append(tokens, "(")
+		field = strings.TrimPrefix(field, "(")
+	}
+	closed := strings.HasSuffix(field, ")")
+	field = strings.TrimSuffix(field, ")")
+	if field != "" {
+		tokens = append(tokens, field)
+	}
+	if closed {
+		tokens = append(tokens, ")")
+	}
+	return tokens
+}
+
+func stripGoWorkLineComment(line string) string {
+	if idx := strings.Index(line, "//"); idx >= 0 {
+		return line[:idx]
+	}
+	return line
+}
+
+func appendGoWorkUseRoot(roots []string, workDir, raw string) []string {
+	entry := strings.TrimSpace(raw)
+	if unquoted, err := strconv.Unquote(entry); err == nil {
+		entry = unquoted
+	} else {
+		entry = strings.Trim(entry, `"`)
+	}
+	if entry == "" || entry == ")" || entry == "(" {
+		return roots
+	}
+	if !filepath.IsAbs(entry) {
+		entry = filepath.Join(workDir, entry)
+	}
+	if normalized, err := platformshared.NormalizeAbsolutePath(entry); err == nil && normalized != "" {
+		roots = append(roots, normalized)
+	}
+	return roots
+}
+
+func resolveGoTargetPath(filePath, cwd string) (string, error) {
+	trimmed := strings.TrimSpace(filePath)
+	if trimmed == "" {
+		return "", nil
+	}
+	if strings.HasPrefix(trimmed, "file://") {
+		return absolutePathFromURI(trimmed)
+	}
+	if !filepath.IsAbs(trimmed) && cwd != "" {
+		trimmed = filepath.Join(cwd, trimmed)
+	}
+	return platformshared.NormalizeAbsolutePath(trimmed)
+}
+
+func normalizeOptionalPath(path, base string) (string, error) {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return "", nil
+	}
+	if !filepath.IsAbs(trimmed) && base != "" {
+		trimmed = filepath.Join(base, trimmed)
+	}
+	return platformshared.NormalizeAbsolutePath(trimmed)
+}
+
+func fallbackProjectRoot(target string) string {
+	if strings.TrimSpace(target) == "" {
+		return ""
+	}
+	startDir, err := resolveStartDir(target)
+	if err != nil {
+		return filepath.Dir(target)
+	}
+	return startDir
+}
+
+func fallbackProjectRootValue(projectRoot, fallback string) string {
+	if strings.TrimSpace(projectRoot) != "" {
+		return projectRoot
+	}
+	return fallback
+}
+
+func longestContainingRoot(path string, roots []string) string {
+	if len(roots) == 0 || strings.TrimSpace(path) == "" {
+		return ""
+	}
+	normalized, err := platformshared.NormalizeAbsolutePath(path)
+	if err != nil {
+		return ""
+	}
+	best := ""
+	for _, root := range roots {
+		if pathWithinRoot(normalized, root) && len(root) > len(best) {
+			best = root
+		}
+	}
+	return best
+}
+
+func pathWithinRoot(path, root string) bool {
+	if path == root {
+		return true
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
+}
+
+func workspaceFolders(root GoRootInfo) []protocol.WorkspaceFolder {
+	paths := root.workspaceFolderPaths()
+	folders := make([]protocol.WorkspaceFolder, 0, len(paths))
+	for _, folderPath := range paths {
+		uri := fileURIFromPath(folderPath)
+		folders = append(folders, protocol.WorkspaceFolder{
+			URI:  uri,
+			Name: workspaceName(uri),
+		})
+	}
+	return folders
+}
+
+func (root GoRootInfo) workspaceFolderPaths() []string {
+	paths := []string{root.WorkspaceRoot}
+	paths = append(paths, root.ModuleRoots...)
+	return cleanUniqueFolderPaths(paths, root.WorkspaceRoot)
+}
+
+func cleanUniqueFolderPaths(paths []string, first string) []string {
+	normalized := cleanSortedUniquePaths(paths)
+	if first == "" {
+		return normalized
+	}
+	first, err := platformshared.NormalizeAbsolutePath(first)
+	if err != nil || first == "" {
+		return normalized
+	}
+	out := []string{first}
+	for _, path := range normalized {
+		if path != first {
+			out = append(out, path)
+		}
+	}
+	return out
+}
+
+func cleanSortedUniquePaths(paths []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(paths))
+	for _, path := range paths {
+		normalized, err := normalizeOptionalPath(path, "")
+		if err != nil || normalized == "" {
+			continue
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		out = append(out, normalized)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func goRootEnv(root GoRootInfo) []string {
+	switch root.GOWORKMode {
+	case goworkModeOff:
+		return []string{"GOWORK=off"}
+	case goworkModeAuto, goworkModeExplicit:
+		if root.GoWorkPath != "" {
+			return []string{"GOWORK=" + root.GoWorkPath}
+		}
+	}
+	return nil
+}
+
+func goWorkspaceKey(root GoRootInfo) string {
+	parts := goWorkspaceKeyPartsFor(root)
+	return strings.Join([]string{
+		parts.Language,
+		parts.RootKind,
+		parts.WorkspaceRoot,
+		parts.LanguageWorkspaceRoot,
+		parts.ProjectRoot,
+		formatLanguageSpecific(parts.LanguageSpecific),
+	}, "\x00")
+}
+
+func goWorkspaceKeyPartsFor(root GoRootInfo) goWorkspaceKeyParts {
+	languageWorkspaceRoot := root.ModuleRoot
+	if languageWorkspaceRoot == "" {
+		languageWorkspaceRoot = root.WorkspaceRoot
+	}
+	projectRoot := root.ProjectRoot
+	if projectRoot == "" {
+		projectRoot = root.WorkspaceRoot
+	}
+	return goWorkspaceKeyParts{
+		Language:              "go",
+		RootKind:              root.RootKind,
+		WorkspaceRoot:         root.WorkspaceRoot,
+		LanguageWorkspaceRoot: languageWorkspaceRoot,
+		ProjectRoot:           projectRoot,
+		LanguageSpecific:      goLanguageSpecific(root),
+	}
+}
+
+func goLanguageSpecific(root GoRootInfo) map[string]string {
+	return map[string]string{
+		"goModPath":            root.GoModPath,
+		"goWorkPath":           root.GoWorkPath,
+		"goworkMode":           root.GOWORKMode,
+		"moduleRoot":           root.ModuleRoot,
+		"moduleRootsHash":      hashStringList(root.ModuleRoots),
+		"workspaceFoldersHash": hashWorkspaceFolders(workspaceFolders(root)),
+	}
+}
+
+func formatLanguageSpecific(values map[string]string) string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var builder strings.Builder
+	for i, key := range keys {
+		if i > 0 {
+			builder.WriteByte('\x1f')
+		}
+		builder.WriteString(key)
+		builder.WriteByte('=')
+		builder.WriteString(values[key])
+	}
+	return builder.String()
+}
+
+func hashWorkspaceFolders(folders []protocol.WorkspaceFolder) string {
+	values := make([]string, 0, len(folders))
+	for _, folder := range folders {
+		values = append(values, folder.URI+"\x00"+folder.Name)
+	}
+	return hashStringList(values)
+}
+
+func hashStringList(values []string) string {
+	cleaned := append([]string(nil), values...)
+	sort.Strings(cleaned)
+	hash := sha256.New()
+	for _, value := range cleaned {
+		hash.Write([]byte(value))
+		hash.Write([]byte{0})
+	}
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func envValue(env []string, key string) (string, bool) {
+	prefix := key + "="
+	for i := len(env) - 1; i >= 0; i-- {
+		if strings.HasPrefix(env[i], prefix) {
+			return strings.TrimPrefix(env[i], prefix), true
+		}
+	}
+	return "", false
+}

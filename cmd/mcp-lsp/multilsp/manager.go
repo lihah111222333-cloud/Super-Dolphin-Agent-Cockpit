@@ -64,10 +64,25 @@ type ClientFactory interface {
 	NewClient(rootDir string, handler protocol.NotificationHandler) (Client, error)
 }
 
+type ClientFactoryWithEnv interface {
+	ClientFactory
+	NewClientWithEnv(rootDir string, env []string, handler protocol.NotificationHandler) (Client, error)
+}
+
 type ClientFactoryFunc func(rootDir string, handler protocol.NotificationHandler) (Client, error)
 
 func (fn ClientFactoryFunc) NewClient(rootDir string, handler protocol.NotificationHandler) (Client, error) {
 	return fn(rootDir, handler)
+}
+
+type ClientFactoryWithEnvFunc func(rootDir string, env []string, handler protocol.NotificationHandler) (Client, error)
+
+func (fn ClientFactoryWithEnvFunc) NewClient(rootDir string, handler protocol.NotificationHandler) (Client, error) {
+	return fn(rootDir, nil, handler)
+}
+
+func (fn ClientFactoryWithEnvFunc) NewClientWithEnv(rootDir string, env []string, handler protocol.NotificationHandler) (Client, error) {
+	return fn(rootDir, env, handler)
 }
 
 type Config struct {
@@ -99,10 +114,13 @@ type manager struct {
 }
 
 type workspaceClient struct {
-	key      string
-	rootPath string
-	rootURI  string
-	client   Client
+	key              string
+	rootPath         string
+	rootURI          string
+	languageID       string
+	env              []string
+	workspaceFolders []protocol.WorkspaceFolder
+	client           Client
 }
 
 type diagnosticSnapshot struct {
@@ -119,10 +137,12 @@ type documentRef struct {
 }
 
 type workspaceConfig struct {
-	key        string
-	rootPath   string
-	rootURI    string
-	languageID string
+	key              string
+	rootPath         string
+	rootURI          string
+	languageID       string
+	env              []string
+	workspaceFolders []protocol.WorkspaceFolder
 }
 
 var (
@@ -249,6 +269,9 @@ func (m *manager) resolveWorkspaceForDocument(ctx context.Context, ref documentR
 	if ref.absPath == "" {
 		return workspaceConfig{}, ErrWorkspaceRootEmpty
 	}
+	if shouldUseGoWorkspace(ref.languageID) {
+		return m.resolveGoWorkspaceForDocument(ctx, ref)
+	}
 	root := m.effectiveWorkspaceRoot(ctx)
 	langRoot, err := resolveProjectRoot(ref.languageID, ref.absPath)
 	if err != nil {
@@ -264,12 +287,53 @@ func (m *manager) resolveWorkspaceForDocument(ctx context.Context, ref documentR
 	if err != nil {
 		return workspaceConfig{}, err
 	}
+	return workspaceConfigForRoot(root, ref.languageID), nil
+}
+
+func (m *manager) resolveGoWorkspaceForDocument(ctx context.Context, ref documentRef) (workspaceConfig, error) {
+	info, err := ResolveGoRoot(GoRootRequest{
+		CWD:      m.effectiveWorkspaceRoot(ctx),
+		FilePath: ref.absPath,
+		Env:      os.Environ(),
+	})
+	if err != nil {
+		return workspaceConfig{}, err
+	}
+	return workspaceConfigForGoRoot(info, ref.languageID), nil
+}
+
+func workspaceConfigForRoot(root, languageID string) workspaceConfig {
+	rootURI := fileURIFromPath(root)
 	return workspaceConfig{
-		key:        root,
-		rootPath:   root,
-		rootURI:    fileURIFromPath(root),
-		languageID: ref.languageID,
-	}, nil
+		key:              root,
+		rootPath:         root,
+		rootURI:          rootURI,
+		languageID:       languageID,
+		workspaceFolders: workspaceFoldersFromRootURI(rootURI),
+	}
+}
+
+func workspaceConfigForGoRoot(info GoRootInfo, languageID string) workspaceConfig {
+	root := info.WorkspaceRoot
+	if root == "" {
+		root = info.ProjectRoot
+	}
+	rootURI := fileURIFromPath(root)
+	return workspaceConfig{
+		key:              goWorkspaceKey(info),
+		rootPath:         root,
+		rootURI:          rootURI,
+		languageID:       normalizeGoWorkspaceLanguageID(languageID),
+		env:              goRootEnv(info),
+		workspaceFolders: workspaceFolders(info),
+	}
+}
+
+func normalizeGoWorkspaceLanguageID(languageID string) string {
+	if normalized := normalizeLanguageID(languageID); normalized != "" {
+		return normalized
+	}
+	return "go"
 }
 
 func chooseDuration(given, fallback time.Duration) time.Duration {
