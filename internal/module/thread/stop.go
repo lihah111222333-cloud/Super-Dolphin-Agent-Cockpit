@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
@@ -189,9 +188,6 @@ func (s *service) Stop(ctx context.Context, threadID string) error {
 	if err := s.updateThreadStatus(ctx, stopState.stoppedID, statusStopped); err != nil {
 		return err
 	}
-	if err := s.cleanupStoppedBinding(ctx, stopState.binding); err != nil {
-		return err
-	}
 	s.cleanupThreadScratchpad(ctx, stopState.stoppedID, stopState.binding)
 	for _, id := range stopState.targets {
 		s.forgetThreadAgent(id)
@@ -348,21 +344,6 @@ func stoppedThreadID(binding *bindingstore.Binding, threadID string) string {
 		binding.ProviderThreadID,
 		binding.AgentID,
 	)
-}
-
-func (s *service) cleanupStoppedBinding(ctx context.Context, binding *bindingstore.Binding) error {
-	if s.bindingStore == nil || binding == nil {
-		return nil
-	}
-	agentID := strings.TrimSpace(binding.AgentID)
-	if agentID == "" {
-		return nil
-	}
-	return s.bindingStore.UpdateSessionUUID(ctx, bindingstore.UpdateSessionUUIDParams{
-		AgentID:     agentID,
-		SessionUUID: "",
-		UpdatedAt:   time.Now().Unix(),
-	})
 }
 
 func uniqueThreadIDs(values ...string) []string {

@@ -290,14 +290,8 @@ func shouldPersistBinding(existing *bindingstore.Binding, registration bindingRe
 		return true
 	}
 	return bindingNeedsProviderThreadUpdate(existing, registration) ||
-		bindingNeedsInitialValue(strings.TrimSpace(existing.CodexThreadID), registration.PublicThreadID) ||
-		bindingNeedsInitialValue(strings.TrimSpace(existing.Cwd), registration.CWD) ||
-		bindingNeedsInitialValue(strings.TrimSpace(existing.ParentAgentID), registration.ParentAgentID) ||
-		bindingNeedsInitialValue(strings.TrimSpace(existing.AgentType), registration.AgentType) ||
-		bindingNeedsInitialValue(strings.TrimSpace(existing.AgentMemoryScope), registration.AgentMemoryScope) ||
-		bindingNeedsInitialValue(strings.TrimSpace(existing.CodexHome), registration.CodexHome) ||
-		bindingNeedsInitialValue(strings.TrimSpace(existing.CodexInstanceKey), registration.CodexInstanceKey) ||
-		bindingNeedsInitialValue(strings.TrimSpace(existing.CodexModelProvider), registration.CodexModelProvider)
+		bindingNeedsThreadMetadataUpdate(existing, registration) ||
+		bindingNeedsCodexIdentityUpdate(existing, registration)
 }
 
 func (s *service) verifyThreadBinding(ctx context.Context, registration bindingRegistration) error {
@@ -326,6 +320,10 @@ func (s *service) verifyThreadBinding(ctx context.Context, registration bindingR
 		if check.mismatch() {
 			return fmt.Errorf("binding verification failed: %s mismatch for agent %q", check.label, registration.AgentID)
 		}
+	}
+	if bindingRequiresSessionUUID(binding, registration) &&
+		strings.TrimSpace(binding.SessionUUID) != registration.SessionUUID {
+		return fmt.Errorf("binding verification failed: session uuid mismatch for agent %q", registration.AgentID)
 	}
 	return nil
 }
@@ -438,6 +436,34 @@ func (v bindingVerification) mismatch() bool {
 func bindingNeedsProviderThreadUpdate(existing *bindingstore.Binding, registration bindingRegistration) bool {
 	return strings.TrimSpace(existing.ProviderThreadID) != registration.ProviderThreadID &&
 		registration.ProviderThreadID != ""
+}
+
+func bindingNeedsSessionUUIDUpdate(existing *bindingstore.Binding, registration bindingRegistration) bool {
+	return bindingRequiresSessionUUID(existing, registration) &&
+		strings.TrimSpace(existing.SessionUUID) != registration.SessionUUID
+}
+
+func bindingRequiresSessionUUID(existing *bindingstore.Binding, registration bindingRegistration) bool {
+	if registration.SessionUUID == "" {
+		return false
+	}
+	providerThreadID := strings.TrimSpace(existing.ProviderThreadID)
+	return providerThreadID == "" || providerThreadID == strings.TrimSpace(existing.AgentID)
+}
+
+func bindingNeedsThreadMetadataUpdate(existing *bindingstore.Binding, registration bindingRegistration) bool {
+	return bindingNeedsInitialValue(strings.TrimSpace(existing.CodexThreadID), registration.PublicThreadID) ||
+		bindingNeedsSessionUUIDUpdate(existing, registration) ||
+		bindingNeedsInitialValue(strings.TrimSpace(existing.Cwd), registration.CWD) ||
+		bindingNeedsInitialValue(strings.TrimSpace(existing.ParentAgentID), registration.ParentAgentID) ||
+		bindingNeedsInitialValue(strings.TrimSpace(existing.AgentType), registration.AgentType) ||
+		bindingNeedsInitialValue(strings.TrimSpace(existing.AgentMemoryScope), registration.AgentMemoryScope)
+}
+
+func bindingNeedsCodexIdentityUpdate(existing *bindingstore.Binding, registration bindingRegistration) bool {
+	return bindingNeedsInitialValue(strings.TrimSpace(existing.CodexHome), registration.CodexHome) ||
+		bindingNeedsInitialValue(strings.TrimSpace(existing.CodexInstanceKey), registration.CodexInstanceKey) ||
+		bindingNeedsInitialValue(strings.TrimSpace(existing.CodexModelProvider), registration.CodexModelProvider)
 }
 
 func bindingNeedsInitialValue(existing, incoming string) bool {
