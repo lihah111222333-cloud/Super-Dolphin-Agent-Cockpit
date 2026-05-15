@@ -14,7 +14,9 @@ import (
 )
 
 type diagnosticsTestRegistry struct {
-	lastURIs []string
+	lastURIs  []string
+	lastScope common.ToolScope
+	scopeOK   bool
 }
 
 func (r *diagnosticsTestRegistry) GetManagerForFile(context.Context, string) (lspmanager.Manager, error) {
@@ -25,8 +27,9 @@ func (r *diagnosticsTestRegistry) GetManagerForLanguage(context.Context, string)
 	return nil, lspmanager.ErrUnsupportedLanguage
 }
 
-func (r *diagnosticsTestRegistry) Diagnostics(_ context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, error) {
+func (r *diagnosticsTestRegistry) Diagnostics(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, error) {
 	r.lastURIs = append([]string(nil), uris...)
+	r.lastScope, r.scopeOK = common.ToolScopeFromContext(ctx)
 	items := make([]protocol.PublishDiagnosticsParams, 0, len(uris))
 	for _, uri := range uris {
 		items = append(items, protocol.PublishDiagnosticsParams{URI: uri})
@@ -132,6 +135,37 @@ func TestDiagnosticsDeletedFileStillCallsRegistryForCleanup(t *testing.T) {
 		t.Fatalf("diagnostics returned error for deleted file: %v", err)
 	}
 	assertDiagnosticURIs(t, registry.lastURIs, []string{canonicalDeletedFileURI(t, deletedFile)})
+}
+
+func TestDiagnosticsPassesTrustedToolScopeToRegistry(t *testing.T) {
+	mainRoot := t.TempDir()
+	scopedRoot := t.TempDir()
+	target := writeDiagnosticsFixture(t, scopedRoot, "scoped.go")
+
+	registry := &diagnosticsTestRegistry{}
+	handler := NewFileHandler(Config{WorkspaceRoot: mainRoot, Registry: registry})
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{
+		AgentID:  "agent-scope",
+		ThreadID: "thread-scope",
+		CallID:   "call-scope",
+		CWD:      scopedRoot,
+		Family:   "lsp",
+	})
+	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: "scoped.go"})
+
+	if _, err := handler(ctx, req); err != nil {
+		t.Fatalf("diagnostics returned error: %v", err)
+	}
+	assertDiagnosticURIs(t, registry.lastURIs, []string{canonicalFileURI(t, target)})
+	if !registry.scopeOK {
+		t.Fatalf("registry Diagnostics ctx missing trusted ToolScope")
+	}
+	if registry.lastScope.AgentID != "agent-scope" || registry.lastScope.ThreadID != "thread-scope" || registry.lastScope.CallID != "call-scope" {
+		t.Fatalf("registry scope = %#v, want trusted identity", registry.lastScope)
+	}
+	if registry.lastScope.CWD != scopedRoot {
+		t.Fatalf("registry scope cwd = %q, want %q", registry.lastScope.CWD, scopedRoot)
+	}
 }
 
 func writeDiagnosticsFixture(t *testing.T, root, name string) string {

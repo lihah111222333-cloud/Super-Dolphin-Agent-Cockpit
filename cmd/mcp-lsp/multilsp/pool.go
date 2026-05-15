@@ -48,11 +48,12 @@ type pooledManager struct {
 }
 
 type poolManagerSnapshot struct {
-	index      int
-	managerKey string
-	base       bool
-	manager    *manager
-	lastUsedAt time.Time
+	index         int
+	managerKey    string
+	base          bool
+	manager       *manager
+	resolvedScope ResolvedLSPToolScope
+	lastUsedAt    time.Time
 }
 
 // RootOptions carries canonical root metadata into ManagerFactory without
@@ -204,10 +205,11 @@ func (p *ManagerPool) snapshotManagers() []poolManagerSnapshot {
 				continue
 			}
 			snapshots = append(snapshots, poolManagerSnapshot{
-				index:      shard.index,
-				managerKey: clone.key,
-				manager:    clone.manager,
-				lastUsedAt: clone.lastUsedAt,
+				index:         shard.index,
+				managerKey:    clone.key,
+				manager:       clone.manager,
+				resolvedScope: clone.resolvedScope,
+				lastUsedAt:    clone.lastUsedAt,
 			})
 		}
 	}

@@ -49,18 +49,9 @@ type lspDocumentIndexKey struct {
 }
 
 type lspDocumentIndexValue struct {
-	LastResolvedScope lspResolvedScope `json:"last_resolved_scope"`
-	LastFingerprint   string           `json:"last_fingerprint,omitempty"`
-	LastSeenAt        time.Time        `json:"last_seen_at"`
-}
-
-type lspResolvedScope struct {
-	ScopeKey             string `json:"scope_key,omitempty"`
-	WorkspaceKey         string `json:"workspace_key,omitempty"`
-	ManagerKey           string `json:"manager_key,omitempty"`
-	WorkspaceRoot        string `json:"workspace_root,omitempty"`
-	LanguageID           string `json:"language_id,omitempty"`
-	LanguageSpecificHash string `json:"language_specific_hash,omitempty"`
+	LastResolvedScope ResolvedLSPToolScope `json:"last_resolved_scope"`
+	LastFingerprint   string               `json:"last_fingerprint,omitempty"`
+	LastSeenAt        time.Time            `json:"last_seen_at"`
 }
 
 type lspCacheConfig struct {
@@ -229,7 +220,7 @@ func (s *lspCacheStore) WorkspaceDocuments(workspace string) []lspCacheValue {
 	})
 }
 
-func (s *lspCacheStore) ScopeDocuments(scope lspResolvedScope) []lspCacheValue {
+func (s *lspCacheStore) ScopeDocuments(scope ResolvedLSPToolScope) []lspCacheValue {
 	if s == nil {
 		return nil
 	}
@@ -265,7 +256,7 @@ func (s *lspCacheStore) WorkspaceURIs(workspace string) []string {
 	return uris
 }
 
-func (s *lspCacheStore) ScopeURIs(scope lspResolvedScope) []string {
+func (s *lspCacheStore) ScopeURIs(scope ResolvedLSPToolScope) []string {
 	values := s.ScopeDocuments(scope)
 	uris := make([]string, 0, len(values))
 	for _, value := range values {
@@ -274,7 +265,7 @@ func (s *lspCacheStore) ScopeURIs(scope lspResolvedScope) []string {
 	return uris
 }
 
-func (s *lspCacheStore) RememberDocumentScope(uri string, scope lspResolvedScope, fingerprint string) {
+func (s *lspCacheStore) RememberDocumentScope(uri string, scope ResolvedLSPToolScope, fingerprint string) {
 	if s == nil || strings.TrimSpace(uri) == "" {
 		return
 	}
@@ -447,7 +438,7 @@ func (k lspCacheKey) String() string {
 		k.LanguageSpecificHash
 }
 
-func (s lspResolvedScope) cacheKey(languageID, uri string) lspCacheKey {
+func (s ResolvedLSPToolScope) cacheKey(languageID, uri string) lspCacheKey {
 	lang := normalizeLanguageID(languageID)
 	if lang == "" {
 		lang = normalizeLanguageID(s.LanguageID)
@@ -457,11 +448,11 @@ func (s lspResolvedScope) cacheKey(languageID, uri string) lspCacheKey {
 		WorkspaceKey:         s.WorkspaceKey,
 		LanguageID:           lang,
 		URI:                  uri,
-		LanguageSpecificHash: s.LanguageSpecificHash,
+		LanguageSpecificHash: languageSpecificCacheHash(s.LanguageSpecific),
 	}
 }
 
-func (s lspResolvedScope) bootstrapKey() string {
+func (s ResolvedLSPToolScope) bootstrapKey() string {
 	if s.ManagerKey != "" {
 		return s.ManagerKey
 	}
@@ -469,6 +460,14 @@ func (s lspResolvedScope) bootstrapKey() string {
 		return s.ScopeKey + "\x00" + s.WorkspaceKey
 	}
 	return s.WorkspaceRoot
+}
+
+func languageSpecificCacheHash(values map[string]string) string {
+	encoded := encodeLanguageSpecific(values)
+	if encoded == "" {
+		return ""
+	}
+	return hashDocument([]byte(encoded))
 }
 
 func cacheKeyScope(key lspCacheKey) string {

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 )
@@ -82,11 +83,11 @@ func (r *poolRecycler) check() {
 		return
 	}
 	for _, snapshot := range r.pool.snapshotManagers() {
-		r.checkManager(snapshot.index, snapshot.manager)
+		r.checkManager(snapshot.index, snapshot.manager, snapshot.resolvedScope)
 	}
 }
 
-func (r *poolRecycler) checkManager(index int, mgr *manager) {
+func (r *poolRecycler) checkManager(index int, mgr *manager, scope ResolvedLSPToolScope) {
 	if mgr == nil || managerIsClosed(mgr) {
 		return
 	}
@@ -95,11 +96,11 @@ func (r *poolRecycler) checkManager(index int, mgr *manager) {
 	}
 
 	for _, workspace := range snapshotWorkspaceClients(mgr) {
-		r.recycleIfNeeded(mgr, workspace)
+		r.recycleIfNeeded(mgr, scope, workspace)
 	}
 }
 
-func (r *poolRecycler) recycleIfNeeded(mgr *manager, workspace workspaceClient) {
+func (r *poolRecycler) recycleIfNeeded(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient) {
 	rssBytes, pid, err := clientRSSBytes(workspace.client)
 	if err != nil || pid <= 0 || rssBytes <= rssLimitBytes() {
 		return
@@ -110,7 +111,7 @@ func (r *poolRecycler) recycleIfNeeded(mgr *manager, workspace workspaceClient) 
 	if mgr.logger != nil {
 		mgr.logger.Warn("recycling LSP process", "workspace", workspace.key, "pid", pid, "rss_bytes", rssBytes)
 	}
-	if err := recycleWorkspaceClient(mgr, workspace); err != nil && mgr.logger != nil {
+	if err := recycleWorkspaceClient(mgr, scope, workspace); err != nil && mgr.logger != nil {
 		mgr.logger.Warn("LSP recycle failed", "workspace", workspace.key, "pid", pid, "err", err)
 	}
 }
@@ -123,7 +124,7 @@ func (r *poolRecycler) shouldCheck(index int) bool {
 	return last.IsZero() || time.Since(last) >= r.interval/2
 }
 
-func recycleWorkspaceClient(mgr *manager, workspace workspaceClient) error {
+func recycleWorkspaceClient(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient) error {
 	detached := detachWorkspaceClient(mgr, workspace.key)
 	if detached == nil || detached.client == nil {
 		return nil
@@ -147,9 +148,52 @@ func recycleWorkspaceClient(mgr *manager, workspace workspaceClient) error {
 		env:              append([]string(nil), workspace.env...),
 		workspaceFolders: cloneWorkspaceFolders(workspace.workspaceFolders),
 	}
-	_, ensureErr := mgr.ensureClient(context.Background(), cfg)
-	restoreErr := restoreBootstrappedWorkspace(context.Background(), mgr, cfg)
+	restoreCtx := recycleRestoreContext(scope, cfg)
+	_, ensureErr := mgr.ensureClient(restoreCtx, cfg)
+	restoreErr := restoreBootstrappedWorkspace(restoreCtx, mgr, cfg)
 	return errors.Join(shutdownErr, closeErr, ensureErr, restoreErr)
+}
+
+func recycleRestoreContext(scope ResolvedLSPToolScope, cfg workspaceConfig) context.Context {
+	ctx := context.Background()
+	scope = recycleResolvedScope(scope, cfg)
+	if toolScope := recycleToolScope(scope); toolScope != (common.ToolScope{}) {
+		ctx = common.WithToolScope(ctx, toolScope)
+	}
+	return WithResolvedLSPToolScope(ctx, scope)
+}
+
+func recycleResolvedScope(scope ResolvedLSPToolScope, cfg workspaceConfig) ResolvedLSPToolScope {
+	if scope.WorkspaceKey != "" || scope.ManagerKey != "" {
+		return scope
+	}
+	if parsed, ok := lspScopeWorkspacePartsFromConfig(cfg); ok {
+		if resolved, err := ResolveLSPToolScope(parsed); err == nil {
+			return resolved
+		}
+	}
+	resolved, err := ResolveLSPToolScope(LSPToolScope{
+		LanguageID:            cfg.languageID,
+		WorkspaceRoot:         cfg.rootPath,
+		LanguageWorkspaceRoot: cfg.rootPath,
+		ProjectRoot:           cfg.rootPath,
+		RootKind:              "dir_fallback",
+	})
+	if err != nil {
+		return scope
+	}
+	return resolved
+}
+
+func recycleToolScope(scope ResolvedLSPToolScope) common.ToolScope {
+	return common.ToolScope{
+		Family:   scope.Family,
+		AgentID:  scope.AgentID,
+		ThreadID: scope.ThreadID,
+		TurnID:   scope.TurnID,
+		CallID:   scope.CallID,
+		CWD:      scope.CWD,
+	}
 }
 
 func snapshotWorkspaceClients(mgr *manager) []workspaceClient {
