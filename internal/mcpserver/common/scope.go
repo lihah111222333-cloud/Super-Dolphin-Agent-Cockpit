@@ -59,7 +59,7 @@ func NormalizeToolScope(scope ToolScope) ToolScope {
 	scope.TurnID = strings.TrimSpace(scope.TurnID)
 	scope.CallID = strings.TrimSpace(scope.CallID)
 	scope.CWD = normalizeScopeCWD(scope.CWD)
-	scope.Family = strings.TrimSpace(scope.Family)
+	scope.Family = normalizeScopeFamily(scope.Family)
 	return scope
 }
 
@@ -88,6 +88,20 @@ func ToolScopeFromContext(ctx context.Context) (ToolScope, bool) {
 	}
 	scope = NormalizeToolScope(scope)
 	return scope, scope != (ToolScope{})
+}
+
+func normalizeScopeFamily(family string) string {
+	trimmed := strings.TrimSpace(family)
+	switch strings.ToLower(trimmed) {
+	case "mcp-lsp":
+		return "lsp"
+	case "mcp-orch":
+		return "orch"
+	case "mcp-ida":
+		return "ida"
+	default:
+		return trimmed
+	}
 }
 
 func normalizeScopeCWD(cwd string) string {

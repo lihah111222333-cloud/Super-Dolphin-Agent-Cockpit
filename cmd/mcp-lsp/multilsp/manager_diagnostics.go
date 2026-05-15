@@ -68,6 +68,9 @@ func (h managerNotificationHandler) LogMessage(params protocol.LogMessageParams)
 }
 
 func (m *manager) Diagnostics(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, error) {
+	if err := m.refreshExistingDiagnosticTargets(ctx, uris); err != nil {
+		return nil, err
+	}
 	filter, err := m.normalizeDiagnosticFilter(ctx, uris)
 	if err != nil {
 		return nil, err
@@ -79,6 +82,29 @@ func (m *manager) Diagnostics(ctx context.Context, uris []string) ([]protocol.Pu
 		return items[i].URI < items[j].URI
 	})
 	return items, nil
+}
+
+func (m *manager) refreshExistingDiagnosticTargets(ctx context.Context, uris []string) error {
+	if m.factory == nil {
+		return nil
+	}
+	for _, uri := range uris {
+		uri = strings.TrimSpace(uri)
+		if uri == "" {
+			continue
+		}
+		ref, err := m.resolveDocumentRef(ctx, uri, "")
+		if err != nil {
+			return err
+		}
+		if !shouldUseClientForLanguage(ref.languageID) || !fileExists(ref.absPath) {
+			continue
+		}
+		if err := m.bootstrapDocument(ctx, ref.uri); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (m *manager) WaitDiagnosticsStable(ctx context.Context, uris []string) error {

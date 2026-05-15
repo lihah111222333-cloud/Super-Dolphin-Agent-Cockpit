@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
@@ -84,11 +85,138 @@ func TestRegistryDiagnosticsAllUsesCurrentScopedManagers(t *testing.T) {
 	}
 }
 
+func TestDiagnosticsAllUsesCallerScopeOnly(t *testing.T) {
+	singleton := &scopedRecordingDiagnosticsManager{}
+	callerMgr := &scopedRecordingDiagnosticsManager{}
+	otherMgr := &scopedRecordingDiagnosticsManager{}
+	resolver := &recordingScopedResolver{
+		currentByScope: map[string][]ScopedManager{
+			recordingScopeIdentity("agent-a", "thread-a"): {{
+				Manager: callerMgr,
+				ResolvedScope: ResolvedToolScope{
+					ToolScope: ToolScope{
+						AgentID:    "agent-a",
+						ThreadID:   "thread-a",
+						CWD:        "/trusted/worktree",
+						Family:     "lsp",
+						LanguageID: "go",
+					},
+					ScopeKey:     "lsp\x00agent-a\x00thread-a",
+					WorkspaceKey: "workspace-a",
+					ManagerKey:   "manager-a",
+				},
+			}},
+			recordingScopeIdentity("agent-b", "thread-a"): {{
+				Manager: otherMgr,
+				ResolvedScope: ResolvedToolScope{
+					ScopeKey:     "lsp\x00agent-b\x00thread-a",
+					WorkspaceKey: "workspace-b",
+					ManagerKey:   "manager-b",
+				},
+			}},
+		},
+	}
+	registry := NewRegistry(nil)
+	registry.Register("go", singleton, resolver)
+
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{
+		AgentID:  "agent-a",
+		ThreadID: "thread-a",
+		CWD:      "/trusted/worktree",
+		Family:   "lsp",
+	})
+	if _, err := registry.Diagnostics(ctx, nil); err != nil {
+		t.Fatalf("Diagnostics(ctx, nil): %v", err)
+	}
+
+	if singleton.diagnosticsCalls != 0 {
+		t.Fatalf("Diagnostics(ctx,nil) called singleton %d times", singleton.diagnosticsCalls)
+	}
+	if callerMgr.diagnosticsCalls != 1 {
+		t.Fatalf("caller scoped manager calls = %d, want 1", callerMgr.diagnosticsCalls)
+	}
+	if otherMgr.diagnosticsCalls != 0 {
+		t.Fatalf("other caller scoped manager calls = %d, want 0", otherMgr.diagnosticsCalls)
+	}
+	if len(callerMgr.lastDiagnosticsURIs) != 0 {
+		t.Fatalf("Diagnostics(ctx,nil) uris = %#v, want nil/all-current", callerMgr.lastDiagnosticsURIs)
+	}
+	if resolved, ok := ResolvedToolScopeFromContext(callerMgr.lastDiagnosticsContext); !ok || resolved.ManagerKey != "manager-a" {
+		t.Fatalf("caller diagnostics resolved scope = %#v ok=%v, want manager-a", resolved, ok)
+	}
+	if resolver.currentScope.AgentID != "agent-a" || resolver.currentScope.ThreadID != "thread-a" {
+		t.Fatalf("current scope = %#v, want caller scope only", resolver.currentScope)
+	}
+}
+
+func TestRegistryGroupURIsUsesCallerContext(t *testing.T) {
+	singleton := &scopedRecordingDiagnosticsManager{}
+	scopedMgr := &scopedRecordingDiagnosticsManager{}
+	resolver := &recordingScopedResolver{manager: scopedMgr}
+	registry := NewRegistry(nil)
+	registry.Register("go", singleton, resolver)
+
+	const uri = "file:///tmp/registry-group-main.go"
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{
+		AgentID:  "agent-group",
+		ThreadID: "thread-group",
+		CallID:   "call-group",
+		CWD:      "/caller/worktree",
+		Family:   "lsp",
+	})
+	ctx = context.WithValue(ctx, registryScopedCallerKey{}, "caller-value")
+	if _, err := registry.Diagnostics(ctx, []string{uri}); err != nil {
+		t.Fatalf("Diagnostics(group uri): %v", err)
+	}
+
+	if singleton.diagnosticsCalls != 0 {
+		t.Fatalf("grouped URI diagnostics called singleton %d times", singleton.diagnosticsCalls)
+	}
+	if scopedMgr.diagnosticsCalls != 1 {
+		t.Fatalf("grouped URI diagnostics calls = %d, want 1", scopedMgr.diagnosticsCalls)
+	}
+	if len(scopedMgr.lastDiagnosticsURIs) != 1 || scopedMgr.lastDiagnosticsURIs[0] != uri {
+		t.Fatalf("grouped URI subset = %#v, want [%s]", scopedMgr.lastDiagnosticsURIs, uri)
+	}
+	if got := scopedMgr.lastDiagnosticsContext.Value(registryScopedCallerKey{}); got != "caller-value" {
+		t.Fatalf("diagnostics caller context value = %#v, want caller-value", got)
+	}
+	if resolved, ok := ResolvedToolScopeFromContext(scopedMgr.lastDiagnosticsContext); !ok || resolved.ManagerKey != "manager-key" {
+		t.Fatalf("grouped URI resolved scope = %#v ok=%v, want manager-key", resolved, ok)
+	}
+	if resolver.lastScope.AgentID != "agent-group" || resolver.lastScope.ThreadID != "thread-group" {
+		t.Fatalf("resolver identity = %#v, want caller scope", resolver.lastScope)
+	}
+	if resolver.lastScope.CWD != "/caller/worktree" || resolver.lastScope.TargetURI != uri {
+		t.Fatalf("resolver target/cwd scope = %#v", resolver.lastScope)
+	}
+	if resolver.lastScope.TargetPath != "/tmp/registry-group-main.go" {
+		t.Fatalf("resolver target path = %q, want URI path", resolver.lastScope.TargetPath)
+	}
+}
+
+type registryScopedCallerKey struct{}
+
+type scopedRecordingDiagnosticsManager struct {
+	registryDiagnosticsManager
+	lastDiagnosticsContext context.Context
+	lastDiagnosticsURIs    []string
+	diagnosticsCalls       int
+}
+
+func (m *scopedRecordingDiagnosticsManager) Diagnostics(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, error) {
+	m.diagnosticsCalls++
+	m.lastDiagnosticsContext = ctx
+	m.lastDiagnosticsURIs = append([]string(nil), uris...)
+	return nil, nil
+}
+
 type recordingScopedResolver struct {
-	manager      Manager
-	current      []ScopedManager
-	lastScope    ToolScope
-	currentScope ToolScope
+	manager        Manager
+	current        []ScopedManager
+	currentByScope map[string][]ScopedManager
+	lastScope      ToolScope
+	currentScope   ToolScope
 }
 
 func (r *recordingScopedResolver) ForToolScope(scope ToolScope) (ScopedManager, error) {
@@ -107,5 +235,12 @@ func (r *recordingScopedResolver) ForToolScope(scope ToolScope) (ScopedManager, 
 
 func (r *recordingScopedResolver) CurrentManagersForToolScope(scope ToolScope) ([]ScopedManager, error) {
 	r.currentScope = scope
+	if r.currentByScope != nil {
+		return r.currentByScope[recordingScopeIdentity(scope.AgentID, scope.ThreadID)], nil
+	}
 	return r.current, nil
+}
+
+func recordingScopeIdentity(agentID, threadID string) string {
+	return agentID + "\x00" + threadID
 }
