@@ -442,7 +442,7 @@ export function handleBridgeEvent(ctx, evt) {
   const activeThreadTarget = eventThreadTarget && (eventThreadTarget === normalizeThreadID(ctx.state.activeThreadId) || eventThreadTarget === normalizeThreadID(ctx.state.activeCmdThreadId)) ? eventThreadTarget : '';
   const historyHydrationSignal = turnCompletedSignal;
 
-  if (turnTerminalSignal && activeThreadTarget) {
+  if ((turnTerminalSignal && activeThreadTarget) || (turnCompletedSignal && activeThreadTarget)) {
     const existing = ctx.state.timelinesByThread?.[activeThreadTarget];
     if (Array.isArray(existing) && existing.length > 0) {
       let mutated = false;
