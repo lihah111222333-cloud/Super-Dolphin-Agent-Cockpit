@@ -342,16 +342,26 @@ func (m *manager) DidChange(ctx context.Context, uri string, version int, change
 		return client.DidChange(ctx, ref.uri, version, changes)
 	})
 	text, full := fullDocumentChangeText(changes)
-	if err != nil && full && fileExists(ref.absPath) {
-		err = m.recoverFullDocumentDidChange(ctx, client, ref, version, text, err)
-	}
-	if err != nil {
+	if err = m.handleDidChangeFailure(ctx, client, ref, version, text, full, err); err != nil {
 		return err
 	}
 	if full && fileExists(ref.absPath) {
 		return m.recordFullDocumentDidChange(ctx, ref, version, text)
 	}
 	return nil
+}
+
+func (m *manager) handleDidChangeFailure(ctx context.Context, client Client, ref documentRef, version int, text string, full bool, err error) error {
+	if err == nil {
+		return nil
+	}
+	if isClientDeadError(err) {
+		return m.nonReplayableDeadClientError(ctx, client, err)
+	}
+	if full && fileExists(ref.absPath) {
+		return m.recoverFullDocumentDidChange(ctx, client, ref, version, text, err)
+	}
+	return err
 }
 
 func (m *manager) DidClose(ctx context.Context, uri string) error {
@@ -463,10 +473,14 @@ func (m *manager) request(ctx context.Context, client Client, method string, par
 	})
 	if err != nil {
 		if isClientDeadError(err) {
-			if retried, retryErr := m.retryRequestAfterDeadClient(ctx, client, method, params); retryErr == nil {
-				return retried, nil
+			if canAutoRetryDeadClientRequest(method) {
+				if retried, retryErr := m.retryRequestAfterDeadClient(ctx, client, method, params); retryErr == nil {
+					return retried, nil
+				} else {
+					err = errors.Join(err, retryErr)
+				}
 			} else {
-				err = errors.Join(err, retryErr)
+				err = m.nonReplayableDeadClientError(ctx, client, err)
 			}
 		}
 		return nil, fmt.Errorf("%s: %w", method, err)
