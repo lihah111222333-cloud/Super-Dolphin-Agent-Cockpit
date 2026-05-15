@@ -75,13 +75,11 @@ type LSPToolScope struct {
     RootKind      string // go_work, go_mod, single_submodule, multi_module, dir_fallback
     LanguageWorkspaceRoot string
     ProjectRoot           string
-    LanguageSpecific      map[string]string // Go: goWorkPath/moduleRoot; TS: tsconfig/package root; etc.
-    ScopeKey      string
-    ShardKey      string
-    WorkspaceKey  string
-    ManagerKey    string
+    LanguageSpecific      map[string]string // Go: goWorkPath/moduleRoot/moduleRootsHash; TS: tsconfig/package root; etc.
 }
 ```
+
+派生出的 `ScopeKey/WorkspaceKey/ShardKey/ManagerKey` 不属于 `LSPToolScope` 输入；它们只出现在 `03-lsp-manager-pool.md` 定义的 canonical `ResolvedLSPToolScope` 中，并由 `ManagerPool.ForScope` 统一返回给 diagnostics/cache/bootstrap 复用。
 
 最小 scope 来源：
 
@@ -104,7 +102,7 @@ agent/thread scope
 
 派生规则：
 
-- `ScopeKey` 只来自服务端可信字段：`agentID/threadID`。`turnID/callID` 只用于日志和请求追踪，不进入 manager/cache key，避免每次 tool call 创建新 manager。
+- `ScopeKey = family/clientKind + agentID/threadID`，其中 `family/clientKind` 只是命名空间，稳定身份部分只来自服务端可信 `agentID/threadID`。`turnID/callID` 只用于日志和请求追踪，不进入 manager/cache key，避免每次 tool call 创建新 manager。
 - `WorkspaceKey` 来自 `language/rootKind/workspaceRoot/languageWorkspaceRoot/projectRoot/languageSpecific`。
 - `ManagerKey = ScopeKey + WorkspaceKey`；同 shard hash collision 允许存在，但同 shard 内不同 manager key 不能共享 clone。
 - 缺少 trusted identity 时才退化为 workspace-only key；这是兼容退化，不是用户可选 shared mode。

@@ -45,12 +45,10 @@ type LSPToolScope struct {
     ProjectRoot           string
     RootKind              string
     LanguageSpecific      map[string]string
-    ScopeKey              string
-    ShardKey              string
-    WorkspaceKey          string
-    ManagerKey            string
 }
 ```
+
+派生出的 `ScopeKey/WorkspaceKey/ShardKey/ManagerKey` 不属于 `LSPToolScope` 输入；它们只由 `ManagerPool.ForScope` 生成并放入 canonical `ResolvedLSPToolScope`，避免 routing、cache、diagnostics 各自拼 key。
 
 ### Context key
 
@@ -70,19 +68,19 @@ stdio/control-plane `tools/call` 顶层 params 扩展：
 {
   "name": "file",
   "arguments": {"action":"read_file","file_path":"go.mod"},
-  "agentId": "agent-...",
-  "threadId": "...",
-  "turnId": "...",
-  "callId": "...",
+  "_agentId": "agent-...",
+  "_threadId": "...",
+  "_callId": "...",
   "_cwd": "/repo/worktree"
 }
 ```
 
 规则：
 
-- 只信顶层 trusted 字段，不信 `arguments.agent_id`。
-- 兼容当前 `agentId` 命名；可接受 `_agentId` / `_threadId` 作为内部别名，但输出统一。
-- 本 P1 不新增 session 维度。当前 mcpcontrol 注册模型没有 `SessionID`，peer routing 与 manager key 都只使用 `agentID/threadID` 作为身份稳定部分。
+- 只信顶层 trusted 字段，不信 `arguments.agent_id` / `arguments.cwd`。
+- peer wire contract 使用 `internal/platform/toolbridge/protocol_contract.go:23-28` 中的私有 metadata keys：`_agentId/_threadId/_callId/_cwd`；当前转发点是 `internal/platform/toolbridge/handler.go:152-159`。下划线是协议契约，不得改成 public `agentId/threadId/callId`。
+- `TurnID` 不进入 manager/cache key；如果后续需要跨 peer 传递，必须先新增 `MetadataKeyTurnID = "_turnId"` 并更新协议守卫。
+- 本 P1 不新增 session 维度。当前 mcpcontrol 注册模型没有 `SessionID`，peer routing 使用 `agentID/threadID`，manager `ScopeKey` 在此基础上再加 `family/clientKind` 命名空间。
 - `_cwd` 必须归一化绝对路径；空值则 fallback 到 session/manager root。
 
 ## Peer routing
@@ -106,7 +104,7 @@ P1 保留现有 HTTP MCP proxy/discovery/manifest 兼容路径，但 LSP scoped 
 
 1. 在 `internal/mcpserver/common` 增加 `ToolScope` 与 context helpers。
 2. 不修改 `internal/dto/mcp/protocol.go` / `ToolInstance` 的注册身份维度；本轮不引入 `SessionID`。
-3. 修改 `internal/platform/toolbridge/handler.go`：构造 peer call params 时带 trusted scope。
+3. 修改 `internal/platform/toolbridge/handler.go`：继续使用 `_agentId/_threadId/_callId/_cwd` 构造 peer call params，并把这些字段解析为 trusted scope。
 4. 修改 `internal/platform/mcpcontrol/resolution.go`：新增 scoped lookup，不破坏 legacy lookup；lookup 只使用 `clientKind/agentID/threadID`。
 5. 修改 `cmd/mcp-lsp/fx.go` 与 `cmd/mcp-orch/fx.go`：从 `tools/call` params 解析 scope 并写入 context。
 6. 修改 `cmd/mcp-lsp/tools/factory.go`：所有工具通过 helper 获取 workspace root/scope。
@@ -118,7 +116,7 @@ P1 保留现有 HTTP MCP proxy/discovery/manifest 兼容路径，但 LSP scoped 
 - `toolbridge`：两个 LSP peer active，带 agent/thread scope 命中对应 peer。
 - `toolbridge`：peer routing 不读取 `PoolKey/ShardKey`；这些字段只在 mcp-lsp 内部出现。
 - `mcp-lsp`：`OnToolsCall` 收到顶层 scope 后，handler context 可读取。
-- `mcp-lsp`：模型在 arguments 伪造 cwd/agent_id 不会覆盖 trusted scope。
+- `mcp-lsp`：模型在 arguments 伪造 cwd/agent_id 不会覆盖顶层 `_cwd/_agentId` trusted scope。
 - `mcp-orch`：orchestration tools 继续可读 `_cwd`。
 - HTTP MCP 兼容测试继续保留；P1 scope routing 测试不得要求删除 HTTP proxy/discovery。
 

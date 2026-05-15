@@ -58,6 +58,20 @@ type DiagnosticSnapshot struct {
 
 ## Cache key
 
+新增 URI -> last resolved key 索引，用于 marker 文件删除后的旧 key 清理：
+
+```go
+type lspDocumentIndexKey struct {
+    URI string
+}
+
+type lspDocumentIndexValue struct {
+    LastResolvedScope ResolvedLSPToolScope
+    LastFingerprint   string
+    LastSeenAt        time.Time
+}
+```
+
 新 cache key：
 
 ```go
@@ -72,10 +86,11 @@ type lspCacheKey struct {
 
 规则：
 
-- `ScopeKey` 与 `WorkspaceKey` 必须复用 `03-lsp-manager-pool.md` 的 trusted-scope 派生结果；不存在 agent/pool strict cache 模式。
+- `ScopeKey` 与 `WorkspaceKey` 必须复用 `03-lsp-manager-pool.md` 中 `ForScope` 返回的 canonical `ResolvedLSPToolScope`；不存在 agent/pool strict cache 模式。
 - Go 的 `goWorkPath/moduleRoot` 只能进入 `LanguageSpecificHash` 或 `WorkspaceKey` 的 language-specific 部分；通用 cache key 不出现 Go-only 字段。
 - `turnID/callID` 不进入 cache key，只用于日志/追踪。
 - persistent cache 默认关闭；如果开启，必须带 TTL + fingerprint 校验。
+- 每次成功 bootstrap/diagnostics/edit 后更新 `URI -> LastResolvedScope` 索引；索引与 diagnostics/cache 同生命周期。
 
 ## 失效规则
 
@@ -96,11 +111,12 @@ type lspCacheKey struct {
 
 流程：
 
-1. resolve scope + workspace root。
-2. bootstrap target document。
-3. refresh tracked siblings。
-4. wait stable。
-5. 返回当前 scope + URI diagnostics。
+1. 读取 `URI -> LastResolvedScope` 旧索引；随后 resolve 当前 scope + workspace root，并调用 `ForScope` 获得 canonical `ResolvedLSPToolScope`。
+2. 若 target file 已删除：同时按旧 `LastResolvedScope` 与当前 `ResolvedLSPToolScope` 清理该 URI 的 diagnostics、bootstrap state、cache record，写短 TTL tombstone，返回当前 scope 下该 URI 的空 diagnostics。
+3. bootstrap target document。
+4. refresh tracked siblings。
+5. wait stable。
+6. 返回当前 scope + URI diagnostics。
 
 ### diagnostics(all)
 
@@ -108,7 +124,7 @@ type lspCacheKey struct {
 
 1. resolve current scope。
 2. refresh current scope tracked docs。
-3. 清理 deleted docs 对应的 diagnostics、bootstrap state、cache record，并写短 TTL tombstone。
+3. 对 deleted docs 先读取旧 `URI -> LastResolvedScope`，再按旧 key + 当前 key 清理 diagnostics、bootstrap state、cache record，并写短 TTL tombstone。
 4. wait stable。
 5. 只返回当前 scope diagnostics。
 
@@ -135,18 +151,21 @@ type lspCacheKey struct {
 1. 增加 scoped diagnostics store。
 2. `publishDiagnosticsForGeneration` 增加 scope/workspace 校验。
 3. `fetchDiagnosticsWithRetry` 改为先 refresh/validate stale，再 collect。
-4. bootstrap coordinator key 从 manager pointer 扩展为 scope/workspace manager。
-5. cache key 增加 scope/workspace/root 维度。
+4. bootstrap coordinator key 从 manager pointer 扩展为 canonical resolved scope/workspace manager。
+5. cache key 增加 scope/workspace/root 维度，并复用 `ScopedManager.ResolvedScope`。
 6. deleted file 同步清理 diagnostics + bootstrap state + cache record，并记录 tombstone。
-7. agent lifecycle 接入 scope cleanup。
-8. `cmd/mcp-lsp/manager/registry.go:141-149` 的 `Diagnostics(ctx, nil)` 不再遍历所有 language manager；必须先解析 caller scope，只枚举当前 scope 的 manager-key clones。
-9. `cmd/mcp-lsp/manager/registry.go:190-196` 的 URI grouping 必须改为 `groupURIsByManager(ctx, uris)`，禁止用 `context.Background()` 重新取 manager。
+7. 增加 `URI -> LastResolvedScope` 索引；删除 `go.work/go.mod` 或子模块 marker 时必须用旧 key 清理旧 workspace cache/bootstrap，再用当前 key 写 tombstone。
+8. agent lifecycle 接入 scope cleanup。
+9. `cmd/mcp-lsp/manager/registry.go:141-149` 的 `Diagnostics(ctx, nil)` 不再遍历所有 language manager；必须先解析 caller scope，只枚举当前 scope 的 manager-key clones。
+10. `cmd/mcp-lsp/manager/registry.go:190-196` 的 URI grouping 必须改为 `groupURIsByManager(ctx, uris)`，禁止用 `context.Background()` 重新取 manager。
 
 ## 测试
 
 - 旧 generation publish 被忽略。
 - 文件修改后 diagnostics(file) 先 refresh，不返回旧诊断。
 - sibling 文件修改后 diagnostics(file) 刷新 sibling。
+- 文件删除后 diagnostics(file) 返回空 diagnostics，并按旧 `LastResolvedScope` + 当前 resolved scope 清理该 URI 的 bootstrap/cache record。
+- 删除 `go.work/go.mod` 或子模块 marker 后，旧 workspace key 下的 bootstrap/cache record 不残留。
 - 文件删除后 diagnostics(all) 不再返回该 URI。
 - 文件删除后旧 bootstrap/cache record 不会从 persistent cache 或 `WorkspaceDocuments` 复活。
 - agent A 与 agent B 同 URI 不串 diagnostics。

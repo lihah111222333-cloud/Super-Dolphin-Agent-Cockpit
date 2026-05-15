@@ -9,7 +9,7 @@
 - `cmd/mcp-lsp/multilsp/manager.go:210-213`：Go 语言路径调用 `findGoModRoot(absPath)`。
 - `cmd/mcp-lsp/multilsp/gomod.go:13-31`：`findGoModRoot` 只向上查 `go.mod`。
 - `cmd/mcp-lsp/multilsp/gomod.go:87-94`：`shouldUseGoWorkspace` 包含 `gowork`，但 root resolver 缺 `go.work` 语义。
-- `cmd/mcp-lsp/multilsp/client.go:336-345`：`workspaceFolders` 只返回单个 root。
+- `cmd/mcp-lsp/multilsp/client.go:341-349`：`workspaceFolders` 只返回单个 root。
 - `cmd/mcp-lsp/protocol/ext.go:28-30`：有 `WorkspaceClientCapability`，但当前 client capabilities 未完整设置 workspaceFolders。
 
 ## RootInfo
@@ -116,13 +116,32 @@ gopls process env：
 
 ## Key 设计
 
-workspace key：
+Go route 必须映射到 `03-lsp-manager-pool.md` 的通用 `WorkspaceKey` 公式：
 
 ```text
-go \x00 rootKind \x00 workspaceRoot \x00 goWorkPath \x00 moduleRoot \x00 goworkMode
+language \x00 rootKind \x00 workspaceRoot \x00 languageWorkspaceRoot \x00 projectRoot \x00 languageSpecific
 ```
 
-不要使用 common git root 或 prompt git root。
+Go 字段映射：
+
+- `language = "go"`。
+- `rootKind = GoRootInfo.RootKind`。
+- `workspaceRoot = GoRootInfo.WorkspaceRoot`。
+- `languageWorkspaceRoot = GoRootInfo.ModuleRoot`；如果 `ModuleRoot` 为空，则使用 `WorkspaceRoot`。
+- `projectRoot = trusted _cwd` 归一化后的物理 worktree/root；如果为空，则使用 `WorkspaceRoot`。
+- `languageSpecific` 是稳定排序后的 Go 拓扑摘要，至少包含：
+  - `goWorkPath`
+  - `goModPath`
+  - `moduleRoot`
+  - `goworkMode`
+  - `moduleRootsHash = hash(sort(ModuleRoots))`
+  - `workspaceFoldersHash = hash(workspaceFolders(GoRootInfo))`
+
+规则：
+
+- 不要使用 common git root 或 prompt git root。
+- `go.work use` 列表变化、多子模块集合变化、workspaceFolders 拓扑变化必须改变 `languageSpecific`，从而改变 `WorkspaceKey`，避免复用旧 gopls client/cache/bootstrap。
+- `ModuleRoots` / workspaceFolders 参与 hash 前必须清理、绝对化、去重、稳定排序。
 
 ## 实现步骤
 

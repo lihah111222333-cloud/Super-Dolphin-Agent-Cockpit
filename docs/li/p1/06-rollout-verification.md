@@ -42,7 +42,7 @@ go test ./internal/platform/toolbridge ./internal/platform/mcpcontrol ./internal
 验收：
 
 - 多 active peer 下有 `agentID/threadID` scope 能选中，无 scope 报 ambiguous。
-- `_cwd/agentID/threadID/callID` 能进入 mcp-lsp context。
+- `_agentId/_threadId/_callId/_cwd` 能进入 mcp-lsp context，并被解析为 `agentID/threadID/callID/cwd` trusted scope。
 - peer routing 不依赖 `PoolKey/ShardKey`，也不依赖 session 注册维度。
 
 ### Wave 2：ManagerPool
@@ -81,11 +81,13 @@ go test ./cmd/mcp-lsp/multilsp ./cmd/mcp-lsp/tools -run 'Diagnostics|Bootstrap|C
 命令建议：
 
 ```bash
+rg 'func Test.*(GoRoot|GoWork|WorkspaceFolder|GoMod)' cmd/mcp-lsp/multilsp
 go test ./cmd/mcp-lsp/multilsp -run 'GoRoot|GoWork|WorkspaceFolder|GoMod'
 ```
 
 验收：
 
+- `rg` 必须命中真实测试函数，禁止 `[no tests to run]` 空跑绿灯。
 - `go.work`、单子模块、多子模块、nested module、linked worktree 均有测试。
 
 ### Wave 5：端到端
@@ -106,6 +108,8 @@ trap cleanup EXIT
 
 git worktree add --detach "$tmp/wt-a" HEAD
 git worktree add --detach "$tmp/wt-b" HEAD
+
+rg 'func (TestTwoAgentsSameRepoNoDiagnosticLeak|TestTwoWorktreesNoWorkspaceKeyCollision|TestAgentStopCleansScopeWithoutKillingOtherAgent)' cmd/mcp-lsp/tools cmd/mcp-lsp/manager
 
 AGENT_LSP_E2E_WORKTREE_A="$tmp/wt-a" \
 AGENT_LSP_E2E_WORKTREE_B="$tmp/wt-b" \
@@ -132,6 +136,8 @@ go test ./cmd/mcp-lsp/tools ./cmd/mcp-lsp/manager -run 'TestTwoAgentsSameRepoNoD
 
 ### Unit
 
+以下是必须新增或保留的测试；执行验收前必须用 `rg 'func TestName'` 证明测试函数存在，不能只依赖 `go test -run` 的空跑成功。
+
 - `TestToolBridgeSelectsPeerByScope`
 - `TestToolBridgeAmbiguousWithoutScope`
 - `TestLSPOnToolsCallInjectsScopeContext`
@@ -150,6 +156,8 @@ go test ./cmd/mcp-lsp/tools ./cmd/mcp-lsp/manager -run 'TestTwoAgentsSameRepoNoD
 
 ### Integration
 
+以下 integration 测试当前是 P1 计划要求；如果实现前尚不存在，报告必须标为 BLOCKED，不得把 E2E 命令作为已通过证据。
+
 - `TestTwoAgentsSameRepoNoDiagnosticLeak`
 - `TestTwoWorktreesNoWorkspaceKeyCollision`
 - `TestGoWorkMultiModuleDiagnostics`
@@ -158,7 +166,7 @@ go test ./cmd/mcp-lsp/tools ./cmd/mcp-lsp/manager -run 'TestTwoAgentsSameRepoNoD
 
 ## 完成定义
 
-- 所有新增/调整测试通过。
+- 所有新增/调整测试存在且通过；验收命令不得出现 `[no tests to run]` 后仍判 PASS。
 - 多 agent LSP 走 trusted scope 自动派生，不依赖 HTTP 删除。
 - 现有 HTTP MCP 兼容路径继续通过原有测试。
 - 文档、代码、测试对 scope key、workspace root、diagnostics stale 行为描述一致。
