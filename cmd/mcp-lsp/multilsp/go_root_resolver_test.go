@@ -130,6 +130,118 @@ func TestGoRootResolverExplicitGoWork(t *testing.T) {
 	}
 }
 
+func TestGOWORKAutoUsesAutoDiscovery(t *testing.T) {
+	runGOWORKAutoUsesAutoDiscovery(t)
+}
+
+func TestGoRootResolverGOWORKAutoUsesAutoDiscovery(t *testing.T) {
+	runGOWORKAutoUsesAutoDiscovery(t)
+}
+
+func runGOWORKAutoUsesAutoDiscovery(t *testing.T) {
+	t.Helper()
+	repo := normalizedTempDir(t)
+	backend := filepath.Join(repo, "backend")
+	writeGoMod(t, backend, "example.com/backend")
+	goWorkPath := filepath.Join(repo, "go.work")
+	writeFile(t, goWorkPath, "go 1.25.0\n\nuse ./backend\n")
+	target := writeGoFile(t, backend, "main.go")
+
+	info, err := ResolveGoRoot(GoRootRequest{
+		CWD:      repo,
+		FilePath: target,
+		Env:      []string{"GOWORK=auto"},
+	})
+	if err != nil {
+		t.Fatalf("GOWORK=auto should use automatic go.work discovery: %v", err)
+	}
+	assertGoRoot(t, info, GoRootInfo{
+		RootKind:      goRootKindGoWork,
+		WorkspaceRoot: repo,
+		GoWorkPath:    goWorkPath,
+		ModuleRoot:    backend,
+		GoModPath:     filepath.Join(backend, "go.mod"),
+		ModuleRoots:   []string{backend},
+		GOWORKMode:    goworkModeAuto,
+		ProjectRoot:   repo,
+	})
+	if got := goRootEnv(info); !reflect.DeepEqual(got, []string{"GOWORK=" + goWorkPath}) {
+		t.Fatalf("GOWORK=auto resolved env = %#v, want discovered go.work", got)
+	}
+}
+
+func TestBrokenGoWorkSoftFallsBackToGoWorkRoot(t *testing.T) {
+	runBrokenGoWorkSoftFallsBackToGoWorkRoot(t)
+}
+
+func TestGoRootResolverBrokenGoWorkFallsBackToWorkspaceRoot(t *testing.T) {
+	runBrokenGoWorkSoftFallsBackToGoWorkRoot(t)
+}
+
+func runBrokenGoWorkSoftFallsBackToGoWorkRoot(t *testing.T) {
+	t.Helper()
+	repo := normalizedTempDir(t)
+	backend := filepath.Join(repo, "backend")
+	writeGoMod(t, backend, "example.com/backend")
+	goWorkPath := filepath.Join(repo, "go.work")
+	writeFile(t, goWorkPath, "go 1.25.0\n\nuse (\n\t./backend\n")
+	target := writeGoFile(t, backend, "main.go")
+
+	info, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: target, Env: []string{}})
+	if err != nil {
+		t.Fatalf("broken go.work should soft-fallback to workspace root: %v", err)
+	}
+	assertGoRoot(t, info, GoRootInfo{
+		RootKind:      goRootKindGoWork,
+		WorkspaceRoot: repo,
+		GoWorkPath:    goWorkPath,
+		GOWORKMode:    goworkModeAuto,
+		ProjectRoot:   repo,
+	})
+	if len(info.ModuleRoots) != 0 || info.ModuleRoot != "" || info.GoModPath != "" {
+		t.Fatalf("broken go.work fallback should not invent module roots: %#v", info)
+	}
+	if got := goRootEnv(info); !reflect.DeepEqual(got, []string{"GOWORK=" + goWorkPath}) {
+		t.Fatalf("broken go.work fallback env = %#v, want discovered go.work", got)
+	}
+	assertFolderPaths(t, info.workspaceFolderPaths(), []string{repo})
+}
+
+func TestExternalGOWORKOutsideTrustedScopeFailsClosed(t *testing.T) {
+	runExternalGOWORKOutsideTrustedScopeFailsClosed(t)
+}
+
+func TestGoRootResolverExplicitGoWorkOutsideProjectConflicts(t *testing.T) {
+	runExternalGOWORKOutsideTrustedScopeFailsClosed(t)
+}
+
+func runExternalGOWORKOutsideTrustedScopeFailsClosed(t *testing.T) {
+	t.Helper()
+	repo := normalizedTempDir(t)
+	writeGoMod(t, repo, "example.com/current")
+	target := writeGoFile(t, repo, "main.go")
+
+	external := normalizedTempDir(t)
+	externalMod := filepath.Join(external, "external")
+	writeGoMod(t, externalMod, "example.com/external")
+	externalGoWork := filepath.Join(external, "go.work")
+	writeFile(t, externalGoWork, "go 1.25.0\n\nuse ./external\n")
+
+	_, err := ResolveGoRoot(GoRootRequest{
+		CWD:      repo,
+		FilePath: target,
+		Env:      []string{"GOWORK=" + externalGoWork},
+	})
+	if err == nil {
+		t.Fatalf("external GOWORK outside current scope should fail closed")
+	}
+	for _, fragment := range []string{"GOWORK path", externalGoWork, "does not contain target", target} {
+		if !strings.Contains(err.Error(), fragment) {
+			t.Fatalf("external GOWORK error %q missing %q", err, fragment)
+		}
+	}
+}
+
 func TestGoRootResolverGOWORKOff(t *testing.T) {
 	repo := normalizedTempDir(t)
 	backend := filepath.Join(repo, "backend")
@@ -181,6 +293,40 @@ func TestGoRootResolverSingleSubmodule(t *testing.T) {
 	})
 	assertFolderPaths(t, info.workspaceFolderPaths(), []string{backend})
 	assertGoLanguageSpecificContainsTopology(t, info)
+}
+
+func TestGoWorkUseListSkipsHiddenAndUnderscoreDirs(t *testing.T) {
+	runSingleSubmoduleSkipsHiddenAndUnderscoreDirs(t)
+}
+
+func TestGoRootResolverSingleSubmoduleSkipsHiddenAndUnderscoreDirs(t *testing.T) {
+	runSingleSubmoduleSkipsHiddenAndUnderscoreDirs(t)
+}
+
+func runSingleSubmoduleSkipsHiddenAndUnderscoreDirs(t *testing.T) {
+	t.Helper()
+	repo := normalizedTempDir(t)
+	backend := filepath.Join(repo, "backend")
+	hidden := filepath.Join(repo, ".hidden")
+	underscore := filepath.Join(repo, "_tools")
+	writeGoMod(t, backend, "example.com/backend")
+	writeGoMod(t, hidden, "example.com/hidden")
+	writeGoMod(t, underscore, "example.com/tools")
+
+	info, err := ResolveGoRoot(GoRootRequest{CWD: repo, FilePath: repo, Env: []string{}})
+	if err != nil {
+		t.Fatalf("resolve child modules with hidden/underscore dirs: %v", err)
+	}
+	assertGoRoot(t, info, GoRootInfo{
+		RootKind:      goRootKindSingleSubmodule,
+		WorkspaceRoot: backend,
+		ModuleRoot:    backend,
+		GoModPath:     filepath.Join(backend, "go.mod"),
+		ModuleRoots:   []string{backend},
+		GOWORKMode:    goworkModeAuto,
+		ProjectRoot:   repo,
+	})
+	assertFolderPaths(t, info.workspaceFolderPaths(), []string{backend})
 }
 
 func TestGoRootResolverMultiModule(t *testing.T) {
@@ -324,6 +470,32 @@ func TestGoRootResolverLinkedWorktreeWorkspaceKey(t *testing.T) {
 	}
 	if parts := goWorkspaceKeyPartsFor(infoB); parts.ProjectRoot != wtB || parts.WorkspaceRoot != wtB {
 		t.Fatalf("workspace key B should use physical worktree root, got %#v", parts)
+	}
+}
+
+func TestGoRootResolverLinkedWorktreeSymlinkAliasCanonicalKey(t *testing.T) {
+	realRoot := filepath.Join(normalizedTempDir(t), "real")
+	writeGoMod(t, realRoot, "example.com/root")
+	realTarget := writeGoFile(t, realRoot, "main.go")
+	aliasRoot := filepath.Join(normalizedTempDir(t), "alias")
+	if err := os.Symlink(realRoot, aliasRoot); err != nil {
+		t.Fatalf("create symlink alias: %v", err)
+	}
+	aliasTarget := filepath.Join(aliasRoot, "main.go")
+
+	realInfo, err := ResolveGoRoot(GoRootRequest{CWD: realRoot, FilePath: realTarget, Env: []string{}})
+	if err != nil {
+		t.Fatalf("resolve real root: %v", err)
+	}
+	aliasInfo, err := ResolveGoRoot(GoRootRequest{CWD: aliasRoot, FilePath: aliasTarget, Env: []string{}})
+	if err != nil {
+		t.Fatalf("resolve symlink alias root: %v", err)
+	}
+	if goWorkspaceKey(realInfo) != goWorkspaceKey(aliasInfo) {
+		t.Fatalf("same physical workspace via symlink alias should share canonical key\nreal:  %q\nalias: %q", goWorkspaceKey(realInfo), goWorkspaceKey(aliasInfo))
+	}
+	if aliasInfo.WorkspaceRoot != realRoot || aliasInfo.ProjectRoot != realRoot {
+		t.Fatalf("symlink alias should resolve to physical root %q, got %#v", realRoot, aliasInfo)
 	}
 }
 
