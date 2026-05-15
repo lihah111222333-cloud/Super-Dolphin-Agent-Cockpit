@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
@@ -259,112 +258,6 @@ func findFirstLevelGoModRoots(root string) ([]string, error) {
 	return cleanSortedUniquePaths(modules), nil
 }
 
-func parseGoWorkModuleRoots(goWorkPath string) ([]string, error) {
-	data, err := os.ReadFile(goWorkPath)
-	if err != nil {
-		return nil, err
-	}
-	parser := goWorkUseParser{workDir: filepath.Dir(goWorkPath)}
-	for _, rawLine := range strings.Split(string(data), "\n") {
-		parser.parseLine(rawLine)
-	}
-	return cleanSortedUniquePaths(parser.roots), nil
-}
-
-type goWorkUseParser struct {
-	workDir    string
-	roots      []string
-	inUseBlock bool
-}
-
-func (p *goWorkUseParser) parseLine(rawLine string) {
-	fields := goWorkFields(rawLine)
-	if len(fields) == 0 {
-		return
-	}
-	if p.inUseBlock {
-		p.parseUseFields(fields)
-		return
-	}
-	if fields[0] == "use" {
-		p.parseUseFields(fields[1:])
-	}
-}
-
-func goWorkFields(rawLine string) []string {
-	line := strings.TrimSpace(stripGoWorkLineComment(rawLine))
-	if line == "" {
-		return nil
-	}
-	return strings.Fields(line)
-}
-
-func (p *goWorkUseParser) parseUseFields(fields []string) {
-	for _, field := range fields {
-		p.parseUseField(field)
-	}
-}
-
-func (p *goWorkUseParser) parseUseField(field string) {
-	for _, token := range splitGoWorkUseToken(field) {
-		switch token {
-		case "(":
-			p.inUseBlock = true
-		case ")":
-			p.inUseBlock = false
-		default:
-			p.roots = appendGoWorkUseRoot(p.roots, p.workDir, token)
-		}
-	}
-}
-
-func splitGoWorkUseToken(field string) []string {
-	field = strings.TrimSpace(field)
-	if field == "" {
-		return nil
-	}
-	var tokens []string
-	for strings.HasPrefix(field, "(") {
-		tokens = append(tokens, "(")
-		field = strings.TrimPrefix(field, "(")
-	}
-	closed := strings.HasSuffix(field, ")")
-	field = strings.TrimSuffix(field, ")")
-	if field != "" {
-		tokens = append(tokens, field)
-	}
-	if closed {
-		tokens = append(tokens, ")")
-	}
-	return tokens
-}
-
-func stripGoWorkLineComment(line string) string {
-	if idx := strings.Index(line, "//"); idx >= 0 {
-		return line[:idx]
-	}
-	return line
-}
-
-func appendGoWorkUseRoot(roots []string, workDir, raw string) []string {
-	entry := strings.TrimSpace(raw)
-	if unquoted, err := strconv.Unquote(entry); err == nil {
-		entry = unquoted
-	} else {
-		entry = strings.Trim(entry, `"`)
-	}
-	if entry == "" || entry == ")" || entry == "(" {
-		return roots
-	}
-	if !filepath.IsAbs(entry) {
-		entry = filepath.Join(workDir, entry)
-	}
-	if normalized, err := platformshared.NormalizeAbsolutePath(entry); err == nil && normalized != "" {
-		roots = append(roots, normalized)
-	}
-	return roots
-}
-
 func resolveGoTargetPath(filePath, cwd string) (string, error) {
 	trimmed := strings.TrimSpace(filePath)
 	if trimmed == "" {
@@ -540,7 +433,7 @@ func goLanguageSpecific(root GoRootInfo) map[string]string {
 		"goWorkPath":           root.GoWorkPath,
 		"goworkMode":           root.GOWORKMode,
 		"moduleRoot":           root.ModuleRoot,
-		"moduleRootsHash":      hashStringList(root.ModuleRoots),
+		"moduleRootsHash":      hashStringList(cleanSortedUniquePaths(root.ModuleRoots)),
 		"workspaceFoldersHash": hashWorkspaceFolders(workspaceFolders(root)),
 	}
 }
@@ -585,8 +478,8 @@ func hashStringList(values []string) string {
 func envValue(env []string, key string) (string, bool) {
 	prefix := key + "="
 	for i := len(env) - 1; i >= 0; i-- {
-		if strings.HasPrefix(env[i], prefix) {
-			return strings.TrimPrefix(env[i], prefix), true
+		if value, ok := strings.CutPrefix(env[i], prefix); ok {
+			return value, true
 		}
 	}
 	return "", false

@@ -153,6 +153,68 @@ func TestGOWORKOffManagerEnvIgnoresGoWork(t *testing.T) {
 	assertFolderURIs(t, factory.clientAt(t, 0).initializedFolders, []string{backend})
 }
 
+func TestRecyclerRestoresGoWorkspaceWithSavedRootEnvAndScope(t *testing.T) {
+	t.Setenv("GOWORK", "")
+	ctx := context.WithValue(context.Background(), lspScopeAgentIDContextKey, "agent-worker-d")
+	ctx = context.WithValue(ctx, lspScopeThreadIDContextKey, "thread-go")
+	repo := normalizedTempDir(t)
+	backend := filepath.Join(repo, "backend")
+	tools := filepath.Join(repo, "tools")
+	writeGoMod(t, backend, "example.com/backend")
+	writeGoMod(t, tools, "example.com/tools")
+	goWorkPath := filepath.Join(repo, "go.work")
+	writeFile(t, goWorkPath, "go 1.25.0\n\nuse (\n\t./backend\n\t./tools\n)\n")
+	target := writeGoFile(t, backend, "main.go")
+	factory := &goWorkspaceClientFactory{}
+	manager := NewManager(Config{
+		WorkspaceRoot:      repo,
+		ClientFactory:      factory,
+		DiagnosticsMaxWait: 1,
+	}).(*manager)
+	defer func() {
+		if err := manager.Close(); err != nil {
+			t.Fatalf("close manager: %v", err)
+		}
+	}()
+
+	if _, err := manager.EnsureClient(ctx, target, "go"); err != nil {
+		t.Fatalf("ensure go client before recycle: %v", err)
+	}
+	workspaces := snapshotWorkspaceClients(manager)
+	if len(workspaces) != 1 {
+		t.Fatalf("workspace snapshot count = %d, want 1", len(workspaces))
+	}
+	workspace := workspaces[0]
+	cfg := workspaceConfig{
+		key:              workspace.key,
+		rootPath:         workspace.rootPath,
+		rootURI:          workspace.rootURI,
+		languageID:       workspace.languageID,
+		env:              append([]string(nil), workspace.env...),
+		workspaceFolders: cloneWorkspaceFolders(workspace.workspaceFolders),
+	}
+	managerKey := managerKeyFor(lspScopeKeyFromContext(ctx), workspaceKeyForConfig(cfg))
+	if err := recycleWorkspaceClient(manager, managerKey, workspace); err != nil {
+		t.Fatalf("recycle go workspace client: %v", err)
+	}
+
+	if got := factory.callCount(); got != 2 {
+		t.Fatalf("recycle should create replacement client, calls=%d", got)
+	}
+	call := factory.callAt(t, 1)
+	if call.rootDir != repo {
+		t.Fatalf("recycled gopls rootDir = %q, want %q", call.rootDir, repo)
+	}
+	if !reflect.DeepEqual(call.env, []string{"GOWORK=" + goWorkPath}) {
+		t.Fatalf("recycled gopls env = %#v", call.env)
+	}
+	recycled := factory.clientAt(t, 1)
+	assertFolderURIs(t, recycled.initializedFolders, []string{repo, backend, tools})
+	if recycled.initScopeKey != lspScopeKeyFromContext(ctx) {
+		t.Fatalf("recycled init scope key = %q, want %q", recycled.initScopeKey, lspScopeKeyFromContext(ctx))
+	}
+}
+
 type goWorkspaceClientFactory struct {
 	mu      sync.Mutex
 	calls   []goWorkspaceFactoryCall
@@ -211,6 +273,7 @@ type goWorkspaceClient struct {
 	rootURI            string
 	workspaceFolders   []protocol.WorkspaceFolder
 	initializedFolders []protocol.WorkspaceFolder
+	initScopeKey       string
 }
 
 func (c *goWorkspaceClient) setWorkspaceFolders(folders []protocol.WorkspaceFolder) {
@@ -219,11 +282,12 @@ func (c *goWorkspaceClient) setWorkspaceFolders(folders []protocol.WorkspaceFold
 	c.workspaceFolders = cloneWorkspaceFolders(folders)
 }
 
-func (c *goWorkspaceClient) Initialize(_ context.Context, rootURI string) error {
+func (c *goWorkspaceClient) Initialize(ctx context.Context, rootURI string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.rootURI = rootURI
 	c.initializedFolders = cloneWorkspaceFolders(c.workspaceFolders)
+	c.initScopeKey = lspScopeKeyFromContext(ctx)
 	return nil
 }
 
