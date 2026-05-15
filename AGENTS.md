@@ -33,9 +33,8 @@ Behavior reading mode, when the user asks how something works:
 
 `super-agent-v3` contains repo-local skill documents under `.agent/skills/**/SKILL.md`.
 
-- Load a repo-local skill only when the user explicitly names a trigger such as `@后端`, says `请参考 <path>`, or gives a concrete `SKILL.md` path.
-- Do not auto-load skills because a task seems related to the skill name.
-- Do not automatically run `@完成前验证`; use the verification commands below directly unless the user explicitly asks to apply that skill.
+- Skills should be utilized automatically when they are relevant to the current task context, file types, or directory.
+- The agent is encouraged to load and apply these skills to ensure repository-specific best practices are followed.
 - If a skill is loaded, its instructions are subordinate to this file, the user's latest instruction, and current repository evidence.
 
 This policy governs agent instruction loading from `.agent/skills/**`. It does not disable or describe the product runtime skill pipeline. Runtime skills seed into `~/.multi-agent/skills-library/`, cache into `~/.multi-agent/skills-cache/`, Claude workspaces use `.claude/skills` symlinks, and Codex reads sections through `skill_read_section`. For runtime skill behavior, inspect `internal/module/skill*`, `internal/platform/toolbridge/skill_read_section.go`, and related tests.
