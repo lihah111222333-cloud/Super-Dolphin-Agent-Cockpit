@@ -39,6 +39,14 @@ func (m *manager) EnsureClient(ctx context.Context, filePath, languageID string)
 }
 
 func (m *manager) Close() error {
+	return m.close(true)
+}
+
+func (m *manager) closeWithoutPool() error {
+	return m.close(false)
+}
+
+func (m *manager) close(closePool bool) error {
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
@@ -53,8 +61,8 @@ func (m *manager) Close() error {
 	clients := m.collectAndClearClients()
 	m.AdvanceDiagnosticGeneration()
 	var firstErr error
-	if m.pool != nil && m.pool.primary == m {
-		firstErr = firstNonNilError(firstErr, m.pool.Close())
+	if closePool && m.pool != nil && m.pool.primary == m {
+		firstErr = firstNonNilError(firstErr, m.pool.closeManagersExcept(m))
 	}
 	firstErr = firstNonNilError(firstErr, shutdownClients(clients))
 	closeBootstrapCoordinator(m)
