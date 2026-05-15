@@ -341,6 +341,7 @@ func (s *service) runPendingSpawn(
 	// display_name. The prefix is a stable bracketed slug so the UI can parse
 	// it into a blue pill (see stores/thread-view.model.js:parseAgentBadge).
 	displayName := resolveDisplayName(ctx, s.threadStore, agentID, req.Prompt, assembly.DisplayName)
+	displayName = applyTitleExtractionFallback(displayName, req.Prompt)
 	displayName = prependAgentBadge(displayName, req.AgentTitle, req.AgentKey)
 	if err := s.launchAgent(ctx, agentID, req.CWD, displayName,
 		req.ParentAgentID, req.AgentType, req.AgentMemoryScope,
@@ -525,4 +526,15 @@ func applyPersistentSubagentToolPolicy(enabledTools []string, flags map[string]b
 		filtered = append(filtered, tool)
 	}
 	return filtered
+}
+
+// applyTitleExtractionFallback updates the display name by extracting a title from
+// the user prompt if the thread is currently unnamed or holds the fallback title.
+func applyTitleExtractionFallback(displayName, prompt string) string {
+	if displayName == "" || displayName == "新对话" {
+		if ext := ExtractTitle(prompt); ext != "" {
+			return ext
+		}
+	}
+	return displayName
 }
