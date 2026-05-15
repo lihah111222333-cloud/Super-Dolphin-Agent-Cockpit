@@ -115,10 +115,14 @@ func (m *manager) withPooledClient(client Client, fn func() error) error {
 	if client == nil {
 		return fn()
 	}
-	if m.pool != nil {
-		m.pool.acquire(client)
-		defer m.pool.release(client)
+	leased, ok, err := m.leaseBoundClient(client)
+	if err != nil {
+		return err
 	}
+	if !ok {
+		return fmt.Errorf("LSP client is no longer bound to an active workspace")
+	}
+	defer leased.Release()
 	return fn()
 }
 

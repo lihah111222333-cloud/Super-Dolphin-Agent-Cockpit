@@ -108,11 +108,12 @@ func (r *poolRecycler) recycleIfNeeded(mgr *manager, scope ResolvedLSPToolScope,
 	if r.pool.activeLeases(workspace.client) > 0 {
 		return
 	}
-	if mgr.logger != nil {
-		mgr.logger.Warn("recycling LSP process", "workspace", workspace.key, "pid", pid, "rss_bytes", rssBytes)
-	}
-	if err := recycleWorkspaceClient(mgr, scope, workspace); err != nil && mgr.logger != nil {
+	recycled, err := recycleWorkspaceClient(mgr, scope, workspace)
+	if err != nil && mgr.logger != nil {
 		mgr.logger.Warn("LSP recycle failed", "workspace", workspace.key, "pid", pid, "err", err)
+	}
+	if recycled && mgr.logger != nil {
+		mgr.logger.Warn("recycled LSP process", "workspace", workspace.key, "pid", pid, "rss_bytes", rssBytes)
 	}
 }
 
@@ -124,10 +125,10 @@ func (r *poolRecycler) shouldCheck(index int) bool {
 	return last.IsZero() || time.Since(last) >= r.interval/2
 }
 
-func recycleWorkspaceClient(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient) error {
-	detached := detachWorkspaceClient(mgr, workspace.key)
+func recycleWorkspaceClient(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient) (bool, error) {
+	detached := detachWorkspaceClientIfIdle(mgr, workspace.key, workspace.client)
 	if detached == nil || detached.client == nil {
-		return nil
+		return false, nil
 	}
 	mgr.AdvanceDiagnosticGeneration()
 
@@ -151,7 +152,7 @@ func recycleWorkspaceClient(mgr *manager, scope ResolvedLSPToolScope, workspace 
 	restoreCtx := recycleRestoreContext(scope, cfg)
 	_, ensureErr := mgr.ensureClient(restoreCtx, cfg)
 	restoreErr := restoreBootstrappedWorkspace(restoreCtx, mgr, cfg)
-	return errors.Join(shutdownErr, closeErr, ensureErr, restoreErr)
+	return true, errors.Join(shutdownErr, closeErr, ensureErr, restoreErr)
 }
 
 func recycleRestoreContext(scope ResolvedLSPToolScope, cfg workspaceConfig) context.Context {
@@ -213,7 +214,7 @@ func snapshotWorkspaceClients(mgr *manager) []workspaceClient {
 	return items
 }
 
-func detachWorkspaceClient(mgr *manager, key string) *workspaceClient {
+func detachWorkspaceClientIfIdle(mgr *manager, key string, expected Client) *workspaceClient {
 	if mgr == nil {
 		return nil
 	}
@@ -221,6 +222,15 @@ func detachWorkspaceClient(mgr *manager, key string) *workspaceClient {
 	defer mgr.mu.Unlock()
 
 	workspace := mgr.workspaces[key]
+	if workspace == nil || workspace.client == nil {
+		return nil
+	}
+	if expected != nil && workspace.client != expected {
+		return nil
+	}
+	if mgr.pool != nil && mgr.pool.activeLeases(workspace.client) > 0 {
+		return nil
+	}
 	delete(mgr.workspaces, key)
 	return workspace
 }

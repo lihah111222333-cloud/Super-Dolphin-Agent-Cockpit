@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 )
@@ -73,6 +74,140 @@ func TestToolBridge_RouteToolCall_ForwardsCodexMetadata(t *testing.T) {
 		t.Fatalf("routeToolCall() error = %v", err)
 	}
 	assertSingleTextItem(t, got, "metadata ok", true)
+}
+
+func TestToolBridgeSelectsPeerByScope(t *testing.T) {
+	args := mustRawJSON(t, map[string]any{
+		"action":     "read_file",
+		"file_path":  "go.mod",
+		"agent_id":   "forged-agent",
+		"thread_id":  "forged-thread",
+		"cwd":        "/forged/root",
+		"session_id": "forged-session",
+	})
+	wrongPeer := &mcpcontrol.ToolInstance{
+		AgentID:    "agent-29",
+		ThreadID:   "wrong-thread",
+		ClientKind: "lsp",
+		Peer: &stubPeer{callbackFn: func(context.Context, string, any, any) error {
+			t.Fatal("wrong scoped peer was called")
+			return nil
+		}},
+	}
+	rightPeer := &mcpcontrol.ToolInstance{
+		AgentID:    "agent-29",
+		ThreadID:   "thread-29",
+		ClientKind: "lsp",
+		Peer: &stubPeer{callbackFn: func(_ context.Context, method string, params any, result any) error {
+			if method != ProxyMethodToolsCall {
+				t.Fatalf("Callback() method = %q, want %s", method, ProxyMethodToolsCall)
+			}
+			payload, ok := params.(map[string]any)
+			if !ok {
+				t.Fatalf("Callback() params type = %T, want map[string]any", params)
+			}
+			if got := payload[MetadataKeyAgentID]; got != "agent-29" {
+				t.Fatalf("Callback() _agentId = %#v, want agent-29", got)
+			}
+			if got := payload[MetadataKeyThreadID]; got != "thread-29" {
+				t.Fatalf("Callback() _threadId = %#v, want thread-29", got)
+			}
+			if got := payload[MetadataKeyCallID]; got != "call-29" {
+				t.Fatalf("Callback() _callId = %#v, want call-29", got)
+			}
+			if got := payload[MetadataKeyCWD]; got != "/trusted/root" {
+				t.Fatalf("Callback() _cwd = %#v, want /trusted/root", got)
+			}
+			for _, key := range []string{"agent_id", "thread_id", "cwd", "sessionId", "session_id", "_sessionId"} {
+				if _, ok := payload[key]; ok {
+					t.Fatalf("Callback() leaked untrusted/reserved top-level key %q in payload: %#v", key, payload)
+				}
+			}
+			gotArgs, ok := payload["arguments"].(json.RawMessage)
+			if !ok {
+				t.Fatalf("Callback() arguments type = %T, want json.RawMessage", payload["arguments"])
+			}
+			for _, token := range []string{`"agent_id":"forged-agent"`, `"cwd":"/forged/root"`, `"session_id":"forged-session"`} {
+				if !strings.Contains(string(gotArgs), token) {
+					t.Fatalf("Callback() arguments = %s, want to preserve forged arg token %s", gotArgs, token)
+				}
+			}
+			resp := result.(*peerToolCallResponse)
+			*resp = peerToolCallResponse{Content: []peerToolCallContent{{Type: "text", Text: "scoped ok"}}}
+			return nil
+		}},
+	}
+	h, registry := newHandlerForTest(wrongPeer, rightPeer)
+	registry.scoped = true
+
+	got, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{
+		ID:     json.RawMessage(`29`),
+		Method: "item/tool/call",
+		Params: mustRawJSON(t, map[string]any{
+			"name":       "lsp_file",
+			"arguments":  args,
+			"_agentId":   "agent-29",
+			"_threadId":  "thread-29",
+			"_callId":    "call-29",
+			"_cwd":       "/trusted/root",
+			"sessionId":  "top-level-forged-session",
+			"session_id": "top-level-forged-session",
+		}),
+	})
+	if err != nil {
+		t.Fatalf("HandleToolCall() error = %v", err)
+	}
+	result, ok := got.(*ToolCallResult)
+	if !ok {
+		t.Fatalf("HandleToolCall() result type = %T, want *ToolCallResult", got)
+	}
+	assertSingleTextItem(t, result, "scoped ok", true)
+	if len(registry.gotScopes) != 1 {
+		t.Fatalf("FindActiveForScope() calls = %d, want 1", len(registry.gotScopes))
+	}
+	if scope := registry.gotScopes[0]; scope.AgentID != "agent-29" || scope.ThreadID != "thread-29" || scope.CallID != "call-29" || scope.CWD != "/trusted/root" || scope.Family != "lsp" {
+		t.Fatalf("FindActiveForScope() scope = %#v, want trusted agent/thread/call/cwd lsp", scope)
+	}
+}
+
+func TestToolBridgeAmbiguousWithoutScope(t *testing.T) {
+	h, registry := newHandlerForTest(
+		&mcpcontrol.ToolInstance{AgentID: "agent-a", ThreadID: "thread-a", ClientKind: "lsp", Peer: &stubPeer{}},
+		&mcpcontrol.ToolInstance{AgentID: "agent-b", ThreadID: "thread-b", ClientKind: "lsp", Peer: &stubPeer{}},
+	)
+	registry.scoped = true
+
+	got, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{
+		ID:     json.RawMessage(`30`),
+		Method: "item/tool/call",
+		Params: mustRawJSON(t, map[string]any{
+			"name": "lsp_file",
+			"arguments": map[string]any{
+				"action":    "read_file",
+				"file_path": "go.mod",
+				"agent_id":  "agent-b",
+				"thread_id": "thread-b",
+				"cwd":       "/forged/root",
+				"sessionId": "forged-session",
+			},
+		}),
+	})
+	if err != ErrAmbiguousPeer {
+		t.Fatalf("HandleToolCall() error = %v, want %v", err, ErrAmbiguousPeer)
+	}
+	if result, ok := got.(*ToolCallResult); ok {
+		if result != nil {
+			t.Fatalf("HandleToolCall() result = %#v, want nil", result)
+		}
+	} else if got != nil {
+		t.Fatalf("HandleToolCall() result type = %T, want nil *ToolCallResult", got)
+	}
+	if len(registry.gotScopes) != 1 {
+		t.Fatalf("FindActiveForScope() calls = %d, want 1", len(registry.gotScopes))
+	}
+	if scope := registry.gotScopes[0]; scope.AgentID != "" || scope.ThreadID != "" || scope.CallID != "" || scope.CWD != "" || scope.Family != "lsp" {
+		t.Fatalf("FindActiveForScope() scope = %#v, want only lsp family without trusted identity/cwd", scope)
+	}
 }
 
 func TestToolBridge_RouteToolCall_EmitsDiffForTrackedLspEdit(t *testing.T) {

@@ -219,8 +219,12 @@ func TestRecyclerRestoresGoWorkspaceWithSavedRootEnvAndScope(t *testing.T) {
 		Version:     1,
 		Fingerprint: "stale-before-recycle",
 	})
-	if err := recycleWorkspaceClient(manager, resolved, workspace); err != nil {
+	didRecycle, err := recycleWorkspaceClient(manager, resolved, workspace)
+	if err != nil {
 		t.Fatalf("recycle go workspace client: %v", err)
+	}
+	if !didRecycle {
+		t.Fatalf("recycle go workspace client: recycled=false, want true")
 	}
 
 	if got := factory.callCount(); got != 2 {
@@ -233,31 +237,116 @@ func TestRecyclerRestoresGoWorkspaceWithSavedRootEnvAndScope(t *testing.T) {
 	if !reflect.DeepEqual(call.env, []string{"GOWORK=" + goWorkPath}) {
 		t.Fatalf("recycled gopls env = %#v", call.env)
 	}
-	recycled := factory.clientAt(t, 1)
-	assertFolderURIs(t, recycled.initializedFolders, []string{repo, backend, tools})
-	if !recycled.initResolvedOK {
+	recycledClient := factory.clientAt(t, 1)
+	assertFolderURIs(t, recycledClient.initializedFolders, []string{repo, backend, tools})
+	if !recycledClient.initResolvedOK {
 		t.Fatalf("recycled Initialize ctx missing canonical ResolvedLSPToolScope")
 	}
-	if recycled.initScopeKey != resolved.ScopeKey {
-		t.Fatalf("recycled init scope key = %q, want %q", recycled.initScopeKey, resolved.ScopeKey)
+	if recycledClient.initScopeKey != resolved.ScopeKey {
+		t.Fatalf("recycled init scope key = %q, want %q", recycledClient.initScopeKey, resolved.ScopeKey)
 	}
-	if recycled.initWorkspaceKey != resolved.WorkspaceKey {
-		t.Fatalf("recycled init workspace key = %q, want %q", recycled.initWorkspaceKey, resolved.WorkspaceKey)
+	if recycledClient.initWorkspaceKey != resolved.WorkspaceKey {
+		t.Fatalf("recycled init workspace key = %q, want %q", recycledClient.initWorkspaceKey, resolved.WorkspaceKey)
 	}
-	if recycled.initManagerKey != resolved.ManagerKey {
-		t.Fatalf("recycled init manager key = %q, want %q", recycled.initManagerKey, resolved.ManagerKey)
+	if recycledClient.initManagerKey != resolved.ManagerKey {
+		t.Fatalf("recycled init manager key = %q, want %q", recycledClient.initManagerKey, resolved.ManagerKey)
 	}
-	if !reflect.DeepEqual(recycled.initLanguageSpecific, resolved.LanguageSpecific) {
-		t.Fatalf("recycled init language-specific = %#v, want %#v", recycled.initLanguageSpecific, resolved.LanguageSpecific)
+	if !reflect.DeepEqual(recycledClient.initLanguageSpecific, resolved.LanguageSpecific) {
+		t.Fatalf("recycled init language-specific = %#v, want %#v", recycledClient.initLanguageSpecific, resolved.LanguageSpecific)
 	}
-	if !recycled.initToolScopeOK {
+	if !recycledClient.initToolScopeOK {
 		t.Fatalf("recycled Initialize ctx missing common ToolScope compatibility")
 	}
-	if recycled.initToolScope.AgentID != "agent-worker-d" || recycled.initToolScope.ThreadID != "thread-go" {
-		t.Fatalf("recycled common ToolScope = %#v, want stored agent/thread", recycled.initToolScope)
+	if recycledClient.initToolScope.AgentID != "agent-worker-d" || recycledClient.initToolScope.ThreadID != "thread-go" {
+		t.Fatalf("recycled common ToolScope = %#v, want stored agent/thread", recycledClient.initToolScope)
 	}
 	if status := coordinator.states.status(resolved.bootstrapKey(), targetURI); status != bootstrapReady {
 		t.Fatalf("bootstrap status for canonical scope = %s, want %s", status, bootstrapReady)
+	}
+}
+
+func TestRecyclerDoesNotRecycleActiveLease(t *testing.T) {
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{
+		Family:   defaultLSPToolFamily,
+		AgentID:  "agent-lease",
+		ThreadID: "thread-lease",
+	})
+	root := normalizedTempDir(t)
+	writeGoMod(t, root, "example.com/lease")
+	target := writeGoFile(t, root, "main.go")
+	factory := &goWorkspaceClientFactory{}
+	manager := NewManager(Config{
+		WorkspaceRoot:      root,
+		ClientFactory:      factory,
+		DiagnosticsMaxWait: 1,
+	}).(*manager)
+	defer func() {
+		if err := manager.Close(); err != nil {
+			t.Fatalf("close manager: %v", err)
+		}
+	}()
+
+	client, ref, err := manager.documentClient(ctx, fileURIFromPath(target))
+	if err != nil {
+		t.Fatalf("lease document client: %v", err)
+	}
+	if client == nil {
+		t.Fatalf("leased document client for %s is nil", ref.uri)
+	}
+	original := factory.clientAt(t, 0)
+	if client != original {
+		t.Fatalf("leased client = %p, want original client %p", client, original)
+	}
+
+	workspaces := snapshotWorkspaceClients(manager)
+	if len(workspaces) != 1 {
+		t.Fatalf("workspace snapshot count = %d, want 1", len(workspaces))
+	}
+	workspace := workspaces[0]
+	cfg := workspaceConfig{
+		key:              workspace.key,
+		rootPath:         workspace.rootPath,
+		rootURI:          workspace.rootURI,
+		languageID:       workspace.languageID,
+		env:              append([]string(nil), workspace.env...),
+		workspaceFolders: cloneWorkspaceFolders(workspace.workspaceFolders),
+	}
+	resolved, err := manager.resolvedScopeForConfig(ctx, cfg)
+	if err != nil {
+		t.Fatalf("resolve scope for active-lease recycle: %v", err)
+	}
+
+	if err := manager.withPooledClient(client, func() error {
+		didRecycleActive, err := recycleWorkspaceClient(manager, resolved, workspace)
+		if err != nil {
+			t.Fatalf("recycle with active lease: %v", err)
+		}
+		if didRecycleActive {
+			t.Fatalf("recycle with active lease recycled client; want skip")
+		}
+		if original.isClosed() {
+			t.Fatalf("active lease client was closed by recycler")
+		}
+		if got := factory.callCount(); got != 1 {
+			t.Fatalf("active lease should not create replacement client, calls=%d", got)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("hold active lease: %v", err)
+	}
+
+	didRecycleAfterRelease, err := recycleWorkspaceClient(manager, resolved, workspace)
+	if err != nil {
+		t.Fatalf("recycle after lease release: %v", err)
+	}
+	if !didRecycleAfterRelease {
+		t.Fatalf("recycle after lease release recycled=false, want true")
+	}
+	if !original.isClosed() {
+		t.Fatalf("released original client was not closed by recycler")
+	}
+	if got := factory.callCount(); got != 2 {
+		t.Fatalf("recycle after lease release should create replacement client, calls=%d", got)
 	}
 }
 
@@ -326,6 +415,7 @@ type goWorkspaceClient struct {
 	initResolvedOK       bool
 	initToolScope        common.ToolScope
 	initToolScopeOK      bool
+	closed               bool
 }
 
 func (c *goWorkspaceClient) setWorkspaceFolders(folders []protocol.WorkspaceFolder) {
@@ -371,7 +461,18 @@ func (c *goWorkspaceClient) DidChange(context.Context, string, int, []protocol.T
 
 func (c *goWorkspaceClient) DidClose(context.Context, string) error { return nil }
 
-func (c *goWorkspaceClient) Close() error { return nil }
+func (c *goWorkspaceClient) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.closed = true
+	return nil
+}
+
+func (c *goWorkspaceClient) isClosed() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closed
+}
 
 func assertFolderURIs(t *testing.T, folders []protocol.WorkspaceFolder, paths []string) {
 	t.Helper()
