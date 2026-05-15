@@ -10,6 +10,7 @@ import (
 
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
@@ -44,13 +45,20 @@ type diagnosticMetadata struct {
 	size        int64
 }
 
-type lspScopeContextKey string
+type resolvedLSPToolScopeContextKey struct{}
 
-const (
-	lspScopeAgentIDContextKey  lspScopeContextKey = "lsp_agent_id"
-	lspScopeThreadIDContextKey lspScopeContextKey = "lsp_thread_id"
-	lspScopeCallIDContextKey   lspScopeContextKey = "lsp_call_id"
-)
+// WithResolvedLSPToolScope attaches the ManagerPool canonical scope to a
+// context so diagnostics/cache/bootstrap code can consume ScopedManager's
+// ResolvedScope directly without reassembling canonical keys.
+func WithResolvedLSPToolScope(ctx context.Context, scope ResolvedLSPToolScope) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if scope.WorkspaceKey == "" && scope.ManagerKey == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, resolvedLSPToolScopeContextKey{}, scope)
+}
 
 func (h managerNotificationHandler) PublishDiagnostics(params protocol.PublishDiagnosticsParams) error {
 	return h.publishDiagnostics(params)
@@ -183,7 +191,7 @@ func (m *manager) normalizeDiagnosticFilter(ctx context.Context, uris []string) 
 		}
 		keys[diagnosticStoreKeyFor(scope, ref.uri).String()] = struct{}{}
 		if _, err := os.Stat(ref.absPath); err != nil && os.IsNotExist(err) {
-			m.cleanupDeletedDocument(ctx, ref, scope)
+			m.cleanupDeletedDocument(ref, scope)
 		}
 	}
 	return diagnosticFilter{keys: keys}, nil
@@ -245,12 +253,13 @@ func (m *manager) cleanupDeletedDiagnostics(ctx context.Context, filter diagnost
 		}
 	})
 	for _, snapshot := range snapshots {
-		current := lspResolvedScope{
-			ScopeKey:      snapshot.scopeKey,
-			WorkspaceKey:  snapshot.workspaceKey,
-			ManagerKey:    managerKeyFor(snapshot.scopeKey, snapshot.workspaceKey),
-			WorkspaceRoot: pathOrEmpty(snapshot.uri),
-			LanguageID:    snapshot.language,
+		current := ResolvedLSPToolScope{
+			LSPToolScope: LSPToolScope{
+				WorkspaceRoot: pathOrEmpty(snapshot.uri),
+				LanguageID:    snapshot.language,
+			},
+			ScopeKey:     snapshot.scopeKey,
+			WorkspaceKey: snapshot.workspaceKey,
 		}
 		if _, _, scope, err := m.resolvedScopeForURI(ctx, snapshot.uri, snapshot.language); err == nil {
 			current = scope
@@ -259,8 +268,8 @@ func (m *manager) cleanupDeletedDiagnostics(ctx context.Context, filter diagnost
 	}
 }
 
-func (m *manager) cleanupDeletedDocument(ctx context.Context, ref documentRef, current lspResolvedScope) {
-	scopes := []lspResolvedScope{current}
+func (m *manager) cleanupDeletedDocument(ref documentRef, current ResolvedLSPToolScope) {
+	scopes := []ResolvedLSPToolScope{current}
 	if indexed, ok := bootstrapCoordinatorFor(m).cache.LastResolvedScope(ref.uri); ok {
 		scopes = append(scopes, indexed.LastResolvedScope)
 	}
@@ -268,7 +277,7 @@ func (m *manager) cleanupDeletedDocument(ctx context.Context, ref documentRef, c
 	bootstrapCoordinatorFor(m).cache.RememberDocumentScope(ref.uri, current, "")
 }
 
-func (m *manager) cleanupDocumentForScopes(uri string, scopes ...lspResolvedScope) {
+func (m *manager) cleanupDocumentForScopes(uri string, scopes ...ResolvedLSPToolScope) {
 	if strings.TrimSpace(uri) == "" {
 		return
 	}
@@ -295,27 +304,31 @@ func (m *manager) cleanupDocumentForScopes(uri string, scopes ...lspResolvedScop
 	m.diagMu.Unlock()
 }
 
-func (m *manager) scopeForPublishedDiagnostics(uri string) lspResolvedScope {
+func (m *manager) scopeForPublishedDiagnostics(uri string) ResolvedLSPToolScope {
 	if indexed, ok := bootstrapCoordinatorFor(m).cache.LastResolvedScope(uri); ok {
 		return indexed.LastResolvedScope
 	}
-	_, _, scope, err := m.resolvedScopeForURI(nil, uri, "")
+	_, _, scope, err := m.resolvedScopeForURI(context.Background(), uri, "")
 	if err != nil {
-		return lspResolvedScope{LanguageID: languageFromURI(uri)}
+		return ResolvedLSPToolScope{LSPToolScope: LSPToolScope{LanguageID: languageFromURI(uri)}}
 	}
 	return scope
 }
 
-func (m *manager) resolvedScopeForURI(ctx context.Context, uri, languageID string) (documentRef, workspaceConfig, lspResolvedScope, error) {
+func (m *manager) resolvedScopeForURI(ctx context.Context, uri, languageID string) (documentRef, workspaceConfig, ResolvedLSPToolScope, error) {
 	ref, err := m.resolveDocumentRef(ctx, uri, languageID)
 	if err != nil {
-		return documentRef{}, workspaceConfig{}, lspResolvedScope{}, err
+		return documentRef{}, workspaceConfig{}, ResolvedLSPToolScope{}, err
 	}
 	cfg, err := m.workspaceConfigForDiagnosticRef(ctx, ref)
 	if err != nil {
-		return documentRef{}, workspaceConfig{}, lspResolvedScope{}, err
+		return documentRef{}, workspaceConfig{}, ResolvedLSPToolScope{}, err
 	}
-	return ref, cfg, m.resolvedScopeForConfig(ctx, cfg), nil
+	scope, err := m.resolvedScopeForConfig(ctx, cfg)
+	if err != nil {
+		return documentRef{}, workspaceConfig{}, ResolvedLSPToolScope{}, err
+	}
+	return ref, cfg, scope, nil
 }
 
 func (m *manager) workspaceConfigForDiagnosticRef(ctx context.Context, ref documentRef) (workspaceConfig, error) {
@@ -338,57 +351,109 @@ func (m *manager) workspaceConfigForDiagnosticRef(ctx context.Context, ref docum
 	}, nil
 }
 
-func (m *manager) resolvedScopeForConfig(ctx context.Context, cfg workspaceConfig) lspResolvedScope {
-	scopeKey := lspScopeKeyFromContext(ctx)
-	workspaceKey := workspaceKeyForConfig(cfg)
-	return lspResolvedScope{
-		ScopeKey:      scopeKey,
-		WorkspaceKey:  workspaceKey,
-		ManagerKey:    managerKeyFor(scopeKey, workspaceKey),
-		WorkspaceRoot: cfg.rootPath,
-		LanguageID:    normalizeLanguageID(cfg.languageID),
+func (m *manager) resolvedScopeForConfig(ctx context.Context, cfg workspaceConfig) (ResolvedLSPToolScope, error) {
+	if resolved, ok := resolvedLSPToolScopeFromContext(ctx); ok {
+		return resolved, nil
 	}
-}
-
-func workspaceKeyForConfig(cfg workspaceConfig) string {
-	return strings.Join([]string{
-		normalizeLanguageID(cfg.languageID),
-		filepath.Clean(cfg.key),
-		filepath.Clean(cfg.rootPath),
-		cfg.rootURI,
-	}, "\x00")
-}
-
-func managerKeyFor(scopeKey, workspaceKey string) string {
-	if scopeKey == "" {
-		return workspaceKey
-	}
-	return scopeKey + "\x00" + workspaceKey
+	return ResolveLSPToolScope(m.lspToolScopeForConfig(ctx, cfg))
 }
 
 func lspScopeKeyFromContext(ctx context.Context) string {
-	if ctx == nil {
-		return ""
+	if resolved, ok := resolvedLSPToolScopeFromContext(ctx); ok {
+		return resolved.ScopeKey
 	}
-	agentID := firstContextString(ctx, lspScopeAgentIDContextKey, "_agentId", "agent_id")
-	threadID := firstContextString(ctx, lspScopeThreadIDContextKey, "_threadId", "thread_id")
-	if agentID == "" && threadID == "" {
-		return ""
-	}
-	return "lsp\x00" + agentID + "\x00" + threadID
+	return buildScopeKey(lspToolScopeFromContext(ctx))
 }
 
-func firstContextString(ctx context.Context, keys ...any) string {
-	for _, key := range keys {
-		value, _ := ctx.Value(key).(string)
-		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			return trimmed
+func resolvedLSPToolScopeFromContext(ctx context.Context) (ResolvedLSPToolScope, bool) {
+	if ctx == nil {
+		return ResolvedLSPToolScope{}, false
+	}
+	scope, ok := ctx.Value(resolvedLSPToolScopeContextKey{}).(ResolvedLSPToolScope)
+	if !ok || (scope.WorkspaceKey == "" && scope.ManagerKey == "") {
+		return ResolvedLSPToolScope{}, false
+	}
+	return scope, true
+}
+
+func (m *manager) lspToolScopeForConfig(ctx context.Context, cfg workspaceConfig) LSPToolScope {
+	scope := lspToolScopeFromContext(ctx)
+	if scope.CWD == "" {
+		scope.CWD = m.effectiveWorkspaceRoot(ctx)
+	}
+	scope.LanguageID = normalizeLanguageID(cfg.languageID)
+	scope.WorkspaceRoot = cfg.rootPath
+	scope.LanguageWorkspaceRoot = cfg.rootPath
+	scope.ProjectRoot = cfg.rootPath
+	if parsed, ok := lspScopeWorkspacePartsFromConfig(cfg); ok {
+		scope.LanguageID = parsed.LanguageID
+		scope.WorkspaceRoot = parsed.WorkspaceRoot
+		scope.RootKind = parsed.RootKind
+		scope.LanguageWorkspaceRoot = parsed.LanguageWorkspaceRoot
+		scope.ProjectRoot = parsed.ProjectRoot
+		scope.LanguageSpecific = parsed.LanguageSpecific
+	}
+	return scope
+}
+
+func lspToolScopeFromContext(ctx context.Context) LSPToolScope {
+	if trusted, ok := common.ToolScopeFromContext(ctx); ok {
+		return LSPToolScope{
+			AgentID:  trusted.AgentID,
+			ThreadID: trusted.ThreadID,
+			TurnID:   trusted.TurnID,
+			CallID:   trusted.CallID,
+			CWD:      trusted.CWD,
+			Family:   normalizeScopeFamily(trusted.Family),
 		}
 	}
-	return ""
+	return LSPToolScope{Family: defaultLSPToolFamily}
 }
 
-func diagnosticStoreKeyFor(scope lspResolvedScope, uri string) diagnosticStoreKey {
+func lspScopeWorkspacePartsFromConfig(cfg workspaceConfig) (LSPToolScope, bool) {
+	parts := strings.Split(cfg.key, scopeKeySeparator)
+	if len(parts) != 6 {
+		return LSPToolScope{}, false
+	}
+	languageID := normalizeLanguageID(parts[0])
+	if languageID == "" || languageID != normalizeLanguageID(cfg.languageID) {
+		return LSPToolScope{}, false
+	}
+	return LSPToolScope{
+		LanguageID:            languageID,
+		RootKind:              parts[1],
+		WorkspaceRoot:         parts[2],
+		LanguageWorkspaceRoot: parts[3],
+		ProjectRoot:           parts[4],
+		LanguageSpecific:      parseLanguageSpecificParts(parts[5]),
+	}, true
+}
+
+func parseLanguageSpecificParts(encoded string) map[string]string {
+	encoded = strings.TrimSpace(encoded)
+	if encoded == "" {
+		return nil
+	}
+	parts := strings.Split(encoded, "\x1f")
+	values := make(map[string]string, len(parts))
+	for _, part := range parts {
+		key, value, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		values[key] = strings.TrimSpace(value)
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	return values
+}
+
+func diagnosticStoreKeyFor(scope ResolvedLSPToolScope, uri string) diagnosticStoreKey {
 	return diagnosticStoreKey{scopeKey: scope.ScopeKey, workspaceKey: scope.WorkspaceKey, uri: uri}
 }
 
