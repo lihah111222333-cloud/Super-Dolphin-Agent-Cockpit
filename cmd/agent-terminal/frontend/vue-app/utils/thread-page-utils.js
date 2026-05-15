@@ -359,7 +359,7 @@ export function buildVisibleChatThreadCards(opts) {
       displayNameCalls += 1;
       displayName = displayNameOf(thread);
     }
-    displayName = displayName || threadId;
+    displayName = displayName || '新对话';
     const pinnedAt = Number(safePinnedMap[threadId]) || 0;
     const archivedAt = Number(safeArchivedMap[threadId]) || 0;
     const isArchived = Number.isFinite(archivedAt) && archivedAt > 0;
