@@ -142,6 +142,19 @@ describe('useThreadActions', () => {
     expect(vm.deps.selectedThreadId.value).toBe('thread-started');
   });
 
+  it('launchOne resolves dot project scope to the window cwd', async () => {
+    const vm = createThreadActions({
+      props: {
+        windowCwd: '/repo-root',
+        projectStore: { state: { active: '.' } },
+      },
+    });
+
+    await vm.launchOne();
+
+    expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo-root', { focusMode: 'chat', deferSpawn: true });
+  });
+
   it('pipes thread config get/set calls through the thread store', async () => {
     const vm = createThreadActions();
     vm.threadStore.getThreadConfig.mockResolvedValueOnce({ threadId: 'thread-live' });
@@ -226,6 +239,27 @@ describe('useThreadActions', () => {
     );
     expect(vm.deps.resolveComposerSkillSelectionForSend).not.toHaveBeenCalled();
     expect(vm.deps.scheduleScrollToBottom).toHaveBeenCalledWith(true);
+  });
+
+  it('send resolves dot project scope to the window cwd for start and message payloads', async () => {
+    const vm = createThreadActions({
+      selectedThreadId: '',
+      text: 'hello from root',
+      props: {
+        windowCwd: '/repo-root',
+        projectStore: { state: { active: '.' } },
+      },
+    });
+
+    await vm.send();
+
+    expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo-root', { focusMode: 'chat', prompt: 'hello from root' });
+    expect(vm.threadStore.sendMessage).toHaveBeenCalledWith(
+      'thread-started',
+      'hello from root',
+      [],
+      expect.objectContaining({ cwd: '/repo-root' }),
+    );
   });
 
   it('send: resolves launch skill state before startThread and reuses it for launch + send payloads', async () => {
