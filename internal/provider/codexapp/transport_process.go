@@ -319,7 +319,7 @@ func (t *transport) watchLocalProcess(proc *localProcess) {
 	<-proc.done
 	proc.waitForStderr(time.Second)
 	defer proc.guard.close()
-	if t.closed.Load() {
+	if t.closed.Load() || t.closing.Load() {
 		t.clearProcess(proc, nil)
 		return
 	}
