@@ -31,7 +31,7 @@ type upsertQuerier interface {
 }
 
 type listSectionsQuerier interface {
-	ListPromptTemplateSectionsByTemplate(ctx context.Context, templateID int64) ([]sqlc.PromptTemplateSection, error)
+	ListPromptTemplateSectionsByTemplate(ctx context.Context, arg sqlc.ListPromptTemplateSectionsByTemplateParams) ([]sqlc.PromptTemplateSection, error)
 }
 
 type upsertSectionQuerier interface {
@@ -118,7 +118,9 @@ func (s *store) ListSectionsByTemplateID(ctx context.Context, templateID int64) 
 	if !ok {
 		return nil, wrapPromptError(errors.New("prompt store does not support list_sections"), "list_sections", "prompt_template_sections")
 	}
-	rows, err := q.ListPromptTemplateSectionsByTemplate(ctx, templateID)
+	rows, err := q.ListPromptTemplateSectionsByTemplate(ctx, sqlc.ListPromptTemplateSectionsByTemplateParams{
+		TemplateID: templateID,
+	})
 	if err != nil {
 		return nil, wrapPromptError(err, "list_sections", "prompt_template_sections")
 	}
