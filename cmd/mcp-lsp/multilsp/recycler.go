@@ -82,11 +82,11 @@ func (r *poolRecycler) check() {
 		return
 	}
 	for _, snapshot := range r.pool.snapshotManagers() {
-		r.checkManager(snapshot.index, snapshot.manager)
+		r.checkManager(snapshot.index, snapshot.managerKey, snapshot.manager)
 	}
 }
 
-func (r *poolRecycler) checkManager(index int, mgr *manager) {
+func (r *poolRecycler) checkManager(index int, managerKey string, mgr *manager) {
 	if mgr == nil || managerIsClosed(mgr) {
 		return
 	}
@@ -95,11 +95,11 @@ func (r *poolRecycler) checkManager(index int, mgr *manager) {
 	}
 
 	for _, workspace := range snapshotWorkspaceClients(mgr) {
-		r.recycleIfNeeded(mgr, workspace)
+		r.recycleIfNeeded(mgr, managerKey, workspace)
 	}
 }
 
-func (r *poolRecycler) recycleIfNeeded(mgr *manager, workspace workspaceClient) {
+func (r *poolRecycler) recycleIfNeeded(mgr *manager, managerKey string, workspace workspaceClient) {
 	rssBytes, pid, err := clientRSSBytes(workspace.client)
 	if err != nil || pid <= 0 || rssBytes <= rssLimitBytes() {
 		return
@@ -110,7 +110,7 @@ func (r *poolRecycler) recycleIfNeeded(mgr *manager, workspace workspaceClient) 
 	if mgr.logger != nil {
 		mgr.logger.Warn("recycling LSP process", "workspace", workspace.key, "pid", pid, "rss_bytes", rssBytes)
 	}
-	if err := recycleWorkspaceClient(mgr, workspace); err != nil && mgr.logger != nil {
+	if err := recycleWorkspaceClient(mgr, managerKey, workspace); err != nil && mgr.logger != nil {
 		mgr.logger.Warn("LSP recycle failed", "workspace", workspace.key, "pid", pid, "err", err)
 	}
 }
@@ -123,7 +123,7 @@ func (r *poolRecycler) shouldCheck(index int) bool {
 	return last.IsZero() || time.Since(last) >= r.interval/2
 }
 
-func recycleWorkspaceClient(mgr *manager, workspace workspaceClient) error {
+func recycleWorkspaceClient(mgr *manager, managerKey string, workspace workspaceClient) error {
 	detached := detachWorkspaceClient(mgr, workspace.key)
 	if detached == nil || detached.client == nil {
 		return nil
@@ -147,9 +147,32 @@ func recycleWorkspaceClient(mgr *manager, workspace workspaceClient) error {
 		env:              append([]string(nil), workspace.env...),
 		workspaceFolders: cloneWorkspaceFolders(workspace.workspaceFolders),
 	}
-	_, ensureErr := mgr.ensureClient(context.Background(), cfg)
-	restoreErr := restoreBootstrappedWorkspace(context.Background(), mgr, cfg)
+	restoreCtx := recycleRestoreContext(managerKey)
+	_, ensureErr := mgr.ensureClient(restoreCtx, cfg)
+	restoreErr := restoreBootstrappedWorkspace(restoreCtx, mgr, cfg)
 	return errors.Join(shutdownErr, closeErr, ensureErr, restoreErr)
+}
+
+func recycleRestoreContext(managerKey string) context.Context {
+	ctx := context.Background()
+	scopeKey := recycleScopeKeyFromManagerKey(managerKey)
+	if scopeKey == "" {
+		return ctx
+	}
+	parts := strings.Split(scopeKey, scopeKeySeparator)
+	if len(parts) >= 3 {
+		ctx = context.WithValue(ctx, lspScopeAgentIDContextKey, parts[1])
+		ctx = context.WithValue(ctx, lspScopeThreadIDContextKey, parts[2])
+	}
+	return ctx
+}
+
+func recycleScopeKeyFromManagerKey(managerKey string) string {
+	parts := strings.Split(managerKey, scopeKeySeparator)
+	if len(parts) < 3 || parts[0] != defaultLSPToolFamily {
+		return ""
+	}
+	return strings.Join(parts[:3], scopeKeySeparator)
 }
 
 func snapshotWorkspaceClients(mgr *manager) []workspaceClient {
