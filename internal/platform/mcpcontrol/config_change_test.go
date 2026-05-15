@@ -178,6 +178,22 @@ func TestConfigChangeSubscriptions_BroadcastsAgentAndThreadUpdates(t *testing.T)
 	registry.latestByInstance[lease.InstanceID] = lease
 	registry.indexLocked(instance)
 
+	startConfigFanoutForTest(t, dispatcher, registry)
+
+	publishAgentLaunchedForConfigTest(dispatcher, "agent-1", "thread-1")
+
+	waitForNotifyCount(t, peer, 1)
+	assertAgentConfigNotify(t, registry, lease, peer)
+
+	publishThreadStoppedForConfigTest(dispatcher, "agent-1", "thread-1")
+
+	waitForNotifyCount(t, peer, 2)
+	assertThreadConfigNotify(t, registry, lease, peer)
+}
+
+func startConfigFanoutForTest(t *testing.T, dispatcher *event.Dispatcher, registry *ToolRegistry) {
+	t.Helper()
+
 	worker := newConfigFanoutWorker(registry, registry, nil)
 	worker.Start()
 	cancels := registerConfigChangeSubscriptions(dispatcher, worker, nil)
@@ -191,102 +207,114 @@ func TestConfigChangeSubscriptions_BroadcastsAgentAndThreadUpdates(t *testing.T)
 		defer stopCancel()
 		_ = worker.Stop(stopCtx)
 	})
+}
 
+func publishAgentLaunchedForConfigTest(dispatcher *event.Dispatcher, agentID, threadID string) {
 	event.Publish(dispatcher, agentdto.AgentLaunched{
 		AgentSessionHeader: shareddto.AgentSessionHeader{
 			AgentHeader: shareddto.AgentHeader{
 				ThreadHeader: shareddto.ThreadHeader{
 					EventHeader: shareddto.EventHeader{Timestamp: time.Now()},
-					ThreadID:    "thread-1",
+					ThreadID:    threadID,
 				},
-				AgentID: "agent-1",
+				AgentID: agentID,
 			},
 			SessionID: "session-1",
 		},
 		Model: "gpt-5.5",
 		CWD:   "/tmp/project",
 	})
+}
 
-	waitForNotifyCount(t, peer, 1)
-	method, params := peer.snapshotLast()
-	if method != dto.MethodConfigChanged {
-		t.Fatalf("Notify() method after agent event = %q, want %q", method, dto.MethodConfigChanged)
-	}
-	agentNotify, ok := params.(dto.ConfigChangedNotify)
-	if !ok {
-		t.Fatalf("Notify() params after agent event type = %T, want dto.ConfigChangedNotify", params)
-	}
-	if agentNotify.Scope != dto.ScopeAgentRuntime {
-		t.Fatalf("agent scope = %q, want %q", agentNotify.Scope, dto.ScopeAgentRuntime)
-	}
-	if agentNotify.Selector.Scope == nil {
-		t.Fatal("agent selector scope = nil, want populated scope")
-	}
-	if agentNotify.Selector.Scope.AgentID != "agent-1" {
-		t.Fatalf("agent selector scope agent_id = %q, want agent-1", agentNotify.Selector.Scope.AgentID)
-	}
-	if agentNotify.Selector.Scope.ThreadID != "thread-1" {
-		t.Fatalf("agent selector scope thread_id = %q, want thread-1", agentNotify.Selector.Scope.ThreadID)
-	}
-	if agentNotify.ConfigVersion != 2 {
-		t.Fatalf("agent config version = %d, want 2", agentNotify.ConfigVersion)
+func publishThreadStoppedForConfigTest(dispatcher *event.Dispatcher, agentID, threadID string) {
+	event.Publish(dispatcher, threaddto.Stopped{
+		EventHeader: shareddto.EventHeader{Timestamp: time.Now()},
+		ThreadID:    threadID,
+		AgentID:     agentID,
+		Status:      "stopped",
+		Reason:      "archived",
+	})
+}
+
+func assertAgentConfigNotify(t *testing.T, registry *ToolRegistry, lease dto.LeaseKey, peer *stubConfigPeer) {
+	t.Helper()
+
+	notify := mustLastConfigChangedNotify(t, peer, "after agent event")
+	assertConfigNotifyScope(t, notify, dto.ScopeAgentRuntime, "agent-1", "thread-1")
+	if notify.ConfigVersion != 2 {
+		t.Fatalf("agent config version = %d, want 2", notify.ConfigVersion)
 	}
 	if got := registry.instances[lease].ConfigVersion; got != 2 {
 		t.Fatalf("registry instance config version after agent event = %d, want 2", got)
 	}
-	var agentPayload map[string]any
-	if err := json.Unmarshal(agentNotify.Payload, &agentPayload); err != nil {
-		t.Fatalf("json.Unmarshal(agent payload) error = %v", err)
-	}
-	if got := agentPayload["event"]; got != "agent/launched" {
+	payload := mustConfigNotifyPayload(t, notify, "agent")
+	if got := payload["event"]; got != "agent/launched" {
 		t.Fatalf("agent payload event = %#v, want agent/launched", got)
 	}
-	if got := agentPayload["agentId"]; got != "agent-1" {
+	if got := payload["agentId"]; got != "agent-1" {
 		t.Fatalf("agent payload agentId = %#v, want agent-1", got)
 	}
+}
 
-	event.Publish(dispatcher, threaddto.Stopped{
-		EventHeader: shareddto.EventHeader{Timestamp: time.Now()},
-		ThreadID:    "thread-1",
-		AgentID:     "agent-1",
-		Status:      "stopped",
-		Reason:      "archived",
-	})
+func assertThreadConfigNotify(t *testing.T, registry *ToolRegistry, lease dto.LeaseKey, peer *stubConfigPeer) {
+	t.Helper()
 
-	waitForNotifyCount(t, peer, 2)
-	_, params = peer.snapshotLast()
-	threadNotify, ok := params.(dto.ConfigChangedNotify)
-	if !ok {
-		t.Fatalf("Notify() params after thread event type = %T, want dto.ConfigChangedNotify", params)
-	}
-	if threadNotify.Scope != dto.ScopeThreadBinding {
-		t.Fatalf("thread scope = %q, want %q", threadNotify.Scope, dto.ScopeThreadBinding)
-	}
-	if threadNotify.Selector.Scope == nil {
-		t.Fatal("thread selector scope = nil, want populated scope")
-	}
-	if threadNotify.Selector.Scope.AgentID != "agent-1" {
-		t.Fatalf("thread selector scope agent_id = %q, want agent-1", threadNotify.Selector.Scope.AgentID)
-	}
-	if threadNotify.Selector.Scope.ThreadID != "thread-1" {
-		t.Fatalf("thread selector scope thread_id = %q, want thread-1", threadNotify.Selector.Scope.ThreadID)
-	}
-	if threadNotify.ConfigVersion != 3 {
-		t.Fatalf("thread config version = %d, want 3", threadNotify.ConfigVersion)
+	notify := mustLastConfigChangedNotify(t, peer, "after thread event")
+	assertConfigNotifyScope(t, notify, dto.ScopeThreadBinding, "agent-1", "thread-1")
+	if notify.ConfigVersion != 3 {
+		t.Fatalf("thread config version = %d, want 3", notify.ConfigVersion)
 	}
 	if got := registry.instances[lease].ConfigVersion; got != 3 {
 		t.Fatalf("registry instance config version after thread event = %d, want 3", got)
 	}
-	var threadPayload map[string]any
-	if err := json.Unmarshal(threadNotify.Payload, &threadPayload); err != nil {
-		t.Fatalf("json.Unmarshal(thread payload) error = %v", err)
-	}
-	if got := threadPayload["event"]; got != "thread/stopped" {
+	payload := mustConfigNotifyPayload(t, notify, "thread")
+	if got := payload["event"]; got != "thread/stopped" {
 		t.Fatalf("thread payload event = %#v, want thread/stopped", got)
 	}
-	if got := threadPayload["reason"]; got != "archived" {
+	if got := payload["reason"]; got != "archived" {
 		t.Fatalf("thread payload reason = %#v, want archived", got)
 	}
+}
+
+func mustLastConfigChangedNotify(t *testing.T, peer *stubConfigPeer, label string) dto.ConfigChangedNotify {
+	t.Helper()
+
+	method, params := peer.snapshotLast()
+	if method != dto.MethodConfigChanged {
+		t.Fatalf("Notify() method %s = %q, want %q", label, method, dto.MethodConfigChanged)
+	}
+	notify, ok := params.(dto.ConfigChangedNotify)
+	if !ok {
+		t.Fatalf("Notify() params %s type = %T, want dto.ConfigChangedNotify", label, params)
+	}
+	return notify
+}
+
+func assertConfigNotifyScope(t *testing.T, notify dto.ConfigChangedNotify, scope string, agentID, threadID string) {
+	t.Helper()
+
+	if notify.Scope != scope {
+		t.Fatalf("notify scope = %q, want %q", notify.Scope, scope)
+	}
+	if notify.Selector.Scope == nil {
+		t.Fatal("notify selector scope = nil, want populated scope")
+	}
+	if notify.Selector.Scope.AgentID != agentID {
+		t.Fatalf("notify selector scope agent_id = %q, want %q", notify.Selector.Scope.AgentID, agentID)
+	}
+	if notify.Selector.Scope.ThreadID != threadID {
+		t.Fatalf("notify selector scope thread_id = %q, want %q", notify.Selector.Scope.ThreadID, threadID)
+	}
+}
+
+func mustConfigNotifyPayload(t *testing.T, notify dto.ConfigChangedNotify, label string) map[string]any {
+	t.Helper()
+
+	var payload map[string]any
+	if err := json.Unmarshal(notify.Payload, &payload); err != nil {
+		t.Fatalf("json.Unmarshal(%s payload) error = %v", label, err)
+	}
+	return payload
 }
 
 func TestAgentLifecycleDispatchesLSPReleaseScopeAdminCall(t *testing.T) {
@@ -320,19 +348,7 @@ func TestAgentLifecycleDispatchesLSPReleaseScopeAdminCall(t *testing.T) {
 		Peer:       unrelatedPeer,
 	})
 
-	worker := newConfigFanoutWorker(registry, registry, nil)
-	worker.Start()
-	cancels := registerConfigChangeSubscriptions(dispatcher, worker, nil)
-	t.Cleanup(func() {
-		for _, cancel := range cancels {
-			if cancel != nil {
-				cancel()
-			}
-		}
-		stopCtx, stopCancel := context.WithTimeout(context.Background(), time.Second)
-		defer stopCancel()
-		_ = worker.Stop(stopCtx)
-	})
+	startConfigFanoutForTest(t, dispatcher, registry)
 
 	event.Publish(dispatcher, agentdto.AgentStopped{
 		AgentSessionHeader: shareddto.AgentSessionHeader{
@@ -357,20 +373,29 @@ func TestAgentLifecycleDispatchesLSPReleaseScopeAdminCall(t *testing.T) {
 	if !ok {
 		t.Fatalf("Callback() params type = %T, want dto.LSPReleaseScopeRequest", params)
 	}
+	assertLSPReleaseScopeRequest(t, req, "agent-1", "shutdown")
+	if unrelatedPeer.callbackCount() != 0 {
+		t.Fatalf("unrelated LSP peer received release callback count=%d, want 0", unrelatedPeer.callbackCount())
+	}
+}
+
+func assertLSPReleaseScopeRequest(t *testing.T, req dto.LSPReleaseScopeRequest, agentID, reason string) {
+	t.Helper()
+
 	if req.ScopeKind != dto.LSPReleaseScopeAgentAllThreads {
 		t.Fatalf("release scope kind = %q, want %q", req.ScopeKind, dto.LSPReleaseScopeAgentAllThreads)
 	}
-	if req.AgentID != "agent-1" || req.ThreadID != "" {
-		t.Fatalf("release scope identity = agent %q thread %q, want agent-1/all threads", req.AgentID, req.ThreadID)
+	if req.AgentID != agentID {
+		t.Fatalf("release scope AgentID = %q, want %q", req.AgentID, agentID)
+	}
+	if req.ThreadID != "" {
+		t.Fatalf("release scope ThreadID = %q, want all threads", req.ThreadID)
 	}
 	if !req.Drain {
 		t.Fatalf("release scope Drain = false, want true for lifecycle stop")
 	}
-	if req.Reason != "shutdown" {
-		t.Fatalf("release scope Reason = %q, want shutdown", req.Reason)
-	}
-	if unrelatedPeer.callbackCount() != 0 {
-		t.Fatalf("unrelated LSP peer received release callback count=%d, want 0", unrelatedPeer.callbackCount())
+	if req.Reason != reason {
+		t.Fatalf("release scope Reason = %q, want %q", req.Reason, reason)
 	}
 }
 
@@ -393,19 +418,7 @@ func TestAgentStopDispatchesLSPReleaseScopeAdminCall(t *testing.T) {
 		Status:     dto.StatusActive,
 		Peer:       lspPeer,
 	})
-	worker := newConfigFanoutWorker(registry, registry, nil)
-	worker.Start()
-	cancels := registerConfigChangeSubscriptions(dispatcher, worker, nil)
-	t.Cleanup(func() {
-		for _, cancel := range cancels {
-			if cancel != nil {
-				cancel()
-			}
-		}
-		stopCtx, stopCancel := context.WithTimeout(context.Background(), time.Second)
-		defer stopCancel()
-		_ = worker.Stop(stopCtx)
-	})
+	startConfigFanoutForTest(t, dispatcher, registry)
 
 	event.Publish(dispatcher, agentdto.AgentStopped{
 		AgentSessionHeader: shareddto.AgentSessionHeader{
@@ -430,7 +443,5 @@ func TestAgentStopDispatchesLSPReleaseScopeAdminCall(t *testing.T) {
 	if !ok {
 		t.Fatalf("Callback() params type = %T, want dto.LSPReleaseScopeRequest", params)
 	}
-	if req.ScopeKind != dto.LSPReleaseScopeAgentAllThreads || req.AgentID != "agent-stop" || req.ThreadID != "" || !req.Drain {
-		t.Fatalf("release scope request = %#v, want trusted agent all-threads drain", req)
-	}
+	assertLSPReleaseScopeRequest(t, req, "agent-stop", "agent_stop")
 }

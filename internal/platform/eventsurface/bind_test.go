@@ -115,98 +115,95 @@ func TestBindPublishesRecoveryAndToolSurface(t *testing.T) {
 	})
 	defer cancelAll(cancels)
 
-	now := time.Unix(1710000000, 0).UTC()
-	event.Publish(dispatcher, agentdto.AgentRecovering{
-		AgentSessionHeader: shared.AgentSessionHeader{
-			AgentHeader: shared.AgentHeader{
-				ThreadHeader: shared.ThreadHeader{EventHeader: shared.EventHeader{Timestamp: now}, ThreadID: "thread-1"},
-				AgentID:      "agent-1",
-			},
-			SessionID: "session-1",
-		},
-		Reason:  "reconnecting",
-		Attempt: 2,
-	})
-	event.Publish(dispatcher, agentdto.AgentFailed{
-		AgentSessionHeader: shared.AgentSessionHeader{
-			AgentHeader: shared.AgentHeader{
-				ThreadHeader: shared.ThreadHeader{EventHeader: shared.EventHeader{Timestamp: now}, ThreadID: "thread-1"},
-				AgentID:      "agent-1",
-			},
-			SessionID: "session-1",
-		},
-		Error:       "boom",
-		Recoverable: true,
-	})
-	event.Publish(dispatcher, turndto.TurnInterrupted{
-		TurnHeader: shared.TurnHeader{
-			AgentHeader:  shared.AgentHeader{ThreadHeader: shared.ThreadHeader{EventHeader: shared.EventHeader{Timestamp: now}, ThreadID: "thread-1"}, AgentID: "agent-1"},
-			TurnIDHeader: shared.TurnIDHeader{TurnID: "turn-1"},
-		},
-		Reason: "cancelled",
-	})
-	event.Publish(dispatcher, tooldto.ToolCallBegin{
-		ToolCallHeader: shared.ToolCallHeader{
-			TurnHeader: shared.TurnHeader{
-				AgentHeader:  shared.AgentHeader{ThreadHeader: shared.ThreadHeader{EventHeader: shared.EventHeader{Timestamp: now}, ThreadID: "thread-1"}, AgentID: "agent-1"},
-				TurnIDHeader: shared.TurnIDHeader{TurnID: "turn-1"},
-			},
-			CallID:   "call-1",
-			ToolName: "search",
-		},
-		RequestID:        11,
-		ArgumentsPreview: "{}",
-	})
-	event.Publish(dispatcher, tooldto.ToolCallEnd{
-		ToolCallHeader: shared.ToolCallHeader{
-			TurnHeader: shared.TurnHeader{
-				AgentHeader:  shared.AgentHeader{ThreadHeader: shared.ThreadHeader{EventHeader: shared.EventHeader{Timestamp: now}, ThreadID: "thread-1"}, AgentID: "agent-1"},
-				TurnIDHeader: shared.TurnIDHeader{TurnID: "turn-1"},
-			},
-			CallID:   "call-1",
-			ToolName: "search",
-		},
-		Success:   true,
-		ElapsedMS: 25,
-	})
-	event.Publish(dispatcher, tooldto.ToolApprovalRequested{
-		ToolApprovalHeader: shared.ToolApprovalHeader{
-			ToolCallHeader: shared.ToolCallHeader{
-				TurnHeader: shared.TurnHeader{
-					AgentHeader:  shared.AgentHeader{ThreadHeader: shared.ThreadHeader{EventHeader: shared.EventHeader{Timestamp: now}, ThreadID: "thread-1"}, AgentID: "agent-1"},
-					TurnIDHeader: shared.TurnIDHeader{TurnID: "turn-1"},
-				},
-				CallID:   "call-2",
-				ToolName: "shell",
-			},
-			ApprovalID: "approval-1",
-		},
-		RequestID: 99,
-		Reason:    "needs review",
-		Kind:      "request_user_input",
-	})
-	event.Publish(dispatcher, tooldto.ToolApprovalResolved{
-		ToolApprovalHeader: shared.ToolApprovalHeader{
-			ToolCallHeader: shared.ToolCallHeader{
-				TurnHeader: shared.TurnHeader{
-					AgentHeader:  shared.AgentHeader{ThreadHeader: shared.ThreadHeader{EventHeader: shared.EventHeader{Timestamp: now}, ThreadID: "thread-1"}, AgentID: "agent-1"},
-					TurnIDHeader: shared.TurnIDHeader{TurnID: "turn-1"},
-				},
-				CallID:   "call-2",
-				ToolName: "shell",
-			},
-			ApprovalID: "approval-1",
-		},
-		Approved: true,
-		Decision: "accept",
-		Kind:     "request_user_input",
-	})
+	publishRecoveryAndToolSurfaceEvents(dispatcher)
 
 	seen := map[string]map[string]any{}
 	for range 7 {
 		ev := mustReceivePublished(t, got)
 		seen[ev.method] = payloadMap(ev.payload)
 	}
+	assertRecoveryAndToolSurfacePayloads(t, seen)
+}
+
+func publishRecoveryAndToolSurfaceEvents(dispatcher *event.Dispatcher) {
+	now := time.Unix(1710000000, 0).UTC()
+	sessionHeader := bindTestAgentSessionHeader(now)
+	turnHeader := bindTestTurnHeader(now)
+	event.Publish(dispatcher, agentdto.AgentRecovering{
+		AgentSessionHeader: sessionHeader,
+		Reason:             "reconnecting",
+		Attempt:            2,
+	})
+	event.Publish(dispatcher, agentdto.AgentFailed{
+		AgentSessionHeader: sessionHeader,
+		Error:              "boom",
+		Recoverable:        true,
+	})
+	event.Publish(dispatcher, turndto.TurnInterrupted{
+		TurnHeader: turnHeader,
+		Reason:     "cancelled",
+	})
+	event.Publish(dispatcher, tooldto.ToolCallBegin{
+		ToolCallHeader:   bindTestToolCallHeader(turnHeader, "call-1", "search"),
+		RequestID:        11,
+		ArgumentsPreview: "{}",
+	})
+	event.Publish(dispatcher, tooldto.ToolCallEnd{
+		ToolCallHeader: bindTestToolCallHeader(turnHeader, "call-1", "search"),
+		Success:        true,
+		ElapsedMS:      25,
+	})
+	event.Publish(dispatcher, tooldto.ToolApprovalRequested{
+		ToolApprovalHeader: bindTestToolApprovalHeader(turnHeader),
+		RequestID:          99,
+		Reason:             "needs review",
+		Kind:               "request_user_input",
+	})
+	event.Publish(dispatcher, tooldto.ToolApprovalResolved{
+		ToolApprovalHeader: bindTestToolApprovalHeader(turnHeader),
+		Approved:           true,
+		Decision:           "accept",
+		Kind:               "request_user_input",
+	})
+}
+
+func bindTestAgentSessionHeader(now time.Time) shared.AgentSessionHeader {
+	return shared.AgentSessionHeader{
+		AgentHeader: shared.AgentHeader{
+			ThreadHeader: shared.ThreadHeader{
+				EventHeader: shared.EventHeader{Timestamp: now},
+				ThreadID:    "thread-1",
+			},
+			AgentID: "agent-1",
+		},
+		SessionID: "session-1",
+	}
+}
+
+func bindTestTurnHeader(now time.Time) shared.TurnHeader {
+	return shared.TurnHeader{
+		AgentHeader:  bindTestAgentSessionHeader(now).AgentHeader,
+		TurnIDHeader: shared.TurnIDHeader{TurnID: "turn-1"},
+	}
+}
+
+func bindTestToolCallHeader(turnHeader shared.TurnHeader, callID, toolName string) shared.ToolCallHeader {
+	return shared.ToolCallHeader{
+		TurnHeader: turnHeader,
+		CallID:     callID,
+		ToolName:   toolName,
+	}
+}
+
+func bindTestToolApprovalHeader(turnHeader shared.TurnHeader) shared.ToolApprovalHeader {
+	return shared.ToolApprovalHeader{
+		ToolCallHeader: bindTestToolCallHeader(turnHeader, "call-2", "shell"),
+		ApprovalID:     "approval-1",
+	}
+}
+
+func assertRecoveryAndToolSurfacePayloads(t *testing.T, seen map[string]map[string]any) {
+	t.Helper()
 	if seen[MethodAgentRecovering]["attempt"] != 2 {
 		t.Fatalf("agent recovering payload = %#v", seen[MethodAgentRecovering])
 	}
@@ -335,7 +332,6 @@ func mustReceivePublished(t *testing.T, ch <-chan publishedEvent) publishedEvent
 		return publishedEvent{}
 	}
 }
-
 
 func TestBindPublishesCronJobRunStateChanged(t *testing.T) {
 	t.Parallel()

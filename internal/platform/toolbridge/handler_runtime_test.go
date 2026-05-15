@@ -14,163 +14,8 @@ import (
 func TestToolCallRuntimeConfig_Pin(t *testing.T) {
 	t.Parallel()
 
-	validRuntime := map[string]any{
-		"taskId": "task-1",
-		"sessionFlags": map[string]any{
-			"persistent_subagent_default": true,
-		},
-	}
-	validRaw := mustRawJSON(t, storedThreadRuntime{Runtime: validRuntime})
-	emptyRuntimeRaw := mustRawJSON(t, storedThreadRuntime{Runtime: map[string]any{}})
-	invalidRaw := []byte("{")
-	getErr := errors.New("get failed")
-	resolveErr := errors.New("resolve failed")
-
-	tests := []struct {
-		name             string
-		handler          *Handler
-		req              ToolCallRequest
-		wantRuntime      map[string]any
-		wantOK           bool
-		wantBindingCalls []string
-		wantThreadCalls  []string
-	}{
-		{
-			name:        "nil handler without thread id returns false",
-			handler:     nil,
-			req:         ToolCallRequest{},
-			wantRuntime: nil,
-		},
-		{
-			name: "explicit thread id wins over agent binding lookup",
-			handler: &Handler{
-				bindingStore: &toolCallBindingStoreStub{threadID: "thread-from-agent"},
-				threadStore: &toolCallThreadStoreStub{
-					row: &threadstore.Thread{ThreadID: "thread-1", ConfigOverride: validRaw},
-				},
-			},
-			req:              ToolCallRequest{ThreadID: " thread-1 ", AgentID: "agent-1"},
-			wantRuntime:      validRuntime,
-			wantOK:           true,
-			wantBindingCalls: nil,
-			wantThreadCalls:  []string{"thread-1"},
-		},
-		{
-			name: "blank thread id without agent id returns false",
-			handler: &Handler{
-				bindingStore: &toolCallBindingStoreStub{threadID: "thread-from-agent"},
-				threadStore:  &toolCallThreadStoreStub{},
-			},
-			req:              ToolCallRequest{ThreadID: " ", AgentID: "  "},
-			wantRuntime:      nil,
-			wantBindingCalls: nil,
-			wantThreadCalls:  nil,
-		},
-		{
-			name: "binding lookup error returns false",
-			handler: &Handler{
-				bindingStore: &toolCallBindingStoreStub{err: resolveErr},
-				threadStore:  &toolCallThreadStoreStub{},
-			},
-			req:              ToolCallRequest{AgentID: " agent-1 "},
-			wantRuntime:      nil,
-			wantBindingCalls: []string{"agent-1"},
-			wantThreadCalls:  nil,
-		},
-		{
-			name: "binding lookup resolving blank thread id returns false",
-			handler: &Handler{
-				bindingStore: &toolCallBindingStoreStub{threadID: "   "},
-				threadStore:  &toolCallThreadStoreStub{},
-			},
-			req:              ToolCallRequest{AgentID: "agent-2"},
-			wantRuntime:      nil,
-			wantBindingCalls: []string{"agent-2"},
-			wantThreadCalls:  nil,
-		},
-		{
-			name: "resolved thread id without thread store returns false",
-			handler: &Handler{
-				bindingStore: &toolCallBindingStoreStub{threadID: "thread-2"},
-			},
-			req:              ToolCallRequest{AgentID: "agent-3"},
-			wantRuntime:      nil,
-			wantBindingCalls: []string{"agent-3"},
-			wantThreadCalls:  nil,
-		},
-		{
-			name: "thread store error returns false",
-			handler: &Handler{
-				threadStore: &toolCallThreadStoreStub{err: getErr},
-			},
-			req:              ToolCallRequest{ThreadID: "thread-3"},
-			wantRuntime:      nil,
-			wantBindingCalls: nil,
-			wantThreadCalls:  []string{"thread-3"},
-		},
-		{
-			name: "missing thread row returns false",
-			handler: &Handler{
-				threadStore: &toolCallThreadStoreStub{},
-			},
-			req:              ToolCallRequest{ThreadID: "thread-4"},
-			wantRuntime:      nil,
-			wantBindingCalls: nil,
-			wantThreadCalls:  []string{"thread-4"},
-		},
-		{
-			name: "empty config override returns false",
-			handler: &Handler{
-				threadStore: &toolCallThreadStoreStub{
-					row: &threadstore.Thread{ThreadID: "thread-5"},
-				},
-			},
-			req:              ToolCallRequest{ThreadID: "thread-5"},
-			wantRuntime:      nil,
-			wantBindingCalls: nil,
-			wantThreadCalls:  []string{"thread-5"},
-		},
-		{
-			name: "invalid config override json returns false",
-			handler: &Handler{
-				threadStore: &toolCallThreadStoreStub{
-					row: &threadstore.Thread{ThreadID: "thread-6", ConfigOverride: invalidRaw},
-				},
-			},
-			req:              ToolCallRequest{ThreadID: "thread-6"},
-			wantRuntime:      nil,
-			wantBindingCalls: nil,
-			wantThreadCalls:  []string{"thread-6"},
-		},
-		{
-			name: "empty decoded runtime returns false",
-			handler: &Handler{
-				threadStore: &toolCallThreadStoreStub{
-					row: &threadstore.Thread{ThreadID: "thread-7", ConfigOverride: emptyRuntimeRaw},
-				},
-			},
-			req:              ToolCallRequest{ThreadID: "thread-7"},
-			wantRuntime:      nil,
-			wantBindingCalls: nil,
-			wantThreadCalls:  []string{"thread-7"},
-		},
-		{
-			name: "resolves thread id from agent binding and returns runtime",
-			handler: &Handler{
-				bindingStore: &toolCallBindingStoreStub{threadID: " thread-8 "},
-				threadStore: &toolCallThreadStoreStub{
-					row: &threadstore.Thread{ThreadID: "thread-8", ConfigOverride: validRaw},
-				},
-			},
-			req:              ToolCallRequest{AgentID: "agent-8"},
-			wantRuntime:      validRuntime,
-			wantOK:           true,
-			wantBindingCalls: []string{"agent-8"},
-			wantThreadCalls:  []string{"thread-8"},
-		},
-	}
-
-	for _, tt := range tests {
+	fixtures := newToolCallRuntimeFixtures(t)
+	for _, tt := range toolCallRuntimeCases(fixtures) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -188,6 +33,176 @@ func TestToolCallRuntimeConfig_Pin(t *testing.T) {
 			assertToolCallBindingCalls(t, tt.handler.bindingStore, tt.wantBindingCalls)
 			assertToolCallThreadCalls(t, tt.handler.threadStore, tt.wantThreadCalls)
 		})
+	}
+}
+
+type toolCallRuntimeCase struct {
+	name             string
+	handler          *Handler
+	req              ToolCallRequest
+	wantRuntime      map[string]any
+	wantOK           bool
+	wantBindingCalls []string
+	wantThreadCalls  []string
+}
+
+type toolCallRuntimeFixtures struct {
+	validRuntime map[string]any
+	validRaw     []byte
+	emptyRaw     []byte
+	invalidRaw   []byte
+	getErr       error
+	resolveErr   error
+}
+
+func newToolCallRuntimeFixtures(t *testing.T) toolCallRuntimeFixtures {
+	t.Helper()
+	validRuntime := map[string]any{
+		"taskId": "task-1",
+		"sessionFlags": map[string]any{
+			"persistent_subagent_default": true,
+		},
+	}
+	return toolCallRuntimeFixtures{
+		validRuntime: validRuntime,
+		validRaw:     mustRawJSON(t, storedThreadRuntime{Runtime: validRuntime}),
+		emptyRaw:     mustRawJSON(t, storedThreadRuntime{Runtime: map[string]any{}}),
+		invalidRaw:   []byte("{"),
+		getErr:       errors.New("get failed"),
+		resolveErr:   errors.New("resolve failed"),
+	}
+}
+
+func toolCallRuntimeCases(f toolCallRuntimeFixtures) []toolCallRuntimeCase {
+	cases := toolCallRuntimeLookupFailureCases(f)
+	return append(cases, toolCallRuntimeConfigCases(f)...)
+}
+
+func toolCallRuntimeLookupFailureCases(f toolCallRuntimeFixtures) []toolCallRuntimeCase {
+	return []toolCallRuntimeCase{
+		{
+			name:        "nil handler without thread id returns false",
+			handler:     nil,
+			req:         ToolCallRequest{},
+			wantRuntime: nil,
+		},
+		{
+			name: "blank thread id without agent id returns false",
+			handler: &Handler{
+				bindingStore: &toolCallBindingStoreStub{threadID: "thread-from-agent"},
+				threadStore:  &toolCallThreadStoreStub{},
+			},
+			req:              ToolCallRequest{ThreadID: " ", AgentID: "  "},
+			wantBindingCalls: nil,
+			wantThreadCalls:  nil,
+		},
+		{
+			name: "binding lookup error returns false",
+			handler: &Handler{
+				bindingStore: &toolCallBindingStoreStub{err: f.resolveErr},
+				threadStore:  &toolCallThreadStoreStub{},
+			},
+			req:              ToolCallRequest{AgentID: " agent-1 "},
+			wantBindingCalls: []string{"agent-1"},
+			wantThreadCalls:  nil,
+		},
+		{
+			name: "binding lookup resolving blank thread id returns false",
+			handler: &Handler{
+				bindingStore: &toolCallBindingStoreStub{threadID: "   "},
+				threadStore:  &toolCallThreadStoreStub{},
+			},
+			req:              ToolCallRequest{AgentID: "agent-2"},
+			wantBindingCalls: []string{"agent-2"},
+			wantThreadCalls:  nil,
+		},
+		{
+			name: "resolved thread id without thread store returns false",
+			handler: &Handler{
+				bindingStore: &toolCallBindingStoreStub{threadID: "thread-2"},
+			},
+			req:              ToolCallRequest{AgentID: "agent-3"},
+			wantBindingCalls: []string{"agent-3"},
+			wantThreadCalls:  nil,
+		},
+	}
+}
+
+func toolCallRuntimeConfigCases(f toolCallRuntimeFixtures) []toolCallRuntimeCase {
+	return []toolCallRuntimeCase{
+		{
+			name: "explicit thread id wins over agent binding lookup",
+			handler: &Handler{
+				bindingStore: &toolCallBindingStoreStub{threadID: "thread-from-agent"},
+				threadStore: &toolCallThreadStoreStub{
+					row: &threadstore.Thread{ThreadID: "thread-1", ConfigOverride: f.validRaw},
+				},
+			},
+			req:             ToolCallRequest{ThreadID: " thread-1 ", AgentID: "agent-1"},
+			wantRuntime:     f.validRuntime,
+			wantOK:          true,
+			wantThreadCalls: []string{"thread-1"},
+		},
+		{
+			name: "thread store error returns false",
+			handler: &Handler{
+				threadStore: &toolCallThreadStoreStub{err: f.getErr},
+			},
+			req:             ToolCallRequest{ThreadID: "thread-3"},
+			wantThreadCalls: []string{"thread-3"},
+		},
+		{
+			name: "missing thread row returns false",
+			handler: &Handler{
+				threadStore: &toolCallThreadStoreStub{},
+			},
+			req:             ToolCallRequest{ThreadID: "thread-4"},
+			wantThreadCalls: []string{"thread-4"},
+		},
+		{
+			name: "empty config override returns false",
+			handler: &Handler{
+				threadStore: &toolCallThreadStoreStub{
+					row: &threadstore.Thread{ThreadID: "thread-5"},
+				},
+			},
+			req:             ToolCallRequest{ThreadID: "thread-5"},
+			wantThreadCalls: []string{"thread-5"},
+		},
+		{
+			name: "invalid config override json returns false",
+			handler: &Handler{
+				threadStore: &toolCallThreadStoreStub{
+					row: &threadstore.Thread{ThreadID: "thread-6", ConfigOverride: f.invalidRaw},
+				},
+			},
+			req:             ToolCallRequest{ThreadID: "thread-6"},
+			wantThreadCalls: []string{"thread-6"},
+		},
+		{
+			name: "empty decoded runtime returns false",
+			handler: &Handler{
+				threadStore: &toolCallThreadStoreStub{
+					row: &threadstore.Thread{ThreadID: "thread-7", ConfigOverride: f.emptyRaw},
+				},
+			},
+			req:             ToolCallRequest{ThreadID: "thread-7"},
+			wantThreadCalls: []string{"thread-7"},
+		},
+		{
+			name: "resolves thread id from agent binding and returns runtime",
+			handler: &Handler{
+				bindingStore: &toolCallBindingStoreStub{threadID: " thread-8 "},
+				threadStore: &toolCallThreadStoreStub{
+					row: &threadstore.Thread{ThreadID: "thread-8", ConfigOverride: f.validRaw},
+				},
+			},
+			req:              ToolCallRequest{AgentID: "agent-8"},
+			wantRuntime:      f.validRuntime,
+			wantOK:           true,
+			wantBindingCalls: []string{"agent-8"},
+			wantThreadCalls:  []string{"thread-8"},
+		},
 	}
 }
 

@@ -84,18 +84,20 @@ func TestWithTimeout(t *testing.T) {
 	}
 }
 
+type withTimeoutIfNoneCase struct {
+	name              string
+	parent            func(t *testing.T) (context.Context, context.CancelFunc)
+	timeout           time.Duration
+	wantDeadline      bool
+	wantPreserve      bool
+	wantCanceledCtx   bool
+	expectedRemaining time.Duration
+}
+
 func TestWithTimeoutIfNone(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		name              string
-		parent            func(t *testing.T) (context.Context, context.CancelFunc)
-		timeout           time.Duration
-		wantDeadline      bool
-		wantPreserve      bool
-		wantCanceledCtx   bool
-		expectedRemaining time.Duration
-	}{
+	cases := []withTimeoutIfNoneCase{
 		{
 			name: "no_parent_deadline_adds_timeout",
 			parent: func(t *testing.T) (context.Context, context.CancelFunc) {
@@ -144,45 +146,55 @@ func TestWithTimeoutIfNone(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-
-			parent, cleanupParent := tc.parent(t)
-			defer cleanupParent()
-
-			start := time.Now()
-			var parentDeadline time.Time
-			if parent != nil {
-				parentDeadline, _ = parent.Deadline()
-			}
-
-			ctx, cancel := WithTimeoutIfNone(parent, tc.timeout)
-			defer cancel()
-
-			deadline, ok := ctx.Deadline()
-			if ok != tc.wantDeadline {
-				t.Fatalf("Deadline() ok = %t, want %t", ok, tc.wantDeadline)
-			}
-			if tc.wantDeadline {
-				if tc.wantPreserve {
-					if !deadline.Equal(parentDeadline) {
-						t.Fatalf("Deadline() = %s, want preserved %s", deadline, parentDeadline)
-					}
-				} else {
-					assertDeadlineNear(t, deadline, start, tc.timeout)
-				}
-			}
-
-			cancel()
-			if tc.wantCanceledCtx {
-				if err := ctx.Err(); err != context.Canceled {
-					t.Fatalf("ctx.Err() after cancel = %v, want %v", err, context.Canceled)
-				}
-				return
-			}
-			if err := ctx.Err(); err != nil {
-				t.Fatalf("ctx.Err() after cancel = %v, want nil", err)
-			}
+			runWithTimeoutIfNoneCase(t, tc)
 		})
 	}
+}
+
+func runWithTimeoutIfNoneCase(t *testing.T, tc withTimeoutIfNoneCase) {
+	t.Helper()
+
+	parent, cleanupParent := tc.parent(t)
+	defer cleanupParent()
+
+	start := time.Now()
+	var parentDeadline time.Time
+	if parent != nil {
+		parentDeadline, _ = parent.Deadline()
+	}
+
+	ctx, cancel := WithTimeoutIfNone(parent, tc.timeout)
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	if ok != tc.wantDeadline {
+		t.Fatalf("Deadline() ok = %t, want %t", ok, tc.wantDeadline)
+	}
+	if tc.wantDeadline {
+		assertTimeoutIfNoneDeadline(t, tc, deadline, parentDeadline, start)
+	}
+
+	cancel()
+	if tc.wantCanceledCtx {
+		if err := ctx.Err(); err != context.Canceled {
+			t.Fatalf("ctx.Err() after cancel = %v, want %v", err, context.Canceled)
+		}
+		return
+	}
+	if err := ctx.Err(); err != nil {
+		t.Fatalf("ctx.Err() after cancel = %v, want nil", err)
+	}
+}
+
+func assertTimeoutIfNoneDeadline(t *testing.T, tc withTimeoutIfNoneCase, deadline, parentDeadline, start time.Time) {
+	t.Helper()
+	if tc.wantPreserve {
+		if !deadline.Equal(parentDeadline) {
+			t.Fatalf("Deadline() = %s, want preserved %s", deadline, parentDeadline)
+		}
+		return
+	}
+	assertDeadlineNear(t, deadline, start, tc.timeout)
 }
 
 func assertDeadlineNear(t *testing.T, deadline time.Time, start time.Time, timeout time.Duration) {

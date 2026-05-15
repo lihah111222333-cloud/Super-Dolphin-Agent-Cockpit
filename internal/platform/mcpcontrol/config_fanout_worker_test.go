@@ -87,34 +87,57 @@ func (s *stubVersionSource) advanceConfigVersion() int64 { return s.v.Add(1) }
 func TestConfigFanoutWorkerUsesCancelableContext(t *testing.T) {
 	t.Parallel()
 
-	notifier := &fakeFanoutNotifier{
-		entered: make(chan struct{}),
-		exited:  make(chan error, 1),
-		block:   make(chan struct{}),
-	}
-	versions := &stubVersionSource{}
-	worker := newConfigFanoutWorker(notifier, versions, nil)
-	worker.Start()
+	notifier, worker := startedConfigFanoutWorker()
 
 	// First assertion: the worker-exposed fanoutCtx is cancellable and
 	// distinct from context.Background(). That's the "UsesCancelable
 	// Context" part of the name — we verify it before the notifier even
 	// fires, so the check holds even if Enqueue/processing has a bug.
+	assertFanoutCtxCancelable(t, worker)
+
+	enqueueAgentLaunchFanout(worker)
+	waitForFanoutNotifier(t, notifier)
+	stopFanoutWorker(t, worker, notifier)
+	assertFanoutNotifierCanceled(t, notifier)
+	assertAgentLaunchFanoutCall(t, notifier.calls())
+}
+
+func startedConfigFanoutWorker() (*fakeFanoutNotifier, *configFanoutWorker) {
+	notifier := &fakeFanoutNotifier{
+		entered: make(chan struct{}),
+		exited:  make(chan error, 1),
+		block:   make(chan struct{}),
+	}
+	worker := newConfigFanoutWorker(notifier, &stubVersionSource{}, nil)
+	worker.Start()
+	return notifier, worker
+}
+
+func assertFanoutCtxCancelable(t *testing.T, worker *configFanoutWorker) {
+	t.Helper()
 	if worker.FanoutCtx() == context.Background() {
 		t.Fatal("worker.FanoutCtx() returned context.Background(); must be worker-owned cancellable ctx")
 	}
+}
 
+func enqueueAgentLaunchFanout(worker *configFanoutWorker) {
 	worker.Enqueue(configTopicAgent, map[string]any{
 		"event":   "agent/launched",
 		"agentId": "agent-1",
 	})
+}
 
+func waitForFanoutNotifier(t *testing.T, notifier *fakeFanoutNotifier) {
+	t.Helper()
 	select {
 	case <-notifier.entered:
 	case <-time.After(time.Second):
 		t.Fatal("NotifyConfigChanged did not enter within 1s; worker dispatch broken")
 	}
+}
 
+func stopFanoutWorker(t *testing.T, worker *configFanoutWorker, notifier *fakeFanoutNotifier) {
+	t.Helper()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 	start := time.Now()
@@ -134,7 +157,10 @@ func TestConfigFanoutWorkerUsesCancelableContext(t *testing.T) {
 	if elapsed > 250*time.Millisecond {
 		t.Errorf("Stop took %s, want <250ms — fanoutCtx cancel should propagate to notifier immediately", elapsed)
 	}
+}
 
+func assertFanoutNotifierCanceled(t *testing.T, notifier *fakeFanoutNotifier) {
+	t.Helper()
 	select {
 	case ctxErr := <-notifier.exited:
 		if !errors.Is(ctxErr, context.Canceled) {
@@ -143,8 +169,10 @@ func TestConfigFanoutWorkerUsesCancelableContext(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("notifier did not publish its ctx.Err() after Stop")
 	}
+}
 
-	calls := notifier.calls()
+func assertAgentLaunchFanoutCall(t *testing.T, calls []fakeFanoutCall) {
+	t.Helper()
 	if len(calls) != 1 {
 		t.Fatalf("notifier received %d calls, want 1", len(calls))
 	}

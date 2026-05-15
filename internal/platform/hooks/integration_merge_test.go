@@ -22,40 +22,8 @@ func TestIntegration_MultiSubscriberConflictMerge(t *testing.T) {
 
 	dispatcher := mustNewHookDispatcher(t, registry, stubPeerCallback{
 		before: func(_ context.Context, gotLease mcp.LeaseKey, payload mcp.HookPayload) (mcp.BeforeDecision, error) {
-			if payload.Topic != TopicToolBefore {
-				t.Fatalf("payload.Topic = %q, want %q", payload.Topic, TopicToolBefore)
-			}
-			if payload.Depth != 1 {
-				t.Fatalf("payload.Depth = %d, want 1", payload.Depth)
-			}
-			if payload.HookCallID != "call-merge" {
-				t.Fatalf("payload.HookCallID = %q, want %q", payload.HookCallID, "call-merge")
-			}
-
-			switch gotLease {
-			case leaseA:
-				return mcp.BeforeDecision{
-					Decision:     mcp.HookDecisionAllow,
-					AllowedTools: []string{"read", "shell"},
-					DeniedTools:  []string{"network"},
-				}, nil
-			case leaseB:
-				return mcp.BeforeDecision{
-					Decision:     mcp.HookDecisionDeny,
-					AllowedTools: []string{"read", "write"},
-					DeniedTools:  []string{"exec"},
-					Reason:       "policy block",
-				}, nil
-			case leaseC:
-				return mcp.BeforeDecision{
-					Decision:     mcp.HookDecisionModify,
-					AllowedTools: []string{"read", "shell", "write"},
-					DeniedTools:  []string{"rm", "exec"},
-				}, nil
-			default:
-				t.Fatalf("unexpected lease = %#v", gotLease)
-				return mcp.BeforeDecision{}, nil
-			}
+			assertConflictMergePayload(t, payload)
+			return conflictMergeDecisionForLease(t, gotLease, leaseA, leaseB, leaseC), nil
 		},
 	}, WithDispatcherParallelism(1))
 
@@ -82,6 +50,47 @@ func TestIntegration_MultiSubscriberConflictMerge(t *testing.T) {
 	}
 }
 
+func assertConflictMergePayload(t *testing.T, payload mcp.HookPayload) {
+	t.Helper()
+	if payload.Topic != TopicToolBefore {
+		t.Fatalf("payload.Topic = %q, want %q", payload.Topic, TopicToolBefore)
+	}
+	if payload.Depth != 1 {
+		t.Fatalf("payload.Depth = %d, want 1", payload.Depth)
+	}
+	if payload.HookCallID != "call-merge" {
+		t.Fatalf("payload.HookCallID = %q, want %q", payload.HookCallID, "call-merge")
+	}
+}
+
+func conflictMergeDecisionForLease(t *testing.T, gotLease, leaseA, leaseB, leaseC mcp.LeaseKey) mcp.BeforeDecision {
+	t.Helper()
+	switch gotLease {
+	case leaseA:
+		return mcp.BeforeDecision{
+			Decision:     mcp.HookDecisionAllow,
+			AllowedTools: []string{"read", "shell"},
+			DeniedTools:  []string{"network"},
+		}
+	case leaseB:
+		return mcp.BeforeDecision{
+			Decision:     mcp.HookDecisionDeny,
+			AllowedTools: []string{"read", "write"},
+			DeniedTools:  []string{"exec"},
+			Reason:       "policy block",
+		}
+	case leaseC:
+		return mcp.BeforeDecision{
+			Decision:     mcp.HookDecisionModify,
+			AllowedTools: []string{"read", "shell", "write"},
+			DeniedTools:  []string{"rm", "exec"},
+		}
+	default:
+		t.Fatalf("unexpected lease = %#v", gotLease)
+		return mcp.BeforeDecision{}
+	}
+}
+
 func TestIntegration_EscalateResolveFlow(t *testing.T) {
 	t.Parallel()
 
@@ -91,18 +100,7 @@ func TestIntegration_EscalateResolveFlow(t *testing.T) {
 
 	dispatcher := mustNewHookDispatcher(t, registry, stubPeerCallback{
 		after: func(_ context.Context, gotLease mcp.LeaseKey, payload mcp.HookPayload) (mcp.AfterDecision, error) {
-			if gotLease != lease {
-				t.Fatalf("lease = %#v, want %#v", gotLease, lease)
-			}
-			if payload.Topic != TopicToolAfter {
-				t.Fatalf("payload.Topic = %q, want %q", payload.Topic, TopicToolAfter)
-			}
-			if payload.Depth != 1 {
-				t.Fatalf("payload.Depth = %d, want 1", payload.Depth)
-			}
-			if payload.HookCallID != "call-escalate" {
-				t.Fatalf("payload.HookCallID = %q, want %q", payload.HookCallID, "call-escalate")
-			}
+			assertEscalateCallback(t, gotLease, lease, payload)
 			return mcp.AfterDecision{
 				Decision: mcp.HookDecisionEscalate,
 				Reason:   "needs review",
@@ -136,16 +134,54 @@ func TestIntegration_EscalateResolveFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DispatchAfter() error = %v", err)
 	}
+	assertEscalateDispatchDecision(t, got)
+	pending := mustSavedEscalateReview(t, baseStore)
+
+	resolved, err := manager.Resolve(context.Background(), mcp.LeaseKey{InstanceID: "lease-escalate", Generation: 1}, mcp.HookResolveRequest{
+		HookCallID:     pending.HookCallID,
+		Decision:       mcp.HookDecisionApprove,
+		Reason:         "approved by reviewer",
+		IdempotencyKey: "idem-escalate",
+		ResolvedBy:     "reviewer-integration",
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	assertEscalateResolveResult(t, resolved, resolvedAt)
+	assertEscalateResolveCall(t, baseStore, pending)
+}
+
+func assertEscalateCallback(t *testing.T, gotLease, wantLease mcp.LeaseKey, payload mcp.HookPayload) {
+	t.Helper()
+	if gotLease != wantLease {
+		t.Fatalf("lease = %#v, want %#v", gotLease, wantLease)
+	}
+	if payload.Topic != TopicToolAfter {
+		t.Fatalf("payload.Topic = %q, want %q", payload.Topic, TopicToolAfter)
+	}
+	if payload.Depth != 1 {
+		t.Fatalf("payload.Depth = %d, want 1", payload.Depth)
+	}
+	if payload.HookCallID != "call-escalate" {
+		t.Fatalf("payload.HookCallID = %q, want %q", payload.HookCallID, "call-escalate")
+	}
+}
+
+func assertEscalateDispatchDecision(t *testing.T, got mcp.AfterDecision) {
+	t.Helper()
 	if got.Decision != mcp.HookDecisionEscalate {
 		t.Fatalf("DispatchAfter() decision = %q, want %q", got.Decision, mcp.HookDecisionEscalate)
 	}
 	if got.Reason != "needs review" {
 		t.Fatalf("DispatchAfter() reason = %q, want %q", got.Reason, "needs review")
 	}
+}
+
+func mustSavedEscalateReview(t *testing.T, baseStore *stubHookReviewStore) mcp.PendingHookReview {
+	t.Helper()
 	if len(baseStore.saved) != 1 {
 		t.Fatalf("saved reviews = %d, want 1", len(baseStore.saved))
 	}
-
 	pending := baseStore.saved[0]
 	if pending.HookCallID != "call-escalate" {
 		t.Fatalf("pending HookCallID = %q, want %q", pending.HookCallID, "call-escalate")
@@ -159,17 +195,11 @@ func TestIntegration_EscalateResolveFlow(t *testing.T) {
 	if pending.SubscriberLease != "lease-escalate/1" {
 		t.Fatalf("pending SubscriberLease = %q, want %q", pending.SubscriberLease, "lease-escalate/1")
 	}
+	return pending
+}
 
-	resolved, err := manager.Resolve(context.Background(), mcp.LeaseKey{InstanceID: "lease-escalate", Generation: 1}, mcp.HookResolveRequest{
-		HookCallID:     pending.HookCallID,
-		Decision:       mcp.HookDecisionApprove,
-		Reason:         "approved by reviewer",
-		IdempotencyKey: "idem-escalate",
-		ResolvedBy:     "reviewer-integration",
-	})
-	if err != nil {
-		t.Fatalf("Resolve() error = %v", err)
-	}
+func assertEscalateResolveResult(t *testing.T, resolved mcp.HookResolveResponse, resolvedAt time.Time) {
+	t.Helper()
 	if !resolved.Accepted {
 		t.Fatal("Resolve() Accepted = false, want true")
 	}
@@ -182,6 +212,10 @@ func TestIntegration_EscalateResolveFlow(t *testing.T) {
 	if resolved.ResolvedAt != resolvedAt.Format(time.RFC3339Nano) {
 		t.Fatalf("Resolve() resolved at = %q, want %q", resolved.ResolvedAt, resolvedAt.Format(time.RFC3339Nano))
 	}
+}
+
+func assertEscalateResolveCall(t *testing.T, baseStore *stubHookReviewStore, pending mcp.PendingHookReview) {
+	t.Helper()
 	if len(baseStore.resolveCalls) != 1 {
 		t.Fatalf("resolve calls = %d, want 1", len(baseStore.resolveCalls))
 	}

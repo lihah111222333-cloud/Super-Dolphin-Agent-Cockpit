@@ -129,24 +129,9 @@ func TestFlusherSendsQueuedRequest(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- f.Run(ctx) }()
 
-	// Wait until the server has recorded the body or the test times
-	// out.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		mu.Lock()
-		n := len(*bodies)
-		mu.Unlock()
-		if n > 0 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	waitForFlusherBodies(bodies, mu, 1, 2*time.Second)
 	cancel()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("flusher did not exit on cancel")
-	}
+	waitForFlusherDone(t, done, time.Second)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -163,6 +148,28 @@ func TestFlusherSendsQueuedRequest(t *testing.T) {
 	m := f.Metrics()
 	if m.Sent != 1 || m.Delivered != 1 {
 		t.Fatalf("metrics = %+v, want Sent=1 Delivered=1", m)
+	}
+}
+
+func waitForFlusherBodies(bodies *[]string, mu *sync.Mutex, want int, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		n := len(*bodies)
+		mu.Unlock()
+		if n >= want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func waitForFlusherDone(t *testing.T, done <-chan error, timeout time.Duration) {
+	t.Helper()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		t.Fatal("flusher did not exit on cancel")
 	}
 }
 
