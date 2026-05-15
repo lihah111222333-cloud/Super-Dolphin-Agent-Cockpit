@@ -338,7 +338,8 @@ export const ChatTimeline = {
               >
                 <template v-if="item.done === false && !item.streamingFinalized">
                   <template v-for="s in [streamingAssistantState(item)]" :key="0">
-                    <pre class="chat-item-plain chat-item-streaming" :style="s.heightPx ? { minHeight: s.heightPx + 'px' } : undefined">{{ s.text }}</pre>
+                    <div v-if="s.html" class="chat-item-markdown-stream-wrap" v-html="s.html"></div>
+                    <pre v-if="s.tailText" class="chat-item-plain chat-item-streaming" :style="s.heightPx ? { minHeight: s.heightPx + 'px' } : undefined">{{ s.tailText }}</pre>
                   </template>
                 </template>
                 <div v-else class="chat-item-markdown-static-wrap" v-html="renderAssistantBody(item.text)"></div>
