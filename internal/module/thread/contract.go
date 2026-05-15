@@ -200,19 +200,20 @@ type StartResult struct {
 }
 
 type ResumeRequest struct {
-	Provider           string
-	AgentID            string
-	ThreadID           string
-	ProviderThreadID   string
-	Path               string
-	CWD                string
-	Model              string
-	Effort             string
-	PromptSnapshot     contract.PromptAssemblySnapshot
-	ConfigOverride     dto.ThreadConfigPatch
-	CodexHome          string
-	CodexInstanceKey   string
-	CodexModelProvider string
+	Provider                 string
+	AgentID                  string
+	ThreadID                 string
+	ProviderThreadID         string
+	Path                     string
+	CWD                      string
+	Model                    string
+	Effort                   string
+	PromptSnapshot           contract.PromptAssemblySnapshot
+	ConfigOverride           dto.ThreadConfigPatch
+	CodexHome                string
+	CodexInstanceKey         string
+	CodexModelProvider       string
+	CodexDisabledNativeTools []string
 }
 
 type ResumeResult struct {

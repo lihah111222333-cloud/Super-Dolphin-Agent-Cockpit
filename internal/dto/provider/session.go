@@ -42,6 +42,7 @@ type StartAssembly struct {
 	DeveloperInstructions string                  `json:"developerInstructions,omitempty"`
 	ResolvedSections      []ResolvedPromptSection `json:"resolvedSections,omitempty"`
 	Snapshot              PromptAssemblySnapshot  `json:"snapshot"`
+	SuppressedTools       []string                `json:"suppressedTools,omitempty"`
 
 	// UserContext mirrors TurnAssembly.UserContext: a structured map of
 	// per-start user meta entries (currentDate, runtimeExtras, gitStatus,
@@ -88,19 +89,20 @@ type StartSessionRequest struct {
 }
 
 type ResumeSessionRequest struct {
-	Provider           string                 `json:"provider"`
-	AgentID            string                 `json:"agentId"`
-	ThreadID           string                 `json:"threadId"`
-	ProviderThreadID   string                 `json:"providerThreadId,omitempty"`
-	Path               string                 `json:"path,omitempty"`
-	CWD                string                 `json:"cwd,omitempty"`
-	Model              string                 `json:"model,omitempty"`
-	Effort             string                 `json:"effort,omitempty"`
-	PromptSnapshot     PromptAssemblySnapshot `json:"promptSnapshot"`
-	ConfigOverride     ThreadConfigPatch      `json:"configOverride"`
-	CodexHome          string                 `json:"codexHome,omitempty"`
-	CodexInstanceKey   string                 `json:"codexInstanceKey,omitempty"`
-	CodexModelProvider string                 `json:"codexModelProvider,omitempty"`
+	Provider                 string                 `json:"provider"`
+	AgentID                  string                 `json:"agentId"`
+	ThreadID                 string                 `json:"threadId"`
+	ProviderThreadID         string                 `json:"providerThreadId,omitempty"`
+	Path                     string                 `json:"path,omitempty"`
+	CWD                      string                 `json:"cwd,omitempty"`
+	Model                    string                 `json:"model,omitempty"`
+	Effort                   string                 `json:"effort,omitempty"`
+	PromptSnapshot           PromptAssemblySnapshot `json:"promptSnapshot"`
+	ConfigOverride           ThreadConfigPatch      `json:"configOverride"`
+	CodexHome                string                 `json:"codexHome,omitempty"`
+	CodexInstanceKey         string                 `json:"codexInstanceKey,omitempty"`
+	CodexModelProvider       string                 `json:"codexModelProvider,omitempty"`
+	CodexDisabledNativeTools []string               `json:"codexDisabledNativeTools,omitempty"`
 }
 
 var _ json.Marshaler = json.RawMessage(nil)

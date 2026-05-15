@@ -335,6 +335,70 @@ describe('thread store actions', () => {
     }));
   });
 
+  it('reads Claude builtin tool filtering from the launch cwd when building thread/start config', async () => {
+    const store = useThreadStore();
+    const builtinReadCalls = [];
+    let startPayload = null;
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get') {
+        return mockStartPreference(payload, { provider: 'claude' });
+      }
+      if (method === 'config/builtinTools/read') {
+        builtinReadCalls.push(payload);
+        return {
+          tools: [
+            { id: 'Read', provider: 'claude', enabled: false },
+            { id: 'WebFetch', provider: 'claude', enabled: true },
+            { id: 'shell', provider: 'codex', enabled: true },
+          ],
+        };
+      }
+      if (method === 'thread/start') { startPayload = payload; return { thread: { id: 'thread-filtered' } }; }
+      if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-filtered', activeThreadId: '' });
+      if (method === 'ui/preferences/set') return {};
+      return {};
+    });
+
+    await store.startThread('/repo-project', {});
+    await flushAsync();
+
+    expect(builtinReadCalls).toContainEqual({ cwd: '/repo-project' });
+    expect(startPayload?.config?.claude_builtin_tools).toEqual(['WebFetch']);
+  });
+
+  it('forwards Codex disabled native tools from launch cwd into thread/start config', async () => {
+    const store = useThreadStore();
+    const builtinReadCalls = [];
+    let startPayload = null;
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'ui/preferences/get') {
+        return mockStartPreference(payload, { provider: 'codex' });
+      }
+      if (method === 'config/builtinTools/read') {
+        builtinReadCalls.push(payload);
+        return {
+          tools: [
+            { id: 'shell', provider: 'codex', enabled: false, enforcement: 'native-hard' },
+            { id: 'apply_patch', provider: 'codex', enabled: false, enforcement: 'effect-hard' },
+            { id: 'multi_agent', provider: 'codex', enabled: false, enforcement: 'native-hard' },
+            { id: 'read_file', provider: 'codex', enabled: true },
+            { id: 'WebFetch', provider: 'claude', enabled: true },
+          ],
+        };
+      }
+      if (method === 'thread/start') { startPayload = payload; return { thread: { id: 'thread-codex-filtered' } }; }
+      if (method === 'ui/state/get') return buildSnapshot({ threadId: 'thread-codex-filtered', activeThreadId: '' });
+      if (method === 'ui/preferences/set') return {};
+      return {};
+    });
+
+    await store.startThread('/repo-codex', {});
+    await flushAsync();
+
+    expect(builtinReadCalls).toContainEqual({ cwd: '/repo-codex' });
+    expect(startPayload?.config?.codexDisabledNativeTools).toEqual(['shell', 'apply_patch', 'multi_agent']);
+  });
+
   it('normalizes object-shaped thread config before thread/config/set', async () => {
     const store = useThreadStore();
     let configPayload = null;

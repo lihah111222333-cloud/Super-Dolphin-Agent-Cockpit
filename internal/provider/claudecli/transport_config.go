@@ -189,13 +189,13 @@ func buildCLIArgs(model, instructions, mcpConfigPath string, cfg cliLaunchConfig
 	args = appendSystemPromptFlags(args, instructions, cfg)
 	args = appendFlagIfSet(args, "--permission-mode", resolvePermissionMode(cfg.ApprovalPolicy, cfg.Sandbox))
 	args = appendFlagIfSet(args, "--effort", normalizeEffort(model, cfg.Effort))
+	if cfg.BuiltinTools != nil {
+		args = append(args, "--tools", resolveToolsFlag(cfg.BuiltinTools))
+	} else if disallowed := resolveDisallowedToolsFlag(cfg.DisallowedTools); disallowed != "" {
+		args = append(args, "--disallowedTools", disallowed)
+	}
 	if mcpConfigPath = strings.TrimSpace(mcpConfigPath); mcpConfigPath != "" {
 		args = appendFlagIfSet(args, "--mcp-config", mcpConfigPath)
-		if cfg.BuiltinTools != nil {
-			args = append(args, "--tools", resolveToolsFlag(cfg.BuiltinTools))
-		} else if disallowed := resolveDisallowedToolsFlag(cfg.DisallowedTools); disallowed != "" {
-			args = append(args, "--disallowedTools", disallowed)
-		}
 		if !hasFlag(args, "--permission-mode") {
 			args = appendFlagIfSet(args, "--permission-mode", "bypassPermissions")
 		}
@@ -208,10 +208,27 @@ func hasFlag(args []string, flag string) bool {
 	return slices.Contains(args, flag)
 }
 
-// defaultDisallowedBuiltinTools mirrors the legacy hardcoded list kept for
-// backwards compatibility when the caller has not provided an explicit
-// DisallowedTools override.
-var defaultDisallowedBuiltinTools = []string{"Read", "Write", "Edit", "MultiEdit", "Bash", "Grep", "Glob", "LS"}
+// defaultDisallowedBuiltinTools mirrors the provider registry defaults when
+// the caller has not provided an explicit DisallowedTools override.
+func defaultDisallowedBuiltinTools() []string {
+	factory := NewDriverFactory(driverFactoryParams{})
+	return defaultDisabledLaunchToolIDs(factory.NativeTools)
+}
+
+func defaultDisabledLaunchToolIDs(tools []contract.NativeToolDescriptor) []string {
+	ids := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		id := strings.TrimSpace(tool.ID)
+		if id == "" || !tool.DefaultDisabled {
+			continue
+		}
+		if strings.TrimSpace(tool.Provider) != "claude" || tool.FilterMode != contract.NativeToolFilterModeHard {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	return ids
+}
 
 func resolveToolsFlag(allowlist []string) string {
 	ids := make([]string, 0, len(allowlist))
@@ -231,7 +248,7 @@ func resolveToolsFlag(allowlist []string) string {
 func resolveDisallowedToolsFlag(override []string) string {
 	source := override
 	if source == nil {
-		source = defaultDisallowedBuiltinTools
+		source = defaultDisallowedBuiltinTools()
 	}
 	ids := make([]string, 0, len(source))
 	for _, raw := range source {
