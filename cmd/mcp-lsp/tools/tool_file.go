@@ -49,11 +49,12 @@ type emptyListEnvelope struct {
 	Meta    resultMeta `json:"meta"`
 }
 type fileToolInput struct {
-	Action    string   `json:"action"`
-	FilePath  string   `json:"file_path,omitempty"`
-	FilePaths []string `json:"file_paths,omitempty"`
-	Offset    int      `json:"offset,omitempty"`
-	Limit     int      `json:"limit,omitempty"`
+	Action     string   `json:"action"`
+	FilePath   string   `json:"file_path,omitempty"`
+	FilePaths  []string `json:"file_paths,omitempty"`
+	LanguageID string   `json:"language_id,omitempty"`
+	Offset     int      `json:"offset,omitempty"`
+	Limit      int      `json:"limit,omitempty"`
 }
 type openFileResult struct {
 	Success  bool   `json:"success"`
@@ -126,7 +127,7 @@ func (h handlerBase) handleFile(ctx context.Context, params json.RawMessage) (an
 	h.warnFileCWDTrace(ctx, input)
 	return dispatchToolAction(ctx, "file", input.Action, input, map[string]actionHandler[fileToolInput]{
 		"open_file": func(ctx context.Context, input fileToolInput) (any, error) {
-			return h.openFile(ctx, input.FilePath)
+			return h.openFile(ctx, input.FilePath, input.LanguageID)
 		},
 		"read_file": func(ctx context.Context, input fileToolInput) (any, error) {
 			if len(input.FilePaths) > 0 {
@@ -140,7 +141,7 @@ func (h handlerBase) handleFile(ctx context.Context, params json.RawMessage) (an
 	})
 }
 
-func (h handlerBase) openFile(ctx context.Context, rawPath string) (openFileResult, error) {
+func (h handlerBase) openFile(ctx context.Context, rawPath string, languageID string) (openFileResult, error) {
 	if h.registry == nil {
 		return openFileResult{}, errManagerUnavailable
 	}
@@ -151,10 +152,17 @@ func (h handlerBase) openFile(ctx context.Context, rawPath string) (openFileResu
 		return openFileResult{}, err
 	}
 	uri := fileURI(file.Path.AbsPath)
-	manager, err := h.registry.GetManagerForFile(ctx, file.Path.AbsPath)
+	manager, err := managerForFile(ctx, h.registry, file.Path.AbsPath, languageID)
+	if err != nil && normalizeLanguageIDOverride(languageID) != "" {
+		return openFileResult{}, err
+	}
 	if err == nil {
 		// Only open file in the language server if a manager exists for it
-		_ = manager.DidOpen(ctx, uri, lspmanager.DetectLanguageID(file.Path.AbsPath), 1, file.Content)
+		openLanguageID := normalizeLanguageIDOverride(languageID)
+		if openLanguageID == "" {
+			openLanguageID = lspmanager.DetectLanguageID(file.Path.AbsPath)
+		}
+		_ = manager.DidOpen(ctx, uri, openLanguageID, 1, file.Content)
 	}
 	return openFileResult{
 		Success:  true,

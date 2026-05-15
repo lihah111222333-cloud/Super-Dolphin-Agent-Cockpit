@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -295,6 +296,53 @@ func TestReplaceRangeRejectsSymlinkEscapingWorkspaceRoot(t *testing.T) {
 	}
 	if string(raw) != "old\n" {
 		t.Fatalf("outside symlink target was modified: %q", raw)
+	}
+}
+
+func TestEditForceDoesNotBypassTrustedScopeOrPathSafety(t *testing.T) {
+	root := t.TempDir()
+	outsideDir := t.TempDir()
+	outside := filepath.Join(outsideDir, "outside.txt")
+	if err := os.WriteFile(outside, []byte("old\n"), 0o600); err != nil {
+		t.Fatalf("write outside fixture: %v", err)
+	}
+	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
+	input := json.RawMessage(`{"action":"replace_range","file_path":` + strconv.Quote(outside) + `,"edits":[{"old_string":"old","new_string":"new"}],"force":true}`)
+
+	_, err := handler(context.Background(), input)
+	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
+		t.Fatalf("force outside-root error = %v, want workspace root rejection", err)
+	}
+	raw, readErr := os.ReadFile(outside)
+	if readErr != nil {
+		t.Fatalf("read outside fixture: %v", readErr)
+	}
+	if string(raw) != "old\n" {
+		t.Fatalf("force modified outside file: %q", raw)
+	}
+
+	inside := filepath.Join(root, "inside.txt")
+	if err := os.WriteFile(inside, []byte("old\n"), 0o600); err != nil {
+		t.Fatalf("write inside fixture: %v", err)
+	}
+	badPatch := json.RawMessage(`{"action":"replace_range","file_path":` + strconv.Quote(inside) + `,"patch":"not a patch","force":true}`)
+	got, err := handler(context.Background(), badPatch)
+	if err != nil {
+		t.Fatalf("force invalid patch returned transport error: %v", err)
+	}
+	failure, ok := got.(replaceRangeFailure)
+	if !ok {
+		t.Fatalf("force invalid patch result type = %T, want replaceRangeFailure", got)
+	}
+	if failure.Success || !strings.Contains(strings.ToLower(failure.Error), "patch") {
+		t.Fatalf("force invalid patch result = %#v, want patch grammar failure", failure)
+	}
+	raw, readErr = os.ReadFile(inside)
+	if readErr != nil {
+		t.Fatalf("read inside fixture: %v", readErr)
+	}
+	if string(raw) != "old\n" {
+		t.Fatalf("force modified file after invalid patch: %q", raw)
 	}
 }
 

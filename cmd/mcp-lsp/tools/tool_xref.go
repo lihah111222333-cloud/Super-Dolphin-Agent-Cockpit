@@ -15,6 +15,7 @@ import (
 type xrefParams struct {
 	Action             string `json:"action"`
 	FilePath           string `json:"file_path"`
+	LanguageID         string `json:"language_id,omitempty"`
 	Line               int    `json:"line"`
 	Column             int    `json:"column"`
 	Direction          string `json:"direction"`
@@ -25,7 +26,7 @@ type xrefParams struct {
 
 func NewXRefHandler(registry lspmanager.Registry) ToolHandler {
 	return newManagerTool("xref", middleware.TierNormal, registry, decodeStrict, func(ctx context.Context, registry lspmanager.Registry, req xrefParams) (any, error) {
-		manager, err := registry.GetManagerForFile(ctx, req.FilePath)
+		manager, err := managerForFile(ctx, registry, req.FilePath, req.LanguageID)
 		if err != nil {
 			return nil, err
 		}
@@ -71,7 +72,11 @@ func runReferences(
 	total := len(results)
 	results = limitSlice(results, limit)
 	if len(results) == 0 {
-		return "no references found", nil
+		return emptyListEnvelope{
+			Success: true,
+			Data:    []any{},
+			Meta:    resultMeta{Count: 0, Message: "no references found"},
+		}, nil
 	}
 	return renderByVerbosity(results, total, verbosity,
 		func(items []protocol.LocationResult) any { return format.NormalizeForDisplay(items) },

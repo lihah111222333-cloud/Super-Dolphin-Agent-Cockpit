@@ -48,23 +48,26 @@ func objectSchema(props map[string]schema, required ...string) schema {
 // ---------------------------------------------------------------------------
 
 var lspFileSchema = objectSchema(map[string]schema{
-	"action":     enumProp("Operation", "open_file", "read_file", "diagnostics"),
-	"file_path":  stringProp("File path (absolute or relative, auto-resolved)"),
-	"file_paths": arrayOfStringsProp("Multiple file paths for batch read or diagnostics filtering"),
-	"offset":     integerProp("Start line (1-based, default 1)"),
-	"limit":      integerProp("Max lines, default 300"),
+	"action":      enumProp("Operation", "open_file", "read_file", "diagnostics"),
+	"file_path":   stringProp("File path (absolute or relative, auto-resolved)"),
+	"file_paths":  arrayOfStringsProp("Multiple file paths for batch read or diagnostics filtering"),
+	"language_id": stringProp("Optional trusted language adapter override for open_file/diagnostics routing"),
+	"offset":      integerProp("Start line (1-based, default 1)"),
+	"limit":       integerProp("Max lines, default 300"),
 }, "action")
 
 var lspInspectSchema = objectSchema(map[string]schema{
-	"action":    enumProp("Operation", "hover", "definition", "implementation", "type_definition", "signature_help"),
-	"file_path": stringProp("File path (absolute or relative, auto-resolved)"),
-	"line":      integerProp("Line (1-based)"),
-	"column":    integerProp("Column (1-based)"),
+	"action":      enumProp("Operation", "hover", "definition", "implementation", "type_definition", "signature_help"),
+	"file_path":   stringProp("File path (absolute or relative, auto-resolved)"),
+	"language_id": stringProp("Optional trusted language adapter override"),
+	"line":        integerProp("Line (1-based)"),
+	"column":      integerProp("Column (1-based)"),
 }, "action", "file_path", "line", "column")
 
 var lspXrefSchema = objectSchema(map[string]schema{
 	"action":              enumProp("Operation", "references", "call_hierarchy", "type_hierarchy"),
 	"file_path":           stringProp("File path (absolute or relative, auto-resolved)"),
+	"language_id":         stringProp("Optional trusted language adapter override"),
 	"line":                integerProp("Line (1-based)"),
 	"column":              integerProp("Column (1-based)"),
 	"direction":           enumProp("call_hierarchy: incoming/outgoing/both; type_hierarchy: supertypes/subtypes", "incoming", "outgoing", "both", "supertypes", "subtypes"),
@@ -103,6 +106,7 @@ var lspStructureSchema = objectSchema(map[string]schema{
 	"action":      enumProp("Operation", "document_symbol", "workspace_symbol", "folding_range", "semantic_tokens"),
 	"file_path":   stringProp("File path (absolute or relative, auto-resolved)"),
 	"path":        stringProp("Legacy alias for file_path"),
+	"language_id": stringProp("Optional trusted language adapter override for file_path routing"),
 	"query":       stringProp("Symbol query"),
 	"language":    stringProp("Language filter"),
 	"verbosity":   enumProp("Output verbosity", "compact", "full"),
@@ -112,6 +116,7 @@ var lspStructureSchema = objectSchema(map[string]schema{
 var lspEditSchema = objectSchema(map[string]schema{
 	"action":          enumProp("Operation", "rename", "code_action", "format", "replace_range"),
 	"file_path":       stringProp("File path (absolute or relative, auto-resolved)"),
+	"language_id":     stringProp("Optional trusted language adapter override"),
 	"line":            integerProp("1-based line (for rename/code_action)"),
 	"column":          integerProp("1-based column (for rename/code_action)"),
 	"end_line":        integerProp("End line for code_action range"),
@@ -123,10 +128,12 @@ var lspEditSchema = objectSchema(map[string]schema{
 	"persist_to_disk": booleanProp("Compatibility flag for rename; default true. Set false to return workspace_edit without applying"),
 	"version":         integerProp("Document version for applied edit flow. Default: 2"),
 	"only":            arrayOfStringsProp("Code action kinds filter"),
+	"force":           booleanProp("Force persist when an apply safety guard allows override; never bypasses trusted scope, root containment, symlink/path safety, patch grammar, or adapter capability"),
 }, "action", "file_path")
 
 var lspCompletionSchema = objectSchema(map[string]schema{
 	"file_path":   stringProp("File path (absolute or relative, auto-resolved)"),
+	"language_id": stringProp("Optional trusted language adapter override"),
 	"line":        integerProp("Line (1-based)"),
 	"column":      integerProp("Column (1-based)"),
 	"verbosity":   enumProp("Output verbosity", "compact", "full"),

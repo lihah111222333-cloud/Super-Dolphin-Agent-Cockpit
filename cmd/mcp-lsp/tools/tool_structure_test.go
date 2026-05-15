@@ -28,6 +28,15 @@ func (r *structureTestRegistry) GetManagerForFile(_ context.Context, filePath st
 	return r.fileManager, nil
 }
 
+func (r *structureTestRegistry) GetManagerForFileWithLanguage(_ context.Context, filePath string, languageID string) (lspmanager.Manager, error) {
+	r.gotFilePath = filePath
+	r.gotLanguageID = languageID
+	if r.fileErr != nil {
+		return nil, r.fileErr
+	}
+	return r.fileManager, nil
+}
+
 func (r *structureTestRegistry) GetManagerForLanguage(_ context.Context, languageID string) (lspmanager.Manager, error) {
 	r.gotLanguageID = languageID
 	if r.languageErr != nil {

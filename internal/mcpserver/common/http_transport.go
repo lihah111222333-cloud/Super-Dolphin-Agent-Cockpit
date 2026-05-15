@@ -182,18 +182,15 @@ func (h *HTTPServer) handleToolsCall(ctx context.Context, req jsonRPCRequest) *j
 		"req_id", string(req.ID))
 	start := time.Now()
 
-	if h.tools == nil {
-		return errorResponse(req.ID, codeInternal, "tool provider not configured")
-	}
-	value, err := h.tools.CallTool(ctx, strings.TrimSpace(params.Name), params.Arguments)
+	value, err := callToolSafely(ctx, h.tools, strings.TrimSpace(params.Name), params.Arguments)
 	elapsed := time.Since(start)
 	if err != nil {
 		pkglogger.Warn("mcp http: tools/call error",
 			"server", h.name, "tool", params.Name,
 			"elapsed", elapsed, "error", err)
-		return errorResponse(req.ID, codeToolCall, err.Error())
+		value = NewToolErrorEnvelope(params.Name, err)
 	}
-	raw, err := json.Marshal(value)
+	resp, raw, err := toolCallResultResponse(req.ID, value)
 	if err != nil {
 		return errorResponse(req.ID, codeInternal, err.Error())
 	}
@@ -204,10 +201,7 @@ func (h *HTTPServer) handleToolsCall(ctx context.Context, req jsonRPCRequest) *j
 	pkglogger.Info("mcp http: tools/call done",
 		"server", h.name, "tool", params.Name,
 		"elapsed", elapsed, "result_len", len(raw))
-	return maybeResult(req.ID, map[string]any{
-		"content":           []textContent{{Type: "text", Text: string(raw)}},
-		"structuredContent": json.RawMessage(raw),
-	})
+	return resp
 }
 
 func writeJSONError(w http.ResponseWriter, id json.RawMessage, code int, message string) {

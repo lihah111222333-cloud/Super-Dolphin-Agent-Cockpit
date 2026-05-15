@@ -11,6 +11,7 @@ import (
 
 type completionParams struct {
 	FilePath   string `json:"file_path"`
+	LanguageID string `json:"language_id,omitempty"`
 	Line       int    `json:"line"`
 	Column     int    `json:"column"`
 	Verbosity  string `json:"verbosity"`
@@ -19,7 +20,7 @@ type completionParams struct {
 
 func NewCompletionHandler(registry lspmanager.Registry) ToolHandler {
 	return newManagerTool("completion", middleware.TierFast, registry, decodeStrict, func(ctx context.Context, registry lspmanager.Registry, req completionParams) (any, error) {
-		manager, err := registry.GetManagerForFile(ctx, req.FilePath)
+		manager, err := managerForFile(ctx, registry, req.FilePath, req.LanguageID)
 		if err != nil {
 			return nil, err
 		}
@@ -38,7 +39,11 @@ func NewCompletionHandler(registry lspmanager.Registry) ToolHandler {
 			return nil, err
 		}
 		if result == nil || len(result.Items) == 0 {
-			return "no completions", nil
+			return emptyListEnvelope{
+				Success: true,
+				Data:    []any{},
+				Meta:    resultMeta{Count: 0, Message: "no completions"},
+			}, nil
 		}
 		total := len(result.Items)
 		items := limitSlice(result.Items, limit)

@@ -41,3 +41,26 @@ func TestToolErrorEnvelopeLanguageAgnostic(t *testing.T) {
 		t.Fatalf("schema envelope language_id = %#v, want python", schemaEnvelope.Meta["language_id"])
 	}
 }
+
+func TestStructuredToolErrorEnvelopeIsLanguageAgnosticForGoPythonAndTypeScript(t *testing.T) {
+	var baseline ToolErrorEnvelope
+	for idx, languageID := range []string{"go", "python", "typescript"} {
+		envelope := newToolErrorEnvelope("lsp_inspect", languageID, fmt.Errorf("%s route: %w", languageID, lspmanager.ErrUnsupportedLanguage))
+		if envelope.Success {
+			t.Fatalf("%s envelope success = true, want false", languageID)
+		}
+		if envelope.Code != "language_unsupported" {
+			t.Fatalf("%s envelope code = %q, want language_unsupported", languageID, envelope.Code)
+		}
+		if envelope.Meta["language_id"] != languageID {
+			t.Fatalf("%s envelope meta language_id = %#v", languageID, envelope.Meta["language_id"])
+		}
+		if idx == 0 {
+			baseline = envelope
+			continue
+		}
+		if envelope.Code != baseline.Code || envelope.Hint != baseline.Hint || envelope.Retryable != baseline.Retryable {
+			t.Fatalf("%s envelope differs from baseline: got %#v want code=%q hint=%q retryable=%v", languageID, envelope, baseline.Code, baseline.Hint, baseline.Retryable)
+		}
+	}
+}
