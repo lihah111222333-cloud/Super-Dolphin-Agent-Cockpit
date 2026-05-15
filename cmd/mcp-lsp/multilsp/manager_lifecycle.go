@@ -115,39 +115,45 @@ func (m *manager) ensureClientForFile(ctx context.Context, filePath, languageID 
 }
 
 func (m *manager) ensureClientForLanguage(ctx context.Context, languageID string) (Client, error) {
-	root, langID, err := m.resolveLanguageWorkspace(ctx, languageID)
+	cfg, err := m.resolveLanguageWorkspace(ctx, languageID)
 	if err != nil {
 		return nil, err
 	}
-	client, err := m.ensureClient(ctx, workspaceConfig{
-		key:        root,
-		rootPath:   root,
-		rootURI:    fileURIFromPath(root),
-		languageID: langID,
-	})
+	client, err := m.ensureClient(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
-	m.bootstrapLanguageClient(ctx, client, root, langID)
+	m.bootstrapLanguageClient(ctx, client, cfg.rootPath, cfg.languageID)
 	return client, nil
 }
 
-func (m *manager) resolveLanguageWorkspace(ctx context.Context, languageID string) (string, string, error) {
+func (m *manager) resolveLanguageWorkspace(ctx context.Context, languageID string) (workspaceConfig, error) {
 	if !shouldUseClientForLanguage(languageID) {
-		return "", "", fmt.Errorf("language %q is not managed by the LSP manager", languageID)
+		return workspaceConfig{}, fmt.Errorf("language %q is not managed by the LSP manager", languageID)
 	}
 	root := m.effectiveWorkspaceRoot(ctx)
 	if root == "" {
-		return "", "", ErrWorkspaceRootEmpty
+		return workspaceConfig{}, ErrWorkspaceRootEmpty
 	}
 	langID := normalizeLanguageID(languageID)
+	if shouldUseGoWorkspace(langID) {
+		info, err := ResolveGoRoot(GoRootRequest{
+			CWD:      root,
+			FilePath: root,
+			Env:      os.Environ(),
+		})
+		if err != nil {
+			return workspaceConfig{}, err
+		}
+		return workspaceConfigForGoRoot(info, langID), nil
+	}
 	if shouldUseJSTSWorkspace(langID) {
-		return m.resolveJSTSWorkspaceRoot(root), langID, nil
+		return workspaceConfigForRoot(m.resolveJSTSWorkspaceRoot(root), langID), nil
 	}
 	if shouldUseJavaWorkspace(langID) {
-		return m.resolveJavaWorkspaceRoot(root), langID, nil
+		return workspaceConfigForRoot(m.resolveJavaWorkspaceRoot(root), langID), nil
 	}
-	return root, langID, nil
+	return workspaceConfigForRoot(root, langID), nil
 }
 
 func (m *manager) resolveJSTSWorkspaceRoot(root string) string {
@@ -262,15 +268,17 @@ func (m *manager) createAndRegisterClient(ctx context.Context, cfg workspaceConf
 		return nil, ErrClientFactoryNil
 	}
 	capturedGen := m.diagGeneration.Load()
-	client, err := m.factory.NewClient(cfg.rootPath, managerNotificationHandler{
+	handler := managerNotificationHandler{
 		publishDiagnostics: func(params protocol.PublishDiagnosticsParams) error {
 			return m.publishDiagnosticsForGeneration(params, capturedGen)
 		},
 		logMessage: m.LogMessage,
-	})
+	}
+	client, err := newClientFromFactory(m.factory, cfg, handler)
 	if err != nil {
 		return nil, fmt.Errorf("create LSP client: %w", err)
 	}
+	configureClientWorkspace(client, cfg)
 	if err := client.Initialize(ctx, cfg.rootURI); err != nil {
 		_ = client.Close()
 		return nil, fmt.Errorf("initialize LSP client: %w", err)
@@ -289,12 +297,30 @@ func (m *manager) createAndRegisterClient(ctx context.Context, cfg workspaceConf
 		return workspace.client, nil
 	}
 	m.workspaces[cfg.key] = &workspaceClient{
-		key:      cfg.key,
-		rootPath: cfg.rootPath,
-		rootURI:  cfg.rootURI,
-		client:   client,
+		key:              cfg.key,
+		rootPath:         cfg.rootPath,
+		rootURI:          cfg.rootURI,
+		languageID:       cfg.languageID,
+		env:              append([]string(nil), cfg.env...),
+		workspaceFolders: cloneWorkspaceFolders(cfg.workspaceFolders),
+		client:           client,
 	}
 	return client, nil
+}
+
+func newClientFromFactory(factory ClientFactory, cfg workspaceConfig, handler protocol.NotificationHandler) (Client, error) {
+	if envFactory, ok := factory.(ClientFactoryWithEnv); ok {
+		return envFactory.NewClientWithEnv(cfg.rootPath, append([]string(nil), cfg.env...), handler)
+	}
+	return factory.NewClient(cfg.rootPath, handler)
+}
+
+func configureClientWorkspace(client Client, cfg workspaceConfig) {
+	if setter, ok := client.(interface {
+		setWorkspaceFolders([]protocol.WorkspaceFolder)
+	}); ok {
+		setter.setWorkspaceFolders(cfg.workspaceFolders)
+	}
 }
 
 func (m *manager) DidOpen(ctx context.Context, uri, languageID string, version int, text string) error {

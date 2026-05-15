@@ -135,11 +135,17 @@ func recycleWorkspaceClient(mgr *manager, workspace workspaceClient) error {
 	cancel()
 	closeErr := detached.client.Close()
 
+	languageID := workspace.languageID
+	if languageID == "" {
+		languageID = "go"
+	}
 	cfg := workspaceConfig{
-		key:        workspace.key,
-		rootPath:   workspace.rootPath,
-		rootURI:    workspace.rootURI,
-		languageID: "go",
+		key:              workspace.key,
+		rootPath:         workspace.rootPath,
+		rootURI:          workspace.rootURI,
+		languageID:       languageID,
+		env:              append([]string(nil), workspace.env...),
+		workspaceFolders: cloneWorkspaceFolders(workspace.workspaceFolders),
 	}
 	_, ensureErr := mgr.ensureClient(context.Background(), cfg)
 	restoreErr := restoreBootstrappedWorkspace(context.Background(), mgr, cfg)
