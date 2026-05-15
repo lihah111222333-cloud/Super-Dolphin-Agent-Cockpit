@@ -180,15 +180,17 @@ func (c *bootstrapCoordinator) openSnapshotIfNeeded(ctx context.Context, m *mana
 		return nil
 	}
 	key := scope.cacheKey(snapshot.ref.languageID, snapshot.ref.uri)
+	version := 1
 	if record, cached := c.cache.Load(key); cached && cacheValueMatchesSnapshot(record, snapshot) {
-		c.cache.RememberDocumentScope(snapshot.ref.uri, scope, snapshot.fingerprint)
-		return nil
+		if record.Version > 0 {
+			version = record.Version + 1
+		}
 	} else if cached {
 		c.cache.Delete(key)
 	}
 	if err := c.syncSnapshotToClient(ctx, m, cfg, snapshot, snapshotSyncRequest{
 		key:      key,
-		version:  1,
+		version:  version,
 		openOnly: true,
 		scope:    scope,
 	}); err != nil {

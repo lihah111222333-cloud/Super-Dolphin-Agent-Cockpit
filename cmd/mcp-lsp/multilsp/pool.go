@@ -17,12 +17,18 @@ const (
 	maxPoolSize     = 20
 )
 
-const lspPoolSizeEnv = "AGENT_LSP_POOL_SIZE"
+const (
+	lspPoolSizeEnv     = "AGENT_LSP_POOL_SIZE"
+	lspPoolShardCapEnv = "AGENT_LSP_POOL_SHARD_CAP"
+	defaultShardCap    = 64
+	maxShardCap        = 1024
+)
 
 type ManagerPool struct {
-	primary *manager
-	factory ManagerFactory
-	size    int
+	primary  *manager
+	factory  ManagerFactory
+	size     int
+	shardCap int
 
 	shards []*managerShard
 
@@ -81,9 +87,10 @@ func (fn managerFactoryFunc) NewManager(language string, workspaceRoot string, o
 func NewManagerPool(primary *manager, size int) *ManagerPool {
 	clamped := clampPoolSize(size)
 	pool := &ManagerPool{
-		primary: primary,
-		size:    clamped,
-		leases:  map[Client]int{},
+		primary:  primary,
+		size:     clamped,
+		shardCap: PoolShardCapFromEnv(),
+		leases:   map[Client]int{},
 	}
 	pool.factory = cloneManagerFactory(primary)
 	pool.shards = pool.buildShards(primary, clamped)
@@ -110,6 +117,21 @@ func PoolSizeFromEnv() int {
 		return defaultPoolSize
 	}
 	return clampPoolSize(value)
+}
+
+func PoolShardCapFromEnv() int {
+	value, err := strconv.Atoi(strings.TrimSpace(os.Getenv(lspPoolShardCapEnv)))
+	if err != nil {
+		return defaultShardCap
+	}
+	switch {
+	case value <= 0:
+		return defaultShardCap
+	case value > maxShardCap:
+		return maxShardCap
+	default:
+		return value
+	}
 }
 
 func (p *ManagerPool) Primary() Manager {
@@ -286,13 +308,14 @@ func (p *ManagerPool) managerForResolvedScope(shard *managerShard, resolved Reso
 		return nil, errors.New("LSP manager shard is nil")
 	}
 	shard.mu.Lock()
-	defer shard.mu.Unlock()
 
 	if pooled := shard.clones[resolved.ManagerKey]; pooled != nil {
 		pooled.lastUsedAt = time.Now()
+		shard.mu.Unlock()
 		return pooled, nil
 	}
 	if p.factory == nil {
+		shard.mu.Unlock()
 		return nil, errors.New("LSP manager pool factory is nil")
 	}
 	workspaceRoot := managerWorkspaceRoot(resolved)
@@ -303,9 +326,11 @@ func (p *ManagerPool) managerForResolvedScope(shard *managerShard, resolved Reso
 		ResolvedScope:    resolved,
 	})
 	if err != nil {
+		shard.mu.Unlock()
 		return nil, fmt.Errorf("create scoped LSP manager: %w", err)
 	}
 	if mgr == nil {
+		shard.mu.Unlock()
 		return nil, errors.New("create scoped LSP manager: nil manager")
 	}
 	mgr.pool = p
@@ -316,7 +341,48 @@ func (p *ManagerPool) managerForResolvedScope(shard *managerShard, resolved Reso
 		lastUsedAt:    time.Now(),
 	}
 	shard.clones[resolved.ManagerKey] = pooled
+	toClose := p.evictIdleClonesLocked(shard, resolved.ManagerKey)
+	shard.mu.Unlock()
+	_, _ = closeReleaseScopeManagers(toClose)
 	return pooled, nil
+}
+
+func (p *ManagerPool) evictIdleClonesLocked(shard *managerShard, keepKey string) []*manager {
+	if p == nil || shard == nil || p.shardCap <= 0 {
+		return nil
+	}
+	var toClose []*manager
+	for len(shard.clones) > p.shardCap {
+		evictKey, evict := p.oldestIdleCloneLocked(shard, keepKey)
+		if evict == nil {
+			break
+		}
+		delete(shard.clones, evictKey)
+		toClose = append(toClose, evict.manager)
+	}
+	return toClose
+}
+
+func (p *ManagerPool) oldestIdleCloneLocked(shard *managerShard, keepKey string) (string, *pooledManager) {
+	var evictKey string
+	var evict *pooledManager
+	for key, clone := range shard.clones {
+		if !p.canEvictClone(key, keepKey, clone) {
+			continue
+		}
+		if evict == nil || clone.lastUsedAt.Before(evict.lastUsedAt) {
+			evictKey = key
+			evict = clone
+		}
+	}
+	return evictKey, evict
+}
+
+func (p *ManagerPool) canEvictClone(key, keepKey string, clone *pooledManager) bool {
+	if key == keepKey || clone == nil || clone.manager == nil {
+		return false
+	}
+	return p.activeLeasesForManager(clone.manager) == 0
 }
 
 func (s *managerShard) snapshotClones() []pooledManager {

@@ -3,6 +3,7 @@ package multilsp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -237,13 +238,25 @@ func (m *manager) leaseClientLocked(client Client) leasedClient {
 
 func (m *manager) lookupExistingClient(key string) (Client, error) {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
 	if m.closed {
+		m.mu.RUnlock()
 		return nil, ErrManagerClosed
 	}
 	if workspace := m.workspaces[key]; workspace != nil && workspace.client != nil {
-		return workspace.client, nil
+		client := workspace.client
+		if clientHealthy(client) {
+			m.mu.RUnlock()
+			return client, nil
+		}
+		m.mu.RUnlock()
+		detached := m.detachWorkspaceClient(key, client)
+		if detached != nil && detached.client != nil {
+			m.AdvanceDiagnosticGeneration()
+			_ = shutdownClients([]Client{detached.client})
+		}
+		return nil, nil
 	}
+	m.mu.RUnlock()
 	return nil, nil
 }
 
@@ -314,15 +327,113 @@ func (m *manager) DidOpen(ctx context.Context, uri, languageID string, version i
 }
 
 func (m *manager) DidChange(ctx context.Context, uri string, version int, changes []protocol.TextDocumentContentChangeEvent) error {
-	return m.notifyDocument(ctx, uri, "", func(ctx context.Context, client Client, ref documentRef) error {
+	ref, err := m.resolveDocumentRef(ctx, uri, "")
+	if err != nil {
+		return err
+	}
+	if !m.shouldUseClientForLanguage(ref.languageID) {
+		return nil
+	}
+	client, err := m.ensureClientForFile(ctx, ref.absPath, ref.languageID)
+	if err != nil {
+		return err
+	}
+	err = m.withPooledClient(client, func() error {
 		return client.DidChange(ctx, ref.uri, version, changes)
 	})
+	text, full := fullDocumentChangeText(changes)
+	if err = m.handleDidChangeFailure(ctx, client, ref, version, text, full, err); err != nil {
+		return err
+	}
+	if full && fileExists(ref.absPath) {
+		return m.recordFullDocumentDidChange(ctx, ref, version, text)
+	}
+	return nil
+}
+
+func (m *manager) handleDidChangeFailure(ctx context.Context, client Client, ref documentRef, version int, text string, full bool, err error) error {
+	if err == nil {
+		return nil
+	}
+	if isClientDeadError(err) {
+		return m.nonReplayableDeadClientError(ctx, client, err)
+	}
+	if full && fileExists(ref.absPath) {
+		return m.recoverFullDocumentDidChange(ctx, client, ref, version, text, err)
+	}
+	return err
 }
 
 func (m *manager) DidClose(ctx context.Context, uri string) error {
-	return m.notifyDocument(ctx, uri, "", func(ctx context.Context, client Client, ref documentRef) error {
+	if err := m.notifyDocument(ctx, uri, "", func(ctx context.Context, client Client, ref documentRef) error {
 		return client.DidClose(ctx, ref.uri)
+	}); err != nil {
+		return err
+	}
+	ref, _, scope, err := m.resolvedScopeForURI(ctx, uri, "")
+	if err == nil {
+		bootstrapCoordinatorFor(m).states.delete(scope.bootstrapKey(), ref.uri)
+	}
+	return nil
+}
+
+func fullDocumentChangeText(changes []protocol.TextDocumentContentChangeEvent) (string, bool) {
+	if len(changes) != 1 {
+		return "", false
+	}
+	change := changes[0]
+	if change.Range != nil || change.RangeLength != nil {
+		return "", false
+	}
+	return change.Text, true
+}
+
+func (m *manager) recoverFullDocumentDidChange(ctx context.Context, client Client, ref documentRef, version int, text string, originalErr error) error {
+	reopenErr := m.withPooledClient(client, func() error {
+		if err := client.DidClose(ctx, ref.uri); err != nil {
+			return err
+		}
+		return client.DidOpen(ctx, ref.uri, ref.languageID, version, text)
 	})
+	if reopenErr == nil {
+		return nil
+	}
+	replacement, rebuildErr := m.rebuildClientAfterFailure(ctx, client, false)
+	if rebuildErr != nil {
+		return errors.Join(originalErr, reopenErr, rebuildErr)
+	}
+	if replacement == nil {
+		return errors.Join(originalErr, reopenErr, ErrClientClosed)
+	}
+	if err := m.withPooledClient(replacement, func() error {
+		return replacement.DidOpen(ctx, ref.uri, ref.languageID, version, text)
+	}); err != nil {
+		return errors.Join(originalErr, reopenErr, err)
+	}
+	return nil
+}
+
+func (m *manager) recordFullDocumentDidChange(ctx context.Context, ref documentRef, version int, text string) error {
+	_, _, scope, err := m.resolvedScopeForURI(ctx, ref.uri, ref.languageID)
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(ref.absPath)
+	if err != nil {
+		return err
+	}
+	key := scope.cacheKey(ref.languageID, ref.uri)
+	coordinator := bootstrapCoordinatorFor(m)
+	coordinator.cache.Upsert(lspCacheValue{
+		Key:             key,
+		Version:         version,
+		Fingerprint:     hashDocument([]byte(text)),
+		ModTimeUnixNano: info.ModTime().UnixNano(),
+		Size:            int64(len([]byte(text))),
+	})
+	coordinator.cache.RememberDocumentScope(ref.uri, scope, hashDocument([]byte(text)))
+	coordinator.states.complete(scope.bootstrapKey(), ref.uri, hashDocument([]byte(text)), version)
+	return nil
 }
 
 func (m *manager) BootstrapDocument(ctx context.Context, uri string) error {
@@ -361,7 +472,38 @@ func (m *manager) request(ctx context.Context, client Client, method string, par
 		return err
 	})
 	if err != nil {
+		if isClientDeadError(err) {
+			if canAutoRetryDeadClientRequest(method) {
+				if retried, retryErr := m.retryRequestAfterDeadClient(ctx, client, method, params); retryErr == nil {
+					return retried, nil
+				} else {
+					err = errors.Join(err, retryErr)
+				}
+			} else {
+				err = m.nonReplayableDeadClientError(ctx, client, err)
+			}
+		}
 		return nil, fmt.Errorf("%s: %w", method, err)
+	}
+	return raw, nil
+}
+
+func (m *manager) retryRequestAfterDeadClient(ctx context.Context, client Client, method string, params any) (json.RawMessage, error) {
+	replacement, err := m.rebuildClientAfterFailure(ctx, client, true)
+	if err != nil {
+		return nil, err
+	}
+	if replacement == nil {
+		return nil, ErrClientClosed
+	}
+	var raw json.RawMessage
+	err = m.withPooledClient(replacement, func() error {
+		var requestErr error
+		raw, requestErr = replacement.Request(ctx, method, params)
+		return requestErr
+	})
+	if err != nil {
+		return nil, err
 	}
 	return raw, nil
 }
@@ -382,6 +524,95 @@ func (m *manager) documentClient(ctx context.Context, uri string) (Client, docum
 		return nil, documentRef{}, err
 	}
 	return client, ref, nil
+}
+
+func clientHealthy(client Client) bool {
+	if client == nil {
+		return false
+	}
+	if checked, ok := client.(HealthCheckedClient); ok {
+		return checked.Healthy()
+	}
+	return true
+}
+
+func isClientDeadError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrTransportClosed) || errors.Is(err, ErrClientClosed) {
+		return true
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "transport closed") ||
+		strings.Contains(message, "client closed") ||
+		strings.Contains(message, "no longer bound to an active workspace") ||
+		strings.Contains(message, "broken pipe") ||
+		strings.Contains(message, "connection reset") ||
+		strings.Contains(message, "use of closed")
+}
+
+func (m *manager) detachWorkspaceClient(key string, expected Client) *workspaceClient {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	workspace := m.workspaces[key]
+	if workspace == nil || workspace.client == nil {
+		return nil
+	}
+	if expected != nil && workspace.client != expected {
+		return nil
+	}
+	delete(m.workspaces, key)
+	return workspace
+}
+
+func (m *manager) detachClient(client Client) *workspaceClient {
+	if m == nil || client == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for key, workspace := range m.workspaces {
+		if workspace != nil && workspace.client == client {
+			delete(m.workspaces, key)
+			return workspace
+		}
+	}
+	return nil
+}
+
+func (m *manager) rebuildClientAfterFailure(ctx context.Context, client Client, restore bool) (Client, error) {
+	detached := m.detachClient(client)
+	if detached == nil || detached.client == nil {
+		return nil, ErrClientClosed
+	}
+	m.AdvanceDiagnosticGeneration()
+	_ = shutdownClients([]Client{detached.client})
+	cfg := workspaceConfigFromClient(*detached)
+	replacement, ensureErr := m.ensureClient(ctx, cfg)
+	if ensureErr != nil {
+		return nil, ensureErr
+	}
+	if restore {
+		if err := restoreBootstrappedWorkspace(ctx, m, cfg); err != nil {
+			return replacement, err
+		}
+	}
+	return replacement, nil
+}
+
+func workspaceConfigFromClient(workspace workspaceClient) workspaceConfig {
+	return workspaceConfig{
+		key:              workspace.key,
+		rootPath:         workspace.rootPath,
+		rootURI:          workspace.rootURI,
+		languageID:       workspace.languageID,
+		env:              append([]string(nil), workspace.env...),
+		workspaceFolders: cloneWorkspaceFolders(workspace.workspaceFolders),
+	}
 }
 
 func decodeInto[T any](raw json.RawMessage, out *T) error {

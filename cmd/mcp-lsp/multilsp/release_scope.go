@@ -59,6 +59,16 @@ func (p *ManagerPool) ReleaseScope(req ReleaseScopeRequest) (ReleaseScopeResult,
 	return result, firstErr
 }
 
+func (p *ManagerPool) ReleaseManagerKey(managerKey string) error {
+	_, err := p.ReleaseScope(ReleaseScopeRequest{
+		ScopeKind:  ReleaseScopeManagerKey,
+		ManagerKey: managerKey,
+		Drain:      true,
+		Reason:     "release_manager_key",
+	})
+	return err
+}
+
 func (p *ManagerPool) detachReleaseScopeManagers(req ReleaseScopeRequest) (ReleaseScopeResult, []*manager) {
 	var result ReleaseScopeResult
 	var toClose []*manager

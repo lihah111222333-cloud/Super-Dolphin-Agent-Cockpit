@@ -50,6 +50,21 @@ func TestFindActiveForScopeRejectsUnrelatedAgentPeer(t *testing.T) {
 	}
 }
 
+func TestPeerFallbackRejectsUnrelatedAgentPeer(t *testing.T) {
+	registry := NewRegistry()
+	_ = addActiveScopeTestPeer(registry, "agent-a-peer", dto.ClientKindLSP, "agent-a", "thread-a")
+	_ = addActiveScopeTestPeer(registry, "agent-b-peer", dto.ClientKindLSP, "agent-b", "thread-b")
+
+	got := registry.FindActiveForScope(ToolScope{
+		Family:   dto.ClientKindLSP,
+		AgentID:  "agent-c",
+		ThreadID: "thread-c",
+	})
+	if len(got) != 0 {
+		t.Fatalf("FindActiveForScope() = %#v, want no unrelated agent peer fallback", got)
+	}
+}
+
 func TestFindActiveForScopeRejectsSingletonUnrelatedFallback(t *testing.T) {
 	registry := NewRegistry()
 	_ = addActiveScopeTestPeer(registry, "only", dto.ClientKindLSP, "agent-a", "thread-a")
