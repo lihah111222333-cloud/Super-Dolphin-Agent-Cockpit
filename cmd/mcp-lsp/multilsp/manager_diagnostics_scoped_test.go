@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
 func TestDiagnosticsStoreDoesNotCrossAgentScope(t *testing.T) {
@@ -129,9 +130,95 @@ func TestDeletedDiagnosticsCleanupRemovesOldAndCurrentScopedCache(t *testing.T) 
 	}
 }
 
+func TestDiagnosticsScopeIgnoresPrivateAgentKeys(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module privatekeys\n"), 0o600); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	target := filepath.Join(root, "main.go")
+	if err := os.WriteFile(target, []byte("package main\n"), 0o600); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+
+	mgr := NewManager(Config{WorkspaceRoot: root}).(*manager)
+	defer func() {
+		if err := mgr.Close(); err != nil {
+			t.Fatalf("close manager: %v", err)
+		}
+	}()
+
+	ctxTrusted := scopedDiagnosticsTestContext("agent-a", "thread-1")
+	ref, _, scope, err := mgr.resolvedScopeForURI(ctxTrusted, fileURIFromPath(target), "")
+	if err != nil {
+		t.Fatalf("resolve trusted scope: %v", err)
+	}
+	bootstrapCoordinatorFor(mgr).cache.RememberDocumentScope(ref.uri, scope, "trusted")
+	if err := mgr.PublishDiagnostics(protocol.PublishDiagnosticsParams{
+		URI: ref.uri,
+		Diagnostics: []protocol.Diagnostic{{
+			Severity: protocol.SeverityError,
+			Message:  "trusted-scope-only",
+		}},
+	}); err != nil {
+		t.Fatalf("publish diagnostics: %v", err)
+	}
+
+	ctxPrivateOnly := context.WithValue(context.Background(), "_agentId", "agent-a")
+	ctxPrivateOnly = context.WithValue(ctxPrivateOnly, "_threadId", "thread-1")
+	items, err := mgr.Diagnostics(ctxPrivateOnly, []string{ref.uri})
+	if err != nil {
+		t.Fatalf("diagnostics with private keys: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("diagnostics with private keys = %#v, want no trusted-scope match", items)
+	}
+}
+
+func TestDiagnosticsResolvedScopeCanBeInjected(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module injected\n"), 0o600); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	target := filepath.Join(root, "main.go")
+	if err := os.WriteFile(target, []byte("package main\n"), 0o600); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+
+	mgr := NewManager(Config{WorkspaceRoot: root}).(*manager)
+	defer func() {
+		if err := mgr.Close(); err != nil {
+			t.Fatalf("close manager: %v", err)
+		}
+	}()
+
+	canonical, err := ResolveLSPToolScope(LSPToolScope{
+		AgentID:               "agent-injected",
+		ThreadID:              "thread-injected",
+		Family:                defaultLSPToolFamily,
+		LanguageID:            "go",
+		WorkspaceRoot:         root,
+		LanguageWorkspaceRoot: root,
+		ProjectRoot:           root,
+		RootKind:              goRootKindGoMod,
+	})
+	if err != nil {
+		t.Fatalf("canonical scope: %v", err)
+	}
+	ctx := WithResolvedLSPToolScope(context.Background(), canonical)
+
+	_, _, got, err := mgr.resolvedScopeForURI(ctx, fileURIFromPath(target), "")
+	if err != nil {
+		t.Fatalf("resolve injected scope: %v", err)
+	}
+	if got.ManagerKey != canonical.ManagerKey || got.WorkspaceKey != canonical.WorkspaceKey || got.ScopeKey != canonical.ScopeKey {
+		t.Fatalf("resolved scope = %#v, want injected canonical %#v", got, canonical)
+	}
+}
+
 func scopedDiagnosticsTestContext(agentID, threadID string) context.Context {
-	ctx := context.Background()
-	ctx = context.WithValue(ctx, lspScopeAgentIDContextKey, agentID)
-	ctx = context.WithValue(ctx, lspScopeThreadIDContextKey, threadID)
-	return ctx
+	return common.WithToolScope(context.Background(), common.ToolScope{
+		AgentID:  agentID,
+		ThreadID: threadID,
+		Family:   defaultLSPToolFamily,
+	})
 }

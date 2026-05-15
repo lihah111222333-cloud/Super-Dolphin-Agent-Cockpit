@@ -64,3 +64,49 @@ func TestLSPCacheKeySeparatesScopeAndWorkspace(t *testing.T) {
 		t.Fatalf("cache key did not include WorkspaceKey")
 	}
 }
+
+func TestLSPCacheUsesResolvedScopeLanguageSpecificHash(t *testing.T) {
+	scope := ResolvedLSPToolScope{
+		LSPToolScope: LSPToolScope{
+			LanguageID:       "go",
+			LanguageSpecific: map[string]string{"goWorkPath": "/repo/go.work"},
+		},
+		ScopeKey:     "scope-a",
+		WorkspaceKey: "workspace-a",
+	}
+	withGoWork := scope.cacheKey("go", "file:///repo/a.go")
+	scope.LanguageSpecific = map[string]string{"goWorkPath": "/repo/other.go.work"}
+	withOtherGoWork := scope.cacheKey("go", "file:///repo/a.go")
+	if withGoWork.LanguageSpecificHash == "" {
+		t.Fatalf("LanguageSpecificHash is empty for scoped language-specific cache key")
+	}
+	if withGoWork.String() == withOtherGoWork.String() {
+		t.Fatalf("cache key did not include language-specific hash")
+	}
+}
+
+func TestLSPCacheTombstoneSuppressesDeletedDocumentLoad(t *testing.T) {
+	now := time.Unix(2_000, 0).UTC()
+	store := newLSPCacheStore(lspCacheConfig{TTL: 10 * time.Second})
+	store.now = func() time.Time { return now }
+
+	key := lspCacheKey{ScopeKey: "scope", WorkspaceKey: "workspace", LanguageID: "go", URI: "file:///deleted.go"}
+	store.Upsert(lspCacheValue{Key: key, Fingerprint: "before-delete"})
+	store.Tombstone(key)
+	if _, ok := store.Load(key); ok {
+		t.Fatalf("Load() after Tombstone = ok, want deleted-document tombstone to suppress cache")
+	}
+}
+
+func TestLSPCacheSnapshotMatchRejectsStaleFingerprint(t *testing.T) {
+	key := lspCacheKey{ScopeKey: "scope", WorkspaceKey: "workspace", LanguageID: "go", URI: "file:///stale.go"}
+	value := lspCacheValue{Key: key, Fingerprint: "old", Size: 12}
+	snapshot := documentSnapshot{fingerprint: "new", size: 12}
+	if cacheValueMatchesSnapshot(value, snapshot) {
+		t.Fatalf("cacheValueMatchesSnapshot accepted stale fingerprint")
+	}
+	snapshot.fingerprint = "old"
+	if !cacheValueMatchesSnapshot(value, snapshot) {
+		t.Fatalf("cacheValueMatchesSnapshot rejected matching fingerprint")
+	}
+}
