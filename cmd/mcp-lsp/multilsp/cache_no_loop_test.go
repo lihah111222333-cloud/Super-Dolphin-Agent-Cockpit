@@ -51,3 +51,16 @@ func TestLSPCacheStoreMaybeCleanupPurgesExpiredInline(t *testing.T) {
 		t.Fatalf("memory size after expiry = %d, want 0", remaining)
 	}
 }
+
+func TestLSPCacheKeySeparatesScopeAndWorkspace(t *testing.T) {
+	uri := "file:///a.go"
+	agentA := lspCacheKey{ScopeKey: "scope-a", WorkspaceKey: "ws", LanguageID: "go", URI: uri}
+	agentB := lspCacheKey{ScopeKey: "scope-b", WorkspaceKey: "ws", LanguageID: "go", URI: uri}
+	workspaceB := lspCacheKey{ScopeKey: "scope-a", WorkspaceKey: "ws-b", LanguageID: "go", URI: uri}
+	if agentA.String() == agentB.String() {
+		t.Fatalf("cache key did not include ScopeKey")
+	}
+	if agentA.String() == workspaceB.String() {
+		t.Fatalf("cache key did not include WorkspaceKey")
+	}
+}

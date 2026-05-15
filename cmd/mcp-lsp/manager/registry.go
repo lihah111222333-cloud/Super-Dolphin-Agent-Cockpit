@@ -140,10 +140,16 @@ func DetectLanguageID(path string) string {
 
 func (r *dynamicRegistry) Diagnostics(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, error) {
 	var all []protocol.PublishDiagnosticsParams
-	byManager := r.groupURIsByManager(uris)
+	byManager, err := r.groupURIsByManager(ctx, uris)
+	if err != nil {
+		return nil, err
+	}
 	if len(byManager) == 0 && len(uris) == 0 {
-		for _, cfg := range r.managers {
-			items, _ := cfg.manager.Diagnostics(ctx, nil)
+		for _, mgr := range r.snapshotManagers() {
+			items, err := mgr.Diagnostics(ctx, nil)
+			if err != nil {
+				return nil, err
+			}
 			all = append(all, items...)
 		}
 		return all, nil
@@ -159,7 +165,10 @@ func (r *dynamicRegistry) Diagnostics(ctx context.Context, uris []string) ([]pro
 }
 
 func (r *dynamicRegistry) WaitDiagnosticsStable(ctx context.Context, uris []string) error {
-	byManager := r.groupURIsByManager(uris)
+	byManager, err := r.groupURIsByManager(ctx, uris)
+	if err != nil {
+		return err
+	}
 	for mgr, subset := range byManager {
 		if err := mgr.WaitDiagnosticsStable(ctx, subset); err != nil {
 			return err
@@ -187,13 +196,31 @@ func (r *dynamicRegistry) BootstrapDocument(ctx context.Context, uri string) err
 	return mgr.BootstrapDocument(ctx, uri)
 }
 
-func (r *dynamicRegistry) groupURIsByManager(uris []string) map[Manager][]string {
+func (r *dynamicRegistry) snapshotManagers() []Manager {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	managers := make([]Manager, 0, len(r.managers))
+	for _, cfg := range r.managers {
+		if cfg != nil && cfg.manager != nil {
+			managers = append(managers, cfg.manager)
+		}
+	}
+	return managers
+}
+
+func (r *dynamicRegistry) groupURIsByManager(ctx context.Context, uris []string) (map[Manager][]string, error) {
 	result := make(map[Manager][]string)
 	for _, uri := range uris {
 		path := strings.TrimPrefix(uri, "file://")
-		if mgr, err := r.GetManagerForFile(context.Background(), path); err == nil {
-			result[mgr] = append(result[mgr], uri)
+		mgr, err := r.GetManagerForFile(ctx, path)
+		if err != nil {
+			if errors.Is(err, ErrUnsupportedLanguage) {
+				continue
+			}
+			return nil, err
 		}
+		result[mgr] = append(result[mgr], uri)
 	}
-	return result
+	return result, nil
 }
