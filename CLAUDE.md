@@ -35,6 +35,7 @@
 - 上表规定了 agent 在本仓库内读取 `.agent/skills/**/SKILL.md` 的触发映射关系。
 - 产品运行时的技能系统：内置技能会 seed 到 `~/.multi-agent/skills-library/`，cache 到 `~/.multi-agent/skills-cache/`，Claude workspace 通过 `.claude/skills` symlink 发现，Codex 通过 `skill_read_section` host-direct 读取。
 - 涉及运行时技能行为时，以 `internal/module/skill*`、`internal/platform/toolbridge/skill_read_section.go` 和相关测试为准。
+- **子代理编排**：子代理在执行任务时，必须使用 `mcp-go-agent-orchestration` 工具（`task_create_dag`, `task_update_node` 等）进行任务生命周期管理与协同。
 
 ## 代码地图与上下文加载
 

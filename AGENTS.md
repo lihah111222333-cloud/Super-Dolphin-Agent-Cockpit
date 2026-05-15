@@ -41,6 +41,12 @@ Behavior reading mode, when the user asks how something works:
 
 This policy governs agent instruction loading from `.agent/skills/**`. It does not disable or describe the product runtime skill pipeline. Runtime skills seed into `~/.multi-agent/skills-library/`, cache into `~/.multi-agent/skills-cache/`, Claude workspaces use `.claude/skills` symlinks, and Codex reads sections through `skill_read_section`. For runtime skill behavior, inspect `internal/module/skill*`, `internal/platform/toolbridge/skill_read_section.go`, and related tests.
 
+## Sub-Agent & Orchestration Policy
+
+- Sub-agents MUST use `mcp-go-agent-orchestration` tools (`task_create_dag`, `task_start_node`, `task_update_node`) to manage task lifecycles, dependencies, and execution status.
+- Orchestration via `mcp-orch` ensures observability, retry logic, and structured handoffs between parallel agents.
+
+
 ## Current Repository Shape
 
 - Go module: `github.com/anthropic-ai/super-agent-v3`, Go `1.25.7`.
