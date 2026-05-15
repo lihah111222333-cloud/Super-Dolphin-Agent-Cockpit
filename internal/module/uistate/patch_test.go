@@ -16,29 +16,14 @@ import (
 func TestApplyTokensUpdatedPublishesThreadPatch(t *testing.T) {
 	t.Parallel()
 
-	dispatcher := event.NewDispatcher()
-	defer func() { _ = dispatcher.Close() }()
-
-	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
-	}
-	svc.bindDispatcher(dispatcher)
+	svc, dispatcher := newPatchTestService(t)
 	svc.state.Threads = []ThreadSummary{{ID: "thread-1", Name: "Demo", State: "running"}}
 	svc.state.Agents = []AgentSummary{{ID: "agent-main", ThreadID: "thread-1", State: "running"}}
-	if err := svc.SetPreference(context.Background(), preferenceActiveThreadID, "thread-1"); err != nil {
-		t.Fatalf("SetPreference(activeThreadId) error = %v", err)
-	}
-	if err := svc.SetPreference(context.Background(), preferenceActiveCmdThreadID, "thread-cmd"); err != nil {
-		t.Fatalf("SetPreference(activeCmdThreadId) error = %v", err)
-	}
-	if err := svc.SetPreference(context.Background(), preferenceMainAgentID, "agent-main"); err != nil {
-		t.Fatalf("SetPreference(mainAgentId) error = %v", err)
-	}
+	mustSetThreadPreference(t, svc, preferenceActiveThreadID, "thread-1")
+	mustSetThreadPreference(t, svc, preferenceActiveCmdThreadID, "thread-cmd")
+	mustSetThreadPreference(t, svc, preferenceMainAgentID, "agent-main")
 
-	got := make(chan uidto.UIThreadPatch, 1)
-	cancel := event.Subscribe(dispatcher, func(ev uidto.UIThreadPatch) { got <- ev })
-	defer cancel()
+	got := subscribeThreadPatch(t, dispatcher)
 
 	svc.applyTokensUpdated(uidto.UITokensUpdated{
 		UITurnHeader: shared.UITurnHeader{
@@ -51,16 +36,62 @@ func TestApplyTokensUpdatedPublishesThreadPatch(t *testing.T) {
 		ContextWindowTokens: 200,
 	})
 
-	patch := mustReceiveThreadPatch(t, got)
+	assertTokensThreadPatch(t, mustReceiveThreadPatch(t, got))
+}
+
+func newPatchTestService(t *testing.T) (*service, *event.Dispatcher) {
+	t.Helper()
+	dispatcher := event.NewDispatcher()
+	t.Cleanup(func() { _ = dispatcher.Close() })
+	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	svc.bindDispatcher(dispatcher)
+	return svc, dispatcher
+}
+
+func mustSetThreadPreference(t *testing.T, svc *service, key, value string) {
+	t.Helper()
+	if err := svc.SetPreference(context.Background(), key, value); err != nil {
+		t.Fatalf("SetPreference(%s) error = %v", key, err)
+	}
+}
+
+func subscribeThreadPatch(t *testing.T, dispatcher *event.Dispatcher) <-chan uidto.UIThreadPatch {
+	t.Helper()
+	got := make(chan uidto.UIThreadPatch, 1)
+	cancel := event.Subscribe(dispatcher, func(ev uidto.UIThreadPatch) { got <- ev })
+	t.Cleanup(cancel)
+	return got
+}
+
+func assertTokensThreadPatch(t *testing.T, patch uidto.UIThreadPatch) {
+	t.Helper()
+	assertTokensPatchIdentity(t, patch)
+	assertTokensPatchSelection(t, patch)
+	assertTokensPatchMetadata(t, patch)
+}
+
+func assertTokensPatchIdentity(t *testing.T, patch uidto.UIThreadPatch) {
+	t.Helper()
 	if patch.ThreadID != "thread-1" || patch.Sequence != 1 {
 		t.Fatalf("patch identity = %#v", patch)
 	}
 	if patch.Status != "running" || patch.TokenUsage == nil {
 		t.Fatalf("patch payload = %#v", patch)
 	}
+}
+
+func assertTokensPatchSelection(t *testing.T, patch uidto.UIThreadPatch) {
+	t.Helper()
 	if patch.ActiveThreadID != "thread-1" || patch.ActiveCmdThreadID != "thread-cmd" {
 		t.Fatalf("patch active selection = %#v", patch)
 	}
+}
+
+func assertTokensPatchMetadata(t *testing.T, patch uidto.UIThreadPatch) {
+	t.Helper()
 	if patch.MainAgentID != "agent-main" || patch.MainAgentState != "running" || !patch.Partial {
 		t.Fatalf("patch metadata = %#v", patch)
 	}
@@ -109,21 +140,16 @@ func TestApplyThreadStoppedResetsPatchSequence(t *testing.T) {
 func TestEmitThreadPatchEventPayloadTooLargeFallsBack(t *testing.T) {
 	t.Parallel()
 
-	dispatcher := event.NewDispatcher()
-	defer func() { _ = dispatcher.Close() }()
+	svc, dispatcher := newPatchTestService(t)
+	got := subscribeThreadPatch(t, dispatcher)
 
-	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
-	}
-	svc.bindDispatcher(dispatcher)
+	svc.emitThreadPatchEvent(largeThreadPatch())
+	assertLargeFallbackPatch(t, mustReceiveThreadPatch(t, got))
+}
 
-	got := make(chan uidto.UIThreadPatch, 1)
-	cancel := event.Subscribe(dispatcher, func(ev uidto.UIThreadPatch) { got <- ev })
-	defer cancel()
-
+func largeThreadPatch() uidto.UIThreadPatch {
 	interruptible := true
-	svc.emitThreadPatchEvent(uidto.UIThreadPatch{
+	return uidto.UIThreadPatch{
 		ThreadID:        "thread-1",
 		Source:          "tool/diffUpdated",
 		Sequence:        7,
@@ -139,12 +165,25 @@ func TestEmitThreadPatchEventPayloadTooLargeFallsBack(t *testing.T) {
 		RemovedItemIds:  []string{"old-1"},
 		TimelineOrder:   []string{"item-1"},
 		RefreshRequired: false,
-	})
+	}
+}
 
-	patch := mustReceiveThreadPatch(t, got)
+func assertLargeFallbackPatch(t *testing.T, patch uidto.UIThreadPatch) {
+	t.Helper()
+	assertLargeFallbackIdentity(t, patch)
+	assertLargeFallbackStatus(t, patch)
+	assertLargeFallbackFields(t, patch)
+}
+
+func assertLargeFallbackIdentity(t *testing.T, patch uidto.UIThreadPatch) {
+	t.Helper()
 	if patch.ThreadID != "thread-1" || patch.Source != "tool/diffUpdated" || patch.Sequence != 7 {
 		t.Fatalf("patch identity = %#v", patch)
 	}
+}
+
+func assertLargeFallbackStatus(t *testing.T, patch uidto.UIThreadPatch) {
+	t.Helper()
 	if patch.Status != "running" || patch.StatusHeader != "Running" || patch.StatusDetails != "Applying large diff" {
 		t.Fatalf("patch status = %#v", patch)
 	}
@@ -154,6 +193,10 @@ func TestEmitThreadPatchEventPayloadTooLargeFallsBack(t *testing.T) {
 	if !patch.Recover || !patch.RefreshRequired || patch.FallbackReason != "payload_too_large" {
 		t.Fatalf("fallback flags = %#v", patch)
 	}
+}
+
+func assertLargeFallbackFields(t *testing.T, patch uidto.UIThreadPatch) {
+	t.Helper()
 	if patch.DiffText != "" || patch.AgentMeta != nil || patch.ActivityStats != nil {
 		t.Fatalf("expected heavy fields to be dropped, got %#v", patch)
 	}

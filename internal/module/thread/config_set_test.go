@@ -204,6 +204,11 @@ func TestSetConfigReturnsOverrideWithoutMutatingProviderEffectiveConfigAndPublis
 	if threads.thread.Model != model {
 		t.Fatalf("stored model = %q, want %q", threads.thread.Model, model)
 	}
+	assertThreadModelUpdatedEvent(t, updates, model)
+}
+
+func assertThreadModelUpdatedEvent(t *testing.T, updates <-chan threaddto.Updated, model string) {
+	t.Helper()
 	select {
 	case ev := <-updates:
 		if ev.ThreadID != "thread-1" || ev.Model == nil || *ev.Model != model {
@@ -345,6 +350,20 @@ func TestSetConfigClaudeAllowsFullModelAndMaxWithoutMutatingProviderEffectiveCon
 	if err != nil {
 		t.Fatalf("SetConfig() error = %v", err)
 	}
+	assertClaudeThreadConfigPatch(t, session, cfg, model, effort)
+	if threads.thread.Model != model {
+		t.Fatalf("stored model = %q, want %q", threads.thread.Model, model)
+	}
+}
+
+func assertClaudeThreadConfigPatch(t *testing.T, session *stubSession, cfg dto.ThreadConfig, model, effort string) {
+	t.Helper()
+	assertSessionConfigurePatch(t, session, model, effort)
+	assertClaudeThreadConfigValues(t, cfg, model, effort)
+}
+
+func assertSessionConfigurePatch(t *testing.T, session *stubSession, model, effort string) {
+	t.Helper()
 	if session.configureCalls != 1 {
 		t.Fatalf("configureCalls = %d, want 1", session.configureCalls)
 	}
@@ -354,6 +373,10 @@ func TestSetConfigClaudeAllowsFullModelAndMaxWithoutMutatingProviderEffectiveCon
 	if session.configurePatch.Effort == nil || *session.configurePatch.Effort != effort {
 		t.Fatalf("configurePatch.Effort = %#v, want %q", session.configurePatch.Effort, effort)
 	}
+}
+
+func assertClaudeThreadConfigValues(t *testing.T, cfg dto.ThreadConfig, model, effort string) {
+	t.Helper()
 	if !cfg.SupportsThreadOverride {
 		t.Fatalf("SupportsThreadOverride = false, want true: %#v", cfg)
 	}
@@ -362,9 +385,6 @@ func TestSetConfigClaudeAllowsFullModelAndMaxWithoutMutatingProviderEffectiveCon
 	}
 	if cfg.Effective.Model != "sonnet" || cfg.Effective.Effort != "high" {
 		t.Fatalf("Effective = %#v, want provider live values", cfg.Effective)
-	}
-	if threads.thread.Model != model {
-		t.Fatalf("stored model = %q, want %q", threads.thread.Model, model)
 	}
 }
 

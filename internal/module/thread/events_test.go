@@ -45,26 +45,11 @@ func TestThreadSubscriptionsUpdateSessionUUIDFromAgentLaunched(t *testing.T) {
 	}
 
 	sessionUpdates := bindings.SessionUpdates()
-	if len(sessionUpdates) != 1 {
-		t.Fatalf("len(sessionUpdates) = %d, want 1", len(sessionUpdates))
-	}
-	got := sessionUpdates[0]
-	if got.AgentID != "agent-1" || got.SessionUUID != realUUID || got.UpdatedAt == 0 {
-		t.Fatalf("session update = %#v", got)
-	}
-	if gotBinding := bindings.Binding(); gotBinding == nil || gotBinding.SessionUUID != realUUID {
-		t.Fatalf("binding.SessionUUID = %q, want %s", bindingSessionUUID(gotBinding), realUUID)
-	}
+	assertSessionUUIDUpdate(t, sessionUpdates, "agent-1", realUUID)
+	assertBindingSessionUUID(t, bindings.Binding(), realUUID)
 	providerUpdates := waitForProviderThreadUpdates(t, bindings, 1, time.Second)
-	if len(providerUpdates) != 1 {
-		t.Fatalf("len(providerUpdates) = %d, want 1", len(providerUpdates))
-	}
-	if got := providerUpdates[0]; got.AgentID != "agent-1" || got.ProviderThreadID != realUUID || got.UpdatedAt == 0 {
-		t.Fatalf("provider thread update = %#v", got)
-	}
-	if gotBinding := bindings.Binding(); gotBinding == nil || gotBinding.ProviderThreadID != realUUID {
-		t.Fatalf("binding.ProviderThreadID = %q, want %s", bindingProviderThreadID(gotBinding), realUUID)
-	}
+	assertProviderThreadUpdate(t, providerUpdates, "agent-1", realUUID)
+	assertBindingProviderThreadID(t, bindings.Binding(), realUUID)
 }
 
 func TestAgentLaunchedDoesNotPromoteProviderThreadIDWithoutHistoryFile(t *testing.T) {
@@ -134,20 +119,94 @@ func TestOnAgentLaunchedUpdatesCWDAndInvalidatesWorktreePromptCache(t *testing.T
 	}
 
 	cwdUpdates := bindings.CWDUpdates()
-	if len(cwdUpdates) != 1 {
-		t.Fatalf("cwd updates = %#v, want 1 update", cwdUpdates)
-	}
-	if got := cwdUpdates[0]; got.AgentID != "agent-1" || got.Cwd != worktreeCWD || got.UpdatedAt == 0 {
-		t.Fatalf("cwd update = %#v", got)
-	}
-	if gotBinding := bindings.Binding(); gotBinding == nil || gotBinding.Cwd != worktreeCWD {
-		t.Fatalf("binding.Cwd = %q, want %q", bindingCWD(gotBinding), worktreeCWD)
-	}
+	assertCWDUpdate(t, cwdUpdates, "agent-1", worktreeCWD)
+	assertBindingCWD(t, bindings.Binding(), worktreeCWD)
 	if got := promptAssembly.invalidated; len(got) != 1 || got[0] != contract.InvalidateWorktree {
 		t.Fatalf("Invalidate calls = %#v, want [%q]", got, contract.InvalidateWorktree)
 	}
 	if sessionUpdates := bindings.SessionUpdates(); len(sessionUpdates) != 0 {
 		t.Fatalf("session updates = %#v, want none", sessionUpdates)
+	}
+}
+
+func assertSessionUUIDUpdate(t *testing.T, updates []bindingstore.UpdateSessionUUIDParams, wantAgentID, wantUUID string) {
+	t.Helper()
+	if len(updates) != 1 {
+		t.Fatalf("len(sessionUpdates) = %d, want 1", len(updates))
+	}
+	got := updates[0]
+	if got.AgentID != wantAgentID {
+		t.Fatalf("session update AgentID = %q, want %s; update=%#v", got.AgentID, wantAgentID, got)
+	}
+	if got.SessionUUID != wantUUID {
+		t.Fatalf("session update UUID = %q, want %s; update=%#v", got.SessionUUID, wantUUID, got)
+	}
+	if got.UpdatedAt == 0 {
+		t.Fatalf("session update UpdatedAt = 0; update=%#v", got)
+	}
+}
+
+func assertBindingSessionUUID(t *testing.T, got *bindingstore.Binding, want string) {
+	t.Helper()
+	if got == nil {
+		t.Fatalf("binding = nil, want SessionUUID %s", want)
+	}
+	if got.SessionUUID != want {
+		t.Fatalf("binding.SessionUUID = %q, want %s", got.SessionUUID, want)
+	}
+}
+
+func assertProviderThreadUpdate(t *testing.T, updates []bindingstore.UpdateProviderThreadIDParams, wantAgentID, wantThreadID string) {
+	t.Helper()
+	if len(updates) != 1 {
+		t.Fatalf("len(providerUpdates) = %d, want 1", len(updates))
+	}
+	got := updates[0]
+	if got.AgentID != wantAgentID {
+		t.Fatalf("provider update AgentID = %q, want %s; update=%#v", got.AgentID, wantAgentID, got)
+	}
+	if got.ProviderThreadID != wantThreadID {
+		t.Fatalf("provider update ThreadID = %q, want %s; update=%#v", got.ProviderThreadID, wantThreadID, got)
+	}
+	if got.UpdatedAt == 0 {
+		t.Fatalf("provider update UpdatedAt = 0; update=%#v", got)
+	}
+}
+
+func assertBindingProviderThreadID(t *testing.T, got *bindingstore.Binding, want string) {
+	t.Helper()
+	if got == nil {
+		t.Fatalf("binding = nil, want ProviderThreadID %s", want)
+	}
+	if got.ProviderThreadID != want {
+		t.Fatalf("binding.ProviderThreadID = %q, want %s", got.ProviderThreadID, want)
+	}
+}
+
+func assertCWDUpdate(t *testing.T, updates []bindingstore.UpdateAgentCwdParams, wantAgentID, wantCWD string) {
+	t.Helper()
+	if len(updates) != 1 {
+		t.Fatalf("cwd updates = %#v, want 1 update", updates)
+	}
+	got := updates[0]
+	if got.AgentID != wantAgentID {
+		t.Fatalf("cwd update AgentID = %q, want %s; update=%#v", got.AgentID, wantAgentID, got)
+	}
+	if got.Cwd != wantCWD {
+		t.Fatalf("cwd update Cwd = %q, want %s; update=%#v", got.Cwd, wantCWD, got)
+	}
+	if got.UpdatedAt == 0 {
+		t.Fatalf("cwd update UpdatedAt = 0; update=%#v", got)
+	}
+}
+
+func assertBindingCWD(t *testing.T, got *bindingstore.Binding, want string) {
+	t.Helper()
+	if got == nil {
+		t.Fatalf("binding = nil, want Cwd %s", want)
+	}
+	if got.Cwd != want {
+		t.Fatalf("binding.Cwd = %q, want %q", got.Cwd, want)
 	}
 }
 

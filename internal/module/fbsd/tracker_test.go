@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestTracker_DisabledNoOp(t *testing.T) {
@@ -43,43 +45,27 @@ func TestTracker_RecordAndFlushPersists(t *testing.T) {
 	glPath := filepath.Join(dir, "gl.json")
 	// 用极长 saveInterval 避免节流 ticker 干扰：仅靠 stop drain 写盘
 	tr, err := newTrackerWithInterval(wsPath, glPath, true, time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := tr.Start(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, tr.Start())
 	tr.Record("tdd", "red-green")
 	tr.Record("tdd", "")
 	tr.Record("brainstorming", "")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := tr.Flush(ctx); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, tr.Flush(ctx))
 
 	ws, err := LoadStats(wsPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ws["tdd"] == nil || len(ws["tdd"].Calls) != 2 {
-		t.Errorf("tdd Calls len=%d want 2: %+v", lenOrZero(ws["tdd"]), ws["tdd"])
-	}
-	if ws["tdd"].SectionCalls["red-green"] != 1 {
-		t.Errorf("section_calls[red-green]=%d want 1", ws["tdd"].SectionCalls["red-green"])
-	}
-	if ws["brainstorming"] == nil || len(ws["brainstorming"].Calls) != 1 {
-		t.Errorf("brainstorming Calls=%v", ws["brainstorming"])
-	}
+	require.NoError(t, err)
+	require.NotNil(t, ws["tdd"])
+	require.Lenf(t, ws["tdd"].Calls, 2, "tdd Calls len=%d want 2: %+v", lenOrZero(ws["tdd"]), ws["tdd"])
+	require.Equal(t, 1, ws["tdd"].SectionCalls["red-green"])
+	require.NotNil(t, ws["brainstorming"])
+	require.Len(t, ws["brainstorming"].Calls, 1)
 
 	gl, err := LoadStats(glPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(gl) != 2 {
-		t.Errorf("global stats should have 2 skills, got %d", len(gl))
-	}
+	require.NoError(t, err)
+	require.Lenf(t, gl, 2, "global stats should have 2 skills, got %d", len(gl))
 }
 
 func TestTracker_SnapshotIsDeepCopy(t *testing.T) {

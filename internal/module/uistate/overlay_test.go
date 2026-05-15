@@ -22,31 +22,17 @@ func TestGetStatePrefersOverlayUntilTTLExpires(t *testing.T) {
 	svc.setThreadOverlayLocked("thread-1", overlayTypeMCPStartup, "", overlayPriorityMCPStartup, 5*time.Millisecond)
 	svc.mu.Unlock()
 
-	state, err := svc.GetState(context.Background())
-	if err != nil {
-		t.Fatalf("GetState() error = %v", err)
-	}
+	state := mustGetUIState(t, svc, context.Background(), "GetState()")
 	thread := mustThread(t, state.Threads, "thread-1")
-	if thread.State != "starting" || thread.ThreadStatus != "starting" {
-		t.Fatalf("thread status = %q/%q, want starting/starting", thread.State, thread.ThreadStatus)
-	}
-	if thread.OverlayType != overlayTypeMCPStartup || thread.OverlayText != "MCP 启动中" || thread.OverlayPriority != overlayPriorityMCPStartup {
-		t.Fatalf("thread overlay = %#v, want startup overlay", thread)
-	}
+	assertOverlayThreadStatus(t, thread, "starting", "starting", "thread status")
+	assertThreadOverlay(t, thread, overlayTypeMCPStartup, "MCP 启动中", overlayPriorityMCPStartup, "thread overlay")
 
 	time.Sleep(20 * time.Millisecond)
 
-	state, err = svc.GetState(context.Background())
-	if err != nil {
-		t.Fatalf("GetState() after TTL error = %v", err)
-	}
+	state = mustGetUIState(t, svc, context.Background(), "GetState() after TTL")
 	thread = mustThread(t, state.Threads, "thread-1")
-	if thread.State != "idle" || thread.ThreadStatus != "idle" {
-		t.Fatalf("thread status after TTL = %q/%q, want idle/idle", thread.State, thread.ThreadStatus)
-	}
-	if thread.OverlayType != "" || thread.OverlayText != "" || thread.OverlayPriority != 0 {
-		t.Fatalf("thread overlay after TTL = %#v, want cleared", thread)
-	}
+	assertOverlayThreadStatus(t, thread, "idle", "idle", "thread status after TTL")
+	assertThreadOverlay(t, thread, "", "", 0, "thread overlay after TTL")
 }
 
 func TestGetSidebarKeepsHigherPriorityOverlay(t *testing.T) {
@@ -60,26 +46,11 @@ func TestGetSidebarKeepsHigherPriorityOverlay(t *testing.T) {
 	svc.setThreadOverlayLocked("thread-1", overlayTypeMCPStartup, "", overlayPriorityMCPStartup, time.Minute)
 	svc.mu.Unlock()
 
-	sidebar, err := svc.GetSidebar(context.Background())
-	if err != nil {
-		t.Fatalf("GetSidebar() error = %v", err)
-	}
+	sidebar := mustGetSidebar(t, svc, "GetSidebar()")
 	thread := mustThread(t, sidebar.Threads, "thread-1")
-	if thread.OverlayType != overlayTypeTerminalWait || thread.OverlayText != "等待终端输入" || thread.OverlayPriority != 90 {
-		t.Fatalf("thread overlay = %#v, want terminal wait overlay", thread)
-	}
-	if thread.State != "waiting" || thread.ThreadStatus != "waiting" {
-		t.Fatalf("thread status = %q/%q, want waiting/waiting", thread.State, thread.ThreadStatus)
-	}
-	if got := sidebar.Statuses["thread-1"]; got != "waiting" {
-		t.Fatalf("sidebar.Statuses[thread-1] = %q, want waiting", got)
-	}
-	if got := sidebar.StatusHeadersByThread["thread-1"]; got != "等待终端输入" {
-		t.Fatalf("sidebar.StatusHeadersByThread[thread-1] = %q, want 等待终端输入", got)
-	}
-	if got := sidebar.StatusDetailsByThread["thread-1"]; got != "命令正在等待终端输入" {
-		t.Fatalf("sidebar.StatusDetailsByThread[thread-1] = %q, want 命令正在等待终端输入", got)
-	}
+	assertThreadOverlay(t, thread, overlayTypeTerminalWait, "等待终端输入", 90, "thread overlay")
+	assertOverlayThreadStatus(t, thread, "waiting", "waiting", "thread status")
+	assertSidebarStatusText(t, sidebar, "thread-1", "waiting", "等待终端输入", "命令正在等待终端输入")
 }
 
 func TestAgentRuntimeReportedClearsStartupOverlay(t *testing.T) {
@@ -96,10 +67,7 @@ func TestAgentRuntimeReportedClearsStartupOverlay(t *testing.T) {
 
 	svc.applyAgentLaunched(agentdto.AgentLaunched{AgentSessionHeader: header})
 
-	before, err := svc.GetSidebar(context.Background())
-	if err != nil {
-		t.Fatalf("GetSidebar() before ready error = %v", err)
-	}
+	before := mustGetSidebar(t, svc, "GetSidebar() before ready")
 	if got := before.StatusHeadersByThread["thread-1"]; got != "MCP 启动中" {
 		t.Fatalf("startup header = %q, want MCP 启动中", got)
 	}
@@ -114,20 +82,11 @@ func TestAgentRuntimeReportedClearsStartupOverlay(t *testing.T) {
 		NewState:           "idle",
 	})
 
-	after, err := svc.GetSidebar(context.Background())
-	if err != nil {
-		t.Fatalf("GetSidebar() after ready error = %v", err)
-	}
+	after := mustGetSidebar(t, svc, "GetSidebar() after ready")
 	thread := mustThread(t, after.Threads, "thread-1")
-	if thread.OverlayType != "" || thread.OverlayText != "" || thread.OverlayPriority != 0 {
-		t.Fatalf("thread overlay after ready = %#v, want cleared", thread)
-	}
-	if got := after.Statuses["thread-1"]; got != "idle" {
-		t.Fatalf("sidebar.Statuses[thread-1] = %q, want idle", got)
-	}
-	if got := after.StatusHeadersByThread["thread-1"]; got != "等待指示" {
-		t.Fatalf("sidebar.StatusHeadersByThread[thread-1] = %q, want 等待指示", got)
-	}
+	assertThreadOverlay(t, thread, "", "", 0, "thread overlay after ready")
+	assertStringMapValue(t, after.Statuses, "thread-1", "idle", "sidebar.Statuses[thread-1]")
+	assertStringMapValue(t, after.StatusHeadersByThread, "thread-1", "等待指示", "sidebar.StatusHeadersByThread[thread-1]")
 }
 
 func TestGetStateIncludesRuntimeSnapshotContractFields(t *testing.T) {
@@ -141,38 +100,9 @@ func TestGetStateIncludesRuntimeSnapshotContractFields(t *testing.T) {
 	svc.state.TokenUsages = map[string]TokenUsage{"thread-1": {TotalTokens: 53, ContextWindowTokens: 200}}
 	svc.state.MainAgentID = "agent-main"
 
-	state, err := svc.GetState(withDiffStateRequest(context.Background(), "thread-1", false, 0))
-	if err != nil {
-		t.Fatalf("GetState() error = %v", err)
-	}
-	if got := state.Statuses["thread-1"]; got != "running" {
-		t.Fatalf("state.Statuses[thread-1] = %q, want running", got)
-	}
-	if !state.InterruptibleByThread["thread-1"] {
-		t.Fatal("state.InterruptibleByThread[thread-1] = false, want true")
-	}
-	if got := state.StatusHeadersByThread["thread-1"]; got != "工作中" {
-		t.Fatalf("state.StatusHeadersByThread[thread-1] = %q, want 工作中", got)
-	}
-	if got := state.StatusDetailsByThread["thread-1"]; got != "正在处理" {
-		t.Fatalf("state.StatusDetailsByThread[thread-1] = %q, want 正在处理", got)
-	}
-	usage := state.TokenUsageByThread["thread-1"]
-	if usage == nil || usage.UsedTokens != 53 || usage.ContextWindowTokens != 200 || usage.UsedPercent != 26.5 {
-		t.Fatalf("state.TokenUsageByThread[thread-1] = %#v, want 53/200/26.5", usage)
-	}
-	if runtime := state.AgentRuntimeByID["thread-1"]; runtime["provider"] != "claude" || runtime["providerThreadId"] != "provider-1" {
-		t.Fatalf("state.AgentRuntimeByID[thread-1] = %#v", runtime)
-	}
-	if meta := state.AgentMetaByID["thread-1"]; meta["alias"] != "主线程" || meta["lastActiveAt"] != startedAt.Format(time.RFC3339Nano) {
-		t.Fatalf("state.AgentMetaByID[thread-1] = %#v", meta)
-	}
-	if alerts, ok := state.AlertsByThread["thread-1"]; !ok || len(alerts) != 0 {
-		t.Fatalf("state.AlertsByThread[thread-1] = %#v, want empty slice", alerts)
-	}
-	if state.MainAgentState != "running" {
-		t.Fatalf("state.MainAgentState = %q, want running", state.MainAgentState)
-	}
+	state := mustGetUIState(t, svc, withDiffStateRequest(context.Background(), "thread-1", false, 0), "GetState()")
+	assertRuntimeSnapshotStatus(t, state)
+	assertRuntimeSnapshotMaps(t, state, startedAt)
 }
 
 func TestAgentLifecyclePublishesOverlayThreadPatch(t *testing.T) {
@@ -198,12 +128,7 @@ func TestAgentLifecyclePublishesOverlayThreadPatch(t *testing.T) {
 
 	svc.applyAgentLaunched(agentdto.AgentLaunched{AgentSessionHeader: header})
 	launchPatch := mustReceiveThreadPatch(t, patches)
-	if launchPatch.Status != "starting" || launchPatch.StatusHeader != "MCP 启动中" || launchPatch.StatusDetails != "正在初始化 MCP 服务" {
-		t.Fatalf("launch patch = %#v", launchPatch)
-	}
-	if launchPatch.OverlayType != overlayTypeMCPStartup || launchPatch.OverlayText != "MCP 启动中" || launchPatch.OverlayPriority != overlayPriorityMCPStartup {
-		t.Fatalf("launch patch overlay = %#v", launchPatch)
-	}
+	assertLaunchOverlayPatch(t, launchPatch)
 
 	svc.applyAgentRuntimeReported(agentdto.AgentRuntimeReported{
 		AgentSessionHeader: header,
@@ -211,12 +136,7 @@ func TestAgentLifecyclePublishesOverlayThreadPatch(t *testing.T) {
 		Port:               8080,
 	})
 	clearPatch := mustReceiveThreadPatch(t, patches)
-	if clearPatch.OverlayType != "" || clearPatch.OverlayText != "" || clearPatch.OverlayPriority != 0 {
-		t.Fatalf("clear patch overlay = %#v, want cleared", clearPatch)
-	}
-	if clearPatch.StatusHeader == "" {
-		t.Fatalf("clear patch presentation = %#v, want non-empty header", clearPatch)
-	}
+	assertClearOverlayPatch(t, clearPatch)
 }
 
 func TestRequestUserInputApprovalKeepsTerminalWaitOverlayUntilLastResolve(t *testing.T) {
@@ -250,14 +170,9 @@ func TestRequestUserInputApprovalKeepsTerminalWaitOverlayUntilLastResolve(t *tes
 		Kind: "request_user_input",
 	})
 
-	sidebar, err := svc.GetSidebar(context.Background())
-	if err != nil {
-		t.Fatalf("GetSidebar() after request error = %v", err)
-	}
+	sidebar := mustGetSidebar(t, svc, "GetSidebar() after request")
 	thread := mustThread(t, sidebar.Threads, "thread-1")
-	if thread.OverlayType != overlayTypeTerminalWait || thread.OverlayText != "等待终端输入" || thread.OverlayPriority != overlayPriorityTerminalWait {
-		t.Fatalf("thread overlay after request = %#v, want terminal wait overlay", thread)
-	}
+	assertThreadOverlay(t, thread, overlayTypeTerminalWait, "等待终端输入", overlayPriorityTerminalWait, "thread overlay after request")
 
 	svc.applyToolApprovalResolved(tooldto.ToolApprovalResolved{
 		ToolApprovalHeader: sharedto.ToolApprovalHeader{
@@ -268,14 +183,9 @@ func TestRequestUserInputApprovalKeepsTerminalWaitOverlayUntilLastResolve(t *tes
 		Approved: true,
 	})
 
-	sidebar, err = svc.GetSidebar(context.Background())
-	if err != nil {
-		t.Fatalf("GetSidebar() after first resolve error = %v", err)
-	}
+	sidebar = mustGetSidebar(t, svc, "GetSidebar() after first resolve")
 	thread = mustThread(t, sidebar.Threads, "thread-1")
-	if thread.OverlayType != overlayTypeTerminalWait || thread.OverlayText != "等待终端输入" || thread.OverlayPriority != overlayPriorityTerminalWait {
-		t.Fatalf("thread overlay after first resolve = %#v, want terminal wait overlay", thread)
-	}
+	assertThreadOverlay(t, thread, overlayTypeTerminalWait, "等待终端输入", overlayPriorityTerminalWait, "thread overlay after first resolve")
 
 	svc.applyToolApprovalResolved(tooldto.ToolApprovalResolved{
 		ToolApprovalHeader: sharedto.ToolApprovalHeader{
@@ -286,14 +196,9 @@ func TestRequestUserInputApprovalKeepsTerminalWaitOverlayUntilLastResolve(t *tes
 		Approved: true,
 	})
 
-	sidebar, err = svc.GetSidebar(context.Background())
-	if err != nil {
-		t.Fatalf("GetSidebar() after second resolve error = %v", err)
-	}
+	sidebar = mustGetSidebar(t, svc, "GetSidebar() after second resolve")
 	thread = mustThread(t, sidebar.Threads, "thread-1")
-	if thread.OverlayType != "" || thread.OverlayText != "" || thread.OverlayPriority != 0 {
-		t.Fatalf("thread overlay after second resolve = %#v, want cleared", thread)
-	}
+	assertThreadOverlay(t, thread, "", "", 0, "thread overlay after second resolve")
 }
 
 func TestGenericApprovalDoesNotSetTerminalWaitOverlay(t *testing.T) {
@@ -326,6 +231,120 @@ func TestGenericApprovalDoesNotSetTerminalWaitOverlay(t *testing.T) {
 	thread := mustThread(t, sidebar.Threads, "thread-2")
 	if thread.OverlayType != "" || thread.OverlayText != "" || thread.OverlayPriority != 0 {
 		t.Fatalf("thread overlay = %#v, want no terminal wait overlay for generic approval", thread)
+	}
+}
+
+func mustGetUIState(t *testing.T, svc *service, ctx context.Context, label string) *UIState {
+	t.Helper()
+	state, err := svc.GetState(ctx)
+	if err != nil {
+		t.Fatalf("%s error = %v", label, err)
+	}
+	return state
+}
+
+func mustGetSidebar(t *testing.T, svc *service, label string) *Sidebar {
+	t.Helper()
+	sidebar, err := svc.GetSidebar(context.Background())
+	if err != nil {
+		t.Fatalf("%s error = %v", label, err)
+	}
+	return sidebar
+}
+
+func assertOverlayThreadStatus(t *testing.T, thread ThreadSummary, wantState, wantStatus, label string) {
+	t.Helper()
+	if thread.State != wantState || thread.ThreadStatus != wantStatus {
+		t.Fatalf("%s = %q/%q, want %s/%s", label, thread.State, thread.ThreadStatus, wantState, wantStatus)
+	}
+}
+
+func assertThreadOverlay(t *testing.T, thread ThreadSummary, wantType, wantText string, wantPriority int, label string) {
+	t.Helper()
+	if thread.OverlayType != wantType || thread.OverlayText != wantText || thread.OverlayPriority != wantPriority {
+		t.Fatalf("%s = %#v, want type=%q text=%q priority=%d", label, thread, wantType, wantText, wantPriority)
+	}
+}
+
+func assertStringMapValue(t *testing.T, values map[string]string, key, want, label string) {
+	t.Helper()
+	if got := values[key]; got != want {
+		t.Fatalf("%s = %q, want %q", label, got, want)
+	}
+}
+
+func assertSidebarStatusText(t *testing.T, sidebar *Sidebar, threadID, status, header, details string) {
+	t.Helper()
+	assertStringMapValue(t, sidebar.Statuses, threadID, status, "sidebar.Statuses["+threadID+"]")
+	assertStringMapValue(t, sidebar.StatusHeadersByThread, threadID, header, "sidebar.StatusHeadersByThread["+threadID+"]")
+	assertStringMapValue(t, sidebar.StatusDetailsByThread, threadID, details, "sidebar.StatusDetailsByThread["+threadID+"]")
+}
+
+func assertRuntimeSnapshotStatus(t *testing.T, state *UIState) {
+	t.Helper()
+	assertStringMapValue(t, state.Statuses, "thread-1", "running", "state.Statuses[thread-1]")
+	if !state.InterruptibleByThread["thread-1"] {
+		t.Fatal("state.InterruptibleByThread[thread-1] = false, want true")
+	}
+	assertStringMapValue(t, state.StatusHeadersByThread, "thread-1", "工作中", "state.StatusHeadersByThread[thread-1]")
+	assertStringMapValue(t, state.StatusDetailsByThread, "thread-1", "正在处理", "state.StatusDetailsByThread[thread-1]")
+	if state.MainAgentState != "running" {
+		t.Fatalf("state.MainAgentState = %q, want running", state.MainAgentState)
+	}
+}
+
+func assertRuntimeSnapshotMaps(t *testing.T, state *UIState, startedAt time.Time) {
+	t.Helper()
+	assertRuntimeTokenUsage(t, state.TokenUsageByThread["thread-1"])
+	assertRuntimeMapValue(t, state.AgentRuntimeByID["thread-1"], "provider", "claude", "state.AgentRuntimeByID[thread-1]")
+	assertRuntimeMapValue(t, state.AgentRuntimeByID["thread-1"], "providerThreadId", "provider-1", "state.AgentRuntimeByID[thread-1]")
+	assertRuntimeMapValue(t, state.AgentMetaByID["thread-1"], "alias", "主线程", "state.AgentMetaByID[thread-1]")
+	assertRuntimeMapValue(t, state.AgentMetaByID["thread-1"], "lastActiveAt", startedAt.Format(time.RFC3339Nano), "state.AgentMetaByID[thread-1]")
+	assertEmptyThreadAlerts(t, state)
+}
+
+func assertRuntimeTokenUsage(t *testing.T, usage *uidto.ThreadPatchTokenUsage) {
+	t.Helper()
+	if usage == nil {
+		t.Fatal("state.TokenUsageByThread[thread-1] = nil, want 53/200/26.5")
+	}
+	if usage.UsedTokens != 53 || usage.ContextWindowTokens != 200 || usage.UsedPercent != 26.5 {
+		t.Fatalf("state.TokenUsageByThread[thread-1] = %#v, want 53/200/26.5", usage)
+	}
+}
+
+func assertRuntimeMapValue(t *testing.T, values map[string]any, key string, want any, label string) {
+	t.Helper()
+	if values[key] != want {
+		t.Fatalf("%s = %#v, want %s=%#v", label, values, key, want)
+	}
+}
+
+func assertEmptyThreadAlerts(t *testing.T, state *UIState) {
+	t.Helper()
+	alerts, ok := state.AlertsByThread["thread-1"]
+	if !ok || len(alerts) != 0 {
+		t.Fatalf("state.AlertsByThread[thread-1] = %#v, want empty slice", alerts)
+	}
+}
+
+func assertLaunchOverlayPatch(t *testing.T, patch uidto.UIThreadPatch) {
+	t.Helper()
+	if patch.Status != "starting" || patch.StatusHeader != "MCP 启动中" || patch.StatusDetails != "正在初始化 MCP 服务" {
+		t.Fatalf("launch patch = %#v", patch)
+	}
+	if patch.OverlayType != overlayTypeMCPStartup || patch.OverlayText != "MCP 启动中" || patch.OverlayPriority != overlayPriorityMCPStartup {
+		t.Fatalf("launch patch overlay = %#v", patch)
+	}
+}
+
+func assertClearOverlayPatch(t *testing.T, patch uidto.UIThreadPatch) {
+	t.Helper()
+	if patch.OverlayType != "" || patch.OverlayText != "" || patch.OverlayPriority != 0 {
+		t.Fatalf("clear patch overlay = %#v, want cleared", patch)
+	}
+	if patch.StatusHeader == "" {
+		t.Fatalf("clear patch presentation = %#v, want non-empty header", patch)
 	}
 }
 

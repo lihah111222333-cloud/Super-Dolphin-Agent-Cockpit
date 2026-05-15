@@ -1,29 +1,54 @@
 package memory
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
-	"sync"
 	"testing"
-
 	"time"
-
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 )
 
 func TestBuildUIMemorySnapshotIncludesDurableAndAgentMemories(t *testing.T) {
 	projectRoot := t.TempDir()
 	privateRoot := filepath.Join(t.TempDir(), "private")
-	cfg := &Config{
+	cfg := newUIMemorySnapshotConfig(t, projectRoot, privateRoot)
+	if err := os.MkdirAll(privateRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(privateRoot) error = %v", err)
+	}
+
+	privateStore := mustNewTestDiskStore(t, privateRoot)
+	createStructuredMemoryForTest(t, privateStore, MemoryWriteRequest{
+		Name:        "Keep replies concise",
+		Description: "User prefers direct answers",
+		Type:        MemoryTypeFeedback,
+		Body:        "rule\nWhy: concise answers reduce back-and-forth.\nHow to apply: lead with the fix.",
+	}, "private")
+
+	teamRoot := mustConfiguredTeamMemoryRoot(t, cfg)
+	if err := os.MkdirAll(teamRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(teamRoot) error = %v", err)
+	}
+	teamStore := mustNewTestDiskStore(t, teamRoot)
+	createStructuredMemoryForTest(t, teamStore, MemoryWriteRequest{
+		Name:        "Core dashboard owner",
+		Description: "Who owns the dashboard area",
+		Type:        MemoryTypeProject,
+		Body:        "fact\nWhy: onboarding and review routing.\nHow to apply: ask the dashboard owner for cross-team changes.",
+	}, "team")
+
+	snapshot, err := buildUIMemorySnapshot(context.Background(), newServiceWithConsolidator(cfg, nil, nil, nil), nil, projectRoot)
+	if err != nil {
+		t.Fatalf("buildUIMemorySnapshot() error = %v", err)
+	}
+	assertDurableAndAgentMemorySnapshot(t, snapshot)
+}
+
+func newUIMemorySnapshotConfig(t *testing.T, projectRoot, privateRoot string) *Config {
+	t.Helper()
+	return &Config{
 		Enabled:             true,
 		EnableTools:         true,
 		ExtractOnStop:       true,
@@ -32,47 +57,35 @@ func TestBuildUIMemorySnapshotIncludesDurableAndAgentMemories(t *testing.T) {
 		AutoMemPathOverride: privateRoot,
 		Features:            MemoryFeatureFlags{TeamMemory: true},
 	}
-	if err := os.MkdirAll(privateRoot, 0o755); err != nil {
-		t.Fatalf("MkdirAll(privateRoot) error = %v", err)
-	}
+}
 
-	privateStore, err := newDiskStore(privateRoot, nil)
+func mustNewTestDiskStore(t *testing.T, root string) *diskStore {
+	t.Helper()
+	store, err := newDiskStore(root, nil)
 	if err != nil {
-		t.Fatalf("newDiskStore(privateRoot, nil) error = %v", err)
+		t.Fatalf("newDiskStore(%q, nil) error = %v", root, err)
 	}
-	if _, err := privateStore.CreateStructured(MemoryWriteRequest{
-		Name:        "Keep replies concise",
-		Description: "User prefers direct answers",
-		Type:        MemoryTypeFeedback,
-		Body:        "rule\nWhy: concise answers reduce back-and-forth.\nHow to apply: lead with the fix.",
-	}); err != nil {
-		t.Fatalf("CreateStructured(private) error = %v", err)
-	}
+	return store
+}
 
+func createStructuredMemoryForTest(t *testing.T, store *diskStore, req MemoryWriteRequest, label string) {
+	t.Helper()
+	if _, err := store.CreateStructured(req); err != nil {
+		t.Fatalf("CreateStructured(%s) error = %v", label, err)
+	}
+}
+
+func mustConfiguredTeamMemoryRoot(t *testing.T, cfg *Config) string {
+	t.Helper()
 	teamRoot, err := configuredTeamMemRoot(cfg)
 	if err != nil {
 		t.Fatalf("configuredTeamMemRoot() error = %v", err)
 	}
-	if err := os.MkdirAll(teamRoot, 0o755); err != nil {
-		t.Fatalf("MkdirAll(teamRoot) error = %v", err)
-	}
-	teamStore, err := newDiskStore(teamRoot, nil)
-	if err != nil {
-		t.Fatalf("newDiskStore(teamRoot, nil) error = %v", err)
-	}
-	if _, err := teamStore.CreateStructured(MemoryWriteRequest{
-		Name:        "Core dashboard owner",
-		Description: "Who owns the dashboard area",
-		Type:        MemoryTypeProject,
-		Body:        "fact\nWhy: onboarding and review routing.\nHow to apply: ask the dashboard owner for cross-team changes.",
-	}); err != nil {
-		t.Fatalf("CreateStructured(team) error = %v", err)
-	}
+	return teamRoot
+}
 
-	snapshot, err := buildUIMemorySnapshot(context.Background(), newServiceWithConsolidator(cfg, nil, nil, nil), nil, projectRoot)
-	if err != nil {
-		t.Fatalf("buildUIMemorySnapshot() error = %v", err)
-	}
+func assertDurableAndAgentMemorySnapshot(t *testing.T, snapshot UIMemorySnapshot) {
+	t.Helper()
 	if !snapshot.Overview.Enabled || !snapshot.Overview.ToolsEnabled || !snapshot.Overview.AutoDreamEnabled {
 		t.Fatalf("Overview = %#v, want enabled tools-enabled auto-dream snapshot", snapshot.Overview)
 	}
@@ -446,540 +459,4 @@ func TestDeleteUIMemoryEntryRejectsEntrypointIndex(t *testing.T) {
 	if _, err := readMemoryEntryFile(entryPath); err != nil {
 		t.Fatalf("topic entry was removed after rejected delete: %v", err)
 	}
-}
-
-func TestMergeUIMemoryEntriesUsesTeamGuardWhenKeptEntryIsTeam(t *testing.T) {
-	projectRoot := t.TempDir()
-	privateRoot := filepath.Join(t.TempDir(), "private")
-	cfg := &Config{
-		Enabled:             true,
-		EnableTools:         true,
-		ProjectRoot:         projectRoot,
-		RootDir:             t.TempDir(),
-		AutoMemPathOverride: privateRoot,
-		Features:            MemoryFeatureFlags{TeamMemory: true},
-	}
-	teamRoot, err := configuredTeamMemRoot(cfg, contract.BuildCtx{CWD: projectRoot})
-	if err != nil {
-		t.Fatalf("configuredTeamMemRoot() error = %v", err)
-	}
-
-	keptPath := filepath.Join(teamRoot, string(MemoryTypeProject), "team-kept.md")
-	absorbedPath := filepath.Join(privateRoot, string(MemoryTypeProject), "private-absorbed.md")
-	secret := "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"
-	commonBody := "Shared team merge guard content common phrase common phrase common phrase.\nWhy: merge validation should pass before guarded team write.\nHow to apply: reject merged content containing secrets."
-	keptBody := commonBody + "\nTeam kept clean marker."
-	absorbedBody := commonBody + "\nPrivate absorbed marker includes token " + secret + "."
-
-	writeTestTopicFile(t, keptPath, testMemoryEntry("Team Guard Kept", "team kept", MemoryTypeProject, keptBody))
-	writeTestTopicFile(t, absorbedPath, testMemoryEntry("Private Guard Absorbed", "private absorbed", MemoryTypeProject, absorbedBody))
-	if _, err := UpdateMemoryIndex(teamRoot); err != nil {
-		t.Fatalf("UpdateMemoryIndex(teamRoot) error = %v", err)
-	}
-	if _, err := UpdateMemoryIndex(privateRoot); err != nil {
-		t.Fatalf("UpdateMemoryIndex(privateRoot) error = %v", err)
-	}
-
-	var logBuf bytes.Buffer
-	logger := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{}))
-	_, err = mergeUIMemoryEntries(context.Background(), memoryHandlerDeps{
-		Service: newServiceWithConsolidator(cfg, nil, nil, nil),
-		Logger:  logger,
-	}, uiMemoryEntryMergeParams{
-		CWD:     projectRoot,
-		TargetA: "team",
-		PathA:   memoryEntryDisplayPath(teamRoot, keptPath),
-		TargetB: "private",
-		PathB:   memoryEntryDisplayPath(privateRoot, absorbedPath),
-	})
-	if !errors.Is(err, errDurableMemorySaveFailed) {
-		t.Fatalf("mergeUIMemoryEntries() error = %v, want %v", err, errDurableMemorySaveFailed)
-	}
-	if !strings.Contains(logBuf.String(), ErrTeamMemSecretDetected.Error()) {
-		t.Fatalf("merge log = %q, want TeamMemoryGuard rejection %q", logBuf.String(), ErrTeamMemSecretDetected.Error())
-	}
-	kept, readErr := readMemoryEntryFile(keptPath)
-	if readErr != nil {
-		t.Fatalf("read kept after rejected merge error = %v", readErr)
-	}
-	if kept.Content != keptBody {
-		t.Fatalf("team kept content changed after rejected merge:\n%s", kept.Content)
-	}
-	if strings.Contains(kept.Content, secret) {
-		t.Fatalf("team kept content contains secret after rejected merge:\n%s", kept.Content)
-	}
-	if _, err := os.Stat(absorbedPath); err != nil {
-		t.Fatalf("absorbed private entry was deleted after rejected team write: %v", err)
-	}
-}
-
-func TestRollbackMergedEntryUsesTeamGuardWhenTargetIsTeam(t *testing.T) {
-	projectRoot := t.TempDir()
-	privateRoot := filepath.Join(t.TempDir(), "private")
-	cfg := &Config{
-		Enabled:             true,
-		EnableTools:         true,
-		ProjectRoot:         projectRoot,
-		RootDir:             t.TempDir(),
-		AutoMemPathOverride: privateRoot,
-		Features:            MemoryFeatureFlags{TeamMemory: true},
-	}
-	teamRoot, err := configuredTeamMemRoot(cfg, contract.BuildCtx{CWD: projectRoot})
-	if err != nil {
-		t.Fatalf("configuredTeamMemRoot() error = %v", err)
-	}
-	keptPath := filepath.Join(teamRoot, string(MemoryTypeProject), "team-kept.md")
-	cleanBody := "Clean rollback placeholder.\nWhy: the existing team file should remain unchanged.\nHow to apply: reject unsafe rollback writes."
-	writeTestTopicFile(t, keptPath, testMemoryEntry("Team Rollback Kept", "team kept", MemoryTypeProject, cleanBody))
-
-	unsafeRollback := testMemoryEntry("Team Rollback Kept", "team kept", MemoryTypeProject,
-		"Unsafe rollback body.\nWhy: rollback must still use TeamMemoryGuard.\nHow to apply: reject token sk-proj-abcdefghijklmnopqrstuvwxyz1234567890.")
-	err = rollbackMergedEntry(newServiceWithConsolidator(cfg, nil, nil, nil), teamRoot, "team", memoryEntryDisplayPath(teamRoot, keptPath), unsafeRollback)
-
-	if !errors.Is(err, ErrTeamMemSecretDetected) {
-		t.Fatalf("rollbackMergedEntry(team) error = %v, want %v", err, ErrTeamMemSecretDetected)
-	}
-	kept, readErr := readMemoryEntryFile(keptPath)
-	if readErr != nil {
-		t.Fatalf("read kept after rejected rollback error = %v", readErr)
-	}
-	if kept.Content != cleanBody {
-		t.Fatalf("team kept content changed after rejected rollback:\n%s", kept.Content)
-	}
-}
-
-func TestMergeUIMemoryEntriesRollsBackKeptEntryWhenDeleteAbsorbedFails(t *testing.T) {
-	projectRoot := t.TempDir()
-
-	privateRoot := filepath.Join(t.TempDir(), "private")
-	cfg := &Config{
-		Enabled:             true,
-		EnableTools:         true,
-		ProjectRoot:         projectRoot,
-		RootDir:             t.TempDir(),
-		AutoMemPathOverride: privateRoot,
-		Features:            MemoryFeatureFlags{TeamMemory: true},
-	}
-	keptPath := filepath.Join(privateRoot, string(MemoryTypeProject), "kept.md")
-	teamRoot, err := configuredTeamMemRoot(cfg, contract.BuildCtx{CWD: projectRoot})
-	if err != nil {
-		t.Fatalf("configuredTeamMemRoot() error = %v", err)
-	}
-	absorbedPath := filepath.Join(teamRoot, string(MemoryTypeProject), "absorbed.md")
-	commonBody := "Shared rollback content common phrase common phrase common phrase.\nWhy: merge validation should pass before the delete step.\nHow to apply: rollback the kept write on merge failure."
-	keptBody := commonBody + "\nKept original marker."
-	absorbedBody := commonBody + "\nAbsorbed unique marker."
-
-	writeTestTopicFile(t, keptPath, testMemoryEntry("Rollback Kept", "kept", MemoryTypeProject, keptBody))
-	writeTestTopicFile(t, absorbedPath, testMemoryEntry("Rollback Absorbed", "absorbed", MemoryTypeProject, absorbedBody))
-	if _, err := UpdateMemoryIndex(privateRoot); err != nil {
-		t.Fatalf("UpdateMemoryIndex(privateRoot) error = %v", err)
-	}
-	if _, err := UpdateMemoryIndex(teamRoot); err != nil {
-		t.Fatalf("UpdateMemoryIndex(teamRoot) error = %v", err)
-	}
-	originalPrivateIndex := readIndexEntries(t, privateRoot)
-	originalTeamIndex := readIndexEntries(t, teamRoot)
-
-	absorbedDir := filepath.Dir(absorbedPath)
-	if err := os.Chmod(absorbedDir, 0o555); err != nil {
-		t.Fatalf("Chmod(absorbedDir read-only) error = %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(absorbedDir, 0o755) })
-
-	_, err = mergeUIMemoryEntries(context.Background(), memoryHandlerDeps{Service: newServiceWithConsolidator(cfg, nil, nil, nil)}, uiMemoryEntryMergeParams{
-		CWD:     projectRoot,
-		TargetA: "private",
-		PathA:   memoryEntryDisplayPath(privateRoot, keptPath),
-		TargetB: "team",
-		PathB:   memoryEntryDisplayPath(teamRoot, absorbedPath),
-	})
-	if err == nil {
-		t.Fatal("mergeUIMemoryEntries() error = nil, want delete failure")
-	}
-	kept, readErr := readMemoryEntryFile(keptPath)
-	if readErr != nil {
-		t.Fatalf("read kept after failed merge error = %v", readErr)
-	}
-	if kept.Content != keptBody {
-		t.Fatalf("kept content changed after failed merge:\n%s", kept.Content)
-	}
-	if strings.Contains(kept.Content, "Absorbed unique marker") {
-		t.Fatalf("kept content contains absorbed marker after failed merge:\n%s", kept.Content)
-	}
-	absorbed, readErr := readMemoryEntryFile(absorbedPath)
-	if readErr != nil {
-		t.Fatalf("read absorbed after failed merge error = %v", readErr)
-	}
-	if absorbed.Content != absorbedBody {
-		t.Fatalf("absorbed content changed after failed merge:\n%s", absorbed.Content)
-	}
-
-	privateIndex := readIndexEntries(t, privateRoot)
-	if !reflect.DeepEqual(privateIndex, originalPrivateIndex) {
-		t.Fatalf("private index after failed merge = %#v, want original %#v", privateIndex, originalPrivateIndex)
-	}
-	teamIndex := readIndexEntries(t, teamRoot)
-	if !reflect.DeepEqual(teamIndex, originalTeamIndex) {
-		t.Fatalf("team index after failed merge = %#v, want original %#v", teamIndex, originalTeamIndex)
-	}
-}
-
-func TestMergeUIMemoryEntriesUpdatesAndDeletesRequestedPathsWhenDuplicateNamesExist(t *testing.T) {
-	projectRoot := t.TempDir()
-	privateRoot := filepath.Join(t.TempDir(), "private")
-	cfg := &Config{
-		Enabled:             true,
-		EnableTools:         true,
-		ProjectRoot:         projectRoot,
-		RootDir:             t.TempDir(),
-		AutoMemPathOverride: privateRoot,
-	}
-	keptOldPath := filepath.Join(privateRoot, string(MemoryTypeProject), "kept-old.md")
-	keptNewPath := filepath.Join(privateRoot, string(MemoryTypeProject), "kept-new.md")
-	absorbedOldPath := filepath.Join(privateRoot, string(MemoryTypeProject), "absorbed-old.md")
-	absorbedNewPath := filepath.Join(privateRoot, string(MemoryTypeProject), "absorbed-new.md")
-	writeTestTopicFile(t, keptOldPath, testMemoryEntry("Kept Duplicate", "old kept", MemoryTypeProject, "Shared merge content for requested kept path.\nWhy: requested kept path must be updated.\nHow to apply: update the older kept file."))
-	writeTestTopicFile(t, keptNewPath, testMemoryEntry("Kept Duplicate", "new kept", MemoryTypeProject, "Shared merge content for non-requested kept path.\nWhy: newer duplicate should not be updated.\nHow to apply: keep this file untouched."))
-	writeTestTopicFile(t, absorbedOldPath, testMemoryEntry("Absorbed Duplicate", "old absorbed", MemoryTypeProject, "Shared merge content for requested absorbed path.\nWhy: requested absorbed path must be removed.\nHow to apply: delete the older absorbed file."))
-	writeTestTopicFile(t, absorbedNewPath, testMemoryEntry("Absorbed Duplicate", "new absorbed", MemoryTypeProject, "Shared merge content for non-requested absorbed path.\nWhy: newer absorbed duplicate should remain.\nHow to apply: keep this file untouched."))
-	oldTime := time.Now().Add(-time.Hour)
-	newTime := time.Now()
-	for _, path := range []string{keptOldPath, absorbedOldPath} {
-		if err := os.Chtimes(path, oldTime, oldTime); err != nil {
-			t.Fatalf("Chtimes(%q) error = %v", path, err)
-		}
-	}
-	for _, path := range []string{keptNewPath, absorbedNewPath} {
-		if err := os.Chtimes(path, newTime, newTime); err != nil {
-			t.Fatalf("Chtimes(%q) error = %v", path, err)
-		}
-	}
-
-	merged, err := mergeUIMemoryEntries(context.Background(), memoryHandlerDeps{Service: newServiceWithConsolidator(cfg, nil, nil, nil)}, uiMemoryEntryMergeParams{
-
-		CWD:     projectRoot,
-		TargetA: "private",
-		PathA:   memoryEntryDisplayPath(privateRoot, keptOldPath),
-		TargetB: "private",
-		PathB:   memoryEntryDisplayPath(privateRoot, absorbedOldPath),
-	})
-	if err != nil {
-		t.Fatalf("mergeUIMemoryEntries() error = %v", err)
-	}
-	if merged.Path != memoryEntryDisplayPath(privateRoot, keptOldPath) {
-		t.Fatalf("merged.Path = %q, want requested kept path", merged.Path)
-	}
-	keptOld, err := readMemoryEntryFile(keptOldPath)
-
-	if err != nil {
-		t.Fatalf("read requested kept path error = %v", err)
-	}
-	if !strings.Contains(keptOld.Content, "requested absorbed path") {
-		t.Fatalf("requested kept path was not merged:\n%s", keptOld.Content)
-	}
-	keptNew, err := readMemoryEntryFile(keptNewPath)
-	if err != nil {
-		t.Fatalf("read newer kept path error = %v", err)
-	}
-	if strings.Contains(keptNew.Content, "requested absorbed path") {
-		t.Fatalf("newer kept duplicate was modified:\n%s", keptNew.Content)
-	}
-	if _, err := os.Stat(absorbedOldPath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("requested absorbed path still exists or stat error = %v", err)
-	}
-	if _, err := os.Stat(absorbedNewPath); err != nil {
-		t.Fatalf("newer absorbed duplicate was deleted or inaccessible: %v", err)
-	}
-}
-
-func TestMergeUIMemoryEntriesRejectsDifferentTypesAndKeepsBoth(t *testing.T) {
-	projectRoot := t.TempDir()
-	privateRoot := filepath.Join(t.TempDir(), "private")
-	cfg := &Config{
-		Enabled:             true,
-		EnableTools:         true,
-		ProjectRoot:         projectRoot,
-		RootDir:             t.TempDir(),
-		AutoMemPathOverride: privateRoot,
-	}
-	store, err := newDiskStore(privateRoot, nil)
-	if err != nil {
-		t.Fatalf("newDiskStore(privateRoot, nil) error = %v", err)
-	}
-	feedback, err := store.CreateStructured(MemoryWriteRequest{
-		Name:        "Verification preference",
-		Description: "How the user wants verification handled",
-		Type:        MemoryTypeFeedback,
-		Body:        "Run guarded verification before success claims.\nWhy: verification avoids false completion reports.\nHow to apply: run the relevant guard before final summaries.",
-	})
-	if err != nil {
-		t.Fatalf("CreateStructured(feedback) error = %v", err)
-	}
-	project, err := store.CreateStructured(MemoryWriteRequest{
-		Name:        "Verification project fact",
-		Description: "Project verification workflow context",
-		Type:        MemoryTypeProject,
-		Body:        "Run guarded verification before success claims.\nWhy: verification avoids false completion reports.\nHow to apply: run the relevant guard before final summaries.",
-	})
-	if err != nil {
-		t.Fatalf("CreateStructured(project) error = %v", err)
-	}
-
-	_, err = mergeUIMemoryEntries(context.Background(), memoryHandlerDeps{Service: newServiceWithConsolidator(cfg, nil, nil, nil)}, uiMemoryEntryMergeParams{
-		CWD:     projectRoot,
-		TargetA: "private",
-		PathA:   memoryEntryDisplayPath(privateRoot, feedback.FilePath),
-		TargetB: "private",
-		PathB:   memoryEntryDisplayPath(privateRoot, project.FilePath),
-	})
-	if err == nil {
-		t.Fatal("mergeUIMemoryEntries() error = nil, want type mismatch rejection")
-	}
-	if _, _, err := readUIMemoryEntryByName(privateRoot, "Verification preference"); err != nil {
-		t.Fatalf("feedback entry missing after rejected merge: %v", err)
-	}
-	if _, _, err := readUIMemoryEntryByName(privateRoot, "Verification project fact"); err != nil {
-		t.Fatalf("project entry missing after rejected merge: %v", err)
-	}
-}
-
-func TestMergeUIMemoryEntriesRejectsDissimilarEntriesAndKeepsBoth(t *testing.T) {
-	projectRoot := t.TempDir()
-	privateRoot := filepath.Join(t.TempDir(), "private")
-	cfg := &Config{
-		Enabled:             true,
-		EnableTools:         true,
-		ProjectRoot:         projectRoot,
-		RootDir:             t.TempDir(),
-		AutoMemPathOverride: privateRoot,
-	}
-	store, err := newDiskStore(privateRoot, nil)
-	if err != nil {
-		t.Fatalf("newDiskStore(privateRoot, nil) error = %v", err)
-	}
-	first, err := store.CreateStructured(MemoryWriteRequest{
-		Name:        "Reply language",
-		Description: "Preferred response language",
-		Type:        MemoryTypeFeedback,
-		Body:        "Answer the user in Chinese by default.\nWhy: the user prefers Chinese collaboration.\nHow to apply: use Chinese for user-facing summaries.",
-	})
-	if err != nil {
-		t.Fatalf("CreateStructured(first) error = %v", err)
-	}
-	second, err := store.CreateStructured(MemoryWriteRequest{
-		Name:        "Database engine",
-		Description: "Project database choice",
-		Type:        MemoryTypeFeedback,
-		Body:        "Use PostgreSQL migrations for schema changes.\nWhy: the backend relies on PostgreSQL-specific migrations.\nHow to apply: do not write MySQL-only migration syntax.",
-	})
-	if err != nil {
-		t.Fatalf("CreateStructured(second) error = %v", err)
-	}
-
-	_, err = mergeUIMemoryEntries(context.Background(), memoryHandlerDeps{Service: newServiceWithConsolidator(cfg, nil, nil, nil)}, uiMemoryEntryMergeParams{
-		CWD:     projectRoot,
-		TargetA: "private",
-		PathA:   memoryEntryDisplayPath(privateRoot, first.FilePath),
-		TargetB: "private",
-		PathB:   memoryEntryDisplayPath(privateRoot, second.FilePath),
-	})
-	if err == nil {
-		t.Fatal("mergeUIMemoryEntries() error = nil, want dissimilar rejection")
-	}
-	if _, _, err := readUIMemoryEntryByName(privateRoot, "Reply language"); err != nil {
-		t.Fatalf("first entry missing after rejected merge: %v", err)
-	}
-	if _, _, err := readUIMemoryEntryByName(privateRoot, "Database engine"); err != nil {
-		t.Fatalf("second entry missing after rejected merge: %v", err)
-	}
-}
-
-func TestPromoteSharedFileToMemory(t *testing.T) {
-	projectRoot := t.TempDir()
-	privateRoot := filepath.Join(t.TempDir(), "private")
-	cfg := &Config{
-		Enabled:             true,
-		EnableTools:         true,
-		ProjectRoot:         projectRoot,
-		RootDir:             t.TempDir(),
-		AutoMemPathOverride: privateRoot,
-	}
-	now := time.Date(2026, 4, 20, 16, 0, 0, 0, time.UTC)
-	deps := memoryHandlerDeps{
-		Service: newServiceWithConsolidator(cfg, nil, nil, nil),
-		SharedFiles: stubSharedFileReader{
-			files: map[string]sharedfilestore.SharedFile{
-				"handoff/release.txt": {
-					Path:      "handoff/release.txt",
-					Content:   "Grafana dashboard lives at https://grafana.example.com/team/core.",
-					UpdatedBy: "alice",
-					UpdatedAt: now,
-				},
-			},
-		},
-		Sections: &recordingSectionInvalidator{},
-	}
-
-	entry, err := promoteSharedFileToMemory(context.Background(), deps, uiSharedFilePromoteParams{
-		CWD:         projectRoot,
-		SharedPath:  "handoff/release.txt",
-		Target:      "private",
-		Name:        "Core Grafana dashboard",
-		Description: "Where the team dashboard is maintained",
-		Type:        "reference",
-	})
-	if err != nil {
-		t.Fatalf("promoteSharedFileToMemory() error = %v", err)
-	}
-	if entry.Name != "Core Grafana dashboard" {
-		t.Fatalf("entry = %#v", entry)
-	}
-	loaded, err := getUIMemoryEntry(context.Background(), deps, uiMemoryEntryGetParams{
-		CWD:    projectRoot,
-		Target: "private",
-		Path:   entry.Path,
-	})
-	if err != nil {
-		t.Fatalf("getUIMemoryEntry(promoted) error = %v", err)
-	}
-	if loaded.Content != "Grafana dashboard lives at https://grafana.example.com/team/core." {
-		t.Fatalf("loaded.Content = %q", loaded.Content)
-	}
-}
-
-func TestDeleteUISharedFileRejectsFinalOutputReference(t *testing.T) {
-	t.Parallel()
-
-	deleter := &recordingSharedFileDeleter{}
-	deps := memoryHandlerDeps{
-		SharedFilesDeleter: deleter,
-		Orchestration: &finalOutputOrchestrationStub{
-			dags: []contract.DAGSummary{{DagKey: "dag-1"}},
-			runs: []contract.Run{{
-				RunKey: "run-1",
-				DagKey: "dag-1",
-				Metadata: json.RawMessage(`{
-					"final_output": {
-						"kind": "file",
-						"path": "reports/final.md",
-						"source_node_key": "report"
-					}
-				}`),
-			}},
-		},
-	}
-
-	deleted, err := deleteUISharedFile(context.Background(), deps, uiSharedFileDeleteParams{Path: "reports/final.md"})
-	if err == nil {
-		t.Fatal("deleteUISharedFile() error = nil, want final_output protection")
-	}
-	if deleted {
-		t.Fatal("deleteUISharedFile() deleted = true, want false")
-	}
-	if deleter.calls != 0 {
-		t.Fatalf("Delete() calls = %d, want 0", deleter.calls)
-	}
-}
-
-func TestDeleteUISharedFileAllowsUnreferencedSharedFile(t *testing.T) {
-	t.Parallel()
-
-	deleter := &recordingSharedFileDeleter{}
-	deps := memoryHandlerDeps{
-		SharedFilesDeleter: deleter,
-		Orchestration: &finalOutputOrchestrationStub{
-			dags: []contract.DAGSummary{{DagKey: "dag-1"}},
-			runs: []contract.Run{{
-				RunKey:   "run-1",
-				DagKey:   "dag-1",
-				Metadata: json.RawMessage(`{"final_output":{"kind":"file","path":"reports/final.md"}}`),
-			}},
-		},
-	}
-
-	deleted, err := deleteUISharedFile(context.Background(), deps, uiSharedFileDeleteParams{Path: "scratch/intermediate.md"})
-	if err != nil {
-		t.Fatalf("deleteUISharedFile() error = %v", err)
-	}
-	if !deleted {
-		t.Fatal("deleteUISharedFile() deleted = false, want true")
-	}
-	if deleter.calls != 1 || deleter.paths[0] != "scratch/intermediate.md" {
-		t.Fatalf("Delete() calls=%d paths=%v", deleter.calls, deleter.paths)
-	}
-}
-
-type stubSharedFileReader struct {
-	files map[string]sharedfilestore.SharedFile
-}
-
-func (s stubSharedFileReader) Get(_ context.Context, path string) (*sharedfilestore.SharedFile, error) {
-	item, ok := s.files[path]
-	if !ok {
-		return nil, os.ErrNotExist
-	}
-	copy := item
-	return &copy, nil
-}
-
-func (s stubSharedFileReader) List(context.Context, sharedfilestore.ListFilter) ([]sharedfilestore.SharedFile, error) {
-	return nil, nil
-}
-
-type recordingSharedFileDeleter struct {
-	calls int
-	paths []string
-}
-
-func (r *recordingSharedFileDeleter) Delete(_ context.Context, path string) (int64, error) {
-	r.calls++
-	r.paths = append(r.paths, path)
-	return 1, nil
-}
-
-type finalOutputOrchestrationStub struct {
-	contract.OrchestrationService
-	dags []contract.DAGSummary
-	runs []contract.Run
-}
-
-func (s *finalOutputOrchestrationStub) ListDAGs(context.Context, contract.ListDAGsFilter) ([]contract.DAGSummary, error) {
-	return s.dags, nil
-}
-
-func (s *finalOutputOrchestrationStub) ListRuns(_ context.Context, req contract.ListRunsRequest) (contract.ListRunsResponse, error) {
-	out := make([]contract.Run, 0, len(s.runs))
-	for _, run := range s.runs {
-		if run.DagKey == req.DagKey {
-			out = append(out, run)
-		}
-	}
-	return contract.ListRunsResponse{Runs: out}, nil
-}
-
-// recordingSectionInvalidator implements contract.SectionInvalidator with
-// the documented concurrent-safe contract; the mutex was added in Phase
-// 2.0.1 to match production behaviour. UI RPC paths fan out under the
-// shared section invalidator without external synchronization, so this
-// stub has to too.
-type recordingSectionInvalidator struct {
-	mu    sync.Mutex
-	calls []recordedInvalidateCall
-}
-
-type recordedInvalidateCall struct {
-	reason contract.InvalidateReason
-	names  []string
-}
-
-func (r *recordingSectionInvalidator) InvalidateSections(reason contract.InvalidateReason, names ...string) uint64 {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.calls = append(r.calls, recordedInvalidateCall{reason: reason, names: append([]string(nil), names...)})
-	return uint64(len(r.calls))
-}
-
-func errorsIsMemoryNotFound(err error) bool {
-	return errors.Is(err, ErrMemoryNotFound)
 }

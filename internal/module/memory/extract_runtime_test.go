@@ -162,25 +162,7 @@ func TestMemoryLifecycleHooksFailureFreezesCursorUntilRetry(t *testing.T) {
 
 	hooks.onTurnCompleted(context.Background(), turnCompletedEvent("thread-1", "turn-1"))
 	waitForStartedCall(t, started, 1)
-
-	failed := false
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		state := hooks.extractionState("thread-1")
-		state.mu.Lock()
-		cursor := state.cursor
-		inProgress := state.inProgress
-		lastError := state.lastError
-		state.mu.Unlock()
-		if cursor == 0 && !inProgress && lastError != "" {
-			failed = true
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	if !failed {
-		t.Fatalf("expected failed extraction to freeze cursor: %s", hooks.debugExtractionState("thread-1"))
-	}
+	waitForExtractionFailure(t, hooks, "thread-1")
 
 	history.setMessages([]providerdto.Message{
 		{Role: "user", Content: "Remember the first durable fact."},
@@ -193,13 +175,7 @@ func TestMemoryLifecycleHooksFailureFreezesCursorUntilRetry(t *testing.T) {
 	}
 	waitForCursor(t, hooks, "thread-1", 2)
 
-	state := hooks.extractionState("thread-1")
-	state.mu.Lock()
-	lastError := state.lastError
-	state.mu.Unlock()
-	if lastError != "" {
-		t.Fatalf("lastError = %q, want cleared after successful retry", lastError)
-	}
+	assertExtractionLastError(t, hooks, "thread-1", "")
 
 	mu.Lock()
 	gotCalls := calls
@@ -211,9 +187,7 @@ func TestMemoryLifecycleHooksFailureFreezesCursorUntilRetry(t *testing.T) {
 	if len(gotPrompts) != 2 {
 		t.Fatalf("len(prompts) = %d, want 2", len(gotPrompts))
 	}
-	if !strings.Contains(gotPrompts[1], "Remember the first durable fact.") || !strings.Contains(gotPrompts[1], "Remember the second durable fact.") {
-		t.Fatalf("retry prompt did not restart from original cursor:\n%s", gotPrompts[1])
-	}
+	assertRetryPromptIncludes(t, gotPrompts[1])
 }
 
 func TestMemoryLifecycleHooksExtractAndSaveInvalidatesPromptSections(t *testing.T) {
@@ -392,6 +366,47 @@ func waitForCursor(t *testing.T, hooks *MemoryLifecycleHooks, threadID string, w
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("cursor for %s did not reach %d: %s", threadID, want, hooks.debugExtractionState(threadID))
+}
+
+func waitForExtractionFailure(t *testing.T, hooks *MemoryLifecycleHooks, threadID string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		state := hooks.extractionState(threadID)
+		state.mu.Lock()
+		cursor := state.cursor
+		inProgress := state.inProgress
+		lastError := state.lastError
+		state.mu.Unlock()
+		if cursor == 0 && !inProgress && lastError != "" {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("expected failed extraction to freeze cursor: %s", hooks.debugExtractionState(threadID))
+}
+
+func assertExtractionLastError(t *testing.T, hooks *MemoryLifecycleHooks, threadID, want string) {
+	t.Helper()
+	state := hooks.extractionState(threadID)
+	state.mu.Lock()
+	lastError := state.lastError
+	state.mu.Unlock()
+	if lastError != want {
+		t.Fatalf("lastError = %q, want %q", lastError, want)
+	}
+}
+
+func assertRetryPromptIncludes(t *testing.T, prompt string) {
+	t.Helper()
+	for _, want := range []string{
+		"Remember the first durable fact.",
+		"Remember the second durable fact.",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("retry prompt did not restart from original cursor; missing %q:\n%s", want, prompt)
+		}
+	}
 }
 
 func waitForStartedCall(t *testing.T, started <-chan int, want int) {

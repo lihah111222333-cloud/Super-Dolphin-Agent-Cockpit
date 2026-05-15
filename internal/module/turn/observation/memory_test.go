@@ -69,19 +69,13 @@ func TestRecordTokensPreservesNonZero(t *testing.T) {
 	// Zero-event must not overwrite existing counts.
 	m.RecordTokens("t", TokenSnapshot{})
 	got, _ := m.Tokens("t")
-	if got.Input != 10 || got.Output != 20 || got.Total != 30 {
-		t.Fatalf("zero-event clobbered counts: %+v", got)
-	}
-	if !got.Observed {
-		t.Fatalf("Observed must stay true across zero-event: %+v", got)
-	}
+	assertTokenCounts(t, got, 10, 20, 30, "zero-event clobbered counts")
+	assertTokenObserved(t, got)
 
 	// Context-window-only update must land without touching counts.
 	m.RecordTokens("t", TokenSnapshot{ContextWindowTokens: 100_000, Projection: "thread"})
 	got, _ = m.Tokens("t")
-	if got.Input != 10 || got.Output != 20 || got.ContextWindowTokens != 100_000 {
-		t.Fatalf("context-window merge wrong: %+v", got)
-	}
+	assertContextWindowMerge(t, got)
 	if got.Projection != "thread" {
 		t.Fatalf("projection not recorded: %+v", got)
 	}
@@ -91,6 +85,27 @@ func TestRecordTokensPreservesNonZero(t *testing.T) {
 	got, _ = m.Tokens("t")
 	if got.Input != 15 || got.Output != 20 {
 		t.Fatalf("non-zero overwrite wrong: %+v", got)
+	}
+}
+
+func assertTokenCounts(t *testing.T, got TokenSnapshot, input, output, total int64, label string) {
+	t.Helper()
+	if got.Input != input || got.Output != output || got.Total != total {
+		t.Fatalf("%s: %+v", label, got)
+	}
+}
+
+func assertTokenObserved(t *testing.T, got TokenSnapshot) {
+	t.Helper()
+	if !got.Observed {
+		t.Fatalf("Observed must stay true across zero-event: %+v", got)
+	}
+}
+
+func assertContextWindowMerge(t *testing.T, got TokenSnapshot) {
+	t.Helper()
+	if got.Input != 10 || got.Output != 20 || got.ContextWindowTokens != 100_000 {
+		t.Fatalf("context-window merge wrong: %+v", got)
 	}
 }
 
@@ -205,32 +220,47 @@ func TestCountsObservedFlags(t *testing.T) {
 	t.Parallel()
 	m := NewMemory()
 
-	if counts, ok := m.Counts("turn-1"); ok || counts.ToolCallsObserved || counts.ToolFailuresObserved || counts.ApprovalRequestsObserved {
-		t.Fatalf("fresh turn should have no observed counts: ok=%t counts=%+v", ok, counts)
-	}
+	assertFreshCounts(t, m)
 	if got := m.IncrementToolCalls("turn-1"); got != 1 {
 		t.Fatalf("IncrementToolCalls = %d, want 1", got)
 	}
 	counts, ok := m.Counts("turn-1")
-	if !ok || counts.ToolCalls != 1 || !counts.ToolCallsObserved {
-		t.Fatalf("tool calls observed flag not flipped: ok=%t counts=%+v", ok, counts)
-	}
-	if counts.ToolFailuresObserved || counts.ApprovalRequestsObserved {
-		t.Fatalf("unrelated observed flags flipped: %+v", counts)
-	}
+	assertToolCallCounts(t, counts, ok)
 	if got := m.IncrementToolFailures("turn-1"); got != 1 {
 		t.Fatalf("IncrementToolFailures = %d, want 1", got)
 	}
 	counts, _ = m.Counts("turn-1")
-	if counts.ToolFailures != 1 || !counts.ToolFailuresObserved {
-		t.Fatalf("tool failures observed flag not flipped: %+v", counts)
-	}
+	assertToolFailureCounts(t, counts)
 	if got := m.IncrementApprovalRequests("turn-1"); got != 1 {
 		t.Fatalf("IncrementApprovalRequests = %d, want 1", got)
 	}
 	counts, _ = m.Counts("turn-1")
 	if counts.ApprovalRequests != 1 || !counts.ApprovalRequestsObserved {
 		t.Fatalf("approval observed flag not flipped: %+v", counts)
+	}
+}
+
+func assertFreshCounts(t *testing.T, m *Memory) {
+	t.Helper()
+	if counts, ok := m.Counts("turn-1"); ok || counts.ToolCallsObserved || counts.ToolFailuresObserved || counts.ApprovalRequestsObserved {
+		t.Fatalf("fresh turn should have no observed counts: ok=%t counts=%+v", ok, counts)
+	}
+}
+
+func assertToolCallCounts(t *testing.T, counts Counts, ok bool) {
+	t.Helper()
+	if !ok || counts.ToolCalls != 1 || !counts.ToolCallsObserved {
+		t.Fatalf("tool calls observed flag not flipped: ok=%t counts=%+v", ok, counts)
+	}
+	if counts.ToolFailuresObserved || counts.ApprovalRequestsObserved {
+		t.Fatalf("unrelated observed flags flipped: %+v", counts)
+	}
+}
+
+func assertToolFailureCounts(t *testing.T, counts Counts) {
+	t.Helper()
+	if counts.ToolFailures != 1 || !counts.ToolFailuresObserved {
+		t.Fatalf("tool failures observed flag not flipped: %+v", counts)
 	}
 }
 

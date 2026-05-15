@@ -36,12 +36,27 @@ func TestGetAgentDetailIncludesDerivedFields(t *testing.T) {
 	if got == nil {
 		t.Fatal("GetAgentDetail() = nil")
 	}
+	assertAgentDetailDerivedFields(t, got)
+	assertAgentDetailReport(t, got)
+	assertAgentDetailTurnHistory(t, got)
+}
+
+func assertAgentDetailDerivedFields(t *testing.T, got *AgentDetail) {
+	t.Helper()
 	if got.AgentID != "agent-1" || got.Name != "Agent One" || got.ThreadID != "thread-1" || got.Status != "running" {
 		t.Fatalf("GetAgentDetail() derived fields = %#v", got)
 	}
+}
+
+func assertAgentDetailReport(t *testing.T, got *AgentDetail) {
+	t.Helper()
 	if got.LastReport != "fresh report" || got.Snapshot.LastReport != "fresh report" {
 		t.Fatalf("GetAgentDetail() report fields = %#v", got)
 	}
+}
+
+func assertAgentDetailTurnHistory(t *testing.T, got *AgentDetail) {
+	t.Helper()
 	if len(got.TurnHistory) != 1 || got.TurnHistory[0].TurnID != "turn-1" || got.TurnHistory[0].Status != "running" {
 		t.Fatalf("GetAgentDetail() turn history = %#v", got.TurnHistory)
 	}

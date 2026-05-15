@@ -290,6 +290,25 @@ func TestSkillExpandHostRPCResponseShape(t *testing.T) {
 func TestSkillsListHostRPCUsesCWDForProjectSkillsAndSharesSystem(t *testing.T) {
 	t.Parallel()
 
+	systemRoot, projectA, projectB := setupSkillsListCWDProjects(t)
+	svc := &service{
+		root:              systemRoot,
+		projectRoot:       projectB,
+		projectSkillsRoot: defaultProjectSkillsRoot(projectB),
+		http:              &http.Client{},
+	}
+	server := newSkillRPCTestServer(t, svc)
+
+	scoped := dispatchSkillsListForTest(t, server, projectA)
+	assertSkillListNames(t, "project A", scoped.Skills, []string{"shared-a", "shared-b"}, []string{"local-b"})
+
+	projectBList := dispatchSkillsListForTest(t, server, projectB)
+	assertSkillListNames(t, "project B", projectBList.Skills, []string{"local-b", "shared-a", "shared-b"}, nil)
+	assertSkillsListRejectsMissingCWD(t, server)
+}
+
+func setupSkillsListCWDProjects(t *testing.T) (string, string, string) {
+	t.Helper()
 	systemRoot := t.TempDir()
 	projectA := filepath.Join(t.TempDir(), "wj", "langgraph")
 	projectB := filepath.Join(t.TempDir(), "wj", "go-agent-v2")
@@ -301,52 +320,55 @@ func TestSkillsListHostRPCUsesCWDForProjectSkillsAndSharesSystem(t *testing.T) {
 	writeTestSkill(t, filepath.Join(projectB, ".agent", "skills"), "local-b", "# local b")
 	writeScopedSystemSkill(t, systemRoot, projectA, "shared-a", "---\nname: shared-a\nsummary: from-a\n---\nA")
 	writeScopedSystemSkill(t, systemRoot, projectB, "shared-b", "---\nname: shared-b\nsummary: from-b\n---\nB")
+	return systemRoot, projectA, projectB
+}
 
-	svc := &service{
-		root:              systemRoot,
-		projectRoot:       projectB,
-		projectSkillsRoot: defaultProjectSkillsRoot(projectB),
-		http:              &http.Client{},
-	}
-	server := newSkillRPCTestServer(t, svc)
+type skillsListRPCResult struct {
+	Skills []skillListItem `json:"skills"`
+}
 
-	rawScoped, err := server.Dispatch(context.Background(), "skills/list", json.RawMessage(`{"cwd":"`+projectA+`"}`))
+func dispatchSkillsListForTest(t *testing.T, server *platformrpc.Server, cwd string) skillsListRPCResult {
+	t.Helper()
+	rawScoped, err := server.Dispatch(context.Background(), "skills/list", json.RawMessage(`{"cwd":"`+cwd+`"}`))
 	if err != nil {
 		t.Fatalf("Dispatch scoped skills/list: %v", err)
 	}
-	var scoped struct {
-		Skills []skillListItem `json:"skills"`
-	}
+	var scoped skillsListRPCResult
 	if err := json.Unmarshal(rawScoped, &scoped); err != nil {
 		t.Fatalf("json.Unmarshal scoped: %v", err)
 	}
-	scopedNames := make(map[string]bool, len(scoped.Skills))
-	for _, item := range scoped.Skills {
-		scopedNames[item.Name] = true
-	}
-	if len(scoped.Skills) != 2 || !scopedNames["shared-a"] || !scopedNames["shared-b"] || scopedNames["local-b"] {
-		t.Fatalf("project A skills = %#v, want shared-a + shared-b and no project B local", scoped.Skills)
-	}
+	return scoped
+}
 
-	rawProjectB, err := server.Dispatch(context.Background(), "skills/list", json.RawMessage(`{"cwd":"`+projectB+`"}`))
-	if err != nil {
-		t.Fatalf("Dispatch project B skills/list: %v", err)
+func assertSkillListNames(t *testing.T, label string, skills []skillListItem, want, forbidden []string) {
+	t.Helper()
+	names := skillListNames(skills)
+	if len(skills) != len(want) {
+		t.Fatalf("%s skills = %#v, want %v", label, skills, want)
 	}
-	var projectBList struct {
-		Skills []skillListItem `json:"skills"`
+	for _, name := range want {
+		if !names[name] {
+			t.Fatalf("%s skills = %#v, missing %q", label, skills, name)
+		}
 	}
-	if err := json.Unmarshal(rawProjectB, &projectBList); err != nil {
-		t.Fatalf("json.Unmarshal project B: %v", err)
+	for _, name := range forbidden {
+		if names[name] {
+			t.Fatalf("%s skills = %#v, unexpectedly included %q", label, skills, name)
+		}
 	}
-	projectBNames := make(map[string]bool, len(projectBList.Skills))
-	for _, item := range projectBList.Skills {
-		projectBNames[item.Name] = true
-	}
-	if len(projectBList.Skills) != 3 || !projectBNames["local-b"] || !projectBNames["shared-a"] || !projectBNames["shared-b"] {
-		t.Fatalf("project B skills = %#v, want local-b + shared-a + shared-b", projectBList.Skills)
-	}
+}
 
-	_, err = server.Dispatch(context.Background(), "skills/list", json.RawMessage(`{}`))
+func skillListNames(skills []skillListItem) map[string]bool {
+	names := make(map[string]bool, len(skills))
+	for _, item := range skills {
+		names[item.Name] = true
+	}
+	return names
+}
+
+func assertSkillsListRejectsMissingCWD(t *testing.T, server *platformrpc.Server) {
+	t.Helper()
+	_, err := server.Dispatch(context.Background(), "skills/list", json.RawMessage(`{}`))
 	var rpcErr *jrpc2.Error
 	if !errors.As(err, &rpcErr) {
 		t.Fatalf("Dispatch global skills/list error = %T, want *jrpc2.Error", err)

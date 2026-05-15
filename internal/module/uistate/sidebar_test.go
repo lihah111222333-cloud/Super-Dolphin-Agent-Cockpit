@@ -41,6 +41,18 @@ func TestGetSidebarBuildsCompatibilitySnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSidebar() error = %v", err)
 	}
+	assertCompatibilitySidebarSnapshot(t, sidebar)
+}
+
+func assertCompatibilitySidebarSnapshot(t *testing.T, sidebar *Sidebar) {
+	t.Helper()
+	assertCompatibilitySidebarStatus(t, sidebar)
+	assertCompatibilitySidebarThread(t, sidebar)
+	assertCompatibilitySidebarRuntime(t, sidebar)
+}
+
+func assertCompatibilitySidebarStatus(t *testing.T, sidebar *Sidebar) {
+	t.Helper()
 	if got := sidebar.Statuses["thread-1"]; got != "running" {
 		t.Fatalf("sidebar.Statuses[thread-1] = %q, want running", got)
 	}
@@ -50,6 +62,10 @@ func TestGetSidebarBuildsCompatibilitySnapshot(t *testing.T) {
 	if !sidebar.InterruptibleByThread["thread-1"] {
 		t.Fatal("sidebar.InterruptibleByThread[thread-1] = false, want true")
 	}
+}
+
+func assertCompatibilitySidebarThread(t *testing.T, sidebar *Sidebar) {
+	t.Helper()
 	if got := sidebar.Threads[0].ThreadStatus; got != "running" {
 		t.Fatalf("thread.threadStatus = %q, want running", got)
 	}
@@ -59,6 +75,10 @@ func TestGetSidebarBuildsCompatibilitySnapshot(t *testing.T) {
 	if got := sidebar.Threads[0].LastMessage; got != "final answer" {
 		t.Fatalf("thread.lastMessage = %q, want final answer", got)
 	}
+}
+
+func assertCompatibilitySidebarRuntime(t *testing.T, sidebar *Sidebar) {
+	t.Helper()
 	runtime := sidebar.AgentRuntimeByID["thread-1"]
 	if got, _ := runtime["provider"].(string); got != "claude" {
 		t.Fatalf("agentRuntimeById[thread-1].provider = %q, want claude", got)
@@ -269,24 +289,48 @@ func TestSetPreferencePublishesProjectionUpdatesForSettingsKeys(t *testing.T) {
 func TestProjectionSubscriptionsUpdateSidebarFromLifecycleAndOutputEvents(t *testing.T) {
 	t.Parallel()
 
-	dispatcher := event.NewDispatcher()
-	defer func() { _ = dispatcher.Close() }()
+	dispatcher, svc := newSidebarProjectionTestService(t)
+	header := sidebarProjectionHeader()
+	publishSidebarLifecycleEvents(dispatcher, header)
+	waitForSidebarState(t, svc, func(sidebar *Sidebar) bool {
+		return sidebar.ActiveTurn != nil
+	})
+	publishSidebarTurnOutput(dispatcher, header)
+	waitForSidebarState(t, svc, func(sidebar *Sidebar) bool {
+		return len(sidebar.Threads) > 0 && sidebar.Threads[0].LastMessage == "hello world"
+	})
+	publishSidebarTurnInterrupted(dispatcher, header)
+	sidebar := waitForSidebarState(t, svc, func(sidebar *Sidebar) bool {
+		return sidebar.ActiveTurn == nil &&
+			sidebar.Statuses["thread-1"] == "idle" &&
+			len(sidebar.Threads) > 0 &&
+			sidebar.Threads[0].LastMessage == "hello world"
+	})
+	assertInterruptedSidebarProjection(t, sidebar)
+}
 
+func newSidebarProjectionTestService(t *testing.T) (*event.Dispatcher, *service) {
+	t.Helper()
+	dispatcher := event.NewDispatcher()
+	t.Cleanup(func() { _ = dispatcher.Close() })
 	svc, _, err := NewService(nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
 	svc.bindDispatcher(dispatcher)
 	cancels := registerProjectionSubscriptions(dispatcher, svc)
-	defer func() {
+	t.Cleanup(func() {
 		for _, cancel := range cancels {
 			if cancel != nil {
 				cancel()
 			}
 		}
-	}()
+	})
+	return dispatcher, svc
+}
 
-	header := sharedto.AgentSessionHeader{
+func sidebarProjectionHeader() sharedto.AgentSessionHeader {
+	return sharedto.AgentSessionHeader{
 		AgentHeader: sharedto.AgentHeader{
 			ThreadHeader: sharedto.ThreadHeader{
 				EventHeader: sharedto.EventHeader{Timestamp: time.Now()},
@@ -296,7 +340,9 @@ func TestProjectionSubscriptionsUpdateSidebarFromLifecycleAndOutputEvents(t *tes
 		},
 		SessionID: "session-1",
 	}
+}
 
+func publishSidebarLifecycleEvents(dispatcher *event.Dispatcher, header sharedto.AgentSessionHeader) {
 	event.Publish(dispatcher, agentdto.AgentLaunched{
 		AgentSessionHeader: header,
 		CWD:                "/tmp/demo",
@@ -310,45 +356,33 @@ func TestProjectionSubscriptionsUpdateSidebarFromLifecycleAndOutputEvents(t *tes
 		AgentSessionHeader: header,
 		NewState:           "running",
 	})
-	event.Publish(dispatcher, turndto.TurnStarted{
-		TurnHeader: sharedto.TurnHeader{
-			AgentHeader: header.AgentHeader,
-			TurnIDHeader: sharedto.TurnIDHeader{
-				TurnID: "turn-1",
-			},
-		},
-	})
-	waitForSidebarState(t, svc, func(sidebar *Sidebar) bool {
-		return sidebar.ActiveTurn != nil
-	})
+	event.Publish(dispatcher, turndto.TurnStarted{TurnHeader: sidebarTurnHeader(header)})
+}
+
+func publishSidebarTurnOutput(dispatcher *event.Dispatcher, header sharedto.AgentSessionHeader) {
 	event.Publish(dispatcher, turndto.TurnOutputDelta{
-		TurnHeader: sharedto.TurnHeader{
-			AgentHeader: header.AgentHeader,
-			TurnIDHeader: sharedto.TurnIDHeader{
-				TurnID: "turn-1",
-			},
-		},
-		Stream: "message",
-		Delta:  "hello world",
+		TurnHeader: sidebarTurnHeader(header),
+		Stream:     "message",
+		Delta:      "hello world",
 	})
-	waitForSidebarState(t, svc, func(sidebar *Sidebar) bool {
-		return len(sidebar.Threads) > 0 && sidebar.Threads[0].LastMessage == "hello world"
-	})
+}
+
+func publishSidebarTurnInterrupted(dispatcher *event.Dispatcher, header sharedto.AgentSessionHeader) {
 	event.Publish(dispatcher, turndto.TurnInterrupted{
-		TurnHeader: sharedto.TurnHeader{
-			AgentHeader: header.AgentHeader,
-			TurnIDHeader: sharedto.TurnIDHeader{
-				TurnID: "turn-1",
-			},
-		},
-		Reason: "user_requested",
+		TurnHeader: sidebarTurnHeader(header),
+		Reason:     "user_requested",
 	})
-	sidebar := waitForSidebarState(t, svc, func(sidebar *Sidebar) bool {
-		return sidebar.ActiveTurn == nil &&
-			sidebar.Statuses["thread-1"] == "idle" &&
-			len(sidebar.Threads) > 0 &&
-			sidebar.Threads[0].LastMessage == "hello world"
-	})
+}
+
+func sidebarTurnHeader(header sharedto.AgentSessionHeader) sharedto.TurnHeader {
+	return sharedto.TurnHeader{
+		AgentHeader:  header.AgentHeader,
+		TurnIDHeader: sharedto.TurnIDHeader{TurnID: "turn-1"},
+	}
+}
+
+func assertInterruptedSidebarProjection(t *testing.T, sidebar *Sidebar) {
+	t.Helper()
 	if sidebar.ActiveTurn != nil {
 		t.Fatalf("sidebar.ActiveTurn = %#v, want nil after interrupt", sidebar.ActiveTurn)
 	}

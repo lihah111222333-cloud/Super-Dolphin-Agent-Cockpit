@@ -327,22 +327,37 @@ func TestReview_HappyPathCallsCreateSkillAndAudit(t *testing.T) {
 		t.Fatalf("result OK = false, want true: %+v", res)
 	}
 	wantPath := filepath.Join(projectRoot, ".agent", "skills", slug, skillMainFile)
-	if res.SkillPath != wantPath {
-		t.Fatalf("skill path = %q, want %q", res.SkillPath, wantPath)
+	assertApprovedSkillFile(t, res.SkillPath, wantPath, md)
+	assertApproveStoreCalls(t, cs)
+	assertApproveAuditRow(t, as, slug)
+}
+
+func assertApprovedSkillFile(t *testing.T, gotPath, wantPath, wantBody string) {
+	t.Helper()
+	if gotPath != wantPath {
+		t.Fatalf("skill path = %q, want %q", gotPath, wantPath)
 	}
 	body, err := os.ReadFile(wantPath)
 	if err != nil {
 		t.Fatalf("ReadFile(%q): %v", wantPath, err)
 	}
-	if string(body) != md {
-		t.Fatalf("on-disk content = %q, want %q", body, md)
+	if string(body) != wantBody {
+		t.Fatalf("on-disk content = %q, want %q", body, wantBody)
 	}
+}
+
+func assertApproveStoreCalls(t *testing.T, cs *fakeCandidateStore) {
+	t.Helper()
 	if len(cs.approveCalls) != 1 || cs.approveCalls[0].ApprovedBy != "alice" || cs.approveCalls[0].Reason != "lgtm" {
 		t.Fatalf("approve calls = %+v", cs.approveCalls)
 	}
 	if len(cs.promoteCalls) != 1 || cs.promoteCalls[0] != 11 {
 		t.Fatalf("promote calls = %v, want [11]", cs.promoteCalls)
 	}
+}
+
+func assertApproveAuditRow(t *testing.T, as *fakeAuditStore, slug string) {
+	t.Helper()
 	if len(as.inserts) != 1 || as.inserts[0].Action != "approve_succeeded" {
 		t.Fatalf("audit inserts = %+v, want one approve_succeeded row", as.inserts)
 	}

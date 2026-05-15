@@ -15,7 +15,23 @@ import (
 func TestBuildPrepareInputSupportsExpandedFields(t *testing.T) {
 	t.Parallel()
 
-	session := &rpcHelperSession{
+	items, inputSkills := buildTurnStartInputs([]turnInputItemParams{
+		{Type: "text", Text: "typed text"},
+		{Type: "skill", Name: "debug"},
+		{Type: "mention", Path: "doc.md"},
+	})
+	input := buildPrepareInput(expandedPrepareInputSpec(items), prepareSkillSpec{
+		Selected: []string{"review", "debug"},
+		Derived:  inputSkills,
+	}, expandedPrepareInputSession())
+
+	assertExpandedPrepareInputItems(t, input)
+	assertExpandedPrepareInputContext(t, input)
+	assertExpandedPrepareInputRuntimeFallbacks(t, input)
+}
+
+func expandedPrepareInputSession() *rpcHelperSession {
+	return &rpcHelperSession{
 		caps: dto.CapabilitySet{dto.CapMessageSend: true},
 		runtimeConfig: map[string]any{
 			"provider":                     "codex-runtime",
@@ -30,12 +46,10 @@ func TestBuildPrepareInputSupportsExpandedFields(t *testing.T) {
 			"sessionFlags":                 map[string]any{"runtime_only": true},
 		},
 	}
-	items, inputSkills := buildTurnStartInputs([]turnInputItemParams{
-		{Type: "text", Text: "typed text"},
-		{Type: "skill", Name: "debug"},
-		{Type: "mention", Path: "doc.md"},
-	})
-	input := buildPrepareInput(prepareInputSpec{
+}
+
+func expandedPrepareInputSpec(items []InputItem) prepareInputSpec {
+	return prepareInputSpec{
 		Prompt:               "flat prompt",
 		Images:               []string{"img-1"},
 		Files:                []string{"file-1"},
@@ -59,11 +73,11 @@ func TestBuildPrepareInputSupportsExpandedFields(t *testing.T) {
 		},
 		Effort:       "high",
 		OutputSchema: []byte(`{"type":"object"}`),
-	}, prepareSkillSpec{
-		Selected: []string{"review", "debug"},
-		Derived:  inputSkills,
-	}, session)
+	}
+}
 
+func assertExpandedPrepareInputItems(t *testing.T, input PrepareInput) {
+	t.Helper()
 	if len(input.Inputs) != 2 {
 		t.Fatalf("len(input.Inputs) = %d, want 2", len(input.Inputs))
 	}
@@ -76,6 +90,16 @@ func TestBuildPrepareInputSupportsExpandedFields(t *testing.T) {
 	if got := skillNames(input.Skills); len(got) != 2 || got[0] != "review" || got[1] != "debug" {
 		t.Fatalf("skill names = %#v, want [review debug]", got)
 	}
+}
+
+func assertExpandedPrepareInputContext(t *testing.T, input PrepareInput) {
+	t.Helper()
+	assertExpandedPrepareInputOverrides(t, input)
+	assertExpandedPrepareInputTools(t, input)
+}
+
+func assertExpandedPrepareInputOverrides(t *testing.T, input PrepareInput) {
+	t.Helper()
 	if !input.ManualSkillSelection || input.CWD != "/tmp/work" || string(input.OutputSchema) != `{"type":"object"}` {
 		t.Fatalf("prepare input = %#v", input)
 	}
@@ -85,9 +109,17 @@ func TestBuildPrepareInputSupportsExpandedFields(t *testing.T) {
 	if !input.IsWorktree {
 		t.Fatal("IsWorktree = false, want true from thread-state fallback")
 	}
+}
+
+func assertExpandedPrepareInputTools(t *testing.T, input PrepareInput) {
+	t.Helper()
 	if got := input.EnabledTools; len(got) != 1 || got[0] != "code_run" {
 		t.Fatalf("EnabledTools = %#v, want request override", got)
 	}
+}
+
+func assertExpandedPrepareInputRuntimeFallbacks(t *testing.T, input PrepareInput) {
+	t.Helper()
 	if got := input.AdditionalWorkingDirectories; len(got) != 1 || got[0] != "/repo/thread-extra" {
 		t.Fatalf("AdditionalWorkingDirectories = %#v, want thread-state fallback", got)
 	}

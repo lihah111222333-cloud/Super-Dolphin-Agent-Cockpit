@@ -404,9 +404,7 @@ func TestTurnAssemblyUserContextText(t *testing.T) {
 	if !strings.Contains(turnAssembly.UserContextText, "# runtimeExtras") {
 		t.Fatalf("UserContextText = %q, want runtimeExtras section", turnAssembly.UserContextText)
 	}
-	if content, ok := sectionContent(turnAssembly.ResolvedSections, promptpkg.DynamicSectionSessionGuidance); !ok || !strings.Contains(content, "please verify the cache") || !strings.Contains(content, "/repo") {
-		t.Fatalf("ResolvedSections = %#v, want session guidance content", turnAssembly.ResolvedSections)
-	}
+	assertPromptSectionContains(t, turnAssembly.ResolvedSections, promptpkg.DynamicSectionSessionGuidance, "please verify the cache", "/repo")
 }
 
 type stubPromptAssemblyService struct {
@@ -442,4 +440,18 @@ func sectionContent(sections []contract.ResolvedPromptSection, name string) (str
 		}
 	}
 	return "", false
+}
+
+func assertPromptSectionContains(t *testing.T, sections []contract.ResolvedPromptSection, name string, wants ...string) {
+	t.Helper()
+
+	content, ok := sectionContent(sections, name)
+	if !ok {
+		t.Fatalf("ResolvedSections = %#v, want section %q", sections, name)
+	}
+	for _, want := range wants {
+		if !strings.Contains(content, want) {
+			t.Fatalf("section %q = %q, want substring %q", name, content, want)
+		}
+	}
 }

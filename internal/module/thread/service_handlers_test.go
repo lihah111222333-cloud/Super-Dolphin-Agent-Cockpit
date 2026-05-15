@@ -85,27 +85,10 @@ func TestNewThreadHandlersDispatchStart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dispatch(thread/start) error = %v", err)
 	}
-	var got map[string]any
-	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatalf("Unmarshal(thread/start) error = %v", err)
-	}
-	if got["threadId"] != "thread-7" || got["sessionId"] != "session-7" || got["status"] != "running" {
-		t.Fatalf("Dispatch(thread/start) = %#v", got)
-	}
-	thread, _ := got["thread"].(map[string]any)
-	if thread["id"] != "thread-7" || thread["status"] != "running" {
-		t.Fatalf("Dispatch(thread/start).thread = %#v", thread)
-	}
-	effective, _ := got["effective"].(map[string]any)
-	if got["model"] != "gpt-5.5" || got["provider"] != "codex" || got["modelProvider"] != "openai" || got["cwd"] != "/tmp/demo" || got["approvalPolicy"] != "never" {
-		t.Fatalf("Dispatch(thread/start) effective fields = %#v", got)
-	}
-	if effective["model"] != "gpt-5.5" || effective["provider"] != "codex" || effective["modelProvider"] != "openai" || effective["cwd"] != "/tmp/demo" || effective["approvalPolicy"] != "never" {
-		t.Fatalf("Dispatch(thread/start).effective = %#v", effective)
-	}
-	if stub.startReq.Provider != "codex" || stub.startReq.CWD != "/tmp/demo" || stub.startReq.Name != "" || stub.startReq.Prompt != "hello" || stub.startReq.BaseInstructions != "" {
-		t.Fatalf("StartRequest = %#v", stub.startReq)
-	}
+	got := decodeThreadHandlerMap(t, "thread/start", raw)
+	assertThreadStartEnvelope(t, got)
+	assertThreadStartEffectiveFields(t, got)
+	assertThreadStartRequest(t, stub.startReq)
 }
 
 func TestNewThreadHandlersDispatchResume(t *testing.T) {
@@ -125,10 +108,61 @@ func TestNewThreadHandlersDispatchResume(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dispatch(thread/resume) error = %v", err)
 	}
+	got := decodeThreadHandlerMap(t, "thread/resume", raw)
+	assertThreadResumeEnvelope(t, got)
+	assertThreadResumeRequest(t, stub.resumeReq)
+}
+
+func decodeThreadHandlerMap(t *testing.T, method string, raw json.RawMessage) map[string]any {
+	t.Helper()
 	var got map[string]any
 	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatalf("Unmarshal(thread/resume) error = %v", err)
+		t.Fatalf("Unmarshal(%s) error = %v", method, err)
 	}
+	return got
+}
+
+func assertThreadStartEnvelope(t *testing.T, got map[string]any) {
+	t.Helper()
+	if got["threadId"] != "thread-7" || got["sessionId"] != "session-7" || got["status"] != "running" {
+		t.Fatalf("Dispatch(thread/start) = %#v", got)
+	}
+	thread, _ := got["thread"].(map[string]any)
+	if thread["id"] != "thread-7" || thread["status"] != "running" {
+		t.Fatalf("Dispatch(thread/start).thread = %#v", thread)
+	}
+}
+
+func assertThreadStartEffectiveFields(t *testing.T, got map[string]any) {
+	t.Helper()
+	assertTopLevelStartEffectiveFields(t, got)
+	effective, _ := got["effective"].(map[string]any)
+	assertNestedStartEffectiveFields(t, effective)
+}
+
+func assertTopLevelStartEffectiveFields(t *testing.T, got map[string]any) {
+	t.Helper()
+	if got["model"] != "gpt-5.5" || got["provider"] != "codex" || got["modelProvider"] != "openai" || got["cwd"] != "/tmp/demo" || got["approvalPolicy"] != "never" {
+		t.Fatalf("Dispatch(thread/start) effective fields = %#v", got)
+	}
+}
+
+func assertNestedStartEffectiveFields(t *testing.T, effective map[string]any) {
+	t.Helper()
+	if effective["model"] != "gpt-5.5" || effective["provider"] != "codex" || effective["modelProvider"] != "openai" || effective["cwd"] != "/tmp/demo" || effective["approvalPolicy"] != "never" {
+		t.Fatalf("Dispatch(thread/start).effective = %#v", effective)
+	}
+}
+
+func assertThreadStartRequest(t *testing.T, req StartRequest) {
+	t.Helper()
+	if req.Provider != "codex" || req.CWD != "/tmp/demo" || req.Name != "" || req.Prompt != "hello" || req.BaseInstructions != "" {
+		t.Fatalf("StartRequest = %#v", req)
+	}
+}
+
+func assertThreadResumeEnvelope(t *testing.T, got map[string]any) {
+	t.Helper()
 	if got["threadId"] != "thread-9" || got["sessionId"] != "session-9" || got["status"] != "resumed" || got["model"] != "gpt-5.5" || got["cwd"] != "/tmp/resume" {
 		t.Fatalf("Dispatch(thread/resume) = %#v", got)
 	}
@@ -136,8 +170,12 @@ func TestNewThreadHandlersDispatchResume(t *testing.T) {
 	if thread["id"] != "thread-9" || thread["status"] != "resumed" {
 		t.Fatalf("Dispatch(thread/resume).thread = %#v", thread)
 	}
-	if stub.resumeReq.ThreadID != "thread-9" || stub.resumeReq.Path != "/tmp/legacy" || stub.resumeReq.CWD != "/tmp/resume" || stub.resumeReq.Model != "gpt-5.5" {
-		t.Fatalf("ResumeRequest = %#v", stub.resumeReq)
+}
+
+func assertThreadResumeRequest(t *testing.T, req ResumeRequest) {
+	t.Helper()
+	if req.ThreadID != "thread-9" || req.Path != "/tmp/legacy" || req.CWD != "/tmp/resume" || req.Model != "gpt-5.5" {
+		t.Fatalf("ResumeRequest = %#v", req)
 	}
 }
 

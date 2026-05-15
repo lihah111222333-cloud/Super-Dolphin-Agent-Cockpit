@@ -166,22 +166,11 @@ func TestAdapterStartTurnHappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartTurn error = %v", err)
 	}
-	if res.TurnID != "turn-local-1" || res.ThreadID != "thread-1" || res.AgentID != "agent-1" {
-		t.Fatalf("result = %+v", res)
-	}
-	if len(svc.prepareCalls) != 1 {
-		t.Fatalf("want 1 CronPrepareTurn call, got %d", len(svc.prepareCalls))
-	}
-	got := svc.prepareCalls[0]
-	if got.Prompt != "daily check" || got.Provider != "codex" || got.Model != "gpt-5" || got.CWD != "/repo" || got.AgentID != "agent-1" {
-		t.Fatalf("CronPrepareInput forward wrong: %+v", got)
-	}
-	if len(got.Skills) != 2 || got.Skills[0].Name != "skill-a" || got.Skills[1].Name != "skill-b" {
-		t.Fatalf("Skills trim/skip empty wrong: %+v", got.Skills)
-	}
-	if got.ThreadRuntimeConfig == nil || got.ThreadRuntimeConfig["k"] != "v" {
-		t.Fatalf("ThreadRuntimeConfig not decoded: %+v", got.ThreadRuntimeConfig)
-	}
+	assertStartTurnHappyResult(t, res)
+	got := requireSinglePrepareCall(t, svc)
+	assertPreparedStartTurnInput(t, got)
+	assertPreparedStartTurnSkills(t, got)
+	assertPreparedRuntimeConfig(t, got)
 }
 
 func TestAdapterStartTurnResolverError(t *testing.T) {
@@ -472,19 +461,10 @@ func TestAdapterStartTurnBootstrapsOnEmptyThreadID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartTurn err = %v", err)
 	}
-	if res.ThreadID != "thread-fresh" || res.AgentID != "agent-fresh" || res.TurnID == "" {
-		t.Fatalf("bootstrap result wiring wrong: %+v", res)
-	}
-	if len(bs.calls) != 1 {
-		t.Fatalf("want 1 bootstrap call, got %d", len(bs.calls))
-	}
-	got := bs.calls[0]
-	if got.JobID != "job-42" || got.Provider != "codex" || got.Model != "gpt-5" || got.CWD != "/repo" {
-		t.Fatalf("BootstrapRequest projection wrong: %+v", got)
-	}
-	if string(got.Config) != `{"codexHome":"/tmp/home"}` {
-		t.Fatalf("Config not forwarded verbatim, got %q", string(got.Config))
-	}
+	assertBootstrapStartTurnResult(t, res)
+	got := requireSingleBootstrapCall(t, bs)
+	assertBootstrapRequestProjection(t, got)
+	assertBootstrapConfigForwarded(t, got)
 }
 
 func TestAdapterStartTurnBootstrapKeepsRequestAgentWhenBootstrapAgentMissing(t *testing.T) {
@@ -580,19 +560,10 @@ func TestThreadServiceBootstrapperHappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BootstrapThread err = %v", err)
 	}
-	if res.ThreadID != "thread-new" || res.AgentID != "agent-new" {
-		t.Fatalf("result %+v", res)
-	}
-	if len(ts.calls) != 1 {
-		t.Fatalf("want 1 CronStartThread call, got %d", len(ts.calls))
-	}
-	got := ts.calls[0]
-	if got.Provider != "codex" || got.Model != "gpt-5" || got.CWD != "/repo" || got.Name != "nightly" {
-		t.Fatalf("CronStartThreadRequest projection wrong: %+v", got)
-	}
-	if got.Config == nil || got.Config["codexHome"] != "/tmp/home" || got.Config["codexInstanceKey"] != "glm" {
-		t.Fatalf("Config not decoded into map: %+v", got.Config)
-	}
+	assertThreadBootstrapResult(t, res)
+	got := requireSingleThreadStartCall(t, ts)
+	assertThreadStartRequestProjection(t, got)
+	assertThreadStartConfig(t, got)
 }
 
 func TestThreadServiceBootstrapperPropagatesStartError(t *testing.T) {

@@ -28,24 +28,15 @@ func newEntrypointProviderTestSetup(t *testing.T) (*MemoryEntrypointProvider, co
 	return provider, buildCtx, autoDir
 }
 
-func TestMemoryEntrypointProviderHappyPathStripsFrontmatterAndComments(t *testing.T) {
-	t.Setenv(envHarnessKind, "")
-	provider, buildCtx, autoDir := newEntrypointProviderTestSetup(t)
-	body := strings.Join([]string{
-		"---",
-		"name: project notes",
-		"description: durable index",
-		"type: project",
-		"---",
-		"",
-		"<!-- internal: refresh quarterly -->",
-		"",
-		"- [Architecture](architecture.md) — start here",
-		"- [Runbook](runbook.md) — incident playbook",
-	}, "\n")
+func writeEntrypointMemory(t *testing.T, autoDir, body string) {
+	t.Helper()
 	if err := os.WriteFile(filepath.Join(autoDir, "MEMORY.md"), []byte(body), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
+}
+
+func resolveStartEntrypoint(t *testing.T, provider *MemoryEntrypointProvider, buildCtx contract.BuildCtx) *string {
+	t.Helper()
 	out, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Start:    &contract.StartInput{},
 		BuildCtx: buildCtx,
@@ -53,10 +44,11 @@ func TestMemoryEntrypointProviderHappyPathStripsFrontmatterAndComments(t *testin
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
-	if out == nil {
-		t.Fatal("Resolve() = nil, want wrapped block")
-	}
-	got := *out
+	return out
+}
+
+func requireEntrypointContent(t *testing.T, got string) {
+	t.Helper()
 	if !strings.HasPrefix(got, "## "+contract.DynamicSectionMemoryEntrypoint) {
 		t.Fatalf("Resolve() prefix = %q, want section header for %q", firstLine(got), contract.DynamicSectionMemoryEntrypoint)
 	}
@@ -74,6 +66,29 @@ func TestMemoryEntrypointProviderHappyPathStripsFrontmatterAndComments(t *testin
 	if !strings.Contains(got, "[Architecture](architecture.md)") {
 		t.Fatalf("Resolve() missing index entry:\n%s", got)
 	}
+}
+
+func TestMemoryEntrypointProviderHappyPathStripsFrontmatterAndComments(t *testing.T) {
+	t.Setenv(envHarnessKind, "")
+	provider, buildCtx, autoDir := newEntrypointProviderTestSetup(t)
+	body := strings.Join([]string{
+		"---",
+		"name: project notes",
+		"description: durable index",
+		"type: project",
+		"---",
+		"",
+		"<!-- internal: refresh quarterly -->",
+		"",
+		"- [Architecture](architecture.md) — start here",
+		"- [Runbook](runbook.md) — incident playbook",
+	}, "\n")
+	writeEntrypointMemory(t, autoDir, body)
+	out := resolveStartEntrypoint(t, provider, buildCtx)
+	if out == nil {
+		t.Fatal("Resolve() = nil, want wrapped block")
+	}
+	requireEntrypointContent(t, *out)
 }
 
 func TestMemoryEntrypointProviderReturnsNilWhenIndexMissing(t *testing.T) {

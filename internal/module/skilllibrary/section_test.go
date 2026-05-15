@@ -83,11 +83,7 @@ func TestReadSection_UnknownAnchorListsAvailable(t *testing.T) {
 	if err := os.MkdirAll(refDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []string{"01-red-green.md", "02-anti-patterns.md", "03-pre-commit.md"} {
-		if err := os.WriteFile(filepath.Join(refDir, f), []byte("x"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
+	writeSkillSectionFiles(t, refDir, "01-red-green.md", "02-anti-patterns.md", "03-pre-commit.md")
 
 	_, err := ReadSection(cacheDir, "tdd", "missing")
 	if err == nil {
@@ -100,22 +96,40 @@ func TestReadSection_UnknownAnchorListsAvailable(t *testing.T) {
 	if !errors.As(err, &uae) {
 		t.Fatalf("must be *UnknownAnchorError, got %T", err)
 	}
-	if uae.Name != "tdd" || uae.Anchor != "missing" {
-		t.Errorf("Name/Anchor wrong: %+v", uae)
-	}
 	want := []string{"anti-patterns", "pre-commit", "red-green"}
-	if len(uae.Available) != len(want) {
-		t.Fatalf("Available = %v, want %v", uae.Available, want)
-	}
-	for i, w := range want {
-		if uae.Available[i] != w {
-			t.Errorf("Available[%d] = %q, want %q", i, uae.Available[i], w)
+	assertUnknownAnchorMetadata(t, uae, "tdd", "missing", want)
+	assertErrorMentionsAnchors(t, uae.Error(), want)
+}
+
+func writeSkillSectionFiles(t *testing.T, refDir string, names ...string) {
+	t.Helper()
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(refDir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
 		}
 	}
-	msg := uae.Error()
-	for _, w := range want {
-		if !strings.Contains(msg, w) {
-			t.Errorf("Error() = %q, must mention %q", msg, w)
+}
+
+func assertUnknownAnchorMetadata(t *testing.T, got *UnknownAnchorError, wantName string, wantAnchor string, wantAvailable []string) {
+	t.Helper()
+	if got.Name != wantName || got.Anchor != wantAnchor {
+		t.Errorf("Name/Anchor wrong: %+v", got)
+	}
+	if len(got.Available) != len(wantAvailable) {
+		t.Fatalf("Available = %v, want %v", got.Available, wantAvailable)
+	}
+	for i, want := range wantAvailable {
+		if got.Available[i] != want {
+			t.Errorf("Available[%d] = %q, want %q", i, got.Available[i], want)
+		}
+	}
+}
+
+func assertErrorMentionsAnchors(t *testing.T, msg string, want []string) {
+	t.Helper()
+	for _, anchor := range want {
+		if !strings.Contains(msg, anchor) {
+			t.Errorf("Error() = %q, must mention %q", msg, anchor)
 		}
 	}
 }

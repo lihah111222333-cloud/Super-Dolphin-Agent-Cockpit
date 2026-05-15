@@ -21,18 +21,8 @@ func TestGetDashboardPageReturnsStructuredPage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetDashboardPage() error = %v", err)
 	}
-	if got == nil {
-		t.Fatal("GetDashboardPage() = nil")
-	}
-	if got.Agents == nil || got.DAGs == nil || got.TaskTraces == nil {
-		t.Fatalf("GetDashboardPage() missing core slices: %#v", got)
-	}
-	if got.Skills == nil || got.CommandCards == nil || got.Prompts == nil || got.Memory == nil {
-		t.Fatalf("GetDashboardPage() missing page slices: %#v", got)
-	}
-	if len(got.CommandCards) != 0 || len(got.Prompts) != 0 {
-		t.Fatalf("GetDashboardPage(commands) = %#v, want empty command page", got)
-	}
+	assertDashboardPageInitialized(t, got)
+	assertEmptyDashboardCommandPage(t, got)
 }
 
 func TestGetDashboardPageLoadsDAGs(t *testing.T) {
@@ -52,6 +42,58 @@ func TestGetDashboardPageLoadsDAGs(t *testing.T) {
 	}
 	if orchestration.listDAGsFilter.Limit != dashboardPageDefaultLimit {
 		t.Fatalf("ListDAGs() filter = %#v", orchestration.listDAGsFilter)
+	}
+}
+
+func assertDashboardPageInitialized(t *testing.T, got *DashboardPage) {
+	t.Helper()
+
+	if got == nil {
+		t.Fatal("GetDashboardPage() = nil")
+	}
+	assertDashboardCoreSlices(t, got)
+	assertDashboardPageSlices(t, got)
+}
+
+func assertDashboardCoreSlices(t *testing.T, got *DashboardPage) {
+	t.Helper()
+
+	if got.Agents == nil {
+		t.Fatalf("GetDashboardPage() missing agents slice: %#v", got)
+	}
+	if got.DAGs == nil {
+		t.Fatalf("GetDashboardPage() missing DAGs slice: %#v", got)
+	}
+	if got.TaskTraces == nil {
+		t.Fatalf("GetDashboardPage() missing task traces slice: %#v", got)
+	}
+}
+
+func assertDashboardPageSlices(t *testing.T, got *DashboardPage) {
+	t.Helper()
+
+	if got.Skills == nil {
+		t.Fatalf("GetDashboardPage() missing skills slice: %#v", got)
+	}
+	if got.CommandCards == nil {
+		t.Fatalf("GetDashboardPage() missing command cards slice: %#v", got)
+	}
+	if got.Prompts == nil {
+		t.Fatalf("GetDashboardPage() missing prompts slice: %#v", got)
+	}
+	if got.Memory == nil {
+		t.Fatalf("GetDashboardPage() missing memory slice: %#v", got)
+	}
+}
+
+func assertEmptyDashboardCommandPage(t *testing.T, got *DashboardPage) {
+	t.Helper()
+
+	if len(got.CommandCards) != 0 {
+		t.Fatalf("GetDashboardPage(commands).CommandCards = %#v, want empty", got.CommandCards)
+	}
+	if len(got.Prompts) != 0 {
+		t.Fatalf("GetDashboardPage(commands).Prompts = %#v, want empty", got.Prompts)
 	}
 }
 
@@ -108,26 +150,8 @@ func TestGetDashboardPageMemoryIncludesFinalOutputRefs(t *testing.T) {
 	if len(got.Memory) != 2 {
 		t.Fatalf("GetDashboardPage(memory).Memory = %#v", got.Memory)
 	}
-	if len(got.FinalOutputRefs) != 1 {
-		t.Fatalf("FinalOutputRefs len = %d, want 1 (%#v)", len(got.FinalOutputRefs), got.FinalOutputRefs)
-	}
-	ref := got.FinalOutputRefs[0]
-	if ref.Path != "reports/daily-brief.pptx" || ref.RunKey != "run-1" || ref.DagKey != "dag-1" || ref.SourceNodeKey != "report" {
-		t.Fatalf("FinalOutputRefs[0] = %#v", ref)
-	}
-	if got.SharedFileRetention.ProtectedCount != 1 || got.SharedFileRetention.CleanupCandidateCount != 1 {
-		t.Fatalf("SharedFileRetention counts = %#v", got.SharedFileRetention)
-	}
-	retentionByPath := map[string]SharedFileRetentionItem{}
-	for _, item := range got.SharedFileRetention.Items {
-		retentionByPath[item.Path] = item
-	}
-	if item := retentionByPath["reports/daily-brief.pptx"]; !item.Protected || item.CleanupCandidate || item.Reason != "final_output" {
-		t.Fatalf("final output retention item = %#v", item)
-	}
-	if item := retentionByPath["scratch/intermediate.json"]; item.Protected || !item.CleanupCandidate || item.Reason != "unreferenced" {
-		t.Fatalf("intermediate retention item = %#v", item)
-	}
+	assertDashboardFinalOutputRefs(t, got)
+	assertDashboardRetentionSummary(t, got)
 }
 
 func TestGetDashboardPageMemoryDowngradesFinalOutputRefErrors(t *testing.T) {
@@ -151,6 +175,51 @@ func TestGetDashboardPageMemoryDowngradesFinalOutputRefErrors(t *testing.T) {
 	}
 	if got.FinalOutputRefs == nil || len(got.FinalOutputRefs) != 0 {
 		t.Fatalf("FinalOutputRefs = %#v, want empty slice after downgrade", got.FinalOutputRefs)
+	}
+}
+
+func assertDashboardFinalOutputRefs(t *testing.T, got *DashboardPage) {
+	t.Helper()
+
+	if len(got.FinalOutputRefs) != 1 {
+		t.Fatalf("FinalOutputRefs len = %d, want 1 (%#v)", len(got.FinalOutputRefs), got.FinalOutputRefs)
+	}
+	ref := got.FinalOutputRefs[0]
+	if ref.Path != "reports/daily-brief.pptx" {
+		t.Fatalf("FinalOutputRefs[0].Path = %q, want final output path", ref.Path)
+	}
+	if ref.RunKey != "run-1" || ref.DagKey != "dag-1" || ref.SourceNodeKey != "report" {
+		t.Fatalf("FinalOutputRefs[0] = %#v", ref)
+	}
+}
+
+func assertDashboardRetentionSummary(t *testing.T, got *DashboardPage) {
+	t.Helper()
+
+	if got.SharedFileRetention.ProtectedCount != 1 {
+		t.Fatalf("SharedFileRetention protected count = %#v", got.SharedFileRetention)
+	}
+	if got.SharedFileRetention.CleanupCandidateCount != 1 {
+		t.Fatalf("SharedFileRetention cleanup count = %#v", got.SharedFileRetention)
+	}
+	retentionByPath := dashboardRetentionByPath(got.SharedFileRetention.Items)
+	assertDashboardRetentionItem(t, retentionByPath["reports/daily-brief.pptx"], true, false, "final_output")
+	assertDashboardRetentionItem(t, retentionByPath["scratch/intermediate.json"], false, true, "unreferenced")
+}
+
+func dashboardRetentionByPath(items []SharedFileRetentionItem) map[string]SharedFileRetentionItem {
+	retentionByPath := map[string]SharedFileRetentionItem{}
+	for _, item := range items {
+		retentionByPath[item.Path] = item
+	}
+	return retentionByPath
+}
+
+func assertDashboardRetentionItem(t *testing.T, item SharedFileRetentionItem, protected, cleanup bool, reason string) {
+	t.Helper()
+
+	if item.Protected != protected || item.CleanupCandidate != cleanup || item.Reason != reason {
+		t.Fatalf("retention item = %#v, want protected=%t cleanup=%t reason=%q", item, protected, cleanup, reason)
 	}
 }
 
@@ -270,25 +339,8 @@ func TestDashboardPromptsHandlerScopesByCWDAndReturnsPromptsKey(t *testing.T) {
 		t.Fatalf("List() filter = %#v", stub.lastFilter)
 	}
 
-	var response map[string]json.RawMessage
-	if err := json.Unmarshal(result, &response); err != nil {
-		t.Fatalf("json.Unmarshal() error = %v", err)
-	}
-	promptsRaw, ok := response["prompts"]
-	if !ok {
-		t.Fatalf("Dispatch() response keys = %#v, want prompts", response)
-	}
-	if _, ok := response["commands"]; ok {
-		t.Fatalf("Dispatch() response unexpectedly retained legacy commands key: %#v", response)
-	}
-
-	var prompts []promptstore.PromptTemplate
-	if err := json.Unmarshal(promptsRaw, &prompts); err != nil {
-		t.Fatalf("json.Unmarshal(prompts) error = %v", err)
-	}
-	if len(prompts) != 2 || prompts[0].PromptKey != "global" || prompts[1].PromptKey != "other" {
-		t.Fatalf("Dispatch() prompts = %#v", prompts)
-	}
+	prompts := decodeDashboardPromptsResponse(t, result)
+	assertDashboardPromptKeys(t, prompts, []string{"global", "other"})
 }
 
 func TestGetAILogsByCategoryUsesStore(t *testing.T) {
@@ -316,6 +368,41 @@ func TestGetAILogsByCategoryUsesStore(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].ID != 7 || got[0].Category != "api_request" {
 		t.Fatalf("GetAILogsByCategory() = %#v", got)
+	}
+}
+
+func decodeDashboardPromptsResponse(t *testing.T, result json.RawMessage) []promptstore.PromptTemplate {
+	t.Helper()
+
+	var response map[string]json.RawMessage
+	if err := json.Unmarshal(result, &response); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	promptsRaw, ok := response["prompts"]
+	if !ok {
+		t.Fatalf("Dispatch() response keys = %#v, want prompts", response)
+	}
+	if _, ok := response["commands"]; ok {
+		t.Fatalf("Dispatch() response unexpectedly retained legacy commands key: %#v", response)
+	}
+
+	var prompts []promptstore.PromptTemplate
+	if err := json.Unmarshal(promptsRaw, &prompts); err != nil {
+		t.Fatalf("json.Unmarshal(prompts) error = %v", err)
+	}
+	return prompts
+}
+
+func assertDashboardPromptKeys(t *testing.T, prompts []promptstore.PromptTemplate, wantKeys []string) {
+	t.Helper()
+
+	if len(prompts) != len(wantKeys) {
+		t.Fatalf("Dispatch() prompts = %#v, want %d prompts", prompts, len(wantKeys))
+	}
+	for idx, want := range wantKeys {
+		if prompts[idx].PromptKey != want {
+			t.Fatalf("Dispatch() prompts[%d] = %q, want %q", idx, prompts[idx].PromptKey, want)
+		}
 	}
 }
 

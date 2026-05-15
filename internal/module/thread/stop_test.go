@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
@@ -45,12 +44,27 @@ func TestStopInterruptsTurnAndCleansThreadState(t *testing.T) {
 	if err := svc.Stop(context.Background(), "agent-1"); err != nil {
 		t.Fatalf("Stop() error = %v", err)
 	}
+	assertStopInterruptsAndCleansState(t, svc, turns, orch)
+}
+
+func assertStopInterruptsAndCleansState(t *testing.T, svc *service, turns *stubTurnService, orch *stubThreadOrchestration) {
+	t.Helper()
 	if !reflect.DeepEqual(turns.interruptCalls, []string{"thread-1:thread_stopped"}) {
 		t.Fatalf("interrupt calls = %#v", turns.interruptCalls)
 	}
 	if orch.stoppedAgentID != "agent-1" {
 		t.Fatalf("stopped agent = %q, want %q", orch.stoppedAgentID, "agent-1")
 	}
+	assertStopStoresAndSessions(t, svc)
+	assertCleanupCalls(t, turns.cleanupCalls, map[string]struct{}{
+		"agent-1:thread_stopped":           {},
+		"thread-1:thread_stopped":          {},
+		"provider-thread-1:thread_stopped": {},
+	})
+}
+
+func assertStopStoresAndSessions(t *testing.T, svc *service) {
+	t.Helper()
 	bindingStore := svc.bindingStore.(*stubThreadBindingStore)
 	if len(bindingStore.sessionUpdates) != 0 {
 		t.Fatalf("binding session uuid updates = %#v, want preserved history locator", bindingStore.sessionUpdates)
@@ -63,20 +77,16 @@ func TestStopInterruptsTurnAndCleansThreadState(t *testing.T) {
 	if session.closeCalls != 1 {
 		t.Fatalf("session close calls = %d, want 1", session.closeCalls)
 	}
-	sessions := svc.sessions.(*stubThreadSessions)
-	if !reflect.DeepEqual(sessions.removed, []string{"agent-1"}) {
-		t.Fatalf("removed sessions = %#v, want [agent-1]", sessions.removed)
+	assertRemovedSessions(t, svc.sessions.(*stubThreadSessions), "agent-1")
+}
+
+func assertCleanupCalls(t *testing.T, got []string, want map[string]struct{}) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("cleanup calls = %#v", got)
 	}
-	wantCleanup := map[string]struct{}{
-		"agent-1:thread_stopped":           {},
-		"thread-1:thread_stopped":          {},
-		"provider-thread-1:thread_stopped": {},
-	}
-	if len(turns.cleanupCalls) != len(wantCleanup) {
-		t.Fatalf("cleanup calls = %#v", turns.cleanupCalls)
-	}
-	for _, call := range turns.cleanupCalls {
-		if _, ok := wantCleanup[call]; !ok {
+	for _, call := range got {
+		if _, ok := want[call]; !ok {
 			t.Fatalf("unexpected cleanup call %q", call)
 		}
 	}
@@ -188,6 +198,19 @@ func TestArchiveStopsManagedAgentBeforeArchiving(t *testing.T) {
 	if err := svc.Archive(context.Background(), "thread-1"); err != nil {
 		t.Fatalf("Archive() error = %v", err)
 	}
+	assertArchiveStopsManagedAgent(t, calls, orch, bindingStore, threadStore, session, sessions)
+}
+
+func assertArchiveStopsManagedAgent(
+	t *testing.T,
+	calls []string,
+	orch *stubThreadOrchestration,
+	bindingStore *stubThreadBindingStore,
+	threadStore *recordingThreadStore,
+	session *stubThreadSession,
+	sessions *stubThreadSessions,
+) {
+	t.Helper()
 	if orch.stoppedAgentID != "agent-1" {
 		t.Fatalf("stopped agent = %q, want agent-1", orch.stoppedAgentID)
 	}
@@ -200,18 +223,10 @@ func TestArchiveStopsManagedAgentBeforeArchiving(t *testing.T) {
 	if session.closeCalls != 1 {
 		t.Fatalf("session close calls = %d, want 1", session.closeCalls)
 	}
-	if !reflect.DeepEqual(sessions.removed, []string{"agent-1"}) {
-		t.Fatalf("removed sessions = %#v, want [agent-1]", sessions.removed)
-	}
-	if callIndex(calls, "agent_stop:agent-1") > callIndex(calls, "thread_status:thread-1:archived") {
-		t.Fatalf("call order = %#v, want stop before archive status update", calls)
-	}
-	if callIndex(calls, "agent_stop:agent-1") > callIndex(calls, "binding_archive:agent-1:true") {
-		t.Fatalf("call order = %#v, want stop before binding archive", calls)
-	}
-	if callIndex(calls, "turn_cleanup:thread-1:thread_archived") == -1 {
-		t.Fatalf("cleanup calls = %#v, want thread_archived cleanup", calls)
-	}
+	assertRemovedSessions(t, sessions, "agent-1")
+	assertStopCallBefore(t, calls, "agent_stop:agent-1", "thread_status:thread-1:archived", "archive status update")
+	assertStopCallBefore(t, calls, "agent_stop:agent-1", "binding_archive:agent-1:true", "binding archive")
+	assertStopCallPresent(t, calls, "turn_cleanup:thread-1:thread_archived", "thread_archived cleanup")
 }
 
 func TestArchiveFallsBackWhenBindingMissing(t *testing.T) {
@@ -328,6 +343,19 @@ func TestDeleteStopsManagedAgentBeforeDeleting(t *testing.T) {
 	if err := svc.Delete(context.Background(), "thread-1"); err != nil {
 		t.Fatalf("Delete() error = %v", err)
 	}
+	assertDeleteStopsManagedAgent(t, calls, orch, bindingStore, threadStore, session, sessions)
+}
+
+func assertDeleteStopsManagedAgent(
+	t *testing.T,
+	calls []string,
+	orch *stubThreadOrchestration,
+	bindingStore *stubThreadBindingStore,
+	threadStore *recordingThreadStore,
+	session *stubThreadSession,
+	sessions *stubThreadSessions,
+) {
+	t.Helper()
 	if orch.stoppedAgentID != "agent-1" {
 		t.Fatalf("stopped agent = %q, want agent-1", orch.stoppedAgentID)
 	}
@@ -340,17 +368,32 @@ func TestDeleteStopsManagedAgentBeforeDeleting(t *testing.T) {
 	if session.closeCalls != 1 {
 		t.Fatalf("session close calls = %d, want 1", session.closeCalls)
 	}
-	if !reflect.DeepEqual(sessions.removed, []string{"agent-1"}) {
-		t.Fatalf("removed sessions = %#v, want [agent-1]", sessions.removed)
+	assertRemovedSessions(t, sessions, "agent-1")
+	assertStopCallBefore(t, calls, "agent_stop:agent-1", "binding_delete:agent-1", "binding delete")
+	assertStopCallBefore(t, calls, "agent_stop:agent-1", "thread_delete:thread-1", "thread delete")
+	assertStopCallPresent(t, calls, "turn_cleanup:thread-1:thread_deleted", "thread_deleted cleanup")
+}
+
+func assertRemovedSessions(t *testing.T, sessions *stubThreadSessions, want ...string) {
+	t.Helper()
+	if !reflect.DeepEqual(sessions.removed, want) {
+		t.Fatalf("removed sessions = %#v, want %v", sessions.removed, want)
 	}
-	if callIndex(calls, "agent_stop:agent-1") > callIndex(calls, "binding_delete:agent-1") {
-		t.Fatalf("call order = %#v, want stop before binding delete", calls)
+}
+
+func assertStopCallBefore(t *testing.T, calls []string, before, after, label string) {
+	t.Helper()
+	beforeIndex := callIndex(calls, before)
+	afterIndex := callIndex(calls, after)
+	if beforeIndex == -1 || afterIndex == -1 || beforeIndex > afterIndex {
+		t.Fatalf("call order = %#v, want %s before %s", calls, before, label)
 	}
-	if callIndex(calls, "agent_stop:agent-1") > callIndex(calls, "thread_delete:thread-1") {
-		t.Fatalf("call order = %#v, want stop before thread delete", calls)
-	}
-	if callIndex(calls, "turn_cleanup:thread-1:thread_deleted") == -1 {
-		t.Fatalf("cleanup calls = %#v, want thread_deleted cleanup", calls)
+}
+
+func assertStopCallPresent(t *testing.T, calls []string, want, label string) {
+	t.Helper()
+	if callIndex(calls, want) == -1 {
+		t.Fatalf("cleanup calls = %#v, want %s", calls, label)
 	}
 }
 
@@ -412,217 +455,4 @@ func newScratchpadCleanupService(t *testing.T) (*service, string) {
 		}},
 		orchestration: &stubThreadOrchestration{},
 	}, dir
-}
-
-type stubThreadBindingStore struct {
-	binding         *bindingstore.Binding
-	sessionUpdates  []bindingstore.UpdateSessionUUIDParams
-	archived        []bindingstore.SetArchivedParams
-	deletedAgentIDs []string
-	calls           *[]string
-	getByAgentIDErr error
-}
-
-func (s *stubThreadBindingStore) GetByProviderThread(context.Context, string, string) (*bindingstore.Binding, error) {
-	return nil, errors.New("not found")
-}
-func (s *stubThreadBindingStore) Upsert(context.Context, bindingstore.UpsertParams) error { return nil }
-func (s *stubThreadBindingStore) DeleteByAgentID(_ context.Context, agentID string) error {
-	s.deletedAgentIDs = append(s.deletedAgentIDs, agentID)
-	recordCall(s.calls, "binding_delete:"+agentID)
-	return nil
-}
-func (s *stubThreadBindingStore) UpdateSessionUUID(_ context.Context, params bindingstore.UpdateSessionUUIDParams) error {
-	s.sessionUpdates = append(s.sessionUpdates, params)
-	return nil
-}
-func (s *stubThreadBindingStore) UpdateProviderThreadID(context.Context, bindingstore.UpdateProviderThreadIDParams) error {
-	return nil
-}
-func (s *stubThreadBindingStore) SetArchived(_ context.Context, params bindingstore.SetArchivedParams) error {
-	s.archived = append(s.archived, params)
-	archived := "false"
-	if params.Archived {
-		archived = "true"
-	}
-	recordCall(s.calls, "binding_archive:"+params.AgentID+":"+archived)
-	return nil
-}
-func (s *stubThreadBindingStore) GetByAgentID(_ context.Context, agentID string) (*bindingstore.Binding, error) {
-	if s.binding != nil && s.binding.AgentID == agentID {
-		return s.binding, nil
-	}
-	if s.getByAgentIDErr != nil {
-		return nil, s.getByAgentIDErr
-	}
-	return nil, errors.New("not found")
-}
-func (s *stubThreadBindingStore) BindAgentThread(context.Context, bindingstore.BindAgentThreadParams) error {
-	return nil
-}
-func (s *stubThreadBindingStore) UnbindAgentThread(context.Context, string) error { return nil }
-func (s *stubThreadBindingStore) ListAgentThreadBindings(context.Context) ([]bindingstore.Binding, error) {
-	if s.binding == nil {
-		return nil, nil
-	}
-	return []bindingstore.Binding{*s.binding}, nil
-}
-func (s *stubThreadBindingStore) GetThreadByAgent(context.Context, string) (string, error) {
-	if s.binding == nil {
-		return "", errors.New("not found")
-	}
-	return s.binding.ProviderThreadID, nil
-}
-func (s *stubThreadBindingStore) UpdateAgentCwd(context.Context, bindingstore.UpdateAgentCwdParams) error {
-	return nil
-}
-
-func (s *stubThreadBindingStore) Rebind(context.Context, bindingstore.RebindParams) error { return nil }
-
-func (s *stubThreadBindingStore) ListProviderMap(context.Context) (map[string]string, error) {
-	return nil, nil
-}
-
-func (s *stubThreadBindingStore) ListCwdMap(context.Context) (map[string]string, error) {
-	return nil, nil
-}
-
-type stubThreadSessions struct {
-	agentID            string
-	session            contract.Session
-	generation         uint64
-	removed            []string
-	removedGenerations []uint64
-	calls              *[]string
-}
-
-func (s *stubThreadSessions) GetSession(agentID string) (contract.Session, error) {
-	if s.session != nil && agentID == s.agentID {
-		return s.session, nil
-	}
-	return nil, errors.New("not found")
-}
-func (s *stubThreadSessions) RemoveSession(agentID string) {
-	s.removed = append(s.removed, agentID)
-	recordCall(s.calls, "session_remove:"+agentID)
-}
-func (s *stubThreadSessions) SessionGeneration(agentID string) uint64 {
-	if agentID != s.agentID {
-		return 0
-	}
-	return s.generation
-}
-func (s *stubThreadSessions) RemoveSessionGeneration(agentID string, generation uint64) {
-	if agentID != s.agentID {
-		return
-	}
-	s.removedGenerations = append(s.removedGenerations, generation)
-	recordCall(s.calls, "session_remove_generation:"+agentID)
-}
-
-type stubThreadSession struct {
-	threadID   string
-	closeCalls int
-	calls      *[]string
-}
-
-func (s *stubThreadSession) ThreadID() string    { return s.threadID }
-func (s *stubThreadSession) RolloutPath() string { return "" }
-func (s *stubThreadSession) Capabilities() dto.CapabilitySet {
-	return nil
-}
-func (s *stubThreadSession) StartTurn(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
-	return nil, nil
-}
-func (s *stubThreadSession) Interrupt(context.Context, dto.InterruptRequest) error { return nil }
-func (s *stubThreadSession) ForceComplete(context.Context, dto.ForceCompleteRequest) error {
-	return nil
-}
-func (s *stubThreadSession) ListThreads(context.Context) ([]dto.ThreadRef, error) {
-	return nil, nil
-}
-func (s *stubThreadSession) ForkThread(context.Context, dto.ForkRequest) (dto.ForkResult, error) {
-	return dto.ForkResult{}, nil
-}
-func (s *stubThreadSession) ReadHistory(context.Context, string, int) ([]dto.Message, error) {
-	return nil, nil
-}
-func (s *stubThreadSession) Configure(context.Context, dto.ThreadConfigPatch) error { return nil }
-func (s *stubThreadSession) Close(context.Context) error {
-	s.closeCalls++
-	recordCall(s.calls, "session_close:"+s.threadID)
-	return nil
-}
-func (s *stubThreadSession) ForceStop() error { return nil }
-
-type stubTurnService struct {
-	interruptCalls []string
-	cleanupCalls   []string
-	calls          *[]string
-}
-
-func (s *stubTurnService) InterruptActiveTurn(_ context.Context, session contract.Session, source string) error {
-	s.interruptCalls = append(s.interruptCalls, session.ThreadID()+":"+source)
-	recordCall(s.calls, "turn_interrupt:"+session.ThreadID()+":"+source)
-	return nil
-}
-func (s *stubTurnService) CleanupThread(_ context.Context, threadID, reason string) error {
-	s.cleanupCalls = append(s.cleanupCalls, threadID+":"+reason)
-	recordCall(s.calls, "turn_cleanup:"+threadID+":"+reason)
-	return nil
-}
-
-type stubThreadOrchestration struct {
-	launchReq      LaunchAgentRequest
-	stoppedAgentID string
-	stopCalls      []string
-	stopErr        error
-	calls          *[]string
-}
-
-func (s *stubThreadOrchestration) LaunchAgent(_ context.Context, req LaunchAgentRequest) error {
-	s.launchReq = req
-	return nil
-}
-func (s *stubThreadOrchestration) StopAgent(_ context.Context, agentID string) error {
-	s.stoppedAgentID = agentID
-	s.stopCalls = append(s.stopCalls, agentID)
-	recordCall(s.calls, "agent_stop:"+agentID)
-	return s.stopErr
-}
-func (s *stubThreadOrchestration) Recover(context.Context, string) error { return nil }
-func (s *stubThreadOrchestration) BindSessionGeneration(context.Context, string, uint64) error {
-	return nil
-}
-
-type recordingThreadStore struct {
-	*stubThreadStore
-	calls           *[]string
-	deletedThreadID string
-}
-
-func (s *recordingThreadStore) UpdateStatus(ctx context.Context, params threadstore.UpdateStatusParams) error {
-	recordCall(s.calls, "thread_status:"+params.ThreadID+":"+params.Status)
-	return s.stubThreadStore.UpdateStatus(ctx, params)
-}
-
-func (s *recordingThreadStore) DeleteByThreadID(_ context.Context, threadID string) error {
-	s.deletedThreadID = threadID
-	recordCall(s.calls, "thread_delete:"+s.deletedThreadID)
-	return nil
-}
-
-func recordCall(calls *[]string, entry string) {
-	if calls != nil {
-		*calls = append(*calls, entry)
-	}
-}
-
-func callIndex(calls []string, target string) int {
-	for i, call := range calls {
-		if call == target {
-			return i
-		}
-	}
-	return -1
 }

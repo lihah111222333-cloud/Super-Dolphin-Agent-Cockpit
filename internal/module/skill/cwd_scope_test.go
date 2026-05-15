@@ -12,6 +12,13 @@ import (
 func TestListSkillsScopesByRequestCWD(t *testing.T) {
 	t.Parallel()
 
+	svc, projectA, projectB := setupScopedSkillService(t)
+	assertScopedSkillList(t, svc, projectA, "scoped", []string{"local-a", "shared"}, "local-b")
+	assertScopedSkillList(t, svc, projectB, "project B", []string{"local-b", "shared"}, "local-a")
+}
+
+func setupScopedSkillService(t *testing.T) (*service, string, string) {
+	t.Helper()
 	systemRoot := t.TempDir()
 	projectA := filepath.Join(t.TempDir(), "wj", "langgraph")
 	projectB := filepath.Join(t.TempDir(), "wj", "go-agent-v2")
@@ -31,50 +38,44 @@ func TestListSkillsScopesByRequestCWD(t *testing.T) {
 		http:              &http.Client{},
 	}
 
-	skills, err := svc.ListSkills(WithCWD(context.Background(), projectA))
+	return svc, projectA, projectB
+}
+
+func assertScopedSkillList(t *testing.T, svc *service, cwd, label string, wantNames []string, leakedName string) {
+	t.Helper()
+	skills, err := svc.ListSkills(WithCWD(context.Background(), cwd))
 	if err != nil {
-		t.Fatalf("ListSkills scoped: %v", err)
+		t.Fatalf("ListSkills %s: %v", label, err)
 	}
+	names, summaries := skillNamesAndSummaries(skills)
+	if len(skills) != 2 {
+		t.Fatalf("len(%s skills) = %d, want 2 (%v)", label, len(skills), names)
+	}
+	assertSkillNames(t, label, names, wantNames, leakedName)
+	if got := summaries["shared"]; got != "global" {
+		t.Fatalf("%s shared summary = %q, want global", label, got)
+	}
+}
+
+func skillNamesAndSummaries(skills []SkillInfo) ([]string, map[string]string) {
 	names := make([]string, 0, len(skills))
 	summaries := map[string]string{}
 	for _, item := range skills {
 		names = append(names, item.Name)
 		summaries[item.Name] = item.Summary
 	}
-	if len(skills) != 2 {
-		t.Fatalf("len(scoped skills) = %d, want 2 (%v)", len(skills), names)
-	}
-	if !containsString(names, "local-a") || !containsString(names, "shared") {
-		t.Fatalf("scoped names = %v, want local-a + shared", names)
-	}
-	if containsString(names, "local-b") {
-		t.Fatalf("scoped names leaked project B local skill: %v", names)
-	}
-	if got := summaries["shared"]; got != "global" {
-		t.Fatalf("shared summary = %q, want global", got)
-	}
+	return names, summaries
+}
 
-	skills, err = svc.ListSkills(WithCWD(context.Background(), projectB))
-	if err != nil {
-		t.Fatalf("ListSkills project B: %v", err)
+func assertSkillNames(t *testing.T, label string, names, wantNames []string, leakedName string) {
+	t.Helper()
+	for _, want := range wantNames {
+		if !containsString(names, want) {
+			t.Fatalf("%s names = %v, missing %s", label, names, want)
+		}
 	}
-	names = names[:0]
-	summaries = map[string]string{}
-	for _, item := range skills {
-		names = append(names, item.Name)
-		summaries[item.Name] = item.Summary
-	}
-	if len(skills) != 2 {
-		t.Fatalf("len(project B skills) = %d, want 2 (%v)", len(skills), names)
-	}
-	if !containsString(names, "local-b") || !containsString(names, "shared") {
-		t.Fatalf("project B names = %v, want local-b + shared", names)
-	}
-	if containsString(names, "local-a") {
-		t.Fatalf("project B names leaked project A local skill: %v", names)
-	}
-	if got := summaries["shared"]; got != "global" {
-		t.Fatalf("project B shared summary = %q, want global", got)
+	if containsString(names, leakedName) {
+		t.Fatalf("%s names leaked %s: %v", label, leakedName, names)
 	}
 }
 

@@ -53,20 +53,59 @@ func forkPromptGitFixture(t *testing.T) (string, string) {
 func TestServiceForkCreatesIndependentAgentAndBinding(t *testing.T) {
 	t.Parallel()
 
+	fixture := newForkServiceFixture(t)
+	result, err := fixture.svc.Fork(context.Background(), "thread-parent")
+	if err != nil {
+		t.Fatalf("Fork() error = %v", err)
+	}
+	assertForkResult(t, result, fixture)
+}
+
+type forkServiceFixture struct {
+	originalSession *stubSession
+	bindings        *stubBindingStore
+	threads         *stubThreadStore
+	orch            *forkOrchestrationStub
+	svc             *service
+}
+
+func newForkServiceFixture(t *testing.T) *forkServiceFixture {
+	t.Helper()
 	originalSession := &stubSession{
 		threadID:   "thread-parent",
 		forkResult: dto.ForkResult{NewThreadID: "thread-fork"},
 	}
 	forkedSession := &stubSession{threadID: "019d5f6b-aaaa-7760-9d6f-54005553f5b3"}
 	sessions := &stubSessionProvider{session: originalSession}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	bindings := forkParentBindingStore()
+	threads := forkParentThreadStore()
+	starter := &stubSessionStarter{onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+		assertForkResumeRequest(t, req)
+		sessions.session = forkedSession
+		return forkedSession, nil
+	}}
+	orch := &forkOrchestrationStub{}
+	return &forkServiceFixture{
+		originalSession: originalSession,
+		bindings:        bindings,
+		threads:         threads,
+		orch:            orch,
+		svc:             NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service),
+	}
+}
+
+func forkParentBindingStore() *stubBindingStore {
+	return &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-parent",
 		Provider:         "codex",
 		ProviderThreadID: "thread-parent",
 		CodexThreadID:    "thread-parent",
 		Cwd:              "/repo",
 	}}
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+}
+
+func forkParentThreadStore() *stubThreadStore {
+	return &stubThreadStore{thread: &threadstore.Thread{
 		ThreadID:  "thread-parent",
 		Prompt:    "Forked Thread",
 		Model:     "gpt-5.5",
@@ -80,46 +119,45 @@ func TestServiceForkCreatesIndependentAgentAndBinding(t *testing.T) {
 		Version:               contract.PromptAssemblySnapshotVersion,
 		Hash:                  promptSnapshotHash("Forked Thread", "stored base", "stored dev", "codex", nil),
 	}}
-	starter := &stubSessionStarter{
-		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
-			if req.Provider != "codex" {
-				t.Fatalf("Provider = %q, want codex", req.Provider)
-			}
-			if req.AgentID != "thread-fork" {
-				t.Fatalf("AgentID = %q, want thread-fork", req.AgentID)
-			}
-			if req.ThreadID != "thread-fork" {
-				t.Fatalf("ThreadID = %q, want thread-fork", req.ThreadID)
-			}
-			if req.Model != "gpt-5.5" {
-				t.Fatalf("Model = %q, want gpt-5.5", req.Model)
-			}
-			if req.PromptSnapshot.BaseInstructions != "stored base" || req.PromptSnapshot.DeveloperInstructions != "stored dev" {
-				t.Fatalf("PromptSnapshot = %#v, want stored snapshot", req.PromptSnapshot)
-			}
-			sessions.session = forkedSession
-			return forkedSession, nil
-		},
-	}
-	orch := &forkOrchestrationStub{}
-	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)
+}
 
-	result, err := svc.Fork(context.Background(), "thread-parent")
-	if err != nil {
-		t.Fatalf("Fork() error = %v", err)
+func assertForkResumeRequest(t *testing.T, req dto.ResumeSessionRequest) {
+	t.Helper()
+	if req.Provider != "codex" || req.AgentID != "thread-fork" || req.ThreadID != "thread-fork" {
+		t.Fatalf("ResumeSession request = %#v", req)
 	}
+	if req.Model != "gpt-5.5" {
+		t.Fatalf("Model = %q, want gpt-5.5", req.Model)
+	}
+	if req.PromptSnapshot.BaseInstructions != "stored base" || req.PromptSnapshot.DeveloperInstructions != "stored dev" {
+		t.Fatalf("PromptSnapshot = %#v, want stored snapshot", req.PromptSnapshot)
+	}
+}
+
+func assertForkResult(t *testing.T, result ForkResult, fixture *forkServiceFixture) {
+	t.Helper()
 	if result.NewThreadID != "thread-fork" || result.ForkedFrom != "thread-parent" {
 		t.Fatalf("Fork() result = %#v, want thread-fork", result)
 	}
-	if originalSession.forkRequest.ThreadID != "thread-parent" {
-		t.Fatalf("forkRequest.ThreadID = %q, want thread-parent", originalSession.forkRequest.ThreadID)
+	assertForkSessionAndLaunch(t, fixture)
+	assertForkPersistence(t, fixture.bindings, fixture.threads)
+}
+
+func assertForkSessionAndLaunch(t *testing.T, fixture *forkServiceFixture) {
+	t.Helper()
+	if fixture.originalSession.forkRequest.ThreadID != "thread-parent" {
+		t.Fatalf("forkRequest.ThreadID = %q, want thread-parent", fixture.originalSession.forkRequest.ThreadID)
 	}
-	if orch.launch.AgentID != "thread-fork" {
-		t.Fatalf("launch.AgentID = %q, want thread-fork", orch.launch.AgentID)
+	if fixture.orch.launch.AgentID != "thread-fork" {
+		t.Fatalf("launch.AgentID = %q, want thread-fork", fixture.orch.launch.AgentID)
 	}
-	if orch.launch.Cwd != "/repo" || orch.launch.Name != "Forked Thread (续)" {
-		t.Fatalf("launch = %#v", orch.launch)
+	if fixture.orch.launch.Cwd != "/repo" || fixture.orch.launch.Name != "Forked Thread (续)" {
+		t.Fatalf("launch = %#v", fixture.orch.launch)
 	}
+}
+
+func assertForkPersistence(t *testing.T, bindings *stubBindingStore, threads *stubThreadStore) {
+	t.Helper()
 	if bindings.upsert.AgentID != "thread-fork" {
 		t.Fatalf("binding.AgentID = %q, want thread-fork", bindings.upsert.AgentID)
 	}
@@ -137,16 +175,47 @@ func TestServiceForkCreatesIndependentAgentAndBinding(t *testing.T) {
 func TestServiceRecoverReturnsResumeEnvelopeWhenSessionMissing(t *testing.T) {
 	t.Parallel()
 
+	fixture := newResumeRecoverFixture(t)
+	result, err := fixture.svc.Recover(context.Background(), "thread-parent")
+	if err != nil {
+		t.Fatalf("Recover() error = %v", err)
+	}
+	assertResumeRecoverResult(t, result, fixture)
+}
+
+type recoverServiceFixture struct {
+	threads *stubThreadStore
+	orch    *forkOrchestrationStub
+	svc     *service
+}
+
+func newResumeRecoverFixture(t *testing.T) *recoverServiceFixture {
+	t.Helper()
 	resumedSession := &stubSession{threadID: "provider-parent"}
 	sessions := &stubSessionProvider{}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	threads := resumeRecoverThreadStore()
+	starter := &stubSessionStarter{onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+		assertResumeRecoverRequest(t, req)
+		sessions.session = resumedSession
+		return resumedSession, nil
+	}}
+	orch := &forkOrchestrationStub{}
+	svc := NewService(silentLogger(), threads, resumeRecoverBindingStore(), sessions, starter, nil, orch, nil).(*service)
+	return &recoverServiceFixture{threads: threads, orch: orch, svc: svc}
+}
+
+func resumeRecoverBindingStore() *stubBindingStore {
+	return &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-parent",
 		Provider:         "codex",
 		ProviderThreadID: "provider-parent",
 		CodexThreadID:    "thread-parent",
 		Cwd:              "/repo",
 	}}
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+}
+
+func resumeRecoverThreadStore() *stubThreadStore {
+	return &stubThreadStore{thread: &threadstore.Thread{
 		ThreadID:  "thread-parent",
 		AgentID:   "agent-parent",
 		Prompt:    "Recovered Thread",
@@ -161,54 +230,77 @@ func TestServiceRecoverReturnsResumeEnvelopeWhenSessionMissing(t *testing.T) {
 		Version:               contract.PromptAssemblySnapshotVersion,
 		Hash:                  promptSnapshotHash("Recovered Thread", "stored base", "stored dev", "codex", nil),
 	}}
-	starter := &stubSessionStarter{
-		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
-			if req.Provider != "codex" || req.AgentID != "agent-parent" || req.ThreadID != "thread-parent" {
-				t.Fatalf("ResumeSession request = %#v", req)
-			}
-			if req.ProviderThreadID != "provider-parent" {
-				t.Fatalf("ProviderThreadID = %q, want provider-parent", req.ProviderThreadID)
-			}
-			if req.PromptSnapshot.BaseInstructions != "stored base" || req.PromptSnapshot.DeveloperInstructions != "stored dev" {
-				t.Fatalf("PromptSnapshot = %#v, want stored snapshot", req.PromptSnapshot)
-			}
-			sessions.session = resumedSession
-			return resumedSession, nil
-		},
-	}
-	orch := &forkOrchestrationStub{}
-	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)
+}
 
-	result, err := svc.Recover(context.Background(), "thread-parent")
-	if err != nil {
-		t.Fatalf("Recover() error = %v", err)
+func assertResumeRecoverRequest(t *testing.T, req dto.ResumeSessionRequest) {
+	t.Helper()
+	if req.Provider != "codex" || req.AgentID != "agent-parent" || req.ThreadID != "thread-parent" {
+		t.Fatalf("ResumeSession request = %#v", req)
 	}
+	if req.ProviderThreadID != "provider-parent" {
+		t.Fatalf("ProviderThreadID = %q, want provider-parent", req.ProviderThreadID)
+	}
+	if req.PromptSnapshot.BaseInstructions != "stored base" || req.PromptSnapshot.DeveloperInstructions != "stored dev" {
+		t.Fatalf("PromptSnapshot = %#v, want stored snapshot", req.PromptSnapshot)
+	}
+}
+
+func assertResumeRecoverResult(t *testing.T, result RecoverResult, fixture *recoverServiceFixture) {
+	t.Helper()
 	if result != (RecoverResult{ThreadID: "thread-parent", Status: "recovering", Recovered: true, Mode: "relaunch_resume"}) {
 		t.Fatalf("Recover() result = %#v", result)
 	}
-	if len(orch.recovered) != 1 || orch.recovered[0] != "agent-parent" {
-		t.Fatalf("recover calls = %#v", orch.recovered)
+	if len(fixture.orch.recovered) != 1 || fixture.orch.recovered[0] != "agent-parent" {
+		t.Fatalf("recover calls = %#v", fixture.orch.recovered)
 	}
-	if len(orch.bindAgentIDs) != 0 {
-		t.Fatalf("bind session calls = %#v, want none without session generation support", orch.bindAgentIDs)
+	if len(fixture.orch.bindAgentIDs) != 0 {
+		t.Fatalf("bind session calls = %#v, want none without session generation support", fixture.orch.bindAgentIDs)
 	}
-	if threads.upsert.ThreadID != "thread-parent" {
-		t.Fatalf("thread upsert = %#v", threads.upsert)
+	if fixture.threads.upsert.ThreadID != "thread-parent" {
+		t.Fatalf("thread upsert = %#v", fixture.threads.upsert)
 	}
-	if threads.upsert.Prompt != "Recovered Thread" {
-		t.Fatalf("persisted prompt = %q, want Recovered Thread", threads.upsert.Prompt)
+	if fixture.threads.upsert.Prompt != "Recovered Thread" {
+		t.Fatalf("persisted prompt = %q, want Recovered Thread", fixture.threads.upsert.Prompt)
 	}
 }
 
 func TestServiceRecoverRehydratesClaudeOverrideConfigWhenSessionMissing(t *testing.T) {
 	t.Parallel()
 
+	svc := newClaudeRecoverService(t)
+	result, err := svc.Recover(context.Background(), "thread-parent")
+	if err != nil {
+		t.Fatalf("Recover() error = %v", err)
+	}
+	assertRecoverResumeEnvelope(t, result)
+}
+
+func newClaudeRecoverService(t *testing.T) *service {
+	t.Helper()
 	model := "claude-sonnet-4-20250514[1m]"
 	effort := "max"
 	const providerParentUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5b3"
 	resumedSession := &stubSession{threadID: providerParentUUID}
 	sessions := &stubSessionProvider{}
-	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+	starter := &stubSessionStarter{onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+		assertClaudeRecoverRequest(t, req, model, effort)
+		sessions.session = resumedSession
+		return resumedSession, nil
+	}}
+	return NewService(
+		silentLogger(),
+		claudeRecoverThreadStore(t, model, effort),
+		claudeRecoverBindingStore(providerParentUUID),
+		sessions,
+		starter,
+		nil,
+		&forkOrchestrationStub{},
+		nil,
+	).(*service)
+}
+
+func claudeRecoverBindingStore(providerParentUUID string) *stubBindingStore {
+	return &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-parent",
 		Provider:         "claude",
 		ProviderThreadID: providerParentUUID,
@@ -216,8 +308,11 @@ func TestServiceRecoverRehydratesClaudeOverrideConfigWhenSessionMissing(t *testi
 		SessionUUID:      providerParentUUID,
 		Cwd:              "/repo",
 	}}
+}
 
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+func claudeRecoverThreadStore(t *testing.T, model, effort string) *stubThreadStore {
+	t.Helper()
+	return &stubThreadStore{thread: &threadstore.Thread{
 		ThreadID:       "thread-parent",
 		AgentID:        "agent-parent",
 		Prompt:         "Recovered Thread",
@@ -226,31 +321,26 @@ func TestServiceRecoverRehydratesClaudeOverrideConfigWhenSessionMissing(t *testi
 		CreatedAt:      123,
 		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Model: model, Effort: effort}),
 	}}
-	starter := &stubSessionStarter{
-		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
-			if req.Provider != "claude" || req.AgentID != "agent-parent" || req.ThreadID != "thread-parent" {
-				t.Fatalf("ResumeSession request = %#v", req)
-			}
-			if req.Model != model || req.Effort != effort {
-				t.Fatalf("ResumeSession request = %#v, want model/effort restored", req)
-			}
-			if req.ConfigOverride.Model == nil || *req.ConfigOverride.Model != model {
-				t.Fatalf("ConfigOverride.Model = %#v, want %q", req.ConfigOverride.Model, model)
-			}
-			if req.ConfigOverride.Effort == nil || *req.ConfigOverride.Effort != effort {
-				t.Fatalf("ConfigOverride.Effort = %#v, want %q", req.ConfigOverride.Effort, effort)
-			}
-			sessions.session = resumedSession
-			return resumedSession, nil
-		},
-	}
-	orch := &forkOrchestrationStub{}
-	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)
+}
 
-	result, err := svc.Recover(context.Background(), "thread-parent")
-	if err != nil {
-		t.Fatalf("Recover() error = %v", err)
+func assertClaudeRecoverRequest(t *testing.T, req dto.ResumeSessionRequest, model, effort string) {
+	t.Helper()
+	if req.Provider != "claude" || req.AgentID != "agent-parent" || req.ThreadID != "thread-parent" {
+		t.Fatalf("ResumeSession request = %#v", req)
 	}
+	if req.Model != model || req.Effort != effort {
+		t.Fatalf("ResumeSession request = %#v, want model/effort restored", req)
+	}
+	if req.ConfigOverride.Model == nil || *req.ConfigOverride.Model != model {
+		t.Fatalf("ConfigOverride.Model = %#v, want %q", req.ConfigOverride.Model, model)
+	}
+	if req.ConfigOverride.Effort == nil || *req.ConfigOverride.Effort != effort {
+		t.Fatalf("ConfigOverride.Effort = %#v, want %q", req.ConfigOverride.Effort, effort)
+	}
+}
+
+func assertRecoverResumeEnvelope(t *testing.T, result RecoverResult) {
+	t.Helper()
 	if result != (RecoverResult{ThreadID: "thread-parent", Status: "recovering", Recovered: true, Mode: "relaunch_resume"}) {
 		t.Fatalf("Recover() result = %#v", result)
 	}

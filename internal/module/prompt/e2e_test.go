@@ -209,14 +209,24 @@ func TestFullChainFromThreadToProvider(t *testing.T) {
 	if got := configString(h.bridge.startReq.Config, "developerInstructions"); got != "be concise" {
 		t.Fatalf("developerInstructions = %q, want developer tail only", got)
 	}
+	assertFullChainStartResult(t, result)
+	assertFullChainSideEffects(t, h, start.DisplayName)
+}
+
+func assertFullChainStartResult(t *testing.T, result thread.StartResult) {
+	t.Helper()
 	if result.Status != "running" || result.Provider != "codex" {
 		t.Fatalf("unexpected StartResult = %#v", result)
 	}
-	if h.orchestration.launchReq.Name != start.DisplayName {
-		t.Fatalf("launch display name = %q, want %q", h.orchestration.launchReq.Name, start.DisplayName)
+}
+
+func assertFullChainSideEffects(t *testing.T, h *fxHarness, wantDisplayName string) {
+	t.Helper()
+	if h.orchestration.launchReq.Name != wantDisplayName {
+		t.Fatalf("launch display name = %q, want %q", h.orchestration.launchReq.Name, wantDisplayName)
 	}
-	if h.threadStore.upsert.Prompt != start.DisplayName {
-		t.Fatalf("persisted prompt = %q, want %q", h.threadStore.upsert.Prompt, start.DisplayName)
+	if h.threadStore.upsert.Prompt != wantDisplayName {
+		t.Fatalf("persisted prompt = %q, want %q", h.threadStore.upsert.Prompt, wantDisplayName)
 	}
 	if h.bindingStore.upsert.ProviderThreadID != "019e0bcb-0cf7-7982-964f-c2654783ba17" {
 		t.Fatalf("binding provider thread id = %q, want %q", h.bindingStore.upsert.ProviderThreadID, "019e0bcb-0cf7-7982-964f-c2654783ba17")

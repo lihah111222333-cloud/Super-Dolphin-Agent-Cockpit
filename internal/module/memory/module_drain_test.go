@@ -83,24 +83,10 @@ func TestMemoryHookWorkerDrainsOnStop(t *testing.T) {
 	var svc teampkg.Lifecycle = &drainTestTeamLifecycle{}
 	teamSync := newTeamSyncCoordinator(svc, nil, pkglogger.Get())
 
-	scheduler.Start()
-	nested.Start()
-	teamSync.Start()
+	startDrainTestWorkers(scheduler, nested, teamSync)
 
 	const enqueuePerWorker = 3
-	for i := 0; i < enqueuePerWorker; i++ {
-		scheduler.Enqueue("thread-scheduler")
-		// Unique persistedPath per call so nestedIngestWorker's
-		// coalesce key (thread + tool + persistedPath) doesn't collapse
-		// the three enqueues into one — we want the drain to process
-		// every distinct pending entry.
-		nested.Enqueue("thread-nested", "tool", "result",
-			"/tmp/path-"+string(rune('0'+i)))
-		teamSync.EnqueueStart(threaddto.Started{
-			ThreadID: "thread-teamsync",
-			CWD:      "/tmp/cwd",
-		})
-	}
+	enqueueDrainTestWork(scheduler, nested, teamSync, enqueuePerWorker)
 
 	// autoDreamScheduler.Stop is lossy: runWorker exits on stopCh
 	// without draining the remaining channel buffer (see
@@ -111,13 +97,7 @@ func TestMemoryHookWorkerDrainsOnStop(t *testing.T) {
 	// entries. Poll for the scheduler to catch up before calling
 	// drainMemoryHooks. nested / teamSync both drain their pending map
 	// inside Stop, so they do not need a pre-wait.
-	pollDeadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(pollDeadline) {
-		if scheduler.ProcessedTotal() >= int64(enqueuePerWorker) {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	waitSchedulerProcessed(scheduler, enqueuePerWorker)
 
 	// drainMemoryHooks is the subject under test. It must drain every
 	// worker in turn, bounded by ctx, before returning.
@@ -129,25 +109,86 @@ func TestMemoryHookWorkerDrainsOnStop(t *testing.T) {
 	// pending work it observed. autoDreamScheduler dedup is per-threadID
 	// too (queue of strings; repeated identical IDs still enqueue as
 	// separate channel sends), so ProcessedTotal matches enqueue count.
-	if got := scheduler.ProcessedTotal(); got < int64(enqueuePerWorker) {
-		t.Errorf("autoDreamScheduler ProcessedTotal = %d, want >= %d", got, enqueuePerWorker)
-	}
-	// nestedIngestWorker's pending-set was keyed by unique persistedPaths,
-	// so all three must have been dispatched.
-	if got := nested.ProcessedTotal(); got != int64(enqueuePerWorker) {
-		t.Errorf("nestedIngestWorker ProcessedTotal = %d, want %d", got, enqueuePerWorker)
-	}
-	if got := rt.callCount(); got != enqueuePerWorker {
-		t.Errorf("nestedIngestWorker AddToolReadResult calls = %d, want %d", got, enqueuePerWorker)
-	}
-	// teamSyncCoordinator is strict FIFO with no coalescing.
-	if got := teamSync.ProcessedTotal(); got != int64(enqueuePerWorker) {
-		t.Errorf("teamSyncCoordinator ProcessedTotal = %d, want %d", got, enqueuePerWorker)
-	}
+	assertDrainTestProcessed(t, scheduler, nested, teamSync, rt, enqueuePerWorker)
 
 	// A second Stop per owner must be a no-op (idempotent). This also
 	// confirms the workers closed doneCh — Stop observes it already
 	// closed on the repeat call and returns immediately.
+	assertDrainStopsIdempotent(t, ctx, scheduler, nested, teamSync)
+
+	// Enqueue after drain must be silently dropped across every owner
+	// (the gate closed when Stop fired). This prevents a post-shutdown
+	// bus straggler from pushing work that would never be processed.
+	// autoDreamScheduler counts post-gate drops via DroppedTotal;
+	// nested / teamSync expose EnqueuedTotal directly.
+	assertPostDrainEnqueuesDropped(t, scheduler, nested, teamSync)
+}
+
+func startDrainTestWorkers(scheduler *autoDreamScheduler, nested *nestedIngestWorker, teamSync *teamSyncCoordinator) {
+	scheduler.Start()
+	nested.Start()
+	teamSync.Start()
+}
+
+func enqueueDrainTestWork(scheduler *autoDreamScheduler, nested *nestedIngestWorker, teamSync *teamSyncCoordinator, count int) {
+	for i := 0; i < count; i++ {
+		scheduler.Enqueue("thread-scheduler")
+		// Unique persistedPath per call so nestedIngestWorker's coalesce key
+		// does not collapse the enqueues; the drain must process each entry.
+		nested.Enqueue("thread-nested", "tool", "result", "/tmp/path-"+string(rune('0'+i)))
+		teamSync.EnqueueStart(threaddto.Started{
+			ThreadID: "thread-teamsync",
+			CWD:      "/tmp/cwd",
+		})
+	}
+}
+
+func waitSchedulerProcessed(scheduler *autoDreamScheduler, count int) {
+	pollDeadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(pollDeadline) {
+		if scheduler.ProcessedTotal() >= int64(count) {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func assertDrainTestProcessed(
+	t *testing.T,
+	scheduler *autoDreamScheduler,
+	nested *nestedIngestWorker,
+	teamSync *teamSyncCoordinator,
+	rt *drainTestNestedRuntime,
+	want int,
+) {
+	t.Helper()
+
+	if got := scheduler.ProcessedTotal(); got < int64(want) {
+		t.Errorf("autoDreamScheduler ProcessedTotal = %d, want >= %d", got, want)
+	}
+	// nestedIngestWorker's pending-set was keyed by unique persistedPaths,
+	// so all three must have been dispatched.
+	if got := nested.ProcessedTotal(); got != int64(want) {
+		t.Errorf("nestedIngestWorker ProcessedTotal = %d, want %d", got, want)
+	}
+	if got := rt.callCount(); got != want {
+		t.Errorf("nestedIngestWorker AddToolReadResult calls = %d, want %d", got, want)
+	}
+	// teamSyncCoordinator is strict FIFO with no coalescing.
+	if got := teamSync.ProcessedTotal(); got != int64(want) {
+		t.Errorf("teamSyncCoordinator ProcessedTotal = %d, want %d", got, want)
+	}
+}
+
+func assertDrainStopsIdempotent(
+	t *testing.T,
+	ctx context.Context,
+	scheduler *autoDreamScheduler,
+	nested *nestedIngestWorker,
+	teamSync *teamSyncCoordinator,
+) {
+	t.Helper()
+
 	if err := scheduler.Stop(ctx); err != nil {
 		t.Errorf("second Stop autoDreamScheduler = %v", err)
 	}
@@ -157,12 +198,16 @@ func TestMemoryHookWorkerDrainsOnStop(t *testing.T) {
 	if err := teamSync.Stop(ctx); err != nil {
 		t.Errorf("second Stop teamSyncCoordinator = %v", err)
 	}
+}
 
-	// Enqueue after drain must be silently dropped across every owner
-	// (the gate closed when Stop fired). This prevents a post-shutdown
-	// bus straggler from pushing work that would never be processed.
-	// autoDreamScheduler counts post-gate drops via DroppedTotal;
-	// nested / teamSync expose EnqueuedTotal directly.
+func assertPostDrainEnqueuesDropped(
+	t *testing.T,
+	scheduler *autoDreamScheduler,
+	nested *nestedIngestWorker,
+	teamSync *teamSyncCoordinator,
+) {
+	t.Helper()
+
 	preSchedDropped := scheduler.DroppedTotal()
 	preNestedEnqueued := nested.EnqueuedTotal()
 	preTeamEnqueued := teamSync.EnqueuedTotal()

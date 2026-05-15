@@ -13,6 +13,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPrepareTurnKeepsSkillPromptsAndNormalizesInputs(t *testing.T) {
@@ -34,26 +35,18 @@ func TestPrepareTurnKeepsSkillPromptsAndNormalizesInputs(t *testing.T) {
 		t.Fatalf("PrepareTurn() error = %v", err)
 	}
 
-	if got := len(req.Inputs); got != 3 {
-		t.Fatalf("len(req.Inputs) = %d, want 3", got)
-	}
-	if req.Inputs[0].Type != "text" || req.Inputs[0].Content != "Please use @debug and [skill:deploy-tool] on this issue." {
-		t.Fatalf("first input = %#v, want prompt text", req.Inputs[0])
-	}
-	if req.Inputs[1].Type != "image" || req.Inputs[1].URL != "https://example.com/screen.png" {
-		t.Fatalf("second input = %#v, want remote image", req.Inputs[1])
-	}
-	if req.Inputs[2].Type != "mention" || req.Inputs[2].Path != "./README.md" {
-		t.Fatalf("third input = %#v, want deduped mention", req.Inputs[2])
-	}
+	require.Len(t, req.Inputs, 3)
+	require.Equal(t, "text", req.Inputs[0].Type)
+	require.Equal(t, "Please use @debug and [skill:deploy-tool] on this issue.", req.Inputs[0].Content)
+	require.Equal(t, "image", req.Inputs[1].Type)
+	require.Equal(t, "https://example.com/screen.png", req.Inputs[1].URL)
+	require.Equal(t, "mention", req.Inputs[2].Type)
+	require.Equal(t, "./README.md", req.Inputs[2].Path)
 
 	gotNames := skillNames(req.Skills)
-	if len(gotNames) != 3 || gotNames[0] != "explicit" || gotNames[1] != "debug" || gotNames[2] != "deploy-tool" {
-		t.Fatalf("skill names = %#v, want explicit + auto-matched", gotNames)
-	}
-	if req.Skills[1].Prompt != "debug guidance" || req.Skills[2].Prompt != "deploy guidance" {
-		t.Fatalf("skill prompts were not preserved: %#v", req.Skills)
-	}
+	require.Equal(t, []string{"explicit", "debug", "deploy-tool"}, gotNames)
+	require.Equal(t, "debug guidance", req.Skills[1].Prompt)
+	require.Equal(t, "deploy guidance", req.Skills[2].Prompt)
 }
 
 func TestPrepareTurnManualSkillSelectionDisablesAutoMatch(t *testing.T) {
@@ -185,57 +178,30 @@ func TestPrepareTurnInjectsTurnAssembly(t *testing.T) {
 			"sessionFlags":                 map[string]any{"verification_required": true},
 		},
 	})
-	if err != nil {
-		t.Fatalf("PrepareTurn() error = %v", err)
-	}
-	if req.TurnAssembly.UserContextText != "assembled user context" {
-		t.Fatalf("TurnAssembly = %#v, want injected user context", req.TurnAssembly)
-	}
-	if assembly.lastTurnInput.ThreadID != "thread-1" {
-		t.Fatalf("last turn thread id = %q, want thread-1", assembly.lastTurnInput.ThreadID)
-	}
-	if assembly.lastTurnInput.UserText != "please verify the cache" {
-		t.Fatalf("last turn user text = %q, want prompt text", assembly.lastTurnInput.UserText)
-	}
-	if assembly.lastTurnInput.CWD != "/repo" {
-		t.Fatalf("last turn cwd = %q, want /repo", assembly.lastTurnInput.CWD)
-	}
-	if assembly.lastTurnInput.Model != "claude-sonnet" {
-		t.Fatalf("last turn model = %q, want claude-sonnet", assembly.lastTurnInput.Model)
-	}
-	if assembly.lastTurnInput.Provider != "codex-thread" || assembly.lastTurnInput.GitRoot != "/thread-repo" || !assembly.lastTurnInput.IsWorktree {
-		t.Fatalf("last turn env context = %#v", assembly.lastTurnInput)
-	}
-	if assembly.lastTurnInput.Language != "Japanese" {
-		t.Fatalf("last turn language = %q, want Japanese", assembly.lastTurnInput.Language)
-	}
-	if got := assembly.lastTurnInput.EnabledTools; len(got) != 2 || got[0] != "lsp_file" || got[1] != "lsp_grep" {
-		t.Fatalf("EnabledTools = %#v, want LSP tool set", got)
-	}
-	if got := assembly.lastTurnInput.AdditionalWorkingDirectories; len(got) != 1 || got[0] != "/repo/thread-extra" {
-		t.Fatalf("AdditionalWorkingDirectories = %#v, want thread-state dirs", got)
-	}
-	if len(assembly.lastTurnInput.MCPSnapshot.Servers) == 0 {
-		t.Fatalf("MCP snapshot = %#v, want manifest-derived servers", assembly.lastTurnInput.MCPSnapshot)
-	}
-	if got := assembly.lastTurnInput.MCPSnapshot.Tools; !slices.Contains(got, "mcp__lsp__lsp_grep") {
-		t.Fatalf("MCPSnapshot.Tools = %#v, want thread-state tool present", got)
-	}
-	if assembly.lastTurnInput.MCPSnapshot.Instructions["lsp"] != "Use LSP thread fallback." {
-		t.Fatalf("MCPSnapshot.Instructions = %#v", assembly.lastTurnInput.MCPSnapshot.Instructions)
-	}
-	if !assembly.lastTurnInput.SessionFlags["verification_required"] {
-		t.Fatalf("SessionFlags = %#v, want verification_required", assembly.lastTurnInput.SessionFlags)
-	}
-	if assembly.lastTurnInput.SessionFlags["runtime_only"] {
-		t.Fatalf("SessionFlags = %#v, want thread-state fallback to win", assembly.lastTurnInput.SessionFlags)
-	}
-	if assembly.lastTurnInput.RuntimeUserContext["workerToolsContext"] != "Workers can use bash and read tools." {
-		t.Fatalf("RuntimeUserContext = %#v, want propagated worker tools context", assembly.lastTurnInput.RuntimeUserContext)
-	}
-	if assembly.lastTurnInput.RuntimeUserContext["terminalFocus"] == "" {
-		t.Fatalf("RuntimeUserContext = %#v, want terminal focus enhancement", assembly.lastTurnInput.RuntimeUserContext)
-	}
+	require.NoError(t, err)
+	assertPrepareTurnAssemblyInput(t, req, assembly)
+}
+
+func assertPrepareTurnAssemblyInput(t *testing.T, req dto.TurnRequest, assembly *stubPromptAssemblyService) {
+	t.Helper()
+	require.Equal(t, "assembled user context", req.TurnAssembly.UserContextText)
+	require.Equal(t, "thread-1", assembly.lastTurnInput.ThreadID)
+	require.Equal(t, "please verify the cache", assembly.lastTurnInput.UserText)
+	require.Equal(t, "/repo", assembly.lastTurnInput.CWD)
+	require.Equal(t, "claude-sonnet", assembly.lastTurnInput.Model)
+	require.Equal(t, "codex-thread", assembly.lastTurnInput.Provider)
+	require.Equal(t, "/thread-repo", assembly.lastTurnInput.GitRoot)
+	require.True(t, assembly.lastTurnInput.IsWorktree)
+	require.Equal(t, "Japanese", assembly.lastTurnInput.Language)
+	require.Equal(t, []string{"lsp_file", "lsp_grep"}, assembly.lastTurnInput.EnabledTools)
+	require.Equal(t, []string{"/repo/thread-extra"}, assembly.lastTurnInput.AdditionalWorkingDirectories)
+	require.NotEmpty(t, assembly.lastTurnInput.MCPSnapshot.Servers)
+	require.True(t, slices.Contains(assembly.lastTurnInput.MCPSnapshot.Tools, "mcp__lsp__lsp_grep"))
+	require.Equal(t, "Use LSP thread fallback.", assembly.lastTurnInput.MCPSnapshot.Instructions["lsp"])
+	require.True(t, assembly.lastTurnInput.SessionFlags["verification_required"])
+	require.False(t, assembly.lastTurnInput.SessionFlags["runtime_only"])
+	require.Equal(t, "Workers can use bash and read tools.", assembly.lastTurnInput.RuntimeUserContext["workerToolsContext"])
+	require.NotEmpty(t, assembly.lastTurnInput.RuntimeUserContext["terminalFocus"])
 }
 
 func TestSteerTurnPropagatesTurnAssembly(t *testing.T) {

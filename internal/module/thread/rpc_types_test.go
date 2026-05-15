@@ -31,24 +31,14 @@ func TestStartParamsAcceptV2WireFields(t *testing.T) {
 	if err := json.Unmarshal(input, &params); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
-	if params.CWD != "/tmp/project" || params.Model != "gpt-5.5" {
-		t.Fatalf("startParams basic fields = %#v", params)
-	}
-	if params.ModelProvider != "openai" || params.ApprovalPolicy != "never" {
-		t.Fatalf("startParams provider fields = %#v", params)
-	}
-	if params.ParentAgentID != "agent-root" || params.AgentType != "worker" || params.AgentMemoryScope != "local" {
-		t.Fatalf("startParams agent fields = %#v", params)
-	}
-	if params.BaseInstructions != "system prompt" || params.DeveloperInstructions != "dev prompt" {
-		t.Fatalf("startParams instructions = %#v", params)
-	}
+	assertStartParamsV2Identity(t, params)
+	assertStartParamsV2Provider(t, params)
+	assertStartParamsV2AgentFields(t, params)
+	assertStartParamsV2Instructions(t, params)
 	if string(params.Sandbox) != `{"type":"danger-full-access"}` {
 		t.Fatalf("startParams sandbox = %s", params.Sandbox)
 	}
-	if params.Summary != "concise" || params.Effort != "high" || params.Personality != "pragmatic" {
-		t.Fatalf("startParams config = %#v", params)
-	}
+	assertStartParamsV2Config(t, params)
 	if params.Language != "zh" {
 		t.Fatalf("startParams language = %q, want zh", params.Language)
 	}
@@ -75,20 +65,102 @@ func TestStartParamsKeepLegacyAliases(t *testing.T) {
 	if err := json.Unmarshal(input, &params); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
-	if params.ModelProvider != "azure" || params.ApprovalPolicy != "on-request" {
-		t.Fatalf("legacy aliases = %#v", params)
-	}
-	if params.BaseInstructions != "legacy base" || params.DeveloperInstructions != "legacy dev" {
-		t.Fatalf("legacy instructions = %#v", params)
-	}
-	if params.ParentAgentID != "agent-root" || params.AgentType != "worker" || params.AgentMemoryScope != "project" {
-		t.Fatalf("legacy agent fields = %#v", params)
-	}
+	assertStartParamsLegacyProvider(t, params)
+	assertStartParamsLegacyInstructions(t, params)
+	assertStartParamsLegacyAgentFields(t, params)
 	if params.Name != "" {
 		t.Fatalf("Name should be empty when only prompt is set, got %q", params.Name)
 	}
 	if params.Prompt != "legacy prompt" {
 		t.Fatalf("legacy prompt = %#v", params)
+	}
+}
+
+func assertStartParamsV2Identity(t *testing.T, params startParams) {
+	t.Helper()
+
+	if params.CWD != "/tmp/project" {
+		t.Fatalf("startParams CWD = %q, want /tmp/project", params.CWD)
+	}
+	if params.Model != "gpt-5.5" {
+		t.Fatalf("startParams Model = %q, want gpt-5.5", params.Model)
+	}
+}
+
+func assertStartParamsV2Provider(t *testing.T, params startParams) {
+	t.Helper()
+
+	if params.ModelProvider != "openai" {
+		t.Fatalf("startParams ModelProvider = %q, want openai", params.ModelProvider)
+	}
+	if params.ApprovalPolicy != "never" {
+		t.Fatalf("startParams ApprovalPolicy = %q, want never", params.ApprovalPolicy)
+	}
+}
+
+func assertStartParamsV2AgentFields(t *testing.T, params startParams) {
+	t.Helper()
+
+	if params.ParentAgentID != "agent-root" {
+		t.Fatalf("startParams ParentAgentID = %q, want agent-root", params.ParentAgentID)
+	}
+	if params.AgentType != "worker" || params.AgentMemoryScope != "local" {
+		t.Fatalf("startParams agent fields = %#v", params)
+	}
+}
+
+func assertStartParamsV2Instructions(t *testing.T, params startParams) {
+	t.Helper()
+
+	if params.BaseInstructions != "system prompt" {
+		t.Fatalf("startParams BaseInstructions = %q, want system prompt", params.BaseInstructions)
+	}
+	if params.DeveloperInstructions != "dev prompt" {
+		t.Fatalf("startParams DeveloperInstructions = %q, want dev prompt", params.DeveloperInstructions)
+	}
+}
+
+func assertStartParamsV2Config(t *testing.T, params startParams) {
+	t.Helper()
+
+	if params.Summary != "concise" {
+		t.Fatalf("startParams Summary = %q, want concise", params.Summary)
+	}
+	if params.Effort != "high" || params.Personality != "pragmatic" {
+		t.Fatalf("startParams config = %#v", params)
+	}
+}
+
+func assertStartParamsLegacyProvider(t *testing.T, params startParams) {
+	t.Helper()
+
+	if params.ModelProvider != "azure" {
+		t.Fatalf("legacy ModelProvider = %q, want azure", params.ModelProvider)
+	}
+	if params.ApprovalPolicy != "on-request" {
+		t.Fatalf("legacy ApprovalPolicy = %q, want on-request", params.ApprovalPolicy)
+	}
+}
+
+func assertStartParamsLegacyInstructions(t *testing.T, params startParams) {
+	t.Helper()
+
+	if params.BaseInstructions != "legacy base" {
+		t.Fatalf("legacy BaseInstructions = %q, want legacy base", params.BaseInstructions)
+	}
+	if params.DeveloperInstructions != "legacy dev" {
+		t.Fatalf("legacy DeveloperInstructions = %q, want legacy dev", params.DeveloperInstructions)
+	}
+}
+
+func assertStartParamsLegacyAgentFields(t *testing.T, params startParams) {
+	t.Helper()
+
+	if params.ParentAgentID != "agent-root" {
+		t.Fatalf("legacy ParentAgentID = %q, want agent-root", params.ParentAgentID)
+	}
+	if params.AgentType != "worker" || params.AgentMemoryScope != "project" {
+		t.Fatalf("legacy agent fields = %#v", params)
 	}
 }
 

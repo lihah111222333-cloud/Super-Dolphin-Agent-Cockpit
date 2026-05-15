@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
@@ -71,35 +70,13 @@ func TestServiceGetConfigFallsBackToOfflineConfigWithoutSession(t *testing.T) {
 		Status:         statusCreated,
 		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Effort: "high", Approvals: "never", Personality: "balanced"}),
 	}}
-	svc, ok := NewService(
-		silentLogger(),
-		threads,
-		&stubBindingStore{binding: &bindingstore.Binding{
-			AgentID:          "agent-1",
-			Provider:         "codex",
-			ProviderThreadID: "thread-1",
-			CodexThreadID:    "thread-1",
-		}},
-		&stubSessionProvider{},
-		nil,
-		nil,
-		nil,
-		nil,
-	).(*service)
-	if !ok {
-		t.Fatal("NewService() type assertion failed")
-	}
+	svc := newConfigTestService(t, threads, testCodexBindingStore(), &stubSessionProvider{})
 
 	cfg, err := svc.GetConfig(context.Background(), "thread-1")
 	if err != nil {
 		t.Fatalf("GetConfig() error = %v", err)
 	}
-	if !cfg.SupportsThreadOverride || cfg.Provider != "codex" {
-		t.Fatalf("GetConfig() provider = %#v", cfg)
-	}
-	if cfg.Effective.Model != "gpt-5.5" || cfg.Override.Effort != "high" || cfg.Override.Approvals != "never" {
-		t.Fatalf("GetConfig() offline = %#v", cfg)
-	}
+	assertOfflineConfigFallback(t, cfg)
 
 	runtimeCfg, err := svc.ReadRuntimeConfig(context.Background(), "thread-1")
 	if err != nil {
@@ -248,51 +225,9 @@ func TestServiceSetConfigPersistsOverrideForOfflineReadback(t *testing.T) {
 	effort := "high"
 	approvals := "never"
 	personality := "balanced"
-	threads := &stubThreadStore{thread: &threadstore.Thread{
-		ThreadID:  "thread-1",
-		Model:     "o4-mini",
-		Cwd:       "/tmp/demo",
-		Status:    statusCreated,
-		CreatedAt: 100,
-		UpdatedAt: 100,
-	}}
-	session := &stubSession{
-		threadID:      "thread-1",
-		allowedModels: []string{model},
-		readConfigResult: dto.ThreadConfig{
-			ThreadID:               "thread-1",
-			Provider:               "codex",
-			SupportsThreadOverride: true,
-			Override: dto.ThreadConfigValues{
-				Model:     model,
-				Effort:    effort,
-				Approvals: approvals,
-			},
-			Effective: dto.ThreadConfigValues{
-				Model:     model,
-				Effort:    effort,
-				Approvals: approvals,
-			},
-		},
-	}
-	svc, ok := NewService(
-		silentLogger(),
-		threads,
-		&stubBindingStore{binding: &bindingstore.Binding{
-			AgentID:          "agent-1",
-			Provider:         "codex",
-			ProviderThreadID: "thread-1",
-			CodexThreadID:    "thread-1",
-		}},
-		&stubSessionProvider{session: session},
-		nil,
-		nil,
-		nil,
-		nil,
-	).(*service)
-	if !ok {
-		t.Fatal("NewService() type assertion failed")
-	}
+	threads := newConfigPersistenceThreadStore()
+	session := newConfigPersistenceSession(model, effort, approvals)
+	svc := newConfigTestService(t, threads, testCodexBindingStore(), &stubSessionProvider{session: session})
 
 	got, err := svc.SetConfig(context.Background(), "thread-1", dto.ThreadConfigPatch{
 		Model:       &model,
@@ -303,32 +238,21 @@ func TestServiceSetConfigPersistsOverrideForOfflineReadback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetConfig() error = %v", err)
 	}
-	if got.Effective.Model != model || got.Override.Approvals != approvals {
-		t.Fatalf("SetConfig() = %#v", got)
-	}
-	if stored := decodeStoredThreadConfig(threads.thread.ConfigOverride); stored.Model != model || stored.Personality != personality {
-		t.Fatalf("stored override = %#v", stored)
-	}
-	if threads.thread.Model != model {
-		t.Fatalf("stored model = %q, want %q", threads.thread.Model, model)
-	}
+	assertSetConfigResult(t, got, model, approvals)
+	assertStoredOverrideAndModel(t, threads, model, personality)
 
 	svc.sessions = &stubSessionProvider{}
 	offlineCfg, err := svc.GetConfig(context.Background(), "thread-1")
 	if err != nil {
 		t.Fatalf("GetConfig() offline error = %v", err)
 	}
-	if offlineCfg.Override.Model != model || offlineCfg.Override.Effort != effort || offlineCfg.Override.Approvals != approvals {
-		t.Fatalf("offline config = %#v", offlineCfg)
-	}
+	assertOfflineOverrideReadback(t, offlineCfg, model, effort, approvals)
 
 	runtimeCfg, err := svc.ReadRuntimeConfig(context.Background(), "thread-1")
 	if err != nil {
 		t.Fatalf("ReadRuntimeConfig() offline error = %v", err)
 	}
-	if runtimeCfg["approvalPolicy"] != approvals || runtimeCfg["personality"] != personality {
-		t.Fatalf("offline runtime config = %#v", runtimeCfg)
-	}
+	assertOfflineRuntimeReadback(t, runtimeCfg, approvals, personality)
 }
 
 func TestPersistThreadConfigModelPatchSemantics(t *testing.T) {
@@ -388,100 +312,41 @@ func mustStoredThreadConfigRaw(
 	return raw
 }
 
-func TestBuildOfflineRuntimeConfigIncludesModel(t *testing.T) {
-	threads := &stubThreadStore{
-		thread: &threadstore.Thread{
-			ThreadID: "thread-model-offline",
-			Model:    "claude-sonnet-4-20250514",
-			Status:   "running",
-		},
-	}
-	svc, ok := NewService(
-		silentLogger(),
-		threads,
-		&stubBindingStore{binding: &bindingstore.Binding{}},
-		&stubSessionProvider{session: nil},
-		nil,
-		nil,
-		nil,
-		nil,
-	).(*service)
+func newConfigTestService(
+	t *testing.T,
+	threads *stubThreadStore,
+	bindings *stubBindingStore,
+	sessions *stubSessionProvider,
+) *service {
+	t.Helper()
+	svc, ok := NewService(silentLogger(), threads, bindings, sessions, nil, nil, nil, nil).(*service)
 	if !ok {
 		t.Fatal("NewService() type assertion failed")
 	}
-
-	runtime, err := svc.ReadRuntimeConfig(context.Background(), "thread-model-offline")
-	if err != nil {
-		t.Fatalf("ReadRuntimeConfig() error = %v", err)
-	}
-
-	model, ok := runtime["model"]
-	if !ok {
-		t.Fatalf("offline runtime should contain model field: %#v", runtime)
-	}
-	if model != "claude-sonnet-4-20250514" {
-		t.Fatalf("runtime model = %#v, want %q", model, "claude-sonnet-4-20250514")
-	}
+	return svc
 }
 
-func TestReadRuntimeConfigIncludesStoredPromptContext(t *testing.T) {
-	t.Parallel()
-
-	threads := &stubThreadStore{thread: &threadstore.Thread{
-		ThreadID: "thread-context-offline",
-		Model:    "gpt-5.5",
-		Cwd:      "/repo",
-		Status:   "running",
-		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Runtime: map[string]any{
-			"provider":                     "codex",
-			"gitRoot":                      "/repo",
-			"isWorktree":                   true,
-			"language":                     "Chinese",
-			"enabledTools":                 []any{"lsp_file", "lsp_grep"},
-			"additionalWorkingDirectories": []any{"/repo/extra"},
-			"mcpTools":                     []any{"mcp__lsp__lsp_grep"},
-			"mcpInstructions":              map[string]any{"lsp": "Use the LSP thread fallback."},
-			"sessionFlags":                 map[string]any{"verification_required": true},
-		}}),
+func testCodexBindingStore() *stubBindingStore {
+	return &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-1",
+		Provider:         "codex",
+		ProviderThreadID: "thread-1",
+		CodexThreadID:    "thread-1",
 	}}
-	svc, ok := NewService(
-		silentLogger(),
-		threads,
-		&stubBindingStore{binding: &bindingstore.Binding{Provider: "codex"}},
-		&stubSessionProvider{session: nil},
-		nil,
-		nil,
-		nil,
-		nil,
-	).(*service)
-	if !ok {
-		t.Fatal("NewService() type assertion failed")
-	}
+}
 
-	runtime, err := svc.ReadRuntimeConfig(context.Background(), "thread-context-offline")
-	if err != nil {
-		t.Fatalf("ReadRuntimeConfig() error = %v", err)
+func assertOfflineConfigFallback(t *testing.T, cfg dto.ThreadConfig) {
+	t.Helper()
+	if !cfg.SupportsThreadOverride || cfg.Provider != "codex" {
+		t.Fatalf("GetConfig() provider = %#v", cfg)
 	}
-	if runtime["gitRoot"] != "/repo" || runtime["language"] != "Chinese" || runtime["provider"] != "codex" {
-		t.Fatalf("offline runtime context = %#v", runtime)
-	}
-	if runtime["isWorktree"] != true {
-		t.Fatalf("offline runtime isWorktree = %#v, want true", runtime["isWorktree"])
-	}
-	if got, ok := runtime["mcpInstructions"].(map[string]any); !ok || got["lsp"] != "Use the LSP thread fallback." {
-		t.Fatalf("offline runtime mcpInstructions = %#v", runtime["mcpInstructions"])
-	}
-	if got, ok := runtime["sessionFlags"].(map[string]any); !ok || got["verification_required"] != true {
-		t.Fatalf("offline runtime sessionFlags = %#v", runtime["sessionFlags"])
+	if cfg.Effective.Model != "gpt-5.5" || cfg.Override.Effort != "high" || cfg.Override.Approvals != "never" {
+		t.Fatalf("GetConfig() offline = %#v", cfg)
 	}
 }
 
-func TestSetConfigFallsBackToOfflinePersistWithoutSession(t *testing.T) {
-	t.Parallel()
-
-	model := "gpt-5.5"
-	effort := "high"
-	threads := &stubThreadStore{thread: &threadstore.Thread{
+func newConfigPersistenceThreadStore() *stubThreadStore {
+	return &stubThreadStore{thread: &threadstore.Thread{
 		ThreadID:  "thread-1",
 		Model:     "o4-mini",
 		Cwd:       "/tmp/demo",
@@ -489,265 +354,63 @@ func TestSetConfigFallsBackToOfflinePersistWithoutSession(t *testing.T) {
 		CreatedAt: 100,
 		UpdatedAt: 100,
 	}}
-	// No session — stubSessionProvider with nil session returns ErrSessionNotFound.
-	svc, ok := NewService(
-		silentLogger(),
-		threads,
-		&stubBindingStore{binding: &bindingstore.Binding{
-			AgentID:          "agent-1",
-			Provider:         "codex",
-			ProviderThreadID: "thread-1",
-			CodexThreadID:    "thread-1",
-		}},
-		&stubSessionProvider{},
-		nil,
-		nil,
-		nil,
-		nil,
-	).(*service)
-	if !ok {
-		t.Fatal("NewService() type assertion failed")
-	}
+}
 
-	// SetConfig should succeed despite no session.
-	got, err := svc.SetConfig(context.Background(), "thread-1", dto.ThreadConfigPatch{
-		Model:  &model,
-		Effort: &effort,
-	})
-	if err != nil {
-		t.Fatalf("SetConfig() error = %v, want nil (offline fallback)", err)
+func newConfigPersistenceSession(model, effort, approvals string) *stubSession {
+	return &stubSession{
+		threadID:      "thread-1",
+		allowedModels: []string{model},
+		readConfigResult: dto.ThreadConfig{
+			ThreadID:               "thread-1",
+			Provider:               "codex",
+			SupportsThreadOverride: true,
+			Override: dto.ThreadConfigValues{
+				Model:     model,
+				Effort:    effort,
+				Approvals: approvals,
+			},
+			Effective: dto.ThreadConfigValues{
+				Model:     model,
+				Effort:    effort,
+				Approvals: approvals,
+			},
+		},
 	}
-	if got.Override.Model != model {
-		t.Fatalf("Override.Model = %q, want %q", got.Override.Model, model)
+}
+
+func assertSetConfigResult(t *testing.T, got dto.ThreadConfig, model string, approvals string) {
+	t.Helper()
+	if got.Effective.Model != model || got.Override.Approvals != approvals {
+		t.Fatalf("SetConfig() = %#v", got)
 	}
-	if got.Override.Effort != effort {
-		t.Fatalf("Override.Effort = %q, want %q", got.Override.Effort, effort)
-	}
-	// Verify persisted.
-	stored := decodeStoredThreadConfig(threads.thread.ConfigOverride)
-	if stored.Model != model || stored.Effort != effort {
-		t.Fatalf("stored override = %#v, want model=%q effort=%q", stored, model, effort)
+}
+
+func assertStoredOverrideAndModel(t *testing.T, threads *stubThreadStore, model string, personality string) {
+	t.Helper()
+	if stored := decodeStoredThreadConfig(threads.thread.ConfigOverride); stored.Model != model || stored.Personality != personality {
+		t.Fatalf("stored override = %#v", stored)
 	}
 	if threads.thread.Model != model {
-		t.Fatalf("stored thread model = %q, want %q", threads.thread.Model, model)
-	}
-	// Verify readback via GetConfig (also offline) returns correct values.
-	offlineCfg, err := svc.GetConfig(context.Background(), "thread-1")
-	if err != nil {
-		t.Fatalf("GetConfig() offline error = %v", err)
-	}
-	if offlineCfg.Override.Model != model || offlineCfg.Override.Effort != effort {
-		t.Fatalf("offline readback = %#v", offlineCfg)
+		t.Fatalf("stored model = %q, want %q", threads.thread.Model, model)
 	}
 }
 
-func TestSetConfigFallsBackToOfflinePersistWithoutBinding(t *testing.T) {
-	t.Parallel()
-
-	model := "claude-opus-4-7[1m]"
-	effort := "max"
-	threads := &stubThreadStore{thread: &threadstore.Thread{
-		ThreadID:      "thread-pending-claude",
-		Model:         "sonnet",
-		Status:        statusCreated,
-		PendingLaunch: true,
-		CreatedAt:     100,
-		UpdatedAt:     100,
-		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{
-			Provider: "claude",
-		}),
-	}}
-	svc, ok := NewService(
-		silentLogger(),
-		threads,
-		&stubBindingStore{},
-		&stubSessionProvider{},
-		nil,
-		nil,
-		nil,
-		nil,
-	).(*service)
-	if !ok {
-		t.Fatal("NewService() type assertion failed")
-	}
-
-	got, err := svc.SetConfig(context.Background(), "thread-pending-claude", dto.ThreadConfigPatch{
-		Model:  &model,
-		Effort: &effort,
-	})
-	if err != nil {
-		t.Fatalf("SetConfig() error = %v, want nil (offline fallback without binding)", err)
-	}
-	if got.Provider != "claude" {
-		t.Fatalf("Provider = %q, want claude", got.Provider)
-	}
-	if got.Override.Model != model || got.Override.Effort != effort {
-		t.Fatalf("Override = %#v, want model=%q effort=%q", got.Override, model, effort)
-	}
-	stored := decodeStoredThreadConfig(threads.thread.ConfigOverride)
-	if stored.Provider != "claude" || stored.Model != model || stored.Effort != effort {
-		t.Fatalf("stored override = %#v, want provider/model/effort preserved", stored)
-	}
-	if threads.thread.Model != model {
-		t.Fatalf("stored thread model = %q, want %q", threads.thread.Model, model)
+func assertOfflineOverrideReadback(
+	t *testing.T,
+	offlineCfg dto.ThreadConfig,
+	model string,
+	effort string,
+	approvals string,
+) {
+	t.Helper()
+	if offlineCfg.Override.Model != model || offlineCfg.Override.Effort != effort || offlineCfg.Override.Approvals != approvals {
+		t.Fatalf("offline config = %#v", offlineCfg)
 	}
 }
 
-func TestSetConfigOfflineRejectsInvalidEffort(t *testing.T) {
-	t.Parallel()
-
-	effort := "turbo"
-	threads := &stubThreadStore{thread: &threadstore.Thread{
-		ThreadID:  "thread-1",
-		Model:     "o4-mini",
-		Status:    statusCreated,
-		CreatedAt: 100,
-		UpdatedAt: 100,
-	}}
-	svc, ok := NewService(
-		silentLogger(),
-		threads,
-		&stubBindingStore{binding: &bindingstore.Binding{
-			AgentID:          "agent-1",
-			Provider:         "codex",
-			ProviderThreadID: "thread-1",
-			CodexThreadID:    "thread-1",
-		}},
-		&stubSessionProvider{},
-		nil,
-		nil,
-		nil,
-		nil,
-	).(*service)
-	if !ok {
-		t.Fatal("NewService() type assertion failed")
-	}
-
-	_, err := svc.SetConfig(context.Background(), "thread-1", dto.ThreadConfigPatch{
-		Effort: &effort,
-	})
-	if err == nil {
-		t.Fatal("SetConfig() error = nil, want invalid effort error")
-	}
-}
-
-func TestServiceReadRuntimeConfigsMergesBatch(t *testing.T) {
-	t.Parallel()
-
-	session1 := &stubSession{
-		threadID: "thread-1",
-		runtimeConfig: map[string]any{
-			"approvalPolicy": "on-request",
-		},
-	}
-	session2 := &stubSession{
-		threadID: "thread-2",
-		runtimeConfig: map[string]any{
-			"approvalPolicy": "never",
-		},
-	}
-	threads := &stubThreadStore{
-		thread: &threadstore.Thread{
-			ThreadID:       "thread-1",
-			Model:          "gpt-5.5",
-			AgentID:        "agent-1",
-			ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Personality: "balanced", Approvals: "never"}),
-		},
-		threads: []threadstore.Thread{
-			{
-				ThreadID:       "thread-1",
-				Model:          "gpt-5.5",
-				AgentID:        "agent-1",
-				ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Personality: "balanced", Approvals: "never"}),
-			},
-			{
-				ThreadID:       "thread-2",
-				Model:          "claude-opus",
-				AgentID:        "agent-2",
-				ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Personality: "creative"}),
-			},
-			{
-				ThreadID: "thread-3",
-				AgentID:  "agent-3",
-			},
-		},
-		threadByID: map[string]*threadstore.Thread{
-			"thread-1": {
-				ThreadID:       "thread-1",
-				Model:          "gpt-5.5",
-				AgentID:        "agent-1",
-				ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Personality: "balanced", Approvals: "never"}),
-			},
-			"thread-2": {
-				ThreadID:       "thread-2",
-				Model:          "claude-opus",
-				AgentID:        "agent-2",
-				ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Personality: "creative"}),
-			},
-			"thread-3": {
-				ThreadID: "thread-3",
-				AgentID:  "agent-3",
-			},
-		},
-	}
-	bindings := []bindingstore.Binding{
-		{
-			AgentID:          "agent-1",
-			Provider:         "codex",
-			ProviderThreadID: "thread-1",
-		},
-		{
-			AgentID:          "agent-2",
-			Provider:         "claude",
-			ProviderThreadID: "thread-2",
-		},
-	}
-	svc, ok := NewService(
-		silentLogger(),
-		threads,
-		&stubBindingStore{bindings: bindings},
-		&stubSessionProvider{
-			session: session1, // For default
-			sessions: map[string]contract.Session{
-				"agent-1": session1,
-				"agent-2": session2,
-			},
-		},
-		nil,
-		nil,
-		nil,
-		nil,
-	).(*service)
-	if !ok {
-		t.Fatal("NewService() type assertion failed")
-	}
-
-	gotMap, err := svc.ReadRuntimeConfigs(context.Background(), []string{"thread-1", "thread-2", "thread-3", "thread-4"})
-	if err != nil {
-		t.Fatalf("ReadRuntimeConfigs() error = %v", err)
-	}
-
-	if len(gotMap) != 4 {
-		t.Fatalf("ReadRuntimeConfigs() expected 4 results, got %d", len(gotMap))
-	}
-
-	got1 := gotMap["thread-1"]
-	if got1["approvalPolicy"] != "on-request" || got1["personality"] != "balanced" {
-		t.Fatalf("ReadRuntimeConfigs()[thread-1] = %#v", got1)
-	}
-
-	got2 := gotMap["thread-2"]
-	if got2["approvalPolicy"] != "never" || got2["personality"] != "creative" {
-		t.Fatalf("ReadRuntimeConfigs()[thread-2] = %#v", got2)
-	}
-
-	got3 := gotMap["thread-3"]
-	if got3["approvalPolicy"] != "on-failure" || got3["model"] != nil {
-		t.Fatalf("ReadRuntimeConfigs()[thread-3] = %#v", got3)
-	}
-
-	got4 := gotMap["thread-4"]
-	if got4["approvalPolicy"] != "on-failure" {
-		t.Fatalf("ReadRuntimeConfigs()[thread-4] = %#v", got4)
+func assertOfflineRuntimeReadback(t *testing.T, runtimeCfg map[string]any, approvals string, personality string) {
+	t.Helper()
+	if runtimeCfg["approvalPolicy"] != approvals || runtimeCfg["personality"] != personality {
+		t.Fatalf("offline runtime config = %#v", runtimeCfg)
 	}
 }

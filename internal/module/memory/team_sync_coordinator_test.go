@@ -81,54 +81,74 @@ func TestTeamSyncCallbackEnqueueOnly(t *testing.T) {
 	c.Start()
 
 	enqueueDone := make(chan struct{})
-	go func() {
-		c.EnqueueStart(threaddto.Started{ThreadID: "thread-A", CWD: "/tmp"})
-		for i := 0; i < 16; i++ {
-			c.EnqueueStart(threaddto.Started{ThreadID: "thread-burst", CWD: "/tmp"})
-			c.EnqueueStop(threaddto.Stopped{ThreadID: "thread-burst"})
-		}
-		close(enqueueDone)
-	}()
+	go enqueueTeamSyncBurst(c, enqueueDone)
+	assertTeamSyncEnqueueCompletes(t, enqueueDone)
+	assertTeamSyncWorkerBlocked(t, svc)
+	if enq := c.EnqueuedTotal(); enq != 33 { // 1 + 16*(Start+Stop)
+		t.Fatalf("EnqueuedTotal = %d, want 33", enq)
+	}
+
+	close(block)
+	waitForTeamSyncProcessed(t, c, 33, 2*time.Second)
+	assertTeamSyncLifecycleTotals(t, svc, 17, 16)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := c.Stop(ctx); err != nil {
+		t.Fatalf("Stop() = %v, want nil", err)
+	}
+}
+
+func enqueueTeamSyncBurst(c *teamSyncCoordinator, done chan<- struct{}) {
+	c.EnqueueStart(threaddto.Started{ThreadID: "thread-A", CWD: "/tmp"})
+	for i := 0; i < 16; i++ {
+		c.EnqueueStart(threaddto.Started{ThreadID: "thread-burst", CWD: "/tmp"})
+		c.EnqueueStop(threaddto.Stopped{ThreadID: "thread-burst"})
+	}
+	close(done)
+}
+
+func assertTeamSyncEnqueueCompletes(t *testing.T, done <-chan struct{}) {
+	t.Helper()
 	select {
-	case <-enqueueDone:
+	case <-done:
 	case <-time.After(time.Second):
 		t.Fatalf("Enqueue blocked while StartSession was pinned; bus callback must never share that goroutine")
 	}
+}
 
+func assertTeamSyncWorkerBlocked(t *testing.T, svc *fakeTeamSyncLifecycle) {
+	t.Helper()
 	if got := svc.StartCount(); got != 0 {
 		t.Fatalf("StartSession invoked %d times while worker was blocked; callback must not drive the lifecycle", got)
 	}
 	if got := len(svc.StopIDs()); got != 0 {
 		t.Fatalf("StopSession invoked %d times while worker was blocked; worker must be strictly serial", got)
 	}
-	if enq := c.EnqueuedTotal(); enq != 33 { // 1 + 16*(Start+Stop)
-		t.Fatalf("EnqueuedTotal = %d, want 33", enq)
-	}
+}
 
-	close(block)
-
-	deadline := time.Now().Add(2 * time.Second)
+func waitForTeamSyncProcessed(t *testing.T, c *teamSyncCoordinator, want int64, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if c.ProcessedTotal() >= 33 {
+		if c.ProcessedTotal() >= want {
 			break
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	if got := c.ProcessedTotal(); got != 33 {
-		t.Fatalf("ProcessedTotal after drain = %d, want 33", got)
+	if got := c.ProcessedTotal(); got != want {
+		t.Fatalf("ProcessedTotal after drain = %d, want %d", got, want)
 	}
-	// All enqueued ops must reach the lifecycle (lossless).
-	if got := svc.StartCount(); got != 17 { // 1 + 16 bursty Starts
-		t.Errorf("StartSession total = %d, want 17 (lossless)", got)
-	}
-	if got := len(svc.StopIDs()); got != 16 {
-		t.Errorf("StopSession total = %d, want 16 (lossless)", got)
-	}
+}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	if err := c.Stop(ctx); err != nil {
-		t.Fatalf("Stop() = %v, want nil", err)
+func assertTeamSyncLifecycleTotals(t *testing.T, svc *fakeTeamSyncLifecycle, wantStarts, wantStops int) {
+	t.Helper()
+	// All enqueued ops must reach the lifecycle (lossless).
+	if got := svc.StartCount(); got != wantStarts {
+		t.Errorf("StartSession total = %d, want %d (lossless)", got, wantStarts)
+	}
+	if got := len(svc.StopIDs()); got != wantStops {
+		t.Errorf("StopSession total = %d, want %d (lossless)", got, wantStops)
 	}
 }
 

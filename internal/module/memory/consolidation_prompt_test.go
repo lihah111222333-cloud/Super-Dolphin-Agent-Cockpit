@@ -58,12 +58,36 @@ func TestConsolidationPromptIncludesIndexTopicsAndLogs(t *testing.T) {
 
 func TestConsolidationConsolidateUsesMemoryIndexTopicsAndLogs(t *testing.T) {
 	root := newTestMemoryRoot(t)
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		t.Fatalf("MkdirAll(root) error = %v", err)
-	}
+	writeConsolidationIndexTopicAndLog(t, root)
 	cfg := &Config{Enabled: true, RootDir: root}
 	consolidator := NewAutoDreamConsolidator(NewMemoryExtractor())
 	consolidator.cfg = cfg
+
+	called := 0
+	err := consolidator.Consolidate(context.Background(), root, func(_ context.Context, prompt string) (string, error) {
+		called++
+		assertConsolidationPromptContains(t, prompt,
+			"MEMORY.md",
+			"feedback/keep-answers-short.md",
+			"logs/2026/04/2026-04-15.md",
+		)
+		return `{"memories":[{"content":"Keep answers short\nWhy: default to concise responses.","type":"feedback","tags":["style"]}]}`, nil
+	})
+	if err != nil {
+		t.Fatalf("Consolidate() error = %v", err)
+	}
+	if called != 1 {
+		t.Fatalf("extract func calls = %d, want 1", called)
+	}
+	assertConsolidatedMemoryEntry(t, root)
+	assertConsolidatedIndexEntries(t, root)
+}
+
+func writeConsolidationIndexTopicAndLog(t *testing.T, root string) {
+	t.Helper()
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("MkdirAll(root) error = %v", err)
+	}
 	if err := os.WriteFile(memoryIndexPath(root), []byte("- [Keep answers short](feedback/keep-answers-short.md)\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(MEMORY.md) error = %v", err)
 	}
@@ -81,23 +105,10 @@ func TestConsolidationConsolidateUsesMemoryIndexTopicsAndLogs(t *testing.T) {
 	if err := os.WriteFile(logPath, []byte("- [09:31] prefer absolute dates in incident summaries\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(log) error = %v", err)
 	}
+}
 
-	called := 0
-	err := consolidator.Consolidate(context.Background(), root, func(_ context.Context, prompt string) (string, error) {
-		called++
-		for _, snippet := range []string{"MEMORY.md", "feedback/keep-answers-short.md", "logs/2026/04/2026-04-15.md"} {
-			if !strings.Contains(prompt, snippet) {
-				t.Fatalf("prompt missing %q:\n%s", snippet, prompt)
-			}
-		}
-		return `{"memories":[{"content":"Keep answers short\nWhy: default to concise responses.","type":"feedback","tags":["style"]}]}`, nil
-	})
-	if err != nil {
-		t.Fatalf("Consolidate() error = %v", err)
-	}
-	if called != 1 {
-		t.Fatalf("extract func calls = %d, want 1", called)
-	}
+func assertConsolidatedMemoryEntry(t *testing.T, root string) {
+	t.Helper()
 	entries, err := scanMemoryEntries(root)
 	if err != nil {
 		t.Fatalf("scanMemoryEntries() error = %v", err)
@@ -108,9 +119,22 @@ func TestConsolidationConsolidateUsesMemoryIndexTopicsAndLogs(t *testing.T) {
 	if !strings.Contains(entries[0].Content, "default to concise responses") {
 		t.Fatalf("consolidated content = %q", entries[0].Content)
 	}
+}
+
+func assertConsolidatedIndexEntries(t *testing.T, root string) {
+	t.Helper()
 	indexEntries := readIndexEntries(t, root)
 	if len(indexEntries) != 1 || strings.HasPrefix(indexEntries[0].Path, "logs/") {
 		t.Fatalf("index entries = %#v, want one durable topic entry without logs", indexEntries)
+	}
+}
+
+func assertConsolidationPromptContains(t *testing.T, prompt string, snippets ...string) {
+	t.Helper()
+	for _, snippet := range snippets {
+		if !strings.Contains(prompt, snippet) {
+			t.Fatalf("prompt missing %q:\n%s", snippet, prompt)
+		}
 	}
 }
 

@@ -162,18 +162,41 @@ func TestDashboardAuditAndBusLogHandlersReturnLogs(t *testing.T) {
 	}
 	server := newDashboardTestServer(t, &service{auditLogs: auditStore, busLogs: busStore})
 
+	assertDashboardAuditLogs(t, server, auditStore)
+	assertDashboardBusLogs(t, server, busStore)
+}
+
+func assertDashboardAuditLogs(t *testing.T, server *platformrpc.Server, auditStore *stubAuditLogStore) {
+	t.Helper()
+
 	var auditResp struct {
 		Logs []auditlogstore.AuditEvent `json:"logs"`
 	}
 	if err := dispatchDashboardInto(server, "dashboard/auditLogs", `{"eventType":"tool","action":"run","actor":"agent-1","limit":7}`, &auditResp); err != nil {
 		t.Fatalf("dispatch audit logs error = %v", err)
 	}
-	if auditStore.listFilter.EventType != "tool" || auditStore.listFilter.Action != "run" || auditStore.listFilter.Actor != "agent-1" || auditStore.listFilter.Limit != 7 {
+	if auditStore.listFilter.EventType != "tool" {
+		t.Fatalf("audit filter event type = %#v", auditStore.listFilter)
+	}
+	if auditStore.listFilter.Action != "run" {
+		t.Fatalf("audit filter action = %#v", auditStore.listFilter)
+	}
+	if auditStore.listFilter.Actor != "agent-1" {
+		t.Fatalf("audit filter actor = %#v", auditStore.listFilter)
+	}
+	if auditStore.listFilter.Limit != 7 {
 		t.Fatalf("audit filter = %#v", auditStore.listFilter)
 	}
-	if len(auditResp.Logs) != 1 || auditResp.Logs[0].ID != 7 {
+	if len(auditResp.Logs) != 1 {
 		t.Fatalf("audit response = %#v", auditResp)
 	}
+	if auditResp.Logs[0].ID != 7 {
+		t.Fatalf("audit response = %#v", auditResp)
+	}
+}
+
+func assertDashboardBusLogs(t *testing.T, server *platformrpc.Server, busStore *stubBusLogStore) {
+	t.Helper()
 
 	var busResp struct {
 		Logs []buslogstore.BusExceptionLog `json:"logs"`
@@ -181,10 +204,22 @@ func TestDashboardAuditAndBusLogHandlersReturnLogs(t *testing.T) {
 	if err := dispatchDashboardInto(server, "dashboard/busLogs", `{"category":"rpc","severity":"error","keyword":"timeout","limit":9}`, &busResp); err != nil {
 		t.Fatalf("dispatch bus logs error = %v", err)
 	}
-	if busStore.listFilter.Category != "rpc" || busStore.listFilter.Severity != "error" || busStore.listFilter.Keyword != "timeout" || busStore.listFilter.Limit != 9 {
+	if busStore.listFilter.Category != "rpc" {
+		t.Fatalf("bus filter category = %#v", busStore.listFilter)
+	}
+	if busStore.listFilter.Severity != "error" {
+		t.Fatalf("bus filter severity = %#v", busStore.listFilter)
+	}
+	if busStore.listFilter.Keyword != "timeout" {
+		t.Fatalf("bus filter keyword = %#v", busStore.listFilter)
+	}
+	if busStore.listFilter.Limit != 9 {
 		t.Fatalf("bus filter = %#v", busStore.listFilter)
 	}
-	if len(busResp.Logs) != 1 || busResp.Logs[0].ID != 9 {
+	if len(busResp.Logs) != 1 {
+		t.Fatalf("bus response = %#v", busResp)
+	}
+	if busResp.Logs[0].ID != 9 {
 		t.Fatalf("bus response = %#v", busResp)
 	}
 }
@@ -204,18 +239,39 @@ func TestDashboardDAGHandlersReturnData(t *testing.T) {
 	}
 	server := newDashboardTestServer(t, &service{orchestration: orchestration})
 
+	assertDashboardDAGList(t, server, orchestration)
+	assertDashboardDAGDetail(t, server, orchestration)
+	assertDashboardDAGRuns(t, server, orchestration)
+}
+
+func assertDashboardDAGList(t *testing.T, server *platformrpc.Server, orchestration *stubDashboardOrchestration) {
+	t.Helper()
+
 	var dagsResp struct {
 		Dags []contract.DAGSummary `json:"dags"`
 	}
 	if err := dispatchDashboardInto(server, "dashboard/dags", `{"keyword":"build","status":"running","limit":7}`, &dagsResp); err != nil {
 		t.Fatalf("dispatch dags error = %v", err)
 	}
-	if orchestration.listDAGsFilter.Keyword != "build" || orchestration.listDAGsFilter.Status != "running" || orchestration.listDAGsFilter.Limit != 7 {
+	if orchestration.listDAGsFilter.Keyword != "build" {
+		t.Fatalf("ListDAGs() keyword filter = %#v", orchestration.listDAGsFilter)
+	}
+	if orchestration.listDAGsFilter.Status != "running" {
+		t.Fatalf("ListDAGs() status filter = %#v", orchestration.listDAGsFilter)
+	}
+	if orchestration.listDAGsFilter.Limit != 7 {
 		t.Fatalf("ListDAGs() filter = %#v", orchestration.listDAGsFilter)
 	}
-	if len(dagsResp.Dags) != 1 || dagsResp.Dags[0].DagKey != "dag-1" {
+	if len(dagsResp.Dags) != 1 {
 		t.Fatalf("dags response = %#v", dagsResp)
 	}
+	if dagsResp.Dags[0].DagKey != "dag-1" {
+		t.Fatalf("dags response = %#v", dagsResp)
+	}
+}
+
+func assertDashboardDAGDetail(t *testing.T, server *platformrpc.Server, orchestration *stubDashboardOrchestration) {
+	t.Helper()
 
 	var detailResp struct {
 		DAG   contract.DAGSummary `json:"dag"`
@@ -227,9 +283,19 @@ func TestDashboardDAGHandlersReturnData(t *testing.T) {
 	if orchestration.getDAGKey != "dag-1" {
 		t.Fatalf("GetDAG() key = %q, want dag-1", orchestration.getDAGKey)
 	}
-	if detailResp.DAG.DagKey != "dag-1" || len(detailResp.Nodes) != 1 || detailResp.Nodes[0].NodeKey != "node-1" {
+	if detailResp.DAG.DagKey != "dag-1" {
 		t.Fatalf("dag detail response = %#v", detailResp)
 	}
+	if len(detailResp.Nodes) != 1 {
+		t.Fatalf("dag detail response = %#v", detailResp)
+	}
+	if detailResp.Nodes[0].NodeKey != "node-1" {
+		t.Fatalf("dag detail response = %#v", detailResp)
+	}
+}
+
+func assertDashboardDAGRuns(t *testing.T, server *platformrpc.Server, orchestration *stubDashboardOrchestration) {
+	t.Helper()
 
 	var runsResp struct {
 		Runs []contract.Run `json:"runs"`
@@ -237,10 +303,16 @@ func TestDashboardDAGHandlersReturnData(t *testing.T) {
 	if err := dispatchDashboardInto(server, "dashboard/dagRuns", `{"dagKey":"dag-1","limit":5}`, &runsResp); err != nil {
 		t.Fatalf("dispatch dag runs error = %v", err)
 	}
-	if orchestration.listRunsRequest.DagKey != "dag-1" || orchestration.listRunsRequest.Limit != 5 {
+	if orchestration.listRunsRequest.DagKey != "dag-1" {
+		t.Fatalf("ListRuns() dag key request = %#v", orchestration.listRunsRequest)
+	}
+	if orchestration.listRunsRequest.Limit != 5 {
 		t.Fatalf("ListRuns() request = %#v", orchestration.listRunsRequest)
 	}
-	if len(runsResp.Runs) != 1 || runsResp.Runs[0].RunKey != "run-1" {
+	if len(runsResp.Runs) != 1 {
+		t.Fatalf("dag runs response = %#v", runsResp)
+	}
+	if runsResp.Runs[0].RunKey != "run-1" {
 		t.Fatalf("dag runs response = %#v", runsResp)
 	}
 }
