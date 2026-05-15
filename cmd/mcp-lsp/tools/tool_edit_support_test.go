@@ -162,49 +162,54 @@ func TestReplaceRangeAppliesUnsupportedTextFilesWithoutLSPManager(t *testing.T) 
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), tt.file)
-			if err := os.WriteFile(path, []byte(tt.content), 0o600); err != nil {
-				t.Fatalf("write fixture: %v", err)
-			}
-			handler := NewEditHandler(&structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
-			input, err := json.Marshal(EditRequest{
-				Action:   "replace_range",
-				FilePath: path,
-				Edits: []ReplaceEdit{{
-					OldString: tt.old,
-					NewString: tt.new,
-				}},
-			})
-			if err != nil {
-				t.Fatalf("marshal input: %v", err)
-			}
-
-			got, err := handler(context.Background(), input)
-			if err != nil {
-				t.Fatalf("replace_range returned error: %v", err)
-			}
-			result, ok := got.(replaceRangeResult)
-			if !ok {
-				t.Fatalf("result type = %T, want replaceRangeResult", got)
-			}
-			if !result.Success || !result.Applied || result.Status != "applied" {
-				t.Fatalf("unexpected result: %#v", result)
-			}
-			if result.LSPSync {
-				t.Fatalf("LSPSync = true, want false without LSP manager")
-			}
-			if !strings.Contains(result.Warning, "LSP sync skipped") {
-				t.Fatalf("warning = %q, want LSP sync skipped", result.Warning)
-			}
-			raw, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatalf("read updated file: %v", err)
-			}
-			if string(raw) != tt.want {
-				t.Fatalf("updated content mismatch:\nwant %q\ngot  %q", tt.want, string(raw))
-			}
+			assertUnsupportedTextReplace(t, tt.file, tt.content, tt.old, tt.new, tt.want)
 		})
 	}
+}
+
+func assertUnsupportedTextReplace(t *testing.T, file, content, oldText, newText, want string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), file)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	handler := NewEditHandler(&structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
+	input, err := json.Marshal(EditRequest{
+		Action:   "replace_range",
+		FilePath: path,
+		Edits: []ReplaceEdit{{
+			OldString: oldText,
+			NewString: newText,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+
+	got, err := handler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("replace_range returned error: %v", err)
+	}
+	result := requireReplaceRangeResult(t, got)
+	if !strings.Contains(result.Warning, "LSP sync skipped") {
+		t.Fatalf("warning = %q, want LSP sync skipped", result.Warning)
+	}
+	assertFileContent(t, path, want)
+}
+
+func requireReplaceRangeResult(t *testing.T, got any) replaceRangeResult {
+	t.Helper()
+	result, ok := got.(replaceRangeResult)
+	if !ok {
+		t.Fatalf("result type = %T, want replaceRangeResult", got)
+	}
+	if !result.Success || !result.Applied || result.Status != "applied" {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	if result.LSPSync {
+		t.Fatalf("LSPSync = true, want false without LSP manager")
+	}
+	return result
 }
 
 func TestRenameRejectsPathOutsideWorkspaceRootBeforeLSPRequest(t *testing.T) {
@@ -302,26 +307,29 @@ func TestReplaceRangeRejectsSymlinkEscapingWorkspaceRoot(t *testing.T) {
 
 func TestEditForceDoesNotBypassTrustedScopeOrPathSafety(t *testing.T) {
 	root := t.TempDir()
-	outsideDir := t.TempDir()
-	outside := filepath.Join(outsideDir, "outside.txt")
+	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
+
+	assertForceCannotEscapeWorkspaceRoot(t, handler)
+	assertForceInvalidPatchLeavesFile(t, root, handler)
+}
+
+func assertForceCannotEscapeWorkspaceRoot(t *testing.T, handler ToolHandler) {
+	t.Helper()
+	outside := filepath.Join(t.TempDir(), "outside.txt")
 	if err := os.WriteFile(outside, []byte("old\n"), 0o600); err != nil {
 		t.Fatalf("write outside fixture: %v", err)
 	}
-	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
 	input := json.RawMessage(`{"action":"replace_range","file_path":` + strconv.Quote(outside) + `,"edits":[{"old_string":"old","new_string":"new"}],"force":true}`)
 
 	_, err := handler(context.Background(), input)
 	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
 		t.Fatalf("force outside-root error = %v, want workspace root rejection", err)
 	}
-	raw, readErr := os.ReadFile(outside)
-	if readErr != nil {
-		t.Fatalf("read outside fixture: %v", readErr)
-	}
-	if string(raw) != "old\n" {
-		t.Fatalf("force modified outside file: %q", raw)
-	}
+	assertFileContent(t, outside, "old\n")
+}
 
+func assertForceInvalidPatchLeavesFile(t *testing.T, root string, handler ToolHandler) {
+	t.Helper()
 	inside := filepath.Join(root, "inside.txt")
 	if err := os.WriteFile(inside, []byte("old\n"), 0o600); err != nil {
 		t.Fatalf("write inside fixture: %v", err)
@@ -338,13 +346,7 @@ func TestEditForceDoesNotBypassTrustedScopeOrPathSafety(t *testing.T) {
 	if failure.Success || !strings.Contains(strings.ToLower(failure.Error), "patch") {
 		t.Fatalf("force invalid patch result = %#v, want patch grammar failure", failure)
 	}
-	raw, readErr = os.ReadFile(inside)
-	if readErr != nil {
-		t.Fatalf("read inside fixture: %v", readErr)
-	}
-	if string(raw) != "old\n" {
-		t.Fatalf("force modified file after invalid patch: %q", raw)
-	}
+	assertFileContent(t, inside, "old\n")
 }
 
 func TestWorkspaceEditRejectsPathOutsideWorkspaceRoot(t *testing.T) {
@@ -454,15 +456,29 @@ func TestEditFailureAfterDeadClientReturnsRetryableWithoutAutoReplay(t *testing.
 	if result.Success {
 		t.Fatalf("Success = true, want false for dead-client edit sync")
 	}
-	if manager.didChangeCalls != 2 {
-		t.Fatalf("DidChange calls = %d, want original sync plus rollback sync without auto-replaying edit", manager.didChangeCalls)
-	}
-	if raw, err := os.ReadFile(path); err != nil || string(raw) != original {
-		t.Fatalf("file after failed edit = %q err=%v, want original content", raw, err)
-	}
+	assertDeadClientRollbackState(t, path, original, manager)
 	envelope := newToolErrorEnvelope("edit", "go", errors.Join(multilsp.ErrTransportClosed, manager.didChangeErr))
 	if !envelope.Retryable || envelope.Code != "lsp_client_closed" {
 		t.Fatalf("dead-client envelope = %#v, want retryable lsp_client_closed", envelope)
+	}
+}
+
+func assertDeadClientRollbackState(t *testing.T, path, original string, manager *editFailureManager) {
+	t.Helper()
+	if manager.didChangeCalls != 2 {
+		t.Fatalf("DidChange calls = %d, want original sync plus rollback sync without auto-replaying edit", manager.didChangeCalls)
+	}
+	assertFileContent(t, path, original)
+}
+
+func assertFileContent(t *testing.T, path, want string) {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read file %s: %v", path, err)
+	}
+	if string(raw) != want {
+		t.Fatalf("file content mismatch for %s:\nwant %q\ngot  %q", path, want, string(raw))
 	}
 }
 
@@ -546,237 +562,5 @@ func TestApplyWorkspaceEditSyncFailureReportsRollbackFailure(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "lsp sync boom") || !strings.Contains(err.Error(), "rollback failed") {
 		t.Fatalf("error = %q, want sync and rollback failure details", err.Error())
-	}
-}
-
-type editRootBoundaryManager struct {
-	structureTestManager
-	renameEdit         *protocol.WorkspaceEdit
-	codeActions        []protocol.CodeActionResult
-	formatEdits        []protocol.TextEdit
-	gotCodeActionRange protocol.Range
-}
-
-func (m *editRootBoundaryManager) Rename(context.Context, string, protocol.Position, string) (*protocol.WorkspaceEdit, error) {
-	return m.renameEdit, nil
-}
-
-func (m *editRootBoundaryManager) CodeAction(_ context.Context, _ string, rng protocol.Range, _ []string) ([]protocol.CodeActionResult, error) {
-	m.gotCodeActionRange = rng
-	return m.codeActions, nil
-}
-
-func (m *editRootBoundaryManager) Format(context.Context, string, protocol.FormattingOptions) ([]protocol.TextEdit, error) {
-	return m.formatEdits, nil
-}
-
-func TestCodeActionRejectsPathOutsideWorkspaceRootBeforeLSPRequest(t *testing.T) {
-	root := t.TempDir()
-	outsideDir := t.TempDir()
-	outside := filepath.Join(outsideDir, "outside.go")
-	if err := os.WriteFile(outside, []byte("package main\n"), 0o600); err != nil {
-		t.Fatalf("write outside fixture: %v", err)
-	}
-	registry := &structureTestRegistry{fileManager: &structureTestManager{}}
-	handler := NewEditHandlerWithRoot(root, registry)
-	input, err := json.Marshal(EditRequest{Action: "code_action", FilePath: outside, Line: 1, Column: 1})
-	if err != nil {
-		t.Fatalf("marshal input: %v", err)
-	}
-
-	_, err = handler(context.Background(), input)
-	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
-		t.Fatalf("code_action error = %v, want outside workspace root", err)
-	}
-	if registry.gotFilePath != "" {
-		t.Fatalf("GetManagerForFile called with %q; want no LSP request for outside root", registry.gotFilePath)
-	}
-}
-
-func TestFormatRejectsPathOutsideWorkspaceRootBeforeLSPRequest(t *testing.T) {
-	root := t.TempDir()
-	outsideDir := t.TempDir()
-	outside := filepath.Join(outsideDir, "outside.go")
-	if err := os.WriteFile(outside, []byte("package main\n"), 0o600); err != nil {
-		t.Fatalf("write outside fixture: %v", err)
-	}
-	registry := &structureTestRegistry{fileManager: &structureTestManager{}}
-	handler := NewEditHandlerWithRoot(root, registry)
-	input, err := json.Marshal(EditRequest{Action: "format", FilePath: outside})
-	if err != nil {
-		t.Fatalf("marshal input: %v", err)
-	}
-
-	_, err = handler(context.Background(), input)
-	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
-		t.Fatalf("format error = %v, want outside workspace root", err)
-	}
-	if registry.gotFilePath != "" {
-		t.Fatalf("GetManagerForFile called with %q; want no LSP request for outside root", registry.gotFilePath)
-	}
-}
-
-func TestPreparedRenameRejectsWorkspaceEditOutsideWorkspaceRoot(t *testing.T) {
-	root := t.TempDir()
-	inside := filepath.Join(root, "inside.go")
-	if err := os.WriteFile(inside, []byte("package main\n\nvar oldName = 1\n"), 0o600); err != nil {
-		t.Fatalf("write inside fixture: %v", err)
-	}
-	outsideDir := t.TempDir()
-	outside := filepath.Join(outsideDir, "outside.go")
-	if err := os.WriteFile(outside, []byte("package main\n"), 0o600); err != nil {
-		t.Fatalf("write outside fixture: %v", err)
-	}
-	persist := false
-	manager := &editRootBoundaryManager{renameEdit: &protocol.WorkspaceEdit{Changes: map[string][]protocol.TextEdit{
-		fileURI(outside): {{
-			Range:   protocol.Range{Start: protocol.Position{Line: 0, Character: 0}, End: protocol.Position{Line: 0, Character: 0}},
-			NewText: "// unsafe\n",
-		}},
-	}}}
-	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileManager: manager})
-	input, err := json.Marshal(EditRequest{Action: "rename", FilePath: inside, Line: 3, Column: 5, NewName: "newName", PersistToDisk: &persist})
-	if err != nil {
-		t.Fatalf("marshal input: %v", err)
-	}
-
-	_, err = handler(context.Background(), input)
-	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
-		t.Fatalf("prepared rename error = %v, want outside workspace root", err)
-	}
-}
-
-func TestCodeActionRejectsReturnedWorkspaceEditOutsideWorkspaceRoot(t *testing.T) {
-	root := t.TempDir()
-	inside := filepath.Join(root, "inside.go")
-	if err := os.WriteFile(inside, []byte("package main\n"), 0o600); err != nil {
-		t.Fatalf("write inside fixture: %v", err)
-	}
-	outsideDir := t.TempDir()
-	outside := filepath.Join(outsideDir, "outside.go")
-	if err := os.WriteFile(outside, []byte("package main\n"), 0o600); err != nil {
-		t.Fatalf("write outside fixture: %v", err)
-	}
-	manager := &editRootBoundaryManager{codeActions: []protocol.CodeActionResult{{CodeAction: &protocol.CodeAction{
-		Title: "unsafe",
-		Edit: &protocol.WorkspaceEdit{Changes: map[string][]protocol.TextEdit{
-			fileURI(outside): {{
-				Range:   protocol.Range{Start: protocol.Position{Line: 0, Character: 0}, End: protocol.Position{Line: 0, Character: 0}},
-				NewText: "// unsafe\n",
-			}},
-		}},
-	}}}}
-	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileManager: manager})
-	input, err := json.Marshal(EditRequest{Action: "code_action", FilePath: inside, Line: 1, Column: 1})
-	if err != nil {
-		t.Fatalf("marshal input: %v", err)
-	}
-
-	_, err = handler(context.Background(), input)
-	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
-		t.Fatalf("code_action returned edit error = %v, want outside workspace root", err)
-	}
-}
-
-func TestCodeActionUsesEndLineEndColumnRange(t *testing.T) {
-	root := t.TempDir()
-	inside := filepath.Join(root, "inside.go")
-	if err := os.WriteFile(inside, []byte("package main\n\nfunc f() {}\n"), 0o600); err != nil {
-		t.Fatalf("write inside fixture: %v", err)
-	}
-	manager := &editRootBoundaryManager{}
-	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileManager: manager})
-	input, err := json.Marshal(EditRequest{
-		Action:    "code_action",
-		FilePath:  inside,
-		Line:      2,
-		Column:    3,
-		EndLine:   4,
-		EndColumn: 5,
-	})
-	if err != nil {
-		t.Fatalf("marshal input: %v", err)
-	}
-
-	if _, err := handler(context.Background(), input); err != nil {
-		t.Fatalf("code_action returned error: %v", err)
-	}
-	want := protocol.Range{
-		Start: protocol.Position{Line: 1, Character: 2},
-		End:   protocol.Position{Line: 3, Character: 4},
-	}
-	if manager.gotCodeActionRange != want {
-		t.Fatalf("code_action range = %#v, want %#v", manager.gotCodeActionRange, want)
-	}
-}
-
-func TestCodeActionDefaultsEndToStart(t *testing.T) {
-	root := t.TempDir()
-	inside := filepath.Join(root, "inside.go")
-	if err := os.WriteFile(inside, []byte("package main\n"), 0o600); err != nil {
-		t.Fatalf("write inside fixture: %v", err)
-	}
-	manager := &editRootBoundaryManager{}
-	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileManager: manager})
-	input, err := json.Marshal(EditRequest{Action: "code_action", FilePath: inside, Line: 1, Column: 1})
-	if err != nil {
-		t.Fatalf("marshal input: %v", err)
-	}
-
-	if _, err := handler(context.Background(), input); err != nil {
-		t.Fatalf("code_action returned error: %v", err)
-	}
-	want := protocol.Range{Start: protocol.Position{Line: 0, Character: 0}, End: protocol.Position{Line: 0, Character: 0}}
-	if manager.gotCodeActionRange != want {
-		t.Fatalf("code_action range = %#v, want %#v", manager.gotCodeActionRange, want)
-	}
-}
-
-func TestCodeActionRejectsPartialEndRange(t *testing.T) {
-	root := t.TempDir()
-	inside := filepath.Join(root, "inside.go")
-	if err := os.WriteFile(inside, []byte("package main\n"), 0o600); err != nil {
-		t.Fatalf("write inside fixture: %v", err)
-	}
-	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileManager: &editRootBoundaryManager{}})
-	input, err := json.Marshal(EditRequest{Action: "code_action", FilePath: inside, Line: 1, Column: 1, EndLine: 2})
-	if err != nil {
-		t.Fatalf("marshal input: %v", err)
-	}
-
-	_, err = handler(context.Background(), input)
-	if err == nil || !strings.Contains(err.Error(), "end_line and end_column") {
-		t.Fatalf("code_action error = %v, want partial end range rejection", err)
-	}
-}
-
-func TestReplaceRangeEditsAllowEmptyNewStringDeletion(t *testing.T) {
-	content := "alpha\nremove me\nomega\n"
-	plan, err := buildEditsReplacePlan(content, []ReplaceEdit{{OldString: "remove me\n", NewString: ""}})
-	if err != nil {
-		t.Fatalf("build edits plan: %v", err)
-	}
-	if plan.updatedContent != "alpha\nomega\n" {
-		t.Fatalf("updated content = %q, want deletion", plan.updatedContent)
-	}
-	if plan.replacement != "" {
-		t.Fatalf("replacement = %q, want empty deletion replacement", plan.replacement)
-	}
-}
-
-func TestReplaceRangeCoordinatesAllowEmptyNewTextDeletion(t *testing.T) {
-	content := "alpha\nremove me\nomega\n"
-	plan, err := buildReplacePlan(content, EditRequest{
-		Line:      2,
-		Column:    1,
-		EndLine:   3,
-		EndColumn: 1,
-		NewText:   "",
-	})
-	if err != nil {
-		t.Fatalf("build range plan: %v", err)
-	}
-	if plan.updatedContent != "alpha\nomega\n" {
-		t.Fatalf("updated content = %q, want deletion", plan.updatedContent)
 	}
 }

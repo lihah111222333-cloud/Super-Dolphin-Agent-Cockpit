@@ -2,15 +2,11 @@ package multilsp
 
 import (
 	"context"
-	"encoding/json"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"path/filepath"
 	"reflect"
 	"strings"
-	"sync"
 	"testing"
-
-	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
 func TestGoWorkWorkspaceFolderInitializeAndEnv(t *testing.T) {
@@ -256,11 +252,12 @@ func TestGoLanguageSpecificHashNotAddedToNonGoCacheKey(t *testing.T) {
 
 func TestRecyclerRestoresGoWorkspaceWithSavedRootEnvAndScope(t *testing.T) {
 	t.Setenv("GOWORK", "")
-	ctx := common.WithToolScope(context.Background(), common.ToolScope{
+	toolScope := common.ToolScope{
 		Family:   defaultLSPToolFamily,
 		AgentID:  "agent-worker-d",
 		ThreadID: "thread-go",
-	})
+	}
+	ctx := common.WithToolScope(context.Background(), toolScope)
 	repo := normalizedTempDir(t)
 	backend := filepath.Join(repo, "backend")
 	tools := filepath.Join(repo, "tools")
@@ -284,12 +281,33 @@ func TestRecyclerRestoresGoWorkspaceWithSavedRootEnvAndScope(t *testing.T) {
 	if _, err := manager.EnsureClient(ctx, target, "go"); err != nil {
 		t.Fatalf("ensure go client before recycle: %v", err)
 	}
+	workspace, cfg := singleWorkspaceConfig(t, manager)
+	resolved := mustResolveWorkspaceScope(t, manager, ctx, cfg, "recycle")
+	assertFallbackRecycleScope(t, cfg, resolved)
+	targetURI := fileURIFromPath(target)
+	coordinator := seedBootstrapCache(manager, resolved, targetURI)
+	didRecycle, err := recycleWorkspaceClient(manager, resolved, workspace)
+	if err != nil {
+		t.Fatalf("recycle go workspace client: %v", err)
+	}
+	if !didRecycle {
+		t.Fatalf("recycle go workspace client: recycled=false, want true")
+	}
+
+	recycledClient := assertRecycledGoWorkspaceReplacement(t, factory, repo, goWorkPath, backend, tools)
+	assertRecycledInitializeScope(t, recycledClient, resolved)
+	assertRecycledInitializeToolScope(t, recycledClient, toolScope)
+	assertBootstrapReady(t, coordinator, resolved, targetURI)
+}
+
+func singleWorkspaceConfig(t *testing.T, manager *manager) (workspaceClient, workspaceConfig) {
+	t.Helper()
 	workspaces := snapshotWorkspaceClients(manager)
 	if len(workspaces) != 1 {
 		t.Fatalf("workspace snapshot count = %d, want 1", len(workspaces))
 	}
 	workspace := workspaces[0]
-	cfg := workspaceConfig{
+	return workspace, workspaceConfig{
 		key:              workspace.key,
 		rootPath:         workspace.rootPath,
 		rootURI:          workspace.rootURI,
@@ -297,10 +315,19 @@ func TestRecyclerRestoresGoWorkspaceWithSavedRootEnvAndScope(t *testing.T) {
 		env:              append([]string(nil), workspace.env...),
 		workspaceFolders: cloneWorkspaceFolders(workspace.workspaceFolders),
 	}
+}
+
+func mustResolveWorkspaceScope(t *testing.T, manager *manager, ctx context.Context, cfg workspaceConfig, purpose string) ResolvedLSPToolScope {
+	t.Helper()
 	resolved, err := manager.resolvedScopeForConfig(ctx, cfg)
 	if err != nil {
-		t.Fatalf("resolve scope for recycle: %v", err)
+		t.Fatalf("resolve scope for %s: %v", purpose, err)
 	}
+	return resolved
+}
+
+func assertFallbackRecycleScope(t *testing.T, cfg workspaceConfig, resolved ResolvedLSPToolScope) {
+	t.Helper()
 	fallbackCtx := recycleRestoreContext(ResolvedLSPToolScope{}, cfg)
 	fallbackResolved, ok := resolvedLSPToolScopeFromContext(fallbackCtx)
 	if !ok {
@@ -312,21 +339,20 @@ func TestRecyclerRestoresGoWorkspaceWithSavedRootEnvAndScope(t *testing.T) {
 	if !reflect.DeepEqual(fallbackResolved.LanguageSpecific, resolved.LanguageSpecific) {
 		t.Fatalf("fallback recycle language-specific = %#v, want %#v", fallbackResolved.LanguageSpecific, resolved.LanguageSpecific)
 	}
-	targetURI := fileURIFromPath(target)
+}
+
+func seedBootstrapCache(manager *manager, resolved ResolvedLSPToolScope, targetURI string) *bootstrapCoordinator {
 	coordinator := bootstrapCoordinatorFor(manager)
 	coordinator.cache.Upsert(lspCacheValue{
 		Key:         resolved.cacheKey("go", targetURI),
 		Version:     1,
 		Fingerprint: "stale-before-recycle",
 	})
-	didRecycle, err := recycleWorkspaceClient(manager, resolved, workspace)
-	if err != nil {
-		t.Fatalf("recycle go workspace client: %v", err)
-	}
-	if !didRecycle {
-		t.Fatalf("recycle go workspace client: recycled=false, want true")
-	}
+	return coordinator
+}
 
+func assertRecycledGoWorkspaceReplacement(t *testing.T, factory *goWorkspaceClientFactory, repo, goWorkPath, backend, tools string) *goWorkspaceClient {
+	t.Helper()
 	if got := factory.callCount(); got != 2 {
 		t.Fatalf("recycle should create replacement client, calls=%d", got)
 	}
@@ -339,6 +365,11 @@ func TestRecyclerRestoresGoWorkspaceWithSavedRootEnvAndScope(t *testing.T) {
 	}
 	recycledClient := factory.clientAt(t, 1)
 	assertFolderURIs(t, recycledClient.initializedFolders, []string{repo, backend, tools})
+	return recycledClient
+}
+
+func assertRecycledInitializeScope(t *testing.T, recycledClient *goWorkspaceClient, resolved ResolvedLSPToolScope) {
+	t.Helper()
 	if !recycledClient.initResolvedOK {
 		t.Fatalf("recycled Initialize ctx missing canonical ResolvedLSPToolScope")
 	}
@@ -354,12 +385,20 @@ func TestRecyclerRestoresGoWorkspaceWithSavedRootEnvAndScope(t *testing.T) {
 	if !reflect.DeepEqual(recycledClient.initLanguageSpecific, resolved.LanguageSpecific) {
 		t.Fatalf("recycled init language-specific = %#v, want %#v", recycledClient.initLanguageSpecific, resolved.LanguageSpecific)
 	}
+}
+
+func assertRecycledInitializeToolScope(t *testing.T, recycledClient *goWorkspaceClient, want common.ToolScope) {
+	t.Helper()
 	if !recycledClient.initToolScopeOK {
 		t.Fatalf("recycled Initialize ctx missing common ToolScope compatibility")
 	}
-	if recycledClient.initToolScope.AgentID != "agent-worker-d" || recycledClient.initToolScope.ThreadID != "thread-go" {
+	if recycledClient.initToolScope.AgentID != want.AgentID || recycledClient.initToolScope.ThreadID != want.ThreadID {
 		t.Fatalf("recycled common ToolScope = %#v, want stored agent/thread", recycledClient.initToolScope)
 	}
+}
+
+func assertBootstrapReady(t *testing.T, coordinator *bootstrapCoordinator, resolved ResolvedLSPToolScope, targetURI string) {
+	t.Helper()
 	if status := coordinator.states.status(resolved.bootstrapKey(), targetURI); status != bootstrapReady {
 		t.Fatalf("bootstrap status for canonical scope = %s, want %s", status, bootstrapReady)
 	}
@@ -386,6 +425,28 @@ func TestRecyclerDoesNotRecycleActiveLease(t *testing.T) {
 		}
 	}()
 
+	client, original := assertLeasedRecycleClient(t, manager, ctx, factory, target)
+	workspace, cfg := singleWorkspaceConfig(t, manager)
+	resolved := mustResolveWorkspaceScope(t, manager, ctx, cfg, "active-lease recycle")
+	assertActiveLeaseSkipsRecycle(t, manager, client, original, resolved, workspace, factory)
+
+	didRecycleAfterRelease, err := recycleWorkspaceClient(manager, resolved, workspace)
+	if err != nil {
+		t.Fatalf("recycle after lease release: %v", err)
+	}
+	if !didRecycleAfterRelease {
+		t.Fatalf("recycle after lease release recycled=false, want true")
+	}
+	if !original.isClosed() {
+		t.Fatalf("released original client was not closed by recycler")
+	}
+	if got := factory.callCount(); got != 2 {
+		t.Fatalf("recycle after lease release should create replacement client, calls=%d", got)
+	}
+}
+
+func assertLeasedRecycleClient(t *testing.T, manager *manager, ctx context.Context, factory *goWorkspaceClientFactory, target string) (Client, *goWorkspaceClient) {
+	t.Helper()
 	client, ref, err := manager.documentClient(ctx, fileURIFromPath(target))
 	if err != nil {
 		t.Fatalf("lease document client: %v", err)
@@ -397,25 +458,19 @@ func TestRecyclerDoesNotRecycleActiveLease(t *testing.T) {
 	if client != original {
 		t.Fatalf("leased client = %p, want original client %p", client, original)
 	}
+	return client, original
+}
 
-	workspaces := snapshotWorkspaceClients(manager)
-	if len(workspaces) != 1 {
-		t.Fatalf("workspace snapshot count = %d, want 1", len(workspaces))
-	}
-	workspace := workspaces[0]
-	cfg := workspaceConfig{
-		key:              workspace.key,
-		rootPath:         workspace.rootPath,
-		rootURI:          workspace.rootURI,
-		languageID:       workspace.languageID,
-		env:              append([]string(nil), workspace.env...),
-		workspaceFolders: cloneWorkspaceFolders(workspace.workspaceFolders),
-	}
-	resolved, err := manager.resolvedScopeForConfig(ctx, cfg)
-	if err != nil {
-		t.Fatalf("resolve scope for active-lease recycle: %v", err)
-	}
-
+func assertActiveLeaseSkipsRecycle(
+	t *testing.T,
+	manager *manager,
+	client Client,
+	original *goWorkspaceClient,
+	resolved ResolvedLSPToolScope,
+	workspace workspaceClient,
+	factory *goWorkspaceClientFactory,
+) {
+	t.Helper()
 	if err := manager.withPooledClient(client, func() error {
 		didRecycleActive, err := recycleWorkspaceClient(manager, resolved, workspace)
 		if err != nil {
@@ -433,268 +488,5 @@ func TestRecyclerDoesNotRecycleActiveLease(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatalf("hold active lease: %v", err)
-	}
-
-	didRecycleAfterRelease, err := recycleWorkspaceClient(manager, resolved, workspace)
-	if err != nil {
-		t.Fatalf("recycle after lease release: %v", err)
-	}
-	if !didRecycleAfterRelease {
-		t.Fatalf("recycle after lease release recycled=false, want true")
-	}
-	if !original.isClosed() {
-		t.Fatalf("released original client was not closed by recycler")
-	}
-	if got := factory.callCount(); got != 2 {
-		t.Fatalf("recycle after lease release should create replacement client, calls=%d", got)
-	}
-}
-
-type nonGoGOWORKPollutionTestCase struct {
-	name           string
-	languageID     string
-	repo           string
-	target         string
-	wantRoot       string
-	externalGoWork string
-}
-
-func nonGoGOWORKPollutionCases(t *testing.T) []nonGoGOWORKPollutionTestCase {
-	t.Helper()
-	languages := []string{"javascript", "typescript", "java", "python", "rust", "css", "json", "yaml", "markdown"}
-	cases := make([]nonGoGOWORKPollutionTestCase, 0, len(languages))
-	for _, lang := range languages {
-		cases = append(cases, nonGoGOWORKPollutionCase(t, lang))
-	}
-	return cases
-}
-
-func nonGoGOWORKPollutionCase(t *testing.T, languageID string) nonGoGOWORKPollutionTestCase {
-	t.Helper()
-	repo := normalizedTempDir(t)
-	external := normalizedTempDir(t)
-	externalModule := filepath.Join(external, "external")
-	writeGoMod(t, externalModule, "example.com/external")
-	externalGoWork := filepath.Join(external, "go.work")
-	writeFile(t, externalGoWork, "go 1.25.0\n\nuse ./external\n")
-
-	targetRoot := repo
-	var target string
-	switch languageID {
-	case "javascript":
-		targetRoot = filepath.Join(repo, "web-js")
-		writeFile(t, filepath.Join(targetRoot, "package.json"), `{"type":"module"}`+"\n")
-		target = filepath.Join(targetRoot, "src", "app.js")
-		writeFile(t, target, "export const app = 1\n")
-	case "typescript":
-		targetRoot = filepath.Join(repo, "web-ts")
-		writeFile(t, filepath.Join(targetRoot, "tsconfig.json"), `{"compilerOptions":{}}`+"\n")
-		target = filepath.Join(targetRoot, "src", "app.ts")
-		writeFile(t, target, "export const app = 1\n")
-	case "java":
-		targetRoot = filepath.Join(repo, "java-app")
-		writeFile(t, filepath.Join(targetRoot, "pom.xml"), "<project></project>\n")
-		target = filepath.Join(targetRoot, "src", "main", "java", "App.java")
-		writeFile(t, target, "class App {}\n")
-	case "python":
-		target = filepath.Join(repo, "py", "app.py")
-		writeFile(t, target, "print('ok')\n")
-	case "rust":
-		target = filepath.Join(repo, "rust", "src", "main.rs")
-		writeFile(t, target, "fn main() {}\n")
-	case "css":
-		target = filepath.Join(repo, "assets", "style.css")
-		writeFile(t, target, "body { color: black; }\n")
-	case "json":
-		target = filepath.Join(repo, "config", "settings.json")
-		writeFile(t, target, "{}\n")
-	case "yaml":
-		target = filepath.Join(repo, "config", "settings.yaml")
-		writeFile(t, target, "key: value\n")
-	case "markdown":
-		target = filepath.Join(repo, "docs", "readme.md")
-		writeFile(t, target, "# readme\n")
-	default:
-		t.Fatalf("unsupported non-Go test language %q", languageID)
-	}
-
-	return nonGoGOWORKPollutionTestCase{
-		name:           languageID,
-		languageID:     languageID,
-		repo:           repo,
-		target:         target,
-		wantRoot:       targetRoot,
-		externalGoWork: externalGoWork,
-	}
-}
-
-func assertGOWORKDoesNotAffectWorkspace(t *testing.T, tc nonGoGOWORKPollutionTestCase) {
-	t.Helper()
-	t.Setenv("GOWORK", tc.externalGoWork)
-	manager := NewManager(Config{
-		WorkspaceRoot:      tc.repo,
-		ClientFactory:      &goWorkspaceClientFactory{},
-		DiagnosticsMaxWait: 1,
-	}).(*manager)
-	defer func() {
-		if err := manager.Close(); err != nil {
-			t.Fatalf("close manager: %v", err)
-		}
-	}()
-
-	cfg, err := manager.resolveWorkspaceForDocument(context.Background(), documentRef{
-		raw:        tc.target,
-		uri:        fileURIFromPath(tc.target),
-		absPath:    tc.target,
-		languageID: tc.languageID,
-	})
-	if err != nil {
-		t.Fatalf("%s workspace should ignore ambient GOWORK: %v", tc.languageID, err)
-	}
-	if cfg.rootPath != tc.wantRoot {
-		t.Fatalf("%s workspace root = %q, want %q", tc.languageID, cfg.rootPath, tc.wantRoot)
-	}
-	if len(cfg.env) != 0 {
-		t.Fatalf("%s workspace should not receive GOWORK env: %#v", tc.languageID, cfg.env)
-	}
-	if cfg.languageID != tc.languageID {
-		t.Fatalf("%s workspace language id = %q", tc.languageID, cfg.languageID)
-	}
-}
-
-type goWorkspaceClientFactory struct {
-	mu      sync.Mutex
-	calls   []goWorkspaceFactoryCall
-	clients []*goWorkspaceClient
-}
-
-type goWorkspaceFactoryCall struct {
-	rootDir string
-	env     []string
-}
-
-func (f *goWorkspaceClientFactory) NewClient(rootDir string, handler protocol.NotificationHandler) (Client, error) {
-	return f.NewClientWithEnv(rootDir, nil, handler)
-}
-
-func (f *goWorkspaceClientFactory) NewClientWithEnv(rootDir string, env []string, _ protocol.NotificationHandler) (Client, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	client := &goWorkspaceClient{}
-	f.calls = append(f.calls, goWorkspaceFactoryCall{
-		rootDir: rootDir,
-		env:     append([]string(nil), env...),
-	})
-	f.clients = append(f.clients, client)
-	return client, nil
-}
-
-func (f *goWorkspaceClientFactory) callCount() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return len(f.calls)
-}
-
-func (f *goWorkspaceClientFactory) callAt(t *testing.T, index int) goWorkspaceFactoryCall {
-	t.Helper()
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if index < 0 || index >= len(f.calls) {
-		t.Fatalf("factory call %d out of range, calls=%d", index, len(f.calls))
-	}
-	return f.calls[index]
-}
-
-func (f *goWorkspaceClientFactory) clientAt(t *testing.T, index int) *goWorkspaceClient {
-	t.Helper()
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if index < 0 || index >= len(f.clients) {
-		t.Fatalf("factory client %d out of range, clients=%d", index, len(f.clients))
-	}
-	return f.clients[index]
-}
-
-type goWorkspaceClient struct {
-	mu                   sync.Mutex
-	rootURI              string
-	workspaceFolders     []protocol.WorkspaceFolder
-	initializedFolders   []protocol.WorkspaceFolder
-	initScopeKey         string
-	initWorkspaceKey     string
-	initManagerKey       string
-	initLanguageSpecific map[string]string
-	initResolvedOK       bool
-	initToolScope        common.ToolScope
-	initToolScopeOK      bool
-	closed               bool
-}
-
-func (c *goWorkspaceClient) setWorkspaceFolders(folders []protocol.WorkspaceFolder) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.workspaceFolders = cloneWorkspaceFolders(folders)
-}
-
-func (c *goWorkspaceClient) Initialize(ctx context.Context, rootURI string) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.rootURI = rootURI
-	c.initializedFolders = cloneWorkspaceFolders(c.workspaceFolders)
-	c.initScopeKey = lspScopeKeyFromContext(ctx)
-	if resolved, ok := resolvedLSPToolScopeFromContext(ctx); ok {
-		c.initResolvedOK = true
-		c.initWorkspaceKey = resolved.WorkspaceKey
-		c.initManagerKey = resolved.ManagerKey
-		c.initLanguageSpecific = copyLanguageSpecific(resolved.LanguageSpecific)
-	}
-	if toolScope, ok := common.ToolScopeFromContext(ctx); ok {
-		c.initToolScopeOK = true
-		c.initToolScope = toolScope
-	}
-	return nil
-}
-
-func (c *goWorkspaceClient) Shutdown(context.Context) error { return nil }
-
-func (c *goWorkspaceClient) Request(context.Context, string, any) (json.RawMessage, error) {
-	return json.RawMessage("null"), nil
-}
-
-func (c *goWorkspaceClient) Notify(context.Context, string, any) error { return nil }
-
-func (c *goWorkspaceClient) DidOpen(context.Context, string, string, int, string) error {
-	return nil
-}
-
-func (c *goWorkspaceClient) DidChange(context.Context, string, int, []protocol.TextDocumentContentChangeEvent) error {
-	return nil
-}
-
-func (c *goWorkspaceClient) DidClose(context.Context, string) error { return nil }
-
-func (c *goWorkspaceClient) Close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.closed = true
-	return nil
-}
-
-func (c *goWorkspaceClient) isClosed() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.closed
-}
-
-func assertFolderURIs(t *testing.T, folders []protocol.WorkspaceFolder, paths []string) {
-	t.Helper()
-	if len(folders) != len(paths) {
-		t.Fatalf("workspace folders length = %d, want %d: %#v", len(folders), len(paths), folders)
-	}
-	for i, path := range paths {
-		want := fileURIFromPath(path)
-		if folders[i].URI != want {
-			t.Fatalf("workspace folder %d URI = %q, want %q; folders=%#v", i, folders[i].URI, want, folders)
-		}
 	}
 }

@@ -38,11 +38,7 @@ func TestGoWorkMultiModuleDiagnostics(t *testing.T) {
 		ClientFactory:      factory,
 		DiagnosticsMaxWait: 1,
 	})
-	defer func() {
-		if err := manager.Close(); err != nil {
-			t.Fatalf("close manager: %v", err)
-		}
-	}()
+	defer closeGoWorkE2EManager(t, manager)
 
 	if _, err := manager.EnsureClient(ctx, target, "go"); err != nil {
 		t.Fatalf("ensure go.work multi-module client: %v", err)
@@ -62,13 +58,7 @@ func TestGoWorkMultiModuleDiagnostics(t *testing.T) {
 	if len(diagnostics) != 1 {
 		t.Fatalf("diagnostics count = %d, want 1: %#v", len(diagnostics), diagnostics)
 	}
-	got := diagnostics[0]
-	if got.URI != targetURI || len(got.Diagnostics) != 1 {
-		t.Fatalf("diagnostics payload = %#v, want one diagnostic for target URI", got)
-	}
-	if got.Diagnostics[0].Source != "go-work-e2e" || got.Diagnostics[0].Message != "multi-module diagnostic" {
-		t.Fatalf("diagnostic = %#v, want go-work-e2e multi-module marker", got.Diagnostics[0])
-	}
+	assertGoWorkE2EDiagnostic(t, diagnostics[0], targetURI)
 }
 
 func TestTwoWorktreesNoWorkspaceKeyCollision(t *testing.T) {
@@ -81,11 +71,7 @@ func TestTwoWorktreesNoWorkspaceKeyCollision(t *testing.T) {
 	targetB := writeGoWorkE2EGoFile(t, wtB, "main.go")
 
 	manager := multilsp.NewManager(multilsp.Config{WorkspaceRoot: wtA})
-	defer func() {
-		if err := manager.Close(); err != nil {
-			t.Fatalf("close manager: %v", err)
-		}
-	}()
+	defer closeGoWorkE2EManager(t, manager)
 	resolver := multilsp.NewRegistryScopedResolver(manager)
 	if resolver == nil {
 		t.Fatalf("NewRegistryScopedResolver returned nil")
@@ -115,21 +101,57 @@ func TestTwoWorktreesNoWorkspaceKeyCollision(t *testing.T) {
 	if scopedA.ResolvedScope.WorkspaceKey == scopedB.ResolvedScope.WorkspaceKey {
 		t.Fatalf("two physical worktrees shared WorkspaceKey: %q", scopedA.ResolvedScope.WorkspaceKey)
 	}
-	for _, tc := range []struct {
+	assertGoWorkE2EResolvedScopes(t, []struct {
 		name  string
 		scope lspmanager.ResolvedToolScope
 		root  string
 	}{
 		{name: "A", scope: scopedA.ResolvedScope, root: wtA},
 		{name: "B", scope: scopedB.ResolvedScope, root: wtB},
-	} {
-		if tc.scope.WorkspaceRoot != tc.root || tc.scope.ProjectRoot != tc.root {
-			t.Fatalf("worktree %s resolved roots = workspace:%q project:%q, want %q", tc.name, tc.scope.WorkspaceRoot, tc.scope.ProjectRoot, tc.root)
-		}
-		for _, fragment := range []string{tc.root, "moduleRootsHash=", "workspaceFoldersHash="} {
-			if !strings.Contains(tc.scope.WorkspaceKey, fragment) {
-				t.Fatalf("worktree %s WorkspaceKey %q missing %q", tc.name, tc.scope.WorkspaceKey, fragment)
-			}
+	})
+}
+
+func closeGoWorkE2EManager(t *testing.T, manager *multilsp.Manager) {
+	t.Helper()
+	if err := manager.Close(); err != nil {
+		t.Fatalf("close manager: %v", err)
+	}
+}
+
+func assertGoWorkE2EDiagnostic(t *testing.T, got protocol.PublishDiagnosticsParams, targetURI string) {
+	t.Helper()
+	if got.URI != targetURI || len(got.Diagnostics) != 1 {
+		t.Fatalf("diagnostics payload = %#v, want one diagnostic for target URI", got)
+	}
+	if got.Diagnostics[0].Source != "go-work-e2e" || got.Diagnostics[0].Message != "multi-module diagnostic" {
+		t.Fatalf("diagnostic = %#v, want go-work-e2e multi-module marker", got.Diagnostics[0])
+	}
+}
+
+func assertGoWorkE2EResolvedScopes(t *testing.T, cases []struct {
+	name  string
+	scope lspmanager.ResolvedToolScope
+	root  string
+}) {
+	t.Helper()
+	for _, tc := range cases {
+		assertGoWorkE2ERoots(t, tc.name, tc.scope, tc.root)
+		assertGoWorkE2EWorkspaceKey(t, tc.name, tc.scope.WorkspaceKey, tc.root)
+	}
+}
+
+func assertGoWorkE2ERoots(t *testing.T, name string, scope lspmanager.ResolvedToolScope, root string) {
+	t.Helper()
+	if scope.WorkspaceRoot != root || scope.ProjectRoot != root {
+		t.Fatalf("worktree %s resolved roots = workspace:%q project:%q, want %q", name, scope.WorkspaceRoot, scope.ProjectRoot, root)
+	}
+}
+
+func assertGoWorkE2EWorkspaceKey(t *testing.T, name, workspaceKey, root string) {
+	t.Helper()
+	for _, fragment := range []string{root, "moduleRootsHash=", "workspaceFoldersHash="} {
+		if !strings.Contains(workspaceKey, fragment) {
+			t.Fatalf("worktree %s WorkspaceKey %q missing %q", name, workspaceKey, fragment)
 		}
 	}
 }

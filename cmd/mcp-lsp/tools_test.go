@@ -7,12 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/multilsp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLSPToolManifestsExposeVisibleLegacyNames(t *testing.T) {
@@ -138,111 +138,94 @@ func TestLSPOnToolsCallInjectsScopeContext(t *testing.T) {
 		Manifest: ToolManifest{Name: "file"},
 		Handler: func(ctx context.Context, args json.RawMessage) (any, error) {
 			called = true
-			scope, ok := common.ToolScopeFromContext(ctx)
-			if !ok {
-				t.Fatal("ToolScopeFromContext() missing scope")
-			}
-			if scope.AgentID != "trusted-agent" || scope.ThreadID != "trusted-thread" || scope.CallID != "trusted-call" {
-				t.Fatalf("scope identity = %#v, want trusted top-level metadata", scope)
-			}
-			if scope.CWD != "/trusted/lsp" {
-				t.Fatalf("scope cwd = %q, want /trusted/lsp", scope.CWD)
-			}
-			if got := common.WorkspaceRootFromContext(ctx, "/fallback"); got != "/trusted/lsp" {
-				t.Fatalf("WorkspaceRootFromContext() = %q, want /trusted/lsp", got)
-			}
-			if _, ok := reflect.TypeOf(common.ToolScope{}).FieldByName("SessionID"); ok {
-				t.Fatal("common.ToolScope unexpectedly exposes SessionID")
-			}
-			if _, ok := reflect.TypeOf(common.ToolCallParams{}).FieldByName("SessionID"); ok {
-				t.Fatal("common.ToolCallParams unexpectedly exposes SessionID")
-			}
-			var payload struct {
-				AgentID   string `json:"agent_id"`
-				ThreadID  string `json:"thread_id"`
-				CWD       string `json:"cwd"`
-				SessionID string `json:"session_id"`
-			}
-			if err := json.Unmarshal(args, &payload); err != nil {
-				t.Fatalf("unmarshal args: %v", err)
-			}
-			if payload.AgentID != "forged-agent" || payload.ThreadID != "forged-thread" || payload.CWD != "/forged/root" || payload.SessionID != "forged-session" {
-				t.Fatalf("arguments = %#v, want forged values preserved only as arguments", payload)
-			}
-			if scope.AgentID == payload.AgentID || scope.ThreadID == payload.ThreadID || scope.CWD == payload.CWD {
-				t.Fatalf("scope = %#v was overwritten by forged arguments %#v", scope, payload)
-			}
+			scope := requireToolScope(t, ctx)
+			assertTrustedToolScopeContext(t, ctx, scope)
+			assertToolScopeHasNoSessionID(t)
+			payload := decodeScopedToolCallPayload(t, args)
+			assertForgedToolArgumentsPreserved(t, scope, payload)
 			return map[string]any{"ok": true}, nil
 		},
 	}}
 	params := json.RawMessage(`{"name":"file","arguments":{"agent_id":"forged-agent","thread_id":"forged-thread","cwd":"/forged/root","session_id":"forged-session"},"_agentId":"trusted-agent","_threadId":"trusted-thread","_callId":"trusted-call","_cwd":"/trusted/lsp","sessionId":"top-level-forged-session","session_id":"top-level-forged-session"}`)
 
 	result, err := handleScopedToolsCall(context.Background(), registryToolProvider{defs: defs}, "lsp", params)
-	if err != nil {
-		t.Fatalf("handleScopedToolsCall() error = %v", err)
-	}
-	if !called {
-		t.Fatal("handler was not called")
-	}
+	require.NoError(t, err)
+	require.True(t, called, "handler was not called")
+	assertStructuredToolResult(t, result)
+}
+
+type scopedToolCallPayload struct {
+	FilePath  string `json:"file_path"`
+	AgentID   string `json:"agent_id"`
+	ThreadID  string `json:"thread_id"`
+	CWD       string `json:"cwd"`
+	SessionID string `json:"session_id"`
+}
+
+func requireToolScope(t *testing.T, ctx context.Context) common.ToolScope {
+	t.Helper()
+	scope, ok := common.ToolScopeFromContext(ctx)
+	require.True(t, ok, "ToolScopeFromContext() missing scope")
+	return scope
+}
+
+func assertTrustedToolScopeContext(t *testing.T, ctx context.Context, scope common.ToolScope) {
+	t.Helper()
+	require.Equal(t, "trusted-agent", scope.AgentID)
+	require.Equal(t, "trusted-thread", scope.ThreadID)
+	require.Equal(t, "trusted-call", scope.CallID)
+	require.Equal(t, "/trusted/lsp", scope.CWD)
+	require.Equal(t, "/trusted/lsp", common.WorkspaceRootFromContext(ctx, "/fallback"))
+}
+
+func assertToolScopeHasNoSessionID(t *testing.T) {
+	t.Helper()
+	_, scopeHasSession := reflect.TypeOf(common.ToolScope{}).FieldByName("SessionID")
+	require.False(t, scopeHasSession, "common.ToolScope unexpectedly exposes SessionID")
+	_, paramsHasSession := reflect.TypeOf(common.ToolCallParams{}).FieldByName("SessionID")
+	require.False(t, paramsHasSession, "common.ToolCallParams unexpectedly exposes SessionID")
+}
+
+func decodeScopedToolCallPayload(t *testing.T, args json.RawMessage) scopedToolCallPayload {
+	t.Helper()
+	var payload scopedToolCallPayload
+	require.NoError(t, json.Unmarshal(args, &payload))
+	return payload
+}
+
+func assertForgedToolArgumentsPreserved(t *testing.T, scope common.ToolScope, payload scopedToolCallPayload) {
+	t.Helper()
+	require.Equal(t, "forged-agent", payload.AgentID)
+	require.Equal(t, "forged-thread", payload.ThreadID)
+	require.Equal(t, "/forged/root", payload.CWD)
+	require.Equal(t, "forged-session", payload.SessionID)
+	require.NotEqual(t, scope.AgentID, payload.AgentID)
+	require.NotEqual(t, scope.ThreadID, payload.ThreadID)
+	require.NotEqual(t, scope.CWD, payload.CWD)
+}
+
+func assertStructuredToolResult(t *testing.T, result any) {
+	t.Helper()
 	payload, ok := result.(map[string]any)
-	if !ok || payload["structuredContent"] == nil {
-		t.Fatalf("handleScopedToolsCall() result = %#v, want structured content", result)
-	}
+	require.Truef(t, ok, "tool result type = %T, want map[string]any", result)
+	require.NotNilf(t, payload["structuredContent"], "tool result = %#v, want structured content", result)
 }
 
 func TestHandleScopedToolsCallRoutesTrustedScopeToManagerPool(t *testing.T) {
-	trustedRoot := t.TempDir()
-	evilRoot := t.TempDir()
-	trustedRoot = canonicalToolTestRoot(t, trustedRoot)
-	evilRoot = canonicalToolTestRoot(t, evilRoot)
-	writeTestFile(t, filepath.Join(trustedRoot, "go.mod"), "module example.test/trusted\n\ngo 1.25.0\n")
-	writeTestFile(t, filepath.Join(trustedRoot, "main.go"), "package main\n")
-	writeTestFile(t, filepath.Join(evilRoot, "go.mod"), "module example.test/evil\n\ngo 1.25.0\n")
-	writeTestFile(t, filepath.Join(evilRoot, "main.go"), "package evil\n")
-
-	registry := lspmanager.NewRegistry(nil)
-	mgr := multilsp.NewManager(multilsp.Config{WorkspaceRoot: evilRoot})
-	t.Cleanup(func() {
-		if err := mgr.Close(); err != nil {
-			t.Fatalf("manager.Close(): %v", err)
-		}
-	})
-	registry.Register("go", mgr, multilsp.NewRegistryScopedResolver(mgr))
+	trustedRoot, evilRoot := setupTrustedAndEvilToolRoots(t)
+	registry := newToolTestRegistry(t, evilRoot)
 
 	defs := []toolDefinition{{
 		Manifest: ToolManifest{Name: "file"},
 		Handler: func(ctx context.Context, args json.RawMessage) (any, error) {
-			var payload struct {
-				FilePath string `json:"file_path"`
-				AgentID  string `json:"agent_id"`
-				CWD      string `json:"cwd"`
-			}
-			if err := json.Unmarshal(args, &payload); err != nil {
-				return nil, err
-			}
-			if payload.AgentID != "agent-forged" || payload.CWD != evilRoot {
-				t.Fatalf("test setup did not pass forged arguments: %#v", payload)
-			}
+			payload := decodeScopedToolCallPayload(t, args)
+			assertManagerPoolForgedPayload(t, payload, evilRoot)
 			scoped, err := registry.ResolveManagerForFile(ctx, payload.FilePath)
-			if err != nil {
-				return nil, err
-			}
+			require.NoError(t, err)
 			resolved := scoped.ResolvedScope
-			if resolved.AgentID != "agent-trusted" || resolved.ThreadID != "thread-trusted" {
-				t.Fatalf("resolved identity = %#v, want trusted top-level scope", resolved)
-			}
-			if resolved.CWD != trustedRoot {
-				t.Fatalf("resolved CWD = %q, want trusted root %q", resolved.CWD, trustedRoot)
-			}
-			if resolved.TargetPath != filepath.Join(trustedRoot, "main.go") {
-				t.Fatalf("resolved TargetPath = %q, want trusted target", resolved.TargetPath)
-			}
-			if strings.Contains(resolved.ManagerKey, "agent-forged") || strings.Contains(resolved.ManagerKey, evilRoot) {
-				t.Fatalf("ManagerKey includes forged argument data: %q", resolved.ManagerKey)
-			}
-			if _, err := scoped.Manager.Diagnostics(ctx, nil); err != nil {
-				return nil, err
-			}
+			assertTrustedManagerPoolScope(t, resolved, trustedRoot, evilRoot)
+			_, err = scoped.Manager.Diagnostics(ctx, nil)
+			require.NoError(t, err)
 			return map[string]any{"manager_key": resolved.ManagerKey}, nil
 		},
 	}}
@@ -257,64 +240,29 @@ func TestHandleScopedToolsCallRoutesTrustedScopeToManagerPool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal params: %v", err)
 	}
-	if _, err := handleScopedToolsCall(context.Background(), registryToolProvider{defs: defs}, "lsp", params); err != nil {
-		t.Fatalf("handleScopedToolsCall: %v", err)
-	}
+	_, err = handleScopedToolsCall(context.Background(), registryToolProvider{defs: defs}, "lsp", params)
+	require.NoError(t, err)
 }
 
 func TestDirectStdioServerMcpLSPFamilyRoutesTrustedScopeToManagerPool(t *testing.T) {
-	trustedRoot := canonicalToolTestRoot(t, t.TempDir())
-	evilRoot := canonicalToolTestRoot(t, t.TempDir())
-	writeTestFile(t, filepath.Join(trustedRoot, "go.mod"), "module example.test/trusted\n\ngo 1.25.0\n")
-	writeTestFile(t, filepath.Join(trustedRoot, "main.go"), "package main\n")
-	writeTestFile(t, filepath.Join(evilRoot, "go.mod"), "module example.test/evil\n\ngo 1.25.0\n")
-	writeTestFile(t, filepath.Join(evilRoot, "main.go"), "package evil\n")
-
-	registry := lspmanager.NewRegistry(nil)
-	mgr := multilsp.NewManager(multilsp.Config{WorkspaceRoot: evilRoot})
-	t.Cleanup(func() {
-		if err := mgr.Close(); err != nil {
-			t.Fatalf("manager.Close(): %v", err)
-		}
-	})
-	registry.Register("go", mgr, multilsp.NewRegistryScopedResolver(mgr))
+	trustedRoot, evilRoot := setupTrustedAndEvilToolRoots(t)
+	registry := newToolTestRegistry(t, evilRoot)
 
 	called := false
 	defs := []toolDefinition{{
 		Manifest: ToolManifest{Name: "file"},
 		Handler: func(ctx context.Context, args json.RawMessage) (any, error) {
 			called = true
-			var payload struct {
-				FilePath string `json:"file_path"`
-				AgentID  string `json:"agent_id"`
-				CWD      string `json:"cwd"`
-			}
-			if err := json.Unmarshal(args, &payload); err != nil {
-				return nil, err
-			}
-			if payload.AgentID != "agent-forged" || payload.CWD != evilRoot {
-				t.Fatalf("test setup did not pass forged arguments: %#v", payload)
-			}
+			payload := decodeScopedToolCallPayload(t, args)
+			assertManagerPoolForgedPayload(t, payload, evilRoot)
 			scoped, err := registry.ResolveManagerForFile(ctx, payload.FilePath)
-			if err != nil {
-				return nil, err
-			}
+			require.NoError(t, err)
 			resolved := scoped.ResolvedScope
-			if resolved.Family != "lsp" {
-				t.Fatalf("resolved family = %q, want lsp", resolved.Family)
-			}
-			if resolved.AgentID != "agent-trusted" || resolved.ThreadID != "thread-trusted" {
-				t.Fatalf("resolved identity = %#v, want trusted direct server metadata", resolved)
-			}
-			if resolved.CWD != trustedRoot {
-				t.Fatalf("resolved CWD = %q, want trusted root %q", resolved.CWD, trustedRoot)
-			}
-			if strings.Contains(resolved.ManagerKey, "mcp-lsp") {
-				t.Fatalf("ManagerKey contains raw server family: %q", resolved.ManagerKey)
-			}
-			if _, err := scoped.Manager.Diagnostics(ctx, nil); err != nil {
-				return nil, err
-			}
+			assertTrustedManagerPoolScope(t, resolved, trustedRoot, evilRoot)
+			require.Equal(t, "lsp", resolved.Family)
+			require.NotContains(t, resolved.ManagerKey, "mcp-lsp")
+			_, err = scoped.Manager.Diagnostics(ctx, nil)
+			require.NoError(t, err)
 			return map[string]any{"ok": true}, nil
 		},
 	}}
@@ -331,23 +279,66 @@ func TestDirectStdioServerMcpLSPFamilyRoutesTrustedScopeToManagerPool(t *testing
 			"_cwd":      trustedRoot,
 		},
 	})
-	if err != nil {
-		t.Fatalf("marshal request: %v", err)
-	}
+	require.NoError(t, err)
 	var output bytes.Buffer
 	server := common.NewServer("mcp-lsp", "dev", common.NewStdioTransport(bytes.NewBuffer(request), &output), registryToolProvider{defs: defs})
-	if err := server.Run(context.Background()); err != nil {
-		t.Fatalf("Run() error = %v", err)
+	require.NoError(t, server.Run(context.Background()))
+	require.True(t, called, "direct stdio tools/call did not reach handler")
+	require.NotContains(t, output.String(), "unsupported LSP scope family")
+	assertDirectToolOutputOK(t, output.Bytes())
+}
+
+func setupTrustedAndEvilToolRoots(t *testing.T) (trustedRoot string, evilRoot string) {
+	t.Helper()
+	trustedRoot = canonicalToolTestRoot(t, t.TempDir())
+	evilRoot = canonicalToolTestRoot(t, t.TempDir())
+	writeTestFile(t, filepath.Join(trustedRoot, "go.mod"), "module example.test/trusted\n\ngo 1.25.0\n")
+	writeTestFile(t, filepath.Join(trustedRoot, "main.go"), "package main\n")
+	writeTestFile(t, filepath.Join(evilRoot, "go.mod"), "module example.test/evil\n\ngo 1.25.0\n")
+	writeTestFile(t, filepath.Join(evilRoot, "main.go"), "package evil\n")
+	return trustedRoot, evilRoot
+}
+
+type toolTestScopedRegistry interface {
+	ResolveManagerForFile(context.Context, string) (lspmanager.ScopedManager, error)
+}
+
+func newToolTestRegistry(t *testing.T, evilRoot string) toolTestScopedRegistry {
+	t.Helper()
+	registry := lspmanager.NewRegistry(nil)
+	mgr := multilsp.NewManager(multilsp.Config{WorkspaceRoot: evilRoot})
+	t.Cleanup(func() {
+		require.NoError(t, mgr.Close())
+	})
+	registry.Register("go", mgr, multilsp.NewRegistryScopedResolver(mgr))
+	return registry
+}
+
+func assertManagerPoolForgedPayload(t *testing.T, payload scopedToolCallPayload, evilRoot string) {
+	t.Helper()
+	require.Equal(t, "agent-forged", payload.AgentID)
+	require.Equal(t, evilRoot, payload.CWD)
+}
+
+func assertTrustedManagerPoolScope(t *testing.T, resolved lspmanager.ResolvedToolScope, trustedRoot, evilRoot string) {
+	t.Helper()
+	require.Equal(t, "agent-trusted", resolved.AgentID)
+	require.Equal(t, "thread-trusted", resolved.ThreadID)
+	require.Equal(t, trustedRoot, resolved.CWD)
+	require.Equal(t, filepath.Join(trustedRoot, "main.go"), resolved.TargetPath)
+	require.NotContains(t, resolved.ManagerKey, "agent-forged")
+	require.NotContains(t, resolved.ManagerKey, evilRoot)
+}
+
+func assertDirectToolOutputOK(t *testing.T, raw []byte) {
+	t.Helper()
+	if bytes.Contains(raw, []byte(`"ok":true`)) {
+		return
 	}
-	if !called {
-		t.Fatal("direct stdio tools/call did not reach handler")
+	if bytes.Contains(raw, []byte(`"ok\":true`)) {
+		return
 	}
-	if bytes.Contains(output.Bytes(), []byte("unsupported LSP scope family")) {
-		t.Fatalf("direct stdio tools/call returned raw family error: %s", output.String())
-	}
-	if !bytes.Contains(output.Bytes(), []byte(`"ok":true`)) && !bytes.Contains(output.Bytes(), []byte(`"ok\":true`)) {
-		t.Fatalf("Run() output = %s", output.String())
-	}
+	t.Fatalf("Run() output = %s", string(raw))
 }
 
 func writeTestFile(t *testing.T, path, contents string) {
