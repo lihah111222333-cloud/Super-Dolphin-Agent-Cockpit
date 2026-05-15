@@ -28,6 +28,7 @@ func TestStopInterruptsTurnAndCleansThreadState(t *testing.T) {
 			Provider:         "codex",
 			ProviderThreadID: "provider-thread-1",
 			CodexThreadID:    "thread-1",
+			SessionUUID:      "019e2c67-aabc-74f2-bf7a-6872e8465908",
 		}},
 		threadStore: &stubThreadStore{thread: &threadstore.Thread{
 			ThreadID: "thread-1",
@@ -51,8 +52,8 @@ func TestStopInterruptsTurnAndCleansThreadState(t *testing.T) {
 		t.Fatalf("stopped agent = %q, want %q", orch.stoppedAgentID, "agent-1")
 	}
 	bindingStore := svc.bindingStore.(*stubThreadBindingStore)
-	if len(bindingStore.sessionUpdates) != 1 || bindingStore.sessionUpdates[0].AgentID != "agent-1" || bindingStore.sessionUpdates[0].SessionUUID != "" {
-		t.Fatalf("binding cleanup = %#v", bindingStore.sessionUpdates)
+	if len(bindingStore.sessionUpdates) != 0 {
+		t.Fatalf("binding session uuid updates = %#v, want preserved history locator", bindingStore.sessionUpdates)
 	}
 	threadStore := svc.threadStore.(*stubThreadStore)
 	if threadStore.status.ThreadID != "thread-1" || threadStore.status.Status != statusStopped {

@@ -284,6 +284,68 @@ func TestAttemptRecoveryAfterShutdownDoesNotDispatchRecoverableDeath(t *testing.
 	}
 }
 
+func TestAttemptRecoveryDuringClosingDoesNotDispatchRecoverableDeath(t *testing.T) {
+	t.Parallel()
+
+	bus := event.NewDispatcher()
+	defer func() { _ = bus.Close() }()
+	rawEvents := make(chan dto.BusRawProviderEvent, 1)
+	cancelSub := event.Subscribe(bus, func(ev dto.BusRawProviderEvent) {
+		rawEvents <- ev
+	})
+	defer cancelSub()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	tr := &transport{}
+	tr.closing.Store(true)
+	s := &session{
+		agentID:       "agent-1",
+		transport:     tr,
+		ctx:           ctx,
+		cancel:        cancel,
+		dispatcher:    unified.NewEventDispatcher(bus, pkglogger.Get()),
+		turns:         map[string]*turnHandle{},
+		suppressed:    map[string]struct{}{},
+		runtimeConfig: map[string]any{},
+		recovery:      &recoveryManager{logger: pkglogger.Get()},
+	}
+	s.runtime = newSessionRuntime(s, pkglogger.Get())
+
+	err := s.attemptRecovery("closing-race")
+	if !errors.Is(err, errSessionClosing) {
+		t.Fatalf("attemptRecovery() err = %v, want errSessionClosing", err)
+	}
+	select {
+	case ev := <-rawEvents:
+		t.Fatalf("unexpected recoverable event during closing: %#v", ev)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestCallTransportDuringClosingDoesNotAttemptRecovery(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	tr := &transport{}
+	tr.closing.Store(true)
+	s := &session{
+		transport: tr,
+		ctx:       ctx,
+		cancel:    cancel,
+		recovery:  &recoveryManager{transport: tr, logger: pkglogger.Get()},
+	}
+
+	_, err := s.callTransport(ctx, "thread/status", nil)
+	if err == nil || !strings.Contains(err.Error(), "transport closing") {
+		t.Fatalf("callTransport() err = %v, want transport closing", err)
+	}
+	if got := s.recoveryCount.Load(); got != 0 {
+		t.Fatalf("recoveryCount = %d, want 0", got)
+	}
+}
+
 // -----------------------------------------------------------------------------
 // Test 5: recovery replay order is deterministic
 // -----------------------------------------------------------------------------

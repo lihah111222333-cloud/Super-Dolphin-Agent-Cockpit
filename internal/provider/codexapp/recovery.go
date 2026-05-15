@@ -357,7 +357,9 @@ func shouldReconnect(err error) bool {
 	// "transport unavailable" means session was explicitly destroyed (nil transport).
 	// RPC protocol errors (-32600, -32601, etc.) mean the server is alive.
 	// In both cases recovery would be pointless or harmful.
-	if strings.Contains(message, "transport unavailable") || strings.HasPrefix(message, "rpc error ") {
+	if strings.Contains(message, "transport unavailable") ||
+		strings.Contains(message, "transport closing") ||
+		strings.HasPrefix(message, "rpc error ") {
 		return false
 	}
 	// "transport closed" now triggers recovery — the WebSocket may have

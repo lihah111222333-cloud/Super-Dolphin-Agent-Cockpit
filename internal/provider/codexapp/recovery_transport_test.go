@@ -3,6 +3,7 @@ package codexapp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -284,6 +285,67 @@ func TestTransportPassiveDisconnectDispatchesConnectionDead(t *testing.T) {
 	case <-dead:
 	case <-time.After(time.Second):
 		t.Fatal("passive disconnect did not dispatch connection.dead")
+	}
+}
+
+func TestTransportClosingDisconnectDoesNotDispatchConnectionDead(t *testing.T) {
+	t.Parallel()
+
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		for {
+			_, rawBytes, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var msg jsonRPCMessage
+			if err := json.Unmarshal(rawBytes, &msg); err != nil || len(msg.ID) == 0 {
+				continue
+			}
+			resp, err := json.Marshal(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      json.RawMessage(append([]byte(nil), msg.ID...)),
+				"result":  map[string]any{"ok": true},
+			})
+			if err != nil {
+				t.Fatalf("marshal response: %v", err)
+			}
+			_ = conn.WriteMessage(websocket.TextMessage, resp)
+			return
+		}
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	transport, err := newTransport(ctx, "ws"+strings.TrimPrefix(server.URL, "http"))
+	if err != nil {
+		t.Fatalf("newTransport() error = %v", err)
+	}
+	defer func() { _ = transport.Kill() }()
+
+	transport.closing.Store(true)
+	dead := make(chan RawMessage, 1)
+	transport.ReadLoop(ctx, func(_ context.Context, _ Responder, msg RawMessage) {
+		if strings.TrimSpace(msg.Method) == "connection.dead" {
+			dead <- msg
+		}
+	})
+	select {
+	case msg := <-dead:
+		t.Fatalf("unexpected connection.dead during shutdown: %+v", msg)
+	default:
+	}
+}
+
+func TestTransportClosingErrorDoesNotTriggerReconnect(t *testing.T) {
+	if shouldReconnect(errors.New("codexapp: transport closing")) {
+		t.Fatal("transport closing must not trigger recovery")
 	}
 }
 
