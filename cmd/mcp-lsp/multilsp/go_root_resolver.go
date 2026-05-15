@@ -108,7 +108,7 @@ func resolveGoRootFromGOWORK(target, projectRoot string, env []string) (GoRootIn
 		info, err := resolveGoRootWithoutGoWork(target, projectRoot, goworkModeOff)
 		return info, true, err
 	}
-	if trimmed == "" {
+	if trimmed == "" || strings.EqualFold(trimmed, goworkModeAuto) {
 		return GoRootInfo{}, false, nil
 	}
 	goWorkPath, err := normalizeOptionalPath(trimmed, "")
@@ -119,6 +119,9 @@ func resolveGoRootFromGOWORK(target, projectRoot string, env []string) (GoRootIn
 		return GoRootInfo{}, true, fmt.Errorf("GOWORK path does not exist: %s", goWorkPath)
 	}
 	info, err := resolveGoWorkRoot(target, projectRoot, goWorkPath, goworkModeExplicit)
+	if err == nil && !goWorkRootContainsTarget(info, target) {
+		err = fmt.Errorf("GOWORK path %s does not contain target %s", goWorkPath, target)
+	}
 	return info, true, err
 }
 
@@ -186,7 +189,13 @@ func resolveGoWorkRoot(target, projectRoot, goWorkPath, mode string) (GoRootInfo
 	workspaceRoot := filepath.Dir(goWorkPath)
 	moduleRoots, err := parseGoWorkModuleRoots(goWorkPath)
 	if err != nil {
-		return GoRootInfo{}, err
+		return GoRootInfo{
+			RootKind:      goRootKindGoWork,
+			WorkspaceRoot: workspaceRoot,
+			GoWorkPath:    goWorkPath,
+			GOWORKMode:    mode,
+			ProjectRoot:   fallbackProjectRootValue(projectRoot, workspaceRoot),
+		}, nil
 	}
 	moduleRoot := longestContainingRoot(target, moduleRoots)
 	goModPath := ""
@@ -203,6 +212,21 @@ func resolveGoWorkRoot(target, projectRoot, goWorkPath, mode string) (GoRootInfo
 		GOWORKMode:    mode,
 		ProjectRoot:   fallbackProjectRootValue(projectRoot, workspaceRoot),
 	}, nil
+}
+
+func goWorkRootContainsTarget(info GoRootInfo, target string) bool {
+	if strings.TrimSpace(target) == "" {
+		return true
+	}
+	if info.WorkspaceRoot != "" && pathWithinRoot(target, info.WorkspaceRoot) {
+		return true
+	}
+	for _, moduleRoot := range info.ModuleRoots {
+		if pathWithinRoot(target, moduleRoot) {
+			return true
+		}
+	}
+	return false
 }
 
 func findGoModPath(path string) (string, error) {
@@ -251,11 +275,18 @@ func findFirstLevelGoModRoots(root string) ([]string, error) {
 		if !entry.IsDir() {
 			continue
 		}
+		if shouldSkipGoChildModuleDir(entry.Name()) {
+			continue
+		}
 		if fileExists(filepath.Join(root, entry.Name(), "go.mod")) {
 			modules = append(modules, filepath.Join(root, entry.Name()))
 		}
 	}
 	return cleanSortedUniquePaths(modules), nil
+}
+
+func shouldSkipGoChildModuleDir(name string) bool {
+	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")
 }
 
 func resolveGoTargetPath(filePath, cwd string) (string, error) {
