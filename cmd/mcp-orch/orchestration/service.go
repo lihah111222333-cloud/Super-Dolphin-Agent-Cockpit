@@ -422,7 +422,7 @@ func resolveEventTime(ctx context.Context, fallbacks ...time.Time) time.Time {
 }
 
 func (s *service) LaunchAgent(ctx context.Context, req LaunchRequest) error {
-	return s.launchAgentViaLauncher(ctx, req)
+	return s.launchAgentViaLauncher(ctx, s.applyLaunchRequestDefaults(req))
 }
 
 func (s *service) StopAgent(ctx context.Context, agentID string) error {

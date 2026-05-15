@@ -33,6 +33,7 @@ func (s *service) launchAgentViaLauncher(ctx context.Context, req LaunchRequest)
 }
 
 func (s *service) LaunchAgentSnapshot(ctx context.Context, req LaunchRequest) (AgentSnapshot, error) {
+	req = s.applyLaunchRequestDefaults(req)
 	launched, err := s.launchAgentUntilStarted(ctx, req)
 	if err != nil {
 		return AgentSnapshot{}, err
@@ -43,6 +44,32 @@ func (s *service) LaunchAgentSnapshot(ctx context.Context, req LaunchRequest) (A
 	}
 	s.submitInitialLaunchPromptAsync(launched.agentID, launched.result, req)
 	return snapshot, nil
+}
+
+// applyLaunchRequestDefaults inherits parent metadata that child-agent tool
+// calls typically omit. Without this, orchestration_launch_agent invocations
+// reach the launcher with Cwd="", which propagates all the way to the frontend
+// project filter (thread-store-view.js getThreadsByMode) — empty cwd there
+// matches every non-dot project window, so the spawned child appears in
+// unrelated projects' lists.
+func (s *service) applyLaunchRequestDefaults(req LaunchRequest) LaunchRequest {
+	if strings.TrimSpace(req.Cwd) != "" {
+		return req
+	}
+	parentID := strings.TrimSpace(req.ParentID)
+	if parentID == "" {
+		return req
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	parent, err := lookupAgentByIDLocked(s.agents, parentID)
+	if err != nil || parent == nil {
+		return req
+	}
+	if cwd := strings.TrimSpace(parent.cwd); cwd != "" {
+		req.Cwd = cwd
+	}
+	return req
 }
 
 func (s *service) launchAgentUntilStarted(ctx context.Context, req LaunchRequest) (launchedAgent, error) {
