@@ -102,7 +102,11 @@ func (r *ToolRegistry) FindActiveForScope(scope ToolScope) []*ToolInstance {
 			return relaxed
 		}
 	}
-	return peers
+	return filterActivePeers(peers, func(inst *ToolInstance) bool {
+		return inst.Shared &&
+			strings.TrimSpace(inst.PeerKind) == dto.PeerKindSharedService &&
+			strings.TrimSpace(inst.ClientKind) == scope.Family
+	})
 }
 
 func (r *ToolRegistry) findActiveByKindLocked(clientKind string) []*ToolInstance {

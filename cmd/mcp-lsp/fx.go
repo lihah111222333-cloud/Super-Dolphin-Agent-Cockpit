@@ -47,7 +47,7 @@ func run() error {
 	app := fx.New(
 		fx.NopLogger,
 		fx.Provide(
-			func(shutdowner fx.Shutdowner, handlers ToolHandlers) bootstrap.Config {
+			func(shutdowner fx.Shutdowner, handlers ToolHandlers, runtimeManager *Manager) bootstrap.Config {
 				cfg := bootstrap.ReadBootConfig()
 				cfg.AgentID = ""
 				cfg.Capabilities = []string{"tools/lsp"}
@@ -67,6 +67,12 @@ func run() error {
 				}
 				cfg.OnConfigChanged = func(notify mcp.ConfigChangedNotify) {
 					pkglogger.Info("mcp-lsp config changed", "binary_name", cfg.BinaryName, "instance_id", cfg.InstanceID, "scope", notify.Scope, "config_version", notify.ConfigVersion, "selector", notify.Selector, "payload", string(notify.Payload))
+				}
+				cfg.OnLSPReleaseScope = func(ctx context.Context, req mcp.LSPReleaseScopeRequest) (mcp.LSPReleaseScopeResult, error) {
+					if runtimeManager == nil {
+						return mcp.LSPReleaseScopeResult{}, nil
+					}
+					return runtimeManager.ReleaseScope(req)
 				}
 				cfg.OnShutdown = func(mcp.ShutdownRequest) {
 					platformshared.LogIgnoredError(pkglogger.Get(), "mcp-lsp: OnShutdown", shutdowner.Shutdown())

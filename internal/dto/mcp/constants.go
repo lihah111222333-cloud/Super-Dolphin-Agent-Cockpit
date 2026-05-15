@@ -1,15 +1,16 @@
 package mcp
 
 const (
-	MethodRegister      = "ctl/register"
-	MethodHeartbeat     = "ctl/heartbeat"
-	MethodContext       = "ctl/context"
-	MethodEvent         = "ctl/event"
-	MethodLog           = "ctl/log"
-	MethodApproval      = "ctl/approval/request"
-	MethodReport        = "ctl/report"
-	MethodShutdown      = "ctl/shutdown"
-	MethodConfigChanged = "ctl/config/changed"
+	MethodRegister        = "ctl/register"
+	MethodHeartbeat       = "ctl/heartbeat"
+	MethodContext         = "ctl/context"
+	MethodEvent           = "ctl/event"
+	MethodLog             = "ctl/log"
+	MethodApproval        = "ctl/approval/request"
+	MethodReport          = "ctl/report"
+	MethodShutdown        = "ctl/shutdown"
+	MethodConfigChanged   = "ctl/config/changed"
+	MethodLSPReleaseScope = "ctl/lsp/release_scope"
 
 	ProtocolVersion = "ctl/v1"
 
@@ -18,13 +19,18 @@ const (
 	ClientKindIDA    = "ida"
 	ClientKindCustom = "custom"
 
-	PeerKindTool = "tool"
-	PeerKindUI   = "ui"
+	PeerKindTool          = "tool"
+	PeerKindUI            = "ui"
+	PeerKindSharedService = "shared-service"
 
 	ScopeAgentRuntime   = "agent.runtime"
 	ScopeThreadBinding  = "thread.binding"
 	ScopeWorkspaceRun   = "workspace.run"
 	ScopeConfigSnapshot = "config.snapshot"
+
+	LSPReleaseScopeAgentThread     = "agent_thread"
+	LSPReleaseScopeAgentAllThreads = "agent_all_threads"
+	LSPReleaseScopeManagerKey      = "manager_key"
 
 	ContextSourceLive         = "live"
 	ContextSourceBootSnapshot = "boot_snapshot"

@@ -408,6 +408,57 @@ func TestManagerPoolGoWorkWorkspaceCloneUsesWorkspaceRootAndClose(t *testing.T) 
 	}
 }
 
+func TestAgentStopTriggersLSPReleaseScope(t *testing.T) {
+	root := t.TempDir()
+	mgr := newManagerPoolTestManager(t, root)
+
+	agentGo, err := mgr.pool.ForScope(testLSPToolScope(root, "agent-stop", "thread-1"))
+	if err != nil {
+		t.Fatalf("ForScope(agent go): %v", err)
+	}
+	agentTS, err := mgr.pool.ForScope(testLSPToolScopeForLanguage(root, "agent-stop", "thread-2", "typescript"))
+	if err != nil {
+		t.Fatalf("ForScope(agent typescript): %v", err)
+	}
+	otherAgent, err := mgr.pool.ForScope(testLSPToolScopeForLanguage(root, "agent-keep", "thread-1", "python"))
+	if err != nil {
+		t.Fatalf("ForScope(other agent): %v", err)
+	}
+
+	agentGoManager := agentGo.Manager.(*manager)
+	agentTSManager := agentTS.Manager.(*manager)
+	otherManager := otherAgent.Manager.(*manager)
+	result, err := mgr.pool.ReleaseScope(ReleaseScopeRequest{
+		ScopeKind: ReleaseScopeAgentAllThreads,
+		AgentID:   "agent-stop",
+		Drain:     true,
+		Reason:    "agent/stopped",
+	})
+	if err != nil {
+		t.Fatalf("ReleaseScope(agent stop): %v", err)
+	}
+	if result.MatchedManagers != 2 || result.ClosedManagers != 2 || result.BusyLeases != 0 || !result.Drained {
+		t.Fatalf("ReleaseScope result = %#v, want matched=2 closed=2 busy=0 drained=true", result)
+	}
+	if !managerIsClosed(agentGoManager) {
+		t.Fatalf("agent go manager was not closed by ReleaseScope")
+	}
+	if !managerIsClosed(agentTSManager) {
+		t.Fatalf("agent TypeScript manager was not closed by ReleaseScope")
+	}
+	if managerIsClosed(otherManager) {
+		t.Fatalf("ReleaseScope closed unrelated agent/language manager")
+	}
+	for _, snapshot := range mgr.pool.SnapshotManagers() {
+		if snapshot.base {
+			continue
+		}
+		if snapshot.resolvedScope.AgentID == "agent-stop" {
+			t.Fatalf("released agent clone remains in pool snapshot: %#v", snapshot.resolvedScope)
+		}
+	}
+}
+
 func newManagerPoolTestManager(t *testing.T, root string) *manager {
 	t.Helper()
 	mgr := NewManager(Config{WorkspaceRoot: root}).(*manager)
@@ -432,4 +483,12 @@ func testLSPToolScope(root, agentID, threadID string) LSPToolScope {
 			"moduleRoot": root,
 		},
 	}
+}
+
+func testLSPToolScopeForLanguage(root, agentID, threadID, languageID string) LSPToolScope {
+	scope := testLSPToolScope(root, agentID, threadID)
+	scope.LanguageID = languageID
+	scope.RootKind = "dir_fallback"
+	scope.LanguageSpecific = nil
+	return scope
 }

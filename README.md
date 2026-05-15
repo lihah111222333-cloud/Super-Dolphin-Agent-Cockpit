@@ -10,7 +10,7 @@ Multi-agent orchestration platform for AI-assisted development. Provides session
 cmd/
 ├── agent-terminal/      # Frontend + HTTP server (Vue.js SPA)
 ├── mcp-orch/            # MCP orchestration peer (agent lifecycle, DAG, cron)
-└── mcp-lsp/             # MCP LSP peer (gopls integration, code intelligence)
+└── mcp-lsp/             # MCP generic multi-language LSP peer (code intelligence)
 
 internal/
 ├── contract/            # Cross-module interfaces & DTOs

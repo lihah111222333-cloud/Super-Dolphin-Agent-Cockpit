@@ -99,7 +99,7 @@ func TestLanguageAdapterRegistryOwnsRootEnvBootstrapPolicy(t *testing.T) {
 	}
 }
 
-func TestGOWORKDoesNotAffectNonGoLanguageAdapters(t *testing.T) {
+func TestTypeScriptEnsureClientDoesNotLeakGOWORK(t *testing.T) {
 	t.Setenv("GOWORK", filepath.Join(t.TempDir(), "external.go.work"))
 	root := canonicalScopePath(t.TempDir(), "")
 	writeGenericTestFile(t, filepath.Join(root, "package.json"), `{"name":"web"}`)

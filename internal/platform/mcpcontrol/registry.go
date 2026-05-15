@@ -36,6 +36,7 @@ type ToolInstance struct {
 	Subscriptions       []string
 	PeerKind            string
 	ClientKind          string
+	Shared              bool
 	ConnectedAt         time.Time
 	RegisteredAt        time.Time
 	LastHeartbeat       time.Time
@@ -137,6 +138,7 @@ func (r *ToolRegistry) Register(ctx context.Context, req dto.RegisterRequest) (d
 		Subscriptions: platformshared.CloneStrings(normalized.Subscriptions),
 		PeerKind:      normalized.PeerKind,
 		ClientKind:    normalized.ClientKind,
+		Shared:        normalized.Shared,
 		ConnectedAt:   now,
 		RegisteredAt:  now,
 		LastHeartbeat: now,
