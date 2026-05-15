@@ -1,5 +1,11 @@
 package manager
 
+import (
+	"context"
+
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+)
+
 // ToolScope is the registry-facing LSP scope assembled from trusted
 // server-side tool metadata plus the tool target. Model-supplied arguments are
 // intentionally not identity inputs; callers should populate AgentID/ThreadID
@@ -48,4 +54,151 @@ type ScopedManager struct {
 type ScopedManagerResolver interface {
 	ForToolScope(scope ToolScope) (ScopedManager, error)
 	CurrentManagersForToolScope(scope ToolScope) ([]ScopedManager, error)
+}
+
+type resolvedToolScopeContextKey struct{}
+
+// WithResolvedToolScope attaches the canonical scope returned by a scoped
+// resolver to ctx. Concrete manager implementations can convert this
+// registry-level value to their internal scope type without forcing the
+// registry package to import those implementations.
+func WithResolvedToolScope(ctx context.Context, scope ResolvedToolScope) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if scope.WorkspaceKey == "" && scope.ManagerKey == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, resolvedToolScopeContextKey{}, scope)
+}
+
+func ResolvedToolScopeFromContext(ctx context.Context) (ResolvedToolScope, bool) {
+	if ctx == nil {
+		return ResolvedToolScope{}, false
+	}
+	scope, ok := ctx.Value(resolvedToolScopeContextKey{}).(ResolvedToolScope)
+	if !ok || (scope.WorkspaceKey == "" && scope.ManagerKey == "") {
+		return ResolvedToolScope{}, false
+	}
+	return scope, true
+}
+
+func ManagerWithResolvedScope(manager Manager, scope ResolvedToolScope) Manager {
+	if manager == nil || (scope.WorkspaceKey == "" && scope.ManagerKey == "") {
+		return manager
+	}
+	return &resolvedScopeManager{manager: manager, scope: scope}
+}
+
+type resolvedScopeManager struct {
+	manager Manager
+	scope   ResolvedToolScope
+}
+
+func (m *resolvedScopeManager) scoped(ctx context.Context) context.Context {
+	return WithResolvedToolScope(ctx, m.scope)
+}
+
+func (m *resolvedScopeManager) Close() error {
+	return m.manager.Close()
+}
+
+func (m *resolvedScopeManager) Definition(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error) {
+	return m.manager.Definition(m.scoped(ctx), uri, position)
+}
+
+func (m *resolvedScopeManager) Implementation(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error) {
+	return m.manager.Implementation(m.scoped(ctx), uri, position)
+}
+
+func (m *resolvedScopeManager) TypeDefinition(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error) {
+	return m.manager.TypeDefinition(m.scoped(ctx), uri, position)
+}
+
+func (m *resolvedScopeManager) Hover(ctx context.Context, uri string, position protocol.Position) (*protocol.HoverResult, error) {
+	return m.manager.Hover(m.scoped(ctx), uri, position)
+}
+
+func (m *resolvedScopeManager) SignatureHelp(ctx context.Context, uri string, position protocol.Position) (*protocol.SignatureHelpResult, error) {
+	return m.manager.SignatureHelp(m.scoped(ctx), uri, position)
+}
+
+func (m *resolvedScopeManager) References(ctx context.Context, uri string, position protocol.Position, includeDeclaration bool) ([]protocol.LocationResult, error) {
+	return m.manager.References(m.scoped(ctx), uri, position, includeDeclaration)
+}
+
+func (m *resolvedScopeManager) CallHierarchy(ctx context.Context, uri string, position protocol.Position, direction string) ([]protocol.CallHierarchyResult, error) {
+	return m.manager.CallHierarchy(m.scoped(ctx), uri, position, direction)
+}
+
+func (m *resolvedScopeManager) TypeHierarchy(ctx context.Context, uri string, position protocol.Position, direction string) ([]protocol.TypeHierarchyResult, error) {
+	return m.manager.TypeHierarchy(m.scoped(ctx), uri, position, direction)
+}
+
+func (m *resolvedScopeManager) DocumentSymbol(ctx context.Context, uri string) ([]protocol.DocumentSymbol, error) {
+	return m.manager.DocumentSymbol(m.scoped(ctx), uri)
+}
+
+func (m *resolvedScopeManager) WorkspaceSymbol(ctx context.Context, query string, languageID string) ([]protocol.WorkspaceSymbolResult, error) {
+	return m.manager.WorkspaceSymbol(m.scoped(ctx), query, languageID)
+}
+
+func (m *resolvedScopeManager) FoldingRange(ctx context.Context, uri string) ([]protocol.FoldingRange, error) {
+	return m.manager.FoldingRange(m.scoped(ctx), uri)
+}
+
+func (m *resolvedScopeManager) SemanticTokens(ctx context.Context, uri string) (*protocol.SemanticTokensResult, error) {
+	return m.manager.SemanticTokens(m.scoped(ctx), uri)
+}
+
+func (m *resolvedScopeManager) Completion(ctx context.Context, uri string, position protocol.Position) (*protocol.CompletionList, error) {
+	return m.manager.Completion(m.scoped(ctx), uri, position)
+}
+
+func (m *resolvedScopeManager) Rename(ctx context.Context, uri string, position protocol.Position, newName string) (*protocol.WorkspaceEdit, error) {
+	return m.manager.Rename(m.scoped(ctx), uri, position, newName)
+}
+
+func (m *resolvedScopeManager) CodeAction(ctx context.Context, uri string, rng protocol.Range, only []string) ([]protocol.CodeActionResult, error) {
+	return m.manager.CodeAction(m.scoped(ctx), uri, rng, only)
+}
+
+func (m *resolvedScopeManager) Format(ctx context.Context, uri string, options protocol.FormattingOptions) ([]protocol.TextEdit, error) {
+	return m.manager.Format(m.scoped(ctx), uri, options)
+}
+
+func (m *resolvedScopeManager) DidOpen(ctx context.Context, uri, languageID string, version int, text string) error {
+	return m.manager.DidOpen(m.scoped(ctx), uri, languageID, version, text)
+}
+
+func (m *resolvedScopeManager) DidChange(ctx context.Context, uri string, version int, changes []protocol.TextDocumentContentChangeEvent) error {
+	return m.manager.DidChange(m.scoped(ctx), uri, version, changes)
+}
+
+func (m *resolvedScopeManager) DidClose(ctx context.Context, uri string) error {
+	return m.manager.DidClose(m.scoped(ctx), uri)
+}
+
+func (m *resolvedScopeManager) BootstrapDocument(ctx context.Context, uri string) error {
+	return m.manager.BootstrapDocument(m.scoped(ctx), uri)
+}
+
+func (m *resolvedScopeManager) BootstrapDocumentOpenOnly(ctx context.Context, uri string) error {
+	return m.manager.BootstrapDocumentOpenOnly(m.scoped(ctx), uri)
+}
+
+func (m *resolvedScopeManager) Diagnostics(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, error) {
+	return m.manager.Diagnostics(m.scoped(ctx), uris)
+}
+
+func (m *resolvedScopeManager) WaitDiagnosticsStable(ctx context.Context, uris []string) error {
+	return m.manager.WaitDiagnosticsStable(m.scoped(ctx), uris)
+}
+
+func (m *resolvedScopeManager) CurrentDiagnosticGeneration() uint64 {
+	return m.manager.CurrentDiagnosticGeneration()
+}
+
+func (m *resolvedScopeManager) AdvanceDiagnosticGeneration() uint64 {
+	return m.manager.AdvanceDiagnosticGeneration()
 }

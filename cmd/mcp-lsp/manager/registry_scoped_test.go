@@ -25,8 +25,14 @@ func TestRegistryResolveManagerForFileUsesTrustedToolScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveManagerForFile: %v", err)
 	}
-	if scoped.Manager != scopedMgr {
-		t.Fatalf("resolved manager = %p, want scoped manager %p", scoped.Manager, scopedMgr)
+	if scoped.Manager == scopedMgr {
+		t.Fatalf("resolved manager returned bare scoped manager; want resolved-scope wrapper")
+	}
+	if _, err := scoped.Manager.Diagnostics(ctx, nil); err != nil {
+		t.Fatalf("wrapped Diagnostics: %v", err)
+	}
+	if resolved, ok := ResolvedToolScopeFromContext(scopedMgr.diagnosticsContext); !ok || resolved.ManagerKey != "manager-key" {
+		t.Fatalf("wrapped Diagnostics resolved scope = %#v ok=%v, want manager-key", resolved, ok)
 	}
 	if resolver.lastScope.AgentID != "agent-trusted" || resolver.lastScope.ThreadID != "thread-trusted" {
 		t.Fatalf("resolver scope identity = %#v, want trusted agent/thread", resolver.lastScope)
@@ -46,7 +52,9 @@ func TestRegistryDiagnosticsAllUsesCurrentScopedManagers(t *testing.T) {
 		current: []ScopedManager{{
 			Manager: scopedMgr,
 			ResolvedScope: ResolvedToolScope{
-				ScopeKey: "lsp\x00agent-a\x00thread-a",
+				ScopeKey:     "lsp\x00agent-a\x00thread-a",
+				WorkspaceKey: "workspace-a",
+				ManagerKey:   "manager-a",
 			},
 		}},
 	}
@@ -67,6 +75,9 @@ func TestRegistryDiagnosticsAllUsesCurrentScopedManagers(t *testing.T) {
 	}
 	if scopedMgr.diagnosticsContext == nil {
 		t.Fatalf("Diagnostics(ctx,nil) did not call scoped manager")
+	}
+	if resolved, ok := ResolvedToolScopeFromContext(scopedMgr.diagnosticsContext); !ok || resolved.ManagerKey != "manager-a" {
+		t.Fatalf("Diagnostics(ctx,nil) resolved scope = %#v ok=%v, want manager-a", resolved, ok)
 	}
 	if resolver.currentScope.AgentID != "agent-a" || resolver.currentScope.ThreadID != "thread-a" {
 		t.Fatalf("current scope = %#v, want trusted scope", resolver.currentScope)
