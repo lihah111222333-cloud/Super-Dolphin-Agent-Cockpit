@@ -1885,11 +1885,15 @@
   display: contents;
 }
 
-.chat-item-markdown>* {
+.chat-item-markdown > *,
+.chat-item-markdown .chat-item-markdown-static-wrap > *,
+.chat-item-markdown .chat-item-markdown-stream-wrap > * {
   margin: 0;
 }
 
-.chat-item-markdown>*+* {
+.chat-item-markdown > * + *,
+.chat-item-markdown .chat-item-markdown-static-wrap > * + *,
+.chat-item-markdown .chat-item-markdown-stream-wrap > * + * {
   margin-top: 6px;
 }
 
