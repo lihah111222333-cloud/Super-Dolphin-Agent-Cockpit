@@ -139,30 +139,45 @@ func TestFailNodeAndCancelDownstream_FailFastTrue_CascadesTransitivePending(t *t
 	if err != nil {
 		t.Fatalf("fail A error = %v", err)
 	}
-	if res.Node == nil || res.Node.Status != "failed" {
-		t.Fatalf("res.Node = %+v, want status=failed", res.Node)
-	}
-	gotKeys := canceledKeys(res.CanceledDownstream)
-	if want := []string{"B", "C"}; !equalStrings(gotKeys, want) {
-		t.Fatalf("canceled = %v, want %v", gotKeys, want)
-	}
-	if got := db.nodes[dagRunNodeKey("dag-1", "B", runID)].Status; got != "failed" {
-		t.Fatalf("B status = %q, want failed", got)
-	}
-	if got := db.nodes[dagRunNodeKey("dag-1", "C", runID)].Status; got != "failed" {
-		t.Fatalf("C status = %q, want failed", got)
-	}
+	requireFailNodeStatus(t, res, "failed")
+	requireCanceledNodeKeys(t, res.CanceledDownstream, []string{"B", "C"})
+	requireRunNodeStatus(t, db, runID, "B", "failed")
+	requireRunNodeStatus(t, db, runID, "C", "failed")
 	// D was already done — fail-fast must not rewrite terminal nodes.
-	if got := db.nodes[dagRunNodeKey("dag-1", "D", runID)].Status; got != "done" {
-		t.Fatalf("D status = %q, want done (terminal must not be rewritten)", got)
-	}
+	requireRunNodeStatus(t, db, runID, "D", "done")
 	// Cascade reason on B should reference A as the originator.
-	var reason failNodeReason
-	if err := json.Unmarshal(db.nodes[dagRunNodeKey("dag-1", "B", runID)].Result, &reason); err != nil {
-		t.Fatalf("unmarshal B result: %v", err)
+	requireCascadeReason(t, db, runID, "B", "A")
+}
+
+func requireFailNodeStatus(t *testing.T, res *FailNodeResult, want string) {
+	t.Helper()
+	if res.Node == nil || res.Node.Status != want {
+		t.Fatalf("res.Node = %+v, want status=%s", res.Node, want)
 	}
-	if reason.Kind != "cascade" || reason.CausedByNode != "A" {
-		t.Fatalf("B reason = %+v, want kind=cascade caused_by=A", reason)
+}
+
+func requireCanceledNodeKeys(t *testing.T, canceled []CanceledDownstreamNode, want []string) {
+	t.Helper()
+	if got := canceledKeys(canceled); !equalStrings(got, want) {
+		t.Fatalf("canceled = %v, want %v", got, want)
+	}
+}
+
+func requireRunNodeStatus(t *testing.T, db *fakeTaskDAGDB, runID int64, nodeKey, want string) {
+	t.Helper()
+	if got := db.nodes[dagRunNodeKey("dag-1", nodeKey, runID)].Status; got != want {
+		t.Fatalf("%s status = %q, want %s", nodeKey, got, want)
+	}
+}
+
+func requireCascadeReason(t *testing.T, db *fakeTaskDAGDB, runID int64, nodeKey, causedBy string) {
+	t.Helper()
+	var reason failNodeReason
+	if err := json.Unmarshal(db.nodes[dagRunNodeKey("dag-1", nodeKey, runID)].Result, &reason); err != nil {
+		t.Fatalf("unmarshal %s result: %v", nodeKey, err)
+	}
+	if reason.Kind != "cascade" || reason.CausedByNode != causedBy {
+		t.Fatalf("%s reason = %+v, want kind=cascade caused_by=%s", nodeKey, reason, causedBy)
 	}
 }
 

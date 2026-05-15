@@ -170,12 +170,22 @@ func TestStartDAG_HappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartDAG() error = %v, want nil", err)
 	}
+	assertHappyStartDAGResponse(t, resp)
+	assertHappyStartDAGStoreCalls(t, runStore)
+}
+
+func assertHappyStartDAGResponse(t *testing.T, resp StartDAGResponse) {
+	t.Helper()
 	if resp.RunKey == "" {
 		t.Fatalf("resp.RunKey empty, want generated key")
 	}
 	if !strings.HasPrefix(resp.RunKey, "dag-1#run-") {
 		t.Errorf("resp.RunKey = %q, want prefix dag-1#run-", resp.RunKey)
 	}
+}
+
+func assertHappyStartDAGStoreCalls(t *testing.T, runStore *stubRunStore) {
+	t.Helper()
 	// F6.5 后 service 不再调 CountActiveRunsByDagKey；同 DAG 可并发多 run。
 	if got := len(runStore.countCalls); got != 0 {
 		t.Errorf("CountActiveRunsByDagKey calls = %d, want 0 (L3: DB-side guard)", got)

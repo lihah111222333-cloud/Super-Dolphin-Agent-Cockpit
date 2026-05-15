@@ -26,56 +26,110 @@ func makeGetRunService(runStore taskdag.RunStore) *service {
 
 // ---- happy path ----
 func TestGetRun_HappyPath(t *testing.T) {
-	now := time.Date(2026, 5, 10, 8, 0, 0, 0, time.UTC)
-	finished := now.Add(2 * time.Minute)
-	budgetLimit := int64(100)
-	srcRun := &taskdag.Run{
-		ID:                 42,
-		RunKey:             "dag-1#run-abc",
-		DagKey:             "dag-1",
-		DagVersionSnapshot: 7,
-		TriggerSource:      "manual",
-		Status:             "running",
-		StartedAt:          now,
-		FinishedAt:         &finished,
-		Events:             json.RawMessage(`[]`),
-		BudgetUsed:         3,
-		BudgetLimit:        &budgetLimit,
-		Metadata:           json.RawMessage(`{"x":1}`),
-		CreatedAt:          now,
-		UpdatedAt:          now,
-	}
-	stub := &stubRunStore{getRunReply: srcRun}
+	fixture := newGetRunHappyFixture()
+	stub := &stubRunStore{getRunReply: fixture.srcRun}
 	svc := makeGetRunService(stub)
 
 	resp, err := svc.GetRun(context.Background(), contract.GetRunRequest{RunKey: "dag-1#run-abc"})
 	if err != nil {
 		t.Fatalf("GetRun() error = %v, want nil", err)
 	}
-	if got := len(stub.getRunCalls); got != 1 || stub.getRunCalls[0] != "dag-1#run-abc" {
-		t.Errorf("getRunCalls = %v, want [\"dag-1#run-abc\"]", stub.getRunCalls)
+	assertGetRunStoreCall(t, stub, "dag-1#run-abc")
+	assertGetRunHappyDTO(t, resp.Run, fixture)
+	assertBudgetLimitDefensiveCopy(t, &resp.Run, fixture.srcRun)
+}
+
+type getRunHappyFixture struct {
+	now      time.Time
+	finished time.Time
+	srcRun   *taskdag.Run
+}
+
+func newGetRunHappyFixture() getRunHappyFixture {
+	now := time.Date(2026, 5, 10, 8, 0, 0, 0, time.UTC)
+	finished := now.Add(2 * time.Minute)
+	budgetLimit := int64(100)
+	return getRunHappyFixture{
+		now:      now,
+		finished: finished,
+		srcRun: &taskdag.Run{
+			ID:                 42,
+			RunKey:             "dag-1#run-abc",
+			DagKey:             "dag-1",
+			DagVersionSnapshot: 7,
+			TriggerSource:      "manual",
+			Status:             "running",
+			StartedAt:          now,
+			FinishedAt:         &finished,
+			Events:             json.RawMessage(`[]`),
+			BudgetUsed:         3,
+			BudgetLimit:        &budgetLimit,
+			Metadata:           json.RawMessage(`{"x":1}`),
+			CreatedAt:          now,
+			UpdatedAt:          now,
+		},
 	}
-	if resp.Run.ID != 42 || resp.Run.RunKey != "dag-1#run-abc" || resp.Run.DagKey != "dag-1" {
-		t.Errorf("resp.Run identity mismatch: %+v", resp.Run)
+}
+
+func assertGetRunStoreCall(t *testing.T, stub *stubRunStore, want string) {
+	t.Helper()
+	if got := len(stub.getRunCalls); got != 1 {
+		t.Fatalf("getRunCalls = %v, want one call", stub.getRunCalls)
 	}
-	if resp.Run.DagVersionSnapshot != 7 || resp.Run.TriggerSource != "manual" || resp.Run.Status != "running" {
-		t.Errorf("resp.Run scalar fields mismatch: %+v", resp.Run)
+	if stub.getRunCalls[0] != want {
+		t.Fatalf("getRunCalls = %v, want [%q]", stub.getRunCalls, want)
 	}
-	if !resp.Run.StartedAt.Equal(now) {
-		t.Errorf("resp.Run.StartedAt = %v, want %v", resp.Run.StartedAt, now)
+}
+
+func assertGetRunHappyDTO(t *testing.T, run contract.Run, fixture getRunHappyFixture) {
+	t.Helper()
+	assertGetRunIdentity(t, run)
+	assertGetRunScalars(t, run)
+	if !run.StartedAt.Equal(fixture.now) {
+		t.Errorf("resp.Run.StartedAt = %v, want %v", run.StartedAt, fixture.now)
 	}
-	if resp.Run.FinishedAt == nil || !resp.Run.FinishedAt.Equal(finished) {
-		t.Errorf("resp.Run.FinishedAt = %v, want %v", resp.Run.FinishedAt, finished)
+	if run.FinishedAt == nil || !run.FinishedAt.Equal(fixture.finished) {
+		t.Errorf("resp.Run.FinishedAt = %v, want %v", run.FinishedAt, fixture.finished)
 	}
+}
+
+func assertGetRunIdentity(t *testing.T, run contract.Run) {
+	t.Helper()
+	if run.ID != 42 {
+		t.Errorf("resp.Run.ID = %d, want 42", run.ID)
+	}
+	if run.RunKey != "dag-1#run-abc" {
+		t.Errorf("resp.Run.RunKey = %q, want dag-1#run-abc", run.RunKey)
+	}
+	if run.DagKey != "dag-1" {
+		t.Errorf("resp.Run.DagKey = %q, want dag-1", run.DagKey)
+	}
+}
+
+func assertGetRunScalars(t *testing.T, run contract.Run) {
+	t.Helper()
+	if run.DagVersionSnapshot != 7 {
+		t.Errorf("resp.Run.DagVersionSnapshot = %d, want 7", run.DagVersionSnapshot)
+	}
+	if run.TriggerSource != "manual" {
+		t.Errorf("resp.Run.TriggerSource = %q, want manual", run.TriggerSource)
+	}
+	if run.Status != "running" {
+		t.Errorf("resp.Run.Status = %q, want running", run.Status)
+	}
+}
+
+func assertBudgetLimitDefensiveCopy(t *testing.T, run *contract.Run, srcRun *taskdag.Run) {
+	t.Helper()
 	// BudgetLimit cloneInt64 独立性断言：修改源 row 指向的 int64，dto 拷贝不应变。
 	// BudgetLimit defensive-copy assertion: mutating the source pointer's value
 	// must not leak into the DTO.
-	if resp.Run.BudgetLimit == nil || *resp.Run.BudgetLimit != 100 {
-		t.Fatalf("resp.Run.BudgetLimit = %v, want *=100", resp.Run.BudgetLimit)
+	if run.BudgetLimit == nil || *run.BudgetLimit != 100 {
+		t.Fatalf("resp.Run.BudgetLimit = %v, want *=100", run.BudgetLimit)
 	}
 	*srcRun.BudgetLimit = 999
-	if *resp.Run.BudgetLimit != 100 {
-		t.Errorf("BudgetLimit shared pointer with store row: dto=%d after src mutated to 999", *resp.Run.BudgetLimit)
+	if *run.BudgetLimit != 100 {
+		t.Errorf("BudgetLimit shared pointer with store row: dto=%d after src mutated to 999", *run.BudgetLimit)
 	}
 }
 

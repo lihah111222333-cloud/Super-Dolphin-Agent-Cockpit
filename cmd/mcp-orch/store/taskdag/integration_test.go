@@ -18,18 +18,18 @@ import (
 //
 // 三组关键 case：
 //
-//  1) TestTaskDagPGIntegration_F1_5_CTE_FirstRecord
+//  1) TestTaskDagPGIntegrationF15CTEFirstRecord
 //     验 task_dag_node_spawning_thread.sql CTE：首次写入（旧值 NULL）应直
 //     落字段、不 append events；retry（旧值非 NULL）应同事务 append
 //     `{kind:"node_spawn", ...}` 到匹配 running run。fake DB 测不到 CTE
 //     branch 的 SQL 语义。
 //
-//  2) TestTaskDagPGIntegration_F6_3_Promote_SameTxRace
+//  2) TestTaskDagPGIntegrationF63PromoteSameTxRace
 //     验 CompleteNode 同事务 promote pending→ready：两个 goroutine 并发
 //     完成同一节点的不同上游分支时，行锁应让 promote 串行；fake DB 无
 //     行锁语义，仅 PG 上能验。
 //
-//  3) TestTaskDagPGIntegration_F4_1_OCC_SelectForUpdate
+//  3) TestTaskDagPGIntegrationF41OCCSelectForUpdate
 //     验 GetDAGVersionForUpdate + BumpDAGVersion 的 OCC 行为：并发两个事务
 //     同时 SELECT FOR UPDATE 应一个先拿锁、另一个等待；后到的 bump 应
 //     返 ErrNoRows（version 被改）让 service 层翻 ErrVersionConflict。
@@ -52,7 +52,7 @@ func requireIntegrationEnv(t *testing.T) {
 	}
 }
 
-// TestTaskDagPGIntegration_F1_5_CTE_FirstRecord — F1.5
+// TestTaskDagPGIntegrationF15CTEFirstRecord — F1.5
 // task_dag_node_spawning_thread.sql CTE 首次/重试/无 running run 三 case。
 //
 // 真实 case 待 testcontainers-go 引入后填：
@@ -61,30 +61,30 @@ func requireIntegrationEnv(t *testing.T) {
 //     `{kind: "node_spawn", prev_thread_id, thread_id}` 到 task_dag_runs.events
 //   - 无 running run：retry 路径下 task_dag_runs 不存在或非 running → 静默
 //     吞 0 行，不报错
-func TestTaskDagPGIntegration_F1_5_CTE_FirstRecord(t *testing.T) {
+func TestTaskDagPGIntegrationF15CTEFirstRecord(t *testing.T) {
 	requireIntegrationEnv(t)
 	t.Fatalf("not implemented: testcontainer PG harness 未引入；详 file-top 注释 / R2 P1")
 }
 
-// TestTaskDagPGIntegration_F6_3_Promote_SameTxRace — F6.3 同事务并发 promote race。
+// TestTaskDagPGIntegrationF63PromoteSameTxRace — F6.3 同事务并发 promote race。
 //
 // 真实 case 待 testcontainers-go 引入后填：
 //   - 起一个 PG 容器，apply migrations 到含 F6.3 PromoteSingleNodePendingToReady
 //   - 两个 goroutine 各自 begin TX 并完成同一 DAG 不同 sibling 节点
 //   - 断言下游 pending 节点最终 status=ready，没出现 race-cond 重复 promote
-func TestTaskDagPGIntegration_F6_3_Promote_SameTxRace(t *testing.T) {
+func TestTaskDagPGIntegrationF63PromoteSameTxRace(t *testing.T) {
 	requireIntegrationEnv(t)
 	t.Fatalf("not implemented: testcontainer PG harness 未引入；详 file-top 注释 / R2 P1")
 }
 
-// TestTaskDagPGIntegration_F4_1_OCC_SelectForUpdate — F4.1 OCC 并发行锁。
+// TestTaskDagPGIntegrationF41OCCSelectForUpdate — F4.1 OCC 并发行锁。
 //
 // 真实 case 待 testcontainers-go 引入后填：
 //   - 两个 TX 同 SELECT FOR UPDATE 锁同一 task_dags 行
 //   - 其中一个 BumpDAGVersion 成功 (version += 1)，另一个 BumpDAGVersion
 //     应返 sql.ErrNoRows → wrapped 成 platformdb.IsNotFound → service
 //     层 ErrVersionConflict
-func TestTaskDagPGIntegration_F4_1_OCC_SelectForUpdate(t *testing.T) {
+func TestTaskDagPGIntegrationF41OCCSelectForUpdate(t *testing.T) {
 	requireIntegrationEnv(t)
 	t.Fatalf("not implemented: testcontainer PG harness 未引入；详 file-top 注释 / R2 P1")
 }

@@ -132,26 +132,7 @@ func TestHandleScopedToolsCallWithCallerUsesTrustedScope(t *testing.T) {
 	params := json.RawMessage(`{"name":"orchestration_list_agents","arguments":{"agent_id":"evil","cwd":"/evil"},"_agentId":"agent-1","_threadId":"thread-1","_callId":"call-1","_cwd":"/trusted/orch"}`)
 	called := false
 
-	result, err := handleScopedToolsCallWithCaller(context.Background(), "orch", params, func(ctx context.Context, name string, args json.RawMessage) (any, error) {
-		called = true
-		if name != "orchestration_list_agents" {
-			t.Fatalf("tool name = %q, want orchestration_list_agents", name)
-		}
-		scope, ok := common.ToolScopeFromContext(ctx)
-		if !ok {
-			t.Fatal("ToolScopeFromContext() missing scope")
-		}
-		if scope.AgentID != "agent-1" || scope.ThreadID != "thread-1" || scope.CallID != "call-1" {
-			t.Fatalf("scope = %#v, want trusted identity", scope)
-		}
-		if got := common.WorkspaceRootFromContext(ctx, "/fallback"); got != "/trusted/orch" {
-			t.Fatalf("WorkspaceRootFromContext() = %q, want /trusted/orch", got)
-		}
-		if !json.Valid(args) {
-			t.Fatalf("args is not valid json: %s", args)
-		}
-		return map[string]any{"ok": true}, nil
-	})
+	result, err := handleScopedToolsCallWithCaller(context.Background(), "orch", params, scopedToolsCallVerifier(t, &called))
 	if err != nil {
 		t.Fatalf("handleScopedToolsCallWithCaller() error = %v", err)
 	}
@@ -160,5 +141,42 @@ func TestHandleScopedToolsCallWithCallerUsesTrustedScope(t *testing.T) {
 	}
 	if payload, ok := result.(map[string]any); !ok || payload["structuredContent"] == nil {
 		t.Fatalf("result = %#v, want structured content", result)
+	}
+}
+
+func scopedToolsCallVerifier(t *testing.T, called *bool) func(context.Context, string, json.RawMessage) (any, error) {
+	t.Helper()
+
+	return func(ctx context.Context, name string, args json.RawMessage) (any, error) {
+		*called = true
+		assertTrustedScopedToolsCall(t, ctx, name, args)
+		return map[string]any{"ok": true}, nil
+	}
+}
+
+func assertTrustedScopedToolsCall(t *testing.T, ctx context.Context, name string, args json.RawMessage) {
+	t.Helper()
+
+	if name != "orchestration_list_agents" {
+		t.Fatalf("tool name = %q, want orchestration_list_agents", name)
+	}
+	scope, ok := common.ToolScopeFromContext(ctx)
+	if !ok {
+		t.Fatal("ToolScopeFromContext() missing scope")
+	}
+	if scope.AgentID != "agent-1" {
+		t.Fatalf("scope.AgentID = %q, want agent-1", scope.AgentID)
+	}
+	if scope.ThreadID != "thread-1" {
+		t.Fatalf("scope.ThreadID = %q, want thread-1", scope.ThreadID)
+	}
+	if scope.CallID != "call-1" {
+		t.Fatalf("scope.CallID = %q, want call-1", scope.CallID)
+	}
+	if got := common.WorkspaceRootFromContext(ctx, "/fallback"); got != "/trusted/orch" {
+		t.Fatalf("WorkspaceRootFromContext() = %q, want /trusted/orch", got)
+	}
+	if !json.Valid(args) {
+		t.Fatalf("args is not valid json: %s", args)
 	}
 }

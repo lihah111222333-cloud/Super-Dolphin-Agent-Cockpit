@@ -51,25 +51,10 @@ func TestReclaimStaleDispatchingWakeupsAllowsFreshClaimAndBlocksStaleCommit(t *t
 	store, db, now := newTaskDAGTestStore()
 	db.wakeups[7] = newPendingWakeup(now, 7)
 
-	claimed, err := store.ClaimDueWakeups(context.Background(), ClaimDueWakeupsInput{
-		ClaimedBy:     "worker-a",
-		LeaseInterval: testLeaseInterval,
-		Limit:         1,
-	})
-	if err != nil || len(claimed) != 1 {
-		t.Fatalf("ClaimDueWakeups() = %v, %d rows", err, len(claimed))
-	}
+	claimed := claimOneDueWakeup(t, store, "worker-a")
 
 	db.advance(31 * time.Second)
-	count, err := store.MarkWakeupSent(context.Background(), MarkWakeupSentInput{
-		ID:             claimed[0].ID,
-		ClaimedAt:      *claimed[0].ClaimedAt,
-		ClaimedBy:      claimed[0].ClaimedBy,
-		LeaseExpiresAt: *claimed[0].LeaseExpiresAt,
-	})
-	if err != nil {
-		t.Fatalf("MarkWakeupSent() stale error = %v", err)
-	}
+	count := markWakeupSentForClaim(t, store, claimed)
 	if count != 0 {
 		t.Fatalf("MarkWakeupSent() stale count = %d, want 0", count)
 	}
@@ -82,17 +67,37 @@ func TestReclaimStaleDispatchingWakeupsAllowsFreshClaimAndBlocksStaleCommit(t *t
 		t.Fatalf("reclaimed = %d, want 1", reclaimed)
 	}
 
-	reclaimedClaim, err := store.ClaimDueWakeups(context.Background(), ClaimDueWakeupsInput{
-		ClaimedBy:     "worker-b",
+	reclaimedClaim := claimOneDueWakeup(t, store, "worker-b")
+	if reclaimedClaim.ClaimedBy != "worker-b" || reclaimedClaim.AttemptCount != 2 {
+		t.Fatalf("reclaimed wakeup = %+v", reclaimedClaim)
+	}
+}
+
+func claimOneDueWakeup(t *testing.T, store Store, worker string) Wakeup {
+	t.Helper()
+	claimed, err := store.ClaimDueWakeups(context.Background(), ClaimDueWakeupsInput{
+		ClaimedBy:     worker,
 		LeaseInterval: testLeaseInterval,
 		Limit:         1,
 	})
-	if err != nil || len(reclaimedClaim) != 1 {
-		t.Fatalf("reclaim claim = %v, %d rows", err, len(reclaimedClaim))
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("ClaimDueWakeups(%s) = %v, %d rows", worker, err, len(claimed))
 	}
-	if reclaimedClaim[0].ClaimedBy != "worker-b" || reclaimedClaim[0].AttemptCount != 2 {
-		t.Fatalf("reclaimed wakeup = %+v", reclaimedClaim[0])
+	return claimed[0]
+}
+
+func markWakeupSentForClaim(t *testing.T, store Store, claimed Wakeup) int64 {
+	t.Helper()
+	count, err := store.MarkWakeupSent(context.Background(), MarkWakeupSentInput{
+		ID:             claimed.ID,
+		ClaimedAt:      *claimed.ClaimedAt,
+		ClaimedBy:      claimed.ClaimedBy,
+		LeaseExpiresAt: *claimed.LeaseExpiresAt,
+	})
+	if err != nil {
+		t.Fatalf("MarkWakeupSent() stale error = %v", err)
 	}
+	return count
 }
 
 func TestWakeupTransitionSQLUsesFullClaimFence(t *testing.T) {
@@ -193,15 +198,7 @@ func TestWakeupTransitionsApplyClaimFenceValues(t *testing.T) {
 					LeaseExpiresAt: now.Add(30 * time.Second),
 				})
 			},
-			assert: func(t *testing.T, row sqlc.TaskDagWakeup, now time.Time) {
-				t.Helper()
-				if row.Status != "sent" {
-					t.Fatalf("status = %q, want sent", row.Status)
-				}
-				if !sameTimestamp(row.SentAt, timestamptzValue(now)) {
-					t.Fatalf("sent_at = %#v, want %v", row.SentAt, now)
-				}
-			},
+			assert: assertWakeupMarkedSent,
 		},
 		{
 			name: "retry",
@@ -215,21 +212,7 @@ func TestWakeupTransitionsApplyClaimFenceValues(t *testing.T) {
 					LeaseExpiresAt: now.Add(30 * time.Second),
 				})
 			},
-			assert: func(t *testing.T, row sqlc.TaskDagWakeup, now time.Time) {
-				t.Helper()
-				if row.Status != "pending" {
-					t.Fatalf("status = %q, want pending", row.Status)
-				}
-				if row.LastError != "busy" {
-					t.Fatalf("last_error = %q, want busy", row.LastError)
-				}
-				if row.ClaimedBy != "" || row.ClaimedAt.Valid || row.LeaseExpiresAt.Valid {
-					t.Fatalf("claim fence not cleared: %+v", row)
-				}
-				if !sameTimestamp(row.NextRetryAt, timestamptzValue(now.Add(2*time.Minute))) {
-					t.Fatalf("next_retry_at = %#v, want %v", row.NextRetryAt, now.Add(2*time.Minute))
-				}
-			},
+			assert: assertWakeupRetried,
 		},
 		{
 			name: "fail",
@@ -242,18 +225,7 @@ func TestWakeupTransitionsApplyClaimFenceValues(t *testing.T) {
 					LeaseExpiresAt: now.Add(30 * time.Second),
 				})
 			},
-			assert: func(t *testing.T, row sqlc.TaskDagWakeup, _ time.Time) {
-				t.Helper()
-				if row.Status != "failed" {
-					t.Fatalf("status = %q, want failed", row.Status)
-				}
-				if row.LastError != "fatal" {
-					t.Fatalf("last_error = %q, want fatal", row.LastError)
-				}
-				if row.ClaimedBy != "" || row.ClaimedAt.Valid || row.LeaseExpiresAt.Valid {
-					t.Fatalf("claim fence not cleared: %+v", row)
-				}
-			},
+			assert: assertWakeupFailed,
 		},
 	}
 
@@ -272,6 +244,48 @@ func TestWakeupTransitionsApplyClaimFenceValues(t *testing.T) {
 			}
 			tt.assert(t, db.wakeups[7], now)
 		})
+	}
+}
+
+func assertWakeupMarkedSent(t *testing.T, row sqlc.TaskDagWakeup, now time.Time) {
+	t.Helper()
+	if row.Status != "sent" {
+		t.Fatalf("status = %q, want sent", row.Status)
+	}
+	if !sameTimestamp(row.SentAt, timestamptzValue(now)) {
+		t.Fatalf("sent_at = %#v, want %v", row.SentAt, now)
+	}
+}
+
+func assertWakeupRetried(t *testing.T, row sqlc.TaskDagWakeup, now time.Time) {
+	t.Helper()
+	if row.Status != "pending" {
+		t.Fatalf("status = %q, want pending", row.Status)
+	}
+	if row.LastError != "busy" {
+		t.Fatalf("last_error = %q, want busy", row.LastError)
+	}
+	assertClaimFenceCleared(t, row)
+	if !sameTimestamp(row.NextRetryAt, timestamptzValue(now.Add(2*time.Minute))) {
+		t.Fatalf("next_retry_at = %#v, want %v", row.NextRetryAt, now.Add(2*time.Minute))
+	}
+}
+
+func assertWakeupFailed(t *testing.T, row sqlc.TaskDagWakeup, _ time.Time) {
+	t.Helper()
+	if row.Status != "failed" {
+		t.Fatalf("status = %q, want failed", row.Status)
+	}
+	if row.LastError != "fatal" {
+		t.Fatalf("last_error = %q, want fatal", row.LastError)
+	}
+	assertClaimFenceCleared(t, row)
+}
+
+func assertClaimFenceCleared(t *testing.T, row sqlc.TaskDagWakeup) {
+	t.Helper()
+	if row.ClaimedBy != "" || row.ClaimedAt.Valid || row.LeaseExpiresAt.Valid {
+		t.Fatalf("claim fence not cleared: %+v", row)
 	}
 }
 

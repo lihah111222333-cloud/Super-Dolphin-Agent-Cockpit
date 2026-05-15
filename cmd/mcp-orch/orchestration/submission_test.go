@@ -336,33 +336,52 @@ func TestGetReportPreservesStructuredParagraphs(t *testing.T) {
 func TestReportParamCompatibility(t *testing.T) {
 	t.Parallel()
 
-	var report reportParams
-	if err := json.Unmarshal([]byte(`{"agent_id":"agent-1"}`), &report); err != nil || report.AgentID != "agent-1" {
-		t.Fatalf("reportParams snake_case = %#v, err=%v", report, err)
-	}
-	if err := json.Unmarshal([]byte(`{"agentId":"agent-2"}`), &report); err != nil || report.AgentID != "agent-2" {
-		t.Fatalf("reportParams camelCase = %#v, err=%v", report, err)
-	}
-
-	var remember rememberReportRequestParams
-	if err := json.Unmarshal([]byte(`{"sender_id":"sender","worker_id":"worker"}`), &remember); err != nil || remember.RequesterID != "sender" || remember.AgentID != "worker" {
-		t.Fatalf("rememberReportRequestParams V2 = %#v, err=%v", remember, err)
-	}
-	if err := json.Unmarshal([]byte(`{"requesterId":"sender-2","agentId":"worker-2"}`), &remember); err != nil || remember.RequesterID != "sender-2" || remember.AgentID != "worker-2" {
-		t.Fatalf("rememberReportRequestParams camelCase = %#v, err=%v", remember, err)
-	}
-
-	var event reportEventParams
-	if err := json.Unmarshal([]byte(`{"agent_id":"agent-3","event_type":"error","event_data":{"message":"x"}}`), &event); err != nil || event.AgentID != "agent-3" || event.EventType != "error" {
-		t.Fatalf("reportEventParams snake_case = %#v, err=%v", event, err)
-	}
-	if err := json.Unmarshal([]byte(`{"agentId":"agent-4","eventType":"completion","eventData":{"message":"y"}}`), &event); err != nil || event.AgentID != "agent-4" || event.EventType != "completion" {
-		t.Fatalf("reportEventParams camelCase = %#v, err=%v", event, err)
-	}
+	assertReportParamsAlias(t, `{"agent_id":"agent-1"}`, "agent-1")
+	assertReportParamsAlias(t, `{"agentId":"agent-2"}`, "agent-2")
+	assertRememberReportParamsAlias(t, `{"sender_id":"sender","worker_id":"worker"}`, "sender", "worker")
+	assertRememberReportParamsAlias(t, `{"requesterId":"sender-2","agentId":"worker-2"}`, "sender-2", "worker-2")
+	assertReportEventParamsAlias(t, `{"agent_id":"agent-3","event_type":"error","event_data":{"message":"x"}}`, "agent-3", "error")
+	assertReportEventParamsAlias(t, `{"agentId":"agent-4","eventType":"completion","eventData":{"message":"y"}}`, "agent-4", "completion")
 }
 
 func TestLaunchParamsCompatibility(t *testing.T) {
 	t.Parallel()
+
+	assertLegacyLaunchParams(t)
+	assertCurrentLaunchParams(t)
+}
+
+func assertReportParamsAlias(t *testing.T, input, wantAgentID string) {
+	t.Helper()
+
+	var report reportParams
+	if err := json.Unmarshal([]byte(input), &report); err != nil || report.AgentID != wantAgentID {
+		t.Fatalf("reportParams alias = %#v, err=%v, want agent %q", report, err, wantAgentID)
+	}
+}
+
+func assertRememberReportParamsAlias(t *testing.T, input, wantRequesterID, wantAgentID string) {
+	t.Helper()
+
+	var remember rememberReportRequestParams
+	if err := json.Unmarshal([]byte(input), &remember); err != nil ||
+		remember.RequesterID != wantRequesterID || remember.AgentID != wantAgentID {
+		t.Fatalf("rememberReportRequestParams alias = %#v, err=%v", remember, err)
+	}
+}
+
+func assertReportEventParamsAlias(t *testing.T, input, wantAgentID, wantEventType string) {
+	t.Helper()
+
+	var event reportEventParams
+	if err := json.Unmarshal([]byte(input), &event); err != nil ||
+		event.AgentID != wantAgentID || event.EventType != wantEventType {
+		t.Fatalf("reportEventParams alias = %#v, err=%v", event, err)
+	}
+}
+
+func assertLegacyLaunchParams(t *testing.T) {
+	t.Helper()
 
 	var legacy launchParams
 	input := []byte(`{"id":"agent-1","name":"demo","prompt":"hello","cwd":"/tmp","instructions":"follow","config":{"parentID":"parent-1","agentType":"worker","memoryScope":"local"}}`)
@@ -378,9 +397,13 @@ func TestLaunchParamsCompatibility(t *testing.T) {
 	if legacy.AgentType != "worker" || legacy.MemoryScope != "local" {
 		t.Fatalf("legacy metadata = %#v", legacy)
 	}
+}
+
+func assertCurrentLaunchParams(t *testing.T) {
+	t.Helper()
 
 	var current launchParams
-	input = []byte(`{"agentId":"agent-2","parentId":"parent-2","agentType":"reviewer","memoryScope":"user","prompt":"hi","instructions":"careful"}`)
+	input := []byte(`{"agentId":"agent-2","parentId":"parent-2","agentType":"reviewer","memoryScope":"user","prompt":"hi","instructions":"careful"}`)
 	if err := json.Unmarshal(input, &current); err != nil {
 		t.Fatalf("current launchParams err = %v", err)
 	}
@@ -421,6 +444,13 @@ func TestLaunchRequestFromParamsCarriesPromptAndInstructions(t *testing.T) {
 func TestSubmitParamsCarryOptionalFields(t *testing.T) {
 	t.Parallel()
 
+	assertSubmitParamsSnakeCase(t)
+	assertSubmitParamsCamelCase(t)
+}
+
+func assertSubmitParamsSnakeCase(t *testing.T) {
+	t.Helper()
+
 	var snake submitParams
 	if err := json.Unmarshal([]byte(`{"agent_id":"agent-1","selected_skills":["debug"],"manual_skill_selection":true,"output_schema":{"type":"object"}}`), &snake); err != nil {
 		t.Fatalf("submitParams snake_case err = %v", err)
@@ -434,6 +464,10 @@ func TestSubmitParamsCarryOptionalFields(t *testing.T) {
 	if string(snake.OutputSchema) != `{"type":"object"}` {
 		t.Fatalf("snake OutputSchema = %s, want object schema", string(snake.OutputSchema))
 	}
+}
+
+func assertSubmitParamsCamelCase(t *testing.T) {
+	t.Helper()
 
 	var camel submitParams
 	if err := json.Unmarshal([]byte(`{"agentId":"agent-2","selectedSkills":["review"],"manualSkillSelection":true,"outputSchema":{"type":"array"}}`), &camel); err != nil {

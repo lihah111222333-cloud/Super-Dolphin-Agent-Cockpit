@@ -117,20 +117,26 @@ func TestBootstrapRunnerStartsAndSubscribesWhenRPCAddrPresent(t *testing.T) {
 		}.Run(ctx)
 	}()
 
-	select {
-	case <-client.started:
-	case <-time.After(time.Second):
-		t.Fatal("Start() was not called")
-	}
-
-	select {
-	case <-client.subscribed:
-	case <-time.After(time.Second):
-		t.Fatal("SubscribeHooks() was not called")
-	}
+	waitForBootstrapSignal(t, client.started, "Start() was not called")
+	waitForBootstrapSignal(t, client.subscribed, "SubscribeHooks() was not called")
 
 	cancel()
+	waitForBootstrapRunDone(t, done)
+	assertBootstrapClientStartState(t, client)
+	assertBootstrapSubscription(t, client)
+}
 
+func waitForBootstrapSignal(t *testing.T, signal <-chan struct{}, message string) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-time.After(time.Second):
+		t.Fatal(message)
+	}
+}
+
+func waitForBootstrapRunDone(t *testing.T, done <-chan error) {
+	t.Helper()
 	select {
 	case err := <-done:
 		if err != nil {
@@ -139,7 +145,10 @@ func TestBootstrapRunnerStartsAndSubscribesWhenRPCAddrPresent(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Run() did not return after cancel")
 	}
+}
 
+func assertBootstrapClientStartState(t *testing.T, client *stubBootstrapClient) {
+	t.Helper()
 	if client.startCalls != 1 {
 		t.Fatalf("Start() calls = %d, want 1", client.startCalls)
 	}
@@ -149,6 +158,10 @@ func TestBootstrapRunnerStartsAndSubscribesWhenRPCAddrPresent(t *testing.T) {
 	if client.closeCalls != 1 {
 		t.Fatalf("Close() calls = %d, want 1", client.closeCalls)
 	}
+}
+
+func assertBootstrapSubscription(t *testing.T, client *stubBootstrapClient) {
+	t.Helper()
 	if client.subscriptionID != orchestrationHookSubscriptionID {
 		t.Fatalf("subscriptionID = %q, want %q", client.subscriptionID, orchestrationHookSubscriptionID)
 	}

@@ -90,14 +90,29 @@ func TestArchiveAgentStopsLocalRuntimeBeforePersistedArchive(t *testing.T) {
 		t.Fatalf("ArchiveAgent() error = %v", err)
 	}
 
+	assertArchivePersistedUpdates(t, threads, bindings)
+	assertArchiveRuntimeStopped(t, svc, "agent-1")
+
+	cancelRunner()
+	assertArchiveRunnerCanceled(t, runDone)
+}
+
+func assertArchivePersistedUpdates(t *testing.T, threads *archiveAgentThreadStore, bindings *archiveAgentBindingStore) {
+	t.Helper()
+
 	if threads.updated.ThreadID != "provider-thread-1" || threads.updated.Status != "archived" {
 		t.Fatalf("thread status update = %#v, want provider-thread-1 archived", threads.updated)
 	}
 	if bindings.archived.AgentID != "agent-1" || !bindings.archived.Archived {
 		t.Fatalf("binding archive update = %#v, want agent-1 archived", bindings.archived)
 	}
+}
+
+func assertArchiveRuntimeStopped(t *testing.T, svc *service, agentID string) {
+	t.Helper()
+
 	svc.mu.RLock()
-	agentAfter := svc.agents["agent-1"]
+	agentAfter := svc.agents[agentID]
 	cmdCleared := agentAfter != nil && agentAfter.cmd == nil
 	lastExitedSeq := uint64(0)
 	if agentAfter != nil {
@@ -107,8 +122,11 @@ func TestArchiveAgentStopsLocalRuntimeBeforePersistedArchive(t *testing.T) {
 	if !cmdCleared || lastExitedSeq < 1 {
 		t.Fatalf("local runtime not stopped: cmd_cleared=%v last_exited_seq=%d", cmdCleared, lastExitedSeq)
 	}
+}
 
-	cancelRunner()
+func assertArchiveRunnerCanceled(t *testing.T, runDone <-chan error) {
+	t.Helper()
+
 	select {
 	case err := <-runDone:
 		if !errors.Is(err, context.Canceled) {

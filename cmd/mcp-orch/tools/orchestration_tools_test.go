@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/testutil/golden"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLaunchRequestFromExecutableBuildsLaunchRequest(t *testing.T) {
@@ -22,24 +23,16 @@ func TestLaunchRequestFromExecutableBuildsLaunchRequest(t *testing.T) {
 		CWD:         " /tmp/work ",
 		Provider:    " codex ",
 	}, "/tmp/agent-terminal")
-	if err != nil {
-		t.Fatalf("launchRequestFromExecutable() error = %v", err)
-	}
-	if req.AgentID != "agent-persist-1" || req.Name != "agent-1" {
-		t.Fatalf("launch request identity = agent_id %q name %q, want agent-persist-1 / agent-1", req.AgentID, req.Name)
-	}
-	if req.Prompt != "hello" || req.Cwd != "/tmp/work" {
-		t.Fatalf("launch request prompt/cwd = (%q, %q)", req.Prompt, req.Cwd)
-	}
-	if req.ParentID != "agent-root" || req.AgentType != "worker" || req.MemoryScope != "local" {
-		t.Fatalf("launch request metadata = %#v", req)
-	}
-	if len(req.Command) != 1 || req.Command[0] != "/tmp/agent-terminal" {
-		t.Fatalf("launch request command = %#v, want [/tmp/agent-terminal]", req.Command)
-	}
-	if len(req.Env) != 1 || req.Env[0] != "AGENT_PROVIDER=codex" {
-		t.Fatalf("launch request env = %#v, want [AGENT_PROVIDER=codex]", req.Env)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "agent-persist-1", req.AgentID)
+	require.Equal(t, "agent-1", req.Name)
+	require.Equal(t, "hello", req.Prompt)
+	require.Equal(t, "/tmp/work", req.Cwd)
+	require.Equal(t, "agent-root", req.ParentID)
+	require.Equal(t, "worker", req.AgentType)
+	require.Equal(t, "local", req.MemoryScope)
+	require.Equal(t, []string{"/tmp/agent-terminal"}, req.Command)
+	require.Equal(t, []string{"AGENT_PROVIDER=codex"}, req.Env)
 }
 
 func TestNamePolicyLaunchRequestNameAndPromptAreIndependent(t *testing.T) {
@@ -241,43 +234,27 @@ func TestLaunchHandlerAllowsMCPOrchExecutable(t *testing.T) {
 		CWD:         "/tmp/work",
 		Provider:    "codex",
 	})
-	if err != nil {
-		t.Fatalf("json.Marshal() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	result, err := handler(context.Background(), input)
-	if err != nil {
-		t.Fatalf("HandleLaunchAgent() error = %v", err)
-	}
+	require.NoError(t, err)
 	resultMap, ok := result.(map[string]any)
-	if !ok {
-		t.Fatalf("HandleLaunchAgent() result type = %T, want map[string]any", result)
-	}
-	if resultMap["success"] != true {
-		t.Fatalf("HandleLaunchAgent() result = %#v, want success", resultMap)
-	}
-	if resultMap["status"] != "launching" {
-		t.Fatalf("HandleLaunchAgent() status = %v, want launching", resultMap["status"])
-	}
+	require.Truef(t, ok, "HandleLaunchAgent() result type = %T, want map[string]any", result)
+	require.Equal(t, true, resultMap["success"])
+	require.Equal(t, "launching", resultMap["status"])
 
 	// Wait for the async goroutine to call LaunchAgent.
 	select {
 	case got := <-done:
-		if got.AgentID != "agent-persist-1" || got.Name != "agent-1" {
-			t.Fatalf("launch request identity = agent_id %q name %q, want agent-persist-1 / agent-1", got.AgentID, got.Name)
-		}
-		if got.Prompt != "hello" || got.Cwd != "/tmp/work" {
-			t.Fatalf("launch request prompt/cwd = (%q, %q), want (hello, /tmp/work)", got.Prompt, got.Cwd)
-		}
-		if got.ParentID != "agent-root" || got.AgentType != "worker" || got.MemoryScope != "project" {
-			t.Fatalf("launch request metadata = %#v", got)
-		}
-		if len(got.Command) != 1 || got.Command[0] != "/tmp/mcp-orch" {
-			t.Fatalf("launch request command = %#v, want [/tmp/mcp-orch]", got.Command)
-		}
-		if len(got.Env) != 1 || got.Env[0] != "AGENT_PROVIDER=codex" {
-			t.Fatalf("launch request env = %#v, want [AGENT_PROVIDER=codex]", got.Env)
-		}
+		require.Equal(t, "agent-persist-1", got.AgentID)
+		require.Equal(t, "agent-1", got.Name)
+		require.Equal(t, "hello", got.Prompt)
+		require.Equal(t, "/tmp/work", got.Cwd)
+		require.Equal(t, "agent-root", got.ParentID)
+		require.Equal(t, "worker", got.AgentType)
+		require.Equal(t, "project", got.MemoryScope)
+		require.Equal(t, []string{"/tmp/mcp-orch"}, got.Command)
+		require.Equal(t, []string{"AGENT_PROVIDER=codex"}, got.Env)
 	case <-time.After(5 * time.Second):
 		t.Fatal("async LaunchAgent was not called within 5s")
 	}

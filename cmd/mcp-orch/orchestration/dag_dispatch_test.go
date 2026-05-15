@@ -114,16 +114,36 @@ func TestDispatchNode_HappyPath_ReadyNode_AssignsAndEnqueues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DispatchNode err = %v", err)
 	}
+	assertDispatchReadyNode(t, stub, resp)
+}
+
+func assertDispatchReadyNode(t *testing.T, stub *stubDispatchStore, resp contract.DispatchNodeResponse) {
+	t.Helper()
+	assertDispatchResponse(t, resp)
+	assertDispatchAssignment(t, stub.assigned)
+	assertDispatchWakeup(t, stub.enqueued)
+}
+
+func assertDispatchResponse(t *testing.T, resp contract.DispatchNodeResponse) {
+	t.Helper()
 	if !resp.Enqueued || resp.WakeupID != 42 {
 		t.Fatalf("resp = %+v, want Enqueued=true WakeupID=42", resp)
 	}
-	if stub.assigned == nil || stub.assigned.AssignedTo != "agent-alpha" || stub.assigned.RunID == nil || *stub.assigned.RunID != 7 {
-		t.Fatalf("assigned = %+v, want run_id=7 AssignedTo=agent-alpha", stub.assigned)
+}
+
+func assertDispatchAssignment(t *testing.T, assigned *taskdag.Node) {
+	t.Helper()
+	if assigned == nil || assigned.AssignedTo != "agent-alpha" || assigned.RunID == nil || *assigned.RunID != 7 {
+		t.Fatalf("assigned = %+v, want run_id=7 AssignedTo=agent-alpha", assigned)
 	}
-	if len(stub.enqueued) != 1 {
-		t.Fatalf("enqueued len = %d, want 1", len(stub.enqueued))
+}
+
+func assertDispatchWakeup(t *testing.T, enqueued []taskdag.EnqueueWakeupInput) {
+	t.Helper()
+	if len(enqueued) != 1 {
+		t.Fatalf("enqueued len = %d, want 1", len(enqueued))
 	}
-	got := stub.enqueued[0]
+	got := enqueued[0]
 	if got.WakeupKind != "manual_dispatch" || got.TargetAgentID != "agent-alpha" {
 		t.Fatalf("enqueue input = %+v", got)
 	}

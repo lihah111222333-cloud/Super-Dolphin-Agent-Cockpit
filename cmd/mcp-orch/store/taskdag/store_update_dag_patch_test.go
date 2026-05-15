@@ -3,6 +3,7 @@ package taskdag
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -42,25 +43,44 @@ func TestUpdateDAGPatch_ExecutesNarrowMetadataUpdate(t *testing.T) {
 	if rows != 1 {
 		t.Fatalf("UpdateDAGPatch() rows = %d, want 1", rows)
 	}
-	for _, want := range []string{"UPDATE task_dags", "title = COALESCE", "description = COALESCE", "trigger = COALESCE", "cron_expr = COALESCE", "owner_id = COALESCE"} {
-		if !strings.Contains(db.sql, want) {
-			t.Fatalf("UpdateDAGPatch SQL missing %q:\n%s", want, db.sql)
+	assertUpdateDAGPatchSQL(t, db.sql)
+	assertUpdateDAGPatchArgs(t, db.args, nextRunAt)
+}
+
+func assertUpdateDAGPatchSQL(t *testing.T, sql string) {
+	t.Helper()
+
+	assertSQLContainsAll(t, sql, []string{
+		"UPDATE task_dags",
+		"title = COALESCE",
+		"description = COALESCE",
+		"trigger = COALESCE",
+		"cron_expr = COALESCE",
+		"owner_id = COALESCE",
+		"next_run_at = CASE",
+		"COALESCE($7, next_run_at)",
+	})
+	if strings.Contains(sql, "THEN NOW()") {
+		t.Fatalf("UpdateDAGPatch SQL must not initialize next_run_at to NOW():\n%s", sql)
+	}
+}
+
+func assertSQLContainsAll(t *testing.T, sql string, wants []string) {
+	t.Helper()
+
+	for _, want := range wants {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("UpdateDAGPatch SQL missing %q:\n%s", want, sql)
 		}
 	}
-	if !strings.Contains(db.sql, "next_run_at = CASE") {
-		t.Fatalf("UpdateDAGPatch SQL must maintain next_run_at:\n%s", db.sql)
-	}
-	if !strings.Contains(db.sql, "COALESCE($7, next_run_at)") {
-		t.Fatalf("UpdateDAGPatch SQL must use caller-computed next_run_at, not NOW():\n%s", db.sql)
-	}
-	if strings.Contains(db.sql, "THEN NOW()") {
-		t.Fatalf("UpdateDAGPatch SQL must not initialize next_run_at to NOW():\n%s", db.sql)
-	}
-	if got, want := len(db.args), 7; got != want {
-		t.Fatalf("args len = %d, want %d", got, want)
-	}
-	if db.args[0] != "dag-1" || db.args[1] != "Daily" || db.args[2] != "Morning" || db.args[3] != "scheduled" || db.args[4] != "0 8 * * *" || db.args[5] != "owner-1" || db.args[6] != nextRunAt {
-		t.Fatalf("args = %#v, want dag/title/description/trigger/cron/owner/nextRunAt", db.args)
+}
+
+func assertUpdateDAGPatchArgs(t *testing.T, args []any, nextRunAt time.Time) {
+	t.Helper()
+
+	want := []any{"dag-1", "Daily", "Morning", "scheduled", "0 8 * * *", "owner-1", nextRunAt}
+	if !reflect.DeepEqual(args, want) {
+		t.Fatalf("args = %#v, want %#v", args, want)
 	}
 }
 
