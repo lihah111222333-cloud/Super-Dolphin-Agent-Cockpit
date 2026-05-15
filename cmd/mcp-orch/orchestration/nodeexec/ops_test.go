@@ -75,12 +75,24 @@ func TestOps_MixedRoundTrip(t *testing.T) {
 		OpRemoveNode{NodeKey: "old"},
 	}
 
+	marshaled := marshalOpsForTest(t, original)
+	assertOpDiscriminators(t, marshaled)
+	roundtrip := unmarshalOpsForTest(t, marshaled)
+	assertRoundtripKinds(t, roundtrip, original)
+	assertRoundtripPayloads(t, roundtrip, title)
+}
+
+func marshalOpsForTest(t *testing.T, original Ops) []byte {
+	t.Helper()
 	marshaled, err := json.Marshal(original)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
+	return marshaled
+}
 
-	// 验证 marshal 输出含 "op": kind discriminator
+func assertOpDiscriminators(t *testing.T, marshaled []byte) {
+	t.Helper()
 	var asArray []map[string]json.RawMessage
 	if err := json.Unmarshal(marshaled, &asArray); err != nil {
 		t.Fatalf("re-decode array: %v", err)
@@ -89,20 +101,32 @@ func TestOps_MixedRoundTrip(t *testing.T) {
 		t.Fatalf("marshaled array len = %d, want %d", got, want)
 	}
 	for i, kind := range []OpKind{OpKindUpdateDAG, OpKindAddNode, OpKindUpdateNode, OpKindRemoveNode} {
-		var got OpKind
-		if err := json.Unmarshal(asArray[i]["op"], &got); err != nil {
-			t.Fatalf("ops[%d] op field: %v", i, err)
-		}
-		if got != kind {
-			t.Errorf("ops[%d] op = %q, want %q", i, got, kind)
-		}
+		assertOpDiscriminator(t, asArray, i, kind)
 	}
+}
 
-	// Unmarshal 回 typed Ops 并核对
+func assertOpDiscriminator(t *testing.T, asArray []map[string]json.RawMessage, i int, want OpKind) {
+	t.Helper()
+	var got OpKind
+	if err := json.Unmarshal(asArray[i]["op"], &got); err != nil {
+		t.Fatalf("ops[%d] op field: %v", i, err)
+	}
+	if got != want {
+		t.Errorf("ops[%d] op = %q, want %q", i, got, want)
+	}
+}
+
+func unmarshalOpsForTest(t *testing.T, marshaled []byte) Ops {
+	t.Helper()
 	var roundtrip Ops
 	if err := json.Unmarshal(marshaled, &roundtrip); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
+	return roundtrip
+}
+
+func assertRoundtripKinds(t *testing.T, roundtrip, original Ops) {
+	t.Helper()
 	if got, want := len(roundtrip), len(original); got != want {
 		t.Fatalf("len = %d, want %d", got, want)
 	}
@@ -111,19 +135,45 @@ func TestOps_MixedRoundTrip(t *testing.T) {
 			t.Errorf("ops[%d] kind = %q, want %q", i, roundtrip[i].Kind(), original[i].Kind())
 		}
 	}
+}
 
-	// typed assertion 抽查
-	if got, ok := roundtrip[0].(OpUpdateDAG); !ok || got.Patch.Title == nil || *got.Patch.Title != title {
-		t.Errorf("ops[0] roundtrip lost data: %+v", roundtrip[0])
+func assertRoundtripPayloads(t *testing.T, roundtrip Ops, title string) {
+	t.Helper()
+	assertRoundtripUpdateDAG(t, roundtrip[0], title)
+	assertRoundtripAddNode(t, roundtrip[1])
+	assertRoundtripUpdateNode(t, roundtrip[2])
+	assertRoundtripRemoveNode(t, roundtrip[3])
+}
+
+func assertRoundtripUpdateDAG(t *testing.T, op Op, title string) {
+	t.Helper()
+	got, ok := op.(OpUpdateDAG)
+	if !ok || got.Patch.Title == nil || *got.Patch.Title != title {
+		t.Errorf("ops[0] roundtrip lost data: %+v", op)
 	}
-	if got, ok := roundtrip[1].(OpAddNode); !ok || got.Node.NodeKey != "n1" || got.Node.NodeType != "agent" {
-		t.Errorf("ops[1] roundtrip lost data: %+v", roundtrip[1])
+}
+
+func assertRoundtripAddNode(t *testing.T, op Op) {
+	t.Helper()
+	got, ok := op.(OpAddNode)
+	if !ok || got.Node.NodeKey != "n1" || got.Node.NodeType != "agent" {
+		t.Errorf("ops[1] roundtrip lost data: %+v", op)
 	}
-	if got, ok := roundtrip[2].(OpUpdateNode); !ok || got.NodeKey != "n1" || got.Patch.DependsOn == nil || len(*got.Patch.DependsOn) != 2 {
-		t.Errorf("ops[2] roundtrip lost data: %+v", roundtrip[2])
+}
+
+func assertRoundtripUpdateNode(t *testing.T, op Op) {
+	t.Helper()
+	got, ok := op.(OpUpdateNode)
+	if !ok || got.NodeKey != "n1" || got.Patch.DependsOn == nil || len(*got.Patch.DependsOn) != 2 {
+		t.Errorf("ops[2] roundtrip lost data: %+v", op)
 	}
-	if got, ok := roundtrip[3].(OpRemoveNode); !ok || got.NodeKey != "old" {
-		t.Errorf("ops[3] roundtrip lost data: %+v", roundtrip[3])
+}
+
+func assertRoundtripRemoveNode(t *testing.T, op Op) {
+	t.Helper()
+	got, ok := op.(OpRemoveNode)
+	if !ok || got.NodeKey != "old" {
+		t.Errorf("ops[3] roundtrip lost data: %+v", op)
 	}
 }
 

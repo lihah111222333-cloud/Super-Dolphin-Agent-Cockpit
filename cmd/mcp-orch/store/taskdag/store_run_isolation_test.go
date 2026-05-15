@@ -21,30 +21,8 @@ func TestCloneNodesForRunKeepsTemplateAndRunsIndependent(t *testing.T) {
 	runA := seedRunID(db, "dag-1", "run-a")
 	runB := seedRunID(db, "dag-1", "run-b")
 
-	clonedA, err := runStore.CloneNodesForRun(context.Background(), "dag-1", runA)
-	if err != nil {
-		t.Fatalf("clone run A error = %v", err)
-	}
-	if clonedA != 2 {
-		t.Fatalf("clone run A rows = %d, want 2", clonedA)
-	}
-	if promotedA, err := runStore.PromoteRootNodesToReady(context.Background(), "dag-1", runA); err != nil {
-		t.Fatalf("promote run A error = %v", err)
-	} else if promotedA != 1 {
-		t.Fatalf("promote run A rows = %d, want 1", promotedA)
-	}
-	clonedB, err := runStore.CloneNodesForRun(context.Background(), "dag-1", runB)
-	if err != nil {
-		t.Fatalf("clone run B error = %v", err)
-	}
-	if clonedB != 2 {
-		t.Fatalf("clone run B rows = %d, want 2", clonedB)
-	}
-	if promotedB, err := runStore.PromoteRootNodesToReady(context.Background(), "dag-1", runB); err != nil {
-		t.Fatalf("promote run B error = %v", err)
-	} else if promotedB != 1 {
-		t.Fatalf("promote run B rows = %d, want 1", promotedB)
-	}
+	cloneAndPromoteRunRoot(t, runStore, runA, "run A")
+	cloneAndPromoteRunRoot(t, runStore, runB, "run B")
 
 	if got := db.nodes[dagNodeKey("dag-1", "root")].Status; got != "pending" {
 		t.Fatalf("template root status = %q, want pending", got)
@@ -70,72 +48,10 @@ func TestCompleteNodeAndScheduleDownstreamStaysInsideRun(t *testing.T) {
 	seedRuntimeNode(t, db, now, runB, "root", nil, "running", "agent-root")
 	seedRuntimeNode(t, db, now, runB, "child", []string{"root"}, "pending", "agent-child")
 
-	res, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey:  "dag-1",
-		NodeKey: "root",
-		RunID:   runA,
-		Status:  "done",
-		Result:  json.RawMessage(`{"ok":true}`),
-	})
-	if err != nil {
-		t.Fatalf("complete run A root error = %v", err)
-	}
-	if len(res.PromotedDownstream) != 1 || res.PromotedDownstream[0].NodeKey != "child" || res.PromotedDownstream[0].RunID != runA {
-		t.Fatalf("PromotedDownstream = %+v, want run A child only", res.PromotedDownstream)
-	}
-	if len(res.ScheduledDownstream) != 1 || res.ScheduledDownstream[0].NodeKey != "child" || res.ScheduledDownstream[0].RunID != runA {
-		t.Fatalf("ScheduledDownstream = %+v, want run A child only", res.ScheduledDownstream)
-	}
-	wakeupA := lookupPendingWakeupForRun(t, db, runA, "child")
-	if got := sqlc.Int8Ptr(wakeupA.RunID); got == nil || *got != runA {
-		t.Fatalf("run A wakeup run_id = %v, want %d", got, runA)
-	}
-	if want := downstreamIdempotencyKey("dag-1", "child", runA); wakeupA.IdempotencyKey != want {
-		t.Fatalf("run A wakeup idempotency_key = %q, want %q", wakeupA.IdempotencyKey, want)
-	}
-	assertRunNodeStatus(t, db, runA, "root", "done")
-	assertRunNodeStatus(t, db, runA, "child", "ready")
-	assertRunNodeStatus(t, db, runB, "root", "running")
-	assertRunNodeStatus(t, db, runB, "child", "pending")
-	if got := runStatusByKey(t, db, "run-a"); got != "running" {
-		t.Fatalf("run A status after root = %q, want running", got)
-	}
-	if got := runStatusByKey(t, db, "run-b"); got != "running" {
-		t.Fatalf("run B status after run A root = %q, want running", got)
-	}
-
-	res, err = store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey:  "dag-1",
-		NodeKey: "child",
-		RunID:   runA,
-		Status:  "done",
-		Result:  json.RawMessage(`"final"`),
-	})
-	if err != nil {
-		t.Fatalf("complete run A child error = %v", err)
-	}
-	if res.FinalizedRun == nil || res.FinalizedRun.RunKey != "run-a" || res.FinalizedRun.Status != "succeeded" {
-		t.Fatalf("FinalizedRun = %+v, want run-a succeeded", res.FinalizedRun)
-	}
-	if got := runStatusByKey(t, db, "run-b"); got != "running" {
-		t.Fatalf("run B status after run A finalize = %q, want running", got)
-	}
-	assertRunNodeStatus(t, db, runB, "root", "running")
-	assertRunNodeStatus(t, db, runB, "child", "pending")
-
-	res, err = store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
-		DagKey:  "dag-1",
-		NodeKey: "root",
-		RunID:   runB,
-		Status:  "done",
-		Result:  json.RawMessage(`{"ok":true}`),
-	})
-	if err != nil {
-		t.Fatalf("complete run B root error = %v", err)
-	}
-	if len(res.ScheduledDownstream) != 1 || res.ScheduledDownstream[0].RunID != runB {
-		t.Fatalf("run B ScheduledDownstream = %+v, want one run B wakeup", res.ScheduledDownstream)
-	}
+	wakeupA := completeRunRootAndAssertIsolation(t, store, db, runA, runB)
+	completeRunChildAndAssertFinalized(t, store, db, runA, runB)
+	res := completeRunRoot(t, store, runB, "run B")
+	assertSingleScheduledDownstream(t, "run B scheduled", res.ScheduledDownstream, runB)
 	wakeupB := lookupPendingWakeupForRun(t, db, runB, "child")
 	if wakeupB.IdempotencyKey == wakeupA.IdempotencyKey {
 		t.Fatalf("run B wakeup reused run A idempotency key %q", wakeupB.IdempotencyKey)
@@ -166,15 +82,7 @@ func TestFailNodeAndCancelDownstreamStaysInsideRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fail run A root error = %v", err)
 	}
-	if res.Node == nil || res.Node.RunID == nil || *res.Node.RunID != runA || res.Node.Status != "failed" {
-		t.Fatalf("failed node = %+v, want run A root failed", res.Node)
-	}
-	if len(res.CanceledDownstream) != 1 || res.CanceledDownstream[0].NodeKey != "child" || res.CanceledDownstream[0].RunID != runA {
-		t.Fatalf("CanceledDownstream = %+v, want run A child only", res.CanceledDownstream)
-	}
-	if res.FinalizedRun == nil || res.FinalizedRun.RunKey != "run-a" || res.FinalizedRun.Status != "failed" {
-		t.Fatalf("FinalizedRun = %+v, want run-a failed", res.FinalizedRun)
-	}
+	assertFailedRunResult(t, res, runA)
 	assertRunNodeStatus(t, db, runA, "root", "failed")
 	assertRunNodeStatus(t, db, runA, "child", "failed")
 	assertRunNodeStatus(t, db, runB, "root", "running")
@@ -184,6 +92,126 @@ func TestFailNodeAndCancelDownstreamStaysInsideRun(t *testing.T) {
 	}
 	if got := runStatusByKey(t, db, "run-b"); got != "running" {
 		t.Fatalf("run-b status = %q, want running", got)
+	}
+}
+
+func cloneAndPromoteRunRoot(t *testing.T, runStore RunStore, runID int64, label string) {
+	t.Helper()
+	cloned, err := runStore.CloneNodesForRun(context.Background(), "dag-1", runID)
+	if err != nil {
+		t.Fatalf("clone %s error = %v", label, err)
+	}
+	if cloned != 2 {
+		t.Fatalf("clone %s rows = %d, want 2", label, cloned)
+	}
+	promoted, err := runStore.PromoteRootNodesToReady(context.Background(), "dag-1", runID)
+	if err != nil {
+		t.Fatalf("promote %s error = %v", label, err)
+	}
+	if promoted != 1 {
+		t.Fatalf("promote %s rows = %d, want 1", label, promoted)
+	}
+}
+
+func completeRunRootAndAssertIsolation(t *testing.T, store Store, db *fakeTaskDAGDB, runA, runB int64) sqlc.TaskDagWakeup {
+	t.Helper()
+	res := completeRunRoot(t, store, runA, "run A")
+	assertSinglePromotedDownstream(t, "PromotedDownstream", res.PromotedDownstream, runA)
+	assertSingleScheduledDownstream(t, "ScheduledDownstream", res.ScheduledDownstream, runA)
+	wakeupA := lookupPendingWakeupForRun(t, db, runA, "child")
+	assertWakeupRunAndKey(t, wakeupA, runA, "run A")
+	assertRunNodeStatus(t, db, runA, "root", "done")
+	assertRunNodeStatus(t, db, runA, "child", "ready")
+	assertRunNodeStatus(t, db, runB, "root", "running")
+	assertRunNodeStatus(t, db, runB, "child", "pending")
+	assertRunStatus(t, db, "run-a", "running", "after root")
+	assertRunStatus(t, db, "run-b", "running", "after run A root")
+	return wakeupA
+}
+
+func completeRunChildAndAssertFinalized(t *testing.T, store Store, db *fakeTaskDAGDB, runA, runB int64) {
+	t.Helper()
+	res, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
+		DagKey: "dag-1", NodeKey: "child", RunID: runA, Status: "done", Result: json.RawMessage(`"final"`),
+	})
+	if err != nil {
+		t.Fatalf("complete run A child error = %v", err)
+	}
+	if res.FinalizedRun == nil || res.FinalizedRun.RunKey != "run-a" || res.FinalizedRun.Status != "succeeded" {
+		t.Fatalf("FinalizedRun = %+v, want run-a succeeded", res.FinalizedRun)
+	}
+	assertRunStatus(t, db, "run-b", "running", "after run A finalize")
+	assertRunNodeStatus(t, db, runB, "root", "running")
+	assertRunNodeStatus(t, db, runB, "child", "pending")
+}
+
+func completeRunRoot(t *testing.T, store Store, runID int64, label string) *CompleteNodeWithDownstreamResult {
+	t.Helper()
+	res, err := store.CompleteNodeAndScheduleDownstream(context.Background(), CompleteNodeInput{
+		DagKey: "dag-1", NodeKey: "root", RunID: runID, Status: "done", Result: json.RawMessage(`{"ok":true}`),
+	})
+	if err != nil {
+		t.Fatalf("complete %s root error = %v", label, err)
+	}
+	return res
+}
+
+func assertSinglePromotedDownstream(t *testing.T, label string, nodes []PromotedDownstreamNode, runID int64) {
+	t.Helper()
+	if len(nodes) != 1 || nodes[0].NodeKey != "child" || nodes[0].RunID != runID {
+		t.Fatalf("%s = %+v, want child only for run %d", label, nodes, runID)
+	}
+}
+
+func assertSingleScheduledDownstream(t *testing.T, label string, nodes []ScheduledDownstreamWakeup, runID int64) {
+	t.Helper()
+	if len(nodes) != 1 || nodes[0].NodeKey != "child" || nodes[0].RunID != runID {
+		t.Fatalf("%s = %+v, want child only for run %d", label, nodes, runID)
+	}
+}
+
+func assertWakeupRunAndKey(t *testing.T, wakeup sqlc.TaskDagWakeup, runID int64, label string) {
+	t.Helper()
+	if got := sqlc.Int8Ptr(wakeup.RunID); got == nil || *got != runID {
+		t.Fatalf("%s wakeup run_id = %v, want %d", label, got, runID)
+	}
+	if want := downstreamIdempotencyKey("dag-1", "child", runID); wakeup.IdempotencyKey != want {
+		t.Fatalf("%s wakeup idempotency_key = %q, want %q", label, wakeup.IdempotencyKey, want)
+	}
+}
+
+func assertRunStatus(t *testing.T, db *fakeTaskDAGDB, runKey, want, context string) {
+	t.Helper()
+	if got := runStatusByKey(t, db, runKey); got != want {
+		t.Fatalf("%s status %s = %q, want %q", runKey, context, got, want)
+	}
+}
+
+func assertFailedRunResult(t *testing.T, res *FailNodeResult, runA int64) {
+	t.Helper()
+	assertFailedPrimaryNode(t, res.Node, runA)
+	assertCanceledChild(t, res.CanceledDownstream, runA)
+	assertFinalizedFailedRun(t, res.FinalizedRun)
+}
+
+func assertFailedPrimaryNode(t *testing.T, node *Node, runA int64) {
+	t.Helper()
+	if node == nil || node.RunID == nil || *node.RunID != runA || node.Status != "failed" {
+		t.Fatalf("failed node = %+v, want run A root failed", node)
+	}
+}
+
+func assertCanceledChild(t *testing.T, nodes []CanceledDownstreamNode, runA int64) {
+	t.Helper()
+	if len(nodes) != 1 || nodes[0].NodeKey != "child" || nodes[0].RunID != runA {
+		t.Fatalf("CanceledDownstream = %+v, want run A child only", nodes)
+	}
+}
+
+func assertFinalizedFailedRun(t *testing.T, finalized *FinalizedRunInfo) {
+	t.Helper()
+	if finalized == nil || finalized.RunKey != "run-a" || finalized.Status != "failed" {
+		t.Fatalf("FinalizedRun = %+v, want run-a failed", finalized)
 	}
 }
 

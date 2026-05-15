@@ -18,6 +18,15 @@ import (
 func TestRecoverReplaysStoreBackedActiveTurnAheadOfQueuedWork(t *testing.T) {
 	t.Parallel()
 
+	svc, agent := newRecoverReplayService(t)
+	if err := svc.Recover(context.Background(), agent.id); err != nil {
+		t.Fatalf("Recover() error = %v", err)
+	}
+	assertRecoveredReplayQueue(t, agent)
+}
+
+func newRecoverReplayService(t *testing.T) (*service, *agentRuntime) {
+	t.Helper()
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	svc.recoveryStore = stubRecoveryTurnStore{
 		nodes: []taskdag.Node{{
@@ -50,26 +59,33 @@ func TestRecoverReplaysStoreBackedActiveTurnAheadOfQueuedWork(t *testing.T) {
 		Inputs:   []shareddto.InputItem{{Type: "text", Content: "queued work"}},
 	})
 	svc.agents[agent.id] = agent
-	t.Cleanup(func() {
-		if agent.cmd != nil {
-			_ = stopProcess(agent.cmd)
-		}
-	})
+	t.Cleanup(func() { cleanupAgentProcess(agent) })
+	return svc, agent
+}
 
-	if err := svc.Recover(context.Background(), agent.id); err != nil {
-		t.Fatalf("Recover() error = %v", err)
-	}
+func assertRecoveredReplayQueue(t *testing.T, agent *agentRuntime) {
+	t.Helper()
 	if agent.state != agentdto.StateTurnQueued {
 		t.Fatalf("agent.state = %q, want %q", agent.state, agentdto.StateTurnQueued)
 	}
 	if got := agent.queue.Len(); got != 2 {
 		t.Fatalf("queue.Len() = %d, want 2", got)
 	}
+	assertFirstRecoveredReplayTurn(t, dequeueRecoveredTurn(t, agent, "first"))
+	assertSecondRecoveredReplayTurn(t, dequeueRecoveredTurn(t, agent, "second"))
+}
 
-	first, ok := agent.queue.Dequeue()
+func dequeueRecoveredTurn(t *testing.T, agent *agentRuntime, label string) TurnSubmission {
+	t.Helper()
+	turn, ok := agent.queue.Dequeue()
 	if !ok {
-		t.Fatal("first Dequeue() ok = false, want true")
+		t.Fatalf("%s Dequeue() ok = false, want true", label)
 	}
+	return turn
+}
+
+func assertFirstRecoveredReplayTurn(t *testing.T, first TurnSubmission) {
+	t.Helper()
 	if first.ExpectedTurnID != "turn-active" {
 		t.Fatalf("first.ExpectedTurnID = %q, want turn-active", first.ExpectedTurnID)
 	}
@@ -79,13 +95,18 @@ func TestRecoverReplaysStoreBackedActiveTurnAheadOfQueuedWork(t *testing.T) {
 	if len(first.Inputs) != 1 || first.Inputs[0].Content != "replay me" {
 		t.Fatalf("first.Inputs = %#v, want replayed prompt", first.Inputs)
 	}
+}
 
-	second, ok := agent.queue.Dequeue()
-	if !ok {
-		t.Fatal("second Dequeue() ok = false, want true")
-	}
+func assertSecondRecoveredReplayTurn(t *testing.T, second TurnSubmission) {
+	t.Helper()
 	if len(second.Inputs) != 1 || second.Inputs[0].Content != "queued work" {
 		t.Fatalf("second.Inputs = %#v, want queued work", second.Inputs)
+	}
+}
+
+func cleanupAgentProcess(agent *agentRuntime) {
+	if agent.cmd != nil {
+		_ = stopProcess(agent.cmd)
 	}
 }
 
@@ -186,11 +207,7 @@ func TestRecoverStalledAgentsPublishesTurnStalledAndResumed(t *testing.T) {
 	agent.activeTurnID = "turn-active"
 	agent.updatedAt = time.Now().Add(-time.Minute)
 	svc.agents[agent.id] = agent
-	t.Cleanup(func() {
-		if agent.cmd != nil {
-			_ = stopProcess(agent.cmd)
-		}
-	})
+	t.Cleanup(func() { cleanupAgentProcess(agent) })
 
 	actor := &runnerActor{logger: silentLogger(), service: svc}
 	actor.recoverStalledAgents(context.Background(), &StallDetector{
@@ -199,6 +216,14 @@ func TestRecoverStalledAgentsPublishesTurnStalledAndResumed(t *testing.T) {
 	})
 
 	stalled := awaitTurnStalled(t, stalledEvents)
+	assertRecoverStalledEvent(t, stalled)
+
+	resumed := awaitTurnResumed(t, resumedEvents)
+	assertRecoverResumedEvent(t, resumed)
+}
+
+func assertRecoverStalledEvent(t *testing.T, stalled turndto.TurnStalled) {
+	t.Helper()
 	if stalled.AgentID != "agent-1" {
 		t.Fatalf("TurnStalled.AgentID = %q, want agent-1", stalled.AgentID)
 	}
@@ -214,8 +239,10 @@ func TestRecoverStalledAgentsPublishesTurnStalledAndResumed(t *testing.T) {
 	if stalled.StalledMS < 30_000 {
 		t.Fatalf("TurnStalled.StalledMS = %d, want >= 30000", stalled.StalledMS)
 	}
+}
 
-	resumed := awaitTurnResumed(t, resumedEvents)
+func assertRecoverResumedEvent(t *testing.T, resumed turndto.TurnResumed) {
+	t.Helper()
 	if resumed.AgentID != "agent-1" {
 		t.Fatalf("TurnResumed.AgentID = %q, want agent-1", resumed.AgentID)
 	}

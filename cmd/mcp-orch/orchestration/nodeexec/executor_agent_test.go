@@ -507,9 +507,9 @@ func TestAgentExecutor_Execute_Spawn_FallsBackToNodeKeys(t *testing.T) {
 	}
 }
 
-// TestAgentExecutor_Execute_Spawn_NilRecorder_SkipsWriteback 验证 recorder=nil
+// TestAgentExecutorExecuteSpawnNilRecorderSkipsWriteback 验证 recorder=nil
 // 时 AgentExecutor 仍能正常 launch + 返回 done。保证 F1.5 之前的 wiring 不被破坏。
-func TestAgentExecutor_Execute_Spawn_NilRecorder_SkipsWriteback(t *testing.T) {
+func TestAgentExecutorExecuteSpawnNilRecorderSkipsWriteback(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{threadID: "thread-nil-recorder"}
 	exec := NewAgentExecutor(launcher)
@@ -527,10 +527,10 @@ func TestAgentExecutor_Execute_Spawn_NilRecorder_SkipsWriteback(t *testing.T) {
 	}
 }
 
-// TestAgentExecutor_Execute_Spawn_EmptyThreadID_SkipsWriteback 验证 launcher
+// TestAgentExecutorExecuteSpawnEmptyThreadIDSkipsWriteback 验证 launcher
 // 返回 threadID="" 时（如 service.LaunchAgentSnapshot 失败微妙路径）跳过
 // 写回，避免错误覆盖之前的 thread id（fail-fast 语义）。
-func TestAgentExecutor_Execute_Spawn_EmptyThreadID_SkipsWriteback(t *testing.T) {
+func TestAgentExecutorExecuteSpawnEmptyThreadIDSkipsWriteback(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{threadID: ""} // launch 成功但拿不到 thread_id
 	recorder := &stubNodeSpawnRecorder{}

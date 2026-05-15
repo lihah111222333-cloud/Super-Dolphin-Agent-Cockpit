@@ -84,6 +84,15 @@ func TestReportRuntimeRPCHandler(t *testing.T) {
 	svc, reported, cancel := newRuntimeTestService(silentLogger(), runtimeTestAgent())
 	defer cancel()
 
+	raw := dispatchRuntimeReport(t, svc)
+	assertRuntimeReportSuccess(t, raw)
+	assertRuntimeSnapshot(t, svc)
+	assertRuntimeReportedEvent(t, reported)
+}
+
+func dispatchRuntimeReport(t *testing.T, svc *service) json.RawMessage {
+	t.Helper()
+
 	server := rpcpkg.NewServer(rpcpkg.Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(ProvideRPCFacade(svc).Handlers)
 
@@ -91,6 +100,11 @@ func TestReportRuntimeRPCHandler(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dispatch() error = %v", err)
 	}
+	return raw
+}
+
+func assertRuntimeReportSuccess(t *testing.T, raw json.RawMessage) {
+	t.Helper()
 
 	var resp struct {
 		Success bool `json:"success"`
@@ -101,21 +115,40 @@ func TestReportRuntimeRPCHandler(t *testing.T) {
 	if !resp.Success {
 		t.Fatalf("response = %s, want success=true", raw)
 	}
+}
+
+func assertRuntimeSnapshot(t *testing.T, svc *service) {
+	t.Helper()
 
 	snapshot, err := svc.Snapshot(context.Background(), "agent-1")
 	if err != nil {
 		t.Fatalf("Snapshot() error = %v", err)
 	}
-	if snapshot.Port != 8080 || snapshot.PortSource != "inferred" {
-		t.Fatalf("snapshot port = (%d, %q), want (8080, inferred)", snapshot.Port, snapshot.PortSource)
+	if snapshot.Port != 8080 {
+		t.Fatalf("snapshot port = %d, want 8080", snapshot.Port)
 	}
-	if snapshot.Provider != "claude" || snapshot.ProviderSource != "runtime" {
-		t.Fatalf("snapshot provider = (%q, %q), want (claude, runtime)", snapshot.Provider, snapshot.ProviderSource)
+	if snapshot.PortSource != "inferred" {
+		t.Fatalf("snapshot port source = %q, want inferred", snapshot.PortSource)
 	}
+	if snapshot.Provider != "claude" {
+		t.Fatalf("snapshot provider = %q, want claude", snapshot.Provider)
+	}
+	if snapshot.ProviderSource != "runtime" {
+		t.Fatalf("snapshot provider source = %q, want runtime", snapshot.ProviderSource)
+	}
+}
 
+func assertRuntimeReportedEvent(t *testing.T, reported <-chan agentdto.AgentRuntimeReported) {
+	t.Helper()
 	ev := expectRuntimeEvent(t, reported)
-	if ev.AgentID != "agent-1" || ev.Port != 8080 || ev.Provider != "claude" {
-		t.Fatalf("runtime event = %#v", ev)
+	if ev.AgentID != "agent-1" {
+		t.Fatalf("runtime event agent = %q, want agent-1", ev.AgentID)
+	}
+	if ev.Port != 8080 {
+		t.Fatalf("runtime event port = %d, want 8080", ev.Port)
+	}
+	if ev.Provider != "claude" {
+		t.Fatalf("runtime event provider = %q, want claude", ev.Provider)
 	}
 }
 

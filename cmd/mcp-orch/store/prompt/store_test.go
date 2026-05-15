@@ -80,15 +80,20 @@ func TestPromptTemplateMappingsIncludeManuallyEdited(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if !tt.got.ManuallyEdited {
-				t.Fatalf("ManuallyEdited = false, want true")
-			}
-			if !json.Valid(tt.got.Variables) {
-				t.Fatalf("Variables must remain valid JSON: %s", string(tt.got.Variables))
-			}
-			if !json.Valid(tt.got.Tags) {
-				t.Fatalf("Tags must remain valid JSON: %s", string(tt.got.Tags))
-			}
+			assertPromptTemplateMapping(t, tt.got)
 		})
+	}
+}
+
+func assertPromptTemplateMapping(t *testing.T, got PromptTemplate) {
+	t.Helper()
+	if !got.ManuallyEdited {
+		t.Fatalf("ManuallyEdited = false, want true")
+	}
+	if !json.Valid(got.Variables) {
+		t.Fatalf("Variables must remain valid JSON: %s", string(got.Variables))
+	}
+	if !json.Valid(got.Tags) {
+		t.Fatalf("Tags must remain valid JSON: %s", string(got.Tags))
 	}
 }

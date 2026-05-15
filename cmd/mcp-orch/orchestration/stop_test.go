@@ -62,23 +62,8 @@ func TestStopAgentPublishesStoppedAfterObservedExit(t *testing.T) {
 		t.Fatalf("StopAgent() error = %v", err)
 	}
 
-	select {
-	case <-waitDone:
-	case <-time.After(2 * time.Second):
-		t.Fatal("process exit was not observed")
-	}
-
-	select {
-	case ev := <-stopped:
-		if ev.Reason != "user_requested" {
-			t.Fatalf("AgentStopped reason = %q, want user_requested", ev.Reason)
-		}
-		if ev.AgentID != "agent-1" {
-			t.Fatalf("AgentStopped agent_id = %q, want agent-1", ev.AgentID)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("expected AgentStopped event")
-	}
+	waitForStopTestProcessExit(t, waitDone)
+	requireStopTestEvent(t, stopped, "user_requested", "agent-1")
 
 	if agent.state != agentdto.StateStopped {
 		t.Fatalf("agent.state = %q, want %q", agent.state, agentdto.StateStopped)
@@ -129,20 +114,8 @@ func TestStopAllAgentsPublishesShutdownAfterObservedExit(t *testing.T) {
 
 	svc.StopAllAgents()
 
-	select {
-	case <-waitDone:
-	case <-time.After(2 * time.Second):
-		t.Fatal("process exit was not observed")
-	}
-
-	select {
-	case ev := <-stopped:
-		if ev.Reason != "shutdown" {
-			t.Fatalf("AgentStopped reason = %q, want shutdown", ev.Reason)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("expected AgentStopped event")
-	}
+	waitForStopTestProcessExit(t, waitDone)
+	requireStopTestEvent(t, stopped, "shutdown", "")
 
 	if agent.cmd != nil {
 		t.Fatal("agent.cmd = non-nil, want nil after observed exit")
@@ -243,23 +216,8 @@ func TestRunnerActorShutdownObservesProcessExitAfterContextCancel(t *testing.T) 
 	waitForAgentMonitor(t, svc, agent.id, agent.launchSeq)
 	cancel()
 
-	select {
-	case err := <-runDone:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("Run() error = %v, want context.Canceled", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("runner did not stop after context cancel")
-	}
-
-	select {
-	case ev := <-stopped:
-		if ev.Reason != "shutdown" {
-			t.Fatalf("AgentStopped reason = %q, want shutdown", ev.Reason)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("expected AgentStopped event")
-	}
+	requireRunnerStoppedAfterCancel(t, runDone)
+	requireStopTestEvent(t, stopped, "shutdown", "")
 
 	svc.mu.RLock()
 	exited := svc.agents[agent.id].lastExitedSeq >= 1
@@ -272,6 +230,42 @@ func TestRunnerActorShutdownObservesProcessExitAfterContextCancel(t *testing.T) 
 	}
 	if len(cleaner.removeGeneration) != 1 || cleaner.removeGeneration[0] != 13 {
 		t.Fatalf("removeGeneration = %#v, want [13]", cleaner.removeGeneration)
+	}
+}
+
+func waitForStopTestProcessExit(t *testing.T, waitDone <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-waitDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("process exit was not observed")
+	}
+}
+
+func requireStopTestEvent(t *testing.T, stopped <-chan agentdto.AgentStopped, wantReason, wantAgentID string) {
+	t.Helper()
+	select {
+	case ev := <-stopped:
+		if ev.Reason != wantReason {
+			t.Fatalf("AgentStopped reason = %q, want %s", ev.Reason, wantReason)
+		}
+		if wantAgentID != "" && ev.AgentID != wantAgentID {
+			t.Fatalf("AgentStopped agent_id = %q, want %s", ev.AgentID, wantAgentID)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected AgentStopped event")
+	}
+}
+
+func requireRunnerStoppedAfterCancel(t *testing.T, runDone <-chan error) {
+	t.Helper()
+	select {
+	case err := <-runDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Run() error = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("runner did not stop after context cancel")
 	}
 }
 

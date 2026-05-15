@@ -20,6 +20,7 @@ import (
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLauncherHelperProcess(t *testing.T) {
@@ -63,26 +64,19 @@ func TestRemoteLauncher_LaunchStop(t *testing.T) {
 		AgentType:   "worker",
 		MemoryScope: "local",
 	})
-	if err != nil || got.ThreadID != "thread-1" || agent.remoteThreadID != "thread-1" {
-		t.Fatalf("Launch() got=%#v err=%v started=%#v agent=%#v", got, err, started, agent)
-	}
-	if started["name"] != "Worker UI" {
-		t.Fatalf("Launch() name = %#v, want Worker UI", started["name"])
-	}
-	if started["agent_id"] != "agent-1" {
-		t.Fatalf("Launch() agent_id = %#v, want agent-1", started["agent_id"])
-	}
+	require.NoError(t, err)
+	require.Equal(t, "thread-1", got.ThreadID)
+	require.Equal(t, "thread-1", agent.remoteThreadID)
+	require.Equal(t, "Worker UI", started["name"])
+	require.Equal(t, "agent-1", started["agent_id"])
 	// thread/start must not receive a separate `prompt` key: the server treats
 	// it as a legacy alias for `name` and rejects (-32602) when the two differ.
-	if _, ok := started["prompt"]; ok {
-		t.Fatalf("Launch() started contains prompt=%#v; want no prompt field", started["prompt"])
-	}
-	if started["agent_type"] != "worker" || started["parent_agent_id"] != "agent-root" || started["agent_memory_scope"] != "local" {
-		t.Fatalf("Launch() metadata = %#v, want agent_type/parent_agent_id/agent_memory_scope", started)
-	}
-	if err := launcher.Stop(context.Background(), agent); err != nil || stopped["thread_id"] != "thread-1" {
-		t.Fatalf("Stop() err=%v stopped=%#v", err, stopped)
-	}
+	require.NotContains(t, started, "prompt")
+	require.Equal(t, "worker", started["agent_type"])
+	require.Equal(t, "agent-root", started["parent_agent_id"])
+	require.Equal(t, "local", started["agent_memory_scope"])
+	require.NoError(t, launcher.Stop(context.Background(), agent))
+	require.Equal(t, "thread-1", stopped["thread_id"])
 }
 
 func TestRemoteLauncher_DisabledToolsUseStartConfig(t *testing.T) {

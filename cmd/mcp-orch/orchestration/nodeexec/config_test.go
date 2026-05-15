@@ -61,29 +61,44 @@ func TestParseAgentConfig_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if got.Exec.Provider != "claude" || got.Exec.Model != "opus" {
-		t.Errorf("Exec lost fields: %+v", got.Exec)
-	}
-	if got.Exec.Isolation != "worktree" {
-		t.Errorf("isolation = %q, want worktree", got.Exec.Isolation)
-	}
-	if got.Exec.OnFailure == nil || got.Exec.OnFailure.ByClass[FailureClassCapability] != OnFailureEscalateModel {
-		t.Errorf("OnFailure.ByClass round-trip lost: %+v", got.Exec.OnFailure)
-	}
-	if len(got.Exec.OnFailure.EscalationChain) != 2 {
-		t.Errorf("EscalationChain = %v, want [sonnet opus]", got.Exec.OnFailure.EscalationChain)
-	}
-	if got.Outputs.ToSharedfile == nil || got.Outputs.ToSharedfile.LockMode != "exclusive" {
-		t.Errorf("Outputs.ToSharedfile round-trip lost: %+v", got.Outputs.ToSharedfile)
-	}
-	if string(got.Outputs.Schema) != `{"type":"object","required":["summary"]}` {
-		t.Errorf("Schema round-trip lost: %s", got.Outputs.Schema)
-	}
-	if got.Inputs.Summarization == nil || got.Inputs.Summarization.Strategy != "last_n" {
-		t.Errorf("Summarization round-trip lost: %+v", got.Inputs.Summarization)
-	}
+	assertAgentExecRoundTrip(t, got.Exec)
+	assertAgentInputsRoundTrip(t, got.Inputs)
+	assertAgentOutputsRoundTrip(t, got.Outputs)
 	if got.FirstTurn != "请按规范输出" {
 		t.Errorf("FirstTurn lost: %q", got.FirstTurn)
+	}
+}
+
+func assertAgentExecRoundTrip(t *testing.T, exec AgentExecConfig) {
+	t.Helper()
+	if exec.Provider != "claude" || exec.Model != "opus" {
+		t.Errorf("Exec lost fields: %+v", exec)
+	}
+	if exec.Isolation != "worktree" {
+		t.Errorf("isolation = %q, want worktree", exec.Isolation)
+	}
+	if exec.OnFailure == nil || exec.OnFailure.ByClass[FailureClassCapability] != OnFailureEscalateModel {
+		t.Errorf("OnFailure.ByClass round-trip lost: %+v", exec.OnFailure)
+	}
+	if len(exec.OnFailure.EscalationChain) != 2 {
+		t.Errorf("EscalationChain = %v, want [sonnet opus]", exec.OnFailure.EscalationChain)
+	}
+}
+
+func assertAgentInputsRoundTrip(t *testing.T, inputs InputsConfig) {
+	t.Helper()
+	if inputs.Summarization == nil || inputs.Summarization.Strategy != "last_n" {
+		t.Errorf("Summarization round-trip lost: %+v", inputs.Summarization)
+	}
+}
+
+func assertAgentOutputsRoundTrip(t *testing.T, outputs OutputsConfig) {
+	t.Helper()
+	if outputs.ToSharedfile == nil || outputs.ToSharedfile.LockMode != "exclusive" {
+		t.Errorf("Outputs.ToSharedfile round-trip lost: %+v", outputs.ToSharedfile)
+	}
+	if string(outputs.Schema) != `{"type":"object","required":["summary"]}` {
+		t.Errorf("Schema round-trip lost: %s", outputs.Schema)
 	}
 }
 
@@ -197,38 +212,17 @@ func TestParseNodeConfig_DispatchByNodeType(t *testing.T) {
 		{
 			"agent",
 			`{"exec":{"provider":"claude","model":"opus"}}`,
-			func(t *testing.T, p *ParsedNodeConfig) {
-				if p.Agent == nil || p.Automation != nil || p.Hybrid != nil {
-					t.Fatalf("agent dispatch wrong: %+v", p)
-				}
-				if p.Agent.Exec.Model != "opus" {
-					t.Errorf("Agent.Exec.Model = %q", p.Agent.Exec.Model)
-				}
-			},
+			assertAgentDispatchConfig,
 		},
 		{
 			"automation",
 			`{"exec":{"command_ref":"build"}}`,
-			func(t *testing.T, p *ParsedNodeConfig) {
-				if p.Automation == nil || p.Agent != nil || p.Hybrid != nil {
-					t.Fatalf("automation dispatch wrong: %+v", p)
-				}
-				if p.Automation.Exec.CommandRef != "build" {
-					t.Errorf("Automation.Exec.CommandRef = %q", p.Automation.Exec.CommandRef)
-				}
-			},
+			assertAutomationDispatchConfig,
 		},
 		{
 			"hybrid",
 			`{"exec":{"automation":{"command_ref":"x"}}}`,
-			func(t *testing.T, p *ParsedNodeConfig) {
-				if p.Hybrid == nil || p.Agent != nil || p.Automation != nil {
-					t.Fatalf("hybrid dispatch wrong: %+v", p)
-				}
-				if p.Hybrid.Exec.Automation == nil || p.Hybrid.Exec.Automation.CommandRef != "x" {
-					t.Errorf("Hybrid.Exec.Automation.CommandRef = %+v", p.Hybrid.Exec.Automation)
-				}
-			},
+			assertHybridDispatchConfig,
 		},
 	}
 	for _, tc := range cases {
@@ -242,6 +236,36 @@ func TestParseNodeConfig_DispatchByNodeType(t *testing.T) {
 			}
 			tc.check(t, got)
 		})
+	}
+}
+
+func assertAgentDispatchConfig(t *testing.T, p *ParsedNodeConfig) {
+	t.Helper()
+	if p.Agent == nil || p.Automation != nil || p.Hybrid != nil {
+		t.Fatalf("agent dispatch wrong: %+v", p)
+	}
+	if p.Agent.Exec.Model != "opus" {
+		t.Errorf("Agent.Exec.Model = %q", p.Agent.Exec.Model)
+	}
+}
+
+func assertAutomationDispatchConfig(t *testing.T, p *ParsedNodeConfig) {
+	t.Helper()
+	if p.Automation == nil || p.Agent != nil || p.Hybrid != nil {
+		t.Fatalf("automation dispatch wrong: %+v", p)
+	}
+	if p.Automation.Exec.CommandRef != "build" {
+		t.Errorf("Automation.Exec.CommandRef = %q", p.Automation.Exec.CommandRef)
+	}
+}
+
+func assertHybridDispatchConfig(t *testing.T, p *ParsedNodeConfig) {
+	t.Helper()
+	if p.Hybrid == nil || p.Agent != nil || p.Automation != nil {
+		t.Fatalf("hybrid dispatch wrong: %+v", p)
+	}
+	if p.Hybrid.Exec.Automation == nil || p.Hybrid.Exec.Automation.CommandRef != "x" {
+		t.Errorf("Hybrid.Exec.Automation.CommandRef = %+v", p.Hybrid.Exec.Automation)
 	}
 }
 

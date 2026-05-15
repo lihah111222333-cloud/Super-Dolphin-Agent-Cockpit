@@ -136,8 +136,8 @@ func TestAgentExecutor_Inputs_FromSharedfiles_Single(t *testing.T) {
 	}
 }
 
-// TestAgentExecutor_Inputs_Mixed_FromNodes_AndSharedfiles 验证两类来源混合 + first_turn 拼接。
-func TestAgentExecutor_Inputs_Mixed_FromNodes_AndSharedfiles(t *testing.T) {
+// TestAgentExecutorInputsMixedSources 验证两类来源混合 + first_turn 拼接。
+func TestAgentExecutorInputsMixedSources(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{}
 	sf := &stubSharedFileReader{contents: map[string]string{
@@ -209,9 +209,9 @@ func TestAgentExecutor_Inputs_EmptyInputs_BackwardsCompat(t *testing.T) {
 	}
 }
 
-// TestAgentExecutor_Inputs_FromNodes_UnknownKey_Validation 验证 from_nodes 引用
+// TestAgentExecutorInputsFromNodesUnknownKey 验证 from_nodes 引用
 // 不存在的 node_key → validation 失败、不调 launcher。
-func TestAgentExecutor_Inputs_FromNodes_UnknownKey_Validation(t *testing.T) {
+func TestAgentExecutorInputsFromNodesUnknownKey(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{}
 	exec := NewAgentExecutor(launcher)
@@ -241,9 +241,9 @@ func TestAgentExecutor_Inputs_FromNodes_UnknownKey_Validation(t *testing.T) {
 	}
 }
 
-// TestAgentExecutor_Inputs_FromSharedfiles_Missing_Validation 验证 sharedfile
+// TestAgentExecutorInputsFromSharedfilesMissing 验证 sharedfile
 // 不存在 → validation 失败。
-func TestAgentExecutor_Inputs_FromSharedfiles_Missing_Validation(t *testing.T) {
+func TestAgentExecutorInputsFromSharedfilesMissing(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{}
 	sf := &stubSharedFileReader{contents: map[string]string{}} // 空
@@ -273,9 +273,9 @@ func TestAgentExecutor_Inputs_FromSharedfiles_Missing_Validation(t *testing.T) {
 	}
 }
 
-// TestAgentExecutor_Inputs_FromNodes_NilReader_Validation 验证 inputs.from_nodes
+// TestAgentExecutorInputsFromNodesNilReader 验证 inputs.from_nodes
 // 非空但 RunContext.PrevResults 未填 → validation（不静默吞掉注入需求）。
-func TestAgentExecutor_Inputs_FromNodes_NilReader_Validation(t *testing.T) {
+func TestAgentExecutorInputsFromNodesNilReader(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{}
 	exec := NewAgentExecutor(launcher)
@@ -295,9 +295,9 @@ func TestAgentExecutor_Inputs_FromNodes_NilReader_Validation(t *testing.T) {
 	}
 }
 
-// TestAgentExecutor_Inputs_FromSharedfiles_NilReader_Validation 验证
+// TestAgentExecutorInputsFromSharedfilesNilReader 验证
 // inputs.from_sharedfiles 非空但 reader 未接通 → validation。
-func TestAgentExecutor_Inputs_FromSharedfiles_NilReader_Validation(t *testing.T) {
+func TestAgentExecutorInputsFromSharedfilesNilReader(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{}
 	exec := NewAgentExecutor(launcher)
@@ -314,10 +314,10 @@ func TestAgentExecutor_Inputs_FromSharedfiles_NilReader_Validation(t *testing.T)
 	}
 }
 
-// TestAgentExecutor_Inputs_FromNodes_EmptyResult_StillSucceeds 验证 prev node
+// TestAgentExecutorInputsFromNodesEmptyResult 验证 prev node
 // 存在但 result 列为空时，注入「(empty)」占位且继续 launch（不阻塞 child）。
 // 上游节点合法配置 outputs.to_node_result=false 时此路径自然发生。
-func TestAgentExecutor_Inputs_FromNodes_EmptyResult_StillSucceeds(t *testing.T) {
+func TestAgentExecutorInputsFromNodesEmptyResult(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{}
 	exec := NewAgentExecutor(launcher)

@@ -46,27 +46,31 @@ func TestApplyOps_UpdateDAG_Happy(t *testing.T) {
 	if len(stub.dagPatchCalls) != 1 {
 		t.Fatalf("dagPatchCalls = %d, want 1", len(stub.dagPatchCalls))
 	}
+	assertHappyUpdateDAGPatch(t, stub)
+	if len(stub.upsertCalls) != 0 || len(stub.deleteCalls) != 0 {
+		t.Fatalf("update_dag should not touch nodes: upsert=%d delete=%d", len(stub.upsertCalls), len(stub.deleteCalls))
+	}
+}
+
+func assertHappyUpdateDAGPatch(t *testing.T, stub *stubDAGOpsStore) {
+	t.Helper()
+
 	got := stub.dagPatchCalls[0]
-	if got.Title == nil || *got.Title != "Daily Report" {
-		t.Fatalf("Title patch = %#v, want Daily Report", got.Title)
-	}
-	if got.Description == nil || *got.Description != "Morning summary" {
-		t.Fatalf("Description patch = %#v, want Morning summary", got.Description)
-	}
-	if got.Trigger == nil || *got.Trigger != "scheduled" {
-		t.Fatalf("Trigger patch = %#v, want scheduled", got.Trigger)
-	}
-	if got.CronExpr == nil || *got.CronExpr != "0 8 * * *" {
-		t.Fatalf("CronExpr patch = %#v, want cron expression", got.CronExpr)
-	}
-	if got.OwnerID == nil || *got.OwnerID != "owner-1" {
-		t.Fatalf("OwnerID patch = %#v, want owner-1", got.OwnerID)
-	}
+	assertPatchString(t, "Title", got.Title, "Daily Report")
+	assertPatchString(t, "Description", got.Description, "Morning summary")
+	assertPatchString(t, "Trigger", got.Trigger, "scheduled")
+	assertPatchString(t, "CronExpr", got.CronExpr, "0 8 * * *")
+	assertPatchString(t, "OwnerID", got.OwnerID, "owner-1")
 	if got.NextRunAt == nil || !got.NextRunAt.After(time.Now()) {
 		t.Fatalf("NextRunAt patch = %#v, want future cron trigger time", got.NextRunAt)
 	}
-	if len(stub.upsertCalls) != 0 || len(stub.deleteCalls) != 0 {
-		t.Fatalf("update_dag should not touch nodes: upsert=%d delete=%d", len(stub.upsertCalls), len(stub.deleteCalls))
+}
+
+func assertPatchString(t *testing.T, field string, got *string, want string) {
+	t.Helper()
+
+	if got == nil || *got != want {
+		t.Fatalf("%s patch = %#v, want %s", field, got, want)
 	}
 }
 

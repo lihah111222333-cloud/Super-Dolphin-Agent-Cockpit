@@ -68,51 +68,56 @@ func TestRecordNodeSpawn_RetryOverwrite_AppendsEvent(t *testing.T) {
 	seedRuntimeNode(t, db, now, runID, "n1", nil, "running", "agent-a")
 
 	// 先写一遍 thread-1（首次 spawn）。
-	if _, err := store.RecordNodeSpawn(context.Background(), RecordNodeSpawnInput{
-		DagKey: "dag-1", NodeKey: "n1", RunID: runID, ThreadID: "thread-1",
-	}); err != nil {
-		t.Fatalf("first spawn error = %v", err)
-	}
+	mustRecordNodeSpawn(t, store, runID, "thread-1", "first spawn")
 
 	// 再写 thread-2 —— 重试场景：旧 thread-1 应进 events 历史。
+	res := mustRecordNodeSpawn(t, store, runID, "thread-2", "retry spawn")
+	assertRetrySpawnResult(t, res, "thread-2", "thread-1", "run-A")
+
+	// 校验 events 中带了一条 node_spawn 历史（prev_thread_id=thread-1, thread_id=thread-2）。
+	assertSingleNodeSpawnEvent(t, db.runs["run-A"].Events, "n1", "thread-1", "thread-2")
+}
+
+func mustRecordNodeSpawn(t *testing.T, store NodeSpawnRecorderStore, runID int64, threadID, label string) *RecordNodeSpawnResult {
+	t.Helper()
 	res, err := store.RecordNodeSpawn(context.Background(), RecordNodeSpawnInput{
-		DagKey: "dag-1", NodeKey: "n1", RunID: runID, ThreadID: "thread-2",
+		DagKey: "dag-1", NodeKey: "n1", RunID: runID, ThreadID: threadID,
 	})
 	if err != nil {
-		t.Fatalf("retry spawn error = %v", err)
+		t.Fatalf("%s error = %v", label, err)
 	}
-	if got := stringValue(res.Node.SpawningThreadID); got != "thread-2" {
-		t.Fatalf("Node.SpawningThreadID = %q, want thread-2 after retry", got)
+	return res
+}
+
+func assertRetrySpawnResult(t *testing.T, res *RecordNodeSpawnResult, wantThread, wantPrev, wantRun string) {
+	t.Helper()
+	if got := stringValue(res.Node.SpawningThreadID); got != wantThread {
+		t.Fatalf("Node.SpawningThreadID = %q, want %s after retry", got, wantThread)
 	}
-	if res.PreviousThreadID != "thread-1" {
-		t.Fatalf("PreviousThreadID = %q, want thread-1", res.PreviousThreadID)
+	if res.PreviousThreadID != wantPrev {
+		t.Fatalf("PreviousThreadID = %q, want %s", res.PreviousThreadID, wantPrev)
 	}
 	if !res.AppendedEvent {
 		t.Fatalf("AppendedEvent = false, want true on retry overwrite")
 	}
-	if res.RunKey != "run-A" {
-		t.Fatalf("RunKey = %q, want run-A", res.RunKey)
+	if res.RunKey != wantRun {
+		t.Fatalf("RunKey = %q, want %s", res.RunKey, wantRun)
 	}
+}
 
-	// 校验 events 中带了一条 node_spawn 历史（prev_thread_id=thread-1, thread_id=thread-2）。
-	run := db.runs["run-A"]
-	if len(run.Events) == 0 {
+func assertSingleNodeSpawnEvent(t *testing.T, raw json.RawMessage, wantNode, wantPrev, wantThread string) {
+	t.Helper()
+	if len(raw) == 0 {
 		t.Fatalf("run.events empty after retry, expected one node_spawn entry")
 	}
 	var arr []nodeSpawnEvent
-	if err := json.Unmarshal(run.Events, &arr); err != nil {
-		t.Fatalf("unmarshal events %q: %v", string(run.Events), err)
+	if err := json.Unmarshal(raw, &arr); err != nil {
+		t.Fatalf("unmarshal events %q: %v", string(raw), err)
 	}
 	if len(arr) != 1 {
-		t.Fatalf("events len = %d, want 1; raw = %s", len(arr), string(run.Events))
+		t.Fatalf("events len = %d, want 1; raw = %s", len(arr), string(raw))
 	}
-	if arr[0].Kind != "node_spawn" || arr[0].NodeKey != "n1" ||
-		arr[0].PrevThreadID != "thread-1" || arr[0].ThreadID != "thread-2" {
-		t.Fatalf("event = %+v, want kind=node_spawn node_key=n1 prev=thread-1 new=thread-2", arr[0])
-	}
-	if arr[0].TS == "" {
-		t.Fatalf("event ts empty, want RFC3339Nano timestamp")
-	}
+	assertNodeSpawnEvent(t, arr[0], wantNode, wantPrev, wantThread)
 }
 
 func TestRecordNodeSpawn_RetryWithoutRunningRun_SoftMiss(t *testing.T) {
@@ -158,45 +163,56 @@ func TestRecordNodeSpawn_RunScopedRowsAndEvents(t *testing.T) {
 	seedRuntimeNode(t, db, now, runA, "n1", nil, "running", "agent-a")
 	seedRuntimeNode(t, db, now, runB, "n1", nil, "running", "agent-a")
 
-	if _, err := store.RecordNodeSpawn(context.Background(), RecordNodeSpawnInput{
-		DagKey: "dag-1", NodeKey: "n1", RunID: runA, ThreadID: "thread-a1",
-	}); err != nil {
-		t.Fatalf("run A first spawn error = %v", err)
-	}
-	if _, err := store.RecordNodeSpawn(context.Background(), RecordNodeSpawnInput{
-		DagKey: "dag-1", NodeKey: "n1", RunID: runB, ThreadID: "thread-b1",
-	}); err != nil {
-		t.Fatalf("run B first spawn error = %v", err)
-	}
-	res, err := store.RecordNodeSpawn(context.Background(), RecordNodeSpawnInput{
-		DagKey: "dag-1", NodeKey: "n1", RunID: runA, ThreadID: "thread-a2",
-	})
-	if err != nil {
-		t.Fatalf("run A retry spawn error = %v", err)
-	}
+	mustRecordNodeSpawn(t, store, runA, "thread-a1", "run A first spawn")
+	mustRecordNodeSpawn(t, store, runB, "thread-b1", "run B first spawn")
+	res := mustRecordNodeSpawn(t, store, runA, "thread-a2", "run A retry spawn")
 	if got := stringValue(res.Node.SpawningThreadID); got != "thread-a2" {
 		t.Fatalf("run A returned spawning thread = %q, want thread-a2", got)
 	}
 	if res.RunKey != "run-a" {
 		t.Fatalf("run A retry RunKey = %q, want run-a", res.RunKey)
 	}
-	nodeA := db.nodes[dagRunNodeKey("dag-1", "n1", runA)]
-	nodeB := db.nodes[dagRunNodeKey("dag-1", "n1", runB)]
-	if got := sqlc.TextPtr(nodeA.SpawningThreadID); got == nil || *got != "thread-a2" {
-		t.Fatalf("run A stored spawning thread = %v, want thread-a2", got)
+	assertRunScopedStoredThreads(t, db, runA, runB)
+	assertRunScopedEvents(t, db)
+}
+
+func assertRunScopedStoredThreads(t *testing.T, db *fakeTaskDAGDB, runA, runB int64) {
+	t.Helper()
+	assertStoredSpawnThread(t, db.nodes[dagRunNodeKey("dag-1", "n1", runA)], "run A", "thread-a2")
+	assertStoredSpawnThread(t, db.nodes[dagRunNodeKey("dag-1", "n1", runB)], "run B", "thread-b1")
+}
+
+func assertStoredSpawnThread(t *testing.T, node sqlc.TaskDagNode, label, want string) {
+	t.Helper()
+	got := sqlc.TextPtr(node.SpawningThreadID)
+	if got == nil || *got != want {
+		t.Fatalf("%s stored spawning thread = %v, want %s", label, got, want)
 	}
-	if got := sqlc.TextPtr(nodeB.SpawningThreadID); got == nil || *got != "thread-b1" {
-		t.Fatalf("run B stored spawning thread = %v, want thread-b1", got)
-	}
+}
+
+func assertRunScopedEvents(t *testing.T, db *fakeTaskDAGDB) {
+	t.Helper()
 	var runAEvents []nodeSpawnEvent
 	if err := json.Unmarshal(db.runs["run-a"].Events, &runAEvents); err != nil {
 		t.Fatalf("decode run A events: %v", err)
 	}
-	if len(runAEvents) != 1 || runAEvents[0].ThreadID != "thread-a2" || runAEvents[0].PrevThreadID != "thread-a1" {
+	if len(runAEvents) != 1 {
 		t.Fatalf("run A events = %+v, want one a1->a2 event", runAEvents)
 	}
+	assertNodeSpawnEvent(t, runAEvents[0], "n1", "thread-a1", "thread-a2")
 	if len(db.runs["run-b"].Events) != 0 {
 		t.Fatalf("run B events = %s, want empty after only first spawn", db.runs["run-b"].Events)
+	}
+}
+
+func assertNodeSpawnEvent(t *testing.T, event nodeSpawnEvent, wantNode, wantPrev, wantThread string) {
+	t.Helper()
+	if event.Kind != "node_spawn" || event.NodeKey != wantNode ||
+		event.PrevThreadID != wantPrev || event.ThreadID != wantThread {
+		t.Fatalf("event = %+v, want kind=node_spawn node_key=%s prev=%s new=%s", event, wantNode, wantPrev, wantThread)
+	}
+	if event.TS == "" {
+		t.Fatalf("event ts empty, want RFC3339Nano timestamp")
 	}
 }
 

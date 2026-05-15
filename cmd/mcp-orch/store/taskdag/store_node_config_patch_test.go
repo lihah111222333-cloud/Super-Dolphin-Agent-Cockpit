@@ -127,15 +127,34 @@ func TestRetryWakeupWithNodeConfigPatchRollsBackRetryOnStaleConfig(t *testing.T)
 		t.Fatalf("RetryWakeupWithNodeConfigPatch err = %v, want ErrNotFound", err)
 	}
 
-	gotWakeup := db.wakeups[7]
-	if gotWakeup.Status != originalWakeup.Status || gotWakeup.LastError != originalWakeup.LastError ||
-		gotWakeup.ClaimedBy != originalWakeup.ClaimedBy || gotWakeup.AttemptCount != originalWakeup.AttemptCount ||
-		!sameTimestamp(gotWakeup.ClaimedAt, originalWakeup.ClaimedAt) ||
-		!sameTimestamp(gotWakeup.LeaseExpiresAt, originalWakeup.LeaseExpiresAt) ||
-		!sameTimestamp(gotWakeup.NextRetryAt, originalWakeup.NextRetryAt) {
-		t.Fatalf("wakeup mutated despite patch miss: got %+v, want original %+v", gotWakeup, originalWakeup)
-	}
+	assertWakeupUnchanged(t, db.wakeups[7], originalWakeup)
 	if got := string(db.nodes[key].Config); got != `{"exec":{"model":"opus"}}` {
 		t.Fatalf("stored config = %s, want unchanged opus config", got)
+	}
+}
+
+func assertWakeupUnchanged(t *testing.T, got, want sqlc.TaskDagWakeup) {
+	t.Helper()
+
+	if got.Status != want.Status {
+		t.Fatalf("wakeup Status = %q, want %q", got.Status, want.Status)
+	}
+	if got.LastError != want.LastError {
+		t.Fatalf("wakeup LastError = %q, want %q", got.LastError, want.LastError)
+	}
+	if got.ClaimedBy != want.ClaimedBy {
+		t.Fatalf("wakeup ClaimedBy = %q, want %q", got.ClaimedBy, want.ClaimedBy)
+	}
+	if got.AttemptCount != want.AttemptCount {
+		t.Fatalf("wakeup AttemptCount = %d, want %d", got.AttemptCount, want.AttemptCount)
+	}
+	if !sameTimestamp(got.ClaimedAt, want.ClaimedAt) {
+		t.Fatalf("wakeup ClaimedAt = %+v, want %+v", got.ClaimedAt, want.ClaimedAt)
+	}
+	if !sameTimestamp(got.LeaseExpiresAt, want.LeaseExpiresAt) {
+		t.Fatalf("wakeup LeaseExpiresAt = %+v, want %+v", got.LeaseExpiresAt, want.LeaseExpiresAt)
+	}
+	if !sameTimestamp(got.NextRetryAt, want.NextRetryAt) {
+		t.Fatalf("wakeup NextRetryAt = %+v, want %+v", got.NextRetryAt, want.NextRetryAt)
 	}
 }

@@ -114,18 +114,38 @@ func decodeJSONValue(t *testing.T, raw []byte) any {
 func assertLaunchRequest(t *testing.T, req contract.LaunchRequest) {
 	t.Helper()
 
+	assertLaunchRequestIdentity(t, req)
+	assertLaunchRequestRouting(t, req)
+	assertLaunchRequestCommand(t, req)
+	assertLaunchRequestEnv(t, req)
+}
+
+func assertLaunchRequestIdentity(t *testing.T, req contract.LaunchRequest) {
+	t.Helper()
 	if req.AgentID != "agent-launch-1" || req.ParentID != "parent-launch-1" {
 		t.Fatalf("launch request ids = %#v", req)
 	}
 	if req.AgentType != "worker" || req.MemoryScope != "project" {
 		t.Fatalf("launch request metadata = %#v", req)
 	}
+}
+
+func assertLaunchRequestRouting(t *testing.T, req contract.LaunchRequest) {
+	t.Helper()
 	if req.Name != "guard-launch-agent" || req.Cwd != "/tmp/agent-launch" {
 		t.Fatalf("launch request routing = %#v", req)
 	}
+}
+
+func assertLaunchRequestCommand(t *testing.T, req contract.LaunchRequest) {
+	t.Helper()
 	if len(req.Command) != 2 || req.Command[0] != "codex" {
 		t.Fatalf("launch command = %#v", req.Command)
 	}
+}
+
+func assertLaunchRequestEnv(t *testing.T, req contract.LaunchRequest) {
+	t.Helper()
 	if len(req.Env) != 2 || req.Env[0] != "PROVIDER=codex" || req.Env[1] != "SANDBOX=workspace-write" {
 		t.Fatalf("launch env = %#v", req.Env)
 	}
