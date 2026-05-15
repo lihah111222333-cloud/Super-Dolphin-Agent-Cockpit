@@ -60,6 +60,7 @@ type structureTestManager struct {
 	workspaceSymbols  []protocol.WorkspaceSymbolResult
 	gotWorkspaceQuery string
 	gotWorkspaceLang  string
+	didOpenContext    context.Context
 }
 
 func (*structureTestManager) Close() error { return nil }
@@ -130,7 +131,8 @@ func (*structureTestManager) Format(context.Context, string, protocol.Formatting
 	return nil, nil
 }
 
-func (*structureTestManager) DidOpen(context.Context, string, string, int, string) error {
+func (m *structureTestManager) DidOpen(ctx context.Context, _ string, _ string, _ int, _ string) error {
+	m.didOpenContext = ctx
 	return nil
 }
 

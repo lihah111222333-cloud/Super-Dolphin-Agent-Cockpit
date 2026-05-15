@@ -276,6 +276,10 @@ func (c *bootstrapCoordinator) syncSnapshotToClient(
 	snapshot documentSnapshot,
 	req snapshotSyncRequest,
 ) error {
+	scope := req.scope
+	if scope.WorkspaceKey != "" || scope.ManagerKey != "" {
+		c.cache.RememberDocumentScope(snapshot.ref.uri, scope, snapshot.fingerprint)
+	}
 	client, err := m.ensureClient(ctx, cfg)
 	if err != nil {
 		return err
@@ -290,7 +294,6 @@ func (c *bootstrapCoordinator) syncSnapshotToClient(
 		return err
 	}
 	c.cache.Upsert(cacheValueFromSnapshot(req.key, snapshot, req.version))
-	scope := req.scope
 	c.cache.RememberDocumentScope(snapshot.ref.uri, scope, snapshot.fingerprint)
 	c.states.complete(scope.bootstrapKey(), snapshot.ref.uri, snapshot.fingerprint, req.version)
 	return nil

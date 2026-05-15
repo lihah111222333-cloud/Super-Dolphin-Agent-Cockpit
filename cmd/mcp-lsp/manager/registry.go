@@ -151,7 +151,12 @@ func (r *dynamicRegistry) scopedManagerForConfig(ctx context.Context, config *la
 	if config.scoped == nil {
 		return ScopedManager{Manager: config.manager, ResolvedScope: ResolvedToolScope{ToolScope: scope}}, nil
 	}
-	return config.scoped.ForToolScope(scope)
+	scoped, err := config.scoped.ForToolScope(scope)
+	if err != nil {
+		return ScopedManager{}, err
+	}
+	scoped.Manager = ManagerWithResolvedScope(scoped.Manager, scoped.ResolvedScope)
+	return scoped, nil
 }
 
 func (r *dynamicRegistry) Close() error {
@@ -236,27 +241,50 @@ func (r *dynamicRegistry) managersForDiagnostics(ctx context.Context, uris []str
 
 func (r *dynamicRegistry) currentScopedManagers(ctx context.Context) (map[Manager][]string, error) {
 	result := make(map[Manager][]string)
+	seenScopedKeys := map[string]struct{}{}
 	configs := r.snapshotLanguageConfigs()
 	for lang, cfg := range configs {
-		if cfg == nil || cfg.manager == nil {
-			continue
-		}
-		if cfg.scoped == nil {
-			result[cfg.manager] = nil
-			continue
-		}
-		scopedManagers, err := cfg.scoped.CurrentManagersForToolScope(registryToolScope(ctx, lang, "", ""))
-		if err != nil {
+		if err := r.addCurrentScopedManagers(ctx, result, seenScopedKeys, lang, cfg); err != nil {
 			return nil, err
-		}
-		for _, scoped := range scopedManagers {
-			if scoped.Manager == nil {
-				continue
-			}
-			result[scoped.Manager] = nil
 		}
 	}
 	return result, nil
+}
+
+func (r *dynamicRegistry) addCurrentScopedManagers(ctx context.Context, result map[Manager][]string, seen map[string]struct{}, lang string, cfg *languageConfig) error {
+	if cfg == nil || cfg.manager == nil {
+		return nil
+	}
+	if cfg.scoped == nil {
+		result[cfg.manager] = nil
+		return nil
+	}
+	scopedManagers, err := cfg.scoped.CurrentManagersForToolScope(registryToolScope(ctx, lang, "", ""))
+	if err != nil {
+		return err
+	}
+	for _, scoped := range scopedManagers {
+		if scoped.Manager == nil || scopedManagerSeen(seen, scoped.ResolvedScope) {
+			continue
+		}
+		result[ManagerWithResolvedScope(scoped.Manager, scoped.ResolvedScope)] = nil
+	}
+	return nil
+}
+
+func scopedManagerSeen(seen map[string]struct{}, scope ResolvedToolScope) bool {
+	dedupeKey := scope.ManagerKey
+	if dedupeKey == "" {
+		dedupeKey = scope.ScopeKey + "\x00" + scope.WorkspaceKey
+	}
+	if dedupeKey == "" {
+		return false
+	}
+	if _, ok := seen[dedupeKey]; ok {
+		return true
+	}
+	seen[dedupeKey] = struct{}{}
+	return false
 }
 
 func (r *dynamicRegistry) snapshotLanguageConfigs() map[string]*languageConfig {
