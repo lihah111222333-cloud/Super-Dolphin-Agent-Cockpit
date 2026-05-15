@@ -427,13 +427,22 @@ export function handleBridgeEvent(ctx, evt) {
   const sidebarSyncSignal = methodLower === 'ui/sidebar/changed';
   const directThreadSyncSignal = isDirectThreadSyncSignal(methodLower, sourceLower);
   const turnCompletedSignal = methodLower === 'turn/completed';
+  // turnTerminalSignal：所有让本地 streaming bubble 应该 finalize 的 method。
+  // claudecli 在 stream EOF / 进程退出 / 中断时不一定发 turn/completed，
+  // 但 turn/interrupted、thread/stopped、agent/stopped、agent/failed 任一会到。
+  // 任一终结信号都让 <pre> 占位切到真 markdown 分支，避免回归 <pre> 卡住。
+  const turnTerminalSignal = turnCompletedSignal
+    || methodLower === 'turn/interrupted'
+    || methodLower === 'agent/stopped'
+    || methodLower === 'thread/stopped'
+    || methodLower === 'agent/failed';
   const historyPageSignal = sourceLower === 'thread/messages/page';
   const threadSyncSignal = methodLower === 'ui/thread/changed' || directThreadSyncSignal || turnCompletedSignal || methodLower === 'item/completed';
   const eventThreadTarget = normalizeThreadID(eventThreadId);
   const activeThreadTarget = eventThreadTarget && (eventThreadTarget === normalizeThreadID(ctx.state.activeThreadId) || eventThreadTarget === normalizeThreadID(ctx.state.activeCmdThreadId)) ? eventThreadTarget : '';
   const historyHydrationSignal = turnCompletedSignal;
 
-  if (turnCompletedSignal && activeThreadTarget) {
+  if (turnTerminalSignal && activeThreadTarget) {
     const existing = ctx.state.timelinesByThread?.[activeThreadTarget];
     if (Array.isArray(existing) && existing.length > 0) {
       let mutated = false;
