@@ -14,9 +14,11 @@ import (
 )
 
 type diagnosticsTestRegistry struct {
-	lastURIs  []string
-	lastScope common.ToolScope
-	scopeOK   bool
+	lastURIs      []string
+	bootstrapURIs []string
+	callOrder     []string
+	lastScope     common.ToolScope
+	scopeOK       bool
 }
 
 func (r *diagnosticsTestRegistry) GetManagerForFile(context.Context, string) (lspmanager.Manager, error) {
@@ -28,6 +30,7 @@ func (r *diagnosticsTestRegistry) GetManagerForLanguage(context.Context, string)
 }
 
 func (r *diagnosticsTestRegistry) Diagnostics(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, error) {
+	r.callOrder = append(r.callOrder, "diagnostics")
 	r.lastURIs = append([]string(nil), uris...)
 	r.lastScope, r.scopeOK = common.ToolScopeFromContext(ctx)
 	items := make([]protocol.PublishDiagnosticsParams, 0, len(uris))
@@ -45,7 +48,9 @@ func (*diagnosticsTestRegistry) CurrentDiagnosticGeneration() uint64 {
 	return 1
 }
 
-func (*diagnosticsTestRegistry) BootstrapDocument(context.Context, string) error {
+func (r *diagnosticsTestRegistry) BootstrapDocument(_ context.Context, uri string) error {
+	r.callOrder = append(r.callOrder, "bootstrap")
+	r.bootstrapURIs = append(r.bootstrapURIs, uri)
 	return nil
 }
 
@@ -135,6 +140,25 @@ func TestDiagnosticsDeletedFileStillCallsRegistryForCleanup(t *testing.T) {
 		t.Fatalf("diagnostics returned error for deleted file: %v", err)
 	}
 	assertDiagnosticURIs(t, registry.lastURIs, []string{canonicalDeletedFileURI(t, deletedFile)})
+}
+
+func TestDiagnosticsRefreshesStaleFileBeforeReturn(t *testing.T) {
+	root := t.TempDir()
+	target := writeDiagnosticsFixture(t, root, "stale.go")
+
+	registry := &diagnosticsTestRegistry{}
+	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
+	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: "stale.go"})
+
+	if _, err := handler(context.Background(), req); err != nil {
+		t.Fatalf("diagnostics returned error for stale file refresh: %v", err)
+	}
+	wantURI := canonicalFileURI(t, target)
+	assertDiagnosticURIs(t, registry.bootstrapURIs, []string{wantURI})
+	assertDiagnosticURIs(t, registry.lastURIs, []string{wantURI})
+	if len(registry.callOrder) < 2 || registry.callOrder[0] != "bootstrap" || registry.callOrder[len(registry.callOrder)-1] != "diagnostics" {
+		t.Fatalf("diagnostics call order = %#v, want bootstrap before diagnostics", registry.callOrder)
+	}
 }
 
 func TestDiagnosticsPassesTrustedToolScopeToRegistry(t *testing.T) {

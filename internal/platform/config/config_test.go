@@ -2,14 +2,17 @@ package config
 
 import (
 	"bytes"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 func TestNew_PrefersCanonicalRPCAddr(t *testing.T) {
+	isolateConfigTestEnv(t)
 	t.Setenv("GO_AGENT_CTL_RPC_ADDR", "127.0.0.1:9200")
 	t.Setenv("RPC_ADDR", "127.0.0.1:9300")
 
@@ -26,7 +29,7 @@ func TestNew_PrefersCanonicalRPCAddr(t *testing.T) {
 }
 
 func TestNew_UsesLegacyRPCAddrWithDeprecationWarning(t *testing.T) {
-	t.Setenv("GO_AGENT_CTL_RPC_ADDR", "")
+	isolateConfigTestEnv(t)
 	t.Setenv("RPC_ADDR", "127.0.0.1:9100")
 
 	var buf bytes.Buffer
@@ -36,14 +39,16 @@ func TestNew_UsesLegacyRPCAddrWithDeprecationWarning(t *testing.T) {
 	if cfg.RPCAddr != "127.0.0.1:9100" {
 		t.Fatalf("RPCAddr = %q", cfg.RPCAddr)
 	}
-	if logs := buf.String(); !strings.Contains(logs, "config env RPC_ADDR is deprecated; use GO_AGENT_CTL_RPC_ADDR instead before 2026-06-30") {
+	logs := buf.String()
+	if !strings.Contains(logs, "config env deprecated") ||
+		!strings.Contains(logs, "legacy=RPC_ADDR") ||
+		!strings.Contains(logs, "canonical=GO_AGENT_CTL_RPC_ADDR") {
 		t.Fatalf("logs = %q", logs)
 	}
 }
 
 func TestNew_ExportsResolvedDatabaseURLWhenEnvMissing(t *testing.T) {
-	t.Setenv("GO_AGENT_CTL_RPC_ADDR", "")
-	t.Setenv("DATABASE_URL", "")
+	isolateConfigTestEnv(t)
 
 	cfg := New()
 	if got := strings.TrimSpace(cfg.DatabaseURL); got == "" {
@@ -55,7 +60,7 @@ func TestNew_ExportsResolvedDatabaseURLWhenEnvMissing(t *testing.T) {
 }
 
 func TestNew_PreservesDatabaseURLFromEnv(t *testing.T) {
-	t.Setenv("GO_AGENT_CTL_RPC_ADDR", "")
+	isolateConfigTestEnv(t)
 	t.Setenv("DATABASE_URL", "postgres://tester@127.0.0.1:54320/custom_db?sslmode=disable")
 
 	cfg := New()
@@ -68,8 +73,7 @@ func TestNew_PreservesDatabaseURLFromEnv(t *testing.T) {
 }
 
 func TestNew_UsesPostgresConnectionStringCompat(t *testing.T) {
-	t.Setenv("GO_AGENT_CTL_RPC_ADDR", "")
-	t.Setenv("DATABASE_URL", "")
+	isolateConfigTestEnv(t)
 	t.Setenv("POSTGRES_CONNECTION_STRING", "postgres://compat@127.0.0.1:54320/compat_db?sslmode=disable")
 
 	var buf bytes.Buffer
@@ -93,6 +97,7 @@ func TestNew_LoadsDotEnvFromProjectRoot(t *testing.T) {
 	t.Setenv("GO_AGENT_CTL_RPC_ADDR", "")
 	t.Setenv("DATABASE_URL", "")
 	t.Setenv("POSTGRES_CONNECTION_STRING", "")
+	t.Setenv("LOG_LEVEL", "")
 
 	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("POSTGRES_CONNECTION_STRING=postgres://dotenv@127.0.0.1:54320/dotenv_db?sslmode=disable\nLOG_LEVEL=debug\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -114,6 +119,7 @@ func TestNew_LoadsDotEnvFromProjectRoot(t *testing.T) {
 }
 
 func TestNew_DefaultsPersistentSubagentDefaultOff(t *testing.T) {
+	isolateConfigTestEnv(t)
 	t.Setenv("PERSISTENT_SUBAGENT_DEFAULT", "")
 	cfg := New()
 	if cfg.Agent.PersistentSubagentDefault {
@@ -122,6 +128,7 @@ func TestNew_DefaultsPersistentSubagentDefaultOff(t *testing.T) {
 }
 
 func TestNew_AllowsEnablingPersistentSubagentDefault(t *testing.T) {
+	isolateConfigTestEnv(t)
 	t.Setenv("PERSISTENT_SUBAGENT_DEFAULT", "true")
 	cfg := New()
 	if !cfg.Agent.PersistentSubagentDefault {
@@ -129,17 +136,19 @@ func TestNew_AllowsEnablingPersistentSubagentDefault(t *testing.T) {
 	}
 }
 
+func isolateConfigTestEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("PROJECT_ROOT", t.TempDir())
+	t.Setenv("DATABASE_URL", "")
+	t.Setenv("POSTGRES_CONNECTION_STRING", "")
+	t.Setenv("LOG_LEVEL", "")
+	t.Setenv("GO_AGENT_CTL_RPC_ADDR", "")
+	t.Setenv("RPC_ADDR", "")
+}
+
 func restoreConfigLogger(t *testing.T, dst *bytes.Buffer) {
 	t.Helper()
-	origWriter := log.Writer()
-	origFlags := log.Flags()
-	origPrefix := log.Prefix()
-	log.SetOutput(dst)
-	log.SetFlags(0)
-	log.SetPrefix("")
-	t.Cleanup(func() {
-		log.SetOutput(origWriter)
-		log.SetFlags(origFlags)
-		log.SetPrefix(origPrefix)
-	})
+	original := pkglogger.Get()
+	pkglogger.SetForTest(slog.New(slog.NewTextHandler(dst, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { pkglogger.SetForTest(original) })
 }

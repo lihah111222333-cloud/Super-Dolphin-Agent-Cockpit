@@ -110,6 +110,17 @@ func firstNonNilError(current, next error) error {
 	return next
 }
 
+type leasedClient struct {
+	client  Client
+	release func()
+}
+
+func (l leasedClient) Release() {
+	if l.release != nil {
+		l.release()
+	}
+}
+
 func (m *manager) ensureClientForFile(ctx context.Context, filePath, languageID string) (Client, error) {
 	ref, err := m.resolveDocumentRef(ctx, filePath, languageID)
 	if err != nil {
@@ -257,6 +268,37 @@ func (m *manager) ensureClient(ctx context.Context, cfg workspaceConfig) (Client
 	}
 
 	return m.createAndRegisterClient(ctx, cfg)
+}
+
+func (m *manager) leaseBoundClient(client Client) (leasedClient, bool, error) {
+	if client == nil {
+		return leasedClient{client: client}, true, nil
+	}
+	if m == nil {
+		return leasedClient{}, false, ErrManagerClosed
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.closed {
+		return leasedClient{}, false, ErrManagerClosed
+	}
+	for _, workspace := range m.workspaces {
+		if workspace != nil && workspace.client == client {
+			return m.leaseClientLocked(client), true, nil
+		}
+	}
+	return leasedClient{}, false, nil
+}
+
+func (m *manager) leaseClientLocked(client Client) leasedClient {
+	leased := leasedClient{client: client}
+	if m != nil && m.pool != nil && client != nil {
+		m.pool.acquire(client)
+		leased.release = func() {
+			m.pool.release(client)
+		}
+	}
+	return leased
 }
 
 func (m *manager) lookupExistingClient(key string) (Client, error) {
