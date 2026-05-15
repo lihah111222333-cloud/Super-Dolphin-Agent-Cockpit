@@ -127,8 +127,6 @@ var claudeAllowedModels = []string{
 	"claude-opus-4-7[1m]",
 	"claude-opus-4-6",
 	"claude-opus-4-6[1m]",
-	"claude-sonnet-4-7",
-	"claude-sonnet-4-7[1m]",
 	"claude-sonnet-4-6",
 	"claude-sonnet-4-6[1m]",
 }
