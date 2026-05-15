@@ -85,8 +85,26 @@ func discoverPath(provider string, req ReadRequest) string {
 	case "claude":
 		return discoverClaudePath(req)
 	default:
-		return latestExistingMatch(filepath.Join(codexRoot(req.CodexHome), "sessions", "*", "*", "*", "rollout-*-"+historyID(req, false)+".jsonl"))
+		return discoverCodexPath(req)
 	}
+}
+
+func discoverCodexPath(req ReadRequest) string {
+	root := filepath.Join(codexRoot(req.CodexHome), "sessions", "*", "*", "*")
+	for _, id := range []string{
+		req.ProviderThreadID,
+		req.ThreadID,
+		req.SessionUUID,
+	} {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if path := latestExistingMatch(filepath.Join(root, "rollout-*-"+id+".jsonl")); path != "" {
+			return path
+		}
+	}
+	return ""
 }
 
 // discoverClaudePath tries all candidate IDs to find the Claude history file.
@@ -108,13 +126,6 @@ func discoverClaudePath(req ReadRequest) string {
 		}
 	}
 	return ""
-}
-
-func historyID(req ReadRequest, preferSession bool) string {
-	if preferSession {
-		return shared.FirstNonEmpty(req.SessionUUID, req.ProviderThreadID, req.ThreadID)
-	}
-	return shared.FirstNonEmpty(req.ProviderThreadID, req.ThreadID)
 }
 
 func claudeRoot() string {
