@@ -16,14 +16,10 @@ import (
 func TestDocumentRequestBootstrapsFreshSnapshotForJavaScript(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"name":"multilsp-test"}`), 0o644); err != nil {
-		t.Fatalf("write package.json: %v", err)
-	}
+	writeBootstrapTestFile(t, filepath.Join(root, "package.json"), `{"name":"multilsp-test"}`)
 
 	target := filepath.Join(root, "app.js")
-	if err := os.WriteFile(target, []byte("function staleName() { return 1; }\n"), 0o644); err != nil {
-		t.Fatalf("write stale app.js: %v", err)
-	}
+	writeBootstrapTestFile(t, target, "function staleName() { return 1; }\n")
 
 	factory := &recordingClientFactory{}
 	manager := NewManager(Config{
@@ -31,40 +27,59 @@ func TestDocumentRequestBootstrapsFreshSnapshotForJavaScript(t *testing.T) {
 		ClientFactory:      factory,
 		DiagnosticsMaxWait: 1,
 	})
-	defer func() {
-		if err := manager.Close(); err != nil {
-			t.Fatalf("close manager: %v", err)
-		}
-	}()
+	t.Cleanup(func() { closeBootstrapTestManager(t, manager) })
 
 	if err := manager.BootstrapDocument(ctx, target); err != nil {
 		t.Fatalf("bootstrap stale document: %v", err)
 	}
-	client := factory.currentClient()
-	if client == nil {
-		t.Fatal("expected bootstrap to create an LSP client")
-	}
+	client := requireRecordingClient(t, factory)
 	if got := client.openCount(); got != 1 {
 		t.Fatalf("initial bootstrap should open the JS document once, got %d", got)
 	}
 
-	if err := os.WriteFile(target, []byte("function freshName() { return 2; }\n"), 0o644); err != nil {
-		t.Fatalf("write fresh app.js: %v", err)
-	}
+	writeBootstrapTestFile(t, target, "function freshName() { return 2; }\n")
 	client.expectRequestContent("freshName")
 
 	symbols, err := manager.DocumentSymbol(ctx, target)
 	if err != nil {
 		t.Fatalf("document symbol after external edit: %v", err)
 	}
-	if len(symbols) != 1 || symbols[0].Name != "freshName" {
-		t.Fatalf("expected fresh symbol result, got %#v", symbols)
-	}
+	assertFreshDocumentSymbol(t, symbols)
 	if got := client.changeCount(); got != 1 {
 		t.Fatalf("document request should push exactly one DidChange after disk edit, got %d", got)
 	}
 	if !client.anyDocumentContains("freshName") {
 		t.Fatalf("client snapshot was not refreshed, documents=%#v", client.documentSnapshot())
+	}
+}
+
+func writeBootstrapTestFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func closeBootstrapTestManager(t *testing.T, manager Manager) {
+	t.Helper()
+	if err := manager.Close(); err != nil {
+		t.Fatalf("close manager: %v", err)
+	}
+}
+
+func requireRecordingClient(t *testing.T, factory *recordingClientFactory) *recordingClient {
+	t.Helper()
+	client := factory.currentClient()
+	if client == nil {
+		t.Fatal("expected bootstrap to create an LSP client")
+	}
+	return client
+}
+
+func assertFreshDocumentSymbol(t *testing.T, symbols []protocol.DocumentSymbol) {
+	t.Helper()
+	if len(symbols) != 1 || symbols[0].Name != "freshName" {
+		t.Fatalf("expected fresh symbol result, got %#v", symbols)
 	}
 }
 

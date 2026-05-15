@@ -31,33 +31,14 @@ func TestResolveLSPToolScopeCanonicalKeysStable(t *testing.T) {
 		"moduleRoot": root,
 	}
 
-	resolvedA, err := ResolveLSPToolScope(scopeA)
-	if err != nil {
-		t.Fatalf("ResolveLSPToolScope(scopeA): %v", err)
-	}
-	resolvedB, err := ResolveLSPToolScope(scopeB)
-	if err != nil {
-		t.Fatalf("ResolveLSPToolScope(scopeB): %v", err)
-	}
+	resolvedA := resolveLSPToolScopeForTest(t, "scopeA", scopeA)
+	resolvedB := resolveLSPToolScopeForTest(t, "scopeB", scopeB)
 
-	if resolvedA.ScopeKey == "" {
-		t.Fatalf("ScopeKey is empty for trusted agent/thread identity")
-	}
-	if !strings.Contains(resolvedA.ScopeKey, "agent-a") || !strings.Contains(resolvedA.ScopeKey, "thread-1") {
-		t.Fatalf("ScopeKey = %q, want canonical agent/thread identity", resolvedA.ScopeKey)
-	}
-	if resolvedA.WorkspaceKey != resolvedB.WorkspaceKey {
-		t.Fatalf("WorkspaceKey changed when map insertion order changed:\nA=%q\nB=%q", resolvedA.WorkspaceKey, resolvedB.WorkspaceKey)
-	}
-	if resolvedA.ManagerKey != resolvedB.ManagerKey {
-		t.Fatalf("ManagerKey changed across turn/call IDs:\nA=%q\nB=%q", resolvedA.ManagerKey, resolvedB.ManagerKey)
-	}
-	if strings.Contains(resolvedA.WorkspaceKey, "turn-") || strings.Contains(resolvedA.WorkspaceKey, "call-") {
-		t.Fatalf("WorkspaceKey must not include turn/call identity: %q", resolvedA.WorkspaceKey)
-	}
-	if strings.Contains(resolvedA.ManagerKey, "turn-") || strings.Contains(resolvedA.ManagerKey, "call-") {
-		t.Fatalf("ManagerKey must not include turn/call identity: %q", resolvedA.ManagerKey)
-	}
+	assertScopeKeyHasTrustedIdentity(t, resolvedA.ScopeKey)
+	assertEqualString(t, "WorkspaceKey changed when map insertion order changed", resolvedA.WorkspaceKey, resolvedB.WorkspaceKey)
+	assertEqualString(t, "ManagerKey changed across turn/call IDs", resolvedA.ManagerKey, resolvedB.ManagerKey)
+	assertKeyOmitsTurnCall(t, "WorkspaceKey", resolvedA.WorkspaceKey)
+	assertKeyOmitsTurnCall(t, "ManagerKey", resolvedA.ManagerKey)
 }
 
 func TestResolveLSPToolScopeGoTopologyLanguageSpecificStable(t *testing.T) {
@@ -148,45 +129,21 @@ func TestManagerPoolForScopeReusesSameScopedManager(t *testing.T) {
 	otherRoot := t.TempDir()
 	mgr := newManagerPoolTestManager(t, root)
 
-	first, err := mgr.pool.ForScope(testLSPToolScope(root, "agent-a", "thread-1"))
-	if err != nil {
-		t.Fatalf("ForScope(first): %v", err)
-	}
+	first := scopedPoolManagerForTest(t, mgr.pool, "first", testLSPToolScope(root, "agent-a", "thread-1"))
 	secondScope := testLSPToolScope(root, "agent-a", "thread-1")
 	secondScope.TurnID = "turn-2"
 	secondScope.CallID = "call-2"
-	second, err := mgr.pool.ForScope(secondScope)
-	if err != nil {
-		t.Fatalf("ForScope(second): %v", err)
-	}
-	if first.Manager != second.Manager {
-		t.Fatalf("same agent/thread/workspace should reuse manager: first=%p second=%p", first.Manager, second.Manager)
-	}
-	if first.ResolvedScope.ManagerKey != second.ResolvedScope.ManagerKey {
-		t.Fatalf("same agent/thread/workspace should reuse ManagerKey")
-	}
+	second := scopedPoolManagerForTest(t, mgr.pool, "second", secondScope)
+	assertSameManager(t, "same agent/thread/workspace should reuse manager", first.Manager, second.Manager)
+	assertEqualString(t, "same agent/thread/workspace should reuse ManagerKey", first.ResolvedScope.ManagerKey, second.ResolvedScope.ManagerKey)
 
-	otherAgent, err := mgr.pool.ForScope(testLSPToolScope(root, "agent-b", "thread-1"))
-	if err != nil {
-		t.Fatalf("ForScope(other agent): %v", err)
-	}
-	if otherAgent.Manager == first.Manager {
-		t.Fatalf("different trusted agent should get an isolated scoped manager")
-	}
-	if otherAgent.ResolvedScope.ManagerKey == first.ResolvedScope.ManagerKey {
-		t.Fatalf("different trusted agent should get a different ManagerKey")
-	}
+	otherAgent := scopedPoolManagerForTest(t, mgr.pool, "other agent", testLSPToolScope(root, "agent-b", "thread-1"))
+	assertDifferentManager(t, "different trusted agent should get an isolated scoped manager", otherAgent.Manager, first.Manager)
+	assertDifferentString(t, "different trusted agent should get a different ManagerKey", otherAgent.ResolvedScope.ManagerKey, first.ResolvedScope.ManagerKey)
 
-	otherWorkspace, err := mgr.pool.ForScope(testLSPToolScope(otherRoot, "agent-a", "thread-1"))
-	if err != nil {
-		t.Fatalf("ForScope(other workspace): %v", err)
-	}
-	if otherWorkspace.Manager == first.Manager {
-		t.Fatalf("same agent with different workspace should get a different manager")
-	}
-	if otherWorkspace.ResolvedScope.WorkspaceKey == first.ResolvedScope.WorkspaceKey {
-		t.Fatalf("different workspace should get a different WorkspaceKey")
-	}
+	otherWorkspace := scopedPoolManagerForTest(t, mgr.pool, "other workspace", testLSPToolScope(otherRoot, "agent-a", "thread-1"))
+	assertDifferentManager(t, "same agent with different workspace should get a different manager", otherWorkspace.Manager, first.Manager)
+	assertDifferentString(t, "different workspace should get a different WorkspaceKey", otherWorkspace.ResolvedScope.WorkspaceKey, first.ResolvedScope.WorkspaceKey)
 }
 
 func TestManagerPoolForScopeStableShard(t *testing.T) {
@@ -200,40 +157,20 @@ func TestManagerPoolForScopeStableShard(t *testing.T) {
 	secondScope.TurnID = "turn-2"
 	secondScope.CallID = "call-2"
 
-	first, err := mgr.pool.ForScope(firstScope)
-	if err != nil {
-		t.Fatalf("ForScope(first): %v", err)
-	}
-	second, err := mgr.pool.ForScope(secondScope)
-	if err != nil {
-		t.Fatalf("ForScope(second): %v", err)
-	}
+	first := scopedPoolManagerForTest(t, mgr.pool, "first", firstScope)
+	second := scopedPoolManagerForTest(t, mgr.pool, "second", secondScope)
 
 	if first.ResolvedScope.ShardKey == "" {
 		t.Fatalf("ShardKey is empty for trusted scope: %#v", first.ResolvedScope)
 	}
-	if first.ResolvedScope.ShardKey != second.ResolvedScope.ShardKey {
-		t.Fatalf("ShardKey changed across turn/call IDs:\nfirst=%q\nsecond=%q", first.ResolvedScope.ShardKey, second.ResolvedScope.ShardKey)
-	}
+	assertEqualString(t, "ShardKey changed across turn/call IDs", first.ResolvedScope.ShardKey, second.ResolvedScope.ShardKey)
 	firstShard := shardIndexForKey(first.ResolvedScope.ShardKey, mgr.pool.Size())
 	secondShard := shardIndexForKey(second.ResolvedScope.ShardKey, mgr.pool.Size())
 	if firstShard != secondShard {
 		t.Fatalf("same stable ShardKey routed to different shards: first=%d second=%d", firstShard, secondShard)
 	}
-	if first.Manager != second.Manager {
-		t.Fatalf("stable shard should reuse scoped clone: first=%p second=%p", first.Manager, second.Manager)
-	}
-
-	found := false
-	for _, clone := range mgr.pool.shards[firstShard].snapshotClones() {
-		if clone.key == first.ResolvedScope.ManagerKey && clone.manager == first.Manager {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("stable shard %d missing scoped clone for ManagerKey %q", firstShard, first.ResolvedScope.ManagerKey)
-	}
+	assertSameManager(t, "stable shard should reuse scoped clone", first.Manager, second.Manager)
+	assertShardHasScopedClone(t, mgr, firstShard, first.ResolvedScope.ManagerKey, first.Manager)
 }
 
 func TestManagerPoolWorkspaceCloneIsolation(t *testing.T) {
@@ -241,47 +178,19 @@ func TestManagerPoolWorkspaceCloneIsolation(t *testing.T) {
 	otherRoot := t.TempDir()
 	mgr := newManagerPoolTestManager(t, root)
 
-	base, err := mgr.pool.ForScope(testLSPToolScope(root, "agent-a", "thread-1"))
-	if err != nil {
-		t.Fatalf("ForScope(base): %v", err)
-	}
-	same, err := mgr.pool.ForScope(testLSPToolScope(root, "agent-a", "thread-1"))
-	if err != nil {
-		t.Fatalf("ForScope(same): %v", err)
-	}
-	otherAgent, err := mgr.pool.ForScope(testLSPToolScope(root, "agent-b", "thread-1"))
-	if err != nil {
-		t.Fatalf("ForScope(other agent): %v", err)
-	}
-	otherWorkspace, err := mgr.pool.ForScope(testLSPToolScope(otherRoot, "agent-a", "thread-1"))
-	if err != nil {
-		t.Fatalf("ForScope(other workspace): %v", err)
-	}
+	base := scopedPoolManagerForTest(t, mgr.pool, "base", testLSPToolScope(root, "agent-a", "thread-1"))
+	same := scopedPoolManagerForTest(t, mgr.pool, "same", testLSPToolScope(root, "agent-a", "thread-1"))
+	otherAgent := scopedPoolManagerForTest(t, mgr.pool, "other agent", testLSPToolScope(root, "agent-b", "thread-1"))
+	otherWorkspace := scopedPoolManagerForTest(t, mgr.pool, "other workspace", testLSPToolScope(otherRoot, "agent-a", "thread-1"))
 
-	if base.Manager != same.Manager {
-		t.Fatalf("same agent/workspace should reuse clone: base=%p same=%p", base.Manager, same.Manager)
-	}
-	if otherAgent.Manager == base.Manager {
-		t.Fatalf("different agent reused base clone: %p", base.Manager)
-	}
-	if otherWorkspace.Manager == base.Manager {
-		t.Fatalf("different workspace reused base clone: %p", base.Manager)
-	}
-	if otherAgent.ResolvedScope.ManagerKey == base.ResolvedScope.ManagerKey {
-		t.Fatalf("different agent kept ManagerKey %q", base.ResolvedScope.ManagerKey)
-	}
-	if otherWorkspace.ResolvedScope.WorkspaceKey == base.ResolvedScope.WorkspaceKey {
-		t.Fatalf("different workspace kept WorkspaceKey %q", base.ResolvedScope.WorkspaceKey)
-	}
+	assertSameManager(t, "same agent/workspace should reuse clone", base.Manager, same.Manager)
+	assertDifferentManager(t, "different agent reused base clone", otherAgent.Manager, base.Manager)
+	assertDifferentManager(t, "different workspace reused base clone", otherWorkspace.Manager, base.Manager)
+	assertDifferentString(t, "different agent kept ManagerKey", otherAgent.ResolvedScope.ManagerKey, base.ResolvedScope.ManagerKey)
+	assertDifferentString(t, "different workspace kept WorkspaceKey", otherWorkspace.ResolvedScope.WorkspaceKey, base.ResolvedScope.WorkspaceKey)
 
-	baseClone, ok := base.Manager.(*manager)
-	if !ok {
-		t.Fatalf("base manager type = %T, want *manager", base.Manager)
-	}
-	otherWorkspaceClone, ok := otherWorkspace.Manager.(*manager)
-	if !ok {
-		t.Fatalf("other workspace manager type = %T, want *manager", otherWorkspace.Manager)
-	}
+	baseClone := managerCloneForTest(t, "base manager", base.Manager)
+	otherWorkspaceClone := managerCloneForTest(t, "other workspace manager", otherWorkspace.Manager)
 	if baseClone.workspaceRoot != base.ResolvedScope.WorkspaceRoot {
 		t.Fatalf("base clone workspaceRoot = %q, want %q", baseClone.workspaceRoot, base.ResolvedScope.WorkspaceRoot)
 	}
@@ -320,43 +229,13 @@ func TestManagerPoolShardCollisionKeepsDistinctClones(t *testing.T) {
 	pool := NewManagerPool(primary, 1)
 	primary.pool = pool
 
-	first, err := pool.ForScope(testLSPToolScope(root, "agent-a", "thread-1"))
-	if err != nil {
-		t.Fatalf("ForScope(first): %v", err)
-	}
-	second, err := pool.ForScope(testLSPToolScope(root, "agent-b", "thread-1"))
-	if err != nil {
-		t.Fatalf("ForScope(second): %v", err)
-	}
-	if first.ResolvedScope.ShardKey == second.ResolvedScope.ShardKey {
-		t.Fatalf("test setup expected distinct shard keys before modulo collision")
-	}
-	if first.Manager == second.Manager {
-		t.Fatalf("same shard collision must not share manager clones")
-	}
+	first := scopedPoolManagerForTest(t, pool, "first", testLSPToolScope(root, "agent-a", "thread-1"))
+	second := scopedPoolManagerForTest(t, pool, "second", testLSPToolScope(root, "agent-b", "thread-1"))
+	assertDifferentString(t, "test setup expected distinct shard keys before modulo collision", first.ResolvedScope.ShardKey, second.ResolvedScope.ShardKey)
+	assertDifferentManager(t, "same shard collision must not share manager clones", first.Manager, second.Manager)
 
 	snapshots := pool.SnapshotManagers()
-	baseCount := 0
-	cloneKeys := map[string]struct{}{}
-	for _, snapshot := range snapshots {
-		if snapshot.index != 0 {
-			t.Fatalf("pool size 1 should only snapshot shard 0, got shard %d", snapshot.index)
-		}
-		if snapshot.base {
-			baseCount++
-			continue
-		}
-		cloneKeys[snapshot.managerKey] = struct{}{}
-	}
-	if baseCount != 1 {
-		t.Fatalf("base snapshot count = %d, want 1", baseCount)
-	}
-	if _, ok := cloneKeys[first.ResolvedScope.ManagerKey]; !ok {
-		t.Fatalf("first clone ManagerKey %q missing from snapshots", first.ResolvedScope.ManagerKey)
-	}
-	if _, ok := cloneKeys[second.ResolvedScope.ManagerKey]; !ok {
-		t.Fatalf("second clone ManagerKey %q missing from snapshots", second.ResolvedScope.ManagerKey)
-	}
+	assertCollisionSnapshots(t, snapshots, first.ResolvedScope.ManagerKey, second.ResolvedScope.ManagerKey)
 }
 
 func TestManagerPoolGoWorkWorkspaceCloneUsesWorkspaceRootAndClose(t *testing.T) {
@@ -437,23 +316,151 @@ func TestAgentStopTriggersLSPReleaseScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReleaseScope(agent stop): %v", err)
 	}
+	assertAgentReleaseResult(t, result)
+	assertManagerClosed(t, agentGoManager, "agent go manager was not closed by ReleaseScope")
+	assertManagerClosed(t, agentTSManager, "agent TypeScript manager was not closed by ReleaseScope")
+	assertManagerOpen(t, otherManager, "ReleaseScope closed unrelated agent/language manager")
+	assertReleasedAgentAbsent(t, mgr.pool.SnapshotManagers(), "agent-stop")
+}
+
+func resolveLSPToolScopeForTest(t *testing.T, label string, scope LSPToolScope) ResolvedLSPToolScope {
+	t.Helper()
+	resolved, err := ResolveLSPToolScope(scope)
+	if err != nil {
+		t.Fatalf("ResolveLSPToolScope(%s): %v", label, err)
+	}
+	return resolved
+}
+
+func scopedPoolManagerForTest(t *testing.T, pool *ManagerPool, label string, scope LSPToolScope) ScopedManager {
+	t.Helper()
+	scoped, err := pool.ForScope(scope)
+	if err != nil {
+		t.Fatalf("ForScope(%s): %v", label, err)
+	}
+	return scoped
+}
+
+func assertScopeKeyHasTrustedIdentity(t *testing.T, scopeKey string) {
+	t.Helper()
+	if scopeKey == "" {
+		t.Fatalf("ScopeKey is empty for trusted agent/thread identity")
+	}
+	if !strings.Contains(scopeKey, "agent-a") || !strings.Contains(scopeKey, "thread-1") {
+		t.Fatalf("ScopeKey = %q, want canonical agent/thread identity", scopeKey)
+	}
+}
+
+func assertKeyOmitsTurnCall(t *testing.T, label, key string) {
+	t.Helper()
+	if strings.Contains(key, "turn-") || strings.Contains(key, "call-") {
+		t.Fatalf("%s must not include turn/call identity: %q", label, key)
+	}
+}
+
+func assertEqualString(t *testing.T, message, got, want string) {
+	t.Helper()
+	if got != want {
+		t.Fatalf("%s:\ngot  %q\nwant %q", message, got, want)
+	}
+}
+
+func assertDifferentString(t *testing.T, message, got, unexpected string) {
+	t.Helper()
+	if got == unexpected {
+		t.Fatalf("%s: %q", message, got)
+	}
+}
+
+func assertSameManager(t *testing.T, message string, got, want Manager) {
+	t.Helper()
+	if got != want {
+		t.Fatalf("%s: got=%p want=%p", message, got, want)
+	}
+}
+
+func assertDifferentManager(t *testing.T, message string, got, unexpected Manager) {
+	t.Helper()
+	if got == unexpected {
+		t.Fatalf("%s: %p", message, got)
+	}
+}
+
+func managerCloneForTest(t *testing.T, label string, candidate Manager) *manager {
+	t.Helper()
+	clone, ok := candidate.(*manager)
+	if !ok {
+		t.Fatalf("%s type = %T, want *manager", label, candidate)
+	}
+	return clone
+}
+
+func assertShardHasScopedClone(t *testing.T, mgr *manager, shard int, managerKey string, manager Manager) {
+	t.Helper()
+	for _, clone := range mgr.pool.shards[shard].snapshotClones() {
+		if clone.key == managerKey && clone.manager == manager {
+			return
+		}
+	}
+	t.Fatalf("stable shard %d missing scoped clone for ManagerKey %q", shard, managerKey)
+}
+
+func assertCollisionSnapshots(t *testing.T, snapshots []poolManagerSnapshot, firstKey, secondKey string) {
+	t.Helper()
+	baseCount := 0
+	cloneKeys := map[string]struct{}{}
+	for _, snapshot := range snapshots {
+		if snapshot.index != 0 {
+			t.Fatalf("pool size 1 should only snapshot shard 0, got shard %d", snapshot.index)
+		}
+		if snapshot.base {
+			baseCount++
+			continue
+		}
+		cloneKeys[snapshot.managerKey] = struct{}{}
+	}
+	if baseCount != 1 {
+		t.Fatalf("base snapshot count = %d, want 1", baseCount)
+	}
+	assertCloneKeyPresent(t, cloneKeys, firstKey, "first")
+	assertCloneKeyPresent(t, cloneKeys, secondKey, "second")
+}
+
+func assertCloneKeyPresent(t *testing.T, cloneKeys map[string]struct{}, key, label string) {
+	t.Helper()
+	if _, ok := cloneKeys[key]; !ok {
+		t.Fatalf("%s clone ManagerKey %q missing from snapshots", label, key)
+	}
+}
+
+func assertAgentReleaseResult(t *testing.T, result ReleaseScopeResult) {
+	t.Helper()
 	if result.MatchedManagers != 2 || result.ClosedManagers != 2 || result.BusyLeases != 0 || !result.Drained {
 		t.Fatalf("ReleaseScope result = %#v, want matched=2 closed=2 busy=0 drained=true", result)
 	}
-	if !managerIsClosed(agentGoManager) {
-		t.Fatalf("agent go manager was not closed by ReleaseScope")
+}
+
+func assertManagerClosed(t *testing.T, mgr *manager, message string) {
+	t.Helper()
+	if !managerIsClosed(mgr) {
+		t.Fatalf("%s", message)
 	}
-	if !managerIsClosed(agentTSManager) {
-		t.Fatalf("agent TypeScript manager was not closed by ReleaseScope")
+}
+
+func assertManagerOpen(t *testing.T, mgr *manager, message string) {
+	t.Helper()
+	if managerIsClosed(mgr) {
+		t.Fatalf("%s", message)
 	}
-	if managerIsClosed(otherManager) {
-		t.Fatalf("ReleaseScope closed unrelated agent/language manager")
-	}
-	for _, snapshot := range mgr.pool.SnapshotManagers() {
+}
+
+func assertReleasedAgentAbsent(t *testing.T, snapshots []poolManagerSnapshot, agentID string) {
+	t.Helper()
+	for _, snapshot := range snapshots {
 		if snapshot.base {
 			continue
 		}
-		if snapshot.resolvedScope.AgentID == "agent-stop" {
+		if snapshot.resolvedScope.AgentID == agentID {
 			t.Fatalf("released agent clone remains in pool snapshot: %#v", snapshot.resolvedScope)
 		}
 	}

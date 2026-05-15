@@ -49,29 +49,59 @@ func TestNewManagerRegistersDocumentFallbackAdapters(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		target := filepath.Join(root, tc.name)
-		if err := os.WriteFile(target, []byte(tc.body), 0o644); err != nil {
-			t.Fatalf("write %s: %v", tc.name, err)
-		}
-		scoped, err := resolver.ResolveManagerForFile(ctx, target)
-		if err != nil {
-			t.Fatalf("ResolveManagerForFile(%s): %v", tc.name, err)
-		}
-		if got := scoped.ResolvedScope.LanguageID; got != tc.wantLanguage {
-			t.Fatalf("ResolveManagerForFile(%s) language = %q, want %q", tc.name, got, tc.wantLanguage)
-		}
-		if scoped.ResolvedScope.LanguageID == "go" {
-			t.Fatalf("ResolveManagerForFile(%s) defaulted fallback document to Go", tc.name)
-		}
-		if got := scoped.ResolvedScope.RootKind; got != "document_fallback" {
-			t.Fatalf("ResolveManagerForFile(%s) root kind = %q, want document_fallback", tc.name, got)
-		}
-		symbols, err := scoped.Manager.DocumentSymbol(ctx, target)
-		if err != nil {
-			t.Fatalf("DocumentSymbol(%s): %v", tc.name, err)
-		}
-		if len(symbols) == 0 || symbols[0].Name != tc.wantSymbol {
-			t.Fatalf("DocumentSymbol(%s) = %#v, want first symbol %q", tc.name, symbols, tc.wantSymbol)
-		}
+		assertDocumentFallbackCase(t, root, ctx, resolver, tc)
+	}
+}
+
+func assertDocumentFallbackCase(
+	t *testing.T,
+	root string,
+	ctx context.Context,
+	resolver interface {
+		ResolveManagerForFile(context.Context, string) (lspmanager.ScopedManager, error)
+	},
+	tc struct {
+		name         string
+		body         string
+		wantLanguage string
+		wantSymbol   string
+	},
+) {
+	t.Helper()
+	target := filepath.Join(root, tc.name)
+	if err := os.WriteFile(target, []byte(tc.body), 0o644); err != nil {
+		t.Fatalf("write %s: %v", tc.name, err)
+	}
+	scoped, err := resolver.ResolveManagerForFile(ctx, target)
+	if err != nil {
+		t.Fatalf("ResolveManagerForFile(%s): %v", tc.name, err)
+	}
+	if got := scoped.ResolvedScope.LanguageID; got != tc.wantLanguage {
+		t.Fatalf("ResolveManagerForFile(%s) language = %q, want %q", tc.name, got, tc.wantLanguage)
+	}
+	if scoped.ResolvedScope.LanguageID == "go" {
+		t.Fatalf("ResolveManagerForFile(%s) defaulted fallback document to Go", tc.name)
+	}
+	if got := scoped.ResolvedScope.RootKind; got != "document_fallback" {
+		t.Fatalf("ResolveManagerForFile(%s) root kind = %q, want document_fallback", tc.name, got)
+	}
+	assertDocumentFallbackSymbol(t, ctx, scoped, target, tc.name, tc.wantSymbol)
+}
+
+func assertDocumentFallbackSymbol(
+	t *testing.T,
+	ctx context.Context,
+	scoped lspmanager.ScopedManager,
+	target string,
+	name string,
+	want string,
+) {
+	t.Helper()
+	symbols, err := scoped.Manager.DocumentSymbol(ctx, target)
+	if err != nil {
+		t.Fatalf("DocumentSymbol(%s): %v", name, err)
+	}
+	if len(symbols) == 0 || symbols[0].Name != want {
+		t.Fatalf("DocumentSymbol(%s) = %#v, want first symbol %q", name, symbols, want)
 	}
 }

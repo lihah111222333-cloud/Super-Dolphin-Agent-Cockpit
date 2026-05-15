@@ -32,18 +32,8 @@ func TestRegistryResolveManagerForFileUsesTrustedToolScope(t *testing.T) {
 	if _, err := scoped.Manager.Diagnostics(ctx, nil); err != nil {
 		t.Fatalf("wrapped Diagnostics: %v", err)
 	}
-	if resolved, ok := ResolvedToolScopeFromContext(scopedMgr.diagnosticsContext); !ok || resolved.ManagerKey != "manager-key" {
-		t.Fatalf("wrapped Diagnostics resolved scope = %#v ok=%v, want manager-key", resolved, ok)
-	}
-	if resolver.lastScope.AgentID != "agent-trusted" || resolver.lastScope.ThreadID != "thread-trusted" {
-		t.Fatalf("resolver scope identity = %#v, want trusted agent/thread", resolver.lastScope)
-	}
-	if resolver.lastScope.CWD != "/trusted/worktree" {
-		t.Fatalf("resolver CWD = %q, want trusted cwd", resolver.lastScope.CWD)
-	}
-	if resolver.lastScope.LanguageID != "go" || resolver.lastScope.TargetPath != "main.go" {
-		t.Fatalf("resolver target scope = %#v", resolver.lastScope)
-	}
+	assertResolvedManagerKey(t, scopedMgr.diagnosticsContext, "manager-key")
+	assertResolverScopeForTrustedFile(t, resolver.lastScope)
 }
 
 func TestRegistryDiagnosticsAllUsesCurrentScopedManagers(t *testing.T) {
@@ -175,23 +165,55 @@ func TestRegistryGroupURIsUsesCallerContext(t *testing.T) {
 	if scopedMgr.diagnosticsCalls != 1 {
 		t.Fatalf("grouped URI diagnostics calls = %d, want 1", scopedMgr.diagnosticsCalls)
 	}
-	if len(scopedMgr.lastDiagnosticsURIs) != 1 || scopedMgr.lastDiagnosticsURIs[0] != uri {
-		t.Fatalf("grouped URI subset = %#v, want [%s]", scopedMgr.lastDiagnosticsURIs, uri)
-	}
+	assertSingleDiagnosticsURI(t, scopedMgr.lastDiagnosticsURIs, uri)
 	if got := scopedMgr.lastDiagnosticsContext.Value(registryScopedCallerKey{}); got != "caller-value" {
 		t.Fatalf("diagnostics caller context value = %#v, want caller-value", got)
 	}
-	if resolved, ok := ResolvedToolScopeFromContext(scopedMgr.lastDiagnosticsContext); !ok || resolved.ManagerKey != "manager-key" {
-		t.Fatalf("grouped URI resolved scope = %#v ok=%v, want manager-key", resolved, ok)
-	}
-	if resolver.lastScope.AgentID != "agent-group" || resolver.lastScope.ThreadID != "thread-group" {
-		t.Fatalf("resolver identity = %#v, want caller scope", resolver.lastScope)
-	}
-	if resolver.lastScope.CWD != "/caller/worktree" || resolver.lastScope.TargetURI != uri {
-		t.Fatalf("resolver target/cwd scope = %#v", resolver.lastScope)
-	}
+	assertResolvedManagerKey(t, scopedMgr.lastDiagnosticsContext, "manager-key")
+	assertResolverScopeForGroupURI(t, resolver.lastScope, uri)
 	if resolver.lastScope.TargetPath != "/tmp/registry-group-main.go" {
 		t.Fatalf("resolver target path = %q, want URI path", resolver.lastScope.TargetPath)
+	}
+}
+
+func assertResolvedManagerKey(t *testing.T, ctx context.Context, want string) {
+	t.Helper()
+	resolved, ok := ResolvedToolScopeFromContext(ctx)
+	if !ok || resolved.ManagerKey != want {
+		t.Fatalf("resolved scope = %#v ok=%v, want manager key %q", resolved, ok, want)
+	}
+}
+
+func assertResolverScopeForTrustedFile(t *testing.T, scope ToolScope) {
+	t.Helper()
+	if scope.AgentID != "agent-trusted" || scope.ThreadID != "thread-trusted" {
+		t.Fatalf("resolver scope identity = %#v, want trusted agent/thread", scope)
+	}
+	if scope.CWD != "/trusted/worktree" {
+		t.Fatalf("resolver CWD = %q, want trusted cwd", scope.CWD)
+	}
+	if scope.LanguageID != "go" || scope.TargetPath != "main.go" {
+		t.Fatalf("resolver target scope = %#v", scope)
+	}
+}
+
+func assertSingleDiagnosticsURI(t *testing.T, got []string, want string) {
+	t.Helper()
+	if len(got) != 1 {
+		t.Fatalf("grouped URI subset = %#v, want [%s]", got, want)
+	}
+	if got[0] != want {
+		t.Fatalf("grouped URI subset = %#v, want [%s]", got, want)
+	}
+}
+
+func assertResolverScopeForGroupURI(t *testing.T, scope ToolScope, wantURI string) {
+	t.Helper()
+	if scope.AgentID != "agent-group" || scope.ThreadID != "thread-group" {
+		t.Fatalf("resolver identity = %#v, want caller scope", scope)
+	}
+	if scope.CWD != "/caller/worktree" || scope.TargetURI != wantURI {
+		t.Fatalf("resolver target/cwd scope = %#v", scope)
 	}
 }
 

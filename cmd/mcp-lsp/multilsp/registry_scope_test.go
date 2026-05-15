@@ -11,29 +11,51 @@ import (
 )
 
 func TestRegistryScopedResolverForToolScopeUsesGoRootAndTrustedIdentity(t *testing.T) {
-	root := t.TempDir()
-	root = canonicalTestRoot(t, root)
-	writeFile(t, filepath.Join(root, "go.mod"), "module example.test/scoped\n\ngo 1.25.0\n")
-	writeFile(t, filepath.Join(root, "main.go"), "package main\n")
+	root := scopedResolverTestRoot(t)
 	primary := newManagerPoolTestManager(t, root)
 	resolver := NewRegistryScopedResolver(primary)
 	if resolver == nil {
 		t.Fatal("NewRegistryScopedResolver returned nil")
 	}
 
-	scope := lspmanager.ToolScope{
-		AgentID:    "agent-a",
-		ThreadID:   "thread-a",
-		CallID:     "call-a",
+	scope := registryGoToolScope(root, "agent-a", "thread-a", "call-a")
+	scoped := mustResolveRegistryToolScope(t, resolver, scope)
+	assertScopedResolverResult(t, scoped, primary, root)
+	assertRegistryCurrentManager(t, resolver, scope, scoped.Manager)
+	assertRegistryOtherAgentHasNoManagers(t, resolver, root)
+}
+
+func scopedResolverTestRoot(t *testing.T) string {
+	t.Helper()
+	root := canonicalTestRoot(t, t.TempDir())
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.test/scoped\n\ngo 1.25.0\n")
+	writeFile(t, filepath.Join(root, "main.go"), "package main\n")
+	return root
+}
+
+func registryGoToolScope(root, agentID, threadID, callID string) lspmanager.ToolScope {
+	return lspmanager.ToolScope{
+		AgentID:    agentID,
+		ThreadID:   threadID,
+		CallID:     callID,
 		CWD:        root,
 		Family:     "lsp",
 		LanguageID: "go",
 		TargetPath: "main.go",
 	}
+}
+
+func mustResolveRegistryToolScope(t *testing.T, resolver lspmanager.ScopedManagerResolver, scope lspmanager.ToolScope) lspmanager.ScopedManager {
+	t.Helper()
 	scoped, err := resolver.ForToolScope(scope)
 	if err != nil {
 		t.Fatalf("ForToolScope: %v", err)
 	}
+	return scoped
+}
+
+func assertScopedResolverResult(t *testing.T, scoped lspmanager.ScopedManager, primary lspmanager.Manager, root string) {
+	t.Helper()
 	if scoped.Manager == primary {
 		t.Fatalf("ForToolScope returned primary singleton manager; want scoped clone")
 	}
@@ -49,14 +71,21 @@ func TestRegistryScopedResolverForToolScopeUsesGoRootAndTrustedIdentity(t *testi
 	if strings.Contains(scoped.ResolvedScope.ManagerKey, "call-a") {
 		t.Fatalf("ManagerKey must not include call identity: %q", scoped.ResolvedScope.ManagerKey)
 	}
+}
 
+func assertRegistryCurrentManager(t *testing.T, resolver lspmanager.ScopedManagerResolver, scope lspmanager.ToolScope, want lspmanager.Manager) {
+	t.Helper()
 	current, err := resolver.CurrentManagersForToolScope(scope)
 	if err != nil {
 		t.Fatalf("CurrentManagersForToolScope: %v", err)
 	}
-	if len(current) != 1 || current[0].Manager != scoped.Manager {
+	if len(current) != 1 || current[0].Manager != want {
 		t.Fatalf("current scoped managers = %#v, want the existing scoped clone", current)
 	}
+}
+
+func assertRegistryOtherAgentHasNoManagers(t *testing.T, resolver lspmanager.ScopedManagerResolver, root string) {
+	t.Helper()
 	other, err := resolver.CurrentManagersForToolScope(lspmanager.ToolScope{
 		AgentID:  "agent-b",
 		ThreadID: "thread-a",

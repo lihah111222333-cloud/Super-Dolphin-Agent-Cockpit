@@ -29,6 +29,17 @@ type langTestCase struct {
 	minSymbols int
 }
 
+type hoverDefCase struct {
+	name     string
+	langID   string
+	binary   string
+	args     []string
+	filename string
+	content  string
+	setup    func(t *testing.T, root string)
+	pos      protocol.Position
+}
+
 var multiLangCases = []langTestCase{
 	{
 		name:     "JavaScript",
@@ -239,113 +250,169 @@ public class App {
 	},
 }
 
+var hoverDefinitionCases = []hoverDefCase{
+	{
+		name:     "JS_FunctionCall",
+		langID:   "javascript",
+		binary:   "typescript-language-server",
+		args:     []string{"--stdio"},
+		filename: "test.js",
+		content: `function add(a, b) { return a + b; }
+const result = add(1, 2);
+`,
+		setup: func(t *testing.T, root string) {
+			os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"name":"t"}`), 0644)
+		},
+		pos: protocol.Position{Line: 1, Character: 15}, // on `add` call
+	},
+	{
+		name:     "TS_ClassMethod",
+		langID:   "typescript",
+		binary:   "typescript-language-server",
+		args:     []string{"--stdio"},
+		filename: "test.ts",
+		content: `class Foo { bar(): number { return 42; } }
+const f = new Foo();
+f.bar();
+`,
+		setup: func(t *testing.T, root string) {
+			os.WriteFile(filepath.Join(root, "tsconfig.json"), []byte(`{"compilerOptions":{"strict":true}}`), 0644)
+		},
+		pos: protocol.Position{Line: 2, Character: 2}, // on `bar` method call
+	},
+	{
+		name:     "Python_FunctionDef",
+		langID:   "python",
+		binary:   "pyright-langserver",
+		args:     []string{"--stdio"},
+		filename: "test.py",
+		content: `def multiply(x: int, y: int) -> int:
+    return x * y
+result = multiply(3, 4)
+`,
+		pos: protocol.Position{Line: 2, Character: 10}, // on `multiply` call
+	},
+}
+
 func TestMultiLanguageLSP_E2E(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	for _, tc := range multiLangCases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			// Check binary availability first
-			if _, err := exec.LookPath(tc.binary); err != nil {
-				t.Skipf("SKIP: %s not found in PATH (install with appropriate package manager)", tc.binary)
-			}
-
-			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-			defer cancel()
-
-			root := t.TempDir()
-
-			// Run optional setup (project scaffolding)
-			if tc.setup != nil {
-				tc.setup(t, root)
-			}
-
-			// Write test source file
-			filePath := filepath.Join(root, tc.filename)
-			dir := filepath.Dir(filePath)
-			if dir != root {
-				if err := os.MkdirAll(dir, 0755); err != nil {
-					t.Fatalf("mkdir for source file: %v", err)
-				}
-			}
-			if err := os.WriteFile(filePath, []byte(tc.content), 0644); err != nil {
-				t.Fatalf("write source file: %v", err)
-			}
-
-			// Setup registry — pass nil installer to skip EnsureInstalled check
-			// (we already verified the binary exists via LookPath above)
-			reg := manager.NewRegistry(nil)
-
-			mgr := createGenericManager(tc.binary, tc.args, root, log)
-			reg.Register(tc.langID, mgr)
-			defer reg.Close()
-
-			// 1. Test: GetManagerForFile (language detection)
-			t.Log("Step 1: GetManagerForFile...")
-			resolvedMgr, err := reg.GetManagerForFile(ctx, filePath)
-			if err != nil {
-				t.Fatalf("GetManagerForFile failed: %v", err)
-			}
-			t.Log("  ✓ Manager resolved")
-
-			// 2. Test: BootstrapDocument
-			uri := "file://" + filePath
-			t.Log("Step 2: BootstrapDocument...")
-			if err := resolvedMgr.BootstrapDocument(ctx, uri); err != nil {
-				t.Fatalf("BootstrapDocument failed: %v", err)
-			}
-			t.Log("  ✓ Document bootstrapped")
-
-			// Wait for language server indexing
-			t.Log("Step 3: Waiting for indexing...")
-			time.Sleep(5 * time.Second)
-
-			// 3. Test: DocumentSymbol
-			t.Log("Step 4: DocumentSymbol...")
-			symbols, err := resolvedMgr.DocumentSymbol(ctx, uri)
-			if err != nil {
-				t.Fatalf("DocumentSymbol failed: %v", err)
-			}
-			t.Logf("  ✓ Got %d top-level symbols", len(symbols))
-			for _, s := range symbols {
-				printSymbol(t, s, 1)
-			}
-			if len(symbols) < tc.minSymbols {
-				t.Errorf("Expected at least %d symbols, got %d", tc.minSymbols, len(symbols))
-			}
-
-			// 4. Test: Hover on a known position (line 2, col 5 — typically inside first definition)
-			t.Log("Step 5: Hover...")
-			hoverPos := protocol.Position{Line: 2, Character: 5}
-			hover, err := resolvedMgr.Hover(ctx, uri, hoverPos)
-			if err != nil {
-				t.Logf("  ⚠ Hover returned error: %v", err)
-			} else if hover != nil && hover.Contents != nil {
-				t.Logf("  ✓ Hover: %s", truncate(fmt.Sprint(hover.Contents), 200))
-			} else {
-				t.Log("  ⚠ Hover returned empty result")
-			}
-
-			// 5. Test: Diagnostics
-			t.Log("Step 6: Diagnostics...")
-			diags, err := resolvedMgr.Diagnostics(ctx, []string{uri})
-			if err != nil {
-				t.Logf("  ⚠ Diagnostics error: %v", err)
-			} else {
-				totalDiags := 0
-				for _, d := range diags {
-					totalDiags += len(d.Diagnostics)
-				}
-				t.Logf("  ✓ Got %d diagnostic(s)", totalDiags)
-				for _, d := range diags {
-					for _, diag := range d.Diagnostics {
-						t.Logf("    [%d] L%d:%d %s", diag.Severity, diag.Range.Start.Line, diag.Range.Start.Character, diag.Message)
-					}
-				}
-			}
-
-			t.Logf("=== %s: ALL CHECKS PASSED ===", tc.name)
+			runMultiLanguageLSPCase(t, log, tc)
 		})
+	}
+}
+
+func runMultiLanguageLSPCase(t *testing.T, log *slog.Logger, tc langTestCase) {
+	t.Helper()
+	if _, err := exec.LookPath(tc.binary); err != nil {
+		t.Skipf("SKIP: %s not found in PATH (install with appropriate package manager)", tc.binary)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	root, filePath := prepareMultiLanguageSource(t, tc)
+	closeRegistry, resolvedMgr, uri := resolveMultiLanguageManager(t, ctx, log, tc, root, filePath)
+	defer closeRegistry()
+
+	verifyMultiLanguageSymbols(t, ctx, resolvedMgr, uri, tc.minSymbols)
+	logMultiLanguageHover(t, ctx, resolvedMgr, uri)
+	logMultiLanguageDiagnostics(t, ctx, resolvedMgr, uri)
+	t.Logf("=== %s: ALL CHECKS PASSED ===", tc.name)
+}
+
+func prepareMultiLanguageSource(t *testing.T, tc langTestCase) (string, string) {
+	t.Helper()
+	root := t.TempDir()
+	if tc.setup != nil {
+		tc.setup(t, root)
+	}
+	filePath := filepath.Join(root, tc.filename)
+	dir := filepath.Dir(filePath)
+	if dir != root {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("mkdir for source file: %v", err)
+		}
+	}
+	if err := os.WriteFile(filePath, []byte(tc.content), 0644); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+	return root, filePath
+}
+
+func resolveMultiLanguageManager(t *testing.T, ctx context.Context, log *slog.Logger, tc langTestCase, root, filePath string) (func(), manager.Manager, string) {
+	t.Helper()
+	reg := manager.NewRegistry(nil)
+	mgr := createGenericManager(tc.binary, tc.args, root, log)
+	reg.Register(tc.langID, mgr)
+	t.Log("Step 1: GetManagerForFile...")
+	resolvedMgr, err := reg.GetManagerForFile(ctx, filePath)
+	if err != nil {
+		t.Fatalf("GetManagerForFile failed: %v", err)
+	}
+	t.Log("  ✓ Manager resolved")
+	uri := "file://" + filePath
+	t.Log("Step 2: BootstrapDocument...")
+	if err := resolvedMgr.BootstrapDocument(ctx, uri); err != nil {
+		t.Fatalf("BootstrapDocument failed: %v", err)
+	}
+	t.Log("  ✓ Document bootstrapped")
+	t.Log("Step 3: Waiting for indexing...")
+	time.Sleep(5 * time.Second)
+	return func() { _ = reg.Close() }, resolvedMgr, uri
+}
+
+func verifyMultiLanguageSymbols(t *testing.T, ctx context.Context, resolvedMgr manager.Manager, uri string, minSymbols int) {
+	t.Helper()
+	t.Log("Step 4: DocumentSymbol...")
+	symbols, err := resolvedMgr.DocumentSymbol(ctx, uri)
+	if err != nil {
+		t.Fatalf("DocumentSymbol failed: %v", err)
+	}
+	t.Logf("  ✓ Got %d top-level symbols", len(symbols))
+	for _, s := range symbols {
+		printSymbol(t, s, 1)
+	}
+	if len(symbols) < minSymbols {
+		t.Errorf("Expected at least %d symbols, got %d", minSymbols, len(symbols))
+	}
+}
+
+func logMultiLanguageHover(t *testing.T, ctx context.Context, resolvedMgr manager.Manager, uri string) {
+	t.Helper()
+	t.Log("Step 5: Hover...")
+	hoverPos := protocol.Position{Line: 2, Character: 5}
+	hover, err := resolvedMgr.Hover(ctx, uri, hoverPos)
+	if err != nil {
+		t.Logf("  ⚠ Hover returned error: %v", err)
+		return
+	}
+	if hover != nil && hover.Contents != nil {
+		t.Logf("  ✓ Hover: %s", truncate(fmt.Sprint(hover.Contents), 200))
+		return
+	}
+	t.Log("  ⚠ Hover returned empty result")
+}
+
+func logMultiLanguageDiagnostics(t *testing.T, ctx context.Context, resolvedMgr manager.Manager, uri string) {
+	t.Helper()
+	t.Log("Step 6: Diagnostics...")
+	diags, err := resolvedMgr.Diagnostics(ctx, []string{uri})
+	if err != nil {
+		t.Logf("  ⚠ Diagnostics error: %v", err)
+		return
+	}
+	totalDiags := 0
+	for _, d := range diags {
+		totalDiags += len(d.Diagnostics)
+	}
+	t.Logf("  ✓ Got %d diagnostic(s)", totalDiags)
+	for _, d := range diags {
+		for _, diag := range d.Diagnostics {
+			t.Logf("    [%d] L%d:%d %s", diag.Severity, diag.Range.Start.Line, diag.Range.Start.Character, diag.Message)
+		}
 	}
 }
 
@@ -392,118 +459,92 @@ func TestLanguageDetection_E2E(t *testing.T) {
 func TestMultiLanguageHoverDefinition_E2E(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
-	type hoverDefCase struct {
-		name     string
-		langID   string
-		binary   string
-		args     []string
-		filename string
-		content  string
-		setup    func(t *testing.T, root string)
-		// position to test hover + definition on
-		pos protocol.Position
-	}
-
-	cases := []hoverDefCase{
-		{
-			name:     "JS_FunctionCall",
-			langID:   "javascript",
-			binary:   "typescript-language-server",
-			args:     []string{"--stdio"},
-			filename: "test.js",
-			content: `function add(a, b) { return a + b; }
-const result = add(1, 2);
-`,
-			setup: func(t *testing.T, root string) {
-				os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"name":"t"}`), 0644)
-			},
-			pos: protocol.Position{Line: 1, Character: 15}, // on `add` call
-		},
-		{
-			name:     "TS_ClassMethod",
-			langID:   "typescript",
-			binary:   "typescript-language-server",
-			args:     []string{"--stdio"},
-			filename: "test.ts",
-			content: `class Foo { bar(): number { return 42; } }
-const f = new Foo();
-f.bar();
-`,
-			setup: func(t *testing.T, root string) {
-				os.WriteFile(filepath.Join(root, "tsconfig.json"), []byte(`{"compilerOptions":{"strict":true}}`), 0644)
-			},
-			pos: protocol.Position{Line: 2, Character: 2}, // on `bar` method call
-		},
-		{
-			name:     "Python_FunctionDef",
-			langID:   "python",
-			binary:   "pyright-langserver",
-			args:     []string{"--stdio"},
-			filename: "test.py",
-			content: `def multiply(x: int, y: int) -> int:
-    return x * y
-result = multiply(3, 4)
-`,
-			pos: protocol.Position{Line: 2, Character: 10}, // on `multiply` call
-		},
-	}
-
-	for _, tc := range cases {
+	for _, tc := range hoverDefinitionCases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := exec.LookPath(tc.binary); err != nil {
-				t.Skipf("SKIP: %s not found", tc.binary)
-			}
-
-			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-			defer cancel()
-
-			root := t.TempDir()
-			if tc.setup != nil {
-				tc.setup(t, root)
-			}
-
-			filePath := filepath.Join(root, tc.filename)
-			os.WriteFile(filePath, []byte(tc.content), 0644)
-
-			reg := manager.NewRegistry(nil)
-			mgr := createGenericManager(tc.binary, tc.args, root, log)
-			reg.Register(tc.langID, mgr)
-			defer reg.Close()
-
-			uri := "file://" + filePath
-			resolvedMgr, err := reg.GetManagerForFile(ctx, filePath)
-			if err != nil {
-				t.Fatalf("GetManagerForFile: %v", err)
-			}
-			if err := resolvedMgr.BootstrapDocument(ctx, uri); err != nil {
-				t.Fatalf("BootstrapDocument: %v", err)
-			}
-			time.Sleep(5 * time.Second)
-
-			// Hover
-			hover, err := resolvedMgr.Hover(ctx, uri, tc.pos)
-			if err != nil {
-				t.Errorf("Hover failed: %v", err)
-			} else if hover != nil {
-				t.Logf("✓ Hover at L%d:%d → %s", tc.pos.Line, tc.pos.Character, truncate(fmt.Sprint(hover.Contents), 150))
-			}
-
-			// Definition
-			defs, err := resolvedMgr.Definition(ctx, uri, tc.pos)
-			if err != nil {
-				t.Errorf("Definition failed: %v", err)
-			} else {
-				t.Logf("✓ Definition at L%d:%d → %d location(s)", tc.pos.Line, tc.pos.Character, len(defs))
-				for _, d := range defs {
-					if d.Location != nil {
-						t.Logf("    → %s L%d:%d", d.Location.URI, d.Location.Range.Start.Line, d.Location.Range.Start.Character)
-					} else if d.LocationLink != nil {
-						t.Logf("    → %s L%d:%d", d.LocationLink.TargetURI, d.LocationLink.TargetRange.Start.Line, d.LocationLink.TargetRange.Start.Character)
-					}
-				}
-			}
+			runMultiLanguageHoverDefinitionCase(t, log, tc)
 		})
+	}
+}
+
+func runMultiLanguageHoverDefinitionCase(t *testing.T, log *slog.Logger, tc hoverDefCase) {
+	t.Helper()
+	if _, err := exec.LookPath(tc.binary); err != nil {
+		t.Skipf("SKIP: %s not found", tc.binary)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	root, filePath := prepareHoverDefinitionSource(t, tc)
+	closeRegistry, resolvedMgr, uri := resolveHoverDefinitionManager(t, ctx, log, tc, root, filePath)
+	defer closeRegistry()
+	logHoverDefinitionHover(t, ctx, resolvedMgr, uri, tc.pos)
+	logHoverDefinitionDefinitions(t, ctx, resolvedMgr, uri, tc.pos)
+}
+
+func prepareHoverDefinitionSource(t *testing.T, tc hoverDefCase) (string, string) {
+	t.Helper()
+	root := t.TempDir()
+	if tc.setup != nil {
+		tc.setup(t, root)
+	}
+	filePath := filepath.Join(root, tc.filename)
+	if err := os.WriteFile(filePath, []byte(tc.content), 0644); err != nil {
+		t.Fatalf("write hover definition source: %v", err)
+	}
+	return root, filePath
+}
+
+func resolveHoverDefinitionManager(t *testing.T, ctx context.Context, log *slog.Logger, tc hoverDefCase, root, filePath string) (func(), manager.Manager, string) {
+	t.Helper()
+	reg := manager.NewRegistry(nil)
+	mgr := createGenericManager(tc.binary, tc.args, root, log)
+	reg.Register(tc.langID, mgr)
+	uri := "file://" + filePath
+	resolvedMgr, err := reg.GetManagerForFile(ctx, filePath)
+	if err != nil {
+		t.Fatalf("GetManagerForFile: %v", err)
+	}
+	if err := resolvedMgr.BootstrapDocument(ctx, uri); err != nil {
+		t.Fatalf("BootstrapDocument: %v", err)
+	}
+	time.Sleep(5 * time.Second)
+	return func() { _ = reg.Close() }, resolvedMgr, uri
+}
+
+func logHoverDefinitionHover(t *testing.T, ctx context.Context, resolvedMgr manager.Manager, uri string, pos protocol.Position) {
+	t.Helper()
+	hover, err := resolvedMgr.Hover(ctx, uri, pos)
+	if err != nil {
+		t.Errorf("Hover failed: %v", err)
+		return
+	}
+	if hover != nil {
+		t.Logf("✓ Hover at L%d:%d → %s", pos.Line, pos.Character, truncate(fmt.Sprint(hover.Contents), 150))
+	}
+}
+
+func logHoverDefinitionDefinitions(t *testing.T, ctx context.Context, resolvedMgr manager.Manager, uri string, pos protocol.Position) {
+	t.Helper()
+	defs, err := resolvedMgr.Definition(ctx, uri, pos)
+	if err != nil {
+		t.Errorf("Definition failed: %v", err)
+		return
+	}
+	t.Logf("✓ Definition at L%d:%d → %d location(s)", pos.Line, pos.Character, len(defs))
+	for _, d := range defs {
+		logHoverDefinitionLocation(t, d)
+	}
+}
+
+func logHoverDefinitionLocation(t *testing.T, d protocol.LocationResult) {
+	t.Helper()
+	if d.Location != nil {
+		t.Logf("    → %s L%d:%d", d.Location.URI, d.Location.Range.Start.Line, d.Location.Range.Start.Character)
+		return
+	}
+	if d.LocationLink != nil {
+		t.Logf("    → %s L%d:%d", d.LocationLink.TargetURI, d.LocationLink.TargetRange.Start.Line, d.LocationLink.TargetRange.Start.Character)
 	}
 }
 

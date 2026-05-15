@@ -102,21 +102,18 @@ func TestTwoWorktreesNoWorkspaceKeyCollision(t *testing.T) {
 	if scopedA.ResolvedScope.WorkspaceKey == scopedB.ResolvedScope.WorkspaceKey {
 		t.Fatalf("two physical worktrees shared WorkspaceKey: %q", scopedA.ResolvedScope.WorkspaceKey)
 	}
-	for _, tc := range []struct {
-		name  string
-		scope lspmanager.ResolvedToolScope
-		root  string
-	}{
-		{name: "A", scope: scopedA.ResolvedScope, root: wtA},
-		{name: "B", scope: scopedB.ResolvedScope, root: wtB},
-	} {
-		if tc.scope.WorkspaceRoot != tc.root || tc.scope.ProjectRoot != tc.root {
-			t.Fatalf("worktree %s resolved roots = workspace:%q project:%q, want %q", tc.name, tc.scope.WorkspaceRoot, tc.scope.ProjectRoot, tc.root)
-		}
-		for _, fragment := range []string{tc.root, "moduleRootsHash=", "workspaceFoldersHash="} {
-			if !strings.Contains(tc.scope.WorkspaceKey, fragment) {
-				t.Fatalf("worktree %s WorkspaceKey %q missing %q", tc.name, tc.scope.WorkspaceKey, fragment)
-			}
+	assertResolvedGoWorkFakeScope(t, "A", scopedA.ResolvedScope, wtA)
+	assertResolvedGoWorkFakeScope(t, "B", scopedB.ResolvedScope, wtB)
+}
+
+func assertResolvedGoWorkFakeScope(t *testing.T, name string, scope lspmanager.ResolvedToolScope, root string) {
+	t.Helper()
+	if scope.WorkspaceRoot != root || scope.ProjectRoot != root {
+		t.Fatalf("worktree %s resolved roots = workspace:%q project:%q, want %q", name, scope.WorkspaceRoot, scope.ProjectRoot, root)
+	}
+	for _, fragment := range []string{root, "moduleRootsHash=", "workspaceFoldersHash="} {
+		if !strings.Contains(scope.WorkspaceKey, fragment) {
+			t.Fatalf("worktree %s WorkspaceKey %q missing %q", name, scope.WorkspaceKey, fragment)
 		}
 	}
 }

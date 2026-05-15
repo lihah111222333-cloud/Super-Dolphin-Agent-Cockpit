@@ -502,11 +502,22 @@ func TestGoRootResolverLinkedWorktreeSymlinkAliasCanonicalKey(t *testing.T) {
 func assertGoLanguageSpecificContainsTopology(t *testing.T, info GoRootInfo) {
 	t.Helper()
 	specific := goLanguageSpecific(info)
+	assertLanguageSpecificKeys(t, specific)
+	assertLanguageSpecificPaths(t, specific, info)
+	assertWorkspaceKeyFragments(t, goWorkspaceKey(info))
+}
+
+func assertLanguageSpecificKeys(t *testing.T, specific map[string]string) {
+	t.Helper()
 	for _, key := range []string{"goWorkPath", "goModPath", "moduleRoot", "goworkMode", "moduleRootsHash", "workspaceFoldersHash"} {
 		if _, ok := specific[key]; !ok {
 			t.Fatalf("languageSpecific missing %s: %#v", key, specific)
 		}
 	}
+}
+
+func assertLanguageSpecificPaths(t *testing.T, specific map[string]string, info GoRootInfo) {
+	t.Helper()
 	if specific["goWorkPath"] != info.GoWorkPath ||
 		specific["goModPath"] != info.GoModPath ||
 		specific["moduleRoot"] != info.ModuleRoot ||
@@ -516,7 +527,10 @@ func assertGoLanguageSpecificContainsTopology(t *testing.T, info GoRootInfo) {
 	if specific["moduleRootsHash"] == "" || specific["workspaceFoldersHash"] == "" {
 		t.Fatalf("languageSpecific missing topology hashes: %#v", specific)
 	}
-	key := goWorkspaceKey(info)
+}
+
+func assertWorkspaceKeyFragments(t *testing.T, key string) {
+	t.Helper()
 	for _, fragment := range []string{"goModPath=", "goWorkPath=", "goworkMode=", "moduleRoot=", "moduleRootsHash=", "workspaceFoldersHash="} {
 		if !strings.Contains(key, fragment) {
 			t.Fatalf("workspace key %q missing %q", key, fragment)

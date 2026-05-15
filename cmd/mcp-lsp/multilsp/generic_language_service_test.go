@@ -51,6 +51,12 @@ func TestLanguageAdapterRegistryOwnsRootEnvBootstrapPolicy(t *testing.T) {
 	writeGenericTestFile(t, filepath.Join(jsRoot, "src", "app.ts"), "export const app = 1\n")
 
 	registry := NewDefaultLanguageAdapterRegistry()
+	assertGoAdapterPolicies(t, ctx, registry, root, goDir, goWorkPath)
+	assertTypeScriptAdapterPolicies(t, ctx, registry, root, jsRoot)
+}
+
+func assertGoAdapterPolicies(t *testing.T, ctx context.Context, registry *LanguageAdapterRegistry, root, goDir, goWorkPath string) {
+	t.Helper()
 	goAdapter, ok := registry.AdapterForLanguage("go")
 	if !ok {
 		t.Fatal("missing go adapter")
@@ -73,7 +79,10 @@ func TestLanguageAdapterRegistryOwnsRootEnvBootstrapPolicy(t *testing.T) {
 	if policy := goAdapter.BootstrapPolicy(goScope); !policy.OpenSiblingDocuments || len(policy.SiblingExtensions) == 0 {
 		t.Fatalf("go BootstrapPolicy = %#v, want adapter-owned sibling bootstrap", policy)
 	}
+}
 
+func assertTypeScriptAdapterPolicies(t *testing.T, ctx context.Context, registry *LanguageAdapterRegistry, root, jsRoot string) {
+	t.Helper()
 	tsAdapter, ok := registry.AdapterForLanguage("typescript")
 	if !ok {
 		t.Fatal("missing typescript adapter")
@@ -202,13 +211,15 @@ func TestDiagnosticsAllNoCrossLanguageCacheLeak(t *testing.T) {
 	}
 }
 
+type genericBootstrapMatrixCase struct {
+	languageID string
+	fileName   string
+	markerName string
+	markerBody string
+}
+
 func TestGenericLanguageServicesBootstrapCacheDiagnosticsMatrix(t *testing.T) {
-	for _, tc := range []struct {
-		languageID string
-		fileName   string
-		markerName string
-		markerBody string
-	}{
+	for _, tc := range []genericBootstrapMatrixCase{
 		{languageID: "go", fileName: "main.go", markerName: "go.mod", markerBody: "module example.test/matrix\n\ngo 1.25.0\n"},
 		{languageID: "javascript", fileName: "app.js", markerName: "package.json", markerBody: `{"name":"matrix"}`},
 		{languageID: "typescript", fileName: "app.ts", markerName: "tsconfig.json", markerBody: `{"compilerOptions":{}}`},
@@ -218,39 +229,45 @@ func TestGenericLanguageServicesBootstrapCacheDiagnosticsMatrix(t *testing.T) {
 		{languageID: "css", fileName: "style.css", markerName: "package.json", markerBody: `{"name":"matrix-css"}`},
 	} {
 		t.Run(tc.languageID, func(t *testing.T) {
-			root := canonicalScopePath(t.TempDir(), "")
-			writeGenericTestFile(t, filepath.Join(root, tc.markerName), tc.markerBody)
-			target := filepath.Join(root, tc.fileName)
-			writeGenericTestFile(t, target, "symbol\n")
-			factory := &genericMatrixClientFactory{}
-			mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
-			defer func() { _ = mgr.Close() }()
-			ctx := common.WithToolScope(context.Background(), common.ToolScope{AgentID: "agent-" + tc.languageID, ThreadID: "thread", Family: "lsp", CWD: root})
-			if err := mgr.BootstrapDocument(ctx, target); err != nil {
-				t.Fatalf("BootstrapDocument(%s): %v", tc.languageID, err)
-			}
-			client := factory.clientAt(t, 0)
-			if !client.opened(fileURIFromPath(target), tc.languageID) {
-				t.Fatalf("%s target was not opened during bootstrap; opens=%#v", tc.languageID, client.openEvents())
-			}
-			indexed, ok := bootstrapCoordinatorFor(mgr).cache.LastResolvedScope(fileURIFromPath(target))
-			if !ok {
-				t.Fatalf("%s bootstrap did not remember resolved scope", tc.languageID)
-			}
-			if indexed.LastResolvedScope.LanguageID != tc.languageID || indexed.LastResolvedScope.WorkspaceKey == "" {
-				t.Fatalf("%s resolved scope = %#v", tc.languageID, indexed.LastResolvedScope)
-			}
-			if err := client.publishDiagnostic(protocol.PublishDiagnosticsParams{URI: fileURIFromPath(target), Diagnostics: []protocol.Diagnostic{{Message: tc.languageID + " diag"}}}); err != nil {
-				t.Fatalf("publish diagnostic: %v", err)
-			}
-			diagnostics, err := mgr.Diagnostics(WithResolvedLSPToolScope(ctx, indexed.LastResolvedScope), nil)
-			if err != nil {
-				t.Fatalf("Diagnostics(%s): %v", tc.languageID, err)
-			}
-			if len(diagnostics) != 1 || diagnostics[0].Diagnostics[0].Message != tc.languageID+" diag" {
-				t.Fatalf("Diagnostics(%s) = %#v", tc.languageID, diagnostics)
-			}
+			runGenericBootstrapCacheDiagnosticsCase(t, tc)
 		})
+	}
+}
+
+func runGenericBootstrapCacheDiagnosticsCase(t *testing.T, tc genericBootstrapMatrixCase) {
+	t.Helper()
+	root := canonicalScopePath(t.TempDir(), "")
+	writeGenericTestFile(t, filepath.Join(root, tc.markerName), tc.markerBody)
+	target := filepath.Join(root, tc.fileName)
+	writeGenericTestFile(t, target, "symbol\n")
+	factory := &genericMatrixClientFactory{}
+	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
+	defer func() { _ = mgr.Close() }()
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{AgentID: "agent-" + tc.languageID, ThreadID: "thread", Family: "lsp", CWD: root})
+
+	if err := mgr.BootstrapDocument(ctx, target); err != nil {
+		t.Fatalf("BootstrapDocument(%s): %v", tc.languageID, err)
+	}
+	client := factory.clientAt(t, 0)
+	if !client.opened(fileURIFromPath(target), tc.languageID) {
+		t.Fatalf("%s target was not opened during bootstrap; opens=%#v", tc.languageID, client.openEvents())
+	}
+	indexed, ok := bootstrapCoordinatorFor(mgr).cache.LastResolvedScope(fileURIFromPath(target))
+	if !ok {
+		t.Fatalf("%s bootstrap did not remember resolved scope", tc.languageID)
+	}
+	if indexed.LastResolvedScope.LanguageID != tc.languageID || indexed.LastResolvedScope.WorkspaceKey == "" {
+		t.Fatalf("%s resolved scope = %#v", tc.languageID, indexed.LastResolvedScope)
+	}
+	if err := client.publishDiagnostic(protocol.PublishDiagnosticsParams{URI: fileURIFromPath(target), Diagnostics: []protocol.Diagnostic{{Message: tc.languageID + " diag"}}}); err != nil {
+		t.Fatalf("publish diagnostic: %v", err)
+	}
+	diagnostics, err := mgr.Diagnostics(WithResolvedLSPToolScope(ctx, indexed.LastResolvedScope), nil)
+	if err != nil {
+		t.Fatalf("Diagnostics(%s): %v", tc.languageID, err)
+	}
+	if len(diagnostics) != 1 || diagnostics[0].Diagnostics[0].Message != tc.languageID+" diag" {
+		t.Fatalf("Diagnostics(%s) = %#v", tc.languageID, diagnostics)
 	}
 }
 
