@@ -22,31 +22,7 @@ func TestResolve_Approve(t *testing.T) {
 			},
 		},
 	}
-	base.resolvePendingReviewFunc = func(_ context.Context, hookCallID, decision, reason, idempotencyKey, resolvedBy string) error {
-		if hookCallID != "call-approve" {
-			t.Fatalf("hookCallID = %q, want %q", hookCallID, "call-approve")
-		}
-		if decision != mcp.HookDecisionApprove {
-			t.Fatalf("decision = %q, want %q", decision, mcp.HookDecisionApprove)
-		}
-		if reason != "looks good" {
-			t.Fatalf("reason = %q, want %q", reason, "looks good")
-		}
-		if idempotencyKey != "idem-approve" {
-			t.Fatalf("idempotencyKey = %q, want %q", idempotencyKey, "idem-approve")
-		}
-		if resolvedBy != "reviewer-approve" {
-			t.Fatalf("resolvedBy = %q, want %q", resolvedBy, "reviewer-approve")
-		}
-		if base.resolved == nil {
-			base.resolved = make(map[string]stubResolvedReview)
-		}
-		base.resolved[hookCallID] = stubResolvedReview{
-			decision:   decision,
-			resolvedAt: resolvedAt,
-		}
-		return nil
-	}
+	base.resolvePendingReviewFunc = approveResolveFunc(t, base, resolvedAt)
 	store := &stubResolvedReviewStore{stubHookReviewStore: base}
 
 	got, err := mustNewHookResolver(t, store).Resolve(context.TODO(), mcp.LeaseKey{InstanceID: "instance-approve", Generation: 1}, mcp.HookResolveRequest{
@@ -73,6 +49,40 @@ func TestResolve_Approve(t *testing.T) {
 	}
 	if len(base.resolveCalls) != 1 {
 		t.Fatalf("resolve calls = %d, want 1", len(base.resolveCalls))
+	}
+}
+
+func approveResolveFunc(t *testing.T, base *stubHookReviewStore, resolvedAt time.Time) func(context.Context, string, string, string, string, string) error {
+	t.Helper()
+	return func(_ context.Context, hookCallID, decision, reason, idempotencyKey, resolvedBy string) error {
+		assertApproveResolveArgs(t, hookCallID, decision, reason, idempotencyKey, resolvedBy)
+		if base.resolved == nil {
+			base.resolved = make(map[string]stubResolvedReview)
+		}
+		base.resolved[hookCallID] = stubResolvedReview{
+			decision:   decision,
+			resolvedAt: resolvedAt,
+		}
+		return nil
+	}
+}
+
+func assertApproveResolveArgs(t *testing.T, hookCallID, decision, reason, idempotencyKey, resolvedBy string) {
+	t.Helper()
+	if hookCallID != "call-approve" {
+		t.Fatalf("hookCallID = %q, want %q", hookCallID, "call-approve")
+	}
+	if decision != mcp.HookDecisionApprove {
+		t.Fatalf("decision = %q, want %q", decision, mcp.HookDecisionApprove)
+	}
+	if reason != "looks good" {
+		t.Fatalf("reason = %q, want %q", reason, "looks good")
+	}
+	if idempotencyKey != "idem-approve" {
+		t.Fatalf("idempotencyKey = %q, want %q", idempotencyKey, "idem-approve")
+	}
+	if resolvedBy != "reviewer-approve" {
+		t.Fatalf("resolvedBy = %q, want %q", resolvedBy, "reviewer-approve")
 	}
 }
 

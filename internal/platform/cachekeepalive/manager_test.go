@@ -187,12 +187,17 @@ func TestResetTimer(t *testing.T) {
 	t.Cleanup(m.shutdownForTest)
 	m.register("session-1", "agent-1", "thread-1")
 	m.ResetTimerByAgent("agent-1")
-	first := m.snapshotTimer("session-1", nil)
+	first := requireAgentTimer(t, m.snapshotTimer("session-1", nil), "first")
 	m.ResetTimerByAgent("agent-1")
-	second := m.snapshotTimer("session-1", nil)
-	firstActive := first != nil && first.timer != nil && first.timer.Stop()
-	if keepaliveInterval != 55*time.Minute || first == nil || first.timer == nil || second == nil || second.timer == nil || first.timer == second.timer || firstActive {
-		t.Fatalf("reset timer mismatch: interval=%s first=%v second=%v same=%v first_active=%v", keepaliveInterval, first, second, first != nil && second != nil && first.timer == second.timer, firstActive)
+	second := requireAgentTimer(t, m.snapshotTimer("session-1", nil), "second")
+	if keepaliveInterval != 55*time.Minute {
+		t.Fatalf("keepaliveInterval = %s, want 55m", keepaliveInterval)
+	}
+	if first.timer == second.timer {
+		t.Fatalf("reset timer reused timer: first=%v second=%v", first, second)
+	}
+	if first.timer.Stop() {
+		t.Fatalf("old timer remained active after reset: %#v", first)
 	}
 }
 
@@ -227,15 +232,31 @@ func TestShutdownClearsTimers(t *testing.T) {
 	m.register("session-2", "agent-2", "thread-2")
 	m.ResetTimerByAgent("agent-1")
 	m.ResetTimerByAgent("agent-2")
-	first, second := m.snapshotTimer("session-1", nil), m.snapshotTimer("session-2", nil)
+	first := requireAgentTimer(t, m.snapshotTimer("session-1", nil), "first")
+	second := requireAgentTimer(t, m.snapshotTimer("session-2", nil), "second")
 	if err := m.Shutdown(context.Background()); err != nil {
 		t.Fatalf("Shutdown() error = %v", err)
 	}
-	firstActive := first != nil && first.timer != nil && first.timer.Stop()
-	secondActive := second != nil && second.timer != nil && second.timer.Stop()
-	if len(m.timers) != 0 || first == nil || first.timer == nil || second == nil || second.timer == nil || firstActive || secondActive {
-		t.Fatalf("shutdown mismatch: timers=%d first=%v second=%v", len(m.timers), first, second)
+	if len(m.timers) != 0 {
+		t.Fatalf("shutdown timers=%d, want 0", len(m.timers))
 	}
+	if first.timer.Stop() {
+		t.Fatalf("first timer remained active after shutdown: %#v", first)
+	}
+	if second.timer.Stop() {
+		t.Fatalf("second timer remained active after shutdown: %#v", second)
+	}
+}
+
+func requireAgentTimer(t *testing.T, got *agentTimer, label string) *agentTimer {
+	t.Helper()
+	if got == nil {
+		t.Fatalf("%s timer = nil", label)
+	}
+	if got.timer == nil {
+		t.Fatalf("%s timer.timer = nil: %#v", label, got)
+	}
+	return got
 }
 
 func TestHandleAgentLaunchedFallback(t *testing.T) {

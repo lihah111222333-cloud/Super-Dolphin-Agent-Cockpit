@@ -47,6 +47,26 @@ func (s *pingBlockingSession) SendKeepalive(ctx context.Context) error {
 func TestCacheKeepaliveDrainCancelsPendingPing(t *testing.T) {
 	t.Parallel()
 
+	m, session := newDrainTestManager()
+	pingDone := fireKeepalivePing(t, m)
+	waitForKeepaliveEntry(t, session)
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if err := m.Shutdown(shutdownCtx); err != nil {
+		t.Fatalf("Shutdown() err = %v, want nil (drain must finish within ctx budget)", err)
+	}
+	elapsed := time.Since(start)
+	if elapsed > 250*time.Millisecond {
+		t.Errorf("Shutdown took %s, want <250ms — pingCtx cancellation should unblock SendKeepalive promptly", elapsed)
+	}
+
+	assertPingGoroutineDrained(t, pingDone)
+	assertKeepaliveObservedCancellation(t, session)
+}
+
+func newDrainTestManager() (*Manager, *pingBlockingSession) {
 	session := &pingBlockingSession{
 		entered: make(chan struct{}),
 		exited:  make(chan error, 1),
@@ -57,7 +77,11 @@ func TestCacheKeepaliveDrainCancelsPendingPing(t *testing.T) {
 	}}
 	m := newTestManager(resolver, bindings, nil)
 	m.register("session-1", "agent-1", "thread-1")
+	return m, session
+}
 
+func fireKeepalivePing(t *testing.T, m *Manager) <-chan struct{} {
+	t.Helper()
 	// Fire the ping path directly instead of waiting keepaliveInterval
 	// (55 minutes) for the scheduled AfterFunc. The test mirrors the
 	// production closure: enterPing + pingInflight.Done + executePing,
@@ -75,32 +99,31 @@ func TestCacheKeepaliveDrainCancelsPendingPing(t *testing.T) {
 		defer m.pingInflight.Done()
 		m.executePing("session-1", timerRef.timer)
 	}()
+	return pingDone
+}
 
+func waitForKeepaliveEntry(t *testing.T, session *pingBlockingSession) {
+	t.Helper()
 	select {
 	case <-session.entered:
 	case <-time.After(time.Second):
 		t.Fatal("SendKeepalive did not enter within 1s; production path broken")
 	}
+}
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-	start := time.Now()
-	if err := m.Shutdown(shutdownCtx); err != nil {
-		t.Fatalf("Shutdown() err = %v, want nil (drain must finish within ctx budget)", err)
-	}
-	elapsed := time.Since(start)
-	if elapsed > 250*time.Millisecond {
-		t.Errorf("Shutdown took %s, want <250ms — pingCtx cancellation should unblock SendKeepalive promptly", elapsed)
-	}
-
+func assertPingGoroutineDrained(t *testing.T, pingDone <-chan struct{}) {
+	t.Helper()
 	// Ping goroutine must have unwound before Shutdown returned.
 	select {
 	case <-pingDone:
 	default:
 		t.Fatal("Shutdown returned but ping goroutine is still alive; drain contract broken")
 	}
+}
 
-	// And SendKeepalive must have observed ctx.Err() (i.e. the cancellation
+func assertKeepaliveObservedCancellation(t *testing.T, session *pingBlockingSession) {
+	t.Helper()
+	// SendKeepalive must have observed ctx.Err() (i.e. the cancellation
 	// came through the Manager-owned pingCtx, not via the session closing
 	// itself).
 	select {

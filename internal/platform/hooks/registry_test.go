@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"slices"
 	"testing"
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
@@ -56,17 +57,12 @@ func TestHookRegistrySubscribeIsIdempotentForEquivalentRequest(t *testing.T) {
 		t.Fatalf("second version = %d, want %d", secondResp.SubscriptionVersion, firstResp.SubscriptionVersion)
 	}
 
-	subscribers := registry.GetSubscribers("topic/a")
-	if len(subscribers) != 1 || subscribers[0] != lease {
-		t.Fatalf("GetSubscribers(topic/a) = %#v, want [%#v]", subscribers, lease)
-	}
+	assertLeaseKeys(t, registry.GetSubscribers("topic/a"), lease)
 	subscription, ok := registry.GetSubscription(lease)
 	if !ok {
 		t.Fatal("GetSubscription() ok = false, want true")
 	}
-	if got, want := subscription.Topics, []string{"topic/a", "topic/b"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
-		t.Fatalf("subscription topics = %#v, want %#v", got, want)
-	}
+	assertHookSubscriptionTopics(t, subscription.Topics, "topic/a", "topic/b")
 }
 
 func TestHookRegistrySubscribeIncrementsVersionOnRequestChange(t *testing.T) {
@@ -95,9 +91,7 @@ func TestHookRegistrySubscribeIncrementsVersionOnRequestChange(t *testing.T) {
 	if resp.SubscriptionVersion != 2 {
 		t.Fatalf("second version = %d, want 2", resp.SubscriptionVersion)
 	}
-	if got := registry.GetSubscribers("topic/b"); len(got) != 1 || got[0] != lease {
-		t.Fatalf("GetSubscribers(topic/b) = %#v, want [%#v]", got, lease)
-	}
+	assertLeaseKeys(t, registry.GetSubscribers("topic/b"), lease)
 }
 
 func TestHookRegistryGetSubscribersBySelectorFiltersScope(t *testing.T) {
@@ -130,20 +124,30 @@ func TestHookRegistryGetSubscribersBySelectorFiltersScope(t *testing.T) {
 		Subscription: "topic/a",
 		Scope:        &mcp.SelectorScope{AgentID: "agent-1"},
 	})
-	if len(got) != 1 || got[0] != agentOnlyLease {
-		t.Fatalf("GetSubscribersBySelector(agent) = %#v, want [%#v]", got, agentOnlyLease)
-	}
+	assertLeaseKeys(t, got, agentOnlyLease)
 
 	got = registry.GetSubscribersBySelector(mcp.Selector{
 		Subscription: "topic/a",
 		Scope:        &mcp.SelectorScope{AgentID: "agent-1", ThreadID: "thread-1"},
 	})
-	if len(got) != 2 || got[0] != fullScopeLease || got[1] != agentOnlyLease {
-		t.Fatalf("GetSubscribersBySelector(agent+thread) = %#v, want [%#v %#v]", got, fullScopeLease, agentOnlyLease)
-	}
+	assertLeaseKeys(t, got, fullScopeLease, agentOnlyLease)
 
 	got = registry.GetSubscribers("topic/a")
-	if len(got) != 4 || got[0] != fullScopeLease || got[1] != agentOnlyLease || got[2] != otherThreadLease || got[3] != otherLease {
-		t.Fatalf("GetSubscribers(topic/a) = %#v, want [%#v %#v %#v %#v]", got, fullScopeLease, agentOnlyLease, otherThreadLease, otherLease)
+	assertLeaseKeys(t, got, fullScopeLease, agentOnlyLease, otherThreadLease, otherLease)
+}
+
+func assertLeaseKeys(t *testing.T, got []mcp.LeaseKey, want ...mcp.LeaseKey) {
+	t.Helper()
+
+	if !slices.Equal(got, want) {
+		t.Fatalf("lease keys = %#v, want %#v", got, want)
+	}
+}
+
+func assertHookSubscriptionTopics(t *testing.T, got []string, want ...string) {
+	t.Helper()
+
+	if !slices.Equal(got, want) {
+		t.Fatalf("subscription topics = %#v, want %#v", got, want)
 	}
 }

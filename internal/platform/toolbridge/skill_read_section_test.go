@@ -167,22 +167,8 @@ func containsStr(s, sub string) bool {
 
 func TestSkillReadSectionTool_RecordsToTrackerOnSuccess(t *testing.T) {
 	cacheDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(cacheDir, "tdd", "references"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(cacheDir, "tdd", "references", "01-red-green.md"), []byte("body"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	wsPath := filepath.Join(t.TempDir(), "ws.json")
-	glPath := filepath.Join(t.TempDir(), "gl.json")
-	tracker, err := fbsd.NewTracker(wsPath, glPath, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := tracker.Start(); err != nil {
-		t.Fatal(err)
-	}
+	makeRefFile(t, cacheDir, "tdd", "red-green", "body")
+	tracker, wsPath := newStartedSkillTracker(t)
 
 	tool := NewSkillReadSectionTool(cacheDir, skilllibrary.ReadSection, tracker)
 	args := mustMarshal(t, map[string]any{"name": "tdd", "anchor": "red-green"})
@@ -192,16 +178,38 @@ func TestSkillReadSectionTool_RecordsToTrackerOnSuccess(t *testing.T) {
 	if err := tracker.Flush(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	requireSkillTrackerStats(t, wsPath, "tdd", "red-green")
+}
 
+func newStartedSkillTracker(t *testing.T) (*fbsd.Tracker, string) {
+	t.Helper()
+	wsPath := filepath.Join(t.TempDir(), "ws.json")
+	glPath := filepath.Join(t.TempDir(), "gl.json")
+	tracker, err := fbsd.NewTracker(wsPath, glPath, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tracker.Start(); err != nil {
+		t.Fatal(err)
+	}
+	return tracker, wsPath
+}
+
+func requireSkillTrackerStats(t *testing.T, wsPath, name, anchor string) {
+	t.Helper()
 	stats, err := fbsd.LoadStats(wsPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stats["tdd"] == nil || len(stats["tdd"].Calls) != 1 {
-		t.Errorf("expected 1 call recorded for tdd: %+v", stats["tdd"])
+	entry := stats[name]
+	if entry == nil {
+		t.Fatalf("expected stats recorded for %s: %+v", name, stats)
 	}
-	if stats["tdd"].SectionCalls["red-green"] != 1 {
-		t.Errorf("section_calls[red-green]=%d want 1", stats["tdd"].SectionCalls["red-green"])
+	if len(entry.Calls) != 1 {
+		t.Errorf("expected 1 call recorded for %s: %+v", name, entry)
+	}
+	if entry.SectionCalls[anchor] != 1 {
+		t.Errorf("section_calls[%s]=%d want 1", anchor, entry.SectionCalls[anchor])
 	}
 }
 

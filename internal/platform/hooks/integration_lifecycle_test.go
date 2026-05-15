@@ -19,9 +19,25 @@ func TestIntegration_LostSubscriberAutoCleanup(t *testing.T) {
 	mustSubscribeIntegrationHook(t, registry, lease, "sub-lost", nil, TopicToolAfter)
 
 	afterCalls := 0
-	dispatcher := mustNewHookDispatcher(t, registry, stubPeerCallback{
+	dispatcher := mustNewHookDispatcher(t, registry, lostSubscriberCallback(t, lease, &afterCalls), WithDispatcherParallelism(1))
+
+	store := &stubHookReviewStore{}
+	manager := mustNewManager(t, registry, dispatcher, mustNewHookResolver(t, store))
+
+	for attempt := 1; attempt <= 3; attempt++ {
+		dispatchLostSubscriberAttempt(t, manager, attempt)
+		if attempt < 3 {
+			assertLostSubscriberBeforeThreshold(t, registry, store, lease, attempt)
+		}
+	}
+	assertLostSubscriberCleanup(t, registry, store, dispatcher, lease, afterCalls)
+}
+
+func lostSubscriberCallback(t *testing.T, lease mcp.LeaseKey, afterCalls *int) stubPeerCallback {
+	t.Helper()
+	return stubPeerCallback{
 		after: func(_ context.Context, gotLease mcp.LeaseKey, payload mcp.HookPayload) (mcp.AfterDecision, error) {
-			afterCalls++
+			*afterCalls = *afterCalls + 1
 			if gotLease != lease {
 				t.Fatalf("lease = %#v, want %#v", gotLease, lease)
 			}
@@ -30,33 +46,36 @@ func TestIntegration_LostSubscriberAutoCleanup(t *testing.T) {
 			}
 			return mcp.AfterDecision{}, errors.New("subscriber lost")
 		},
-	}, WithDispatcherParallelism(1))
-
-	store := &stubHookReviewStore{}
-	manager := mustNewManager(t, registry, dispatcher, mustNewHookResolver(t, store))
-
-	for attempt := 1; attempt <= 3; attempt++ {
-		got, err := manager.DispatchAfter(context.Background(), TopicToolAfter, mcp.HookPayload{
-			HookCallID: "call-lost",
-			AgentID:    "agent-lost",
-			ThreadID:   "thread-lost",
-		})
-		if err != nil {
-			t.Fatalf("DispatchAfter() attempt %d error = %v", attempt, err)
-		}
-		if got.Decision != mcp.HookDecisionReject {
-			t.Fatalf("DispatchAfter() attempt %d decision = %q, want %q", attempt, got.Decision, mcp.HookDecisionReject)
-		}
-		if attempt < 3 {
-			if _, ok := registry.GetSubscription(lease); !ok {
-				t.Fatalf("DispatchAfter() attempt %d unsubscribed too early", attempt)
-			}
-			if len(store.cancelByLeaseCalls) != 0 {
-				t.Fatalf("DispatchAfter() attempt %d cancel calls = %d, want 0", attempt, len(store.cancelByLeaseCalls))
-			}
-		}
 	}
+}
 
+func dispatchLostSubscriberAttempt(t *testing.T, manager *Manager, attempt int) {
+	t.Helper()
+	got, err := manager.DispatchAfter(context.Background(), TopicToolAfter, mcp.HookPayload{
+		HookCallID: "call-lost",
+		AgentID:    "agent-lost",
+		ThreadID:   "thread-lost",
+	})
+	if err != nil {
+		t.Fatalf("DispatchAfter() attempt %d error = %v", attempt, err)
+	}
+	if got.Decision != mcp.HookDecisionReject {
+		t.Fatalf("DispatchAfter() attempt %d decision = %q, want %q", attempt, got.Decision, mcp.HookDecisionReject)
+	}
+}
+
+func assertLostSubscriberBeforeThreshold(t *testing.T, registry *HookRegistry, store *stubHookReviewStore, lease mcp.LeaseKey, attempt int) {
+	t.Helper()
+	if _, ok := registry.GetSubscription(lease); !ok {
+		t.Fatalf("DispatchAfter() attempt %d unsubscribed too early", attempt)
+	}
+	if len(store.cancelByLeaseCalls) != 0 {
+		t.Fatalf("DispatchAfter() attempt %d cancel calls = %d, want 0", attempt, len(store.cancelByLeaseCalls))
+	}
+}
+
+func assertLostSubscriberCleanup(t *testing.T, registry *HookRegistry, store *stubHookReviewStore, dispatcher *HookDispatcher, lease mcp.LeaseKey, afterCalls int) {
+	t.Helper()
 	if _, ok := registry.GetSubscription(lease); ok {
 		t.Fatal("DispatchAfter() left lost subscriber registered")
 	}
@@ -82,32 +101,10 @@ func TestIntegration_ShutdownCleansUp(t *testing.T) {
 	lease := mcp.LeaseKey{InstanceID: "lease-shutdown", Generation: 1}
 	mustSubscribeIntegrationHook(t, registry, lease, "sub-shutdown", nil, TopicToolAfter)
 
-	dispatcher := mustNewHookDispatcher(t, registry, stubPeerCallback{
-		after: func(_ context.Context, gotLease mcp.LeaseKey, payload mcp.HookPayload) (mcp.AfterDecision, error) {
-			if gotLease != lease {
-				t.Fatalf("lease = %#v, want %#v", gotLease, lease)
-			}
-			if payload.HookCallID != "call-shutdown" {
-				t.Fatalf("payload.HookCallID = %q, want %q", payload.HookCallID, "call-shutdown")
-			}
-			return mcp.AfterDecision{
-				Decision: mcp.HookDecisionEscalate,
-				Reason:   "needs shutdown review",
-			}, nil
-		},
-	}, WithDispatcherParallelism(1))
+	dispatcher := mustNewHookDispatcher(t, registry, shutdownCallback(t, lease), WithDispatcherParallelism(1))
 
 	store := &stubHookReviewStore{}
-	store.cancelPendingReviewsByLeaseFunc = func(_ context.Context, subscriberLease string) (int, error) {
-		removed := 0
-		for hookCallID, review := range store.pending {
-			if review.SubscriberLease == subscriberLease {
-				delete(store.pending, hookCallID)
-				removed++
-			}
-		}
-		return removed, nil
-	}
+	store.cancelPendingReviewsByLeaseFunc = cancelPendingByLeaseFunc(store)
 	manager := mustNewManager(t, registry, dispatcher, mustNewHookResolver(t, store))
 
 	got, err := manager.DispatchAfter(context.Background(), TopicToolAfter, mcp.HookPayload{
@@ -132,6 +129,42 @@ func TestIntegration_ShutdownCleansUp(t *testing.T) {
 	if err := manager.ShutdownHooks(context.Background(), lease); err != nil {
 		t.Fatalf("ShutdownHooks() error = %v", err)
 	}
+	assertShutdownCleanup(t, registry, store, dispatcher, lease)
+}
+
+func shutdownCallback(t *testing.T, lease mcp.LeaseKey) stubPeerCallback {
+	t.Helper()
+	return stubPeerCallback{
+		after: func(_ context.Context, gotLease mcp.LeaseKey, payload mcp.HookPayload) (mcp.AfterDecision, error) {
+			if gotLease != lease {
+				t.Fatalf("lease = %#v, want %#v", gotLease, lease)
+			}
+			if payload.HookCallID != "call-shutdown" {
+				t.Fatalf("payload.HookCallID = %q, want %q", payload.HookCallID, "call-shutdown")
+			}
+			return mcp.AfterDecision{
+				Decision: mcp.HookDecisionEscalate,
+				Reason:   "needs shutdown review",
+			}, nil
+		},
+	}
+}
+
+func cancelPendingByLeaseFunc(store *stubHookReviewStore) func(context.Context, string) (int, error) {
+	return func(_ context.Context, subscriberLease string) (int, error) {
+		removed := 0
+		for hookCallID, review := range store.pending {
+			if review.SubscriberLease == subscriberLease {
+				delete(store.pending, hookCallID)
+				removed++
+			}
+		}
+		return removed, nil
+	}
+}
+
+func assertShutdownCleanup(t *testing.T, registry *HookRegistry, store *stubHookReviewStore, dispatcher *HookDispatcher, lease mcp.LeaseKey) {
+	t.Helper()
 	if _, ok := registry.GetSubscription(lease); ok {
 		t.Fatal("ShutdownHooks() left subscription registered")
 	}
@@ -174,6 +207,14 @@ func TestIntegration_ManagerWiringAndThinWrappers(t *testing.T) {
 		t.Fatal("provideManager() did not apply custom logger")
 	}
 
+	subscribeWireHook(t, manager)
+	leases, prepared := dispatcher.prepareDispatch(TopicToolBefore, mcp.HookPayload{AgentID: "agent-wire"})
+	assertWirePreparedDispatch(t, leases, prepared)
+	assertWirePendingReviews(t, manager, store)
+}
+
+func subscribeWireHook(t *testing.T, manager *Manager) {
+	t.Helper()
 	resp, err := manager.Subscribe(context.Background(), mcp.LeaseKey{InstanceID: "lease-wire", Generation: 1}, mcp.HookSubscribeRequest{
 		SubscriptionID: "sub-wire",
 		Topics:         []string{TopicToolBefore},
@@ -184,8 +225,10 @@ func TestIntegration_ManagerWiringAndThinWrappers(t *testing.T) {
 	if !resp.Accepted {
 		t.Fatal("Subscribe() Accepted = false, want true")
 	}
+}
 
-	leases, prepared := dispatcher.prepareDispatch(TopicToolBefore, mcp.HookPayload{AgentID: "agent-wire"})
+func assertWirePreparedDispatch(t *testing.T, leases []mcp.LeaseKey, prepared mcp.HookPayload) {
+	t.Helper()
 	if !slices.Equal(leases, []mcp.LeaseKey{{InstanceID: "lease-wire", Generation: 1}}) {
 		t.Fatalf("prepareDispatch() leases = %#v, want %#v", leases, []mcp.LeaseKey{{InstanceID: "lease-wire", Generation: 1}})
 	}
@@ -198,7 +241,10 @@ func TestIntegration_ManagerWiringAndThinWrappers(t *testing.T) {
 	if prepared.HookCallID == "" {
 		t.Fatal("prepareDispatch() HookCallID = empty, want generated value")
 	}
+}
 
+func assertWirePendingReviews(t *testing.T, manager *Manager, store *stubHookReviewStore) {
+	t.Helper()
 	pending, err := manager.GetPendingReviews(context.Background(), "agent-wire")
 	if err != nil {
 		t.Fatalf("GetPendingReviews() error = %v", err)

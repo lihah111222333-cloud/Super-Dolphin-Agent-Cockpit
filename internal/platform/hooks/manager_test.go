@@ -92,72 +92,81 @@ func TestLostSubscriberAutoUnsubscribe(t *testing.T) {
 
 	registry := NewHookRegistry()
 	lease := mcp.LeaseKey{InstanceID: "lease-lost", Generation: 1}
-	if _, err := registry.Subscribe(lease, mcp.HookSubscribeRequest{
-		SubscriptionID: "lost-sub",
-		Topics:         []string{TopicToolBefore},
-		Scope: mcp.Selector{Scope: &mcp.SelectorScope{
-			AgentID:  "agent-1",
-			ThreadID: "thread-1",
-		}},
-	}); err != nil {
-		t.Fatalf("Subscribe() error = %v", err)
-	}
+	subscribeHookTopic(t, registry, lease, TopicToolBefore, &mcp.SelectorScope{AgentID: "agent-1", ThreadID: "thread-1"})
 
 	beforeCalls := 0
 	dispatcher := mustNewHookDispatcher(t, registry, stubPeerCallback{
-		before: func(_ context.Context, gotLease mcp.LeaseKey, _ mcp.HookPayload) (mcp.BeforeDecision, error) {
-			beforeCalls++
-			if gotLease != lease {
-				t.Fatalf("lease = %#v, want %#v", gotLease, lease)
-			}
-			return mcp.BeforeDecision{}, errors.New("subscriber lost")
-		},
+		before: lostSubscriberBeforeCallback(t, lease, &beforeCalls),
 	})
 
 	cancelCalls := 0
 	store := &managerReviewStoreStub{
-		cancelPendingReviewsByLeaseFunc: func(_ context.Context, subscriberLease string) (int, error) {
-			cancelCalls++
-			if subscriberLease != "lease-lost/1" {
-				t.Fatalf("CancelPendingReviewsByLease() lease = %q, want %q", subscriberLease, "lease-lost/1")
-			}
-			if _, ok := registry.GetSubscription(lease); ok {
-				t.Fatal("subscription still present while cancelling lost subscriber")
-			}
-			dispatcher.failMu.Lock()
-			_, tracked := dispatcher.failCounts[lease]
-			dispatcher.failMu.Unlock()
-			if tracked {
-				t.Fatal("failure count still present while cancelling lost subscriber")
-			}
-			return 1, nil
-		},
+		cancelPendingReviewsByLeaseFunc: lostSubscriberCancelCallback(t, registry, dispatcher, lease, &cancelCalls),
 	}
 	manager := mustNewManager(t, registry, dispatcher, mustNewHookResolver(t, store))
 	payload := depthTestPayload(0)
 
 	for attempt := 1; attempt <= 2; attempt++ {
-		decision, err := manager.DispatchBefore(context.Background(), TopicToolBefore, payload)
-		if err != nil {
-			t.Fatalf("DispatchBefore() attempt %d error = %v", attempt, err)
-		}
-		if decision.Decision != mcp.HookDecisionDeny {
-			t.Fatalf("DispatchBefore() attempt %d decision = %q, want %q", attempt, decision.Decision, mcp.HookDecisionDeny)
-		}
-		if _, ok := registry.GetSubscription(lease); !ok {
-			t.Fatalf("DispatchBefore() attempt %d unsubscribed too early", attempt)
-		}
-		dispatcher.failMu.Lock()
-		failures := dispatcher.failCounts[lease]
-		dispatcher.failMu.Unlock()
-		if failures != attempt {
-			t.Fatalf("DispatchBefore() attempt %d failures = %d, want %d", attempt, failures, attempt)
-		}
-		if cancelCalls != 0 {
-			t.Fatalf("DispatchBefore() attempt %d cancel calls = %d, want 0", attempt, cancelCalls)
-		}
+		requireLostSubscriberAttempt(t, manager, registry, dispatcher, payload, lease, attempt, cancelCalls)
 	}
 
+	requireLostSubscriberAutoUnsubscribed(t, manager, registry, dispatcher, payload, lease)
+	if cancelCalls != 1 {
+		t.Fatalf("DispatchBefore() cancel calls = %d, want 1", cancelCalls)
+	}
+
+	requireLostSubscriberFourthDispatch(t, manager, payload)
+	if beforeCalls != 3 {
+		t.Fatalf("DispatchBefore() callback calls = %d, want 3 after auto-unsubscribe", beforeCalls)
+	}
+}
+
+func lostSubscriberBeforeCallback(t *testing.T, wantLease mcp.LeaseKey, beforeCalls *int) func(context.Context, mcp.LeaseKey, mcp.HookPayload) (mcp.BeforeDecision, error) {
+	t.Helper()
+	return func(_ context.Context, gotLease mcp.LeaseKey, _ mcp.HookPayload) (mcp.BeforeDecision, error) {
+		*beforeCalls = *beforeCalls + 1
+		if gotLease != wantLease {
+			t.Fatalf("lease = %#v, want %#v", gotLease, wantLease)
+		}
+		return mcp.BeforeDecision{}, errors.New("subscriber lost")
+	}
+}
+
+func lostSubscriberCancelCallback(t *testing.T, registry *HookRegistry, dispatcher *HookDispatcher, lease mcp.LeaseKey, cancelCalls *int) func(context.Context, string) (int, error) {
+	t.Helper()
+	return func(_ context.Context, subscriberLease string) (int, error) {
+		*cancelCalls = *cancelCalls + 1
+		if subscriberLease != "lease-lost/1" {
+			t.Fatalf("CancelPendingReviewsByLease() lease = %q, want %q", subscriberLease, "lease-lost/1")
+		}
+		if _, ok := registry.GetSubscription(lease); ok {
+			t.Fatal("subscription still present while cancelling lost subscriber")
+		}
+		requireHookFailureUntracked(t, dispatcher, lease)
+		return 1, nil
+	}
+}
+
+func requireLostSubscriberAttempt(t *testing.T, manager *Manager, registry *HookRegistry, dispatcher *HookDispatcher, payload mcp.HookPayload, lease mcp.LeaseKey, attempt, cancelCalls int) {
+	t.Helper()
+	decision, err := manager.DispatchBefore(context.Background(), TopicToolBefore, payload)
+	if err != nil {
+		t.Fatalf("DispatchBefore() attempt %d error = %v", attempt, err)
+	}
+	if decision.Decision != mcp.HookDecisionDeny {
+		t.Fatalf("DispatchBefore() attempt %d decision = %q, want %q", attempt, decision.Decision, mcp.HookDecisionDeny)
+	}
+	if _, ok := registry.GetSubscription(lease); !ok {
+		t.Fatalf("DispatchBefore() attempt %d unsubscribed too early", attempt)
+	}
+	requireHookFailureCount(t, dispatcher, lease, attempt)
+	if cancelCalls != 0 {
+		t.Fatalf("DispatchBefore() attempt %d cancel calls = %d, want 0", attempt, cancelCalls)
+	}
+}
+
+func requireLostSubscriberAutoUnsubscribed(t *testing.T, manager *Manager, registry *HookRegistry, dispatcher *HookDispatcher, payload mcp.HookPayload, lease mcp.LeaseKey) {
+	t.Helper()
 	decision, err := manager.DispatchBefore(context.Background(), TopicToolBefore, payload)
 	if err != nil {
 		t.Fatalf("DispatchBefore() third attempt error = %v", err)
@@ -168,21 +177,23 @@ func TestLostSubscriberAutoUnsubscribe(t *testing.T) {
 	if _, ok := registry.GetSubscription(lease); ok {
 		t.Fatal("DispatchBefore() left lost subscriber registered")
 	}
+	requireHookFailureUntracked(t, dispatcher, lease)
+}
+
+func requireLostSubscriberFourthDispatch(t *testing.T, manager *Manager, payload mcp.HookPayload) {
+	t.Helper()
+	if _, err := manager.DispatchBefore(context.Background(), TopicToolBefore, payload); err != nil {
+		t.Fatalf("DispatchBefore() fourth attempt error = %v", err)
+	}
+}
+
+func requireHookFailureUntracked(t *testing.T, dispatcher *HookDispatcher, lease mcp.LeaseKey) {
+	t.Helper()
 	dispatcher.failMu.Lock()
 	_, tracked := dispatcher.failCounts[lease]
 	dispatcher.failMu.Unlock()
 	if tracked {
-		t.Fatal("DispatchBefore() left lost subscriber failure count tracked")
-	}
-	if cancelCalls != 1 {
-		t.Fatalf("DispatchBefore() cancel calls = %d, want 1", cancelCalls)
-	}
-
-	if _, err := manager.DispatchBefore(context.Background(), TopicToolBefore, payload); err != nil {
-		t.Fatalf("DispatchBefore() fourth attempt error = %v", err)
-	}
-	if beforeCalls != 3 {
-		t.Fatalf("DispatchBefore() callback calls = %d, want 3 after auto-unsubscribe", beforeCalls)
+		t.Fatal("failure count still present for hook lease")
 	}
 }
 

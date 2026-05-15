@@ -18,30 +18,12 @@ func TestManagerDispatchAfterEscalatePersistsSubscriberLease(t *testing.T) {
 	approveLease := mcp.LeaseKey{InstanceID: "lease-a", Generation: 1}
 	escalateLease := mcp.LeaseKey{InstanceID: "lease-b", Generation: 1}
 
-	if _, err := registry.Subscribe(approveLease, mcp.HookSubscribeRequest{
-		SubscriptionID: "approve-sub",
-		Topics:         []string{TopicToolAfter},
-		Scope:          mcp.Selector{Scope: &mcp.SelectorScope{AgentID: "agent-2", ThreadID: "thread-2"}},
-	}); err != nil {
-		t.Fatalf("Subscribe(approve) error = %v", err)
-	}
-	if _, err := registry.Subscribe(escalateLease, mcp.HookSubscribeRequest{
-		SubscriptionID: "escalate-sub",
-		Topics:         []string{TopicToolAfter},
-		Scope:          mcp.Selector{Scope: &mcp.SelectorScope{AgentID: "agent-1", ThreadID: "thread-1"}},
-	}); err != nil {
-		t.Fatalf("Subscribe(escalate) error = %v", err)
-	}
+	subscribeHookTopic(t, registry, approveLease, TopicToolAfter, &mcp.SelectorScope{AgentID: "agent-2", ThreadID: "thread-2"})
+	subscribeHookTopic(t, registry, escalateLease, TopicToolAfter, &mcp.SelectorScope{AgentID: "agent-1", ThreadID: "thread-1"})
 
 	calledLeases := make([]mcp.LeaseKey, 0, 1)
 	dispatcher := mustNewHookDispatcher(t, registry, stubPeerCallback{
-		after: func(_ context.Context, lease mcp.LeaseKey, _ mcp.HookPayload) (mcp.AfterDecision, error) {
-			calledLeases = append(calledLeases, lease)
-			if lease == escalateLease {
-				return mcp.AfterDecision{Decision: mcp.HookDecisionEscalate, Reason: "needs review", TTLMs: 30_000}, nil
-			}
-			return mcp.AfterDecision{Decision: mcp.HookDecisionApprove}, nil
-		},
+		after: recordingAfterEscalation(&calledLeases, escalateLease),
 	}, WithDispatcherParallelism(1))
 	store := &managerReviewStoreStub{}
 	manager := mustNewManager(t, registry, dispatcher, mustNewHookResolver(t, store))
@@ -59,20 +41,44 @@ func TestManagerDispatchAfterEscalatePersistsSubscriberLease(t *testing.T) {
 	if got.TTLMs != 30_000 {
 		t.Fatalf("DispatchAfter() ttl_ms = %d, want %d", got.TTLMs, 30_000)
 	}
+	requireSavedReview(t, store, "lease-b/1", 30_000)
+	requireCalledLeases(t, "after callback", calledLeases, []mcp.LeaseKey{escalateLease})
+}
+
+func subscribeHookTopic(t *testing.T, registry *HookRegistry, lease mcp.LeaseKey, topic string, scope *mcp.SelectorScope) {
+	t.Helper()
+	if _, err := registry.Subscribe(lease, mcp.HookSubscribeRequest{
+		SubscriptionID: lease.InstanceID,
+		Topics:         []string{topic},
+		Scope:          mcp.Selector{Scope: scope},
+	}); err != nil {
+		t.Fatalf("Subscribe(%s) error = %v", lease.InstanceID, err)
+	}
+}
+
+func recordingAfterEscalation(called *[]mcp.LeaseKey, escalateLease mcp.LeaseKey) func(context.Context, mcp.LeaseKey, mcp.HookPayload) (mcp.AfterDecision, error) {
+	return func(_ context.Context, lease mcp.LeaseKey, _ mcp.HookPayload) (mcp.AfterDecision, error) {
+		*called = append(*called, lease)
+		if lease == escalateLease {
+			return mcp.AfterDecision{Decision: mcp.HookDecisionEscalate, Reason: "needs review", TTLMs: 30_000}, nil
+		}
+		return mcp.AfterDecision{Decision: mcp.HookDecisionApprove}, nil
+	}
+}
+
+func requireSavedReview(t *testing.T, store *managerReviewStoreStub, wantLease string, wantTTL int64) {
+	t.Helper()
 	if len(store.saved) != 1 {
 		t.Fatalf("saved reviews = %d, want 1", len(store.saved))
 	}
-	if store.saved[0].SubscriberLease != "lease-b/1" {
-		t.Fatalf("saved subscriber lease = %q, want %q", store.saved[0].SubscriberLease, "lease-b/1")
+	if store.saved[0].SubscriberLease != wantLease {
+		t.Fatalf("saved subscriber lease = %q, want %q", store.saved[0].SubscriberLease, wantLease)
 	}
 	if store.saved[0].HookCallID == "" {
 		t.Fatal("saved HookCallID = empty, want generated value")
 	}
-	if store.saved[0].DeadlineAt.Sub(store.saved[0].CreatedAt).Milliseconds() != 30_000 {
-		t.Fatalf("saved review ttl = %dms, want %dms", store.saved[0].DeadlineAt.Sub(store.saved[0].CreatedAt).Milliseconds(), 30_000)
-	}
-	if len(calledLeases) != 1 || calledLeases[0] != escalateLease {
-		t.Fatalf("after callback leases = %#v, want [%#v]", calledLeases, escalateLease)
+	if gotTTL := store.saved[0].DeadlineAt.Sub(store.saved[0].CreatedAt).Milliseconds(); gotTTL != wantTTL {
+		t.Fatalf("saved review ttl = %dms, want %dms", gotTTL, wantTTL)
 	}
 }
 
@@ -185,24 +191,12 @@ func TestDispatchBefore_PartialFailure_DeniesRequest(t *testing.T) {
 	registry := NewHookRegistry()
 	allowLease := mcp.LeaseKey{InstanceID: "lease-a", Generation: 1}
 	flakyLease := mcp.LeaseKey{InstanceID: "lease-b", Generation: 1}
-	for _, lease := range []mcp.LeaseKey{allowLease, flakyLease} {
-		if _, err := registry.Subscribe(lease, mcp.HookSubscribeRequest{
-			SubscriptionID: lease.InstanceID,
-			Topics:         []string{TopicToolBefore},
-		}); err != nil {
-			t.Fatalf("Subscribe(%s) error = %v", lease.InstanceID, err)
-		}
-	}
+	subscribeHookTopic(t, registry, allowLease, TopicToolBefore, nil)
+	subscribeHookTopic(t, registry, flakyLease, TopicToolBefore, nil)
 
 	calledLeases := make([]mcp.LeaseKey, 0, 2)
 	dispatcher := mustNewHookDispatcher(t, registry, stubPeerCallback{
-		before: func(_ context.Context, gotLease mcp.LeaseKey, _ mcp.HookPayload) (mcp.BeforeDecision, error) {
-			calledLeases = append(calledLeases, gotLease)
-			if gotLease == flakyLease {
-				return mcp.BeforeDecision{}, errors.New("temporary peer failure")
-			}
-			return mcp.BeforeDecision{Decision: mcp.HookDecisionAllow}, nil
-		},
+		before: partialFailureBeforeCallback(&calledLeases, flakyLease),
 	}, WithDispatcherParallelism(1))
 	manager := mustNewManager(t, registry, dispatcher, mustNewHookResolver(t, &managerReviewStoreStub{}))
 
@@ -213,16 +207,9 @@ func TestDispatchBefore_PartialFailure_DeniesRequest(t *testing.T) {
 	if decision.Decision != mcp.HookDecisionDeny {
 		t.Fatalf("DispatchBefore() decision = %q, want %q", decision.Decision, mcp.HookDecisionDeny)
 	}
-	if len(calledLeases) != 2 || calledLeases[0] != allowLease || calledLeases[1] != flakyLease {
-		t.Fatalf("DispatchBefore() called leases = %#v, want [%#v %#v]", calledLeases, allowLease, flakyLease)
-	}
+	requireCalledLeases(t, "DispatchBefore()", calledLeases, []mcp.LeaseKey{allowLease, flakyLease})
 
-	dispatcher.failMu.Lock()
-	failures := dispatcher.failCounts[flakyLease]
-	dispatcher.failMu.Unlock()
-	if failures != 1 {
-		t.Fatalf("DispatchBefore() flaky lease failures = %d, want 1", failures)
-	}
+	requireHookFailureCount(t, dispatcher, flakyLease, 1)
 	if _, ok := registry.GetSubscription(flakyLease); !ok {
 		t.Fatal("DispatchBefore() unsubscribed flaky lease after single partial failure")
 	}
@@ -234,26 +221,14 @@ func TestDispatchAfter_PartialFailure_PreservesSuccessfulDecision(t *testing.T) 
 	registry := NewHookRegistry()
 	approveLease := mcp.LeaseKey{InstanceID: "lease-a", Generation: 1}
 	flakyLease := mcp.LeaseKey{InstanceID: "lease-b", Generation: 1}
-	for _, lease := range []mcp.LeaseKey{approveLease, flakyLease} {
-		if _, err := registry.Subscribe(lease, mcp.HookSubscribeRequest{
-			SubscriptionID: lease.InstanceID,
-			Topics:         []string{TopicToolAfter},
-		}); err != nil {
-			t.Fatalf("Subscribe(%s) error = %v", lease.InstanceID, err)
-		}
-	}
+	subscribeHookTopic(t, registry, approveLease, TopicToolAfter, nil)
+	subscribeHookTopic(t, registry, flakyLease, TopicToolAfter, nil)
 
 	var logs bytes.Buffer
 	logger := pkglogger.New(pkglogger.NewTextHandler(&logs, nil))
 	calledLeases := make([]mcp.LeaseKey, 0, 2)
 	dispatcher := mustNewHookDispatcher(t, registry, stubPeerCallback{
-		after: func(_ context.Context, gotLease mcp.LeaseKey, _ mcp.HookPayload) (mcp.AfterDecision, error) {
-			calledLeases = append(calledLeases, gotLease)
-			if gotLease == flakyLease {
-				return mcp.AfterDecision{}, errors.New("temporary peer failure")
-			}
-			return mcp.AfterDecision{Decision: mcp.HookDecisionApprove, Reason: "approved"}, nil
-		},
+		after: partialFailureAfterCallback(&calledLeases, flakyLease),
 	}, WithDispatcherParallelism(1))
 	manager := mustNewManager(t, registry, dispatcher, mustNewHookResolver(t, &managerReviewStoreStub{}), WithManagerLogger(logger))
 
@@ -267,15 +242,58 @@ func TestDispatchAfter_PartialFailure_PreservesSuccessfulDecision(t *testing.T) 
 	if decision.Reason != "approved" {
 		t.Fatalf("DispatchAfter() reason = %q, want %q", decision.Reason, "approved")
 	}
-	if len(calledLeases) != 2 || calledLeases[0] != approveLease || calledLeases[1] != flakyLease {
-		t.Fatalf("DispatchAfter() called leases = %#v, want [%#v %#v]", calledLeases, approveLease, flakyLease)
-	}
+	requireCalledLeases(t, "DispatchAfter()", calledLeases, []mcp.LeaseKey{approveLease, flakyLease})
 
 	logText := logs.String()
-	if !strings.Contains(logText, "level=WARN") {
-		t.Fatalf("DispatchAfter() logs = %q, want WARN level entry", logText)
+	requireLogContains(t, logText, "level=WARN")
+	requireLogContains(t, logText, "partial after hook failure, keeping successful decision")
+}
+
+func partialFailureBeforeCallback(called *[]mcp.LeaseKey, flakyLease mcp.LeaseKey) func(context.Context, mcp.LeaseKey, mcp.HookPayload) (mcp.BeforeDecision, error) {
+	return func(_ context.Context, gotLease mcp.LeaseKey, _ mcp.HookPayload) (mcp.BeforeDecision, error) {
+		*called = append(*called, gotLease)
+		if gotLease == flakyLease {
+			return mcp.BeforeDecision{}, errors.New("temporary peer failure")
+		}
+		return mcp.BeforeDecision{Decision: mcp.HookDecisionAllow}, nil
 	}
-	if !strings.Contains(logText, "partial after hook failure, keeping successful decision") {
-		t.Fatalf("DispatchAfter() logs = %q, want partial failure warning", logText)
+}
+
+func partialFailureAfterCallback(called *[]mcp.LeaseKey, flakyLease mcp.LeaseKey) func(context.Context, mcp.LeaseKey, mcp.HookPayload) (mcp.AfterDecision, error) {
+	return func(_ context.Context, gotLease mcp.LeaseKey, _ mcp.HookPayload) (mcp.AfterDecision, error) {
+		*called = append(*called, gotLease)
+		if gotLease == flakyLease {
+			return mcp.AfterDecision{}, errors.New("temporary peer failure")
+		}
+		return mcp.AfterDecision{Decision: mcp.HookDecisionApprove, Reason: "approved"}, nil
+	}
+}
+
+func requireCalledLeases(t *testing.T, label string, got, want []mcp.LeaseKey) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s called leases = %#v, want %#v", label, got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("%s called leases = %#v, want %#v", label, got, want)
+		}
+	}
+}
+
+func requireHookFailureCount(t *testing.T, dispatcher *HookDispatcher, lease mcp.LeaseKey, want int) {
+	t.Helper()
+	dispatcher.failMu.Lock()
+	failures := dispatcher.failCounts[lease]
+	dispatcher.failMu.Unlock()
+	if failures != want {
+		t.Fatalf("hook lease failures = %d, want %d", failures, want)
+	}
+}
+
+func requireLogContains(t *testing.T, logText, want string) {
+	t.Helper()
+	if !strings.Contains(logText, want) {
+		t.Fatalf("logs = %q, want containing %q", logText, want)
 	}
 }

@@ -36,6 +36,132 @@ func (s stubPeerCallback) CallbackAfter(ctx context.Context, lease mcp.LeaseKey,
 	return s.after(ctx, lease, payload)
 }
 
+func subscribeHookForTest(t *testing.T, registry *HookRegistry, lease mcp.LeaseKey, subID, topic string) {
+	t.Helper()
+	if _, err := registry.Subscribe(lease, mcp.HookSubscribeRequest{
+		SubscriptionID: subID,
+		Topics:         []string{topic},
+	}); err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+}
+
+func subscribeSelectorForTest(t *testing.T, registry *HookRegistry, lease mcp.LeaseKey, scope *mcp.SelectorScope) {
+	t.Helper()
+	if _, err := registry.Subscribe(lease, mcp.HookSubscribeRequest{
+		SubscriptionID: lease.InstanceID,
+		Topics:         []string{TopicToolBefore},
+		Scope:          mcp.Selector{Scope: scope},
+	}); err != nil {
+		t.Fatalf("Subscribe(%s) error = %v", lease.InstanceID, err)
+	}
+}
+
+func assertCheckCallbackInputs(t *testing.T, gotLease, wantLease mcp.LeaseKey, payload mcp.HookPayload) {
+	t.Helper()
+	if gotLease != wantLease {
+		t.Fatalf("lease = %#v, want %#v", gotLease, wantLease)
+	}
+	if payload.Topic != TopicToolBefore {
+		t.Fatalf("payload.Topic = %q, want %q", payload.Topic, TopicToolBefore)
+	}
+	if payload.Depth != 1 {
+		t.Fatalf("payload.Depth = %d, want 1", payload.Depth)
+	}
+	if payload.HookCallID == "" {
+		t.Fatal("payload.HookCallID = empty, want generated value")
+	}
+}
+
+func assertSingleCheckDecision(t *testing.T, decisions []peerDecision[mcp.CheckDecision], want mcp.CheckDecision) {
+	t.Helper()
+	if len(decisions) != 1 {
+		t.Fatalf("DispatchCheck() len = %d, want 1", len(decisions))
+	}
+	if decisions[0].Err != nil {
+		t.Fatalf("DispatchCheck() peer err = %v, want nil", decisions[0].Err)
+	}
+	if decisions[0].Decision.Decision != want.Decision {
+		t.Fatalf("DispatchCheck() decision = %q, want %q", decisions[0].Decision.Decision, want.Decision)
+	}
+	if decisions[0].Decision.Severity != want.Severity {
+		t.Fatalf("DispatchCheck() severity = %q, want %q", decisions[0].Decision.Severity, want.Severity)
+	}
+	if decisions[0].ConsecutiveFailures != 0 {
+		t.Fatalf("DispatchCheck() failures = %d, want 0", decisions[0].ConsecutiveFailures)
+	}
+}
+
+func assertSelectorFilteredCheck(t *testing.T, decisions []peerDecision[mcp.CheckDecision], called []mcp.LeaseKey, want mcp.LeaseKey) {
+	t.Helper()
+	if len(decisions) != 1 {
+		t.Fatalf("dispatchCheckBySelector() len = %d, want 1", len(decisions))
+	}
+	if decisions[0].Lease != want {
+		t.Fatalf("dispatchCheckBySelector() lease = %#v, want %#v", decisions[0].Lease, want)
+	}
+	if len(called) != 1 {
+		t.Fatalf("dispatchCheckBySelector() called leases = %#v, want [%#v]", called, want)
+	}
+	if called[0] != want {
+		t.Fatalf("dispatchCheckBySelector() called leases = %#v, want [%#v]", called, want)
+	}
+}
+
+func assertAfterCallbackInputs(t *testing.T, gotLease, wantLease mcp.LeaseKey, payload mcp.HookPayload) {
+	t.Helper()
+	if gotLease != wantLease {
+		t.Fatalf("lease = %#v, want %#v", gotLease, wantLease)
+	}
+	if payload.Topic != TopicToolAfter {
+		t.Fatalf("payload.Topic = %q, want %q", payload.Topic, TopicToolAfter)
+	}
+	if payload.Depth != 2 {
+		t.Fatalf("payload.Depth = %d, want 2", payload.Depth)
+	}
+	if payload.HookCallID != "call-after" {
+		t.Fatalf("payload.HookCallID = %q, want %q", payload.HookCallID, "call-after")
+	}
+}
+
+func assertSingleAfterDecision(t *testing.T, decisions []peerDecision[mcp.AfterDecision]) {
+	t.Helper()
+	if len(decisions) != 1 {
+		t.Fatalf("DispatchAfter() len = %d, want 1", len(decisions))
+	}
+	if decisions[0].Err != nil {
+		t.Fatalf("DispatchAfter() peer err = %v, want nil", decisions[0].Err)
+	}
+	if decisions[0].Decision.Decision != mcp.HookDecisionApprove {
+		t.Fatalf("DispatchAfter() decision = %q, want %q", decisions[0].Decision.Decision, mcp.HookDecisionApprove)
+	}
+	if decisions[0].Decision.Reason != "looks good" {
+		t.Fatalf("DispatchAfter() reason = %q, want %q", decisions[0].Decision.Reason, "looks good")
+	}
+}
+
+func assertBeforeFailure(t *testing.T, label string, got []peerDecision[mcp.BeforeDecision], wantErr error, wantFailures int) {
+	t.Helper()
+	if len(got) != 1 {
+		t.Fatalf("DispatchBefore(%s) len = %d, want 1", label, len(got))
+	}
+	if !errors.Is(got[0].Err, wantErr) {
+		t.Fatalf("DispatchBefore(%s) peer err = %v, want boom", label, got[0].Err)
+	}
+	if got[0].ConsecutiveFailures != wantFailures {
+		t.Fatalf("DispatchBefore(%s) failures = %d, want %d", label, got[0].ConsecutiveFailures, wantFailures)
+	}
+}
+
+func dispatchBeforeForTest(t *testing.T, dispatcher *HookDispatcher, label string, payload mcp.HookPayload) []peerDecision[mcp.BeforeDecision] {
+	t.Helper()
+	got, err := dispatcher.DispatchBefore(context.Background(), TopicToolBefore, payload)
+	if err != nil {
+		t.Fatalf("DispatchBefore(%s) error = %v", label, err)
+	}
+	return got
+}
+
 func TestHookDispatcherDispatchBeforeReturnsEmptyWithoutSubscribers(t *testing.T) {
 	t.Parallel()
 
@@ -177,27 +303,11 @@ func TestDispatchCheck_Success(t *testing.T) {
 
 	registry := NewHookRegistry()
 	lease := mcp.LeaseKey{InstanceID: "lease-a", Generation: 1}
-	if _, err := registry.Subscribe(lease, mcp.HookSubscribeRequest{
-		SubscriptionID: "sub-check",
-		Topics:         []string{TopicToolBefore},
-	}); err != nil {
-		t.Fatalf("Subscribe() error = %v", err)
-	}
+	subscribeHookForTest(t, registry, lease, "sub-check", TopicToolBefore)
 
 	dispatcher := mustNewHookDispatcher(t, registry, stubPeerCallback{
 		check: func(_ context.Context, gotLease mcp.LeaseKey, payload mcp.HookPayload) (mcp.CheckDecision, error) {
-			if gotLease != lease {
-				t.Fatalf("lease = %#v, want %#v", gotLease, lease)
-			}
-			if payload.Topic != TopicToolBefore {
-				t.Fatalf("payload.Topic = %q, want %q", payload.Topic, TopicToolBefore)
-			}
-			if payload.Depth != 1 {
-				t.Fatalf("payload.Depth = %d, want 1", payload.Depth)
-			}
-			if payload.HookCallID == "" {
-				t.Fatal("payload.HookCallID = empty, want generated value")
-			}
+			assertCheckCallbackInputs(t, gotLease, lease, payload)
 			return mcp.CheckDecision{
 				Decision: mcp.HookDecisionWarn,
 				Severity: "high",
@@ -213,21 +323,7 @@ func TestDispatchCheck_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DispatchCheck() error = %v", err)
 	}
-	if len(decisions) != 1 {
-		t.Fatalf("DispatchCheck() len = %d, want 1", len(decisions))
-	}
-	if decisions[0].Err != nil {
-		t.Fatalf("DispatchCheck() peer err = %v, want nil", decisions[0].Err)
-	}
-	if decisions[0].Decision.Decision != mcp.HookDecisionWarn {
-		t.Fatalf("DispatchCheck() decision = %q, want %q", decisions[0].Decision.Decision, mcp.HookDecisionWarn)
-	}
-	if decisions[0].Decision.Severity != "high" {
-		t.Fatalf("DispatchCheck() severity = %q, want %q", decisions[0].Decision.Severity, "high")
-	}
-	if decisions[0].ConsecutiveFailures != 0 {
-		t.Fatalf("DispatchCheck() failures = %d, want 0", decisions[0].ConsecutiveFailures)
-	}
+	assertSingleCheckDecision(t, decisions, mcp.CheckDecision{Decision: mcp.HookDecisionWarn, Severity: "high"})
 }
 
 func TestHookDispatcherDispatchCheckBySelectorFiltersScope(t *testing.T) {
@@ -244,28 +340,14 @@ func TestHookDispatcherDispatchCheckBySelectorFiltersScope(t *testing.T) {
 		{lease: matchingLease, scope: &mcp.SelectorScope{AgentID: "agent-1", ThreadID: "thread-1"}},
 		{lease: otherLease, scope: &mcp.SelectorScope{AgentID: "agent-2", ThreadID: "thread-1"}},
 	} {
-		if _, err := registry.Subscribe(tc.lease, mcp.HookSubscribeRequest{
-			SubscriptionID: tc.lease.InstanceID,
-			Topics:         []string{TopicToolBefore},
-			Scope:          mcp.Selector{Scope: tc.scope},
-		}); err != nil {
-			t.Fatalf("Subscribe(%s) error = %v", tc.lease.InstanceID, err)
-		}
+		subscribeSelectorForTest(t, registry, tc.lease, tc.scope)
 	}
 
 	calledLeases := make([]mcp.LeaseKey, 0, 1)
 	dispatcher := mustNewHookDispatcher(t, registry, stubPeerCallback{
 		check: func(_ context.Context, gotLease mcp.LeaseKey, payload mcp.HookPayload) (mcp.CheckDecision, error) {
 			calledLeases = append(calledLeases, gotLease)
-			if payload.Topic != TopicToolBefore {
-				t.Fatalf("payload.Topic = %q, want %q", payload.Topic, TopicToolBefore)
-			}
-			if payload.Depth != 1 {
-				t.Fatalf("payload.Depth = %d, want 1", payload.Depth)
-			}
-			if payload.HookCallID == "" {
-				t.Fatal("payload.HookCallID = empty, want generated value")
-			}
+			assertCheckCallbackInputs(t, gotLease, matchingLease, payload)
 			return mcp.CheckDecision{Decision: mcp.HookDecisionWarn}, nil
 		},
 	}, WithDispatcherParallelism(1))
@@ -277,15 +359,7 @@ func TestHookDispatcherDispatchCheckBySelectorFiltersScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dispatchCheckBySelector() error = %v", err)
 	}
-	if len(decisions) != 1 {
-		t.Fatalf("dispatchCheckBySelector() len = %d, want 1", len(decisions))
-	}
-	if decisions[0].Lease != matchingLease {
-		t.Fatalf("dispatchCheckBySelector() lease = %#v, want %#v", decisions[0].Lease, matchingLease)
-	}
-	if len(calledLeases) != 1 || calledLeases[0] != matchingLease {
-		t.Fatalf("dispatchCheckBySelector() called leases = %#v, want [%#v]", calledLeases, matchingLease)
-	}
+	assertSelectorFilteredCheck(t, decisions, calledLeases, matchingLease)
 }
 
 func TestDispatchAfter_Success(t *testing.T) {
@@ -293,27 +367,11 @@ func TestDispatchAfter_Success(t *testing.T) {
 
 	registry := NewHookRegistry()
 	lease := mcp.LeaseKey{InstanceID: "lease-a", Generation: 1}
-	if _, err := registry.Subscribe(lease, mcp.HookSubscribeRequest{
-		SubscriptionID: "sub-after",
-		Topics:         []string{TopicToolAfter},
-	}); err != nil {
-		t.Fatalf("Subscribe() error = %v", err)
-	}
+	subscribeHookForTest(t, registry, lease, "sub-after", TopicToolAfter)
 
 	dispatcher := mustNewHookDispatcher(t, registry, stubPeerCallback{
 		after: func(_ context.Context, gotLease mcp.LeaseKey, payload mcp.HookPayload) (mcp.AfterDecision, error) {
-			if gotLease != lease {
-				t.Fatalf("lease = %#v, want %#v", gotLease, lease)
-			}
-			if payload.Topic != TopicToolAfter {
-				t.Fatalf("payload.Topic = %q, want %q", payload.Topic, TopicToolAfter)
-			}
-			if payload.Depth != 2 {
-				t.Fatalf("payload.Depth = %d, want 2", payload.Depth)
-			}
-			if payload.HookCallID != "call-after" {
-				t.Fatalf("payload.HookCallID = %q, want %q", payload.HookCallID, "call-after")
-			}
+			assertAfterCallbackInputs(t, gotLease, lease, payload)
 			return mcp.AfterDecision{
 				Decision: mcp.HookDecisionApprove,
 				Reason:   "looks good",
@@ -330,18 +388,7 @@ func TestDispatchAfter_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DispatchAfter() error = %v", err)
 	}
-	if len(decisions) != 1 {
-		t.Fatalf("DispatchAfter() len = %d, want 1", len(decisions))
-	}
-	if decisions[0].Err != nil {
-		t.Fatalf("DispatchAfter() peer err = %v, want nil", decisions[0].Err)
-	}
-	if decisions[0].Decision.Decision != mcp.HookDecisionApprove {
-		t.Fatalf("DispatchAfter() decision = %q, want %q", decisions[0].Decision.Decision, mcp.HookDecisionApprove)
-	}
-	if decisions[0].Decision.Reason != "looks good" {
-		t.Fatalf("DispatchAfter() reason = %q, want %q", decisions[0].Decision.Reason, "looks good")
-	}
+	assertSingleAfterDecision(t, decisions)
 }
 
 func TestForgetLease(t *testing.T) {
@@ -349,12 +396,7 @@ func TestForgetLease(t *testing.T) {
 
 	registry := NewHookRegistry()
 	lease := mcp.LeaseKey{InstanceID: "lease-a", Generation: 1}
-	if _, err := registry.Subscribe(lease, mcp.HookSubscribeRequest{
-		SubscriptionID: "sub-a",
-		Topics:         []string{TopicToolBefore},
-	}); err != nil {
-		t.Fatalf("Subscribe() error = %v", err)
-	}
+	subscribeHookForTest(t, registry, lease, "sub-a", TopicToolBefore)
 
 	someErr := errors.New("boom")
 	dispatcher := mustNewHookDispatcher(t, registry, stubPeerCallback{
@@ -367,44 +409,10 @@ func TestForgetLease(t *testing.T) {
 	}, WithDispatcherParallelism(1))
 
 	payload := mcp.HookPayload{AgentID: "agent-1", ThreadID: "thread-1"}
-	first, err := dispatcher.DispatchBefore(context.Background(), TopicToolBefore, payload)
-	if err != nil {
-		t.Fatalf("DispatchBefore(first) error = %v", err)
-	}
-	if len(first) != 1 {
-		t.Fatalf("DispatchBefore(first) len = %d, want 1", len(first))
-	}
-	if !errors.Is(first[0].Err, someErr) {
-		t.Fatalf("DispatchBefore(first) peer err = %v, want boom", first[0].Err)
-	}
-	if first[0].ConsecutiveFailures != 1 {
-		t.Fatalf("DispatchBefore(first) failures = %d, want 1", first[0].ConsecutiveFailures)
-	}
-
-	second, err := dispatcher.DispatchBefore(context.Background(), TopicToolBefore, payload)
-	if err != nil {
-		t.Fatalf("DispatchBefore(second) error = %v", err)
-	}
-	if len(second) != 1 {
-		t.Fatalf("DispatchBefore(second) len = %d, want 1", len(second))
-	}
-	if second[0].ConsecutiveFailures != 2 {
-		t.Fatalf("DispatchBefore(second) failures = %d, want 2", second[0].ConsecutiveFailures)
-	}
+	assertBeforeFailure(t, "first", dispatchBeforeForTest(t, dispatcher, "first", payload), someErr, 1)
+	assertBeforeFailure(t, "second", dispatchBeforeForTest(t, dispatcher, "second", payload), someErr, 2)
 
 	dispatcher.ForgetLease(lease)
 
-	third, err := dispatcher.DispatchBefore(context.Background(), TopicToolBefore, payload)
-	if err != nil {
-		t.Fatalf("DispatchBefore(third) error = %v", err)
-	}
-	if len(third) != 1 {
-		t.Fatalf("DispatchBefore(third) len = %d, want 1", len(third))
-	}
-	if !errors.Is(third[0].Err, someErr) {
-		t.Fatalf("DispatchBefore(third) peer err = %v, want boom", third[0].Err)
-	}
-	if third[0].ConsecutiveFailures != 1 {
-		t.Fatalf("DispatchBefore(third) failures = %d, want 1", third[0].ConsecutiveFailures)
-	}
+	assertBeforeFailure(t, "third", dispatchBeforeForTest(t, dispatcher, "third", payload), someErr, 1)
 }

@@ -50,17 +50,30 @@ func TestRenderDingtalkProducesSignedURLAndMarkdown(t *testing.T) {
 	if ct != "application/json" {
 		t.Fatalf("content type = %q", ct)
 	}
+	assertDingtalkSignedURL(t, signedURL)
+	assertDingtalkMarkdownBody(t, body)
+}
+
+func assertDingtalkSignedURL(t *testing.T, signedURL string) {
+	t.Helper()
 	u, err := url.Parse(signedURL)
 	if err != nil {
 		t.Fatalf("parse url: %v", err)
 	}
 	q := u.Query()
-	if q.Get("timestamp") == "" || q.Get("sign") == "" {
-		t.Fatalf("signed url missing timestamp/sign: %s", signedURL)
+	if q.Get("timestamp") == "" {
+		t.Fatalf("signed url missing timestamp: %s", signedURL)
+	}
+	if q.Get("sign") == "" {
+		t.Fatalf("signed url missing sign: %s", signedURL)
 	}
 	if q.Get("access_token") != "abc" {
 		t.Fatalf("original access_token lost: %s", signedURL)
 	}
+}
+
+func assertDingtalkMarkdownBody(t *testing.T, body []byte) {
+	t.Helper()
 	// Verify body is a valid Dingtalk markdown payload.
 	var decoded map[string]any
 	if err := json.Unmarshal(body, &decoded); err != nil {

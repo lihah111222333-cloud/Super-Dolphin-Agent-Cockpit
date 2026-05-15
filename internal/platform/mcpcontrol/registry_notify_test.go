@@ -6,6 +6,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2"
@@ -92,9 +93,20 @@ func TestNewToolRegistry_Basic(t *testing.T) {
 	t.Parallel()
 
 	registry := NewToolRegistry(RegistryOptions{})
+	assertRegistryDefaults(t, registry)
+}
+
+func assertRegistryDefaults(t *testing.T, registry *ToolRegistry) {
+	t.Helper()
 	if registry == nil {
 		t.Fatal("NewToolRegistry() = nil")
 	}
+	assertRegistryIndexes(t, registry)
+	assertRegistryTimingDefaults(t, registry)
+}
+
+func assertRegistryIndexes(t *testing.T, registry *ToolRegistry) {
+	t.Helper()
 	if registry.instances == nil || registry.bySubscription == nil || registry.byCapability == nil {
 		t.Fatal("NewToolRegistry() did not initialize registry indexes")
 	}
@@ -104,6 +116,10 @@ func TestNewToolRegistry_Basic(t *testing.T) {
 	if registry.configVersion != 1 {
 		t.Fatalf("configVersion = %d, want 1", registry.configVersion)
 	}
+}
+
+func assertRegistryTimingDefaults(t *testing.T, registry *ToolRegistry) {
+	t.Helper()
 	if registry.heartbeatInterval != defaultHeartbeatInterval {
 		t.Fatalf("heartbeatInterval = %s, want %s", registry.heartbeatInterval, defaultHeartbeatInterval)
 	}
@@ -137,8 +153,20 @@ func TestToolRegistry_Register_And_GetInstance(t *testing.T) {
 	if !ok {
 		t.Fatal("GetInstance() ok = false, want true")
 	}
-	if got.Lease != env.lease {
-		t.Fatalf("GetInstance().Lease = %#v, want %#v", got.Lease, env.lease)
+	assertRegisteredInstance(t, got, env.lease)
+}
+
+func assertRegisteredInstance(t *testing.T, got contract.ToolInstance, lease dto.LeaseKey) {
+	t.Helper()
+	assertRegisteredInstanceIdentity(t, got, lease)
+	assertRegisteredInstanceKinds(t, got)
+	assertRegisteredInstanceCapabilities(t, got)
+}
+
+func assertRegisteredInstanceIdentity(t *testing.T, got contract.ToolInstance, lease dto.LeaseKey) {
+	t.Helper()
+	if got.Lease != lease {
+		t.Fatalf("GetInstance().Lease = %#v, want %#v", got.Lease, lease)
 	}
 	if got.AgentID != "agent-get" {
 		t.Fatalf("GetInstance().AgentID = %q, want %q", got.AgentID, "agent-get")
@@ -146,26 +174,34 @@ func TestToolRegistry_Register_And_GetInstance(t *testing.T) {
 	if got.ThreadID != "thread-get" {
 		t.Fatalf("GetInstance().ThreadID = %q, want %q", got.ThreadID, "thread-get")
 	}
+	if got.PID != 4321 {
+		t.Fatalf("GetInstance().PID = %d, want 4321", got.PID)
+	}
+}
+
+func assertRegisteredInstanceKinds(t *testing.T, got contract.ToolInstance) {
+	t.Helper()
 	if got.ClientKind != dto.ClientKindOrch {
 		t.Fatalf("GetInstance().ClientKind = %q, want %q", got.ClientKind, dto.ClientKindOrch)
 	}
 	if got.PeerKind != dto.PeerKindTool {
 		t.Fatalf("GetInstance().PeerKind = %q, want %q", got.PeerKind, dto.PeerKindTool)
 	}
-	if got.PID != 4321 {
-		t.Fatalf("GetInstance().PID = %d, want 4321", got.PID)
-	}
 	if got.Status != dto.StatusActive {
 		t.Fatalf("GetInstance().Status = %q, want %q", got.Status, dto.StatusActive)
 	}
+	if got.ConfigVersion != 1 {
+		t.Fatalf("GetInstance().ConfigVersion = %d, want 1", got.ConfigVersion)
+	}
+}
+
+func assertRegisteredInstanceCapabilities(t *testing.T, got contract.ToolInstance) {
+	t.Helper()
 	if !slices.Equal(got.Capabilities, []string{"hooks", "reports"}) {
 		t.Fatalf("GetInstance().Capabilities = %#v, want %#v", got.Capabilities, []string{"hooks", "reports"})
 	}
 	if !slices.Equal(got.Subscriptions, []string{"config/agent", "config/thread"}) {
 		t.Fatalf("GetInstance().Subscriptions = %#v, want %#v", got.Subscriptions, []string{"config/agent", "config/thread"})
-	}
-	if got.ConfigVersion != 1 {
-		t.Fatalf("GetInstance().ConfigVersion = %d, want 1", got.ConfigVersion)
 	}
 }
 
