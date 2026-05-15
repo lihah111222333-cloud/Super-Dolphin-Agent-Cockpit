@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -289,10 +290,7 @@ func (c *bootstrapCoordinator) syncSnapshotToClient(
 		return err
 	}
 	err = m.withPooledClient(client, func() error {
-		if req.openOnly {
-			return client.DidOpen(ctx, snapshot.ref.uri, snapshot.ref.languageID, req.version, snapshot.text)
-		}
-		return applyBootstrapUpdate(ctx, client, snapshot, req.previous, req.cached, req.version)
+		return c.applySnapshotUpdate(ctx, m, client, snapshot, req)
 	})
 	if err != nil {
 		return err
@@ -301,6 +299,46 @@ func (c *bootstrapCoordinator) syncSnapshotToClient(
 	c.cache.RememberDocumentScope(snapshot.ref.uri, scope, snapshot.fingerprint)
 	c.states.complete(scope.bootstrapKey(), snapshot.ref.uri, snapshot.fingerprint, req.version)
 	return nil
+}
+
+func (c *bootstrapCoordinator) applySnapshotUpdate(
+	ctx context.Context,
+	m *manager,
+	client Client,
+	snapshot documentSnapshot,
+	req snapshotSyncRequest,
+) error {
+	var err error
+	if req.openOnly {
+		err = client.DidOpen(ctx, snapshot.ref.uri, snapshot.ref.languageID, req.version, snapshot.text)
+	} else {
+		err = applyBootstrapUpdate(ctx, client, snapshot, req.previous, req.cached, req.version)
+	}
+	if err == nil {
+		return nil
+	}
+	if !req.openOnly {
+		if reopenErr := reopenSnapshot(ctx, client, snapshot, req.version); reopenErr == nil {
+			return nil
+		}
+	}
+	replacement, rebuildErr := m.rebuildClientAfterFailure(ctx, client, false)
+	if rebuildErr != nil {
+		return errors.Join(err, rebuildErr)
+	}
+	if replacement == nil {
+		return errors.Join(err, ErrClientClosed)
+	}
+	return m.withPooledClient(replacement, func() error {
+		return replacement.DidOpen(ctx, snapshot.ref.uri, snapshot.ref.languageID, req.version, snapshot.text)
+	})
+}
+
+func reopenSnapshot(ctx context.Context, client Client, snapshot documentSnapshot, version int) error {
+	if err := client.DidClose(ctx, snapshot.ref.uri); err != nil {
+		return err
+	}
+	return client.DidOpen(ctx, snapshot.ref.uri, snapshot.ref.languageID, version, snapshot.text)
 }
 
 func cacheValueMatchesSnapshot(value lspCacheValue, snapshot documentSnapshot) bool {

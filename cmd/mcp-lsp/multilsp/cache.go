@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -85,7 +86,8 @@ type lspCacheStore struct {
 }
 
 type lspCacheDiskState struct {
-	Documents []lspCacheValue `json:"documents"`
+	Documents  []lspCacheValue  `json:"documents"`
+	Tombstones map[string]int64 `json:"tombstones,omitempty"`
 }
 
 func newLSPCacheStoreFromEnv(logger *slog.Logger) *lspCacheStore {
@@ -187,8 +189,9 @@ func (s *lspCacheStore) Tombstone(key lspCacheKey) {
 	withWriteLock(&s.mu, func() struct{} {
 		_, existed := s.memory[key.String()]
 		delete(s.memory, key.String())
+		_, alreadyTombstoned := s.tombstones[key.String()]
 		s.tombstones[key.String()] = s.now()
-		s.persistOnMutation(existed)
+		s.persistOnMutation(existed || !alreadyTombstoned)
 		return struct{}{}
 	})
 }
@@ -340,6 +343,7 @@ func (s *lspCacheStore) maybeCleanup() {
 				continue
 			}
 			delete(s.tombstones, key)
+			changed = true
 		}
 		s.persistOnMutation(changed)
 		return struct{}{}
@@ -372,44 +376,148 @@ func (s *lspCacheStore) loadPersistent() error {
 	if !s.persistent || !s.persistentReady {
 		return nil
 	}
+	disk, err := s.readPersistentDiskStateLocked()
+	if err != nil {
+		return err
+	}
+	if s.loadPersistentDiskStateLocked(disk) {
+		_ = s.persistLocked()
+	}
+	return nil
+}
+
+func (s *lspCacheStore) readPersistentDiskStateLocked() (lspCacheDiskState, error) {
 	payload, err := os.ReadFile(s.cachePath())
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return lspCacheDiskState{}, nil
 		}
 		s.fallbackToMemory(err)
-		return err
+		return lspCacheDiskState{}, err
 	}
 	var disk lspCacheDiskState
 	if err := json.Unmarshal(payload, &disk); err != nil {
-		s.fallbackToMemory(err)
-		return err
+		_ = s.quarantinePersistentLocked()
+		s.memory = map[string]lspCacheValue{}
+		s.tombstones = map[string]time.Time{}
+		_ = s.persistLocked()
+		return lspCacheDiskState{}, err
 	}
+	return disk, nil
+}
+
+func (s *lspCacheStore) loadPersistentDiskStateLocked(disk lspCacheDiskState) bool {
 	now := s.now()
+	changed := s.loadPersistentTombstonesLocked(disk.Tombstones, now)
 	for _, value := range disk.Documents {
-		if s.expired(value, now) {
+		if s.shouldSkipPersistentValue(value, now) {
+			changed = true
 			continue
 		}
 		s.memory[value.Key.String()] = value
 	}
-	return nil
+	return changed
+}
+
+func (s *lspCacheStore) loadPersistentTombstonesLocked(raw map[string]int64, now time.Time) bool {
+	changed := false
+	for key, unixNano := range raw {
+		createdAt, ok := s.validPersistentTombstone(key, unixNano, now)
+		if !ok {
+			changed = true
+			continue
+		}
+		s.tombstones[key] = createdAt
+	}
+	return changed
+}
+
+func (s *lspCacheStore) validPersistentTombstone(key string, unixNano int64, now time.Time) (time.Time, bool) {
+	if strings.TrimSpace(key) == "" || unixNano <= 0 {
+		return time.Time{}, false
+	}
+	createdAt := time.Unix(0, unixNano)
+	if s.config.TTL > 0 && now.Sub(createdAt) > minDuration(time.Minute, s.config.TTL) {
+		return time.Time{}, false
+	}
+	return createdAt, true
+}
+
+func (s *lspCacheStore) shouldSkipPersistentValue(value lspCacheValue, now time.Time) bool {
+	if s.expired(value, now) {
+		return true
+	}
+	_, tombstoned := s.tombstones[value.Key.String()]
+	return tombstoned
 }
 
 func (s *lspCacheStore) persistLocked() error {
 	if !s.persistent || !s.persistentReady {
 		return nil
 	}
-	disk := lspCacheDiskState{
-		Documents: make([]lspCacheValue, 0, len(s.memory)),
-	}
-	for _, value := range s.memory {
-		disk.Documents = append(disk.Documents, value)
-	}
+	disk := s.persistentDiskStateLocked()
 	payload, err := json.MarshalIndent(disk, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.cachePath(), payload, 0o644)
+	return s.writePersistentPayloadLocked(payload)
+}
+
+func (s *lspCacheStore) persistentDiskStateLocked() lspCacheDiskState {
+	disk := lspCacheDiskState{
+		Documents:  make([]lspCacheValue, 0, len(s.memory)),
+		Tombstones: make(map[string]int64, len(s.tombstones)),
+	}
+	for _, value := range s.memory {
+		disk.Documents = append(disk.Documents, value)
+	}
+	for key, createdAt := range s.tombstones {
+		if strings.TrimSpace(key) != "" && !createdAt.IsZero() {
+			disk.Tombstones[key] = createdAt.UnixNano()
+		}
+	}
+	if len(disk.Tombstones) == 0 {
+		disk.Tombstones = nil
+	}
+	return disk
+}
+
+func (s *lspCacheStore) writePersistentPayloadLocked(payload []byte) error {
+	path := s.cachePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	if _, err := tmp.Write(payload); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return nil
+}
+
+func (s *lspCacheStore) quarantinePersistentLocked() error {
+	path := s.cachePath()
+	if path == "" {
+		return errors.New("cache path is empty")
+	}
+	if _, err := os.Stat(path); err != nil {
+		return err
+	}
+	quarantine := path + ".corrupt-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	return os.Rename(path, quarantine)
 }
 
 func (s *lspCacheStore) fallbackToMemory(err error) {

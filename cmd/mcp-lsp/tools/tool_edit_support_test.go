@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/multilsp"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
@@ -357,15 +358,64 @@ func TestWorkspaceEditRejectsSymlinkEscapingWorkspaceRoot(t *testing.T) {
 
 type editFailureManager struct {
 	structureTestManager
-	didChangeErr  error
-	didChangeHook func(uri string)
+	didChangeErr   error
+	didChangeHook  func(uri string)
+	didChangeCalls int
 }
 
 func (m *editFailureManager) DidChange(_ context.Context, uri string, _ int, _ []protocol.TextDocumentContentChangeEvent) error {
+	m.didChangeCalls++
 	if m.didChangeHook != nil {
 		m.didChangeHook(uri)
 	}
 	return m.didChangeErr
+}
+
+func TestEditFailureAfterDeadClientReturnsRetryableWithoutAutoReplay(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "sample.go")
+	original := "package main\n\nfunc f() { old() }\n"
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	manager := &editFailureManager{
+		didChangeErr: errors.New("LSP client closed after transport failure"),
+	}
+	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileManager: manager})
+	input, err := json.Marshal(EditRequest{
+		Action:    "replace_range",
+		FilePath:  path,
+		Line:      3,
+		Column:    12,
+		EndLine:   3,
+		EndColumn: 17,
+		NewText:   "new()",
+	})
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+
+	got, err := handler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("replace_range returned transport error: %v", err)
+	}
+	result, ok := got.(replaceRangeFailure)
+	if !ok {
+		t.Fatalf("result type = %T, want replaceRangeFailure", got)
+	}
+	if result.Success {
+		t.Fatalf("Success = true, want false for dead-client edit sync")
+	}
+	if manager.didChangeCalls != 2 {
+		t.Fatalf("DidChange calls = %d, want original sync plus rollback sync without auto-replaying edit", manager.didChangeCalls)
+	}
+	if raw, err := os.ReadFile(path); err != nil || string(raw) != original {
+		t.Fatalf("file after failed edit = %q err=%v, want original content", raw, err)
+	}
+	envelope := newToolErrorEnvelope("edit", "go", errors.Join(multilsp.ErrTransportClosed, manager.didChangeErr))
+	if !envelope.Retryable || envelope.Code != "lsp_client_closed" {
+		t.Fatalf("dead-client envelope = %#v, want retryable lsp_client_closed", envelope)
+	}
 }
 
 func TestReplaceRangeSyncFailureReportsRollbackFailure(t *testing.T) {
