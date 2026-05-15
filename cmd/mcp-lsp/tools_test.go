@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
 func TestLSPToolManifestsExposeCanonicalNames(t *testing.T) {
@@ -32,6 +34,38 @@ func TestHandleToolCallAcceptsLegacyLSPAlias(t *testing.T) {
 	payload, ok := result.(map[string]any)
 	if !ok || payload["ok"] != true {
 		t.Fatalf("handleToolCall(lsp_file) result = %#v, want ok payload", result)
+	}
+}
+
+func TestHandleScopedToolsCallUsesTrustedScope(t *testing.T) {
+	defs := []toolDefinition{{
+		Manifest: ToolManifest{Name: "file"},
+		Handler: func(ctx context.Context, args json.RawMessage) (any, error) {
+			scope, ok := common.ToolScopeFromContext(ctx)
+			if !ok {
+				t.Fatal("ToolScopeFromContext() missing scope")
+			}
+			if scope.AgentID != "agent-1" || scope.ThreadID != "thread-1" || scope.CallID != "call-1" {
+				t.Fatalf("scope = %#v, want trusted identity", scope)
+			}
+			if scope.CWD != "/trusted/lsp" {
+				t.Fatalf("scope cwd = %q, want /trusted/lsp", scope.CWD)
+			}
+			if !json.Valid(args) {
+				t.Fatalf("args is not valid json: %s", args)
+			}
+			return map[string]any{"ok": true}, nil
+		},
+	}}
+	params := json.RawMessage(`{"name":"file","arguments":{"agent_id":"evil","cwd":"/evil"},"_agentId":"agent-1","_threadId":"thread-1","_callId":"call-1","_cwd":"/trusted/lsp"}`)
+
+	result, err := handleScopedToolsCall(context.Background(), registryToolProvider{defs: defs}, "lsp", params)
+	if err != nil {
+		t.Fatalf("handleScopedToolsCall() error = %v", err)
+	}
+	payload, ok := result.(map[string]any)
+	if !ok || payload["structuredContent"] == nil {
+		t.Fatalf("handleScopedToolsCall() result = %#v, want structured content", result)
 	}
 }
 

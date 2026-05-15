@@ -46,6 +46,10 @@ type activePeerRegistry interface {
 	FindActiveByKind(clientKind string) []*mcpcontrol.ToolInstance
 }
 
+type scopedActivePeerRegistry interface {
+	FindActiveForScope(scope mcpcontrol.ToolScope) []*mcpcontrol.ToolInstance
+}
+
 type storedThreadRuntime struct {
 	Model   string         `json:"model,omitempty"`
 	Effort  string         `json:"effort,omitempty"`
@@ -96,7 +100,14 @@ func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*Tool
 	if err != nil {
 		return nil, err
 	}
-	peer, err := h.selectActiveToolPeer(clientKind)
+	peer, err := h.selectActiveToolPeer(mcpcontrol.ToolScope{
+		AgentID:  req.AgentID,
+		ThreadID: req.ThreadID,
+		TurnID:   req.TurnID,
+		CallID:   req.CallID,
+		CWD:      req.CWD,
+		Family:   clientKind,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -128,8 +139,8 @@ func (h *Handler) routePrePeerToolCall(ctx context.Context, req ToolCallRequest)
 	return nil, false, nil
 }
 
-func (h *Handler) selectActiveToolPeer(clientKind string) (*mcpcontrol.ToolInstance, error) {
-	peers := h.registry.FindActiveByKind(clientKind)
+func (h *Handler) selectActiveToolPeer(scope mcpcontrol.ToolScope) (*mcpcontrol.ToolInstance, error) {
+	peers := h.findActiveToolPeers(scope)
 	switch len(peers) {
 	case 0:
 		return nil, ErrNoPeerAvailable
@@ -138,6 +149,13 @@ func (h *Handler) selectActiveToolPeer(clientKind string) (*mcpcontrol.ToolInsta
 	default:
 		return nil, ErrAmbiguousPeer
 	}
+}
+
+func (h *Handler) findActiveToolPeers(scope mcpcontrol.ToolScope) []*mcpcontrol.ToolInstance {
+	if scoped, ok := h.registry.(scopedActivePeerRegistry); ok {
+		return scoped.FindActiveForScope(scope)
+	}
+	return h.registry.FindActiveByKind(scope.Family)
 }
 
 func (h *Handler) callPeerTool(ctx context.Context, peer mcpcontrol.Peer, req ToolCallRequest) (*ToolCallResult, error) {

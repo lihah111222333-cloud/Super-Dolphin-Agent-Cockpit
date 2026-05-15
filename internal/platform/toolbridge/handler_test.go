@@ -40,13 +40,49 @@ func codexSessionClose(unsafe.Pointer, context.Context) error
 // failures against non-existent symbols.
 
 type stubRegistry struct {
-	peers    []*mcpcontrol.ToolInstance
-	gotKinds []string
+	peers     []*mcpcontrol.ToolInstance
+	gotKinds  []string
+	gotScopes []mcpcontrol.ToolScope
+	scoped    bool
 }
 
 func (r *stubRegistry) FindActiveByKind(clientKind string) []*mcpcontrol.ToolInstance {
 	r.gotKinds = append(r.gotKinds, clientKind)
 	return r.peers
+}
+
+func (r *stubRegistry) FindActiveForScope(scope mcpcontrol.ToolScope) []*mcpcontrol.ToolInstance {
+	r.gotScopes = append(r.gotScopes, scope)
+	if !r.scoped {
+		return r.FindActiveByKind(scope.Family)
+	}
+	if scope.AgentID != "" && scope.ThreadID != "" {
+		if exact := filterStubPeers(r.peers, func(peer *mcpcontrol.ToolInstance) bool {
+			return peer.AgentID == scope.AgentID && peer.ThreadID == scope.ThreadID && peer.ClientKind == scope.Family
+		}); len(exact) != 0 {
+			return exact
+		}
+	}
+	if scope.AgentID != "" {
+		if relaxed := filterStubPeers(r.peers, func(peer *mcpcontrol.ToolInstance) bool {
+			return peer.AgentID == scope.AgentID && peer.ClientKind == scope.Family
+		}); len(relaxed) != 0 {
+			return relaxed
+		}
+	}
+	return filterStubPeers(r.peers, func(peer *mcpcontrol.ToolInstance) bool {
+		return peer.ClientKind == "" || peer.ClientKind == scope.Family
+	})
+}
+
+func filterStubPeers(peers []*mcpcontrol.ToolInstance, keep func(*mcpcontrol.ToolInstance) bool) []*mcpcontrol.ToolInstance {
+	var out []*mcpcontrol.ToolInstance
+	for _, peer := range peers {
+		if peer != nil && keep(peer) {
+			out = append(out, peer)
+		}
+	}
+	return out
 }
 
 type stubPeer struct {
@@ -629,6 +665,77 @@ func TestToolBridge_ForwardsInjectedCWDToPeer(t *testing.T) {
 	assertSingleTextItem(t, got, "ok", true)
 	if len(registry.gotKinds) != 1 || registry.gotKinds[0] != dto.ClientKindLSP {
 		t.Fatalf("FindActiveByKind() kinds = %#v, want [%q]", registry.gotKinds, dto.ClientKindLSP)
+	}
+}
+
+func TestToolBridge_ScopedLSPPeerRoutingUsesTrustedMetadata(t *testing.T) {
+	args := mustRawJSON(t, map[string]any{
+		"action":    "read_file",
+		"file_path": "go.mod",
+		"agent_id":  "forged-agent",
+		"cwd":       "/forged/root",
+	})
+	wrongPeer := &mcpcontrol.ToolInstance{
+		AgentID:    "agent-a",
+		ThreadID:   "thread-a",
+		ClientKind: dto.ClientKindLSP,
+		Peer: &stubPeer{callbackFn: func(context.Context, string, any, any) error {
+			t.Fatal("wrong scoped peer was called")
+			return nil
+		}},
+	}
+	rightPeer := &mcpcontrol.ToolInstance{
+		AgentID:    "agent-b",
+		ThreadID:   "thread-b",
+		ClientKind: dto.ClientKindLSP,
+		Peer: &stubPeer{callbackFn: func(_ context.Context, method string, params any, result any) error {
+			if method != ProxyMethodToolsCall {
+				t.Fatalf("Callback() method = %q, want %s", method, ProxyMethodToolsCall)
+			}
+			payload, ok := params.(map[string]any)
+			if !ok {
+				t.Fatalf("Callback() params type = %T, want map[string]any", params)
+			}
+			if got := payload[MetadataKeyAgentID]; got != "agent-b" {
+				t.Fatalf("Callback() _agentId = %#v, want agent-b", got)
+			}
+			if got := payload[MetadataKeyThreadID]; got != "thread-b" {
+				t.Fatalf("Callback() _threadId = %#v, want thread-b", got)
+			}
+			if got := payload[MetadataKeyCallID]; got != "call-1" {
+				t.Fatalf("Callback() _callId = %#v, want call-1", got)
+			}
+			if got := payload[MetadataKeyCWD]; got != "/trusted/root" {
+				t.Fatalf("Callback() _cwd = %#v, want /trusted/root", got)
+			}
+			if _, ok := payload["agent_id"]; ok {
+				t.Fatalf("Callback() leaked public agent_id in top-level payload: %#v", payload)
+			}
+			resp := result.(*peerToolCallResponse)
+			*resp = peerToolCallResponse{Content: []peerToolCallContent{{Type: "text", Text: "ok"}}}
+			return nil
+		}},
+	}
+	h, registry := newHandlerForTest(wrongPeer, rightPeer)
+	registry.scoped = true
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:      "lsp_file",
+		Arguments: args,
+		AgentID:   "agent-b",
+		ThreadID:  "thread-b",
+		CallID:    "call-1",
+		CWD:       "/trusted/root",
+	})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	assertSingleTextItem(t, got, "ok", true)
+	if len(registry.gotScopes) != 1 {
+		t.Fatalf("FindActiveForScope() calls = %d, want 1", len(registry.gotScopes))
+	}
+	if scope := registry.gotScopes[0]; scope.AgentID != "agent-b" || scope.ThreadID != "thread-b" || scope.Family != dto.ClientKindLSP {
+		t.Fatalf("FindActiveForScope() scope = %#v, want trusted agent/thread lsp", scope)
 	}
 }
 
