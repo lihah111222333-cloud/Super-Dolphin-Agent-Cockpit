@@ -168,10 +168,18 @@ function getStateByText(state, text, renderAssistantBody) {
     state.lastWidthVer = wv;
     state.lastFontVer = fv;
   }
-  if (state.cache.has(text)) return state.cache.get(text) || state.emptyState;
+  let cached = state.cache.get(text);
+  if (cached) {
+    state.cache.delete(text);
+    state.cache.set(text, cached);
+    return cached;
+  }
   const next = buildStreamingMarkdownState(text, renderAssistantBody, state.emptyState);
   state.cache.set(text, next);
-  if (state.cache.size > 280) state.cache.delete(state.cache.keys().next().value);
+  if (state.cache.size > 280) {
+    const oldestKey = state.cache.keys().next().value;
+    state.cache.delete(oldestKey);
+  }
   return next;
 }
 

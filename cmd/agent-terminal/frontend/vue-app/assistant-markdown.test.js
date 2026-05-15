@@ -114,7 +114,7 @@ describe('normalizeReasoningText', () => {
     vi.stubGlobal('requestAnimationFrame', undefined);
     vi.stubGlobal('cancelAnimationFrame', undefined);
     const flushes = [];
-    const resolve = createStreamingMarkdownStateResolver(() => flushes.push('flushed'));
+    const resolve = createStreamingMarkdownStateResolver(() => '', () => flushes.push('flushed'));
     const first = resolve({ id: 'assistant-1', kind: 'assistant', text: 'Hello\n', done: false });
     const second = resolve({ id: 'assistant-1', kind: 'assistant', text: 'Hello\nWorld', done: false });
     expect(second).toBe(first);
@@ -134,7 +134,7 @@ describe('normalizeReasoningText', () => {
     vi.stubGlobal('requestAnimationFrame', undefined);
     vi.stubGlobal('cancelAnimationFrame', undefined);
     const flushes = [];
-    const resolve = createStreamingMarkdownStateResolver(() => flushes.push('flushed'));
+    const resolve = createStreamingMarkdownStateResolver(() => '', () => flushes.push('flushed'));
     // Initial call — first seen, renders immediately
     resolve({ id: 'a1', kind: 'assistant', text: 'Hello\n', done: false });
     // Second call with new text — returns stale, schedules 32ms flush + 200ms backstop
@@ -167,7 +167,7 @@ describe('normalizeReasoningText', () => {
     vi.stubGlobal('requestAnimationFrame', undefined);
     vi.stubGlobal('cancelAnimationFrame', undefined);
     const flushes = [];
-    const resolve = createStreamingMarkdownStateResolver(() => flushes.push('flushed'));
+    const resolve = createStreamingMarkdownStateResolver(() => '', () => flushes.push('flushed'));
     resolve({ id: 'b1', kind: 'assistant', text: 'Hi\n', done: false });
     resolve({ id: 'b1', kind: 'assistant', text: 'Hi\nBye\n', done: false });
     // Dispose before any timer fires
