@@ -2,6 +2,8 @@ package skill
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -54,6 +56,9 @@ type service struct {
 	// construct service manually may leave it nil; mutation paths then fail closed.
 	auditStore    auditstore.Store
 	mirrorTargets []SkillMirrorTarget
+
+	resolutionPreviewMu sync.Mutex
+	resolutionPreviews  map[string]skillResolutionStoredPreview
 }
 
 var _ Service = (*service)(nil)
@@ -81,6 +86,49 @@ var (
 // both skill and toolbridge consumers can errors.As the same concrete type
 // without toolbridge importing the module layer.
 type SkillApprovalRequiredError = contract.SkillApprovalRequiredError
+
+func resolutionPreviewHash(item skillResolutionItem, preview skillResolutionPreviewItem, p skillResolutionPreviewParams) string {
+	type previewEnvelope struct {
+		ConflictID          string `json:"conflict_id"`
+		Action              string `json:"action"`
+		Provider            string `json:"provider,omitempty"`
+		SourceProvider      string `json:"source_provider,omitempty"`
+		SourcePathID        string `json:"source_path_id,omitempty"`
+		SourcePath          string `json:"source_path"`
+		TargetPath          string `json:"target_path"`
+		SourceHash          string `json:"source_hash"`
+		TargetHash          string `json:"target_hash"`
+		NewName             string `json:"new_name,omitempty"`
+		KeepSourceID        string `json:"keep_source_id,omitempty"`
+		MergeContentHash    string `json:"merge_content_hash,omitempty"`
+		DisablePolicyTarget string `json:"disable_policy_target,omitempty"`
+		BackupPath          string `json:"backup_path"`
+		ConfirmDeleteHash   string `json:"confirm_delete_mirror_hash,omitempty"`
+	}
+	return "sha256:" + hashResolutionEnvelope(previewEnvelope{
+		ConflictID:          item.ConflictID,
+		Action:              p.Action,
+		Provider:            preview.Provider,
+		SourceProvider:      preview.SourceProvider,
+		SourcePathID:        preview.SourcePathID,
+		SourcePath:          preview.SourcePath,
+		TargetPath:          preview.TargetPath,
+		SourceHash:          preview.SourceHash,
+		TargetHash:          preview.TargetHash,
+		NewName:             p.NewName,
+		KeepSourceID:        p.KeepSourceID,
+		MergeContentHash:    p.MergeContentHash,
+		DisablePolicyTarget: p.DisablePolicyTarget,
+		BackupPath:          preview.BackupPath,
+		ConfirmDeleteHash:   preview.ConfirmDeleteMirrorHash,
+	})
+}
+
+func hashResolutionEnvelope(v any) string {
+	data, _ := json.Marshal(v)
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
 
 type skillApprovalDeniedError struct {
 	reason string

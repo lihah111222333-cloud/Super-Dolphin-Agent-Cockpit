@@ -112,9 +112,8 @@ func TestWriteLocalPublishesProjectMirrors(t *testing.T) {
 	result := out.(map[string]any)
 	report := mustMirrorPublishReport(t, result)
 	assertPublishedReportItem(t, report.Published, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "build", "project/build")
-	assertPublishedReportItem(t, report.Published, "codex:project:"+RepoFingerprint(projectRoot), SkillProviderCodex, skillScopeProject, "build", "project/build")
 	assertFileContent(t, filepath.Join(projectRoot, ".claude", "skills", "build", skillMainFile), "---\nname: build\n---\nbody")
-	assertFileContent(t, filepath.Join(projectRoot, ".codex", "skills", "build", skillMainFile), "---\nname: build\n---\nbody")
+	assertMissing(t, filepath.Join(projectRoot, ".codex", "skills", "build", skillMainFile))
 }
 
 func TestWriteLocalProjectIgnoresConfiguredMirrorTargets(t *testing.T) {
@@ -145,9 +144,9 @@ func TestWriteLocalProjectIgnoresConfiguredMirrorTargets(t *testing.T) {
 
 func TestWriteLocalPublishConflictKeepsCanonicalResult(t *testing.T) {
 	projectRoot := t.TempDir()
-	codexMirror := filepath.Join(projectRoot, ".codex", "skills", "build")
-	mustMkdirAll(t, codexMirror)
-	mustWriteFile(t, filepath.Join(codexMirror, skillMainFile), "unmanaged")
+	claudeMirror := filepath.Join(projectRoot, ".claude", "skills", "build")
+	mustMkdirAll(t, claudeMirror)
+	mustWriteFile(t, filepath.Join(claudeMirror, skillMainFile), "unmanaged")
 	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), http: &http.Client{}}
 
 	out, err := svc.WriteLocal(skillTestContext(projectRoot), "build", "---\nname: build\n---\ncanonical", skillScopeProject)
@@ -157,9 +156,9 @@ func TestWriteLocalPublishConflictKeepsCanonicalResult(t *testing.T) {
 
 	result := out.(map[string]any)
 	report := mustMirrorPublishReport(t, result)
-	assertConflictReportItem(t, report.Conflicts, "codex:project:"+RepoFingerprint(projectRoot), SkillProviderCodex, skillScopeProject, "build", "project/build", "unmanaged")
+	assertConflictReportItem(t, report.Conflicts, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "build", "project/build", "unmanaged")
 	assertFileContent(t, filepath.Join(projectRoot, ".agent", "skills", "build", skillMainFile), "---\nname: build\n---\ncanonical")
-	assertFileContent(t, filepath.Join(codexMirror, skillMainFile), "unmanaged")
+	assertFileContent(t, filepath.Join(claudeMirror, skillMainFile), "unmanaged")
 }
 
 func TestWriteLocalPublishErrorReportIncludesDetail(t *testing.T) {
@@ -224,7 +223,6 @@ func TestDeleteLocalRemovesOwnedProjectMirrors(t *testing.T) {
 	result := out.(map[string]any)
 	report := mustMirrorPublishReport(t, result)
 	assertDeletedReportItem(t, report.Deleted, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "build", "project/build")
-	assertDeletedReportItem(t, report.Deleted, "codex:project:"+RepoFingerprint(projectRoot), SkillProviderCodex, skillScopeProject, "build", "project/build")
 	assertMissing(t, filepath.Join(projectRoot, ".claude", "skills", "build"))
 	assertMissing(t, filepath.Join(projectRoot, ".codex", "skills", "build"))
 }

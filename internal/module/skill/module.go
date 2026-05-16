@@ -16,11 +16,14 @@ import (
 // performs auto-match + binds the result onto the session at runtime.
 var Module = fx.Module("skill",
 	fx.Provide(
-		newService,
+		fx.Annotate(
+			newService,
+			fx.As(new(Service)),
+			fx.As(new(contract.SkillMirrorReconciler)),
+		),
 		ProvideSkillLister,
 		ProvideSkillCatalogSource,
 		ProvideSkillHydrationSource,
-		ProvideSkillMirrorReconciler,
 	),
 	fx.Provide(NewSkillHandlers),
 )
@@ -35,20 +38,18 @@ type serviceDeps struct {
 	AuditStore      auditstore.Store
 }
 
-func newService(deps serviceDeps) Service {
+func newService(deps serviceDeps) *service {
 	projectRoot := ""
 	if deps.Config != nil {
 		projectRoot = strings.TrimSpace(deps.Config.ProjectRoot)
 	}
-	svc := NewService(projectRoot)
-	if impl, ok := svc.(*service); ok {
-		impl.bindDispatcher(deps.Dispatcher)
-		impl.disclosureTiers = deps.DisclosureTiers
-		if deps.CandidateStore != nil {
-			impl.candidateStore = deps.CandidateStore
-		}
-		impl.auditStore = deps.AuditStore
+	svc := NewService(projectRoot).(*service)
+	svc.bindDispatcher(deps.Dispatcher)
+	svc.disclosureTiers = deps.DisclosureTiers
+	if deps.CandidateStore != nil {
+		svc.candidateStore = deps.CandidateStore
 	}
+	svc.auditStore = deps.AuditStore
 	return svc
 }
 
@@ -57,5 +58,3 @@ func ProvideSkillLister(svc Service) SkillLister { return svc }
 func ProvideSkillCatalogSource(svc Service) SkillCatalogSource { return svc }
 
 func ProvideSkillHydrationSource(svc Service) SkillHydrationSource { return svc }
-
-func ProvideSkillMirrorReconciler(svc Service) contract.SkillMirrorReconciler { return svc }

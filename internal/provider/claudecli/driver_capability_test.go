@@ -79,6 +79,12 @@ func TestNewDriverFactoryCreateReturnsClaudeDriver(t *testing.T) {
 	}
 }
 
+func TestLegacyWorkspaceSkillSetupIsDisabled(t *testing.T) {
+	if shouldSetupLegacyWorkspaceSkills("workspace", "cache") {
+		t.Fatal("legacy workspace skill symlink setup must stay disabled")
+	}
+}
+
 func TestDriverReportRuntimeUsesProviderWithoutPort(t *testing.T) {
 	t.Parallel()
 
