@@ -227,9 +227,6 @@ func (m *manager) effectiveWorkspaceRoot(ctx context.Context) (string, error) {
 	if ctx != nil {
 		root, err := common.WorkspaceRootFromContextStrict(ctx)
 		if err != nil {
-			if strings.HasSuffix(os.Args[0], ".test") {
-				return m.workspaceRoot, nil
-			}
 			return "", err
 		}
 		if trimmed := strings.TrimSpace(root); trimmed != "" {

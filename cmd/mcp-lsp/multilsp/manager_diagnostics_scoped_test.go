@@ -97,8 +97,8 @@ func TestDiagnosticsStoreDoesNotCrossAgentScope(t *testing.T) {
 	target := writeDiagnosticsTestFile(t, root, "main.go", "package main\n")
 	mgr := newDiagnosticsTestManager(t, Config{WorkspaceRoot: root})
 
-	ctxA := scopedDiagnosticsTestContext("agent-a", "thread-1")
-	ctxB := scopedDiagnosticsTestContext("agent-b", "thread-1")
+	ctxA := scopedDiagnosticsTestContext(root, "agent-a", "thread-1")
+	ctxB := scopedDiagnosticsTestContext(root, "agent-b", "thread-1")
 	uri, _ := resolveDiagnosticsScopeForTarget(t, mgr, ctxA, target, "fp-a")
 	publishDiagnosticMessage(t, mgr, uri, "agent-a-only")
 
@@ -112,7 +112,7 @@ func TestDiagnosticsDropsOldGeneration(t *testing.T) {
 	target := writeDiagnosticsTestFile(t, root, "main.go", "package main\n")
 	mgr := newDiagnosticsTestManager(t, Config{WorkspaceRoot: root})
 
-	ctx := scopedDiagnosticsTestContext("agent-generation", "thread-1")
+	ctx := scopedDiagnosticsTestContext(root, "agent-generation", "thread-1")
 	uri, _ := resolveDiagnosticsScopeForTarget(t, mgr, ctx, target, "fp-generation")
 
 	oldGeneration := mgr.CurrentDiagnosticGeneration()
@@ -157,7 +157,7 @@ func TestDiagnosticsRefreshesStaleFileBeforeReturn(t *testing.T) {
 		DiagnosticsMaxWait: 1,
 	})
 
-	ctx := scopedDiagnosticsTestContext("agent-stale", "thread-1")
+	ctx := scopedDiagnosticsTestContext(root, "agent-stale", "thread-1")
 	uri := fileURIFromPath(target)
 	if err := mgr.BootstrapDocument(ctx, uri); err != nil {
 		t.Fatalf("bootstrap stale document: %v", err)
@@ -184,8 +184,8 @@ func TestDeletedDiagnosticsCleanupRemovesOldAndCurrentScopedCache(t *testing.T) 
 	target := writeDiagnosticsTestFile(t, root, "stale.go", "package cleanup\n")
 	mgr := newDiagnosticsTestManager(t, Config{WorkspaceRoot: root})
 	coordinator := bootstrapCoordinatorFor(mgr)
-	ctxOld := scopedDiagnosticsTestContext("agent-old", "thread-1")
-	ctxCurrent := scopedDiagnosticsTestContext("agent-current", "thread-1")
+	ctxOld := scopedDiagnosticsTestContext(root, "agent-old", "thread-1")
+	ctxCurrent := scopedDiagnosticsTestContext(root, "agent-current", "thread-1")
 	uri, oldScope := resolveDiagnosticsScopeForTarget(t, mgr, ctxOld, target, "old")
 	_, _, currentScope, err := mgr.resolvedScopeForURI(ctxCurrent, uri, "")
 	if err != nil {
@@ -220,7 +220,7 @@ func TestDiagnosticsClearsDeletedFile(t *testing.T) {
 	target := writeDiagnosticsTestFile(t, root, "deleted.go", "package deleted\n")
 	mgr := newDiagnosticsTestManager(t, Config{WorkspaceRoot: root})
 
-	ctx := scopedDiagnosticsTestContext("agent-deleted", "thread-1")
+	ctx := scopedDiagnosticsTestContext(root, "agent-deleted", "thread-1")
 	uri, _ := resolveDiagnosticsScopeForTarget(t, mgr, ctx, target, "fp-deleted")
 	publishDiagnosticMessage(t, mgr, uri, "deleted-file")
 	if err := os.Remove(target); err != nil {
@@ -331,7 +331,7 @@ func TestDiagnosticsScopeIgnoresPrivateAgentKeys(t *testing.T) {
 		}
 	}()
 
-	ctxTrusted := scopedDiagnosticsTestContext("agent-a", "thread-1")
+	ctxTrusted := scopedDiagnosticsTestContext(root, "agent-a", "thread-1")
 	ref, _, scope, err := mgr.resolvedScopeForURI(ctxTrusted, fileURIFromPath(target), "")
 	if err != nil {
 		t.Fatalf("resolve trusted scope: %v", err)
@@ -499,10 +499,11 @@ func (c *diagnosticsRefreshClient) changeCount() int {
 	return c.didChangeCount
 }
 
-func scopedDiagnosticsTestContext(agentID, threadID string) context.Context {
-	return common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: ""}), common.ToolScope{
+func scopedDiagnosticsTestContext(root, agentID, threadID string) context.Context {
+	return common.WithToolScope(context.Background(), common.ToolScope{
 		AgentID:  agentID,
 		ThreadID: threadID,
 		Family:   defaultLSPToolFamily,
+		CWD:      root,
 	})
 }

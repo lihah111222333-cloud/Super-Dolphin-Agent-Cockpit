@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,8 +14,8 @@ import (
 )
 
 func TestDocumentRequestBootstrapsFreshSnapshotForJavaScript(t *testing.T) {
-	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: ""})
 	root := t.TempDir()
+	ctx := ctxWithCWD(root, "agent-bootstrap", "thread-bootstrap")
 	writeBootstrapTestFile(t, filepath.Join(root, "package.json"), `{"name":"multilsp-test"}`)
 
 	target := filepath.Join(root, "app.js")
