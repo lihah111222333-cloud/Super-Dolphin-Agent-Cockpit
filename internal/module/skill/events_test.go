@@ -29,7 +29,7 @@ func TestWriteLocalPublishesSkillsChanged(t *testing.T) {
 	}
 
 	ev := mustReceiveSkillsChanged(t, got)
-	if ev.Name != "demo-skill" || ev.Action != "write" || ev.SkillsDir == "" || ev.Count != 1 {
+	if ev.Name != "demo-skill" || ev.Action != "write" || ev.SkillsDir != "" || ev.Count != 1 {
 		t.Fatalf("skills changed event = %#v", ev)
 	}
 	if !reflect.DeepEqual(ev.Actions, []string{"write"}) {
@@ -47,8 +47,8 @@ func TestPublishSkillsChangedDebouncesBurst(t *testing.T) {
 
 	svc := NewService("").(*service)
 	svc.bindDispatcher(dispatcher)
-	svc.publishSkillsChanged(context.Background(), "local_write", "first", skillScopeSystem)
-	svc.publishSkillsChanged(context.Background(), "import_dir", "second", skillScopeSystem)
+	svc.publishSkillsChanged(context.Background(), "local_write", "first", skillScopePersonal)
+	svc.publishSkillsChanged(context.Background(), "import_dir", "second", skillScopePersonal)
 
 	ev := mustReceiveSkillsChanged(t, got)
 	if ev.Action != "" || ev.Name != "" || ev.Count != 2 {
@@ -71,8 +71,8 @@ func TestPublishSkillsChangedDedupesRepeatedActions(t *testing.T) {
 
 	svc := NewService("").(*service)
 	svc.bindDispatcher(dispatcher)
-	svc.publishSkillsChanged(context.Background(), "local_write", "first", skillScopeSystem)
-	svc.publishSkillsChanged(context.Background(), "write", "second", skillScopeSystem)
+	svc.publishSkillsChanged(context.Background(), "local_write", "first", skillScopePersonal)
+	svc.publishSkillsChanged(context.Background(), "write", "second", skillScopePersonal)
 
 	ev := mustReceiveSkillsChanged(t, got)
 	if ev.Action != "write" || ev.Count != 1 {
@@ -201,8 +201,8 @@ func TestServiceEmitsScopedSkillsChangedProject(t *testing.T) {
 	}
 }
 
-// P0b Step 6: system-scope publish emits Scope="system" + Cwd="".
-func TestServiceEmitsScopedSkillsChangedSystem(t *testing.T) {
+// P0b Step 6: personal-scope publish emits Scope="personal" + Cwd="".
+func TestServiceEmitsScopedSkillsChangedPersonal(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	defer func() { _ = dispatcher.Close() }()
 
@@ -213,14 +213,14 @@ func TestServiceEmitsScopedSkillsChangedSystem(t *testing.T) {
 	svc := NewService("").(*service)
 	svc.bindDispatcher(dispatcher)
 
-	svc.publishSkillsChanged(context.Background(), "remote_write", "sysname", skillScopeSystem)
+	svc.publishSkillsChanged(context.Background(), "remote_write", "sysname", skillScopePersonal)
 
 	ev := mustReceiveSkillsChanged(t, got)
-	if ev.Scope != "system" {
-		t.Fatalf("scope = %q, want system", ev.Scope)
+	if ev.Scope != "personal" {
+		t.Fatalf("scope = %q, want personal", ev.Scope)
 	}
 	if ev.Cwd != "" {
-		t.Fatalf("cwd = %q, want empty for system scope", ev.Cwd)
+		t.Fatalf("cwd = %q, want empty for personal scope", ev.Cwd)
 	}
 }
 
@@ -242,16 +242,16 @@ func TestServiceCrossScopeFlushesBothEvents(t *testing.T) {
 
 	ctx := skillTestContext(projectRoot)
 	svc.publishSkillsChanged(ctx, "local_write", "first", skillScopeProject)
-	svc.publishSkillsChanged(context.Background(), "remote_write", "second", skillScopeSystem)
+	svc.publishSkillsChanged(context.Background(), "remote_write", "second", skillScopePersonal)
 
 	first := mustReceiveSkillsChanged(t, got)
 	assertSkillsEventBasics(t, "first", first, "project", "first", "write", 1)
 	assertProjectRepoEvent(t, "first", first, projectRoot)
 
 	second := mustReceiveSkillsChanged(t, got)
-	assertSkillsEventBasics(t, "second", second, "system", "second", "write", 1)
+	assertSkillsEventBasics(t, "second", second, "personal", "second", "write", 1)
 	if second.Cwd != "" {
-		t.Fatalf("second cwd = %q, want empty (system); ev=%#v", second.Cwd, second)
+		t.Fatalf("second cwd = %q, want empty (personal); ev=%#v", second.Cwd, second)
 	}
 
 	assertNoExtraSkillsChanged(t, got)
