@@ -293,7 +293,7 @@ func TestDeletedFileClearsBootstrapAndCache(t *testing.T) {
 	if err := os.Remove(target); err != nil {
 		t.Fatalf("remove target: %v", err)
 	}
-	ctx := WithResolvedLSPToolScope(context.Background(), currentScope)
+	ctx := WithResolvedLSPToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), currentScope)
 	items, err := mgr.Diagnostics(ctx, []string{uri})
 	if err != nil {
 		t.Fatalf("diagnostics after canonical delete: %v", err)
@@ -347,7 +347,7 @@ func TestDiagnosticsScopeIgnoresPrivateAgentKeys(t *testing.T) {
 		t.Fatalf("publish diagnostics: %v", err)
 	}
 
-	ctxPrivateOnly := context.WithValue(context.Background(), "_agentId", "agent-a")
+	ctxPrivateOnly := context.WithValue(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), "_agentId", "agent-a")
 	ctxPrivateOnly = context.WithValue(ctxPrivateOnly, "_threadId", "thread-1")
 	items, err := mgr.Diagnostics(ctxPrivateOnly, []string{ref.uri})
 	if err != nil {
@@ -388,7 +388,7 @@ func TestDiagnosticsResolvedScopeCanBeInjected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("canonical scope: %v", err)
 	}
-	ctx := WithResolvedLSPToolScope(context.Background(), canonical)
+	ctx := WithResolvedLSPToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), canonical)
 
 	_, _, got, err := mgr.resolvedScopeForURI(ctx, fileURIFromPath(target), "")
 	if err != nil {
@@ -416,7 +416,7 @@ func TestDiagnosticsManagerResolvedScopeCanBeInjected(t *testing.T) {
 		}
 	}()
 
-	ctx := lspmanager.WithResolvedToolScope(context.Background(), lspmanager.ResolvedToolScope{
+	ctx := lspmanager.WithResolvedToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), lspmanager.ResolvedToolScope{
 		ToolScope: lspmanager.ToolScope{
 			AgentID:               "agent-generic",
 			ThreadID:              "thread-generic",
@@ -500,7 +500,7 @@ func (c *diagnosticsRefreshClient) changeCount() int {
 }
 
 func scopedDiagnosticsTestContext(agentID, threadID string) context.Context {
-	return common.WithToolScope(context.Background(), common.ToolScope{
+	return common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: ""}), common.ToolScope{
 		AgentID:  agentID,
 		ThreadID: threadID,
 		Family:   defaultLSPToolFamily,

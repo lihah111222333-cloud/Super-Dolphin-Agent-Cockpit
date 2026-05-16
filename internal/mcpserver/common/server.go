@@ -19,6 +19,21 @@ type contextKey string
 
 const CwdContextKey = contextKey("mcp_cwd")
 
+var ErrMissingContextCWD = errors.New("strict context enforcement: missing tool scope CWD")
+
+func WorkspaceRootFromContextStrict(ctx context.Context) (string, error) {
+	if ctx == nil {
+		return "", ErrMissingContextCWD
+	}
+	if scope, ok := ToolScopeFromContext(ctx); ok && scope.CWD != "" {
+		return scope.CWD, nil
+	}
+	if cwd, ok := ctx.Value(CwdContextKey).(string); ok && cwd != "" {
+		return NormalizeToolScope(ToolScope{CWD: cwd}).CWD, nil
+	}
+	return "", ErrMissingContextCWD
+}
+
 func WorkspaceRootFromContext(ctx context.Context, fallback string) string {
 	if scope, ok := ToolScopeFromContext(ctx); ok && scope.CWD != "" {
 		return scope.CWD

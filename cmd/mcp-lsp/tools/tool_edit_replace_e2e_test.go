@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"os"
 	"path/filepath"
 	"strings"
@@ -186,7 +187,7 @@ func runUnsupportedTextReplaceRangeCase(t *testing.T, tt unsupportedTextReplaceR
 	}
 
 	handler := NewEditHandler(lspmanager.NewRegistry(nil))
-	got, err := handler(context.Background(), payload)
+	got, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), payload)
 	if err != nil {
 		t.Fatalf("replace_range returned error: %v", err)
 	}

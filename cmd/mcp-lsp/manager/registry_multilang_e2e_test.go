@@ -6,6 +6,7 @@ package manager_test
 import (
 	"context"
 	"fmt"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -310,7 +311,7 @@ func runMultiLanguageLSPCase(t *testing.T, log *slog.Logger, tc langTestCase) {
 	if _, err := exec.LookPath(tc.binary); err != nil {
 		t.Skipf("SKIP: %s not found in PATH (install with appropriate package manager)", tc.binary)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), 90*time.Second)
 	defer cancel()
 
 	root, filePath := prepareMultiLanguageSource(t, tc)
@@ -472,7 +473,7 @@ func runMultiLanguageHoverDefinitionCase(t *testing.T, log *slog.Logger, tc hove
 	if _, err := exec.LookPath(tc.binary); err != nil {
 		t.Skipf("SKIP: %s not found", tc.binary)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), 60*time.Second)
 	defer cancel()
 
 	root, filePath := prepareHoverDefinitionSource(t, tc)

@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,7 +47,7 @@ func TestCodeActionRejectsPathOutsideWorkspaceRootBeforeLSPRequest(t *testing.T)
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	_, err = handler(context.Background(), input)
+	_, err = handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), input)
 	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
 		t.Fatalf("code_action error = %v, want outside workspace root", err)
 	}
@@ -69,7 +70,7 @@ func TestFormatRejectsPathOutsideWorkspaceRootBeforeLSPRequest(t *testing.T) {
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	_, err = handler(context.Background(), input)
+	_, err = handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), input)
 	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
 		t.Fatalf("format error = %v, want outside workspace root", err)
 	}
@@ -102,7 +103,7 @@ func TestPreparedRenameRejectsWorkspaceEditOutsideWorkspaceRoot(t *testing.T) {
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	_, err = handler(context.Background(), input)
+	_, err = handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), input)
 	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
 		t.Fatalf("prepared rename error = %v, want outside workspace root", err)
 	}
@@ -134,7 +135,7 @@ func TestCodeActionRejectsReturnedWorkspaceEditOutsideWorkspaceRoot(t *testing.T
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	_, err = handler(context.Background(), input)
+	_, err = handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), input)
 	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
 		t.Fatalf("code_action returned edit error = %v, want outside workspace root", err)
 	}
@@ -160,7 +161,7 @@ func TestCodeActionUsesEndLineEndColumnRange(t *testing.T) {
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	if _, err := handler(context.Background(), input); err != nil {
+	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), input); err != nil {
 		t.Fatalf("code_action returned error: %v", err)
 	}
 	want := protocol.Range{
@@ -185,7 +186,7 @@ func TestCodeActionDefaultsEndToStart(t *testing.T) {
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	if _, err := handler(context.Background(), input); err != nil {
+	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), input); err != nil {
 		t.Fatalf("code_action returned error: %v", err)
 	}
 	want := protocol.Range{Start: protocol.Position{Line: 0, Character: 0}, End: protocol.Position{Line: 0, Character: 0}}
@@ -206,7 +207,7 @@ func TestCodeActionRejectsPartialEndRange(t *testing.T) {
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	_, err = handler(context.Background(), input)
+	_, err = handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), input)
 	if err == nil || !strings.Contains(err.Error(), "end_line and end_column") {
 		t.Fatalf("code_action error = %v, want partial end range rejection", err)
 	}

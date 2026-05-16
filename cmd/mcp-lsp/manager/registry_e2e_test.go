@@ -5,6 +5,7 @@ package manager_test
 
 import (
 	"context"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -43,7 +44,7 @@ func createGenericManager(executable string, args []string, root string, log *sl
 //
 // Run with: go test -v -tags=e2e ./cmd/mcp-lsp/manager/...
 func TestMultiLanguageAutoInstall_E2E(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), 2*time.Minute)
 	defer cancel()
 
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))

@@ -143,18 +143,24 @@ func (s *Sandbox) ShellRequest(command string, workDir string, timeout time.Dura
 // mcp-lsp startup directory get a stale "work_dir must stay within …"
 // rejection even though the upstream binding has already authorised the
 // target cwd.
-func (s *Sandbox) effectiveRoot(ctx context.Context) string {
+func (s *Sandbox) effectiveRoot(ctx context.Context) (string, error) {
 	if ctx != nil {
-		root := common.WorkspaceRootFromContext(ctx, s.rootDir)
+		root, err := common.WorkspaceRootFromContextStrict(ctx)
+		if err != nil {
+			return "", err
+		}
 		if normalized, err := normalizePath(strings.TrimSpace(root)); err == nil && normalized != "" {
-			return normalized
+			return normalized, nil
 		}
 	}
-	return s.rootDir
+	return "", errors.New("strict context enforcement failed: missing context")
 }
 
 func (s *Sandbox) resolveWorkDir(ctx context.Context, workDir string) (string, error) {
-	root := s.effectiveRoot(ctx)
+	root, err := s.effectiveRoot(ctx)
+	if err != nil {
+		return "", err
+	}
 	if strings.TrimSpace(workDir) == "" {
 		return root, nil
 	}
@@ -189,7 +195,7 @@ func (s *Sandbox) warnExecCWDTrace(ctx context.Context, req Request, args []stri
 		"mode", req.TraceMode,
 		"root_dir", s.rootDir,
 		"meta_cwd", contextCWD(ctx),
-		"effective_root", s.effectiveRoot(ctx),
+		"effective_root", func() string { r, _ := s.effectiveRoot(ctx); return r }(),
 		"requested_work_dir", req.WorkDir,
 		"exec_dir", workDir,
 		"command", req.Command,
