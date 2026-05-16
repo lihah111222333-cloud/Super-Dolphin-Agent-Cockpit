@@ -23,12 +23,13 @@ type skillScanRootKind uint8
 
 const (
 	skillScanRootProject skillScanRootKind = iota + 1
-	skillScanRootSystemGlobal
 )
 
 type skillScanRoot struct {
-	path string
-	kind skillScanRootKind
+	path         string
+	kind         skillScanRootKind
+	scope        string
+	personalType string
 }
 
 func (s *service) scanSkills(cwd string) ([]skillRecord, error) {
@@ -58,12 +59,9 @@ func (s *service) scanSkills(cwd string) ([]skillRecord, error) {
 }
 
 func (s *service) scanSkillRoots(cwd string) []skillScanRoot {
-	roots := make([]skillScanRoot, 0, 2)
+	roots := make([]skillScanRoot, 0, 1)
 	if projectRoot := strings.TrimSpace(s.projectSkillsRootForCWD(cwd)); projectRoot != "" {
-		roots = append(roots, skillScanRoot{path: projectRoot, kind: skillScanRootProject})
-	}
-	if systemRoot := s.systemGlobalSkillsRoot(); systemRoot != "" {
-		roots = append(roots, skillScanRoot{path: systemRoot, kind: skillScanRootSystemGlobal})
+		roots = append(roots, skillScanRoot{path: projectRoot, kind: skillScanRootProject, scope: skillScopeProject})
 	}
 	return roots
 }
@@ -89,6 +87,8 @@ func (s *service) visitSkillEntry(root skillScanRoot, path string, entry os.DirE
 	if err != nil {
 		return nil
 	}
+	record.info.Scope = root.scope
+	record.info.PersonalType = root.personalType
 	*records = append(*records, record)
 	return nil
 }
@@ -111,9 +111,6 @@ func visitSkillDir(root skillScanRoot, path, name string, depth int) error {
 	if name == ".git" {
 		return filepath.SkipDir
 	}
-	if root.kind == skillScanRootSystemGlobal && depth > 1 {
-		return filepath.SkipDir
-	}
 	return nil
 }
 
@@ -121,15 +118,12 @@ func shouldVisitSkillFile(root skillScanRoot, name string, depth int) bool {
 	if !strings.EqualFold(name, skillMainFile) {
 		return false
 	}
-	if root.kind == skillScanRootSystemGlobal && depth != 2 {
-		return false
-	}
 	return true
 }
 
 // defaultTrustForRoot 根据 root 路径在 service 两个配置 root 中的归属，推断默认信任域。
 func (s *service) defaultTrustForRoot(root, projectSkillsRoot string) TrustScope {
-	return inferTrustFromRoot(root, projectSkillsRoot, s.root)
+	return inferTrustFromRoot(root, projectSkillsRoot, "")
 }
 
 func parseSkillRecord(root, path string, defaultTrust TrustScope) (skillRecord, error) {
@@ -442,32 +436,6 @@ func (s *service) resolveSkill(name, cwd string) (skillRecord, error) {
 		}
 	}
 	return skillRecord{}, os.ErrNotExist
-}
-
-func (s *service) writeSkill(name, content string) (string, error) {
-	root := strings.TrimSpace(s.root)
-	if root == "" {
-		return "", errors.New("skills root is not configured")
-	}
-	dir := filepath.Join(root, skillSlug(name))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
-	}
-	path := filepath.Join(dir, skillMainFile)
-	return path, os.WriteFile(path, []byte(content), 0o644)
-}
-
-func (s *service) updateSkillSummary(name, summary string) (string, string, error) {
-	record, err := s.resolveSkill(name, "")
-	if err != nil {
-		return "", "", err
-	}
-	data, err := os.ReadFile(record.path)
-	if err != nil {
-		return "", "", err
-	}
-	updated := upsertSkillSummary(string(data), summary)
-	return record.path, record.info.Name, os.WriteFile(record.path, []byte(updated), 0o644)
 }
 
 func upsertSkillSummary(content, summary string) string {

@@ -3,6 +3,9 @@ package skill
 import (
 	"context"
 	"errors"
+	"fmt"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -12,6 +15,17 @@ import (
 // regardless of whether the caller imported skill or contract.
 var ErrMissingCWD = contract.ErrSkillMissingCWD
 var ErrInvalidSkillScope = errors.New("invalid skill scope")
+var ErrSkillSystemScopeRemoved = errors.New("skill system scope has been removed")
+var ErrSkillSameNameConflict = contract.ErrSkillSameNameConflict
+
+type SkillProvider = contract.SkillProvider
+type SkillMirrorReport = contract.SkillMirrorReport
+type SkillMirrorReportItem = contract.SkillMirrorReportItem
+
+const (
+	SkillProviderClaude = contract.SkillProviderClaude
+	SkillProviderCodex  = contract.SkillProviderCodex
+)
 
 // P0b Step 5 sentinels for the candidate review gate. These are mapped to
 // jrpc2.InvalidParams by skillRPCError so the host layer can surface the
@@ -108,6 +122,7 @@ type Service interface {
 	skillPreviewer
 	skillLegacyExpander
 	skillCandidateReviewer
+	contract.SkillMirrorReconciler
 	SkillRevisionSource
 	TrustRevisionSource
 }
@@ -153,7 +168,13 @@ type skillLocalMutationStore interface {
 	// ImportLocalDir supports mode=auto|single|batch; auto preserves single
 	// skill imports and expands container directories into direct child skills.
 	ImportLocalDir(ctx context.Context, p importSkillDirParams) (any, error)
-	DeleteLocal(ctx context.Context, name string) (any, error)
+	DeleteLocal(ctx context.Context, p DeleteSkillParams) (any, error)
+}
+
+type DeleteSkillParams struct {
+	Name         string
+	Scope        string
+	PersonalType string
 }
 
 type skillRemoteStore interface {
@@ -194,4 +215,113 @@ type skillCandidateReviewer interface {
 	// approvals isolated per project.
 	LookupApproval(ctx context.Context, scope, slug, contentHash, repoFingerprint string) (*CandidateListItem, error)
 	GetCandidateByID(ctx context.Context, id int64) (*Candidate, error)
+}
+
+func (s *service) ReconcileProviderMirrors(ctx context.Context, cwd string, targets []contract.SkillProviderMirrorTarget) (contract.SkillMirrorReport, error) {
+	var report SkillMirrorReport
+	if s == nil {
+		return report, errors.New("skill service is not configured")
+	}
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" {
+		cwd = cwdFromContext(ctx)
+	}
+	if cwd == "" {
+		cwd = strings.TrimSpace(s.projectRoot)
+	}
+	if cwd == "" {
+		return report, ErrMissingCWD
+	}
+	records, conflicts, err := newCanonicalStoreForOwner(s.resolvedSuperDolphinHome(), defaultOwnerOSUID(), defaultAppProfile()).EffectiveSet(ctx, cwd)
+	if err != nil {
+		return report, err
+	}
+	mirrorTargets, err := s.providerMirrorTargets(cwd, targets)
+	if err != nil {
+		return report, err
+	}
+	report, err = PublishSkillMirrors(ctx, records, mirrorTargets)
+	appendCanonicalConflictReportItems(&report, mirrorTargets, conflicts)
+	return report, err
+}
+
+func (s *service) providerMirrorTargets(cwd string, targets []contract.SkillProviderMirrorTarget) ([]SkillMirrorTarget, error) {
+	out := make([]SkillMirrorTarget, 0, len(targets))
+	for _, target := range targets {
+		provider, err := normalizeProviderMirrorProvider(target.Provider)
+		if err != nil {
+			return nil, err
+		}
+		if isProjectProviderMirrorRoot(cwd, provider, target.SkillsRoot) {
+			fingerprint := RepoFingerprint(cwd)
+			out = append(out, SkillMirrorTarget{
+				TargetID:        string(provider) + ":project:" + fingerprint,
+				Provider:        provider,
+				Scope:           skillScopeProject,
+				Root:            strings.TrimSpace(target.SkillsRoot),
+				CanonicalRootID: fingerprint,
+			})
+			continue
+		}
+		if !s.isAppManagedProviderMirrorRoot(provider, target.HomeRoot, target.SkillsRoot) {
+			return nil, fmt.Errorf("provider mirror target is not app-managed: provider=%s skills_root=%s", provider, strings.TrimSpace(target.SkillsRoot))
+		}
+		owner, err := resolveOwnerIdentity(s.resolvedSuperDolphinHome(), defaultOwnerOSUID(), defaultAppProfile())
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, SkillMirrorTarget{
+			TargetID:        string(provider) + ":app-managed:" + owner.OwnerKey,
+			Provider:        provider,
+			Scope:           skillScopePersonal,
+			Root:            strings.TrimSpace(target.SkillsRoot),
+			CanonicalRootID: owner.OwnerKey,
+		})
+	}
+	return uniqueMirrorTargets(out), nil
+}
+
+func normalizeProviderMirrorProvider(provider string) (SkillProvider, error) {
+	normalized := SkillProvider(strings.ToLower(strings.TrimSpace(provider)))
+	if !supportedSkillProvider(normalized) {
+		return "", fmt.Errorf("unsupported skill mirror provider %q", provider)
+	}
+	return normalized, nil
+}
+
+func isProjectProviderMirrorRoot(cwd string, provider SkillProvider, skillsRoot string) bool {
+	expected := filepath.Join(strings.TrimSpace(cwd), "."+string(provider), "skills")
+	return sameCleanPath(expected, skillsRoot)
+}
+
+func (s *service) isAppManagedProviderMirrorRoot(provider SkillProvider, homeRoot, skillsRoot string) bool {
+	expectedHome := filepath.Join(s.resolvedSuperDolphinHome(), "providers", string(provider))
+	return sameCleanPath(expectedHome, homeRoot) && sameCleanPath(filepath.Join(expectedHome, "skills"), skillsRoot)
+}
+
+func sameCleanPath(a, b string) bool {
+	aa, errA := filepath.Abs(strings.TrimSpace(a))
+	bb, errB := filepath.Abs(strings.TrimSpace(b))
+	if errA != nil || errB != nil {
+		return false
+	}
+	return filepath.Clean(aa) == filepath.Clean(bb)
+}
+
+func appendCanonicalConflictReportItems(report *SkillMirrorReport, targets []SkillMirrorTarget, conflicts []canonicalSkillConflict) {
+	if report == nil || len(conflicts) == 0 {
+		return
+	}
+	for _, conflict := range conflicts {
+		for _, target := range targets {
+			report.Conflicts = append(report.Conflicts, SkillMirrorReportItem{
+				TargetID:           target.TargetID,
+				Provider:           target.Provider,
+				Scope:              target.Scope,
+				RelativeMirrorPath: skillSlug(conflict.Name),
+				ConflictKind:       skillConflictSameName,
+				Error:              ErrSkillSameNameConflict.Error(),
+			})
+		}
+	}
 }

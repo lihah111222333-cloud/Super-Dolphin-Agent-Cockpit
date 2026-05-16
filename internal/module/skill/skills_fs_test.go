@@ -40,13 +40,13 @@ func TestReadConfigReturnsExplicitStubBindingState(t *testing.T) {
 	}
 }
 
-func TestWriteSkillContentRequiresSystemReview(t *testing.T) {
+func TestWriteSkillContentRejectsRemovedSystemScope(t *testing.T) {
 	t.Parallel()
 
 	svc := newTestSkillService(t)
 	_, err := svc.WriteSkillContent(context.Background(), "demo-skill", "# demo")
-	if !errors.Is(err, ErrSkillSystemReviewRequired) {
-		t.Fatalf("WriteSkillContent error = %v, want ErrSkillSystemReviewRequired", err)
+	if !errors.Is(err, ErrSkillSystemScopeRemoved) {
+		t.Fatalf("WriteSkillContent error = %v, want ErrSkillSystemScopeRemoved", err)
 	}
 }
 
@@ -100,6 +100,135 @@ func TestWriteLocalRejectsPathOutsideSkillsRoot(t *testing.T) {
 	}
 }
 
+func TestWriteLocalPublishesProjectMirrors(t *testing.T) {
+	projectRoot := t.TempDir()
+	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), http: &http.Client{}}
+
+	out, err := svc.WriteLocal(skillTestContext(projectRoot), "build", "---\nname: build\n---\nbody", skillScopeProject)
+	if err != nil {
+		t.Fatalf("WriteLocal() error = %v", err)
+	}
+
+	result := out.(map[string]any)
+	report := mustMirrorPublishReport(t, result)
+	assertPublishedReportItem(t, report.Published, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "build", "project/build")
+	assertPublishedReportItem(t, report.Published, "codex:project:"+RepoFingerprint(projectRoot), SkillProviderCodex, skillScopeProject, "build", "project/build")
+	assertFileContent(t, filepath.Join(projectRoot, ".claude", "skills", "build", skillMainFile), "---\nname: build\n---\nbody")
+	assertFileContent(t, filepath.Join(projectRoot, ".codex", "skills", "build", skillMainFile), "---\nname: build\n---\nbody")
+}
+
+func TestWriteLocalProjectIgnoresConfiguredMirrorTargets(t *testing.T) {
+	projectRoot := t.TempDir()
+	outsideRoot := filepath.Join(t.TempDir(), "skills")
+	svc := &service{
+		projectRoot:       projectRoot,
+		projectSkillsRoot: defaultProjectSkillsRoot(projectRoot),
+		http:              &http.Client{},
+		mirrorTargets: []SkillMirrorTarget{{
+			TargetID:        "claude:project:spoofed",
+			Provider:        SkillProviderClaude,
+			Scope:           skillScopeProject,
+			Root:            outsideRoot,
+			CanonicalRootID: "spoofed",
+		}},
+	}
+
+	out, err := svc.WriteLocal(skillTestContext(projectRoot), "build", "---\nname: build\n---\nbody", skillScopeProject)
+	if err != nil {
+		t.Fatalf("WriteLocal() error = %v", err)
+	}
+
+	report := mustMirrorPublishReport(t, out.(map[string]any))
+	assertPublishedReportItem(t, report.Published, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "build", "project/build")
+	assertMissing(t, filepath.Join(outsideRoot, "build", skillMainFile))
+}
+
+func TestWriteLocalPublishConflictKeepsCanonicalResult(t *testing.T) {
+	projectRoot := t.TempDir()
+	codexMirror := filepath.Join(projectRoot, ".codex", "skills", "build")
+	mustMkdirAll(t, codexMirror)
+	mustWriteFile(t, filepath.Join(codexMirror, skillMainFile), "unmanaged")
+	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), http: &http.Client{}}
+
+	out, err := svc.WriteLocal(skillTestContext(projectRoot), "build", "---\nname: build\n---\ncanonical", skillScopeProject)
+	if err != nil {
+		t.Fatalf("WriteLocal() error = %v", err)
+	}
+
+	result := out.(map[string]any)
+	report := mustMirrorPublishReport(t, result)
+	assertConflictReportItem(t, report.Conflicts, "codex:project:"+RepoFingerprint(projectRoot), SkillProviderCodex, skillScopeProject, "build", "project/build", "unmanaged")
+	assertFileContent(t, filepath.Join(projectRoot, ".agent", "skills", "build", skillMainFile), "---\nname: build\n---\ncanonical")
+	assertFileContent(t, filepath.Join(codexMirror, skillMainFile), "unmanaged")
+}
+
+func TestWriteLocalPublishErrorReportIncludesDetail(t *testing.T) {
+	projectRoot := t.TempDir()
+	legacyRoot := filepath.Join(projectRoot, ".claude", "skills")
+	mustMkdirAll(t, filepath.Dir(legacyRoot))
+	if err := os.Symlink(filepath.Join(t.TempDir(), "skills-cache"), legacyRoot); err != nil {
+		t.Fatalf("Symlink legacy root: %v", err)
+	}
+	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), http: &http.Client{}}
+
+	out, err := svc.WriteLocal(skillTestContext(projectRoot), "build", "---\nname: build\n---\ncanonical", skillScopeProject)
+	if err != nil {
+		t.Fatalf("WriteLocal() error = %v", err)
+	}
+
+	report := mustMirrorPublishReport(t, out.(map[string]any))
+	item := findConflictReportItem(t, report.Conflicts, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "build", "project/build", "publish_error")
+	if !strings.Contains(item.Error, "symlink") {
+		t.Fatalf("publish error detail = %q, want symlink detail", item.Error)
+	}
+	assertFileContent(t, filepath.Join(projectRoot, ".agent", "skills", "build", skillMainFile), "---\nname: build\n---\ncanonical")
+}
+
+func TestWriteLocalPersonalPublishTargetsUnconfigured(t *testing.T) {
+	projectRoot := t.TempDir()
+	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
+	svc := &service{
+		projectRoot:       projectRoot,
+		projectSkillsRoot: defaultProjectSkillsRoot(projectRoot),
+		superDolphinHome:  superDolphinHome,
+		auditStore:        &capturingSkillAuditStore{},
+	}
+
+	out, err := svc.WriteLocal(skillTestContext(projectRoot), "notes", "---\nname: notes\n---\nbody", skillScopePersonal, personalSkillTypeUser)
+	if err != nil {
+		t.Fatalf("WriteLocal(personal) error = %v", err)
+	}
+
+	result := out.(map[string]any)
+	report := mustMirrorPublishReport(t, result)
+	if got := len(report.Published); got != 0 {
+		t.Fatalf("published = %d, want none without explicit personal targets", got)
+	}
+	assertConflictReportItem(t, report.Conflicts, "personal:unconfigured", "", skillScopePersonal, "", "personal/user/notes", "publish_targets_unconfigured")
+	assertMissing(t, filepath.Join(superDolphinHome, "providers", "claude", "skills", "notes", skillMainFile))
+	assertMissing(t, filepath.Join(superDolphinHome, "providers", "codex", "skills", "notes", skillMainFile))
+}
+
+func TestDeleteLocalRemovesOwnedProjectMirrors(t *testing.T) {
+	projectRoot := t.TempDir()
+	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), http: &http.Client{}}
+	if _, err := svc.WriteLocal(skillTestContext(projectRoot), "build", "---\nname: build\n---\nbody", skillScopeProject); err != nil {
+		t.Fatalf("WriteLocal() error = %v", err)
+	}
+
+	out, err := svc.DeleteLocal(skillTestContext(projectRoot), DeleteSkillParams{Name: "build", Scope: skillScopeProject})
+	if err != nil {
+		t.Fatalf("DeleteLocal() error = %v", err)
+	}
+
+	result := out.(map[string]any)
+	report := mustMirrorPublishReport(t, result)
+	assertDeletedReportItem(t, report.Deleted, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "build", "project/build")
+	assertDeletedReportItem(t, report.Deleted, "codex:project:"+RepoFingerprint(projectRoot), SkillProviderCodex, skillScopeProject, "build", "project/build")
+	assertMissing(t, filepath.Join(projectRoot, ".claude", "skills", "build"))
+	assertMissing(t, filepath.Join(projectRoot, ".codex", "skills", "build"))
+}
+
 func TestReadLocalAcceptsPathInsideProjectSkillsRoot(t *testing.T) {
 	t.Parallel()
 
@@ -132,13 +261,13 @@ func TestReadLocalAcceptsPathInsideProjectSkillsRoot(t *testing.T) {
 	}
 }
 
-func TestListSkillsMergesProjectAndSystemRoots(t *testing.T) {
+func TestListSkillsIgnoresLegacySystemRoot(t *testing.T) {
 	t.Parallel()
 
 	systemRoot := t.TempDir()
 	projectRoot := t.TempDir()
 	projectSkillsRoot := defaultProjectSkillsRoot(projectRoot)
-	writeScopedSystemSkill(t, systemRoot, projectRoot, "from-system", "# system")
+	writeTestSkill(t, systemRoot, "from-system", "# system")
 	writeTestSkill(t, projectSkillsRoot, "from-project", "# project")
 	svc := &service{root: systemRoot, projectRoot: projectRoot, projectSkillsRoot: projectSkillsRoot, http: &http.Client{}}
 
@@ -150,8 +279,8 @@ func TestListSkillsMergesProjectAndSystemRoots(t *testing.T) {
 	for _, skill := range skills {
 		names[skill.Name] = true
 	}
-	if !names["from-system"] || !names["from-project"] {
-		t.Fatalf("ListSkills() names = %#v, want both roots covered", names)
+	if names["from-system"] || !names["from-project"] {
+		t.Fatalf("ListSkills() names = %#v, want project only", names)
 	}
 }
 
@@ -309,7 +438,7 @@ func TestImportLocalDirAcceptsSourceOutsideProjectRoot(t *testing.T) {
 	}
 }
 
-func TestImportLocalDirRejectsSourceInsideSkillsRoot(t *testing.T) {
+func TestImportLocalDirAcceptsLegacyRootAsExplicitSource(t *testing.T) {
 	t.Parallel()
 
 	skillsRoot := t.TempDir()
@@ -331,12 +460,11 @@ func TestImportLocalDirRejectsSourceInsideSkillsRoot(t *testing.T) {
 	if !ok {
 		t.Fatalf("ImportLocalDir() result type = %T", out)
 	}
-	failures, ok := result["failures"].([]map[string]any)
-	if !ok || len(failures) != 1 {
-		t.Fatalf("ImportLocalDir() failures = %#v, want single failure", result["failures"])
+	if got, present := result["failures"]; present {
+		t.Fatalf("ImportLocalDir() failures = %#v, want no failures", got)
 	}
-	if got, want := failures[0]["error"], "source is inside skills root: "+sourceDir; got != want {
-		t.Fatalf("ImportLocalDir() failure error = %#v, want %q", got, want)
+	if _, err := os.Stat(filepath.Join(projectRoot, ".agent", "skills", "demo-skill", skillMainFile)); err != nil {
+		t.Fatalf("imported project SKILL.md stat err = %v", err)
 	}
 }
 

@@ -115,6 +115,26 @@ func TestImportLocalDir_SingleStillWorks_BackwardCompat(t *testing.T) {
 	}
 }
 
+func TestImportLocalDirPublishesProjectMirrors(t *testing.T) {
+	svc, projectRoot := newImportDirTestService(t)
+	source := filepath.Join(t.TempDir(), "demo-skill")
+	mustMkdirAll(t, filepath.Join(source, "references"))
+	mustWriteFile(t, filepath.Join(source, skillMainFile), "---\nname: demo-skill\n---\nbody")
+	mustWriteFile(t, filepath.Join(source, "references", "guide.md"), "details")
+
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source})
+	if err != nil {
+		t.Fatalf("ImportLocalDir() error = %v", err)
+	}
+
+	result := mustImportDirResult(t, out)
+	report := mustMirrorPublishReport(t, result)
+	assertPublishedReportItem(t, report.Published, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "demo-skill", "project/demo-skill")
+	assertPublishedReportItem(t, report.Published, "codex:project:"+RepoFingerprint(projectRoot), SkillProviderCodex, skillScopeProject, "demo-skill", "project/demo-skill")
+	assertFileContent(t, filepath.Join(projectRoot, ".claude", "skills", "demo-skill", "references", "guide.md"), "details")
+	assertFileContent(t, filepath.Join(projectRoot, ".codex", "skills", "demo-skill", skillMainFile), "---\nname: demo-skill\n---\nbody")
+}
+
 func TestImportLocalDir_EmptyDirError(t *testing.T) {
 	t.Parallel()
 
