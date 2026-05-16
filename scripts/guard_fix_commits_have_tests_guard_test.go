@@ -29,8 +29,8 @@ func TestGuardFixCommitsHaveTestsCached(t *testing.T) {
 			name:    "allows fix with go test",
 			subject: "fix(worker): fence async transition",
 			files: map[string]string{
-				"internal/worker/state.go":      "package worker\n\nfunc transition() {}\n",
-				"internal/worker/state_test.go": "package worker\n\nimport \"testing\"\n\nfunc TestTransitionBug(t *testing.T) {}\n",
+				"internal/worker/state.go":      "package worker\n\nfunc transition() string { return \"ready\" }\n",
+				"internal/worker/state_test.go": "package worker\n\nimport \"testing\"\n\nfunc TestTransitionBug(t *testing.T) {\n\tif got := transition(); got != \"ready\" {\n\t\tt.Fatalf(\"transition() = %q, want ready\", got)\n\t}\n}\n",
 			},
 		},
 		{
@@ -101,8 +101,8 @@ func TestGuardFixCommitsHaveTestsRange(t *testing.T) {
 
 	t.Run("allows pushed fix commit with test", func(t *testing.T) {
 		root := prepareFixTestGuardRepo(t)
-		writeFixTestGuardFile(t, root, "internal/app/parser.go", "package app\n\nfunc parse() {}\n")
-		writeFixTestGuardFile(t, root, "internal/app/parser_test.go", "package app\n\nimport \"testing\"\n\nfunc TestParserPanicBug(t *testing.T) {}\n")
+		writeFixTestGuardFile(t, root, "internal/app/parser.go", "package app\n\nfunc parse(input string) string {\n\tif input == \"\" {\n\t\treturn \"empty\"\n\t}\n\treturn \"ok\"\n}\n")
+		writeFixTestGuardFile(t, root, "internal/app/parser_test.go", "package app\n\nimport \"testing\"\n\nfunc TestParserPanicBug(t *testing.T) {\n\tif got := parse(\"\"); got != \"empty\" {\n\t\tt.Fatalf(\"parse(empty) = %q, want empty\", got)\n\t}\n}\n")
 		runFixTestGuardGit(t, root, "add", ".")
 		runFixTestGuardGit(t, root, "commit", "-m", "fix!: repair parser panic")
 
