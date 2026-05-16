@@ -145,10 +145,9 @@ func (s *Sandbox) ShellRequest(command string, workDir string, timeout time.Dura
 // target cwd.
 func (s *Sandbox) effectiveRoot(ctx context.Context) string {
 	if ctx != nil {
-		if cwd, ok := ctx.Value(common.CwdContextKey).(string); ok {
-			if normalized, err := normalizePath(strings.TrimSpace(cwd)); err == nil && normalized != "" {
-				return normalized
-			}
+		root := common.WorkspaceRootFromContext(ctx, s.rootDir)
+		if normalized, err := normalizePath(strings.TrimSpace(root)); err == nil && normalized != "" {
+			return normalized
 		}
 	}
 	return s.rootDir
