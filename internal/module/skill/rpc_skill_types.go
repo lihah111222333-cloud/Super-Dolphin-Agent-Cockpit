@@ -6,10 +6,11 @@ type pathParams struct {
 }
 
 type contentParams struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
-	Scope   string `json:"scope,omitempty"`
-	CWD     string `json:"cwd,omitempty"`
+	Path         string `json:"path"`
+	Content      string `json:"content"`
+	Scope        string `json:"scope,omitempty"`
+	PersonalType string `json:"personal_type,omitempty"`
+	CWD          string `json:"cwd,omitempty"`
 }
 
 type listSkillFilesParams struct {
@@ -19,17 +20,20 @@ type listSkillFilesParams struct {
 }
 
 type importSkillDirParams struct {
-	Path  string   `json:"path"`
-	Paths []string `json:"paths,omitempty"`
-	Name  string   `json:"name,omitempty"`
-	Mode  string   `json:"mode,omitempty"`
-	Scope string   `json:"scope,omitempty"`
-	CWD   string   `json:"cwd,omitempty"`
+	Path         string   `json:"path"`
+	Paths        []string `json:"paths,omitempty"`
+	Name         string   `json:"name,omitempty"`
+	Mode         string   `json:"mode,omitempty"`
+	Scope        string   `json:"scope,omitempty"`
+	PersonalType string   `json:"personal_type,omitempty"`
+	CWD          string   `json:"cwd,omitempty"`
 }
 
 type deleteLocalSkillParams struct {
-	Name string `json:"name"`
-	CWD  string `json:"cwd,omitempty"`
+	Name         string `json:"name"`
+	Scope        string `json:"scope,omitempty"`
+	PersonalType string `json:"personal_type,omitempty"`
+	CWD          string `json:"cwd,omitempty"`
 }
 
 // createSkillParams is the input to skills/create. It is the host-side entry
@@ -48,13 +52,19 @@ type skillConfigReadParams struct {
 }
 
 type skillNamedContentParams struct {
-	Name    string `json:"name"`
-	Content string `json:"content"`
+	Name         string `json:"name"`
+	Content      string `json:"content"`
+	Scope        string `json:"scope,omitempty"`
+	PersonalType string `json:"personal_type,omitempty"`
+	CWD          string `json:"cwd,omitempty"`
 }
 
 type skillSummaryWriteParams struct {
-	Name    string `json:"name"`
-	Summary string `json:"summary"`
+	Name         string `json:"name"`
+	Summary      string `json:"summary"`
+	Scope        string `json:"scope,omitempty"`
+	PersonalType string `json:"personal_type,omitempty"`
+	CWD          string `json:"cwd,omitempty"`
 }
 
 type skillRemoteReadParams struct {
@@ -84,6 +94,8 @@ type skillListParams struct {
 
 type skillListItem struct {
 	Name                   string     `json:"name"`
+	Scope                  string     `json:"scope,omitempty"`
+	PersonalType           string     `json:"personal_type,omitempty"`
 	Summary                string     `json:"summary"`
 	Description            string     `json:"description"`
 	Trust                  TrustScope `json:"trust"`

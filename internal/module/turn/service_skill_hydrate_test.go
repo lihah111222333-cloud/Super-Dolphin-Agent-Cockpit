@@ -207,3 +207,32 @@ func TestHydrateSkillRefsListSkillsErrorReturnsOriginal(t *testing.T) {
 		t.Fatalf("ListSkills should be called once before giving up, got %d", lookup.calls.list)
 	}
 }
+
+func TestHydrateSkillRefsSameNameConflictFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	lookup := &stubSkillLookup{listErr: contract.ErrSkillSameNameConflict}
+	svc := newService(silentLogger(), nil, nil, lookup, nil, nil, nil).(*service)
+	original := []dto.SkillRef{{Name: "debug"}}
+
+	_, err := svc.hydrateSkillRefs(contract.WithSkillCWD(context.Background(), "/repo"), original, false)
+	if !errors.Is(err, contract.ErrSkillSameNameConflict) {
+		t.Fatalf("hydrateSkillRefs error = %v, want ErrSkillSameNameConflict", err)
+	}
+}
+
+func TestHydrateSkillRefsCaseFoldedDuplicateFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	lookup := &stubSkillLookup{infos: []contract.SkillInfo{
+		{Name: "Build", Dir: "/tmp/skills/Build", ContentHash: "1111111111111111"},
+		{Name: "build", Dir: "/tmp/skills/build", ContentHash: "2222222222222222"},
+	}}
+	svc := newService(silentLogger(), nil, nil, lookup, nil, nil, nil).(*service)
+	original := []dto.SkillRef{{Name: "build"}}
+
+	_, err := svc.hydrateSkillRefs(contract.WithSkillCWD(context.Background(), "/repo"), original, false)
+	if !errors.Is(err, contract.ErrSkillSameNameConflict) {
+		t.Fatalf("hydrateSkillRefs duplicate error = %v, want ErrSkillSameNameConflict", err)
+	}
+}

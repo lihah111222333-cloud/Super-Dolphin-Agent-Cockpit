@@ -131,7 +131,7 @@ func TestNewServiceOmitsProjectSkillsRootWhenProjectRootEmpty(t *testing.T) {
 	}
 }
 
-func TestDefaultSkillsRootHonorsSkillsRootEnvOverride(t *testing.T) {
+func TestNewServiceIgnoresLegacySkillsRootEnvOverride(t *testing.T) {
 	override := t.TempDir()
 	t.Setenv("SKILLS_ROOT", "  "+override+"  ")
 
@@ -139,7 +139,7 @@ func TestDefaultSkillsRootHonorsSkillsRootEnvOverride(t *testing.T) {
 	if !ok {
 		t.Fatal("NewService type assertion failed")
 	}
-	if impl.root != override {
-		t.Fatalf("root mismatch: got %q want %q", impl.root, override)
+	if impl.root != "" {
+		t.Fatalf("legacy root = %q, want empty", impl.root)
 	}
 }

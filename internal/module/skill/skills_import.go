@@ -1,6 +1,7 @@
 package skill
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -46,18 +47,18 @@ func collectImportSources(primary string, extra []string) ([]string, error) {
 	return uniqStrings(sources), nil
 }
 
-func (s *service) importSources(sources []string, singleName, cwd, scope, mode string) ([]map[string]any, []map[string]any) {
+func (s *service) importSources(sources []string, singleName, cwd, scope, personalType, mode string) ([]map[string]any, []map[string]any) {
 	results := make([]map[string]any, 0, len(sources))
 	failures := make([]map[string]any, 0)
 	for _, source := range sources {
-		sourceResults, sourceFailures := s.importSource(source, singleName, cwd, scope, mode)
+		sourceResults, sourceFailures := s.importSource(source, singleName, cwd, scope, personalType, mode)
 		results = append(results, sourceResults...)
 		failures = append(failures, sourceFailures...)
 	}
 	return results, failures
 }
 
-func (s *service) importSource(source, name, cwd, scope, mode string) ([]map[string]any, []map[string]any) {
+func (s *service) importSource(source, name, cwd, scope, personalType, mode string) ([]map[string]any, []map[string]any) {
 	resolvedSource, err := validateImportSource(source)
 	if err != nil {
 		return nil, []map[string]any{importFailure(source, err)}
@@ -67,7 +68,7 @@ func (s *service) importSource(source, name, cwd, scope, mode string) ([]map[str
 		return nil, []map[string]any{importFailure(source, err)}
 	}
 	if resolvedMode == importModeSingle {
-		result, err := s.importSkillUnit(resolvedSource, name, cwd, scope, source)
+		result, err := s.importSkillUnit(resolvedSource, name, cwd, scope, personalType, source)
 		if err != nil {
 			return nil, []map[string]any{importFailure(source, err)}
 		}
@@ -76,7 +77,7 @@ func (s *service) importSource(source, name, cwd, scope, mode string) ([]map[str
 	if strings.TrimSpace(name) != "" {
 		return nil, []map[string]any{importFailure(source, errors.New("name is not allowed in batch mode"))}
 	}
-	return s.importBatchSource(resolvedSource, cwd, scope)
+	return s.importBatchSource(resolvedSource, cwd, scope, personalType)
 }
 
 func detectImportMode(resolvedSource, requestedMode string) (string, error) {
@@ -100,7 +101,7 @@ func detectImportMode(resolvedSource, requestedMode string) (string, error) {
 	}
 }
 
-func (s *service) importBatchSource(container, cwd, scope string) ([]map[string]any, []map[string]any) {
+func (s *service) importBatchSource(container, cwd, scope, personalType string) ([]map[string]any, []map[string]any) {
 	skillDirs, failures, err := collectBatchSkillDirs(container)
 	if err != nil {
 		return nil, []map[string]any{importFailure(container, err)}
@@ -113,7 +114,7 @@ func (s *service) importBatchSource(container, cwd, scope string) ([]map[string]
 	}
 	results := make([]map[string]any, 0, len(skillDirs))
 	for _, skillDir := range skillDirs {
-		result, err := s.importSkillUnit(skillDir, "", cwd, scope, skillDir)
+		result, err := s.importSkillUnit(skillDir, "", cwd, scope, personalType, skillDir)
 		if err != nil {
 			failures = append(failures, importFailure(skillDir, err))
 			continue
@@ -162,8 +163,8 @@ func skillMainFileExists(dir string) bool {
 	return err == nil && !info.IsDir()
 }
 
-func (s *service) importSkillUnit(resolvedSource, name, cwd, scope, originalSource string) (map[string]any, error) {
-	normalizedScope, err := normalizeSkillScope(scope)
+func (s *service) importSkillUnit(resolvedSource, name, cwd, scope, personalType, originalSource string) (map[string]any, error) {
+	normalizedScope, normalizedPersonalType, err := normalizeSkillTarget(scope, personalType)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +175,7 @@ func (s *service) importSkillUnit(resolvedSource, name, cwd, scope, originalSour
 	if err := RequireSkillSystemReview(normalizedScope, skillSlug(targetName), skillDirContentHash(resolvedSource), RepoFingerprint(cwd), "", ""); err != nil {
 		return nil, err
 	}
-	root, err := s.prepareScopedSkillsRoot(cwd, scope)
+	root, err := s.prepareScopedSkillsRoot(cwd, normalizedScope, normalizedPersonalType)
 	if err != nil {
 		return nil, err
 	}
@@ -185,9 +186,35 @@ func (s *service) importSkillUnit(resolvedSource, name, cwd, scope, originalSour
 	if err := ensureSkillDirAbsent(targetDir, targetName); err != nil {
 		return nil, err
 	}
+	if normalizedScope == skillScopePersonal {
+		return s.importPersonalSkillUnit(resolvedSource, targetName, targetDir, normalizedScope, normalizedPersonalType)
+	}
 	files, bytes, err := copySkillDir(resolvedSource, targetDir)
 	if err != nil {
 		_ = os.RemoveAll(targetDir)
+		return nil, err
+	}
+	return map[string]any{
+		"name":       targetName,
+		"dir":        targetDir,
+		"skill_file": filepath.Join(targetDir, skillMainFile),
+		"source":     resolvedSource,
+		"files":      files,
+		"bytes":      bytes,
+	}, nil
+}
+
+func (s *service) importPersonalSkillUnit(resolvedSource, targetName, targetDir, scope, personalType string) (map[string]any, error) {
+	record, err := s.preparePersonalMutation(context.Background(), "personal_import", targetName, targetDir, scope, personalType)
+	if err != nil {
+		return nil, err
+	}
+	files, bytes, err := copySkillDir(resolvedSource, targetDir)
+	if err != nil {
+		_ = os.RemoveAll(targetDir)
+		return nil, err
+	}
+	if err := s.finalizePersonalMutation(context.Background(), "personal_import", targetDir, record); err != nil {
 		return nil, err
 	}
 	return map[string]any{

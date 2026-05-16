@@ -14,7 +14,7 @@ func TestListSkillsScopesByRequestCWD(t *testing.T) {
 
 	svc, projectA, projectB := setupScopedSkillService(t)
 	assertScopedSkillList(t, svc, projectA, "scoped", []string{"local-a", "shared"}, "local-b")
-	assertScopedSkillList(t, svc, projectB, "project B", []string{"local-b", "shared"}, "local-a")
+	assertScopedSkillList(t, svc, projectB, "project B", []string{"local-b"}, "local-a")
 }
 
 func setupScopedSkillService(t *testing.T) (*service, string, string) {
@@ -48,11 +48,12 @@ func assertScopedSkillList(t *testing.T, svc *service, cwd, label string, wantNa
 		t.Fatalf("ListSkills %s: %v", label, err)
 	}
 	names, summaries := skillNamesAndSummaries(skills)
-	if len(skills) != 2 {
-		t.Fatalf("len(%s skills) = %d, want 2 (%v)", label, len(skills), names)
+	if len(skills) != len(wantNames) {
+		t.Fatalf("len(%s skills) = %d, want %d (%v)", label, len(skills), len(wantNames), names)
 	}
 	assertSkillNames(t, label, names, wantNames, leakedName)
-	if got := summaries["shared"]; got != "global" {
+	if containsString(wantNames, "shared") && summaries["shared"] != "global" {
+		got := summaries["shared"]
 		t.Fatalf("%s shared summary = %q, want global", label, got)
 	}
 }
@@ -131,8 +132,8 @@ func TestAllSkillServiceMethodsRequireCWD(t *testing.T) {
 
 func writeScopedSystemSkill(t *testing.T, systemRoot, cwd, name, content string) string {
 	t.Helper()
-	_ = cwd
-	dir := filepath.Join(systemRoot, name)
+	_ = systemRoot
+	dir := filepath.Join(defaultProjectSkillsRoot(cwd), name)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir system skill: %v", err)
 	}

@@ -3,6 +3,7 @@ package skill
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"strings"
@@ -16,9 +17,9 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util/repofingerprint"
 )
 
-func namedContentHandler(fn func(context.Context, string, string) (any, error)) handler.Func {
+func namedContentHandler(fn func(context.Context, skillNamedContentParams) (any, error)) handler.Func {
 	return platformrpc.StrictHandler(func(ctx context.Context, p skillNamedContentParams) (any, error) {
-		return fn(ctx, p.Name, p.Content)
+		return fn(ctx, p)
 	})
 }
 
@@ -27,6 +28,8 @@ func skillListPayload(skills []SkillInfo) skillListResult {
 	for _, info := range skills {
 		items = append(items, skillListItem{
 			Name:                   info.Name,
+			Scope:                  info.Scope,
+			PersonalType:           info.PersonalType,
 			Summary:                info.Summary,
 			Description:            info.Description,
 			Trust:                  info.Trust,
@@ -122,13 +125,35 @@ func skillRPCError(err error) error {
 	if errors.As(err, &rpcErr) {
 		return err
 	}
+	if mapped := skillRPCCommonError(err); mapped != nil {
+		return mapped
+	}
+	if mapped := skillRPCApprovalError(err); mapped != nil {
+		return mapped
+	}
+	if skillRPCCandidateParamError(err) {
+		return platformrpc.ErrInvalidParams(err.Error())
+	}
+	return err
+}
+
+func skillRPCCommonError(err error) error {
 	switch {
 	case errors.Is(err, ErrMissingCWD):
 		return platformrpc.ErrInvalidParams(err.Error())
 	case errors.Is(err, os.ErrNotExist):
 		return platformrpc.ErrNotFound(err.Error())
-	case errors.Is(err, ErrInvalidSkillName), errors.Is(err, errInvalidSkillExpandParam), errors.Is(err, ErrInvalidSkillScope):
+	case errors.Is(err, ErrSkillSameNameConflict):
+		return platformrpc.ErrConflict(err.Error())
+	case errors.Is(err, ErrInvalidSkillName), errors.Is(err, errInvalidSkillExpandParam), errors.Is(err, ErrInvalidSkillScope), errors.Is(err, ErrSkillSystemScopeRemoved):
 		return platformrpc.ErrInvalidParams(err.Error())
+	default:
+		return nil
+	}
+}
+
+func skillRPCApprovalError(err error) error {
+	switch {
 	case errors.Is(err, errSkillApprovalRequired):
 		rpcErr := jrpc2.Errorf(platformrpc.CodeInvalidState, "%s", err.Error())
 		var required SkillApprovalRequiredError
@@ -138,15 +163,17 @@ func skillRPCError(err error) error {
 		return rpcErr
 	case errors.Is(err, ErrSkillSystemReviewRequired), errors.Is(err, errSkillApprovalDenied), errors.Is(err, errSkillApprovalRequesterUnavailable), errors.Is(err, errSkillApprovalProjectCacheMissing):
 		return jrpc2.Errorf(jrpc2.InternalError, "%s", err.Error())
-	case errors.Is(err, ErrCandidateApprovedByRequired),
-		errors.Is(err, ErrCandidateMissingFingerprint),
-		errors.Is(err, ErrCallerFingerprintRequired),
-		errors.Is(err, ErrRepoFingerprintMismatch),
-		errors.Is(err, ErrCandidateNotPending):
-		return platformrpc.ErrInvalidParams(err.Error())
 	default:
-		return err
+		return nil
 	}
+}
+
+func skillRPCCandidateParamError(err error) bool {
+	return errors.Is(err, ErrCandidateApprovedByRequired) ||
+		errors.Is(err, ErrCandidateMissingFingerprint) ||
+		errors.Is(err, ErrCallerFingerprintRequired) ||
+		errors.Is(err, ErrRepoFingerprintMismatch) ||
+		errors.Is(err, ErrCandidateNotPending)
 }
 
 func requireRequestCWD(cwd string) error {
@@ -233,20 +260,20 @@ func skillRemoteHandlers(svc Service) handler.Map {
 		"skills/remote/list": platformrpc.StrictHandler(func(ctx context.Context, p skillRemoteReadParams) (any, error) {
 			return svc.ReadRemote(ctx, p.URL)
 		}),
-		"skills/remote/export": namedContentHandler(func(ctx context.Context, name, content string) (any, error) {
-			return svc.WriteRemote(ctx, name, content)
+		"skills/remote/export": namedContentHandler(func(ctx context.Context, p skillNamedContentParams) (any, error) {
+			return svc.WriteRemote(ctx, p.Name, p.Content)
 		}),
 		"skills/remote/read": platformrpc.StrictHandler(func(ctx context.Context, p skillRemoteReadParams) (any, error) {
 			return svc.ReadRemote(ctx, p.URL)
 		}),
-		"skills/remote/write": namedContentHandler(func(ctx context.Context, name, content string) (any, error) {
-			return svc.WriteRemote(ctx, name, content)
+		"skills/remote/write": namedContentHandler(func(ctx context.Context, p skillNamedContentParams) (any, error) {
+			return svc.WriteRemote(ctx, p.Name, p.Content)
 		}),
 		"skills/config/read": platformrpc.StrictHandler(func(ctx context.Context, p skillConfigReadParams) (any, error) {
 			return svc.ReadConfig(ctx, p.AgentID)
 		}),
-		"skills/config/write": namedContentHandler(func(ctx context.Context, name, content string) (any, error) {
-			return svc.WriteSkillContent(ctx, name, content)
+		"skills/config/write": namedContentHandler(func(ctx context.Context, p skillNamedContentParams) (any, error) {
+			return svc.WriteSkillContent(ctx, p.Name, p.Content)
 		}),
 		"skills/summary/write": platformrpc.StrictHandler(func(ctx context.Context, p skillSummaryWriteParams) (any, error) {
 			return svc.WriteSummary(ctx, p.Name, p.Summary)
@@ -308,7 +335,11 @@ func skillLocalReadHandler(svc Service) func(context.Context, pathParams) (any, 
 		if err != nil {
 			return nil, err
 		}
-		return svc.ReadLocal(scopedCtx, p.Path)
+		result, err := svc.ReadLocal(scopedCtx, p.Path)
+		if err != nil {
+			return nil, skillRPCError(err)
+		}
+		return result, nil
 	}
 }
 
@@ -318,7 +349,11 @@ func skillLocalListFilesHandler(svc Service) func(context.Context, listSkillFile
 		if err != nil {
 			return nil, err
 		}
-		return svc.ListLocalFiles(scopedCtx, p)
+		result, err := svc.ListLocalFiles(scopedCtx, p)
+		if err != nil {
+			return nil, skillRPCError(err)
+		}
+		return result, nil
 	}
 }
 
@@ -328,7 +363,11 @@ func skillLocalWriteHandler(svc Service) func(context.Context, contentParams) (a
 		if err != nil {
 			return nil, err
 		}
-		return svc.WriteLocal(scopedCtx, p.Path, p.Content, p.Scope)
+		result, err := svc.WriteLocal(scopedCtx, p.Path, p.Content, p.Scope, p.PersonalType)
+		if err != nil {
+			return nil, skillRPCError(err)
+		}
+		return result, nil
 	}
 }
 
@@ -338,7 +377,11 @@ func skillLocalImportDirHandler(svc Service) func(context.Context, importSkillDi
 		if err != nil {
 			return nil, err
 		}
-		return svc.ImportLocalDir(scopedCtx, p)
+		result, err := svc.ImportLocalDir(scopedCtx, p)
+		if err != nil {
+			return nil, skillRPCError(err)
+		}
+		return result, nil
 	}
 }
 
@@ -348,7 +391,18 @@ func skillLocalDeleteHandler(svc Service) func(context.Context, deleteLocalSkill
 		if err != nil {
 			return nil, err
 		}
-		return svc.DeleteLocal(scopedCtx, p.Name)
+		if strings.TrimSpace(p.Scope) == "" {
+			return nil, skillRPCError(fmt.Errorf("%w: scope is required", ErrInvalidSkillScope))
+		}
+		result, err := svc.DeleteLocal(scopedCtx, DeleteSkillParams{
+			Name:         p.Name,
+			Scope:        p.Scope,
+			PersonalType: p.PersonalType,
+		})
+		if err != nil {
+			return nil, skillRPCError(err)
+		}
+		return result, nil
 	}
 }
 
@@ -358,7 +412,11 @@ func skillMatchPreviewHandler(svc Service) func(context.Context, skillMatchPrevi
 		if err != nil {
 			return nil, err
 		}
-		return svc.MatchPreview(scopedCtx, p.AgentID, p.ThreadID, p.Text, p.Input)
+		result, err := svc.MatchPreview(scopedCtx, p.AgentID, p.ThreadID, p.Text, p.Input)
+		if err != nil {
+			return nil, skillRPCError(err)
+		}
+		return result, nil
 	}
 }
 

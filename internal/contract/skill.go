@@ -56,6 +56,8 @@ func (t TrustScope) Trusted() bool {
 type SkillInfo struct {
 	Name         string   `json:"name"`
 	Dir          string   `json:"dir"`
+	Scope        string   `json:"scope,omitempty"`
+	PersonalType string   `json:"personal_type,omitempty"`
 	Description  string   `json:"description"`
 	Summary      string   `json:"summary"`
 	TriggerWords []string `json:"trigger_words,omitempty"`
@@ -160,6 +162,46 @@ func IsValidArtifactKind(kind string) bool {
 type SkillHydrationSource interface {
 	SkillLister
 	ReadLocal(ctx context.Context, path string) (any, error)
+}
+
+// ---------------------------------------------------------------------------
+// Skill mirror provider cutover contracts
+// ---------------------------------------------------------------------------
+
+type SkillProvider string
+
+const (
+	SkillProviderClaude SkillProvider = "claude"
+	SkillProviderCodex  SkillProvider = "codex"
+)
+
+type SkillMirrorReport struct {
+	Published []SkillMirrorReportItem `json:"published,omitempty"`
+	Skipped   []SkillMirrorReportItem `json:"skipped,omitempty"`
+	Deleted   []SkillMirrorReportItem `json:"deleted,omitempty"`
+	Conflicts []SkillMirrorReportItem `json:"conflicts,omitempty"`
+}
+
+type SkillMirrorReportItem struct {
+	TargetID           string        `json:"target_id"`
+	Provider           SkillProvider `json:"provider,omitempty"`
+	Scope              string        `json:"scope,omitempty"`
+	RelativeMirrorPath string        `json:"relative_mirror_path,omitempty"`
+	CanonicalID        string        `json:"canonical_id,omitempty"`
+	OldHash            string        `json:"old_hash,omitempty"`
+	NewHash            string        `json:"new_hash,omitempty"`
+	ConflictKind       string        `json:"conflict_kind,omitempty"`
+	Error              string        `json:"error,omitempty"`
+}
+
+type SkillProviderMirrorTarget struct {
+	Provider   string `json:"provider"`
+	HomeRoot   string `json:"home_root"`
+	SkillsRoot string `json:"skills_root"`
+}
+
+type SkillMirrorReconciler interface {
+	ReconcileProviderMirrors(ctx context.Context, cwd string, targets []SkillProviderMirrorTarget) (SkillMirrorReport, error)
 }
 
 // ---------------------------------------------------------------------------

@@ -20,6 +20,7 @@ var Module = fx.Module("skill",
 		ProvideSkillLister,
 		ProvideSkillCatalogSource,
 		ProvideSkillHydrationSource,
+		ProvideSkillMirrorReconciler,
 	),
 	fx.Provide(NewSkillHandlers),
 )
@@ -31,7 +32,7 @@ type serviceDeps struct {
 	Dispatcher      *event.Dispatcher
 	DisclosureTiers contract.SkillDisclosureTierSource `optional:"true"`
 	CandidateStore  skillcandidate.Store               `optional:"true"`
-	AuditStore      auditstore.Store                   `optional:"true"`
+	AuditStore      auditstore.Store
 }
 
 func newService(deps serviceDeps) Service {
@@ -46,9 +47,7 @@ func newService(deps serviceDeps) Service {
 		if deps.CandidateStore != nil {
 			impl.candidateStore = deps.CandidateStore
 		}
-		if deps.AuditStore != nil {
-			impl.auditStore = deps.AuditStore
-		}
+		impl.auditStore = deps.AuditStore
 	}
 	return svc
 }
@@ -58,3 +57,5 @@ func ProvideSkillLister(svc Service) SkillLister { return svc }
 func ProvideSkillCatalogSource(svc Service) SkillCatalogSource { return svc }
 
 func ProvideSkillHydrationSource(svc Service) SkillHydrationSource { return svc }
+
+func ProvideSkillMirrorReconciler(svc Service) contract.SkillMirrorReconciler { return svc }
