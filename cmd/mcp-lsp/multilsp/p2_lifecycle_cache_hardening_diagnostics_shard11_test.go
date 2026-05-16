@@ -21,7 +21,7 @@ func TestDiagnosticsAllRefreshesStaleScopedDiagnosticBeforeReturn(t *testing.T) 
 	factory := &diagnosticsRefreshClientFactory{}
 	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory, DiagnosticsMaxWait: 1}).(*manager)
 	t.Cleanup(func() { _ = mgr.Close() })
-	ctx := scopedDiagnosticsTestContext("agent-stale-all", "thread-1")
+	ctx := scopedDiagnosticsTestContext(root, "agent-stale-all", "thread-1")
 	uri := fileURIFromPath(target)
 	if err := mgr.BootstrapDocument(ctx, uri); err != nil {
 		t.Fatalf("BootstrapDocument: %v", err)
@@ -51,7 +51,7 @@ func TestDiagnosticsAllBootstrapsUntrackedExistingDiagnosticURI(t *testing.T) {
 	factory := &p2DiagnosticsFactory{publishOnOpen: "bootstrapped"}
 	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory, DiagnosticsMaxWait: 1}).(*manager)
 	t.Cleanup(func() { _ = mgr.Close() })
-	ctx := scopedDiagnosticsTestContext("agent-cache", "thread-1")
+	ctx := scopedDiagnosticsTestContext(root, "agent-cache", "thread-1")
 	ref, _, scope, err := mgr.resolvedScopeForURI(ctx, fileURIFromPath(target), "typescript")
 	if err != nil {
 		t.Fatalf("resolvedScopeForURI: %v", err)
@@ -75,7 +75,7 @@ func TestDiagnosticsAllDeletedFileClearsDiagnosticsAndTombstones(t *testing.T) {
 	writeGenericTestFile(t, target, "package deletedall\n")
 	mgr := NewManager(Config{WorkspaceRoot: root}).(*manager)
 	t.Cleanup(func() { _ = mgr.Close() })
-	ctx := scopedDiagnosticsTestContext("agent-deleted-all", "thread-1")
+	ctx := scopedDiagnosticsTestContext(root, "agent-deleted-all", "thread-1")
 	ref, _, scope, err := mgr.resolvedScopeForURI(ctx, fileURIFromPath(target), "go")
 	if err != nil {
 		t.Fatalf("resolvedScopeForURI: %v", err)
@@ -116,7 +116,7 @@ func TestDidChangeAdvancesBootstrapCacheVersionForFullDiskBackedText(t *testing.
 	factory := &p2DiagnosticsFactory{}
 	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
 	t.Cleanup(func() { _ = mgr.Close() })
-	ctx := scopedDiagnosticsTestContext("agent-change", "thread-1")
+	ctx := scopedDiagnosticsTestContext(root, "agent-change", "thread-1")
 	if err := mgr.BootstrapDocument(ctx, target); err != nil {
 		t.Fatalf("BootstrapDocument: %v", err)
 	}

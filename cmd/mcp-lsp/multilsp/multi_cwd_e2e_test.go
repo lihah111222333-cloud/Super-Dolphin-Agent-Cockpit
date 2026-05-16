@@ -397,7 +397,7 @@ func runXRefMethods(t *testing.T, ctx context.Context, mgr *manager, uri string,
 	if _, err := mgr.CallHierarchy(ctx, uri, pos, "both"); err != nil {
 		t.Errorf("CallHierarchy(%s): %v", uri, err)
 	}
-	if _, err := mgr.TypeHierarchy(ctx, uri, pos, "subtypes"); err != nil {
+	if _, err := mgr.TypeHierarchy(ctx, uri, pos, ""); err != nil {
 		t.Errorf("TypeHierarchy(%s): %v", uri, err)
 	}
 }
@@ -483,7 +483,7 @@ func collectAllLSPMethodErrors(ctx context.Context, mgr *manager, uri string, po
 	check("References", err)
 	_, err = mgr.CallHierarchy(ctx, uri, pos, "both")
 	check("CallHierarchy", err)
-	_, err = mgr.TypeHierarchy(ctx, uri, pos, "subtypes")
+	_, err = mgr.TypeHierarchy(ctx, uri, pos, "")
 	check("TypeHierarchy", err)
 	_, err = mgr.DocumentSymbol(ctx, uri)
 	check("DocumentSymbol", err)
