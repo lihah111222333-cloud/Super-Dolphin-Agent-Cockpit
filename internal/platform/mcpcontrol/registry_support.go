@@ -28,6 +28,13 @@ func normalizeRegisterRequest(req dto.RegisterRequest) (dto.RegisterRequest, err
 	req.ThreadID = strings.TrimSpace(req.ThreadID)
 	req.PeerKind = normalizePeerKind(req.PeerKind, req.ClientKind)
 	req.ClientKind = normalizeClientKind(req.ClientKind)
+	if isCanonicalServiceClientKind(req.ClientKind) {
+		// Host-managed singleton services (mcp-orch / mcp-lsp / mcp-ida) start
+		// once with no agent scope; register them as shared-service peers so
+		// FindActiveForScope resolves them for every agent's tool calls.
+		req.PeerKind = dto.PeerKindSharedService
+		req.Shared = true
+	}
 	req.CapabilitiesOffered = uniqueTrimmed(req.CapabilitiesOffered)
 	req.CapabilitiesRequired = uniqueTrimmed(req.CapabilitiesRequired)
 	req.Subscriptions = uniqueTrimmed(req.Subscriptions)
@@ -266,4 +273,17 @@ func durationOrDefault(value, fallback time.Duration) time.Duration {
 
 func withTimeoutContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	return platformconfig.WithPeerTimeout(ctx, timeout)
+}
+
+// isCanonicalServiceClientKind reports whether clientKind identifies one of the
+// host-managed singleton MCP services (mcp-orch / mcp-lsp / mcp-ida). Those
+// peers are launched once at startup with no agent scope, so they must be
+// registered as shared-service peers to remain resolvable for every agent.
+func isCanonicalServiceClientKind(clientKind string) bool {
+	switch strings.ToLower(strings.TrimSpace(clientKind)) {
+	case dto.ClientKindOrch, dto.ClientKindLSP, dto.ClientKindIDA:
+		return true
+	default:
+		return false
+	}
 }

@@ -184,8 +184,8 @@ func assertRegisteredInstanceKinds(t *testing.T, got contract.ToolInstance) {
 	if got.ClientKind != dto.ClientKindOrch {
 		t.Fatalf("GetInstance().ClientKind = %q, want %q", got.ClientKind, dto.ClientKindOrch)
 	}
-	if got.PeerKind != dto.PeerKindTool {
-		t.Fatalf("GetInstance().PeerKind = %q, want %q", got.PeerKind, dto.PeerKindTool)
+	if got.PeerKind != dto.PeerKindSharedService {
+		t.Fatalf("GetInstance().PeerKind = %q, want %q", got.PeerKind, dto.PeerKindSharedService)
 	}
 	if got.Status != dto.StatusActive {
 		t.Fatalf("GetInstance().Status = %q, want %q", got.Status, dto.StatusActive)
