@@ -49,34 +49,22 @@ func TightenMetrics(cur, frozen FileMetrics) (FileMetrics, bool) {
 }
 
 // TightenMetricsForPath 按单文件实际阈值收紧 baseline。
-// 未越过守卫阈值的大小/复杂度字段不参与收缩，避免绿色指标制造 baseline churn。
+// 注册表驱动：所有 flagTighten 规则自动参与，无需手动同步。
 func TightenMetricsForPath(path string, cur, frozen FileMetrics) (FileMetrics, bool) {
 	out := frozen
 	changed := false
-	tighten := func(field string, curV int, outV *int) {
-		if shouldTightenRatchetField(path, field, curV, *outV) {
+	for _, r := range metricRules() {
+		if !r.Flags.has(flagTighten) {
+			continue
+		}
+		curV := *r.Access(&cur)
+		outV := r.Access(&out)
+		if shouldTightenRatchetField(path, r.Field, curV, *outV) {
 			*outV = curV
 			changed = true
 		}
 	}
-	// Size
-	tighten("lines", cur.Lines, &out.Lines)
-	tighten("max_func_len", cur.MaxFuncLen, &out.MaxFuncLen)
-	// Complexity
-	tighten("max_nesting", cur.MaxNesting, &out.MaxNesting)
-	tighten("max_complexity", cur.MaxComplexity, &out.MaxComplexity)
-	tighten("max_params", cur.MaxParams, &out.MaxParams)
-	tighten("max_returns", cur.MaxReturns, &out.MaxReturns)
-	tighten("max_underscore", cur.MaxUnderscore, &out.MaxUnderscore)
-	// Quality
-	tighten("global_vars", cur.GlobalVars, &out.GlobalVars)
-	tighten("panic_count", cur.PanicCount, &out.PanicCount)
-	tighten("naked_returns", cur.NakedReturns, &out.NakedReturns)
-	tighten("empty_funcs", cur.EmptyFuncs, &out.EmptyFuncs)
-	tighten("todo_count", cur.TodoCount, &out.TodoCount)
-	tighten("max_struct_fields", cur.MaxStructFields, &out.MaxStructFields)
-	tighten("naked_goroutines", cur.NakedGoroutines, &out.NakedGoroutines)
-	// HasInit: true → false 是收紧
+	// HasInit: bool 字段，不在 int 注册表中。true → false 是收紧。
 	if !cur.HasInit && frozen.HasInit {
 		out.HasInit = false
 		changed = true

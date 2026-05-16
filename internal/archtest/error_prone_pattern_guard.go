@@ -32,6 +32,12 @@ func errorPronePatternViolations(repoRoot string) []Violation {
 	g.guardToolbridgePayloadSpoofingPattern()
 	g.guardMissingContextSuppressionPattern()
 	g.guardMultiAgentGlobalStatePattern()
+	g.guardSilentTurnLeakagePattern()
+	g.guardSessionIdentityPreservationPattern()
+	g.guardLanguageAnchorPattern()
+	g.guardEmptyCWDPropagationPattern()
+	g.guardTerminalSignalCompletenessPattern()
+	g.guardDSLTypeCoercionPattern()
 	return g.violations
 }
 
@@ -193,6 +199,138 @@ func (g *errorPronePatternGuard) guardMultiAgentGlobalStatePattern() {
 	)
 }
 
+// guardSilentTurnLeakagePattern ensures keepalive (silent) turns are
+// properly gated at the decode path, stripped from history reads, and that
+// the heartbeat timer self-sustains even on ping failure.
+func (g *errorPronePatternGuard) guardSilentTurnLeakagePattern() {
+	// 1. Silent turn id must use a recognizable prefix constant.
+	const silentTurnRel = "internal/provider/claudecli/session_silent_turn.go"
+	g.requireContains(silentTurnRel, "silent turn id must use a recognizable prefix constant",
+		"keepaliveTurnIDPrefix",
+	)
+	// 2. Event decode path must gate keepalive turns before dispatch.
+	const eventsRel = "internal/provider/claudecli/session_events.go"
+	g.requireContains(eventsRel, "decoded stream events must gate keepalive turns before dispatch",
+		"isKeepaliveTurnEvent",
+	)
+	// 3. History reads must strip keepalive maintenance turns.
+	const historyRel = "internal/module/thread/history.go"
+	g.requireContains(historyRel, "history reads must strip keepalive maintenance turns",
+		"dropKeepaliveTurns",
+	)
+	// 4. Keepalive timer must reschedule after both success and failure;
+	// deliverPing must call ResetTimerByAgent unconditionally (no early
+	// return on SendKeepalive error).
+	const keepaliveRel = "internal/platform/cachekeepalive/manager.go"
+	g.requireContains(keepaliveRel, "keepalive timer must reschedule after both success and failure",
+		"kc.SendKeepalive(ctx)",
+		"m.ResetTimerByAgent(",
+	)
+}
+
+// guardSessionIdentityPreservationPattern ensures Stop does not erase the
+// session UUID needed for post-stop history recovery, that binding
+// persistence detects session UUID updates, and that codex history
+// discovery falls back to session UUID.
+func (g *errorPronePatternGuard) guardSessionIdentityPreservationPattern() {
+	// 1. Stop must not erase session uuid needed for history recovery.
+	const stopRel = "internal/module/thread/stop.go"
+	g.requireNotContains(stopRel, "stop must not erase session uuid needed for history recovery",
+		"cleanupStoppedBinding",
+		`SessionUUID: ""`,
+	)
+	// 2. Binding persistence must detect and persist session uuid updates.
+	const bindingRel = "internal/module/thread/binding_registration.go"
+	g.requireContains(bindingRel, "binding persistence must detect and persist session uuid updates",
+		"bindingNeedsSessionUUIDUpdate",
+		"bindingRequiresSessionUUID",
+	)
+	// 3. Codex history discovery must fallback to session uuid.
+	const historyRel = "internal/util/historyjsonl/history.go"
+	g.requireContains(historyRel, "codex history discovery must fallback to session uuid when provider thread id is missing",
+		"req.SessionUUID",
+		"discoverCodexPath",
+	)
+}
+
+// guardLanguageAnchorPattern ensures the language prompt section always
+// anchors reply language — even when no explicit language is configured —
+// to prevent mixed-language drift in multi-lingual corpora.
+//
+// Pre-condition: the guard activates once the fix is applied (i.e. the file
+// contains languageDefaultSectionText). Before that, the guard is inert so
+// main stays green while fix/language-mixing-anchor has not yet merged.
+func (g *errorPronePatternGuard) guardLanguageAnchorPattern() {
+	const rel = "internal/module/prompt/brief_provider.go"
+	content, ok := g.read(rel)
+	if !ok {
+		return
+	}
+	// Activate only after the fix has landed.
+	if !strings.Contains(content, "languageDefaultSectionText") {
+		return
+	}
+	g.requireContains(rel, "language section must provide a default anchor when no explicit language is configured",
+		"languageDefaultSectionText",
+	)
+	g.requireContains(rel, "default language anchor must prevent mid-response language mixing",
+		"Do not mix languages",
+	)
+}
+
+// guardEmptyCWDPropagationPattern ensures child agents launched via
+// orchestration_launch_agent inherit their parent's cwd when the tool call
+// omits it. Without this, empty cwd propagates to agent_threads.cwd and the
+// sidebar snapshot, causing child agents to appear in every project view
+// (the "lottery" symptom from 2026-05-15).
+//
+// Also ensures pool server spawn passes workDir from the session request.
+func (g *errorPronePatternGuard) guardEmptyCWDPropagationPattern() {
+	// 1. Orchestration launcher must apply cwd defaults before forwarding.
+	const launcherRel = "cmd/mcp-orch/orchestration/service_launcher_bridge.go"
+	g.requireContains(launcherRel, "child agents must inherit parent cwd when the tool call omits it",
+		"applyLaunchRequestDefaults",
+		"strings.TrimSpace(req.Cwd)",
+	)
+	// 2. Pool routing must pass workDir from session request to spawner.
+	const poolRel = "internal/provider/codexapp/driver_pool_routing.go"
+	g.requireContains(poolRel, "pool server spawn must pass thread cwd to spawner context",
+		"withPoolSpawnWorkDir",
+	)
+}
+
+// guardTerminalSignalCompletenessPattern ensures the frontend streaming
+// finalization logic covers ALL terminal signals, not just turn/completed.
+// Missing any terminal signal causes <pre> streaming placeholders to stick
+// until the next turn (the regression from 2026-05-15 commit 600db7d8).
+//
+// The signal set must include: turn/completed, turn/interrupted,
+// agent/stopped, thread/stopped, agent/failed.
+func (g *errorPronePatternGuard) guardTerminalSignalCompletenessPattern() {
+	const rel = "cmd/agent-terminal/frontend/vue-app/stores/thread-sync-helpers.js"
+	g.requireContains(rel, "streaming finalization must cover all terminal signals, not just turn/completed",
+		"turnTerminalSignal",
+		"turn/interrupted",
+		"agent/stopped",
+		"thread/stopped",
+		"agent/failed",
+	)
+}
+
+// guardDSLTypeCoercionPattern ensures the template-level match_when DSL
+// evaluator delegates to the dual-type (string + array) evaluator for
+// tags_has. Without this, array-form tags_has stored by the SystemPromptPage
+// UI silently fails to match — the bug from 2026-05-15 commit 72e56f7c.
+func (g *errorPronePatternGuard) guardDSLTypeCoercionPattern() {
+	const rel = "internal/module/prompt/enable_when.go"
+	g.requireContains(rel, "template-level tags_has must use dual-type evaluator to support both string and array forms",
+		"matchSectionTagsHas(want, userPrompt)",
+	)
+	g.requireNotContains(rel, "template-level tags_has must not use string-only evaluator",
+		"matchTagsHas(matchWhenStringValue(want)",
+	)
+}
+
 func (g *errorPronePatternGuard) requireContains(rel, note string, tokens ...string) {
 	content, ok := g.read(rel)
 	if !ok {
@@ -203,6 +341,19 @@ func (g *errorPronePatternGuard) requireContains(rel, note string, tokens ...str
 			continue
 		}
 		g.addViolation(rel, 1, "%s: missing %q", note, token)
+	}
+}
+
+func (g *errorPronePatternGuard) requireNotContains(rel, note string, tokens ...string) {
+	content, ok := g.read(rel)
+	if !ok {
+		return
+	}
+	for _, token := range tokens {
+		if !strings.Contains(content, token) {
+			continue
+		}
+		g.addViolation(rel, lineNumber(content, token), "%s: forbidden %q", note, token)
 	}
 }
 

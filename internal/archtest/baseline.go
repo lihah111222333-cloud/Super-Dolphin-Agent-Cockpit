@@ -24,6 +24,21 @@ type ComplexityMetrics struct {
 
 // QualityMetrics 聚合文件级质量指标。
 // 新字段必须使用 omitempty，避免旧 baseline 反序列化后产生兼容性漂移。
+//
+// ┌───────────────────────────────────────────────────────────────────────┐
+// │ SYNC-CHECKLIST: 新增 int 指标字段后需同步以下 2 处：                 │
+// │                                                                       │
+// │  1. baseline.go          — 新增字段（你在这里）                       │
+// │  2. metric_registry.go   — 追加一行 metricRule                        │
+// │                                                                       │
+// │  以下消费点由 metric_registry.go 自动驱动，无需手动同步：             │
+// │    ✅ ratchet.go          RatchetCheck()                              │
+// │    ✅ ratchet.go          HasViolation()                              │
+// │    ✅ baseline_shrink.go  TightenMetricsForPath()                     │
+// │                                                                       │
+// │  TestRegistryCoversAllIntFields (metric_registry_test.go) 用反射      │
+// │  保证任何遗漏都会在测试中立即暴露。                                   │
+// └───────────────────────────────────────────────────────────────────────┘
 type QualityMetrics struct {
 	GlobalVars      int  `json:"global_vars"`
 	HasInit         bool `json:"has_init,omitempty"`

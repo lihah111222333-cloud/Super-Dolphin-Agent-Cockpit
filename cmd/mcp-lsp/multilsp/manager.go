@@ -225,11 +225,10 @@ func (m *manager) cloneForWorkspace(workspaceRoot string) *manager {
 // up symbols / opening files in the wrong project.
 func (m *manager) effectiveWorkspaceRoot(ctx context.Context) string {
 	if ctx != nil {
-		if cwd, ok := ctx.Value(common.CwdContextKey).(string); ok {
-			if trimmed := strings.TrimSpace(cwd); trimmed != "" {
-				if normalized, err := platformshared.NormalizeAbsolutePath(trimmed); err == nil && normalized != "" {
-					return normalized
-				}
+		root := common.WorkspaceRootFromContext(ctx, m.workspaceRoot)
+		if trimmed := strings.TrimSpace(root); trimmed != "" {
+			if normalized, err := platformshared.NormalizeAbsolutePath(trimmed); err == nil && normalized != "" {
+				return normalized
 			}
 		}
 	}
