@@ -146,7 +146,7 @@ func (s *service) hydrateSkillRefs(ctx context.Context, refs []dto.SkillRef, man
 	}
 	scopedCtx, index, err := s.skillHydrationIndex(ctx)
 	if err != nil {
-		if errors.Is(err, contract.ErrSkillMissingCWD) {
+		if errors.Is(err, contract.ErrSkillMissingCWD) || errors.Is(err, contract.ErrSkillSameNameConflict) {
 			return refs, err
 		}
 		return refs, nil
@@ -177,7 +177,11 @@ func (s *service) skillHydrationIndex(ctx context.Context) (context.Context, map
 		}
 		return scopedCtx, nil, err
 	}
-	return scopedCtx, skillInfoIndex(infos), nil
+	index, err := skillInfoIndex(infos)
+	if err != nil {
+		return scopedCtx, nil, err
+	}
+	return scopedCtx, index, nil
 }
 
 // refsNeedHydration 扫一遍判断是否有任何 skill 缺 Prompt/Summary/Version；
@@ -197,16 +201,19 @@ func refsNeedHydration(refs []dto.SkillRef) bool {
 }
 
 // skillInfoIndex 把 ListSkills 结果按 lower(name) 索引，空名跳过。
-func skillInfoIndex(infos []contract.SkillInfo) map[string]contract.SkillInfo {
+func skillInfoIndex(infos []contract.SkillInfo) (map[string]contract.SkillInfo, error) {
 	index := make(map[string]contract.SkillInfo, len(infos))
 	for _, info := range infos {
 		key := strings.ToLower(strings.TrimSpace(info.Name))
 		if key == "" {
 			continue
 		}
+		if _, ok := index[key]; ok {
+			return nil, contract.ErrSkillSameNameConflict
+		}
 		index[key] = info
 	}
-	return index
+	return index, nil
 }
 
 type skillHydrationPolicy struct {

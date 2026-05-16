@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 var errInvalidSkillExpandParam = errors.New("invalid skill expand params")
@@ -32,9 +33,12 @@ func (s *service) ListSkills(ctx context.Context) ([]SkillInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	records, err := s.scanSkills(cwd)
+	records, conflicts, err := s.canonicalEffectiveSet(ctx, cwd)
 	if err != nil {
 		return nil, err
+	}
+	if len(conflicts) > 0 {
+		return nil, skillSameNameConflictError{Conflicts: conflicts}
 	}
 	skills := make([]SkillInfo, 0, len(records))
 	for _, record := range records {
@@ -98,16 +102,41 @@ func (s *service) resolveSkillRecordByName(name, cwd string) (skillRecord, error
 	if err != nil {
 		return skillRecord{}, err
 	}
-	records, err := s.scanSkills(cwd)
+	records, conflicts, err := s.canonicalEffectiveSet(context.Background(), cwd)
 	if err != nil {
 		return skillRecord{}, err
 	}
+	if conflict, ok := canonicalConflictByName(conflicts, normalized); ok {
+		return skillRecord{}, skillSameNameConflictError{Conflicts: []canonicalSkillConflict{conflict}}
+	}
 	for _, record := range records {
-		if strings.EqualFold(strings.TrimSpace(record.info.Name), normalized) {
-			return record, nil
+		if strings.EqualFold(strings.TrimSpace(record.Name), normalized) {
+			return skillRecordFromCanonical(record), nil
 		}
 	}
 	return skillRecord{}, skillNotFoundError(normalized)
+}
+
+func (s *service) canonicalEffectiveSet(ctx context.Context, cwd string) ([]canonicalSkillRecord, []canonicalSkillConflict, error) {
+	store := newCanonicalStoreForOwner(strings.TrimSpace(s.superDolphinHome), defaultOwnerOSUID(), defaultAppProfile())
+	return store.EffectiveSet(ctx, cwd)
+}
+
+func canonicalConflictByName(conflicts []canonicalSkillConflict, name string) (canonicalSkillConflict, bool) {
+	for _, conflict := range conflicts {
+		if strings.EqualFold(conflict.Name, name) {
+			return conflict, true
+		}
+	}
+	return canonicalSkillConflict{}, false
+}
+
+func skillRecordFromCanonical(record canonicalSkillRecord) skillRecord {
+	return skillRecord{
+		info: record.info,
+		path: record.SkillFile,
+		rel:  filepath.Base(record.Dir),
+	}
 }
 
 func normalizeSkillExpandMaxBytes(maxBytes int64) (int64, error) {
@@ -213,8 +242,11 @@ func (s *service) ReadLocal(ctx context.Context, path string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	path, err = s.resolveSkillPath(path, cwd, "")
+	path, err = s.resolveReadLocalPath(path, cwd)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.ensurePathInEffectiveSet(ctx, cwd, path); err != nil {
 		return nil, err
 	}
 	info, err := os.Stat(path)
@@ -234,6 +266,18 @@ func (s *service) ReadLocal(ctx context.Context, path string) (any, error) {
 	return map[string]any{"skill": map[string]any{"path": path, "content": string(data), "summary": summarizeSkillBody(string(data), ""), "summary_source": "generated"}}, nil
 }
 
+func (s *service) resolveReadLocalPath(path, cwd string) (string, error) {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" || filepath.IsAbs(trimmed) || strings.Contains(filepath.Clean(trimmed), string(filepath.Separator)) {
+		return s.resolveSkillPath(trimmed, cwd, "")
+	}
+	record, err := s.resolveSkillRecordByName(trimmed, cwd)
+	if err != nil {
+		return "", err
+	}
+	return record.path, nil
+}
+
 func (s *service) ListLocalFiles(ctx context.Context, p listSkillFilesParams) (any, error) {
 	cwd, err := requireCWD(ctx)
 	if err != nil {
@@ -248,6 +292,9 @@ func (s *service) ListLocalFiles(ctx context.Context, p listSkillFilesParams) (a
 	}
 	dir, err = s.resolveSkillPath(dir, cwd, "")
 	if err != nil {
+		return nil, err
+	}
+	if err := s.ensurePathInEffectiveSet(ctx, cwd, dir); err != nil {
 		return nil, err
 	}
 	entries, err := os.ReadDir(dir)
@@ -277,25 +324,28 @@ func (s *service) CreateSkill(ctx context.Context, p createSkillParams) (any, er
 	return s.WriteLocal(ctx, name, p.Content, skillScopeProject)
 }
 
-func (s *service) WriteLocal(ctx context.Context, path, content string, scope ...string) (any, error) {
+func (s *service) WriteLocal(ctx context.Context, path, content string, scopeAndType ...string) (any, error) {
 	cwd, err := requireCWD(ctx)
 	if err != nil {
 		return nil, err
 	}
-	requestedScope := resolveRequestedSkillScope(scope...)
-	normalizedScope, err := normalizeSkillScope(requestedScope)
+	requestedScope, requestedPersonalType := resolveRequestedSkillTarget(scopeAndType...)
+	normalizedScope, normalizedPersonalType, err := normalizeSkillTarget(requestedScope, requestedPersonalType)
 	if err != nil {
 		return nil, err
 	}
 	if err := RequireSkillSystemReview(normalizedScope, skillSlug(path), skillContentHash(content), RepoFingerprint(cwd), "", ""); err != nil {
 		return nil, err
 	}
-	path, err = s.resolveSkillPath(path, cwd, requestedScope)
+	path, err = s.resolveWriteLocalPath(path, cwd, normalizedScope, normalizedPersonalType)
 	if err != nil {
 		return nil, err
 	}
 	if len(content) > maxSkillFileBytes {
 		return nil, fmt.Errorf("content too large: %d bytes", len(content))
+	}
+	if normalizedScope == skillScopePersonal {
+		return s.writePersonalLocal(ctx, path, content, normalizedScope, normalizedPersonalType)
 	}
 	mode, err := writableSkillFileMode(path)
 	if err != nil {
@@ -308,7 +358,36 @@ func (s *service) WriteLocal(ctx context.Context, path, content string, scope ..
 		return nil, err
 	}
 	s.publishSkillsChanged(ctx, "local_write", filepath.Base(filepath.Dir(path)), normalizedScope)
-	return map[string]any{"ok": true, "path": path, "dir": filepath.Dir(path), "bytes": len(content)}, nil
+	result := map[string]any{"ok": true, "path": path, "dir": filepath.Dir(path), "bytes": len(content)}
+	return attachMirrorPublish(result, s.publishWriteTimeMirrors(ctx, cwd, normalizedScope, normalizedPersonalType, filepath.Base(filepath.Dir(path)))), nil
+}
+
+func (s *service) writePersonalLocal(ctx context.Context, path, content, scope, personalType string) (any, error) {
+	name := filepath.Base(filepath.Dir(path))
+	record, err := s.preparePersonalMutation(ctx, "personal_write", name, filepath.Dir(path), scope, personalType)
+	if err != nil {
+		return nil, err
+	}
+	mode, err := writableSkillFileMode(path)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := backupExistingPersonalSkill(filepath.Dir(path)); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(path, []byte(content), mode); err != nil {
+		return nil, err
+	}
+	if err := s.finalizePersonalMutation(ctx, "personal_write", filepath.Dir(path), record); err != nil {
+		return nil, err
+	}
+	s.publishSkillsChanged(ctx, "local_write", name, scope)
+	result := map[string]any{"ok": true, "path": path, "dir": filepath.Dir(path), "bytes": len(content)}
+	cwd, _ := requireCWD(ctx)
+	return attachMirrorPublish(result, s.publishWriteTimeMirrors(ctx, cwd, scope, personalType, name)), nil
 }
 
 func (s *service) ImportLocalDir(ctx context.Context, p importSkillDirParams) (any, error) {
@@ -320,15 +399,16 @@ func (s *service) ImportLocalDir(ctx context.Context, p importSkillDirParams) (a
 	if err != nil {
 		return nil, err
 	}
-	results, failures := s.importSources(sources, p.Name, cwd, p.Scope, mode)
+	results, failures := s.importSources(sources, p.Name, cwd, p.Scope, p.PersonalType, mode)
 	response := buildImportLocalDirResponse(sources, results, failures)
 	if len(results) > 0 {
 		name := strings.TrimSpace(p.Name)
 		if name == "" && len(results) == 1 {
 			name, _ = results[0]["name"].(string)
 		}
-		resolvedScope, _ := normalizeSkillScope(p.Scope)
+		resolvedScope, resolvedPersonalType, _ := normalizeSkillTarget(p.Scope, p.PersonalType)
 		s.publishSkillsChanged(ctx, "import_dir", name, resolvedScope)
+		response["mirror_publish"] = s.publishWriteTimeMirrors(ctx, cwd, resolvedScope, resolvedPersonalType, name)
 	}
 	return response, nil
 }
@@ -365,20 +445,61 @@ func buildImportLocalDirResponse(sources []string, results []map[string]any, fai
 	return response
 }
 
-func (s *service) DeleteLocal(ctx context.Context, name string) (any, error) {
+func (s *service) DeleteLocal(ctx context.Context, p DeleteSkillParams) (any, error) {
 	cwd, err := requireCWD(ctx)
 	if err != nil {
 		return nil, err
 	}
-	record, err := s.resolveSkill(name, cwd)
+	name, err := validateSkillName(p.Name)
 	if err != nil {
 		return nil, err
 	}
-	if err := os.RemoveAll(record.info.Dir); err != nil {
+	root, scope, personalType, err := s.canonicalRootForTarget(cwd, p.Scope, p.PersonalType)
+	if err != nil {
 		return nil, err
 	}
-	s.publishSkillsChanged(ctx, "delete_local", record.info.Name, scopeFromTrust(record.info.Trust))
-	return map[string]any{"ok": true, "name": record.info.Name, "dir": record.info.Dir, "removed_agent_bindings": 0}, nil
+	dir := filepath.Join(root, skillSlug(name))
+	if err := ensureSkillMainFilePresent(dir); err != nil {
+		return nil, err
+	}
+	if scope == skillScopePersonal {
+		return s.deletePersonalLocal(ctx, name, dir, scope, personalType)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return nil, err
+	}
+	s.publishSkillsChanged(ctx, "delete_local", name, scope)
+	result := map[string]any{"ok": true, "name": name, "dir": dir, "removed_agent_bindings": 0}
+	return attachMirrorPublish(result, s.publishWriteTimeMirrors(ctx, cwd, scope, personalType, name)), nil
+}
+
+func (s *service) deletePersonalLocal(ctx context.Context, name, dir, scope, personalType string) (any, error) {
+	archiveDir := s.personalSkillArchiveDir(scope, personalType, name)
+	canonicalHash := skillDirContentHash(dir)
+	now := time.Now().UTC()
+	record, err := s.personalDeleteArchiveRecord(name, scope, personalType, archiveDir, canonicalHash, now)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(archiveDir), 0o700); err != nil {
+		return nil, err
+	}
+	if err := s.writeSkillMutationAudit(ctx, "personal_delete_intent", record); err != nil {
+		return nil, err
+	}
+	if err := os.Rename(dir, archiveDir); err != nil {
+		return nil, err
+	}
+	if err := s.writePersonalArchiveRecord(record, archiveDir); err != nil {
+		return nil, err
+	}
+	if err := s.writeSkillMutationAudit(ctx, "personal_delete_finalize", record); err != nil {
+		return nil, err
+	}
+	s.publishSkillsChanged(ctx, "delete_local", name, scope)
+	result := map[string]any{"ok": true, "name": name, "dir": dir, "archive_dir": archiveDir, "removed_agent_bindings": 0}
+	cwd, _ := requireCWD(ctx)
+	return attachMirrorPublish(result, s.publishWriteTimeMirrors(ctx, cwd, scope, personalType, name)), nil
 }
 
 func (s *service) ReadRemote(ctx context.Context, url string) (any, error) {
@@ -406,15 +527,7 @@ func (s *service) WriteRemote(ctx context.Context, name, content string) (any, e
 	if strings.TrimSpace(name) == "" {
 		return nil, errors.New("name is required")
 	}
-	if err := RequireSkillSystemReview(skillScopeSystem, skillSlug(name), skillContentHash(content), RepoFingerprint(s.projectRoot), "", ""); err != nil {
-		return nil, err
-	}
-	path, err := s.writeSkill(name, content)
-	if err != nil {
-		return nil, err
-	}
-	s.publishSkillsChanged(ctx, "remote_write", name, skillScopeSystem)
-	return map[string]any{"ok": true, "path": path}, nil
+	return nil, ErrSkillSystemScopeRemoved
 }
 
 func (s *service) ReadConfig(_ context.Context, agentID string) (any, error) {
@@ -437,30 +550,14 @@ func (s *service) WriteSkillContent(ctx context.Context, name, content string) (
 	if strings.TrimSpace(name) == "" {
 		return nil, errors.New("name is required")
 	}
-	if err := RequireSkillSystemReview(skillScopeSystem, skillSlug(name), skillContentHash(content), RepoFingerprint(s.projectRoot), "", ""); err != nil {
-		return nil, err
-	}
-	path, err := s.writeSkill(name, content)
-	if err != nil {
-		return nil, err
-	}
-	s.publishSkillsChanged(ctx, "config_write", name, skillScopeSystem)
-	return map[string]any{"ok": true, "path": path}, nil
+	return nil, ErrSkillSystemScopeRemoved
 }
 
 func (s *service) WriteSummary(ctx context.Context, name, summary string) (any, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, errors.New("name is required")
 	}
-	if err := RequireSkillSystemReview(skillScopeSystem, skillSlug(name), skillContentHash(summary), RepoFingerprint(s.projectRoot), "", ""); err != nil {
-		return nil, err
-	}
-	path, resolvedName, err := s.updateSkillSummary(name, summary)
-	if err != nil {
-		return nil, err
-	}
-	s.publishSkillsChanged(ctx, "summary_write", resolvedName, skillScopeSystem)
-	return map[string]any{"ok": true, "path": path, "name": resolvedName, "summary": strings.TrimSpace(summary)}, nil
+	return nil, ErrSkillSystemScopeRemoved
 }
 
 func listSkillFiles(dir string, entries []os.DirEntry) []map[string]any {

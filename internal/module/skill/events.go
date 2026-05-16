@@ -26,18 +26,23 @@ func (s *service) bindDispatcher(dispatcher *event.Dispatcher) {
 }
 
 func (s *service) publishSkillsChanged(ctx context.Context, action, name, scope string) {
+	s.publishSkillsChangedForPersonalType(ctx, action, name, scope, "")
+}
+
+func (s *service) publishSkillsChangedForPersonalType(ctx context.Context, action, name, scope, personalType string) {
 	if s == nil || s.emitSkillsChanged == nil {
 		return
 	}
 	normalizedScope := strings.TrimSpace(scope)
+	normalizedPersonalType := strings.TrimSpace(personalType)
 	repoFingerprint, relativePath := s.skillsChangedLocation(ctx, normalizedScope)
 	s.scheduleSkillsChanged(uidto.SkillsChanged{
 		EventHeader:     shared.EventHeader{Timestamp: time.Now()},
-		SkillsDir:       strings.TrimSpace(s.root),
 		Name:            strings.TrimSpace(name),
 		Action:          normalizeSkillsChangedAction(action),
 		Count:           1,
 		Scope:           normalizedScope,
+		PersonalType:    normalizedPersonalType,
 		RepoFingerprint: repoFingerprint,
 		RelativePath:    relativePath,
 	})
@@ -123,12 +128,16 @@ func normalizeSkillsChanged(next uidto.SkillsChanged) uidto.SkillsChanged {
 	next.SkillsDir = strings.TrimSpace(next.SkillsDir)
 	next.Name = strings.TrimSpace(next.Name)
 	next.Scope = strings.TrimSpace(next.Scope)
+	next.PersonalType = strings.TrimSpace(next.PersonalType)
 	next.RepoFingerprint = strings.TrimSpace(next.RepoFingerprint)
 	next.RelativePath = strings.TrimSpace(next.RelativePath)
 	next.Cwd = ""
 	if next.Scope != skillScopeProject {
 		next.RepoFingerprint = ""
 		next.RelativePath = ""
+	}
+	if next.Scope != skillScopePersonal {
+		next.PersonalType = ""
 	}
 	next.Action = normalizeSkillsChangedAction(next.Action)
 	next.Actions = appendUniqueSkillsChangedActions(nil, next.Actions...)
@@ -171,6 +180,7 @@ func mergeSkillsChanged(current, next uidto.SkillsChanged) uidto.SkillsChanged {
 
 func skillsChangedMergeable(current, next uidto.SkillsChanged) bool {
 	return current.Scope == next.Scope &&
+		current.PersonalType == next.PersonalType &&
 		current.RepoFingerprint == next.RepoFingerprint &&
 		current.RelativePath == next.RelativePath
 }
@@ -219,15 +229,4 @@ func containsSkillsChangedAction(actions []string, target string) bool {
 		}
 	}
 	return false
-}
-
-// scopeFromTrust maps a SKILL.md trust scope to the SkillsChanged event scope
-// string. TrustProject corresponds to the project scope; everything else (TrustUser,
-// TrustSigned, TrustUnknown) is reported as system-scope so subscribers receive the
-// trust boundary explicitly.
-func scopeFromTrust(trust TrustScope) string {
-	if trust == TrustProject {
-		return skillScopeProject
-	}
-	return skillScopeSystem
 }

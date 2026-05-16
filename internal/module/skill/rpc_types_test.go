@@ -264,7 +264,7 @@ func TestSkillExpandHostRPCResponseShape(t *testing.T) {
 
 	svc := newTestSkillService(t)
 	cwd := filepath.Join(t.TempDir(), "repo")
-	writeScopedSystemSkill(t, svc.root, cwd, "demo", "---\nname: demo\nsummary: Demo sum\n---\n## Usage\nhello world")
+	writeScopedSystemSkill(t, svc.root, cwd, "demo", "---\nname: demo\nsummary: Demo sum\ntrust: user\n---\n## Usage\nhello world")
 	server := newSkillRPCTestServer(t, svc)
 
 	raw, err := server.Dispatch(context.Background(), "skill/expand", json.RawMessage(`{"name":"demo","cwd":"`+cwd+`","section":"## Usage","max_bytes":20}`))
@@ -287,7 +287,7 @@ func TestSkillExpandHostRPCResponseShape(t *testing.T) {
 	}
 }
 
-func TestSkillsListHostRPCUsesCWDForProjectSkillsAndSharesSystem(t *testing.T) {
+func TestSkillsListHostRPCUsesCWDForProjectSkillsOnly(t *testing.T) {
 	t.Parallel()
 
 	systemRoot, projectA, projectB := setupSkillsListCWDProjects(t)
@@ -300,10 +300,10 @@ func TestSkillsListHostRPCUsesCWDForProjectSkillsAndSharesSystem(t *testing.T) {
 	server := newSkillRPCTestServer(t, svc)
 
 	scoped := dispatchSkillsListForTest(t, server, projectA)
-	assertSkillListNames(t, "project A", scoped.Skills, []string{"shared-a", "shared-b"}, []string{"local-b"})
+	assertSkillListNames(t, "project A", scoped.Skills, []string{"shared-a"}, []string{"local-b", "shared-b"})
 
 	projectBList := dispatchSkillsListForTest(t, server, projectB)
-	assertSkillListNames(t, "project B", projectBList.Skills, []string{"local-b", "shared-a", "shared-b"}, nil)
+	assertSkillListNames(t, "project B", projectBList.Skills, []string{"local-b", "shared-b"}, []string{"shared-a"})
 	assertSkillsListRejectsMissingCWD(t, server)
 }
 
@@ -378,7 +378,91 @@ func assertSkillsListRejectsMissingCWD(t *testing.T, server *platformrpc.Server)
 	}
 }
 
-func TestSkillExpandHostRPCSharesSystemSkillAcrossCWD(t *testing.T) {
+func TestSkillLocalDeleteRPCRequiresExplicitTarget(t *testing.T) {
+	t.Parallel()
+
+	projectRoot := filepath.Join(t.TempDir(), "repo")
+	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
+	projectSkillsRoot := defaultProjectSkillsRoot(projectRoot)
+	personalRoot := filepath.Join(superDolphinHome, "skills", "personal", personalSkillTypeUser)
+	writeTestSkill(t, projectSkillsRoot, "build", "# project")
+	writeTestSkill(t, personalRoot, "build", "# personal")
+	svc := &service{
+		projectRoot:       projectRoot,
+		projectSkillsRoot: projectSkillsRoot,
+		superDolphinHome:  superDolphinHome,
+		http:              &http.Client{},
+		auditStore:        &capturingSkillAuditStore{},
+	}
+	server := newSkillRPCTestServer(t, svc)
+
+	assertDeleteRPCInvalidParams(t, server, `{"cwd":"`+projectRoot+`","name":"build"}`)
+	assertDeleteRPCInvalidParams(t, server, `{"cwd":"`+projectRoot+`","name":"build","scope":"personal"}`)
+
+	_, err := server.Dispatch(context.Background(), "skills/local/delete", json.RawMessage(`{"cwd":"`+projectRoot+`","name":"build","scope":"project"}`))
+	if err != nil {
+		t.Fatalf("Dispatch project delete: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(personalRoot, "build", skillMainFile)); err != nil {
+		t.Fatalf("personal skill should remain after project delete: %v", err)
+	}
+
+	_, err = server.Dispatch(context.Background(), "skills/local/delete", json.RawMessage(`{"cwd":"`+projectRoot+`","name":"build","scope":"personal","personal_type":"user"}`))
+	if err != nil {
+		t.Fatalf("Dispatch personal delete: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(personalRoot, "build", skillMainFile)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("personal skill should be archived after personal delete, stat err=%v", err)
+	}
+	assertArchiveContainsSkill(t, superDolphinHome, filepath.Join(skillScopePersonal, personalSkillTypeUser, "build"))
+}
+
+func TestSkillLocalReadAndMatchRPCMapSameNameConflict(t *testing.T) {
+	t.Parallel()
+
+	projectRoot := filepath.Join(t.TempDir(), "repo")
+	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
+	projectSkillsRoot := defaultProjectSkillsRoot(projectRoot)
+	personalRoot := filepath.Join(superDolphinHome, "skills", "personal", personalSkillTypeUser)
+	writeTestSkill(t, projectSkillsRoot, "build", "---\nname: build\n---\n# project")
+	writeTestSkill(t, personalRoot, "build", "---\nname: build\n---\n# personal")
+	svc := &service{
+		projectRoot:       projectRoot,
+		projectSkillsRoot: projectSkillsRoot,
+		superDolphinHome:  superDolphinHome,
+		http:              &http.Client{},
+	}
+	server := newSkillRPCTestServer(t, svc)
+
+	assertRPCConflict(t, server, "skills/local/read", `{"cwd":"`+projectRoot+`","path":"build"}`)
+	assertRPCConflict(t, server, "skills/match/preview", `{"cwd":"`+projectRoot+`","text":"build"}`)
+}
+
+func assertDeleteRPCInvalidParams(t *testing.T, server *platformrpc.Server, params string) {
+	t.Helper()
+	_, err := server.Dispatch(context.Background(), "skills/local/delete", json.RawMessage(params))
+	var rpcErr *jrpc2.Error
+	if !errors.As(err, &rpcErr) {
+		t.Fatalf("delete error = %T, want *jrpc2.Error", err)
+	}
+	if rpcErr.Code != jrpc2.Code(platformrpc.CodeInvalidParams) {
+		t.Fatalf("delete code = %v, want invalid params", rpcErr.Code)
+	}
+}
+
+func assertRPCConflict(t *testing.T, server *platformrpc.Server, method, params string) {
+	t.Helper()
+	_, err := server.Dispatch(context.Background(), method, json.RawMessage(params))
+	var rpcErr *jrpc2.Error
+	if !errors.As(err, &rpcErr) {
+		t.Fatalf("%s error = %T, want *jrpc2.Error", method, err)
+	}
+	if rpcErr.Code != jrpc2.Code(platformrpc.CodeConflict) {
+		t.Fatalf("%s code = %v, want conflict", method, rpcErr.Code)
+	}
+}
+
+func TestSkillExpandHostRPCDoesNotShareLegacySystemSkillAcrossCWD(t *testing.T) {
 	t.Parallel()
 
 	systemRoot := t.TempDir()
@@ -388,16 +472,13 @@ func TestSkillExpandHostRPCSharesSystemSkillAcrossCWD(t *testing.T) {
 	svc := &service{root: systemRoot, http: &http.Client{}}
 	server := newSkillRPCTestServer(t, svc)
 
-	raw, err := server.Dispatch(context.Background(), "skill/expand", json.RawMessage(`{"name":"shared","cwd":"`+projectB+`"}`))
-	if err != nil {
-		t.Fatalf("Dispatch skill/expand: %v", err)
+	_, err := server.Dispatch(context.Background(), "skill/expand", json.RawMessage(`{"name":"shared","cwd":"`+projectB+`"}`))
+	var rpcErr *jrpc2.Error
+	if !errors.As(err, &rpcErr) {
+		t.Fatalf("Dispatch skill/expand error = %T, want *jrpc2.Error", err)
 	}
-	var got skillExpandResult
-	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatalf("json.Unmarshal skill/expand: %v", err)
-	}
-	if got.Name != "shared" || got.Summary != "global" || got.Content != "---\nname: shared\nsummary: global\n---\nglobal-body" {
-		t.Fatalf("global system expand result = %#v", got)
+	if rpcErr.Code != jrpc2.Code(platformrpc.CodeNotFound) {
+		t.Fatalf("rpcErr.Code = %v, want not found", rpcErr.Code)
 	}
 }
 
