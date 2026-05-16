@@ -62,7 +62,7 @@ func TestSkillMirrorReconcilerDetectsUnmanagedSameNamePrimitives(t *testing.T) {
 	}
 
 	conflict := findMirrorConflict(t, conflicts, "unmanaged_same_name", "build", skillScopeProject)
-	assertMirrorConflictActions(t, conflict, "view_unmanaged", "import_to_personal_imported", "import_to_project", "takeover_provider_skill")
+	assertMirrorConflictActions(t, conflict, "view_unmanaged", "import_to_personal_imported", "takeover_provider_skill")
 	if conflict.PreviewHash == "" {
 		t.Fatalf("preview_hash is empty: %+v", conflict)
 	}
@@ -98,6 +98,78 @@ func TestSkillMirrorReconcilerDetectsCanonicalDeletedAndMultiMirrorDriftKinds(t 
 		t.Fatalf("DetectSkillMirrorConflicts deleted: %v", err)
 	}
 	findMirrorConflict(t, conflicts, "canonical_deleted_with_drift", "build", skillScopeProject)
+}
+
+func TestSkillMirrorReconcilerMatchesPersonalManifestByPersonalType(t *testing.T) {
+	root := t.TempDir()
+	agentDir := filepath.Join(root, "canonical", "agent", "notes")
+	userDir := filepath.Join(root, "canonical", "user", "notes")
+	mirrorRoot := filepath.Join(root, "provider", "skills")
+	mirrorDir := filepath.Join(mirrorRoot, "notes")
+	writeSkillWithSupportFiles(t, agentDir, "notes")
+	writeFileWithMode(t, filepath.Join(agentDir, "references", "guide.md"), "agent\n", 0o644)
+	writeSkillWithSupportFiles(t, userDir, "notes")
+	writeFileWithMode(t, filepath.Join(userDir, "references", "guide.md"), "user\n", 0o644)
+	writeSkillWithSupportFiles(t, mirrorDir, "notes")
+	writeFileWithMode(t, filepath.Join(mirrorDir, "references", "guide.md"), "agent\n", 0o644)
+	agentHash, err := stableMirrorDirectoryHash(agentDir)
+	if err != nil {
+		t.Fatalf("stableMirrorDirectoryHash agent: %v", err)
+	}
+	mirrorHash, err := stableMirrorDirectoryHash(mirrorDir)
+	if err != nil {
+		t.Fatalf("stableMirrorDirectoryHash mirror: %v", err)
+	}
+	target := SkillMirrorTarget{TargetID: "claude:app-managed:owner", Provider: SkillProviderClaude, Scope: skillScopePersonal, Root: mirrorRoot, CanonicalRootID: "sd_owner:owner"}
+	if err := writeSkillMirrorManifest(filepath.Join(mirrorRoot, skillMirrorManifestFile), SkillMirrorManifest{
+		Version:         1,
+		Manager:         "super-dolphin",
+		Scope:           skillScopePersonal,
+		Provider:        string(SkillProviderClaude),
+		CanonicalRootID: "sd_owner:owner",
+		Skills: map[string]SkillMirrorEntry{"notes": {
+			CanonicalID:   "personal/agent/notes",
+			CanonicalHash: agentHash,
+			MirrorHash:    mirrorHash,
+			SourceType:    skillScopePersonal,
+			PersonalType:  personalSkillTypeAgent,
+			Owned:         true,
+		}},
+	}); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	conflicts, err := DetectSkillMirrorConflicts([]canonicalSkillRecord{
+		{Name: "notes", Scope: skillScopePersonal, PersonalType: personalSkillTypeAgent, Dir: agentDir, DirHash: skillDirContentHash(agentDir)},
+		{Name: "notes", Scope: skillScopePersonal, PersonalType: personalSkillTypeUser, Dir: userDir, DirHash: skillDirContentHash(userDir)},
+	}, []SkillMirrorTarget{target})
+	if err != nil {
+		t.Fatalf("DetectSkillMirrorConflicts: %v", err)
+	}
+	if len(conflicts) != 0 {
+		t.Fatalf("conflicts = %+v, want none for unchanged agent mirror", conflicts)
+	}
+}
+
+func TestSkillMirrorReconcilerRejectsManifestTargetMismatch(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "skills")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("MkdirAll root: %v", err)
+	}
+	if err := writeSkillMirrorManifest(filepath.Join(root, skillMirrorManifestFile), SkillMirrorManifest{
+		Version:         1,
+		Manager:         "super-dolphin",
+		Scope:           skillScopeProject,
+		Provider:        string(SkillProviderCodex),
+		CanonicalRootID: "repo-a",
+		Skills:          map[string]SkillMirrorEntry{},
+	}); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	_, err := DetectSkillMirrorConflicts(nil, []SkillMirrorTarget{{TargetID: "claude:project:repo-b", Provider: SkillProviderClaude, Scope: skillScopeProject, Root: root, CanonicalRootID: "repo-b"}})
+	if err == nil || !strings.Contains(err.Error(), "target mismatch") {
+		t.Fatalf("DetectSkillMirrorConflicts error = %v, want target mismatch", err)
+	}
 }
 
 func TestSkillMirrorReconcilerConvertsSameNameConflicts(t *testing.T) {

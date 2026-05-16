@@ -130,9 +130,8 @@ func TestImportLocalDirPublishesProjectMirrors(t *testing.T) {
 	result := mustImportDirResult(t, out)
 	report := mustMirrorPublishReport(t, result)
 	assertPublishedReportItem(t, report.Published, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "demo-skill", "project/demo-skill")
-	assertPublishedReportItem(t, report.Published, "codex:project:"+RepoFingerprint(projectRoot), SkillProviderCodex, skillScopeProject, "demo-skill", "project/demo-skill")
 	assertFileContent(t, filepath.Join(projectRoot, ".claude", "skills", "demo-skill", "references", "guide.md"), "details")
-	assertFileContent(t, filepath.Join(projectRoot, ".codex", "skills", "demo-skill", skillMainFile), "---\nname: demo-skill\n---\nbody")
+	assertMissing(t, filepath.Join(projectRoot, ".codex", "skills", "demo-skill", skillMainFile))
 }
 
 func TestImportLocalDir_EmptyDirError(t *testing.T) {
