@@ -22,13 +22,22 @@ import (
 
 const eventTypeAgentMessage = "agent_message"
 
+// keepaliveSentinelPrefix marks cache-keepalive maintenance turns. These silent
+// turns are filtered out of history before display so they (and any model
+// misbehaviour on them) never reach the UI timeline or the task handoff doc.
+const keepaliveSentinelPrefix = "[CACHE-KEEPALIVE]"
+
 func (s *service) ReadHistory(ctx context.Context, threadID string, limit int) ([]dto.Message, error) {
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
 		return nil, err
 	}
 	targetID := historyTargetID(binding, threadID)
-	return session.ReadHistory(ctx, targetID, util.ClampLimit(limit, 0, 0, 0))
+	messages, err := session.ReadHistory(ctx, targetID, util.ClampLimit(limit, 0, 0, 0))
+	if err != nil {
+		return nil, err
+	}
+	return dropKeepaliveTurns(messages), nil
 }
 
 type threadReadProvider interface {
@@ -61,7 +70,7 @@ func (s *service) ReadMessages(ctx context.Context, threadID string, limit int, 
 	if err != nil {
 		return dto.ThreadMessagesResult{}, err
 	}
-	all = decorateThreadMessages(agentID, all)
+	all = decorateThreadMessages(agentID, dropKeepaliveTurns(all))
 	page, err := selectMessagesPage(all, limit, before)
 	if err != nil {
 		return dto.ThreadMessagesResult{}, err
@@ -293,6 +302,37 @@ func decorateThreadMessages(agentID string, messages []dto.Message) []dto.Messag
 		out = append(out, next)
 	}
 	return out
+}
+
+// dropKeepaliveTurns removes cache-keepalive maintenance turns from a history
+// slice: the sentinel user message plus the assistant reply belonging to the
+// same turn. Applied before decorateThreadMessages so survivors keep
+// contiguous positional IDs and pagination cursors stay stable.
+func dropKeepaliveTurns(messages []dto.Message) []dto.Message {
+	if len(messages) == 0 {
+		return messages
+	}
+	out := make([]dto.Message, 0, len(messages))
+	dropNextAssistant := false
+	for _, msg := range messages {
+		if isKeepaliveUserMessage(msg) {
+			dropNextAssistant = true
+			continue
+		}
+		if dropNextAssistant {
+			dropNextAssistant = false
+			if strings.EqualFold(strings.TrimSpace(msg.Role), "assistant") {
+				continue
+			}
+		}
+		out = append(out, msg)
+	}
+	return out
+}
+
+func isKeepaliveUserMessage(msg dto.Message) bool {
+	return strings.EqualFold(strings.TrimSpace(msg.Role), "user") &&
+		strings.HasPrefix(strings.TrimSpace(msg.Content), keepaliveSentinelPrefix)
 }
 
 func selectMessagesPage(all []dto.Message, limit int, before string) ([]dto.Message, error) {
