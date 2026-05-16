@@ -202,7 +202,7 @@ func (d *driver) prepareSessionStart(spec startSpec) (preparedStartSession, erro
 	launchConfig := canonicalizeClaudeLaunchConfig(launchModel, requestedConfig)
 	// Before launchCLI, mount the shared skill cache into the workspace so
 	// Claude CLI's native discovery picks up our skills.
-	if d.skillCacheDir != "" && spec.cwd != "" {
+	if shouldSetupLegacyWorkspaceSkills(spec.cwd, d.skillCacheDir) {
 		if err := d.setupWorkspaceSkills(spec.cwd, d.skillCacheDir); err != nil {
 			// fail-open: log and continue. Skill discovery failure should not
 			// block the user's main session.
@@ -238,6 +238,10 @@ func (d *driver) prepareSessionStart(spec startSpec) (preparedStartSession, erro
 		transport:      tr,
 		cleanup:        cleanup,
 	}, nil
+}
+
+func shouldSetupLegacyWorkspaceSkills(cwd, cacheDir string) bool {
+	return false
 }
 
 func resolveRequestedStartConfig(spec startSpec) (string, cliLaunchConfig) {
