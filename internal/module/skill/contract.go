@@ -122,7 +122,6 @@ type Service interface {
 	skillPreviewer
 	skillLegacyExpander
 	skillCandidateReviewer
-	contract.SkillMirrorReconciler
 	SkillRevisionSource
 	TrustRevisionSource
 }

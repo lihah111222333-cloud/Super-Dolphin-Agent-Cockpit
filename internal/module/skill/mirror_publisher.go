@@ -119,6 +119,9 @@ func unsafeMirrorRootString(root string) bool {
 }
 
 func prepareMirrorRoot(root string) error {
+	if err := rejectSymlinkAncestors(root); err != nil {
+		return err
+	}
 	info, err := os.Lstat(root)
 	if errors.Is(err, os.ErrNotExist) {
 		return os.MkdirAll(root, 0o755)
@@ -133,6 +136,35 @@ func prepareMirrorRoot(root string) error {
 		return fmt.Errorf("skill mirror root is not a directory: %s", root)
 	}
 	return nil
+}
+
+func rejectSymlinkAncestors(root string) error {
+	path, err := filepath.Abs(root)
+	if err != nil {
+		return fmt.Errorf("normalize skill mirror root: %w", err)
+	}
+	rootPath := path
+	for {
+		info, err := os.Lstat(path)
+		parent := filepath.Dir(path)
+		if err == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("skill mirror root ancestor is symlink: %s", path)
+			}
+			if path != rootPath || parent == path {
+				return nil
+			}
+			path = parent
+			continue
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if parent == path {
+			return nil
+		}
+		path = parent
+	}
 }
 
 func loadSkillMirrorManifest(path string, target SkillMirrorTarget) (SkillMirrorManifest, error) {
@@ -437,13 +469,6 @@ func (s *service) writeTimeMirrorTargets(cwd, scope string) []SkillMirrorTarget 
 			Provider:        SkillProviderClaude,
 			Scope:           skillScopeProject,
 			Root:            filepath.Join(cwd, ".claude", "skills"),
-			CanonicalRootID: fingerprint,
-		},
-		SkillMirrorTarget{
-			TargetID:        "codex:project:" + fingerprint,
-			Provider:        SkillProviderCodex,
-			Scope:           skillScopeProject,
-			Root:            filepath.Join(cwd, ".codex", "skills"),
 			CanonicalRootID: fingerprint,
 		},
 	}

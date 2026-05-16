@@ -52,6 +52,7 @@ type SkillMirrorResolutionRequest struct {
 	Name        string
 	NewName     string
 	Target      SkillMirrorTarget
+	PreviewID   string
 	PreviewHash string
 }
 
@@ -78,7 +79,7 @@ type skillMirrorMutationAuditRecord struct {
 func DetectSkillMirrorConflicts(records []canonicalSkillRecord, targets []SkillMirrorTarget) ([]SkillMirrorConflict, error) {
 	var conflicts []SkillMirrorConflict
 	driftCount := map[string]int{}
-	recordsByScopeName := canonicalRecordsByScopeName(records)
+	recordsByScopeName := canonicalRecordsByMirrorKey(records)
 	for _, target := range targets {
 		targetConflicts, err := detectSkillMirrorTargetConflicts(recordsByScopeName, target)
 		if err != nil {
@@ -125,6 +126,8 @@ func ResolveSkillMirrorDrift(ctx context.Context, svc *service, req SkillMirrorR
 		return overwriteMirrorFromCanonical(ctx, svc, req)
 	case "save_as_new_skill", "save_as_new_personal_skill":
 		return saveMirrorAsNewCanonical(ctx, svc, req)
+	case "confirm_delete_drifted_mirror":
+		return confirmDeleteDriftedMirror(ctx, svc, req)
 	default:
 		return SkillMirrorResolutionReport{Action: req.Action, Name: req.Name}, fmt.Errorf("unsupported mirror resolution action %q", req.Action)
 	}
@@ -136,12 +139,15 @@ func syncBackMirrorToCanonical(ctx context.Context, svc *service, req SkillMirro
 	if err != nil {
 		return report, err
 	}
-	mirrorHash, err := verifyResolutionPreview(mirrorDir, req.PreviewHash)
+	preview, mirrorHash, err := verifyResolutionRequestPreview(svc, req, mirrorDir)
 	if err != nil {
 		return report, err
 	}
 	targetDir, err := canonicalResolutionTargetDir(svc, record, req)
 	if err != nil {
+		return report, err
+	}
+	if err := verifyResolutionPreviewTarget(preview, targetDir); err != nil {
 		return report, err
 	}
 	if _, err := backupSkillDir(targetDir); err != nil {
@@ -172,7 +178,11 @@ func overwriteMirrorFromCanonical(ctx context.Context, svc *service, req SkillMi
 	if err != nil {
 		return report, err
 	}
-	if _, err := verifyResolutionPreview(mirrorDir, req.PreviewHash); err != nil {
+	preview, _, err := verifyResolutionRequestPreview(svc, req, mirrorDir)
+	if err != nil {
+		return report, err
+	}
+	if err := verifyResolutionPreviewTarget(preview, mirrorDir); err != nil {
 		return report, err
 	}
 	if _, err := backupSkillDir(mirrorDir); err != nil {
@@ -205,11 +215,15 @@ func saveMirrorAsNewCanonical(ctx context.Context, svc *service, req SkillMirror
 	if err != nil {
 		return report, err
 	}
-	if _, err := verifyResolutionPreview(mirrorDir, req.PreviewHash); err != nil {
+	preview, _, err := verifyResolutionRequestPreview(svc, req, mirrorDir)
+	if err != nil {
 		return report, err
 	}
 	targetDir, err := canonicalResolutionTargetDir(svc, record, req)
 	if err != nil {
+		return report, err
+	}
+	if err := verifyResolutionPreviewTarget(preview, targetDir); err != nil {
 		return report, err
 	}
 	if targetDir == record.Dir {
@@ -236,12 +250,15 @@ func saveMirrorAsNewCanonical(ctx context.Context, svc *service, req SkillMirror
 
 func ImportUnmanagedProviderSkill(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (SkillMirrorResolutionReport, error) {
 	report := SkillMirrorResolutionReport{Action: req.Action, Name: req.Name}
-	sourceDir, previewHash, err := unmanagedProviderSource(req)
+	sourceDir, previewHash, preview, err := unmanagedProviderSource(svc, req)
 	if err != nil {
 		return report, err
 	}
 	targetDir, scope, personalType, err := importCanonicalTargetDir(svc, req)
 	if err != nil {
+		return report, err
+	}
+	if err := verifyResolutionPreviewTarget(preview, targetDir); err != nil {
 		return report, err
 	}
 	if err := ensureSkillDirAbsent(targetDir, req.Name); err != nil {
@@ -274,7 +291,7 @@ func ImportUnmanagedProviderSkill(ctx context.Context, svc *service, req SkillMi
 
 func TakeoverProviderSkill(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (SkillMirrorResolutionReport, error) {
 	report := SkillMirrorResolutionReport{Action: req.Action, Name: req.Name}
-	sourceDir, previewHash, err := unmanagedProviderSource(req)
+	sourceDir, previewHash, _, err := unmanagedProviderSource(svc, req)
 	if err != nil {
 		return report, err
 	}
@@ -330,11 +347,14 @@ func detectSkillMirrorNameConflict(records map[string]canonicalSkillRecord, targ
 		return SkillMirrorConflict{}, false, err
 	}
 	entry, managed := manifest.Skills[name]
-	record, canonicalExists := records[mirrorRecordKey(target.Scope, name)]
+	record, canonicalExists := records[mirrorRecordKey(target.Scope, entry.PersonalType, name)]
 	if !managed {
 		return unmanagedSameNameConflict(target, record, name, mirrorDir, mirrorHash, canonicalExists), canonicalExists, nil
 	}
-	conflict := managedMirrorConflict(target, entry, record, name, mirrorDir, mirrorHash, canonicalExists)
+	conflict, err := managedMirrorConflict(target, entry, record, name, mirrorDir, mirrorHash, canonicalExists)
+	if err != nil {
+		return SkillMirrorConflict{}, false, err
+	}
 	return conflict, conflict.Kind != "", nil
 }
 
@@ -353,13 +373,21 @@ func unmanagedSameNameConflict(target SkillMirrorTarget, record canonicalSkillRe
 		MirrorPath:  filepath.ToSlash(mirrorDir),
 		MirrorHash:  mirrorHash,
 		PreviewHash: mirrorHash,
-		Actions:     mirrorActions("view_unmanaged", "import_to_personal_imported", "import_to_project", "takeover_provider_skill"),
+		Actions:     mirrorActions("view_unmanaged", "import_to_personal_imported", "takeover_provider_skill"),
 	}
 }
 
-func managedMirrorConflict(target SkillMirrorTarget, entry SkillMirrorEntry, record canonicalSkillRecord, name, mirrorDir, mirrorHash string, canonicalExists bool) SkillMirrorConflict {
-	if canonicalExists && mirrorHash == entry.MirrorHash {
-		return SkillMirrorConflict{}
+func managedMirrorConflict(target SkillMirrorTarget, entry SkillMirrorEntry, record canonicalSkillRecord, name, mirrorDir, mirrorHash string, canonicalExists bool) (SkillMirrorConflict, error) {
+	canonicalHash := entry.CanonicalHash
+	if canonicalExists {
+		var err error
+		canonicalHash, err = stableMirrorDirectoryHash(record.Dir)
+		if err != nil {
+			return SkillMirrorConflict{}, err
+		}
+	}
+	if canonicalExists && mirrorHash == entry.MirrorHash && canonicalHash == entry.CanonicalHash {
+		return SkillMirrorConflict{}, nil
 	}
 	kind := skillConflictMirrorDrift
 	if !canonicalExists {
@@ -378,31 +406,30 @@ func managedMirrorConflict(target SkillMirrorTarget, entry SkillMirrorEntry, rec
 		Name:          name,
 		CanonicalID:   entry.CanonicalID,
 		MirrorPath:    filepath.ToSlash(mirrorDir),
-		CanonicalHash: entry.CanonicalHash,
+		CanonicalHash: canonicalHash,
 		MirrorHash:    mirrorHash,
 		PreviewHash:   mirrorHash,
 		Actions:       driftActions(target.Scope),
-	}
+	}, nil
 }
 
-func canonicalRecordsByScopeName(records []canonicalSkillRecord) map[string]canonicalSkillRecord {
+func canonicalRecordsByMirrorKey(records []canonicalSkillRecord) map[string]canonicalSkillRecord {
 	out := make(map[string]canonicalSkillRecord, len(records))
 	for _, record := range records {
-		out[mirrorRecordKey(record.Scope, record.Name)] = record
+		out[mirrorRecordKey(record.Scope, record.PersonalType, record.Name)] = record
 	}
 	return out
 }
 
-func mirrorRecordKey(scope, name string) string {
-	return strings.TrimSpace(scope) + "/" + strings.ToLower(strings.TrimSpace(name))
+func mirrorRecordKey(scope, personalType, name string) string {
+	if strings.TrimSpace(scope) != skillScopePersonal {
+		personalType = ""
+	}
+	return strings.TrimSpace(scope) + "/" + strings.TrimSpace(personalType) + "/" + strings.ToLower(strings.TrimSpace(name))
 }
 
 func readTargetManifest(target SkillMirrorTarget) (SkillMirrorManifest, error) {
-	manifest, err := readSkillMirrorManifest(filepath.Join(target.Root, skillMirrorManifestFile))
-	if errors.Is(err, os.ErrNotExist) {
-		return newSkillMirrorManifest(target), nil
-	}
-	return manifest, err
+	return loadSkillMirrorManifest(filepath.Join(target.Root, skillMirrorManifestFile), target)
 }
 
 func skillMirrorNames(root string) ([]string, error) {

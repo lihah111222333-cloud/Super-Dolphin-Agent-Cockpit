@@ -196,6 +196,7 @@ func newSkillHandlers(svc Service, requester contract.ApprovalRequester) platfor
 		skillLocalHandlers(svc),
 		skillRemoteHandlers(svc),
 		skillPreviewHandlers(svc),
+		skillResolutionHandlers(svc),
 	)}
 }
 
@@ -284,6 +285,13 @@ func skillRemoteHandlers(svc Service) handler.Map {
 func skillPreviewHandlers(svc Service) handler.Map {
 	return handler.Map{
 		"skills/match/preview": platformrpc.StrictHandler(skillMatchPreviewHandler(svc)),
+	}
+}
+
+func skillResolutionHandlers(svc Service) handler.Map {
+	return handler.Map{
+		"skills/resolution_list":    platformrpc.StrictHandler(skillResolutionListHandler(svc)),
+		"skills/resolution_preview": platformrpc.StrictHandler(skillResolutionPreviewHandler(svc)),
 	}
 }
 
@@ -413,6 +421,40 @@ func skillMatchPreviewHandler(svc Service) func(context.Context, skillMatchPrevi
 			return nil, err
 		}
 		result, err := svc.MatchPreview(scopedCtx, p.AgentID, p.ThreadID, p.Text, p.Input)
+		if err != nil {
+			return nil, skillRPCError(err)
+		}
+		return result, nil
+	}
+}
+
+func skillResolutionListHandler(svc Service) func(context.Context, skillResolutionListParams) (any, error) {
+	return func(_ context.Context, p skillResolutionListParams) (any, error) {
+		if err := requireRequestCWD(p.CWD); err != nil {
+			return nil, err
+		}
+		impl, ok := svc.(*service)
+		if !ok {
+			return nil, skillRPCError(errors.New("skill resolution service is not configured"))
+		}
+		result, err := impl.listSkillResolutions(p.CWD)
+		if err != nil {
+			return nil, skillRPCError(err)
+		}
+		return result, nil
+	}
+}
+
+func skillResolutionPreviewHandler(svc Service) func(context.Context, skillResolutionPreviewParams) (any, error) {
+	return func(_ context.Context, p skillResolutionPreviewParams) (any, error) {
+		if err := requireRequestCWD(p.CWD); err != nil {
+			return nil, err
+		}
+		impl, ok := svc.(*service)
+		if !ok {
+			return nil, skillRPCError(errors.New("skill resolution service is not configured"))
+		}
+		result, err := impl.previewSkillResolution(p)
 		if err != nil {
 			return nil, skillRPCError(err)
 		}

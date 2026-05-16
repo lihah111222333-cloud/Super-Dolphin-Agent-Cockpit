@@ -232,6 +232,26 @@ func TestSkillMirrorPublisherFailsClosedOnSymlinksAndPathEscape(t *testing.T) {
 	}
 }
 
+func TestSkillMirrorPublisherRejectsParentSymlinkRoot(t *testing.T) {
+	project := t.TempDir()
+	writeSkillWithSupportFiles(t, filepath.Join(project, ".agent", "skills", "build"), "build")
+	records, err := newCanonicalStore("").scan(project)
+	if err != nil {
+		t.Fatalf("scan canonical records: %v", err)
+	}
+	root := filepath.Join(project, ".codex-parent-symlink", "skills")
+	if err := os.Symlink(t.TempDir(), filepath.Dir(root)); err != nil {
+		t.Fatalf("Symlink parent mirror dir: %v", err)
+	}
+
+	_, err = PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{
+		{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: root, CanonicalRootID: "repo"},
+	})
+	if err == nil {
+		t.Fatalf("PublishSkillMirrors parent symlink root succeeded, want fail closed")
+	}
+}
+
 func TestSkillMirrorPublisherRejectsCanonicalSymlinkEntries(t *testing.T) {
 	project := t.TempDir()
 	dir := filepath.Join(project, ".agent", "skills", "build")
