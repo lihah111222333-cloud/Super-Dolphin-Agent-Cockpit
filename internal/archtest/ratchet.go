@@ -34,111 +34,64 @@ func (r CheckResult) OK() bool {
 }
 
 // RatchetCheck 对比当前指标与 frozen baseline，返回违规字段的恶化。
-// 只报告 cur > frozen 且当前值已越过对应守卫阈值的字段；绿色指标增长不报违规。
+// 注册表驱动：所有 flagRatchet 规则自动参与，无需手动同步。
 func RatchetCheck(path string, cur, frozen FileMetrics) []RatchetViolation {
 	var vs []RatchetViolation
-	check := func(field string, curV, frozenV int) {
-		if curV > frozenV && isRatchetIntViolation(path, field, curV) {
-			vs = append(vs, RatchetViolation{File: path, Field: field, Frozen: frozenV, Current: curV})
+	for _, r := range metricRules() {
+		if !r.Flags.has(flagRatchet) {
+			continue
+		}
+		curV := *r.Access(&cur)
+		frozenV := *r.Access(&frozen)
+		if curV > frozenV && isViolationByRule(r, path, curV) {
+			vs = append(vs, RatchetViolation{File: path, Field: r.Field, Frozen: frozenV, Current: curV})
 		}
 	}
-	// Size
-	check("lines", cur.Lines, frozen.Lines)
-	check("max_func_len", cur.MaxFuncLen, frozen.MaxFuncLen)
-	// Complexity
-	check("max_nesting", cur.MaxNesting, frozen.MaxNesting)
-	check("max_complexity", cur.MaxComplexity, frozen.MaxComplexity)
-	check("max_params", cur.MaxParams, frozen.MaxParams)
-	check("max_returns", cur.MaxReturns, frozen.MaxReturns)
-	check("max_underscore", cur.MaxUnderscore, frozen.MaxUnderscore)
-	// Quality
-	check("global_vars", cur.GlobalVars, frozen.GlobalVars)
-	check("panic_count", cur.PanicCount, frozen.PanicCount)
-	check("naked_returns", cur.NakedReturns, frozen.NakedReturns)
-	check("empty_funcs", cur.EmptyFuncs, frozen.EmptyFuncs)
-	check("todo_count", cur.TodoCount, frozen.TodoCount)
-	check("max_struct_fields", cur.MaxStructFields, frozen.MaxStructFields)
-	check("naked_goroutines", cur.NakedGoroutines, frozen.NakedGoroutines)
-	// HasInit: false→true 是恶化
+	// HasInit: bool 字段，不在 int 注册表中。false→true 是恶化。
 	if cur.HasInit && !frozen.HasInit {
 		vs = append(vs, RatchetViolation{File: path, Field: "has_init", Frozen: 0, Current: 1})
 	}
 	return vs
 }
 
-func isRatchetIntViolation(path, field string, value int) bool {
-	if limit, ok := ratchetHardLimit(path, field); ok {
-		return value > limit
-	}
-	return isZeroThresholdRatchetField(field) && value > 0
-}
-
+// shouldTightenRatchetField 判断单个字段是否应被收紧。
+// 注册表驱动：查找注册表中对应字段的规则定义。
 func shouldTightenRatchetField(path, field string, curV, frozenV int) bool {
 	if curV >= frozenV {
 		return false
 	}
-	if isZeroThresholdRatchetField(field) {
-		return true
-	}
-	if limit, ok := ratchetHardLimit(path, field); ok {
-		return curV > limit || frozenV > limit
+	for _, r := range metricRules() {
+		if r.Field != field {
+			continue
+		}
+		switch r.Kind {
+		case limitZero:
+			return true
+		case limitHard:
+			limit := r.HardLimit(path)
+			return curV > limit || frozenV > limit
+		case limitNone:
+			// limitNone 字段不参与主动收缩（它们没有阈值可判断是否为「债务」）
+			return false
+		}
 	}
 	return false
 }
 
-func ratchetHardLimit(path, field string) (int, bool) {
-	switch field {
-	case "lines":
-		if path == "" {
-			return MaxFileLines, true
-		}
-		return fileLineLimit(path, isFactoryFile(path)), true
-	case "max_func_len":
-		return MaxFuncLines, true
-	case "max_nesting":
-		return MaxNestingDepth, true
-	case "max_complexity":
-		return MaxCCComplexity, true
-	case "max_underscore":
-		return MaxUnderscores, true
-	default:
-		return 0, false
-	}
-}
-
-func isZeroThresholdRatchetField(field string) bool {
-	switch field {
-	case "global_vars", "panic_count", "naked_returns", "empty_funcs", "todo_count", "naked_goroutines":
-		return true
-	default:
-		return false
-	}
-}
-
 // HasViolation 判断 metrics 是否超过任一硬阈值。
+// 注册表驱动：所有 flagViolation 规则自动参与，无需手动同步。
 // 用于 FreezeBaseline：只冻结有真实违规的文件，不冻结绿色代码。
 func HasViolation(m FileMetrics) bool {
-	return hasSizeViolation(m) || hasQualityViolation(m)
-}
-
-// hasSizeViolation 检查 size 和 complexity 类阈值。
-func hasSizeViolation(m FileMetrics) bool {
-	return m.Lines > MaxFileLines ||
-		m.MaxFuncLen > MaxFuncLines ||
-		m.MaxNesting > MaxNestingDepth ||
-		m.MaxComplexity > MaxCCComplexity ||
-		m.MaxUnderscore > MaxUnderscores
-}
-
-// hasQualityViolation 检查质量类指标（非零即违规）。
-func hasQualityViolation(m FileMetrics) bool {
-	return m.GlobalVars > 0 ||
-		m.HasInit ||
-		m.PanicCount > 0 ||
-		m.NakedReturns > 0 ||
-		m.EmptyFuncs > 0 ||
-		m.TodoCount > 0 ||
-		m.NakedGoroutines > 0
+	for _, r := range metricRules() {
+		if !r.Flags.has(flagViolation) {
+			continue
+		}
+		if isViolationByRule(r, "", *r.Access(&m)) {
+			return true
+		}
+	}
+	// HasInit: bool 字段，不在 int 注册表中。
+	return m.HasInit
 }
 
 // CheckWithBaseline 执行全仓棘轮检查。
