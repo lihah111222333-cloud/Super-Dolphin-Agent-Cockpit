@@ -921,7 +921,7 @@
     "max_struct_fields": 41
   },
   "internal/provider/claudecli/session_events.go": {
-    "lines": 402,
+    "lines": 407,
     "max_func_len": 36,
     "max_nesting": 3,
     "max_complexity": 9,
