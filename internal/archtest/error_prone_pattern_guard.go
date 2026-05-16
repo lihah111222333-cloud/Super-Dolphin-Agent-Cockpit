@@ -35,6 +35,9 @@ func errorPronePatternViolations(repoRoot string) []Violation {
 	g.guardSilentTurnLeakagePattern()
 	g.guardSessionIdentityPreservationPattern()
 	g.guardLanguageAnchorPattern()
+	g.guardEmptyCWDPropagationPattern()
+	g.guardTerminalSignalCompletenessPattern()
+	g.guardDSLTypeCoercionPattern()
 	return g.violations
 }
 
@@ -272,6 +275,59 @@ func (g *errorPronePatternGuard) guardLanguageAnchorPattern() {
 	)
 	g.requireContains(rel, "default language anchor must prevent mid-response language mixing",
 		"Do not mix languages",
+	)
+}
+
+// guardEmptyCWDPropagationPattern ensures child agents launched via
+// orchestration_launch_agent inherit their parent's cwd when the tool call
+// omits it. Without this, empty cwd propagates to agent_threads.cwd and the
+// sidebar snapshot, causing child agents to appear in every project view
+// (the "lottery" symptom from 2026-05-15).
+//
+// Also ensures pool server spawn passes workDir from the session request.
+func (g *errorPronePatternGuard) guardEmptyCWDPropagationPattern() {
+	// 1. Orchestration launcher must apply cwd defaults before forwarding.
+	const launcherRel = "cmd/mcp-orch/orchestration/service_launcher_bridge.go"
+	g.requireContains(launcherRel, "child agents must inherit parent cwd when the tool call omits it",
+		"applyLaunchRequestDefaults",
+		"strings.TrimSpace(req.Cwd)",
+	)
+	// 2. Pool routing must pass workDir from session request to spawner.
+	const poolRel = "internal/provider/codexapp/driver_pool_routing.go"
+	g.requireContains(poolRel, "pool server spawn must pass thread cwd to spawner context",
+		"withPoolSpawnWorkDir",
+	)
+}
+
+// guardTerminalSignalCompletenessPattern ensures the frontend streaming
+// finalization logic covers ALL terminal signals, not just turn/completed.
+// Missing any terminal signal causes <pre> streaming placeholders to stick
+// until the next turn (the regression from 2026-05-15 commit 600db7d8).
+//
+// The signal set must include: turn/completed, turn/interrupted,
+// agent/stopped, thread/stopped, agent/failed.
+func (g *errorPronePatternGuard) guardTerminalSignalCompletenessPattern() {
+	const rel = "cmd/agent-terminal/frontend/vue-app/stores/thread-sync-helpers.js"
+	g.requireContains(rel, "streaming finalization must cover all terminal signals, not just turn/completed",
+		"turnTerminalSignal",
+		"turn/interrupted",
+		"agent/stopped",
+		"thread/stopped",
+		"agent/failed",
+	)
+}
+
+// guardDSLTypeCoercionPattern ensures the template-level match_when DSL
+// evaluator delegates to the dual-type (string + array) evaluator for
+// tags_has. Without this, array-form tags_has stored by the SystemPromptPage
+// UI silently fails to match — the bug from 2026-05-15 commit 72e56f7c.
+func (g *errorPronePatternGuard) guardDSLTypeCoercionPattern() {
+	const rel = "internal/module/prompt/enable_when.go"
+	g.requireContains(rel, "template-level tags_has must use dual-type evaluator to support both string and array forms",
+		"matchSectionTagsHas(want, userPrompt)",
+	)
+	g.requireNotContains(rel, "template-level tags_has must not use string-only evaluator",
+		"matchTagsHas(matchWhenStringValue(want)",
 	)
 }
 
