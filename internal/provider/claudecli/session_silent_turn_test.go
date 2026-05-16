@@ -228,3 +228,42 @@ func TestApplyRawDropsKeepaliveTurnEvents(t *testing.T) {
 		t.Fatal("normal-turn event was not dispatched")
 	}
 }
+
+func TestKeepaliveTurnEndToEndSilent(t *testing.T) {
+	stdin := &recordingWriteCloser{writes: make(chan string, 1)}
+	tr := &transport{stdin: stdin, stderr: newLimitedBuffer(stderrLimitBytes), done: make(chan struct{})}
+	s, rawEvents, turnCompleted := newSilentTurnTestSession(t, tr)
+
+	// Start a real keepalive turn; prepareSilentTurnLocked assigns the
+	// keepalive turn id that the whole decode pipeline derives from.
+	errCh := startKeepaliveForTest(s)
+	expectKeepaliveWrite(t, stdin)
+	requireActiveSilentTurn(t, s)
+
+	base := s.rawBase()
+	if !strings.HasPrefix(base.TurnID, keepaliveTurnIDPrefix) {
+		t.Fatalf("rawBase().TurnID = %q, want keepalive-prefixed id", base.TurnID)
+	}
+
+	// Drive realistic claude-CLI stream-json lines through the real
+	// decodeClaudeLine + applyRaw path — the production read-loop pipeline.
+	// The assistant line carries the hallucinated-transcript shape from the
+	// reported bug (turn #1083 in thread 3b7abdf5).
+	lines := [][]byte{
+		[]byte(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"OK\n\nuser实施第一阶段\n\nuser<system-reminder>\nPlan mode is active.\n</parameter>"}]}}`),
+		[]byte(`{"type":"result","subtype":"success","result":"OK"}`),
+	}
+	for _, line := range lines {
+		events, err := decodeClaudeLine(line, base)
+		if err != nil {
+			t.Fatalf("decodeClaudeLine(%s) error = %v", line, err)
+		}
+		for _, ev := range events {
+			s.applyRaw(tr, ev)
+		}
+	}
+
+	awaitKeepaliveSuccess(t, errCh, "after decoded result")
+	assertNoActiveSilentTurn(t, s)
+	assertNoKeepaliveDispatch(t, rawEvents, turnCompleted)
+}
