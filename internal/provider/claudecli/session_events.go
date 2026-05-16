@@ -108,11 +108,26 @@ func (s *session) applyRaw(tr *transport, raw dto.RawProviderEvent) {
 	if shouldFinishTurnRaw(raw) && s.shouldRetryTransientError(raw) {
 		return
 	}
-	s.dispatch(raw)
+	// A keepalive (silent) turn's decoded stream events (assistant text, tool
+	// calls, turn:complete) must never reach the UI. Gating here on the decode
+	// path keeps the suppression scoped to events that genuinely belong to the
+	// keepalive turn, leaving lifecycle events that merely co-occur (restart
+	// status patches, agent:stopped) untouched. finishTurnFromRaw still runs
+	// below, so SendKeepalive unblocks normally.
+	if !isKeepaliveTurnEvent(raw) {
+		s.dispatch(raw)
+	}
 	if shouldFinishTurnRaw(raw) {
 		s.finishTurnFromRaw(raw)
 	}
 }
+
+// isKeepaliveTurnEvent reports whether raw is a decoded stream event of a
+// keepalive (silent) turn, identified by the keepalive turn-id prefix.
+func isKeepaliveTurnEvent(raw dto.RawProviderEvent) bool {
+	return strings.HasPrefix(dataString(raw.Data, "turn_id"), keepaliveTurnIDPrefix)
+}
+
 func (s *session) handleSystemInitRaw(tr *transport, raw dto.RawProviderEvent) {
 	if raw.EventType != "system:init" {
 		return

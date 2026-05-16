@@ -52,8 +52,7 @@ func TestSendKeepaliveNormalFlow(t *testing.T) {
 	completeSilentTurn(t, s, tr, turnID)
 	awaitKeepaliveSuccess(t, errCh, "after turn:complete")
 	assertNoActiveSilentTurn(t, s)
-	assertRawKeepaliveCompletion(t, rawEvents, turnID)
-	assertTranslatedKeepaliveCompletion(t, turnCompleted, turnID)
+	assertNoKeepaliveDispatch(t, rawEvents, turnCompleted)
 }
 
 func startKeepaliveForTest(s *session) chan error {
@@ -107,33 +106,17 @@ func assertNoActiveSilentTurn(t *testing.T, s *session) {
 	}
 }
 
-func assertRawKeepaliveCompletion(t *testing.T, rawEvents <-chan dto.BusRawProviderEvent, turnID string) {
+// assertNoKeepaliveDispatch verifies a silent (keepalive) turn finishes its
+// turn handle without dispatching any event to the UI stream — neither the
+// raw event nor the translated turnCompleted.
+func assertNoKeepaliveDispatch(t *testing.T, rawEvents <-chan dto.BusRawProviderEvent, turnCompleted <-chan turndto.TurnCompleted) {
 	t.Helper()
 	select {
 	case raw := <-rawEvents:
-		if raw.Event.EventType != "turn:complete" {
-			t.Fatalf("raw.EventType = %q, want turn:complete", raw.Event.EventType)
-		}
-		if got := dataString(raw.Event.Data, "turn_id"); got != turnID {
-			t.Fatalf("raw turn_id = %q, want %q", got, turnID)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("expected raw keepalive completion event")
-	}
-}
-
-func assertTranslatedKeepaliveCompletion(t *testing.T, turnCompleted <-chan turndto.TurnCompleted, turnID string) {
-	t.Helper()
-	select {
+		t.Fatalf("keepalive turn must not dispatch raw events, got %q", raw.Event.EventType)
 	case completed := <-turnCompleted:
-		if !completed.Success {
-			t.Fatalf("turnCompleted.Success = false, want true (error=%q)", completed.Error)
-		}
-		if completed.TurnID != turnID {
-			t.Fatalf("turnCompleted.TurnID = %q, want %q", completed.TurnID, turnID)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("expected translated keepalive completion event")
+		t.Fatalf("keepalive turn must not emit turnCompleted, got turn %q", completed.TurnID)
+	case <-time.After(200 * time.Millisecond):
 	}
 }
 
@@ -212,5 +195,36 @@ func releaseWriterAndWaitForMutex(t *testing.T, writer *blockingWriteCloser, loc
 	case <-lockAcquired:
 	case <-time.After(time.Second):
 		t.Fatal("session mutex remained locked after SendKeepalive transport.Send completed")
+	}
+}
+
+func TestApplyRawDropsKeepaliveTurnEvents(t *testing.T) {
+	tr := &transport{done: make(chan struct{})}
+	s, rawEvents, _ := newSilentTurnTestSession(t, tr)
+
+	// A decoded keepalive-turn event (turn_id carries the keepalive prefix) is
+	// processed for turn bookkeeping but must never reach the UI event stream.
+	s.applyRaw(tr, dto.RawProviderEvent{
+		EventType: "assistant:message_delta",
+		Data:      map[string]any{"turn_id": keepaliveTurnIDPrefix + "ping_x", "delta": "OK"},
+	})
+	select {
+	case raw := <-rawEvents:
+		t.Fatalf("keepalive-turn event must not be dispatched, got %q", raw.Event.EventType)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	// A normal-turn event must still pass through untouched.
+	s.applyRaw(tr, dto.RawProviderEvent{
+		EventType: "assistant:message_delta",
+		Data:      map[string]any{"turn_id": "turn_real", "delta": "hi"},
+	})
+	select {
+	case raw := <-rawEvents:
+		if raw.Event.EventType != "assistant:message_delta" {
+			t.Fatalf("raw.EventType = %q, want assistant:message_delta", raw.Event.EventType)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("normal-turn event was not dispatched")
 	}
 }

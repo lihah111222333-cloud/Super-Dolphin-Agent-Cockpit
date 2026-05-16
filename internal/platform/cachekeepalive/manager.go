@@ -285,22 +285,27 @@ func (m *Manager) resolvePingPeer(ctx context.Context, sessionUUID string, fired
 	return kc
 }
 
-// deliverPing invokes SendKeepalive and, on success, reschedules the timer
-// unless Shutdown cancelled pingCtx in the meantime — in that case a
-// fresh 55-minute timer would outlive the module Lifecycle, so we skip
-// the reset.
+// deliverPing invokes SendKeepalive and reschedules the keepalive timer
+// afterwards — on success and on failure alike — unless Shutdown cancelled
+// pingCtx, in which case a fresh 55-minute timer would outlive the module
+// Lifecycle so the reset is skipped.
+//
+// Rescheduling on failure matters because the keepalive runs as a silent
+// turn whose events are not dispatched; the cachekeepalive relay therefore
+// no longer receives a TurnCompleted to re-arm the timer when a ping fails,
+// so the loop must be self-sustaining here. A dead agent does not loop
+// forever: the next fire's resolvePingPeer re-checks the binding and drops
+// the timer once no live peer remains.
 func (m *Manager) deliverPing(ctx context.Context, sessionUUID string, timerRef *agentTimer, kc KeepaliveCapable) {
-	if err := kc.SendKeepalive(ctx); err != nil {
-		if m.logger != nil {
-			m.logger.Warn("cachekeepalive: keepalive ping failed", "session_uuid", sessionUUID, "agent_id", timerRef.agentID, "thread_id", timerRef.threadID, "error", err)
-		}
-		return
+	err := kc.SendKeepalive(ctx)
+	if err != nil && m.logger != nil {
+		m.logger.Warn("cachekeepalive: keepalive ping failed", "session_uuid", sessionUUID, "agent_id", timerRef.agentID, "thread_id", timerRef.threadID, "error", err)
 	}
 	if ctx.Err() != nil {
 		return
 	}
 	m.ResetTimerByAgent(timerRef.agentID)
-	if m.logger != nil {
+	if err == nil && m.logger != nil {
 		m.logger.Info("cachekeepalive: keepalive success, timer reset", "session_uuid", sessionUUID, "agent_id", timerRef.agentID)
 	}
 }

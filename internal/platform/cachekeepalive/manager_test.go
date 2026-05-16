@@ -2,6 +2,7 @@ package cachekeepalive
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -45,6 +46,12 @@ func (plainSession) ForceStop() error                                           
 type keepaliveSession struct{ plainSession }
 
 func (*keepaliveSession) SendKeepalive(context.Context) error { return nil }
+
+type failingKeepaliveSession struct{ plainSession }
+
+func (*failingKeepaliveSession) SendKeepalive(context.Context) error {
+	return errors.New("keepalive ping failed")
+}
 
 type bindingStoreStub struct {
 	byAgent map[string]*bindingstore.Binding
@@ -294,5 +301,24 @@ func TestStopTimerByAgent(t *testing.T) {
 	}
 	if first == nil || first.timer == nil || first.timer.Stop() {
 		t.Fatalf("session-1 timer stop mismatch: %#v", first)
+	}
+}
+
+func TestDeliverPingReschedulesOnFailure(t *testing.T) {
+	t.Parallel()
+	m := newTestManager(nil, nil, nil)
+	t.Cleanup(m.shutdownForTest)
+	m.register("session-1", "agent-1", "thread-1")
+	before := requireAgentTimer(t, m.snapshotTimer("session-1", nil), "before")
+
+	// A failed keepalive ping must still re-arm the timer: the silent turn
+	// dispatches no TurnCompleted, so deliverPing is the only path that keeps
+	// the keepalive loop alive after a failure.
+	timerRef := &agentTimer{sessionUUID: "session-1", agentID: "agent-1", threadID: "thread-1"}
+	m.deliverPing(context.Background(), "session-1", timerRef, &failingKeepaliveSession{})
+
+	after := requireAgentTimer(t, m.snapshotTimer("session-1", nil), "after")
+	if before.timer == after.timer {
+		t.Fatal("deliverPing did not reschedule the keepalive timer after a failed ping")
 	}
 }

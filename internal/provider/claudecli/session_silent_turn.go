@@ -9,7 +9,12 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
-const keepaliveTimeout = 30 * time.Second
+const (
+	keepaliveTimeout = 30 * time.Second
+	// keepaliveTurnIDPrefix marks keepalive turn ids so applyRaw can
+	// recognize silent-turn events and keep them out of the UI stream.
+	keepaliveTurnIDPrefix = "keepalive_"
+)
 
 func (s *session) keepaliveLogger() *slog.Logger {
 	if s != nil && s.logger != nil {
@@ -69,7 +74,7 @@ func (s *session) prepareSilentTurnLocked() ([]byte, string, *turnHandle, error)
 		return nil, "", nil, err
 	}
 
-	localID := "keepalive_" + shared.NewID("ping")
+	localID := keepaliveTurnIDPrefix + shared.NewID("ping")
 	handle := newTurnHandle(localID, localID)
 	s.activeTurn = handle
 	return payload, localID, handle, nil
