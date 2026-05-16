@@ -5,6 +5,7 @@ package manager_test
 import (
 	"context"
 	"encoding/json"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -21,7 +22,7 @@ import (
 
 func TestGoWorkEnvPropagatedToGopls(t *testing.T) {
 	t.Setenv("GOWORK", "")
-	ctx := context.Background()
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"})
 	repo := normalizedGoWorkFakeTempDir(t)
 	backend := filepath.Join(repo, "backend")
 	tools := filepath.Join(repo, "tools")

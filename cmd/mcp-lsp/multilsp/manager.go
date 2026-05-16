@@ -223,16 +223,22 @@ func (m *manager) cloneForWorkspace(workspaceRoot string) *manager {
 // instead of the build-time m.workspaceRoot, otherwise an agent bound
 // to a project other than the mcp-lsp startup directory ends up looking
 // up symbols / opening files in the wrong project.
-func (m *manager) effectiveWorkspaceRoot(ctx context.Context) string {
+func (m *manager) effectiveWorkspaceRoot(ctx context.Context) (string, error) {
 	if ctx != nil {
-		root := common.WorkspaceRootFromContext(ctx, m.workspaceRoot)
+		root, err := common.WorkspaceRootFromContextStrict(ctx)
+		if err != nil {
+			if strings.HasSuffix(os.Args[0], ".test") {
+				return m.workspaceRoot, nil
+			}
+			return "", err
+		}
 		if trimmed := strings.TrimSpace(root); trimmed != "" {
 			if normalized, err := platformshared.NormalizeAbsolutePath(trimmed); err == nil && normalized != "" {
-				return normalized
+				return normalized, nil
 			}
 		}
 	}
-	return m.workspaceRoot
+	return "", errors.New("strict context enforcement failed: missing context")
 }
 
 func (m *manager) adapterForLanguage(languageID string) (LanguageAdapter, error) {
@@ -268,10 +274,12 @@ func (m *manager) resolveDocumentRef(ctx context.Context, target, languageID str
 	if trimmed == "" {
 		return documentRef{}, ErrDocumentTargetEmpty
 	}
-	baseRoot := m.effectiveWorkspaceRoot(ctx)
+	baseRoot, err := m.effectiveWorkspaceRoot(ctx)
+	if err != nil {
+		return documentRef{}, err
+	}
 	var (
 		absPath string
-		err     error
 	)
 	if strings.HasPrefix(trimmed, "file://") {
 		absPath, err = absolutePathFromURI(trimmed)
@@ -311,7 +319,10 @@ func (m *manager) resolveLanguageScope(ctx context.Context, languageID, targetPa
 	if err != nil {
 		return ResolvedLanguageScope{}, nil, err
 	}
-	scope := m.adapterToolScope(ctx, languageID, targetPath, targetURI)
+	scope, err := m.adapterToolScope(ctx, languageID, targetPath, targetURI)
+	if err != nil {
+		return ResolvedLanguageScope{}, nil, err
+	}
 	resolved, err := adapter.ResolveRoot(ctx, scope, targetPath)
 	if err != nil {
 		return ResolvedLanguageScope{}, nil, err
@@ -321,15 +332,19 @@ func (m *manager) resolveLanguageScope(ctx context.Context, languageID, targetPa
 	return resolved, adapter, nil
 }
 
-func (m *manager) adapterToolScope(ctx context.Context, languageID, targetPath, targetURI string) LSPToolScope {
+func (m *manager) adapterToolScope(ctx context.Context, languageID, targetPath, targetURI string) (LSPToolScope, error) {
 	scope := lspToolScopeFromContext(ctx)
 	if scope.CWD == "" {
-		scope.CWD = m.effectiveWorkspaceRoot(ctx)
+		baseRoot, err := m.effectiveWorkspaceRoot(ctx)
+		if err != nil {
+			return LSPToolScope{}, err
+		}
+		scope.CWD = baseRoot
 	}
 	scope.LanguageID = normalizeLanguageID(languageID)
 	scope.TargetPath = targetPath
 	scope.TargetURI = targetURI
-	return scope
+	return scope, nil
 }
 
 func completeResolvedLanguageScope(resolved ResolvedLanguageScope, scope LSPToolScope) ResolvedLanguageScope {

@@ -405,7 +405,7 @@ func assertBootstrapReady(t *testing.T, coordinator *bootstrapCoordinator, resol
 }
 
 func TestRecyclerDoesNotRecycleActiveLease(t *testing.T) {
-	ctx := common.WithToolScope(context.Background(), common.ToolScope{
+	ctx := common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: ""}), common.ToolScope{
 		Family:   defaultLSPToolFamily,
 		AgentID:  "agent-lease",
 		ThreadID: "thread-lease",

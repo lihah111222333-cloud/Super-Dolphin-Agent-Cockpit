@@ -82,20 +82,15 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 }
 
 func (h handlerBase) collectDiagnosticURIs(ctx context.Context, input fileToolInput) ([]string, error) {
-	targets := make([]string, 0, len(input.FilePaths)+1)
-	if value := strings.TrimSpace(input.FilePath); value != "" {
-		targets = append(targets, value)
-	}
-	for _, rawPath := range input.FilePaths {
-		if value := strings.TrimSpace(rawPath); value != "" {
-			targets = append(targets, value)
-		}
-	}
+	targets := collectDiagnosticTargets(input)
 	if len(targets) == 0 {
 		return nil, nil
 	}
 
-	root := toolWorkspaceRoot(ctx, h.root)
+	root, err := toolWorkspaceRoot(ctx)
+	if err != nil {
+		return nil, err
+	}
 	uris := make([]string, 0, len(targets))
 	seen := make(map[string]struct{}, len(targets))
 	for _, target := range targets {
@@ -114,6 +109,19 @@ func (h handlerBase) collectDiagnosticURIs(ctx context.Context, input fileToolIn
 		uris = append(uris, uri)
 	}
 	return uris, nil
+}
+
+func collectDiagnosticTargets(input fileToolInput) []string {
+	targets := make([]string, 0, len(input.FilePaths)+1)
+	if value := strings.TrimSpace(input.FilePath); value != "" {
+		targets = append(targets, value)
+	}
+	for _, rawPath := range input.FilePaths {
+		if value := strings.TrimSpace(rawPath); value != "" {
+			targets = append(targets, value)
+		}
+	}
+	return targets
 }
 
 func existingDiagnosticURIs(uris []string) []string {

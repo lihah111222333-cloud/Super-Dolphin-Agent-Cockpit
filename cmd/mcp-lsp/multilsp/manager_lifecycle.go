@@ -152,7 +152,10 @@ func (m *manager) resolveLanguageWorkspace(ctx context.Context, languageID strin
 	if !m.shouldUseClientForLanguage(langID) {
 		return workspaceConfig{}, fmt.Errorf("language %q is not managed by the LSP manager", languageID)
 	}
-	root := m.effectiveWorkspaceRoot(ctx)
+	root, err := m.effectiveWorkspaceRoot(ctx)
+	if err != nil {
+		return workspaceConfig{}, err
+	}
 	if root == "" {
 		return workspaceConfig{}, ErrWorkspaceRootEmpty
 	}

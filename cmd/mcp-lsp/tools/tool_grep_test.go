@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,7 +29,7 @@ func TestGrepTextSearchFallsBackToLiteralOnRegexParseError(t *testing.T) {
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	got, err := handler(context.Background(), input)
+	got, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), input)
 	if err != nil {
 		t.Fatalf("grep returned error: %v", err)
 	}
@@ -58,7 +59,7 @@ func TestGrepTextSearchEmptyResultHasMessage(t *testing.T) {
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	got, err := handler(context.Background(), input)
+	got, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), input)
 	if err != nil {
 		t.Fatalf("grep returned error: %v", err)
 	}

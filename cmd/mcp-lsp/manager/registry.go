@@ -177,7 +177,10 @@ func (r *dynamicRegistry) scopedManagerForConfig(ctx context.Context, config *la
 	if config == nil || config.manager == nil {
 		return ScopedManager{}, ErrUnsupportedLanguage
 	}
-	scope := registryToolScope(ctx, lang, targetPath, targetURI)
+	scope, err := registryToolScope(ctx, lang, targetPath, targetURI)
+	if err != nil {
+		return ScopedManager{}, err
+	}
 	if config.scoped == nil {
 		return ScopedManager{Manager: config.manager, ResolvedScope: ResolvedToolScope{ToolScope: scope}}, nil
 	}
@@ -289,7 +292,11 @@ func (r *dynamicRegistry) addCurrentScopedManagers(ctx context.Context, result m
 		result[cfg.manager] = nil
 		return nil
 	}
-	scopedManagers, err := cfg.scoped.CurrentManagersForToolScope(registryToolScope(ctx, lang, "", ""))
+	scope, err := registryToolScope(ctx, lang, "", "")
+	if err != nil {
+		return err
+	}
+	scopedManagers, err := cfg.scoped.CurrentManagersForToolScope(scope)
 	if err != nil {
 		return err
 	}
@@ -342,13 +349,17 @@ func (r *dynamicRegistry) groupURIsByManager(ctx context.Context, uris []string)
 	return result, nil
 }
 
-func registryToolScope(ctx context.Context, lang, targetPath, targetURI string) ToolScope {
+func registryToolScope(ctx context.Context, lang, targetPath, targetURI string) (ToolScope, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	trusted, _ := common.ToolScopeFromContext(ctx)
 	if trusted.CWD == "" {
-		trusted.CWD = common.WorkspaceRootFromContext(ctx, "")
+		root, err := common.WorkspaceRootFromContextStrict(ctx)
+		if err != nil {
+			return ToolScope{}, err
+		}
+		trusted.CWD = root
 	}
 	if trusted.Family == "" {
 		trusted.Family = "lsp"
@@ -363,5 +374,5 @@ func registryToolScope(ctx context.Context, lang, targetPath, targetURI string) 
 		LanguageID: strings.ToLower(strings.TrimSpace(lang)),
 		TargetPath: strings.TrimSpace(targetPath),
 		TargetURI:  strings.TrimSpace(targetURI),
-	}
+	}, nil
 }

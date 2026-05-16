@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"strings"
 	"testing"
 	"time"
@@ -22,7 +23,7 @@ func TestMiddlewareChainAddsDeadline(t *testing.T) {
 		middleware.Budget{MaxBytes: 1024},
 	)
 
-	if _, err := handler(context.Background(), nil); err != nil {
+	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), nil); err != nil {
 		t.Fatalf("wrapped handler failed: %v", err)
 	}
 }
@@ -36,7 +37,7 @@ func TestMiddlewareChainRecoversPanic(t *testing.T) {
 		middleware.Budget{MaxBytes: 1024},
 	)
 
-	if _, err := handler(context.Background(), nil); err == nil || !strings.Contains(err.Error(), "panic recovered: boom") {
+	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), nil); err == nil || !strings.Contains(err.Error(), "panic recovered: boom") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

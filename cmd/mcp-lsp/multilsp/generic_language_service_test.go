@@ -38,7 +38,7 @@ func TestGenericLanguageServicesMatrixCoversGoJSTSPythonRustJavaCSS(t *testing.T
 }
 
 func TestLanguageAdapterRegistryOwnsRootEnvBootstrapPolicy(t *testing.T) {
-	ctx := context.Background()
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: ""})
 	root := canonicalScopePath(t.TempDir(), "")
 	goDir := filepath.Join(root, "goapp")
 	writeGenericTestFile(t, filepath.Join(goDir, "go.mod"), "module example.test/goapp\n\ngo 1.25.0\n")
@@ -119,7 +119,7 @@ func TestTypeScriptEnsureClientDoesNotLeakGOWORK(t *testing.T) {
 	manager := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory})
 	defer func() { _ = manager.Close() }()
 
-	if _, err := manager.EnsureClient(context.Background(), target, "typescript"); err != nil {
+	if _, err := manager.EnsureClient(common.WithToolScope(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), target, "typescript"); err != nil {
 		t.Fatalf("EnsureClient(typescript): %v", err)
 	}
 	call := factory.callAt(t, 0)
@@ -195,7 +195,7 @@ func TestDiagnosticsAllNoCrossLanguageCacheLeak(t *testing.T) {
 	mgr.diagnostics[diagnosticStoreKeyFor(goScope, uri).String()] = diagnosticSnapshot{scopeKey: goScope.ScopeKey, workspaceKey: goScope.WorkspaceKey, language: "go", uri: uri, generation: gen, state: diagnosticStateReady, params: protocol.PublishDiagnosticsParams{URI: uri, Diagnostics: []protocol.Diagnostic{{Message: "go diag"}}}}
 	mgr.diagnostics[diagnosticStoreKeyFor(tsScope, uri).String()] = diagnosticSnapshot{scopeKey: tsScope.ScopeKey, workspaceKey: tsScope.WorkspaceKey, language: "typescript", uri: uri, generation: gen, state: diagnosticStateReady, params: protocol.PublishDiagnosticsParams{URI: uri, Diagnostics: []protocol.Diagnostic{{Message: "ts diag"}}}}
 
-	ctx := WithResolvedLSPToolScope(context.Background(), goScope)
+	ctx := WithResolvedLSPToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), goScope)
 	got, err := mgr.Diagnostics(ctx, nil)
 	if err != nil {
 		t.Fatalf("Diagnostics(all): %v", err)
@@ -243,7 +243,7 @@ func runGenericBootstrapCacheDiagnosticsCase(t *testing.T, tc genericBootstrapMa
 	factory := &genericMatrixClientFactory{}
 	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
 	defer func() { _ = mgr.Close() }()
-	ctx := common.WithToolScope(context.Background(), common.ToolScope{AgentID: "agent-" + tc.languageID, ThreadID: "thread", Family: "lsp", CWD: root})
+	ctx := common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{AgentID: "agent-" + tc.languageID, ThreadID: "thread", Family: "lsp", CWD: root})
 
 	if err := mgr.BootstrapDocument(ctx, target); err != nil {
 		t.Fatalf("BootstrapDocument(%s): %v", tc.languageID, err)
@@ -279,7 +279,7 @@ func TestDeadClientRestartRebootstrapForRegisteredLanguageIDs(t *testing.T) {
 	factory := &genericMatrixClientFactory{}
 	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
 	defer func() { _ = mgr.Close() }()
-	ctx := common.WithToolScope(context.Background(), common.ToolScope{AgentID: "agent", ThreadID: "thread", Family: "lsp", CWD: root})
+	ctx := common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{AgentID: "agent", ThreadID: "thread", Family: "lsp", CWD: root})
 	if err := mgr.BootstrapDocument(ctx, target); err != nil {
 		t.Fatalf("initial bootstrap: %v", err)
 	}
@@ -349,7 +349,7 @@ func TestNonLSPDocumentLanguagesUseCapabilityFallback(t *testing.T) {
 	} {
 		target := filepath.Join(root, tc.name)
 		writeGenericTestFile(t, target, tc.body)
-		symbols, err := mgr.DocumentSymbol(context.Background(), target)
+		symbols, err := mgr.DocumentSymbol(common.WithToolScope(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), target)
 		if err != nil {
 			t.Fatalf("DocumentSymbol(%s): %v", tc.name, err)
 		}

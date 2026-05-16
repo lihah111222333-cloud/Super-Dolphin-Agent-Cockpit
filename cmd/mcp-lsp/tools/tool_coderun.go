@@ -112,9 +112,17 @@ func (h CodeRunHandler) handleProjectCommand(ctx context.Context, req CodeRunReq
 		return nil, errors.New("command is required for project_cmd mode")
 	}
 	if req.WorkDir == "" {
-		req.WorkDir = toolWorkspaceRoot(ctx, h.sandbox.RootDir())
+		root, err := toolWorkspaceRoot(ctx)
+		if err != nil {
+			return nil, err
+		}
+		req.WorkDir = root
 	} else if !filepath.IsAbs(req.WorkDir) {
-		req.WorkDir = filepath.Join(toolWorkspaceRoot(ctx, h.sandbox.RootDir()), req.WorkDir)
+		root, err := toolWorkspaceRoot(ctx)
+		if err != nil {
+			return nil, err
+		}
+		req.WorkDir = filepath.Join(root, req.WorkDir)
 	}
 	timeout := middleware.ClampTimeout(req.Timeout, defaultCodeRunTimeout(), middleware.TierExec)
 	request := h.sandbox.ShellRequest(req.Command, req.WorkDir, timeout)
@@ -128,7 +136,10 @@ func (h CodeRunHandler) execute(ctx context.Context, request lspexec.Request, la
 }
 
 func (h CodeRunHandler) snippetRequest(ctx context.Context, fileName string, source string, args []string, timeout time.Duration) (lspexec.Request, func(), error) {
-	tempRoot := toolWorkspaceRoot(ctx, h.sandbox.RootDir())
+	tempRoot, err := toolWorkspaceRoot(ctx)
+	if err != nil {
+		return lspexec.Request{}, nil, err
+	}
 	tempDir, err := os.MkdirTemp(tempRoot, ".mcp-lsp-run-*")
 	if err != nil {
 		return lspexec.Request{}, nil, fmt.Errorf("create temp dir: %w", err)
