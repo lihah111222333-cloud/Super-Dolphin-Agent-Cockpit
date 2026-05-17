@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"strings"
 	"testing"
 )
 
 func TestDispatchToolActionReportsValidActionsAndClosestMatch(t *testing.T) {
-	_, err := dispatchToolAction(context.Background(), "edit", "code_acton", struct{}{}, map[string]actionHandler[struct{}]{
+	_, err := dispatchToolAction(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), "edit", "code_acton", struct{}{}, map[string]actionHandler[struct{}]{
 		"rename":        func(context.Context, struct{}) (any, error) { return nil, nil },
 		"code_action":   func(context.Context, struct{}) (any, error) { return nil, nil },
 		"replace_range": func(context.Context, struct{}) (any, error) { return nil, nil },
@@ -25,7 +26,7 @@ func TestDispatchToolActionReportsValidActionsAndClosestMatch(t *testing.T) {
 }
 
 func TestDispatchToolActionAcceptsLegacyFileReadAlias(t *testing.T) {
-	got, err := dispatchToolAction(context.Background(), "file", "read", struct{}{}, map[string]actionHandler[struct{}]{
+	got, err := dispatchToolAction(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), "file", "read", struct{}{}, map[string]actionHandler[struct{}]{
 		"read_file": func(context.Context, struct{}) (any, error) { return "ok", nil },
 	})
 	if err != nil {

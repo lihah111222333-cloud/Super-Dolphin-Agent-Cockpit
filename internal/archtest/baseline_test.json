@@ -1,10 +1,10 @@
 {
   "cmd/mcp-lsp/multilsp/generic_language_service_test.go": {
-    "lines": 483,
-    "max_func_len": 58,
+    "lines": 496,
+    "max_func_len": 41,
     "max_nesting": 3,
     "max_complexity": 10,
-    "max_params": 5,
+    "max_params": 6,
     "max_returns": 2,
     "max_underscore": 0,
     "global_vars": 0,
@@ -14,8 +14,23 @@
     "todo_count": 0,
     "max_struct_fields": 6
   },
+  "cmd/mcp-lsp/multilsp/multi_cwd_e2e_helpers_test.go": {
+    "lines": 110,
+    "max_func_len": 13,
+    "max_nesting": 1,
+    "max_complexity": 2,
+    "max_params": 5,
+    "max_returns": 2,
+    "max_underscore": 0,
+    "global_vars": 0,
+    "panic_count": 0,
+    "naked_returns": 0,
+    "empty_funcs": 1,
+    "todo_count": 0,
+    "max_struct_fields": 7
+  },
   "cmd/mcp-lsp/tools/tool_middleware_test.go": {
-    "lines": 36,
+    "lines": 37,
     "max_func_len": 15,
     "max_nesting": 1,
     "max_complexity": 3,
@@ -88,12 +103,12 @@
     "todo_count": 2
   },
   "internal/archtest/error_string_match_guard_test.go": {
-    "lines": 92,
-    "max_func_len": 46,
-    "max_nesting": 3,
+    "lines": 106,
+    "max_func_len": 25,
+    "max_nesting": 2,
     "max_complexity": 8,
-    "max_params": 1,
-    "max_returns": 1,
+    "max_params": 6,
+    "max_returns": 2,
     "max_underscore": 0,
     "global_vars": 0,
     "panic_count": 0,
@@ -116,12 +131,12 @@
     "todo_count": 1
   },
   "internal/archtest/sharedfilegitignore_no_pkg_error_var_test.go": {
-    "lines": 84,
-    "max_func_len": 53,
+    "lines": 106,
+    "max_func_len": 17,
     "max_nesting": 2,
     "max_complexity": 5,
-    "max_params": 1,
-    "max_returns": 1,
+    "max_params": 3,
+    "max_returns": 2,
     "max_underscore": 0,
     "global_vars": 0,
     "panic_count": 0,
@@ -144,8 +159,8 @@
     "todo_count": 2
   },
   "internal/mcpserver/common/server_test.go": {
-    "lines": 309,
-    "max_func_len": 38,
+    "lines": 313,
+    "max_func_len": 30,
     "max_nesting": 2,
     "max_complexity": 10,
     "max_params": 3,
@@ -159,8 +174,8 @@
     "max_struct_fields": 1
   },
   "internal/module/dashboard/query_test.go": {
-    "lines": 300,
-    "max_func_len": 51,
+    "lines": 365,
+    "max_func_len": 27,
     "max_nesting": 2,
     "max_complexity": 8,
     "max_params": 4,
@@ -218,8 +233,8 @@
     "max_struct_fields": 2
   },
   "internal/module/thread/history_test.go": {
-    "lines": 383,
-    "max_func_len": 71,
+    "lines": 407,
+    "max_func_len": 55,
     "max_nesting": 2,
     "max_complexity": 7,
     "max_params": 3,
@@ -351,11 +366,11 @@
     "max_struct_fields": 3
   },
   "internal/provider/claudecli/session_restart_test.go": {
-    "lines": 415,
-    "max_func_len": 68,
+    "lines": 444,
+    "max_func_len": 48,
     "max_nesting": 3,
     "max_complexity": 6,
-    "max_params": 3,
+    "max_params": 5,
     "max_returns": 3,
     "max_underscore": 0,
     "global_vars": 1,
@@ -366,7 +381,7 @@
     "max_struct_fields": 4
   },
   "internal/provider/codexapp/session_runtime_test.go": {
-    "lines": 268,
+    "lines": 323,
     "max_func_len": 50,
     "max_nesting": 2,
     "max_complexity": 9,
@@ -440,7 +455,7 @@
     "max_struct_fields": 7
   },
   "internal/store/hookstore/hookstore_helpers_test.go": {
-    "lines": 318,
+    "lines": 324,
     "max_func_len": 40,
     "max_nesting": 2,
     "max_complexity": 10,

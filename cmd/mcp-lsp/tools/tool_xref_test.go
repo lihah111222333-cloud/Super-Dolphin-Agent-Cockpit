@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
@@ -31,7 +32,7 @@ func TestReferencesDefaultIncludesDeclaration(t *testing.T) {
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	if _, err := handler(context.Background(), input); err != nil {
+	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), input); err != nil {
 		t.Fatalf("references returned error: %v", err)
 	}
 	if !manager.gotIncludeDeclaration {
@@ -54,7 +55,7 @@ func TestReferencesCanDisableDeclaration(t *testing.T) {
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	if _, err := handler(context.Background(), input); err != nil {
+	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), input); err != nil {
 		t.Fatalf("references returned error: %v", err)
 	}
 	if manager.gotIncludeDeclaration {

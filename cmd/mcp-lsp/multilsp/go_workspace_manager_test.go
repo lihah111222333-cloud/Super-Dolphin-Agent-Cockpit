@@ -11,8 +11,8 @@ import (
 
 func TestGoWorkWorkspaceFolderInitializeAndEnv(t *testing.T) {
 	t.Setenv("GOWORK", "")
-	ctx := context.Background()
 	repo := normalizedTempDir(t)
+	ctx := ctxWithCWD(repo, "agent-go-work", "thread-go-work")
 	backend := filepath.Join(repo, "backend")
 	tools := filepath.Join(repo, "tools")
 	writeGoMod(t, backend, "example.com/backend")
@@ -54,8 +54,8 @@ func TestGoWorkWorkspaceFolderInitializeAndEnv(t *testing.T) {
 
 func TestGoWorkWorkspaceKeyChangesWhenUseListChanges(t *testing.T) {
 	t.Setenv("GOWORK", "")
-	ctx := context.Background()
 	repo := normalizedTempDir(t)
+	ctx := ctxWithCWD(repo, "agent-go-work-key", "thread-go-work-key")
 	backend := filepath.Join(repo, "backend")
 	tools := filepath.Join(repo, "tools")
 	writeGoMod(t, backend, "example.com/backend")
@@ -90,8 +90,8 @@ func TestGoWorkWorkspaceKeyChangesWhenUseListChanges(t *testing.T) {
 
 func TestWorkspaceFolderLanguageOnlySingleSubmodule(t *testing.T) {
 	t.Setenv("GOWORK", "")
-	ctx := context.Background()
 	repo := normalizedTempDir(t)
+	ctx := ctxWithCWD(repo, "agent-go-language", "thread-go-language")
 	backend := filepath.Join(repo, "backend")
 	writeGoMod(t, backend, "example.com/backend")
 	factory := &goWorkspaceClientFactory{}
@@ -119,8 +119,8 @@ func TestWorkspaceFolderLanguageOnlySingleSubmodule(t *testing.T) {
 
 func TestGOWORKOffManagerEnvIgnoresGoWork(t *testing.T) {
 	t.Setenv("GOWORK", "off")
-	ctx := context.Background()
 	repo := normalizedTempDir(t)
+	ctx := ctxWithCWD(repo, "agent-gowork-off", "thread-gowork-off")
 	backend := filepath.Join(repo, "backend")
 	writeGoMod(t, backend, "example.com/backend")
 	writeFile(t, filepath.Join(repo, "go.work"), "go 1.25.0\n\nuse ./backend\n")
@@ -189,6 +189,7 @@ func TestGOWORKDoesNotAffectJSONYAMLMarkdownFallback(t *testing.T) {
 func TestEmptyLanguageIDDoesNotDefaultToGoAdapter(t *testing.T) {
 	tc := nonGoGOWORKPollutionCase(t, "javascript")
 	t.Setenv("GOWORK", tc.externalGoWork)
+	ctx := ctxWithCWD(tc.repo, "agent-empty-language", "thread-empty-language")
 	manager := NewManager(Config{
 		WorkspaceRoot:      tc.repo,
 		ClientFactory:      &goWorkspaceClientFactory{},
@@ -200,14 +201,14 @@ func TestEmptyLanguageIDDoesNotDefaultToGoAdapter(t *testing.T) {
 		}
 	}()
 
-	ref, err := manager.resolveDocumentRef(context.Background(), tc.target, "")
+	ref, err := manager.resolveDocumentRef(ctx, tc.target, "")
 	if err != nil {
 		t.Fatalf("resolve empty-language JS document ref: %v", err)
 	}
 	if ref.languageID != "javascript" {
 		t.Fatalf("empty language id should be inferred from JS target; got %q", ref.languageID)
 	}
-	cfg, err := manager.resolveWorkspaceForDocument(context.Background(), ref)
+	cfg, err := manager.resolveWorkspaceForDocument(ctx, ref)
 	if err != nil {
 		t.Fatalf("resolve workspace with empty language id for JS target: %v", err)
 	}
@@ -252,13 +253,14 @@ func TestGoLanguageSpecificHashNotAddedToNonGoCacheKey(t *testing.T) {
 
 func TestRecyclerRestoresGoWorkspaceWithSavedRootEnvAndScope(t *testing.T) {
 	t.Setenv("GOWORK", "")
+	repo := normalizedTempDir(t)
 	toolScope := common.ToolScope{
 		Family:   defaultLSPToolFamily,
 		AgentID:  "agent-worker-d",
 		ThreadID: "thread-go",
+		CWD:      repo,
 	}
 	ctx := common.WithToolScope(context.Background(), toolScope)
-	repo := normalizedTempDir(t)
 	backend := filepath.Join(repo, "backend")
 	tools := filepath.Join(repo, "tools")
 	writeGoMod(t, backend, "example.com/backend")
@@ -405,12 +407,13 @@ func assertBootstrapReady(t *testing.T, coordinator *bootstrapCoordinator, resol
 }
 
 func TestRecyclerDoesNotRecycleActiveLease(t *testing.T) {
+	root := normalizedTempDir(t)
 	ctx := common.WithToolScope(context.Background(), common.ToolScope{
 		Family:   defaultLSPToolFamily,
 		AgentID:  "agent-lease",
 		ThreadID: "thread-lease",
+		CWD:      root,
 	})
-	root := normalizedTempDir(t)
 	writeGoMod(t, root, "example.com/lease")
 	target := writeGoFile(t, root, "main.go")
 	factory := &goWorkspaceClientFactory{}
@@ -455,7 +458,8 @@ func assertLeasedRecycleClient(t *testing.T, manager *manager, ctx context.Conte
 		t.Fatalf("leased document client for %s is nil", ref.uri)
 	}
 	original := factory.clientAt(t, 0)
-	if client != original {
+	got, ok := client.(*goWorkspaceClient)
+	if !ok || got != original {
 		t.Fatalf("leased client = %p, want original client %p", client, original)
 	}
 	return client, original

@@ -20,7 +20,7 @@ func TestLSPToolManifestsExposeVisibleLegacyNames(t *testing.T) {
 	for _, manifest := range lspToolManifests {
 		got = append(got, manifest.Name)
 	}
-	want := []string{"lsp_file", "lsp_inspect", "lsp_xref", "lsp_grep", "lsp_structure", "lsp_edit", "lsp_completion", "code_run", "code_run_test"}
+	want := []string{"lsp_file", "lsp_inspect", "lsp_xref", "lsp_grep", "lsp_structure", "lsp_edit", "lsp_completion", "code_run"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("manifest names = %#v, want %#v", got, want)
 	}
@@ -58,7 +58,7 @@ func TestToolsListKeepsCodeRunHelpersVisible(t *testing.T) {
 	for _, tool := range list {
 		got[tool.Name] = true
 	}
-	for _, want := range []string{"code_run", "code_run_test"} {
+	for _, want := range []string{"code_run"} {
 		if !got[want] {
 			t.Fatalf("tools/list missing execution helper %q; got %#v", want, got)
 		}

@@ -15,7 +15,7 @@ func TestRegistryResolveManagerForFileUsesTrustedToolScope(t *testing.T) {
 	registry := NewRegistry(nil)
 	registry.Register("go", singleton, resolver)
 
-	ctx := common.WithToolScope(context.Background(), common.ToolScope{
+	ctx := common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), common.ToolScope{
 		AgentID:  "agent-trusted",
 		ThreadID: "thread-trusted",
 		CallID:   "call-trusted",
@@ -52,7 +52,7 @@ func TestRegistryDiagnosticsAllUsesCurrentScopedManagers(t *testing.T) {
 	registry := NewRegistry(nil)
 	registry.Register("go", singleton, resolver)
 
-	ctx := common.WithToolScope(context.Background(), common.ToolScope{
+	ctx := common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), common.ToolScope{
 		AgentID:  "agent-a",
 		ThreadID: "thread-a",
 		CWD:      "/trusted/worktree",
@@ -109,7 +109,7 @@ func TestDiagnosticsAllUsesCallerScopeOnly(t *testing.T) {
 	registry := NewRegistry(nil)
 	registry.Register("go", singleton, resolver)
 
-	ctx := common.WithToolScope(context.Background(), common.ToolScope{
+	ctx := common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), common.ToolScope{
 		AgentID:  "agent-a",
 		ThreadID: "thread-a",
 		CWD:      "/trusted/worktree",
@@ -147,7 +147,7 @@ func TestRegistryGroupURIsUsesCallerContext(t *testing.T) {
 	registry.Register("go", singleton, resolver)
 
 	const uri = "file:///tmp/registry-group-main.go"
-	ctx := common.WithToolScope(context.Background(), common.ToolScope{
+	ctx := common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), common.ToolScope{
 		AgentID:  "agent-group",
 		ThreadID: "thread-group",
 		CallID:   "call-group",

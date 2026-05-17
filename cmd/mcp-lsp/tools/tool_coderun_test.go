@@ -37,7 +37,7 @@ func TestCodeRunUnsupportedLanguageReturnsCapabilityError(t *testing.T) {
 		t.Fatalf("marshal request: %v", err)
 	}
 
-	_, err = handler(context.Background(), payload)
+	_, err = handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), payload)
 	if err == nil {
 		t.Fatal("code_run python error = nil, want unsupported capability")
 	}

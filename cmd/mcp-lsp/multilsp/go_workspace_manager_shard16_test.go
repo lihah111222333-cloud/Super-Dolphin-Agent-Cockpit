@@ -103,7 +103,7 @@ func assertGOWORKDoesNotAffectWorkspace(t *testing.T, tc nonGoGOWORKPollutionTes
 		}
 	}()
 
-	cfg, err := manager.resolveWorkspaceForDocument(context.Background(), documentRef{
+	cfg, err := manager.resolveWorkspaceForDocument(ctxWithCWD(tc.repo, "agent-"+tc.languageID, "thread-nongo"), documentRef{
 		raw:        tc.target,
 		uri:        fileURIFromPath(tc.target),
 		absPath:    tc.target,

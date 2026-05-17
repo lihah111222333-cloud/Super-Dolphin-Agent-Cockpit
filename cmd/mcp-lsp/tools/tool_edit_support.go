@@ -162,7 +162,11 @@ func runeOffset(line string, character int) (int, error) {
 }
 
 func resolveFilePath(ctx context.Context, path string) (string, error) {
-	return resolveWorkspacePath(toolWorkspaceRoot(ctx, ""), path)
+	root, err := toolWorkspaceRoot(ctx)
+	if err != nil {
+		return "", err
+	}
+	return resolveWorkspacePath(root, path)
 }
 
 func resolveWorkspacePath(root string, uri string) (string, error) {

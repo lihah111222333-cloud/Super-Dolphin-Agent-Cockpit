@@ -123,7 +123,7 @@ func TestDiagnosticsWithoutMetaCWDRejectsExternalAbsolutePath(t *testing.T) {
 	handler := NewFileHandler(Config{WorkspaceRoot: mainRoot, Registry: &diagnosticsTestRegistry{}})
 	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: externalFile})
 
-	_, err := handler(context.Background(), req)
+	_, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: mainRoot}), req)
 	if err == nil {
 		t.Fatalf("diagnostics succeeded for external path without MetaCWD")
 	}
@@ -140,7 +140,7 @@ func TestDiagnosticsDeletedFileStillCallsRegistryForCleanup(t *testing.T) {
 	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
 	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: "deleted.go"})
 
-	if _, err := handler(context.Background(), req); err != nil {
+	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), req); err != nil {
 		t.Fatalf("diagnostics returned error for deleted file: %v", err)
 	}
 	assertDiagnosticURIs(t, registry.lastURIs, []string{canonicalDeletedFileURI(t, deletedFile)})
@@ -154,7 +154,7 @@ func TestDiagnosticsRefreshesStaleFileBeforeReturn(t *testing.T) {
 	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
 	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: "stale.go"})
 
-	if _, err := handler(context.Background(), req); err != nil {
+	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), req); err != nil {
 		t.Fatalf("diagnostics returned error for stale file refresh: %v", err)
 	}
 	wantURI := canonicalFileURI(t, target)

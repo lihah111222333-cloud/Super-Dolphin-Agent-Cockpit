@@ -3,6 +3,7 @@ package multilsp
 import (
 	"context"
 	"errors"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -20,14 +21,14 @@ func TestTransportClosedDetachesWorkspaceClientAndRebuilds(t *testing.T) {
 	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
 	defer func() { _ = mgr.Close() }()
 
-	firstClient, err := mgr.EnsureClient(context.Background(), target, "typescript")
+	firstClient, err := mgr.EnsureClient(common.WithToolScope(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), target, "typescript")
 	if err != nil {
 		t.Fatalf("EnsureClient(first): %v", err)
 	}
 	first := firstClient.(*p2LifecycleClient)
 	first.markUnhealthy()
 
-	secondClient, err := mgr.EnsureClient(context.Background(), target, "typescript")
+	secondClient, err := mgr.EnsureClient(common.WithToolScope(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), target, "typescript")
 	if err != nil {
 		t.Fatalf("EnsureClient(second): %v", err)
 	}
@@ -52,7 +53,7 @@ func TestRequestFailureAdvancesGenerationAndRebootstrap(t *testing.T) {
 	defer func() { _ = mgr.Close() }()
 
 	before := mgr.CurrentDiagnosticGeneration()
-	symbols, err := mgr.DocumentSymbol(context.Background(), target)
+	symbols, err := mgr.DocumentSymbol(common.WithToolScope(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), target)
 	if err != nil {
 		t.Fatalf("DocumentSymbol after request failure should rebuild/retry: %v", err)
 	}
@@ -81,7 +82,7 @@ func TestRequestDeadClientDoesNotAutoReplayRename(t *testing.T) {
 	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory, DiagnosticsMaxWait: 1}).(*manager)
 	t.Cleanup(func() { _ = mgr.Close() })
 
-	_, err := mgr.Rename(context.Background(), target, protocol.Position{Line: 0, Character: 13}, "newName")
+	_, err := mgr.Rename(common.WithToolScope(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), target, protocol.Position{Line: 0, Character: 13}, "newName")
 	if err == nil {
 		t.Fatalf("Rename error = nil, want retryable dead-client error without auto replay")
 	}
@@ -119,13 +120,13 @@ func TestInitializeFailureDoesNotLeaveStaleWorkspaceClient(t *testing.T) {
 	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
 	defer func() { _ = mgr.Close() }()
 
-	if _, err := mgr.EnsureClient(context.Background(), target, "typescript"); err == nil {
+	if _, err := mgr.EnsureClient(common.WithToolScope(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), target, "typescript"); err == nil {
 		t.Fatalf("EnsureClient(first) error = nil, want initialize failure")
 	}
 	if got := len(snapshotWorkspaceClients(mgr)); got != 0 {
 		t.Fatalf("workspace clients after initialize failure = %d, want 0 stale clients", got)
 	}
-	if _, err := mgr.EnsureClient(context.Background(), target, "typescript"); err != nil {
+	if _, err := mgr.EnsureClient(common.WithToolScope(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), target, "typescript"); err != nil {
 		t.Fatalf("EnsureClient(second): %v", err)
 	}
 	if got := len(snapshotWorkspaceClients(mgr)); got != 1 {
@@ -169,7 +170,7 @@ func TestReleaseScopeRespectsActiveLeaseBusyOrDrain(t *testing.T) {
 	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
 	t.Cleanup(func() { _ = mgr.Close() })
 	scoped := scopedManagerForTest(t, mgr, testLSPToolScope(root, "agent-busy", "thread-1"))
-	client, err := scoped.EnsureClient(context.Background(), target, "go")
+	client, err := scoped.EnsureClient(common.WithToolScope(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), target, "go")
 	if err != nil {
 		t.Fatalf("EnsureClient(scoped): %v", err)
 	}
@@ -267,7 +268,7 @@ func TestManagerPoolDoesNotEvictActiveLeaseClone(t *testing.T) {
 	t.Cleanup(func() { _ = mgr.Close() })
 
 	active := scopedManagerForTest(t, mgr, testLSPToolScope(root, "agent-active", "thread"))
-	client, err := active.EnsureClient(context.Background(), target, "go")
+	client, err := active.EnsureClient(common.WithToolScope(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), target, "go")
 	if err != nil {
 		t.Fatalf("EnsureClient(active): %v", err)
 	}
@@ -292,12 +293,12 @@ func TestDeadClientRebuildPreservesTypeScriptWorkspace(t *testing.T) {
 	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
 	t.Cleanup(func() { _ = mgr.Close() })
 
-	firstClient, err := mgr.EnsureClient(context.Background(), target, "typescript")
+	firstClient, err := mgr.EnsureClient(common.WithToolScope(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), target, "typescript")
 	if err != nil {
 		t.Fatalf("EnsureClient(first): %v", err)
 	}
 	firstClient.(*p2LifecycleClient).markUnhealthy()
-	if _, err := mgr.EnsureClient(context.Background(), target, "typescript"); err != nil {
+	if _, err := mgr.EnsureClient(common.WithToolScope(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), target, "typescript"); err != nil {
 		t.Fatalf("EnsureClient(second): %v", err)
 	}
 	if factory.callAt(t, 1).rootDir != root {
@@ -316,7 +317,7 @@ func TestRecyclerRebuildDoesNotDefaultNonGoLanguageToGo(t *testing.T) {
 	factory := &genericMatrixClientFactory{}
 	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
 	t.Cleanup(func() { _ = mgr.Close() })
-	if err := mgr.BootstrapDocument(context.Background(), target); err != nil {
+	if err := mgr.BootstrapDocument(common.WithToolScope(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), target); err != nil {
 		t.Fatalf("BootstrapDocument: %v", err)
 	}
 	workspace := snapshotWorkspaceClients(mgr)

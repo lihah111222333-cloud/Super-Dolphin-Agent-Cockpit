@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"strings"
 	"testing"
 
@@ -202,7 +203,7 @@ func TestStructureWorkspaceSymbolUsesLanguageManager(t *testing.T) {
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	if _, err := handler(context.Background(), input); err != nil {
+	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), input); err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
 	if registry.gotFilePath != "" {
@@ -227,7 +228,7 @@ func TestStructureDocumentSymbolAcceptsLegacyPathAlias(t *testing.T) {
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	if _, err := handler(context.Background(), input); err != nil {
+	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), input); err != nil {
 		t.Fatalf("document_symbol with path alias returned error: %v", err)
 	}
 	if registry.gotFilePath != "/tmp/sample.go" {
@@ -260,7 +261,7 @@ func TestStructureWorkspaceSymbolDetectsLanguageFromFilePath(t *testing.T) {
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	if _, err := handler(context.Background(), input); err != nil {
+	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), input); err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
 	if registry.gotFilePath != "frontend/service.ts" {
@@ -284,7 +285,7 @@ func TestStructureWorkspaceSymbolWrapsUnsupportedPathError(t *testing.T) {
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	_, err = handler(context.Background(), input)
+	_, err = handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), input)
 	if err == nil {
 		t.Fatal("handler error = nil, want unsupported path error")
 	}

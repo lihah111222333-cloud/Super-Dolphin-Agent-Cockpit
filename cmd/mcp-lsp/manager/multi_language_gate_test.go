@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"path/filepath"
 	"testing"
 )
@@ -17,7 +18,7 @@ func TestMultiLanguageLSPGateCoversRegisteredLanguages(t *testing.T) {
 	}
 
 	for _, lang := range registered {
-		got, err := registry.GetManagerForLanguage(context.Background(), lang)
+		got, err := registry.GetManagerForLanguage(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), lang)
 		if err != nil {
 			t.Fatalf("GetManagerForLanguage(%q): %v", lang, err)
 		}
@@ -39,7 +40,7 @@ func TestMultiLanguageLSPGateCoversRegisteredLanguages(t *testing.T) {
 		"Example.java": "java",
 	}
 	for name, wantLang := range fileCases {
-		got, err := registry.GetManagerForFile(context.Background(), filepath.Join(t.TempDir(), name))
+		got, err := registry.GetManagerForFile(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), filepath.Join(t.TempDir(), name))
 		if err != nil {
 			t.Fatalf("GetManagerForFile(%q): %v", name, err)
 		}
