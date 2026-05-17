@@ -155,7 +155,7 @@ func payloadToolName(payload map[string]any, fallbacks ...string) string {
 
 func isTurnTerminalEvent(method string) bool {
 	switch strings.TrimSpace(method) {
-	case "turn/completed", "turn.completed", "turn/aborted", "turn.aborted", "turn:complete", "turn:interrupted":
+	case "turn/completed", "turn.completed", "turn/aborted", "turn.aborted":
 		return true
 	default:
 		return false
