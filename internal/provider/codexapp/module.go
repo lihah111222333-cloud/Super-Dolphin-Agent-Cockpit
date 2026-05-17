@@ -357,6 +357,11 @@ func filterOrphanMCPProcesses(procs []mcpProcessInfo, protectedPIDs map[int]stru
 		if proc.pid <= 1 {
 			continue
 		}
+		// A process with a live non-init parent belongs to another running
+		// application/tool runner, not to stale orphan cleanup.
+		if proc.ppid > 1 {
+			continue
+		}
 		if _, protected := protectedPIDs[proc.pid]; protected {
 			continue
 		}
