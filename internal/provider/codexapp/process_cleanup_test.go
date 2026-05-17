@@ -167,6 +167,29 @@ func TestFilterOrphanMCPProcessesSkipsCurrentAncestry(t *testing.T) {
 	}
 }
 
+// TestFilterOrphanMCPProcessesSkipsPeerWithLiveParent locks the multi-instance
+// regression: an mcp-orch/mcp-lsp peer owned by another running app instance
+// has a live non-init parent (ppid > 1) and must NOT be treated as an orphan,
+// even though it is absent from this process's protection set. Only a
+// reparented peer (ppid == 1) is a genuine orphan.
+func TestFilterOrphanMCPProcessesSkipsPeerWithLiveParent(t *testing.T) {
+	allProcs := map[int]int{
+		10:  1,
+		101: 10,
+	}
+	protected := buildRuntimeProtectionSet(101, allProcs)
+
+	orphans := filterOrphanMCPProcesses([]mcpProcessInfo{
+		{pid: 600, ppid: 500, binary: "mcp-orch"}, // peer of a live sibling instance
+		{pid: 601, ppid: 500, binary: "mcp-lsp"},  // peer of a live sibling instance
+		{pid: 700, ppid: 1, binary: "mcp-orch"},   // genuine reparented orphan
+	}, protected)
+
+	if len(orphans) != 1 || orphans[0].pid != 700 {
+		t.Fatalf("filterOrphanMCPProcesses() = %#v, want only PID 700", orphans)
+	}
+}
+
 func TestCleanOrphanedMCPProcessesSkipsSelf(t *testing.T) {
 	myPID := os.Getpid()
 	// Ensure our own PID is never killed.
