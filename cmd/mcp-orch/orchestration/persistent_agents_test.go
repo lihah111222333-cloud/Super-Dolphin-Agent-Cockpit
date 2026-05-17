@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -96,15 +97,21 @@ func TestGetReportFallsBackByAgentIDOnly(t *testing.T) {
 	}
 }
 
-func TestGetReportErrorsWhenPersistedReportBodyMissing(t *testing.T) {
+func TestGetReportFallsBackToStateWhenPersistedReportBodyMissing(t *testing.T) {
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
 		{ThreadID: "agent-1", AgentID: "agent-1", Name: "display one", Cwd: t.TempDir(), Status: "created"},
 	}}
 
-	_, err := svc.GetReport(context.Background(), "agent-1")
-	if !errors.Is(err, errAgentReportNotFound) {
-		t.Fatalf("GetReport(agent_id) error = %v, want persisted report body missing", err)
+	got, err := svc.GetReport(context.Background(), "agent-1")
+	if err != nil {
+		t.Fatalf("GetReport(agent_id) error = %v, want a fallback report instead of an error", err)
+	}
+	if got.AgentID != "agent-1" || got.State != string(agentdto.StateIdle) {
+		t.Fatalf("GetReport(agent_id) = %#v, want persisted identity/state", got)
+	}
+	if !strings.Contains(got.Report, "without producing a turn report") {
+		t.Fatalf("GetReport(agent_id).Report = %q, want a no-report fallback text", got.Report)
 	}
 }
 
@@ -289,4 +296,38 @@ func (l *persistedRuntimeTestLauncher) IsRunning(_ context.Context, agent *agent
 
 func (l *persistedRuntimeTestLauncher) SupportsPersistedRuntimeRehydrate() bool {
 	return true
+}
+
+// TestHandleReportEventPersistsReportWhenRuntimeMissing locks the report
+// path for the R3 failure mode: mcp-orch restarts mid-turn and loses the
+// in-memory runtime, so the turn-completed event arrives with no runtime
+// to lock. HandleReportEvent must still persist the report to disk via
+// the thread snapshot, otherwise the completed turn's report is silently
+// dropped and the parent agent's get_agent_report degrades to "not found".
+func TestHandleReportEventPersistsReportWhenRuntimeMissing(t *testing.T) {
+	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
+	cwd := t.TempDir()
+	svc.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
+		{ThreadID: "agent-1", AgentID: "agent-1", Name: "display one", Cwd: cwd, Status: "created"},
+	}}
+	// svc.agents is empty: the in-memory runtime was lost on restart.
+
+	got, err := svc.HandleReportEvent(context.Background(), ReportEvent{
+		AgentID:   "agent-1",
+		EventType: "turn/completed",
+		Report:    "审核已完成，报告已落盘",
+	})
+	if err != nil {
+		t.Fatalf("HandleReportEvent() error = %v, want fallback persist to succeed", err)
+	}
+	if !got.Success || got.Report != "审核已完成，报告已落盘" {
+		t.Fatalf("HandleReportEvent() = %#v, want success carrying the report body", got)
+	}
+	reread, err := svc.GetReport(context.Background(), "agent-1")
+	if err != nil {
+		t.Fatalf("GetReport() error = %v", err)
+	}
+	if reread.Report != "审核已完成，报告已落盘" {
+		t.Fatalf("GetReport().Report = %q, want the persisted report body", reread.Report)
+	}
 }

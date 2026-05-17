@@ -108,3 +108,20 @@ func TestTranslateCodexEventMCPStartupStatusOnlyWarnsOnFailures(t *testing.T) {
 		t.Fatalf("failed output = %q, want warning", output)
 	}
 }
+
+// TestTranslateCodexEventIgnoresClaudeColonTurnEvents locks that the codex
+// translator does not claim claude's colon-style turn events. The unified
+// EventDispatcher broadcasts every raw event to all translators; before
+// this fix codex also translated claude's turn:complete into a second
+// TurnCompleted (with the report text mis-mapped into the Error field).
+// Colon-style turn events belong to the claude translator only.
+func TestTranslateCodexEventIgnoresClaudeColonTurnEvents(t *testing.T) {
+	for _, method := range []string{"turn:complete", "turn:interrupted", "turn:started"} {
+		translateCodexEvent(dto.RawProviderEvent{
+			EventType: method,
+			Data:      map[string]any{"turnId": "T1", "success": true, "message": "done"},
+		}, func(ev any) {
+			t.Fatalf("translateCodexEvent(%q) published %#v, want no typed event", method, ev)
+		})
+	}
+}
