@@ -34,8 +34,8 @@ const (
 	decodeStrict
 )
 
-func toolWorkspaceRoot(ctx context.Context, fallback string) string {
-	return common.WorkspaceRootFromContext(ctx, fallback)
+func toolWorkspaceRoot(ctx context.Context) (string, error) {
+	return common.WorkspaceRootFromContextStrict(ctx)
 }
 
 func newManagerTool[T any](

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,7 +31,7 @@ func TestEditFormatLogsResultOnlyBehavior(t *testing.T) {
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	if _, err := handler(context.Background(), input); err != nil {
+	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), input); err != nil {
 		t.Fatalf("format returned error: %v", err)
 	}
 
@@ -72,7 +73,7 @@ func TestEditCodeActionLogsResultOnlyBehavior(t *testing.T) {
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	if _, err := handler(context.Background(), input); err != nil {
+	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), input); err != nil {
 		t.Fatalf("code_action returned error: %v", err)
 	}
 

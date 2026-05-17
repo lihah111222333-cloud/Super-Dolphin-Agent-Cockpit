@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,7 +21,7 @@ func TestDiagnosticsAllRefreshesStaleScopedDiagnosticBeforeReturn(t *testing.T) 
 	factory := &diagnosticsRefreshClientFactory{}
 	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory, DiagnosticsMaxWait: 1}).(*manager)
 	t.Cleanup(func() { _ = mgr.Close() })
-	ctx := scopedDiagnosticsTestContext("agent-stale-all", "thread-1")
+	ctx := scopedDiagnosticsTestContext(root, "agent-stale-all", "thread-1")
 	uri := fileURIFromPath(target)
 	if err := mgr.BootstrapDocument(ctx, uri); err != nil {
 		t.Fatalf("BootstrapDocument: %v", err)
@@ -50,7 +51,7 @@ func TestDiagnosticsAllBootstrapsUntrackedExistingDiagnosticURI(t *testing.T) {
 	factory := &p2DiagnosticsFactory{publishOnOpen: "bootstrapped"}
 	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory, DiagnosticsMaxWait: 1}).(*manager)
 	t.Cleanup(func() { _ = mgr.Close() })
-	ctx := scopedDiagnosticsTestContext("agent-cache", "thread-1")
+	ctx := scopedDiagnosticsTestContext(root, "agent-cache", "thread-1")
 	ref, _, scope, err := mgr.resolvedScopeForURI(ctx, fileURIFromPath(target), "typescript")
 	if err != nil {
 		t.Fatalf("resolvedScopeForURI: %v", err)
@@ -74,7 +75,7 @@ func TestDiagnosticsAllDeletedFileClearsDiagnosticsAndTombstones(t *testing.T) {
 	writeGenericTestFile(t, target, "package deletedall\n")
 	mgr := NewManager(Config{WorkspaceRoot: root}).(*manager)
 	t.Cleanup(func() { _ = mgr.Close() })
-	ctx := scopedDiagnosticsTestContext("agent-deleted-all", "thread-1")
+	ctx := scopedDiagnosticsTestContext(root, "agent-deleted-all", "thread-1")
 	ref, _, scope, err := mgr.resolvedScopeForURI(ctx, fileURIFromPath(target), "go")
 	if err != nil {
 		t.Fatalf("resolvedScopeForURI: %v", err)
@@ -115,7 +116,7 @@ func TestDidChangeAdvancesBootstrapCacheVersionForFullDiskBackedText(t *testing.
 	factory := &p2DiagnosticsFactory{}
 	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
 	t.Cleanup(func() { _ = mgr.Close() })
-	ctx := scopedDiagnosticsTestContext("agent-change", "thread-1")
+	ctx := scopedDiagnosticsTestContext(root, "agent-change", "thread-1")
 	if err := mgr.BootstrapDocument(ctx, target); err != nil {
 		t.Fatalf("BootstrapDocument: %v", err)
 	}
@@ -149,7 +150,7 @@ func TestIncrementalDidChangeDoesNotWritePersistentCache(t *testing.T) {
 	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
 	t.Cleanup(func() { _ = mgr.Close() })
 	rng := protocol.Range{Start: protocol.Position{}, End: protocol.Position{Line: 0, Character: 3}}
-	if err := mgr.DidChange(context.Background(), target, 2, []protocol.TextDocumentContentChangeEvent{{Range: &rng, Text: "var"}}); err != nil {
+	if err := mgr.DidChange(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), target, 2, []protocol.TextDocumentContentChangeEvent{{Range: &rng, Text: "var"}}); err != nil {
 		t.Fatalf("DidChange(incremental): %v", err)
 	}
 	assertPersistentCacheDocumentCount(t, cacheDir, 0)
@@ -162,7 +163,7 @@ func TestMemoryOnlyDidChangeDoesNotWritePersistentCache(t *testing.T) {
 	factory := &p2DiagnosticsFactory{}
 	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
 	t.Cleanup(func() { _ = mgr.Close() })
-	if err := mgr.DidChange(context.Background(), target, 2, []protocol.TextDocumentContentChangeEvent{{Text: "let value = 1\n"}}); err != nil {
+	if err := mgr.DidChange(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), target, 2, []protocol.TextDocumentContentChangeEvent{{Text: "let value = 1\n"}}); err != nil {
 		t.Fatalf("DidChange(memory-only): %v", err)
 	}
 	assertPersistentCacheDocumentCount(t, cacheDir, 0)
@@ -179,12 +180,12 @@ func TestDidChangeFailureFallsBackToReopenThenRestart(t *testing.T) {
 	}
 	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
 	t.Cleanup(func() { _ = mgr.Close() })
-	if err := mgr.BootstrapDocument(context.Background(), target); err != nil {
+	if err := mgr.BootstrapDocument(common.WithToolScope(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), target); err != nil {
 		t.Fatalf("BootstrapDocument: %v", err)
 	}
 	nextText := "let value = 2\n"
 	writeGenericTestFile(t, target, nextText)
-	if err := mgr.DidChange(context.Background(), target, 3, []protocol.TextDocumentContentChangeEvent{{Text: nextText}}); err != nil {
+	if err := mgr.DidChange(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), target, 3, []protocol.TextDocumentContentChangeEvent{{Text: nextText}}); err != nil {
 		t.Fatalf("DidChange should reopen/restart after failure: %v", err)
 	}
 	if factory.callCount() < 2 {
@@ -203,7 +204,7 @@ func TestDidChangeDeadClientDoesNotAutoReplayNotify(t *testing.T) {
 	factory := &p2DiagnosticsFactory{didChangeErrors: []error{ErrTransportClosed, nil}}
 	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
 	t.Cleanup(func() { _ = mgr.Close() })
-	ctx := context.Background()
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: root})
 	if err := mgr.BootstrapDocument(ctx, target); err != nil {
 		t.Fatalf("BootstrapDocument: %v", err)
 	}
@@ -247,13 +248,13 @@ func TestDidCloseClearsBootstrapReadyAndNextOpenReopens(t *testing.T) {
 	factory := &p2DiagnosticsFactory{}
 	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
 	t.Cleanup(func() { _ = mgr.Close() })
-	if err := mgr.BootstrapDocumentOpenOnly(context.Background(), target); err != nil {
+	if err := mgr.BootstrapDocumentOpenOnly(common.WithToolScope(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), target); err != nil {
 		t.Fatalf("BootstrapDocumentOpenOnly(first): %v", err)
 	}
-	if err := mgr.DidClose(context.Background(), target); err != nil {
+	if err := mgr.DidClose(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), target); err != nil {
 		t.Fatalf("DidClose: %v", err)
 	}
-	if err := mgr.BootstrapDocumentOpenOnly(context.Background(), target); err != nil {
+	if err := mgr.BootstrapDocumentOpenOnly(common.WithToolScope(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), target); err != nil {
 		t.Fatalf("BootstrapDocumentOpenOnly(second): %v", err)
 	}
 	if got := factory.clientAt(t, 0).openCount(); got != 2 {
@@ -269,7 +270,7 @@ func TestDidCloseDoesNotTombstoneExistingFile(t *testing.T) {
 	factory := &p2DiagnosticsFactory{}
 	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
 	t.Cleanup(func() { _ = mgr.Close() })
-	ctx := context.Background()
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: root})
 	if err := mgr.BootstrapDocument(ctx, target); err != nil {
 		t.Fatalf("BootstrapDocument: %v", err)
 	}
@@ -390,13 +391,14 @@ func TestDeletedPersistentCacheRecordDoesNotResurrectAfterRestart(t *testing.T) 
 }
 
 func TestDiagnosticsAfterServerExitDoesNotReturnOldGeneration(t *testing.T) {
-	mgr := NewManager(Config{WorkspaceRoot: canonicalScopePath(t.TempDir(), "")}).(*manager)
+	root := canonicalScopePath(t.TempDir(), "")
+	mgr := NewManager(Config{WorkspaceRoot: root}).(*manager)
 	uri := "file:///repo/stale.go"
 	if err := mgr.PublishDiagnostics(protocol.PublishDiagnosticsParams{URI: uri, Diagnostics: []protocol.Diagnostic{{Message: "old"}}}); err != nil {
 		t.Fatalf("PublishDiagnostics: %v", err)
 	}
 	mgr.AdvanceDiagnosticGeneration()
-	items, err := mgr.Diagnostics(context.Background(), nil)
+	items, err := mgr.Diagnostics(common.WithToolScope(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: mgr.workspaceRoot}), common.ToolScope{CWD: root}), nil)
 	if err != nil {
 		t.Fatalf("Diagnostics: %v", err)
 	}
@@ -417,7 +419,7 @@ func TestDiagnosticsAllDoesNotReturnCrossLanguageSameURI(t *testing.T) {
 	mgr.diagnostics[diagnosticStoreKeyFor(goScope, uri).String()] = diagnosticSnapshot{scopeKey: goScope.ScopeKey, workspaceKey: goScope.WorkspaceKey, language: "go", uri: uri, generation: gen, state: diagnosticStateReady, params: protocol.PublishDiagnosticsParams{URI: uri, Diagnostics: []protocol.Diagnostic{{Message: "go"}}}}
 	mgr.diagnostics[diagnosticStoreKeyFor(tsScope, uri).String()] = diagnosticSnapshot{scopeKey: tsScope.ScopeKey, workspaceKey: tsScope.WorkspaceKey, language: "typescript", uri: uri, generation: gen, state: diagnosticStateReady, params: protocol.PublishDiagnosticsParams{URI: uri, Diagnostics: []protocol.Diagnostic{{Message: "ts"}}}}
 
-	items, err := mgr.Diagnostics(WithResolvedLSPToolScope(context.Background(), tsScope), nil)
+	items, err := mgr.Diagnostics(WithResolvedLSPToolScope(common.WithToolScope(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: mgr.workspaceRoot}), common.ToolScope{CWD: root}), tsScope), nil)
 	if err != nil {
 		t.Fatalf("Diagnostics(all): %v", err)
 	}
@@ -468,7 +470,7 @@ func TestBootstrapCacheMatrixForRegisteredLanguageIDs(t *testing.T) {
 			factory := &genericMatrixClientFactory{}
 			mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
 			t.Cleanup(func() { _ = mgr.Close() })
-			if err := mgr.BootstrapDocument(context.Background(), target); err != nil {
+			if err := mgr.BootstrapDocument(common.WithToolScope(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), target); err != nil {
 				t.Fatalf("BootstrapDocument(%s): %v", tc.languageID, err)
 			}
 			client := factory.clientAt(t, 0)

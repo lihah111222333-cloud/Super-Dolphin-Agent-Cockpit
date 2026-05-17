@@ -14,8 +14,8 @@ import (
 )
 
 func TestDocumentRequestBootstrapsFreshSnapshotForJavaScript(t *testing.T) {
-	ctx := context.Background()
 	root := t.TempDir()
+	ctx := ctxWithCWD(root, "agent-bootstrap", "thread-bootstrap")
 	writeBootstrapTestFile(t, filepath.Join(root, "package.json"), `{"name":"multilsp-test"}`)
 
 	target := filepath.Join(root, "app.js")

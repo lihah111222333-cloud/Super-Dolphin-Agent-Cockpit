@@ -128,20 +128,7 @@ func (h EditHandler) handleRename(ctx context.Context, req EditRequest) (any, er
 		}, nil
 	}
 	if !persistToDisk(req.PersistToDisk) {
-		if err := validateWorkspaceEditPaths(toolWorkspaceRoot(ctx, h.root), workspaceEdit); err != nil {
-			return nil, err
-		}
-		return editEnvelope{
-			Success:              true,
-			Action:               "rename",
-			Status:               "prepared",
-			Message:              "workspace edit prepared",
-			Applied:              false,
-			Persisted:            false,
-			RequiresApply:        true,
-			WorkspaceEdit:        format.WorkspaceEdit(workspaceEdit),
-			DiagnosticGeneration: manager.CurrentDiagnosticGeneration(),
-		}, nil
+		return h.buildUnpersistedRenameEnvelope(ctx, req, manager, workspaceEdit)
 	}
 	applied, err := h.applyWorkspaceEdit(ctx, manager, workspaceEdit, normalizeEditVersion(req.Version))
 	if err != nil {
@@ -170,7 +157,11 @@ func (h EditHandler) resolveRenameRequest(ctx context.Context, req EditRequest) 
 	if strings.TrimSpace(req.NewName) == "" {
 		return "", protocol.Position{}, errors.New("new_name is required for rename")
 	}
-	path, err := resolveWorkspacePath(toolWorkspaceRoot(ctx, h.root), req.FilePath)
+	root, err := toolWorkspaceRoot(ctx)
+	if err != nil {
+		return "", protocol.Position{}, err
+	}
+	path, err := resolveWorkspacePath(root, req.FilePath)
 	if err != nil {
 		return "", protocol.Position{}, err
 	}
@@ -182,7 +173,11 @@ func (h EditHandler) resolveRenameRequest(ctx context.Context, req EditRequest) 
 }
 
 func (h EditHandler) resolveFilePositionRequest(ctx context.Context, req EditRequest) (string, protocol.Position, error) {
-	path, err := resolveWorkspacePath(toolWorkspaceRoot(ctx, h.root), req.FilePath)
+	root, err := toolWorkspaceRoot(ctx)
+	if err != nil {
+		return "", protocol.Position{}, err
+	}
+	path, err := resolveWorkspacePath(root, req.FilePath)
 	if err != nil {
 		return "", protocol.Position{}, err
 	}
@@ -258,10 +253,6 @@ func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any
 		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: edit code_action manager failed",
 			"action", "code_action",
 			"file_path", path,
-			"line", req.Line,
-			"column", req.Column,
-			"end_line", req.EndLine,
-			"end_column", req.EndColumn,
 			"only", req.Only,
 			"error", err,
 		)
@@ -281,7 +272,11 @@ func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any
 		)
 		return nil, err
 	}
-	if err := validateCodeActionWorkspaceEditPaths(toolWorkspaceRoot(ctx, h.root), actions); err != nil {
+	root, err := toolWorkspaceRoot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateCodeActionWorkspaceEditPaths(root, actions); err != nil {
 		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: edit code_action unsafe workspace edit",
 			"action", "code_action",
 			"file_path", path,
@@ -318,7 +313,11 @@ func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any
 }
 
 func (h EditHandler) handleFormat(ctx context.Context, req EditRequest) (any, error) {
-	path, err := resolveWorkspacePath(toolWorkspaceRoot(ctx, h.root), req.FilePath)
+	root, err := toolWorkspaceRoot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	path, err := resolveWorkspacePath(root, req.FilePath)
 	if err != nil {
 		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: edit format rejected",
 			"action", "format",
@@ -426,4 +425,25 @@ func sortedKeys[V any](items map[string]V) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func (h EditHandler) buildUnpersistedRenameEnvelope(ctx context.Context, req EditRequest, manager lspmanager.Manager, workspaceEdit *protocol.WorkspaceEdit) (any, error) {
+	root, err := toolWorkspaceRoot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateWorkspaceEditPaths(root, workspaceEdit); err != nil {
+		return nil, err
+	}
+	return editEnvelope{
+		Success:              true,
+		Action:               "rename",
+		Status:               "prepared",
+		Message:              "workspace edit prepared",
+		Applied:              false,
+		Persisted:            false,
+		RequiresApply:        true,
+		WorkspaceEdit:        format.WorkspaceEdit(workspaceEdit),
+		DiagnosticGeneration: manager.CurrentDiagnosticGeneration(),
+	}, nil
 }

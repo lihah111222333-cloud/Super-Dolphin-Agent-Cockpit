@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
@@ -14,7 +15,7 @@ func TestRegistryDiagnosticsAllKeepsCallerContext(t *testing.T) {
 	registry := NewRegistry(nil)
 	registry.Register("go", mgr)
 
-	ctx := context.WithValue(context.Background(), registryContextKey{}, "caller-scope")
+	ctx := context.WithValue(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), registryContextKey{}, "caller-scope")
 	if _, err := registry.Diagnostics(ctx, nil); err != nil {
 		t.Fatalf("Diagnostics(ctx, nil): %v", err)
 	}
@@ -28,7 +29,7 @@ func TestRegistryGroupURIWaitUsesCallerContext(t *testing.T) {
 	registry := NewRegistry(nil)
 	registry.Register("go", mgr)
 
-	ctx := context.WithValue(context.Background(), registryContextKey{}, "group-scope")
+	ctx := context.WithValue(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), registryContextKey{}, "group-scope")
 	if err := registry.WaitDiagnosticsStable(ctx, []string{"file:///tmp/registry-group.go"}); err != nil {
 		t.Fatalf("WaitDiagnosticsStable: %v", err)
 	}

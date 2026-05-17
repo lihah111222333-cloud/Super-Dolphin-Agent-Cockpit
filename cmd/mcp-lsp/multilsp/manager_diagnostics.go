@@ -211,9 +211,9 @@ func (m *manager) normalizeDiagnosticFilter(ctx context.Context, uris []string) 
 			}, nil
 		}
 		return diagnosticFilter{
-			scopeKey:      lspScopeKeyFromContext(ctx),
-			workspaceRoot: m.effectiveWorkspaceRoot(ctx),
-			all:           true,
+			scopeKey: lspScopeKeyFromContext(ctx),
+			// handled manually below
+			all: true,
 		}, nil
 	}
 
@@ -371,7 +371,10 @@ func (m *manager) workspaceConfigForDiagnosticRef(ctx context.Context, ref docum
 	if m.shouldUseClientForLanguage(ref.languageID) {
 		return m.resolveWorkspaceForDocument(ctx, ref)
 	}
-	root := m.effectiveWorkspaceRoot(ctx)
+	root, err := m.effectiveWorkspaceRoot(ctx)
+	if err != nil {
+		return workspaceConfig{}, err
+	}
 	if root == "" {
 		root = filepath.Dir(ref.absPath)
 	}
@@ -391,7 +394,11 @@ func (m *manager) resolvedScopeForConfig(ctx context.Context, cfg workspaceConfi
 	if resolved, ok := resolvedLSPToolScopeFromContext(ctx); ok {
 		return resolved, nil
 	}
-	return ResolveLSPToolScope(m.lspToolScopeForConfig(ctx, cfg))
+	lspScope, err := m.lspToolScopeForConfig(ctx, cfg)
+	if err != nil {
+		return ResolvedLSPToolScope{}, err
+	}
+	return ResolveLSPToolScope(lspScope)
 }
 
 func lspScopeKeyFromContext(ctx context.Context) string {
@@ -440,10 +447,14 @@ func resolvedLSPToolScopeFromManagerScope(scope lspmanager.ResolvedToolScope) Re
 	}
 }
 
-func (m *manager) lspToolScopeForConfig(ctx context.Context, cfg workspaceConfig) LSPToolScope {
+func (m *manager) lspToolScopeForConfig(ctx context.Context, cfg workspaceConfig) (LSPToolScope, error) {
 	scope := lspToolScopeFromContext(ctx)
 	if scope.CWD == "" {
-		scope.CWD = m.effectiveWorkspaceRoot(ctx)
+		root, err := m.effectiveWorkspaceRoot(ctx)
+		if err != nil {
+			return LSPToolScope{}, err
+		}
+		scope.CWD = root
 	}
 	scope.LanguageID = normalizeLanguageID(cfg.languageID)
 	scope.WorkspaceRoot = cfg.rootPath
@@ -457,7 +468,7 @@ func (m *manager) lspToolScopeForConfig(ctx context.Context, cfg workspaceConfig
 		scope.ProjectRoot = parsed.ProjectRoot
 		scope.LanguageSpecific = parsed.LanguageSpecific
 	}
-	return scope
+	return scope, nil
 }
 
 func lspToolScopeFromContext(ctx context.Context) LSPToolScope {

@@ -64,6 +64,15 @@ var _ DynamicSectionProvider = LanguageProvider{}
 
 type LanguageProvider struct{}
 
+// languageDefaultSectionText anchors reply language when no explicit
+// `language` is configured. Without it the `# Language` section is dropped
+// entirely and the model drifts across the mixed-language corpus (English
+// base instructions + Chinese CLAUDE.md / skills / memory).
+const languageDefaultSectionText = `# Language
+- Respond in the same language the user writes their latest message in. Match the user's language and do not switch on your own. If no user message exists yet, keep the language consistent once the first user message arrives.
+- Keep one single language consistent across the entire reply, including narration, headings, and lists. Do not mix languages or drift between them mid-response.
+- Technical terms, code identifiers, file paths, and command names stay in their original form.`
+
 func (LanguageProvider) SectionName() string {
 	return DynamicSectionLanguage
 }
@@ -71,7 +80,8 @@ func (LanguageProvider) SectionName() string {
 func (LanguageProvider) Resolve(_ context.Context, input SectionContext) (*string, error) {
 	language := strings.TrimSpace(input.BuildCtx.Language)
 	if language == "" {
-		return nil, nil
+		text := languageDefaultSectionText
+		return &text, nil
 	}
 	text := fmt.Sprintf(
 		"# Language\nAlways respond in %s. Use %s for all explanations, comments, and communications with the user. Technical terms and code identifiers should remain in their original form.",

@@ -186,7 +186,7 @@ func assertUnsupportedTextReplace(t *testing.T, file, content, oldText, newText,
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	got, err := handler(context.Background(), input)
+	got, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), input)
 	if err != nil {
 		t.Fatalf("replace_range returned error: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestRenameRejectsPathOutsideWorkspaceRootBeforeLSPRequest(t *testing.T) {
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	_, err = handler(context.Background(), input)
+	_, err = handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), input)
 	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
 		t.Fatalf("rename error = %v, want outside workspace root", err)
 	}
@@ -258,7 +258,7 @@ func TestReplaceRangeRejectsPathOutsideWorkspaceRoot(t *testing.T) {
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	_, err = handler(context.Background(), input)
+	_, err = handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), input)
 	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
 		t.Fatalf("replace_range error = %v, want outside workspace root", err)
 	}
@@ -292,7 +292,7 @@ func TestReplaceRangeRejectsSymlinkEscapingWorkspaceRoot(t *testing.T) {
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	_, err = handler(context.Background(), input)
+	_, err = handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), input)
 	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
 		t.Fatalf("replace_range error = %v, want outside workspace root", err)
 	}
@@ -321,7 +321,7 @@ func assertForceCannotEscapeWorkspaceRoot(t *testing.T, handler ToolHandler) {
 	}
 	input := json.RawMessage(`{"action":"replace_range","file_path":` + strconv.Quote(outside) + `,"edits":[{"old_string":"old","new_string":"new"}],"force":true}`)
 
-	_, err := handler(context.Background(), input)
+	_, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: t.TempDir()}), input)
 	if err == nil || !strings.Contains(err.Error(), "outside workspace root") {
 		t.Fatalf("force outside-root error = %v, want workspace root rejection", err)
 	}
@@ -335,7 +335,7 @@ func assertForceInvalidPatchLeavesFile(t *testing.T, root string, handler ToolHa
 		t.Fatalf("write inside fixture: %v", err)
 	}
 	badPatch := json.RawMessage(`{"action":"replace_range","file_path":` + strconv.Quote(inside) + `,"patch":"not a patch","force":true}`)
-	got, err := handler(context.Background(), badPatch)
+	got, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), badPatch)
 	if err != nil {
 		t.Fatalf("force invalid patch returned transport error: %v", err)
 	}
@@ -445,7 +445,7 @@ func TestEditFailureAfterDeadClientReturnsRetryableWithoutAutoReplay(t *testing.
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	got, err := handler(context.Background(), input)
+	got, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), input)
 	if err != nil {
 		t.Fatalf("replace_range returned transport error: %v", err)
 	}
@@ -513,7 +513,7 @@ func TestReplaceRangeSyncFailureReportsRollbackFailure(t *testing.T) {
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	got, err := handler(context.Background(), input)
+	got, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), input)
 	if err != nil {
 		t.Fatalf("replace_range returned transport error: %v", err)
 	}
@@ -556,7 +556,7 @@ func TestApplyWorkspaceEditSyncFailureReportsRollbackFailure(t *testing.T) {
 		}},
 	}}
 
-	_, err := (EditHandler{root: root}).applyWorkspaceEdit(context.Background(), manager, edit, defaultEditVersion)
+	_, err := (EditHandler{root: root}).applyWorkspaceEdit(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), manager, edit, defaultEditVersion)
 	if err == nil {
 		t.Fatalf("applyWorkspaceEdit error = nil, want sync/rollback failure")
 	}

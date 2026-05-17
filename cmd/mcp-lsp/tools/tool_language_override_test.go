@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"os"
 	"path/filepath"
 	"testing"
@@ -89,7 +90,7 @@ func TestLanguageOverrideParticipatesInCacheKey(t *testing.T) {
 		t.Fatalf("marshal request: %v", err)
 	}
 
-	if _, err := handler(context.Background(), payload); err != nil {
+	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), payload); err != nil {
 		t.Fatalf("open_file with language_id returned error: %v", err)
 	}
 	if registry.gotLanguageID != "typescript" {

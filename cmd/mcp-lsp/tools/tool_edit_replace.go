@@ -73,7 +73,11 @@ type functionContext struct {
 }
 
 func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (any, error) {
-	path, err := resolveWorkspacePath(toolWorkspaceRoot(ctx, h.root), req.FilePath)
+	root, err := toolWorkspaceRoot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	path, err := resolveWorkspacePath(root, req.FilePath)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +201,10 @@ func (h EditHandler) replaceFailure(ctx context.Context, manager lspmanager.Mana
 }
 
 func (h EditHandler) applyWorkspaceEdit(ctx context.Context, manager lspmanager.Manager, workspaceEdit *protocol.WorkspaceEdit, version int) (applyWorkspaceEditResult, error) {
-	root := toolWorkspaceRoot(ctx, h.root)
+	root, err := toolWorkspaceRoot(ctx)
+	if err != nil {
+		return applyWorkspaceEditResult{}, err
+	}
 	files, err := collectWorkspaceEdits(root, workspaceEdit)
 	if err != nil {
 		return applyWorkspaceEditResult{}, err
