@@ -473,7 +473,7 @@ func (c *hookConsumer) handleTurnCompleted(ctx context.Context, ev turndto.TurnC
 	if c == nil || c.svc == nil {
 		return
 	}
-	report := platformshared.FirstTrimmed(ev.Result, ev.Summary, ev.Message)
+	report := turnCompletedReportText(ev)
 	_, err := c.svc.HandleReportEvent(withEventTime(ctx, ev.Timestamp), ReportEvent{
 		AgentID:   strings.TrimSpace(ev.AgentID),
 		Report:    report,

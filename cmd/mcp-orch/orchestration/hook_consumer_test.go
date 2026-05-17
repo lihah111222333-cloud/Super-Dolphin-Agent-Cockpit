@@ -491,3 +491,35 @@ func hookPayload(t *testing.T, topic, kind string, event any) mcp.HookPayload {
 		Context: contextRaw,
 	}
 }
+
+// TestHookConsumerTurnFailedReportsErrorToParent locks the report回传
+// path for a failed child-agent turn: the turn carries its detail in
+// TurnCompleted.Error (result/summary/message are empty), so without
+// the error fallback the parent agent's get_agent_report sees an empty
+// report / "not found" and the failure is silently lost.
+func TestHookConsumerTurnFailedReportsErrorToParent(t *testing.T) {
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
+	agent := addHookTestAgent(t, svc, "agent-1")
+	agent.state = agentdto.StateTurnRunning
+	agent.threadID = "thread-1"
+	agent.remoteThreadID = "thread-1"
+	agent.activeTurnID = "turn-1"
+
+	consumer := newHookConsumer(svc, silentLogger())
+	consumer.handleTurnCompleted(context.Background(), turndto.TurnCompleted{
+		TurnHeader: sharedto.TurnHeader{
+			AgentHeader:  sharedto.AgentHeader{ThreadHeader: sharedto.ThreadHeader{ThreadID: "thread-1"}, AgentID: "agent-1"},
+			TurnIDHeader: sharedto.TurnIDHeader{TurnID: "turn-1"},
+		},
+		Success: false,
+		Error:   "child agent denied tool permission",
+	})
+
+	report, err := svc.GetReport(context.Background(), "agent-1")
+	if err != nil {
+		t.Fatalf("GetReport() error = %v", err)
+	}
+	if !strings.Contains(report.Report, "child agent denied tool permission") {
+		t.Fatalf("report.Report = %q, want it to carry the failed turn's error detail", report.Report)
+	}
+}

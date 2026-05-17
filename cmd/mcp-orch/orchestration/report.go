@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode"
 
+	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
@@ -43,7 +44,10 @@ func (s *service) GetReport(ctx context.Context, agentID string) (AgentReportRes
 		if lookupErr == nil {
 			report, reportErr := readPersistedAgentReportFile(agentReportFileRecordFromSnapshot(snapshot))
 			if reportErr != nil {
-				return AgentReportResult{}, reportErr
+				if !errors.Is(reportErr, errAgentReportNotFound) {
+					return AgentReportResult{}, reportErr
+				}
+				report = noReportFallbackText(snapshot.State)
 			}
 			return AgentReportResult{
 				AgentID: snapshot.AgentID,
@@ -116,7 +120,48 @@ func (s *service) HandleReportEvent(ctx context.Context, event ReportEvent) (Rep
 		}
 		return nil
 	})
+	if fallback, ok := s.reportEventFallbackResult(ctx, agentID, eventType, report, err); ok {
+		return fallback, nil
+	}
 	return result, err
+}
+
+// reportEventFallbackResult builds a HandleReportEvent success result by
+// persisting the report straight to disk when the in-memory runtime is
+// gone (mcp-orch restarted mid-turn). ok is false when the runtime error
+// is not errAgentNotFound or the report could not be written.
+func (s *service) reportEventFallbackResult(ctx context.Context, agentID, eventType, report string, runtimeErr error) (ReportEventResult, bool) {
+	if !errors.Is(runtimeErr, errAgentNotFound) {
+		return ReportEventResult{}, false
+	}
+	if !s.persistReportWithoutRuntime(ctx, agentID, report) {
+		return ReportEventResult{}, false
+	}
+	return ReportEventResult{
+		Success:   true,
+		AgentID:   agentID,
+		EventType: eventType,
+		Report:    report,
+	}, true
+}
+
+// persistReportWithoutRuntime writes a report straight to disk for an
+// agent whose in-memory runtime is gone — e.g. mcp-orch restarted
+// mid-turn and lost s.agents before the turn-completed event arrived.
+// It resolves cwd/name from the persisted thread snapshot, the same
+// fallback source GetReport reads, so a completed turn's report still
+// reaches disk. Returns true only when the report was actually written.
+func (s *service) persistReportWithoutRuntime(ctx context.Context, agentID, report string) bool {
+	if strings.TrimSpace(report) == "" {
+		return false
+	}
+	snapshot, err := s.persistedAgentSnapshot(ctx, agentID)
+	if err != nil || strings.TrimSpace(snapshot.Cwd) == "" {
+		return false
+	}
+	record := agentReportFileRecordFromSnapshot(snapshot)
+	record.Report = report
+	return persistAgentReportFile(record) == nil
 }
 
 func setReportLocked(ctx context.Context, agent *agentRuntime, report string) {
@@ -216,6 +261,38 @@ func drainReportRequestersLocked(ctx context.Context, agent *agentRuntime) []str
 	agent.reportRequesters = nil
 	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
 	return requesters
+}
+
+// turnCompletedReportText derives the report body for a completed turn.
+// A successful turn carries its answer in result/summary/message; a
+// failed turn carries none of those, only error/reason/stop_reason.
+// Without the failure fallback a failed child agent's report stays
+// empty and the parent's get_agent_report degrades to "not found",
+// silently hiding the failure.
+func turnCompletedReportText(ev turndto.TurnCompleted) string {
+	if text := platformshared.FirstTrimmed(ev.Result, ev.Summary, ev.Message); text != "" {
+		return text
+	}
+	if ev.Success {
+		return ""
+	}
+	if detail := platformshared.FirstTrimmed(ev.Error, ev.Reason, ev.StopReason); detail != "" {
+		return "turn failed: " + detail
+	}
+	return "turn failed without detail"
+}
+
+// noReportFallbackText is the body GetReport returns when a persisted
+// agent snapshot exists but no report file was ever written — the turn
+// never reached turn:complete, or mcp-orch restarted and lost the
+// in-memory runtime before a report event could be persisted. Returning
+// this in place of errAgentReportNotFound lets the parent agent see the
+// agent's terminal state instead of a bare "not found".
+func noReportFallbackText(state string) string {
+	if state = strings.TrimSpace(state); state != "" {
+		return "agent ended in state '" + state + "' without producing a turn report"
+	}
+	return "agent ended without producing a turn report"
 }
 
 func resolveReportText(event ReportEvent) string {

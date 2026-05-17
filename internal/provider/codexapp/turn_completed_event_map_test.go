@@ -149,3 +149,50 @@ func TestTurnCompleted_EndToEnd_NoDeltaNoResult(t *testing.T) {
 		t.Fatalf("expected Success=true")
 	}
 }
+
+// TestTurnCompleted_EndToEnd_FailedTurnCarriesError covers the failed-turn
+// path the success-only cases above miss: a codex turn that ends
+// unsuccessfully must translate into TurnCompleted{Success:false} with the
+// failure detail in Error. turnCompletedReportText (the orchestration
+// report fallback) relies on this so a failed child agent's
+// get_agent_report carries the error instead of an empty report.
+func TestTurnCompleted_EndToEnd_FailedTurnCarriesError(t *testing.T) {
+	s := newAccumulatorTestSession()
+	terminal, _ := json.Marshal(map[string]any{
+		"turnId":  "T-fail",
+		"success": false,
+		"status":  "failed",
+		"error":   "codex tool call denied",
+	})
+	completed, ok := sniffAndTranslate(t, s, "turn/completed", terminal)
+	if !ok {
+		t.Fatalf("expected turn/completed to translate into TurnCompleted DTO")
+	}
+	if completed.Success {
+		t.Fatalf("expected Success=false for a failed turn")
+	}
+	if completed.Error != "codex tool call denied" {
+		t.Fatalf("TurnCompleted.Error = %q, want the failure detail", completed.Error)
+	}
+}
+
+// TestTurnCompleted_EndToEnd_AbortedTurnIsUnsuccessful covers the second
+// failure shape: an aborted codex turn must translate into Success=false
+// (turnTerminalSuccess short-circuits on "aborted" regardless of payload).
+func TestTurnCompleted_EndToEnd_AbortedTurnIsUnsuccessful(t *testing.T) {
+	s := newAccumulatorTestSession()
+	terminal, _ := json.Marshal(map[string]any{
+		"turnId": "T-abort",
+		"reason": "interrupted by user",
+	})
+	completed, ok := sniffAndTranslate(t, s, "turn/aborted", terminal)
+	if !ok {
+		t.Fatalf("expected turn/aborted to translate into TurnCompleted DTO")
+	}
+	if completed.Success {
+		t.Fatalf("expected Success=false for an aborted turn")
+	}
+	if completed.Reason != "interrupted by user" {
+		t.Fatalf("TurnCompleted.Reason = %q, want the abort reason", completed.Reason)
+	}
+}
