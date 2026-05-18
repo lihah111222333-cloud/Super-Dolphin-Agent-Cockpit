@@ -483,6 +483,11 @@ func (s *service) finishRemoteTurnSubmitSuccess(ctx context.Context, attempt rem
 			return nil
 		}
 		agent.activeTurnID = shared.FirstTrimmed(remoteTurnID, attempt.turnID)
+		if agent.state == agentdto.StateTurnStarting {
+			if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAccepted); err != nil {
+				return err
+			}
+		}
 		agent.updatedAt = resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
 		return nil
 	})
