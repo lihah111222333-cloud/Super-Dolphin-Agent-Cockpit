@@ -269,8 +269,8 @@ func (s *session) shutdownSession(graceful bool) error {
 	} else {
 		s.cancel()
 	}
-	s.shutdownSessionCleanup() // unregister from idle tracking
-	return s.transport.shutdownTransport(graceful)
+	cleanupErr := s.shutdownSessionCleanup() // release tool surface and idle tracking
+	return errors.Join(cleanupErr, s.transport.shutdownTransport(graceful))
 }
 
 func (s *session) failRecovery(reason string, err error) error {

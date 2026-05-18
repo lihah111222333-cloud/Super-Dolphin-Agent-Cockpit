@@ -32,6 +32,7 @@ type ToolCallRequest struct {
 	CallID     string          `json:"callId,omitempty"`
 	CWD        string          `json:"_cwd,omitempty"`
 	ClientKind string          `json:"clientKind,omitempty"`
+	Scoped     bool            `json:"-"`
 }
 
 type ToolCallContentItem struct {

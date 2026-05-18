@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 	"github.com/gorilla/websocket"
@@ -59,6 +60,60 @@ func TestToolBridge_StartSession_UsesDynamicTools(t *testing.T) {
 	defer closeCodexTestSession(t, s)
 
 	assertDynamicToolsStartSession(t, recorder, s, listToolsCalls)
+}
+
+func TestToolBridge_StartSession_PreparesScopedCodexSurface(t *testing.T) {
+	recorder := &toolBridgeRPCRecorder{}
+	t.Setenv("CODEX_APP_SERVER_URL", startToolBridgeRPCServer(t, recorder))
+	manager := &ServerManager{}
+
+	var gotScope contract.CodexToolSurfaceScope
+	var gotBindScope contract.CodexToolSurfaceScope
+	d := requireToolBridgeDriver(t, newDriver(nil, nil, nil, nil, manager, nil, nil, nil, nil))
+	d.prepareTools = func(_ context.Context, scope contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error) {
+		gotScope = scope
+		return []codexprotocol.DynamicToolSchema{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}, nil
+	}
+	d.bindTools = func(scope contract.CodexToolSurfaceScope) error {
+		gotBindScope = scope
+		return nil
+	}
+
+	sessionAny, err := d.StartSession(context.Background(), dto.StartSessionRequest{
+		AgentID: "agent-1",
+		CWD:     "/repo",
+		Config:  map[string]any{"binary_dir": "/tmp/super-agent-bin"},
+	})
+	if err != nil {
+		t.Fatalf("StartSession() error = %v", err)
+	}
+	s := requireCodexSession(t, sessionAny, "StartSession")
+	defer closeCodexTestSession(t, s)
+
+	assertStartSurfaceScope(t, gotScope, gotBindScope)
+	if len(gotScope.Manifest.Binaries) == 0 {
+		t.Fatalf("surface manifest = %#v, want stdio binaries", gotScope.Manifest)
+	}
+	if gotScope.Manifest.Binaries[0].URL != "" {
+		t.Fatalf("surface manifest first URL = %q, want stdio command", gotScope.Manifest.Binaries[0].URL)
+	}
+	assertDynamicToolsStartSession(t, recorder, s, 1)
+}
+
+func assertStartSurfaceScope(t *testing.T, gotScope, gotBindScope contract.CodexToolSurfaceScope) {
+	t.Helper()
+	if gotScope.AgentID != "agent-1" || gotScope.CWD != "/repo" {
+		t.Fatalf("surface scope = %#v, want agent/cwd", gotScope)
+	}
+	if gotScope.SurfaceID == "" {
+		t.Fatalf("surface scope = %#v, want surface id", gotScope)
+	}
+	if gotBindScope.SurfaceID != gotScope.SurfaceID ||
+		gotBindScope.AgentID != "agent-1" ||
+		gotBindScope.ProviderThreadID != "provider-thread-1" ||
+		gotBindScope.CWD != "/repo" {
+		t.Fatalf("surface bind scope = %#v, want same surface id plus agent/provider thread/cwd", gotBindScope)
+	}
 }
 
 func TestToolBridge_StartSession_InjectsMemoryReadDynamicTool(t *testing.T) {
@@ -133,6 +188,43 @@ func TestThreadResume_DynamicToolsWireCompatibilityIsExplicit(t *testing.T) {
 	}
 }
 
+func TestResumeSession_RebuildsCodexToolSurfaceWithoutDynamicTools(t *testing.T) {
+	state := &dynamicToolsResumeState{}
+	var writeMu sync.Mutex
+	server := startDynamicToolsResumeServer(t, state, make(chan jsonRPCMessage, 1), &writeMu)
+	defer server.Close()
+
+	var gotScope contract.CodexToolSurfaceScope
+	d := &driver{
+		serverURL: "ws" + strings.TrimPrefix(server.URL, "http"),
+		prepareTools: func(_ context.Context, scope contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error) {
+			gotScope = scope
+			return []codexprotocol.DynamicToolSchema{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}, nil
+		},
+	}
+
+	resumed, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
+		Provider:         "codex",
+		AgentID:          "agent-1",
+		ThreadID:         "local-thread-1",
+		ProviderThreadID: "provider-thread-1",
+		CWD:              "/repo",
+	})
+	if err != nil {
+		t.Fatalf("ResumeSession() error = %v", err)
+	}
+	s := requireCodexSession(t, resumed, "ResumeSession")
+	defer closeCodexTestSession(t, s)
+
+	if gotScope.AgentID != "agent-1" || gotScope.ProviderThreadID != "provider-thread-1" || gotScope.CWD != "/repo" {
+		t.Fatalf("surface scope = %#v, want resumed agent/provider thread/cwd", gotScope)
+	}
+	_, resumeHadDynamicTools := state.snapshot()
+	if resumeHadDynamicTools {
+		t.Fatal("thread/resume unexpectedly sent dynamicTools while rebuilding local surface")
+	}
+}
+
 type dynamicToolsResumeObservation struct {
 	startHadDynamicTools  bool
 	resumeHadDynamicTools bool
@@ -199,7 +291,7 @@ func runDynamicToolsResumeScenario(t *testing.T) dynamicToolsResumeObservation {
 			return []codexprotocol.DynamicToolSchema{dynamicSkillToolSchema()}, nil
 		},
 	}
-	started, err := d.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-1"})
+	started, err := d.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-1", CWD: "/repo"})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
 	}
@@ -211,6 +303,7 @@ func runDynamicToolsResumeScenario(t *testing.T) dynamicToolsResumeObservation {
 		Provider: "codex",
 		AgentID:  "agent-1",
 		ThreadID: "provider-thread-1",
+		CWD:      "/repo",
 	})
 	if err != nil {
 		t.Fatalf("ResumeSession() error = %v", err)
@@ -239,7 +332,7 @@ func runDynamicToolsResumeScenario(t *testing.T) dynamicToolsResumeObservation {
 		resumeHadDynamicTools: resumeHadDynamicTools,
 		toolMethod:            msg.Method,
 		toolName:              stringValue(params, "name"),
-		toolAgentID:           stringValue(params, "agentId"),
+		toolAgentID:           firstTestStringValue(params, "_agentId", "agentId"),
 	}
 }
 
@@ -249,6 +342,15 @@ func dynamicSkillToolSchema() codexprotocol.DynamicToolSchema {
 		Description: "expand skill body",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`),
 	}
+}
+
+func firstTestStringValue(values map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value := stringValue(values, key); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func startDynamicToolsResumeServer(t *testing.T, state *dynamicToolsResumeState, toolResponses chan<- jsonRPCMessage, writeMu *sync.Mutex) *httptest.Server {

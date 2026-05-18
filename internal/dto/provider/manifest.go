@@ -21,6 +21,13 @@ type MCPManifest struct {
 	Binaries []MCPBinary `json:"binaries,omitempty"`
 }
 
+type ManifestTransportMode string
+
+const (
+	ManifestTransportDefault   ManifestTransportMode = ""
+	ManifestTransportStdioOnly ManifestTransportMode = "stdio-only"
+)
+
 type ManifestContext struct {
 	AgentID       string
 	ThreadID      string
@@ -31,4 +38,5 @@ type ManifestContext struct {
 	AutoApprove   []string
 	ProxyHTTPAddr string
 	PeerHTTPAddrs map[ToolFamily]string // e.g. {FamilyOrch: "127.0.0.1:9091"}
+	TransportMode ManifestTransportMode
 }

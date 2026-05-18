@@ -16,6 +16,12 @@ function readCSS(relativePath) {
   return readFileSync(resolve(FRONTEND_ROOT, relativePath), 'utf-8');
 }
 
+function cssBlock(css, selector) {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = css.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`));
+  return match ? match[1].replace(/\/\*[\s\S]*?\*\//g, '') : '';
+}
+
 describe('[regression] CSS scroll-jump guards', () => {
   it('.chat-item must NOT have agent-fade-in animation', () => {
     const css = readCSS('styles/diff-chat.css');
@@ -54,5 +60,19 @@ describe('[regression] CSS scroll-jump guards', () => {
         `规则 "${match[0].slice(0, 80)}..." 不应同时包含 opacity:0 + agent-fade-in 动画`,
       ).toBe(false);
     }
+  });
+});
+describe('[regression] activity tool detail layout guards', () => {
+  it('keeps per-tool counts in a right-aligned numeric column', () => {
+    const css = readCSS('styles/activity-widgets.css');
+    const detailBlock = cssBlock(css, '.activity-tool-detail');
+    const entryBlock = cssBlock(css, '.tool-entry');
+    const countBlock = cssBlock(css, '.tool-entry strong');
+
+    expect(detailBlock).toMatch(/display\s*:\s*grid/);
+    expect(detailBlock).toMatch(/grid-template-columns\s*:/);
+    expect(entryBlock).toMatch(/grid-template-columns\s*:\s*minmax\(0\s*,\s*1fr\)\s+auto/);
+    expect(countBlock).toMatch(/text-align\s*:\s*right/);
+    expect(countBlock).toMatch(/font-variant-numeric\s*:\s*tabular-nums/);
   });
 });

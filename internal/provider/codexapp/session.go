@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -56,8 +57,11 @@ type session struct {
 	// ServerPool (multi-provider Codex path). It decrements the entry's
 	// refCount and closes the app-server process group when this was the last
 	// session; nil for ServerManager-backed sessions.
-	poolRelease     func()
-	poolReleaseOnce sync.Once
+	poolRelease            func()
+	poolReleaseOnce        sync.Once
+	releaseTools           func(contract.CodexToolSurfaceScope) error
+	toolSurfaceReleaseOnce sync.Once
+	toolSurfaceID          atomic.Value
 	// runtime is the session-private RunnerModule owner introduced by P22
 	// P1c. It replaces the implicit reader / health / recovery goroutines
 	// newSession() used to start. driver.StartSession / ResumeSession call
@@ -66,6 +70,8 @@ type session struct {
 }
 
 var _ contract.Session = (*session)(nil)
+
+var codexToolSurfaceSeq atomic.Uint64
 
 type turnHandle struct {
 	localID    string
@@ -207,30 +213,7 @@ func withPoolServer(url string, release func()) sessionOption {
 func (s *session) onInboundMessage(ctx context.Context, resp Responder, msg RawMessage) {
 	s.noteReadActivity()
 	if toolHandler := s.manager.getToolHandler(); len(msg.ID) != 0 && toolHandler != nil && isToolCallMethod(msg.Method) {
-		// P20.18 Phase 1：Codex 发的 item/tool/call params 只含 name + arguments，不包含
-		// agentId（agent 是宿主概念 codex 不知道）。旧的 peer-routed 工具不需 agentId，但
-		// host-direct 分支（skill_read_section）需要从 agentId 解析 cwd，
-		// 不 enrich 会 100% 失败；LSP peer 也需要 session cwd 才能避开共享进程启动目录。
-		// 这里把 session 持有的 agentID / cwd 覆盖写入 msg.Params 后再转发。
-		toolName := toolCallParamString(msg.Params, "name")
-		sessionCWD := s.runtimeConfigString("cwd")
-		if shouldWarnToolCWDTrace(toolName) {
-			s.logger.Warn("codexapp: tool call cwd trace",
-				"agent_id", s.agentID,
-				"thread_id", s.ThreadID(),
-				"method", msg.Method,
-				"tool", toolName,
-				"session_cwd", sessionCWD,
-			)
-		}
-		enriched := enrichToolCallParams(msg, s.agentID, sessionCWD)
-		runtimesafe.SafeGo(s.ctx, s.logger, "codexapp.session.toolCall", func(_ context.Context) {
-			result, err := toolHandler(ctx, enriched)
-			if respErr := resp.RespondWithID(msg.ID, result, err); respErr != nil {
-				s.logger.Warn("codexapp: tool call respond failed",
-					"agent_id", s.agentID, "method", msg.Method, "error", respErr)
-			}
-		})
+		s.handleInboundToolCall(ctx, resp, msg, toolHandler)
 		return
 	}
 	if isKnownRequestMethod(msg.Method) {
@@ -245,6 +228,41 @@ func (s *session) onInboundMessage(ctx context.Context, resp Responder, msg RawM
 		return
 	}
 	s.onNotification(msg.Method, msg.Params)
+}
+
+func (s *session) handleInboundToolCall(ctx context.Context, resp Responder, msg RawMessage, toolHandler ToolHandler) {
+	toolName := toolCallParamString(msg.Params, "name")
+	sessionCWD := s.runtimeConfigString("cwd")
+	if shouldWarnToolCWDTrace(toolName) {
+		s.logger.Warn("codexapp: tool call cwd trace",
+			"agent_id", s.agentID,
+			"thread_id", s.ThreadID(),
+			"method", msg.Method,
+			"tool", toolName,
+			"session_cwd", sessionCWD,
+		)
+	}
+	prepared, err := s.prepareToolCall(msg)
+	if err != nil {
+		s.respondInvalidToolCall(resp, msg, err)
+		return
+	}
+	s.publishToolCallBegin(prepared)
+	runtimesafe.SafeGo(s.ctx, s.logger, "codexapp.session.toolCall", func(_ context.Context) {
+		result, callErr := toolHandler(ctx, prepared.params)
+		s.publishToolCallEnd(prepared, result, callErr)
+		if respErr := resp.RespondWithID(msg.ID, result, callErr); respErr != nil {
+			s.logger.Warn("codexapp: tool call respond failed",
+				"agent_id", s.agentID, "method", msg.Method, "error", respErr)
+		}
+	})
+}
+
+func (s *session) respondInvalidToolCall(resp Responder, msg RawMessage, err error) {
+	if respErr := resp.RespondWithID(msg.ID, nil, err); respErr != nil {
+		s.logger.Warn("codexapp: invalid tool call respond failed",
+			"agent_id", s.agentID, "method", msg.Method, "error", respErr)
+	}
 }
 
 func isKnownRequestMethod(method string) bool {
@@ -481,13 +499,55 @@ func (s *session) SessionRuntime() *SessionRuntime { return s.runtime }
 // Currently its single job is to return a pool-backed session to the
 // ServerPool so the app-server can be reclaimed when this was the last
 // session. Idempotent so concurrent Close + ForceStop can't double-release.
-func (s *session) shutdownSessionCleanup() {
+func (s *session) shutdownSessionCleanup() error {
 	if s == nil {
-		return
+		return nil
 	}
+	var err error
+	s.toolSurfaceReleaseOnce.Do(func() {
+		if s.releaseTools != nil {
+			err = s.releaseTools(s.codexToolSurfaceReleaseScope())
+		}
+	})
 	s.poolReleaseOnce.Do(func() {
 		if s.poolRelease != nil {
 			s.poolRelease()
 		}
 	})
+	return err
+}
+
+func (s *session) codexToolSurfaceReleaseScope() contract.CodexToolSurfaceScope {
+	if s == nil {
+		return contract.CodexToolSurfaceScope{}
+	}
+	if surfaceID := s.currentToolSurfaceID(); surfaceID != "" {
+		return contract.CodexToolSurfaceScope{SurfaceID: surfaceID}
+	}
+	if providerThreadID := strings.TrimSpace(s.ThreadID()); providerThreadID != "" {
+		return contract.CodexToolSurfaceScope{ProviderThreadID: providerThreadID}
+	}
+	return contract.CodexToolSurfaceScope{
+		AgentID: strings.TrimSpace(s.agentID),
+	}
+}
+
+func (s *session) ensureToolSurfaceID() string {
+	if s == nil {
+		return ""
+	}
+	if existing := s.currentToolSurfaceID(); existing != "" {
+		return existing
+	}
+	id := "codex-surface:" + strings.TrimSpace(s.agentID) + ":" + strconv.FormatUint(codexToolSurfaceSeq.Add(1), 10)
+	s.toolSurfaceID.Store(id)
+	return id
+}
+
+func (s *session) currentToolSurfaceID() string {
+	if s == nil {
+		return ""
+	}
+	value, _ := s.toolSurfaceID.Load().(string)
+	return strings.TrimSpace(value)
 }

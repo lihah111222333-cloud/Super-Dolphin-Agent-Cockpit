@@ -15,7 +15,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/discovery"
 )
 
-func TestManifestFallsBackToStdioWhenPeerDiscoveryStale(t *testing.T) {
+func TestManifestUsesStdioWhenPeerDiscoveryStale(t *testing.T) {
 	addr := closedManifestTCPAddr(t)
 	if err := discovery.WriteDiscoveryFile("mcp-lsp", os.Getpid(), addr); err != nil {
 		t.Fatalf("WriteDiscoveryFile() error = %v", err)
@@ -33,12 +33,9 @@ func TestManifestFallsBackToStdioWhenPeerDiscoveryStale(t *testing.T) {
 	if len(lsp.Command) != 1 || lsp.Command[0] != wantCommand {
 		t.Fatalf("lsp command = %#v, want [%q]", lsp.Command, wantCommand)
 	}
-	if _, err := discovery.ReadDiscoveryAddr("mcp-lsp", os.Getpid()); !os.IsNotExist(err) {
-		t.Fatalf("ReadDiscoveryAddr() after stale fallback error = %v, want os.IsNotExist", err)
-	}
 }
 
-func TestHTTPRunnerDiscoveryIsReadableByManifestBuilder(t *testing.T) {
+func TestManifestIgnoresHealthyHTTPRunnerDiscoveryForStdioOnly(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/mcp" {
 			http.NotFound(w, r)
@@ -63,11 +60,12 @@ func TestHTTPRunnerDiscoveryIsReadableByManifestBuilder(t *testing.T) {
 	manifest := builder.Build(PrepareInput{AgentID: "agent-p2"}, "thread-p2")
 	lsp := manifestBinary(t, manifest, dto.FamilyLSP)
 
-	if lsp.Type != "http" || lsp.URL != server.URL+"/mcp" {
-		t.Fatalf("lsp manifest = %#v, want direct HTTP URL %s/mcp", lsp, server.URL)
+	if lsp.Type == "http" || lsp.URL != "" {
+		t.Fatalf("lsp manifest = %#v, want stdio command despite healthy HTTP peer", lsp)
 	}
-	if len(lsp.Command) != 0 {
-		t.Fatalf("lsp command = %#v, want empty command for healthy direct HTTP peer", lsp.Command)
+	wantCommand := filepath.Join("/tmp/super-agent-bin", "mcp-lsp")
+	if len(lsp.Command) != 1 || lsp.Command[0] != wantCommand {
+		t.Fatalf("lsp command = %#v, want [%q]", lsp.Command, wantCommand)
 	}
 }
 
