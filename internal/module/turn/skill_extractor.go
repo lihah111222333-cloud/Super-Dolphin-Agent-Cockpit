@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/skillcandidate"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -24,9 +23,7 @@ const (
 )
 
 // ExtractedSkill is the LLM-distilled, second-pass-redacted SKILL.md plus
-// the bookkeeping needed to insert / dedupe a candidate. Returned to the
-// caller after a successful Insert (or after a benign dedup hit) so a
-// future tick or test can correlate the trajectory with the candidate.
+// legacy bookkeeping. V1 no longer writes this into skillcandidate storage.
 type ExtractedSkill struct {
 	Slug            string
 	SKILLMd         string
@@ -36,8 +33,8 @@ type ExtractedSkill struct {
 	RepoFingerprint string
 }
 
-// Extractor distills an eligible Trajectory into a candidate row in
-// pending_review. Implementations MUST be called from a runner worker
+// Extractor distills an eligible Trajectory into a redacted skill-shaped
+// artifact. Implementations MUST be called from a runner worker
 // (never from a bus callback) so the bus dispatcher is not blocked on the
 // LLM round-trip.
 type Extractor interface {
@@ -66,13 +63,11 @@ func (m *ExtractorMetrics) incDedupHit()           { atomic.AddInt64(&m.DedupHit
 func (m *ExtractorMetrics) incInsertFailed()       { atomic.AddInt64(&m.InsertFailed, 1) }
 func (m *ExtractorMetrics) incPromoted()           { atomic.AddInt64(&m.Promoted, 1) }
 
-// DefaultExtractor distills a Trajectory into a candidate. dream and store
-// are fx-optional: when either is nil the extractor short-circuits with a
-// metric bump and returns (nil, nil). This keeps deployments without P0b
-// wiring (no DreamExecutor and / or no skill_candidate table) buildable.
+// DefaultExtractor distills a Trajectory without writing to the removed
+// skillcandidate backend. dream is fx-optional: when nil the extractor
+// short-circuits with a metric bump and returns (nil, nil).
 type DefaultExtractor struct {
 	dream     contract.DreamExecutor // optional: nil skips
-	store     skillcandidate.Store   // optional: nil skips
 	redactor  Redactor
 	evaluator Evaluator
 	logger    *pkglogger.Logger
@@ -80,12 +75,13 @@ type DefaultExtractor struct {
 	nowFn     func() time.Time
 }
 
-// NewDefaultExtractor constructs the extractor. dream and store are fx
-// optional and may be nil. redactor / evaluator / logger fall back to
+// NewDefaultExtractor constructs the extractor. dream is fx optional and may
+// be nil. The second parameter is ignored to preserve stale call sites while
+// the live old candidate writer remains disabled. redactor / evaluator / logger fall back to
 // package defaults when nil so tests and partial wiring stay simple.
 func NewDefaultExtractor(
 	dream contract.DreamExecutor,
-	store skillcandidate.Store,
+	_ any,
 	redactor Redactor,
 	evaluator Evaluator,
 	logger *pkglogger.Logger,
@@ -101,7 +97,6 @@ func NewDefaultExtractor(
 	}
 	return &DefaultExtractor{
 		dream:     dream,
-		store:     store,
 		redactor:  redactor,
 		evaluator: evaluator,
 		logger:    logger,
@@ -117,7 +112,8 @@ func NewDefaultExtractor(
 //
 // Pipeline: evaluate -> buildPrompt(redact-first) -> ExecuteDream ->
 // Redact -> residual scan -> content_hash -> repo_fingerprint ->
-// Store.Insert.
+// return the redacted artifact. The removed old skillcandidate backend is not
+// called.
 func (e *DefaultExtractor) Extract(ctx context.Context, t Trajectory) (*ExtractedSkill, error) {
 	if e == nil {
 		return nil, errors.New("extractor: nil receiver")
@@ -141,13 +137,7 @@ func (e *DefaultExtractor) Extract(ctx context.Context, t Trajectory) (*Extracte
 		return nil, err
 	}
 	extracted := newExtractedSkill(t, cleaned)
-	inserted, err := e.insertExtractedSkill(ctx, t, extracted)
-	if err != nil {
-		return extracted, err
-	}
-	if inserted {
-		e.Metrics.incPromoted()
-	}
+	_ = ctx
 	return extracted, nil
 }
 
@@ -160,10 +150,6 @@ func (e *DefaultExtractor) readyToExtract(t Trajectory) bool {
 	if e.dream == nil {
 		e.Metrics.incDreamNotConfigured()
 		e.logger.Info("extractor: dream executor not configured, skipping", "turn_id", t.TurnID)
-		return false
-	}
-	if e.store == nil {
-		e.logger.Warn("extractor: skill candidate store not wired, skipping", "turn_id", t.TurnID)
 		return false
 	}
 	return true
@@ -236,7 +222,7 @@ func newExtractedSkill(t Trajectory, cleaned string) *ExtractedSkill {
 		SKILLMd:         cleaned,
 		ContentHash:     contentHash,
 		Sample:          truncateRedactedSample(cleaned),
-		Scope:           skillcandidate.ScopeProject,
+		Scope:           "project",
 		RepoFingerprint: RepoFingerprint(t.Cwd),
 	}
 }
@@ -246,33 +232,6 @@ func truncateRedactedSample(sample string) string {
 		return sample[:redactedSampleLimit]
 	}
 	return sample
-}
-
-func (e *DefaultExtractor) insertExtractedSkill(ctx context.Context, t Trajectory, extracted *ExtractedSkill) (bool, error) {
-	created, err := e.store.Insert(ctx, skillcandidate.InsertParams{
-		Scope:           extracted.Scope,
-		Slug:            extracted.Slug,
-		ContentHash:     extracted.ContentHash,
-		RepoFingerprint: extracted.RepoFingerprint,
-		SkillMD:         extracted.SKILLMd,
-		RedactedSample:  extracted.Sample,
-	})
-	if err == nil {
-		if _, supersedeErr := e.store.MarkSuperseded(ctx, extracted.Scope, extracted.Slug, extracted.RepoFingerprint, created.ID); supersedeErr != nil {
-			e.Metrics.incInsertFailed()
-			e.logger.Error("extractor: candidate supersede failed", "turn_id", t.TurnID, "error", supersedeErr)
-			return false, supersedeErr
-		}
-		return true, nil
-	}
-	if isUniqueViolation(err) {
-		e.Metrics.incDedupHit()
-		e.logger.Info("extractor: candidate dedup hit, ignoring", "turn_id", t.TurnID, "slug", extracted.Slug)
-		return false, nil
-	}
-	e.Metrics.incInsertFailed()
-	e.logger.Error("extractor: candidate insert failed", "turn_id", t.TurnID, "error", err)
-	return false, err
 }
 
 // isUniqueViolation accepts both the contract.ErrConflict sentinel that

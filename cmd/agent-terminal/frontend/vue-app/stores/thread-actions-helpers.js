@@ -10,7 +10,11 @@ import {
 } from './thread-preference.model.js';
 import { _optimisticThreadIds, OPTIMISTIC_LEAK_GUARD_MS } from './thread-optimistic.js';
 import { resolveBuiltinToolLaunchPolicy } from './builtin-tool-policy.js';
+import { compactFailureResult, dialogTimelineSignature, tokenUsageSignature, waitForCompactResponse } from './thread-compact-helpers.js';
 import { CODEX_IDENTITY_DEFAULTS, normalizeProviderConfigValue } from '../provider-config-options.js';
+import { dropSkillNamesCoveredByRefs } from '../utils/skill-ref-utils.js';
+
+export { tokenUsageSignature } from './thread-compact-helpers.js';
 
 function isSessionNotAvailableError(err) {
   const msg = (err?.message || err?.cause?.message || '').toString().toLowerCase();
@@ -160,40 +164,6 @@ function upsertOptimisticUserTimelineItem(ctx, threadId, userText, attachments) 
     existing_optimistic_count: existing.filter((item) => (item?.id || '').toString().includes('-optimistic-')).length,
   });
 }
-
-export function tokenUsageSignature(state, threadId) {
-  const usage = state.tokenUsageByThread?.[threadId];
-  if (!usage || typeof usage !== 'object') return '';
-  const used = Number(usage.usedTokens);
-  const limit = Number(usage.contextWindowTokens);
-  const percent = Number(usage.usedPercent);
-  return [Number.isFinite(used) ? Math.round(used) : '', Number.isFinite(limit) ? Math.round(limit) : '', Number.isFinite(percent) ? percent.toFixed(3) : ''].join('|');
-}
-function dialogTimelineSignature(state, threadId) {
-  const items = Array.isArray(state?.timelinesByThread?.[threadId]) ? state.timelinesByThread[threadId] : [];
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index];
-    const kind = (item?.kind || '').toString().trim();
-    if (kind !== 'assistant' && kind !== 'user') continue;
-    return [items.length, index, kind, (item?.id || '').toString().trim(), (item?.ts || '').toString().trim(), (item?.text || '').toString().trim().slice(0, 160)].join('|');
-  }
-  return `${items.length}|`;
-}
-
-async function waitForCompactResponse(ctx, threadId, baselineTimelineSignature) {
-  const id = normalizeThreadID(threadId);
-  if (!id || typeof ctx.loadMessages !== 'function') return { attempts: 0, changed: false, signature: dialogTimelineSignature(ctx.state, id) };
-  let signature = dialogTimelineSignature(ctx.state, id);
-  let attempts = 0;
-  while (!(signature && signature !== baselineTimelineSignature) && attempts < 3) {
-    attempts += 1;
-    await ctx.loadMessages(id, 300, { syncRuntime: false });
-    signature = dialogTimelineSignature(ctx.state, id);
-    if (!(signature && signature !== baselineTimelineSignature) && attempts < 3) await waitMs(120);
-  }
-  return { attempts, changed: Boolean(signature && signature !== baselineTimelineSignature), signature };
-}
-
 
 export function saveActiveThread(ctx, id) {
   const { logInfo } = ctx;
@@ -382,6 +352,24 @@ function getStartResponseProvider(res) {
   return (res?.modelProvider || res?.model_provider || '').toString().trim();
 }
 
+function normalizeSelectedSkillRefs(rawSelectedSkillRefs) {
+  if (!Array.isArray(rawSelectedSkillRefs)) return [];
+  return rawSelectedSkillRefs
+    .map((item) => {
+      const ref = {
+        key: (item?.key || '').toString().trim(),
+        name: (item?.name || '').toString().trim(),
+        scope: (item?.scope || '').toString().trim(),
+        personalType: (item?.personalType || item?.personal_type || '').toString().trim(),
+        path: (item?.path || '').toString().trim(),
+      };
+      const source = (item?.source || '').toString().trim();
+      if (source) ref.source = source;
+      return ref;
+    })
+    .filter((item) => item.key && item.name);
+}
+
 async function resolveLaunchProviderPreference(getPref, cwd) {
   const [toolbarPref, scopedPref] = await Promise.all([
     getPref({ key: 'settings.provider.active' }),
@@ -474,13 +462,13 @@ export async function startThread(ctx, cwd = '.', options = {}) {
     is_codex_provider: isCodexProvider,
     note: 'diagnostic: provider prefs are observed here; payload forwarding is logged separately by backend',
   });
+  const selectedSkillRefs = normalizeSelectedSkillRefs(options?.selectedSkillRefs);
   const rawSelected = Array.isArray(options?.selectedSkills) ? options.selectedSkills : [];
-  const selectedSkills = rawSelected
-    .map((name) => (typeof name === 'string' ? name.trim() : ''))
-    .filter((name) => name !== '');
+  const selectedSkills = dropSkillNamesCoveredByRefs(rawSelected, selectedSkillRefs);
   const manualSkillSelection = options?.manualSkillSelection === true;
   if (selectedSkills.length > 0) payload.selectedSkills = selectedSkills;
-  if (manualSkillSelection || selectedSkills.length > 0) payload.manualSkillSelection = manualSkillSelection;
+  if (selectedSkillRefs.length > 0) payload.selectedSkillRefs = selectedSkillRefs;
+  if (manualSkillSelection || selectedSkills.length > 0 || selectedSkillRefs.length > 0) payload.manualSkillSelection = manualSkillSelection;
   // Explicit agent_key override. Empty / absent means "let the backend
   // router decide". The router reads prompt_templates and classifies based
   // on user_input; see internal/module/thread/router_resolve.go.
@@ -710,7 +698,8 @@ export async function sendMessage(ctx, threadId, prompt, attachments = [], optio
     return;
   }
   const start = perfNow();
-  const selectedSkills = Array.isArray(options?.selectedSkills) ? options.selectedSkills.map((item) => (item || '').toString().trim()).filter(Boolean) : [];
+  const selectedSkillRefs = normalizeSelectedSkillRefs(options?.selectedSkillRefs);
+  const selectedSkills = dropSkillNamesCoveredByRefs(options?.selectedSkills, selectedSkillRefs);
   const manualSkillSelection = Boolean(options?.manualSkillSelection);
   // fork 继承对话 kickoff：把这条 user prompt 的 text 记到 kickoffByThread，timeline
   // selector 看到匹配 text 的 user 消息会过滤掉，让 agent 视觉上主动开场。后端推回的
@@ -728,7 +717,8 @@ export async function sendMessage(ctx, threadId, prompt, attachments = [], optio
   const cwdValue = (options?.cwd || '').toString().trim();
   if (cwdValue) requestPayload.cwd = cwdValue;
   if (selectedSkills.length > 0) requestPayload.selectedSkills = selectedSkills;
-  if (manualSkillSelection || selectedSkills.length > 0) requestPayload.manualSkillSelection = manualSkillSelection;
+  if (selectedSkillRefs.length > 0) requestPayload.selectedSkillRefs = selectedSkillRefs;
+  if (manualSkillSelection || selectedSkills.length > 0 || selectedSkillRefs.length > 0) requestPayload.manualSkillSelection = manualSkillSelection;
   logInfo('thread', 'send.start', { thread_id: threadId, text_len: text.length, attachments: attachments.length, local_images: localImageCount, inline_images: remoteImageCount, files: fileCount, dropped_attachments: droppedAttachmentCount, selected_skills: selectedSkills.length, manual_skill_selection: manualSkillSelection });
   try {
     const beforeLen = Array.isArray(ctx.state.timelinesByThread?.[threadId]) ? ctx.state.timelinesByThread[threadId].length : 0;
@@ -833,7 +823,8 @@ export async function compactThread(ctx, threadId) {
       ctx.cancelCompactWaiter(id, 'compact_start_failed');
       await signalPromise.catch(() => {});
     }
-    ctx.setCompactResult(id, 'failed', isTimeout ? '压缩超时：未收到完成信号，请重试。' : '压缩失败，请重试。', { code: isTimeout ? 'compact_timeout' : 'compact_failed' });
+    const failure = compactFailureResult(isTimeout);
+    ctx.setCompactResult(id, 'failed', failure.message, { code: failure.code });
     logWarn('thread', 'compact.failed', { thread_id: id, compact_command_sent: compactCommandSent, compact_signal_received: compactSignalReceived, interrupt_attempted: interruptAttempted, interrupt_confirmed: interruptConfirmed, interrupt_settled: interruptSettled, interrupt_mode: interruptMode, error, duration_ms: Math.round(perfNow() - start) });
     throw error;
   } finally {

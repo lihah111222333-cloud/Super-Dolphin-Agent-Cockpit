@@ -285,7 +285,7 @@ func TestRecoveryResume_DynamicSkillToolsStillCallable(t *testing.T) {
 	s := newStartedRecoverySession(t, server.URL, manager)
 	defer closeCodexTestSession(t, s)
 	second := reconnectRecoverySession(t, s, connections)
-	sendCodexToolCall(t, &writeMu, second, 89, testDynamicSkillExpandBodyToolName, map[string]any{"name": "demo"})
+	sendCodexToolCall(t, &writeMu, second, 89, testDynamicToolName, map[string]any{"payload": "demo"})
 	assertRecoveredDynamicSkillToolCall(t, toolCalls)
 	assertToolResponse(t, responses, "89")
 	assertRecoveryCounters(t, &mu, &initializeCount, &threadResumes)
@@ -356,8 +356,8 @@ func assertDynamicSkillToolCall(t *testing.T, msg RawMessage) {
 	if err := json.Unmarshal(msg.Params, &params); err != nil {
 		t.Fatalf("json.Unmarshal(tool params) error = %v", err)
 	}
-	if stringValue(params, "name") != testDynamicSkillExpandBodyToolName {
-		t.Fatalf("tool name = %#v, want %s", params["name"], testDynamicSkillExpandBodyToolName)
+	if stringValue(params, "name") != testDynamicToolName {
+		t.Fatalf("tool name = %#v, want %s", params["name"], testDynamicToolName)
 	}
 }
 

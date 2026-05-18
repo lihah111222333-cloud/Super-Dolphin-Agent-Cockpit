@@ -50,16 +50,20 @@ func TestSkillRef_DropsRetiredModeFieldFromWire(t *testing.T) {
 // TestSkillRef_NewPayloadRoundTrip 新 payload 的 marshal/unmarshal round-trip。
 func TestSkillRef_NewPayloadRoundTrip(t *testing.T) {
 	original := SkillRef{
-		Name:    "lint-go",
-		Version: "v1.2",
-		Summary: "golangci-lint runner with preset",
-		Source:  SkillSourceTrigger,
+		Key:          "project::lint-go:/repo/.agent/skills/lint-go",
+		Name:         "lint-go",
+		Scope:        "project",
+		PersonalType: "",
+		Path:         "/repo/.agent/skills/lint-go",
+		Version:      "v1.2",
+		Summary:      "golangci-lint runner with preset",
+		Source:       SkillSourceTrigger,
 	}
 	data, err := json.Marshal(original)
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}
-	for _, substr := range []string{`"name":"lint-go"`, `"version":"v1.2"`, `"summary":"golangci`, `"source":"trigger"`} {
+	for _, substr := range []string{`"key":"project::lint-go:/repo/.agent/skills/lint-go"`, `"name":"lint-go"`, `"scope":"project"`, `"path":"/repo/.agent/skills/lint-go"`, `"version":"v1.2"`, `"summary":"golangci`, `"source":"trigger"`} {
 		if !strings.Contains(string(data), substr) {
 			t.Fatalf("marshaled JSON missing %q: %s", substr, data)
 		}
@@ -84,7 +88,7 @@ func TestSkillRef_OmitemptyZeroValues(t *testing.T) {
 	if string(data) != want {
 		t.Fatalf("minimal payload = %s, want %s", data, want)
 	}
-	for _, key := range []string{"version", "mode", "summary", "source", "prompt"} {
+	for _, key := range []string{"key", "scope", "personalType", "path", "version", "mode", "summary", "source", "prompt"} {
 		if strings.Contains(string(data), `"`+key+`"`) {
 			t.Fatalf("unexpected key %q in minimal payload: %s", key, data)
 		}
@@ -95,7 +99,10 @@ func TestSkillRef_OmitemptyZeroValues(t *testing.T) {
 // 旧 server 只认识 name/prompt，丢弃其它字段。
 func TestSkillRef_OldServerReadsNewPayload(t *testing.T) {
 	newPayload := SkillRef{
+		Key:     "personal:user:foo:/home/skills/foo",
 		Name:    "foo",
+		Scope:   "personal",
+		Path:    "/home/skills/foo",
 		Version: "v1",
 		Prompt:  "FULL BODY HERE",
 		Summary: "short desc",

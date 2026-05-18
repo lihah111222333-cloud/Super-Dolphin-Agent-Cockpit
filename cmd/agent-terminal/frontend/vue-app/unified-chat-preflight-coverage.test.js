@@ -29,7 +29,7 @@ vi.mock('./services/api.js', () => ({
 vi.mock('./services/log.js', () => ({ logDebug: vi.fn(), logInfo: vi.fn(), logWarn: vi.fn() }));
 vi.mock('./composables/useAutoScroll.js', () => ({ useAutoScroll: () => ({ scheduleScrollToBottom: autoScroll.schedule }) }));
 vi.mock('./composables/useSkillPreview.js', () => ({ useSkillPreview: () => ({
-  composerSkillMatches: [], composerEffectiveSelectedSkillNames: [], composerSkillPreviewLoading: false,
+  composerSkillMatches: [], composerEffectiveSelectedSkillNames: [], composerEffectiveSelectedSkillRefs: [], composerSkillPreviewLoading: false,
   isComposerSkillSelected: () => false, toggleComposerSelectedSkill: vi.fn(), clearComposerSelectedSkills: vi.fn(),
   resetSelectedComposerSkills: skill.reset, selectAllComposerSuggestedSkills: vi.fn(), composerSkillMatchClass: () => '', composerSkillMatchReason: () => '',
   resolveComposerSkillSelectionForSend: skill.resolve,
@@ -129,8 +129,8 @@ describe('UnifiedChatPage preflight coverage', () => {
 
   it('covers send early return, selected thread reuse and thread bootstrap', async () => {
     const { vm: emptyVm, store: emptyStore } = await createVm(); await emptyVm.send(); expect(emptyStore.startThread).not.toHaveBeenCalled(); expect(emptyStore.sendMessage).not.toHaveBeenCalled();
-    composer.state.text = 'hello'; skill.resolve.mockResolvedValueOnce({ selectedSkills: ['skillA'], manualSkillSelection: true }); const { vm, store } = await createVm({ selectedId: 'thread-active', active: '/repo' }); await vm.send(); expect(store.startThread).not.toHaveBeenCalled(); expect(store.sendMessage).toHaveBeenCalledWith('thread-active', 'hello', [], { selectedSkills: ['skillA'], manualSkillSelection: true, cwd: '/repo' }); expect(composer.clearComposer).toHaveBeenCalled(); expect(skill.reset).toHaveBeenCalled(); expect(autoScroll.schedule).toHaveBeenCalledWith(true);
-    composer.state.text = 'boot'; composer.state.attachments = [{ name: 'a.txt' }]; skill.resolve.mockResolvedValueOnce({ selectedSkills: [], manualSkillSelection: false }); const { vm: bootVm, store: bootStore } = await createVm({ selectedId: '', active: '/repo' }); await bootVm.send(); expect(bootStore.startThread).toHaveBeenCalledWith('/repo', { focusMode: 'chat', prompt: 'boot' }); expect(bootStore.sendMessage).toHaveBeenCalledWith('thread-started', 'boot', [{ name: 'a.txt' }], { selectedSkills: [], manualSkillSelection: false, cwd: '/repo' });
+    composer.state.text = 'hello'; skill.resolve.mockResolvedValueOnce({ selectedSkills: ['skillA'], manualSkillSelection: true }); const { vm, store } = await createVm({ selectedId: 'thread-active', active: '/repo' }); await vm.send(); expect(store.startThread).not.toHaveBeenCalled(); expect(store.sendMessage).toHaveBeenCalledWith('thread-active', 'hello', [], { selectedSkills: ['skillA'], manualSkillSelection: true, cwd: '/repo' }); expect(store.sendMessage.mock.calls[0][3]).not.toHaveProperty('selectedSkillRefs'); expect(composer.clearComposer).toHaveBeenCalled(); expect(skill.reset).toHaveBeenCalled(); expect(autoScroll.schedule).toHaveBeenCalledWith(true);
+    composer.state.text = 'boot'; composer.state.attachments = [{ name: 'a.txt' }]; skill.resolve.mockResolvedValueOnce({ selectedSkills: [], manualSkillSelection: false }); const { vm: bootVm, store: bootStore } = await createVm({ selectedId: '', active: '/repo' }); await bootVm.send(); expect(bootStore.startThread).toHaveBeenCalledWith('/repo', { focusMode: 'chat', prompt: 'boot' }); expect(bootStore.sendMessage).toHaveBeenCalledWith('thread-started', 'boot', [{ name: 'a.txt' }], { manualSkillSelection: false, cwd: '/repo' }); expect(bootStore.sendMessage.mock.calls[0][3]).not.toHaveProperty('selectedSkills'); expect(bootStore.sendMessage.mock.calls[0][3]).not.toHaveProperty('selectedSkillRefs');
   });
 
   it('covers interruptCurrent reject and error branches', async () => {

@@ -6,12 +6,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 )
@@ -37,14 +35,14 @@ func (s *service) ListSkills(ctx context.Context) ([]SkillInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(conflicts) > 0 {
-		return nil, skillSameNameConflictError{Conflicts: conflicts}
-	}
 	skills := make([]SkillInfo, 0, len(records))
 	for _, record := range records {
 		skills = append(skills, record.info)
 	}
-	return skillsWithDisclosureTiers(skills, s.disclosureTiers), nil
+	if len(conflicts) > 0 {
+		return skills, skillSameNameConflictError{Conflicts: conflicts}
+	}
+	return skills, nil
 }
 
 type skillExpandPrepared struct {
@@ -263,7 +261,32 @@ func (s *service) ReadLocal(ctx context.Context, path string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"skill": map[string]any{"path": path, "content": string(data), "summary": summarizeSkillBody(string(data), ""), "summary_source": "generated"}}, nil
+	content := string(data)
+	summary, summarySource := summarizeReadLocalSkill(content)
+	return map[string]any{"skill": map[string]any{"path": path, "content": content, "summary": summary, "summary_source": summarySource}}, nil
+}
+
+func summarizeReadLocalSkill(content string) (string, string) {
+	body := content
+	if frontmatter, parsedBody, ok := splitFrontmatter(content); ok {
+		body = parsedBody
+		var info SkillInfo
+		lines := strings.Split(frontmatter, "\n")
+		for i := 0; i < len(lines); i++ {
+			key, value, ok := parseMetaLine(lines[i])
+			if !ok {
+				continue
+			}
+			i += applyMetaLine(&info, key, value, lines[i+1:])
+		}
+		if summary := strings.TrimSpace(info.Summary); summary != "" && !isInternalSkillMarkerSummary(summary) {
+			return truncateRunes(summary, 220), "frontmatter"
+		}
+		if description := strings.TrimSpace(info.Description); description != "" {
+			return truncateRunes(description, 220), "description"
+		}
+	}
+	return truncateRunes(summarizeSkillBody(body, ""), 220), "generated"
 }
 
 func (s *service) resolveReadLocalPath(path, cwd string) (string, error) {
@@ -329,37 +352,14 @@ func (s *service) WriteLocal(ctx context.Context, path, content string, scopeAnd
 	if err != nil {
 		return nil, err
 	}
-	requestedScope, requestedPersonalType := resolveRequestedSkillTarget(scopeAndType...)
-	normalizedScope, normalizedPersonalType, err := normalizeSkillTarget(requestedScope, requestedPersonalType)
+	target, err := s.prepareWriteLocalTarget(cwd, path, content, scopeAndType...)
 	if err != nil {
 		return nil, err
 	}
-	if err := RequireSkillSystemReview(normalizedScope, skillSlug(path), skillContentHash(content), RepoFingerprint(cwd), "", ""); err != nil {
-		return nil, err
+	if target.scope == skillScopePersonal {
+		return s.writePersonalLocal(ctx, target.path, content, target.scope, target.personalType)
 	}
-	path, err = s.resolveWriteLocalPath(path, cwd, normalizedScope, normalizedPersonalType)
-	if err != nil {
-		return nil, err
-	}
-	if len(content) > maxSkillFileBytes {
-		return nil, fmt.Errorf("content too large: %d bytes", len(content))
-	}
-	if normalizedScope == skillScopePersonal {
-		return s.writePersonalLocal(ctx, path, content, normalizedScope, normalizedPersonalType)
-	}
-	mode, err := writableSkillFileMode(path)
-	if err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, err
-	}
-	if err := os.WriteFile(path, []byte(content), mode); err != nil {
-		return nil, err
-	}
-	s.publishSkillsChanged(ctx, "local_write", filepath.Base(filepath.Dir(path)), normalizedScope)
-	result := map[string]any{"ok": true, "path": path, "dir": filepath.Dir(path), "bytes": len(content)}
-	return attachMirrorPublish(result, s.publishWriteTimeMirrors(ctx, cwd, normalizedScope, normalizedPersonalType, filepath.Base(filepath.Dir(path)))), nil
+	return s.writeProjectLocal(ctx, cwd, target.path, content, target.scope, target.personalType)
 }
 
 func (s *service) writePersonalLocal(ctx context.Context, path, content, scope, personalType string) (any, error) {
@@ -372,16 +372,23 @@ func (s *service) writePersonalLocal(ctx context.Context, path, content, scope, 
 	if err != nil {
 		return nil, err
 	}
-	if _, err := backupExistingPersonalSkill(filepath.Dir(path)); err != nil {
+	backupDir, err := backupExistingPersonalSkill(filepath.Dir(path))
+	if err != nil {
 		return nil, err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
 	if err := os.WriteFile(path, []byte(content), mode); err != nil {
+		if rollbackErr := rollbackPersonalSkillDir(filepath.Dir(path), backupDir); rollbackErr != nil {
+			return nil, errors.Join(err, fmt.Errorf("rollback personal write: %w", rollbackErr))
+		}
 		return nil, err
 	}
 	if err := s.finalizePersonalMutation(ctx, "personal_write", filepath.Dir(path), record); err != nil {
+		if rollbackErr := rollbackPersonalSkillDir(filepath.Dir(path), backupDir); rollbackErr != nil {
+			return nil, errors.Join(err, fmt.Errorf("rollback personal write: %w", rollbackErr))
+		}
 		return nil, err
 	}
 	s.publishSkillsChanged(ctx, "local_write", name, scope)
@@ -491,9 +498,15 @@ func (s *service) deletePersonalLocal(ctx context.Context, name, dir, scope, per
 		return nil, err
 	}
 	if err := s.writePersonalArchiveRecord(record, archiveDir); err != nil {
+		if restoreErr := restoreDeletedPersonalSkill(dir, archiveDir); restoreErr != nil {
+			return nil, errors.Join(err, fmt.Errorf("restore personal delete: %w", restoreErr))
+		}
 		return nil, err
 	}
 	if err := s.writeSkillMutationAudit(ctx, "personal_delete_finalize", record); err != nil {
+		if restoreErr := restoreDeletedPersonalSkill(dir, archiveDir); restoreErr != nil {
+			return nil, errors.Join(err, fmt.Errorf("restore personal delete: %w", restoreErr))
+		}
 		return nil, err
 	}
 	s.publishSkillsChanged(ctx, "delete_local", name, scope)
@@ -558,49 +571,4 @@ func (s *service) WriteSummary(ctx context.Context, name, summary string) (any, 
 		return nil, errors.New("name is required")
 	}
 	return nil, ErrSkillSystemScopeRemoved
-}
-
-func listSkillFiles(dir string, entries []os.DirEntry) []map[string]any {
-	files := make([]map[string]any, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
-			continue
-		}
-		info, err := entry.Info()
-		if err != nil || !info.Mode().IsRegular() {
-			continue
-		}
-		files = append(files, map[string]any{"name": entry.Name(), "path": filepath.Join(dir, entry.Name()), "size": info.Size(), "is_main": strings.EqualFold(entry.Name(), skillMainFile)})
-	}
-	sort.Slice(files, func(i, j int) bool {
-		return strings.ToLower(files[i]["name"].(string)) < strings.ToLower(files[j]["name"].(string))
-	})
-	return files
-}
-
-func canonicalProjectPath(path string) (string, error) {
-	absolutePath, err := filepath.Abs(path)
-	if err != nil {
-		return "", err
-	}
-	return resolveExistingPath(absolutePath)
-}
-
-func resolveExistingPath(path string) (string, error) {
-	resolvedPath, err := filepath.EvalSymlinks(path)
-	switch {
-	case err == nil:
-		return resolvedPath, nil
-	case errors.Is(err, os.ErrNotExist):
-		return path, nil
-	default:
-		return "", err
-	}
-}
-
-func pathEscapesRoot(rootPath, targetPath string) (bool, error) {
-	if _, err := filepath.Rel(rootPath, targetPath); err != nil {
-		return false, err
-	}
-	return !pathutil.ContainsPath(rootPath, targetPath), nil
 }

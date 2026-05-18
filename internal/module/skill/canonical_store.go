@@ -63,6 +63,7 @@ type skillSameNameConflictError struct {
 type projectSkillPolicy struct {
 	Version                   int                                  `json:"version"`
 	DisablePersonalForProject []projectSkillPolicyDisabledPersonal `json:"disable_personal_for_project,omitempty"`
+	KeepSelected              []projectSkillKeepSelected           `json:"keep_selected,omitempty"`
 }
 
 type projectSkillPolicyDisabledPersonal struct {
@@ -70,25 +71,20 @@ type projectSkillPolicyDisabledPersonal struct {
 	PersonalType string `json:"personal_type"`
 }
 
-type personalSkillPolicy struct {
-	Version      int                         `json:"version"`
-	OwnerKey     string                      `json:"owner_key"`
-	KeepSelected []personalSkillKeepSelected `json:"keep_selected,omitempty"`
+type projectSkillKeepSelected struct {
+	Name                 string                     `json:"name"`
+	SelectedSourceID     string                     `json:"selected_source_id"`
+	SelectedPersonalType string                     `json:"selected_personal_type,omitempty"`
+	SelectedContentHash  string                     `json:"selected_content_hash,omitempty"`
+	ExcludedSourceIDs    []string                   `json:"excluded_source_ids,omitempty"`
+	Sources              []projectSkillPolicySource `json:"sources,omitempty"`
 }
 
-type personalSkillKeepSelected struct {
-	Name                 string                      `json:"name"`
-	SelectedSourceID     string                      `json:"selected_source_id"`
-	SelectedPersonalType string                      `json:"selected_personal_type"`
-	SelectedContentHash  string                      `json:"selected_content_hash"`
-	ExcludedSourceIDs    []string                    `json:"excluded_source_ids,omitempty"`
-	Sources              []personalSkillPolicySource `json:"sources,omitempty"`
-}
-
-type personalSkillPolicySource struct {
+type projectSkillPolicySource struct {
 	CanonicalID  string `json:"canonical_id"`
-	PersonalType string `json:"personal_type"`
-	ContentHash  string `json:"content_hash"`
+	Scope        string `json:"scope"`
+	PersonalType string `json:"personal_type,omitempty"`
+	ContentHash  string `json:"content_hash,omitempty"`
 }
 
 func (e skillSameNameConflictError) Error() string {
@@ -308,11 +304,19 @@ func applyProjectSkillPolicy(cwd string, records []canonicalSkillRecord) ([]cano
 	if err != nil {
 		return nil, err
 	}
-	if len(policy.DisablePersonalForProject) == 0 {
+	filtered, err := applyProjectDisabledPersonalPolicy(records, policy.DisablePersonalForProject)
+	if err != nil {
+		return nil, err
+	}
+	return applyProjectKeepSelectedPolicy(filtered, policy.KeepSelected)
+}
+
+func applyProjectDisabledPersonalPolicy(records []canonicalSkillRecord, disabledItems []projectSkillPolicyDisabledPersonal) ([]canonicalSkillRecord, error) {
+	if len(disabledItems) == 0 {
 		return records, nil
 	}
-	disabled := make(map[string]struct{}, len(policy.DisablePersonalForProject))
-	for _, item := range policy.DisablePersonalForProject {
+	disabled := make(map[string]struct{}, len(disabledItems))
+	for _, item := range disabledItems {
 		name, err := validateSkillName(item.Name)
 		if err != nil {
 			return nil, fmt.Errorf("invalid project skill policy name: %w", err)
@@ -329,41 +333,25 @@ func applyProjectSkillPolicy(cwd string, records []canonicalSkillRecord) ([]cano
 	}), nil
 }
 
-func readProjectSkillPolicy(cwd string) (projectSkillPolicy, error) {
-	var policy projectSkillPolicy
-	path := filepath.Join(defaultProjectSkillsRoot(cwd), projectSkillPolicyFile)
-	if err := readJSONFileIfExists(path, &policy); err != nil {
-		return projectSkillPolicy{}, err
-	}
-	return policy, nil
-}
-
-func (s *canonicalStore) applyPersonalSkillPolicy(records []canonicalSkillRecord) ([]canonicalSkillRecord, error) {
-	if strings.TrimSpace(s.superDolphinHome) == "" || strings.TrimSpace(s.osUID) == "" {
+func applyProjectKeepSelectedPolicy(records []canonicalSkillRecord, selections []projectSkillKeepSelected) ([]canonicalSkillRecord, error) {
+	if len(selections) == 0 {
 		return records, nil
 	}
-	policy, err := s.readPersonalSkillPolicy()
-	if err != nil {
-		return nil, err
-	}
-	if len(policy.KeepSelected) == 0 {
-		return records, nil
-	}
-	selectionByName, err := personalSelectionByName(policy.KeepSelected)
+	selectionByName, err := projectSelectionByName(selections)
 	if err != nil {
 		return nil, err
 	}
 	return filterCanonicalRecords(records, func(record canonicalSkillRecord) bool {
-		return keepCanonicalRecordForPersonalSelection(record, selectionByName)
+		return keepCanonicalRecordForProjectSelection(record, selectionByName)
 	}), nil
 }
 
-func personalSelectionByName(selections []personalSkillKeepSelected) (map[string]personalSkillKeepSelected, error) {
-	selectionByName := make(map[string]personalSkillKeepSelected, len(selections))
+func projectSelectionByName(selections []projectSkillKeepSelected) (map[string]projectSkillKeepSelected, error) {
+	selectionByName := make(map[string]projectSkillKeepSelected, len(selections))
 	for _, selection := range selections {
 		name, err := validateSkillName(selection.Name)
 		if err != nil {
-			return nil, fmt.Errorf("invalid personal skill policy name: %w", err)
+			return nil, fmt.Errorf("invalid project skill policy name: %w", err)
 		}
 		selection.Name = name
 		selectionByName[strings.ToLower(name)] = selection
@@ -371,48 +359,129 @@ func personalSelectionByName(selections []personalSkillKeepSelected) (map[string
 	return selectionByName, nil
 }
 
-func keepCanonicalRecordForPersonalSelection(record canonicalSkillRecord, selectionByName map[string]personalSkillKeepSelected) bool {
+func keepCanonicalRecordForProjectSelection(record canonicalSkillRecord, selectionByName map[string]projectSkillKeepSelected) bool {
 	selection, ok := selectionByName[strings.ToLower(record.Name)]
 	if !ok {
 		return true
 	}
 	sourceID := canonicalSourceID(record)
-	if selectedCanonicalRecord(record, selection, sourceID) {
+	if selectedProjectCanonicalRecord(record, selection, sourceID) {
 		return true
 	}
 	return !stringSliceContains(selection.ExcludedSourceIDs, sourceID)
 }
 
-func selectedCanonicalRecord(record canonicalSkillRecord, selection personalSkillKeepSelected, sourceID string) bool {
+func selectedProjectCanonicalRecord(record canonicalSkillRecord, selection projectSkillKeepSelected, sourceID string) bool {
 	return sourceID == strings.TrimSpace(selection.SelectedSourceID) &&
 		record.PersonalType == strings.TrimSpace(selection.SelectedPersonalType) &&
-		record.ContentHash == strings.TrimSpace(selection.SelectedContentHash)
+		(strings.TrimSpace(selection.SelectedContentHash) == "" || record.ContentHash == strings.TrimSpace(selection.SelectedContentHash))
 }
 
-func (s *canonicalStore) readPersonalSkillPolicy() (personalSkillPolicy, error) {
-	var policy personalSkillPolicy
-	path := filepath.Join(s.superDolphinHome, "skills", personalSkillPolicyFile)
-	if err := validateOwnerOnlyFileMode(path); err != nil {
-		return personalSkillPolicy{}, err
+func readProjectSkillPolicy(cwd string) (projectSkillPolicy, error) {
+	var policy projectSkillPolicy
+	path := filepath.Join(defaultProjectSkillsRoot(cwd), projectSkillPolicyFile)
+	if err := rejectWritableSymlinkComponentIfExists(path); err != nil {
+		return projectSkillPolicy{}, err
 	}
 	if err := readJSONFileIfExists(path, &policy); err != nil {
-		return personalSkillPolicy{}, err
-	}
-	if policy.OwnerKey == "" {
-		return policy, nil
-	}
-	owner, err := resolveOwnerIdentity(s.superDolphinHome, s.osUID, s.appProfile)
-	if err != nil {
-		return personalSkillPolicy{}, err
-	}
-	if policy.OwnerKey != owner.OwnerKey {
-		return personalSkillPolicy{}, nil
+		return projectSkillPolicy{}, err
 	}
 	return policy, nil
 }
 
+func writeProjectDisablePersonalPolicy(cwd, name, personalType string) (string, error) {
+	name, err := validateSkillName(name)
+	if err != nil {
+		return "", err
+	}
+	_, normalizedType, err := normalizeSkillTarget(skillScopePersonal, personalType)
+	if err != nil {
+		return "", err
+	}
+	policy, err := readProjectSkillPolicy(cwd)
+	if err != nil {
+		return "", err
+	}
+	if policy.Version == 0 {
+		policy.Version = 1
+	}
+	next := projectSkillPolicyDisabledPersonal{Name: name, PersonalType: normalizedType}
+	policy.DisablePersonalForProject = appendProjectDisabledPersonal(policy.DisablePersonalForProject, next)
+	return writeSkillPolicyJSON(filepath.Join(defaultProjectSkillsRoot(cwd), projectSkillPolicyFile), policy, 0o644)
+}
+
+func writeProjectKeepSelectedPolicy(cwd, name string, sources []skillResolutionSource, selected skillResolutionSource) (string, error) {
+	name, err := validateSkillName(name)
+	if err != nil {
+		return "", err
+	}
+	if selected.Scope != skillScopeProject {
+		return "", fmt.Errorf("selected source must be project")
+	}
+	policy, err := readProjectSkillPolicy(cwd)
+	if err != nil {
+		return "", err
+	}
+	policy.Version = 1
+	policy.KeepSelected = upsertProjectKeepSelected(policy.KeepSelected, buildProjectKeepSelected(name, sources, selected))
+	return writeSkillPolicyJSON(filepath.Join(defaultProjectSkillsRoot(cwd), projectSkillPolicyFile), policy, 0o644)
+}
+
+func buildProjectKeepSelected(name string, sources []skillResolutionSource, selected skillResolutionSource) projectSkillKeepSelected {
+	next := projectSkillKeepSelected{
+		Name:                 name,
+		SelectedSourceID:     selected.CanonicalID,
+		SelectedPersonalType: selected.PersonalType,
+		SelectedContentHash:  selected.ContentHash,
+	}
+	for _, source := range sources {
+		next.Sources = append(next.Sources, projectSkillPolicySource{
+			CanonicalID:  source.CanonicalID,
+			Scope:        source.Scope,
+			PersonalType: source.PersonalType,
+			ContentHash:  source.ContentHash,
+		})
+		if source.CanonicalID != selected.CanonicalID {
+			next.ExcludedSourceIDs = append(next.ExcludedSourceIDs, source.CanonicalID)
+		}
+	}
+	return next
+}
+
+func upsertProjectKeepSelected(items []projectSkillKeepSelected, next projectSkillKeepSelected) []projectSkillKeepSelected {
+	filtered := items[:0]
+	for _, existing := range items {
+		if strings.EqualFold(existing.Name, next.Name) {
+			continue
+		}
+		filtered = append(filtered, existing)
+	}
+	return append(filtered, next)
+}
+
+func appendProjectDisabledPersonal(items []projectSkillPolicyDisabledPersonal, next projectSkillPolicyDisabledPersonal) []projectSkillPolicyDisabledPersonal {
+	for _, item := range items {
+		if strings.EqualFold(item.Name, next.Name) && strings.EqualFold(item.PersonalType, next.PersonalType) {
+			return items
+		}
+	}
+	return append(items, next)
+}
+
+func canonicalSourceID(record canonicalSkillRecord) string {
+	name := strings.TrimSpace(record.Name)
+	switch strings.TrimSpace(record.Scope) {
+	case skillScopeProject:
+		return skillScopeProject + "/" + name
+	case skillScopePersonal:
+		return skillScopePersonal + "/" + strings.TrimSpace(record.PersonalType) + "/" + name
+	default:
+		return strings.TrimSpace(record.Scope) + "/" + name
+	}
+}
+
 func validateOwnerOnlyFileMode(path string) error {
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -442,16 +511,25 @@ func readJSONFileIfExists(path string, dst any) error {
 	return json.Unmarshal(data, dst)
 }
 
-func canonicalSourceID(record canonicalSkillRecord) string {
-	name := strings.TrimSpace(record.Name)
-	switch strings.TrimSpace(record.Scope) {
-	case skillScopeProject:
-		return skillScopeProject + "/" + name
-	case skillScopePersonal:
-		return skillScopePersonal + "/" + strings.TrimSpace(record.PersonalType) + "/" + name
-	default:
-		return strings.TrimSpace(record.Scope) + "/" + name
+func writeSkillPolicyJSON(path string, value any, mode os.FileMode) (string, error) {
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return "", err
 	}
+	data = append(data, '\n')
+	if err := rejectWritableSymlinkComponentIfExists(path); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, data, mode); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(path, mode); err != nil {
+		return "", err
+	}
+	return skillContentHash(string(data)), nil
 }
 
 func filterCanonicalRecords(records []canonicalSkillRecord, keep func(canonicalSkillRecord) bool) []canonicalSkillRecord {

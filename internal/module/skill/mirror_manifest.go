@@ -37,6 +37,46 @@ type SkillMirrorEntry struct {
 	Owned         bool   `json:"owned"`
 }
 
+func loadSkillMirrorManifest(path string, target SkillMirrorTarget) (SkillMirrorManifest, error) {
+	manifest, err := readSkillMirrorManifest(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return newSkillMirrorManifest(target), nil
+	}
+	if err != nil {
+		return SkillMirrorManifest{}, err
+	}
+	if manifest.Provider != string(target.Provider) || manifest.Scope != target.Scope || manifest.CanonicalRootID != target.CanonicalRootID {
+		return SkillMirrorManifest{}, fmt.Errorf("skill mirror manifest target mismatch")
+	}
+	if manifest.Skills == nil {
+		manifest.Skills = make(map[string]SkillMirrorEntry)
+	}
+	return manifest, nil
+}
+
+func newSkillMirrorManifest(target SkillMirrorTarget) SkillMirrorManifest {
+	return SkillMirrorManifest{
+		Version:         1,
+		Manager:         "super-dolphin",
+		Scope:           target.Scope,
+		Provider:        string(target.Provider),
+		CanonicalRootID: target.CanonicalRootID,
+		GeneratedAt:     time.Now().UTC(),
+		Skills:          make(map[string]SkillMirrorEntry),
+	}
+}
+
+func mirrorManifestEntry(record canonicalSkillRecord, canonicalHash, mirrorHash string) SkillMirrorEntry {
+	return SkillMirrorEntry{
+		CanonicalID:   canonicalSourceID(record),
+		CanonicalHash: canonicalHash,
+		MirrorHash:    mirrorHash,
+		SourceType:    record.Scope,
+		PersonalType:  record.PersonalType,
+		Owned:         true,
+	}
+}
+
 func writeSkillMirrorManifest(path string, manifest SkillMirrorManifest) error {
 	if filepath.Base(path) != skillMirrorManifestFile {
 		return fmt.Errorf("skill mirror manifest path must end with %s", skillMirrorManifestFile)
@@ -54,7 +94,42 @@ func writeSkillMirrorManifest(path string, manifest SkillMirrorManifest) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create skill mirror manifest dir: %w", err)
 	}
-	return os.WriteFile(path, append(data, '\n'), 0o644)
+	return writeFileAtomic(path, append(data, '\n'), 0o644)
+}
+
+func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(mode); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	cleanup = false
+	return nil
 }
 
 func readSkillMirrorManifest(path string) (SkillMirrorManifest, error) {
@@ -93,16 +168,21 @@ func ensureMirrorManifestRegularPath(path string, allowMissing bool) error {
 }
 
 func validateSkillMirrorManifest(manifest SkillMirrorManifest) error {
+	for name, entry := range manifest.Skills {
+		if _, err := validateSkillName(name); err != nil {
+			return fmt.Errorf("skill mirror manifest has unsafe skill name %q: %w", name, err)
+		}
+		if strings.TrimSpace(manifest.Scope) == skillScopePersonal {
+			if err := validatePersonalMirrorEntry(name, entry); err != nil {
+				return err
+			}
+		}
+	}
 	if strings.TrimSpace(manifest.Scope) != skillScopePersonal {
 		return nil
 	}
 	if !strings.HasPrefix(strings.TrimSpace(manifest.CanonicalRootID), "sd_owner:") {
 		return fmt.Errorf("personal mirror canonical_root_id must be owner_key")
-	}
-	for name, entry := range manifest.Skills {
-		if err := validatePersonalMirrorEntry(name, entry); err != nil {
-			return err
-		}
 	}
 	return nil
 }
@@ -261,4 +341,138 @@ func writeHashUint32(h hash.Hash, value uint32) {
 	var data [4]byte
 	binary.BigEndian.PutUint32(data[:], value)
 	_, _ = h.Write(data[:])
+}
+
+func filterCanonicalRecordsForScope(records []canonicalSkillRecord, scope string) []canonicalSkillRecord {
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		return records
+	}
+	filtered := make([]canonicalSkillRecord, 0, len(records))
+	for _, record := range records {
+		if record.Scope == scope {
+			filtered = append(filtered, record)
+		}
+	}
+	return filtered
+}
+
+func (s *service) writeTimeMirrorTargets(cwd, scope string) []SkillMirrorTarget {
+	scope = strings.TrimSpace(scope)
+	if scope == skillScopePersonal {
+		return uniqueMirrorTargets(append(s.defaultPersonalMirrorTargets(), s.configuredMirrorTargets(scope)...))
+	}
+	if scope != skillScopeProject {
+		return uniqueMirrorTargets(s.configuredMirrorTargets(scope))
+	}
+	fingerprint := RepoFingerprint(cwd)
+	targets := []SkillMirrorTarget{
+		{
+			TargetID:        "claude:project:" + fingerprint,
+			Provider:        SkillProviderClaude,
+			Scope:           skillScopeProject,
+			Root:            filepath.Join(cwd, ".claude", "skills"),
+			CanonicalRootID: fingerprint,
+		},
+		{
+			TargetID:        "codex:project:" + fingerprint,
+			Provider:        SkillProviderCodex,
+			Scope:           skillScopeProject,
+			Root:            filepath.Join(cwd, ".codex", "skills"),
+			CanonicalRootID: fingerprint,
+		},
+	}
+	return uniqueMirrorTargets(targets)
+}
+
+func (s *service) defaultPersonalMirrorTargets() []SkillMirrorTarget {
+	superHome := s.resolvedSuperDolphinHome()
+	owner, err := resolveOwnerIdentity(superHome, defaultOwnerOSUID(), defaultAppProfile())
+	if err != nil {
+		return nil
+	}
+	return []SkillMirrorTarget{
+		{
+			TargetID:        "claude:app-managed:" + owner.OwnerKey,
+			Provider:        SkillProviderClaude,
+			Scope:           skillScopePersonal,
+			Root:            filepath.Join(superHome, "providers", "claude", "skills"),
+			CanonicalRootID: owner.OwnerKey,
+		},
+		{
+			TargetID:        "codex:app-managed:" + owner.OwnerKey,
+			Provider:        SkillProviderCodex,
+			Scope:           skillScopePersonal,
+			Root:            filepath.Join(superHome, "providers", "codex", "skills"),
+			CanonicalRootID: owner.OwnerKey,
+		},
+	}
+}
+
+func (s *service) configuredMirrorTargets(scope string) []SkillMirrorTarget {
+	if s == nil {
+		return nil
+	}
+	targets := make([]SkillMirrorTarget, 0, len(s.mirrorTargets))
+	for _, target := range s.mirrorTargets {
+		if strings.TrimSpace(target.Scope) == scope {
+			targets = append(targets, target)
+		}
+	}
+	return targets
+}
+
+func uniqueMirrorTargets(targets []SkillMirrorTarget) []SkillMirrorTarget {
+	seen := make(map[string]bool, len(targets))
+	out := make([]SkillMirrorTarget, 0, len(targets))
+	for _, target := range targets {
+		key := target.TargetID + "\x00" + filepath.Clean(target.Root)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, target)
+	}
+	return out
+}
+
+func unconfiguredMirrorPublishReport(scope, personalType, name string) SkillMirrorReport {
+	if scope != skillScopePersonal {
+		return SkillMirrorReport{}
+	}
+	return SkillMirrorReport{Conflicts: []SkillMirrorReportItem{{
+		TargetID:           "personal:unconfigured",
+		Scope:              skillScopePersonal,
+		CanonicalID:        canonicalIDForPublishReport(scope, personalType, name),
+		ConflictKind:       "publish_targets_unconfigured",
+		RelativeMirrorPath: "",
+	}}}
+}
+
+func mirrorPublishErrorReport(targets []SkillMirrorTarget, scope, personalType, name string, err error) SkillMirrorReport {
+	report := SkillMirrorReport{Conflicts: make([]SkillMirrorReportItem, 0, len(targets))}
+	for _, target := range targets {
+		item := reportItem(target, skillSlug(name), canonicalIDForPublishReport(scope, personalType, name), "", "", "publish_error")
+		if err != nil {
+			item.Error = err.Error()
+		}
+		report.Conflicts = append(report.Conflicts, item)
+	}
+	return report
+}
+
+func canonicalIDForPublishReport(scope, personalType, name string) string {
+	slug := skillSlug(name)
+	if scope == skillScopePersonal {
+		return "personal/" + strings.TrimSpace(personalType) + "/" + slug
+	}
+	return "project/" + slug
+}
+
+func attachMirrorPublish(result any, report SkillMirrorReport) any {
+	if payload, ok := result.(map[string]any); ok {
+		payload["mirror_publish"] = report
+		return payload
+	}
+	return result
 }

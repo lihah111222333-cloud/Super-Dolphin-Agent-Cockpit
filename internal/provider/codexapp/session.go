@@ -208,9 +208,8 @@ func (s *session) onInboundMessage(ctx context.Context, resp Responder, msg RawM
 	s.noteReadActivity()
 	if toolHandler := s.manager.getToolHandler(); len(msg.ID) != 0 && toolHandler != nil && isToolCallMethod(msg.Method) {
 		// P20.18 Phase 1：Codex 发的 item/tool/call params 只含 name + arguments，不包含
-		// agentId（agent 是宿主概念 codex 不知道）。旧的 peer-routed 工具不需 agentId，但
-		// host-direct 分支（skill_read_section）需要从 agentId 解析 cwd，
-		// 不 enrich 会 100% 失败；LSP peer 也需要 session cwd 才能避开共享进程启动目录。
+		// agentId（agent 是宿主概念 codex 不知道）。host-direct memory 工具需要
+		// agentId 记录调用来源；LSP peer 也需要 session cwd 才能避开共享进程启动目录。
 		// 这里把 session 持有的 agentID / cwd 覆盖写入 msg.Params 后再转发。
 		toolName := toolCallParamString(msg.Params, "name")
 		sessionCWD := s.runtimeConfigString("cwd")

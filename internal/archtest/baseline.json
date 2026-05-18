@@ -628,34 +628,6 @@
     "empty_funcs": 0,
     "todo_count": 0
   },
-  "internal/module/skillforge/atomic.go": {
-    "lines": 93,
-    "max_func_len": 21,
-    "max_nesting": 2,
-    "max_complexity": 7,
-    "max_params": 3,
-    "max_returns": 1,
-    "max_underscore": 0,
-    "global_vars": 1,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0
-  },
-  "internal/module/skillforge/embed.go": {
-    "lines": 33,
-    "max_func_len": 18,
-    "max_nesting": 2,
-    "max_complexity": 5,
-    "max_params": 1,
-    "max_returns": 2,
-    "max_underscore": 0,
-    "global_vars": 1,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0
-  },
   "internal/module/thread/command.go": {
     "lines": 398,
     "max_func_len": 38,
@@ -890,20 +862,6 @@
     "empty_funcs": 0,
     "todo_count": 0,
     "max_struct_fields": 11
-  },
-  "internal/provider/claudecli/fbsd_hook.go": {
-    "lines": 72,
-    "max_func_len": 32,
-    "max_nesting": 1,
-    "max_complexity": 8,
-    "max_params": 2,
-    "max_returns": 3,
-    "max_underscore": 0,
-    "global_vars": 1,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0
   },
   "internal/provider/claudecli/session.go": {
     "lines": 369,

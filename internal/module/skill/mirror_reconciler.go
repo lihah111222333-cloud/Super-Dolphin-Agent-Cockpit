@@ -1,21 +1,23 @@
 package skill
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 const (
 	skillConflictSameName                  = "same_name"
 	skillConflictMirrorDrift               = "mirror_drift"
 	skillConflictUnmanagedSameName         = "unmanaged_same_name"
+	skillConflictUnmanagedProviderSkill    = "unmanaged_provider_skill"
 	skillConflictCanonicalDeletedWithDrift = "canonical_deleted_with_drift"
 	skillConflictMultiMirrorDrift          = "multi_mirror_drift"
+	skillMirrorBackupDirName               = ".super-dolphin-mirror-backup"
 )
 
 type SkillMirrorConflict struct {
@@ -118,203 +120,6 @@ func MirrorConflictsFromCanonical(conflicts []canonicalSkillConflict) []SkillMir
 	return out
 }
 
-func ResolveSkillMirrorDrift(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (SkillMirrorResolutionReport, error) {
-	switch req.Action {
-	case "sync_back_to_canonical", "sync_back_to_personal":
-		return syncBackMirrorToCanonical(ctx, svc, req)
-	case "canonical_overwrite_mirror", "personal_overwrite_mirror":
-		return overwriteMirrorFromCanonical(ctx, svc, req)
-	case "save_as_new_skill", "save_as_new_personal_skill":
-		return saveMirrorAsNewCanonical(ctx, svc, req)
-	case "confirm_delete_drifted_mirror":
-		return confirmDeleteDriftedMirror(ctx, svc, req)
-	default:
-		return SkillMirrorResolutionReport{Action: req.Action, Name: req.Name}, fmt.Errorf("unsupported mirror resolution action %q", req.Action)
-	}
-}
-
-func syncBackMirrorToCanonical(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (SkillMirrorResolutionReport, error) {
-	report := SkillMirrorResolutionReport{Action: req.Action, Name: req.Name}
-	record, mirrorDir, err := resolutionRecordAndMirrorDir(ctx, svc, req)
-	if err != nil {
-		return report, err
-	}
-	preview, mirrorHash, err := verifyResolutionRequestPreview(svc, req, mirrorDir)
-	if err != nil {
-		return report, err
-	}
-	targetDir, err := canonicalResolutionTargetDir(svc, record, req)
-	if err != nil {
-		return report, err
-	}
-	if err := verifyResolutionPreviewTarget(preview, targetDir); err != nil {
-		return report, err
-	}
-	if _, err := backupSkillDir(targetDir); err != nil {
-		return report, err
-	}
-	auditRecord := newMirrorMutationAuditRecord(req.Action, req.Name, record.Scope, record.PersonalType, skillDirContentHash(targetDir), "")
-	if err := svc.writeSkillMutationAudit(ctx, req.Action+"_intent", auditRecord); err != nil {
-		return report, err
-	}
-	if err := replaceSkillDirFromMirror(mirrorDir, targetDir); err != nil {
-		return report, err
-	}
-	report.ResultingHash = skillDirContentHash(targetDir)
-	auditRecord.NewHash = report.ResultingHash
-	if err := svc.writeSkillMutationAudit(ctx, req.Action+"_finalize", auditRecord); err != nil {
-		report.PartialFailure = true
-		report.FollowUpAction = "retry_audit_finalize"
-		return report, err
-	}
-	_ = mirrorHash
-	svc.publishSkillsChangedForPersonalType(ctx, req.Action, req.Name, record.Scope, record.PersonalType)
-	return report, nil
-}
-
-func overwriteMirrorFromCanonical(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (SkillMirrorResolutionReport, error) {
-	report := SkillMirrorResolutionReport{Action: req.Action, Name: req.Name}
-	record, mirrorDir, err := resolutionRecordAndMirrorDir(ctx, svc, req)
-	if err != nil {
-		return report, err
-	}
-	preview, _, err := verifyResolutionRequestPreview(svc, req, mirrorDir)
-	if err != nil {
-		return report, err
-	}
-	if err := verifyResolutionPreviewTarget(preview, mirrorDir); err != nil {
-		return report, err
-	}
-	if _, err := backupSkillDir(mirrorDir); err != nil {
-		return report, err
-	}
-	oldHash := skillDirContentHash(mirrorDir)
-	auditRecord := newMirrorMutationAuditRecord(req.Action, req.Name, record.Scope, record.PersonalType, oldHash, "")
-	if err := svc.writeSkillMutationAudit(ctx, req.Action+"_intent", auditRecord); err != nil {
-		return report, err
-	}
-	newHash, err := replaceMirrorSkillDir(req.Target.Root, req.Name, record.Dir)
-	if err != nil {
-		return report, err
-	}
-	if err := updateOwnedMirrorManifest(req.Target, record, newHash); err != nil {
-		return partialMirrorResolutionReport(report, newHash, "retry_manifest_write"), err
-	}
-	report.ResultingHash = newHash
-	auditRecord.NewHash = newHash
-	if err := svc.writeSkillMutationAudit(ctx, req.Action+"_finalize", auditRecord); err != nil {
-		return partialMirrorResolutionReport(report, newHash, "retry_audit_finalize"), err
-	}
-	svc.publishSkillsChangedForPersonalType(ctx, req.Action, req.Name, record.Scope, record.PersonalType)
-	return report, nil
-}
-
-func saveMirrorAsNewCanonical(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (SkillMirrorResolutionReport, error) {
-	report := SkillMirrorResolutionReport{Action: req.Action, Name: req.Name}
-	record, mirrorDir, err := resolutionRecordAndMirrorDir(ctx, svc, req)
-	if err != nil {
-		return report, err
-	}
-	preview, _, err := verifyResolutionRequestPreview(svc, req, mirrorDir)
-	if err != nil {
-		return report, err
-	}
-	targetDir, err := canonicalResolutionTargetDir(svc, record, req)
-	if err != nil {
-		return report, err
-	}
-	if err := verifyResolutionPreviewTarget(preview, targetDir); err != nil {
-		return report, err
-	}
-	if targetDir == record.Dir {
-		return report, fmt.Errorf("new skill name is required")
-	}
-	if err := ensureSkillDirAbsent(targetDir, req.NewName); err != nil {
-		return report, err
-	}
-	auditRecord := newMirrorMutationAuditRecord(req.Action, req.NewName, record.Scope, record.PersonalType, "", "")
-	if err := svc.writeSkillMutationAudit(ctx, req.Action+"_intent", auditRecord); err != nil {
-		return report, err
-	}
-	if err := replaceSkillDirFromMirror(mirrorDir, targetDir); err != nil {
-		return report, err
-	}
-	report.ResultingHash = skillDirContentHash(targetDir)
-	auditRecord.NewHash = report.ResultingHash
-	if err := svc.writeSkillMutationAudit(ctx, req.Action+"_finalize", auditRecord); err != nil {
-		return partialMirrorResolutionReport(report, report.ResultingHash, "retry_audit_finalize"), err
-	}
-	svc.publishSkillsChangedForPersonalType(ctx, req.Action, req.NewName, record.Scope, record.PersonalType)
-	return report, nil
-}
-
-func ImportUnmanagedProviderSkill(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (SkillMirrorResolutionReport, error) {
-	report := SkillMirrorResolutionReport{Action: req.Action, Name: req.Name}
-	sourceDir, previewHash, preview, err := unmanagedProviderSource(svc, req)
-	if err != nil {
-		return report, err
-	}
-	targetDir, scope, personalType, err := importCanonicalTargetDir(svc, req)
-	if err != nil {
-		return report, err
-	}
-	if err := verifyResolutionPreviewTarget(preview, targetDir); err != nil {
-		return report, err
-	}
-	if err := ensureSkillDirAbsent(targetDir, req.Name); err != nil {
-		return report, err
-	}
-	if _, err := backupSkillDir(targetDir); err != nil {
-		return report, err
-	}
-	auditRecord := newMirrorMutationAuditRecord(req.Action, req.Name, scope, personalType, "", "")
-	if err := svc.writeSkillMutationAudit(ctx, req.Action+"_intent", auditRecord); err != nil {
-		return report, err
-	}
-	if err := os.MkdirAll(filepath.Dir(targetDir), 0o755); err != nil {
-		return report, err
-	}
-	if _, _, err := copySkillDir(sourceDir, targetDir); err != nil {
-		return report, err
-	}
-	report.ResultingHash = skillDirContentHash(targetDir)
-	auditRecord.NewHash = report.ResultingHash
-	if err := svc.writeSkillMutationAudit(ctx, req.Action+"_finalize", auditRecord); err != nil {
-		report.PartialFailure = true
-		report.FollowUpAction = "retry_audit_finalize"
-		return report, err
-	}
-	_ = previewHash
-	svc.publishSkillsChangedForPersonalType(ctx, req.Action, req.Name, scope, personalType)
-	return report, nil
-}
-
-func TakeoverProviderSkill(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (SkillMirrorResolutionReport, error) {
-	report := SkillMirrorResolutionReport{Action: req.Action, Name: req.Name}
-	sourceDir, previewHash, _, err := unmanagedProviderSource(svc, req)
-	if err != nil {
-		return report, err
-	}
-	if _, err := backupSkillDir(sourceDir); err != nil {
-		return report, err
-	}
-	auditRecord := newMirrorMutationAuditRecord(req.Action, req.Name, req.Target.Scope, "", "", previewHash)
-	if err := svc.writeSkillMutationAudit(ctx, req.Action+"_intent", auditRecord); err != nil {
-		return report, err
-	}
-	if err := writeTakeoverManifest(req.Target, req.Name, previewHash); err != nil {
-		return report, err
-	}
-	report.ResultingHash = previewHash
-	if err := svc.writeSkillMutationAudit(ctx, req.Action+"_finalize", auditRecord); err != nil {
-		report.PartialFailure = true
-		report.FollowUpAction = "retry_audit_finalize"
-		return report, err
-	}
-	svc.publishSkillsChangedForPersonalType(ctx, req.Action, req.Name, req.Target.Scope, "")
-	return report, nil
-}
-
 func detectSkillMirrorTargetConflicts(records map[string]canonicalSkillRecord, target SkillMirrorTarget) ([]SkillMirrorConflict, error) {
 	if err := validateExistingMirrorRoot(target); err != nil {
 		return nil, err
@@ -347,9 +152,9 @@ func detectSkillMirrorNameConflict(records map[string]canonicalSkillRecord, targ
 		return SkillMirrorConflict{}, false, err
 	}
 	entry, managed := manifest.Skills[name]
-	record, canonicalExists := records[mirrorRecordKey(target.Scope, entry.PersonalType, name)]
+	record, canonicalExists := mirrorCanonicalRecord(records, target, entry, name)
 	if !managed {
-		return unmanagedSameNameConflict(target, record, name, mirrorDir, mirrorHash, canonicalExists), canonicalExists, nil
+		return unmanagedProviderSkillConflict(target, record, name, mirrorDir, mirrorHash, canonicalExists), true, nil
 	}
 	conflict, err := managedMirrorConflict(target, entry, record, name, mirrorDir, mirrorHash, canonicalExists)
 	if err != nil {
@@ -358,23 +163,61 @@ func detectSkillMirrorNameConflict(records map[string]canonicalSkillRecord, targ
 	return conflict, conflict.Kind != "", nil
 }
 
-func unmanagedSameNameConflict(target SkillMirrorTarget, record canonicalSkillRecord, name, mirrorDir, mirrorHash string, canonicalExists bool) SkillMirrorConflict {
+func mirrorCanonicalRecord(records map[string]canonicalSkillRecord, target SkillMirrorTarget, entry SkillMirrorEntry, name string) (canonicalSkillRecord, bool) {
+	if record, ok := records[mirrorRecordKey(target.Scope, entry.PersonalType, name)]; ok {
+		return record, true
+	}
+	if target.Scope != skillScopePersonal || strings.TrimSpace(entry.PersonalType) != "" {
+		return canonicalSkillRecord{}, false
+	}
+	for _, personalType := range []string{personalSkillTypeUser, personalSkillTypeAgent, personalSkillTypeImported, personalSkillTypeHub} {
+		if record, ok := records[mirrorRecordKey(skillScopePersonal, personalType, name)]; ok {
+			return record, true
+		}
+	}
+	return canonicalSkillRecord{}, false
+}
+
+func unmanagedProviderSkillConflict(target SkillMirrorTarget, record canonicalSkillRecord, name, mirrorDir, mirrorHash string, canonicalExists bool) SkillMirrorConflict {
 	canonicalID := ""
 	if canonicalExists {
 		canonicalID = canonicalSourceID(record)
 	}
-	return SkillMirrorConflict{
-		Kind:        skillConflictUnmanagedSameName,
-		TargetID:    target.TargetID,
-		Provider:    target.Provider,
-		Scope:       target.Scope,
-		Name:        name,
-		CanonicalID: canonicalID,
-		MirrorPath:  filepath.ToSlash(mirrorDir),
-		MirrorHash:  mirrorHash,
-		PreviewHash: mirrorHash,
-		Actions:     mirrorActions("view_unmanaged", "import_to_personal_imported", "takeover_provider_skill"),
+	kind := skillConflictUnmanagedProviderSkill
+	if canonicalExists {
+		kind = skillConflictUnmanagedSameName
 	}
+	actions := mirrorActions("view_unmanaged", "import_to_personal_imported")
+	if target.Scope != skillScopePersonal {
+		if canonicalExists {
+			actions = mirrorActions("view_unmanaged", "import_to_personal_imported", "takeover_provider_skill")
+		} else {
+			actions = mirrorActions("view_unmanaged", "import_to_personal_imported", "import_to_project", "takeover_provider_skill")
+		}
+	}
+	return SkillMirrorConflict{
+		Kind:         kind,
+		TargetID:     target.TargetID,
+		Provider:     target.Provider,
+		Scope:        target.Scope,
+		PersonalType: targetPersonalConflictType(target, record),
+		Name:         name,
+		CanonicalID:  canonicalID,
+		MirrorPath:   filepath.ToSlash(mirrorDir),
+		MirrorHash:   mirrorHash,
+		PreviewHash:  mirrorHash,
+		Actions:      actions,
+	}
+}
+
+func targetPersonalConflictType(target SkillMirrorTarget, record canonicalSkillRecord) string {
+	if target.Scope != skillScopePersonal {
+		return ""
+	}
+	if strings.TrimSpace(record.PersonalType) != "" {
+		return strings.TrimSpace(record.PersonalType)
+	}
+	return personalSkillTypeUser
 }
 
 func managedMirrorConflict(target SkillMirrorTarget, entry SkillMirrorEntry, record canonicalSkillRecord, name, mirrorDir, mirrorHash string, canonicalExists bool) (SkillMirrorConflict, error) {
@@ -442,7 +285,10 @@ func skillMirrorNames(root string) ([]string, error) {
 	}
 	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir() {
+		if entry.Type()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("skill mirror entry is symlink: %s", filepath.Join(root, entry.Name()))
+		}
+		if entry.IsDir() && entry.Name() != skillMirrorBackupDirName {
 			names = append(names, entry.Name())
 		}
 	}
@@ -454,7 +300,7 @@ func driftActions(scope string) []SkillMirrorResolutionAction {
 	if scope == skillScopePersonal {
 		return mirrorActions("sync_back_to_personal", "personal_overwrite_mirror", "save_as_new_personal_skill")
 	}
-	return mirrorActions("sync_back_to_canonical", "canonical_overwrite_mirror", "save_as_new_skill")
+	return mirrorActions("sync_back_to_canonical", "canonical_overwrite_mirror", "save_as_new_skill", "confirm_delete_drifted_mirror")
 }
 
 func mirrorActions(actions ...string) []SkillMirrorResolutionAction {
@@ -472,4 +318,99 @@ func sortMirrorConflicts(conflicts []SkillMirrorConflict) {
 		}
 		return conflicts[i].Name < conflicts[j].Name
 	})
+}
+
+func replaceSkillDirFromMirror(sourceDir, targetDir string) error {
+	return replaceSkillDirFromMirrorWithCopy(sourceDir, targetDir, copySkillDir)
+}
+
+func replaceSkillDirFromMirrorWithCopy(sourceDir, targetDir string, copyDir func(string, string) (int, int64, error)) error {
+	if err := os.MkdirAll(filepath.Dir(targetDir), 0o755); err != nil {
+		return err
+	}
+	tempDir, err := os.MkdirTemp(filepath.Dir(targetDir), "."+filepath.Base(targetDir)+".sync-*")
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(tempDir); err != nil {
+		_ = os.RemoveAll(tempDir)
+		return err
+	}
+	removeTemp := true
+	defer func() {
+		if removeTemp {
+			_ = os.RemoveAll(tempDir)
+		}
+	}()
+	if _, _, err := copyDir(sourceDir, tempDir); err != nil {
+		return err
+	}
+	if !skillMainFileExists(tempDir) {
+		return errSkillMainFileNotFound
+	}
+	if err := os.RemoveAll(targetDir); err != nil {
+		return err
+	}
+	if err := os.Rename(tempDir, targetDir); err != nil {
+		return err
+	}
+	removeTemp = false
+	return nil
+}
+
+func backupSkillDir(targetDir string) (string, error) {
+	if !skillMainFileExists(targetDir) {
+		return "", nil
+	}
+	backupDir := mirrorBackupPathForTargetDir(targetDir, filepath.Base(targetDir)+"-"+time.Now().UTC().Format("20060102T150405.000000000Z"))
+	if err := os.MkdirAll(filepath.Dir(backupDir), 0o755); err != nil {
+		return "", err
+	}
+	if _, _, err := copySkillDir(targetDir, backupDir); err != nil {
+		_ = os.RemoveAll(backupDir)
+		return "", err
+	}
+	return backupDir, nil
+}
+
+func mirrorBackupPathForTargetDir(targetDir, leaf string) string {
+	root := filepath.Dir(targetDir)
+	return filepath.Join(filepath.Dir(root), skillMirrorBackupDirName, filepath.Base(root), leaf)
+}
+
+func validateExistingMirrorRoot(target SkillMirrorTarget) error {
+	if err := validateSkillMirrorTarget(target); err != nil {
+		return err
+	}
+	if err := rejectSymlinkAncestors(target.Root); err != nil {
+		return err
+	}
+	info, err := os.Lstat(target.Root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("skill mirror root is symlink: %s", target.Root)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("skill mirror root is not a directory: %s", target.Root)
+	}
+	return nil
+}
+
+func ensureProviderSkillDirSafe(dir string) error {
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("provider skill dir is symlink: %s", dir)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("provider skill path is not a directory: %s", dir)
+	}
+	return nil
 }

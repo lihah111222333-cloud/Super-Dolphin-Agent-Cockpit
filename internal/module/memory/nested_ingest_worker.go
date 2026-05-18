@@ -66,6 +66,8 @@ type nestedIngestWorker struct {
 
 	startOnce sync.Once
 	stopOnce  sync.Once
+	doneOnce  sync.Once
+	started   atomic.Bool
 	stopCh    chan struct{}
 	doneCh    chan struct{}
 
@@ -97,9 +99,16 @@ func (w *nestedIngestWorker) Start() {
 	}
 	w.startOnce.Do(func() {
 		if w.runtime == nil {
-			close(w.doneCh)
+			w.closeDone()
 			return
 		}
+		select {
+		case <-w.stopCh:
+			w.closeDone()
+			return
+		default:
+		}
+		w.started.Store(true)
 		go func() {
 			defer func() {
 				if rec := recover(); rec != nil {
@@ -117,6 +126,9 @@ func (w *nestedIngestWorker) Start() {
 // the same (thread, tool, persistedPath) coalesce into the latest payload.
 func (w *nestedIngestWorker) Enqueue(threadID, toolName, result, persistedPath string) {
 	if w == nil {
+		return
+	}
+	if w.runtime == nil {
 		return
 	}
 	threadID = strings.TrimSpace(threadID)
@@ -164,6 +176,11 @@ func (w *nestedIngestWorker) Stop(ctx context.Context) error {
 	var firstErr error
 	w.stopOnce.Do(func() {
 		close(w.stopCh)
+		if !w.started.Load() && w.runtime != nil {
+			w.drainPending()
+			w.closeDone()
+			return
+		}
 		waitCtx := ctx
 		if waitCtx == nil {
 			waitCtx = context.Background()
@@ -190,7 +207,7 @@ func (w *nestedIngestWorker) CoalescedTotal() int64 { return w.coalescedTotal.Lo
 func (w *nestedIngestWorker) ProcessedTotal() int64 { return w.processedTotal.Load() }
 
 func (w *nestedIngestWorker) runWorker() {
-	defer close(w.doneCh)
+	defer w.closeDone()
 	for {
 		select {
 		case <-w.stopCh:
@@ -200,6 +217,12 @@ func (w *nestedIngestWorker) runWorker() {
 			w.drainPending()
 		}
 	}
+}
+
+func (w *nestedIngestWorker) closeDone() {
+	w.doneOnce.Do(func() {
+		close(w.doneCh)
+	})
 }
 
 // drainPending pulls the current pending set out under the lock, then

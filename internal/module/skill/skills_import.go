@@ -30,6 +30,62 @@ func normalizeImportMode(mode string) (string, error) {
 	}
 }
 
+type writeLocalTarget struct {
+	path         string
+	scope        string
+	personalType string
+}
+
+func (s *service) prepareWriteLocalTarget(cwd, path, content string, scopeAndType ...string) (writeLocalTarget, error) {
+	requestedScope, requestedPersonalType := resolveRequestedSkillTarget(scopeAndType...)
+	scope, personalType, err := normalizeSkillTarget(requestedScope, requestedPersonalType)
+	if err != nil {
+		return writeLocalTarget{}, err
+	}
+	if err := RequireSkillSystemReview(scope, skillSlug(path), skillContentHash(content), RepoFingerprint(cwd), "", ""); err != nil {
+		return writeLocalTarget{}, err
+	}
+	resolvedPath, err := s.resolveWriteLocalPath(path, cwd, scope, personalType)
+	if err != nil {
+		return writeLocalTarget{}, err
+	}
+	if err := s.ensureWriteLocalTargetAllowed(cwd, resolvedPath, content, scope, personalType); err != nil {
+		return writeLocalTarget{}, err
+	}
+	return writeLocalTarget{path: resolvedPath, scope: scope, personalType: personalType}, nil
+}
+
+func (s *service) ensureWriteLocalTargetAllowed(cwd, path, content, scope, personalType string) error {
+	root, err := s.resolveScopeRoot(cwd, scope, personalType)
+	if err != nil {
+		return err
+	}
+	if err := ensureWritableSkillPathInsideRoot(root, path); err != nil {
+		return err
+	}
+	if len(content) > maxSkillFileBytes {
+		return fmt.Errorf("content too large: %d bytes", len(content))
+	}
+	return nil
+}
+
+func (s *service) writeProjectLocal(ctx context.Context, cwd, path, content, scope, personalType string) (any, error) {
+	mode, err := writableSkillFileMode(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(path, []byte(content), mode); err != nil {
+		return nil, err
+	}
+	name := filepath.Base(filepath.Dir(path))
+	s.publishSkillsChanged(ctx, "local_write", name, scope)
+	result := map[string]any{"ok": true, "path": path, "dir": filepath.Dir(path), "bytes": len(content)}
+	return attachMirrorPublish(result, s.publishWriteTimeMirrors(ctx, cwd, scope, personalType, name)), nil
+}
+
 func collectImportSources(primary string, extra []string) ([]string, error) {
 	raw := append([]string{primary}, extra...)
 	sources := make([]string, 0, len(raw))
@@ -168,9 +224,9 @@ func (s *service) importSkillUnit(resolvedSource, name, cwd, scope, personalType
 	if err != nil {
 		return nil, err
 	}
-	targetName := strings.TrimSpace(name)
-	if targetName == "" {
-		targetName = filepath.Base(resolvedSource)
+	targetName, err := importTargetSkillName(resolvedSource, name)
+	if err != nil {
+		return nil, err
 	}
 	if err := RequireSkillSystemReview(normalizedScope, skillSlug(targetName), skillDirContentHash(resolvedSource), RepoFingerprint(cwd), "", ""); err != nil {
 		return nil, err
@@ -189,9 +245,8 @@ func (s *service) importSkillUnit(resolvedSource, name, cwd, scope, personalType
 	if normalizedScope == skillScopePersonal {
 		return s.importPersonalSkillUnit(resolvedSource, targetName, targetDir, normalizedScope, normalizedPersonalType)
 	}
-	files, bytes, err := copySkillDir(resolvedSource, targetDir)
+	files, bytes, err := copyImportedSkillDir(resolvedSource, targetDir, targetName)
 	if err != nil {
-		_ = os.RemoveAll(targetDir)
 		return nil, err
 	}
 	return map[string]any{
@@ -209,12 +264,14 @@ func (s *service) importPersonalSkillUnit(resolvedSource, targetName, targetDir,
 	if err != nil {
 		return nil, err
 	}
-	files, bytes, err := copySkillDir(resolvedSource, targetDir)
+	files, bytes, err := copyImportedSkillDir(resolvedSource, targetDir, targetName)
 	if err != nil {
-		_ = os.RemoveAll(targetDir)
 		return nil, err
 	}
 	if err := s.finalizePersonalMutation(context.Background(), "personal_import", targetDir, record); err != nil {
+		if rollbackErr := rollbackPersonalSkillDir(targetDir, ""); rollbackErr != nil {
+			return nil, errors.Join(err, fmt.Errorf("rollback personal import: %w", rollbackErr))
+		}
 		return nil, err
 	}
 	return map[string]any{
@@ -225,6 +282,27 @@ func (s *service) importPersonalSkillUnit(resolvedSource, targetName, targetDir,
 		"files":      files,
 		"bytes":      bytes,
 	}, nil
+}
+
+func importTargetSkillName(resolvedSource, requestedName string) (string, error) {
+	targetName := strings.TrimSpace(requestedName)
+	if targetName == "" {
+		targetName = filepath.Base(resolvedSource)
+	}
+	return validateSkillName(targetName)
+}
+
+func copyImportedSkillDir(resolvedSource, targetDir, targetName string) (int, int64, error) {
+	files, bytes, err := copySkillDir(resolvedSource, targetDir)
+	if err != nil {
+		_ = os.RemoveAll(targetDir)
+		return 0, 0, err
+	}
+	if err := rewriteCopiedSkillName(targetDir, targetName); err != nil {
+		_ = os.RemoveAll(targetDir)
+		return 0, 0, err
+	}
+	return files, bytes, nil
 }
 
 func validateImportSource(source string) (string, error) {

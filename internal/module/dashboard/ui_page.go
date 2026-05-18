@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 
@@ -148,6 +149,9 @@ func (s *service) populateDashboardDAGs(ctx context.Context, out *DashboardPage)
 func (s *service) populateDashboardSkills(ctx context.Context, out *DashboardPage) error {
 	items, err := s.listDashboardSkills(ctx)
 	out.Skills = items
+	if errors.Is(err, contract.ErrSkillSameNameConflict) {
+		return nil
+	}
 	return err
 }
 

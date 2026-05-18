@@ -86,14 +86,14 @@ func TestLookupArtifactApproval_NilCacheReturnsFalse(t *testing.T) {
 	}
 }
 
-func TestExpandWithApprovalTrustedBypass(t *testing.T) {
+func TestExpandWithApprovalProjectFrontmatterTrustUserStillRequiresApproval(t *testing.T) {
 	svc, root, requester := newApprovalFlowService(t)
 	writeExpandTestSkill(t, root, "demo", "---\nname: demo\ntrust: user\n---\ntrusted body")
 	if _, err := svc.expandWithApproval(skillTestContext(svc.projectRoot), skillExpandParams{Name: "demo"}); err != nil {
 		t.Fatalf("expandWithApproval() error = %v", err)
 	}
-	if got := requester.callCount(); got != 0 {
-		t.Fatalf("approval calls = %d, want 0", got)
+	if got := requester.callCount(); got != 1 {
+		t.Fatalf("approval calls = %d, want 1 for project-scope trust cap", got)
 	}
 }
 

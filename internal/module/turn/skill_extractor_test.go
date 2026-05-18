@@ -30,7 +30,7 @@ func (f *fakeDreamExecutor) ExecuteDream(_ context.Context, prompt string) (stri
 	return f.out, f.err
 }
 
-// fakeStore records every Insert and lets a test override its return.
+// fakeStore records unexpected calls into the removed legacy candidate store.
 type fakeStore struct {
 	inserts        []skillcandidate.InsertParams
 	supersedeCalls []struct {
@@ -123,8 +123,7 @@ func TestExtractor_GoldenRedactsSecrets(t *testing.T) {
 	}
 	forbidden := []string{"abc.def-secret_value", "sk-1234567890abcdef", "eyJhbGciOiJIUzI1NiJ9", "eyJzdWIiOiJ4In0"}
 	assertExtractedSkillRedacted(t, extracted, forbidden)
-	assertGoldenExtractionStore(t, e, store)
-	assertSupersedeCall(t, store.supersedeCalls[0], extracted)
+	assertNoLegacyCandidateWrites(t, e, store)
 }
 
 func assertExtractedSkillRedacted(t *testing.T, extracted *ExtractedSkill, forbidden []string) {
@@ -139,29 +138,22 @@ func assertExtractedSkillRedacted(t *testing.T, extracted *ExtractedSkill, forbi
 	}
 }
 
-func assertGoldenExtractionStore(t *testing.T, e *DefaultExtractor, store *fakeStore) {
+func assertNoLegacyCandidateWrites(t *testing.T, e *DefaultExtractor, store *fakeStore) {
 	t.Helper()
-	if len(store.inserts) != 1 {
-		t.Fatalf("expected 1 insert, got %d", len(store.inserts))
+	if len(store.inserts) != 0 {
+		t.Fatalf("expected no legacy candidate inserts, got %d", len(store.inserts))
 	}
-	if store.inserts[0].Scope != skillcandidate.ScopeProject {
-		t.Fatalf("scope want project, got %q", store.inserts[0].Scope)
+	if len(store.supersedeCalls) != 0 {
+		t.Fatalf("expected no legacy candidate supersede calls, got %d", len(store.supersedeCalls))
 	}
-	if e.Metrics.Promoted != 1 {
-		t.Fatalf("expected 1 Promoted, got %d", e.Metrics.Promoted)
+	if e.Metrics.Promoted != 0 {
+		t.Fatalf("expected no legacy promoted metric, got %d", e.Metrics.Promoted)
 	}
-	if len(store.supersedeCalls) != 1 {
-		t.Fatalf("expected 1 supersede call, got %d", len(store.supersedeCalls))
+	if e.Metrics.InsertFailed != 0 {
+		t.Fatalf("expected no legacy insert-failed metric, got %d", e.Metrics.InsertFailed)
 	}
-}
-
-func assertSupersedeCall(t *testing.T, call struct {
-	Scope, Slug, RepoFingerprint string
-	KeepID                       int64
-}, extracted *ExtractedSkill) {
-	t.Helper()
-	if call.Scope != extracted.Scope || call.Slug != extracted.Slug || call.RepoFingerprint != extracted.RepoFingerprint || call.KeepID != 1 {
-		t.Fatalf("supersede call = %+v, extracted = %+v", call, extracted)
+	if e.Metrics.DedupHit != 0 {
+		t.Fatalf("expected no legacy dedup-hit metric, got %d", e.Metrics.DedupHit)
 	}
 }
 
@@ -221,7 +213,7 @@ func (stubFailingRedactor) Redact(string) (string, []string, error) {
 	return "", nil, errors.New("redactor exploded")
 }
 
-func TestExtractor_RedactionFailureDropsCandidate(t *testing.T) {
+func TestExtractor_RedactionFailureDropsExtraction(t *testing.T) {
 	dream := &fakeDreamExecutor{out: "anything"}
 	store := &fakeStore{}
 	e := NewDefaultExtractor(dream, store, stubFailingRedactor{}, NewDefaultEvaluator(), nil)
@@ -246,7 +238,7 @@ func (stubResidualRedactor) Redact(input string) (string, []string, error) {
 	return out, []string{"first"}, nil
 }
 
-func TestExtractor_ResidualSecretDropsCandidate(t *testing.T) {
+func TestExtractor_ResidualSecretDropsExtraction(t *testing.T) {
 	dream := &fakeDreamExecutor{out: "leaks first-secret and first-secret again"}
 	store := &fakeStore{}
 	e := NewDefaultExtractor(dream, store, stubResidualRedactor{}, NewDefaultEvaluator(), nil)
@@ -265,7 +257,7 @@ func TestExtractor_ResidualSecretDropsCandidate(t *testing.T) {
 	}
 }
 
-func TestExtractor_HappyPathInsertsCandidate(t *testing.T) {
+func TestExtractor_HappyPathReturnsExtractedSkillWithoutCandidateWrite(t *testing.T) {
 	dream := &fakeDreamExecutor{out: "## clean skill body"}
 	store := &fakeStore{}
 	e := NewDefaultExtractor(dream, store, NewDefaultRedactor(), NewDefaultEvaluator(), nil)
@@ -273,29 +265,30 @@ func TestExtractor_HappyPathInsertsCandidate(t *testing.T) {
 	if err != nil || extracted == nil {
 		t.Fatalf("expected success, got err=%v extracted=%v", err, extracted)
 	}
-	if len(store.inserts) != 1 {
-		t.Fatalf("expected 1 insert, got %d", len(store.inserts))
+	if extracted.Scope != "project" {
+		t.Fatalf("scope=%q", extracted.Scope)
 	}
-	p := store.inserts[0]
-	if p.Scope != skillcandidate.ScopeProject {
-		t.Fatalf("scope=%q", p.Scope)
-	}
-	if p.RepoFingerprint == "" {
+	if extracted.RepoFingerprint == "" {
 		t.Fatal("repo_fingerprint should be non-empty when cwd is set")
 	}
-	if p.ContentHash == "" {
+	if extracted.ContentHash == "" {
 		t.Fatal("content_hash empty")
 	}
-	if p.SkillMD == "" {
+	if extracted.SKILLMd == "" {
 		t.Fatal("skill_md empty")
 	}
+	assertNoLegacyCandidateWrites(t, e, store)
 }
 
 // uniqueViolationStore returns an ErrConflict-wrapped StoreError so the
-// extractor's dedup-hit branch fires.
-type uniqueViolationStore struct{ fakeStore }
+// test fails if the extractor ever calls the dormant legacy store again.
+type uniqueViolationStore struct {
+	fakeStore
+	insertAttempts int
+}
 
 func (s *uniqueViolationStore) Insert(_ context.Context, _ skillcandidate.InsertParams) (skillcandidate.Candidate, error) {
+	s.insertAttempts++
 	return skillcandidate.Candidate{}, &platformdb.StoreError{
 		Operation: "insert",
 		Entity:    "skill_candidate",
@@ -304,23 +297,21 @@ func (s *uniqueViolationStore) Insert(_ context.Context, _ skillcandidate.Insert
 	}
 }
 
-func TestExtractor_DedupHitDoesNotPropagateError(t *testing.T) {
+func TestExtractor_LegacyStoreErrorDoesNotAffectExtraction(t *testing.T) {
 	dream := &fakeDreamExecutor{out: "## clean skill"}
 	store := &uniqueViolationStore{}
 	e := NewDefaultExtractor(dream, store, NewDefaultRedactor(), NewDefaultEvaluator(), nil)
 	extracted, err := e.Extract(context.Background(), eligibleTrajectory())
 	if err != nil {
-		t.Fatalf("dedup hit should not propagate error, got %v", err)
+		t.Fatalf("legacy store should not be called, got %v", err)
 	}
 	if extracted == nil {
-		t.Fatal("dedup hit should still return ExtractedSkill")
+		t.Fatal("expected ExtractedSkill")
 	}
-	if e.Metrics.DedupHit != 1 {
-		t.Fatalf("DedupHit=%d", e.Metrics.DedupHit)
+	if store.insertAttempts != 0 {
+		t.Fatalf("expected no legacy insert attempts, got %d", store.insertAttempts)
 	}
-	if e.Metrics.Promoted != 0 {
-		t.Fatal("Promoted should not bump on dedup hit")
-	}
+	assertNoLegacyCandidateWrites(t, e, &store.fakeStore)
 }
 
 func TestExtractor_IneligibleTrajectoryDoesNotCallDream(t *testing.T) {

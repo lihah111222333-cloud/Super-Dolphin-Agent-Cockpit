@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -30,15 +28,14 @@ var claudeCapabilities = dto.CapabilitySet{
 }
 
 type driver struct {
-	logger               *slog.Logger
-	binaryPath           string
-	eventDispatcher      *unified.EventDispatcher
-	reporter             contract.RuntimeReporter
-	pidRegistry          *pidregistry.Registry
-	proxyAddrFn          func() string
-	skillCacheDir        string
-	setupWorkspaceSkills func(workspaceDir, cacheDir string) error
-	recovery             contract.SessionRecoveryReporter
+	logger          *slog.Logger
+	binaryPath      string
+	eventDispatcher *unified.EventDispatcher
+	reporter        contract.RuntimeReporter
+	pidRegistry     *pidregistry.Registry
+	proxyAddrFn     func() string
+	mirror          contract.SkillMirrorReconciler
+	recovery        contract.SessionRecoveryReporter
 }
 
 type startSpec struct {
@@ -92,26 +89,22 @@ func (d *driver) proxyHTTPAddr() string {
 	return strings.TrimSpace(d.proxyAddrFn())
 }
 
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string, skillCacheDir string, setupWSSkills func(string, string) error, recovery contract.SessionRecoveryReporter) contract.Driver {
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string, mirror contract.SkillMirrorReconciler, recovery contract.SessionRecoveryReporter) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
 	if proxyAddrFn == nil {
 		proxyAddrFn = func() string { return "" }
 	}
-	if setupWSSkills == nil {
-		setupWSSkills = func(string, string) error { return nil }
-	}
 	return &driver{
-		logger:               logger,
-		binaryPath:           resolveBinaryPath(),
-		eventDispatcher:      eventDispatcher,
-		reporter:             reporter,
-		pidRegistry:          reg,
-		proxyAddrFn:          proxyAddrFn,
-		skillCacheDir:        skillCacheDir,
-		setupWorkspaceSkills: setupWSSkills,
-		recovery:             recovery,
+		logger:          logger,
+		binaryPath:      resolveBinaryPath(),
+		eventDispatcher: eventDispatcher,
+		reporter:        reporter,
+		pidRegistry:     reg,
+		proxyAddrFn:     proxyAddrFn,
+		mirror:          mirror,
+		recovery:        recovery,
 	}
 }
 
@@ -129,6 +122,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 		AutoApprove:   providershared.ConfigStringSlice(req.Config, "auto_approve", "autoApprove"),
 		ProxyHTTPAddr: d.proxyHTTPAddr(),
 	})
+	historyDir := providershared.ConfigString(req.Config, "history_dir", "claude_home", "claudeHome")
 	return d.start(ctx, startSpec{
 		agentID:       req.AgentID,
 		cwd:           req.CWD,
@@ -138,7 +132,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 		config:        launchConfig,
 		rawConfig:     cloneConfigMap(req.Config),
 		publicThread:  req.AgentID,
-		historyDir:    providershared.ConfigString(req.Config, "history_dir", "claude_home"),
+		historyDir:    historyDir,
 	})
 }
 
@@ -169,12 +163,18 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 			Effort:         strings.TrimSpace(req.Effort),
 			PromptSnapshot: snapshot,
 		},
+		historyDir:     req.ClaudeHome,
 		configOverride: req.ConfigOverride,
 	})
 }
 
 func (d *driver) start(ctx context.Context, spec startSpec) (contract.Session, error) {
 	if err := shared.CheckCtx(ctx); err != nil {
+		return nil, err
+	}
+	var err error
+	spec, err = d.prepareProviderHomeAndMirrors(ctx, spec)
+	if err != nil {
 		return nil, err
 	}
 	started, err := d.prepareSessionStart(spec)
@@ -200,23 +200,8 @@ func (d *driver) prepareSessionStart(spec startSpec) (preparedStartSession, erro
 	requestedConfig.PromptSnapshot = spec.startAssembly.Snapshot
 	launchModel := claudeLaunchDisplayModel(requestedModel, history)
 	launchConfig := canonicalizeClaudeLaunchConfig(launchModel, requestedConfig)
-	// Before launchCLI, mount the shared skill cache into the workspace so
-	// Claude CLI's native discovery picks up our skills.
-	if shouldSetupLegacyWorkspaceSkills(spec.cwd, d.skillCacheDir) {
-		if err := d.setupWorkspaceSkills(spec.cwd, d.skillCacheDir); err != nil {
-			// fail-open: log and continue. Skill discovery failure should not
-			// block the user's main session.
-			if d.logger != nil {
-				d.logger.Warn("workspace skill symlink setup failed",
-					"cwd", spec.cwd, "cache", d.skillCacheDir, "err", err)
-			}
-		}
-	}
-	// 清理旧 nativefilter 残留的 settings.json（一次性写入空 deny 覆盖）
-	if spec.cwd != "" {
-		cleanupPath := filepath.Join(spec.cwd, ".claude", "settings.json")
-		_ = os.MkdirAll(filepath.Dir(cleanupPath), 0o755)
-		_ = os.WriteFile(cleanupPath, []byte(`{"permissions":{"deny":[]}}`), 0o644)
+	if launchConfig.ClaudeHome == "" {
+		launchConfig.ClaudeHome = strings.TrimSpace(spec.historyDir)
 	}
 	tr, cleanup, err := launchCLI(
 		d.binaryPath,
@@ -240,8 +225,39 @@ func (d *driver) prepareSessionStart(spec startSpec) (preparedStartSession, erro
 	}, nil
 }
 
-func shouldSetupLegacyWorkspaceSkills(cwd, cacheDir string) bool {
-	return false
+func (d *driver) prepareProviderHomeAndMirrors(ctx context.Context, spec startSpec) (startSpec, error) {
+	requestedHome := strings.TrimSpace(spec.historyDir)
+	mirrorHome := ""
+	if requestedHome != "" {
+		home, err := providershared.EnsureProviderHome(providershared.ProviderClaude, requestedHome)
+		if err != nil {
+			return spec, err
+		}
+		spec.historyDir = home
+		mirrorHome = home
+	} else {
+		home, err := providershared.EnsureAppManagedProviderHome(providershared.ProviderClaude)
+		if err != nil {
+			return spec, err
+		}
+		spec.historyDir = home
+		mirrorHome = home
+	}
+	if d == nil || d.mirror == nil {
+		return spec, errors.New("claude skill mirror reconciler is required")
+	}
+	targets, err := providershared.ProviderMirrorTargets(providershared.ProviderClaude, spec.cwd, mirrorHome)
+	if err != nil {
+		return spec, err
+	}
+	report, err := d.mirror.ReconcileProviderMirrors(ctx, spec.cwd, targets)
+	if err != nil {
+		return spec, err
+	}
+	if err := providershared.EnsureNoSkillMirrorConflicts(report); err != nil {
+		return spec, err
+	}
+	return spec, nil
 }
 
 func resolveRequestedStartConfig(spec startSpec) (string, cliLaunchConfig) {

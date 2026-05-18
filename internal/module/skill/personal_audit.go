@@ -45,6 +45,194 @@ type personalSkillRecoveryRecord struct {
 	Timestamp    string `json:"timestamp"`
 }
 
+type personalSkillPolicy struct {
+	Version      int                         `json:"version"`
+	OwnerKey     string                      `json:"owner_key"`
+	KeepSelected []personalSkillKeepSelected `json:"keep_selected,omitempty"`
+}
+
+type personalSkillKeepSelected struct {
+	Name                 string                      `json:"name"`
+	SelectedSourceID     string                      `json:"selected_source_id"`
+	SelectedPersonalType string                      `json:"selected_personal_type"`
+	SelectedContentHash  string                      `json:"selected_content_hash"`
+	ExcludedSourceIDs    []string                    `json:"excluded_source_ids,omitempty"`
+	Sources              []personalSkillPolicySource `json:"sources,omitempty"`
+}
+
+type personalSkillPolicySource struct {
+	CanonicalID  string `json:"canonical_id"`
+	PersonalType string `json:"personal_type"`
+	ContentHash  string `json:"content_hash"`
+	Path         string `json:"path,omitempty"`
+}
+
+func (s *canonicalStore) applyPersonalSkillPolicy(records []canonicalSkillRecord) ([]canonicalSkillRecord, error) {
+	if strings.TrimSpace(s.superDolphinHome) == "" || strings.TrimSpace(s.osUID) == "" {
+		return records, nil
+	}
+	policy, err := s.readPersonalSkillPolicy()
+	if err != nil {
+		return nil, err
+	}
+	if len(policy.KeepSelected) == 0 {
+		return records, nil
+	}
+	selectionByName, err := personalSelectionByName(policy.KeepSelected)
+	if err != nil {
+		return nil, err
+	}
+	return filterCanonicalRecords(records, func(record canonicalSkillRecord) bool {
+		return keepCanonicalRecordForPersonalSelection(record, selectionByName)
+	}), nil
+}
+
+func personalSelectionByName(selections []personalSkillKeepSelected) (map[string]personalSkillKeepSelected, error) {
+	selectionByName := make(map[string]personalSkillKeepSelected, len(selections))
+	for _, selection := range selections {
+		name, err := validateSkillName(selection.Name)
+		if err != nil {
+			return nil, fmt.Errorf("invalid personal skill policy name: %w", err)
+		}
+		selection.Name = name
+		selectionByName[strings.ToLower(name)] = selection
+	}
+	return selectionByName, nil
+}
+
+func keepCanonicalRecordForPersonalSelection(record canonicalSkillRecord, selectionByName map[string]personalSkillKeepSelected) bool {
+	selection, ok := selectionByName[strings.ToLower(record.Name)]
+	if !ok {
+		return true
+	}
+	sourceID := canonicalSourceID(record)
+	if selectedCanonicalRecord(record, selection, sourceID) {
+		return true
+	}
+	if !stringSliceContains(selection.ExcludedSourceIDs, sourceID) {
+		return true
+	}
+	return !personalSelectionSourceMatchesRecord(selection, record, sourceID)
+}
+
+func selectedCanonicalRecord(record canonicalSkillRecord, selection personalSkillKeepSelected, sourceID string) bool {
+	return sourceID == strings.TrimSpace(selection.SelectedSourceID) &&
+		record.PersonalType == strings.TrimSpace(selection.SelectedPersonalType) &&
+		record.ContentHash == strings.TrimSpace(selection.SelectedContentHash)
+}
+
+func personalSelectionSourceMatchesRecord(selection personalSkillKeepSelected, record canonicalSkillRecord, sourceID string) bool {
+	for _, source := range selection.Sources {
+		if strings.TrimSpace(source.CanonicalID) != sourceID {
+			continue
+		}
+		if strings.TrimSpace(source.ContentHash) != "" && strings.TrimSpace(source.ContentHash) != record.ContentHash {
+			return false
+		}
+		if strings.TrimSpace(source.Path) != "" && cleanSlashPath(source.Path) != cleanSlashPath(record.Dir) {
+			return false
+		}
+		return true
+	}
+	return true
+}
+
+func cleanSlashPath(path string) string {
+	return filepath.ToSlash(filepath.Clean(strings.TrimSpace(path)))
+}
+
+func (s *canonicalStore) readPersonalSkillPolicy() (personalSkillPolicy, error) {
+	var policy personalSkillPolicy
+	path := filepath.Join(s.superDolphinHome, "skills", personalSkillPolicyFile)
+	if err := validateOwnerOnlyFileMode(path); err != nil {
+		return personalSkillPolicy{}, err
+	}
+	if err := readJSONFileIfExists(path, &policy); err != nil {
+		return personalSkillPolicy{}, err
+	}
+	if policy.OwnerKey == "" {
+		return policy, nil
+	}
+	owner, err := resolveOwnerIdentity(s.superDolphinHome, s.osUID, s.appProfile)
+	if err != nil {
+		return personalSkillPolicy{}, err
+	}
+	if policy.OwnerKey != owner.OwnerKey {
+		return personalSkillPolicy{}, nil
+	}
+	return policy, nil
+}
+
+func (s *service) writePersonalKeepSelectedPolicy(name string, sources []skillResolutionSource, selected skillResolutionSource) (string, error) {
+	name, err := validateSkillName(name)
+	if err != nil {
+		return "", err
+	}
+	if selected.Scope != skillScopePersonal {
+		return "", fmt.Errorf("selected source must be personal")
+	}
+	policy, path, ownerKey, err := s.readWritablePersonalSkillPolicy()
+	if err != nil {
+		return "", err
+	}
+	policy.Version = 1
+	policy.OwnerKey = ownerKey
+	policy.KeepSelected = upsertPersonalKeepSelected(policy.KeepSelected, buildPersonalKeepSelected(name, sources, selected))
+	return writeSkillPolicyJSON(path, policy, 0o600)
+}
+
+func (s *service) readWritablePersonalSkillPolicy() (personalSkillPolicy, string, string, error) {
+	home := s.resolvedSuperDolphinHome()
+	owner, err := resolveOwnerIdentity(home, defaultOwnerOSUID(), defaultAppProfile())
+	if err != nil {
+		return personalSkillPolicy{}, "", "", err
+	}
+	path := filepath.Join(home, "skills", personalSkillPolicyFile)
+	if err := validateOwnerOnlyFileMode(path); err != nil {
+		return personalSkillPolicy{}, "", "", err
+	}
+	var policy personalSkillPolicy
+	if err := readJSONFileIfExists(path, &policy); err != nil {
+		return personalSkillPolicy{}, "", "", err
+	}
+	if policy.OwnerKey != "" && policy.OwnerKey != owner.OwnerKey {
+		return personalSkillPolicy{}, "", "", fmt.Errorf("personal skill policy owner mismatch")
+	}
+	return policy, path, owner.OwnerKey, nil
+}
+
+func buildPersonalKeepSelected(name string, sources []skillResolutionSource, selected skillResolutionSource) personalSkillKeepSelected {
+	next := personalSkillKeepSelected{
+		Name:                 name,
+		SelectedSourceID:     selected.CanonicalID,
+		SelectedPersonalType: selected.PersonalType,
+		SelectedContentHash:  selected.ContentHash,
+	}
+	for _, source := range sources {
+		next.Sources = append(next.Sources, personalSkillPolicySource{
+			CanonicalID:  source.CanonicalID,
+			PersonalType: source.PersonalType,
+			ContentHash:  source.ContentHash,
+			Path:         filepath.ToSlash(source.Path),
+		})
+		if source.CanonicalID != selected.CanonicalID {
+			next.ExcludedSourceIDs = append(next.ExcludedSourceIDs, source.CanonicalID)
+		}
+	}
+	return next
+}
+
+func upsertPersonalKeepSelected(items []personalSkillKeepSelected, next personalSkillKeepSelected) []personalSkillKeepSelected {
+	filtered := items[:0]
+	for _, existing := range items {
+		if strings.EqualFold(existing.Name, next.Name) {
+			continue
+		}
+		filtered = append(filtered, existing)
+	}
+	return append(filtered, next)
+}
+
 func (s *service) personalDeleteArchiveRecord(name, scope, personalType, archiveDir, canonicalHash string, now time.Time) (personalSkillArchiveRecord, error) {
 	archiveRel, err := filepath.Rel(s.resolvedSuperDolphinHome(), archiveDir)
 	if err != nil {
@@ -143,11 +331,43 @@ func backupExistingPersonalSkill(targetDir string) (string, error) {
 		return "", nil
 	}
 	backupDir := filepath.Join(filepath.Dir(targetDir), personalSkillRecoverySnapshotDir, filepath.Base(targetDir)+"-"+time.Now().UTC().Format("20060102T150405.000000000Z"))
+	if err := os.MkdirAll(filepath.Dir(backupDir), 0o755); err != nil {
+		return "", err
+	}
 	if _, _, err := copySkillDir(targetDir, backupDir); err != nil {
 		_ = os.RemoveAll(backupDir)
 		return "", err
 	}
 	return backupDir, nil
+}
+
+func rollbackPersonalSkillDir(targetDir, backupDir string) error {
+	if err := os.RemoveAll(targetDir); err != nil {
+		return err
+	}
+	if strings.TrimSpace(backupDir) == "" {
+		return nil
+	}
+	if _, _, err := copySkillDir(backupDir, targetDir); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(backupDir); err != nil {
+		return err
+	}
+	return nil
+}
+
+func restoreDeletedPersonalSkill(dir, archiveDir string) error {
+	if err := os.RemoveAll(dir); err != nil {
+		return err
+	}
+	if err := os.Rename(archiveDir, dir); err != nil {
+		return err
+	}
+	if err := os.Remove(filepath.Join(dir, personalSkillArchiveRecordFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 func (s *service) writeSkillMutationAudit(ctx context.Context, action string, record any) error {
@@ -176,6 +396,8 @@ func skillMutationAuditFields(record any) (string, string, string) {
 	case personalSkillArchiveRecord:
 		return r.Actor, r.CanonicalID, r.ArchivePath
 	case personalSkillRecoveryRecord:
+		return r.Actor, r.CanonicalID, r.Action
+	case skillMirrorMutationAuditRecord:
 		return r.Actor, r.CanonicalID, r.Action
 	default:
 		return "super-dolphin", "", ""

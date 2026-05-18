@@ -44,9 +44,9 @@ func (s *stubRuntimeReporter) ReportRuntime(_ context.Context, report contract.R
 func TestNewDriverDefaultsLoggerAndBinaryPath(t *testing.T) {
 	t.Parallel()
 
-	got, ok := newDriver(nil, nil, nil, nil, nil, "", nil, nil).(*driver)
+	got, ok := newDriver(nil, nil, nil, nil, nil, nil, nil).(*driver)
 	if !ok {
-		t.Fatalf("newDriver() type = %T, want *driver", newDriver(nil, nil, nil, nil, nil, "", nil, nil))
+		t.Fatalf("newDriver() type = %T, want *driver", newDriver(nil, nil, nil, nil, nil, nil, nil))
 	}
 	if got.logger == nil {
 		t.Fatal("newDriver() logger = nil")
@@ -79,17 +79,11 @@ func TestNewDriverFactoryCreateReturnsClaudeDriver(t *testing.T) {
 	}
 }
 
-func TestLegacyWorkspaceSkillSetupIsDisabled(t *testing.T) {
-	if shouldSetupLegacyWorkspaceSkills("workspace", "cache") {
-		t.Fatal("legacy workspace skill symlink setup must stay disabled")
-	}
-}
-
 func TestDriverReportRuntimeUsesProviderWithoutPort(t *testing.T) {
 	t.Parallel()
 
 	reporter := &stubRuntimeReporter{}
-	got := newDriver(nil, nil, reporter, nil, nil, "", nil, nil).(*driver)
+	got := newDriver(nil, nil, reporter, nil, nil, nil, nil).(*driver)
 	got.reportRuntime(" agent-1 ")
 	if reporter.calls != 1 {
 		t.Fatalf("ReportRuntime() calls = %d, want 1", reporter.calls)

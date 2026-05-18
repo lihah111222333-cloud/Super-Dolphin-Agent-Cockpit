@@ -44,7 +44,7 @@ var _ contract.SectionInvalidator = (*service)(nil)
 // DisabledBuiltinToolsFn is the signature of a function that returns the
 // sorted list of tool IDs the user has manually disabled via UI preferences.
 // It is injected to break the import cycle between prompt and uistate.
-type DisabledBuiltinToolsFn func(ctx context.Context, cwd string) []string
+type DisabledBuiltinToolsFn func(ctx context.Context, cwd, provider string) []string
 
 type service struct {
 	cfg              *Config
@@ -57,7 +57,7 @@ type service struct {
 
 	prefs           uipreference.Store
 	sharedFiles     sharedfilestore.Reader
-	skillStore      contract.SkillReplacementAggregator
+	skillStore      contract.SkillNativeReplacementSource
 	disabledToolsFn DisabledBuiltinToolsFn
 
 	dynamicMu sync.RWMutex
@@ -77,9 +77,9 @@ func WithPromptHintSources(prefs uipreference.Store, sharedFiles sharedfilestore
 	}
 }
 
-// WithSkillStore injects the skill replacement aggregator used to aggregate
+// WithSkillStore injects the skill replacement source used to aggregate
 // ReplacesNative declarations for cross-model native tool suppression.
-func WithSkillStore(store contract.SkillReplacementAggregator) ServiceOption {
+func WithSkillStore(store contract.SkillNativeReplacementSource) ServiceOption {
 	return func(s *service) {
 		s.skillStore = store
 	}

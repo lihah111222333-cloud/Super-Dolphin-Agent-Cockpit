@@ -51,10 +51,10 @@ type builtinToolsWriteParams struct {
 	Cwd     string `json:"cwd,omitempty"`
 }
 
-func readBuiltinTools(ctx context.Context, prefs uipreference.Store, store contract.SkillLibraryLister, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, cwd string) (*builtinToolsReadResult, error) {
+func readBuiltinTools(ctx context.Context, prefs uipreference.Store, store contract.SkillLister, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, cwd string) (*builtinToolsReadResult, error) {
 	var replaced map[string]string
 	if store != nil {
-		entries, err := store.List()
+		entries, err := store.ListSkills(contract.WithSkillCWD(ctx, cwd))
 		if err == nil {
 			replaced = aggregateReplacementSources(entries)
 		}
@@ -124,19 +124,16 @@ func setKeys(set map[string]struct{}) []string {
 
 // aggregateReplacementSources 返回 map[toolName]skillName，记录每个被替代工具
 // 是被哪个 skill 声明替代的（取第一个声明者）。
-func aggregateReplacementSources(entries []contract.SkillEntry) map[string]string {
+func aggregateReplacementSources(entries []contract.SkillInfo) map[string]string {
 	out := make(map[string]string)
 	for _, e := range entries {
-		if e.Meta == nil || e.Meta.Disabled {
-			continue
-		}
-		for _, tools := range e.Meta.ReplacesNative {
+		for _, tools := range e.ReplacesNative {
 			for _, name := range tools {
 				if name == "" {
 					continue
 				}
 				if _, exists := out[name]; !exists {
-					out[name] = e.Meta.Name
+					out[name] = e.Name
 				}
 			}
 		}
@@ -144,7 +141,7 @@ func aggregateReplacementSources(entries []contract.SkillEntry) map[string]strin
 	return out
 }
 
-func writeBuiltinTool(ctx context.Context, prefs uipreference.Store, store contract.SkillLibraryLister, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, p builtinToolsWriteParams) (*builtinToolsReadResult, error) {
+func writeBuiltinTool(ctx context.Context, prefs uipreference.Store, store contract.SkillLister, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, p builtinToolsWriteParams) (*builtinToolsReadResult, error) {
 	if prefs == nil {
 		return nil, errConfigPreferenceStoreRequired
 	}
@@ -192,8 +189,8 @@ func ResolveDisabledBuiltinTools(ctx context.Context, prefs uipreference.Store, 
 	return ResolveFilteredBuiltinTools(ctx, prefs, cwd, registry, index)
 }
 
-func ResolveSoftFilteredBuiltinTools(ctx context.Context, prefs uipreference.Store, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor) []string {
-	return filterBuiltinToolsByMode(ResolveFilteredBuiltinTools(ctx, prefs, cwd, registry, index), index, contract.NativeToolFilterModeSoft)
+func ResolveSoftFilteredBuiltinTools(ctx context.Context, prefs uipreference.Store, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, provider string) []string {
+	return filterBuiltinToolsByModeAndProvider(ResolveFilteredBuiltinTools(ctx, prefs, cwd, registry, index), index, contract.NativeToolFilterModeSoft, provider)
 }
 
 func ResolveHardEnabledBuiltinTools(ctx context.Context, prefs uipreference.Store, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, provider string) []string {
@@ -220,10 +217,18 @@ func ResolveHardEnabledBuiltinTools(ctx context.Context, prefs uipreference.Stor
 }
 
 func filterBuiltinToolsByMode(ids []string, index map[string]contract.NativeToolDescriptor, mode contract.NativeToolFilterMode) []string {
+	return filterBuiltinToolsByModeAndProvider(ids, index, mode, "")
+}
+
+func filterBuiltinToolsByModeAndProvider(ids []string, index map[string]contract.NativeToolDescriptor, mode contract.NativeToolFilterMode, provider string) []string {
 	out := make([]string, 0, len(ids))
+	provider = strings.TrimSpace(provider)
 	for _, id := range ids {
 		descriptor, ok := index[id]
 		if !ok || descriptor.FilterMode != mode {
+			continue
+		}
+		if provider != "" && descriptor.Provider != provider {
 			continue
 		}
 		out = append(out, id)

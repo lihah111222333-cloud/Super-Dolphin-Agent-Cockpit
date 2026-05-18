@@ -224,17 +224,19 @@ func (s *service) persistStartedSession(
 		return StartResult{}, err
 	}
 	effectiveModel, effectiveCWD, _ := enrichFromSessionConfig(session, req.Model, req.CWD)
-	configOverride, err := encodeStoredThreadConfig(buildStartStoredThreadConfig(req, input, assembly))
-	if err != nil {
-		s.stopAgent(ctx, agentID)
-		return StartResult{}, err
-	}
 	identity, err := resolveStartCodexIdentity(req.Config)
 	if err != nil {
 		s.stopAgent(ctx, agentID)
 		return StartResult{}, err
 	}
 	codexHome := util.FirstNonEmpty(identity.Home, sessionRuntimeConfigString(session, "codexHome"))
+	codexInstanceKey := util.FirstNonEmpty(identity.InstanceKey, sessionRuntimeConfigString(session, "codexInstanceKey"))
+	codexModelProvider := util.FirstNonEmpty(identity.ModelProvider, sessionRuntimeConfigString(session, "codexModelProvider"))
+	configOverride, err := encodeStoredThreadConfig(buildStartStoredThreadConfig(req, input, assembly, session))
+	if err != nil {
+		s.stopAgent(ctx, agentID)
+		return StartResult{}, err
+	}
 	s.logStartedSessionCodexIdentity(req, agentID, codexHome, identity, session)
 	rolloutPath := session.RolloutPath()
 	providerThreadID := recoverableProviderThreadID(req.Provider, providerUUID, agentID, rolloutPath, codexHome)
@@ -253,8 +255,8 @@ func (s *service) persistStartedSession(
 		SessionUUID:        providerUUID,
 		ConfigOverride:     configOverride,
 		CodexHome:          codexHome,
-		CodexInstanceKey:   identity.InstanceKey,
-		CodexModelProvider: identity.ModelProvider,
+		CodexInstanceKey:   codexInstanceKey,
+		CodexModelProvider: codexModelProvider,
 		CreatedAt:          time.Now().Unix(),
 		AgentKey:           req.AgentKey,
 		PromptVersionID:    req.PromptVersionID,

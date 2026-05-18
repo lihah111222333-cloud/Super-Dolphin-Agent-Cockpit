@@ -47,23 +47,21 @@ func provideDefaultPeerSupervisor(mgr *ServerManager, logger *slog.Logger) platf
 }
 
 // DriverFactoryParams holds the fx-injected dependencies for NewDriverFactory.
-// ManifestRenderer is optional so the codexapp module works even when
-// skill library is not wired into the application graph (e.g., standalone tests).
 type DriverFactoryParams struct {
 	fx.In
 
-	Logger           *slog.Logger
-	Dispatcher       *unified.EventDispatcher
-	Approvals        *rpc.ApprovalManager
-	Reporter         contract.RuntimeReporter
-	Manager          *ServerManager
-	Pool             *ServerPool
-	ManifestRenderer contract.SkillManifestRenderer   `optional:"true"`
-	Recovery         contract.SessionRecoveryReporter `optional:"true"`
+	Logger     *slog.Logger
+	Dispatcher *unified.EventDispatcher
+	Approvals  *rpc.ApprovalManager
+	Reporter   contract.RuntimeReporter
+	Manager    *ServerManager
+	Pool       *ServerPool
+	Mirror     contract.SkillMirrorReconciler
+	Recovery   contract.SessionRecoveryReporter `optional:"true"`
 }
 
 func provideDriverFactory(p DriverFactoryParams) *DriverFactory {
-	return NewDriverFactory(p.Logger, p.Dispatcher, p.Approvals, p.Reporter, p.Manager, p.Pool, p.ManifestRenderer, p.Recovery)
+	return NewDriverFactory(p.Logger, p.Dispatcher, p.Approvals, p.Reporter, p.Manager, p.Pool, p.Mirror, p.Recovery)
 }
 
 func provideContractDriverFactory(factory *DriverFactory) contract.DriverFactory {

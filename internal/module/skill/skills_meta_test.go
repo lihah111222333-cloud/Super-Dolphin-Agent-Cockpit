@@ -77,11 +77,19 @@ func TestParseSkillInfo_ContentHashStableAndCorrect(t *testing.T) {
 	}
 }
 
-func TestParseSkillInfo_FrontmatterTrustOverridesDefault(t *testing.T) {
+func TestParseSkillInfo_ProjectDefaultCapsFrontmatterTrust(t *testing.T) {
 	content := "---\nname: foo\ntrust: signed\n---\n\nbody"
 	info := helperParse(t, content, TrustProject)
-	if info.Trust != TrustSigned {
-		t.Fatalf("frontmatter trust should win: got %q", info.Trust)
+	if info.Trust != TrustProject {
+		t.Fatalf("project default should cap frontmatter trust: got %q", info.Trust)
+	}
+}
+
+func TestParseSkillInfo_PersonalDefaultDoesNotSelfDeclareSigned(t *testing.T) {
+	content := "---\nname: foo\ntrust: signed\n---\n\nbody"
+	info := helperParse(t, content, TrustUser)
+	if info.Trust != TrustUser {
+		t.Fatalf("personal default should downgrade unsigned signed trust to user: got %q", info.Trust)
 	}
 }
 
@@ -138,6 +146,33 @@ func TestParseSkillInfo_AllowedToolsAliases(t *testing.T) {
 	info := helperParse(t, content, TrustProject)
 	if len(info.AllowedTools) != 2 {
 		t.Fatalf("expected 2 tools via alias, got %v", info.AllowedTools)
+	}
+}
+
+func TestParseSkillInfo_ReplacesNativeYAMLFrontmatter(t *testing.T) {
+	content := strings.Join([]string{
+		"---",
+		"name: foo",
+		"replaces_native:",
+		"  codex:",
+		"    - shell",
+		"    - apply_patch",
+		"  claude: [Read, Bash]",
+		`  "*":`,
+		"    - WebFetch",
+		"---",
+		"",
+		"body",
+	}, "\n")
+	info := helperParse(t, content, TrustProject)
+	if got := info.ReplacesNative["codex"]; !reflect.DeepEqual(got, []string{"shell", "apply_patch"}) {
+		t.Fatalf("codex replacements = %#v", got)
+	}
+	if got := info.ReplacesNative["claude"]; !reflect.DeepEqual(got, []string{"Read", "Bash"}) {
+		t.Fatalf("claude replacements = %#v", got)
+	}
+	if got := info.ReplacesNative["*"]; !reflect.DeepEqual(got, []string{"WebFetch"}) {
+		t.Fatalf("wildcard replacements = %#v", got)
 	}
 }
 

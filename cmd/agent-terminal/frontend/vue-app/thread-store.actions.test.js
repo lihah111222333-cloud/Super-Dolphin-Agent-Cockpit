@@ -221,6 +221,7 @@ describe('thread store actions', () => {
     });
   });
 
+
   it('forwards explicit name and base instructions when starting a thread', async () => {
     const store = useThreadStore();
     apiMock.callAPI.mockImplementation(async (method, payload) => {
@@ -681,6 +682,7 @@ describe('thread store actions', () => {
     await store.sendMessage('thread-live', 'hello', [{ path: '/tmp/a.txt' }], {
       cwd: '/repo',
       selectedSkills: ['git'],
+      selectedSkillRefs: [{ key: 'project::git:/repo/.agent/skills/git', name: 'git', scope: 'project', path: '/repo/.agent/skills/git' }],
       manualSkillSelection: true,
     });
 
@@ -691,9 +693,11 @@ describe('thread store actions', () => {
         { type: 'mention', name: 'a.txt', path: '/tmp/a.txt' },
       ],
       cwd: '/repo',
-      selectedSkills: ['git'],
+      selectedSkillRefs: [{ key: 'project::git:/repo/.agent/skills/git', name: 'git', scope: 'project', personalType: '', path: '/repo/.agent/skills/git' }],
       manualSkillSelection: true,
     });
+    const turnPayload = apiMock.callAPI.mock.calls.find(([method]) => method === 'turn/start')?.[1];
+    expect(turnPayload).not.toHaveProperty('selectedSkills');
     // sendMessage no longer calls loadMessages eagerly (event-driven hydration).
     expect(apiMock.callAPI).not.toHaveBeenCalledWith('thread/messages', expect.anything());
   });

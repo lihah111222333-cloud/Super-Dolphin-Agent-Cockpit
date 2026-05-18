@@ -26,7 +26,7 @@
 - 把 provider / thread / turn / hooks / mcpcontrol / orchestration 之间的依赖压缩为接口依赖；
 - 把 RPC、sqlc、provider transport、standalone orchestration 这类易变实现隔离到外层；
 - 允许桌面态在 **没有 orchestration service** 时，依靠 `optional:"true"` + noop 适配器完成大部分组装；
-- 按能力域拆分：`approval`、`hooks`、`mcp_control`、`orchestration`、`prompt`、`provider`、`runtime_reporter`、`session_resolver`、`skill_injection`、`agent_memory`、`memory/team/thread_metadata`，以及 `agent_state`、`bootstrap_hook`、`dream`、`frc`、`message_notifier`、`pending_launch_spawner`、`prompt_attachment`、`toolbridge_runtime_required`、`ui_project_state` 等桥接/模型/helper。
+- 按能力域拆分：`approval`、`hooks`、`mcp_control`、`orchestration`、`prompt`、`provider`、`runtime_reporter`、`session_resolver`、`skill`、`agent_memory`、`memory/team/thread_metadata`，以及 `agent_state`、`bootstrap_hook`、`dream`、`frc`、`message_notifier`、`pending_launch_spawner`、`prompt_attachment`、`toolbridge_runtime_required`、`ui_project_state` 等桥接/模型/helper。
 - **58f19fa 接口隔离维护口径**：不要把单一模块拥有的超大 `Service` / `Store` 端口继续抬进 `internal/contract`；`internal/module/skill/contract.go`、`cmd/mcp-orch/store/taskdag/contract.go` 等 owner-local narrow ports 由模块自身维护，04 只记录它们和 app/root graph 的边界关系。
 
 一句话：**`app` 负责“怎么装”，`contract` 负责“装出来的东西如何说话”。**
@@ -67,7 +67,6 @@ flowchart TD
   store --> s14["store.prompt"]
   store --> s15["store.routingtest"]
   store --> s16["store.sharedfile"]
-  store --> s17["store.skillcandidate"]
   store --> s18["store.systemlog"]
   store --> s19["store.tasktrace"]
   store --> s20["store.thread"]
@@ -119,7 +118,7 @@ flowchart TD
 | `provider.go` | provider 三层抽象：`Driver` / `Session` / `TurnHandle`。 |
 | `runtime_reporter.go` | provider 向 orchestration 回报 runtime 元信息的最小契约。 |
 | `session_resolver.go` | 由 threadID 解析运行中或可恢复 session 的契约。 |
-| `skill_injection.go` | provider skill 注入桥：`SkillInjectionPort`。 |
+| `skill.go` | skill read/write/mirror 窄契约：`SkillLister`、`SkillHydrationSource`、`SkillMirrorReconciler`、provider mirror report/target DTO。 |
 | `team_memory.go` | team-memory 只读桥：`TeamMemoryManager`。 |
 | `thread_metadata.go` | memory 侧线程元数据桥：`ThreadMetadataStore`、`ThreadMetadata`。 |
 | `toolbridge_runtime_required.go` | toolbridge runtime fail-closed 的哨兵错误。 |
@@ -160,13 +159,13 @@ flowchart TD
 | `DynamicSectionProvider` | `SectionName() string; Resolve(ctx context.Context, input SectionContext) (*string, error)` | Module：`internal/module/prompt` registry；Module：`internal/module/memory` 注册 prompt provider | `internal/module/prompt`（内建 providers）、`internal/module/memory`、`internal/module/memory/agent` |
 | `InvalidationAwareProvider` | `OnPromptInvalidate(reason InvalidateReason)` | Module：`internal/module/prompt` invalidation pipeline | `internal/module/memory`、`internal/module/memory/nested` |
 | `SectionInvalidator` | `InvalidateSections(reason InvalidateReason, names ...string) uint64` | Module：`internal/module/memory` lifecycle / extractor | `internal/module/prompt` (`service`) |
-| `DynamicSectionRegistrar` | `RegisterDynamicProvider(provider DynamicSectionProvider) error` | Module：`internal/module/prompt` skill-catalog 注册；Module：`internal/module/memory` registerPromptProviders | `internal/module/prompt` (`service`) |
+| `DynamicSectionRegistrar` | `RegisterDynamicProvider(provider DynamicSectionProvider) error` | Module：`internal/module/memory` registerPromptProviders；旧 skill-catalog provider 不再接入生产 prompt 注入链 | `internal/module/prompt` (`service`) |
 | `ClaudeMdSourceProviderRegistrar` | `RegisterClaudeMdSourceProvider(provider ClaudeMdSourceProvider) error` | Module：`internal/module/memory` registerPromptProviders | `internal/module/prompt` (`service`) |
 | `ClaudeMdSourceProvider` | `ResolveClaudeMdSources(ctx context.Context, buildCtx BuildCtx) []ClaudeMdSource` | Module：`internal/module/prompt` build ctx / assembly；Module：`internal/module/memory` | `internal/module/memory/nested` (`ClaudeMdSourcesProvider`) |
 | `TurnAttachmentProvider` | `ResolveTurnAttachments(ctx context.Context, buildCtx BuildCtx, turn TurnInput, baseSources []ClaudeMdSource) []dto.AttachmentEnvelope` | Module：`internal/module/prompt` assembler 通过 type assertion 消费 | `internal/module/memory/nested` (`ClaudeMdSourcesProvider`) |
 | `TurnContextProvider` | `PrepareTurnContext(ctx context.Context, session Session, buildCtx BuildCtx, threadID, query string) TurnContextPayload` | Module：`internal/module/turn` | `internal/module/memory` (`MemoryContextProvider`) |
 | `DreamExecutor` | `ExecuteDream(ctx context.Context, prompt string) (string, error)` | Module：`internal/module/memory` auto-dream consolidation | 聚合器：`internal/provider/unified`；provider 侧执行器：`internal/provider/{claudecli,codexapp}` |
-| `SkillInjectionPort` | `DetectNativeSkills(cwd string) []string; ReservedTokens() int` | Module：`internal/module/prompt` skill catalog / native detector | `internal/provider/{claudecli,codexapp}` |
+| `SkillMirrorReconciler` | `ReconcileProviderMirrors(ctx, cwd, targets) (SkillMirrorReport, error)` | Provider：`internal/provider/{claudecli,codexapp}` 启动/acquire 前 mirror reconcile | `internal/module/skill` (`service`) |
 | `TeamMemoryManager` | `GetTeamMemPath(buildCtx ...BuildCtx) string; GetTeamMemEntrypoint(buildCtx ...BuildCtx) string` | Module：`internal/module/memory/nested` | `internal/module/memory/team` (`TeamMemoryManager`) |
 | `ThreadMetadataStore` | `GetByThreadID(ctx context.Context, threadID string) (*ThreadMetadata, error); ListAll(ctx context.Context) ([]ThreadMetadata, error)` | Module：`internal/module/memory/team` | `internal/store/thread` (`metadataStoreAdapter`) |
 
@@ -194,7 +193,7 @@ flowchart TD
 | `TurnHandle` | `provider.go` | 运行中 turn 的句柄 | `*internal/provider/claudecli.turnHandle`、`*internal/provider/codexapp.turnHandle` | 分别由 provider 的 `Session.StartTurn` 返回。 |
 | `RuntimeReporter` | `runtime_reporter.go` | provider 上报 runtime 信息 | `internal/app.orchestrationRuntimeReporter`、`internal/app.noopRuntimeReporter` | `internal/app.Module` 提供 app 侧实现（`Run` / `RunDesktop` 均会加载）。另有 `cmd/mcp-orch/orchestration.runtimeReporter` 辅助类型定义在 `service.go`，但当前 Fx 图未导出它。 |
 | `SessionResolver` | `session_resolver.go` | 由 threadID 解析/自动恢复 session | `*internal/provider/unified.sessionResolver` | 由 `internal/provider/unified.Module` 导出。 |
-| `SkillInjectionPort` | `skill_injection.go` | 汇报 provider 原生 skill 注入与 token 预算 | `internal/provider/claudecli.claudecliSkillInjectionPort`、`internal/provider/codexapp.codexSkillInjectionPort` | 两个 provider 模块均输出到 `group:"skill_injection_ports"`，由 `prompt.NewCompositeNativeSkillDetector` 汇总。 |
+| `SkillMirrorReconciler` | `skill.go` | provider-native mirror reconcile 窄端口 | `*internal/module/skill.service` | `skill.Module` 导出给 `claudecli` / `codexapp`；mirror 为生成物，错误阻断 provider 启动/acquire。 |
 | `TeamMemoryManager` | `team_memory.go` | 暴露 team memory path / entrypoint 的只读桥 | `*internal/module/memory/team.TeamMemoryManager` | `internal/module/memory.Module` 通过 `provideTeamMemoryManagerContract` 导出。 |
 | `ThreadMetadataStore` | `thread_metadata.go` | 向 memory 域暴露线程元数据查找最小面 | `*internal/store/thread.metadataStoreAdapter` | `internal/store/thread.NewMetadataStore` 返回该契约；`memory` 生命周期 / team sync 消费。 |
 
@@ -260,7 +259,7 @@ flowchart TD
 | `contract.DynamicSectionRegistrar` / `SectionInvalidator` / `PromptAssemblyService` | `internal/module/prompt/module.go` | `AsDynamicSectionRegistrar/AsSectionInvalidator/AsPromptAssemblyService` -> `*prompt.service` | prompt 模块一份实现对外投影三种契约面。 |
 | `group:"drivers"` | `internal/provider/{claudecli,codexapp}/module.go` | `contract.DriverFactory` fan-in 到 `internal/provider/unified.RegistryParams` | 新 provider 走 group 扩展，不改 thread/turn。 |
 | `group:"dream_executors"` | `internal/provider/{claudecli,codexapp}/module.go` | `contract.DreamExecutorProvider` fan-in 到 `unified.NewDreamExecutor` | dream 执行器也是 group 聚合。 |
-| `group:"skill_injection_ports"` | `internal/provider/{claudecli,codexapp}/module.go` | `contract.SkillInjectionPort` fan-in 到 `prompt.NewCompositeNativeSkillDetector` | provider 原生 skill 能力以 group 聚合。 |
+| `contract.SkillMirrorReconciler` | `internal/module/skill/module.go` | `*skill.service` 以 `fx.As(new(contract.SkillMirrorReconciler))` 导出 | provider-native mirror reconcile 由 provider 启动/acquire 前主动调用。 |
 
 ---
 
@@ -373,7 +372,7 @@ uiwails.NewHTTPAssetServer() [desktop only] -----┼--> []platformrunner.Runner
 | `group:"drivers"` (`contract.DriverFactory`) | `provider/claudecli.Module`、`provider/codexapp.Module` | `unified.NewRegistry` |
 | `contract.OrchestrationTurnStarter` | `turn.NewOrchestrationTurnStarter`；`mcp-orch` standalone 图中为 `newNoopTurnStarter` | `cmd/mcp-orch/orchestration.NewService`（仅在同一 Fx 图加载 `orchestration.Module` 时消费；当前 `app.Module` 导出但不消费真实 starter） |
 | `contract.PromptAssemblyService` | `prompt.AsPromptAssemblyService` | `module/thread.NewService`、`turn.NewServiceWithPromptAssembly...`、`memory/team` prompt 失效链 |
-| `group:"skill_injection_ports"` (`contract.SkillInjectionPort`) | `provider/claudecli.NewSkillInjectionPort`、`provider/codexapp.NewSkillInjectionPort` | `prompt.NewCompositeNativeSkillDetector` |
+| `contract.SkillMirrorReconciler` | `skill.Module` | `provider/claudecli`、`provider/codexapp` |
 | `contract.TeamMemoryManager` | `memory.provideTeamMemoryManagerContract` | `memory/nested.NewClaudeMdSourcesProvider`、`memory.NewRulesProvider` |
 | `contract.ThreadMetadataStore` | `store/thread.NewMetadataStore` | `memory` 生命周期 / team sync |
 | `contract.RuntimeReporter` | `app.newRuntimeReporter` | `provider/claudecli.NewDriverFactory`、`provider/codexapp.NewDriverFactory` |
@@ -476,7 +475,7 @@ type RegistryParams struct {
 
 - `group:"drivers"`：`claudecli/codexapp -> unified.Registry`
 - `group:"dream_executors"`：`claudecli/codexapp -> unified.NewDreamExecutor`
-- `group:"skill_injection_ports"`：`claudecli/codexapp -> prompt.NewCompositeNativeSkillDetector`
+- `contract.SkillMirrorReconciler`：`skill.Module -> claudecli/codexapp provider mirror reconcile`
 
 ### 5.3 standalone / optional 场景
 
@@ -687,9 +686,8 @@ type PromptAssemblyService interface {
     Invalidate(ctx context.Context, reason InvalidateReason) error
 }
 
-type SkillInjectionPort interface {
-    DetectNativeSkills(cwd string) []string
-    ReservedTokens() int
+type SkillMirrorReconciler interface {
+    ReconcileProviderMirrors(ctx context.Context, cwd string, targets []SkillProviderMirrorTarget) (SkillMirrorReport, error)
 }
 
 type TeamMemoryManager interface {
@@ -729,12 +727,12 @@ type SessionResolver interface {
 | `internal/platform/mcpcontrol` | `ToolRegistry`、`ToolNotifier`、`ToolHookCallback`、`PeerCallback`、`ToolControlPlane`、`ToolInstance`、`HookManager`、`HookLifecycle`、`OrchestrationService`、`AgentSnapshot`、`ApprovalDecision`、`RuntimeReport`、`ReportEvent`、hook 错误 |
 | `internal/store/hookstore` | `HookReviewStore`、`ErrHookReviewNotFound` |
 | `internal/provider/unified` | `DriverFactory`、`Driver`、`Session`、`SessionResolver`、`OrchestrationSessionCleaner`、`ErrSessionNotFound` |
-| `internal/provider/claudecli` | `DriverFactory`、`Driver`、`Session`、`TurnHandle`、`RuntimeReporter`、`RuntimeReport`、`SkillInjectionPort` |
-| `internal/provider/codexapp` | `DriverFactory`、`Driver`、`Session`、`TurnHandle`、`RuntimeReporter`、`RuntimeReport`、`ApprovalDecision`、`SkillInjectionPort` |
-| `internal/module/prompt` | `PromptAssemblyService`、`DynamicSectionRegistrar`、`SectionInvalidator`、`SkillInjectionPort`、`BuildCtx` |
+| `internal/provider/claudecli` | `DriverFactory`、`Driver`、`Session`、`TurnHandle`、`RuntimeReporter`、`RuntimeReport`、`SkillMirrorReconciler` |
+| `internal/provider/codexapp` | `DriverFactory`、`Driver`、`Session`、`TurnHandle`、`RuntimeReporter`、`RuntimeReport`、`ApprovalDecision`、`SkillMirrorReconciler` |
+| `internal/module/prompt` | `PromptAssemblyService`、`DynamicSectionRegistrar`、`SectionInvalidator`、`BuildCtx` |
 | `internal/module/thread` | `Session`、`PromptAssemblyService`、`ErrAgentNotFound` |
 | `internal/module/turn` | `Session`、`TurnHandle`、`SessionResolver`、`ApprovalResponder`、`OrchestrationTurnStarter`、`PromptAssemblyService`、`ErrSessionNotFound` |
-| `internal/module/skill` | `ApprovalRequester` |
+| `internal/module/skill` | `ApprovalRequester`、`SkillMirrorReconciler`、`SkillLister`、`SkillHydrationSource` |
 | `internal/module/memory` | `PromptAssemblyService`、`ThreadMetadataStore`、`TeamMemoryManager`、`BuildCtx`、`InvalidateReason` |
 | `internal/module/dashboard` | `OrchestrationService`、`AgentSnapshot`、`AgentReportResult`、`ListDAGsFilter`、`DAGSummary`、`DAGDetail`、`Run`、`FinalOutputRef` |
 | `internal/module/uistate` | `OrchestrationService`、`AgentSnapshot` |
@@ -779,7 +777,7 @@ type SessionResolver interface {
 - `unified.Module`
 - `claudecli.Module`
 - `codexapp.Module`
-- `toolbridge.Module` — 通过 `provideHostToolRegistry` 组装 `CompositeHostToolRegistry`，聚合 `SkillReadSectionRegistry` + `MemoryReadHostToolRegistry` + `MemoryWriteHostToolRegistry`，向 Codex provider 暴露 host-direct 工具。
+- `toolbridge.Module` — 通过 `provideHostToolRegistry` 组装 `CompositeHostToolRegistry`，生产图只聚合 `MemoryReadHostToolRegistry` + `MemoryWriteHostToolRegistry`；`skill_read_section` 不再暴露给 Codex dynamic tools。
 
 **本地提供者 / 适配器**
 
@@ -846,7 +844,7 @@ internal/contract
   ├─ provider         -> unified / claudecli / codexapp / thread / turn
   ├─ runtime_reporter -> app / providers
   ├─ session_resolver -> unified / rpc / turn
-  ├─ skill_injection  -> claudecli / codexapp / prompt
+  ├─ skill            -> skill mirror/lister/hydration contracts
   ├─ team_memory      -> memory
   └─ thread_metadata  -> store/thread / memory
 
@@ -859,11 +857,10 @@ provider/unified
   └─ SessionResolver -------------> contract.SessionResolver -> rpc.CapabilityResolver
 
 module/prompt
-  ├─ AsPromptAssemblyService ------> contract.PromptAssemblyService -> thread / turn / memory
-  └─ NativeSkillDetector <--------- group:"skill_injection_ports" <----- claudecli / codexapp
+  └─ AsPromptAssemblyService ------> contract.PromptAssemblyService -> thread / turn / memory
 
 module/skill
-  └─ Service aggregate -> SkillLister / SkillCatalogSource / SkillHydrationSource / SkillHostToolReader -> dashboard / prompt / turn / toolbridge
+  └─ Service aggregate -> SkillLister / SkillHydrationSource / SkillMirrorReconciler -> dashboard / turn / providers
 
 platform/rpc
   └─ approvalRequester -----------> contract.ApprovalRequester -> skill

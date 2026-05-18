@@ -63,7 +63,7 @@ func NewConfigHandlers(
 	prefs uipreference.Store,
 	sharedFiles sharedfilestore.Reader,
 	threads contract.ThreadConfigReader,
-	skillStore contract.SkillLibraryLister,
+	skillStore contract.SkillLister,
 	nativeTools []contract.NativeToolDescriptor,
 ) platformrpc.HandlerMapResult {
 	toolIndex := buildNativeToolIndex(nativeTools)

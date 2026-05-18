@@ -286,6 +286,51 @@ func TestServiceStartDoesNotPersistProviderThreadIDWithoutHistoryFile(t *testing
 	}
 }
 
+func TestServiceStartPersistsCodexIdentityFromSessionRuntimeConfig(t *testing.T) {
+	t.Parallel()
+
+	const providerUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5c1"
+	threads := &stubThreadStore{}
+	bindings := &stubBindingStore{}
+	sessions := &stubSessionProvider{}
+	codexHome := t.TempDir()
+	starter := &startOnlySessionStarter{
+		onStart: func(context.Context, dto.StartSessionRequest) (contract.Session, error) {
+			session := &stubSession{
+				threadID: providerUUID,
+				runtimeConfig: map[string]any{
+					"codexHome":          codexHome,
+					"codexInstanceKey":   "default",
+					"codexModelProvider": "openai",
+				},
+			}
+			sessions.session = session
+			return session, nil
+		},
+	}
+	orch := &stubThreadOrchestration{}
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)
+
+	if _, err := svc.Start(context.Background(), StartRequest{
+		AgentID:  "agent-runtime-identity",
+		Provider: "codex",
+	}); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	if bindings.upsert.CodexHome != codexHome ||
+		bindings.upsert.CodexInstanceKey != "default" ||
+		bindings.upsert.CodexModelProvider != "openai" {
+		t.Fatalf("binding codex identity = %q/%q/%q, want runtime identity", bindings.upsert.CodexHome, bindings.upsert.CodexInstanceKey, bindings.upsert.CodexModelProvider)
+	}
+	storedRuntime := decodeStoredThreadConfig(threads.upsert.ConfigOverride).Runtime
+	if storedRuntime["codexHome"] != codexHome ||
+		storedRuntime["codexInstanceKey"] != "default" ||
+		storedRuntime["codexModelProvider"] != "openai" {
+		t.Fatalf("stored runtime codex identity = %#v, want session runtime identity", storedRuntime)
+	}
+}
+
 func TestServiceStartPrefersExplicitNameForLaunchAndPersist(t *testing.T) {
 	t.Parallel()
 
@@ -387,7 +432,7 @@ func TestNewThreadHandlersDispatchStartRejectsInvalidConfig(t *testing.T) {
 }
 
 // TestServiceStartForwardsLaunchSkills p20.3 §4.3：StartRequest.LaunchSkillNames /
-// ForceLaunchSkills 必须原样进入 dto.StartSessionRequest，且不覆写其它字段。
+// LaunchSkillRefs / ForceLaunchSkills 必须原样进入 dto.StartSessionRequest，且不覆写其它字段。
 func TestServiceStartForwardsLaunchSkills(t *testing.T) {
 	t.Parallel()
 
@@ -409,6 +454,7 @@ func TestServiceStartForwardsLaunchSkills(t *testing.T) {
 		AgentID:           "agent-launch-skills",
 		Provider:          "codex",
 		LaunchSkillNames:  []string{"planner", "reviewer"},
+		LaunchSkillRefs:   []dto.SkillRef{{Key: "project::planner:/repo/.agent/skills/planner", Name: "planner", Scope: "project", Path: "/repo/.agent/skills/planner", Source: dto.SkillSourceManual}},
 		ForceLaunchSkills: true,
 	}); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -418,6 +464,9 @@ func TestServiceStartForwardsLaunchSkills(t *testing.T) {
 	}
 	if !got.ForceLaunchSkills {
 		t.Fatalf("ForceLaunchSkills should be true")
+	}
+	if len(got.LaunchSkillRefs) != 1 || got.LaunchSkillRefs[0].Key == "" || got.LaunchSkillRefs[0].Scope != "project" {
+		t.Fatalf("LaunchSkillRefs = %#v", got.LaunchSkillRefs)
 	}
 }
 
@@ -448,6 +497,9 @@ func TestServiceStartLeavesLaunchSkillsEmptyByDefault(t *testing.T) {
 	}
 	if got.LaunchSkillNames != nil {
 		t.Fatalf("LaunchSkillNames should be nil by default, got %#v", got.LaunchSkillNames)
+	}
+	if got.LaunchSkillRefs != nil {
+		t.Fatalf("LaunchSkillRefs should be nil by default, got %#v", got.LaunchSkillRefs)
 	}
 	if got.ForceLaunchSkills {
 		t.Fatalf("ForceLaunchSkills should default false")

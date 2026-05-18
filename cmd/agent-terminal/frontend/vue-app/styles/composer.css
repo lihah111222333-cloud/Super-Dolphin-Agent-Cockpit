@@ -711,6 +711,11 @@ button.composer-token-chip:hover:not(:disabled):not(.is-success):not(.is-error) 
   box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
 }
 
+.composer-skill-scope-dot-personal {
+  background: #a78bfa;
+  box-shadow: 0 0 0 2px rgba(167, 139, 250, 0.2);
+}
+
 .composer-skill-scope-count {
   font-size: 10px;
   color: var(--text-subtle);

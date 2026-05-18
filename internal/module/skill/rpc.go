@@ -4,17 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"os"
+	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/repofingerprint"
 )
 
 func namedContentHandler(fn func(context.Context, skillNamedContentParams) (any, error)) handler.Func {
@@ -35,86 +33,26 @@ func skillListPayload(skills []SkillInfo) skillListResult {
 			Trust:                  info.Trust,
 			ContentHash:            info.ContentHash,
 			DisableModelInvocation: info.DisableModelInvocation,
-			DisclosureTier:         info.DisclosureTier,
 		})
 	}
 	return skillListResult{Skills: items}
 }
 
-func skillsWithDisclosureTiers(skills []SkillInfo, source contract.SkillDisclosureTierSource) []SkillInfo {
-	tiers := disclosureTierSnapshot(skills, source, time.Now())
-	out := make([]SkillInfo, 0, len(skills))
-	for _, info := range skills {
-		info.DisclosureTier = tiers[info.Name]
-		out = append(out, info)
+func skillsListPayload(skills []SkillInfo) skillListResult {
+	result := skillListPayload(skills)
+	for idx, info := range skills {
+		result.Skills[idx].Dir = info.Dir
+		result.Skills[idx].SkillFile = skillMainFilePath(info.Dir)
 	}
-	return out
+	return result
 }
 
-func disclosureTierSnapshot(skills []SkillInfo, source contract.SkillDisclosureTierSource, now time.Time) map[string]string {
-	out := make(map[string]string, len(skills))
-	if len(skills) == 0 || source == nil || !source.Enabled() {
-		return out
+func skillMainFilePath(dir string) string {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return ""
 	}
-	snapshot := source.DisclosureSnapshot()
-	for _, info := range skills {
-		name := strings.TrimSpace(info.Name)
-		if name == "" {
-			continue
-		}
-		score := skillDisclosureEffectiveScore(snapshot.Workspace[name], snapshot.Global[name], now, snapshot.Config)
-		out[info.Name] = skillDisclosureTierForScore(score)
-	}
-	return out
-}
-
-func skillDisclosureEffectiveScore(ws, gl *contract.SkillDisclosureSkillStats, now time.Time, cfg contract.SkillDisclosureConfig) float64 {
-	if ws != nil && len(ws.Calls) >= cfg.WSMinCalls {
-		return skillDisclosureScore(ws, now, cfg.HalfLife, cfg.FrozenDuration)
-	}
-	if gl == nil {
-		if ws == nil {
-			return 0
-		}
-		return cfg.WSWeight * skillDisclosureScore(ws, now, cfg.HalfLife, cfg.FrozenDuration)
-	}
-	if ws == nil {
-		return skillDisclosureScore(gl, now, cfg.HalfLife, cfg.FrozenDuration)
-	}
-	return cfg.WSWeight*skillDisclosureScore(ws, now, cfg.HalfLife, cfg.FrozenDuration) +
-		(1-cfg.WSWeight)*skillDisclosureScore(gl, now, cfg.HalfLife, cfg.FrozenDuration)
-}
-
-func skillDisclosureScore(stats *contract.SkillDisclosureSkillStats, now time.Time, halfLife, frozen time.Duration) float64 {
-	if stats == nil || len(stats.Calls) == 0 {
-		return 0
-	}
-	hlSec := halfLife.Seconds()
-	if hlSec <= 0 {
-		return 0
-	}
-	cutoff := now.Add(-frozen)
-	var score float64
-	for _, calledAt := range stats.Calls {
-		if calledAt.Before(cutoff) {
-			continue
-		}
-		score += math.Pow(2, -now.Sub(calledAt).Seconds()/hlSec)
-	}
-	return score
-}
-
-func skillDisclosureTierForScore(score float64) string {
-	switch {
-	case score >= 3:
-		return "hot"
-	case score >= 1:
-		return "warm"
-	case score > 0:
-		return "cold"
-	default:
-		return "frozen"
-	}
+	return filepath.Join(dir, skillMainFile)
 }
 
 func skillRPCError(err error) error {
@@ -130,9 +68,6 @@ func skillRPCError(err error) error {
 	}
 	if mapped := skillRPCApprovalError(err); mapped != nil {
 		return mapped
-	}
-	if skillRPCCandidateParamError(err) {
-		return platformrpc.ErrInvalidParams(err.Error())
 	}
 	return err
 }
@@ -168,14 +103,6 @@ func skillRPCApprovalError(err error) error {
 	}
 }
 
-func skillRPCCandidateParamError(err error) bool {
-	return errors.Is(err, ErrCandidateApprovedByRequired) ||
-		errors.Is(err, ErrCandidateMissingFingerprint) ||
-		errors.Is(err, ErrCallerFingerprintRequired) ||
-		errors.Is(err, ErrRepoFingerprintMismatch) ||
-		errors.Is(err, ErrCandidateNotPending)
-}
-
 func requireRequestCWD(cwd string) error {
 	if strings.TrimSpace(cwd) == "" {
 		return skillRPCError(ErrMissingCWD)
@@ -183,13 +110,17 @@ func requireRequestCWD(cwd string) error {
 	return nil
 }
 
-func NewSkillHandlers(svc Service, requester contract.ApprovalRequester) platformrpc.HandlerMapResult {
-	return newSkillHandlers(svc, requester)
+func NewSkillHandlers(deps skillHandlerDeps) platformrpc.HandlerMapResult {
+	return newSkillHandlers(deps.Service, deps.Requester, deps.DreamExecutor)
 }
 
-func newSkillHandlers(svc Service, requester contract.ApprovalRequester) platformrpc.HandlerMapResult {
+func newSkillHandlers(svc Service, requester contract.ApprovalRequester, dreams ...contract.DreamExecutor) platformrpc.HandlerMapResult {
 	if impl, ok := svc.(*service); ok {
 		impl.approvalRequester = requester
+	}
+	var dream contract.DreamExecutor
+	if len(dreams) > 0 {
+		dream = dreams[0]
 	}
 	return platformrpc.HandlerMapResult{Handlers: mergeSkillHandlerMaps(
 		skillCoreHandlers(svc),
@@ -197,6 +128,7 @@ func newSkillHandlers(svc Service, requester contract.ApprovalRequester) platfor
 		skillRemoteHandlers(svc),
 		skillPreviewHandlers(svc),
 		skillResolutionHandlers(svc),
+		skillSummarySuggestHandlers(dream),
 	)}
 }
 
@@ -229,13 +161,6 @@ func skillLocalHandlers(svc Service) handler.Map {
 		"skills/local/importDir": platformrpc.StrictHandler(skillLocalImportDirHandler(svc)),
 		"skills/local/delete":    platformrpc.StrictHandler(skillLocalDeleteHandler(svc)),
 		"skills/create":          platformrpc.StrictHandler(skillCreateHandler(svc)),
-		// P0b Step 5: candidate review gate. List + approve + reject share
-		// the local-skills namespace because approvals always promote into a
-		// project-scope SKILL.md via CreateSkill.
-		"skills/candidate/list/pending": platformrpc.StrictHandler(skillCandidateListPendingHandler(svc)),
-		"skills/candidate/get":          platformrpc.StrictHandler(skillCandidateGetHandler(svc)),
-		"skills/candidate/approve":      platformrpc.StrictHandler(skillCandidateApproveHandler(svc)),
-		"skills/candidate/reject":       platformrpc.StrictHandler(skillCandidateRejectHandler(svc)),
 	}
 }
 
@@ -288,10 +213,27 @@ func skillPreviewHandlers(svc Service) handler.Map {
 	}
 }
 
+func skillSummarySuggestHandlers(dream contract.DreamExecutor) handler.Map {
+	return handler.Map{
+		"skills/summary/suggest": platformrpc.StrictHandler(skillSummarySuggestHandler(dream)),
+	}
+}
+
+func skillSummarySuggestHandler(dream contract.DreamExecutor) func(context.Context, skillSummarySuggestParams) (skillSummarySuggestResult, error) {
+	return func(ctx context.Context, p skillSummarySuggestParams) (skillSummarySuggestResult, error) {
+		description, err := suggestSkillSummary(ctx, dream, p)
+		if err != nil {
+			return skillSummarySuggestResult{}, err
+		}
+		return skillSummarySuggestResult{Description: description}, nil
+	}
+}
+
 func skillResolutionHandlers(svc Service) handler.Map {
 	return handler.Map{
 		"skills/resolution_list":    platformrpc.StrictHandler(skillResolutionListHandler(svc)),
 		"skills/resolution_preview": platformrpc.StrictHandler(skillResolutionPreviewHandler(svc)),
+		"skills/resolution_apply":   platformrpc.StrictHandler(skillResolutionApplyHandler(svc)),
 	}
 }
 
@@ -319,7 +261,7 @@ func skillsListHandler(svc Service) func(context.Context, skillListParams) (any,
 		if err != nil {
 			return nil, skillRPCError(err)
 		}
-		return map[string]any{"skills": list}, nil
+		return skillsListPayload(list), nil
 	}
 }
 
@@ -462,6 +404,23 @@ func skillResolutionPreviewHandler(svc Service) func(context.Context, skillResol
 	}
 }
 
+func skillResolutionApplyHandler(svc Service) func(context.Context, skillResolutionApplyParams) (any, error) {
+	return func(ctx context.Context, p skillResolutionApplyParams) (any, error) {
+		if err := requireRequestCWD(p.CWD); err != nil {
+			return nil, err
+		}
+		impl, ok := svc.(*service)
+		if !ok {
+			return nil, skillRPCError(errors.New("skill resolution service is not configured"))
+		}
+		result, err := impl.applySkillResolution(WithCWD(ctx, p.CWD), p)
+		if err != nil {
+			return nil, skillRPCError(err)
+		}
+		return result, nil
+	}
+}
+
 func scopedSkillContext(ctx context.Context, cwd string) (context.Context, error) {
 	if err := requireRequestCWD(cwd); err != nil {
 		return nil, err
@@ -474,76 +433,4 @@ func expandSkillWithApproval(ctx context.Context, svc Service, p skillExpandPara
 		return impl.expandWithApproval(ctx, p)
 	}
 	return svc.Expand(ctx, p)
-}
-
-// skillCandidateApproveHandler delegates to ApproveCandidate after
-// scoping cwd onto the request context. CreateSkill (called by
-// ApproveCandidate) enforces ErrMissingCWD when cwd is absent, so the
-// scopedSkillContext call here is the explicit happy-path injection.
-func skillCandidateApproveHandler(svc Service) func(context.Context, approveCandidateRPCParams) (any, error) {
-	return func(ctx context.Context, p approveCandidateRPCParams) (any, error) {
-		scopedCtx, err := scopedSkillContext(ctx, p.CWD)
-		if err != nil {
-			return nil, err
-		}
-		callerFP, err := repofingerprint.Compute(p.CWD)
-		if err != nil {
-			return nil, skillRPCError(ErrCallerFingerprintRequired)
-		}
-		result, err := svc.ApproveCandidate(scopedCtx, ApproveCandidateParams{
-			CandidateID:           p.CandidateID,
-			ApprovedBy:            p.ApprovedBy,
-			Reason:                p.Reason,
-			CallerRepoFingerprint: callerFP,
-		})
-		if err != nil {
-			return nil, skillRPCError(err)
-		}
-		return result, nil
-	}
-}
-
-func skillCandidateRejectHandler(svc Service) func(context.Context, rejectCandidateRPCParams) (any, error) {
-	return func(ctx context.Context, p rejectCandidateRPCParams) (any, error) {
-		if err := requireRequestCWD(p.CWD); err != nil {
-			return nil, err
-		}
-		callerFP, err := repofingerprint.Compute(p.CWD)
-		if err != nil {
-			return nil, skillRPCError(ErrCallerFingerprintRequired)
-		}
-		if err := svc.RejectCandidate(ctx, RejectCandidateParams{CandidateID: p.CandidateID, Reason: p.Reason, CallerRepoFingerprint: callerFP}); err != nil {
-			return nil, skillRPCError(err)
-		}
-		return map[string]bool{"ok": true}, nil
-	}
-}
-
-func skillCandidateGetHandler(svc Service) func(context.Context, getCandidateRPCParams) (any, error) {
-	return func(ctx context.Context, p getCandidateRPCParams) (any, error) {
-		row, err := svc.GetCandidateByID(ctx, p.CandidateID)
-		if err != nil {
-			return nil, skillRPCError(err)
-		}
-		return row, nil
-	}
-}
-
-// skillCandidateListPendingHandler is a read-only paginated list. The
-// returned CandidateListItem values exclude SkillMD and RedactedSample.
-func skillCandidateListPendingHandler(svc Service) func(context.Context, listPendingCandidatesRPCParams) (any, error) {
-	return func(ctx context.Context, p listPendingCandidatesRPCParams) (any, error) {
-		if err := requireRequestCWD(p.CWD); err != nil {
-			return nil, err
-		}
-		callerFP, err := repofingerprint.Compute(p.CWD)
-		if err != nil {
-			return nil, skillRPCError(ErrCallerFingerprintRequired)
-		}
-		rows, err := svc.ListPendingCandidates(ctx, callerFP, p.Limit, p.Offset)
-		if err != nil {
-			return nil, skillRPCError(err)
-		}
-		return listPendingCandidatesRPCResult{Candidates: rows}, nil
-	}
 }
