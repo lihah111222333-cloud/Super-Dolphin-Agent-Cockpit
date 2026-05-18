@@ -1606,6 +1606,18 @@ a,
   width: 100%;
 }
 
+.unified-chat-page .chat-send-failure-notice {
+  margin: 6px 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 124, 124, 0.36);
+  border-radius: 12px;
+  background: rgba(140, 30, 30, 0.18);
+  color: var(--error);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-line;
+}
+
 .unified-chat-page .workspace-bottom-row {
   --activity-panel-base-height: 124px;
   --activity-panel-overlay-height: var(--activity-panel-base-height);

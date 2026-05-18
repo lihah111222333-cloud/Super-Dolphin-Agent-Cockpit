@@ -75,6 +75,26 @@ function alertOrWarnUserMessage(message, extra = {}) {
   warnUserMessage(detail, extra);
 }
 
+function errorTextCandidates(error) {
+  return [
+    error?.message,
+    error?.cause?.message,
+    typeof error === 'string' ? error : '',
+  ].map((item) => (item || '').toString()).filter(Boolean);
+}
+
+function formatMissingWorkDirSendNotice(error) {
+  const text = errorTextCandidates(error).join('\n').replace(/\\"/g, '"');
+  const lower = text.toLowerCase();
+  if (!lower.includes('pool work dir stat') || !lower.includes('no such file or directory')) {
+    return '';
+  }
+  const match = text.match(/pool work dir stat "([^"]+)"/i);
+  const path = (match?.[1] || '').toString().trim();
+  const target = path || '后端未返回具体路径';
+  return `发送失败：该会话的工作目录已不存在。\n\n${target}\n\n请恢复该目录，或新建/重新绑定会话后继续。`;
+}
+
 function formatCompactErrorMessage(error) {
   const code = (error?.code || '').toString().trim().toLowerCase();
   if (code === 'compact_timeout') return '压缩超时：未收到完成信号，请重试。';
@@ -147,11 +167,13 @@ async function performSend({
   clearLaunchSkillSelection,
   resetSelectedComposerSkills,
   scheduleScrollToBottom,
+  sendFailureNotice,
 }) {
   let threadId = (selectedThreadId.value || '').toString().trim();
   const text = composer.state.text;
   const attachments = [...composer.state.attachments];
   if (!text.trim() && attachments.length === 0) return;
+  sendFailureNotice.value = '';
 
   let skillSelection = EMPTY_SKILL_SELECTION;
   const actionCwd = resolveProjectActionCwd(projectStore, windowCwd);
@@ -188,7 +210,9 @@ async function performSend({
     });
     // Restore composer content so the user doesn't lose their message
     composer.state.text = savedText;
-    savedAttachments.forEach((a) => composer.addAttachment(a));
+    composer.state.attachments = [...savedAttachments];
+    sendFailureNotice.value = formatMissingWorkDirSendNotice(err);
+    throw err;
   }
 }
 
@@ -215,6 +239,7 @@ export function useThreadActions(props, deps) {
   } = deps;
 
   const recoveringSelected = ref(false);
+  const sendFailureNotice = ref('');
 
   const launchOne = () => resolveLaunchStartPayload(composer?.state?.text || '', modeKey.value, resolveLaunchSkillSelectionForStart)
     .then(({ startOptions }) => props.threadStore.startThread(resolveProjectActionCwd(props.projectStore, props.windowCwd), startOptions))
@@ -231,13 +256,10 @@ export function useThreadActions(props, deps) {
     selectedThreadId,
     composer,
     modeKey,
-    threadStore: props.threadStore, projectStore: props.projectStore,
-    windowCwd: props.windowCwd,
+    threadStore: props.threadStore, projectStore: props.projectStore, windowCwd: props.windowCwd,
     resolveComposerSkillSelectionForSend,
     resolveLaunchSkillSelectionForStart,
-    clearLaunchSkillSelection,
-    resetSelectedComposerSkills,
-    scheduleScrollToBottom,
+    clearLaunchSkillSelection, resetSelectedComposerSkills, scheduleScrollToBottom, sendFailureNotice,
   });
 
   async function interruptCurrent(control) {
@@ -448,7 +470,7 @@ export function useThreadActions(props, deps) {
   const setCmdCardCols = (value) => setCmdCardColsValue(cmdCardCols, value);
 
   return {
-    recoveringSelected,
+    recoveringSelected, sendFailureNotice,
     launchOne,
     getThreadConfig,
     setThreadConfig,

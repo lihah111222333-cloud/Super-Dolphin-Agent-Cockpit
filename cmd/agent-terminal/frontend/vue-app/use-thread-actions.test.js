@@ -46,16 +46,17 @@ function createThreadActions(overrides = {}) {
     projectStore: { state: { active: '/repo' } },
     ...overrides.props,
   };
+  const composerState = reactive({
+    text: overrides.text ?? '',
+    attachments: overrides.attachments ?? [],
+  });
   const deps = {
     selectedThreadId: ref(overrides.selectedThreadId ?? ''),
     modeKey: ref(overrides.modeKey ?? 'chat'),
     isCmd: ref(overrides.isCmd ?? false),
     composer: {
-      state: reactive({
-        text: overrides.text ?? '',
-        attachments: overrides.attachments ?? [],
-      }),
-      clearComposer: vi.fn(),
+      state: composerState,
+      clearComposer: vi.fn(() => { composerState.text = ''; composerState.attachments = []; }),
     },
     layoutMode: ref(overrides.layoutMode ?? 'mix'),
     cmdCardCols: ref(overrides.cmdCardCols ?? 3),
@@ -348,13 +349,43 @@ describe('useThreadActions', () => {
       text: 'will fail',
       attachments: [{ path: '/file.txt' }],
     });
-    vm.deps.composer.addAttachment = vi.fn();
     vm.threadStore.sendMessage.mockRejectedValueOnce(new Error('network'));
 
-    await vm.send();
+    await expect(vm.send()).rejects.toThrow('network');
 
     expect(vm.deps.composer.state.text).toBe('will fail');
-    expect(vm.deps.composer.addAttachment).toHaveBeenCalledWith({ path: '/file.txt' });
+    expect(vm.deps.composer.state.attachments).toEqual([{ path: '/file.txt' }]);
+  });
+
+  it('send: clears stale missing-workdir notices before a later non-workdir failure', async () => {
+    const vm = createThreadActions({
+      selectedThreadId: 'thread-live',
+      text: 'retry',
+    });
+    vm.sendFailureNotice.value = '旧的工作目录提示';
+    vm.threadStore.sendMessage.mockRejectedValueOnce(new Error('network'));
+
+    await expect(vm.send()).rejects.toThrow('network');
+
+    expect(vm.sendFailureNotice.value).toBe('');
+  });
+
+  it('send: shows a Chinese notice when the thread worktree directory is missing', async () => {
+    const vm = createThreadActions({
+      selectedThreadId: 'thread-live',
+      text: '继续',
+      attachments: [{ path: '/file.txt' }],
+    });
+    vm.threadStore.sendMessage.mockRejectedValueOnce(new Error('resolve session: auto-resume failed: codexapp: spawn "/codex-home": codexapp: pool work dir stat "/repo/.worktrees/missing": stat /repo/.worktrees/missing: no such file or directory'));
+
+    await expect(vm.send()).rejects.toThrow('pool work dir stat');
+
+    expect(globalThis.window.alert).not.toHaveBeenCalled();
+    expect(vm.deps.composer.state.text).toBe('继续');
+    expect(vm.deps.composer.state.attachments).toEqual([{ path: '/file.txt' }]);
+    expect(vm.sendFailureNotice.value).toContain('该会话的工作目录已不存在');
+    expect(vm.sendFailureNotice.value).toContain('/repo/.worktrees/missing');
+    expect(vm.sendFailureNotice.value).toContain('请恢复该目录，或新建/重新绑定会话后继续');
   });
 
   it('interruptCurrent: calls stopThread and invokes confirm callback on success', async () => {
