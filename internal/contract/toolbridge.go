@@ -29,18 +29,6 @@ type ToolCallRawMessage struct {
 	Params json.RawMessage
 }
 
-// SkillSectionReader is a pure-function port for reading a reference section
-// file from the skill cache directory. The production implementation is
-// skilllibrary.ReadSection.
-type SkillSectionReader func(cacheDir, name, anchor string) ([]byte, error)
-
-// SkillCallRecorder is a narrow port for recording skill call events used by
-// FBSD (frequency-based skill disclosure). The production implementation is
-// fbsd.Tracker. nil-safe: callers must guard nil before calling Record.
-type SkillCallRecorder interface {
-	Record(name, anchor string)
-}
-
 // CodexToolHandlerSetter is the narrow port for binding a tool handler
 // callback into the Codex ServerManager. The production implementation is
 // codexapp.ServerManager.

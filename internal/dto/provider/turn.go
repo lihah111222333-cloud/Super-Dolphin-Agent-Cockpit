@@ -32,24 +32,31 @@ type InputItem = shareddto.InputItem
 
 // SkillRef 是 turn / steer 请求中携带的 skill 引用。
 //
-// P2/P3 cutover 之后，注入模式不再由 Mode 字段驱动：
-//   - Codex 走 base instructions L1-C 元数据 + skill_read_section 动态工具按需取节
-//   - Claude 走原生 .claude/skills/ 目录 + CLI 自动加载
+// V1 cutover 之后，注入模式不再由 Mode 字段驱动：
+//   - Codex 通过 provider-native .codex/skills mirror 自己发现 skills
+//   - Claude 通过 provider-native .claude/skills mirror / provider home skills 自己发现 skills
 //   - 旧 Mode/Effective() 三态已无生产消费方，spec §11 同步清理。
 //
 // 字段语义：
 //   - Name：skill 标识符。
+//   - Key / Scope / PersonalType / Path：UI 明确选择某个同名 skill 时传入的
+//     稳定引用元数据；provider 侧不读取正文，但 turn 层用它避免同名选择退化为
+//     name-only。
 //   - Version：skill 版本或内容 hash（可选）；用于去重键 `name@version`。
 //   - Prompt：全文 SKILL.md body（仅 hydration 路径用作 fallback 容器；
 //     codex/claude provider 都不再消费此字段拼 turn input）。
-//   - Summary：摘要文本（manifest L1-C 描述与 hydration 输出）。
+//   - Summary：摘要文本（UI/观测与 hydration 输出）。
 //   - Source：决策来源，供观测性日志划分 manual/force/trigger/expand/native。
 type SkillRef struct {
-	Name    string      `json:"name"`
-	Version string      `json:"version,omitempty"`
-	Prompt  string      `json:"prompt,omitempty"`
-	Summary string      `json:"summary,omitempty"`
-	Source  SkillSource `json:"source,omitempty"`
+	Key          string      `json:"key,omitempty"`
+	Name         string      `json:"name"`
+	Scope        string      `json:"scope,omitempty"`
+	PersonalType string      `json:"personalType,omitempty"`
+	Path         string      `json:"path,omitempty"`
+	Version      string      `json:"version,omitempty"`
+	Prompt       string      `json:"prompt,omitempty"`
+	Summary      string      `json:"summary,omitempty"`
+	Source       SkillSource `json:"source,omitempty"`
 }
 
 // SkillSource 追踪 SkillRef 的决策来源，供日志 / 断点 / 断言使用。
@@ -65,7 +72,7 @@ const (
 	SkillSourceTrigger SkillSource = "trigger"
 	// SkillSourceExpand：模型调用 skill_expand 后的二次注入。
 	SkillSourceExpand SkillSource = "expand"
-	// SkillSourceNative：Claude CLI 原生 .claude/skills/，本 harness 不注入 body 仅列出元数据。
+	// SkillSourceNative：provider-native skills；本 harness 不注入 body，仅记录元数据。
 	SkillSourceNative SkillSource = "native"
 )
 

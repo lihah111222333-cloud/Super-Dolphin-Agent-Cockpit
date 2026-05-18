@@ -110,10 +110,12 @@ type StartRequest struct {
 	MCPSnapshot                  contract.MCPSnapshot
 	SessionFlags                 map[string]bool
 	Config                       map[string]any
-	// LaunchSkillNames / ForceLaunchSkills p20.3 §4.3：public payload 投影的
-	// launch skill 载荷。additive optional：nil/false 时下游行为与旧 payload
-	// 完全一致。本字段只负责运输，真正消费由 p20.4 / p20.7 接盘。
+	// LaunchSkillNames / ForceLaunchSkills are legacy additive launch-time
+	// skill selection fields. They remain on the public payload for backward
+	// compatibility; V1 skill runtime uses provider-native mirrors instead of
+	// prompt catalog injection.
 	LaunchSkillNames  []string
+	LaunchSkillRefs   []dto.SkillRef
 	ForceLaunchSkills bool
 
 	// AgentKey is optional. When non-empty, the service skips router
@@ -210,6 +212,7 @@ type ResumeRequest struct {
 	Effort                   string
 	PromptSnapshot           contract.PromptAssemblySnapshot
 	ConfigOverride           dto.ThreadConfigPatch
+	ClaudeHome               string
 	CodexHome                string
 	CodexInstanceKey         string
 	CodexModelProvider       string

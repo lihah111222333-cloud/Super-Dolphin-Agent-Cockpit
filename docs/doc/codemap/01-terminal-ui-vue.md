@@ -9,13 +9,13 @@
 - 应用挂载从 `main.js:6-17` 开始，`bootstrap()` 最终 `createApp(AppRoot).mount('#app')`。
 - 根组件 `AppRoot` 负责页面切换、事件订阅、项目作用域下发与 chat/dashboard bootstrap（`app.js:115-389`）。
 - 聊天工作台总装点在 `pages/UnifiedChatPage.js:247-530`，模板出口在 `pages/UnifiedChatPage.template.js:1-203`。
-- 系统桥统一收口在 `services/api.js:195-289`；技能 RPC 薄封装在 `services/skills-api.js:3-14`。
+- 系统桥统一收口在 `services/api.js:195-289`；技能 RPC 薄封装在 `services/skills-api.js:3-89`。
 
 ## 2. 五层职责切片
 
 | 层 | 职责切片 | 代表锚点 |
 |---|---|---|
-| `services/` | 唯一系统桥；封装 Wails by-ID / RPC、技能 API、日志回传；不持有页面响应式状态。 | `services/api.js:195-289`, `services/skills-api.js:3-14` |
+| `services/` | 唯一系统桥；封装 Wails by-ID / RPC、技能 API、日志回传；不持有页面响应式状态。 | `services/api.js:195-289`, `services/skills-api.js:3-89` |
 | `stores/` | 全局状态中心；负责 snapshot/live patch、thread action、project scope、composer 输入。 | `stores/threads.js:36-151`, `stores/projects.js:14-209`, `stores/composer.js:5-307`, `stores/thread-prefs.js:37-190` |
 | `composables/` | 把页面交互拆成 orchestration 单元；连接 store 与 view，不直接持有模板。 | `composables/useThreadActions.js:179-449`, `composables/useLaunchSkillSelection.js:53-281`, `composables/useSkillPreview.js:19-250`, `composables/useDagDetail.js:36-119`, `composables/useThreadSelection.js:16-91` |
 | `components/` | 视图与 emit 边界；负责局部渲染、局部交互、少量近边界系统调用。 | `components/ChatTimeline.js:18-279`, `components/LaunchSkillPicker.js:22-140`, `components/DagDetailModal.js:17-99`, `components/DiffPanel.js:257-458` |
@@ -99,6 +99,7 @@ flowchart LR
 | `useThreadActions` | `threadStore`、`projectStore`、`selectedThreadId`、`composer`、技能选择 resolver（`pages/UnifiedChatPage.js:151-169`） | 组装 `launchOne/send/interrupt/compact/recover/openNewWindow`。 | 调 `thread/start`、`turn/start`、`turn/interrupt`、`ui/openNewWindow`；清空/恢复 composer，更新选中 thread，alert/log（`composables/useThreadActions.js:120-449`）。 |
 | `useSkillPreview` | `composer`、`selectedThreadId`、`skillRevision`（`pages/UnifiedChatPage.js:350-366`） | 对已有 thread 做技能预览、防抖、force/manual 合并。 | 调 `skills/match/preview`，更新局部 refs，记录 warn/debug（`composables/useSkillPreview.js:19-250`）。 |
 | `useLaunchSkillSelection` | `composer`、`selectedThreadId`、`featureSource`、`activeCwdSource`（`pages/UnifiedChatPage.js:88-116`） | 对 blank-thread 拉目录、预估技能匹配、生成 launch `startOptions`。 | 调 `services/skills-api.listSkills/previewSkillMatches`，在 `threadId/text/skillRevision/cwd` 变化时重置或刷新本地选择（`composables/useLaunchSkillSelection.js:53-281`）。 |
+| `useSkillResolutions` | `SkillsPage` 的 active cwd、notice/emit（`pages/SkillsPage.js:141-145`） | 读取 mirror/canonical 冲突，按 provider entry 生成 resolution action，mutating action 先生成 preview/proof。 | 调 `skills/resolution_list`、`skills/resolution_preview`、确认后才调 `skills/resolution_apply` 并刷新 skill/resolution 列表（`composables/useSkillResolutions.js:12-172`）。 |
 | `useTimelineItems + useTimelineHelpers` | `props.items/pinnedPlan*` + `approvalRequestId/commandTitle`（`components/ChatTimeline.js:65-113`） | 过滤/折叠 timeline、生成角色/状态/plan spec/copy helpers。 | 记录 fallback key/perf 日志，触发 clipboard copy（`components/timeline/useTimelineItems.js:69-177`, `components/timeline/useTimelineHelpers.js:37-317`）。 |
 
 - caller xref：`useThreadActions` 仅由 `pages/UnifiedChatPage.js:152` 调用；`useLaunchSkillSelection` 仅由 `pages/UnifiedChatPage.js:109` 调用；timeline 能力入口是 `components/ChatTimeline.js:74,109`。
@@ -195,17 +196,29 @@ sequenceDiagram
 |---|---|---|
 | `components/LaunchSkillPicker.js` | `components/LaunchSkillPicker.js:22-140` | blank-thread 专用技能面板；合并 `matches + skills` 生成 `skillEntries`，把 `matchedBy === 'force'` 标为 `autoApplied` 并禁用取消，向外只发 `toggle-skill/select-all/clear/refresh`。 |
 | `composables/useLaunchSkillSelection.js` | `composables/useLaunchSkillSelection.js:21-29,53-281` | 首发技能编排器；负责 feature merge、技能目录拉取、preview 防抖、manual/force 合并，以及 `resolveLaunchSkillSelectionForStart()` 产出 launch `startOptions`。 |
-| `services/skills-api.js` | `services/skills-api.js:3-14` | 技能 RPC 薄封装；`listSkills(cwd)` -> `callAPI('skills/list', { cwd })`，`previewSkillMatches()` -> `callAPI('skills/match/preview', ...)`。 |
+| `services/skills-api.js` | `services/skills-api.js:3-89` | 技能 RPC 薄封装；`listSkills(cwd)` -> `callAPI('skills/list', { cwd })`，`previewSkillMatches()` -> `callAPI('skills/match/preview', ...)`，resolution wrapper 统一 snake_case payload。 |
 
 - `LaunchSkillPicker` 由 `pages/UnifiedChatPage.template.js:129-146` 在 `launchSkillSelectionEnabled && !selectedThreadId` 条件下挂载，和已有 thread 的 composer preview 是两条链路。
 - `useLaunchSkillSelection()` 的 blank-thread 本地状态是 `launchAvailableSkills / launchSkillMatches / launchManualSkillNames / launchSkillSelectionLoading`；目录刷新、preview、start 前最终解析都集中在这一处（`composables/useLaunchSkillSelection.js:61-72,126-226`）。
 
-### 8.2 `ComposerBar` legacy selector gate
+### 8.2 `SkillsPage` 本地技能编辑与冲突处理
+
+| 文件 | 锚点 | 职责 |
+|---|---|---|
+| `pages/SkillsPage.js` | `pages/SkillsPage.js:19-205,302-365` | 技能管理页面；列表卡片保留 `personal_type`，编辑/导入透传 personal 类型；冲突区展示 provider entry、preview hash/path/diff，并把 mutating action 明确拆成“预览 -> 确认应用”。 |
+| `composables/useSkillEditor.js` | `composables/useSkillEditor.js:407-624` | 管理 SkillsPage 表单、导入、保存与 personal/project scope；保存时把 `scope + personal_type` 传给 `skills/local/write`。 |
+| `composables/useSkillResolutions.js` | `composables/useSkillResolutions.js:12-172` | resolution 状态机；`onApplyResolution()` 只生成 preview，`confirmResolutionPreview()` 带 `preview_id + preview_hash` 调 apply。 |
+| `services/skills-api.js` | `services/skills-api.js:16-89` | `skills/local/write/importDir` 透传 `personal_type`；`skills/resolution_*` wrapper 负责 camelCase 到 snake_case。 |
+
+- `resolutionPreview` 是 mutating action 的前置门：`sync_back_to_canonical`、`canonical_overwrite_mirror`、`save_as_new_skill` 等必须先展示 proof/diff，只有用户点确认后才写 canonical 或 mirror（`composables/useSkillResolutions.js:103-150`）。
+- provider-native mirror 的生产语义不在本卷展开：后端 canonical/effective set、mirror drift、conflict fail-closed 看 `07-module-read.md` 与 `09-provider.md`。
+
+### 8.3 `ComposerBar` legacy selector gate
 
 - `ComposerBar` 的 `showLegacySkillSelector` 不是单纯看 feature flag：只有 **blank-thread + `launchSkillSelectionEnabled=true`** 时才隐藏 legacy selector；已有 thread 即使开关打开也继续显示旧 selector（`components/ComposerBar.js:77-83`）。
 - 因而模板层形成双轨：blank-thread 走 `LaunchSkillPicker`，已有 thread 继续走 `ComposerBar` 内部的 legacy selector / composer preview。
 
-### 8.3 blank-thread 首发发送顺序补丁
+### 8.4 blank-thread 首发发送顺序补丁
 
 - `performSend()` 在 blank-thread 固定先跑 `resolveLaunchStartPayload()`，再 `threadStore.startThread()`，最后才 `threadStore.sendMessage()`；中间仅在成功拿到 `threadId` 后执行一次 `clearLaunchSkillSelection()`（`composables/useThreadActions.js:139-158`）。
 - `resolveLaunchStartPayload()` 自身会把 `focusMode` 固化到 `startOptions`，并仅在 `enabled && (selectedSkills.length > 0 || manualSkillSelection)` 时把 `selectedSkills/manualSkillSelection` 带进 `thread/start`（`composables/useThreadActions.js:100-118`）。
@@ -235,7 +248,8 @@ sequenceDiagram
 
 - `use-thread-actions.test.js:230-267`：验证 blank-thread 首发会先解析 launch skill，再 `startThread`，最后把同一组 `selectedSkills/manualSkillSelection` 复用于 `sendMessage`。
 - `composer-bar.behavior.test.js:159-173`：验证 `launchSkillSelectionEnabled` 只在 blank-thread 隐藏 legacy selector；已有 thread 保持显示。
-- `unified-chat-component.test.js:370-388`：验证 launch skill catalog 请求会带活动 cwd。
+- `unified-chat-component.test.js:370-388`：验证 legacy launch skill selection 请求会带活动 cwd；当前生产 skill 发现依赖 provider-native mirror，不再依赖 prompt catalog 注入。
+- `skills-page.test.js` + `skills-api.test.js` + `use-skill-editor-personal.test.js` + `use-skill-resolutions.test.js`：验证 Skills 管理页保留 personal type、local write/import payload、resolution list/preview/apply payload，以及 mutating action 必须经 preview 确认后才 apply。
 - `system-prompt-page.behavior.test.js:65-175`：验证 `message-only user not found` 不触发 fallback，结构化 404 会进入 readonly + `dashboard/prompts` hydrate。
 - `app-root.behavior.test.js:131-159` + `thread-store.runtime-bridge-e2e.test.js:90-147`：验证 `onBridgeEvent` 订阅装配与 bridge patch 入 store 的端到端链路。
 

@@ -79,12 +79,16 @@ type StartSessionRequest struct {
 	StartAssembly StartAssembly  `json:"startAssembly"`
 	Config        map[string]any `json:"config,omitempty"`
 
-	// LaunchSkillNames p20.3 §4.3：UI launch 时已知的 skill 名称列表。
-	// additive optional carrier：旧 caller 不写时行为完全不变。p20.3
-	// 只打通，不消费；p20.4/p20.7 将把它们并入 baseInstructions / manifest。
+	// LaunchSkillNames is the legacy additive launch-time skill selection
+	// carrier. The current production path does not turn this into
+	// baseInstructions, manifests, or dynamic skill tools; provider drivers
+	// reconcile provider-native mirrors and let Claude/Codex discover skills.
 	LaunchSkillNames []string `json:"launchSkillNames,omitempty"`
-	// ForceLaunchSkills 对应 UI `manualSkillSelection`：true 时 launch 不再做
-	// auto-match / derivation，所选即所用。同样是 additive optional。
+	// LaunchSkillRefs carries the precise UI launch selection for diagnostics
+	// and same-name preservation. It is not a prompt injection path.
+	LaunchSkillRefs []SkillRef `json:"launchSkillRefs,omitempty"`
+	// ForceLaunchSkills mirrors the legacy UI manualSkillSelection flag.
+	// It is retained for wire compatibility with existing clients.
 	ForceLaunchSkills bool `json:"forceLaunchSkills,omitempty"`
 }
 
@@ -99,6 +103,7 @@ type ResumeSessionRequest struct {
 	Effort                   string                 `json:"effort,omitempty"`
 	PromptSnapshot           PromptAssemblySnapshot `json:"promptSnapshot"`
 	ConfigOverride           ThreadConfigPatch      `json:"configOverride"`
+	ClaudeHome               string                 `json:"claudeHome,omitempty"`
 	CodexHome                string                 `json:"codexHome,omitempty"`
 	CodexInstanceKey         string                 `json:"codexInstanceKey,omitempty"`
 	CodexModelProvider       string                 `json:"codexModelProvider,omitempty"`

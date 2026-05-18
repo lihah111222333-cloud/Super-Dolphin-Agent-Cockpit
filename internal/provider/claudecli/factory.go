@@ -163,9 +163,6 @@ func decodeAssistantMessageBlock(rawBlock json.RawMessage, data map[string]any) 
 		data["call_id"] = strings.TrimSpace(block.ID)
 		data["tool_name"] = strings.TrimSpace(block.Name)
 		data["arguments_preview"] = strings.TrimSpace(string(block.Input))
-		// P6 FBSD 打点：识别 Claude Read 调用是否读取 workspace skill cache 路径，
-		// 命中则异步记录。recorder 未注入 / 非 Read / 路径不匹配 → no-op。
-		recordSkillReadIfApplicable(block.Name, block.Input)
 		return []dto.RawProviderEvent{{EventType: "tool:use_begin", Data: data}}, nil
 	}
 	return nil, nil

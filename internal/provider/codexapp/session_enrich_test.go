@@ -21,7 +21,7 @@ func rawParams(t *testing.T, m map[string]any) RawMessage {
 // TestEnrichToolCallParams_InjectsAgentID 锁核心契约：codex 发的 params 不含 agentId 时，
 // 本函数把 session.agentID 注入。
 func TestEnrichToolCallParams_InjectsAgentID(t *testing.T) {
-	msg := rawParams(t, map[string]any{"name": "skill_expand_body", "arguments": map[string]any{"name": "demo"}})
+	msg := rawParams(t, map[string]any{"name": "test_dynamic_echo", "arguments": map[string]any{"name": "demo"}})
 	out := enrichToolCallParams(msg, "agent-42", "")
 	var got map[string]any
 	if err := json.Unmarshal(out.Params, &got); err != nil {
@@ -30,7 +30,7 @@ func TestEnrichToolCallParams_InjectsAgentID(t *testing.T) {
 	if v, _ := got["agentId"].(string); v != "agent-42" {
 		t.Fatalf("agentId = %q, want agent-42", v)
 	}
-	if v, _ := got["name"].(string); v != "skill_expand_body" {
+	if v, _ := got["name"].(string); v != "test_dynamic_echo" {
 		t.Fatalf("name lost: %q", v)
 	}
 }
@@ -91,7 +91,7 @@ func TestEnrichToolCallParams_BadJSON(t *testing.T) {
 // TestEnrichToolCallParams_PreservesOtherFields 不破坏 arguments / 其他字段。
 func TestEnrichToolCallParams_PreservesOtherFields(t *testing.T) {
 	args := map[string]any{"name": "demo", "anchor": "Usage"}
-	msg := rawParams(t, map[string]any{"name": "skill_expand_body", "arguments": args})
+	msg := rawParams(t, map[string]any{"name": "test_dynamic_echo", "arguments": args})
 	out := enrichToolCallParams(msg, "agent-99", "")
 	if !strings.Contains(string(out.Params), `"anchor":"Usage"`) {
 		t.Fatalf("arguments lost: %s", out.Params)

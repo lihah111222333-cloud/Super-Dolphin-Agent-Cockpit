@@ -87,11 +87,19 @@ describe('useSkillPreview', () => {
   });
 
   it('merges manual selection with force-matched skills when sending', async () => {
-    apiMock.callAPI.mockResolvedValueOnce({
-      matches: [
-        { name: 'ForceSkill', matched_by: 'force', matched_terms: ['@force'] },
-        { name: 'ManualSkill', matched_by: 'trigger', matched_terms: ['manual'] },
-      ],
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'skills/match/preview') {
+        return {
+          matches: [
+            { name: 'ForceSkill', matched_by: 'force', matched_terms: ['@force'] },
+            { name: 'ManualSkill', matched_by: 'trigger', matched_terms: ['manual'] },
+          ],
+        };
+      }
+      if (method === 'skills/list') {
+        return { skills: [] };
+      }
+      return {};
     });
 
     const vm = createSkillPreview();
@@ -106,6 +114,7 @@ describe('useSkillPreview', () => {
     });
     expect(result).toEqual({
       selectedSkills: ['ManualSkill', 'ForceSkill'],
+      selectedSkillRefs: [],
       manualSkillSelection: true,
     });
     expect(vm.composerSkillMatches.value).toEqual([
@@ -115,12 +124,20 @@ describe('useSkillPreview', () => {
   });
 
   it('normalizes preview matches for send resolution with case-insensitive dedupe', async () => {
-    apiMock.callAPI.mockResolvedValueOnce({
-      matches: [
-        { name: 'ForceSkill', matched_by: 'explicit', matched_terms: ['@force', '@FORCE'] },
-        { name: 'forceskill', matchedBy: 'force', matchedTerms: ['@ignored'] },
-        { skill: 'TriggerSkill', matched_by: 'trigger', matched_terms: ['term', 'TERM'] },
-      ],
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'skills/match/preview') {
+        return {
+          matches: [
+            { name: 'ForceSkill', matched_by: 'explicit', matched_terms: ['@force', '@FORCE'] },
+            { name: 'forceskill', matchedBy: 'force', matchedTerms: ['@ignored'] },
+            { skill: 'TriggerSkill', matched_by: 'trigger', matched_terms: ['term', 'TERM'] },
+          ],
+        };
+      }
+      if (method === 'skills/list') {
+        return { skills: [] };
+      }
+      return {};
     });
 
     const vm = createSkillPreview();
@@ -128,6 +145,7 @@ describe('useSkillPreview', () => {
 
     expect(result).toEqual({
       selectedSkills: ['ForceSkill'],
+      selectedSkillRefs: [],
       manualSkillSelection: false,
     });
     expect(vm.composerSkillMatches.value).toEqual([
@@ -137,7 +155,11 @@ describe('useSkillPreview', () => {
   });
 
   it('returns empty normalized matches when preview payload is missing an array', async () => {
-    apiMock.callAPI.mockResolvedValueOnce({ matches: null });
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'skills/match/preview') return { matches: null };
+      if (method === 'skills/list') return { skills: [] };
+      return {};
+    });
 
     const vm = createSkillPreview();
     vm.toggleComposerSelectedSkill('ManualSkill');
@@ -146,9 +168,65 @@ describe('useSkillPreview', () => {
 
     expect(result).toEqual({
       selectedSkills: ['ManualSkill'],
+      selectedSkillRefs: [],
       manualSkillSelection: true,
     });
     expect(vm.composerSkillMatches.value).toEqual([]);
+  });
+
+  it('returns scoped skill refs for active-thread manual and force selections', async () => {
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'skills/match/preview') {
+        return {
+          matches: [
+            { name: 'Deploy', matched_by: 'force', matched_terms: ['@deploy'] },
+          ],
+        };
+      }
+      if (method === 'skills/list') {
+        return {
+          skills: [
+            { name: 'Deploy', scope: 'project', dir: '/repo/.agent/skills/deploy', skill_file: '/repo/.agent/skills/deploy/SKILL.md' },
+            { name: 'Review', scope: 'project', dir: '/repo/.agent/skills/review', skill_file: '/repo/.agent/skills/review/SKILL.md' },
+          ],
+        };
+      }
+      return {};
+    });
+
+    const vm = createSkillPreview();
+    vm.toggleComposerSelectedSkill({
+      name: 'Review',
+      scope: 'project',
+      dir: '/repo/.agent/skills/review',
+      skill_file: '/repo/.agent/skills/review/SKILL.md',
+    });
+
+    const result = await vm.resolveComposerSkillSelectionForSend('thread-1', 'ship @deploy');
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/list', { cwd: '/repo' });
+    expect(result).toEqual({
+      selectedSkills: ['Review', 'Deploy'],
+      selectedSkillRefs: [
+        {
+          key: 'project::review:/repo/.agent/skills/review',
+          name: 'Review',
+          scope: 'project',
+          personalType: '',
+          path: '/repo/.agent/skills/review',
+          source: 'manual',
+        },
+        {
+          key: 'project::deploy:/repo/.agent/skills/deploy',
+          name: 'Deploy',
+          scope: 'project',
+          personalType: '',
+          path: '/repo/.agent/skills/deploy',
+          source: 'force',
+        },
+      ],
+      manualSkillSelection: true,
+    });
   });
 
   it('normalizes match class and reason labels', () => {
@@ -158,8 +236,8 @@ describe('useSkillPreview', () => {
     expect(vm.composerSkillMatchClass({ matchedBy: 'explicit' })).toBe('explicit');
     expect(vm.composerSkillMatchClass({ matchedBy: 'something-else' })).toBe('trigger');
 
-    expect(vm.composerSkillMatchReason({ matchedBy: 'explicit', matchedTerms: [' Alpha ', '', 'Beta '] })).toBe('显式提及: Alpha / Beta');
-    expect(vm.composerSkillMatchReason({ matchedBy: 'force', matchedTerms: [] })).toBe('强制词');
+    expect(vm.composerSkillMatchReason({ matchedBy: 'explicit', matchedTerms: [' Alpha ', '', 'Beta '] })).toBe('直接提到: Alpha / Beta');
+    expect(vm.composerSkillMatchReason({ matchedBy: 'force', matchedTerms: [] })).toBe('自动推荐');
   });
 
   it('keeps effective selected skill names ordered and de-duplicated', async () => {

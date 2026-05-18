@@ -39,8 +39,9 @@ func buildRPCPrepareInput(p turnStartParams, session contract.Session, threadRun
 		SessionFlags:                 p.SessionFlags,
 		ThreadRuntimeConfig:          threadRuntimeConfig,
 	}, prepareSkillSpec{
-		Selected: p.SelectedSkills,
-		Derived:  inputSkills,
+		Selected:     p.SelectedSkills,
+		SelectedRefs: p.SelectedSkillRefs,
+		Derived:      inputSkills,
 	}, session)
 }
 
@@ -252,8 +253,9 @@ func turnSteerHandler(svc Service, resolver contract.SessionResolver, capResolve
 				SessionFlags:                 p.SessionFlags,
 				ThreadRuntimeConfig:          threadRuntimeConfig,
 			}, prepareSkillSpec{
-				Selected: p.SelectedSkills,
-				Derived:  inputSkills,
+				Selected:     p.SelectedSkills,
+				SelectedRefs: p.SelectedSkillRefs,
+				Derived:      inputSkills,
 			}, session))
 			if err != nil {
 				return nil, err

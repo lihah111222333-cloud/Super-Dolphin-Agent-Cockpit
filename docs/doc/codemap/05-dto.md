@@ -266,7 +266,7 @@ flowchart LR
 | P19（DTO 纯化） | `RawProviderEvent` / `BusRawProviderEvent` 保留，`EventTranslator` 移到 `internal/provider/unified/event_map.go:26` | raw carrier 与 translator contract 彻底分层 | `internal/dto/provider/event.go:6`, `:14` |
 | P19（DTO 纯化） | `shared.EventHeader` 家族保留，事件时间 helper 移到 `internal/platform/shared/timeparse.go:43` | shared DTO 现仅保留常量与 Header | `internal/dto/shared/event.go:55` |
 | P20.1（skill progressive disclosure） | `SkillRef` 扩成 `Name/Version/Mode/Prompt/Summary/Source`；新增 `SkillMode` / `SkillSource` | 已有 DTO 合约测试锁定兼容行为 | `internal/dto/provider/turn.go:44`, `:54`, `:104`; `internal/dto/provider/turn_test.go:12` |
-| P20.3（launch skill carrier） | `StartSessionRequest` 新增 `LaunchSkillNames` / `ForceLaunchSkills` | `thread/start` 已透传到两家 provider driver | `internal/dto/provider/session.go:64`, `:68`; `internal/module/thread/start_session.go:152` |
+| P20.3（legacy launch skill carrier） | `StartSessionRequest` 保留 `LaunchSkillNames` / `ForceLaunchSkills` | 仅作 backward-compatible wire carrier；V1 生产链路不再把它转成 prompt catalog / manifest / dynamic skill tool，Claude/Codex 由 provider-native mirror 发现 skill | `internal/dto/provider/session.go:64`, `:68`; `internal/module/thread/start_session.go:152` |
 
 ## 7. 文档 / 代码不符项（本轮核对结论）
 
@@ -704,7 +704,7 @@ graph TD
 | P19 | `RawProviderEvent` / `BusRawProviderEvent` 与 `EventTranslator` 分层 | raw carrier 与 translator contract 已彻底拆开，职责稳定 | `internal/dto/provider/event.go:6`, `:14`, `internal/provider/unified/event_map.go:26` |
 | P19 | `shared.EventHeader` 家族只保留头结构 | 事件时间 helper 已迁到 platform 层，DTO 纯数据边界稳定 | `internal/dto/shared/event.go:55`, `internal/platform/shared/timeparse.go:43` |
 | P20 | `SkillRef/SkillMode/SkillSource` | DTO 合约测试已锁定兼容读取、非法 mode 降级、source 校验 | `internal/dto/provider/turn.go:44`, `:54`, `:104`, `internal/dto/provider/turn_test.go:12`, `:112`, `:179` |
-| P20 | `StartSessionRequest.LaunchSkillNames/ForceLaunchSkills` | launch skill carrier 已打通 thread→driver，旧 caller 不写时行为保持不变 | `internal/dto/provider/session.go:67`, `:70`, `internal/module/thread/start_session.go:152` |
+| P20 | `StartSessionRequest.LaunchSkillNames/ForceLaunchSkills` | legacy launch skill carrier 已打通 thread→driver；旧 caller 不写时行为保持不变，当前不参与 skill 注入 | `internal/dto/provider/session.go:67`, `:70`, `internal/module/thread/start_session.go:152` |
 
 ### 8.9 旧名纠偏复核
 

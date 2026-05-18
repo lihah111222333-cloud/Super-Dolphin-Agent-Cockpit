@@ -110,7 +110,7 @@ sequenceDiagram
 
 - `Start` 真正入口是 `internal/module/thread/lifecycle.go:77-124`。
 - `PromptAssemblyService` 只在 start 路径前置装配；`buildStartAssemblyInput` 先经 wrapper 准备 scratchpad build ctx，再把 launch 技能、cwd、git/worktree、MCP snapshot 一次性带入 `contract.StartInput`：`internal/module/thread/start_session_helpers.go:28-35`、`internal/module/thread/start_session_helpers.go:37-72`；对应 runtime config 落盘/透传由 `buildStartSessionConfig(...)` 负责：`internal/module/thread/start_session_helpers.go:134-189`。
-- `startSession` 再把 `StartAssembly + Config + LaunchSkillNames/ForceLaunchSkills` 投影到 provider DTO：`internal/module/thread/start_session.go:142-166`。
+- `startSession` 再把 `StartAssembly + Config + LaunchSkillNames/ForceLaunchSkills` 投影到 provider DTO；其中 `LaunchSkillNames/ForceLaunchSkills` 是 legacy carrier，不触发 prompt catalog 注入：`internal/module/thread/start_session.go:142-166`。
 - 真正的 `thread.Started` 发布点是 `persistStartedThread -> publishThreadStarted`，不是 RPC handler：`internal/module/thread/lifecycle_helpers.go:218-229`、`internal/module/thread/service.go:352-361`。
 
 #### B. `thread/resume`
@@ -570,7 +570,7 @@ sequenceDiagram
     UI->>UI: resolveLaunchStartPayload()
     UI->>TS: startThread(cwd, startOptions)
     TS->>TH: thread/start(selectedSkills, manualSkillSelection)
-    TH->>T: Start(LaunchSkillNames, ForceLaunchSkills)
+    TH->>T: Start(legacy LaunchSkillNames, ForceLaunchSkills)
     UI->>SM: sendMessage(threadId, text, attachments, selectedSkills)
     SM->>TURN: turn/start(input, selectedSkills, manualSkillSelection)
     TURN->>TVC: PrepareTurn()
@@ -584,15 +584,17 @@ sequenceDiagram
    - `resolveLaunchStartPayload()`：`cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js:100-118`
    - blank-thread 首发分叉点在 `performSend()`：`cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js:139-158`；其中 `139-140` 先 `startThread(...)`，`158-162` 紧接着把 turn 载荷送进 `threadStore.sendMessage(...)`
 2. `startThread()` 把 launch 侧 `selectedSkills/manualSkillSelection` 送进 `thread/start`：`cmd/agent-terminal/frontend/vue-app/stores/thread-actions-helpers.js:288-318`
-3. `thread/start` RPC 把它们归一化为 `LaunchSkillNames/ForceLaunchSkills`：`internal/module/thread/rpc.go:94-148`
+3. `thread/start` RPC 把它们归一化为 legacy `LaunchSkillNames/ForceLaunchSkills`，仅保持 wire 兼容；V1 生产 skill 发现不再经 prompt catalog 注入：`internal/module/thread/rpc.go:94-148`
 4. `buildStartAssemblyInput()` / `startSession()` 继续把 launch skill 载荷往 start chain 透传：`internal/module/thread/start_session_helpers.go:37-72`、`internal/module/thread/start_session.go:142-166`
 5. 随后同一次 `performSend()` 再调 `sendMessage()`；真正组 `turn/start` payload 并调用后端的是 `thread-actions-helpers.js:423-442`（函数整体在 `:380-463`），这里会把 **turn 侧** `selectedSkills/manualSkillSelection/cwd` 放进 request，session 缺失时还会先 `recoverThread()` 再重试
 6. `turn/start` handler 组 `PrepareInput`，再由 `PrepareTurn()` 产出真正的 `dto.TurnRequest`，其中 `prepareTurnAssembly(...)` 的对接点正是 `service.go:176`：`internal/module/turn/rpc_helpers.go:159-182`、`internal/module/turn/service.go:135-186`
 
 ### 5.1 这条链里有两套“技能”语义
 
-- **launch 技能**：跟着 `thread/start` 走，作用在 thread 启动时的 start/prompt 侧装配。
+- **launch 技能**：跟着 `thread/start` 走，当前只作为 legacy launch-time selection carrier 保留，不再把 skill catalog/body 注入 start prompt。
 - **turn 技能**：跟着 `turn/start` 走，作用在这一次用户消息的 `dto.TurnRequest.Skills`。
+
+生产 provider skill 发现链路在 provider 启动/acquire 前完成：canonical skills 先同步到 `.claude/skills` / `.codex/skills` 以及 provider home `skills` mirror，再由 Claude/Codex 原生发现。
 
 这也是 blank-thread 首发最容易看错的地方：**先起线程不等于已经发出首条 turn**；真正消息发送仍然要再走一次 `turn/start`。
 

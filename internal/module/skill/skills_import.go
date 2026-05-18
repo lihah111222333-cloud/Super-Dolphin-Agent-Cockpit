@@ -1,6 +1,7 @@
 package skill
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -29,6 +30,62 @@ func normalizeImportMode(mode string) (string, error) {
 	}
 }
 
+type writeLocalTarget struct {
+	path         string
+	scope        string
+	personalType string
+}
+
+func (s *service) prepareWriteLocalTarget(cwd, path, content string, scopeAndType ...string) (writeLocalTarget, error) {
+	requestedScope, requestedPersonalType := resolveRequestedSkillTarget(scopeAndType...)
+	scope, personalType, err := normalizeSkillTarget(requestedScope, requestedPersonalType)
+	if err != nil {
+		return writeLocalTarget{}, err
+	}
+	if err := RequireSkillSystemReview(scope, skillSlug(path), skillContentHash(content), RepoFingerprint(cwd), "", ""); err != nil {
+		return writeLocalTarget{}, err
+	}
+	resolvedPath, err := s.resolveWriteLocalPath(path, cwd, scope, personalType)
+	if err != nil {
+		return writeLocalTarget{}, err
+	}
+	if err := s.ensureWriteLocalTargetAllowed(cwd, resolvedPath, content, scope, personalType); err != nil {
+		return writeLocalTarget{}, err
+	}
+	return writeLocalTarget{path: resolvedPath, scope: scope, personalType: personalType}, nil
+}
+
+func (s *service) ensureWriteLocalTargetAllowed(cwd, path, content, scope, personalType string) error {
+	root, err := s.resolveScopeRoot(cwd, scope, personalType)
+	if err != nil {
+		return err
+	}
+	if err := ensureWritableSkillPathInsideRoot(root, path); err != nil {
+		return err
+	}
+	if len(content) > maxSkillFileBytes {
+		return fmt.Errorf("content too large: %d bytes", len(content))
+	}
+	return nil
+}
+
+func (s *service) writeProjectLocal(ctx context.Context, cwd, path, content, scope, personalType string) (any, error) {
+	mode, err := writableSkillFileMode(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(path, []byte(content), mode); err != nil {
+		return nil, err
+	}
+	name := filepath.Base(filepath.Dir(path))
+	s.publishSkillsChanged(ctx, "local_write", name, scope)
+	result := map[string]any{"ok": true, "path": path, "dir": filepath.Dir(path), "bytes": len(content)}
+	return attachMirrorPublish(result, s.publishWriteTimeMirrors(ctx, cwd, scope, personalType, name)), nil
+}
+
 func collectImportSources(primary string, extra []string) ([]string, error) {
 	raw := append([]string{primary}, extra...)
 	sources := make([]string, 0, len(raw))
@@ -46,18 +103,18 @@ func collectImportSources(primary string, extra []string) ([]string, error) {
 	return uniqStrings(sources), nil
 }
 
-func (s *service) importSources(sources []string, singleName, cwd, scope, mode string) ([]map[string]any, []map[string]any) {
+func (s *service) importSources(sources []string, singleName, cwd, scope, personalType, mode string) ([]map[string]any, []map[string]any) {
 	results := make([]map[string]any, 0, len(sources))
 	failures := make([]map[string]any, 0)
 	for _, source := range sources {
-		sourceResults, sourceFailures := s.importSource(source, singleName, cwd, scope, mode)
+		sourceResults, sourceFailures := s.importSource(source, singleName, cwd, scope, personalType, mode)
 		results = append(results, sourceResults...)
 		failures = append(failures, sourceFailures...)
 	}
 	return results, failures
 }
 
-func (s *service) importSource(source, name, cwd, scope, mode string) ([]map[string]any, []map[string]any) {
+func (s *service) importSource(source, name, cwd, scope, personalType, mode string) ([]map[string]any, []map[string]any) {
 	resolvedSource, err := validateImportSource(source)
 	if err != nil {
 		return nil, []map[string]any{importFailure(source, err)}
@@ -67,7 +124,7 @@ func (s *service) importSource(source, name, cwd, scope, mode string) ([]map[str
 		return nil, []map[string]any{importFailure(source, err)}
 	}
 	if resolvedMode == importModeSingle {
-		result, err := s.importSkillUnit(resolvedSource, name, cwd, scope, source)
+		result, err := s.importSkillUnit(resolvedSource, name, cwd, scope, personalType, source)
 		if err != nil {
 			return nil, []map[string]any{importFailure(source, err)}
 		}
@@ -76,7 +133,7 @@ func (s *service) importSource(source, name, cwd, scope, mode string) ([]map[str
 	if strings.TrimSpace(name) != "" {
 		return nil, []map[string]any{importFailure(source, errors.New("name is not allowed in batch mode"))}
 	}
-	return s.importBatchSource(resolvedSource, cwd, scope)
+	return s.importBatchSource(resolvedSource, cwd, scope, personalType)
 }
 
 func detectImportMode(resolvedSource, requestedMode string) (string, error) {
@@ -100,7 +157,7 @@ func detectImportMode(resolvedSource, requestedMode string) (string, error) {
 	}
 }
 
-func (s *service) importBatchSource(container, cwd, scope string) ([]map[string]any, []map[string]any) {
+func (s *service) importBatchSource(container, cwd, scope, personalType string) ([]map[string]any, []map[string]any) {
 	skillDirs, failures, err := collectBatchSkillDirs(container)
 	if err != nil {
 		return nil, []map[string]any{importFailure(container, err)}
@@ -113,7 +170,7 @@ func (s *service) importBatchSource(container, cwd, scope string) ([]map[string]
 	}
 	results := make([]map[string]any, 0, len(skillDirs))
 	for _, skillDir := range skillDirs {
-		result, err := s.importSkillUnit(skillDir, "", cwd, scope, skillDir)
+		result, err := s.importSkillUnit(skillDir, "", cwd, scope, personalType, skillDir)
 		if err != nil {
 			failures = append(failures, importFailure(skillDir, err))
 			continue
@@ -162,19 +219,19 @@ func skillMainFileExists(dir string) bool {
 	return err == nil && !info.IsDir()
 }
 
-func (s *service) importSkillUnit(resolvedSource, name, cwd, scope, originalSource string) (map[string]any, error) {
-	normalizedScope, err := normalizeSkillScope(scope)
+func (s *service) importSkillUnit(resolvedSource, name, cwd, scope, personalType, originalSource string) (map[string]any, error) {
+	normalizedScope, normalizedPersonalType, err := normalizeSkillTarget(scope, personalType)
 	if err != nil {
 		return nil, err
 	}
-	targetName := strings.TrimSpace(name)
-	if targetName == "" {
-		targetName = filepath.Base(resolvedSource)
+	targetName, err := importTargetSkillName(resolvedSource, name)
+	if err != nil {
+		return nil, err
 	}
 	if err := RequireSkillSystemReview(normalizedScope, skillSlug(targetName), skillDirContentHash(resolvedSource), RepoFingerprint(cwd), "", ""); err != nil {
 		return nil, err
 	}
-	root, err := s.prepareScopedSkillsRoot(cwd, scope)
+	root, err := s.prepareScopedSkillsRoot(cwd, normalizedScope, normalizedPersonalType)
 	if err != nil {
 		return nil, err
 	}
@@ -185,9 +242,11 @@ func (s *service) importSkillUnit(resolvedSource, name, cwd, scope, originalSour
 	if err := ensureSkillDirAbsent(targetDir, targetName); err != nil {
 		return nil, err
 	}
-	files, bytes, err := copySkillDir(resolvedSource, targetDir)
+	if normalizedScope == skillScopePersonal {
+		return s.importPersonalSkillUnit(resolvedSource, targetName, targetDir, normalizedScope, normalizedPersonalType)
+	}
+	files, bytes, err := copyImportedSkillDir(resolvedSource, targetDir, targetName)
 	if err != nil {
-		_ = os.RemoveAll(targetDir)
 		return nil, err
 	}
 	return map[string]any{
@@ -198,6 +257,52 @@ func (s *service) importSkillUnit(resolvedSource, name, cwd, scope, originalSour
 		"files":      files,
 		"bytes":      bytes,
 	}, nil
+}
+
+func (s *service) importPersonalSkillUnit(resolvedSource, targetName, targetDir, scope, personalType string) (map[string]any, error) {
+	record, err := s.preparePersonalMutation(context.Background(), "personal_import", targetName, targetDir, scope, personalType)
+	if err != nil {
+		return nil, err
+	}
+	files, bytes, err := copyImportedSkillDir(resolvedSource, targetDir, targetName)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.finalizePersonalMutation(context.Background(), "personal_import", targetDir, record); err != nil {
+		if rollbackErr := rollbackPersonalSkillDir(targetDir, ""); rollbackErr != nil {
+			return nil, errors.Join(err, fmt.Errorf("rollback personal import: %w", rollbackErr))
+		}
+		return nil, err
+	}
+	return map[string]any{
+		"name":       targetName,
+		"dir":        targetDir,
+		"skill_file": filepath.Join(targetDir, skillMainFile),
+		"source":     resolvedSource,
+		"files":      files,
+		"bytes":      bytes,
+	}, nil
+}
+
+func importTargetSkillName(resolvedSource, requestedName string) (string, error) {
+	targetName := strings.TrimSpace(requestedName)
+	if targetName == "" {
+		targetName = filepath.Base(resolvedSource)
+	}
+	return validateSkillName(targetName)
+}
+
+func copyImportedSkillDir(resolvedSource, targetDir, targetName string) (int, int64, error) {
+	files, bytes, err := copySkillDir(resolvedSource, targetDir)
+	if err != nil {
+		_ = os.RemoveAll(targetDir)
+		return 0, 0, err
+	}
+	if err := rewriteCopiedSkillName(targetDir, targetName); err != nil {
+		_ = os.RemoveAll(targetDir)
+		return 0, 0, err
+	}
+	return files, bytes, nil
 }
 
 func validateImportSource(source string) (string, error) {

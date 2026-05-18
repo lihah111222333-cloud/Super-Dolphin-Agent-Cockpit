@@ -66,14 +66,21 @@ export function useSkillFileNavigation(deps) {
       ? inferSkillNameFromPath(skillDirFromFilePath(rawPath)).toLowerCase()
       : '';
     const pathKey = normalizePathKey(rawPath);
-    return deps.skillCards.value.find((item) => {
+    const cards = Array.isArray(deps.skillCards.value) ? deps.skillCards.value : [];
+    if (pathKey) {
+      const byPath = cards.find((item) => {
+        const dirKey = normalizePathKey(item?.dir || '');
+        return dirKey && (pathKey === `${dirKey}/skill.md` || pathKey.startsWith(`${dirKey}/`));
+      });
+      if (byPath) return byPath;
+    }
+    const byName = cards.filter((item) => {
       const itemNameKey = (item?.name || '').toString().trim().toLowerCase();
-      const dirKey = normalizePathKey(item?.dir || '');
       if (rawName && itemNameKey === rawName) return true;
       if (inferredName && itemNameKey === inferredName) return true;
-      if (pathKey && dirKey && (pathKey === `${dirKey}/skill.md` || pathKey.startsWith(`${dirKey}/`))) return true;
       return false;
-    }) || null;
+    });
+    return byName.length === 1 ? byName[0] : null;
   }
 
   async function onSkillPreviewClick(event) {

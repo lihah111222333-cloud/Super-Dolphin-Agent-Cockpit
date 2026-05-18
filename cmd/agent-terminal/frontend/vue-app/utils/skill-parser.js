@@ -126,11 +126,23 @@ export function cleanScalar(value) {
   return (value || '').toString().trim().replace(/^['"]|['"]$/g, '').trim();
 }
 
+export function isInternalSkillReferenceWord(word, skillName = '') {
+  const text = (word || '').toString().trim();
+  if (/^\[skill:[^\]]+\]$/i.test(text)) return true;
+  if (text.startsWith('@')) return true;
+  return false;
+}
+
+function isInternalSkillMarkerSummary(value) {
+  return /^<\/?[A-Z][A-Z0-9_-]*>$/.test((value || '').toString().trim());
+}
+
 export function parseSkillMarkdown(content, fallbackName = '') {
   const { attrs, body } = parseFrontmatter(content);
   const name = cleanScalar(attrs.name) || fallbackName;
   const description = cleanScalar(attrs.description);
-  const summary = cleanScalar(attrs.summary ?? attrs.digest ?? '');
+  const rawSummary = cleanScalar(attrs.summary ?? attrs.digest ?? '');
+  const summary = isInternalSkillMarkerSummary(rawSummary) ? '' : rawSummary;
   const aliasWords = parseWordsValue(
     attrs.aliases ?? attrs.alias ?? attrs.tags ?? attrs.tag ?? attrs.keywords ?? attrs.keyword ?? '',
   );
@@ -160,21 +172,77 @@ export function quoteYAML(value) {
   return `"${(value || '').replace(/"/g, '\\"')}"`;
 }
 
+function compactTextLength(value) {
+  return Array.from((value || '').toString().replace(/\s+/g, '')).length;
+}
+
+function containsAny(text, terms) {
+  return terms.some((term) => text.includes(term));
+}
+
+export function skillDescriptionQualityIssue(description) {
+  const text = (description || '').toString().trim();
+  if (!text) return 'missing';
+  const normalized = text.toLowerCase();
+  if (looksLikeWorkflowDescription(text)) return 'workflow';
+  if (looksTooGenericDescription(normalized)) return 'generic';
+  if (compactTextLength(text) < 12) return 'too_short';
+  if (compactTextLength(text) > 120) return 'too_long';
+  if (!containsAny(text, ['当你需要', '当你遇到', '当你正在', '当你准备', '需要', '遇到', '正在', '准备'])) {
+    return 'missing_scenario';
+  }
+  return '';
+}
+
+function looksTooGenericDescription(text) {
+  return containsAny(text, [
+    '帮你处理各种问题',
+    '帮助处理各种问题',
+    '处理各种问题',
+    '处理很多事情',
+    '处理很多事',
+    '做很多事情',
+    '做很多事',
+    '通用助手',
+    '提高效率',
+    '什么都可以',
+    '各种东西',
+  ]);
+}
+
+function looksLikeWorkflowDescription(text) {
+  if (/先.+(然后|再|最后)/.test(text)) return true;
+  if (/读取.+分析.+输出/.test(text)) return true;
+  return containsAny(text, ['实现步骤', '执行步骤', '工作流程']);
+}
+
+export function skillDescriptionQualitySaveMessage(description) {
+  switch (skillDescriptionQualityIssue(description)) {
+    case 'missing':
+      return '已保存。建议填写简介，更好使用技能。';
+    case 'too_short':
+      return '已保存。简介偏短，建议写清楚“什么时候使用”。';
+    case 'generic':
+      return '已保存。简介比较宽泛，建议补充具体场景。';
+    case 'workflow':
+    case 'missing_scenario':
+      return '已保存。建议把简介写成一句话：什么时候该用这个技能。';
+    case 'too_long':
+      return '已保存。简介偏长，建议压缩成一句清楚的技能简介。';
+    default:
+      return '已保存';
+  }
+}
+
 export function buildSkillMarkdown(form) {
   const name = (form.name || '').trim();
-  const description = (form.description || '').trim();
-  const summary = (form.summary || '').trim();
-  const triggerWords = normalizeWordList(form.triggerWordsText);
-  const forceWords = normalizeWordList(form.forceWordsText);
+  const description = ((form.description || '').trim() || (form.summary || '').trim());
+  const triggerWords = normalizeWordList(`${form.triggerWordsText || ''},${form.forceWordsText || ''},${form.internalScenarioWordsText || ''}`);
   const body = (form.body || '').toString().trim();
   const lines = ['---', `name: ${quoteYAML(name)}`];
   if (description) lines.push(`description: ${quoteYAML(description)}`);
-  if (summary) lines.push(`summary: ${quoteYAML(summary)}`);
   if (triggerWords.length > 0) {
     lines.push(`trigger_words: [${triggerWords.map(quoteYAML).join(', ')}]`);
-  }
-  if (forceWords.length > 0) {
-    lines.push(`force_words: [${forceWords.map(quoteYAML).join(', ')}]`);
   }
   lines.push('---', '', body || '## 说明\n\n请补充技能规则。');
   return lines.join('\n');

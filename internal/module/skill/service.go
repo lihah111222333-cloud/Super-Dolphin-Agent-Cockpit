@@ -2,6 +2,8 @@ package skill
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,7 +18,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	auditstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/skillcandidate"
 )
 
 const (
@@ -28,8 +29,8 @@ type service struct {
 	root               string
 	projectRoot        string
 	projectSkillsRoot  string
+	superDolphinHome   string
 	http               *http.Client
-	disclosureTiers    contract.SkillDisclosureTierSource
 	approvalRequester  contract.ApprovalRequester
 	readConfigState    func(context.Context, string) (any, error)
 	emitSkillsChanged  skillsChangedEmitter
@@ -45,17 +46,18 @@ type service struct {
 	sessionApprovals   map[string]ApprovalEntry
 	sessionApprovalsMu sync.RWMutex
 	approvalCallSeq    uint64
-	// candidateStore is the optional P0b Step 5 wiring for the review
-	// gate. nil means review-gate RPCs return errCandidateStoreUnavailable;
-	// extractor + lookup paths short-circuit early.
-	candidateStore skillcandidate.Store
-	// auditStore is the optional P0b Step 5 audit sink. nil disables
-	// audit emission. Audit writes are best-effort, never transactional.
-	auditStore auditstore.Store
+	// auditStore is required in Fx wiring for mutation audit. Direct tests that
+	// construct service manually may leave it nil; mutation paths then fail closed.
+	auditStore    auditstore.Store
+	mirrorTargets []SkillMirrorTarget
+
+	resolutionPreviewMu sync.Mutex
+	resolutionPreviews  map[string]skillResolutionStoredPreview
 }
 
 var _ Service = (*service)(nil)
 var _ contract.ApprovalSource = (*service)(nil)
+var _ contract.SkillMirrorReconciler = (*service)(nil)
 
 type approvalScope string
 
@@ -78,6 +80,49 @@ var (
 // both skill and toolbridge consumers can errors.As the same concrete type
 // without toolbridge importing the module layer.
 type SkillApprovalRequiredError = contract.SkillApprovalRequiredError
+
+func resolutionPreviewHash(item skillResolutionItem, preview skillResolutionPreviewItem, p skillResolutionPreviewParams) string {
+	type previewEnvelope struct {
+		ConflictID          string `json:"conflict_id"`
+		Action              string `json:"action"`
+		Provider            string `json:"provider,omitempty"`
+		SourceProvider      string `json:"source_provider,omitempty"`
+		SourcePathID        string `json:"source_path_id,omitempty"`
+		SourcePath          string `json:"source_path"`
+		TargetPath          string `json:"target_path"`
+		SourceHash          string `json:"source_hash"`
+		TargetHash          string `json:"target_hash"`
+		NewName             string `json:"new_name,omitempty"`
+		KeepSourceID        string `json:"keep_source_id,omitempty"`
+		MergeContentHash    string `json:"merge_content_hash,omitempty"`
+		DisablePolicyTarget string `json:"disable_policy_target,omitempty"`
+		BackupPath          string `json:"backup_path"`
+		ConfirmDeleteHash   string `json:"confirm_delete_mirror_hash,omitempty"`
+	}
+	return "sha256:" + hashResolutionEnvelope(previewEnvelope{
+		ConflictID:          item.ConflictID,
+		Action:              p.Action,
+		Provider:            preview.Provider,
+		SourceProvider:      preview.SourceProvider,
+		SourcePathID:        preview.SourcePathID,
+		SourcePath:          preview.SourcePath,
+		TargetPath:          preview.TargetPath,
+		SourceHash:          preview.SourceHash,
+		TargetHash:          preview.TargetHash,
+		NewName:             p.NewName,
+		KeepSourceID:        p.KeepSourceID,
+		MergeContentHash:    p.MergeContentHash,
+		DisablePolicyTarget: p.DisablePolicyTarget,
+		BackupPath:          preview.BackupPath,
+		ConfirmDeleteHash:   preview.ConfirmDeleteMirrorHash,
+	})
+}
+
+func hashResolutionEnvelope(v any) string {
+	data, _ := json.Marshal(v)
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
 
 type skillApprovalDeniedError struct {
 	reason string
@@ -132,32 +177,12 @@ func NewService(projectRoot string) Service {
 	// 统一降级为空 cache——下次 skill_expand 调用会当作“未审批”重新弹审批流。
 	approvalCache, _ := NewApprovalCache(DefaultApprovalCachePath())
 	return &service{
-		root:              defaultSkillsRoot(),
 		projectRoot:       pr,
 		projectSkillsRoot: defaultProjectSkillsRoot(pr),
+		superDolphinHome:  defaultSuperDolphinHome(),
 		http:              &http.Client{Timeout: 15 * time.Second},
 		approval:          approvalCache,
 	}
-}
-
-func defaultSkillsRoot() string {
-	if override := strings.TrimSpace(os.Getenv("SKILLS_ROOT")); override != "" {
-		return override
-	}
-	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
-		return filepath.Join(home, ".multi-agent", "skills")
-	}
-	// UserHomeDir 失败（如无 $HOME 的受限环境）时兜底到临时目录，
-	// 避免 s.root 为空导致整个技能功能静默失效。
-	return filepath.Join(os.TempDir(), "multi-agent-skills")
-}
-
-func defaultProjectSkillsRoot(projectRoot string) string {
-	projectRoot = strings.TrimSpace(projectRoot)
-	if projectRoot == "" {
-		return ""
-	}
-	return filepath.Join(projectRoot, ".agent", "skills")
 }
 
 func (s *service) projectSkillsRootForCWD(cwd string) string {
@@ -178,72 +203,63 @@ func (s *service) projectSkillsRootForCWD(cwd string) string {
 	return defaultProjectSkillsRoot(cwd)
 }
 
-const (
-	skillScopeProject = "project"
-	skillScopeSystem  = "system"
-)
-
 func normalizeSkillScope(scope string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(scope)) {
-	case "", skillScopeProject:
-		return skillScopeProject, nil
-	case skillScopeSystem:
-		return skillScopeSystem, nil
-	default:
-		return "", fmt.Errorf("%w: %s", ErrInvalidSkillScope, scope)
+	normalizedScope, _, err := normalizeSkillTarget(scope, "")
+	return normalizedScope, err
+}
+
+func (s *service) resolvedSuperDolphinHome() string {
+	if s != nil && strings.TrimSpace(s.superDolphinHome) != "" {
+		return strings.TrimSpace(s.superDolphinHome)
 	}
+	return defaultSuperDolphinHome()
 }
 
-func (s *service) systemGlobalSkillsRoot() string {
-	return strings.TrimSpace(s.root)
-}
-
-func (s *service) allSkillRoots(cwd string) []string {
-	roots := make([]string, 0, 2)
-	seen := make(map[string]struct{}, 2)
-	appendUniqueSkillRoot := func(root string) {
-		root = strings.TrimSpace(root)
-		if root == "" {
-			return
-		}
-		cleaned := filepath.Clean(root)
-		if _, ok := seen[cleaned]; ok {
-			return
-		}
-		seen[cleaned] = struct{}{}
-		roots = append(roots, cleaned)
+func (s *service) personalSkillsRoot(personalType string) string {
+	personalType = strings.TrimSpace(personalType)
+	if personalType == "" {
+		return ""
 	}
-	appendUniqueSkillRoot(s.projectSkillsRootForCWD(cwd))
-	appendUniqueSkillRoot(s.systemGlobalSkillsRoot())
-	return roots
+	return filepath.Join(s.resolvedSuperDolphinHome(), "skills", "personal", personalType)
 }
 
-func (s *service) resolveScopeRoot(cwd, scope string) (string, error) {
-	normalizedScope, err := normalizeSkillScope(scope)
+func (s *service) canonicalRootForTarget(cwd, scope, personalType string) (string, string, string, error) {
+	normalizedScope, normalizedType, err := normalizeSkillTarget(scope, personalType)
 	if err != nil {
-		return "", err
+		return "", "", "", err
 	}
 	switch normalizedScope {
 	case skillScopeProject:
 		root := strings.TrimSpace(s.projectSkillsRootForCWD(cwd))
 		if root == "" {
-			return "", errors.New("project skills root is not configured")
+			return "", "", "", errors.New("project skills root is not configured")
 		}
-		return root, nil
-	case skillScopeSystem:
-		root := s.systemGlobalSkillsRoot()
+		return root, normalizedScope, "", nil
+	case skillScopePersonal:
+		root := strings.TrimSpace(s.personalSkillsRoot(normalizedType))
 		if root == "" {
-			return "", errors.New("skills root is not configured")
+			return "", "", "", errors.New("personal skills root is not configured")
 		}
-		return root, nil
+		return root, normalizedScope, normalizedType, nil
 	default:
-		return "", fmt.Errorf("invalid skill scope: %s", normalizedScope)
+		return "", "", "", fmt.Errorf("invalid skill scope: %s", normalizedScope)
 	}
 }
 
-func (s *service) prepareScopedSkillsRoot(cwd, scope string) (string, error) {
-	root, err := s.resolveScopeRoot(cwd, scope)
+func (s *service) resolveScopeRoot(cwd, scope string, personalType ...string) (string, error) {
+	root, _, _, err := s.canonicalRootForTarget(cwd, scope, resolveRequestedPersonalType(personalType...))
 	if err != nil {
+		return "", err
+	}
+	return root, nil
+}
+
+func (s *service) prepareScopedSkillsRoot(cwd, scope string, personalType ...string) (string, error) {
+	root, err := s.resolveScopeRoot(cwd, scope, personalType...)
+	if err != nil {
+		return "", err
+	}
+	if err := rejectWritableSymlinkComponentIfExists(root); err != nil {
 		return "", err
 	}
 	if err := os.MkdirAll(root, 0o755); err != nil {
@@ -259,10 +275,31 @@ func resolveRequestedSkillScope(scope ...string) string {
 	return scope[0]
 }
 
+func resolveRequestedPersonalType(personalType ...string) string {
+	if len(personalType) == 0 {
+		return ""
+	}
+	return personalType[0]
+}
+
+func resolveRequestedSkillTarget(scopeAndType ...string) (string, string) {
+	switch len(scopeAndType) {
+	case 0:
+		return "", ""
+	case 1:
+		return scopeAndType[0], ""
+	default:
+		return scopeAndType[0], scopeAndType[1]
+	}
+}
+
 func writableSkillFileMode(path string) (os.FileMode, error) {
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	switch {
 	case err == nil:
+		if info.Mode()&os.ModeSymlink != 0 {
+			return 0, fmt.Errorf("skill write path contains symlink: %s", path)
+		}
 		if info.IsDir() {
 			return 0, fmt.Errorf("path is directory: %s", path)
 		}
@@ -277,44 +314,23 @@ func writableSkillFileMode(path string) (os.FileMode, error) {
 	}
 }
 
-func (s *service) resolveSkillPath(target, cwd, scope string) (string, error) {
+func (s *service) resolveSkillPath(target, cwd, scope string, personalType ...string) (string, error) {
 	target = strings.TrimSpace(target)
 	if target == "" {
 		return "", errors.New("path is required")
 	}
 	if filepath.IsAbs(target) {
-		return s.resolveExistingSkillPath(target, cwd)
-	}
-	return s.resolveScopedSkillPath(cwd, target, scope)
-}
-
-func (s *service) resolveExistingSkillPath(target, cwd string) (string, error) {
-	roots := s.allSkillRoots(cwd)
-	if len(roots) == 0 {
-		return "", errors.New("skills root is not configured")
-	}
-	targetPath, err := canonicalProjectPath(target)
-	if err != nil {
-		return "", err
-	}
-	for _, root := range roots {
-		rootPath, err := canonicalProjectPath(root)
+		resolved, err := s.resolveExistingSkillPathTarget(target, cwd)
 		if err != nil {
 			return "", err
 		}
-		outside, err := pathEscapesRoot(rootPath, targetPath)
-		if err != nil {
-			return "", err
-		}
-		if !outside {
-			return targetPath, nil
-		}
+		return resolved.path, nil
 	}
-	return "", fmt.Errorf("path escapes skills root: %s", target)
+	return s.resolveScopedSkillPath(cwd, target, scope, personalType...)
 }
 
-func (s *service) resolveScopedSkillPath(cwd, target, scope string) (string, error) {
-	root, err := s.resolveScopeRoot(cwd, scope)
+func (s *service) resolveScopedSkillPath(cwd, target, scope string, personalType ...string) (string, error) {
+	root, err := s.resolveScopeRoot(cwd, scope, personalType...)
 	if err != nil {
 		return "", err
 	}

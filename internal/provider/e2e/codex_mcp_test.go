@@ -3,12 +3,16 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -18,15 +22,16 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	"github.com/gorilla/websocket"
 	"go.uber.org/fx"
 )
 
 func TestCodexStartSession_InjectsDynamicTools_E2E(t *testing.T) {
 	recorder := &codexRPCRecorder{}
-	t.Setenv("CODEX_APP_SERVER_URL", startCodexRPCServer(t, recorder))
+	serverURL := startCodexRPCServer(t, recorder)
 
-	factory := codexapp.NewDriverFactory(nil, nil, nil, nil, nil, nil, nil, nil)
+	factory := newCodexE2EDriverFactory(t, serverURL)
 	factory.SetListTools(func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 		return []codexprotocol.DynamicToolSchema{{
 			Name:        "tool.echo",
@@ -35,9 +40,10 @@ func TestCodexStartSession_InjectsDynamicTools_E2E(t *testing.T) {
 		}}, nil
 	})
 
+	workDir := t.TempDir()
 	session, err := factory.Create().StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-1",
-		CWD:     "/tmp/codex-e2e/work",
+		CWD:     workDir,
 		StartAssembly: dto.StartAssembly{
 			BaseInstructions:      "base prompt",
 			DeveloperInstructions: "developer prompt",
@@ -61,8 +67,8 @@ func TestCodexStartSession_InjectsDynamicTools_E2E(t *testing.T) {
 	params := recorder.threadStartParamsSnapshot()
 	assertDynamicToolNames(t, params, []string{"tool.echo"})
 	assertNoLegacyMCPKeys(t, params)
-	if params["cwd"] != "/tmp/codex-e2e/work" {
-		t.Fatalf("cwd = %#v, want /tmp/codex-e2e/work", params["cwd"])
+	if params["cwd"] != workDir {
+		t.Fatalf("cwd = %#v, want %q", params["cwd"], workDir)
 	}
 	if params["approvalPolicy"] != "never" {
 		t.Fatalf("approvalPolicy = %#v, want never", params["approvalPolicy"])
@@ -77,13 +83,13 @@ func TestCodexStartSession_InjectsDynamicTools_E2E(t *testing.T) {
 
 func TestCodexStartSession_InjectsHostMemoryReadAndFiltersPeerMemoryRead_E2E(t *testing.T) {
 	recorder := &codexRPCRecorder{}
-	t.Setenv("CODEX_APP_SERVER_URL", startCodexRPCServer(t, recorder))
+	serverURL := startCodexRPCServer(t, recorder)
 
 	handler := newCodexMemoryReadToolBridgeHandler(t)
-	factory := codexapp.NewDriverFactory(nil, nil, nil, nil, nil, nil, nil, nil)
+	factory := newCodexE2EDriverFactory(t, serverURL)
 	factory.SetListTools(handler.ListToolsForCodex)
 
-	session, err := factory.Create().StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-memory-read", CWD: "/tmp/codex-e2e/work"})
+	session, err := factory.Create().StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-memory-read", CWD: t.TempDir()})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
 	}
@@ -207,9 +213,9 @@ func (p *codexToolBridgePeer) Close() error { return nil }
 
 func TestCodexStartSession_PreservesUserConfigFields_E2E(t *testing.T) {
 	recorder := &codexRPCRecorder{}
-	t.Setenv("CODEX_APP_SERVER_URL", startCodexRPCServer(t, recorder))
+	serverURL := startCodexRPCServer(t, recorder)
 
-	factory := codexapp.NewDriverFactory(nil, nil, nil, nil, nil, nil, nil, nil)
+	factory := newCodexE2EDriverFactory(t, serverURL)
 	factory.SetListTools(func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 		return []codexprotocol.DynamicToolSchema{
 			{
@@ -227,7 +233,7 @@ func TestCodexStartSession_PreservesUserConfigFields_E2E(t *testing.T) {
 
 	session, err := factory.Create().StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-2",
-		CWD:     "/tmp/codex-e2e/work",
+		CWD:     t.TempDir(),
 		Model:   "gpt-5-codex",
 		StartAssembly: dto.StartAssembly{
 			BaseInstructions:      "base prompt",
@@ -253,6 +259,53 @@ func TestCodexStartSession_PreservesUserConfigFields_E2E(t *testing.T) {
 	params := recorder.threadStartParamsSnapshot()
 	assertDynamicToolNames(t, params, []string{"tool.echo", "tool.sum"})
 	assertCodexUserConfigFields(t, params)
+}
+
+func TestCodexStartSession_ReconcilesNativeSkillMirrorsBeforeProviderStart_E2E(t *testing.T) {
+	events := []string{}
+	recorder := &codexRPCRecorder{events: &events}
+	serverURL := startCodexRPCServer(t, recorder)
+
+	workDir := t.TempDir()
+	mirror := &recordingCodexE2ESkillMirrorReconciler{
+		events:    &events,
+		skillName: "provider-native-proof",
+	}
+	factory := newCodexE2EDriverFactoryWithMirror(t, serverURL, mirror, func() {
+		events = append(events, "pool")
+	})
+	factory.SetListTools(func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+		return nil, nil
+	})
+
+	session, err := factory.Create().StartSession(context.Background(), dto.StartSessionRequest{
+		AgentID: "agent-provider-native",
+		CWD:     workDir,
+	})
+	if err != nil {
+		t.Fatalf("StartSession() error = %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close(context.Background()) })
+
+	params := recorder.threadStartParamsSnapshot()
+	if params["cwd"] != workDir {
+		t.Fatalf("thread/start cwd = %#v, want %q", params["cwd"], workDir)
+	}
+	if strings.Join(events, ",") != "reconcile,pool,thread/start" {
+		t.Fatalf("events = %v, want reconcile before provider pool and thread/start", events)
+	}
+	if mirror.cwd != workDir {
+		t.Fatalf("mirror cwd = %q, want %q", mirror.cwd, workDir)
+	}
+	assertCodexE2EMirrorTargets(t, mirror.targets, workDir)
+	projectSkillPath := filepath.Join(codexE2EProjectSkillsRoot(t, mirror.targets), "provider-native-proof", "SKILL.md")
+	raw, err := os.ReadFile(projectSkillPath)
+	if err != nil {
+		t.Fatalf("ReadFile mirrored project skill: %v", err)
+	}
+	if !strings.Contains(string(raw), "SD_PROJECT_SKILL_OK") {
+		t.Fatalf("mirrored project skill = %q, want SD_PROJECT_SKILL_OK sentinel", raw)
+	}
 }
 
 func assertCodexUserConfigFields(t *testing.T, params map[string]any) {
@@ -287,8 +340,117 @@ func assertCodexUserConfigFields(t *testing.T, params map[string]any) {
 	}
 }
 
+func newCodexE2EDriverFactory(t *testing.T, serverURL string) *codexapp.DriverFactory {
+	t.Helper()
+	return newCodexE2EDriverFactoryWithMirror(t, serverURL, noopCodexE2ESkillMirrorReconciler{}, nil)
+}
+
+func newCodexE2EDriverFactoryWithMirror(t *testing.T, serverURL string, mirror contract.SkillMirrorReconciler, onPoolAcquire func()) *codexapp.DriverFactory {
+	t.Helper()
+	t.Setenv(providershared.SuperDolphinHomeEnv, t.TempDir())
+	pool := codexapp.NewServerPool(nil, func(context.Context, string) (codexapp.SpawnedServer, error) {
+		if onPoolAcquire != nil {
+			onPoolAcquire()
+		}
+		return newCodexE2EFakeServer(serverURL), nil
+	}, codexapp.PoolConfig{})
+	t.Cleanup(func() { _ = pool.Close(context.Background()) })
+	return codexapp.NewDriverFactory(nil, nil, nil, nil, nil, pool, mirror, nil)
+}
+
+type noopCodexE2ESkillMirrorReconciler struct{}
+
+func (noopCodexE2ESkillMirrorReconciler) ReconcileProviderMirrors(context.Context, string, []contract.SkillProviderMirrorTarget) (contract.SkillMirrorReport, error) {
+	return contract.SkillMirrorReport{}, nil
+}
+
+type recordingCodexE2ESkillMirrorReconciler struct {
+	events    *[]string
+	skillName string
+	cwd       string
+	targets   []contract.SkillProviderMirrorTarget
+}
+
+func (r *recordingCodexE2ESkillMirrorReconciler) ReconcileProviderMirrors(_ context.Context, cwd string, targets []contract.SkillProviderMirrorTarget) (contract.SkillMirrorReport, error) {
+	if r.events != nil {
+		*r.events = append(*r.events, "reconcile")
+	}
+	r.cwd = cwd
+	r.targets = append([]contract.SkillProviderMirrorTarget(nil), targets...)
+	for _, target := range targets {
+		if target.Provider != providershared.ProviderCodex {
+			continue
+		}
+		if err := writeCodexE2ENativeSkillMirror(target.SkillsRoot, r.skillName); err != nil {
+			return contract.SkillMirrorReport{}, fmt.Errorf("write provider-native mirror target %#v: %w", target, err)
+		}
+	}
+	return contract.SkillMirrorReport{}, nil
+}
+
+func writeCodexE2ENativeSkillMirror(root, name string) error {
+	dir := filepath.Join(root, name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	body := "---\nname: " + name + "\ndescription: provider native proof\n---\n\nSD_PROJECT_SKILL_OK\n"
+	return os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o644)
+}
+
+func assertCodexE2EMirrorTargets(t *testing.T, targets []contract.SkillProviderMirrorTarget, workDir string) {
+	t.Helper()
+	if len(targets) != 2 {
+		t.Fatalf("mirror targets = %#v, want personal + project targets", targets)
+	}
+	realWorkDir, err := filepath.EvalSymlinks(workDir)
+	if err != nil {
+		t.Fatalf("EvalSymlinks workDir: %v", err)
+	}
+	wantProjectSkills := filepath.Join(realWorkDir, ".codex", "skills")
+	if targets[1].Provider != providershared.ProviderCodex || targets[1].SkillsRoot != wantProjectSkills {
+		t.Fatalf("project mirror target = %#v, want codex skills root %q", targets[1], wantProjectSkills)
+	}
+	if targets[0].Provider != providershared.ProviderCodex || !strings.HasSuffix(targets[0].SkillsRoot, filepath.Join("providers", "codex", "skills")) {
+		t.Fatalf("personal mirror target = %#v, want app-managed codex skills root", targets[0])
+	}
+}
+
+func codexE2EProjectSkillsRoot(t *testing.T, targets []contract.SkillProviderMirrorTarget) string {
+	t.Helper()
+	for _, target := range targets {
+		if target.Provider == providershared.ProviderCodex && strings.Contains(target.SkillsRoot, string(filepath.Separator)+".codex"+string(filepath.Separator)) {
+			return target.SkillsRoot
+		}
+	}
+	t.Fatalf("mirror targets = %#v, want project codex skills root", targets)
+	return ""
+}
+
+type codexE2EFakeServer struct {
+	url    string
+	alive  atomic.Bool
+	closed atomic.Bool
+}
+
+func newCodexE2EFakeServer(url string) *codexE2EFakeServer {
+	server := &codexE2EFakeServer{url: url}
+	server.alive.Store(true)
+	return server
+}
+
+func (s *codexE2EFakeServer) ServerURL() string { return s.url }
+
+func (s *codexE2EFakeServer) Close(context.Context) error {
+	s.closed.Store(true)
+	s.alive.Store(false)
+	return nil
+}
+
+func (s *codexE2EFakeServer) Alive() bool { return s.alive.Load() }
+
 type codexRPCRecorder struct {
 	mu                sync.Mutex
+	events            *[]string
 	callCount         map[string]int
 	methodParams      map[string][]map[string]any
 	threadStartParams map[string]any
@@ -314,6 +476,9 @@ func (r *codexRPCRecorder) record(method string, raw json.RawMessage) {
 	r.methodParams[method] = append(r.methodParams[method], cloneAnyMap(params))
 	if method != "thread/start" {
 		return
+	}
+	if r.events != nil {
+		*r.events = append(*r.events, "thread/start")
 	}
 	r.threadStartParams = cloneAnyMap(params)
 }

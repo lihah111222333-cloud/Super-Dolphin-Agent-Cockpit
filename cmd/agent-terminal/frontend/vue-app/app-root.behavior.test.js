@@ -84,6 +84,7 @@ vi.mock('./pages/MemoryCenterPage.js', () => ({ MemoryCenterPage: { name: 'Memor
 vi.mock('./pages/SharedFilesPage.js', () => ({ SharedFilesPage: { name: 'SharedFilesPage' } }));
 
 import { AppRoot } from './app.js';
+import { reactive } from '../lib/vue.esm-browser.prod.js';
 
 const flush = async (times = 16) => {
 
@@ -96,7 +97,7 @@ beforeEach(() => {
   hooks.mounted.length = 0;
   hooks.unmounted.length = 0;
 
-  stores.projectStore.state.active = '/repo';
+  stores.projectStore.state = reactive({ active: '/repo' });
   stores.projectStore.reloadProjects.mockReset().mockResolvedValue(undefined);
   stores.projectStore.addProject.mockReset().mockResolvedValue(undefined);
   stores.projectStore.setActive.mockReset().mockImplementation(async (cwd) => {
@@ -215,6 +216,34 @@ describe('AppRoot behavior', () => {
     expect(apiMock.callAPI).toHaveBeenCalledWith('ui/dashboard/get', { page: 'skills', cwd: '/repo' });
   });
 
+  it('refreshes the skills dashboard when the active project changes while viewing skills', async () => {
+    apiMock.getBuildInfo.mockResolvedValueOnce({ version: '1.0.0' });
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'config/read') return { cwd: '/window' };
+      if (method === 'ui/dashboard/get' && payload?.page === 'skills' && payload?.cwd === '/repo') {
+        return { skills: [{ name: 'RepoSkill' }] };
+      }
+      if (method === 'ui/dashboard/get' && payload?.page === 'skills' && payload?.cwd === '/repo-next') {
+        return { skills: [{ name: 'NextSkill' }] };
+      }
+      return {};
+    });
+
+    const vm = AppRoot.setup();
+    hooks.mounted.forEach((fn) => fn());
+    await flush();
+
+    vm.page.value = 'skills';
+    await flush();
+    expect(vm.dashboard.skills).toEqual([{ name: 'RepoSkill' }]);
+
+    stores.projectStore.state.active = '/repo-next';
+    await flush();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('ui/dashboard/get', { page: 'skills', cwd: '/repo-next' });
+    expect(vm.dashboard.skills).toEqual([{ name: 'NextSkill' }]);
+  });
+
   it('keeps final output refs from the memory dashboard response', async () => {
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'ui/dashboard/get' && payload?.page === 'memory') {
@@ -314,11 +343,13 @@ describe('AppRoot behavior', () => {
     expect(vm.sidebarBadges.value['memory-center']).toBeUndefined();
   });
 
-  it('marks the skills nav when pending skill candidates need approval', async () => {
+  it('does not request legacy pending skill candidates or mark the skills nav badge', async () => {
     apiMock.getBuildInfo.mockResolvedValueOnce({ version: '1.0.0' });
+    const legacyCandidateCalls = [];
     apiMock.callAPI.mockImplementation(async (method) => {
       if (method === 'config/read') return { cwd: '/window' };
       if (method === 'skills/candidate/list/pending') {
+        legacyCandidateCalls.push(method);
         return { candidates: [{ id: 'candidate-1' }] };
       }
       return {};
@@ -328,11 +359,12 @@ describe('AppRoot behavior', () => {
     hooks.mounted.forEach((fn) => fn());
     await flush();
 
-    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/candidate/list/pending', { cwd: '/repo', limit: 20, offset: 0 });
-    expect(vm.sidebarBadges.value.skills).toBe(1);
+    expect(legacyCandidateCalls).toEqual([]);
+    expect(apiMock.callAPI).not.toHaveBeenCalledWith('skills/candidate/list/pending', expect.anything());
+    expect(vm.sidebarBadges.value.skills).toBeUndefined();
   });
 
-  it('keeps skills and memory center nav badges at the same time', async () => {
+  it('keeps the memory center nav badge without restoring the legacy skills badge', async () => {
     apiMock.getBuildInfo.mockResolvedValueOnce({ version: '1.0.0' });
     apiMock.callAPI.mockImplementation(async (method) => {
       if (method === 'config/read') return { cwd: '/window' };
@@ -353,7 +385,8 @@ describe('AppRoot behavior', () => {
     hooks.mounted.forEach((fn) => fn());
     await flush();
 
-    expect(vm.sidebarBadges.value.skills).toBe(2);
+    expect(apiMock.callAPI).not.toHaveBeenCalledWith('skills/candidate/list/pending', expect.anything());
+    expect(vm.sidebarBadges.value.skills).toBeUndefined();
     expect(vm.sidebarBadges.value['memory-center']).toBe(1);
   });
 });

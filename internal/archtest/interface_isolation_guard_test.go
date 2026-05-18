@@ -109,9 +109,8 @@ func TestSkillServiceConsumersUseNarrowPorts(t *testing.T) {
 	} else if actual != "contract.SkillHydrationSource" {
 		violations = append(violations, fmt.Sprintf("internal/module/turn/service.go: NewServiceWithPromptAssemblyAndTurnContext.skillSvc must depend on contract.SkillHydrationSource, got %s", actual))
 	}
-	// provideHostToolRegistry.svc check removed in skill refactor P3 Task 3:
-	// provideHostToolRegistry no longer takes a SkillHostToolReader; the Codex tool
-	// registry now wraps SkillReadSectionTool via skilllibrary.Config.CacheDir.
+	// provideHostToolRegistry.svc check removed in skill refactor P3 Task 3.
+	// V1 no longer exposes skill_read_section through the Codex host registry.
 	failIfViolations(t, violations)
 }
 

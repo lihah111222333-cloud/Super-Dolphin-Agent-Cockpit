@@ -214,14 +214,45 @@ func buildStartRequestFromParams(p startParams) StartRequest {
 		Config:                decodeConfigMap(p.Config),
 
 		// p20.3 §4.3：public payload 用 `selectedSkills` / `manualSkillSelection`，
-		// 内部合同归一化为 `LaunchSkillNames` / `ForceLaunchSkills`。
+		// 内部合同归一化为 launch skill carriers；refs 保留 scope/path 以区分同名。
 		LaunchSkillNames:  append([]string(nil), p.SelectedSkills...),
+		LaunchSkillRefs:   threadSkillRefsFromParams(p.SelectedSkillRefs, p.ManualSkillSelection),
 		ForceLaunchSkills: p.ManualSkillSelection,
 		AgentKey:          p.AgentKey,
 		PromptKey:         p.PromptKey,
 		UseClassifier:     p.UseClassifier,
 		DeferSpawn:        p.DeferSpawn,
 	}
+}
+
+func threadSkillRefsFromParams(params []skillRefParams, manual bool) []dto.SkillRef {
+	if len(params) == 0 {
+		return nil
+	}
+	source := dto.SkillSourceUnspecified
+	if manual {
+		source = dto.SkillSourceManual
+	}
+	var refs []dto.SkillRef
+	for _, p := range params {
+		refSource := source
+		if rawSource := dto.SkillSource(strings.TrimSpace(p.Source)); rawSource.Valid() && rawSource != dto.SkillSourceUnspecified {
+			refSource = rawSource
+		}
+		ref := dto.SkillRef{
+			Key:          strings.TrimSpace(p.Key),
+			Name:         strings.TrimSpace(p.Name),
+			Scope:        strings.TrimSpace(p.Scope),
+			PersonalType: strings.TrimSpace(p.PersonalType),
+			Path:         strings.TrimSpace(p.Path),
+			Source:       refSource,
+		}
+		if ref.Name == "" {
+			continue
+		}
+		refs = append(refs, ref)
+	}
+	return refs
 }
 
 func buildStartResponse(result StartResult) startResponse {

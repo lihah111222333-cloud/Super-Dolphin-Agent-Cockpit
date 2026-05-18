@@ -2,24 +2,18 @@ package app
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/cliadapter"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/cron"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/dashboard"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/fbsd"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/feedback"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/insight"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/memory"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/notify"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skillforge"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	turnobservation "github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation"
@@ -63,14 +57,6 @@ var Module = fx.Options(
 	memory.Module,
 	prompt.Module,
 	skill.Module,
-	skillforge.Module,
-	skilllibrary.Module,
-	fbsd.Module,
-	fx.Provide(provideSkillLibraryConfig),
-	fx.Provide(provideContractSkillLibraryConfig),
-	fx.Provide(provideFBSDRecorder),
-	fx.Provide(provideWorkspaceSkillSetup),
-	fx.Provide(provideSkillManifestRenderer),
 	fx.Invoke(initProviderHooks),
 	thread.Module,
 	turn.Module,
@@ -100,15 +86,6 @@ var Module = fx.Options(
 	),
 )
 
-func provideSkillLibraryConfig() skilllibrary.Config {
-	home, _ := os.UserHomeDir()
-	return skilllibrary.Config{
-		LibraryDir:     filepath.Join(home, ".multi-agent", "skills-library"),
-		CacheDir:       filepath.Join(home, ".multi-agent", "skills-cache"),
-		HarnessVersion: "dev",
-	}
-}
-
 func provideNativeToolDescriptors(registry *unified.Registry) []contract.NativeToolDescriptor {
 	if registry == nil {
 		return nil
@@ -123,43 +100,13 @@ func provideDisabledBuiltinToolsFn(prefs uipreference.Store, tools []contract.Na
 	for _, t := range tools {
 		index[t.ID] = t
 	}
-	return func(ctx context.Context, cwd string) []string {
-		return uistate.ResolveSoftFilteredBuiltinTools(ctx, prefs, cwd, tools, index)
+	return func(ctx context.Context, cwd, provider string) []string {
+		return uistate.ResolveSoftFilteredBuiltinTools(ctx, prefs, cwd, tools, index, provider)
 	}
 }
 
 func AsRPCRunner(server *rpc.Server) RunnerResult {
 	return RunnerResult{Runner: server}
-}
-
-// provideContractSkillLibraryConfig bridges skilllibrary.Config to the
-// contract-level type that provider packages consume.
-func provideContractSkillLibraryConfig(cfg skilllibrary.Config) contract.SkillLibraryConfig {
-	return contract.SkillLibraryConfig{CacheDir: cfg.CacheDir}
-}
-
-// provideFBSDRecorder exposes *fbsd.Tracker as contract.FBSDRecorder.
-// The tracker may be nil (fx optional); callers must nil-check.
-func provideFBSDRecorder(t *fbsd.Tracker) contract.FBSDRecorder {
-	if t == nil {
-		return nil
-	}
-	return t
-}
-
-// provideWorkspaceSkillSetup exposes cliadapter.SetupWorkspaceSkills as a
-// contract.WorkspaceSkillSetupFunc for the claudecli provider.
-func provideWorkspaceSkillSetup() contract.WorkspaceSkillSetupFunc {
-	return cliadapter.SetupWorkspaceSkills
-}
-
-// provideSkillManifestRenderer creates the contract.SkillManifestRenderer
-// using the fbsd ManifestRenderer implementation.
-func provideSkillManifestRenderer(entries contract.SkillManifestEntryLister, descriptions contract.SkillDescriptionParser, tracker *fbsd.Tracker) contract.SkillManifestRenderer {
-	if entries == nil {
-		return nil
-	}
-	return fbsd.NewManifestRenderer(entries, descriptions, tracker)
 }
 
 // initProviderHooks wires module-layer functions into provider/shared hooks

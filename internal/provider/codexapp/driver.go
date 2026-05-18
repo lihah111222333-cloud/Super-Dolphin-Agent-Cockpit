@@ -23,31 +23,31 @@ import (
 
 type DriverFactory struct {
 	contract.DriverFactory
-	mu               sync.RWMutex
-	logger           *slog.Logger
-	eventDispatcher  *unified.EventDispatcher
-	approvals        *rpc.ApprovalManager
-	reporter         contract.RuntimeReporter
-	manager          *ServerManager
-	pool             *ServerPool
-	listTools        func(context.Context) ([]codexprotocol.DynamicToolSchema, error)
-	manifestRenderer contract.SkillManifestRenderer // P6 FBSD + skill library; optional, nil-safe
-	recovery         contract.SessionRecoveryReporter
+	mu              sync.RWMutex
+	logger          *slog.Logger
+	eventDispatcher *unified.EventDispatcher
+	approvals       *rpc.ApprovalManager
+	reporter        contract.RuntimeReporter
+	manager         *ServerManager
+	pool            *ServerPool
+	listTools       func(context.Context) ([]codexprotocol.DynamicToolSchema, error)
+	mirror          contract.SkillMirrorReconciler
+	recovery        contract.SessionRecoveryReporter
 }
 
 const fallbackBaseInstructions = "You are a helpful assistant."
 
 type driver struct {
-	logger           *slog.Logger
-	serverURL        string
-	eventDispatcher  *unified.EventDispatcher
-	approvals        *rpc.ApprovalManager
-	reporter         contract.RuntimeReporter
-	manager          *ServerManager
-	pool             *ServerPool
-	listTools        func(context.Context) ([]codexprotocol.DynamicToolSchema, error)
-	manifestRenderer contract.SkillManifestRenderer // P6 FBSD + skill library; optional, nil-safe
-	recovery         contract.SessionRecoveryReporter
+	logger          *slog.Logger
+	serverURL       string
+	eventDispatcher *unified.EventDispatcher
+	approvals       *rpc.ApprovalManager
+	reporter        contract.RuntimeReporter
+	manager         *ServerManager
+	pool            *ServerPool
+	listTools       func(context.Context) ([]codexprotocol.DynamicToolSchema, error)
+	mirror          contract.SkillMirrorReconciler
+	recovery        contract.SessionRecoveryReporter
 }
 
 var _ contract.Driver = (*driver)(nil)
@@ -104,23 +104,23 @@ func NewDriverFactory(
 	reporter contract.RuntimeReporter,
 	manager *ServerManager,
 	pool *ServerPool,
-	manifestRenderer contract.SkillManifestRenderer,
+	mirror contract.SkillMirrorReconciler,
 	recovery contract.SessionRecoveryReporter,
 ) *DriverFactory {
 	factory := &DriverFactory{
-		logger:           logger,
-		eventDispatcher:  dispatcher,
-		approvals:        approvals,
-		reporter:         reporter,
-		manager:          manager,
-		pool:             pool,
-		manifestRenderer: manifestRenderer,
-		recovery:         recovery,
+		logger:          logger,
+		eventDispatcher: dispatcher,
+		approvals:       approvals,
+		reporter:        reporter,
+		manager:         manager,
+		pool:            pool,
+		mirror:          mirror,
+		recovery:        recovery,
 	}
 	factory.DriverFactory = contract.DriverFactory{
 		Name: "codex",
 		Create: func() contract.Driver {
-			return newDriver(logger, dispatcher, approvals, reporter, manager, pool, factory.manifestRenderer, factory.recovery, factory.currentListTools())
+			return newDriver(logger, dispatcher, approvals, reporter, manager, pool, factory.mirror, factory.recovery, factory.currentListTools())
 		},
 		NativeTools: []contract.NativeToolDescriptor{
 			{ID: contract.CodexNativeToolReadFile, Label: "直接读项目文件", Description: "绕过项目文件工具直接读取文件。", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
@@ -177,7 +177,7 @@ func (f *DriverFactory) currentListTools() func(context.Context) ([]codexprotoco
 	return f.listTools
 }
 
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager, pool *ServerPool, manifestRenderer contract.SkillManifestRenderer, recovery contract.SessionRecoveryReporter, listTools ...func(context.Context) ([]codexprotocol.DynamicToolSchema, error)) contract.Driver {
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager, pool *ServerPool, mirror contract.SkillMirrorReconciler, recovery contract.SessionRecoveryReporter, listTools ...func(context.Context) ([]codexprotocol.DynamicToolSchema, error)) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -190,22 +190,27 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, ap
 		listToolsFn = listTools[0]
 	}
 	return &driver{
-		logger:           logger,
-		serverURL:        serverURL,
-		eventDispatcher:  eventDispatcher,
-		approvals:        approvals,
-		reporter:         reporter,
-		manager:          manager,
-		pool:             pool,
-		listTools:        listToolsFn,
-		manifestRenderer: manifestRenderer,
-		recovery:         recovery,
+		logger:          logger,
+		serverURL:       serverURL,
+		eventDispatcher: eventDispatcher,
+		approvals:       approvals,
+		reporter:        reporter,
+		manager:         manager,
+		pool:            pool,
+		listTools:       listToolsFn,
+		mirror:          mirror,
+		recovery:        recovery,
 	}
 }
 
 func (d *driver) Name() string { return "codex" }
 
 func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+	var err error
+	req, err = d.prepareStartSessionRequest(ctx, req)
+	if err != nil {
+		return nil, err
+	}
 	opts, err := d.resolveSessionOptions(ctx, req)
 	if err != nil {
 		return nil, err
@@ -239,6 +244,11 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 }
 
 func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+	var err error
+	req, err = d.prepareResumeSessionRequest(ctx, req)
+	if err != nil {
+		return nil, err
+	}
 	opts, err := d.resolveResumeOptions(ctx, req)
 	if err != nil {
 		return nil, err
@@ -262,6 +272,14 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	}
 	s.setThreadID(threadID)
 	s.ensureRuntimeCodexHomeFromInitialize("resume")
+	applyResumeRuntimeConfig(s, req)
+	d.restoreApprovalPolicy(ctx, s, threadID)
+	applyResumeNativeToolRuntimePolicy(s, req.CodexDisabledNativeTools)
+	d.reportRuntime(s.agentID)
+	return s, nil
+}
+
+func applyResumeRuntimeConfig(s *session, req dto.ResumeSessionRequest) {
 	if cwd := strings.TrimSpace(req.CWD); cwd != "" {
 		s.setRuntimeConfigValue("cwd", cwd)
 	}
@@ -279,10 +297,6 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	if len(req.CodexDisabledNativeTools) > 0 {
 		s.setRuntimeConfigValue("codexDisabledNativeTools", append([]string(nil), req.CodexDisabledNativeTools...))
 	}
-	d.restoreApprovalPolicy(ctx, s, threadID)
-	applyResumeNativeToolRuntimePolicy(s, req.CodexDisabledNativeTools)
-	d.reportRuntime(s.agentID)
-	return s, nil
 }
 
 func (d *driver) clearStaleProviderThreadID(agentID, message string) {
@@ -336,16 +350,6 @@ func (d *driver) startAssemblyInstructions(req dto.StartSessionRequest) (string,
 		configString(req.Config, "developerInstructions"),
 		configString(req.Config, "developer_instructions"),
 	))
-	if d != nil && d.manifestRenderer != nil {
-		manifest := d.manifestRenderer.RenderSkillManifest()
-		if manifest != "" {
-			if base != "" {
-				base = manifest + "\n\n" + base
-			} else {
-				base = manifest
-			}
-		}
-	}
 	if base == "" {
 		base = fallbackBaseInstructions
 	}

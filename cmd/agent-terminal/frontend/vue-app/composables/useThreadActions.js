@@ -1,6 +1,7 @@
 import { ref } from '../../lib/vue.esm-browser.prod.js';
 import { callAPI } from '../services/api.js';
 import { logInfo, logWarn } from '../services/log.js';
+import { dropSkillNamesCoveredByRefs } from '../utils/skill-ref-utils.js';
 
 export function resolveProjectActionCwd(projectStore, windowCwd = '') {
   const active = (projectStore?.state?.active || '').toString().trim();
@@ -114,6 +115,7 @@ function setCmdCardColsValue(cmdCardCols, value) {
 const EMPTY_SKILL_SELECTION = Object.freeze({
   enabled: false,
   selectedSkills: [],
+  selectedSkillRefs: [],
   manualSkillSelection: false,
 });
 
@@ -123,16 +125,37 @@ function normalizeSelectedSkillNames(rawSelectedSkills) {
     : [];
 }
 
+function normalizeSelectedSkillRefs(rawSelectedSkillRefs) {
+  return Array.isArray(rawSelectedSkillRefs)
+    ? rawSelectedSkillRefs
+      .map((item) => {
+        const ref = {
+          key: (item?.key || '').toString().trim(),
+          name: (item?.name || '').toString().trim(),
+          scope: (item?.scope || '').toString().trim(),
+          personalType: (item?.personalType || item?.personal_type || '').toString().trim(),
+          path: (item?.path || '').toString().trim(),
+        };
+        const source = (item?.source || '').toString().trim();
+        if (source) ref.source = source;
+        return ref;
+      })
+      .filter((item) => item.key && item.name)
+    : [];
+}
+
 async function resolveLaunchStartPayload(text, focusMode, resolveLaunchSkillSelectionForStart) {
   const rawSelection = typeof resolveLaunchSkillSelectionForStart === 'function'
     ? await resolveLaunchSkillSelectionForStart(text)
     : EMPTY_SKILL_SELECTION;
-  const selectedSkills = normalizeSelectedSkillNames(rawSelection?.selectedSkills);
+  const selectedSkillRefs = normalizeSelectedSkillRefs(rawSelection?.selectedSkillRefs);
+  const selectedSkills = dropSkillNamesCoveredByRefs(normalizeSelectedSkillNames(rawSelection?.selectedSkills), selectedSkillRefs);
   const manualSkillSelection = rawSelection?.manualSkillSelection === true;
   const enabled = rawSelection?.enabled === true;
   const startOptions = { focusMode };
-  if (enabled && (selectedSkills.length > 0 || manualSkillSelection)) {
-    startOptions.selectedSkills = selectedSkills;
+  if (enabled && (selectedSkills.length > 0 || selectedSkillRefs.length > 0 || manualSkillSelection)) {
+    if (selectedSkills.length > 0) startOptions.selectedSkills = selectedSkills;
+    if (selectedSkillRefs.length > 0) startOptions.selectedSkillRefs = selectedSkillRefs;
     startOptions.manualSkillSelection = manualSkillSelection;
   }
   // Forward the user's first message so the backend router has input to
@@ -150,6 +173,7 @@ async function resolveLaunchStartPayload(text, focusMode, resolveLaunchSkillSele
   return {
     enabled,
     selectedSkills,
+    selectedSkillRefs,
     manualSkillSelection,
     startOptions,
   };
@@ -189,7 +213,8 @@ async function performSend({
     skillSelection = await resolveComposerSkillSelectionForSend(threadId, text);
   }
 
-  const selectedSkills = normalizeSelectedSkillNames(skillSelection?.selectedSkills);
+  const selectedSkillRefs = normalizeSelectedSkillRefs(skillSelection?.selectedSkillRefs);
+  const selectedSkills = dropSkillNamesCoveredByRefs(normalizeSelectedSkillNames(skillSelection?.selectedSkills), selectedSkillRefs);
   const manualSkillSelection = skillSelection?.manualSkillSelection === true;
 
   const savedText = text;
@@ -197,11 +222,10 @@ async function performSend({
   composer.clearComposer();
   resetSelectedComposerSkills();
   try {
-    await threadStore.sendMessage(threadId, text, attachments, {
-      selectedSkills,
-      manualSkillSelection,
-      cwd: actionCwd,
-    });
+    const sendOptions = { manualSkillSelection, cwd: actionCwd };
+    if (selectedSkills.length > 0) sendOptions.selectedSkills = selectedSkills;
+    if (selectedSkillRefs.length > 0) sendOptions.selectedSkillRefs = selectedSkillRefs;
+    await threadStore.sendMessage(threadId, text, attachments, sendOptions);
     scheduleScrollToBottom(true);
   } catch (err) {
     logWarn('ui', 'chat.send.error_restore', {
