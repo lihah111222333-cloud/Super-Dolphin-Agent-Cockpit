@@ -39,7 +39,7 @@ Behavior reading mode, when the user asks how something works:
 - The agent is encouraged to load and apply these skills to ensure repository-specific best practices are followed.
 - If a skill is loaded, its instructions are subordinate to this file, the user's latest instruction, and current repository evidence.
 
-This policy governs agent instruction loading from `.agent/skills/**`. It does not disable or describe the product runtime skill pipeline. Runtime skills seed into `~/.multi-agent/skills-library/`, cache into `~/.multi-agent/skills-cache/`, Claude workspaces use `.claude/skills` symlinks, and Codex reads sections through `skill_read_section`. For runtime skill behavior, inspect `internal/module/skill*`, `internal/platform/toolbridge/skill_read_section.go`, and related tests.
+This policy governs agent instruction loading from `.agent/skills/**`. It does not disable or describe the product runtime skill pipeline. Runtime canonical skills are app-managed under project `<cwd>/.agent/skills` and personal `~/.super-dolphin/skills/personal/{user,agent,imported,hub}` roots, then reconciled into generated provider-native mirrors so Claude discovers `<cwd>/.claude/skills` and Codex discovers `<cwd>/.codex/skills` plus provider-home `skills`. Provider mirrors are generated artifacts, not canonical truth. For runtime skill behavior, inspect `internal/module/skill*`, `internal/provider/shared/provider_home.go`, provider mirror tests, and related toolbridge compatibility tests.
 
 ## Sub-Agent & Orchestration Policy
 

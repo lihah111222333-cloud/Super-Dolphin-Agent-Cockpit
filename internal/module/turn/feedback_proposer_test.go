@@ -14,9 +14,11 @@ import (
 type mockDreamExecutor struct {
 	result string
 	err    error
+	calls  int
 }
 
 func (m *mockDreamExecutor) ExecuteDream(_ context.Context, _ string) (string, error) {
+	m.calls++
 	return m.result, m.err
 }
 
@@ -75,11 +77,9 @@ func TestFeedbackProposer_Propose(t *testing.T) {
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	assert.Equal(t, 1, store.insertCount)
-	assert.Equal(t, "reply-chinese", store.inserted[0].Slug)
-	assert.Equal(t, skillcandidate.ScopeProject, store.inserted[0].Scope)
-	assert.NotEmpty(t, store.inserted[0].SkillMD)
-	assert.NotEmpty(t, store.inserted[0].ContentHash)
+	assert.Equal(t, 0, dream.calls)
+	assert.Equal(t, 0, store.insertCount)
+	assert.Empty(t, store.inserted)
 }
 
 func TestBuildFeedbackProposalPrompt(t *testing.T) {

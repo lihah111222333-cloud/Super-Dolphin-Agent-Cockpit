@@ -7,9 +7,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
-
-	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
@@ -76,6 +75,86 @@ func newSkillRPCTestServer(t *testing.T, svc Service) *platformrpc.Server {
 	return server
 }
 
+func TestSkillHandlersDoNotExposeCandidateRPC(t *testing.T) {
+	t.Parallel()
+
+	handlers := newSkillHandlers(newTestSkillService(t), nil).Handlers
+	for _, method := range []string{
+		"skills/candidate/list/pending",
+		"skills/candidate/get",
+		"skills/candidate/approve",
+		"skills/candidate/reject",
+	} {
+		if _, ok := handlers[method]; ok {
+			t.Fatalf("old skill candidate RPC %q is still registered", method)
+		}
+	}
+}
+
+type fakeSkillDreamExecutor struct {
+	prompt string
+	result string
+	err    error
+}
+
+func (f *fakeSkillDreamExecutor) ExecuteDream(_ context.Context, prompt string) (string, error) {
+	f.prompt = prompt
+	if f.err != nil {
+		return "", f.err
+	}
+	return f.result, nil
+}
+
+func TestSkillSummarySuggestRPCUsesDreamExecutor(t *testing.T) {
+	t.Parallel()
+
+	svc := newTestSkillService(t)
+	dream := &fakeSkillDreamExecutor{result: `{"description":"当你需要编写或验证技能文件时使用。"}`}
+	server := platformrpc.NewServer(platformrpc.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
+	server.Register(newSkillHandlers(svc, nil, dream).Handlers)
+
+	raw, err := server.Dispatch(context.Background(), "skills/summary/suggest", json.RawMessage(`{
+		"cwd":"/tmp/project",
+		"name":"编写技能",
+		"content":"# 编写技能\n创建或修改 SKILL.md。",
+		"scenario_words":["skill","@skill"]
+	}`))
+	if err != nil {
+		t.Fatalf("Dispatch() error = %v", err)
+	}
+	var got struct {
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if got.Description != "当你需要编写或验证技能文件时使用。" {
+		t.Fatalf("description = %q", got.Description)
+	}
+	for _, want := range []string{"编写技能", "创建或修改 SKILL.md", "@skill"} {
+		if !strings.Contains(dream.prompt, want) {
+			t.Fatalf("dream prompt missing %q:\n%s", want, dream.prompt)
+		}
+	}
+}
+
+func TestSkillSummarySuggestRPCRejectsGenericDescription(t *testing.T) {
+	t.Parallel()
+
+	svc := newTestSkillService(t)
+	dream := &fakeSkillDreamExecutor{result: `{"description":"帮你处理各种问题。"}`}
+	server := platformrpc.NewServer(platformrpc.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
+	server.Register(newSkillHandlers(svc, nil, dream).Handlers)
+
+	_, err := server.Dispatch(context.Background(), "skills/summary/suggest", json.RawMessage(`{
+		"name":"通用助手",
+		"content":"# 通用助手\n处理很多事情。"
+	}`))
+	if err == nil || !strings.Contains(err.Error(), "skill summary suggestion quality") {
+		t.Fatalf("Dispatch() error = %v, want quality rejection", err)
+	}
+}
+
 func TestSkillListHostRPCRejectsUnknownFields(t *testing.T) {
 	t.Parallel()
 
@@ -124,27 +203,12 @@ func TestSkillListHostRPCResponseHidesLegacyFields(t *testing.T) {
 	}
 }
 
-func TestSkillsListHostRPCIncludesDisclosureTierSnapshot(t *testing.T) {
+func TestSkillsListHostRPCIncludesDirAndSkillFile(t *testing.T) {
 	t.Parallel()
 
 	svc := newTestSkillService(t)
 	cwd := filepath.Join(t.TempDir(), "repo")
-	writeScopedSystemSkill(t, svc.root, cwd, "hot-skill", "---\nname: hot-skill\nsummary: Hot\n---\n# Hot")
-	writeScopedSystemSkill(t, svc.root, cwd, "unused-skill", "---\nname: unused-skill\nsummary: Unused\n---\n# Unused")
-	svc.disclosureTiers = fakeSkillDisclosureTierSource{
-		snapshot: contract.SkillDisclosureSnapshot{
-			Workspace: contract.SkillDisclosureStats{
-				"hot-skill": {Calls: []time.Time{time.Now(), time.Now(), time.Now(), time.Now()}},
-			},
-			Global: contract.SkillDisclosureStats{},
-			Config: contract.SkillDisclosureConfig{
-				HalfLife:       7 * 24 * time.Hour,
-				FrozenDuration: 90 * 24 * time.Hour,
-				WSMinCalls:     1,
-				WSWeight:       0.7,
-			},
-		},
-	}
+	writeScopedSystemSkill(t, svc.root, cwd, "demo-skill", "---\nname: demo-skill\nsummary: Demo\n---\n# Demo")
 	server := newSkillRPCTestServer(t, svc)
 
 	raw, err := server.Dispatch(context.Background(), "skills/list", json.RawMessage(`{"cwd":"`+cwd+`"}`))
@@ -152,60 +216,20 @@ func TestSkillsListHostRPCIncludesDisclosureTierSnapshot(t *testing.T) {
 		t.Fatalf("Dispatch skills/list: %v", err)
 	}
 	var got struct {
-		Skills []SkillInfo `json:"skills"`
+		Skills []skillListItem `json:"skills"`
 	}
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
-	tiers := map[string]string{}
-	for _, item := range got.Skills {
-		tiers[item.Name] = item.DisclosureTier
+	if len(got.Skills) != 1 {
+		t.Fatalf("len(skills) = %d, want 1", len(got.Skills))
 	}
-	if tiers["hot-skill"] != "hot" {
-		t.Fatalf("hot-skill disclosure_tier = %q, want hot; all tiers=%#v", tiers["hot-skill"], tiers)
+	item := got.Skills[0]
+	if item.Dir == "" || filepath.Base(item.Dir) != "demo-skill" {
+		t.Fatalf("dir = %q, want canonical skill dir", item.Dir)
 	}
-	if tiers["unused-skill"] != "frozen" {
-		t.Fatalf("unused-skill disclosure_tier = %q, want frozen; all tiers=%#v", tiers["unused-skill"], tiers)
-	}
-
-	rawHost, err := server.Dispatch(context.Background(), "skill/list", json.RawMessage(`{"cwd":"`+cwd+`"}`))
-	if err != nil {
-		t.Fatalf("Dispatch skill/list: %v", err)
-	}
-	var host skillListResult
-	if err := json.Unmarshal(rawHost, &host); err != nil {
-		t.Fatalf("json.Unmarshal skill/list: %v", err)
-	}
-	hostTiers := map[string]string{}
-	for _, item := range host.Skills {
-		hostTiers[item.Name] = item.DisclosureTier
-	}
-	if hostTiers["hot-skill"] != "hot" {
-		t.Fatalf("skill/list hot-skill disclosure_tier = %q, want hot; all tiers=%#v", hostTiers["hot-skill"], hostTiers)
-	}
-}
-
-func TestSkillDisclosureTierForScore(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name  string
-		score float64
-		want  string
-	}{
-		{name: "hot", score: 3, want: "hot"},
-		{name: "warm", score: 1, want: "warm"},
-		{name: "cold", score: 0.1, want: "cold"},
-		{name: "frozen", score: 0, want: "frozen"},
-	}
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			if got := skillDisclosureTierForScore(tc.score); got != tc.want {
-				t.Fatalf("skillDisclosureTierForScore(%v) = %q, want %q", tc.score, got, tc.want)
-			}
-		})
+	if filepath.Clean(item.SkillFile) != filepath.Join(item.Dir, skillMainFile) {
+		t.Fatalf("skill_file = %q, want %q", item.SkillFile, filepath.Join(item.Dir, skillMainFile))
 	}
 }
 
@@ -264,8 +288,9 @@ func TestSkillExpandHostRPCResponseShape(t *testing.T) {
 
 	svc := newTestSkillService(t)
 	cwd := filepath.Join(t.TempDir(), "repo")
-	writeScopedSystemSkill(t, svc.root, cwd, "demo", "---\nname: demo\nsummary: Demo sum\n---\n## Usage\nhello world")
-	server := newSkillRPCTestServer(t, svc)
+	writeScopedSystemSkill(t, svc.root, cwd, "demo", "---\nname: demo\nsummary: Demo sum\ntrust: user\n---\n## Usage\nhello world")
+	server := platformrpc.NewServer(platformrpc.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
+	server.Register(newSkillHandlers(svc, &stubApprovalRequester{}).Handlers)
 
 	raw, err := server.Dispatch(context.Background(), "skill/expand", json.RawMessage(`{"name":"demo","cwd":"`+cwd+`","section":"## Usage","max_bytes":20}`))
 	if err != nil {
@@ -287,7 +312,7 @@ func TestSkillExpandHostRPCResponseShape(t *testing.T) {
 	}
 }
 
-func TestSkillsListHostRPCUsesCWDForProjectSkillsAndSharesSystem(t *testing.T) {
+func TestSkillsListHostRPCUsesCWDForProjectSkillsOnly(t *testing.T) {
 	t.Parallel()
 
 	systemRoot, projectA, projectB := setupSkillsListCWDProjects(t)
@@ -300,10 +325,10 @@ func TestSkillsListHostRPCUsesCWDForProjectSkillsAndSharesSystem(t *testing.T) {
 	server := newSkillRPCTestServer(t, svc)
 
 	scoped := dispatchSkillsListForTest(t, server, projectA)
-	assertSkillListNames(t, "project A", scoped.Skills, []string{"shared-a", "shared-b"}, []string{"local-b"})
+	assertSkillListNames(t, "project A", scoped.Skills, []string{"shared-a"}, []string{"local-b", "shared-b"})
 
 	projectBList := dispatchSkillsListForTest(t, server, projectB)
-	assertSkillListNames(t, "project B", projectBList.Skills, []string{"local-b", "shared-a", "shared-b"}, nil)
+	assertSkillListNames(t, "project B", projectBList.Skills, []string{"local-b", "shared-b"}, []string{"shared-a"})
 	assertSkillsListRejectsMissingCWD(t, server)
 }
 
@@ -378,7 +403,91 @@ func assertSkillsListRejectsMissingCWD(t *testing.T, server *platformrpc.Server)
 	}
 }
 
-func TestSkillExpandHostRPCSharesSystemSkillAcrossCWD(t *testing.T) {
+func TestSkillLocalDeleteRPCRequiresExplicitTarget(t *testing.T) {
+	t.Parallel()
+
+	projectRoot := filepath.Join(t.TempDir(), "repo")
+	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
+	projectSkillsRoot := defaultProjectSkillsRoot(projectRoot)
+	personalRoot := filepath.Join(superDolphinHome, "skills", "personal", personalSkillTypeUser)
+	writeTestSkill(t, projectSkillsRoot, "build", "# project")
+	writeTestSkill(t, personalRoot, "build", "# personal")
+	svc := &service{
+		projectRoot:       projectRoot,
+		projectSkillsRoot: projectSkillsRoot,
+		superDolphinHome:  superDolphinHome,
+		http:              &http.Client{},
+		auditStore:        &capturingSkillAuditStore{},
+	}
+	server := newSkillRPCTestServer(t, svc)
+
+	assertDeleteRPCInvalidParams(t, server, `{"cwd":"`+projectRoot+`","name":"build"}`)
+	assertDeleteRPCInvalidParams(t, server, `{"cwd":"`+projectRoot+`","name":"build","scope":"personal"}`)
+
+	_, err := server.Dispatch(context.Background(), "skills/local/delete", json.RawMessage(`{"cwd":"`+projectRoot+`","name":"build","scope":"project"}`))
+	if err != nil {
+		t.Fatalf("Dispatch project delete: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(personalRoot, "build", skillMainFile)); err != nil {
+		t.Fatalf("personal skill should remain after project delete: %v", err)
+	}
+
+	_, err = server.Dispatch(context.Background(), "skills/local/delete", json.RawMessage(`{"cwd":"`+projectRoot+`","name":"build","scope":"personal","personal_type":"user"}`))
+	if err != nil {
+		t.Fatalf("Dispatch personal delete: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(personalRoot, "build", skillMainFile)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("personal skill should be archived after personal delete, stat err=%v", err)
+	}
+	assertArchiveContainsSkill(t, superDolphinHome, filepath.Join(skillScopePersonal, personalSkillTypeUser, "build"))
+}
+
+func TestSkillLocalReadAndMatchRPCMapSameNameConflict(t *testing.T) {
+	t.Parallel()
+
+	projectRoot := filepath.Join(t.TempDir(), "repo")
+	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
+	projectSkillsRoot := defaultProjectSkillsRoot(projectRoot)
+	personalRoot := filepath.Join(superDolphinHome, "skills", "personal", personalSkillTypeUser)
+	writeTestSkill(t, projectSkillsRoot, "build", "---\nname: build\n---\n# project")
+	writeTestSkill(t, personalRoot, "build", "---\nname: build\n---\n# personal")
+	svc := &service{
+		projectRoot:       projectRoot,
+		projectSkillsRoot: projectSkillsRoot,
+		superDolphinHome:  superDolphinHome,
+		http:              &http.Client{},
+	}
+	server := newSkillRPCTestServer(t, svc)
+
+	assertRPCConflict(t, server, "skills/local/read", `{"cwd":"`+projectRoot+`","path":"build"}`)
+	assertRPCConflict(t, server, "skills/match/preview", `{"cwd":"`+projectRoot+`","text":"build"}`)
+}
+
+func assertDeleteRPCInvalidParams(t *testing.T, server *platformrpc.Server, params string) {
+	t.Helper()
+	_, err := server.Dispatch(context.Background(), "skills/local/delete", json.RawMessage(params))
+	var rpcErr *jrpc2.Error
+	if !errors.As(err, &rpcErr) {
+		t.Fatalf("delete error = %T, want *jrpc2.Error", err)
+	}
+	if rpcErr.Code != jrpc2.Code(platformrpc.CodeInvalidParams) {
+		t.Fatalf("delete code = %v, want invalid params", rpcErr.Code)
+	}
+}
+
+func assertRPCConflict(t *testing.T, server *platformrpc.Server, method, params string) {
+	t.Helper()
+	_, err := server.Dispatch(context.Background(), method, json.RawMessage(params))
+	var rpcErr *jrpc2.Error
+	if !errors.As(err, &rpcErr) {
+		t.Fatalf("%s error = %T, want *jrpc2.Error", method, err)
+	}
+	if rpcErr.Code != jrpc2.Code(platformrpc.CodeConflict) {
+		t.Fatalf("%s code = %v, want conflict", method, rpcErr.Code)
+	}
+}
+
+func TestSkillExpandHostRPCDoesNotShareLegacySystemSkillAcrossCWD(t *testing.T) {
 	t.Parallel()
 
 	systemRoot := t.TempDir()
@@ -388,16 +497,13 @@ func TestSkillExpandHostRPCSharesSystemSkillAcrossCWD(t *testing.T) {
 	svc := &service{root: systemRoot, http: &http.Client{}}
 	server := newSkillRPCTestServer(t, svc)
 
-	raw, err := server.Dispatch(context.Background(), "skill/expand", json.RawMessage(`{"name":"shared","cwd":"`+projectB+`"}`))
-	if err != nil {
-		t.Fatalf("Dispatch skill/expand: %v", err)
+	_, err := server.Dispatch(context.Background(), "skill/expand", json.RawMessage(`{"name":"shared","cwd":"`+projectB+`"}`))
+	var rpcErr *jrpc2.Error
+	if !errors.As(err, &rpcErr) {
+		t.Fatalf("Dispatch skill/expand error = %T, want *jrpc2.Error", err)
 	}
-	var got skillExpandResult
-	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatalf("json.Unmarshal skill/expand: %v", err)
-	}
-	if got.Name != "shared" || got.Summary != "global" || got.Content != "---\nname: shared\nsummary: global\n---\nglobal-body" {
-		t.Fatalf("global system expand result = %#v", got)
+	if rpcErr.Code != jrpc2.Code(platformrpc.CodeNotFound) {
+		t.Fatalf("rpcErr.Code = %v, want not found", rpcErr.Code)
 	}
 }
 
@@ -433,14 +539,4 @@ func TestSkillRPCRejectsEmptyCWD(t *testing.T) {
 			t.Fatalf("%s message = %q, want %q", tc.method, rpcErr.Message, ErrMissingCWD.Error())
 		}
 	}
-}
-
-type fakeSkillDisclosureTierSource struct {
-	snapshot contract.SkillDisclosureSnapshot
-}
-
-func (f fakeSkillDisclosureTierSource) Enabled() bool { return true }
-
-func (f fakeSkillDisclosureTierSource) DisclosureSnapshot() contract.SkillDisclosureSnapshot {
-	return f.snapshot
 }

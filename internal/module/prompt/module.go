@@ -57,11 +57,11 @@ func newMatchWhenEvaluator() contract.MatchWhenEvaluator {
 type ServiceFxParams struct {
 	fx.In
 	Cfg             *Config
-	Logger          *slog.Logger                        `optional:"true"`
-	Prefs           uipreference.Store                  `optional:"true"`
-	SharedFiles     sharedfilestore.Reader              `optional:"true"`
-	SkillStore      contract.SkillReplacementAggregator `optional:"true"`
-	DisabledToolsFn DisabledBuiltinToolsFn              `optional:"true"`
+	Logger          *slog.Logger                          `optional:"true"`
+	Prefs           uipreference.Store                    `optional:"true"`
+	SharedFiles     sharedfilestore.Reader                `optional:"true"`
+	SkillStore      contract.SkillNativeReplacementSource `optional:"true"`
+	DisabledToolsFn DisabledBuiltinToolsFn                `optional:"true"`
 }
 
 // NewServiceFx is the fx-facing constructor that wires the preference store,

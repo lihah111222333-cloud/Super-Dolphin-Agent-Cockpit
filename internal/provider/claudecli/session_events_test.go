@@ -144,7 +144,7 @@ func TestDriverResumeSessionDoesNotWaitForSystemInit(t *testing.T) {
 		return next.tr, nil, nil
 	})
 
-	d := &driver{}
+	d := &driver{mirror: &recordingMirrorReconciler{}}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	resumed, err := d.ResumeSession(ctx, dto.ResumeSessionRequest{
@@ -152,7 +152,7 @@ func TestDriverResumeSessionDoesNotWaitForSystemInit(t *testing.T) {
 		AgentID:          "agent-1",
 		ThreadID:         "thread-public",
 		ProviderThreadID: resumedUUID,
-		CWD:              "/tmp/repo",
+		CWD:              t.TempDir(),
 	})
 	if err != nil {
 		t.Fatalf("ResumeSession() error = %v", err)
@@ -178,13 +178,13 @@ func TestDriverResumeSessionPublishesPublicThreadID(t *testing.T) {
 		return next.tr, nil, nil
 	})
 
-	d := &driver{eventDispatcher: dispatcher}
+	d := &driver{eventDispatcher: dispatcher, mirror: &recordingMirrorReconciler{}}
 	resumed, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
 		Provider:         "claude",
 		AgentID:          "agent-1",
 		ThreadID:         "thread-public",
 		ProviderThreadID: "provider-thread-1",
-		CWD:              "/tmp/repo",
+		CWD:              t.TempDir(),
 		PromptSnapshot: dto.PromptAssemblySnapshot{
 			DisplayName:           "thread-public",
 			BaseInstructions:      "stored base",
@@ -211,13 +211,13 @@ func TestDriverResumeSessionRehydratesClaudeOverrideState(t *testing.T) {
 		return next.tr, nil, nil
 	})
 
-	d := &driver{}
+	d := &driver{mirror: &recordingMirrorReconciler{}}
 	resumed, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
 		Provider:         "claude",
 		AgentID:          "agent-1",
 		ThreadID:         "thread-public",
 		ProviderThreadID: "provider-thread-override",
-		CWD:              "/tmp/repo",
+		CWD:              t.TempDir(),
 		Model:            model,
 		Effort:           effectiveEffort,
 		ConfigOverride: dto.ThreadConfigPatch{
@@ -244,13 +244,13 @@ func TestDriverResumeSessionPreservesExplicitClearOverrideState(t *testing.T) {
 		return next.tr, nil, nil
 	})
 
-	d := &driver{}
+	d := &driver{mirror: &recordingMirrorReconciler{}}
 	resumed, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
 		Provider:         "claude",
 		AgentID:          "agent-1",
 		ThreadID:         "thread-public",
 		ProviderThreadID: "provider-thread-clear",
-		CWD:              "/tmp/repo",
+		CWD:              t.TempDir(),
 		Model:            effectiveModel,
 		Effort:           effectiveEffort,
 		ConfigOverride: dto.ThreadConfigPatch{

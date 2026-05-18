@@ -17,7 +17,6 @@ import (
 	teampkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/team"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
-	skillcandidatedto "github.com/anthropic-ai/super-agent-v3/internal/store/skillcandidate"
 	"github.com/creachadair/jrpc2/handler"
 	"github.com/kelindar/event"
 	"go.uber.org/fx"
@@ -112,14 +111,6 @@ type memoryLifecycleHookParams struct {
 	Sections        contract.SectionInvalidator `optional:"true"`
 	Extractor       *MemoryExtractor            `optional:"true"`
 	ManifestBuilder *ManifestBuilder            `optional:"true"`
-	DreamExecutor   contract.DreamExecutor      `optional:"true"`
-	CandidateStore  candidateInsertStore        `optional:"true"`
-}
-
-// candidateInsertStore is the narrow interface the feedback-to-skill
-// proposal pipeline needs. Satisfied by skillcandidate.Store.
-type candidateInsertStore interface {
-	Insert(ctx context.Context, p skillcandidatedto.InsertParams) (skillcandidatedto.Candidate, error)
 }
 
 type dreamExtractParams struct {
@@ -145,17 +136,6 @@ func NewMemoryLifecycleHooks(p memoryLifecycleHookParams) *MemoryLifecycleHooks 
 	}
 	if hooks != nil {
 		hooks.feedbackTracker = NewFeedbackTracker(3)
-		// LoadFromDir is deferred to bindMemoryDrainShutdown.OnStart
-		// so blocking I/O does not run inside an fx constructor.
-		if p.DreamExecutor != nil && p.CandidateStore != nil {
-			dream := p.DreamExecutor
-			store := p.CandidateStore
-			logger := p.Logger
-			projectRoot := hooks.projectRoot
-			hooks.onFeedbackThreshold = func(topicKey string, group []ExtractedMemory) {
-				feedbackSkillPropose(dream, store, logger, topicKey, group, projectRoot)
-			}
-		}
 	}
 	if hooks != nil {
 		hooks.dedupFilter = buildDedupFilter(hooks)

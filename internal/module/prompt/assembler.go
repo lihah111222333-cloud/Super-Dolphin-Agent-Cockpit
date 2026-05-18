@@ -29,13 +29,14 @@ func (s *service) AssembleStart(ctx context.Context, in StartInput) (StartAssemb
 		return s.simpleStartAssembly(ctx, in), nil
 	}
 
-	resolved, err := s.resolveSections(ctx, s.startSections(), buildStartSectionContext(in))
+	buildCtx := buildStartCtx(in)
+	suppressedTools := s.aggregateSuppressedTools(ctx, strings.TrimSpace(in.CWD), strings.TrimSpace(in.Provider))
+	buildCtx.SuppressedTools = suppressedTools
+	resolved, err := s.resolveSections(ctx, s.startSections(), SectionContext{BuildCtx: buildCtx, Start: &in})
 	if err != nil {
 		s.logBuildFallback("start", err)
 		return s.fallbackStartAssembly(ctx, in), nil
 	}
-	buildCtx := buildStartCtx(in)
-	buildCtx.SuppressedTools = s.aggregateSuppressedTools(ctx, strings.TrimSpace(in.CWD))
 	// Merge DB-sourced prompt_template sections (if any). Static blocks flow
 	// into CachedPrefix, dynamic into UncachedTail. Blocks whose EnableWhen
 	// rejects the current BuildCtx are filtered out here (Step 3b gate).
@@ -63,6 +64,7 @@ func (s *service) AssembleStart(ctx context.Context, in StartInput) (StartAssemb
 		DeveloperInstructions: dev,
 		ResolvedSections:      resolved,
 		Snapshot:              s.newSnapshot(displayName, base, dev, in.Provider, boundary, resolved),
+		SuppressedTools:       append([]string(nil), suppressedTools...),
 		UserContext:           map[string]string(cloneUserContextPayload(userMeta)),
 		UserContextText:       contract.FormatUserContextText(userMeta),
 		SystemContext:         systemCtx,
@@ -86,9 +88,11 @@ func simpleStartEnabled(in StartInput) bool {
 // form with no <system-reminder>, no gitStatus, and no runtimeExtras. Phase 1
 // tightened this path to match Claude parity; the full start path remains the
 // one that emits the layered prompt when CLAUDE_CODE_SIMPLE is unset.
-func (s *service) simpleStartAssembly(_ context.Context, in StartInput) StartAssembly {
+func (s *service) simpleStartAssembly(ctx context.Context, in StartInput) StartAssembly {
 	displayName := strings.TrimSpace(in.Name)
 	buildCtx := buildStartCtx(in)
+	suppressedTools := s.aggregateSuppressedTools(ctx, strings.TrimSpace(in.CWD), strings.TrimSpace(in.Provider))
+	buildCtx.SuppressedTools = suppressedTools
 	base := strings.Join([]string{
 		simpleStartIdentityLine,
 		"CWD: " + currentPromptCWD(buildCtx),
@@ -100,6 +104,7 @@ func (s *service) simpleStartAssembly(_ context.Context, in StartInput) StartAss
 		BaseInstructions:      base,
 		DeveloperInstructions: dev,
 		Snapshot:              s.newSnapshot(displayName, base, dev, in.Provider, nil, nil),
+		SuppressedTools:       append([]string(nil), suppressedTools...),
 	}
 }
 
@@ -269,6 +274,8 @@ func (s *service) fallbackStartAssembly(ctx context.Context, in StartInput) Star
 	displayName := strings.TrimSpace(in.Name)
 	base := strings.TrimSpace(in.BaseInstructions)
 	buildCtx := buildStartCtx(in)
+	suppressedTools := s.aggregateSuppressedTools(ctx, strings.TrimSpace(in.CWD), strings.TrimSpace(in.Provider))
+	buildCtx.SuppressedTools = suppressedTools
 	userMeta := s.buildStartUserMeta(buildCtx, nil)
 	systemCtx := s.buildSystemContext(ctx, buildCtx)
 	if hint := s.resolvePromptHint(ctx, buildCtx.CWD); hint != "" {
@@ -280,6 +287,7 @@ func (s *service) fallbackStartAssembly(ctx context.Context, in StartInput) Star
 		BaseInstructions:      base,
 		DeveloperInstructions: dev,
 		Snapshot:              s.newSnapshot(displayName, base, dev, in.Provider, nil, nil),
+		SuppressedTools:       append([]string(nil), suppressedTools...),
 		UserContext:           map[string]string(cloneUserContextPayload(userMeta)),
 		UserContextText:       contract.FormatUserContextText(userMeta),
 		SystemContext:         systemCtx,
@@ -387,6 +395,7 @@ func buildStartCtx(in StartInput) BuildCtx {
 		FRCConfig:                    copyFRCConfig(in.FRCConfig),
 		KeepCodingInstructions:       copyOptionalBool(in.KeepCodingInstructions),
 		LaunchSkillNames:             append([]string(nil), in.LaunchSkillNames...),
+		LaunchSkillRefs:              append([]dto.SkillRef(nil), in.LaunchSkillRefs...),
 		ForceLaunchSkills:            in.ForceLaunchSkills,
 	}
 }

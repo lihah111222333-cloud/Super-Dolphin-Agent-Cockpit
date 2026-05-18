@@ -2,6 +2,7 @@ package turn
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"testing"
@@ -21,13 +22,39 @@ func TestBuildPrepareInputSupportsExpandedFields(t *testing.T) {
 		{Type: "mention", Path: "doc.md"},
 	})
 	input := buildPrepareInput(expandedPrepareInputSpec(items), prepareSkillSpec{
-		Selected: []string{"review", "debug"},
-		Derived:  inputSkills,
+		Selected:     []string{"review", "debug"},
+		SelectedRefs: []skillRefParams{{Name: "project-review", Scope: "project"}},
+		Derived:      inputSkills,
 	}, expandedPrepareInputSession())
 
 	assertExpandedPrepareInputItems(t, input)
 	assertExpandedPrepareInputContext(t, input)
 	assertExpandedPrepareInputRuntimeFallbacks(t, input)
+}
+
+func TestTurnStartParamsAcceptsSelectedSkillRefsCamelCase(t *testing.T) {
+	t.Parallel()
+
+	var params turnStartParams
+	input := []byte(`{
+		"threadId":"thread-1",
+		"selectedSkills":["docs"],
+		"selectedSkillRefs":[{"key":"project::docs:/repo/.agent/skills/docs","name":"docs","scope":"project","path":"/repo/.agent/skills/docs"}],
+		"manualSkillSelection":true
+	}`)
+	if err := json.Unmarshal(input, &params); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if len(params.SelectedSkillRefs) != 1 ||
+		params.SelectedSkillRefs[0].Name != "docs" ||
+		params.SelectedSkillRefs[0].Scope != "project" ||
+		params.SelectedSkillRefs[0].Key == "" ||
+		params.SelectedSkillRefs[0].Path != "/repo/.agent/skills/docs" {
+		t.Fatalf("SelectedSkillRefs = %#v", params.SelectedSkillRefs)
+	}
+	if len(params.SelectedSkills) != 1 || params.SelectedSkills[0] != "docs" || !params.ManualSkillSelection {
+		t.Fatalf("selected skill compatibility fields = %#v manual=%v", params.SelectedSkills, params.ManualSkillSelection)
+	}
 }
 
 func expandedPrepareInputSession() *rpcHelperSession {
@@ -87,8 +114,8 @@ func assertExpandedPrepareInputItems(t *testing.T, input PrepareInput) {
 	if input.Inputs[1].Type != "mention" || input.Inputs[1].Path != "doc.md" {
 		t.Fatalf("second input = %#v, want mention input", input.Inputs[1])
 	}
-	if got := skillNames(input.Skills); len(got) != 2 || got[0] != "review" || got[1] != "debug" {
-		t.Fatalf("skill names = %#v, want [review debug]", got)
+	if got := skillNames(input.Skills); len(got) != 3 || got[0] != "project-review" || got[1] != "review" || got[2] != "debug" {
+		t.Fatalf("skill names = %#v, want [project-review review debug]", got)
 	}
 }
 

@@ -35,6 +35,7 @@ type SkillsChanged struct {
 	Actions         []string `json:"actions,omitempty"`
 	Count           int      `json:"count,omitempty"`
 	Scope           string   `json:"scope,omitempty"`            // "project" | "system"
+	PersonalType    string   `json:"personal_type,omitempty"`    // personal scope bucket, e.g. "user" | "agent"
 	RepoFingerprint string   `json:"repo_fingerprint,omitempty"` // project scope only
 	RelativePath    string   `json:"relative_path,omitempty"`    // project scope only, relative to repo root
 	Cwd             string   `json:"cwd,omitempty"`              // deprecated: intentionally left empty to avoid leaking host paths

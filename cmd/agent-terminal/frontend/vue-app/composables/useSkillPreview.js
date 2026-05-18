@@ -5,6 +5,7 @@ import {
   onBeforeUnmount,
 } from '../../lib/vue.esm-browser.prod.js';
 import { callAPI } from '../services/api.js';
+import { listSkills } from '../services/skills-api.js';
 import { logDebug, logWarn } from '../services/log.js';
 import {
   normalizeSkillPreviewMatches,
@@ -15,6 +16,12 @@ import {
   composerSkillMatchReason,
   buildSkillPreviewSignature,
 } from '../utils/skill-match-utils.js';
+import {
+  catalogRefForName,
+  mergeSkillRefs,
+  normalizeSkillCatalog,
+  skillRefFor,
+} from '../utils/skill-ref-utils.js';
 
 export function useSkillPreview(opts) {
   const {
@@ -26,6 +33,7 @@ export function useSkillPreview(opts) {
 
   const composerSkillMatches = /** @type {{ value: any[] }} */ (ref([]));
   const composerSelectedSkillNames = /** @type {{ value: string[] }} */ (ref([]));
+  const composerSelectedSkillRefs = /** @type {{ value: any[] }} */ (ref([]));
   const composerSkillPreviewLoading = ref(false);
 
   let composerSkillPreviewTimer = 0;
@@ -53,6 +61,7 @@ export function useSkillPreview(opts) {
     composerSelectedSkillNames.value,
     composerAutoAppliedSkillNames.value,
   ));
+  const composerEffectiveSelectedSkillRefs = computed(() => mergeSkillRefs(composerSelectedSkillRefs.value));
 
   function isComposerSkillAutoApplied(rawName) {
     const nameKey = skillNameKey(rawName);
@@ -66,30 +75,37 @@ export function useSkillPreview(opts) {
     return composerEffectiveSelectedSkillNames.value.some((name) => skillNameKey(name) === nameKey);
   }
 
-  function setComposerSelectedSkill(rawName, selected) {
-    const normalized = (rawName || '').toString().trim();
+  function setComposerSelectedSkill(rawSkill, selected) {
+    const refItem = skillRefFor(rawSkill);
+    const normalized = refItem.name;
     const nameKey = skillNameKey(normalized);
     if (!nameKey) return;
     const next = composerSelectedSkillNames.value.filter((name) => skillNameKey(name) !== nameKey);
+    const nextRefs = composerSelectedSkillRefs.value.filter((refItem) => skillNameKey(refItem?.name) !== nameKey);
     if (selected) {
       next.push(normalized);
+      if (refItem.key && refItem.scope && refItem.path) nextRefs.push(refItem);
     }
     composerSelectedSkillNames.value = next;
+    composerSelectedSkillRefs.value = nextRefs;
   }
 
-  function toggleComposerSelectedSkill(rawName) {
-    if (isComposerSkillAutoApplied(rawName)) return;
-    const selected = isComposerSkillSelected(rawName);
-    setComposerSelectedSkill(rawName, !selected);
+  function toggleComposerSelectedSkill(rawSkill) {
+    const name = rawSkill && typeof rawSkill === 'object' ? rawSkill.name : rawSkill;
+    if (isComposerSkillAutoApplied(name)) return;
+    const selected = isComposerSkillSelected(name);
+    setComposerSelectedSkill(rawSkill, !selected);
   }
 
   function clearComposerSelectedSkills() {
     if (composerSelectedSkillNames.value.length === 0) return;
     composerSelectedSkillNames.value = [];
+    composerSelectedSkillRefs.value = [];
   }
 
   function resetSelectedComposerSkills() {
     composerSelectedSkillNames.value = [];
+    composerSelectedSkillRefs.value = [];
   }
 
   function selectAllComposerSuggestedSkills() {
@@ -97,6 +113,7 @@ export function useSkillPreview(opts) {
     composerSelectedSkillNames.value = mergeSkillNameLists(
       composerSkillMatches.value.map((match) => (match?.name || '').toString().trim()),
     );
+    composerSelectedSkillRefs.value = [];
   }
 
   // presentation/signature helpers are shared via utils/skill-match-utils.js
@@ -186,6 +203,7 @@ export function useSkillPreview(opts) {
 
   async function resolveComposerSkillSelectionForSend(threadId, text) {
     const manualSelectedSkillNames = mergeSkillNameLists(composerSelectedSkillNames.value);
+    const manualSelectedSkillRefs = mergeSkillRefs(composerSelectedSkillRefs.value.map((refItem) => ({ ...refItem, source: 'manual' })));
     let forceMatchedSkillNames = [...composerAutoAppliedSkillNames.value];
     try {
       const raw = await callAPI('skills/match/preview', {
@@ -205,9 +223,24 @@ export function useSkillPreview(opts) {
         when: 'send',
       });
     }
+    let skillCatalog = [];
+    if (manualSelectedSkillNames.length > 0 || forceMatchedSkillNames.length > 0) {
+      try {
+        skillCatalog = normalizeSkillCatalog(await listSkills(resolveActiveCwd()));
+      } catch (error) {
+        logWarn('ui', 'chat.skillPreview.list.failed', { error, when: 'send' });
+      }
+    }
 
     return {
       selectedSkills: mergeSkillNameLists(manualSelectedSkillNames, forceMatchedSkillNames),
+      selectedSkillRefs: mergeSkillRefs(
+        manualSelectedSkillRefs,
+        manualSelectedSkillNames
+          .filter((name) => !manualSelectedSkillRefs.some((refItem) => skillNameKey(refItem?.name) === skillNameKey(name)))
+          .map((name) => catalogRefForName(skillCatalog, name, 'manual')),
+        forceMatchedSkillNames.map((name) => catalogRefForName(skillCatalog, name, 'force')),
+      ),
       manualSkillSelection: manualSelectedSkillNames.length > 0,
     };
   }
@@ -231,6 +264,7 @@ export function useSkillPreview(opts) {
     () => composerSkillMatches.value,
     () => {
       composerSelectedSkillNames.value = mergeSkillNameLists(composerSelectedSkillNames.value);
+      composerSelectedSkillRefs.value = mergeSkillRefs(composerSelectedSkillRefs.value);
     },
   );
 
@@ -244,6 +278,7 @@ export function useSkillPreview(opts) {
   return {
     composerSkillMatches,
     composerEffectiveSelectedSkillNames,
+    composerEffectiveSelectedSkillRefs,
     composerSkillPreviewLoading,
     isComposerSkillSelected,
     toggleComposerSelectedSkill,

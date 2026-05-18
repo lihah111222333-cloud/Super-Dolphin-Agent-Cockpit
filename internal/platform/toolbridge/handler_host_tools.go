@@ -111,6 +111,13 @@ func (h *Handler) appendMCPToolsWithShadowWarning(dst []dto.MCPTool, seen map[st
 		if name == "" {
 			continue
 		}
+		if isRemovedSkillToolName(name) {
+			h.warn("toolbridge removed skill tool blocked from dynamic list",
+				"tool", name,
+				"source", source,
+			)
+			continue
+		}
 		if previousSource, ok := seen[name]; ok {
 			h.warn("toolbridge dynamic tool shadowed by earlier source",
 				"tool", name,
@@ -139,6 +146,19 @@ func isReservedHostOnlyToolName(name string) bool {
 	default:
 		return false
 	}
+}
+
+func isRemovedSkillToolName(name string) bool {
+	switch strings.TrimSpace(name) {
+	case ToolNameReadSection, ToolNameLegacySkillExpandBody, ToolNameLegacySkillReadResource:
+		return true
+	default:
+		return false
+	}
+}
+
+func removedSkillToolResult(name string) *ToolCallResult {
+	return toolCallTextResult(false, strings.TrimSpace(name)+" is no longer available to Codex")
 }
 
 // validateHostToolGuards checks the common pre-conditions shared by all

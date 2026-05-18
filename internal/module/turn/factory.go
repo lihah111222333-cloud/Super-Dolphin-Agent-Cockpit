@@ -42,8 +42,9 @@ type prepareInputSpec struct {
 }
 
 type prepareSkillSpec struct {
-	Selected []string
-	Derived  []string
+	Selected     []string
+	SelectedRefs []skillRefParams
+	Derived      []string
 }
 
 type prepareInputSession interface {
@@ -415,10 +416,75 @@ func normalizePrepareSkillRefs(skills prepareSkillSpec, manualSkillSelection boo
 	if manualSkillSelection {
 		selectedSource = dto.SkillSourceManual
 	}
+	selectedRefs := normalizeSkillRefsWithSource(selectedSource, skills.SelectedRefs)
 	return normalizeSkillRefs(
-		normalizeSkillNamesWithSource(selectedSource, skills.Selected),
-		normalizeSkillNamesWithSource(dto.SkillSourceUnspecified, skills.Derived),
+		selectedRefs,
+		dropNameOnlySkillRefsCoveredByExactRefs(normalizeSkillNamesWithSource(selectedSource, skills.Selected), selectedRefs),
+		dropNameOnlySkillRefsCoveredByExactRefs(normalizeSkillNamesWithSource(dto.SkillSourceUnspecified, skills.Derived), selectedRefs),
 	)
+}
+
+func dropNameOnlySkillRefsCoveredByExactRefs(names []dto.SkillRef, refs []dto.SkillRef) []dto.SkillRef {
+	if len(names) == 0 || len(refs) == 0 {
+		return names
+	}
+	covered := exactSkillRefNameKeys(refs)
+	if len(covered) == 0 {
+		return names
+	}
+	filtered := make([]dto.SkillRef, 0, len(names))
+	for _, ref := range names {
+		nameKey := strings.ToLower(strings.TrimSpace(ref.Name))
+		if nameKey == "" || covered[nameKey] {
+			continue
+		}
+		filtered = append(filtered, ref)
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	return filtered
+}
+
+func exactSkillRefNameKeys(refs []dto.SkillRef) map[string]bool {
+	covered := make(map[string]bool, len(refs))
+	for _, ref := range refs {
+		nameKey := strings.ToLower(strings.TrimSpace(ref.Name))
+		if nameKey == "" || !hasExactSkillRefIdentity(ref) {
+			continue
+		}
+		covered[nameKey] = true
+	}
+	return covered
+}
+
+func hasExactSkillRefIdentity(ref dto.SkillRef) bool {
+	return strings.TrimSpace(ref.Key) != "" ||
+		strings.TrimSpace(ref.Scope) != "" ||
+		strings.TrimSpace(ref.PersonalType) != "" ||
+		strings.TrimSpace(ref.Path) != ""
+}
+
+func normalizeSkillRefsWithSource(source dto.SkillSource, refs []skillRefParams) []dto.SkillRef {
+	out := make([]dto.SkillRef, 0, len(refs))
+	for _, raw := range refs {
+		refSource := source
+		if rawSource := dto.SkillSource(strings.TrimSpace(raw.Source)); rawSource.Valid() && rawSource != dto.SkillSourceUnspecified {
+			refSource = rawSource
+		}
+		ref := dto.SkillRef{
+			Key:          raw.Key,
+			Name:         raw.Name,
+			Scope:        raw.Scope,
+			PersonalType: raw.PersonalType,
+			Path:         raw.Path,
+		}
+		if refSource != dto.SkillSourceUnspecified {
+			ref.Source = refSource
+		}
+		out = append(out, ref)
+	}
+	return out
 }
 
 func normalizeSkillNames(groups ...[]string) []dto.SkillRef {

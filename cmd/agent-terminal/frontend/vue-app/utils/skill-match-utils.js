@@ -86,7 +86,7 @@ export function composerSkillMatchClass(match) {
 
 export function composerSkillMatchReason(match) {
   const type = normalizeComposerSkillMatchType(match?.matchedBy);
-  const label = type === 'force' ? '强制词' : (type === 'explicit' ? '显式提及' : '触发词');
+  const label = type === 'force' ? '自动推荐' : (type === 'explicit' ? '直接提到' : '关键词');
   const terms = Array.isArray(match?.matchedTerms)
     ? match.matchedTerms.map((term) => (term || '').toString().trim()).filter(Boolean)
     : [];

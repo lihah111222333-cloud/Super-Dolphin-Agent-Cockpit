@@ -15,7 +15,7 @@ func newExpandTestService(t *testing.T) (*service, string) {
 	t.Helper()
 	tmp := t.TempDir()
 	projectRoot := filepath.Join(tmp, "proj")
-	skillsRoot := filepath.Join(tmp, "user-skills")
+	skillsRoot := defaultProjectSkillsRoot(projectRoot)
 	if err := os.MkdirAll(skillsRoot, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}

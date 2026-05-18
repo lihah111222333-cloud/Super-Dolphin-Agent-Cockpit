@@ -89,11 +89,11 @@ func TestDriverStartCanonicalizesEffectiveEffort(t *testing.T) {
 		return next.tr, nil, nil
 	})
 
-	d := &driver{}
+	d := &driver{mirror: &recordingMirrorReconciler{}}
 	sess, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		Provider:     "claude",
 		AgentID:      "agent-1",
-		CWD:          "/tmp/repo",
+		CWD:          t.TempDir(),
 		Model:        "sonnet",
 		Instructions: "legacy base",
 		Config: map[string]any{

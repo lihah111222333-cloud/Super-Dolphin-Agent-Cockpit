@@ -142,6 +142,91 @@ func TestAssembleStartKeepsStaticSectionsAheadOfDynamicSections(t *testing.T) {
 	}
 }
 
+func TestAssembleStartRendersSuppressedToolsInToolPreferences(t *testing.T) {
+	svc := NewService(&Config{}, nil, WithDisabledBuiltinToolsFn(func(context.Context, string, string) []string {
+		return []string{"Read", "WebSearch"}
+	}))
+
+	assembly, err := svc.AssembleStart(context.Background(), StartInput{
+		CWD:      "/repo",
+		Provider: "codex",
+	})
+	if err != nil {
+		t.Fatalf("AssembleStart() error = %v", err)
+	}
+	for _, want := range []string{
+		"Do NOT use these native tools",
+		"Read",
+		"WebSearch",
+	} {
+		if !strings.Contains(assembly.BaseInstructions, want) {
+			t.Fatalf("BaseInstructions missing %q:\n%s", want, assembly.BaseInstructions)
+		}
+	}
+	if strings.Join(assembly.SuppressedTools, ",") != "Read,WebSearch" {
+		t.Fatalf("SuppressedTools = %#v, want Read/WebSearch carrier", assembly.SuppressedTools)
+	}
+}
+
+func TestAssembleStartSimpleCodexCarriesSuppressedTools(t *testing.T) {
+	svc := NewService(&Config{}, nil, WithDisabledBuiltinToolsFn(func(context.Context, string, string) []string {
+		return []string{"shell"}
+	}))
+
+	assembly, err := svc.AssembleStart(context.Background(), StartInput{
+		CWD:          "/repo",
+		Provider:     "codex",
+		SessionFlags: map[string]bool{"simple": true},
+	})
+	if err != nil {
+		t.Fatalf("AssembleStart() error = %v", err)
+	}
+	if strings.Join(assembly.SuppressedTools, ",") != "shell" {
+		t.Fatalf("SuppressedTools = %#v, want simple carrier", assembly.SuppressedTools)
+	}
+}
+
+func TestAssembleStartSuppressesToolsForRequestedProvider(t *testing.T) {
+	source := &recordingNativeReplacementSource{
+		toolsByProvider: map[string][]string{
+			"codex":  []string{"codex_only_tool"},
+			"claude": []string{"Read"},
+		},
+	}
+	svc := NewService(&Config{}, nil, WithSkillStore(source), WithDisabledBuiltinToolsFn(func(_ context.Context, _ string, provider string) []string {
+		if provider == "codex" {
+			return []string{"codex_only_disabled_tool"}
+		}
+		return []string{"Bash"}
+	}))
+
+	assembly, err := svc.AssembleStart(context.Background(), StartInput{CWD: "/repo", Provider: "claude"})
+	if err != nil {
+		t.Fatalf("AssembleStart() error = %v", err)
+	}
+	if !strings.Contains(assembly.BaseInstructions, "Read") || !strings.Contains(assembly.BaseInstructions, "Bash") {
+		t.Fatalf("BaseInstructions missing claude suppressions:\n%s", assembly.BaseInstructions)
+	}
+	for _, notWant := range []string{"codex_only_tool", "codex_only_disabled_tool"} {
+		if strings.Contains(assembly.BaseInstructions, notWant) {
+			t.Fatalf("BaseInstructions leaked codex suppression %q:\n%s", notWant, assembly.BaseInstructions)
+		}
+	}
+	if len(source.providers) != 1 || source.providers[0] != "claude" {
+		t.Fatalf("ReplacedNativeTools providers = %#v, want claude", source.providers)
+	}
+}
+
+type recordingNativeReplacementSource struct {
+	toolsByProvider map[string][]string
+	providers       []string
+}
+
+func (s *recordingNativeReplacementSource) ReplacedNativeTools(_ context.Context, _ string, provider string) []string {
+	s.providers = append(s.providers, provider)
+	return append([]string(nil), s.toolsByProvider[provider]...)
+}
+
 func TestAssembleStartFallsBackOnBuildError(t *testing.T) {
 	svc := NewService(&Config{}, nil)
 	if err := svc.RegisterSection(PromptSection{

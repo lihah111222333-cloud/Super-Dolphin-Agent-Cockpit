@@ -45,8 +45,9 @@ describe('skill-match-utils', () => {
     expect(normalizeComposerSkillMatchType('explicit')).toBe('explicit');
     expect(normalizeComposerSkillMatchType('anything')).toBe('trigger');
     expect(composerSkillMatchClass({ matchedBy: 'EXPLICIT' })).toBe('explicit');
-    expect(composerSkillMatchReason({ matchedBy: 'explicit', matchedTerms: [' Alpha ', '', 'Beta '] })).toBe('显式提及: Alpha / Beta');
-    expect(composerSkillMatchReason({ matchedBy: 'force', matchedTerms: null })).toBe('强制词');
+    expect(composerSkillMatchReason({ matchedBy: 'explicit', matchedTerms: [' Alpha ', '', 'Beta '] })).toBe('直接提到: Alpha / Beta');
+    expect(composerSkillMatchReason({ matchedBy: 'force', matchedTerms: null })).toBe('自动推荐');
+    expect(composerSkillMatchReason({ matchedBy: 'trigger', matchedTerms: ['bug'] })).toBe('关键词: bug');
   });
 
   it('builds stable preview signatures', () => {
