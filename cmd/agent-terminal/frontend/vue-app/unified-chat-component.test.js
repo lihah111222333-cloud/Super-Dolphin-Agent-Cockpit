@@ -301,6 +301,26 @@ describe('UnifiedChatPage.setup chat rail integration', () => {
     expect(autoScrollMock.scheduleScrollToBottom).not.toHaveBeenCalled();
   });
 
+  it('enters no-selection state when the selected chat thread is archived', async () => {
+    const { threadStore, currentThreadId } = makeAutoScrollThreadStore();
+    threadStore.getThreadsByMode = () => [{ id: 'thread-active', name: 'Active' }]
+      .filter((thread) => !threadStore.getThreadArchivedAt(thread.id));
+    threadStore.getThreadArchivedAt = (threadId) => Number(threadStore.state.archivedThreadAtById[threadId] || 0);
+    const projectStore = makeProjectStore();
+
+    const vm = UnifiedChatPage.setup({ threadStore, projectStore, mode: 'chat' });
+    expect(vm.selectedThreadId.value).toBe('thread-active');
+    expect(vm.noActiveThread.value).toBe(false);
+
+    threadStore.state.archivedThreadAtById['thread-active'] = 123;
+    currentThreadId.value = '';
+    await flushTicks();
+
+    expect(vm.selectedThreadId.value).toBe('');
+    expect(vm.noActiveThread.value).toBe(true);
+    expect(vm.activeTimeline.value).toEqual([]);
+  });
+
   it('interrupts the clicked cmd card', async () => {
     const counters = { display: [], status: [], header: [], interrupt: [] };
     const threadStore = makeThreadStore(counters);
