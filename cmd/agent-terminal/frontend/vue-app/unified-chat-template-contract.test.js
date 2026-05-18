@@ -27,6 +27,7 @@ describe('UnifiedChatPage template contract', () => {
       '<WorkspaceChatPanel',
       ':thread-config-notice="threadConfigUi.notice"',
       ':thread-config-notice-level="threadConfigUi.noticeLevel"',
+      'data-testid="chat-send-failure-notice"',
       'class="thread-rail-resizer"',
       'class="workspace-bottom-row"',
     ]);
