@@ -99,6 +99,16 @@ func (d *EventDispatcher) Register(t EventTranslator) {
 	d.translators = append(d.translators, t)
 }
 
+// Publish sends an already-normalized typed event to the shared event bus.
+func (d *EventDispatcher) Publish(ev any) {
+	if d == nil {
+		return
+	}
+	if !publishTypedEvent(d.bus, ev) {
+		d.logger.Warn("event dispatcher received unsupported typed event", "event", ev)
+	}
+}
+
 // Dispatch sends one raw driver event through all registered translators.
 func (d *EventDispatcher) Dispatch(raw dto.RawProviderEvent) {
 	d.mu.RLock()

@@ -83,6 +83,31 @@ func TestBuildManifest_UsesProxyHTTPAddr(t *testing.T) {
 	}
 }
 
+func TestBuildManifest_StdioOnlyIgnoresHTTPDiscovery(t *testing.T) {
+	got := manifestbuilder.BuildManifest(dto.ManifestContext{
+		AgentID:       "agent-1",
+		BinaryDir:     "/tmp/bin",
+		ProxyHTTPAddr: "127.0.0.1:39001",
+		PeerHTTPAddrs: map[dto.ToolFamily]string{
+			dto.FamilyLSP:  "127.0.0.1:39002",
+			dto.FamilyOrch: "127.0.0.1:39003",
+		},
+		TransportMode: dto.ManifestTransportStdioOnly,
+	})
+
+	if len(got.Binaries) != 2 {
+		t.Fatalf("binaries = %#v, want lsp/orch stdio entries", got.Binaries)
+	}
+	for _, binary := range got.Binaries {
+		if binary.Type == "http" || binary.URL != "" {
+			t.Fatalf("binary %q = %#v, want stdio command despite HTTP discovery", binary.Name, binary)
+		}
+		if len(binary.Command) != 1 || !strings.Contains(binary.Command[0], "/tmp/bin/mcp-") {
+			t.Fatalf("binary %q command = %#v, want managed stdio command", binary.Name, binary.Command)
+		}
+	}
+}
+
 func TestBuildManifest_DoesNotInjectAgentIDEnvWhenAgentIDIsSet(t *testing.T) {
 	got := manifestbuilder.BuildManifest(dto.ManifestContext{
 		AgentID:     "agent-42",

@@ -15,18 +15,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLSPToolManifestsExposeVisibleLegacyNames(t *testing.T) {
+func TestLSPToolManifestsExposeShortNames(t *testing.T) {
 	got := make([]string, 0, len(lspToolManifests))
 	for _, manifest := range lspToolManifests {
 		got = append(got, manifest.Name)
 	}
-	want := []string{"lsp_file", "lsp_inspect", "lsp_xref", "lsp_grep", "lsp_structure", "lsp_edit", "lsp_completion", "code_run"}
+	want := []string{"file", "inspect", "xref", "grep", "structure", "edit", "completion", "code_run"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("manifest names = %#v, want %#v", got, want)
 	}
 }
 
-func TestToolsListExposesLegacyLSPNames(t *testing.T) {
+func TestToolsListExposesShortLSPNames(t *testing.T) {
 	provider := registryToolProvider{defs: toolDefinitions(ToolHandlers{})}
 	list, err := provider.ListTools(context.Background())
 	if err != nil {
@@ -36,14 +36,14 @@ func TestToolsListExposesLegacyLSPNames(t *testing.T) {
 	for _, tool := range list {
 		got[tool.Name] = true
 	}
-	for _, want := range []string{"lsp_file", "lsp_inspect", "lsp_xref", "lsp_grep", "lsp_structure", "lsp_edit", "lsp_completion"} {
+	for _, want := range []string{"file", "inspect", "xref", "grep", "structure", "edit", "completion"} {
 		if !got[want] {
-			t.Fatalf("tools/list missing visible legacy tool %q; got %#v", want, got)
+			t.Fatalf("tools/list missing short tool %q; got %#v", want, got)
 		}
 	}
-	for _, hiddenShort := range []string{"file", "inspect", "xref", "grep", "structure", "edit", "completion"} {
-		if got[hiddenShort] {
-			t.Fatalf("tools/list exposed hidden short alias %q; got %#v", hiddenShort, got)
+	for _, legacy := range []string{"lsp_file", "lsp_inspect", "lsp_xref", "lsp_grep", "lsp_structure", "lsp_edit", "lsp_completion"} {
+		if got[legacy] {
+			t.Fatalf("tools/list exposed legacy alias %q; got %#v", legacy, got)
 		}
 	}
 }

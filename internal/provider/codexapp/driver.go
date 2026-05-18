@@ -31,6 +31,9 @@ type DriverFactory struct {
 	manager          *ServerManager
 	pool             *ServerPool
 	listTools        func(context.Context) ([]codexprotocol.DynamicToolSchema, error)
+	prepareTools     func(context.Context, contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error)
+	bindTools        func(contract.CodexToolSurfaceScope) error
+	releaseTools     func(contract.CodexToolSurfaceScope) error
 	manifestRenderer contract.SkillManifestRenderer // P6 FBSD + skill library; optional, nil-safe
 	recovery         contract.SessionRecoveryReporter
 }
@@ -46,6 +49,9 @@ type driver struct {
 	manager          *ServerManager
 	pool             *ServerPool
 	listTools        func(context.Context) ([]codexprotocol.DynamicToolSchema, error)
+	prepareTools     func(context.Context, contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error)
+	bindTools        func(contract.CodexToolSurfaceScope) error
+	releaseTools     func(contract.CodexToolSurfaceScope) error
 	manifestRenderer contract.SkillManifestRenderer // P6 FBSD + skill library; optional, nil-safe
 	recovery         contract.SessionRecoveryReporter
 }
@@ -120,7 +126,13 @@ func NewDriverFactory(
 	factory.DriverFactory = contract.DriverFactory{
 		Name: "codex",
 		Create: func() contract.Driver {
-			return newDriver(logger, dispatcher, approvals, reporter, manager, pool, factory.manifestRenderer, factory.recovery, factory.currentListTools())
+			raw := newDriver(logger, dispatcher, approvals, reporter, manager, pool, factory.manifestRenderer, factory.recovery, factory.currentListTools())
+			if d, ok := raw.(*driver); ok {
+				d.prepareTools = factory.currentPrepareTools()
+				d.bindTools = factory.currentBindTools()
+				d.releaseTools = factory.currentReleaseTools()
+			}
+			return raw
 		},
 		NativeTools: []contract.NativeToolDescriptor{
 			{ID: contract.CodexNativeToolReadFile, Label: "直接读项目文件", Description: "绕过项目文件工具直接读取文件。", DefaultDisabled: true, Provider: "codex", FilterMode: contract.NativeToolFilterModeSoft},
@@ -168,6 +180,33 @@ func (f *DriverFactory) SetListTools(fn func(context.Context) ([]codexprotocol.D
 	f.listTools = fn
 }
 
+func (f *DriverFactory) SetPrepareTools(fn func(context.Context, contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error)) {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.prepareTools = fn
+}
+
+func (f *DriverFactory) SetReleaseTools(fn func(contract.CodexToolSurfaceScope) error) {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.releaseTools = fn
+}
+
+func (f *DriverFactory) SetBindTools(fn func(contract.CodexToolSurfaceScope) error) {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.bindTools = fn
+}
+
 func (f *DriverFactory) currentListTools() func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 	if f == nil {
 		return nil
@@ -175,6 +214,33 @@ func (f *DriverFactory) currentListTools() func(context.Context) ([]codexprotoco
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	return f.listTools
+}
+
+func (f *DriverFactory) currentPrepareTools() func(context.Context, contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error) {
+	if f == nil {
+		return nil
+	}
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return f.prepareTools
+}
+
+func (f *DriverFactory) currentBindTools() func(contract.CodexToolSurfaceScope) error {
+	if f == nil {
+		return nil
+	}
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return f.bindTools
+}
+
+func (f *DriverFactory) currentReleaseTools() func(contract.CodexToolSurfaceScope) error {
+	if f == nil {
+		return nil
+	}
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return f.releaseTools
 }
 
 func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager, pool *ServerPool, manifestRenderer contract.SkillManifestRenderer, recovery contract.SessionRecoveryReporter, listTools ...func(context.Context) ([]codexprotocol.DynamicToolSchema, error)) contract.Driver {
@@ -214,6 +280,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	if err != nil {
 		return nil, err
 	}
+	s.releaseTools = d.releaseTools
 	// P22 P1c: explicit runtime start. newSession no longer spawns
 	// reader / health goroutines, so StartSession is the sole production
 	// launch point for this session's runtime handle. Start BEFORE any
@@ -247,6 +314,7 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	if err != nil {
 		return nil, err
 	}
+	s.releaseTools = d.releaseTools
 	// P22 P1c: explicit runtime start BEFORE resumeRemoteThread; the latter
 	// issues a thread/resume RPC whose response lands via the runtime-owned
 	// reader. If resume fails below, cleanupFailedSession → ForceStop →
@@ -254,35 +322,18 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	if s.runtime != nil {
 		s.runtime.Start()
 	}
+	primeResumeToolScope(s, req)
 	threadID, err := resumeRemoteThread(ctx, s.transport, req)
 	if err != nil {
 		cleanupFailedSession(s, "force stop failed on resume error")
 		d.clearStaleProviderThreadID(req.AgentID, "codexapp: clear stale binding failed")
 		return nil, err
 	}
-	s.setThreadID(threadID)
-	s.ensureRuntimeCodexHomeFromInitialize("resume")
-	if cwd := strings.TrimSpace(req.CWD); cwd != "" {
-		s.setRuntimeConfigValue("cwd", cwd)
+	if err := d.rebuildResumeToolSurface(ctx, s, req, threadID); err != nil {
+		cleanupFailedSession(s, "force stop failed on resume tool surface error")
+		return nil, err
 	}
-	if m := strings.TrimSpace(req.Model); m != "" {
-		s.setRuntimeConfigValue("model", m)
-	}
-	baseInstructions, developerInstructions := promptSnapshotInstructions(req.PromptSnapshot)
-	if baseInstructions == "" {
-		baseInstructions = fallbackBaseInstructions
-	}
-	s.setRuntimeConfigValue("baseInstructions", baseInstructions)
-	if developerInstructions != "" {
-		s.setRuntimeConfigValue("developerInstructions", developerInstructions)
-	}
-	if len(req.CodexDisabledNativeTools) > 0 {
-		s.setRuntimeConfigValue("codexDisabledNativeTools", append([]string(nil), req.CodexDisabledNativeTools...))
-	}
-	d.restoreApprovalPolicy(ctx, s, threadID)
-	applyResumeNativeToolRuntimePolicy(s, req.CodexDisabledNativeTools)
-	d.reportRuntime(s.agentID)
-	return s, nil
+	return d.finishResumedSession(ctx, s, req, threadID), nil
 }
 
 func (d *driver) clearStaleProviderThreadID(agentID, message string) {

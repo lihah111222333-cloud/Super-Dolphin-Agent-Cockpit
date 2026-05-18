@@ -25,23 +25,25 @@ func BuildManifest(ctx dto.ManifestContext) dto.MCPManifest {
 	bins := make([]dto.MCPBinary, 0, len(families))
 	for _, fam := range families {
 		serverName := string(fam)
-		if proxyAddr := strings.TrimSpace(ctx.ProxyHTTPAddr); proxyAddr != "" {
-			bins = append(bins, dto.MCPBinary{
-				Name:        serverName,
-				Type:        "http",
-				URL:         "http://" + proxyAddr + "/mcp/" + string(fam) + "/" + ctx.AgentID,
-				AutoApprove: append([]string(nil), autoApprove...),
-			})
-			continue
-		}
-		if addr := strings.TrimSpace(ctx.PeerHTTPAddrs[fam]); addr != "" {
-			bins = append(bins, dto.MCPBinary{
-				Name:        serverName,
-				Type:        "http",
-				URL:         "http://" + addr + "/mcp",
-				AutoApprove: append([]string(nil), autoApprove...),
-			})
-			continue
+		if ctx.TransportMode != dto.ManifestTransportStdioOnly {
+			if proxyAddr := strings.TrimSpace(ctx.ProxyHTTPAddr); proxyAddr != "" {
+				bins = append(bins, dto.MCPBinary{
+					Name:        serverName,
+					Type:        "http",
+					URL:         "http://" + proxyAddr + "/mcp/" + string(fam) + "/" + ctx.AgentID,
+					AutoApprove: append([]string(nil), autoApprove...),
+				})
+				continue
+			}
+			if addr := strings.TrimSpace(ctx.PeerHTTPAddrs[fam]); addr != "" {
+				bins = append(bins, dto.MCPBinary{
+					Name:        serverName,
+					Type:        "http",
+					URL:         "http://" + addr + "/mcp",
+					AutoApprove: append([]string(nil), autoApprove...),
+				})
+				continue
+			}
 		}
 		binaryName := "mcp-" + string(fam)
 		bins = append(bins, dto.MCPBinary{

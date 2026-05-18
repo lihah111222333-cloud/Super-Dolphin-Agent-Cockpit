@@ -23,6 +23,14 @@ type Registry struct {
 	byName map[string]ToolDefinition
 }
 
+var legacyOrchestrationAliases = map[string]string{
+	"orchestration_launch_agent":     "launch_agent",
+	"orchestration_send_message":     "send_message",
+	"orchestration_stop_agent":       "stop_agent",
+	"orchestration_list_agents":      "list_agents",
+	"orchestration_get_agent_report": "get_agent_report",
+}
+
 func NewRegistry(deps Dependencies) Registry {
 	tools := append(orchestrationToolDefinitions(deps.Orchestration), taskToolDefinitions(deps.Orchestration)...)
 	tools = append(tools, workspaceToolDefinitions(deps.Workspace)...)
@@ -42,6 +50,9 @@ func (r Registry) List() []ToolDefinition {
 }
 
 func (r Registry) Lookup(name string) (ToolDefinition, bool) {
+	if canonical, ok := legacyOrchestrationAliases[name]; ok {
+		name = canonical
+	}
 	tool, ok := r.byName[name]
 	return tool, ok
 }

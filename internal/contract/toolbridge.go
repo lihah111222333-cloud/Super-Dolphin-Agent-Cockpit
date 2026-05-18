@@ -3,6 +3,8 @@ package contract
 import (
 	"context"
 	"encoding/json"
+
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
 // ---------------------------------------------------------------------------
@@ -53,4 +55,16 @@ type CodexToolHandlerSetter interface {
 // implementation is codexapp.DriverFactory.
 type CodexListToolsSetter interface {
 	SetListTools(fn func(context.Context) ([]DynamicToolSchema, error))
+}
+
+// CodexToolSurfaceScope carries the trusted per-session inputs used to expose
+// and route Codex dynamic tools through stdio MCP sidecars.
+type CodexToolSurfaceScope struct {
+	SurfaceID        string
+	AgentID          string
+	UIThreadID       string
+	LocalThreadID    string
+	ProviderThreadID string
+	CWD              string
+	Manifest         dto.MCPManifest
 }
