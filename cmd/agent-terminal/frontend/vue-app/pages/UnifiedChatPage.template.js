@@ -215,6 +215,13 @@ export const template = `
                   @retry-auto-continue="onRetryAutoContinue"
                   @promote-task="onPromoteTaskRequested"
                 />
+                <div
+                  v-if="sendFailureNotice"
+                  class="chat-send-failure-notice"
+                  data-testid="chat-send-failure-notice"
+                  role="alert"
+                  aria-live="assertive"
+                >{{ sendFailureNotice }}</div>
                 <ComposerForkDraftCard
                   v-if="!isCmd"
                   :fork-draft="composer.forkDraft"
