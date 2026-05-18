@@ -104,6 +104,7 @@ export function buildUnifiedChatPageExposed(ctx) {
     compactSuccessCount: threadStatus.compactSuccessCount,
     canInterrupt: threadStatus.canInterrupt,
     recoveringSelected: threadActions.recoveringSelected,
+    sendFailureNotice: threadActions.sendFailureNotice,
     displayStatusText: threadStatus.displayStatusText,
     noActiveThread: threadCards.noActiveThread,
     copyButtonLabel: copyThreadInfo.copyButtonLabel,
