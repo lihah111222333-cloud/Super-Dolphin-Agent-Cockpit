@@ -156,10 +156,18 @@ func TestResolveDisabledBuiltinToolsRespectsKnownEnabledDefaults(t *testing.T) {
 
 func TestResolveSoftFilteredBuiltinToolsReturnsOnlySoftTools(t *testing.T) {
 	t.Parallel()
-	got := ResolveSoftFilteredBuiltinTools(context.Background(), nil, "/repo", testNativeTools, testNativeToolIndex)
+	got := ResolveSoftFilteredBuiltinTools(context.Background(), nil, "/repo", testNativeTools, testNativeToolIndex, "")
 	want := []string{"shell"}
 	if !equalSortedStrings(got, want) {
 		t.Fatalf("ResolveSoftFilteredBuiltinTools(nil prefs) = %#v, want %#v", got, want)
+	}
+}
+
+func TestResolveSoftFilteredBuiltinToolsFiltersProvider(t *testing.T) {
+	t.Parallel()
+	got := ResolveSoftFilteredBuiltinTools(context.Background(), nil, "/repo", testNativeTools, testNativeToolIndex, "claude")
+	if len(got) != 0 {
+		t.Fatalf("ResolveSoftFilteredBuiltinTools(provider=claude) = %#v, want none", got)
 	}
 }
 

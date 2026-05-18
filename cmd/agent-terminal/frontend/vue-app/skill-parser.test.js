@@ -214,6 +214,10 @@ describe('parseSkillMarkdown', () => {
         expect(result.name).toBe('Fallback');
     });
 
+    it('ignores internal marker summaries', () => {
+        expect(parseSkillMarkdown('---\nsummary: <SUBAGENT-STOP>\n---\nbody').summary).toBe('');
+    });
+
     it('handles empty content', () => {
         const result = parseSkillMarkdown('');
         expect(result.name).toBe('');
@@ -254,5 +258,29 @@ describe('buildSkillMarkdown', () => {
     it('handles minimal form', () => {
         const result = buildSkillMarkdown({ name: 'Min' });
         expect(result).toContain('Min');
+    });
+
+    it('saves legacy summary text as description and does not write summary frontmatter', () => {
+        const result = buildSkillMarkdown({
+            name: 'LegacySummarySkill',
+            summary: 'Use when working with old skill metadata',
+            body: '# Body',
+        });
+
+        expect(result).toContain('description: "Use when working with old skill metadata"');
+        expect(result).not.toContain('summary:');
+    });
+
+    it('migrates legacy force words into trigger words on save', () => {
+        const result = buildSkillMarkdown({
+            name: 'MigratedSkill',
+            triggerWordsText: 'bug, 调试, @MigratedSkill',
+            forceWordsText: '必须, bug',
+            internalScenarioWordsText: '[skill:MigratedSkill]',
+            body: '# Body',
+        });
+
+        expect(result).toContain('trigger_words: ["bug", "调试", "@MigratedSkill", "必须", "[skill:MigratedSkill]"]');
+        expect(result).not.toContain('force_words');
     });
 });

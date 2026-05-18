@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"gopkg.in/yaml.v3"
 )
 
 type skillRecord struct {
@@ -18,6 +21,8 @@ type skillRecord struct {
 	path string
 	rel  string
 }
+
+var internalSkillMarkerSummaryPattern = regexp.MustCompile(`^</?[A-Z][A-Z0-9_-]*>$`)
 
 type skillScanRootKind uint8
 
@@ -162,6 +167,7 @@ func parseSkillInfo(rel, dir, content string, defaultTrust TrustScope) SkillInfo
 			}
 			i += applyMetaLine(&info, key, value, lines[i+1:])
 		}
+		applyYAMLFrontmatter(&info, frontmatter)
 	} else {
 		body = content
 	}
@@ -175,6 +181,7 @@ func parseSkillInfo(rel, dir, content string, defaultTrust TrustScope) SkillInfo
 	info.Summary = truncateRunes(info.Summary, 220)
 	info.TriggerWords = uniqStrings(append(info.TriggerWords, "@"+info.Name, "[skill:"+info.Name+"]"))
 	info.ForceWords = uniqStrings(info.ForceWords)
+	info.ReplacesNative = normalizeReplacesNative(info.ReplacesNative)
 	// P20 Phase 1: 信任域与安全字段回填
 	info.AllowedTools = uniqStrings(info.AllowedTools)
 	if info.Trust == TrustUnknown {
@@ -184,11 +191,32 @@ func parseSkillInfo(rel, dir, content string, defaultTrust TrustScope) SkillInfo
 			info.Trust = TrustProject // 安全兑底：未知源按不受信任处理
 		}
 	}
+	info.Trust = capSkillTrustByRoot(info.Trust, defaultTrust)
 	// ContentHash: SHA-256 of the raw SKILL.md full content (frontmatter + body),
 	// 用于审批缓存 (name, hash) 的 TOCTOU 防护 — frontmatter/body 任一改动都重审。
 	sum := sha256.Sum256([]byte(content))
 	info.ContentHash = hex.EncodeToString(sum[:])
 	return info
+}
+
+func capSkillTrustByRoot(trust, defaultTrust TrustScope) TrustScope {
+	if !trust.Valid() {
+		return TrustProject
+	}
+	switch defaultTrust {
+	case TrustUser:
+		if trust == TrustSigned {
+			return TrustUser
+		}
+		return trust
+	case TrustSigned:
+		return trust
+	default:
+		if trust.Trusted() {
+			return TrustProject
+		}
+		return trust
+	}
 }
 
 func fallbackSkillName(rel string) string {
@@ -274,6 +302,12 @@ var disableModelInvocationMetaKeys = map[string]struct{}{
 	"disablemodelinvocation":   {},
 }
 
+var replacesNativeMetaKeys = []string{
+	"replaces_native",
+	"replaces-native",
+	"replacesnative",
+}
+
 func applyMetaLine(info *SkillInfo, key, value string, tail []string) int {
 	if handler, ok := metaScalarAppliers[key]; ok {
 		handler(info, value)
@@ -325,6 +359,78 @@ func applyDisableModelInvocationMeta(info *SkillInfo, key, value string) bool {
 		info.DisableModelInvocation = true
 	}
 	return true
+}
+
+func applyYAMLFrontmatter(info *SkillInfo, frontmatter string) {
+	var doc map[string]any
+	if err := yaml.Unmarshal([]byte(frontmatter), &doc); err != nil {
+		return
+	}
+	for _, key := range replacesNativeMetaKeys {
+		if raw, ok := doc[key]; ok {
+			info.ReplacesNative = parseReplacesNativeYAML(raw)
+			return
+		}
+	}
+}
+
+func parseReplacesNativeYAML(raw any) map[string][]string {
+	switch value := raw.(type) {
+	case map[string]any:
+		out := make(map[string][]string, len(value))
+		for provider, tools := range value {
+			if names := parseYAMLStringList(tools); len(names) > 0 {
+				out[normalizeReplacesNativeProvider(provider)] = names
+			}
+		}
+		return out
+	case []any, []string, string:
+		if names := parseYAMLStringList(value); len(names) > 0 {
+			return map[string][]string{"*": names}
+		}
+	}
+	return nil
+}
+
+func parseYAMLStringList(raw any) []string {
+	switch value := raw.(type) {
+	case []any:
+		out := make([]string, 0, len(value))
+		for _, item := range value {
+			out = append(out, parseScalar(fmt.Sprint(item)))
+		}
+		return uniqStrings(out)
+	case []string:
+		return uniqStrings(value)
+	case string:
+		return splitWords(value)
+	default:
+		return nil
+	}
+}
+
+func normalizeReplacesNativeProvider(provider string) string {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == "" {
+		return "*"
+	}
+	return provider
+}
+
+func normalizeReplacesNative(in map[string][]string) map[string][]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string][]string, len(in))
+	for provider, tools := range in {
+		if names := uniqStrings(tools); len(names) > 0 {
+			out[normalizeReplacesNativeProvider(provider)] = names
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func metaKeyMatch(key string, aliases map[string]struct{}) bool {
@@ -381,16 +487,46 @@ func summarizeSkillBody(body, description string) string {
 		return description
 	}
 	lines := strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
+	skipInternalBlock := ""
 	for _, raw := range lines {
 		line := strings.TrimSpace(raw)
+		if skipInternalBlock != "" {
+			if line == "</"+skipInternalBlock+">" {
+				skipInternalBlock = ""
+			}
+			continue
+		}
+		if name, ok := internalSkillMarkerOpenName(line); ok {
+			skipInternalBlock = name
+			continue
+		}
 		switch {
-		case line == "", strings.HasPrefix(line, "#"), strings.HasPrefix(line, "```"):
+		case line == "", strings.HasPrefix(line, "#"), strings.HasPrefix(line, "```"), isInternalSkillMarkerSummary(line):
 			continue
 		default:
 			return line
 		}
 	}
 	return ""
+}
+
+func isInternalSkillMarkerSummary(value string) bool {
+	return internalSkillMarkerSummaryPattern.MatchString(strings.TrimSpace(value))
+}
+
+func internalSkillMarkerOpenName(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if len(value) < 3 || !strings.HasPrefix(value, "<") || !strings.HasSuffix(value, ">") || strings.HasPrefix(value, "</") {
+		return "", false
+	}
+	name := strings.TrimSuffix(strings.TrimPrefix(value, "<"), ">")
+	if name == "" || strings.ContainsAny(name, " \t/") {
+		return "", false
+	}
+	if !isInternalSkillMarkerSummary(value) {
+		return "", false
+	}
+	return name, true
 }
 
 func truncateRunes(value string, limit int) string {

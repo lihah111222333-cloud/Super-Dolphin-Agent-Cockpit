@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -26,12 +27,77 @@ func resolutionRecordAndMirrorDir(ctx context.Context, svc *service, req SkillMi
 	if err != nil {
 		return canonicalSkillRecord{}, "", err
 	}
-	for _, record := range records {
-		if record.Name == req.Name && record.Scope == req.Target.Scope && resolutionRecordPersonalTypeMatches(record, personalType) {
-			return record, filepath.Join(req.Target.Root, req.Name), nil
-		}
+	if record, ok := findResolutionRecord(records, req, personalType); ok {
+		return record, filepath.Join(req.Target.Root, req.Name), nil
+	}
+	if record, mirrorDir, ok, err := deletedCanonicalResolutionRecord(svc, cwd, req, personalType); err != nil || ok {
+		return record, mirrorDir, err
 	}
 	return canonicalSkillRecord{}, "", fmt.Errorf("canonical skill not found: %s", req.Name)
+}
+
+func findResolutionRecord(records []canonicalSkillRecord, req SkillMirrorResolutionRequest, personalType string) (canonicalSkillRecord, bool) {
+	for _, record := range records {
+		if record.Name == req.Name && record.Scope == req.Target.Scope && resolutionRecordPersonalTypeMatches(record, personalType) {
+			return record, true
+		}
+	}
+	return canonicalSkillRecord{}, false
+}
+
+func deletedCanonicalResolutionRecord(svc *service, cwd string, req SkillMirrorResolutionRequest, personalType string) (canonicalSkillRecord, string, bool, error) {
+	if !deletedCanonicalRestoreAction(req.Action) {
+		return canonicalSkillRecord{}, "", false, nil
+	}
+	manifest, err := readTargetManifest(req.Target)
+	if err != nil {
+		return canonicalSkillRecord{}, "", true, err
+	}
+	entry, ok := manifest.Skills[req.Name]
+	if !ok {
+		return canonicalSkillRecord{}, "", false, nil
+	}
+	scope := deletedCanonicalScope(req.Target.Scope)
+	personalType = deletedCanonicalPersonalType(personalType, entry)
+	record := deletedCanonicalRecord(svc, cwd, strings.TrimSpace(req.Name), scope, personalType, entry.CanonicalHash)
+	return record, filepath.Join(req.Target.Root, req.Name), true, nil
+}
+
+func deletedCanonicalRestoreAction(action string) bool {
+	switch action {
+	case ResolutionSyncBackCanonical, ResolutionSyncBackPersonal, ResolutionSaveAsNewSkill, ResolutionSaveAsNewPersonal:
+		return true
+	default:
+		return false
+	}
+}
+
+func deletedCanonicalScope(scope string) string {
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		return skillScopeProject
+	}
+	return scope
+}
+
+func deletedCanonicalPersonalType(personalType string, entry SkillMirrorEntry) string {
+	if personalType != "" {
+		return personalType
+	}
+	if entry.PersonalType != "" {
+		return strings.TrimSpace(entry.PersonalType)
+	}
+	return personalTypeFromCanonicalID(entry.CanonicalID)
+}
+
+func deletedCanonicalRecord(svc *service, cwd, name, scope, personalType, canonicalHash string) canonicalSkillRecord {
+	record := canonicalSkillRecord{Name: name, Scope: scope, PersonalType: personalType, DirHash: canonicalHash}
+	if scope == skillScopePersonal {
+		record.Dir = filepath.Join(svc.resolvedSuperDolphinHome(), "skills", "personal", personalType, record.Name)
+		return record
+	}
+	record.Dir = filepath.Join(defaultProjectSkillsRoot(cwd), record.Name)
+	return record
 }
 
 func resolutionRequestPersonalType(req SkillMirrorResolutionRequest) (string, error) {
@@ -90,8 +156,24 @@ func verifyResolutionRequestPreview(svc *service, req SkillMirrorResolutionReque
 }
 
 func (s *service) lookupResolutionPreview(previewID, action, previewHash string) (skillResolutionPreviewItem, error) {
+	preview, _, err := s.lookupResolutionPreviewStored(previewID, action, previewHash)
+	return preview, err
+}
+
+func (s *service) lookupResolutionPreviewForConflict(previewID, conflictID, action, previewHash string) (skillResolutionPreviewItem, error) {
+	preview, stored, err := s.lookupResolutionPreviewStored(previewID, action, previewHash)
+	if err != nil {
+		return skillResolutionPreviewItem{}, err
+	}
+	if stored.ConflictID != strings.TrimSpace(conflictID) {
+		return skillResolutionPreviewItem{}, fmt.Errorf("skill resolution preview conflict mismatch")
+	}
+	return preview, nil
+}
+
+func (s *service) lookupResolutionPreviewStored(previewID, action, previewHash string) (skillResolutionPreviewItem, skillResolutionStoredPreview, error) {
 	if s == nil {
-		return skillResolutionPreviewItem{}, fmt.Errorf("skill service is required")
+		return skillResolutionPreviewItem{}, skillResolutionStoredPreview{}, fmt.Errorf("skill service is required")
 	}
 	now := time.Now().UTC()
 	id := strings.TrimSpace(previewID)
@@ -99,19 +181,19 @@ func (s *service) lookupResolutionPreview(previewID, action, previewHash string)
 	defer s.resolutionPreviewMu.Unlock()
 	stored, ok := s.resolutionPreviews[id]
 	if !ok {
-		return skillResolutionPreviewItem{}, fmt.Errorf("skill resolution preview not found or expired")
+		return skillResolutionPreviewItem{}, skillResolutionStoredPreview{}, fmt.Errorf("skill resolution preview not found or expired")
 	}
 	if now.After(stored.ExpiresAt) {
 		delete(s.resolutionPreviews, id)
-		return skillResolutionPreviewItem{}, fmt.Errorf("skill resolution preview not found or expired")
+		return skillResolutionPreviewItem{}, skillResolutionStoredPreview{}, fmt.Errorf("skill resolution preview not found or expired")
 	}
 	if stored.Action != action || stored.Item.Action != action {
-		return skillResolutionPreviewItem{}, fmt.Errorf("skill resolution preview action mismatch")
+		return skillResolutionPreviewItem{}, skillResolutionStoredPreview{}, fmt.Errorf("skill resolution preview action mismatch")
 	}
 	if strings.TrimSpace(previewHash) == "" || stored.Item.PreviewHash != strings.TrimSpace(previewHash) {
-		return skillResolutionPreviewItem{}, fmt.Errorf("skill resolution preview hash mismatch")
+		return skillResolutionPreviewItem{}, skillResolutionStoredPreview{}, fmt.Errorf("skill resolution preview hash mismatch")
 	}
-	return stored.Item, nil
+	return stored.Item, stored, nil
 }
 
 func verifyResolutionPreviewMirrorBinding(preview skillResolutionPreviewItem, mirrorDir string) (string, error) {
@@ -138,13 +220,43 @@ func verifyResolutionPreviewMirrorBinding(preview skillResolutionPreviewItem, mi
 }
 
 func verifyResolutionPreviewTarget(preview skillResolutionPreviewItem, targetDir string) error {
-	if preview == (skillResolutionPreviewItem{}) {
-		return nil
-	}
-	if !sameResolutionPath(preview.TargetPath, targetDir) {
+	if preview != (skillResolutionPreviewItem{}) && !sameResolutionPath(preview.TargetPath, targetDir) {
 		return fmt.Errorf("skill resolution preview target mismatch")
 	}
 	return nil
+}
+
+func resolveOriginalMirrorAfterSaveAsNew(req SkillMirrorResolutionRequest, prepared canonicalMirrorResolution) error {
+	newHash, err := replaceMirrorSkillDir(req.Target.Root, req.Name, prepared.record.Dir, req.Target.Scope)
+	if err != nil {
+		return err
+	}
+	return updateOwnedMirrorManifest(req.Target, prepared.record, newHash)
+}
+
+var skillNameFrontmatterLineRE = regexp.MustCompile(`(?m)^name\s*:\s*.*$`)
+
+func rewriteCopiedSkillName(dir, newName string) error {
+	name, err := validateSkillName(newName)
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(dir, skillMainFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	content := strings.ReplaceAll(string(data), "\r\n", "\n")
+	frontmatter, body, ok := splitFrontmatter(content)
+	if !ok {
+		return nil
+	}
+	if skillNameFrontmatterLineRE.MatchString(frontmatter) {
+		frontmatter = skillNameFrontmatterLineRE.ReplaceAllString(frontmatter, "name: "+name)
+	} else {
+		frontmatter = "name: " + name + "\n" + frontmatter
+	}
+	return os.WriteFile(path, []byte("---\n"+frontmatter+"\n---\n"+body), 0o644)
 }
 
 func sameResolutionPath(previewPath, path string) bool {
@@ -163,36 +275,13 @@ func canonicalResolutionTargetDir(svc *service, record canonicalSkillRecord, req
 			return "", err
 		}
 	}
+	if strings.TrimSpace(record.Dir) != "" {
+		return filepath.Join(filepath.Dir(record.Dir), name), nil
+	}
 	if record.Scope == skillScopePersonal {
 		return filepath.Join(svc.resolvedSuperDolphinHome(), "skills", "personal", record.PersonalType, name), nil
 	}
 	return filepath.Join(defaultProjectSkillsRoot(svc.projectRoot), name), nil
-}
-
-func replaceSkillDirFromMirror(sourceDir, targetDir string) error {
-	if err := os.RemoveAll(targetDir); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(targetDir), 0o755); err != nil {
-		return err
-	}
-	_, _, err := copySkillDir(sourceDir, targetDir)
-	return err
-}
-
-func backupSkillDir(targetDir string) (string, error) {
-	if !skillMainFileExists(targetDir) {
-		return "", nil
-	}
-	backupDir := filepath.Join(filepath.Dir(targetDir), ".super-dolphin-mirror-backup", filepath.Base(targetDir)+"-"+time.Now().UTC().Format("20060102T150405.000000000Z"))
-	if err := os.MkdirAll(filepath.Dir(backupDir), 0o755); err != nil {
-		return "", err
-	}
-	if _, _, err := copySkillDir(targetDir, backupDir); err != nil {
-		_ = os.RemoveAll(backupDir)
-		return "", err
-	}
-	return backupDir, nil
 }
 
 func unmanagedProviderSource(svc *service, req SkillMirrorResolutionRequest) (string, string, skillResolutionPreviewItem, error) {
@@ -226,33 +315,30 @@ func importCanonicalTargetDir(svc *service, req SkillMirrorResolutionRequest) (s
 		if svc == nil {
 			return "", "", "", fmt.Errorf("skill service is required")
 		}
-		return filepath.Join(defaultProjectSkillsRoot(svc.projectRoot), name), skillScopeProject, "", nil
+		projectRoot, err := projectRootFromMirrorTarget(req.Target)
+		if err != nil {
+			return "", "", "", err
+		}
+		return filepath.Join(defaultProjectSkillsRoot(projectRoot), name), skillScopeProject, "", nil
 	default:
 		return "", "", "", fmt.Errorf("unsupported import action %q", req.Action)
 	}
 }
 
-func validateExistingMirrorRoot(target SkillMirrorTarget) error {
-	if err := validateSkillMirrorTarget(target); err != nil {
-		return err
+func projectRootFromMirrorTarget(target SkillMirrorTarget) (string, error) {
+	if target.Scope != skillScopeProject {
+		return "", fmt.Errorf("project mirror target is required")
 	}
-	if err := rejectSymlinkAncestors(target.Root); err != nil {
-		return err
+	root := filepath.Clean(target.Root)
+	parent := filepath.Base(filepath.Dir(root))
+	if filepath.Base(root) != "skills" || !strings.HasPrefix(parent, ".") {
+		return "", fmt.Errorf("project mirror root has unexpected shape: %s", target.Root)
 	}
-	info, err := os.Lstat(target.Root)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
+	provider := strings.TrimPrefix(parent, ".")
+	if SkillProvider(provider) != SkillProviderClaude && SkillProvider(provider) != SkillProviderCodex {
+		return "", fmt.Errorf("project mirror root has unsupported provider: %s", target.Root)
 	}
-	if err != nil {
-		return err
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("skill mirror root is symlink: %s", target.Root)
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("skill mirror root is not a directory: %s", target.Root)
-	}
-	return nil
+	return filepath.Dir(filepath.Dir(root)), nil
 }
 
 func confirmDeleteDriftedMirror(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (SkillMirrorResolutionReport, error) {
@@ -470,20 +556,6 @@ func validateMutatingResolutionPreview(item skillResolutionItem, preview skillRe
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-	}
-	return nil
-}
-
-func ensureProviderSkillDirSafe(dir string) error {
-	info, err := os.Lstat(dir)
-	if err != nil {
-		return err
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("provider skill dir is symlink: %s", dir)
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("provider skill path is not a directory: %s", dir)
 	}
 	return nil
 }

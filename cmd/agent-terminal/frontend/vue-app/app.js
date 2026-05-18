@@ -1,6 +1,5 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from '../lib/vue.esm-browser.prod.js';
 import { callAPI, getBuildInfo, onBridgeEvent, onAppWillQuit } from './services/api.js';
-import { usePendingCandidates } from './composables/usePendingCandidates.js';
 import { SidebarNav } from './components/SidebarNav.js';
 import { ProjectModal } from './components/ProjectModal.js';
 import { DagDetailModal } from './components/DagDetailModal.js';
@@ -90,13 +89,33 @@ function countMemorySimilarGroups(memoryCenter) {
   return Array.isArray(groups) ? groups.length : 0;
 }
 
-function createSidebarBadges(skillSidebarBadges, memoryCenter) {
+function createSidebarBadges(memoryCenter) {
   return computed(() => {
-    const badges = { ...(skillSidebarBadges.value || {}) };
+    const badges = {};
     const similarCount = countMemorySimilarGroups(memoryCenter);
     if (similarCount > 0) badges['memory-center'] = similarCount;
     return badges;
   });
+}
+
+function refreshScopedPageAfterCwdChange(currentPage, deps) {
+  if (currentPage === 'memory-center') {
+    deps.refreshMemoryCenter().catch((error) => {
+      console.warn('refresh memory center after scope change failed', error);
+    });
+    return;
+  }
+  if (currentPage === 'skills') {
+    deps.refreshDashboardByPage('skills').catch((error) => {
+      console.warn('refresh skills after scope change failed', error);
+    });
+    return;
+  }
+  if (currentPage === 'memory') {
+    deps.refreshDashboardByPage('memory').catch((error) => {
+      console.warn('refresh shared files after scope change failed', error);
+    });
+  }
 }
 
 const SHARED_FILES_TIPS = Object.freeze([
@@ -300,10 +319,6 @@ export const AppRoot = {
       finalOutputRefs: [],
       sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
     });
-    const { pendingCandidates, sidebarBadges: skillSidebarBadges, refreshPendingCandidates } = usePendingCandidates(
-      () => (threadScopeCwd.value || '').toString().trim(),
-    );
-
     const memoryCenter = reactive({
       loading: false,
       error: '',
@@ -311,7 +326,7 @@ export const AppRoot = {
       private: { entries: [] },
       team: { entries: [] },
     });
-    const sidebarBadges = createSidebarBadges(skillSidebarBadges, memoryCenter);
+    const sidebarBadges = createSidebarBadges(memoryCenter);
 
     let refreshTimer;
     let unsubscribeAgentEvent = () => { }, unsubscribeBridgeEvent = () => { }, unsubscribeAppWillQuit = () => { }, removeBeforeUnload = () => { }, removePageHide = () => { };
@@ -392,7 +407,6 @@ export const AppRoot = {
         const method = (evt?.method || evt?.params?.method || evt?.payload?.method || evt?.data?.method || '').toString().trim().toLowerCase();
         const payload = evt?.payload || evt?.data || evt?.params || {};
         if (method === 'skills/changed' || eventType === 'skills/changed') {
-          refreshPendingCandidates().catch(() => {});
           if (page.value === 'skills') {
             refreshDashboardByPage('skills').catch((error) => { console.warn('refresh page failed: skills', error); });
           }
@@ -424,7 +438,6 @@ export const AppRoot = {
         ensureThreadSelectionFresh(threadStore, threadStore.state.activeCmdThreadId, { reason: 'page-enter' }).catch(() => {});
       }
 
-      refreshPendingCandidates().catch(() => {});
       refreshMemoryCenter().catch((error) => {
         console.warn('refresh memory center badge failed', error);
       });
@@ -452,7 +465,6 @@ export const AppRoot = {
           });
           return;
         }
-        if (next === 'skills') refreshPendingCandidates().catch(() => {});
         refreshDashboardByPage(next).catch((error) => {
           console.warn(`refresh page failed: ${next}`, error);
         });
@@ -474,15 +486,7 @@ export const AppRoot = {
         }).catch((/** @type {unknown} */ error) => {
           console.warn('refresh threads after scope change failed', error);
         });
-        if (page.value === 'memory-center') {
-          refreshMemoryCenter().catch((error) => {
-            console.warn('refresh memory center after scope change failed', error);
-          });
-        } else if (page.value === 'memory') {
-          refreshDashboardByPage('memory').catch((error) => {
-            console.warn('refresh shared files after scope change failed', error);
-          });
-        }
+        refreshScopedPageAfterCwdChange(page.value, { refreshMemoryCenter, refreshDashboardByPage });
       },
       { immediate: true },
     );
@@ -540,8 +544,6 @@ export const AppRoot = {
       activeProjectCwd,
       currentCwdDisplay,
       sidebarBadges,
-      pendingCandidates,
-      refreshPendingCandidates,
       refreshBuildInfo,
       refreshDashboardByPage,
       refreshMemoryCenter,
@@ -592,9 +594,7 @@ export const AppRoot = {
           v-else-if="page === 'skills'"
           :skills="dashboard.skills"
           :project-store="projectStore"
-          :pending-candidates="pendingCandidates"
           @refresh-skills="refreshDashboardByPage('skills')"
-          @refresh-candidates="refreshPendingCandidates"
         />
 
         <CommandsPage

@@ -27,6 +27,7 @@ export const ComposerBar = {
     skillMatches: { type: Array, default: () => [] },
     skillMatchesLoading: { type: Boolean, default: false },
     selectedSkillNames: { type: Array, default: () => [] },
+    selectedSkillRefs: { type: Array, default: () => [] },
     isCmd: { type: Boolean, default: false },
     threadConfigProvider: { type: String, default: '' },
     threadConfigSupportsOverride: { type: Boolean, default: false },
@@ -183,7 +184,9 @@ export const ComposerBar = {
 
     function skillMatchReason(match) {
       const type = normalizeSkillMatchType(match);
-      const typeLabel = type === 'force' ? '强制词' : (type === 'explicit' ? '显式提及' : '触发词');
+      let typeLabel = '关键词';
+      if (type === 'force') typeLabel = '自动推荐';
+      else if (type === 'explicit') typeLabel = '直接提到';
       const terms = Array.isArray(match?.matchedTerms)
         ? match.matchedTerms.map((item) => (item || '').toString().trim()).filter(Boolean)
         : [];
@@ -197,14 +200,35 @@ export const ComposerBar = {
       return `${name}|${reason}|${index}`;
     }
 
-    function isSkillSelected(rawName) {
-      const name = (rawName || '').toString().trim().toLowerCase();
-      if (!name) return false;
-      return props.selectedSkillNames.some((item) => (item || '').toString().trim().toLowerCase() === name);
+    function skillSelectionKey(rawSkill) {
+      const directKey = (rawSkill?.key || '').toString().trim().toLowerCase();
+      if (directKey) return directKey;
+      const name = (rawSkill?.name || rawSkill || '').toString().trim().toLowerCase();
+      if (!name) return '';
+      const scope = (rawSkill?.scope || '').toString().trim().toLowerCase();
+      const personalType = (rawSkill?.personal_type || rawSkill?.personalType || '').toString().trim().toLowerCase();
+      const path = (rawSkill?.dir || rawSkill?.skill_file || rawSkill?.path || '').toString().trim().toLowerCase();
+      return scope || personalType || path ? [scope, personalType, name, path].join(':') : '';
     }
 
-    function onToggleSkill(rawName) {
-      emit('toggle-skill', (rawName || '').toString().trim());
+    function isSkillSelected(rawSkill) {
+      const refKey = skillSelectionKey(rawSkill);
+      const hasSelectedRefs = Array.isArray(props.selectedSkillRefs);
+      const selectedRefs = hasSelectedRefs ? props.selectedSkillRefs : [];
+      if (refKey && selectedRefs.some((item) => skillSelectionKey(item) === refKey)) return true;
+      if (refKey && hasSelectedRefs) return false;
+      const name = (rawSkill?.name || rawSkill || '').toString().trim().toLowerCase();
+      if (!name) return false;
+      const selectedNames = Array.isArray(props.selectedSkillNames) ? props.selectedSkillNames : [];
+      return selectedNames.some((item) => (item || '').toString().trim().toLowerCase() === name);
+    }
+
+    function onToggleSkill(rawSkill) {
+      if (rawSkill && typeof rawSkill === 'object') {
+        emit('toggle-skill', rawSkill);
+        return;
+      }
+      emit('toggle-skill', (rawSkill || '').toString().trim());
     }
 
     function onSelectAllSkills() {
@@ -328,15 +352,15 @@ export const ComposerBar = {
             v-for="(match, index) in skillMatches"
             :key="skillMatchKey(match, index)"
             class="composer-skill-selector-item"
-            :class="[skillMatchClass(match), { selected: isSkillSelected(match.name) }]"
+            :class="[skillMatchClass(match), { selected: isSkillSelected(match) }]"
             type="button"
             :title="skillMatchReason(match)"
-            @click="onToggleSkill(match.name)"
+            @click="onToggleSkill(match)"
           >
             <span class="composer-skill-selector-item-name">{{ match.name }}</span>
             <span class="composer-skill-selector-item-reason">{{ skillMatchReason(match) }}</span>
           </button>
-          <span v-if="!skillMatchesLoading && skillMatches.length === 0" class="composer-skill-selector-empty">输入触发词后可点选技能</span>
+          <span v-if="!skillMatchesLoading && skillMatches.length === 0" class="composer-skill-selector-empty">输入相关内容后可点选技能</span>
         </div>
       </div>
 

@@ -123,6 +123,26 @@ func TestServiceListSkillsIncludesPersonalCanonical(t *testing.T) {
 	assertHasSkillInfo(t, got, "mine", skillScopePersonal, personalSkillTypeUser)
 }
 
+func TestServiceListSkillsReturnsUnconflictedSkillsWithSameNameConflict(t *testing.T) {
+	project := t.TempDir()
+	home := t.TempDir()
+	superDolphinHome := filepath.Join(home, ".super-dolphin")
+	writeCanonicalSkill(t, filepath.Join(project, ".agent", "skills", "safe"), "safe")
+	writeCanonicalSkill(t, filepath.Join(superDolphinHome, "skills", "personal", "user", "build"), "build")
+	writeCanonicalSkill(t, filepath.Join(superDolphinHome, "skills", "personal", "hub", "build"), "build")
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superDolphinHome}
+
+	got, err := svc.ListSkills(skillTestContext(project))
+	if !errors.Is(err, ErrSkillSameNameConflict) {
+		t.Fatalf("ListSkills error = %v, want ErrSkillSameNameConflict", err)
+	}
+	assertHasSkillInfo(t, got, "safe", skillScopeProject, "")
+	if hasSkillInfo(got, "build", skillScopePersonal, personalSkillTypeUser) ||
+		hasSkillInfo(got, "build", skillScopePersonal, personalSkillTypeHub) {
+		t.Fatalf("ListSkills returned conflicted skill: %+v", got)
+	}
+}
+
 func TestServiceExpandSameNameConflictFailsClosed(t *testing.T) {
 	project := t.TempDir()
 	home := t.TempDir()
@@ -307,6 +327,41 @@ func TestServiceListSkillsAppliesOwnerKeepSelectedPolicy(t *testing.T) {
 	assertHasSkillInfo(t, infos, "build", skillScopePersonal, personalSkillTypeAgent)
 }
 
+func TestWritePersonalKeepSelectedPolicyRejectsOwnerMismatch(t *testing.T) {
+	project := t.TempDir()
+	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
+	userDir := filepath.Join(superDolphinHome, "skills", "personal", "user", "build")
+	agentDir := filepath.Join(superDolphinHome, "skills", "personal", "agent", "build")
+	writeCanonicalSkill(t, userDir, "build")
+	writeCanonicalSkill(t, agentDir, "build")
+	records, err := newCanonicalStore(superDolphinHome).scan(project)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	userRecord := findCanonicalRecord(t, records, "build", skillScopePersonal, personalSkillTypeUser)
+	agentRecord := findCanonicalRecord(t, records, "build", skillScopePersonal, personalSkillTypeAgent)
+	otherOwner, err := resolveOwnerIdentity(superDolphinHome, "other-os-user", "other-profile")
+	if err != nil {
+		t.Fatalf("resolve other owner: %v", err)
+	}
+	writePersonalSkillPolicy(t, superDolphinHome, personalSkillPolicy{Version: 1, OwnerKey: otherOwner.OwnerKey})
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superDolphinHome}
+
+	_, err = svc.writePersonalKeepSelectedPolicy("build", []skillResolutionSource{
+		{Scope: skillScopePersonal, PersonalType: personalSkillTypeUser, CanonicalID: canonicalSourceID(userRecord), ContentHash: userRecord.ContentHash},
+		{Scope: skillScopePersonal, PersonalType: personalSkillTypeAgent, CanonicalID: canonicalSourceID(agentRecord), ContentHash: agentRecord.ContentHash},
+	}, skillResolutionSource{Scope: skillScopePersonal, PersonalType: personalSkillTypeUser, CanonicalID: canonicalSourceID(userRecord), ContentHash: userRecord.ContentHash})
+
+	if err == nil || !strings.Contains(err.Error(), "owner") {
+		t.Fatalf("writePersonalKeepSelectedPolicy owner mismatch error = %v, want owner rejection", err)
+	}
+	var policy personalSkillPolicy
+	readJSONFile(t, filepath.Join(superDolphinHome, "skills", personalSkillPolicyFile), &policy)
+	if policy.OwnerKey != otherOwner.OwnerKey {
+		t.Fatalf("policy owner_key = %q, want preserved %q", policy.OwnerKey, otherOwner.OwnerKey)
+	}
+}
+
 func newTestCanonicalStore(project, home string) *canonicalStore {
 	return newCanonicalStore(filepath.Join(home, ".super-dolphin"))
 }
@@ -412,10 +467,17 @@ func conflictHasSource(conflict canonicalSkillConflict, want canonicalSkillConfl
 
 func assertHasSkillInfo(t *testing.T, infos []SkillInfo, name, scope, personalType string) {
 	t.Helper()
-	for _, info := range infos {
-		if info.Name == name && info.Scope == scope && info.PersonalType == personalType {
-			return
-		}
+	if hasSkillInfo(infos, name, scope, personalType) {
+		return
 	}
 	t.Fatalf("missing skill info name=%q scope=%q personal_type=%q in %+v", name, scope, personalType, infos)
+}
+
+func hasSkillInfo(infos []SkillInfo, name, scope, personalType string) bool {
+	for _, info := range infos {
+		if info.Name == name && info.Scope == scope && info.PersonalType == personalType {
+			return true
+		}
+	}
+	return false
 }

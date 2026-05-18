@@ -11,7 +11,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
 )
 
 const (
@@ -217,6 +220,118 @@ func normalizeSkillTarget(scope, personalType string) (string, string, error) {
 	default:
 		return "", "", fmt.Errorf("%w: %s", ErrInvalidSkillScope, scope)
 	}
+}
+
+func listSkillFiles(dir string, entries []os.DirEntry) []map[string]any {
+	files := make([]map[string]any, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		files = append(files, map[string]any{"name": entry.Name(), "path": filepath.Join(dir, entry.Name()), "size": info.Size(), "is_main": strings.EqualFold(entry.Name(), skillMainFile)})
+	}
+	sort.Slice(files, func(i, j int) bool {
+		return strings.ToLower(files[i]["name"].(string)) < strings.ToLower(files[j]["name"].(string))
+	})
+	return files
+}
+
+func canonicalProjectPath(path string) (string, error) {
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	return resolveExistingPath(absolutePath)
+}
+
+func resolveExistingPath(path string) (string, error) {
+	resolvedPath, err := filepath.EvalSymlinks(path)
+	switch {
+	case err == nil:
+		return resolvedPath, nil
+	case errors.Is(err, os.ErrNotExist):
+		return path, nil
+	default:
+		return "", err
+	}
+}
+
+func pathEscapesRoot(rootPath, targetPath string) (bool, error) {
+	if _, err := filepath.Rel(rootPath, targetPath); err != nil {
+		return false, err
+	}
+	return !pathutil.ContainsPath(rootPath, targetPath), nil
+}
+
+func ensureWritableSkillPathInsideRoot(root, target string) error {
+	rootAbs, targetAbs, err := cleanWritableRootAndTarget(root, target)
+	if err != nil {
+		return err
+	}
+	if !pathutil.ContainsPath(rootAbs, targetAbs) {
+		return fmt.Errorf("path escapes skills root: %s", target)
+	}
+	rel, err := filepath.Rel(rootAbs, filepath.Dir(targetAbs))
+	if err != nil {
+		return err
+	}
+	return rejectWritableSymlinkPath(rootAbs, rel)
+}
+
+func cleanWritableRootAndTarget(root, target string) (string, string, error) {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return "", "", err
+	}
+	targetAbs, err := filepath.Abs(target)
+	if err != nil {
+		return "", "", err
+	}
+	return filepath.Clean(rootAbs), filepath.Clean(targetAbs), nil
+}
+
+func rejectWritableSymlinkPath(rootAbs, rel string) error {
+	if err := rejectWritableSymlinkComponentIfExists(rootAbs); err != nil {
+		return err
+	}
+	if rel == "." {
+		return nil
+	}
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		if part == "" || part == "." {
+			continue
+		}
+		rootAbs = filepath.Join(rootAbs, part)
+		if err := rejectWritableSymlinkComponentIfExists(rootAbs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func rejectWritableSymlinkComponentIfExists(path string) error {
+	if err := rejectWritableSymlinkComponent(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+func rejectWritableSymlinkComponent(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("skill write path contains symlink: %s", path)
+	}
+	return nil
 }
 
 func (s *service) allSkillRoots(cwd string) []string {

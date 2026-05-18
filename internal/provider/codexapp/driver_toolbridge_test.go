@@ -32,11 +32,11 @@ func TestToolBridge_Initialize_ExperimentalAPI(t *testing.T) {
 
 func TestToolBridge_StartSession_UsesDynamicTools(t *testing.T) {
 	recorder := &toolBridgeRPCRecorder{}
-	t.Setenv("CODEX_APP_SERVER_URL", startToolBridgeRPCServer(t, recorder))
+	serverURL := startToolBridgeRPCServer(t, recorder)
 	manager := &ServerManager{}
 
 	listToolsCalls := 0
-	got := requireToolBridgeDriver(t, newDriver(nil, nil, nil, nil, manager, nil, nil, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+	got := requireToolBridgeDriver(t, newDriver(nil, nil, nil, nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 		listToolsCalls++
 		return []codexprotocol.DynamicToolSchema{{
 			Name:        "tool.echo",
@@ -51,7 +51,7 @@ func TestToolBridge_StartSession_UsesDynamicTools(t *testing.T) {
 		t.Fatal("toolHandler = non-nil, want nil")
 	}
 
-	sessionAny, err := got.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-1"})
+	sessionAny, err := got.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-1", CWD: t.TempDir()})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
 	}
@@ -63,9 +63,9 @@ func TestToolBridge_StartSession_UsesDynamicTools(t *testing.T) {
 
 func TestToolBridge_StartSession_InjectsMemoryReadDynamicTool(t *testing.T) {
 	recorder := &toolBridgeRPCRecorder{}
-	t.Setenv("CODEX_APP_SERVER_URL", startToolBridgeRPCServer(t, recorder))
+	serverURL := startToolBridgeRPCServer(t, recorder)
 	manager := &ServerManager{}
-	got := newDriver(nil, nil, nil, nil, manager, nil, nil, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+	got := newDriver(nil, nil, nil, nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 		return []codexprotocol.DynamicToolSchema{{
 			Name:        "memory_read",
 			Description: "host direct memory read",
@@ -73,7 +73,7 @@ func TestToolBridge_StartSession_InjectsMemoryReadDynamicTool(t *testing.T) {
 		}}, nil
 	}).(*driver)
 
-	sessionAny, err := got.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-1"})
+	sessionAny, err := got.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-1", CWD: t.TempDir()})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
 	}
@@ -97,15 +97,15 @@ func TestToolBridge_StartSession_InjectsMemoryReadDynamicTool(t *testing.T) {
 	t.Fatalf("dynamicTools = %#v, want memory_read", tools)
 }
 
-const testDynamicSkillExpandBodyToolName = "skill_expand_body"
+const testDynamicToolName = "test_dynamic_echo"
 
 func TestResumeSession_DynamicSkillToolsStillCallable(t *testing.T) {
 	obs := runDynamicToolsResumeScenario(t)
 	if obs.toolMethod != "item/tool/call" {
 		t.Fatalf("tool method = %q, want item/tool/call", obs.toolMethod)
 	}
-	if obs.toolName != testDynamicSkillExpandBodyToolName {
-		t.Fatalf("tool name = %q, want %s", obs.toolName, testDynamicSkillExpandBodyToolName)
+	if obs.toolName != testDynamicToolName {
+		t.Fatalf("tool name = %q, want %s", obs.toolName, testDynamicToolName)
 	}
 	if obs.toolAgentID != "agent-1" {
 		t.Fatalf("tool agentId = %q, want agent-1", obs.toolAgentID)
@@ -153,7 +153,7 @@ func (s *dynamicToolsResumeState) markStart(params map[string]any) {
 	tools, _ := params["dynamicTools"].([]any)
 	for _, raw := range tools {
 		tool, _ := raw.(map[string]any)
-		if tool["name"] == testDynamicSkillExpandBodyToolName {
+		if tool["name"] == testDynamicToolName {
 			s.startHadDynamicTools = true
 			return
 		}
@@ -191,15 +191,18 @@ func runDynamicToolsResumeScenario(t *testing.T) dynamicToolsResumeObservation {
 	var writeMu sync.Mutex
 	server := startDynamicToolsResumeServer(t, state, toolResponses, &writeMu)
 	defer server.Close()
+	pool := newSingleURLPoolForTest(t, "ws"+strings.TrimPrefix(server.URL, "http"))
 
 	d := &driver{
-		serverURL: "ws" + strings.TrimPrefix(server.URL, "http"),
-		manager:   manager,
+		manager: manager,
+		pool:    pool,
+		mirror:  &recordingSkillMirrorReconciler{},
 		listTools: func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 			return []codexprotocol.DynamicToolSchema{dynamicSkillToolSchema()}, nil
 		},
 	}
-	started, err := d.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-1"})
+	workDir := t.TempDir()
+	started, err := d.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-1", CWD: workDir})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
 	}
@@ -208,9 +211,13 @@ func runDynamicToolsResumeScenario(t *testing.T) dynamicToolsResumeObservation {
 	}
 
 	resumed, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
-		Provider: "codex",
-		AgentID:  "agent-1",
-		ThreadID: "provider-thread-1",
+		Provider:           "codex",
+		AgentID:            "agent-1",
+		ThreadID:           "provider-thread-1",
+		CWD:                workDir,
+		CodexHome:          t.TempDir(),
+		CodexInstanceKey:   "default",
+		CodexModelProvider: "openai",
 	})
 	if err != nil {
 		t.Fatalf("ResumeSession() error = %v", err)
@@ -245,9 +252,9 @@ func runDynamicToolsResumeScenario(t *testing.T) dynamicToolsResumeObservation {
 
 func dynamicSkillToolSchema() codexprotocol.DynamicToolSchema {
 	return codexprotocol.DynamicToolSchema{
-		Name:        testDynamicSkillExpandBodyToolName,
-		Description: "expand skill body",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`),
+		Name:        testDynamicToolName,
+		Description: "echo test payload",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"payload":{"type":"string"}},"required":["payload"]}`),
 	}
 }
 
@@ -338,7 +345,7 @@ func handleDynamicToolsResumeMessage(t *testing.T, conn *websocket.Conn, state *
 		return false
 	}
 	if sendToolCall {
-		sendCodexToolCall(t, writeMu, conn, 99, testDynamicSkillExpandBodyToolName, map[string]any{"name": "demo"})
+		sendCodexToolCall(t, writeMu, conn, 99, testDynamicToolName, map[string]any{"payload": "demo"})
 	}
 	return true
 }

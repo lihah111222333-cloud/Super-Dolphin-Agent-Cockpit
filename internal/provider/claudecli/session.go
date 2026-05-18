@@ -160,6 +160,9 @@ func (s *session) applyRuntimeConfigSnapshotLocked(out map[string]any) {
 	}))
 	putRuntimeConfigString(out, "personality", s.config.Personality)
 	putRuntimeConfigStringIfMissing(out, "sandbox", s.config.Sandbox)
+	putRuntimeConfigString(out, "claudeHome", s.config.ClaudeHome)
+	putRuntimeConfigString(out, "claude_home", s.config.ClaudeHome)
+	putRuntimeConfigString(out, "history_dir", s.config.ClaudeHome)
 }
 
 func (s *session) runtimePromptSnapshotLocked() contract.PromptAssemblySnapshot {

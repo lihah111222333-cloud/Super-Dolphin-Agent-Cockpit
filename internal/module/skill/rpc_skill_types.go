@@ -75,6 +75,19 @@ type skillSummaryWriteParams struct {
 	CWD          string `json:"cwd,omitempty"`
 }
 
+type skillSummarySuggestParams struct {
+	CWD           string   `json:"cwd,omitempty"`
+	Name          string   `json:"name,omitempty"`
+	Description   string   `json:"description,omitempty"`
+	Content       string   `json:"content,omitempty"`
+	ScenarioWords []string `json:"scenario_words,omitempty"`
+	Scope         string   `json:"scope,omitempty"`
+}
+
+type skillSummarySuggestResult struct {
+	Description string `json:"description"`
+}
+
 type skillRemoteReadParams struct {
 	URL string `json:"url"`
 }
@@ -102,6 +115,8 @@ type skillListParams struct {
 
 type skillListItem struct {
 	Name                   string     `json:"name"`
+	Dir                    string     `json:"dir,omitempty"`
+	SkillFile              string     `json:"skill_file,omitempty"`
 	Scope                  string     `json:"scope,omitempty"`
 	PersonalType           string     `json:"personal_type,omitempty"`
 	Summary                string     `json:"summary"`
@@ -109,7 +124,6 @@ type skillListItem struct {
 	Trust                  TrustScope `json:"trust"`
 	ContentHash            string     `json:"content_hash"`
 	DisableModelInvocation bool       `json:"disable_model_invocation"`
-	DisclosureTier         string     `json:"disclosure_tier,omitempty"`
 }
 
 type skillListResult struct {
@@ -177,6 +191,9 @@ func resolutionCanonicalSnapshot(store *canonicalStore, cwd string) ([]canonical
 }
 
 func (s *service) resolutionMirrorTargets(cwd string) []SkillMirrorTarget {
+	if resolved, err := canonicalProjectPath(cwd); err == nil && strings.TrimSpace(resolved) != "" {
+		cwd = resolved
+	}
 	fingerprint := RepoFingerprint(cwd)
 	superHome := s.resolvedSuperDolphinHome()
 	ownerKey := "sd_owner:current"
@@ -305,23 +322,32 @@ func resolutionTargetHash(conflict SkillMirrorConflict, record canonicalSkillRec
 }
 
 func sameNameResolutionActions(sources []skillResolutionSource) []string {
-	hasProject, hasPersonal := false, false
+	actions := []string{ResolutionViewDiff}
+	hasProject := false
+	personalCount := 0
 	for _, source := range sources {
-		hasProject = hasProject || source.Scope == skillScopeProject
-		hasPersonal = hasPersonal || source.Scope == skillScopePersonal
+		switch source.Scope {
+		case skillScopeProject:
+			hasProject = true
+		case skillScopePersonal:
+			personalCount++
+		}
 	}
-	if hasProject && hasPersonal {
-		return []string{ResolutionViewDiff, ResolutionRenamePersonal, ResolutionDisablePersonalForProject}
+	if hasProject && personalCount > 0 {
+		return append(actions, ResolutionDisablePersonalForProject, ResolutionKeepSelected)
 	}
-	if hasPersonal {
-		return []string{ResolutionViewDiff, ResolutionRenamePersonalType, ResolutionMergeManually, ResolutionKeepSelected}
+	if personalCount > 1 {
+		return append(actions, ResolutionKeepSelected)
 	}
-	return []string{ResolutionViewDiff}
+	return actions
 }
 
 func mirrorResolutionActions(conflict SkillMirrorConflict) []string {
 	switch conflict.Kind {
-	case skillConflictUnmanagedSameName:
+	case skillConflictUnmanagedSameName, skillConflictUnmanagedProviderSkill:
+		if len(conflict.Actions) > 0 {
+			return resolutionActionNames(conflict.Actions)
+		}
 		return []string{ResolutionViewUnmanaged, ResolutionImportPersonal, ResolutionTakeoverProvider}
 	case skillConflictCanonicalDeletedWithDrift:
 		if conflict.Scope == skillScopePersonal {
@@ -333,11 +359,21 @@ func mirrorResolutionActions(conflict SkillMirrorConflict) []string {
 	}
 }
 
+func resolutionActionNames(actions []SkillMirrorResolutionAction) []string {
+	out := make([]string, 0, len(actions))
+	for _, action := range actions {
+		if name := strings.TrimSpace(action.Action); name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
 func driftResolutionActions(scope string) []string {
 	if scope == skillScopePersonal {
 		return []string{ResolutionViewDiff, ResolutionSaveAsNewPersonal, ResolutionSyncBackPersonal, ResolutionPersonalOverwrite}
 	}
-	return []string{ResolutionViewDiff, ResolutionSaveAsNewSkill, ResolutionSyncBackCanonical, ResolutionCanonicalOverwrite}
+	return []string{ResolutionViewDiff, ResolutionSaveAsNewSkill, ResolutionSyncBackCanonical, ResolutionCanonicalOverwrite, ResolutionConfirmDeleteDriftedMirror}
 }
 
 func resolutionConflictID(item skillResolutionItem) string {
@@ -360,6 +396,7 @@ func resolutionConflictID(item skillResolutionItem) string {
 }
 
 func (s *service) previewSkillResolution(p skillResolutionPreviewParams) (skillResolutionPreviewResult, error) {
+	p.Action = normalizeResolutionAction(p.Action)
 	list, err := s.listSkillResolutions(p.CWD)
 	if err != nil {
 		return skillResolutionPreviewResult{}, err
@@ -435,7 +472,13 @@ func canonicalResolutionPreviewSources(item skillResolutionItem, p skillResoluti
 		return source, skillResolutionSource{Path: filepath.ToSlash(filepath.Join(defaultProjectSkillsRoot(p.CWD), projectSkillPolicyFile))}, err
 	case ResolutionKeepSelected:
 		source, err := canonicalSourceByID(item.Sources, p.KeepSourceID)
-		return source, skillResolutionSource{Path: personalPolicyPathForSource(source)}, err
+		if err != nil {
+			return source, skillResolutionSource{}, err
+		}
+		if source.Scope == skillScopeProject {
+			return source, skillResolutionSource{Path: filepath.ToSlash(filepath.Join(defaultProjectSkillsRoot(p.CWD), projectSkillPolicyFile))}, nil
+		}
+		return source, skillResolutionSource{Path: personalPolicyPathForSource(source)}, nil
 	case ResolutionMergeManually:
 		if strings.TrimSpace(p.MergeContentHash) == "" {
 			return skillResolutionSource{}, skillResolutionSource{}, fmt.Errorf("merge_content_hash is required for merge_manually")
@@ -501,7 +544,7 @@ func sameResolutionSourceHashes(entries []skillResolutionProviderEntry) bool {
 
 func resolutionPreviewBackupPath(targetPath string, item skillResolutionItem, p skillResolutionPreviewParams) string {
 	seed := hashResolutionEnvelope(map[string]string{"conflict_id": item.ConflictID, "action": p.Action, "provider": p.Provider, "target_path": targetPath})
-	return filepath.ToSlash(filepath.Join(filepath.Dir(targetPath), ".super-dolphin-mirror-backup", filepath.Base(targetPath)+"-preview-"+seed[:12]))
+	return filepath.ToSlash(mirrorBackupPathForTargetDir(targetPath, filepath.Base(targetPath)+"-preview-"+seed[:12]))
 }
 
 func resolutionPreviewDiff(preview skillResolutionPreviewItem) string {

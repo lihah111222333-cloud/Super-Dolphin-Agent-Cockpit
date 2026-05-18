@@ -77,6 +77,9 @@ func (h *historyBackend) rootDir() (string, error) {
 	if dir := strings.TrimSpace(h.sessionDir); dir != "" {
 		return dir, nil
 	}
+	if dir := strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR")); dir != "" {
+		return dir, nil
+	}
 	if dir := strings.TrimSpace(os.Getenv("CLAUDE_HOME")); dir != "" {
 		return dir, nil
 	}

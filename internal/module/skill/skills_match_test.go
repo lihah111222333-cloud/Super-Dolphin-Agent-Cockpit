@@ -42,6 +42,36 @@ func TestMatchPreviewFallsBackToAgentID(t *testing.T) {
 	}
 }
 
+func TestMatchPreviewAtTriggerWordAutoAppliesSkill(t *testing.T) {
+	t.Parallel()
+
+	svc := newTestSkillService(t)
+	cwd := filepath.Join(t.TempDir(), "repo")
+	writeScopedSystemSkill(t, svc.root, cwd, "deploy", "---\nname: deploy\ntrigger_words: [\"@deploy\"]\n---\n# deploy\n")
+
+	out, err := svc.MatchPreview(skillTestContext(cwd), "agent", "thread", "please @deploy now", nil)
+	if err != nil {
+		t.Fatalf("MatchPreview returned error: %v", err)
+	}
+	result, ok := out.(map[string]any)
+	if !ok {
+		t.Fatalf("MatchPreview result type mismatch: %T", out)
+	}
+	matches, ok := result["matches"].([]matchItem)
+	if !ok {
+		t.Fatalf("matches type mismatch: %T", result["matches"])
+	}
+	if len(matches) != 1 {
+		t.Fatalf("matches len mismatch: got %d", len(matches))
+	}
+	if matches[0].Name != "deploy" || matches[0].MatchedBy != "force" {
+		t.Fatalf("@ trigger match mismatch: %+v", matches[0])
+	}
+	if len(matches[0].MatchedTerms) != 1 || matches[0].MatchedTerms[0] != "@deploy" {
+		t.Fatalf("@ trigger terms mismatch: %+v", matches[0].MatchedTerms)
+	}
+}
+
 func TestMatchPreviewUsesResolvedIDForConfiguredSkills(t *testing.T) {
 	t.Parallel()
 
@@ -78,7 +108,12 @@ func TestMatchPreviewUsesResolvedIDForConfiguredSkills(t *testing.T) {
 
 func newTestSkillService(t *testing.T) *service {
 	t.Helper()
-	return &service{root: t.TempDir(), http: &http.Client{}}
+	return &service{root: t.TempDir(), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}
+}
+
+func newTestSuperDolphinHome(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(t.TempDir(), ".super-dolphin")
 }
 
 func writeTestSkill(t *testing.T, root, name, content string) string {

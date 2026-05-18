@@ -47,10 +47,15 @@ export DATABASE_URL="postgres://USER:PASS@127.0.0.1:5432/super_dolphin?sslmode=d
 
 First-run side effects (auto, no manual step):
 - DB migrations run via `internal/platform/db/module.go:autoMigrate` on startup.
-- Builtin skills seed into `~/.multi-agent/skills-library/`; cache projects to `~/.multi-agent/skills-cache/`.
-- Per-workspace `.claude/skills/` symlinks the shared skill cache (`internal/module/cliadapter`).
-- Per-workspace `.claude/settings.json` is rendered with `permissions.deny` (skill name + tool) and `permissions.allow` from active skills' `replaces_native` / `allowed_tools` (P5 nativefilter, default ON post-merge).
-- Codex skill manifest renders via FBSD frequency tier when tracker is wired (P6, default ON post-merge).
+- Runtime canonical skills are managed under project and personal roots:
+  `<workspace>/.agent/skills/` for project skills, and
+  `~/.super-dolphin/skills/personal/{user,agent,imported,hub}/` for personal
+  skills (`SUPER_DOLPHIN_HOME` can override the home root).
+- Provider-native skill mirrors are reconciled before provider launch/acquire:
+  project mirrors live under `<workspace>/.claude/skills/` and `<workspace>/.codex/skills/`,
+  with provider-home mirrors under `~/.super-dolphin/providers/{claude,codex}/skills/`
+  by default or an explicit provider home `skills/` directory.
+- Legacy `.claude/settings.json` nativefilter deny entries are not written or cleared during provider launch; skill visibility now comes from provider-native mirrors, not settings injection.
 
 ### Optional: Codex Fast Mode
 
@@ -95,16 +100,17 @@ go test -bench=. ./...     # Run benchmarks
 
 ### Notes for skill subsystem (post 2026-04-30 P4/P5/P6 cutover)
 
+- Canonical skill truth lives in project `<workspace>/.agent/skills/` plus
+  personal `~/.super-dolphin/skills/personal/{user,agent,imported,hub}/`.
+  Provider-native mirror directories are generated, ignored, and not committed.
 - The legacy `skill_expand_body` / `skill_read_resource` MCP tools are gone; Claude
-  loads skills via native `<workspace>/.claude/skills/` symlinks, Codex calls
-  `skill_read_section` host-direct (see `internal/platform/toolbridge/skill_read_section.go`).
+  and Codex discover skills via provider-native mirrors under project and provider
+  homes (`<workspace>/.claude/skills/`, `<workspace>/.codex/skills/`, and provider
+  home `skills`). `skill_read_section` is no longer the production discovery path.
 - Earlier feature flags `SUPER_DOLPHIN_NATIVE_FILTER` and `SUPER_DOLPHIN_SKILL_FBSD`
-  were removed; nativefilter and FBSD are now always-on. Setting these env vars has
-  no effect.
-- Tunable knobs (still env-driven, **not** gates):
-  `SKILL_FBSD_BUDGET`, `SKILL_FBSD_HALF_LIFE_DAYS`, `SKILL_FBSD_FROZEN_DAYS`,
-  `SKILL_FBSD_GRACE_DAYS`, `SKILL_FBSD_HOT_CHARS`, `SKILL_FBSD_WARM_CHARS`,
-  `SKILL_FBSD_COLD_CHARS`, `SKILL_FBSD_WS_MIN_CALLS`, `SKILL_FBSD_WS_WEIGHT`.
+  were removed; provider-native mirrors are the production discovery path.
+  The old FBSD/disclosure pipeline and `skill_read_section` implementation were
+  physically removed, so those env vars have no effect.
 
 ## Code Quality
 

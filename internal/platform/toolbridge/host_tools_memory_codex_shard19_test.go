@@ -33,6 +33,105 @@ func TestListToolsForCodex_IncludesHostMemoryReadAndWrite(t *testing.T) {
 	}
 }
 
+func TestProvideHostToolRegistryForCodexOmitsSkillReadSectionButKeepsMemoryTools(t *testing.T) {
+	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true}
+	writer := &stubAgentMemoryWriter{}
+	host := ProvideHostToolRegistryForTesting(hostToolRegistryIn{
+		Reader: reader,
+		Writer: writer,
+	})
+	h := &Handler{
+		registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+			dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: ToolNameReadSection, Description: "peer skill read"}}, nil)},
+			dto.ClientKindLSP:  {listToolsPeer(nil, nil)},
+		}},
+		hostTools: host,
+	}
+
+	tools, err := h.ListToolsForCodex(context.Background())
+	if err != nil {
+		t.Fatalf("ListToolsForCodex() error = %v", err)
+	}
+	if containsDynamicToolName(tools, ToolNameReadSection) {
+		t.Fatalf("dynamic tools = %+v, must not include skill_read_section", tools)
+	}
+	if !containsDynamicToolName(tools, ToolNameMemoryRead) || !containsDynamicToolName(tools, ToolNameMemoryWrite) {
+		t.Fatalf("dynamic tools = %+v, want memory_read and memory_write preserved", tools)
+	}
+}
+
+func TestListToolsForCodex_FiltersRemovedSkillToolsFromHostAndPeer(t *testing.T) {
+	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: ToolNameLegacySkillReadResource, Description: "peer removed"}, {Name: "orchestration_launch_agent", Description: "peer orch"}}, nil)},
+		dto.ClientKindLSP:  {listToolsPeer(nil, nil)},
+	}}
+	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: ToolNameLegacySkillExpandBody, Description: "host removed"}, {Name: ToolNameMemoryRead, Description: "host memory"}}}
+	h := &Handler{registry: registry, hostTools: host}
+
+	tools, err := h.ListToolsForCodex(context.Background())
+	if err != nil {
+		t.Fatalf("ListToolsForCodex() error = %v", err)
+	}
+	for _, removed := range []string{ToolNameLegacySkillExpandBody, ToolNameLegacySkillReadResource, ToolNameReadSection} {
+		if containsDynamicToolName(tools, removed) {
+			t.Fatalf("dynamic tools = %+v, must not include removed skill tool %s", tools, removed)
+		}
+	}
+	if !containsDynamicToolName(tools, ToolNameMemoryRead) || !containsDynamicToolName(tools, "orchestration_launch_agent") {
+		t.Fatalf("dynamic tools = %+v, want memory and peer tools preserved", tools)
+	}
+}
+
+func TestCodexSkillReadSectionWithoutHostDoesNotFallbackToPeer(t *testing.T) {
+	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+		dto.ClientKindOrch: {
+			{Peer: &stubPeer{callbackFn: func(_ context.Context, method string, params any, result any) error {
+				t.Fatalf("peer callback called for removed skill tool %s with params %#v", method, params)
+				return nil
+			}}},
+		},
+	}}
+	h := &Handler{registry: registry}
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: ToolNameReadSection, Arguments: mustMarshal(t, map[string]any{"name": "tdd", "anchor": "overview"}), AgentID: "agent-1"})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	if got == nil || got.Success {
+		t.Fatalf("result = %+v, want removed host tool error", got)
+	}
+	if len(registry.gotKinds) != 0 {
+		t.Fatalf("FindActiveByKind() kinds = %#v, want no peer fallback", registry.gotKinds)
+	}
+}
+
+func TestCodexRemovedLegacySkillToolsDoNotFallbackToPeer(t *testing.T) {
+	for _, toolName := range []string{"skill_expand_body", "skill_read_resource"} {
+		t.Run(toolName, func(t *testing.T) {
+			registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+				dto.ClientKindOrch: {
+					{Peer: &stubPeer{callbackFn: func(_ context.Context, method string, params any, result any) error {
+						t.Fatalf("peer callback called for removed skill tool %s with params %#v", method, params)
+						return nil
+					}}},
+				},
+			}}
+			h := &Handler{registry: registry}
+
+			got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: toolName, Arguments: mustMarshal(t, map[string]any{"name": "tdd"}), AgentID: "agent-1"})
+			if err != nil {
+				t.Fatalf("routeToolCall() error = %v", err)
+			}
+			if got == nil || got.Success {
+				t.Fatalf("result = %+v, want removed host tool error", got)
+			}
+			if len(registry.gotKinds) != 0 {
+				t.Fatalf("FindActiveByKind() kinds = %#v, want no peer fallback", registry.gotKinds)
+			}
+		})
+	}
+}
+
 func TestListToolsForCodex_FiltersPeerMemoryReadWhenReaderUnavailable(t *testing.T) {
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: ToolNameMemoryRead, Description: "peer memory"}, {Name: "orchestration_launch_agent", Description: "peer orch"}}, nil)},

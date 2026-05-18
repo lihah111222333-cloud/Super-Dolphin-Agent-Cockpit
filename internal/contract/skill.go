@@ -3,9 +3,6 @@ package contract
 import (
 	"context"
 	"strings"
-	"time"
-
-	dtoskill "github.com/anthropic-ai/super-agent-v3/internal/dto/skill"
 )
 
 // ---------------------------------------------------------------------------
@@ -51,8 +48,8 @@ func (t TrustScope) Trusted() bool {
 // ---------------------------------------------------------------------------
 
 // SkillInfo is the read-only metadata projection of a single skill, used by
-// dashboard, prompt catalog, and other consumers that do not need to mutate
-// skills.
+// dashboard, legacy catalog compatibility code, and other consumers that do
+// not need to mutate skills.
 type SkillInfo struct {
 	Name         string   `json:"name"`
 	Dir          string   `json:"dir"`
@@ -72,16 +69,17 @@ type SkillInfo struct {
 	// ContentHash is the SHA-256 of the SKILL.md body (hex lowercase), used by
 	// the approval cache to force re-approval when body mutates.
 	ContentHash string `json:"content_hash,omitempty"`
-	// DisclosureTier is a non-realtime usage-frequency snapshot for UI display.
-	DisclosureTier string `json:"disclosure_tier,omitempty"`
+	// ReplacesNative lists provider-native tool IDs this skill semantically
+	// replaces. Keys are provider names such as "codex", "claude", or "*".
+	ReplacesNative map[string][]string `json:"replaces_native,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
-// SkillLister — narrow read-only port for skill catalog consumers
+// SkillLister — narrow read-only port for skill metadata consumers
 // ---------------------------------------------------------------------------
 
-// SkillLister is the read-only skill catalog port used by dashboard and prompt
-// consumers that only need skill metadata.
+// SkillLister is the read-only skill metadata port used by dashboard and
+// compatibility consumers that only need skill metadata.
 type SkillLister interface {
 	ListSkills(ctx context.Context) ([]SkillInfo, error)
 }
@@ -195,146 +193,18 @@ type SkillMirrorReportItem struct {
 }
 
 type SkillProviderMirrorTarget struct {
-	Provider   string `json:"provider"`
-	HomeRoot   string `json:"home_root"`
-	SkillsRoot string `json:"skills_root"`
+	Provider          string `json:"provider"`
+	HomeRoot          string `json:"home_root"`
+	SkillsRoot        string `json:"skills_root"`
+	AllowExplicitHome bool   `json:"allow_explicit_home,omitempty"`
 }
 
 type SkillMirrorReconciler interface {
 	ReconcileProviderMirrors(ctx context.Context, cwd string, targets []SkillProviderMirrorTarget) (SkillMirrorReport, error)
 }
 
-// ---------------------------------------------------------------------------
-// SkillLibrary — skill library and forge contracts (was skill_library.go)
-// ---------------------------------------------------------------------------
-
-// SkillManifestRenderer renders a skill manifest string for inclusion in
-// base instructions. The production implementation lives in module/fbsd
-// and module/skilllibrary. Returning empty string means "no skills available".
-type SkillManifestRenderer interface {
-	RenderSkillManifest() string
+// SkillNativeReplacementSource aggregates canonical skill ReplacesNative
+// metadata for a provider and cwd.
+type SkillNativeReplacementSource interface {
+	ReplacedNativeTools(ctx context.Context, cwd, provider string) []string
 }
-
-// SkillManifestEntryLister is the read-only skill entry source used by
-// manifest renderers. Satisfied by *skilllibrary.Store.
-type SkillManifestEntryLister interface {
-	List() ([]dtoskill.SkillEntry, error)
-}
-
-// SkillDescriptionParser extracts the description field from SKILL.md content.
-type SkillDescriptionParser interface {
-	Description(skillMD string) string
-}
-
-// SkillLibraryConfig holds the subset of skill-library configuration that
-// the provider layer needs (currently only the cache directory path).
-type SkillLibraryConfig struct {
-	CacheDir string
-}
-
-// FBSDRecorder is the FBSD (Frequency-Based Skill Disclosure) recording
-// interface. The provider uses this to track skill read calls.
-// The production implementation lives in module/fbsd.Tracker.
-type FBSDRecorder interface {
-	Record(name, anchor string)
-	Enabled() bool
-}
-
-// SkillEntryMeta is the narrow projection of skilllibrary.SkillMeta that
-// consumers outside the skilllibrary module need. Adding fields here is
-// cheaper than importing the concrete module package.
-type SkillEntryMeta struct {
-	Name           string
-	Disabled       bool
-	ReplacesNative map[string][]string
-}
-
-// SkillEntry is the narrow projection of skilllibrary.SkillEntry exposed
-// through SkillLibraryLister so that consumers (e.g. uistate) can avoid
-// importing the concrete skilllibrary package.
-type SkillEntry struct {
-	Meta *SkillEntryMeta
-}
-
-// SkillLibraryLister is the read-only subset of *skilllibrary.Store that
-// the uistate module (builtin-tools overlay) actually depends on.
-// Satisfied by *skilllibrary.Store.
-type SkillLibraryLister interface {
-	List() ([]SkillEntry, error)
-}
-
-// ---------------------------------------------------------------------------
-// SkillForge: 消除 skilllibrary → skillforge 横向依赖的窄接口
-// ---------------------------------------------------------------------------
-
-// StagingRecoveryReport 是 RecoverStaging 的结果摘要。
-// 只暴露 skilllibrary 真正消费的字段，避免耦合 skillforge 的完整 RecoveryReport。
-type StagingRecoveryReport struct {
-	Errors []error
-}
-
-// SkillForger 封装 skilllibrary 对 skillforge 的全部运行时依赖。
-// 生产实现由 skillforge 包提供，通过 fx 注入 skilllibrary.Reconciler。
-type SkillForger interface {
-	// Forge 把 libDir/<name>/SKILL.md 转换为 cacheDir/<name>/{SKILL.md, references/...}。
-	Forge(libDir, cacheDir, name string, summaryOverride map[string]string) error
-
-	// RecoverStaging 扫描 cacheDir，处理 publish 中断遗留的 staging 目录。
-	RecoverStaging(cacheDir string) (*StagingRecoveryReport, error)
-}
-
-// EmbeddedSkillReader 封装 skilllibrary 对 skillforge 内嵌 skill 资源的只读访问。
-// 生产实现由 skillforge 包提供，通过 fx 注入 skilllibrary.SeedBuiltins。
-type EmbeddedSkillReader interface {
-	// ListNames 返回所有内置 skill 名（升序）。
-	ListNames() ([]string, error)
-
-	// Read 返回指定内置 skill 的 SKILL.md 字节内容。
-	Read(name string) ([]byte, error)
-}
-
-// SkillReplacementAggregator returns the sorted list of native tool names
-// that installed skills declare as replaced for the given provider key
-// (e.g. "codex"). The production implementation lives in
-// module/skilllibrary.Store, which aggregates ReplacesNative metadata
-// from all enabled skills.
-type SkillReplacementAggregator interface {
-	ReplacedNativeTools(provider string) []string
-}
-
-// ---------------------------------------------------------------------------
-// SkillDisclosure — frequency-based skill disclosure types (was skill_disclosure.go)
-// ---------------------------------------------------------------------------
-
-type SkillDisclosureStats map[string]*SkillDisclosureSkillStats
-
-type SkillDisclosureSkillStats struct {
-	Calls []time.Time
-}
-
-type SkillDisclosureConfig struct {
-	HalfLife       time.Duration
-	FrozenDuration time.Duration
-	WSMinCalls     int
-	WSWeight       float64
-}
-
-type SkillDisclosureSnapshot struct {
-	Workspace SkillDisclosureStats
-	Global    SkillDisclosureStats
-	Config    SkillDisclosureConfig
-}
-
-type SkillDisclosureTierSource interface {
-	Enabled() bool
-	DisclosureSnapshot() SkillDisclosureSnapshot
-}
-
-// ---------------------------------------------------------------------------
-// WorkspaceSkillSetup (was workspace_skills.go)
-// ---------------------------------------------------------------------------
-
-// WorkspaceSkillSetupFunc sets up skill symlinks in the workspace directory
-// so CLI processes can discover cached skills natively. The production
-// implementation lives in module/cliadapter.SetupWorkspaceSkills.
-type WorkspaceSkillSetupFunc func(workspaceDir, cacheDir string) error

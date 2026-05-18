@@ -21,9 +21,9 @@ import (
 var proxyAddr atomic.Value
 
 // Module wires the toolbridge core. Store adapters, codex handler binding,
-// skill section tool construction, and WorkDirResolver live in the app
-// assembly layer (internal/app/toolbridge_adapters.go) to keep this
-// platform package free of module/provider/store imports.
+// and WorkDirResolver live in the app assembly layer
+// (internal/app/toolbridge_adapters.go) to keep this platform package free
+// of module/provider/store imports.
 var Module = fx.Module("toolbridge",
 	fx.Provide(
 		NewHandler,
@@ -68,7 +68,6 @@ type handlerIn struct {
 type hostToolRegistryIn struct {
 	fx.In
 
-	Tool   *SkillReadSectionTool      `optional:"true"`
 	Reader contract.AgentMemoryReader `optional:"true"`
 	Writer contract.AgentMemoryWriter `optional:"true"`
 }
@@ -78,7 +77,6 @@ type hostToolRegistryIn struct {
 // disabled, the corresponding child registry is nil and the composite omits it.
 func provideHostToolRegistry(in hostToolRegistryIn) HostToolRegistry {
 	return NewCompositeHostToolRegistry(
-		NewSkillReadSectionRegistry(in.Tool),
 		NewMemoryReadHostToolRegistry(in.Reader, memoryReadHostToolOptions(in.Reader)),
 		NewMemoryWriteHostToolRegistry(in.Writer, memoryWriteHostToolOptions(in.Writer)),
 	)

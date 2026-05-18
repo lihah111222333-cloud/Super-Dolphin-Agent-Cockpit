@@ -2,15 +2,11 @@ package turn
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/skillcandidate"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 )
 
 // FeedbackItem is the narrow projection of a memory entry that the
@@ -20,67 +16,30 @@ type FeedbackItem struct {
 	Content string
 }
 
-// FeedbackProposer synthesises accumulated feedback into a SKILL.md
-// candidate via the dream executor and writes it to the candidate store.
+// FeedbackProposer is a dormant compatibility shim for the removed
+// skillcandidate backend path. It intentionally does not call an LLM or write
+// a candidate row in V1.
 type FeedbackProposer struct {
 	dream  contract.DreamExecutor
-	store  skillcandidate.Store
 	logger *slog.Logger
 }
 
-// NewFeedbackProposer constructs a proposer. dream and store must not be nil.
-func NewFeedbackProposer(dream contract.DreamExecutor, store skillcandidate.Store, logger *slog.Logger) *FeedbackProposer {
-	return &FeedbackProposer{dream: dream, store: store, logger: logger}
+// NewFeedbackProposer keeps the old constructor shape so stale callers compile
+// while the live candidate writer remains disabled.
+func NewFeedbackProposer(dream contract.DreamExecutor, _ any, logger *slog.Logger) *FeedbackProposer {
+	return &FeedbackProposer{dream: dream, logger: logger}
 }
 
-// Propose collects feedback content, calls the dream executor to synthesise
-// a SKILL.md, and inserts it as a pending_review candidate.
+// Propose no-ops because the live old skillcandidate pipeline is removed.
 func (fp *FeedbackProposer) Propose(ctx context.Context, topicKey string, feedbacks []FeedbackItem, repoFingerprint string) error {
-	if fp.dream == nil || fp.store == nil {
-		return fmt.Errorf("feedback proposer not fully configured")
-	}
-
-	contents := make([]string, len(feedbacks))
-	for i, fb := range feedbacks {
-		contents[i] = fb.Content
-	}
-
-	prompt := buildFeedbackProposalPrompt(topicKey, contents)
-
-	dreamCtx, cancel := ctxutil.WithTimeout(ctx, 90*time.Second)
-	defer cancel()
-
-	skillMD, err := fp.dream.ExecuteDream(dreamCtx, prompt)
-	if err != nil {
-		return fmt.Errorf("dream execution failed for topic %q: %w", topicKey, err)
-	}
-
-	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(skillMD)))
-
-	sample := skillMD
-	if len(sample) > 1024 {
-		sample = sample[:1024]
-	}
-
-	candidate, err := fp.store.Insert(ctx, skillcandidate.InsertParams{
-		Scope:           skillcandidate.ScopeProject,
-		Slug:            topicKey,
-		ContentHash:     hash,
-		RepoFingerprint: repoFingerprint,
-		SkillMD:         skillMD,
-		RedactedSample:  sample,
-	})
-	if err != nil {
-		return fmt.Errorf("insert candidate for topic %q: %w", topicKey, err)
-	}
-
 	if fp.logger != nil {
-		fp.logger.Info("feedback skill candidate created",
+		fp.logger.Info("feedback skill candidate pipeline disabled",
 			"topic", topicKey,
-			"candidate_id", candidate.ID,
 			"feedback_count", len(feedbacks),
+			"repo_fingerprint", repoFingerprint,
 		)
 	}
+	_ = ctx
 	return nil
 }
 

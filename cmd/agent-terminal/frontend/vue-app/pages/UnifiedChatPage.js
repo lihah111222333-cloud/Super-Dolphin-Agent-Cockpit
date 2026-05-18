@@ -164,6 +164,7 @@ function attachPageNonEnumerableState(exposed, ctx) {
     launchSkillScope: { value: ctx.launchSkillScope, enumerable: false, configurable: true },
     launchSkillMatches: { value: ctx.launchSkillMatches, enumerable: false, configurable: true },
     launchSelectedSkillNames: { value: ctx.launchSelectedSkillNames, enumerable: false, configurable: true },
+    launchSelectedSkillRefs: { value: ctx.launchSelectedSkillRefs, enumerable: false, configurable: true },
     launchSkillSelectionLoading: { value: ctx.launchSkillSelectionLoading, enumerable: false, configurable: true },
     toggleLaunchSelectedSkill: { value: ctx.toggleLaunchSelectedSkill, enumerable: false, configurable: true },
     clearLaunchSelectedSkills: { value: ctx.clearLaunchSelectedSkills, enumerable: false, configurable: true },
@@ -688,6 +689,7 @@ export const UnifiedChatPage = {
     const {
       composerSkillMatches,
       composerEffectiveSelectedSkillNames,
+      composerEffectiveSelectedSkillRefs,
       composerSkillPreviewLoading,
       isComposerSkillSelected,
       toggleComposerSelectedSkill,
@@ -703,24 +705,7 @@ export const UnifiedChatPage = {
       skillRevision,
       activeCwdSource: resolvePageActiveCwdSource(props),
     });
-    const {
-      launchSkillSelectionEnabled,
-      launchAvailableSkills,
-      launchProjectSkills,
-      launchSystemSkills,
-      launchScopeTabsEnabled,
-      launchSkillScope,
-      launchSkillMatches,
-      launchSelectedSkillNames,
-      launchSkillSelectionLoading,
-      toggleLaunchSelectedSkill,
-      clearLaunchSelectedSkills,
-      setLaunchSkillScope,
-      selectAllLaunchSuggestedSkills,
-      refreshLaunchSkillSelection,
-      resolveLaunchSkillSelectionForStart,
-      resetLaunchSkillSelection,
-    } = createPageLaunchSkillSelection(props, composer, selectedThreadId, skillRevision);
+    const launchSkills = createPageLaunchSkillSelection(props, composer, selectedThreadId, skillRevision);
     const activeThread = computed(() => threads.value.find((/** @type {any} */ item) => item.id === selectedThreadId.value) || null);
     const activeProjectCwd = computed(() => resolveProjectActionCwd(props.projectStore, props.windowCwd));
     const chatThreadOptions = computed(() => {
@@ -798,8 +783,8 @@ export const UnifiedChatPage = {
       selectedThreadId, modeKey, isCmd, composer, layoutMode, cmdCardCols,
       compacting: threadStatus.compacting, isThreadInterruptible: threadStatus.isThreadInterruptible,
       beginInlineRename: inlineRename.beginInlineRename, scheduleScrollToBottom,
-      resolveComposerSkillSelectionForSend, resolveLaunchSkillSelectionForStart,
-      clearLaunchSkillSelection: resetLaunchSkillSelection, resetSelectedComposerSkills, showArchivedThreadList,
+      resolveComposerSkillSelectionForSend, resolveLaunchSkillSelectionForStart: launchSkills.resolveLaunchSkillSelectionForStart,
+      clearLaunchSkillSelection: launchSkills.resetLaunchSkillSelection, resetSelectedComposerSkills, showArchivedThreadList,
     });
 
     const threadConfigController = createThreadConfigController({ threadStore: props.threadStore, threadActions, selectedThreadId, isCmd });
@@ -853,7 +838,7 @@ export const UnifiedChatPage = {
       cancelPathChoice: pathChoiceController.cancelPathChoice,
       dragging, threadRailDragging, activityPanelDragging,
       composerBarRef, presenceAnchorRef, workspaceRef,
-      composerSkillMatches, composerEffectiveSelectedSkillNames, composerSkillPreviewLoading,
+      composerSkillMatches, composerEffectiveSelectedSkillNames, composerEffectiveSelectedSkillRefs, composerSkillPreviewLoading,
       isComposerSkillSelected, toggleComposerSelectedSkill, clearComposerSelectedSkills,
       selectAllComposerSuggestedSkills, composerSkillMatchClass, composerSkillMatchReason,
       onThreadRailResizeStart, onResizeStart, onActivityResizeStart,
@@ -873,20 +858,7 @@ export const UnifiedChatPage = {
       ...autoContinue,
       ...threadWatchdog,
       ...promoteTask,
-      launchSkillSelectionEnabled,
-      launchAvailableSkills,
-      launchProjectSkills,
-      launchSystemSkills,
-      launchScopeTabsEnabled,
-      launchSkillScope,
-      launchSkillMatches,
-      launchSelectedSkillNames,
-      launchSkillSelectionLoading,
-      toggleLaunchSelectedSkill,
-      clearLaunchSelectedSkills,
-      setLaunchSkillScope,
-      selectAllLaunchSuggestedSkills,
-      refreshLaunchSkillSelection,
+      ...launchSkills,
       onTimelineCitationClick,
       onPreviewDirtyChange,
       isPreviewDirty,

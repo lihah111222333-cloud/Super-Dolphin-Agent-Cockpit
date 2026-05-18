@@ -9,15 +9,15 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
+var skillMirrorRootLocks sync.Map
+
 type SkillMirrorTarget struct {
-	TargetID        string
-	Provider        SkillProvider
-	Scope           string
-	Root            string
-	CanonicalRootID string
+	TargetID, Scope, Root, CanonicalRootID string
+	Provider                               SkillProvider
 }
 
 func PublishSkillMirrors(ctx context.Context, records []canonicalSkillRecord, targets []SkillMirrorTarget) (SkillMirrorReport, error) {
@@ -34,28 +34,27 @@ func PublishSkillMirrors(ctx context.Context, records []canonicalSkillRecord, ta
 	}
 	return report, nil
 }
-
 func appendSkillMirrorReport(r *SkillMirrorReport, other SkillMirrorReport) {
 	r.Published = append(r.Published, other.Published...)
 	r.Skipped = append(r.Skipped, other.Skipped...)
 	r.Deleted = append(r.Deleted, other.Deleted...)
 	r.Conflicts = append(r.Conflicts, other.Conflicts...)
 }
-
 func recordsForMirrorTarget(records []canonicalSkillRecord, target SkillMirrorTarget) []canonicalSkillRecord {
 	filtered := make([]canonicalSkillRecord, 0, len(records))
 	for _, record := range records {
-		if record.Scope == strings.TrimSpace(target.Scope) {
+		if record.Scope == strings.TrimSpace(target.Scope) && !record.info.DisableModelInvocation {
 			filtered = append(filtered, record)
 		}
 	}
 	return filtered
 }
-
 func publishSkillMirrorTarget(records []canonicalSkillRecord, target SkillMirrorTarget) (SkillMirrorReport, error) {
 	if err := validateSkillMirrorTarget(target); err != nil {
 		return SkillMirrorReport{}, err
 	}
+	unlock := lockSkillMirrorRoot(target.Root)
+	defer unlock()
 	if err := prepareMirrorRoot(target.Root); err != nil {
 		return SkillMirrorReport{}, err
 	}
@@ -65,6 +64,11 @@ func publishSkillMirrorTarget(records []canonicalSkillRecord, target SkillMirror
 		return SkillMirrorReport{}, err
 	}
 	report, err := deleteMissingMirrorEntries(&manifest, target, records)
+	if err != nil {
+		return report, err
+	}
+	unmanaged, err := unmanagedProviderMirrorReport(target, manifest, records)
+	appendSkillMirrorReport(&report, unmanaged)
 	if err != nil {
 		return report, err
 	}
@@ -78,46 +82,69 @@ func publishSkillMirrorTarget(records []canonicalSkillRecord, target SkillMirror
 	}
 	return report, nil
 }
-
+func lockSkillMirrorRoot(root string) func() {
+	key := filepath.Clean(strings.TrimSpace(root))
+	value, _ := skillMirrorRootLocks.LoadOrStore(key, &sync.Mutex{})
+	mu := value.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
+func unmanagedProviderMirrorReport(target SkillMirrorTarget, manifest SkillMirrorManifest, records []canonicalSkillRecord) (SkillMirrorReport, error) {
+	var report SkillMirrorReport
+	names, err := skillMirrorNames(target.Root)
+	if err != nil {
+		return report, err
+	}
+	present := canonicalRecordsByName(records)
+	for _, name := range names {
+		if _, managed := manifest.Skills[name]; managed {
+			continue
+		}
+		if _, ok := present[name]; ok {
+			continue
+		}
+		dir := filepath.Join(target.Root, name)
+		if !skillMainFileExists(dir) {
+			continue
+		}
+		hash, exists, err := existingMirrorHash(dir)
+		if err != nil {
+			return report, err
+		}
+		if !exists {
+			continue
+		}
+		report.Conflicts = append(report.Conflicts, reportItem(target, name, "", hash, "", skillConflictUnmanagedProviderSkill))
+	}
+	return report, nil
+}
 func validateSkillMirrorTarget(target SkillMirrorTarget) error {
 	if strings.TrimSpace(target.TargetID) == "" {
 		return fmt.Errorf("skill mirror target_id is required")
 	}
-	if !supportedSkillProvider(target.Provider) {
+	if target.Provider != SkillProviderClaude && target.Provider != SkillProviderCodex {
 		return fmt.Errorf("unsupported skill mirror provider %q", target.Provider)
 	}
-	if !supportedMirrorScope(target.Scope) {
+	if target.Scope != skillScopeProject && target.Scope != skillScopePersonal {
 		return fmt.Errorf("unsupported skill mirror scope %q", target.Scope)
 	}
-	if !validMirrorRoot(target.Root) {
-		return fmt.Errorf("skill mirror target root must be absolute")
-	}
-	if unsafeMirrorRootString(target.Root) {
-		return fmt.Errorf("unsafe skill mirror target root %q", target.Root)
+	if err := validateMirrorRoot(target.Root); err != nil {
+		return err
 	}
 	if target.Scope == skillScopePersonal && !strings.HasPrefix(target.CanonicalRootID, "sd_owner:") {
 		return fmt.Errorf("personal skill mirror canonical_root_id must be owner_key")
 	}
 	return nil
 }
-
-func supportedSkillProvider(provider SkillProvider) bool {
-	return provider == SkillProviderClaude || provider == SkillProviderCodex
+func validateMirrorRoot(root string) error {
+	if strings.TrimSpace(root) == "" || !filepath.IsAbs(strings.TrimSpace(root)) || filepath.Base(filepath.Clean(strings.TrimSpace(root))) != "skills" {
+		return fmt.Errorf("skill mirror target root must be absolute")
+	}
+	if strings.Contains(root, "\x00") || strings.Contains(filepath.ToSlash(root), "/../") {
+		return fmt.Errorf("unsafe skill mirror target root %q", root)
+	}
+	return nil
 }
-
-func supportedMirrorScope(scope string) bool {
-	return scope == skillScopeProject || scope == skillScopePersonal
-}
-
-func validMirrorRoot(root string) bool {
-	root = strings.TrimSpace(root)
-	return root != "" && filepath.IsAbs(root) && filepath.Base(filepath.Clean(root)) == "skills"
-}
-
-func unsafeMirrorRootString(root string) bool {
-	return strings.Contains(root, "\x00") || strings.Contains(filepath.ToSlash(root), "/../")
-}
-
 func prepareMirrorRoot(root string) error {
 	if err := rejectSymlinkAncestors(root); err != nil {
 		return err
@@ -137,7 +164,6 @@ func prepareMirrorRoot(root string) error {
 	}
 	return nil
 }
-
 func rejectSymlinkAncestors(root string) error {
 	path, err := filepath.Abs(root)
 	if err != nil {
@@ -166,36 +192,6 @@ func rejectSymlinkAncestors(root string) error {
 		path = parent
 	}
 }
-
-func loadSkillMirrorManifest(path string, target SkillMirrorTarget) (SkillMirrorManifest, error) {
-	manifest, err := readSkillMirrorManifest(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return newSkillMirrorManifest(target), nil
-	}
-	if err != nil {
-		return SkillMirrorManifest{}, err
-	}
-	if manifest.Provider != string(target.Provider) || manifest.Scope != target.Scope || manifest.CanonicalRootID != target.CanonicalRootID {
-		return SkillMirrorManifest{}, fmt.Errorf("skill mirror manifest target mismatch")
-	}
-	if manifest.Skills == nil {
-		manifest.Skills = make(map[string]SkillMirrorEntry)
-	}
-	return manifest, nil
-}
-
-func newSkillMirrorManifest(target SkillMirrorTarget) SkillMirrorManifest {
-	return SkillMirrorManifest{
-		Version:         1,
-		Manager:         "super-dolphin",
-		Scope:           target.Scope,
-		Provider:        string(target.Provider),
-		CanonicalRootID: target.CanonicalRootID,
-		GeneratedAt:     time.Now().UTC(),
-		Skills:          make(map[string]SkillMirrorEntry),
-	}
-}
-
 func deleteMissingMirrorEntries(manifest *SkillMirrorManifest, target SkillMirrorTarget, records []canonicalSkillRecord) (SkillMirrorReport, error) {
 	var report SkillMirrorReport
 	present := canonicalRecordsByName(records)
@@ -215,7 +211,6 @@ func deleteMissingMirrorEntries(manifest *SkillMirrorManifest, target SkillMirro
 	}
 	return report, nil
 }
-
 func deleteMissingMirrorEntry(target SkillMirrorTarget, name string, entry SkillMirrorEntry) (SkillMirrorReportItem, bool, error) {
 	item := reportItem(target, name, entry.CanonicalID, entry.MirrorHash, "", "")
 	finalDir := filepath.Join(target.Root, name)
@@ -233,7 +228,6 @@ func deleteMissingMirrorEntry(target SkillMirrorTarget, name string, entry Skill
 	}
 	return item, true, os.RemoveAll(finalDir)
 }
-
 func publishCanonicalRecords(manifest *SkillMirrorManifest, target SkillMirrorTarget, records []canonicalSkillRecord) (SkillMirrorReport, error) {
 	var report SkillMirrorReport
 	sort.SliceStable(records, func(i, j int) bool { return records[i].Name < records[j].Name })
@@ -254,7 +248,6 @@ func publishCanonicalRecords(manifest *SkillMirrorManifest, target SkillMirrorTa
 	}
 	return report, nil
 }
-
 func publishCanonicalRecord(manifest *SkillMirrorManifest, target SkillMirrorTarget, record canonicalSkillRecord) (SkillMirrorReportItem, bool, error) {
 	name := record.Name
 	entry, managed := manifest.Skills[name]
@@ -264,38 +257,47 @@ func publishCanonicalRecord(manifest *SkillMirrorManifest, target SkillMirrorTar
 		return reportItem(target, name, canonicalSourceID(record), "", "", ""), false, err
 	}
 	item := reportItem(target, name, canonicalSourceID(record), oldHash, "", "")
-	if conflictKind := existingMirrorConflictKind(managed, exists, entry, oldHash); conflictKind != "" {
-		item.ConflictKind = conflictKind
+	switch {
+	case exists && !managed:
+		item.ConflictKind = "unmanaged"
+		return item, false, nil
+	case driftedManagedMirror(managed, exists, entry, oldHash):
+		item.ConflictKind = "drift"
 		return item, false, nil
 	}
 	canonicalHash, err := stableMirrorDirectoryHash(record.Dir)
 	if err != nil {
 		return item, false, err
 	}
-	if unchangedOwnedMirror(managed, exists, entry, oldHash, canonicalHash) {
+	unchanged, err := unchangedOwnedMirror(managed, exists, entry, oldHash, canonicalHash, target.Scope, finalDir)
+	if err != nil {
+		return item, false, err
+	}
+	if unchanged {
 		item.NewHash = oldHash
 		return item, false, nil
 	}
 	return replaceChangedMirrorRecord(manifest, target, record, canonicalHash, item)
 }
-
-func existingMirrorConflictKind(managed, exists bool, entry SkillMirrorEntry, oldHash string) string {
-	switch {
-	case exists && !managed:
-		return "unmanaged"
-	case managed && exists && (!entry.Owned || oldHash != entry.MirrorHash):
-		return "drift"
-	default:
-		return ""
+func driftedManagedMirror(managed, exists bool, entry SkillMirrorEntry, oldHash string) bool {
+	return managed && exists && (!entry.Owned || oldHash != entry.MirrorHash)
+}
+func unchangedOwnedMirror(managed, exists bool, entry SkillMirrorEntry, oldHash, canonicalHash, scope, dir string) (bool, error) {
+	if !(managed && exists && entry.Owned && oldHash == entry.MirrorHash && entry.CanonicalHash == canonicalHash) {
+		return false, nil
 	}
+	if scope != skillScopeProject {
+		return true, nil
+	}
+	data, err := os.ReadFile(filepath.Join(dir, skillMainFile))
+	if err != nil {
+		return false, err
+	}
+	content := string(data)
+	return capProjectMirrorTrustFrontmatter(content) == content, nil
 }
-
-func unchangedOwnedMirror(managed, exists bool, entry SkillMirrorEntry, oldHash, canonicalHash string) bool {
-	return managed && exists && entry.Owned && oldHash == entry.MirrorHash && entry.CanonicalHash == canonicalHash
-}
-
 func replaceChangedMirrorRecord(manifest *SkillMirrorManifest, target SkillMirrorTarget, record canonicalSkillRecord, canonicalHash string, item SkillMirrorReportItem) (SkillMirrorReportItem, bool, error) {
-	newHash, err := replaceMirrorSkillDir(target.Root, record.Name, record.Dir)
+	newHash, err := replaceMirrorSkillDir(target.Root, record.Name, record.Dir, target.Scope)
 	if err != nil {
 		return item, false, err
 	}
@@ -304,7 +306,6 @@ func replaceChangedMirrorRecord(manifest *SkillMirrorManifest, target SkillMirro
 	manifest.GeneratedAt = time.Now().UTC()
 	return item, true, nil
 }
-
 func existingMirrorHash(dir string) (string, bool, error) {
 	info, err := os.Lstat(dir)
 	if errors.Is(err, os.ErrNotExist) {
@@ -322,14 +323,13 @@ func existingMirrorHash(dir string) (string, bool, error) {
 	hash, err := stableMirrorDirectoryHash(dir)
 	return hash, true, err
 }
-
-func replaceMirrorSkillDir(root, name, canonicalDir string) (string, error) {
+func replaceMirrorSkillDir(root, name, canonicalDir, scope string) (string, error) {
 	tempDir, err := os.MkdirTemp(root, ".skill-mirror-"+name+"-*")
 	if err != nil {
 		return "", err
 	}
 	defer os.RemoveAll(tempDir)
-	if err := copyCanonicalSkillDir(canonicalDir, tempDir); err != nil {
+	if err := copyCanonicalSkillDir(canonicalDir, tempDir, scope); err != nil {
 		return "", err
 	}
 	hash, err := stableMirrorDirectoryHash(tempDir)
@@ -342,8 +342,7 @@ func replaceMirrorSkillDir(root, name, canonicalDir string) (string, error) {
 	}
 	return hash, os.Rename(tempDir, finalDir)
 }
-
-func copyCanonicalSkillDir(src, dst string) error {
+func copyCanonicalSkillDir(src, dst, scope string) error {
 	return filepath.WalkDir(src, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -355,10 +354,9 @@ func copyCanonicalSkillDir(src, dst string) error {
 		if rel == "." {
 			return nil
 		}
-		return copyCanonicalSkillEntry(path, filepath.Join(dst, filepath.FromSlash(rel)), rel, entry)
+		return copyCanonicalSkillEntry(path, filepath.Join(dst, filepath.FromSlash(rel)), rel, scope, entry)
 	})
 }
-
 func safeCanonicalCopyRelativePath(root, path string) (string, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
@@ -377,8 +375,7 @@ func safeCanonicalCopyRelativePath(root, path string) (string, error) {
 	}
 	return rel, nil
 }
-
-func copyCanonicalSkillEntry(src, dst, rel string, entry fs.DirEntry) error {
+func copyCanonicalSkillEntry(src, dst, rel, scope string, entry fs.DirEntry) error {
 	info, err := entry.Info()
 	if err != nil {
 		return err
@@ -396,30 +393,33 @@ func copyCanonicalSkillEntry(src, dst, rel string, entry fs.DirEntry) error {
 	if err != nil {
 		return err
 	}
+	if scope == skillScopeProject && strings.EqualFold(filepath.Base(filepath.ToSlash(rel)), skillMainFile) {
+		data = []byte(capProjectMirrorTrustFrontmatter(string(data)))
+	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
 	return os.WriteFile(dst, data, mirrorFileMode(rel, info.Mode(), data))
 }
-
+func capProjectMirrorTrustFrontmatter(content string) string {
+	frontmatter, body, ok := splitFrontmatter(content)
+	if !ok {
+		return content
+	}
+	lines := strings.Split(frontmatter, "\n")
+	for i, line := range lines {
+		if key, value, ok := parseMetaLine(line); ok && metaKeyMatch(key, trustMetaKeys) && parseTrustScope(parseScalar(value)).Trusted() {
+			lines[i] = "trust: project"
+		}
+	}
+	return "---\n" + strings.Join(lines, "\n") + "\n---\n" + body
+}
 func mirrorFileMode(rel string, mode os.FileMode, data []byte) os.FileMode {
 	if strings.HasPrefix(filepath.ToSlash(rel), "scripts/") && mode.Perm()&0o111 != 0 && strings.HasPrefix(string(data), "#!") {
 		return 0o755
 	}
 	return 0o644
 }
-
-func mirrorManifestEntry(record canonicalSkillRecord, canonicalHash, mirrorHash string) SkillMirrorEntry {
-	return SkillMirrorEntry{
-		CanonicalID:   canonicalSourceID(record),
-		CanonicalHash: canonicalHash,
-		MirrorHash:    mirrorHash,
-		SourceType:    record.Scope,
-		PersonalType:  record.PersonalType,
-		Owned:         true,
-	}
-}
-
 func canonicalRecordsByName(records []canonicalSkillRecord) map[string]canonicalSkillRecord {
 	byName := make(map[string]canonicalSkillRecord, len(records))
 	for _, record := range records {
@@ -427,7 +427,6 @@ func canonicalRecordsByName(records []canonicalSkillRecord) map[string]canonical
 	}
 	return byName
 }
-
 func reportItem(target SkillMirrorTarget, rel, canonicalID, oldHash, newHash, kind string) SkillMirrorReportItem {
 	return SkillMirrorReportItem{
 		TargetID:           target.TargetID,
@@ -440,15 +439,19 @@ func reportItem(target SkillMirrorTarget, rel, canonicalID, oldHash, newHash, ki
 		ConflictKind:       kind,
 	}
 }
-
 func (s *service) publishWriteTimeMirrors(ctx context.Context, cwd, scope, personalType, name string) SkillMirrorReport {
 	targets := s.writeTimeMirrorTargets(cwd, scope)
 	if len(targets) == 0 {
 		return unconfiguredMirrorPublishReport(scope, personalType, name)
 	}
-	records, err := newCanonicalStore(s.resolvedSuperDolphinHome()).scan(cwd)
+	records, conflicts, err := newCanonicalStoreForOwner(s.resolvedSuperDolphinHome(), defaultOwnerOSUID(), defaultAppProfile()).EffectiveSet(ctx, cwd)
 	if err != nil {
 		return mirrorPublishErrorReport(targets, scope, personalType, name, err)
+	}
+	if len(conflicts) > 0 {
+		var report SkillMirrorReport
+		appendCanonicalConflictReportItems(&report, targets, conflicts)
+		return report
 	}
 	report, err := PublishSkillMirrors(ctx, records, targets)
 	if err != nil {
@@ -456,89 +459,50 @@ func (s *service) publishWriteTimeMirrors(ctx context.Context, cwd, scope, perso
 	}
 	return report
 }
-
-func (s *service) writeTimeMirrorTargets(cwd, scope string) []SkillMirrorTarget {
-	scope = strings.TrimSpace(scope)
-	if scope != skillScopeProject {
-		return uniqueMirrorTargets(s.configuredMirrorTargets(scope))
+func (s *service) publishWriteTimeMirrorsForScope(ctx context.Context, cwd, scope, personalType, name string) SkillMirrorReport {
+	targets := s.writeTimeMirrorTargets(cwd, scope)
+	if len(targets) == 0 {
+		return unconfiguredMirrorPublishReport(scope, personalType, name)
 	}
-	fingerprint := RepoFingerprint(cwd)
-	targets := []SkillMirrorTarget{
-		SkillMirrorTarget{
-			TargetID:        "claude:project:" + fingerprint,
-			Provider:        SkillProviderClaude,
-			Scope:           skillScopeProject,
-			Root:            filepath.Join(cwd, ".claude", "skills"),
-			CanonicalRootID: fingerprint,
-		},
+	store := newCanonicalStoreForOwner(s.resolvedSuperDolphinHome(), defaultOwnerOSUID(), defaultAppProfile())
+	records, err := store.scan(cwd)
+	if err != nil {
+		return mirrorPublishErrorReport(targets, scope, personalType, name, err)
 	}
-	return uniqueMirrorTargets(targets)
-}
-
-func (s *service) configuredMirrorTargets(scope string) []SkillMirrorTarget {
-	if s == nil {
-		return nil
+	records, err = store.applyEffectivePolicies(cwd, records)
+	if err != nil {
+		return mirrorPublishErrorReport(targets, scope, personalType, name, err)
 	}
-	targets := make([]SkillMirrorTarget, 0, len(s.mirrorTargets))
-	for _, target := range s.mirrorTargets {
-		if strings.TrimSpace(target.Scope) == scope {
-			targets = append(targets, target)
-		}
+	records = filterCanonicalRecordsForScope(records, scope)
+	conflicts := canonicalSameNameConflicts(records)
+	if len(conflicts) > 0 {
+		var report SkillMirrorReport
+		appendCanonicalConflictReportItems(&report, targets, conflicts)
+		return report
 	}
-	return targets
-}
-
-func uniqueMirrorTargets(targets []SkillMirrorTarget) []SkillMirrorTarget {
-	seen := make(map[string]bool, len(targets))
-	out := make([]SkillMirrorTarget, 0, len(targets))
-	for _, target := range targets {
-		key := target.TargetID + "\x00" + filepath.Clean(target.Root)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		out = append(out, target)
-	}
-	return out
-}
-
-func unconfiguredMirrorPublishReport(scope, personalType, name string) SkillMirrorReport {
-	if scope != skillScopePersonal {
-		return SkillMirrorReport{}
-	}
-	return SkillMirrorReport{Conflicts: []SkillMirrorReportItem{{
-		TargetID:           "personal:unconfigured",
-		Scope:              skillScopePersonal,
-		CanonicalID:        canonicalIDForPublishReport(scope, personalType, name),
-		ConflictKind:       "publish_targets_unconfigured",
-		RelativeMirrorPath: "",
-	}}}
-}
-
-func mirrorPublishErrorReport(targets []SkillMirrorTarget, scope, personalType, name string, err error) SkillMirrorReport {
-	report := SkillMirrorReport{Conflicts: make([]SkillMirrorReportItem, 0, len(targets))}
-	for _, target := range targets {
-		item := reportItem(target, skillSlug(name), canonicalIDForPublishReport(scope, personalType, name), "", "", "publish_error")
-		if err != nil {
-			item.Error = err.Error()
-		}
-		report.Conflicts = append(report.Conflicts, item)
+	report, err := PublishSkillMirrors(ctx, records, targets)
+	if err != nil {
+		appendSkillMirrorReport(&report, mirrorPublishErrorReport(targets, scope, personalType, name, err))
 	}
 	return report
 }
-
-func canonicalIDForPublishReport(scope, personalType, name string) string {
-	slug := skillSlug(name)
-	if scope == skillScopePersonal {
-		return "personal/" + strings.TrimSpace(personalType) + "/" + slug
+func (s *service) publishWriteTimeMirrorsForEffectiveSet(ctx context.Context, cwd, name string) SkillMirrorReport {
+	targets := uniqueMirrorTargets(append(s.writeTimeMirrorTargets(cwd, skillScopeProject), s.writeTimeMirrorTargets(cwd, skillScopePersonal)...))
+	if len(targets) == 0 {
+		return unconfiguredMirrorPublishReport("", "", name)
 	}
-	return "project/" + slug
-}
-
-func attachMirrorPublish(result any, report SkillMirrorReport) any {
-	if payload, ok := result.(map[string]any); ok {
-		payload["mirror_publish"] = report
-		return payload
+	records, conflicts, err := newCanonicalStoreForOwner(s.resolvedSuperDolphinHome(), defaultOwnerOSUID(), defaultAppProfile()).EffectiveSet(ctx, cwd)
+	if err != nil {
+		return mirrorPublishErrorReport(targets, "", "", name, err)
 	}
-	return result
+	if len(conflicts) > 0 {
+		var report SkillMirrorReport
+		appendCanonicalConflictReportItems(&report, targets, conflicts)
+		return report
+	}
+	report, err := PublishSkillMirrors(ctx, records, targets)
+	if err != nil {
+		appendSkillMirrorReport(&report, mirrorPublishErrorReport(targets, "", "", name, err))
+	}
+	return report
 }

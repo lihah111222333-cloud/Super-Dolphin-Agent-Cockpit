@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPrepareTurnKeepsSkillPromptsAndNormalizesInputs(t *testing.T) {
+func TestPrepareTurnKeepsSkillRefsMetadataOnlyAndNormalizesInputs(t *testing.T) {
 	t.Parallel()
 
 	svc := NewService(silentLogger())
@@ -45,8 +45,9 @@ func TestPrepareTurnKeepsSkillPromptsAndNormalizesInputs(t *testing.T) {
 
 	gotNames := skillNames(req.Skills)
 	require.Equal(t, []string{"explicit", "debug", "deploy-tool"}, gotNames)
-	require.Equal(t, "debug guidance", req.Skills[1].Prompt)
-	require.Equal(t, "deploy guidance", req.Skills[2].Prompt)
+	for _, ref := range req.Skills {
+		require.Equal(t, "", ref.Prompt)
+	}
 }
 
 func TestPrepareTurnManualSkillSelectionDisablesAutoMatch(t *testing.T) {
@@ -159,9 +160,11 @@ func TestPrepareTurnInjectsTurnAssembly(t *testing.T) {
 		},
 	}
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
-		Prompt: "please verify the cache",
-		CWD:    "/repo",
-		Model:  "claude-sonnet",
+		Prompt:               "please verify the cache",
+		CWD:                  "/repo",
+		Model:                "claude-sonnet",
+		ManualSkillSelection: true,
+		Skills:               []dto.SkillRef{{Name: "debug", Prompt: "legacy skill body"}},
 		RuntimeUserContext: map[string]string{
 			"workerToolsContext": "Workers can use bash and read tools.",
 			"terminalFocus":      "The terminal is unfocused — the user is not actively watching.",
@@ -185,8 +188,11 @@ func TestPrepareTurnInjectsTurnAssembly(t *testing.T) {
 func assertPrepareTurnAssemblyInput(t *testing.T, req dto.TurnRequest, assembly *stubPromptAssemblyService) {
 	t.Helper()
 	require.Equal(t, "assembled user context", req.TurnAssembly.UserContextText)
+	require.Len(t, req.Skills, 1)
+	require.Equal(t, "", req.Skills[0].Prompt)
 	require.Equal(t, "thread-1", assembly.lastTurnInput.ThreadID)
 	require.Equal(t, "please verify the cache", assembly.lastTurnInput.UserText)
+	require.Equal(t, "", assembly.lastTurnInput.SkillPrompt)
 	require.Equal(t, "/repo", assembly.lastTurnInput.CWD)
 	require.Equal(t, "claude-sonnet", assembly.lastTurnInput.Model)
 	require.Equal(t, "codex-thread", assembly.lastTurnInput.Provider)

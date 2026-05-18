@@ -88,8 +88,8 @@ func (s *ExpandedArtifactState) Mark(ref dto.SkillRef, turnIdx int) ExpandedArti
 	return entry
 }
 
-// MarkArtifact 是 artifact 审批入口（codex 端走 skill_read_section host
-// tool；claude 端走 native skills + permissions.deny 收紧）：
+// MarkArtifact 是 artifact 审批入口；provider 端的 skill 正文发现已切到
+// provider-native mirrors，审批态仍用该结构记录具体 artifact 粒度：
 // 直接传 kind/locator/hash 可覆盖 body/SKILL.md 默认值。name 会被 trim+lower。
 func (s *ExpandedArtifactState) MarkArtifact(name, kind, locator, hash string, turnIdx int) ExpandedArtifact {
 	if s == nil {
@@ -179,8 +179,8 @@ func (s *ExpandedArtifactState) Reset() {
 
 // CompactStale 淘汰 (currentTurnIdx - entry.LastTurnIdx) >= TTL 的条目。
 //
-// 用途：long session 下 Mark 只增不删，map 会无界增长。外部（如 Phase 7
-// SkillInjectionPort）可在每个 turn 结尾或每 N 个 turn 调用该方法回收内存。
+// 用途：long session 下 Mark 只增不删，map 会无界增长。外部可在每个
+// turn 结尾或每 N 个 turn 调用该方法回收内存。
 // 返回被移除的条目数作为指标输出。
 //
 // 与 Reset() 的区别：
@@ -231,9 +231,8 @@ func (s *ExpandedArtifactState) Snapshot() []ExpandedArtifact {
 	return out
 }
 
-// ArtifactKey 是 P20.1 §3.6 的 map key 生成器，对外导出供 expanded state 的
-// 调用方（artifact 审批相关工具，例如 codex 的 skill_read_section）构造一致
-// 的键。
+// ArtifactKey 是 P20.1 §3.6 的 map key 生成器，对外导出供 expanded state
+// 调用方构造一致的 artifact 审批键。
 //
 // 格式：lower(name) + "::" + kind + "::" + locator + "@" + short(hash)
 // 其中 short(hash) 取前 12 位小写 hex，与 skill.approvalKey 短 hash 策略一致。

@@ -18,7 +18,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	auditstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/skillcandidate"
 )
 
 const (
@@ -32,7 +31,6 @@ type service struct {
 	projectSkillsRoot  string
 	superDolphinHome   string
 	http               *http.Client
-	disclosureTiers    contract.SkillDisclosureTierSource
 	approvalRequester  contract.ApprovalRequester
 	readConfigState    func(context.Context, string) (any, error)
 	emitSkillsChanged  skillsChangedEmitter
@@ -48,10 +46,6 @@ type service struct {
 	sessionApprovals   map[string]ApprovalEntry
 	sessionApprovalsMu sync.RWMutex
 	approvalCallSeq    uint64
-	// candidateStore is the optional P0b Step 5 wiring for the review
-	// gate. nil means review-gate RPCs return errCandidateStoreUnavailable;
-	// extractor + lookup paths short-circuit early.
-	candidateStore skillcandidate.Store
 	// auditStore is required in Fx wiring for mutation audit. Direct tests that
 	// construct service manually may leave it nil; mutation paths then fail closed.
 	auditStore    auditstore.Store
@@ -265,6 +259,9 @@ func (s *service) prepareScopedSkillsRoot(cwd, scope string, personalType ...str
 	if err != nil {
 		return "", err
 	}
+	if err := rejectWritableSymlinkComponentIfExists(root); err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return "", err
 	}
@@ -297,9 +294,12 @@ func resolveRequestedSkillTarget(scopeAndType ...string) (string, string) {
 }
 
 func writableSkillFileMode(path string) (os.FileMode, error) {
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	switch {
 	case err == nil:
+		if info.Mode()&os.ModeSymlink != 0 {
+			return 0, fmt.Errorf("skill write path contains symlink: %s", path)
+		}
 		if info.IsDir() {
 			return 0, fmt.Errorf("path is directory: %s", path)
 		}

@@ -180,6 +180,83 @@ func TestWriteLocalPersonalWritesRecoveryAndAudit(t *testing.T) {
 	assertSkillMutationAuditActions(t, audit.inserts, "personal_write_intent", "personal_write_finalize")
 }
 
+func TestWriteLocalPersonalFinalizeFailureRollsBackNewCanonical(t *testing.T) {
+	project := t.TempDir()
+	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
+	audit := &capturingSkillAuditStore{failOnAction: "personal_write_finalize", insertErr: errors.New("audit finalize down")}
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superDolphinHome, auditStore: audit}
+
+	_, err := svc.WriteLocal(skillTestContext(project), "notes", "---\nname: notes\n---\nbody", skillScopePersonal, personalSkillTypeUser)
+
+	if err == nil || !strings.Contains(err.Error(), "audit finalize down") {
+		t.Fatalf("WriteLocal(personal) error = %v, want finalize audit failure", err)
+	}
+	assertMissing(t, filepath.Join(superDolphinHome, "skills", "personal", "user", "notes", skillMainFile))
+}
+
+func TestWriteLocalPersonalFinalizeFailureRestoresExistingCanonical(t *testing.T) {
+	project := t.TempDir()
+	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
+	targetDir := filepath.Join(superDolphinHome, "skills", "personal", personalSkillTypeUser, "notes")
+	writeSkillContent(t, targetDir, "notes", "before")
+	audit := &capturingSkillAuditStore{failOnAction: "personal_write_finalize", insertErr: errors.New("audit finalize down")}
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superDolphinHome, auditStore: audit}
+
+	_, err := svc.WriteLocal(skillTestContext(project), "notes", "---\nname: notes\n---\nafter", skillScopePersonal, personalSkillTypeUser)
+
+	if err == nil || !strings.Contains(err.Error(), "audit finalize down") {
+		t.Fatalf("WriteLocal(personal overwrite) error = %v, want finalize audit failure", err)
+	}
+	assertFileContent(t, filepath.Join(targetDir, skillMainFile), "---\nname: notes\n---\nbefore")
+}
+
+func TestWriteLocalPersonalWriteFailureRestoresExistingCanonical(t *testing.T) {
+	project := t.TempDir()
+	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
+	targetDir := filepath.Join(superDolphinHome, "skills", "personal", personalSkillTypeUser, "notes")
+	targetFile := filepath.Join(targetDir, skillMainFile)
+	writeSkillContent(t, targetDir, "notes", "before")
+	if err := os.Chmod(targetFile, 0o400); err != nil {
+		t.Fatalf("Chmod target read-only: %v", err)
+	}
+	defer func() { _ = os.Chmod(targetFile, 0o600) }()
+	audit := &capturingSkillAuditStore{}
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superDolphinHome, auditStore: audit}
+
+	_, err := svc.WriteLocal(skillTestContext(project), "notes", "---\nname: notes\n---\nafter", skillScopePersonal, personalSkillTypeUser)
+
+	if err == nil {
+		t.Fatalf("WriteLocal(personal overwrite) error = %v, want write failure", err)
+	}
+	assertFileContent(t, targetFile, "---\nname: notes\n---\nbefore")
+}
+
+func TestWriteLocalPersonalOverwriteCreatesRecoverySnapshotParent(t *testing.T) {
+	project := t.TempDir()
+	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
+	audit := &capturingSkillAuditStore{}
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superDolphinHome, auditStore: audit}
+	targetDir := filepath.Join(superDolphinHome, "skills", "personal", personalSkillTypeHub, "执行计划")
+	writeSkillContent(t, targetDir, "执行计划", "before body")
+	assertMissing(t, filepath.Join(filepath.Dir(targetDir), personalSkillRecoverySnapshotDir))
+
+	_, err := svc.WriteLocal(skillTestContext(project), "执行计划", "---\nname: 执行计划\n---\nafter body", skillScopePersonal, personalSkillTypeHub)
+	if err != nil {
+		t.Fatalf("WriteLocal(personal/hub overwrite): %v", err)
+	}
+
+	assertFileContent(t, filepath.Join(targetDir, skillMainFile), "---\nname: 执行计划\n---\nafter body")
+	matches, err := filepath.Glob(filepath.Join(filepath.Dir(targetDir), personalSkillRecoverySnapshotDir, "执行计划-*", skillMainFile))
+	if err != nil {
+		t.Fatalf("glob recovery snapshot: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("recovery snapshot matches = %v, want one backup", matches)
+	}
+	assertFileContent(t, matches[0], "---\nname: 执行计划\n---\nbefore body")
+	assertSkillMutationAuditActions(t, audit.inserts, "personal_write_intent", "personal_write_finalize")
+}
+
 func TestImportLocalDirPersonalAuditIntentFailureLeavesCanonicalUntouched(t *testing.T) {
 	project := t.TempDir()
 	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
@@ -229,10 +306,39 @@ func TestImportLocalDirPersonalUsesPersonalType(t *testing.T) {
 		t.Fatalf("import result = %+v", result)
 	}
 	report := mustMirrorPublishReport(t, payload)
-	assertConflictReportItem(t, report.Conflicts, "personal:unconfigured", "", skillScopePersonal, "", "personal/imported/source-skill", "publish_targets_unconfigured")
+	owner, err := resolveOwnerIdentity(superDolphinHome, defaultOwnerOSUID(), defaultAppProfile())
+	if err != nil {
+		t.Fatalf("resolve owner: %v", err)
+	}
+	assertPublishedReportItem(t, report.Published, "claude:app-managed:"+owner.OwnerKey, SkillProviderClaude, skillScopePersonal, "source-skill", "personal/imported/source-skill")
+	assertPublishedReportItem(t, report.Published, "codex:app-managed:"+owner.OwnerKey, SkillProviderCodex, skillScopePersonal, "source-skill", "personal/imported/source-skill")
 	assertExists(t, filepath.Join(superDolphinHome, "skills", "personal", "imported", "source-skill", skillMainFile))
-	assertMissing(t, filepath.Join(superDolphinHome, "providers", "claude", "skills", "source-skill", skillMainFile))
-	assertMissing(t, filepath.Join(superDolphinHome, "providers", "codex", "skills", "source-skill", skillMainFile))
+	assertFileContent(t, filepath.Join(superDolphinHome, "providers", "claude", "skills", "source-skill", skillMainFile), "---\nname: source-skill\n---\n# imported-note\n")
+	assertFileContent(t, filepath.Join(superDolphinHome, "providers", "codex", "skills", "source-skill", skillMainFile), "---\nname: source-skill\n---\n# imported-note\n")
+}
+
+func TestImportLocalDirPersonalFinalizeFailureRollsBackCanonical(t *testing.T) {
+	project := t.TempDir()
+	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
+	source := filepath.Join(t.TempDir(), "source-skill")
+	writeCanonicalSkill(t, source, "imported-note")
+	audit := &capturingSkillAuditStore{failOnAction: "personal_import_finalize", insertErr: errors.New("audit finalize down")}
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superDolphinHome, auditStore: audit}
+
+	result, err := svc.ImportLocalDir(skillTestContext(project), importSkillDirParams{
+		Path:         source,
+		Scope:        skillScopePersonal,
+		PersonalType: personalSkillTypeImported,
+	})
+
+	if err != nil {
+		t.Fatalf("ImportLocalDir wrapper error = %v", err)
+	}
+	failures := result.(map[string]any)["failures"].([]map[string]any)
+	if len(failures) != 1 || !strings.Contains(failures[0]["error"].(string), "audit finalize down") {
+		t.Fatalf("failures = %+v, want finalize audit failure", failures)
+	}
+	assertMissing(t, filepath.Join(superDolphinHome, "skills", "personal", "imported", "source-skill", skillMainFile))
 }
 
 func TestDeletePersonalAuditIntentFailureLeavesCanonicalUntouched(t *testing.T) {
@@ -259,8 +365,6 @@ func TestDeletePersonalAuditIntentFailureLeavesCanonicalUntouched(t *testing.T) 
 func TestDeletePersonalWritesAuditAndArchiveRecord(t *testing.T) {
 	project := t.TempDir()
 	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	personalRoot := filepath.Join(superDolphinHome, "skills", "personal", personalSkillTypeUser)
-	writeCanonicalSkill(t, filepath.Join(personalRoot, "build"), "build")
 	audit := &capturingSkillAuditStore{}
 	svc := &service{
 		projectRoot:       project,
@@ -268,6 +372,10 @@ func TestDeletePersonalWritesAuditAndArchiveRecord(t *testing.T) {
 		superDolphinHome:  superDolphinHome,
 		auditStore:        audit,
 	}
+	if _, err := svc.WriteLocal(skillTestContext(project), "build", "---\nname: build\n---\nbody", skillScopePersonal, personalSkillTypeUser); err != nil {
+		t.Fatalf("WriteLocal(personal): %v", err)
+	}
+	audit.inserts = nil
 
 	result, err := svc.DeleteLocal(skillTestContext(project), DeleteSkillParams{Name: "build", Scope: skillScopePersonal, PersonalType: personalSkillTypeUser})
 	if err != nil {
@@ -277,7 +385,12 @@ func TestDeletePersonalWritesAuditAndArchiveRecord(t *testing.T) {
 	assertExists(t, filepath.Join(archiveDir, skillMainFile))
 	assertSkillMutationAuditActions(t, audit.inserts, "personal_delete_intent", "personal_delete_finalize")
 	report := mustMirrorPublishReport(t, result.(map[string]any))
-	assertConflictReportItem(t, report.Conflicts, "personal:unconfigured", "", skillScopePersonal, "", "personal/user/build", "publish_targets_unconfigured")
+	owner, err := resolveOwnerIdentity(superDolphinHome, defaultOwnerOSUID(), defaultAppProfile())
+	if err != nil {
+		t.Fatalf("resolve owner: %v", err)
+	}
+	assertPublishedReportItem(t, report.Deleted, "claude:app-managed:"+owner.OwnerKey, SkillProviderClaude, skillScopePersonal, "build", "personal/user/build")
+	assertPublishedReportItem(t, report.Deleted, "codex:app-managed:"+owner.OwnerKey, SkillProviderCodex, skillScopePersonal, "build", "personal/user/build")
 	assertMissing(t, filepath.Join(superDolphinHome, "providers", "claude", "skills", "build", skillMainFile))
 	assertMissing(t, filepath.Join(superDolphinHome, "providers", "codex", "skills", "build", skillMainFile))
 
@@ -289,6 +402,29 @@ func TestDeletePersonalWritesAuditAndArchiveRecord(t *testing.T) {
 	if filepath.IsAbs(record.ArchivePath) || stringsContainsAny(record.ArchivePath, superDolphinHome, project) {
 		t.Fatalf("archive record leaks absolute path: %+v", record)
 	}
+}
+
+func TestDeletePersonalFinalizeFailureRestoresCanonical(t *testing.T) {
+	project := t.TempDir()
+	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
+	personalRoot := filepath.Join(superDolphinHome, "skills", "personal", personalSkillTypeUser)
+	writeCanonicalSkill(t, filepath.Join(personalRoot, "build"), "build")
+	audit := &capturingSkillAuditStore{failOnAction: "personal_delete_finalize", insertErr: errors.New("audit finalize down")}
+	svc := &service{
+		projectRoot:       project,
+		projectSkillsRoot: defaultProjectSkillsRoot(project),
+		superDolphinHome:  superDolphinHome,
+		auditStore:        audit,
+	}
+
+	_, err := svc.DeleteLocal(skillTestContext(project), DeleteSkillParams{Name: "build", Scope: skillScopePersonal, PersonalType: personalSkillTypeUser})
+
+	if err == nil || !strings.Contains(err.Error(), "audit finalize down") {
+		t.Fatalf("DeleteLocal(personal) error = %v, want finalize audit failure", err)
+	}
+	assertExists(t, filepath.Join(personalRoot, "build", skillMainFile))
+	assertNoArchiveContainsSkill(t, superDolphinHome, filepath.Join(skillScopePersonal, personalSkillTypeUser, "build"))
+	assertMissing(t, filepath.Join(personalRoot, "build", personalSkillArchiveRecordFile))
 }
 
 func readJSONFile(t *testing.T, path string, dst any) {
@@ -315,9 +451,10 @@ func assertNoArchiveContainsSkill(t *testing.T, home, archiveSuffix string) {
 }
 
 type capturingSkillAuditStore struct {
-	mu        sync.Mutex
-	insertErr error
-	inserts   []auditstore.InsertParams
+	mu           sync.Mutex
+	insertErr    error
+	failOnAction string
+	inserts      []auditstore.InsertParams
 }
 
 func (s *capturingSkillAuditStore) List(context.Context, auditstore.ListFilter) ([]auditstore.AuditEvent, error) {
@@ -327,7 +464,7 @@ func (s *capturingSkillAuditStore) List(context.Context, auditstore.ListFilter) 
 func (s *capturingSkillAuditStore) Insert(_ context.Context, p auditstore.InsertParams) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.insertErr != nil {
+	if s.insertErr != nil && (s.failOnAction == "" || s.failOnAction == p.Action) {
 		return s.insertErr
 	}
 	s.inserts = append(s.inserts, p)
