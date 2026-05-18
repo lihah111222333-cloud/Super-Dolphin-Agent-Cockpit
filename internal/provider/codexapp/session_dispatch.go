@@ -22,12 +22,6 @@ func (s *session) dispatch(raw dto.RawProviderEvent) {
 			s.remapEventIdentity(raw.EventType, payload, agentID)
 			raw.Data = payload
 		}
-		// Override contextWindowTokens when the Codex CLI uses fallback
-		// metadata (it reports a wrong value for models it doesn't know).
-		if cw := contextWindowForModel(s.runtimeConfigString("model")); cw > 0 {
-			s.patchContextWindowInPayload(payload, cw)
-			raw.Data = payload
-		}
 	}
 	s.dispatcher.Dispatch(raw)
 }
@@ -50,30 +44,6 @@ func (s *session) remapEventIdentity(eventType string, payload map[string]any, h
 	payload["agent_id"] = hostAgentID
 	payload["threadId"] = hostAgentID
 	payload["thread_id"] = hostAgentID
-}
-
-// patchContextWindowInPayload ensures all nested locations where the Codex CLI
-// might report a context window carry the authoritative value.
-func (s *session) patchContextWindowInPayload(payload map[string]any, cw int) {
-	for _, key := range []string{"contextWindowTokens", "contextWindow", "modelContextWindow", "context_window"} {
-		if _, ok := payload[key]; ok {
-			payload[key] = cw
-		}
-	}
-	if usage, ok := payload["usage"].(map[string]any); ok {
-		for _, key := range []string{"contextWindowTokens", "contextWindow", "context_window"} {
-			if _, ok := usage[key]; ok {
-				usage[key] = cw
-			}
-		}
-	}
-	if tu, ok := payload["tokenUsage"].(map[string]any); ok {
-		for _, key := range []string{"contextWindowTokens", "contextWindow", "modelContextWindow"} {
-			if _, ok := tu[key]; ok {
-				tu[key] = cw
-			}
-		}
-	}
 }
 
 func (s *session) finishTurn(params json.RawMessage, optimistic bool) {
