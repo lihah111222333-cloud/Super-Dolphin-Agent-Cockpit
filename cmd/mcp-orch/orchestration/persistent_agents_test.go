@@ -188,8 +188,8 @@ func TestSubmitTurnRehydratesPersistedAgentRuntimeAfterPeerRestart(t *testing.T)
 	if err != nil {
 		t.Fatalf("Snapshot() error = %v", err)
 	}
-	if snapshot.State != string(agentdto.StateTurnStarting) || snapshot.ActiveTurnID != "turn-1" {
-		t.Fatalf("Snapshot() = %#v, want rehydrated accepted turn", snapshot)
+	if snapshot.State != string(agentdto.StateTurnRunning) || snapshot.ActiveTurnID != "turn-1" {
+		t.Fatalf("Snapshot() = %#v, want rehydrated running turn", snapshot)
 	}
 }
 

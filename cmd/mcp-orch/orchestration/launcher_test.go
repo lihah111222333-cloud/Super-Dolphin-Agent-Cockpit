@@ -380,7 +380,7 @@ func TestService_LaunchWithRemoteSubmitsInitialPrompt(t *testing.T) {
 	if turnReq["thread_id"] != "thread-1" || !strings.Contains(string(rawInput), "please inspect the launch path") {
 		t.Fatalf("turn/start request = %#v", turnReq)
 	}
-	if agent == nil || agent.activeTurnID != "turn-initial" || agent.state != agentdto.StateTurnStarting {
+	if agent == nil || agent.activeTurnID != "turn-initial" || agent.state != agentdto.StateTurnRunning {
 		t.Fatalf("agent after launch prompt = %#v", agent)
 	}
 }
@@ -403,7 +403,7 @@ func TestService_SubmitTurnRemoteMode(t *testing.T) {
 	if err := svc.SubmitTurn(context.Background(), TurnSubmission{AgentID: agent.id, Inputs: []shareddto.InputItem{{Type: "text", Content: "请负责定位登录回调 500 根因，并给出最小修复方案"}}}); err != nil {
 		t.Fatalf("SubmitTurn() error = %v", err)
 	}
-	if agent.queue.Len() != 0 || agent.activeTurnID != "turn-1" || agent.state != agentdto.StateTurnStarting || got["thread_id"] != "thread-1" {
+	if agent.queue.Len() != 0 || agent.activeTurnID != "turn-1" || agent.state != agentdto.StateTurnRunning || got["thread_id"] != "thread-1" {
 		t.Fatalf("agent=%#v req=%#v", agent, got)
 	}
 	if renamed != nil || agent.name != "worker-agent" {
