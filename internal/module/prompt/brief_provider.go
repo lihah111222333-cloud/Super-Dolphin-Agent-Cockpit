@@ -65,11 +65,11 @@ var _ DynamicSectionProvider = LanguageProvider{}
 type LanguageProvider struct{}
 
 // languageDefaultSectionText anchors reply language when no explicit
-// `language` is configured. Without it the `# Language` section is dropped
-// entirely and the model drifts across the mixed-language corpus (English
-// base instructions + Chinese CLAUDE.md / skills / memory).
+// `language` is configured. The product default is Chinese, while still
+// allowing the user to explicitly request another language in a turn.
 const languageDefaultSectionText = `# Language
-- Respond in the same language the user writes their latest message in. Match the user's language and do not switch on your own. If no user message exists yet, keep the language consistent once the first user message arrives.
+- Default to Chinese for all user-visible replies when no explicit language is configured.
+- If the user's latest message explicitly requests another language, follow that requested language for that reply.
 - Keep one single language consistent across the entire reply, including narration, headings, and lists. Do not mix languages or drift between them mid-response.
 - Technical terms, code identifiers, file paths, and command names stay in their original form.`
 
