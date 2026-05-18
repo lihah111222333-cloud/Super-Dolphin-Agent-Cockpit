@@ -236,9 +236,9 @@ func bindToolbridgeCodexHandlers(p codexBindingParams) {
 			Params: msg.Params,
 		})
 	})
-	// Adapt []contract.DynamicToolSchema → []codexprotocol.DynamicToolSchema
-	p.Factory.SetListTools(func(ctx context.Context) ([]codexprotocol.DynamicToolSchema, error) {
-		tools, err := p.Handler.ListToolsForCodex(ctx)
+	// Adapt scoped []contract.DynamicToolSchema → []codexprotocol.DynamicToolSchema.
+	p.Factory.SetPrepareTools(func(ctx context.Context, scope contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error) {
+		tools, err := p.Handler.PrepareCodexToolSurface(ctx, scope)
 		if err != nil {
 			return nil, err
 		}
@@ -247,5 +247,11 @@ func bindToolbridgeCodexHandlers(p codexBindingParams) {
 			out[i] = codexprotocol.DynamicToolSchema(t)
 		}
 		return out, nil
+	})
+	p.Factory.SetBindTools(func(scope contract.CodexToolSurfaceScope) error {
+		return p.Handler.BindCodexToolSurface(scope)
+	})
+	p.Factory.SetReleaseTools(func(scope contract.CodexToolSurfaceScope) error {
+		return p.Handler.ReleaseCodexToolSurface(scope)
 	})
 }

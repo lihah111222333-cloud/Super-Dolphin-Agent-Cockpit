@@ -34,7 +34,7 @@ func TestDynamicSkillTools_ModelE2E_ExpandBodyResultReturnsToModel(t *testing.T)
 	if text := dynamicSkillToolResponseText(t, result); !strings.Contains(text, "skill body from approved cache") {
 		t.Fatalf("tool response text = %q, want skill body", text)
 	}
-	if got.toolParams["agentId"] != "agent-1" || got.toolParams["callId"] != "tool-call-1" || got.toolParams["turnId"] != "turn-1" {
+	if got.toolParams["_agentId"] != "agent-1" || got.toolParams["_callId"] != "tool-call-1" || got.toolParams["turnId"] != "turn-1" {
 		t.Fatalf("tool call params metadata = %#v", got.toolParams)
 	}
 }
