@@ -27,7 +27,7 @@ func (b *manifestBuilder) Build(input PrepareInput, threadID string) dto.MCPMani
 		CWD:           input.CWD,
 		ThreadCaps:    input.ThreadCaps,
 		BinaryDir:     b.binaryDirFor(input.BinaryDir),
-		PeerHTTPAddrs: discoverPeers(),
+		TransportMode: dto.ManifestTransportStdioOnly,
 	})
 }
 

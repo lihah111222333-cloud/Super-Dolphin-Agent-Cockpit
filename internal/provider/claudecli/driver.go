@@ -128,6 +128,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 		Env:           providershared.StringMap(req.Config["env"]),
 		AutoApprove:   providershared.ConfigStringSlice(req.Config, "auto_approve", "autoApprove"),
 		ProxyHTTPAddr: d.proxyHTTPAddr(),
+		TransportMode: dto.ManifestTransportStdioOnly,
 	})
 	return d.start(ctx, startSpec{
 		agentID:       req.AgentID,
@@ -151,6 +152,7 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 		ThreadCaps:    copyCapabilities(claudeCapabilities),
 		BinaryDir:     providershared.ResolveBinaryDir(req.CWD, nil),
 		ProxyHTTPAddr: d.proxyHTTPAddr(),
+		TransportMode: dto.ManifestTransportStdioOnly,
 	})
 	return d.start(ctx, startSpec{
 		agentID:      req.AgentID,
