@@ -887,9 +887,7 @@ function threadArchiveWarningText(response, archived) {
   const warnings = Array.isArray(response?.warnings) ? response.warnings.filter((item) => typeof item === 'string' && item.trim()) : [];
   if (warnings.length > 0) return warnings.join('\n');
   if (response?.partial) {
-    return archived
-      ? '线程已归档，但部分归档文件处理失败；请检查警告信息。'
-      : '线程已取消归档，但部分恢复文件处理失败；请检查警告信息。';
+    return `线程已${archived ? '归档' : '取消归档'}，但部分${archived ? '归档文件处理' : '恢复文件处理'}失败；请检查警告信息。`;
   }
   return '';
 }
@@ -910,6 +908,8 @@ export async function setThreadArchived(ctx, threadId, archived) {
     ctx.persistPreferenceAndSync(PREF_ARCHIVED_THREADS_CHAT, next, { thread_id: id, archived: Boolean(archived) }, { syncAfterPersist: false });
     await ctx.refreshSidebarState();
     if (archived) {
+      if ((ctx.state.activeThreadId || '') === id) saveActiveThread(ctx, '');
+      if ((ctx.state.activeCmdThreadId || '') === id) saveActiveCmdThread(ctx, '');
       setThreadPendingLaunch(id, false);
       clearThreadRouting(id);
     }
