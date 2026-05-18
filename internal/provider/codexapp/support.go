@@ -262,29 +262,6 @@ func ensureCodexModelPresent(models []string, target string) []string {
 	return append([]string{target}, models...)
 }
 
-// knownModelContextWindows maps model IDs to their correct context_window
-// token counts. When the Codex CLI does not recognise a model it uses
-// fallback metadata that reports a wrong (too small) context window.
-// Entries here override that fallback so the UI shows the correct bar.
-var knownModelContextWindows = map[string]int{
-	"gpt-5.5": 872000,
-	"gpt-5.4": 872000,
-}
-
-// contextWindowForModel returns the authoritative context window size for a
-// model, or 0 if no override is registered.
-func contextWindowForModel(model string) int {
-	model = strings.ToLower(strings.TrimSpace(model))
-	if model == "" {
-		// When sub-agents are launched without an explicit model parameter, Codex defaults
-		// to its primary model (e.g. gpt-5.5) which has an 872k context. We patch empty
-		// strings here to ensure sub-agents inherit the correct 5.5m/872k capacity instead
-		// of the CLI's hardcoded 400k unknown-model fallback.
-		return 872000
-	}
-	return knownModelContextWindows[model]
-}
-
 func configString(cfg map[string]any, key string) string {
 	if cfg == nil {
 		return ""
