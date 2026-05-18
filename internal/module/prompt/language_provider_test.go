@@ -33,15 +33,15 @@ func TestLanguageProviderResolveUsesDefaultForEmptyLanguage(t *testing.T) {
 	if *text != languageDefaultSectionText {
 		t.Fatalf("Resolve() = %q, want default language section %q", *text, languageDefaultSectionText)
 	}
-	if !strings.Contains(*text, "Do not mix languages") {
-		t.Fatalf("default language section missing anti-mixing anchor: %q", *text)
+	if !strings.Contains(*text, "Default to Chinese") {
+		t.Fatalf("default language section missing Chinese default: %q", *text)
 	}
-	if !strings.Contains(*text, "first user message") {
-		t.Fatalf("default language section missing first-message fallback: %q", *text)
+	if !strings.Contains(*text, "explicitly requests another language") {
+		t.Fatalf("default language section missing user override rule: %q", *text)
 	}
 }
 
-func TestAssembleStartEmptyLanguageStillAnchorsLanguage(t *testing.T) {
+func TestAssembleStartEmptyLanguageDefaultsToChinese(t *testing.T) {
 	t.Setenv(envClaudeSimple, "")
 	svc := NewService(&Config{}, nil)
 	assembly, err := svc.AssembleStart(context.Background(), StartInput{CWD: t.TempDir()})
@@ -52,12 +52,12 @@ func TestAssembleStartEmptyLanguageStillAnchorsLanguage(t *testing.T) {
 	if !ok {
 		t.Fatalf("AssembleStart() missing %q section for empty language", DynamicSectionLanguage)
 	}
-	if !strings.Contains(language, "Do not mix languages") {
-		t.Fatalf("AssembleStart() language section = %q, want default anti-mixing anchor", language)
+	if !strings.Contains(language, "Default to Chinese") {
+		t.Fatalf("AssembleStart() language section = %q, want Chinese default", language)
 	}
 }
 
-func TestAssembleTurnEmptyLanguageStillAnchorsLanguage(t *testing.T) {
+func TestAssembleTurnEmptyLanguageDefaultsToChinese(t *testing.T) {
 	t.Setenv(envClaudeSimple, "")
 	svc := NewService(&Config{}, nil)
 	assembly, err := svc.AssembleTurn(context.Background(), TurnInput{CWD: t.TempDir()})
@@ -68,12 +68,12 @@ func TestAssembleTurnEmptyLanguageStillAnchorsLanguage(t *testing.T) {
 	if !ok {
 		t.Fatalf("AssembleTurn() missing %q section for empty language", DynamicSectionLanguage)
 	}
-	if !strings.Contains(language, "Do not mix languages") {
-		t.Fatalf("AssembleTurn() language section = %q, want default anti-mixing anchor", language)
+	if !strings.Contains(language, "Default to Chinese") {
+		t.Fatalf("AssembleTurn() language section = %q, want Chinese default", language)
 	}
 }
 
-func TestAssembleAgentEmptyLanguageStillAnchorsLanguage(t *testing.T) {
+func TestAssembleAgentEmptyLanguageDefaultsToChinese(t *testing.T) {
 	t.Setenv(envClaudeSimple, "")
 	svc := NewService(&Config{}, nil)
 	assembly, err := svc.AssembleAgent(context.Background(), AgentInput{
@@ -87,7 +87,7 @@ func TestAssembleAgentEmptyLanguageStillAnchorsLanguage(t *testing.T) {
 	if !ok {
 		t.Fatalf("AssembleAgent() missing %q section for empty language", DynamicSectionLanguage)
 	}
-	if !strings.Contains(language, "Do not mix languages") {
-		t.Fatalf("AssembleAgent() language section = %q, want default anti-mixing anchor", language)
+	if !strings.Contains(language, "Default to Chinese") {
+		t.Fatalf("AssembleAgent() language section = %q, want Chinese default", language)
 	}
 }
