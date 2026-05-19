@@ -1,7 +1,7 @@
 ---
-name: 执行计划
-description: 当你有一份书面实现计划，需要在单独会话中带审查检查点执行时使用
-aliases: ["@执行计划", "@execute-plan"]
+name: "执行计划"
+description: "当你需要按一份书面实现计划在隔离会话中逐步执行任务、保留审查检查点并在阻塞或验证失败时停下确认时使用。"
+trigger_words: ["@执行计划", "@execute-plan"]
 ---
 
 # 执行计划
