@@ -1,6 +1,7 @@
 package dreamexec
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -53,6 +54,62 @@ func TestExtractClaudeEnvelopeRejectsErrorEnvelope(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, _, err := ExtractClaudeEnvelope([]byte(tc.in)); err == nil {
 				t.Errorf("want error for %s, got nil", tc.name)
+			}
+		})
+	}
+}
+
+func TestExtractClaudeEnvelopeModelUnavailable(t *testing.T) {
+	raw := `{"type":"result","is_error":true,"api_error_status":404,"result":"There's an issue with the selected model (gpt-5.5). It may not exist or you may not have access to it."}`
+	_, _, err := ExtractClaudeEnvelope([]byte(raw))
+	if !errors.Is(err, ErrModelUnavailable) {
+		t.Fatalf("expected ErrModelUnavailable, got %v", err)
+	}
+}
+
+func TestIsModelUnavailableMessageOnlyMatchesModelErrors(t *testing.T) {
+	cases := []struct {
+		name    string
+		status  int
+		message string
+		want    bool
+	}{
+		{
+			name:    "claude selected model missing",
+			status:  404,
+			message: "There's an issue with the selected model (gpt-5.5). It may not exist or you may not have access to it.",
+			want:    true,
+		},
+		{
+			name:    "codex model not found stderr",
+			message: "model not found: gpt-5.5",
+			want:    true,
+		},
+		{
+			name:    "openai model no access",
+			message: "The model `gpt-5.5` does not exist or you do not have access to it.",
+			want:    true,
+		},
+		{
+			name:    "account access is a real provider error",
+			message: "You do not have access to this workspace.",
+			want:    false,
+		},
+		{
+			name:    "auth is a real provider error",
+			message: "Authentication failed. Please log in again.",
+			want:    false,
+		},
+		{
+			name:    "rate limit is a real provider error",
+			message: "Rate limit exceeded for this model.",
+			want:    false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isModelUnavailableMessage(tc.status, tc.message); got != tc.want {
+				t.Fatalf("got %v, want %v", got, tc.want)
 			}
 		})
 	}

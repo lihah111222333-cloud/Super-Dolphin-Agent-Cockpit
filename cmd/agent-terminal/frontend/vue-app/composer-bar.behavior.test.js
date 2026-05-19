@@ -183,22 +183,24 @@ describe('ComposerBar behavior', () => {
     expect(emit).not.toHaveBeenCalled();
   });
 
-  it('shows the legacy skill selector on blank-thread launch when launch picker is disabled', () => {
+  it('hides the legacy skill selector on blank-thread launch when launch picker is disabled', () => {
     const { vm } = createComposerBar({ threadId: null, launchSkillSelectionEnabled: false });
 
-    expect(vm.showLegacySkillSelector.value).toBe(true);
+    expect(vm.showLegacySkillSelector.value).toBe(false);
+    expect(ComposerBar.template).not.toContain('data-testid="composer-skill-selector"');
+    expect(ComposerBar.template).not.toContain('技能选择');
   });
 
   it('hides the legacy skill selector on blank-thread launch when launch picker is enabled', () => {
     const { vm } = createComposerBar({ threadId: null, launchSkillSelectionEnabled: true });
 
     expect(vm.showLegacySkillSelector.value).toBe(false);
-    expect(ComposerBar.template).toContain('v-if="showLegacySkillSelector"');
+    expect(ComposerBar.template).not.toContain('v-if="showLegacySkillSelector"');
   });
 
-  it('keeps the legacy skill selector visible for active threads regardless of launch picker gate', () => {
-    expect(createComposerBar({ threadId: 't1', launchSkillSelectionEnabled: false }).vm.showLegacySkillSelector.value).toBe(true);
-    expect(createComposerBar({ threadId: 't1', launchSkillSelectionEnabled: true }).vm.showLegacySkillSelector.value).toBe(true);
+  it('hides the legacy skill selector for active threads because providers discover mirrored skills natively', () => {
+    expect(createComposerBar({ threadId: 't1', launchSkillSelectionEnabled: false }).vm.showLegacySkillSelector.value).toBe(false);
+    expect(createComposerBar({ threadId: 't1', launchSkillSelectionEnabled: true }).vm.showLegacySkillSelector.value).toBe(false);
   });
 
   it('keeps launch picker scope tabs hidden when scope prop is empty', () => {

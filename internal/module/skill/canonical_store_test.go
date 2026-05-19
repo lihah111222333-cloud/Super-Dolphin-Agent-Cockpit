@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func TestCanonicalStoreListIncludesProjectAndPersonal(t *testing.T) {
+func TestCanonicalStoreListIncludesProjectAndActivePersonal(t *testing.T) {
 	project := t.TempDir()
 	home := t.TempDir()
 	writeCanonicalSkill(t, filepath.Join(project, ".agent", "skills", "proj"), "proj")
@@ -31,7 +31,7 @@ func TestCanonicalStoreListIncludesProjectAndPersonal(t *testing.T) {
 	assertHasCanonicalSkill(t, got, "mine", skillScopePersonal, personalSkillTypeUser)
 	assertHasCanonicalSkill(t, got, "agentmade", skillScopePersonal, personalSkillTypeAgent)
 	assertHasCanonicalSkill(t, got, "imported", skillScopePersonal, personalSkillTypeImported)
-	assertHasCanonicalSkill(t, got, "hubskill", skillScopePersonal, personalSkillTypeHub)
+	assertNotHasCanonicalSkill(t, got, "hubskill", skillScopePersonal, personalSkillTypeHub)
 }
 
 func TestEffectiveSetSameNameIsStrictConflict(t *testing.T) {
@@ -51,6 +51,23 @@ func TestEffectiveSetSameNameIsStrictConflict(t *testing.T) {
 		canonicalSkillConflictSource{Scope: skillScopeProject, PersonalType: "", Name: "build"},
 		canonicalSkillConflictSource{Scope: skillScopePersonal, PersonalType: personalSkillTypeUser, Name: "build"},
 	)
+}
+
+func TestEffectiveSetIgnoresInactiveHubProjectDuplicate(t *testing.T) {
+	project := t.TempDir()
+	home := t.TempDir()
+	writeCanonicalSkill(t, filepath.Join(project, ".agent", "skills", "build"), "build")
+	writeCanonicalSkill(t, filepath.Join(home, ".super-dolphin", "skills", "personal", "hub", "build"), "build")
+
+	records, conflicts, err := newTestCanonicalStore(project, home).EffectiveSet(context.Background(), project)
+	if err != nil {
+		t.Fatalf("EffectiveSet: %v", err)
+	}
+	if len(conflicts) != 0 {
+		t.Fatalf("conflicts = %+v, want inactive hub ignored", conflicts)
+	}
+	assertHasCanonicalSkill(t, records, "build", skillScopeProject, "")
+	assertNotHasCanonicalSkill(t, records, "build", skillScopePersonal, personalSkillTypeHub)
 }
 
 func TestEffectiveSetSameNameIsCaseInsensitiveConflict(t *testing.T) {
@@ -80,10 +97,7 @@ func TestEffectiveSetPersonalSameNamePairsAreStrictConflicts(t *testing.T) {
 	}{
 		{name: "user-agent", left: personalSkillTypeUser, right: personalSkillTypeAgent},
 		{name: "user-imported", left: personalSkillTypeUser, right: personalSkillTypeImported},
-		{name: "user-hub", left: personalSkillTypeUser, right: personalSkillTypeHub},
 		{name: "agent-imported", left: personalSkillTypeAgent, right: personalSkillTypeImported},
-		{name: "agent-hub", left: personalSkillTypeAgent, right: personalSkillTypeHub},
-		{name: "imported-hub", left: personalSkillTypeImported, right: personalSkillTypeHub},
 	}
 	for _, tc := range pairs {
 		t.Run(tc.name, func(t *testing.T) {
@@ -123,7 +137,7 @@ func TestServiceListSkillsIncludesPersonalCanonical(t *testing.T) {
 	assertHasSkillInfo(t, got, "mine", skillScopePersonal, personalSkillTypeUser)
 }
 
-func TestServiceListSkillsReturnsUnconflictedSkillsWithSameNameConflict(t *testing.T) {
+func TestServiceListSkillsIgnoresInactiveHubDuplicates(t *testing.T) {
 	project := t.TempDir()
 	home := t.TempDir()
 	superDolphinHome := filepath.Join(home, ".super-dolphin")
@@ -133,27 +147,13 @@ func TestServiceListSkillsReturnsUnconflictedSkillsWithSameNameConflict(t *testi
 	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superDolphinHome}
 
 	got, err := svc.ListSkills(skillTestContext(project))
-	if !errors.Is(err, ErrSkillSameNameConflict) {
-		t.Fatalf("ListSkills error = %v, want ErrSkillSameNameConflict", err)
+	if err != nil {
+		t.Fatalf("ListSkills: %v", err)
 	}
 	assertHasSkillInfo(t, got, "safe", skillScopeProject, "")
-	if hasSkillInfo(got, "build", skillScopePersonal, personalSkillTypeUser) ||
-		hasSkillInfo(got, "build", skillScopePersonal, personalSkillTypeHub) {
-		t.Fatalf("ListSkills returned conflicted skill: %+v", got)
-	}
-}
-
-func TestServiceExpandSameNameConflictFailsClosed(t *testing.T) {
-	project := t.TempDir()
-	home := t.TempDir()
-	superDolphinHome := filepath.Join(home, ".super-dolphin")
-	writeCanonicalSkill(t, filepath.Join(project, ".agent", "skills", "build"), "build")
-	writeCanonicalSkill(t, filepath.Join(superDolphinHome, "skills", "personal", "user", "build"), "build")
-	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superDolphinHome}
-
-	_, err := svc.Expand(skillTestContext(project), skillExpandParams{Name: "build"})
-	if !errors.Is(err, ErrSkillSameNameConflict) {
-		t.Fatalf("Expand error = %v, want ErrSkillSameNameConflict", err)
+	assertHasSkillInfo(t, got, "build", skillScopePersonal, personalSkillTypeUser)
+	if hasSkillInfo(got, "build", skillScopePersonal, personalSkillTypeHub) {
+		t.Fatalf("ListSkills returned inactive hub skill: %+v", got)
 	}
 }
 
@@ -206,6 +206,59 @@ func TestEffectiveSetProjectPolicyDisablesPersonalForOnlyThatProject(t *testing.
 		canonicalSkillConflictSource{Scope: skillScopeProject, PersonalType: "", Name: "build"},
 		canonicalSkillConflictSource{Scope: skillScopePersonal, PersonalType: personalSkillTypeUser, Name: "build"},
 	)
+}
+
+func TestEffectiveSetProjectKeepSelectedSuppressesFuturePersonalDuplicate(t *testing.T) {
+	project := t.TempDir()
+	home := t.TempDir()
+	superDolphinHome := filepath.Join(home, ".super-dolphin")
+	writeCanonicalSkill(t, filepath.Join(project, ".agent", "skills", "build"), "build")
+	userDir := filepath.Join(superDolphinHome, "skills", "personal", "user", "build")
+	writeCanonicalSkill(t, userDir, "build")
+	writeProjectSkillPolicy(t, project, projectKeepSelectedPolicy("build", "project/build", "personal/user/build"))
+	writeCanonicalSkill(t, filepath.Join(superDolphinHome, "skills", "personal", "imported", "build"), "build")
+
+	effective, conflicts, err := newCanonicalStore(superDolphinHome).EffectiveSet(context.Background(), project)
+	if err != nil {
+		t.Fatalf("EffectiveSet: %v", err)
+	}
+	if len(conflicts) != 0 {
+		t.Fatalf("conflicts = %+v, want previous project selection to cover later personal duplicates", conflicts)
+	}
+	assertHasCanonicalSkill(t, effective, "build", skillScopeProject, "")
+	assertNotHasCanonicalSkill(t, effective, "build", skillScopePersonal, personalSkillTypeUser)
+	assertNotHasCanonicalSkill(t, effective, "build", skillScopePersonal, personalSkillTypeImported)
+}
+
+func TestEffectiveSetIgnoresStaleProjectKeepSelectedWhenSelectedSourceIsMissing(t *testing.T) {
+	project := t.TempDir()
+	home := t.TempDir()
+	superDolphinHome := filepath.Join(home, ".super-dolphin")
+	writeCanonicalSkill(t, filepath.Join(superDolphinHome, "skills", "personal", "user", "build"), "build")
+	writeProjectSkillPolicy(t, project, projectSkillPolicy{
+		Version: 1,
+		KeepSelected: []projectSkillKeepSelected{{
+			Name:             "build",
+			SelectedSourceID: "project/build",
+			ExcludedSourceIDs: []string{
+				"personal/user/build",
+			},
+			Sources: []projectSkillPolicySource{{
+				CanonicalID:  "personal/user/build",
+				Scope:        skillScopePersonal,
+				PersonalType: personalSkillTypeUser,
+			}},
+		}},
+	})
+
+	effective, conflicts, err := newCanonicalStore(superDolphinHome).EffectiveSet(context.Background(), project)
+	if err != nil {
+		t.Fatalf("EffectiveSet: %v", err)
+	}
+	if len(conflicts) != 0 {
+		t.Fatalf("conflicts = %+v, want stale project selection ignored", conflicts)
+	}
+	assertHasCanonicalSkill(t, effective, "build", skillScopePersonal, personalSkillTypeUser)
 }
 
 func TestEffectiveSetKeepSelectedOwnerPolicyResolvesPersonalConflict(t *testing.T) {
@@ -261,6 +314,50 @@ func TestEffectiveSetKeepSelectedOwnerPolicyResolvesPersonalConflict(t *testing.
 		canonicalSkillConflictSource{Scope: skillScopePersonal, PersonalType: personalSkillTypeUser, Name: "build"},
 		canonicalSkillConflictSource{Scope: skillScopePersonal, PersonalType: personalSkillTypeAgent, Name: "build"},
 	)
+}
+
+func TestEffectiveSetIgnoresStalePersonalKeepSelectedWhenSelectedSourceIsMissing(t *testing.T) {
+	project := t.TempDir()
+	home := t.TempDir()
+	superDolphinHome := filepath.Join(home, ".super-dolphin")
+	projectDir := filepath.Join(project, ".agent", "skills", "build")
+	writeCanonicalSkill(t, projectDir, "build")
+	projectRecord := findCanonicalRecord(
+		t,
+		mustScanCanonicalRecords(t, newCanonicalStore(superDolphinHome), project),
+		"build",
+		skillScopeProject,
+		"",
+	)
+	owner, err := resolveOwnerIdentity(superDolphinHome, "1001", "profile-a")
+	if err != nil {
+		t.Fatalf("resolveOwnerIdentity: %v", err)
+	}
+	writePersonalSkillPolicy(t, superDolphinHome, personalSkillPolicy{
+		Version:  1,
+		OwnerKey: owner.OwnerKey,
+		KeepSelected: []personalSkillKeepSelected{{
+			Name:                 "build",
+			SelectedSourceID:     "personal/imported/build",
+			SelectedPersonalType: personalSkillTypeImported,
+			SelectedContentHash:  "missing-selected-source",
+			ExcludedSourceIDs:    []string{canonicalSourceID(projectRecord)},
+			Sources: []personalSkillPolicySource{{
+				CanonicalID: canonicalSourceID(projectRecord),
+				ContentHash: projectRecord.ContentHash,
+				Path:        projectDir,
+			}},
+		}},
+	})
+
+	effective, conflicts, err := newCanonicalStoreForOwner(superDolphinHome, "1001", "profile-a").EffectiveSet(context.Background(), project)
+	if err != nil {
+		t.Fatalf("EffectiveSet(owner): %v", err)
+	}
+	if len(conflicts) != 0 {
+		t.Fatalf("conflicts = %+v, want stale personal selection ignored", conflicts)
+	}
+	assertHasCanonicalSkill(t, effective, "build", skillScopeProject, "")
 }
 
 func TestEffectiveSetRejectsOwnerPolicyWithBroadPermissions(t *testing.T) {
@@ -327,43 +424,17 @@ func TestServiceListSkillsAppliesOwnerKeepSelectedPolicy(t *testing.T) {
 	assertHasSkillInfo(t, infos, "build", skillScopePersonal, personalSkillTypeAgent)
 }
 
-func TestWritePersonalKeepSelectedPolicyRejectsOwnerMismatch(t *testing.T) {
-	project := t.TempDir()
-	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	userDir := filepath.Join(superDolphinHome, "skills", "personal", "user", "build")
-	agentDir := filepath.Join(superDolphinHome, "skills", "personal", "agent", "build")
-	writeCanonicalSkill(t, userDir, "build")
-	writeCanonicalSkill(t, agentDir, "build")
-	records, err := newCanonicalStore(superDolphinHome).scan(project)
+func newTestCanonicalStore(project, home string) *canonicalStore {
+	return newCanonicalStore(filepath.Join(home, ".super-dolphin"))
+}
+
+func mustScanCanonicalRecords(t *testing.T, store *canonicalStore, project string) []canonicalSkillRecord {
+	t.Helper()
+	records, err := store.scan(project)
 	if err != nil {
 		t.Fatalf("scan: %v", err)
 	}
-	userRecord := findCanonicalRecord(t, records, "build", skillScopePersonal, personalSkillTypeUser)
-	agentRecord := findCanonicalRecord(t, records, "build", skillScopePersonal, personalSkillTypeAgent)
-	otherOwner, err := resolveOwnerIdentity(superDolphinHome, "other-os-user", "other-profile")
-	if err != nil {
-		t.Fatalf("resolve other owner: %v", err)
-	}
-	writePersonalSkillPolicy(t, superDolphinHome, personalSkillPolicy{Version: 1, OwnerKey: otherOwner.OwnerKey})
-	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superDolphinHome}
-
-	_, err = svc.writePersonalKeepSelectedPolicy("build", []skillResolutionSource{
-		{Scope: skillScopePersonal, PersonalType: personalSkillTypeUser, CanonicalID: canonicalSourceID(userRecord), ContentHash: userRecord.ContentHash},
-		{Scope: skillScopePersonal, PersonalType: personalSkillTypeAgent, CanonicalID: canonicalSourceID(agentRecord), ContentHash: agentRecord.ContentHash},
-	}, skillResolutionSource{Scope: skillScopePersonal, PersonalType: personalSkillTypeUser, CanonicalID: canonicalSourceID(userRecord), ContentHash: userRecord.ContentHash})
-
-	if err == nil || !strings.Contains(err.Error(), "owner") {
-		t.Fatalf("writePersonalKeepSelectedPolicy owner mismatch error = %v, want owner rejection", err)
-	}
-	var policy personalSkillPolicy
-	readJSONFile(t, filepath.Join(superDolphinHome, "skills", personalSkillPolicyFile), &policy)
-	if policy.OwnerKey != otherOwner.OwnerKey {
-		t.Fatalf("policy owner_key = %q, want preserved %q", policy.OwnerKey, otherOwner.OwnerKey)
-	}
-}
-
-func newTestCanonicalStore(project, home string) *canonicalStore {
-	return newCanonicalStore(filepath.Join(home, ".super-dolphin"))
+	return records
 }
 
 func writeCanonicalSkill(t *testing.T, dir, name string) {
@@ -385,6 +456,14 @@ func writeSkillContent(t *testing.T, dir, name, body string) {
 func writeProjectSkillPolicy(t *testing.T, project string, policy projectSkillPolicy) {
 	t.Helper()
 	writeJSONFile(t, filepath.Join(project, ".agent", "skills", projectSkillPolicyFile), policy, 0o644)
+}
+
+func projectKeepSelectedPolicy(name, selectedSourceID string, excludedSourceIDs ...string) projectSkillPolicy {
+	return projectSkillPolicy{Version: 1, KeepSelected: []projectSkillKeepSelected{projectKeepSelected(name, selectedSourceID, excludedSourceIDs...)}}
+}
+
+func projectKeepSelected(name, selectedSourceID string, excludedSourceIDs ...string) projectSkillKeepSelected {
+	return projectSkillKeepSelected{Name: name, SelectedSourceID: selectedSourceID, ExcludedSourceIDs: excludedSourceIDs}
 }
 
 func writePersonalSkillPolicy(t *testing.T, superDolphinHome string, policy personalSkillPolicy) {

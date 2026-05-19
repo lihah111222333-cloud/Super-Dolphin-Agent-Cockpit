@@ -34,6 +34,10 @@ import (
 //   - 兑底字符串检查（未来 stdlib 变化后的防御）
 var ErrBinaryNotAvailable = errors.New("dreamexec: binary not available")
 
+// ErrModelUnavailable 表示 provider CLI 可执行，但当前选择的模型不存在或无权限。
+// provider wrapper 会映射到 ErrDreamExecutorNotConfigured，让 dispatcher 尝试下一个 provider。
+var ErrModelUnavailable = errors.New("dreamexec: model unavailable")
+
 // Commander 抽象一次性子进程执行，便于测试注入 fake。
 type Commander interface {
 	// Run 执行 binary + args，stdin 写入 input，返回 stdout（受 maxStdoutBytes 限制）。
@@ -75,6 +79,9 @@ func (realCommander) Run(ctx context.Context, binary string, args []string, inpu
 		// binary 不可用（PATH 未找到 / 绝对路径不存在）转为哨兵 error
 		if isBinaryNotAvailable(err) {
 			return nil, fmt.Errorf("%w: %s: %v", ErrBinaryNotAvailable, binary, err)
+		}
+		if modelErr := modelUnavailableErrorFromOutput(stdoutBuf.Bytes(), stderrBuf.Bytes()); modelErr != nil {
+			return nil, fmt.Errorf("%w: %s exited with error: %w: %v", ErrModelUnavailable, binary, err, modelErr)
 		}
 		// 退出码错误携带 stderr 预览
 		stderrPreview := strings.TrimSpace(stderrBuf.String())

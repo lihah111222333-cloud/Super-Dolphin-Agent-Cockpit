@@ -263,8 +263,8 @@ flowchart TD
 `skill` 同时承担四类职责：
 
 1. **canonical skill 扫描与有效集**：项目级 `<cwd>/.agent/skills` + 个人级 `~/.super-dolphin/skills/personal/{user,agent,imported,hub}`。
-2. **provider-native mirror**：把有效集发布到 `<cwd>/.claude/skills` / `<cwd>/.codex/skills` 以及 app-managed provider home `skills`，让 Claude/Codex 原生发现。
-3. **本地文件与冲突处理 RPC**：`skills/local/*`、`skills/resolution_*`、`skills/summary/suggest`、`skill/list`、`skill/expand` 等 host/UI 面继续保留；旧 `skills/candidate/*` 候选审批入口已退出 V1 生产面。
+2. **provider-native mirror**：把有效集发布到 `<cwd>/.claude/skills` / `<cwd>/.agents/skills`，以及个人默认 `~/.claude/skills` / `~/.agents/skills` 或显式 provider home `skills`，让 Claude/Codex 原生发现。
+3. **本地文件与冲突处理 RPC**：`skills/local/*`、`skills/resolution_*`、`skills/summary/suggest`、`skill/list` 等 host/UI 面继续保留；`skill/expand` 和旧 `skills/candidate/*` 候选审批入口已退出 V1 生产面。
 4. **受限命令执行与事件**：`command/exec` + `uidto.SkillsChanged` debounce 发布。
 
 Fx 装配见 `module.go:15-30`：
@@ -290,7 +290,7 @@ Fx 装配见 `module.go:15-30`：
 | 个人根 | `~/.super-dolphin/skills/personal/{user,agent,imported,hub}`，可由 `SUPER_DOLPHIN_HOME` 改变 home |
 | project policy | `<cwd>/.agent/skills/.super-dolphin-skill-policy.json` 可禁用某个 personal source 对当前项目生效 |
 | personal policy | `~/.super-dolphin/skills/.super-dolphin-personal-skill-policy.json` 可在个人同名冲突中 keep selected |
-| provider mirror | `<cwd>/.claude/skills` / `<cwd>/.codex/skills` 及 `~/.super-dolphin/providers/{claude,codex}/skills`；这些是生成物，不是 canonical 真值 |
+| provider mirror | `<cwd>/.claude/skills` / `<cwd>/.agents/skills` 及个人默认 `~/.claude/skills` / `~/.agents/skills`；显式 provider home 可使用其 `skills` 子目录；这些是生成物，不是 canonical 真值 |
 
 `cwd_scope_test.go:14-119` 已验证：
 
@@ -300,20 +300,19 @@ Fx 装配见 `module.go:15-30`：
 
 ### 4.3 host/UI skill RPC
 
-`skillCoreHandlers@rpc.go:216-220` 把 host-facing `skill/list` / `skill/expand` 与 legacy `skills/list` 一起挂进 `newSkillHandlers()`；`skillResolutionHandlers@rpc.go:291-296` 额外挂 mirror/canonical 冲突处理面：
+`skillCoreHandlers@rpc.go` 把 host-facing `skill/list` 与 legacy `skills/list` 一起挂进 `newSkillHandlers()`；`skillResolutionHandlers@rpc.go` 额外挂 mirror/canonical 冲突处理面：
 
 | RPC | 入参/返回 | 真实流程 |
 |---|---|---|
-| `skill/list` | `skillListParams{cwd}` → `skillListResult{skills[]}` | `skillListHandler@rpc.go:147-159` → `scopedSkillContext@rpc.go:269-274` → `ListSkills` → `scanSkills` → 只返回瘦身 DTO |
-| `skill/expand` | `skillExpandParams` → `skillExpandResult` | `skillExpandHandler@rpc.go:175-187` → `scopedSkillContext` → `expandSkillWithApproval@rpc.go:276-280` → `prepareSkillExpand` / `ensureExpandApproved` |
+| `skill/list` | `skillListParams{cwd}` → `skillListResult{skills[]}` | `skillListHandler` → `scopedSkillContext` → `ListSkills` → `canonicalEffectiveSet` → 只返回瘦身 DTO |
 | `skills/resolution_list` | `{cwd}` → conflict items | 扫 canonical effective set + provider mirrors，返回 same-name / mirror drift / unmanaged provider skill 等冲突 |
 | `skills/resolution_preview` | conflict + action → preview/proof | 生成 diff / preview hash / backup path，不写 canonical 或 mirror |
 | `skills/resolution_apply` | preview proof + action → report | 对 mirror drift / unmanaged provider skill 执行 sync back / overwrite / save as new / takeover / confirm delete |
 
 DTO / caller 链补充：
 
-- `rpc_skill_types.go:80-95` 当前显式定义 `skillListResult` / `skillExpandParams`，host 返回结构与 legacy `skills/list` 已分流。
-- `expandSkillWithApproval@rpc.go:315-320` 在 `svc` 不是具体 `*service` 时，会回落到兼容聚合接口的 `Service.Expand(ctx, p)`；跨模块消费者不应依赖这条 legacy expand 面。
+- `rpc_skill_types.go` 当前显式定义 `skillListResult`，host 返回结构与 legacy `skills/list` 已分流。
+- `skill/expand` 不再注册，旧调用会得到 JSON-RPC method not found；生产读取链路不能再依赖 Service aggregate 上的 expand 能力。
 
 与 legacy `skills/list` 的区别：
 
@@ -358,41 +357,15 @@ sequenceDiagram
 - 若没写 `summary`，会从正文自动抽取摘要；`TriggerWords` 默认补 `@name` 与 `[skill:name]`。
 - `ContentHash` 是整份 `SKILL.md` 的 SHA-256，全文件任一变动都会触发重新审批。
 
-### 4.5 `skill/expand` 展开链与审批
+### 4.5 `skill/expand` 退出生产面
 
-`skill/expand` 不是简单读文件，而是 `prepare + approval` 两段式：
+`skill/expand` 已从 host/UI RPC 注册表、`Service` 聚合接口和 `skills_fs.go` 展开实现中移除。当前生产链路不再由本项目把 skill 正文注入 turn input，也不再通过 `skill/expand` 做二次展开审批。
 
-1. `skillExpandHandler@rpc.go:175-187` → `expandSkillWithApproval@rpc.go:276-280`
-2. `service.go:134-178`：`expandWithApproval` 先 `prepareSkillExpand`，再 `ensureExpandApproved`
-3. `skills_fs.go:61-95` + `121-169`：根据 `Section` 分流
-   - 空 `section`：整份 `SKILL.md`
-   - `#` 开头：按 H2/H3 heading 切片
-   - 其它：当作 resource 相对路径
-4. `service.go:145-178`：未受信任 skill 触发 approval requester；可缓存到 session/project scope
+现状边界：
 
-```mermaid
-flowchart TD
-    EXP[skill/expand RPC] --> PREP[prepareSkillExpand]
-    PREP --> REC[resolveSkillRecordByName + cwd]
-    PREP --> CASE{section}
-    CASE -->|empty| FILE[expandSkillFile]
-    CASE -->|# H2/H3| SEC[expandSkillSection]
-    CASE -->|relative path| RES[expandSkillResource]
-    FILE --> HASH[buildSkillExpandResult]
-    SEC --> HASH
-    RES --> HASH
-    HASH --> APPROVAL{trusted? / cache hit?}
-    APPROVAL -->|yes| OUT[result]
-    APPROVAL -->|no| REQ[approvalRequester.RequestApproval]
-    REQ -->|approved| CACHE[persist approval if cacheable]
-    CACHE --> OUT
-```
-
-实现细节：
-
-- `skills_fs.go:149-159` 明确限制 `section` 只接受 **H2/H3** heading；资源分支再走 `expandSkillResource()` 的相对路径校验。
-- `skills_expand.go` 的历史 `ExpandBody` / `ReadResource` 细粒度工具链不再接入生产 Codex dynamic tools；当前 provider skill 调用依赖 provider-native mirror。
-- `service.go:215-248` 构造 approval payload 时会带上 `name/section/content_hash/trust/approval_scope/skills_dir/project_root/agentId/threadId/sessionId/turnId`。
+- provider runtime 主链是 canonical skill → provider-native mirror → Claude/Codex 原生发现与调用。
+- `skill/list`、`skills/list`、`skills/local/read` 仍用于 UI 展示、编辑、手动 hydration fallback，不承担 provider runtime 注入。
+- `rpc_types_test.go::TestSkillExpandHostRPCIsNotRegistered` 锁定旧 `skill/expand` 调用只能得到 method not found，防止旧入口被重新挂回生产面。
 
 ### 4.6 legacy RPC 共存面
 
@@ -426,7 +399,7 @@ flowchart LR
     TURN[turn hydrateSkillRefs] -->|SkillHydrationSource.ListSkills/ReadLocal| SK
     MATCH[skills/match/preview] -->|internal ListSkills + configured state| SK
     PROVIDERS[claudecli/codexapp] -->|SkillMirrorReconciler.ReconcileProviderMirrors| SK
-    HOST[skill/list / skill/expand] -->|Service aggregate host RPC| SK
+    HOST[skill/list + skills/local/*] -->|Service aggregate host RPC| SK
     EVENTS[SkillsChanged event bus] <-->|publish| SK
 ```
 
@@ -434,7 +407,7 @@ flowchart LR
 
 - prompt 不再通过 skill catalog 注入 skill body 或目录；prompt 侧只保留 optional `SkillNativeReplacementSource` 读取 canonical `ReplacesNative`，用于 native tool suppression hints。
 - provider 启动/acquire 前调用 `SkillMirrorReconciler` 发布 mirror；Claude/Codex 原生发现 mirror 里的 skills。
-- `turn` 只消费 `SkillHydrationSource.ListSkills/ReadLocal` 做 hydration，不会直接走 `skill/expand` RPC，也不依赖完整 `skill.Service`。
+- `turn` 只消费 `SkillHydrationSource.ListSkills/ReadLocal` 做 hydration，不会直接走 `skill/expand` RPC，也不依赖完整 `skill.Service` 的旧展开能力。
 - `dashboard` 仅把 `SkillLister.ListSkills` 当作只读列表来源，不参与 approval / resource read。
 
 ### 4.9 文件地图
@@ -444,9 +417,9 @@ flowchart LR
 | `module.go` | Fx 装配、dispatcher 绑定。 |
 | `contract.go` | `WithCWD`、`Service` 兼容聚合接口、`SkillMirrorReconciler` 实现，以及 `SkillCommandExecutor` / `SkillLister` / `SkillHydrationSource` / legacy `SkillCatalogSource` 等窄端口。 |
 | `rpc.go` | 新旧 RPC 共存入口。 |
-| `service.go` | roots、approval cache、approval requester、cwd-scoped root 决策。 |
+| `service.go` | roots、approval cache、cwd-scoped root 决策。 |
 | `skills_meta.go` | 扫描 `SKILL.md`、frontmatter 解析、默认 trust / content hash。 |
-| `skills_fs.go` | `ListSkills`、`Expand`、本地读写/导入/删除主流程。 |
+| `skills_fs.go` | `ListSkills`、`ReadLocal`、本地读写/导入/删除主流程。 |
 | `mirror_*.go` | provider mirror 发布、manifest、drift 检测、preview/apply resolution。 |
 | `skills_match.go` | `skills/match/preview`、configured + local matcher。 |
 | `events.go` | `SkillsChanged` debounce 事件。 |
@@ -460,7 +433,7 @@ flowchart LR
 
 1. `dashboard/prompts` 的 `{cwd}` 作用域已经接到 **prod handler**；`withDashboardPromptScopeCWD` 不再只是测试 helper。
 2. `promptstore.ListFilter.CWD` 只在 contract 层露出；当前 store 实现未真正下推过滤，实际筛选仍在 `dashboard/ui_page.go`。
-3. `skill/list` / `skill/expand` 是 host/UI RPC，不是 provider runtime 的 skill 调用主链。
+3. `skill/list` 是 host/UI RPC，不是 provider runtime 的 skill 调用主链；`skill/expand` 已退出注册表，只保留 method-not-found 回归测试。
 4. 旧 prompt skill-catalog 注入链已退出生产路径；provider runtime 主链是 canonical skill -> provider-native mirror。
 5. `lspgui` 在当前仓内 **无源码目录**；旧 codemap 对它的实现级描述已过时。
 
@@ -476,7 +449,7 @@ flowchart LR
 |---|---|---|---|
 | `dashboard` | `service_test.go` | `TestGetDashboardPageFiltersPromptsByScopedCWD` / `TestDashboardPromptsHandlerScopesByCWDAndReturnsPromptsKey` | 锁定 `dashboard/prompts` 的 `{cwd}` 透传、`prompts` 顶层 key 与 scope 过滤。 |
 | `skill` | `cwd_scope_test.go` | `TestListSkillsScopesByRequestCWD` / `TestAllSkillServiceMethodsRequireCWD` | 锁定 roots 按请求 `cwd` 隔离，以及 host/UI skill 方法要求 cwd。 |
-| `skill` | `rpc_types_test.go` | `TestSkillListHostRPCResponseHidesLegacyFields` / `TestSkillExpandHostRPCScopesByCWD` | 锁定 host `skill/list` 的瘦身返回与 `skill/expand` 的 cwd-scoped 展开。 |
+| `skill` | `rpc_types_test.go` | `TestSkillListHostRPCResponseHidesLegacyFields` / `TestSkillExpandHostRPCIsNotRegistered` | 锁定 host `skill/list` 的瘦身返回，并防止 `skill/expand` 旧入口重新注册。 |
 | `skill` | `rpc_resolution_test.go` / `rpc_resolution_apply_test.go` | resolution list/preview/apply 相关测试 | 锁定 project/personal mirror drift、多 mirror drift、preview proof、sync back / overwrite / save as new / confirm delete。 |
 | `uistate` | `phase2_stats_patch_pending_test.go` / `sidebar_test.go` | `TestActivityStats_CommandIncrementsCommands` / `TestProjectionSubscriptionsUpdateSidebarFromLifecycleAndOutputEvents` | 锁定 sidebar / activity stats 的 projection 读侧更新。 |
 | `uistate/timeline` | `timeline/timeline_test.go` | `TestAppendAndGetByThread` | 锁定 timeline 读模型 append/get 基线。 |
@@ -489,7 +462,7 @@ flowchart LR
    - 验证：优先补 `dashboard/service_test.go`。
 2. **skill RPC**
    - 触发：新增 `skill/*` 或 `skills/*` 且需要 `cwd` 作用域。
-   - 步骤：先补 service/helper，再接 `skillCoreHandlers / skillPreviewHandlers / skillLocalHandlers / skillRemoteHandlers@skill/rpc.go`；host 口保持 `skillListResult` / `skillExpandParams` 这类单独 DTO，并通过 `scopedSkillContext@skill/rpc.go:269-274` 统一写入 `WithCWD`。
+   - 步骤：先补 service/helper，再接 `skillCoreHandlers / skillPreviewHandlers / skillLocalHandlers / skillRemoteHandlers@skill/rpc.go`；host 口保持 `skillListResult` 这类单独 DTO，并通过 `scopedSkillContext` 统一写入 `WithCWD`。
    - 验证：`cwd_scope_test.go` + `rpc_types_test.go`。
 3. **uistate**
    - 触发：线程 / 回合事件要进 sidebar、timeline 或 stats。

@@ -32,19 +32,20 @@ const (
 )
 
 type service struct {
-	orchestration contract.OrchestrationService
-	agentStatuses agentstatusstore.Store
-	systemLogs    systemlogstore.Store
-	auditLogs     auditlogstore.Store
-	busLogs       buslogstore.Store
-	aiLogs        ailogstore.Store
-	dbQueries     dbquerystore.Store
-	taskTraces    tasktracestore.Store
-	commandCards  commandcardstore.Reader
-	prompts       promptstore.Reader
-	sharedFiles   sharedfilestore.Reader
-	skills        contract.SkillLister
-	startedAt     time.Time
+	orchestration  contract.OrchestrationService
+	agentStatuses  agentstatusstore.Store
+	systemLogs     systemlogstore.Store
+	auditLogs      auditlogstore.Store
+	busLogs        buslogstore.Store
+	aiLogs         ailogstore.Store
+	dbQueries      dbquerystore.Store
+	taskTraces     tasktracestore.Store
+	commandCards   commandcardstore.Reader
+	prompts        promptstore.Reader
+	sharedFiles    sharedfilestore.Reader
+	skills         contract.SkillLister
+	skillInventory contract.SkillInventoryLister
+	startedAt      time.Time
 }
 
 type dashboardPromptScopeCWDKey struct{}
@@ -66,20 +67,26 @@ func NewService(
 	skills contract.SkillLister,
 ) Service {
 	return &service{
-		orchestration: orchestrationSvc,
-		agentStatuses: agentStatuses,
-		systemLogs:    systemLogs,
-		auditLogs:     auditLogs,
-		busLogs:       busLogs,
-		aiLogs:        aiLogs,
-		dbQueries:     dbQueries,
-		taskTraces:    taskTraces,
-		commandCards:  commandCards,
-		prompts:       prompts,
-		sharedFiles:   sharedFiles,
-		skills:        skills,
-		startedAt:     time.Now(),
+		orchestration:  orchestrationSvc,
+		agentStatuses:  agentStatuses,
+		systemLogs:     systemLogs,
+		auditLogs:      auditLogs,
+		busLogs:        busLogs,
+		aiLogs:         aiLogs,
+		dbQueries:      dbQueries,
+		taskTraces:     taskTraces,
+		commandCards:   commandCards,
+		prompts:        prompts,
+		sharedFiles:    sharedFiles,
+		skills:         skills,
+		skillInventory: skillInventoryFromLister(skills),
+		startedAt:      time.Now(),
 	}
+}
+
+func skillInventoryFromLister(skills contract.SkillLister) contract.SkillInventoryLister {
+	inventory, _ := skills.(contract.SkillInventoryLister)
+	return inventory
 }
 
 func withDashboardPromptScopeCWD(ctx context.Context, cwd string) context.Context {

@@ -1,6 +1,10 @@
 import { computed, onMounted, ref, watch } from '../../lib/vue.esm-browser.prod.js';
 import { useSkillEditor } from '../composables/useSkillEditor.js';
 import { useSkillFileNavigation } from '../composables/useSkillFileNavigation.js';
+import {
+  importSummaryDraftPanelHint,
+  importSummaryDraftPanelTitle,
+} from '../composables/useSkillImportSummaryDrafts.js';
 import { useSkillResolutions } from '../composables/useSkillResolutions.js';
 import { useSkillSaveFeedback } from '../composables/useSkillSaveFeedback.js';
 import { isInternalSkillReferenceWord, isSkillMainFilePath, normalizePathKey } from '../utils/skill-parser.js';
@@ -165,6 +169,7 @@ export const SkillsPage = {
       activeCwdSource,
       emit,
       setNotice: editor.setNotice,
+      onNoConflicts: editor.clearImportConflictDrafts,
     });
     onMounted(() => resolutions.refreshSkillResolutions({ notify: false, notifyOnError: true, collapseOnConflict: false }));
     watch(activeCwdSource, (next, prev) => {
@@ -173,6 +178,9 @@ export const SkillsPage = {
       resolutions.refreshSkillResolutions({ notify: false, notifyOnError: true, collapseOnConflict: false });
     }, { flush: 'sync' });
     const saveFeedback = useSkillSaveFeedback({ editor, sourcePath, activeSkillFilePath });
+    const visibleImportSummaryDrafts = computed(() => editor.importSummaryDrafts.value.filter((draft) => draft?.status !== 'conflict'));
+    const importSummaryPanelTitle = computed(() => importSummaryDraftPanelTitle(visibleImportSummaryDrafts.value));
+    const importSummaryPanelHint = computed(() => importSummaryDraftPanelHint(visibleImportSummaryDrafts.value));
 
     async function onSaveSkill() {
       await saveFeedback.onSaveSkill();
@@ -213,6 +221,9 @@ export const SkillsPage = {
       ...editor,
       ...fileNavigation,
       ...saveFeedback,
+      visibleImportSummaryDrafts,
+      importSummaryPanelTitle,
+      importSummaryPanelHint,
       onSaveSkill,
       confirmImportScope,
     };
@@ -303,47 +314,6 @@ export const SkillsPage = {
             <div v-if="resolutionConflictAlertText" class="skills-resolution-alert" data-testid="skills-resolution-alert">
               {{ resolutionConflictAlertText }}
             </div>
-            <article v-if="resolutionPreview && showResolutionPanel" class="skills-resolution-preview" data-testid="skills-resolution-preview">
-              <div class="skills-resolution-preview-head">
-                <div>
-                  <strong>{{ resolutionActionLabel(resolutionPreview.action) }}</strong>
-                  <p>{{ resolutionPreviewIntro(resolutionPreview) }}</p>
-                </div>
-                <button
-                  v-if="resolutionPreview.requiresApply"
-                  class="btn btn-primary btn-xs"
-                  data-testid="skills-resolution-confirm"
-                  :disabled="resolutionActioning === 'confirm'"
-                  @click="confirmResolutionPreview"
-                >
-                  {{ resolutionActioning === 'confirm' ? '应用中...' : '确认应用' }}
-                </button>
-                <button class="btn btn-ghost btn-xs" data-testid="skills-resolution-cancel" @click="clearResolutionPreview">取消</button>
-              </div>
-              <div
-                v-for="(item, previewIdx) in (resolutionPreview.items || [])"
-                :key="item.preview_id || item.source_path_id || previewIdx"
-                class="skills-resolution-preview-item"
-              >
-                <div class="skills-resolution-preview-summary">{{ resolutionPreviewItemSummary(item, resolutionPreview.action) }}</div>
-                <div class="skills-resolution-preview-paths">
-                  <div
-                    v-for="pathItem in resolutionPreviewItemPaths(item, resolutionPreview.action)"
-                    :key="pathItem.label + pathItem.value"
-                    class="skills-resolution-preview-path-row"
-                  >
-                    <span>{{ pathItem.label }}</span>
-                    <code>{{ pathItem.value }}</code>
-                  </div>
-                </div>
-                <details v-if="item.diff || item.source_hash || item.target_hash" class="skills-resolution-technical">
-                  <summary>技术信息</summary>
-                  <div v-if="item.source_hash" class="skills-resolution-preview-path">外部版本号：{{ resolutionShortHash(item.source_hash) }}</div>
-                  <div v-if="item.target_hash" class="skills-resolution-preview-path">管理版本号：{{ resolutionShortHash(item.target_hash) }}</div>
-                  <pre v-if="item.diff" class="skills-resolution-preview-diff">{{ item.diff }}</pre>
-                </details>
-              </div>
-            </article>
             <div v-if="showResolutionPanel" class="skills-resolution-list" data-testid="skills-resolution-list">
               <article
                 v-for="(conflict, conflictIdx) in resolutionConflicts"
@@ -353,7 +323,7 @@ export const SkillsPage = {
               >
                 <div class="skills-resolution-main">
                   <strong>{{ resolutionTitle(conflict) }}</strong>
-                  <span>{{ resolutionProviderEntry(conflict).provider ? resolutionProviderLabel(resolutionProviderEntry(conflict).provider) : scopeLabel(conflict.scope) }}</span>
+                  <span>{{ resolutionProviderEntry(conflict).provider ? resolutionProviderEntryLabel(resolutionProviderEntry(conflict)) : scopeLabel(conflict.scope) }}</span>
                 </div>
                 <p class="skills-resolution-guide">{{ resolutionConflictGuide(conflict) }}</p>
                 <div v-if="resolutionActionEntries(conflict).length > 0" class="skills-resolution-actions-title">{{ resolutionActionSectionTitle(conflict) }}</div>
@@ -362,7 +332,7 @@ export const SkillsPage = {
                   :key="entry.source_path_id || entry.provider || sourceIdx"
                   class="skills-resolution-actions"
                 >
-                  <span v-if="resolutionProviderEntries(conflict).length > 1" class="skills-resolution-source">{{ resolutionProviderLabel(entry.provider) }}</span>
+                  <span v-if="resolutionProviderEntries(conflict).length > 1 || entry.merged_provider_entry" class="skills-resolution-source">{{ resolutionProviderEntryLabel(entry) }}</span>
                   <button
                     v-for="(actionEntry, actionIdx) in resolutionActionEntries(conflict)"
                     :key="resolutionApplyKey(conflict, actionEntry.action, resolutionActionEntryTarget(actionEntry, entry)) + '-' + actionIdx"
@@ -374,6 +344,75 @@ export const SkillsPage = {
                     <span v-if="resolutionActioning === resolutionApplyKey(conflict, actionEntry.action, resolutionActionEntryTarget(actionEntry, entry))">处理中...</span>
                     <span v-else>{{ resolutionActionEntryLabel(actionEntry) }}</span>
                   </button>
+                  <div
+                    v-if="resolutionNamePromptApplies(conflict, entry)"
+                    class="skills-resolution-name-field skills-resolution-name-inline"
+                    data-testid="skills-resolution-name-prompt"
+                  >
+                    <label class="skills-resolution-name-input-row">
+                      <span>新技能名称</span>
+                      <input
+                        v-model="resolutionNameInput"
+                        class="modal-input"
+                        data-testid="skills-resolution-name-input"
+                        placeholder="例如：skill-private"
+                        @keyup.enter="confirmResolutionNewName"
+                      />
+                    </label>
+                    <div class="skills-resolution-name-actions">
+                      <span>{{ resolutionNamePromptHelpText(resolutionNamePrompt) }}</span>
+                      <button
+                        class="btn btn-primary btn-xs"
+                        data-testid="skills-resolution-name-confirm"
+                        :disabled="resolutionActioning === resolutionNamePrompt.applyKey"
+                        @click="confirmResolutionNewName"
+                      >
+                        {{ resolutionNamePromptButtonText(resolutionNamePrompt, resolutionActioning) }}
+                      </button>
+                      <button class="btn btn-ghost btn-xs" data-testid="skills-resolution-name-cancel" @click="clearResolutionNamePrompt">取消</button>
+                    </div>
+                  </div>
+                  <article v-if="resolutionPreviewApplies(conflict, entry)" class="skills-resolution-preview is-inline" data-testid="skills-resolution-preview">
+                    <div class="skills-resolution-preview-head">
+                      <div>
+                        <strong>{{ resolutionActionLabel(resolutionPreview.action) }}</strong>
+                        <p>{{ resolutionPreviewIntro(resolutionPreview) }}</p>
+                      </div>
+                      <button
+                        v-if="resolutionPreview.requiresApply"
+                        class="btn btn-primary btn-xs"
+                        data-testid="skills-resolution-confirm"
+                        :disabled="resolutionActioning === 'confirm'"
+                        @click="confirmResolutionPreview"
+                      >
+                        {{ resolutionActioning === 'confirm' ? '应用中...' : '确认应用' }}
+                      </button>
+                      <button class="btn btn-ghost btn-xs" data-testid="skills-resolution-cancel" @click="clearResolutionPreview">取消</button>
+                    </div>
+                    <div
+                      v-for="(item, previewIdx) in (resolutionPreview.items || [])"
+                      :key="item.preview_id || item.source_path_id || previewIdx"
+                      class="skills-resolution-preview-item"
+                    >
+                      <div class="skills-resolution-preview-summary">{{ resolutionPreviewItemSummary(item, resolutionPreview.action) }}</div>
+                      <div class="skills-resolution-preview-paths">
+                        <div
+                          v-for="pathItem in resolutionPreviewItemPaths(item, resolutionPreview.action)"
+                          :key="pathItem.label + pathItem.value"
+                          class="skills-resolution-preview-path-row"
+                        >
+                          <span>{{ pathItem.label }}</span>
+                          <code>{{ pathItem.value }}</code>
+                        </div>
+                      </div>
+                      <details v-if="item.diff || item.source_hash || item.target_hash" class="skills-resolution-technical">
+                        <summary>技术信息</summary>
+                        <div v-if="item.source_hash" class="skills-resolution-preview-path">外部版本号：{{ resolutionShortHash(item.source_hash) }}</div>
+                        <div v-if="item.target_hash" class="skills-resolution-preview-path">管理版本号：{{ resolutionShortHash(item.target_hash) }}</div>
+                        <pre v-if="item.diff" class="skills-resolution-preview-diff">{{ item.diff }}</pre>
+                      </details>
+                    </div>
+                  </article>
                 </div>
                 <div v-if="resolutionActionFootnote(conflict)" class="skills-resolution-action-help">
                   <span>{{ resolutionActionFootnote(conflict) }}</span>
@@ -467,6 +506,50 @@ export const SkillsPage = {
             </div>
             <div v-if="notice.message && !isEditorOpen" class="skills-notice" data-testid="skills-notice" :class="'is-' + notice.level">
               {{ notice.message }}
+            </div>
+            <div v-if="visibleImportSummaryDrafts.length > 0" class="skills-import-summary-panel" data-testid="skills-import-summary-panel">
+              <div class="skills-import-summary-head">
+                <div>
+                  <strong>{{ importSummaryPanelTitle }}</strong>
+                  <span>{{ importSummaryPanelHint }}</span>
+                </div>
+                <button class="btn btn-ghost btn-xs" data-testid="skills-import-summary-clear" @click="clearImportSummaryDrafts">收起</button>
+              </div>
+              <article
+                v-for="(draft, draftIdx) in visibleImportSummaryDrafts"
+                :key="draft.id || draft.skillFile || draftIdx"
+                class="skills-import-summary-item"
+                :class="'is-' + draft.status"
+                :data-testid="'skills-import-summary-item-' + draftIdx"
+              >
+                <div class="skills-import-summary-main">
+                  <strong>{{ draft.name || '未命名技能' }}</strong>
+                  <span>{{ scopeLabel(draft.scope) }}</span>
+                </div>
+                <p v-if="draft.status === 'ready' || draft.status === 'applied'" class="skills-import-summary-text">{{ draft.suggestion }}</p>
+                <p v-else-if="draft.status === 'conflict'" class="skills-import-summary-text">{{ draft.error }}</p>
+                <p v-else class="skills-import-summary-text">{{ draft.error || '技能已正常导入。可以稍后手动补充简介。' }}</p>
+                <div class="skills-import-summary-actions">
+                  <button
+                    v-if="draft.status === 'ready'"
+                    class="btn btn-secondary btn-xs"
+                    :data-testid="'skills-import-summary-apply-' + draftIdx"
+                    @click="applyImportSummaryDraft(draft)"
+                  >
+                    采用并编辑
+                  </button>
+                  <span v-else-if="draft.status === 'applied'" class="skills-inline-tip">已采用，保存后生效</span>
+                  <button
+                    v-else-if="draft.status === 'error'"
+                    class="btn btn-secondary btn-xs"
+                    :data-testid="'skills-import-summary-edit-' + draftIdx"
+                    @click="openImportSummaryDraft(draft)"
+                  >
+                    编辑简介
+                  </button>
+                  <button class="btn btn-ghost btn-xs" :data-testid="'skills-import-summary-dismiss-' + draftIdx" @click="dismissImportSummaryDraft(draft)">跳过</button>
+                </div>
+              </article>
             </div>
             <ul v-if="importFailures.length > 0" class="skills-failure-list" data-testid="skills-failure-list">
               <li v-for="item in importFailures.slice(0, 5)" :key="item">{{ item }}</li>

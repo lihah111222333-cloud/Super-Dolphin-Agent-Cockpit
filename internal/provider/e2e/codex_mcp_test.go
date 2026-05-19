@@ -262,6 +262,8 @@ func TestCodexStartSession_PreservesUserConfigFields_E2E(t *testing.T) {
 }
 
 func TestCodexStartSession_ReconcilesNativeSkillMirrorsBeforeProviderStart_E2E(t *testing.T) {
+	userHome := t.TempDir()
+	t.Setenv("HOME", userHome)
 	events := []string{}
 	recorder := &codexRPCRecorder{events: &events}
 	serverURL := startCodexRPCServer(t, recorder)
@@ -297,7 +299,7 @@ func TestCodexStartSession_ReconcilesNativeSkillMirrorsBeforeProviderStart_E2E(t
 	if mirror.cwd != workDir {
 		t.Fatalf("mirror cwd = %q, want %q", mirror.cwd, workDir)
 	}
-	assertCodexE2EMirrorTargets(t, mirror.targets, workDir)
+	assertCodexE2EMirrorTargets(t, mirror.targets, workDir, userHome)
 	projectSkillPath := filepath.Join(codexE2EProjectSkillsRoot(t, mirror.targets), "provider-native-proof", "SKILL.md")
 	raw, err := os.ReadFile(projectSkillPath)
 	if err != nil {
@@ -397,7 +399,7 @@ func writeCodexE2ENativeSkillMirror(root, name string) error {
 	return os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o644)
 }
 
-func assertCodexE2EMirrorTargets(t *testing.T, targets []contract.SkillProviderMirrorTarget, workDir string) {
+func assertCodexE2EMirrorTargets(t *testing.T, targets []contract.SkillProviderMirrorTarget, workDir, userHome string) {
 	t.Helper()
 	if len(targets) != 2 {
 		t.Fatalf("mirror targets = %#v, want personal + project targets", targets)
@@ -406,19 +408,20 @@ func assertCodexE2EMirrorTargets(t *testing.T, targets []contract.SkillProviderM
 	if err != nil {
 		t.Fatalf("EvalSymlinks workDir: %v", err)
 	}
-	wantProjectSkills := filepath.Join(realWorkDir, ".codex", "skills")
+	wantProjectSkills := filepath.Join(realWorkDir, ".agents", "skills")
 	if targets[1].Provider != providershared.ProviderCodex || targets[1].SkillsRoot != wantProjectSkills {
 		t.Fatalf("project mirror target = %#v, want codex skills root %q", targets[1], wantProjectSkills)
 	}
-	if targets[0].Provider != providershared.ProviderCodex || !strings.HasSuffix(targets[0].SkillsRoot, filepath.Join("providers", "codex", "skills")) {
-		t.Fatalf("personal mirror target = %#v, want app-managed codex skills root", targets[0])
+	wantPersonalSkills := filepath.Join(userHome, ".agents", "skills")
+	if targets[0].Provider != providershared.ProviderCodex || targets[0].SkillsRoot != wantPersonalSkills {
+		t.Fatalf("personal mirror target = %#v, want user-global codex skills root %q", targets[0], wantPersonalSkills)
 	}
 }
 
 func codexE2EProjectSkillsRoot(t *testing.T, targets []contract.SkillProviderMirrorTarget) string {
 	t.Helper()
 	for _, target := range targets {
-		if target.Provider == providershared.ProviderCodex && strings.Contains(target.SkillsRoot, string(filepath.Separator)+".codex"+string(filepath.Separator)) {
+		if target.Provider == providershared.ProviderCodex && strings.Contains(target.SkillsRoot, string(filepath.Separator)+".agents"+string(filepath.Separator)) {
 			return target.SkillsRoot
 		}
 	}

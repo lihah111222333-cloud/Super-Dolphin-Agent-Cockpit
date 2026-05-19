@@ -174,24 +174,6 @@ export const template = `
             <div class="workspace-bottom-row" :class="{ 'is-cmd': isCmd }" :style="activityPanelRowStyle">
               <div class="chat-composer-shell" :class="{ 'for-chat': !isCmd }" :style="chatComposerShellStyle">
                 <div v-if="!isCmd" ref="presenceAnchorRef" class="chat-status-presence-anchor"></div>
-                <LaunchSkillPicker
-                  v-if="launchSkillSelectionEnabled && !selectedThreadId"
-                  :enabled="launchSkillSelectionEnabled"
-                  :skills="launchSkillPickerSkills"
-                  :project-skills="launchProjectSkills"
-                  :system-skills="launchSystemSkills"
-                  :scope="launchSkillScope"
-                  :scope-tabs-enabled="launchSkillScopeTabsEnabled"
-                  :matches="launchSkillMatches"
-                  :selected-skill-names="launchSelectedSkillNames"
-                  :selected-skill-refs="launchSelectedSkillRefs"
-                  :loading="launchSkillSelectionLoading"
-                  @toggle-skill="toggleLaunchSelectedSkill"
-                  @update:scope="setLaunchSkillScope"
-                  @select-all="selectAllLaunchSuggestedSkills"
-                  @clear="clearLaunchSelectedSkills"
-                  @refresh="refreshLaunchSkillSelection"
-                />
                 <ContextUsageBanner
                   v-if="!isCmd && selectedThreadId"
                   :level="activeTokenLevel"

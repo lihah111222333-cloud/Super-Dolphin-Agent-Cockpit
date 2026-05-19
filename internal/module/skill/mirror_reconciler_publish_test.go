@@ -81,7 +81,7 @@ func TestTakeoverProviderSkillPublishesTakenOverProjectSkillToOtherMirrors(t *te
 
 func projectMirrorTargetForTest(project string, provider SkillProvider) SkillMirrorTarget {
 	fingerprint := RepoFingerprint(project)
-	rootName := ".codex"
+	rootName := ".agents"
 	if provider == SkillProviderClaude {
 		rootName = ".claude"
 	}

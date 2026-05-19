@@ -247,6 +247,66 @@
   margin-top: 8px;
 }
 
+.skills-import-summary-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid rgba(130, 168, 236, 0.38);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+}
+
+.skills-import-summary-head,
+.skills-import-summary-main,
+.skills-import-summary-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.skills-import-summary-head strong,
+.skills-import-summary-main strong {
+  display: block;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.skills-import-summary-head span,
+.skills-import-summary-main span {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-subtle);
+}
+
+.skills-import-summary-item {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--elevated) 55%, transparent);
+}
+
+.skills-import-summary-text,
+.skills-import-summary-error {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-sec);
+}
+
+.skills-import-summary-error {
+  color: #fecaca;
+}
+
+.skills-import-summary-actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
 .skills-resolution-check.is-warning {
   border-color: rgba(245, 158, 11, 0.58);
   color: #fde68a;
@@ -285,6 +345,13 @@
   border-radius: 8px;
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   padding: 10px;
+}
+
+.skills-resolution-preview.is-inline {
+  flex: 1 0 100%;
+  margin-top: 2px;
+  padding: 8px;
+  background: color-mix(in srgb, var(--elevated) 48%, transparent);
 }
 
 .skills-resolution-main,
@@ -387,6 +454,45 @@
   font-size: 11px;
   line-height: 1.45;
   color: var(--text-subtle);
+}
+
+.skills-resolution-name-field {
+  display: grid;
+  gap: 5px;
+}
+
+.skills-resolution-name-inline {
+  flex: 1 0 100%;
+  margin-top: 2px;
+  padding: 8px;
+  border: 1px solid var(--elevated);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+}
+
+.skills-resolution-name-input-row {
+  display: grid;
+  gap: 5px;
+}
+
+.skills-resolution-name-field span,
+.skills-resolution-name-input-row span {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.skills-resolution-name-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.skills-resolution-name-actions span {
+  flex: 1 1 160px;
+  color: var(--text-subtle);
+  font-weight: 500;
 }
 
 .skills-resolution-preview-summary {

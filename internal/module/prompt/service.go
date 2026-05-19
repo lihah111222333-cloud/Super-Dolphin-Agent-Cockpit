@@ -57,7 +57,6 @@ type service struct {
 
 	prefs           uipreference.Store
 	sharedFiles     sharedfilestore.Reader
-	skillStore      contract.SkillNativeReplacementSource
 	disabledToolsFn DisabledBuiltinToolsFn
 
 	dynamicMu sync.RWMutex
@@ -74,14 +73,6 @@ func WithPromptHintSources(prefs uipreference.Store, sharedFiles sharedfilestore
 	return func(s *service) {
 		s.prefs = prefs
 		s.sharedFiles = sharedFiles
-	}
-}
-
-// WithSkillStore injects the skill replacement source used to aggregate
-// ReplacesNative declarations for cross-model native tool suppression.
-func WithSkillStore(store contract.SkillNativeReplacementSource) ServiceOption {
-	return func(s *service) {
-		s.skillStore = store
 	}
 }
 

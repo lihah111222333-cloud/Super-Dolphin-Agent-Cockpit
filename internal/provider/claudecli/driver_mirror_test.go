@@ -30,11 +30,12 @@ func (r *recordingMirrorReconciler) ReconcileProviderMirrors(ctx context.Context
 	return r.report, r.err
 }
 
-func TestStartSessionReconcilesMirrorsBeforeLaunchWithAppManagedClaudeHome(t *testing.T) {
+func TestStartSessionReconcilesMirrorsBeforeLaunchWithUserClaudeHome(t *testing.T) {
 	superHome := filepath.Join(t.TempDir(), "sd-home")
+	userHome := filepath.Join(t.TempDir(), "user-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
+	t.Setenv("HOME", userHome)
 	workDir := t.TempDir()
-	wantHomePath := filepath.Join(superHome, "providers", "claude")
 	events := []string{}
 	mirror := &recordingMirrorReconciler{
 		events: &events,
@@ -45,12 +46,8 @@ func TestStartSessionReconcilesMirrorsBeforeLaunchWithAppManagedClaudeHome(t *te
 		if cwd != workDir {
 			t.Fatalf("launch cwd = %q, want %q", cwd, workDir)
 		}
-		wantHome, err := filepath.EvalSymlinks(wantHomePath)
-		if err != nil {
-			t.Fatalf("EvalSymlinks app-managed home: %v", err)
-		}
-		if cfg.ClaudeHome != wantHome {
-			t.Fatalf("ClaudeHome = %q, want app-managed %q", cfg.ClaudeHome, wantHome)
+		if cfg.ClaudeHome != "" {
+			t.Fatalf("ClaudeHome = %q, want empty default so Claude uses user CLI identity", cfg.ClaudeHome)
 		}
 		return next.tr, func() { next.finish() }, nil
 	})
@@ -68,12 +65,14 @@ func TestStartSessionReconcilesMirrorsBeforeLaunchWithAppManagedClaudeHome(t *te
 	if strings.Join(events, ",") != "reconcile,launch" {
 		t.Fatalf("events = %v, want reconcile before launch", events)
 	}
-	assertClaudeMirrorTargets(t, mirror.targets, workDir, superHome)
+	assertClaudeMirrorTargets(t, mirror.targets, workDir, userHome)
 }
 
 func TestStartSessionReconcilesProjectMirrorsFromGitRootBeforeLaunch(t *testing.T) {
 	superHome := filepath.Join(t.TempDir(), "sd-home")
+	userHome := filepath.Join(t.TempDir(), "user-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
+	t.Setenv("HOME", userHome)
 	repoRoot := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repoRoot, ".git"), 0o755); err != nil {
 		t.Fatalf("MkdirAll .git: %v", err)
@@ -106,27 +105,64 @@ func TestStartSessionReconcilesProjectMirrorsFromGitRootBeforeLaunch(t *testing.
 	if strings.Join(events, ",") != "reconcile,launch" {
 		t.Fatalf("events = %v, want reconcile before launch", events)
 	}
-	assertClaudeMirrorTargets(t, mirror.targets, repoRoot, superHome)
+	assertClaudeMirrorTargets(t, mirror.targets, repoRoot, userHome)
 }
 
-func TestStartSessionMirrorConflictBlocksClaudeLaunch(t *testing.T) {
+func TestStartSessionMirrorContentConflictAllowsClaudeLaunch(t *testing.T) {
 	superHome := filepath.Join(t.TempDir(), "sd-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
+	launched := false
+	next := newBufferedTransport(t, "claude-session-mirror-conflict")
 	overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
-		t.Fatal("launchCLI called after mirror conflict")
-		return nil, nil, nil
+		launched = true
+		return next.tr, func() { next.finish() }, nil
 	})
 	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{report: contract.SkillMirrorReport{Conflicts: []contract.SkillMirrorReportItem{{
 		TargetID:     "claude:project:conflict",
-		ConflictKind: "mirror_drift",
+		Scope:        "project",
+		ConflictKind: "drift",
 	}}}}, nil).(*driver)
 
-	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
+	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-claude-conflict",
 		CWD:     t.TempDir(),
 	})
-	if err == nil || !strings.Contains(err.Error(), "skill mirror conflicts") {
-		t.Fatalf("StartSession() error = %v, want skill mirror conflicts", err)
+	if err != nil {
+		t.Fatalf("StartSession() error = %v", err)
+	}
+	next.finish()
+	defer got.Close(context.Background())
+	if !launched {
+		t.Fatalf("launchCLI was not called")
+	}
+}
+
+func TestStartSessionMirrorSafetyConflictBlocksClaudeLaunch(t *testing.T) {
+	superHome := filepath.Join(t.TempDir(), "sd-home")
+	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
+	launched := false
+	next := newBufferedTransport(t, "claude-session-mirror-safety-conflict")
+	overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+		launched = true
+		return next.tr, func() { next.finish() }, nil
+	})
+	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{report: contract.SkillMirrorReport{Conflicts: []contract.SkillMirrorReportItem{{
+		TargetID:     "claude:project:conflict",
+		ConflictKind: "mirror_root_symlink",
+	}}}}, nil).(*driver)
+
+	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
+		AgentID: "agent-claude-safety-conflict",
+		CWD:     t.TempDir(),
+	})
+	if err == nil || !strings.Contains(err.Error(), "skill mirror conflicts") || !strings.Contains(err.Error(), "mirror_root_symlink") {
+		t.Fatalf("StartSession() error = %v, want blocking mirror safety conflict", err)
+	}
+	if got != nil {
+		t.Fatalf("StartSession() session = %#v, want nil", got)
+	}
+	if launched {
+		t.Fatalf("launchCLI was called")
 	}
 }
 
@@ -228,19 +264,16 @@ func TestStartSessionAcceptsCamelCaseClaudeHomeAndPreservesSettings(t *testing.T
 	assertFileContent(t, settingsPath, originalSettings)
 }
 
-func TestStartSessionIncludesAppManagedClaudeHomeInRuntimeSnapshot(t *testing.T) {
+func TestStartSessionOmitsClaudeHomeFromRuntimeSnapshotByDefault(t *testing.T) {
 	superHome := filepath.Join(t.TempDir(), "sd-home")
+	userHome := filepath.Join(t.TempDir(), "user-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
+	t.Setenv("HOME", userHome)
 	workDir := t.TempDir()
-	wantHomePath := filepath.Join(superHome, "providers", "claude")
 	next := newBufferedTransport(t, "claude-session-runtime-home")
 	overrideLaunchCLI(t, func(_, _, _, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
-		wantHome, err := filepath.EvalSymlinks(wantHomePath)
-		if err != nil {
-			t.Fatalf("EvalSymlinks app-managed home: %v", err)
-		}
-		if cfg.ClaudeHome != wantHome {
-			t.Fatalf("ClaudeHome = %q, want app-managed %q", cfg.ClaudeHome, wantHome)
+		if cfg.ClaudeHome != "" {
+			t.Fatalf("ClaudeHome = %q, want empty default so Claude uses user CLI identity", cfg.ClaudeHome)
 		}
 		return next.tr, func() { next.finish() }, nil
 	})
@@ -255,14 +288,10 @@ func TestStartSessionIncludesAppManagedClaudeHomeInRuntimeSnapshot(t *testing.T)
 	}
 	next.finish()
 	defer got.Close(context.Background())
-	wantHome, err := filepath.EvalSymlinks(wantHomePath)
-	if err != nil {
-		t.Fatalf("EvalSymlinks app-managed home: %v", err)
-	}
 	runtimeCfg := got.(*session).RuntimeConfigSnapshot()
 	for _, key := range []string{"claude_home", "claudeHome", "history_dir"} {
-		if value, ok := runtimeCfg[key]; !ok || value != wantHome {
-			t.Fatalf("RuntimeConfigSnapshot()[%q] = %#v, want app-managed %q", key, value, wantHome)
+		if value, ok := runtimeCfg[key]; ok {
+			t.Fatalf("RuntimeConfigSnapshot()[%q] = %#v, want omitted by default", key, value)
 		}
 	}
 }
@@ -363,24 +392,32 @@ func assertFileContent(t *testing.T, path, want string) {
 func TestStartSessionMirrorFailureBlocksClaudeLaunch(t *testing.T) {
 	superHome := filepath.Join(t.TempDir(), "sd-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
+	launched := false
+	next := newBufferedTransport(t, "claude-session-mirror-failure")
 	overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
-		t.Fatal("launchCLI called after mirror reconcile failure")
-		return nil, nil, nil
+		launched = true
+		return next.tr, func() { next.finish() }, nil
 	})
 	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{err: errors.New("mirror unavailable")}, nil).(*driver)
 
-	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
+	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-claude-blocked",
 		CWD:     t.TempDir(),
 	})
 	if err == nil || !strings.Contains(err.Error(), "mirror unavailable") {
-		t.Fatalf("StartSession() error = %v, want mirror unavailable", err)
+		t.Fatalf("StartSession() error = %v, want mirror failure", err)
+	}
+	if got != nil {
+		t.Fatalf("StartSession() session = %#v, want nil", got)
+	}
+	if launched {
+		t.Fatalf("launchCLI was called")
 	}
 }
 
-func assertClaudeMirrorTargets(t *testing.T, targets []contract.SkillProviderMirrorTarget, project, superHome string) {
+func assertClaudeMirrorTargets(t *testing.T, targets []contract.SkillProviderMirrorTarget, project, userHome string) {
 	t.Helper()
-	wantPersonalHome := mustClaudeProviderHome(t, superHome)
+	wantPersonalHome := filepath.Join(userHome, ".claude")
 	wantPersonalSkills := filepath.Join(wantPersonalHome, "skills")
 	wantProject, err := filepath.EvalSymlinks(project)
 	if err != nil {
@@ -396,15 +433,6 @@ func assertClaudeMirrorTargets(t *testing.T, targets []contract.SkillProviderMir
 	if targets[1].Provider != "claude" || targets[1].SkillsRoot != wantProjectSkills {
 		t.Fatalf("project target = %#v, want skills %q", targets[1], wantProjectSkills)
 	}
-}
-
-func mustClaudeProviderHome(t *testing.T, superHome string) string {
-	t.Helper()
-	wantPersonalHome, err := filepath.EvalSymlinks(filepath.Join(superHome, "providers", "claude"))
-	if err != nil {
-		t.Fatalf("EvalSymlinks personal home: %v", err)
-	}
-	return wantPersonalHome
 }
 
 func assertExplicitClaudeMirrorTargets(t *testing.T, targets []contract.SkillProviderMirrorTarget, project, explicitHome string) {

@@ -104,15 +104,12 @@ func (s *service) skillsChangedLocation(ctx context.Context, scope string) (stri
 		return "", ""
 	}
 	cwd := cwdFromContext(ctx)
-	fp := RepoFingerprint(cwd)
+	projectRoot := s.projectRootForCWD(cwd)
+	fp := RepoFingerprint(projectRoot)
 	if fp == "" {
 		return "", ""
 	}
-	root := strings.TrimSpace(s.projectRoot)
-	if root == "" {
-		root = cwd
-	}
-	canonicalRoot, rootErr := canonicalProjectPath(root)
+	canonicalRoot, rootErr := canonicalProjectPath(projectRoot)
 	canonicalCWD, cwdErr := canonicalProjectPath(cwd)
 	if rootErr != nil || cwdErr != nil {
 		return fp, "."

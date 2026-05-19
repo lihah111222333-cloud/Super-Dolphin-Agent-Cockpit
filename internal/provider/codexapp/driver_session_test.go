@@ -239,12 +239,12 @@ func TestSessionRuntimeConfigSnapshotIncludesPromptInstructions(t *testing.T) {
 	}
 }
 
-func TestDriverStartSessionUsesAppManagedCodexHomeWhenConfigMissing(t *testing.T) {
-	superHome := filepath.Join(t.TempDir(), "sd-home")
-	t.Setenv("SUPER_DOLPHIN_HOME", superHome)
-	initializeHome := t.TempDir()
+func TestDriverStartSessionUsesUserCodexHomeWhenConfigMissing(t *testing.T) {
+	userHome := t.TempDir()
+	t.Setenv("HOME", userHome)
+	wantHome := mustCanonicalCodexHome(t, userHome)
 	serverURL := startCodexRPCServer(t, func(method string) json.RawMessage {
-		return startSessionInjectResult(method, initializeHome)
+		return startSessionInjectResult(method, wantHome)
 	})
 	d := &driver{
 		pool:      newSingleURLPoolForTest(t, serverURL),
@@ -262,10 +262,6 @@ func TestDriverStartSessionUsesAppManagedCodexHomeWhenConfigMissing(t *testing.T
 	}
 	s := mustCodexSession(t, got, "StartSession")
 	defer closeCodexTestSession(t, s)
-	wantHome, err := filepath.EvalSymlinks(filepath.Join(superHome, "providers", "codex"))
-	if err != nil {
-		t.Fatalf("EvalSymlinks app-managed codex home: %v", err)
-	}
 	assertRuntimeConfigValue(t, s, "codexHome", wantHome)
 	assertRuntimeConfigValue(t, s, "cwd", workDir)
 }

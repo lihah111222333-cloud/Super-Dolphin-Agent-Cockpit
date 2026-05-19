@@ -96,7 +96,7 @@ func deletedCanonicalRecord(svc *service, cwd, name, scope, personalType, canoni
 		record.Dir = filepath.Join(svc.resolvedSuperDolphinHome(), "skills", "personal", personalType, record.Name)
 		return record
 	}
-	record.Dir = filepath.Join(defaultProjectSkillsRoot(cwd), record.Name)
+	record.Dir = filepath.Join(defaultProjectSkillsRoot(projectRootForCWD(cwd, "")), record.Name)
 	return record
 }
 
@@ -281,7 +281,7 @@ func canonicalResolutionTargetDir(svc *service, record canonicalSkillRecord, req
 	if record.Scope == skillScopePersonal {
 		return filepath.Join(svc.resolvedSuperDolphinHome(), "skills", "personal", record.PersonalType, name), nil
 	}
-	return filepath.Join(defaultProjectSkillsRoot(svc.projectRoot), name), nil
+	return filepath.Join(defaultProjectSkillsRoot(projectRootForCWD("", svc.projectRoot)), name), nil
 }
 
 func unmanagedProviderSource(svc *service, req SkillMirrorResolutionRequest) (string, string, skillResolutionPreviewItem, error) {
@@ -335,6 +335,9 @@ func projectRootFromMirrorTarget(target SkillMirrorTarget) (string, error) {
 		return "", fmt.Errorf("project mirror root has unexpected shape: %s", target.Root)
 	}
 	provider := strings.TrimPrefix(parent, ".")
+	if provider == "agents" {
+		provider = string(SkillProviderCodex)
+	}
 	if SkillProvider(provider) != SkillProviderClaude && SkillProvider(provider) != SkillProviderCodex {
 		return "", fmt.Errorf("project mirror root has unsupported provider: %s", target.Root)
 	}
@@ -451,7 +454,7 @@ func buildResolutionPreviewItems(item skillResolutionItem, p skillResolutionPrev
 
 func previewAllProviders(item skillResolutionItem, p skillResolutionPreviewParams) bool {
 	return p.Provider == "" && p.SourceProvider == "" && p.SourcePathID == "" &&
-		(p.Action == ResolutionViewDiff || overwriteResolutionAction(p.Action) || (syncBackResolutionAction(p.Action) && sameResolutionSourceHashes(item.ProviderEntries)))
+		(p.Action == ResolutionViewDiff || p.Action == ResolutionViewUnmanaged || overwriteResolutionAction(p.Action) || (syncBackResolutionAction(p.Action) && sameResolutionSourceHashes(item.ProviderEntries)))
 }
 
 func buildResolutionPreviewItem(item skillResolutionItem, p skillResolutionPreviewParams, superHome string) (skillResolutionPreviewItem, error) {
@@ -515,26 +518,6 @@ func selectResolutionProviderEntry(item skillResolutionItem, provider string) (s
 	return skillResolutionProviderEntry{}, fmt.Errorf("provider %q is not part of resolution conflict", provider)
 }
 
-func resolutionPreviewPaths(item skillResolutionItem, entry skillResolutionProviderEntry, p skillResolutionPreviewParams, superHome string) skillResolutionPreviewItem {
-	preview := skillResolutionPreviewItem{Action: p.Action, Provider: entry.Provider, SourceProvider: entry.Provider, SourcePathID: entry.SourcePathID}
-	switch p.Action {
-	case ResolutionCanonicalOverwrite, ResolutionPersonalOverwrite:
-		preview.SourcePath, preview.TargetPath = entry.TargetPath, entry.SourcePath
-		preview.SourceHash, preview.TargetHash = entry.TargetHash, entry.SourceHash
-	case ResolutionConfirmDeleteDriftedMirror:
-		preview.SourcePath, preview.TargetPath = entry.SourcePath, entry.SourcePath
-		preview.SourceHash, preview.TargetHash = entry.SourceHash, entry.SourceHash
-		preview.ConfirmDeleteMirrorHash = entry.SourceHash
-	case ResolutionImportPersonal:
-		preview.SourcePath, preview.TargetPath = entry.SourcePath, filepath.ToSlash(filepath.Join(superHome, "skills", "personal", personalSkillTypeImported, item.Name))
-		preview.SourceHash, preview.TargetHash = entry.SourceHash, ""
-	default:
-		preview.SourcePath, preview.TargetPath = entry.SourcePath, resolutionPreviewTargetPath(entry, p)
-		preview.SourceHash, preview.TargetHash = entry.SourceHash, entry.TargetHash
-	}
-	return preview
-}
-
 func resolutionPreviewTargetPath(entry skillResolutionProviderEntry, p skillResolutionPreviewParams) string {
 	name := strings.TrimSpace(p.NewName)
 	if name == "" {
@@ -544,6 +527,9 @@ func resolutionPreviewTargetPath(entry skillResolutionProviderEntry, p skillReso
 }
 
 func validateMutatingResolutionPreview(item skillResolutionItem, preview skillResolutionPreviewItem, p skillResolutionPreviewParams) error {
+	if p.Action == ResolutionReplaceProviderRootSymlink {
+		return validateRootResolutionPreview(item, preview, p.Action)
+	}
 	if p.Action == ResolutionSaveAsNewSkill || p.Action == ResolutionSaveAsNewPersonal {
 		if strings.TrimSpace(p.NewName) == "" {
 			return fmt.Errorf("new_name is required for %s", p.Action)
@@ -556,6 +542,20 @@ func validateMutatingResolutionPreview(item skillResolutionItem, preview skillRe
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
+	}
+	return nil
+}
+
+func validateRootResolutionPreview(item skillResolutionItem, preview skillResolutionPreviewItem, action string) error {
+	wantKind := skillConflictMirrorRootSymlink
+	if item.Kind != wantKind {
+		return fmt.Errorf("%s requires %s", action, wantKind)
+	}
+	if strings.TrimSpace(preview.SourcePath) == "" || !sameResolutionPath(preview.SourcePath, preview.TargetPath) {
+		return fmt.Errorf("%s preview requires matching source and target paths", action)
+	}
+	if strings.TrimSpace(preview.SourceHash) == "" {
+		return fmt.Errorf("%s preview requires source hash", action)
 	}
 	return nil
 }
@@ -580,6 +580,11 @@ func updateOwnedMirrorManifest(target SkillMirrorTarget, record canonicalSkillRe
 	manifest, err := readTargetManifest(target)
 	if err != nil {
 		return err
+	}
+	if actualHash, exists, err := existingMirrorHash(filepath.Join(target.Root, record.Name)); err != nil {
+		return err
+	} else if exists {
+		mirrorHash = actualHash
 	}
 	canonicalHash, err := stableMirrorDirectoryHash(record.Dir)
 	if err != nil {

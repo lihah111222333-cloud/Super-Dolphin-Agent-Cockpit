@@ -61,7 +61,7 @@ type SkillInfo struct {
 	ForceWords   []string `json:"force_words,omitempty"`
 	// Trust is the trust scope: "user" / "project" / "signed".
 	Trust TrustScope `json:"trust,omitempty"`
-	// AllowedTools whitelist names (e.g. "Read", "skill_expand"). Empty = inherit session defaults.
+	// AllowedTools whitelist names (e.g. "Read", "skill_read_section"). Empty = inherit session defaults.
 	AllowedTools []string `json:"allowed_tools,omitempty"`
 	// DisableModelInvocation: when true, the skill is not exposed for model auto-call;
 	// only a user-issued slash command can trigger it.
@@ -82,6 +82,13 @@ type SkillInfo struct {
 // compatibility consumers that only need skill metadata.
 type SkillLister interface {
 	ListSkills(ctx context.Context) ([]SkillInfo, error)
+}
+
+// SkillInventoryLister is the management-page view of discoverable skills.
+// Unlike SkillLister, it returns raw canonical records so duplicate names and
+// policy-hidden sources remain visible for conflict handling.
+type SkillInventoryLister interface {
+	ListSkillInventory(ctx context.Context) ([]SkillInfo, error)
 }
 
 // ---------------------------------------------------------------------------
@@ -201,10 +208,4 @@ type SkillProviderMirrorTarget struct {
 
 type SkillMirrorReconciler interface {
 	ReconcileProviderMirrors(ctx context.Context, cwd string, targets []SkillProviderMirrorTarget) (SkillMirrorReport, error)
-}
-
-// SkillNativeReplacementSource aggregates canonical skill ReplacesNative
-// metadata for a provider and cwd.
-type SkillNativeReplacementSource interface {
-	ReplacedNativeTools(ctx context.Context, cwd, provider string) []string
 }

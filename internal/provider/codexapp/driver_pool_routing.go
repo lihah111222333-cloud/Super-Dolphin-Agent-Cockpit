@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -33,11 +34,15 @@ func (d *driver) prepareStartSessionRequest(ctx context.Context, req dto.StartSe
 		return req, err
 	}
 	requestedHome := providershared.ConfigString(req.Config, contract.CodexHomeKey)
-	home, err := providershared.EnsureProviderHome(providershared.ProviderCodex, requestedHome)
+	providerHomeRequest, err := codexProviderHomeRequest(requestedHome)
 	if err != nil {
 		return req, err
 	}
-	mirrorHome := normalizedExplicitProviderHome(requestedHome, home)
+	home, err := providershared.EnsureProviderHome(providershared.ProviderCodex, providerHomeRequest)
+	if err != nil {
+		return req, err
+	}
+	mirrorHome := normalizedExplicitProviderHome(providerHomeRequest, home)
 	if err := d.reconcileProviderMirrors(ctx, req.CWD, mirrorHome); err != nil {
 		return req, err
 	}
@@ -65,11 +70,15 @@ func (d *driver) prepareResumeSessionRequest(ctx context.Context, req dto.Resume
 	if _, ok := resumeIdentity(req); !ok {
 		return req, errors.New("codex identity required for resume")
 	}
-	home, err := providershared.EnsureProviderHome(providershared.ProviderCodex, requestedHome)
+	providerHomeRequest, err := codexProviderHomeRequest(requestedHome)
 	if err != nil {
 		return req, err
 	}
-	mirrorHome := normalizedExplicitProviderHome(requestedHome, home)
+	home, err := providershared.EnsureProviderHome(providershared.ProviderCodex, providerHomeRequest)
+	if err != nil {
+		return req, err
+	}
+	mirrorHome := normalizedExplicitProviderHome(providerHomeRequest, home)
 	if err := d.reconcileProviderMirrors(ctx, req.CWD, mirrorHome); err != nil {
 		return req, err
 	}
@@ -89,7 +98,10 @@ func (d *driver) reconcileProviderMirrors(ctx context.Context, cwd, home string)
 	if err != nil {
 		return err
 	}
-	return providershared.EnsureNoSkillMirrorConflicts(report)
+	if err := providershared.EnsureNoSkillMirrorConflicts(report); err != nil {
+		return err
+	}
+	return nil
 }
 
 func normalizedExplicitProviderHome(rawHome, normalizedHome string) string {
@@ -97,6 +109,77 @@ func normalizedExplicitProviderHome(rawHome, normalizedHome string) string {
 		return ""
 	}
 	return normalizedHome
+}
+
+func codexProviderHomeRequest(rawHome string) (string, error) {
+	if strings.TrimSpace(rawHome) == "" {
+		return "", nil
+	}
+	requested, err := comparableCodexHomePath(rawHome)
+	if err != nil {
+		return "", err
+	}
+	defaultHome, err := defaultCodexCLIHome()
+	if err != nil {
+		return "", err
+	}
+	if filepath.Clean(requested) == filepath.Clean(defaultHome) {
+		return "", nil
+	}
+	return rawHome, nil
+}
+
+func defaultCodexCLIHome() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve user home: %w", err)
+	}
+	path := filepath.Join(home, ".codex")
+	real, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		return filepath.Clean(real), nil
+	}
+	if os.IsNotExist(err) {
+		return filepath.Clean(path), nil
+	}
+	return "", fmt.Errorf("resolve default codex home realpath: %w", err)
+}
+
+func comparableCodexHomePath(raw string) (string, error) {
+	path := strings.TrimSpace(raw)
+	if path == "" {
+		return "", providershared.ErrCodexHomeRequired
+	}
+	if strings.HasPrefix(path, "~") {
+		switch {
+		case path == "~":
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return "", fmt.Errorf("codexHome ~ expand: %w", err)
+			}
+			path = home
+		case strings.HasPrefix(path, "~/"):
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return "", fmt.Errorf("codexHome ~ expand: %w", err)
+			}
+			path = filepath.Join(home, strings.TrimPrefix(path, "~/"))
+		default:
+			return "", fmt.Errorf("%w: ~user/... form not supported, got %q", providershared.ErrCodexIdentityInvalidType, raw)
+		}
+	}
+	path = filepath.Clean(os.ExpandEnv(path))
+	if !filepath.IsAbs(path) {
+		return "", fmt.Errorf("%w: codexHome must be absolute after expansion, got %q", providershared.ErrCodexIdentityInvalidType, path)
+	}
+	real, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		return filepath.Clean(real), nil
+	}
+	if os.IsNotExist(err) {
+		return path, nil
+	}
+	return "", fmt.Errorf("codexHome canonicalize: %w", err)
 }
 
 func withDefaultCodexIdentity(config map[string]any, home string) (map[string]any, error) {
@@ -321,6 +404,13 @@ func (d *driver) warnLegacyIdentityFallback(agentID string, err error) {
 		slog.String("agent_id", strings.TrimSpace(agentID)),
 		slog.String("reason", err.Error()),
 	)
+}
+
+func (d *driver) warnSkillMirrorIssue(message string, err error) {
+	if d == nil || d.logger == nil || err == nil {
+		return
+	}
+	d.logger.Warn(message, slog.String("error", err.Error()))
 }
 
 // poolRoutingEnabled parses the env override. Missing / empty means enabled

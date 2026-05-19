@@ -127,7 +127,7 @@ Policy allows auto-apply only when all are true:
 
 Every other case downgrades to pending proposal.
 
-Explicitly cover project canonical, project mirror, personal provider mirror, system `~/.claude`/`~/.codex`, and unmanaged external paths as reject/downgrade cases.
+Explicitly cover project canonical, project mirror, personal provider mirror, system `~/.claude`/`~/.agents`, and unmanaged external paths as reject/downgrade cases.
 
 The policy must compute safety on the server from the resolved target, normalized operation paths, validator diff, canonical type, provider-target classification, and current drift/conflict state. Model/proposal JSON safety fields are advisory only: a missing or stricter model flag may downgrade, but a model flag can never authorize auto-apply. If model JSON claims `touches_project_scope=false` or `touches_provider_mirror=false` while server-computed safety detects the opposite, policy rejects/downgrades with a stable reason and records the mismatch. Add a regression test where proposal JSON lies about safety and the server-computed decision refuses `ApplyModePolicyAuto`.
 
@@ -202,8 +202,8 @@ Cover:
 - audit intent failure leaves canonical and archive-relative locations unchanged
 - audit finalize failure after archive/restore mutation returns a structured partial-failure record with phase, pre-hash, post-hash, archive id or archive-relative path, and recovery action
 - archive removes owned, non-drifted provider mirrors through the V1 publisher/reconciler port
-- restore republishes provider mirrors through explicit App-managed provider targets
-- archive/restore returns `publish_targets_unconfigured` without writing `~/.claude` or `~/.codex` when explicit provider targets are missing
+- restore republishes provider mirrors through provider-native user-global targets or explicit provider targets
+- archive/restore uses temp HOME in tests and never writes real `~/.claude` or `~/.agents`
 
 - [ ] **Step 2: Implement operations**
 
@@ -237,7 +237,7 @@ Dry-run should persist a dry-run record but must not write canonical or mirror f
 
 - merge narrow `personal/agent` skills
 - archive stale unpinned `personal/agent` skills
-- leave `personal/user`, `personal/imported`, `personal/hub`, and project skills untouched
+- leave `personal/user`, `personal/imported`, catalog-only `personal/hub`, and project skills untouched
 - leave pinned skills untouched
 - generate a server-owned dry-run ID bound to `owner_key`
 - store action hashes, source canonical hashes, source usage record hashes, usage versions, created_at, expires_at, and actor
@@ -297,7 +297,7 @@ The staged snapshot created before mutation contains owner key, dry-run ID, sele
   "rollback_paths": ["personal/agent/name/SKILL.md"],
   "published_mirror_refs": [
     {
-      "provider_target_id": "claude:app-managed:sd_owner:...",
+      "provider_target_id": "claude:user-global:sd_owner:...",
       "relative_path": "skills/name/SKILL.md"
     }
   ]
@@ -316,7 +316,7 @@ The local real-run recovery record is owner-only and independent of SQL/audit st
 
 - [ ] **Step 3: Implement rollback**
 
-Rollback restores only canonicalized `rollback_paths` listed in the snapshot action manifest after confirming current owner key matches the manifest owner key and current hashes match the persisted or recovered post-hash for the failed real-run phase. It must reject project canonical, provider mirrors, `personal/user`, `personal/imported`, `personal/hub`, and any path outside `personal/agent` even if such a path appears in a malformed manifest. Rollback must resolve the home-relative manifest path through the current `resolvedSuperDolphinHome()`, then use `EvalSymlinks`/`lstat`-based traversal checks and reject symlinked path components, path traversal, hardlink surprises where detectable, and malformed manifests that resolve outside the owner canonical `personal/agent` root. `published_mirror_refs` are audit-only; rollback triggers a fresh publish after canonical restore instead of restoring mirror bytes. If any touched path lacks a persisted or recovered post-hash, belongs to another owner key, or changed after the failed real-run, rollback returns conflict and does not overwrite. Rollback success and rollback conflict both write audit events.
+Rollback restores only canonicalized `rollback_paths` listed in the snapshot action manifest after confirming current owner key matches the manifest owner key and current hashes match the persisted or recovered post-hash for the failed real-run phase. It must reject project canonical, provider mirrors, `personal/user`, `personal/imported`, catalog-only `personal/hub`, and any path outside `personal/agent` even if such a path appears in a malformed manifest. Rollback must resolve the home-relative manifest path through the current `resolvedSuperDolphinHome()`, then use `EvalSymlinks`/`lstat`-based traversal checks and reject symlinked path components, path traversal, hardlink surprises where detectable, and malformed manifests that resolve outside the owner canonical `personal/agent` root. `published_mirror_refs` are audit-only; rollback triggers a fresh publish after canonical restore instead of restoring mirror bytes. If any touched path lacks a persisted or recovered post-hash, belongs to another owner key, or changed after the failed real-run, rollback returns conflict and does not overwrite. Rollback success and rollback conflict both write audit events.
 
 - [ ] **Step 4: Run real-run tests**
 

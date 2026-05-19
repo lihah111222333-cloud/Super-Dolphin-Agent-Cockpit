@@ -33,7 +33,7 @@ type InputItem = shareddto.InputItem
 // SkillRef 是 turn / steer 请求中携带的 skill 引用。
 //
 // V1 cutover 之后，注入模式不再由 Mode 字段驱动：
-//   - Codex 通过 provider-native .codex/skills mirror 自己发现 skills
+//   - Codex 通过 provider-native .agents/skills mirror 自己发现 skills
 //   - Claude 通过 provider-native .claude/skills mirror / provider home skills 自己发现 skills
 //   - 旧 Mode/Effective() 三态已无生产消费方，spec §11 同步清理。
 //
@@ -46,7 +46,8 @@ type InputItem = shareddto.InputItem
 //   - Prompt：全文 SKILL.md body（仅 hydration 路径用作 fallback 容器；
 //     codex/claude provider 都不再消费此字段拼 turn input）。
 //   - Summary：摘要文本（UI/观测与 hydration 输出）。
-//   - Source：决策来源，供观测性日志划分 manual/force/trigger/expand/native。
+//   - Source：决策来源，供观测性日志划分 manual/force/trigger/native；
+//     expand 仅作为历史观测值兼容保留，V1 provider-native 链路不再产生它。
 type SkillRef struct {
 	Key          string      `json:"key,omitempty"`
 	Name         string      `json:"name"`
@@ -70,7 +71,7 @@ const (
 	SkillSourceForce SkillSource = "force"
 	// SkillSourceTrigger：匹配 TriggerWords，软命中，默认走 Summary。
 	SkillSourceTrigger SkillSource = "trigger"
-	// SkillSourceExpand：模型调用 skill_expand 后的二次注入。
+	// SkillSourceExpand：历史 skill_expand 二次注入来源；V1 不再由生产链路产生。
 	SkillSourceExpand SkillSource = "expand"
 	// SkillSourceNative：provider-native skills；本 harness 不注入 body，仅记录元数据。
 	SkillSourceNative SkillSource = "native"

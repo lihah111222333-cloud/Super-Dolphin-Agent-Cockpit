@@ -129,13 +129,13 @@ func TestParseSkillInfo_InvalidFrontmatterAndInvalidDefault_FallbackToProject(t 
 }
 
 func TestParseSkillInfo_AllowedTools(t *testing.T) {
-	content := "---\nname: foo\nallowed-tools: [Read, skill_expand]\n---\n\nbody"
+	content := "---\nname: foo\nallowed-tools: [Read, skill_read_section]\n---\n\nbody"
 	info := helperParse(t, content, TrustProject)
 	if len(info.AllowedTools) != 2 {
 		t.Fatalf("AllowedTools len = %d, want 2: %v", len(info.AllowedTools), info.AllowedTools)
 	}
 	joined := strings.Join(info.AllowedTools, ",")
-	if !strings.Contains(joined, "Read") || !strings.Contains(joined, "skill_expand") {
+	if !strings.Contains(joined, "Read") || !strings.Contains(joined, "skill_read_section") {
 		t.Fatalf("AllowedTools missing values: %v", info.AllowedTools)
 	}
 }

@@ -192,7 +192,6 @@ func assertPrepareTurnAssemblyInput(t *testing.T, req dto.TurnRequest, assembly 
 	require.Equal(t, "", req.Skills[0].Prompt)
 	require.Equal(t, "thread-1", assembly.lastTurnInput.ThreadID)
 	require.Equal(t, "please verify the cache", assembly.lastTurnInput.UserText)
-	require.Equal(t, "", assembly.lastTurnInput.SkillPrompt)
 	require.Equal(t, "/repo", assembly.lastTurnInput.CWD)
 	require.Equal(t, "claude-sonnet", assembly.lastTurnInput.Model)
 	require.Equal(t, "codex-thread", assembly.lastTurnInput.Provider)

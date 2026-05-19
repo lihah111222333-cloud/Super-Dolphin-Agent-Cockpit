@@ -210,12 +210,9 @@ Add explicit same-name tests for every personal type collision that can shadow a
 
 - `personal/user` vs `personal/agent`
 - `personal/user` vs `personal/imported`
-- `personal/user` vs `personal/hub`
 - `personal/agent` vs `personal/imported`
-- `personal/agent` vs `personal/hub`
-- `personal/imported` vs `personal/hub`
 
-For each pair, `EffectiveSet` must return `same_name` conflict entries that include both `scope=personal` and the exact `personal_type`; it must not pick a winner by type priority, trust, lowercased name, or filesystem scan order.
+For each active pair, `EffectiveSet` must return `same_name` conflict entries that include both `scope=personal` and the exact `personal_type`; it must not pick a winner by type priority, trust, lowercased name, or filesystem scan order. `personal/hub` is catalog-only and must not be scanned, mirrored, or treated as an active personal root.
 
 - [ ] **Step 2: Implement canonical records**
 
@@ -288,7 +285,7 @@ Expected: canonical store tests pass and existing scope tests still pass.
 
 - [ ] **Step 1: Write manifest round-trip tests**
 
-Test JSON uses the exact file name `.super-dolphin-skill-mirror.json` and records provider, scope, `personal_type`, canonical hash, mirror hash, and source type. Round-trip tests must prove `personal/user`, `personal/agent`, `personal/imported`, and `personal/hub` entries retain their exact type without inferring it from `canonical_id`.
+Test JSON uses the exact file name `.super-dolphin-skill-mirror.json` and records provider, scope, `personal_type`, canonical hash, mirror hash, and source type. Round-trip tests must prove active personal entries `personal/user`, `personal/agent`, and `personal/imported` retain their exact type without inferring it from `canonical_id`; `personal/hub` must be rejected for runtime mirror manifests.
 
 - [ ] **Step 2: Implement manifest schema**
 
@@ -341,13 +338,13 @@ Expected: manifest and hash tests pass.
 
 Cover these cases:
 
-- publish project canonical to `<repo>/.claude/skills/<name>` and `<repo>/.codex/skills/<name>`
-- publish personal canonical to `~/.super-dolphin/providers/{claude,codex}/skills/<name>`
+- publish project canonical to `<repo>/.claude/skills/<name>` and `<repo>/.agents/skills/<name>`
+- publish personal canonical to `~/.claude/skills/<name>` and `~/.agents/skills/<name>` by default
 - mirror includes `SKILL.md`, `references/`, `templates/`, `scripts/`
 - unmanaged same-name mirror is not overwritten
 - canonical deletion deletes owned, non-drifted mirror
 - mirror deletion is regenerated when canonical still exists
-- `.codex/skills/<name>/SKILL.md` is ignored by git
+- `.agents/skills/<name>/SKILL.md` is ignored by git
 - existing legacy `.claude/skills` symlink to `~/.multi-agent/skills-cache` is detected before writing and fails closed unless explicitly replaced by the V1 cutover path
 - non-owned provider mirror roots, unexpected symlinks, and symlinked final skill directories are not followed or overwritten
 - symlink entries inside canonical skill directories are rejected or copied as inert metadata, never followed
@@ -375,7 +372,7 @@ type SkillMirrorTarget struct {
 }
 ```
 
-`TargetID` is the stable logical provider target id used by publisher reports, audit records, V3 dry-run/snapshot records, and rollback manifests, for example `claude:project:<repo_fingerprint>` or `claude:app-managed:<owner_key>`. Runtime resolves `TargetID` to a physical root from trusted project/provider configuration; persisted reports must not rely on absolute provider mirror paths as identity.
+`TargetID` is the stable logical provider target id used by publisher reports, audit records, V3 dry-run/snapshot records, and rollback manifests, for example `claude:project:<repo_fingerprint>` or `claude:user-global:<owner_key>`. Runtime resolves `TargetID` to a physical root from trusted project/provider configuration; persisted reports must not rely on absolute provider mirror paths as identity.
 
 - [ ] **Step 3: Implement safe copy**
 
@@ -385,12 +382,12 @@ Publisher validates the mirror root and final target path with `lstat` before an
 
 Return a report with published, skipped, deleted, and conflicts. Every report item includes `target_id`, provider, scope, relative mirror path, canonical id, old/new hashes, and conflict kind. Provider startup in plan 02 will use this report to surface UI warnings without guessing, and V3 will persist only `target_id` plus relative mirror references for audit/snapshot records.
 
-- [ ] **Step 5: Add `.codex/` gitignore coverage**
+- [ ] **Step 5: Add `.agents/` gitignore coverage**
 
-Add `/.codex/` to `.gitignore` in this plan because foundation can already generate `<repo>/.codex/skills`. Add verification:
+Add `/.agents/` to `.gitignore` in this plan because foundation can already generate `<repo>/.agents/skills`. Add verification:
 
 ```bash
-git check-ignore -q .codex/skills/probe/SKILL.md
+git check-ignore -q .agents/skills/probe/SKILL.md
 ```
 
 Expected: generated Codex mirror content is ignored before provider cutover begins.
@@ -476,13 +473,13 @@ Cover:
 - `ImportLocalDir` publishes owned mirrors after successful import
 - `DeleteLocal` removes owned, non-drifted mirrors after canonical delete/archive
 - write-time publish conflict leaves canonical write result visible and returns a report with unresolved conflicts
-- personal canonical writes do not publish to a guessed default provider home when App-managed provider targets are not configured
+- personal canonical writes publish to provider-native user-global roots using temp HOME in tests, and never touch the real user's home during test runs
 
 - [ ] **Step 2: Implement write-time publish integration**
 
 Wire write/import/delete success paths to `SkillMirrorPublisher`. Provider startup reconcile remains in `02-v1-provider-cutover.md`; this step only ensures Super-Dolphin writes produce fresh mirrors when safe.
 
-Project mirrors are derivable from `cwd` and can be published by foundation. Personal mirrors require resolved App-managed provider targets. Do not let the skill service recompute `~/.claude`, `~/.codex`, `CLAUDE_HOME`, or `CODEX_HOME` for write-time publish. If explicit `SkillProviderMirrorTarget` values are not injected, personal write-time publish must return a structured `publish_targets_unconfigured` report and rely on provider startup reconcile after plan 02 wires resolved targets; it must not write to system homes or legacy defaults.
+Project mirrors are derivable from `cwd` and can be published by foundation. Personal mirrors are derivable from user-global provider-native roots by default: `~/.claude/skills` for Claude and `~/.agents/skills` for Codex. Explicit provider homes remain allowed only when injected/configured. Tests must set temp `HOME` before write-time personal publish, so unit tests never write the real user's provider directories.
 
 - [ ] **Step 3: Run write-time tests**
 
@@ -520,9 +517,9 @@ type SkillMirrorReconciler interface {
 }
 ```
 
-`HomeRoot` is the resolved provider home used by the launching driver, for example `~/.super-dolphin/providers/claude` or `~/.super-dolphin/providers/codex` in packaged mode. `SkillsRoot` is the exact provider-native skills directory under that home or project, depending on provider semantics. The reconciler must publish personal mirrors to the resolved App-managed provider home passed by the provider startup path; it must not recompute `~/.claude`, `~/.codex`, `CLAUDE_HOME`, or `CODEX_HOME` internally.
+`HomeRoot` is the provider-native parent root used for a mirror target. By default this is `~/.claude` for Claude personal skills and `~/.agents` for Codex personal skills; project targets use the project root; explicit provider homes may use their own `skills` subdirectory. `SkillsRoot` is the exact provider-native skills directory under that root or project.
 
-The provider-facing target intentionally does not accept a caller-supplied `TargetID`. The skill module derives the stable `SkillMirrorTarget.TargetID` server-side from trusted context: project targets use provider plus repo fingerprint, and personal App-managed targets use provider plus derived `owner_key`, for example `claude:project:<repo_fingerprint>` or `claude:app-managed:<owner_key>`. Tests must prove malicious or stale provider-start payloads cannot spoof target identity and that every publisher report item includes the derived `target_id`.
+The provider-facing target intentionally does not accept a caller-supplied `TargetID`. The skill module derives the stable `SkillMirrorTarget.TargetID` server-side from trusted context: project targets use provider plus repo fingerprint, default personal targets use `user-global` plus derived `owner_key`, and explicit provider homes use `explicit-home`, for example `claude:project:<repo_fingerprint>` or `claude:user-global:<owner_key>`. Tests must prove malicious or stale provider-start payloads cannot spoof target identity and that every publisher report item includes the derived `target_id`.
 
 Add a fail-closed mutation audit port for backend skill writes and resolution applies. This must not reuse best-effort candidate audit behavior. Tests must inject nil audit and insert failure and prove canonical, mirror, archive, and manifest paths remain unchanged.
 
@@ -611,10 +608,11 @@ If the Task 1 data-scope gate introduces or changes migrations, SQL queries, sto
 
 - D2 is fixed: no live `system` alias; V1 updates callers/tests, migrates persisted old metadata and old `~/.multi-agent/skills` content to `personal/user`, and stops runtime scanning the old root.
 - `personal/user` is the wire enum for human-authored personal skills; do not add a second `human` enum or directory in V1-V3.
+- `personal/hub` is catalog-only. It is not an active canonical root, not a valid write/import/delete target, and must not be published into provider-native mirrors.
 - Old global root configuration is fixed: `SKILLS_ROOT`, `defaultSkillsRoot()`, `systemGlobalSkillsRoot()`, and service `s.root` are not accepted as runtime skill roots after V1. They may remain only as explicit migration/import inputs with test coverage.
 - Same-name conflicts are fixed across both project/personal and personal/personal type pairs; foundation must never shadow by scan order, trust, type priority, or lowercase map overwrite.
 - Manifest location is fixed: mirror root contains `.super-dolphin-skill-mirror.json`, and each entry records exact `personal_type` where applicable instead of deriving it from path strings.
 - D9 is fixed: V1 provides low-level personal archive primitive; V3 provides pin/archive/restore user workflows.
 - Audit behavior is fixed: mutating conflict resolution fails closed if audit cannot be written.
-- Write-time publish is enabled in foundation only for targets that are explicitly derivable or injected. Personal provider mirrors must not be written to guessed system/default homes before plan 02 wires App-managed provider targets.
+- Write-time publish is enabled in foundation only for targets that are explicitly derivable or injected. Personal provider mirrors use provider-native user-global roots by default and must be isolated with temp `HOME` in tests.
 - Publisher safety is fixed: legacy `.claude/skills` symlinks and other unexpected provider-root symlinks are detected before write and fail closed instead of redirecting mirrors into old runtime caches.

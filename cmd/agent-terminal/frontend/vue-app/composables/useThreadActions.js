@@ -1,7 +1,6 @@
 import { ref } from '../../lib/vue.esm-browser.prod.js';
 import { callAPI } from '../services/api.js';
 import { logInfo, logWarn } from '../services/log.js';
-import { dropSkillNamesCoveredByRefs } from '../utils/skill-ref-utils.js';
 
 export function resolveProjectActionCwd(projectStore, windowCwd = '') {
   const active = (projectStore?.state?.active || '').toString().trim();
@@ -96,6 +95,18 @@ function formatMissingWorkDirSendNotice(error) {
   return `发送失败：该会话的工作目录已不存在。\n\n${target}\n\n请恢复该目录，或新建/重新绑定会话后继续。`;
 }
 
+function formatSkillConflictSendNotice(error) {
+  const text = errorTextCandidates(error).join('\n').replace(/\\"/g, '"');
+  const lower = text.toLowerCase();
+  const hasSkillConflict = lower.includes('skill mirror conflicts') || lower.includes('skill same-name conflict');
+  if (!hasSkillConflict) return '';
+  return '发送失败：当前项目有技能冲突，请到技能页面处理后再发送。';
+}
+
+function formatSendFailureNotice(error) {
+  return formatMissingWorkDirSendNotice(error) || formatSkillConflictSendNotice(error);
+}
+
 function formatCompactErrorMessage(error) {
   const code = (error?.code || '').toString().trim().toLowerCase();
   if (code === 'compact_timeout') return '压缩超时：未收到完成信号，请重试。';
@@ -112,52 +123,8 @@ function setCmdCardColsValue(cmdCardCols, value) {
   cmdCardCols.value = value;
 }
 
-const EMPTY_SKILL_SELECTION = Object.freeze({
-  enabled: false,
-  selectedSkills: [],
-  selectedSkillRefs: [],
-  manualSkillSelection: false,
-});
-
-function normalizeSelectedSkillNames(rawSelectedSkills) {
-  return Array.isArray(rawSelectedSkills)
-    ? rawSelectedSkills.map((item) => (item || '').toString().trim()).filter(Boolean)
-    : [];
-}
-
-function normalizeSelectedSkillRefs(rawSelectedSkillRefs) {
-  return Array.isArray(rawSelectedSkillRefs)
-    ? rawSelectedSkillRefs
-      .map((item) => {
-        const ref = {
-          key: (item?.key || '').toString().trim(),
-          name: (item?.name || '').toString().trim(),
-          scope: (item?.scope || '').toString().trim(),
-          personalType: (item?.personalType || item?.personal_type || '').toString().trim(),
-          path: (item?.path || '').toString().trim(),
-        };
-        const source = (item?.source || '').toString().trim();
-        if (source) ref.source = source;
-        return ref;
-      })
-      .filter((item) => item.key && item.name)
-    : [];
-}
-
-async function resolveLaunchStartPayload(text, focusMode, resolveLaunchSkillSelectionForStart) {
-  const rawSelection = typeof resolveLaunchSkillSelectionForStart === 'function'
-    ? await resolveLaunchSkillSelectionForStart(text)
-    : EMPTY_SKILL_SELECTION;
-  const selectedSkillRefs = normalizeSelectedSkillRefs(rawSelection?.selectedSkillRefs);
-  const selectedSkills = dropSkillNamesCoveredByRefs(normalizeSelectedSkillNames(rawSelection?.selectedSkills), selectedSkillRefs);
-  const manualSkillSelection = rawSelection?.manualSkillSelection === true;
-  const enabled = rawSelection?.enabled === true;
+async function resolveLaunchStartPayload(text, focusMode) {
   const startOptions = { focusMode };
-  if (enabled && (selectedSkills.length > 0 || selectedSkillRefs.length > 0 || manualSkillSelection)) {
-    if (selectedSkills.length > 0) startOptions.selectedSkills = selectedSkills;
-    if (selectedSkillRefs.length > 0) startOptions.selectedSkillRefs = selectedSkillRefs;
-    startOptions.manualSkillSelection = manualSkillSelection;
-  }
   // Forward the user's first message so the backend router has input to
   // classify against prompt_templates tags. Without this the router gets
   // an empty string and falls back to no injection.
@@ -171,10 +138,10 @@ async function resolveLaunchStartPayload(text, focusMode, resolveLaunchSkillSele
     startOptions.deferSpawn = true;
   }
   return {
-    enabled,
-    selectedSkills,
-    selectedSkillRefs,
-    manualSkillSelection,
+    enabled: false,
+    selectedSkills: [],
+    selectedSkillRefs: [],
+    manualSkillSelection: false,
     startOptions,
   };
 }
@@ -186,7 +153,6 @@ async function performSend({
   threadStore,
   projectStore,
   windowCwd,
-  resolveComposerSkillSelectionForSend,
   resolveLaunchSkillSelectionForStart,
   clearLaunchSkillSelection,
   resetSelectedComposerSkills,
@@ -199,32 +165,23 @@ async function performSend({
   if (!text.trim() && attachments.length === 0) return;
   sendFailureNotice.value = '';
 
-  let skillSelection = EMPTY_SKILL_SELECTION;
   const actionCwd = resolveProjectActionCwd(projectStore, windowCwd);
   if (!threadId) {
-    skillSelection = await resolveLaunchStartPayload(text, modeKey.value, resolveLaunchSkillSelectionForStart);
-    threadId = await threadStore.startThread(actionCwd, skillSelection.startOptions);
+    const launchPayload = await resolveLaunchStartPayload(text, modeKey.value, resolveLaunchSkillSelectionForStart);
+    threadId = await threadStore.startThread(actionCwd, launchPayload.startOptions);
     if (!threadId) return;
     selectedThreadId.value = threadId;
     if (typeof clearLaunchSkillSelection === 'function') {
       clearLaunchSkillSelection();
     }
-  } else {
-    skillSelection = await resolveComposerSkillSelectionForSend(threadId, text);
   }
-
-  const selectedSkillRefs = normalizeSelectedSkillRefs(skillSelection?.selectedSkillRefs);
-  const selectedSkills = dropSkillNamesCoveredByRefs(normalizeSelectedSkillNames(skillSelection?.selectedSkills), selectedSkillRefs);
-  const manualSkillSelection = skillSelection?.manualSkillSelection === true;
 
   const savedText = text;
   const savedAttachments = attachments;
   composer.clearComposer();
   resetSelectedComposerSkills();
   try {
-    const sendOptions = { manualSkillSelection, cwd: actionCwd };
-    if (selectedSkills.length > 0) sendOptions.selectedSkills = selectedSkills;
-    if (selectedSkillRefs.length > 0) sendOptions.selectedSkillRefs = selectedSkillRefs;
+    const sendOptions = { manualSkillSelection: false, cwd: actionCwd };
     await threadStore.sendMessage(threadId, text, attachments, sendOptions);
     scheduleScrollToBottom(true);
   } catch (err) {
@@ -235,7 +192,7 @@ async function performSend({
     // Restore composer content so the user doesn't lose their message
     composer.state.text = savedText;
     composer.state.attachments = [...savedAttachments];
-    sendFailureNotice.value = formatMissingWorkDirSendNotice(err);
+    sendFailureNotice.value = formatSendFailureNotice(err);
     throw err;
   }
 }
@@ -255,7 +212,6 @@ export function useThreadActions(props, deps) {
     isThreadInterruptible,
     beginInlineRename,
     scheduleScrollToBottom,
-    resolveComposerSkillSelectionForSend,
     resolveLaunchSkillSelectionForStart,
     clearLaunchSkillSelection,
     resetSelectedComposerSkills,
@@ -281,7 +237,6 @@ export function useThreadActions(props, deps) {
     composer,
     modeKey,
     threadStore: props.threadStore, projectStore: props.projectStore, windowCwd: props.windowCwd,
-    resolveComposerSkillSelectionForSend,
     resolveLaunchSkillSelectionForStart,
     clearLaunchSkillSelection, resetSelectedComposerSkills, scheduleScrollToBottom, sendFailureNotice,
   });

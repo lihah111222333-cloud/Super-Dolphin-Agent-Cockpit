@@ -69,7 +69,7 @@ Cover valid and invalid proposals:
 
 ```go
 func TestProposalSchemaRejectsProviderMirrorTarget(t *testing.T) {
-	p := Proposal{Scope: "personal", PersonalType: "agent", Action: "patch_skill", Target: ".codex/skills/x"}
+	p := Proposal{Scope: "personal", PersonalType: "agent", Action: "patch_skill", Target: ".agents/skills/x"}
 	if err := p.ValidateShape(); err == nil {
 		t.Fatal("expected provider mirror target rejection")
 	}

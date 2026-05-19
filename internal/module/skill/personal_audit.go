@@ -82,8 +82,9 @@ func (s *canonicalStore) applyPersonalSkillPolicy(records []canonicalSkillRecord
 	if err != nil {
 		return nil, err
 	}
+	sourceIDsByName := canonicalSourceIDsByName(records)
 	return filterCanonicalRecords(records, func(record canonicalSkillRecord) bool {
-		return keepCanonicalRecordForPersonalSelection(record, selectionByName)
+		return keepCanonicalRecordForPersonalSelection(record, selectionByName, sourceIDsByName)
 	}), nil
 }
 
@@ -100,12 +101,16 @@ func personalSelectionByName(selections []personalSkillKeepSelected) (map[string
 	return selectionByName, nil
 }
 
-func keepCanonicalRecordForPersonalSelection(record canonicalSkillRecord, selectionByName map[string]personalSkillKeepSelected) bool {
+func keepCanonicalRecordForPersonalSelection(record canonicalSkillRecord, selectionByName map[string]personalSkillKeepSelected, sourceIDsByName map[string]map[string]struct{}) bool {
 	selection, ok := selectionByName[strings.ToLower(record.Name)]
 	if !ok {
 		return true
 	}
 	sourceID := canonicalSourceID(record)
+	if strings.TrimSpace(selection.SelectedSourceID) != "" &&
+		!canonicalSourceIDExistsForName(sourceIDsByName, selection.Name, selection.SelectedSourceID) {
+		return true
+	}
 	if selectedCanonicalRecord(record, selection, sourceID) {
 		return true
 	}
@@ -161,76 +166,6 @@ func (s *canonicalStore) readPersonalSkillPolicy() (personalSkillPolicy, error) 
 		return personalSkillPolicy{}, nil
 	}
 	return policy, nil
-}
-
-func (s *service) writePersonalKeepSelectedPolicy(name string, sources []skillResolutionSource, selected skillResolutionSource) (string, error) {
-	name, err := validateSkillName(name)
-	if err != nil {
-		return "", err
-	}
-	if selected.Scope != skillScopePersonal {
-		return "", fmt.Errorf("selected source must be personal")
-	}
-	policy, path, ownerKey, err := s.readWritablePersonalSkillPolicy()
-	if err != nil {
-		return "", err
-	}
-	policy.Version = 1
-	policy.OwnerKey = ownerKey
-	policy.KeepSelected = upsertPersonalKeepSelected(policy.KeepSelected, buildPersonalKeepSelected(name, sources, selected))
-	return writeSkillPolicyJSON(path, policy, 0o600)
-}
-
-func (s *service) readWritablePersonalSkillPolicy() (personalSkillPolicy, string, string, error) {
-	home := s.resolvedSuperDolphinHome()
-	owner, err := resolveOwnerIdentity(home, defaultOwnerOSUID(), defaultAppProfile())
-	if err != nil {
-		return personalSkillPolicy{}, "", "", err
-	}
-	path := filepath.Join(home, "skills", personalSkillPolicyFile)
-	if err := validateOwnerOnlyFileMode(path); err != nil {
-		return personalSkillPolicy{}, "", "", err
-	}
-	var policy personalSkillPolicy
-	if err := readJSONFileIfExists(path, &policy); err != nil {
-		return personalSkillPolicy{}, "", "", err
-	}
-	if policy.OwnerKey != "" && policy.OwnerKey != owner.OwnerKey {
-		return personalSkillPolicy{}, "", "", fmt.Errorf("personal skill policy owner mismatch")
-	}
-	return policy, path, owner.OwnerKey, nil
-}
-
-func buildPersonalKeepSelected(name string, sources []skillResolutionSource, selected skillResolutionSource) personalSkillKeepSelected {
-	next := personalSkillKeepSelected{
-		Name:                 name,
-		SelectedSourceID:     selected.CanonicalID,
-		SelectedPersonalType: selected.PersonalType,
-		SelectedContentHash:  selected.ContentHash,
-	}
-	for _, source := range sources {
-		next.Sources = append(next.Sources, personalSkillPolicySource{
-			CanonicalID:  source.CanonicalID,
-			PersonalType: source.PersonalType,
-			ContentHash:  source.ContentHash,
-			Path:         filepath.ToSlash(source.Path),
-		})
-		if source.CanonicalID != selected.CanonicalID {
-			next.ExcludedSourceIDs = append(next.ExcludedSourceIDs, source.CanonicalID)
-		}
-	}
-	return next
-}
-
-func upsertPersonalKeepSelected(items []personalSkillKeepSelected, next personalSkillKeepSelected) []personalSkillKeepSelected {
-	filtered := items[:0]
-	for _, existing := range items {
-		if strings.EqualFold(existing.Name, next.Name) {
-			continue
-		}
-		filtered = append(filtered, existing)
-	}
-	return append(filtered, next)
 }
 
 func (s *service) personalDeleteArchiveRecord(name, scope, personalType, archiveDir, canonicalHash string, now time.Time) (personalSkillArchiveRecord, error) {

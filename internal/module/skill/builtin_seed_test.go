@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestSeedBuiltInSkillsInstallsHubSkillsAndPreservesExisting(t *testing.T) {
+func TestSeedBuiltInSkillsIsCatalogOnlyAndDoesNotWritePersonalHub(t *testing.T) {
 	home := t.TempDir()
 	existingDir := filepath.Join(home, "skills", "personal", personalSkillTypeHub, "测试驱动开发")
 	if err := os.MkdirAll(existingDir, 0o755); err != nil {
@@ -21,21 +21,19 @@ func TestSeedBuiltInSkillsInstallsHubSkillsAndPreservesExisting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seedBuiltInSkills: %v", err)
 	}
-	if written == 0 {
-		t.Fatalf("seedBuiltInSkills wrote 0 skills, want missing built-ins installed")
+	if written != 0 {
+		t.Fatalf("seedBuiltInSkills wrote %d skills, want catalog-only no-op", written)
 	}
 	assertSkillFileContent(t, filepath.Join(existingDir, skillMainFile), custom)
-	assertSkillFileExists(t, filepath.Join(home, "skills", "personal", personalSkillTypeHub, "使用超能力", skillMainFile))
+	assertSkillFileMissing(t, filepath.Join(home, "skills", "personal", personalSkillTypeHub, "使用超能力", skillMainFile))
 }
 
-func assertSkillFileExists(t *testing.T, path string) {
+func assertSkillFileMissing(t *testing.T, path string) {
 	t.Helper()
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat seeded skill %s: %v", path, err)
-	}
-	if info.IsDir() {
-		t.Fatalf("seeded skill path is directory: %s", path)
+	if _, err := os.Stat(path); err == nil {
+		t.Fatalf("skill file exists, want missing: %s", path)
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("stat skill file %s: %v", path, err)
 	}
 }
 

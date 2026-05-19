@@ -13,7 +13,6 @@ import { DiffPanel } from '../components/DiffPanel.js';
 import { ComposerBar } from '../components/ComposerBar.js';
 import { ContextUsageBanner } from '../components/ContextUsageBanner.js';
 import { ComposerForkDraftCard } from '../components/ComposerForkDraftCard.js';
-import { LaunchSkillPicker } from '../components/LaunchSkillPicker.js';
 import { ActivityPanel } from '../components/ActivityPanel.js';
 import { PathChoiceModal } from '../components/PathChoiceModal.js';
 import { normalizeStatus } from '../services/status.js';
@@ -26,7 +25,6 @@ import { useAutoScroll } from '../composables/useAutoScroll.js';
 import { useResizePanels } from '../composables/useResizePanels.js';
 import {
   useLaunchSkillSelection,
-  resolveLaunchSkillSelectionFeature,
 } from '../composables/useLaunchSkillSelection.js';
 import { useSkillPreview } from '../composables/useSkillPreview.js';
 import { useDiffPreview } from '../composables/useDiffPreview.js';
@@ -123,12 +121,8 @@ function resolveVisibleSelectedThreadId(threadStore, mode, visibleThreads) {
 function createPageLaunchSkillSelection(props, composer, selectedThreadId, skillRevision) {
   const activeCwdSource = resolvePageActiveCwdSource(props);
   const featureSource = computed(() => ({
-    threadFeatures: props.threadStore?.state?.features ?? {},
-    projectFeatures: props.projectStore?.state?.features ?? {},
-    launchSkillSelection: resolveLaunchSkillSelectionFeature(
-      props.threadStore?.state?.features ?? {},
-      props.projectStore?.state?.features ?? {},
-    ),
+    threadFeatures: { launchSkillSelection: false },
+    projectFeatures: { launchSkillSelection: false },
   }));
   return useLaunchSkillSelection({
     composer,
@@ -593,7 +587,6 @@ export const UnifiedChatPage = {
     ComposerBar,
     ContextUsageBanner,
     ComposerForkDraftCard,
-    LaunchSkillPicker,
     ActivityPanel,
     PathChoiceModal,
   },
@@ -704,6 +697,7 @@ export const UnifiedChatPage = {
       selectedThreadId,
       skillRevision,
       activeCwdSource: resolvePageActiveCwdSource(props),
+      enabled: false,
     });
     const launchSkills = createPageLaunchSkillSelection(props, composer, selectedThreadId, skillRevision);
     const activeThread = computed(() => threads.value.find((/** @type {any} */ item) => item.id === selectedThreadId.value) || null);

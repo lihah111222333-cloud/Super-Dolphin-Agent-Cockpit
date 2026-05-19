@@ -122,14 +122,14 @@ describe('SkillsPage', () => {
     expect(SkillsPage.template).toContain('新建技能');
     ['技能简介', '你可以修改简介和技能内容。'].forEach((text) => expect(SkillsPage.template).toContain(text));
     ['搜索技能名称、简介、关键词', '支持按名称、简介、关键词搜索', '暂无简介，点击编辑补充。'].forEach((text) => expect(SkillsPage.template).toContain(text));
-    ['帮我生成', '建议写成“当你需要……时使用”', 'data-testid="skills-summary-suggest-button"'].forEach((text) => expect(SkillsPage.template).toContain(text));
+    ['帮我生成', '建议写成“当你需要……时使用”', 'data-testid="skills-summary-suggest-button"', '编辑简介'].forEach((text) => expect(SkillsPage.template).toContain(text));
     expect(SkillsPage.template).toContain('关键词');
     expect(SkillsPage.template).toContain('可选填入，用于辅助匹配使用技能');
     expect(SkillsPage.template).toContain('外部版本');
     expect(SkillsPage.template).toContain('管理版本号');
     expect(['personal', 'project', 'all'].map((scope) => SkillsPage.template.indexOf(`skills-scope-filter-${scope}`))).toEqual([...['personal', 'project', 'all'].map((scope) => SkillsPage.template.indexOf(`skills-scope-filter-${scope}`))].sort((a, b) => a - b)); ['data-testid="skills-scope-filter-pending"', 'data-testid="candidates-panel"', 'data-testid="candidates-list"', 'skills-segmented-count">{{ pendingCandidates.length }}</span>'].forEach((text) => expect(SkillsPage.template).not.toContain(text)); expect(SkillsPage.template).not.toMatch(/candidate-(approve|reject|preview)-/);
     expect(SkillsPage.template).not.toMatch(/强制词|重点关键词|skill-word-chip-force/);
-    ['project（当前 cwd）', 'personal（个人技能）', '摘要（注入内容）', '搜索技能名称、摘要、适用场景', '搜索技能名称、简介、适用场景', '支持按名称、简介、适用场景搜索', '支持按名称、描述、摘要、适用场景搜索', '也可以填写 @xxx，对话里输入它时会自动使用这个技能', '暂无摘要，点击编辑补充。', '暂无描述', '运行时注入', 'frontmatter', '&lt;cwd&gt;', '新建 Skill', '保存 Skill', 'SKILL 列表', '{{ item.scope }} scope', "'provider'", 'source {{ item.source_hash }}', 'target {{ item.target_hash }}', '摘要来源', '你可以修改摘要和技能内容。'].forEach((text) => expect(SkillsPage.template).not.toContain(text));
+    ['project（当前 cwd）', 'personal（个人技能）', '摘要（注入内容）', '搜索技能名称、摘要、适用场景', '搜索技能名称、简介、适用场景', '支持按名称、简介、适用场景搜索', '支持按名称、描述、摘要、适用场景搜索', '也可以填写 @xxx，对话里输入它时会自动使用这个技能', '暂无摘要，点击编辑补充。', '暂无描述', '运行时注入', 'frontmatter', '&lt;cwd&gt;', '新建 Skill', '保存 Skill', 'SKILL 列表', '{{ item.scope }} scope', "'provider'", 'source {{ item.source_hash }}', 'target {{ item.target_hash }}', '摘要来源', '你可以修改摘要和技能内容。', '简介生成失败'].forEach((text) => expect(SkillsPage.template).not.toContain(text));
     expect(SkillsPage.template).not.toContain('导入位置');
     expect(SkillsPage.template).toContain('data-testid="skills-import-scope-modal"');
     expect(SkillsPage.template).toContain('这些技能导入后给谁使用');

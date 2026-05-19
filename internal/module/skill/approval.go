@@ -16,8 +16,8 @@ import (
 
 // ApprovalCache 是 P20 Phase 1 的 skill 审批决议持久化层。
 //
-// 目的：对不受信任域（TrustProject，来自 git clone）的 skill，在首次扫描或 `skill_expand`
-// 调用前要求用户审批；审批结果按 (name, content_hash[:12]) 键缓存，避免每次弹窗骚扰，
+// 目的：对不受信任域（TrustProject，来自 git clone）的 skill，在 artifact approval
+// 查询前提供可持久化的审批状态；审批结果按 (name, content_hash[:12]) 键缓存，避免每次弹窗骚扰，
 // 又能在 SKILL.md 改动后自动失效重审（TOCTOU 防护）。
 //
 // 存储格式（JSON，版本化）：
@@ -91,16 +91,16 @@ const approvalFileVersion = 1
 // ErrApprovalCachePathRequired 表示构造 cache 时必须提供非空路径。
 var ErrApprovalCachePathRequired = errors.New("approval cache path is required")
 
-// DefaultApprovalCachePath 返回默认的审批缓存文件路径（`~/.multi-agent/skills-trust.json`）。
+// DefaultApprovalCachePath 返回默认的审批缓存文件路径（`~/.super-dolphin/skills-trust.json`）。
 // 环境变量 `SKILLS_TRUST_PATH` 可覆盖；UserHomeDir 失败兜底到 os.TempDir()。
 func DefaultApprovalCachePath() string {
 	if override := strings.TrimSpace(os.Getenv("SKILLS_TRUST_PATH")); override != "" {
 		return override
 	}
 	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
-		return filepath.Join(home, ".multi-agent", "skills-trust.json")
+		return filepath.Join(home, ".super-dolphin", "skills-trust.json")
 	}
-	return filepath.Join(os.TempDir(), "multi-agent-skills-trust.json")
+	return filepath.Join(os.TempDir(), "super-dolphin-skills-trust.json")
 }
 
 // NewApprovalCache 从指定路径加载已有审批记录；文件不存在时返回空 cache（不报错）。

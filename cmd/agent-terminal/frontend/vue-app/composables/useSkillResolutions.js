@@ -1,9 +1,23 @@
 import { computed, ref } from '../../lib/vue.esm-browser.prod.js';
 import { applySkillResolution, listSkillResolutions, previewSkillResolution } from '../services/skills-api.js';
+import {
+  resolutionActionHelp,
+  resolutionActionLabel,
+  resolutionConflictGuide,
+  resolutionConflictKindLabel,
+  resolutionKindLabel,
+  resolutionPreviewIntro,
+  resolutionPreviewItemPaths,
+  resolutionPreviewItemSummary,
+  resolutionProviderEntryLabel,
+  resolutionProviderLabel,
+  resolutionShortHash,
+} from './useSkillResolutionCopy.js';
 
 function requiresResolutionNewName(action) {
   return action === 'save_as_new_skill'
-    || action === 'save_as_new_personal_skill';
+    || action === 'save_as_new_personal_skill'
+    || action === 'rename_personal';
 }
 
 function isResolutionViewAction(action) {
@@ -16,6 +30,11 @@ function isResolutionPreviewOnlyAction(action) {
 
 function resolutionRequiresApply(action) {
   return !isResolutionViewAction(action) && !isResolutionPreviewOnlyAction(action);
+}
+
+function defaultResolutionNewName(conflict, action) {
+  const base = (conflict?.name || conflict?.skill_name || 'skill').toString().trim() || 'skill';
+  return `${base}${action === 'save_as_new_personal_skill' ? '-private' : '-copy'}`;
 }
 
 const actionableResolutionActions = new Set([
@@ -31,7 +50,10 @@ const actionableResolutionActions = new Set([
   'import_to_personal_imported',
   'import_to_project',
   'takeover_provider_skill',
-  'disable_personal_for_project',
+  'use_project_shared_skill',
+  'use_external_provider_skill',
+  'replace_provider_root_symlink',
+  'rename_personal',
   'keep_selected',
 ]);
 
@@ -59,14 +81,9 @@ function resolutionSourcePersonalType(source) {
   return (source?.personal_type || source?.personalType || '').toString().trim().toLowerCase();
 }
 
-function sameNamePersonalSource(conflict) {
+function sameNameProjectSources(conflict) {
   const sources = Array.isArray(conflict?.sources) ? conflict.sources : [];
-  return sources.find((source) => resolutionSourceScope(source) === 'personal') || null;
-}
-
-function sameNameProjectSource(conflict) {
-  const sources = Array.isArray(conflict?.sources) ? conflict.sources : [];
-  return sources.find((source) => resolutionSourceScope(source) === 'project') || null;
+  return sources.filter((source) => resolutionSourceScope(source) === 'project');
 }
 
 function firstResolutionSourceID(conflict) {
@@ -76,15 +93,10 @@ function firstResolutionSourceID(conflict) {
 
 function resolutionSameNamePayloadFields(conflict, action, entry = null) {
   switch (action) {
-    case 'disable_personal_for_project': {
-      const source = entry?.source || sameNamePersonalSource(conflict);
-      return {
-        disablePolicyTarget: resolutionSourceID(source),
-        personalType: resolutionSourcePersonalType(source) || conflict?.personal_type || '',
-      };
-    }
+    case 'rename_personal':
     case 'keep_selected': {
-      const selected = entry?.source || sameNamePersonalSource(conflict) || sameNameProjectSource(conflict);
+      const sources = Array.isArray(conflict?.sources) ? conflict.sources : [];
+      const selected = entry?.source || sources.find((source) => resolutionSourceScope(source) === 'personal') || sources.find((source) => resolutionSourceScope(source) === 'project');
       return { keepSourceID: resolutionSourceID(selected) || firstResolutionSourceID(conflict) };
     }
     case 'merge_manually':
@@ -97,67 +109,11 @@ function resolutionSameNamePayloadFields(conflict, action, entry = null) {
   }
 }
 
-function resolutionKindLabel(kind) {
-  const value = (kind || '').toString().trim().toLowerCase();
-  return ({
-    mirror_drift: '外部版本有改动',
-    unmanaged_provider_skill: '发现外部技能',
-    unmanaged: '发现外部技能',
-    same_name: '同名技能',
-    same_name_scope_conflict: '同名技能',
-  }[value] || '需要处理');
-}
-
-function resolutionProviderLabel(provider) {
-  const value = (provider || '').toString().trim();
-  const normalized = value.toLowerCase();
-  if (normalized === 'claude') return 'Claude';
-  if (normalized === 'codex') return 'Codex';
-  return value || '外部应用';
-}
-
-function resolutionConflictGuide(conflict) {
-  const kind = (conflict?.kind || '').toString().trim().toLowerCase();
-  if (kind === 'same_name' || kind === 'same_name_scope_conflict') {
-    const personalCount = sameNamePersonalSources(conflict).length;
-    if (!sameNameHasProjectSource(conflict) && personalCount > 1) {
-      return '发现多个同名的私人技能。请选择要优先使用的版本，其他版本不会被删除。';
-    }
-    return '发现多个同名技能。请选择要优先使用的版本，其他版本不会被删除。';
-  }
-  if (kind === 'unmanaged_provider_skill' || kind === 'unmanaged_same_name' || kind === 'unmanaged') {
-    return '外部应用里有一个还没纳入管理的技能。可以导入后统一管理，或只保留在外部应用里。';
-  }
-  if (kind === 'canonical_deleted_with_drift') {
-    return '本项目里的技能已不存在，但外部应用里还有改过的版本。请选择恢复、另存或删除外部版本。';
-  }
-  return '外部应用里的技能和本项目管理的技能不一致。请选择下面一种处理方式。';
-}
-
-function resolutionActionHelp(action) {
-  return ({
-    view_diff: '只查看两个版本分别在哪里，不会修改文件。',
-    view_unmanaged: '只查看外部技能位置，不会修改文件。',
-    sync_back_to_canonical: '保留 Claude/Codex 里的修改，写回本项目管理的技能。',
-    canonical_overwrite_mirror: '丢弃 Claude/Codex 里的修改，用本项目当前技能重新同步。',
-    save_as_new_skill: '保留两边内容，把外部版本存成一个新的项目共享技能。',
-    confirm_delete_drifted_mirror: '删除外部异常版本，下次会按本项目管理的技能重新生成。',
-    sync_back_to_personal: '保留 Claude/Codex 里的修改，写回私人技能。',
-    personal_overwrite_mirror: '丢弃 Claude/Codex 里的修改，用私人技能重新同步。',
-    save_as_new_personal_skill: '保留两边内容，把外部版本存成一个新的私人技能。',
-    import_to_personal_imported: '把外部技能导入为私人使用，之后由本项目管理。',
-    import_to_project: '把外部技能导入为项目共享，项目成员都能使用。',
-    takeover_provider_skill: '把外部技能纳入当前作用域管理，后续统一同步。',
-    disable_personal_for_project: '当前项目使用项目共享版本，不删除私人技能。',
-    keep_selected: '选择后优先使用这个版本，不删除其他同名技能。',
-  }[action] || '执行前会先预览，不会直接写入。');
-}
-
 function resolutionManualSteps(conflict) {
   const kind = (conflict?.kind || '').toString().trim().toLowerCase();
   const actions = Array.isArray(conflict?.available_actions) ? conflict.available_actions : [];
   if (kind === 'same_name' || kind === 'same_name_scope_conflict') {
-    if (actions.includes('disable_personal_for_project') || actions.includes('keep_selected')) {
+    if (actions.includes('keep_selected') || actions.includes('rename_personal')) {
       return [];
     }
     return [
@@ -167,80 +123,6 @@ function resolutionManualSteps(conflict) {
     ];
   }
   return [];
-}
-
-function resolutionPreviewIntro(preview) {
-  const action = (preview?.action || '').toString().trim();
-  if (action === 'view_diff' || action === 'view_unmanaged') {
-    return '下面只说明两个版本分别在哪里，不会修改文件。';
-  }
-  return '请先确认将要写入的位置，确认应用后才会修改文件。';
-}
-
-function resolutionShortHash(hash) {
-  return (hash || '').toString().trim().slice(0, 8);
-}
-
-function resolutionPreviewItemPaths(item, action = '') {
-  const paths = [];
-  const sourcePath = (item?.source_path || item?.sourcePath || '').toString().trim();
-  const targetPath = (item?.target_path || item?.targetPath || '').toString().trim();
-  const normalizedAction = (action || item?.action || '').toString().trim();
-  const overwrite = normalizedAction === 'canonical_overwrite_mirror' || normalizedAction === 'personal_overwrite_mirror';
-  const importAction = normalizedAction === 'import_to_personal_imported' || normalizedAction === 'import_to_project' || normalizedAction === 'takeover_provider_skill';
-  const sourceLabel = overwrite ? '本项目版本' : '外部版本';
-  let targetLabel = overwrite ? '外部版本' : '本项目版本';
-  if (importAction) targetLabel = '保存位置';
-  if (sourcePath) paths.push({ label: sourceLabel, value: sourcePath });
-  if (targetPath && targetPath !== sourcePath) paths.push({ label: targetLabel, value: targetPath });
-  return paths;
-}
-
-function resolutionPreviewItemSummary(item, action = '') {
-  const provider = resolutionProviderLabel(item?.provider || item?.source_provider);
-  switch ((action || item?.action || '').toString().trim()) {
-    case 'sync_back_to_canonical':
-    case 'sync_back_to_personal':
-      return `将把 ${provider} 里的版本写回本项目管理的技能。`;
-    case 'canonical_overwrite_mirror':
-    case 'personal_overwrite_mirror':
-      return `将用本项目管理的技能覆盖 ${provider} 里的版本。`;
-    case 'save_as_new_skill':
-    case 'save_as_new_personal_skill':
-      return `将把 ${provider} 里的版本另存为新技能。`;
-    case 'confirm_delete_drifted_mirror':
-      return `将删除 ${provider} 里的异常版本。`;
-    case 'import_to_personal_imported':
-      return `将把 ${provider} 里的技能导入为私人使用。`;
-    case 'import_to_project':
-      return `将把 ${provider} 里的技能导入为项目共享。`;
-    case 'takeover_provider_skill':
-      return `将把 ${provider} 里的技能纳入本项目管理。`;
-    default:
-      return `${provider} 里的版本和本项目管理的版本不一致。`;
-  }
-}
-
-function resolutionActionLabel(action) {
-  return ({
-    view_diff: '查看两个版本',
-    view_unmanaged: '查看外部版本',
-    sync_back_to_canonical: '用外部修改更新本项目',
-    canonical_overwrite_mirror: '用本项目内容覆盖外部版本',
-    save_as_new_skill: '另存为新技能',
-    confirm_delete_drifted_mirror: '删除外部异常版本',
-    sync_back_to_personal: '用外部修改更新私人技能',
-    personal_overwrite_mirror: '用私人技能覆盖外部版本',
-    save_as_new_personal_skill: '另存为新私人技能',
-    import_to_personal_imported: '导入到私人使用',
-    import_to_project: '导入到项目共享',
-    takeover_provider_skill: '纳入管理',
-    rename_personal: '重命名私人技能',
-    disable_personal_for_project: '使用项目共享版本',
-    rename_personal_type: '更改私人技能类型',
-    merge_manually: '手动合并',
-    keep_selected: '使用选中的版本',
-  }[action] || '处理');
 }
 
 function sameNameResolutionConflict(conflict) {
@@ -272,11 +154,50 @@ function sameNamePersonalVersionText(source, hasProjectSource = false) {
 function sameNameProjectVersionEntry(source) {
   return {
     action: 'keep_selected',
-    label: '使用项目共享版本',
-    help: '之后优先使用项目共享版本，其他同名技能不会被删除。',
+    label: '用项目共享版本，删除其他版本',
+    help: '保留项目共享版本，删除其他同名版本。',
     source,
     sourceID: resolutionSourceID(source),
   };
+}
+
+function sameNameProjectVersionEntryForSource(source, multipleProjectSources = false) {
+  if (!multipleProjectSources) return sameNameProjectVersionEntry(source);
+  const leaf = resolutionSourcePathLeaf(source) || resolutionSourceID(source).replace(/^project\//, '') || '项目共享版本';
+  return {
+    action: 'keep_selected',
+    label: `用项目共享版本：${leaf}，删除其他版本`,
+    help: '保留这个项目共享版本，删除其他同名版本。',
+    source,
+    sourceID: resolutionSourceID(source),
+  };
+}
+
+function sameNameRenameEntry(source, includeSourceLeaf = false) {
+  return {
+    action: 'rename_personal',
+    label: `改名保存${sameNameSourceShortText(source, includeSourceLeaf)}`,
+    help: '把这个版本改成新名称，原来的同名冲突会保留为不同技能。',
+    source,
+    sourceID: resolutionSourceID(source),
+  };
+}
+
+function sameNameSourceShortText(source, includeSourceLeaf = false) {
+  if (resolutionSourceScope(source) === 'project') {
+    const leaf = includeSourceLeaf ? resolutionSourcePathLeaf(source) || resolutionSourceID(source).replace(/^project\//, '') : '';
+    return leaf ? `项目共享版本：${leaf}` : '项目共享版本';
+  }
+  return sameNamePersonalVersionText(source, true);
+}
+
+function resolutionSourcePathLeaf(source) {
+  const path = (source?.path || source?.skill_file || source?.skillFile || '').toString().trim().replace(/\\/g, '/');
+  if (!path) return '';
+  const parts = path.split('/').filter(Boolean);
+  const leaf = parts[parts.length - 1] || '';
+  if (leaf === 'SKILL.md' && parts.length > 1) return parts[parts.length - 2] || '';
+  return leaf;
 }
 
 function resolutionActionEntryLabel(entry) {
@@ -293,15 +214,89 @@ function resolutionActionSectionTitle(conflict) {
 
 function resolutionActionFootnote(conflict) {
   if (!sameNameResolutionConflict(conflict)) return '';
-  return '选择后只会设置优先使用的版本，不会删除其他技能。以后也可以通过改名或删除来彻底消除冲突。';
+  return '处理后同名冲突会立即消失。';
 }
 
 function resolutionActionEntryTarget(actionEntry, providerEntry) {
+  if (providerEntry?.merged_provider_entry && actionEntry?.action === 'view_unmanaged') {
+    return {
+      ...providerEntry,
+      provider: '',
+      source_path_id: '',
+      sourcePathId: '',
+    };
+  }
   return actionEntry?.source ? actionEntry : providerEntry;
 }
 
 function resolutionActionAutoApplies(action) {
-  return action === 'disable_personal_for_project' || action === 'keep_selected';
+  return action === 'keep_selected';
+}
+
+function resolutionActionAutoAppliesForConflict(action, conflict) {
+  if (resolutionActionAutoApplies(action)) return true;
+  if (action === 'rename_personal') return true;
+  if (externalPersonalProjectResolutionConflict(conflict)) {
+    return action === 'use_project_shared_skill'
+      || action === 'use_external_provider_skill'
+      || action === 'save_as_new_personal_skill';
+  }
+  return false;
+}
+
+function personalDeletedDriftResolutionConflict(conflict) {
+  return (conflict?.kind || '').toString().trim().toLowerCase() === 'canonical_deleted_with_drift'
+    && (conflict?.scope || '').toString().trim().toLowerCase() === 'personal';
+}
+
+function personalDeletedDriftActionEntry(action) {
+  const labels = {
+    sync_back_to_personal: '继续私人使用',
+    confirm_delete_drifted_mirror: '使用项目共享版本，删除旧私人版本',
+  };
+  const helps = {
+    sync_back_to_personal: '恢复为私人使用，Claude/Codex 会继续读取这个私人版本。',
+    confirm_delete_drifted_mirror: '删除 Claude/Codex 里的旧私人版本；如果项目共享里已有同名技能，会继续使用项目共享版本。',
+  };
+  return { action, label: labels[action] || resolutionActionLabel(action), help: helps[action] || resolutionActionHelp(action) };
+}
+
+function externalPersonalProjectActionEntry(action) {
+  const labels = {
+    use_project_shared_skill: '使用项目共享版本，删除旧私人版本',
+    use_external_provider_skill: '继续私人使用，替换项目共享版本',
+  };
+  return { action, label: labels[action] || resolutionActionLabel(action), help: resolutionActionHelp(action) };
+}
+
+function resolutionNamePromptHelpText(prompt) {
+  if (!prompt) return '';
+  return prompt.autoApply
+    ? `${prompt.label}，会立刻处理这个冲突。`
+    : `${prompt.label}，生成预览后再确认应用。`;
+}
+
+function resolutionNamePromptButtonText(prompt, actioning) {
+  if (!prompt) return '生成预览';
+  if (actioning === prompt.applyKey) {
+    return prompt.autoApply ? '处理中...' : '生成中...';
+  }
+  return prompt.autoApply ? prompt.label : '生成预览';
+}
+
+function resolutionConflictNotFound(error) {
+  return (error?.message || String(error || '')).includes('resolution conflict not found');
+}
+
+function resolutionConflictShapePart(value) {
+  return (value || '').toString().trim().toLowerCase();
+}
+
+function sameResolutionConflictShape(left, right) {
+  return resolutionConflictShapePart(left?.name || left?.skill_name) === resolutionConflictShapePart(right?.name || right?.skill_name)
+    && resolutionConflictShapePart(left?.kind) === resolutionConflictShapePart(right?.kind)
+    && resolutionConflictShapePart(left?.scope) === resolutionConflictShapePart(right?.scope)
+    && resolutionConflictShapePart(left?.personal_type || left?.personalType) === resolutionConflictShapePart(right?.personal_type || right?.personalType);
 }
 
 async function applyResolutionPreviewNow(preview, payload) {
@@ -319,11 +314,198 @@ async function applyResolutionPreviewNow(preview, payload) {
   });
 }
 
-export function useSkillResolutions({ activeCwdSource, emit, setNotice }) {
+function groupedResolutionProviderEntries(conflict, entries) {
+  if (!externalProviderResolutionConflict(conflict) || entries.length < 2) {
+    return entries;
+  }
+  const groups = [];
+  const byHash = new Map();
+  for (const entry of entries) {
+    const hash = (entry?.source_hash || entry?.sourceHash || '').toString().trim();
+    if (!hash) return entries;
+    if (!byHash.has(hash)) {
+      const group = [];
+      byHash.set(hash, group);
+      groups.push(group);
+    }
+    byHash.get(hash).push(entry);
+  }
+  return groups.flatMap((group) => {
+    if (group.length === 1) return group;
+    const providers = group.map((entry) => (entry?.provider || '').toString().trim()).filter(Boolean);
+    return [{
+      ...group[0],
+      provider_entries: group,
+      provider_group: providers,
+      display_label: providers.map(resolutionProviderLabel).join('、'),
+      merged_provider_entry: true,
+    }];
+  });
+}
+
+function externalProviderResolutionConflict(conflict) {
+  const kind = (conflict?.kind || '').toString().trim().toLowerCase();
+  return kind === 'unmanaged_provider_skill' || kind === 'unmanaged_same_name' || kind === 'unmanaged' || kind === 'external_personal_project_same_name';
+}
+
+function externalPersonalProjectResolutionConflict(conflict) {
+  return (conflict?.kind || '').toString().trim().toLowerCase() === 'external_personal_project_same_name';
+}
+
+function createResolutionNamePromptHandlers({
+  resolutionPreview,
+  resolutionNamePrompt,
+  resolutionNameInput,
+  resolutionProviderEntry,
+  resolutionApplyKey,
+  setNotice,
+  runResolutionAction,
+}) {
+  function requestResolutionNewName(conflict, selectedAction, entry = null) {
+    const providerEntry = entry || resolutionProviderEntry(conflict);
+    resolutionPreview.value = null;
+    resolutionNamePrompt.value = {
+      conflict,
+      action: selectedAction,
+      entry: providerEntry,
+      applyKey: resolutionApplyKey(conflict, selectedAction, providerEntry),
+      label: resolutionActionLabel(selectedAction),
+      autoApply: resolutionActionAutoAppliesForConflict(selectedAction, conflict),
+    };
+    resolutionNameInput.value = defaultResolutionNewName(conflict, selectedAction);
+    setNotice('info', '请输入新技能名称后继续。');
+  }
+
+  function clearResolutionNamePrompt() {
+    resolutionNamePrompt.value = null;
+    resolutionNameInput.value = '';
+  }
+
+  async function confirmResolutionNewName() {
+    const prompt = resolutionNamePrompt.value;
+    if (!prompt) return;
+    const newName = resolutionNameInput.value.toString().trim();
+    if (!newName) {
+      setNotice('error', '请输入新技能名称。');
+      return;
+    }
+    const ok = await runResolutionAction(prompt.conflict, prompt.action, prompt.entry, newName);
+    if (ok) clearResolutionNamePrompt();
+  }
+
+  function resolutionNamePromptApplies(conflict, entry = null) {
+    const prompt = resolutionNamePrompt.value;
+    if (!prompt) return false;
+    if (prompt.applyKey === resolutionApplyKey(conflict, prompt.action, entry || resolutionProviderEntry(conflict))) return true;
+    const promptConflictID = (prompt.conflict?.conflict_id || '').toString().trim();
+    const conflictID = (conflict?.conflict_id || '').toString().trim();
+    return sameNameResolutionConflict(conflict)
+      && promptConflictID !== ''
+      && promptConflictID === conflictID
+      && Boolean(prompt.entry?.source);
+  }
+
+  return {
+    requestResolutionNewName,
+    clearResolutionNamePrompt,
+    confirmResolutionNewName,
+    resolutionNamePromptApplies,
+  };
+}
+
+function createResolutionPreviewApplies({ resolutionPreview, resolutionProviderEntry }) {
+  return function resolutionPreviewApplies(conflict, entry = null) {
+    const preview = resolutionPreview.value;
+    if (!preview) return false;
+    const payload = preview.payload || {};
+    const conflictID = (conflict?.conflict_id || '').toString().trim();
+    if (!conflictID || (payload.conflictId || '').toString().trim() !== conflictID) return false;
+    const previewSource = (payload.sourcePathId || payload.provider || payload.sourceProvider || '').toString().trim();
+    const targetEntry = entry || resolutionProviderEntry(conflict);
+    const entrySource = (targetEntry?.source_path_id || targetEntry?.sourcePathId || targetEntry?.provider || targetEntry?.sourceID || '').toString().trim();
+    return !previewSource || !entrySource || previewSource === entrySource;
+  };
+}
+
+function createResolutionListHandlers({
+  activeCwdSource,
+  resolutionConflicts,
+  resolutionLoading,
+  resolutionPreview,
+  resolutionNamePrompt,
+  resolutionNameInput,
+  resolutionPanelCollapsed,
+  resolutionLoadError,
+  setNotice,
+  onNoConflicts,
+}) {
+  async function refreshSkillResolutions(options = {}) {
+    const notify = options?.notify !== false;
+    const notifyOnError = notify || options?.notifyOnError === true;
+    const collapseOnConflict = options?.collapseOnConflict === true;
+    resolutionLoading.value = true;
+    try {
+      const conflicts = await listSkillResolutions(activeCwdSource.value);
+      const normalizedConflicts = conflicts.map(normalizeResolutionConflict);
+      resolutionConflicts.value = normalizedConflicts;
+      resolutionLoadError.value = '';
+      resolutionPanelCollapsed.value = collapseOnConflict && conflicts.length > 0;
+      if (normalizedConflicts.length === 0 && typeof onNoConflicts === 'function') onNoConflicts();
+      if (notify) setNotice('info', conflicts.length > 0 ? `发现 ${conflicts.length} 个技能冲突待处理。` : '');
+      return normalizedConflicts;
+    } catch (error) {
+      resolutionLoadError.value = error?.message || String(error || '');
+      if (notifyOnError) setNotice('error', `读取技能冲突失败：${error?.message || error}`);
+      return null;
+    } finally {
+      resolutionLoading.value = false;
+    }
+  }
+
+  function resetSkillResolutions() {
+    resolutionConflicts.value = [];
+    resolutionPreview.value = null;
+    resolutionNamePrompt.value = null;
+    resolutionNameInput.value = '';
+    resolutionPanelCollapsed.value = false;
+    resolutionLoadError.value = '';
+  }
+
+  return { refreshSkillResolutions, resetSkillResolutions };
+}
+
+function createMissingResolutionConflictHandler({
+  resolutionPreview,
+  resolutionNamePrompt,
+  resolutionNameInput,
+  listHandlers,
+  setNotice,
+}) {
+  return async function handleMissingResolutionConflict(error, conflict) {
+    if (!resolutionConflictNotFound(error)) return false;
+    resolutionPreview.value = null;
+    resolutionNamePrompt.value = null;
+    resolutionNameInput.value = '';
+    const refreshed = await listHandlers.refreshSkillResolutions({ notify: false, notifyOnError: true });
+    if (!Array.isArray(refreshed)) return true;
+    const stillNeedsAttention = refreshed.some((item) => sameResolutionConflictShape(item, conflict));
+    setNotice(
+      'info',
+      stillNeedsAttention
+        ? '这个技能冲突已经变化，列表已刷新，请按新的处理方式操作。'
+        : '这个技能冲突已经处理或不存在，列表已刷新。',
+    );
+    return true;
+  };
+}
+
+export function useSkillResolutions({ activeCwdSource, emit, setNotice, onNoConflicts }) {
   const resolutionConflicts = ref([]);
   const resolutionLoading = ref(false);
   const resolutionActioning = ref('');
   const resolutionPreview = ref(null);
+  const resolutionNamePrompt = ref(null);
+  const resolutionNameInput = ref('');
   const resolutionPanelCollapsed = ref(false);
   const resolutionLoadError = ref('');
   const resolutionConflictAlertText = computed(() => {
@@ -343,40 +525,9 @@ export function useSkillResolutions({ activeCwdSource, emit, setNotice }) {
     resolutionPanelCollapsed.value = !resolutionPanelCollapsed.value;
   }
 
-  async function refreshSkillResolutions(options = {}) {
-    const notify = options?.notify !== false;
-    const notifyOnError = notify || options?.notifyOnError === true;
-    const collapseOnConflict = options?.collapseOnConflict === true;
-    resolutionLoading.value = true;
-    try {
-      const conflicts = await listSkillResolutions(activeCwdSource.value);
-      resolutionConflicts.value = conflicts.map(normalizeResolutionConflict);
-      resolutionLoadError.value = '';
-      resolutionPanelCollapsed.value = collapseOnConflict && conflicts.length > 0;
-      if (notify) {
-        setNotice(
-          conflicts.length > 0 ? 'info' : 'success',
-          conflicts.length > 0 ? `发现 ${conflicts.length} 个技能冲突待处理。` : '暂无技能冲突。',
-        );
-      }
-    } catch (error) {
-      resolutionLoadError.value = error?.message || String(error || '');
-      if (notifyOnError) setNotice('error', `读取技能冲突失败：${error?.message || error}`);
-    } finally {
-      resolutionLoading.value = false;
-    }
-  }
-
-  function resetSkillResolutions() {
-    resolutionConflicts.value = [];
-    resolutionPreview.value = null;
-    resolutionPanelCollapsed.value = false;
-    resolutionLoadError.value = '';
-  }
-
   function resolutionTitle(conflict) {
     const name = (conflict?.name || conflict?.skill_name || '').toString().trim() || '(unnamed)';
-    return `${name} · ${resolutionKindLabel(conflict?.kind)}`;
+    return `${name} · ${resolutionConflictKindLabel(conflict)}`;
   }
 
   function resolutionProviderEntry(conflict) {
@@ -385,7 +536,7 @@ export function useSkillResolutions({ activeCwdSource, emit, setNotice }) {
 
   function resolutionProviderEntries(conflict) {
     const entries = Array.isArray(conflict?.provider_entries) ? conflict.provider_entries : [];
-    if (entries.length > 0) return entries;
+    if (entries.length > 0) return groupedResolutionProviderEntries(conflict, entries);
     const provider = (conflict?.provider || conflict?.source_provider || '').toString().trim();
     if (!provider) return [{}];
     return [{
@@ -402,37 +553,40 @@ export function useSkillResolutions({ activeCwdSource, emit, setNotice }) {
   function resolutionActionEntries(conflict) {
     const actions = (Array.isArray(conflict?.available_actions) ? conflict.available_actions : [])
       .filter((action) => !resolutionActionUnsupported(action));
+    if (personalDeletedDriftResolutionConflict(conflict)) {
+      return actions.map(personalDeletedDriftActionEntry);
+    }
+    if (externalPersonalProjectResolutionConflict(conflict)) {
+      const allowed = new Set(['view_diff', 'use_project_shared_skill', 'use_external_provider_skill', 'save_as_new_personal_skill']);
+      return actions.filter((action) => allowed.has(action)).map(externalPersonalProjectActionEntry);
+    }
     if (!sameNameResolutionConflict(conflict)) {
       return actions.map((action) => ({ action }));
     }
     const entries = [];
     const personalSources = sameNamePersonalSources(conflict);
+    const projectSources = sameNameProjectSources(conflict);
     const hasProjectSource = sameNameHasProjectSource(conflict);
-    const projectSource = sameNameProjectSource(conflict);
-    if (actions.includes('keep_selected') && projectSource) {
-      entries.push(sameNameProjectVersionEntry(projectSource));
-    } else if (actions.includes('disable_personal_for_project')) {
-      const source = sameNamePersonalSource(conflict);
-      if (source) {
-        entries.push({
-          action: 'disable_personal_for_project',
-          label: '使用项目共享版本',
-          help: '之后优先使用项目共享版本，私人技能不会被删除。',
-          source,
-          sourceID: resolutionSourceID(source),
-        });
-      }
+    if (actions.includes('keep_selected') && projectSources.length > 0) {
+      projectSources.forEach((source) => {
+        entries.push(sameNameProjectVersionEntryForSource(source, projectSources.length > 1));
+      });
     }
     if (actions.includes('keep_selected')) {
       personalSources.forEach((source) => {
         const versionText = sameNamePersonalVersionText(source, hasProjectSource);
         entries.push({
           action: 'keep_selected',
-          label: `使用${versionText}`,
-          help: `之后优先使用这个${versionText}，其他同名技能不会被删除。`,
+          label: `用${versionText}，删除其他版本`,
+          help: `保留这个${versionText}，删除其他同名版本。`,
           source,
           sourceID: resolutionSourceID(source),
         });
+      });
+    }
+    if (actions.includes('rename_personal')) {
+      [...projectSources, ...personalSources].forEach((source) => {
+        entries.push(sameNameRenameEntry(source, projectSources.length > 1));
       });
     }
     return entries;
@@ -446,14 +600,15 @@ export function useSkillResolutions({ activeCwdSource, emit, setNotice }) {
       setNotice('info', `暂不支持该技能冲突操作：${resolutionActionLabel(selectedAction)}`);
       return;
     }
-    let newName = '';
     if (requiresResolutionNewName(selectedAction)) {
-      newName = (globalThis.window?.prompt?.('新技能名称', `${conflict?.name || 'skill'}-copy`) || '').toString().trim();
-      if (!newName) {
-        setNotice('info', '已取消处理。');
-        return;
-      }
+      namePromptHandlers.requestResolutionNewName(conflict, selectedAction, entry);
+      return;
     }
+    await runResolutionAction(conflict, selectedAction, entry, '');
+  }
+
+  async function runResolutionAction(conflict, selectedAction, entry = null, newName = '') {
+    const conflictId = (conflict?.conflict_id || '').toString().trim();
     const providerEntry = entry || resolutionProviderEntry(conflict);
     const sameNameFields = resolutionSameNamePayloadFields(conflict, selectedAction, entry);
     const payload = {
@@ -472,13 +627,13 @@ export function useSkillResolutions({ activeCwdSource, emit, setNotice }) {
     resolutionActioning.value = resolutionApplyKey(conflict, selectedAction, providerEntry);
     try {
       const preview = await previewSkillResolution(payload);
-      if (resolutionActionAutoApplies(selectedAction)) {
+      if (resolutionActionAutoAppliesForConflict(selectedAction, conflict)) {
         await applyResolutionPreviewNow(preview, payload);
         resolutionPreview.value = null;
         setNotice('success', `已处理技能冲突：${conflict?.name || conflictId}`);
         emit('refresh-skills');
-        await refreshSkillResolutions();
-        return;
+        await listHandlers.refreshSkillResolutions();
+        return true;
       }
       resolutionPreview.value = {
         ...preview,
@@ -488,23 +643,50 @@ export function useSkillResolutions({ activeCwdSource, emit, setNotice }) {
       };
       if (isResolutionViewAction(selectedAction)) {
         setNotice('info', `已生成处理预览：${conflict?.name || conflictId}`);
-        return;
+        return true;
       }
       if (isResolutionPreviewOnlyAction(selectedAction)) {
         setNotice('info', `已生成处理预览：${conflict?.name || conflictId}。此操作当前仅预览，不会直接写入。`);
-        return;
+        return true;
       }
       const proof = Array.isArray(preview?.items) ? preview.items[0] : null;
       if (!proof?.preview_id || !proof?.preview_hash) {
         throw new Error('缺少处理预览凭据');
       }
       setNotice('info', `已生成处理预览：${conflict?.name || conflictId}`);
+      return true;
     } catch (error) {
+      if (await handleMissingResolutionConflict(error, conflict)) return false;
       setNotice('error', `处理技能冲突失败：${error?.message || error}`);
+      return false;
     } finally {
       resolutionActioning.value = '';
     }
   }
+
+  const namePromptHandlers = createResolutionNamePromptHandlers({
+    resolutionPreview,
+    resolutionNamePrompt,
+    resolutionNameInput,
+    resolutionProviderEntry,
+    resolutionApplyKey,
+    setNotice,
+    runResolutionAction,
+  });
+  const listHandlers = createResolutionListHandlers({
+    activeCwdSource,
+    resolutionConflicts,
+    resolutionLoading,
+    resolutionPreview,
+    resolutionNamePrompt,
+    resolutionNameInput,
+    resolutionPanelCollapsed,
+    resolutionLoadError,
+    setNotice,
+    onNoConflicts,
+  });
+  const handleMissingResolutionConflict = createMissingResolutionConflictHandler({ resolutionPreview, resolutionNamePrompt, resolutionNameInput, listHandlers, setNotice });
+  const resolutionPreviewApplies = createResolutionPreviewApplies({ resolutionPreview, resolutionProviderEntry });
 
   function clearResolutionPreview() {
     resolutionPreview.value = null;
@@ -521,8 +703,9 @@ export function useSkillResolutions({ activeCwdSource, emit, setNotice }) {
       setNotice('success', `已处理技能冲突：${payload.name || payload.conflictId || ''}`);
       clearResolutionPreview();
       emit('refresh-skills');
-      await refreshSkillResolutions();
+      await listHandlers.refreshSkillResolutions();
     } catch (error) {
+      if (await handleMissingResolutionConflict(error, preview.payload || {})) return;
       setNotice('error', `应用技能冲突处理失败：${error?.message || error}`);
     } finally {
       resolutionActioning.value = '';
@@ -534,23 +717,29 @@ export function useSkillResolutions({ activeCwdSource, emit, setNotice }) {
     resolutionLoading,
     resolutionActioning,
     resolutionPreview,
+    resolutionNamePrompt,
+    resolutionNameInput,
     resolutionPanelCollapsed,
     resolutionCheckButtonText,
     showResolutionCheckButton,
     showResolutionPanel,
     resolutionPanelToggleText,
     toggleResolutionPanel,
-    refreshSkillResolutions,
-    resetSkillResolutions,
+    refreshSkillResolutions: listHandlers.refreshSkillResolutions,
+    resetSkillResolutions: listHandlers.resetSkillResolutions,
     resolutionTitle,
     resolutionActionLabel,
     resolutionKindLabel,
     resolutionProviderLabel,
+    resolutionProviderEntryLabel,
     resolutionProviderEntry,
     resolutionProviderEntries,
     resolutionActionEntries,
     resolutionActionEntryLabel,
     resolutionActionEntryHelp,
+    resolutionPreviewApplies,
+    resolutionNamePromptHelpText,
+    resolutionNamePromptButtonText,
     resolutionActionSectionTitle,
     resolutionActionFootnote,
     resolutionActionEntryTarget,
@@ -565,6 +754,9 @@ export function useSkillResolutions({ activeCwdSource, emit, setNotice }) {
     resolutionPreviewItemPaths,
     resolutionShortHash,
     onApplyResolution,
+    confirmResolutionNewName: namePromptHandlers.confirmResolutionNewName,
+    clearResolutionNamePrompt: namePromptHandlers.clearResolutionNamePrompt,
+    resolutionNamePromptApplies: namePromptHandlers.resolutionNamePromptApplies,
     clearResolutionPreview,
     confirmResolutionPreview,
   };

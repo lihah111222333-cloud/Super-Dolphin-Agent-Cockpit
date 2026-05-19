@@ -21,7 +21,6 @@ func TestSkillMirrorManifestRoundTripPreservesPersonalTypes(t *testing.T) {
 			"user-build":     personalMirrorEntry("personal/user/build", personalSkillTypeUser),
 			"agent-build":    personalMirrorEntry("personal/agent/build", personalSkillTypeAgent),
 			"imported-build": personalMirrorEntry("personal/imported/build", personalSkillTypeImported),
-			"hub-build":      personalMirrorEntry("personal/hub/build", personalSkillTypeHub),
 		},
 	}
 	path := filepath.Join(t.TempDir(), skillMirrorManifestFile)
@@ -103,6 +102,7 @@ func TestSkillMirrorManifestRejectsUnsafePersonalCanonicalIDs(t *testing.T) {
 		{name: "wrong_prefix", canonicalID: "providers/claude/skills/build", personalType: personalSkillTypeUser},
 		{name: "provider_layout", canonicalID: ".claude/skills/build", personalType: personalSkillTypeUser},
 		{name: "invalid_type", canonicalID: "personal/admin/build", personalType: "admin"},
+		{name: "catalog_only_hub_type", canonicalID: "personal/hub/build", personalType: personalSkillTypeHub},
 		{name: "mismatch_type", canonicalID: "personal/user/build", personalType: personalSkillTypeAgent},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

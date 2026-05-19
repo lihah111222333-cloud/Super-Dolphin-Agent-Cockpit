@@ -23,7 +23,7 @@ const (
 )
 
 // ExtractedSkill is the LLM-distilled, second-pass-redacted SKILL.md plus
-// legacy bookkeeping. V1 no longer writes this into skillcandidate storage.
+// legacy bookkeeping. V1 no longer writes this into candidate storage.
 type ExtractedSkill struct {
 	Slug            string
 	SKILLMd         string
@@ -64,7 +64,7 @@ func (m *ExtractorMetrics) incInsertFailed()       { atomic.AddInt64(&m.InsertFa
 func (m *ExtractorMetrics) incPromoted()           { atomic.AddInt64(&m.Promoted, 1) }
 
 // DefaultExtractor distills a Trajectory without writing to the removed
-// skillcandidate backend. dream is fx-optional: when nil the extractor
+// legacy candidate backend. dream is fx-optional: when nil the extractor
 // short-circuits with a metric bump and returns (nil, nil).
 type DefaultExtractor struct {
 	dream     contract.DreamExecutor // optional: nil skips
@@ -112,7 +112,7 @@ func NewDefaultExtractor(
 //
 // Pipeline: evaluate -> buildPrompt(redact-first) -> ExecuteDream ->
 // Redact -> residual scan -> content_hash -> repo_fingerprint ->
-// return the redacted artifact. The removed old skillcandidate backend is not
+// return the redacted artifact. The removed old candidate backend is not
 // called.
 func (e *DefaultExtractor) Extract(ctx context.Context, t Trajectory) (*ExtractedSkill, error) {
 	if e == nil {
@@ -232,22 +232,6 @@ func truncateRedactedSample(sample string) string {
 		return sample[:redactedSampleLimit]
 	}
 	return sample
-}
-
-// isUniqueViolation accepts both the contract.ErrConflict sentinel that
-// WrapStoreError emits and a raw PG sqlstate 23505 string match. Step 1's
-// store wraps Insert through WrapStoreError, so under normal wiring the
-// sentinel path is the one that fires; the text matches are belt-and-
-// suspenders for unwrapped errors.
-func isUniqueViolation(err error) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, contract.ErrConflict) {
-		return true
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "23505") || strings.Contains(msg, "unique constraint")
 }
 
 // buildRedactedPrompt serialises the trajectory tool calls into a prompt

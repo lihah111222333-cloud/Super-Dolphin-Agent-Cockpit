@@ -74,6 +74,9 @@ func (e dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string,
 		if errors.Is(err, dreamexec.ErrBinaryNotAvailable) {
 			return "", fmt.Errorf("%w: claude binary %q not available", contract.ErrDreamExecutorNotConfigured, e.binary)
 		}
+		if errors.Is(err, dreamexec.ErrModelUnavailable) {
+			return "", fmt.Errorf("%w: claude model unavailable: %v", contract.ErrDreamExecutorNotConfigured, err)
+		}
 		return "", err
 	}
 	return raw, nil

@@ -258,12 +258,12 @@ describe('useThreadActions', () => {
 
     await vm.launchOne();
 
-    expect(vm.deps.resolveLaunchSkillSelectionForStart).toHaveBeenCalledWith('');
+    expect(vm.deps.resolveLaunchSkillSelectionForStart).not.toHaveBeenCalled();
     expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo', { focusMode: 'chat', deferSpawn: true });
     expect(vm.deps.selectedThreadId.value).toBe('thread-started');
   });
 
-  it('launchOne forwards launch skills into startThread payload when enabled', async () => {
+  it('launchOne does not forward launch skills into startThread payload when enabled', async () => {
     const vm = createThreadActions({
       deps: {
         resolveLaunchSkillSelectionForStart: vi.fn().mockResolvedValue({
@@ -277,19 +277,16 @@ describe('useThreadActions', () => {
 
     await vm.launchOne();
 
-    expect(vm.deps.resolveLaunchSkillSelectionForStart).toHaveBeenCalledWith('');
+    expect(vm.deps.resolveLaunchSkillSelectionForStart).not.toHaveBeenCalled();
     expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo', {
       focusMode: 'chat',
-      selectedSkills: ['skillB'],
-      selectedSkillRefs: [{ key: 'project::skilla:/repo/.agent/skills/skilla', name: 'skillA', scope: 'project', personalType: '', path: '/repo/.agent/skills/skilla' }],
-      manualSkillSelection: true,
       deferSpawn: true,
     });
     expect(vm.deps.clearLaunchSkillSelection).toHaveBeenCalledTimes(1);
     expect(vm.deps.selectedThreadId.value).toBe('thread-started');
   });
 
-  it('launchOne omits selectedSkills when explicit refs cover all names', async () => {
+  it('launchOne omits explicit launch skill refs from startThread payload', async () => {
     const vm = createThreadActions({
       deps: {
         resolveLaunchSkillSelectionForStart: vi.fn().mockResolvedValue({
@@ -305,8 +302,6 @@ describe('useThreadActions', () => {
 
     expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo', {
       focusMode: 'chat',
-      selectedSkillRefs: [{ key: 'project::skilla:/repo/.agent/skills/skilla', name: 'skillA', scope: 'project', personalType: '', path: '/repo/.agent/skills/skilla' }],
-      manualSkillSelection: true,
       deferSpawn: true,
     });
   });
@@ -431,7 +426,7 @@ describe('useThreadActions', () => {
     );
   });
 
-  it('send: resolves launch skill state before startThread and reuses it for launch + send payloads', async () => {
+  it('send: resolves launch skill state before startThread but does not forward it to launch or send payloads', async () => {
     const vm = createThreadActions({
       selectedThreadId: '',
       text: 'boot launch',
@@ -448,33 +443,27 @@ describe('useThreadActions', () => {
 
     await vm.send();
 
-    expect(vm.deps.resolveLaunchSkillSelectionForStart).toHaveBeenCalledWith('boot launch');
+    expect(vm.deps.resolveLaunchSkillSelectionForStart).not.toHaveBeenCalled();
     expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo', {
       focusMode: 'chat',
       prompt: 'boot launch',
-      selectedSkills: ['skillB'],
-      selectedSkillRefs: [{ key: 'project::skilla:/repo/.agent/skills/skilla', name: 'skillA', scope: 'project', personalType: '', path: '/repo/.agent/skills/skilla' }],
-      manualSkillSelection: true,
     });
     expect(vm.threadStore.sendMessage).toHaveBeenCalledWith(
       'thread-started',
       'boot launch',
       [{ path: '/tmp/a.txt' }],
       {
-        selectedSkills: ['skillB'],
-        selectedSkillRefs: [{ key: 'project::skilla:/repo/.agent/skills/skilla', name: 'skillA', scope: 'project', personalType: '', path: '/repo/.agent/skills/skilla' }],
-        manualSkillSelection: true,
+        manualSkillSelection: false,
         cwd: '/repo',
       },
     );
     expect(vm.deps.resolveComposerSkillSelectionForSend).not.toHaveBeenCalled();
     expect(vm.deps.clearLaunchSkillSelection).toHaveBeenCalledTimes(1);
-    expect(vm.deps.resolveLaunchSkillSelectionForStart.mock.invocationCallOrder[0]).toBeLessThan(vm.threadStore.startThread.mock.invocationCallOrder[0]);
     expect(vm.threadStore.startThread.mock.invocationCallOrder[0]).toBeLessThan(vm.deps.clearLaunchSkillSelection.mock.invocationCallOrder[0]);
     expect(vm.deps.clearLaunchSkillSelection.mock.invocationCallOrder[0]).toBeLessThan(vm.threadStore.sendMessage.mock.invocationCallOrder[0]);
   });
 
-  it('send: preserves selected skill ref source for active threads', async () => {
+  it('send: does not forward selected skill refs for active threads', async () => {
     const vm = createThreadActions({
       selectedThreadId: 'thread-live',
       text: 'ping with skills',
@@ -496,12 +485,7 @@ describe('useThreadActions', () => {
       'thread-live',
       'ping with skills',
       [],
-      expect.objectContaining({
-        selectedSkillRefs: [
-          { key: 'project::manual:/repo/.agent/skills/manual', name: 'manualSkill', scope: 'project', personalType: '', path: '/repo/.agent/skills/manual', source: 'manual' },
-          { key: 'project::forced:/repo/.agent/skills/forced', name: 'forcedSkill', scope: 'project', personalType: '', path: '/repo/.agent/skills/forced', source: 'force' },
-        ],
-      }),
+      { manualSkillSelection: false, cwd: '/repo' },
     );
   });
 
@@ -523,6 +507,7 @@ describe('useThreadActions', () => {
 
     await vm.send();
 
+    expect(vm.deps.resolveLaunchSkillSelectionForStart).not.toHaveBeenCalled();
     expect(vm.deps.clearLaunchSkillSelection).not.toHaveBeenCalled();
     expect(vm.threadStore.sendMessage).not.toHaveBeenCalled();
   });
@@ -588,6 +573,21 @@ describe('useThreadActions', () => {
     expect(vm.sendFailureNotice.value).toContain('该会话的工作目录已不存在');
     expect(vm.sendFailureNotice.value).toContain('/repo/.worktrees/missing');
     expect(vm.sendFailureNotice.value).toContain('请恢复该目录，或新建/重新绑定会话后继续');
+  });
+
+  it('send: shows a Chinese notice when skill mirror safety conflicts block provider startup', async () => {
+    const vm = createThreadActions({
+      selectedThreadId: 'thread-live',
+      text: '继续',
+    });
+    vm.threadStore.sendMessage.mockRejectedValueOnce(new Error('thread: establish session: skill mirror conflicts: 1 unresolved (mirror_root_symlink)'));
+
+    await expect(vm.send()).rejects.toThrow('skill mirror conflicts');
+
+    expect(globalThis.window.alert).not.toHaveBeenCalled();
+    expect(vm.deps.composer.state.text).toBe('继续');
+    expect(vm.sendFailureNotice.value).toContain('当前项目有技能冲突');
+    expect(vm.sendFailureNotice.value).toContain('技能页面');
   });
 
   it('interruptCurrent: calls stopThread and invokes confirm callback on success', async () => {

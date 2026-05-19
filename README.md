@@ -49,12 +49,13 @@ First-run side effects (auto, no manual step):
 - DB migrations run via `internal/platform/db/module.go:autoMigrate` on startup.
 - Runtime canonical skills are managed under project and personal roots:
   `<workspace>/.agent/skills/` for project skills, and
-  `~/.super-dolphin/skills/personal/{user,agent,imported,hub}/` for personal
-  skills (`SUPER_DOLPHIN_HOME` can override the home root).
+  `~/.super-dolphin/skills/personal/{user,agent,imported}/` for active personal
+  skills (`SUPER_DOLPHIN_HOME` can override the home root). `personal/hub` is
+  catalog-only and is not scanned, mirrored, or exposed to providers.
 - Provider-native skill mirrors are reconciled before provider launch/acquire:
-  project mirrors live under `<workspace>/.claude/skills/` and `<workspace>/.codex/skills/`,
-  with provider-home mirrors under `~/.super-dolphin/providers/{claude,codex}/skills/`
-  by default or an explicit provider home `skills/` directory.
+  project mirrors live under `<workspace>/.claude/skills/` and `<workspace>/.agents/skills/`;
+  personal mirrors live under `~/.claude/skills/` and `~/.agents/skills/` by default,
+  or under an explicit provider home `skills/` directory when configured.
 - Legacy `.claude/settings.json` nativefilter deny entries are not written or cleared during provider launch; skill visibility now comes from provider-native mirrors, not settings injection.
 
 ### Optional: Codex Fast Mode
@@ -101,12 +102,15 @@ go test -bench=. ./...     # Run benchmarks
 ### Notes for skill subsystem (post 2026-04-30 P4/P5/P6 cutover)
 
 - Canonical skill truth lives in project `<workspace>/.agent/skills/` plus
-  personal `~/.super-dolphin/skills/personal/{user,agent,imported,hub}/`.
-  Provider-native mirror directories are generated, ignored, and not committed.
+  active personal `~/.super-dolphin/skills/personal/{user,agent,imported}/`.
+  Provider-native mirror directories are generated, ignored, and not committed;
+  `personal/hub` is reserved for catalog/marketplace source data and is not a
+  runtime canonical root.
 - The legacy `skill_expand_body` / `skill_read_resource` MCP tools are gone; Claude
-  and Codex discover skills via provider-native mirrors under project and provider
-  homes (`<workspace>/.claude/skills/`, `<workspace>/.codex/skills/`, and provider
-  home `skills`). `skill_read_section` is no longer the production discovery path.
+  and Codex discover skills via provider-native mirrors under project and personal
+  provider-native roots (`<workspace>/.claude/skills/`, `<workspace>/.agents/skills/`,
+  `~/.claude/skills/`, and `~/.agents/skills/`). `skill_read_section` is no longer
+  the production discovery path.
 - Earlier feature flags `SUPER_DOLPHIN_NATIVE_FILTER` and `SUPER_DOLPHIN_SKILL_FBSD`
   were removed; provider-native mirrors are the production discovery path.
   The old FBSD/disclosure pipeline and `skill_read_section` implementation were

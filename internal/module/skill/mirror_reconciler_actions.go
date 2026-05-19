@@ -2,6 +2,7 @@ package skill
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,6 +20,8 @@ func ResolveSkillMirrorDrift(ctx context.Context, svc *service, req SkillMirrorR
 		return saveMirrorAsNewCanonical(ctx, svc, req)
 	case "confirm_delete_drifted_mirror":
 		return confirmDeleteDriftedMirror(ctx, svc, req)
+	case ResolutionReplaceProviderRootSymlink:
+		return replaceProviderRootSymlink(ctx, svc, req)
 	default:
 		return SkillMirrorResolutionReport{Action: req.Action, Name: req.Name}, fmt.Errorf("unsupported mirror resolution action %q", req.Action)
 	}
@@ -395,18 +398,31 @@ type providerSkillTakeover struct {
 }
 
 func prepareProviderSkillTakeover(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (providerSkillTakeover, error) {
+	if req.Target.Scope == skillScopePersonal {
+		return providerSkillTakeover{}, fmt.Errorf("takeover_provider_skill is only supported for project provider mirrors")
+	}
+	if err := validateProviderTakeoverManifestTarget(req.Target); err != nil {
+		return providerSkillTakeover{}, err
+	}
 	sourceDir, previewHash, _, err := unmanagedProviderSource(svc, req)
 	if err != nil {
 		return providerSkillTakeover{}, err
-	}
-	if req.Target.Scope == skillScopePersonal {
-		return providerSkillTakeover{}, fmt.Errorf("takeover_provider_skill is only supported for project provider mirrors")
 	}
 	record, err := takeoverCanonicalRecord(ctx, svc, req)
 	if err != nil {
 		return providerSkillTakeover{}, err
 	}
 	return providerSkillTakeover{sourceDir: sourceDir, previewHash: previewHash, record: record}, nil
+}
+
+func validateProviderTakeoverManifestTarget(target SkillMirrorTarget) error {
+	if _, err := readTargetManifest(target); err != nil {
+		if errors.Is(err, errSkillMirrorManifestTargetMismatch) {
+			return fmt.Errorf("skill mirror manifest target mismatch blocks takeover_provider_skill")
+		}
+		return err
+	}
+	return nil
 }
 
 func backupProviderSkillTakeover(prepared providerSkillTakeover) error {
@@ -479,7 +495,7 @@ func takeoverCanonicalRecord(ctx context.Context, svc *service, req SkillMirrorR
 	if err != nil {
 		return canonicalSkillRecord{}, err
 	}
-	dir := filepath.Join(defaultProjectSkillsRoot(projectRoot), name)
+	dir := filepath.Join(defaultProjectSkillsRoot(projectRootForCWD(projectRoot, "")), name)
 	return canonicalSkillRecord{Name: name, Scope: skillScopeProject, Dir: dir}, nil
 }
 

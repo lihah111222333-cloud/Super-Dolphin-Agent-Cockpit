@@ -5,7 +5,6 @@ import {
   onBeforeUnmount,
 } from '../../lib/vue.esm-browser.prod.js';
 import { callAPI } from '../services/api.js';
-import { listSkills } from '../services/skills-api.js';
 import { logDebug, logWarn } from '../services/log.js';
 import {
   normalizeSkillPreviewMatches,
@@ -17,9 +16,7 @@ import {
   buildSkillPreviewSignature,
 } from '../utils/skill-match-utils.js';
 import {
-  catalogRefForName,
   mergeSkillRefs,
-  normalizeSkillCatalog,
   skillRefFor,
 } from '../utils/skill-ref-utils.js';
 
@@ -29,6 +26,7 @@ export function useSkillPreview(opts) {
     selectedThreadId,
     skillRevision,
     activeCwdSource,
+    enabled = true,
   } = opts;
 
   const composerSkillMatches = /** @type {{ value: any[] }} */ (ref([]));
@@ -45,6 +43,13 @@ export function useSkillPreview(opts) {
 
   function resolveActiveCwd() {
     return (activeCwdSource?.value || '').toString().trim();
+  }
+
+  function isSkillPreviewEnabled() {
+    if (enabled && typeof enabled === 'object' && Object.prototype.hasOwnProperty.call(enabled, 'value')) {
+      return enabled.value !== false;
+    }
+    return enabled !== false;
   }
 
   function clearComposerSkillPreviewTimer() {
@@ -187,7 +192,7 @@ export function useSkillPreview(opts) {
     clearComposerSkillPreviewTimer();
     const threadId = (selectedThreadId.value || '').toString().trim();
     const text = (composer.state.text || '').toString().trim();
-    if (!threadId || !text) {
+    if (!isSkillPreviewEnabled() || !threadId || !text) {
       composerSkillPreviewSeq += 1;
       hasComposerSkillPreviewQueued = false;
       composerSkillPreviewLastSignature = '';
@@ -202,9 +207,13 @@ export function useSkillPreview(opts) {
   }
 
   async function resolveComposerSkillSelectionForSend(threadId, text) {
-    const manualSelectedSkillNames = mergeSkillNameLists(composerSelectedSkillNames.value);
-    const manualSelectedSkillRefs = mergeSkillRefs(composerSelectedSkillRefs.value.map((refItem) => ({ ...refItem, source: 'manual' })));
-    let forceMatchedSkillNames = [...composerAutoAppliedSkillNames.value];
+    if (!isSkillPreviewEnabled()) {
+      return {
+        selectedSkills: [],
+        selectedSkillRefs: [],
+        manualSkillSelection: false,
+      };
+    }
     try {
       const raw = await callAPI('skills/match/preview', {
         threadId,
@@ -214,7 +223,6 @@ export function useSkillPreview(opts) {
       const latestMatches = normalizeSkillPreviewMatches(raw?.matches);
       composerSkillMatches.value = latestMatches;
       composerSkillPreviewLastSignature = buildSkillPreviewSignature(latestMatches);
-      forceMatchedSkillNames = collectForceMatchedSkillNames(latestMatches);
     } catch (error) {
       maybeWarnSkillPreviewFailure({
         thread_id: threadId,
@@ -223,25 +231,10 @@ export function useSkillPreview(opts) {
         when: 'send',
       });
     }
-    let skillCatalog = [];
-    if (manualSelectedSkillNames.length > 0 || forceMatchedSkillNames.length > 0) {
-      try {
-        skillCatalog = normalizeSkillCatalog(await listSkills(resolveActiveCwd()));
-      } catch (error) {
-        logWarn('ui', 'chat.skillPreview.list.failed', { error, when: 'send' });
-      }
-    }
-
     return {
-      selectedSkills: mergeSkillNameLists(manualSelectedSkillNames, forceMatchedSkillNames),
-      selectedSkillRefs: mergeSkillRefs(
-        manualSelectedSkillRefs,
-        manualSelectedSkillNames
-          .filter((name) => !manualSelectedSkillRefs.some((refItem) => skillNameKey(refItem?.name) === skillNameKey(name)))
-          .map((name) => catalogRefForName(skillCatalog, name, 'manual')),
-        forceMatchedSkillNames.map((name) => catalogRefForName(skillCatalog, name, 'force')),
-      ),
-      manualSkillSelection: manualSelectedSkillNames.length > 0,
+      selectedSkills: [],
+      selectedSkillRefs: [],
+      manualSkillSelection: false,
     };
   }
 

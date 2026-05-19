@@ -96,11 +96,7 @@ export const ComposerBar = {
     }
 
     const showLegacySkillSelector = computed(() => {
-      const hasThreadId = Boolean((props.threadId || '').toString().trim());
-      if (!hasThreadId && props.launchSkillSelectionEnabled) {
-        return false;
-      }
-      return true;
+      return false;
     });
 
     const interrupt = useComposerInterrupt(props, emit, { hasReadyInput, onSend });
@@ -329,41 +325,6 @@ export const ComposerBar = {
     >
       <div v-if="compacting" class="agent-loading-bar"></div>
       <div v-if="dropActive" class="composer-drop-hint" aria-live="polite">松开即可添加附件</div>
-      <div v-if="showLegacySkillSelector" class="composer-skill-selector" :class="{ 'is-expanded': skillMatches.length > 8 }" role="status" aria-live="polite" data-testid="composer-skill-selector">
-        <div class="composer-skill-selector-head">
-          <span class="composer-skill-selector-title" :class="{ 'loading-shimmer': skillMatchesLoading }">
-            {{ skillMatchesLoading ? '技能匹配中…' : ('技能选择 ' + selectedSkillNames.length + '/' + skillMatches.length) }}
-          </span>
-          <button
-            class="composer-skill-selector-btn"
-            type="button"
-            :disabled="skillMatches.length === 0"
-            @click="onSelectAllSkills"
-          >全选</button>
-          <button
-            class="composer-skill-selector-btn"
-            type="button"
-            :disabled="selectedSkillNames.length === 0"
-            @click="onClearSkills"
-          >清空</button>
-        </div>
-        <div class="composer-skill-selector-list">
-          <button
-            v-for="(match, index) in skillMatches"
-            :key="skillMatchKey(match, index)"
-            class="composer-skill-selector-item"
-            :class="[skillMatchClass(match), { selected: isSkillSelected(match) }]"
-            type="button"
-            :title="skillMatchReason(match)"
-            @click="onToggleSkill(match)"
-          >
-            <span class="composer-skill-selector-item-name">{{ match.name }}</span>
-            <span class="composer-skill-selector-item-reason">{{ skillMatchReason(match) }}</span>
-          </button>
-          <span v-if="!skillMatchesLoading && skillMatches.length === 0" class="composer-skill-selector-empty">输入相关内容后可点选技能</span>
-        </div>
-      </div>
-
       <div v-if="composer.state.attachments.length > 0" class="chat-attachment-list composer-attachments">
         <span v-for="(att, idx) in composer.state.attachments" :key="att.path + idx" class="chat-attachment-pill" :class="{ 'chat-attachment-pill--image': att.kind === 'image' && att.previewUrl }">
           <img v-if="att.kind === 'image' && att.previewUrl" class="chat-attachment-pill__thumb" :src="att.previewUrl" :alt="att.name" loading="lazy" />

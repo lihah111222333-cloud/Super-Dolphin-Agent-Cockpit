@@ -1,12 +1,12 @@
 # Skill 功能重构计划
 
 > 日期: 2026-05-16
-> 状态: Draft
+> 状态: Draft，2026-05-18 按 V1 实际落地方向纠偏：Super-Dolphin 不打包 Claude/Codex CLI，默认使用用户自己安装并登录的 CLI；本项目只管理 canonical skill 并同步到 provider-native skill 目录。
 > 范围: 只设计 V1-V3；V4 作为 Non-goal / Future
 
 ## 1. 总目标
 
-Super-Dolphin 不再承担 Claude/Codex 的 skill 注入职责。项目只负责管理 canonical skill、发布 provider-native mirror，并让打包进 App 的 Claude CLI / Codex CLI 按各自原生机制发现 skill。
+Super-Dolphin 不再承担 Claude/Codex 的 skill 注入职责。项目只负责管理 canonical skill、发布 provider-native mirror，并让用户自己安装和登录的 Claude CLI / Codex CLI 按各自原生机制发现 skill。
 
 最终边界：
 
@@ -21,7 +21,7 @@ Super-Dolphin 不再承担 Claude/Codex 的 skill 注入职责。项目只负责
 
 1. Canonical 只有 Super-Dolphin 管理，mirror 只是生成物。
 2. 项目级 skill 进入 git 和团队 review；个人级 skill 进入用户自己的 Super-Dolphin home。
-3. 默认不污染系统级 `~/.claude`、`~/.codex`。打包 App 默认使用 App-managed provider home。
+3. 默认使用 provider 官方个人 skill 目录：Claude 写 `~/.claude/skills`，Codex 写 `~/.agents/skills`；Codex CLI 身份仍使用用户自己的 `~/.codex`。只有用户显式配置 provider home 时，才写该 home 下的 `skills`。
 4. 没有 Super-Dolphin ownership marker 的 provider-native 目录，一律视为 unmanaged，不覆盖、不删除。
 5. 同名冲突默认严格处理，不静默 shadow。
 6. 写入、删除、迁移、drift 处理都要可解释、可回滚、可审计。
@@ -48,13 +48,13 @@ Super-Dolphin 不再承担 Claude/Codex 的 skill 注入职责。项目只负责
 
 ```text
 <repo>/.claude/skills/<skill-name>/SKILL.md
-<repo>/.codex/skills/<skill-name>/SKILL.md
+<repo>/.agents/skills/<skill-name>/SKILL.md
 ```
 
 要求：
 
 - `.claude/` 已忽略。
-- `.codex/` 需要加入 `.gitignore`。
+- `.agents/` 需要加入 `.gitignore`。
 - mirror 目录必须带 Super-Dolphin ownership marker 或 manifest。
 - mirror 可以先允许编辑，但项目级 drift 必须进入冲突处理，不自动写回 canonical。
 
@@ -66,15 +66,14 @@ Super-Dolphin 不再承担 Claude/Codex 的 skill 注入职责。项目只负责
 ~/.super-dolphin/skills/personal/user/<skill-name>/SKILL.md
 ~/.super-dolphin/skills/personal/agent/<skill-name>/SKILL.md
 ~/.super-dolphin/skills/personal/imported/<skill-name>/SKILL.md
-~/.super-dolphin/skills/personal/hub/<skill-name>/SKILL.md
 ```
 
 类型语义：
 
 - `user`: 用户手写或用户明确创建的个人 skill。
 - `agent`: Super-Dolphin 后台维护模型创建或自动维护的个人 skill。
-- `imported`: 从外部目录导入，例如系统 `~/.claude/skills`、`~/.codex/skills` 或共享 skill repo。
-- `hub`: 未来 marketplace / registry 安装的 skill。
+- `imported`: 从外部目录导入，例如系统 `~/.claude/skills`、`~/.agents/skills` 或共享 skill repo。
+- `hub`: 未来 marketplace / registry 的目录来源，不是生效 personal canonical；安装后应写入项目共享或 `personal/imported`，不能直接参与扫描、mirror 或 provider 调用。
 
 `user` 是稳定 wire enum，语义是 human-authored / user-created。UI 可以展示为“用户创建”或“人工创建”，但 V1-V3 不再另起 `human` 目录或 enum，避免 schema、manifest、audit、proposal 再次分裂。
 
@@ -82,21 +81,16 @@ Super-Dolphin 不再承担 Claude/Codex 的 skill 注入职责。项目只负责
 
 ### 3.4 个人级 provider mirror
 
-App 打包 Claude/Codex 后，默认写入 App-managed provider home：
+默认写入用户自己的 provider-native 个人 skill 目录：
 
 ```text
-~/.super-dolphin/providers/claude/skills/<skill-name>/SKILL.md
-~/.super-dolphin/providers/codex/skills/<skill-name>/SKILL.md
+~/.claude/skills/<skill-name>/SKILL.md
+~/.agents/skills/<skill-name>/SKILL.md
 ```
 
-默认不写：
+默认不把 `~/.codex` 当作 skill mirror；它只保留为 Codex CLI 的身份和配置目录。
 
-```text
-~/.claude/skills
-~/.codex/skills
-```
-
-系统级 provider 目录只作为显式 import/export/takeover 目标。
+显式 provider home 仍保留高级用法：用户配置后才写 `<provider-home>/skills`，并由 provider 启动路径使用该 home。
 
 ## 4. Effective Skill Set
 
@@ -147,7 +141,7 @@ project canonical + personal canonical + policy -> provider-native mirror
 }
 ```
 
-Project entries use empty or omitted `personal_type`; personal entries must store the exact type (`user`, `agent`, `imported`, or `hub`) and must not infer it from `canonical_id`. Project mirror manifests may use a repo fingerprint in `canonical_root_id`; personal mirror manifests use the derived `owner_key` and home-relative canonical ids such as `personal/user/name`, never raw home/profile/uid paths.
+Project entries use empty or omitted `personal_type`; active personal entries must store the exact type (`user`, `agent`, or `imported`) and must not infer it from `canonical_id`. Project mirror manifests may use a repo fingerprint in `canonical_root_id`; personal mirror manifests use the derived `owner_key` and home-relative canonical ids such as `personal/user/name`, never raw home/profile/uid paths. `personal/hub` is catalog-only and must not appear in runtime provider mirror manifests.
 
 规则：
 
@@ -282,7 +276,7 @@ V1 external import/takeover can read from several external directory classes, bu
 
 ```text
 ~/.claude/skills
-~/.codex/skills
+~/.agents/skills
 shared team skill repositories
 third-party skill directories
 ```
@@ -291,7 +285,7 @@ third-party skill directories
 
 - 只读扫描。
 - 可 import 到 `personal/imported` 或项目 `.agent/skills`。
-- V1 只允许显式 export 到 canonicalized provider roots `~/.claude/skills` 和 `~/.codex/skills`。
+- V1 只允许显式 export 到 canonicalized provider roots `~/.claude/skills` 和 `~/.agents/skills`。
 - shared team skill repositories 和 third-party skill directories 在 V1 可 import/takeover；export 到这些目录需要未来显式 external-root allowlist。
 - 可 takeover，但 takeover 前必须显示将被管理的路径、hash、备份位置。
 
@@ -323,7 +317,7 @@ Super-Dolphin 的自进化是 skill maintenance，不是 provider-native runtime
 
 原因：
 
-- 模型不能直接乱写 `.agent/skills`、`.claude/skills`、`.codex/skills`。
+- 模型不能直接乱写 `.agent/skills`、`.claude/skills`、`.agents/skills`。
 - 项目级 review 更清楚。
 - backup/audit/rollback 更容易做。
 - 不回到旧的 skill 注入和 host-direct tool 模式。
@@ -339,13 +333,14 @@ Super-Dolphin 的自进化是 skill maintenance，不是 provider-native runtime
 V1 包含：
 
 - 保留项目级 canonical：`<repo>/.agent/skills`。
-- 新增个人级 canonical：`~/.super-dolphin/skills/personal/{user,agent,imported,hub}`。
-- 新增 App-managed provider mirror。
-- 项目级 mirror：`<repo>/.claude/skills`、`<repo>/.codex/skills`。
+- 新增生效个人级 canonical：`~/.super-dolphin/skills/personal/{user,agent,imported}`。
+- `personal/hub` 仅作为未来市场/目录来源，V1 不扫描、不镜像、不作为写入目标。
+- 新增 provider-native personal mirror。
+- 项目级 mirror：`<repo>/.claude/skills`、`<repo>/.agents/skills`。
 - 删除 Codex skill manifest injection。
 - 删除 Codex `skill_read_section` 运行时依赖。
 - 停止 Claude `.claude/skills -> ~/.multi-agent/skills-cache` symlink 注入。
-- 添加 `.codex/` gitignore。
+- 添加 `.agents/` gitignore。
 - ownership manifest。
 - startup/open project reconcile。
 - write-time publish。
@@ -391,7 +386,7 @@ V1 不包含：
 
 V1 完成时应满足：
 
-- Codex 可发现 `<repo>/.codex/skills/<name>/SKILL.md`。
+- Codex 可发现 `<repo>/.agents/skills/<name>/SKILL.md`。
 - Claude 可发现 `<repo>/.claude/skills/<name>/SKILL.md`。
 - Super-Dolphin 不再在 Codex prompt 前追加 skill manifest。
 - Codex 不再需要 `skill_read_section` 才能读取 Super-Dolphin skill。
@@ -401,9 +396,9 @@ V1 完成时应满足：
 - 删除 canonical 会删除 owned mirror；删除 mirror 会重建。
 - unmanaged provider skill 不会被覆盖或删除。
 - drift 有明确冲突状态和用户选择。
-- Skills 页面必须能把项目 `.agent/skills` 与个人 seeded/hub skill 的同名冲突作为可解决项展示，不能因为 `skill same-name conflict: ...` 这类冲突让 dashboard RPC 整页失败；未解决冲突也不能被静默发布到 provider mirror。
+- Skills 页面必须能把项目 `.agent/skills` 与生效个人 skill 的同名冲突作为可解决项展示，不能因为 `skill same-name conflict: ...` 这类冲突让 dashboard RPC 整页失败；未解决冲突也不能被静默发布到 provider mirror。`personal/hub` 是目录/市场来源，重复时应被忽略或清理，不进入冲突处理。
 
-2026-05-17 手工 smoke 记录：桌面 debug 会话中创建项目 skill `sd_project_smoke` 后，canonical 成功写入 `.agent/skills`，Claude/Codex 项目 mirror 成功写入 `.claude/skills` 和 `.codex/skills`，两个 provider 都返回探针标记 `SD_PROJECT_SKILL_OK`。这证明当前实现的项目级 provider-native mirror 链路具备可用性，但仍不能替代 V1 release acceptance 要求的脚本化 driver-level、bundled binary、PATH-negative smoke。
+2026-05-17 手工 smoke 记录：桌面 debug 会话中创建项目 skill `sd_project_smoke` 后，canonical 成功写入 `.agent/skills`，Claude 与当时的 Codex 项目 mirror 都成功写入，两个 provider 都返回探针标记 `SD_PROJECT_SKILL_OK`。2026-05-18 纠偏后，Codex 官方项目 mirror 应改为 `.agents/skills`；后续验收以 `.agents/skills` 为准，旧 Codex mirror 记录只作为历史 smoke。
 
 ## 12. V2: Skill Proposal
 
@@ -531,13 +526,13 @@ V3 包含：
 - curator real-run。
 - skill 合并、去重、过期归档 proposal。
 - 只对 `personal/agent` 自动应用。
-- 对 `personal/user`、`personal/imported`、`personal/hub` 默认只建议。
+- 对 `personal/user`、`personal/imported` 默认只建议；`personal/hub` 不属于生效 personal canonical，不进入自动维护。
 
 V3 不包含：
 
 - 项目级自动修改。
 - 直接自动修改 provider mirror 后再回写 canonical。
-- 自动 takeover 系统 `~/.claude`、`~/.codex`。
+- 自动 takeover 系统 `~/.claude/skills`、`~/.agents/skills`。
 - MCP 管理接口。
 
 ### 13.3 自动应用条件
@@ -633,14 +628,13 @@ V3 完成时应满足：
 V1 验证：
 
 - 本地构造 `.agent/skills/probe/SKILL.md`，publish 后 Claude/Codex mirror 均存在。
-- 用 Codex native debug 能看到 `.codex/skills/probe`。
+- 用 Codex native debug 能看到 `.agents/skills/probe`。
 - 用 Claude CLI 能看到 `.claude/skills/probe`。
-- release 验收必须跑 Super-Dolphin driver-level packaged smoke 和 bundled Claude/Codex provider binary smoke；只有文件级 mirror 存在不能证明 provider-native discover 成功。
-- release smoke 必须包含 PATH-negative 场景，证明 App 使用 bundled Claude/Codex binary，不依赖用户机器已安装的 `claude` / `codex`。
+- release 验收必须跑 Super-Dolphin driver-level provider-native smoke；只有文件级 mirror 存在不能证明 provider-native discover 成功。Claude/Codex CLI 由用户自行安装和登录，验收应检查未安装/未登录时给出清晰错误。
 - 删除 canonical 后仅 hash 匹配/未 drift 的 owned mirror 删除；已 drift mirror 进入 `canonical_deleted_with_drift` 并 fail-closed。
 - 删除 mirror 后 canonical 存在则重建。
 - unmanaged mirror 不被覆盖。
-- `.codex/` 不进入 git。
+- `.agents/` 不进入 git。
 - Codex prompt 中不再出现 Super-Dolphin skill manifest prepend。
 - `skill_read_section` 不再是 Codex skill 读取必需链路。
 - `rg "turnSkillPrompt|SkillPrompt|SkillReplacementAggregator|ReplacedNativeTools|skilllibrary|skillforge|fbsd" internal cmd sql` 只允许命中删除态测试、迁移/历史文档、显式兼容拒绝测试，不能命中生产注入链路。
@@ -676,7 +670,7 @@ V3 验证：
 1. V1A: 建 canonical store、personal type、effective set、manifest、ownership、hash、mirror publisher。
 2. V1B: 接入现有 create/edit/import/delete/read/expand/match preview/launch auto-match/turn hydration 路径，迁移旧 `~/.multi-agent/skills`，移除 live `scope=system` 输入。
 3. V1C: 做 resolution list/preview/apply/export-preview/export UI/RPC，覆盖 same-name、drift、multi-provider drift、unmanaged、canonical-deleted-with-drift。
-4. V1D/E: 全量切 provider runtime，同时落地 startup/open project reconcile、write-time publish、App-managed provider home、Claude/Codex driver-level native discovery smoke，并删除旧注入链路、`skill_read_section` runtime dependency、旧 `.claude/skills` symlink 注入，迁移 prompt/uistate/app 中旧 skilllibrary/skillforge/fbsd 消费者和 old candidate 生产入口。这一组不能拆成可单独验收的中间态；缺少任一项都不算 V1 full landing。
+4. V1D/E: 全量切 provider runtime，同时落地 startup/open project reconcile、write-time publish、provider-native personal mirror、Claude/Codex driver-level native discovery smoke，并删除旧注入链路、`skill_read_section` runtime dependency、旧 `.claude/skills` symlink 注入，迁移 prompt/uistate/app 中旧 skilllibrary/skillforge/fbsd 消费者和 old candidate 生产入口。这一组不能拆成可单独验收的中间态；缺少任一项都不算 V1 full landing。
 5. V1F: 补 README / docs / 测试。
 6. V2A: recorder 和 evidence packer。
 7. V2B: proposal schema、validator、diff 展示。
@@ -703,9 +697,9 @@ V3 验证：
 - 保留项目级和个人级。
 - 项目级 canonical 是 `.agent/skills`。
 - 个人级 canonical 使用 `~/.super-dolphin/skills/personal/...`。
-- 个人级类型目录是 `user`、`agent`、`imported`、`hub`。
+- 生效个人级类型目录是 `user`、`agent`、`imported`；`hub` 仅保留为未来目录/市场来源，不参与运行时发现。
 - mirror 是生成物，不提交。
-- App 打包 Claude/Codex 后默认不污染系统 `~/.claude`、`~/.codex`。
+- Claude/Codex CLI 由用户自行安装和登录；Super-Dolphin 默认同步个人 skill 到官方个人 skill 目录 `~/.claude/skills`、`~/.agents/skills`，不会把 `~/.codex` 当作 Codex skill mirror。
 - 项目级 mirror 可编辑，但 drift 必须用户选择处理。
 - 个人级可随意改，但仍要 backup/audit/rollback。
 - V1 不做自进化。

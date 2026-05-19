@@ -16,9 +16,9 @@ type FeedbackItem struct {
 	Content string
 }
 
-// FeedbackProposer is a dormant compatibility shim for the removed
-// skillcandidate backend path. It intentionally does not call an LLM or write
-// a candidate row in V1.
+// FeedbackProposer is a dormant compatibility shim for the removed legacy
+// candidate backend path. It intentionally does not call an LLM or write a
+// candidate row in V1.
 type FeedbackProposer struct {
 	dream  contract.DreamExecutor
 	logger *slog.Logger
@@ -30,7 +30,7 @@ func NewFeedbackProposer(dream contract.DreamExecutor, _ any, logger *slog.Logge
 	return &FeedbackProposer{dream: dream, logger: logger}
 }
 
-// Propose no-ops because the live old skillcandidate pipeline is removed.
+// Propose no-ops because the live old candidate pipeline is removed.
 func (fp *FeedbackProposer) Propose(ctx context.Context, topicKey string, feedbacks []FeedbackItem, repoFingerprint string) error {
 	if fp.logger != nil {
 		fp.logger.Info("feedback skill candidate pipeline disabled",

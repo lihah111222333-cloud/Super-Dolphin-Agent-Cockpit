@@ -126,6 +126,22 @@ export function cleanScalar(value) {
   return (value || '').toString().trim().replace(/^['"]|['"]$/g, '').trim();
 }
 
+export function validateSkillNameText(value) {
+  const text = (value || '').toString().trim();
+  if (!text) return '请先填写技能名称';
+  const chars = Array.from(text);
+  if (!/[\p{L}\p{N}]/u.test(chars[0])) {
+    return '技能名称必须以中文、英文或数字开头。';
+  }
+  if (chars.length > 64) {
+    return '技能名称不能超过 64 个字符。';
+  }
+  if (!/^[\p{L}\p{N}_-]+$/u.test(text)) {
+    return '技能名称不能包含空格，请使用中文、英文、数字、- 或 _。';
+  }
+  return '';
+}
+
 export function isInternalSkillReferenceWord(word, skillName = '') {
   const text = (word || '').toString().trim();
   if (/^\[skill:[^\]]+\]$/i.test(text)) return true;

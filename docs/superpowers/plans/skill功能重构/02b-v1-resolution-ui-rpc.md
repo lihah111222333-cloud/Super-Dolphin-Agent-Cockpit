@@ -41,7 +41,7 @@ Do not modify provider startup in this plan. Provider startup belongs to `02-v1-
 Cover:
 
 - `skills/resolution_list` returns unresolved same-name, mirror drift, unmanaged, canonical-deleted-with-drift, and multi-mirror-drift items for a `cwd`
-- `skills/resolution_list` and `ui/dashboard/get(page=skills)` return success when project `.agent/skills` has the same name as a personal seeded/hub skill; the conflict is visible as an unresolved item instead of bubbling a hard RPC error such as `skill same-name conflict: ...`
+- `skills/resolution_list` and `ui/dashboard/get(page=skills)` return success when project `.agent/skills` has the same name as an active personal skill; the conflict is visible as an unresolved item instead of bubbling a hard RPC error such as `skill same-name conflict: ...`. Catalog-only `personal/hub` entries must be ignored or cleaned and must not create resolution items.
 - each unresolved item includes `conflict_id`, `kind`, `scope`, `personal_type`, `name`, provider entries, source/target hashes, and available actions
 - list derives repo fingerprint from `cwd` server-side and does not accept client-supplied repo identity
 - project mirror drift returns `view_diff`, `save_as_new_skill`, `sync_back_to_canonical`, `canonical_overwrite_mirror`
@@ -315,7 +315,7 @@ UI must show one row per conflict or drift item:
 
 The UI must first call `skills/resolution_list`; it must not require the user to know a `conflict_id` in advance.
 
-The Skills dashboard must render unresolved same-name conflicts as data, not as a page-level failure. A conflict between repo-local project canonical `.agent/skills/<name>` and a personal seeded/hub skill is a normal V1 state; the page must show the blocking item, available resolution actions, and provider startup fail-closed status without crashing or hiding the rest of the skill list. Conflicted skills must not be silently published to Claude/Codex mirrors before the user resolves them.
+The Skills dashboard must render unresolved same-name conflicts as data, not as a page-level failure. A conflict between repo-local project canonical `.agent/skills/<name>` and an active personal skill is a normal V1 state; the page must show the blocking item, available resolution actions, and provider startup fail-closed status without crashing or hiding the rest of the skill list. Conflicted active skills must not be silently published to Claude/Codex mirrors before the user resolves them. Catalog-only `personal/hub` entries must not be treated as active conflicts.
 
 - [ ] **Step 3: Add UI tests**
 
@@ -325,7 +325,7 @@ Mock these payloads:
 - personal mirror drift
 - unmanaged same-name provider skill
 - project canonical vs personal canonical same-name conflict
-- project `.agent/skills` vs personal seeded/hub same-name conflict that previously produced `skill same-name conflict: ...`
+- project `.agent/skills` vs active personal same-name conflict that previously produced `skill same-name conflict: ...`
 - personal type vs personal type same-name conflict
 - `multi_mirror_drift`
 - `canonical_deleted_with_drift`
@@ -378,8 +378,8 @@ Expected: drift/conflict UI builds and tested actions match backend action names
 Cover:
 
 - export to `~/.claude/skills` requires explicit destination path
-- export to `~/.codex/skills` requires explicit destination path
-- export rejects destinations outside canonicalized provider roots `~/.claude/skills` and `~/.codex/skills`, unless a future explicit external-root allowlist is implemented
+- export to `~/.agents/skills` requires explicit destination path
+- export rejects destinations outside canonicalized provider roots `~/.claude/skills` and `~/.agents/skills`, unless a future explicit external-root allowlist is implemented
 - export rejects symlinked destination roots and path traversal after `EvalSymlinks` / canonicalization
 - export refuses to overwrite existing external skill unless user passes preview hash and `confirmed=true`
 - export preview returns canonicalized destination path, existing destination hash, source hash, backup path, preview hash, diff summary, and whether overwrite would occur
@@ -513,7 +513,7 @@ git diff --check
 git status --short
 ```
 
-Expected: provider-native mirrors under `.claude/` and `.codex/` are not staged or committed.
+Expected: provider-native mirrors under `.claude/` and `.agents/` are not staged or committed.
 
 ## Accepted Defaults And Gates For This Plan
 
