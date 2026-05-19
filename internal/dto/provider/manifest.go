@@ -29,14 +29,15 @@ const (
 )
 
 type ManifestContext struct {
-	AgentID       string
-	ThreadID      string
-	CWD           string
-	ThreadCaps    CapabilitySet
-	BinaryDir     string
-	Env           map[string]string
-	AutoApprove   []string
-	ProxyHTTPAddr string
-	PeerHTTPAddrs map[ToolFamily]string // e.g. {FamilyOrch: "127.0.0.1:9091"}
-	TransportMode ManifestTransportMode
+	AgentID                      string
+	ThreadID                     string
+	CWD                          string
+	AdditionalWorkingDirectories []string
+	ThreadCaps                   CapabilitySet
+	BinaryDir                    string
+	Env                          map[string]string
+	AutoApprove                  []string
+	ProxyHTTPAddr                string
+	PeerHTTPAddrs                map[ToolFamily]string // e.g. {FamilyOrch: "127.0.0.1:9091"}
+	TransportMode                ManifestTransportMode
 }

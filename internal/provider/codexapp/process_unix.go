@@ -50,9 +50,27 @@ func setCodexProcessAttrs(cmd *exec.Cmd) {
 func wrapWithFDLimit(argv []string) *exec.Cmd {
 	shellCmd := fmt.Sprintf(
 		"ulimit -n 1048576 2>/dev/null || ulimit -n 65535 2>/dev/null || true; exec %s %s",
-		argv[0], strings.Join(argv[1:], " "),
+		shellQuoteArg(argv[0]), shellQuoteArgs(argv[1:]),
 	)
 	return exec.Command("sh", "-c", shellCmd)
+}
+
+func shellQuoteArgs(args []string) string {
+	quoted := make([]string, 0, len(args))
+	for _, arg := range args {
+		quoted = append(quoted, shellQuoteArg(arg))
+	}
+	return strings.Join(quoted, " ")
+}
+
+func shellQuoteArg(arg string) string {
+	if arg == "" {
+		return "''"
+	}
+	if !strings.ContainsAny(arg, " \t\n'\"\\$`;&|<>*?()[]{}!") {
+		return arg
+	}
+	return "'" + strings.ReplaceAll(arg, "'", "'\"'\"'") + "'"
 }
 
 // processGuard is the Unix no-op variant of the per-child supervisor handle.

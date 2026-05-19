@@ -110,30 +110,114 @@ func NormalizeRoot(root string) (string, error) {
 }
 
 func ResolvePath(root, target string) (PathInfo, error) {
-	normalizedRoot, err := NormalizeRoot(root)
+	return ResolvePathInRoots(root, nil, target)
+}
+
+func ResolvePathInRoots(primaryRoot string, additionalRoots []string, target string) (PathInfo, error) {
+	roots, err := NormalizeRootSet(primaryRoot, additionalRoots)
 	if err != nil {
 		return PathInfo{}, err
 	}
-	candidate, err := absoluteCandidatePath(normalizedRoot, target)
+	root, resolved, err := resolveCandidateInRoots(roots, target)
 	if err != nil {
-		return PathInfo{}, err
-	}
-	resolved, err := resolveExistingPath(candidate)
-	if err != nil {
-		return PathInfo{}, err
-	}
-	if err := ensureWithinRoot(normalizedRoot, resolved); err != nil {
 		return PathInfo{}, err
 	}
 	return PathInfo{
-		Root:        normalizedRoot,
+		Root:        root,
 		AbsPath:     resolved,
 		DisplayPath: displayPath(resolved),
 	}, nil
 }
 
+func NormalizeRootSet(primaryRoot string, additionalRoots []string) ([]string, error) {
+	primary, err := NormalizeRoot(primaryRoot)
+	if err != nil {
+		return nil, err
+	}
+	roots := []string{primary}
+	seen := map[string]struct{}{primary: {}}
+	for _, raw := range additionalRoots {
+		if strings.TrimSpace(raw) == "" {
+			continue
+		}
+		root, err := NormalizeRoot(raw)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := seen[root]; ok {
+			continue
+		}
+		seen[root] = struct{}{}
+		roots = append(roots, root)
+	}
+	return roots, nil
+}
+
+func resolveCandidateInRoots(roots []string, target string) (string, string, error) {
+	if len(roots) == 0 || strings.TrimSpace(roots[0]) == "" {
+		return "", "", fmt.Errorf("workspace root is required")
+	}
+	trimmed := strings.TrimSpace(target)
+	if trimmed == "" || !filepath.IsAbs(trimmed) {
+		return resolveRelativeCandidateInRoot(roots[0], trimmed)
+	}
+	return resolveAbsoluteCandidateInRoots(roots, trimmed)
+}
+
+func resolveRelativeCandidateInRoot(root, target string) (string, string, error) {
+	candidate, err := absoluteCandidatePath(root, target)
+	if err != nil {
+		return "", "", err
+	}
+	resolved, err := resolveExistingPath(candidate)
+	if err != nil {
+		return "", "", err
+	}
+	if err := ensureWithinRoot(root, resolved); err != nil {
+		return "", "", err
+	}
+	return root, resolved, nil
+}
+
+func resolveAbsoluteCandidateInRoots(roots []string, target string) (string, string, error) {
+	candidate, err := filepath.Abs(filepath.Clean(target))
+	if err != nil {
+		return "", "", fmt.Errorf("resolve path: %w", err)
+	}
+	resolved, err := resolveExistingPath(candidate)
+	if err != nil {
+		return "", "", err
+	}
+	root := longestContainingRoot(roots, resolved)
+	if root == "" {
+		return "", "", outsideWorkspaceRootsError(resolved, roots)
+	}
+	return root, resolved, nil
+}
+
+func longestContainingRoot(roots []string, candidate string) string {
+	selected := ""
+	for _, root := range roots {
+		if !platformshared.ContainsPath(root, candidate) {
+			continue
+		}
+		if len(root) > len(selected) {
+			selected = root
+		}
+	}
+	return selected
+}
+
+func outsideWorkspaceRootsError(candidate string, roots []string) error {
+	return fmt.Errorf("path %q is outside workspace roots [%s]", candidate, strings.Join(roots, ", "))
+}
+
 func ReadToolFileContent(root, target string, maxBytes int) (FileContent, error) {
-	file, err := readValidatedFile(root, target, maxBytes)
+	return ReadToolFileContentInRoots(root, nil, target, maxBytes)
+}
+
+func ReadToolFileContentInRoots(root string, roots []string, target string, maxBytes int) (FileContent, error) {
+	file, err := readValidatedFileInRoots(root, roots, target, maxBytes)
 	if err != nil {
 		return FileContent{}, err
 	}
@@ -145,7 +229,11 @@ func ReadToolFileContent(root, target string, maxBytes int) (FileContent, error)
 }
 
 func readValidatedFile(root, target string, maxBytes int) (validatedFile, error) {
-	pathInfo, err := ResolvePath(root, target)
+	return readValidatedFileInRoots(root, nil, target, maxBytes)
+}
+
+func readValidatedFileInRoots(root string, roots []string, target string, maxBytes int) (validatedFile, error) {
+	pathInfo, err := ResolvePathInRoots(root, roots, target)
 	if err != nil {
 		return validatedFile{}, err
 	}

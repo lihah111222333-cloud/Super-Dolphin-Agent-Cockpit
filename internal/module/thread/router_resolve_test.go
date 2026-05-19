@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -470,19 +468,13 @@ func TestResolveRoutedPrompt_MatchWhenSkippedWhenAgentKeyPinned(t *testing.T) {
 	}
 }
 
-// TestResolveRoutedPrompt_MatchWhenResolvesDotCWD: UI often passes req.CWD=".",
-// meaning "use the backend's process working dir". The auto-route must resolve
-// that against the absolute path so cwd_prefix / cwd_glob rules actually fire.
-func TestResolveRoutedPrompt_MatchWhenResolvesDotCWD(t *testing.T) {
+// TestResolveRoutedPrompt_MatchWhenDoesNotTrustDotCWD: "." is not a trusted
+// workspace root, so cwd_prefix / cwd_glob rules must not match process cwd.
+func TestResolveRoutedPrompt_MatchWhenDoesNotTrustDotCWD(t *testing.T) {
 	t.Parallel()
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	expr := fmt.Sprintf(`{"cwd_prefix":%q}`, wd)
 	store := &fakePromptStore{
 		templates: []promptstore.PromptTemplate{
-			sqlTemplateWithMatchWhen("main/by-wd", "by-wd", "by-wd body", []byte(expr), 5),
+			sqlTemplateWithMatchWhen("main/by-wd", "by-wd", "by-wd body", []byte(`{"cwd_prefix":"/"}`), 5),
 			sqlTemplate(defaultPromptKey, "main", "default body", nil),
 		},
 	}
@@ -490,8 +482,8 @@ func TestResolveRoutedPrompt_MatchWhenResolvesDotCWD(t *testing.T) {
 
 	req := &StartRequest{CWD: ".", Prompt: "hey"}
 	s.resolveRoutedPrompt(context.Background(), req)
-	if req.PromptKey != "main/by-wd" {
-		t.Fatalf("want main/by-wd (CWD \".\" resolved), got %q", req.PromptKey)
+	if req.PromptKey != defaultPromptKey {
+		t.Fatalf("want default prompt for untrusted dot CWD, got %q", req.PromptKey)
 	}
 }
 

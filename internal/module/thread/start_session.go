@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -217,15 +216,11 @@ func resolveStartProvider(provider string) (string, error) {
 }
 
 func resolveStartCWD(cwd string) string {
-	if cwd = strings.TrimSpace(cwd); cwd != "" {
-		return cwd
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "." {
+		return ""
 	}
-	if wd, err := os.Getwd(); err == nil {
-		if wd = strings.TrimSpace(wd); wd != "" {
-			return wd
-		}
-	}
-	return "."
+	return cwd
 }
 
 func resolveStartApprovalPolicy(policy string, sandbox json.RawMessage) (string, error) {
@@ -282,12 +277,7 @@ func (s *service) startSession(ctx context.Context, req StartRequest, input cont
 	if s.starter == nil {
 		return nil, errors.New("session starter is not configured")
 	}
-	cwd := strings.TrimSpace(req.CWD)
-	if cwd == "" || cwd == "." {
-		if abs, err := os.Getwd(); err == nil {
-			cwd = abs
-		}
-	}
+	cwd := resolveStartCWD(req.CWD)
 	config := buildStartSessionConfig(req, input, assembly)
 	pkglogger.Debug("thread/start: provider session config trace",
 		"agent_id", agentID,
@@ -346,12 +336,7 @@ func (s *service) resumeSession(ctx context.Context, req ResumeRequest) (contrac
 	if err != nil {
 		return nil, err
 	}
-	cwd := strings.TrimSpace(resolvedReq.CWD)
-	if cwd == "" || cwd == "." {
-		if abs, err := os.Getwd(); err == nil {
-			cwd = abs
-		}
-	}
+	cwd := resolveStartCWD(resolvedReq.CWD)
 	sessionCtx := context.WithoutCancel(ctx)
 	return s.starter.ResumeSession(sessionCtx, dto.ResumeSessionRequest{
 		Provider:                 resolvedReq.Provider,
@@ -362,6 +347,7 @@ func (s *service) resumeSession(ctx context.Context, req ResumeRequest) (contrac
 		CWD:                      cwd,
 		Model:                    resolvedReq.Model,
 		Effort:                   resolvedReq.Effort,
+		Config:                   clone.RuntimeConfigMap(resolvedReq.Config),
 		PromptSnapshot:           toProviderPromptSnapshot(resolvedReq.PromptSnapshot),
 		ConfigOverride:           resolvedReq.ConfigOverride,
 		CodexHome:                resolvedReq.CodexHome,
@@ -419,6 +405,7 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	req.CodexInstanceKey = util.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey)
 	req.CodexModelProvider = util.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
 	req.CodexDisabledNativeTools = resolveResumeCodexDisabledNativeTools(req.CodexDisabledNativeTools, state.ConfigOverride.Runtime)
+	req.Config = mergeRuntimeConfig(clone.RuntimeConfigMap(state.ConfigOverride.Runtime), req.Config)
 	req = s.injectDefaultCodexIdentityForResume(req)
 	req.ConfigOverride = resolveResumeConfigOverride(req, state)
 	req.Model = resolveResumeModel(req, state)
@@ -477,6 +464,7 @@ func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeReq
 	req.CodexInstanceKey = util.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey)
 	req.CodexModelProvider = util.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
 	req.CodexDisabledNativeTools = resolveResumeCodexDisabledNativeTools(req.CodexDisabledNativeTools, state.ConfigOverride.Runtime)
+	req.Config = mergeRuntimeConfig(clone.RuntimeConfigMap(state.ConfigOverride.Runtime), req.Config)
 	req = s.injectDefaultCodexIdentityForResume(req)
 	req.PromptSnapshot = s.resolveResumePromptSnapshot(ctx, req, state)
 	if req.ConfigOverride.Model == nil {

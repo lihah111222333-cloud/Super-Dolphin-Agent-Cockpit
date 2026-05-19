@@ -157,11 +157,11 @@ func (h EditHandler) resolveRenameRequest(ctx context.Context, req EditRequest) 
 	if strings.TrimSpace(req.NewName) == "" {
 		return "", protocol.Position{}, errors.New("new_name is required for rename")
 	}
-	root, err := toolWorkspaceRoot(ctx)
+	root, roots, err := toolWorkspaceRoots(ctx)
 	if err != nil {
 		return "", protocol.Position{}, err
 	}
-	path, err := resolveWorkspacePath(root, req.FilePath)
+	path, err := resolveWorkspacePathInRoots(root, roots, req.FilePath)
 	if err != nil {
 		return "", protocol.Position{}, err
 	}
@@ -173,11 +173,11 @@ func (h EditHandler) resolveRenameRequest(ctx context.Context, req EditRequest) 
 }
 
 func (h EditHandler) resolveFilePositionRequest(ctx context.Context, req EditRequest) (string, protocol.Position, error) {
-	root, err := toolWorkspaceRoot(ctx)
+	root, roots, err := toolWorkspaceRoots(ctx)
 	if err != nil {
 		return "", protocol.Position{}, err
 	}
-	path, err := resolveWorkspacePath(root, req.FilePath)
+	path, err := resolveWorkspacePathInRoots(root, roots, req.FilePath)
 	if err != nil {
 		return "", protocol.Position{}, err
 	}
@@ -272,11 +272,11 @@ func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any
 		)
 		return nil, err
 	}
-	root, err := toolWorkspaceRoot(ctx)
+	root, roots, err := toolWorkspaceRoots(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := validateCodeActionWorkspaceEditPaths(root, actions); err != nil {
+	if err := validateCodeActionWorkspaceEditPathsInRoots(root, roots, actions); err != nil {
 		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: edit code_action unsafe workspace edit",
 			"action", "code_action",
 			"file_path", path,
@@ -313,11 +313,11 @@ func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any
 }
 
 func (h EditHandler) handleFormat(ctx context.Context, req EditRequest) (any, error) {
-	root, err := toolWorkspaceRoot(ctx)
+	root, roots, err := toolWorkspaceRoots(ctx)
 	if err != nil {
 		return nil, err
 	}
-	path, err := resolveWorkspacePath(root, req.FilePath)
+	path, err := resolveWorkspacePathInRoots(root, roots, req.FilePath)
 	if err != nil {
 		pkglogger.FromContext(ctx).WarnContext(ctx, "mcp-lsp: edit format rejected",
 			"action", "format",
@@ -428,11 +428,11 @@ func sortedKeys[V any](items map[string]V) []string {
 }
 
 func (h EditHandler) buildUnpersistedRenameEnvelope(ctx context.Context, req EditRequest, manager lspmanager.Manager, workspaceEdit *protocol.WorkspaceEdit) (any, error) {
-	root, err := toolWorkspaceRoot(ctx)
+	root, roots, err := toolWorkspaceRoots(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := validateWorkspaceEditPaths(root, workspaceEdit); err != nil {
+	if err := validateWorkspaceEditPathsInRoots(root, roots, workspaceEdit); err != nil {
 		return nil, err
 	}
 	return editEnvelope{

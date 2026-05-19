@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
@@ -386,15 +385,16 @@ func decodeToolCallRequest(params json.RawMessage) (ToolCallRequest, error) {
 	}
 
 	req := ToolCallRequest{
-		Name:       firstString(payload, "name", "tool", "toolName", "tool_name"),
-		Arguments:  firstRaw(payload, "arguments", "args"),
-		AgentID:    firstString(payload, MetadataKeyAgentID, "agentId", "agent_id"),
-		ThreadID:   firstString(payload, MetadataKeyThreadID, "threadId", "thread_id"),
-		TurnID:     firstString(payload, "turnId", "turn_id"),
-		CallID:     firstString(payload, MetadataKeyCallID, "callId", "call_id"),
-		CWD:        firstString(payload, MetadataKeyCWD),
-		ClientKind: firstString(payload, "clientKind", "client_kind", "family"),
-		Scoped:     hasPrivateScopeMetadata(payload),
+		Name:           firstString(payload, "name", "tool", "toolName", "tool_name"),
+		Arguments:      firstRaw(payload, "arguments", "args"),
+		AgentID:        firstString(payload, MetadataKeyAgentID, "agentId", "agent_id"),
+		ThreadID:       firstString(payload, MetadataKeyThreadID, "threadId", "thread_id"),
+		TurnID:         firstString(payload, "turnId", "turn_id"),
+		CallID:         firstString(payload, MetadataKeyCallID, "callId", "call_id"),
+		CWD:            firstString(payload, MetadataKeyCWD),
+		WorkspaceRoots: firstStringSlice(payload, MetadataKeyWorkspaceRoots, "_workspace_roots"),
+		ClientKind:     firstString(payload, "clientKind", "client_kind", "family"),
+		Scoped:         hasPrivateScopeMetadata(payload),
 	}
 	if req.Name == "" {
 		req.Name = nestedString(payload, "item", "name", "tool", "toolName")
@@ -411,6 +411,8 @@ func decodeToolCallRequest(params json.RawMessage) (ToolCallRequest, error) {
 	if len(bytes.TrimSpace(req.Arguments)) == 0 {
 		req.Arguments = json.RawMessage(`{}`)
 	}
+	req.CWD = normalizeToolCallCWD(req.CWD)
+	req.WorkspaceRoots = normalizeToolCallWorkspaceRoots(req.CWD, req.WorkspaceRoots)
 	if strings.TrimSpace(req.Name) == "" {
 		return ToolCallRequest{}, fmt.Errorf("toolbridge: missing tool name")
 	}
@@ -477,6 +479,19 @@ func requiresCanonicalCodexSurfaceTool(name string) bool {
 	}
 }
 
+var toolCWDTraceCanonicalTools = map[string]struct{}{
+	"file":                       {},
+	"grep":                       {},
+	"inspect":                    {},
+	"xref":                       {},
+	"structure":                  {},
+	"edit":                       {},
+	"completion":                 {},
+	"code_run":                   {},
+	"code_run_test":              {},
+	"orchestration_launch_agent": {},
+}
+
 func (h *Handler) resolveCurrentToolCallCWD(ctx context.Context, req ToolCallRequest) string {
 	if cwd := normalizeToolCallCWD(req.CWD); cwd != "" {
 		return cwd
@@ -492,14 +507,7 @@ func normalizeToolCallCWD(cwd string) string {
 	if cwd == "" {
 		return ""
 	}
-	if filepath.IsAbs(cwd) {
-		return filepath.Clean(cwd)
-	}
-	abs, err := filepath.Abs(cwd)
-	if err != nil {
-		return filepath.Clean(cwd)
-	}
-	return filepath.Clean(abs)
+	return normalizeToolCallWorkspaceRoot("", cwd)
 }
 
 func (h *Handler) resolveAndWarnCurrentToolCallCWD(ctx context.Context, req ToolCallRequest) string {
@@ -510,12 +518,10 @@ func (h *Handler) resolveAndWarnCurrentToolCallCWD(ctx context.Context, req Tool
 
 func shouldWarnToolCWDTrace(toolName string) bool {
 	trimmed := strings.TrimSpace(toolName)
-	switch canonicalToolName(trimmed) {
-	case "file", "grep", "inspect", "xref", "structure", "edit", "completion", "code_run", "code_run_test", "orchestration_launch_agent":
+	if _, ok := toolCWDTraceCanonicalTools[canonicalToolName(trimmed)]; ok {
 		return true
-	default:
-		return strings.HasPrefix(trimmed, "lsp_")
 	}
+	return strings.HasPrefix(trimmed, "lsp_")
 }
 
 func (h *Handler) warnPeerToolCWDTrace(ctx context.Context, req ToolCallRequest, forwardedCWD string) {

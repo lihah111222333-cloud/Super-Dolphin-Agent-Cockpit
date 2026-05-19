@@ -25,6 +25,10 @@ type LSPToolScope struct {
 	TurnID   string
 	CallID   string
 	CWD      string
+	// WorkspaceRoots carries the trusted root set for containment and root
+	// selection. It is intentionally not part of the manager key; the resolved
+	// WorkspaceRoot/ProjectRoot below are the cache identity.
+	WorkspaceRoots []string
 
 	Family     string
 	LanguageID string
@@ -102,6 +106,7 @@ func canonicalizeLSPToolScope(scope LSPToolScope) (LSPToolScope, error) {
 	}
 
 	canonical.CWD = canonicalScopePath(scope.CWD, "")
+	canonical.WorkspaceRoots = normalizeScopeWorkspaceRoots(canonical.CWD, scope.WorkspaceRoots)
 	canonical.WorkspaceRoot = canonicalScopePath(scope.WorkspaceRoot, canonical.CWD)
 	canonical.LanguageWorkspaceRoot = canonicalScopePath(scope.LanguageWorkspaceRoot, canonical.WorkspaceRoot)
 	canonical.ProjectRoot = canonicalScopePath(scope.ProjectRoot, canonical.WorkspaceRoot)
@@ -206,6 +211,128 @@ func canonicalScopePath(value, base string) string {
 		return normalized
 	}
 	return filepath.Clean(trimmed)
+}
+
+func normalizeScopeWorkspaceRoots(cwd string, roots []string) []string {
+	out := make([]string, 0, len(roots)+1)
+	seen := map[string]struct{}{}
+	add := func(root string) {
+		normalized := canonicalScopePath(root, "")
+		if normalized == "" || !filepath.IsAbs(normalized) {
+			return
+		}
+		if _, ok := seen[normalized]; ok {
+			return
+		}
+		seen[normalized] = struct{}{}
+		out = append(out, normalized)
+	}
+	add(cwd)
+	for _, root := range roots {
+		add(root)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func selectWorkspaceRootForTarget(roots []string, target string) (string, error) {
+	targetPath, err := absoluteWorkspaceTargetPath(target)
+	if err != nil {
+		return "", err
+	}
+	if targetPath == "" {
+		return "", nil
+	}
+	best := ""
+	for _, root := range roots {
+		if platformshared.ContainsPath(root, targetPath) && len(root) > len(best) {
+			best = root
+		}
+	}
+	if best == "" {
+		return "", fmt.Errorf("path %q is outside workspace roots [%s]", targetPath, strings.Join(roots, ", "))
+	}
+	return best, nil
+}
+
+func ensurePathWithinWorkspaceRoots(roots []string, path string) error {
+	targetPath, err := absoluteWorkspaceTargetPath(path)
+	if err != nil {
+		return err
+	}
+	if targetPath == "" {
+		return nil
+	}
+	roots = normalizeScopeWorkspaceRoots("", roots)
+	for _, root := range roots {
+		if platformshared.ContainsPath(root, targetPath) {
+			return nil
+		}
+	}
+	return fmt.Errorf("path %q is outside workspace roots [%s]", targetPath, strings.Join(roots, ", "))
+}
+
+func ensureResolvedLanguageScopeWithinWorkspaceRoots(roots []string, resolved ResolvedLanguageScope) error {
+	for _, path := range []string{resolved.WorkspaceRoot, resolved.LanguageWorkspaceRoot, resolved.ProjectRoot} {
+		if err := ensurePathWithinWorkspaceRoots(roots, path); err != nil {
+			return err
+		}
+	}
+	for _, folder := range resolved.WorkspaceFolders {
+		if err := ensurePathWithinWorkspaceRoots(roots, folder.URI); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureLSPToolScopeWithinWorkspaceRoots(roots []string, scope LSPToolScope) error {
+	return ensureResolvedLanguageScopeWithinWorkspaceRoots(roots, ResolvedLanguageScope{
+		LanguageID:            scope.LanguageID,
+		WorkspaceRoot:         scope.WorkspaceRoot,
+		LanguageWorkspaceRoot: scope.LanguageWorkspaceRoot,
+		ProjectRoot:           scope.ProjectRoot,
+		RootKind:              scope.RootKind,
+		LanguageSpecific:      scope.LanguageSpecific,
+	})
+}
+
+func absoluteWorkspaceTargetPath(target string) (string, error) {
+	trimmed := strings.TrimSpace(target)
+	if trimmed == "" {
+		return "", nil
+	}
+	if strings.HasPrefix(strings.ToLower(trimmed), "file://") {
+		path, err := absolutePathFromURI(trimmed)
+		if err != nil {
+			return "", err
+		}
+		return canonicalAbsoluteTargetPath(path), nil
+	}
+	if !filepath.IsAbs(trimmed) {
+		return "", nil
+	}
+	return canonicalAbsoluteTargetPath(trimmed), nil
+}
+
+func canonicalAbsoluteTargetPath(path string) string {
+	cleaned := filepath.Clean(strings.TrimSpace(path))
+	if cleaned == "" {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
+		return filepath.Clean(resolved)
+	}
+	parent := filepath.Dir(cleaned)
+	if resolvedParent, err := filepath.EvalSymlinks(parent); err == nil {
+		return filepath.Join(filepath.Clean(resolvedParent), filepath.Base(cleaned))
+	}
+	if normalized, err := platformshared.NormalizeAbsolutePath(cleaned); err == nil && normalized != "" {
+		return normalized
+	}
+	return cleaned
 }
 
 func copyLanguageSpecific(input map[string]string) map[string]string {

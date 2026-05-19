@@ -14,6 +14,8 @@ import (
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type stdioTransport interface {
@@ -93,12 +95,13 @@ func (c *stdioMCPClient) ListTools(ctx context.Context) ([]mcpdto.MCPTool, error
 
 func (c *stdioMCPClient) CallTool(ctx context.Context, name string, args json.RawMessage, req ToolCallRequest) (*ToolCallResult, error) {
 	raw, err := c.request(ctx, ProxyMethodToolsCall, map[string]any{
-		"name":              name,
-		"arguments":         args,
-		MetadataKeyAgentID:  req.AgentID,
-		MetadataKeyThreadID: req.ThreadID,
-		MetadataKeyCallID:   req.CallID,
-		MetadataKeyCWD:      req.CWD,
+		"name":                    name,
+		"arguments":               args,
+		MetadataKeyAgentID:        req.AgentID,
+		MetadataKeyThreadID:       req.ThreadID,
+		MetadataKeyCallID:         req.CallID,
+		MetadataKeyCWD:            req.CWD,
+		MetadataKeyWorkspaceRoots: append([]string(nil), req.WorkspaceRoots...),
 	})
 	if err != nil {
 		return toolCallTextResult(false, err.Error()), nil
@@ -153,7 +156,9 @@ func (c *stdioMCPClient) Close() error {
 		_ = c.stdin.Close()
 	}
 	done := make(chan error, 1)
-	go func() { done <- c.cmd.Wait() }()
+	safego.Go(context.Background(), pkglogger.Get(), "toolbridge.stdioMCPClient.wait", func(context.Context) {
+		done <- c.cmd.Wait()
+	})
 	select {
 	case err := <-done:
 		return err

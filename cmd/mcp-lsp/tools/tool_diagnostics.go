@@ -87,14 +87,14 @@ func (h handlerBase) collectDiagnosticURIs(ctx context.Context, input fileToolIn
 		return nil, nil
 	}
 
-	root, err := toolWorkspaceRoot(ctx)
+	root, roots, err := toolWorkspaceRoots(ctx)
 	if err != nil {
 		return nil, err
 	}
 	uris := make([]string, 0, len(targets))
 	seen := make(map[string]struct{}, len(targets))
 	for _, target := range targets {
-		pathInfo, err := search.ResolvePath(root, target)
+		pathInfo, err := search.ResolvePathInRoots(root, roots, target)
 		if err != nil {
 			return nil, err
 		}

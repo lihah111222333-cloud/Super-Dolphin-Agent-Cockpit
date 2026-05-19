@@ -25,6 +25,155 @@ func TestRegistryScopedResolverForToolScopeUsesGoRootAndTrustedIdentity(t *testi
 	assertRegistryOtherAgentHasNoManagers(t, resolver, root)
 }
 
+func TestRegistryScopedResolverSelectsWorkspaceRootContainingAbsoluteTarget(t *testing.T) {
+	tmp := canonicalTestRoot(t, t.TempDir())
+	primary := filepath.Join(tmp, "primary")
+	extra := filepath.Join(tmp, "extra")
+	writeFile(t, filepath.Join(primary, "README.md"), "# primary\n")
+	writeFile(t, filepath.Join(extra, "notes.md"), "# extra\n")
+	primaryManager := newManagerPoolTestManager(t, primary)
+	resolver := NewRegistryScopedResolver(primaryManager)
+	if resolver == nil {
+		t.Fatal("NewRegistryScopedResolver returned nil")
+	}
+
+	target := filepath.Join(extra, "notes.md")
+	scoped := mustResolveRegistryToolScope(t, resolver, lspmanager.ToolScope{
+		AgentID:        "agent-a",
+		ThreadID:       "thread-a",
+		CWD:            primary,
+		WorkspaceRoots: []string{primary, extra},
+		Family:         "lsp",
+		LanguageID:     "markdown",
+		TargetPath:     target,
+	})
+
+	if scoped.ResolvedScope.CWD != extra {
+		t.Fatalf("resolved CWD = %q, want target workspace root %q", scoped.ResolvedScope.CWD, extra)
+	}
+	if scoped.ResolvedScope.WorkspaceRoot != extra || scoped.ResolvedScope.ProjectRoot != extra {
+		t.Fatalf("resolved roots = workspace:%q project:%q, want %q", scoped.ResolvedScope.WorkspaceRoot, scoped.ResolvedScope.ProjectRoot, extra)
+	}
+	if scoped.ResolvedScope.TargetPath != target {
+		t.Fatalf("resolved target = %q, want %q", scoped.ResolvedScope.TargetPath, target)
+	}
+}
+
+func TestRegistryScopedResolverRejectsAbsoluteTargetOutsideWorkspaceRoots(t *testing.T) {
+	primary := canonicalTestRoot(t, t.TempDir())
+	outside := canonicalTestRoot(t, t.TempDir())
+	writeFile(t, filepath.Join(primary, "README.md"), "# primary\n")
+	writeFile(t, filepath.Join(outside, "notes.md"), "# outside\n")
+	primaryManager := newManagerPoolTestManager(t, primary)
+	resolver := NewRegistryScopedResolver(primaryManager)
+	if resolver == nil {
+		t.Fatal("NewRegistryScopedResolver returned nil")
+	}
+
+	_, err := resolver.ForToolScope(lspmanager.ToolScope{
+		AgentID:        "agent-a",
+		ThreadID:       "thread-a",
+		CWD:            primary,
+		WorkspaceRoots: []string{primary},
+		Family:         "lsp",
+		LanguageID:     "markdown",
+		TargetPath:     filepath.Join(outside, "notes.md"),
+	})
+	if err == nil || !strings.Contains(err.Error(), "outside workspace roots") {
+		t.Fatalf("ForToolScope error = %v, want outside workspace roots", err)
+	}
+}
+
+func TestRegistryScopedResolverRejectsRelativeTargetEscapingWorkspaceRoots(t *testing.T) {
+	tmp := canonicalTestRoot(t, t.TempDir())
+	primary := filepath.Join(tmp, "primary")
+	outside := filepath.Join(tmp, "outside")
+	writeFile(t, filepath.Join(primary, "README.md"), "# primary\n")
+	writeFile(t, filepath.Join(outside, "notes.md"), "# outside\n")
+	primaryManager := newManagerPoolTestManager(t, primary)
+	resolver := NewRegistryScopedResolver(primaryManager)
+	if resolver == nil {
+		t.Fatal("NewRegistryScopedResolver returned nil")
+	}
+
+	_, err := resolver.ForToolScope(lspmanager.ToolScope{
+		AgentID:        "agent-a",
+		ThreadID:       "thread-a",
+		CWD:            primary,
+		WorkspaceRoots: []string{primary},
+		Family:         "lsp",
+		LanguageID:     "markdown",
+		TargetPath:     "../outside/notes.md",
+	})
+	if err == nil || !strings.Contains(err.Error(), "outside workspace roots") {
+		t.Fatalf("ForToolScope error = %v, want outside workspace roots", err)
+	}
+}
+
+func TestRegistryScopedResolverRejectsResolvedProjectRootOutsideWorkspaceRoots(t *testing.T) {
+	repo := canonicalTestRoot(t, t.TempDir())
+	opened := filepath.Join(repo, "opened")
+	writeFile(t, filepath.Join(repo, "package.json"), `{"name":"outer"}`+"\n")
+	writeFile(t, filepath.Join(opened, "src", "app.ts"), "export const value = 1\n")
+	primaryManager := newManagerPoolTestManager(t, opened)
+	resolver := NewRegistryScopedResolver(primaryManager)
+	if resolver == nil {
+		t.Fatal("NewRegistryScopedResolver returned nil")
+	}
+
+	_, err := resolver.ForToolScope(lspmanager.ToolScope{
+		AgentID:        "agent-a",
+		ThreadID:       "thread-a",
+		CWD:            opened,
+		WorkspaceRoots: []string{opened},
+		Family:         "lsp",
+		LanguageID:     "typescript",
+		TargetPath:     "src/app.ts",
+	})
+	if err == nil || !strings.Contains(err.Error(), "outside workspace roots") {
+		t.Fatalf("ForToolScope error = %v, want outside workspace roots", err)
+	}
+}
+
+func TestRegistryScopedResolverCurrentManagersFiltersByTrustedRoots(t *testing.T) {
+	tmp := canonicalTestRoot(t, t.TempDir())
+	primary := filepath.Join(tmp, "primary")
+	extra := filepath.Join(tmp, "extra")
+	writeFile(t, filepath.Join(primary, "README.md"), "# primary\n")
+	writeFile(t, filepath.Join(extra, "notes.md"), "# extra\n")
+	primaryManager := newManagerPoolTestManager(t, primary)
+	resolver := NewRegistryScopedResolver(primaryManager)
+	if resolver == nil {
+		t.Fatal("NewRegistryScopedResolver returned nil")
+	}
+
+	extraScoped := mustResolveRegistryToolScope(t, resolver, lspmanager.ToolScope{
+		AgentID:        "agent-a",
+		ThreadID:       "thread-a",
+		CWD:            primary,
+		WorkspaceRoots: []string{primary, extra},
+		Family:         "lsp",
+		LanguageID:     "markdown",
+		TargetPath:     filepath.Join(extra, "notes.md"),
+	})
+	current, err := resolver.CurrentManagersForToolScope(lspmanager.ToolScope{
+		AgentID:        "agent-a",
+		ThreadID:       "thread-a",
+		CWD:            primary,
+		WorkspaceRoots: []string{primary},
+		Family:         "lsp",
+		LanguageID:     "markdown",
+	})
+	if err != nil {
+		t.Fatalf("CurrentManagersForToolScope: %v", err)
+	}
+	for _, scoped := range current {
+		if scoped.Manager == extraScoped.Manager {
+			t.Fatalf("current managers included stale extra-root manager after roots narrowed: %#v", current)
+		}
+	}
+}
+
 func scopedResolverTestRoot(t *testing.T) string {
 	t.Helper()
 	root := canonicalTestRoot(t, t.TempDir())

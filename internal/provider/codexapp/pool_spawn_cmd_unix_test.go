@@ -4,6 +4,8 @@ package codexapp
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -71,5 +73,66 @@ func TestBuildPoolSpawnCmdAppendsExtraArgs(t *testing.T) {
 	idxExtra := strings.Index(shellCmd, "--log-level")
 	if idxApp < 0 || idxExtra < 0 || idxApp > idxExtra {
 		t.Fatalf("argv ordering wrong:\n%s", shellCmd)
+	}
+}
+
+func TestBuildPoolSpawnCmdShellQuotesWorkspaceRootOverrides(t *testing.T) {
+	t.Parallel()
+	parent := t.TempDir()
+	workDir := filepath.Join(parent, "folder with spaces")
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		t.Fatalf("mkdir work dir: %v", err)
+	}
+	ctx := withPoolSpawnWorkDir(context.Background(), workDir)
+	cmd, err := BuildPoolSpawnCmd(ctx, PoolSpawnArgs{
+		Home:      "/realpath/home",
+		ParentEnv: []string{},
+	})
+	if err != nil {
+		t.Fatalf("BuildPoolSpawnCmd error = %v", err)
+	}
+	shellCmd := cmd.Args[2]
+	if strings.Contains(shellCmd, "mcp_servers.lsp.cwd="+workDir) {
+		t.Fatalf("workspace override with spaces must be shell-quoted:\n%s", shellCmd)
+	}
+	if !strings.Contains(shellCmd, "'mcp_servers.lsp.cwd=") {
+		t.Fatalf("workspace override missing shell-quoted -c value:\n%s", shellCmd)
+	}
+}
+
+func TestShellQuoteArgEscapesApostrophes(t *testing.T) {
+	t.Parallel()
+	got := shellQuoteArg("folder's path")
+	want := "'folder'\"'\"'s path'"
+	if got != want {
+		t.Fatalf("shellQuoteArg() = %q, want %q", got, want)
+	}
+}
+
+func TestBuildPoolSpawnCmdShellQuotesMCPCommandOverrideWithSpacesAndApostrophe(t *testing.T) {
+	t.Parallel()
+	parent := t.TempDir()
+	workDir := filepath.Join(parent, "project")
+	binaryDir := filepath.Join(parent, "bin folder's")
+	for _, dir := range []string{workDir, binaryDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %q: %v", dir, err)
+		}
+	}
+	ctx := withPoolSpawnWorkDir(context.Background(), workDir)
+	ctx = withPoolSpawnLSPConfig(ctx, []string{workDir}, binaryDir)
+	cmd, err := BuildPoolSpawnCmd(ctx, PoolSpawnArgs{
+		Home:      "/realpath/home",
+		ParentEnv: []string{},
+	})
+	if err != nil {
+		t.Fatalf("BuildPoolSpawnCmd error = %v", err)
+	}
+	shellCmd := cmd.Args[2]
+	if !strings.Contains(shellCmd, "'mcp_servers.lsp.command=") {
+		t.Fatalf("mcp command override missing shell-quoted -c value:\n%s", shellCmd)
+	}
+	if !strings.Contains(shellCmd, "'\"'\"'") {
+		t.Fatalf("mcp command override apostrophe was not escaped safely:\n%s", shellCmd)
 	}
 }

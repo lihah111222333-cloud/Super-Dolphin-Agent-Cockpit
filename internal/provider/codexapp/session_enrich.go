@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -14,10 +15,11 @@ import (
 )
 
 const (
-	toolMetadataKeyAgentID  = "_agentId"
-	toolMetadataKeyThreadID = "_threadId"
-	toolMetadataKeyCallID   = "_callId"
-	toolMetadataKeyCWD      = "_cwd"
+	toolMetadataKeyAgentID        = "_agentId"
+	toolMetadataKeyThreadID       = "_threadId"
+	toolMetadataKeyCallID         = "_callId"
+	toolMetadataKeyCWD            = "_cwd"
+	toolMetadataKeyWorkspaceRoots = "_workspaceRoots"
 )
 
 // enrichToolCallParams 把 session 元数据注入到 codex item/tool/call 的 msg.Params 中。
@@ -144,9 +146,10 @@ func (s *session) prepareToolCall(msg RawMessage) (preparedToolCall, error) {
 	if cwd == "" {
 		return preparedToolCall{}, fmt.Errorf("codexapp: tool call cwd is required")
 	}
+	workspaceRoots := trustedWorkspaceRoots(cwd, s.runtimeConfigStringSlice("additionalWorkingDirectories", "additional_working_directories"))
 	turnID := firstNonEmptyToolString(toolCallParamStringAny(msg.Params, "turnId", "turn_id"), nestedToolCallString(msg.Params, "item", "turnId", "turn_id"), s.activeTurnSnapshot())
 	header := toolCallHeader(agentID, turnID, callID, toolName, started)
-	enriched, err := enrichToolCallParamsStrict(msg, agentID, providerThreadID, callID, cwd)
+	enriched, err := enrichToolCallParamsStrict(msg, agentID, providerThreadID, callID, cwd, workspaceRoots)
 	if err != nil {
 		return preparedToolCall{}, err
 	}
@@ -207,7 +210,7 @@ func (s *session) activeTurnSnapshot() string {
 	return strings.TrimSpace(s.activeTurnID)
 }
 
-func enrichToolCallParamsStrict(msg RawMessage, agentID, threadID, callID, cwd string) (RawMessage, error) {
+func enrichToolCallParamsStrict(msg RawMessage, agentID, threadID, callID, cwd string, workspaceRoots []string) (RawMessage, error) {
 	var payload map[string]json.RawMessage
 	if len(bytes.TrimSpace(msg.Params)) == 0 {
 		return RawMessage{}, fmt.Errorf("codexapp: missing tool call params")
@@ -218,9 +221,10 @@ func enrichToolCallParamsStrict(msg RawMessage, agentID, threadID, callID, cwd s
 	if payload == nil {
 		return RawMessage{}, fmt.Errorf("codexapp: tool call params must be an object")
 	}
-	for _, key := range []string{"agentId", "agent_id", "threadId", "thread_id", "callId", "call_id", "cwd"} {
+	for _, key := range []string{"agentId", "agent_id", "threadId", "thread_id", "callId", "call_id", "cwd", "workspaceRoots", "workspace_roots", "_workspaceRoots", "_workspace_roots"} {
 		delete(payload, key)
 	}
+	workspaceRoots = trustedWorkspaceRoots(cwd, workspaceRoots)
 	for key, value := range map[string]string{
 		toolMetadataKeyAgentID:  agentID,
 		toolMetadataKeyThreadID: threadID,
@@ -233,6 +237,11 @@ func enrichToolCallParamsStrict(msg RawMessage, agentID, threadID, callID, cwd s
 		}
 		payload[key] = raw
 	}
+	rawRoots, err := json.Marshal(workspaceRoots)
+	if err != nil {
+		return RawMessage{}, err
+	}
+	payload[toolMetadataKeyWorkspaceRoots] = rawRoots
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return RawMessage{}, fmt.Errorf("codexapp: encode tool call params: %w", err)
@@ -240,6 +249,51 @@ func enrichToolCallParamsStrict(msg RawMessage, agentID, threadID, callID, cwd s
 	enriched := msg
 	enriched.Params = raw
 	return enriched, nil
+}
+
+func trustedWorkspaceRoots(cwd string, additional []string) []string {
+	roots := make([]string, 0, len(additional)+1)
+	seen := map[string]struct{}{}
+	primary := normalizeTrustedWorkspaceRoot("", cwd)
+	if primary == "" {
+		return nil
+	}
+	add := func(root string) {
+		root = normalizeTrustedWorkspaceRoot(primary, root)
+		if root == "" {
+			return
+		}
+		if _, ok := seen[root]; ok {
+			return
+		}
+		seen[root] = struct{}{}
+		roots = append(roots, root)
+	}
+	add(primary)
+	for _, root := range additional {
+		add(root)
+	}
+	return roots
+}
+
+func normalizeTrustedWorkspaceRoot(base, root string) string {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return ""
+	}
+	if strings.TrimSpace(base) != "" && !filepath.IsAbs(root) {
+		root = filepath.Join(base, root)
+	}
+	if filepath.IsAbs(root) {
+		return filepath.Clean(root)
+	}
+	if strings.TrimSpace(base) == "" {
+		return ""
+	}
+	if abs, err := filepath.Abs(root); err == nil {
+		return filepath.Clean(abs)
+	}
+	return ""
 }
 
 func toolCallParamStringAny(params json.RawMessage, keys ...string) string {

@@ -365,11 +365,15 @@ func registryToolScope(ctx context.Context, lang, targetPath, targetURI string) 
 		trusted.Family = "lsp"
 	}
 	return ToolScope{
-		AgentID:    trusted.AgentID,
-		ThreadID:   trusted.ThreadID,
-		TurnID:     trusted.TurnID,
-		CallID:     trusted.CallID,
-		CWD:        trusted.CWD,
+		AgentID:  trusted.AgentID,
+		ThreadID: trusted.ThreadID,
+		TurnID:   trusted.TurnID,
+		CallID:   trusted.CallID,
+		CWD:      trusted.CWD,
+		WorkspaceRoots: append(
+			[]string(nil),
+			trusted.WorkspaceRoots...,
+		),
 		Family:     trusted.Family,
 		LanguageID: strings.ToLower(strings.TrimSpace(lang)),
 		TargetPath: strings.TrimSpace(targetPath),

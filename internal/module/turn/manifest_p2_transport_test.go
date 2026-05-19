@@ -69,6 +69,27 @@ func TestManifestIgnoresHealthyHTTPRunnerDiscoveryForStdioOnly(t *testing.T) {
 	}
 }
 
+func TestManifestBuilderPropagatesAdditionalWorkingDirectories(t *testing.T) {
+	var got dto.ManifestContext
+	builder := newManifestBuilder("/tmp/super-agent-bin", func(ctx dto.ManifestContext) dto.MCPManifest {
+		got = ctx
+		return dto.MCPManifest{}
+	})
+
+	_ = builder.Build(PrepareInput{
+		AgentID:                      "agent-p2",
+		CWD:                          "/repo",
+		AdditionalWorkingDirectories: []string{"/repo/packages/api"},
+	}, "thread-p2")
+
+	if got.CWD != "/repo" {
+		t.Fatalf("ManifestContext.CWD = %q, want /repo", got.CWD)
+	}
+	if len(got.AdditionalWorkingDirectories) != 1 || got.AdditionalWorkingDirectories[0] != "/repo/packages/api" {
+		t.Fatalf("AdditionalWorkingDirectories = %#v, want [/repo/packages/api]", got.AdditionalWorkingDirectories)
+	}
+}
+
 func manifestBinary(t *testing.T, manifest dto.MCPManifest, family dto.ToolFamily) dto.MCPBinary {
 	t.Helper()
 	for _, bin := range manifest.Binaries {

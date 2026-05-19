@@ -8,15 +8,12 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
-func TestResolveAbsCWDConvertsRelativeToAbsolute(t *testing.T) {
+func TestResolveAbsCWDDropsDotCWD(t *testing.T) {
 	t.Parallel()
 
 	got := resolveAbsCWD(".")
-	if got == "." || got == "" {
-		t.Fatalf("resolveAbsCWD(\".\") = %q, want absolute path", got)
-	}
-	if got[0] != '/' {
-		t.Fatalf("resolveAbsCWD(\".\") = %q, want path starting with /", got)
+	if got != "" {
+		t.Fatalf("resolveAbsCWD(\".\") = %q, want empty for untrusted dot cwd", got)
 	}
 }
 

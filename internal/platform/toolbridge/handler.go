@@ -95,6 +95,7 @@ func (h *Handler) HandleToolCall(ctx context.Context, msg contract.ToolCallRawMe
 }
 
 func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*ToolCallResult, error) {
+	req = normalizeToolCallRequest(req)
 	switch strings.TrimSpace(req.Name) {
 	case ToolNameMemoryRead:
 		return h.routeHostOnlyToolCall(ctx, req, "reader_unavailable")
@@ -179,12 +180,13 @@ func (h *Handler) callPeerTool(ctx context.Context, peer mcpcontrol.Peer, req To
 	cwd := h.resolveAndWarnCurrentToolCallCWD(ctx, req)
 	var resp peerToolCallResponse
 	err := peer.Callback(callCtx, ProxyMethodToolsCall, map[string]any{
-		"name":              req.Name,
-		"arguments":         req.Arguments,
-		MetadataKeyAgentID:  req.AgentID,
-		MetadataKeyThreadID: req.ThreadID,
-		MetadataKeyCallID:   req.CallID,
-		MetadataKeyCWD:      cwd,
+		"name":                    req.Name,
+		"arguments":               req.Arguments,
+		MetadataKeyAgentID:        req.AgentID,
+		MetadataKeyThreadID:       req.ThreadID,
+		MetadataKeyCallID:         req.CallID,
+		MetadataKeyCWD:            cwd,
+		MetadataKeyWorkspaceRoots: append([]string(nil), req.WorkspaceRoots...),
 	}, &resp)
 	if err != nil {
 		return toolCallTextResult(false, err.Error()), nil

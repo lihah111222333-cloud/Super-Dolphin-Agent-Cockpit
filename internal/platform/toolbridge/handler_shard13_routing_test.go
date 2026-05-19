@@ -63,11 +63,12 @@ func TestToolBridge_ForwardsInjectedCWDToPeer(t *testing.T) {
 }
 
 type trustedScopePayload struct {
-	agentID   string
-	threadID  string
-	callID    string
-	cwd       string
-	replyText string
+	agentID        string
+	threadID       string
+	callID         string
+	cwd            string
+	workspaceRoots []string
+	replyText      string
 }
 
 func newTrustedLSPPeer(t *testing.T, want trustedScopePayload) *mcpcontrol.ToolInstance {
@@ -106,9 +107,134 @@ func assertTrustedScopePayload(t *testing.T, params any, want trustedScopePayloa
 	if got := payload[MetadataKeyCWD]; got != want.cwd {
 		t.Fatalf("Callback() _cwd = %#v, want %s", got, want.cwd)
 	}
+	if want.workspaceRoots != nil {
+		assertTrustedWorkspaceRootsPayload(t, payload[MetadataKeyWorkspaceRoots], want.workspaceRoots)
+	}
 	if _, ok := payload["agent_id"]; ok {
 		t.Fatalf("Callback() leaked public agent_id in top-level payload: %#v", payload)
 	}
+}
+
+func assertTrustedWorkspaceRootsPayload(t *testing.T, raw any, want []string) {
+	t.Helper()
+	got, ok := raw.([]string)
+	if !ok {
+		t.Fatalf("Callback() _workspaceRoots = %#v, want []string", raw)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("Callback() _workspaceRoots = %#v, want %#v", got, want)
+	}
+	for i, wantRoot := range want {
+		if got[i] != wantRoot {
+			t.Fatalf("Callback() _workspaceRoots[%d] = %q, want %q; all roots %#v", i, got[i], wantRoot, got)
+		}
+	}
+}
+
+func TestToolBridge_ForwardsTrustedWorkspaceRootsToPeer(t *testing.T) {
+	args := mustRawJSON(t, map[string]any{
+		"action":          "read_file",
+		"file_path":       "go.mod",
+		"_workspaceRoots": []string{"/forged/arguments"},
+	})
+	peer := newTrustedLSPPeer(t, trustedScopePayload{
+		agentID:        "agent-roots",
+		threadID:       "thread-roots",
+		callID:         "call-roots",
+		cwd:            "/repo",
+		workspaceRoots: []string{"/repo", "/repo/packages/api"},
+		replyText:      "roots forwarded",
+	})
+	h, registry := newHandlerForTest(peer)
+	registry.scoped = true
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:           "lsp_file",
+		Arguments:      args,
+		AgentID:        "agent-roots",
+		ThreadID:       "thread-roots",
+		CallID:         "call-roots",
+		CWD:            "/repo",
+		WorkspaceRoots: []string{"/repo", "/repo/packages/api"},
+	})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	assertSingleTextItem(t, got, "roots forwarded", true)
+}
+
+func TestToolBridge_DoesNotTrustRelativePrimaryRoot(t *testing.T) {
+	args := mustRawJSON(t, map[string]any{"action": "read_file", "file_path": "go.mod"})
+	peer := newTrustedLSPPeer(t, trustedScopePayload{
+		agentID: "agent-rel", threadID: "thread-rel", callID: "call-rel", cwd: "", workspaceRoots: nil, replyText: "relative dropped",
+	})
+	h, registry := newHandlerForTest(peer)
+	registry.scoped = true
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:           "lsp_file",
+		Arguments:      args,
+		AgentID:        "agent-rel",
+		ThreadID:       "thread-rel",
+		CallID:         "call-rel",
+		CWD:            ".",
+		WorkspaceRoots: []string{"packages/api"},
+	})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	assertSingleTextItem(t, got, "relative dropped", true)
+}
+
+func TestToolBridge_DoesNotPromoteAdditionalRootWithoutTrustedPrimary(t *testing.T) {
+	args := mustRawJSON(t, map[string]any{"action": "read_file", "file_path": "go.mod"})
+	peer := newTrustedLSPPeer(t, trustedScopePayload{
+		agentID: "agent-no-primary", threadID: "thread-no-primary", callID: "call-no-primary", cwd: "", workspaceRoots: []string{}, replyText: "additional dropped",
+	})
+	h, registry := newHandlerForTest(peer)
+	registry.scoped = true
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:           "lsp_file",
+		Arguments:      args,
+		AgentID:        "agent-no-primary",
+		ThreadID:       "thread-no-primary",
+		CallID:         "call-no-primary",
+		CWD:            ".",
+		WorkspaceRoots: []string{"/repo/packages/api"},
+	})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	assertSingleTextItem(t, got, "additional dropped", true)
+}
+
+func TestToolBridge_ResolvesRelativeAdditionalRootsAgainstPrimaryRoot(t *testing.T) {
+	args := mustRawJSON(t, map[string]any{"action": "read_file", "file_path": "go.mod"})
+	peer := newTrustedLSPPeer(t, trustedScopePayload{
+		agentID:        "agent-rel-extra",
+		threadID:       "thread-rel-extra",
+		callID:         "call-rel-extra",
+		cwd:            "/repo",
+		workspaceRoots: []string{"/repo", "/repo/packages/api"},
+		replyText:      "relative resolved",
+	})
+	h, registry := newHandlerForTest(peer)
+	registry.scoped = true
+
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:           "lsp_file",
+		Arguments:      args,
+		AgentID:        "agent-rel-extra",
+		ThreadID:       "thread-rel-extra",
+		CallID:         "call-rel-extra",
+		CWD:            "/repo",
+		WorkspaceRoots: []string{"packages/api"},
+	})
+	if err != nil {
+		t.Fatalf("routeToolCall() error = %v", err)
+	}
+	assertSingleTextItem(t, got, "relative resolved", true)
 }
 
 func TestToolBridge_ScopedLSPPeerRoutingUsesTrustedMetadata(t *testing.T) {
