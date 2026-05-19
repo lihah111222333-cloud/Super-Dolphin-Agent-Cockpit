@@ -107,12 +107,7 @@ func normalizeSessionFlagName(name string) string {
 func resolvePromptCWD(cwd string) string {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" || cwd == "." {
-		if wd, err := os.Getwd(); err == nil {
-			cwd = strings.TrimSpace(wd)
-		}
-	}
-	if cwd == "" {
-		return "."
+		return ""
 	}
 	if abs, err := filepath.Abs(cwd); err == nil {
 		return abs

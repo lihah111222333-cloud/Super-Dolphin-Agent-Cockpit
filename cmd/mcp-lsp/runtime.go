@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/installer"
@@ -65,11 +67,98 @@ func newManager() (*Manager, error) {
 }
 
 func runtimeRoot() (string, error) {
-	root := os.Getenv("GO_AGENT_LSP_ROOT")
-	if root != "" {
-		return root, nil
+	roots, err := runtimeWorkspaceRoots()
+	if err != nil {
+		return "", err
 	}
-	return os.Getwd()
+	if len(roots) == 0 {
+		return "", errors.New("runtime workspace root is empty")
+	}
+	return roots[0], nil
+}
+
+func runtimeWorkspaceRoots() ([]string, error) {
+	roots, configured, err := runtimeWorkspaceRootsFromEnv()
+	if err != nil {
+		return nil, err
+	}
+	if len(roots) > 0 {
+		return roots, nil
+	}
+	if configured {
+		return nil, errors.New("runtime workspace roots env is explicitly configured but empty")
+	}
+	return nil, errors.New("runtime workspace roots env is required")
+}
+
+func runtimeWorkspaceRootsFromEnv() ([]string, bool, error) {
+	if rawRoots, ok := os.LookupEnv("GO_AGENT_LSP_ROOTS"); ok {
+		rawRoots = strings.TrimSpace(rawRoots)
+		var decoded []string
+		if rawRoots != "" {
+			if err := json.Unmarshal([]byte(rawRoots), &decoded); err != nil {
+				return nil, true, err
+			}
+		}
+		normalized, err := normalizeRuntimeWorkspaceRoots(decoded)
+		if err != nil {
+			return nil, true, err
+		}
+		return normalized, true, nil
+	}
+	if primary, ok := os.LookupEnv("GO_AGENT_LSP_ROOT"); ok {
+		normalized, err := normalizeRuntimeWorkspaceRoots([]string{primary})
+		if err != nil {
+			return nil, true, err
+		}
+		return normalized, true, nil
+	}
+	return nil, false, nil
+}
+
+func normalizeRuntimeWorkspaceRoots(roots []string) ([]string, error) {
+	if len(roots) == 0 {
+		return nil, nil
+	}
+	base, err := normalizeRuntimeWorkspaceRoot("", roots[0])
+	if err != nil {
+		return nil, err
+	}
+	if base == "" {
+		return nil, errors.New("runtime workspace roots primary root is required")
+	}
+	out := make([]string, 0, len(roots))
+	seen := map[string]struct{}{base: {}}
+	out = append(out, base)
+	for _, root := range roots[1:] {
+		normalized, err := normalizeRuntimeWorkspaceRoot(base, root)
+		if err != nil {
+			return nil, err
+		}
+		if normalized == "" {
+			continue
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		out = append(out, normalized)
+	}
+	return out, nil
+}
+
+func normalizeRuntimeWorkspaceRoot(base, root string) (string, error) {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return "", nil
+	}
+	if strings.TrimSpace(base) != "" && !filepath.IsAbs(root) {
+		root = filepath.Join(base, root)
+	}
+	if filepath.IsAbs(root) {
+		return filepath.Clean(root), nil
+	}
+	return "", errors.New("runtime workspace root must be absolute")
 }
 
 func runtimePrimaryLanguageIDs() []string {

@@ -1,6 +1,8 @@
 package contract
 
 import (
+	"encoding/json"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -25,33 +27,101 @@ func BuildManifest(ctx dto.ManifestContext) dto.MCPManifest {
 	bins := make([]dto.MCPBinary, 0, len(families))
 	for _, fam := range families {
 		serverName := string(fam)
-		if proxyAddr := strings.TrimSpace(ctx.ProxyHTTPAddr); proxyAddr != "" {
-			bins = append(bins, dto.MCPBinary{
-				Name:        serverName,
-				Type:        "http",
-				URL:         "http://" + proxyAddr + "/mcp/" + string(fam) + "/" + ctx.AgentID,
-				AutoApprove: append([]string(nil), autoApprove...),
-			})
-			continue
-		}
-		if addr := strings.TrimSpace(ctx.PeerHTTPAddrs[fam]); addr != "" {
-			bins = append(bins, dto.MCPBinary{
-				Name:        serverName,
-				Type:        "http",
-				URL:         "http://" + addr + "/mcp",
-				AutoApprove: append([]string(nil), autoApprove...),
-			})
-			continue
+		if ctx.TransportMode != dto.ManifestTransportStdioOnly {
+			if proxyAddr := strings.TrimSpace(ctx.ProxyHTTPAddr); proxyAddr != "" {
+				bins = append(bins, dto.MCPBinary{
+					Name:        serverName,
+					Type:        "http",
+					URL:         "http://" + proxyAddr + "/mcp/" + string(fam) + "/" + ctx.AgentID,
+					AutoApprove: append([]string(nil), autoApprove...),
+				})
+				continue
+			}
+			if addr := strings.TrimSpace(ctx.PeerHTTPAddrs[fam]); addr != "" {
+				bins = append(bins, dto.MCPBinary{
+					Name:        serverName,
+					Type:        "http",
+					URL:         "http://" + addr + "/mcp",
+					AutoApprove: append([]string(nil), autoApprove...),
+				})
+				continue
+			}
 		}
 		binaryName := "mcp-" + string(fam)
+		binEnv := cloneManifestEnv(env)
+		if fam == dto.FamilyLSP {
+			addLSPWorkspaceRootEnv(binEnv, ctx)
+		}
 		bins = append(bins, dto.MCPBinary{
 			Name:        serverName,
 			Command:     []string{filepath.Join(ctx.BinaryDir, binaryName)},
-			Env:         cloneManifestEnv(env),
+			Env:         binEnv,
 			AutoApprove: append([]string(nil), autoApprove...),
 		})
 	}
 	return dto.MCPManifest{Binaries: bins}
+}
+
+func addLSPWorkspaceRootEnv(env map[string]string, ctx dto.ManifestContext) {
+	roots := normalizeManifestWorkspaceRoots(ctx.CWD, ctx.AdditionalWorkingDirectories)
+	if len(roots) == 0 {
+		return
+	}
+	raw, err := json.Marshal(roots)
+	if err != nil {
+		panic(fmt.Sprintf("manifest workspace roots must encode as JSON: %v", err))
+	}
+	env["GO_AGENT_LSP_ROOT"] = roots[0]
+	env["GO_AGENT_LSP_ROOTS"] = string(raw)
+}
+
+func normalizeManifestWorkspaceRoots(cwd string, dirs []string) []string {
+	out := make([]string, 0, len(dirs)+1)
+	seen := map[string]struct{}{}
+	primary := normalizeManifestWorkspaceRoot("", cwd)
+	if primary == "" {
+		return nil
+	}
+	add := func(path string) {
+		path = normalizeManifestWorkspaceRoot(primary, path)
+		if path == "" {
+			return
+		}
+		if _, ok := seen[path]; ok {
+			return
+		}
+		seen[path] = struct{}{}
+		out = append(out, path)
+	}
+	add(primary)
+	for _, dir := range dirs {
+		add(dir)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func normalizeManifestWorkspaceRoot(base, path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if strings.TrimSpace(base) != "" && !filepath.IsAbs(path) {
+		path = filepath.Join(base, path)
+	}
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
+	if strings.TrimSpace(base) == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return filepath.Clean(path)
+	}
+	return filepath.Clean(abs)
 }
 
 func cloneManifestEnv(in map[string]string) map[string]string {

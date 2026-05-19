@@ -81,7 +81,14 @@ func TestToolBridgeSelectsPeerByScope(t *testing.T) {
 	h, registry := newHandlerForTest(wrongScopedLSPPeer(t), rightScopedLSPPeer(t))
 	registry.scoped = true
 
-	got, err := h.HandleToolCall(context.Background(), scopedLSPToolCall(t, args))
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:      "lsp_file",
+		Arguments: args,
+		AgentID:   "agent-29",
+		ThreadID:  "thread-29",
+		CallID:    "call-29",
+		CWD:       "/trusted/root",
+	})
 	if err != nil {
 		t.Fatalf("HandleToolCall() error = %v", err)
 	}

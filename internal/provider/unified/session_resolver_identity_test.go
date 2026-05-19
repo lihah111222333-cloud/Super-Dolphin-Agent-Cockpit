@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -64,6 +65,41 @@ func TestSessionResolverAutoResumePassesCodexIdentityGolden(t *testing.T) {
 		Domain:  goldentest.DomainIntegration,
 		Name:    "auto_resume_identity_request",
 	}, driver.resumeReq)
+}
+
+func TestSessionResolverAutoResumePassesRuntimeConfig(t *testing.T) {
+	rolloutPath := writeExistingProviderHistoryFile(t)
+	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111112"}}
+	resolver := &sessionResolver{
+		threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
+			ThreadID: "public-thread-1",
+			AgentID:  "agent-1",
+			RuntimeConfig: map[string]any{
+				"additionalWorkingDirectories": []any{"/repo/extra"},
+			},
+		}},
+		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
+			"codex:provider-thread-1": {
+				Provider:         "codex",
+				AgentID:          "agent-1",
+				ProviderThreadID: "11111111-aaaa-bbbb-cccc-111111111112",
+				RolloutPath:      rolloutPath,
+				Cwd:              "/repo",
+			},
+		}},
+		registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
+			{Name: "codex", Create: func() contract.Driver { return driver }},
+		}}),
+		sessions: NewSessionManager(nil),
+	}
+
+	if _, err := resolver.ResolveSession(context.Background(), "public-thread-1"); err != nil {
+		t.Fatalf("ResolveSession() error = %v", err)
+	}
+	want := map[string]any{"additionalWorkingDirectories": []any{"/repo/extra"}}
+	if !reflect.DeepEqual(driver.resumeReq.Config, want) {
+		t.Fatalf("ResumeSession Config = %#v, want %#v", driver.resumeReq.Config, want)
+	}
 }
 
 func TestSessionResolverProviderThreadAutoResumeDoesNotUseCodexThreadID(t *testing.T) {

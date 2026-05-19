@@ -101,6 +101,7 @@ type ResumeSessionRequest struct {
 	CWD                      string                 `json:"cwd,omitempty"`
 	Model                    string                 `json:"model,omitempty"`
 	Effort                   string                 `json:"effort,omitempty"`
+	Config                   map[string]any         `json:"config,omitempty"`
 	PromptSnapshot           PromptAssemblySnapshot `json:"promptSnapshot"`
 	ConfigOverride           ThreadConfigPatch      `json:"configOverride"`
 	ClaudeHome               string                 `json:"claudeHome,omitempty"`

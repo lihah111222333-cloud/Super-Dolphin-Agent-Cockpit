@@ -13,6 +13,7 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -176,6 +177,15 @@ func (s *session) runtimeConfigString(key string) string {
 	return sanitizeConfigStringArtifact(v)
 }
 
+func (s *session) runtimeConfigStringSlice(keys ...string) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.runtimeConfig == nil {
+		return nil
+	}
+	return providershared.ConfigStringSlice(s.runtimeConfig, keys...)
+}
+
 func (s *session) ensureRuntimeCodexHomeFromInitialize(reason string) {
 	if s == nil || s.transport == nil {
 		return
@@ -310,14 +320,10 @@ func (d *driver) buildThreadStartParams(req dto.StartSessionRequest) threadStart
 }
 
 func (d *driver) startDynamicSession(ctx context.Context, s *session, req dto.StartSessionRequest) (contract.Session, error) {
-	if d == nil || d.listTools == nil {
-		cleanupFailedSession(s, "force stop failed on missing dynamic tools provider")
-		return nil, errors.New("codexapp: dynamic tools provider is not configured")
-	}
-	tools, err := d.listTools(ctx)
+	tools, err := d.prepareStartDynamicTools(ctx, s, req)
 	if err != nil {
-		cleanupFailedSession(s, "force stop failed on dynamic tools list error")
-		return nil, fmt.Errorf("dynamic tools list: %w", err)
+		cleanupFailedSession(s, "force stop failed on dynamic tools preparation error")
+		return nil, err
 	}
 	names := make([]string, len(tools))
 	for i, t := range tools {
@@ -341,7 +347,99 @@ func (d *driver) startDynamicSession(ctx context.Context, s *session, req dto.St
 		cleanupFailedSession(s, "force stop failed on start error")
 		return nil, err
 	}
+	if err := d.bindStartedToolSurface(s, req, result.threadID); err != nil {
+		cleanupFailedSession(s, "force stop failed on start tool surface bind error")
+		return nil, err
+	}
 	return d.finishStartedSession(s, req, result), nil
+}
+
+func (d *driver) prepareStartDynamicTools(ctx context.Context, s *session, req dto.StartSessionRequest) ([]codexprotocol.DynamicToolSchema, error) {
+	if d == nil {
+		return nil, errors.New("codexapp: dynamic tools provider is not configured")
+	}
+	if d.prepareTools != nil {
+		scope := d.codexToolSurfaceScope(req.AgentID, "", "", req.CWD, req.Config)
+		scope.SurfaceID = s.ensureToolSurfaceID()
+		return d.prepareTools(ctx, scope)
+	}
+	if d.listTools == nil {
+		return nil, errors.New("codexapp: dynamic tools provider is not configured")
+	}
+	tools, err := d.listTools(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("dynamic tools list: %w", err)
+	}
+	return tools, nil
+}
+
+func (d *driver) bindStartedToolSurface(s *session, req dto.StartSessionRequest, providerThreadID string) error {
+	if d == nil || d.prepareTools == nil {
+		return nil
+	}
+	if d.bindTools == nil {
+		return errors.New("codexapp: dynamic tools binder is not configured")
+	}
+	if strings.TrimSpace(providerThreadID) == "" {
+		return errors.New("codexapp: provider thread id is required for tool surface bind")
+	}
+	scope := d.codexToolSurfaceScope(req.AgentID, "", providerThreadID, req.CWD, req.Config)
+	scope.SurfaceID = s.currentToolSurfaceID()
+	err := d.bindTools(scope)
+	if err != nil {
+		return fmt.Errorf("dynamic tools start surface bind: %w", err)
+	}
+	return nil
+}
+
+func (d *driver) rebuildResumeToolSurface(ctx context.Context, s *session, req dto.ResumeSessionRequest, providerThreadID string) error {
+	if d == nil || d.prepareTools == nil {
+		return nil
+	}
+	scope := d.codexToolSurfaceScope(req.AgentID, req.ThreadID, providerThreadID, req.CWD, req.Config)
+	scope.SurfaceID = s.ensureToolSurfaceID()
+	_, err := d.prepareTools(ctx, scope)
+	if err != nil {
+		return fmt.Errorf("dynamic tools resume surface: %w", err)
+	}
+	return nil
+}
+
+func (d *driver) codexToolSurfaceScope(agentID, localThreadID, providerThreadID, cwd string, cfg map[string]any) contract.CodexToolSurfaceScope {
+	cwd = strings.TrimSpace(cwd)
+	workspaceRoots := trustedWorkspaceRoots(cwd, providershared.ConfigStringSlice(cfg, "additionalWorkingDirectories", "additional_working_directories"))
+	additionalRoots := []string(nil)
+	if len(workspaceRoots) > 1 {
+		additionalRoots = workspaceRoots[1:]
+	}
+	return contract.CodexToolSurfaceScope{
+		AgentID:          strings.TrimSpace(agentID),
+		UIThreadID:       strings.TrimSpace(localThreadID),
+		LocalThreadID:    strings.TrimSpace(localThreadID),
+		ProviderThreadID: strings.TrimSpace(providerThreadID),
+		CWD:              cwd,
+		WorkspaceRoots:   append([]string(nil), workspaceRoots...),
+		Manifest: contract.BuildManifest(dto.ManifestContext{
+			AgentID:                      strings.TrimSpace(agentID),
+			ThreadID:                     strings.TrimSpace(sharedFirstNonEmpty(providerThreadID, localThreadID, agentID)),
+			CWD:                          cwd,
+			AdditionalWorkingDirectories: additionalRoots,
+			ThreadCaps:                   cloneCaps(codexCapabilities),
+			BinaryDir:                    providershared.ResolveBinaryDir(cwd, cfg),
+			Env:                          providershared.StringMap(cfg["env"]),
+			AutoApprove:                  providershared.ConfigStringSlice(cfg, "auto_approve", "autoApprove"),
+			TransportMode:                dto.ManifestTransportStdioOnly,
+		}),
+	}
+}
+
+func sharedFirstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func (d *driver) finishStartedSession(s *session, req dto.StartSessionRequest, result startResult) contract.Session {
@@ -355,6 +453,41 @@ func (d *driver) finishStartedSession(s *session, req dto.StartSessionRequest, r
 	if port := parsePortFromURL(s.transport.serverURL); port > 0 {
 		s.setRuntimeConfigValue("port", port)
 	}
+	d.reportRuntime(s.agentID)
+	return s
+}
+
+func primeResumeToolScope(s *session, req dto.ResumeSessionRequest) {
+	if resumeID := sharedFirstNonEmpty(req.ProviderThreadID, req.ThreadID); resumeID != "" {
+		s.setThreadID(resumeID)
+	}
+	if cwd := strings.TrimSpace(req.CWD); cwd != "" {
+		s.setRuntimeConfigValue("cwd", cwd)
+	}
+}
+
+func (d *driver) finishResumedSession(ctx context.Context, s *session, req dto.ResumeSessionRequest, threadID string) contract.Session {
+	s.setThreadID(threadID)
+	s.ensureRuntimeCodexHomeFromInitialize("resume")
+	if cwd := strings.TrimSpace(req.CWD); cwd != "" {
+		s.setRuntimeConfigValue("cwd", cwd)
+	}
+	if m := strings.TrimSpace(req.Model); m != "" {
+		s.setRuntimeConfigValue("model", m)
+	}
+	baseInstructions, developerInstructions := promptSnapshotInstructions(req.PromptSnapshot)
+	if baseInstructions == "" {
+		baseInstructions = fallbackBaseInstructions
+	}
+	s.setRuntimeConfigValue("baseInstructions", baseInstructions)
+	if developerInstructions != "" {
+		s.setRuntimeConfigValue("developerInstructions", developerInstructions)
+	}
+	if len(req.CodexDisabledNativeTools) > 0 {
+		s.setRuntimeConfigValue("codexDisabledNativeTools", append([]string(nil), req.CodexDisabledNativeTools...))
+	}
+	d.restoreApprovalPolicy(ctx, s, threadID)
+	applyResumeNativeToolRuntimePolicy(s, req.CodexDisabledNativeTools)
 	d.reportRuntime(s.agentID)
 	return s
 }

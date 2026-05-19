@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
@@ -39,7 +41,10 @@ type Handler struct {
 	// host-direct 工具。字段保持 nil-safe：测试或未来无 HostToolRegistry 的
 	// toolbridge 图会退回 peer 路径；当前 mcp-orch / mcp-lsp standalone 不加载
 	// toolbridge.Module。
-	hostTools HostToolRegistry
+	hostTools          HostToolRegistry
+	surfaceMu          sync.Mutex
+	surfaces           map[string]*codexToolSurface
+	stdioClientFactory func(context.Context, providerdto.MCPBinary) (mcpClient, error)
 }
 
 type activePeerRegistry interface {
@@ -61,7 +66,7 @@ func NewHandler(in handlerIn) *Handler {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
-	return &Handler{
+	handler := &Handler{
 		registry:     in.Registry,
 		emitter:      in.Emitter,
 		resolver:     in.Resolver,
@@ -72,7 +77,10 @@ func NewHandler(in handlerIn) *Handler {
 		cfg:          in.Config,
 		logger:       logger,
 		hostTools:    in.HostTools,
+		surfaces:     make(map[string]*codexToolSurface),
 	}
+	handler.stdioClientFactory = handler.defaultStdioClientFactory
+	return handler
 }
 
 func (h *Handler) HandleToolCall(ctx context.Context, msg contract.ToolCallRawMessage) (any, error) {
@@ -80,10 +88,14 @@ func (h *Handler) HandleToolCall(ctx context.Context, msg contract.ToolCallRawMe
 	if err != nil {
 		return nil, err
 	}
+	if result, handled, err := h.routeCodexSurfaceToolCall(ctx, req); handled || err != nil {
+		return result, err
+	}
 	return h.routeToolCall(ctx, req)
 }
 
 func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*ToolCallResult, error) {
+	req = normalizeToolCallRequest(req)
 	switch strings.TrimSpace(req.Name) {
 	case ToolNameMemoryRead:
 		return h.routeHostOnlyToolCall(ctx, req, "reader_unavailable")
@@ -170,12 +182,13 @@ func (h *Handler) callPeerTool(ctx context.Context, peer mcpcontrol.Peer, req To
 	cwd := h.resolveAndWarnCurrentToolCallCWD(ctx, req)
 	var resp peerToolCallResponse
 	err := peer.Callback(callCtx, ProxyMethodToolsCall, map[string]any{
-		"name":              req.Name,
-		"arguments":         req.Arguments,
-		MetadataKeyAgentID:  req.AgentID,
-		MetadataKeyThreadID: req.ThreadID,
-		MetadataKeyCallID:   req.CallID,
-		MetadataKeyCWD:      cwd,
+		"name":                    req.Name,
+		"arguments":               req.Arguments,
+		MetadataKeyAgentID:        req.AgentID,
+		MetadataKeyThreadID:       req.ThreadID,
+		MetadataKeyCallID:         req.CallID,
+		MetadataKeyCWD:            cwd,
+		MetadataKeyWorkspaceRoots: append([]string(nil), req.WorkspaceRoots...),
 	}, &resp)
 	if err != nil {
 		return toolCallTextResult(false, err.Error()), nil

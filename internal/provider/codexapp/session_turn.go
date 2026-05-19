@@ -2,6 +2,7 @@ package codexapp
 
 import (
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
 
@@ -47,6 +48,44 @@ func buildTurnStartParams(threadID string, req dto.TurnRequest) turnStartParams 
 		Effort:               strings.TrimSpace(req.Overrides.Effort),
 		OutputSchema:         req.OutputSchema,
 	}
+}
+
+func (s *session) applyTurnToolScopeRuntimeConfig(req dto.TurnRequest) error {
+	cwd := strings.TrimSpace(req.CWD)
+	additionalRoots := trimTurnToolScopeRoots(req.AdditionalWorkingDirectories)
+	if cwd == "" {
+		if len(additionalRoots) > 0 {
+			return errors.New("codexapp: turn cwd is required when additional working directories are set")
+		}
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.runtimeConfig == nil {
+		s.runtimeConfig = map[string]any{}
+	}
+	s.runtimeConfig["cwd"] = cwd
+	if len(additionalRoots) > 0 {
+		s.runtimeConfig["additionalWorkingDirectories"] = additionalRoots
+	} else {
+		delete(s.runtimeConfig, "additionalWorkingDirectories")
+		delete(s.runtimeConfig, "additional_working_directories")
+	}
+	return nil
+}
+
+func trimTurnToolScopeRoots(roots []string) []string {
+	out := make([]string, 0, len(roots))
+	for _, root := range roots {
+		if root = strings.TrimSpace(root); root != "" {
+			out = append(out, root)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func buildTurnSteerParams(threadID string, req dto.SteerRequest) map[string]any {

@@ -768,6 +768,24 @@ describe('thread store actions', () => {
     expect(store.getThreadArchivedAt('thread-live')).toBeGreaterThan(0);
   });
 
+  it('clears the active chat thread after archiving the selected thread', async () => {
+    const store = useThreadStore();
+    store.setPreferenceScopeCwd('/repo');
+    Object.assign(store.state, { activeThreadId: 'thread-live', threads: [{ id: 'thread-live', name: 'thread-live', state: 'idle' }] });
+    apiMock.callAPI.mockImplementation(async (method) => {
+      if (method === 'thread/archive') return { archived: true };
+      if (method === 'ui/sidebar/get') return buildSnapshot({ threadId: 'thread-live', activeThreadId: 'thread-live' });
+      if (method === 'ui/preferences/set') return {};
+      return {};
+    });
+
+    await store.setThreadArchived('thread-live', true);
+    await flushAsync();
+
+    expect(store.state.activeThreadId).toBe('');
+    expect(store.state.archivedThreadAtById).toHaveProperty('thread-live');
+  });
+
   it('shows partial archive warnings returned by backend', async () => {
     const store = useThreadStore();
     store.setPreferenceScopeCwd('/repo');

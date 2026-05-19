@@ -277,7 +277,7 @@ func (d *driver) resolveSessionOptions(ctx context.Context, req dto.StartSession
 	}
 	owner := strings.TrimSpace(req.AgentID)
 	workDir := strings.TrimSpace(req.CWD)
-	spawnCtx := withPoolSpawnNativeToolPolicy(withPoolSpawnWorkDir(ctx, workDir), policy)
+	spawnCtx := withPoolSpawnSessionConfig(ctx, workDir, req.Config, policy)
 	server, release, acquireErr := d.pool.Acquire(spawnCtx, identity, owner)
 	if acquireErr != nil {
 		return nil, acquireErr
@@ -348,7 +348,7 @@ func (d *driver) resolveResumeOptions(ctx context.Context, req dto.ResumeSession
 	}
 	owner := strings.TrimSpace(req.AgentID)
 	workDir := strings.TrimSpace(req.CWD)
-	spawnCtx := withPoolSpawnNativeToolPolicy(withPoolSpawnWorkDir(ctx, workDir), policy)
+	spawnCtx := withPoolSpawnSessionConfig(ctx, workDir, req.Config, policy)
 	server, release, err := d.pool.Acquire(spawnCtx, identity, owner)
 	if err != nil {
 		return nil, err
@@ -382,6 +382,14 @@ func (d *driver) missingResumeIdentityOptions(req dto.ResumeSessionRequest, stri
 		return []sessionOption(nil), nil
 	}
 	return nil, err
+}
+
+func withPoolSpawnSessionConfig(ctx context.Context, workDir string, cfg map[string]any, policy codexNativeToolPolicy) context.Context {
+	roots := trustedWorkspaceRoots(workDir, providershared.ConfigStringSlice(cfg, "additionalWorkingDirectories", "additional_working_directories"))
+	binaryDir := providershared.ResolveBinaryDir(workDir, cfg)
+	ctx = withPoolSpawnWorkDir(ctx, workDir)
+	ctx = withPoolSpawnLSPConfig(ctx, roots, binaryDir)
+	return withPoolSpawnNativeToolPolicy(ctx, policy)
 }
 
 func resumeIdentity(req dto.ResumeSessionRequest) (providershared.CodexIdentity, bool) {

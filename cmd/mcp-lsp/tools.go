@@ -27,14 +27,15 @@ type toolDefinition struct {
 }
 
 var lspToolManifests = []ToolManifest{
-	toolManifestWithSchema("lsp_file", "File: read_file (offset/limit paging), open_file, diagnostics. Batch: file_paths. For locating code, prefer lsp_grep first.", lspFileSchema),
-	toolManifestWithSchema("lsp_inspect", "Hover/definition/implementation/type_definition/signature_help at file:line:column (1-based). Use before editing to verify types and signatures.", lspInspectSchema),
-	toolManifestWithSchema("lsp_xref", "References/call_hierarchy/type_hierarchy. verbosity=compact(default)|full, max_results cap 50. Use before renaming or refactoring to find all references.", lspXrefSchema),
-	toolManifestWithOutputSchema("lsp_grep", "Search codebase: text_search (literal default, regex=true) or ast_search. Returns 1-based file:line:col.", lspGrepSchema, lspGrepOutputSchema),
-	toolManifestWithSchema("lsp_structure", "Document/workspace symbols, folding ranges, semantic tokens. Use to understand file structure before targeted edits.", lspStructureSchema),
-	toolManifestWithSchema("lsp_edit", "Edit: rename, replace_range (single-hunk patch), code_action, format. Before editing, use lsp_grep to locate and lsp_inspect or lsp_xref to verify context.", lspEditSchema),
-	toolManifestWithSchema("lsp_completion", "Request code completions via LSP. Use to discover available APIs and method signatures.", lspCompletionSchema),
-	toolManifestWithSchema("code_run", "Execute code snippet or project shell command. mode=project_cmd for shell. For code search prefer lsp_grep; for file reading prefer lsp_file.", codeRunSchema),
+	toolManifestWithSchema("file", "File: read_file (offset/limit paging), open_file, diagnostics. Batch: file_paths. For locating code, prefer grep first.", lspFileSchema),
+	toolManifestWithSchema("inspect", "Hover/definition/implementation/type_definition/signature_help at file:line:column (1-based). Use before editing to verify types and signatures.", lspInspectSchema),
+	toolManifestWithSchema("xref", "References/call_hierarchy/type_hierarchy. verbosity=compact(default)|full, max_results cap 50. Use before renaming or refactoring to find all references.", lspXrefSchema),
+	toolManifestWithOutputSchema("grep", "Search codebase: text_search (literal default, regex=true) or ast_search. Returns 1-based file:line:col.", lspGrepSchema, lspGrepOutputSchema),
+	toolManifestWithSchema("structure", "Document/workspace symbols, folding ranges, semantic tokens. Use to understand file structure before targeted edits.", lspStructureSchema),
+	toolManifestWithSchema("edit", "Edit: rename, replace_range (single-hunk patch), code_action, format. Before editing, use grep to locate and inspect or xref to verify context.", lspEditSchema),
+	toolManifestWithSchema("completion", "Request code completions via LSP. Use to discover available APIs and method signatures.", lspCompletionSchema),
+	toolManifestWithSchema("code_run", "Execute code snippet or project shell command. mode=project_cmd for shell. For code search prefer grep; for file reading prefer file.", codeRunSchema),
+	toolManifestWithSchema("code_run_test", "Run a Go test function inside the trusted workspace roots. Defaults test_pkg to ./... and executes go test -run without shell expansion.", codeRunTestSchema),
 }
 
 var legacyToolAliases = map[string]string{
@@ -64,15 +65,20 @@ func newToolHandlers(m *Manager) (ToolHandlers, error) {
 	if err != nil {
 		return nil, fmt.Errorf("code_run handler: %w", err)
 	}
+	codeRunTestH, err := tools.NewCodeRunTestHandler(m.root)
+	if err != nil {
+		return nil, fmt.Errorf("code_run_test handler: %w", err)
+	}
 	return ToolHandlers{
-		"file":       ToolHandler(tools.NewFileHandler(cfg)),
-		"inspect":    ToolHandler(tools.NewInspectHandler(m.registry)),
-		"xref":       ToolHandler(tools.NewXRefHandler(m.registry)),
-		"grep":       ToolHandler(tools.NewGrepHandler(cfg)),
-		"structure":  ToolHandler(tools.NewStructureHandler(m.registry)),
-		"edit":       ToolHandler(tools.NewEditHandlerWithRoot(m.root, m.registry)),
-		"completion": ToolHandler(tools.NewCompletionHandler(m.registry)),
-		"code_run":   ToolHandler(codeRunH),
+		"file":          ToolHandler(tools.NewFileHandler(cfg)),
+		"inspect":       ToolHandler(tools.NewInspectHandler(m.registry)),
+		"xref":          ToolHandler(tools.NewXRefHandler(m.registry)),
+		"grep":          ToolHandler(tools.NewGrepHandler(cfg)),
+		"structure":     ToolHandler(tools.NewStructureHandler(m.registry)),
+		"edit":          ToolHandler(tools.NewEditHandlerWithRoot(m.root, m.registry)),
+		"completion":    ToolHandler(tools.NewCompletionHandler(m.registry)),
+		"code_run":      ToolHandler(codeRunH),
+		"code_run_test": ToolHandler(codeRunTestH),
 	}, nil
 }
 

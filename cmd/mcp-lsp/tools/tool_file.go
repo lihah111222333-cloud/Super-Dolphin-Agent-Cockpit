@@ -145,11 +145,11 @@ func (h handlerBase) openFile(ctx context.Context, rawPath string, languageID st
 	if h.registry == nil {
 		return openFileResult{}, errManagerUnavailable
 	}
-	root, err := toolWorkspaceRoot(ctx)
+	root, roots, err := toolWorkspaceRoots(ctx)
 	if err != nil {
 		return openFileResult{}, err
 	}
-	file, err := search.ReadToolFileContent(root, rawPath, maxReadFileBytes)
+	file, err := search.ReadToolFileContentInRoots(root, roots, rawPath, maxReadFileBytes)
 	if err != nil {
 		warnFileReadFailure("open_file", root, rawPath, err)
 		return openFileResult{}, err
@@ -177,11 +177,11 @@ func (h handlerBase) openFile(ctx context.Context, rawPath string, languageID st
 }
 
 func (h handlerBase) readSingle(ctx context.Context, rawPath string, offset, limit int) (string, error) {
-	root, err := toolWorkspaceRoot(ctx)
+	root, roots, err := toolWorkspaceRoots(ctx)
 	if err != nil {
 		return "", err
 	}
-	file, err := search.ReadToolFileContent(root, rawPath, maxReadFileBytes)
+	file, err := search.ReadToolFileContentInRoots(root, roots, rawPath, maxReadFileBytes)
 	if err != nil {
 		warnFileReadFailure("read_file", root, rawPath, err)
 		return "", err
@@ -198,13 +198,13 @@ func (h handlerBase) readBatch(ctx context.Context, rawPaths []string, offset, l
 		go func(idx int, target string) {
 			defer wg.Done()
 			item := batchReadItem{FilePath: strings.TrimSpace(target)}
-			root, err := toolWorkspaceRoot(ctx)
+			root, roots, err := toolWorkspaceRoots(ctx)
 			if err != nil {
 				item.Error = err.Error()
 				results <- indexedBatchItem{Index: idx, Item: item}
 				return
 			}
-			file, err := search.ReadToolFileContent(root, target, maxReadFileBytes)
+			file, err := search.ReadToolFileContentInRoots(root, roots, target, maxReadFileBytes)
 			if err != nil {
 				warnFileReadFailure("read_file", root, target, err)
 				item.Error = err.Error()

@@ -6,11 +6,13 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 	"github.com/gorilla/websocket"
@@ -59,6 +61,78 @@ func TestToolBridge_StartSession_UsesDynamicTools(t *testing.T) {
 	defer closeCodexTestSession(t, s)
 
 	assertDynamicToolsStartSession(t, recorder, s, listToolsCalls)
+}
+
+func TestToolBridge_StartSession_PreparesScopedCodexSurface(t *testing.T) {
+	recorder := &toolBridgeRPCRecorder{}
+	serverURL := startToolBridgeRPCServer(t, recorder)
+	manager := &ServerManager{}
+
+	var gotScope contract.CodexToolSurfaceScope
+	var gotBindScope contract.CodexToolSurfaceScope
+	d := requireToolBridgeDriver(t, newDriver(nil, nil, nil, nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, nil))
+	d.prepareTools = func(_ context.Context, scope contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error) {
+		gotScope = scope
+		return []codexprotocol.DynamicToolSchema{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}, nil
+	}
+	d.bindTools = func(scope contract.CodexToolSurfaceScope) error {
+		gotBindScope = scope
+		return nil
+	}
+	workDir := t.TempDir()
+	extraDir := t.TempDir()
+
+	sessionAny, err := d.StartSession(context.Background(), dto.StartSessionRequest{
+		AgentID: "agent-1",
+		CWD:     workDir,
+		Config: map[string]any{
+			"binary_dir":                   "/tmp/super-agent-bin",
+			"additionalWorkingDirectories": []string{extraDir},
+		},
+	})
+	if err != nil {
+		t.Fatalf("StartSession() error = %v", err)
+	}
+	s := requireCodexSession(t, sessionAny, "StartSession")
+	defer closeCodexTestSession(t, s)
+
+	assertStartSurfaceScope(t, gotScope, gotBindScope, workDir, extraDir)
+	if len(gotScope.Manifest.Binaries) == 0 {
+		t.Fatalf("surface manifest = %#v, want stdio binaries", gotScope.Manifest)
+	}
+	if gotScope.Manifest.Binaries[0].URL != "" {
+		t.Fatalf("surface manifest first URL = %q, want stdio command", gotScope.Manifest.Binaries[0].URL)
+	}
+	assertDynamicToolsStartSession(t, recorder, s, 1)
+}
+
+func assertStartSurfaceScope(t *testing.T, gotScope, gotBindScope contract.CodexToolSurfaceScope, workDir, extraDir string) {
+	t.Helper()
+	if gotScope.AgentID != "agent-1" || gotScope.CWD != workDir {
+		t.Fatalf("surface scope = %#v, want agent/cwd", gotScope)
+	}
+	if gotScope.SurfaceID == "" {
+		t.Fatalf("surface scope = %#v, want surface id", gotScope)
+	}
+	if gotBindScope.SurfaceID != gotScope.SurfaceID ||
+		gotBindScope.AgentID != "agent-1" ||
+		gotBindScope.ProviderThreadID != "provider-thread-1" ||
+		gotBindScope.CWD != workDir {
+		t.Fatalf("surface bind scope = %#v, want same surface id plus agent/provider thread/cwd", gotBindScope)
+	}
+	wantRoots := []string{workDir, extraDir}
+	if !maps.Equal(sliceSet(gotScope.WorkspaceRoots), sliceSet(wantRoots)) ||
+		!maps.Equal(sliceSet(gotBindScope.WorkspaceRoots), sliceSet(wantRoots)) {
+		t.Fatalf("surface roots = prepare %#v bind %#v, want %#v", gotScope.WorkspaceRoots, gotBindScope.WorkspaceRoots, wantRoots)
+	}
+}
+
+func sliceSet(values []string) map[string]bool {
+	out := make(map[string]bool, len(values))
+	for _, value := range values {
+		out[value] = true
+	}
+	return out
 }
 
 func TestToolBridge_StartSession_InjectsMemoryReadDynamicTool(t *testing.T) {
@@ -130,6 +204,66 @@ func TestThreadResume_DynamicToolsWireCompatibilityIsExplicit(t *testing.T) {
 	}
 	if _, ok := params["dynamicTools"]; ok {
 		t.Fatalf("thread/resume params must not carry dynamicTools unless app-server wire support is explicit: %#v", params)
+	}
+}
+
+func TestResumeSession_RebuildsCodexToolSurfaceWithoutDynamicTools(t *testing.T) {
+	state := &dynamicToolsResumeState{}
+	var writeMu sync.Mutex
+	server := startDynamicToolsResumeServer(t, state, make(chan jsonRPCMessage, 1), &writeMu)
+	defer server.Close()
+
+	workDir := t.TempDir()
+	extraDir := t.TempDir()
+	var gotScope contract.CodexToolSurfaceScope
+	d := &driver{
+		pool:   newSingleURLPoolForTest(t, "ws"+strings.TrimPrefix(server.URL, "http")),
+		mirror: &recordingSkillMirrorReconciler{},
+		prepareTools: func(_ context.Context, scope contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error) {
+			gotScope = scope
+			return []codexprotocol.DynamicToolSchema{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}, nil
+		},
+	}
+
+	resumed, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
+		Provider:           "codex",
+		AgentID:            "agent-1",
+		ThreadID:           "local-thread-1",
+		ProviderThreadID:   "provider-thread-1",
+		CWD:                workDir,
+		CodexHome:          t.TempDir(),
+		CodexInstanceKey:   "default",
+		CodexModelProvider: "openai",
+		Config: map[string]any{
+			"additionalWorkingDirectories": []any{extraDir},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ResumeSession() error = %v", err)
+	}
+	s := requireCodexSession(t, resumed, "ResumeSession")
+	defer closeCodexTestSession(t, s)
+
+	if gotScope.AgentID != "agent-1" || gotScope.ProviderThreadID != "provider-thread-1" || gotScope.CWD != workDir {
+		t.Fatalf("surface scope = %#v, want resumed agent/provider thread/cwd", gotScope)
+	}
+	wantRoots := []string{workDir, extraDir}
+	if !maps.Equal(sliceSet(gotScope.WorkspaceRoots), sliceSet(wantRoots)) {
+		t.Fatalf("surface roots = %#v, want %#v", gotScope.WorkspaceRoots, wantRoots)
+	}
+	var roots []string
+	if err := json.Unmarshal([]byte(gotScope.Manifest.Binaries[0].Env["GO_AGENT_LSP_ROOTS"]), &roots); err != nil {
+		t.Fatalf("decode GO_AGENT_LSP_ROOTS: %v", err)
+	}
+	if !maps.Equal(sliceSet(roots), sliceSet(wantRoots)) {
+		t.Fatalf("GO_AGENT_LSP_ROOTS = %#v, want %#v", roots, wantRoots)
+	}
+	if got := s.RuntimeConfigSnapshot()["additionalWorkingDirectories"]; !reflect.DeepEqual(got, []any{extraDir}) {
+		t.Fatalf("runtime additionalWorkingDirectories = %#v, want %q", got, extraDir)
+	}
+	_, resumeHadDynamicTools := state.snapshot()
+	if resumeHadDynamicTools {
+		t.Fatal("thread/resume unexpectedly sent dynamicTools while rebuilding local surface")
 	}
 }
 
@@ -246,7 +380,7 @@ func runDynamicToolsResumeScenario(t *testing.T) dynamicToolsResumeObservation {
 		resumeHadDynamicTools: resumeHadDynamicTools,
 		toolMethod:            msg.Method,
 		toolName:              stringValue(params, "name"),
-		toolAgentID:           stringValue(params, "agentId"),
+		toolAgentID:           firstTestStringValue(params, "_agentId", "agentId"),
 	}
 }
 
@@ -256,6 +390,15 @@ func dynamicSkillToolSchema() codexprotocol.DynamicToolSchema {
 		Description: "echo test payload",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"payload":{"type":"string"}},"required":["payload"]}`),
 	}
+}
+
+func firstTestStringValue(values map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value := stringValue(values, key); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func startDynamicToolsResumeServer(t *testing.T, state *dynamicToolsResumeState, toolResponses chan<- jsonRPCMessage, writeMu *sync.Mutex) *httptest.Server {
