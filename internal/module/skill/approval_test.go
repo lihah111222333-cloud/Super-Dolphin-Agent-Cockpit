@@ -1,12 +1,15 @@
 package skill
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 // TestApprovalCache_HashPrefixCollision 验证 Lookup 在 12 位 key 前缀碰撞场景下
@@ -44,13 +47,30 @@ func TestDefaultApprovalCachePath_EnvOverride(t *testing.T) {
 
 func TestDefaultApprovalCachePath_DefaultsToHome(t *testing.T) {
 	t.Setenv("SKILLS_TRUST_PATH", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	got := DefaultApprovalCachePath()
-	if got == "" {
-		t.Fatalf("default path must not be empty")
+	want := filepath.Join(home, ".super-dolphin", "skills-trust.json")
+	if got != want {
+		t.Fatalf("default path = %q, want %q", got, want)
 	}
-	// 要么是 ~/.multi-agent/skills-trust.json 或 tmp fallback
-	if !strings.HasSuffix(got, "skills-trust.json") {
-		t.Fatalf("default path should end with skills-trust.json, got %q", got)
+}
+
+func TestLookupArtifactApproval_NilCacheReturnsFalse(t *testing.T) {
+	svc := NewService(t.TempDir()).(*service)
+	svc.approval = nil
+	approved, err := svc.LookupArtifactApproval(context.Background(), contract.ArtifactApprovalRequest{
+		RepoFingerprint: "repo",
+		Name:            "demo",
+		ArtifactKind:    ArtifactKindBody,
+		ArtifactLocator: "SKILL.md",
+		ContentHash:     "hash",
+	})
+	if err != nil {
+		t.Fatalf("LookupArtifactApproval() error = %v", err)
+	}
+	if approved {
+		t.Fatal("LookupArtifactApproval() approved = true, want false for nil cache")
 	}
 }
 

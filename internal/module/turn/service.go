@@ -131,11 +131,10 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 		return dto.TurnRequest{}, err
 	}
 	input = hydratePrepareInput(input, session)
-	// p20.2 §5 step 2-3：在 skillResolver.Resolve 之前先把 manual/name-only
-	// skill 补全为带 Prompt/Summary/Version 的实体，避免 provider 侧遇到
-	// Prompt=="" 时只能走 name-list fallback。hydrate 是 optional 依赖：
-	// skillLookup==nil 时（NewService / NewServiceWithPromptAssembly 或 fx 未
-	// 注入 skill.Service）原路直通。
+	// V1 provider-native skill discovery 只在 turn 侧补全元数据，正文由
+	// Claude/Codex 从 provider-native mirror 自行发现；hydrate 是 optional
+	// 依赖：skillLookup==nil 时（NewService / NewServiceWithPromptAssembly
+	// 或 fx 未注入 skill.Service）原路直通。
 	hydrated, hydrateErr := s.hydrateSkillRefs(contract.WithSkillCWD(ctx, input.CWD), input.Skills, input.ManualSkillSelection)
 	if hydrateErr != nil {
 		return dto.TurnRequest{}, hydrateErr

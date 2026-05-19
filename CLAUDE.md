@@ -27,14 +27,14 @@
 | @使用超能力 | `.agent/skills/使用超能力/SKILL.md` |
 | @结束开发分支 | `.agent/skills/结束开发分支/SKILL.md` |
 | @编写技能 | `.agent/skills/编写技能/SKILL.md` |
-| @安全工程师 | `.agent/skills/安全工程师/SKILL.md` |
+| @安全工程师 | `.agent/skills/安全工程师规范/SKILL.md` |
 | @核心信息提取与总结 | `.agent/skills/核心信息提取与总结/SKILL.md` |
 
 ### 技能系统说明
 
 - 上表规定了 agent 在本仓库内读取 `.agent/skills/**/SKILL.md` 的触发映射关系。
-- 产品运行时的技能系统：内置技能会 seed 到 `~/.multi-agent/skills-library/`，cache 到 `~/.multi-agent/skills-cache/`，Claude workspace 通过 `.claude/skills` symlink 发现，Codex 通过 `skill_read_section` host-direct 读取。
-- 涉及运行时技能行为时，以 `internal/module/skill*`、`internal/platform/toolbridge/skill_read_section.go` 和相关测试为准。
+- 产品运行时的技能系统：canonical 真值由本项目管理，项目级在 `<cwd>/.agent/skills`，生效的个人级在 `~/.super-dolphin/skills/personal/{user,agent,imported}`；`personal/hub` 仅作为目录/市场来源，不参与扫描、镜像或 provider 调用。生效 canonical 再 reconcile 到生成型 provider-native mirror。Claude 通过 `<cwd>/.claude/skills` 和 `~/.claude/skills` 发现，Codex 通过 `<cwd>/.agents/skills` 和 `~/.agents/skills` 发现；显式配置 provider home 时才使用该 home 下的 `skills`；mirror 不是 canonical 真值。
+- 涉及运行时技能行为时，以 `internal/module/skill*`、`internal/provider/shared/provider_home.go`、provider mirror 测试和 toolbridge 兼容性测试为准；`skill_read_section` 不是生产 skill 发现入口。
 - **子代理编排**：子代理在执行任务时，必须使用 `mcp-go-agent-orchestration` 工具（`task_create_dag`, `task_update_node` 等）进行任务生命周期管理与协同。
 
 ## 代码地图与上下文加载

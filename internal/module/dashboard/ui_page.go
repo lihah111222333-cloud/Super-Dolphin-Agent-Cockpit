@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 
@@ -148,6 +149,9 @@ func (s *service) populateDashboardDAGs(ctx context.Context, out *DashboardPage)
 func (s *service) populateDashboardSkills(ctx context.Context, out *DashboardPage) error {
 	items, err := s.listDashboardSkills(ctx)
 	out.Skills = items
+	if errors.Is(err, contract.ErrSkillSameNameConflict) {
+		return nil
+	}
 	return err
 }
 
@@ -190,6 +194,9 @@ func (s *service) listDashboardTaskTraces(ctx context.Context) ([]tasktracestore
 
 func (s *service) listDashboardSkills(ctx context.Context) ([]contract.SkillInfo, error) {
 	cwd := dashboardPromptScopeCWDFromContext(ctx)
+	if s.skillInventory != nil {
+		return s.skillInventory.ListSkillInventory(contract.WithSkillCWD(ctx, cwd))
+	}
 	return safeList(s.skills != nil, func() ([]contract.SkillInfo, error) {
 		return s.skills.ListSkills(contract.WithSkillCWD(ctx, cwd))
 	})

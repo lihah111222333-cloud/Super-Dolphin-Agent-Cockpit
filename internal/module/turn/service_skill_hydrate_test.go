@@ -48,7 +48,7 @@ func (s *stubSkillLookup) ReadLocal(_ context.Context, path string) (any, error)
 	}, nil
 }
 
-func TestPrepareTurnHydratesNameOnlySkill(t *testing.T) {
+func TestPrepareTurnHydratesNameOnlySkillMetadataOnly(t *testing.T) {
 	t.Parallel()
 
 	dir := "/tmp/skills/debug"
@@ -84,8 +84,8 @@ func TestPrepareTurnHydratesNameOnlySkill(t *testing.T) {
 		t.Fatalf("want 1 skill, got %d: %+v", len(req.Skills), req.Skills)
 	}
 	got := req.Skills[0]
-	if got.Prompt != "full debug body" {
-		t.Fatalf("Prompt not hydrated: %q", got.Prompt)
+	if got.Prompt != "" {
+		t.Fatalf("Prompt must not be hydrated from SKILL.md body, got %q", got.Prompt)
 	}
 	if got.Summary != "debug helpers" {
 		t.Fatalf("Summary not hydrated: %q", got.Summary)
@@ -95,6 +95,9 @@ func TestPrepareTurnHydratesNameOnlySkill(t *testing.T) {
 	}
 	if got.Source != dto.SkillSourceManual {
 		t.Fatalf("Source should default to manual, got %q", got.Source)
+	}
+	if len(lookup.calls.readPaths) != 0 {
+		t.Fatalf("ReadLocal must not be called for provider-native skill refs, got %v", lookup.calls.readPaths)
 	}
 }
 
@@ -187,7 +190,7 @@ func TestPrepareTurnSkipsHydrateWhenAlreadyPopulated(t *testing.T) {
 	if lookup.calls.list != 0 {
 		t.Fatalf("ListSkills should not be called when all fields populated, got %d", lookup.calls.list)
 	}
-	if got := req.Skills[0]; got.Prompt != "user body" || got.Summary != "user summary" || got.Version != "v1" {
+	if got := req.Skills[0]; got.Prompt != "" || got.Summary != "user summary" || got.Version != "v1" {
 		t.Fatalf("hydrate must not overwrite existing fields: %+v", got)
 	}
 }
@@ -205,5 +208,70 @@ func TestHydrateSkillRefsListSkillsErrorReturnsOriginal(t *testing.T) {
 	}
 	if lookup.calls.list != 1 {
 		t.Fatalf("ListSkills should be called once before giving up, got %d", lookup.calls.list)
+	}
+}
+
+func TestHydrateSkillRefsSameNameConflictFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	lookup := &stubSkillLookup{listErr: contract.ErrSkillSameNameConflict}
+	svc := newService(silentLogger(), nil, nil, lookup, nil, nil, nil).(*service)
+	original := []dto.SkillRef{{Name: "debug"}}
+
+	_, err := svc.hydrateSkillRefs(contract.WithSkillCWD(context.Background(), "/repo"), original, false)
+	if !errors.Is(err, contract.ErrSkillSameNameConflict) {
+		t.Fatalf("hydrateSkillRefs error = %v, want ErrSkillSameNameConflict", err)
+	}
+}
+
+func TestHydrateSkillRefsCaseFoldedDuplicateFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	lookup := &stubSkillLookup{infos: []contract.SkillInfo{
+		{Name: "Build", Dir: "/tmp/skills/Build", ContentHash: "1111111111111111"},
+		{Name: "build", Dir: "/tmp/skills/build", ContentHash: "2222222222222222"},
+	}}
+	svc := newService(silentLogger(), nil, nil, lookup, nil, nil, nil).(*service)
+	original := []dto.SkillRef{{Name: "build"}}
+
+	_, err := svc.hydrateSkillRefs(contract.WithSkillCWD(context.Background(), "/repo"), original, false)
+	if !errors.Is(err, contract.ErrSkillSameNameConflict) {
+		t.Fatalf("hydrateSkillRefs duplicate error = %v, want ErrSkillSameNameConflict", err)
+	}
+}
+
+func TestHydrateSkillRefsExactScopedSelectionAllowsSameName(t *testing.T) {
+	t.Parallel()
+
+	projectDir := "/repo/.agent/skills/docs"
+	personalDir := "/home/skills/personal/user/docs"
+	lookup := &stubSkillLookup{
+		infos: []contract.SkillInfo{
+			{Name: "docs", Scope: "project", Dir: projectDir, Summary: "project docs", ContentHash: "1111111111111111", Trust: contract.TrustProject},
+			{Name: "docs", Scope: "personal", PersonalType: "user", Dir: personalDir, Summary: "personal docs", ContentHash: "2222222222222222", Trust: contract.TrustUser},
+		},
+		bodies: map[string]string{
+			filepath.Join(personalDir, "SKILL.md"): "personal docs body",
+		},
+	}
+	svc := newService(silentLogger(), nil, nil, lookup, nil, nil, nil).(*service)
+	original := []dto.SkillRef{{
+		Name:         "docs",
+		Scope:        "personal",
+		PersonalType: "user",
+		Path:         personalDir,
+		Source:       dto.SkillSourceManual,
+	}}
+
+	out, err := svc.hydrateSkillRefs(contract.WithSkillCWD(context.Background(), "/repo"), original, true)
+	if err != nil {
+		t.Fatalf("hydrateSkillRefs exact scoped ref error = %v", err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("hydrateSkillRefs len = %d, want 1: %+v", len(out), out)
+	}
+	got := out[0]
+	if got.Summary != "personal docs" || got.Version != "222222222222" || got.Prompt != "" {
+		t.Fatalf("exact scoped ref hydrated wrong skill: %+v", got)
 	}
 }

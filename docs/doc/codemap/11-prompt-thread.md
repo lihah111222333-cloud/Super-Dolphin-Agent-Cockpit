@@ -7,19 +7,19 @@
 ## 1. 这卷回答什么
 
 - `thread/start` 到 provider `StartSession` 之间，**system prompt 是怎样组装、下发、落盘**的。
-- `PROMPT_START_CURRENT_DATE`、dynamic sections、skill catalog 灰度、memory providers，**分别插在哪个层级**。
+- `PROMPT_START_CURRENT_DATE`、dynamic sections、memory providers、native-tool replacement hints，**分别插在哪个层级**。
 - `thread/resume` / `thread/fork` / `thread/recover` 时，**prompt snapshot 与 runtime config snapshot 各自如何复用**。
 - provider raw event 经过 unified event map、session manager、thread 订阅、eventsurface，**最终怎样变成 UI 可见事件**。
-- blank-thread 首发时，前端为什么一定是 **`resolveLaunchStartPayload -> startThread -> sendMessage`** 两段式，而不是一次 RPC 直发。
+- blank-thread 首发时，前端为什么一定是 **`resolveStartOptions -> startThread -> sendMessage`** 两段式，而不是一次 RPC 直发。
 
 ## 2. 当前源码结论
 
 1. **start prompt 的正式入口不在 prompt 包里单独命名，而在 thread helper**：`internal/module/thread/start_session_helpers.go:82-94` 的 `resolveStartPromptAssembly()` 调 `PromptAssemblyRef.AssembleStart()`。
 2. **turn prompt 没有同名 helper**：仓内 `resolveTurnPromptAssembly` 为 0 命中；turn 侧真实入口是 `internal/module/turn/prompt_assembly.go:13-43` 的 `prepareTurnAssembly()`，再调 `prompt.AssembleTurn()`。
 3. **`PROMPT_START_CURRENT_DATE` 已上线且只影响 start 一次性 system block**：常量在 `internal/module/prompt/assembler.go:25`，读 env 在 `:289-291`，注入 “Today's date is ...” 在 `:273`。
-4. **dynamic section 不是固定 5 个 slot**：真实矩阵来自 `internal/module/prompt/dynamic.go:54-78`，当前是 16 个动态 slot，`skill_catalog` 已进入矩阵。
-5. **skill catalog 的 fx 承载点已并入 `prompt/module.go`**：`internal/module/prompt/module.go:14-26` 负责 `NewSkillCatalogProviderFx` 与 `RegisterSkillCatalogProviderIfEnabled`，不再有单独 fx 载体文件。
-6. **灰度开关在 prompt config**：`internal/module/prompt/config.go:16-26,41-50` 定义 `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE`、token budget、meta instructions 开关。
+4. **dynamic section 不是固定 5 个 slot**：真实矩阵来自 `internal/module/prompt/dynamic.go:43-61`，当前不含旧 prompt 注入式 skill 列表 slot。
+5. **skill 不再经 prompt catalog 注入**：V1 生产路径是 canonical skills -> provider-native mirrors；prompt 不从 skill store 读取 native replacement，native/tool suppression hints 只来自用户禁用工具配置。
+6. **prompt config 不再承载旧 skill 列表开关**：`internal/module/prompt/config.go` 只保留 registry / assembly / system-context cache breaker 等 prompt 开关。
 7. **prompt store 不是只读**：`internal/store/prompt/contract.go:15-22` 已暴露 `WithTx / Get / Delete / InsertVersion / Upsert`；写路径在 `internal/module/prompt/service.go:290-340,382-488`。
 8. **freeze 真值是 `prompt = 27`**：`internal/archtest/freeze_registry.go:29-35` 明写 `internal/module/prompt` 包文件数 freeze 到 27。
 9. **resume 没有独立 `resume.go`**：resume 主链分散在 `thread/lifecycle.go`、`start_session.go`、`prompt_snapshot.go`、`rpc.go`；文件树里只有 `resume_test.go`、`resume_session_uuid_test.go`。
@@ -33,13 +33,12 @@
 
 | 路径 | 角色 | 本卷重点 |
 |---|---|---|
-| `internal/module/prompt/module.go` | fx 装配、skill catalog wiring | `Module`、`NewSkillCatalogProviderFx`、灰度注册 |
-| `internal/module/prompt/config.go` | env config | progressive disclosure 灰度与预算 |
+| `internal/module/prompt/module.go` | fx 装配、prompt service wiring | `Module`、`NewServiceFx`、`DisabledToolsFn` optional injection |
+| `internal/module/prompt/config.go` | env config | registry / assembly / system-context cache breaker |
 | `internal/module/prompt/service.go` | registry + prompt CRUD service | built-in providers、prompt store 写入口 |
 | `internal/module/prompt/assembler.go` | start/turn assembly 真身 | start system prompt、current date hook、snapshot 生成 |
 | `internal/module/prompt/section.go` | static section specs | static slots 真实列表 |
-| `internal/module/prompt/dynamic.go` | dynamic slot 矩阵 | 16 个动态 section、slot -> provider 解析 |
-| `internal/module/prompt/skill_catalog_provider.go` | skill catalog 渲染 | `ListSkills`、native detector、L1 manifest |
+| `internal/module/prompt/dynamic.go` | dynamic slot 矩阵 | dynamic section specs、slot -> provider 解析 |
 | `internal/module/prompt/registry.go` | ordered section registry | `Sections()` 按 `Order` 输出 |
 
 ### 3.2 Thread 侧文件图
@@ -75,12 +74,11 @@
 
 | 路径 | 角色 | 本卷重点 |
 |---|---|---|
-| `cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js` | 首发 send orchestration | `resolveLaunchStartPayload()` + `performSend()` |
+| `cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js` | 首发 send orchestration | `resolveStartOptions()` + `performSend()` |
 | `cmd/agent-terminal/frontend/vue-app/stores/thread-actions-helpers.js` | `thread/start` / `turn/start` 客户端 | `startThread()`、`sendMessage()` |
-| `cmd/agent-terminal/frontend/vue-app/components/ComposerBar.js` | blank-thread UI gate | 无 thread 时隐藏 legacy skill selector |
-| `cmd/agent-terminal/frontend/vue-app/pages/UnifiedChatPage.template.js` | blank-thread picker 挂点 | `LaunchSkillPicker` 仅在线程未选中时显示 |
-| `cmd/agent-terminal/frontend/vue-app/composables/useLaunchSkillSelection.js` | launch-time skill selection feature | 选择状态 / preview / cwd scope |
-| `cmd/agent-terminal/frontend/vue-app/services/skills-api.js` | `skills/list` / `skills/match/preview` | cwd-aware catalog preview |
+| `cmd/agent-terminal/frontend/vue-app/components/ComposerBar.js` | composer UI | 输入、附件、发送、停止、压缩与线程配置；不再展示聊天内技能建议 |
+| `cmd/agent-terminal/frontend/vue-app/pages/UnifiedChatPage.template.js` | chat/workspace 模板 | composer、timeline、diff、task handoff 装配 |
+| `cmd/agent-terminal/frontend/vue-app/services/skills-api.js` | local skill write/import + resolution RPC | cwd-aware skill 管理、mirror conflict actions |
 
 ### 3.5 三个容易误读的“缺席真值”
 
@@ -97,15 +95,15 @@
 - `internal/module/prompt/module.go:14-27` 定义 `prompt.Module`。
 - `fx.Provide(...)` 里同时放入：
   - `NewConfig`
-  - `NewService`
+  - `NewServiceFx`
   - `AsPromptRegistry`
   - `AsPromptAssemblyService`
   - `AsDynamicSectionRegistrar`
   - `AsSectionInvalidator`
   - `registerPromptHandlers`
-  - `NewCompositeNativeSkillDetector`
-  - `NewSkillCatalogProviderFx`
-- `fx.Invoke(RegisterSkillCatalogProviderIfEnabled)` 在 module 层完成灰度注册。
+- `newPromptClassifier`
+- `ServiceFxParams` 当前只接入 prompt config、logger、UI preference store、shared-file reader 和可选 `DisabledToolsFn`；没有 skill store 接线。
+- `DisabledToolsFn` 只把用户禁用工具配置传给 prompt assembler，作为 native/tool suppression hints 的当前来源。
 - 也就是说，**section slot 的“定义”与 provider 的“注入”是两段式**：
   1. `NewService()` 先注册静态 section + dynamic slot。
   2. 各 provider 再通过 `RegisterDynamicProvider()` 把实现挂到 slot 名上。
@@ -143,13 +141,13 @@
 
 ### 4.4 Dynamic sections：真实 slot 矩阵
 
-`internal/module/prompt/dynamic.go:54-78` 当前真实 dynamic matrix 如下。
+`internal/module/prompt/dynamic.go:43-61` 当前真实 dynamic matrix 如下。
 
 | order | name | cachePolicy | startOnly | 生产 provider 入口 |
 |---|---|---|---|---|
 | 110 | `session_guidance` | `InputScoped` | 否 | `SessionGuidanceProvider`，`service.go:131` |
-| 120 | `memory` | `InputScoped` | 是 | `MemoryRulesProvider`，`memory/rules_provider.go:40-62` |
-| 123 | `agent_memory` | `InputScoped` | 是 | `memagent.PromptProvider`，由 memory 模块注册 |
+| 120 | `memory` | `InputScoped` | 是 | `MemoryRulesProvider`，memory 模块注册 |
+| 122 | `memory_entrypoint` | `InputScoped` | 是 | memory entrypoint provider |
 | 125 | `memory_context` | `InputScoped` | 否 | `MemoryContextProvider`，turn lane |
 | 130 | `env_info_simple` | `InputScoped` | 否 | `EnvInfoProvider`，`service.go:132` |
 | 140 | `language` | `InputScoped` | 否 | `LanguageProvider`，`service.go:133` |
@@ -161,10 +159,9 @@
 | 240 | `numeric_length_anchors` | `CacheByName` | 否 | `NumericLengthAnchorsProvider`，`service.go:139` |
 | 250 | `token_budget` | `CacheByName` | 否 | `TokenBudgetProvider`，`service.go:140` |
 | 260 | `brief` | `CacheByName` | 否 | `BriefProvider`，`service.go:141` |
-| 270 | `ant_model_override` | `CacheByName` | 否 | `AntModelOverrideStubProvider`，`service.go:142` |
-| 280 | `skill_catalog` | `Uncached` | 否 | `SkillCatalogProvider`，灰度注册 |
+| 270 | `ant_model_override` | `CacheByName` | 否 | `AntModelOverrideStubProvider`，`service.go` |
 
-结论：**这不是“固定 5 个 dynamic slot”**，而是 16 个 slot 的可扩展矩阵。
+结论：**这不是“固定 5 个 dynamic slot”**。旧 prompt 注入式 skill 列表 slot 已退出生产链，skills 通过 provider-native mirrors 让 Claude/Codex 自己发现。
 
 ### 4.5 `dynamicSlotSections()` 如何把 slot 变成真正 section
 
@@ -180,7 +177,7 @@
   - 只按名字从 `s.dynamic` map 取 provider
   - provider 为 nil 时直接返回 nil
 - 所以即使 slot 已存在，只要 provider 没注册，**该 section 仍会渲染为空**。
-- 这正是 skill catalog 灰度的关键：slot 常驻，provider 可开关。
+- 旧 prompt 注入式 skill 列表已不在 slot 矩阵内；新增 dynamic provider 仍遵循“slot 注册 + provider 解析”的通用模式。
 
 ### 4.6 start 入口：`resolveStartPromptAssembly()`
 
@@ -307,62 +304,17 @@
 
 这说明：**turn 装配的输入面更接近“本轮动态状态”而不是“线程创建元数据”**。
 
-### 4.13 Skill catalog：slot、provider、gray flag 三层结构
+### 4.13 Skills 与 prompt 的当前边界
 
-这条链要分 3 层看：
+- 生产 skill 发现链路不再走 prompt catalog，也不把 skill body 注入 start/turn prompt。
+- `skill.Module` 通过 `contract.SkillMirrorReconciler` 向 provider 暴露 mirror reconcile 窄端口；Claude/Codex provider 在启动/acquire 前生成项目级 `.claude/skills`、`.agents/skills` 与个人级 `~/.claude/skills`、`~/.agents/skills` mirrors；显式 provider home 才使用其 `skills`。
+- prompt 不从 skill store 读取 native replacement；`ServiceFxParams` 已无 skill store 注入，`assembler_support.go` 的 `aggregateSuppressedTools()` 只聚合用户禁用工具配置。
+- provider-native skill mirror 不再通过 prompt assembly metadata 产生 native/tool suppression hints；provider-native mirror 主链看 09 provider / skill module。
+- turn 侧仍用 `SkillHydrationSource` 对显式 `SkillRef` 补版本/hash/summary 等元数据，但 provider 实际发现和调用交给 native mirror。
 
-#### A. slot 层
+结论：本卷只记录 prompt/thread 如何携带运行时上下文；skill runtime 主链请看 09 provider mirror 与 skill module mirror reconciler。
 
-- `internal/contract/prompt.go:113-116` 定义 `DynamicSectionSkillCatalog = "skill_catalog"`。
-- `internal/module/prompt/dynamic.go:77` 把它放到 order 280 的 dynamic slot。
-
-#### B. provider 构造层
-
-- `internal/module/prompt/module.go:122-149` 的 `NewSkillCatalogProviderFx()` / deps：
-  - 通过 `skillpkg.SkillCatalogSource` 窄端口接 skill 侧能力（`ListSkills` + approval + skill/trust revision），不是直接依赖完整 `skill.Service`
-  - 取 `Cfg.SkillCatalogTokenBudget`
-  - 折算 char budget
-  - 决定是否输出 meta instructions
-- `internal/module/prompt/skill_catalog_provider.go:147-155` 的 `Resolve()`：
-  - `ListSkills(skillpkg.WithCWD(ctx, input.BuildCtx.CWD))`
-  - 应用 launch-time selected skills
-  - 合并 native detector 结果
-  - 按 trust 分组渲染 manifest
-
-#### C. gray registration 层
-
-- `internal/module/prompt/module.go:143-179` 的 `RegisterSkillCatalogProviderIfEnabled()`：
-  - `Cfg == nil` 或 flag off -> skip
-  - `Skills == nil` -> skip
-  - `Registrar == nil` -> skip
-  - 否则 `Registrar.RegisterDynamicProvider(deps.Provider)`
-
-### 4.14 Skill catalog 的灰度开关与预算
-
-`internal/module/prompt/config.go:16-26,41-50` 给出 3 个关键 env：
-
-| env | 作用 | 默认 |
-|---|---|---|
-| `ENABLE_SKILL_PROGRESSIVE_DISCLOSURE` | 是否注册 `SkillCatalogProvider` | `true`（P25 Phase 4 close 后翻转；显式 `false` 仍可回滚） |
-| `SKILL_CATALOG_TOKEN_BUDGET` | token 预算 | `0` -> provider 默认 |
-| `SKILL_CATALOG_META_INSTRUCTIONS` | 是否追加 “How to use skills” 元指令 | `true` |
-
-因此：
-
-- slot 常驻 ≠ provider 生效。
-- 只有 gray flag 开启时，`skill_catalog` 才会从空 slot 变成真实输出。
-
-### 4.15 skill catalog 与 native detector 的桥
-
-- `internal/module/prompt/module.go:29-78` 提供 `compositeNativeSkillDetector`。
-- provider modules 会把 detector 注入 `group:"skill_injection_ports"`：
-  - `internal/provider/claudecli/module.go:27-29`
-  - `internal/provider/codexapp/module.go:30-33`
-- `SkillCatalogProvider.collectNativeNames()` 在 `skill_catalog_provider.go:202-220` 用当前 cwd 调 detector。
-
-结论：skill catalog 不是只看本地 skill 文件；它还能区分哪些 skill 已被 provider 原生机制接管。
-
-### 4.16 Prompt snapshot：start 时一起生成的第二产物
+### 4.14 Prompt snapshot：start 时一起生成的第二产物
 
 `internal/module/prompt/assembler.go:295-312` 的 `newSnapshot()` 会填这些字段：
 
@@ -479,7 +431,7 @@ prompt store 保存的是 dashboard / prompts 页面可编辑模板。
 
 | Path | Kind | Limit | Owner | 当前注释 |
 |---|---|---|---|---|
-| `internal/module/prompt` | `ViolationPackageCount` | `27` | `P20.1-Phase-10` | prompt 迁移期文件数高于默认预算；skill catalog provider 已并入 module wiring |
+| `internal/module/prompt` | `ViolationPackageCount` | `27` | `P20.1-Phase-10` | prompt 迁移期文件数高于默认预算 |
 
 相邻参考：
 
@@ -589,9 +541,9 @@ shared patch 已把本卷 freeze 口径收成：
 - `Provider / CWD / GitRoot / IsWorktree / Language / Model`
 - `EnabledTools / AdditionalWorkingDirectories / ClaudeMdExcludes`
 - `MCPSnapshot / SessionFlags / OutputStyleConfig / ScratchpadDir / FRCConfig`
-- `LaunchSkillNames / ForceLaunchSkills`
+- `LaunchSkillNames / ForceLaunchSkills`（legacy payload field；不再触发 prompt catalog 注入）
 
-这一步是 skill catalog launch-time 选择能进入 prompt assembler 的关键运输层。
+这一步只保留 legacy launch-time skill 选择字段的运输形状；V1 生产链路不再通过 prompt catalog 注入 skill。
 
 ### 6.6 `startSession()`：thread -> provider DTO 物化
 
@@ -1155,32 +1107,27 @@ memory 模块把 prompt handoff 分成两条：
 
 ## 9. Blank-thread 首发：为什么一定先 start 再 send
 
-### 9.1 前端 blank-thread skill picker 的挂点
+### 9.1 前端 blank-thread 首发挂点
 
-`cmd/agent-terminal/frontend/vue-app/pages/UnifiedChatPage.template.js:129-140`：
+`cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js:126-174`：
 
-- `LaunchSkillPicker` 只在 `launchSkillSelectionEnabled && !selectedThreadId` 时展示。
+- 没有选中 thread 时，`performSend()` 先调 `resolveStartOptions(text, focusMode)`，再 `threadStore.startThread()`。
+- 非空 composer 文本会作为 `thread/start` 的 `prompt` 传给后端 router；空 composer 会设置 `deferSpawn: true`。
 
-`cmd/agent-terminal/frontend/vue-app/components/ComposerBar.js:77-83`：
+`cmd/agent-terminal/frontend/vue-app/pages/UnifiedChatPage.js:175-190`：
 
-- 没有 threadId 且 launch skill selection enabled 时，隐藏 legacy skill selector。
+- `useThreadActions` 由 `createPageThreadActions()` 装配，聊天页不再挂 blank-thread 技能选择器。
 
-所以 blank-thread 首发 UI 本身就是单独模式，不是现有 thread send path 的小变体。
+### 9.2 `resolveStartOptions()`：先把首轮输入整理成 startOptions
 
-### 9.2 `resolveLaunchStartPayload()`：先把 launch-time skill 选择整理成 startOptions
+`cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js:126-140`：
 
-`cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js:100-118`：
-
-- 调 `resolveLaunchSkillSelectionForStart(text)`
-- 归一化 `selectedSkills`
-- 归一化 `manualSkillSelection`
-- 只在 feature enabled 且有有效选择时，把这两项塞进 `startOptions`
+- 写入 `focusMode`
+- 文本非空时写入 `prompt`
+- 文本为空时写入 `deferSpawn: true`
 
 它的产物是：
 
-- `enabled`
-- `selectedSkills`
-- `manualSkillSelection`
 - `startOptions`
 
 ### 9.3 `performSend()`：blank-thread 走两段式
@@ -1188,13 +1135,13 @@ memory 模块把 prompt handoff 分成两条：
 `cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js:120-173` 明确写死了顺序：
 
 1. 如果 `selectedThreadId` 为空：
-   - `skillSelection = await resolveLaunchStartPayload(...)`
-   - `threadId = await threadStore.startThread(projectStore.state.active, skillSelection.startOptions)`
+   - `startOptions = await resolveStartOptions(text, focusMode)`
+   - `threadId = await threadStore.startThread(projectStore.state.active, startOptions)`
    - 把 `selectedThreadId.value = threadId`
 2. 然后无论新旧线程，最终都执行：
    - `await threadStore.sendMessage(threadId, text, attachments, {...})`
 
-这就是用户要求的 `resolveLaunchStartPayload -> startThread -> sendMessage` 顺序真值。
+这就是用户要求的 `resolveStartOptions -> startThread -> sendMessage` 顺序真值。
 
 ### 9.4 `startThread()`：前端创线 RPC 只做 `thread/start`
 
@@ -1249,7 +1196,7 @@ memory 模块把 prompt handoff 分成两条：
 
 - start-only system prompt 的一次性注入边界
 - durable prompt snapshot 的持久化时机
-- skill picker 只在 blank-thread 可见的 UI 设计
+- 聊天页不再挂技能选择器，skill 发现交给 provider-native mirror 的边界
 
 ## 10. Mermaid
 
@@ -1265,7 +1212,7 @@ flowchart LR
   E --> E2[memory / agent_memory / memory_context]
   E --> E3[env / language / mcp / output_style]
   E --> E4[scratchpad / frc / summarize / anchors / token_budget / brief]
-  E --> E5[skill_catalog gray slot]
+  E --> E5[user disabled tool suppression hints]
   D --> F[resolveSections]
   E1 --> F
   E2 --> F
@@ -1335,7 +1282,7 @@ flowchart LR
 | 包 | 测试文件 | 核心用例 | 说明 | freeze |
 |---|---|---|---|---|
 | `prompt` | `assembler_test.go` | `TestAssembleStartIncludesBuiltinsAndDynamicSections` | 验 start assembly 真正包含 built-in + dynamic sections | `27*` |
-| `prompt` | `skill_catalog_provider_test.go` | `TestSkillCatalogProvider_EmptySkillsReturnsNil` | 验 skill catalog provider 空目录返回 nil | `27*` |
+| `prompt` | `user_context_builder_untrusted_test.go` | untrusted context escaping | 验 prompt user-context 安全边界 | `27*` |
 | `prompt` | `golden_test.go` | golden start assembly | 验输出稳定性 | `27*` |
 | `thread` | `service_handlers_test.go` | `TestNewServiceInitializesDefaults` | 验 thread service 默认 wiring | — |
 | `thread` | `resume_test.go` | `TestServiceResumePrefersStoredPromptSnapshot` | 验 resume 优先使用 stored prompt snapshot | — |
@@ -1353,7 +1300,7 @@ flowchart LR
 建议顺序：
 
 1. `internal/module/prompt/assembler_test.go`
-2. `internal/module/prompt/skill_catalog_provider_test.go`
+2. `internal/module/prompt/user_context_builder_untrusted_test.go`
 3. `internal/module/thread/resume_test.go`
 4. `internal/module/thread/fork_isolation_test.go`
 5. `internal/store/thread/snapshot_test.go`
@@ -1381,11 +1328,11 @@ flowchart LR
    - `startOnly`
 3. 写 provider，实现 `contract.DynamicSectionProvider`。
 4. 如果是 built-in provider，放到 `prompt.NewService()` 的 `mustRegisterDynamicProvider(...)` 列表；如果是跨模块 provider，则在 owning module 用 `RegisterDynamicProvider()` 注入。
-5. 若需要灰度，模仿 skill catalog：slot 常驻，provider 条件注册。
+5. 若需要条件开关，保持 slot/section 定义稳定，把 provider 注册放到 owning module 的条件装配里。
 6. 加测试：
    - assembler / golden
    - provider 自测
-   - 如涉及灰度，再补 config/module 测试
+   - 如涉及条件开关，再补 config/module 测试
 
 验证：
 
@@ -1452,8 +1399,8 @@ flowchart LR
 - [ ] `PROMPT_START_CURRENT_DATE` 已写明常量、env 读取点、注入文案位置。
 - [ ] `resolveStartPromptAssembly()` 已写成 start 真入口。
 - [ ] 已明确说明仓内无 `resolveTurnPromptAssembly`，turn 真入口是 `prepareTurnAssembly()`。
-- [ ] `dynamicSectionSpecs` 已按 16 个 slot 列全，不再写“固定 5 个”。
-- [ ] skill catalog 已覆盖 slot、provider、gray flag、native detector、cwd-aware `ListSkills`，并写明 provider 通过 `SkillCatalogSource` 窄端口消费 skill。
+- [ ] `dynamicSectionSpecs` 已按当前 slot 列全，不再写“固定 5 个”。
+- [ ] 已写明 skill 不再经 prompt catalog 注入，生产链路走 provider-native mirror，prompt 侧 native/tool suppression hints 只来自用户禁用工具配置。
 
 ### 13.2 Thread 生命周期 checklist
 
@@ -1472,8 +1419,8 @@ flowchart LR
 
 ### 13.4 Blank-thread checklist
 
-- [ ] 已写明 LaunchSkillPicker 只在无选中线程时出现。
-- [ ] 已写明 `resolveLaunchStartPayload -> startThread -> sendMessage` 顺序。
+- [ ] 已写明聊天页不再挂 blank-thread 技能选择器。
+- [ ] 已写明 `resolveStartOptions -> startThread -> sendMessage` 顺序。
 - [ ] 已落到 `thread/start` 与 `turn/start` 两个后端 handler。
 
 ## 14. 一句话索引
@@ -1481,7 +1428,7 @@ flowchart LR
 - 想看 current date hook：看 `prompt/assembler.go:25,273,289-291`。
 - 想看 start 真入口：看 `thread/start_session_helpers.go:82-94`。
 - 想看 turn 真入口：看 `turn/prompt_assembly.go:13-43`。
-- 想看 skill catalog 灰度：看 `prompt/module.go:14-26,108-136` 与 `prompt/config.go:16-26`。
+- 想看 skill 与 prompt 当前边界：看 `prompt/module.go:50-69`、`prompt/assembler_support.go:201-212` 与 `skill/module.go:17-27`。
 - 想看 prompt store 写口：看 `store/prompt/contract.go:15-22` 与 `prompt/service.go:290-340,473-488`。
 - 想看 prompt snapshot 保存/恢复：看 `thread/prompt_snapshot.go:173-215,217-275,320-399`。
 - 想看 provider bridge：看 `provider/unified/event_map.go:28-124`、`thread/events.go:25-152`、`eventsurface/bind.go:72-197`。

@@ -166,7 +166,7 @@ func classifySkillMatch(prompt string, skill SkillInfo) (string, []string) {
 }
 
 func explicitTerms(prompt string, skill SkillInfo) []string {
-	candidates := append([]string{"@" + skill.Name, "[skill:" + skill.Name + "]"}, skill.TriggerWords...)
+	candidates := []string{"@" + skill.Name, "[skill:" + skill.Name + "]"}
 	explicit := make([]string, 0, len(candidates))
 	for _, term := range matchedTerms(prompt, candidates) {
 		lower := strings.ToLower(strings.TrimSpace(term))

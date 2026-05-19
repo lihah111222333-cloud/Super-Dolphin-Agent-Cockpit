@@ -53,8 +53,9 @@ type startParams struct {
 	// SelectedSkills / ManualSkillSelection p20.3 §4.3：launch 时 UI 已知的 skill 载荷。
 	// 主使用 snake_case；`fillLegacyFields` 额外读 camelCase 别名（与
 	// send path `selectedSkills` / `manualSkillSelection` 对齐）。
-	SelectedSkills       []string `json:"selected_skills,omitempty"`
-	ManualSkillSelection bool     `json:"manual_skill_selection,omitempty"`
+	SelectedSkills       []string         `json:"selected_skills,omitempty"`
+	SelectedSkillRefs    []skillRefParams `json:"selected_skill_refs,omitempty"`
+	ManualSkillSelection bool             `json:"manual_skill_selection,omitempty"`
 	// Optional explicit agent_key override. Empty = let the router decide.
 	AgentKey string `json:"agent_key,omitempty"`
 	// Optional explicit prompt_key pin. Surfaces the SystemPromptPage's
@@ -147,6 +148,15 @@ func (p *startParams) fillLegacyLaunchSkillFields(payload map[string]json.RawMes
 			p.SelectedSkills = names
 		}
 	}
+	if len(p.SelectedSkillRefs) == 0 {
+		if raw, ok := payload["selectedSkillRefs"]; ok {
+			var refs []skillRefParams
+			if err := json.Unmarshal(raw, &refs); err != nil {
+				return fmt.Errorf("thread/start: selectedSkillRefs must be an object array")
+			}
+			p.SelectedSkillRefs = refs
+		}
+	}
 	if !p.ManualSkillSelection {
 		if raw, ok := payload["manualSkillSelection"]; ok {
 			var flag bool
@@ -157,6 +167,15 @@ func (p *startParams) fillLegacyLaunchSkillFields(payload map[string]json.RawMes
 		}
 	}
 	return nil
+}
+
+type skillRefParams struct {
+	Key          string `json:"key,omitempty"`
+	Name         string `json:"name"`
+	Scope        string `json:"scope,omitempty"`
+	PersonalType string `json:"personalType,omitempty"`
+	Path         string `json:"path,omitempty"`
+	Source       string `json:"source,omitempty"`
 }
 
 func (p *startParams) fillLegacyStringFields(payload map[string]json.RawMessage) error {

@@ -10,9 +10,19 @@ func TestBuildCLIArgsUsesDefaultDisabledNativeToolsByDefault(t *testing.T) {
 
 	args := buildCLIArgs("claude-sonnet", "system", "/tmp/mcp.json", cliLaunchConfig{})
 	got := flagValues(args, "--disallowedTools")
-	want := []string{"Read,Write,Edit,MultiEdit,Bash,BashOutput,KillShell,Grep,Glob,LS,Agent,AskUserQuestion,CronCreate,CronDelete,CronList,EnterPlanMode,ExitPlanMode,EnterWorktree,ExitWorktree,TodoWrite,ListMcpResources,ReadMcpResource,PushNotification,RemoteTrigger,ScheduleWakeup,SendUserFile,SendUserMessage,SendMessage,Skill,Task,TaskCreate,TaskGet,TaskList,TaskOutput,TaskStop,TaskUpdate,TeamCreate,TeamDelete,ToolSearch,WaitForMcpServers,ShareOnboardingGuide"}
+	want := []string{"Read,Write,Edit,MultiEdit,Bash,BashOutput,KillShell,Grep,Glob,LS,Agent,AskUserQuestion,CronCreate,CronDelete,CronList,EnterPlanMode,ExitPlanMode,EnterWorktree,ExitWorktree,TodoWrite,ListMcpResources,ReadMcpResource,PushNotification,RemoteTrigger,ScheduleWakeup,SendUserFile,SendUserMessage,SendMessage,Task,TaskCreate,TaskGet,TaskList,TaskOutput,TaskStop,TaskUpdate,TeamCreate,TeamDelete,ToolSearch,WaitForMcpServers,ShareOnboardingGuide"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("--disallowedTools = %#v, want %#v", got, want)
+	}
+}
+
+func TestClaudeLaunchEnvUsesConfigDirForNativeSkills(t *testing.T) {
+	t.Parallel()
+
+	got := claudeLaunchEnv(cliLaunchConfig{ClaudeHome: "/tmp/sd-claude-home"})
+	want := []string{"CLAUDE_CONFIG_DIR=/tmp/sd-claude-home"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("claudeLaunchEnv() = %#v, want %#v", got, want)
 	}
 }
 

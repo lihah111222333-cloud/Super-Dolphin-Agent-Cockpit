@@ -57,20 +57,17 @@ func newMatchWhenEvaluator() contract.MatchWhenEvaluator {
 type ServiceFxParams struct {
 	fx.In
 	Cfg             *Config
-	Logger          *slog.Logger                        `optional:"true"`
-	Prefs           uipreference.Store                  `optional:"true"`
-	SharedFiles     sharedfilestore.Reader              `optional:"true"`
-	SkillStore      contract.SkillReplacementAggregator `optional:"true"`
-	DisabledToolsFn DisabledBuiltinToolsFn              `optional:"true"`
+	Logger          *slog.Logger           `optional:"true"`
+	Prefs           uipreference.Store     `optional:"true"`
+	SharedFiles     sharedfilestore.Reader `optional:"true"`
+	DisabledToolsFn DisabledBuiltinToolsFn `optional:"true"`
 }
 
 // NewServiceFx is the fx-facing constructor that wires the preference store,
-// shared-file reader, skill library store, and disabled-tools function into
-// the prompt Service.
+// shared-file reader, and disabled-tools function into the prompt Service.
 func NewServiceFx(p ServiceFxParams) Service {
 	opts := []ServiceOption{
 		WithPromptHintSources(p.Prefs, p.SharedFiles),
-		WithSkillStore(p.SkillStore),
 	}
 	if p.DisabledToolsFn != nil {
 		opts = append(opts, WithDisabledBuiltinToolsFn(p.DisabledToolsFn))

@@ -249,7 +249,7 @@
 **实现要点**
 
 - `ReadRequest.RolloutPath` 非空时会直接绕过自动发现逻辑
-- Claude 从 `CLAUDE_HOME`（默认 `~/.claude`）下的 `projects/*/<id>.jsonl` 找文件，候选 ID 顺序是 `SessionUUID -> ProviderThreadID -> ThreadID`
+- Claude 从 sessionDir / `CLAUDE_CONFIG_DIR` / 兼容 `CLAUDE_HOME`（默认 `~/.claude`）下的 `projects/*/<id>.jsonl` 找文件，候选 ID 顺序是 `SessionUUID -> ProviderThreadID -> ThreadID`
 - Codex 从 `~/.codex/sessions/.../rollout-*-<id>.jsonl` 找最新匹配，候选 ID 是 `ProviderThreadID -> ThreadID`
 - 只保留 `user/assistant` 且非空消息
 - 上层主要由 thread 模块在 session 不可用时做“持久化历史回退读取”
@@ -577,7 +577,6 @@
 - `ToolCallResult`
 - `diffFallbackTracker`
 - `HostToolRegistry`
-- `SkillHostTools`
 
 **关键 API**
 
@@ -585,13 +584,12 @@
 - `HandleToolCall(ctx, codexapp.RawMessage)`
 - `ListToolsForCodex(ctx)`
 - `ServeProxy(ln)`
-- `NewSkillHostTools(skill.SkillHostToolReader)`
 
 **文件导览**
 
 - `handler.go`：tool call 解析、peer 路由、`beginToolDiffSnapshot()` / `emitToolDiff()`
-- `handler_host_tools.go`：host-direct 工具列表合并、去重/shadow warning、`callHostTool()`、结果脱敏与 metrics
-- `host_tools.go`：`HostToolRegistry` 接口 + `SkillReadSectionRegistry`（skill_read_section host-direct）
+- `handler_host_tools.go`：memory host tools 列表合并、去重/shadow warning、`callHostTool()`、结果脱敏与 metrics
+- `host_tools.go`：`HostToolRegistry` 接口 + `skill_read_section` 保留名称；旧 `SkillReadSectionRegistry` 实现已物理删除，生产 Codex graph 不再接入该工具
 - `memory_read_tool.go`：`MemoryReadHostToolRegistry`（memory_read host-direct）
 - `memory_write_tool.go`：`MemoryWriteHostToolRegistry` + `CompositeHostToolRegistry`（多 registry 聚合）
 - `diff_gen.go`：Phase 1 snapshot 触发条件、`emitToolDiff()`、`shouldTrackDiff()`
@@ -603,15 +601,14 @@
 
 - `decodeToolCallRequest()` 会兼容多种字段别名，并能从嵌套 `item` / `thread` 结构里补出 `name/threadId/callId`
 - `classifyTool()` 目前把 `lsp_*`、`code_run`、`code_run_test` 路由到 `ClientKindLSP`，其余走 `ClientKindOrch`
-- host-direct 路由分两级：
-  - `routeToolCall()` 顶层 switch 拦截 `memory_read`/`memory_write` → `routeHostOnlyToolCall()`（只走 host，绝不 fallback peer）
-  - `routePrePeerToolCall()` 拦截 `skill_read_section` → `callHostTool()`（host 优先，peer 兜底）
-- `CompositeHostToolRegistry` 聚合三个子 registry：`SkillReadSectionRegistry` + `MemoryReadHostToolRegistry` + `MemoryWriteHostToolRegistry`
+- Codex 生产 host-direct 只保留 memory tools：`routeToolCall()` 顶层 switch 拦截 `memory_read`/`memory_write` → `routeHostOnlyToolCall()`（只走 host，绝不 fallback peer）
+- `skill_read_section` 已退出 Codex 动态工具主链；若历史请求仍命中，`routeToolCall()` 顶层 switch 返回不可用结果，不应把它当成当前 skill 读取链路
+- `CompositeHostToolRegistry` 聚合当前生产 registry：`MemoryReadHostToolRegistry` + `MemoryWriteHostToolRegistry`
 - `routeToolCall()` 对非 host-direct 工具通过 `mcpcontrol.ToolRegistry.FindActiveByKind()` 找活跃 peer；0 个报 `ErrNoPeerAvailable`，多个报 `ErrAmbiguousPeer`
 - 对 `tools/call` 的 peer callback 若返回错误，不会上抛 Go error，而是转换成 `ToolCallResult{Success:false}` 返给 Provider
-- `ListToolsForCodex()` 先加入 host-direct skill tools，再并发等待 orch / lsp peer 就绪（默认最多 10s、300ms 轮询），同名工具保留先出现者并记录 shadow warning，最后转换成 `codexapp.DynamicToolSchema`
+- `ListToolsForCodex()` 先加入 memory host tools，再并发等待 orch / lsp peer 就绪（默认最多 10s、300ms 轮询），同名工具保留先出现者并记录 shadow warning，最后转换成 `codexapp.DynamicToolSchema`
 - `tools/call` peer callback 的 timeout 是 `toolCallTimeout = 120s`
-- peer 侧 `tools/list` 只取每类 client kind 的第一个活跃 peer；而 peer `tools/call` 则要求同类 peer 唯一；host-direct skill 工具不参与 peer 唯一性判定
+- peer 侧 `tools/list` 只取每类 client kind 的第一个活跃 peer；而 peer `tools/call` 则要求同类 peer 唯一；memory host tools 不参与 peer 唯一性判定
 - Phase 1 只有 `lsp_edit(rename/replace_range)` 会在调用前进入 `beginToolDiffSnapshot()`；`code_run` / `code_run_test` 走 bus 侧 fallback
 - `emitToolDiff()` 成功发出 `ToolDiffUpdated` 后会 `MarkSeen(callID)`，避免 fallback 重复补发
 - `diffFallbackTracker.handleToolCallEnd()` 会在 `ToolCallEnd` 上检查 `shouldFallbackDiffTool()`，命中时走 `difftracker.EmitCurrentGitDiff()`
@@ -900,8 +897,8 @@ Codex session 收到 inbound tool request
    -> routeToolCall()
         ├─ memory_read/write: routeHostOnlyToolCall() -> callHostTool()
         │   -> MemoryReadHostToolRegistry / MemoryWriteHostToolRegistry
+        ├─ skill_read_section: return unavailable (historical/non-production residual)
         ├─ routePrePeerToolCall()
-        │   ├─ skill_read_section: callHostTool() -> SkillReadSectionRegistry
         │   └─ non-host tool continues to peer route
         └─ peer route: classifyTool() -> FindActiveByKind() -> callPeerTool()
   -> beginToolDiffSnapshot() [仅 `lsp_edit(rename/replace_range)`]
@@ -933,7 +930,8 @@ Codex session 收到 inbound tool request
   - `OnToolsList`
   - `OnToolsCall`
 - proxy 模式下，非 host-direct 工具仍然回到 `routeToolCall()` -> `mcpcontrol.ToolRegistry.FindActiveByKind()` -> peer callback 这条路径
-- host-direct 工具（`memory_read`、`memory_write`、`skill_read_section`）由主进程内 `CompositeHostToolRegistry` 执行，不经过 mcp-orch 子进程；其余工具仍面向一组**注册到 mcpcontrol 的外部工具 peer**
+- 生产 host-direct 工具只包括 `memory_read`、`memory_write`，由主进程内 `CompositeHostToolRegistry` 执行，不经过 mcp-orch 子进程；其余工具仍面向一组**注册到 mcpcontrol 的外部工具 peer**
+- `skill_read_section` 仅保留名称用于历史/错误态拒绝，不再作为 Codex dynamic tools 或 skill 主链路暴露
 
 ### 6.2.1 工具路由表
 
@@ -941,7 +939,7 @@ Codex session 收到 inbound tool request
 |--------|---------|----------|
 | `memory_read` | host-direct (routeHostOnlyToolCall) | `memory_read_tool.go` |
 | `memory_write` | host-direct (routeHostOnlyToolCall) | `memory_write_tool.go` |
-| `skill_read_section` | host-direct (routePrePeerToolCall) | `host_tools.go` |
+| `skill_read_section` | stale-call rejection only; unavailable to Codex production path | `host_tools.go` / `handler.go` |
 | `orchestration_*` (5) | peer → mcp-orch | `cmd/mcp-orch/tools/orchestration_tools.go` |
 | `task_*` (3) | peer → mcp-orch | `cmd/mcp-orch/tools/task_tools.go` |
 | `workspace_*` (5) | peer → mcp-orch | `cmd/mcp-orch/tools/workspace_tools.go` |
@@ -950,7 +948,7 @@ Codex session 收到 inbound tool request
 | `shared_file_*` (2) | peer → mcp-orch | `cmd/mcp-orch/tools/shared_file_tools.go` |
 | `lsp_*` / `code_run*` (9) | peer → mcp-lsp | `cmd/mcp-lsp/tools/` |
 
-> 注：Claude CLI 通过 proxy HTTP endpoint 进入，所有工具前缀为 `mcp__orch__`（orch family）或 `mcp__lsp__`（lsp family）。host-direct 工具虽然前缀是 `mcp__orch__`，但从不经过 mcp-orch 子进程。
+> 注：Claude CLI 通过 proxy HTTP endpoint 进入，所有工具前缀为 `mcp__orch__`（orch family）或 `mcp__lsp__`（lsp family）。memory host tools 虽然前缀是 `mcp__orch__`，但从不经过 mcp-orch 子进程。
 
 ### 6.3 路由规则
 
@@ -958,7 +956,7 @@ Codex session 收到 inbound tool request
   - `lsp_*`、`code_run`、`code_run_test` -> `ClientKindLSP`
   - 其他 -> `ClientKindOrch`
 - 非 host-direct 的 `routeToolCall()` peer 路径要求同类活跃 peer 唯一；否则直接 fail fast
-- `ListToolsForCodex()` 会先加入 host-direct skill tools，再分别等待 orch / lsp peer 就绪后调 `tools/list`；默认最多等待 10 秒，每 300ms 轮询一次
+- `ListToolsForCodex()` 会先加入 memory host tools，再分别等待 orch / lsp peer 就绪后调 `tools/list`；默认最多等待 10 秒，每 300ms 轮询一次
 - peer `tools/list` 当前只使用每类 client kind 的第一个活跃 peer；host-direct 与 peer 同名时保留 host 入口并记录 shadow warning
 - `ServeProxy()` 还会校验 URL family 与 tool 归属是否一致，避免把 `orch` tool 误打到 `lsp` family
 
@@ -976,7 +974,7 @@ Codex session 收到 inbound tool request
 - 已找到 peer 但 `tools/call` callback 失败时，会返回 `Success=false` 的 `ToolCallResult` 给 Provider，而不是直接上抛异常
 - diff 发射是 best-effort：无论是 `emitToolDiff()` 还是 fallback 失败，都只记 warning，不影响主工具结果
 
-**结论**：`toolbridge` 不是通用工具执行器；除 host-direct skill reader 两个窄端口工具外，它主要是 **Provider 协议层 与 MCP 工具进程层之间的转接器**。
+**结论**：`toolbridge` 不是通用工具执行器；生产 Codex path 只保留 memory host tools，skills 由 provider-native mirror 让 Claude/Codex 自己发现，不再通过 `skill_read_section` host-direct 动态暴露。
 
 ---
 

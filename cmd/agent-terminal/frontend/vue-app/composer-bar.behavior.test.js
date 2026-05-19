@@ -48,10 +48,8 @@ import {
   applyComposerTextareaAutoHeight,
   ComposerBar,
 } from './components/ComposerBar.js';
-import { LaunchSkillPicker } from './components/LaunchSkillPicker.js';
 import { useComposerTextarea } from './composables/useComposerTextarea.js';
 import { useComposerThreadConfig } from './composables/useComposerThreadConfig.js';
-import { reactive } from '../lib/vue.esm-browser.prod.js';
 
 let registeredNativeDropHandler = null;
 let registeredNativeDropDispose = vi.fn();
@@ -73,7 +71,6 @@ function createComposerBar(overrides = {}, emit = vi.fn()) {
     },
     disabled: overrides.disabled ?? false,
     threadId: Object.prototype.hasOwnProperty.call(overrides, 'threadId') ? overrides.threadId : 'thread-1',
-    launchSkillSelectionEnabled: overrides.launchSkillSelectionEnabled ?? false,
     interruptible: overrides.interruptible ?? false,
     compacting: overrides.compacting ?? false,
     canCompact: overrides.canCompact ?? true,
@@ -82,9 +79,6 @@ function createComposerBar(overrides = {}, emit = vi.fn()) {
     compactSuccessCount: overrides.compactSuccessCount ?? 0,
     tokenInline: '',
     tokenTooltip: '',
-    skillMatches: overrides.skillMatches ?? [],
-    skillMatchesLoading: false,
-    selectedSkillNames: overrides.selectedSkillNames ?? [],
     isCmd: overrides.isCmd ?? false,
     threadConfigProvider: overrides.threadConfigProvider ?? '',
     threadConfigSupportsOverride: overrides.threadConfigSupportsOverride ?? false,
@@ -101,25 +95,6 @@ function createComposerBar(overrides = {}, emit = vi.fn()) {
     promoteTaskError: overrides.promoteTaskError ?? '',
   };
   const vm = ComposerBar.setup(props, { emit });
-  return { props, emit, vm };
-}
-
-function createLaunchSkillPicker(overrides = {}, emit = vi.fn()) {
-  const props = reactive({
-    enabled: true,
-    skills: overrides.skills ?? [
-      { name: 'ProjectSkill', summary: 'project skill', trust: 'project' },
-      { name: 'SystemSkill', summary: 'system skill', trust: 'user' },
-    ],
-    projectSkills: overrides.projectSkills ?? [{ name: 'ProjectSkill', summary: 'project skill', trust: 'project' }],
-    systemSkills: overrides.systemSkills ?? [{ name: 'SystemSkill', summary: 'system skill', trust: 'user' }],
-    scope: Object.prototype.hasOwnProperty.call(overrides, 'scope') ? overrides.scope : '',
-    scopeTabsEnabled: overrides.scopeTabsEnabled ?? false,
-    matches: overrides.matches ?? [],
-    selectedSkillNames: overrides.selectedSkillNames ?? [],
-    loading: overrides.loading ?? false,
-  });
-  const vm = LaunchSkillPicker.setup(props, { emit });
   return { props, emit, vm };
 }
 
@@ -179,55 +154,6 @@ describe('ComposerBar behavior', () => {
 
     expect(preventDefault).not.toHaveBeenCalled();
     expect(emit).not.toHaveBeenCalled();
-  });
-
-  it('shows the legacy skill selector on blank-thread launch when launch picker is disabled', () => {
-    const { vm } = createComposerBar({ threadId: null, launchSkillSelectionEnabled: false });
-
-    expect(vm.showLegacySkillSelector.value).toBe(true);
-  });
-
-  it('hides the legacy skill selector on blank-thread launch when launch picker is enabled', () => {
-    const { vm } = createComposerBar({ threadId: null, launchSkillSelectionEnabled: true });
-
-    expect(vm.showLegacySkillSelector.value).toBe(false);
-    expect(ComposerBar.template).toContain('v-if="showLegacySkillSelector"');
-  });
-
-  it('keeps the legacy skill selector visible for active threads regardless of launch picker gate', () => {
-    expect(createComposerBar({ threadId: 't1', launchSkillSelectionEnabled: false }).vm.showLegacySkillSelector.value).toBe(true);
-    expect(createComposerBar({ threadId: 't1', launchSkillSelectionEnabled: true }).vm.showLegacySkillSelector.value).toBe(true);
-  });
-
-  it('keeps launch picker scope tabs hidden when scope prop is empty', () => {
-    const { vm } = createLaunchSkillPicker({ scope: '', scopeTabsEnabled: true });
-
-    expect(vm.showScopeTabs.value).toBe(false);
-    expect(LaunchSkillPicker.template).toContain('data-testid="launch-skill-scope-tabs"');
-  });
-
-  it('switches launch picker entries by scope tab without changing entry ordering helpers', () => {
-    const emit = vi.fn();
-    const { props, vm } = createLaunchSkillPicker({
-      scope: 'project',
-      scopeTabsEnabled: true,
-      projectSkills: [
-        { name: 'ProjectSkill', summary: 'project skill', trust: 'project' },
-      ],
-      systemSkills: [
-        { name: 'SystemSkill', summary: 'system skill', trust: 'user' },
-      ],
-      matches: [],
-      selectedSkillNames: [],
-    }, emit);
-
-    expect(vm.skillEntries.value.map((entry) => entry.name)).toEqual(['ProjectSkill']);
-
-    vm.updateScope('system');
-    expect(emit).toHaveBeenCalledWith('update:scope', 'system');
-
-    props.scope = 'system';
-    expect(vm.skillEntries.value.map((entry) => entry.name)).toEqual(['SystemSkill']);
   });
 
   it('emits interrupt payloads and resolves pause acknowledgement on confirm', () => {
@@ -420,25 +346,13 @@ describe('ComposerBar behavior', () => {
     expect(vm.dropDepth.value).toBe(0);
   });
 
-  it('derives compact tone and skill selection helpers', () => {
-    const emit = vi.fn();
+  it('derives compact tone class', () => {
     const { vm } = createComposerBar({
       compactResultTone: 'success',
       compactResultText: '压缩完成',
-      selectedSkillNames: ['AlphaSkill'],
-      skillMatches: [{ name: 'AlphaSkill', matchedBy: 'explicit', matchedTerms: ['alpha'] }],
-    }, emit);
+    });
 
     expect(vm.compactResultToneClass()).toBe('is-success');
-    expect(vm.isSkillSelected('alphaskill')).toBe(true);
-    expect(vm.skillMatchClass({ matchedBy: 'force' })).toBe('force');
-    expect(vm.skillMatchReason({ matchedBy: 'explicit', matchedTerms: ['alpha'] })).toContain('显式提及');
-
-    vm.onToggleSkill('AlphaSkill');
-    vm.onSelectAllSkills();
-    vm.onClearSkills();
-
-    expect(emit.mock.calls.map((call) => call[0])).toEqual(['toggle-skill', 'select-all-skills', 'clear-skills']);
   });
 
   it('auto grows composer textarea and clamps overflow', () => {

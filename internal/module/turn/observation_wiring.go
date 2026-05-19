@@ -48,16 +48,6 @@ func (s *service) mapObservationTurn(localID, providerID string) {
 	}
 }
 
-func turnSkillPrompt(skills []dto.SkillRef) string {
-	parts := make([]string, 0, len(skills))
-	for _, skill := range skills {
-		if prompt := strings.TrimSpace(skill.Prompt); prompt != "" {
-			parts = append(parts, prompt)
-		}
-	}
-	return strings.Join(parts, "\n\n")
-}
-
 func turnAttachmentRefs(inputs []dto.InputItem) []string {
 	refs := make([]string, 0, len(inputs))
 	for _, item := range inputs {

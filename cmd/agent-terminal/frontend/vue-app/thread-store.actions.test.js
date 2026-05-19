@@ -221,6 +221,7 @@ describe('thread store actions', () => {
     });
   });
 
+
   it('forwards explicit name and base instructions when starting a thread', async () => {
     const store = useThreadStore();
     apiMock.callAPI.mockImplementation(async (method, payload) => {
@@ -681,6 +682,7 @@ describe('thread store actions', () => {
     await store.sendMessage('thread-live', 'hello', [{ path: '/tmp/a.txt' }], {
       cwd: '/repo',
       selectedSkills: ['git'],
+      selectedSkillRefs: [{ key: 'project::git:/repo/.agent/skills/git', name: 'git', scope: 'project', path: '/repo/.agent/skills/git' }],
       manualSkillSelection: true,
     });
 
@@ -691,9 +693,11 @@ describe('thread store actions', () => {
         { type: 'mention', name: 'a.txt', path: '/tmp/a.txt' },
       ],
       cwd: '/repo',
-      selectedSkills: ['git'],
+      selectedSkillRefs: [{ key: 'project::git:/repo/.agent/skills/git', name: 'git', scope: 'project', personalType: '', path: '/repo/.agent/skills/git' }],
       manualSkillSelection: true,
     });
+    const turnPayload = apiMock.callAPI.mock.calls.find(([method]) => method === 'turn/start')?.[1];
+    expect(turnPayload).not.toHaveProperty('selectedSkills');
     // sendMessage no longer calls loadMessages eagerly (event-driven hydration).
     expect(apiMock.callAPI).not.toHaveBeenCalledWith('thread/messages', expect.anything());
   });
@@ -767,8 +771,7 @@ describe('thread store actions', () => {
   it('clears the active chat thread after archiving the selected thread', async () => {
     const store = useThreadStore();
     store.setPreferenceScopeCwd('/repo');
-    store.state.activeThreadId = 'thread-live';
-    store.state.threads = [{ id: 'thread-live', name: 'thread-live', state: 'idle' }];
+    Object.assign(store.state, { activeThreadId: 'thread-live', threads: [{ id: 'thread-live', name: 'thread-live', state: 'idle' }] });
     apiMock.callAPI.mockImplementation(async (method) => {
       if (method === 'thread/archive') return { archived: true };
       if (method === 'ui/sidebar/get') return buildSnapshot({ threadId: 'thread-live', activeThreadId: 'thread-live' });

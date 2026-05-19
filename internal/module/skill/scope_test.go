@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestListSkillsUnionsProjectAndSystemRoots(t *testing.T) {
+func TestListSkillsIgnoresSystemRootAndListsProjectRoot(t *testing.T) {
 	t.Parallel()
 
 	systemRoot := t.TempDir()
@@ -41,8 +41,8 @@ func TestListSkillsUnionsProjectAndSystemRoots(t *testing.T) {
 	if gotTrust["project-local"] != TrustProject {
 		t.Fatalf("project-local trust = %q, want project", gotTrust["project-local"])
 	}
-	if gotTrust["system-global"] != TrustUser {
-		t.Fatalf("system-global trust = %q, want user", gotTrust["system-global"])
+	if _, ok := gotTrust["system-global"]; ok {
+		t.Fatalf("system-global should not be listed from legacy root: %#v", gotTrust)
 	}
 }
 
@@ -68,8 +68,8 @@ func TestWriteLocalScopeRoutesProjectSystemAndDefaultProject(t *testing.T) {
 		t.Fatalf("project path = %q, want %q", projectPath, wantProjectPath)
 	}
 
-	if _, err := svc.WriteLocal(skillTestContext(projectRoot), "system-skill", "# system", "system"); !errors.Is(err, ErrSkillSystemReviewRequired) {
-		t.Fatalf("WriteLocal(system) error = %v, want ErrSkillSystemReviewRequired", err)
+	if _, err := svc.WriteLocal(skillTestContext(projectRoot), "system-skill", "# system", "system"); !errors.Is(err, ErrSkillSystemScopeRemoved) {
+		t.Fatalf("WriteLocal(system) error = %v, want ErrSkillSystemScopeRemoved", err)
 	}
 
 	defaultOut, err := svc.WriteLocal(skillTestContext(projectRoot), "default-skill", "# default")
@@ -125,13 +125,109 @@ func TestImportLocalDirScopeRoutesDefaultProjectAndSystemGlobal(t *testing.T) {
 		t.Fatalf("ImportLocalDir(system) wrapper error = %v", err)
 	}
 	failures := systemOut.(map[string]any)["failures"].([]map[string]any)
-	if len(failures) != 1 || !strings.Contains(failures[0]["error"].(string), ErrSkillSystemReviewRequired.Error()) {
-		t.Fatalf("system import failures = %#v, want review required", failures)
+	if len(failures) != 1 || !strings.Contains(failures[0]["error"].(string), ErrSkillSystemScopeRemoved.Error()) {
+		t.Fatalf("system import failures = %#v, want system scope removed", failures)
+	}
+}
+
+func TestListSkillsIgnoresLegacySkillsRootAtRuntime(t *testing.T) {
+	oldRoot := t.TempDir()
+	projectRoot := filepath.Join(t.TempDir(), "repo-a")
+	t.Setenv("SKILLS_ROOT", oldRoot)
+	t.Setenv("SUPER_DOLPHIN_HOME", filepath.Join(t.TempDir(), ".super-dolphin"))
+	writeTestSkill(t, oldRoot, "legacy-global", "---\nname: legacy-global\nsummary: legacy\n---\nbody")
+
+	svc := NewService(projectRoot)
+	skills, err := svc.ListSkills(skillTestContext(projectRoot))
+	if err != nil {
+		t.Fatalf("ListSkills() error = %v", err)
+	}
+	for _, item := range skills {
+		if item.Name == "legacy-global" {
+			t.Fatalf("ListSkills() included legacy SKILLS_ROOT skill: %+v", item)
+		}
+	}
+}
+
+func TestDeleteLocalStructuredTargetDoesNotCrossDeleteSameName(t *testing.T) {
+	projectRoot := filepath.Join(t.TempDir(), "repo-a")
+	home := t.TempDir()
+	superDolphinHome := filepath.Join(home, ".super-dolphin")
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("SUPER_DOLPHIN_HOME", superDolphinHome)
+	projectSkillsRoot := defaultProjectSkillsRoot(projectRoot)
+	personalUserRoot := filepath.Join(superDolphinHome, "skills", "personal", personalSkillTypeUser)
+	writeTestSkill(t, projectSkillsRoot, "build", "# project build")
+	writeTestSkill(t, personalUserRoot, "build", "# personal build")
+	svc := &service{
+		projectRoot:       projectRoot,
+		projectSkillsRoot: projectSkillsRoot,
+		superDolphinHome:  superDolphinHome,
+		http:              &http.Client{},
+		auditStore:        &capturingSkillAuditStore{},
+	}
+
+	if _, err := svc.DeleteLocal(skillTestContext(projectRoot), DeleteSkillParams{Name: "build", Scope: skillScopeProject}); err != nil {
+		t.Fatalf("DeleteLocal(project) error = %v", err)
+	}
+	assertMissing(t, filepath.Join(projectSkillsRoot, "build", skillMainFile))
+	assertExists(t, filepath.Join(personalUserRoot, "build", skillMainFile))
+
+	if _, err := svc.DeleteLocal(skillTestContext(projectRoot), DeleteSkillParams{Name: "build", Scope: skillScopePersonal, PersonalType: personalSkillTypeUser}); err != nil {
+		t.Fatalf("DeleteLocal(personal/user) error = %v", err)
+	}
+	assertMissing(t, filepath.Join(personalUserRoot, "build", skillMainFile))
+	assertArchiveContainsSkill(t, superDolphinHome, filepath.Join(skillScopePersonal, personalSkillTypeUser, "build"))
+	for _, tc := range []struct {
+		provider SkillProvider
+		root     string
+	}{
+		{provider: SkillProviderClaude, root: filepath.Join(home, ".claude", "skills")},
+		{provider: SkillProviderCodex, root: filepath.Join(home, ".agents", "skills")},
+	} {
+		manifest, err := readSkillMirrorManifest(filepath.Join(tc.root, skillMirrorManifestFile))
+		if err != nil {
+			t.Fatalf("read %s personal mirror manifest: %v", tc.provider, err)
+		}
+		if manifest.Scope != skillScopePersonal || manifest.Provider != string(tc.provider) {
+			t.Fatalf("%s personal mirror manifest = %+v, want scope=%q provider=%q", tc.provider, manifest, skillScopePersonal, tc.provider)
+		}
+		if len(manifest.Skills) != 0 {
+			t.Fatalf("%s personal mirror manifest skills = %+v, want empty after delete", tc.provider, manifest.Skills)
+		}
+		assertMissing(t, filepath.Join(tc.root, "build", skillMainFile))
 	}
 }
 
 func writeProjectSkillRoot(root string) error {
 	return os.MkdirAll(root, 0o755)
+}
+
+func assertExists(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected %s to exist: %v", path, err)
+	}
+}
+
+func assertMissing(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected %s to be missing, stat err=%v", path, err)
+	}
+}
+
+func assertArchiveContainsSkill(t *testing.T, home, archiveSuffix string) {
+	t.Helper()
+	archiveRoot := filepath.Join(home, "skills", ".archive")
+	matches, err := filepath.Glob(filepath.Join(archiveRoot, "*", archiveSuffix, skillMainFile))
+	if err != nil {
+		t.Fatalf("glob archive: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("archive matches = %v, want one SKILL.md under %s", matches, archiveSuffix)
+	}
 }
 
 func TestSkillSystemScopeWriteRequiresReview(t *testing.T) {
@@ -145,8 +241,8 @@ func TestSkillSystemScopeWriteRequiresReview(t *testing.T) {
 		http:              &http.Client{},
 	}
 	_, err := svc.WriteLocal(skillTestContext(projectRoot), "blocked-system", "# blocked", skillScopeSystem)
-	if !errors.Is(err, ErrSkillSystemReviewRequired) {
-		t.Fatalf("WriteLocal(system) error = %v, want ErrSkillSystemReviewRequired", err)
+	if !errors.Is(err, ErrSkillSystemScopeRemoved) {
+		t.Fatalf("WriteLocal(system) error = %v, want ErrSkillSystemScopeRemoved", err)
 	}
 	if _, statErr := os.Stat(filepath.Join(svc.root, "blocked-system", skillMainFile)); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("system write should not create file, stat err=%v", statErr)

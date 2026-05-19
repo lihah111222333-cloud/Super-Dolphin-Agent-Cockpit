@@ -42,6 +42,25 @@ func TestRealCommander_NonZeroExitCarriesStderr(t *testing.T) {
 	}
 }
 
+func TestRealCommander_NonZeroExitWithModelUnavailableEnvelope(t *testing.T) {
+	skipIfWindows(t)
+	c := NewRealCommander()
+	script := `printf '%s' '{"type":"result","is_error":true,"api_error_status":404,"result":"There'\''s an issue with the selected model (gpt-5.5). It may not exist or you may not have access to it."}'; exit 1`
+	_, err := c.Run(context.Background(), "sh", []string{"-c", script}, "", 4096)
+	if !errors.Is(err, ErrModelUnavailable) {
+		t.Fatalf("expected ErrModelUnavailable, got %v", err)
+	}
+}
+
+func TestRealCommander_NonZeroExitWithModelUnavailableStderr(t *testing.T) {
+	skipIfWindows(t)
+	c := NewRealCommander()
+	_, err := c.Run(context.Background(), "sh", []string{"-c", "echo 'model not found: gpt-5.5' >&2; exit 1"}, "", 4096)
+	if !errors.Is(err, ErrModelUnavailable) {
+		t.Fatalf("expected ErrModelUnavailable, got %v", err)
+	}
+}
+
 func TestRealCommander_ContextCancellationReturnsCtxErr(t *testing.T) {
 	skipIfWindows(t)
 	c := NewRealCommander()

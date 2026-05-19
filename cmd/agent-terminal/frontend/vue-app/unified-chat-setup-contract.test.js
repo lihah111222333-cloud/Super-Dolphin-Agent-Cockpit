@@ -156,10 +156,7 @@ describe('UnifiedChatPage.setup public contract', () => {
       'threadRailStyle', 'showOverview', 'showWorkspace', 'chatComposerShellStyle', 'activityPanelRowStyle',
       'activePinnedPlan', 'activeTask', 'taskHandoffVisible', 'taskHandoffLoading', 'taskHandoffError',
 'taskHandoffPreview', 'taskHandoffUpdatedAt', 'taskHandoffUpdatedBy', 'taskStripExpanded', 'continueTaskBusy',
-      'stats', 'recentThreads', 'cmdCards', 'composerSkillMatches',
-      'composerEffectiveSelectedSkillNames', 'composerSkillPreviewLoading', 'isComposerSkillSelected',
-      'toggleComposerSelectedSkill', 'clearComposerSelectedSkills', 'selectAllComposerSuggestedSkills',
-      'composerSkillMatchClass', 'composerSkillMatchReason', 'dragging', 'threadRailDragging',
+      'stats', 'recentThreads', 'cmdCards', 'dragging', 'threadRailDragging',
       'activityPanelDragging', 'composerBarRef', 'presenceAnchorRef', 'workspaceRef', 'activeActivityStats',
       'activeAlerts', 'activeProcessActivity', 'selectThread', 'launchOne', 'send', 'refreshTaskHandoff', 'continueCurrentTask', 'startNewTaskFromHandoff', 'taskHandoffKickoffError', 'continueCurrentTaskInNewWindow', 'toggleTaskStrip', 'threadConfigUi',
       'updateThreadConfigModel', 'updateThreadConfigEffort', 'saveThreadConfigDraft', 'restoreThreadConfigInherit', 'useClaudeProvider',
@@ -187,24 +184,9 @@ describe('UnifiedChatPage.setup public contract', () => {
   // 回归守护：attachPageNonEnumerableState 是个白名单 helper——两边（defineProperties 与调用方 ctx）
   // 不同步会静默丢字段，导致「@click 按钮点了没反应」之类的难定位 bug（Phase 2 中抱过两次）。
   // 任何新增的非枚举字段都必须在下面列表中，测试会验证它们都被赋了值（不是 undefined）。
-  it('locks the non-enumerable bag of setup return (launch-skill, preview, fork-draft handles)', () => {
+  it('locks the non-enumerable bag of setup return (preview, fork-draft handles)', () => {
     const vm = UnifiedChatPage.setup({ threadStore: makeThreadStore(), projectStore: makeProjectStore(), mode: 'chat' });
     const expectedNonEnumerableKeys = [
-      // launch-skill picker (已有)
-      'launchSkillSelectionEnabled',
-      'launchSkillPickerSkills',
-      'launchProjectSkills',
-      'launchSystemSkills',
-      'launchSkillScopeTabsEnabled',
-      'launchSkillScope',
-      'launchSkillMatches',
-      'launchSelectedSkillNames',
-      'launchSkillSelectionLoading',
-      'toggleLaunchSelectedSkill',
-      'clearLaunchSelectedSkills',
-      'setLaunchSkillScope',
-      'selectAllLaunchSuggestedSkills',
-      'refreshLaunchSkillSelection',
       // preview / status (已有)
       'onTimelineCitationClick',
       'onPreviewDirtyChange',

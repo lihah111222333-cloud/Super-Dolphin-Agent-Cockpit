@@ -18,6 +18,10 @@ var (
 // layers.
 var ErrSkillMissingCWD = errors.New("cwd is required")
 
+// ErrSkillSameNameConflict is returned when two or more canonical skills share
+// the same name and no explicit resolution policy selects a single source.
+var ErrSkillSameNameConflict = errors.New("skill same-name conflict")
+
 // SkillApprovalRequiredError signals that a skill artifact requires user
 // approval before execution. It carries the ApprovalRequest payload so
 // callers can surface the approval UI.

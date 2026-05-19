@@ -14,7 +14,148 @@ func TestListSkillsScopesByRequestCWD(t *testing.T) {
 
 	svc, projectA, projectB := setupScopedSkillService(t)
 	assertScopedSkillList(t, svc, projectA, "scoped", []string{"local-a", "shared"}, "local-b")
-	assertScopedSkillList(t, svc, projectB, "project B", []string{"local-b", "shared"}, "local-a")
+	assertScopedSkillList(t, svc, projectB, "project B", []string{"local-b"}, "local-a")
+}
+
+func TestSubdirWriteLocalProjectUsesGitRootCanonicalAndMirrors(t *testing.T) {
+	setSkillTestUserHome(t)
+	projectRoot, subdir := setupGitProjectSubdir(t)
+	svc := &service{
+		projectRoot:       projectRoot,
+		projectSkillsRoot: defaultProjectSkillsRoot(projectRoot),
+		superDolphinHome:  newTestSuperDolphinHome(t),
+		http:              &http.Client{},
+	}
+
+	out, err := svc.WriteLocal(skillTestContext(subdir), "build", "---\nname: build\n---\nbody", skillScopeProject)
+	if err != nil {
+		t.Fatalf("WriteLocal(subdir cwd): %v", err)
+	}
+
+	result := out.(map[string]any)
+	if got, want := result["path"], filepath.Join(projectRoot, ".agent", "skills", "build", skillMainFile); got != want {
+		t.Fatalf("WriteLocal path = %v, want %s", got, want)
+	}
+	assertFileContent(t, filepath.Join(projectRoot, ".agent", "skills", "build", skillMainFile), "---\nname: build\n---\nbody")
+	assertMissing(t, filepath.Join(subdir, ".agent", "skills", "build", skillMainFile))
+
+	report := mustMirrorPublishReport(t, result)
+	assertPublishedReportItem(t, report.Published, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "build", "project/build")
+	assertPublishedReportItem(t, report.Published, "codex:project:"+RepoFingerprint(projectRoot), SkillProviderCodex, skillScopeProject, "build", "project/build")
+	assertFileContent(t, filepath.Join(projectRoot, ".claude", "skills", "build", skillMainFile), "---\nname: build\n---\nbody")
+	assertFileContent(t, filepath.Join(projectRoot, ".agents", "skills", "build", skillMainFile), "---\nname: build\n---\nbody")
+	assertMissing(t, filepath.Join(subdir, ".claude", "skills", "build", skillMainFile))
+	assertMissing(t, filepath.Join(subdir, ".agents", "skills", "build", skillMainFile))
+}
+
+func TestSubdirListSkillsScansGitRootProjectSkills(t *testing.T) {
+	t.Parallel()
+
+	projectRoot, subdir := setupGitProjectSubdir(t)
+	writeTestSkill(t, defaultProjectSkillsRoot(projectRoot), "root-only", "---\nname: root-only\n---\nroot")
+	writeTestSkill(t, defaultProjectSkillsRoot(subdir), "subdir-leak", "---\nname: subdir-leak\n---\nsubdir")
+	svc := &service{
+		projectRoot:       projectRoot,
+		projectSkillsRoot: defaultProjectSkillsRoot(projectRoot),
+		superDolphinHome:  newTestSuperDolphinHome(t),
+		http:              &http.Client{},
+	}
+
+	skills, err := svc.ListSkills(skillTestContext(subdir))
+	if err != nil {
+		t.Fatalf("ListSkills(subdir cwd): %v", err)
+	}
+
+	names, _ := skillNamesAndSummaries(skills)
+	assertSkillNames(t, "subdir cwd", names, []string{"root-only"}, "subdir-leak")
+}
+
+func TestSubdirResolutionUsesGitRootMirrorTargets(t *testing.T) {
+	setSkillTestUserHome(t)
+	projectRoot, subdir := setupGitProjectSubdir(t)
+	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
+	svc := &service{
+		projectRoot:       projectRoot,
+		projectSkillsRoot: defaultProjectSkillsRoot(projectRoot),
+		superDolphinHome:  superHome,
+		http:              &http.Client{},
+	}
+	writeSkillWithSupportFiles(t, filepath.Join(projectRoot, ".agent", "skills", "drift"), "drift")
+	records, err := newCanonicalStore(superHome).scan(projectRoot)
+	if err != nil {
+		t.Fatalf("scan canonical records: %v", err)
+	}
+	target := SkillMirrorTarget{
+		TargetID:        "codex:project:" + RepoFingerprint(projectRoot),
+		Provider:        SkillProviderCodex,
+		Scope:           skillScopeProject,
+		Root:            providerProjectMirrorRoot(SkillProviderCodex, projectRoot),
+		CanonicalRootID: RepoFingerprint(projectRoot),
+	}
+	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target}); err != nil {
+		t.Fatalf("PublishSkillMirrors: %v", err)
+	}
+	writeFileWithMode(t, filepath.Join(target.Root, "drift", "references", "guide.md"), "provider drift\n", 0o644)
+
+	got, err := svc.listSkillResolutions(subdir)
+	if err != nil {
+		t.Fatalf("listSkillResolutions(subdir cwd): %v", err)
+	}
+
+	item := findResolutionItem(t, got.Items, "mirror_drift", "drift", skillScopeProject)
+	if len(item.ProviderEntries) != 1 {
+		t.Fatalf("provider entries = %+v, want one", item.ProviderEntries)
+	}
+	if !sameCleanPath(filepath.FromSlash(item.ProviderEntries[0].SourcePath), filepath.Join(projectRoot, ".agents", "skills", "drift")) {
+		t.Fatalf("source_path = %q, want git-root codex mirror", item.ProviderEntries[0].SourcePath)
+	}
+	if sameCleanPath(filepath.FromSlash(item.ProviderEntries[0].SourcePath), filepath.Join(subdir, ".agents", "skills", "drift")) {
+		t.Fatalf("source_path = %q, must not use subdir codex mirror", item.ProviderEntries[0].SourcePath)
+	}
+}
+
+func TestSubdirProjectRootIsolationKeepsDifferentGitRootsSeparate(t *testing.T) {
+	t.Parallel()
+
+	projectA, _ := setupGitProjectSubdir(t)
+	projectB, subdirB := setupGitProjectSubdir(t)
+	writeTestSkill(t, defaultProjectSkillsRoot(projectA), "a-only", "---\nname: a-only\n---\na")
+	writeTestSkill(t, defaultProjectSkillsRoot(projectB), "b-only", "---\nname: b-only\n---\nb")
+	svc := &service{
+		projectRoot:       projectA,
+		projectSkillsRoot: defaultProjectSkillsRoot(projectA),
+		superDolphinHome:  newTestSuperDolphinHome(t),
+		http:              &http.Client{},
+	}
+
+	skills, err := svc.ListSkills(skillTestContext(subdirB))
+	if err != nil {
+		t.Fatalf("ListSkills(project B subdir): %v", err)
+	}
+
+	names, _ := skillNamesAndSummaries(skills)
+	assertSkillNames(t, "project B subdir", names, []string{"b-only"}, "a-only")
+}
+
+func setupGitProjectSubdir(t *testing.T) (string, string) {
+	t.Helper()
+	projectRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	subdir := filepath.Join(projectRoot, "pkg", "worker")
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatalf("mkdir subdir: %v", err)
+	}
+	canonicalProjectRoot, err := canonicalProjectPath(projectRoot)
+	if err != nil {
+		t.Fatalf("canonical project root: %v", err)
+	}
+	canonicalSubdir, err := canonicalProjectPath(subdir)
+	if err != nil {
+		t.Fatalf("canonical subdir: %v", err)
+	}
+	return canonicalProjectRoot, canonicalSubdir
 }
 
 func setupScopedSkillService(t *testing.T) (*service, string, string) {
@@ -48,11 +189,12 @@ func assertScopedSkillList(t *testing.T, svc *service, cwd, label string, wantNa
 		t.Fatalf("ListSkills %s: %v", label, err)
 	}
 	names, summaries := skillNamesAndSummaries(skills)
-	if len(skills) != 2 {
-		t.Fatalf("len(%s skills) = %d, want 2 (%v)", label, len(skills), names)
+	if len(skills) != len(wantNames) {
+		t.Fatalf("len(%s skills) = %d, want %d (%v)", label, len(skills), len(wantNames), names)
 	}
 	assertSkillNames(t, label, names, wantNames, leakedName)
-	if got := summaries["shared"]; got != "global" {
+	if containsString(wantNames, "shared") && summaries["shared"] != "global" {
+		got := summaries["shared"]
 		t.Fatalf("%s shared summary = %q, want global", label, got)
 	}
 }
@@ -98,8 +240,7 @@ func TestListSkillsEmptyCWDReturnsErrMissingCWD(t *testing.T) {
 func TestAllSkillServiceMethodsRequireCWD(t *testing.T) {
 	t.Parallel()
 
-	svc, root := newExpandTestService(t)
-	writeExpandTestSkill(t, root, "demo", "---\nname: demo\n---\nbody")
+	svc := &service{root: t.TempDir(), http: &http.Client{}}
 
 	cases := []struct {
 		name string
@@ -109,13 +250,6 @@ func TestAllSkillServiceMethodsRequireCWD(t *testing.T) {
 			name: "ListSkills",
 			call: func() error {
 				_, err := svc.ListSkills(context.Background())
-				return err
-			},
-		},
-		{
-			name: "Expand",
-			call: func() error {
-				_, err := svc.Expand(context.Background(), skillExpandParams{Name: "demo"})
 				return err
 			},
 		},
@@ -131,8 +265,8 @@ func TestAllSkillServiceMethodsRequireCWD(t *testing.T) {
 
 func writeScopedSystemSkill(t *testing.T, systemRoot, cwd, name, content string) string {
 	t.Helper()
-	_ = cwd
-	dir := filepath.Join(systemRoot, name)
+	_ = systemRoot
+	dir := filepath.Join(defaultProjectSkillsRoot(cwd), name)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir system skill: %v", err)
 	}

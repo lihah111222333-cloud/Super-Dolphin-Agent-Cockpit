@@ -15,6 +15,7 @@ type turnStartParams struct {
 	Input    []turnInputItemParams `json:"input,omitempty"`
 
 	SelectedSkills               []string             `json:"selected_skills,omitempty"`
+	SelectedSkillRefs            []skillRefParams     `json:"selected_skill_refs,omitempty"`
 	ManualSkillSelection         bool                 `json:"manual_skill_selection,omitempty"`
 	CWD                          string               `json:"cwd,omitempty"`
 	ApprovalPolicy               string               `json:"approval_policy,omitempty"`
@@ -33,25 +34,30 @@ type turnStartParams struct {
 
 func (p *turnStartParams) UnmarshalJSON(data []byte) error {
 	var legacy struct {
-		ThreadID             string          `json:"threadId"`
-		SelectedSkills       []string        `json:"selectedSkills"`
-		ManualSkillSelection *bool           `json:"manualSkillSelection"`
-		ApprovalPolicy       string          `json:"approvalPolicy"`
-		OutputSchema         json.RawMessage `json:"outputSchema"`
+		ThreadID             string           `json:"threadId"`
+		SelectedSkills       []string         `json:"selectedSkills"`
+		SelectedSkillRefs    []skillRefParams `json:"selectedSkillRefs"`
+		ManualSkillSelection *bool            `json:"manualSkillSelection"`
+		ApprovalPolicy       string           `json:"approvalPolicy"`
+		OutputSchema         json.RawMessage  `json:"outputSchema"`
 	}
 	type raw turnStartParams
 	return decodeLegacyTurnParams(data, (*raw)(p), &legacy, func(current *raw, legacy *struct {
-		ThreadID             string          `json:"threadId"`
-		SelectedSkills       []string        `json:"selectedSkills"`
-		ManualSkillSelection *bool           `json:"manualSkillSelection"`
-		ApprovalPolicy       string          `json:"approvalPolicy"`
-		OutputSchema         json.RawMessage `json:"outputSchema"`
+		ThreadID             string           `json:"threadId"`
+		SelectedSkills       []string         `json:"selectedSkills"`
+		SelectedSkillRefs    []skillRefParams `json:"selectedSkillRefs"`
+		ManualSkillSelection *bool            `json:"manualSkillSelection"`
+		ApprovalPolicy       string           `json:"approvalPolicy"`
+		OutputSchema         json.RawMessage  `json:"outputSchema"`
 	}) error {
 		if strings.TrimSpace(current.ThreadID) == "" {
 			current.ThreadID = strings.TrimSpace(legacy.ThreadID)
 		}
 		if len(current.SelectedSkills) == 0 && len(legacy.SelectedSkills) > 0 {
 			current.SelectedSkills = append([]string(nil), legacy.SelectedSkills...)
+		}
+		if len(current.SelectedSkillRefs) == 0 && len(legacy.SelectedSkillRefs) > 0 {
+			current.SelectedSkillRefs = append([]skillRefParams(nil), legacy.SelectedSkillRefs...)
 		}
 		if !current.ManualSkillSelection && legacy.ManualSkillSelection != nil {
 			current.ManualSkillSelection = *legacy.ManualSkillSelection
@@ -75,12 +81,22 @@ type turnInputItemParams struct {
 	Content string `json:"content,omitempty"`
 }
 
+type skillRefParams struct {
+	Key          string `json:"key,omitempty"`
+	Name         string `json:"name"`
+	Scope        string `json:"scope,omitempty"`
+	PersonalType string `json:"personalType,omitempty"`
+	Path         string `json:"path,omitempty"`
+	Source       string `json:"source,omitempty"`
+}
+
 type turnSteerParams struct {
 	ThreadID                     string                `json:"thread_id"`
 	ExpectedTurnID               string                `json:"expected_turn_id,omitempty"`
 	Prompt                       string                `json:"prompt,omitempty"`
 	Input                        []turnInputItemParams `json:"input,omitempty"`
 	SelectedSkills               []string              `json:"selected_skills,omitempty"`
+	SelectedSkillRefs            []skillRefParams      `json:"selected_skill_refs,omitempty"`
 	ManualSkillSelection         bool                  `json:"manual_skill_selection,omitempty"`
 	Provider                     string                `json:"provider,omitempty"`
 	CWD                          string                `json:"cwd,omitempty"`
@@ -96,17 +112,19 @@ type turnSteerParams struct {
 
 func (p *turnSteerParams) UnmarshalJSON(data []byte) error {
 	var legacy struct {
-		ThreadID             string   `json:"threadId"`
-		ExpectedTurnID       string   `json:"expectedTurnId"`
-		SelectedSkills       []string `json:"selectedSkills"`
-		ManualSkillSelection *bool    `json:"manualSkillSelection"`
+		ThreadID             string           `json:"threadId"`
+		ExpectedTurnID       string           `json:"expectedTurnId"`
+		SelectedSkills       []string         `json:"selectedSkills"`
+		SelectedSkillRefs    []skillRefParams `json:"selectedSkillRefs"`
+		ManualSkillSelection *bool            `json:"manualSkillSelection"`
 	}
 	type raw turnSteerParams
 	return decodeLegacyTurnParams(data, (*raw)(p), &legacy, func(current *raw, legacy *struct {
-		ThreadID             string   `json:"threadId"`
-		ExpectedTurnID       string   `json:"expectedTurnId"`
-		SelectedSkills       []string `json:"selectedSkills"`
-		ManualSkillSelection *bool    `json:"manualSkillSelection"`
+		ThreadID             string           `json:"threadId"`
+		ExpectedTurnID       string           `json:"expectedTurnId"`
+		SelectedSkills       []string         `json:"selectedSkills"`
+		SelectedSkillRefs    []skillRefParams `json:"selectedSkillRefs"`
+		ManualSkillSelection *bool            `json:"manualSkillSelection"`
 	}) error {
 		if strings.TrimSpace(current.ThreadID) == "" {
 			current.ThreadID = strings.TrimSpace(legacy.ThreadID)
@@ -116,6 +134,9 @@ func (p *turnSteerParams) UnmarshalJSON(data []byte) error {
 		}
 		if len(current.SelectedSkills) == 0 && len(legacy.SelectedSkills) > 0 {
 			current.SelectedSkills = append([]string(nil), legacy.SelectedSkills...)
+		}
+		if len(current.SelectedSkillRefs) == 0 && len(legacy.SelectedSkillRefs) > 0 {
+			current.SelectedSkillRefs = append([]skillRefParams(nil), legacy.SelectedSkillRefs...)
 		}
 		if !current.ManualSkillSelection && legacy.ManualSkillSelection != nil {
 			current.ManualSkillSelection = *legacy.ManualSkillSelection

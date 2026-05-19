@@ -88,14 +88,13 @@ describe('UnifiedChatPage citation actions', () => {
     expect(vm.selectedThreadId.value).toBe('thread-archived');
   });
 
-  it('toggles composer skill selection from skill citations', () => {
+  it('does not revive composer skill selection from skill citations', () => {
     const { threadStore } = makeThreadStore();
     const vm = UnifiedChatPage.setup({ threadStore, projectStore: makeProjectStore(), mode: 'chat' });
 
+    expect(vm).not.toHaveProperty('isComposerSkillSelected');
     vm.onTimelineCitationClick({ kind: 'skill', skillName: 'DeploySkill', path: 'docs/skills/deploy/SKILL.md', raw: 'DeploySkill' });
-    expect(vm.isComposerSkillSelected('DeploySkill')).toBe(true);
-
     vm.onTimelineCitationClick({ kind: 'skill', skillName: 'DeploySkill', path: '', raw: 'DeploySkill' });
-    expect(vm.isComposerSkillSelected('DeploySkill')).toBe(false);
+    expect(composerStoreMock.state.text).toBe('');
   });
 });

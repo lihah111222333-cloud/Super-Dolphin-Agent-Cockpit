@@ -11,33 +11,23 @@ import (
 )
 
 // driverFactoryParams collects the fx dependencies for NewDriverFactory.
-// SkillLibConfig and FBSDRecorder are optional so test fixtures that do not
-// provide them still compile and wire correctly.
 type driverFactoryParams struct {
 	fx.In
 
-	Logger               *slog.Logger
-	Dispatcher           *unified.EventDispatcher
-	Reporter             contract.RuntimeReporter
-	Reg                  *pidregistry.Registry
-	ProxyAddrFn          func() string
-	SkillLibConfig       contract.SkillLibraryConfig      `optional:"true"`
-	FBSDRecorder         contract.FBSDRecorder            `optional:"true"`
-	SetupWorkspaceSkills contract.WorkspaceSkillSetupFunc `optional:"true"`
-	Recovery             contract.SessionRecoveryReporter `optional:"true"`
+	Logger      *slog.Logger
+	Dispatcher  *unified.EventDispatcher
+	Reporter    contract.RuntimeReporter
+	Reg         *pidregistry.Registry
+	ProxyAddrFn func() string
+	Mirror      contract.SkillMirrorReconciler
+	Recovery    contract.SessionRecoveryReporter `optional:"true"`
 }
 
 func NewDriverFactory(p driverFactoryParams) contract.DriverFactory {
-	// P6: install FBSD recorder hook so Claude tool_use parser can打点
-	// when the model issues Read(.claude/skills/<n>/references/...) calls.
-	// nil tracker / disabled tracker keeps the hook nil-safe.
-	if p.FBSDRecorder != nil {
-		SetFBSDRecorder(p.FBSDRecorder.Record)
-	}
 	return contract.DriverFactory{
 		Name: "claude",
 		Create: func() contract.Driver {
-			return newDriver(p.Logger, p.Dispatcher, p.Reporter, p.Reg, p.ProxyAddrFn, p.SkillLibConfig.CacheDir, contract.WorkspaceSkillSetupFunc(p.SetupWorkspaceSkills), p.Recovery)
+			return newDriver(p.Logger, p.Dispatcher, p.Reporter, p.Reg, p.ProxyAddrFn, p.Mirror, p.Recovery)
 		},
 		NativeTools: []contract.NativeToolDescriptor{
 			{ID: "Read", Label: "直接读项目文件", Description: "绕过项目文件工具直接读取工作区文件。", DefaultDisabled: true, Provider: "claude", FilterMode: contract.NativeToolFilterModeHard},
@@ -73,7 +63,7 @@ func NewDriverFactory(p driverFactoryParams) contract.DriverFactory {
 			{ID: "SendUserFile", Label: "发送文件给用户", Description: "绕过项目消息流直接发送文件给用户。", DefaultDisabled: true, Provider: "claude", FilterMode: contract.NativeToolFilterModeHard},
 			{ID: "SendUserMessage", Label: "发送消息给用户", Description: "绕过项目消息流直接发送消息给用户。", DefaultDisabled: true, Provider: "claude", FilterMode: contract.NativeToolFilterModeHard},
 			{ID: "SendMessage", Label: "发送远程消息", Description: "绕过项目消息流直接发送团队或远程控制消息。", DefaultDisabled: true, Provider: "claude", FilterMode: contract.NativeToolFilterModeHard},
-			{ID: "Skill", Label: "自行调用技能", Description: "绕过项目技能选择和审批直接调用 Claude 技能。", DefaultDisabled: true, Provider: "claude", FilterMode: contract.NativeToolFilterModeHard},
+			{ID: "Skill", Label: "调用技能", Description: "允许 Claude 使用 provider-native 技能发现与调用。", DefaultDisabled: false, Provider: "claude", FilterMode: contract.NativeToolFilterModeHard},
 			{ID: "Task", Label: "启动后台任务", Description: "让 Claude 自己启动后台任务；本项目已有任务编排。", DefaultDisabled: true, Provider: "claude", FilterMode: contract.NativeToolFilterModeHard},
 			{ID: "TaskCreate", Label: "创建后台任务", Description: "绕过项目任务编排直接创建后台任务。", DefaultDisabled: true, Provider: "claude", FilterMode: contract.NativeToolFilterModeHard},
 			{ID: "TaskGet", Label: "读取后台任务", Description: "绕过项目任务视图直接读取后台任务。", DefaultDisabled: true, Provider: "claude", FilterMode: contract.NativeToolFilterModeHard},

@@ -174,23 +174,6 @@ export const template = `
             <div class="workspace-bottom-row" :class="{ 'is-cmd': isCmd }" :style="activityPanelRowStyle">
               <div class="chat-composer-shell" :class="{ 'for-chat': !isCmd }" :style="chatComposerShellStyle">
                 <div v-if="!isCmd" ref="presenceAnchorRef" class="chat-status-presence-anchor"></div>
-                <LaunchSkillPicker
-                  v-if="launchSkillSelectionEnabled && !selectedThreadId"
-                  :enabled="launchSkillSelectionEnabled"
-                  :skills="launchSkillPickerSkills"
-                  :project-skills="launchProjectSkills"
-                  :system-skills="launchSystemSkills"
-                  :scope="launchSkillScope"
-                  :scope-tabs-enabled="launchSkillScopeTabsEnabled"
-                  :matches="launchSkillMatches"
-                  :selected-skill-names="launchSelectedSkillNames"
-                  :loading="launchSkillSelectionLoading"
-                  @toggle-skill="toggleLaunchSelectedSkill"
-                  @update:scope="setLaunchSkillScope"
-                  @select-all="selectAllLaunchSuggestedSkills"
-                  @clear="clearLaunchSelectedSkills"
-                  @refresh="refreshLaunchSkillSelection"
-                />
                 <ContextUsageBanner
                   v-if="!isCmd && selectedThreadId"
                   :level="activeTokenLevel"
@@ -240,7 +223,6 @@ export const template = `
                   :is-cmd="isCmd"
                   :composer="composer"
                   :thread-id="selectedThreadId"
-                  :launch-skill-selection-enabled="launchSkillSelectionEnabled"
                   :interruptible="canInterrupt"
                   :compacting="compacting"
                   :can-compact="canCompact"
@@ -251,9 +233,6 @@ export const template = `
                   :token-tooltip="activeTokenTooltip"
                   :token-level="activeTokenLevel"
                   :disabled="false"
-                  :skill-matches="composerSkillMatches"
-                  :skill-matches-loading="composerSkillPreviewLoading"
-                  :selected-skill-names="composerEffectiveSelectedSkillNames"
                   :thread-config-provider="threadConfigUi.meta.provider"
                   :thread-config-supports-override="threadConfigUi.meta.supportsThreadOverride"
                   :thread-config-draft-model="threadConfigUi.draft.model"
@@ -272,9 +251,6 @@ export const template = `
                   @update-thread-config-effort="updateThreadConfigEffort"
                   @save-thread-config="saveThreadConfigDraft"
                   @restore-thread-config-inherit="restoreThreadConfigInherit"
-                  @toggle-skill="toggleComposerSelectedSkill"
-                  @select-all-skills="selectAllComposerSuggestedSkills"
-                  @clear-skills="clearComposerSelectedSkills"
                   @send="send"
                   @interrupt="interruptCurrent"
                   @compact="compactCurrent"

@@ -39,7 +39,6 @@ export function handleTimelineCitationClick({
   fileRefPreview,
   threads = [],
   selectThread,
-  toggleComposerSelectedSkill,
   composer,
   scheduleScrollToBottom,
   logInfo,
@@ -56,10 +55,8 @@ export function handleTimelineCitationClick({
     return;
   }
   if (kind === 'skill') {
-    const skillName = (payload?.skillName || payload?.raw || '').toString().trim().replace(/^\$/, '');
     const skillPath = (payload?.path || '').toString().trim();
     if (skillPath) fileRefPreview?.onTimelineFileRefClick?.({ path: skillPath, line: 1, column: 0, raw: payload?.raw || '' });
-    if (skillName) toggleComposerSelectedSkill?.(skillName);
     return;
   }
   const path = kind === 'code-comment' ? (payload?.path || '').toString().trim() : '';

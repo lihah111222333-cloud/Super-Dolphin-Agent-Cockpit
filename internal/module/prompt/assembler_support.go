@@ -197,24 +197,14 @@ func snapshotHash(parts ...string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// aggregateSuppressedTools 合并需要 prompt 软过滤的原生工具：
-//  1. contract.SkillReplacementAggregator 中技能声明的 ReplacesNative（自动）
-//  2. uipreference.Store 中用户手动勾选且 provider 无硬过滤能力的工具
-//
-// 两者 union 去重后返回；已由 provider 启动参数硬过滤的工具不再重复注入。
-
-func (s *service) aggregateSuppressedTools(ctx context.Context, cwd string) []string {
+// aggregateSuppressedTools returns prompt soft filters only from user-selected
+// disabled tools. Provider-native skills no longer suppress native tools through
+// prompt assembly metadata.
+func (s *service) aggregateSuppressedTools(ctx context.Context, cwd, provider string) []string {
 	seen := make(map[string]struct{})
-	// 来源 1：技能声明
-	if s.skillStore != nil {
-		for _, name := range s.skillStore.ReplacedNativeTools("codex") {
-			seen[name] = struct{}{}
-		}
-	}
-
-	// 来源 2：用户手动勾选（通过注入的函数，避免 prompt↔uistate 的导入循环）
+	provider = strings.TrimSpace(provider)
 	if s.disabledToolsFn != nil {
-		for _, name := range s.disabledToolsFn(ctx, cwd) {
+		for _, name := range s.disabledToolsFn(ctx, cwd, provider) {
 			seen[name] = struct{}{}
 		}
 	}

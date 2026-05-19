@@ -17,13 +17,15 @@ func TestStartSessionManifestIncludesAdditionalWorkspaceRoots(t *testing.T) {
 		return next.tr, nil, nil
 	})
 
-	d := &driver{}
+	workDir := t.TempDir()
+	extraDir := t.TempDir()
+	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{}, nil).(*driver)
 	sess, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		Provider: "claude",
 		AgentID:  "agent-1",
-		CWD:      "/repo",
+		CWD:      workDir,
 		Config: map[string]any{
-			"additionalWorkingDirectories": []string{"/repo/extra"},
+			"additionalWorkingDirectories": []string{extraDir},
 		},
 		StartAssembly: contract.StartAssembly{BaseInstructions: "base"},
 	})
@@ -39,7 +41,7 @@ func TestStartSessionManifestIncludesAdditionalWorkspaceRoots(t *testing.T) {
 		defer next.finish()
 	}
 
-	assertManifestLSPRoots(t, launched, []string{"/repo", "/repo/extra"})
+	assertManifestLSPRoots(t, launched, []string{workDir, extraDir})
 }
 
 func TestResumeSessionManifestIncludesAdditionalWorkspaceRoots(t *testing.T) {
@@ -50,15 +52,17 @@ func TestResumeSessionManifestIncludesAdditionalWorkspaceRoots(t *testing.T) {
 		return next.tr, nil, nil
 	})
 
-	d := &driver{}
+	workDir := t.TempDir()
+	extraDir := t.TempDir()
+	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{}, nil).(*driver)
 	sess, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
 		Provider:         "claude",
 		AgentID:          "agent-1",
 		ThreadID:         "thread-1",
 		ProviderThreadID: "provider-thread-1",
-		CWD:              "/repo",
+		CWD:              workDir,
 		Config: map[string]any{
-			"additionalWorkingDirectories": []string{"/repo/extra"},
+			"additionalWorkingDirectories": []string{extraDir},
 			"autoApprove":                  []string{"lsp_workspace_info"},
 			"binary_dir":                   "/tmp/super-agent-bin",
 			"env":                          map[string]any{"CUSTOM_ENV": "value"},
@@ -76,7 +80,7 @@ func TestResumeSessionManifestIncludesAdditionalWorkspaceRoots(t *testing.T) {
 		defer next.finish()
 	}
 
-	assertManifestLSPRoots(t, launched, []string{"/repo", "/repo/extra"})
+	assertManifestLSPRoots(t, launched, []string{workDir, extraDir})
 	lsp := requireManifestBinary(t, launched, "lsp")
 	if len(lsp.Command) == 0 || lsp.Command[0] != "/tmp/super-agent-bin/mcp-lsp" {
 		t.Fatalf("lsp command = %#v, want binary_dir override", lsp.Command)
