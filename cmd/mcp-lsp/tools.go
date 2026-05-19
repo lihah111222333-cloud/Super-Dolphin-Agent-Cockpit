@@ -35,6 +35,7 @@ var lspToolManifests = []ToolManifest{
 	toolManifestWithSchema("edit", "Edit: rename, replace_range (single-hunk patch), code_action, format. Before editing, use grep to locate and inspect or xref to verify context.", lspEditSchema),
 	toolManifestWithSchema("completion", "Request code completions via LSP. Use to discover available APIs and method signatures.", lspCompletionSchema),
 	toolManifestWithSchema("code_run", "Execute code snippet or project shell command. mode=project_cmd for shell. For code search prefer grep; for file reading prefer file.", codeRunSchema),
+	toolManifestWithSchema("code_run_test", "Run a Go test function inside the trusted workspace roots. Defaults test_pkg to ./... and executes go test -run without shell expansion.", codeRunTestSchema),
 }
 
 var legacyToolAliases = map[string]string{
@@ -64,15 +65,20 @@ func newToolHandlers(m *Manager) (ToolHandlers, error) {
 	if err != nil {
 		return nil, fmt.Errorf("code_run handler: %w", err)
 	}
+	codeRunTestH, err := tools.NewCodeRunTestHandler(m.root)
+	if err != nil {
+		return nil, fmt.Errorf("code_run_test handler: %w", err)
+	}
 	return ToolHandlers{
-		"file":       ToolHandler(tools.NewFileHandler(cfg)),
-		"inspect":    ToolHandler(tools.NewInspectHandler(m.registry)),
-		"xref":       ToolHandler(tools.NewXRefHandler(m.registry)),
-		"grep":       ToolHandler(tools.NewGrepHandler(cfg)),
-		"structure":  ToolHandler(tools.NewStructureHandler(m.registry)),
-		"edit":       ToolHandler(tools.NewEditHandlerWithRoot(m.root, m.registry)),
-		"completion": ToolHandler(tools.NewCompletionHandler(m.registry)),
-		"code_run":   ToolHandler(codeRunH),
+		"file":          ToolHandler(tools.NewFileHandler(cfg)),
+		"inspect":       ToolHandler(tools.NewInspectHandler(m.registry)),
+		"xref":          ToolHandler(tools.NewXRefHandler(m.registry)),
+		"grep":          ToolHandler(tools.NewGrepHandler(cfg)),
+		"structure":     ToolHandler(tools.NewStructureHandler(m.registry)),
+		"edit":          ToolHandler(tools.NewEditHandlerWithRoot(m.root, m.registry)),
+		"completion":    ToolHandler(tools.NewCompletionHandler(m.registry)),
+		"code_run":      ToolHandler(codeRunH),
+		"code_run_test": ToolHandler(codeRunTestH),
 	}, nil
 }
 
