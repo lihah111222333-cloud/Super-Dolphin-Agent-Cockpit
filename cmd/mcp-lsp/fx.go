@@ -156,7 +156,32 @@ func (p registryToolProvider) ListTools(context.Context) ([]mcp.MCPTool, error) 
 }
 
 func (p registryToolProvider) CallTool(ctx context.Context, name string, args json.RawMessage) (any, error) {
+	var err error
+	ctx, err = withRuntimeWorkspaceScopeFallback(ctx)
+	if err != nil {
+		return nil, err
+	}
 	return handleToolCall(ctx, p.defs, name, args)
+}
+
+func withRuntimeWorkspaceScopeFallback(ctx context.Context) (context.Context, error) {
+	scope, ok := common.ToolScopeFromContext(ctx)
+	if ok && len(scope.WorkspaceRoots) > 0 {
+		return ctx, nil
+	}
+	roots, err := runtimeWorkspaceRoots()
+	if err != nil {
+		return ctx, err
+	}
+	if len(roots) == 0 {
+		return ctx, nil
+	}
+	scope.CWD = roots[0]
+	scope.WorkspaceRoots = append([]string(nil), roots...)
+	if strings.TrimSpace(scope.Family) == "" {
+		scope.Family = mcp.ClientKindLSP
+	}
+	return common.WithToolScope(ctx, scope), nil
 }
 
 func shouldWarnLSPCWDTrace(toolName string) bool {

@@ -6,6 +6,7 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -82,7 +83,10 @@ func TestToolBridge_StartSession_PreparesScopedCodexSurface(t *testing.T) {
 	sessionAny, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-1",
 		CWD:     "/repo",
-		Config:  map[string]any{"binary_dir": "/tmp/super-agent-bin"},
+		Config: map[string]any{
+			"binary_dir":                   "/tmp/super-agent-bin",
+			"additionalWorkingDirectories": []string{"/repo/extra"},
+		},
 	})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
@@ -114,6 +118,19 @@ func assertStartSurfaceScope(t *testing.T, gotScope, gotBindScope contract.Codex
 		gotBindScope.CWD != "/repo" {
 		t.Fatalf("surface bind scope = %#v, want same surface id plus agent/provider thread/cwd", gotBindScope)
 	}
+	wantRoots := []string{"/repo", "/repo/extra"}
+	if !maps.Equal(sliceSet(gotScope.WorkspaceRoots), sliceSet(wantRoots)) ||
+		!maps.Equal(sliceSet(gotBindScope.WorkspaceRoots), sliceSet(wantRoots)) {
+		t.Fatalf("surface roots = prepare %#v bind %#v, want %#v", gotScope.WorkspaceRoots, gotBindScope.WorkspaceRoots, wantRoots)
+	}
+}
+
+func sliceSet(values []string) map[string]bool {
+	out := make(map[string]bool, len(values))
+	for _, value := range values {
+		out[value] = true
+	}
+	return out
 }
 
 func TestToolBridge_StartSession_InjectsMemoryReadDynamicTool(t *testing.T) {
@@ -209,6 +226,9 @@ func TestResumeSession_RebuildsCodexToolSurfaceWithoutDynamicTools(t *testing.T)
 		ThreadID:         "local-thread-1",
 		ProviderThreadID: "provider-thread-1",
 		CWD:              "/repo",
+		Config: map[string]any{
+			"additionalWorkingDirectories": []any{"/repo/extra"},
+		},
 	})
 	if err != nil {
 		t.Fatalf("ResumeSession() error = %v", err)
@@ -218,6 +238,20 @@ func TestResumeSession_RebuildsCodexToolSurfaceWithoutDynamicTools(t *testing.T)
 
 	if gotScope.AgentID != "agent-1" || gotScope.ProviderThreadID != "provider-thread-1" || gotScope.CWD != "/repo" {
 		t.Fatalf("surface scope = %#v, want resumed agent/provider thread/cwd", gotScope)
+	}
+	wantRoots := []string{"/repo", "/repo/extra"}
+	if !maps.Equal(sliceSet(gotScope.WorkspaceRoots), sliceSet(wantRoots)) {
+		t.Fatalf("surface roots = %#v, want %#v", gotScope.WorkspaceRoots, wantRoots)
+	}
+	var roots []string
+	if err := json.Unmarshal([]byte(gotScope.Manifest.Binaries[0].Env["GO_AGENT_LSP_ROOTS"]), &roots); err != nil {
+		t.Fatalf("decode GO_AGENT_LSP_ROOTS: %v", err)
+	}
+	if !maps.Equal(sliceSet(roots), sliceSet(wantRoots)) {
+		t.Fatalf("GO_AGENT_LSP_ROOTS = %#v, want %#v", roots, wantRoots)
+	}
+	if got := s.RuntimeConfigSnapshot()["additionalWorkingDirectories"]; !reflect.DeepEqual(got, []any{"/repo/extra"}) {
+		t.Fatalf("runtime additionalWorkingDirectories = %#v, want /repo/extra", got)
 	}
 	_, resumeHadDynamicTools := state.snapshot()
 	if resumeHadDynamicTools {

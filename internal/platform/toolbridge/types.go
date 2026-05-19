@@ -1,9 +1,11 @@
 package toolbridge
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -24,15 +26,93 @@ var (
 )
 
 type ToolCallRequest struct {
-	Name       string          `json:"name"`
-	Arguments  json.RawMessage `json:"arguments"`
-	AgentID    string          `json:"agentId,omitempty"`
-	ThreadID   string          `json:"threadId,omitempty"`
-	TurnID     string          `json:"turnId,omitempty"`
-	CallID     string          `json:"callId,omitempty"`
-	CWD        string          `json:"_cwd,omitempty"`
-	ClientKind string          `json:"clientKind,omitempty"`
-	Scoped     bool            `json:"-"`
+	Name           string          `json:"name"`
+	Arguments      json.RawMessage `json:"arguments"`
+	AgentID        string          `json:"agentId,omitempty"`
+	ThreadID       string          `json:"threadId,omitempty"`
+	TurnID         string          `json:"turnId,omitempty"`
+	CallID         string          `json:"callId,omitempty"`
+	CWD            string          `json:"_cwd,omitempty"`
+	WorkspaceRoots []string        `json:"_workspaceRoots,omitempty"`
+	ClientKind     string          `json:"clientKind,omitempty"`
+	Scoped         bool            `json:"-"`
+}
+
+func normalizeToolCallRequest(req ToolCallRequest) ToolCallRequest {
+	req.Name = strings.TrimSpace(req.Name)
+	req.AgentID = strings.TrimSpace(req.AgentID)
+	req.ThreadID = strings.TrimSpace(req.ThreadID)
+	req.TurnID = strings.TrimSpace(req.TurnID)
+	req.CallID = strings.TrimSpace(req.CallID)
+	req.CWD = normalizeToolCallCWD(req.CWD)
+	req.WorkspaceRoots = normalizeToolCallWorkspaceRoots(req.CWD, req.WorkspaceRoots)
+	req.ClientKind = strings.TrimSpace(req.ClientKind)
+	return req
+}
+
+func normalizeToolCallWorkspaceRoots(cwd string, roots []string) []string {
+	out := make([]string, 0, len(roots)+1)
+	seen := map[string]struct{}{}
+	add := func(base, root string) {
+		root = normalizeToolCallWorkspaceRoot(base, root)
+		if root == "" {
+			return
+		}
+		if _, ok := seen[root]; ok {
+			return
+		}
+		seen[root] = struct{}{}
+		out = append(out, root)
+	}
+	primary := normalizeToolCallWorkspaceRoot("", cwd)
+	if primary == "" {
+		return nil
+	}
+	add("", primary)
+	for _, root := range roots {
+		add(primary, root)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func normalizeToolCallWorkspaceRoot(base, root string) string {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return ""
+	}
+	if strings.TrimSpace(base) != "" && !filepath.IsAbs(root) {
+		root = filepath.Join(base, root)
+	}
+	if filepath.IsAbs(root) {
+		return filepath.Clean(root)
+	}
+	return ""
+}
+
+func firstStringSlice(payload map[string]json.RawMessage, keys ...string) []string {
+	for _, key := range keys {
+		raw := bytes.TrimSpace(payload[key])
+		if len(raw) == 0 {
+			continue
+		}
+		var values []string
+		if err := json.Unmarshal(raw, &values); err != nil {
+			continue
+		}
+		out := make([]string, 0, len(values))
+		for _, value := range values {
+			if value = strings.TrimSpace(value); value != "" {
+				out = append(out, value)
+			}
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	return nil
 }
 
 type ToolCallContentItem struct {

@@ -21,10 +21,11 @@ package toolbridge
 // These names are part of the peer contract — do not rename without
 // coordinating every peer server.
 const (
-	MetadataKeyAgentID  = "_agentId"
-	MetadataKeyThreadID = "_threadId"
-	MetadataKeyCallID   = "_callId"
-	MetadataKeyCWD      = "_cwd"
+	MetadataKeyAgentID        = "_agentId"
+	MetadataKeyThreadID       = "_threadId"
+	MetadataKeyCallID         = "_callId"
+	MetadataKeyCWD            = "_cwd"
+	MetadataKeyWorkspaceRoots = "_workspaceRoots"
 )
 
 // ProxyProtocolVersion and ProxyServerInfo* are the fixed-value

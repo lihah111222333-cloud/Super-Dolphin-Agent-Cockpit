@@ -322,6 +322,7 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	if s.runtime != nil {
 		s.runtime.Start()
 	}
+	s.setRuntimeConfig(canonicalStartRuntimeConfig(req.Config))
 	primeResumeToolScope(s, req)
 	threadID, err := resumeRemoteThread(ctx, s.transport, req)
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -341,6 +342,43 @@ func TestResumeSessionUsesPoolWhenBindingHasIdentity(t *testing.T) {
 	so.poolRelease()
 	if spawnCalls.Load() != 1 {
 		t.Fatalf("spawn calls = %d, want 1", spawnCalls.Load())
+	}
+}
+
+func TestResumeSessionPoolSpawnUsesRuntimeWorkspaceRoots(t *testing.T) {
+	t.Setenv(poolRoutingEnvVar, "1")
+	primary := t.TempDir()
+	extra := t.TempDir()
+	var gotRoots []string
+	pool := NewServerPool(slog.Default(), func(ctx context.Context, _ string) (SpawnedServer, error) {
+		gotRoots = poolSpawnWorkspaceRoots(ctx)
+		return newFakeServer("ws://127.0.0.1:4321"), nil
+	}, PoolConfig{})
+	defer pool.Close(context.Background())
+	d := newRoutingDriver(t, pool)
+
+	opts, err := d.resolveResumeOptions(context.Background(), dto.ResumeSessionRequest{
+		AgentID:            "agent-resume",
+		CWD:                primary,
+		CodexHome:          smokeHome(t),
+		CodexInstanceKey:   "glm",
+		CodexModelProvider: "openai-compatible-glm",
+		Config: map[string]any{
+			"additionalWorkingDirectories": []string{extra},
+		},
+	})
+	if err != nil {
+		t.Fatalf("resolveResumeOptions() error = %v", err)
+	}
+	if len(opts) != 1 {
+		t.Fatalf("resume options = %d, want 1", len(opts))
+	}
+	var so sessionOptions
+	opts[0](&so)
+	so.poolRelease()
+	wantRoots := []string{primary, extra}
+	if !reflect.DeepEqual(gotRoots, wantRoots) {
+		t.Fatalf("pool spawn workspace roots = %#v, want %#v", gotRoots, wantRoots)
 	}
 }
 

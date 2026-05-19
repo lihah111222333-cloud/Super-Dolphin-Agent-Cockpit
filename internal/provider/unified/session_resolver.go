@@ -9,6 +9,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/historyjsonl"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -120,7 +121,7 @@ func (r *sessionResolver) resolveThreadSession(ctx context.Context, threadID str
 	if err != nil {
 		return nil, contract.ErrSessionNotFound
 	}
-	return r.autoResumeSession(ctx, binding, ref.ThreadID, threadID)
+	return r.autoResumeSession(ctx, binding, ref.RuntimeConfig, ref.ThreadID, threadID)
 }
 
 func (r *sessionResolver) resolveProviderThreadSession(ctx context.Context, threadID string) (contract.Session, error) {
@@ -145,7 +146,7 @@ func (r *sessionResolver) resolveProviderThreadSession(ctx context.Context, thre
 			return session, nil
 		}
 		// Memory miss — auto-resume from binding.
-		return r.autoResumeSession(ctx, binding)
+		return r.autoResumeSession(ctx, binding, r.lookupAutoResumeRuntimeConfig(ctx, binding))
 	}
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
@@ -156,7 +157,7 @@ func (r *sessionResolver) resolveProviderThreadSession(ctx context.Context, thre
 // autoResumeSession rebuilds a runtime session from a persisted binding.
 // This is the key recovery path after application restart: the DB has the
 // thread UUID but the in-memory SessionManager is empty.
-func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contract.SessionBinding, publicThreadID ...string) (contract.Session, error) {
+func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contract.SessionBinding, runtimeConfig map[string]any, publicThreadID ...string) (contract.Session, error) {
 	if binding == nil {
 		return nil, contract.ErrSessionNotFound
 	}
@@ -206,6 +207,7 @@ func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contra
 		ThreadID:           threadID,
 		ProviderThreadID:   providerThreadID,
 		CWD:                binding.Cwd,
+		Config:             clone.RuntimeConfigMap(runtimeConfig),
 		CodexHome:          binding.CodexHome,
 		CodexInstanceKey:   binding.CodexInstanceKey,
 		CodexModelProvider: binding.CodexModelProvider,
@@ -237,6 +239,26 @@ func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contra
 		"thread_id", session.ThreadID(),
 	)
 	return session, nil
+}
+
+func (r *sessionResolver) lookupAutoResumeRuntimeConfig(ctx context.Context, binding *contract.SessionBinding) map[string]any {
+	if r == nil || r.threadStore == nil || binding == nil {
+		return nil
+	}
+	for _, candidate := range []string{binding.CodexThreadID, binding.AgentID} {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		ref, err := r.threadStore.GetByThreadID(ctx, candidate)
+		if err != nil || ref == nil {
+			continue
+		}
+		if len(ref.RuntimeConfig) > 0 {
+			return clone.RuntimeConfigMap(ref.RuntimeConfig)
+		}
+	}
+	return nil
 }
 
 func recoverableAutoResumeProviderThreadID(binding *contract.SessionBinding) (string, error) {

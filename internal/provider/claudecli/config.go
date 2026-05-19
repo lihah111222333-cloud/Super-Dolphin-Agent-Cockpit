@@ -12,14 +12,11 @@ import (
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 )
 
-// resolveAbsCWD ensures CWD is an absolute path.
+// resolveAbsCWD ensures caller-provided CWD is absolute without inventing one.
 func resolveAbsCWD(cwd string) string {
 	cwd = strings.TrimSpace(cwd)
-	if cwd == "" {
-		if wd, err := os.Getwd(); err == nil {
-			return wd
-		}
-		return "."
+	if cwd == "" || cwd == "." {
+		return ""
 	}
 	if filepath.IsAbs(cwd) {
 		return cwd
