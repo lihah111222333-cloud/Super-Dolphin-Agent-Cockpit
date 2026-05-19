@@ -75,12 +75,13 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 	)
 	if _, err := dispatchToolAction(ctx, "grep", input.Action, input, map[string]actionHandler[grepToolInput]{
 		"text_search": func(ctx context.Context, input grepToolInput) (any, error) {
-			root, err := toolWorkspaceRoot(ctx)
+			root, roots, err := toolWorkspaceRoots(ctx)
 			if err != nil {
 				return nil, err
 			}
 			opts := search.TextSearchOptions{
 				Root:          root,
+				Roots:         roots,
 				Path:          input.Path,
 				Glob:          input.Glob,
 				Query:         input.Query,
@@ -98,12 +99,13 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 			return nil, runErr
 		},
 		"ast_search": func(ctx context.Context, input grepToolInput) (any, error) {
-			root, err := toolWorkspaceRoot(ctx)
+			root, roots, err := toolWorkspaceRoots(ctx)
 			if err != nil {
 				return nil, err
 			}
 			matches, runErr = search.SearchAST(ctx, search.ASTSearchOptions{
 				Root:         root,
+				Roots:        roots,
 				Path:         input.Path,
 				Glob:         input.Glob,
 				Query:        input.Query,

@@ -16,6 +16,7 @@ import (
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/search"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -36,6 +37,25 @@ const (
 
 func toolWorkspaceRoot(ctx context.Context) (string, error) {
 	return common.WorkspaceRootFromContextStrict(ctx)
+}
+
+func toolWorkspaceRoots(ctx context.Context) (string, []string, error) {
+	roots, err := common.WorkspaceRootsFromContextStrict(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	if len(roots) == 0 {
+		return "", nil, common.ErrMissingWorkspaceRoots
+	}
+	return roots[0], append([]string(nil), roots[1:]...), nil
+}
+
+func toolResolvePath(ctx context.Context, target string) (search.PathInfo, error) {
+	root, roots, err := toolWorkspaceRoots(ctx)
+	if err != nil {
+		return search.PathInfo{}, err
+	}
+	return search.ResolvePathInRoots(root, roots, target)
 }
 
 func newManagerTool[T any](

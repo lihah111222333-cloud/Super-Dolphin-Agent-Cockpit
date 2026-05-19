@@ -35,9 +35,5 @@ func normalizeScopeCWD(cwd string) string {
 	if filepath.IsAbs(cwd) {
 		return filepath.Clean(cwd)
 	}
-	abs, err := filepath.Abs(cwd)
-	if err != nil {
-		return filepath.Clean(cwd)
-	}
-	return filepath.Clean(abs)
+	return ""
 }

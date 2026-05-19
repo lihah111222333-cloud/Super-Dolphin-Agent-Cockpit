@@ -3,6 +3,7 @@ package codexapp
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -10,6 +11,7 @@ import (
 
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 	"github.com/kelindar/event"
 )
 
@@ -48,7 +50,7 @@ func (r *recordingResponder) callCount() int {
 }
 
 func newInboundTestSession(ctx context.Context, approvals *rpc.ApprovalManager, manager *ServerManager) *session {
-	return &session{
+	s := &session{
 		agentID:    "agent-1",
 		approvals:  approvals,
 		ctx:        ctx,
@@ -56,6 +58,9 @@ func newInboundTestSession(ctx context.Context, approvals *rpc.ApprovalManager, 
 		suppressed: map[string]struct{}{},
 		turns:      map[string]*turnHandle{},
 	}
+	s.setThreadID("provider-thread-1")
+	s.setRuntimeConfig(map[string]any{"cwd": "/trusted/root"})
+	return s
 }
 
 func waitApprovalRequested(t *testing.T, ch <-chan tooldto.ToolApprovalRequested) tooldto.ToolApprovalRequested {
@@ -191,6 +196,52 @@ func TestOnInboundMessage_ToolCall_AsyncNoBlockReadLoop(t *testing.T) {
 	assertAsyncToolResponse(t, call)
 }
 
+func TestOnInboundMessage_ToolCall_DispatchesLifecycleAndPrivateMetadata(t *testing.T) {
+	bus := event.NewDispatcher()
+	dispatcher := unified.NewEventDispatcher(bus, nil)
+	ctx := context.Background()
+	beginCh := make(chan tooldto.ToolCallBegin, 1)
+	endCh := make(chan tooldto.ToolCallEnd, 1)
+	cancelBegin := event.Subscribe(bus, func(ev tooldto.ToolCallBegin) { beginCh <- ev })
+	defer cancelBegin()
+	cancelEnd := event.Subscribe(bus, func(ev tooldto.ToolCallEnd) { endCh <- ev })
+	defer cancelEnd()
+
+	enrichedParams := make(chan map[string]any, 1)
+	manager := &ServerManager{}
+	manager.SetToolHandler(func(_ context.Context, msg RawMessage) (any, error) {
+		var payload map[string]any
+		if err := json.Unmarshal(msg.Params, &payload); err != nil {
+			t.Fatalf("json.Unmarshal(enriched params) error = %v", err)
+		}
+		enrichedParams <- payload
+		return map[string]any{"ok": true}, nil
+	})
+	resp := newRecordingResponder()
+	s := newInboundTestSession(ctx, nil, manager)
+	s.dispatcher = dispatcher
+	s.setThreadID("provider-thread-1")
+	s.setRuntimeConfig(map[string]any{"cwd": "/trusted/root"})
+	s.mu.Lock()
+	s.activeTurnID = "turn-1"
+	s.mu.Unlock()
+
+	s.onInboundMessage(ctx, resp, RawMessage{
+		ID:     json.RawMessage(`9`),
+		Method: "item/tool/call",
+		Params: json.RawMessage(`{"name":"grep","arguments":{"cwd":"/evil"},"agentId":"evil-agent","threadId":"evil-thread","callId":"evil-call","cwd":"/evil"}`),
+	})
+
+	begin := waitToolCallBegin(t, beginCh)
+	assertSyntheticToolBeginHeader(t, begin)
+	params := waitEnrichedToolParams(t, enrichedParams)
+	assertStrictPrivateMetadata(t, params)
+	call := waitResponseCall(t, resp.ch)
+	assertAsyncToolResponseResult(t, call, map[string]any{"ok": true})
+	end := waitToolCallEnd(t, endCh)
+	assertSyntheticToolEndHeader(t, end, begin)
+}
+
 func waitSignal(t *testing.T, ch <-chan struct{}, timeout time.Duration, msg string) {
 	t.Helper()
 	select {
@@ -219,5 +270,100 @@ func assertAsyncToolResponse(t *testing.T, call recordedResponse) {
 	}
 	if call.err != nil {
 		t.Fatalf("response err = %v, want nil", call.err)
+	}
+}
+
+func assertAsyncToolResponseResult(t *testing.T, call recordedResponse, want any) {
+	t.Helper()
+	if string(call.id) != "9" {
+		t.Fatalf("response id = %s, want 9", string(call.id))
+	}
+	if !reflect.DeepEqual(call.result, want) {
+		t.Fatalf("response result = %#v, want %#v", call.result, want)
+	}
+	if call.err != nil {
+		t.Fatalf("response err = %v, want nil", call.err)
+	}
+}
+
+func assertSyntheticToolBeginHeader(t *testing.T, begin tooldto.ToolCallBegin) {
+	t.Helper()
+	if begin.ThreadID != "agent-1" {
+		t.Fatalf("begin ThreadID = %q, want agent-1", begin.ThreadID)
+	}
+	if begin.AgentID != "agent-1" {
+		t.Fatalf("begin AgentID = %q, want agent-1", begin.AgentID)
+	}
+	if begin.TurnID != "turn-1" {
+		t.Fatalf("begin TurnID = %q, want turn-1", begin.TurnID)
+	}
+	if begin.CallID != "9" || begin.ToolName != "grep" {
+		t.Fatalf("begin call key = %q/%q, want 9/grep", begin.CallID, begin.ToolName)
+	}
+}
+
+func assertStrictPrivateMetadata(t *testing.T, params map[string]any) {
+	t.Helper()
+	for _, key := range []string{"agentId", "agent_id", "threadId", "thread_id", "callId", "call_id", "cwd"} {
+		if _, ok := params[key]; ok {
+			t.Fatalf("enriched params kept untrusted public key %q: %#v", key, params)
+		}
+	}
+	want := map[string]any{
+		"_agentId":  "agent-1",
+		"_threadId": "provider-thread-1",
+		"_callId":   "9",
+		"_cwd":      "/trusted/root",
+	}
+	for key, value := range want {
+		if params[key] != value {
+			t.Fatalf("private metadata %s = %#v, want %#v; params=%#v", key, params[key], value, params)
+		}
+	}
+}
+
+func assertSyntheticToolEndHeader(t *testing.T, end tooldto.ToolCallEnd, begin tooldto.ToolCallBegin) {
+	t.Helper()
+	if end.ThreadID != begin.ThreadID || end.AgentID != begin.AgentID || end.TurnID != begin.TurnID {
+		t.Fatalf("end scope = %#v, want begin scope %#v", end.ToolCallHeader, begin.ToolCallHeader)
+	}
+	if end.CallID != begin.CallID || end.ToolName != begin.ToolName {
+		t.Fatalf("end call key = %q/%q, want %q/%q", end.CallID, end.ToolName, begin.CallID, begin.ToolName)
+	}
+	if !end.Success {
+		t.Fatalf("ToolCallEnd success = false, error = %q", end.Error)
+	}
+}
+
+func waitToolCallBegin(t *testing.T, ch <-chan tooldto.ToolCallBegin) tooldto.ToolCallBegin {
+	t.Helper()
+	select {
+	case ev := <-ch:
+		return ev
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for ToolCallBegin")
+		return tooldto.ToolCallBegin{}
+	}
+}
+
+func waitToolCallEnd(t *testing.T, ch <-chan tooldto.ToolCallEnd) tooldto.ToolCallEnd {
+	t.Helper()
+	select {
+	case ev := <-ch:
+		return ev
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for ToolCallEnd")
+		return tooldto.ToolCallEnd{}
+	}
+}
+
+func waitEnrichedToolParams(t *testing.T, ch <-chan map[string]any) map[string]any {
+	t.Helper()
+	select {
+	case payload := <-ch:
+		return payload
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for enriched tool params")
+		return nil
 	}
 }

@@ -28,6 +28,7 @@ type SearchMatch struct {
 
 type TextSearchOptions struct {
 	Root          string
+	Roots         []string
 	Path          string
 	Glob          string
 	Query         string
@@ -39,6 +40,7 @@ type TextSearchOptions struct {
 
 type ASTSearchOptions struct {
 	Root         string
+	Roots        []string
 	Path         string
 	Glob         string
 	Query        string
@@ -66,7 +68,7 @@ func SearchText(ctx context.Context, opts TextSearchOptions) ([]SearchMatch, err
 	if err != nil {
 		return nil, err
 	}
-	pathInfo, info, err := statSearchPath(opts.Root, opts.Path)
+	pathInfo, info, err := statSearchPath(opts.Root, opts.Roots, opts.Path)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +88,7 @@ func SearchAST(ctx context.Context, opts ASTSearchOptions) ([]SearchMatch, error
 	if query == "" {
 		return nil, errors.New("query is required")
 	}
-	pathInfo, info, err := statSearchPath(opts.Root, opts.Path)
+	pathInfo, info, err := statSearchPath(opts.Root, opts.Roots, opts.Path)
 	if err != nil {
 		return nil, err
 	}
@@ -158,8 +160,8 @@ func FilterAndCapSearchMatches(matches []SearchMatch, maxResults int) ([]SearchM
 	return append([]SearchMatch(nil), filtered[:maxResults]...), total, true
 }
 
-func statSearchPath(root, rawPath string) (PathInfo, os.FileInfo, error) {
-	pathInfo, err := ResolvePath(root, rawPath)
+func statSearchPath(root string, roots []string, rawPath string) (PathInfo, os.FileInfo, error) {
+	pathInfo, err := ResolvePathInRoots(root, roots, rawPath)
 	if err != nil {
 		return PathInfo{}, nil, err
 	}

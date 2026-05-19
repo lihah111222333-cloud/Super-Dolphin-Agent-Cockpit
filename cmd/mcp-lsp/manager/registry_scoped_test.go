@@ -2,6 +2,8 @@ package manager
 
 import (
 	"context"
+	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
@@ -34,6 +36,34 @@ func TestRegistryResolveManagerForFileUsesTrustedToolScope(t *testing.T) {
 	}
 	assertResolvedManagerKey(t, scopedMgr.diagnosticsContext, "manager-key")
 	assertResolverScopeForTrustedFile(t, resolver.lastScope)
+}
+
+func TestRegistryResolveManagerForFileForwardsTrustedWorkspaceRoots(t *testing.T) {
+	singleton := &registryDiagnosticsManager{}
+	scopedMgr := &registryDiagnosticsManager{}
+	resolver := &recordingScopedResolver{manager: scopedMgr}
+	registry := NewRegistry(nil)
+	registry.Register("go", singleton, resolver)
+
+	tmp := t.TempDir()
+	primary := filepath.Join(tmp, "repo")
+	extra := filepath.Join(tmp, "other")
+	target := filepath.Join(extra, "main.go")
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{
+		AgentID:        "agent-trusted",
+		ThreadID:       "thread-trusted",
+		CWD:            primary,
+		WorkspaceRoots: []string{extra},
+		Family:         "lsp",
+	})
+
+	if _, err := registry.ResolveManagerForFile(ctx, target); err != nil {
+		t.Fatalf("ResolveManagerForFile: %v", err)
+	}
+	want := []string{filepath.Clean(primary), filepath.Clean(extra)}
+	if !reflect.DeepEqual(resolver.lastScope.WorkspaceRoots, want) {
+		t.Fatalf("resolver WorkspaceRoots = %#v, want %#v", resolver.lastScope.WorkspaceRoots, want)
+	}
 }
 
 func TestRegistryDiagnosticsAllUsesCurrentScopedManagers(t *testing.T) {

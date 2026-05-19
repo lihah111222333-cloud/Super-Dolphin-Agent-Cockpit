@@ -48,6 +48,7 @@ func (r registryScopedResolver) CurrentManagersForToolScope(scope lspmanager.Too
 	if err != nil {
 		return nil, err
 	}
+	currentRoots := r.currentWorkspaceRoots(scope)
 	seen := map[lspmanager.Manager]struct{}{}
 	out := make([]lspmanager.ScopedManager, 0)
 	for _, snapshot := range r.pool.SnapshotManagers() {
@@ -55,6 +56,9 @@ func (r registryScopedResolver) CurrentManagersForToolScope(scope lspmanager.Too
 			continue
 		}
 		if snapshot.resolvedScope.ScopeKey != scopeKey {
+			continue
+		}
+		if len(currentRoots) > 0 && ensureLSPToolScopeWithinWorkspaceRoots(currentRoots, snapshot.resolvedScope.LSPToolScope) != nil {
 			continue
 		}
 		if _, ok := seen[snapshot.manager]; ok {
@@ -69,8 +73,19 @@ func (r registryScopedResolver) CurrentManagersForToolScope(scope lspmanager.Too
 	return out, nil
 }
 
+func (r registryScopedResolver) currentWorkspaceRoots(scope lspmanager.ToolScope) []string {
+	cwd := canonicalScopePath(scope.CWD, "")
+	if cwd == "" && r.pool != nil && r.pool.primary != nil {
+		cwd = r.pool.primary.workspaceRoot
+	}
+	return normalizeScopeWorkspaceRoots(cwd, scope.WorkspaceRoots)
+}
+
 func (r registryScopedResolver) resolveRegistryScope(scope lspmanager.ToolScope) (LSPToolScope, error) {
-	base := r.registryBaseScope(scope)
+	base, err := r.registryBaseScope(scope)
+	if err != nil {
+		return LSPToolScope{}, err
+	}
 	adapter, err := r.adapterForLanguage(base.LanguageID)
 	if err != nil {
 		return LSPToolScope{}, err
@@ -81,6 +96,9 @@ func (r registryScopedResolver) resolveRegistryScope(scope lspmanager.ToolScope)
 	}
 	resolved = completeResolvedLanguageScope(resolved, base)
 	resolved.LanguageSpecific = mergeLanguageSpecific(resolved.LanguageSpecific, adapter.CacheKeyParts(resolved))
+	if err := ensureResolvedLanguageScopeWithinWorkspaceRoots(base.WorkspaceRoots, resolved); err != nil {
+		return LSPToolScope{}, err
+	}
 	base.LanguageID = resolved.LanguageID
 	base.RootKind = resolved.RootKind
 	base.WorkspaceRoot = resolved.WorkspaceRoot
@@ -102,35 +120,61 @@ func (r registryScopedResolver) adapterForLanguage(languageID string) (LanguageA
 	return adapter, nil
 }
 
-func (r registryScopedResolver) registryBaseScope(scope lspmanager.ToolScope) LSPToolScope {
+func (r registryScopedResolver) registryBaseScope(scope lspmanager.ToolScope) (LSPToolScope, error) {
 	cwd := canonicalScopePath(scope.CWD, "")
 	if cwd == "" && r.pool != nil && r.pool.primary != nil {
 		cwd = r.pool.primary.workspaceRoot
 	}
+	workspaceRoots := normalizeScopeWorkspaceRoots(cwd, scope.WorkspaceRoots)
 	languageID := normalizeLanguageID(scope.LanguageID)
-	targetPath := canonicalScopePath(firstNonEmpty(scope.TargetPath, scope.TargetURI), cwd)
-	targetURI := canonicalScopeURI(scope.TargetURI)
-	if targetPath == "" {
-		targetPath = cwd
+	target := firstNonEmpty(scope.TargetPath, scope.TargetURI)
+	selected, err := selectWorkspaceRootForTarget(workspaceRoots, target)
+	if err != nil {
+		return LSPToolScope{}, err
 	}
-	if targetURI == "" && targetPath != "" {
-		targetURI = fileURIFromPath(targetPath)
+	if selected != "" {
+		cwd = selected
+		workspaceRoots = normalizeScopeWorkspaceRoots(cwd, workspaceRoots)
 	}
-	if languageID == "" {
-		languageID = normalizeLanguageID(lspmanager.DetectLanguageID(targetPath))
+	targetPath := firstNonEmpty(canonicalScopePath(target, cwd), cwd)
+	if err := ensurePathWithinWorkspaceRoots(workspaceRoots, targetPath); err != nil {
+		return LSPToolScope{}, err
 	}
+	targetURI := registryTargetURI(scope.TargetURI, targetPath)
+	languageID = registryLanguageID(languageID, targetPath)
 
 	return LSPToolScope{
-		AgentID:    scope.AgentID,
-		ThreadID:   scope.ThreadID,
-		TurnID:     scope.TurnID,
-		CallID:     scope.CallID,
-		CWD:        cwd,
+		AgentID:  scope.AgentID,
+		ThreadID: scope.ThreadID,
+		TurnID:   scope.TurnID,
+		CallID:   scope.CallID,
+		CWD:      cwd,
+		WorkspaceRoots: append(
+			[]string(nil),
+			workspaceRoots...,
+		),
 		Family:     scope.Family,
 		LanguageID: languageID,
 		TargetPath: targetPath,
 		TargetURI:  targetURI,
+	}, nil
+}
+
+func registryTargetURI(rawURI, targetPath string) string {
+	if uri := canonicalScopeURI(rawURI); uri != "" {
+		return uri
 	}
+	if targetPath == "" {
+		return ""
+	}
+	return fileURIFromPath(targetPath)
+}
+
+func registryLanguageID(languageID, targetPath string) string {
+	if languageID != "" {
+		return languageID
+	}
+	return normalizeLanguageID(lspmanager.DetectLanguageID(targetPath))
 }
 
 func normalizeRegistryWorkspaceRoot(root string) (string, error) {
@@ -176,6 +220,7 @@ func managerToolScope(scope LSPToolScope) lspmanager.ToolScope {
 		TurnID:                scope.TurnID,
 		CallID:                scope.CallID,
 		CWD:                   scope.CWD,
+		WorkspaceRoots:        append([]string(nil), scope.WorkspaceRoots...),
 		Family:                scope.Family,
 		LanguageID:            scope.LanguageID,
 		TargetPath:            scope.TargetPath,

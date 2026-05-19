@@ -46,6 +46,53 @@ func TestNewDriverUsesEnvServerURLAndName(t *testing.T) {
 	}
 }
 
+func TestCloseSessionReleasesCodexToolSurface(t *testing.T) {
+	recorder := &toolBridgeRPCRecorder{}
+	serverURL := startToolBridgeRPCServer(t, recorder)
+	manager := &ServerManager{}
+	d := requireToolBridgeDriver(t, newDriver(nil, nil, nil, nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, nil))
+	var prepared contract.CodexToolSurfaceScope
+	var bound contract.CodexToolSurfaceScope
+	d.prepareTools = func(_ context.Context, scope contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error) {
+		prepared = scope
+		return []codexprotocol.DynamicToolSchema{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}, nil
+	}
+	d.bindTools = func(scope contract.CodexToolSurfaceScope) error {
+		bound = scope
+		return nil
+	}
+	var released []contract.CodexToolSurfaceScope
+	d.releaseTools = func(scope contract.CodexToolSurfaceScope) error {
+		released = append(released, scope)
+		return nil
+	}
+	workDir := t.TempDir()
+
+	sessionAny, err := d.StartSession(context.Background(), dto.StartSessionRequest{
+		AgentID: "agent-1",
+		CWD:     workDir,
+	})
+	if err != nil {
+		t.Fatalf("StartSession() error = %v", err)
+	}
+	s := requireCodexSession(t, sessionAny, "StartSession")
+	if err := s.Close(context.Background()); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if len(released) != 1 {
+		t.Fatalf("release calls = %d, want 1", len(released))
+	}
+	if prepared.SurfaceID == "" {
+		t.Fatalf("prepared surface scope = %#v, want surface id", prepared)
+	}
+	if bound.SurfaceID != prepared.SurfaceID || bound.ProviderThreadID != "provider-thread-1" {
+		t.Fatalf("bind scope = %#v, want same surface id and provider thread", bound)
+	}
+	if released[0].SurfaceID != prepared.SurfaceID || released[0].AgentID != "" || released[0].ProviderThreadID != "" {
+		t.Fatalf("release scope = %#v, want surface id only", released[0])
+	}
+}
+
 func TestCodexNativeToolPolicyMapsDisabledToolsToProcessFlags(t *testing.T) {
 	policy := codexNativeToolPolicyFromConfig(map[string]any{
 		codexDisabledNativeToolsConfigKey: []any{"write_new_file", "shell", "apply_patch"},

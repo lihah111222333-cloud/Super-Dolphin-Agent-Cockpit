@@ -226,7 +226,7 @@ func (t *transport) spawnLocal(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	argv := buildCodexAppServerArgs(localSpawnListenURL())
+	argv := localSpawnAppServerArgs()
 	pkglogger.Info("codexapp: spawning local app-server", "argv", argv)
 	// Wrap in the platform-appropriate FD-limit raiser. On macOS GUI-launched
 	// processes inherit launchd's default 256 soft limit, which is too low

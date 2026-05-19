@@ -282,7 +282,7 @@ func HandleGetAgentReport(svc contract.OrchestrationService) ToolHandler {
 
 func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 	return buildToolDefinitions(
-		defineTool("orchestration_launch_agent", "Launch a managed orchestration agent.", ObjectSchema(map[string]Schema{
+		defineTool("launch_agent", "Launch a managed orchestration agent.", ObjectSchema(map[string]Schema{
 			"agent_id":     StringSchema("Optional persisted orchestration agent ID. When omitted, the launcher generates an agent_... ID; never use name as the truth source."),
 			"name":         StringSchema("User-facing agent name. Prefer a short friendly name tied to the task; avoid paths, IDs, and generic labels like worker-agent."),
 			"prompt":       StringSchema("Optional initial prompt to submit as the launched agent's first turn."),
@@ -298,20 +298,20 @@ func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefin
 			"language":       StringSchema("Optional language tag for the launched agent (e.g. 'zh', 'en'). Propagated to BuildCtx.Language for prompt match_when / section enable_when evaluation."),
 			"disabled_tools": StringSchema("Optional comma-separated list of tool names to disable for the launched agent. Merged with the default deny list."),
 		}, "name"), HandleLaunchAgent(svc)),
-		defineTool("orchestration_send_message", "Submit a text turn to an existing orchestration agent.", ObjectSchema(map[string]Schema{
+		defineTool("send_message", "Submit a text turn to an existing orchestration agent.", ObjectSchema(map[string]Schema{
 			"agent_id": StringSchema("Target orchestration agent ID."),
 			"message":  StringSchema("Message content to submit as a text input."),
 		}, "agent_id", "message"), HandleSendMessage(svc)),
-		defineTool("orchestration_stop_agent", "Stop and recycle an orchestration agent by archiving its persisted thread when available.", ObjectSchema(map[string]Schema{
+		defineTool("stop_agent", "Stop and recycle an orchestration agent by archiving its persisted thread when available.", ObjectSchema(map[string]Schema{
 			"agent_id": StringSchema("Target orchestration agent ID."),
 		}, "agent_id"), HandleStopAgent(svc)),
-		defineTool("orchestration_list_agents", "List orchestration agents and current runtime snapshots. Defaults to active agents only and omits report bodies; use orchestration_get_agent_report for full reports.", ObjectSchema(map[string]Schema{
+		defineTool("list_agents", "List orchestration agents and current runtime snapshots. Defaults to active agents only and omits report bodies; use get_agent_report for full reports.", ObjectSchema(map[string]Schema{
 			"state":            StringSchema("Optional state filter, e.g. idle, turn_running, stopped. Comma-separated values are accepted."),
 			"include_inactive": BooleanSchema("Include stopped/failed historical agents. Defaults to false."),
-			"include_reports":  BooleanSchema("Include last_report bodies in list output. Defaults to false; prefer orchestration_get_agent_report."),
+			"include_reports":  BooleanSchema("Include last_report bodies in list output. Defaults to false; prefer get_agent_report."),
 			"limit":            IntegerSchema("Maximum number of agents to return after filtering. 0 means no explicit limit."),
 		}), HandleListAgents(svc)),
-		defineTool("orchestration_get_agent_report", "Read the last known report for an orchestration agent. Pass the persisted agent_id returned by launch/list; display name is not an identifier.", ObjectSchema(map[string]Schema{
+		defineTool("get_agent_report", "Read the last known report for an orchestration agent. Pass the persisted agent_id returned by launch/list; display name is not an identifier.", ObjectSchema(map[string]Schema{
 			"agent_id": StringSchema("Persisted target orchestration agent ID returned by launch/list; do not pass name."),
 		}, "agent_id"), HandleGetAgentReport(svc)),
 	)

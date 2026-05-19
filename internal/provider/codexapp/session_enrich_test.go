@@ -119,3 +119,128 @@ func TestEnrichToolCallParams_InjectsTrustedCWD(t *testing.T) {
 		t.Fatalf("agentId = %q, want agent-42", v)
 	}
 }
+
+func TestEnrichToolCallParamsStrictInjectsTrustedWorkspaceRootsAndRemovesPublicAliases(t *testing.T) {
+	msg := rawParams(t, map[string]any{
+		"name":           "lsp_file",
+		"cwd":            "/forged/cwd",
+		"workspaceRoots": []string{"/forged/camel"},
+		"workspace_roots": []string{
+			"/forged/snake",
+		},
+		"_workspace_roots": []string{"/forged/private-snake"},
+		"arguments": map[string]any{
+			"file_path":       "go.mod",
+			"_workspaceRoots": []string{"/forged/arguments"},
+		},
+	})
+
+	out, err := enrichToolCallParamsStrict(msg, "agent-42", "thread-42", "call-42", "/repo", []string{"/repo", "/repo/packages/api"})
+	if err != nil {
+		t.Fatalf("enrichToolCallParamsStrict() error = %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(out.Params, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	assertToolParamKeysAbsent(t, got, "cwd", "workspaceRoots", "workspace_roots", "_workspace_roots")
+	roots, ok := got["_workspaceRoots"].([]any)
+	if !ok {
+		t.Fatalf("_workspaceRoots = %#v, want array", got["_workspaceRoots"])
+	}
+	want := []string{"/repo", "/repo/packages/api"}
+	if len(roots) != len(want) {
+		t.Fatalf("_workspaceRoots length = %d, want %d: %#v", len(roots), len(want), roots)
+	}
+	for i, wantRoot := range want {
+		if roots[i] != wantRoot {
+			t.Fatalf("_workspaceRoots[%d] = %#v, want %q", i, roots[i], wantRoot)
+		}
+	}
+}
+
+func TestEnrichToolCallParamsStrictResolvesRelativeWorkspaceRootsAgainstCWD(t *testing.T) {
+	msg := rawParams(t, map[string]any{
+		"name":      "lsp_file",
+		"arguments": map[string]any{"file_path": "go.mod"},
+	})
+
+	out, err := enrichToolCallParamsStrict(msg, "agent-42", "thread-42", "call-42", "/repo", []string{"packages/api"})
+	if err != nil {
+		t.Fatalf("enrichToolCallParamsStrict() error = %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(out.Params, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	roots, ok := got["_workspaceRoots"].([]any)
+	if !ok {
+		t.Fatalf("_workspaceRoots = %#v, want array", got["_workspaceRoots"])
+	}
+	want := []string{"/repo", "/repo/packages/api"}
+	if len(roots) != len(want) {
+		t.Fatalf("_workspaceRoots length = %d, want %d: %#v", len(roots), len(want), roots)
+	}
+	for i, wantRoot := range want {
+		if roots[i] != wantRoot {
+			t.Fatalf("_workspaceRoots[%d] = %#v, want %q", i, roots[i], wantRoot)
+		}
+	}
+}
+
+func TestTrustedWorkspaceRootsDropsRelativeAdditionalRootsWithoutCWD(t *testing.T) {
+	got := trustedWorkspaceRoots("", []string{"packages/api"})
+	if len(got) != 0 {
+		t.Fatalf("trustedWorkspaceRoots() = %#v, want empty without trusted cwd", got)
+	}
+}
+
+func TestTrustedWorkspaceRootsDropsAdditionalRootsWithoutTrustedCWD(t *testing.T) {
+	for name, cwd := range map[string]string{
+		"missing cwd":  "",
+		"relative cwd": ".",
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := trustedWorkspaceRoots(cwd, []string{"/repo/packages/api"})
+			if len(got) != 0 {
+				t.Fatalf("trustedWorkspaceRoots() = %#v, want empty without trusted cwd", got)
+			}
+		})
+	}
+}
+
+func TestEnrichToolCallParamsStrictDoesNotPromoteAdditionalRootWithoutTrustedCWD(t *testing.T) {
+	msg := rawParams(t, map[string]any{
+		"name":      "lsp_file",
+		"arguments": map[string]any{"file_path": "go.mod"},
+	})
+
+	out, err := enrichToolCallParamsStrict(msg, "agent-42", "thread-42", "call-42", ".", []string{"/repo/packages/api"})
+	if err != nil {
+		t.Fatalf("enrichToolCallParamsStrict() error = %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(out.Params, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	rawRoots, ok := got["_workspaceRoots"]
+	if !ok || rawRoots == nil {
+		return
+	}
+	roots, ok := rawRoots.([]any)
+	if !ok {
+		t.Fatalf("_workspaceRoots = %#v, want array or null", rawRoots)
+	}
+	if len(roots) != 0 {
+		t.Fatalf("_workspaceRoots = %#v, want empty without trusted cwd", roots)
+	}
+}
+
+func assertToolParamKeysAbsent(t *testing.T, got map[string]any, keys ...string) {
+	t.Helper()
+	for _, key := range keys {
+		if _, ok := got[key]; ok {
+			t.Fatalf("%s alias must be removed: %v", key, got)
+		}
+	}
+}

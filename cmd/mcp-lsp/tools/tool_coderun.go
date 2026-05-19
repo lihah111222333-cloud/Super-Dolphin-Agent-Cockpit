@@ -13,6 +13,7 @@ import (
 
 	lspexec "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/exec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
 type SandboxRunner interface {
@@ -31,6 +32,12 @@ type CodeRunRequest struct {
 	Timeout  int    `json:"timeout,omitempty"`
 	TestFunc string `json:"test_func,omitempty"`
 	TestPkg  string `json:"test_pkg,omitempty"`
+}
+
+type CodeRunTestRequest struct {
+	TestFunc string `json:"test_func"`
+	TestPkg  string `json:"test_pkg,omitempty"`
+	Timeout  int    `json:"timeout,omitempty"`
 }
 
 type CodeRunResult struct {
@@ -64,8 +71,24 @@ func NewCodeRunHandlerWithSandbox(sandbox SandboxRunner) middleware.Handler {
 	return newSandboxTool("code_run", sandbox, HandleCodeRun)
 }
 
+func NewCodeRunTestHandler(rootDir string) (middleware.Handler, error) {
+	sandbox, err := lspexec.NewSandbox(rootDir)
+	if err != nil {
+		return nil, err
+	}
+	return newSandboxTool("code_run_test", sandbox, HandleCodeRunTest), nil
+}
+
+func NewCodeRunTestHandlerWithSandbox(sandbox SandboxRunner) middleware.Handler {
+	return newSandboxTool("code_run_test", sandbox, HandleCodeRunTest)
+}
+
 func HandleCodeRun(ctx context.Context, sandbox SandboxRunner, params json.RawMessage) (any, error) {
 	return CodeRunHandler{sandbox: sandbox}.Handle(ctx, params)
+}
+
+func HandleCodeRunTest(ctx context.Context, sandbox SandboxRunner, params json.RawMessage) (any, error) {
+	return CodeRunHandler{sandbox: sandbox}.HandleTest(ctx, params)
 }
 
 func (h CodeRunHandler) Handle(ctx context.Context, params json.RawMessage) (any, error) {
@@ -85,6 +108,36 @@ func (h CodeRunHandler) Handle(ctx context.Context, params json.RawMessage) (any
 	default:
 		return nil, fmt.Errorf("unsupported code_run mode: %q", req.Mode)
 	}
+}
+
+func (h CodeRunHandler) HandleTest(ctx context.Context, params json.RawMessage) (any, error) {
+	if h.sandbox == nil {
+		return nil, errors.New("code_run_test sandbox is nil")
+	}
+	req, err := decodeToolParams[CodeRunTestRequest](params, decodeRaw)
+	if err != nil {
+		return nil, fmt.Errorf("decode code_run_test request: %w", err)
+	}
+	testFunc := strings.TrimSpace(req.TestFunc)
+	if testFunc == "" {
+		return nil, errors.New("test_func is required")
+	}
+	if !goTestNamePattern.MatchString(testFunc) {
+		return nil, fmt.Errorf("test_func must contain only letters, numbers, and underscores: %q", req.TestFunc)
+	}
+	workDir, pkgArg, err := goTestPackageWorkDir(ctx, req.TestPkg)
+	if err != nil {
+		return nil, err
+	}
+	timeout := middleware.ClampTimeout(req.Timeout, middleware.TierExec, middleware.TierExec)
+	request := lspexec.Request{
+		Args:      []string{"go", "test", "-run", "^" + regexp.QuoteMeta(testFunc) + "$", pkgArg},
+		WorkDir:   workDir,
+		Timeout:   timeout,
+		TraceTool: "code_run_test",
+		TraceMode: "test",
+	}
+	return h.execute(ctx, request, "go", "test")
 }
 
 func (h CodeRunHandler) handleRun(ctx context.Context, req CodeRunRequest) (any, error) {
@@ -272,3 +325,66 @@ func defaultCodeRunTimeout() time.Duration {
 }
 
 var goTestNamePattern = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
+
+func goTestPackageWorkDir(ctx context.Context, testPkg string) (string, string, error) {
+	root, _, err := toolWorkspaceRoots(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	pkg := strings.TrimSpace(testPkg)
+	if pkg == "" {
+		pkg = "./..."
+	}
+	if filepath.IsAbs(pkg) {
+		return cleanGoTestPackagePath(pkg), goTestPackageArgForAbsolute(pkg), nil
+	}
+	if !isRelativeGoTestPackage(pkg) {
+		return "", "", fmt.Errorf("test_pkg must be a relative ./ package pattern or an absolute path inside workspace roots: %q", testPkg)
+	}
+	candidate := filepath.Join(root, cleanGoTestPackagePath(pkg))
+	if _, err := common.WorkspaceRootForPathFromContextStrict(ctx, candidate); err != nil {
+		return "", "", err
+	}
+	return root, normalizeRelativeGoTestPackageArg(pkg), nil
+}
+
+func isRelativeGoTestPackage(pkg string) bool {
+	slashed := filepath.ToSlash(strings.TrimSpace(pkg))
+	if slashed == "." || strings.HasPrefix(slashed, "./") {
+		cleaned := filepath.ToSlash(filepath.Clean(pkg))
+		return cleaned != ".." && !strings.HasPrefix(cleaned, "../")
+	}
+	return false
+}
+
+func normalizeRelativeGoTestPackageArg(pkg string) string {
+	cleaned := filepath.ToSlash(filepath.Clean(pkg))
+	if cleaned == "." {
+		return "."
+	}
+	if cleaned == "..." {
+		return "./..."
+	}
+	if strings.HasPrefix(cleaned, ".") {
+		return cleaned
+	}
+	return "./" + cleaned
+}
+
+func cleanGoTestPackagePath(pkg string) string {
+	normalized := filepath.FromSlash(strings.TrimSpace(pkg))
+	if strings.HasSuffix(filepath.ToSlash(normalized), "/...") {
+		normalized = filepath.FromSlash(strings.TrimSuffix(filepath.ToSlash(normalized), "/..."))
+	}
+	if normalized == "" {
+		return "."
+	}
+	return filepath.Clean(normalized)
+}
+
+func goTestPackageArgForAbsolute(pkg string) string {
+	if strings.HasSuffix(filepath.ToSlash(strings.TrimSpace(pkg)), "/...") {
+		return "./..."
+	}
+	return "."
+}

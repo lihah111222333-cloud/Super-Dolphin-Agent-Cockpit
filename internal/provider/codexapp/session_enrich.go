@@ -1,10 +1,25 @@
 package codexapp
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
+)
+
+const (
+	toolMetadataKeyAgentID        = "_agentId"
+	toolMetadataKeyThreadID       = "_threadId"
+	toolMetadataKeyCallID         = "_callId"
+	toolMetadataKeyCWD            = "_cwd"
+	toolMetadataKeyWorkspaceRoots = "_workspaceRoots"
 )
 
 // enrichToolCallParams 把 session 元数据注入到 codex item/tool/call 的 msg.Params 中。
@@ -104,4 +119,262 @@ func shouldWarnToolCWDTrace(toolName string) bool {
 	return strings.HasPrefix(toolName, "lsp_") ||
 		strings.HasPrefix(toolName, "code_") ||
 		toolName == "orchestration_launch_agent"
+}
+
+type preparedToolCall struct {
+	header  shareddto.ToolCallHeader
+	params  RawMessage
+	started time.Time
+}
+
+func (s *session) prepareToolCall(msg RawMessage) (preparedToolCall, error) {
+	started := time.Now()
+	callID := firstNonEmptyToolString(jsonRPCIDString(msg.ID), toolCallParamStringAny(msg.Params, "callId", "call_id"), nestedToolCallString(msg.Params, "item", "callId", "call_id"))
+	toolName := firstNonEmptyToolString(toolCallParamStringAny(msg.Params, "name", "toolName", "tool_name", "tool"), nestedToolCallString(msg.Params, "item", "name", "toolName", "tool"))
+	if callID == "" {
+		return preparedToolCall{}, fmt.Errorf("codexapp: tool call id is required")
+	}
+	if toolName == "" {
+		return preparedToolCall{}, fmt.Errorf("codexapp: tool name is required")
+	}
+	agentID := strings.TrimSpace(s.agentID)
+	providerThreadID := strings.TrimSpace(s.ThreadID())
+	if agentID == "" || providerThreadID == "" {
+		return preparedToolCall{}, fmt.Errorf("codexapp: tool call session scope is incomplete")
+	}
+	cwd := strings.TrimSpace(s.runtimeConfigString("cwd"))
+	if cwd == "" {
+		return preparedToolCall{}, fmt.Errorf("codexapp: tool call cwd is required")
+	}
+	workspaceRoots := trustedWorkspaceRoots(cwd, s.runtimeConfigStringSlice("additionalWorkingDirectories", "additional_working_directories"))
+	turnID := firstNonEmptyToolString(toolCallParamStringAny(msg.Params, "turnId", "turn_id"), nestedToolCallString(msg.Params, "item", "turnId", "turn_id"), s.activeTurnSnapshot())
+	header := toolCallHeader(agentID, turnID, callID, toolName, started)
+	enriched, err := enrichToolCallParamsStrict(msg, agentID, providerThreadID, callID, cwd, workspaceRoots)
+	if err != nil {
+		return preparedToolCall{}, err
+	}
+	return preparedToolCall{header: header, params: enriched, started: started}, nil
+}
+
+func toolCallHeader(agentID, turnID, callID, toolName string, ts time.Time) shareddto.ToolCallHeader {
+	return shareddto.ToolCallHeader{
+		TurnHeader: shareddto.TurnHeader{
+			AgentHeader: shareddto.AgentHeader{
+				ThreadHeader: shareddto.ThreadHeader{
+					EventHeader: shareddto.EventHeader{Timestamp: ts},
+					ThreadID:    agentID,
+				},
+				AgentID: agentID,
+			},
+			TurnIDHeader: shareddto.TurnIDHeader{TurnID: turnID},
+		},
+		CallID:   callID,
+		ToolName: toolName,
+	}
+}
+
+func (s *session) publishToolCallBegin(call preparedToolCall) {
+	if s == nil || s.dispatcher == nil {
+		return
+	}
+	s.dispatcher.Publish(tooldto.ToolCallBegin{
+		ToolCallHeader:   call.header,
+		ArgumentsPreview: jsonPreviewFromRaw(call.params.Params, "arguments", "args"),
+	})
+}
+
+func (s *session) publishToolCallEnd(call preparedToolCall, result any, callErr error) {
+	if s == nil || s.dispatcher == nil {
+		return
+	}
+	header := call.header
+	header.Timestamp = time.Now()
+	ev := tooldto.ToolCallEnd{
+		ToolCallHeader: header,
+		Success:        callErr == nil,
+		Result:         previewAny(result),
+		ElapsedMS:      time.Since(call.started).Milliseconds(),
+	}
+	if callErr != nil {
+		ev.Error = callErr.Error()
+	}
+	s.dispatcher.Publish(ev)
+}
+
+func (s *session) activeTurnSnapshot() string {
+	if s == nil {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return strings.TrimSpace(s.activeTurnID)
+}
+
+func enrichToolCallParamsStrict(msg RawMessage, agentID, threadID, callID, cwd string, workspaceRoots []string) (RawMessage, error) {
+	var payload map[string]json.RawMessage
+	if len(bytes.TrimSpace(msg.Params)) == 0 {
+		return RawMessage{}, fmt.Errorf("codexapp: missing tool call params")
+	}
+	if err := json.Unmarshal(msg.Params, &payload); err != nil {
+		return RawMessage{}, fmt.Errorf("codexapp: decode tool call params: %w", err)
+	}
+	if payload == nil {
+		return RawMessage{}, fmt.Errorf("codexapp: tool call params must be an object")
+	}
+	for _, key := range []string{"agentId", "agent_id", "threadId", "thread_id", "callId", "call_id", "cwd", "workspaceRoots", "workspace_roots", "_workspaceRoots", "_workspace_roots"} {
+		delete(payload, key)
+	}
+	workspaceRoots = trustedWorkspaceRoots(cwd, workspaceRoots)
+	for key, value := range map[string]string{
+		toolMetadataKeyAgentID:  agentID,
+		toolMetadataKeyThreadID: threadID,
+		toolMetadataKeyCallID:   callID,
+		toolMetadataKeyCWD:      cwd,
+	} {
+		raw, err := json.Marshal(strings.TrimSpace(value))
+		if err != nil {
+			return RawMessage{}, err
+		}
+		payload[key] = raw
+	}
+	rawRoots, err := json.Marshal(workspaceRoots)
+	if err != nil {
+		return RawMessage{}, err
+	}
+	payload[toolMetadataKeyWorkspaceRoots] = rawRoots
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return RawMessage{}, fmt.Errorf("codexapp: encode tool call params: %w", err)
+	}
+	enriched := msg
+	enriched.Params = raw
+	return enriched, nil
+}
+
+func trustedWorkspaceRoots(cwd string, additional []string) []string {
+	roots := make([]string, 0, len(additional)+1)
+	seen := map[string]struct{}{}
+	primary := normalizeTrustedWorkspaceRoot("", cwd)
+	if primary == "" {
+		return nil
+	}
+	add := func(root string) {
+		root = normalizeTrustedWorkspaceRoot(primary, root)
+		if root == "" {
+			return
+		}
+		if _, ok := seen[root]; ok {
+			return
+		}
+		seen[root] = struct{}{}
+		roots = append(roots, root)
+	}
+	add(primary)
+	for _, root := range additional {
+		add(root)
+	}
+	return roots
+}
+
+func normalizeTrustedWorkspaceRoot(base, root string) string {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return ""
+	}
+	if strings.TrimSpace(base) != "" && !filepath.IsAbs(root) {
+		root = filepath.Join(base, root)
+	}
+	if filepath.IsAbs(root) {
+		return filepath.Clean(root)
+	}
+	if strings.TrimSpace(base) == "" {
+		return ""
+	}
+	if abs, err := filepath.Abs(root); err == nil {
+		return filepath.Clean(abs)
+	}
+	return ""
+}
+
+func toolCallParamStringAny(params json.RawMessage, keys ...string) string {
+	var payload map[string]json.RawMessage
+	if len(params) == 0 || json.Unmarshal(params, &payload) != nil {
+		return ""
+	}
+	for _, key := range keys {
+		var value string
+		if json.Unmarshal(payload[key], &value) == nil && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func nestedToolCallString(params json.RawMessage, objectKey string, keys ...string) string {
+	var payload map[string]json.RawMessage
+	if len(params) == 0 || json.Unmarshal(params, &payload) != nil {
+		return ""
+	}
+	var nested map[string]json.RawMessage
+	if json.Unmarshal(payload[objectKey], &nested) != nil {
+		return ""
+	}
+	for _, key := range keys {
+		var value string
+		if json.Unmarshal(nested[key], &value) == nil && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func jsonRPCIDString(raw json.RawMessage) string {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return ""
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return strings.TrimSpace(string(raw))
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case float64:
+		return strconv.FormatInt(int64(typed), 10)
+	default:
+		return strings.TrimSpace(fmt.Sprint(typed))
+	}
+}
+
+func firstNonEmptyToolString(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func jsonPreviewFromRaw(raw json.RawMessage, keys ...string) string {
+	var payload map[string]json.RawMessage
+	if len(raw) == 0 || json.Unmarshal(raw, &payload) != nil {
+		return ""
+	}
+	for _, key := range keys {
+		if value := bytes.TrimSpace(payload[key]); len(value) > 0 {
+			return string(value)
+		}
+	}
+	return ""
+}
+
+func previewAny(value any) string {
+	if value == nil {
+		return ""
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Sprint(value)
+	}
+	return string(raw)
 }

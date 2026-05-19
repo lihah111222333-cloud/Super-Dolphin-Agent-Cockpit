@@ -1,6 +1,7 @@
 package unified_test
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -80,6 +81,31 @@ func TestBuildManifest_UsesProxyHTTPAddr(t *testing.T) {
 	}
 	if len(got.Binaries) != 3 {
 		t.Fatalf("unexpected extra binaries under proxy mode: %+v", got.Binaries)
+	}
+}
+
+func TestBuildManifest_StdioOnlyIgnoresHTTPDiscovery(t *testing.T) {
+	got := manifestbuilder.BuildManifest(dto.ManifestContext{
+		AgentID:       "agent-1",
+		BinaryDir:     "/tmp/bin",
+		ProxyHTTPAddr: "127.0.0.1:39001",
+		PeerHTTPAddrs: map[dto.ToolFamily]string{
+			dto.FamilyLSP:  "127.0.0.1:39002",
+			dto.FamilyOrch: "127.0.0.1:39003",
+		},
+		TransportMode: dto.ManifestTransportStdioOnly,
+	})
+
+	if len(got.Binaries) != 2 {
+		t.Fatalf("binaries = %#v, want lsp/orch stdio entries", got.Binaries)
+	}
+	for _, binary := range got.Binaries {
+		if binary.Type == "http" || binary.URL != "" {
+			t.Fatalf("binary %q = %#v, want stdio command despite HTTP discovery", binary.Name, binary)
+		}
+		if len(binary.Command) != 1 || !strings.Contains(binary.Command[0], "/tmp/bin/mcp-") {
+			t.Fatalf("binary %q command = %#v, want managed stdio command", binary.Name, binary.Command)
+		}
 	}
 }
 
@@ -172,4 +198,76 @@ func TestBuildManifest_PreservesDatabaseURLFromEnvironment(t *testing.T) {
 			t.Fatalf("binary %q DATABASE_URL = %q", bin.Name, gotURL)
 		}
 	}
+}
+
+func TestBuildManifest_LSPEnvIncludesPrimaryAndAdditionalWorkspaceRoots(t *testing.T) {
+	got := manifestbuilder.BuildManifest(dto.ManifestContext{
+		CWD:                          "/repo",
+		AdditionalWorkingDirectories: []string{"/repo/packages/api", " /repo/packages/api ", "/repo/packages/web"},
+	})
+	lsp := requireManifestBinary(t, got, "lsp")
+	if lsp.Env["GO_AGENT_LSP_ROOT"] != "/repo" {
+		t.Fatalf("GO_AGENT_LSP_ROOT = %q, want /repo; env=%#v", lsp.Env["GO_AGENT_LSP_ROOT"], lsp.Env)
+	}
+	var roots []string
+	if err := json.Unmarshal([]byte(lsp.Env["GO_AGENT_LSP_ROOTS"]), &roots); err != nil {
+		t.Fatalf("GO_AGENT_LSP_ROOTS = %q, want JSON array: %v", lsp.Env["GO_AGENT_LSP_ROOTS"], err)
+	}
+	want := []string{"/repo", "/repo/packages/api", "/repo/packages/web"}
+	require.Equal(t, want, roots)
+
+	orch := requireManifestBinary(t, got, "orch")
+	require.NotContains(t, orch.Env, "GO_AGENT_LSP_ROOT")
+	require.NotContains(t, orch.Env, "GO_AGENT_LSP_ROOTS")
+}
+
+func TestBuildManifest_RelativeAdditionalWorkspaceRootsResolveAgainstCWD(t *testing.T) {
+	got := manifestbuilder.BuildManifest(dto.ManifestContext{
+		CWD:                          "/repo",
+		AdditionalWorkingDirectories: []string{"packages/api"},
+	})
+	lsp := requireManifestBinary(t, got, "lsp")
+	var roots []string
+	if err := json.Unmarshal([]byte(lsp.Env["GO_AGENT_LSP_ROOTS"]), &roots); err != nil {
+		t.Fatalf("GO_AGENT_LSP_ROOTS = %q, want JSON array: %v", lsp.Env["GO_AGENT_LSP_ROOTS"], err)
+	}
+	want := []string{"/repo", "/repo/packages/api"}
+	require.Equal(t, want, roots)
+}
+
+func TestBuildManifest_DropsRelativeAdditionalWorkspaceRootsWithoutCWD(t *testing.T) {
+	got := manifestbuilder.BuildManifest(dto.ManifestContext{
+		AdditionalWorkingDirectories: []string{"packages/api"},
+	})
+	lsp := requireManifestBinary(t, got, "lsp")
+	require.NotContains(t, lsp.Env, "GO_AGENT_LSP_ROOT")
+	require.NotContains(t, lsp.Env, "GO_AGENT_LSP_ROOTS")
+}
+
+func TestBuildManifest_DropsAdditionalWorkspaceRootsWithoutTrustedCWD(t *testing.T) {
+	for name, cwd := range map[string]string{
+		"missing cwd":  "",
+		"relative cwd": ".",
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := manifestbuilder.BuildManifest(dto.ManifestContext{
+				CWD:                          cwd,
+				AdditionalWorkingDirectories: []string{"/repo/packages/api"},
+			})
+			lsp := requireManifestBinary(t, got, "lsp")
+			require.NotContains(t, lsp.Env, "GO_AGENT_LSP_ROOT")
+			require.NotContains(t, lsp.Env, "GO_AGENT_LSP_ROOTS")
+		})
+	}
+}
+
+func requireManifestBinary(t *testing.T, manifest dto.MCPManifest, name string) dto.MCPBinary {
+	t.Helper()
+	for _, binary := range manifest.Binaries {
+		if binary.Name == name {
+			return binary
+		}
+	}
+	t.Fatalf("manifest missing binary %q: %#v", name, manifest.Binaries)
+	return dto.MCPBinary{}
 }

@@ -22,6 +22,19 @@ func TestBuildStartCtxFallsBackToConfigAndRegistry(t *testing.T) {
 	assertStartCtxTools(t, ctx, repoRoot)
 }
 
+func TestBuildStartCtxDoesNotSynthesizeProcessCWD(t *testing.T) {
+	t.Parallel()
+
+	ctx := buildStartCtx(StartRequest{
+		Config: map[string]any{
+			"additionalWorkingDirectories": []any{"packages/api"},
+		},
+	}, nil, nil)
+	if ctx.CWD != "" {
+		t.Fatalf("CWD = %q, want empty when caller did not provide a workspace", ctx.CWD)
+	}
+}
+
 func buildConfigFallbackStartCtx(repoRoot, cwd string) contract.BuildCtx {
 	return buildStartCtx(StartRequest{
 		Provider: "codex",

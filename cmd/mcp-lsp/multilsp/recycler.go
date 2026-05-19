@@ -162,9 +162,7 @@ func recycleWorkspaceClient(mgr *manager, scope ResolvedLSPToolScope, workspace 
 func recycleRestoreContext(scope ResolvedLSPToolScope, cfg workspaceConfig) context.Context {
 	ctx := context.Background()
 	scope = recycleResolvedScope(scope, cfg)
-	if toolScope := recycleToolScope(scope); toolScope != (common.ToolScope{}) {
-		ctx = common.WithToolScope(ctx, toolScope)
-	}
+	ctx = common.WithToolScope(ctx, recycleToolScope(scope))
 	return WithResolvedLSPToolScope(ctx, scope)
 }
 
@@ -198,6 +196,10 @@ func recycleToolScope(scope ResolvedLSPToolScope) common.ToolScope {
 		TurnID:   scope.TurnID,
 		CallID:   scope.CallID,
 		CWD:      scope.CWD,
+		WorkspaceRoots: append(
+			[]string(nil),
+			scope.WorkspaceRoots...,
+		),
 	}
 }
 

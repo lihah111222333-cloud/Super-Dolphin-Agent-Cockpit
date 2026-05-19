@@ -2,10 +2,15 @@ package codexapp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
+
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 )
 
 // PoolSpawnArgs drives BuildPoolSpawnCmd. Home is injected as CODEX_HOME,
@@ -30,6 +35,29 @@ var codexAppServerArgs = buildCodexAppServerArgs(localSpawnListenURL())
 
 func buildCodexAppServerArgs(listenURL string) []string {
 	return []string{codexBinaryName, codexAppServerCommand, codexAppServerListen, listenURL}
+}
+
+func localSpawnAppServerArgs() []string {
+	return append(buildCodexAppServerArgs(localSpawnListenURL()), localSpawnNativeLSPFailClosedArgs()...)
+}
+
+func localSpawnNativeLSPFailClosedArgs() []string {
+	return poolSpawnNativeLSPConfigOverrideArgs([]string{
+		"mcp_servers.lsp.command=" + tomlString(codexLocalMCPCommand("mcp-lsp")),
+		"mcp_servers.lsp.type=" + tomlString("stdio"),
+		"mcp_servers.lsp.env.GO_AGENT_LSP_ROOTS=" + tomlString("[]"),
+	})
+}
+
+func codexLocalMCPCommand(name string) string {
+	if dir := strings.TrimSpace(resolveCodexLocalMCPBinaryDir()); dir != "" {
+		return filepath.Join(dir, strings.TrimSpace(name))
+	}
+	return strings.TrimSpace(name)
+}
+
+func resolveCodexLocalMCPBinaryDir() string {
+	return providershared.ResolveBinaryDir("", nil)
 }
 
 func isCodexAppServerListenArgs(args []string) bool {
@@ -88,7 +116,8 @@ func BuildPoolSpawnCmd(ctx context.Context, args PoolSpawnArgs) (*exec.Cmd, erro
 	// for the I/O-level waits further up the stack. Keeping the param
 	// preserves the signature for callers that want to reject a
 	// pre-cancelled ctx early.
-	argv := append(append([]string(nil), codexAppServerArgs...), args.ExtraArgs...)
+	extraArgs := append(poolSpawnNativeLSPConfigArgs(ctx, workDir), args.ExtraArgs...)
+	argv := append(append([]string(nil), codexAppServerArgs...), extraArgs...)
 	cmd := wrapWithFDLimit(argv)
 	if workDir != "" {
 		cmd.Dir = workDir
@@ -100,4 +129,51 @@ func BuildPoolSpawnCmd(ctx context.Context, args PoolSpawnArgs) (*exec.Cmd, erro
 	cmd.Env = buildPoolSpawnEnv(parent, home, workDir)
 	setCodexProcessAttrs(cmd)
 	return cmd, nil
+}
+
+func poolSpawnNativeLSPConfigArgs(ctx context.Context, workDir string) []string {
+	roots := poolSpawnWorkspaceRoots(ctx)
+	if len(roots) == 0 && strings.TrimSpace(workDir) != "" {
+		roots = []string{strings.TrimSpace(workDir)}
+	}
+	binaryDir := strings.TrimSpace(poolSpawnMCPBinaryDir(ctx))
+	if len(roots) == 0 {
+		if binaryDir == "" {
+			return nil
+		}
+		return poolSpawnNativeLSPConfigOverrideArgs([]string{
+			"mcp_servers.lsp.command=" + tomlString(filepath.Join(binaryDir, "mcp-lsp")),
+			"mcp_servers.lsp.type=" + tomlString("stdio"),
+			"mcp_servers.lsp.env.GO_AGENT_LSP_ROOTS=" + tomlString("[]"),
+		})
+	}
+	primary := roots[0]
+	rawRoots, err := json.Marshal(roots)
+	if err != nil {
+		return nil
+	}
+	overrides := []string{
+		"mcp_servers.lsp.type=" + tomlString("stdio"),
+		"mcp_servers.lsp.cwd=" + tomlString(primary),
+		"mcp_servers.lsp.env.GO_AGENT_LSP_ROOT=" + tomlString(primary),
+		"mcp_servers.lsp.env.GO_AGENT_LSP_ROOTS=" + tomlString(string(rawRoots)),
+	}
+	if binaryDir != "" {
+		overrides = append([]string{
+			"mcp_servers.lsp.command=" + tomlString(filepath.Join(binaryDir, "mcp-lsp")),
+		}, overrides...)
+	}
+	return poolSpawnNativeLSPConfigOverrideArgs(overrides)
+}
+
+func poolSpawnNativeLSPConfigOverrideArgs(overrides []string) []string {
+	args := make([]string, 0, len(overrides)*2)
+	for _, override := range overrides {
+		args = append(args, "-c", override)
+	}
+	return args
+}
+
+func tomlString(value string) string {
+	return strconv.Quote(strings.TrimSpace(value))
 }

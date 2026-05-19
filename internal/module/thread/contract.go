@@ -210,6 +210,7 @@ type ResumeRequest struct {
 	CWD                      string
 	Model                    string
 	Effort                   string
+	Config                   map[string]any
 	PromptSnapshot           contract.PromptAssemblySnapshot
 	ConfigOverride           dto.ThreadConfigPatch
 	ClaudeHome               string
