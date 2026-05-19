@@ -48,10 +48,8 @@ import {
   applyComposerTextareaAutoHeight,
   ComposerBar,
 } from './components/ComposerBar.js';
-import { LaunchSkillPicker } from './components/LaunchSkillPicker.js';
 import { useComposerTextarea } from './composables/useComposerTextarea.js';
 import { useComposerThreadConfig } from './composables/useComposerThreadConfig.js';
-import { reactive } from '../lib/vue.esm-browser.prod.js';
 
 let registeredNativeDropHandler = null;
 let registeredNativeDropDispose = vi.fn();
@@ -73,7 +71,6 @@ function createComposerBar(overrides = {}, emit = vi.fn()) {
     },
     disabled: overrides.disabled ?? false,
     threadId: Object.prototype.hasOwnProperty.call(overrides, 'threadId') ? overrides.threadId : 'thread-1',
-    launchSkillSelectionEnabled: overrides.launchSkillSelectionEnabled ?? false,
     interruptible: overrides.interruptible ?? false,
     compacting: overrides.compacting ?? false,
     canCompact: overrides.canCompact ?? true,
@@ -82,10 +79,6 @@ function createComposerBar(overrides = {}, emit = vi.fn()) {
     compactSuccessCount: overrides.compactSuccessCount ?? 0,
     tokenInline: '',
     tokenTooltip: '',
-    skillMatches: overrides.skillMatches ?? [],
-    skillMatchesLoading: false,
-    selectedSkillNames: overrides.selectedSkillNames ?? [],
-    selectedSkillRefs: overrides.selectedSkillRefs ?? [],
     isCmd: overrides.isCmd ?? false,
     threadConfigProvider: overrides.threadConfigProvider ?? '',
     threadConfigSupportsOverride: overrides.threadConfigSupportsOverride ?? false,
@@ -102,26 +95,6 @@ function createComposerBar(overrides = {}, emit = vi.fn()) {
     promoteTaskError: overrides.promoteTaskError ?? '',
   };
   const vm = ComposerBar.setup(props, { emit });
-  return { props, emit, vm };
-}
-
-function createLaunchSkillPicker(overrides = {}, emit = vi.fn()) {
-  const props = reactive({
-    enabled: true,
-    skills: overrides.skills ?? [
-      { name: 'ProjectSkill', summary: 'project skill', trust: 'project' },
-      { name: 'SystemSkill', summary: 'system skill', trust: 'user' },
-    ],
-    projectSkills: overrides.projectSkills ?? [{ name: 'ProjectSkill', summary: 'project skill', trust: 'project' }],
-    systemSkills: overrides.systemSkills ?? [{ name: 'SystemSkill', summary: 'system skill', trust: 'user' }],
-    scope: Object.prototype.hasOwnProperty.call(overrides, 'scope') ? overrides.scope : '',
-    scopeTabsEnabled: overrides.scopeTabsEnabled ?? false,
-    matches: overrides.matches ?? [],
-    selectedSkillNames: overrides.selectedSkillNames ?? [],
-    selectedSkillRefs: overrides.selectedSkillRefs ?? [],
-    loading: overrides.loading ?? false,
-  });
-  const vm = LaunchSkillPicker.setup(props, { emit });
   return { props, emit, vm };
 }
 
@@ -181,130 +154,6 @@ describe('ComposerBar behavior', () => {
 
     expect(preventDefault).not.toHaveBeenCalled();
     expect(emit).not.toHaveBeenCalled();
-  });
-
-  it('hides the legacy skill selector on blank-thread launch when launch picker is disabled', () => {
-    const { vm } = createComposerBar({ threadId: null, launchSkillSelectionEnabled: false });
-
-    expect(vm.showLegacySkillSelector.value).toBe(false);
-    expect(ComposerBar.template).not.toContain('data-testid="composer-skill-selector"');
-    expect(ComposerBar.template).not.toContain('技能选择');
-  });
-
-  it('hides the legacy skill selector on blank-thread launch when launch picker is enabled', () => {
-    const { vm } = createComposerBar({ threadId: null, launchSkillSelectionEnabled: true });
-
-    expect(vm.showLegacySkillSelector.value).toBe(false);
-    expect(ComposerBar.template).not.toContain('v-if="showLegacySkillSelector"');
-  });
-
-  it('hides the legacy skill selector for active threads because providers discover mirrored skills natively', () => {
-    expect(createComposerBar({ threadId: 't1', launchSkillSelectionEnabled: false }).vm.showLegacySkillSelector.value).toBe(false);
-    expect(createComposerBar({ threadId: 't1', launchSkillSelectionEnabled: true }).vm.showLegacySkillSelector.value).toBe(false);
-  });
-
-  it('keeps launch picker scope tabs hidden when scope prop is empty', () => {
-    const { vm } = createLaunchSkillPicker({ scope: '', scopeTabsEnabled: true });
-
-    expect(vm.showScopeTabs.value).toBe(false);
-    expect(LaunchSkillPicker.template).toContain('data-testid="launch-skill-scope-tabs"');
-  });
-
-  it('uses personal launch picker tabs instead of exposing a system tab', () => {
-    const emit = vi.fn();
-    const { props, vm } = createLaunchSkillPicker({
-      scope: 'project',
-      scopeTabsEnabled: true,
-      projectSkills: [
-        { name: 'ProjectSkill', summary: 'project skill', trust: 'project' },
-      ],
-      systemSkills: [
-        { name: 'SystemSkill', summary: 'system skill', trust: 'user' },
-      ],
-      matches: [],
-      selectedSkillNames: [],
-    }, emit);
-
-    expect(vm.skillEntries.value.map((entry) => entry.name)).toEqual(['ProjectSkill']);
-    expect(LaunchSkillPicker.template).toContain('data-testid="launch-skill-scope-tab-personal"');
-    expect(LaunchSkillPicker.template).not.toContain('data-testid="launch-skill-scope-tab-system"');
-    expect(LaunchSkillPicker.template).not.toContain('<span>system</span>');
-
-    vm.updateScope('personal');
-    expect(emit).toHaveBeenCalledWith('update:scope', 'personal');
-
-    props.scope = 'personal';
-    expect(vm.skillEntries.value.map((entry) => entry.name)).toEqual(['SystemSkill']);
-  });
-
-  it('does not leak another scope match into the active launch picker tab', () => {
-    const { vm } = createLaunchSkillPicker({
-      scope: 'project',
-      scopeTabsEnabled: true,
-      projectSkills: [
-        { key: 'project::build:/repo/.agent/skills/build', name: 'Build', summary: 'project build', scope: 'project', dir: '/repo/.agent/skills/build' },
-      ],
-      systemSkills: [
-        { key: 'personal:user:notes:/home/skills/notes', name: 'Notes', summary: 'personal notes', scope: 'personal', personal_type: 'user', dir: '/home/skills/notes' },
-      ],
-      matches: [{ name: 'Notes', matchedBy: 'keyword' }],
-    });
-
-    expect(vm.skillEntries.value.map((entry) => entry.name)).toEqual(['Build']);
-  });
-
-  it('keeps same-name launch skills distinct by composite key', () => {
-    const emit = vi.fn();
-    const { vm } = createLaunchSkillPicker({
-      skills: [],
-      projectSkills: [
-        { key: 'project::docs:/repo/.agent/skills/docs', name: 'Docs', summary: 'project docs', scope: 'project', dir: '/repo/.agent/skills/docs' },
-      ],
-      systemSkills: [
-        { key: 'personal:user:docs:/home/skills/docs', name: 'Docs', summary: 'personal docs', scope: 'personal', personal_type: 'user', dir: '/home/skills/docs' },
-      ],
-      scope: 'project',
-      scopeTabsEnabled: true,
-      selectedSkillRefs: [{ key: 'personal:user:docs:/home/skills/docs', name: 'Docs', scope: 'personal', personalType: 'user', path: '/home/skills/docs' }],
-    }, emit);
-
-    expect(vm.skillEntries.value.map((entry) => entry.key)).toEqual(['project::docs:/repo/.agent/skills/docs']);
-    expect(vm.skillEntries.value[0].selected).toBe(false);
-    vm.toggleEntry(vm.skillEntries.value[0]);
-    expect(emit).toHaveBeenCalledWith('toggle-skill', expect.objectContaining({
-      key: 'project::docs:/repo/.agent/skills/docs',
-      name: 'Docs',
-      scope: 'project',
-    }));
-  });
-
-  it('counts selected launch skill refs instead of deduped names', () => {
-    const { vm } = createLaunchSkillPicker({
-      selectedSkillNames: ['Docs'],
-      selectedSkillRefs: [
-        { key: 'project::docs:/repo/.agent/skills/docs', name: 'Docs', scope: 'project', path: '/repo/.agent/skills/docs' },
-        { key: 'personal:user:docs:/home/skills/docs', name: 'Docs', scope: 'personal', personalType: 'user', path: '/home/skills/docs' },
-      ],
-    });
-
-    expect(vm.selectedSkillCount?.value).toBe(2);
-  });
-
-  it('emits the full active-thread skill match so same-name refs stay precise', () => {
-    const emit = vi.fn();
-    const match = {
-      key: 'personal:user:docs:/home/skills/docs',
-      name: 'Docs',
-      scope: 'personal',
-      personal_type: 'user',
-      dir: '/home/skills/docs',
-      reason: 'manual',
-    };
-    const { vm } = createComposerBar({ skillMatches: [match] }, emit);
-
-    vm.onToggleSkill(match);
-
-    expect(emit).toHaveBeenCalledWith('toggle-skill', match);
   });
 
   it('emits interrupt payloads and resolves pause acknowledgement on confirm', () => {
@@ -497,40 +346,13 @@ describe('ComposerBar behavior', () => {
     expect(vm.dropDepth.value).toBe(0);
   });
 
-  it('derives compact tone and skill selection helpers', () => {
-    const emit = vi.fn();
+  it('derives compact tone class', () => {
     const { vm } = createComposerBar({
       compactResultTone: 'success',
       compactResultText: '压缩完成',
-      selectedSkillNames: ['AlphaSkill'],
-      skillMatches: [{ name: 'AlphaSkill', matchedBy: 'explicit', matchedTerms: ['alpha'] }],
-    }, emit);
-
-    expect(vm.compactResultToneClass()).toBe('is-success');
-    expect(vm.isSkillSelected('alphaskill')).toBe(true);
-    expect(vm.skillMatchClass({ matchedBy: 'force' })).toBe('force');
-    expect(vm.skillMatchReason({ matchedBy: 'explicit', matchedTerms: ['alpha'] })).toContain('直接提到');
-    expect(vm.skillMatchReason({ matchedBy: 'trigger', matchedTerms: ['bug'] })).toBe('关键词: bug');
-
-    vm.onToggleSkill('AlphaSkill');
-    vm.onSelectAllSkills();
-    vm.onClearSkills();
-
-    expect(emit.mock.calls.map((call) => call[0])).toEqual(['toggle-skill', 'select-all-skills', 'clear-skills']);
-  });
-
-  it('uses composite skill refs for active-thread selection state', () => {
-    const { vm } = createComposerBar({
-      selectedSkillNames: ['Docs'],
-      selectedSkillRefs: [{ key: 'personal:user:docs:/home/skills/docs', name: 'Docs', scope: 'personal', personalType: 'user', path: '/home/skills/docs' }],
-      skillMatches: [
-        { key: 'project::docs:/repo/.agent/skills/docs', name: 'Docs', scope: 'project', dir: '/repo/.agent/skills/docs' },
-        { key: 'personal:user:docs:/home/skills/docs', name: 'Docs', scope: 'personal', personal_type: 'user', dir: '/home/skills/docs' },
-      ],
     });
 
-    expect(vm.isSkillSelected({ key: 'project::docs:/repo/.agent/skills/docs', name: 'Docs', scope: 'project', dir: '/repo/.agent/skills/docs' })).toBe(false);
-    expect(vm.isSkillSelected({ key: 'personal:user:docs:/home/skills/docs', name: 'Docs', scope: 'personal', personal_type: 'user', dir: '/home/skills/docs' })).toBe(true);
+    expect(vm.compactResultToneClass()).toBe('is-success');
   });
 
   it('auto grows composer textarea and clamps overflow', () => {

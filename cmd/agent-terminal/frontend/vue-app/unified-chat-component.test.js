@@ -389,10 +389,9 @@ describe('UnifiedChatPage.setup chat rail integration', () => {
     expect(autoScrollMock.scheduleScrollToBottom).toHaveBeenCalledWith(true);
   });
 
-  it('does not request launch skill catalog from chat composer', async () => {
+  it('does not request skill catalog from chat composer setup', async () => {
     const counters = { display: [], status: [], header: [], interrupt: [] };
     const threadStore = makeThreadStore(counters);
-    threadStore.state.features = { launchSkillSelection: true };
     threadStore.getPreferenceScopeCwd = () => '/scoped/project';
     const projectStore = {
       ...makeProjectStore(),

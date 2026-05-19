@@ -19,17 +19,6 @@ function withOptionalPersonalType(payload = {}, personalType = '') {
   return resolvedType ? { ...payload, personal_type: resolvedType } : payload;
 }
 
-export async function listSkills(cwd = '') {
-  const raw = await callAPI('skills/list', withOptionalCwd({}, cwd));
-  return Array.isArray(raw?.skills) ? raw.skills : [];
-}
-
-export async function previewSkillMatches(params = {}) {
-  const threadId = (params?.threadId || '').toString();
-  const text = (params?.text || '').toString();
-  return callAPI('skills/match/preview', withOptionalCwd({ threadId, text }, params?.cwd || ''));
-}
-
 export async function writeSkill(cwd = '', path = '', content = '', scope = '', personalType = '') {
   return callAPI('skills/local/write', withOptionalPersonalType(withOptionalScope(withOptionalCwd({
     path: trimString(path),

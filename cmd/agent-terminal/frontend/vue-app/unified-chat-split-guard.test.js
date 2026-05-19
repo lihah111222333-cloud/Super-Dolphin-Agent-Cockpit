@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const hooks = vi.hoisted(() => ({ mounted: [], unmounted: [], droppedCleanup: vi.fn() }));
 const autoScroll = vi.hoisted(() => ({ schedule: vi.fn() }));
 const provider = vi.hoisted(() => ({ useClaude: false, load: vi.fn(async () => { }), toggle: vi.fn(async () => { }) }));
-const skill = vi.hoisted(() => ({ reset: vi.fn(), resolve: vi.fn(async () => ({ selectedSkills: [], manualSkillSelection: false })) }));
 const diffMock = vi.hoisted(() => ({ last: null, timelinePreview: vi.fn(() => []), diffPreview: vi.fn(() => '') }));
 const composer = vi.hoisted(() => {
   const state = { text: '', attachments: [] };
@@ -32,14 +31,6 @@ vi.mock('./services/api.js', () => ({
 }));
 vi.mock('./services/log.js', () => ({ logDebug: vi.fn(), logInfo: vi.fn(), logWarn: vi.fn() }));
 vi.mock('./composables/useAutoScroll.js', () => ({ useAutoScroll: () => ({ scheduleScrollToBottom: autoScroll.schedule }) }));
-vi.mock('./composables/useSkillPreview.js', () => ({
-  useSkillPreview: () => ({
-    composerSkillMatches: [], composerEffectiveSelectedSkillNames: [], composerEffectiveSelectedSkillRefs: [], composerSkillPreviewLoading: false,
-    isComposerSkillSelected: () => false, toggleComposerSelectedSkill: vi.fn(), clearComposerSelectedSkills: vi.fn(),
-    resetSelectedComposerSkills: skill.reset, selectAllComposerSuggestedSkills: vi.fn(), composerSkillMatchClass: () => '',
-    composerSkillMatchReason: () => '', resolveComposerSkillSelectionForSend: skill.resolve,
-  }),
-}));
 vi.mock('./composables/useProviderMode.js', async () => {
   const { ref } = await vi.importActual('../lib/vue.esm-browser.prod.js');
   return { useProviderMode: () => ({ useClaudeProvider: ref(provider.useClaude), loadProviderPreference: provider.load, toggleProviderMode: provider.toggle }) };
@@ -77,6 +68,11 @@ import { callAPI, copyTextToClipboard } from './services/api.js';
 import { UnifiedChatPage } from './pages/UnifiedChatPage.js';
 
 const flush = async () => { await Promise.resolve(); await Promise.resolve(); await nextTick(); };
+function displayThreadName(thread) {
+  if (!thread) return '';
+  return thread.name || thread.id || '';
+}
+
 function makeStores(opts = {}) {
   const current = ref(opts.selectedId ?? 'thread-active');
   const threads = reactive(opts.threads ?? [{ id: 'thread-active', name: 'Active' }, { id: 'thread-2', name: 'Second' }]);
@@ -85,14 +81,61 @@ function makeStores(opts = {}) {
   const timeline = reactive(opts.timeline ?? { 'thread-active': [], 'thread-2': [] }); const diff = map(opts.diff); const token = map(opts.token);
   const activity = map(opts.activity); const alerts = map(opts.alerts); const compacting = map(opts.compacting); const compactResult = map(opts.compactResult); const compactSuccess = map(opts.compactSuccess);
   let layout = opts.layout ?? 'focus'; let cols = opts.cols ?? 3;
-  const store = { state: reactive({ pinnedThreadAtById: opts.pinned ?? {}, archivedThreadAtById: opts.archived ?? {}, agentRuntimeById: opts.runtime ?? {}, skillRevision: 0, agentMetaById: opts.meta ?? {}, diffTextByThread: diff }), getLayout: vi.fn(() => layout), setLayout: vi.fn((_, v) => { layout = v; }), getCmdCardCols: vi.fn(() => cols), setCmdCardCols: vi.fn((v) => { cols = v; }), getSplitRatio: () => 60, setSplitRatio() { }, getThreadRailWidth: () => 232, setThreadRailWidth() { }, getActivityPanelHeight: () => 220, setActivityPanelHeight() { }, getCurrentThreadId: vi.fn(() => current.value), saveActiveThread: vi.fn((v) => { current.value = v || ''; }), saveActiveCmdThread: vi.fn((v) => { current.value = v || ''; }), getThreadsByMode: vi.fn(() => threads), displayName: vi.fn((thread) => thread?.name || thread?.id || ''), getThreadStatus: vi.fn((id) => status[id] || 'idle'), getThreadStatusHeader: vi.fn((id) => header[id] || ''), getThreadInterruptible: vi.fn((id) => Boolean(interruptible[id])), getThreadTimeline: vi.fn((id) => timeline[id] || []), getThreadDiff: vi.fn((id) => diff[id] || ''), getThreadStatusDetails: vi.fn((id) => details[id] || ''), getThreadTokenUsage: vi.fn((id) => token[id] ?? null), getThreadCompacting: vi.fn((id) => Boolean(compacting[id])), getThreadCompactResult: vi.fn((id) => compactResult[id] ?? null), getThreadCompactSuccessCount: vi.fn((id) => compactSuccess[id] ?? 0), getThreadActivityStats: vi.fn((id) => activity[id] ?? {}), getThreadAlerts: vi.fn((id) => alerts[id] ?? []), startThread: vi.fn(async () => opts.startThreadId ?? 'thread-started'), sendMessage: vi.fn(async () => ({})), stopThread: vi.fn(async () => ({ confirmed: true, settled: true, mode: 'interrupt_confirmed' })), compactThread: vi.fn(async () => ({})), forceCompleteThread: vi.fn(async () => ({})), recoverThread: vi.fn(async () => ({})), loadMessages: vi.fn(async () => ({})), renameThread: vi.fn(async (id, name) => { const thread = threads.find((item) => item.id === id); if (thread) thread.name = name; }), promptRenameThread: vi.fn(), toggleThreadPin: vi.fn((id) => { store.state.pinnedThreadAtById[id] = store.state.pinnedThreadAtById[id] ? 0 : Date.now(); }), toggleThreadArchive: vi.fn(async (id) => { store.state.archivedThreadAtById[id] = store.state.archivedThreadAtById[id] ? 0 : Date.now(); }) };
+  const store = {
+    state: reactive({
+      pinnedThreadAtById: opts.pinned ?? {},
+      archivedThreadAtById: opts.archived ?? {},
+      agentRuntimeById: opts.runtime ?? {},
+      skillRevision: 0,
+      agentMetaById: opts.meta ?? {},
+      diffTextByThread: diff,
+    }),
+    getLayout: vi.fn(() => layout),
+    setLayout: vi.fn((_, v) => { layout = v; }),
+    getCmdCardCols: vi.fn(() => cols),
+    setCmdCardCols: vi.fn((v) => { cols = v; }),
+    getSplitRatio: () => 60,
+    setSplitRatio() { },
+    getThreadRailWidth: () => 232,
+    setThreadRailWidth() { },
+    getActivityPanelHeight: () => 220,
+    setActivityPanelHeight() { },
+    getCurrentThreadId: vi.fn(() => current.value),
+    saveActiveThread: vi.fn((v) => { current.value = v || ''; }),
+    saveActiveCmdThread: vi.fn((v) => { current.value = v || ''; }),
+    getThreadsByMode: vi.fn(() => threads),
+    displayName: vi.fn(displayThreadName),
+    getThreadStatus: vi.fn((id) => status[id] || 'idle'),
+    getThreadStatusHeader: vi.fn((id) => header[id] || ''),
+    getThreadInterruptible: vi.fn((id) => Boolean(interruptible[id])),
+    getThreadTimeline: vi.fn((id) => timeline[id] || []),
+    getThreadDiff: vi.fn((id) => diff[id] || ''),
+    getThreadStatusDetails: vi.fn((id) => details[id] || ''),
+    getThreadTokenUsage: vi.fn((id) => token[id] ?? null),
+    getThreadCompacting: vi.fn((id) => Boolean(compacting[id])),
+    getThreadCompactResult: vi.fn((id) => compactResult[id] ?? null),
+    getThreadCompactSuccessCount: vi.fn((id) => compactSuccess[id] ?? 0),
+    getThreadActivityStats: vi.fn((id) => activity[id] ?? {}),
+    getThreadAlerts: vi.fn((id) => alerts[id] ?? []),
+    startThread: vi.fn(async () => opts.startThreadId ?? 'thread-started'),
+    sendMessage: vi.fn(async () => ({})),
+    stopThread: vi.fn(async () => ({ confirmed: true, settled: true, mode: 'interrupt_confirmed' })),
+    compactThread: vi.fn(async () => ({})),
+    forceCompleteThread: vi.fn(async () => ({})),
+    recoverThread: vi.fn(async () => ({})),
+    loadMessages: vi.fn(async () => ({})),
+    renameThread: vi.fn(async (id, name) => { const thread = threads.find((item) => item.id === id); if (thread) thread.name = name; }),
+    promptRenameThread: vi.fn(),
+    toggleThreadPin: vi.fn((id) => { store.state.pinnedThreadAtById[id] = store.state.pinnedThreadAtById[id] ? 0 : Date.now(); }),
+    toggleThreadArchive: vi.fn(async (id) => { store.state.archivedThreadAtById[id] = store.state.archivedThreadAtById[id] ? 0 : Date.now(); }),
+  };
   const projectStore = { state: reactive({ active: opts.active ?? '.', showModal: false, projects: opts.projects ?? ['.'] }), projectOptions: { value: [] }, setActive: vi.fn(), quickAdd: vi.fn(), removeProject: vi.fn() };
   return { store, projectStore, current };
 }
 const createVm = async (opts = {}) => { const { store, projectStore, current } = makeStores(opts); const vm = UnifiedChatPage.setup({ threadStore: store, projectStore, mode: opts.mode ?? 'chat' }); await flush(); return { vm, store, projectStore, current }; };
 
 beforeEach(() => {
-  hooks.mounted.length = 0; hooks.unmounted.length = 0; hooks.droppedCleanup.mockClear(); diffMock.last = null; diffMock.timelinePreview.mockReset().mockReturnValue([]); diffMock.diffPreview.mockReset().mockReturnValue(''); autoScroll.schedule.mockClear(); provider.useClaude = false; provider.load.mockClear(); provider.toggle.mockClear(); skill.reset.mockClear(); skill.resolve.mockReset().mockResolvedValue({ selectedSkills: [], manualSkillSelection: false }); composer.state.text = ''; composer.state.attachments = []; composer.clearComposer.mockClear(); composer.attachByPaths.mockClear(); vi.mocked(callAPI).mockReset().mockResolvedValue({}); vi.mocked(copyTextToClipboard).mockReset().mockResolvedValue(true);
+  hooks.mounted.length = 0; hooks.unmounted.length = 0; hooks.droppedCleanup.mockClear(); diffMock.last = null; diffMock.timelinePreview.mockReset().mockReturnValue([]); diffMock.diffPreview.mockReset().mockReturnValue(''); autoScroll.schedule.mockClear(); provider.useClaude = false; provider.load.mockClear(); provider.toggle.mockClear(); composer.state.text = ''; composer.state.attachments = []; composer.clearComposer.mockClear(); composer.attachByPaths.mockClear(); vi.mocked(callAPI).mockReset().mockResolvedValue({}); vi.mocked(copyTextToClipboard).mockReset().mockResolvedValue(true);
   globalThis.window = { addEventListener: vi.fn(), removeEventListener: vi.fn(), setTimeout: (...args) => setTimeout(...args), clearTimeout: (id) => clearTimeout(id), setInterval: (...args) => setInterval(...args), clearInterval: (id) => clearInterval(id), alert: vi.fn() };
   globalThis.document = { addEventListener: vi.fn(), removeEventListener: vi.fn(), querySelector: vi.fn(() => null), activeElement: null };
 });
@@ -101,7 +144,7 @@ afterEach(() => { for (const fn of hooks.unmounted.splice(0)) fn(); hooks.mounte
 describe('UnifiedChatPage split guard coverage', () => {
   it('locks setup return contract', async () => {
     const { vm } = await createVm();
-    const expected = 'composer,isCmd,threads,selectedThreadId,activeThread,chatThreadOptions,showArchivedThreadList,chatActiveThreadCards,chatArchivedThreadCards,visibleChatThreadCards,activeChatThreadCount,archivedChatThreadCount,activeTimeline,activeDiffText,activeMediaPreview,activeMarkdownPreview,activeDiffFocusFile,activeDiffFocusLine,activeStatus,activeStatusHeader,activeStatusDetails,activeStatusMeta,activeTokenInline,activeTokenTooltip,activeTokenLevel,activeTokenUsage,compacting,canCompact,compactResultText,compactResultTone,compactSuccessCount,canInterrupt,recoveringSelected,sendFailureNotice,displayStatusText,noActiveThread,copyButtonLabel,layoutMode,cmdCardCols,splitRatio,threadRailStyle,showOverview,showWorkspace,chatComposerShellStyle,activityPanelRowStyle,activePinnedPlan,activeTask,taskHandoffVisible,taskHandoffLoading,taskHandoffError,taskHandoffPreview,taskHandoffUpdatedAt,taskHandoffUpdatedBy,taskStripExpanded,continueTaskBusy,stats,recentThreads,cmdCards,composerSkillMatches,composerEffectiveSelectedSkillNames,composerEffectiveSelectedSkillRefs,composerSkillPreviewLoading,isComposerSkillSelected,toggleComposerSelectedSkill,clearComposerSelectedSkills,selectAllComposerSuggestedSkills,composerSkillMatchClass,composerSkillMatchReason,dragging,threadRailDragging,activityPanelDragging,composerBarRef,presenceAnchorRef,workspaceRef,activeActivityStats,activeAlerts,activeProcessActivity,selectThread,launchOne,send,refreshTaskHandoff,continueCurrentTask,startNewTaskFromHandoff,taskHandoffKickoffError,continueCurrentTaskInNewWindow,toggleTaskStrip,scheduleScrollToBottom,scrollToTop,resetScrollState,isAtBottom,useClaudeProvider,toggleProviderMode,interruptCurrent,compactCurrent,recoverSelected,setCmdLayout,setCmdCardCols,copySelectedThreadId,timelinePreview,diffPreview,showPathChoiceModal,pathChoiceOptions,pathChoiceTitle,pathChoiceTruncated,confirmPathChoice,cancelPathChoice,onThreadRailResizeStart,onResizeStart,onActivityResizeStart,stopSelected,renameSelected,loadCardHistory,renameCard,stopCard,toggleThreadPin,toggleThreadArchive,toggleArchivedThreadList,openNewWindow,editingThreadId,editingAlias,renamingThreadId,setRenameInputRef,beginInlineRename,submitInlineRename,handleInlineRenameEnter,cancelInlineRename,handleInlineRenameBlur,getDisplayName,resolveThreadDisplayName,dismissPinnedPlan,deleteStaleThreads,pinnedPlanCardSpec,onTimelineFileRefClick,threadConfigUi,updateThreadConfigModel,updateThreadConfigEffort,saveThreadConfigDraft,restoreThreadConfigInherit'.split(',').sort();
+    const expected = 'composer,isCmd,threads,selectedThreadId,activeThread,chatThreadOptions,showArchivedThreadList,chatActiveThreadCards,chatArchivedThreadCards,visibleChatThreadCards,activeChatThreadCount,archivedChatThreadCount,activeTimeline,activeDiffText,activeMediaPreview,activeMarkdownPreview,activeDiffFocusFile,activeDiffFocusLine,activeStatus,activeStatusHeader,activeStatusDetails,activeStatusMeta,activeTokenInline,activeTokenTooltip,activeTokenLevel,activeTokenUsage,compacting,canCompact,compactResultText,compactResultTone,compactSuccessCount,canInterrupt,recoveringSelected,sendFailureNotice,displayStatusText,noActiveThread,copyButtonLabel,layoutMode,cmdCardCols,splitRatio,threadRailStyle,showOverview,showWorkspace,chatComposerShellStyle,activityPanelRowStyle,activePinnedPlan,activeTask,taskHandoffVisible,taskHandoffLoading,taskHandoffError,taskHandoffPreview,taskHandoffUpdatedAt,taskHandoffUpdatedBy,taskStripExpanded,continueTaskBusy,stats,recentThreads,cmdCards,dragging,threadRailDragging,activityPanelDragging,composerBarRef,presenceAnchorRef,workspaceRef,activeActivityStats,activeAlerts,activeProcessActivity,selectThread,launchOne,send,refreshTaskHandoff,continueCurrentTask,startNewTaskFromHandoff,taskHandoffKickoffError,continueCurrentTaskInNewWindow,toggleTaskStrip,scheduleScrollToBottom,scrollToTop,resetScrollState,isAtBottom,useClaudeProvider,toggleProviderMode,interruptCurrent,compactCurrent,recoverSelected,setCmdLayout,setCmdCardCols,copySelectedThreadId,timelinePreview,diffPreview,showPathChoiceModal,pathChoiceOptions,pathChoiceTitle,pathChoiceTruncated,confirmPathChoice,cancelPathChoice,onThreadRailResizeStart,onResizeStart,onActivityResizeStart,stopSelected,renameSelected,loadCardHistory,renameCard,stopCard,toggleThreadPin,toggleThreadArchive,toggleArchivedThreadList,openNewWindow,editingThreadId,editingAlias,renamingThreadId,setRenameInputRef,beginInlineRename,submitInlineRename,handleInlineRenameEnter,cancelInlineRename,handleInlineRenameBlur,getDisplayName,resolveThreadDisplayName,dismissPinnedPlan,deleteStaleThreads,pinnedPlanCardSpec,onTimelineFileRefClick,threadConfigUi,updateThreadConfigModel,updateThreadConfigEffort,saveThreadConfigDraft,restoreThreadConfigInherit'.split(',').sort();
     expect(Object.keys(vm).sort()).toEqual(expected);
     expect(vm).not.toHaveProperty('resolvePathChoice');
   });
@@ -132,9 +175,9 @@ describe('UnifiedChatPage split guard coverage', () => {
 
 
   it('covers public action methods', async () => {
-    composer.state.text = 'hello'; composer.state.attachments = [{ name: 'a.txt' }]; skill.resolve.mockResolvedValue({ selectedSkills: ['skillA'], manualSkillSelection: true });
+    composer.state.text = 'hello'; composer.state.attachments = [{ name: 'a.txt' }];
     const { vm, store, current } = await createVm({ selectedId: '', active: '/repo', status: { 'thread-started': 'running' }, interruptible: { 'thread-active': true, 'thread-started': true }, runtime: { 'thread-active': { capabilities: ['context_compact'] }, 'thread-started': { capabilities: ['context_compact'] } } });
-    await vm.send(); expect(store.startThread).toHaveBeenCalledWith('/repo', { focusMode: 'chat', prompt: 'hello' }); expect(store.sendMessage).toHaveBeenCalledWith('thread-started', 'hello', [{ name: 'a.txt' }], expect.objectContaining({ cwd: '/repo' })); expect(composer.clearComposer).toHaveBeenCalled(); expect(skill.reset).toHaveBeenCalled(); expect(autoScroll.schedule).toHaveBeenCalled();
+    await vm.send(); expect(store.startThread).toHaveBeenCalledWith('/repo', { focusMode: 'chat', prompt: 'hello' }); expect(store.sendMessage).toHaveBeenCalledWith('thread-started', 'hello', [{ name: 'a.txt' }], expect.objectContaining({ cwd: '/repo' })); expect(composer.clearComposer).toHaveBeenCalled(); expect(autoScroll.schedule).toHaveBeenCalled();
     await vm.launchOne(); expect(current.value).toBe('thread-started'); const confirm = vi.fn(); await vm.interruptCurrent({ threadId: 'thread-started', confirm }); expect(confirm).toHaveBeenCalled(); current.value = 'thread-active'; await vm.compactCurrent(); await vm.recoverSelected(); vm.stopSelected();
     expect(store.compactThread).toHaveBeenCalledWith('thread-active'); expect(store.recoverThread).toHaveBeenCalledWith('thread-active'); expect(store.stopThread).toHaveBeenCalledWith('thread-active', { source: 'ui_stop' });
     vm.loadCardHistory('thread-active'); vm.toggleThreadPin('thread-active'); await vm.toggleThreadArchive('thread-active'); vm.toggleArchivedThreadList(); vm.setCmdLayout('mix'); vm.setCmdCardCols(2); vi.mocked(callAPI).mockImplementation(async (method) => method === 'ui/selectProjectDir' ? { path: '/tmp/child' } : {}); await vm.openNewWindow();

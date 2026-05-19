@@ -25,6 +25,8 @@ beforeEach(() => {
 describe('skills-api resolution wrappers', () => {
   it('does not expose the legacy skill candidate RPC wrappers', () => {
     expect(Object.keys(skillsApi).filter((key) => key.toLowerCase().includes('candidate'))).toEqual([]);
+    expect(skillsApi.listSkills).toBeUndefined();
+    expect(skillsApi.previewSkillMatches).toBeUndefined();
   });
 
   it('writes personal skills with personal_type', async () => {

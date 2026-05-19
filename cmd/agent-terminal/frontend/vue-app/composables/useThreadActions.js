@@ -123,7 +123,7 @@ function setCmdCardColsValue(cmdCardCols, value) {
   cmdCardCols.value = value;
 }
 
-async function resolveLaunchStartPayload(text, focusMode) {
+async function resolveStartOptions(text, focusMode) {
   const startOptions = { focusMode };
   // Forward the user's first message so the backend router has input to
   // classify against prompt_templates tags. Without this the router gets
@@ -137,13 +137,7 @@ async function resolveLaunchStartPayload(text, focusMode) {
     // first turn/start once router has real user input to classify.
     startOptions.deferSpawn = true;
   }
-  return {
-    enabled: false,
-    selectedSkills: [],
-    selectedSkillRefs: [],
-    manualSkillSelection: false,
-    startOptions,
-  };
+  return startOptions;
 }
 
 async function performSend({
@@ -153,9 +147,6 @@ async function performSend({
   threadStore,
   projectStore,
   windowCwd,
-  resolveLaunchSkillSelectionForStart,
-  clearLaunchSkillSelection,
-  resetSelectedComposerSkills,
   scheduleScrollToBottom,
   sendFailureNotice,
 }) {
@@ -167,19 +158,15 @@ async function performSend({
 
   const actionCwd = resolveProjectActionCwd(projectStore, windowCwd);
   if (!threadId) {
-    const launchPayload = await resolveLaunchStartPayload(text, modeKey.value, resolveLaunchSkillSelectionForStart);
-    threadId = await threadStore.startThread(actionCwd, launchPayload.startOptions);
+    const startOptions = await resolveStartOptions(text, modeKey.value);
+    threadId = await threadStore.startThread(actionCwd, startOptions);
     if (!threadId) return;
     selectedThreadId.value = threadId;
-    if (typeof clearLaunchSkillSelection === 'function') {
-      clearLaunchSkillSelection();
-    }
   }
 
   const savedText = text;
   const savedAttachments = attachments;
   composer.clearComposer();
-  resetSelectedComposerSkills();
   try {
     const sendOptions = { manualSkillSelection: false, cwd: actionCwd };
     await threadStore.sendMessage(threadId, text, attachments, sendOptions);
@@ -212,20 +199,16 @@ export function useThreadActions(props, deps) {
     isThreadInterruptible,
     beginInlineRename,
     scheduleScrollToBottom,
-    resolveLaunchSkillSelectionForStart,
-    clearLaunchSkillSelection,
-    resetSelectedComposerSkills,
     showArchivedThreadList,
   } = deps;
 
   const recoveringSelected = ref(false);
   const sendFailureNotice = ref('');
 
-  const launchOne = () => resolveLaunchStartPayload(composer?.state?.text || '', modeKey.value, resolveLaunchSkillSelectionForStart)
-    .then(({ startOptions }) => props.threadStore.startThread(resolveProjectActionCwd(props.projectStore, props.windowCwd), startOptions))
+  const launchOne = () => resolveStartOptions(composer?.state?.text || '', modeKey.value)
+    .then((startOptions) => props.threadStore.startThread(resolveProjectActionCwd(props.projectStore, props.windowCwd), startOptions))
     .then((id) => {
       if (!id) return;
-      if (typeof clearLaunchSkillSelection === 'function') clearLaunchSkillSelection();
       selectedThreadId.value = id;
     });
 
@@ -237,8 +220,7 @@ export function useThreadActions(props, deps) {
     composer,
     modeKey,
     threadStore: props.threadStore, projectStore: props.projectStore, windowCwd: props.windowCwd,
-    resolveLaunchSkillSelectionForStart,
-    clearLaunchSkillSelection, resetSelectedComposerSkills, scheduleScrollToBottom, sendFailureNotice,
+    scheduleScrollToBottom, sendFailureNotice,
   });
 
   async function interruptCurrent(control) {

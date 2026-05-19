@@ -259,11 +259,11 @@ Every existing business path that resolves skills by name must use the conflict-
 - `ListSkills` reports conflicts and does not silently collapse project/personal duplicates
 - `ReadLocal` / `Expand` returns an explicit same-name conflict error when the target name is ambiguous
 - `DeleteLocal` uses `DeleteSkillParams` and never calls a first-match `resolveSkill` for ambiguous names
-- `MatchSkills`, match preview, and launch auto-match do not lowercase-dedupe project/personal same-name skills into one candidate
+- legacy match preview and any remaining compatibility matcher do not lowercase-dedupe project/personal same-name skills into one candidate; chat launch auto-match is removed and must not be reintroduced
 - turn hydration in `internal/module/turn/skills.go` does not build a lowercase map that overwrites same-name skills; it must either receive the conflict-free effective set or surface a conflict that prevents launch
 - effective-set policy can disable a personal skill for one project without mutating personal canonical content or acting as a provider mirror opt-out
 
-Add regression tests for project+personal and personal+personal same-name read, expand, delete, list, match preview, launch auto-match, and turn hydration. The expected result is conflict, not arbitrary first match, type-priority winner, trust winner, or lowercase dedupe shadowing.
+Add regression tests for project+personal and personal+personal same-name read, delete, list, compatibility match preview, and turn hydration. The expected result is conflict or explicit user resolution, not arbitrary first match, type-priority winner, trust winner, or lowercase dedupe shadowing. Chat launch auto-match is removed and must not be reintroduced.
 
 - [ ] **Step 5: Run focused tests**
 

@@ -13,7 +13,6 @@ export const ComposerBar = {
     composer: { type: Object, required: true },
     disabled: { type: Boolean, default: false },
     threadId: { type: String, default: '' },
-    launchSkillSelectionEnabled: { type: Boolean, default: false },
     interruptible: { type: Boolean, default: false },
     compacting: { type: Boolean, default: false },
     canCompact: { type: Boolean, default: true },
@@ -24,10 +23,6 @@ export const ComposerBar = {
     tokenTooltip: { type: String, default: '' },
     // 'normal' | 'warn' | 'danger' | 'critical'：带颜色提示 tokenInline。
     tokenLevel: { type: String, default: 'normal' },
-    skillMatches: { type: Array, default: () => [] },
-    skillMatchesLoading: { type: Boolean, default: false },
-    selectedSkillNames: { type: Array, default: () => [] },
-    selectedSkillRefs: { type: Array, default: () => [] },
     isCmd: { type: Boolean, default: false },
     threadConfigProvider: { type: String, default: '' },
     threadConfigSupportsOverride: { type: Boolean, default: false },
@@ -50,7 +45,7 @@ export const ComposerBar = {
     promoteTaskError: { type: String, default: '' },
   },
   emits: [
-    'send', 'interrupt', 'compact', 'toggle-skill', 'select-all-skills', 'clear-skills',
+    'send', 'interrupt', 'compact',
     'update-thread-config-model', 'update-thread-config-effort', 'save-thread-config', 'restore-thread-config-inherit',
     'open-fork-draft', 'promote-task',
   ],
@@ -94,10 +89,6 @@ export const ComposerBar = {
       if (props.promotingTask || props.threadIsTask) return;
       emit('promote-task');
     }
-
-    const showLegacySkillSelector = computed(() => {
-      return false;
-    });
 
     const interrupt = useComposerInterrupt(props, emit, { hasReadyInput, onSend });
     const { pauseAcknowledged, resetInterruptState } = interrupt;
@@ -167,74 +158,6 @@ export const ComposerBar = {
       props.composer.removeAttachment(index);
     }
 
-    function normalizeSkillMatchType(match) {
-      const type = (match?.matchedBy || '').toString().trim().toLowerCase();
-      if (type === 'force') return 'force';
-      if (type === 'explicit') return 'explicit';
-      return 'trigger';
-    }
-
-    function skillMatchClass(match) {
-      return normalizeSkillMatchType(match);
-    }
-
-    function skillMatchReason(match) {
-      const type = normalizeSkillMatchType(match);
-      let typeLabel = '关键词';
-      if (type === 'force') typeLabel = '自动推荐';
-      else if (type === 'explicit') typeLabel = '直接提到';
-      const terms = Array.isArray(match?.matchedTerms)
-        ? match.matchedTerms.map((item) => (item || '').toString().trim()).filter(Boolean)
-        : [];
-      if (terms.length === 0) return typeLabel;
-      return `${typeLabel}: ${terms.join(' / ')}`;
-    }
-
-    function skillMatchKey(match, index) {
-      const name = (match?.name || '').toString().trim();
-      const reason = skillMatchReason(match);
-      return `${name}|${reason}|${index}`;
-    }
-
-    function skillSelectionKey(rawSkill) {
-      const directKey = (rawSkill?.key || '').toString().trim().toLowerCase();
-      if (directKey) return directKey;
-      const name = (rawSkill?.name || rawSkill || '').toString().trim().toLowerCase();
-      if (!name) return '';
-      const scope = (rawSkill?.scope || '').toString().trim().toLowerCase();
-      const personalType = (rawSkill?.personal_type || rawSkill?.personalType || '').toString().trim().toLowerCase();
-      const path = (rawSkill?.dir || rawSkill?.skill_file || rawSkill?.path || '').toString().trim().toLowerCase();
-      return scope || personalType || path ? [scope, personalType, name, path].join(':') : '';
-    }
-
-    function isSkillSelected(rawSkill) {
-      const refKey = skillSelectionKey(rawSkill);
-      const hasSelectedRefs = Array.isArray(props.selectedSkillRefs);
-      const selectedRefs = hasSelectedRefs ? props.selectedSkillRefs : [];
-      if (refKey && selectedRefs.some((item) => skillSelectionKey(item) === refKey)) return true;
-      if (refKey && hasSelectedRefs) return false;
-      const name = (rawSkill?.name || rawSkill || '').toString().trim().toLowerCase();
-      if (!name) return false;
-      const selectedNames = Array.isArray(props.selectedSkillNames) ? props.selectedSkillNames : [];
-      return selectedNames.some((item) => (item || '').toString().trim().toLowerCase() === name);
-    }
-
-    function onToggleSkill(rawSkill) {
-      if (rawSkill && typeof rawSkill === 'object') {
-        emit('toggle-skill', rawSkill);
-        return;
-      }
-      emit('toggle-skill', (rawSkill || '').toString().trim());
-    }
-
-    function onSelectAllSkills() {
-      emit('select-all-skills');
-    }
-
-    function onClearSkills() {
-      emit('clear-skills');
-    }
-
     watch(
       () => props.threadId,
       (next, prev) => {
@@ -294,14 +217,6 @@ export const ComposerBar = {
       compactResultToneClass,
       onAttach,
       onRemoveAttachment,
-      showLegacySkillSelector,
-      skillMatchClass,
-      skillMatchReason,
-      skillMatchKey,
-      isSkillSelected,
-      onToggleSkill,
-      onSelectAllSkills,
-      onClearSkills,
       threadConfigInlineNotice,
       threadConfigInlineNoticeColor,
       onPromoteTask,

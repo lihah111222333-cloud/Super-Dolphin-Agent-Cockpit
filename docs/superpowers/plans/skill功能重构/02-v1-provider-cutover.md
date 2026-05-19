@@ -267,7 +267,7 @@ Update provider-start defaults only where they still send an obsolete skill mirr
 
 Explicit caller-provided `codexHome` remains valid for advanced/manual sessions. Omitted Codex identity resolves to the user's `~/.codex`.
 
-The reconcile call must receive both the resolved `codexHome` and the project `cwd` and must complete fail-closed before pool acquisition. Add a test where the fake pool panics if acquired before reconcile; the test must pass.
+The reconcile call must receive both the resolved `codexHome` and the project `cwd` before pool acquisition. Reconcile invocation failure and blocking mirror infrastructure/safety errors fail closed; ordinary content conflicts are surfaced in the Skills UI and must not block provider startup. Add a test where the fake pool panics if acquired before reconcile; the test must pass.
 
 Provider startup must not bypass mirror reconcile. Add tests where `CODEXAPP_USE_POOL=false`, `d.pool == nil`, or missing mirror reconciler fails closed before provider launch when the driver requires pool-backed Codex startup. Manual fallback behavior must be explicitly marked in diagnostics if retained.
 

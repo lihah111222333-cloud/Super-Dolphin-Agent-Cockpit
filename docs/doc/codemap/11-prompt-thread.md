@@ -10,7 +10,7 @@
 - `PROMPT_START_CURRENT_DATE`、dynamic sections、memory providers、native-tool replacement hints，**分别插在哪个层级**。
 - `thread/resume` / `thread/fork` / `thread/recover` 时，**prompt snapshot 与 runtime config snapshot 各自如何复用**。
 - provider raw event 经过 unified event map、session manager、thread 订阅、eventsurface，**最终怎样变成 UI 可见事件**。
-- blank-thread 首发时，前端为什么一定是 **`resolveLaunchStartPayload -> startThread -> sendMessage`** 两段式，而不是一次 RPC 直发。
+- blank-thread 首发时，前端为什么一定是 **`resolveStartOptions -> startThread -> sendMessage`** 两段式，而不是一次 RPC 直发。
 
 ## 2. 当前源码结论
 
@@ -74,12 +74,11 @@
 
 | 路径 | 角色 | 本卷重点 |
 |---|---|---|
-| `cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js` | 首发 send orchestration | `resolveLaunchStartPayload()` + `performSend()` |
+| `cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js` | 首发 send orchestration | `resolveStartOptions()` + `performSend()` |
 | `cmd/agent-terminal/frontend/vue-app/stores/thread-actions-helpers.js` | `thread/start` / `turn/start` 客户端 | `startThread()`、`sendMessage()` |
-| `cmd/agent-terminal/frontend/vue-app/components/ComposerBar.js` | blank-thread UI gate | 无 thread 时隐藏 legacy skill selector |
-| `cmd/agent-terminal/frontend/vue-app/pages/UnifiedChatPage.template.js` | blank-thread picker 挂点 | `LaunchSkillPicker` 仅在线程未选中时显示 |
-| `cmd/agent-terminal/frontend/vue-app/composables/useLaunchSkillSelection.js` | launch-time skill selection feature | 选择状态 / preview / cwd scope |
-| `cmd/agent-terminal/frontend/vue-app/services/skills-api.js` | `skills/list` / `skills/match/preview` / resolution RPC | cwd-aware skill list、launch preview、mirror conflict actions |
+| `cmd/agent-terminal/frontend/vue-app/components/ComposerBar.js` | composer UI | 输入、附件、发送、停止、压缩与线程配置；不再展示聊天内技能建议 |
+| `cmd/agent-terminal/frontend/vue-app/pages/UnifiedChatPage.template.js` | chat/workspace 模板 | composer、timeline、diff、task handoff 装配 |
+| `cmd/agent-terminal/frontend/vue-app/services/skills-api.js` | local skill write/import + resolution RPC | cwd-aware skill 管理、mirror conflict actions |
 
 ### 3.5 三个容易误读的“缺席真值”
 
@@ -1108,32 +1107,27 @@ memory 模块把 prompt handoff 分成两条：
 
 ## 9. Blank-thread 首发：为什么一定先 start 再 send
 
-### 9.1 前端 blank-thread skill picker 的挂点
+### 9.1 前端 blank-thread 首发挂点
 
-`cmd/agent-terminal/frontend/vue-app/pages/UnifiedChatPage.template.js:129-140`：
+`cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js:126-174`：
 
-- `LaunchSkillPicker` 只在 `launchSkillSelectionEnabled && !selectedThreadId` 时展示。
+- 没有选中 thread 时，`performSend()` 先调 `resolveStartOptions(text, focusMode)`，再 `threadStore.startThread()`。
+- 非空 composer 文本会作为 `thread/start` 的 `prompt` 传给后端 router；空 composer 会设置 `deferSpawn: true`。
 
-`cmd/agent-terminal/frontend/vue-app/components/ComposerBar.js:77-83`：
+`cmd/agent-terminal/frontend/vue-app/pages/UnifiedChatPage.js:175-190`：
 
-- 没有 threadId 且 launch skill selection enabled 时，隐藏 legacy skill selector。
+- `useThreadActions` 由 `createPageThreadActions()` 装配，聊天页不再挂 blank-thread 技能选择器。
 
-所以 blank-thread 首发 UI 本身就是单独模式，不是现有 thread send path 的小变体。
+### 9.2 `resolveStartOptions()`：先把首轮输入整理成 startOptions
 
-### 9.2 `resolveLaunchStartPayload()`：先把 launch-time skill 选择整理成 startOptions
+`cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js:126-140`：
 
-`cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js:100-118`：
-
-- 调 `resolveLaunchSkillSelectionForStart(text)`
-- 归一化 `selectedSkills`
-- 归一化 `manualSkillSelection`
-- 只在 feature enabled 且有有效选择时，把这两项塞进 `startOptions`
+- 写入 `focusMode`
+- 文本非空时写入 `prompt`
+- 文本为空时写入 `deferSpawn: true`
 
 它的产物是：
 
-- `enabled`
-- `selectedSkills`
-- `manualSkillSelection`
 - `startOptions`
 
 ### 9.3 `performSend()`：blank-thread 走两段式
@@ -1141,13 +1135,13 @@ memory 模块把 prompt handoff 分成两条：
 `cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js:120-173` 明确写死了顺序：
 
 1. 如果 `selectedThreadId` 为空：
-   - `skillSelection = await resolveLaunchStartPayload(...)`
-   - `threadId = await threadStore.startThread(projectStore.state.active, skillSelection.startOptions)`
+   - `startOptions = await resolveStartOptions(text, focusMode)`
+   - `threadId = await threadStore.startThread(projectStore.state.active, startOptions)`
    - 把 `selectedThreadId.value = threadId`
 2. 然后无论新旧线程，最终都执行：
    - `await threadStore.sendMessage(threadId, text, attachments, {...})`
 
-这就是用户要求的 `resolveLaunchStartPayload -> startThread -> sendMessage` 顺序真值。
+这就是用户要求的 `resolveStartOptions -> startThread -> sendMessage` 顺序真值。
 
 ### 9.4 `startThread()`：前端创线 RPC 只做 `thread/start`
 
@@ -1202,7 +1196,7 @@ memory 模块把 prompt handoff 分成两条：
 
 - start-only system prompt 的一次性注入边界
 - durable prompt snapshot 的持久化时机
-- skill picker 只在 blank-thread 可见的 UI 设计
+- 聊天页不再挂技能选择器，skill 发现交给 provider-native mirror 的边界
 
 ## 10. Mermaid
 
@@ -1425,8 +1419,8 @@ flowchart LR
 
 ### 13.4 Blank-thread checklist
 
-- [ ] 已写明 LaunchSkillPicker 只在无选中线程时出现。
-- [ ] 已写明 `resolveLaunchStartPayload -> startThread -> sendMessage` 顺序。
+- [ ] 已写明聊天页不再挂 blank-thread 技能选择器。
+- [ ] 已写明 `resolveStartOptions -> startThread -> sendMessage` 顺序。
 - [ ] 已落到 `thread/start` 与 `turn/start` 两个后端 handler。
 
 ## 14. 一句话索引
