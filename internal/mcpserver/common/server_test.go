@@ -8,6 +8,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -139,6 +142,197 @@ func TestToolCallParamsScopeNormalizesKnownMCPFamilies(t *testing.T) {
 		if got := params.Scope(input).Family; got != want {
 			t.Fatalf("Scope(%q).Family = %q, want %q", input, got, want)
 		}
+	}
+}
+
+func mustJSONRaw(t *testing.T, value any) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal JSON: %v", err)
+	}
+	return raw
+}
+
+func TestToolCallParamsScopeUsesTrustedWorkspaceRootsMetadata(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "repo")
+	extra := filepath.Join(root, "packages", "..", "packages", "api")
+	raw := mustJSONRaw(t, map[string]any{
+		"name": "demo_tool",
+		"arguments": map[string]any{
+			"_workspaceRoots": []string{"/forged/arg"},
+			"workspaceRoots":  []string{"/forged/public"},
+		},
+		"_cwd":            root,
+		"_workspaceRoots": []string{extra, root, "  "},
+	})
+
+	params, err := DecodeToolCallParams(raw)
+	if err != nil {
+		t.Fatalf("DecodeToolCallParams() error = %v", err)
+	}
+	got := params.Scope("mcp-lsp").WorkspaceRoots
+	want := []string{filepath.Clean(root), filepath.Clean(extra)}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("WorkspaceRoots = %#v, want %#v", got, want)
+	}
+}
+
+func TestToolCallParamsScopeAcceptsSnakeWorkspaceRootsMetadata(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "repo")
+	extra := filepath.Join(root, "extra")
+	raw := mustJSONRaw(t, map[string]any{
+		"name":             "demo_tool",
+		"_cwd":             root,
+		"_workspace_roots": []string{extra},
+	})
+
+	params, err := DecodeToolCallParams(raw)
+	if err != nil {
+		t.Fatalf("DecodeToolCallParams() error = %v", err)
+	}
+	got := params.Scope("mcp-lsp").WorkspaceRoots
+	want := []string{filepath.Clean(root), filepath.Clean(extra)}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("WorkspaceRoots = %#v, want %#v", got, want)
+	}
+}
+
+func TestToolCallParamsScopeDoesNotTrustRelativePrimaryRoot(t *testing.T) {
+	raw := mustJSONRaw(t, map[string]any{
+		"name":             "demo_tool",
+		"_cwd":             ".",
+		"_workspace_roots": []string{"packages/api"},
+	})
+
+	params, err := DecodeToolCallParams(raw)
+	if err != nil {
+		t.Fatalf("DecodeToolCallParams() error = %v", err)
+	}
+	got := params.Scope("mcp-lsp")
+	if got.CWD != "" || len(got.WorkspaceRoots) != 0 {
+		t.Fatalf("scope = %#v, want no trusted cwd or workspace roots", got)
+	}
+}
+
+func TestToolCallParamsScopeDoesNotPromoteAdditionalRootWithoutTrustedPrimary(t *testing.T) {
+	extra := filepath.Join(t.TempDir(), "extra")
+	for name, payload := range map[string]map[string]any{
+		"missing cwd": {
+			"name":             "demo_tool",
+			"_workspace_roots": []string{extra},
+		},
+		"relative cwd": {
+			"name":             "demo_tool",
+			"_cwd":             ".",
+			"_workspace_roots": []string{extra},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			params, err := DecodeToolCallParams(mustJSONRaw(t, payload))
+			if err != nil {
+				t.Fatalf("DecodeToolCallParams() error = %v", err)
+			}
+			got := params.Scope("mcp-lsp")
+			if got.CWD != "" || len(got.WorkspaceRoots) != 0 {
+				t.Fatalf("scope = %#v, want no trusted cwd or workspace roots", got)
+			}
+		})
+	}
+}
+
+func TestToolCallParamsScopeResolvesRelativeAdditionalRootsAgainstPrimaryRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "repo")
+	raw := mustJSONRaw(t, map[string]any{
+		"name":             "demo_tool",
+		"_cwd":             root,
+		"_workspace_roots": []string{"packages/api"},
+	})
+
+	params, err := DecodeToolCallParams(raw)
+	if err != nil {
+		t.Fatalf("DecodeToolCallParams() error = %v", err)
+	}
+	got := params.Scope("mcp-lsp").WorkspaceRoots
+	want := []string{filepath.Clean(root), filepath.Join(filepath.Clean(root), "packages", "api")}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("WorkspaceRoots = %#v, want %#v", got, want)
+	}
+}
+
+func TestWorkspaceRootsFromContextStrictFailsFastWhenMissing(t *testing.T) {
+	if got, err := WorkspaceRootsFromContextStrict(context.Background()); err == nil {
+		t.Fatalf("WorkspaceRootsFromContextStrict() = %#v, nil error; want fail-fast", got)
+	}
+}
+
+func TestWorkspaceRootForPathFromContextStrictSelectsPrimaryOrLongestContainingRoot(t *testing.T) {
+	tmp := t.TempDir()
+	root := filepath.Join(tmp, "repo")
+	nested := filepath.Join(root, "packages", "api")
+	ctx := WithToolScope(context.Background(), ToolScope{
+		CWD:            root,
+		WorkspaceRoots: []string{nested, root},
+	})
+
+	got, err := WorkspaceRootForPathFromContextStrict(ctx, "go.mod")
+	if err != nil {
+		t.Fatalf("relative WorkspaceRootForPathFromContextStrict() error = %v", err)
+	}
+	if got != filepath.Clean(root) {
+		t.Fatalf("relative root = %q, want %q", got, filepath.Clean(root))
+	}
+
+	target := filepath.Join(nested, "main.go")
+	got, err = WorkspaceRootForPathFromContextStrict(ctx, target)
+	if err != nil {
+		t.Fatalf("absolute WorkspaceRootForPathFromContextStrict() error = %v", err)
+	}
+	if got != filepath.Clean(nested) {
+		t.Fatalf("absolute root = %q, want longest containing root %q", got, filepath.Clean(nested))
+	}
+}
+
+func TestWorkspaceRootForPathFromContextStrictRejectsOutsidePathWithAllowedRoots(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "repo")
+	outside := filepath.Join(t.TempDir(), "outside.go")
+	ctx := WithToolScope(context.Background(), ToolScope{CWD: root})
+
+	_, err := WorkspaceRootForPathFromContextStrict(ctx, outside)
+	if err == nil {
+		t.Fatal("WorkspaceRootForPathFromContextStrict() error = nil, want outside path rejection")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, filepath.Clean(outside)) || !strings.Contains(msg, filepath.Clean(root)) {
+		t.Fatalf("error = %q, want requested path and allowed roots", msg)
+	}
+}
+
+func TestWorkspaceRootForPathFromContextStrictAllowsCanonicalEquivalentRoot(t *testing.T) {
+	tmp := t.TempDir()
+	primary := filepath.Join(tmp, "primary")
+	realExtra := filepath.Join(tmp, "real-extra")
+	if err := os.MkdirAll(primary, 0o700); err != nil {
+		t.Fatalf("mkdir primary: %v", err)
+	}
+	if err := os.MkdirAll(realExtra, 0o700); err != nil {
+		t.Fatalf("mkdir real extra: %v", err)
+	}
+	linkedExtra := filepath.Join(tmp, "linked-extra")
+	if err := os.Symlink(realExtra, linkedExtra); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	ctx := WithToolScope(context.Background(), ToolScope{
+		CWD:            primary,
+		WorkspaceRoots: []string{linkedExtra},
+	})
+
+	got, err := WorkspaceRootForPathFromContextStrict(ctx, realExtra)
+	if err != nil {
+		t.Fatalf("WorkspaceRootForPathFromContextStrict() error = %v", err)
+	}
+	if got != filepath.Clean(linkedExtra) {
+		t.Fatalf("root = %q, want trusted root spelling %q", got, filepath.Clean(linkedExtra))
 	}
 }
 

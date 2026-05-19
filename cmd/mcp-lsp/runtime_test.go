@@ -88,6 +88,92 @@ func assertDocumentFallbackCase(
 	assertDocumentFallbackSymbol(t, ctx, scoped, target, tc.name, tc.wantSymbol)
 }
 
+func TestRuntimeRootUsesWorkspaceRootsEnvWhenPrimaryRootMissing(t *testing.T) {
+	primary := t.TempDir()
+	extra := t.TempDir()
+	t.Setenv("GO_AGENT_LSP_ROOT", "")
+	t.Setenv("GO_AGENT_LSP_ROOTS", `["`+primary+`","`+extra+`"]`)
+
+	got, err := runtimeRoot()
+	if err != nil {
+		t.Fatalf("runtimeRoot() error = %v", err)
+	}
+	if got != primary {
+		t.Fatalf("runtimeRoot() = %q, want first GO_AGENT_LSP_ROOTS entry %q", got, primary)
+	}
+}
+
+func TestRuntimeRootRejectsExplicitEmptyWorkspaceRootsEnv(t *testing.T) {
+	t.Setenv("GO_AGENT_LSP_ROOT", "")
+	t.Setenv("GO_AGENT_LSP_ROOTS", `[]`)
+
+	_, err := runtimeRoot()
+	if err == nil {
+		t.Fatal("runtimeRoot() error = nil, want explicit empty workspace roots failure")
+	}
+}
+
+func TestRuntimeRootRejectsEmptyWorkspaceRootsEnvEvenWithPrimaryRoot(t *testing.T) {
+	t.Setenv("GO_AGENT_LSP_ROOT", t.TempDir())
+	t.Setenv("GO_AGENT_LSP_ROOTS", `[]`)
+
+	_, err := runtimeRoot()
+	if err == nil {
+		t.Fatal("runtimeRoot() error = nil, want GO_AGENT_LSP_ROOTS to fail closed when explicitly empty")
+	}
+}
+
+func TestRuntimeRootRejectsMissingWorkspaceRootEnv(t *testing.T) {
+	unsetEnvForTest(t, "GO_AGENT_LSP_ROOT")
+	unsetEnvForTest(t, "GO_AGENT_LSP_ROOTS")
+
+	_, err := runtimeRoot()
+	if err == nil {
+		t.Fatal("runtimeRoot() error = nil, want missing workspace root env to fail closed")
+	}
+}
+
+func TestRuntimeWorkspaceRootsResolveRelativeRootsAgainstPrimaryRoot(t *testing.T) {
+	unsetEnvForTest(t, "GO_AGENT_LSP_ROOT")
+	primary := t.TempDir()
+	t.Setenv("GO_AGENT_LSP_ROOTS", `["`+primary+`","packages/api"]`)
+
+	got, err := runtimeWorkspaceRoots()
+	if err != nil {
+		t.Fatalf("runtimeWorkspaceRoots() error = %v", err)
+	}
+	want := []string{primary, filepath.Join(primary, "packages/api")}
+	if len(got) != len(want) {
+		t.Fatalf("runtimeWorkspaceRoots() = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("runtimeWorkspaceRoots()[%d] = %q, want %q; all roots %#v", i, got[i], want[i], got)
+		}
+	}
+}
+
+func TestRuntimeWorkspaceRootsRejectRelativePrimaryRoot(t *testing.T) {
+	unsetEnvForTest(t, "GO_AGENT_LSP_ROOT")
+	t.Setenv("GO_AGENT_LSP_ROOTS", `["packages/api"]`)
+
+	_, err := runtimeWorkspaceRoots()
+	if err == nil {
+		t.Fatal("runtimeWorkspaceRoots() error = nil, want relative primary root failure")
+	}
+}
+
+func TestRuntimeWorkspaceRootsRejectEmptyPrimaryWithAbsoluteAdditionalRoot(t *testing.T) {
+	unsetEnvForTest(t, "GO_AGENT_LSP_ROOT")
+	extra := t.TempDir()
+	t.Setenv("GO_AGENT_LSP_ROOTS", `["","`+extra+`"]`)
+
+	_, err := runtimeWorkspaceRoots()
+	if err == nil {
+		t.Fatal("runtimeWorkspaceRoots() error = nil, want missing primary root failure")
+	}
+}
+
 func assertDocumentFallbackSymbol(
 	t *testing.T,
 	ctx context.Context,
@@ -104,4 +190,19 @@ func assertDocumentFallbackSymbol(
 	if len(symbols) == 0 || symbols[0].Name != want {
 		t.Fatalf("DocumentSymbol(%s) = %#v, want first symbol %q", name, symbols, want)
 	}
+}
+
+func unsetEnvForTest(t *testing.T, key string) {
+	t.Helper()
+	old, ok := os.LookupEnv(key)
+	if err := os.Unsetenv(key); err != nil {
+		t.Fatalf("Unsetenv(%q): %v", key, err)
+	}
+	t.Cleanup(func() {
+		if ok {
+			_ = os.Setenv(key, old)
+			return
+		}
+		_ = os.Unsetenv(key)
+	})
 }

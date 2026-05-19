@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
@@ -27,7 +28,28 @@ func (a *sessionThreadAdapter) GetByThreadID(ctx context.Context, threadID strin
 		return nil, err
 	}
 	return &contract.SessionThreadRef{
-		ThreadID: thread.ThreadID,
-		AgentID:  thread.AgentID,
+		ThreadID:      thread.ThreadID,
+		AgentID:       thread.AgentID,
+		RuntimeConfig: decodeSessionThreadRuntimeConfig(thread.ConfigOverride),
 	}, nil
+}
+
+func decodeSessionThreadRuntimeConfig(raw json.RawMessage) map[string]any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var stored struct {
+		Runtime map[string]any `json:"runtime,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		return nil
+	}
+	if len(stored.Runtime) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(stored.Runtime))
+	for key, value := range stored.Runtime {
+		out[key] = value
+	}
+	return out
 }

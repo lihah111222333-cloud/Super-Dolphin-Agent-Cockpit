@@ -157,7 +157,7 @@ func (s *Sandbox) effectiveRoot(ctx context.Context) (string, error) {
 }
 
 func (s *Sandbox) resolveWorkDir(ctx context.Context, workDir string) (string, error) {
-	root, err := s.effectiveRoot(ctx)
+	root, err := s.effectiveRootForWorkDir(ctx, workDir)
 	if err != nil {
 		return "", err
 	}
@@ -187,6 +187,17 @@ func (s *Sandbox) resolveWorkDir(ctx context.Context, workDir string) (string, e
 		return "", fmt.Errorf("work_dir is not a directory: %s", normalized)
 	}
 	return normalized, nil
+}
+
+func (s *Sandbox) effectiveRootForWorkDir(ctx context.Context, workDir string) (string, error) {
+	if strings.TrimSpace(workDir) != "" && filepath.IsAbs(workDir) {
+		root, err := common.WorkspaceRootForPathFromContextStrict(ctx, workDir)
+		if err == nil && strings.TrimSpace(root) != "" {
+			return normalizePath(root)
+		}
+		return "", err
+	}
+	return s.effectiveRoot(ctx)
 }
 
 func (s *Sandbox) warnExecCWDTrace(ctx context.Context, req Request, args []string, workDir string) {

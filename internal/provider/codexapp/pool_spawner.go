@@ -97,6 +97,8 @@ func runPoolSpawn(ctx context.Context, home string, registry *pidregistry.Regist
 type poolSpawnWorkDirContextKey struct{}
 type poolSpawnAppServerArgsContextKey struct{}
 type poolSpawnPolicySignatureContextKey struct{}
+type poolSpawnWorkspaceRootsContextKey struct{}
+type poolSpawnMCPBinaryDirContextKey struct{}
 
 func withPoolSpawnWorkDir(ctx context.Context, raw string) context.Context {
 	if ctx == nil {
@@ -129,6 +131,19 @@ func withPoolSpawnNativeToolPolicy(ctx context.Context, policy codexNativeToolPo
 	return context.WithValue(ctx, poolSpawnPolicySignatureContextKey{}, policy.ProcessSignature())
 }
 
+func withPoolSpawnLSPConfig(ctx context.Context, roots []string, binaryDir string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if normalized := normalizePoolSpawnWorkspaceRoots(roots); len(normalized) > 0 {
+		ctx = context.WithValue(ctx, poolSpawnWorkspaceRootsContextKey{}, normalized)
+	}
+	if binaryDir = strings.TrimSpace(binaryDir); binaryDir != "" {
+		ctx = context.WithValue(ctx, poolSpawnMCPBinaryDirContextKey{}, binaryDir)
+	}
+	return ctx
+}
+
 func poolSpawnAppServerArgs(ctx context.Context) []string {
 	if ctx == nil {
 		return nil
@@ -142,7 +157,42 @@ func poolSpawnPolicySignature(ctx context.Context) string {
 		return ""
 	}
 	value, _ := ctx.Value(poolSpawnPolicySignatureContextKey{}).(string)
+	return joinPoolSpawnSignatureParts(strings.TrimSpace(value), poolSpawnLSPConfigSignature(ctx))
+}
+
+func poolSpawnWorkspaceRoots(ctx context.Context) []string {
+	if ctx == nil {
+		return nil
+	}
+	value, _ := ctx.Value(poolSpawnWorkspaceRootsContextKey{}).([]string)
+	return append([]string(nil), value...)
+}
+
+func poolSpawnMCPBinaryDir(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	value, _ := ctx.Value(poolSpawnMCPBinaryDirContextKey{}).(string)
 	return strings.TrimSpace(value)
+}
+
+func poolSpawnLSPConfigSignature(ctx context.Context) string {
+	roots := poolSpawnWorkspaceRoots(ctx)
+	binaryDir := poolSpawnMCPBinaryDir(ctx)
+	if len(roots) == 0 && binaryDir == "" {
+		return ""
+	}
+	return "lsp_roots=" + strings.Join(roots, "\x1f") + "\nlsp_binary_dir=" + binaryDir
+}
+
+func joinPoolSpawnSignatureParts(parts ...string) string {
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return strings.Join(out, "\n")
 }
 
 func poolSpawnNormalizedWorkDir(ctx context.Context) (string, error) {
@@ -180,6 +230,47 @@ func normalizePoolSpawnWorkDir(raw string) (string, error) {
 		return "", fmt.Errorf("codexapp: pool work dir realpath %q: %w", clean, err)
 	}
 	return real, nil
+}
+
+func normalizePoolSpawnWorkspaceRoots(roots []string) []string {
+	out := make([]string, 0, len(roots))
+	seen := map[string]struct{}{}
+	base := ""
+	for i, root := range roots {
+		root = normalizePoolSpawnWorkspaceRoot(base, root)
+		if root == "" {
+			continue
+		}
+		if i == 0 {
+			base = root
+		}
+		if _, ok := seen[root]; ok {
+			continue
+		}
+		seen[root] = struct{}{}
+		out = append(out, root)
+	}
+	return out
+}
+
+func normalizePoolSpawnWorkspaceRoot(base, root string) string {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return ""
+	}
+	if strings.TrimSpace(base) != "" && !filepath.IsAbs(root) {
+		root = filepath.Join(base, root)
+	}
+	if filepath.IsAbs(root) {
+		return filepath.Clean(root)
+	}
+	if strings.TrimSpace(base) == "" {
+		return ""
+	}
+	if abs, err := filepath.Abs(root); err == nil {
+		return filepath.Clean(abs)
+	}
+	return ""
 }
 
 func buildPoolSpawnEnv(parent []string, home, workDir string) []string {

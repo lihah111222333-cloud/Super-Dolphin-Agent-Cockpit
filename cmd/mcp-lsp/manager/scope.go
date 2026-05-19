@@ -16,7 +16,11 @@ type ToolScope struct {
 	TurnID   string
 	CallID   string
 	CWD      string
-	Family   string
+	// WorkspaceRoots is the trusted root set for this tool call. CWD remains
+	// the primary root for relative paths; absolute targets may resolve against
+	// any root in this set.
+	WorkspaceRoots []string
+	Family         string
 
 	LanguageID string
 	TargetPath string

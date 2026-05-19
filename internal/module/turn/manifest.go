@@ -22,12 +22,13 @@ func newManifestBuilder(binaryDir string, buildFn contract.ManifestBuildFunc) *m
 
 func (b *manifestBuilder) Build(input PrepareInput, threadID string) dto.MCPManifest {
 	return b.buildFn(dto.ManifestContext{
-		AgentID:       input.AgentID,
-		ThreadID:      threadID,
-		CWD:           input.CWD,
-		ThreadCaps:    input.ThreadCaps,
-		BinaryDir:     b.binaryDirFor(input.BinaryDir),
-		TransportMode: dto.ManifestTransportStdioOnly,
+		AgentID:                      input.AgentID,
+		ThreadID:                     threadID,
+		CWD:                          input.CWD,
+		AdditionalWorkingDirectories: append([]string(nil), input.AdditionalWorkingDirectories...),
+		ThreadCaps:                   input.ThreadCaps,
+		BinaryDir:                    b.binaryDirFor(input.BinaryDir),
+		TransportMode:                dto.ManifestTransportStdioOnly,
 	})
 }
 

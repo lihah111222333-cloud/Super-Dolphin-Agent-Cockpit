@@ -185,6 +185,8 @@ func TestPrepareTurnInjectsTurnAssembly(t *testing.T) {
 func assertPrepareTurnAssemblyInput(t *testing.T, req dto.TurnRequest, assembly *stubPromptAssemblyService) {
 	t.Helper()
 	require.Equal(t, "assembled user context", req.TurnAssembly.UserContextText)
+	require.Equal(t, "/repo", req.CWD)
+	require.Equal(t, []string{"/repo/thread-extra"}, req.AdditionalWorkingDirectories)
 	require.Equal(t, "thread-1", assembly.lastTurnInput.ThreadID)
 	require.Equal(t, "please verify the cache", assembly.lastTurnInput.UserText)
 	require.Equal(t, "/repo", assembly.lastTurnInput.CWD)

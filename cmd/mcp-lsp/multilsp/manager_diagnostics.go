@@ -430,6 +430,7 @@ func resolvedLSPToolScopeFromManagerScope(scope lspmanager.ResolvedToolScope) Re
 			TurnID:                scope.TurnID,
 			CallID:                scope.CallID,
 			CWD:                   scope.CWD,
+			WorkspaceRoots:        append([]string(nil), scope.WorkspaceRoots...),
 			Family:                scope.Family,
 			LanguageID:            scope.LanguageID,
 			TargetPath:            scope.TargetPath,
@@ -474,12 +475,13 @@ func (m *manager) lspToolScopeForConfig(ctx context.Context, cfg workspaceConfig
 func lspToolScopeFromContext(ctx context.Context) LSPToolScope {
 	if trusted, ok := common.ToolScopeFromContext(ctx); ok {
 		return LSPToolScope{
-			AgentID:  trusted.AgentID,
-			ThreadID: trusted.ThreadID,
-			TurnID:   trusted.TurnID,
-			CallID:   trusted.CallID,
-			CWD:      trusted.CWD,
-			Family:   normalizeScopeFamily(trusted.Family),
+			AgentID:        trusted.AgentID,
+			ThreadID:       trusted.ThreadID,
+			TurnID:         trusted.TurnID,
+			CallID:         trusted.CallID,
+			CWD:            trusted.CWD,
+			WorkspaceRoots: append([]string(nil), trusted.WorkspaceRoots...),
+			Family:         normalizeScopeFamily(trusted.Family),
 		}
 	}
 	return LSPToolScope{Family: defaultLSPToolFamily}

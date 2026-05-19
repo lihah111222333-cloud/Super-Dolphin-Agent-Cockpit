@@ -2,6 +2,7 @@ package codexapp
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -98,6 +99,132 @@ func TestBuildPoolSpawnCmdSetsWorkDirAndPWD(t *testing.T) {
 	}
 	if strings.Contains(env, "PWD=/stale/workdir") {
 		t.Fatalf("stale PWD leaked:\n%s", env)
+	}
+}
+
+func TestBuildPoolSpawnCmdOverridesNativeLSPConfigForWorkDir(t *testing.T) {
+	t.Parallel()
+	parent := t.TempDir()
+	workDir := filepath.Join(parent, "project with space")
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		t.Fatalf("mkdir work dir: %v", err)
+	}
+	realWorkDir, err := filepath.EvalSymlinks(workDir)
+	if err != nil {
+		t.Fatalf("realpath work dir: %v", err)
+	}
+	ctx := withPoolSpawnWorkDir(context.Background(), workDir)
+	cmd, err := BuildPoolSpawnCmd(ctx, PoolSpawnArgs{
+		Home:      "/realpath/home",
+		ParentEnv: []string{},
+	})
+	if err != nil {
+		t.Fatalf("BuildPoolSpawnCmd error = %v", err)
+	}
+	commandLine := strings.Join(cmd.Args, " ")
+	for _, want := range []string{
+		"-c",
+		"mcp_servers.lsp.cwd=",
+		"mcp_servers.lsp.env.GO_AGENT_LSP_ROOT=",
+		"mcp_servers.lsp.env.GO_AGENT_LSP_ROOTS=",
+		realWorkDir,
+	} {
+		if !strings.Contains(commandLine, want) {
+			t.Fatalf("spawn argv missing %q:\n%s", want, commandLine)
+		}
+	}
+}
+
+func TestBuildPoolSpawnCmdOverridesNativeLSPConfigForAdditionalRootsAndBinaryDir(t *testing.T) {
+	t.Parallel()
+	parent := t.TempDir()
+	workDir := filepath.Join(parent, "primary project")
+	extraDir := filepath.Join(parent, "extra project")
+	binaryDir := filepath.Join(parent, "mcp bin")
+	for _, dir := range []string{workDir, extraDir, binaryDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %q: %v", dir, err)
+		}
+	}
+	ctx := withPoolSpawnWorkDir(context.Background(), workDir)
+	ctx = withPoolSpawnLSPConfig(ctx, []string{workDir, extraDir}, binaryDir)
+	cmd, err := BuildPoolSpawnCmd(ctx, PoolSpawnArgs{
+		Home:      "/realpath/home",
+		ParentEnv: []string{},
+	})
+	if err != nil {
+		t.Fatalf("BuildPoolSpawnCmd error = %v", err)
+	}
+	commandLine := strings.Join(cmd.Args, " ")
+	for _, want := range []string{
+		"mcp_servers.lsp.command=",
+		filepath.Join(binaryDir, "mcp-lsp"),
+		"mcp_servers.lsp.env.GO_AGENT_LSP_ROOTS=",
+		extraDir,
+	} {
+		if !strings.Contains(commandLine, want) {
+			t.Fatalf("spawn argv missing %q:\n%s", want, commandLine)
+		}
+	}
+}
+
+func TestBuildPoolSpawnCmdOverridesNativeLSPConfigWithEmptyRoots(t *testing.T) {
+	t.Parallel()
+	binaryDir := filepath.Join(t.TempDir(), "mcp bin")
+	ctx := withPoolSpawnLSPConfig(context.Background(), nil, binaryDir)
+	cmd, err := BuildPoolSpawnCmd(ctx, PoolSpawnArgs{
+		Home:      "/realpath/home",
+		ParentEnv: []string{},
+	})
+	if err != nil {
+		t.Fatalf("BuildPoolSpawnCmd error = %v", err)
+	}
+	commandLine := strings.Join(cmd.Args, " ")
+	for _, want := range []string{
+		"mcp_servers.lsp.command=",
+		filepath.Join(binaryDir, "mcp-lsp"),
+		"mcp_servers.lsp.type=",
+		"mcp_servers.lsp.env.GO_AGENT_LSP_ROOTS=",
+		"[]",
+	} {
+		if !strings.Contains(commandLine, want) {
+			t.Fatalf("spawn argv missing %q:\n%s", want, commandLine)
+		}
+	}
+	for _, forbidden := range []string{
+		"mcp_servers.lsp.cwd=",
+		"mcp_servers.lsp.env.GO_AGENT_LSP_ROOT=",
+	} {
+		if strings.Contains(commandLine, forbidden) {
+			t.Fatalf("spawn argv contains untrusted root override %q:\n%s", forbidden, commandLine)
+		}
+	}
+}
+
+func TestLocalSpawnAppServerArgsFailCloseNativeLSPConfig(t *testing.T) {
+	t.Parallel()
+	args := localSpawnAppServerArgs()
+	commandLine := strings.Join(args, " ")
+	for _, want := range []string{
+		"app-server",
+		"-c",
+		"mcp_servers.lsp.command=",
+		"mcp-lsp",
+		"mcp_servers.lsp.type=",
+		"mcp_servers.lsp.env.GO_AGENT_LSP_ROOTS=",
+		"[]",
+	} {
+		if !strings.Contains(commandLine, want) {
+			t.Fatalf("local spawn args missing %q:\n%s", want, commandLine)
+		}
+	}
+	for _, forbidden := range []string{
+		"mcp_servers.lsp.cwd=",
+		"mcp_servers.lsp.env.GO_AGENT_LSP_ROOT=",
+	} {
+		if strings.Contains(commandLine, forbidden) {
+			t.Fatalf("local spawn args contain untrusted root override %q:\n%s", forbidden, commandLine)
+		}
 	}
 }
 

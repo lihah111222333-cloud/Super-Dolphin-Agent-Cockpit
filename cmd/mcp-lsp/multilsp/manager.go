@@ -326,6 +326,9 @@ func (m *manager) resolveLanguageScope(ctx context.Context, languageID, targetPa
 	}
 	resolved = completeResolvedLanguageScope(resolved, scope)
 	resolved.LanguageSpecific = mergeLanguageSpecific(resolved.LanguageSpecific, adapter.CacheKeyParts(resolved))
+	if err := ensureResolvedLanguageScopeWithinWorkspaceRoots(scope.WorkspaceRoots, resolved); err != nil {
+		return ResolvedLanguageScope{}, nil, err
+	}
 	return resolved, adapter, nil
 }
 
@@ -338,9 +341,21 @@ func (m *manager) adapterToolScope(ctx context.Context, languageID, targetPath, 
 		}
 		scope.CWD = baseRoot
 	}
+	scope.WorkspaceRoots = normalizeScopeWorkspaceRoots(scope.CWD, scope.WorkspaceRoots)
+	selected, err := selectWorkspaceRootForTarget(scope.WorkspaceRoots, firstNonEmpty(targetPath, targetURI))
+	if err != nil {
+		return LSPToolScope{}, err
+	}
+	if selected != "" {
+		scope.CWD = selected
+		scope.WorkspaceRoots = normalizeScopeWorkspaceRoots(scope.CWD, scope.WorkspaceRoots)
+	}
 	scope.LanguageID = normalizeLanguageID(languageID)
 	scope.TargetPath = targetPath
 	scope.TargetURI = targetURI
+	if err := ensurePathWithinWorkspaceRoots(scope.WorkspaceRoots, firstNonEmpty(targetPath, targetURI)); err != nil {
+		return LSPToolScope{}, err
+	}
 	return scope, nil
 }
 

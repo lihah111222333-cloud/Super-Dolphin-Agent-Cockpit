@@ -38,8 +38,9 @@ type SessionRecoveryReporter interface {
 // SessionThreadRef is the minimal thread projection the session resolver
 // needs: just the thread-to-agent mapping.
 type SessionThreadRef struct {
-	ThreadID string
-	AgentID  string
+	ThreadID      string
+	AgentID       string
+	RuntimeConfig map[string]any
 }
 
 // SessionBinding is the minimal binding projection the session resolver

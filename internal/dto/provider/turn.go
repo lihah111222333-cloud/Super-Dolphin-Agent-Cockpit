@@ -9,13 +9,17 @@ import (
 type TurnRequest struct {
 	LocalID              string          `json:"localId,omitempty"`
 	ThreadID             string          `json:"threadId"`
+	CWD                  string          `json:"cwd,omitempty"`
 	Inputs               []InputItem     `json:"inputs"`
 	Skills               []SkillRef      `json:"skills,omitempty"`
 	TurnAssembly         TurnAssembly    `json:"turnAssembly"`
 	ManualSkillSelection bool            `json:"manualSkillSelection,omitempty"`
 	OutputSchema         json.RawMessage `json:"outputSchema,omitempty"`
 	Overrides            TurnOverrides   `json:"overrides"`
-	MCP                  MCPManifest     `json:"mcp"`
+	// AdditionalWorkingDirectories carries the trusted per-turn workspace
+	// expansion used by local tools. It is not forwarded to Codex app-server.
+	AdditionalWorkingDirectories []string    `json:"additionalWorkingDirectories,omitempty"`
+	MCP                          MCPManifest `json:"mcp"`
 	// DedupeKey carries the turn layer's in-memory idempotency token so
 	// StartTurn can register it on the tracker. It is intentionally not
 	// forwarded to the provider wire format today — codex / claudecli

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"strings"
 	"testing"
 
@@ -30,6 +29,36 @@ func TestResolveStartConfigAppliesDefaultsAndDangerPolicy(t *testing.T) {
 	}
 	if req.ApprovalPolicy != "never" {
 		t.Fatalf("approvalPolicy = %q, want never", req.ApprovalPolicy)
+	}
+}
+
+func TestResolveStartConfigDoesNotSynthesizeProcessCWD(t *testing.T) {
+	t.Parallel()
+
+	req, err := resolveStartConfig(StartRequest{Provider: "codex"})
+	if err != nil {
+		t.Fatalf("resolveStartConfig() error = %v", err)
+	}
+	if req.CWD != "" {
+		t.Fatalf("cwd = %q, want empty when caller did not provide a workspace", req.CWD)
+	}
+}
+
+func TestStartSessionDoesNotSynthesizeProcessCWDForDot(t *testing.T) {
+	t.Parallel()
+
+	starter := &startOnlySessionStarter{onStart: func(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+		if req.CWD != "" {
+			t.Fatalf("StartSession CWD = %q, want empty for untrusted dot cwd", req.CWD)
+		}
+		return &stubSession{threadID: "provider-thread-1"}, nil
+	}}
+	svc := &service{starter: starter}
+	if _, err := svc.startSession(context.Background(), StartRequest{
+		Provider: "codex",
+		CWD:      ".",
+	}, contract.StartInput{Provider: "codex"}, contract.StartAssembly{}, "agent-dot"); err != nil {
+		t.Fatalf("startSession() error = %v", err)
 	}
 }
 
@@ -491,9 +520,5 @@ func (promptAssemblyStub) Invalidate(context.Context, contract.InvalidateReason)
 
 func wantStartCWD(t *testing.T) string {
 	t.Helper()
-	wd, err := os.Getwd()
-	if err != nil || strings.TrimSpace(wd) == "" {
-		return "."
-	}
-	return wd
+	return ""
 }

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ type contextKey string
 const CwdContextKey = contextKey("mcp_cwd")
 
 var ErrMissingContextCWD = errors.New("strict context enforcement: missing tool scope CWD")
+var ErrMissingWorkspaceRoots = errors.New("strict context enforcement: missing workspace roots")
 
 func WorkspaceRootFromContextStrict(ctx context.Context) (string, error) {
 	if ctx == nil {
@@ -34,6 +36,44 @@ func WorkspaceRootFromContextStrict(ctx context.Context) (string, error) {
 	return "", ErrMissingContextCWD
 }
 
+func WorkspaceRootsFromContextStrict(ctx context.Context) ([]string, error) {
+	if ctx == nil {
+		return nil, ErrMissingWorkspaceRoots
+	}
+	if scope, ok := ToolScopeFromContext(ctx); ok && len(scope.WorkspaceRoots) > 0 {
+		return append([]string(nil), scope.WorkspaceRoots...), nil
+	}
+	if cwd, ok := ctx.Value(CwdContextKey).(string); ok && strings.TrimSpace(cwd) != "" {
+		roots := NormalizeToolScope(ToolScope{CWD: cwd}).WorkspaceRoots
+		if len(roots) > 0 {
+			return roots, nil
+		}
+	}
+	return nil, ErrMissingWorkspaceRoots
+}
+
+func WorkspaceRootForPathFromContextStrict(ctx context.Context, target string) (string, error) {
+	roots, err := WorkspaceRootsFromContextStrict(ctx)
+	if err != nil {
+		return "", err
+	}
+	target = strings.TrimSpace(target)
+	if target == "" || !filepath.IsAbs(target) {
+		return roots[0], nil
+	}
+	requested := filepath.Clean(target)
+	best := ""
+	for _, root := range roots {
+		if pathWithinRoot(root, requested) && len(root) > len(best) {
+			best = root
+		}
+	}
+	if best == "" {
+		return "", fmt.Errorf("strict context enforcement: requested path %q is outside allowed workspace roots %q", requested, roots)
+	}
+	return best, nil
+}
+
 func WorkspaceRootFromContext(ctx context.Context, fallback string) string {
 	if scope, ok := ToolScopeFromContext(ctx); ok && scope.CWD != "" {
 		return scope.CWD
@@ -42,6 +82,34 @@ func WorkspaceRootFromContext(ctx context.Context, fallback string) string {
 		return NormalizeToolScope(ToolScope{CWD: cwd}).CWD
 	}
 	return fallback
+}
+
+func pathWithinRoot(root, target string) bool {
+	root = canonicalContainmentPath(root)
+	target = canonicalContainmentPath(target)
+	if root == "" || target == "" {
+		return false
+	}
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+func canonicalContainmentPath(path string) string {
+	cleaned := filepath.Clean(strings.TrimSpace(path))
+	if cleaned == "" || cleaned == "." {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
+		return filepath.Clean(resolved)
+	}
+	parent := filepath.Dir(cleaned)
+	if resolvedParent, err := filepath.EvalSymlinks(parent); err == nil {
+		return filepath.Join(filepath.Clean(resolvedParent), filepath.Base(cleaned))
+	}
+	return cleaned
 }
 
 const (
