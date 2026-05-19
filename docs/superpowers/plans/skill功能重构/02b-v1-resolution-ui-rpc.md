@@ -21,8 +21,7 @@
 - Modify: `cmd/agent-terminal/frontend/vue-app/services/skills-api.js`
 - Modify: `cmd/agent-terminal/frontend/vue-app/pages/SkillsPage.js`
 - Modify: `cmd/agent-terminal/frontend/vue-app/composables/useSkillEditor.js`
-- Modify: `cmd/agent-terminal/frontend/vue-app/composables/useLaunchSkillSelection.js`
-- Modify: `cmd/agent-terminal/frontend/vue-app/components/LaunchSkillPicker.js`
+- Delete/keep removed: `cmd/agent-terminal/frontend/vue-app/composables/useLaunchSkillSelection.js` and `cmd/agent-terminal/frontend/vue-app/components/LaunchSkillPicker.js` must not remain as live chat skill-selection entrypoints.
 - Modify: provider-start frontend builders after locating them with `rg "scope|system|skill" cmd/agent-terminal/frontend/vue-app`
 - Modify: frontend tests after locating the existing test pattern with `rg`
 - Modify: `README.md` only if the user-facing docs mention manual import/export/takeover
@@ -194,7 +193,7 @@ Cover:
 - `import_to_personal_imported` copies external provider skill to `~/.super-dolphin/skills/personal/imported/<name>`
 - `import_to_project` copies external provider skill to `<repo>/.agent/skills/<name>`
 - `takeover_provider_skill` first backs up unmanaged provider directory, then writes ownership manifest, then treats the mirror as managed
-- `view_unmanaged` records no write and keeps conflict unresolved; it is a read-only acknowledgement, not a resolution, and provider startup remains fail-closed
+- `view_unmanaged` records no write and keeps conflict unresolved; it is a read-only acknowledgement, not a resolution, and the unresolved content conflict remains visible in the Skills UI without blocking provider startup
 - takeover fails if backup or audit fails
 - import and takeover reject path traversal, symlinked provider roots, and symlinked files after canonicalization
 - canonical same-name actions require the preview hash for every affected canonical path
@@ -315,7 +314,7 @@ UI must show one row per conflict or drift item:
 
 The UI must first call `skills/resolution_list`; it must not require the user to know a `conflict_id` in advance.
 
-The Skills dashboard must render unresolved same-name conflicts as data, not as a page-level failure. A conflict between repo-local project canonical `.agent/skills/<name>` and an active personal skill is a normal V1 state; the page must show the blocking item, available resolution actions, and provider startup fail-closed status without crashing or hiding the rest of the skill list. Conflicted active skills must not be silently published to Claude/Codex mirrors before the user resolves them. Catalog-only `personal/hub` entries must not be treated as active conflicts.
+The Skills dashboard must render unresolved same-name conflicts as data, not as a page-level failure. A conflict between repo-local project canonical `.agent/skills/<name>` and an active personal skill is a normal V1 state; the page must show the conflict item and available resolution actions without crashing or hiding the rest of the skill list. Ordinary same-name, drift, unmanaged, and canonical-deleted content conflicts must not block provider startup; users handle them from the Skills UI. Conflicted active skills must not be silently published to Claude/Codex mirrors before the user resolves them. Catalog-only `personal/hub` entries must not be treated as active conflicts.
 
 - [ ] **Step 3: Add UI tests**
 
@@ -335,7 +334,7 @@ Assert the default selected action is no write, mutating actions are disabled un
 
 - [ ] **Step 4: Migrate existing create/edit/import personal scope UI**
 
-Current skill create/edit/import/delete, launch skill selection, match preview, and provider-start payload builders must stop emitting or displaying `scope=system`. Update the existing skill editor/API payloads so personal writes send:
+Current skill create/edit/import/delete, compatibility match preview, resolution UI/RPC, and provider-start payload builders must stop emitting or displaying `scope=system`. Chat launch skill selection has been removed and must not be reintroduced. Update the existing skill editor/API payloads so personal writes send:
 
 ```json
 {
@@ -344,7 +343,7 @@ Current skill create/edit/import/delete, launch skill selection, match preview, 
 }
 ```
 
-Add frontend tests for `writeSkill`, `importSkills`, editor save, delete, `useLaunchSkillSelection`, `LaunchSkillPicker`, and provider-start config builders proving `system` is not sent or displayed. Delete must send `name`, `scope`, and `personal_type`; it must not call the old `{name}`-only path. Add backend RPC tests rejecting new `scope=system` writes with `invalid_scope_system_removed`.
+Add frontend tests for `writeSkill`, `importSkills`, editor save, delete, conflict resolution UI, and provider-start config builders proving `system` is not sent or displayed. Delete must send `name`, `scope`, and `personal_type`; it must not call the old `{name}`-only path. Deleted chat launch-selection components (`useLaunchSkillSelection`, `LaunchSkillPicker`) must not be reintroduced. Add backend RPC tests rejecting new `scope=system` writes with `invalid_scope_system_removed`.
 
 - [ ] **Step 5: Retire old candidate review UI/RPC entrypoints for V1**
 
@@ -521,7 +520,7 @@ Expected: provider-native mirrors under `.claude/` and `.agents/` are not staged
 - D8 mirror drift button order is fixed by `00-implementation-index-and-decisions.md`.
 - V1 must implement export preview and export apply RPCs; the frontend must use server-produced preview hashes and canonicalized destinations.
 - V1 must implement export UI; backend-only export is not accepted.
-- V1 must migrate create/edit/import/delete/launch selection/match preview/provider-start UI away from live `system` scope.
+- V1 must migrate create/edit/import/delete/compatibility match preview/resolution/provider-start UI away from live `system` scope; chat launch selection must remain removed.
 - No provider-mirror opt-out action or launch-unblocking unmanaged skip action is accepted in V1.
 - Dashboard/Skills page load must not hard-fail on unresolved conflicts. Same-name conflicts are blocking data with resolution actions; provider mirrors publish only non-conflicted records until the conflict is resolved.
 - Takeover copy semantics are fixed: backup then mark managed, without silently changing canonical content.

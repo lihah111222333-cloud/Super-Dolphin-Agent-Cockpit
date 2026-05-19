@@ -17,7 +17,6 @@ vi.mock('./services/log.js', () => ({
 }));
 
 import { useThreadActions } from './composables/useThreadActions.js';
-import { resolveLaunchSkillSelectionFeature, useLaunchSkillSelection } from './composables/useLaunchSkillSelection.js';
 
 function createThreadActions(overrides = {}) {
   const threadStore = {
@@ -63,17 +62,6 @@ function createThreadActions(overrides = {}) {
     isThreadInterruptible: overrides.isThreadInterruptible ?? vi.fn(() => true),
     beginInlineRename: vi.fn(),
     scheduleScrollToBottom: vi.fn(),
-    resolveComposerSkillSelectionForSend: vi.fn().mockResolvedValue({
-      selectedSkills: [],
-      manualSkillSelection: false,
-    }),
-    resolveLaunchSkillSelectionForStart: vi.fn().mockResolvedValue({
-      enabled: false,
-      selectedSkills: [],
-      manualSkillSelection: false,
-    }),
-    clearLaunchSkillSelection: vi.fn(),
-    resetSelectedComposerSkills: vi.fn(),
     showArchivedThreadList: ref(false),
     compacting: ref(false),
     ...overrides.deps,
@@ -93,210 +81,9 @@ beforeEach(() => {
   globalThis.window = { ...(globalThis.window || {}), alert: vi.fn() };
 });
 
-async function flushPromises(count = 3) {
-  for (let index = 0; index < count; index += 1) {
-    await Promise.resolve();
-  }
-}
-
 describe('useThreadActions', () => {
-  it('feature precedence resolves launchSkillSelection from thread, then project, then false', () => {
-    expect(resolveLaunchSkillSelectionFeature({}, { launchSkillSelection: true })).toBe(true);
-    expect(resolveLaunchSkillSelectionFeature({ launchSkillSelection: undefined }, { launchSkillSelection: true })).toBe(true);
-    expect(resolveLaunchSkillSelectionFeature({ launchSkillSelection: false }, { launchSkillSelection: true })).toBe(false);
-    expect(resolveLaunchSkillSelectionFeature({}, {})).toBe(false);
-  });
-
-  it('groups launch skills by backend scope before falling back to trust', async () => {
-	apiMock.callAPI.mockImplementation(async (method) => {
-	  if (method === 'skills/list') {
-	    return {
-	      skills: [
-	        { name: 'ProjectSkill', trust: 'project' },
-	        { name: 'UserSkill', trust: 'user' },
-	        { name: 'SignedSkill', trust: 'signed' },
-	        { name: 'ScopedProject', scope: 'project', trust: 'signed' },
-	        { name: 'ScopedPersonal', scope: 'personal', trust: 'project' },
-	      ],
-	    };
-	  }
-      return { matches: [] };
-    });
-
-    const vm = useLaunchSkillSelection({
-      composer: { state: reactive({ text: '' }) },
-      selectedThreadId: ref('thread-active'),
-      skillRevision: ref(0),
-      featureSource: ref({ threadFeatures: {}, projectFeatures: { launchSkillSelection: true } }),
-      activeCwdSource: ref('/repo'),
-    });
-    await flushPromises();
-
-	expect(vm.launchProjectSkills.value.map((skill) => skill.name)).toEqual(['ProjectSkill', 'ScopedProject']);
-	expect(vm.launchSystemSkills.value.map((skill) => skill.name)).toEqual(['UserSkill', 'SignedSkill', 'ScopedPersonal']);
-	expect(vm.launchSkillScope.value).toBe('project');
-
-    vm.setLaunchSkillScope('system');
-    expect(vm.launchSkillScope.value).toBe('project');
-
-	vm.setLaunchSkillScope('personal');
-	expect(vm.launchSkillScope.value).toBe('personal');
-	expect(vm.launchVisibleSkills.value.map((skill) => skill.name)).toEqual(['UserSkill', 'SignedSkill', 'ScopedPersonal']);
-  });
-
-  it('keeps same-name project and personal launch selections as separate refs', async () => {
-    apiMock.callAPI.mockImplementation(async (method) => {
-      if (method === 'skills/list') {
-        return {
-          skills: [
-            { name: 'Docs', scope: 'project', dir: '/repo/.agent/skills/docs' },
-            { name: 'Docs', scope: 'personal', personal_type: 'user', dir: '/home/skills/docs' },
-          ],
-        };
-      }
-      return { matches: [] };
-    });
-
-    const vm = useLaunchSkillSelection({
-      composer: { state: reactive({ text: '' }) },
-      selectedThreadId: ref(''),
-      skillRevision: ref(0),
-      featureSource: ref({ threadFeatures: {}, projectFeatures: { launchSkillSelection: true } }),
-      activeCwdSource: ref('/repo'),
-    });
-    await flushPromises();
-
-    vm.toggleLaunchSelectedSkill(vm.launchProjectSkills.value[0]);
-    vm.toggleLaunchSelectedSkill(vm.launchSystemSkills.value[0]);
-
-    expect(vm.launchSelectedSkillNames.value).toEqual(['Docs']);
-    expect(vm.launchSelectedSkillRefs.value.map((item) => item.key)).toEqual([
-      'project::docs:/repo/.agent/skills/docs',
-      'personal:user:docs:/home/skills/docs',
-    ]);
-    await expect(vm.resolveLaunchSkillSelectionForStart('')).resolves.toEqual(expect.objectContaining({
-      enabled: true,
-      selectedSkills: [],
-      selectedSkillRefs: expect.arrayContaining([
-        expect.objectContaining({ key: 'project::docs:/repo/.agent/skills/docs', scope: 'project' }),
-        expect.objectContaining({ key: 'personal:user:docs:/home/skills/docs', scope: 'personal', personalType: 'user' }),
-      ]),
-      manualSkillSelection: true,
-    }));
-  });
-
-  it('resolves name-only launch match selections through the visible catalog', async () => {
-    apiMock.callAPI.mockImplementation(async (method) => {
-      if (method === 'skills/list') {
-        return {
-          skills: [
-            { name: 'Docs', scope: 'project', dir: '/repo/.agent/skills/docs' },
-            { name: 'Notes', scope: 'personal', personal_type: 'user', dir: '/home/skills/notes' },
-          ],
-        };
-      }
-      return { matches: [] };
-    });
-
-    const vm = useLaunchSkillSelection({
-      composer: { state: reactive({ text: '' }) },
-      selectedThreadId: ref(''),
-      skillRevision: ref(0),
-      featureSource: ref({ threadFeatures: {}, projectFeatures: { launchSkillSelection: true } }),
-      activeCwdSource: ref('/repo'),
-    });
-    await flushPromises();
-
-    vm.toggleLaunchSelectedSkill({ name: 'Docs', matchedBy: 'keyword' });
-
-    expect(vm.launchSelectedSkillRefs.value).toEqual([
-      expect.objectContaining({ key: 'project::docs:/repo/.agent/skills/docs', scope: 'project', path: '/repo/.agent/skills/docs' }),
-    ]);
-  });
-
-  it('does not turn ambiguous name-only launch matches into personal refs', async () => {
-    apiMock.callAPI.mockImplementation(async (method) => {
-      if (method === 'skills/list') {
-        return {
-          skills: [
-            { name: 'Docs', scope: 'project', dir: '/repo/.agent/skills/docs' },
-            { name: 'Docs', scope: 'personal', personal_type: 'user', dir: '/home/skills/docs' },
-          ],
-        };
-      }
-      if (method === 'skills/match/preview') {
-        return { matches: [{ name: 'Docs', matched_by: 'force', matched_terms: ['docs'] }] };
-      }
-      return {};
-    });
-
-    const vm = useLaunchSkillSelection({
-      composer: { state: reactive({ text: 'use docs' }) },
-      selectedThreadId: ref(''),
-      skillRevision: ref(0),
-      featureSource: ref({ threadFeatures: {}, projectFeatures: { launchSkillSelection: true } }),
-      activeCwdSource: ref('/repo'),
-    });
-    await flushPromises();
-
-    const resolved = await vm.resolveLaunchSkillSelectionForStart('use docs');
-
-    expect(resolved.selectedSkills).toEqual([]);
-    expect(resolved.selectedSkillRefs).toEqual([]);
-  });
-
-  it('launchOne omits launch skills when launch selection is disabled', async () => {
-    const vm = createThreadActions({
-      deps: {
-        resolveLaunchSkillSelectionForStart: vi.fn().mockResolvedValue({
-          enabled: false,
-          selectedSkills: ['skillA'],
-          manualSkillSelection: true,
-        }),
-      },
-    });
-
-    await vm.launchOne();
-
-    expect(vm.deps.resolveLaunchSkillSelectionForStart).not.toHaveBeenCalled();
-    expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo', { focusMode: 'chat', deferSpawn: true });
-    expect(vm.deps.selectedThreadId.value).toBe('thread-started');
-  });
-
-  it('launchOne does not forward launch skills into startThread payload when enabled', async () => {
-    const vm = createThreadActions({
-      deps: {
-        resolveLaunchSkillSelectionForStart: vi.fn().mockResolvedValue({
-          enabled: true,
-          selectedSkills: ['skillA', ' skillB '],
-          selectedSkillRefs: [{ key: 'project::skilla:/repo/.agent/skills/skilla', name: 'skillA', scope: 'project', path: '/repo/.agent/skills/skilla' }],
-          manualSkillSelection: true,
-        }),
-      },
-    });
-
-    await vm.launchOne();
-
-    expect(vm.deps.resolveLaunchSkillSelectionForStart).not.toHaveBeenCalled();
-    expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo', {
-      focusMode: 'chat',
-      deferSpawn: true,
-    });
-    expect(vm.deps.clearLaunchSkillSelection).toHaveBeenCalledTimes(1);
-    expect(vm.deps.selectedThreadId.value).toBe('thread-started');
-  });
-
-  it('launchOne omits explicit launch skill refs from startThread payload', async () => {
-    const vm = createThreadActions({
-      deps: {
-        resolveLaunchSkillSelectionForStart: vi.fn().mockResolvedValue({
-          enabled: true,
-          selectedSkills: ['skillA'],
-          selectedSkillRefs: [{ key: 'project::skilla:/repo/.agent/skills/skilla', name: 'skillA', scope: 'project', path: '/repo/.agent/skills/skilla' }],
-          manualSkillSelection: true,
-        }),
-      },
-    });
+  it('launchOne starts a deferred thread when composer is empty', async () => {
+    const vm = createThreadActions();
 
     await vm.launchOne();
 
@@ -401,7 +188,6 @@ describe('useThreadActions', () => {
       [],
       expect.objectContaining({ cwd: '/repo' }),
     );
-    expect(vm.deps.resolveComposerSkillSelectionForSend).not.toHaveBeenCalled();
     expect(vm.deps.scheduleScrollToBottom).toHaveBeenCalledWith(true);
   });
 
@@ -426,24 +212,15 @@ describe('useThreadActions', () => {
     );
   });
 
-  it('send: resolves launch skill state before startThread but does not forward it to launch or send payloads', async () => {
+  it('send: starts a new thread before sending and does not forward skill selections', async () => {
     const vm = createThreadActions({
       selectedThreadId: '',
       text: 'boot launch',
       attachments: [{ path: '/tmp/a.txt' }],
-      deps: {
-        resolveLaunchSkillSelectionForStart: vi.fn().mockResolvedValue({
-          enabled: true,
-          selectedSkills: ['skillA', ' skillB '],
-          selectedSkillRefs: [{ key: 'project::skilla:/repo/.agent/skills/skilla', name: 'skillA', scope: 'project', path: '/repo/.agent/skills/skilla' }],
-          manualSkillSelection: true,
-        }),
-      },
     });
 
     await vm.send();
 
-    expect(vm.deps.resolveLaunchSkillSelectionForStart).not.toHaveBeenCalled();
     expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo', {
       focusMode: 'chat',
       prompt: 'boot launch',
@@ -457,26 +234,13 @@ describe('useThreadActions', () => {
         cwd: '/repo',
       },
     );
-    expect(vm.deps.resolveComposerSkillSelectionForSend).not.toHaveBeenCalled();
-    expect(vm.deps.clearLaunchSkillSelection).toHaveBeenCalledTimes(1);
-    expect(vm.threadStore.startThread.mock.invocationCallOrder[0]).toBeLessThan(vm.deps.clearLaunchSkillSelection.mock.invocationCallOrder[0]);
-    expect(vm.deps.clearLaunchSkillSelection.mock.invocationCallOrder[0]).toBeLessThan(vm.threadStore.sendMessage.mock.invocationCallOrder[0]);
+    expect(vm.threadStore.startThread.mock.invocationCallOrder[0]).toBeLessThan(vm.threadStore.sendMessage.mock.invocationCallOrder[0]);
   });
 
   it('send: does not forward selected skill refs for active threads', async () => {
     const vm = createThreadActions({
       selectedThreadId: 'thread-live',
       text: 'ping with skills',
-      deps: {
-        resolveComposerSkillSelectionForSend: vi.fn().mockResolvedValue({
-          selectedSkills: ['manualSkill', 'forcedSkill'],
-          selectedSkillRefs: [
-            { key: 'project::manual:/repo/.agent/skills/manual', name: 'manualSkill', scope: 'project', path: '/repo/.agent/skills/manual', source: 'manual' },
-            { key: 'project::forced:/repo/.agent/skills/forced', name: 'forcedSkill', scope: 'project', path: '/repo/.agent/skills/forced', source: 'force' },
-          ],
-          manualSkillSelection: true,
-        }),
-      },
     });
 
     await vm.send();
@@ -489,26 +253,17 @@ describe('useThreadActions', () => {
     );
   });
 
-  it('send: keeps launch skill state when startThread fails', async () => {
+  it('send: stops when startThread returns no thread id', async () => {
     const vm = createThreadActions({
       selectedThreadId: '',
       text: 'boot launch',
       threadStore: {
         startThread: vi.fn().mockResolvedValue(''),
       },
-      deps: {
-        resolveLaunchSkillSelectionForStart: vi.fn().mockResolvedValue({
-          enabled: true,
-          selectedSkills: ['skillA'],
-          manualSkillSelection: false,
-        }),
-      },
     });
 
     await vm.send();
 
-    expect(vm.deps.resolveLaunchSkillSelectionForStart).not.toHaveBeenCalled();
-    expect(vm.deps.clearLaunchSkillSelection).not.toHaveBeenCalled();
     expect(vm.threadStore.sendMessage).not.toHaveBeenCalled();
   });
 

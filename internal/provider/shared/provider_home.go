@@ -277,6 +277,8 @@ func blockingSkillMirrorConflicts(conflicts []contract.SkillMirrorReportItem) []
 }
 
 func isBlockingSkillMirrorConflict(item contract.SkillMirrorReportItem) bool {
+	// Ordinary content conflicts are surfaced in the skill UI for user resolution.
+	// Provider startup only fails closed when the mirror root itself is unsafe or unusable.
 	switch strings.ToLower(strings.TrimSpace(item.ConflictKind)) {
 	case "same_name",
 		"same_name_scope_conflict",

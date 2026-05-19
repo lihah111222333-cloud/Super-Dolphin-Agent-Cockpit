@@ -25,12 +25,12 @@
 | Order | Plan | Implementation slice | Why this boundary |
 |---:|---|---|---|
 | 1 | `01-v1-foundation-canonical-mirror.md` | V1 foundation | Pure skill filesystem and policy core; can be tested without launching providers. |
-| 2 | `02b-v1-resolution-ui-rpc.md` | V1 resolution UX | Adds import/export/takeover and drift/conflict decision surfaces required before fail-closed provider startup is enabled. |
+| 2 | `02b-v1-resolution-ui-rpc.md` | V1 resolution UX | Adds import/export/takeover and drift/conflict decision surfaces so ordinary content conflicts are visible and user-resolvable without blocking provider startup. |
 | 3 | `02-v1-provider-cutover.md` | V1 provider cutover | Removes old injection/runtime dependency and wires providers to the new publisher after resolution surfaces exist. |
 | 4 | `03-v2-skill-proposal.md` | V2 proposal | Introduces model-assisted proposals with explicit user confirmation. |
 | 5 | `04-v3-personal-auto-maintenance.md` | V3 auto-maintenance | Adds personal-only automatic low-risk patching and curator operations. |
 
-The split keeps each implementation slice reviewable, but V1 is one atomic product landing. Provider cutover must not be enabled before foundation and resolution UI/RPC are both merged, because fail-closed startup requires a user-visible way to resolve same-name, drift, unmanaged, and canonical-deleted conflicts.
+The split keeps each implementation slice reviewable, but V1 is one atomic product landing. Provider cutover must not be enabled before foundation and resolution UI/RPC are both merged, because ordinary same-name, drift, unmanaged, and canonical-deleted content conflicts must be visible in the Skills UI for user handling while the chat/provider main path continues to work.
 
 ## Cross-Plan Decision Gates
 
@@ -52,7 +52,7 @@ The split keeps each implementation slice reviewable, but V1 is one atomic produ
 
 **Reason:** The old name is semantically wrong. Keeping a compatibility alias creates exactly the half-old, half-new runtime path this refactor is meant to remove.
 
-**Implementation gate:** `rg "scope=system|skillScopeSystem|\\\"system\\\"" internal cmd docs` must show only migration rejection tests, historical docs, or removed code comments before V1 is considered complete. `useLaunchSkillSelection`, `LaunchSkillPicker`, skill editor, import, delete, match preview, and provider-start payload builders must not emit or display a live `system` scope.
+**Implementation gate:** `rg "scope=system|skillScopeSystem|\\\"system\\\"" internal cmd docs` must show only migration rejection tests, historical docs, or removed code comments before V1 is considered complete. Skill editor, import, delete, summary generation, resolution UI/RPC, and provider-start payload builders must not emit or display a live `system` scope; removed chat launch-selection code must not be reintroduced.
 
 ### D3: Same-Name Conflict Button Order
 
@@ -64,7 +64,7 @@ The split keeps each implementation slice reviewable, but V1 is one atomic produ
 - Personal type vs personal type: `View diff`, `Rename one`, `Merge manually`, `Keep selected`.
 - Canonical vs unmanaged provider-native directory: `View unmanaged blocker`, `Import to personal/imported`, `Import to project`, `Take over after backup`.
 
-**Reason:** Same-name conflicts are where silent shadowing hurts most. The safest default is no write. Viewing or acknowledging unmanaged content is not a resolution and must keep provider startup fail-closed until the user imports, renames/removes, or takes over after explicit backup and hash display.
+**Reason:** Same-name conflicts are where silent shadowing hurts most. The safest default is no write. Viewing or acknowledging unmanaged content is not a resolution; the conflict must remain visible in the Skills UI until the user imports, renames/removes, disables, or takes over after explicit backup and hash display. Ordinary content conflicts do not block provider startup.
 
 ### D4: Personal Auto-Maintenance Default
 
@@ -128,9 +128,9 @@ The split keeps each implementation slice reviewable, but V1 is one atomic produ
 
 **Decision:** V1 is not accepted until foundation, resolution UI/RPC, and provider cutover are all merged and verified together.
 
-**Recommended default:** Implement in the listed order, but keep provider runtime cutover blocked behind code review until resolution list/preview/apply/export UI and RPC are available. A partial V1 branch may be tested internally, but there is no product state where old injection is removed and users cannot resolve blocking conflicts.
+**Recommended default:** Implement in the listed order, but keep provider runtime cutover blocked behind code review until resolution list/preview/apply/export UI and RPC are available. A partial V1 branch may be tested internally, but there is no product state where old injection is removed and users cannot see and resolve ordinary skill content conflicts.
 
-**Reason:** Full landing with fail-closed startup is only usable when users can discover and fix conflicts before launching their configured providers.
+**Reason:** Full landing is only usable when users can discover and fix conflicts in the Skills UI while unrelated provider/chat functionality remains available.
 
 ## Execution Rules
 

@@ -40,7 +40,7 @@ Super-Dolphin 不再承担 Claude/Codex 的 skill 注入职责。项目只负责
 <repo>/.agent/skills/<skill-name>/scripts/...
 ```
 
-项目级 canonical 删除，表示项目不再拥有该 skill。下次 publish 只会删除 Super-Dolphin owned 且 hash 仍匹配/未 drift 的 mirror；如果 mirror 已 drift，则进入 `canonical_deleted_with_drift` 冲突并 fail-closed，直到用户显式选择保存、回写或确认删除 mirror。不会删除 unmanaged provider-native skill。
+项目级 canonical 删除，表示项目不再拥有该 skill。下次 publish 只会删除 Super-Dolphin owned 且 hash 仍匹配/未 drift 的 mirror；如果 mirror 已 drift，则进入 `canonical_deleted_with_drift` 冲突并在技能管理页提示用户处理，但不阻断 provider 正常启动。不会删除 unmanaged provider-native skill。
 
 ### 3.2 项目级 provider mirror
 
@@ -104,7 +104,7 @@ project canonical + personal canonical + policy -> provider-native mirror
 
 - 项目级和个人级同名：提示用户选择项目覆盖个人、禁用个人、重命名个人。
 - personal 不同类型同名：提示用户选择保留哪一个、合并、重命名。
-- canonical 和 unmanaged provider-native 同名：提示查看阻塞原因、import、takeover；只查看或确认不是 resolution，provider 启动仍 fail-closed，直到用户 import、takeover、删除/重命名 unmanaged 内容或改 canonical 名称。
+- canonical 和 unmanaged provider-native 同名：提示查看原因、import、takeover；只查看或确认不是 resolution，冲突继续留在技能管理页，直到用户 import、takeover、删除/重命名 unmanaged 内容或改 canonical 名称；不阻断 provider 正常启动。
 
 不建议 silent shadow，因为用户会误以为某个 skill 生效，但 provider 实际读到的是另一个版本。
 
@@ -244,7 +244,7 @@ publish 行为：
 - 另存为新 personal skill。
 - 删除 personal canonical 并归档。
 
-V1 不允许把单个 provider mirror 从发布集中移除作为 drift 解决方案。用户不处理 drift 时，provider 启动继续 fail-closed，直到用户选择同步、覆盖、另存、删除 canonical，或手动恢复 mirror。
+V1 不允许把单个 provider mirror 从发布集中移除作为 drift 解决方案。用户不处理 drift 时，冲突继续显示在技能管理页，直到用户选择同步、覆盖、另存、删除 canonical，或手动恢复 mirror；普通 drift 不阻断 provider 正常启动。
 
 ## 8. Drift 与冲突处理
 
@@ -631,7 +631,7 @@ V1 验证：
 - 用 Codex native debug 能看到 `.agents/skills/probe`。
 - 用 Claude CLI 能看到 `.claude/skills/probe`。
 - release 验收必须跑 Super-Dolphin driver-level provider-native smoke；只有文件级 mirror 存在不能证明 provider-native discover 成功。Claude/Codex CLI 由用户自行安装和登录，验收应检查未安装/未登录时给出清晰错误。
-- 删除 canonical 后仅 hash 匹配/未 drift 的 owned mirror 删除；已 drift mirror 进入 `canonical_deleted_with_drift` 并 fail-closed。
+- 删除 canonical 后仅 hash 匹配/未 drift 的 owned mirror 删除；已 drift mirror 进入 `canonical_deleted_with_drift` 并在技能管理页提示用户处理。
 - 删除 mirror 后 canonical 存在则重建。
 - unmanaged mirror 不被覆盖。
 - `.agents/` 不进入 git。
@@ -639,7 +639,7 @@ V1 验证：
 - `skill_read_section` 不再是 Codex skill 读取必需链路。
 - `rg "turnSkillPrompt|SkillPrompt|SkillReplacementAggregator|ReplacedNativeTools|skilllibrary|skillforge|fbsd" internal cmd sql` 只允许命中删除态测试、迁移/历史文档、显式兼容拒绝测试，不能命中生产注入链路。
 - 旧 `~/.multi-agent/skills` 被一次性迁移/导入到 `personal/user` 后，不再作为 live runtime root 扫描。
-- 启动 skill picker、match preview、delete、create/edit/import 和 provider-start payload 不再发送或展示 live `system` scope。
+- 聊天页不再保留启动 skill picker；create/edit/import/delete、summary、resolution 和 provider-start payload 不再发送或展示 live `system` scope。
 - old `skills/candidate/*` 入口不再作为生产 skill pipeline 存活；V2 用 `skill_proposals/*` 替代。
 
 V2 验证：
@@ -668,7 +668,7 @@ V3 验证：
 推荐按以下顺序实施：
 
 1. V1A: 建 canonical store、personal type、effective set、manifest、ownership、hash、mirror publisher。
-2. V1B: 接入现有 create/edit/import/delete/read/expand/match preview/launch auto-match/turn hydration 路径，迁移旧 `~/.multi-agent/skills`，移除 live `scope=system` 输入。
+2. V1B: 接入现有 create/edit/import/delete/read/turn hydration 路径，迁移旧 `~/.multi-agent/skills`，移除 live `scope=system` 输入，并清理聊天页 launch auto-match / picker 旧入口。
 3. V1C: 做 resolution list/preview/apply/export-preview/export UI/RPC，覆盖 same-name、drift、multi-provider drift、unmanaged、canonical-deleted-with-drift。
 4. V1D/E: 全量切 provider runtime，同时落地 startup/open project reconcile、write-time publish、provider-native personal mirror、Claude/Codex driver-level native discovery smoke，并删除旧注入链路、`skill_read_section` runtime dependency、旧 `.claude/skills` symlink 注入，迁移 prompt/uistate/app 中旧 skilllibrary/skillforge/fbsd 消费者和 old candidate 生产入口。这一组不能拆成可单独验收的中间态；缺少任一项都不算 V1 full landing。
 5. V1F: 补 README / docs / 测试。

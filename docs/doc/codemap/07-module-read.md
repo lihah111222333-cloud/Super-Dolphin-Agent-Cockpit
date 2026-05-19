@@ -28,7 +28,7 @@ flowchart LR
 ### 1.1 跨卷一致性备忘
 
 - `internal/archtest/freeze_registry.go:29-35` 当前显式 freeze 真值仍是 **`internal/module/prompt:27`**；凡是引用 prompt 包文件数的文档都应以 `27` 为准。
-- 旧 prompt skill-catalog 注入链已退出生产路径；当前 prompt 只可能通过 optional `SkillNativeReplacementSource` 做 native tool suppression hints，正文/目录发现交给 provider-native mirror。
+- 旧 prompt skill-catalog 注入链已退出生产路径；prompt 不再读取 skill catalog 或 canonical skill 来生成正文、目录发现或 native suppression hints，正文/目录发现交给 provider-native mirror。
 - `internal/module/lspgui/` 当前在仓内不存在；旧文档若仍把它写成真实包，需要按代码真值纠偏。
 
 ### 1.2 模块间主线关系（补）
@@ -262,7 +262,7 @@ flowchart TD
 
 `skill` 同时承担四类职责：
 
-1. **canonical skill 扫描与有效集**：项目级 `<cwd>/.agent/skills` + 个人级 `~/.super-dolphin/skills/personal/{user,agent,imported,hub}`。
+1. **canonical skill 扫描与有效集**：项目级 `<cwd>/.agent/skills` + 个人级 `~/.super-dolphin/skills/personal/{user,agent,imported}`；`personal/hub` 仅作目录/市场来源，不参与扫描、mirror 或 provider 调用。
 2. **provider-native mirror**：把有效集发布到 `<cwd>/.claude/skills` / `<cwd>/.agents/skills`，以及个人默认 `~/.claude/skills` / `~/.agents/skills` 或显式 provider home `skills`，让 Claude/Codex 原生发现。
 3. **本地文件与冲突处理 RPC**：`skills/local/*`、`skills/resolution_*`、`skills/summary/suggest`、`skill/list` 等 host/UI 面继续保留；`skill/expand` 和旧 `skills/candidate/*` 候选审批入口已退出 V1 生产面。
 4. **受限命令执行与事件**：`command/exec` + `uidto.SkillsChanged` debounce 发布。
@@ -271,7 +271,7 @@ Fx 装配见 `module.go:15-30`：
 
 - `newService(cfg, dispatcher)` 从 `platform/config.Config.ProjectRoot` 注入构造期 project root
 - 若底层 `Service` 是具体 `*service`，再 `bindDispatcher(dispatcher)` 开启 `SkillsChanged` 事件发射器
-- `fx.As(new(contract.SkillMirrorReconciler))` 导出 provider mirror reconcile；`ProvideSkillLister / ProvideSkillHydrationSource` 暴露 dashboard / turn 所需窄端口；`ProvideSkillCatalogSource` 仅保留 legacy prompt-catalog 兼容接口，不是当前生产注入链。
+- `fx.As(new(contract.SkillMirrorReconciler))` 导出 provider mirror reconcile；`ProvideSkillLister / ProvideSkillHydrationSource` 暴露 dashboard / turn 所需窄端口；`ProvideSkillCatalogSource` 仅保留 legacy 兼容接口，不是当前生产 prompt 注入链。
 - `fx.Provide(NewSkillHandlers)` 暴露 host RPC
 
 ### 4.2 根目录与 `cwd` 作用域
@@ -279,15 +279,15 @@ Fx 装配见 `module.go:15-30`：
 `skill.Service` 兼容聚合面及其窄端口的作用域不是全局常量，而是 **构造期 projectRoot + 请求期 cwd** 的叠加：
 
 - `contract.go:12-25`：`WithCWD(ctx, cwd)` / `cwdFromContext(ctx)`
-- `service.go:97-123`：`skillRoots(cwd)` / `projectSkillsRootForCWD(cwd)`
-- `skills_meta.go:22-45`：`scanSkills(cwd)` 顺序扫描 roots
+- `skills_fs.go:25-39`：`ListSkills(ctx)` 强制要求 cwd，并委托 `canonicalEffectiveSet(ctx, cwd)`
+- `canonical_store.go:123-160`：`EffectiveSet(ctx, cwd)` 扫描 project + active personal roots，再套用 policy 并剔除未处理同名冲突
 
 当前 root 规则：
 
 | 层级 | 规则 |
 |---|---|
 | 项目根 | `<cwd>/.agent/skills`；若请求没带 cwd，则回退构造期 `projectRoot/.agent/skills` |
-| 个人根 | `~/.super-dolphin/skills/personal/{user,agent,imported,hub}`，可由 `SUPER_DOLPHIN_HOME` 改变 home |
+| 个人根 | `~/.super-dolphin/skills/personal/{user,agent,imported}`，可由 `SUPER_DOLPHIN_HOME` 改变 home；`personal/hub` 是 catalog-only，不是 active canonical root |
 | project policy | `<cwd>/.agent/skills/.super-dolphin-skill-policy.json` 可禁用某个 personal source 对当前项目生效 |
 | personal policy | `~/.super-dolphin/skills/.super-dolphin-personal-skill-policy.json` 可在个人同名冲突中 keep selected |
 | provider mirror | `<cwd>/.claude/skills` / `<cwd>/.agents/skills` 及个人默认 `~/.claude/skills` / `~/.agents/skills`；显式 provider home 可使用其 `skills` 子目录；这些是生成物，不是 canonical 真值 |
@@ -332,28 +332,34 @@ sequenceDiagram
     participant C as RPC caller
     participant H as skill/list handler
     participant S as SkillLister.ListSkills
-    participant SCAN as scanSkills
-    participant ROOT as skillRoots(cwd)
-    participant PARSE as parseSkillRecord/parseSkillInfo
+    participant EFF as canonicalEffectiveSet
+    participant STORE as canonicalStore.EffectiveSet
+    participant ROOT as scanRoots(cwd)
+    participant PARSE as scanCanonicalRoot/visitCanonicalSkillFile
+    participant POLICY as applyEffectivePolicies
 
     C->>H: skill/list {cwd}
     H->>H: ctx = scopedSkillContext(ctx, cwd)
     H->>S: ListSkills(ctx)
-    S->>SCAN: scanSkills(cwdFromContext(ctx))
-    SCAN->>ROOT: resolve project + personal roots
-    ROOT-->>SCAN: roots[]
-    loop every SKILL.md
-        SCAN->>PARSE: parseSkillRecord(root, path, defaultTrust)
-        PARSE-->>SCAN: SkillInfo{Name/Summary/Trust/...}
+    S->>EFF: canonicalEffectiveSet(ctx, cwd)
+    EFF->>STORE: EffectiveSet(ctx, cwd)
+    STORE->>ROOT: project root + active personal roots
+    ROOT-->>STORE: roots[]
+    loop every canonical root
+        STORE->>PARSE: scan SKILL.md packages
+        PARSE-->>STORE: canonicalSkillRecord{Name/Scope/PersonalType/...}
     end
-    SCAN-->>S: []skillRecord
+    STORE->>POLICY: apply project/personal policies
+    POLICY-->>STORE: effective records + unresolved conflicts
+    STORE-->>EFF: []canonicalSkillRecord + []canonicalSkillConflict
+    EFF-->>S: effective records + conflicts
     S-->>H: []SkillInfo
     H-->>C: skillListResult{skills:[slim dto]}
 ```
 
 要点：
 
-- `skills_meta.go:105-143` 会把 frontmatter 的 `name/description/summary/trigger_words/force_words/trust/allowed_tools/disable_model_invocation` 规范化进 `SkillInfo`。
+- `canonical_store.go:160-207` 会把每个 root 下的 skill package 转成 canonical record；底层仍复用 SKILL.md frontmatter 解析，把 `name/description/summary/trigger_words/force_words/trust/allowed_tools/disable_model_invocation` 规范化进 `SkillInfo`。
 - 若没写 `summary`，会从正文自动抽取摘要；`TriggerWords` 默认补 `@name` 与 `[skill:name]`。
 - `ContentHash` 是整份 `SKILL.md` 的 SHA-256，全文件任一变动都会触发重新审批。
 
@@ -405,7 +411,7 @@ flowchart LR
 
 注意：
 
-- prompt 不再通过 skill catalog 注入 skill body 或目录；prompt 侧只保留 optional `SkillNativeReplacementSource` 读取 canonical `ReplacesNative`，用于 native tool suppression hints。
+- prompt 不再通过 skill catalog 注入 skill body、目录或 native suppression hints；provider-native mirror 是 Claude/Codex 发现 skill 的唯一生产主链。
 - provider 启动/acquire 前调用 `SkillMirrorReconciler` 发布 mirror；Claude/Codex 原生发现 mirror 里的 skills。
 - `turn` 只消费 `SkillHydrationSource.ListSkills/ReadLocal` 做 hydration，不会直接走 `skill/expand` RPC，也不依赖完整 `skill.Service` 的旧展开能力。
 - `dashboard` 仅把 `SkillLister.ListSkills` 当作只读列表来源，不参与 approval / resource read。

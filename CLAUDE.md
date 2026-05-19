@@ -27,7 +27,7 @@
 | @使用超能力 | `.agent/skills/使用超能力/SKILL.md` |
 | @结束开发分支 | `.agent/skills/结束开发分支/SKILL.md` |
 | @编写技能 | `.agent/skills/编写技能/SKILL.md` |
-| @安全工程师 | `.agent/skills/安全工程师/SKILL.md` |
+| @安全工程师 | `.agent/skills/安全工程师规范/SKILL.md` |
 | @核心信息提取与总结 | `.agent/skills/核心信息提取与总结/SKILL.md` |
 
 ### 技能系统说明

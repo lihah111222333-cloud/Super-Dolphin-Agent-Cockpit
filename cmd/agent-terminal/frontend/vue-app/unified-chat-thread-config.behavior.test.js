@@ -75,22 +75,6 @@ vi.mock('./composables/useResizePanels.js', async () => {
   };
 });
 
-vi.mock('./composables/useSkillPreview.js', () => ({
-  useSkillPreview: () => ({
-    composerSkillMatches: [],
-    composerEffectiveSelectedSkillNames: [],
-    composerSkillPreviewLoading: false,
-    isComposerSkillSelected: () => false,
-    toggleComposerSelectedSkill: vi.fn(),
-    clearComposerSelectedSkills: vi.fn(),
-    resetSelectedComposerSkills: vi.fn(),
-    selectAllComposerSuggestedSkills: vi.fn(),
-    composerSkillMatchClass: () => '',
-    composerSkillMatchReason: () => '',
-    resolveComposerSkillSelectionForSend: vi.fn(async () => ({ selectedSkills: [], manualSkillSelection: false })),
-  }),
-}));
-
 vi.mock('./composables/useDiffPreview.js', async () => {
   const { ref, computed } = await vi.importActual('../lib/vue.esm-browser.prod.js');
   return {

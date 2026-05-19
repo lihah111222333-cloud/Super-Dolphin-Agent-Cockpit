@@ -22,13 +22,13 @@
 | 卷 | 重点章节 | 讲什么 |
 |---|---|---|
 | [01-terminal-ui-go.md](01-terminal-ui-go.md) | §2、§3、§4.1-§4.8、§5、§6 | 桌面入口、Wails 壳、EventBridge、内置 RPC、项目作用域、代码预览、多窗口、HTTP runner |
-| [01-terminal-ui-vue.md](01-terminal-ui-vue.md) | §1、§2、§3、§4、§5.1、§5.2、§6、§7 | Vue 入口、五层职责、store/composable、blank-thread 首发、LaunchSkillPicker、feature flag、现状差异 |
+| [01-terminal-ui-vue.md](01-terminal-ui-vue.md) | §1、§2、§3、§4、§5.1、§5.2、§6、§7 | Vue 入口、五层职责、store/composable、blank-thread 首发、聊天页技能边界、现状差异 |
 
 ## 阅读顺序补充
 
 1. 先读 [01-terminal-ui-go.md](01-terminal-ui-go.md) §2、§3，拿到桌面启动总链。
 2. 再按问题切到 Go 分卷细节：RPC/原生能力看 §4.5，代码预览/CWD 看 §4.6，多窗口看 §4.7。
-3. 需要页面编排、技能选择、blank-thread 首发时，再读 [01-terminal-ui-vue.md](01-terminal-ui-vue.md) §2-§5.2。
+3. 需要页面编排、技能建议展示、blank-thread 首发时，再读 [01-terminal-ui-vue.md](01-terminal-ui-vue.md) §2-§5.2。
 4. 若问题继续追到后端写链，不要停在 01；直接跳 [07-module-write.md](07-module-write.md) §5，再回看 §2.4 / §3.4。
 
 ## 跨卷跳转锚点
@@ -41,7 +41,7 @@
 ## 最近一次重大变更摘要
 
 - **2026-04-17**：01 从原单卷拆成 Go/Wails 与 Vue 两卷，本页改为稳定索引，旧外链继续落在这里。
-- **2026-04-20 补记**：把 blank-thread 首发、LaunchSkillPicker、dashboard/prompts 作用域跳转关系补回索引口径。
+- **2026-04-20 补记**：把 blank-thread 首发、dashboard/prompts 作用域跳转关系补回索引口径。
 - **2026-04-29 维护提示**：接口隔离提交 58f19fa 只影响后端端口归属；01 继续作为 Terminal/UI 入口索引，不承载 contract 真值。
 
 ## 常见误导
@@ -54,7 +54,7 @@
 
 | 符号 / 主题 | 去哪看 |
 |---|---|
-| `LaunchSkillPicker.js` / `useLaunchSkillSelection.js` / `services/skills-api.js` | [01-terminal-ui-vue.md](01-terminal-ui-vue.md) §5.1、§5.2、§2 |
+| `useThreadActions.js` / `SkillsPage.js` / `services/skills-api.js` | [01-terminal-ui-vue.md](01-terminal-ui-vue.md) §5.1、§5.2、§8 |
 | `isReadonlyFallbackListError` / `SystemPromptPage` readonly fallback | 先看 [01-terminal-ui-vue.md](01-terminal-ui-vue.md) §7，再跳 [07-module-read.md](07-module-read.md) §2.4 |
 | `requestScopeRoots` / `resolveSaveTarget` / `findScopedFiles` | [01-terminal-ui-go.md](01-terminal-ui-go.md) §4.6 |
 | `openNewWindow` / `ao_ui_bootstrap` / `ao_window_cwd` | [01-terminal-ui-go.md](01-terminal-ui-go.md) §4.7 |
