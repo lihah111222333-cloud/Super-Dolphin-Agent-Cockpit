@@ -11,6 +11,7 @@ import (
 
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/multilsp"
+	lsptools "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/tools"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/stretchr/testify/require"
 )
@@ -20,7 +21,7 @@ func TestLSPToolManifestsExposeShortNames(t *testing.T) {
 	for _, manifest := range lspToolManifests {
 		got = append(got, manifest.Name)
 	}
-	want := []string{"file", "inspect", "xref", "grep", "structure", "edit", "completion", "code_run"}
+	want := []string{"file", "inspect", "xref", "grep", "structure", "edit", "completion", "code_run", "code_run_test"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("manifest names = %#v, want %#v", got, want)
 	}
@@ -58,11 +59,102 @@ func TestToolsListKeepsCodeRunHelpersVisible(t *testing.T) {
 	for _, tool := range list {
 		got[tool.Name] = true
 	}
-	for _, want := range []string{"code_run"} {
+	for _, want := range []string{"code_run", "code_run_test"} {
 		if !got[want] {
 			t.Fatalf("tools/list missing execution helper %q; got %#v", want, got)
 		}
 	}
+}
+
+func TestCodeRunTestUsesRuntimeWorkspaceRoots(t *testing.T) {
+	workspaceRoot := canonicalToolTestRoot(t, t.TempDir())
+	writeTestFile(t, filepath.Join(workspaceRoot, "go.mod"), "module example.test/coderuntest\n\ngo 1.25.0\n")
+	writeTestFile(t, filepath.Join(workspaceRoot, "sample_test.go"), `package coderuntest
+
+import "testing"
+
+func TestCodeRunTestTarget(t *testing.T) {}
+`)
+	rawRoots, err := json.Marshal([]string{workspaceRoot})
+	require.NoError(t, err)
+	t.Setenv("GO_AGENT_LSP_ROOTS", string(rawRoots))
+
+	handlers, err := newToolHandlers(&Manager{root: t.TempDir()})
+	require.NoError(t, err)
+	result, err := registryToolProvider{defs: toolDefinitions(handlers)}.CallTool(context.Background(), "code_run_test", mustJSON(t, map[string]any{
+		"test_func": "TestCodeRunTestTarget",
+	}))
+	require.NoError(t, err)
+
+	payload, ok := result.(lsptools.CodeRunResult)
+	require.Truef(t, ok, "code_run_test result = %#v, want CodeRunResult", result)
+	require.Truef(t, payload.Success, "code_run_test failed: output=%q exit=%d", payload.Output, payload.ExitCode)
+	require.Equal(t, "go", payload.Language)
+	require.Equal(t, "test", payload.Mode)
+	require.Contains(t, payload.Output, "example.test/coderuntest")
+}
+
+func TestCodeRunTestRejectsAbsoluteTestPkgOutsideWorkspaceRoot(t *testing.T) {
+	workspaceRoot := canonicalToolTestRoot(t, t.TempDir())
+	outsideRoot := canonicalToolTestRoot(t, t.TempDir())
+	writeTestFile(t, filepath.Join(workspaceRoot, "go.mod"), "module example.test/workspace\n\ngo 1.25.0\n")
+	writeTestFile(t, filepath.Join(outsideRoot, "go.mod"), "module example.test/outside\n\ngo 1.25.0\n")
+	rawRoots, err := json.Marshal([]string{workspaceRoot})
+	require.NoError(t, err)
+	t.Setenv("GO_AGENT_LSP_ROOTS", string(rawRoots))
+
+	handlers, err := newToolHandlers(&Manager{root: workspaceRoot})
+	require.NoError(t, err)
+	result, err := registryToolProvider{defs: toolDefinitions(handlers)}.CallTool(context.Background(), "code_run_test", mustJSON(t, map[string]any{
+		"test_func": "TestShouldNotRun",
+		"test_pkg":  outsideRoot,
+	}))
+	require.NoError(t, err)
+
+	failure, ok := result.(lsptools.CodeRunFailure)
+	require.Truef(t, ok, "code_run_test result = %#v, want CodeRunFailure", result)
+	require.Contains(t, failure.Error, "outside allowed workspace roots")
+}
+
+func TestDirectStdioServerCodeRunTestUsesRuntimeWorkspaceRoots(t *testing.T) {
+	workspaceRoot := canonicalToolTestRoot(t, t.TempDir())
+	writeTestFile(t, filepath.Join(workspaceRoot, "go.mod"), "module example.test/directcoderuntest\n\ngo 1.25.0\n")
+	writeTestFile(t, filepath.Join(workspaceRoot, "direct_test.go"), `package directcoderuntest
+
+import "testing"
+
+func TestDirectCodeRunTestTarget(t *testing.T) {}
+`)
+	rawRoots, err := json.Marshal([]string{workspaceRoot})
+	require.NoError(t, err)
+	t.Setenv("GO_AGENT_LSP_ROOTS", string(rawRoots))
+	handlers, err := newToolHandlers(&Manager{root: t.TempDir()})
+	require.NoError(t, err)
+	request, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "tools/call",
+		"params": map[string]any{
+			"name": "code_run_test",
+			"arguments": map[string]any{
+				"test_func": "TestDirectCodeRunTestTarget",
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	var output bytes.Buffer
+	server := common.NewServer("mcp-lsp", "dev", common.NewStdioTransport(bytes.NewBuffer(request), &output), registryToolProvider{defs: toolDefinitions(handlers)})
+	require.NoError(t, server.Run(context.Background()))
+	require.Contains(t, output.String(), "example.test/directcoderuntest")
+	require.NotContains(t, output.String(), "unknown tool")
+}
+
+func mustJSON(t *testing.T, value any) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	require.NoError(t, err)
+	return raw
 }
 
 func TestHandleToolCallAcceptsLegacyLSPAlias(t *testing.T) {
