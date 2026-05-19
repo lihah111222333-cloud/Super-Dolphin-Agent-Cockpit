@@ -55,13 +55,12 @@ type BuildCtx struct {
 	ScratchpadDir                string
 	FRCConfig                    *FRCConfig
 	KeepCodingInstructions       *bool
-	// P20.4 launch skill wire：从 StartRequest 透传的创线期选中 skill。
-	// 上游仅在 AssembleStart 时填充；turn 路径将保持为空。
-	// SkillCatalogProvider 读到后可选：
-	//   - 空列表 + Force=false → 按原来的全量扫盘渲染
-	//   - 非空列表 + Force=false → 把命中的 skill 置顶 + 非命中的继续保留
-	//   - 非空列表 + Force=true  → 只渲染命中的 skill，其余隰藏
+	// Legacy launch-time skill selection carrier. V1 production skill
+	// discovery is provider-native mirror based, so these fields are not a
+	// prompt-catalog injection path; they are kept as additive compatibility
+	// data for older callers and diagnostics.
 	LaunchSkillNames  []string
+	LaunchSkillRefs   []dto.SkillRef
 	ForceLaunchSkills bool
 	// SuppressedTools 是被 SkillMeta.ReplacesNative 声明替代的原生工具名列表。
 	// prompt assembler 在 tool_preferences section 中渲染为 "Do NOT use..." 指令，
@@ -154,9 +153,11 @@ type StartInput struct {
 	ScratchpadDir                string
 	FRCConfig                    *FRCConfig
 	KeepCodingInstructions       *bool
-	// P20.4：契约从 dto.StartSessionRequest 透传的 launch skill 选择。
-	// thread.startSession 在构造 StartInput 时从 req.LaunchSkillNames / req.ForceLaunchSkills 映射。
+	// Legacy launch skill selection copied from StartRequest. The current
+	// runtime does not consume it to inject skill bodies into prompt assembly;
+	// provider-native mirrors are reconciled by provider drivers instead.
 	LaunchSkillNames  []string
+	LaunchSkillRefs   []dto.SkillRef
 	ForceLaunchSkills bool
 }
 
@@ -164,7 +165,6 @@ type TurnInput struct {
 	ThreadID                     string
 	Provider                     string
 	UserText                     string
-	SkillPrompt                  string
 	Attachments                  []string
 	CurrentDate                  string
 	RuntimeUserContext           map[string]string

@@ -23,37 +23,37 @@ import (
 
 type DriverFactory struct {
 	contract.DriverFactory
-	mu               sync.RWMutex
-	logger           *slog.Logger
-	eventDispatcher  *unified.EventDispatcher
-	approvals        *rpc.ApprovalManager
-	reporter         contract.RuntimeReporter
-	manager          *ServerManager
-	pool             *ServerPool
-	listTools        func(context.Context) ([]codexprotocol.DynamicToolSchema, error)
-	prepareTools     func(context.Context, contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error)
-	bindTools        func(contract.CodexToolSurfaceScope) error
-	releaseTools     func(contract.CodexToolSurfaceScope) error
-	manifestRenderer contract.SkillManifestRenderer // P6 FBSD + skill library; optional, nil-safe
-	recovery         contract.SessionRecoveryReporter
+	mu              sync.RWMutex
+	logger          *slog.Logger
+	eventDispatcher *unified.EventDispatcher
+	approvals       *rpc.ApprovalManager
+	reporter        contract.RuntimeReporter
+	manager         *ServerManager
+	pool            *ServerPool
+	listTools       func(context.Context) ([]codexprotocol.DynamicToolSchema, error)
+	prepareTools    func(context.Context, contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error)
+	bindTools       func(contract.CodexToolSurfaceScope) error
+	releaseTools    func(contract.CodexToolSurfaceScope) error
+	mirror          contract.SkillMirrorReconciler
+	recovery        contract.SessionRecoveryReporter
 }
 
 const fallbackBaseInstructions = "You are a helpful assistant."
 
 type driver struct {
-	logger           *slog.Logger
-	serverURL        string
-	eventDispatcher  *unified.EventDispatcher
-	approvals        *rpc.ApprovalManager
-	reporter         contract.RuntimeReporter
-	manager          *ServerManager
-	pool             *ServerPool
-	listTools        func(context.Context) ([]codexprotocol.DynamicToolSchema, error)
-	prepareTools     func(context.Context, contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error)
-	bindTools        func(contract.CodexToolSurfaceScope) error
-	releaseTools     func(contract.CodexToolSurfaceScope) error
-	manifestRenderer contract.SkillManifestRenderer // P6 FBSD + skill library; optional, nil-safe
-	recovery         contract.SessionRecoveryReporter
+	logger          *slog.Logger
+	serverURL       string
+	eventDispatcher *unified.EventDispatcher
+	approvals       *rpc.ApprovalManager
+	reporter        contract.RuntimeReporter
+	manager         *ServerManager
+	pool            *ServerPool
+	listTools       func(context.Context) ([]codexprotocol.DynamicToolSchema, error)
+	prepareTools    func(context.Context, contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error)
+	bindTools       func(contract.CodexToolSurfaceScope) error
+	releaseTools    func(contract.CodexToolSurfaceScope) error
+	mirror          contract.SkillMirrorReconciler
+	recovery        contract.SessionRecoveryReporter
 }
 
 var _ contract.Driver = (*driver)(nil)
@@ -110,23 +110,23 @@ func NewDriverFactory(
 	reporter contract.RuntimeReporter,
 	manager *ServerManager,
 	pool *ServerPool,
-	manifestRenderer contract.SkillManifestRenderer,
+	mirror contract.SkillMirrorReconciler,
 	recovery contract.SessionRecoveryReporter,
 ) *DriverFactory {
 	factory := &DriverFactory{
-		logger:           logger,
-		eventDispatcher:  dispatcher,
-		approvals:        approvals,
-		reporter:         reporter,
-		manager:          manager,
-		pool:             pool,
-		manifestRenderer: manifestRenderer,
-		recovery:         recovery,
+		logger:          logger,
+		eventDispatcher: dispatcher,
+		approvals:       approvals,
+		reporter:        reporter,
+		manager:         manager,
+		pool:            pool,
+		mirror:          mirror,
+		recovery:        recovery,
 	}
 	factory.DriverFactory = contract.DriverFactory{
 		Name: "codex",
 		Create: func() contract.Driver {
-			raw := newDriver(logger, dispatcher, approvals, reporter, manager, pool, factory.manifestRenderer, factory.recovery, factory.currentListTools())
+			raw := newDriver(logger, dispatcher, approvals, reporter, manager, pool, factory.mirror, factory.recovery, factory.currentListTools())
 			if d, ok := raw.(*driver); ok {
 				d.prepareTools = factory.currentPrepareTools()
 				d.bindTools = factory.currentBindTools()
@@ -243,7 +243,7 @@ func (f *DriverFactory) currentReleaseTools() func(contract.CodexToolSurfaceScop
 	return f.releaseTools
 }
 
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager, pool *ServerPool, manifestRenderer contract.SkillManifestRenderer, recovery contract.SessionRecoveryReporter, listTools ...func(context.Context) ([]codexprotocol.DynamicToolSchema, error)) contract.Driver {
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager, pool *ServerPool, mirror contract.SkillMirrorReconciler, recovery contract.SessionRecoveryReporter, listTools ...func(context.Context) ([]codexprotocol.DynamicToolSchema, error)) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -256,22 +256,27 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, ap
 		listToolsFn = listTools[0]
 	}
 	return &driver{
-		logger:           logger,
-		serverURL:        serverURL,
-		eventDispatcher:  eventDispatcher,
-		approvals:        approvals,
-		reporter:         reporter,
-		manager:          manager,
-		pool:             pool,
-		listTools:        listToolsFn,
-		manifestRenderer: manifestRenderer,
-		recovery:         recovery,
+		logger:          logger,
+		serverURL:       serverURL,
+		eventDispatcher: eventDispatcher,
+		approvals:       approvals,
+		reporter:        reporter,
+		manager:         manager,
+		pool:            pool,
+		listTools:       listToolsFn,
+		mirror:          mirror,
+		recovery:        recovery,
 	}
 }
 
 func (d *driver) Name() string { return "codex" }
 
 func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+	var err error
+	req, err = d.prepareStartSessionRequest(ctx, req)
+	if err != nil {
+		return nil, err
+	}
 	opts, err := d.resolveSessionOptions(ctx, req)
 	if err != nil {
 		return nil, err
@@ -306,6 +311,11 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 }
 
 func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+	var err error
+	req, err = d.prepareResumeSessionRequest(ctx, req)
+	if err != nil {
+		return nil, err
+	}
 	opts, err := d.resolveResumeOptions(ctx, req)
 	if err != nil {
 		return nil, err
@@ -388,16 +398,6 @@ func (d *driver) startAssemblyInstructions(req dto.StartSessionRequest) (string,
 		configString(req.Config, "developerInstructions"),
 		configString(req.Config, "developer_instructions"),
 	))
-	if d != nil && d.manifestRenderer != nil {
-		manifest := d.manifestRenderer.RenderSkillManifest()
-		if manifest != "" {
-			if base != "" {
-				base = manifest + "\n\n" + base
-			} else {
-				base = manifest
-			}
-		}
-	}
 	if base == "" {
 		base = fallbackBaseInstructions
 	}

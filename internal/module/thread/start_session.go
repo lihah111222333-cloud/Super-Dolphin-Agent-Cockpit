@@ -298,12 +298,21 @@ func (s *service) startSession(ctx context.Context, req StartRequest, input cont
 		Instructions:  assembly.BaseInstructions,
 		StartAssembly: toProviderStartAssembly(assembly),
 		Config:        config,
-		// p20.3 §4.3：additive optional carrier。nil/false 时整个代码路径
-		// 等同于旧 payload；p20.4 / p20.7 消费时再他者在 snapshot / manifest
-		// 层面施工，本单仍不涉及。
+		// Legacy additive carrier only. Current skill runtime is resolved via
+		// canonical skills -> provider-native mirrors before provider launch.
 		LaunchSkillNames:  append([]string(nil), req.LaunchSkillNames...),
+		LaunchSkillRefs:   cloneProviderSkillRefs(req.LaunchSkillRefs),
 		ForceLaunchSkills: req.ForceLaunchSkills,
 	})
+}
+
+func cloneProviderSkillRefs(refs []dto.SkillRef) []dto.SkillRef {
+	if len(refs) == 0 {
+		return nil
+	}
+	out := make([]dto.SkillRef, len(refs))
+	copy(out, refs)
+	return out
 }
 
 func logStartProviderSessionIdentity(agentID string, req StartRequest, config map[string]any) {
@@ -350,6 +359,7 @@ func (s *service) resumeSession(ctx context.Context, req ResumeRequest) (contrac
 		Config:                   clone.RuntimeConfigMap(resolvedReq.Config),
 		PromptSnapshot:           toProviderPromptSnapshot(resolvedReq.PromptSnapshot),
 		ConfigOverride:           resolvedReq.ConfigOverride,
+		ClaudeHome:               resolvedReq.ClaudeHome,
 		CodexHome:                resolvedReq.CodexHome,
 		CodexInstanceKey:         resolvedReq.CodexInstanceKey,
 		CodexModelProvider:       resolvedReq.CodexModelProvider,
@@ -382,6 +392,7 @@ type resumeState struct {
 	StoredCWD          string
 	RolloutPath        string
 	SessionUUID        string
+	ClaudeHome         string
 	CodexHome          string
 	CodexInstanceKey   string
 	CodexModelProvider string
@@ -401,6 +412,7 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	req.ProviderThreadID = normalizeProviderThreadID(req.Provider, util.FirstNonEmpty(req.ProviderThreadID, state.ProviderThreadID))
 
 	req.CWD = util.FirstNonEmpty(req.CWD, req.Path, state.CWD)
+	req.ClaudeHome = util.FirstNonEmpty(req.ClaudeHome, state.ClaudeHome, resumeRuntimeConfigString(state.ConfigOverride.Runtime, "claudeHome", "claude_home", "history_dir"))
 	req.CodexHome = util.FirstNonEmpty(req.CodexHome, state.CodexHome)
 	req.CodexInstanceKey = util.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey)
 	req.CodexModelProvider = util.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
@@ -420,6 +432,7 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	state.CWD = req.CWD
 	state.Model = req.Model
 	state.Effort = req.Effort
+	state.ClaudeHome = util.FirstNonEmpty(state.ClaudeHome, req.ClaudeHome)
 	state.CodexHome = util.FirstNonEmpty(state.CodexHome, req.CodexHome)
 	state.CodexInstanceKey = util.FirstNonEmpty(state.CodexInstanceKey, req.CodexInstanceKey)
 	state.CodexModelProvider = util.FirstNonEmpty(state.CodexModelProvider, req.CodexModelProvider)
@@ -435,6 +448,7 @@ func trimResumeRequest(req ResumeRequest) (ResumeRequest, error) {
 	req.CWD = strings.TrimSpace(req.CWD)
 	req.Model = sanitizeConfigStringArtifact(req.Model)
 	req.Effort = sanitizeConfigStringArtifact(req.Effort)
+	req.ClaudeHome = strings.TrimSpace(req.ClaudeHome)
 	req.CodexHome = strings.TrimSpace(req.CodexHome)
 	req.CodexInstanceKey = strings.TrimSpace(req.CodexInstanceKey)
 	req.CodexModelProvider = strings.TrimSpace(req.CodexModelProvider)
@@ -460,6 +474,7 @@ func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeReq
 	req.ProviderThreadID = normalizeProviderThreadID(req.Provider, util.FirstNonEmpty(req.ProviderThreadID, state.ProviderThreadID))
 
 	req.CWD = util.FirstNonEmpty(req.CWD, req.Path, state.CWD)
+	req.ClaudeHome = util.FirstNonEmpty(req.ClaudeHome, state.ClaudeHome, resumeRuntimeConfigString(state.ConfigOverride.Runtime, "claudeHome", "claude_home", "history_dir"))
 	req.CodexHome = util.FirstNonEmpty(req.CodexHome, state.CodexHome)
 	req.CodexInstanceKey = util.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey)
 	req.CodexModelProvider = util.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
@@ -587,4 +602,14 @@ func (s *service) lookupResumeState(ctx context.Context, threadID string) resume
 	}
 	state.StoredCWD = state.CWD
 	return state
+}
+
+func resumeRuntimeConfigString(runtime map[string]any, keys ...string) string {
+	for _, key := range keys {
+		value, _ := runtime[strings.TrimSpace(key)].(string)
+		if text := strings.TrimSpace(value); text != "" {
+			return text
+		}
+	}
+	return ""
 }

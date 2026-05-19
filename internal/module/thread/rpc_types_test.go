@@ -329,6 +329,72 @@ func TestStartParamsAcceptsSelectedSkillsCamelCase(t *testing.T) {
 	}
 }
 
+func TestStartParamsAcceptsSelectedSkillRefsCamelCase(t *testing.T) {
+	t.Parallel()
+
+	var params startParams
+	input := []byte(`{
+		"cwd":"/tmp/project",
+		"selectedSkills":["planner"],
+		"selectedSkillRefs":[{"key":"project::planner:/tmp/project/.agent/skills/planner","name":"planner","scope":"project","path":"/tmp/project/.agent/skills/planner","source":"manual"}],
+		"manualSkillSelection":true
+	}`)
+	if err := json.Unmarshal(input, &params); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	assertStartParamsSelectedSkillRefCamelCase(t, params)
+	assertStartParamsSelectedSkillCompatibility(t, params)
+}
+
+func TestStartParamsPreservesSelectedSkillRefSourcePerRef(t *testing.T) {
+	t.Parallel()
+
+	params := startParams{
+		SelectedSkillRefs: []skillRefParams{
+			{Key: "project::planner:/repo/.agent/skills/planner", Name: "planner", Scope: "project", Path: "/repo/.agent/skills/planner", Source: "manual"},
+			{Key: "project::forced:/repo/.agent/skills/forced", Name: "forced", Scope: "project", Path: "/repo/.agent/skills/forced", Source: "force"},
+		},
+		ManualSkillSelection: true,
+	}
+
+	request := buildStartRequestFromParams(params)
+	if len(request.LaunchSkillRefs) != 2 {
+		t.Fatalf("LaunchSkillRefs = %#v", request.LaunchSkillRefs)
+	}
+	if request.LaunchSkillRefs[0].Source != dto.SkillSourceManual {
+		t.Fatalf("LaunchSkillRefs[0].Source = %q, want manual", request.LaunchSkillRefs[0].Source)
+	}
+	if request.LaunchSkillRefs[1].Source != dto.SkillSourceForce {
+		t.Fatalf("LaunchSkillRefs[1].Source = %q, want force", request.LaunchSkillRefs[1].Source)
+	}
+}
+
+func assertStartParamsSelectedSkillRefCamelCase(t *testing.T, params startParams) {
+	t.Helper()
+
+	if len(params.SelectedSkillRefs) != 1 {
+		t.Fatalf("SelectedSkillRefs = %#v", params.SelectedSkillRefs)
+	}
+	ref := params.SelectedSkillRefs[0]
+	if ref.Name != "planner" || ref.Scope != "project" || ref.Key == "" {
+		t.Fatalf("SelectedSkillRefs[0] identity = %#v", ref)
+	}
+	if ref.Path != "/tmp/project/.agent/skills/planner" || ref.Source != "manual" {
+		t.Fatalf("SelectedSkillRefs[0] metadata = %#v", ref)
+	}
+}
+
+func assertStartParamsSelectedSkillCompatibility(t *testing.T, params startParams) {
+	t.Helper()
+
+	if len(params.SelectedSkills) != 1 {
+		t.Fatalf("SelectedSkills = %#v", params.SelectedSkills)
+	}
+	if params.SelectedSkills[0] != "planner" || !params.ManualSkillSelection {
+		t.Fatalf("selected skill compatibility fields = %#v manual=%v", params.SelectedSkills, params.ManualSkillSelection)
+	}
+}
+
 // TestStartParamsAcceptsSelectedSkillsSnakeCase p20.3 §4.3：主 tag 仍是
 // snake_case；camelCase 别名只作兼容读取，主路径必须保留。
 func TestStartParamsAcceptsSelectedSkillsSnakeCase(t *testing.T) {

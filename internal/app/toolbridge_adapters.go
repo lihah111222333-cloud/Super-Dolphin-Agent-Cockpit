@@ -6,8 +6,6 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/fbsd"
-	"github.com/anthropic-ai/super-agent-v3/internal/module/skilllibrary"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
@@ -23,7 +21,6 @@ import (
 // This keeps internal/platform/toolbridge free of module/provider/store
 // imports while the assembly seam (this file) legitimately knows all layers.
 var ToolbridgeAdapters = fx.Provide(
-	provideToolbridgeSkillReadSectionTool,
 	provideToolbridgeAgentThreadLookup,
 	provideToolbridgeThreadConfigOverrideStore,
 	provideToolbridgeUIPreferenceReader,
@@ -32,31 +29,6 @@ var ToolbridgeAdapters = fx.Provide(
 
 // ToolbridgeCodexBinding wires the codex handler binding as an fx.Invoke.
 var ToolbridgeCodexBinding = fx.Invoke(bindToolbridgeCodexHandlers)
-
-// ---------------------------------------------------------------------------
-// Skill section tool construction
-// ---------------------------------------------------------------------------
-
-type skillToolIn struct {
-	fx.In
-	Cfg     skilllibrary.Config `optional:"true"`
-	Tracker *fbsd.Tracker       `optional:"true"`
-}
-
-func provideToolbridgeSkillReadSectionTool(in skillToolIn) *toolbridge.SkillReadSectionTool {
-	if strings.TrimSpace(in.Cfg.CacheDir) == "" {
-		return nil
-	}
-	var recorder contract.SkillCallRecorder
-	if in.Tracker != nil {
-		recorder = in.Tracker
-	}
-	return toolbridge.NewSkillReadSectionTool(
-		in.Cfg.CacheDir,
-		contract.SkillSectionReader(skilllibrary.ReadSection),
-		recorder,
-	)
-}
 
 // ---------------------------------------------------------------------------
 // Store adapters: binding → AgentThreadLookup

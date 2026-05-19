@@ -55,6 +55,37 @@ func TestReadHistoryReturnsEmptyForNewSession(t *testing.T) {
 	}
 }
 
+func TestHistoryRootDirPrefersClaudeConfigDir(t *testing.T) {
+	configDir := t.TempDir()
+	legacyDir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+	t.Setenv("CLAUDE_HOME", legacyDir)
+
+	h := &historyBackend{}
+	got, err := h.rootDir()
+	if err != nil {
+		t.Fatalf("rootDir() error = %v", err)
+	}
+	if got != configDir {
+		t.Fatalf("rootDir() = %q, want CLAUDE_CONFIG_DIR %q", got, configDir)
+	}
+}
+
+func TestHistoryRootDirFallsBackToClaudeHome(t *testing.T) {
+	legacyDir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	t.Setenv("CLAUDE_HOME", legacyDir)
+
+	h := &historyBackend{}
+	got, err := h.rootDir()
+	if err != nil {
+		t.Fatalf("rootDir() error = %v", err)
+	}
+	if got != legacyDir {
+		t.Fatalf("rootDir() = %q, want CLAUDE_HOME %q", got, legacyDir)
+	}
+}
+
 func TestSessionRolloutPathReturnsClaudeHistoryFile(t *testing.T) {
 	t.Parallel()
 

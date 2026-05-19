@@ -3,15 +3,12 @@ package turn
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/skillcandidate"
 )
 
 // fakeDreamExecutor exposes both the prompt it received and the call count
@@ -29,62 +26,6 @@ func (f *fakeDreamExecutor) ExecuteDream(_ context.Context, prompt string) (stri
 	f.lastPrompt.Store(prompt)
 	return f.out, f.err
 }
-
-// fakeStore records every Insert and lets a test override its return.
-type fakeStore struct {
-	inserts        []skillcandidate.InsertParams
-	supersedeCalls []struct {
-		Scope, Slug, RepoFingerprint string
-		KeepID                       int64
-	}
-	insertErr error
-}
-
-func (s *fakeStore) Insert(_ context.Context, p skillcandidate.InsertParams) (skillcandidate.Candidate, error) {
-	if s.insertErr != nil {
-		return skillcandidate.Candidate{}, s.insertErr
-	}
-	s.inserts = append(s.inserts, p)
-	return skillcandidate.Candidate{
-		ID:              int64(len(s.inserts)),
-		Scope:           p.Scope,
-		Slug:            p.Slug,
-		ContentHash:     p.ContentHash,
-		RepoFingerprint: p.RepoFingerprint,
-		SkillMD:         p.SkillMD,
-		RedactedSample:  p.RedactedSample,
-		Status:          skillcandidate.StatusPendingReview,
-	}, nil
-}
-func (s *fakeStore) GetByID(context.Context, int64) (skillcandidate.Candidate, error) {
-	return skillcandidate.Candidate{}, errors.New("not used")
-}
-func (s *fakeStore) ListPending(context.Context, string, int32, int32) ([]skillcandidate.Candidate, error) {
-	return nil, nil
-}
-func (s *fakeStore) MarkSuperseded(_ context.Context, scope, slug, repoFingerprint string, keepID int64) (int64, error) {
-	s.supersedeCalls = append(s.supersedeCalls, struct {
-		Scope, Slug, RepoFingerprint string
-		KeepID                       int64
-	}{scope, slug, repoFingerprint, keepID})
-	return 0, nil
-}
-func (s *fakeStore) Approve(context.Context, int64, string, string, time.Time) (skillcandidate.Candidate, error) {
-	return skillcandidate.Candidate{}, errors.New("not used")
-}
-func (s *fakeStore) Reject(context.Context, int64, string) (skillcandidate.Candidate, error) {
-	return skillcandidate.Candidate{}, errors.New("not used")
-}
-func (s *fakeStore) MarkPromoted(context.Context, int64) (skillcandidate.Candidate, error) {
-	return skillcandidate.Candidate{}, errors.New("not used")
-}
-func (s *fakeStore) LookupApproval(context.Context, string, string, string, string) (*skillcandidate.Candidate, error) {
-	return nil, nil
-}
-
-// Compile-time assertion that fakeStore satisfies the skillcandidate.Store
-// contract; if Step 1 ever extends the interface this test goes red first.
-var _ skillcandidate.Store = (*fakeStore)(nil)
 
 func eligibleTrajectory() Trajectory {
 	success := true
@@ -111,8 +52,7 @@ func TestExtractor_GoldenRedactsSecrets(t *testing.T) {
 		// Simulate an LLM that reflects trajectory secrets back into SKILL.md.
 		out: "---\nname: leaky-skill\n---\nUse Bearer abc.def-secret_value to call API.\nSet OPENAI_API_KEY=sk-1234567890abcdef.\nToken eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.signature.",
 	}
-	store := &fakeStore{}
-	e := NewDefaultExtractor(dream, store, NewDefaultRedactor(), NewDefaultEvaluator(), nil)
+	e := NewDefaultExtractor(dream, struct{}{}, NewDefaultRedactor(), NewDefaultEvaluator(), nil)
 
 	extracted, err := e.Extract(context.Background(), leakyTrajectory)
 	if err != nil {
@@ -123,8 +63,7 @@ func TestExtractor_GoldenRedactsSecrets(t *testing.T) {
 	}
 	forbidden := []string{"abc.def-secret_value", "sk-1234567890abcdef", "eyJhbGciOiJIUzI1NiJ9", "eyJzdWIiOiJ4In0"}
 	assertExtractedSkillRedacted(t, extracted, forbidden)
-	assertGoldenExtractionStore(t, e, store)
-	assertSupersedeCall(t, store.supersedeCalls[0], extracted)
+	assertNoLegacyCandidateMetrics(t, e)
 }
 
 func assertExtractedSkillRedacted(t *testing.T, extracted *ExtractedSkill, forbidden []string) {
@@ -139,29 +78,16 @@ func assertExtractedSkillRedacted(t *testing.T, extracted *ExtractedSkill, forbi
 	}
 }
 
-func assertGoldenExtractionStore(t *testing.T, e *DefaultExtractor, store *fakeStore) {
+func assertNoLegacyCandidateMetrics(t *testing.T, e *DefaultExtractor) {
 	t.Helper()
-	if len(store.inserts) != 1 {
-		t.Fatalf("expected 1 insert, got %d", len(store.inserts))
+	if e.Metrics.Promoted != 0 {
+		t.Fatalf("expected no legacy promoted metric, got %d", e.Metrics.Promoted)
 	}
-	if store.inserts[0].Scope != skillcandidate.ScopeProject {
-		t.Fatalf("scope want project, got %q", store.inserts[0].Scope)
+	if e.Metrics.InsertFailed != 0 {
+		t.Fatalf("expected no legacy insert-failed metric, got %d", e.Metrics.InsertFailed)
 	}
-	if e.Metrics.Promoted != 1 {
-		t.Fatalf("expected 1 Promoted, got %d", e.Metrics.Promoted)
-	}
-	if len(store.supersedeCalls) != 1 {
-		t.Fatalf("expected 1 supersede call, got %d", len(store.supersedeCalls))
-	}
-}
-
-func assertSupersedeCall(t *testing.T, call struct {
-	Scope, Slug, RepoFingerprint string
-	KeepID                       int64
-}, extracted *ExtractedSkill) {
-	t.Helper()
-	if call.Scope != extracted.Scope || call.Slug != extracted.Slug || call.RepoFingerprint != extracted.RepoFingerprint || call.KeepID != 1 {
-		t.Fatalf("supersede call = %+v, extracted = %+v", call, extracted)
+	if e.Metrics.DedupHit != 0 {
+		t.Fatalf("expected no legacy dedup-hit metric, got %d", e.Metrics.DedupHit)
 	}
 }
 
@@ -170,7 +96,7 @@ func TestExtractor_PromptDoesNotLeakRawSecrets(t *testing.T) {
 	leaky.ToolCalls[0].Args = "Bearer abc.def-secret_value"
 
 	dream := &fakeDreamExecutor{out: "## Skill\nclean output"}
-	e := NewDefaultExtractor(dream, &fakeStore{}, NewDefaultRedactor(), NewDefaultEvaluator(), nil)
+	e := NewDefaultExtractor(dream, struct{}{}, NewDefaultRedactor(), NewDefaultEvaluator(), nil)
 
 	_, err := e.Extract(context.Background(), leaky)
 	if err != nil {
@@ -186,7 +112,7 @@ func TestExtractor_PromptDoesNotLeakRawSecrets(t *testing.T) {
 }
 
 func TestExtractor_DreamExecutorMissingSkips(t *testing.T) {
-	e := NewDefaultExtractor(nil, &fakeStore{}, NewDefaultRedactor(), NewDefaultEvaluator(), nil)
+	e := NewDefaultExtractor(nil, struct{}{}, NewDefaultRedactor(), NewDefaultEvaluator(), nil)
 	extracted, err := e.Extract(context.Background(), eligibleTrajectory())
 	if err != nil {
 		t.Fatalf("nil dream should not error, got %v", err)
@@ -201,7 +127,7 @@ func TestExtractor_DreamExecutorMissingSkips(t *testing.T) {
 
 func TestExtractor_DreamExecutorReturnsNotConfiguredErr(t *testing.T) {
 	dream := &fakeDreamExecutor{err: contract.ErrDreamExecutorNotConfigured}
-	e := NewDefaultExtractor(dream, &fakeStore{}, NewDefaultRedactor(), NewDefaultEvaluator(), nil)
+	e := NewDefaultExtractor(dream, struct{}{}, NewDefaultRedactor(), NewDefaultEvaluator(), nil)
 	extracted, err := e.Extract(context.Background(), eligibleTrajectory())
 	if err != nil {
 		t.Fatalf("not-configured sentinel should be skip, got %v", err)
@@ -221,16 +147,12 @@ func (stubFailingRedactor) Redact(string) (string, []string, error) {
 	return "", nil, errors.New("redactor exploded")
 }
 
-func TestExtractor_RedactionFailureDropsCandidate(t *testing.T) {
+func TestExtractor_RedactionFailureDropsExtraction(t *testing.T) {
 	dream := &fakeDreamExecutor{out: "anything"}
-	store := &fakeStore{}
-	e := NewDefaultExtractor(dream, store, stubFailingRedactor{}, NewDefaultEvaluator(), nil)
+	e := NewDefaultExtractor(dream, struct{}{}, stubFailingRedactor{}, NewDefaultEvaluator(), nil)
 	_, err := e.Extract(context.Background(), eligibleTrajectory())
 	if err == nil {
 		t.Fatal("expected redaction error, got nil")
-	}
-	if len(store.inserts) != 0 {
-		t.Fatalf("expected 0 inserts, got %d", len(store.inserts))
 	}
 	if e.Metrics.RedactionFailed == 0 {
 		t.Fatal("RedactionFailed counter not bumped")
@@ -246,10 +168,9 @@ func (stubResidualRedactor) Redact(input string) (string, []string, error) {
 	return out, []string{"first"}, nil
 }
 
-func TestExtractor_ResidualSecretDropsCandidate(t *testing.T) {
+func TestExtractor_ResidualSecretDropsExtraction(t *testing.T) {
 	dream := &fakeDreamExecutor{out: "leaks first-secret and first-secret again"}
-	store := &fakeStore{}
-	e := NewDefaultExtractor(dream, store, stubResidualRedactor{}, NewDefaultEvaluator(), nil)
+	e := NewDefaultExtractor(dream, struct{}{}, stubResidualRedactor{}, NewDefaultEvaluator(), nil)
 	_, err := e.Extract(context.Background(), eligibleTrajectory())
 	if err == nil {
 		t.Fatal("expected residual error")
@@ -257,75 +178,49 @@ func TestExtractor_ResidualSecretDropsCandidate(t *testing.T) {
 	if !strings.Contains(err.Error(), "residual secret") {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(store.inserts) != 0 {
-		t.Fatalf("expected no insert, got %d", len(store.inserts))
-	}
 	if e.Metrics.PromotedDropped == 0 {
 		t.Fatal("PromotedDropped counter not bumped")
 	}
 }
 
-func TestExtractor_HappyPathInsertsCandidate(t *testing.T) {
+func TestExtractor_HappyPathReturnsExtractedSkillWithoutCandidateWrite(t *testing.T) {
 	dream := &fakeDreamExecutor{out: "## clean skill body"}
-	store := &fakeStore{}
-	e := NewDefaultExtractor(dream, store, NewDefaultRedactor(), NewDefaultEvaluator(), nil)
+	e := NewDefaultExtractor(dream, struct{}{}, NewDefaultRedactor(), NewDefaultEvaluator(), nil)
 	extracted, err := e.Extract(context.Background(), eligibleTrajectory())
 	if err != nil || extracted == nil {
 		t.Fatalf("expected success, got err=%v extracted=%v", err, extracted)
 	}
-	if len(store.inserts) != 1 {
-		t.Fatalf("expected 1 insert, got %d", len(store.inserts))
+	if extracted.Scope != "project" {
+		t.Fatalf("scope=%q", extracted.Scope)
 	}
-	p := store.inserts[0]
-	if p.Scope != skillcandidate.ScopeProject {
-		t.Fatalf("scope=%q", p.Scope)
-	}
-	if p.RepoFingerprint == "" {
+	if extracted.RepoFingerprint == "" {
 		t.Fatal("repo_fingerprint should be non-empty when cwd is set")
 	}
-	if p.ContentHash == "" {
+	if extracted.ContentHash == "" {
 		t.Fatal("content_hash empty")
 	}
-	if p.SkillMD == "" {
+	if extracted.SKILLMd == "" {
 		t.Fatal("skill_md empty")
 	}
+	assertNoLegacyCandidateMetrics(t, e)
 }
 
-// uniqueViolationStore returns an ErrConflict-wrapped StoreError so the
-// extractor's dedup-hit branch fires.
-type uniqueViolationStore struct{ fakeStore }
-
-func (s *uniqueViolationStore) Insert(_ context.Context, _ skillcandidate.InsertParams) (skillcandidate.Candidate, error) {
-	return skillcandidate.Candidate{}, &platformdb.StoreError{
-		Operation: "insert",
-		Entity:    "skill_candidate",
-		Kind:      platformdb.ErrConflict,
-		Err:       platformdb.ErrConflict,
-	}
-}
-
-func TestExtractor_DedupHitDoesNotPropagateError(t *testing.T) {
+func TestExtractor_LegacyStoreArgumentDoesNotAffectExtraction(t *testing.T) {
 	dream := &fakeDreamExecutor{out: "## clean skill"}
-	store := &uniqueViolationStore{}
-	e := NewDefaultExtractor(dream, store, NewDefaultRedactor(), NewDefaultEvaluator(), nil)
+	e := NewDefaultExtractor(dream, struct{ legacy string }{legacy: "ignored"}, NewDefaultRedactor(), NewDefaultEvaluator(), nil)
 	extracted, err := e.Extract(context.Background(), eligibleTrajectory())
 	if err != nil {
-		t.Fatalf("dedup hit should not propagate error, got %v", err)
+		t.Fatalf("legacy store argument should be ignored, got %v", err)
 	}
 	if extracted == nil {
-		t.Fatal("dedup hit should still return ExtractedSkill")
+		t.Fatal("expected ExtractedSkill")
 	}
-	if e.Metrics.DedupHit != 1 {
-		t.Fatalf("DedupHit=%d", e.Metrics.DedupHit)
-	}
-	if e.Metrics.Promoted != 0 {
-		t.Fatal("Promoted should not bump on dedup hit")
-	}
+	assertNoLegacyCandidateMetrics(t, e)
 }
 
 func TestExtractor_IneligibleTrajectoryDoesNotCallDream(t *testing.T) {
 	dream := &fakeDreamExecutor{out: "should not be called"}
-	e := NewDefaultExtractor(dream, &fakeStore{}, NewDefaultRedactor(), NewDefaultEvaluator(), nil)
+	e := NewDefaultExtractor(dream, struct{}{}, NewDefaultRedactor(), NewDefaultEvaluator(), nil)
 	interrupted := eligibleTrajectory()
 	interrupted.TerminalState = "interrupted"
 	_, err := e.Extract(context.Background(), interrupted)
@@ -344,23 +239,5 @@ func TestExtractorRunner_StopsOnContextDone(t *testing.T) {
 	err := runner.Run(ctx)
 	if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected ctx err, got %v", err)
-	}
-}
-
-func TestIsUniqueViolation(t *testing.T) {
-	if !isUniqueViolation(&platformdb.StoreError{Kind: platformdb.ErrConflict, Err: platformdb.ErrConflict}) {
-		t.Fatal("should recognize StoreError with ErrConflict")
-	}
-	if !isUniqueViolation(fmt.Errorf("pq: duplicate key value violates unique constraint")) {
-		t.Fatal("should recognize unique constraint message")
-	}
-	if !isUniqueViolation(fmt.Errorf("sqlstate=23505")) {
-		t.Fatal("should recognize 23505 sqlstate")
-	}
-	if isUniqueViolation(errors.New("connection refused")) {
-		t.Fatal("should not match unrelated error")
-	}
-	if isUniqueViolation(nil) {
-		t.Fatal("nil should be false")
 	}
 }

@@ -46,6 +46,7 @@ type cliLaunchConfig struct {
 	Effort                string
 	Personality           string
 	DeveloperInstructions string
+	ClaudeHome            string
 	PromptSnapshot        contract.PromptAssemblySnapshot
 	// BuiltinTools is the allowlist passed to Claude CLI --tools. Nil keeps the
 	// legacy disallow-list path; non-nil (including empty) expresses an explicit
@@ -73,11 +74,19 @@ func launchCLIWithManifest(
 	logManifestLaunch(binary, cwd, model, mcpPath, manifest)
 	logSystemPromptArgs(args)
 	args = appendFlagIfSet(args, "--resume", sanitizeResumeID(resumeID))
-	tr, err := newTransport(binary, args, cwd, nil)
+	tr, err := newTransport(binary, args, cwd, claudeLaunchEnv(cfg))
 	if err != nil {
 		return nil, nil, cleanupOnError(err, cleanup)
 	}
 	return tr, cleanup, nil
+}
+
+func claudeLaunchEnv(cfg cliLaunchConfig) []string {
+	home := strings.TrimSpace(cfg.ClaudeHome)
+	if home == "" {
+		return nil
+	}
+	return []string{"CLAUDE_CONFIG_DIR=" + home}
 }
 
 func logManifestLaunch(binary, cwd, model, mcpPath string, manifest dto.MCPManifest) {

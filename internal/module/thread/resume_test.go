@@ -393,6 +393,91 @@ func TestServiceResumeRehydratesClaudeOverrideConfig(t *testing.T) {
 	}
 }
 
+func TestServiceResumeRehydratesClaudeHomeFromStoredRuntime(t *testing.T) {
+	t.Parallel()
+
+	const providerThreadID = "11111111-2222-3333-4444-555555555557"
+	claudeHome := t.TempDir()
+	rolloutPath := writeExistingProviderHistoryFile(t)
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:       "thread-claude-home",
+		AgentID:        "agent-claude-home",
+		Prompt:         "resume",
+		Model:          "sonnet",
+		Cwd:            "/repo",
+		CreatedAt:      123,
+		Status:         statusCreated,
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Runtime: map[string]any{"claude_home": claudeHome}}),
+	}}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-claude-home",
+		Provider:         "claude",
+		ProviderThreadID: providerThreadID,
+		CodexThreadID:    "thread-claude-home",
+		RolloutPath:      rolloutPath,
+		Cwd:              "/repo",
+	}}
+	sessions := &stubSessionProvider{}
+	starter := &stubSessionStarter{
+		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+			if req.ClaudeHome != claudeHome {
+				t.Fatalf("ClaudeHome = %q, want %q", req.ClaudeHome, claudeHome)
+			}
+			session := &stubSession{threadID: providerThreadID, rolloutPath: rolloutPath}
+			sessions.session = session
+			return session, nil
+		},
+	}
+
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, nil, nil).(*service)
+	if _, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-claude-home"}); err != nil {
+		t.Fatalf("Resume() error = %v", err)
+	}
+}
+
+func TestServiceResumeRequestClaudeHomeOverridesStoredRuntime(t *testing.T) {
+	t.Parallel()
+
+	const providerThreadID = "11111111-2222-3333-4444-555555555558"
+	storedHome := t.TempDir()
+	requestHome := t.TempDir()
+	rolloutPath := writeExistingProviderHistoryFile(t)
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:       "thread-claude-home-override",
+		AgentID:        "agent-claude-home-override",
+		Prompt:         "resume",
+		Model:          "sonnet",
+		Cwd:            "/repo",
+		CreatedAt:      123,
+		Status:         statusCreated,
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Runtime: map[string]any{"claudeHome": storedHome}}),
+	}}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-claude-home-override",
+		Provider:         "claude",
+		ProviderThreadID: providerThreadID,
+		CodexThreadID:    "thread-claude-home-override",
+		RolloutPath:      rolloutPath,
+		Cwd:              "/repo",
+	}}
+	sessions := &stubSessionProvider{}
+	starter := &stubSessionStarter{
+		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+			if req.ClaudeHome != requestHome {
+				t.Fatalf("ClaudeHome = %q, want request override %q", req.ClaudeHome, requestHome)
+			}
+			session := &stubSession{threadID: providerThreadID, rolloutPath: rolloutPath}
+			sessions.session = session
+			return session, nil
+		},
+	}
+
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, nil, nil).(*service)
+	if _, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-claude-home-override", ClaudeHome: requestHome}); err != nil {
+		t.Fatalf("Resume() error = %v", err)
+	}
+}
+
 func assertClaudeOverrideResumeRequest(t *testing.T, req dto.ResumeSessionRequest, model, effort string) {
 	t.Helper()
 	if req.Provider != "claude" {

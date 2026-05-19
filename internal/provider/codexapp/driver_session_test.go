@@ -48,9 +48,9 @@ func TestNewDriverUsesEnvServerURLAndName(t *testing.T) {
 
 func TestCloseSessionReleasesCodexToolSurface(t *testing.T) {
 	recorder := &toolBridgeRPCRecorder{}
-	t.Setenv("CODEX_APP_SERVER_URL", startToolBridgeRPCServer(t, recorder))
+	serverURL := startToolBridgeRPCServer(t, recorder)
 	manager := &ServerManager{}
-	d := requireToolBridgeDriver(t, newDriver(nil, nil, nil, nil, manager, nil, nil, nil, nil))
+	d := requireToolBridgeDriver(t, newDriver(nil, nil, nil, nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, nil))
 	var prepared contract.CodexToolSurfaceScope
 	var bound contract.CodexToolSurfaceScope
 	d.prepareTools = func(_ context.Context, scope contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error) {
@@ -66,10 +66,11 @@ func TestCloseSessionReleasesCodexToolSurface(t *testing.T) {
 		released = append(released, scope)
 		return nil
 	}
+	workDir := t.TempDir()
 
 	sessionAny, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-1",
-		CWD:     "/repo",
+		CWD:     workDir,
 	})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
@@ -232,6 +233,21 @@ func TestBuildThreadStartParamsUsesStartAssemblyInstructions(t *testing.T) {
 	}
 }
 
+func TestBuildThreadStartParamsDoesNotPrependLegacySkillManifest(t *testing.T) {
+	t.Parallel()
+
+	params := (&driver{}).buildThreadStartParams(dto.StartSessionRequest{
+		StartAssembly: dto.StartAssembly{BaseInstructions: "assembled base"},
+	})
+
+	if strings.Contains(params.BaseInstructions, "可用 skills") || strings.Contains(params.BaseInstructions, "skill_read_section") {
+		t.Fatalf("BaseInstructions = %q, must not include legacy skill manifest", params.BaseInstructions)
+	}
+	if params.BaseInstructions != "assembled base" {
+		t.Fatalf("BaseInstructions = %q, want assembled base", params.BaseInstructions)
+	}
+}
+
 func TestBuildThreadResumeParamsUsesPromptSnapshotInstructions(t *testing.T) {
 	t.Parallel()
 
@@ -270,26 +286,31 @@ func TestSessionRuntimeConfigSnapshotIncludesPromptInstructions(t *testing.T) {
 	}
 }
 
-func TestDriverStartSessionInjectsInitializeCodexHome(t *testing.T) {
-	home := t.TempDir()
+func TestDriverStartSessionUsesUserCodexHomeWhenConfigMissing(t *testing.T) {
+	userHome := t.TempDir()
+	t.Setenv("HOME", userHome)
+	wantHome := mustCanonicalCodexHome(t, userHome)
+	serverURL := startCodexRPCServer(t, func(method string) json.RawMessage {
+		return startSessionInjectResult(method, wantHome)
+	})
 	d := &driver{
-		serverURL: startCodexRPCServer(t, func(method string) json.RawMessage {
-			return startSessionInjectResult(method, home)
-		}),
+		pool:      newSingleURLPoolForTest(t, serverURL),
+		mirror:    &recordingSkillMirrorReconciler{},
 		listTools: noopCodexToolLister,
 	}
+	workDir := t.TempDir()
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		Provider: "codex",
 		AgentID:  "agent-1",
-		CWD:      "/repo/request",
+		CWD:      workDir,
 	})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
 	}
 	s := mustCodexSession(t, got, "StartSession")
 	defer closeCodexTestSession(t, s)
-	assertRuntimeConfigValue(t, s, "codexHome", home)
-	assertRuntimeConfigValue(t, s, "cwd", "/repo/request")
+	assertRuntimeConfigValue(t, s, "codexHome", wantHome)
+	assertRuntimeConfigValue(t, s, "cwd", workDir)
 }
 
 func startSessionInjectResult(method, home string) json.RawMessage {
@@ -315,16 +336,18 @@ func TestDriverStartSessionCanonicalizesRuntimeCodexHome(t *testing.T) {
 		"codexInstanceKey":   "default",
 		"codexModelProvider": "openai",
 	}
+	serverURL := startCodexRPCServer(t, func(method string) json.RawMessage {
+		return canonicalCodexHomeResult(method, wantHome)
+	})
 	d := &driver{
-		serverURL: startCodexRPCServer(t, func(method string) json.RawMessage {
-			return canonicalCodexHomeResult(method, wantHome)
-		}),
+		pool:      newSingleURLPoolForTest(t, serverURL),
+		mirror:    &recordingSkillMirrorReconciler{},
 		listTools: noopCodexToolLister,
 	}
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		Provider: "codex",
 		AgentID:  "agent-canonical",
-		CWD:      "/repo",
+		CWD:      t.TempDir(),
 		Config:   config,
 	})
 	if err != nil {
@@ -373,19 +396,24 @@ func assertCodexHomeConfigUnchanged(t *testing.T, config map[string]any) {
 func TestDriverResumeSessionRestoresApprovalPolicy(t *testing.T) {
 	t.Parallel()
 
-	d := &driver{serverURL: startCodexRPCServer(t, resumeApprovalPolicyResult)}
+	serverURL := startCodexRPCServer(t, resumeApprovalPolicyResult)
+	d := &driver{pool: newSingleURLPoolForTest(t, serverURL), mirror: &recordingSkillMirrorReconciler{}}
+	workDir := t.TempDir()
 	got, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
-		Provider: "codex",
-		AgentID:  "agent-1",
-		ThreadID: "thread-1",
-		CWD:      "/repo/resume",
+		Provider:           "codex",
+		AgentID:            "agent-1",
+		ThreadID:           "thread-1",
+		CWD:                workDir,
+		CodexHome:          t.TempDir(),
+		CodexInstanceKey:   "default",
+		CodexModelProvider: "openai",
 	})
 	if err != nil {
 		t.Fatalf("ResumeSession() error = %v", err)
 	}
 	s := mustCodexSession(t, got, "ResumeSession")
 	defer closeCodexTestSession(t, s)
-	assertResumeApprovalSession(t, s)
+	assertResumeApprovalSession(t, s, workDir)
 }
 
 func resumeApprovalPolicyResult(method string) json.RawMessage {
@@ -405,7 +433,7 @@ func resumeApprovalPolicyResult(method string) json.RawMessage {
 	}
 }
 
-func assertResumeApprovalSession(t *testing.T, s *session) {
+func assertResumeApprovalSession(t *testing.T, s *session, wantCWD string) {
 	t.Helper()
 	if s.ThreadID() != "provider-thread-1" {
 		t.Fatalf("ThreadID() = %q, want provider-thread-1", s.ThreadID())
@@ -413,7 +441,7 @@ func assertResumeApprovalSession(t *testing.T, s *session) {
 	if s.approvalPolicyValue() != "never" {
 		t.Fatalf("approvalPolicy = %q, want never", s.approvalPolicyValue())
 	}
-	assertRuntimeConfigValue(t, s, "cwd", "/repo/resume")
+	assertRuntimeConfigValue(t, s, "cwd", wantCWD)
 }
 
 func noopCodexToolLister(context.Context) ([]codexprotocol.DynamicToolSchema, error) {

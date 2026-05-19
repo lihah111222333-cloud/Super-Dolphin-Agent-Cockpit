@@ -2,10 +2,8 @@ package memory
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,9 +15,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	skillcandidatedto "github.com/anthropic-ai/super-agent-v3/internal/store/skillcandidate"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
-	"github.com/anthropic-ai/super-agent-v3/internal/util/repofingerprint"
 )
 
 const dateChangeAttachmentKind = "date_change"
@@ -514,87 +509,5 @@ func trackFeedbackIfApplicable(h *MemoryLifecycleHooks, intent SaveIntent) {
 		group := h.feedbackTracker.GetGroup(slug)
 		h.feedbackTracker.MarkProposed(slug)
 		go h.onFeedbackThreshold(slug, group)
-	}
-}
-
-// feedbackSkillPropose calls the dream executor to synthesise accumulated
-// feedback into a SKILL.md and inserts it as a pending_review candidate.
-func feedbackSkillPropose(
-	dream contract.DreamExecutor,
-	store candidateInsertStore,
-	logger *slog.Logger,
-	topicKey string,
-	group []ExtractedMemory,
-	projectRoot string,
-) {
-	defer func() {
-		if r := recover(); r != nil && logger != nil {
-			logger.Warn("feedback skill proposal panicked", "topic", topicKey, "recover", r)
-		}
-	}()
-
-	prompt := buildFeedbackProposalPrompt(topicKey, group)
-
-	ctx, cancel := ctxutil.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-
-	skillMD, err := dream.ExecuteDream(ctx, prompt)
-	if err != nil {
-		if logger != nil {
-			logger.Warn("feedback skill dream failed", "topic", topicKey, "error", err)
-		}
-		return
-	}
-
-	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(skillMD)))
-	insertCandidate(store, logger, ctx, topicKey, hash, skillMD, projectRoot, len(group))
-}
-
-func buildFeedbackProposalPrompt(topicKey string, group []ExtractedMemory) string {
-	var sb strings.Builder
-	sb.WriteString("你是一个技能提炼专家。以下是用户在多次协作中反复给出的同类反馈：\n\n")
-	for i, fb := range group {
-		fmt.Fprintf(&sb, "反馈 %d:\n%s\n\n", i+1, fb.Content)
-	}
-	sb.WriteString("请将这些反馈合成为一个 SKILL.md 文件。要求：\n")
-	sb.WriteString("1. 以 YAML frontmatter 开头，包含 name 和 description\n")
-	sb.WriteString("2. description 以 'Use when' 开头\n")
-	sb.WriteString("3. 正文用 H2 分节，每节一个规则\n")
-	sb.WriteString("4. 合并重复内容，保留所有独特要点\n\n")
-	sb.WriteString("直接输出 SKILL.md 内容，不要包裹 code fence。")
-	return sb.String()
-}
-
-func insertCandidate(
-	store candidateInsertStore,
-	logger *slog.Logger,
-	ctx context.Context,
-	topicKey, hash, skillMD, projectRoot string,
-	feedbackCount int,
-) {
-	sample := skillMD
-	if len(sample) > 1024 {
-		sample = sample[:1024]
-	}
-	repoFP := ""
-	if projectRoot != "" {
-		repoFP, _ = repofingerprint.Compute(projectRoot)
-	}
-	_, err := store.Insert(ctx, skillcandidatedto.InsertParams{
-		Scope:           "project",
-		Slug:            topicKey,
-		ContentHash:     hash,
-		RepoFingerprint: repoFP,
-		SkillMD:         skillMD,
-		RedactedSample:  sample,
-	})
-	if err != nil {
-		if logger != nil {
-			logger.Warn("feedback skill insert failed", "topic", topicKey, "error", err)
-		}
-		return
-	}
-	if logger != nil {
-		logger.Info("feedback skill candidate created", "topic", topicKey, "feedback_count", feedbackCount)
 	}
 }

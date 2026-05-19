@@ -1,6 +1,7 @@
 ---
-name: mcp-server-patterns
-description: Use when building, extending or debugging MCP (Model Context Protocol) servers, adding new tools or resources, or configuring stdio/HTTP transports in the Go backend.
+name: "MCP协议"
+description: "当你需要在 Go 后端构建、扩展或调试 MCP Server，添加工具或资源，或配置 stdio/HTTP 传输时使用。"
+trigger_words: ["mcp-server-patterns", "MCP", "Model Context Protocol", "mcp server", "stdio", "HTTP transport", "tool", "resource", "prompt", "协议"]
 ---
 
 # MCP 协议与服务模式 (MCP Server Patterns)

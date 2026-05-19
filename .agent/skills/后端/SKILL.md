@@ -1,7 +1,7 @@
 ---
-name: Go后端
-description: 完整的 Go 后端开发指南，涵盖 Effective Go 最佳实践、V3 架构契约（fx, sqlc, jrpc2, rungroup, stateless）。在编写、审查或重构 Go 代码时使用此技能。
-tags: [golang, go, backend, fx, sqlc, jrpc2, rungroup, stateless, mcp, V3架构]
+name: "后端"
+description: "完整的 Go 后端开发指南，涵盖 Effective Go 最佳实践、V3 架构契约（fx, sqlc, jrpc2, rungroup, stateless）。在编写、审查或重构 Go 代码时使用此技能。"
+trigger_words: ["Go后端", "golang", "go", "backend", "fx", "sqlc", "jrpc2", "rungroup", "stateless", "mcp", "V3架构"]
 ---
 
 # Go 后端开发规范 (V3 契约合规版)

@@ -1,65 +1,38 @@
 import { computed, nextTick, reactive, ref, watch } from '../../lib/vue.esm-browser.prod.js';
 import { callAPI, selectProjectDirs } from '../services/api.js';
-import { logInfo, logWarn } from '../services/log.js';
+import { logWarn } from '../services/log.js';
 import { importSkills, writeSkill } from '../services/skills-api.js';
 import { renderAssistantMarkdown } from '../utils/assistant-markdown.js';
 import {
-  listToText, inferSkillNameFromPath, summarizeItems,
+  applyParsedSkillState,
+  isCurrentEditorTarget,
+  isSummarySuggestQualityError,
+  isSummarySuggestUnavailableError,
+  mainSkillSavePath,
+  normalizeSkillScope,
+  personalTypeForScope,
+  personalTypeFromForm,
+  rememberLoadedMainSkillTarget,
+  requestSkillSummarySuggestion,
+  resetLoadedMainSkillTarget,
+  resolveSkillsCwd,
+  scopeFromTrust,
+  updateNotice,
+  withSkillsCwd,
+} from './useSkillEditorHelpers.js';
+import {
+  createSkillImportSummaryActions,
+  duplicateImportNotice,
+  importSummaryDraftMessage,
+  importSummaryDraftNotice,
+  normalizeImportFailure,
+} from './useSkillImportSummaryDrafts.js';
+import {
+  listToText, inferSkillNameFromPath, summarizeItems, normalizeWordList,
   normalizePathKey, fileNameFromPath, isSkillMainFilePath,
   parseSkillMarkdown, buildSkillMarkdown,
+  skillDescriptionQualitySaveMessage, validateSkillNameText,
 } from '../utils/skill-parser.js';
-
-function updateNotice(notice, level, message) {
-  notice.level = level || 'info';
-  notice.message = (message || '').toString();
-}
-
-function resolveSkillsCwd(props) {
-  const activeProject = (props?.projectStore?.state?.active || '').toString().trim();
-  return activeProject && activeProject !== '.' ? activeProject : '';
-}
-
-function withSkillsCwd(props, payload = {}) {
-  const cwd = resolveSkillsCwd(props);
-  return cwd ? { ...payload, cwd } : payload;
-}
-
-function normalizeSkillScope(scope) {
-  return (scope || '').toString().trim().toLowerCase() === 'system' ? 'system' : 'project';
-}
-
-function scopeFromTrust(trust) {
-  const normalized = (trust || '').toString().trim().toLowerCase();
-  return normalized === 'user' || normalized === 'signed' ? 'system' : 'project';
-}
-
-function applyParsedSkillState(state, parsed, rawContent, path = '', fallbackSummary = '', fallbackSource = '') {
-  state.form.name = parsed.name || state.form.name || '';
-  state.form.description = parsed.description || '';
-  state.form.summary = parsed.summary || fallbackSummary || parsed.description || '';
-  if (parsed.summary) {
-    state.summarySource.value = 'frontmatter';
-  } else if (fallbackSource) {
-    state.summarySource.value = fallbackSource;
-  } else if (fallbackSummary) {
-    state.summarySource.value = 'generated';
-  } else if (parsed.description) {
-    state.summarySource.value = 'description';
-  } else {
-    state.summarySource.value = '';
-  }
-  state.form.triggerWordsText = listToText(parsed.triggerWords);
-  state.form.forceWordsText = listToText(parsed.forceWords);
-  state.form.body = (parsed.body || '').trim();
-  state.sourcePath.value = path;
-  state.activeSkillFilePath.value = path;
-  state.selectedSkillName.value = state.form.name || state.selectedSkillName.value;
-  logInfo('skills', 'editor.skill.loaded', {
-    name: state.form.name,
-    source_path: path,
-    body_len: rawContent.length,
-  });
-}
 
 function createSkillFileReaders(props, state) {
   async function loadSkillFiles(dir, preferredPath = '') {
@@ -98,105 +71,189 @@ function createSkillFileReaders(props, state) {
     const finalFallbackSummary = serverSummary || fallbackSummary;
     const finalFallbackSource = serverSummarySource || fallbackSource;
     applyParsedSkillState(state, parsed, content, path, finalFallbackSummary, finalFallbackSource);
-    if (!parsed.summary && finalFallbackSummary) {
-      state.setNotice('info', '系统已生成摘要，你可以在编辑后保存为自定义摘要。');
-    }
   }
 
   return { loadSkillFiles, readSkillFile };
 }
 
-function createImportActions(props, emit, deps, state, readers) {
-  async function onUploadSkill() {
-    if (state.uploading.value) return;
+function createImportActions(props, emit, deps, state, readers, importSummaryActions) {
+  async function importSelectedSkillDirs(folderPaths, scope) {
     state.uploading.value = true;
-    state.importFailures.value = [];
+    state.importSummaryDrafts.value = [];
     try {
-      const folderPaths = await selectProjectDirs();
-      if (!Array.isArray(folderPaths) || folderPaths.length === 0) {
-        state.setNotice('info', '未选择目录');
-        return;
-      }
-
       const selectedNames = folderPaths
         .map((entryPath) => inferSkillNameFromPath(entryPath))
         .filter(Boolean);
-      const selectedNameSeen = new Set();
-      const duplicatedNameSet = new Set();
-      for (const name of selectedNames) {
-        const key = name.toLowerCase();
-        if (selectedNameSeen.has(key)) {
-          duplicatedNameSet.add(name);
-          continue;
-        }
-        selectedNameSeen.add(key);
-      }
-      const duplicatedNames = Array.from(duplicatedNameSet);
-      if (duplicatedNames.length > 0) {
-        state.setNotice('error', `选择目录中存在重复技能名：${summarizeItems(duplicatedNames)}`);
-        return;
-      }
-
       const existingNameSet = new Set(
         deps.skillCards.value.map((item) => (item?.name || '').toString().toLowerCase()).filter(Boolean),
       );
       const overwriteNames = selectedNames.filter((name) => existingNameSet.has(name.toLowerCase()));
       if (overwriteNames.length > 0) {
-        state.setNotice('info', `将覆盖已有技能：${summarizeItems(overwriteNames)}，继续导入中...`);
+        state.setNotice('info', `检测到同名技能：${summarizeItems(overwriteNames)}，导入可能触发同名冲突，继续导入中...`);
       }
 
-      const imported = await importSkills(resolveSkillsCwd(props), folderPaths, state.importScope.value);
+      const resolvedImportScope = normalizeSkillScope(scope);
+      const resolvedImportPersonalType = personalTypeForScope(resolvedImportScope, null, 'imported');
+      const imported = await importSkills(
+        resolveSkillsCwd(props),
+        folderPaths,
+        resolvedImportScope,
+        resolvedImportPersonalType,
+      );
       const importedSkills = Array.isArray(imported?.imported)
         ? imported.imported
         : (Array.isArray(imported?.skills) ? imported.skills : []);
       const failures = Array.isArray(imported?.failures) ? imported.failures : [];
-      state.importFailures.value = failures.map((item) => {
-        const source = (item?.source || '').toString().trim();
-        const message = (item?.error || '未知错误').toString().trim();
-        return `${source || '-'}：${message || '未知错误'}`;
-      });
-      const firstSkill = importedSkills[0] || null;
+      const normalizedFailures = failures.map(normalizeImportFailure);
+      const duplicateFailures = normalizedFailures.filter((item) => item.duplicate);
+      const blockingFailures = normalizedFailures.filter((item) => !item.duplicate);
+      state.importFailures.value = normalizedFailures.map((item) => item.text);
+	      const firstSkill = importedSkills[0] || null;
+	      let openImportedError = null;
 
-      emit('refresh-skills');
-      if (firstSkill?.skill_file) {
-        await readers.readSkillFile(firstSkill.skill_file, firstSkill.name || '');
-        state.form.scope = normalizeSkillScope(state.importScope.value);
-      }
-      if (failures.length > 0) {
-        state.setNotice('error', `导入完成：成功 ${importedSkills.length}，失败 ${failures.length}`);
-        return;
-      }
+	      emit('refresh-skills');
+	      if (firstSkill?.skill_file) {
+	        try {
+	          await readers.readSkillFile(firstSkill.skill_file, firstSkill.name || '');
+	          state.form.scope = resolvedImportScope;
+	          state.form.personal_type = resolvedImportPersonalType;
+	          rememberLoadedMainSkillTarget(state, resolvedImportScope, resolvedImportPersonalType);
+	        } catch (error) {
+	          openImportedError = error;
+	          logWarn('skills', 'upload.open_imported_failed', { error, path: firstSkill.skill_file });
+	        }
+	      }
+      const importSummaryDrafts = await importSummaryActions.refreshImportSummaryDrafts(
+        importedSkills,
+        resolvedImportScope,
+        resolvedImportPersonalType,
+      );
+	      if (failures.length > 0) {
+	        const draftMessage = importSummaryDraftMessage(importSummaryDrafts);
+	        if (blockingFailures.length === 0) {
+	          state.setNotice(
+	            importedSkills.length > 0 ? 'success' : 'info',
+	            importedSkills.length > 0
+	              ? `导入完成：成功 ${importedSkills.length}，${duplicateImportNotice(resolvedImportScope, duplicateFailures)}${draftMessage ? `，${draftMessage}` : ''}`
+	              : duplicateImportNotice(resolvedImportScope, duplicateFailures),
+	          );
+	          return true;
+	        }
+	        const duplicateText = duplicateFailures.length > 0 ? `，已存在 ${duplicateFailures.length} 个未重复导入` : '';
+	        state.setNotice('error', `导入完成：成功 ${importedSkills.length}，失败 ${blockingFailures.length}${duplicateText}${draftMessage ? `，${draftMessage}` : ''}`);
+	        return true;
+	      }
       if (importedSkills.length === 0) {
-        state.setNotice('info', '未导入任何技能目录');
-        return;
-      }
-      state.setNotice('success', `已导入 ${importedSkills.length} 个技能目录（含资源文件）`);
+	        state.setNotice('info', '未导入任何技能目录');
+	        return true;
+	      }
+	      if (openImportedError) {
+	        const draftMessage = importSummaryDraftMessage(importSummaryDrafts);
+	        state.setNotice('success', `已导入 ${importedSkills.length} 个技能目录，列表已刷新${draftMessage ? `，${draftMessage}` : '。'}`);
+	        return true;
+	      }
+	      state.setNotice('success', importSummaryDraftNotice(importedSkills.length, importSummaryDrafts));
+	      return true;
     } catch (error) {
       logWarn('skills', 'upload.failed', { error });
       state.setNotice('error', `导入目录失败：${error?.message || error}`);
+      return false;
+    } finally {
+      state.uploading.value = false;
+      state.pendingImportDirs.value = [];
+      state.importScopePromptOpen.value = false;
+    }
+  }
+
+  async function onUploadSkill() {
+    if (state.uploading.value || state.importScopePromptOpen.value) return;
+    state.importFailures.value = [];
+    state.pendingImportDirs.value = [];
+    state.importScopePromptOpen.value = true;
+    state.setNotice('info', '请选择导入后的使用范围');
+  }
+
+  async function selectDirsForImport() {
+    try {
+      const folderPaths = await selectProjectDirs();
+      if (!Array.isArray(folderPaths) || folderPaths.length === 0) {
+        state.setNotice('info', '未选择目录');
+        return [];
+      }
+      return folderPaths;
+    } catch (error) {
+      logWarn('skills', 'upload.select.failed', { error });
+      state.setNotice('error', `选择目录失败：${error?.message || error}`);
+      return [];
+    }
+  }
+
+  function duplicatedSkillNames(folderPaths) {
+    const selectedNames = folderPaths
+      .map((entryPath) => inferSkillNameFromPath(entryPath))
+      .filter(Boolean);
+    const selectedNameSeen = new Set();
+    const duplicatedNameSet = new Set();
+    for (const name of selectedNames) {
+      const key = name.toLowerCase();
+      if (selectedNameSeen.has(key)) {
+        duplicatedNameSet.add(name);
+        continue;
+      }
+      selectedNameSeen.add(key);
+    }
+    return Array.from(duplicatedNameSet);
+  }
+
+  function cancelImportScopePrompt() {
+    state.pendingImportDirs.value = [];
+    state.importScopePromptOpen.value = false;
+    state.setNotice('info', '已取消导入');
+  }
+
+  async function confirmImportScope(scope = state.importScope.value) {
+    if (state.uploading.value) return false;
+    state.importScope.value = normalizeSkillScope(scope);
+    state.importScopePromptOpen.value = false;
+    state.uploading.value = true;
+    try {
+      const folderPaths = await selectDirsForImport();
+      if (folderPaths.length === 0) return false;
+      const duplicatedNames = duplicatedSkillNames(folderPaths);
+      if (duplicatedNames.length > 0) {
+        state.setNotice('error', `选择目录中存在重复技能名：${summarizeItems(duplicatedNames)}`);
+        return false;
+      }
+      state.uploading.value = false;
+      return await importSelectedSkillDirs(folderPaths, state.importScope.value);
     } finally {
       state.uploading.value = false;
     }
   }
 
-  return { onUploadSkill };
+  return { onUploadSkill, cancelImportScopePrompt, confirmImportScope };
 }
 
-function createEditorActions(props, emit, state, readers) {
+function createEditorActions(props, emit, deps, state, readers) {
   function onCreateSkill() {
     state.selectedSkillName.value = '';
     state.summarySource.value = '';
     state.sourcePath.value = '';
-     state.skillFiles.value = [];
-     state.activeSkillFilePath.value = '';
-     state.form.name = '';
-     state.form.description = '';
-     state.form.summary = '';
-     state.form.triggerWordsText = '';
-     state.form.forceWordsText = '';
-     state.form.body = '';
-     state.form.scope = 'project';
-     state.isBodyEditing.value = true;
+    state.skillFiles.value = [];
+    state.activeSkillFilePath.value = '';
+    state.form.name = '';
+    state.form.description = '';
+    state.form.summary = '';
+    state.generatedSummaryPreview.value = '';
+    state.summarySuggestion.value = '';
+    state.form.triggerWordsText = '';
+    state.form.forceWordsText = '';
+    state.form.internalScenarioWordsText = '';
+    state.form.body = '';
+    state.form.scope = 'project';
+    state.form.personal_type = '';
+    resetLoadedMainSkillTarget(state);
+    state.isBodyEditing.value = true;
     state.bodyEditorFocused.value = false;
     state.isEditorOpen.value = true;
     state.setNotice('info', '已打开新建表单，填写后点击保存。');
@@ -220,15 +277,17 @@ function createEditorActions(props, emit, state, readers) {
         state.activeSkillFilePath.value = skillPath;
         logWarn('skills', 'load.subfiles.failed', { error, dir: item.dir, path: skillPath });
       }
-       state.selectedSkillName.value = item.name || '';
-       state.form.scope = normalizeSkillScope(scopeFromTrust(item?.trust));
-       state.isBodyEditing.value = false;
+      state.selectedSkillName.value = item.name || '';
+      state.form.scope = normalizeSkillScope(item?.scope || scopeFromTrust(item?.trust));
+      state.form.personal_type = personalTypeForScope(state.form.scope, item, 'user');
+      rememberLoadedMainSkillTarget(state, state.form.scope, state.form.personal_type);
+      state.isBodyEditing.value = false;
       state.bodyEditorFocused.value = false;
       state.isEditorOpen.value = true;
       if (filesLoadErrorMessage) {
-        state.setNotice('error', `主文件已加载，但子文件列表读取失败：${filesLoadErrorMessage}`);
+        state.setNotice('error', `技能已加载，但附加内容读取失败：${filesLoadErrorMessage}`);
       } else {
-        state.setNotice('info', `已加载技能：${item.name || ''}`);
+        state.setNotice('info', '');
       }
     } catch (error) {
       logWarn('skills', 'load.savedSkill.failed', { error, path: skillPath });
@@ -257,29 +316,37 @@ function createEditorActions(props, emit, state, readers) {
     state.confirmDeleteTarget.value = null;
     state.deletingSkillName.value = skillName;
     try {
-      await callAPI('skills/local/delete', withSkillsCwd(props, { name: skillName }));
-      const skillKey = skillName.toLowerCase();
-      if ((state.selectedSkillName.value || '').toLowerCase() === skillKey) {
+      const scope = normalizeSkillScope(item?.scope || scopeFromTrust(item?.trust) || state.form.scope);
+      const personalType = personalTypeForScope(scope, item, 'user');
+      const payload = {
+        name: skillName,
+        scope,
+      };
+      if (personalType) payload.personal_type = personalType;
+      await callAPI('skills/local/delete', withSkillsCwd(props, payload));
+      const deletesCurrentEditorTarget = isCurrentEditorTarget(state, item, scope, personalType);
+      if (deletesCurrentEditorTarget) {
         state.selectedSkillName.value = '';
-      }
-      if ((state.form.name || '').toLowerCase() === skillKey) {
         state.form.name = '';
         state.form.description = '';
         state.form.summary = '';
+        state.generatedSummaryPreview.value = '';
+        state.summarySuggestion.value = '';
         state.form.triggerWordsText = '';
         state.form.forceWordsText = '';
+        state.form.internalScenarioWordsText = '';
         state.form.body = '';
         state.form.scope = 'project';
+        state.form.personal_type = '';
+        resetLoadedMainSkillTarget(state);
         state.summarySource.value = '';
         state.sourcePath.value = '';
         state.skillFiles.value = [];
         state.activeSkillFilePath.value = '';
-      }
-      if (!state.selectedSkillName.value) {
         state.isEditorOpen.value = false;
       }
       emit('refresh-skills');
-      state.setNotice('success', `技能已删除：${skillName}`);
+      state.setNotice('info', '');
     } catch (error) {
       logWarn('skills', 'delete.failed', { error, skill: skillName });
       state.setNotice('error', `删除技能失败：${error?.message || error}`);
@@ -294,29 +361,54 @@ function createEditorActions(props, emit, state, readers) {
     try {
       if (!state.resolvedIsEditingMainSkillFile.value) {
         if (!targetPath) {
-          throw new Error('缺少子文件路径，无法保存');
+          throw new Error('缺少文件路径，无法保存');
         }
-        await writeSkill(resolveSkillsCwd(props), targetPath, (state.form.body || '').toString(), normalizeSkillScope(state.form.scope));
-        state.setNotice('success', `子文件已保存：${fileNameFromPath(targetPath) || targetPath}`);
+        const scope = normalizeSkillScope(state.form.scope);
+        await writeSkill(resolveSkillsCwd(props), targetPath, (state.form.body || '').toString(), scope, personalTypeFromForm(state.form));
+        state.setNotice('success', `文件已保存：${fileNameFromPath(targetPath) || targetPath}`);
+        closeEditor();
         return;
       }
 
       const name = (state.form.name || '').trim();
-      if (!name) {
-        state.setNotice('error', '请先填写技能名称');
+      const nameError = validateSkillNameText(name);
+      if (nameError) {
+        state.setNotice('error', nameError);
         return;
       }
+      const hasDescription = Boolean(((state.form.description || '').trim() || (state.form.summary || '').trim()));
       const content = buildSkillMarkdown(state.form);
       state.form.scope = normalizeSkillScope(state.form.scope);
-      const saved = await writeSkill(resolveSkillsCwd(props), name, content, state.form.scope);
+      const writePath = mainSkillSavePath(state, name);
+      const nameKey = name.toLowerCase();
+      const sameNameOtherScope = deps.skillCards.value.some((item) => {
+        const itemName = (item?.name || '').toString().trim().toLowerCase();
+        if (itemName !== nameKey) return false;
+        const itemScope = normalizeSkillScope(item?.scope || scopeFromTrust(item?.trust));
+        const itemPersonalType = personalTypeForScope(itemScope, item, 'user');
+        const nextPersonalType = personalTypeFromForm(state.form);
+        return itemScope !== state.form.scope || itemPersonalType !== nextPersonalType;
+      });
+      const saved = await writeSkill(resolveSkillsCwd(props), writePath, content, state.form.scope, personalTypeFromForm(state.form));
       state.selectedSkillName.value = name;
       state.summarySource.value = 'frontmatter';
       if (saved?.path) {
         state.sourcePath.value = saved.path;
         state.activeSkillFilePath.value = saved.path;
       }
+      rememberLoadedMainSkillTarget(state, state.form.scope, personalTypeFromForm(state.form));
       emit('refresh-skills');
-      state.setNotice('success', `技能已保存：${name}（${state.form.scope === 'system' ? 'system' : 'project'}）`);
+      const explicitDescription = (state.form.description || '').toString().trim();
+      let saveMessage = '已保存。建议填写简介，更好使用技能。';
+      if (sameNameOtherScope) {
+        saveMessage = '已保存；已经有同名技能，请选择处理方式。';
+      } else if (explicitDescription) {
+        saveMessage = skillDescriptionQualitySaveMessage(explicitDescription);
+      } else if (hasDescription) {
+        saveMessage = '已保存';
+      }
+      state.setNotice('success', saveMessage);
+      closeEditor();
     } catch (error) {
       logWarn('skills', 'save.failed', {
         error,
@@ -387,24 +479,35 @@ export function useSkillEditor(props, emit, deps) {
   const skillFiles = ref([]);
   const activeSkillFilePath = deps.activeSkillFilePath || ref('');
   const importFailures = ref([]);
+  const importSummaryDrafts = ref([]);
+  const importSummaryGenerating = ref(false);
   const notice = reactive({ level: 'info', message: '' });
   const saving = ref(false);
   const uploading = ref(false);
   const deletingSkillName = ref('');
   const confirmDeleteTarget = ref(null);
+  const pendingImportDirs = ref([]);
+  const importScopePromptOpen = ref(false);
   const isEditorOpen = ref(false);
   const isBodyEditing = ref(false);
   const bodyEditorFocused = ref(false);
   const bodyInputRef = ref(null);
   const importScope = ref('project');
+  const generatedSummaryPreview = ref('');
+  const summarySuggestion = ref('');
+  const summarySuggesting = ref(false);
+  const loadedMainSkillScope = ref('');
+  const loadedMainSkillPersonalType = ref('');
   const form = reactive({
     name: '',
     description: '',
     summary: '',
     triggerWordsText: '',
     forceWordsText: '',
+    internalScenarioWordsText: '',
     body: '',
     scope: 'project',
+    personal_type: '',
   });
 
   const summarySourceLabel = computed(() => {
@@ -420,12 +523,22 @@ export function useSkillEditor(props, emit, deps) {
     if (!text) return '<p>暂无内容，点击“编辑正文”开始编写。</p>';
     return renderAssistantMarkdown(text);
   });
+  const scenarioKeywordsText = computed({
+    get() {
+      return listToText(normalizeWordList(`${form.triggerWordsText || ''},${form.forceWordsText || ''}`));
+    },
+    set(value) {
+      form.triggerWordsText = listToText(normalizeWordList(value));
+      form.forceWordsText = '';
+    },
+  });
 
   const isEditingMainSkillFile = computed(() => {
     const candidate = (activeSkillFilePath.value || sourcePath.value || '').toString().trim();
     if (!candidate) return true;
     return isSkillMainFilePath(candidate);
   });
+  const showRelatedSkillFiles = computed(() => skillFiles.value.some((file) => !file?.isMain));
   const resolvedIsEditingMainSkillFile = deps.isEditingMainSkillFile || isEditingMainSkillFile;
 
   const state = {
@@ -435,24 +548,82 @@ export function useSkillEditor(props, emit, deps) {
     skillFiles,
     activeSkillFilePath,
     importFailures,
+    importSummaryDrafts,
+    importSummaryGenerating,
     notice,
     saving,
     uploading,
     deletingSkillName,
     confirmDeleteTarget,
+    pendingImportDirs,
+    importScopePromptOpen,
     isEditorOpen,
     isBodyEditing,
     bodyEditorFocused,
     bodyInputRef,
     importScope,
+    generatedSummaryPreview,
+    summarySuggestion,
+    loadedMainSkillScope,
+    loadedMainSkillPersonalType,
     form,
     resolvedIsEditingMainSkillFile,
     setNotice: (level, message) => updateNotice(notice, level, message),
   };
 
+  async function onSuggestSkillSummary() {
+    if (summarySuggesting.value) return;
+    if (!(form.name || '').trim() && !(form.body || '').trim()) {
+      updateNotice(notice, 'info', '先填写技能名称或内容，再生成简介。');
+      return;
+    }
+    summarySuggesting.value = true;
+    try {
+      summarySuggestion.value = '';
+      updateNotice(notice, 'info', '正在生成简介...');
+      const description = await requestSkillSummarySuggestion(resolveSkillsCwd(props), {
+        name: form.name,
+        description: form.description,
+        content: form.body,
+        scenarioWords: normalizeWordList(scenarioKeywordsText.value),
+        scope: form.scope,
+      });
+      if (!description) {
+        updateNotice(notice, 'error', '生成失败：没有生成可用简介');
+        return;
+      }
+      summarySuggestion.value = description;
+      updateNotice(notice, 'info', '已生成简介建议，采用后再保存。');
+    } catch (error) {
+      logWarn('skills', 'summary.suggest.failed', { error, name: (form.name || '').trim() });
+      if (isSummarySuggestUnavailableError(error)) {
+        updateNotice(notice, 'error', '当前无法生成简介，请稍后再试或手动填写。');
+        return;
+      }
+      if (isSummarySuggestQualityError(error)) {
+        updateNotice(notice, 'error', '生成的简介不够具体，请补充技能内容后重新生成，或手动填写。');
+        return;
+      }
+      updateNotice(notice, 'error', '当前无法生成简介，请稍后再试或手动填写。');
+    } finally {
+      summarySuggesting.value = false;
+    }
+  }
+
+  function applySummarySuggestion() {
+    const value = (summarySuggestion.value || '').toString().trim();
+    if (!value) return;
+    form.description = value;
+    summarySuggestion.value = '';
+    summarySource.value = 'description';
+  }
+
   const readers = createSkillFileReaders(props, state);
-  const importActions = createImportActions(props, emit, deps, state, readers);
-  const editorActions = createEditorActions(props, emit, state, readers);
+  const importSummaryActions = createSkillImportSummaryActions(props, state, readers, {
+    requestSkillSummarySuggestion,
+  });
+  const importActions = createImportActions(props, emit, deps, state, readers, importSummaryActions);
+  const editorActions = createEditorActions(props, emit, deps, state, readers);
 
   watch(deps.skillCards, (nextCards) => {
     const current = (selectedSkillName.value || '').toString().trim().toLowerCase();
@@ -482,6 +653,8 @@ export function useSkillEditor(props, emit, deps) {
   watch(() => form.scope, (next) => {
     const normalized = normalizeSkillScope(next);
     if (normalized !== next) form.scope = normalized;
+    if (normalized !== 'personal') form.personal_type = '';
+    if (normalized === 'personal' && !form.personal_type) form.personal_type = 'user';
   }, { immediate: true });
 
   watch(importScope, (next) => {
@@ -493,25 +666,37 @@ export function useSkillEditor(props, emit, deps) {
     selectedSkillName,
     summarySource,
     summarySourceLabel,
+    scenarioKeywordsText,
     sourcePath,
     skillFiles,
     activeSkillFilePath,
     isEditingMainSkillFile: resolvedIsEditingMainSkillFile,
+    showRelatedSkillFiles,
     importFailures,
+    importSummaryDrafts,
+    importSummaryGenerating,
     notice,
     saving,
     uploading,
     deletingSkillName,
     confirmDeleteTarget,
+    pendingImportDirs,
+    importScopePromptOpen,
     isEditorOpen,
     isBodyEditing,
     bodyEditorFocused,
     bodyInputRef,
     importScope,
+    generatedSummaryPreview,
+    summarySuggestion,
+    summarySuggesting,
     form,
     skillBodyMarkdownHtml,
     setNotice: state.setNotice,
+    onSuggestSkillSummary,
+    applySummarySuggestion,
     ...readers,
+    ...importSummaryActions,
     ...importActions,
     ...editorActions,
   };

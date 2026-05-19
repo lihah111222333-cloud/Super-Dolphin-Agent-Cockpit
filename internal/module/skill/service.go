@@ -2,6 +2,8 @@ package skill
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,7 +18,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	auditstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/skillcandidate"
 )
 
 const (
@@ -28,72 +29,78 @@ type service struct {
 	root               string
 	projectRoot        string
 	projectSkillsRoot  string
+	superDolphinHome   string
 	http               *http.Client
-	disclosureTiers    contract.SkillDisclosureTierSource
-	approvalRequester  contract.ApprovalRequester
 	readConfigState    func(context.Context, string) (any, error)
 	emitSkillsChanged  skillsChangedEmitter
 	skillsChangedMu    sync.Mutex
 	skillsChangedNext  uidto.SkillsChanged
 	skillsChangedQueue []uidto.SkillsChanged
 	skillsChangedSeq   uint64
-	// approval 是 P20 Phase 1 新增的审批缓存指针。Phase 1 不涉及调用，预留给 Phase 6
-	// skill_expand RPC 集成时使用 (s.approval.Lookup / Approve / Revoke)。初始化失败时
-	// 降级为 nil；调用方必须先 nil-check。
+	// approval stores artifact-level skill trust decisions for read-only
+	// approval probes used by prompt/catalog compatibility paths.
 	approval *ApprovalCache
-	// sessionApprovals 仅缓存 scope=session 的整份 SKILL.md 审批，不落盘。
-	sessionApprovals   map[string]ApprovalEntry
-	sessionApprovalsMu sync.RWMutex
-	approvalCallSeq    uint64
-	// candidateStore is the optional P0b Step 5 wiring for the review
-	// gate. nil means review-gate RPCs return errCandidateStoreUnavailable;
-	// extractor + lookup paths short-circuit early.
-	candidateStore skillcandidate.Store
-	// auditStore is the optional P0b Step 5 audit sink. nil disables
-	// audit emission. Audit writes are best-effort, never transactional.
-	auditStore auditstore.Store
+	// auditStore is required in Fx wiring for mutation audit. Direct tests that
+	// construct service manually may leave it nil; mutation paths then fail closed.
+	auditStore    auditstore.Store
+	mirrorTargets []SkillMirrorTarget
+
+	resolutionPreviewMu sync.Mutex
+	resolutionPreviews  map[string]skillResolutionStoredPreview
 }
 
 var _ Service = (*service)(nil)
 var _ contract.ApprovalSource = (*service)(nil)
-
-type approvalScope string
-
-const (
-	approvalScopeSession approvalScope = "session"
-	approvalScopeProject approvalScope = "project"
-)
-
-var (
-	// ErrSkillApprovalDenied lets host-direct callers structure approval-denied
-	// tool results without depending on package-private service internals.
-	ErrSkillApprovalDenied               = errors.New("skill expand approval denied")
-	errSkillApprovalDenied               = ErrSkillApprovalDenied
-	errSkillApprovalRequesterUnavailable = errors.New("skill approval requester is not configured")
-	errSkillApprovalProjectCacheMissing  = errors.New("project approval cache is not configured")
-	errSkillApprovalRequired             = errors.New("skill artifact approval required")
-)
+var _ contract.SkillInventoryLister = (*service)(nil)
+var _ contract.SkillMirrorReconciler = (*service)(nil)
 
 // SkillApprovalRequiredError is an alias for the contract-level type so that
 // both skill and toolbridge consumers can errors.As the same concrete type
 // without toolbridge importing the module layer.
 type SkillApprovalRequiredError = contract.SkillApprovalRequiredError
 
-type skillApprovalDeniedError struct {
-	reason string
-}
-
-func (e skillApprovalDeniedError) Error() string {
-	reason := strings.TrimSpace(e.reason)
-	if reason == "" {
-		reason = "decline"
+func resolutionPreviewHash(item skillResolutionItem, preview skillResolutionPreviewItem, p skillResolutionPreviewParams) string {
+	type previewEnvelope struct {
+		ConflictID          string `json:"conflict_id"`
+		Action              string `json:"action"`
+		Provider            string `json:"provider,omitempty"`
+		SourceProvider      string `json:"source_provider,omitempty"`
+		SourcePathID        string `json:"source_path_id,omitempty"`
+		SourcePath          string `json:"source_path"`
+		TargetPath          string `json:"target_path"`
+		SourceHash          string `json:"source_hash"`
+		TargetHash          string `json:"target_hash"`
+		NewName             string `json:"new_name,omitempty"`
+		KeepSourceID        string `json:"keep_source_id,omitempty"`
+		MergeContentHash    string `json:"merge_content_hash,omitempty"`
+		DisablePolicyTarget string `json:"disable_policy_target,omitempty"`
+		BackupPath          string `json:"backup_path"`
+		ConfirmDeleteHash   string `json:"confirm_delete_mirror_hash,omitempty"`
 	}
-	return fmt.Sprintf("%s: %s", errSkillApprovalDenied, reason)
+	return "sha256:" + hashResolutionEnvelope(previewEnvelope{
+		ConflictID:          item.ConflictID,
+		Action:              p.Action,
+		Provider:            preview.Provider,
+		SourceProvider:      preview.SourceProvider,
+		SourcePathID:        preview.SourcePathID,
+		SourcePath:          preview.SourcePath,
+		TargetPath:          preview.TargetPath,
+		SourceHash:          preview.SourceHash,
+		TargetHash:          preview.TargetHash,
+		NewName:             p.NewName,
+		KeepSourceID:        p.KeepSourceID,
+		MergeContentHash:    p.MergeContentHash,
+		DisablePolicyTarget: p.DisablePolicyTarget,
+		BackupPath:          preview.BackupPath,
+		ConfirmDeleteHash:   preview.ConfirmDeleteMirrorHash,
+	})
 }
 
-func (e skillApprovalDeniedError) Unwrap() error { return errSkillApprovalDenied }
-
-func (e skillApprovalDeniedError) SkillApprovalDenied() bool { return true }
+func hashResolutionEnvelope(v any) string {
+	data, _ := json.Marshal(v)
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
 
 func (s *service) LookupArtifactApproval(_ context.Context, req contract.ArtifactApprovalRequest) (bool, error) {
 	if s == nil || s.approval == nil {
@@ -127,37 +134,16 @@ func (s *service) TrustRevision() uint64 { return s.SkillRevision() }
 
 func NewService(projectRoot string) Service {
 	pr := strings.TrimSpace(projectRoot)
-	// P20 Phase 1: 尝试加载审批缓存。文件不存在时返回空 cache（正常）；文件损坏时
-	// NewApprovalCache 返回空 cache + err，此处处于构造期，无法抓 err 回调日志；
-	// 统一降级为空 cache——下次 skill_expand 调用会当作“未审批”重新弹审批流。
+	// Load the artifact approval cache for read-only trust probes. If loading
+	// fails during construction, degrade to an empty cache.
 	approvalCache, _ := NewApprovalCache(DefaultApprovalCachePath())
 	return &service{
-		root:              defaultSkillsRoot(),
 		projectRoot:       pr,
 		projectSkillsRoot: defaultProjectSkillsRoot(pr),
+		superDolphinHome:  defaultSuperDolphinHome(),
 		http:              &http.Client{Timeout: 15 * time.Second},
 		approval:          approvalCache,
 	}
-}
-
-func defaultSkillsRoot() string {
-	if override := strings.TrimSpace(os.Getenv("SKILLS_ROOT")); override != "" {
-		return override
-	}
-	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
-		return filepath.Join(home, ".multi-agent", "skills")
-	}
-	// UserHomeDir 失败（如无 $HOME 的受限环境）时兜底到临时目录，
-	// 避免 s.root 为空导致整个技能功能静默失效。
-	return filepath.Join(os.TempDir(), "multi-agent-skills")
-}
-
-func defaultProjectSkillsRoot(projectRoot string) string {
-	projectRoot = strings.TrimSpace(projectRoot)
-	if projectRoot == "" {
-		return ""
-	}
-	return filepath.Join(projectRoot, ".agent", "skills")
 }
 
 func (s *service) projectSkillsRootForCWD(cwd string) string {
@@ -165,85 +151,100 @@ func (s *service) projectSkillsRootForCWD(cwd string) string {
 	if cwd == "" {
 		return ""
 	}
-	if configuredRoot := strings.TrimSpace(s.projectRoot); configuredRoot != "" && strings.TrimSpace(s.projectSkillsRoot) != "" {
-		if resolvedConfigured, err := canonicalProjectPath(configuredRoot); err == nil {
-			if resolvedCWD, err := canonicalProjectPath(cwd); err == nil && resolvedConfigured == resolvedCWD {
-				return strings.TrimSpace(s.projectSkillsRoot)
-			}
-		}
+	projectRoot := s.projectRootForCWD(cwd)
+	if s != nil && sameProjectRoot(projectRoot, s.projectRoot) && strings.TrimSpace(s.projectSkillsRoot) != "" {
+		return strings.TrimSpace(s.projectSkillsRoot)
 	}
-	if resolved, err := canonicalProjectPath(cwd); err == nil && strings.TrimSpace(resolved) != "" {
-		return defaultProjectSkillsRoot(resolved)
-	}
-	return defaultProjectSkillsRoot(cwd)
+	return defaultProjectSkillsRoot(projectRoot)
 }
 
-const (
-	skillScopeProject = "project"
-	skillScopeSystem  = "system"
-)
+func (s *service) projectRootForCWD(cwd string) string {
+	configured := ""
+	if s != nil {
+		configured = s.projectRoot
+	}
+	root := projectRootForCWD(cwd, configured)
+	if sameProjectRoot(root, configured) {
+		return strings.TrimSpace(configured)
+	}
+	return root
+}
+
+func projectRootForCWD(cwd, configured string) string {
+	return reconcileProjectRoot(cwd, configured)
+}
+
+func sameProjectRoot(left, right string) bool {
+	left = strings.TrimSpace(left)
+	right = strings.TrimSpace(right)
+	if left == "" || right == "" {
+		return false
+	}
+	resolvedLeft, leftErr := canonicalProjectPath(left)
+	resolvedRight, rightErr := canonicalProjectPath(right)
+	if leftErr == nil && rightErr == nil {
+		return filepath.Clean(resolvedLeft) == filepath.Clean(resolvedRight)
+	}
+	return filepath.Clean(left) == filepath.Clean(right)
+}
 
 func normalizeSkillScope(scope string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(scope)) {
-	case "", skillScopeProject:
-		return skillScopeProject, nil
-	case skillScopeSystem:
-		return skillScopeSystem, nil
-	default:
-		return "", fmt.Errorf("%w: %s", ErrInvalidSkillScope, scope)
+	normalizedScope, _, err := normalizeSkillTarget(scope, "")
+	return normalizedScope, err
+}
+
+func (s *service) resolvedSuperDolphinHome() string {
+	if s != nil && strings.TrimSpace(s.superDolphinHome) != "" {
+		return strings.TrimSpace(s.superDolphinHome)
 	}
+	return defaultSuperDolphinHome()
 }
 
-func (s *service) systemGlobalSkillsRoot() string {
-	return strings.TrimSpace(s.root)
-}
-
-func (s *service) allSkillRoots(cwd string) []string {
-	roots := make([]string, 0, 2)
-	seen := make(map[string]struct{}, 2)
-	appendUniqueSkillRoot := func(root string) {
-		root = strings.TrimSpace(root)
-		if root == "" {
-			return
-		}
-		cleaned := filepath.Clean(root)
-		if _, ok := seen[cleaned]; ok {
-			return
-		}
-		seen[cleaned] = struct{}{}
-		roots = append(roots, cleaned)
+func (s *service) personalSkillsRoot(personalType string) string {
+	personalType = strings.TrimSpace(personalType)
+	if personalType == "" {
+		return ""
 	}
-	appendUniqueSkillRoot(s.projectSkillsRootForCWD(cwd))
-	appendUniqueSkillRoot(s.systemGlobalSkillsRoot())
-	return roots
+	return filepath.Join(s.resolvedSuperDolphinHome(), "skills", "personal", personalType)
 }
 
-func (s *service) resolveScopeRoot(cwd, scope string) (string, error) {
-	normalizedScope, err := normalizeSkillScope(scope)
+func (s *service) canonicalRootForTarget(cwd, scope, personalType string) (string, string, string, error) {
+	normalizedScope, normalizedType, err := normalizeSkillTarget(scope, personalType)
 	if err != nil {
-		return "", err
+		return "", "", "", err
 	}
 	switch normalizedScope {
 	case skillScopeProject:
 		root := strings.TrimSpace(s.projectSkillsRootForCWD(cwd))
 		if root == "" {
-			return "", errors.New("project skills root is not configured")
+			return "", "", "", errors.New("project skills root is not configured")
 		}
-		return root, nil
-	case skillScopeSystem:
-		root := s.systemGlobalSkillsRoot()
+		return root, normalizedScope, "", nil
+	case skillScopePersonal:
+		root := strings.TrimSpace(s.personalSkillsRoot(normalizedType))
 		if root == "" {
-			return "", errors.New("skills root is not configured")
+			return "", "", "", errors.New("personal skills root is not configured")
 		}
-		return root, nil
+		return root, normalizedScope, normalizedType, nil
 	default:
-		return "", fmt.Errorf("invalid skill scope: %s", normalizedScope)
+		return "", "", "", fmt.Errorf("invalid skill scope: %s", normalizedScope)
 	}
 }
 
-func (s *service) prepareScopedSkillsRoot(cwd, scope string) (string, error) {
-	root, err := s.resolveScopeRoot(cwd, scope)
+func (s *service) resolveScopeRoot(cwd, scope string, personalType ...string) (string, error) {
+	root, _, _, err := s.canonicalRootForTarget(cwd, scope, resolveRequestedPersonalType(personalType...))
 	if err != nil {
+		return "", err
+	}
+	return root, nil
+}
+
+func (s *service) prepareScopedSkillsRoot(cwd, scope string, personalType ...string) (string, error) {
+	root, err := s.resolveScopeRoot(cwd, scope, personalType...)
+	if err != nil {
+		return "", err
+	}
+	if err := rejectWritableSymlinkComponentIfExists(root); err != nil {
 		return "", err
 	}
 	if err := os.MkdirAll(root, 0o755); err != nil {
@@ -259,10 +260,31 @@ func resolveRequestedSkillScope(scope ...string) string {
 	return scope[0]
 }
 
+func resolveRequestedPersonalType(personalType ...string) string {
+	if len(personalType) == 0 {
+		return ""
+	}
+	return personalType[0]
+}
+
+func resolveRequestedSkillTarget(scopeAndType ...string) (string, string) {
+	switch len(scopeAndType) {
+	case 0:
+		return "", ""
+	case 1:
+		return scopeAndType[0], ""
+	default:
+		return scopeAndType[0], scopeAndType[1]
+	}
+}
+
 func writableSkillFileMode(path string) (os.FileMode, error) {
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	switch {
 	case err == nil:
+		if info.Mode()&os.ModeSymlink != 0 {
+			return 0, fmt.Errorf("skill write path contains symlink: %s", path)
+		}
 		if info.IsDir() {
 			return 0, fmt.Errorf("path is directory: %s", path)
 		}
@@ -277,44 +299,23 @@ func writableSkillFileMode(path string) (os.FileMode, error) {
 	}
 }
 
-func (s *service) resolveSkillPath(target, cwd, scope string) (string, error) {
+func (s *service) resolveSkillPath(target, cwd, scope string, personalType ...string) (string, error) {
 	target = strings.TrimSpace(target)
 	if target == "" {
 		return "", errors.New("path is required")
 	}
 	if filepath.IsAbs(target) {
-		return s.resolveExistingSkillPath(target, cwd)
-	}
-	return s.resolveScopedSkillPath(cwd, target, scope)
-}
-
-func (s *service) resolveExistingSkillPath(target, cwd string) (string, error) {
-	roots := s.allSkillRoots(cwd)
-	if len(roots) == 0 {
-		return "", errors.New("skills root is not configured")
-	}
-	targetPath, err := canonicalProjectPath(target)
-	if err != nil {
-		return "", err
-	}
-	for _, root := range roots {
-		rootPath, err := canonicalProjectPath(root)
+		resolved, err := s.resolveExistingSkillPathTarget(target, cwd)
 		if err != nil {
 			return "", err
 		}
-		outside, err := pathEscapesRoot(rootPath, targetPath)
-		if err != nil {
-			return "", err
-		}
-		if !outside {
-			return targetPath, nil
-		}
+		return resolved.path, nil
 	}
-	return "", fmt.Errorf("path escapes skills root: %s", target)
+	return s.resolveScopedSkillPath(cwd, target, scope, personalType...)
 }
 
-func (s *service) resolveScopedSkillPath(cwd, target, scope string) (string, error) {
-	root, err := s.resolveScopeRoot(cwd, scope)
+func (s *service) resolveScopedSkillPath(cwd, target, scope string, personalType ...string) (string, error) {
+	root, err := s.resolveScopeRoot(cwd, scope, personalType...)
 	if err != nil {
 		return "", err
 	}
@@ -329,233 +330,4 @@ func (s *service) resolveScopedSkillPath(cwd, target, scope string) (string, err
 		return filepath.Join(root, cleaned), nil
 	}
 	return filepath.Join(root, skillSlug(cleaned), skillMainFile), nil
-}
-
-func (s *service) expandWithApproval(ctx context.Context, p skillExpandParams) (skillExpandResult, error) {
-	prepared, err := s.prepareSkillExpand(ctx, p)
-	if err != nil {
-		return skillExpandResult{}, err
-	}
-	if err := s.ensureExpandApproved(ctx, p, prepared); err != nil {
-		return skillExpandResult{}, err
-	}
-	return prepared.result, nil
-}
-
-func (s *service) ensureExpandApproved(ctx context.Context, p skillExpandParams, prepared skillExpandPrepared) error {
-	if prepared.record.info.Trust.Trusted() {
-		return nil
-	}
-	scope, err := resolveSkillExpandApprovalScope(p, prepared.cacheable)
-	if err != nil {
-		return err
-	}
-	if prepared.cacheable {
-		if _, ok := s.lookupFullSkillApproval(prepared.record.info.Name, prepared.result.ContentHash, scope); ok {
-			return nil
-		}
-	}
-	if s.approvalRequester == nil {
-		return errSkillApprovalRequesterUnavailable
-	}
-	decision, err := s.approvalRequester.RequestApproval(ctx, s.buildSkillExpandApprovalRequest(p, prepared, scope))
-	if err != nil {
-		return err
-	}
-	if decision.Approved == nil || !*decision.Approved {
-		return deniedSkillApproval(decision)
-	}
-	if !prepared.cacheable {
-		return nil
-	}
-	return s.persistFullSkillApproval(
-		prepared.record.info.Name,
-		prepared.result.ContentHash,
-		prepared.record.info.Trust,
-		approvalApprovedBy(decision),
-		approvalScopeFromDecision(scope, decision, prepared.cacheable),
-	)
-}
-
-func resolveSkillExpandApprovalScope(p skillExpandParams, cacheable bool) (approvalScope, error) {
-	requested, err := requestedSkillExpandApprovalScope(p)
-	if err != nil {
-		return "", err
-	}
-	if !cacheable {
-		return approvalScopeSession, nil
-	}
-	if requested == "" {
-		return approvalScopeProject, nil
-	}
-	return requested, nil
-}
-
-func requestedSkillExpandApprovalScope(p skillExpandParams) (approvalScope, error) {
-	explicit := strings.TrimSpace(p.ApprovalScope)
-	alias := strings.TrimSpace(p.Scope)
-	switch {
-	case explicit == "":
-		explicit = alias
-	case alias != "" && !strings.EqualFold(explicit, alias):
-		return "", fmt.Errorf("%w: approval scope mismatch", errInvalidSkillExpandParam)
-	}
-	switch strings.ToLower(explicit) {
-	case "":
-		return "", nil
-	case string(approvalScopeSession):
-		return approvalScopeSession, nil
-	case string(approvalScopeProject):
-		return approvalScopeProject, nil
-	default:
-		return "", fmt.Errorf("%w: approval_scope must be \"session\" or \"project\"", errInvalidSkillExpandParam)
-	}
-}
-
-func (s *service) buildSkillExpandApprovalRequest(p skillExpandParams, prepared skillExpandPrepared, scope approvalScope) contract.ApprovalRequest {
-	payload := map[string]any{
-		"name":           prepared.result.Name,
-		"section":        prepared.result.Section,
-		"content_hash":   prepared.result.ContentHash,
-		"trust":          prepared.result.Trust,
-		"approval_scope": string(scope),
-		"skills_dir":     prepared.record.info.Dir,
-		"project_root":   strings.TrimSpace(s.projectRoot),
-	}
-	if value := strings.TrimSpace(p.AgentID); value != "" {
-		payload["agentId"] = value
-	}
-	if value := strings.TrimSpace(p.ThreadID); value != "" {
-		payload["threadId"] = value
-	}
-	if value := strings.TrimSpace(p.SessionID); value != "" {
-		payload["sessionId"] = value
-	}
-	if value := strings.TrimSpace(p.TurnID); value != "" {
-		payload["turnId"] = value
-	}
-	return contract.ApprovalRequest{
-		CallID:       s.nextApprovalCallID(prepared.result.Name),
-		ToolName:     "skill/expand",
-		AgentID:      strings.TrimSpace(p.AgentID),
-		ThreadID:     strings.TrimSpace(p.ThreadID),
-		TurnID:       strings.TrimSpace(p.TurnID),
-		Reason:       "skill expand requires approval",
-		Kind:         "skill",
-		SourceMethod: "skill/expand",
-		Payload:      payload,
-	}
-}
-
-func (s *service) nextApprovalCallID(name string) string {
-	seq := atomic.AddUint64(&s.approvalCallSeq, 1)
-	return fmt.Sprintf("skill-expand:%s:%d", strings.ToLower(strings.TrimSpace(name)), seq)
-}
-
-func (s *service) lookupFullSkillApproval(name, contentHash string, scope approvalScope) (ApprovalEntry, bool) {
-	if scope == approvalScopeSession {
-		if entry, ok := s.lookupSessionSkillApproval(name, contentHash); ok {
-			return entry, true
-		}
-	}
-	return s.approval.Lookup(name, contentHash)
-}
-
-func (s *service) lookupSessionSkillApproval(name, contentHash string) (ApprovalEntry, bool) {
-	s.sessionApprovalsMu.RLock()
-	defer s.sessionApprovalsMu.RUnlock()
-	if len(s.sessionApprovals) == 0 {
-		return ApprovalEntry{}, false
-	}
-	entry, ok := s.sessionApprovals[skillApprovalSessionKey(name, contentHash)]
-	return entry, ok
-}
-
-func (s *service) persistFullSkillApproval(name, contentHash string, trust TrustScope, approvedBy string, scope approvalScope) error {
-	switch scope {
-	case approvalScopeSession:
-		s.rememberSessionSkillApproval(name, contentHash, trust, approvedBy)
-		return nil
-	case approvalScopeProject:
-		if s.approval == nil {
-			return errSkillApprovalProjectCacheMissing
-		}
-		_, err := s.approval.Approve(name, contentHash, trust, approvedBy)
-		return err
-	default:
-		return fmt.Errorf("%w: unsupported approval scope %q", errInvalidSkillExpandParam, scope)
-	}
-}
-
-func (s *service) rememberSessionSkillApproval(name, contentHash string, trust TrustScope, approvedBy string) {
-	s.sessionApprovalsMu.Lock()
-	defer s.sessionApprovalsMu.Unlock()
-	if s.sessionApprovals == nil {
-		s.sessionApprovals = make(map[string]ApprovalEntry)
-	}
-	s.sessionApprovals[skillApprovalSessionKey(name, contentHash)] = ApprovalEntry{
-		Name:            strings.ToLower(strings.TrimSpace(name)),
-		ArtifactKind:    ArtifactKindBody,
-		ArtifactLocator: "SKILL.md",
-		ContentHash:     strings.ToLower(strings.TrimSpace(contentHash)),
-		Trust:           trust,
-		ApprovedAt:      time.Now().UTC(),
-		ApprovedBy:      strings.TrimSpace(approvedBy),
-	}
-}
-
-func skillApprovalSessionKey(name, contentHash string) string {
-	return strings.ToLower(strings.TrimSpace(name)) + "@" + strings.ToLower(strings.TrimSpace(contentHash))
-}
-
-func approvalScopeFromDecision(fallback approvalScope, decision contract.ApprovalDecision, cacheable bool) approvalScope {
-	if !cacheable {
-		return approvalScopeSession
-	}
-	if scope := approvalScopeFromDetail(decision.Detail); scope != "" {
-		return scope
-	}
-	if strings.EqualFold(strings.TrimSpace(decision.Reason), "acceptForSession") {
-		return approvalScopeSession
-	}
-	return fallback
-}
-
-func approvalScopeFromDetail(raw json.RawMessage) approvalScope {
-	payload := approvalDecisionPayload(raw)
-	for _, key := range []string{"approval_scope", "scope"} {
-		value, _ := payload[key].(string)
-		switch strings.ToLower(strings.TrimSpace(value)) {
-		case string(approvalScopeSession):
-			return approvalScopeSession
-		case string(approvalScopeProject):
-			return approvalScopeProject
-		}
-	}
-	return ""
-}
-
-func approvalApprovedBy(decision contract.ApprovalDecision) string {
-	payload := approvalDecisionPayload(decision.Detail)
-	for _, key := range []string{"approved_by", "approvedBy", "reviewed_by", "reviewedBy"} {
-		if value, ok := payload[key].(string); ok && strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
-}
-
-func approvalDecisionPayload(raw json.RawMessage) map[string]any {
-	if len(raw) == 0 {
-		return nil
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return nil
-	}
-	return payload
-}
-
-func deniedSkillApproval(decision contract.ApprovalDecision) error {
-	return skillApprovalDeniedError{reason: decision.Reason}
 }

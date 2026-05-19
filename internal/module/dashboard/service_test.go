@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -223,27 +224,41 @@ func assertDashboardRetentionItem(t *testing.T, item SharedFileRetentionItem, pr
 	}
 }
 
-func TestGetDashboardPageKeepsSkillDisclosureTier(t *testing.T) {
-	t.Parallel()
-
-	svc := &service{skills: stubSkillLister{
-		items: []contract.SkillInfo{{Name: "HotSkill", DisclosureTier: "hot"}},
-	}}
-	got, err := svc.GetDashboardPage(context.Background(), "skills")
-	if err != nil {
-		t.Fatalf("GetDashboardPage(skills) error = %v", err)
-	}
-	if len(got.Skills) != 1 || got.Skills[0].DisclosureTier != "hot" {
-		t.Fatalf("GetDashboardPage(skills).Skills = %#v, want disclosure tier", got.Skills)
-	}
-}
-
 type stubSkillLister struct {
 	items []contract.SkillInfo
+	err   error
 }
 
 func (s stubSkillLister) ListSkills(context.Context) ([]contract.SkillInfo, error) {
-	return s.items, nil
+	return s.items, s.err
+}
+
+func TestGetDashboardPageSkillsKeepsVisibleSkillsWhenSameNameConflictExists(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{skills: stubSkillLister{
+		items: []contract.SkillInfo{{Name: "safe", Scope: "project"}},
+		err:   contract.ErrSkillSameNameConflict,
+	}}
+
+	got, err := svc.GetDashboardPage(context.Background(), "skills")
+	if err != nil {
+		t.Fatalf("GetDashboardPage(skills) error = %v, want nil for same-name conflict", err)
+	}
+	if len(got.Skills) != 1 || got.Skills[0].Name != "safe" {
+		t.Fatalf("GetDashboardPage(skills).Skills = %+v, want visible non-conflicted skills", got.Skills)
+	}
+}
+
+func TestGetDashboardPageSkillsStillReturnsUnexpectedSkillErrors(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{skills: stubSkillLister{err: errors.New("boom")}}
+
+	_, err := svc.GetDashboardPage(context.Background(), "skills")
+	if err == nil {
+		t.Fatal("GetDashboardPage(skills) error = nil, want unexpected skill error")
+	}
 }
 
 type stubSharedFileReader struct {

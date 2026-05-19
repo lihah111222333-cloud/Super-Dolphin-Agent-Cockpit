@@ -1,6 +1,6 @@
 ---
 name: ui-ux-design
-description: "综合设计技能套件：UI/UX 设计智能、品牌标识、设计令牌、UI 样式、Logo 生成、企业形象(CIP)、HTML 演示文稿、Banner 设计、图标设计、社交媒体图片。Actions: design logo, create CIP, generate mockups, build slides, design banner, generate icon, create social photos. Platforms: Facebook, Twitter, LinkedIn, YouTube, Instagram, Pinterest, TikTok, Threads, Google Ads."
+description: "当你需要设计品牌视觉、界面样式、设计系统、Logo、图标、演示文稿、横幅或社交媒体图片时使用。"
 trigger_words: ["design", "logo", "CIP", "mockup", "slides", "banner", "icon", "social photo", "brand", "design system", "token", "component", "style", "presentation", "cover", "header", "设计", "标志", "演示", "横幅", "图标", "社交媒体", "品牌", "设计系统", "生成", "创建", "制作", "海报", "封面", "样式", "界面", "组件", "主题", "配色", "字体", "布局", "令牌", "幻灯片", "PPT", "广告", "头图", "美化", "优化", "响应式"]
 ---
 

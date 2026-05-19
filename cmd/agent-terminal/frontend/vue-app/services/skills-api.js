@@ -14,50 +14,73 @@ function withOptionalScope(payload = {}, scope = '') {
   return resolvedScope ? { ...payload, scope: resolvedScope } : payload;
 }
 
-export async function listSkills(cwd = '') {
-  const raw = await callAPI('skills/list', withOptionalCwd({}, cwd));
-  return Array.isArray(raw?.skills) ? raw.skills : [];
+function withOptionalPersonalType(payload = {}, personalType = '') {
+  const resolvedType = trimString(personalType);
+  return resolvedType ? { ...payload, personal_type: resolvedType } : payload;
 }
 
-export async function previewSkillMatches(params = {}) {
-  const threadId = (params?.threadId || '').toString();
-  const text = (params?.text || '').toString();
-  return callAPI('skills/match/preview', withOptionalCwd({ threadId, text }, params?.cwd || ''));
-}
-
-export async function writeSkill(cwd = '', path = '', content = '', scope = '') {
-  return callAPI('skills/local/write', withOptionalScope(withOptionalCwd({
+export async function writeSkill(cwd = '', path = '', content = '', scope = '', personalType = '') {
+  return callAPI('skills/local/write', withOptionalPersonalType(withOptionalScope(withOptionalCwd({
     path: trimString(path),
     content: (content || '').toString(),
-  }, cwd), scope));
+  }, cwd), scope), personalType));
 }
 
-export async function importSkills(cwd = '', paths = [], scope = '') {
-  return callAPI('skills/local/importDir', withOptionalScope(withOptionalCwd({
+export async function suggestSkillSummary(cwd = '', params = {}) {
+  const raw = await callAPI('skills/summary/suggest', withOptionalCwd({
+    name: trimString(params?.name),
+    description: trimString(params?.description),
+    content: (params?.content || '').toString(),
+    scenario_words: Array.isArray(params?.scenarioWords) ? params.scenarioWords : [],
+    scope: trimString(params?.scope),
+  }, cwd));
+  return trimString(raw?.description);
+}
+
+export async function importSkills(cwd = '', paths = [], scope = '', personalType = '') {
+  return callAPI('skills/local/importDir', withOptionalPersonalType(withOptionalScope(withOptionalCwd({
     paths: Array.isArray(paths) ? paths : [],
-  }, cwd), scope));
+  }, cwd), scope), personalType));
 }
 
-export async function listPendingCandidates(cwd = '', limit = 20, offset = 0) {
-  const raw = await callAPI('skills/candidate/list/pending', withOptionalCwd({ limit, offset }, cwd));
-  return Array.isArray(raw?.candidates) ? raw.candidates : [];
+export async function listSkillResolutions(cwd = '') {
+  const raw = await callAPI('skills/resolution_list', withOptionalCwd({}, cwd));
+  if (Array.isArray(raw?.items)) return raw.items;
+  return Array.isArray(raw?.conflicts) ? raw.conflicts : [];
 }
 
-export async function getCandidate(candidateId) {
-  return callAPI('skills/candidate/get', { candidate_id: candidateId });
+function resolutionPayload(params = {}) {
+  const payload = {
+    conflict_id: trimString(params?.conflictId ?? params?.conflict_id),
+    action: trimString(params?.action),
+  };
+  const optionalFields = [
+    ['name', params?.name],
+    ['scope', params?.scope],
+    ['personal_type', params?.personalType ?? params?.personal_type],
+    ['provider', params?.provider],
+    ['source_provider', params?.sourceProvider ?? params?.source_provider],
+    ['source_path_id', params?.sourcePathId ?? params?.source_path_id],
+    ['new_name', params?.newName ?? params?.new_name],
+    ['keep_source_id', params?.keepSourceID ?? params?.keep_source_id],
+    ['merge_content_hash', params?.mergeContentHash ?? params?.merge_content_hash],
+    ['disable_policy_target', params?.disablePolicyTarget ?? params?.disable_policy_target],
+  ];
+  optionalFields.forEach(([key, value]) => {
+    const text = trimString(value);
+    if (text) payload[key] = text;
+  });
+  return payload;
 }
 
-export async function approveCandidate(candidateId, approvedBy = '', reason = '', cwd = '') {
-  return callAPI('skills/candidate/approve', withOptionalCwd({
-    candidate_id: candidateId,
-    approved_by: trimString(approvedBy),
-    reason: trimString(reason),
-  }, cwd));
+export async function previewSkillResolution(params = {}) {
+  return callAPI('skills/resolution_preview', withOptionalCwd(resolutionPayload(params), params?.cwd || ''));
 }
 
-export async function rejectCandidate(candidateId, reason = '', cwd = '') {
-  return callAPI('skills/candidate/reject', withOptionalCwd({
-    candidate_id: candidateId,
-    reason: trimString(reason),
-  }, cwd));
+export async function applySkillResolution(params = {}) {
+  return callAPI('skills/resolution_apply', withOptionalCwd({
+    ...resolutionPayload(params),
+    preview_id: trimString(params?.previewId ?? params?.preview_id),
+    preview_hash: trimString(params?.previewHash ?? params?.preview_hash),
+  }, params?.cwd || ''));
 }

@@ -125,12 +125,12 @@ func waitNestedIngestProcessed(t *testing.T, w *nestedIngestWorker) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if w.ProcessedTotal() >= 1 {
+		if w.ProcessedTotal() >= 2 {
 			return
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	t.Fatalf("ProcessedTotal = %d, want >= 1 after unblocking runtime", w.ProcessedTotal())
+	t.Fatalf("ProcessedTotal = %d, want >= 2 after unblocking runtime", w.ProcessedTotal())
 }
 
 func stopNestedIngestWorker(t *testing.T, w *nestedIngestWorker) {
@@ -180,13 +180,9 @@ func TestNestedIngestWorkerStopDrainsPending(t *testing.T) {
 
 	rt := &fakeNestedIngestRuntime{}
 	w := newNestedIngestWorker(rt, pkglogger.Get())
-	// Intentionally do not Start() the worker goroutine; we want to prove
-	// that Stop itself also drains pending requests via the stopCh branch
-	// of runWorker — but since the worker is not started, we instead test
-	// a Start-then-instant-Stop race where nothing is processed by wake.
-	w.Start()
+	// Intentionally do not Start() the worker goroutine; Stop must still drain
+	// pending requests rather than waiting forever on doneCh.
 
-	// Pump without giving the worker time to drain via wake.
 	for i := 0; i < 3; i++ {
 		w.Enqueue("thread-drain", "Read", "payload", "/tmp/file") // same key -> 1 pending
 	}
@@ -203,6 +199,35 @@ func TestNestedIngestWorkerStopDrainsPending(t *testing.T) {
 	}
 	if got := w.ProcessedTotal(); got != 2 {
 		t.Fatalf("ProcessedTotal after drain = %d, want 2", got)
+	}
+}
+
+// TestNestedIngestWorkerStartAfterStopIsNoop locks the lifecycle edge created
+// by the stop-before-start drain path: once Stop has closed doneCh, a later
+// Start must remain a no-op instead of spinning up a worker that closes doneCh
+// a second time.
+func TestNestedIngestWorkerStartAfterStopIsNoop(t *testing.T) {
+	t.Parallel()
+
+	rt := &fakeNestedIngestRuntime{}
+	w := newNestedIngestWorker(rt, pkglogger.Get())
+	w.Enqueue("thread-drain", "Read", "payload", "/tmp/file")
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := w.Stop(ctx); err != nil {
+		t.Fatalf("Stop() = %v, want nil", err)
+	}
+
+	w.Start()
+	if w.started.Load() {
+		t.Fatal("Start after Stop marked worker as started; want no-op")
+	}
+	w.Enqueue("thread-after-stop", "Read", "payload", "/tmp/after")
+	time.Sleep(20 * time.Millisecond)
+
+	if got := len(rt.Calls()); got != 1 {
+		t.Fatalf("AddToolReadResult call count after Start-after-Stop = %d, want 1", got)
 	}
 }
 

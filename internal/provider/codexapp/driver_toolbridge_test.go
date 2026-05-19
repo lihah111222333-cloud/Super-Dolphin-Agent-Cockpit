@@ -34,11 +34,11 @@ func TestToolBridge_Initialize_ExperimentalAPI(t *testing.T) {
 
 func TestToolBridge_StartSession_UsesDynamicTools(t *testing.T) {
 	recorder := &toolBridgeRPCRecorder{}
-	t.Setenv("CODEX_APP_SERVER_URL", startToolBridgeRPCServer(t, recorder))
+	serverURL := startToolBridgeRPCServer(t, recorder)
 	manager := &ServerManager{}
 
 	listToolsCalls := 0
-	got := requireToolBridgeDriver(t, newDriver(nil, nil, nil, nil, manager, nil, nil, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+	got := requireToolBridgeDriver(t, newDriver(nil, nil, nil, nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 		listToolsCalls++
 		return []codexprotocol.DynamicToolSchema{{
 			Name:        "tool.echo",
@@ -53,7 +53,7 @@ func TestToolBridge_StartSession_UsesDynamicTools(t *testing.T) {
 		t.Fatal("toolHandler = non-nil, want nil")
 	}
 
-	sessionAny, err := got.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-1"})
+	sessionAny, err := got.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-1", CWD: t.TempDir()})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
 	}
@@ -65,12 +65,12 @@ func TestToolBridge_StartSession_UsesDynamicTools(t *testing.T) {
 
 func TestToolBridge_StartSession_PreparesScopedCodexSurface(t *testing.T) {
 	recorder := &toolBridgeRPCRecorder{}
-	t.Setenv("CODEX_APP_SERVER_URL", startToolBridgeRPCServer(t, recorder))
+	serverURL := startToolBridgeRPCServer(t, recorder)
 	manager := &ServerManager{}
 
 	var gotScope contract.CodexToolSurfaceScope
 	var gotBindScope contract.CodexToolSurfaceScope
-	d := requireToolBridgeDriver(t, newDriver(nil, nil, nil, nil, manager, nil, nil, nil, nil))
+	d := requireToolBridgeDriver(t, newDriver(nil, nil, nil, nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, nil))
 	d.prepareTools = func(_ context.Context, scope contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error) {
 		gotScope = scope
 		return []codexprotocol.DynamicToolSchema{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}, nil
@@ -79,13 +79,15 @@ func TestToolBridge_StartSession_PreparesScopedCodexSurface(t *testing.T) {
 		gotBindScope = scope
 		return nil
 	}
+	workDir := t.TempDir()
+	extraDir := t.TempDir()
 
 	sessionAny, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-1",
-		CWD:     "/repo",
+		CWD:     workDir,
 		Config: map[string]any{
 			"binary_dir":                   "/tmp/super-agent-bin",
-			"additionalWorkingDirectories": []string{"/repo/extra"},
+			"additionalWorkingDirectories": []string{extraDir},
 		},
 	})
 	if err != nil {
@@ -94,7 +96,7 @@ func TestToolBridge_StartSession_PreparesScopedCodexSurface(t *testing.T) {
 	s := requireCodexSession(t, sessionAny, "StartSession")
 	defer closeCodexTestSession(t, s)
 
-	assertStartSurfaceScope(t, gotScope, gotBindScope)
+	assertStartSurfaceScope(t, gotScope, gotBindScope, workDir, extraDir)
 	if len(gotScope.Manifest.Binaries) == 0 {
 		t.Fatalf("surface manifest = %#v, want stdio binaries", gotScope.Manifest)
 	}
@@ -104,9 +106,9 @@ func TestToolBridge_StartSession_PreparesScopedCodexSurface(t *testing.T) {
 	assertDynamicToolsStartSession(t, recorder, s, 1)
 }
 
-func assertStartSurfaceScope(t *testing.T, gotScope, gotBindScope contract.CodexToolSurfaceScope) {
+func assertStartSurfaceScope(t *testing.T, gotScope, gotBindScope contract.CodexToolSurfaceScope, workDir, extraDir string) {
 	t.Helper()
-	if gotScope.AgentID != "agent-1" || gotScope.CWD != "/repo" {
+	if gotScope.AgentID != "agent-1" || gotScope.CWD != workDir {
 		t.Fatalf("surface scope = %#v, want agent/cwd", gotScope)
 	}
 	if gotScope.SurfaceID == "" {
@@ -115,10 +117,10 @@ func assertStartSurfaceScope(t *testing.T, gotScope, gotBindScope contract.Codex
 	if gotBindScope.SurfaceID != gotScope.SurfaceID ||
 		gotBindScope.AgentID != "agent-1" ||
 		gotBindScope.ProviderThreadID != "provider-thread-1" ||
-		gotBindScope.CWD != "/repo" {
+		gotBindScope.CWD != workDir {
 		t.Fatalf("surface bind scope = %#v, want same surface id plus agent/provider thread/cwd", gotBindScope)
 	}
-	wantRoots := []string{"/repo", "/repo/extra"}
+	wantRoots := []string{workDir, extraDir}
 	if !maps.Equal(sliceSet(gotScope.WorkspaceRoots), sliceSet(wantRoots)) ||
 		!maps.Equal(sliceSet(gotBindScope.WorkspaceRoots), sliceSet(wantRoots)) {
 		t.Fatalf("surface roots = prepare %#v bind %#v, want %#v", gotScope.WorkspaceRoots, gotBindScope.WorkspaceRoots, wantRoots)
@@ -135,9 +137,9 @@ func sliceSet(values []string) map[string]bool {
 
 func TestToolBridge_StartSession_InjectsMemoryReadDynamicTool(t *testing.T) {
 	recorder := &toolBridgeRPCRecorder{}
-	t.Setenv("CODEX_APP_SERVER_URL", startToolBridgeRPCServer(t, recorder))
+	serverURL := startToolBridgeRPCServer(t, recorder)
 	manager := &ServerManager{}
-	got := newDriver(nil, nil, nil, nil, manager, nil, nil, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+	got := newDriver(nil, nil, nil, nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 		return []codexprotocol.DynamicToolSchema{{
 			Name:        "memory_read",
 			Description: "host direct memory read",
@@ -145,7 +147,7 @@ func TestToolBridge_StartSession_InjectsMemoryReadDynamicTool(t *testing.T) {
 		}}, nil
 	}).(*driver)
 
-	sessionAny, err := got.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-1"})
+	sessionAny, err := got.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-1", CWD: t.TempDir()})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
 	}
@@ -169,15 +171,15 @@ func TestToolBridge_StartSession_InjectsMemoryReadDynamicTool(t *testing.T) {
 	t.Fatalf("dynamicTools = %#v, want memory_read", tools)
 }
 
-const testDynamicSkillExpandBodyToolName = "skill_expand_body"
+const testDynamicToolName = "test_dynamic_echo"
 
 func TestResumeSession_DynamicSkillToolsStillCallable(t *testing.T) {
 	obs := runDynamicToolsResumeScenario(t)
 	if obs.toolMethod != "item/tool/call" {
 		t.Fatalf("tool method = %q, want item/tool/call", obs.toolMethod)
 	}
-	if obs.toolName != testDynamicSkillExpandBodyToolName {
-		t.Fatalf("tool name = %q, want %s", obs.toolName, testDynamicSkillExpandBodyToolName)
+	if obs.toolName != testDynamicToolName {
+		t.Fatalf("tool name = %q, want %s", obs.toolName, testDynamicToolName)
 	}
 	if obs.toolAgentID != "agent-1" {
 		t.Fatalf("tool agentId = %q, want agent-1", obs.toolAgentID)
@@ -211,9 +213,12 @@ func TestResumeSession_RebuildsCodexToolSurfaceWithoutDynamicTools(t *testing.T)
 	server := startDynamicToolsResumeServer(t, state, make(chan jsonRPCMessage, 1), &writeMu)
 	defer server.Close()
 
+	workDir := t.TempDir()
+	extraDir := t.TempDir()
 	var gotScope contract.CodexToolSurfaceScope
 	d := &driver{
-		serverURL: "ws" + strings.TrimPrefix(server.URL, "http"),
+		pool:   newSingleURLPoolForTest(t, "ws"+strings.TrimPrefix(server.URL, "http")),
+		mirror: &recordingSkillMirrorReconciler{},
 		prepareTools: func(_ context.Context, scope contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error) {
 			gotScope = scope
 			return []codexprotocol.DynamicToolSchema{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}, nil
@@ -221,13 +226,16 @@ func TestResumeSession_RebuildsCodexToolSurfaceWithoutDynamicTools(t *testing.T)
 	}
 
 	resumed, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
-		Provider:         "codex",
-		AgentID:          "agent-1",
-		ThreadID:         "local-thread-1",
-		ProviderThreadID: "provider-thread-1",
-		CWD:              "/repo",
+		Provider:           "codex",
+		AgentID:            "agent-1",
+		ThreadID:           "local-thread-1",
+		ProviderThreadID:   "provider-thread-1",
+		CWD:                workDir,
+		CodexHome:          t.TempDir(),
+		CodexInstanceKey:   "default",
+		CodexModelProvider: "openai",
 		Config: map[string]any{
-			"additionalWorkingDirectories": []any{"/repo/extra"},
+			"additionalWorkingDirectories": []any{extraDir},
 		},
 	})
 	if err != nil {
@@ -236,10 +244,10 @@ func TestResumeSession_RebuildsCodexToolSurfaceWithoutDynamicTools(t *testing.T)
 	s := requireCodexSession(t, resumed, "ResumeSession")
 	defer closeCodexTestSession(t, s)
 
-	if gotScope.AgentID != "agent-1" || gotScope.ProviderThreadID != "provider-thread-1" || gotScope.CWD != "/repo" {
+	if gotScope.AgentID != "agent-1" || gotScope.ProviderThreadID != "provider-thread-1" || gotScope.CWD != workDir {
 		t.Fatalf("surface scope = %#v, want resumed agent/provider thread/cwd", gotScope)
 	}
-	wantRoots := []string{"/repo", "/repo/extra"}
+	wantRoots := []string{workDir, extraDir}
 	if !maps.Equal(sliceSet(gotScope.WorkspaceRoots), sliceSet(wantRoots)) {
 		t.Fatalf("surface roots = %#v, want %#v", gotScope.WorkspaceRoots, wantRoots)
 	}
@@ -250,8 +258,8 @@ func TestResumeSession_RebuildsCodexToolSurfaceWithoutDynamicTools(t *testing.T)
 	if !maps.Equal(sliceSet(roots), sliceSet(wantRoots)) {
 		t.Fatalf("GO_AGENT_LSP_ROOTS = %#v, want %#v", roots, wantRoots)
 	}
-	if got := s.RuntimeConfigSnapshot()["additionalWorkingDirectories"]; !reflect.DeepEqual(got, []any{"/repo/extra"}) {
-		t.Fatalf("runtime additionalWorkingDirectories = %#v, want /repo/extra", got)
+	if got := s.RuntimeConfigSnapshot()["additionalWorkingDirectories"]; !reflect.DeepEqual(got, []any{extraDir}) {
+		t.Fatalf("runtime additionalWorkingDirectories = %#v, want %q", got, extraDir)
 	}
 	_, resumeHadDynamicTools := state.snapshot()
 	if resumeHadDynamicTools {
@@ -279,7 +287,7 @@ func (s *dynamicToolsResumeState) markStart(params map[string]any) {
 	tools, _ := params["dynamicTools"].([]any)
 	for _, raw := range tools {
 		tool, _ := raw.(map[string]any)
-		if tool["name"] == testDynamicSkillExpandBodyToolName {
+		if tool["name"] == testDynamicToolName {
 			s.startHadDynamicTools = true
 			return
 		}
@@ -317,15 +325,18 @@ func runDynamicToolsResumeScenario(t *testing.T) dynamicToolsResumeObservation {
 	var writeMu sync.Mutex
 	server := startDynamicToolsResumeServer(t, state, toolResponses, &writeMu)
 	defer server.Close()
+	pool := newSingleURLPoolForTest(t, "ws"+strings.TrimPrefix(server.URL, "http"))
 
 	d := &driver{
-		serverURL: "ws" + strings.TrimPrefix(server.URL, "http"),
-		manager:   manager,
+		manager: manager,
+		pool:    pool,
+		mirror:  &recordingSkillMirrorReconciler{},
 		listTools: func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 			return []codexprotocol.DynamicToolSchema{dynamicSkillToolSchema()}, nil
 		},
 	}
-	started, err := d.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-1", CWD: "/repo"})
+	workDir := t.TempDir()
+	started, err := d.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-1", CWD: workDir})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
 	}
@@ -334,10 +345,13 @@ func runDynamicToolsResumeScenario(t *testing.T) dynamicToolsResumeObservation {
 	}
 
 	resumed, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
-		Provider: "codex",
-		AgentID:  "agent-1",
-		ThreadID: "provider-thread-1",
-		CWD:      "/repo",
+		Provider:           "codex",
+		AgentID:            "agent-1",
+		ThreadID:           "provider-thread-1",
+		CWD:                workDir,
+		CodexHome:          t.TempDir(),
+		CodexInstanceKey:   "default",
+		CodexModelProvider: "openai",
 	})
 	if err != nil {
 		t.Fatalf("ResumeSession() error = %v", err)
@@ -372,9 +386,9 @@ func runDynamicToolsResumeScenario(t *testing.T) dynamicToolsResumeObservation {
 
 func dynamicSkillToolSchema() codexprotocol.DynamicToolSchema {
 	return codexprotocol.DynamicToolSchema{
-		Name:        testDynamicSkillExpandBodyToolName,
-		Description: "expand skill body",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`),
+		Name:        testDynamicToolName,
+		Description: "echo test payload",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"payload":{"type":"string"}},"required":["payload"]}`),
 	}
 }
 
@@ -474,7 +488,7 @@ func handleDynamicToolsResumeMessage(t *testing.T, conn *websocket.Conn, state *
 		return false
 	}
 	if sendToolCall {
-		sendCodexToolCall(t, writeMu, conn, 99, testDynamicSkillExpandBodyToolName, map[string]any{"name": "demo"})
+		sendCodexToolCall(t, writeMu, conn, 99, testDynamicToolName, map[string]any{"payload": "demo"})
 	}
 	return true
 }

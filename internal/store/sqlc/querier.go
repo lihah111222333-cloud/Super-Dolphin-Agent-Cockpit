@@ -12,7 +12,6 @@ type Querier interface {
 	AcquireCwdLock(ctx context.Context, arg AcquireCwdLockParams) (int64, error)
 	AgentThreadExists(ctx context.Context, arg AgentThreadExistsParams) (bool, error)
 	AgentThreadRunningExists(ctx context.Context, arg AgentThreadRunningExistsParams) (bool, error)
-	ApproveSkillCandidate(ctx context.Context, arg ApproveSkillCandidateParams) (SkillCandidate, error)
 	ApproveTopologyApproval(ctx context.Context, arg ApproveTopologyApprovalParams) (int64, error)
 	BindAgentThread(ctx context.Context, arg BindAgentThreadParams) error
 	BindTurnDedupeProviderID(ctx context.Context, arg BindTurnDedupeProviderIDParams) error
@@ -83,7 +82,6 @@ type Querier interface {
 	GetRunningCronJobRunByTurnID(ctx context.Context, arg GetRunningCronJobRunByTurnIDParams) (CronJobRun, error)
 	GetSessionInsightByLocalTurn(ctx context.Context, arg GetSessionInsightByLocalTurnParams) (SessionInsight, error)
 	GetSharedFile(ctx context.Context, arg GetSharedFileParams) (SharedFile, error)
-	GetSkillCandidateByID(ctx context.Context, arg GetSkillCandidateByIDParams) (SkillCandidate, error)
 	GetThreadByAgent(ctx context.Context, arg GetThreadByAgentParams) (string, error)
 	GetUIPreferenceValue(ctx context.Context, arg GetUIPreferenceValueParams) ([]byte, error)
 	GetWorkspaceRun(ctx context.Context, arg GetWorkspaceRunParams) (WorkspaceRun, error)
@@ -95,11 +93,6 @@ type Querier interface {
 	// cron_job_runs -----------------------------------------------------
 	InsertCronJobRun(ctx context.Context, arg InsertCronJobRunParams) (CronJobRun, error)
 	InsertPromptVersion(ctx context.Context, arg InsertPromptVersionParams) (int64, error)
-	// Queries for skill_candidates. See migration 0064 for the table layout
-	// and status-machine contract. State-changing UPDATEs use RETURNING *
-	// with a status-guard in the WHERE clause: a non-matching state yields
-	// pgx.ErrNoRows, which the store layer maps to platformdb.ErrConflict.
-	InsertSkillCandidate(ctx context.Context, arg InsertSkillCandidateParams) (SkillCandidate, error)
 	InsertSystemLog(ctx context.Context, arg InsertSystemLogParams) error
 	InsertTaskTrace(ctx context.Context, arg InsertTaskTraceParams) (TaskTrace, error)
 	ListAILogSystemLogs(ctx context.Context, arg ListAILogSystemLogsParams) ([]SystemLog, error)
@@ -136,7 +129,6 @@ type Querier interface {
 	// pulling in thread-projection zero-fallback rows.
 	//
 	ListObservedTokenTurns(ctx context.Context, arg ListObservedTokenTurnsParams) ([]ListObservedTokenTurnsRow, error)
-	ListPendingSkillCandidates(ctx context.Context, arg ListPendingSkillCandidatesParams) ([]SkillCandidate, error)
 	ListPendingTopologyApprovals(ctx context.Context) ([]TopologyApproval, error)
 	ListPromptTemplateSectionsByTemplate(ctx context.Context, arg ListPromptTemplateSectionsByTemplateParams) ([]PromptTemplateSection, error)
 	ListPromptTemplates(ctx context.Context, arg ListPromptTemplatesParams) ([]ListPromptTemplatesRow, error)
@@ -160,15 +152,12 @@ type Querier interface {
 	ListWorkspaceRunFiles(ctx context.Context, arg ListWorkspaceRunFilesParams) ([]WorkspaceRunFile, error)
 	ListWorkspaceRuns(ctx context.Context, arg ListWorkspaceRunsParams) ([]WorkspaceRun, error)
 	LoadAgentThreadPromptSnapshot(ctx context.Context, arg LoadAgentThreadPromptSnapshotParams) ([]byte, error)
-	LookupSkillCandidateApproval(ctx context.Context, arg LookupSkillCandidateApprovalParams) (SkillCandidate, error)
 	MarkCronJobFailed(ctx context.Context, arg MarkCronJobFailedParams) (int64, error)
 	// MarkCronJobFinished releases the claim, records the successful run's
 	// turn id and advances scheduling fields. Conditional on claim_token so
 	// a late worker cannot overwrite terminal state after being preempted.
 	//
 	MarkCronJobFinished(ctx context.Context, arg MarkCronJobFinishedParams) (int64, error)
-	MarkSkillCandidatePromoted(ctx context.Context, arg MarkSkillCandidatePromotedParams) (SkillCandidate, error)
-	MarkSkillCandidatesSuperseded(ctx context.Context, arg MarkSkillCandidatesSupersededParams) (int64, error)
 	MarkTurnDedupeTerminal(ctx context.Context, arg MarkTurnDedupeTerminalParams) error
 	// Narrow update used by RunOnce: only touches next_run_at + updated_at
 	// without overwriting any other field, avoiding a read-modify-write race.
@@ -180,7 +169,6 @@ type Querier interface {
 	PlaceholderDBQuery(ctx context.Context) ([]*string, error)
 	RebindAgentThreadTx(ctx context.Context, arg RebindAgentThreadTxParams) error
 	RecoverHookPendingReviews(ctx context.Context) ([]RecoverHookPendingReviewsRow, error)
-	RejectSkillCandidate(ctx context.Context, arg RejectSkillCandidateParams) (SkillCandidate, error)
 	RejectTopologyApproval(ctx context.Context, arg RejectTopologyApprovalParams) (int64, error)
 	ReleaseClaim(ctx context.Context, arg ReleaseClaimParams) (int64, error)
 	ReleaseCwdLock(ctx context.Context, arg ReleaseCwdLockParams) (int64, error)

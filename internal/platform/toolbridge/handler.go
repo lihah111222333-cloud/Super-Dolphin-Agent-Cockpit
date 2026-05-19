@@ -37,10 +37,10 @@ type Handler struct {
 	preferences  uiPreferenceReader
 	cfg          *platformconfig.Config
 	logger       *pkglogger.Logger
-	// hostTools 是可选依赖：当宿主进程同时含 skilllibrary + toolbridge（即 agent-terminal）
-	// 时，该字段被填充为 SkillReadSectionRegistry，提供 skill_read_section 一个本进程
-	// 直跑的工具。字段保持 nil-safe：测试或未来无 HostToolRegistry 的 toolbridge 图会
-	// 退回 peer 路径；当前 mcp-orch / mcp-lsp standalone 不加载 toolbridge.Module。
+	// hostTools 是可选依赖：agent-terminal 生产图只装配 memory_read / memory_write
+	// host-direct 工具。字段保持 nil-safe：测试或未来无 HostToolRegistry 的
+	// toolbridge 图会退回 peer 路径；当前 mcp-orch / mcp-lsp standalone 不加载
+	// toolbridge.Module。
 	hostTools          HostToolRegistry
 	surfaceMu          sync.Mutex
 	surfaces           map[string]*codexToolSurface
@@ -101,6 +101,8 @@ func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*Tool
 		return h.routeHostOnlyToolCall(ctx, req, "reader_unavailable")
 	case ToolNameMemoryWrite:
 		return h.routeHostOnlyToolCall(ctx, req, "writer_unavailable")
+	case ToolNameReadSection, ToolNameLegacySkillExpandBody, ToolNameLegacySkillReadResource:
+		return removedSkillToolResult(req.Name), nil
 	}
 	if h == nil || h.registry == nil {
 		return nil, ErrNoPeerAvailable

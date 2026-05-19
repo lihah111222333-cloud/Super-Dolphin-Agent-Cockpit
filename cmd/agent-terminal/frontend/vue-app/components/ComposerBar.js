@@ -13,7 +13,6 @@ export const ComposerBar = {
     composer: { type: Object, required: true },
     disabled: { type: Boolean, default: false },
     threadId: { type: String, default: '' },
-    launchSkillSelectionEnabled: { type: Boolean, default: false },
     interruptible: { type: Boolean, default: false },
     compacting: { type: Boolean, default: false },
     canCompact: { type: Boolean, default: true },
@@ -24,9 +23,6 @@ export const ComposerBar = {
     tokenTooltip: { type: String, default: '' },
     // 'normal' | 'warn' | 'danger' | 'critical'：带颜色提示 tokenInline。
     tokenLevel: { type: String, default: 'normal' },
-    skillMatches: { type: Array, default: () => [] },
-    skillMatchesLoading: { type: Boolean, default: false },
-    selectedSkillNames: { type: Array, default: () => [] },
     isCmd: { type: Boolean, default: false },
     threadConfigProvider: { type: String, default: '' },
     threadConfigSupportsOverride: { type: Boolean, default: false },
@@ -49,7 +45,7 @@ export const ComposerBar = {
     promoteTaskError: { type: String, default: '' },
   },
   emits: [
-    'send', 'interrupt', 'compact', 'toggle-skill', 'select-all-skills', 'clear-skills',
+    'send', 'interrupt', 'compact',
     'update-thread-config-model', 'update-thread-config-effort', 'save-thread-config', 'restore-thread-config-inherit',
     'open-fork-draft', 'promote-task',
   ],
@@ -93,14 +89,6 @@ export const ComposerBar = {
       if (props.promotingTask || props.threadIsTask) return;
       emit('promote-task');
     }
-
-    const showLegacySkillSelector = computed(() => {
-      const hasThreadId = Boolean((props.threadId || '').toString().trim());
-      if (!hasThreadId && props.launchSkillSelectionEnabled) {
-        return false;
-      }
-      return true;
-    });
 
     const interrupt = useComposerInterrupt(props, emit, { hasReadyInput, onSend });
     const { pauseAcknowledged, resetInterruptState } = interrupt;
@@ -170,51 +158,6 @@ export const ComposerBar = {
       props.composer.removeAttachment(index);
     }
 
-    function normalizeSkillMatchType(match) {
-      const type = (match?.matchedBy || '').toString().trim().toLowerCase();
-      if (type === 'force') return 'force';
-      if (type === 'explicit') return 'explicit';
-      return 'trigger';
-    }
-
-    function skillMatchClass(match) {
-      return normalizeSkillMatchType(match);
-    }
-
-    function skillMatchReason(match) {
-      const type = normalizeSkillMatchType(match);
-      const typeLabel = type === 'force' ? '强制词' : (type === 'explicit' ? '显式提及' : '触发词');
-      const terms = Array.isArray(match?.matchedTerms)
-        ? match.matchedTerms.map((item) => (item || '').toString().trim()).filter(Boolean)
-        : [];
-      if (terms.length === 0) return typeLabel;
-      return `${typeLabel}: ${terms.join(' / ')}`;
-    }
-
-    function skillMatchKey(match, index) {
-      const name = (match?.name || '').toString().trim();
-      const reason = skillMatchReason(match);
-      return `${name}|${reason}|${index}`;
-    }
-
-    function isSkillSelected(rawName) {
-      const name = (rawName || '').toString().trim().toLowerCase();
-      if (!name) return false;
-      return props.selectedSkillNames.some((item) => (item || '').toString().trim().toLowerCase() === name);
-    }
-
-    function onToggleSkill(rawName) {
-      emit('toggle-skill', (rawName || '').toString().trim());
-    }
-
-    function onSelectAllSkills() {
-      emit('select-all-skills');
-    }
-
-    function onClearSkills() {
-      emit('clear-skills');
-    }
-
     watch(
       () => props.threadId,
       (next, prev) => {
@@ -274,14 +217,6 @@ export const ComposerBar = {
       compactResultToneClass,
       onAttach,
       onRemoveAttachment,
-      showLegacySkillSelector,
-      skillMatchClass,
-      skillMatchReason,
-      skillMatchKey,
-      isSkillSelected,
-      onToggleSkill,
-      onSelectAllSkills,
-      onClearSkills,
       threadConfigInlineNotice,
       threadConfigInlineNoticeColor,
       onPromoteTask,
@@ -305,41 +240,6 @@ export const ComposerBar = {
     >
       <div v-if="compacting" class="agent-loading-bar"></div>
       <div v-if="dropActive" class="composer-drop-hint" aria-live="polite">松开即可添加附件</div>
-      <div v-if="showLegacySkillSelector" class="composer-skill-selector" :class="{ 'is-expanded': skillMatches.length > 8 }" role="status" aria-live="polite" data-testid="composer-skill-selector">
-        <div class="composer-skill-selector-head">
-          <span class="composer-skill-selector-title" :class="{ 'loading-shimmer': skillMatchesLoading }">
-            {{ skillMatchesLoading ? '技能匹配中…' : ('技能选择 ' + selectedSkillNames.length + '/' + skillMatches.length) }}
-          </span>
-          <button
-            class="composer-skill-selector-btn"
-            type="button"
-            :disabled="skillMatches.length === 0"
-            @click="onSelectAllSkills"
-          >全选</button>
-          <button
-            class="composer-skill-selector-btn"
-            type="button"
-            :disabled="selectedSkillNames.length === 0"
-            @click="onClearSkills"
-          >清空</button>
-        </div>
-        <div class="composer-skill-selector-list">
-          <button
-            v-for="(match, index) in skillMatches"
-            :key="skillMatchKey(match, index)"
-            class="composer-skill-selector-item"
-            :class="[skillMatchClass(match), { selected: isSkillSelected(match.name) }]"
-            type="button"
-            :title="skillMatchReason(match)"
-            @click="onToggleSkill(match.name)"
-          >
-            <span class="composer-skill-selector-item-name">{{ match.name }}</span>
-            <span class="composer-skill-selector-item-reason">{{ skillMatchReason(match) }}</span>
-          </button>
-          <span v-if="!skillMatchesLoading && skillMatches.length === 0" class="composer-skill-selector-empty">输入触发词后可点选技能</span>
-        </div>
-      </div>
-
       <div v-if="composer.state.attachments.length > 0" class="chat-attachment-list composer-attachments">
         <span v-for="(att, idx) in composer.state.attachments" :key="att.path + idx" class="chat-attachment-pill" :class="{ 'chat-attachment-pill--image': att.kind === 'image' && att.previewUrl }">
           <img v-if="att.kind === 'image' && att.previewUrl" class="chat-attachment-pill__thumb" :src="att.previewUrl" :alt="att.name" loading="lazy" />

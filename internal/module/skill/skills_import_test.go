@@ -115,6 +115,68 @@ func TestImportLocalDir_SingleStillWorks_BackwardCompat(t *testing.T) {
 	}
 }
 
+func TestImportLocalDir_RewritesFrontmatterNameToImportedName(t *testing.T) {
+	svc, projectRoot := newImportDirTestService(t)
+	source := filepath.Join(t.TempDir(), "docs")
+	mustMkdirAll(t, source)
+	mustWriteFile(t, filepath.Join(source, skillMainFile), "---\nname: stale\nsummary: imported docs\n---\n# docs\n")
+
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source})
+	if err != nil {
+		t.Fatalf("ImportLocalDir() error = %v", err)
+	}
+	if got := importDirNames(mustImportDirResult(t, out)); !reflect.DeepEqual(got, []string{"docs"}) {
+		t.Fatalf("imported names = %#v, want docs", got)
+	}
+	assertFileContent(t, filepath.Join(projectRoot, ".agent", "skills", "docs", skillMainFile), "---\nname: docs\nsummary: imported docs\n---\n# docs\n")
+}
+
+func TestImportLocalDirPublishesProjectMirrors(t *testing.T) {
+	svc, projectRoot := newImportDirTestService(t)
+	source := filepath.Join(t.TempDir(), "demo-skill")
+	mustMkdirAll(t, filepath.Join(source, "references"))
+	mustWriteFile(t, filepath.Join(source, skillMainFile), "---\nname: demo-skill\n---\nbody")
+	mustWriteFile(t, filepath.Join(source, "references", "guide.md"), "details")
+
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source})
+	if err != nil {
+		t.Fatalf("ImportLocalDir() error = %v", err)
+	}
+
+	result := mustImportDirResult(t, out)
+	report := mustMirrorPublishReport(t, result)
+	assertPublishedReportItem(t, report.Published, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "demo-skill", "project/demo-skill")
+	assertPublishedReportItem(t, report.Published, "codex:project:"+RepoFingerprint(projectRoot), SkillProviderCodex, skillScopeProject, "demo-skill", "project/demo-skill")
+	assertFileContent(t, filepath.Join(projectRoot, ".claude", "skills", "demo-skill", "references", "guide.md"), "details")
+	assertFileContent(t, filepath.Join(providerProjectMirrorRoot(SkillProviderCodex, projectRoot), "demo-skill", "references", "guide.md"), "details")
+}
+
+func TestImportLocalDirRejectsSymlinkSkillsRoot(t *testing.T) {
+	svc, projectRoot := newImportDirTestService(t)
+	outsideRoot := filepath.Join(t.TempDir(), "outside-skills")
+	mustMkdirAll(t, outsideRoot)
+	projectSkillsRoot := defaultProjectSkillsRoot(projectRoot)
+	mustMkdirAll(t, filepath.Dir(projectSkillsRoot))
+	mustSymlink(t, outsideRoot, projectSkillsRoot)
+	source := filepath.Join(t.TempDir(), "demo-skill")
+	mustMkdirAll(t, source)
+	mustWriteFile(t, filepath.Join(source, skillMainFile), "---\nname: demo-skill\n---\nbody")
+
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source})
+	if err != nil {
+		t.Fatalf("ImportLocalDir() error = %v", err)
+	}
+	failures := importDirFailures(mustImportDirResult(t, out))
+	if len(failures) != 1 {
+		t.Fatalf("failures = %#v, want symlink rejection", failures)
+	}
+	got, _ := failures[0]["error"].(string)
+	if !strings.Contains(got, "symlink") {
+		t.Fatalf("failure error = %q, want symlink rejection", got)
+	}
+	assertMissing(t, filepath.Join(outsideRoot, "demo-skill", skillMainFile))
+}
+
 func TestImportLocalDir_EmptyDirError(t *testing.T) {
 	t.Parallel()
 
@@ -247,6 +309,7 @@ func newImportDirTestService(t *testing.T) (*service, string) {
 	svc := NewService(projectRoot).(*service)
 	svc.root = t.TempDir()
 	svc.projectSkillsRoot = defaultProjectSkillsRoot(projectRoot)
+	svc.superDolphinHome = newTestSuperDolphinHome(t)
 	return svc, projectRoot
 }
 
@@ -335,4 +398,139 @@ func assertImportTargetMissing(t *testing.T, projectRoot, name string) {
 
 func errorsIsNotExist(err error) bool {
 	return err != nil && os.IsNotExist(err)
+}
+
+func TestImportLocalDirRejectsSourceInsideProjectSkillsRoot(t *testing.T) {
+	t.Parallel()
+
+	systemRoot := t.TempDir()
+	projectRoot := t.TempDir()
+	projectSkillsRoot := defaultProjectSkillsRoot(projectRoot)
+	sourceDir := filepath.Join(projectSkillsRoot, "demo-skill")
+	if err := os.MkdirAll(sourceDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDir, skillMainFile), []byte("# demo"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	svc := &service{root: systemRoot, projectRoot: projectRoot, projectSkillsRoot: projectSkillsRoot}
+
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: sourceDir})
+	if err != nil {
+		t.Fatalf("ImportLocalDir() error = %v", err)
+	}
+	result, ok := out.(map[string]any)
+	if !ok {
+		t.Fatalf("ImportLocalDir() result type = %T", out)
+	}
+	failures, ok := result["failures"].([]map[string]any)
+	if !ok || len(failures) != 1 {
+		t.Fatalf("ImportLocalDir() failures = %#v, want single failure", result["failures"])
+	}
+	if got := failures[0]["error"]; got != "source is inside skills root: "+sourceDir {
+		t.Fatalf("ImportLocalDir() failure error = %#v", got)
+	}
+}
+
+func TestImportLocalDirAcceptsSourceOutsideProjectRoot(t *testing.T) {
+	t.Parallel()
+
+	projectRoot := t.TempDir()
+	skillsRoot := t.TempDir()
+	outsideRoot := t.TempDir()
+	sourceDir := filepath.Join(outsideRoot, "demo-skill")
+	if err := os.MkdirAll(sourceDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDir, skillMainFile), []byte("# demo"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	svc := &service{projectRoot: projectRoot, root: skillsRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot)}
+
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: sourceDir, Scope: "project"})
+	if err != nil {
+		t.Fatalf("ImportLocalDir() error = %v", err)
+	}
+	result, ok := out.(map[string]any)
+	if !ok {
+		t.Fatalf("ImportLocalDir() result type = %T", out)
+	}
+	if got, present := result["failures"]; present {
+		t.Fatalf("ImportLocalDir() failures = %#v, want no failures", got)
+	}
+	imported, ok := result["imported"].([]map[string]any)
+	if !ok || len(imported) != 1 {
+		t.Fatalf("ImportLocalDir() imported = %#v, want single import", result["imported"])
+	}
+	if gotName, _ := imported[0]["name"].(string); gotName != "demo-skill" {
+		t.Fatalf("ImportLocalDir() imported name = %q, want demo-skill", gotName)
+	}
+	if _, err := os.Stat(filepath.Join(projectRoot, ".agent", "skills", "demo-skill", skillMainFile)); err != nil {
+		t.Fatalf("ImportLocalDir() target SKILL.md stat err = %v", err)
+	}
+}
+
+func TestImportLocalDirAcceptsLegacyRootAsExplicitSource(t *testing.T) {
+	t.Parallel()
+
+	skillsRoot := t.TempDir()
+	projectRoot := t.TempDir()
+	sourceDir := filepath.Join(skillsRoot, "demo-skill")
+	if err := os.MkdirAll(sourceDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDir, skillMainFile), []byte("# demo"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	svc := &service{projectRoot: projectRoot, root: skillsRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot)}
+
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: sourceDir})
+	if err != nil {
+		t.Fatalf("ImportLocalDir() error = %v", err)
+	}
+	result, ok := out.(map[string]any)
+	if !ok {
+		t.Fatalf("ImportLocalDir() result type = %T", out)
+	}
+	if got, present := result["failures"]; present {
+		t.Fatalf("ImportLocalDir() failures = %#v, want no failures", got)
+	}
+	if _, err := os.Stat(filepath.Join(projectRoot, ".agent", "skills", "demo-skill", skillMainFile)); err != nil {
+		t.Fatalf("imported project SKILL.md stat err = %v", err)
+	}
+}
+
+func TestImportLocalDirRejectsExistingTarget(t *testing.T) {
+	t.Parallel()
+
+	projectRoot := t.TempDir()
+	sourceDir := filepath.Join(projectRoot, "demo-skill")
+	if err := os.MkdirAll(sourceDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDir, skillMainFile), []byte("# demo"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	skillsRoot := t.TempDir()
+	existingDir := filepath.Join(projectRoot, ".agent", "skills", "demo-skill")
+	if err := os.MkdirAll(existingDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(existing) error = %v", err)
+	}
+	svc := &service{projectRoot: projectRoot, root: skillsRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot)}
+
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: sourceDir, Scope: "project"})
+	if err != nil {
+		t.Fatalf("ImportLocalDir() error = %v", err)
+	}
+	result, ok := out.(map[string]any)
+	if !ok {
+		t.Fatalf("ImportLocalDir() result type = %T", out)
+	}
+	failures, ok := result["failures"].([]map[string]any)
+	if !ok || len(failures) != 1 {
+		t.Fatalf("ImportLocalDir() failures = %#v, want single failure", result["failures"])
+	}
+	if got := failures[0]["error"]; got != "skill already exists: demo-skill" {
+		t.Fatalf("ImportLocalDir() failure error = %#v", got)
+	}
 }

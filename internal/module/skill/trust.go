@@ -1,6 +1,7 @@
 package skill
 
 import (
+	"embed"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -16,12 +17,13 @@ import (
 // ErrInvalidSkillName 是 name 校验失败统一返回的哨兵错误，调用方可用 errors.Is 检查。
 var ErrInvalidSkillName = errors.New("invalid skill name")
 
+//go:embed all:embedded_skills
+var builtInSkillFS embed.FS
+
 // validateSkillName 统一校验 skill name 标识符合法性。通过返回规范化后的名字（剥除首尾空白）、
 // 不通过时返回 ErrInvalidSkillName 包装的错误。调用点：
-//   - ReadLocal 的 path-based 入口不直接调用（它走 resolveSkillPath）。
-//   - P20 Phase 6 新增的 `Service.Expand(ctx, name, ...)` 必须先调用，
-//     拒绝包含 `/`, `\`, `..`、控制字符或危险字符的 name。
-//   - 单测 / RPC 参数射来的 name 亦应经此关。
+//   - ReadLocal 的 name-based 入口会先调用，path-based 入口走 resolveSkillPath。
+//   - 写入、导入、删除、匹配预览等 host 参数射来的 name 亦应经此关。
 //
 // 白名单：Unicode letter/digit + '-' + '_'，长度上限 64 rune，首字符必须是
 // Unicode letter/digit（不能以 '-' 或 '_' 开头）。
@@ -61,7 +63,7 @@ const (
 )
 
 // IsValidArtifactKind delegates to contract.IsValidArtifactKind.
-var IsValidArtifactKind = contract.IsValidArtifactKind
+func IsValidArtifactKind(kind string) bool { return contract.IsValidArtifactKind(kind) }
 
 // RepoFingerprint 生成项目根目录的稳定 128-bit 指纹，作为审批缓存 key 的第一维数据。
 func RepoFingerprint(projectRoot string) string {
@@ -176,7 +178,7 @@ func parseTrustScope(raw string) TrustScope {
 // 输入：
 //   - dir：skill 目录的绝对/规范化路径（parseSkillInfo 的 dir 参数即可）
 //   - projectRoot：本 session 的项目级 skills root（可为空）
-//   - userRoot：用户级 skills root（`~/.multi-agent/skills` 或 env 覆盖值）
+//   - userRoot：用户级 skills root（`~/.super-dolphin/skills/personal/...` 或 env 覆盖值）
 //
 // 匹配策略：先看 projectRoot（优先级高，命中即 untrusted）、再看 userRoot。都不匹配
 // 时返回 TrustProject 作为安全兜底——宁可多弹一次审批也不放过未知源。

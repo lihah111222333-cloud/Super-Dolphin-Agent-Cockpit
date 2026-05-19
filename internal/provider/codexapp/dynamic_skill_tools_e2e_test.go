@@ -1,7 +1,7 @@
 package codexapp
 
-// 此 e2e fixture 沿用 "skill_expand_body" / "skill_read_resource" 标签作为历史 dynamic-tool 名，
-// 纯字符串，无后端绑定；P5/P6 重构时可改用 skill_read_section。
+// 这个文件只覆盖 Codex dynamic-tool transport 的 generic fixture；生产 skill
+// 链路走 provider-native mirror，不通过 dynamic tool 发布。
 
 import (
 	"context"
@@ -22,7 +22,9 @@ import (
 	"github.com/kelindar/event"
 )
 
-func TestDynamicSkillTools_ModelE2E_ExpandBodyResultReturnsToModel(t *testing.T) {
+const testGenericDynamicToolName = "test_dynamic_echo"
+
+func TestDynamicTools_ModelE2E_ResultReturnsToModel(t *testing.T) {
 	got := runDynamicSkillToolsModelE2E(t, dynamicSkillModelScenario{
 		toolResult: dynamicSkillSuccessToolResult("skill body from approved cache"),
 	})
@@ -72,7 +74,7 @@ func TestDynamicSkillTools_ModelE2E_ApprovalDeniedReturnsStructuredToolResult(t 
 	if err := json.Unmarshal([]byte(text), &envelope); err != nil {
 		t.Fatalf("decode structured denied text %q: %v", text, err)
 	}
-	if envelope["kind"] != "approval_denied" || envelope["tool"] != "skill_expand_body" {
+	if envelope["kind"] != "approval_denied" || envelope["tool"] != testGenericDynamicToolName {
 		t.Fatalf("denied envelope = %#v", envelope)
 	}
 }
@@ -150,22 +152,22 @@ func runDynamicSkillToolsModelE2E(t *testing.T, scenario dynamicSkillModelScenar
 	})
 
 	recorder := newDynamicSkillModelRecorder()
-	t.Setenv("CODEX_APP_SERVER_URL", startDynamicSkillModelServer(t, recorder, scenario.finalDelta))
-	drv := newDriver(nil, dispatcher, nil, nil, manager, nil, nil, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+	serverURL := startDynamicSkillModelServer(t, recorder, scenario.finalDelta)
+	drv := newDriver(nil, dispatcher, nil, nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 		return []codexprotocol.DynamicToolSchema{{
-			Name:        "skill_expand_body",
-			Description: "Read SKILL.md body by name. Optional anchor + max_bytes.",
+			Name:        testGenericDynamicToolName,
+			Description: "Echo test payload through dynamic tool transport.",
 			InputSchema: json.RawMessage(`{"type":"object"}`),
 		}}, nil
 	}).(*driver)
 
-	sessionAny, err := drv.StartSession(context.Background(), providerdto.StartSessionRequest{AgentID: "agent-1", CWD: "/tmp/dynamic-skill-e2e"})
+	sessionAny, err := drv.StartSession(context.Background(), providerdto.StartSessionRequest{AgentID: "agent-1", CWD: t.TempDir()})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
 	}
 	s := sessionAny.(*session)
 	defer closeCodexTestSession(t, s)
-	assertDynamicSkillToolAdvertised(t, recorder.threadStartParamsSnapshot())
+	assertGenericDynamicToolFixtureAdvertised(t, recorder.threadStartParamsSnapshot())
 
 	if _, err := s.StartTurn(context.Background(), providerdto.TurnRequest{
 		ThreadID: s.ThreadID(),
@@ -290,10 +292,10 @@ func dynamicSkillRPCResult(cfg dynamicSkillModelHandlerConfig, msg jsonRPCMessag
 func writeDynamicSkillToolCall(t *testing.T, writeMu *sync.Mutex, conn *websocket.Conn) {
 	t.Helper()
 	writeDynamicSkillRequest(t, writeMu, conn, "tool-call-1", "item/tool/call", map[string]any{
-		"name":      "skill_expand_body",
+		"name":      testGenericDynamicToolName,
 		"callId":    "tool-call-1",
 		"turnId":    "turn-1",
-		"arguments": map[string]any{"name": "demo"},
+		"arguments": map[string]any{"payload": "demo"},
 	})
 }
 
@@ -364,12 +366,12 @@ func decodeDynamicSkillToolParams(t *testing.T, raw json.RawMessage) map[string]
 	if err := json.Unmarshal(raw, &params); err != nil {
 		t.Fatalf("decode tool params %s: %v", string(raw), err)
 	}
-	if params["name"] != "skill_expand_body" {
-		t.Fatalf("tool name = %#v, want %s", params["name"], "skill_expand_body")
+	if params["name"] != testGenericDynamicToolName {
+		t.Fatalf("tool name = %#v, want %s", params["name"], testGenericDynamicToolName)
 	}
 	args, ok := params["arguments"].(map[string]any)
-	if !ok || args["name"] != "demo" {
-		t.Fatalf("tool arguments = %#v, want demo skill", params["arguments"])
+	if !ok || args["payload"] != "demo" {
+		t.Fatalf("tool arguments = %#v, want demo payload", params["arguments"])
 	}
 	return params
 }
@@ -403,18 +405,18 @@ func dynamicSkillToolResponseText(t *testing.T, result map[string]any) string {
 	return text
 }
 
-func assertDynamicSkillToolAdvertised(t *testing.T, params map[string]any) {
+func assertGenericDynamicToolFixtureAdvertised(t *testing.T, params map[string]any) {
 	t.Helper()
 	tools, ok := params["dynamicTools"].([]any)
 	if !ok || len(tools) != 1 {
-		t.Fatalf("dynamicTools = %#v, want one tool", params["dynamicTools"])
+		t.Fatalf("generic fixture dynamicTools = %#v, want one tool", params["dynamicTools"])
 	}
 	tool, ok := tools[0].(map[string]any)
 	if !ok {
-		t.Fatalf("dynamicTools[0] = %#v, want object", tools[0])
+		t.Fatalf("generic fixture dynamicTools[0] = %#v, want object", tools[0])
 	}
-	if tool["name"] != "skill_expand_body" {
-		t.Fatalf("dynamic tool name = %#v, want %s", tool["name"], "skill_expand_body")
+	if tool["name"] != testGenericDynamicToolName {
+		t.Fatalf("generic fixture dynamic tool name = %#v, want %s", tool["name"], testGenericDynamicToolName)
 	}
 }
 
@@ -432,8 +434,8 @@ func dynamicSkillSuccessToolResult(content string) map[string]any {
 func dynamicSkillDeniedToolResult() map[string]any {
 	body, _ := json.Marshal(map[string]any{
 		"kind":  "approval_denied",
-		"tool":  "skill_expand_body",
-		"error": "skill expand approval denied: user denied",
+		"tool":  testGenericDynamicToolName,
+		"error": "dynamic tool approval denied: user denied",
 	})
 	return map[string]any{
 		"success": false,

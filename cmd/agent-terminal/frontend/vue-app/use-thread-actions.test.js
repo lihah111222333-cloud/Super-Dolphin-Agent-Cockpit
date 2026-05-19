@@ -17,7 +17,6 @@ vi.mock('./services/log.js', () => ({
 }));
 
 import { useThreadActions } from './composables/useThreadActions.js';
-import { resolveLaunchSkillSelectionFeature } from './composables/useLaunchSkillSelection.js';
 
 function createThreadActions(overrides = {}) {
   const threadStore = {
@@ -63,17 +62,6 @@ function createThreadActions(overrides = {}) {
     isThreadInterruptible: overrides.isThreadInterruptible ?? vi.fn(() => true),
     beginInlineRename: vi.fn(),
     scheduleScrollToBottom: vi.fn(),
-    resolveComposerSkillSelectionForSend: vi.fn().mockResolvedValue({
-      selectedSkills: [],
-      manualSkillSelection: false,
-    }),
-    resolveLaunchSkillSelectionForStart: vi.fn().mockResolvedValue({
-      enabled: false,
-      selectedSkills: [],
-      manualSkillSelection: false,
-    }),
-    clearLaunchSkillSelection: vi.fn(),
-    resetSelectedComposerSkills: vi.fn(),
     showArchivedThreadList: ref(false),
     compacting: ref(false),
     ...overrides.deps,
@@ -94,53 +82,15 @@ beforeEach(() => {
 });
 
 describe('useThreadActions', () => {
-  it('feature precedence resolves launchSkillSelection from thread, then project, then false', () => {
-    expect(resolveLaunchSkillSelectionFeature({}, { launchSkillSelection: true })).toBe(true);
-    expect(resolveLaunchSkillSelectionFeature({ launchSkillSelection: undefined }, { launchSkillSelection: true })).toBe(true);
-    expect(resolveLaunchSkillSelectionFeature({ launchSkillSelection: false }, { launchSkillSelection: true })).toBe(false);
-    expect(resolveLaunchSkillSelectionFeature({}, {})).toBe(false);
-  });
-
-  it('launchOne omits launch skills when launch selection is disabled', async () => {
-    const vm = createThreadActions({
-      deps: {
-        resolveLaunchSkillSelectionForStart: vi.fn().mockResolvedValue({
-          enabled: false,
-          selectedSkills: ['skillA'],
-          manualSkillSelection: true,
-        }),
-      },
-    });
+  it('launchOne starts a deferred thread when composer is empty', async () => {
+    const vm = createThreadActions();
 
     await vm.launchOne();
 
-    expect(vm.deps.resolveLaunchSkillSelectionForStart).toHaveBeenCalledWith('');
-    expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo', { focusMode: 'chat', deferSpawn: true });
-    expect(vm.deps.selectedThreadId.value).toBe('thread-started');
-  });
-
-  it('launchOne forwards launch skills into startThread payload when enabled', async () => {
-    const vm = createThreadActions({
-      deps: {
-        resolveLaunchSkillSelectionForStart: vi.fn().mockResolvedValue({
-          enabled: true,
-          selectedSkills: ['skillA', ' skillB '],
-          manualSkillSelection: true,
-        }),
-      },
-    });
-
-    await vm.launchOne();
-
-    expect(vm.deps.resolveLaunchSkillSelectionForStart).toHaveBeenCalledWith('');
     expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo', {
       focusMode: 'chat',
-      selectedSkills: ['skillA', 'skillB'],
-      manualSkillSelection: true,
       deferSpawn: true,
     });
-    expect(vm.deps.clearLaunchSkillSelection).toHaveBeenCalledTimes(1);
-    expect(vm.deps.selectedThreadId.value).toBe('thread-started');
   });
 
   it('launchOne resolves dot project scope to the window cwd', async () => {
@@ -238,7 +188,6 @@ describe('useThreadActions', () => {
       [],
       expect.objectContaining({ cwd: '/repo' }),
     );
-    expect(vm.deps.resolveComposerSkillSelectionForSend).not.toHaveBeenCalled();
     expect(vm.deps.scheduleScrollToBottom).toHaveBeenCalledWith(true);
   });
 
@@ -263,65 +212,58 @@ describe('useThreadActions', () => {
     );
   });
 
-  it('send: resolves launch skill state before startThread and reuses it for launch + send payloads', async () => {
+  it('send: starts a new thread before sending and does not forward skill selections', async () => {
     const vm = createThreadActions({
       selectedThreadId: '',
       text: 'boot launch',
       attachments: [{ path: '/tmp/a.txt' }],
-      deps: {
-        resolveLaunchSkillSelectionForStart: vi.fn().mockResolvedValue({
-          enabled: true,
-          selectedSkills: ['skillA', ' skillB '],
-          manualSkillSelection: true,
-        }),
-      },
     });
 
     await vm.send();
 
-    expect(vm.deps.resolveLaunchSkillSelectionForStart).toHaveBeenCalledWith('boot launch');
     expect(vm.threadStore.startThread).toHaveBeenCalledWith('/repo', {
       focusMode: 'chat',
       prompt: 'boot launch',
-      selectedSkills: ['skillA', 'skillB'],
-      manualSkillSelection: true,
     });
     expect(vm.threadStore.sendMessage).toHaveBeenCalledWith(
       'thread-started',
       'boot launch',
       [{ path: '/tmp/a.txt' }],
       {
-        selectedSkills: ['skillA', 'skillB'],
-        manualSkillSelection: true,
+        manualSkillSelection: false,
         cwd: '/repo',
       },
     );
-    expect(vm.deps.resolveComposerSkillSelectionForSend).not.toHaveBeenCalled();
-    expect(vm.deps.clearLaunchSkillSelection).toHaveBeenCalledTimes(1);
-    expect(vm.deps.resolveLaunchSkillSelectionForStart.mock.invocationCallOrder[0]).toBeLessThan(vm.threadStore.startThread.mock.invocationCallOrder[0]);
-    expect(vm.threadStore.startThread.mock.invocationCallOrder[0]).toBeLessThan(vm.deps.clearLaunchSkillSelection.mock.invocationCallOrder[0]);
-    expect(vm.deps.clearLaunchSkillSelection.mock.invocationCallOrder[0]).toBeLessThan(vm.threadStore.sendMessage.mock.invocationCallOrder[0]);
+    expect(vm.threadStore.startThread.mock.invocationCallOrder[0]).toBeLessThan(vm.threadStore.sendMessage.mock.invocationCallOrder[0]);
   });
 
-  it('send: keeps launch skill state when startThread fails', async () => {
+  it('send: does not forward selected skill refs for active threads', async () => {
+    const vm = createThreadActions({
+      selectedThreadId: 'thread-live',
+      text: 'ping with skills',
+    });
+
+    await vm.send();
+
+    expect(vm.threadStore.sendMessage).toHaveBeenCalledWith(
+      'thread-live',
+      'ping with skills',
+      [],
+      { manualSkillSelection: false, cwd: '/repo' },
+    );
+  });
+
+  it('send: stops when startThread returns no thread id', async () => {
     const vm = createThreadActions({
       selectedThreadId: '',
       text: 'boot launch',
       threadStore: {
         startThread: vi.fn().mockResolvedValue(''),
       },
-      deps: {
-        resolveLaunchSkillSelectionForStart: vi.fn().mockResolvedValue({
-          enabled: true,
-          selectedSkills: ['skillA'],
-          manualSkillSelection: false,
-        }),
-      },
     });
 
     await vm.send();
 
-    expect(vm.deps.clearLaunchSkillSelection).not.toHaveBeenCalled();
     expect(vm.threadStore.sendMessage).not.toHaveBeenCalled();
   });
 
@@ -386,6 +328,21 @@ describe('useThreadActions', () => {
     expect(vm.sendFailureNotice.value).toContain('该会话的工作目录已不存在');
     expect(vm.sendFailureNotice.value).toContain('/repo/.worktrees/missing');
     expect(vm.sendFailureNotice.value).toContain('请恢复该目录，或新建/重新绑定会话后继续');
+  });
+
+  it('send: shows a Chinese notice when skill mirror safety conflicts block provider startup', async () => {
+    const vm = createThreadActions({
+      selectedThreadId: 'thread-live',
+      text: '继续',
+    });
+    vm.threadStore.sendMessage.mockRejectedValueOnce(new Error('thread: establish session: skill mirror conflicts: 1 unresolved (mirror_root_symlink)'));
+
+    await expect(vm.send()).rejects.toThrow('skill mirror conflicts');
+
+    expect(globalThis.window.alert).not.toHaveBeenCalled();
+    expect(vm.deps.composer.state.text).toBe('继续');
+    expect(vm.sendFailureNotice.value).toContain('当前项目有技能冲突');
+    expect(vm.sendFailureNotice.value).toContain('技能页面');
   });
 
   it('interruptCurrent: calls stopThread and invokes confirm callback on success', async () => {

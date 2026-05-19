@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,6 +24,220 @@ import (
 // ServerManager. Explicit false disables the pool for legacy deployments.
 const poolRoutingEnvVar = "CODEXAPP_USE_POOL"
 
+const (
+	defaultCodexInstanceKey   = "default"
+	defaultCodexModelProvider = "openai"
+)
+
+func (d *driver) prepareStartSessionRequest(ctx context.Context, req dto.StartSessionRequest) (dto.StartSessionRequest, error) {
+	if err := validateStartCodexIdentityShape(req.Config); err != nil {
+		return req, err
+	}
+	requestedHome := providershared.ConfigString(req.Config, contract.CodexHomeKey)
+	providerHomeRequest, err := codexProviderHomeRequest(requestedHome)
+	if err != nil {
+		return req, err
+	}
+	home, err := providershared.EnsureProviderHome(providershared.ProviderCodex, providerHomeRequest)
+	if err != nil {
+		return req, err
+	}
+	mirrorHome := normalizedExplicitProviderHome(providerHomeRequest, home)
+	if err := d.reconcileProviderMirrors(ctx, req.CWD, mirrorHome); err != nil {
+		return req, err
+	}
+	config, err := withDefaultCodexIdentity(req.Config, home)
+	if err != nil {
+		return req, err
+	}
+	req.Config = config
+	return req, nil
+}
+
+func validateStartCodexIdentityShape(config map[string]any) error {
+	for _, key := range []string{contract.CodexHomeKey, contract.CodexInstanceKeyKey, contract.CodexModelProviderKey} {
+		if raw, ok := config[key]; ok && raw != nil {
+			if _, ok := raw.(string); !ok {
+				return fmt.Errorf("%w: %q must be string, got %T", providershared.ErrCodexIdentityInvalidType, key, raw)
+			}
+		}
+	}
+	return nil
+}
+
+func (d *driver) prepareResumeSessionRequest(ctx context.Context, req dto.ResumeSessionRequest) (dto.ResumeSessionRequest, error) {
+	requestedHome := req.CodexHome
+	if _, ok := resumeIdentity(req); !ok {
+		return req, errors.New("codex identity required for resume")
+	}
+	providerHomeRequest, err := codexProviderHomeRequest(requestedHome)
+	if err != nil {
+		return req, err
+	}
+	home, err := providershared.EnsureProviderHome(providershared.ProviderCodex, providerHomeRequest)
+	if err != nil {
+		return req, err
+	}
+	mirrorHome := normalizedExplicitProviderHome(providerHomeRequest, home)
+	if err := d.reconcileProviderMirrors(ctx, req.CWD, mirrorHome); err != nil {
+		return req, err
+	}
+	req.CodexHome = home
+	return req, nil
+}
+
+func (d *driver) reconcileProviderMirrors(ctx context.Context, cwd, home string) error {
+	if d == nil || d.mirror == nil {
+		return errors.New("codex skill mirror reconciler is required")
+	}
+	targets, err := providershared.ProviderMirrorTargets(providershared.ProviderCodex, cwd, home)
+	if err != nil {
+		return err
+	}
+	report, err := d.mirror.ReconcileProviderMirrors(ctx, cwd, targets)
+	if err != nil {
+		return err
+	}
+	if err := providershared.EnsureNoSkillMirrorConflicts(report); err != nil {
+		return err
+	}
+	return nil
+}
+
+func normalizedExplicitProviderHome(rawHome, normalizedHome string) string {
+	if strings.TrimSpace(rawHome) == "" {
+		return ""
+	}
+	return normalizedHome
+}
+
+func codexProviderHomeRequest(rawHome string) (string, error) {
+	if strings.TrimSpace(rawHome) == "" {
+		return "", nil
+	}
+	requested, err := comparableCodexHomePath(rawHome)
+	if err != nil {
+		return "", err
+	}
+	defaultHome, err := defaultCodexCLIHome()
+	if err != nil {
+		return "", err
+	}
+	if filepath.Clean(requested) == filepath.Clean(defaultHome) {
+		return "", nil
+	}
+	return rawHome, nil
+}
+
+func defaultCodexCLIHome() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve user home: %w", err)
+	}
+	path := filepath.Join(home, ".codex")
+	real, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		return filepath.Clean(real), nil
+	}
+	if os.IsNotExist(err) {
+		return filepath.Clean(path), nil
+	}
+	return "", fmt.Errorf("resolve default codex home realpath: %w", err)
+}
+
+func comparableCodexHomePath(raw string) (string, error) {
+	path := strings.TrimSpace(raw)
+	if path == "" {
+		return "", providershared.ErrCodexHomeRequired
+	}
+	if strings.HasPrefix(path, "~") {
+		switch {
+		case path == "~":
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return "", fmt.Errorf("codexHome ~ expand: %w", err)
+			}
+			path = home
+		case strings.HasPrefix(path, "~/"):
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return "", fmt.Errorf("codexHome ~ expand: %w", err)
+			}
+			path = filepath.Join(home, strings.TrimPrefix(path, "~/"))
+		default:
+			return "", fmt.Errorf("%w: ~user/... form not supported, got %q", providershared.ErrCodexIdentityInvalidType, raw)
+		}
+	}
+	path = filepath.Clean(os.ExpandEnv(path))
+	if !filepath.IsAbs(path) {
+		return "", fmt.Errorf("%w: codexHome must be absolute after expansion, got %q", providershared.ErrCodexIdentityInvalidType, path)
+	}
+	real, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		return filepath.Clean(real), nil
+	}
+	if os.IsNotExist(err) {
+		return path, nil
+	}
+	return "", fmt.Errorf("codexHome canonicalize: %w", err)
+}
+
+func withDefaultCodexIdentity(config map[string]any, home string) (map[string]any, error) {
+	home = strings.TrimSpace(home)
+	if home == "" {
+		return config, providershared.ErrCodexHomeRequired
+	}
+	out := cloneCodexConfigMap(config)
+	if out == nil {
+		out = make(map[string]any, 3)
+	}
+	if err := putCodexString(out, contract.CodexHomeKey, home); err != nil {
+		return config, err
+	}
+	if err := putDefaultCodexString(out, contract.CodexInstanceKeyKey, defaultCodexInstanceKey); err != nil {
+		return config, err
+	}
+	if err := putDefaultCodexString(out, contract.CodexModelProviderKey, defaultCodexModelProvider); err != nil {
+		return config, err
+	}
+	return out, nil
+}
+
+func putDefaultCodexString(config map[string]any, key, value string) error {
+	raw, ok := config[key]
+	if !ok || raw == nil {
+		config[key] = value
+		return nil
+	}
+	text, ok := raw.(string)
+	if !ok {
+		return fmt.Errorf("%w: %q must be string, got %T", providershared.ErrCodexIdentityInvalidType, key, raw)
+	}
+	if strings.TrimSpace(text) == "" {
+		config[key] = value
+	}
+	return nil
+}
+
+func putCodexString(config map[string]any, key, value string) error {
+	if raw, ok := config[key]; ok && raw != nil {
+		if _, ok := raw.(string); !ok {
+			return fmt.Errorf("%w: %q must be string, got %T", providershared.ErrCodexIdentityInvalidType, key, raw)
+		}
+	}
+	config[key] = value
+	return nil
+}
+
+func cloneCodexConfigMap(config map[string]any) map[string]any {
+	if len(config) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(config))
+	maps.Copy(out, config)
+	return out
+}
+
 // resolveSessionOptions is called by StartSession to decide whether
 // the new session should connect through the ServerPool (P21
 // multi-provider Codex) or fall back to the legacy ServerManager
@@ -31,8 +246,9 @@ const poolRoutingEnvVar = "CODEXAPP_USE_POOL"
 // Routing rules (most-specific first):
 //
 //  1. Pool not wired -> no options (legacy path).
-//  2. Pool explicitly disabled -> no options (legacy path); identity
-//     parse errors are warned so compatibility fallbacks remain visible.
+//  2. Pool explicitly disabled + valid identity -> fail closed. The
+//     prepared identity owns CODEX_HOME/mirrors, so legacy shared app-server
+//     routing would run against the ambient home instead.
 //  3. Pool enabled + invalid identity -> fail closed. StartSession must not
 //     silently fall back to the shared app-server.
 //  4. Valid identity + available pool -> Acquire a SpawnedServer and
@@ -42,15 +258,15 @@ const poolRoutingEnvVar = "CODEXAPP_USE_POOL"
 func (d *driver) resolveSessionOptions(ctx context.Context, req dto.StartSessionRequest) ([]sessionOption, error) {
 	policy := codexNativeToolPolicyFromConfig(req.Config)
 	if d == nil || d.pool == nil {
+		if _, err := providershared.ResolveCodexIdentity(req.Config); err == nil {
+			return nil, errors.New("codexapp: codex identity requires pool-backed app-server")
+		}
 		return legacySessionOptionsForNativeToolPolicy(policy)
 	}
 	identity, err := providershared.ResolveCodexIdentity(req.Config)
 	enabled, strict := poolRoutingDecision()
 	if !enabled {
-		if err != nil {
-			d.warnLegacyIdentityFallback(req.AgentID, err)
-		}
-		return legacySessionOptionsForNativeToolPolicy(policy)
+		return d.disabledPoolSessionOptions(req, policy, err)
 	}
 	if err != nil {
 		if !strict {
@@ -84,6 +300,16 @@ func (d *driver) resolveSessionOptions(ctx context.Context, req dto.StartSession
 	return []sessionOption{withPoolServer(url, release)}, nil
 }
 
+func (d *driver) disabledPoolSessionOptions(req dto.StartSessionRequest, policy codexNativeToolPolicy, identityErr error) ([]sessionOption, error) {
+	if identityErr == nil {
+		return nil, errors.New("codexapp: codex identity requires pool-backed app-server")
+	}
+	if d != nil {
+		d.warnLegacyIdentityFallback(req.AgentID, identityErr)
+	}
+	return legacySessionOptionsForNativeToolPolicy(policy)
+}
+
 func legacySessionOptionsForNativeToolPolicy(policy codexNativeToolPolicy) ([]sessionOption, error) {
 	if policy.HasProcessFlags() {
 		return nil, errors.New("codexapp: native tool policy requires pool-backed app-server")
@@ -109,20 +335,16 @@ func canonicalStartRuntimeConfig(config map[string]any) map[string]any {
 
 func (d *driver) resolveResumeOptions(ctx context.Context, req dto.ResumeSessionRequest) ([]sessionOption, error) {
 	policy := codexNativeToolPolicyFromDisabled(req.CodexDisabledNativeTools)
-	if d == nil || d.pool == nil {
-		return legacySessionOptionsForNativeToolPolicy(policy)
-	}
+	identity, hasIdentity := resumeIdentity(req)
 	enabled, strict := poolRoutingDecision()
-	if !enabled {
+	if d == nil || d.pool == nil || !enabled {
+		if hasIdentity {
+			return nil, errCodexIdentityRequiresPool()
+		}
 		return legacySessionOptionsForNativeToolPolicy(policy)
 	}
-	identity, ok := resumeIdentity(req)
-	if !ok {
-		if !strict {
-			d.warnLegacyIdentityFallback(req.AgentID, errors.New("codex identity required for resume"))
-			return []sessionOption(nil), nil
-		}
-		return nil, errors.New("codex identity required for resume")
+	if !hasIdentity {
+		return d.missingResumeIdentityOptions(req, strict)
 	}
 	owner := strings.TrimSpace(req.AgentID)
 	workDir := strings.TrimSpace(req.CWD)
@@ -147,6 +369,19 @@ func (d *driver) resolveResumeOptions(ctx context.Context, req dto.ResumeSession
 		)
 	}
 	return []sessionOption{withPoolServer(url, release)}, nil
+}
+
+func errCodexIdentityRequiresPool() error {
+	return errors.New("codexapp: codex identity requires pool-backed app-server")
+}
+
+func (d *driver) missingResumeIdentityOptions(req dto.ResumeSessionRequest, strict bool) ([]sessionOption, error) {
+	err := errors.New("codex identity required for resume")
+	if !strict {
+		d.warnLegacyIdentityFallback(req.AgentID, err)
+		return []sessionOption(nil), nil
+	}
+	return nil, err
 }
 
 func withPoolSpawnSessionConfig(ctx context.Context, workDir string, cfg map[string]any, policy codexNativeToolPolicy) context.Context {
@@ -177,6 +412,13 @@ func (d *driver) warnLegacyIdentityFallback(agentID string, err error) {
 		slog.String("agent_id", strings.TrimSpace(agentID)),
 		slog.String("reason", err.Error()),
 	)
+}
+
+func (d *driver) warnSkillMirrorIssue(message string, err error) {
+	if d == nil || d.logger == nil || err == nil {
+		return
+	}
+	d.logger.Warn(message, slog.String("error", err.Error()))
 }
 
 // poolRoutingEnabled parses the env override. Missing / empty means enabled

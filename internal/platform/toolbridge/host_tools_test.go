@@ -22,13 +22,8 @@ import (
 // P4 Task 4: SkillHostTools struct and stubSkillService have been removed
 // alongside the skill_expand_body / skill_read_resource host tools. The
 // remaining tests cover generic dispatch (callHostTool / routeToolCall /
-// dedup / ListToolsForCodex) using a stubHostToolRegistry plus the
-// preserved SkillReadSectionRegistry.
-//
-// Tool-name string literals in this file ("skill_expand_body",
-// "skill_read_resource") are intentional fixtures—labels only, with no
-// backend wiring. They exercise the generic plumbing that the renamed
-// skill_read_section pipeline still relies on.
+// dedup / ListToolsForCodex) using a stubHostToolRegistry.
+const testHostToolName = "test_host_echo"
 
 type stubHostToolRegistry struct {
 	hasToolName string
@@ -83,12 +78,12 @@ func (deniedHostToolError) SkillApprovalDenied() bool { return true }
 
 func TestCallHostTool_ApprovalDeniedReturnsStructuredResult(t *testing.T) {
 	host := &stubHostToolRegistry{
-		hasToolName: "skill_expand_body",
+		hasToolName: testHostToolName,
 		err:         deniedHostToolError{},
 	}
 	h := &Handler{hostTools: host}
 
-	got, err := h.callHostTool(context.Background(), ToolCallRequest{Name: "skill_expand_body"})
+	got, err := h.callHostTool(context.Background(), ToolCallRequest{Name: testHostToolName})
 	if err != nil {
 		t.Fatalf("callHostTool() error = %v", err)
 	}
@@ -96,7 +91,7 @@ func TestCallHostTool_ApprovalDeniedReturnsStructuredResult(t *testing.T) {
 	if got.Success {
 		t.Fatalf("Success = true, want false")
 	}
-	if envelope["kind"] != "approval_denied" || envelope["tool"] != "skill_expand_body" {
+	if envelope["kind"] != "approval_denied" || envelope["tool"] != testHostToolName {
 		t.Fatalf("structured denied envelope = %#v", envelope)
 	}
 	if envelope["error"] == "" {
@@ -110,7 +105,7 @@ func TestCallHostTool_ApprovalRequiredFallbackReturnsStructuredResult(t *testing
 	host := approvalRequiredHostToolRegistry()
 	h := &Handler{hostTools: host}
 
-	got, err := h.callHostTool(context.Background(), ToolCallRequest{Name: "skill_expand_body"})
+	got, err := h.callHostTool(context.Background(), ToolCallRequest{Name: testHostToolName})
 	if err != nil {
 		t.Fatalf("callHostTool() error = %v", err)
 	}
@@ -123,22 +118,22 @@ func TestCallHostTool_ApprovalRequiredFallbackReturnsStructuredResult(t *testing
 func approvalRequiredHostToolRegistry() *stubHostToolRegistry {
 	approvalReq := contract.ApprovalRequest{
 		CallID:       "call-1",
-		ToolName:     "skill_expand_body",
+		ToolName:     testHostToolName,
 		AgentID:      "agent-1",
 		ThreadID:     "thread-1",
 		TurnID:       "turn-1",
 		Reason:       "skill artifact requires approval",
 		Kind:         "skill_artifact",
-		SourceMethod: "skill_expand_body",
+		SourceMethod: testHostToolName,
 		Payload: map[string]any{
 			"artifact_kind":    skillpkg.ArtifactKindBody,
 			"artifact_locator": "SKILL.md",
 			"callId":           "call-1",
-			"toolName":         "skill_expand_body",
+			"toolName":         testHostToolName,
 		},
 	}
 	return &stubHostToolRegistry{
-		hasToolName: "skill_expand_body",
+		hasToolName: testHostToolName,
 		err:         skillpkg.SkillApprovalRequiredError{Request: approvalReq},
 	}
 }
@@ -159,7 +154,7 @@ func assertApprovalRequiredEnvelope(t *testing.T, got *ToolCallResult) {
 
 func assertApprovalEnvelopeHeaders(t *testing.T, envelope, approval map[string]any) {
 	t.Helper()
-	if envelope["kind"] != "approval_required" || approval["callId"] != "call-1" || approval["toolName"] != "skill_expand_body" || approval["agentId"] != "agent-1" || approval["threadId"] != "thread-1" || approval["turnId"] != "turn-1" {
+	if envelope["kind"] != "approval_required" || approval["callId"] != "call-1" || approval["toolName"] != testHostToolName || approval["agentId"] != "agent-1" || approval["threadId"] != "thread-1" || approval["turnId"] != "turn-1" {
 		t.Fatalf("structured approval_required envelope = %#v", envelope)
 	}
 }
@@ -174,7 +169,7 @@ func assertApprovalPayload(t *testing.T, approval map[string]any) {
 
 func TestRouteToolCall_HostToolBypassesPeer_UsesResolvedCWD(t *testing.T) {
 	host := &stubHostToolRegistry{
-		hasToolName: "skill_expand_body",
+		hasToolName: "custom_host_tool",
 		result:      map[string]any{"name": "foo", "content": "body"},
 	}
 	resolver := &stubCWDResolver{cwd: "/resolved/cwd"}
@@ -182,7 +177,7 @@ func TestRouteToolCall_HostToolBypassesPeer_UsesResolvedCWD(t *testing.T) {
 	h := &Handler{registry: registry, resolver: resolver, hostTools: host}
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
-		Name:      "skill_expand_body",
+		Name:      "custom_host_tool",
 		Arguments: json.RawMessage(`{"name":"foo"}`),
 		AgentID:   "agent-1",
 		ThreadID:  "thread-1",
@@ -231,14 +226,14 @@ func assertPeerRegistryUnused(t *testing.T, registry *stubRegistry) {
 
 func TestRouteToolCall_HostToolPrefersInjectedCWD(t *testing.T) {
 	host := &stubHostToolRegistry{
-		hasToolName: "skill_expand_body",
+		hasToolName: "custom_host_tool",
 		result:      map[string]any{"name": "foo", "content": "body"},
 	}
 	resolver := &stubCWDResolver{cwd: "/stale/resolved/cwd"}
 	h := &Handler{registry: &stubRegistry{}, resolver: resolver, hostTools: host}
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
-		Name:      "skill_expand_body",
+		Name:      "custom_host_tool",
 		Arguments: json.RawMessage(`{"name":"foo"}`),
 		AgentID:   "agent-1",
 		CWD:       "/injected/cwd",
@@ -261,7 +256,7 @@ func TestCallHostTool_ObservabilityCountersAndLogs(t *testing.T) {
 	skillmetrics.ResetForTesting()
 	t.Cleanup(skillmetrics.ResetForTesting)
 	host := &stubHostToolRegistry{
-		hasToolName: "skill_expand_body",
+		hasToolName: testHostToolName,
 		result:      map[string]any{"name": "foo", "content": "body"},
 	}
 	resolver := &stubCWDResolver{cwd: "/resolved/cwd"}
@@ -273,7 +268,7 @@ func TestCallHostTool_ObservabilityCountersAndLogs(t *testing.T) {
 	}
 
 	got, err := h.callHostTool(context.Background(), ToolCallRequest{
-		Name:    "skill_expand_body",
+		Name:    testHostToolName,
 		AgentID: "agent-obs",
 		CallID:  "call-obs",
 	})
@@ -287,7 +282,7 @@ func TestCallHostTool_ObservabilityCountersAndLogs(t *testing.T) {
 		t.Fatalf("HostToolCallOKTotal = %d, want 1 (snapshot %+v)", snap.HostToolCallOKTotal, snap)
 	}
 	text := logs.String()
-	for _, want := range []string{"toolbridge host-direct tool call", "tool=skill_expand_body", "agent_id=agent-obs", "call_id=call-obs", "outcome=ok"} {
+	for _, want := range []string{"toolbridge host-direct tool call", "tool=" + testHostToolName, "agent_id=agent-obs", "call_id=call-obs", "outcome=ok"} {
 		if !bytes.Contains([]byte(text), []byte(want)) {
 			t.Fatalf("host-direct log missing %q in %s", want, text)
 		}
@@ -298,7 +293,7 @@ func TestCallHostTool_CWDMissingCounterAndWarn(t *testing.T) {
 	skillmetrics.ResetForTesting()
 	t.Cleanup(skillmetrics.ResetForTesting)
 	host := &stubHostToolRegistry{
-		hasToolName: "skill_expand_body",
+		hasToolName: testHostToolName,
 		err:         skillpkg.ErrMissingCWD,
 	}
 	var logs bytes.Buffer
@@ -307,7 +302,7 @@ func TestCallHostTool_CWDMissingCounterAndWarn(t *testing.T) {
 		logger:    slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	}
 
-	got, err := h.callHostTool(context.Background(), ToolCallRequest{Name: "skill_expand_body", AgentID: "agent-missing"})
+	got, err := h.callHostTool(context.Background(), ToolCallRequest{Name: testHostToolName, AgentID: "agent-missing"})
 	if err != nil {
 		t.Fatalf("callHostTool() error = %v", err)
 	}
@@ -391,7 +386,7 @@ func blockingListToolsPeer(kind string, tools []dto.MCPTool, started chan<- stri
 }
 
 func TestListToolsForCodex_HostToolsSurviveOrchFailure_LSPReady(t *testing.T) {
-	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: "skill_expand_body", Description: "host skill"}}}
+	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: testHostToolName, Description: "host echo"}}}
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 		dto.ClientKindOrch: {listToolsPeer(nil, errors.New("orch down"))},
 		dto.ClientKindLSP:  {listToolsPeer([]dto.MCPTool{{Name: "lsp_hover", Description: "lsp"}}, nil)},
@@ -402,13 +397,13 @@ func TestListToolsForCodex_HostToolsSurviveOrchFailure_LSPReady(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListToolsForCodex() error = %v", err)
 	}
-	if len(got) != 2 || got[0].Name != "skill_expand_body" || got[1].Name != "lsp_hover" {
+	if len(got) != 2 || got[0].Name != testHostToolName || got[1].Name != "lsp_hover" {
 		t.Fatalf("tools = %+v, want host + lsp", got)
 	}
 }
 
 func TestListToolsForCodex_LogsDegradedPeer(t *testing.T) {
-	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: "skill_expand_body", Description: "host skill"}}}
+	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: testHostToolName, Description: "host echo"}}}
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 		dto.ClientKindOrch: {listToolsPeer(nil, errors.New("orch down"))},
 		dto.ClientKindLSP:  {listToolsPeer([]dto.MCPTool{{Name: "lsp_hover", Description: "lsp"}}, nil)},
@@ -436,7 +431,7 @@ func TestListToolsForCodex_LogsDegradedPeer(t *testing.T) {
 }
 
 func TestListToolsForCodex_HostToolsSurviveLSPFailure_OrchReady(t *testing.T) {
-	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: "skill_expand_body", Description: "host skill"}}}
+	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: testHostToolName, Description: "host echo"}}}
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: "spawn_agent", Description: "orch"}}, nil)},
 		dto.ClientKindLSP:  {listToolsPeer(nil, errors.New("lsp down"))},
@@ -447,13 +442,13 @@ func TestListToolsForCodex_HostToolsSurviveLSPFailure_OrchReady(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListToolsForCodex() error = %v", err)
 	}
-	if len(got) != 2 || got[0].Name != "skill_expand_body" || got[1].Name != "spawn_agent" {
+	if len(got) != 2 || got[0].Name != testHostToolName || got[1].Name != "spawn_agent" {
 		t.Fatalf("tools = %+v, want host + orch", got)
 	}
 }
 
 func TestListToolsForCodex_HostOnlyWhenBothPeersFail(t *testing.T) {
-	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: "skill_expand_body", Description: "host skill"}}}
+	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: testHostToolName, Description: "host echo"}}}
 	registry := &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 		dto.ClientKindOrch: {listToolsPeer(nil, errors.New("orch down"))},
 		dto.ClientKindLSP:  {listToolsPeer(nil, errors.New("lsp down"))},
@@ -464,7 +459,7 @@ func TestListToolsForCodex_HostOnlyWhenBothPeersFail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListToolsForCodex() error = %v", err)
 	}
-	if len(got) != 1 || got[0].Name != "skill_expand_body" {
+	if len(got) != 1 || got[0].Name != testHostToolName {
 		t.Fatalf("tools = %+v, want host only", got)
 	}
 }

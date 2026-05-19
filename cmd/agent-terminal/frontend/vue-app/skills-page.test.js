@@ -35,7 +35,7 @@ function createSkillsPage(overrides = {}, emit = vi.fn()) {
         summary: 'Helps shipping releases',
         trust: 'project',
         trigger_words: ['ship'],
-        force_words: ['@deploy'],
+        force_words: ['@DeploySkill', '@deploy', '[skill:DeploySkill]'],
       },
       {
         name: 'DocsSkill',
@@ -43,6 +43,7 @@ function createSkillsPage(overrides = {}, emit = vi.fn()) {
         description: 'Write docs',
         summary: 'Documentation helper',
         trust: 'user',
+        personal_type: 'agent',
         trigger_words: ['docs'],
         force_words: [],
       },
@@ -82,50 +83,122 @@ describe('SkillsPage', () => {
     expect(vm).toEqual(expect.objectContaining({
       selectedSkillName: expect.anything(),
       searchQuery: expect.anything(),
-      filteredSkillCards: expect.anything(),
+      filteredSkillCards: expect.anything(), showSkillCount: expect.anything(), skillCountText: expect.anything(),
       form: expect.anything(),
+      scenarioKeywordsText: expect.anything(),
+      scopeLabel: expect.any(Function),
       onUploadSkill: expect.any(Function),
       onSaveSkill: expect.any(Function),
       onOpenSkillSubfile: expect.any(Function),
       onSkillPreviewClick: expect.any(Function),
       isEditingMainSkillFile: expect.anything(),
+      showRelatedSkillFiles: expect.anything(),
       skillBodyMarkdownHtml: expect.anything(),
       onDeleteSkill: expect.any(Function),
+      skillCardKey: expect.any(Function),
+      isSkillCardActive: expect.any(Function),
       confirmSkillDelete: expect.any(Function),
       cancelSkillDelete: expect.any(Function),
       confirmDeleteTarget: expect.anything(),
       onCreateSkill: expect.any(Function),
       importScope: expect.anything(),
+      resolutionConflicts: expect.anything(),
+      refreshSkillResolutions: expect.any(Function),
     }));
+    expect(vm.scopeLabel('project')).toBe('项目共享');
+    expect(vm.scopeLabel('personal')).toBe('私人使用');
+    expect(vm.saveButtonLabel.value).toBe('保存技能');
+    expect(vm.skillCountText.value).toBe('共 2 个技能'); vm.scopeFilter.value = 'personal'; expect(vm.showSkillCount.value).toBe(true);
   });
 
   it('preserves template contract for save and import entry points', () => {
     expect(SkillsPage.template).toContain('data-testid="skills-save-button"');
     expect(SkillsPage.template).toContain('data-testid="skills-import-button"');
     expect(SkillsPage.template).toContain('data-testid="skills-editor-scope-project"');
-    expect(SkillsPage.template).toContain('data-testid="skills-import-scope-system"');
+    expect(SkillsPage.template).toContain('data-testid="skills-editor-scope-personal"');
+    expect(SkillsPage.template).toContain('项目共享');
+    expect(SkillsPage.template).toContain('私人使用');
+    expect(SkillsPage.template).toContain('技能列表');
+    expect(SkillsPage.template).toContain('新建技能');
+    ['技能简介', '你可以修改简介和技能内容。'].forEach((text) => expect(SkillsPage.template).toContain(text));
+    ['搜索技能名称、简介、关键词', '支持按名称、简介、关键词搜索', '暂无简介，点击编辑补充。'].forEach((text) => expect(SkillsPage.template).toContain(text));
+    ['帮我生成', '建议写成“当你需要……时使用”', 'data-testid="skills-summary-suggest-button"', '编辑简介'].forEach((text) => expect(SkillsPage.template).toContain(text));
+    expect(SkillsPage.template).toContain('关键词');
+    expect(SkillsPage.template).toContain('可选填入，用于辅助匹配使用技能');
+    expect(SkillsPage.template).toContain('外部版本');
+    expect(SkillsPage.template).toContain('管理版本号');
+    expect(['personal', 'project', 'all'].map((scope) => SkillsPage.template.indexOf(`skills-scope-filter-${scope}`))).toEqual([...['personal', 'project', 'all'].map((scope) => SkillsPage.template.indexOf(`skills-scope-filter-${scope}`))].sort((a, b) => a - b)); ['data-testid="skills-scope-filter-pending"', 'data-testid="candidates-panel"', 'data-testid="candidates-list"', 'skills-segmented-count">{{ pendingCandidates.length }}</span>'].forEach((text) => expect(SkillsPage.template).not.toContain(text)); expect(SkillsPage.template).not.toMatch(/candidate-(approve|reject|preview)-/);
+    expect(SkillsPage.template).not.toMatch(/强制词|重点关键词|skill-word-chip-force/);
+    ['project（当前 cwd）', 'personal（个人技能）', '摘要（注入内容）', '搜索技能名称、摘要、适用场景', '搜索技能名称、简介、适用场景', '支持按名称、简介、适用场景搜索', '支持按名称、描述、摘要、适用场景搜索', '也可以填写 @xxx，对话里输入它时会自动使用这个技能', '暂无摘要，点击编辑补充。', '暂无描述', '运行时注入', 'frontmatter', '&lt;cwd&gt;', '新建 Skill', '保存 Skill', 'SKILL 列表', '{{ item.scope }} scope', "'provider'", 'source {{ item.source_hash }}', 'target {{ item.target_hash }}', '摘要来源', '你可以修改摘要和技能内容。', '简介生成失败'].forEach((text) => expect(SkillsPage.template).not.toContain(text));
+    expect(SkillsPage.template).not.toContain('导入位置');
+    expect(SkillsPage.template).toContain('data-testid="skills-import-scope-modal"');
+    expect(SkillsPage.template).toContain('这些技能导入后给谁使用');
+    expect(SkillsPage.template).not.toContain('data-testid="skills-scope-filter-system"');
+    expect(SkillsPage.template).not.toContain('data-testid="skills-editor-scope-system"');
+    expect(SkillsPage.template).not.toContain('data-testid="skills-import-scope-system"');
+    expect(SkillsPage.template).toContain('data-testid="skills-resolution-refresh"');
+    expect(SkillsPage.template).toContain('data-testid="skills-resolution-list"');
+    expect(SkillsPage.template).toContain('v-if="showRelatedSkillFiles"');
+    expect(SkillsPage.template).toContain('附加内容');
+    expect(SkillsPage.template).toContain(':data-testid="\'skills-resolution-action-\' + conflictIdx + \'-\' + sourceIdx + \'-\' + actionIdx"');
   });
 
-  it('maps disclosure tiers to user-friendly frequency labels', () => {
+  it('hides related file navigation when a skill only has the main file', () => {
+    const { vm } = createSkillsPage();
+    vm.skillFiles.value = [{ name: 'SKILL.md', path: '/skills/deploy/SKILL.md', isMain: true }];
+    expect(vm.showRelatedSkillFiles.value).toBe(false);
+    vm.skillFiles.value = [{ name: 'SKILL.md', path: '/skills/deploy/SKILL.md', isMain: true }, { name: 'prompt.md', path: '/skills/deploy/references/prompt.md', isMain: false }];
+    expect(vm.showRelatedSkillFiles.value).toBe(true);
+  });
+
+  it('keeps same-name skill cards distinct by scope and source path', () => {
+    const { vm } = createSkillsPage({
+      skills: [
+        { name: 'DocsSkill', dir: '/repo/.agent/skills/docs', scope: 'project', summary: 'project docs' },
+        { name: 'DocsSkill', dir: '/home/skills/personal/user/docs', scope: 'personal', personal_type: 'user', summary: 'user docs' },
+      ],
+    });
+
+    const [projectSkill, personalSkill] = vm.filteredSkillCards.value;
+    expect(vm.skillCardKey(projectSkill)).not.toBe(vm.skillCardKey(personalSkill));
+
+    vm.selectedSkillName.value = 'DocsSkill'; vm.isEditorOpen.value = true; vm.sourcePath.value = '/home/skills/personal/user/docs/SKILL.md';
+
+    expect(vm.isSkillCardActive(projectSkill)).toBe(false); expect(vm.isSkillCardActive(personalSkill)).toBe(true);
+    vm.closeEditor(); expect(vm.isSkillCardActive(personalSkill)).toBe(false);
+  });
+
+  it('preserves personal type from list items for editor actions', () => {
+    const { vm } = createSkillsPage();
+
+    expect(vm.skillCards.value.find((item) => item.name === 'DocsSkill').personal_type).toBe('agent');
+  });
+
+  it('prefers backend scope over trust when classifying skill cards and deleting', async () => {
     const { vm } = createSkillsPage({
       skills: [{
-        name: 'HotSkill',
-        dir: '/skills/hot',
-        description: 'Hot skill',
-        summary: 'Hot helper',
-        trust: 'project',
-        disclosure_tier: 'hot',
+        name: 'ProjectSigned',
+        dir: '/skills/project-signed',
+        description: 'Project signed skill',
+        summary: 'Project helper',
+        scope: 'project',
+        trust: 'signed',
       }],
     });
 
-    expect(vm.skillCards.value[0].disclosureTier).toBe('hot');
-    expect(vm.disclosureTierLabel('hot')).toBe('常用');
-    expect(vm.disclosureTierLabel('warm')).toBe('一般');
-    expect(vm.disclosureTierLabel('cold')).toBe('偶尔');
-    expect(vm.disclosureTierLabel('frozen')).toBe('少用');
-    expect(vm.disclosureTierLabel('unknown')).toBe('');
-    expect(SkillsPage.template).toContain('class="skill-card-disclosure-tag"');
-    expect(SkillsPage.template).toContain(':data-testid="\'skills-card-disclosure-\' + idx"');
+    const card = vm.skillCards.value[0];
+    expect(card.scope).toBe('project');
+    expect(vm.scopeCounts.value.project).toBe(1);
+    expect(vm.scopeCounts.value.personal).toBe(0);
+
+    vm.onDeleteSkill(card);
+    await vm.confirmSkillDelete();
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/delete', {
+      name: 'ProjectSigned',
+      cwd: '/repo',
+      scope: 'project',
+    });
   });
 
   it('filters skills by name, summary and trigger words', () => {
@@ -136,6 +209,7 @@ describe('SkillsPage', () => {
 
     vm.searchQuery.value = 'documentation';
     expect(vm.filteredSkillCards.value.map((item) => item.name)).toEqual(['DocsSkill']);
+    expect(vm.skillCards.value[0].displayScenarioWords).toEqual(['ship']);
   });
 
   it('maps summary source labels and markdown preview fallbacks without drifting helper output', () => {
@@ -193,8 +267,10 @@ describe('SkillsPage', () => {
       summary: '',
       triggerWordsText: '',
       forceWordsText: '',
+      internalScenarioWordsText: '',
       body: '',
       scope: 'project',
+      personal_type: '',
     });
     expect(vm.isBodyEditing.value).toBe(true);
     expect(vm.bodyEditorFocused.value).toBe(false);
@@ -275,7 +351,7 @@ describe('SkillsPage', () => {
     vm.form.summary = 'Documentation helper';
     vm.form.triggerWordsText = 'docs';
     vm.form.forceWordsText = '@docs';
-    vm.form.body = '## docs body';
+    vm.form.body = '## docs body'; vm.isEditorOpen.value = true;
 
     await vm.onSaveSkill();
 
@@ -286,11 +362,11 @@ describe('SkillsPage', () => {
     expect(saveCall[1].content).toContain('## docs body');
     expect(saveCall[1].scope).toBe('project');
     expect(emit).toHaveBeenCalledWith('refresh-skills');
-    expect(vm.summarySource.value).toBe('frontmatter');
-    expect(vm.notice.message).toContain('技能已保存：DocsSkill');
+    expect(vm.summarySource.value).toBe('frontmatter'); expect(vm.isEditorOpen.value).toBe(false);
+    expect(vm.notice.message).toContain('已经有同名技能');
   });
 
-  it('saves main skill files to system scope when selected', async () => {
+  it('normalizes legacy system save targets to personal scope', async () => {
     const { vm } = createSkillsPage();
 
     vm.form.name = 'SharedDocs';
@@ -304,9 +380,10 @@ describe('SkillsPage', () => {
       cwd: '/repo',
       path: 'SharedDocs',
       content: expect.stringContaining('## shared'),
-      scope: 'system',
+      scope: 'personal',
+      personal_type: 'user',
     });
-    expect(vm.notice.message).toContain('system');
+    expect(vm.notice.message).toBe('');
   });
 
   it('surfaces main skill save failures and clears saving state', async () => {
@@ -342,7 +419,7 @@ describe('SkillsPage', () => {
     vm.form.name = 'DeploySkill';
     vm.form.body = '# prompt body';
     vm.sourcePath.value = '/skills/deploy/SKILL.md';
-    vm.activeSkillFilePath.value = '/skills/deploy/references/prompt.md';
+    vm.activeSkillFilePath.value = '/skills/deploy/references/prompt.md'; vm.isEditorOpen.value = true;
 
     await vm.onSaveSkill();
 
@@ -352,8 +429,8 @@ describe('SkillsPage', () => {
       content: '# prompt body',
       scope: 'project',
     });
-    expect(emit).not.toHaveBeenCalledWith('refresh-skills');
-    expect(vm.notice.message).toContain('子文件已保存');
+    expect(emit).not.toHaveBeenCalledWith('refresh-skills'); expect(vm.isEditorOpen.value).toBe(false);
+    expect(vm.notice.message).toBe('');
   });
 
   it('surfaces subfile save failures and keeps the editor in subfile mode', async () => {
@@ -399,6 +476,12 @@ describe('SkillsPage', () => {
 
     await vm.onUploadSkill({ type: 'click', target: {} });
 
+    expect(apiMock.selectProjectDirs).not.toHaveBeenCalled();
+    expect(apiMock.callAPI).not.toHaveBeenCalledWith('skills/local/importDir', expect.anything());
+    expect(vm.importScopePromptOpen.value).toBe(true);
+
+    await vm.confirmImportScope('project');
+
     expect(apiMock.selectProjectDirs).toHaveBeenCalledTimes(1);
     expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/importDir', {
       paths: ['/imports/ImportedSkill'],
@@ -416,6 +499,7 @@ describe('SkillsPage', () => {
     apiMock.selectProjectDirs.mockResolvedValue([]);
 
     await vm.onUploadSkill({ type: 'click' });
+    await vm.confirmImportScope('project');
 
     expect(apiMock.callAPI).not.toHaveBeenCalled();
     expect(vm.uploading.value).toBe(false);
@@ -423,7 +507,7 @@ describe('SkillsPage', () => {
     expect(vm.notice.message).toContain('未选择目录');
   });
 
-  it('shows an overwrite notice before import completes when selected names already exist', async () => {
+  it('shows a same-name conflict notice before import completes when selected names already exist', async () => {
     const { vm } = createSkillsPage();
     let resolveImport = () => {};
     apiMock.selectProjectDirs.mockResolvedValue(['/imports/DeploySkill']);
@@ -436,12 +520,14 @@ describe('SkillsPage', () => {
       return Promise.resolve({});
     });
 
-    const importTask = vm.onUploadSkill({ type: 'click' });
+    await vm.onUploadSkill({ type: 'click' });
+    const importTask = vm.confirmImportScope('project');
     await Promise.resolve();
     await Promise.resolve();
 
     expect(vm.notice.level).toBe('info');
-    expect(vm.notice.message).toContain('将覆盖已有技能');
+    expect(vm.notice.message).toContain('同名冲突');
+    expect(vm.notice.message).not.toContain('覆盖');
 
     resolveImport({ imported: [], failures: [] });
     await importTask;
@@ -453,6 +539,7 @@ describe('SkillsPage', () => {
     apiMock.selectProjectDirs.mockResolvedValue(['/imports/Alpha', '/tmp/Alpha/']);
 
     await vm.onUploadSkill({ type: 'click' });
+    await vm.confirmImportScope('project');
 
     expect(apiMock.callAPI).not.toHaveBeenCalled();
     expect(vm.notice.level).toBe('error');
@@ -483,6 +570,7 @@ describe('SkillsPage', () => {
     });
 
     await vm.onUploadSkill({ type: 'click' });
+    await vm.confirmImportScope('project');
 
     expect(emit).toHaveBeenCalledWith('refresh-skills');
     expect(vm.selectedSkillName.value).toBe('ImportedSkill');
@@ -497,36 +585,38 @@ describe('SkillsPage', () => {
     apiMock.callAPI.mockResolvedValueOnce({ imported: [], failures: [] });
 
     await vm.onUploadSkill({ type: 'click' });
+    await vm.confirmImportScope('project');
 
     expect(vm.importFailures.value).toEqual([]);
     expect(vm.notice.level).toBe('info');
     expect(vm.notice.message).toContain('未导入任何技能目录');
   });
 
-  it('uploads directories to system scope when selected', async () => {
+  it('imports selected directories as personal when confirmed', async () => {
     const { vm } = createSkillsPage();
-    vm.importScope.value = 'system';
     apiMock.selectProjectDirs.mockResolvedValue(['/imports/SystemSkill']);
     apiMock.callAPI.mockResolvedValueOnce({ imported: [], failures: [] });
 
     await vm.onUploadSkill({ type: 'click' });
+    await vm.confirmImportScope('personal');
 
     expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/importDir', {
       paths: ['/imports/SystemSkill'],
       cwd: '/repo',
-      scope: 'system',
+      scope: 'personal',
+      personal_type: 'imported',
     });
   });
 
-  it('loads saved skills into matching editor scopes from trust', async () => {
+  it('loads user and signed skills into personal editor scope without system mapping', async () => {
     const { vm } = createSkillsPage();
     apiMock.callAPI.mockImplementation(async (method, payload) => {
       if (method === 'skills/local/read' && payload?.path === '/skills/docs/SKILL.md') {
         return {
           skill: {
-            content: '---\nname: DocsSkill\nsummary: Documentation helper\n---\n# body',
+            content: '---\nname: DocsSkill\ndescription: Documentation helper\n---\n# body',
             summary: 'Documentation helper',
-            summary_source: 'frontmatter',
+            summary_source: 'description',
           },
         };
       }
@@ -536,7 +626,11 @@ describe('SkillsPage', () => {
 
     await vm.onEditSkill({ name: 'DocsSkill', dir: '/skills/docs', summary: 'Documentation helper', trust: 'user' });
 
-    expect(vm.form.scope).toBe('system');
+    expect(vm.form.scope).toBe('personal'); expect(vm.form.description).toBe('Documentation helper'); expect(vm.notice.message).toBe('');
+
+    await vm.onEditSkill({ name: 'DocsSkill', dir: '/skills/docs', summary: 'Documentation helper', trust: 'signed' });
+
+    expect(vm.form.scope).toBe('personal');
   });
 
   it('deletes the selected skill, clears editor state and emits refresh', async () => {
@@ -558,13 +652,13 @@ describe('SkillsPage', () => {
 
     await vm.confirmSkillDelete();
 
-    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/delete', { name: 'DeploySkill', cwd: '/repo' });
+    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/delete', { name: 'DeploySkill', cwd: '/repo', scope: 'project' });
     expect(emit).toHaveBeenCalledWith('refresh-skills');
     expect(vm.isEditorOpen.value).toBe(false);
     expect(vm.form.name).toBe('');
     expect(vm.sourcePath.value).toBe('');
     expect(vm.skillFiles.value).toEqual([]);
-    expect(vm.notice.message).toContain('技能已删除');
+    expect(vm.notice.message).toBe('');
   });
 
   it('aborts deletion when the user cancels confirmation', () => {
@@ -619,7 +713,7 @@ describe('SkillsPage', () => {
     expect(vm.activeSkillFilePath.value).toBe('/skills/deploy/SKILL.md');
     expect(vm.skillFiles.value).toEqual([]);
     expect(vm.notice.level).toBe('error');
-    expect(vm.notice.message).toContain('子文件列表读取失败');
+    expect(vm.notice.message).toContain('附加内容读取失败');
   });
 
   it('surfaces read failures when opening an existing skill', async () => {
@@ -731,6 +825,46 @@ describe('SkillsPage', () => {
     expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/listFiles', { dir: '/skills/docs', cwd: '/repo' });
     expect(vm.selectedSkillName.value).toBe('DocsSkill');
     expect(vm.sourcePath.value).toBe('/skills/docs/SKILL.md');
+  });
+
+  it('opens same-name skill citations by path before falling back to name', async () => {
+    const { vm } = createSkillsPage({
+      skills: [
+        { name: 'DocsSkill', dir: '/repo/.agent/skills/docs', summary: 'Project docs', trust: 'project' },
+        { name: 'DocsSkill', dir: '/home/.super-dolphin/skills/personal/user/docs', summary: 'Personal docs', trust: 'user', personal_type: 'user' },
+      ],
+    });
+
+    apiMock.callAPI.mockImplementation(async (method, payload) => {
+      if (method === 'skills/local/read' && payload?.path === '/home/.super-dolphin/skills/personal/user/docs/SKILL.md') {
+        return { skill: { content: '---\nname: DocsSkill\n---\n# personal docs', summary: 'Personal docs', summary_source: 'generated' } };
+      }
+      if (method === 'skills/local/listFiles' && payload?.dir === '/home/.super-dolphin/skills/personal/user/docs') {
+        return { files: [{ name: 'SKILL.md', path: '/home/.super-dolphin/skills/personal/user/docs/SKILL.md', is_main: true }] };
+      }
+      return {};
+    });
+
+    await vm.onSkillPreviewClick({
+      target: {
+        closest: vi.fn((selector) => (selector.includes('chat-md-citation') ? {
+          getAttribute: (name) => ({
+            'data-citation-kind': 'skill',
+            'data-skill-name': 'DocsSkill',
+            'data-skill-path': '/home/.super-dolphin/skills/personal/user/docs/SKILL.md',
+          }[name] || ''),
+          textContent: 'DocsSkill',
+        } : null)),
+      },
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    });
+
+    expect(apiMock.callAPI).toHaveBeenCalledWith('skills/local/read', {
+      path: '/home/.super-dolphin/skills/personal/user/docs/SKILL.md',
+      cwd: '/repo',
+    });
+    expect(vm.sourcePath.value).toBe('/home/.super-dolphin/skills/personal/user/docs/SKILL.md');
   });
 
   it('shows an info notice for unsupported conversation citations', async () => {
